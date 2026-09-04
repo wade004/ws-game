@@ -1,0 +1,14 @@
+{
+  "table": "skill.proc_def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.proc_def.sample_on_hit",
+      "trigger_event": "combat.damage_dealt",
+      "condition": "target.hp_pct < 0.5",
+      "trigger_skill": "skill.sample_burn",
+      "internal_cooldown": 6.0,
+      "proc_chance": 0.15
+    }
+  ]
+}

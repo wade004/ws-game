@@ -9,7 +9,8 @@
       "base_stats": { "stat.strength": 10, "stat.stamina": 8 },
       "power_types": ["arch.power.health", "arch.power.mana"],
       "talent_tree_ref": "arch.talent_tree.sample",
-      "level_curve_ref": "prog.curve.sample"
+      "level_curve_ref": "prog.curve.sample",
+      "skill_book_ref": "skill.book.sample_a"
     }
   ]
 }

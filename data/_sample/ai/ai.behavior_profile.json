@@ -1,0 +1,19 @@
+{
+  "table": "ai.behavior_profile",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ai.profile.sample_melee",
+      "perception_radius": 20,
+      "patrol_path_ref": "ai.path.sample_patrol",
+      "leash_range": 40,
+      "flee_hp_pct_threshold": 0.2,
+      "combat_return_policy": "return_to_spawn",
+      "rotation_ref": "ai.rotation.sample_melee",
+      "decision_interval": 0.5,
+      "transitions": {
+        "idle_to_chase": "self.distance_to_target < 20"
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "table": "skill.aura_def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.aura_def.sample_burn",
+      "duration": 6.0,
+      "max_stacks": 3,
+      "stack_category": "skill.stack.sample_dot",
+      "dispel_type": "skill.dispel.magic",
+      "effects": [
+        {
+          "kind": "periodic_damage",
+          "params": { "interval": 1.0, "base_value": 5, "coefficient": 1.0, "school": "school.fire" }
+        }
+      ]
+    },
+    {
+      "id": "skill.aura_def.sample_fortify",
+      "max_stacks": 1,
+      "effects": [
+        {
+          "kind": "mod_stat",
+          "params": { "stat": "stat.strength", "op": "flat", "value": 2 }
+        }
+      ]
+    }
+  ]
+}

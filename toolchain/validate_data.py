@@ -1,33 +1,37 @@
 #!/usr/bin/env python3
-"""数据表校验器（阶段 0 骨架）。
+"""数据表校验器（阶段 0 骨架 + 阶段 2 真实校验的入口封装）。
 
-用途：遍历 ``--data-root`` 下的全部数据表 JSON 文件，跑一遍与具体游戏内容
-无关的"骨架级通用检查"：JSON 是否合法、顶层信封三键（``table`` /
-``schema_version`` / ``rows``）是否齐全、``table`` 是否与文件名一致、每条
-记录的主键（``id`` 或 ``l10n.text`` 表的 ``key``/``locale``）是否符合
-id 格式与 domain 前缀约定。
+两道校验，串行执行：
 
-本脚本只是阶段 0（T0-7）的骨架，字段规范与校验项的权威定义见
-``architecture/04_数据与内容管线.md``：
+1. **骨架级通用检查**（本文件自己实现，纯 Python 标准库）：遍历 ``--data-root``
+   下的全部数据表 JSON 文件，检查与具体游戏内容无关的最基础形状——JSON 是否
+   合法、顶层信封三键（``table`` / ``schema_version`` / ``rows``）是否齐全、
+   ``table`` 是否与文件名一致、每条记录的主键（``id`` 或 ``l10n.text`` 表的
+   ``key``/``locale``）是否符合 id 格式与 domain 前缀约定。
+2. **真实校验**（子进程调用 ``toolchain/validator``，一个复用
+   ``core/foundation/data_registry.DataRegistry`` 与
+   ``core/rules/assembly.RulesSchemaCatalog`` 的 .NET 控制台工具）：字段级
+   必填/类型/枚举、引用完整性、文本键存在、Expr 可解析，以及 skill/combat/
+   target/ai 四个 L2 模块登记的全部模块专属校验规则（效果数上限、叠加类别
+   冲突、命中表概率区间、抗性曲线单调性、目标链来源已注册与无环、AI 优先级
+   唯一性等）。
 
-- 引用完整性（第 5 节）——本阶段未实现，需要先跑通 DataRegistry 的
-  ``declareReference`` 机制才能校验外键。
-- 枚举合法（第 5 节）——本阶段未实现，需要各表登记枚举字段的合法取值集合。
-- 表达式可解析（第 5 节）——本阶段未实现，需要先接入 Expr 语法解析器（第 6 节）。
-- 外形映射存在 / 外形类型字段组完整（第 5 节、第 7.1 节）——本阶段未实现。
-- 文本键存在（第 5 节）——本阶段未实现，需要跨文件核对 ``l10n.text``。
-- schema 版本已知（第 3 节）——本阶段只检查 ``schema_version`` 是正整数，
-  不检查是否落在已登记的迁移链范围内（本阶段没有迁移链登记表）。
-- 循环引用检测、孤儿记录检测、时间字段与时间模型一致（第 3.1 节、第 5 节）——
-  本阶段未实现。
-
-以上检查项将在后续阶段随 DataRegistry 与 Expr 解析器一起逐项加入
-``CHECKS`` 列表。
+**判断记录（T2-12 落地）**：字段级/引用完整性/Expr/模块专属校验规则的唯一实现
+是 ``core`` 内对应的 C# 类型（``DataRegistry``、各模块 ``IValidationRule``）；
+本文件不得重新实现其中任何一条判断逻辑——第 1 道检查覆盖的内容与第 2 道完全
+不重叠（信封/表名/id 格式 vs. 字段语义），这是有意为之的分工，不是"暂未实现"。
 
 返回码约定：
-    0 —— 全部文件通过检查，无错误。
-    1 —— 至少一项检查失败。
-    2 —— 命令行参数错误（含 ``--data-root``/``--dataset`` 指向不存在的目录）。
+    0 —— 两道检查全部通过，无错误。
+    1 —— 至少一道检查报出错误（``--strict`` 下 Warning 也算，见下）。
+    2 —— 命令行参数错误（含 ``--data-root``/``--dataset`` 指向不存在的目录、
+         找不到 ``dotnet`` 可执行文件）。
+
+常用参数：
+    ``--strict``      第二道校验里 Warning 也阻断（透传给 ``toolchain/validator``
+                       的 ``--strict``，见该工具 ``Program.cs``）。
+    ``--skip-dotnet``  只跑第一道骨架检查，跳过第二道（用于没有安装 .NET SDK
+                       的环境，或只想快速跑一遍最基础的形状检查）。
 """
 
 from __future__ import annotations
@@ -35,6 +39,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -189,8 +195,19 @@ def validate_file(path: Path, verbose: bool) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows 控制台默认代码页通常不是 UTF-8，输出里的中文文本（本文件与
+    # toolchain/validator 打印的说明/错误消息）会因此乱码；显式把标准输出/标准错误
+    # reconfigure 成 UTF-8，惯例同 toolchain/validator/Program.cs 对 Console.OutputEncoding
+    # 的处理。某些非交互式重定向目标可能不支持 reconfigure，失败时静默保留原编码，不影响
+    # 校验逻辑本身。
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, OSError):
+            pass
+
     parser = argparse.ArgumentParser(
-        description="数据表校验器（阶段 0 骨架，只做骨架级通用检查）"
+        description="数据表校验器（第一道骨架级通用检查 + 第二道调用 toolchain/validator 的真实校验）"
     )
     parser.add_argument(
         "--data-root",
@@ -206,6 +223,16 @@ def main(argv: list[str] | None = None) -> int:
         "--verbose",
         action="store_true",
         help="输出更详细的检查过程信息（写入标准错误）",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="第二道校验（toolchain/validator）里 Warning 也阻断，透传为该工具的 --strict",
+    )
+    parser.add_argument(
+        "--skip-dotnet",
+        action="store_true",
+        help="跳过第二道校验（不调用 toolchain/validator），只跑第一道骨架检查",
     )
 
     try:
@@ -231,6 +258,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"参数错误：不是目录: {target_root}", file=sys.stderr)
         return 2
 
+    # ---------------------------------------------------------------
+    # 第一道：骨架级通用检查（本文件自己实现）。
+    # ---------------------------------------------------------------
+
     total_files = 0
     total_errors = 0
 
@@ -242,8 +273,46 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{rel_path}: {message}")
             total_errors += 1
 
-    print(f"checked {total_files} files, {total_errors} errors")
-    return 1 if total_errors > 0 else 0
+    print(f"[第一道·骨架检查] checked {total_files} files, {total_errors} errors")
+    stage1_failed = total_errors > 0
+
+    if args.skip_dotnet:
+        return 1 if stage1_failed else 0
+
+    # ---------------------------------------------------------------
+    # 第二道：真实校验（子进程调用 toolchain/validator，复用 core 内
+    # DataRegistry + RulesSchemaCatalog 的全部字段级/引用完整性/Expr/模块专属
+    # 校验规则；本文件不重新实现其中任何一条判断逻辑，见文件头判断记录）。
+    # ---------------------------------------------------------------
+
+    dotnet_path = shutil.which("dotnet")
+    if dotnet_path is None:
+        print(
+            "参数错误：未找到 dotnet 可执行文件，无法运行第二道校验"
+            "（core 内真实校验逻辑，见 toolchain/validator）。"
+            "请安装 .NET SDK 后重试，或用 --skip-dotnet 只跑第一道骨架检查。",
+            file=sys.stderr,
+        )
+        return 2
+
+    validator_project = repo_root / "toolchain" / "validator"
+    cmd = [dotnet_path, "run", "--project", str(validator_project), "--", "--data-root", str(target_root)]
+    if args.strict:
+        cmd.append("--strict")
+
+    print(
+        "[第二道·真实校验] 正在运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: "
+        + " ".join(cmd)
+    )
+    result = subprocess.run(cmd, cwd=str(repo_root))
+
+    if result.returncode == 2:
+        # toolchain/validator 自身的参数错误（如 --data-root 指向的目录在子进程视角下不存在），
+        # 按同一约定原样透传为脚本级参数错误，不归为"数据校验失败"。
+        return 2
+
+    stage2_failed = result.returncode != 0
+    return 1 if (stage1_failed or stage2_failed) else 0
 
 
 def _is_relative_to(path: Path, other: Path) -> bool:

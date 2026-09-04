@@ -1,0 +1,13 @@
+{
+  "table": "skill.spell_mod_def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.spell_mod_def.sample_cost_reduction",
+      "target_dimension": "cost",
+      "op": "flat",
+      "value": -2,
+      "affects": { "tags": ["skill.tag.sample_dot"] }
+    }
+  ]
+}

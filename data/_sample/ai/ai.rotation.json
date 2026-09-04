@@ -1,0 +1,13 @@
+{
+  "table": "ai.rotation",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ai.rotation.sample_melee",
+      "entries": [
+        { "priority": 10, "condition": "target.hp_pct < 0.3", "skill_id": "skill.sample_burn" },
+        { "priority": 5, "condition": "true", "skill_id": "skill.sample_strike" }
+      ]
+    }
+  ]
+}

@@ -128,7 +128,14 @@ namespace Tests.Numbers
         {
             var source = BuildRealSampleSource();
             var bus = MakeBus();
-            var registry = new DataRegistry(source, bus, new DataRegistryOptions());
+            // 判断记录（T2-12 新增 skill/combat/target/ai 示例表后）：data/_sample 现由 L0
+            // （found/l10n）、L1 五个数值模块（stat/arch/prog/fac）与 L2 四个规则层模块
+            // （skill/combat/target/ai，见 toolchain/validator）共同贡献表；本类是 L1 的联调测试，
+            // 不引用任何 L2 模块类型注册对应 schema（同 DataRegistryTests.cs"real-sample 测试"的
+            // 既有做法），L2 贡献的表按 FailOnUnknownTable=false 以"无 schema 表"方式加载（只做
+            // 信封与主键格式检查，不做字段级校验——字段级校验由 toolchain/validator 用真实
+            // RulesSchemaCatalog 覆盖，见该项目 Program.cs）。
+            var registry = new DataRegistry(source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
 
             // L0 内置 schema。
             foreach (var schema in BuiltinSchemas.All) registry.RegisterSchema(schema);

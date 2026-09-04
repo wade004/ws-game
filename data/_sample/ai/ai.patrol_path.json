@@ -1,0 +1,15 @@
+{
+  "table": "ai.patrol_path",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ai.path.sample_patrol",
+      "points": [
+        { "x": 0, "y": 0 },
+        { "x": 10, "y": 0 },
+        { "x": 10, "y": 10 }
+      ],
+      "mode": "loop"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "table": "skill.book",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.book.sample_a",
+      "entries": [
+        { "level": 1, "skill_id": "skill.sample_strike" },
+        { "level": 3, "skill_id": "skill.sample_burn" },
+        { "level": 5, "skill_id": "skill.sample_passive" }
+      ]
+    }
+  ]
+}

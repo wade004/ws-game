@@ -1,0 +1,24 @@
+{
+  "table": "combat.resist_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "combat.resist.physical",
+      "school": "school.physical",
+      "kind": "saturation",
+      "k": 20,
+      "max_reduction": 0.75
+    },
+    {
+      "id": "combat.resist.fire",
+      "school": "school.fire",
+      "kind": "table",
+      "entries": [
+        { "value": 0, "reduction": 0.0 },
+        { "value": 100, "reduction": 0.3 },
+        { "value": 300, "reduction": 0.6 }
+      ],
+      "max_reduction": 0.75
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "table": "target.chain_def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "target.chain.sample_nearest_enemy",
+      "source": "nearest_in_shape",
+      "shape": { "kind": "circle", "radius": 30 },
+      "filters": ["relation:hostile", "alive"],
+      "sort_by": { "key": "distance", "direction": "asc" },
+      "max_targets": 1
+    },
+    {
+      "id": "target.chain.sample_self",
+      "source": "self",
+      "max_targets": 1
+    }
+  ]
+}
