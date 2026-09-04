@@ -1,0 +1,183 @@
+using System;
+using System.Collections.Generic;
+using Core.Foundation.Common;
+using Core.Foundation.DataRegistry;
+using Core.Foundation.EventBus;
+using Core.Foundation.Expr;
+using Core.Gameplay.Common;
+using Core.Rules.Common;
+using Xunit;
+
+namespace Tests.Gameplay.Achievement
+{
+    /// <summary>供本模块测试共用的最小装配帮助（惯例同 <c>core/carriers/creature/tests</c> 的
+    /// <c>CreatureTestSupport</c>）。</summary>
+    internal static class TestSupport
+    {
+        public static string Envelope(string table, string rowsJson) =>
+            "{\"table\": \"" + table + "\", \"schema_version\": 1, \"rows\": " + rowsJson + "}";
+
+        public static IEventBus CreateBus() =>
+            new EventBus(EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false });
+
+        public static Core.Foundation.DataRegistry.DataRegistry MakeRegistry(IEventBus bus, string defRowsJson)
+        {
+            var source = new InMemoryDataSource()
+                .Add(Core.Gameplay.Achievement.AchievementSchemas.Def.Name,
+                    Envelope(Core.Gameplay.Achievement.AchievementSchemas.Def.Name, defRowsJson));
+
+            var registry = new Core.Foundation.DataRegistry.DataRegistry(source, bus, new DataRegistryOptions());
+            registry.RegisterSchema(Core.Gameplay.Achievement.AchievementSchemas.Def);
+
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking);
+            return registry;
+        }
+    }
+
+    /// <summary>最小 <see cref="IUnitAccess"/> 假实现：只覆盖 achievement 模块用到的
+    /// Exists/GetTemplateId。</summary>
+    internal sealed class FakeUnitAccess : IUnitAccess
+    {
+        private readonly Dictionary<string, Id> _templates = new Dictionary<string, Id>(StringComparer.Ordinal);
+
+        public void SetTemplate(Id unitId, Id templateId) => _templates[unitId.Value] = templateId;
+
+        public bool Exists(Id unitId) => _templates.ContainsKey(unitId.Value);
+
+        public IReadOnlyList<Id> AllUnits => throw new NotImplementedException();
+
+        public Vec2 GetPosition(Id unitId) => throw new NotImplementedException();
+
+        public void SetPosition(Id unitId, Vec2 position) => throw new NotImplementedException();
+
+        public Id GetFaction(Id unitId) => throw new NotImplementedException();
+
+        public int GetLevel(Id unitId) => throw new NotImplementedException();
+
+        public double GetFacing(Id unitId) => throw new NotImplementedException();
+
+        public bool IsAlive(Id unitId) => throw new NotImplementedException();
+
+        public void SetAlive(Id unitId, bool alive) => throw new NotImplementedException();
+
+        public Id? GetTemplateId(Id unitId) => _templates.TryGetValue(unitId.Value, out var t) ? (Id?)t : null;
+
+        public IReadOnlyList<Id> GetTags(Id unitId) => throw new NotImplementedException();
+    }
+
+    /// <summary>最小 <see cref="IRewardDispatcher"/> 假实现：只记录 <see cref="Grant"/> 调用。</summary>
+    internal sealed class FakeRewardDispatcher : IRewardDispatcher
+    {
+        public readonly List<(Id UnitId, RewardBundle Bundle, Id SourceId)> Grants = new List<(Id, RewardBundle, Id)>();
+
+        public void Grant(Id unitId, RewardBundle bundle, Id sourceId) => Grants.Add((unitId, bundle, sourceId));
+    }
+
+    /// <summary>最小 <see cref="IExprHostFactory"/> 假实现：只支持 <c>event.&lt;field&gt;</c>
+    /// 分组（本模块 <c>custom_event</c> criterion 测试专用），委托给触发事件的
+    /// <see cref="IExprReadableEvent.TryGetField"/>；其余分组一律返回 <see cref="ExprValue.OfBool(bool)"/>
+    /// <c>false</c>（惯例同 <c>core/gameplay/world_state/tests</c> 的 <c>WorldOnlyExprHost</c>：
+    /// 只覆盖测试实际用到的分组，不代表 <c>RulesExprHostFactory</c> 正式实现的完整语义）。</summary>
+    internal sealed class FakeExprHostFactory : IExprHostFactory
+    {
+        public IExprHost CreateFor(Id selfId, Id? targetId, IEvent? triggeringEvent) => new Host(triggeringEvent);
+
+        private sealed class Host : IExprHost
+        {
+            private readonly IEvent? _evt;
+
+            public Host(IEvent? evt) => _evt = evt;
+
+            public ExprValue Query(string group, string key, IReadOnlyList<ExprValue> args)
+            {
+                if (group == ExprGroups.Event && _evt is IExprReadableEvent readable && readable.TryGetField(key, out var value))
+                {
+                    return value;
+                }
+                return ExprValue.OfBool(false);
+            }
+        }
+    }
+
+    /// <summary>测试用 <c>quest.turned_in</c> 事件（quest 模块由并行任务开发，尚未提供强类型事件类，
+    /// 见 <c>AchievementHost.TryMatch</c> 判断记录"只依赖 found.event_catalog 登记的字段名字与
+    /// IExprReadableEvent 协议"——本类型只是按该协议伪造一个满足字段表的事件，不代表正式实现）。</summary>
+    internal sealed class FakeQuestTurnedInEvent : IEvent, IExprReadableEvent
+    {
+        public Id Key { get; } = new Id("quest.turned_in");
+
+        public Id UnitId { get; }
+
+        public Id QuestId { get; }
+
+        public FakeQuestTurnedInEvent(Id unitId, Id questId)
+        {
+            UnitId = unitId;
+            QuestId = questId;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "questId": value = ExprValue.OfId(QuestId); return true;
+                default: value = default; return false;
+            }
+        }
+    }
+
+    /// <summary>测试用 <c>area.trigger_entered</c> 事件（area_trigger 模块由并行任务开发，理由同
+    /// <see cref="FakeQuestTurnedInEvent"/>）。</summary>
+    internal sealed class FakeAreaTriggerEnteredEvent : IEvent, IExprReadableEvent
+    {
+        public Id Key { get; } = new Id("area.trigger_entered");
+
+        public Id TriggerId { get; }
+
+        public Id UnitId { get; }
+
+        public FakeAreaTriggerEnteredEvent(Id triggerId, Id unitId)
+        {
+            TriggerId = triggerId;
+            UnitId = unitId;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "triggerId": value = ExprValue.OfId(TriggerId); return true;
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                default: value = default; return false;
+            }
+        }
+    }
+
+    /// <summary>测试用自定义事件（<c>custom_event</c> criterion 专用），携带一个 Int 字段
+    /// <c>amount</c> 供 filter Expr 引用。</summary>
+    internal sealed class FakeCustomAmountEvent : IEvent, IExprReadableEvent
+    {
+        public Id Key { get; }
+
+        public int Amount { get; }
+
+        public FakeCustomAmountEvent(Id key, int amount)
+        {
+            Key = key;
+            Amount = amount;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            if (name == "amount")
+            {
+                value = ExprValue.OfInt(Amount);
+                return true;
+            }
+            value = default;
+            return false;
+        }
+    }
+}
