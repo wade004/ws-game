@@ -71,5 +71,37 @@ namespace Adapters.Stub
 
         /// <summary>测试用：覆盖下一次 EndTextInput() 将要返回的文本。</summary>
         public void SetPendingTextInput(string text) => _pendingTextInput = text;
+
+        // ---------------------------------------------------------------
+        // 以下四个方法是 T1-7b1（input_map/localization）新增：驱动鼠标按键与手柄按键的
+        // 离散事件。Press/Release 只登记 KeyDown/KeyUp，不区分设备（供泛用的 IsKeyDown 语义
+        // 使用）；InputMap 的 mouse:/pad: 绑定分别需要 MouseButtonDown/Up、
+        // GamepadButtonDown/Up 两种事件种类（见 IInput.cs InputEventKind），故补充下列
+        // 专用驱动方法，与 Press/Release 是同一惯例的延伸，同样不属于 IInput 接口本身。
+        // ---------------------------------------------------------------
+
+        /// <summary>测试用：模拟按下一个鼠标按钮，登记 MouseButtonDown 事件。</summary>
+        public void PressMouseButton(string button)
+        {
+            _pendingEvents.Add(new InputEvent(InputEventKind.MouseButtonDown, key: button));
+        }
+
+        /// <summary>测试用：模拟松开一个鼠标按钮，登记 MouseButtonUp 事件。</summary>
+        public void ReleaseMouseButton(string button)
+        {
+            _pendingEvents.Add(new InputEvent(InputEventKind.MouseButtonUp, key: button));
+        }
+
+        /// <summary>测试用：模拟按下某个手柄的一个按钮，登记 GamepadButtonDown 事件。</summary>
+        public void PressGamepadButton(int gamepadIndex, string button)
+        {
+            _pendingEvents.Add(new InputEvent(InputEventKind.GamepadButtonDown, key: button, gamepadIndex: gamepadIndex));
+        }
+
+        /// <summary>测试用：模拟松开某个手柄的一个按钮，登记 GamepadButtonUp 事件。</summary>
+        public void ReleaseGamepadButton(int gamepadIndex, string button)
+        {
+            _pendingEvents.Add(new InputEvent(InputEventKind.GamepadButtonUp, key: button, gamepadIndex: gamepadIndex));
+        }
     }
 }

@@ -1,0 +1,13 @@
+{
+  "table": "found.input_action",
+  "schema_version": 1,
+  "rows": [
+    { "key": "input.action.move", "kind": "axis2d", "default_bindings": ["composite2d:key:w|key:s|key:a|key:d"], "rebind_group": "default", "description": "平面移动方向意图（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.confirm", "kind": "button", "default_bindings": ["key:enter", "pad:a"], "rebind_group": "default", "description": "通用确认/交互意图（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.cancel", "kind": "button", "default_bindings": ["key:escape", "pad:b"], "rebind_group": "default", "description": "通用取消/返回意图（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.interact", "kind": "button", "default_bindings": ["key:e", "pad:x"], "rebind_group": "default", "description": "与最近可交互物件互动（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.open_menu", "kind": "button", "default_bindings": ["key:tab", "pad:y"], "rebind_group": "default", "description": "打开菜单叠加界面（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.pause", "kind": "button", "default_bindings": ["key:p", "pad:start"], "rebind_group": "default", "description": "触发暂停状态（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.camera_adjust", "kind": "axis1d", "default_bindings": ["pad_axis:zoom"], "rebind_group": "default", "description": "镜头缩放或视角微调，可选（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" }
+  ]
+}

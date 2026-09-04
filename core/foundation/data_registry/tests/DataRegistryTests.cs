@@ -7,6 +7,8 @@ using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
+using Core.Foundation.InputMap;
+using Core.Foundation.Localization;
 using Xunit;
 
 namespace Tests.Foundation.Data
@@ -40,6 +42,11 @@ namespace Tests.Foundation.Data
                 new FieldSchema("group", FieldKind.Enum, required: true, enumValues: new[] { "primary", "secondary", "derived" }),
             });
 
+        // 判断记录（T1-7b1）：l10n.locale/l10n.text 的 TableSchema 已从 BuiltinSchemas 搬到
+        // Core.Foundation.Localization.L10nSchemas（见 data_registry/core/BuiltinSchemas.cs 顶部
+        // 判断记录）；found.input_action 是本次一并新增的 data/_sample 表（见
+        // core/foundation/input_map/schema/found.input_action.md），real-sample 测试遍历整个
+        // data/_sample 目录会自动发现这张新表，这里同步注册其 schema，否则会被判定为未知表。
         private static void RegisterBuiltins(IDataRegistry registry)
         {
             foreach (var schema in BuiltinSchemas.All)
@@ -47,6 +54,9 @@ namespace Tests.Foundation.Data
                 registry.RegisterSchema(schema);
             }
             registry.RegisterSchema(StatDefinitionSchema());
+            registry.RegisterSchema(L10nSchemas.Locale);
+            registry.RegisterSchema(L10nSchemas.Text);
+            registry.RegisterSchema(InputActionSchema.Table);
         }
 
         private static TableSchema OwnerSchema() => new TableSchema(
@@ -134,7 +144,7 @@ namespace Tests.Foundation.Data
         }
 
         // -----------------------------------------------------------------
-        // 1. 正向：真实 data/_sample 四表
+        // 1. 正向：真实 data/_sample 五表（T1-7b1 新增 found.input_action）
         // -----------------------------------------------------------------
 
         [Fact]
@@ -156,24 +166,26 @@ namespace Tests.Foundation.Data
 
             Assert.NotNull(registry.Get("stat.definition", new Id("stat.strength")));
             Assert.Equal(41, registry.GetAll("found.event_catalog").Count);
+            Assert.Equal(7, registry.GetAll("found.input_action").Count);
 
             Assert.NotNull(received);
-            Assert.Equal(4, received!.TableCount);
-            Assert.Equal(44, received.RecordCount);
+            Assert.Equal(5, received!.TableCount);
+            Assert.Equal(51, received.RecordCount);
             Assert.Equal(0, received.ErrorCount);
             Assert.Equal(0, received.WarningCount);
         }
 
         [Fact]
-        public void FileSystemDataSource_WithStubFileSystem_ListsFourTables()
+        public void FileSystemDataSource_WithStubFileSystem_ListsFiveTables()
         {
             var source = BuildRealSampleSource(out _);
             var tables = source.ListTables();
 
-            Assert.Equal(4, tables.Count);
+            Assert.Equal(5, tables.Count);
             var names = new HashSet<string>();
             foreach (var t in tables) names.Add(t.TableName);
             Assert.Contains("found.event_catalog", names);
+            Assert.Contains("found.input_action", names);
             Assert.Contains("l10n.locale", names);
             Assert.Contains("l10n.text", names);
             Assert.Contains("stat.definition", names);
@@ -413,7 +425,7 @@ namespace Tests.Foundation.Data
 
             var registry = new DataRegistry(source, MakeBus());
             registry.RegisterSchema(WidgetSchema());
-            registry.RegisterSchema(BuiltinSchemas.L10nText);
+            registry.RegisterSchema(L10nSchemas.Text);
 
             var report = registry.LoadAll();
 
@@ -614,8 +626,8 @@ namespace Tests.Foundation.Data
 
             var registry = new DataRegistry(source, MakeBus());
             registry.RegisterSchema(schema);
-            registry.RegisterSchema(BuiltinSchemas.L10nText);
-            registry.RegisterSchema(BuiltinSchemas.L10nLocale);
+            registry.RegisterSchema(L10nSchemas.Text);
+            registry.RegisterSchema(L10nSchemas.Locale);
 
             var report = registry.LoadAll();
             Assert.Equal(0, report.ErrorCount);

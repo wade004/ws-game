@@ -32,7 +32,7 @@ data/<game_or_sample>/<domain>/<table>.json
 
 - 一般表：主键字段是 `id`，取值必须符合 04 第 2.1 节 id 格式 `^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$`，且 domain 前缀必须等于表名的第一段（例如 `stat.definition` 表里的记录 id 必须以 `stat.` 开头）。
 - `l10n.text` 表例外：没有 `id` 字段，主键是 `key`（格式 `l10n.<来源域>.<来源记录 name>.<字段名>`，见 04 第 7.2 节）与 `locale` 的复合键。
-- 主键规则：内容表用 `id`（domain 前缀 = 表名第一段）；跨 domain 的登记表（`found.event_catalog`、`l10n.text`）用 `key`，不做 domain 前缀检查（见 `core/foundation/data_registry/README.md`"主键规则"一节、`event_bus/schema/found.event_catalog.md`"与通用 id 规则的偏差"）。
+- 主键规则：内容表用 `id`（domain 前缀 = 表名第一段）；跨 domain 的登记表（`found.event_catalog`、`found.input_action`、`l10n.text`）用 `key`，不做 domain 前缀检查（见 `core/foundation/data_registry/README.md`"主键规则"一节、`event_bus/schema/found.event_catalog.md`"与通用 id 规则的偏差"、`core/foundation/input_map/schema/found.input_action.md`"判断记录：登记表，主键字段名 key"）。`found.input_action` 记录的 id 域名是 `input`（不是表名首段 `found`），与 `found.event_catalog` 同理。
 
 ## 编码与格式
 
