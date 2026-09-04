@@ -1,0 +1,411 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Core.Foundation.Common;
+using Core.Foundation.EventBus;
+
+namespace Core.Rules.Common
+{
+    /// <summary>
+    /// L2 四模块共用的事件 key 常量（对应 <c>found.event_catalog</c> 登记表，见 06 第 8 节事件词汇表、
+    /// data/_sample/found/found.event_catalog.json 对应行）。惯例同 <c>PowerEventKeys</c>/
+    /// <c>StatBlockEventKeys</c>/<c>FactionEventKeys</c>：模块自持一份常量，不依赖生成物。
+    /// <para>
+    /// 判断记录：06 第 8 节正文只登记 <c>skill</c>/<c>aura</c>/<c>combat</c>/<c>unit</c>/<c>ai</c> 五个
+    /// domain（<c>proc.triggered</c> 的 domain 是 skill，见该行说明）；<c>targeting.resolved</c> 与
+    /// <c>ai.decision_made</c> 只出现在 01_分层与依赖.md 模块表与 found.event_catalog.json 的"建议"行，
+    /// 且 06 第 5 节原文明确写"目标选择本身不发事件"——与事件目录的建议行存在冲突。任务书"必读"清单
+    /// 明确要求读取 <c>targeting.resolved</c> 行字段，且 targeting 模块要与 ai/skill 通过事件协作
+    /// 离不开这一事件，因此本文件仍把 <see cref="TargetingResolvedEvent"/>/<see cref="AiDecisionMadeEvent"/>
+    /// 一并登记为强类型事件，供后续模块选用；若后续设计层认定 06 第 5 节"不发事件"为最终结论，
+    /// 删除这两个类型即可，不影响其余事件。
+    /// </para>
+    /// </summary>
+    public static class RulesEventKeys
+    {
+        public static readonly Id SkillCastStart = new Id("skill.cast_start");
+        public static readonly Id SkillCastSuccess = new Id("skill.cast_success");
+        public static readonly Id SkillCastFailed = new Id("skill.cast_failed");
+        public static readonly Id SkillCastInterrupted = new Id("skill.cast_interrupted");
+
+        public static readonly Id CombatDamageDealt = new Id("combat.damage_dealt");
+        public static readonly Id CombatHealDone = new Id("combat.heal_done");
+        public static readonly Id CombatThreatChanged = new Id("combat.threat_changed");
+        public static readonly Id CombatEntered = new Id("combat.entered");
+        public static readonly Id CombatLeft = new Id("combat.left");
+
+        public static readonly Id AuraApplied = new Id("aura.applied");
+        public static readonly Id AuraRemoved = new Id("aura.removed");
+        public static readonly Id AuraStackChanged = new Id("aura.stack_changed");
+
+        public static readonly Id ProcTriggered = new Id("proc.triggered");
+
+        public static readonly Id UnitDied = new Id("unit.died");
+        public static readonly Id UnitRespawned = new Id("unit.respawned");
+
+        public static readonly Id AiStateChanged = new Id("ai.state_changed");
+
+        /// <summary>建议行，见本类型上方判断记录。</summary>
+        public static readonly Id AiDecisionMade = new Id("ai.decision_made");
+
+        /// <summary>建议行，见本类型上方判断记录。</summary>
+        public static readonly Id TargetingResolved = new Id("targeting.resolved");
+    }
+
+    /// <summary>死亡复活策略（见 06 第 4.6 节表格，三值）。<see cref="UnitRespawnedEvent.Policy"/> 用本
+    /// 枚举而非裸字符串，判断记录：06 原文把三种策略列成固定表格（非游戏层可扩展的开放集合），与
+    /// <see cref="CastFailureReason"/>/<see cref="HitResult"/> 等其它"文档给出固定有限枚举"的字段
+    /// 处理方式一致，优于事件目录建议字段表里的裸 <c>policy</c> 字符串。</summary>
+    public enum RespawnPolicy
+    {
+        RespawnPoint,
+        ReloadSave,
+        Permadeath,
+    }
+
+    /// <summary>施法管线步骤 8 开始（见 06 第 8 节）。</summary>
+    public sealed class SkillCastStartEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.SkillCastStart;
+
+        public Id CasterId { get; }
+
+        public Id SkillId { get; }
+
+        public double CastTime { get; }
+
+        public SkillCastStartEvent(Id casterId, Id skillId, double castTime)
+        {
+            CasterId = casterId;
+            SkillId = skillId;
+            CastTime = castTime;
+        }
+    }
+
+    /// <summary>施法管线步骤 9 完成（见 06 第 8 节）。</summary>
+    public sealed class SkillCastSuccessEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.SkillCastSuccess;
+
+        public Id CasterId { get; }
+
+        public Id SkillId { get; }
+
+        public IReadOnlyList<Id> Targets { get; }
+
+        public SkillCastSuccessEvent(Id casterId, Id skillId, IReadOnlyList<Id> targets)
+        {
+            CasterId = casterId;
+            SkillId = skillId;
+            Targets = (targets ?? Array.Empty<Id>()).ToArray();
+        }
+    }
+
+    /// <summary>施法管线任一步骤失败（见 06 第 8 节）。</summary>
+    public sealed class SkillCastFailedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.SkillCastFailed;
+
+        public Id CasterId { get; }
+
+        public Id SkillId { get; }
+
+        public CastFailureReason ReasonCode { get; }
+
+        public SkillCastFailedEvent(Id casterId, Id skillId, CastFailureReason reasonCode)
+        {
+            CasterId = casterId;
+            SkillId = skillId;
+            ReasonCode = reasonCode;
+        }
+    }
+
+    /// <summary>读条/引导被打断（见 06 第 8 节）。</summary>
+    public sealed class SkillCastInterruptedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.SkillCastInterrupted;
+
+        public Id CasterId { get; }
+
+        public Id SkillId { get; }
+
+        public Id InterrupterId { get; }
+
+        public SkillCastInterruptedEvent(Id casterId, Id skillId, Id interrupterId)
+        {
+            CasterId = casterId;
+            SkillId = skillId;
+            InterrupterId = interrupterId;
+        }
+    }
+
+    /// <summary>结算管线"落地"步骤，伤害类效果（见 06 第 8 节）。</summary>
+    public sealed class CombatDamageDealtEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.CombatDamageDealt;
+
+        public Id SourceId { get; }
+
+        public Id TargetId { get; }
+
+        public Id School { get; }
+
+        public double Amount { get; }
+
+        public bool IsCrit { get; }
+
+        public HitResult HitResult { get; }
+
+        public CombatDamageDealtEvent(Id sourceId, Id targetId, Id school, double amount, bool isCrit, HitResult hitResult)
+        {
+            SourceId = sourceId;
+            TargetId = targetId;
+            School = school;
+            Amount = amount;
+            IsCrit = isCrit;
+            HitResult = hitResult;
+        }
+    }
+
+    /// <summary>结算管线"落地"步骤，治疗类效果（见 06 第 8 节）。</summary>
+    public sealed class CombatHealDoneEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.CombatHealDone;
+
+        public Id SourceId { get; }
+
+        public Id TargetId { get; }
+
+        public double Amount { get; }
+
+        public bool IsCrit { get; }
+
+        public CombatHealDoneEvent(Id sourceId, Id targetId, double amount, bool isCrit)
+        {
+            SourceId = sourceId;
+            TargetId = targetId;
+            Amount = amount;
+            IsCrit = isCrit;
+        }
+    }
+
+    /// <summary><c>apply_aura</c> 生效（见 06 第 8 节）。</summary>
+    public sealed class AuraAppliedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.AuraApplied;
+
+        public Id TargetId { get; }
+
+        public Id AuraDefId { get; }
+
+        public Id SourceId { get; }
+
+        public int Stacks { get; }
+
+        public AuraAppliedEvent(Id targetId, Id auraDefId, Id sourceId, int stacks)
+        {
+            TargetId = targetId;
+            AuraDefId = auraDefId;
+            SourceId = sourceId;
+            Stacks = stacks;
+        }
+    }
+
+    /// <summary>光环到期/驱散/覆盖移除（见 06 第 8 节）。<see cref="Reason"/> 是自由文本分类
+    /// （如 "expired"/"dispelled"/"overwritten"），06 未给出固定枚举，保留字符串。</summary>
+    public sealed class AuraRemovedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.AuraRemoved;
+
+        public Id TargetId { get; }
+
+        public Id AuraDefId { get; }
+
+        public string Reason { get; }
+
+        public AuraRemovedEvent(Id targetId, Id auraDefId, string reason)
+        {
+            TargetId = targetId;
+            AuraDefId = auraDefId;
+            Reason = reason ?? throw new ArgumentNullException(nameof(reason));
+        }
+    }
+
+    /// <summary>叠加层数变化（见 06 第 8 节）。</summary>
+    public sealed class AuraStackChangedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.AuraStackChanged;
+
+        public Id TargetId { get; }
+
+        public Id AuraDefId { get; }
+
+        public int OldStacks { get; }
+
+        public int NewStacks { get; }
+
+        public AuraStackChangedEvent(Id targetId, Id auraDefId, int oldStacks, int newStacks)
+        {
+            TargetId = targetId;
+            AuraDefId = auraDefId;
+            OldStacks = oldStacks;
+            NewStacks = newStacks;
+        }
+    }
+
+    /// <summary>Proc 命中触发条件（见 06 第 8 节；domain 为 skill，见 <see cref="RulesEventKeys"/> 说明）。</summary>
+    public sealed class ProcTriggeredEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.ProcTriggered;
+
+        public Id UnitId { get; }
+
+        public Id ProcDefId { get; }
+
+        public Id TriggerSkillId { get; }
+
+        public ProcTriggeredEvent(Id unitId, Id procDefId, Id triggerSkillId)
+        {
+            UnitId = unitId;
+            ProcDefId = procDefId;
+            TriggerSkillId = triggerSkillId;
+        }
+    }
+
+    /// <summary>仇恨表更新（见 06 第 8 节）。</summary>
+    public sealed class CombatThreatChangedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.CombatThreatChanged;
+
+        public Id UnitId { get; }
+
+        public Id SourceId { get; }
+
+        public double OldValue { get; }
+
+        public double NewValue { get; }
+
+        public CombatThreatChangedEvent(Id unitId, Id sourceId, double oldValue, double newValue)
+        {
+            UnitId = unitId;
+            SourceId = sourceId;
+            OldValue = oldValue;
+            NewValue = newValue;
+        }
+    }
+
+    /// <summary>进入战斗（见 06 第 8 节）。</summary>
+    public sealed class CombatEnteredEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.CombatEntered;
+
+        public Id UnitId { get; }
+
+        public CombatEnteredEvent(Id unitId)
+        {
+            UnitId = unitId;
+        }
+    }
+
+    /// <summary>脱离战斗（见 06 第 8 节）。</summary>
+    public sealed class CombatLeftEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.CombatLeft;
+
+        public Id UnitId { get; }
+
+        public CombatLeftEvent(Id unitId)
+        {
+            UnitId = unitId;
+        }
+    }
+
+    /// <summary>死亡结算完成（见 06 第 8 节）。<see cref="KillerId"/> 判断记录：环境死亡（跌落、脚本
+    /// 赐死等无明确攻击者的场景）不存在"击杀者"，06 原文字段表未标注是否可空，本类型放宽为可空以
+    /// 覆盖这类场景；有明确攻击者时正常传入。</summary>
+    public sealed class UnitDiedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.UnitDied;
+
+        public Id UnitId { get; }
+
+        public Id? KillerId { get; }
+
+        public UnitDiedEvent(Id unitId, Id? killerId)
+        {
+            UnitId = unitId;
+            KillerId = killerId;
+        }
+    }
+
+    /// <summary>按死亡复活策略处理完成（见 06 第 8 节）。</summary>
+    public sealed class UnitRespawnedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.UnitRespawned;
+
+        public Id UnitId { get; }
+
+        public RespawnPolicy Policy { get; }
+
+        public UnitRespawnedEvent(Id unitId, RespawnPolicy policy)
+        {
+            UnitId = unitId;
+            Policy = policy;
+        }
+    }
+
+    /// <summary>行为外壳状态机切换（见 06 第 6、8 节）。</summary>
+    public sealed class AiStateChangedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.AiStateChanged;
+
+        public Id UnitId { get; }
+
+        public BehaviorState OldState { get; }
+
+        public BehaviorState NewState { get; }
+
+        public AiStateChangedEvent(Id unitId, BehaviorState oldState, BehaviorState newState)
+        {
+            UnitId = unitId;
+            OldState = oldState;
+            NewState = newState;
+        }
+    }
+
+    /// <summary>建议行：AI 按优先级表选出本次决策后触发（见 01 L2 模块表 ai 行）。</summary>
+    public sealed class AiDecisionMadeEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.AiDecisionMade;
+
+        public Id UnitId { get; }
+
+        public Id DecisionId { get; }
+
+        public AiDecisionMadeEvent(Id unitId, Id decisionId)
+        {
+            UnitId = unitId;
+            DecisionId = decisionId;
+        }
+    }
+
+    /// <summary>建议行：目标解析策略链求解完成后触发（见 01 L2 模块表 targeting 行；与 06 第 5 节
+    /// "目标选择本身不发事件"的冲突见 <see cref="RulesEventKeys"/> 上方判断记录）。</summary>
+    public sealed class TargetingResolvedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.TargetingResolved;
+
+        public Id UnitId { get; }
+
+        public Id ChainId { get; }
+
+        public IReadOnlyList<Id> TargetIds { get; }
+
+        public TargetingResolvedEvent(Id unitId, Id chainId, IReadOnlyList<Id> targetIds)
+        {
+            UnitId = unitId;
+            ChainId = chainId;
+            TargetIds = (targetIds ?? Array.Empty<Id>()).ToArray();
+        }
+    }
+}
