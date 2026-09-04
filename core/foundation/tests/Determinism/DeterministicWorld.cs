@@ -29,13 +29,6 @@ namespace Tests.Foundation.Determinism
         public static readonly Id NpcBId = new Id("unit.npc_b");
         public static readonly Id WanderStream = new Id("ai.wander");
 
-        /// <summary>
-        /// 测试自定义事件 key：`unit.moved`（03_运行时骨架.md 第 5 节举例提及，但当前
-        /// `data/_sample/found/found.event_catalog.json` 尚未登记该行——见本文件
-        /// <see cref="BuildCatalog"/> 判断记录）。
-        /// </summary>
-        public static readonly Id UnitMovedKey = new Id("unit.moved");
-
         /// <summary>玩家意图脚本：tick 序号 → (dx, dy)，四个 tick 各不相同的位移参数。</summary>
         public static readonly IReadOnlyList<(long Tick, double Dx, double Dy)> MoveScript = new[]
         {
@@ -46,29 +39,19 @@ namespace Tests.Foundation.Determinism
         };
 
         /// <summary>
-        /// 判断记录：`unit.moved` 未在生产用 `found.event_catalog.json` 登记（该数据表目前
-        /// 只覆盖 06 规则层已定义的事件，`unit.moved` 是 03 第 5 节"View 只读订阅事件"一节
-        /// 举例提到、但尚未落到登记表的一个例子）。本测试不改动生产数据文件（超出 T1-9
-        /// 授权范围），改为给测试自建一份登记表：在 <c>EventKeys.All</c>（生产登记表的全部
-        /// 正式事件）基础上，额外登记本测试自用的 `unit.moved`，保持
-        /// `EventBusOptions.StrictCatalog` 默认值 `true` 不变（不用"关闭严格校验"这条捷径掩盖
-        /// 未登记事件的问题），本模块用到的其余事件 key（entity.created/destroyed、
-        /// sim.tick_started/finished、ai.state_changed）都已在生产登记表中。
+        /// 直接用生产登记表 <c>EventKeys.All</c>（含 `unit.moved`，见
+        /// <see cref="EventKeys.UnitMoved"/>）构造测试用事件目录，不再额外自建条目：
+        /// 本模块用到的事件 key（entity.created/destroyed、sim.tick_started/finished、
+        /// ai.state_changed、unit.moved）均已在生产登记表中登记。
         /// </summary>
         public static IEventCatalog BuildCatalog()
         {
-            var definitions = new List<EventDefinition>(EventKeys.All.Length + 1);
+            var definitions = new List<EventDefinition>(EventKeys.All.Length);
 
             foreach (var key in EventKeys.All)
             {
                 definitions.Add(new EventDefinition(key, key.Domain, Array.Empty<string>()));
             }
-
-            definitions.Add(new EventDefinition(
-                UnitMovedKey,
-                "unit",
-                new[] { "unitId", "dx", "dy", "newX", "newY" },
-                "确定性回放集成测试自定义事件（DeterminismTests，非正式登记表）：单位按 move 意图位移。"));
 
             return EventCatalog.FromDefinitions(definitions);
         }
@@ -100,7 +83,7 @@ namespace Tests.Foundation.Determinism
             world.AddEntity(new DeterministicUnit(NpcBId, MapId, "npc"));
 
             world.RegisterPhaseHandler(TickPhase.AiDecision, new WanderHandler(rng, bus, WanderStream));
-            world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, new IntentMoveHandler(bus, UnitMovedKey));
+            world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, new IntentMoveHandler(bus, EventKeys.UnitMoved));
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new SpawnDespawnHandler(MapId));
 
             return (world, rng);

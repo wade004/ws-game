@@ -165,12 +165,12 @@ namespace Tests.Foundation.Data
             Assert.False(report.IsBlocking);
 
             Assert.NotNull(registry.Get("stat.definition", new Id("stat.strength")));
-            Assert.Equal(41, registry.GetAll("found.event_catalog").Count);
+            Assert.Equal(80, registry.GetAll("found.event_catalog").Count);
             Assert.Equal(7, registry.GetAll("found.input_action").Count);
 
             Assert.NotNull(received);
             Assert.Equal(5, received!.TableCount);
-            Assert.Equal(51, received.RecordCount);
+            Assert.Equal(90, received.RecordCount);
             Assert.Equal(0, received.ErrorCount);
             Assert.Equal(0, received.WarningCount);
         }

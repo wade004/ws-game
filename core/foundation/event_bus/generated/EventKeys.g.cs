@@ -9,11 +9,29 @@ namespace Core.Foundation.EventBus
     /// <summary>事件词汇登记表中全部事件 key 的强类型常量。</summary>
     public static class EventKeys
     {
+        /// <summary>achievement.progressed — 字段：achievementId, unitId, current, target。成就进度累积时触发（见 01 L4 模块表 achievement 行、08 第 6、9 节 AchievementHost.evaluate）；字段为建议值。</summary>
+        public static readonly Id AchievementProgressed = new Id("achievement.progressed");
+
+        /// <summary>achievement.unlocked — 字段：achievementId, unitId。成就达成解锁时触发（见 01 L4 模块表 achievement 行、08 第 6、9 节）；字段为建议值。</summary>
+        public static readonly Id AchievementUnlocked = new Id("achievement.unlocked");
+
+        /// <summary>ai.decision_made — 字段：unitId, decisionId。AI 行为外壳按优先级表选出本次决策后触发（见 01 L2 模块表 ai 行）；06 第 6 节未展开字段定义，字段为建议值。</summary>
+        public static readonly Id AiDecisionMade = new Id("ai.decision_made");
+
         /// <summary>ai.state_changed — 字段：unitId, oldState, newState。行为外壳状态机切换（见 06 第 6、8 节）。</summary>
         public static readonly Id AiStateChanged = new Id("ai.state_changed");
 
         /// <summary>app.state_changed — 字段：oldState, newState。应用级状态机状态迁移完成（见 01 模块表 app_lifecycle 行、03 第 1、2 节 AppStateHost.onStateChanged）；字段为建议值。</summary>
         public static readonly Id AppStateChanged = new Id("app.state_changed");
+
+        /// <summary>archetype.applied — 字段：unitId, archetypeId。职业/种族/天赋模板应用到单位后触发（见 01 L1 模块表 archetype 行、07 第 5 节职业与天赋数据）；字段为建议值。</summary>
+        public static readonly Id ArchetypeApplied = new Id("archetype.applied");
+
+        /// <summary>area.trigger_entered — 字段：triggerId, unitId。单位进入区域触发范围且满足 condition 时发出（见 05 第 7.1 节 AreaTrigger 事件与契约，字段原文给出）。</summary>
+        public static readonly Id AreaTriggerEntered = new Id("area.trigger_entered");
+
+        /// <summary>area.trigger_left — 字段：triggerId, unitId。单位离开区域触发范围且满足 condition 时发出（见 05 第 7.1 节，字段原文给出）。</summary>
+        public static readonly Id AreaTriggerLeft = new Id("area.trigger_left");
 
         /// <summary>aura.applied — 字段：targetId, auraDefId, sourceId, stacks。apply_aura 生效（见 06 第 8 节）。</summary>
         public static readonly Id AuraApplied = new Id("aura.applied");
@@ -39,20 +57,68 @@ namespace Core.Foundation.EventBus
         /// <summary>combat.threat_changed — 字段：unitId, sourceId, oldValue, newValue。仇恨表更新（见 06 第 8 节）。</summary>
         public static readonly Id CombatThreatChanged = new Id("combat.threat_changed");
 
+        /// <summary>creature.despawned — 字段：entityId, reason。生物实例消失时触发（见 01 L3 模块表 creature 行）；字段参照 05 第 5.3 节 SpawnHost.notifyDespawn(entityId, reason: died|despawned) 契约拟定，字段为建议值。</summary>
+        public static readonly Id CreatureDespawned = new Id("creature.despawned");
+
+        /// <summary>creature.spawned — 字段：entityId, templateId。生物模板实例化生成时触发（见 01 L3 模块表 creature 行）；字段为建议值。</summary>
+        public static readonly Id CreatureSpawned = new Id("creature.spawned");
+
         /// <summary>data.load_completed — 字段：tableCount, recordCount, errorCount, warningCount。DataRegistry.LoadAll 完成一批数据表加载后触发，无论报告是否阻断（见 01 模块表 data_registry 行、core/foundation/data_registry/README.md）。</summary>
         public static readonly Id DataLoadCompleted = new Id("data.load_completed");
 
         /// <summary>data.validation_failed — 字段：errorCount, warningCount。DataRegistry 校验报告为阻断态时紧接 data.load_completed 触发（见 01 模块表 data_registry 行、04 第 5 节校验器）。</summary>
         public static readonly Id DataValidationFailed = new Id("data.validation_failed");
 
+        /// <summary>dialog.ended — 字段：unitId。对话（gossip 或剧情）结束、应用状态机从 Dialog 子状态退回 Explore 时触发（见 01 L4 模块表 dialog 行、03 第 2 节状态表、08 第 9 节）；字段为建议值。</summary>
+        public static readonly Id DialogEnded = new Id("dialog.ended");
+
+        /// <summary>dialog.gossip_action_executed — 字段：unitId, menuId, actionId。gossip 菜单动作项被执行时触发（见 01 L4 模块表 dialog 行、08 第 9 节）；字段为建议值。</summary>
+        public static readonly Id DialogGossipActionExecuted = new Id("dialog.gossip_action_executed");
+
+        /// <summary>dialog.gossip_opened — 字段：unitId, npcId, menuId。打开 gossip 菜单、应用状态机进入 Dialog 子状态时触发（见 01 L4 模块表 dialog 行、03 第 2 节状态表、08 第 9 节）；字段为建议值。</summary>
+        public static readonly Id DialogGossipOpened = new Id("dialog.gossip_opened");
+
+        /// <summary>dialog.story_node_entered — 字段：unitId, treeId, nodeId。剧情对话树推进到某节点时触发（见 01 L4 模块表 dialog 行、03 第 5 节同步小节示例、08 第 9 节）；字段为建议值。</summary>
+        public static readonly Id DialogStoryNodeEntered = new Id("dialog.story_node_entered");
+
+        /// <summary>difficulty.applied — 字段：scopeId, tierId。DifficultyHost.apply 完成后触发（见 01 L4 模块表 difficulty 行、08 第 5、9 节）；字段为建议值。</summary>
+        public static readonly Id DifficultyApplied = new Id("difficulty.applied");
+
         /// <summary>display_info.reloaded — 字段：无字段。DisplayInfoRegistry 底层数据重新加载完成（见 01 模块表 display_info 行）；不携带字段，字段为建议值。</summary>
         public static readonly Id DisplayInfoReloaded = new Id("display_info.reloaded");
+
+        /// <summary>economy.currency_changed — 字段：unitId, currencyId, oldValue, newValue。货币数量变化时触发（见 01 L4 模块表 economy 行、08 第 7、9 节）；字段为建议值。</summary>
+        public static readonly Id EconomyCurrencyChanged = new Id("economy.currency_changed");
+
+        /// <summary>economy.item_purchased — 字段：unitId, vendorId, itemTemplateId, count, price。从商人购买物品完成时触发（见 01 L4 模块表 economy 行、08 第 7、9 节 EconomyHost.buy）；字段为建议值。</summary>
+        public static readonly Id EconomyItemPurchased = new Id("economy.item_purchased");
+
+        /// <summary>economy.item_sold — 字段：unitId, vendorId, itemInstanceId, price。向商人出售物品完成时触发（见 01 L4 模块表 economy 行、08 第 7、9 节 EconomyHost.sell）；字段为建议值。</summary>
+        public static readonly Id EconomyItemSold = new Id("economy.item_sold");
+
+        /// <summary>economy.vendor_restocked — 字段：vendorId。商人限量库存按刷新周期重置时触发（见 01 L4 模块表 economy 行、08 第 7、9 节）；字段为建议值。</summary>
+        public static readonly Id EconomyVendorRestocked = new Id("economy.vendor_restocked");
+
+        /// <summary>encounter.completed — 字段：encounterId, result。遭遇结算完成时触发（见 01 L4 模块表 encounter 行）；08 第 9 节契约汇总表另记 encounter.won/encounter.lost 两个细分事件、无 encounter.completed，与本行是否为同一事件的替代命名待设计层核对，本行按 01 原文登记，字段为建议值。</summary>
+        public static readonly Id EncounterCompleted = new Id("encounter.completed");
+
+        /// <summary>encounter.phase_changed — 字段：encounterId, oldPhase, newPhase。遭遇阶段切换时触发（见 01 L4 模块表 encounter 行、08 第 9 节契约汇总）；字段为建议值。</summary>
+        public static readonly Id EncounterPhaseChanged = new Id("encounter.phase_changed");
 
         /// <summary>entity.created — 字段：entityId, kind, displayId。WorldSim 把新逻辑对象加入集合时触发，供 ViewBinder 创建 View（见 03 第 5 节逻辑对象与 View 的绑定协议）。</summary>
         public static readonly Id EntityCreated = new Id("entity.created");
 
         /// <summary>entity.destroyed — 字段：entityId。WorldSim 生命周期清理阶段真正移除某实体前触发，供 ViewBinder 销毁 View（见 03 第 5 节、第 4.2 节 tick 步骤 8）。</summary>
         public static readonly Id EntityDestroyed = new Id("entity.destroyed");
+
+        /// <summary>faction.relation_changed — 字段：factionId, otherFactionId, oldReaction, newReaction。阵营间敌对/中立/友好关系变化时触发（见 01 L1 模块表 faction 行、04 第 fac.reaction_matrix 说明）；字段为建议值。</summary>
+        public static readonly Id FactionRelationChanged = new Id("faction.relation_changed");
+
+        /// <summary>gobj.state_changed — 字段：gobjInstanceId, stateKey, oldValue, newValue。GameObject.state 可变字段变化时触发，对应一次 WorldState.set（见 01 L3 模块表 gobj 行、07 第 3.4 节、07 第 9 节契约汇总"对应一次 WorldState.set"）；字段为建议值。</summary>
+        public static readonly Id GobjStateChanged = new Id("gobj.state_changed");
+
+        /// <summary>gobj.used — 字段：unitId, gobjInstanceId。GameObjectHost.interact 交互触发时发出（见 01 L3 模块表 gobj 行、07 第 3.6 节 interact 契约）；07 第 9 节契约汇总另记为 gobj.interacted，与本行是否为同一事件的替代命名待设计层核对，本行按 01 原文登记，字段为建议值。</summary>
+        public static readonly Id GobjUsed = new Id("gobj.used");
 
         /// <summary>hook.invoked — 字段：hookId。HookRegistry.invoke 被调用（调试用，见 01 模块表 hook_registry 行）；字段为建议值。</summary>
         public static readonly Id HookInvoked = new Id("hook.invoked");
@@ -63,17 +129,47 @@ namespace Core.Foundation.EventBus
         /// <summary>input.rebind_conflict — 字段：actionName, binding。重绑定检测到冲突（见 01 模块表 input_map 行、03 第 7 节）；字段为建议值。</summary>
         public static readonly Id InputRebindConflict = new Id("input.rebind_conflict");
 
+        /// <summary>item.acquired — 字段：unitId, itemInstanceId, itemTemplateId, count。物品加入背包时触发（见 01 L3 模块表 item 行、07 第 1.3 节 InventoryHost.addItem 契约）；07 第 9 节契约汇总另记为 item.added（并另有 item.removed），与本行是否为同一事件的替代命名待设计层核对，本行按 01 原文登记，字段为建议值。</summary>
+        public static readonly Id ItemAcquired = new Id("item.acquired");
+
+        /// <summary>item.equipped — 字段：unitId, itemInstanceId, slot。装备穿戴生效后触发，供纸娃娃层更新对应槽位（见 07 第 1.4 节原文、01 L3 模块表 item 行）；字段为建议值。</summary>
+        public static readonly Id ItemEquipped = new Id("item.equipped");
+
+        /// <summary>item.unequipped — 字段：unitId, slot, itemInstanceId。装备卸下后触发，供纸娃娃层移除对应槽位（见 07 第 1.4 节原文、01 L3 模块表 item 行）；字段为建议值。</summary>
+        public static readonly Id ItemUnequipped = new Id("item.unequipped");
+
         /// <summary>l10n.language_changed — 字段：locale。L10nHost.setLocale 切换语言完成（见 01 模块表 localization 行、03 第 9 节 L10nHost）；字段为建议值。</summary>
         public static readonly Id L10nLanguageChanged = new Id("l10n.language_changed");
 
+        /// <summary>loot.rolled — 字段：tableId, contextId, items。LootHost.roll 完成一次掉落抽取后触发（见 01 L4 模块表 loot 行、08 第 9 节）；字段为建议值。</summary>
+        public static readonly Id LootRolled = new Id("loot.rolled");
+
         /// <summary>power.changed — 字段：unitId, powerType, oldValue, newValue。资源值变化（见 06 第 2、8 节）。</summary>
         public static readonly Id PowerChanged = new Id("power.changed");
+
+        /// <summary>power.depleted — 字段：unitId, powerType。资源值耗尽（降至下限）时触发（见 01 L1 模块表 power_set 行、06 第 2 节 PowerHost.modifyPower）；字段为建议值。</summary>
+        public static readonly Id PowerDepleted = new Id("power.depleted");
 
         /// <summary>presentation.playback_finished — 字段：无字段。表现层回放队列清空后触发，解除 wait_for_playback 节奏门（见 03 第 8、9 节 PacingPolicy.onPlaybackFinished、09 第 6.4 节）；表现层唯一允许发出并被 L0 消费的事件，不携带字段。</summary>
         public static readonly Id PresentationPlaybackFinished = new Id("presentation.playback_finished");
 
         /// <summary>proc.triggered — 字段：unitId, procDefId, triggerSkillId。Proc 命中触发条件；domain 为 skill（06 第 8 节原文如此，不等于 key 首段 proc）。</summary>
         public static readonly Id ProcTriggered = new Id("proc.triggered");
+
+        /// <summary>progression.level_up — 字段：unitId, oldLevel, newLevel。等级提升判定完成时触发（见 01 L1 模块表 progression 行）；字段为建议值。</summary>
+        public static readonly Id ProgressionLevelUp = new Id("progression.level_up");
+
+        /// <summary>progression.xp_gained — 字段：unitId, amount, sourceId。经验获取时触发（见 01 L1 模块表 progression 行）；字段为建议值。</summary>
+        public static readonly Id ProgressionXpGained = new Id("progression.xp_gained");
+
+        /// <summary>quest.accepted — 字段：unitId, questId。任务被接取、任务日志状态机进入进行中状态时触发（见 01 L4 模块表 quest 行、08 第 9 节）；字段为建议值。</summary>
+        public static readonly Id QuestAccepted = new Id("quest.accepted");
+
+        /// <summary>quest.completed — 字段：unitId, questId。任务完成判定时触发（见 01 L4 模块表 quest 行、08 第 9 节）；08 第 9 节契约汇总另记 quest.turned_in（交任务）、quest.failed（失败）两个细分事件，与本行的完整覆盖关系待设计层核对，本行按 01 原文登记，字段为建议值。</summary>
+        public static readonly Id QuestCompleted = new Id("quest.completed");
+
+        /// <summary>quest.objective_progress — 字段：unitId, questId, objectiveId, progress。任务目标推进时触发（见 01 L4 模块表 quest 行、08 第 9 节）；字段为建议值。</summary>
+        public static readonly Id QuestObjectiveProgress = new Id("quest.objective_progress");
 
         /// <summary>save.completed — 字段：slotId。存档写入完成（见 01 模块表 save_system 行）；字段为建议值。</summary>
         public static readonly Id SaveCompleted = new Id("save.completed");
@@ -123,20 +219,47 @@ namespace Core.Foundation.EventBus
         /// <summary>skill.cast_success — 字段：casterId, skillId, targets。施法管线步骤 9 完成（见 06 第 8 节）。</summary>
         public static readonly Id SkillCastSuccess = new Id("skill.cast_success");
 
+        /// <summary>spawn.executed — 字段：spawnId, entityId。SpawnHost.applyForMap 按刷新策略生成实体完成时触发（见 05 第 5.3 节，字段原文给出）。</summary>
+        public static readonly Id SpawnExecuted = new Id("spawn.executed");
+
         /// <summary>stat.changed — 字段：unitId, stat, oldValue, newValue。属性最终值变化（见 06 第 1、8 节）。</summary>
         public static readonly Id StatChanged = new Id("stat.changed");
+
+        /// <summary>summon.created — 字段：entityId, ownerId。召唤物由 summon 效果创建时触发（见 01 L3 模块表 summon 行、07 第 4 节召唤与宠物）；字段为建议值。</summary>
+        public static readonly Id SummonCreated = new Id("summon.created");
+
+        /// <summary>summon.expired — 字段：entityId, ownerId。召唤物到期（duration 到期）或被主动取消/死亡销毁时触发（见 01 L3 模块表 summon 行、07 第 4 节）；字段为建议值。</summary>
+        public static readonly Id SummonExpired = new Id("summon.expired");
+
+        /// <summary>targeting.resolved — 字段：unitId, chainId, targetIds。目标解析策略链求解完成后触发（见 01 L2 模块表 targeting 行、06 第 5 节 Targeting）；字段为建议值。</summary>
+        public static readonly Id TargetingResolved = new Id("targeting.resolved");
 
         /// <summary>unit.died — 字段：unitId, killerId。死亡结算完成（见 06 第 8 节）。</summary>
         public static readonly Id UnitDied = new Id("unit.died");
 
+        /// <summary>unit.moved — 字段：unitId, position。单位逻辑位置变化时触发，供表现层 View 同步（见 01 L5 模块表 render 行订阅示例、03 第 5 节同步小节原文列举）；字段为建议值。</summary>
+        public static readonly Id UnitMoved = new Id("unit.moved");
+
         /// <summary>unit.respawned — 字段：unitId, policy。按死亡复活策略处理完成（见 06 第 8 节）。</summary>
         public static readonly Id UnitRespawned = new Id("unit.respawned");
+
+        /// <summary>unit.state_changed — 字段：unitId, oldState, newState。单位可视状态（如移动/待机/施法等外显状态）变化时触发，供表现层 View 同步（见 01 L5 模块表 render 行订阅示例、03 第 5 节同步小节原文列举）；字段为建议值，字段命名参照同表 ai.state_changed 行。</summary>
+        public static readonly Id UnitStateChanged = new Id("unit.state_changed");
+
+        /// <summary>world.flag_changed — 字段：flagKey, oldValue, newValue, writerId。WorldState.set 写入标志后触发（见 05 第 8.2 节，字段原文给出）。</summary>
+        public static readonly Id WorldFlagChanged = new Id("world.flag_changed");
 
         /// <summary>全部已登记事件 key（按序数排序）。</summary>
         public static readonly Id[] All =
         {
+            AchievementProgressed,
+            AchievementUnlocked,
+            AiDecisionMade,
             AiStateChanged,
             AppStateChanged,
+            ArchetypeApplied,
+            AreaTriggerEntered,
+            AreaTriggerLeft,
             AuraApplied,
             AuraRemoved,
             AuraStackChanged,
@@ -145,18 +268,44 @@ namespace Core.Foundation.EventBus
             CombatHealDone,
             CombatLeft,
             CombatThreatChanged,
+            CreatureDespawned,
+            CreatureSpawned,
             DataLoadCompleted,
             DataValidationFailed,
+            DialogEnded,
+            DialogGossipActionExecuted,
+            DialogGossipOpened,
+            DialogStoryNodeEntered,
+            DifficultyApplied,
             DisplayInfoReloaded,
+            EconomyCurrencyChanged,
+            EconomyItemPurchased,
+            EconomyItemSold,
+            EconomyVendorRestocked,
+            EncounterCompleted,
+            EncounterPhaseChanged,
             EntityCreated,
             EntityDestroyed,
+            FactionRelationChanged,
+            GobjStateChanged,
+            GobjUsed,
             HookInvoked,
             InputActionTriggered,
             InputRebindConflict,
+            ItemAcquired,
+            ItemEquipped,
+            ItemUnequipped,
             L10nLanguageChanged,
+            LootRolled,
             PowerChanged,
+            PowerDepleted,
             PresentationPlaybackFinished,
             ProcTriggered,
+            ProgressionLevelUp,
+            ProgressionXpGained,
+            QuestAccepted,
+            QuestCompleted,
+            QuestObjectiveProgress,
             SaveCompleted,
             SaveLoaded,
             SaveMigrated,
@@ -173,9 +322,16 @@ namespace Core.Foundation.EventBus
             SkillCastInterrupted,
             SkillCastStart,
             SkillCastSuccess,
+            SpawnExecuted,
             StatChanged,
+            SummonCreated,
+            SummonExpired,
+            TargetingResolved,
             UnitDied,
+            UnitMoved,
             UnitRespawned,
+            UnitStateChanged,
+            WorldFlagChanged,
         };
     }
 }
