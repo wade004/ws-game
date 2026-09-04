@@ -11,14 +11,17 @@ using Core.Foundation.SimLoop;
 using Core.Numbers.Faction;
 using Core.Numbers.PowerSet;
 using Core.Rules.Common;
+using Core.Rules.ExprHost;
 
 namespace Core.Rules.Ai
 {
     /// <summary>
     /// <see cref="IAiHost"/> 的默认实现：行为外壳状态机 + 优先级表（见 06_规则层_属性技能战斗AI.md
     /// 第 6 节）。构造期从 <see cref="IDataRegistryView"/> 一次性读取 <c>ai.behavior_profile</c>/
-    /// <c>ai.rotation</c>/<c>ai.patrol_path</c> 三张表并解析（含 Expr 文本一次性解析，见
-    /// <see cref="AiExprSchema"/>），之后只读，与 <see cref="FactionMatrix"/> 的做法一致。
+    /// <c>ai.rotation</c>/<c>ai.patrol_path</c> 三张表并解析（含 Expr 文本一次性解析，集成任务前
+    /// 用本模块自带的临时 <see cref="AiExprSchema"/>，集成任务后默认改用
+    /// <see cref="RulesExprSchema"/>，见构造函数 <c>exprSchema</c> 参数），之后只读，与
+    /// <see cref="FactionMatrix"/> 的做法一致。
     /// <para>
     /// 除 <see cref="IAiHost"/> 声明的四个方法外，本类另外公开 <see cref="RegisterUnit"/>/
     /// <see cref="UnregisterUnit"/>/<see cref="Step"/>/<see cref="RegisteredUnitIds"/>——
@@ -51,6 +54,12 @@ namespace Core.Rules.Ai
         private readonly AiOptions _options;
         private readonly IExprDiagnostics _exprDiagnostics = new ExprDiagnosticsRecorder();
 
+        /// <summary>集成任务改动：解析 <c>ai.rotation.entries[].condition</c>/
+        /// <c>ai.behavior_profile.transitions</c> 用的 <see cref="IExprSchema"/>，默认
+        /// <see cref="RulesExprSchema.Instance"/>（保留可注入口子，见构造函数 <c>exprSchema</c>
+        /// 参数与 <see cref="AiContentValidationRule"/> 同一惯例）。</summary>
+        private readonly IExprSchema _exprSchema;
+
         private readonly Dictionary<string, AiBehaviorProfile> _profiles = new Dictionary<string, AiBehaviorProfile>(StringComparer.Ordinal);
         private readonly Dictionary<string, IReadOnlyList<CompiledRotationEntry>> _rotations = new Dictionary<string, IReadOnlyList<CompiledRotationEntry>>(StringComparer.Ordinal);
         private readonly Dictionary<string, AiPatrolPath> _patrolPaths = new Dictionary<string, AiPatrolPath>(StringComparer.Ordinal);
@@ -70,7 +79,8 @@ namespace Core.Rules.Ai
             IEventBus bus,
             IRngHost rng,
             INavigation2D? navigation = null,
-            AiOptions? options = null)
+            AiOptions? options = null,
+            IExprSchema? exprSchema = null)
         {
             if (registry == null) throw new ArgumentNullException(nameof(registry));
             _units = units ?? throw new ArgumentNullException(nameof(units));
@@ -84,6 +94,7 @@ namespace Core.Rules.Ai
             _rng = rng ?? throw new ArgumentNullException(nameof(rng));
             _navigation = navigation;
             _options = options ?? new AiOptions();
+            _exprSchema = exprSchema ?? RulesExprSchema.Instance;
 
             LoadPatrolPaths(registry);
             LoadRotations(registry);
@@ -610,16 +621,26 @@ namespace Core.Rules.Ai
                 return null;
             }
 
-            var direction = ComputeDirection(from, to);
+            var direction = ComputeDirection(unitId, from, to);
             var delta = direction * (_options.MoveSpeed * dt);
             return BuildMoveIntent(unitId, delta);
         }
 
-        private Vec2 ComputeDirection(Vec2 from, Vec2 to)
+        /// <summary>
+        /// 判断记录（契约缺口，集成任务已补齐）：地图 id 优先经 <see cref="IUnitAccess.GetMapId"/>
+        /// 取得（真正按单位所在地图分别寻路），只有它返回 <c>null</c>（未接入地图概念的实现，如
+        /// 测试假实现，行为与集成前完全一致）时才回退 <see cref="AiOptions.MapId"/> 这个单地图
+        /// 场景的兜底值——见 <see cref="AiOptions.MapId"/> 上方判断记录。
+        /// </summary>
+        private Vec2 ComputeDirection(Id unitId, Vec2 from, Vec2 to)
         {
-            if (_navigation != null && _options.MapId.HasValue)
+#pragma warning disable CS0618 // AiOptions.MapId 已标记过时，这里是文档化的唯一兜底读取点
+            var mapId = _units.GetMapId(unitId) ?? _options.MapId;
+#pragma warning restore CS0618
+
+            if (_navigation != null && mapId.HasValue)
             {
-                var path = _navigation.FindPath(_options.MapId.Value, from, to);
+                var path = _navigation.FindPath(mapId.Value, from, to);
                 if (path != null && path.Count >= 2)
                 {
                     return Normalize(path[1] - from);
@@ -682,7 +703,7 @@ namespace Core.Rules.Ai
                     var priority = (int)((JsonNumber)obj["priority"]).Value;
                     var conditionText = ((JsonString)obj["condition"]).Value;
                     var skillId = new Id(((JsonString)obj["skill_id"]).Value);
-                    var node = ExprParser.Parse(conditionText, AiExprSchema.Instance);
+                    var node = ExprParser.Parse(conditionText, _exprSchema);
                     compiled.Add(new CompiledRotationEntry(priority, node, skillId));
                 }
 
@@ -710,7 +731,7 @@ namespace Core.Rules.Ai
                     foreach (var kv in transitionsObj)
                     {
                         var text = ((JsonString)kv.Value).Value;
-                        transitions[kv.Key] = ExprParser.Parse(text, AiExprSchema.Instance);
+                        transitions[kv.Key] = ExprParser.Parse(text, _exprSchema);
                     }
                 }
 

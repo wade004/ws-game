@@ -104,10 +104,12 @@ namespace Core.Rules.Skill
                 }
 
                 // 判断记录：06 第 3.6 节只描述了"窗口内入队"的行为，未规定窗口外再次施法请求的
-                // 处理方式；本模块拍板窗口外一律拒绝（呼应"每单位一个队列槽"——不支持排更多队），
-                // 复用 OnCooldown 作为最接近的失败语义（施法者当前"不可用"，原因是仍在读条/引导
-                // 而非真正的冷却，属最贴近的既有原因码，具体取舍见模块 README"判断记录"）。
-                return Fail(casterId, skillId, CastFailureReason.OnCooldown);
+                // 处理方式；本模块拍板窗口外一律拒绝（呼应"每单位一个队列槽"——不支持排更多队）。
+                // 契约缺口已补齐：原实现这里复用 OnCooldown 作为最接近的失败语义，集成任务已给
+                // CastFailureReason 补上专门的 Busy（施法者当前"不可用"，原因是仍在读条/引导而非
+                // 真正的冷却），见该原因码注释；本处改用 Busy，OnCooldown 恢复只表示步骤 3 冷却/
+                // 充能未就绪。
+                return Fail(casterId, skillId, CastFailureReason.Busy);
             }
 
             return TryStartCast(casterId, skillId, safeTargets);
@@ -120,7 +122,7 @@ namespace Core.Rules.Skill
                 return Fail(casterId, skillId, CastFailureReason.UnknownSkill);
             }
 
-            var overridden = _auraHost.ResolveOverride(casterId, skillId);
+            var overridden = _auraHost.ResolveSkillOverride(casterId, skillId);
             if (overridden.HasValue && _defs.TryGetSkillDef(overridden.Value, out var overriddenDef))
             {
                 skillId = overridden.Value;
@@ -425,7 +427,8 @@ namespace Core.Rules.Skill
 
                     var context = new EffectContext(
                         casterId, targetId, def.Id, effect.Kind, school, baseValue, coefficient,
-                        effect.Params, auraInstanceId: null, isPeriodic: false, canCrit: true, canMiss: canMiss);
+                        effect.Params, auraInstanceId: null, isPeriodic: false, canCrit: true, canMiss: canMiss,
+                        tags: def.Tags);
 
                     _effects.ApplyEffect(context);
                 }

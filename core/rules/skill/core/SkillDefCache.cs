@@ -5,6 +5,7 @@ using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.Expr;
 using Core.Rules.Common;
+using Core.Rules.ExprHost;
 
 namespace Core.Rules.Skill
 {
@@ -23,9 +24,15 @@ namespace Core.Rules.Skill
         private readonly Dictionary<Id, SpellModDefRecord> _spellMods = new Dictionary<Id, SpellModDefRecord>();
         private readonly Dictionary<Id, SkillBookDef> _books = new Dictionary<Id, SkillBookDef>();
 
-        public SkillDefCache(IDataRegistryView registry)
+        // 集成任务改动：解析 skill.proc_def.condition 用的 IExprSchema，默认改用集成任务提供的
+        // core/rules/expr_host.RulesExprSchema（原先本模块自带的临时 PermissiveExprSchema 已被
+        // 取代，见该类型所在文件顶部注释），保留可注入口子（构造参数 exprSchema）。
+        private readonly IExprSchema _exprSchema;
+
+        public SkillDefCache(IDataRegistryView registry, IExprSchema? exprSchema = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+            _exprSchema = exprSchema ?? RulesExprSchema.Instance;
         }
 
         public bool TryGetSkillDef(Id id, out SkillDef def)
@@ -264,7 +271,7 @@ namespace Core.Rules.Skill
             return new AuraDef(id, duration, maxStacks, stackCategory, dispelType, effects);
         }
 
-        private static ProcDef ParseProcDef(DataRecord record)
+        private ProcDef ParseProcDef(DataRecord record)
         {
             var id = record.GetId("id");
             var triggerEvent = record.GetId("trigger_event");
@@ -272,7 +279,7 @@ namespace Core.Rules.Skill
             ExprNode? condition = null;
             if (record.TryGetString("condition", out var conditionText) && !string.IsNullOrEmpty(conditionText))
             {
-                condition = ExprParser.Parse(conditionText, PermissiveExprSchema.Instance);
+                condition = ExprParser.Parse(conditionText, _exprSchema);
             }
 
             var triggerSkill = record.GetId("trigger_skill");

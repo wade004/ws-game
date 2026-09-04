@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.Expr;
+using Core.Rules.ExprHost;
 
 namespace Core.Rules.Ai
 {
@@ -22,6 +23,19 @@ namespace Core.Rules.Ai
     {
         private const string Check = "ai_content";
 
+        // 集成任务改动：本模块原先自带的临时 AiExprSchema（只覆盖 AI 直接相关、文档已给出示例
+        // 引用的最小词汇集合，见该类型注释判断记录）改为默认使用集成任务提供的
+        // core/rules/expr_host.RulesExprSchema——后者是 skill/combat/targeting/ai 四模块共用的
+        // 同一份词汇表（ADR-0015"同一份 schema 供内容校验与运行期共用"），覆盖面更完整。保留
+        // 可注入口子（构造参数 exprSchema）：不强制调用方必须换成 RulesExprSchema，需要复现旧行为
+        // 或注入测试专用的更严格 schema 时可以显式传入。
+        private readonly IExprSchema _schema;
+
+        public AiContentValidationRule(IExprSchema? exprSchema = null)
+        {
+            _schema = exprSchema ?? RulesExprSchema.Instance;
+        }
+
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
             foreach (var issue in ValidateRotations(view))
@@ -40,7 +54,7 @@ namespace Core.Rules.Ai
             }
         }
 
-        private static IEnumerable<ValidationIssue> ValidateRotations(IDataRegistryView view)
+        private IEnumerable<ValidationIssue> ValidateRotations(IDataRegistryView view)
         {
             foreach (var record in view.GetAll(AiSchemas.Rotation.Name))
             {
@@ -98,7 +112,7 @@ namespace Core.Rules.Ai
             }
         }
 
-        private static IEnumerable<ValidationIssue> ValidateBehaviorProfiles(IDataRegistryView view)
+        private IEnumerable<ValidationIssue> ValidateBehaviorProfiles(IDataRegistryView view)
         {
             foreach (var record in view.GetAll(AiSchemas.BehaviorProfile.Name))
             {
@@ -129,7 +143,7 @@ namespace Core.Rules.Ai
             }
         }
 
-        private static IEnumerable<ValidationIssue> ValidatePatrolPaths(IDataRegistryView view)
+        private IEnumerable<ValidationIssue> ValidatePatrolPaths(IDataRegistryView view)
         {
             foreach (var record in view.GetAll(AiSchemas.PatrolPath.Name))
             {
@@ -142,13 +156,13 @@ namespace Core.Rules.Ai
         }
 
         /// <summary>解析 + 静态校验一段 Expr 文本，返回可读的问题描述列表；空列表表示通过。</summary>
-        private static IEnumerable<string> TryParseExpr(string text)
+        private IEnumerable<string> TryParseExpr(string text)
         {
             ExprNode? node = null;
             string? parseError = null;
             try
             {
-                node = ExprParser.Parse(text, AiExprSchema.Instance);
+                node = ExprParser.Parse(text, _schema);
             }
             catch (ExprParseException ex)
             {
@@ -160,7 +174,7 @@ namespace Core.Rules.Ai
                 return new[] { parseError };
             }
 
-            var issues = ExprValidator.Validate(node!, AiExprSchema.Instance);
+            var issues = ExprValidator.Validate(node!, _schema);
             var messages = new List<string>();
             foreach (var issue in issues)
             {

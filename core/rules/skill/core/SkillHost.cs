@@ -5,6 +5,7 @@ using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
+using Core.Foundation.Expr;
 using Core.Foundation.Rng;
 using Core.Numbers.PowerSet;
 using Core.Numbers.StatBlock;
@@ -56,7 +57,8 @@ namespace Core.Rules.Skill
             ISpatialQuery? spatialQuery,
             SkillOptions? options = null,
             IEffectExtension? effectExtension = null,
-            ISkillDiagnostics? diagnostics = null)
+            ISkillDiagnostics? diagnostics = null,
+            IExprSchema? exprSchema = null)
         {
             _registry = dataRegistry ?? throw new ArgumentNullException(nameof(dataRegistry));
             _units = unitAccess ?? throw new ArgumentNullException(nameof(unitAccess));
@@ -70,7 +72,7 @@ namespace Core.Rules.Skill
 
             var options1 = options ?? new SkillOptions();
             _diagnostics = diagnostics ?? new InMemorySkillDiagnostics();
-            _defs = new SkillDefCache(_registry);
+            _defs = new SkillDefCache(_registry, exprSchema);
             _cooldowns = new CooldownTracker();
 
             // AuraHost 先构造（不需要 ProcHost/EffectDispatcher），随后用可写属性回填两者，

@@ -109,5 +109,20 @@ namespace Core.Foundation.SimLoop
         /// <see cref="Tick"/>，或上一次 <see cref="Tick"/> 已完成）读取为空列表。
         /// </summary>
         IReadOnlyList<Intent> CurrentIntents { get; }
+
+        /// <summary>
+        /// 追加一条意图进入本 tick 的 <see cref="CurrentIntents"/>（集成任务补齐的契约缺口，见
+        /// 03_运行时骨架.md 第 4.2 节步骤 2"AI 决策……为非玩家单位生成本 tick 的意图，追加进意图
+        /// 列表"——原契约只有 <see cref="SubmitIntent"/>，产生的意图要到下一 tick 才进入
+        /// <see cref="CurrentIntents"/>，与文档"追加进意图列表"的字面描述存在一 tick 落差，见
+        /// <c>core/rules/ai/core/AiTickHandler.cs</c> 与 ai 模块 README"契约缺口"一节）。与
+        /// <see cref="SubmitIntent"/>（tick 内外均可调用，进入"下一 tick 待收集"队列）互补：本方法
+        /// 只在某次 <see cref="Tick"/> 执行期间（阶段 1～7 之间，<see cref="CurrentIntents"/> 已经
+        /// 固定但尚未在阶段 8 末尾清空）可调用，让本 tick 内产生的意图（如 AI 决策）立即参与本
+        /// tick 剩余阶段，不必等到下一 tick 才生效；tick 之外调用抛
+        /// <see cref="System.InvalidOperationException"/>。追加顺序即调用顺序（确定性同
+        /// <see cref="SubmitIntent"/>）。
+        /// </summary>
+        void AppendCurrentIntent(Intent intent);
     }
 }

@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 
@@ -12,6 +14,7 @@ namespace Core.Rules.Common
     public sealed class EffectContext
     {
         private static readonly JsonObject EmptyParams = new JsonObjectBuilder().Build();
+        private static readonly IReadOnlyList<Id> EmptyTags = Array.Empty<Id>();
 
         public Id SourceId { get; }
 
@@ -43,6 +46,17 @@ namespace Core.Rules.Common
         /// <summary>本次结算是否参与命中判定（部分效果如治疗、周期伤害可豁免未命中判定）。</summary>
         public bool CanMiss { get; }
 
+        /// <summary>
+        /// 集成任务补齐的契约缺口：本次结算所属技能的标签集合（来自 <c>skill.def.tags</c>，见
+        /// 06 第 3.1 节），供 <see cref="EffectDispatcher"/> 在应用 <c>effect_value</c>/
+        /// <c>crit_chance</c> 维度的 SpellMod（见 <see cref="SkillFilter.Matches"/>）时按标签维度
+        /// 过滤——原契约的 <see cref="EffectContext"/> 不携带标签，调用点只能传空列表，标签维度的
+        /// SpellMod 过滤在效果落地这一步完全不生效（见 <c>core/rules/skill</c> 模块
+        /// <c>EffectDispatcher.ApplyDamageOrHeal</c> 改动前的判断记录）。未提供时为空列表（不是
+        /// null），周期性光环效果等脱离具体 <c>skill.def</c> 上下文的调用点可以继续不传。
+        /// </summary>
+        public IReadOnlyList<Id> Tags { get; }
+
         public EffectContext(
             Id sourceId,
             Id targetId,
@@ -55,7 +69,8 @@ namespace Core.Rules.Common
             Id? auraInstanceId = null,
             bool isPeriodic = false,
             bool canCrit = true,
-            bool canMiss = true)
+            bool canMiss = true,
+            IReadOnlyList<Id>? tags = null)
         {
             SourceId = sourceId;
             TargetId = targetId;
@@ -69,6 +84,7 @@ namespace Core.Rules.Common
             IsPeriodic = isPeriodic;
             CanCrit = canCrit;
             CanMiss = canMiss;
+            Tags = tags ?? EmptyTags;
         }
     }
 }

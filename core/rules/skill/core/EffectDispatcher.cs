@@ -145,19 +145,21 @@ namespace Core.Rules.Skill
                 value = baseValue + (scalingStat.HasValue ? coefficient * _statHost.GetStat(context.SourceId, scalingStat.Value) : 0);
             }
 
-            // 判断记录：EffectContext 不携带技能标签集合，effect_value/crit_chance 维度的
-            // SpellMod 过滤在本调用点退化为"按学派/技能 id"匹配（tags 传空列表，SkillFilter.Matches
-            // 的标签维度不参与），完整的标签过滤留给 CastPipeline 步骤 9 在真正发起施放时按
-            // skill.def.tags 处理（见 CastPipeline 注释），此处只覆盖光环周期效果等脱离施法上下文
-            // 直接调用 ApplyEffect 的场景。
-            value = _spellMods.Apply(context.SourceId, SpellModDimension.EffectValue, context.SkillId, context.School, Array.Empty<Id>(), value);
+            // 契约缺口已补齐：EffectContext.Tags 携带技能标签集合（来自 skill.def.tags），
+            // effect_value/crit_chance 维度的 SpellMod 过滤现在按学派/技能 id/标签三个维度一并
+            // 匹配（见 SkillFilter.Matches）。CastPipeline.ExecuteEffectsOnly 构造 EffectContext
+            // 时会传入 def.Tags；周期性光环效果等脱离具体 skill.def 上下文的调用点（AuraHost.
+            // FirePeriodic）不传，按 EffectContext.Tags 默认空列表处理，退化为原先"按学派/技能 id"
+            // 匹配的行为。
+            value = _spellMods.Apply(context.SourceId, SpellModDimension.EffectValue, context.SkillId, context.School, context.Tags, value);
 
-            var critBonus = _spellMods.Apply(context.SourceId, SpellModDimension.CritChance, context.SkillId, context.School, Array.Empty<Id>(), 0);
+            var critBonus = _spellMods.Apply(context.SourceId, SpellModDimension.CritChance, context.SkillId, context.School, context.Tags, 0);
             var mergedParams = critBonus != 0 ? ParamsX.MergeNumber(context.Params, "crit_chance_bonus", critBonus) : context.Params;
 
             var outbound = new EffectContext(
                 context.SourceId, context.TargetId, context.SkillId, context.Kind, context.School,
-                value, coefficient, mergedParams, context.AuraInstanceId, context.IsPeriodic, context.CanCrit, context.CanMiss);
+                value, coefficient, mergedParams, context.AuraInstanceId, context.IsPeriodic, context.CanCrit, context.CanMiss,
+                context.Tags);
 
             return _combatHost.ResolveEffect(outbound);
         }

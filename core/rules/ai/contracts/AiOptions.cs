@@ -1,3 +1,4 @@
+using System;
 using Core.Foundation.Common;
 
 namespace Core.Rules.Ai
@@ -32,14 +33,17 @@ namespace Core.Rules.Ai
         public double ArrivalEpsilon { get; set; } = 0.5;
 
         /// <summary>
-        /// 判断记录（契约缺口）：<c>IUnitAccess</c> 不暴露单位所属地图 id（<c>MapId</c> 只存在于
-        /// <c>Core.Foundation.SimLoop.Entity</c>，见本模块 README"契约缺口"一节），而
-        /// <see cref="Core.Foundation.EngineAdapter.INavigation2D"/> 的全部方法都要求传入
-        /// <c>mapId</c>。本任务拍板：用单个固定 <see cref="MapId"/> 代表"AI 使用的寻路地图"，
-        /// 只适用于单地图场景；<c>null</c>（默认）表示不做寻路查询，一律退化为直线移动
-        /// （即便调用方传入了非 null 的 <c>INavigation2D</c> 实例）。多地图场景需要集成任务扩展
-        /// <c>IUnitAccess</c> 暴露 <c>GetMapId</c> 后才能真正按单位所在地图分别寻路。
+        /// 判断记录（契约缺口，集成任务已补齐）：本字段原是"<c>IUnitAccess</c> 不暴露单位所属
+        /// 地图 id"这一契约缺口的权宜之计——只适用于单地图场景，多地图场景无法按单位分别寻路。
+        /// 集成任务已给 <c>IUnitAccess</c> 补上 <see cref="Core.Rules.Common.IUnitAccess.GetMapId"/>，
+        /// <see cref="AiHost"/> 的 <c>ComputeDirection</c> 现在优先用
+        /// <c>IUnitAccess.GetMapId(unitId)</c>，只有它返回 <c>null</c>（未接入地图概念的实现，如
+        /// 测试假实现）时才回退到本字段——两种口味二选一保留字段（任务书"保留字段但标记过时也可，
+        /// 二选一说明"），本任务选择保留 + 标记 <see cref="ObsoleteAttribute"/> 而不是直接删除：
+        /// 删除会导致既有引用本字段的调用方（游戏层配置、已发布的口味清单）编译失败，标记过时
+        /// 既提示"有更好的替代方案"又不破坏向后兼容；默认 <c>null</c> 表示不提供单地图兜底值。
         /// </summary>
+        [Obsolete("改用 IUnitAccess.GetMapId(unitId)；本字段仅在 GetMapId 返回 null 时作为单地图场景的兜底值")]
         public Id? MapId { get; set; } = null;
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
+using Core.Foundation.Expr;
 
 namespace Core.Rules.Common
 {
@@ -64,7 +65,7 @@ namespace Core.Rules.Common
     }
 
     /// <summary>施法管线步骤 8 开始（见 06 第 8 节）。</summary>
-    public sealed class SkillCastStartEvent : IEvent
+    public sealed class SkillCastStartEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.SkillCastStart;
 
@@ -80,10 +81,21 @@ namespace Core.Rules.Common
             SkillId = skillId;
             CastTime = castTime;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "casterId": value = ExprValue.OfId(CasterId); return true;
+                case "skillId": value = ExprValue.OfId(SkillId); return true;
+                case "castTime": value = ExprValue.OfNumber(CastTime); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>施法管线步骤 9 完成（见 06 第 8 节）。</summary>
-    public sealed class SkillCastSuccessEvent : IEvent
+    public sealed class SkillCastSuccessEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.SkillCastSuccess;
 
@@ -99,10 +111,23 @@ namespace Core.Rules.Common
             SkillId = skillId;
             Targets = (targets ?? Array.Empty<Id>()).ToArray();
         }
+
+        /// <summary><see cref="Targets"/> 是列表，Expr 无列表类型（见
+        /// <see cref="IExprReadableEvent"/> 类型注释），不在本方法覆盖范围内，查询 "targets"
+        /// 返回 false。</summary>
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "casterId": value = ExprValue.OfId(CasterId); return true;
+                case "skillId": value = ExprValue.OfId(SkillId); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>施法管线任一步骤失败（见 06 第 8 节）。</summary>
-    public sealed class SkillCastFailedEvent : IEvent
+    public sealed class SkillCastFailedEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.SkillCastFailed;
 
@@ -118,10 +143,23 @@ namespace Core.Rules.Common
             SkillId = skillId;
             ReasonCode = reasonCode;
         }
+
+        /// <summary>枚举字段按 <c>ToString()</c> 落地为 String（见 <see cref="IExprReadableEvent"/>
+        /// 类型注释判断记录）。</summary>
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "casterId": value = ExprValue.OfId(CasterId); return true;
+                case "skillId": value = ExprValue.OfId(SkillId); return true;
+                case "reasonCode": value = ExprValue.OfString(ReasonCode.ToString()); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>读条/引导被打断（见 06 第 8 节）。</summary>
-    public sealed class SkillCastInterruptedEvent : IEvent
+    public sealed class SkillCastInterruptedEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.SkillCastInterrupted;
 
@@ -137,10 +175,21 @@ namespace Core.Rules.Common
             SkillId = skillId;
             InterrupterId = interrupterId;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "casterId": value = ExprValue.OfId(CasterId); return true;
+                case "skillId": value = ExprValue.OfId(SkillId); return true;
+                case "interrupterId": value = ExprValue.OfId(InterrupterId); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>结算管线"落地"步骤，伤害类效果（见 06 第 8 节）。</summary>
-    public sealed class CombatDamageDealtEvent : IEvent
+    public sealed class CombatDamageDealtEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.CombatDamageDealt;
 
@@ -165,10 +214,24 @@ namespace Core.Rules.Common
             IsCrit = isCrit;
             HitResult = hitResult;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "sourceId": value = ExprValue.OfId(SourceId); return true;
+                case "targetId": value = ExprValue.OfId(TargetId); return true;
+                case "school": value = ExprValue.OfId(School); return true;
+                case "amount": value = ExprValue.OfNumber(Amount); return true;
+                case "isCrit": value = ExprValue.OfBool(IsCrit); return true;
+                case "hitResult": value = ExprValue.OfString(HitResult.ToString()); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>结算管线"落地"步骤，治疗类效果（见 06 第 8 节）。</summary>
-    public sealed class CombatHealDoneEvent : IEvent
+    public sealed class CombatHealDoneEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.CombatHealDone;
 
@@ -187,10 +250,22 @@ namespace Core.Rules.Common
             Amount = amount;
             IsCrit = isCrit;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "sourceId": value = ExprValue.OfId(SourceId); return true;
+                case "targetId": value = ExprValue.OfId(TargetId); return true;
+                case "amount": value = ExprValue.OfNumber(Amount); return true;
+                case "isCrit": value = ExprValue.OfBool(IsCrit); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary><c>apply_aura</c> 生效（见 06 第 8 节）。</summary>
-    public sealed class AuraAppliedEvent : IEvent
+    public sealed class AuraAppliedEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.AuraApplied;
 
@@ -209,11 +284,23 @@ namespace Core.Rules.Common
             SourceId = sourceId;
             Stacks = stacks;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "targetId": value = ExprValue.OfId(TargetId); return true;
+                case "auraDefId": value = ExprValue.OfId(AuraDefId); return true;
+                case "sourceId": value = ExprValue.OfId(SourceId); return true;
+                case "stacks": value = ExprValue.OfInt(Stacks); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>光环到期/驱散/覆盖移除（见 06 第 8 节）。<see cref="Reason"/> 是自由文本分类
     /// （如 "expired"/"dispelled"/"overwritten"），06 未给出固定枚举，保留字符串。</summary>
-    public sealed class AuraRemovedEvent : IEvent
+    public sealed class AuraRemovedEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.AuraRemoved;
 
@@ -229,10 +316,21 @@ namespace Core.Rules.Common
             AuraDefId = auraDefId;
             Reason = reason ?? throw new ArgumentNullException(nameof(reason));
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "targetId": value = ExprValue.OfId(TargetId); return true;
+                case "auraDefId": value = ExprValue.OfId(AuraDefId); return true;
+                case "reason": value = ExprValue.OfString(Reason); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>叠加层数变化（见 06 第 8 节）。</summary>
-    public sealed class AuraStackChangedEvent : IEvent
+    public sealed class AuraStackChangedEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.AuraStackChanged;
 
@@ -251,10 +349,22 @@ namespace Core.Rules.Common
             OldStacks = oldStacks;
             NewStacks = newStacks;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "targetId": value = ExprValue.OfId(TargetId); return true;
+                case "auraDefId": value = ExprValue.OfId(AuraDefId); return true;
+                case "oldStacks": value = ExprValue.OfInt(OldStacks); return true;
+                case "newStacks": value = ExprValue.OfInt(NewStacks); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>Proc 命中触发条件（见 06 第 8 节；domain 为 skill，见 <see cref="RulesEventKeys"/> 说明）。</summary>
-    public sealed class ProcTriggeredEvent : IEvent
+    public sealed class ProcTriggeredEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.ProcTriggered;
 
@@ -270,10 +380,21 @@ namespace Core.Rules.Common
             ProcDefId = procDefId;
             TriggerSkillId = triggerSkillId;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "procDefId": value = ExprValue.OfId(ProcDefId); return true;
+                case "triggerSkillId": value = ExprValue.OfId(TriggerSkillId); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>仇恨表更新（见 06 第 8 节）。</summary>
-    public sealed class CombatThreatChangedEvent : IEvent
+    public sealed class CombatThreatChangedEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.CombatThreatChanged;
 
@@ -292,10 +413,22 @@ namespace Core.Rules.Common
             OldValue = oldValue;
             NewValue = newValue;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "sourceId": value = ExprValue.OfId(SourceId); return true;
+                case "oldValue": value = ExprValue.OfNumber(OldValue); return true;
+                case "newValue": value = ExprValue.OfNumber(NewValue); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>进入战斗（见 06 第 8 节）。</summary>
-    public sealed class CombatEnteredEvent : IEvent
+    public sealed class CombatEnteredEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.CombatEntered;
 
@@ -305,10 +438,19 @@ namespace Core.Rules.Common
         {
             UnitId = unitId;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>脱离战斗（见 06 第 8 节）。</summary>
-    public sealed class CombatLeftEvent : IEvent
+    public sealed class CombatLeftEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.CombatLeft;
 
@@ -318,12 +460,21 @@ namespace Core.Rules.Common
         {
             UnitId = unitId;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>死亡结算完成（见 06 第 8 节）。<see cref="KillerId"/> 判断记录：环境死亡（跌落、脚本
     /// 赐死等无明确攻击者的场景）不存在"击杀者"，06 原文字段表未标注是否可空，本类型放宽为可空以
     /// 覆盖这类场景；有明确攻击者时正常传入。</summary>
-    public sealed class UnitDiedEvent : IEvent
+    public sealed class UnitDiedEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.UnitDied;
 
@@ -336,10 +487,23 @@ namespace Core.Rules.Common
             UnitId = unitId;
             KillerId = killerId;
         }
+
+        /// <summary><see cref="KillerId"/> 可空（环境死亡无击杀者，见本类型上方判断记录）：为
+        /// null 时查询 "killerId" 返回 false（字段逻辑缺失），交由 <c>event</c> 分组的宿主实现按
+        /// "字段缺失 → 默认值 + 警告"统一处理（见 <see cref="IExprReadableEvent"/> 类型注释）。</summary>
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "killerId" when KillerId.HasValue: value = ExprValue.OfId(KillerId.Value); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>按死亡复活策略处理完成（见 06 第 8 节）。</summary>
-    public sealed class UnitRespawnedEvent : IEvent
+    public sealed class UnitRespawnedEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.UnitRespawned;
 
@@ -352,10 +516,20 @@ namespace Core.Rules.Common
             UnitId = unitId;
             Policy = policy;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "policy": value = ExprValue.OfString(Policy.ToString()); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>行为外壳状态机切换（见 06 第 6、8 节）。</summary>
-    public sealed class AiStateChangedEvent : IEvent
+    public sealed class AiStateChangedEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.AiStateChanged;
 
@@ -371,10 +545,21 @@ namespace Core.Rules.Common
             OldState = oldState;
             NewState = newState;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "oldState": value = ExprValue.OfString(OldState.ToString()); return true;
+                case "newState": value = ExprValue.OfString(NewState.ToString()); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>建议行：AI 按优先级表选出本次决策后触发（见 01 L2 模块表 ai 行）。</summary>
-    public sealed class AiDecisionMadeEvent : IEvent
+    public sealed class AiDecisionMadeEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.AiDecisionMade;
 
@@ -387,11 +572,21 @@ namespace Core.Rules.Common
             UnitId = unitId;
             DecisionId = decisionId;
         }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "decisionId": value = ExprValue.OfId(DecisionId); return true;
+                default: value = default; return false;
+            }
+        }
     }
 
     /// <summary>建议行：目标解析策略链求解完成后触发（见 01 L2 模块表 targeting 行；与 06 第 5 节
     /// "目标选择本身不发事件"的冲突见 <see cref="RulesEventKeys"/> 上方判断记录）。</summary>
-    public sealed class TargetingResolvedEvent : IEvent
+    public sealed class TargetingResolvedEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.TargetingResolved;
 
@@ -406,6 +601,19 @@ namespace Core.Rules.Common
             UnitId = unitId;
             ChainId = chainId;
             TargetIds = (targetIds ?? Array.Empty<Id>()).ToArray();
+        }
+
+        /// <summary><see cref="TargetIds"/> 是列表，不在覆盖范围内（同
+        /// <see cref="SkillCastSuccessEvent.Targets"/>，见 <see cref="IExprReadableEvent"/>
+        /// 类型注释）。</summary>
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "chainId": value = ExprValue.OfId(ChainId); return true;
+                default: value = default; return false;
+            }
         }
     }
 }

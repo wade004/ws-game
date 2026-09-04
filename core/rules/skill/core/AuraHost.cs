@@ -466,8 +466,10 @@ namespace Core.Rules.Skill
                 .SelectMany(i => i.SpellModRefs).ToList();
 
         /// <summary>该单位身上是否存在把 <paramref name="skillId"/> 重定向到另一个技能的
-        /// <c>override_skill</c> 光环效果（见 06 第 3.3 节）；多条命中时取最近施加的一条。</summary>
-        public Id? ResolveOverride(Id unitId, Id skillId)
+        /// <c>override_skill</c> 光环效果（见 06 第 3.3 节）；多条命中时取最近施加的一条。
+        /// 集成任务改名（原名 <c>ResolveOverride</c>）以匹配提升到共享契约
+        /// <see cref="IAuraQuery.ResolveSkillOverride"/> 后的方法名。</summary>
+        public Id? ResolveSkillOverride(Id unitId, Id skillId)
         {
             return _instances.Values
                 .Where(i => i.TargetId.Equals(unitId) && i.OverrideSkill.HasValue && i.OverrideSkill.Value.From.Equals(skillId))

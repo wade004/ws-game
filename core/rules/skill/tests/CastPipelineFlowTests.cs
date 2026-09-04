@@ -183,5 +183,39 @@ namespace Tests.Rules.Skill
             Assert.Equal(new Id("skill.sample_bolt"), successes[1].SkillId);
             Assert.False(world.Host.IsCasting(new Id("unit.caster")));
         }
+
+        [Fact]
+        public void Busy_Fails_WhenCastingAgain_OutsideQueueWindow()
+        {
+            // 契约缺口已补齐：施法者正在读条中、且剩余读条时间超出法术队列窗口时，再次
+            // CastSkill 应失败并携带 CastFailureReason.Busy（不是 OnCooldown——施法者并非真的
+            // 处于技能冷却中，只是读条占用中，见 CastFailureReason.Busy 注释、CastPipeline.cs
+            // 该分支改动前的判断记录）。
+            var channel = J.O(
+                ("id", J.S("skill.sample_cast_slow")),
+                ("school", J.S("skill.school_sample")),
+                ("kind", J.S("active")),
+                ("range", J.N(0)),
+                ("cast_time", J.N(1.0)),
+                ("respects_gcd", J.B(false)),
+                ("target_shape_ref", J.S("target.chain.sample")),
+                ("effects", J.A()));
+
+            var builder = new SkillWorldBuilder();
+            builder.Options.QueueWindow = 0.3;
+            var world = builder.SkillDef(channel).SkillDef(InstantBolt("skill.sample_bolt")).Build();
+            world.AddUnit(new Id("unit.caster"));
+            world.AddUnit(new Id("unit.target"));
+            world.Targets.SetChain(new Id("target.chain.sample"), new Id("unit.target"));
+
+            var start = world.Host.CastSkill(new Id("unit.caster"), new Id("skill.sample_cast_slow"), System.Array.Empty<Id>());
+            Assert.True(start.Success);
+
+            // 尚未推进任何时间：剩余读条时间 = 1.0，远大于队列窗口 0.3。
+            var busy = world.Host.CastSkill(new Id("unit.caster"), new Id("skill.sample_bolt"), System.Array.Empty<Id>());
+            Assert.False(busy.Success);
+            Assert.Equal(CastFailureReason.Busy, busy.Reason);
+            Assert.True(world.Host.IsCasting(new Id("unit.caster")));
+        }
     }
 }

@@ -51,5 +51,25 @@ namespace Core.Rules.Common
         /// <summary>该单位的标签集合，供 <see cref="UnitFilter.RequiredTags"/>/<see cref="UnitFilter.ExcludedTags"/>
         /// 一类按标签过滤的场景使用。</summary>
         IReadOnlyList<Id> GetTags(Id unitId);
+
+        /// <summary>
+        /// 集成任务补齐的契约缺口：该单位所属地图 id（见 <c>ai</c> 模块 README"契约缺口"一节——
+        /// <c>MapId</c> 原先只存在于 <c>Core.Foundation.SimLoop.Entity</c>，L3 载体层把 <c>Unit</c>
+        /// 接入 <c>IWorldSim</c> 时才会用到，本接口原版没有暴露；<c>ai</c> 模块曾用
+        /// <c>AiOptions.MapId</c> 单个固定值作为权宜之计，只适用于单地图场景）。真正按单位所在
+        /// 地图分别寻路（多地图场景）需要这里返回真实值。
+        /// <para>
+        /// 用 C#8 默认接口方法（<c>=&gt; null</c>）而不是把它做成必须实现的抽象成员：本接口已有
+        /// 四个模块各自的测试假实现（<c>combat</c>/<c>targeting</c>/<c>skill</c>/<c>ai</c> 的
+        /// <c>FakeUnitAccess</c>/<c>StubUnitAccess</c>），本次集成任务的改动范围明确限定在
+        /// <c>common</c>/<c>sim_loop</c>/<c>skill</c>/<c>ai</c>/新建目录，不允许连带修改
+        /// <c>combat</c>/<c>targeting</c> 的测试文件；默认实现返回 <c>null</c>（"未知/不接入地图
+        /// 概念"）保证这些既有假实现不必跟着改也能继续通过编译，行为等价于集成前
+        /// （<c>AiOptions.MapId</c> 分支不受影响）。真正按单位接入地图的实现（如本任务
+        /// <c>core/rules/assembly</c> 里基于 <c>Entity.MapId</c> 的 <c>WorldUnitAccess</c>）应
+        /// override 本方法返回真实值。
+        /// </para>
+        /// </summary>
+        Id? GetMapId(Id unitId) => null;
     }
 }

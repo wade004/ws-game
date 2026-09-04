@@ -45,7 +45,13 @@ namespace Core.Foundation.SimLoop
         // 收集 tick 外提交的意图；每次 Tick 阶段 1 开头整体搬到 _currentIntents（保持提交顺序，
         // 确定性），阶段 8 末清空 _currentIntents，_pendingIntents 换上新的空列表供下一 tick 使用。
         private List<Intent> _pendingIntents = new List<Intent>();
-        private IReadOnlyList<Intent> _currentIntents = Array.Empty<Intent>();
+        private List<Intent> _currentIntentsList = new List<Intent>();
+
+        // 集成任务新增：AppendCurrentIntent 的"tick 进行中"守卫（见 IWorldSim.AppendCurrentIntent
+        // 注释）。true 的窗口覆盖整个 Tick() 方法体（含阶段 8 末尾清空 _currentIntentsList 之前），
+        // 但实际调用方（各阶段 ITickPhaseHandler.Execute）只会在阶段 1～7 期间执行，不会真正触及
+        // "已清空之后仍处于 true"这个边角。
+        private bool _isTicking;
 
         private long _tickCounter;
 
@@ -80,7 +86,23 @@ namespace Core.Foundation.SimLoop
             _pendingIntents.Add(intent);
         }
 
-        public IReadOnlyList<Intent> CurrentIntents => _currentIntents;
+        public IReadOnlyList<Intent> CurrentIntents => _currentIntentsList;
+
+        /// <summary>见 <see cref="IWorldSim.AppendCurrentIntent"/>：只在 <see cref="_isTicking"/>
+        /// 为 true（本次 <see cref="Tick"/> 执行期间）时允许追加，直接写入
+        /// <see cref="_currentIntentsList"/>（而不是像 <see cref="SubmitIntent"/> 那样进入下一 tick
+        /// 待收集队列），追加顺序即调用顺序。</summary>
+        public void AppendCurrentIntent(Intent intent)
+        {
+            if (!_isTicking)
+            {
+                throw new InvalidOperationException(
+                    "AppendCurrentIntent 只能在 Tick 执行期间调用（阶段 1～7 之间），" +
+                    "tick 外请改用 SubmitIntent");
+            }
+
+            _currentIntentsList.Add(intent);
+        }
 
         public void Tick(SimStep step)
         {
@@ -90,8 +112,9 @@ namespace Core.Foundation.SimLoop
             // 阶段 1（IntentCollection）开头之前把待提交队列整体搬到 CurrentIntents：保持
             // SubmitIntent 的调用顺序（List 保序），_pendingIntents 换上新的空列表供下一 tick
             // 期间提交的意图使用（与本 tick 的 CurrentIntents 互不干扰）。
-            _currentIntents = _pendingIntents;
+            _currentIntentsList = _pendingIntents;
             _pendingIntents = new List<Intent>();
+            _isTicking = true;
 
             // 判断记录：sim.tick_started 用 PublishImmediate 立即派发，先于本 tick 全部阶段
             // 处理器执行；这是一个"tick 开始"的边界标记事件，不属于 03 第 4.2 节步骤 7
@@ -145,7 +168,8 @@ namespace Core.Foundation.SimLoop
 
             // 阶段 8 末清空 CurrentIntents（见 IWorldSim.CurrentIntents 注释）：本 tick 的意图
             // 已在阶段 1~6 被处理器消费完毕，tick 结束后不应继续可见。
-            _currentIntents = Array.Empty<Intent>();
+            _currentIntentsList = new List<Intent>();
+            _isTicking = false;
 
             _tickCounter++;
         }
