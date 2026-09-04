@@ -41,6 +41,12 @@ namespace Core.Foundation.SimLoop
         private SimTimers _timers = new SimTimers();
         private readonly List<string> _diagnosticsWarnings = new List<string>();
 
+        // T1-9 新增：意图队列（见 IWorldSim.SubmitIntent/CurrentIntents 注释）。_pendingIntents
+        // 收集 tick 外提交的意图；每次 Tick 阶段 1 开头整体搬到 _currentIntents（保持提交顺序，
+        // 确定性），阶段 8 末清空 _currentIntents，_pendingIntents 换上新的空列表供下一 tick 使用。
+        private List<Intent> _pendingIntents = new List<Intent>();
+        private IReadOnlyList<Intent> _currentIntents = Array.Empty<Intent>();
+
         private long _tickCounter;
 
         public WorldSim(IEventBus bus)
@@ -69,10 +75,23 @@ namespace Core.Foundation.SimLoop
         /// </summary>
         public IReadOnlyList<string> DiagnosticsWarnings => _diagnosticsWarnings;
 
+        public void SubmitIntent(Intent intent)
+        {
+            _pendingIntents.Add(intent);
+        }
+
+        public IReadOnlyList<Intent> CurrentIntents => _currentIntents;
+
         public void Tick(SimStep step)
         {
             var tickIndex = _tickCounter;
             var dt = step.Kind == SimStepKind.Continuous ? step.Dt : 0.0;
+
+            // 阶段 1（IntentCollection）开头之前把待提交队列整体搬到 CurrentIntents：保持
+            // SubmitIntent 的调用顺序（List 保序），_pendingIntents 换上新的空列表供下一 tick
+            // 期间提交的意图使用（与本 tick 的 CurrentIntents 互不干扰）。
+            _currentIntents = _pendingIntents;
+            _pendingIntents = new List<Intent>();
 
             // 判断记录：sim.tick_started 用 PublishImmediate 立即派发，先于本 tick 全部阶段
             // 处理器执行；这是一个"tick 开始"的边界标记事件，不属于 03 第 4.2 节步骤 7
@@ -123,6 +142,10 @@ namespace Core.Foundation.SimLoop
             // 再调用一次 DispatchPending，让本阶段刚入队的 entity.destroyed 与
             // sim.tick_finished 在本 tick 内送达（而不是留到下一次 Tick 才派发）。
             _bus.DispatchPending();
+
+            // 阶段 8 末清空 CurrentIntents（见 IWorldSim.CurrentIntents 注释）：本 tick 的意图
+            // 已在阶段 1~6 被处理器消费完毕，tick 结束后不应继续可见。
+            _currentIntents = Array.Empty<Intent>();
 
             _tickCounter++;
         }

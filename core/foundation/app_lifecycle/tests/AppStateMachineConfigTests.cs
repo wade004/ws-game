@@ -24,6 +24,15 @@ namespace Tests.Foundation.AppLifecycle
             Assert.False(config.IsSubTransitionAllowed(SubStateId.Dialog, SubStateId.Combat));
         }
 
+        // 2.1 Default() 的主状态默认表：Loading→MainMenu（T1-9 收尾修正，加载失败时回主菜单）
+        [Fact]
+        public void Default_AllowsLoadingToMainMenu()
+        {
+            var config = AppStateMachineConfig.Default();
+
+            Assert.True(config.IsTransitionAllowed(AppState.Loading, AppState.MainMenu));
+        }
+
         // 3. FromDefinitions 按 kind 分派构造出等价配置
         [Fact]
         public void FromDefinitions_BuildsExpectedConfig()

@@ -93,5 +93,21 @@ namespace Core.Foundation.SimLoop
 
         /// <summary>当前存活（未销毁）实体总数。</summary>
         int EntityCount { get; }
+
+        /// <summary>
+        /// 提交一条意图（见 <see cref="Intent"/>、03 第 4.2 节步骤 1"输入意图收集"）：
+        /// tick 外或某次 <see cref="Tick"/> 阶段 1 之前调用均可，进入"本 tick 待收集"的队列；
+        /// 确定性：多次调用按调用顺序进入 <see cref="CurrentIntents"/>（呼应 03 第 3.2 节第 6 条
+        /// "回放 = 意图序列"——同一份意图序列、同样的提交顺序，产生同样的结果）。
+        /// </summary>
+        void SubmitIntent(Intent intent);
+
+        /// <summary>
+        /// 本 tick 的意图列表：在 <see cref="Tick"/> 阶段 1（<see cref="TickPhase.IntentCollection"/>）
+        /// 开头由待提交队列整体搬入（此后同一 tick 内多次读取值不变），阶段 8
+        /// （<see cref="TickPhase.LifecycleCleanup"/>）结束时清空。tick 之外（尚未调用过
+        /// <see cref="Tick"/>，或上一次 <see cref="Tick"/> 已完成）读取为空列表。
+        /// </summary>
+        IReadOnlyList<Intent> CurrentIntents { get; }
     }
 }

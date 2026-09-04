@@ -37,11 +37,13 @@ namespace Tests.Foundation.AppLifecycle
             Assert.Equal(AppState.Boot, host.GetState());
         }
 
-        // 1~8. 03 第 2 节状态机表全部 8 条合法主状态转移逐条通过
+        // 1~9. 03 第 2 节状态机表全部合法主状态转移逐条通过（含 T1-9 收尾修正新增的
+        // Loading→MainMenu：加载失败时回主菜单，见 AppStateMachineConfig.Default 判断记录 3）
         [Theory]
         [InlineData(AppState.Boot, AppState.MainMenu)]
         [InlineData(AppState.MainMenu, AppState.Loading)]
         [InlineData(AppState.Loading, AppState.InWorld)]
+        [InlineData(AppState.Loading, AppState.MainMenu)]
         [InlineData(AppState.InWorld, AppState.Pause)]
         [InlineData(AppState.InWorld, AppState.MainMenu)]
         [InlineData(AppState.InWorld, AppState.Loading)]
@@ -57,14 +59,14 @@ namespace Tests.Foundation.AppLifecycle
             Assert.Equal(to, host.GetState());
         }
 
-        // 9~14. 非法转移返回 false 且状态不变
+        // 10~14. 非法转移返回 false 且状态不变（T1-9 收尾修正：Loading→MainMenu 由非法改为
+        // 合法，见上方 RequestTransition_LegalTransition_Succeeds 第 4 条，本表相应移除该行）
         [Theory]
         [InlineData(AppState.Boot, AppState.InWorld)]
         [InlineData(AppState.Loading, AppState.Pause)]
         [InlineData(AppState.Pause, AppState.Loading)]
         [InlineData(AppState.MainMenu, AppState.InWorld)]
         [InlineData(AppState.InWorld, AppState.Boot)]
-        [InlineData(AppState.Loading, AppState.MainMenu)]
         public void RequestTransition_IllegalTransition_ReturnsFalseAndStateUnchanged(AppState from, AppState to)
         {
             var host = CreateHostAt(from);

@@ -20,8 +20,10 @@
   （`SaveSections`）与汇总/迁移/落盘的编排逻辑。
 - 不解释业务字段含义：`display_summary` 的键、`Args`（回放意图参数）的结构等一律是
   游戏层/上层模块的约定，本模块只搬运 `JsonValue`。
-- 不实现确定性回放：`IReplayRecorder`/`IReplayPlayer`/`ReplayData`/`ReplayInputRecord`
-  只建立契约与数据类型（见 `contracts/Replay.cs`），具体实现留给 T1-9（10 第 8 节）。
+- 不组装具体世界：确定性回放的契约、数据类型与默认实现（`IReplayRecorder`/`IReplayPlayer`/
+  `ReplayRecorder`/`ReplayPlayer`/`ReplayData`/`ReplayInputRecord`/`WorldSnapshot`，见
+  `contracts/Replay.cs`、`core/ReplayRecorder.cs`、`core/ReplayPlayer.cs`，T1-9）均已落地，但
+  世界如何装配（阶段处理器、意图词汇表等具体游戏内容）由调用方经 `WorldFactory` 委托提供。
 - 不读取系统时间、不使用反射、不使用多线程/锁、不直接触碰文件路径以外的任何引擎/平台 API。
 
 ## 目录
@@ -132,10 +134,12 @@ save_system/
 
 ## 回放（`IReplayRecorder`/`IReplayPlayer`）
 
-本任务只建立契约与 `ReplayData`/`ReplayInputRecord` 两个数据类型（10 第 8 节），不提供实现。
-`IReplayPlayer.StepTo` 的返回类型在 10 伪代码里是 `WorldSnapshot`——该类型属于世界模型/
-`sim_loop` 范畴，本模块（L0 `save_system`）不定义它，暂用 `object` 占位；T1-9 实现回放播放器
-时按需调整本接口签名或在更上层重新声明。
+本模块提供 `ReplayData`/`ReplayInputRecord`/`WorldSnapshot` 三个数据类型与
+`IReplayRecorder`/`IReplayPlayer` 契约（10 第 8 节），并在 `core/ReplayRecorder.cs`、
+`core/ReplayPlayer.cs` 给出默认实现（T1-9）。`IReplayPlayer.StepTo` 返回的 `WorldSnapshot`
+（`Tick`/`EventLog`/自写 FNV-1a 64 位 `Digest`）定义在 `contracts/Replay.cs`；世界如何组装
+（阶段处理器、意图词汇表等具体游戏内容）由调用方经 `WorldFactory` 委托提供，本模块自身不
+知道任何业务内容。
 
 ## 诊断
 
@@ -184,5 +188,5 @@ save_system/
 | 原子写入、备份轮转、损坏回退 | 是（经 `IFileSystem`） | 无 |
 | 迁移函数链机制 | 是 | 具体每次 schema 变更对应的 `ISaveMigration` 实现 |
 | 自动存档触发点判断机制 | 是 | 具体启用哪些触发点、把触发点接到游戏时机 |
-| 确定性回放契约 | 是（契约与数据类型） | 是否把回放暴露为玩家可见功能；回放实现本身（T1-9） |
+| 确定性回放 | 是（契约、数据类型与默认实现：`ReplayRecorder`/`ReplayPlayer`，T1-9） | 是否把回放暴露为玩家可见功能；世界装配逻辑（经 `WorldFactory` 提供） |
 | 设置文件存储与迁移 | 是 | 具体设置字段结构与含义 |

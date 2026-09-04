@@ -29,9 +29,18 @@ namespace Core.Foundation.AppLifecycle
         /// 主状态 Boot→MainMenu；MainMenu→Loading；Loading→InWorld；
         /// InWorld→Pause、InWorld→MainMenu、InWorld→Loading；Pause→InWorld、Pause→MainMenu
         /// （"MainMenu→退出应用"不是状态转移，见 <see cref="IAppStateHost.RequestExit"/>）。
+        /// 另加 Loading→MainMenu（T1-9 收尾修正，见下方判断记录 3）。
         /// 子状态 Explore→Combat、Explore→Dialog、Explore→MenuOverlay、Explore→Cutscene；
         /// Combat→Explore、Dialog→Explore、Cutscene→Explore；另加 Combat→MenuOverlay
         /// （见下方判断记录，覆盖"MenuOverlay 叠加在 Combat 上"这一 03 原文举例场景）。
+        /// <para>
+        /// 判断记录 3（T1-9 收尾修正）：03 第 2 节状态机表 <c>Loading</c> 一行"允许转移到"
+        /// 只写了 <c>InWorld</c>（加载完成的正常路径），未覆盖"加载失败"这一异常路径——
+        /// 但 <c>Loading</c> 由 <c>SceneRouter</c> 驱动加载数据表与资源引用（见 03 第 6 节步骤 3、
+        /// 04_数据与内容管线.md 校验器"运行时不做静默降级"的原则），加载失败时若无法转移到
+        /// 任何状态，应用会卡在 <c>Loading</c> 且没有出口。补一条 <c>Loading→MainMenu</c>
+        /// 默认转移，供加载失败时回退到主菜单（03 第 2 节表本身随本次修正同步勘误）。
+        /// </para>
         /// </summary>
         public static AppStateMachineConfig Default()
         {
@@ -40,6 +49,7 @@ namespace Core.Foundation.AppLifecycle
             config.AllowTransition(AppState.Boot, AppState.MainMenu);
             config.AllowTransition(AppState.MainMenu, AppState.Loading);
             config.AllowTransition(AppState.Loading, AppState.InWorld);
+            config.AllowTransition(AppState.Loading, AppState.MainMenu);
             config.AllowTransition(AppState.InWorld, AppState.Pause);
             config.AllowTransition(AppState.InWorld, AppState.MainMenu);
             config.AllowTransition(AppState.InWorld, AppState.Loading);
