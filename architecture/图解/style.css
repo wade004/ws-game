@@ -1,0 +1,234 @@
+/* 架构图解 · 共享样式表（零外部依赖，全部相对路径本地引用） */
+
+:root{
+  --bg:#f6f6f3;
+  --bg-alt:#eef0ee;
+  --fg:#242a33;
+  --muted:#6b7280;
+  --card:#ffffff;
+  --border:#e0e0dc;
+  --accent:#2563eb;
+  --accent-bg:#e3edfd;
+
+  --l-1:#6b7280;  --l-1-bg:#e9ebee;
+  --l0:#2563eb;   --l0-bg:#e3edfd;
+  --l1:#0e8fa3;   --l1-bg:#dff4f7;
+  --l2:#d9660b;   --l2-bg:#fdece0;
+  --l3:#16a34a;   --l3-bg:#e5f7ec;
+  --l4:#7c3aed;   --l4-bg:#f1e9fc;
+  --l5:#c0267d;   --l5-bg:#fbe6f0;
+  --game:#a3790a; --game-bg:#faf1d6;
+
+  --radius:10px;
+}
+
+*{ box-sizing:border-box; }
+html{ scroll-behavior:smooth; }
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--fg);
+  font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;
+  line-height:1.7;
+  font-size:16px;
+}
+
+.page{
+  max-width:1100px;
+  margin:0 auto;
+  padding:0 24px 60px;
+}
+
+/* ---------- 顶部导航条 ---------- */
+.topnav{
+  position:sticky; top:0; z-index:20;
+  background:rgba(246,246,243,0.96);
+  border-bottom:1px solid var(--border);
+  backdrop-filter:blur(2px);
+}
+.topnav-inner{
+  max-width:1100px; margin:0 auto;
+  display:flex; align-items:center; gap:14px;
+  padding:10px 24px; flex-wrap:wrap;
+}
+.topnav a{ color:var(--accent); text-decoration:none; font-size:14px; }
+.topnav a:hover{ text-decoration:underline; }
+.topnav .home-link{ font-weight:700; color:var(--fg); }
+.topnav .spacer{ flex:1 1 auto; }
+.topnav .prevnext{ display:flex; gap:14px; flex-wrap:wrap; }
+.topnav details{ position:relative; }
+.topnav summary{
+  cursor:pointer; font-size:14px; color:var(--fg);
+  list-style:none; padding:4px 10px; border:1px solid var(--border);
+  border-radius:8px; background:var(--card);
+}
+.topnav summary::-webkit-details-marker{ display:none; }
+.topnav details[open] summary{ border-color:var(--accent); }
+.topnav .menu{
+  position:absolute; right:0; top:calc(100% + 6px);
+  background:var(--card); border:1px solid var(--border);
+  border-radius:10px; padding:8px; min-width:260px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.08);
+  list-style:none; margin:0;
+}
+.topnav .menu li{ margin:0; }
+.topnav .menu a{ display:block; padding:6px 8px; border-radius:6px; font-size:14px; }
+.topnav .menu a:hover{ background:var(--bg-alt); text-decoration:none; }
+.topnav .menu .current{ color:var(--fg); font-weight:700; background:var(--accent-bg); }
+
+.bottomnav{
+  display:flex; justify-content:space-between; gap:14px; flex-wrap:wrap;
+  margin-top:48px; padding-top:20px; border-top:1px solid var(--border);
+}
+.bottomnav a{ color:var(--accent); text-decoration:none; font-size:14px; }
+.bottomnav a:hover{ text-decoration:underline; }
+
+/* ---------- 版式基础 ---------- */
+h1{ font-size:30px; margin:28px 0 8px; }
+h2{ font-size:23px; margin:44px 0 6px; border-left:5px solid var(--accent); padding-left:12px; }
+h3{ font-size:18px; margin:28px 0 6px; color:var(--fg); }
+p{ margin:10px 0; }
+.subtitle{ color:var(--muted); font-size:16px; margin-top:0; }
+.meta-line{ color:var(--muted); font-size:13px; }
+code, .id-code{
+  font-family:Consolas,"Cascadia Code",monospace;
+  background:var(--bg-alt); border:1px solid var(--border);
+  border-radius:5px; padding:1px 6px; font-size:14px;
+}
+
+/* ---------- 打比方 / 要点 / 深入阅读 卡片 ---------- */
+.analogy{
+  background:var(--accent-bg);
+  border:1px solid #c7dafb;
+  border-left:5px solid var(--accent);
+  border-radius:var(--radius);
+  padding:14px 18px;
+  margin:16px 0;
+}
+.analogy .label{ font-weight:700; color:var(--accent); margin-right:6px; }
+
+.keypoints{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:14px 20px;
+  margin:16px 0;
+}
+.keypoints .label{ font-weight:700; margin-bottom:6px; display:block; }
+.keypoints ul{ margin:6px 0 0; padding-left:22px; }
+.keypoints li{ margin:6px 0; }
+
+.deepdive{
+  background:var(--bg-alt);
+  border:1px dashed var(--border);
+  border-radius:var(--radius);
+  padding:12px 18px;
+  margin:16px 0;
+  font-size:14px;
+  color:var(--muted);
+}
+.deepdive .label{ font-weight:700; color:var(--fg); margin-right:6px; }
+.deepdive code{ color:var(--fg); }
+
+.section-block{
+  border-top:1px dotted var(--border);
+  padding-top:20px;
+  margin-top:28px;
+}
+.section-block:first-of-type{ border-top:none; }
+
+/* ---------- 图（SVG）容器 ---------- */
+.figure{
+  margin:18px 0;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:14px 14px 10px;
+}
+.figure svg{ width:100%; height:auto; display:block; }
+.figure figcaption{
+  margin-top:8px; font-size:13px; color:var(--muted);
+}
+.fig-num{
+  display:inline-block; background:var(--fg); color:#fff;
+  border-radius:6px; padding:1px 8px; font-weight:700;
+  font-size:13px; margin-right:8px;
+}
+
+/* SVG 内通用类 */
+svg text{ font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif; }
+.node-rect{ fill:var(--card); stroke:var(--border); stroke-width:1.5; }
+.node-title{ font-size:14px; font-weight:700; fill:var(--fg); }
+.node-sub{ font-size:12px; fill:var(--muted); }
+.edge{ stroke:var(--fg); stroke-width:2; fill:none; }
+.edge-muted{ stroke:var(--muted); stroke-width:1.6; fill:none; }
+.edge-dashed{ stroke-dasharray:6 4; }
+.arrowhead{ fill:var(--fg); }
+.arrowhead-muted{ fill:var(--muted); }
+.lane-label{ font-size:12px; font-weight:700; fill:var(--muted); }
+.small-note{ font-size:12px; fill:var(--muted); }
+
+.tag-l-1{ fill:var(--l-1-bg); stroke:var(--l-1); }
+.tag-l0{ fill:var(--l0-bg); stroke:var(--l0); }
+.tag-l1{ fill:var(--l1-bg); stroke:var(--l1); }
+.tag-l2{ fill:var(--l2-bg); stroke:var(--l2); }
+.tag-l3{ fill:var(--l3-bg); stroke:var(--l3); }
+.tag-l4{ fill:var(--l4-bg); stroke:var(--l4); }
+.tag-l5{ fill:var(--l5-bg); stroke:var(--l5); }
+.tag-game{ fill:var(--game-bg); stroke:var(--game); }
+.txt-l-1{ fill:var(--l-1); } .txt-l0{ fill:var(--l0); } .txt-l1{ fill:var(--l1); }
+.txt-l2{ fill:var(--l2); } .txt-l3{ fill:var(--l3); } .txt-l4{ fill:var(--l4); }
+.txt-l5{ fill:var(--l5); } .txt-game{ fill:var(--game); }
+
+/* ---------- 表格 ---------- */
+table{ width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; }
+th,td{ border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+th{ background:var(--bg-alt); }
+.tbl-wrap{ overflow-x:auto; }
+
+/* ---------- 标签/徽章 ---------- */
+.tag{
+  display:inline-block; padding:2px 9px; border-radius:999px;
+  font-size:12px; border:1px solid var(--border); background:var(--bg-alt);
+  margin:2px 4px 2px 0;
+}
+
+/* ---------- 首页目录卡片网格 ---------- */
+.toc-grid{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+  gap:14px; margin:20px 0;
+}
+.toc-card{
+  display:block; background:var(--card); border:1px solid var(--border);
+  border-radius:var(--radius); padding:14px 16px; text-decoration:none; color:var(--fg);
+  transition:border-color .15s;
+}
+.toc-card:hover{ border-color:var(--accent); }
+.toc-card .idx{ color:var(--accent); font-weight:700; font-size:13px; }
+.toc-card .name{ font-size:16px; font-weight:700; margin:4px 0; }
+.toc-card .desc{ font-size:13px; color:var(--muted); }
+
+.cover{
+  padding:40px 0 10px;
+  border-bottom:1px solid var(--border);
+  margin-bottom:10px;
+}
+.cover h1{ margin-top:0; font-size:34px; }
+.badge-row{ margin:10px 0; }
+
+.callout-list{ display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
+
+/* ---------- 打印 ---------- */
+@media print{
+  .topnav, .bottomnav{ display:none; }
+  .page{ max-width:none; }
+  a{ color:inherit; text-decoration:none; }
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width:700px){
+  body{ font-size:15px; }
+  h1{ font-size:24px; }
+  h2{ font-size:19px; }
+  .topnav-inner{ padding:8px 14px; }
+}

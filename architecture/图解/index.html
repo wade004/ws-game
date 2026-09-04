@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>游戏技术基础架构 图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <span class="home-link">游戏技术基础架构 图解</span>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="01_七层结构.html">下一章：七层结构 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+
+<section class="cover">
+  <h1>游戏技术基础架构 图解</h1>
+  <p class="subtitle">一套不属于任何具体游戏、专门用来"打地基"的技术骨架——它决定的是"世界怎么跑起来、内容怎么加进去"，不决定"这是一款什么样的游戏"。</p>
+  <div class="badge-row">
+    <span class="tag">版本 v3</span>
+    <span class="tag">日期 2026-09-04</span>
+    <span class="tag">图解导读，共 14 个页面、23 张图</span>
+  </div>
+  <p class="meta-line">阅读提示：本站是原始架构文档的图解导读，尽量用比方把结构讲清楚；每一节末尾都会说明"想看细节请翻哪一份文档"，那些文档在本目录的上一级目录里，是真正的权威说明。原始文档里出现的 <code>interface 名字 { ... }</code> 这类写法，是一种中立的"接口描述记法"，只用来把"某个模块对外提供什么能力、要什么输入、给什么输出"写清楚，不属于任何编程语言、也不是代码；本站为了通俗，一律把这类写法换成了图与表格来讲，不再照抄这种记法。本站只面向理解，不替代原文档。</p>
+</section>
+
+<section class="section-block" id="ch1">
+  <h2>第一章 · 一分钟看懂：这套架构是什么、不是什么</h2>
+
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    这套架构像一栋"毛坯楼房加装修标准"，而不是某一套具体的家具。承重墙、水电走线、层高这些"结构性的东西"一旦定下就不轻易改；至于客厅摆沙发还是摆书架、卧室刷什么颜色，这些"装修风格"留给每一款具体游戏自己决定，随时可以换。
+  </div>
+
+  <h3>目标（5 条）</h3>
+  <div class="keypoints">
+    <ul>
+      <li><b>一套骨架能装下后续所有游戏</b>：做新游戏＝选好承重方式（引擎）＋装修（数据与资源），不用重新盖楼。</li>
+      <li><b>逻辑的世界和看到的画面彻底分家</b>：世界怎么运转不需要知道自己长什么样，画面只负责"照着世界的样子画出来"。</li>
+      <li><b>可以随时换承重结构（引擎）</b>：只要接口不变，把承重方式从钢筋换成木结构，房间里的家具不用挪。</li>
+      <li><b>结果可以重复验证</b>：同样的操作，反复重放要得到一模一样的结果，才能放心测试与排错。</li>
+      <li><b>每个房间能整体搬走复用</b>：厨房、卫生间这些"模块"设计成能拆下来装到别的房子里继续用。</li>
+    </ul>
+  </div>
+
+  <h3>非目标（明确不做）</h3>
+  <div class="callout-list">
+    <span class="tag">联网多人</span>
+    <span class="tag">服务器权威校验</span>
+    <span class="tag">防作弊</span>
+    <span class="tag">玩家对玩家对战</span>
+    <span class="tag">公会 / 邮件 / 拍卖行</span>
+    <span class="tag">跨服</span>
+    <span class="tag">开放给玩家的插件接口</span>
+    <span class="tag">载具与飞行</span>
+    <span class="tag">独立的宠物对战玩法</span>
+    <span class="tag">账号登录体系</span>
+  </div>
+  <p class="meta-line">这栋楼从设计之初就没打算通网线——它是给单机、单人游戏盖的地基，上面这些能力不是"以后再加"，而是从设计上就不考虑。</p>
+
+  <h3>四个"可以随时反悔"的选择 与 三个"定死的根基"</h3>
+  <div class="figure">
+    <span class="fig-num">图 A</span><b>骨架与可插拔件示意图</b>
+    <svg viewBox="0 0 920 460" role="img" aria-label="骨架与可插拔件示意图">
+      <rect x="30" y="40" width="280" height="400" rx="14" class="tag-l0"/>
+      <text x="170" y="72" text-anchor="middle" class="node-title">骨架（定死不改）</text>
+      <line x1="55" y1="88" x2="285" y2="88" stroke="var(--l0)" stroke-width="1"/>
+
+      <text x="55" y="125" class="node-title" font-size="13">① 二维平面世界</text>
+      <text x="55" y="146" class="node-sub">看着可能是 2D 或 3D 画面，</text>
+      <text x="55" y="163" class="node-sub">但世界的位置、距离、寻路</text>
+      <text x="55" y="180" class="node-sub">全部按平面坐标计算</text>
+
+      <text x="55" y="225" class="node-title" font-size="13">② 单机独立运行</text>
+      <text x="55" y="246" class="node-sub">不联网、不需要服务器，</text>
+      <text x="55" y="263" class="node-sub">一台电脑自己就能跑完整</text>
+      <text x="55" y="280" class="node-sub">的一局游戏</text>
+
+      <text x="55" y="325" class="node-title" font-size="13">③ 一次只进一张地图</text>
+      <text x="55" y="346" class="node-sub">世界按"分区地图"组织，</text>
+      <text x="55" y="363" class="node-sub">而不是一整块无缝大陆，</text>
+      <text x="55" y="380" class="node-sub">切地图＝换一张场景</text>
+
+      <text x="170" y="420" text-anchor="middle" class="small-note">这三条不随游戏而变</text>
+
+      <!-- pluggable boxes -->
+      <g>
+        <rect x="430" y="30" width="460" height="90" rx="12" class="tag-l3" stroke-dasharray="6 4"/>
+        <text x="450" y="58" class="node-title" font-size="13">画面外形：2D 精灵 还是 3D 模型？</text>
+        <text x="450" y="80" class="node-sub">默认用 2D，想让换装更自由时可以选 3D，随时可切换</text>
+        <text x="450" y="100" class="small-note">→ 详见第四、九章</text>
+      </g>
+      <g>
+        <rect x="430" y="140" width="460" height="90" rx="12" class="tag-l3" stroke-dasharray="6 4"/>
+        <text x="450" y="168" class="node-title" font-size="13">打斗节奏：即时 还是 回合制？</text>
+        <text x="450" y="190" class="node-sub">同一套战斗规则，既能连续实时打，也能排队一步步来</text>
+        <text x="450" y="210" class="small-note">→ 详见第三、六章</text>
+      </g>
+      <g>
+        <rect x="430" y="250" width="460" height="90" rx="12" class="tag-l3" stroke-dasharray="6 4"/>
+        <text x="450" y="278" class="node-title" font-size="13">地图规模：小分区 还是 一整段大关卡？</text>
+        <text x="450" y="300" class="node-sub">分区地图这条根基不变，但一个分区里塞多少内容随意</text>
+        <text x="450" y="320" class="small-note">→ 详见第八章</text>
+      </g>
+      <g>
+        <rect x="430" y="360" width="460" height="90" rx="12" class="tag-l3" stroke-dasharray="6 4"/>
+        <text x="450" y="388" class="node-title" font-size="13">主角规模：单人 还是 带一支队伍？</text>
+        <text x="450" y="410" class="node-sub">世界模拟不限制单位数量，一人一队都只是数据配置</text>
+        <text x="450" y="430" class="small-note">→ 详见第四、六章</text>
+      </g>
+
+      <!-- connectors -->
+      <line x1="311" y1="75" x2="428" y2="75" class="edge-muted edge-dashed"/>
+      <polygon points="428,69 428,81 438,75" class="arrowhead-muted"/>
+      <line x1="311" y1="185" x2="428" y2="185" class="edge-muted edge-dashed"/>
+      <polygon points="428,179 428,191 438,185" class="arrowhead-muted"/>
+      <line x1="311" y1="295" x2="428" y2="295" class="edge-muted edge-dashed"/>
+      <polygon points="428,289 428,301 438,295" class="arrowhead-muted"/>
+      <line x1="311" y1="405" x2="428" y2="405" class="edge-muted edge-dashed"/>
+      <polygon points="428,399 428,411 438,405" class="arrowhead-muted"/>
+    </svg>
+    <figcaption>左边是不会随游戏变化的三条根基；右边虚线框是可以按游戏口味随时挑选、以后也能反悔更换的配置项。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>架构本身不是一款游戏，它不回答"这个游戏有几个技能""能不能跳跃"这类问题，只提供能装下这些答案的容器。</li>
+      <li>"根基"和"口味"是两类完全不同的东西：根基改动代价极高，需要走严格的审批流程；口味改动只是填一份配置表。</li>
+      <li>画面是 2D 还是 3D，只影响"最后怎么画出来"，不影响世界内部怎么计算距离和碰撞——这是"逻辑与画面分家"（见第四章）能够成立的前提。</li>
+      <li>即时战斗与回合制战斗共用同一套战斗规则，区别只在于"下一步是按时间自动推进，还是等每个人依次行动"。</li>
+      <li>这套架构的设计参照系是一款知名的大型多人在线游戏在系统设计上的做法，但把"多人在线"相关的部分整体拿掉，只留下"内容怎么组织、规则怎么跑"的骨架。</li>
+    </ul>
+  </div>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>00_架构总则.md</code>（目标、非目标、裁剪原则、名词表）
+  </div>
+</section>
+
+<section class="section-block">
+  <h2>全站导览</h2>
+  <p>下面每张卡片对应一章，点击即可进入；每一章都遵循"打个比方 → 看一张图 → 记住几条要点 → 想深入看哪份文档"的固定顺序。</p>
+  <div class="toc-grid">
+    <a class="toc-card" href="01_七层结构.html">
+      <div class="idx">第二章</div>
+      <div class="name">七层结构</div>
+      <div class="desc">世界从底到顶叠了几层，每层管什么、只能往下叫</div>
+    </a>
+    <a class="toc-card" href="02_程序怎么跑起来.html">
+      <div class="idx">第三章</div>
+      <div class="name">程序怎么跑起来</div>
+      <div class="desc">开机到进入世界的状态流转、主循环节拍、一步计算的八道工序</div>
+    </a>
+    <a class="toc-card" href="03_逻辑与画面分家.html">
+      <div class="idx">第四章</div>
+      <div class="name">逻辑与画面分家</div>
+      <div class="desc">世界里的对象都有哪几种、逻辑对象和它的"画面替身"如何绑定</div>
+    </a>
+    <a class="toc-card" href="04_数据即内容.html">
+      <div class="idx">第五章</div>
+      <div class="name">数据即内容</div>
+      <div class="desc">内容怎么变成表格数据、加一件新装备要动哪些地方</div>
+    </a>
+    <a class="toc-card" href="05_万物皆法术.html">
+      <div class="idx">第六章</div>
+      <div class="name">万物皆法术</div>
+      <div class="desc">技能、效果、光环、触发怎么组合成"世界一切变化"的统一语言</div>
+    </a>
+    <a class="toc-card" href="06_战斗周边.html">
+      <div class="idx">第七章</div>
+      <div class="name">战斗周边</div>
+      <div class="desc">属性怎么叠加、仇恨表干什么用、AI 怎么决策</div>
+    </a>
+    <a class="toc-card" href="07_载体与玩法.html">
+      <div class="idx">第八章</div>
+      <div class="name">载体与玩法</div>
+      <div class="desc">物品生物物件怎么定义、任务对话掉落怎么组织</div>
+    </a>
+    <a class="toc-card" href="08_表现层.html">
+      <div class="idx">第九章</div>
+      <div class="name">表现层</div>
+      <div class="desc">逻辑事件怎么变成飘字特效音效、画面怎么分层合成</div>
+    </a>
+    <a class="toc-card" href="09_存档.html">
+      <div class="idx">第十章</div>
+      <div class="name">存档</div>
+      <div class="desc">存档里存了什么、读档顺序、为什么能保证重放一致</div>
+    </a>
+    <a class="toc-card" href="10_引擎适配与选型.html">
+      <div class="idx">第十一章</div>
+      <div class="name">引擎适配与选型</div>
+      <div class="desc">运行时唯一接触"具体技术"的一层，换引擎只换这一层</div>
+    </a>
+    <a class="toc-card" href="11_做一款新游戏.html">
+      <div class="idx">第十二章</div>
+      <div class="name">做一款新游戏</div>
+      <div class="desc">拿这套骨架立项一款新游戏的六个步骤</div>
+    </a>
+    <a class="toc-card" href="12_怎么改架构.html">
+      <div class="idx">第十三章</div>
+      <div class="name">怎么改架构</div>
+      <div class="desc">加内容不用申请、加新机制必须先写决策记录</div>
+    </a>
+    <a class="toc-card" href="13_附录.html">
+      <div class="idx">附录</div>
+      <div class="name">对照表 · 名词表 · 文档清单</div>
+      <div class="desc">与知名网游系统设计的对照、全部中英术语、原始文档索引</div>
+    </a>
+  </div>
+</section>
+
+<nav class="bottomnav">
+  <span></span>
+  <a href="01_七层结构.html">下一章：七层结构 →</a>
+</nav>
+
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

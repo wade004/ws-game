@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>存档 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="08_表现层.html">← 上一章：表现层</a>
+      <a href="10_引擎适配与选型.html">下一章：引擎适配与选型 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第十章 · 存档</h1>
+<p class="subtitle">单机游戏没有服务器兜底，存档就是玩家进度唯一说了算的地方。</p>
+
+<div class="section-block">
+  <h3>存档里到底装了什么，读的时候先拿哪样</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像去银行开一个保险箱：柜台先给你记一张"摘要卡"方便你自己找箱子（摘要段）；箱子里按固定顺序码放证件（玩家段）、房产合同（世界段），还有一枚决定"开奖顺序"的骰子当前点数（随机数段）。下次来取，柜员必须严格照固定顺序一样样往外拿、一样样恢复——不能乱序，因为后面要拿的东西，有的要依赖前面已经摆好的信息才能核对。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 T</span><b>存档文档结构与读档顺序</b>
+    <svg viewBox="0 0 1080 560" role="img" aria-label="存档文档结构分四段，读档按九步固定顺序恢复">
+      <text x="20" y="24" font-size="14" font-weight="700">存档文档结构（四段）</text>
+
+      <rect x="20" y="36" width="380" height="90" rx="10" class="tag-l0"/>
+      <text x="34" y="58" font-size="13" font-weight="700">meta 摘要段</text>
+      <text x="34" y="78" font-size="12" class="small-note">版本号·槽位·创建/更新时间·游玩</text>
+      <text x="34" y="94" font-size="12" class="small-note">时长·摘要文本·所属游戏id·难度</text>
+      <text x="34" y="112" font-size="12" class="small-note">（只供界面展示，不参与模拟）</text>
+
+      <rect x="20" y="136" width="380" height="130" rx="10" class="tag-l3"/>
+      <text x="34" y="158" font-size="13" font-weight="700">player 玩家段</text>
+      <text x="34" y="178" font-size="12" class="small-note">等级经验·职业种族引用·已学技能</text>
+      <text x="34" y="194" font-size="12" class="small-note">技能槽位绑定·背包与已装备物品</text>
+      <text x="34" y="210" font-size="12" class="small-note">货币·任务状态·成就进度</text>
+
+      <rect x="20" y="276" width="380" height="110" rx="10" class="tag-l4"/>
+      <text x="34" y="298" font-size="13" font-weight="700">world 世界段</text>
+      <text x="34" y="318" font-size="12" class="small-note">当前地图与坐标·世界状态标志</text>
+      <text x="34" y="334" font-size="12" class="small-note">字典完整快照·刷新记录（可选）</text>
+      <text x="34" y="350" font-size="12" class="small-note">已探索区域（可选）</text>
+
+      <rect x="20" y="396" width="380" height="70" rx="10" class="tag-l1"/>
+      <text x="34" y="418" font-size="13" font-weight="700">rng 随机数段</text>
+      <text x="34" y="438" font-size="12" class="small-note">各分流随机源当前的内部状态</text>
+
+      <text x="34" y="490" font-size="12" class="small-note">属性聚合结果、光环运行时实例、</text>
+      <text x="34" y="506" font-size="12" class="small-note">战斗中间状态默认都不存——这些</text>
+      <text x="34" y="522" font-size="12" class="small-note">是"重新算一遍就能得到"的派生值</text>
+
+      <text x="470" y="24" font-size="14" font-weight="700">读档顺序（九步，固定）</text>
+
+      <rect x="470" y="36" width="590" height="40" rx="8" class="tag-l0"/>
+      <text x="486" y="61" font-size="12">① meta（仅摘要，不影响模拟）</text>
+      <rect x="470" y="82" width="590" height="40" rx="8" class="tag-l4"/>
+      <text x="486" y="107" font-size="12">② 世界状态标志字典（后续很多判断都依赖它，最先恢复）</text>
+      <rect x="470" y="128" width="590" height="40" rx="8" class="tag-l3"/>
+      <text x="486" y="153" font-size="12">③ 玩家的等级经验、职业种族引用</text>
+      <rect x="470" y="174" width="590" height="40" rx="8" class="tag-l3"/>
+      <text x="486" y="199" font-size="12">④ 背包与已装备物品（依赖③已确定的合法槽位规则）</text>
+      <rect x="470" y="220" width="590" height="40" rx="8" class="tag-l3"/>
+      <text x="486" y="245" font-size="12">⑤ 已学技能与技能槽位绑定</text>
+      <rect x="470" y="266" width="590" height="40" rx="8" class="tag-l3"/>
+      <text x="486" y="291" font-size="12">⑥ 任务状态、成就进度、货币</text>
+      <rect x="470" y="312" width="590" height="40" rx="8" class="tag-l4"/>
+      <text x="486" y="337" font-size="12">⑦ 当前地图与坐标（触发对应场景加载）</text>
+      <rect x="470" y="358" width="590" height="40" rx="8" class="tag-l1"/>
+      <text x="486" y="383" font-size="12">⑧ 各分流随机源的状态</text>
+      <rect x="470" y="404" width="590" height="40" rx="8" class="tag-game"/>
+      <text x="486" y="429" font-size="12" class="txt-game">⑨ 全部恢复完成后，广播"存档已读取"事件，供其它系统做一致性刷新</text>
+
+      <line x1="765" y1="76" x2="765" y2="82" class="edge"/>
+      <line x1="765" y1="122" x2="765" y2="128" class="edge"/>
+      <line x1="765" y1="168" x2="765" y2="174" class="edge"/>
+      <line x1="765" y1="214" x2="765" y2="220" class="edge"/>
+      <line x1="765" y1="260" x2="765" y2="266" class="edge"/>
+      <line x1="765" y1="306" x2="765" y2="312" class="edge"/>
+      <line x1="765" y1="352" x2="765" y2="358" class="edge"/>
+      <line x1="765" y1="398" x2="765" y2="404" class="edge"/>
+
+      <text x="470" y="470" class="small-note">颜色对应左边四段：蓝＝摘要　绿＝玩家　紫＝世界　青＝随机数　黄＝全部完成后的收尾广播</text>
+    </svg>
+    <figcaption>存档分四段各司其职；读档必须按固定的九步顺序依次恢复，后面的步骤经常需要依赖前面步骤已经就位的信息。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>存档是玩家进度唯一的权威来源，没有第二份散落在别处的数据需要对齐。</li>
+      <li>属性聚合结果、光环运行时实例、战斗中间状态这些"能重新算出来"的派生数据默认都不存，避免"存了旧公式的结果、改了平衡性后读档对不上"的问题。</li>
+      <li>设置（画面、音量、按键绑定）单独存放，跟存档槽完全分离，删存档不会连累这些个人偏好。</li>
+      <li>存档带版本号，遇到旧版本会先跑一串"迁移函数"补齐到当前版本，玩家不会因为版本升级而进度作废。</li>
+      <li>写入采用"先写临时文件、确认没问题、再替换正式文件"的方式，避免写到一半崩溃导致存档损坏。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>为什么重放能保证"结局一模一样"</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像重新演一遍同一出戏：只要骰子每次开出的点数序列一样（随机源起始状态一样）、报幕的节奏一样（固定步长推进）、演员每一步的台词与走位记录单也一样（每步提交的意图记录），不管重演多少遍，最后的落幕效果必然分毫不差。
+  </div>
+
+  <div class="callout-list">
+    <span class="tag">要素一：固定步长推进</span>
+    <span class="tag">要素二：随机源的起始状态</span>
+    <span class="tag">要素三：每一步提交的意图记录（"录像"）</span>
+  </div>
+  <p>三者齐全，就能不多不少地重新推演出与原始一次运行完全一致的世界演变过程和战斗日志事件流。这个能力主要用在两处：内部做"战斗平衡有没有跑偏"的回归测试，以及玩家反馈问题时提供录像离线复现定位。</p>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>存档记录的是"重放需要的最小信息"，不是玩家操作的原始按键流水账。</li>
+      <li>随机数不是简单的一个全局种子，而是按用途分了好几条独立的流，各自独立不互相干扰，保证"这次运气不好"不会牵连别的系统。</li>
+      <li>这项能力不是用来"防作弊"的（单机场景没有这个需求），纯粹服务于测试与问题复现。</li>
+    </ul>
+  </div>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>10_存档与持久化.md</code>（存档模型字段表、读档顺序、版本迁移、自动存档时机、确定性与回放）
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="08_表现层.html">← 上一章：表现层</a>
+  <a href="10_引擎适配与选型.html">下一章：引擎适配与选型 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

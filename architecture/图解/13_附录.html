@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>附录 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="12_怎么改架构.html">← 上一章：怎么改架构</a>
+      <a href="index.html">返回封面 ↺</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>附录</h1>
+<p class="subtitle">与一款知名网络游戏的系统设计做对照、全部中英术语速查、原始文档清单。</p>
+
+<div class="section-block">
+  <h3>与知名网游系统设计的对照表</h3>
+  <p>这套架构在系统结构上参照了一款知名大型多人在线游戏的真实设计（法术/效果/光环/触发、战斗日志、命中判定、仇恨表、物品与生物模板、掉落与任务模板、条件表、阶段化、外形映射、数据化 AI 等），但裁剪成单机、单人、不联网的形态。下表挑出最有代表性的对照关系。</p>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>原游戏概念</th><th>本架构对应</th><th>单机裁剪方式</th></tr>
+    <tr><td>网络同步／服务端权威</td><td>不存在对应机制</td><td>直接去掉：逻辑与画面在同一进程内直接绑定</td></tr>
+    <tr><td>反作弊</td><td>不存在对应机制</td><td>直接去掉：没有博弈对手方，不设服务端校验层</td></tr>
+    <tr><td>公会／邮件／拍卖行／好友／日历</td><td>经济（货币与商人）</td><td>直接去掉：均依赖多人同时在线互动</td></tr>
+    <tr><td>玩家对玩家对战</td><td>不存在对应机制</td><td>直接去掉：战斗系统只面向玩家对环境</td></tr>
+    <tr><td>控制效果连续命中递减</td><td>Boss/精英级免疫标志</td><td>直接去掉：改为生物模板声明的控制免疫</td></tr>
+    <tr><td>掉落拾取分配方式</td><td>掉落直接归玩家</td><td>直接去掉：单机没有多人分配问题</td></tr>
+    <tr><td>副本锁定</td><td>存档状态标志</td><td>直接去掉：改为世界状态记录"是否已完成"</td></tr>
+    <tr><td>载具／飞行／飞行路径</td><td>场景路由（地图切换）</td><td>直接去掉：用切地图代替远距离移动</td></tr>
+    <tr><td>附魔／宝石镶嵌／随机后缀</td><td>物品模板预留字段位</td><td>保留扩展点但不实现：默认关闭，需要时再设计</td></tr>
+    <tr><td>仇恨表</td><td>仇恨表（大幅简化）</td><td>保留，但唯一用途是给 AI 选目标，不涉及分摊伤害</td></tr>
+    <tr><td>死亡与复活</td><td>死亡策略（可配置）</td><td>简化为回复活点或读档重来，不做复活网络与幽灵态</td></tr>
+    <tr><td>生物定时重生</td><td>刷新表（进图刷新策略）</td><td>大幅简化：进入场景时按规则重新生成</td></tr>
+    <tr><td>锁与开锁技能</td><td>锁的三种判定方式</td><td>简化为钥匙物品／世界标志／技能数值三选一</td></tr>
+    <tr><td>命中判定表（招架/偏斜/格挡等）</td><td>命中表（可配置项）</td><td>默认只留命中/闪避/暴击，其余按需开启</td></tr>
+    <tr><td>阵营矩阵</td><td>阵营矩阵（缩小）</td><td>大幅简化为敌对/中立/友好的小矩阵</td></tr>
+    <tr><td>法术驱动一切世界变化</td><td>万物皆法术（见第六章）</td><td>原样保留：与是否联网无关的核心设计精髓</td></tr>
+    <tr><td>逻辑与表现分离的外形映射</td><td>外形注册表 DisplayInfo（见第九章）</td><td>原样保留：换美术不触碰逻辑数据</td></tr>
+    <tr><td>通用条件系统</td><td>统一条件语言 Expr（见第五章）</td><td>原样保留：一种语言表达一切判定</td></tr>
+    <tr><td>数据化 AI 与脚本钩子</td><td>行为外壳＋优先级表（见第七章）</td><td>原样保留：行为逻辑同样数据化</td></tr>
+    <tr><td>NPC 职能标志位</td><td>生物职能标志位（见第八章）</td><td>原样保留：收窄到单机需要的六类</td></tr>
+    <tr><td>存档与读档</td><td>存档系统（见第十章）</td><td>单机新增：没有服务端持久化，必须自带存档</td></tr>
+    <tr><td>暂停与时间缩放</td><td>固定步长主循环（见第三章）</td><td>单机新增：多人游戏不允许单人暂停全局时间</td></tr>
+    <tr><td>对象基类（含网络同步字段）</td><td>实体 Entity</td><td>去掉网络同步相关字段，只保留模拟所需字段</td></tr>
+    <tr><td>生物模板与刷怪范围网格</td><td>生物单位 ＋ 刷新表</td><td>去掉服务端刷怪范围网格，改用第八章的刷新表</td></tr>
+    <tr><td>掉落表嵌套引用其它掉落表</td><td>掉落表分组嵌套引用</td><td>原样保留复用思想，互斥抽取改用显式抽取方式表达</td></tr>
+    <tr><td>生物/物品外形映射表</td><td>外形注册表 DisplayInfo</td><td>收拢进统一映射表，不再区分多套外形表</td></tr>
+    <tr><td>商人限量刷新的商品清单</td><td>商人清单（限量与刷新周期）</td><td>保留限量与刷新周期思想，组合支付等留作后续扩展</td></tr>
+  </table>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>中英术语速查</h3>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>英文</th><th>中文</th><th>一句话说明</th></tr>
+    <tr><td>Engine Adapter</td><td>引擎适配层</td><td>封装具体技术能力的接口层，运行时其余部分只依赖它的接口</td></tr>
+    <tr><td>Foundation</td><td>基础层</td><td>提供生命周期、主循环、数据注册表等通用底座能力的层</td></tr>
+    <tr><td>WorldSim</td><td>世界模拟</td><td>由纯逻辑对象构成、按固定步长驱动的核心模拟世界</td></tr>
+    <tr><td>Entity</td><td>实体</td><td>所有逻辑对象的公共基类概念，拥有唯一标识与生命周期</td></tr>
+    <tr><td>Unit</td><td>单位</td><td>具备属性、资源池、可施法/被施法能力的实体</td></tr>
+    <tr><td>View</td><td>视图</td><td>表现层为某个逻辑对象创建的只读、只订阅事件的画面替身</td></tr>
+    <tr><td>DataRegistry</td><td>数据注册表</td><td>负责加载数据表、管理版本、做引用完整性校验的组件</td></tr>
+    <tr><td>Expr</td><td>条件表达式语言</td><td>全架构唯一的条件判定语言</td></tr>
+    <tr><td>EventBus</td><td>事件总线</td><td>模块间发布订阅事件的通道</td></tr>
+    <tr><td>Rng</td><td>分流随机源</td><td>按用途分流的随机数生成器，保证同种子同输入可复现</td></tr>
+    <tr><td>SaveSystem</td><td>存档系统</td><td>负责存档槽读写、版本迁移、自动存档触发的模块</td></tr>
+    <tr><td>InputMap</td><td>输入映射</td><td>把物理输入设备事件映射为游戏动作的模块，支持重绑定</td></tr>
+    <tr><td>DisplayInfo</td><td>外形注册表</td><td>把逻辑编号映射到表现资源的表</td></tr>
+    <tr><td>SceneRouter</td><td>场景路由</td><td>负责地图/场景切换流程、加载画面与存档钩子的模块</td></tr>
+    <tr><td>HookRegistry</td><td>脚本钩子注册表</td><td>供游戏层注册自定义回调的挂载点集合</td></tr>
+    <tr><td>StatBlock</td><td>属性表</td><td>单位的属性聚合结构，三段式聚合（见第七章）</td></tr>
+    <tr><td>PowerSet</td><td>资源池</td><td>单位可用的资源类型集合，类型与数量可配置</td></tr>
+    <tr><td>Archetype</td><td>职业/种族模板</td><td>定义单位初始属性、技能与外形的模板数据</td></tr>
+    <tr><td>Faction</td><td>阵营</td><td>定义单位之间敌对/中立/友好关系的小型矩阵</td></tr>
+    <tr><td>Skill</td><td>技能</td><td>万物皆法术下的核心概念，由效果、光环、触发等组成</td></tr>
+    <tr><td>Effect</td><td>效果</td><td>技能造成的一次性结果</td></tr>
+    <tr><td>Aura</td><td>光环</td><td>附着在单位或物件上的持续性状态</td></tr>
+    <tr><td>Proc</td><td>触发</td><td>满足条件时自动触发效果或光环的机制</td></tr>
+    <tr><td>SpellMod</td><td>法术修饰</td><td>对某个技能参数进行修改或覆盖的规则</td></tr>
+    <tr><td>CastPipeline</td><td>施法管线</td><td>技能从发起到结算效果的完整处理流程（见第六章）</td></tr>
+    <tr><td>Resolver</td><td>结算管线</td><td>把命中判定、伤害计算等步骤串联起来的处理流程（见第六章）</td></tr>
+    <tr><td>Threat</td><td>仇恨</td><td>衡量单位对某个目标"被攻击优先级"的数值表</td></tr>
+    <tr><td>Targeting</td><td>目标选择</td><td>技能与 AI 用来确定作用对象的可配置策略链</td></tr>
+    <tr><td>Rotation</td><td>优先级表</td><td>AI（含玩家辅助施法）用来决定下一步做什么的数据化规则</td></tr>
+    <tr><td>Item</td><td>物品</td><td>可被拾取、装备、使用的载体类对象</td></tr>
+    <tr><td>Creature</td><td>生物</td><td>非玩家单位的载体类对象</td></tr>
+    <tr><td>GameObject</td><td>游戏对象/物件</td><td>场景中可交互但非生物的对象</td></tr>
+    <tr><td>Loot</td><td>掉落</td><td>定义某个来源死亡或被交互后产出物品的规则表</td></tr>
+    <tr><td>Quest</td><td>任务</td><td>定义目标、前置条件、奖励的结构化任务数据</td></tr>
+    <tr><td>Dialog</td><td>对话</td><td>对话树与剧情演出钩子的组织形式</td></tr>
+    <tr><td>Encounter</td><td>遭遇</td><td>一段带阶段推进的战斗或事件编排单元</td></tr>
+    <tr><td>Difficulty</td><td>难度</td><td>影响数值与规则的全局或局部难度配置</td></tr>
+    <tr><td>Achievement</td><td>成就</td><td>基于条件表达式判定达成状态的记录型系统</td></tr>
+    <tr><td>Economy</td><td>经济</td><td>单机形态下的货币与商人交易系统</td></tr>
+    <tr><td>WorldState</td><td>世界状态</td><td>带命名空间的标志字典，替代原有的阶段化机制</td></tr>
+    <tr><td>AreaTrigger</td><td>区域触发器</td><td>绑定在空间区域上、满足条件即触发效果的逻辑对象</td></tr>
+    <tr><td>Spawn</td><td>刷新</td><td>定义某个场景在何种条件下生成何种生物/物件的策略</td></tr>
+    <tr><td>FeedbackBinder</td><td>反馈绑定</td><td>把逻辑事件映射为具体表现反馈的表现层组件</td></tr>
+    <tr><td>Shell</td><td>游戏外壳</td><td>主菜单、存档槽选择、设置、加载画面等界面框架</td></tr>
+    <tr><td>Game Layer</td><td>游戏层</td><td>每款具体游戏编写的薄代码层，只做组装与数据/资源填充</td></tr>
+    <tr><td>Persistable</td><td>可持久化契约</td><td>定义"如何把某类运行时状态写入/读出存档"的窄接口</td></tr>
+    <tr><td>ADR</td><td>架构决策记录</td><td>记录一条关键决策的背景、选项与结论的文档格式</td></tr>
+    <tr><td>TimeModel</td><td>时间模型</td><td>可替换策略：连续（即时）或离散（回合），见第三章</td></tr>
+    <tr><td>SimStep</td><td>模拟步</td><td>世界模拟每一步推进的唯一输入</td></tr>
+    <tr><td>TurnScheduler</td><td>回合调度器</td><td>按先攻规则维护回合顺序、产生离散步序列的子组件</td></tr>
+    <tr><td>PacingPolicy</td><td>节奏策略</td><td>决定离散模式下是否等待表现层回放完毕再推进的策略</td></tr>
+  </table>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>原始文档清单</h3>
+  <p>本图解只是导读，真正的权威说明在本目录的上一级目录里，文件清单如下：</p>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>文件</th><th>内容</th></tr>
+    <tr><td><code>README.md</code></td><td>导读、阅读顺序、强制约束一览、文件清单、变更入口</td></tr>
+    <tr><td><code>00_架构总则.md</code></td><td>定位、目标与非目标、裁剪原则、设计原则、名词表</td></tr>
+    <tr><td><code>01_分层与依赖.md</code></td><td>七层定义、依赖规则矩阵、模块清单与归属、游戏层边界</td></tr>
+    <tr><td><code>02_引擎适配层.md</code></td><td>13 个接口清单、实现规范、技术选型评估框架、迁移步骤</td></tr>
+    <tr><td><code>03_运行时骨架.md</code></td><td>应用生命周期、固定步长主循环与时间模型、tick 顺序、场景路由、输入映射</td></tr>
+    <tr><td><code>04_数据与内容管线.md</code></td><td>数据表总索引、id 规范、版本迁移、校验器、条件语言、外形映射、本地化</td></tr>
+    <tr><td><code>05_对象模型与世界.md</code></td><td>实体继承树、对照与裁剪、空间约定、地图与场景、刷新、导航、区域触发、世界状态</td></tr>
+    <tr><td><code>06_规则层_属性技能战斗AI.md</code></td><td>属性聚合、资源池、技能系统全结构、战斗结算、AI、事件词汇表</td></tr>
+    <tr><td><code>07_载体层_物品生物物件.md</code></td><td>物品、生物、游戏对象、召唤与宠物、外形层、可选扩展点</td></tr>
+    <tr><td><code>08_玩法层_掉落任务对话关卡.md</code></td><td>掉落、任务、对话、遭遇与关卡、难度、成就、经济</td></tr>
+    <tr><td><code>09_表现层.md</code></td><td>表现层铁律、混合渲染约定、动画、VFX/SFX、反馈绑定、UI 框架、镜头、外壳</td></tr>
+    <tr><td><code>10_存档与持久化.md</code></td><td>存档模型、Persistable 契约、版本迁移、自动存档、确定性与回放</td></tr>
+    <tr><td><code>11_工程规范与测试.md</code></td><td>目录约定、模块范式、命名规范、错误处理、性能约定、测试分层、提交门槛</td></tr>
+    <tr><td><code>12_扩展与变更流程.md</code></td><td>新增内容清单、新增原语审批流程、决策记录模板、文档版本规则</td></tr>
+    <tr><td><code>13_新游戏接入指南.md</code></td><td>立项六步流程、口味配置项清单、填数据配表现步骤、验收关卡、立项检查表</td></tr>
+    <tr><td><code>adr/README.md</code></td><td>13 篇决策记录索引</td></tr>
+    <tr><td><code>adr/0001 ～ 0013</code></td><td>对应 00 篇设计原则的 13 篇决策记录，各记录背景、决策、后果、备选方案</td></tr>
+  </table>
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="12_怎么改架构.html">← 上一章：怎么改架构</a>
+  <a href="index.html">返回封面 ↺</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

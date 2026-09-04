@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>战斗周边 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="05_万物皆法术.html">← 上一章：万物皆法术</a>
+      <a href="07_载体与玩法.html">下一章：载体与玩法 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第七章 · 战斗周边</h1>
+<p class="subtitle">属性怎么叠加成最终数值、谁该被优先攻击、AI 脑子里在想什么——战斗结算之外的支撑机制。</p>
+
+<div class="section-block">
+  <h3>属性怎么叠加：一条公式分三段算</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像谈一笔订单的最终报价：先把底价加上各种"减免券"式的固定优惠（加法），再套用会员折扣（各种百分比优惠先加在一起，只打一次折），最后如果这笔订单同时命中"大促"和"专区加成"两种互不相关的活动，两个活动的倍数要分别乘上去，而不是把两个活动的折扣先加在一起再打一次折。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 N</span><b>属性三段式聚合</b>
+    <svg viewBox="0 0 1080 260" role="img" aria-label="属性三段式聚合公式分解：基础加固定，乘百分比合计，乘各独立乘区">
+      <rect x="20" y="30" width="250" height="160" rx="10" class="tag-l1"/>
+      <text x="34" y="55" font-size="13" font-weight="700">阶段一：基础值 + 固定修正</text>
+      <text x="34" y="76" font-size="12" class="small-note">来源：等级成长、装备固定值、</text>
+      <text x="34" y="92" font-size="12" class="small-note">光环固定加成——直接加法叠加</text>
+      <rect x="34" y="106" width="220" height="65" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="144" y="132" text-anchor="middle" font-size="13" font-weight="700">100 ＋ 20 ＝ 120</text>
+      <text x="144" y="152" text-anchor="middle" font-size="12" class="small-note">基础值　　装备固定加成</text>
+
+      <rect x="300" y="30" width="250" height="160" rx="10" class="tag-l1"/>
+      <text x="314" y="55" font-size="13" font-weight="700">阶段二：百分比修正</text>
+      <text x="314" y="76" font-size="12" class="small-note">各项百分比先相加，</text>
+      <text x="314" y="92" font-size="12" class="small-note">再统一相乘这一次</text>
+      <rect x="314" y="106" width="220" height="65" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="424" y="132" text-anchor="middle" font-size="13" font-weight="700">120 × 1.25 ＝ 150</text>
+      <text x="424" y="152" text-anchor="middle" font-size="12" class="small-note">(1 ＋15%装备 ＋10%光环)</text>
+
+      <rect x="580" y="30" width="270" height="160" rx="10" class="tag-l1"/>
+      <text x="594" y="55" font-size="13" font-weight="700">阶段三：独立乘区</text>
+      <text x="594" y="76" font-size="12" class="small-note">不同类别的增益各自相乘，</text>
+      <text x="594" y="92" font-size="12" class="small-note">互不合并（避免抵消设计意图）</text>
+      <rect x="594" y="106" width="240" height="65" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="714" y="132" text-anchor="middle" font-size="13" font-weight="700">150 × 1.5 × 1.2 ＝ 270</text>
+      <text x="714" y="152" text-anchor="middle" font-size="12" class="small-note">易伤乘区　　部位增伤乘区</text>
+
+      <rect x="890" y="60" width="170" height="100" rx="12" class="tag-game"/>
+      <text x="975" y="100" text-anchor="middle" font-size="14" font-weight="700" class="txt-game">最终值</text>
+      <text x="975" y="130" text-anchor="middle" font-size="20" font-weight="700" class="txt-game">270</text>
+
+      <line x1="270" y1="110" x2="298" y2="110" class="edge"/><polygon points="292,104 292,116 302,110" class="arrowhead"/>
+      <line x1="550" y1="110" x2="578" y2="110" class="edge"/><polygon points="572,104 572,116 582,110" class="arrowhead"/>
+      <line x1="850" y1="110" x2="888" y2="110" class="edge"/><polygon points="882,104 882,116 892,110" class="arrowhead"/>
+
+      <text x="20" y="225" class="small-note">每条修正都标记来源（比如某件装备的实例编号）；那件装备被脱下时，它带来的全部修正一次性撤销，不需要逐条核对数值。</text>
+    </svg>
+    <figcaption>先加法，再统一乘一次百分比合计，最后各个独立乘区分别相乘——三段顺序固定，不能颠倒或合并计算。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>公式顺序固定为"加法段 → 百分比合计段 → 独立乘区连乘段"，任何属性都按这三段计算，不存在例外。</li>
+      <li>"独立乘区"故意不合并，是为了让"易伤"和"部位增伤"这类概念上不同的增益，效果上真的相互独立叠加，而不是被平均化。</li>
+      <li>评级换算成百分比效果这类曲线是一项可选策略，开启与否、系数多少完全由每款游戏自己决定。</li>
+      <li>每条修正都带着"我是谁加上去的"标记，装备脱下或光环消失时按这个标记整体撤销，不需要逆向凑数字。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>资源池、仇恨表与目标选择链</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    资源池像油箱——能装几种"油"（法力、怒气之类）、加多快、耗多快，完全按车型（游戏口味）配置，架构不预设"必须只有一种油"。仇恨表像一份"谁最烦人"的排行榜，只给敌方AI看，用来决定先打谁——单机里没有队友抢生意，这份榜单唯一的用途就是给AI提供选目标的依据。目标选择链像相亲软件的筛选条件："先看附近的→筛掉不是敌对关系的→按血量排序→选最低的那个"，条件的组合完全交给数据配置。
+  </div>
+
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>机制</th><th>在单机架构里的定位</th></tr>
+    <tr><td><b>资源池</b>（PowerSet）</td><td>资源类型的数量和种类完全是数据定义的配置项，可以是单一资源，也可以法力、怒气等多种资源并存；上限来源、回复规则、消耗产出的触发点都按数据配置。</td></tr>
+    <tr><td><b>仇恨表</b>（Threat）</td><td>单机场景里唯一的用途是驱动 AI 选目标：造成伤害或治疗都会增加对应的仇恨值，专门的嘲讽类效果可以直接置顶；脱离战斗时清空。</td></tr>
+    <tr><td><b>目标选择链</b>（Targeting）</td><td>一条"候选来源＋筛选条件＋排序方式＋找不到时的备选链"的组合，具体某个技能用哪条链完全由数据决定，架构只固定这四段结构本身。</td></tr>
+  </table>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>AI 脑子里在想什么</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    AI 的"心情状态"像保安巡逻的班次：平时在岗亭待命，没事就按固定路线巡逻，发现可疑人员就追上去，追到了就开始交涉（战斗），交涉不下去要么撤回岗亭，要么（如果撑不住）先跑路。至于交涉的时候具体该说哪句话、先用哪招，则是另一份"话术清单"——这份清单不区分是给保安（敌人）用还是给临时帮手（玩家的智能循环）用，是完全同一种格式。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 O</span><b>AI 行为外壳状态机</b>
+    <svg viewBox="0 0 940 320" role="img" aria-label="AI行为外壳状态机：idle patrol chase combat return flee dead">
+      <rect x="20" y="30" width="130" height="55" rx="8" class="tag-l2"/>
+      <text x="85" y="63" text-anchor="middle" font-size="13" font-weight="700">idle 待命</text>
+
+      <rect x="190" y="30" width="130" height="55" rx="8" class="tag-l2"/>
+      <text x="255" y="63" text-anchor="middle" font-size="13" font-weight="700">patrol 巡逻</text>
+
+      <rect x="360" y="30" width="130" height="55" rx="8" class="tag-l2"/>
+      <text x="425" y="63" text-anchor="middle" font-size="13" font-weight="700">chase 追击</text>
+
+      <rect x="530" y="30" width="130" height="55" rx="8" class="tag-l2"/>
+      <text x="595" y="63" text-anchor="middle" font-size="13" font-weight="700">combat 交战</text>
+
+      <rect x="700" y="30" width="130" height="55" rx="8" class="tag-l2"/>
+      <text x="765" y="63" text-anchor="middle" font-size="13" font-weight="700">return 返回</text>
+
+      <line x1="150" y1="57" x2="188" y2="57" class="edge"/><polygon points="182,51 182,63 192,57" class="arrowhead"/>
+      <text x="152" y="45" font-size="12" class="small-note">发现敌人（patrol 也可直接触发）</text>
+      <line x1="320" y1="57" x2="358" y2="57" class="edge"/><polygon points="352,51 352,63 362,57" class="arrowhead"/>
+      <line x1="490" y1="57" x2="528" y2="57" class="edge"/><polygon points="522,51 522,63 532,57" class="arrowhead"/>
+      <text x="492" y="45" font-size="12" class="small-note">进入攻击范围</text>
+      <line x1="660" y1="57" x2="698" y2="57" class="edge"/><polygon points="692,51 692,63 702,57" class="arrowhead"/>
+      <text x="662" y="45" font-size="12" class="small-note">目标消失/脱战</text>
+
+      <path d="M765,85 V130 H85 V88" class="edge" fill="none"/><polygon points="79,94 91,94 85,84" class="arrowhead"/>
+      <text x="400" y="122" text-anchor="middle" font-size="12" class="small-note">回到出生点后，视有无巡逻路径回到 idle 或 patrol</text>
+
+      <rect x="530" y="150" width="130" height="55" rx="8" class="tag-l2"/>
+      <text x="595" y="183" text-anchor="middle" font-size="13" font-weight="700">flee 逃离</text>
+      <line x1="595" y1="85" x2="595" y2="148" class="edge"/><polygon points="589,142 601,142 595,152" class="arrowhead"/>
+      <text x="602" y="115" font-size="12" class="small-note">血量过低且允许逃跑（可选）</text>
+      <path d="M660,177 H730 V88" class="edge" fill="none" stroke-dasharray="4 3"/><polygon points="724,94 736,94 730,84" class="arrowhead"/>
+      <text x="670" y="200" font-size="12" class="small-note">脱离追击范围→返回；被追上则回交战</text>
+
+      <rect x="360" y="240" width="150" height="55" rx="8" class="tag-l-1"/>
+      <text x="435" y="273" text-anchor="middle" font-size="13" font-weight="700">dead 死亡</text>
+      <path d="M595,205 V260 H510" class="edge-muted edge-dashed" fill="none"/><polygon points="516,254 516,266 506,260" class="arrowhead-muted"/>
+      <text x="60" y="280" font-size="12" class="small-note">任意状态都可以直接进入 dead（图中只画了一条代表性的虚线）</text>
+    </svg>
+    <figcaption>六个状态围成一个循环：待命到巡逻到追击到交战到返回，交战中可选逃离，任意状态都能因死亡而终止。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>行为外壳的六个状态是通用骨架，具体"多远算发现敌人""血量到多少才逃跑"全部是每只生物自己的数据配置。</li>
+      <li>"Boss 阶段"在这套骨架下不是新状态，而是"交战"状态里悄悄换了一份话术清单（优先级表），状态机本身毫无变化。</li>
+      <li>优先级表按从高到低的顺序逐条判断条件，第一条满足且能真正放出来的技能就是这一次的选择。</li>
+      <li>敌方 AI 和玩家的"智能循环"辅助施法功能，用的是完全同一种优先级表格式，只是挂在不同的角色身上。</li>
+      <li>按回合走的模式下，AI 在自己的回合里会连续执行多条满足条件的动作，直到这回合的行动额度用完，而不是像连续模式那样每一步只判断一次。</li>
+    </ul>
+  </div>
+
+  <h3>优先级表长什么样（示意）</h3>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>优先级</th><th>条件（用统一条件语言写）</th><th>动作</th></tr>
+    <tr><td>1（最高）</td><td>目标生命值百分比 &lt; 20%</td><td>释放"技能 A"（收尾类技能）</td></tr>
+    <tr><td>2</td><td>自身处于读条/引导中</td><td>不派发新动作，等待完成</td></tr>
+    <tr><td>3（兜底）</td><td>以上都不满足</td><td>释放默认的基础技能</td></tr>
+  </table>
+  </div>
+  <p class="meta-line">这只是示意结构，具体条件与技能完全由数据决定；同一份表既能挂在敌方生物身上，也能挂在玩家的辅助施法功能上。</p>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>06_规则层_属性技能战斗AI.md</code>（属性聚合、资源池、战斗系统、目标选择、AI 行为外壳与优先级表）
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="05_万物皆法术.html">← 上一章：万物皆法术</a>
+  <a href="07_载体与玩法.html">下一章：载体与玩法 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

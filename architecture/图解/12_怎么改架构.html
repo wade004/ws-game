@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>怎么改架构 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="11_做一款新游戏.html">← 上一章：做一款新游戏</a>
+      <a href="13_附录.html">下一章：附录 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第十三章 · 怎么改架构</h1>
+<p class="subtitle">加内容永远不用打报告；想动骨架本身，必须先把话说清楚、写成书面记录。</p>
+
+<div class="section-block">
+  <h3>先分清楚：这是内容，还是原语</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像医院的分诊台：先判断这次来是普通感冒（内容级）还是需要专家会诊的疑难杂症（原语级）。普通感冒直接开药走人，不用惊动专家；疑难杂症必须先立一份病例讨论记录（决策记录），再挂号登记，再安排具体治疗方案（写代码），再复查（补校验规则），最后随访确认真的治好了（补测试）——五步一步都不能跳，哪怕医生凭经验一次就治好了，事后也要把病例记录补齐。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 W</span><b>变更流程决策树</b>
+    <svg viewBox="0 0 1300 400" role="img" aria-label="变更流程决策树：是内容只加数据，是原语先ADR后注册表再代码再校验器再测试">
+      <rect x="350" y="20" width="340" height="55" rx="10" class="node-rect"/>
+      <text x="520" y="53" text-anchor="middle" font-size="14" font-weight="700">这次改动是什么类型？</text>
+
+      <path d="M450,75 V108 H210 V138" class="edge" fill="none"/><polygon points="204,132 216,132 210,144" class="arrowhead"/>
+      <path d="M590,75 V108 H730 V138" class="edge" fill="none"/><polygon points="724,132 736,132 730,144" class="arrowhead"/>
+
+      <rect x="40" y="140" width="340" height="80" rx="10" class="tag-l0"/>
+      <text x="56" y="165" font-size="13" font-weight="700">内容级</text>
+      <text x="56" y="185" font-size="12" class="small-note">新技能、新装备、新怪、新地图、</text>
+      <text x="56" y="201" font-size="12" class="small-note">新任务……现有积木能拼出来的一切</text>
+
+      <line x1="210" y1="220" x2="210" y2="248" class="edge"/><polygon points="204,242 216,242 210,254" class="arrowhead"/>
+      <rect x="40" y="256" width="340" height="60" rx="10" class="tag-l0"/>
+      <text x="210" y="282" text-anchor="middle" font-size="13" font-weight="700">只加数据行＋配资源</text>
+      <text x="210" y="300" text-anchor="middle" font-size="12" class="small-note">不用走任何审批，跑通校验即可合入</text>
+
+      <rect x="420" y="140" width="640" height="80" rx="10" class="tag-l4"/>
+      <text x="436" y="165" font-size="13" font-weight="700">原语级</text>
+      <text x="436" y="185" font-size="12" class="small-note">全新的效果类型／光环类型／事件／物件类型／</text>
+      <text x="436" y="201" font-size="12" class="small-note">任务目标类型／对话动作类型／AI 行为状态——现有积木确实拼不出来</text>
+
+      <path d="M740,220 V240 H490 V248" class="edge" fill="none"/><polygon points="484,242 496,242 490,254" class="arrowhead"/>
+
+      <rect x="420" y="256" width="140" height="90" rx="10" class="tag-l4"/>
+      <text x="434" y="282" font-size="12" font-weight="700">① 先写 ADR</text>
+      <text x="434" y="302" font-size="12" class="small-note">说明背景、为什么</text>
+      <text x="434" y="316" font-size="12" class="small-note">现有原语不够用</text>
+
+      <rect x="575" y="256" width="140" height="90" rx="10" class="tag-l4"/>
+      <text x="589" y="282" font-size="12" font-weight="700">② 改注册表</text>
+      <text x="589" y="302" font-size="12" class="small-note">登记新原语的编号，</text>
+      <text x="589" y="316" font-size="12" class="small-note">暂不提供实现</text>
+
+      <rect x="730" y="256" width="140" height="90" rx="10" class="tag-l4"/>
+      <text x="744" y="282" font-size="12" font-weight="700">③ 写代码</text>
+      <text x="744" y="302" font-size="12" class="small-note">在归属层的核心</text>
+      <text x="744" y="316" font-size="12" class="small-note">目录实现，不散落</text>
+
+      <rect x="885" y="256" width="140" height="90" rx="10" class="tag-l4"/>
+      <text x="899" y="282" font-size="12" font-weight="700">④ 补校验器</text>
+      <text x="899" y="302" font-size="12" class="small-note">补这类新原语的</text>
+      <text x="899" y="316" font-size="12" class="small-note">数据校验规则</text>
+
+      <rect x="1040" y="256" width="150" height="90" rx="10" class="tag-l4"/>
+      <text x="1054" y="282" font-size="12" font-weight="700">⑤ 补测试</text>
+      <text x="1054" y="302" font-size="12" class="small-note">补脱离引擎的</text>
+      <text x="1054" y="316" font-size="12" class="small-note">模块单测</text>
+
+      <line x1="560" y1="300" x2="573" y2="300" class="edge"/><polygon points="567,294 567,306 577,300" class="arrowhead"/>
+      <line x1="715" y1="300" x2="728" y2="300" class="edge"/><polygon points="722,294 722,306 732,300" class="arrowhead"/>
+      <line x1="870" y1="300" x2="883" y2="300" class="edge"/><polygon points="877,294 877,306 887,300" class="arrowhead"/>
+      <line x1="1025" y1="300" x2="1038" y2="300" class="edge"/><polygon points="1032,294 1032,306 1042,300" class="arrowhead"/>
+
+      <text x="420" y="375" class="small-note">任何一步跳过都算流程违规——哪怕代码能跑通，也必须回头补齐前置的决策记录与注册表登记，通过后才允许被后续同类内容复用。</text>
+    </svg>
+    <figcaption>先分内容级还是原语级；内容级直接加数据，原语级必须按固定顺序走完五步，一步都不能跳。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>判断标准很简单："现有积木新组合＋新数据行"能不能表达这个需求"——能就是内容级，不能才是原语级。</li>
+      <li>原语级五个步骤的顺序是写死的：决策记录必须最先完成，代码必须最后写，谁都不能因为赶工倒着来。</li>
+      <li>原语一旦审批通过，后续同类内容就回到"内容级"待遇，只需要加数据，不用重复走审批。</li>
+      <li>文档和实际实现出现分歧时，要先判断"是实现偷懒了"还是"设计确实已经变了"，不允许两者长期不一致地共存。</li>
+      <li>任何结构性的改动都必须先有对应的决策记录，文档修改是这份记录落地的结果，不能先斩后奏。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>13 条关键决策一览</h3>
+  <p>每一条对应架构总则里的一条设计原则，记录了"当初为什么这么定、放弃了哪些别的做法"。</p>
+  <div class="toc-grid">
+    <div class="toc-card"><div class="idx">ADR-0001</div><div class="name">万物皆法术</div><div class="desc">任何让世界变化的动作都建模成技能，不为单个内容写专用代码</div></div>
+    <div class="toc-card"><div class="idx">ADR-0002</div><div class="name">逻辑对象不依赖引擎对象</div><div class="desc">世界模拟由纯逻辑对象构成，画面只是只读的替身</div></div>
+    <div class="toc-card"><div class="idx">ADR-0003</div><div class="name">固定步长模拟</div><div class="desc">核心按固定节拍推进，保证同样输入必得同样结果</div></div>
+    <div class="toc-card"><div class="idx">ADR-0004</div><div class="name">数据即内容</div><div class="desc">一切内容都是数据表，代码只认编号和字段</div></div>
+    <div class="toc-card"><div class="idx">ADR-0005</div><div class="name">一个条件语言</div><div class="desc">全架构只用一种条件表达式语言表达任何判断</div></div>
+    <div class="toc-card"><div class="idx">ADR-0006</div><div class="name">逻辑编号到外形的映射</div><div class="desc">逻辑编号与画面资源隔一张映射表，互不牵连</div></div>
+    <div class="toc-card"><div class="idx">ADR-0007</div><div class="name">窄契约加事件总线</div><div class="desc">模块之间只能靠接口问答或广播消息沟通</div></div>
+    <div class="toc-card"><div class="idx">ADR-0008</div><div class="name">世界状态标志替代阶段化</div><div class="desc">一本标志字典代替"给不同玩家看不同版本世界"的复杂机制</div></div>
+    <div class="toc-card"><div class="idx">ADR-0009</div><div class="name">存档是唯一持久化</div><div class="desc">玩家进度只有一个权威来源：存档</div></div>
+    <div class="toc-card"><div class="idx">ADR-0010</div><div class="name">新增原语走审批</div><div class="desc">新增效果/光环/事件等类型必须先写决策记录再改代码</div></div>
+    <div class="toc-card"><div class="idx">ADR-0011</div><div class="name">引擎适配层隔离技术选型</div><div class="desc">运行时核心零技术依赖，技术选型是独立课题</div></div>
+    <div class="toc-card"><div class="idx">ADR-0012</div><div class="name">双外形类型加固定镜头</div><div class="desc">默认二维精灵，按需可选三维模型，镜头固定俯角</div></div>
+    <div class="toc-card"><div class="idx">ADR-0013</div><div class="name">时间模型可替换</div><div class="desc">即时与回合制战斗共用同一套规则层</div></div>
+  </div>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>12_扩展与变更流程.md</code>（新增内容清单、新增原语审批流程、决策记录模板、文档版本规则）、
+    <code>adr/</code> 目录下 13 篇决策记录原文
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="11_做一款新游戏.html">← 上一章：做一款新游戏</a>
+  <a href="13_附录.html">下一章：附录 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

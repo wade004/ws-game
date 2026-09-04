@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>表现层 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="07_载体与玩法.html">← 上一章：载体与玩法</a>
+      <a href="09_存档.html">下一章：存档 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第九章 · 表现层</h1>
+<p class="subtitle">世界里发生的事，怎么变成你看到的飘字、特效、音效，怎么摆放前后遮挡关系。</p>
+
+<div class="section-block">
+  <h3>从一个事件到一句"叮"的音效，中间经过了什么</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像剧场后台的两条流水线同时运作。一条是"导播台"流水线：后台发生一个事情（比如一次命中），导播照着规则单子决定配什么字幕、放什么特效、配什么音效、要不要让镜头晃一下。另一条是"服装道具"流水线：每个角色的编号先去道具间查一下自己该穿什么、用哪种材质（二维纸片还是三维模型），再交给具体的画面/声音设备呈现出来。两条流水线最终都汇到观众看到的舞台效果上。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 R</span><b>表现管线：两条并行的流水线</b>
+    <svg viewBox="0 0 1100 330" role="img" aria-label="表现管线：事件到反馈绑定到具体反馈；逻辑id到外形注册表到sprite或model到渲染接口">
+      <rect x="20" y="30" width="200" height="60" rx="10" class="tag-l2"/>
+      <text x="34" y="55" font-size="12" font-weight="700">逻辑事件</text>
+      <text x="34" y="74" font-size="12" class="small-note">如"造成一次伤害"</text>
+
+      <rect x="260" y="30" width="280" height="60" rx="10" class="tag-l5"/>
+      <text x="274" y="55" font-size="12" font-weight="700">反馈绑定规则 FeedbackBinder</text>
+      <text x="274" y="74" font-size="12" class="small-note">按条件分流，一个事件可绑多个反馈</text>
+
+      <rect x="580" y="30" width="300" height="60" rx="10" class="tag-l5"/>
+      <text x="594" y="55" font-size="12" font-weight="700">具体反馈动作</text>
+      <text x="594" y="74" font-size="12" class="small-note">飘字 / 特效 / 音效 / 顿帧 / 震屏</text>
+
+      <line x1="220" y1="60" x2="258" y2="60" class="edge"/><polygon points="252,54 252,66 262,60" class="arrowhead"/>
+      <line x1="540" y1="60" x2="578" y2="60" class="edge"/><polygon points="572,54 572,66 582,60" class="arrowhead"/>
+
+      <rect x="20" y="150" width="200" height="60" rx="10" class="tag-l0"/>
+      <text x="34" y="175" font-size="12" font-weight="700">逻辑 id</text>
+      <text x="34" y="194" font-size="12" class="small-note">技能 / 光环 / 物品等编号</text>
+
+      <rect x="260" y="150" width="280" height="60" rx="10" class="tag-l0"/>
+      <text x="274" y="175" font-size="12" font-weight="700">DisplayInfo 外形注册表</text>
+      <text x="274" y="194" font-size="12" class="small-note">查表得到具体表现资源引用</text>
+
+      <rect x="580" y="150" width="280" height="60" rx="10" class="tag-l5"/>
+      <text x="594" y="175" font-size="12" font-weight="700">sprite 精灵 或 model 模型</text>
+      <text x="594" y="194" font-size="12" class="small-note">二选一，同一游戏可混用</text>
+
+      <line x1="220" y1="180" x2="258" y2="180" class="edge"/><polygon points="252,174 252,186 262,180" class="arrowhead"/>
+      <line x1="540" y1="180" x2="578" y2="180" class="edge"/><polygon points="572,174 572,186 582,180" class="arrowhead"/>
+
+      <rect x="760" y="255" width="300" height="60" rx="10" class="tag-game"/>
+      <text x="910" y="280" text-anchor="middle" font-size="13" font-weight="700" class="txt-game">最终呈现给玩家的</text>
+      <text x="910" y="300" text-anchor="middle" font-size="13" font-weight="700" class="txt-game">画面与声音</text>
+
+      <path d="M730,90 V230 H910 V253" class="edge" fill="none"/><polygon points="904,247 916,247 910,258" class="arrowhead"/>
+      <path d="M720,210 V240 H900 V253" class="edge" fill="none"/><polygon points="894,247 906,247 900,258" class="arrowhead"/>
+
+      <text x="20" y="245" class="small-note">逻辑层只知道"发生了命中"和"这是技能编号 X"，从不知道具体该播哪段动画、哪个音效文件。</text>
+    </svg>
+    <figcaption>逻辑事件经"反馈规则"变成具体反馈动作；逻辑编号经"外形注册表"变成具体的画面素材，两条流水线互不干扰，最终一起呈现给玩家。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>逻辑层发出的永远是"发生了什么"和"这是哪个编号"，从不携带任何具体的图片、动画或音效文件名。</li>
+      <li>一个事件可以同时触发好几种反馈（比如一次暴击 = 飘字 + 特效 + 音效 + 轻微顿帧），这些组合完全是数据配置。</li>
+      <li>短时间内同一来源的多条飘字会自动合并展示，避免刷屏，但战斗日志本身记录的事件粒度不受影响。</li>
+      <li>换一套美术风格，只需要改"外形注册表"和反馈规则里配的资源引用，完全不用碰逻辑代码或战斗数值。</li>
+      <li>就算把整个表现层关掉（不创建任何画面替身），世界模拟依然能独立运行、产出完全一致的事件序列。</li>
+    </ul>
+  </div>
+
+  <h3>两种外形类型：默认二维精灵，可选三维模型</h3>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th></th><th>sprite（二维精灵，默认）</th><th>model（三维模型，可选）</th></tr>
+    <tr><td>换装方式</td><td>叠加纸娃娃分层（身体/护甲/武器等各一层）</td><td>替换槽位网格，或把子模型挂接到挂点</td></tr>
+    <tr><td>朝向</td><td>量化成固定档位（4/8/16 选一），配镜像规则省一半美术量</td><td>直接用连续角度驱动骨骼，不分档位</td></tr>
+    <tr><td>动画</td><td>序列帧或程序动画原语（缩放/闪白/拖尾等通用手法）</td><td>骨骼动画剪辑，带关键帧事件（如命中帧）</td></tr>
+    <tr><td>适合场景</td><td>美术成本可控，是默认起步路线</td><td>需要更高换装自由度、不受"方向数×动作数×部件数"组合限制时选用</td></tr>
+  </table>
+  </div>
+  <p class="meta-line">同一款游戏可以混用：比如角色用三维模型、地上的掉落物仍用二维精灵；镜头固定俯角、只做跟随与缩放，两种外形类型都统一适用。</p>
+</div>
+
+<div class="section-block">
+  <h3>画面是怎么叠出前后遮挡关系的</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像切开的千层蛋糕：最底下一层地面，往上依次叠装饰、角色、能挡住角色的前景（比如树冠），再往上是特效，最顶上永远盖着一层界面。角色这一层比较特殊——不管某个角色是用二维纸片画的还是用三维模型摆的，全都按同一把"前后顺序尺子"来决定谁挡住谁，观众完全看不出两种做法混在一起有什么违和感。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 S</span><b>混合渲染层结构</b>
+    <svg viewBox="0 0 900 420" role="img" aria-label="混合渲染层结构：地面层装饰层单位层前景遮挡层特效层UI层，统一sortY排序">
+      <rect x="150" y="20" width="700" height="50" rx="8" class="tag-l5"/>
+      <text x="170" y="50" font-size="13" font-weight="700">UI 层</text>
+      <text x="500" y="50" font-size="12" class="small-note">固定叠加在最上层，不参与排序</text>
+
+      <rect x="150" y="78" width="700" height="50" rx="8" class="node-rect"/>
+      <text x="170" y="108" font-size="13" font-weight="700">特效层</text>
+      <text x="500" y="108" font-size="12" class="small-note">按挂点/世界坐标参与排序；屏幕特效独立叠加</text>
+
+      <rect x="150" y="136" width="700" height="50" rx="8" class="node-rect"/>
+      <text x="170" y="166" font-size="13" font-weight="700">前景遮挡层</text>
+      <text x="500" y="166" font-size="12" class="small-note">近景建筑、树冠等，遮挡它后面的单位</text>
+
+      <rect x="150" y="194" width="700" height="70" rx="8" class="tag-l2"/>
+      <text x="170" y="222" font-size="13" font-weight="700" class="txt-l2">单位层</text>
+      <text x="360" y="222" font-size="12" class="small-note">玩家/生物/物件，按统一"前后顺序键"排序</text>
+
+      <rect x="360" y="234" width="26" height="20" rx="4" fill="var(--l2)"/><text x="373" y="270" text-anchor="middle" font-size="12" class="small-note">sprite</text>
+      <circle cx="430" cy="244" r="13" fill="var(--l4)"/><text x="430" y="270" text-anchor="middle" font-size="12" class="small-note">model</text>
+      <rect x="470" y="234" width="26" height="20" rx="4" fill="var(--l2)"/><text x="483" y="270" text-anchor="middle" font-size="12" class="small-note">sprite</text>
+      <circle cx="540" cy="244" r="13" fill="var(--l4)"/><text x="540" y="270" text-anchor="middle" font-size="12" class="small-note">model</text>
+      <text x="600" y="248" font-size="12" class="small-note">← 两种外形按同一把尺子交替排序</text>
+
+      <rect x="150" y="272" width="700" height="50" rx="8" class="node-rect"/>
+      <text x="170" y="302" font-size="13" font-weight="700">装饰层</text>
+      <text x="500" y="302" font-size="12" class="small-note">不遮挡单位的贴花、痕迹等</text>
+
+      <rect x="150" y="330" width="700" height="50" rx="8" class="tag-l1"/>
+      <text x="170" y="360" font-size="13" font-weight="700">地面层</text>
+      <text x="500" y="360" font-size="12" class="small-note">固定在最底层，不参与排序</text>
+
+      <text x="150" y="405" class="small-note">从下到上：地面 → 装饰 → 单位（含特效与影子）→ 前景遮挡 → 特效 → UI；除首尾两层外，其余层内都按同一把"前后顺序键"排序。</text>
+    </svg>
+    <figcaption>六层像千层蛋糕一样叠放，单位层不区分二维还是三维外形，都按同一把尺子决定谁挡住谁。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>地面层和界面层固定在最底和最顶，不参与"谁挡住谁"的排序，其余层都靠同一把"前后顺序键"决定叠放顺序。</li>
+      <li>这把"尺子"取自逻辑对象的纵轴坐标，二维精灵和三维模型共用同一套尺子，具体怎么合成由引擎适配层保证一致，上层不关心细节。</li>
+      <li>跳跃、被击飞造成的"离地高度"只影响画面上下偏移，不参与前后顺序计算，避免"跳起来却穿模到墙后面"的错觉。</li>
+      <li>影子固定贴在地面对应的坐标上，不随离地高度移动，离地越高，影子和角色的距离看起来就越远，是廉价但好用的高度表现手法。</li>
+      <li>把"2.5D"换成纯粹的俯视二维，这一整套排序约定完全不用改，因为它本来就只依赖平面坐标和一个附加的排序键。</li>
+    </ul>
+  </div>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>09_表现层.md</code>（表现层铁律、混合渲染约定、纸娃娃与骨骼动画、VFX/SFX、反馈绑定、UI 框架、镜头、外壳）、
+    <code>adr/0012-表现形态双外形类型加固定镜头.md</code>
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="07_载体与玩法.html">← 上一章：载体与玩法</a>
+  <a href="09_存档.html">下一章：存档 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

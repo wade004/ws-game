@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>做一款新游戏 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="10_引擎适配与选型.html">← 上一章：引擎适配与选型</a>
+      <a href="12_怎么改架构.html">下一章：怎么改架构 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第十二章 · 做一款新游戏</h1>
+<p class="subtitle">拿这套骨架立项一款全新的游戏，只需要走六步，而不是从零开始盖一栋新楼。</p>
+
+<div class="section-block">
+  <h3>六步走完立项</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像开一家连锁店：总部先审核房东给的场地水电是否达标（选技术方案并实现适配层），再从标准装修清单里挑这家店要装哪些设备（组装模块），把口味参数（辣度、甜度）填进标准配置表（口味配置），接着进货铺货（填数据）、摆盘挂菜单（配表现），开业前照着验收清单走一遍确认没有遗漏（跑验收）。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 V</span><b>立项六步流程</b>
+    <svg viewBox="0 0 1200 220" role="img" aria-label="立项六步：选引擎实现适配层、组装模块、填口味配置、填数据、配表现、跑验收">
+      <rect x="20" y="40" width="180" height="120" rx="10" class="tag-l-1"/>
+      <circle cx="45" cy="65" r="14" fill="var(--fg)"/><text x="45" y="70" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">1</text>
+      <text x="35" y="95" font-size="12" font-weight="700">选技术方案</text>
+      <text x="35" y="113" font-size="12" font-weight="700">实现适配层</text>
+      <text x="35" y="135" font-size="12" class="small-note">按评估框架打分选定</text>
+      <text x="35" y="150" font-size="12" class="small-note">实现13个接口+测试桩</text>
+
+      <rect x="215" y="40" width="180" height="120" rx="10" class="tag-l2"/>
+      <circle cx="240" cy="65" r="14" fill="var(--fg)"/><text x="240" y="70" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">2</text>
+      <text x="230" y="95" font-size="12" font-weight="700">组装模块与</text>
+      <text x="230" y="113" font-size="12" font-weight="700">策略配置</text>
+      <text x="230" y="135" font-size="12" class="small-note">挑选启用哪些模块，</text>
+      <text x="230" y="150" font-size="12" class="small-note">注入策略与自定义实现</text>
+
+      <rect x="410" y="40" width="180" height="120" rx="10" class="tag-l2"/>
+      <circle cx="435" cy="65" r="14" fill="var(--fg)"/><text x="435" y="70" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">3</text>
+      <text x="425" y="95" font-size="12" font-weight="700">确定口味</text>
+      <text x="425" y="113" font-size="12" font-weight="700">配置清单</text>
+      <text x="425" y="135" font-size="12" class="small-note">把全部"必须可配置"项</text>
+      <text x="425" y="150" font-size="12" class="small-note">逐条填成本游戏基线值</text>
+
+      <rect x="605" y="40" width="180" height="120" rx="10" class="tag-l4"/>
+      <circle cx="630" cy="65" r="14" fill="var(--fg)"/><text x="630" y="70" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">4</text>
+      <text x="620" y="95" font-size="12" font-weight="700">填数据</text>
+      <text x="620" y="135" font-size="12" class="small-note">先填最小可玩闭环所需</text>
+      <text x="620" y="150" font-size="12" class="small-note">的最少数据，再横向扩充</text>
+
+      <rect x="800" y="40" width="180" height="120" rx="10" class="tag-l5"/>
+      <circle cx="825" cy="65" r="14" fill="var(--fg)"/><text x="825" y="70" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">5</text>
+      <text x="815" y="95" font-size="12" font-weight="700">配表现</text>
+      <text x="815" y="135" font-size="12" class="small-note">配齐外形映射、界面、</text>
+      <text x="815" y="150" font-size="12" class="small-note">反馈绑定规则</text>
+
+      <rect x="995" y="40" width="180" height="120" rx="10" class="tag-game"/>
+      <circle cx="1020" cy="65" r="14" fill="var(--fg)"/><text x="1020" y="70" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">6</text>
+      <text x="1010" y="95" font-size="12" font-weight="700">跑验收</text>
+      <text x="1010" y="135" font-size="12" class="small-note">校验、测试、确定性、</text>
+      <text x="1010" y="150" font-size="12" class="small-note">表现层核查、可玩性</text>
+
+      <line x1="200" y1="100" x2="213" y2="100" class="edge"/><polygon points="207,94 207,106 217,100" class="arrowhead"/>
+      <line x1="395" y1="100" x2="408" y2="100" class="edge"/><polygon points="402,94 402,106 412,100" class="arrowhead"/>
+      <line x1="590" y1="100" x2="603" y2="100" class="edge"/><polygon points="597,94 597,106 607,100" class="arrowhead"/>
+      <line x1="785" y1="100" x2="798" y2="100" class="edge"/><polygon points="792,94 792,106 802,100" class="arrowhead"/>
+      <line x1="980" y1="100" x2="993" y2="100" class="edge"/><polygon points="987,94 987,106 997,100" class="arrowhead"/>
+
+      <text x="20" y="195" class="small-note">六步之间允许部分并行（比如数据填充和表现资源制作），但"跑验收"必须放在最后。</text>
+    </svg>
+    <figcaption>六步依次推进：先定技术方案，再组装能力，再决定口味，再填内容，最后统一验收。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>做新游戏的第一步工作是"组装"而不是"编写"：从现成的模块清单里挑选启用哪些，而不是从零开始写代码。</li>
+      <li>只有当组装过程中确实发现"现有能力表达不了某个需求"，才会触发第十三章的审批流程，不能绕开流程直接改代码。</li>
+      <li>数据填充建议先做"能跑通一遍完整流程的最小一批内容"，验证整条链路没问题后再横向扩充内容量。</li>
+      <li>验收关卡是有顺序的：先过数据校验，再过自动化测试，再验证确定性，再人工核查表现层有没有偷偷写回逻辑数据。</li>
+      <li>一份立项检查表把每一步该打的勾全部列出来，任何一项都能在原始文档里找到对应的详细依据，不会凭空冒出新要求。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>口味配置清单摘选</h3>
+  <p>下面挑几条最有代表性的口味项做示意，完整清单在原始文档里有近三十条，逐条列明默认建议值与可选范围。</p>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>配置项</th><th>默认建议</th><th>可选范围</th></tr>
+    <tr><td>主动技能槽数</td><td>4</td><td>任意正整数，取决于界面设计</td></tr>
+    <tr><td>公共冷却开关</td><td>关闭</td><td>开启并可配置公共冷却时长</td></tr>
+    <tr><td>目标选择链</td><td>单体最近敌对目标</td><td>锁定优先、鼠标指向优先、自定义链</td></tr>
+    <tr><td>是否允许跳跃</td><td>关闭</td><td>开启（影响碰撞与导航的高度语义）</td></tr>
+    <tr><td>外形类型</td><td>全部用二维精灵</td><td>可选三维模型，单个逻辑对象二选一，可混用</td></tr>
+    <tr><td>探索时间模型</td><td>连续（即时）</td><td>离散（按回合走）</td></tr>
+    <tr><td>战斗时间模型</td><td>连续（即时）</td><td>离散（按回合走）</td></tr>
+    <tr><td>先攻策略</td><td>按属性排序</td><td>按行动点耗尽、固定顺序</td></tr>
+    <tr><td>死亡策略</td><td>传送回复活点</td><td>读档回退、场景重置、自定义流程</td></tr>
+    <tr><td>自动存档触发点</td><td>仅存档点物件开启</td><td>可加地图切换、任务完成等触发点</td></tr>
+  </table>
+  </div>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>13_新游戏接入指南.md</code>（六步立项流程、完整口味配置项清单、填数据与配表现步骤、验收关卡、立项检查表）
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="10_引擎适配与选型.html">← 上一章：引擎适配与选型</a>
+  <a href="12_怎么改架构.html">下一章：怎么改架构 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

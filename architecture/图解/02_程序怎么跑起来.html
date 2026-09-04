@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>程序怎么跑起来 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="01_七层结构.html">← 上一章：七层结构</a>
+      <a href="03_逻辑与画面分家.html">下一章：逻辑与画面分家 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第三章 · 程序怎么跑起来</h1>
+<p class="subtitle">从按下启动图标到你能在世界里走动，程序经过了哪些"状态"；世界又是按什么节拍、什么固定顺序在往前推进。</p>
+
+<div class="section-block">
+  <h3>应用状态机：开机到进入世界</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    这像一台游戏机的电源状态：先自检开机，进主菜单，选新游戏或读档后转圈加载，加载完才进入正式游戏画面，随时能按一下暂停。进入游戏后，你所处的"场景模式"（走路探索、打斗、对话、翻菜单、看过场）就像电视换台，同一时刻只能停在一个频道上；打斗中还可能出现两种"等一等"的特殊状态，专属于按回合走的玩法。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 D</span><b>应用状态机</b>
+    <svg viewBox="0 0 960 460" role="img" aria-label="应用状态机：Boot到MainMenu到Loading到InWorld与Pause，InWorld内部子状态">
+      <rect x="20" y="40" width="120" height="50" rx="8" class="node-rect"/>
+      <text x="80" y="70" text-anchor="middle" class="node-title">Boot</text>
+      <rect x="180" y="40" width="120" height="50" rx="8" class="node-rect"/>
+      <text x="240" y="70" text-anchor="middle" class="node-title">MainMenu</text>
+      <rect x="340" y="40" width="120" height="50" rx="8" class="node-rect"/>
+      <text x="400" y="70" text-anchor="middle" class="node-title">Loading</text>
+
+      <line x1="140" y1="65" x2="178" y2="65" class="edge"/><polygon points="172,59 172,71 182,65" class="arrowhead"/>
+      <line x1="300" y1="65" x2="338" y2="65" class="edge"/><polygon points="332,59 332,71 342,65" class="arrowhead"/>
+      <line x1="460" y1="65" x2="468" y2="65" class="edge"/><polygon points="462,59 462,71 470,65" class="arrowhead"/>
+      <text x="150" y="35" class="small-note">基础系统就绪</text>
+      <text x="310" y="35" class="small-note">选新游戏/读档</text>
+
+      <rect x="470" y="30" width="460" height="330" rx="14" class="node-rect" stroke-dasharray="3 3"/>
+      <text x="486" y="52" class="node-title" font-size="13">InWorld（世界内，互斥子状态）</text>
+
+      <rect x="470" y="80" width="84" height="60" rx="8" class="tag-l4"/>
+      <text x="512" y="106" text-anchor="middle" font-size="12" class="txt-l4">MenuOverlay</text>
+      <text x="512" y="122" text-anchor="middle" font-size="12" class="small-note">打开菜单</text>
+
+      <rect x="564" y="80" width="84" height="60" rx="8" class="tag-l2"/>
+      <text x="606" y="106" text-anchor="middle" font-size="12" class="txt-l2">Combat</text>
+      <text x="606" y="122" text-anchor="middle" font-size="12" class="small-note">战斗系统触发</text>
+
+      <rect x="658" y="80" width="84" height="60" rx="8" class="tag-l0"/>
+      <text x="700" y="106" text-anchor="middle" font-size="12" class="txt-l0" font-weight="700">Explore</text>
+      <text x="700" y="122" text-anchor="middle" font-size="12" class="small-note">默认子状态</text>
+
+      <rect x="752" y="80" width="84" height="60" rx="8" class="tag-l4"/>
+      <text x="794" y="106" text-anchor="middle" font-size="12" class="txt-l4">Dialog</text>
+      <text x="794" y="122" text-anchor="middle" font-size="12" class="small-note">对话打开</text>
+
+      <rect x="846" y="80" width="84" height="60" rx="8" class="tag-l4"/>
+      <text x="888" y="106" text-anchor="middle" font-size="12" class="txt-l4">Cutscene</text>
+      <text x="888" y="122" text-anchor="middle" font-size="12" class="small-note">过场演出</text>
+
+      <!-- 相邻连接 Explore-Combat, Explore-Dialog -->
+      <line x1="648" y1="110" x2="658" y2="110" class="edge-muted"/>
+      <circle cx="648" cy="110" r="4" fill="var(--fg)"/><circle cx="658" cy="110" r="4" fill="var(--fg)"/>
+      <line x1="742" y1="110" x2="752" y2="110" class="edge-muted"/>
+      <circle cx="742" cy="110" r="4" fill="var(--fg)"/><circle cx="752" cy="110" r="4" fill="var(--fg)"/>
+
+      <!-- 上方弧线 Explore-MenuOverlay -->
+      <path d="M700,80 V55 H512 V80" class="edge-muted" fill="none"/>
+      <circle cx="700" cy="80" r="4" fill="var(--fg)"/><circle cx="512" cy="80" r="4" fill="var(--fg)"/>
+
+      <!-- 下方弧线 Explore-Cutscene -->
+      <path d="M700,140 V166 H888 V140" class="edge-muted" fill="none"/>
+      <circle cx="700" cy="140" r="4" fill="var(--fg)"/><circle cx="888" cy="140" r="4" fill="var(--fg)"/>
+
+      <text x="486" y="196" class="small-note">●— ● 表示两个子状态可互相切换，Explore 是默认落回点</text>
+
+      <!-- Combat 子状态 -->
+      <rect x="500" y="215" width="260" height="110" rx="10" class="node-rect" stroke-dasharray="4 3"/>
+      <text x="514" y="234" font-size="12" font-weight="700">Combat 内部子状态（仅离散/回合制模式）</text>
+      <rect x="514" y="248" width="105" height="34" rx="8" class="tag-l2"/>
+      <text x="566" y="269" text-anchor="middle" font-size="12" class="txt-l2">awaiting_input</text>
+      <rect x="634" y="248" width="105" height="34" rx="8" class="tag-l2"/>
+      <text x="686" y="269" text-anchor="middle" font-size="12" class="txt-l2">playing_back</text>
+      <line x1="619" y1="265" x2="634" y2="265" class="edge-muted"/>
+      <circle cx="619" cy="265" r="3" fill="var(--fg)"/><circle cx="634" cy="265" r="3" fill="var(--fg)"/>
+      <text x="514" y="298" class="small-note">等待玩家提交意图 / 等待表现层回放完毕，</text>
+      <text x="514" y="313" class="small-note">两者都只出现在按回合走的时间模型下</text>
+      <line x1="606" y1="140" x2="606" y2="215" class="edge-muted edge-dashed"/>
+
+      <!-- Pause -->
+      <rect x="550" y="400" width="140" height="50" rx="8" class="node-rect"/>
+      <text x="620" y="430" text-anchor="middle" class="node-title">Pause</text>
+      <line x1="620" y1="360" x2="620" y2="398" class="edge-muted"/>
+      <circle cx="620" cy="360" r="4" fill="var(--fg)"/><circle cx="620" cy="398" r="4" fill="var(--fg)"/>
+      <text x="700" y="415" class="small-note">暂停 / 取消暂停（世界内触发或窗口失焦）</text>
+
+      <text x="20" y="420" class="small-note">图例：实线箭头单向转移　●—● 双向可切换　虚线表示归属关系</text>
+    </svg>
+    <figcaption>开机流程一路单向往前；进入世界后五种子状态互斥切换，Explore 是默认落回点；战斗内部按时间模型可能出现两个额外的等待子状态。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>五个主状态（开机、主菜单、加载、世界内、暂停）单向流转，只有"世界内⇄暂停"是可以来回切的。</li>
+      <li>世界内的五个子状态（探索、战斗、对话、菜单叠加、过场）同一时刻只能处于其中之一，探索是默认状态，其余状态结束后都会落回探索。</li>
+      <li>"等待玩家输入"和"等待表现层回放完"这两个特殊子状态只在把战斗设成按回合走的时候才会出现，正常连续战斗里不存在。</li>
+      <li>暂停可能是玩家主动按的，也可能是窗口失去焦点自动触发的，是否自动暂停是一项可开关的口味配置。</li>
+      <li>子状态之间允许有限叠加（比如打斗中打开菜单），具体叠加规则由每款游戏自己配置。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>主循环与时间模型：两种打拍子的方式</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    连续模式像节拍器：不管你有没有准备好，每隔固定的一小段时间就"咔"一下往前走一步，画面在两次咔嗒之间做平滑补间，让眼睛看不出卡顿。离散模式像轮流发言的会议：主持人（调度器）按发言顺序点名，点到谁谁才能动，没点到你就干等着，一圈人都发言完才算"一轮"结束。两种拍子共用同一份"发生了什么就照单执行"的规则，只是"什么时候轮到谁做事"的算法不同。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 E</span><b>主循环与时间模型</b>
+    <svg viewBox="0 0 980 600" role="img" aria-label="主循环与时间模型：左连续模式累积器，右离散模式回合调度器">
+      <rect x="40" y="10" width="390" height="34" rx="8" class="tag-l0"/>
+      <text x="235" y="33" text-anchor="middle" class="txt-l0" font-weight="700">连续模式（默认，探索与战斗常用）</text>
+
+      <rect x="40" y="55" width="390" height="55" rx="8" class="node-rect"/>
+      <text x="235" y="78" text-anchor="middle" font-size="12">① 每次收到画面帧回调，取得本帧经过的真实时间</text>
+      <text x="235" y="96" text-anchor="middle" font-size="12">（暂停则本步不推进，慢动作则先按倍率缩放）</text>
+      <line x1="235" y1="110" x2="235" y2="125" class="edge"/><polygon points="229,119 241,119 235,131" class="arrowhead"/>
+
+      <rect x="40" y="132" width="390" height="45" rx="8" class="node-rect"/>
+      <text x="235" y="159" text-anchor="middle" font-size="12">② 累加进"累积器"accumulator</text>
+      <line x1="235" y1="177" x2="235" y2="192" class="edge"/><polygon points="229,186 241,186 235,198" class="arrowhead"/>
+
+      <rect x="40" y="199" width="390" height="45" rx="8" class="tag-l0"/>
+      <text x="235" y="226" text-anchor="middle" font-size="12">③ 累积器 ≥ 步长？是→执行一次固定步推进</text>
+      <line x1="235" y1="244" x2="235" y2="259" class="edge"/><polygon points="229,253 241,253 235,265" class="arrowhead"/>
+
+      <rect x="40" y="266" width="390" height="45" rx="8" class="node-rect"/>
+      <text x="235" y="293" text-anchor="middle" font-size="12">④ 扣减步长对应的量，回到③重新判断（循环）</text>
+      <path d="M420,288 H460 V213 H432" class="edge-muted edge-dashed" fill="none"/>
+      <polygon points="438,207 438,219 428,213" class="arrowhead-muted"/>
+
+      <line x1="235" y1="311" x2="235" y2="326" class="edge"/><polygon points="229,320 241,320 235,332" class="arrowhead"/>
+      <rect x="40" y="333" width="390" height="55" rx="8" class="node-rect"/>
+      <text x="235" y="356" text-anchor="middle" font-size="12">⑤ 否：用剩余量算出插值系数 alpha，</text>
+      <text x="235" y="374" text-anchor="middle" font-size="12">交给表现层在两步之间做画面插值</text>
+
+      <rect x="40" y="400" width="390" height="50" rx="8" class="node-rect" stroke-dasharray="3 3"/>
+      <text x="235" y="420" text-anchor="middle" font-size="12" class="small-note">默认每秒 60 次，步长可配置；</text>
+      <text x="235" y="436" text-anchor="middle" font-size="12" class="small-note">单帧最多补跑有限步数，防止长时间卡顿后"雪崩式追赶"</text>
+
+      <!-- 右列 -->
+      <rect x="550" y="10" width="390" height="34" rx="8" class="tag-l4"/>
+      <text x="745" y="33" text-anchor="middle" class="txt-l4" font-weight="700">离散模式（按回合走）</text>
+
+      <rect x="550" y="55" width="390" height="45" rx="8" class="node-rect"/>
+      <text x="745" y="82" text-anchor="middle" font-size="12">① 按先攻策略排出本轮行动顺序</text>
+      <line x1="745" y1="100" x2="745" y2="115" class="edge"/><polygon points="739,109 751,109 745,121" class="arrowhead"/>
+
+      <rect x="550" y="122" width="390" height="45" rx="8" class="node-rect"/>
+      <text x="745" y="149" text-anchor="middle" font-size="12">② 取下一个该行动的角色</text>
+      <line x1="745" y1="167" x2="745" y2="182" class="edge"/><polygon points="739,176 751,176 745,188" class="arrowhead"/>
+
+      <rect x="550" y="189" width="390" height="55" rx="8" class="tag-l4"/>
+      <text x="745" y="212" text-anchor="middle" font-size="12">③ 轮到玩家？是→进入"等待输入"，</text>
+      <text x="745" y="230" text-anchor="middle" font-size="12">模拟不推进，直到玩家提交这一步的意图</text>
+      <line x1="745" y1="244" x2="745" y2="259" class="edge"/><polygon points="739,253 751,253 745,265" class="arrowhead"/>
+
+      <rect x="550" y="266" width="390" height="45" rx="8" class="node-rect"/>
+      <text x="745" y="289" text-anchor="middle" font-size="12">④ 否（AI/环境）→产出这一步，交给规则层执行</text>
+      <line x1="745" y1="311" x2="745" y2="326" class="edge"/><polygon points="739,320 751,320 745,332" class="arrowhead"/>
+
+      <rect x="550" y="333" width="390" height="55" rx="8" class="tag-l4"/>
+      <text x="745" y="356" text-anchor="middle" font-size="12">⑤ 若节奏策略要求"等回放"，</text>
+      <text x="745" y="374" text-anchor="middle" font-size="12">进入"回放中"，等表现层演完这一步再继续</text>
+      <line x1="745" y1="388" x2="745" y2="403" class="edge"/><polygon points="739,397 751,397 745,409" class="arrowhead"/>
+
+      <rect x="550" y="410" width="390" height="40" rx="8" class="node-rect"/>
+      <text x="745" y="435" text-anchor="middle" font-size="12">⑥ 该角色行动结束→轮到下一个；一轮走完→本轮结束</text>
+      <path d="M930,430 H960 V143 H932" class="edge-muted edge-dashed" fill="none"/>
+      <polygon points="938,137 938,149 928,143" class="arrowhead-muted"/>
+
+      <rect x="40" y="470" width="900" height="110" rx="12" class="node-rect" stroke-dasharray="3 3"/>
+      <text x="60" y="494" font-size="13" font-weight="700">两种模式如何切换</text>
+      <text x="60" y="516" font-size="12">进入战斗（combat.entered）时：若该场景战斗要求的模式和当前不同，就切到对应模式；同时把正在生效的持续效果</text>
+      <text x="60" y="536" font-size="12">按"每回合等于多少秒"的换算系数在两种单位间转换一次。脱离战斗（combat.left）时按同样规则切回去、换算回来。</text>
+      <text x="60" y="558" font-size="12">切换只改变"下一步怎么产生"，战斗规则本身（技能、结算、仇恨、目标选择）完全不变，也感知不到自己在哪种模式下运行。</text>
+    </svg>
+    <figcaption>左边是默认的连续推进方式，右边是按顺序轮流行动的方式；两者共用同一套规则，只有"下一步怎么产生"不同，进出战斗时按系数换算时间单位完成切换。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>不管画面帧率怎么波动，模拟世界永远按固定的"步长"推进，这是"同样的操作重放出同样结果"的根本保证。</li>
+      <li>暂停就是不再往累积器里加时间；慢动作就是往累积器里加的时间打个折扣，两者都不影响每一步内部的计算逻辑。</li>
+      <li>离散模式下，轮到玩家时世界会真的"停下来等"，这是它和连续模式最直观的区别。</li>
+      <li>"等回放"这道门是可选的：有的游戏希望动画播完再进入下一步，有的游戏希望不等，这是一项可配置的节奏策略。</li>
+      <li>探索用连续、战斗用回合是允许的组合；切换战斗触发的一瞬间，会把"还剩多久生效"的效果按统一系数在秒与回合之间换算一次，避免不公平的突然变化。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>一次模拟步的八步流水线</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像工厂里一条固定的八道工序流水线：原料从第一道工序进去，依次经过每一站，谁都不能跳站、不能插队，最后从第八站出来的一定是同一种加工结果。不管这批"原料"（这一步里发生的输入和随机数）跑多少遍，只要工序顺序不变，产出必然一模一样。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 F</span><b>一次模拟步的八步流水线</b>
+    <svg viewBox="0 0 1000 400" role="img" aria-label="一次模拟步的八步流水线">
+      <rect x="20" y="50" width="220" height="100" rx="10" class="tag-l0"/>
+      <circle cx="45" cy="70" r="13" fill="var(--fg)"/><text x="45" y="75" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">1</text>
+      <text x="65" y="75" font-size="13" font-weight="700">输入意图收集</text>
+      <text x="35" y="98" font-size="12" class="small-note">把玩家操作与 AI 决策</text>
+      <text x="35" y="114" font-size="12" class="small-note">整理成本步的"意图"列表</text>
+      <text x="35" y="130" font-size="12" class="small-note">（离散步只收集当前行动者）</text>
+
+      <rect x="260" y="50" width="220" height="100" rx="10" class="tag-l2"/>
+      <circle cx="285" cy="70" r="13" fill="var(--fg)"/><text x="285" y="75" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">2</text>
+      <text x="305" y="75" font-size="13" font-weight="700">AI 决策</text>
+      <text x="275" y="98" font-size="12" class="small-note">非玩家单位按行为状态机</text>
+      <text x="275" y="114" font-size="12" class="small-note">与优先级表生成本步意图，</text>
+      <text x="275" y="130" font-size="12" class="small-note">追加进同一份意图列表</text>
+
+      <rect x="500" y="50" width="220" height="100" rx="10" class="tag-l2"/>
+      <circle cx="525" cy="70" r="13" fill="var(--fg)"/><text x="525" y="75" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">3</text>
+      <text x="545" y="75" font-size="13" font-weight="700">技能管线</text>
+      <text x="515" y="98" font-size="12" class="small-note">对施法类意图逐条校验、</text>
+      <text x="515" y="114" font-size="12" class="small-note">扣资源、推进读条、结算效果，</text>
+      <text x="515" y="130" font-size="12" class="small-note">结果先记录暂不落地</text>
+
+      <rect x="740" y="50" width="220" height="100" rx="10" class="tag-l0"/>
+      <circle cx="765" cy="70" r="13" fill="var(--fg)"/><text x="765" y="75" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">4</text>
+      <text x="785" y="75" font-size="13" font-weight="700">移动与导航</text>
+      <text x="755" y="98" font-size="12" class="small-note">处理位移类意图，结合</text>
+      <text x="755" y="114" font-size="12" class="small-note">寻路与碰撞更新单位位置</text>
+
+      <line x1="240" y1="100" x2="258" y2="100" class="edge"/><polygon points="252,94 252,106 262,100" class="arrowhead"/>
+      <line x1="480" y1="100" x2="498" y2="100" class="edge"/><polygon points="492,94 492,106 502,100" class="arrowhead"/>
+      <line x1="720" y1="100" x2="738" y2="100" class="edge"/><polygon points="732,94 732,106 742,100" class="arrowhead"/>
+
+      <path d="M850,150 V220 H150 V228" class="edge" fill="none"/>
+      <polygon points="144,222 156,222 150,232" class="arrowhead"/>
+
+      <rect x="20" y="235" width="220" height="100" rx="10" class="tag-l2"/>
+      <circle cx="45" cy="255" r="13" fill="var(--fg)"/><text x="45" y="260" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">5</text>
+      <text x="65" y="260" font-size="13" font-weight="700">战斗结算</text>
+      <text x="35" y="283" font-size="12" class="small-note">命中判定→减免→免疫吸收</text>
+      <text x="35" y="299" font-size="12" class="small-note">→落地生命值，更新仇恨表</text>
+
+      <rect x="260" y="235" width="220" height="100" rx="10" class="tag-l0"/>
+      <circle cx="285" cy="255" r="13" fill="var(--fg)"/><text x="285" y="260" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">6</text>
+      <text x="305" y="260" font-size="13" font-weight="700">触发评估</text>
+      <text x="275" y="283" font-size="12" class="small-note">用条件语言求值区域触发、</text>
+      <text x="275" y="299" font-size="12" class="small-note">任务进度、成就等条件</text>
+
+      <rect x="500" y="235" width="220" height="100" rx="10" class="tag-l0"/>
+      <circle cx="525" cy="255" r="13" fill="var(--fg)"/><text x="525" y="260" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">7</text>
+      <text x="545" y="260" font-size="13" font-weight="700">事件派发</text>
+      <text x="515" y="283" font-size="12" class="small-note">把本步全部事件通过事件</text>
+      <text x="515" y="299" font-size="12" class="small-note">总线广播给全部订阅者</text>
+
+      <rect x="740" y="235" width="220" height="100" rx="10" class="tag-l0"/>
+      <circle cx="765" cy="255" r="13" fill="var(--fg)"/><text x="765" y="260" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">8</text>
+      <text x="785" y="260" font-size="13" font-weight="700">生命周期清理</text>
+      <text x="755" y="283" font-size="12" class="small-note">真正移除标记销毁的对象</text>
+      <text x="755" y="299" font-size="12" class="small-note">（死亡单位、过期抛射物等）</text>
+
+      <line x1="240" y1="285" x2="258" y2="285" class="edge"/><polygon points="252,279 252,291 262,285" class="arrowhead"/>
+      <line x1="480" y1="285" x2="498" y2="285" class="edge"/><polygon points="492,279 492,291 502,285" class="arrowhead"/>
+      <line x1="720" y1="285" x2="738" y2="285" class="edge"/><polygon points="732,279 732,291 742,285" class="arrowhead"/>
+
+      <text x="20" y="368" class="small-note">连续步和离散步走的是同一条流水线，差别只在第①③③④步的解释方式不同，其余四步完全一样。</text>
+    </svg>
+    <figcaption>八道工序顺序固定，连续模式和回合模式共用同一条流水线，只有"意图怎么收集""怎么移动"两步的具体算法不同。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>八步顺序是写死的，任何实现都不能调整顺序或跳过某一步，这是"同样输入必得同样结果"的关键前提。</li>
+      <li>第三步"技能管线"算出来的伤害/治疗先记录下来，真正改变生命值要等第五步"战斗结算"才落地，中间不允许提前改写。</li>
+      <li>第七步"事件派发"是表现层唯一能感知到世界发生了什么的入口，这一步之前表现层完全不知情。</li>
+      <li>连续模式和离散模式走的是同一条流水线，只有第一步"收集哪些人的意图"和第四步"怎么移动"这两处的具体算法不同。</li>
+      <li>固定顺序也是"脱离引擎单独测试"能成立的原因：只要给定同样的意图序列，重复跑这条流水线一定能验证出一致的结果。</li>
+    </ul>
+  </div>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>03_运行时骨架.md</code>（应用生命周期、固定步长主循环与时间模型、WorldSim 与 tick 顺序、场景路由、输入映射）
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="01_七层结构.html">← 上一章：七层结构</a>
+  <a href="03_逻辑与画面分家.html">下一章：逻辑与画面分家 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

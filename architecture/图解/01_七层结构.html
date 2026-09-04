@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>七层结构 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="index.html">← 封面</a>
+      <a href="02_程序怎么跑起来.html">下一章：程序怎么跑起来 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第二章 · 七层结构</h1>
+<p class="subtitle">世界从"贴地基"到"贴脸面"一共叠了七层，加一层专门对接具体技术的适配层，外加一层贯穿全部楼层的"住户装修队"。</p>
+
+<div class="section-block">
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    整个架构像一栋七层加地下室的写字楼。地下室（引擎适配层）负责水电煤气这些"接市政管网"的活，一楼是前台与总机（基础层），往上每一层的业务越来越贴近"具体做什么生意"，顶楼是门面装修与迎宾（表现层）。每家公司（游戏层）可以自己决定用哪几层楼、怎么装修，但不能自己去改楼里的承重结构，也不能越层直接闯进别的楼层机房。
+  </div>
+
+  <h3>七层一览</h3>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>层</th><th>名称</th><th>一句话内容</th></tr>
+    <tr><td class="txt-l-1"><b>L-1</b></td><td>引擎适配层</td><td>把具体技术的窗口、时钟、画面、声音、输入、文件、资源、导航等能力包成中立接口</td></tr>
+    <tr><td class="txt-l0"><b>L0</b></td><td>基础层</td><td>生命周期、主循环、数据表加载、条件判断、事件总线、随机数、存档、输入映射等通用地基</td></tr>
+    <tr><td class="txt-l1"><b>L1</b></td><td>数值层</td><td>等级经验、属性叠加规则、资源池、职业种族模板、阵营关系</td></tr>
+    <tr><td class="txt-l2"><b>L2</b></td><td>规则层</td><td>技能怎么放、战斗怎么算、AI 怎么决策、目标怎么选</td></tr>
+    <tr><td class="txt-l3"><b>L3</b></td><td>载体层</td><td>物品、生物、可交互物件、召唤物这些"内容的容器"</td></tr>
+    <tr><td class="txt-l4"><b>L4</b></td><td>玩法层</td><td>掉落、任务、对话剧情、关卡遭遇、难度、成就、经济、世界状态</td></tr>
+    <tr><td class="txt-l5"><b>L5</b></td><td>表现层</td><td>把逻辑事件变成画面、音效、动效、界面，唯一"看得见"的一层</td></tr>
+  </table>
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 B</span><b>七层分层图</b>
+    <svg viewBox="0 0 960 620" role="img" aria-label="七层分层图，自下而上 L-1 到 L5，右侧游戏层贯穿，事件总线横穿">
+      <rect x="20" y="70" width="740" height="68" rx="10" class="tag-l5"/>
+      <text x="40" y="98" class="txt-l5" font-size="20" font-weight="700">L5</text>
+      <text x="40" y="120" class="txt-l5" font-size="12">表现层 Presentation</text>
+      <text x="170" y="92" font-size="12" fill="var(--fg)">渲染约定与混合渲染 · 纸娃娃/骨骼与程序动画 · VFX/SFX · 反馈绑定</text>
+      <text x="170" y="112" font-size="12" fill="var(--fg)">UI 框架 · 镜头 · 视图绑定 · 游戏外壳</text>
+
+      <rect x="20" y="144" width="740" height="68" rx="10" class="tag-l4"/>
+      <text x="40" y="172" class="txt-l4" font-size="20" font-weight="700">L4</text>
+      <text x="40" y="194" class="txt-l4" font-size="12">玩法层 Gameplay</text>
+      <text x="170" y="166" font-size="12" fill="var(--fg)">掉落 · 任务 · 对话与剧情 · 遭遇与关卡 · 难度 · 成就</text>
+      <text x="170" y="186" font-size="12" fill="var(--fg)">经济 · 世界状态 · 区域触发 · 刷新</text>
+
+      <rect x="20" y="218" width="740" height="68" rx="10" class="tag-l3"/>
+      <text x="40" y="246" class="txt-l3" font-size="20" font-weight="700">L3</text>
+      <text x="40" y="268" class="txt-l3" font-size="12">载体层 Carriers</text>
+      <text x="170" y="256" font-size="12" fill="var(--fg)">物品与装备 · 生物 · 游戏对象 · 召唤与宠物</text>
+
+      <rect x="20" y="292" width="740" height="68" rx="10" class="tag-l2"/>
+      <text x="40" y="320" class="txt-l2" font-size="20" font-weight="700">L2</text>
+      <text x="40" y="342" class="txt-l2" font-size="12">规则层 Rules</text>
+      <text x="170" y="330" font-size="12" fill="var(--fg)">技能系统 · 战斗系统 · AI · 目标选择</text>
+
+      <rect x="20" y="366" width="740" height="68" rx="10" class="tag-l1"/>
+      <text x="40" y="394" class="txt-l1" font-size="20" font-weight="700">L1</text>
+      <text x="40" y="416" class="txt-l1" font-size="12">数值层 Numbers</text>
+      <text x="170" y="404" font-size="12" fill="var(--fg)">等级与经验 · 属性表 · 资源池 · 职业种族模板 · 阵营矩阵</text>
+
+      <rect x="20" y="440" width="740" height="68" rx="10" class="tag-l0"/>
+      <text x="40" y="468" class="txt-l0" font-size="20" font-weight="700">L0</text>
+      <text x="40" y="490" class="txt-l0" font-size="12">基础层 Foundation</text>
+      <text x="170" y="462" font-size="12" fill="var(--fg)">生命周期 · 主循环 · 数据注册表 · 条件求值器 · 事件总线 · 随机源</text>
+      <text x="170" y="482" font-size="12" fill="var(--fg)">存档系统 · 输入映射 · 本地化 · 外形注册表 · 场景路由 · 脚本钩子</text>
+
+      <rect x="20" y="514" width="740" height="68" rx="10" class="tag-l-1"/>
+      <text x="40" y="542" class="txt-l-1" font-size="20" font-weight="700">L-1</text>
+      <text x="40" y="564" class="txt-l-1" font-size="12">引擎适配层</text>
+      <text x="170" y="536" font-size="12" fill="var(--fg)">窗口时钟 · 二维渲染 · 三维渲染 · 音频 · 输入设备</text>
+      <text x="170" y="556" font-size="12" fill="var(--fg)">文件系统 · 资源加载 · 导航与空间查询 · UI承载面 · 平台服务</text>
+
+      <!-- 游戏层贯穿右侧 -->
+      <rect x="800" y="70" width="140" height="512" rx="12" class="tag-game"/>
+      <g transform="rotate(-90 870 326)">
+        <text x="870" y="326" text-anchor="middle" class="txt-game" font-size="14" font-weight="700">游戏层 Game Layer（贯穿全部层：组装 / 配置 / 数据与资源）</text>
+      </g>
+
+      <!-- 事件总线：沿左侧外缘贯穿全部层，避免压住层内文字 -->
+      <line x1="10" y1="60" x2="10" y2="592" stroke="var(--game)" stroke-width="4" stroke-dasharray="10 6" opacity="0.85"/>
+      <line x1="10" y1="104" x2="20" y2="104" stroke="var(--game)" stroke-width="3"/>
+      <line x1="10" y1="178" x2="20" y2="178" stroke="var(--game)" stroke-width="3"/>
+      <line x1="10" y1="252" x2="20" y2="252" stroke="var(--game)" stroke-width="3"/>
+      <line x1="10" y1="326" x2="20" y2="326" stroke="var(--game)" stroke-width="3"/>
+      <line x1="10" y1="400" x2="20" y2="400" stroke="var(--game)" stroke-width="3"/>
+      <line x1="10" y1="474" x2="20" y2="474" stroke="var(--game)" stroke-width="3"/>
+      <line x1="10" y1="548" x2="20" y2="548" stroke="var(--game)" stroke-width="3"/>
+      <g transform="rotate(-90 10 326)">
+        <text x="10" y="326" text-anchor="middle" font-size="13" font-weight="700" class="txt-game">事件总线 EventBus（发布 / 订阅，横穿全部层）</text>
+      </g>
+    </svg>
+    <figcaption>每层一种颜色，层内列出该层的模块；游戏层贯穿在右侧，事件总线横向穿过所有楼层，任何层都能往上面发消息或听消息。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>七层从下到上依次是引擎适配层、基础层、数值层、规则层、载体层、玩法层、表现层，编号和顺序是定死的，不允许合并或改名。</li>
+      <li>游戏层不是第八层，它"贯穿"全部七层，只做三件事：挑选启用哪些模块、灌入策略配置（口味）、提供具体数据与美术资源。</li>
+      <li>事件总线是唯一能"横向"穿越楼层的通道：任何层发生了事，都可以广播出去，别的层只管订阅，互相之间不需要认识。</li>
+      <li>表现层是全架构唯一"看得见"的一层，其余六层各自管好自己的规则和数据，互不知道对方长什么样。</li>
+      <li>七层结构与是否联网无关——它单纯是为了让"新增内容""替换技术""独立测试"这三件事变得容易而设计的组织方式。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>只能往下叫：依赖方向</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    这栋楼的对讲系统只能"上级呼叫下级"：三楼可以直接打电话给一楼要资源，一楼却不能反过来指挥三楼干活。同一层的两个部门之间，也不能直接闯进对方办公室翻文件，只能递条子（契约）或者贴公告（事件）。表现层比较特殊——它是唯一装了"落地窗"的楼层，能看到楼下所有楼层在做什么，但只能看、不能伸手进去改。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 C</span><b>依赖方向图</b>
+    <svg viewBox="0 0 640 460" role="img" aria-label="依赖方向图：箭头只向下，表现层对其余层只读订阅，同层之间仅经契约">
+      <rect x="40" y="20" width="200" height="48" rx="8" class="tag-l5"/>
+      <text x="140" y="49" text-anchor="middle" class="txt-l5" font-weight="700">L5 表现层</text>
+
+      <rect x="40" y="80" width="200" height="48" rx="8" class="tag-l4"/>
+      <text x="140" y="109" text-anchor="middle" class="txt-l4" font-weight="700">L4 玩法层</text>
+
+      <rect x="40" y="140" width="200" height="48" rx="8" class="tag-l3"/>
+      <text x="140" y="169" text-anchor="middle" class="txt-l3" font-weight="700">L3 载体层</text>
+
+      <rect x="40" y="200" width="200" height="48" rx="8" class="tag-l2"/>
+      <text x="140" y="229" text-anchor="middle" class="txt-l2" font-weight="700">L2 规则层</text>
+
+      <rect x="40" y="260" width="200" height="48" rx="8" class="tag-l1"/>
+      <text x="140" y="289" text-anchor="middle" class="txt-l1" font-weight="700">L1 数值层</text>
+
+      <rect x="40" y="320" width="200" height="48" rx="8" class="tag-l0"/>
+      <text x="140" y="349" text-anchor="middle" class="txt-l0" font-weight="700">L0 基础层</text>
+
+      <rect x="40" y="380" width="200" height="48" rx="8" class="tag-l-1"/>
+      <text x="140" y="409" text-anchor="middle" class="txt-l-1" font-weight="700">L-1 引擎适配层</text>
+
+      <!-- 相邻层允许直接调用 -->
+      <line x1="140" y1="68" x2="140" y2="78" class="edge"/><polygon points="134,78 146,78 140,88" class="arrowhead"/>
+      <line x1="140" y1="128" x2="140" y2="138" class="edge"/><polygon points="134,138 146,138 140,148" class="arrowhead"/>
+      <line x1="140" y1="188" x2="140" y2="198" class="edge"/><polygon points="134,198 146,198 140,208" class="arrowhead"/>
+      <line x1="140" y1="248" x2="140" y2="258" class="edge"/><polygon points="134,258 146,258 140,268" class="arrowhead"/>
+      <line x1="140" y1="308" x2="140" y2="318" class="edge"/><polygon points="134,318 146,318 140,328" class="arrowhead"/>
+      <line x1="140" y1="368" x2="140" y2="378" class="edge"/><polygon points="134,378 146,378 140,388" class="arrowhead"/>
+      <text x="150" y="76" class="small-note">允许：直接调用下层契约</text>
+
+      <!-- L5 对 L0~L4 只读虚线绕行 -->
+      <path d="M240,32 H310 V344 H246" class="edge-muted edge-dashed" fill="none"/>
+      <polygon points="246,338 246,350 236,344" class="arrowhead-muted"/>
+      <text x="316" y="40" class="small-note" fill="var(--muted)">L5 → L0~L4：</text>
+      <text x="316" y="56" class="small-note" fill="var(--muted)">仅只读契约 / 仅订阅事件</text>
+
+      <!-- L5 到 L-1 允许（表现操作） -->
+      <path d="M240,56 H400 V404 H246" class="edge" fill="none"/>
+      <polygon points="246,398 246,410 236,404" class="arrowhead"/>
+      <text x="406" y="64" class="small-note">允许：L5 经 L-1 执行绘制</text>
+      <text x="406" y="80" class="small-note">/音频/输入等表现操作</text>
+
+      <!-- 同层说明 -->
+      <rect x="330" y="150" width="270" height="110" rx="10" class="node-rect" stroke-dasharray="4 3"/>
+      <text x="345" y="174" font-size="13" font-weight="700">⟲ 同层内规则（对全部 7 层成立）</text>
+      <text x="345" y="196" class="small-note">同一层内的两个模块之间，</text>
+      <text x="345" y="214" class="small-note">只能经契约接口或事件总线沟通，</text>
+      <text x="345" y="232" class="small-note">禁止互相持有对方的内部状态。</text>
+
+      <text x="40" y="450" class="small-note">图例：实线箭头 = 允许直接调用　虚线箭头 = 仅只读 / 仅订阅事件</text>
+    </svg>
+    <figcaption>依赖只能从上层流向下层；表现层对其余各层一律只读、只订阅事件，只有经引擎适配层执行绘制等表现操作时例外；同层模块之间只能经契约或事件沟通。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>七层的调用方向像水往下流：L5 能调 L4~L-1，L0 只能调 L-1，反过来一律不允许。</li>
+      <li>表现层是特例中的特例：对 L0~L4 只能只读查询或订阅事件，绝不能调用会改变这些层状态的方法。</li>
+      <li>表现层调用引擎适配层（画面、声音、输入）不算破例，因为这些操作不会改变游戏世界的逻辑状态。</li>
+      <li>同一层内的模块（比如规则层里的技能系统和战斗系统）互相之间也不能直接翻对方的内部数据，必须走契约接口或事件总线。</li>
+      <li>只有引擎适配层自己不能反过来调用任何更上层——它是这栋楼唯一"不知道楼上在干嘛"的楼层。</li>
+    </ul>
+  </div>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>01_分层与依赖.md</code>（七层定义、依赖矩阵、模块清单与归属、游戏层边界）
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="index.html">← 封面</a>
+  <a href="02_程序怎么跑起来.html">下一章：程序怎么跑起来 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>万物皆法术 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="04_数据即内容.html">← 上一章：数据即内容</a>
+      <a href="06_战斗周边.html">下一章：战斗周边 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第六章 · 万物皆法术</h1>
+<p class="subtitle">世界里"任何一件让什么东西发生变化"的事，最后都归结成同一套积木的拼装，不为某一件事单独开一条生产线。</p>
+
+<div class="section-block">
+  <h3>技能、效果、光环、触发、法术修饰，怎么拼在一起</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像乐高积木：一份"技能"是拼好的成品，底下有两种基础积木——"效果"（一次性动作，比如推一下、砸一下）和"光环"（贴上去会持续起作用的贴纸）。贴纸上还能再挂两种小挂件："触发"（碰到设定的条件就自动弹一下）和"法术修饰"（悄悄改写另一块积木的参数，比如让子弹飞得更远）。装备特效、天赋加成、种族天生能力、可互动的物件、乃至一场大战的阶段机制，全部是拿这几种积木拼出来的，不需要另开一条生产线、写一套专用代码。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 K</span><b>技能体系关系图</b>
+    <svg viewBox="0 0 1080 400" role="img" aria-label="技能效果光环触发法术修饰关系图，装备天赋种族物件Boss机制如何接入">
+      <rect x="20" y="20" width="280" height="58" rx="10" class="tag-l3"/>
+      <text x="35" y="42" font-size="12" font-weight="700">装备</text>
+      <text x="35" y="62" font-size="12" class="small-note">授予一个技能＋挂一个被动光环</text>
+
+      <rect x="20" y="90" width="280" height="58" rx="10" class="tag-l3"/>
+      <text x="35" y="112" font-size="12" font-weight="700">天赋</text>
+      <text x="35" y="132" font-size="12" class="small-note">被动光环里携带的"法术修饰"</text>
+
+      <rect x="20" y="160" width="280" height="58" rx="10" class="tag-l1"/>
+      <text x="35" y="182" font-size="12" font-weight="700">种族</text>
+      <text x="35" y="202" font-size="12" class="small-note">默认施加的一两个被动光环</text>
+
+      <rect x="20" y="230" width="280" height="58" rx="10" class="tag-l3"/>
+      <text x="35" y="252" font-size="12" font-weight="700">可交互的物件</text>
+      <text x="35" y="272" font-size="12" class="small-note">"使用动作"指向一个技能或对话</text>
+
+      <rect x="20" y="300" width="280" height="58" rx="10" class="tag-l4"/>
+      <text x="35" y="322" font-size="12" font-weight="700">大战的阶段机制</text>
+      <text x="35" y="342" font-size="12" class="small-note">遭遇阶段＋触发器＋技能的组合</text>
+
+      <rect x="310" y="15" width="90" height="352" rx="12" class="tag-game"/>
+      <g transform="rotate(-90 355 191)"><text x="355" y="191" text-anchor="middle" class="txt-game" font-weight="700" font-size="13">全部通过"技能"体系接入，不为单个内容写专用代码</text></g>
+
+      <line x1="300" y1="49" x2="310" y2="49" class="edge"/>
+      <line x1="300" y1="119" x2="310" y2="119" class="edge"/>
+      <line x1="300" y1="189" x2="310" y2="189" class="edge"/>
+      <line x1="300" y1="259" x2="310" y2="259" class="edge"/>
+      <line x1="300" y1="329" x2="310" y2="329" class="edge"/>
+
+      <line x1="400" y1="189" x2="418" y2="189" class="edge"/><polygon points="412,183 412,195 422,189" class="arrowhead"/>
+
+      <rect x="420" y="15" width="620" height="352" rx="14" class="node-rect" stroke-dasharray="4 3"/>
+      <text x="436" y="35" font-size="12" font-weight="700">技能体系（Skill / Effect / Aura / Proc / SpellMod）</text>
+
+      <rect x="550" y="45" width="300" height="55" rx="10" class="tag-l2"/>
+      <text x="700" y="68" text-anchor="middle" font-size="13" font-weight="700" class="txt-l2">Skill 技能</text>
+      <text x="700" y="86" text-anchor="middle" font-size="12" class="small-note">一次完整的施放行为</text>
+
+      <rect x="440" y="150" width="260" height="75" rx="10" class="node-rect"/>
+      <text x="570" y="175" text-anchor="middle" font-size="13" font-weight="700">Effect 效果</text>
+      <text x="570" y="195" text-anchor="middle" font-size="12" class="small-note">一次性结果：伤害/位移/</text>
+      <text x="570" y="211" text-anchor="middle" font-size="12" class="small-note">召唤/开锁/传送……</text>
+
+      <rect x="740" y="150" width="280" height="75" rx="10" class="node-rect"/>
+      <text x="880" y="175" text-anchor="middle" font-size="13" font-weight="700">Aura 光环</text>
+      <text x="880" y="195" text-anchor="middle" font-size="12" class="small-note">持续状态：增益/减益/护盾/</text>
+      <text x="880" y="211" text-anchor="middle" font-size="12" class="small-note">免疫/控制……随时间生效</text>
+
+      <rect x="700" y="260" width="170" height="65" rx="10" class="tag-l1"/>
+      <text x="785" y="285" text-anchor="middle" font-size="12" font-weight="700" class="txt-l1">Proc 触发</text>
+      <text x="785" y="303" text-anchor="middle" font-size="12" class="small-note">满足条件自动触发效果</text>
+
+      <rect x="890" y="260" width="150" height="65" rx="10" class="tag-l1"/>
+      <text x="965" y="285" text-anchor="middle" font-size="12" font-weight="700" class="txt-l1">SpellMod</text>
+      <text x="965" y="303" text-anchor="middle" font-size="12" class="small-note">改另一个技能的参数</text>
+
+      <path d="M700,100 V120 H570 V148" class="edge" fill="none"/><polygon points="564,142 576,142 570,152" class="arrowhead"/>
+      <path d="M700,100 V120 H880 V148" class="edge" fill="none"/><polygon points="874,142 886,142 880,152" class="arrowhead"/>
+      <path d="M880,225 V245 H785 V258" class="edge" fill="none"/><polygon points="779,252 791,252 785,262" class="arrowhead"/>
+      <path d="M880,225 V245 H965 V258" class="edge" fill="none"/><polygon points="959,252 971,252 965,262" class="arrowhead"/>
+    </svg>
+    <figcaption>技能拆成效果与光环两种基础积木，光环上还能挂触发与法术修饰；左边五类内容全部通过这一套体系接入，禁止各写一套专用代码。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>凡是"让世界发生变化"的动作，一律建模成技能（Skill），不为某一件具体内容单独写代码路径。</li>
+      <li>效果（Effect）是一次性的结果，光环（Aura）是挂在身上持续起作用的状态，二者是技能体系仅有的两种基础积木。</li>
+      <li>触发（Proc）负责"条件满足就自动弹一下"，法术修饰（SpellMod）负责"悄悄改写另一个技能的参数"，天赋的效果基本都靠后者实现。</li>
+      <li>装备、天赋、种族、可互动物件、遭遇阶段机制这五类看起来完全不同的内容，拆开看全部只是这套积木的不同拼法。</li>
+      <li>如果某个新需求发现"现有积木怎么拼都拼不出来"，才需要走第十三章的"新增原语"审批，不能私自开一条新代码路径绕过去。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>放技能要过几道关：施法检查九连关</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像机场安检的九道闸机：活着没被封嘴、冷却好了没有、耗材够不够、目标站没站对位置……一道一道往下过，哪道过不了就当场拦下并给出一个明确原因；全部过了，最后一道闸机才真正放行，开始扣资源、进冷却、生效。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 L</span><b>施法检查九连关</b>
+    <svg viewBox="0 0 940 660" role="img" aria-label="施法管线九步检查流程，每步一个失败原因">
+      <!-- steps -->
+      <g>
+        <rect x="60" y="20" width="320" height="52" rx="8" class="tag-l2"/>
+        <text x="76" y="52" font-size="13" font-weight="700">① 存活与状态</text>
+        <line x1="380" y1="46" x2="420" y2="46" class="edge-muted edge-dashed"/>
+        <rect x="420" y="20" width="330" height="52" rx="8" class="node-rect" stroke-dasharray="3 3"/>
+        <text x="436" y="52" font-size="12" class="small-note">失败：已死亡 / 被沉默 / 被眩晕</text>
+      </g>
+      <g>
+        <rect x="60" y="90" width="320" height="52" rx="8" class="tag-l2"/>
+        <text x="76" y="122" font-size="13" font-weight="700">② 学派锁定</text>
+        <line x1="380" y1="116" x2="420" y2="116" class="edge-muted edge-dashed"/>
+        <rect x="420" y="90" width="330" height="52" rx="8" class="node-rect" stroke-dasharray="3 3"/>
+        <text x="436" y="122" font-size="12" class="small-note">失败：对应学派被暂时封锁</text>
+      </g>
+      <g>
+        <rect x="60" y="160" width="320" height="52" rx="8" class="tag-l2"/>
+        <text x="76" y="192" font-size="13" font-weight="700">③ 冷却</text>
+        <line x1="380" y1="186" x2="420" y2="186" class="edge-muted edge-dashed"/>
+        <rect x="420" y="160" width="330" height="52" rx="8" class="node-rect" stroke-dasharray="3 3"/>
+        <text x="436" y="192" font-size="12" class="small-note">失败：技能或所属分类还在冷却</text>
+      </g>
+      <g>
+        <rect x="60" y="230" width="320" height="52" rx="8" class="tag-l2"/>
+        <text x="76" y="262" font-size="13" font-weight="700">④ 公共冷却（如启用）</text>
+        <line x1="380" y1="256" x2="420" y2="256" class="edge-muted edge-dashed"/>
+        <rect x="420" y="230" width="330" height="52" rx="8" class="node-rect" stroke-dasharray="3 3"/>
+        <text x="436" y="262" font-size="12" class="small-note">失败：公共冷却未就绪（关闭时恒通过）</text>
+      </g>
+      <g>
+        <rect x="60" y="300" width="320" height="52" rx="8" class="tag-l2"/>
+        <text x="76" y="332" font-size="13" font-weight="700">⑤ 资源</text>
+        <line x1="380" y1="326" x2="420" y2="326" class="edge-muted edge-dashed"/>
+        <rect x="420" y="300" width="330" height="52" rx="8" class="node-rect" stroke-dasharray="3 3"/>
+        <text x="436" y="332" font-size="12" class="small-note">失败：资源（法力/怒气等）不够</text>
+      </g>
+      <g>
+        <rect x="60" y="370" width="320" height="52" rx="8" class="tag-l2"/>
+        <text x="76" y="402" font-size="13" font-weight="700">⑥ 目标合法性</text>
+        <line x1="380" y1="396" x2="420" y2="396" class="edge-muted edge-dashed"/>
+        <rect x="420" y="370" width="330" height="52" rx="8" class="node-rect" stroke-dasharray="3 3"/>
+        <text x="436" y="402" font-size="12" class="small-note">失败：按目标链找不到合法目标</text>
+      </g>
+      <g>
+        <rect x="60" y="440" width="320" height="52" rx="8" class="tag-l2"/>
+        <text x="76" y="472" font-size="13" font-weight="700">⑦ 距离与视线</text>
+        <line x1="380" y1="466" x2="420" y2="466" class="edge-muted edge-dashed"/>
+        <rect x="420" y="440" width="330" height="52" rx="8" class="node-rect" stroke-dasharray="3 3"/>
+        <text x="436" y="472" font-size="12" class="small-note">失败：超出射程 / 视线被遮挡</text>
+      </g>
+      <g>
+        <rect x="60" y="510" width="320" height="52" rx="8" class="tag-l2"/>
+        <text x="76" y="542" font-size="13" font-weight="700">⑧ 读条 / 引导</text>
+        <line x1="380" y1="536" x2="420" y2="536" class="edge-muted edge-dashed"/>
+        <rect x="420" y="510" width="330" height="52" rx="8" class="node-rect" stroke-dasharray="3 3"/>
+        <text x="436" y="542" font-size="12" class="small-note">失败：期间被打断（按打断标志判定）</text>
+      </g>
+      <g>
+        <rect x="60" y="580" width="320" height="52" rx="8" class="tag-l0"/>
+        <text x="76" y="612" font-size="13" font-weight="700">⑨ 结算触发（成功）</text>
+        <line x1="380" y1="606" x2="420" y2="606" class="edge"/>
+        <rect x="420" y="580" width="330" height="52" rx="8" class="tag-l0"/>
+        <text x="436" y="606" font-size="12">扣资源、进冷却、依次执行全部效果</text>
+      </g>
+
+      <line x1="220" y1="72" x2="220" y2="88" class="edge"/><polygon points="214,82 226,82 220,94" class="arrowhead"/>
+      <line x1="220" y1="142" x2="220" y2="158" class="edge"/><polygon points="214,152 226,152 220,164" class="arrowhead"/>
+      <line x1="220" y1="212" x2="220" y2="228" class="edge"/><polygon points="214,222 226,222 220,234" class="arrowhead"/>
+      <line x1="220" y1="282" x2="220" y2="298" class="edge"/><polygon points="214,292 226,292 220,304" class="arrowhead"/>
+      <line x1="220" y1="352" x2="220" y2="368" class="edge"/><polygon points="214,362 226,362 220,374" class="arrowhead"/>
+      <line x1="220" y1="422" x2="220" y2="438" class="edge"/><polygon points="214,432 226,432 220,444" class="arrowhead"/>
+      <line x1="220" y1="492" x2="220" y2="508" class="edge"/><polygon points="214,502 226,502 220,514" class="arrowhead"/>
+      <line x1="220" y1="562" x2="220" y2="578" class="edge"/><polygon points="214,572 226,572 220,584" class="arrowhead"/>
+
+      <text x="60" y="648" class="small-note">离散（回合制）模式下检查顺序完全不变，只是"读条"解释为延后若干回合生效，公共冷却恒通过。</text>
+    </svg>
+    <figcaption>九道检查按固定顺序执行，任何一步失败都会给出明确原因并中止；只有全部通过，第九步才真正扣资源、生效。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>九道检查的顺序是写死的，任何实现都不能打乱，这样"为什么这次没放出去"永远有一个可追溯的明确原因。</li>
+      <li>前八道关只做"检查"，不产生任何实际影响；只有第九关通过后才会真正扣资源、进冷却、执行效果。</li>
+      <li>公共冷却是否存在是一项开关：关闭时第四关恒通过，不影响其它八道关的判断。</li>
+      <li>读条期间被什么行为打断（移动、挨打等）是由每个技能自己声明的，不是写死的统一规则。</li>
+      <li>切换到按回合走的模式后，这九道关的顺序完全不变，只是"读条"被重新解释成"延后若干回合生效"。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>伤害数字怎么一步步算出来</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像一张有九行的结账小票：先看这单能不能成交（命中判定），然后一行行地乘或减——底价、要不要翻倍（暴击）、我方额外加成、对方护甲减免、对方体质加成、有没有先扣一层护盾——最后一行才是"实付金额"真正划到账本上，最底下再补一行"附加动作"（触发连锁效果、记一笔仇恨、开一张发票广播出去）。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 M</span><b>结算管线：伤害怎么算出来</b>
+    <svg viewBox="0 0 1080 340" role="img" aria-label="结算管线九步：判定、基础值、暴击、施法者乘区、减免、目标乘区、免疫吸收、落地、后置">
+      <rect x="20" y="30" width="190" height="90" rx="10" class="tag-l2"/>
+      <text x="34" y="55" font-size="13" font-weight="700">① 判定</text>
+      <text x="34" y="76" font-size="12" class="small-note">命中/闪避/招架/</text>
+      <text x="34" y="92" font-size="12" class="small-note">格挡，各项可配置</text>
+
+      <rect x="230" y="30" width="190" height="90" rx="10" class="node-rect"/>
+      <text x="244" y="55" font-size="13" font-weight="700">② 基础值</text>
+      <text x="244" y="76" font-size="12" class="small-note">效果原语给出的</text>
+      <text x="244" y="92" font-size="12" class="small-note">基础数值</text>
+
+      <rect x="440" y="30" width="190" height="90" rx="10" class="node-rect"/>
+      <text x="454" y="55" font-size="13" font-weight="700">③ 暴击</text>
+      <text x="454" y="76" font-size="12" class="small-note">是否暴击、</text>
+      <text x="454" y="92" font-size="12" class="small-note">暴击倍率</text>
+
+      <rect x="650" y="30" width="190" height="90" rx="10" class="node-rect"/>
+      <text x="664" y="55" font-size="13" font-weight="700">④ 施法者乘区</text>
+      <text x="664" y="76" font-size="12" class="small-note">施法者自身的</text>
+      <text x="664" y="92" font-size="12" class="small-note">增伤类修正</text>
+
+      <rect x="860" y="30" width="190" height="90" rx="10" class="node-rect"/>
+      <text x="874" y="55" font-size="13" font-weight="700">⑤ 减免</text>
+      <text x="874" y="76" font-size="12" class="small-note">护甲/抗性换算出</text>
+      <text x="874" y="92" font-size="12" class="small-note">的百分比减伤</text>
+
+      <line x1="210" y1="75" x2="228" y2="75" class="edge"/><polygon points="222,69 222,81 232,75" class="arrowhead"/>
+      <line x1="420" y1="75" x2="438" y2="75" class="edge"/><polygon points="432,69 432,81 442,75" class="arrowhead"/>
+      <line x1="630" y1="75" x2="648" y2="75" class="edge"/><polygon points="642,69 642,81 652,75" class="arrowhead"/>
+      <line x1="840" y1="75" x2="858" y2="75" class="edge"/><polygon points="852,69 852,81 862,75" class="arrowhead"/>
+
+      <path d="M955,120 V160 H165 V168" class="edge" fill="none"/><polygon points="159,162 171,162 165,172" class="arrowhead"/>
+
+      <rect x="20" y="190" width="190" height="90" rx="10" class="node-rect"/>
+      <text x="34" y="215" font-size="13" font-weight="700">⑥ 目标乘区</text>
+      <text x="34" y="236" font-size="12" class="small-note">目标自身的承伤</text>
+      <text x="34" y="252" font-size="12" class="small-note">修正，如易伤/减伤</text>
+
+      <rect x="230" y="190" width="190" height="90" rx="10" class="node-rect"/>
+      <text x="244" y="215" font-size="13" font-weight="700">⑦ 免疫吸收</text>
+      <text x="244" y="236" font-size="12" class="small-note">先看是否免疫，</text>
+      <text x="244" y="252" font-size="12" class="small-note">再扣护盾类吸收池</text>
+
+      <rect x="440" y="190" width="190" height="90" rx="10" class="tag-l2"/>
+      <text x="454" y="215" font-size="13" font-weight="700">⑧ 落地</text>
+      <text x="454" y="236" font-size="12" class="small-note">真正改变生命值</text>
+      <text x="454" y="252" font-size="12" class="small-note">／资源值</text>
+
+      <rect x="650" y="190" width="190" height="90" rx="10" class="tag-l0"/>
+      <text x="664" y="215" font-size="13" font-weight="700">⑨ 后置</text>
+      <text x="664" y="236" font-size="12" class="small-note">触发连锁、写仇恨表、</text>
+      <text x="664" y="252" font-size="12" class="small-note">广播结算事件</text>
+
+      <line x1="210" y1="235" x2="228" y2="235" class="edge"/><polygon points="222,229 222,241 232,235" class="arrowhead"/>
+      <line x1="420" y1="235" x2="438" y2="235" class="edge"/><polygon points="432,229 432,241 442,235" class="arrowhead"/>
+      <line x1="630" y1="235" x2="648" y2="235" class="edge"/><polygon points="642,229 642,241 652,235" class="arrowhead"/>
+
+      <text x="20" y="320" class="small-note">每一步只依赖上一步的输出与只读查询，不允许跨步回填修改——这是"同样输入必得同样结果"在战斗结算上的体现。</text>
+    </svg>
+    <figcaption>九道工序依次相乘或相减，任何一步都不回头修改前面已经算出的结果，最后两步才是"真正扣血"与"事后动作"。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>结算顺序固定不变：先判定能不能打中，再一路乘下来，最后才真正改变生命值，任何实现都不能打乱这个顺序。</li>
+      <li>护甲、抗性换算减伤走的是同一条曲线契约："输入护甲/抗性值，输出一个 0~1 的减免比例"，具体系数完全由每款游戏自己配。</li>
+      <li>免疫判定永远排在扣护盾（吸收池）之前——先看能不能打中你，再看你身上还有没有挡刀的护盾。</li>
+      <li>仇恨表在这条流水线的最后一步被更新，它在单机场景下唯一的用途是给 AI 提供"该打谁"的依据（见下一章）。</li>
+      <li>这条流水线跟战斗是按时间连续跑还是按回合跑完全无关：换时间模型只影响"什么时候触发这条流水线"，不影响流水线内部怎么算。</li>
+    </ul>
+  </div>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>06_规则层_属性技能战斗AI.md</code>（技能系统全结构、施法管线、结算管线、命中表、事件词汇表）、
+    <code>07_载体层_物品生物物件.md</code>（装备如何授予技能/光环）、<code>adr/0001-万物皆法术.md</code>
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="04_数据即内容.html">← 上一章：数据即内容</a>
+  <a href="06_战斗周边.html">下一章：战斗周边 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

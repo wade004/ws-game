@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>逻辑与画面分家 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="02_程序怎么跑起来.html">← 上一章：程序怎么跑起来</a>
+      <a href="04_数据即内容.html">下一章：数据即内容 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第四章 · 逻辑与画面分家</h1>
+<p class="subtitle">世界里"真正存在"的东西和"你眼睛看到"的东西，是两套完全不同的家当，中间只靠一根很细的线连着。</p>
+
+<div class="section-block">
+  <h3>世界里都有哪几类"东西"</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像一本户籍档案：所有能被记录的对象先归到"实体"这个最大类别，再往下细分成"能打能动的单位""不会动的场景物件""飞行中的子弹""一块地上的感应区域""掉在地上的战利品"五大类。"单位"这一类底下又分成"玩家自己"和"非玩家生物"两种户口。这些档案条目自己不长相貌，只有身份信息和数值。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 G</span><b>世界对象的家族树</b>
+    <svg viewBox="0 0 1000 340" role="img" aria-label="Entity继承树：Entity到Unit到PlayerUnit与CreatureUnit，以及GameObject、Projectile、AreaTrigger、DroppedLoot">
+      <rect x="380" y="20" width="220" height="50" rx="10" class="tag-l0"/>
+      <text x="490" y="50" text-anchor="middle" class="txt-l0" font-weight="700">Entity 实体（公共基类）</text>
+
+      <rect x="30" y="120" width="140" height="50" rx="10" class="tag-l2"/>
+      <text x="100" y="150" text-anchor="middle" class="txt-l2" font-weight="700">Unit 单位</text>
+
+      <rect x="200" y="120" width="150" height="50" rx="10" class="tag-l3"/>
+      <text x="275" y="150" text-anchor="middle" class="txt-l3" font-weight="700">GameObject 物件</text>
+
+      <rect x="380" y="120" width="150" height="50" rx="10" class="tag-l3"/>
+      <text x="455" y="150" text-anchor="middle" class="txt-l3" font-weight="700">Projectile 抛射物</text>
+
+      <rect x="560" y="120" width="150" height="50" rx="10" class="tag-l4"/>
+      <text x="635" y="150" text-anchor="middle" class="txt-l4" font-weight="700">AreaTrigger 区域触发</text>
+
+      <rect x="740" y="120" width="160" height="50" rx="10" class="tag-l4"/>
+      <text x="820" y="150" text-anchor="middle" class="txt-l4" font-weight="700">DroppedLoot 掉落物</text>
+
+      <path d="M490,70 V95 H100 V118" class="edge" fill="none"/><polygon points="94,112 106,112 100,122" class="arrowhead"/>
+      <path d="M490,70 V95 H275 V118" class="edge" fill="none"/><polygon points="269,112 281,112 275,122" class="arrowhead"/>
+      <line x1="490" y1="70" x2="490" y2="118" class="edge"/><polygon points="484,112 496,112 490,122" class="arrowhead"/>
+      <path d="M490,70 V95 H635 V118" class="edge" fill="none"/><polygon points="629,112 641,112 635,122" class="arrowhead"/>
+      <path d="M490,70 V95 H820 V118" class="edge" fill="none"/><polygon points="814,112 826,112 820,122" class="arrowhead"/>
+
+      <rect x="10" y="230" width="140" height="65" rx="10" class="node-rect"/>
+      <text x="80" y="255" text-anchor="middle" font-size="12" font-weight="700">PlayerUnit</text>
+      <text x="80" y="272" text-anchor="middle" font-size="12" class="small-note">职业·天赋·任务日志</text>
+      <text x="80" y="286" text-anchor="middle" font-size="12" class="small-note">背包与已装备物品</text>
+
+      <rect x="165" y="230" width="150" height="65" rx="10" class="node-rect"/>
+      <text x="240" y="255" text-anchor="middle" font-size="12" font-weight="700">CreatureUnit</text>
+      <text x="240" y="272" text-anchor="middle" font-size="12" class="small-note">AI 状态·掉落引用</text>
+      <text x="240" y="286" text-anchor="middle" font-size="12" class="small-note">职能标志·拥有者(可选)</text>
+
+      <path d="M100,170 V200 H80 V228" class="edge" fill="none"/><polygon points="74,222 86,222 80,232" class="arrowhead"/>
+      <path d="M100,170 V200 H240 V228" class="edge" fill="none"/><polygon points="234,222 246,222 240,232" class="arrowhead"/>
+
+      <text x="200" y="180" font-size="12" class="small-note">属性 · 资源池 · 光环 · 可战斗（Unit 公共部分）</text>
+      <text x="30" y="315" font-size="12" class="small-note">这七种类型都不继承任何具体技术的对象，只是一份数据 + 一份 id；要"被看见"就配一个画面替身（见图 H）。</text>
+    </svg>
+    <figcaption>实体是最大公共类别；单位再细分成玩家和生物；物件、抛射物、区域触发、掉落物各自独立，互不继承。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>七种类型的家族关系是定死的：实体（Entity）在最顶层，单位（Unit）分玩家单位与生物单位两支，其余四类各自独立。</li>
+      <li>逻辑对象里只有 id、坐标、数值这些"档案信息"，完全不知道自己在画面上应该长什么样、用哪张图片。</li>
+      <li>玩家单位额外携带职业模板、天赋、任务日志、背包装备这些"跟一局游戏进度绑定"的字段，是存档的核心内容。</li>
+      <li>生物单位默认不写进存档，读档后由"刷新规则"结合世界进度重新算出这张地图该有哪些生物，见第八、十章。</li>
+      <li>物件的"箱子开没开"这类可变状态，并不存在物件自己身上，而是记在全局的世界状态标志里（见第八章）。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>逻辑对象与它的"画面替身"</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像木偶戏：逻辑对象是幕后拉线的人，画面视图（View）是台前的木偶。木偶只能照着幕后传来的动作摆姿势——听广播（订阅事件）、看一眼当前姿势（只读查询）——绝不能自己乱动去改写幕后的剧本。唯一一次"台前朝幕后喊话"的场合，出现在按回合走的战斗里：一段动作演完了，台前喊一声"我演完了"，好让幕后继续往下讲故事，但这声喊话不携带任何剧情内容，只是个"继续"的信号。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 H</span><b>逻辑对象与 View 的绑定关系</b>
+    <svg viewBox="0 0 940 320" role="img" aria-label="逻辑对象与画面视图的绑定：只读查询与事件单向流动，唯一反向的回放完成信号">
+      <rect x="20" y="20" width="90" height="26" rx="6" class="tag-l2"/>
+      <text x="65" y="38" text-anchor="middle" font-size="12" class="txt-l2" font-weight="700">L0~L4</text>
+      <rect x="40" y="60" width="280" height="200" rx="14" class="tag-l2"/>
+      <text x="180" y="100" text-anchor="middle" font-size="15" font-weight="700">逻辑对象</text>
+      <text x="180" y="122" text-anchor="middle" font-size="12" class="small-note">WorldSim 中的实体</text>
+      <text x="180" y="140" text-anchor="middle" font-size="12" class="small-note">只认 id、坐标与数值</text>
+      <text x="180" y="158" text-anchor="middle" font-size="12" class="small-note">不知道画面长什么样</text>
+      <text x="180" y="220" text-anchor="middle" font-size="12" font-weight="700">权威方：只有它能改数据</text>
+
+      <rect x="830" y="20" width="90" height="26" rx="6" class="tag-l5"/>
+      <text x="875" y="38" text-anchor="middle" font-size="12" class="txt-l5" font-weight="700">L5</text>
+      <rect x="620" y="60" width="280" height="200" rx="14" class="tag-l5"/>
+      <text x="760" y="100" text-anchor="middle" font-size="15" font-weight="700">画面视图 View</text>
+      <text x="760" y="122" text-anchor="middle" font-size="12" class="small-note">表现层为它创建的替身</text>
+      <text x="760" y="140" text-anchor="middle" font-size="12" class="small-note">只读、只订阅，绝不写回</text>
+      <text x="760" y="158" text-anchor="middle" font-size="12" class="small-note">销毁不影响逻辑本体</text>
+      <text x="760" y="220" text-anchor="middle" font-size="12" font-weight="700">只读方：只能看、不能改</text>
+
+      <line x1="322" y1="120" x2="618" y2="120" class="edge"/><polygon points="612,114 612,126 622,120" class="arrowhead"/>
+      <text x="470" y="112" text-anchor="middle" font-size="12">事件：创建 / 移动 / 死亡……</text>
+
+      <line x1="322" y1="165" x2="618" y2="165" class="edge" stroke-dasharray="6 3"/><polygon points="612,159 612,171 622,165" class="arrowhead"/>
+      <text x="470" y="157" text-anchor="middle" font-size="12">只读查询：取当前位置做插值渲染</text>
+
+      <line x1="618" y1="205" x2="322" y2="205" class="edge" stroke="var(--game)" stroke-dasharray="6 3"/>
+      <polygon points="328,199 328,211 318,205" fill="var(--game)"/>
+      <text x="470" y="197" text-anchor="middle" font-size="12" class="txt-game">唯一反向：presentation.playback_finished</text>
+      <text x="470" y="245" text-anchor="middle" font-size="12" class="small-note">（仅用于解除"等回放"的节奏门，不携带任何判定数据）</text>
+    </svg>
+    <figcaption>信息几乎总是从逻辑流向画面；唯一一条反向的线只是"我演完了"的信号，不改变任何逻辑状态。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>逻辑对象创建时，表现层才据此建一个画面替身；逻辑对象销毁时，通知画面替身也跟着销毁，顺序不能反过来。</li>
+      <li>画面替身能做的事只有两件：听事件广播、读一份只读快照，绝不能调用任何会改变逻辑数据的方法。</li>
+      <li>关掉整个画面表现（不创建任何替身），世界模拟依然能独立运行、产出一模一样的事件序列——这是"能脱离引擎单独测试"的直接体现。</li>
+      <li>玩家的点击、按键这些输入，必须先被表现层包装成一份"意图请求"交给逻辑层裁决，画面自己不能直接改数据。</li>
+      <li>唯一允许"反向"的信号只有一条：回合制下告诉逻辑层"这段动作演完了，可以继续往下走"，且这条信号本身不携带任何战斗判定内容。</li>
+    </ul>
+  </div>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>05_对象模型与世界.md</code>（实体家族树、空间约定、地图与刷新、区域触发、世界状态）、
+    <code>03_运行时骨架.md</code>（绑定协议）、<code>09_表现层.md</code>（表现层铁律）
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="02_程序怎么跑起来.html">← 上一章：程序怎么跑起来</a>
+  <a href="04_数据即内容.html">下一章：数据即内容 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>载体与玩法 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="06_战斗周边.html">← 上一章：战斗周边</a>
+      <a href="08_表现层.html">下一章：表现层 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第八章 · 载体与玩法</h1>
+<p class="subtitle">物品、生物、可交互物件是内容的"容器"；掉落、任务、对话、关卡是把这些容器组织成一局游戏的"编排规则"。</p>
+
+<div class="section-block">
+  <h3>三种容器：物品、生物、物件</h3>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>容器</th><th>怎么定义</th></tr>
+    <tr><td><b>物品与装备</b></td><td>槽位、品质、数值、装备后授予的技能与光环，全部按第六章"万物皆法术"的方式表达；穿脱时按"来源标记"整体加上/撤销属性修正与外观。</td></tr>
+    <tr><td><b>生物</b></td><td>等级、基础属性、AI 与掉落引用、外形引用，再加一组"职能标志位"，用标志位声明"这只生物能干嘛"，不必为每种职能派生新的生物类型。</td></tr>
+    <tr><td><b>可交互物件</b></td><td>一个类型 ＋ 一把可选的锁 ＋ 一个"使用后做什么"（on_use）；on_use 要么指向一个技能，要么指向一段对话，二选一。</td></tr>
+  </table>
+  </div>
+
+  <h3>生物职能标志位</h3>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>标志</th><th>语义</th></tr>
+    <tr><td><code>vendor</code></td><td>可以打开交易界面</td></tr>
+    <tr><td><code>trainer</code></td><td>可以传授技能</td></tr>
+    <tr><td><code>questgiver</code></td><td>可以发放/交付任务</td></tr>
+    <tr><td><code>gossip</code></td><td>具备通用对话菜单</td></tr>
+    <tr><td><code>save_point</code></td><td>可以作为存档点</td></tr>
+    <tr><td><code>summon_only</code></td><td>只能由召唤类效果生成，不进常规刷新表</td></tr>
+  </table>
+  </div>
+  <p class="meta-line">一只生物身上可以同时挂多个标志（比如既是商人又是任务发放者），不需要为"商人兼任务发放者"专门建一个新类型；新增一种全新的职能标志才需要审批，组合已有标志不需要。</p>
+
+  <h3>物件的锁与使用动作</h3>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>锁的判定方式</th><th>语义</th></tr>
+    <tr><td>钥匙物品</td><td>玩家背包里持有指定物品才能开</td></tr>
+    <tr><td>世界状态标志</td><td>某个全局标志达到指定取值才能开（见图 Q）</td></tr>
+    <tr><td>技能相关数值</td><td>玩家某项属性数值达到门槛才能开</td></tr>
+  </table>
+  </div>
+  <p class="meta-line">物件类型覆盖门、箱子、任务专用交互物、机关陷阱、传送点、采集点、存档点、联动拉杆、纯文本告示牌等十类；新增类型需要审批，但已有类型怎么组合数据不需要。</p>
+
+  <h3>掉落是怎么抽出来的</h3>
+  <p>一张掉落表由若干"分组"组成，每组用两种抽取方式之一：<b>各自独立判定</b>（组内每条按自己的概率独立判断掉不掉）或<b>按权重抽一条</b>（组内按权重抽中一条，互斥）。分组可以嵌套引用别的掉落表，方便"通用材料表"被很多来源复用；可以设置"保底计数"，配合概率随空手次数递增的机制，降低连续不掉落的挫败感。单机场景没有多人分配问题，抽出来的东西直接归玩家所有。</p>
+</div>
+
+<div class="section-block">
+  <h3>任务是怎么走完的</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像网购订单状态：不满足条件时你压根看不到这件商品（未解锁）；条件够了才能下单（可接取）；下单后进入"进行中"，直到全部条件都达标（可交付）；最后去窗口核销、拿到奖励（已交付）。护送、限时这类任务还多一种可能：过程中出岔子，直接变成一张作废订单（失败）。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 P</span><b>任务状态机</b>
+    <svg viewBox="0 0 940 260" role="img" aria-label="任务状态机：未解锁到可接取到进行中到可交付到已交付，以及失败分支">
+      <rect x="20" y="60" width="150" height="55" rx="8" class="tag-l4"/>
+      <text x="95" y="93" text-anchor="middle" font-size="13" font-weight="700">unavailable</text>
+      <rect x="200" y="60" width="150" height="55" rx="8" class="tag-l4"/>
+      <text x="275" y="93" text-anchor="middle" font-size="13" font-weight="700">available</text>
+      <rect x="380" y="60" width="150" height="55" rx="8" class="tag-l4"/>
+      <text x="455" y="93" text-anchor="middle" font-size="13" font-weight="700">active</text>
+      <rect x="560" y="60" width="180" height="55" rx="8" class="tag-l4"/>
+      <text x="650" y="93" text-anchor="middle" font-size="13" font-weight="700">objectives_complete</text>
+      <rect x="770" y="60" width="150" height="55" rx="8" class="tag-l0"/>
+      <text x="845" y="93" text-anchor="middle" font-size="13" font-weight="700">turned_in</text>
+
+      <line x1="170" y1="87" x2="198" y2="87" class="edge"/><polygon points="192,81 192,93 202,87" class="arrowhead"/>
+      <text x="172" y="75" font-size="12" class="small-note">前置满足</text>
+      <line x1="350" y1="87" x2="378" y2="87" class="edge"/><polygon points="372,81 372,93 382,87" class="arrowhead"/>
+      <text x="352" y="75" font-size="12" class="small-note">按方式接取</text>
+      <line x1="530" y1="87" x2="558" y2="87" class="edge"/><polygon points="552,81 552,93 562,87" class="arrowhead"/>
+      <text x="532" y="75" font-size="12" class="small-note">目标全部达标</text>
+      <line x1="740" y1="87" x2="768" y2="87" class="edge"/><polygon points="762,81 762,93 772,87" class="arrowhead"/>
+      <text x="742" y="75" font-size="12" class="small-note">按方式交付</text>
+
+      <rect x="380" y="170" width="150" height="55" rx="8" class="tag-l-1" stroke-dasharray="4 3"/>
+      <text x="455" y="203" text-anchor="middle" font-size="13" font-weight="700">failed</text>
+      <line x1="455" y1="115" x2="455" y2="168" class="edge-muted edge-dashed"/><polygon points="449,162 461,162 455,174" class="arrowhead-muted"/>
+      <text x="465" y="150" font-size="12" class="small-note">护送/限时类任务可能失败</text>
+      <text x="465" y="164" font-size="12" class="small-note">（是否允许失败是策略配置）</text>
+    </svg>
+    <figcaption>四个正常状态依次推进，护送与限时类目标额外允许从"进行中"直接掉入失败分支。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>任务目标类型统一成八种（击杀、收集、交互、探索、护送、事件、施法、交谈），新任务只是这八种的不同参数组合。</li>
+      <li>前置条件、互斥组、显隐判断全部用统一的条件语言书写，不需要为任务单独发明一套判断格式。</li>
+      <li>任务状态变化会记进存档，读档后能准确恢复到当时的进度节点。</li>
+      <li>护送、事件这类目标允许"失败"，普通的击杀收集类目标一般不设失败分支，具体是否启用失败由每款游戏决定。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>对话、遭遇、难度、成就、经济：一句话讲清楚各自的定位</h3>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>系统</th><th>一句话定位</th></tr>
+    <tr><td><b>对话</b></td><td>两种组织形式：随口聊聊的"选项菜单"（选项＋显隐条件＋动作），和有分支走向的"剧情对话树"（节点＋分支条件＋演出钩子）；动作类型包含打开商店、接任务、交任务、传送、存档、写标志、开战斗、说技能训练、开新对话等固定几种。</td></tr>
+    <tr><td><b>遭遇与关卡</b></td><td>关卡＝地图＋一串有先后顺序的遭遇；遭遇内部可以有波次和阶段。"阶段机制"不是新概念，就是"到了某个条件，把这只生物当前用的优先级表整个换成另一张"，战斗结算规则完全不变（见第七章图 O）。</td></tr>
+    <tr><td><b>难度</b></td><td>只由三样东西组合而成：给敌方施加的修正光环、可选的词缀池、掉落数量的整体倍率，不引入额外的专属数值系统。</td></tr>
+    <tr><td><b>成就</b></td><td>只做一件事：订阅事件总线，按达成条件累计计数，达标即解锁；不会反过来查询别的系统内部状态。</td></tr>
+    <tr><td><b>经济</b></td><td>单机版的"经济"＝货币定义＋商人清单（卖什么、什么价、限量多久刷新一次），没有拍卖行、没有跨人交易。</td></tr>
+  </table>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>世界状态标志：一整面写满便利贴的公告板</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像一整面贴满便利贴的公告板：某扇门修好了没有、某个人有没有被说服、某段剧情演过没有，全部记成一张张便利贴上的标记。刷新规则、物件显隐、任务是否可见、对话该走哪条分支，全都只是各自跑来公告板前看一眼相应的便利贴内容；谁想改便利贴，必须在上面签下自己的名字，方便日后查是谁改的。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 Q</span><b>世界状态如何驱动各系统</b>
+    <svg viewBox="0 0 960 420" role="img" aria-label="世界状态标志字典驱动刷新、显隐、对话、任务四个消费方">
+      <rect x="40" y="30" width="200" height="70" rx="10" class="tag-l4"/>
+      <text x="140" y="60" text-anchor="middle" font-size="13" font-weight="700">刷新策略 Spawn</text>
+      <text x="140" y="80" text-anchor="middle" font-size="12" class="small-note">标志未设置才刷新</text>
+
+      <rect x="720" y="30" width="200" height="70" rx="10" class="tag-l3"/>
+      <text x="820" y="60" text-anchor="middle" font-size="13" font-weight="700">物件显隐 / 开关状态</text>
+      <text x="820" y="80" text-anchor="middle" font-size="12" class="small-note">如"箱子是否已开过"</text>
+
+      <rect x="40" y="320" width="200" height="70" rx="10" class="tag-l4"/>
+      <text x="140" y="350" text-anchor="middle" font-size="13" font-weight="700">任务可见性 / 前置</text>
+      <text x="140" y="370" text-anchor="middle" font-size="12" class="small-note">前置剧情是否发生过</text>
+
+      <rect x="720" y="320" width="200" height="70" rx="10" class="tag-l4"/>
+      <text x="820" y="350" text-anchor="middle" font-size="13" font-weight="700">对话分支</text>
+      <text x="820" y="370" text-anchor="middle" font-size="12" class="small-note">选项是否显示/走哪条分支</text>
+
+      <rect x="330" y="155" width="300" height="130" rx="14" class="tag-game"/>
+      <text x="480" y="185" text-anchor="middle" font-size="14" font-weight="700" class="txt-game">WorldState 世界状态</text>
+      <text x="480" y="205" text-anchor="middle" font-size="12" class="small-note">带命名空间的标志字典</text>
+      <text x="480" y="222" text-anchor="middle" font-size="12" class="small-note">随存档整体持久化</text>
+      <text x="480" y="245" text-anchor="middle" font-size="12" class="small-note">谁能写：技能效果 · 对话动作 ·</text>
+      <text x="480" y="260" text-anchor="middle" font-size="12" class="small-note">任务奖励 · 脚本钩子 · 遭遇结算</text>
+      <text x="480" y="275" text-anchor="middle" font-size="12" class="small-note">（写入都必须带上"写入方"标识）</text>
+
+      <path d="M400,155 V95 H140" class="edge" fill="none"/><polygon points="134,89 146,89 140,101" class="arrowhead"/>
+      <path d="M560,155 V95 H820" class="edge" fill="none"/><polygon points="814,89 826,89 820,101" class="arrowhead"/>
+      <path d="M400,285 V320 H140" class="edge" fill="none"/><polygon points="134,314 146,314 140,326" class="arrowhead"/>
+      <path d="M560,285 V320 H820" class="edge" fill="none"/><polygon points="814,314 826,314 820,326" class="arrowhead"/>
+
+      <text x="410" y="130" font-size="12" class="small-note">读取判断</text>
+      <text x="550" y="130" font-size="12" class="small-note">读取判断</text>
+      <text x="410" y="310" font-size="12" class="small-note">读取判断</text>
+      <text x="550" y="310" font-size="12" class="small-note">读取判断</text>
+    </svg>
+    <figcaption>世界状态是一本公用的标志字典，四类消费方都只是"读一眼"，谁想"写"必须带上自己的身份标记。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>世界状态标志替代了"给不同玩家展示不同版本世界"的复杂机制——单机只有一个玩家，用一本标志字典就够了。</li>
+      <li>标志的命名可以按剧情结构分层级（比如"某座桥.是否已修复"），供内容作者按自己的组织方式管理。</li>
+      <li>任何系统想写标志都不受强约束，但必须带上"是谁写的"，方便排查问题；这不属于需要审批的"新原语"。</li>
+      <li>世界状态整体随存档一起持久化，是"存档＝世界状态字典＋玩家数据"这条设计的具体落地。</li>
+    </ul>
+  </div>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>07_载体层_物品生物物件.md</code>（物品/生物/物件字段与召唤宠物）、
+    <code>08_玩法层_掉落任务对话关卡.md</code>（掉落、任务、对话、遭遇、难度、成就、经济）、
+    <code>05_对象模型与世界.md</code>（世界状态接口）、<code>adr/0008-世界状态标志替代Phasing.md</code>
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="06_战斗周边.html">← 上一章：战斗周边</a>
+  <a href="08_表现层.html">下一章：表现层 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>

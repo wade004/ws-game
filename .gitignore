@@ -1,0 +1,29 @@
+# 构建产物
+build/
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.idea/
+# 从 Core.sln 复制进 Unity 工程的 DLL，属于构建产物
+**/Assets/Plugins/Core/
+# Unity 工程的本地缓存目录
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Ll]ogs/
+**/[Uu]serSettings/
+**/[Oo]bj/
+**/*.csproj.user
+**/*.sln.DotSettings.user
+# Unity 工程自动生成的项目文件（仅 adapters/unity/ 前缀下，避免误伤根目录 Core.sln 与 core/**/*.csproj）
+adapters/unity/*.csproj
+adapters/unity/*.sln
+# Python
+toolchain/.venv/
+.venv/
+__pycache__/
+*.pyc
+# 本机文件
+Thumbs.db
+.DS_Store

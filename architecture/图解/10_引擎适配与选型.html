@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>引擎适配与选型 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="09_存档.html">← 上一章：存档</a>
+      <a href="11_做一款新游戏.html">下一章：做一款新游戏 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第十一章 · 引擎适配与选型</h1>
+<p class="subtitle">全架构唯一真正接触具体技术的一层，也是换技术方案时唯一需要重新做的一层。</p>
+
+<div class="section-block">
+  <h3>13 个接口：运行时核心唯一认识的"插座形状"</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像手机的转接头：手机（运行时核心）永远只认一种接口形状，插座那头到底是快充头、车充还是笔记本接口，手机完全不关心，也不用为每种插座单独设计一次内部电路。换一个插座，只需要换一个转接头，手机本身的电路一根都不用重新画。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 U</span><b>13 个接口一览与"只换最底层"</b>
+    <svg viewBox="0 0 1080 790" role="img" aria-label="13个引擎适配接口分12组一览，运行时核心不变，具体引擎实现可替换">
+      <rect x="20" y="10" width="1040" height="50" rx="10" class="tag-l2"/>
+      <text x="540" y="41" text-anchor="middle" font-size="14" font-weight="700" class="txt-l2">L0 ~ L5 运行时核心：只认下面这 13 个接口，完全不知道背后是哪一种具体技术</text>
+      <line x1="540" y1="60" x2="540" y2="76" class="edge"/><polygon points="534,70 546,70 540,82" class="arrowhead"/>
+
+      <!-- row1 -->
+      <rect x="20" y="90" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="34" y="112" font-size="13" font-weight="700">窗口与时钟</text>
+      <rect x="270" y="98" width="66" height="22" rx="11" class="tag-l0"/><text x="303" y="113" text-anchor="middle" font-size="12" class="txt-l0">必需</text>
+      <text x="34" y="132" font-size="12" class="small-note">窗口生命周期、分辨率、全屏；</text>
+      <text x="34" y="148" font-size="12" class="small-note">帧回调与固定步长驱动的唯一入口</text>
+      <text x="34" y="168" font-size="12" class="small-note">对应两个接口：窗口 / 时钟</text>
+
+      <rect x="375" y="90" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="389" y="112" font-size="13" font-weight="700">二维渲染</text>
+      <rect x="625" y="98" width="66" height="22" rx="11" class="tag-l0"/><text x="658" y="113" text-anchor="middle" font-size="12" class="txt-l0">必需</text>
+      <text x="389" y="132" font-size="12" class="small-note">精灵实例、分层与前后排序、</text>
+      <text x="389" y="148" font-size="12" class="small-note">纸娃娃合成、粒子、着色器参数</text>
+
+      <rect x="730" y="90" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="744" y="112" font-size="13" font-weight="700">三维渲染</text>
+      <rect x="1000" y="98" width="60" height="22" rx="11" class="tag-l4"/><text x="1030" y="113" text-anchor="middle" font-size="12" class="txt-l4">条件必需</text>
+      <text x="744" y="132" font-size="12" class="small-note">三维模型实例、骨骼动画、</text>
+      <text x="744" y="148" font-size="12" class="small-note">槽位换装、挂点、材质、阴影</text>
+      <text x="744" y="168" font-size="12" class="small-note">只用二维外形的游戏可以不实现</text>
+
+      <!-- row2 -->
+      <rect x="20" y="240" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="34" y="262" font-size="13" font-weight="700">镜头</text>
+      <rect x="270" y="248" width="66" height="22" rx="11" class="tag-l0"/><text x="303" y="263" text-anchor="middle" font-size="12" class="txt-l0">必需</text>
+      <text x="34" y="282" font-size="12" class="small-note">固定俯角、跟随、缩放、</text>
+      <text x="34" y="298" font-size="12" class="small-note">世界坐标与屏幕坐标互投影、震屏</text>
+
+      <rect x="375" y="240" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="389" y="262" font-size="13" font-weight="700">音频</text>
+      <rect x="625" y="248" width="66" height="22" rx="11" class="tag-l0"/><text x="658" y="263" text-anchor="middle" font-size="12" class="txt-l0">必需</text>
+      <text x="389" y="282" font-size="12" class="small-note">音效、音乐、分层音量、</text>
+      <text x="389" y="298" font-size="12" class="small-note">播放对象池</text>
+
+      <rect x="730" y="240" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="744" y="262" font-size="13" font-weight="700">输入设备</text>
+      <rect x="1000" y="248" width="60" height="22" rx="11" class="tag-l0"/><text x="1030" y="263" text-anchor="middle" font-size="12" class="txt-l0">必需</text>
+      <text x="744" y="282" font-size="12" class="small-note">设备事件轮询、连续状态</text>
+      <text x="744" y="298" font-size="12" class="small-note">查询、文本输入</text>
+
+      <!-- row3 -->
+      <rect x="20" y="390" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="34" y="412" font-size="13" font-weight="700">文件系统</text>
+      <rect x="270" y="398" width="66" height="22" rx="11" class="tag-l0"/><text x="303" y="413" text-anchor="middle" font-size="12" class="txt-l0">必需</text>
+      <text x="34" y="432" font-size="12" class="small-note">用户数据目录、读写、</text>
+      <text x="34" y="448" font-size="12" class="small-note">原子写入（存档安全的关键）</text>
+
+      <rect x="375" y="390" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="389" y="412" font-size="13" font-weight="700">资源加载</text>
+      <rect x="625" y="398" width="66" height="22" rx="11" class="tag-l0"/><text x="658" y="413" text-anchor="middle" font-size="12" class="txt-l0">必需</text>
+      <text x="389" y="432" font-size="12" class="small-note">图片/音频/字体/数据表的</text>
+      <text x="389" y="448" font-size="12" class="small-note">统一异步加载入口</text>
+
+      <rect x="730" y="390" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="744" y="412" font-size="13" font-weight="700">二维导航</text>
+      <rect x="1000" y="398" width="60" height="22" rx="11" class="tag-l-1"/><text x="1030" y="413" text-anchor="middle" font-size="12" class="txt-l-1">可选</text>
+      <text x="744" y="432" font-size="12" class="small-note">导航网格、路径查询、</text>
+      <text x="744" y="448" font-size="12" class="small-note">可行走判定；不寻路可不实现</text>
+
+      <!-- row4 -->
+      <rect x="20" y="540" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="34" y="562" font-size="13" font-weight="700">空间查询</text>
+      <rect x="270" y="548" width="66" height="22" rx="11" class="tag-l0"/><text x="303" y="563" text-anchor="middle" font-size="12" class="txt-l0">必需</text>
+      <text x="34" y="582" font-size="12" class="small-note">半径/锥形/线段/矩形查询、</text>
+      <text x="34" y="598" font-size="12" class="small-note">视线遮挡判断</text>
+
+      <rect x="375" y="540" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="389" y="562" font-size="13" font-weight="700">UI 承载面</text>
+      <rect x="625" y="548" width="66" height="22" rx="11" class="tag-l0"/><text x="658" y="563" text-anchor="middle" font-size="12" class="txt-l0">必需</text>
+      <text x="389" y="582" font-size="12" class="small-note">界面承载、布局、字体、</text>
+      <text x="389" y="598" font-size="12" class="small-note">输入焦点管理</text>
+
+      <rect x="730" y="540" width="330" height="130" rx="10" class="node-rect"/>
+      <text x="744" y="562" font-size="13" font-weight="700">平台服务</text>
+      <rect x="1000" y="548" width="60" height="22" rx="11" class="tag-l-1"/><text x="1030" y="563" text-anchor="middle" font-size="12" class="txt-l-1">可选</text>
+      <text x="744" y="582" font-size="12" class="small-note">系统语言、剪贴板、崩溃</text>
+      <text x="744" y="598" font-size="12" class="small-note">上报；缺失时功能优雅降级</text>
+
+      <line x1="540" y1="670" x2="540" y2="696" class="edge"/><polygon points="534,690 546,690 540,702" class="arrowhead"/>
+
+      <rect x="20" y="700" width="1040" height="80" rx="10" class="tag-l-1"/>
+      <text x="540" y="722" text-anchor="middle" font-size="13" font-weight="700" class="txt-l-1">具体引擎实现（换引擎＝只重新实现这一层，上面全部不用动）</text>
+      <rect x="300" y="734" width="220" height="36" rx="8" class="node-rect"/>
+      <text x="410" y="757" text-anchor="middle" font-size="12">引擎实现 A</text>
+      <rect x="560" y="734" width="260" height="36" rx="8" class="node-rect"/>
+      <text x="690" y="757" text-anchor="middle" font-size="12">引擎实现 B ／ 测试用桩实现</text>
+    </svg>
+    <figcaption>12 组共 13 个接口是运行时核心唯一认识的"插座形状"；换一种具体技术方案，只需要重新实现这一层，上面六层完全不用动。</figcaption>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>接口签名只用最中立的几种数据类型描述能力，刻意不出现任何具体技术的名字或写法。</li>
+      <li>大多数接口是"必需"的，只有三维渲染（只用二维外形时不需要）、二维导航（不寻路的游戏可以不实现）、平台服务（缺失时功能优雅降级）三个是可选或有条件的。</li>
+      <li>除了正式的技术实现，还会同时维护一套"测试用桩实现"——不真的画面、不真的出声音，专供自动化测试使用。</li>
+      <li>接口签名一旦确定，改动被当作架构级变更处理，不能因为某一种具体技术用起来顺手就随意调整。</li>
+      <li>这一层是"唯一预设了具体技术候选或结论"的地方也不存在——技术选型本身是独立的研究课题，架构文档不预设任何结论。</li>
+    </ul>
+  </div>
+
+  <h3>怎么给候选技术方案打分</h3>
+  <p>评估维度覆盖：二维渲染能力、前后排序与分层、粒子与着色器、导航能力、界面能力、脚本语言与静态类型、无画面环境下的测试能力、发行打包情况、许可证与成本、社区与工具链、美术管线兼容度、三维骨骼动画与换装、模型与动画格式、二三维混合渲染与排序、固定镜头投影可控性——十五个维度打分加权比较，具体权重与候选完全留给每个项目立项时自己决定，架构文档本身不给出任何倾向性结论。</p>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>02_引擎适配层.md</code>（13 个接口的完整能力清单、实现规范、评估框架、迁移步骤）
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="09_存档.html">← 上一章：存档</a>
+  <a href="11_做一款新游戏.html">下一章：做一款新游戏 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>
