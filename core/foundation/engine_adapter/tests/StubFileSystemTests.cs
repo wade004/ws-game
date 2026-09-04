@@ -70,8 +70,11 @@ namespace Tests.Foundation.EngineAdapter
             Assert.False(fs.DeleteFile("missing.txt"));
         }
 
+        // 语义判断记录（T1-4）：ListFiles 返回相对 dirPath、'/' 分隔、按序数排序的路径列表，
+        // 不含 dirPath 本身前缀（见 core/foundation/engine_adapter/README.md"IFileSystem"一节
+        // 的实现级约定）。本用例断言随之从"完整 key"改为"相对路径"。
         [Fact]
-        public void ListFiles_ReturnsStableSortedResultsUnderPrefix()
+        public void ListFiles_ReturnsStableSortedResultsRelativeToDir()
         {
             var fs = new StubFileSystem();
             fs.WriteTextAtomic("save/slot2.json", "{}");
@@ -80,7 +83,34 @@ namespace Tests.Foundation.EngineAdapter
 
             var files = fs.ListFiles("save");
 
-            Assert.Equal(new[] { "save/slot1.json", "save/slot2.json" }, files);
+            Assert.Equal(new[] { "slot1.json", "slot2.json" }, files);
+        }
+
+        [Fact]
+        public void ListFiles_IsRecursiveIntoSubdirectories()
+        {
+            var fs = new StubFileSystem();
+            fs.WriteTextAtomic("data/_sample/found/found.event_catalog.json", "{}");
+            fs.WriteTextAtomic("data/_sample/stat/stat.definition.json", "{}");
+            fs.WriteTextAtomic("data/_sample/l10n/l10n.locale.json", "{}");
+
+            var files = fs.ListFiles("data/_sample");
+
+            Assert.Equal(
+                new[] { "found/found.event_catalog.json", "l10n/l10n.locale.json", "stat/stat.definition.json" },
+                files);
+        }
+
+        [Fact]
+        public void ListFiles_ExcludesTheDirMarkerFileItself()
+        {
+            var fs = new StubFileSystem();
+            fs.WriteTextAtomic("save", "{}");
+            fs.WriteTextAtomic("save/slot1.json", "{}");
+
+            var files = fs.ListFiles("save");
+
+            Assert.Equal(new[] { "slot1.json" }, files);
         }
 
         [Fact]

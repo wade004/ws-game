@@ -39,10 +39,10 @@ namespace Core.Foundation.EventBus
         /// <summary>combat.threat_changed — 字段：unitId, sourceId, oldValue, newValue。仇恨表更新（见 06 第 8 节）。</summary>
         public static readonly Id CombatThreatChanged = new Id("combat.threat_changed");
 
-        /// <summary>data.load_completed — 字段：tableCount。DataRegistry 完成一批数据表加载后触发（见 01 模块表 data_registry 行）；字段为建议值。</summary>
+        /// <summary>data.load_completed — 字段：tableCount, recordCount, errorCount, warningCount。DataRegistry.LoadAll 完成一批数据表加载后触发，无论报告是否阻断（见 01 模块表 data_registry 行、core/foundation/data_registry/README.md）。</summary>
         public static readonly Id DataLoadCompleted = new Id("data.load_completed");
 
-        /// <summary>data.validation_failed — 字段：errorCount。DataRegistry 校验发现错误时触发（见 01 模块表 data_registry 行、04 第 5 节校验器）；字段为建议值。</summary>
+        /// <summary>data.validation_failed — 字段：errorCount, warningCount。DataRegistry 校验报告为阻断态时紧接 data.load_completed 触发（见 01 模块表 data_registry 行、04 第 5 节校验器）。</summary>
         public static readonly Id DataValidationFailed = new Id("data.validation_failed");
 
         /// <summary>display_info.reloaded — 字段：无字段。DisplayInfoRegistry 底层数据重新加载完成（见 01 模块表 display_info 行）；不携带字段，字段为建议值。</summary>
@@ -102,7 +102,7 @@ namespace Core.Foundation.EventBus
         /// <summary>sim.tick_finished — 字段：tickIndex。WorldSim.tick 完成八步处理后触发（见 01 模块表 sim_loop 行、03 第 4.2 节）；字段为建议值。</summary>
         public static readonly Id SimTickFinished = new Id("sim.tick_finished");
 
-        /// <summary>sim.tick_started — 字段：tickIndex。WorldSim.tick 开始处理本次 SimStep 时触发（见 01 模块表 sim_loop 行、03 第 4.2 节）；字段为建议值。</summary>
+        /// <summary>sim.tick_started — 字段：tickIndex, dt。WorldSim.tick 开始处理本次 SimStep 时触发（见 01 模块表 sim_loop 行、03 第 4.2 节）；sim_loop 实现（SimTickStartedEvent）额外携带 dt（本次 tick 经过秒数），已同步本行。</summary>
         public static readonly Id SimTickStarted = new Id("sim.tick_started");
 
         /// <summary>sim.turn_ended — 字段：actorId。离散模式下某行动者的回合结束时触发（见 06 第 8 节）。</summary>

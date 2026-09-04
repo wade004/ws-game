@@ -35,6 +35,9 @@ namespace Adapters.Stub
 
         public bool Exists(string path) => _files.ContainsKey(path);
 
+        // 实现级约定（02_引擎适配层.md 第 1.6 节未限定 ListFiles 的路径形态，本仓库拍板见
+        // core/foundation/engine_adapter/README.md"IFileSystem"一节）：返回 dirPath 之下
+        // （递归）全部文件，路径相对 dirPath、用 '/' 分隔、按序数排序——不是完整 key。
         public IReadOnlyList<string> ListFiles(string dirPath)
         {
             var prefix = dirPath.Length == 0 || dirPath.EndsWith("/", StringComparison.Ordinal)
@@ -44,9 +47,9 @@ namespace Adapters.Stub
             var results = new List<string>();
             foreach (var key in _files.Keys)
             {
-                if (key.StartsWith(prefix, StringComparison.Ordinal))
+                if (key.StartsWith(prefix, StringComparison.Ordinal) && key.Length > prefix.Length)
                 {
-                    results.Add(key);
+                    results.Add(key.Substring(prefix.Length));
                 }
             }
 

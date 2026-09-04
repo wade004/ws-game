@@ -54,6 +54,23 @@ engine_adapter/
 
 接口签名以 `02_引擎适配层.md` 为准，本目录不得出现任何具体引擎符号。
 
+### `IFileSystem.ListFiles` 语义（实现级约定，02 未限定）
+
+`02_引擎适配层.md` 第 1.6 节只给出签名 `listFiles(dirPath: String): List<String>`，未规定返回
+值是绝对路径还是相对 `dirPath` 的路径、是否递归子目录。数据目录约定为
+`data/<dataset>/<domain>/<table>.json`（见 `data/README.md`），`data_registry`
+（`core/foundation/data_registry/core/FileSystemDataSource.cs`，T1-4）需要列举 `<dataset>/`
+下全部表文件，因此本仓库拍板以下实现级约定，供全部 `IFileSystem` 实现遵循：
+
+- **递归**：返回 `dirPath` 之下递归全部文件（含子目录中的文件），不含目录条目本身。
+- **相对路径**：每个结果路径相对 `dirPath`，不含 `dirPath` 本身的前缀。
+- **分隔符**：统一用 `/` 分隔，不用平台相关的 `\`。
+- **排序**：按序数（ordinal）排序，保证同一批文件每次调用结果顺序一致。
+
+`adapters/stub/StubFileSystem.cs` 的 `ListFiles` 已按此约定实现（内存文件系统按路径前缀匹配、
+截取前缀后的剩余部分即可）；各引擎的真实实现（`adapters/<engine_name>/`）需要同样遵循，
+否则 `FileSystemDataSource` 在该引擎上会解析出错误的表名。
+
 ## 类型映射摘要
 
 | 中立记法 | C# 类型 | 备注 |
