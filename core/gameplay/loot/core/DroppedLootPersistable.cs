@@ -1,0 +1,147 @@
+using System;
+using System.Collections.Generic;
+using Core.Carriers.Common;
+using Core.Foundation.Common;
+using Core.Foundation.Common.Json;
+using Core.Foundation.SaveSystem;
+
+namespace Core.Gameplay.Loot
+{
+    /// <summary>
+    /// <c>world.dropped_loot</c> 段（05 第 1.6 节"（建议）随当前地图状态一并存档"，见 <see
+    /// cref="LootOptions.PersistDropped"/>）。任务书标注"补录"——该段 key 未出现在
+    /// <c>core/foundation/save_system.SaveSections</c> 的已知段清单里（那是其它任务的目录，本任务
+    /// 不允许改动，见 README"契约缺口"），但 <c>IPersistable.SectionKey</c> 本就"可以是任意非空字符串"
+    /// （见该接口注释），本类直接以字面量 <c>"world.dropped_loot"</c> 作为段 key 即满足"补录"意图，
+    /// 不需要触碰 <c>SaveSections</c>。
+    /// <para>
+    /// 判断记录：本类不由 <see cref="LootHost"/> 自动向任何 <c>ISaveSystem</c> 注册——是否持久化地面
+    /// 掉落物取决于 <see cref="LootOptions.PersistDropped"/>（策略配置项），真正调用
+    /// <c>ISaveSystem.RegisterPersistable</c> 是组装层的事（惯例同
+    /// <c>core/gameplay/world_state</c> README"不负责什么"一节）。
+    /// </para>
+    /// </summary>
+    public sealed class DroppedLootPersistable : IPersistable
+    {
+        private readonly LootHost _lootHost;
+
+        public DroppedLootPersistable(LootHost lootHost)
+        {
+            _lootHost = lootHost ?? throw new ArgumentNullException(nameof(lootHost));
+        }
+
+        public string SectionKey => "world.dropped_loot";
+
+        public JsonValue Save()
+        {
+            var array = new List<JsonValue>();
+            foreach (var id in _lootHost.ActiveLootIds)
+            {
+                // ActiveLootIds 只反映本模块自己的跟踪表；实体本体经 IWorldSim 持有，这里用
+                // LootHost 暴露的 TryGetDropped 取回强类型引用，避免重复维护第二份状态。
+                if (_lootHost.TryGetDropped(id, out var entity))
+                {
+                    array.Add(ToJson(entity));
+                }
+            }
+
+            return new JsonArray(array);
+        }
+
+        public void Load(JsonValue data)
+        {
+            if (data is JsonNull)
+            {
+                return;
+            }
+
+            if (!(data is JsonArray array))
+            {
+                throw new FormatException($"{SectionKey} 段的数据不是 JSON 数组（实际种类：{data.Kind}）");
+            }
+
+            var maxSequence = 0;
+            foreach (var raw in array)
+            {
+                var entity = FromJson(raw);
+                _lootHost.RestoreDropped(entity);
+                var seq = LootHost.ExtractSequence(entity.EntityId);
+                if (seq > maxSequence)
+                {
+                    maxSequence = seq;
+                }
+            }
+
+            _lootHost.ReserveLootIdSequenceAtLeast(maxSequence);
+        }
+
+        private static JsonValue ToJson(DroppedLootEntity entity)
+        {
+            var items = new List<JsonValue>(entity.Items.Count);
+            foreach (var stack in entity.Items)
+            {
+                items.Add(new JsonObjectBuilder()
+                    .Add("templateId", new JsonString(stack.TemplateId.Value))
+                    .Add("count", new JsonNumber(stack.Count))
+                    .Build());
+            }
+
+            var builder = new JsonObjectBuilder()
+                .Add("entityId", new JsonString(entity.EntityId.Value))
+                .Add("mapId", new JsonString(entity.MapId.Value))
+                .Add("position", new JsonObjectBuilder()
+                    .Add("x", new JsonNumber(entity.Position.X))
+                    .Add("y", new JsonNumber(entity.Position.Y))
+                    .Build())
+                .Add("items", new JsonArray(items));
+
+            if (entity.OwnerHint.HasValue)
+            {
+                builder.Add("ownerHint", new JsonString(entity.OwnerHint.Value.Value));
+            }
+
+            if (entity.ExpireAt.HasValue)
+            {
+                builder.Add("expireAt", new JsonNumber(entity.ExpireAt.Value));
+            }
+
+            return builder.Build();
+        }
+
+        private static DroppedLootEntity FromJson(JsonValue raw)
+        {
+            if (!(raw is JsonObject obj))
+            {
+                throw new FormatException("world.dropped_loot 段的元素不是 JSON 对象");
+            }
+
+            var entityId = new Id(((JsonString)obj["entityId"]).Value);
+            var mapId = new Id(((JsonString)obj["mapId"]).Value);
+
+            var posObj = (JsonObject)obj["position"];
+            var position = new Vec2(((JsonNumber)posObj["x"]).Value, ((JsonNumber)posObj["y"]).Value);
+
+            var items = new List<ItemStack>();
+            foreach (var itemRaw in (JsonArray)obj["items"])
+            {
+                var itemObj = (JsonObject)itemRaw;
+                var templateId = new Id(((JsonString)itemObj["templateId"]).Value);
+                var count = (int)((JsonNumber)itemObj["count"]).Value;
+                items.Add(new ItemStack(templateId, count));
+            }
+
+            Id? ownerHint = obj.TryGetValue("ownerHint", out var ownerRaw) && ownerRaw is JsonString ownerStr
+                ? new Id(ownerStr.Value)
+                : (Id?)null;
+
+            double? expireAt = obj.TryGetValue("expireAt", out var expireRaw) && expireRaw is JsonNumber expireNum
+                ? expireNum.Value
+                : (double?)null;
+
+            return new DroppedLootEntity(entityId, mapId, items, ownerHint, expireAt)
+            {
+                Position = position,
+            };
+        }
+    }
+}
