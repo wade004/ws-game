@@ -27,3 +27,5 @@ __pycache__/
 # 本机文件
 Thumbs.db
 .DS_Store
+dist/
+adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/

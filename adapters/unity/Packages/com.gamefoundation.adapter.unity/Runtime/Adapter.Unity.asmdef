@@ -1,0 +1,25 @@
+{
+    "name": "Adapter.Unity",
+    "rootNamespace": "Adapter.Unity",
+    "references": [
+        "Unity.InputSystem",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.TextMeshPro"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Core.Foundation.dll",
+        "Core.Numbers.dll",
+        "Core.Rules.dll",
+        "Core.Carriers.dll",
+        "Core.Gameplay.dll",
+        "Presentation.Common.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
