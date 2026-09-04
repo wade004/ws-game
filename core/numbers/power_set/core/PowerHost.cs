@@ -1,0 +1,334 @@
+using System;
+using System.Collections.Generic;
+using Core.Foundation.Common;
+using Core.Foundation.EventBus;
+
+namespace Core.Numbers.PowerSet
+{
+    /// <summary>
+    /// <see cref="IPowerHost"/> 的默认实现（见 06 第 2.2 节、01_分层与依赖.md L1 模块表
+    /// <c>power_set</c> 行）。构造期接收全部已知资源类型定义（<see cref="PowerTypeDefinition"/>，
+    /// 数量不限——禁止硬编码资源池数量，见落地方案 T2-2 行禁止事项）与一个可选的
+    /// <see cref="StatLookup"/>（<c>max_source.kind == "stat"</c> 的资源类型必须提供，否则在
+    /// 首次需要用到时抛异常）。全部状态保存在内存，不接触任何文件/引擎符号。
+    /// </summary>
+    public sealed class PowerHost : IPowerHost
+    {
+        private sealed class PowerState
+        {
+            public double Current;
+            public double Max;
+        }
+
+        private sealed class UnitState
+        {
+            public readonly List<Id> PowerTypeOrder = new List<Id>();
+            public readonly Dictionary<Id, PowerState> Powers = new Dictionary<Id, PowerState>();
+            public bool InCombat;
+        }
+
+        private readonly Dictionary<Id, PowerTypeDefinition> _definitions = new Dictionary<Id, PowerTypeDefinition>();
+        private readonly Dictionary<Id, UnitState> _units = new Dictionary<Id, UnitState>();
+        private readonly List<Id> _unitOrder = new List<Id>();
+
+        private readonly IEventBus _bus;
+        private readonly StatLookup? _statLookup;
+
+        public PowerHost(IEnumerable<PowerTypeDefinition> powerTypes, IEventBus bus, StatLookup? statLookup = null)
+        {
+            if (powerTypes == null)
+            {
+                throw new ArgumentNullException(nameof(powerTypes));
+            }
+
+            _bus = bus ?? throw new ArgumentNullException(nameof(bus));
+            _statLookup = statLookup;
+
+            foreach (var definition in powerTypes)
+            {
+                if (definition == null)
+                {
+                    throw new ArgumentException("资源类型定义列表不能包含 null 元素", nameof(powerTypes));
+                }
+
+                if (_definitions.ContainsKey(definition.Id))
+                {
+                    throw new ArgumentException($"资源类型 \"{definition.Id}\" 重复登记", nameof(powerTypes));
+                }
+
+                _definitions.Add(definition.Id, definition);
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // 注册
+        // -----------------------------------------------------------------
+
+        public void RegisterUnit(Id unitId, IReadOnlyList<Id> powerTypes)
+        {
+            if (powerTypes == null)
+            {
+                throw new ArgumentNullException(nameof(powerTypes));
+            }
+
+            if (powerTypes.Count == 0)
+            {
+                throw new ArgumentException("powerTypes 不能为空", nameof(powerTypes));
+            }
+
+            if (_units.ContainsKey(unitId))
+            {
+                throw new InvalidOperationException($"单位 \"{unitId}\" 已注册，不能重复 RegisterUnit");
+            }
+
+            var state = new UnitState();
+            foreach (var powerType in powerTypes)
+            {
+                if (state.Powers.ContainsKey(powerType))
+                {
+                    throw new ArgumentException($"资源类型 \"{powerType}\" 在同一次 RegisterUnit 调用中重复出现", nameof(powerTypes));
+                }
+
+                var definition = RequireDefinition(powerType);
+                var max = ComputeMax(unitId, definition);
+                var current = definition.StartFull ? max : definition.Min;
+
+                state.PowerTypeOrder.Add(powerType);
+                state.Powers.Add(powerType, new PowerState { Current = current, Max = max });
+            }
+
+            _units.Add(unitId, state);
+            _unitOrder.Add(unitId);
+        }
+
+        public void UnregisterUnit(Id unitId)
+        {
+            if (!_units.Remove(unitId))
+            {
+                throw new InvalidOperationException($"单位 \"{unitId}\" 未注册，无法 UnregisterUnit");
+            }
+
+            _unitOrder.Remove(unitId);
+        }
+
+        // -----------------------------------------------------------------
+        // 查询
+        // -----------------------------------------------------------------
+
+        public bool HasPower(Id unitId, Id powerType) =>
+            _units.TryGetValue(unitId, out var state) && state.Powers.ContainsKey(powerType);
+
+        public double GetPower(Id unitId, Id powerType) => RequirePower(unitId, powerType).Current;
+
+        public double GetPowerMax(Id unitId, Id powerType) => RequirePower(unitId, powerType).Max;
+
+        // -----------------------------------------------------------------
+        // 修改
+        // -----------------------------------------------------------------
+
+        public void ModifyPower(Id unitId, Id powerType, double delta, Id sourceId)
+        {
+            var definition = RequireDefinition(powerType);
+            var power = RequirePower(unitId, powerType);
+            ApplyDelta(unitId, powerType, definition, power, delta);
+        }
+
+        public void SetInCombat(Id unitId, bool inCombat)
+        {
+            var state = RequireUnit(unitId);
+            var wasInCombat = state.InCombat;
+            state.InCombat = inCombat;
+
+            if (!wasInCombat || inCombat)
+            {
+                return;
+            }
+
+            // 从 true 切到 false：脱战瞬间，对 refill_on_leave_combat 的资源类型立即回满。
+            foreach (var powerType in state.PowerTypeOrder)
+            {
+                var definition = _definitions[powerType];
+                if (!definition.RefillOnLeaveCombat)
+                {
+                    continue;
+                }
+
+                var power = state.Powers[powerType];
+                SetCurrentClamped(unitId, powerType, definition, power, power.Max);
+            }
+        }
+
+        public void Advance(Id unitId, double timeUnits)
+        {
+            if (timeUnits < 0)
+            {
+                throw new ArgumentException("timeUnits 不能为负数", nameof(timeUnits));
+            }
+
+            var state = RequireUnit(unitId);
+            AdvanceUnit(unitId, state, timeUnits);
+        }
+
+        public void AdvanceAll(double timeUnits)
+        {
+            if (timeUnits < 0)
+            {
+                throw new ArgumentException("timeUnits 不能为负数", nameof(timeUnits));
+            }
+
+            // 按注册顺序遍历单位与资源，保证确定性（见 IPowerHost.AdvanceAll 注释）。
+            foreach (var unitId in _unitOrder)
+            {
+                AdvanceUnit(unitId, _units[unitId], timeUnits);
+            }
+        }
+
+        public void RecomputeMax(Id unitId)
+        {
+            var state = RequireUnit(unitId);
+            foreach (var powerType in state.PowerTypeOrder)
+            {
+                var definition = _definitions[powerType];
+                if (definition.MaxSourceKind != PowerMaxSourceKind.Stat)
+                {
+                    continue;
+                }
+
+                var power = state.Powers[powerType];
+                var newMax = ComputeMax(unitId, definition);
+                power.Max = newMax;
+
+                if (power.Current > newMax)
+                {
+                    var clampedTarget = newMax < definition.Min ? definition.Min : newMax;
+                    SetCurrentClamped(unitId, powerType, definition, power, clampedTarget);
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // 内部
+        // -----------------------------------------------------------------
+
+        private void AdvanceUnit(Id unitId, UnitState state, double timeUnits)
+        {
+            if (timeUnits == 0)
+            {
+                return;
+            }
+
+            foreach (var powerType in state.PowerTypeOrder)
+            {
+                var definition = _definitions[powerType];
+                var power = state.Powers[powerType];
+
+                // 先 regen 后 decay（见 IPowerHost.Advance 注释）。
+                var regenRate = state.InCombat ? definition.RegenInCombat : definition.RegenOutOfCombat;
+                if (regenRate != 0)
+                {
+                    ApplyDelta(unitId, powerType, definition, power, regenRate * timeUnits);
+                }
+
+                if (!state.InCombat && definition.DecayOutOfCombat != 0)
+                {
+                    ApplyDelta(unitId, powerType, definition, power, -definition.DecayOutOfCombat * timeUnits);
+                }
+            }
+        }
+
+        private double ComputeMax(Id unitId, PowerTypeDefinition definition)
+        {
+            if (definition.MaxSourceKind == PowerMaxSourceKind.Fixed)
+            {
+                return definition.MaxFixedValue;
+            }
+
+            if (_statLookup == null)
+            {
+                throw new InvalidOperationException(
+                    $"资源类型 \"{definition.Id}\" 的上限来源是属性引用（{definition.MaxStat}），但构造 PowerHost 时未注入 StatLookup");
+            }
+
+            return _statLookup(unitId, definition.MaxStat!.Value);
+        }
+
+        /// <summary>
+        /// 修改当前值的唯一入口：夹取到 <c>[min, max]</c>（<c>allow_overflow</c> 时上限不夹取），
+        /// 值变化时发 <c>power.changed</c>，从大于 min 变为等于 min 时额外发一次 <c>power.depleted</c>。
+        /// </summary>
+        private void ApplyDelta(Id unitId, Id powerType, PowerTypeDefinition definition, PowerState power, double delta)
+        {
+            var raw = power.Current + delta;
+            var target = ClampTarget(definition, power, raw);
+            SetCurrentClamped(unitId, powerType, definition, power, target);
+        }
+
+        private static double ClampTarget(PowerTypeDefinition definition, PowerState power, double raw)
+        {
+            var lower = definition.Min;
+            var upper = definition.AllowOverflow ? double.PositiveInfinity : power.Max;
+
+            if (raw < lower)
+            {
+                return lower;
+            }
+
+            if (raw > upper)
+            {
+                return upper;
+            }
+
+            return raw;
+        }
+
+        /// <summary>把当前值直接设为 <paramref name="target"/>（调用方已完成夹取计算），
+        /// 值变化时发事件；供 <see cref="ApplyDelta"/>、脱战回满、上限下降夹取三处复用。</summary>
+        private void SetCurrentClamped(Id unitId, Id powerType, PowerTypeDefinition definition, PowerState power, double target)
+        {
+            var old = power.Current;
+            if (target.Equals(old))
+            {
+                return;
+            }
+
+            power.Current = target;
+            _bus.Enqueue(new PowerChangedEvent(unitId, powerType, old, target));
+
+            if (old > definition.Min && target <= definition.Min)
+            {
+                _bus.Enqueue(new PowerDepletedEvent(unitId, powerType));
+            }
+        }
+
+        private UnitState RequireUnit(Id unitId)
+        {
+            if (!_units.TryGetValue(unitId, out var state))
+            {
+                throw new InvalidOperationException($"单位 \"{unitId}\" 未注册");
+            }
+
+            return state;
+        }
+
+        private PowerTypeDefinition RequireDefinition(Id powerType)
+        {
+            if (!_definitions.TryGetValue(powerType, out var definition))
+            {
+                throw new InvalidOperationException($"资源类型 \"{powerType}\" 未在构造 PowerHost 时登记");
+            }
+
+            return definition;
+        }
+
+        private PowerState RequirePower(Id unitId, Id powerType)
+        {
+            var state = RequireUnit(unitId);
+            if (!state.Powers.TryGetValue(powerType, out var power))
+            {
+                throw new InvalidOperationException($"单位 \"{unitId}\" 未持有资源类型 \"{powerType}\"");
+            }
+
+            return power;
+        }
+    }
+}
