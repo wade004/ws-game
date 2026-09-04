@@ -11,7 +11,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Compare_Eq()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct == 1"));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct == 1", TestSchema.Build()));
             Assert.Equal(ExprCompareOp.Eq, node.Op);
             var left = Assert.IsType<ExprReferenceNode>(node.Left);
             Assert.Equal("self", left.Group);
@@ -24,42 +24,42 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Compare_Ne()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct != 1"));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct != 1", TestSchema.Build()));
             Assert.Equal(ExprCompareOp.Ne, node.Op);
         }
 
         [Fact]
         public void Compare_Gt()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct > 1"));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct > 1", TestSchema.Build()));
             Assert.Equal(ExprCompareOp.Gt, node.Op);
         }
 
         [Fact]
         public void Compare_Ge()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct >= 1"));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct >= 1", TestSchema.Build()));
             Assert.Equal(ExprCompareOp.Ge, node.Op);
         }
 
         [Fact]
         public void Compare_Lt()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct < 1"));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct < 1", TestSchema.Build()));
             Assert.Equal(ExprCompareOp.Lt, node.Op);
         }
 
         [Fact]
         public void Compare_Le()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct <= 1"));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct <= 1", TestSchema.Build()));
             Assert.Equal(ExprCompareOp.Le, node.Op);
         }
 
         [Fact]
         public void And_Combination()
         {
-            var node = Assert.IsType<ExprAndNode>(ExprParser.Parse("combat.in_combat and target.hp_pct < 0.3"));
+            var node = Assert.IsType<ExprAndNode>(ExprParser.Parse("combat.in_combat and target.hp_pct < 0.3", TestSchema.Build()));
             Assert.Equal(2, node.Operands.Count);
             Assert.IsType<ExprReferenceNode>(node.Operands[0]);
             Assert.IsType<ExprCompareNode>(node.Operands[1]);
@@ -68,21 +68,21 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Or_Combination()
         {
-            var node = Assert.IsType<ExprOrNode>(ExprParser.Parse("combat.in_combat or player.level >= 10"));
+            var node = Assert.IsType<ExprOrNode>(ExprParser.Parse("combat.in_combat or player.level >= 10", TestSchema.Build()));
             Assert.Equal(2, node.Operands.Count);
         }
 
         [Fact]
         public void Not_Simple()
         {
-            var node = Assert.IsType<ExprNotNode>(ExprParser.Parse("not combat.in_combat"));
+            var node = Assert.IsType<ExprNotNode>(ExprParser.Parse("not combat.in_combat", TestSchema.Build()));
             Assert.IsType<ExprReferenceNode>(node.Operand);
         }
 
         [Fact]
         public void Not_ChainedDouble()
         {
-            var node = Assert.IsType<ExprNotNode>(ExprParser.Parse("not not combat.in_combat"));
+            var node = Assert.IsType<ExprNotNode>(ExprParser.Parse("not not combat.in_combat", TestSchema.Build()));
             var inner = Assert.IsType<ExprNotNode>(node.Operand);
             Assert.IsType<ExprReferenceNode>(inner.Operand);
         }
@@ -90,7 +90,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Not_ParenGroup()
         {
-            var node = Assert.IsType<ExprNotNode>(ExprParser.Parse("not (combat.in_combat and target.hp_pct < 0.3)"));
+            var node = Assert.IsType<ExprNotNode>(ExprParser.Parse("not (combat.in_combat and target.hp_pct < 0.3)", TestSchema.Build()));
             Assert.IsType<ExprAndNode>(node.Operand);
         }
 
@@ -98,13 +98,13 @@ namespace Tests.Foundation.Expr
         public void Parens_ChangePrecedence()
         {
             var withParens = Assert.IsType<ExprAndNode>(
-                ExprParser.Parse("(combat.in_combat or player.level >= 10) and target.hp_pct < 0.3"));
+                ExprParser.Parse("(combat.in_combat or player.level >= 10) and target.hp_pct < 0.3", TestSchema.Build()));
             Assert.Equal(2, withParens.Operands.Count);
             Assert.IsType<ExprOrNode>(withParens.Operands[0]);
 
             // 去掉括号后语义完全不同：整体应变成 or(结合优先级更低)。
             var withoutParens = Assert.IsType<ExprOrNode>(
-                ExprParser.Parse("combat.in_combat or player.level >= 10 and target.hp_pct < 0.3"));
+                ExprParser.Parse("combat.in_combat or player.level >= 10 and target.hp_pct < 0.3", TestSchema.Build()));
             Assert.Equal(2, withoutParens.Operands.Count);
             Assert.IsType<ExprAndNode>(withoutParens.Operands[1]);
         }
@@ -112,7 +112,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void StringLiteral_Compare()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("event.school == \"fire\""));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("event.school == \"fire\"", TestSchema.Build()));
             var right = Assert.IsType<ExprLiteralNode>(node.Right);
             Assert.Equal(ExprValue.OfString("fire"), right.Value);
         }
@@ -120,7 +120,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void StringLiteral_WithEscapes()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("event.school == \"a\\\"b\\\\c\""));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("event.school == \"a\\\"b\\\\c\"", TestSchema.Build()));
             var right = Assert.IsType<ExprLiteralNode>(node.Right);
             Assert.Equal("a\"b\\c", right.Value.AsString);
         }
@@ -128,7 +128,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void IdLiteral_Equality()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("target.faction == fac.wildlife"));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("target.faction == fac.wildlife", TestSchema.Build()));
             var right = Assert.IsType<ExprLiteralNode>(node.Right);
             Assert.Equal(ExprValueKind.Id, right.Value.Kind);
             Assert.Equal(new Id("fac.wildlife"), right.Value.AsId);
@@ -137,7 +137,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Reference_WithSingleArg()
         {
-            var node = Assert.IsType<ExprReferenceNode>(ExprParser.Parse("self.has_aura(skill.aura.burning)"));
+            var node = Assert.IsType<ExprReferenceNode>(ExprParser.Parse("self.has_aura(skill.aura.burning)", TestSchema.Build()));
             Assert.Equal("self", node.Group);
             Assert.Equal("has_aura", node.Key);
             var arg = Assert.IsType<ExprLiteralNode>(Assert.Single(node.Args));
@@ -147,7 +147,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Reference_WithMultipleArgs()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("quest.objective_progress(quest.a, 1) >= 3"));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("quest.objective_progress(quest.a, 1) >= 3", TestSchema.Build()));
             Assert.Equal(ExprCompareOp.Ge, node.Op);
             var left = Assert.IsType<ExprReferenceNode>(node.Left);
             Assert.Equal("quest", left.Group);
@@ -163,7 +163,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void NumberVsIntLiteral_Distinguished()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct < 0.3"));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("self.hp_pct < 0.3", TestSchema.Build()));
             var right = Assert.IsType<ExprLiteralNode>(node.Right);
             Assert.Equal(ExprValueKind.Number, right.Value.Kind);
             Assert.Equal(0.3, right.Value.AsNumber);
@@ -172,7 +172,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void NestedReferenceAsArg()
         {
-            var node = Assert.IsType<ExprReferenceNode>(ExprParser.Parse("enemies.count_in_range(self.range)"));
+            var node = Assert.IsType<ExprReferenceNode>(ExprParser.Parse("enemies.count_in_range(self.range)", TestSchema.Build()));
             Assert.Equal("enemies", node.Group);
             Assert.Equal("count_in_range", node.Key);
             var arg = Assert.IsType<ExprReferenceNode>(Assert.Single(node.Args));
@@ -183,7 +183,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void NegativeIntLiteral()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("event.damage_amount > -5"));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("event.damage_amount > -5", TestSchema.Build()));
             var right = Assert.IsType<ExprLiteralNode>(node.Right);
             Assert.Equal(ExprValue.OfInt(-5), right.Value);
         }
@@ -191,7 +191,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void NegativeNumberLiteral()
         {
-            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("event.damage_amount > -1.5"));
+            var node = Assert.IsType<ExprCompareNode>(ExprParser.Parse("event.damage_amount > -1.5", TestSchema.Build()));
             var right = Assert.IsType<ExprLiteralNode>(node.Right);
             Assert.Equal(ExprValueKind.Number, right.Value.Kind);
             Assert.Equal(-1.5, right.Value.AsNumber);
@@ -200,7 +200,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void TopLevelReference_NoOperator_ReturnsBareTerm()
         {
-            var node = Assert.IsType<ExprReferenceNode>(ExprParser.Parse("time.since_combat_start"));
+            var node = Assert.IsType<ExprReferenceNode>(ExprParser.Parse("time.since_combat_start", TestSchema.Build()));
             Assert.Equal("time", node.Group);
             Assert.Equal("since_combat_start", node.Key);
         }
@@ -208,21 +208,21 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void TopLevelBoolLiteral_True()
         {
-            var node = Assert.IsType<ExprLiteralNode>(ExprParser.Parse("true"));
+            var node = Assert.IsType<ExprLiteralNode>(ExprParser.Parse("true", TestSchema.Build()));
             Assert.Equal(ExprValue.OfBool(true), node.Value);
         }
 
         [Fact]
         public void TopLevelBoolLiteral_False()
         {
-            var node = Assert.IsType<ExprLiteralNode>(ExprParser.Parse("false"));
+            var node = Assert.IsType<ExprLiteralNode>(ExprParser.Parse("false", TestSchema.Build()));
             Assert.Equal(ExprValue.OfBool(false), node.Value);
         }
 
         [Fact]
         public void MultiSegmentKey_BareReference()
         {
-            var node = Assert.IsType<ExprReferenceNode>(ExprParser.Parse("quest.objective_progress"));
+            var node = Assert.IsType<ExprReferenceNode>(ExprParser.Parse("quest.objective_progress", TestSchema.Build()));
             Assert.Equal("quest", node.Group);
             Assert.Equal("objective_progress", node.Key);
             Assert.Empty(node.Args);
@@ -231,8 +231,8 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void WhitespaceVariety_Tolerated()
         {
-            var a = ExprParser.Parse("self.hp_pct == 1");
-            var b = ExprParser.Parse("  self.hp_pct\t==\n1  ");
+            var a = ExprParser.Parse("self.hp_pct == 1", TestSchema.Build());
+            var b = ExprParser.Parse("  self.hp_pct\t==\n1  ", TestSchema.Build());
             Assert.Equal(a, b);
         }
 
@@ -240,7 +240,7 @@ namespace Tests.Foundation.Expr
         public void MultipleAndOperands_AreFlattened()
         {
             var node = Assert.IsType<ExprAndNode>(
-                ExprParser.Parse("combat.in_combat and player.level >= 1 and target.hp_pct > 0"));
+                ExprParser.Parse("combat.in_combat and player.level >= 1 and target.hp_pct > 0", TestSchema.Build()));
             Assert.Equal(3, node.Operands.Count);
         }
 
@@ -248,7 +248,7 @@ namespace Tests.Foundation.Expr
         public void MultipleOrOperands_AreFlattened()
         {
             var node = Assert.IsType<ExprOrNode>(
-                ExprParser.Parse("combat.in_combat or player.level >= 1 or target.hp_pct > 0"));
+                ExprParser.Parse("combat.in_combat or player.level >= 1 or target.hp_pct > 0", TestSchema.Build()));
             Assert.Equal(3, node.Operands.Count);
         }
 
@@ -257,49 +257,49 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void ParseError_MissingRParen()
         {
-            Assert.Throws<ExprParseException>(() => ExprParser.Parse("self.has_aura(skill.aura.burning"));
+            Assert.Throws<ExprParseException>(() => ExprParser.Parse("self.has_aura(skill.aura.burning", TestSchema.Build()));
         }
 
         [Fact]
         public void ParseError_IllegalIdentifier_Uppercase()
         {
-            Assert.Throws<ExprParseException>(() => ExprParser.Parse("Self.hp_pct"));
+            Assert.Throws<ExprParseException>(() => ExprParser.Parse("Self.hp_pct", TestSchema.Build()));
         }
 
         [Fact]
         public void ParseError_MissingDomain_BareWord()
         {
-            Assert.Throws<ExprParseException>(() => ExprParser.Parse("fireball"));
+            Assert.Throws<ExprParseException>(() => ExprParser.Parse("fireball", TestSchema.Build()));
         }
 
         [Fact]
         public void ParseError_UnknownOperator()
         {
-            Assert.Throws<ExprParseException>(() => ExprParser.Parse("self.hp_pct =< 1"));
+            Assert.Throws<ExprParseException>(() => ExprParser.Parse("self.hp_pct =< 1", TestSchema.Build()));
         }
 
         [Fact]
         public void ParseError_StringNotClosed()
         {
-            Assert.Throws<ExprParseException>(() => ExprParser.Parse("event.school == \"fire"));
+            Assert.Throws<ExprParseException>(() => ExprParser.Parse("event.school == \"fire", TestSchema.Build()));
         }
 
         [Fact]
         public void ParseError_IllegalHyphenIdentifier()
         {
-            Assert.Throws<ExprParseException>(() => ExprParser.Parse("skill-fireball"));
+            Assert.Throws<ExprParseException>(() => ExprParser.Parse("skill-fireball", TestSchema.Build()));
         }
 
         [Fact]
         public void ParseError_EmptyArgList()
         {
-            Assert.Throws<ExprParseException>(() => ExprParser.Parse("self.has_aura()"));
+            Assert.Throws<ExprParseException>(() => ExprParser.Parse("self.has_aura()", TestSchema.Build()));
         }
 
         [Fact]
         public void ParseError_ExposesPosition()
         {
-            var ex = Assert.Throws<ExprParseException>(() => ExprParser.Parse("fireball"));
+            var ex = Assert.Throws<ExprParseException>(() => ExprParser.Parse("fireball", TestSchema.Build()));
             Assert.Equal(0, ex.Position);
         }
 
@@ -320,9 +320,9 @@ namespace Tests.Foundation.Expr
         [InlineData("enemies.count_in_range(self.range)")]
         public void ToString_RoundTrips_ToEqualAst(string text)
         {
-            var first = ExprParser.Parse(text);
+            var first = ExprParser.Parse(text, TestSchema.Build());
             var printed = first.ToString();
-            var second = ExprParser.Parse(printed);
+            var second = ExprParser.Parse(printed, TestSchema.Build());
 
             Assert.Equal(first, second);
         }

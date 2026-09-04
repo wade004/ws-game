@@ -11,7 +11,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Evaluate_CompareIntEqual_True()
         {
-            var node = ExprParser.Parse("self.hp_pct == 1");
+            var node = ExprParser.Parse("self.hp_pct == 1", TestSchema.Build());
             var host = new FakeHost().Set("self", "hp_pct", ExprValue.OfInt(1));
             var diagnostics = new ExprDiagnosticsRecorder();
 
@@ -24,7 +24,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Evaluate_CompareIntNumber_CrossTypeAllowed()
         {
-            var node = ExprParser.Parse("self.hp_pct < 0.3");
+            var node = ExprParser.Parse("self.hp_pct < 0.3", TestSchema.Build());
             var host = new FakeHost().Set("self", "hp_pct", ExprValue.OfInt(0)); // Int 0 < Number 0.3
             var diagnostics = new ExprDiagnosticsRecorder();
 
@@ -35,7 +35,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Evaluate_And_AllTrue_ReturnsTrue()
         {
-            var node = ExprParser.Parse("combat.in_combat and player.level >= 1");
+            var node = ExprParser.Parse("combat.in_combat and player.level >= 1", TestSchema.Build());
             var host = new FakeHost()
                 .Set("combat", "in_combat", ExprValue.OfBool(true))
                 .Set("player", "level", ExprValue.OfInt(5));
@@ -47,7 +47,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Evaluate_Or_AnyTrue_ReturnsTrue()
         {
-            var node = ExprParser.Parse("combat.in_combat or player.level >= 1");
+            var node = ExprParser.Parse("combat.in_combat or player.level >= 1", TestSchema.Build());
             var host = new FakeHost()
                 .Set("combat", "in_combat", ExprValue.OfBool(false))
                 .Set("player", "level", ExprValue.OfInt(5));
@@ -59,7 +59,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Evaluate_Not_InvertsBool()
         {
-            var node = ExprParser.Parse("not combat.in_combat");
+            var node = ExprParser.Parse("not combat.in_combat", TestSchema.Build());
             var host = new FakeHost().Set("combat", "in_combat", ExprValue.OfBool(true));
             var diagnostics = new ExprDiagnosticsRecorder();
 
@@ -69,7 +69,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Evaluate_ReferenceWithArgs_PassesEvaluatedArgValues()
         {
-            var node = ExprParser.Parse("self.has_aura(skill.aura.burning)");
+            var node = ExprParser.Parse("self.has_aura(skill.aura.burning)", TestSchema.Build());
             IReadOnlyList<ExprValue>? seenArgs = null;
             var host = new FakeHost().Set("self", "has_aura", args =>
             {
@@ -87,7 +87,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Evaluate_StringEquality()
         {
-            var node = ExprParser.Parse("event.school == \"fire\"");
+            var node = ExprParser.Parse("event.school == \"fire\"", TestSchema.Build());
             var host = new FakeHost().Set("event", "school", ExprValue.OfString("fire"));
             var diagnostics = new ExprDiagnosticsRecorder();
 
@@ -97,7 +97,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Evaluate_IdEquality()
         {
-            var node = ExprParser.Parse("target.faction == fac.wildlife");
+            var node = ExprParser.Parse("target.faction == fac.wildlife", TestSchema.Build());
             var host = new FakeHost().Set("target", "faction", ExprValue.OfId(new Id("fac.wildlife")));
             var diagnostics = new ExprDiagnosticsRecorder();
 
@@ -107,7 +107,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Evaluate_TopLevelNonBoolReference_ReturnsRawValue()
         {
-            var node = ExprParser.Parse("time.since_combat_start");
+            var node = ExprParser.Parse("time.since_combat_start", TestSchema.Build());
             var host = new FakeHost().Set("time", "since_combat_start", ExprValue.OfNumber(42.5));
             var diagnostics = new ExprDiagnosticsRecorder();
 
@@ -120,7 +120,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void EvaluateBool_NonBoolResult_RecordsErrorAndReturnsFalse()
         {
-            var node = ExprParser.Parse("time.since_combat_start");
+            var node = ExprParser.Parse("time.since_combat_start", TestSchema.Build());
             var host = new FakeHost().Set("time", "since_combat_start", ExprValue.OfNumber(42.5));
             var diagnostics = new ExprDiagnosticsRecorder();
 
@@ -135,7 +135,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void ShortCircuit_AndFalse_DoesNotCallRightOperandHost()
         {
-            var node = ExprParser.Parse("false and self.hp_pct > 0");
+            var node = ExprParser.Parse("false and self.hp_pct > 0", TestSchema.Build());
             var host = new FakeHost().Set("self", "hp_pct", ExprValue.OfInt(999));
             var diagnostics = new ExprDiagnosticsRecorder();
 
@@ -148,7 +148,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void ShortCircuit_OrTrue_DoesNotCallRightOperandHost()
         {
-            var node = ExprParser.Parse("true or self.hp_pct > 0");
+            var node = ExprParser.Parse("true or self.hp_pct > 0", TestSchema.Build());
             var host = new FakeHost().Set("self", "hp_pct", ExprValue.OfInt(999));
             var diagnostics = new ExprDiagnosticsRecorder();
 
@@ -162,7 +162,7 @@ namespace Tests.Foundation.Expr
         public void ShortCircuit_AndTrue_DoesCallRightOperandHost()
         {
             // 对照组：and 左侧为 true 时不短路，右侧的 Query 必须被调用到。
-            var node = ExprParser.Parse("true and self.hp_pct > 0");
+            var node = ExprParser.Parse("true and self.hp_pct > 0", TestSchema.Build());
             var host = new FakeHost().Set("self", "hp_pct", ExprValue.OfInt(5));
             var diagnostics = new ExprDiagnosticsRecorder();
 
@@ -177,7 +177,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Runtime_HostThrows_WholeExpressionIsFalseWithError()
         {
-            var node = ExprParser.Parse("self.hp_pct > 0 and player.level >= 1");
+            var node = ExprParser.Parse("self.hp_pct > 0 and player.level >= 1", TestSchema.Build());
             var host = new FakeHost()
                 .Throws("self", "hp_pct", new InvalidOperationException("boom"))
                 .Set("player", "level", ExprValue.OfInt(999));
@@ -211,7 +211,7 @@ namespace Tests.Foundation.Expr
         [Fact]
         public void Runtime_HostExceptionInNestedArg_AbortsWholeExpression()
         {
-            var node = ExprParser.Parse("self.has_aura(target.faction) and player.level >= 1");
+            var node = ExprParser.Parse("self.has_aura(target.faction) and player.level >= 1", TestSchema.Build());
             var host = new FakeHost()
                 .Throws("target", "faction", new InvalidOperationException("no target"))
                 .Set("player", "level", ExprValue.OfInt(999));

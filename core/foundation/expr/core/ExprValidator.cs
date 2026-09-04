@@ -21,11 +21,26 @@ namespace Core.Foundation.Expr
             return issues;
         }
 
+        /// <summary>便捷判断：<paramref name="issues"/> 里是否存在至少一条 <see cref="ExprIssueSeverity.Error"/>
+        /// 级别的问题——调用方通常只应因为 Error 而拒绝内容合入，<see cref="ExprIssueSeverity.Warning"/>
+        /// 不阻断（见 ADR-0015）。</summary>
+        public static bool HasErrors(IReadOnlyList<ExprIssue> issues)
+        {
+            if (issues == null) throw new ArgumentNullException(nameof(issues));
+
+            for (int i = 0; i < issues.Count; i++)
+            {
+                if (issues[i].Severity == ExprIssueSeverity.Error) return true;
+            }
+            return false;
+        }
+
         private static ExprValueKind? InferKind(ExprNode node, IExprSchema schema, List<ExprIssue> issues)
         {
             switch (node)
             {
                 case ExprLiteralNode literal:
+                    CheckSuspiciousIdLiteral(literal.Value, schema, issues);
                     return literal.Value.Kind;
 
                 case ExprReferenceNode reference:
@@ -151,6 +166,31 @@ namespace Core.Foundation.Expr
             }
 
             return ExprValueKind.Bool;
+        }
+
+        /// <summary>
+        /// ADR-0015 的警告项：Id 字面量的域名若与九个分组之一同名，且"域名.其余段"没有在
+        /// <paramref name="schema"/> 中登记为引用，大概率是调用方原本想写一个引用、却因为
+        /// 该 <c>group.key</c> 未登记而被 <see cref="ExprParser"/> 按 Id 字面量归类——报一条
+        /// <see cref="ExprIssueSeverity.Warning"/>（不阻断，因为"和分组同名的 Id 字面量"本身
+        /// 是合法用法，见 04 第 2.2 节域名清单）。
+        /// </summary>
+        private static void CheckSuspiciousIdLiteral(ExprValue value, IExprSchema schema, List<ExprIssue> issues)
+        {
+            if (value.Kind != ExprValueKind.Id) return;
+
+            var idText = value.AsId.Value;
+            var dotIndex = idText.IndexOf('.');
+            if (dotIndex < 0) return; // Id 格式保证至少一个 '.'，防御性检查。
+
+            var domain = idText.Substring(0, dotIndex);
+            var key = idText.Substring(dotIndex + 1);
+
+            if (!ExprGroups.IsKnown(domain)) return;
+            if (schema.TryGetSignature(domain, key, out _)) return;
+
+            issues.Add(new ExprIssue(ExprIssueKind.SuspiciousReferenceSpelling, ExprIssueSeverity.Warning,
+                $"疑似引用拼写错误：\"{idText}\" 的域名与分组 \"{domain}\" 同名但未登记为引用"));
         }
 
         private static bool IsNumeric(ExprValueKind kind) => kind == ExprValueKind.Int || kind == ExprValueKind.Number;

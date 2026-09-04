@@ -39,11 +39,11 @@ expr/
 | `ExprSignature` | `{ ReturnKind: ExprValueKind, ArgKinds: IReadOnlyList<ExprValueKind> }` |
 | `IExprDiagnostics` / `ExprDiagnosticsRecorder` | 诊断出口：`Warn(string)`、`Error(string, Exception?)`；内存实现供测试与调用方检查 |
 | `ExprNode` 及子类 | 不可变 AST：`ExprOrNode`、`ExprAndNode`、`ExprNotNode`、`ExprCompareNode`、`ExprLiteralNode`、`ExprReferenceNode`；均带结构化 `Equals`/`GetHashCode` 与还原为规范化文本的 `ToString()` |
-| `ExprParser` | `Parse(string text) -> ExprNode`；失败抛 `ExprParseException { Position, Message }` |
-| `ExprValidator` | `Validate(ExprNode, IExprSchema) -> IReadOnlyList<ExprIssue>`；空列表即通过 |
+| `ExprParser` | `Parse(string text, IExprSchema schema) -> ExprNode`；**解析需要登记表**（ADR-0015，见下方"判断记录"第 2 条）：点分标识符归类为引用还是 Id 字面量，以 `schema` 是否登记了对应签名为准；失败抛 `ExprParseException { Position, Message }` |
+| `ExprValidator` | `Validate(ExprNode, IExprSchema) -> IReadOnlyList<ExprIssue>`；`HasErrors(issues) -> bool` 便捷判断是否存在 `Error` 级别问题（`Warning` 不阻断） |
 | `ExprEvaluator` | `Evaluate(ExprNode, IExprHost, IExprDiagnostics) -> ExprValue`；便捷 `EvaluateBool(...)` |
-| `ExprParseException` | 解析期错误：语法错误、非法字符、未闭合字符串、缺少 domain/分组前缀等词法/语法层问题 |
-| `ExprIssue` / `ExprIssueKind` | 静态校验问题：未知分组/key、参数个数/类型不匹配、比较两侧类型不匹配、非法比较运算符、逻辑操作数非 Bool |
+| `ExprParseException` | 解析期错误：语法错误、非法字符、未闭合字符串、缺少 domain/分组前缀、未登记的标识符携带参数列表等词法/语法层问题 |
+| `ExprIssue` / `ExprIssueKind` / `ExprIssueSeverity` | 静态校验问题：未知分组/key、参数个数/类型不匹配、比较两侧类型不匹配、非法比较运算符、逻辑操作数非 Bool（均为 `Error`），以及疑似引用拼写错误（`Warning`，见 ADR-0015） |
 
 ## 语法（BNF，原文照抄自 04 第 6.1 节）
 
@@ -78,16 +78,23 @@ BNF 没有规定词法细节与"点分标识符到底是 reference 还是 Id"的
 4. **标识符**：单段满足 `[a-z][a-z0-9_]*`，多段用 `.` 连接（如 `self.hp_pct`、`skill.aura.burning`）；
    每一段（含第一段）都必须以小写字母开头——这比 `common/Id` 的格式正则（后续段允许数字/下划线开头）
    更严格，是本模块在 Expr 词法层面做出的收紧，详见下方"判断记录"。
-5. **点分标识符归类（BNF 未定，本模块拍板）**：整个点分标识符先按上一条规则整体词法为一个
-   token；解析期看它的第一段：
-   - 是 04 第 6.2 节九个分组（`self/target/event/world/quest/player/combat/enemies/time`）之一
-     → 整体按 `<reference>` 解析：`group` 取第一段，`key` 取"第一个点之后的全部剩余部分"
-     （允许 key 本身多段，如 `quest.objective_progress`），紧跟 `(` 则解析参数列表。
+5. **点分标识符归类（BNF 未定，ADR-0015 拍板）**：整个点分标识符先按上一条规则整体词法为一个
+   token；解析期把它按第一个 `.` 切成 `first`（第一段）与 `rest`（第一个点之后的全部剩余部分，
+   允许多段，如 `quest.objective_progress` 里 `rest = "objective_progress"`）：
+   - 若 `schema.TryGetSignature(first, rest)` 成功（即 `IExprSchema` 里登记了这个 `group.key`
+     的签名）→ 整体按 `<reference>` 解析：`group = first`、`key = rest`，紧跟 `(` 则解析参数列表。
    - 否则 → 整体作为 `Id` 字面量：构造 `Core.Foundation.Common.Id`（复用该类型，不重新定义
      一套 Id 校验逻辑）。因为 Expr 标识符段规则（每段必须 `[a-z]` 开头）严格蕴含
-     `Common.Id` 的格式正则，这里的 `new Id(...)` 构造不会因为格式问题失败。
+     `Common.Id` 的格式正则，这里的 `new Id(...)` 构造不会因为格式问题失败。若紧跟 `(`，
+     说明调用方大概率把它当成了引用来写，报解析错误"未登记的引用不能带参数列表"，而不是
+     悄悄丢弃参数列表。
+   - **`ExprParser.Parse` 因此需要一个 `IExprSchema` 参数**：归类判定不再是纯词法/语法层面的
+     事情，取决于调用方登记了哪些引用；校验期（`ExprValidator.Validate`）与运行期
+     （`ExprEvaluator.Evaluate` 经由 `IExprHost`）复用同一份登记表，保证三个阶段对
+     "这是引用还是字面量"的判断完全一致。
    - 这条规则**统一应用于任何位置**（顶层、括号内、引用的参数列表内），不因"是不是在参数
-     位置"而改变判定方式——具体取舍见下方"判断记录"第 2 条。
+     位置"而改变判定方式，也不再看第一段是不是 04 第 6.2 节九个分组之一——具体取舍与历史
+     沿革见下方"判断记录"第 2 条。
 6. **引用参数**：`(term, term, ...)` 中每个 `term` 只能是字面量、Id、另一个引用，或括号包
    起来的完整表达式；空参数列表 `()` 不合法（BNF 的 `arg_list` 至少一个 `term`），因此零参
    引用一律不写括号（`self.hp_pct`，不是 `self.hp_pct()`）。
@@ -116,22 +123,29 @@ BNF 没有规定词法细节与"点分标识符到底是 reference 还是 Id"的
    `-(a and b)` 这类对任意 term 取负——因为 Expr 语言本身没有算术运算，"取负"唯一合理的
    使用场景就是写一个负数字面量（如 `event.damage_amount > -5`），没有必要为不存在的算术
    引入通用一元负号。
-2. **点分标识符归类规则应用于参数位置时与文档示例的冲突**：04 第 6.2 节表格自身的示例
-   `world.get(world.bridge.repaired)`、`quest.is_active(quest.deliver_letter)` 里，
-   传给引用的参数（`world.bridge.repaired`、`quest.deliver_letter`）第一段恰好和分组名
-   `world`/`quest` 同名——04 第 2.2 节域名清单里 `world`、`quest`、`target`、`combat`
-   同时也是内容 id 的合法 `domain`。按任务给出的判定规则"第一段是九个分组之一 → reference；
-   否则 → Id"逐字实现、且不为参数位置单独开特例，上述两个例子里的参数会被解析成
-   **零参引用**（`Reference(group=world, key="bridge.repaired")` /
-   `Reference(group=quest, key="deliver_letter")`），而不是文档原意的 Id 字面量。
-   本模块的取舍是：严格按任务给出的规则实现（唯一规则、位置无关，简单可预测，不引入
-   "参数位置特例"这种隐藏状态），并在此如实记录这一已知限制——**当某个内容 domain 与九个
-   分组之一同名（`world`/`quest`/`target`/`combat`）时，该 domain 下的 Id 无法作为 Expr
-   参数按字面量书写**，实际使用中要么给这四个分组建立对应的零参 `query`（如
-   `quest.deliver_letter` 作为 `quest` 分组下一个返回 `Id` 的零参引用，效果等价但语义
-   上是"查询"而非"字面量"），要么这是后续 ADR 需要修订 BNF（比如给 Id 字面量加统一前缀
-   区分于分组引用）来彻底消除的歧义。本模块测试套件里凡是需要传"和分组同名的 Id"场景，
-   一律登记为对应分组下的一个零参引用（如 `quest.a`），不使用会触发此歧义的写法。
+2. **点分标识符归类规则应用于参数位置时与文档示例的冲突——已由 ADR-0015 解决，规则如下**：
+   04 第 6.2 节表格自身的示例 `world.get(world.bridge.repaired)`、
+   `quest.is_active(quest.deliver_letter)` 里，传给引用的参数（`world.bridge.repaired`、
+   `quest.deliver_letter`）第一段恰好和分组名 `world`/`quest` 同名——04 第 2.2 节域名清单里
+   `world`、`quest`、`target`、`combat` 同时也是内容 id 的合法 `domain`。旧实现按"第一段是
+   九个分组之一 → reference"逐字判定、不为参数位置开特例，导致这两个例子被误判成零参引用
+   而不是文档原意的 Id 字面量——这是本条曾经记录的已知限制。
+
+   ADR-0015 拍板：**点分标识符的归类以宿主引用登记表 `IExprSchema` 为准，而不是"第一段是不是
+   九个分组之一"**——`<first>.<rest>` 若在 `schema.TryGetSignature(first, rest)` 里有登记的
+   签名，才按 `<reference>` 解析；否则整体是 Id 字面量（只要满足 Id 格式）。九个分组的固定
+   清单（`ExprGroups`）不再参与解析期的归类判定，只在 `ExprValidator` 里保留两个用途：
+   （a）独立检查手工构造的 AST 是否引用了未知分组（`UnknownGroup`）；
+   （b）新增一条 `Warning`（不阻断）：Id 字面量的域名若与某个分组同名、且"域名.其余段"未在
+   schema 中登记为引用，报"疑似引用拼写错误"——提示调用方"你是不是想写一个引用，但忘了登记"，
+   同时不禁止"和分组同名的 Id 字面量"这种合法用法。
+
+   这样一来，`world.get(world.bridge.repaired)` 里只要 `world.get` 本身登记了签名、而
+   `world.bridge.repaired` 没有被登记为 `world` 分组下的引用，参数就会被正确解析成 Id 字面量
+   `world.bridge.repaired`，与文档原意一致；`quest.deliver_letter` 同理。校验期
+   （`ExprValidator.Validate`）与运行期（`ExprEvaluator.Evaluate` 经由 `IExprHost`）使用
+   与解析期同一份 `IExprSchema` 实例，保证三个阶段对同一段文本的归类判断完全一致，不会出现
+   "解析时是字面量、校验时又被当成引用"这种不一致。
 3. **`Id` 段格式比 `common/Id` 更严格**：`common/Id.cs` 的格式正则
    `^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$` 允许第二段及以后以数字/下划线开头（如 `a.1b`）；
    本模块的标识符词法要求"每段 `[a-z][a-z0-9_]*`"（每段都必须字母开头）。两者不冲突
@@ -139,13 +153,17 @@ BNF 没有规定词法细节与"点分标识符到底是 reference 还是 Id"的
    构造不会因为本模块放行的写法而失败），但意味着 Expr 文本里写不出 `skill.1st_rank`
    这种（罕见）以数字开头的段；这是词法简单性与既有 `Id` 类型宽松格式之间的取舍，
    记录在此供后续如需支持再补 ADR。
-4. **未知分组在解析期还是校验期报错**：解析器（`ExprParser`）本身不可能产出
-   `group` 不在九个分组之内的 `ExprReferenceNode`（判定规则本身保证了这一点），
-   所以"未知分组"错误只能出现在——`ExprValidator.Validate` 收到一棵不是由本模块
-   `ExprParser` 产出、而是调用方手工构造（或来自未来其它产出 AST 的路径）的
-   `ExprNode` 树时。`ExprValidator` 仍然独立检查 `group` 是否属于九个分组
-   （不假设输入的 AST 一定来自 `ExprParser`），以保证"未知分组"这条 04 第 5 节
-   校验项在任意 AST 输入下都成立。
+4. **未知分组/未知 key 在解析期还是校验期报错**：ADR-0015 之后，`ExprParser` 只在
+   `schema.TryGetSignature(first, rest)` 命中时才产出 `ExprReferenceNode`——这不仅保证
+   `group` 永远是登记过的（不一定局限于九个分组，见"判断记录"第 2 条），也保证 `key`
+   永远在 schema 里有签名。换句话说，`ExprValidator.ValidateReference` 里的
+   `UnknownGroup` 与 `UnknownKey` 两条分支，通过 `ExprParser.Parse` 产出的 AST **永远不会
+   触发**——它们只能出现在调用方手工构造（或来自未来其它产出 AST 的路径）的 `ExprNode`
+   树上。`ExprValidator` 仍然独立检查这两条（不假设输入的 AST 一定来自 `ExprParser`），
+   以保证它们作为 04 第 5 节校验项在任意 AST 输入下都成立；测试套件里验证这两条时也相应
+   改为手工构造 AST，而不是通过 `ExprParser.Parse` 触发（后者现在会把"分组已知但 key
+   未登记"的文本归类为 Id 字面量，最多触发第 2 条新增的 `SuspiciousReferenceSpelling`
+   警告，不会再产出 `ExprReferenceNode`）。
 
 ## 宿主引用分组（04 第 6.2 节，原样列出）
 

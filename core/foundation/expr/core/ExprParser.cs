@@ -11,15 +11,24 @@ namespace Core.Foundation.Expr
     /// </summary>
     public static class ExprParser
     {
-        public static ExprNode Parse(string text)
+        /// <summary>
+        /// 解析一段 Expr 文本。<paramref name="schema"/> 是必填的宿主引用登记表：点分标识符
+        /// 归类为引用还是 Id 字面量，以它为准（见 ADR-0015、README"语法细节"第 5 条）。
+        /// </summary>
+        public static ExprNode Parse(string text, IExprSchema schema)
         {
+            if (schema == null)
+            {
+                throw new ArgumentNullException(nameof(schema));
+            }
+
             if (text == null)
             {
                 throw new ExprParseException(0, "表达式文本为 null");
             }
 
             var tokens = ExprLexer.Tokenize(text);
-            var state = new ParserState(tokens);
+            var state = new ParserState(tokens, schema);
             var node = ParseOr(state);
             state.Expect(ExprTokenKind.Eof, "表达式结尾存在多余内容");
             return node;
@@ -130,10 +139,13 @@ namespace Core.Foundation.Expr
         }
 
         /// <summary>
-        /// 点分标识符的归类判定（BNF 未定，本模块拍板，见 README"语法细节"）：
-        /// 第一段若是 04 第 6.2 节九个分组之一，整体按 &lt;reference&gt; 解析（group.key，可选带参）；
-        /// 否则整体按 Id 字面量解析（构造 <see cref="Id"/> 校验格式，非法格式在词法层已被拦截，
-        /// 因为标识符段规则与 Id 格式规则一致，这里不会失败）。
+        /// 点分标识符的归类判定（BNF 未定，ADR-0015 拍板，见 README"语法细节"）：以宿主引用
+        /// 登记表 <see cref="IExprSchema"/> 为准——<c>segments[0]</c> 与"其余段以点连接"合起来
+        /// 若在 <paramref name="s"/> 携带的 schema 中登记了签名，整体按 &lt;reference&gt; 解析
+        /// （group 取第一段，key 取剩余部分，可选带参数列表）；否则整体按 Id 字面量解析（构造
+        /// <see cref="Id"/> 校验格式，非法格式在词法层已被拦截，因为标识符段规则严格蕴含
+        /// Id 格式规则，这里不会失败）。未登记的标识符若紧跟 <c>(</c>，说明调用方误以为它是
+        /// 一个引用，报解析错误而不是把参数列表悄悄丢弃。
         /// </summary>
         private static ExprNode ParseIdentTerm(ParserState s)
         {
@@ -146,10 +158,11 @@ namespace Core.Foundation.Expr
                 throw new ExprParseException(token.Position, $"标识符缺少 domain/分组前缀：\"{token.Text}\"（位置 {token.Position}）");
             }
 
-            var first = segments[0];
-            if (ExprGroups.IsKnown(first))
+            var group = segments[0];
+            var key = string.Join(".", segments, 1, segments.Length - 1);
+
+            if (s.Schema.TryGetSignature(group, key, out _))
             {
-                var key = string.Join(".", segments, 1, segments.Length - 1);
                 var args = new List<ExprNode>();
                 if (s.Peek().Kind == ExprTokenKind.LParen)
                 {
@@ -169,10 +182,20 @@ namespace Core.Foundation.Expr
                     }
                     s.Expect(ExprTokenKind.RParen, "缺少右括号 ')'");
                 }
-                return new ExprReferenceNode(first, key, args);
+                return new ExprReferenceNode(group, key, args);
             }
 
-            return new ExprLiteralNode(ExprValue.OfId(new Id(token.Text)));
+            // 未在登记表中命中 -> 整体作为 Id 字面量（ADR-0015）。
+            var idValue = new Id(token.Text);
+
+            if (s.Peek().Kind == ExprTokenKind.LParen)
+            {
+                var lparen = s.Peek();
+                throw new ExprParseException(lparen.Position,
+                    $"未登记的引用不能带参数列表：\"{token.Text}\"（位置 {lparen.Position}）——如果这本应是一个引用，请先在 IExprSchema 中登记 \"{group}.{key}\" 的签名");
+            }
+
+            return new ExprLiteralNode(ExprValue.OfId(idValue));
         }
 
         private sealed class ParserState
@@ -180,9 +203,12 @@ namespace Core.Foundation.Expr
             private readonly List<ExprToken> _tokens;
             private int _pos;
 
-            public ParserState(List<ExprToken> tokens)
+            public IExprSchema Schema { get; }
+
+            public ParserState(List<ExprToken> tokens, IExprSchema schema)
             {
                 _tokens = tokens;
+                Schema = schema;
             }
 
             public ExprToken Peek() => _tokens[_pos];
