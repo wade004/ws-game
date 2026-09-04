@@ -16,7 +16,8 @@ namespace Tests.Carriers.Item
             "{\"id\": \"item.slot.chest\", \"name_key\": \"l10n.item.slot.chest\"}," +
             "{\"id\": \"item.slot.ring\", \"name_key\": \"l10n.item.slot.ring\"}," +
             "{\"id\": \"item.slot.ring_left\", \"name_key\": \"l10n.item.slot.ring_left\", \"accepts\": [\"item.slot.ring\"]}," +
-            "{\"id\": \"item.slot.ring_right\", \"name_key\": \"l10n.item.slot.ring_right\", \"accepts\": [\"item.slot.ring\"]}" +
+            "{\"id\": \"item.slot.ring_right\", \"name_key\": \"l10n.item.slot.ring_right\", \"accepts\": [\"item.slot.ring\"]}," +
+            "{\"id\": \"item.slot.consumable\", \"name_key\": \"l10n.item.slot.consumable\", \"is_equipment\": false}" +
             "]";
 
         private const string QualityJson =
@@ -58,7 +59,10 @@ namespace Tests.Carriers.Item
             "{\"id\": \"item.sample_ring2\", \"slot\": \"item.slot.ring\", \"quality\": \"item.quality.common\"," +
             " \"item_level\": 1, \"display_ref\": \"display.item.sample_ring2\", \"stack_size\": 1," +
             " \"name_key\": \"l10n.item.sample_ring2\", \"set_id\": \"item.set.sample_dragon\"," +
-            " \"stats\": [{\"stat\": \"stat.stamina\", \"op\": \"flat\", \"value\": 3}]}" +
+            " \"stats\": [{\"stat\": \"stat.stamina\", \"op\": \"flat\", \"value\": 3}]}," +
+            "{\"id\": \"item.sample_potion\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
+            " \"item_level\": 1, \"display_ref\": \"display.item.sample_potion\", \"stack_size\": 20," +
+            " \"name_key\": \"l10n.item.sample_potion\"}" +
             "]";
 
         private sealed class Fixture
@@ -266,6 +270,21 @@ namespace Tests.Carriers.Item
             var instanceId = GiveAndReturnInstance(f, "item.sample_weapon_a");
 
             var result = f.Equipment.Equip(Player, instanceId, new Id("item.slot.chest"));
+
+            Assert.False(result.Success);
+            Assert.Equal(EquipFailureReason.SlotMismatch, result.Reason);
+        }
+
+        [Fact]
+        public void Equip_NonEquipmentBucketSlot_Fails()
+        {
+            // 阶段 3 整理："item.slot.consumable" 是 is_equipment=false 的分类桶——即便 slot 完全
+            // 匹配，也不可经 Equip 装备，返回 SlotMismatch（见 EquipmentHost.IsEquipmentSlot）。
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var instanceId = GiveAndReturnInstance(f, "item.sample_potion");
+
+            var result = f.Equipment.Equip(Player, instanceId, new Id("item.slot.consumable"));
 
             Assert.False(result.Success);
             Assert.Equal(EquipFailureReason.SlotMismatch, result.Reason);

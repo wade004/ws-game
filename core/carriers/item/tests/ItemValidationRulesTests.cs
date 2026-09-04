@@ -15,7 +15,7 @@ namespace Tests.Carriers.Item
     {
         private const string SlotJson =
             "[{\"id\": \"item.slot.main_hand\", \"name_key\": \"l10n.item.slot.main_hand\", \"is_weapon\": true}," +
-            "{\"id\": \"item.slot.consumable\", \"name_key\": \"l10n.item.slot.consumable\"}]";
+            "{\"id\": \"item.slot.consumable\", \"name_key\": \"l10n.item.slot.consumable\", \"is_equipment\": false}]";
 
         private const string QualityJson =
             "[{\"id\": \"item.quality.common\", \"name_key\": \"l10n.item.quality.common\", \"budget_multiplier\": 1}]";
@@ -150,6 +150,21 @@ namespace Tests.Carriers.Item
             var issues = new ItemStackSizeRule().Validate(view).ToList();
 
             Assert.Contains(issues, i => i.Check == ItemStackSizeRule.CheckEquipmentUnique);
+        }
+
+        [Fact]
+        public void StackSizeRule_NonEquipmentBucketSlot_MultiStack_NoIssue()
+        {
+            // 阶段 3 整理："item.slot.consumable" 在本文件的 SlotJson 里 is_equipment=false（分类
+            // 桶），stack_size > 1 不应触发 CheckEquipmentUnique（见 ItemStackSizeRule 判断记录）。
+            var view = BuildView(
+                "[{\"id\": \"item.sample_potion\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
+                " \"item_level\": 1, \"display_ref\": \"display.item.sample_potion\", \"stack_size\": 20," +
+                " \"name_key\": \"l10n.item.sample_potion\"}]");
+
+            var issues = new ItemStackSizeRule().Validate(view).ToList();
+
+            Assert.Empty(issues);
         }
 
         [Fact]

@@ -64,7 +64,12 @@ item/
 3. **"装备类"的判定拍板**：任务书原文提到"is_weapon 或 `ItemOptions.EquipmentSlots` 判断"两种
    候选，最终拍板简化为"`slot` 指向已登记的 `item.slot_definition` 即视为装备类"——不再需要
    `ItemOptions` 额外携带一份槽位集合，`item.slot_definition` 本身已经是"哪些槽位存在"的唯一权威
-   来源，见 `ItemStackSizeRule`。
+   来源，见 `ItemStackSizeRule`。**阶段 3 整理修正**：这条拍板把"分类桶"（如消耗品/材料，同样需要
+   一个 `item.slot_definition` 记录才能满足 `item.template.slot` 的 `Reference` 校验）也误判成装备
+   类，导致这类物品被迫 `stack_size == 1`。改为新增 `item.slot_definition.is_equipment`（Bool，缺省
+   `true`）：只有 `is_equipment` 不为 false 的槽位才是"装备类"（`ItemStackSizeRule` 的唯一堆叠约束、
+   `EquipmentHost.Equip` 的可装备判定均以此为准），`is_equipment: false` 的槽位是纯粹的分类桶，允许
+   任意 `stack_size`，且 `EquipmentHost.Equip` 对这类槽位一律返回 `SlotMismatch`（不可装备）。
 4. **`ItemOptions` 只保留 `BudgetCurveId`/`EnforceRequirements` 两项**：前者供
    `ItemBudgetValidationRule` 构造时读取（内容校验阶段使用），后者供 `EquipmentHost.Equip` 的等级
    需求判定使用（运行期使用）；两者虽然生命周期不同（一个是数据校验期，一个是运行期），仍放进

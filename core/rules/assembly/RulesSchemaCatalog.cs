@@ -34,14 +34,14 @@ namespace Core.Rules.Assembly
         /// 构造期传入的 <see cref="DataRegistryOptions"/> 实例，本方法拿到的只是
         /// <see cref="IDataRegistry"/> 接口，没有回写 Options 的入口。调用方必须在自己构造
         /// <see cref="DataRegistryOptions"/>、进而构造 <see cref="DataRegistry"/> 时就把
-        /// <c>ExprSchema</c> 设为 <see cref="RulesExprSchema.Instance"/>——本类提供
+        /// <c>ExprSchema</c> 设为 <see cref="RulesExprSchema.Base"/>——本类提供
         /// <see cref="CreateOptions"/> 作为"推荐默认值"的便捷工厂方法，调用方可以直接用它，或者
         /// 自己 new 一份、只把 <c>ExprSchema</c> 字段抄过去。<see cref="RulesAssembly"/> 的 README
         /// 装配顺序图第 0 步即"调用方用 <see cref="CreateOptions"/> 构造 DataRegistry"。
         /// </summary>
         public static DataRegistryOptions CreateOptions()
         {
-            return new DataRegistryOptions { ExprSchema = RulesExprSchema.Instance };
+            return new DataRegistryOptions { ExprSchema = RulesExprSchema.Base };
         }
 
         /// <summary>

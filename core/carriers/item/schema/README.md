@@ -19,7 +19,7 @@
 | `set_id` | Reference→`item.set` | 否 | — | 所属套装 |
 | `weapon_profile` | Object | 视 slot | — | `{damage_min, damage_max, speed, weapon_school}`；当且仅当 `slot_definition.is_weapon` 为 true 时必须存在（`ItemWeaponProfileRule`） |
 | `display_ref` | Id | 是 | — | 指向 `display.map`；本模块不校验其引用完整性（不引用 `display_info` 模块类型） |
-| `stack_size` | Int | 是 | — | 最大堆叠数量；装备类（`slot` 指向已登记 `slot_definition`）必须为 1（`ItemStackSizeRule`） |
+| `stack_size` | Int | 是 | — | 最大堆叠数量；装备类（`slot` 指向 `is_equipment` 不为 false 的 `slot_definition`）必须为 1（`ItemStackSizeRule`，阶段 3 整理改判定依据，见下） |
 | `name_key` | TextKey | 是 | — | 显示名文本键（04 未展开，实现期补录） |
 | `requirements` | Object | 否 | — | `{level:Int?}`，可空；实现期补录，供 `EquipmentHost.Equip` 的 `RequirementNotMet` 判定 |
 | `enchant_slot` | Id | 否 | — | 07 第 1.6 节扩展位：指向未来 `item.enchant`，本版不展开 |
@@ -43,6 +43,7 @@
 | `sort_weight` | Int | 否 | `0` | 排序权重 |
 | `is_weapon` | Bool | 否 | `false` | 实现期补录：该槽位是否为武器槽 |
 | `accepts` | IdList | 否 | `[]` | 允许放入本槽位的物品 `slot` 取值列表（跨槽兼容）；未提供时只接受与本槽位 id 完全相同的 `item.template.slot` |
+| `is_equipment` | Bool | 否 | `true` | 阶段 3 整理补录：该槽位是否为真正的装备位；`false` 表示分类桶（消耗品/材料一类，仅用于满足 `item.template.slot` 的引用完整性），不可经 `EquipmentHost.Equip` 装备（返回 `SlotMismatch`），也不受 `ItemStackSizeRule` 的"装备类 stack_size 必须为 1"约束 |
 
 ## `item.quality_definition`
 
@@ -88,7 +89,7 @@
 | `item_budget_exceeded` | `ItemBudgetValidationRule` | 预算超标（见上）|
 | `item_weapon_profile_missing`/`item_weapon_profile_unexpected` | `ItemWeaponProfileRule` | `weapon_profile` 当且仅当 `slot_definition.is_weapon` 为真时存在 |
 | `item_set_membership_mismatch` | `ItemSetMembershipRule` | `set_id` 的 `pieces` 包含该物品 |
-| `item_stack_size_min`/`item_stack_size_equipment_not_one` | `ItemStackSizeRule` | `stack_size >= 1`；装备类（`slot` 指向已登记 `slot_definition`）`stack_size == 1` |
+| `item_stack_size_min`/`item_stack_size_equipment_not_one` | `ItemStackSizeRule` | `stack_size >= 1`；装备类（`slot` 指向 `is_equipment` 不为 false 的 `slot_definition`）`stack_size == 1` |
 | （内置）`reference_integrity` | `data_registry` | `item.template.slot`/`quality`/`set_id` 三个 `Reference` 字段的存在性 |
 
 四条 `IValidationRule` 均需调用方显式 `registry.RegisterValidationRule(...)` 才会生效，本模块不

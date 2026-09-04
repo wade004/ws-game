@@ -167,8 +167,16 @@ namespace Core.Carriers.Item
 
     /// <summary>
     /// <c>stack_size</c> 下限与装备类唯一堆叠约束（见任务书"stack_size ≥ 1，装备类……stack_size ==
-    /// 1"；"装备类"拍板：凡 <c>slot</c> 指向已登记 <c>item.slot_definition</c> 的即装备类——不再
-    /// 区分 <c>is_weapon</c>，武器只是装备类的一种）。
+    /// 1"）。
+    /// <para>
+    /// 阶段 3 整理判断记录：原"装备类"拍板是"凡 <c>slot</c> 指向已登记 <c>item.slot_definition</c>
+    /// 的即装备类"——不再区分 <c>is_weapon</c>，武器只是装备类的一种。这条拍板把"分类桶"（如消耗品/
+    /// 材料，同样需要一个 <c>item.slot_definition</c> 记录才能通过 <c>item.template.slot</c> 的
+    /// <c>Reference</c> 校验）也误判成装备类，强迫这类物品 <c>stack_size</c> 只能为 1，与"消耗品应可
+    /// 堆叠"的常识冲突。改为读取 <c>item.slot_definition.is_equipment</c>（缺省 true）：只有
+    /// <c>is_equipment</c> 不为 false 的槽位才是本规则约束的"装备类"，<c>is_equipment: false</c> 的
+    /// 分类桶不受"stack_size 必须为 1"约束。
+    /// </para>
     /// </summary>
     public sealed class ItemStackSizeRule : IValidationRule
     {
@@ -177,10 +185,14 @@ namespace Core.Carriers.Item
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
-            var registeredSlots = new HashSet<string>();
+            var equipmentSlots = new HashSet<string>();
             foreach (var slotDef in view.GetAll("item.slot_definition"))
             {
-                registeredSlots.Add(slotDef.Key);
+                var isEquipment = !slotDef.TryGetBool("is_equipment", out var value) || value;
+                if (isEquipment)
+                {
+                    equipmentSlots.Add(slotDef.Key);
+                }
             }
 
             foreach (var record in view.GetAll("item.template"))
@@ -198,7 +210,7 @@ namespace Core.Carriers.Item
                     continue;
                 }
 
-                if (record.TryGetString("slot", out var slot) && registeredSlots.Contains(slot) && stackSize != 1)
+                if (record.TryGetString("slot", out var slot) && equipmentSlots.Contains(slot) && stackSize != 1)
                 {
                     yield return new ValidationIssue(
                         ValidationSeverity.Error, "item.template", CheckEquipmentUnique,

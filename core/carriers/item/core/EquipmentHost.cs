@@ -46,7 +46,8 @@ namespace Core.Carriers.Item
     /// 判断记录 4——<c>ISkillHost</c> 契约缺口：06 <c>ISkillHost</c> 没有"学习/遗忘技能"方法（技能书
     /// 相关能力目前只存在于 <c>core/rules/skill</c> 内部实现，未提升到共享契约），本模块改动范围
     /// 不允许修改 <c>core/rules/*</c>；构造参数改用 <see cref="SkillGranter"/> 具名委托绕过，由更
-    /// 上层组装代码把真实的 <c>SkillHost.LearnSkill</c>/<c>Forget</c> 适配成这个签名后注入（见该
+    /// 上层组装代码把真实的 <c>SkillHost.LearnSkill</c>/<c>ForgetSkill</c>（阶段 3 整理补齐）适配
+    /// 成这个签名后注入（见该
     /// 委托类型顶部注释、任务书"契约缺口用模块内委托绕过并汇报"）。
     /// </para>
     /// </summary>
@@ -116,6 +117,13 @@ namespace Core.Carriers.Item
             var template = RequireTemplate(maybeInstance.Value.TemplateId);
             var templateSlot = template.GetId("slot");
             if (!SlotMatches(templateSlot, slot))
+            {
+                return EquipResult.Fail(EquipFailureReason.SlotMismatch);
+            }
+
+            // 阶段 3 整理"事项二"：is_equipment=false 的槽位是分类桶（消耗品/材料），即便 slot 匹配
+            // 也不可经 Equip 装备（见 ItemSchemas.SlotDefinition.is_equipment 判断记录）。
+            if (!IsEquipmentSlot(slot))
             {
                 return EquipResult.Fail(EquipFailureReason.SlotMismatch);
             }
@@ -449,6 +457,15 @@ namespace Core.Carriers.Item
             }
 
             return template;
+        }
+
+        /// <summary>该槽位是否为真正的装备位（见 ItemSchemas.SlotDefinition.is_equipment 判断
+        /// 记录，缺省 true）。未登记的槽位 id（理论上不会发生——Equip 前已经过 SlotMatches，requested
+        /// slot 必然是某个已登记的 item.slot_definition）按 true 处理，与字段缺省语义一致。</summary>
+        private bool IsEquipmentSlot(Id slot)
+        {
+            return !_slotDefinitions.TryGetValue(slot, out var slotDef) ||
+                !slotDef.TryGetBool("is_equipment", out var value) || value;
         }
 
         private bool SlotMatches(Id templateSlot, Id requestedSlot)

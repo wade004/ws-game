@@ -8,6 +8,7 @@ using Core.Foundation.Expr;
 using Core.Numbers.Faction;
 using Core.Numbers.PowerSet;
 using Core.Rules.Common;
+using Core.Rules.ExprHost;
 // 见 TargetChainDef.cs 顶部同名判断记录：TargetChainDef.Shape 属性与 Shape 类型同名。
 using Core.Foundation.EngineAdapter;
 using EngineShape = Core.Foundation.EngineAdapter.Shape;
@@ -49,7 +50,10 @@ namespace Core.Rules.Targeting
     /// </summary>
     public sealed class TargetHost : ITargetHost
     {
-        private static readonly IExprSchema FilterSchema = new TargetFilterExprSchema();
+        // 阶段 3 整理：见 ChainDefValidationRule 同名字段的判断记录——原临时 TargetFilterExprSchema
+        // 已删除，改用 RulesExprSchema.Base（self/target 分组的精确登记表足以覆盖 filters 用到的
+        // 引用）。
+        private static readonly IExprSchema FilterSchema = RulesExprSchema.Base;
 
         private readonly TargetStrategyRegistry _registry;
         private readonly IDataRegistryView _data;

@@ -69,7 +69,7 @@ namespace Core.Carriers.Item
             });
 
         /// <summary><c>item.slot_definition</c>：槽位枚举定义（07 第 1.1 节原文 + 本模块实现期
-        /// 补录 <c>is_weapon</c>/<c>accepts</c>，见 schema/README.md）。</summary>
+        /// 补录 <c>is_weapon</c>/<c>accepts</c>/<c>is_equipment</c>，见 schema/README.md）。</summary>
         public static readonly TableSchema SlotDefinition = new TableSchema(
             name: "item.slot_definition",
             primaryKey: "id",
@@ -87,6 +87,11 @@ namespace Core.Carriers.Item
                 new FieldSchema("accepts", FieldKind.IdList, required: false,
                     description: "允许放入本槽位的物品 slot 取值列表（跨槽兼容，如\"左右戒指共用一个" +
                         "槽位定义\"一类场景）；未提供时只接受与本槽位 id 完全相同的 item.template.slot"),
+                new FieldSchema("is_equipment", FieldKind.Bool, required: false,
+                    description: "阶段 3 整理补录：该槽位是否为真正的装备位（缺省 true）。false 表示" +
+                        "本槽位只是物品的分类桶（如消耗品/材料），不可经 EquipmentHost.Equip 装备" +
+                        "（返回 SlotMismatch），堆叠数不受\"装备类 stack_size 必须为 1\"约束——见" +
+                        "ItemStackSizeRule/EquipmentHost 判断记录"),
             });
 
         /// <summary><c>item.quality_definition</c>：品质分档定义（07 第 1.1 节原文 + 本模块实现期

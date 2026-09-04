@@ -23,9 +23,9 @@ namespace Core.Rules.Ai
     {
         private const string Check = "ai_content";
 
-        // 集成任务改动：本模块原先自带的临时 AiExprSchema（只覆盖 AI 直接相关、文档已给出示例
-        // 引用的最小词汇集合，见该类型注释判断记录）改为默认使用集成任务提供的
-        // core/rules/expr_host.RulesExprSchema——后者是 skill/combat/targeting/ai 四模块共用的
+        // 集成任务改动：本模块原先自带的临时占位 schema（只覆盖 AI 直接相关、文档已给出示例
+        // 引用的最小词汇集合，阶段 3 整理后已删除）改为默认使用集成任务提供的
+        // core/rules/expr_host.RulesExprSchema.Base——后者是 skill/combat/targeting/ai 四模块共用的
         // 同一份词汇表（ADR-0015"同一份 schema 供内容校验与运行期共用"），覆盖面更完整。保留
         // 可注入口子（构造参数 exprSchema）：不强制调用方必须换成 RulesExprSchema，需要复现旧行为
         // 或注入测试专用的更严格 schema 时可以显式传入。
@@ -33,7 +33,7 @@ namespace Core.Rules.Ai
 
         public AiContentValidationRule(IExprSchema? exprSchema = null)
         {
-            _schema = exprSchema ?? RulesExprSchema.Instance;
+            _schema = exprSchema ?? RulesExprSchema.Base;
         }
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)

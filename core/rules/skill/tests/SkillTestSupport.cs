@@ -110,6 +110,12 @@ namespace Tests.Rules.Skill
 
         public IEffectExtension? Extension { get; set; }
 
+        /// <summary>阶段 3 整理"事项三"：注入 <see cref="AuraHost"/> 的静态免疫查询（供
+        /// <see cref="Tests.Rules.Skill.AuraEffectTests"/> 验证 control_immune 一类内容驱动的
+        /// 免疫不吃控制类光环），未设置时 <see cref="SkillHost"/> 缺省用
+        /// <see cref="NullStaticImmunityProvider"/>（不改变既有行为）。</summary>
+        public IStaticImmunityProvider? StaticImmunity { get; set; }
+
         public ulong RngSeed { get; set; } = 1;
 
         /// <summary>只跑到"注册 schema/校验规则 + LoadAll"这一步，返回校验报告，不构造
@@ -215,7 +221,7 @@ namespace Tests.Rules.Skill
 
             var host = new SkillHost(
                 registry, bus, units, stats, powers, rng, combat, targets, exprs, SpatialQuery,
-                Options, Extension, diagnostics);
+                Options, Extension, diagnostics, exprSchema: null, staticImmunity: StaticImmunity);
 
             var world = new SkillWorld
             {

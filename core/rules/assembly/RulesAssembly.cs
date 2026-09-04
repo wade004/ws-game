@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
+using Core.Foundation.Expr;
 using Core.Foundation.Rng;
 using Core.Foundation.SimLoop;
 using Core.Numbers.Archetype;
@@ -61,6 +63,21 @@ namespace Core.Rules.Assembly
         public SkillHost Skill { get; }
         public AiHost Ai { get; }
 
+        /// <summary>阶段 3 整理"事项一"：本次装配实际使用的 <see cref="IExprSchema"/>——未传入
+        /// <c>extraSchemas</c> 时就是 <see cref="RulesExprSchema.Base"/> 本身，传入时经
+        /// <see cref="RulesExprSchema.Compose"/> 与之合并。供调用方（游戏层引导代码）在自己的
+        /// <c>DataRegistryOptions.ExprSchema</c>（L4 数据校验）或另行调用 <see cref="ExprParser"/>
+        /// 时复用同一份登记表，避免"装配用一份、数据校验用另一份"的偏差（同 ADR-0015 决策 3
+        /// "校验期与运行期须用同一份登记表"）。</summary>
+        public IExprSchema ExprSchema { get; }
+
+        /// <summary>阶段 3 整理"事项四"：<see cref="Skill"/> 内部持有的 <see cref="IEffectExtension"/>
+        /// 延迟绑定代理（见 <see cref="DeferredEffectExtension"/> 判断记录——L3 的组合实现要等
+        /// <see cref="Ai"/> 构造完成后才能装配出来，本属性供调用方（<c>CarriersAssembly</c>）在那之后
+        /// 调 <see cref="DeferredEffectExtension.Bind"/> 换上真实实现）。构造参数 <c>effectExtension</c>
+        /// 非空时已经预先 <c>Bind</c> 过一次，仍可再调 <c>Bind</c> 覆盖。</summary>
+        public DeferredEffectExtension EffectExtension { get; }
+
         // -----------------------------------------------------------------
         // time：simTimeProvider/combatStartTimeProvider（见 README"时间来源"一节）
         // -----------------------------------------------------------------
@@ -82,7 +99,11 @@ namespace Core.Rules.Assembly
             CombatOptions? combatOptions = null,
             SkillOptions? skillOptions = null,
             TargetingOptions? targetingOptions = null,
-            AiOptions? aiOptions = null)
+            AiOptions? aiOptions = null,
+            IReadOnlyList<IExprSchema>? extraSchemas = null,
+            IStaticImmunityProvider? staticImmunity = null,
+            IEffectExtension? effectExtension = null,
+            bool autoRegisterTickHandlers = true)
         {
             Bus = bus ?? throw new ArgumentNullException(nameof(bus));
             Registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -91,6 +112,16 @@ namespace Core.Rules.Assembly
             Spatial = spatial ?? throw new ArgumentNullException(nameof(spatial));
             World = world ?? throw new ArgumentNullException(nameof(world));
             Navigation = navigation;
+
+            ExprSchema = extraSchemas == null || extraSchemas.Count == 0
+                ? RulesExprSchema.Base
+                : RulesExprSchema.Compose(extraSchemas.ToArray());
+
+            EffectExtension = new DeferredEffectExtension();
+            if (effectExtension != null)
+            {
+                EffectExtension.Bind(effectExtension);
+            }
 
             TrackSimTime();
 
@@ -149,12 +180,14 @@ namespace Core.Rules.Assembly
             var resolvedTargetingOptions = targetingOptions ?? new TargetingOptions();
 
             var resolvedCombatOptions = combatOptions ?? new CombatOptions();
-            Combat = new CombatHost(Stats, Powers, Units, deferredAuras, Factions, Rng, Bus, Registry, resolvedCombatOptions);
+            Combat = new CombatHost(
+                Stats, Powers, Units, deferredAuras, Factions, Rng, Bus, Registry, resolvedCombatOptions,
+                diagnostics: null, staticImmunity: staticImmunity);
 
             ExprHostFactory = new RulesExprHostFactory(
                 Units, Stats, Powers, deferredAuras, Combat, Combat.GetThreatTable(ThreatTablePlaceholderId),
                 Spatial, Factions, () => _simTime, GetCombatStartTime,
-                extraGroups: null, skillHost: null, diagnostics: null);
+                extraGroups: null, skillHost: null, diagnostics: null, extraSchemas: extraSchemas);
             // 判断记录 3：ExprHostFactory 构造时 skillHost 传 null——此刻 SkillHost 还不存在
             // （SkillHost 的构造反过来需要 IExprHostFactory，见判断记录 2 同一循环）。
             // RulesExprHostFactory 对 skillHost 缺失的处理已经是"按默认值 false + 警告一次"
@@ -172,7 +205,8 @@ namespace Core.Rules.Assembly
             var resolvedSkillOptions = skillOptions ?? new SkillOptions();
             Skill = new SkillHost(
                 Registry, Bus, Units, Stats, Powers, Rng, Combat, Targeting, ExprHostFactory, Spatial,
-                resolvedSkillOptions);
+                resolvedSkillOptions, effectExtension: EffectExtension, diagnostics: null, exprSchema: null,
+                staticImmunity: staticImmunity);
 
             // -------------------------------------------------------------
             // 6) IAuraQuery 回接：combat 此前拿到的 deferredAuras 代理现在指向真实的
@@ -192,7 +226,7 @@ namespace Core.Rules.Assembly
             ExprHostFactory = new RulesExprHostFactory(
                 Units, Stats, Powers, deferredAuras, Combat, Combat.GetThreatTable(ThreatTablePlaceholderId),
                 Spatial, Factions, () => _simTime, GetCombatStartTime,
-                extraGroups: null, skillHost: Skill, diagnostics: null);
+                extraGroups: null, skillHost: Skill, diagnostics: null, extraSchemas: extraSchemas);
 
             // -------------------------------------------------------------
             // 8) AiHost。
@@ -203,14 +237,33 @@ namespace Core.Rules.Assembly
                 ExprHostFactory, Bus, Rng, Navigation, resolvedAiOptions);
 
             // -------------------------------------------------------------
-            // 9) tick 处理器挂载（见 README"tick 阶段挂载表"）。
+            // 9) tick 处理器挂载（见 README"tick 阶段挂载表"）——除非调用方要求延后
+            // （autoRegisterTickHandlers=false，见该参数与 RegisterTickHandlers 判断记录）。
             // -------------------------------------------------------------
+            if (autoRegisterTickHandlers)
+            {
+                RegisterTickHandlers();
+            }
+
+            TrackCombatStartTimes();
+        }
+
+        /// <summary>
+        /// 阶段 3 整理"事项四"：把 L2 四个 tick 处理器挂到各自阶段——构造函数默认会自动调用一次
+        /// （<c>autoRegisterTickHandlers</c> 缺省 true）；调用方需要在某个阶段内让另一个处理器排在
+        /// <see cref="AiTickHandler"/> 之前时（典型场景：<c>CarriersAssembly</c> 的
+        /// <c>SummonTickHandler</c> 按任务书拍板必须"先于 AiTickHandler 注册"到
+        /// <see cref="TickPhase.AiDecision"/>，见该类型注释——<see cref="IWorldSim.RegisterPhaseHandler"/>
+        /// 只能追加、不能插队，一旦 <see cref="AiTickHandler"/> 先注册就再也排不到它前面了），构造期
+        /// 传 <c>autoRegisterTickHandlers: false</c> 跳过这一步，等自己把需要排在前面的处理器注册
+        /// 完之后，再手动调用本方法补上 L2 的四个（可重复调用会重复挂载，调用方需自行保证只调一次）。
+        /// </summary>
+        public void RegisterTickHandlers()
+        {
             World.RegisterPhaseHandler(TickPhase.AiDecision, new AiTickHandler(Ai));
             World.RegisterPhaseHandler(TickPhase.SkillPipeline, new SkillTickHandler(Skill));
             World.RegisterPhaseHandler(TickPhase.CombatResolution, new CombatTickHandler(Combat));
             World.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new PowerTickHandler(Powers));
-
-            TrackCombatStartTimes();
         }
 
         /// <summary>

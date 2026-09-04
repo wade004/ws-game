@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Core.Carriers.Assembly;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Rules.Assembly;
@@ -11,10 +12,12 @@ using Core.Rules.Assembly;
 namespace Toolchain.Validator
 {
     /// <summary>
-    /// 数据校验器阶段 2 的真实校验入口（落地方案 T2-12）：复用 <c>core/rules/assembly</c> 的
-    /// <see cref="RulesSchemaCatalog"/> 一次性注册 L0～L2 全部 <c>TableSchema</c>/
-    /// <see cref="IValidationRule"/>，对 <c>--data-root</c> 指向的磁盘目录跑一遍
-    /// <see cref="DataRegistry.LoadAll"/>，逐条打印校验问题。
+    /// 数据校验器阶段 2 的真实校验入口（落地方案 T2-12，阶段 3 整理"事项四"升级为 L0～L3）：复用
+    /// <c>core/carriers/assembly</c> 的 <see cref="CarriersSchemaCatalog"/> 一次性注册 L0～L3 全部
+    /// <c>TableSchema</c>/<see cref="IValidationRule"/>（先 L0～L2 经
+    /// <see cref="RulesSchemaCatalog"/>，再补 L3 item/creature/gobj——不含 L4，见
+    /// <see cref="CarriersSchemaCatalog"/> 顶部"分层判断记录"），对 <c>--data-root</c> 指向的磁盘
+    /// 目录跑一遍 <see cref="DataRegistry.LoadAll"/>，逐条打印校验问题。
     /// <para>
     /// 判断记录：本类是唯一的真实校验逻辑实现——<c>toolchain/validate_data.py</c> 只做骨架级
     /// 信封/表名/id 格式检查（阶段 0），不得与本类重复实现任何字段级/引用完整性/Expr 规则（落地
@@ -126,7 +129,7 @@ namespace Toolchain.Validator
             options.Strictness = strict ? DataRegistryStrictness.WarningsBlock : DataRegistryStrictness.WarningsAllowed;
 
             var registry = new DataRegistry(source, bus, options);
-            RulesSchemaCatalog.RegisterAll(registry);
+            CarriersSchemaCatalog.RegisterAll(registry);
 
             var report = registry.LoadAll();
             var tableCount = registry.Tables.Count;

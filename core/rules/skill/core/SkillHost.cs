@@ -58,7 +58,8 @@ namespace Core.Rules.Skill
             SkillOptions? options = null,
             IEffectExtension? effectExtension = null,
             ISkillDiagnostics? diagnostics = null,
-            IExprSchema? exprSchema = null)
+            IExprSchema? exprSchema = null,
+            IStaticImmunityProvider? staticImmunity = null)
         {
             _registry = dataRegistry ?? throw new ArgumentNullException(nameof(dataRegistry));
             _units = unitAccess ?? throw new ArgumentNullException(nameof(unitAccess));
@@ -78,7 +79,7 @@ namespace Core.Rules.Skill
             // AuraHost 先构造（不需要 ProcHost/EffectDispatcher），随后用可写属性回填两者，
             // 避免"AuraHost 施加带 proc_trigger/周期效果的光环时需要 ProcHost/EffectSink，
             // 而 ProcHost/EffectDispatcher 的构造又需要引用 AuraHost"这一循环。
-            _auraHost = new AuraHost(_defs, statHost, eventBus, options1, _diagnostics);
+            _auraHost = new AuraHost(_defs, statHost, eventBus, options1, _diagnostics, staticImmunity);
 
             // ProcHost 的触发回调用方法组转换绑定 TriggerCastInternal——该方法内部读取 _pipeline
             // 字段，而 _pipeline 要到本构造函数末尾才赋值；C# 闭包/方法组按调用时刻求值字段，
@@ -146,6 +147,19 @@ namespace Core.Rules.Skill
             }
 
             set.Add(skillId);
+        }
+
+        /// <summary>阶段 3 整理"事项四"补齐：<see cref="LearnSkill"/> 的对称操作——从已知技能集合
+        /// 移除该技能（见 <c>core/carriers/item.SkillGranter</c>/<c>EquipmentHost</c> 判断记录
+        /// "真实 SkillHost.LearnSkill/Forget 适配成 SkillGranter 委托注入"，该判断记录写下时本方法
+        /// 尚不存在，属于遗留的契约缺口，本次补上）。单位未注册或技能本不在已知集合中均视为
+        /// 幂等成功，不抛异常。</summary>
+        public void ForgetSkill(Id unitId, Id skillId)
+        {
+            if (_knownSkills.TryGetValue(unitId, out var set))
+            {
+                set.Remove(skillId);
+            }
         }
 
         public bool Knows(Id unitId, Id skillId) =>

@@ -243,6 +243,15 @@ namespace Tests.Rules
             var source = BuildRealSampleSource();
             var bus = FightWorldBuilder.BuildEventBus(out _);
             var options = RulesSchemaCatalog.CreateOptions();
+
+            // 阶段 3 整理"事项四"改动：data/_sample 新增了 item/（item.budget_curve，供
+            // toolchain/validator 经 CarriersSchemaCatalog 校验 L3 用），本用例只关心 L2
+            // RulesSchemaCatalog 自己登记的表在真实数据上能否 0 错误加载，不是"data/_sample 里
+            // 出现的每一张表都必须被 L2 目录认识"——FailOnUnknownTable 改为 false，未登记的表
+            // （如 item.*）按 TableSchema.Unschematized 兜底加载，不产生错误也不产生警告（见
+            // DataRegistry.LoadOneTable 判断记录），本用例真正要验证的"L2 已登记表 0 错误/0 警告"
+            // 不受影响。
+            options.FailOnUnknownTable = false;
             var registry = new DataRegistry(source, bus, options);
 
             RulesSchemaCatalog.RegisterAll(registry);
@@ -251,10 +260,9 @@ namespace Tests.Rules
             Assert.Equal(0, report.ErrorCount);
 
             // 允许 Warning，但要求本用例把原因列出来（见任务书验收标准"允许 Warning 但列出原因"）：
-            // data/_sample 目前只包含 L0/L1（arch/fac/found/l10n/prog/stat）真实数据，不含 L2
-            // （skill/combat/target/ai）任何示例文件（见 core/rules/skill|combat|targeting|ai 各自
-            // README——T2-11 集成任务禁止事项"不往 data/_sample/ 加文件"，本任务没有为 L2 四模块
-            // 补充示例数据）；RulesSchemaCatalog 注册的 L2 表因此始终 0 行，不会产生 Warning。
+            // data/_sample 里 L0/L1（arch/fac/found/l10n/prog/stat）真实数据 + 阶段 3 新增的 L3
+            // item/ 均不产生 Warning；RulesSchemaCatalog 注册的 L2（skill/combat/target/ai）表
+            // 因此始终 0 行，同样不会产生 Warning。
             // 若本断言失败，请把下面打印的 Warning 列表当作需要跟进的真实问题，而不是放宽断言。
             if (report.WarningCount > 0)
             {

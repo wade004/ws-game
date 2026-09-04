@@ -19,7 +19,7 @@ namespace Core.Rules.Ai
     /// <see cref="IAiHost"/> 的默认实现：行为外壳状态机 + 优先级表（见 06_规则层_属性技能战斗AI.md
     /// 第 6 节）。构造期从 <see cref="IDataRegistryView"/> 一次性读取 <c>ai.behavior_profile</c>/
     /// <c>ai.rotation</c>/<c>ai.patrol_path</c> 三张表并解析（含 Expr 文本一次性解析，集成任务前
-    /// 用本模块自带的临时 <see cref="AiExprSchema"/>，集成任务后默认改用
+    /// 用本模块自带的临时占位 schema（阶段 3 整理后已删除），集成任务后默认改用
     /// <see cref="RulesExprSchema"/>，见构造函数 <c>exprSchema</c> 参数），之后只读，与
     /// <see cref="FactionMatrix"/> 的做法一致。
     /// <para>
@@ -56,7 +56,7 @@ namespace Core.Rules.Ai
 
         /// <summary>集成任务改动：解析 <c>ai.rotation.entries[].condition</c>/
         /// <c>ai.behavior_profile.transitions</c> 用的 <see cref="IExprSchema"/>，默认
-        /// <see cref="RulesExprSchema.Instance"/>（保留可注入口子，见构造函数 <c>exprSchema</c>
+        /// <see cref="RulesExprSchema.Base"/>（保留可注入口子，见构造函数 <c>exprSchema</c>
         /// 参数与 <see cref="AiContentValidationRule"/> 同一惯例）。</summary>
         private readonly IExprSchema _exprSchema;
 
@@ -94,7 +94,7 @@ namespace Core.Rules.Ai
             _rng = rng ?? throw new ArgumentNullException(nameof(rng));
             _navigation = navigation;
             _options = options ?? new AiOptions();
-            _exprSchema = exprSchema ?? RulesExprSchema.Instance;
+            _exprSchema = exprSchema ?? RulesExprSchema.Base;
 
             LoadPatrolPaths(registry);
             LoadRotations(registry);

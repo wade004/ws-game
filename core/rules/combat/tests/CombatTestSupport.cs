@@ -125,6 +125,24 @@ namespace Tests.Rules.Combat
         public IReadOnlyList<Id> GetActiveAuraDefs(Id unitId) => Array.Empty<Id>();
     }
 
+    /// <summary>阶段 3 整理"事项三"：最小可控的 <see cref="IStaticImmunityProvider"/> 假实现，
+    /// 供 <see cref="ResolverHitTableTests"/> 验证 <see cref="Core.Rules.Combat.Resolver"/> 在光环
+    /// 免疫（<see cref="FakeAuraQuery"/>）之外正确叠加内容驱动的静态免疫。</summary>
+    internal sealed class FakeStaticImmunityProvider : IStaticImmunityProvider
+    {
+        private readonly HashSet<(Id unit, Id school, EffectKind kind)> _immune = new HashSet<(Id, Id, EffectKind)>();
+
+        public FakeStaticImmunityProvider SetImmune(Id unitId, Id school, EffectKind kind)
+        {
+            _immune.Add((unitId, school, kind));
+            return this;
+        }
+
+        public bool IsImmune(Id unitId, Id school, EffectKind kind) => _immune.Contains((unitId, school, kind));
+
+        public ControlFlags GetControlImmunity(Id unitId) => ControlFlags.None;
+    }
+
     /// <summary>
     /// 测试夹具：搭建真实 <see cref="IStatHost"/>/<see cref="IPowerHost"/>/<see cref="IRngHost"/>/
     /// <see cref="IEventBus"/>/<see cref="IFactionMatrix"/>/<see cref="IDataRegistry"/>
@@ -347,6 +365,7 @@ namespace Tests.Rules.Combat
             public IRngHost Rng = null!;
             public FakeUnitAccess Units = null!;
             public FakeAuraQuery Auras = null!;
+            public FakeStaticImmunityProvider StaticImmunity = null!;
             public InMemoryCombatDiagnostics Diagnostics = null!;
             public Core.Rules.Combat.CombatHost Host = null!;
             public List<IEvent> Events = null!;
@@ -373,6 +392,7 @@ namespace Tests.Rules.Combat
             var rng = new RngHost(seed);
             var units = new FakeUnitAccess();
             var auras = new FakeAuraQuery();
+            var staticImmunity = new FakeStaticImmunityProvider();
             var diagnostics = new InMemoryCombatDiagnostics();
 
             var options = new Core.Rules.Combat.CombatOptions
@@ -387,7 +407,8 @@ namespace Tests.Rules.Combat
             configureOptions?.Invoke(options);
 
             var host = new Core.Rules.Combat.CombatHost(
-                stats, powers, units, auras, factions, rng, bus, registry, options, diagnostics);
+                stats, powers, units, auras, factions, rng, bus, registry, options, diagnostics,
+                staticImmunity: staticImmunity);
 
             return new Fixture
             {
@@ -399,6 +420,7 @@ namespace Tests.Rules.Combat
                 Rng = rng,
                 Units = units,
                 Auras = auras,
+                StaticImmunity = staticImmunity,
                 Diagnostics = diagnostics,
                 Host = host,
                 Events = events,

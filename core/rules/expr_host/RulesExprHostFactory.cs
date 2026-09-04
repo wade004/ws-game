@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
@@ -66,6 +67,13 @@ namespace Core.Rules.ExprHost
         // 求值、不关心施法状态）才会留空。
         private readonly ISkillHost? _skillHost;
 
+        /// <summary>解析期/默认值查找用的登记表：未注入 <c>extraSchemas</c> 时就是
+        /// <see cref="RulesExprSchema.Base"/> 本身；注入时经 <see cref="RulesExprSchema.Compose"/>
+        /// 与 <see cref="RulesExprSchema.Base"/> 合并（见构造函数 <c>extraSchemas</c> 参数、任务书
+        /// "RulesExprHostFactory/RulesAssembly 接收可选 extraSchemas，组装成 CompositeExprSchema"）。
+        /// <see cref="DefaultFor"/> 用它选取未知 key 的默认返回类型。</summary>
+        private readonly IExprSchema _schema;
+
         private readonly HashSet<string> _warnedMissingGroups = new HashSet<string>(StringComparer.Ordinal);
         private bool _warnedMissingSkillHost;
 
@@ -82,7 +90,8 @@ namespace Core.Rules.ExprHost
             Func<Id, double> combatStartTimeProvider,
             IReadOnlyDictionary<string, IExprGroupProvider>? extraGroups = null,
             ISkillHost? skillHost = null,
-            IExprDiagnostics? diagnostics = null)
+            IExprDiagnostics? diagnostics = null,
+            IReadOnlyList<IExprSchema>? extraSchemas = null)
         {
             _units = units ?? throw new ArgumentNullException(nameof(units));
             _stats = stats ?? throw new ArgumentNullException(nameof(stats));
@@ -97,6 +106,9 @@ namespace Core.Rules.ExprHost
             _extraGroups = extraGroups ?? new Dictionary<string, IExprGroupProvider>(StringComparer.Ordinal);
             _skillHost = skillHost;
             _diagnostics = diagnostics ?? new ExprDiagnosticsRecorder();
+            _schema = extraSchemas == null || extraSchemas.Count == 0
+                ? RulesExprSchema.Base
+                : RulesExprSchema.Compose(extraSchemas.ToArray());
         }
 
         public IExprHost CreateFor(Id selfId, Id? targetId, IEvent? triggeringEvent) =>
@@ -119,12 +131,13 @@ namespace Core.Rules.ExprHost
             }
         }
 
-        /// <summary>按 <see cref="RulesExprSchema"/> 登记的返回类型选取对应默认值；未登记的
-        /// group.key 组合（如 target.distance_to_target 这种"已知分组但未登记"的放行分支）落回
-        /// Bool(false)——见 <see cref="RulesExprSchema"/> 类型注释"签名未知"的判断记录。</summary>
-        private static ExprValue DefaultFor(string group, string key)
+        /// <summary>按 <see cref="_schema"/>（<see cref="RulesExprSchema.Base"/> 或其与
+        /// <c>extraSchemas</c> 的组合）登记的返回类型选取对应默认值；未登记的 group.key 组合落回
+        /// Bool(false)——严格模式下（ADR-0015）"未登记"本就意味着这不是一个合法引用，运行期在这里
+        /// 只是兜底给一个安全默认值，不代表该组合被判定为引用。</summary>
+        private ExprValue DefaultFor(string group, string key)
         {
-            return RulesExprSchema.Instance.TryGetSignature(group, key, out var signature)
+            return _schema.TryGetSignature(group, key, out var signature)
                 ? DefaultForKind(signature.ReturnKind)
                 : ExprValue.OfBool(false);
         }
@@ -160,7 +173,7 @@ namespace Core.Rules.ExprHost
                         {
                             _f._diagnostics.Warn(
                                 $"target.{key}：当前求值上下文没有绑定目标（selfId={_selfId}），按默认值处理");
-                            return DefaultFor(group, key);
+                            return _f.DefaultFor(group, key);
                         }
                         return QueryUnit(_targetId.Value, isSelfGroup: false, key, args);
 
@@ -183,7 +196,7 @@ namespace Core.Rules.ExprHost
 
                     default:
                         _f._diagnostics.Warn($"未知的 Expr 宿主分组 \"{group}\"（{group}.{key}），按默认值处理");
-                        return DefaultFor(group, key);
+                        return _f.DefaultFor(group, key);
                 }
             }
 
@@ -259,7 +272,7 @@ namespace Core.Rules.ExprHost
                         if (!_targetId.HasValue)
                         {
                             _f._diagnostics.Warn($"self.distance_to_target：没有绑定目标（selfId={_selfId}），按默认值处理");
-                            return DefaultFor(ExprGroups.Self, key);
+                            return _f.DefaultFor(ExprGroups.Self, key);
                         }
                         return ExprValue.OfNumber(Vec2.Distance(_f._units.GetPosition(unitId), _f._units.GetPosition(_targetId.Value)));
 
@@ -271,14 +284,14 @@ namespace Core.Rules.ExprHost
                             return ExprValue.OfId(top.Value);
                         }
                         _f._diagnostics.Warn($"self.threat_top：单位 \"{unitId}\" 当前没有仇恨记录，按默认值处理");
-                        return DefaultFor(ExprGroups.Self, key);
+                        return _f.DefaultFor(ExprGroups.Self, key);
                     }
 
                     default:
                         // 覆盖两类情况：真正未知的 key，以及 target 分组下的 self 专用 key
                         // （distance_to_target/threat_top，见 RulesExprSchema 判断记录）。
                         _f._diagnostics.Warn($"未知的 {group}.{key} 引用，按默认值处理");
-                        return DefaultFor(group, key);
+                        return _f.DefaultFor(group, key);
                 }
             }
 
@@ -313,7 +326,7 @@ namespace Core.Rules.ExprHost
                         return QueryIsCasting(_selfId);
                     default:
                         _f._diagnostics.Warn($"未知的 combat.{key} 引用，按默认值处理");
-                        return DefaultFor(ExprGroups.Combat, key);
+                        return _f.DefaultFor(ExprGroups.Combat, key);
                 }
             }
 
@@ -336,7 +349,7 @@ namespace Core.Rules.ExprHost
 
                     default:
                         _f._diagnostics.Warn($"未知的 enemies.{key} 引用，按默认值处理");
-                        return DefaultFor(ExprGroups.Enemies, key);
+                        return _f.DefaultFor(ExprGroups.Enemies, key);
                 }
             }
 
@@ -421,7 +434,7 @@ namespace Core.Rules.ExprHost
                         return ExprValue.OfBool(false);
                     default:
                         _f._diagnostics.Warn($"未知的 time.{key} 引用，按默认值处理");
-                        return DefaultFor(ExprGroups.Time, key);
+                        return _f.DefaultFor(ExprGroups.Time, key);
                 }
             }
 
@@ -441,10 +454,10 @@ namespace Core.Rules.ExprHost
                         ? $"event.{key}：本次求值没有绑定触发事件，按默认值处理"
                         : $"event.{key}：触发事件 \"{_triggeringEvent.Key}\" 不携带该字段，按默认值处理");
 
-                // 判断记录：event.<field> 的具体类型随事件而异，RulesExprSchema 对 event 分组只做
-                // "已知分组放行"处理（不逐字段登记类型），因此这里统一用 Bool(false) 作为缺失时的
-                // 默认值——DefaultFor 在没有精确签名时本就会退化为 Bool(false)，直接复用同一约定。
-                return DefaultFor(ExprGroups.Event, key);
+                // 判断记录：event.<field> 的具体类型随事件而异，RulesExprSchema（严格模式）对 event
+                // 分组不逐字段登记类型，因此这里统一用 Bool(false) 作为缺失时的默认值——DefaultFor
+                // 在没有精确签名时本就会退化为 Bool(false)，直接复用同一约定。
+                return _f.DefaultFor(ExprGroups.Event, key);
             }
 
             // -------------------------------------------------------------
@@ -464,7 +477,7 @@ namespace Core.Rules.ExprHost
                         $"分组 \"{group}\" 未注入 IExprGroupProvider（L4/游戏层未接入），本分组下全部查询按默认值处理（本条只警告一次）");
                 }
 
-                return DefaultFor(group, key);
+                return _f.DefaultFor(group, key);
             }
 
             private static double Pct(double current, double max) => max > 0 ? current / max : 0.0;

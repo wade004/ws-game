@@ -1,3 +1,4 @@
+using System;
 using Core.Foundation.Expr;
 
 namespace Core.Rules.ExprHost
@@ -10,24 +11,36 @@ namespace Core.Rules.ExprHost
     /// <c>condition</c>/<c>target.chain_def.filters</c> 等 Expr 文本）共用同一份词汇表，避免
     /// "校验时认为合法、运行时其实不认识"或反过来的偏差。
     /// <para>
-    /// 分两层：1) 04 第 6.2 节示例给出的最小可用集合（见本类 <see cref="Build"/>），逐条登记精确的
-    /// <c>group.key</c> 签名，供 <see cref="RulesExprHostFactory"/> 实现比对；2) 对九个已知分组
-    /// （<see cref="ExprGroups.All"/>）内未逐条登记的其它 <c>key</c>，一律按"合法引用，签名未知"
-    /// 放行——判断记录：<c>event.&lt;field&gt;</c> 这类分组的具体字段名随事件类型变化，无法在这里
-    /// 穷举；<c>world</c>/<c>quest</c>/<c>player</c> 三个分组的 key 由 L4/游戏层决定，本类构造期
-    /// 不可能预知；本类的取舍与 <c>core/rules/skill/core/PermissiveExprSchema.cs</c>
-    /// （已被本类取代，见 <c>core/rules/skill/README.md</c>）一致——只保证"能不能解析"，运行期真正
-    /// 的合法性由 <see cref="RulesExprHostFactory"/> 的 <see cref="IExprHost.Query"/> 实现决定
-    /// （未知 key 按 04 第 6.3 节"缺失 → 默认值 + 警告"处理，不是解析期错误）。
+    /// 阶段 3 整理判断记录（ADR-0015 严格化）：本类型原先对九个已知分组（<see cref="ExprGroups.All"/>）
+    /// 内未逐条登记的 <c>key</c> 一律"放行为合法引用、签名未知"，这直接违反 ADR-0015 的决策——
+    /// "未登记的 group.key 组合一律落回 Id 字面量"。放行分支会把 <c>quest.deliver_letter</c>、
+    /// <c>world.bridge.repaired</c> 这类内容 id 字面量误判成"合法引用，只是签名未知"，解析虽不报错，
+    /// 但语义已经错了（<see cref="ExprEvaluator"/> 会先对这个"引用"求值，而不是把它当参数原样传给
+    /// 外层调用，见迁移前 <c>core/gameplay/world_state/contracts/WorldExprSchemaEntries.cs</c> 判断
+    /// 记录里给出的具体故障链路）。本类型现改为严格模式：<see cref="TryGetSignature"/> 只认
+    /// <see cref="Build"/> 逐条登记过的 <c>group.key</c>，未登记一律返回 <c>false</c>（交给
+    /// <see cref="ExprParser"/> 按 Id 字面量解析）。
+    /// </para>
+    /// <para>
+    /// 登记表可组合（同一判断记录）：<c>event</c>/<c>world</c>/<c>quest</c>/<c>player</c> 四个分组
+    /// 的具体字段名/key 随事件类型或游戏层内容而变，本类型构造期不可能穷举——严格模式下，这些分组
+    /// 下的合法引用（如游戏层接入的 <c>world.get</c>/<c>quest.is_active</c>）必须由调用方经
+    /// <see cref="Compose"/> 把游戏层自己的登记表与 <see cref="Base"/> 合并后使用，本类型自身
+    /// （<see cref="Base"/>）只登记 04 第 6.2 节示例给出的、<see cref="RulesExprHostFactory"/> 内置
+    /// 实现真正支持查询的 <c>self</c>/<c>target</c>/<c>combat</c>/<c>enemies</c>/<c>time</c> 五个
+    /// 分组。
     /// </para>
     /// </summary>
     public sealed class RulesExprSchema : IExprSchema
     {
-        /// <summary>全架构共用同一份实例（本类型不持有任何可变状态，不需要每次注入一份新的）。</summary>
-        public static readonly RulesExprSchema Instance = new RulesExprSchema();
-
-        private static readonly ExprSignature Permissive =
-            new ExprSignature(ExprValueKind.Bool, System.Array.Empty<ExprValueKind>());
+        /// <summary>
+        /// L2 基础登记表：全架构共用同一份不可变实例（本类型不持有任何可变状态，也不逐分组放行
+        /// 未登记 key，见类型顶部判断记录），只覆盖 <see cref="RulesExprHostFactory"/> 内置支持的
+        /// <c>self</c>/<c>target</c>/<c>combat</c>/<c>enemies</c>/<c>time</c> 五个分组。需要
+        /// <c>event</c>/<c>world</c>/<c>quest</c>/<c>player</c> 等游戏层分组时经 <see cref="Compose"/>
+        /// 叠加游戏层自己的登记表，不要绕过本字段自建一套平行的"基础五分组"登记。
+        /// </summary>
+        public static readonly RulesExprSchema Base = new RulesExprSchema();
 
         private readonly ExprSchema _known = Build();
 
@@ -35,25 +48,28 @@ namespace Core.Rules.ExprHost
         {
         }
 
-        public bool TryGetSignature(string group, string key, out ExprSignature signature)
+        public bool TryGetSignature(string group, string key, out ExprSignature signature) =>
+            _known.TryGetSignature(group, key, out signature);
+
+        /// <summary>
+        /// 把若干份游戏层/上层模块自己的 <see cref="IExprSchema"/>（如 <c>world.get</c>/
+        /// <c>quest.is_active</c> 一类分组的精确登记表）与 <see cref="Base"/> 合并成一份
+        /// <see cref="IExprSchema"/>——按顺序依次尝试 <paramref name="extras"/>、最后落到
+        /// <see cref="Base"/>，第一个命中的签名生效（见 <see cref="CompositeExprSchema"/>）。
+        /// <paramref name="extras"/> 为空（或未传）时直接返回 <see cref="Base"/> 本身，不额外包一层
+        /// <see cref="CompositeExprSchema"/>。
+        /// </summary>
+        public static IExprSchema Compose(params IExprSchema[] extras)
         {
-            if (_known.TryGetSignature(group, key, out signature))
+            if (extras == null || extras.Length == 0)
             {
-                return true;
+                return Base;
             }
 
-            if (ExprGroups.IsKnown(group))
-            {
-                // 见本类型上方判断记录第 2 层：已知分组、未逐条登记的 key 一律放行为"合法引用，
-                // 签名未知"。ExprEvaluator 求值时只看 IExprHost.Query 的实际返回值，从不读取这里
-                // 登记的 ReturnKind（惯例同 PermissiveExprSchema/TargetFilterExprSchema），因此
-                // Permissive 的具体取值只是占位，不影响求值语义或静态校验的正确性。
-                signature = Permissive;
-                return true;
-            }
-
-            signature = default;
-            return false;
+            var all = new IExprSchema[extras.Length + 1];
+            Array.Copy(extras, all, extras.Length);
+            all[extras.Length] = Base;
+            return new CompositeExprSchema(all);
         }
 
         private static ExprSchema Build()
@@ -63,9 +79,10 @@ namespace Core.Rules.ExprHost
             RegisterSelfAndTarget(schema, ExprGroups.Self);
             RegisterSelfAndTarget(schema, ExprGroups.Target);
 
-            // self 专用三项：target 分组不登记同名 key（见 RulesExprHostFactory 判断记录——
-            // target.distance_to_target/target.threat_top 落回"已知分组未登记 key"的放行分支，
-            // 运行期按未知 key 处理，返回默认值 + 警告）。
+            // self 专用三项：target 分组不登记同名 key（distance_to_target/threat_top 在 target
+            // 分组下未登记，严格模式下会被 ExprParser 按 Id 字面量解析，不再是"放行为签名未知的
+            // 引用"——RulesExprHostFactory.QueryUnit 的 target 分支本就不实现这两个 key，行为不变，
+            // 只是"点分标识符归类"的判定依据从"放行"改成"未登记→字面量"，见类型顶部判断记录）。
             schema.Register(ExprGroups.Self, "distance_to_target", ExprValueKind.Number);
             schema.Register(ExprGroups.Self, "threat_top", ExprValueKind.Id);
 
@@ -82,7 +99,8 @@ namespace Core.Rules.ExprHost
             schema.Register(ExprGroups.Time, "round_index", ExprValueKind.Int);
             schema.Register(ExprGroups.Time, "is_my_turn", ExprValueKind.Bool);
 
-            // event/world/quest/player：不逐条登记，见本类型上方判断记录，落回"已知分组放行"分支。
+            // event/world/quest/player：本类型不登记（分组具体 key 由游戏层决定），见类型顶部
+            // 判断记录——需要这些分组的合法引用时经 Compose 叠加游戏层自己的登记表。
             return schema;
         }
 

@@ -28,7 +28,9 @@ targeting/
   core/
     TargetChainDef.cs            target.chain_def 记录的强类型视图（含 shape/sort_by 解析）
     BuiltinTargetStrategies.cs   六个内置来源策略 + RegisterAll
-    TargetFilterExprSchema.cs    filters 里 Expr 文本解析用的宽松 IExprSchema（self/target 分组）
+    （阶段 3 整理：本模块原自带的临时 TargetFilterExprSchema 已删除，filters 解析改用
+     core/rules/expr_host.RulesExprSchema.Base，见判断记录 7 与 ChainDefValidationRule/
+     TargetHost 里 FilterSchema 字段注释）
     ChainDefValidationRule.cs    source 已注册 / filters 可解析 / fallback 无环 三项校验
     TargetHost.cs                ITargetHost 默认实现 + TargetingOptions
   schema/
@@ -80,15 +82,17 @@ targeting/
    `ctx.Shape` 在实践中永远非空（要么是链自己声明的、要么是退化出的默认 circle）；保留可空类型
    只是为了忠实签名，策略实现里直接 `ctx.Shape!.Value` 使用即可，不需要处理"确实为空"分支。
 
-7. **契约缺口：`IExprHostFactory` 没有配套的 `IExprSchema`**：`ExprParser.Parse` 强制要求一个
-   `IExprSchema` 才能判定"点分标识符是宿主引用还是 Id 字面量"（ADR-0015），但
-   `common/contracts/IExprHostFactory.cs` 只声明了"怎么拿到一个绑定了上下文的 `IExprHost`"，没
-   有配套声明"这个宿主开放哪些 `group.key` 签名"的静态登记表（具体把 self/target 分组接到哪些
-   查询 key 属于集成任务，见该文件判断记录）。本模块的取舍：`TargetFilterExprSchema` 只要
-   `group` 是 `self` 或 `target` 就一律判定为"合法引用"，不关心具体 key 或声明的返回类型——
-   `ExprEvaluator` 求值时只看 `IExprHost.Query` 的实际返回值，从不读取这里登记的
-   `ExprSignature.ReturnKind`，所以这个"宽松登记"不会放过真正的类型错误，只是把"分类判定"这一
-   步交给运行期。若后续集成任务提供了真正的 `IExprSchema`，可以整体替换本类型而不影响其余契约。
+7. **契约缺口已由集成任务补齐（阶段 3 整理更新）**：`ExprParser.Parse` 强制要求一个
+   `IExprSchema` 才能判定"点分标识符是宿主引用还是 Id 字面量"（ADR-0015），本模块最初自带一个
+   临时的 `TargetFilterExprSchema`——只要 `group` 是 `self` 或 `target` 就一律判定为"合法引用"，
+   不关心具体 key（当时的取舍：`ExprEvaluator` 求值只看 `IExprHost.Query` 的实际返回值，不读取
+   `IExprSchema` 登记的 `ReturnKind`，所以"宽松登记"当时不会放过真正的类型错误，只是把"分类判定"
+   交给运行期）。集成任务（`core/rules/expr_host`）落地 `RulesExprSchema` 后，该临时类型已删除，
+   `ChainDefValidationRule`/`TargetHost` 的 `FilterSchema` 改用
+   `core/rules/expr_host.RulesExprSchema.Base`——其 `self`/`target` 分组精确登记的 key 集合
+   （`hp`/`hp_pct`/`faction`/`has_tag`/... 全部 16 项）覆盖本模块 `filters` 字段实际用到的引用，
+   且严格模式（ADR-0015）下未登记的点分标识符会被正确判定为 Id 字面量而不是"签名未知的引用"，
+   比原临时类型更准确。
 
 8. **`ChainDefValidationRule` 的"Expr 可解析"检查不是零工作量**：任务书原句"Expr 可解析（数据
    注册表已做）"是针对 `FieldKind.Expr` 标量字段的一般表述；`filters` 是 `Array`，

@@ -37,6 +37,7 @@ common/
     ISkillHost.cs             技能模块契约
     IEffectSink.cs            效果落地出口
     IAuraQuery.cs             光环状态只读查询
+    IStaticImmunityProvider.cs 内容驱动的静态免疫查询（阶段 3 整理，见 combat/skill README）
     ICombatHost.cs            战斗模块契约
     IThreatTable.cs           仇恨表契约
     ITargetHost.cs             目标选择模块契约
@@ -58,6 +59,7 @@ common/
 | `ITargetHost` | `core/rules/targeting` | skill（施法管线步骤 6 目标解析）、ai（Rotation 条件里的 `target` 分组求值对象） |
 | `IAiHost` | `core/rules/ai` | 主循环（连续模式按 tick、离散模式由 `TurnScheduler` 按行动者调用） |
 | `IExprHostFactory` | 集成任务（不在本任务范围内） | skill（Proc/SpellMod 条件）、ai（Rotation 条件）、targeting（`filters` 条件表达式） |
+| `IStaticImmunityProvider` | `core/carriers/creature`（`CreatureImmunityProvider`），可选依赖，未注入时 `NullStaticImmunityProvider` | combat（`Resolver` 免疫判定叠加）、skill（`AuraHost.IsImmune`/`ApplyAura` 对 `control` 类效果叠加） |
 
 `WellKnownPowers`、`EffectKind`/`AuraEffectKind`/`ControlFlags`/`HitResult`/`BehaviorState`/
 `CastFailureReason` 等纯数据类型/枚举不属于上表——它们是四个模块共用的"词汇"，不由谁"实现"，

@@ -187,6 +187,23 @@ namespace Tests.Rules.Combat
             Assert.Empty(fx.Events);
         }
 
+        [Fact]
+        public void Resolve_StaticImmunity_NoDamageNoEvent()
+        {
+            // 阶段 3 整理"事项三"：免疫来源是 IStaticImmunityProvider（内容驱动，如
+            // creature.template.immunities 声明的学派免疫），不是光环（FakeAuraQuery 本例未配置任何
+            // 免疫）——Resolver 步骤 7 在光环免疫之外叠加查询该契约，效果应与光环免疫等价。
+            var fx = MakeFixture("default");
+            fx.StaticImmunity.SetImmune(Dummy, CombatTestSupport.SchoolPhysical, EffectKind.SchoolDamage);
+
+            var result = fx.Host.ResolveEffect(DamageContext(baseValue: 100));
+
+            Assert.True(result.Immune);
+            Assert.Equal(0.0, result.FinalAmount);
+            Assert.Equal(1000.0, fx.Powers.GetPower(Dummy, WellKnownPowers.Health));
+            Assert.Empty(fx.Events);
+        }
+
         // -----------------------------------------------------------------
         // 治疗分支：只掷 crit
         // -----------------------------------------------------------------

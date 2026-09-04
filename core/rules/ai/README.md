@@ -24,8 +24,9 @@ ai/
   core/
     AiHost.cs                IAiHost 默认实现：状态机 + Rotation 求值 + 位移
     AiTickHandler.cs          ITickPhaseHandler，挂 TickPhase.AiDecision
-    AiExprSchema.cs           本模块自有的 IExprSchema（供 Expr 文本解析消歧）
     AiContentValidationRule.cs  IValidationRule：priority 唯一性/阈值范围/路径点数量/Expr 可解析性
+    （阶段 3 整理：本模块原自带的临时 AiExprSchema 已删除，默认改用
+     core/rules/expr_host.RulesExprSchema.Base，见 AiHost/AiContentValidationRule 构造函数注释）
     AiBehaviorProfile.cs / CompiledRotationEntry.cs / AiPatrolPath.cs / AiUnitState.cs（内部数据模型）
   schema/
     README.md               三张表字段说明与判断记录

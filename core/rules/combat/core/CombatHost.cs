@@ -44,7 +44,8 @@ namespace Core.Rules.Combat
             IEventBus bus,
             IDataRegistryView registry,
             CombatOptions? options = null,
-            ICombatDiagnostics? diagnostics = null)
+            ICombatDiagnostics? diagnostics = null,
+            IStaticImmunityProvider? staticImmunity = null)
         {
             if (stats == null) throw new ArgumentNullException(nameof(stats));
             _powers = powers ?? throw new ArgumentNullException(nameof(powers));
@@ -64,7 +65,7 @@ namespace Core.Rules.Combat
             _threatTable = new ThreatTable(units, bus, _options.MaxThreatEntries);
             _resolver = new Resolver(
                 stats, powers, units, auras, factions, rng, bus, _options,
-                hitTables, resistCurves, diag, _threatTable, NotifyCombatEvent);
+                hitTables, resistCurves, diag, _threatTable, NotifyCombatEvent, staticImmunity);
         }
 
         public ResolveResult ResolveEffect(EffectContext context) => _resolver.Resolve(context);

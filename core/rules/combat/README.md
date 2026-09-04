@@ -6,10 +6,11 @@
 计划 T2-7（`Resolver`）+ T2-8（`ThreatTable` 与进出战斗）。
 
 依赖：`Core.Rules.Common`（`IUnitAccess`/`IAuraQuery`/`ICombatHost`/`IThreatTable`/
-`EffectContext`/`ResolveResult`/`HitResult`/`EffectKind`/`WellKnownPowers`/`RulesEventKeys`
-及强类型事件）、L1 `Core.Numbers`（`IStatHost`/`IPowerHost`/`IFactionMatrix`）、L0
-`Core.Foundation`（`IRngHost`/`IEventBus`/`IDataRegistry`/`ITickPhaseHandler`）。不引用
-`core/rules/skill`/`targeting`/`ai` 的具体类型（`IAuraQuery` 用调用方注入的实现，测试用 Fake）。
+`IStaticImmunityProvider`/`EffectContext`/`ResolveResult`/`HitResult`/`EffectKind`/
+`WellKnownPowers`/`RulesEventKeys` 及强类型事件）、L1 `Core.Numbers`（`IStatHost`/`IPowerHost`/
+`IFactionMatrix`）、L0 `Core.Foundation`（`IRngHost`/`IEventBus`/`IDataRegistry`/
+`ITickPhaseHandler`）。不引用 `core/rules/skill`/`targeting`/`ai` 的具体类型（`IAuraQuery` 用调用方
+注入的实现，测试用 Fake）。
 
 ## 目录
 
@@ -112,6 +113,15 @@ combat/
     `ICombatHost.Update(dt)`（脱战判定）接到 `TickPhase.CombatResolution`，离散步只记警告
     （本项目未启用离散时间模型，见 ADR-0013）。这与任务书"效果结算本身由 skill 在步骤 3 调用
     ResolveEffect 即时完成"的说明一致。
+
+14. **阶段 3 整理"事项三"：`Resolver` 步骤 7 免疫判定叠加 `IStaticImmunityProvider`**（新增
+    `core/rules/common` 契约，见该文件顶部注释）：`Resolve` 步骤 7 的 `immune` 判定改为
+    `_auras.IsImmune(...) || _staticImmunity.IsImmune(...)`——`IAuraQuery.IsImmune` 反映当前生效
+    的免疫类光环，`IStaticImmunityProvider.IsImmune` 反映生物模板/tier 一类内容驱动的固定免疫（如
+    `creature.template.immunities` 声明的学派免疫），二者任一为真即视为本次结算免疫。构造参数
+    `staticImmunity` 可选，缺省 `NullStaticImmunityProvider`（一律不免疫），不改变未接入方的既有
+    行为；真实实现（`CreatureImmunityProvider`）在 `core/carriers/creature`，本模块不产生对 L3 的
+    编译期依赖。
 
 ## 契约缺口 / 未决问题
 

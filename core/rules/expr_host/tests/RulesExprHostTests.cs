@@ -395,35 +395,78 @@ namespace Tests.Rules.ExprHost
         [Fact]
         public void Schema_KnownKeys_ReturnPreciseSignatures()
         {
-            Assert.True(RulesExprSchema.Instance.TryGetSignature(ExprGroups.Self, "hp_pct", out var sig));
+            Assert.True(RulesExprSchema.Base.TryGetSignature(ExprGroups.Self, "hp_pct", out var sig));
             Assert.Equal(ExprValueKind.Number, sig.ReturnKind);
 
-            Assert.True(RulesExprSchema.Instance.TryGetSignature(ExprGroups.Enemies, "count_in_range", out var sig2));
+            Assert.True(RulesExprSchema.Base.TryGetSignature(ExprGroups.Enemies, "count_in_range", out var sig2));
             Assert.Equal(ExprValueKind.Int, sig2.ReturnKind);
         }
 
         [Fact]
-        public void Schema_KnownGroupUnknownKey_PermissivelyAccepted()
+        public void Schema_KnownGroupUnknownKey_Rejected_StrictMode()
         {
-            // event.<field> 具体字段名不逐条登记，但 event 是九个已知分组之一，仍应被接受为合法引用
-            // （见 RulesExprSchema 判断记录"已知分组放行"）。
-            Assert.True(RulesExprSchema.Instance.TryGetSignature(ExprGroups.Event, "any_dynamic_field", out _));
-            Assert.True(RulesExprSchema.Instance.TryGetSignature(ExprGroups.World, "any_key", out _));
+            // 阶段 3 整理（ADR-0015 严格化）：event/world 是九个已知分组之一，但未逐条登记的具体
+            // key 不再被放行为"合法引用，签名未知"——严格模式下一律返回 false，交给 ExprParser
+            // 按 Id 字面量解析（见 RulesExprSchema 类型顶部判断记录）。
+            Assert.False(RulesExprSchema.Base.TryGetSignature(ExprGroups.Event, "any_dynamic_field", out _));
+            Assert.False(RulesExprSchema.Base.TryGetSignature(ExprGroups.World, "any_key", out _));
         }
 
         [Fact]
         public void Schema_UnknownGroup_Rejected()
         {
-            Assert.False(RulesExprSchema.Instance.TryGetSignature("not_a_real_group", "x", out _));
+            Assert.False(RulesExprSchema.Base.TryGetSignature("not_a_real_group", "x", out _));
         }
 
         [Fact]
-        public void Schema_TargetSpecificSelfOnlyKeys_FallBackToPermissive()
+        public void Schema_TargetSpecificSelfOnlyKeys_Rejected_StrictMode()
         {
-            // distance_to_target/threat_top 只在 self 分组精确登记；target 分组下同名 key 落回
-            // "已知分组放行"（Permissive 签名），而不是被拒绝。
-            Assert.True(RulesExprSchema.Instance.TryGetSignature(ExprGroups.Target, "distance_to_target", out var sig));
-            Assert.Equal(ExprValueKind.Bool, sig.ReturnKind); // Permissive 占位签名
+            // distance_to_target/threat_top 只在 self 分组精确登记；target 分组下同名 key 阶段 3
+            // 整理前落回"已知分组放行"，严格模式下改为未登记→false（RulesExprHostFactory.QueryUnit
+            // 本就不实现 target 分组这两个 key，行为不受影响，只是解析期归类依据变了）。
+            Assert.False(RulesExprSchema.Base.TryGetSignature(ExprGroups.Target, "distance_to_target", out _));
+        }
+
+        [Fact]
+        public void Compose_ExtraSchemaTakesPriority_ThenFallsBackToBase()
+        {
+            // 验收项 4：登记表可组合——extras 里登记的 quest.is_active 生效，同时 Base 的 self.hp_pct
+            // 仍然可用（Compose 不会丢失基础登记表）。
+            var extra = new ExprSchema().Register("quest", "is_active", ExprValueKind.Bool, ExprValueKind.Id);
+            var composed = RulesExprSchema.Compose(extra);
+
+            Assert.True(composed.TryGetSignature("quest", "is_active", out var questSig));
+            Assert.Equal(ExprValueKind.Bool, questSig.ReturnKind);
+
+            Assert.True(composed.TryGetSignature(ExprGroups.Self, "hp_pct", out var hpSig));
+            Assert.Equal(ExprValueKind.Number, hpSig.ReturnKind);
+
+            // quest.deliver_letter 本身未登记（只登记了 quest.is_active），落回 Id 字面量。
+            Assert.False(composed.TryGetSignature("quest", "deliver_letter", out _));
+        }
+
+        [Fact]
+        public void Parse_QuestIsActiveCall_ArgumentIsIdLiteral_AndBareQuestKeyIsIdLiteral()
+        {
+            // 验收项 4：ExprParser.Parse("quest.is_active(quest.deliver_letter)", ...) 的参数是 Id
+            // 字面量，quest.deliver_letter 单独出现时也是 Id 字面量——同一份 Compose 出来的登记表，
+            // 两种写法下 "quest.deliver_letter" 的归类结果一致（ADR-0015 消歧规则）。
+            var extra = new ExprSchema().Register("quest", "is_active", ExprValueKind.Bool, ExprValueKind.Id);
+            var schema = RulesExprSchema.Compose(extra);
+
+            var call = ExprParser.Parse("quest.is_active(quest.deliver_letter)", schema);
+            var callRef = Assert.IsType<ExprReferenceNode>(call);
+            Assert.Equal("quest", callRef.Group);
+            Assert.Equal("is_active", callRef.Key);
+            Assert.Single(callRef.Args);
+            var arg = Assert.IsType<ExprLiteralNode>(callRef.Args[0]);
+            Assert.Equal(ExprValueKind.Id, arg.Value.Kind);
+            Assert.Equal("quest.deliver_letter", arg.Value.AsId.Value);
+
+            var bare = ExprParser.Parse("quest.deliver_letter", schema);
+            var bareLiteral = Assert.IsType<ExprLiteralNode>(bare);
+            Assert.Equal(ExprValueKind.Id, bareLiteral.Value.Kind);
+            Assert.Equal("quest.deliver_letter", bareLiteral.Value.AsId.Value);
         }
     }
 }

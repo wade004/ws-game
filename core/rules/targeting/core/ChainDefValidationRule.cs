@@ -4,6 +4,7 @@ using System.Linq;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.Expr;
+using Core.Rules.ExprHost;
 
 namespace Core.Rules.Targeting
 {
@@ -24,7 +25,11 @@ namespace Core.Rules.Targeting
     /// </summary>
     public sealed class ChainDefValidationRule : IValidationRule
     {
-        private static readonly IExprSchema FilterSchema = new TargetFilterExprSchema();
+        // 阶段 3 整理：本模块原先自带的临时 TargetFilterExprSchema（对 self/target 分组一律放行、
+        // 不区分具体 key，违反 ADR-0015 严格化后的登记表语义）已删除，改用集成任务提供的
+        // core/rules/expr_host.RulesExprSchema.Base——其 self/target 分组精确登记的 key 集合
+        // （hp/hp_pct/faction/has_tag/... 等）已覆盖本模块 filters 字段实际用到的全部引用。
+        private static readonly IExprSchema FilterSchema = RulesExprSchema.Base;
 
         private readonly IReadOnlyCollection<string> _knownSources;
 

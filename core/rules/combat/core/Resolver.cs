@@ -47,6 +47,11 @@ namespace Core.Rules.Combat
         private readonly ThreatTable _threatTable;
         private readonly Action<Id> _notifyCombatEvent;
 
+        /// <summary>阶段 3 整理"事项三"：生物模板/tier 一类内容驱动的静态免疫，在光环免疫之外叠加
+        /// 查询（见 <see cref="Resolve"/> 步骤 7）。可选构造参数，缺省
+        /// <see cref="NullStaticImmunityProvider.Instance"/>（一律不免疫，不改变既有行为）。</summary>
+        private readonly IStaticImmunityProvider _staticImmunity;
+
         private readonly HashSet<Id> _warnedMissingStats = new HashSet<Id>();
 
         public Resolver(
@@ -62,7 +67,8 @@ namespace Core.Rules.Combat
             IReadOnlyDictionary<Id, ResistCurve> resistCurvesBySchool,
             ICombatDiagnostics diagnostics,
             ThreatTable threatTable,
-            Action<Id> notifyCombatEvent)
+            Action<Id> notifyCombatEvent,
+            IStaticImmunityProvider? staticImmunity = null)
         {
             _stats = stats ?? throw new ArgumentNullException(nameof(stats));
             _powers = powers ?? throw new ArgumentNullException(nameof(powers));
@@ -77,6 +83,7 @@ namespace Core.Rules.Combat
             _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             _threatTable = threatTable ?? throw new ArgumentNullException(nameof(threatTable));
             _notifyCombatEvent = notifyCombatEvent ?? throw new ArgumentNullException(nameof(notifyCombatEvent));
+            _staticImmunity = staticImmunity ?? NullStaticImmunityProvider.Instance;
         }
 
         public ResolveResult Resolve(EffectContext context)
@@ -171,7 +178,8 @@ namespace Core.Rules.Combat
             var requestedAmount = amount;
 
             // ---------------- 步骤 7：免疫吸收 ----------------
-            var immune = _auras.IsImmune(context.TargetId, context.School, context.Kind);
+            var immune = _auras.IsImmune(context.TargetId, context.School, context.Kind)
+                || _staticImmunity.IsImmune(context.TargetId, context.School, context.Kind);
             double absorbed;
             double finalAmount;
 

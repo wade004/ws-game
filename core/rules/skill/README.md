@@ -27,7 +27,8 @@ skill/
     Defs.cs                 解析后的强类型定义（SkillDef/AuraDef/ProcDef/SpellModDefRecord/SkillBookDef）
     SkillDefCache.cs        DataRecord → 强类型定义，懒解析 + 缓存
     ParamsX.cs               EffectRef/AuraEffect Params 读取帮助方法
-    PermissiveExprSchema.cs  供 Expr 字段解析的最小 IExprSchema 实现
+    （阶段 3 整理：本模块原自带的临时 PermissiveExprSchema 已删除，默认改用
+     core/rules/expr_host.RulesExprSchema.Base，见 SkillDefCache 构造函数注释）
     EventCorrelation.cs      Proc"事件与持有者相关性"判定
     CooldownTracker.cs       冷却/公共冷却/充能
     AuraHost.cs              IAuraQuery 实现 + 光环施加/移除/驱散/Tick
@@ -177,6 +178,16 @@ skill/
     `TryHandle` 返回 false，`EffectDispatcher` 记一条诊断警告并返回一个"未处理"的
     `ResolveResult`（`Hit=Hit, RequestedAmount=FinalAmount=Absorbed=0, Immune=false`），不抛异常、
     不阻断同一次施法里其余效果继续执行。
+
+21. **阶段 3 整理"事项三"：`AuraHost` 叠加查询 `IStaticImmunityProvider`**（新增
+    `core/rules/common` 契约）：`AuraHost.IsImmune` 在光环免疫命中之外，先查询注入的
+    `IStaticImmunityProvider.IsImmune`，命中即视为免疫；`ApplyStaticEffects` 处理 `control` 类
+    `AuraEffect` 时，把本次施加的控制标志与 `IStaticImmunityProvider.GetControlImmunity(targetId)`
+    做按位与非（`flags &= ~immunity`）后再并入 `instance.ControlFlags`——静态控制免疫的标志位
+    从未真正置位，`GetControlFlags` 查询结果与"完全没吃到这段控制"等价，不是"吃到了但立刻被
+    解除"。构造参数 `staticImmunity` 可选，缺省 `NullStaticImmunityProvider`（一律不免疫/无控制
+    免疫），不改变未接入方的既有行为；真实实现（`CreatureImmunityProvider`）在
+    `core/carriers/creature`。
 
 ## 不负责什么
 

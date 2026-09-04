@@ -16,13 +16,14 @@ assembly/
   README.md
   RulesSchemaCatalog.cs   注册全部 TableSchema/IValidationRule + 已知外键声明 + CreateOptions()
   RulesAssembly.cs        组装根：构造 10 个宿主、处理 2 处循环依赖、挂 4 个 tick 处理器
+  DeferredEffectExtension.cs  IEffectExtension 延迟绑定代理（阶段 3 整理，见"新增可选构造参数"一节）
 ```
 
 ## 使用方式（调用顺序）
 
 ```csharp
 // 0. 调用方自己构造 DataRegistry（本类不代为构造，见 RulesSchemaCatalog.CreateOptions 判断记录）。
-var options = RulesSchemaCatalog.CreateOptions();      // ExprSchema = RulesExprSchema.Instance
+var options = RulesSchemaCatalog.CreateOptions();      // ExprSchema = RulesExprSchema.Base
 var registry = new DataRegistry(dataSource, bus, options);
 RulesSchemaCatalog.RegisterAll(registry);               // 注册全部 schema/校验规则/已知外键
 var report = registry.LoadAll();                        // 校验 + 加载
@@ -105,6 +106,31 @@ rules.RegisterUnit(playerId, classId: new Id("arch.class.sample_a"), raceId: nul
 配套的写入方法，单位的阵营归属由调用方经 `Units` 自己的注册通道决定（见 `RulesAssembly.cs`
 `RegisterUnit` 参数文档）。保留这个参数位置是为了不破坏任务书给出的签名形状，但如实标注"当前
 不生效"，不假装做了契约不支持的事情。
+
+## 阶段 3 整理："事项一/三/四"新增的可选构造参数与延迟绑定属性
+
+`RulesAssembly` 构造函数新增五个可选参数（均缺省保持原有行为不变）：
+
+- `extraSchemas: IReadOnlyList<IExprSchema>?`——与 `RulesExprSchema.Base` 经
+  `RulesExprSchema.Compose` 合并成本次装配实际使用的 Expr 登记表，暴露为 `ExprHostFactory`（内部
+  用于 `DefaultFor` 选取默认值类型）与新增只读属性 `ExprSchema`（供调用方自己的 `DataRegistryOptions.ExprSchema`
+  或另行调用 `ExprParser.Parse` 时复用同一份登记表）。典型用途：`CarriersAssembly`/游戏层组装根
+  需要 `world.get`/`quest.is_active` 一类 L4 分组的精确签名时，构造一份 `ExprSchema` 传进来。
+- `staticImmunity: IStaticImmunityProvider?`——透传给 `CombatHost`（→`Resolver`）与
+  `SkillHost`（→`AuraHost`），在光环免疫/控制之外叠加内容驱动的静态免疫查询（如
+  `core/carriers/creature.CreatureImmunityProvider`）。缺省 `NullStaticImmunityProvider`（一律
+  不免疫），不改变既有行为。
+- `effectExtension: IEffectExtension?`——`SkillHost` 内部实际持有的是新增只读属性
+  `EffectExtension`（`DeferredEffectExtension` 代理，见该类型判断记录），本参数非空时在构造期就
+  预先 `Bind` 一次；`create_item`/`open_lock`/`summon` 三类效果原语的真实组合实现（L3）要等
+  `CarriersAssembly` 把 `Ai` 用完之后才能装配出来，调用方可以在 `RulesAssembly` 构造完成后随时
+  再调 `rules.EffectExtension.Bind(compositeExtension)` 换上真实实现，不需要重新构造
+  `RulesAssembly`/`SkillHost`。
+- `autoRegisterTickHandlers: bool`（缺省 `true`）+ 新增公开方法 `RegisterTickHandlers()`——`IWorldSim.RegisterPhaseHandler`
+  只能追加、不能插队，某些场景需要让另一个处理器排在 `AiTickHandler` 之前（如
+  `CarriersAssembly` 的 `SummonTickHandler` 必须先于 `AiTickHandler` 挂到 `TickPhase.AiDecision`，
+  见任务书拍板）。此时构造 `RulesAssembly` 时传 `autoRegisterTickHandlers: false` 跳过步骤 9，
+  自己把需要排在前面的处理器注册完之后，再手动调用 `RegisterTickHandlers()` 补上 L2 的四个。
 
 ## 时间来源
 

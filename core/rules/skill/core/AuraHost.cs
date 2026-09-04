@@ -56,6 +56,12 @@ namespace Core.Rules.Skill
         private readonly SkillOptions _options;
         private readonly ISkillDiagnostics _diagnostics;
 
+        /// <summary>阶段 3 整理"事项三"：生物模板/tier 一类内容驱动的静态免疫，在光环免疫/控制之外
+        /// 叠加查询（见 <see cref="IsImmune"/>、<see cref="ApplyStaticEffects"/> 对 <c>control</c>
+        /// 类效果的处理）。可选构造参数，缺省 <see cref="NullStaticImmunityProvider.Instance"/>
+        /// （一律不免疫，不改变既有行为）。</summary>
+        private readonly IStaticImmunityProvider _staticImmunity;
+
         private readonly Dictionary<Id, AuraInstanceState> _instances = new Dictionary<Id, AuraInstanceState>();
         private readonly Dictionary<(Id Target, Id DefId, Id? SourceKey), Id> _slots =
             new Dictionary<(Id, Id, Id?), Id>();
@@ -71,13 +77,20 @@ namespace Core.Rules.Skill
         /// <see cref="SkillHost"/> 在 <see cref="EffectDispatcher"/> 构造完成后设置。</summary>
         public IEffectSink? EffectSink { get; set; }
 
-        public AuraHost(SkillDefCache defs, IStatHost statHost, IEventBus bus, SkillOptions options, ISkillDiagnostics diagnostics)
+        public AuraHost(
+            SkillDefCache defs,
+            IStatHost statHost,
+            IEventBus bus,
+            SkillOptions options,
+            ISkillDiagnostics diagnostics,
+            IStaticImmunityProvider? staticImmunity = null)
         {
             _defs = defs ?? throw new ArgumentNullException(nameof(defs));
             _statHost = statHost ?? throw new ArgumentNullException(nameof(statHost));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+            _staticImmunity = staticImmunity ?? NullStaticImmunityProvider.Instance;
         }
 
         // -----------------------------------------------------------------
@@ -328,7 +341,13 @@ namespace Core.Rules.Skill
                         break;
 
                     case AuraEffectKind.Control:
-                        instance.ControlFlags |= ParseControlFlags(ParamsX.GetStringArray(entry.Params, "flags"));
+                        // 阶段 3 整理"事项三"：静态控制免疫的标志位从本次施加的控制标志里剔除
+                        // （见 IStaticImmunityProvider.GetControlImmunity 顶部判断记录"控制类光环
+                        // 对该单位一律不生效"）——control_immune 生物身上不会真的置位这些标志，
+                        // GetControlFlags 查询结果与"完全没吃到这个光环的控制效果"等价。
+                        var flags = ParseControlFlags(ParamsX.GetStringArray(entry.Params, "flags"));
+                        flags &= ~_staticImmunity.GetControlImmunity(instance.TargetId);
+                        instance.ControlFlags |= flags;
                         break;
                 }
             }
@@ -416,6 +435,11 @@ namespace Core.Rules.Skill
 
         public bool IsImmune(Id unitId, Id school, EffectKind kind)
         {
+            if (_staticImmunity.IsImmune(unitId, school, kind))
+            {
+                return true;
+            }
+
             foreach (var i in _instances.Values)
             {
                 if (!i.TargetId.Equals(unitId)) continue;

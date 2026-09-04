@@ -113,6 +113,54 @@ namespace Tests.Rules.Skill
         }
 
         [Fact]
+        public void IsImmune_StaticImmunityProvider_BlocksEffect_EvenWithoutImmunityAura()
+        {
+            // 阶段 3 整理"事项三"：AuraHost.IsImmune 在光环免疫（本例未施加任何 immunity 类光环）
+            // 之外叠加查询注入的 IStaticImmunityProvider。
+            var staticImmunity = new FakeStaticImmunityProvider()
+                .SetImmune(new Id("unit.target"), new Id("skill.school_sample"), EffectKind.SchoolDamage);
+
+            var world = new SkillWorldBuilder { StaticImmunity = staticImmunity }.Build();
+            world.AddUnit(new Id("unit.target"));
+
+            Assert.True(world.Host.AuraQuery.IsImmune(new Id("unit.target"), new Id("skill.school_sample"), EffectKind.SchoolDamage));
+
+            var context = new EffectContext(
+                new Id("unit.source"), new Id("unit.target"), new Id("skill.sample_bolt"), EffectKind.SchoolDamage,
+                new Id("skill.school_sample"), 10, 0);
+
+            var result = world.Host.EffectSink.ApplyEffect(context);
+
+            Assert.True(result.Immune);
+            Assert.Empty(world.Combat.ResolveCalls);
+        }
+
+        [Fact]
+        public void ApplyAura_ControlImmuneUnit_DoesNotGainControlFlags()
+        {
+            // 阶段 3 整理"事项三"："control_immune 生物不吃 control 光环"验收项：静态控制免疫
+            // （同 CreatureImmunityProvider 里 tier.control_immune → 全部控制免疫的语义）生效时，
+            // 施加 control 类光环后 GetControlFlags 仍应为 None——不是"吃到了又立刻解除"，而是
+            // 从未真正置位（见 AuraHost.ApplyStaticEffects 判断记录）。
+            var aura = J.O(
+                ("id", J.S("skill.aura_def.sample_root2")),
+                ("duration", J.N(30)),
+                ("effects", J.A(
+                    J.O(("kind", J.S("control")),
+                        ("params", J.O(("flags", J.A(J.S("no_move")))))))));
+
+            var staticImmunity = new FakeStaticImmunityProvider()
+                .SetControlImmune(new Id("unit.target"), ControlFlags.NoMove | ControlFlags.NoCast | ControlFlags.NoAttack | ControlFlags.NoInteract);
+
+            var world = new SkillWorldBuilder { StaticImmunity = staticImmunity }.AuraDef(aura).Build();
+            world.AddUnit(new Id("unit.target"));
+
+            world.Host.EffectSink.ApplyAura(new Id("unit.target"), new Id("skill.aura_def.sample_root2"), new Id("unit.source"));
+
+            Assert.Equal(ControlFlags.None, world.Host.AuraQuery.GetControlFlags(new Id("unit.target")));
+        }
+
+        [Fact]
         public void Dispel_RemovesUpToCount_OfMatchingDispelType()
         {
             var poison1 = J.O(("id", J.S("skill.aura_def.sample_poison1")), ("duration", J.N(30)),
