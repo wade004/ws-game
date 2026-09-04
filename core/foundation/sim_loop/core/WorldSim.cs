@@ -1,0 +1,228 @@
+using System;
+using System.Collections.Generic;
+using Core.Foundation.Common;
+using Core.Foundation.EventBus;
+
+namespace Core.Foundation.SimLoop
+{
+    /// <summary>
+    /// <see cref="IWorldSim"/> 的默认实现：维护实体集合、按 03_运行时骨架.md 第 4.2 节
+    /// 固定的八步 tick 顺序编排各阶段处理器、驱动通用计时器推进、经 <see cref="IEventBus"/>
+    /// 派发本 tick 产生的事件。阶段 7"事件派发"、阶段 8"生命周期清理"由本类自己执行，
+    /// 外部不允许为这两个阶段注册处理器（见 <see cref="RegisterPhaseHandler"/>）。
+    /// </summary>
+    public sealed class WorldSim : IWorldSim
+    {
+        private static readonly TickPhase[] RegistrablePhaseOrder =
+        {
+            TickPhase.IntentCollection,
+            TickPhase.AiDecision,
+            TickPhase.SkillPipeline,
+            TickPhase.MovementAndNavigation,
+            TickPhase.CombatResolution,
+            TickPhase.TriggerEvaluation
+        };
+
+        private readonly IEventBus _bus;
+        private readonly SortedDictionary<Id, Entity> _entities = new SortedDictionary<Id, Entity>();
+        private readonly HashSet<Id> _pendingDestruction = new HashSet<Id>();
+
+        private readonly Dictionary<TickPhase, List<ITickPhaseHandler>> _phaseHandlers =
+            new Dictionary<TickPhase, List<ITickPhaseHandler>>();
+
+        private readonly Dictionary<string, int> _idSequenceByKind = new Dictionary<string, int>();
+        private readonly SimTimers _timers = new SimTimers();
+        private readonly List<string> _diagnosticsWarnings = new List<string>();
+
+        private long _tickCounter;
+
+        public WorldSim(IEventBus bus)
+        {
+            _bus = bus ?? throw new ArgumentNullException(nameof(bus));
+        }
+
+        public ISimTimers Timers => _timers;
+
+        public int EntityCount => _entities.Count;
+
+        /// <summary>本类自身维护的累计已处理 tick 数，独立于 <see cref="SimClockHost.TickIndex"/>
+        /// ——后者只统计由它自己发起的连续 tick；二者在"每个 SimClockHost 推进的 tick 都对应
+        /// 一次 WorldSim.Tick 调用、且不存在其它 Tick 调用来源"的纯连续模式场景下数值一致。
+        /// 供 <c>sim.tick_started</c>/<c>sim.tick_finished</c> 事件的 <c>tickIndex</c> 字段使用。</summary>
+        public long TickIndex => _tickCounter;
+
+        /// <summary>
+        /// 诊断警告列表：目前只用于记录"离散步下计时器未推进"（见 03 第 8 节）。
+        /// 判断记录：任务书"诊断接口可用事件总线的 IEventDiagnostics 或本模块自带的简单
+        /// 诊断列表，二选一说明"——这里选择本模块自带的简单列表，不引入对
+        /// <c>Core.Foundation.EventBus.IEventDiagnostics</c> 的依赖：该接口语义上是"事件总线
+        /// 派发过程"的诊断出口（未登记事件 key、类型不匹配、超过派发轮次上限等），
+        /// 而"离散步下计时器不推进"是 sim_loop 模块内部与事件派发无关的关注点，
+        /// 复用它会让两个不同来源的诊断信息混进同一个通道，不如各自独立更清晰。
+        /// </summary>
+        public IReadOnlyList<string> DiagnosticsWarnings => _diagnosticsWarnings;
+
+        public void Tick(SimStep step)
+        {
+            var tickIndex = _tickCounter;
+            var dt = step.Kind == SimStepKind.Continuous ? step.Dt : 0.0;
+
+            // 判断记录：sim.tick_started 用 PublishImmediate 立即派发，先于本 tick 全部阶段
+            // 处理器执行；这是一个"tick 开始"的边界标记事件，不属于 03 第 4.2 节步骤 7
+            // 所指"本 tick 累积的事件"（那些事件由步骤 1~6 的处理器产生，仍走 Enqueue +
+            // 本方法后段的 DispatchPending 批量派发，符合"同步派发 + tick 末批处理"）。
+            _bus.PublishImmediate(new SimTickStartedEvent(tickIndex, dt));
+
+            if (step.Kind == SimStepKind.Continuous)
+            {
+                _timers.Advance(step.Dt);
+            }
+            else
+            {
+                _diagnosticsWarnings.Add(
+                    $"tick {tickIndex}：离散步（Discrete）不推进计时器——离散时间模型本项目暂不启用（见 ADR-0013）");
+            }
+
+            for (var i = 0; i < RegistrablePhaseOrder.Length; i++)
+            {
+                ExecutePhase(RegistrablePhaseOrder[i], step);
+            }
+
+            // 阶段 7：事件派发——把步骤 1~6 产生的全部事件按入队顺序批量派发给订阅者。
+            _bus.DispatchPending();
+
+            // 阶段 8：生命周期清理——对每个待销毁实体先发出 entity.destroyed，再真正移除。
+            if (_pendingDestruction.Count > 0)
+            {
+                var ids = new List<Id>(_pendingDestruction);
+                ids.Sort();
+
+                for (var i = 0; i < ids.Count; i++)
+                {
+                    var id = ids[i];
+                    if (_entities.TryGetValue(id, out var entity))
+                    {
+                        _bus.Enqueue(new EntityDestroyedEvent(id));
+                        entity.Lifecycle = EntityLifecycle.Destroyed;
+                        _entities.Remove(id);
+                    }
+                }
+
+                _pendingDestruction.Clear();
+            }
+
+            _bus.Enqueue(new SimTickFinishedEvent(tickIndex));
+
+            // 再调用一次 DispatchPending，让本阶段刚入队的 entity.destroyed 与
+            // sim.tick_finished 在本 tick 内送达（而不是留到下一次 Tick 才派发）。
+            _bus.DispatchPending();
+
+            _tickCounter++;
+        }
+
+        public Entity? GetEntity(Id id) => _entities.TryGetValue(id, out var entity) ? entity : null;
+
+        public IReadOnlyList<Entity> QueryEntities(EntityFilter filter)
+        {
+            var result = new List<Entity>();
+
+            // _entities 是 SortedDictionary<Id, Entity>，遍历顺序已按 Id 序数升序，
+            // 过滤后直接追加即得到按 EntityId 排序的结果，无需再次排序。
+            foreach (var pair in _entities)
+            {
+                var entity = pair.Value;
+
+                if (filter.Kind != null && !string.Equals(entity.Kind, filter.Kind, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (filter.MapId.HasValue && entity.MapId != filter.MapId.Value)
+                {
+                    continue;
+                }
+
+                if (filter.Predicate != null && !filter.Predicate(entity))
+                {
+                    continue;
+                }
+
+                result.Add(entity);
+            }
+
+            return result;
+        }
+
+        public void MarkForDestruction(Id id)
+        {
+            _pendingDestruction.Add(id);
+        }
+
+        public void AddEntity(Entity entity)
+        {
+            if (entity == null)
+            {
+                throw new ArgumentNullException(nameof(entity));
+            }
+
+            if (_entities.ContainsKey(entity.EntityId))
+            {
+                throw new InvalidOperationException($"实体 id 重复：\"{entity.EntityId}\"");
+            }
+
+            entity.Lifecycle = EntityLifecycle.Active;
+            _entities.Add(entity.EntityId, entity);
+
+            var displayId = entity.TemplateId ?? entity.EntityId;
+            _bus.Enqueue(new EntityCreatedEvent(entity.EntityId, entity.Kind, displayId));
+        }
+
+        public Id AllocateEntityId(string kind)
+        {
+            if (string.IsNullOrEmpty(kind))
+            {
+                throw new ArgumentException("kind 不能为空", nameof(kind));
+            }
+
+            var next = _idSequenceByKind.TryGetValue(kind, out var current) ? current + 1 : 1;
+            _idSequenceByKind[kind] = next;
+            return new Id($"{kind}.inst_{next}");
+        }
+
+        public void RegisterPhaseHandler(TickPhase phase, ITickPhaseHandler handler)
+        {
+            if (handler == null)
+            {
+                throw new ArgumentNullException(nameof(handler));
+            }
+
+            if (phase == TickPhase.EventDispatch || phase == TickPhase.LifecycleCleanup)
+            {
+                throw new ArgumentException(
+                    $"阶段 \"{phase}\" 由 WorldSim 自己执行（事件派发/生命周期清理），不允许外部注册处理器",
+                    nameof(phase));
+            }
+
+            if (!_phaseHandlers.TryGetValue(phase, out var list))
+            {
+                list = new List<ITickPhaseHandler>();
+                _phaseHandlers[phase] = list;
+            }
+
+            list.Add(handler);
+        }
+
+        private void ExecutePhase(TickPhase phase, SimStep step)
+        {
+            if (!_phaseHandlers.TryGetValue(phase, out var list))
+            {
+                return;
+            }
+
+            for (var i = 0; i < list.Count; i++)
+            {
+                list[i].Execute(step, this);
+            }
+        }
+    }
+}
