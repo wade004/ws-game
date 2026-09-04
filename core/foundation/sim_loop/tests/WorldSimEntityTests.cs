@@ -115,6 +115,50 @@ namespace Tests.Foundation.SimLoop
         }
 
         [Fact]
+        public void ClearAll_RemovesAllEntities_EnqueuesEntityDestroyedForEach_ClearsTimersAndPendingDestruction()
+        {
+            var bus = SimLoopTestSupport.CreateBus();
+            var world = new WorldSim(bus);
+
+            var unitA = new TestEntity(new Id("unit.a_hero"), new Id("map.zone_a"), kind: "unit");
+            var unitB = new TestEntity(new Id("unit.b_hero"), new Id("map.zone_a"), kind: "unit");
+            world.AddEntity(unitA);
+            world.AddEntity(unitB);
+            bus.DispatchPending(); // 冲掉两条 entity.created，避免干扰下面的断言
+
+            // 额外标记一个待销毁实体、创建一个计时器，验证 ClearAll 一并清空。
+            world.MarkForDestruction(unitA.EntityId);
+            var timerHandle = world.Timers.Create(5.0);
+            Assert.True(world.Timers.IsAlive(timerHandle));
+
+            var destroyedIds = new System.Collections.Generic.List<Id>();
+            bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, e => destroyedIds.Add(e.EntityId));
+
+            world.ClearAll();
+
+            // 立即移除：EntityCount 归零，GetEntity 查不到。
+            Assert.Equal(0, world.EntityCount);
+            Assert.Null(world.GetEntity(unitA.EntityId));
+            Assert.Null(world.GetEntity(unitB.EntityId));
+
+            // entity.destroyed 只是入队，未显式 DispatchPending 前订阅者收不到。
+            Assert.Empty(destroyedIds);
+            bus.DispatchPending();
+            Assert.Equal(
+                new[] { unitA.EntityId, unitB.EntityId }, // 按 EntityId 序数排序："unit.a_hero" < "unit.b_hero"
+                destroyedIds.ToArray());
+
+            // 计时器被清空：旧句柄不再存活。
+            Assert.False(world.Timers.IsAlive(timerHandle));
+
+            // 待销毁列表被清空：ClearAll 之前标记的 unitA 不会在后续 Tick 里重复触发销毁事件。
+            var extraDestroyed = new System.Collections.Generic.List<Id>();
+            bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, e => extraDestroyed.Add(e.EntityId));
+            world.Tick(SimStep.Continuous(1.0 / 60.0));
+            Assert.Empty(extraDestroyed);
+        }
+
+        [Fact]
         public void AllocateEntityId_ProducesSequentialDeterministicValidIds_PerKind()
         {
             var world = new WorldSim(SimLoopTestSupport.CreateBus());

@@ -31,7 +31,14 @@ namespace Core.Foundation.SimLoop
             new Dictionary<TickPhase, List<ITickPhaseHandler>>();
 
         private readonly Dictionary<string, int> _idSequenceByKind = new Dictionary<string, int>();
-        private readonly SimTimers _timers = new SimTimers();
+
+        // 判断记录（ClearAll 的计时器清空实现）：任务书把本次改动范围限定为"只允许给
+        // IWorldSim/WorldSim 增加 ClearAll()"，不允许连带修改 SimTimers.cs。SimTimers 未
+        // 暴露"清空全部计时器"的公开/内部方法，因此这里不新增该方法，改为把本字段从
+        // readonly 松绑为可重新赋值——ClearAll 直接换上一个全新的 SimTimers 实例，等价于
+        // "清空全部计时器"（旧实例持有的全部 TimerHandle 随之失效，IsAlive 返回 false），
+        // 且不触碰 SimTimers.cs 一个字符。
+        private SimTimers _timers = new SimTimers();
         private readonly List<string> _diagnosticsWarnings = new List<string>();
 
         private long _tickCounter;
@@ -210,6 +217,30 @@ namespace Core.Foundation.SimLoop
             }
 
             list.Add(handler);
+        }
+
+        /// <summary>立即移除全部实体、清空计时器与待销毁列表（见 <see cref="IWorldSim.ClearAll"/>）。
+        /// 按 <c>EntityId</c> 序数顺序 Enqueue，保持与 <see cref="Tick"/> 阶段 8"生命周期清理"
+        /// 同样的确定性遍历顺序。</summary>
+        public void ClearAll()
+        {
+            if (_entities.Count > 0)
+            {
+                // _entities 是 SortedDictionary<Id, Entity>，遍历顺序已按 Id 序数升序。
+                foreach (var pair in _entities)
+                {
+                    _bus.Enqueue(new EntityDestroyedEvent(pair.Key));
+                    pair.Value.Lifecycle = EntityLifecycle.Destroyed;
+                }
+
+                _entities.Clear();
+            }
+
+            _pendingDestruction.Clear();
+
+            // 见构造函数上方字段注释：换上全新 SimTimers 实例等价于清空全部计时器，
+            // 不需要 SimTimers 暴露专门的"清空"方法。
+            _timers = new SimTimers();
         }
 
         private void ExecutePhase(TickPhase phase, SimStep step)

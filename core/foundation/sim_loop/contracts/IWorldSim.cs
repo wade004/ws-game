@@ -76,6 +76,18 @@ namespace Core.Foundation.SimLoop
         /// 传入这两个阶段抛 <see cref="System.ArgumentException"/>。</summary>
         void RegisterPhaseHandler(TickPhase phase, ITickPhaseHandler handler);
 
+        /// <summary>
+        /// 立即移除全部实体，对每个被移除的实体 <c>Enqueue</c> 一条 <c>entity.destroyed</c>
+        /// 事件（供场景路由切换场景时清空旧场景集合，见 03 第 6 节步骤 4"卸载旧场景的
+        /// WorldSim 集合与全部 View"）；同时清空全部通用计时器（<see cref="Timers"/>）与待销毁
+        /// 列表。与 <see cref="Tick"/> 阶段 8 同样只 <c>Enqueue</c> 不立即派发——调用方需要
+        /// 自行经事件总线的 <c>DispatchPending</c>（或下一次 <see cref="Tick"/>）才会把这些
+        /// <c>entity.destroyed</c> 事件送达订阅者。调用后 <see cref="EntityCount"/> 归零，
+        /// 全部既有 <see cref="TimerHandle"/> 立即失效（<see cref="ISimTimers.IsAlive"/> 返回
+        /// false）。
+        /// </summary>
+        void ClearAll();
+
         /// <summary>本世界实例的通用计时器（见 03 第 8 节）。</summary>
         ISimTimers Timers { get; }
 
