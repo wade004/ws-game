@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>Core.Gameplay</AssemblyName>
+    <RootNamespace>Core.Gameplay</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="**/tests/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../carriers/Core.Carriers.csproj" />
+  </ItemGroup>
+
+</Project>

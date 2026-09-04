@@ -1,0 +1,7 @@
+{
+  "table": "l10n.text",
+  "schema_version": 1,
+  "rows": [
+    { "key": "l10n.stat.strength.name", "locale": "l10n.locale.zh_cn", "text": "力量" }
+  ]
+}

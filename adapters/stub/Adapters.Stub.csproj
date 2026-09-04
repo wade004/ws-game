@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>Adapters.Stub</AssemblyName>
+    <RootNamespace>Adapters.Stub</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="**/tests/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../core/foundation/Core.Foundation.csproj" />
+  </ItemGroup>
+
+</Project>

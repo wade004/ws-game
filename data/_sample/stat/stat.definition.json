@@ -1,0 +1,7 @@
+{
+  "table": "stat.definition",
+  "schema_version": 1,
+  "rows": [
+    { "id": "stat.strength", "name_key": "l10n.stat.strength.name", "group": "primary" }
+  ]
+}

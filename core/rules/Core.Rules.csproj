@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>Core.Rules</AssemblyName>
+    <RootNamespace>Core.Rules</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="**/tests/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../numbers/Core.Numbers.csproj" />
+  </ItemGroup>
+
+</Project>
