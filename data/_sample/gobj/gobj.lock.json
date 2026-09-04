@@ -1,0 +1,11 @@
+{
+  "table": "gobj.lock",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "gobj.lock.sample_chest_lock",
+      "requirement": { "kind": "item_key", "item_id": "item.sample_token" },
+      "consume_key": false
+    }
+  ]
+}

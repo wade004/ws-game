@@ -1,0 +1,23 @@
+{
+  "table": "gobj.template",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "gobj.sample_chest",
+      "name_key": "l10n.gobj.sample_chest.name",
+      "kind": "chest",
+      "type_data": { "loot_table_ref": "loot.sample_beast" },
+      "lock_id": "gobj.lock.sample_chest_lock",
+      "display_ref": "display.map.sample_chest",
+      "tags": ["gobj.tag.sample_container"]
+    },
+    {
+      "id": "gobj.sample_door",
+      "name_key": "l10n.gobj.sample_door.name",
+      "kind": "door",
+      "type_data": {},
+      "display_ref": "display.map.sample_door",
+      "tags": ["gobj.tag.sample_passage"]
+    }
+  ]
+}

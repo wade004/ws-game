@@ -1,0 +1,18 @@
+{
+  "table": "loot.table",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "loot.sample_beast",
+      "groups": [
+        {
+          "roll_mode": "chance_each",
+          "entries": [
+            { "ref": "item.sample_token", "weight_or_chance": 1.0, "count_range": { "min": 1, "max": 1 } },
+            { "ref": "item.sample_tonic", "weight_or_chance": 0.5, "count_range": { "min": 1, "max": 1 } }
+          ]
+        }
+      ]
+    }
+  ]
+}

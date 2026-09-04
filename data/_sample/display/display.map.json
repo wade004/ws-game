@@ -1,0 +1,22 @@
+{
+  "table": "display.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.map.sample_beast",
+      "category": "creature",
+      "logical_id": "creature.sample_beast",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sample_beast",
+      "direction_count": 8
+    },
+    {
+      "id": "display.map.sample_blade",
+      "category": "item",
+      "logical_id": "item.sample_blade",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sample_blade",
+      "direction_count": 4
+    }
+  ]
+}

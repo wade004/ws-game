@@ -1,0 +1,12 @@
+{
+  "table": "encounter.level",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "encounter.level.sample_field_intro",
+      "map_ref": "world.sample_field",
+      "encounter_sequence": ["encounter.sample_beast_fight"],
+      "entry_difficulty_options": ["diff.sample_story", "diff.sample_veteran"]
+    }
+  ]
+}

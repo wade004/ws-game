@@ -1,0 +1,14 @@
+{
+  "table": "spawn.table",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "spawn.sample_beast_field",
+      "map_id": "world.sample_field",
+      "content_ref": "creature.sample_beast",
+      "position": { "x": 5, "y": 0 },
+      "facing": 0,
+      "respawn_policy": "on_map_enter"
+    }
+  ]
+}

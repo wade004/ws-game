@@ -1,0 +1,17 @@
+{
+  "table": "encounter.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "encounter.sample_beast_fight",
+      "units": [
+        { "template_ref": "creature.sample_beast", "position": { "x": 5, "y": 0 } }
+      ],
+      "victory_condition": "enemies.count_in_range(50) == 0",
+      "defeat_condition": "self.hp_pct <= 0",
+      "rewards": {
+        "xp": 20
+      }
+    }
+  ]
+}

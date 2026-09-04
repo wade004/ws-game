@@ -1,0 +1,11 @@
+{
+  "table": "econ.currency",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "econ.currency.sample_coin",
+      "name_key": "l10n.econ.currency.sample_coin.name",
+      "display_ref": "display.map.sample_coin"
+    }
+  ]
+}

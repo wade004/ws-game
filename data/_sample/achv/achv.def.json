@@ -1,0 +1,16 @@
+{
+  "table": "achv.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "achv.sample_hunter",
+      "name_key": "l10n.achv.sample_hunter.name",
+      "criteria": [
+        { "type": "kill_count", "observe_event": "unit.died", "target_ref": "creature.sample_beast", "count": 1 }
+      ],
+      "rewards": {
+        "xp": 5
+      }
+    }
+  ]
+}

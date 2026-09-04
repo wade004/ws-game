@@ -1,0 +1,26 @@
+{
+  "table": "dialog.gossip_menu",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "dialog.sample_hunter",
+      "options": [
+        {
+          "text_key": "l10n.dialog.sample_hunter.option_accept",
+          "visible_if": "quest.is_available(quest.sample_hunt)",
+          "actions": [ { "kind": "quest_accept", "ref": "quest.sample_hunt" } ]
+        },
+        {
+          "text_key": "l10n.dialog.sample_hunter.option_turn_in",
+          "visible_if": "quest.is_active(quest.sample_hunt)",
+          "actions": [ { "kind": "quest_turn_in", "ref": "quest.sample_hunt" } ]
+        },
+        {
+          "text_key": "l10n.dialog.sample_hunter.option_vendor",
+          "visible_if": "true",
+          "actions": [ { "kind": "vendor" } ]
+        }
+      ]
+    }
+  ]
+}

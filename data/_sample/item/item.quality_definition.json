@@ -1,0 +1,18 @@
+{
+  "table": "item.quality_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.quality.sample_common",
+      "name_key": "l10n.item.quality.sample_common.name",
+      "sort_weight": 1,
+      "budget_multiplier": 1.0
+    },
+    {
+      "id": "item.quality.sample_rare",
+      "name_key": "l10n.item.quality.sample_rare.name",
+      "sort_weight": 2,
+      "budget_multiplier": 1.5
+    }
+  ]
+}

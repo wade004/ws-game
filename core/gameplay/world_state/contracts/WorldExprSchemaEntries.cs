@@ -7,29 +7,22 @@ namespace Core.Gameplay.WorldState
     /// （<c>world.get</c>/<c>world.has</c>/<c>world.get_int</c>）登记进静态校验用的
     /// <see cref="IExprSchema"/>。
     /// <para>
-    /// 契约缺口（见 README"判断记录"详述）：任务书原句"若 RulesExprSchema 不可扩展，提供一个
-    /// ExprSchema 合并帮助函数"——<c>core/rules/expr_host.RulesExprSchema</c> 确实不可扩展
-    /// （<c>sealed</c>、单例、<c>Build()</c> 私有），本类型正是为此补的登记入口；同时发现一处更
-    /// 严重的问题：<c>RulesExprSchema</c> 对 <c>world</c>/<c>quest</c>/<c>player</c> 三个"已知分组"
-    /// 采用"未逐条登记的 key 一律放行"的宽松策略（见该类型判断记录第 2 层），这会让 04 第 6.2 节
-    /// 官方示例 <c>world.get(world.bridge.repaired)</c> 中的参数 <c>world.bridge.repaired</c>
-    /// 被 <c>ExprParser.ParseIdentTerm</c>（ADR-0015）误判成一个新的 <c>world.bridge.repaired</c>
-    /// 引用（因为 <c>RulesExprSchema.TryGetSignature("world", "bridge.repaired", out _)</c> 因
-    /// "已知分组放行"分支返回 <c>true</c>），而不是预期的 <c>Id</c> 字面量参数——解析虽不报错，但
-    /// 求值时会先对不存在的 <c>world.bridge.repaired</c> 键求值（触发 <see cref="WorldExprGroupProvider"/>
-    /// 的"未知 key"警告分支，返回 <c>Bool(false)</c>），再把这个 <c>Bool</c> 值当作 <c>flagKey</c>
-    /// 参数传给外层 <c>world.get</c>，因参数类型不是 <c>Id</c> 而抛出
-    /// <see cref="System.ArgumentException"/>。<see cref="RegisterInto"/> 产出的 <see cref="ExprSchema"/>
-    /// 本身没有这个问题（它对未登记的 key 老实返回"未登记"，不做已知分组放行），但如果调用方把它与
-    /// <c>RulesExprSchema</c> 合并（无论用什么顺序），只要 <c>RulesExprSchema</c> 出现在查找链条里，
-    /// <c>world</c> 分组下任何未精确登记的 key（包括所有 <c>world.&lt;路径&gt;</c> 形态的标志键
-    /// 字面量）仍会被它的"已知分组放行"分支提前截获。<b>结论：任何需要把 <c>world.&lt;路径&gt;</c>
-    /// 标志键字面量作为参数传给 <c>world.get</c>/<c>world.has</c>/<c>world.get_int</c> 的 Expr 文本，
-    /// 解析时必须使用不含 <c>RulesExprSchema</c>"已知分组放行"分支的 schema（如单独调用
-    /// <see cref="RegisterInto"/> 产出的 <see cref="ExprSchema"/>，或专为 <c>self</c>/<c>target</c>/
-    /// <c>combat</c>/<c>enemies</c>/<c>time</c> 等其它分组保留 <c>RulesExprSchema</c>、但 <c>world</c>
-    /// 分组只信任精确登记表的自定义合并）——这属于 <c>core/rules/expr_host</c>（其他任务/agent 负责的
-    /// 目录）的设计取舍，不在本任务允许改动的范围内，本模块只能在此记录、不能修复。</b>
+    /// 历史判断记录已解决（阶段 3 集成收尾"事项三"复核）：本文件早先记录过一处与
+    /// <c>core/rules/expr_host.RulesExprSchema</c> 的不兼容——旧版 <c>RulesExprSchema</c> 对
+    /// <c>world</c>/<c>quest</c>/<c>player</c> 三个"已知分组"采用"未逐条登记的 key 一律放行"的
+    /// 宽松策略，会把 <c>world.get(world.bridge.repaired)</c> 里的参数 <c>world.bridge.repaired</c>
+    /// 误判成一个新引用而不是 <c>Id</c> 字面量。该问题已随 ADR-0015 严格化改造修复：
+    /// <see cref="Core.Rules.ExprHost.RulesExprSchema.Base"/> 现在只登记
+    /// <c>self</c>/<c>target</c>/<c>combat</c>/<c>enemies</c>/<c>time</c> 五个分组，
+    /// <c>world</c>/<c>quest</c>/<c>player</c>/<c>event</c> 四个分组下任何未精确登记的 key（含全部
+    /// <c>world.&lt;路径&gt;</c> 形态的标志键字面量）一律不被"已知分组放行"，按 ADR-0015 规则正确
+    /// 退化为 <c>Id</c> 字面量。<see cref="RegisterInto"/> 产出的登记表与 <c>RulesExprSchema.Base</c>
+    /// 现在可以按任意顺序经 <see cref="Core.Rules.ExprHost.RulesExprSchema.Compose"/>（或本类型未
+    /// 提供、调用方自建的 <see cref="Core.Rules.ExprHost.CompositeExprSchema"/>）自由合并，不再需要
+    /// "world 分组只信任精确登记表"这类特殊避让——<see cref="BuildStandalone"/> 仍然保留（供只需要
+    /// 精确三键、不关心其它分组的场景直接使用），但不再是绕开 bug 的必要手段，只是一个方便的最小
+    /// 登记表。<c>core/gameplay/assembly.GameplaySchemaCatalog.FullExprSchema</c> 是当前推荐的
+    /// "全分组组合" schema，供游戏组装根统一使用。
     /// </para>
     /// </summary>
     public static class WorldExprSchemaEntries

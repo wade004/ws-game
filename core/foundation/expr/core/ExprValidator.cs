@@ -105,7 +105,19 @@ namespace Core.Foundation.Expr
 
             if (!schema.TryGetSignature(reference.Group, reference.Key, out var signature))
             {
-                issues.Add(new ExprIssue(ExprIssueKind.UnknownKey, $"未知的引用 key：\"{reference.Group}.{reference.Key}\""));
+                // 判断记录（阶段 3 集成"事项二"）：event 分组的 key 随触发事件类型动态变化，
+                // ExprParser 已经把未登记的 event.<key> 归类为 <reference>（见该类型 ParseIdentTerm
+                // 判断记录）而不是 Id 字面量——这里对应地不把"未登记"当错误：现有 ExprValueKind 枚举
+                // 没有 Any 概念（见该类型注释"Expr 语言本身没有其它类型"），本类型用"返回类型未知"
+                // 这一最宽松的既有表示——返回 null（同"某一侧类型未知"分支），调用方
+                // （ValidateCompare/CheckBoolOperand 等）看到 null 一律跳过类型检查而不是报错，
+                // 等价于把 event.<未登记 key> 当作 Any 类型处理，静态期不作任何类型假设，交给运行期
+                // RulesExprHostFactory.QueryEvent 按事件实际携带的字段值求值。非 event 分组维持原有
+                // 行为：未登记的 group.key 仍是 UnknownKey 错误。
+                if (reference.Group != ExprGroups.Event)
+                {
+                    issues.Add(new ExprIssue(ExprIssueKind.UnknownKey, $"未知的引用 key：\"{reference.Group}.{reference.Key}\""));
+                }
                 return null;
             }
 

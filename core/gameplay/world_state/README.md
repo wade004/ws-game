@@ -25,8 +25,7 @@ world_state/
     WorldStateOptions.cs      DispatchMode/EnforceSchema/SchemaEntries 策略配置 + WorldFlagSchemaEntry
     IWorldStateDiagnostics.cs 诊断出口（OnChanged 回调异常隔离用）
     Events.cs                 WorldStateEventKeys + WorldFlagChangedEvent（IEvent + IExprReadableEvent）
-    WorldExprSchemaEntries.cs world.get/has/get_int 的精确 IExprSchema 登记 + 判断记录（含契约缺口）
-    CompositeExprSchema.cs    通用 IExprSchema 合并帮助类型
+    WorldExprSchemaEntries.cs world.get/has/get_int 的精确 IExprSchema 登记 + 判断记录（历史契约缺口已修复，见判断记录 9）
   core/
     WorldState.cs              IWorldState + IWorldFlags + IPersistable 的唯一实现
     WorldExprGroupProvider.cs  IExprGroupProvider：world.get/has/get_int
@@ -125,19 +124,19 @@ world_state/
    判定（无小数部分即视为 `Int`）——这是唯一没有办法从 JSON 本身还原、只能取一个合理默认行为
    的边角情况。
 
-9. **`WorldExprGroupProvider` 与 `RulesExprSchema` 的已知不兼容，见 `contracts/WorldExprSchemaEntries.cs`
-   顶部完整记录**：04 第 6.2 节官方示例 `world.get(world.bridge.repaired)` 中的参数
-   `world.bridge.repaired` 应解析为 `Id` 字面量，但如果解析时使用的 `IExprSchema` 是
-   `core/rules/expr_host.RulesExprSchema.Instance`，会因为该类型"已知分组（含 `world`）下未登记的
-   key 一律放行为合法引用"的策略，把 `world.bridge.repaired` 误判成另一个（不存在的）
-   `world.bridge.repaired` 引用而不是字面量，运行期最终对 `world.get`/`has`/`get_int` 的调用抛
-   `ArgumentException`（参数类型不是 `Id`）。本模块自己的测试改用
-   `WorldExprSchemaEntries.BuildStandalone()`（只精确登记 `get`/`has`/`get_int` 三个键、不做已知
-   分组放行）绕开这个问题；但这属于 `core/rules/expr_host`（其他任务的目录）的既有设计，本任务
-   允许改动的范围不包含它，只能记录、不能修复，详见该文件顶部完整分析与"结论"。游戏组装根接入
-   `world` 分组时需要注意：不能简单地把 `WorldExprSchemaEntries` 与 `RulesExprSchema` 合并后当作
-   `world` 分组的解析依据，否则任何把 `world.<路径>` 标志键字面量当参数传入的 Expr 文本都会解析
-   错误。
+9. **`WorldExprGroupProvider` 与 `RulesExprSchema` 的历史不兼容已随 ADR-0015 严格化改造修复**（阶段
+   3 集成收尾"事项三"复核，完整记录见 `contracts/WorldExprSchemaEntries.cs` 顶部）：旧版
+   `core/rules/expr_host.RulesExprSchema` 对"已知分组"（含 `world`）下未登记的 key 一律放行为合法
+   引用，会把 04 第 6.2 节官方示例 `world.get(world.bridge.repaired)` 中的参数
+   `world.bridge.repaired` 误判成另一个（不存在的）引用而不是 `Id` 字面量，运行期最终对
+   `world.get`/`has`/`get_int` 的调用抛 `ArgumentException`。`RulesExprSchema.Base` 现已改为严格
+   模式（只登记 `self`/`target`/`combat`/`enemies`/`time` 五个分组，`world`/`quest`/`player`/
+   `event` 下未登记的 key 一律正确退化为 `Id` 字面量），这个问题已不复存在：`WorldExprSchemaEntries`
+   产出的登记表现在可以放心地与 `RulesExprSchema.Base` 按任意顺序经 `RulesExprSchema.Compose`
+   合并，`world.<路径>` 标志键字面量不会再被误判为引用。`BuildStandalone()` 仍然保留，作为"只需要
+   精确三键"场景的便捷入口，但不再是必须绕开某个 bug 的手段。游戏组装根（
+   `core/gameplay/assembly.GameplaySchemaCatalog.FullExprSchema`）已经把本模块的登记表纳入统一的
+   全分组组合 schema。
 
 10. **`WorldExprGroupProvider.get_int` 缺失返回 `Int(0)`，不是 04 第 6.3 节泛指的 `Bool(false)`**：
     04 第 6.3 节"`Bool` 默认 `false`，数值默认 `0`"本就区分了两类默认值，`get_int` 精确登记的
@@ -152,6 +151,6 @@ world_state/
   真正把数据表行接入 `IDataRegistry`/写 `IValidationRule` 不在本任务范围。
 - 不提供游戏组装根把 `IDataRegistry` 查询结果转换成 `WorldStateOptions.SchemaEntries` 的转换代码——
   那是组装期的事（同 `RulesExprHostFactory` 的 `extraGroups` 由组装根注入的惯例）。
-- 不修复 `core/rules/expr_host.RulesExprSchema` 与本模块的已知不兼容（见判断记录 9）——只记录、
-  提供绕过方案（`WorldExprSchemaEntries.BuildStandalone()`）。
+- 该行历史条目已随 ADR-0015 严格化改造作废并移除（见判断记录 9）——`core/rules/expr_host.
+  RulesExprSchema` 与本模块之间不再存在已知不兼容，不需要任何绕过方案。
 - 不做任何写权限检查——谁都能写，靠内容评审与 ADR 流程约束（05 第 8.2 节原文，见"谁能写"一节）。

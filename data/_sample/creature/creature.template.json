@@ -1,0 +1,17 @@
+{
+  "table": "creature.template",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "creature.sample_beast",
+      "name_key": "l10n.creature.sample_beast.name",
+      "level": 1,
+      "tier": "creature.tier.sample_normal",
+      "base_stats": { "stat.strength": 5, "stat.stamina": 8 },
+      "faction_id": "fac.wildlife",
+      "ai_behavior_ref": "ai.profile.sample_melee",
+      "loot_table_ref": "loot.sample_beast",
+      "display_ref": "display.map.sample_beast"
+    }
+  ]
+}

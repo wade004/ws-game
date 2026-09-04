@@ -1,0 +1,77 @@
+# L4 玩法层 · achievement（成就）
+
+职责：落地 08_玩法层_掉落任务对话关卡.md 第 6 节 Achievement——按 `achv.def.criteria`（六种类型：
+`kill_count`/`collect_count`/`quest_complete`/`reach_area`/`cast_count`/`custom_event`）订阅事件
+总线累计进度，全部 criteria 达标后一次性解锁并经 `Core.Gameplay.Common.IRewardDispatcher` 结算
+`rewards`。对应 01 第 L4 模块表 `achievement` 行（契约 `AchievementHost.evaluate(event)`、数据表
+`achv.def`、事件 `achievement.progressed`/`achievement.unlocked`）。
+
+依赖：L0（`data_registry`/`event_bus`/`expr`/`save_system`）、L2（`core/rules/common.IUnitAccess`/
+`IExprHostFactory`/`IExprReadableEvent`；`core/rules/expr_host.RulesExprSchema.Base` 默认，可由
+调用方传入合并后的 schema 覆盖）、`core/gameplay/common`（`RewardBundle`/`IRewardDispatcher`）。
+经 `Core.Gameplay.csproj` 既有的 `Core.Carriers` 项目引用传递可见。
+
+## 目录
+
+```
+achievement/
+  README.md
+  contracts/
+    CriterionType.cs               六种类型 + snake_case 互转
+    AchievementCriterion.cs        单条 criterion 强类型视图 + FromRecord（filter 不在此解析）
+    AchievementCriterionProgress.cs (Current, Target) 只读快照
+    AchievementDefinition.cs       achv.def 一条记录的强类型视图
+    AchievementOptions.cs          PlayerUnitResolver 策略配置
+    Events.cs                      AchievementEventKeys + Progressed/Unlocked 两个事件
+    IAchievementHost.cs            契约接口
+  core/
+    AchievementContentValidationRule.cs  type 合法 + observe_event 已登记
+    AchievementHost.cs             IAchievementHost + IPersistable 唯一实现
+  schema/
+    AchievementSchemas.cs          achv.def 的 TableSchema
+  tests/
+    TestSupport.cs
+    AchievementHostTests.cs        六种类型/filter/解锁一次性/持久化用例
+```
+
+## 判断记录
+
+1. **`exprSchema` 默认值的契约缺口（`event.<field>` 過去无法被 `filter` 引用）**：并行开发中
+   `core/rules/expr_host.RulesExprSchema` 经 ADR-0015 严格化后，`Base` 不再对 `event` 分组做"未
+   登记 key 一律放行"。阶段 3 集成收尾"事项二"已经在 `core/foundation/expr`
+   （`ExprParser`/`ExprValidator`）层面解决了这个缺口——`event.<任意 key>` 现在统一解析为合法
+   引用（签名未知，类型检查跳过），不再需要调用方为每个具体事件字段名单独登记签名。本模块
+   `AchievementHost` 构造函数默认仍用 `RulesExprSchema.Base`；游戏组装根
+   （`core/gameplay/assembly.GameplaySchemaCatalog.FullExprSchema`）额外合并了 `quest`/`player`/
+   `world` 三个分组，`CriterionType.CustomEvent` 的 `filter` 现在可以同时引用
+   `event.<field>`/`world.*`/`quest.*`/`player.*`/`self`/`target` 等全部九个分组。
+
+2. **`criteria[]` 的匹配规则一律经 `IExprReadableEvent.TryGetField` 按字段名读取，不依赖具体事件
+   类型**：`TryMatch` 不假设 `quest.turned_in`/`area.trigger_entered` 对应的具体事件类型已经在
+   本次编译中存在（这些事件由并行开发的 quest/area_trigger 模块定义），只依赖
+   `found.event_catalog` 登记的字段名字与 `IExprReadableEvent` 这一通用读取协议，天然与事件的
+   具体实现类型解耦，见 `AchievementHost.TryMatch` 注释。
+
+3. **`FilterNode` 之外的五种类型也可以叠加 `filter`**：08 第 6.1 节 `custom_event` 行"由内容作者
+   指定要观察的具体事件类型与匹配条件（Expr）"，本模块把这一约定推广为全部六种类型均可选携带一条
+   补充过滤表达式——`CustomEvent` 之外的五种类型在各自的基础匹配规则通过之后再叠加求值 `filter`，
+   均为真才计入一次进度。
+
+4. **存档只落盘 `AchievementOptions.PlayerUnitResolver` 解析出的那一个单位**：运行期
+   `_progress`/`_unlocked` 按任意 `(unitId, achievementId)` 维护（支持"非玩家单位触发的
+   criterion"这一更一般场景），但 `Save`/`Load` 只处理当前玩家单位这一份，与 10 第 2.2 节
+   `player.achievement_state` 字段定义一致；读档不重放 `achievement.progressed`/`unlocked`，也不
+   重新调用 `IRewardDispatcher.Grant`（同 `WorldState`/`DifficultyHost`/`SpawnHost` 判断记录
+   "读档不是一次业务事件"）。
+
+5. **`AchievementProgressedEvent.Current`/`Target` 对应"触发本次变化的那一条 criterion"，不是跨
+   criteria 汇总值**：`found.event_catalog` 该行字段表未明确区分，本模块按"每次某条 criterion
+   计数变化各发一次"的最贴近字面理解实现（08 第 6.1 节"成就系统只订阅事件总线，累计计数"）。
+
+## 不负责什么
+
+- 不实现"引用对象暂缺"之外的 Expr 求值细节——`filter` 的求值宿主（`self`/`target` 绑定谁）由
+  `AchievementOptions.PlayerUnitResolver` 与 `evt` 触发者共同决定，见 `Evaluate` 实现。
+- 不自动向任何 `ISaveSystem` 注册自身——组装层的事（惯例同 `core/gameplay/loot`/
+  `core/gameplay/world_state`）。
+- 不提供成就列表/进度的 UI 呈现——只暴露 `GetProgress`/`IsUnlocked` 两个查询方法。

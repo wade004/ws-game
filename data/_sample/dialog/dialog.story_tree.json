@@ -1,0 +1,23 @@
+{
+  "table": "dialog.story_tree",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "dialog.sample_hunter_story",
+      "nodes": [
+        {
+          "id": "dialog.sample_hunter_story.node_intro",
+          "text_key": "l10n.dialog.sample_hunter_story.node_intro",
+          "branches": [
+            { "text_key": "l10n.dialog.sample_hunter_story.branch_continue", "next_node_id": "dialog.sample_hunter_story.node_end" }
+          ]
+        },
+        {
+          "id": "dialog.sample_hunter_story.node_end",
+          "text_key": "l10n.dialog.sample_hunter_story.node_end",
+          "branches": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "table": "item.slot_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.slot.sample_main_hand",
+      "name_key": "l10n.item.slot.sample_main_hand.name",
+      "sort_weight": 1,
+      "is_weapon": true,
+      "is_equipment": true
+    },
+    {
+      "id": "item.slot.sample_bag",
+      "name_key": "l10n.item.slot.sample_bag.name",
+      "sort_weight": 90,
+      "is_weapon": false,
+      "is_equipment": false
+    }
+  ]
+}

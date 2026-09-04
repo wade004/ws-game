@@ -1,0 +1,14 @@
+{
+  "table": "econ.vendor",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "econ.vendor.sample_hunter",
+      "name_key": "l10n.econ.vendor.sample_hunter.name",
+      "sell_items": [
+        { "item_id": "item.sample_tonic", "price_currency_id": "econ.currency.sample_coin", "price_amount": 5 }
+      ],
+      "map_id": "world.sample_field"
+    }
+  ]
+}

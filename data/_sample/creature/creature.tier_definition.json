@@ -1,0 +1,20 @@
+{
+  "table": "creature.tier_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "creature.tier.sample_normal",
+      "name_key": "l10n.creature.tier.sample_normal.name",
+      "stat_multiplier": 1.0,
+      "control_immune": false,
+      "sort_weight": 1
+    },
+    {
+      "id": "creature.tier.sample_elite",
+      "name_key": "l10n.creature.tier.sample_elite.name",
+      "stat_multiplier": 1.5,
+      "control_immune": true,
+      "sort_weight": 2
+    }
+  ]
+}

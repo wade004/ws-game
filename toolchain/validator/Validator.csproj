@@ -8,11 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- 阶段 3 整理"事项四"：改引用 Core.Carriers.csproj（经其传递引用 Core.Rules.csproj），
-         调用 Core.Carriers.Assembly.CarriersSchemaCatalog.RegisterAll 而不是只到 L2 的
-         Core.Rules.Assembly.RulesSchemaCatalog.RegisterAll，覆盖 L3 item/creature/gobj 的
+    <!-- 阶段 3 集成收尾"事项四"：改引用 Core.Gameplay.csproj（经其传递引用 Core.Carriers.csproj →
+         Core.Rules.csproj），调用 Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll 而不是只到
+         L3 的 Core.Carriers.Assembly.CarriersSchemaCatalog.RegisterAll，覆盖 L4 十张表的
          TableSchema/IValidationRule，见 Program.cs 判断记录。 -->
-    <ProjectReference Include="../../core/carriers/Core.Carriers.csproj" />
+    <ProjectReference Include="../../core/gameplay/Core.Gameplay.csproj" />
     <ProjectReference Include="../../adapters/stub/Adapters.Stub.csproj" />
   </ItemGroup>
 

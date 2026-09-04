@@ -161,7 +161,19 @@ namespace Core.Foundation.Expr
             var group = segments[0];
             var key = string.Join(".", segments, 1, segments.Length - 1);
 
-            if (s.Schema.TryGetSignature(group, key, out _))
+            // 判断记录（阶段 3 集成"事项二"）：event 分组的具体 key 随触发事件类型动态变化，任何一份
+            // IExprSchema 都不可能穷举登记；同时 event 不是内容域名（04 §2.2 域名清单不含 event），
+            // 不存在 quest.deliver_letter 那类"未登记即合理回退为内容 Id 字面量"的场景——把未登记的
+            // event.<key> 回退成 Id 字面量会让 ExprEvaluator 将其当作一个字面 Id 常量参与运算，而不是
+            // 查询触发事件的字段，语义整体错误（见 core/gameplay/achievement/core/AchievementHost.cs
+            // 构造函数判断记录记录的同一个契约缺口）。因此：schema 未登记的 event.<key> 仍整体解析为
+            // <reference>（group="event"，签名未知——ExprValidator 对此跳过静态类型检查，见该类型
+            // ValidateReference 判断记录），而不是退回 Id 字面量分支；schema 显式登记过的 event.<key>
+            // （如测试/游戏层为已知事件字段声明的精确签名）优先沿用原有强类型校验路径，本改动不影响。
+            var isKnownReference = s.Schema.TryGetSignature(group, key, out _);
+            var isEventFallbackReference = !isKnownReference && group == ExprGroups.Event;
+
+            if (isKnownReference || isEventFallbackReference)
             {
                 var args = new List<ExprNode>();
                 if (s.Peek().Kind == ExprTokenKind.LParen)
