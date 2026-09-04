@@ -1,0 +1,59 @@
+# Presentation.VfxSfx（presentation/vfx_sfx）
+
+职责：VFX/SFX 播放体系（见 [09_表现层.md](../../architecture/09_表现层.md) 第 5 节）——`vfx.def`/
+`sfx.def`/`display.weapon_style` 三张表的 schema、`IVfxPlayer`/`ISfxPlayer` 及其默认实现、对象池、
+经 DisplayInfo 把逻辑 id 映射到具体 vfx_id/sfx_id、武器表现档案的命中特效覆盖查询。
+
+铁律遵守（09 第 1 节）：本模块只经 `Core.Foundation.EngineAdapter.IRenderer2D`/`IRenderer3D`/`ICamera`/
+`IAudio` 播放（P4），不持有任何被误认为权威的逻辑字段（P1），不订阅事件、不写回任何逻辑数据（P3）——
+`VfxPlayer`/`SfxPlayer` 是纯粹的"调用方给一个逻辑意图（vfx_id/sfx_id + 挂接目标），本模块查表后经
+L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"的翻译是 `feedback_binder` 的职责。
+
+## 目录
+
+- `contracts/`：`VfxAttachMode`/`VfxAttach`（判别联合）、`VfxDef`/`SfxDef`（09 §5.1/5.2 字段）、
+  `IVfxPlayer`/`ISfxPlayer`、`VfxOptions`/`SfxOptions`（池容量/并发上限等策略配置项）、
+  `AnchorResolver`/`EntityPositionResolver`（注入的窄契约，见下"契约缺口"）、`WeaponStyleDef`/
+  `IWeaponStyleResolver`（09 §4.4）、`IPresentationDiagnostics`（本模块与 `feedback_binder` 共用的
+  表现层诊断出口，语义同 `Core.Foundation.Expr.IExprDiagnostics`）。
+- `core/`：`VfxPlayer`/`SfxPlayer`（默认实现）、`VfxPool`（对象池）、`DisplayInfoResolver`（09 §5.6）、
+  `WeaponStyleResolver`（09 §4.4 最小实现）。
+- `schema/`：`VfxSfxSchemas`——`vfx.def`/`sfx.def`/`display.weapon_style` 三张表的 `TableSchema`
+  登记（与 `Core.Foundation.DisplayInfo.DisplaySchemas` 同一惯例：只登记 schema，不接入
+  `data/_sample/` 真实数据集，见下"不负责什么"）。
+- `tests/`：见验收测试列表。
+
+## 判断记录
+
+1. **`socket` 挂接降级为 `world`（契约缺口）**：`IRenderer3D.AttachToSocket(ModelHandle handle,
+   Id socketId, ModelHandle child)` 要求被挂接的子体是一个已创建的 `ModelHandle`（骨骼模型实例），
+   而不是"把一个粒子特效句柄挂到挂点上"；本模块的输入只有 `vfx.def.resource_ref` 与
+   实体/挂点 id，既没有预先创建好的子模型句柄，也没有"host 实体自己的 `ModelHandle`"这一信息
+   （由 `render`/`view_binding` 模块持有）。按设计拍板"若接口有但形状不满足，记诊断降级为
+   world"处理：用 `EntityPositionResolver` 取该实体位置，经 `IRenderer2D.EmitParticle` 以世界坐标
+   方式播放，并记一条诊断。集成阶段需要 `render` 模块补一个"创建子模型并 AttachToSocket"或"取
+   某实体某挂点的可挂接容器"的窄契约，才能实现真正的挂点挂接。
+2. **`ISfxPlayer.Play` 的 `at` 参数当前无处传递**：`IAudio.PlaySfx(Id soundId, double volume,
+   double pitch)` 没有位置参数，也没有 3D 声像重载；本实现记录但不使用 `at`，需要位置化音频
+   （如"从声源方向传来"）时须先在 02 补 `IAudio` 接口。
+3. **`sfx.def.priority` 的大小方向**：09 原文未定义，本实现采用"数值越大优先级越高"，未声明
+   （`Priority` 为 `null`）按 `int.MinValue`（最低优先级）处理。
+4. **对象池"超容量按 lifetime 最旧回收"的判定标准**：解释为"剩余存活时间最短"而非"最早插入"
+   （提前打断一个反正很快会自然到期的实例，观感损失更小）；未声明 `lifetime` 的实例视为剩余时间
+   无穷大，只在全部实例都未声明 lifetime 时才按插入顺序退化淘汰。
+5. **`DisplayInfoResolver.ResolveVfx/ResolveSfx` 的 `slot` 参数**：任务书拍板签名
+   `ResolveVfx(Id logicalId, string slot = "default")`，但 `display.map`（04 第 7.1 节）的
+   `vfx_id`/`sfx_id` 是单值字段，不是"槽位 → id"映射；非 `"default"` 槽位一律返回 null（不是
+   错误，是为未来 `display.map` 扩展多槽位 vfx/sfx 预留调用方签名）。
+6. **`IWeaponStyleResolver` 只覆盖 vfx 相关查询**：`auto_attack_anim`/`cast_anim_override` 指向
+   动作剪辑，属于 CharacterRig/动画状态机（09 第 4 节）职责范围，不在本模块（vfx_sfx）接口内；
+   `WeaponStyleDef` 仍如实携带这两个字段供上游模块使用。
+
+## 不负责什么
+
+- 不接入 `data/_sample/`：本任务不新增示例数据文件，`schema/VfxSfxSchemas` 只声明表结构，测试用
+  `InMemoryDataSource` 内联 JSON 验证 `FromRecord` 的解析正确性。
+- 不实现 `CharacterRig`、纸娃娃层、序列帧动画播放器（09 第 4 节，另一任务范围）。
+- 不实现 `presentation/common`（`IView`/`PresentationEventKeys` 等）——若集成时该模块已提供
+  `AnchorResolver` 或等价类型，以 `presentation/common` 为准，本模块的 `AnchorResolver`/
+  `EntityPositionResolver` 委托类型可直接替换为对其类型的适配。

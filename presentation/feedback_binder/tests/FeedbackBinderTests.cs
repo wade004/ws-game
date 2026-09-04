@@ -1,0 +1,213 @@
+using System.Collections.Generic;
+using Core.Foundation.Common;
+using Core.Foundation.DisplayInfo;
+using Core.Foundation.EventBus;
+using Core.Rules.Common;
+using Presentation.FeedbackBinder.Contracts;
+using Presentation.VfxSfx.Contracts;
+using Presentation.VfxSfx.Core;
+using Xunit;
+using FeedbackBinderCore = Presentation.FeedbackBinder.Core.FeedbackBinder;
+
+namespace Tests.Presentation.FeedbackBinder
+{
+    public class FeedbackBinderTests
+    {
+        private static List<FeedbackRule> LoadRules(params string[] rows)
+        {
+            var (registry, report) = FeedbackBinderTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["feedback.binding"] = "[" + string.Join(",", rows) + "]",
+            });
+            Assert.False(report.IsBlocking);
+
+            var rules = new List<FeedbackRule>();
+            foreach (var record in registry.GetAll("feedback.binding"))
+            {
+                rules.Add(FeedbackRule.FromRecord(record, Core.Rules.ExprHost.RulesExprSchema.Base));
+            }
+            return rules;
+        }
+
+        // 两条规则按 event.amount 阈值分流（见 FeedbackBinderTestSupport 判断记录：Expr 词法只接受
+        // 全小写标识符，事件的 camelCase 字段如 isCrit 无法出现在 event.<field> 引用里，改用 amount
+        // 阈值演示 09 第 6.1 节"同一事件按条件分流到不同表现"的意图）。
+        [Fact]
+        public void OnEvent_ConditionTrue_DispatchesFloatingTextAndShakeCamera()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.CritDamageRuleRow, FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 42.0, isCrit: true, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            Assert.Single(sink.FloatingTexts);
+            Assert.Equal(new Id("unit.wolf"), sink.FloatingTexts[0].EntityId);
+            Assert.Equal(new Id("feedback.style.crit"), sink.FloatingTexts[0].StyleId);
+            Assert.Equal("42", sink.FloatingTexts[0].Text);
+
+            Assert.Single(sink.Shakes);
+            Assert.Equal(new Id("feedback.shake.crit"), sink.Shakes[0]);
+        }
+
+        [Fact]
+        public void OnEvent_ConditionFalse_RoutesToTheOtherRule()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.CritDamageRuleRow, FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            Assert.Single(sink.FloatingTexts);
+            Assert.Equal(new Id("feedback.style.normal"), sink.FloatingTexts[0].StyleId);
+            Assert.Empty(sink.Shakes);
+        }
+
+        [Fact]
+        public void OnEvent_RuleWithoutCondition_AlwaysDispatchesAllActions()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.AuraAppliedRuleRow);
+
+            var displayRegistry = new FakeDisplayInfoRegistry(new Dictionary<Id, DisplayInfo>
+            {
+                [new Id("skill.aura.burning")] = FakeDisplayInfoRegistry.Simple(
+                    new Id("display.burning"), new Id("skill.aura.burning"), DisplayCategory.Aura, new Id("vfx.burning_apply"), null),
+            });
+            var resolver = new DisplayInfoResolver(displayRegistry);
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink, displayInfoResolver: resolver);
+
+            var evt = new AuraAppliedEvent(new Id("unit.wolf"), new Id("skill.aura.burning"), new Id("unit.hero"), 1);
+            bus.PublishImmediate(evt);
+
+            Assert.Single(sink.PlayVfxCalls);
+            Assert.Equal(new Id("vfx.burning_apply"), sink.PlayVfxCalls[0].VfxId);
+            Assert.Equal(new Id("unit.wolf"), sink.PlayVfxCalls[0].Attach.EntityId);
+
+            Assert.Single(sink.PlaySfxCalls);
+            Assert.Equal(new Id("sfx.buff_apply"), sink.PlaySfxCalls[0].SfxId);
+
+            Assert.Single(sink.Flashes);
+            Assert.Equal(new Id("unit.wolf"), sink.Flashes[0].EntityId);
+
+            Assert.Single(sink.Freezes);
+            Assert.Equal(40.0, sink.Freezes[0]);
+        }
+
+        [Fact]
+        public void FromDisplaySkill_MissingDisplayMapEntry_SkipsActionWithoutCrashing()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.AuraAppliedRuleRow);
+
+            var displayRegistry = new FakeDisplayInfoRegistry(new Dictionary<Id, DisplayInfo>());
+            var resolver = new DisplayInfoResolver(displayRegistry);
+            var diagnostics = new PresentationDiagnosticsRecorder();
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink,
+                displayInfoResolver: resolver, diagnostics: diagnostics);
+
+            var evt = new AuraAppliedEvent(new Id("unit.wolf"), new Id("skill.aura.burning"), new Id("unit.hero"), 1);
+            bus.PublishImmediate(evt);
+
+            Assert.Empty(sink.PlayVfxCalls);
+            Assert.NotEmpty(diagnostics.Warnings);
+            // 其余动作（play_sfx/flash/freeze）不受 play_vfx 失败影响，照常派发。
+            Assert.Single(sink.PlaySfxCalls);
+        }
+
+        [Fact]
+        public void QueueMode_Sequential_FiresPlaybackFinished_AfterDraining()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            var finishedCount = 0;
+            bus.Subscribe(EventKeys.PresentationPlaybackFinished, _ => finishedCount++);
+
+            var options = new FeedbackOptions { QueueMode = QueueMode.Sequential, SequentialStepSeconds = 0.1 };
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink, options: options);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 5.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            // 动作已入队但还未执行（Sequential 模式）。
+            Assert.Empty(sink.FloatingTexts);
+            Assert.Equal(0, finishedCount);
+
+            binder.Update(0.1);
+
+            Assert.Single(sink.FloatingTexts);
+            Assert.Equal(1, finishedCount);
+        }
+
+        [Fact]
+        public void QueueMode_Immediate_NeverFiresPlaybackFinished()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            var finishedCount = 0;
+            bus.Subscribe(EventKeys.PresentationPlaybackFinished, _ => finishedCount++);
+
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 5.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            Assert.Single(sink.FloatingTexts);
+            Assert.Equal(0, finishedCount);
+        }
+
+        [Fact]
+        public void Merge_SumsMultipleAmountFloatingTexts_WithinWindow()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            var options = new FeedbackOptions { MergeWindow = 0.2, MergeMode = MergeMode.Sum };
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink, options: options);
+
+            var target = new Id("unit.wolf");
+            bus.PublishImmediate(new CombatDamageDealtEvent(new Id("unit.hero"), target, new Id("skill.school.physical"), 10.0, false, HitResult.Hit));
+            bus.PublishImmediate(new CombatDamageDealtEvent(new Id("unit.hero"), target, new Id("skill.school.physical"), 8.0, false, HitResult.Hit));
+
+            Assert.Empty(sink.FloatingTexts);
+
+            binder.Update(0.25);
+
+            Assert.Single(sink.FloatingTexts);
+            Assert.Equal("18", sink.FloatingTexts[0].Text);
+        }
+
+        [Fact]
+        public void Dispose_StopsReceivingFurtherEvents()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+            binder.Dispose();
+
+            bus.PublishImmediate(new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 5.0, false, HitResult.Hit));
+
+            Assert.Empty(sink.FloatingTexts);
+        }
+    }
+}

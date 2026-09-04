@@ -1,0 +1,368 @@
+using System;
+using System.Collections.Generic;
+using Core.Foundation.Common;
+using Core.Foundation.EventBus;
+using Core.Foundation.Expr;
+using Core.Rules.Common;
+using Core.Rules.ExprHost;
+using Presentation.FeedbackBinder.Contracts;
+using Presentation.VfxSfx.Contracts;
+using Presentation.VfxSfx.Core;
+
+namespace Presentation.FeedbackBinder.Core
+{
+    /// <summary>
+    /// 把"逻辑事件"翻译为"一组具体表现动作"的规则引擎（见 09_表现层.md 第 6 节）：加载规则、
+    /// 按 <c>event</c> 分组订阅、事件到达时按 <c>id</c> 序求值 <c>condition</c>（经
+    /// <see cref="IExprHostFactory"/>，selfId/targetId 从事件字段
+    /// <c>sourceId</c>/<c>casterId</c>/<c>unitId</c> 与 <c>targetId</c> 取），逐条执行动作。
+    /// <para>
+    /// 表现层铁律遵守：只订阅事件（P2）——本类型经 <see cref="IEventBus.Subscribe"/> 感知世界，
+    /// 从不轮询；唯一允许发出的事件是 <see cref="PlaybackFinishedEvent"/>（经
+    /// <see cref="PlaybackQueue.Finished"/> 联动），且只在 <see cref="FeedbackOptions.QueueMode"/>
+    /// 为 <see cref="QueueMode.Sequential"/> 时才可能发出（<see cref="PlaybackQueue"/> 类型注释）。
+    /// 只经 <see cref="IFeedbackSink"/> 这一扇窄门下达动作指令，不直接调用任何 L-1 接口（P4，具体
+    /// 绘制/播放留给 <see cref="IFeedbackSink"/> 实现）。
+    /// </para>
+    /// </summary>
+    public sealed class FeedbackBinder : IDisposable
+    {
+        private readonly IEventBus _bus;
+        private readonly IExprHostFactory _exprHosts;
+        private readonly IFeedbackSink _sink;
+        private readonly DisplayInfoResolver? _displayInfoResolver;
+        private readonly EntityLogicalIdResolver? _entityLogicalIdResolver;
+        private readonly FeedbackOptions _options;
+        private readonly IExprDiagnostics _exprDiagnostics;
+        private readonly IPresentationDiagnostics _diagnostics;
+
+        private readonly Dictionary<Id, List<FeedbackRule>> _rulesByEvent = new Dictionary<Id, List<FeedbackRule>>();
+        private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
+
+        private readonly PlaybackQueue _queue;
+        private readonly FloatingTextMerger _merger;
+
+        public FeedbackBinder(
+            IEventBus bus,
+            IExprHostFactory exprHosts,
+            IReadOnlyList<FeedbackRule> rules,
+            IFeedbackSink sink,
+            DisplayInfoResolver? displayInfoResolver = null,
+            EntityLogicalIdResolver? entityLogicalIdResolver = null,
+            FeedbackOptions? options = null,
+            IExprDiagnostics? exprDiagnostics = null,
+            IPresentationDiagnostics? diagnostics = null)
+        {
+            _bus = bus ?? throw new ArgumentNullException(nameof(bus));
+            _exprHosts = exprHosts ?? throw new ArgumentNullException(nameof(exprHosts));
+            _sink = sink ?? throw new ArgumentNullException(nameof(sink));
+            _displayInfoResolver = displayInfoResolver;
+            _entityLogicalIdResolver = entityLogicalIdResolver;
+            _options = options ?? new FeedbackOptions();
+            _exprDiagnostics = exprDiagnostics ?? new ExprDiagnosticsRecorder();
+            _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
+
+            _queue = new PlaybackQueue(_options.SequentialStepSeconds) { Mode = _options.QueueMode };
+            _queue.Finished += () => _bus.PublishImmediate(new PlaybackFinishedEvent());
+
+            _merger = new FloatingTextMerger(_options.MergeWindow, _options.NumberFormat, DispatchFloatingText);
+
+            if (rules == null) throw new ArgumentNullException(nameof(rules));
+            foreach (var rule in rules)
+            {
+                if (!_rulesByEvent.TryGetValue(rule.EventKey, out var list))
+                {
+                    list = new List<FeedbackRule>();
+                    _rulesByEvent[rule.EventKey] = list;
+                }
+                list.Add(rule);
+            }
+
+            foreach (var kv in _rulesByEvent)
+            {
+                kv.Value.Sort((a, b) => string.CompareOrdinal(a.Id.Value, b.Id.Value));
+                _subscriptions.Add(_bus.Subscribe(kv.Key, OnEvent));
+            }
+        }
+
+        /// <summary>按 <paramref name="dt"/> 推进飘字合并窗口与 <see cref="QueueMode.Sequential"/>
+        /// 播放队列。</summary>
+        public void Update(double dt)
+        {
+            _merger.Update(dt);
+            _queue.Update(dt);
+        }
+
+        /// <summary>供离散模式主循环/测试直接控制播放节奏（09 第 6.4 节"加速与跳过"）。</summary>
+        public PlaybackQueue Queue => _queue;
+
+        public void Dispose()
+        {
+            foreach (var sub in _subscriptions)
+            {
+                sub.Dispose();
+            }
+            _subscriptions.Clear();
+        }
+
+        private void OnEvent(IEvent evt)
+        {
+            if (!_rulesByEvent.TryGetValue(evt.Key, out var rules))
+            {
+                return;
+            }
+
+            var selfId = ExtractId(evt, "sourceId", "casterId", "unitId") ?? RulesExprHostFactory.NoneId;
+            var targetId = ExtractId(evt, "targetId");
+            var host = _exprHosts.CreateFor(selfId, targetId, evt);
+
+            foreach (var rule in rules)
+            {
+                if (rule.Condition != null && !ExprEvaluator.EvaluateBool(rule.Condition, host, _exprDiagnostics))
+                {
+                    continue;
+                }
+
+                foreach (var action in rule.Actions)
+                {
+                    Dispatch(action, evt, selfId, targetId);
+                }
+            }
+        }
+
+        private void Dispatch(FeedbackAction action, IEvent evt, Id selfId, Id? targetId)
+        {
+            switch (action)
+            {
+                case FloatingTextAction floatingText:
+                    DispatchFloatingTextAction(floatingText, evt, selfId, targetId);
+                    break;
+
+                case PlayVfxAction playVfx:
+                    DispatchPlayVfx(playVfx, evt, selfId, targetId);
+                    break;
+
+                case PlaySfxAction playSfx:
+                    DispatchPlaySfx(playSfx, evt, selfId, targetId);
+                    break;
+
+                case FreezeAction freeze:
+                    _queue.Enqueue(() => _sink.Freeze(freeze.DurationMs));
+                    break;
+
+                case ShakeCameraAction shake:
+                    _queue.Enqueue(() => _sink.ShakeCamera(shake.ProfileId));
+                    break;
+
+                case FlashAction flash:
+                    DispatchFlash(flash, selfId, targetId);
+                    break;
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // floating_text
+        // ------------------------------------------------------------------
+
+        /// <summary>飘字挂在哪个实体上：09 第 6.1 节 <c>FloatingText(styleId, textSource)</c> 伪代码
+        /// 未携带挂接实体，本模块判断记录：优先挂在 <c>targetId</c>（承受效果的一方，飘字最常见的
+        /// 展示位置——如受击目标头顶的伤害数字），缺 <c>targetId</c> 时退回 <c>selfId</c>（如没有
+        /// 目标概念的自身资源变化提示）。</summary>
+        private void DispatchFloatingTextAction(FloatingTextAction action, IEvent evt, Id selfId, Id? targetId)
+        {
+            var entityId = targetId ?? selfId;
+
+            switch (action.TextSource.Kind)
+            {
+                case TextSourceKind.Amount:
+                {
+                    if (!TryGetEventNumber(evt, "amount", out var amount))
+                    {
+                        _diagnostics.Warn($"feedback 规则 floating_text：事件 \"{evt.Key}\" 没有可用的 amount 字段，跳过");
+                        return;
+                    }
+                    _merger.Offer(entityId, action.StyleId, amount, _options.MergeMode);
+                    return;
+                }
+
+                case TextSourceKind.Field:
+                {
+                    if (!TryGetEventText(evt, action.TextSource.FieldName!, out var text))
+                    {
+                        _diagnostics.Warn($"feedback 规则 floating_text：事件 \"{evt.Key}\" 没有字段 \"{action.TextSource.FieldName}\"，跳过");
+                        return;
+                    }
+                    _merger.OfferImmediate(entityId, action.StyleId, text);
+                    return;
+                }
+
+                case TextSourceKind.Literal:
+                    // 本地化解析（l10n.text）不在本模块契约范围内（04 第 7.2 节），按判断记录直接
+                    // 用文本键原文占位，见 feedback_binder/README.md 契约缺口。
+                    _merger.OfferImmediate(entityId, action.StyleId, action.TextSource.TextKey!.Value.Value);
+                    return;
+            }
+        }
+
+        private void DispatchFloatingText(Id entityId, Id styleId, string text) =>
+            _queue.Enqueue(() => _sink.FloatingText(entityId, styleId, text));
+
+        // ------------------------------------------------------------------
+        // play_vfx / play_sfx
+        // ------------------------------------------------------------------
+
+        private void DispatchPlayVfx(PlayVfxAction action, IEvent evt, Id selfId, Id? targetId)
+        {
+            var vfxId = ResolveDisplayVfxOrSfxId(action.VfxId, action.FromDisplay, evt, selfId, targetId, isVfx: true);
+            if (vfxId == null)
+            {
+                return;
+            }
+
+            FeedbackAttachSpec spec;
+            switch (action.Attach)
+            {
+                case FeedbackAttachTarget.World:
+                    spec = new FeedbackAttachSpec(FeedbackAttachTarget.World, null, null, null);
+                    break;
+
+                case FeedbackAttachTarget.Source:
+                    spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Source, selfId, action.AnchorId);
+                    break;
+
+                case FeedbackAttachTarget.Target:
+                    if (!targetId.HasValue)
+                    {
+                        _diagnostics.Warn($"feedback 规则 play_vfx：动作声明 attach=target 但事件 \"{evt.Key}\" 没有 targetId，跳过");
+                        return;
+                    }
+                    spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Target, targetId.Value, action.AnchorId);
+                    break;
+
+                default:
+                    return;
+            }
+
+            _queue.Enqueue(() => _sink.PlayVfx(vfxId.Value, spec));
+        }
+
+        private void DispatchPlaySfx(PlaySfxAction action, IEvent evt, Id selfId, Id? targetId)
+        {
+            var sfxId = ResolveDisplayVfxOrSfxId(action.SfxId, action.FromDisplay, evt, selfId, targetId, isVfx: false);
+            if (sfxId == null)
+            {
+                return;
+            }
+
+            _queue.Enqueue(() => _sink.PlaySfx(sfxId.Value, null));
+        }
+
+        /// <summary>统一解析 <c>vfx_id?|from_display</c>（<c>play_vfx</c>）与
+        /// <c>sfx_id?|from_display</c>（<c>play_sfx</c>）二选一（见 09 第 6.1 节）：字面 id 优先；
+        /// <c>from_display: skill</c> 经事件的 <c>skillId</c>/<c>auraDefId</c> 字段查
+        /// <see cref="DisplayInfoResolver"/>（任务书拍板路径）；<c>source</c>/<c>target</c> 经可选
+        /// 注入的 <see cref="EntityLogicalIdResolver"/>（契约缺口，见 <see cref="FromDisplaySource"/>
+        /// 类型注释），未注入时记诊断并跳过整个动作。</summary>
+        private Id? ResolveDisplayVfxOrSfxId(Id? literalId, FromDisplaySource? fromDisplay, IEvent evt, Id selfId, Id? targetId, bool isVfx)
+        {
+            if (literalId.HasValue)
+            {
+                return literalId;
+            }
+
+            if (_displayInfoResolver == null)
+            {
+                _diagnostics.Warn("feedback 规则使用了 from_display，但未注入 DisplayInfoResolver，跳过该动作");
+                return null;
+            }
+
+            Id? logicalId = fromDisplay switch
+            {
+                FromDisplaySource.Skill => ExtractId(evt, "skillId", "auraDefId"),
+                FromDisplaySource.Source => _entityLogicalIdResolver?.Invoke(selfId),
+                FromDisplaySource.Target => targetId.HasValue ? _entityLogicalIdResolver?.Invoke(targetId.Value) : null,
+                _ => null,
+            };
+
+            if (logicalId == null)
+            {
+                _diagnostics.Warn($"feedback 规则 from_display={fromDisplay}：查不到对应的逻辑 id（事件 \"{evt.Key}\"），跳过该动作");
+                return null;
+            }
+
+            var resolved = isVfx ? _displayInfoResolver.ResolveVfx(logicalId.Value) : _displayInfoResolver.ResolveSfx(logicalId.Value);
+            if (resolved == null)
+            {
+                _diagnostics.Warn($"feedback 规则 from_display={fromDisplay}：逻辑 id \"{logicalId}\" 在 display.map 未声明 {(isVfx ? "vfx_id" : "sfx_id")}，跳过该动作");
+            }
+            return resolved;
+        }
+
+        // ------------------------------------------------------------------
+        // flash
+        // ------------------------------------------------------------------
+
+        private void DispatchFlash(FlashAction action, Id selfId, Id? targetId)
+        {
+            Id entityId;
+            if (action.Target == FeedbackAttachTarget.Source)
+            {
+                entityId = selfId;
+            }
+            else
+            {
+                if (!targetId.HasValue)
+                {
+                    _diagnostics.Warn("feedback 规则 flash：动作声明 target=target 但事件没有 targetId，跳过");
+                    return;
+                }
+                entityId = targetId.Value;
+            }
+
+            _queue.Enqueue(() => _sink.Flash(entityId, action.ProfileId));
+        }
+
+        // ------------------------------------------------------------------
+        // 事件字段提取
+        // ------------------------------------------------------------------
+
+        private static Id? ExtractId(IEvent evt, params string[] fieldNames)
+        {
+            if (!(evt is IExprReadableEvent readable))
+            {
+                return null;
+            }
+
+            foreach (var name in fieldNames)
+            {
+                if (readable.TryGetField(name, out var value) && value.Kind == ExprValueKind.Id)
+                {
+                    return value.AsId;
+                }
+            }
+            return null;
+        }
+
+        private static bool TryGetEventNumber(IEvent evt, string field, out double value)
+        {
+            if (evt is IExprReadableEvent readable && readable.TryGetField(field, out var v) && v.IsNumeric)
+            {
+                value = v.ToDouble();
+                return true;
+            }
+            value = 0;
+            return false;
+        }
+
+        private static bool TryGetEventText(IEvent evt, string field, out string text)
+        {
+            if (evt is IExprReadableEvent readable && readable.TryGetField(field, out var v))
+            {
+                text = v.ToString();
+                return true;
+            }
+            text = string.Empty;
+            return false;
+        }
+    }
+}

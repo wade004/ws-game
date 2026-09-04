@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>Presentation.Camera</AssemblyName>
+    <RootNamespace>Presentation.Camera</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="**/tests/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Presentation.Common.csproj" />
+  </ItemGroup>
+
+</Project>
