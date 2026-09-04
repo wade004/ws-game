@@ -87,3 +87,23 @@ event_bus/
 - 不做 JSON → `EventCatalog` 的加载（见上文"事件目录"一节），那是 `data_registry` 的职责。
 - 不做跨线程/异步派发：全架构要求核心模拟可确定性复现，不引入 `System.Threading`、
   不读系统挂钟时间、不使用系统伪随机数生成器（见 `common/README.md` 同一条约束）。
+
+## 事件 key 常量（`generated/EventKeys.g.cs`）
+
+`generated/EventKeys.g.cs` 是**生成物，不可手改**：`toolchain/gen_event_constants.py`
+读取 `data/_sample/found/found.event_catalog.json`，为登记表中每一行生成一个
+`Core.Foundation.Common.Id` 强类型只读字段（如 `EventKeys.CombatDamageDealt`），外加
+一个汇总数组 `EventKeys.All`，供发布方模块按强类型引用事件 key，避免手写字符串拼错。
+
+- 新增/修改事件先按上文"新增事件"一节的流程改登记表，再运行
+  `python toolchain/gen_event_constants.py` 重新生成本文件并提交；不要手工编辑
+  `generated/EventKeys.g.cs`（脚本头部注释同样声明这一点）。
+- 提交门槛可用 `python toolchain/gen_event_constants.py --check` 校验生成文件与登记表
+  是否同步，不同步（含忘记重新生成）返回非 0，详见 `toolchain/README.md`。
+- `EventKeys` 不是 `IEventCatalog`：它只是强类型的 key 常量表，不做登记/校验/派发；
+  把 `found.event_catalog.json` 转成 `EventDefinition` 并接入 `EventCatalog` 仍是
+  `data_registry`（T1-4）的职责，`EventKeys` 与之独立，二者的常量名/字段名分别来自
+  同一份数据表，理应保持一致。
+- 常量名由 key 按 `.`/`_` 切分后各单词首字母大写拼接得到（如
+  `skill.cast_start` -> `SkillCastStart`）；若登记表出现两个不同 key 拼出同一个常量名，
+  脚本会报错并拒绝生成，需要在登记表层面解决命名冲突。

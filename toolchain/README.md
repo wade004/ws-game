@@ -35,3 +35,30 @@ python toolchain/validate_data.py
 - `2`：命令行参数错误（如指定了不存在的 `--data-root`）。
 
 当前脚本只做骨架级通用检查，04 第 5 节校验器检查项清单中的引用完整性、枚举合法、表达式可解析等领域规则在后续阶段逐项加入，详见 `validate_data.py` 文件头注释。
+
+## 生成事件常量（gen_event_constants.py）
+
+读取事件词汇登记表 `data/_sample/found/found.event_catalog.json`，为每一行生成一个
+`Core.Foundation.Common.Id` 强类型常量，写入
+`core/foundation/event_bus/generated/EventKeys.g.cs`（生成物，不可手改；修改登记表后
+重新运行本脚本，见该文件头部注释与 `core/foundation/event_bus/README.md`）。
+
+```
+python toolchain/gen_event_constants.py
+```
+
+常用参数：
+
+- `--catalog <path>`：事件词汇登记表 JSON 路径，相对仓库根（默认
+  `data/_sample/found/found.event_catalog.json`）。
+- `--output <path>`：生成文件输出路径，相对仓库根（默认
+  `core/foundation/event_bus/generated/EventKeys.g.cs`）。
+- `--namespace <ns>`：生成类型所在命名空间（默认 `Core.Foundation.EventBus`）。
+- `--check`：不写文件，只比较生成内容与 `--output` 现有文件是否一致；不一致返回码 1。
+  **提交门槛**：改过 `found.event_catalog.json` 后应先跑
+  `python toolchain/gen_event_constants.py`（覆盖生成文件）再提交；CI/预提交可用
+  `python toolchain/gen_event_constants.py --check` 校验生成文件与登记表是否同步，
+  不同步则失败。
+
+返回码约定：`0` 成功；`1` 数据错误（信封非法、key 格式非法、重复 key、常量名冲突）或
+`--check` 模式下内容不一致；`2` 命令行参数错误（如 `--catalog` 指向不存在的文件）。
