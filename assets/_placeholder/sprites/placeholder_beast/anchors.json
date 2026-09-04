@@ -1,0 +1,72 @@
+{
+  "canvas": {
+    "width": 48,
+    "height": 48
+  },
+  "pixels_per_unit": 32,
+  "direction_count": 8,
+  "authored_directions": [
+    "front",
+    "front_side_r",
+    "side_r",
+    "back_side_r",
+    "back",
+    "back_side_l",
+    "side_l",
+    "front_side_l"
+  ],
+  "layers": [
+    "body"
+  ],
+  "directions": {
+    "front": {
+      "root": [
+        24,
+        44
+      ]
+    },
+    "front_side_r": {
+      "root": [
+        24,
+        44
+      ]
+    },
+    "side_r": {
+      "root": [
+        24,
+        44
+      ]
+    },
+    "back_side_r": {
+      "root": [
+        24,
+        44
+      ]
+    },
+    "back": {
+      "root": [
+        24,
+        44
+      ]
+    },
+    "back_side_l": {
+      "root": [
+        24,
+        44
+      ]
+    },
+    "side_l": {
+      "root": [
+        24,
+        44
+      ]
+    },
+    "front_side_l": {
+      "root": [
+        24,
+        44
+      ]
+    }
+  },
+  "mirror_pairs": []
+}

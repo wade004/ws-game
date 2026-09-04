@@ -117,3 +117,71 @@ python toolchain/gen_event_constants.py
 
 返回码约定：`0` 成功；`1` 数据错误（信封非法、key 格式非法、重复 key、常量名冲突）或
 `--check` 模式下内容不一致；`2` 命令行参数错误（如 `--catalog` 指向不存在的文件）。
+
+## 资产导入工具（import_assets.py）
+
+`toolchain/import_assets.py`（薄入口，实现在 `toolchain/asset_import/` 包）：把出图产物
+（精灵集、图标、特效序列帧、音效）规范化落到 `assets/<dataset>/`，并把对应的
+`display.map`/`vfx.def`/`sfx.def` 数据行合并写入 `data/<dataset>/`，对应
+[11_工程规范与测试.md](../architecture/11_工程规范与测试.md) 第 2.1 节"资产导入工具"与
+[落地方案与分阶段计划.md](../architecture/落地计划/落地方案与分阶段计划.md) 第 15 节。字段定义
+以 [04_数据与内容管线.md](../architecture/04_数据与内容管线.md) 第 7.1 节（`display.map`）、
+[09_表现层.md](../architecture/09_表现层.md) 第 3.2～3.4 节（方向量化机制、镜像字段结构、纸娃娃层、
+锚点、影子）与 [14_资产规格书模板.md](../architecture/14_资产规格书模板.md) 第 2 节（方向档位的
+权威命名与 `mirror_of` 关系表）为准；`vfx.def`/`sfx.def` 目前架构文档只登记了表名与外键指向
+（04 总索引），具体字段（`category`/`attach_mode`/`lifetime`/`resource_ref` 与
+`layer`/`priority`/`variants`）是本工具自定的落地口径，后续架构文档正式展开这两张表字段时以
+架构文档为准并同步调整本工具。
+
+```
+python toolchain/import_assets.py <子命令> ...
+```
+
+五个子命令（各自 `--help` 查看完整参数）：
+
+- `sprite`：精灵集源目录 -> 规范化精灵资源 + `display.map` 行。
+  输入约定：`<src>/<direction_slot>/<layer>.png`（纸娃娃多层）或 `<src>/<direction_slot>.png`
+  （单层）；`<src>` 目录名即 `sprite_set_name`；`<src>/icon.png`（可选）随精灵集一并登记图标。
+  方向档位只需要画"canonical"档位（14 第 2.1 节命名表：8 方向下的
+  `front`/`front_side_r`/`side_r`/`back_side_r`/`back` 五个；4 方向为
+  `front`/`side_r`/`back`；16 方向的具体命名 14 只给延伸规则，本工具按该规则自行扩展出一套
+  具体命名，见 `toolchain/asset_import/directions.py`），其余方向档位（`front_side_l`/`side_l`/
+  `back_side_l` 等，命名规则是把来源 canonical 档位名中最后一个独立的 `r` 分段替换为 `l`）在
+  `--mirror auto`（默认）下自动用水平镜像回填并记入 `mirror_pairs`；`--mirror none` 时缺失档位
+  不回填（打印警告，跳过）。
+  `--anchors` 指向的 JSON 文件格式为 `{"<direction_slot>": {"<anchor_name>": [x_px, y_px], ...}}`
+  （像素坐标）；缺失档位用 `--anchor-default name=fx,fy`（画布比例，可重复，默认
+  `root=0.5,1.0`）回填并记警告；`--trim` 会按裁剪掉的透明边偏移量平移锚点。写入
+  `display.map` 的 `anchor_points` 只取"默认档位"（`front`，即 canonical 列表第一个）的锚点，
+  按 `--pixels-per-unit`（默认 32）换算成世界单位；每个方向档位的完整锚点另存一份到精灵集自己
+  的 `anchors.json`（像素坐标 + 各档位画布尺寸），供后续更细粒度的挂点系统使用。`--scale`/
+  `--shadow` 直接写入 `display.map` 对应字段，不改变图像像素；图像的物理缩放不在本工具范围内
+  （出图阶段自行控制分辨率）。
+- `icon`：一批图标源图 -> 归一化尺寸（等比缩放 + 透明居中垫底，默认 64x64）落到
+  `assets/<dataset>/icons/<category>/<name>.png`，打印 `icon.<category>.<name>` 清单（不写数据表，
+  `icon_id` 由引用方（如 `sprite`/未来的 `display.equip_visual` 等）自行填写）。
+- `vfx`：序列帧目录（按文件名排序的一组 `.png`）-> 图集 + `vfx.def` 行（`id`/`category`/
+  `attach_mode`/`lifetime`/`resource_ref`）；`--lifetime` 省略时用 `帧数 / --fps` 推算。
+- `sfx`：一批 `.wav`（无压缩 PCM；用标准库 `wave` 读采样率/时长做基本校验，非 wav 或无法解析
+  一律报错）作为同一 `sfx.def` id 下的随机变体，复制到 `assets/<dataset>/sfx/<name>/v<N>.wav`
+  并写入 `layer`/`priority`/`variants`（每个变体含 `resource_ref`/`sample_rate`/`duration_sec`）。
+- `check`：交叉校验 `assets/<dataset>/` 与 `data/<dataset>/display|vfx|sfx`——`sprite_set_id`/
+  `icon_id`/`vfx.def`/`sfx.def` 的 `resource_ref` 对应文件是否存在、每个精灵集同一层跨方向档位
+  尺寸是否一致、锚点是否落在对应方向档位画布范围内、实际落地的方向档位数是否与
+  `direction_count` 一致。只打印问题清单，不写任何文件；返回码 `0`（无问题）/`1`（有问题）。
+
+全部子命令支持 `--dataset`（默认 `_sample`）、`--assets-root`/`--data-root`
+（默认仓库 `assets/`/`data/`，可指向任意目录，测试与临时数据集用此覆盖）、`--dry-run`
+（`check` 本身不写文件，无需此参数）；图像处理只用 Pillow：`--matting none|rembg|colorkey:#RRGGBB`
+——`colorkey` 抠图是本工具自写的容差比色（`--colorkey-tolerance`，默认 32），`rembg` 仅在本机
+`~/.u2net/` 下已有权重文件时可用（本工具不会自动联网下载模型权重，未准备好权重直接报错并提示
+改用 `none`/`colorkey`）。合并写入 `display.map.json`/`vfx.def.json`/`sfx.def.json` 时：已存在
+同 `id` 的行整体替换，否则新增，其余行原样保留，整份文件按 `id` 重新排序后整体写出（2 空格缩进、
+LF、UTF-8 无 BOM，同 `data/README.md` 约定）。
+
+写完 `sprite`/`vfx`/`sfx` 后应跑 `python toolchain/import_assets.py check --dataset <name>` 确认
+资产与数据表互相对得上，再跑 `python toolchain/validate_data.py --dataset <name>` 走完整的表级
+校验（04 第 5 节"外形映射存在"等检查项）。
+
+单元测试：`python -m unittest toolchain.tests.test_import_assets -v`（标准库 `unittest`；测试数据
+写在系统临时目录，不接触仓库内 `assets/`/`data/`）。

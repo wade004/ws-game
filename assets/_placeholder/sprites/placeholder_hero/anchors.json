@@ -1,0 +1,183 @@
+{
+  "canvas": {
+    "width": 64,
+    "height": 96
+  },
+  "pixels_per_unit": 32,
+  "direction_count": 8,
+  "authored_directions": [
+    "front",
+    "front_side_r",
+    "side_r",
+    "back_side_r",
+    "back"
+  ],
+  "layers": [
+    "body",
+    "hand_main",
+    "head"
+  ],
+  "directions": {
+    "front": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        38,
+        58
+      ],
+      "head": [
+        33.8,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    },
+    "front_side_r": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        46,
+        58
+      ],
+      "head": [
+        36.2,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    },
+    "side_r": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        52,
+        58
+      ],
+      "head": [
+        38.0,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    },
+    "back_side_r": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        46,
+        58
+      ],
+      "head": [
+        36.2,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    },
+    "back": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        38,
+        58
+      ],
+      "head": [
+        33.8,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    },
+    "front_side_l": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        18,
+        58
+      ],
+      "head": [
+        27.799999999999997,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    },
+    "side_l": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        12,
+        58
+      ],
+      "head": [
+        26.0,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    },
+    "back_side_l": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        18,
+        58
+      ],
+      "head": [
+        27.799999999999997,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    }
+  },
+  "mirror_pairs": [
+    {
+      "direction_slot": "front_side_l",
+      "mirror_of": "front_side_r",
+      "flip_x": true
+    },
+    {
+      "direction_slot": "side_l",
+      "mirror_of": "side_r",
+      "flip_x": true
+    },
+    {
+      "direction_slot": "back_side_l",
+      "mirror_of": "back_side_r",
+      "flip_x": true
+    }
+  ]
+}
