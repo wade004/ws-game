@@ -70,10 +70,22 @@ statHost.RemoveModifiersBySource(unitId, sourceId);
 ## 评级换算（可选，默认关闭）
 
 `StatHostOptions.EnableRatingConversion=true` 且某属性 `is_rating=true` 时，
-`base + Σflat` 先经该属性 `rating_conversion_ref` 指向的 `stat.rating_conversion` 曲线换算
-（线性插值，按 `entries` 的 `level` 升序排列取相邻两点插值，越界取端点的
-`points_per_percent`；换算公式 `percent = rawValue / pointsPerPercent`），换算结果再进入
-`pct`/`mult` 两段。判断记录（曲线自变量的取舍）见 `StatHost.ConvertRating` 源码注释。
+`base + Σflat` 先经该属性 `rating_conversion_ref` 指向的 `stat.rating_conversion` 曲线换算，
+换算结果再进入 `pct`/`mult` 两段。曲线的自变量是**单位等级**（`entries[].level`，设计层
+2026-09-05 拍板，取代此前"level 是评级原始值自己的插值断点"的判断）：按 `StatHostOptions.LevelLookup(unitId)`
+查到的等级在 `entries`（按 `level` 升序排列）上线性插值取 `points_per_percent`（越界取端点），
+再用 `percent = rawValue / pointsPerPercent` 算出换算结果；`LevelLookup` 为 `null` 时等级一律按
+1 处理。`StatHost` 仍不直接引用 `core/numbers/progression` 的任何类型——由调用方把真正的等级
+来源（如 `IProgressionHost.GetLevel`）适配成 `LevelLookup` 委托签名后注入构造期的
+`StatHostOptions`。判断记录见 `StatHost.ConvertRating` 源码注释。
+
+```csharp
+var statHost = new StatHost(registry, bus, new StatHostOptions
+{
+    EnableRatingConversion = true,
+    LevelLookup = unitId => progressionHost.GetLevel(unitId),  // 由调用方适配真正的等级来源
+});
+```
 
 ## 抗性维度（可选，默认开启）
 
@@ -87,5 +99,7 @@ statHost.RemoveModifiersBySource(unitId, sourceId);
 - 不持有单位的其它状态（生命值、资源池等属于 `power_set` 与更高层）。
 - 不做数据文件的读写/校验实现（复用 `core/foundation/data_registry`），本模块只提供
   `TableSchema`/`IValidationRule` 声明，注册时机由调用方掌控。
-- 不假设"评级曲线以角色等级为自变量"——见 `ConvertRating` 判断记录，避免与
-  `core/numbers/progression` 产生同层跨模块的隐式依赖。
+- 不直接依赖 `core/numbers/progression` 的任何具体类型——评级曲线虽然以单位等级为自变量
+  （见"评级换算"一节，设计层 2026-09-05 拍板），但等级经 `StatHostOptions.LevelLookup`
+  具名委托注入，不是直接引用 `IProgressionHost`，避免与 `progression` 产生同层跨模块的编译期
+  耦合（`ConvertRating` 判断记录）。

@@ -147,6 +147,14 @@ namespace Tests.Foundation.Data
         // 1. 正向：真实 data/_sample 五表（T1-7b1 新增 found.input_action）
         // -----------------------------------------------------------------
 
+        // 判断记录（T2-1~T2-3 之后的计数断言）：data/_sample 现由 L0（found/l10n）与 L1 五个
+        // 数值模块（stat/arch/prog/fac）共同贡献表；本类不属于任何一个模块，无法随每次模块给
+        // data/_sample 增补示例表而同步改动。为避免这两条计数断言随后续任务持续失真，
+        // TableCount/RecordCount 改为"至少达到本次改动时的实际值"（>=）而不是精确相等——放宽
+        // 方向选取原因：后续任务只会新增表/新增记录，不会删除已有 L0 表，`>=` 天然兼容"只增不减"
+        // 的演进方向，不需要每次改动都回来同步这两个数字；仍然用精确值锁定的
+        // `found.event_catalog`（80）/`found.input_action`（7）两张 L0 自有表不受本任务影响，
+        // 继续保持精确断言（它们的行数变化理应触发本文件的显式复核）。
         [Fact]
         public void LoadAll_RealSampleData_ZeroIssues_AndPublishesLoadCompleted()
         {
@@ -155,7 +163,12 @@ namespace Tests.Foundation.Data
             DataLoadCompletedEvent? received = null;
             bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, e => received = e);
 
-            var registry = new DataRegistry(source, bus, new DataRegistryOptions());
+            // 判断记录：data/_sample 现含 L1 五个数值模块（stat/arch/prog/fac）贡献的表，本类是
+            // L0 data_registry 自己的测试，不引用任何 L1 模块类型注册对应 schema（L0 不依赖
+            // L1，见 01_分层与依赖.md）；这些表在本测试里改用 FailOnUnknownTable=false 以
+            // "无 schema 表"方式加载（只做信封与主键格式检查，不做字段级校验——字段级校验由
+            // core/numbers/tests/L1SampleDataTests.cs 用真实 L1 schema 覆盖）。
+            var registry = new DataRegistry(source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
             RegisterBuiltins(registry);
 
             var report = registry.LoadAll();
@@ -169,19 +182,19 @@ namespace Tests.Foundation.Data
             Assert.Equal(7, registry.GetAll("found.input_action").Count);
 
             Assert.NotNull(received);
-            Assert.Equal(5, received!.TableCount);
-            Assert.Equal(90, received.RecordCount);
+            Assert.True(received!.TableCount >= 14, $"期望 data/_sample 至少 14 张表，实际 {received.TableCount}");
+            Assert.True(received.RecordCount >= 113, $"期望 data/_sample 至少 113 条记录，实际 {received.RecordCount}");
             Assert.Equal(0, received.ErrorCount);
             Assert.Equal(0, received.WarningCount);
         }
 
         [Fact]
-        public void FileSystemDataSource_WithStubFileSystem_ListsFiveTables()
+        public void FileSystemDataSource_WithStubFileSystem_ListsAllSampleTables()
         {
             var source = BuildRealSampleSource(out _);
             var tables = source.ListTables();
 
-            Assert.Equal(5, tables.Count);
+            Assert.True(tables.Count >= 14, $"期望 data/_sample 至少 14 张表，实际 {tables.Count}");
             var names = new HashSet<string>();
             foreach (var t in tables) names.Add(t.TableName);
             Assert.Contains("found.event_catalog", names);
@@ -189,6 +202,15 @@ namespace Tests.Foundation.Data
             Assert.Contains("l10n.locale", names);
             Assert.Contains("l10n.text", names);
             Assert.Contains("stat.definition", names);
+            Assert.Contains("stat.rating_conversion", names);
+            Assert.Contains("arch.power_type", names);
+            Assert.Contains("arch.class", names);
+            Assert.Contains("arch.race", names);
+            Assert.Contains("arch.talent_tree", names);
+            Assert.Contains("prog.level_curve", names);
+            Assert.Contains("prog.xp_source", names);
+            Assert.Contains("fac.faction", names);
+            Assert.Contains("fac.reaction_matrix", names);
         }
 
         // -----------------------------------------------------------------

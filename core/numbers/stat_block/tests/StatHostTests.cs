@@ -27,6 +27,9 @@ namespace Tests.Numbers.StatBlock
             ]
         }";
 
+        // 判断记录（2026-09-05，设计层裁定）：entries[].level 就是单位等级（取代此前"level 是
+        // 评级原始值自己的插值断点"的判断），见 StatHost.ConvertRating 源码注释。测试曲线的两个
+        // 断点固定在 level 1 与 level 10。
         private const string RatingConversionJson = @"
         {
             ""table"": ""stat.rating_conversion"",
@@ -35,8 +38,8 @@ namespace Tests.Numbers.StatBlock
                 {
                     ""id"": ""stat.rating.test_curve"",
                     ""entries"": [
-                        { ""level"": 0, ""points_per_percent"": 10 },
-                        { ""level"": 100, ""points_per_percent"": 5 }
+                        { ""level"": 1, ""points_per_percent"": 10 },
+                        { ""level"": 10, ""points_per_percent"": 5 }
                     ]
                 }
             ]
@@ -90,7 +93,8 @@ namespace Tests.Numbers.StatBlock
 
         private static (StatHost Host, List<StatChangedEvent> Captured, IEventBus Bus, ValidationReport Report) BuildHost(
             bool enableRatingConversion = false,
-            bool enableResistanceGroup = true)
+            bool enableResistanceGroup = true,
+            LevelLookup? levelLookup = null)
         {
             var captured = new List<StatChangedEvent>();
             var bus = MakeBus(captured);
@@ -101,6 +105,7 @@ namespace Tests.Numbers.StatBlock
             {
                 EnableRatingConversion = enableRatingConversion,
                 EnableResistanceGroup = enableResistanceGroup,
+                LevelLookup = levelLookup,
             });
             return (host, captured, bus, report);
         }
@@ -234,35 +239,76 @@ namespace Tests.Numbers.StatBlock
         }
 
         // -----------------------------------------------------------------
-        // 8~10. 评级换算
+        // 8~12. 评级换算（2026-09-05 设计层裁定：entries[].level 是单位等级，不是评级原始值）
         // -----------------------------------------------------------------
 
         [Fact]
-        public void RatingConversion_EnabledInterpolatesBetweenEntries()
+        public void RatingConversion_SameRawValueDiffersByUnitLevel()
         {
-            var (host, _, _, _) = BuildHost(enableRatingConversion: true);
-            var unit = new Id("unit.t8");
+            var levelByUnit = new Dictionary<Id, int>();
+            LevelLookup lookup = unitId => levelByUnit.TryGetValue(unitId, out var lvl) ? lvl : 1;
+
+            var (host, _, _, _) = BuildHost(enableRatingConversion: true, levelLookup: lookup);
+            var unitLevel1 = new Id("unit.rating_lvl1");
+            var unitLevel10 = new Id("unit.rating_lvl10");
+            host.RegisterUnit(unitLevel1);
+            host.RegisterUnit(unitLevel10);
+            levelByUnit[unitLevel1] = 1;
+            levelByUnit[unitLevel10] = 10;
+
+            host.SetBase(unitLevel1, StatD, 50.0);
+            host.SetBase(unitLevel10, StatD, 50.0);
+
+            // 同一评级原始值 50：1 级 ppp=10 -> percent=5；10 级 ppp=5 -> percent=10。
+            Assert.Equal(5.0, host.GetStat(unitLevel1, StatD), 10);
+            Assert.Equal(10.0, host.GetStat(unitLevel10, StatD), 10);
+        }
+
+        [Fact]
+        public void RatingConversion_MidLevelInterpolatesBetweenEntries()
+        {
+            LevelLookup lookup = _ => 5; // entries 断点 1..10 之间，t = (5-1)/(10-1) = 4/9
+
+            var (host, _, _, _) = BuildHost(enableRatingConversion: true, levelLookup: lookup);
+            var unit = new Id("unit.rating_mid");
             host.RegisterUnit(unit);
 
             host.SetBase(unit, StatD, 50.0);
 
-            // level 0..100 之间线性插值 points_per_percent：10 -> 5，t=0.5 时 ppp=7.5
-            // percent = 50 / 7.5 = 6.6666...7
-            Assert.Equal(50.0 / 7.5, host.GetStat(unit, StatD), 10);
+            // ppp = 10 + 4/9*(5-10) = 70/9；percent = 50 / (70/9) = 45/7
+            Assert.Equal(45.0 / 7.0, host.GetStat(unit, StatD), 10);
         }
 
         [Fact]
-        public void RatingConversion_OutOfRangeClampsToEndpoint()
+        public void RatingConversion_NoLevelLookup_DefaultsToLevelOne()
         {
-            var (host, _, _, _) = BuildHost(enableRatingConversion: true);
-            var unit = new Id("unit.t9");
+            var (host, _, _, _) = BuildHost(enableRatingConversion: true); // 不传 levelLookup
+            var unit = new Id("unit.rating_nolookup");
             host.RegisterUnit(unit);
 
-            host.SetBase(unit, StatD, 200.0); // 超过 level 100 上端点，取 ppp=5
-            Assert.Equal(40.0, host.GetStat(unit, StatD), 10);
+            host.SetBase(unit, StatD, 50.0);
 
-            host.SetBase(unit, StatD, -10.0); // 低于 level 0 下端点，取 ppp=10
-            Assert.Equal(-1.0, host.GetStat(unit, StatD), 10);
+            // 无委托按 1 级处理 -> ppp=10（entries[0]） -> percent = 5
+            Assert.Equal(5.0, host.GetStat(unit, StatD), 10);
+        }
+
+        [Fact]
+        public void RatingConversion_LevelOutOfRangeClampsToEndpoint()
+        {
+            LevelLookup lookupAboveMax = _ => 999; // 越界高端，取 entries[10].ppp=5
+            LevelLookup lookupBelowMin = _ => -5;  // 越界低端，取 entries[1].ppp=10
+
+            var (hostHigh, _, _, _) = BuildHost(enableRatingConversion: true, levelLookup: lookupAboveMax);
+            var unitHigh = new Id("unit.rating_high");
+            hostHigh.RegisterUnit(unitHigh);
+            hostHigh.SetBase(unitHigh, StatD, 50.0);
+            Assert.Equal(10.0, hostHigh.GetStat(unitHigh, StatD), 10); // 50/5
+
+            var (hostLow, _, _, _) = BuildHost(enableRatingConversion: true, levelLookup: lookupBelowMin);
+            var unitLow = new Id("unit.rating_low");
+            hostLow.RegisterUnit(unitLow);
+            hostLow.SetBase(unitLow, StatD, 50.0);
+            Assert.Equal(5.0, hostLow.GetStat(unitLow, StatD), 10); // 50/10
         }
 
         [Fact]

@@ -1,0 +1,7 @@
+{
+  "table": "fac.reaction_matrix",
+  "schema_version": 1,
+  "rows": [
+    { "id": "fac.reaction.player_vs_wildlife", "from": "fac.player", "to": "fac.wildlife", "reaction": "hostile" }
+  ]
+}

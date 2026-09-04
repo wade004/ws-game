@@ -34,12 +34,14 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `stat.rating.<name>` |
-| `entries` | Array | 是 | `[{level: Int, points_per_percent: Number}, ...]`，按 `level` 升序 |
+| `entries` | Array | 是 | `[{level: Int, points_per_percent: Number}, ...]`，按 `level` 升序；`level` 是**单位等级**（见下方判断记录），不是评级原始值 |
 
 `entries` 数组内层结构不由 `data_registry` 的 `field_type` 校验项深入检查（`FieldKind.Array`
 只保证"是数组"），由 `StatHost` 构造期解析时做结构校验（缺字段/类型不对直接抛
 `InvalidOperationException`，因为这属于内容数据的结构性错误，不是运行期可恢复的场景）。
 
-判断记录：`entries[].level` 的含义是曲线自己的插值自变量断点，插值时的自变量取值是
-"待换算的评级原始值本身"（`base + Σflat`），不是角色等级——详见
-`core/StatHost.cs` 的 `ConvertRating` 方法注释与 `README.md`"评级换算"一节。
+判断记录（2026-09-05，设计层裁定，取代原判断记录）：`entries[].level` 就是**单位等级**，插值
+时的自变量是 `StatHostOptions.LevelLookup(unitId)` 查到的等级；`rawValue`（`base + Σflat`，
+"待换算的评级原始值本身"）只在插值算出 `points_per_percent` 之后作被除数
+（`percent = rawValue / pointsPerPercent`），不参与插值本身。`LevelLookup` 为 `null` 时按 1 级
+处理。详见 `core/StatHost.cs` 的 `ConvertRating` 方法注释与 `README.md`"评级换算"一节。

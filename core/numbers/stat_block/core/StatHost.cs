@@ -183,9 +183,9 @@ namespace Core.Numbers.StatBlock
             var unit = RequireUnit(unitId);
             var def = RequireDefinition(stat);
 
-            var oldValue = ComputeFinal(unit, def);
+            var oldValue = ComputeFinal(unitId, unit, def);
             unit.Base[stat] = value;
-            var newValue = ComputeFinal(unit, def);
+            var newValue = ComputeFinal(unitId, unit, def);
             unit.Cache[stat] = newValue;
 
             if (newValue != oldValue)
@@ -211,7 +211,7 @@ namespace Core.Numbers.StatBlock
                 return cached;
             }
 
-            var value = ComputeFinal(unit, def);
+            var value = ComputeFinal(unitId, unit, def);
             unit.Cache[stat] = value;
             return value;
         }
@@ -221,7 +221,7 @@ namespace Core.Numbers.StatBlock
             var unit = RequireUnit(unitId);
             var def = RequireDefinition(modifier.Stat);
 
-            var oldValue = ComputeFinal(unit, def);
+            var oldValue = ComputeFinal(unitId, unit, def);
 
             if (!unit.ModifiersByStat.TryGetValue(modifier.Stat, out var list))
             {
@@ -230,7 +230,7 @@ namespace Core.Numbers.StatBlock
             }
             list.Add(modifier);
 
-            var newValue = ComputeFinal(unit, def);
+            var newValue = ComputeFinal(unitId, unit, def);
             unit.Cache[modifier.Stat] = newValue;
 
             if (newValue != oldValue)
@@ -260,11 +260,11 @@ namespace Core.Numbers.StatBlock
                 if (!hasSource) continue;
 
                 var def = _definitions[stat];
-                var oldValue = ComputeFinal(unit, def);
+                var oldValue = ComputeFinal(unitId, unit, def);
 
                 list.RemoveAll(mod => mod.SourceId == sourceId);
 
-                var newValue = ComputeFinal(unit, def);
+                var newValue = ComputeFinal(unitId, unit, def);
                 unit.Cache[stat] = newValue;
 
                 if (newValue != oldValue)
@@ -285,7 +285,7 @@ namespace Core.Numbers.StatBlock
         // 三段式聚合
         // -----------------------------------------------------------------
 
-        private double ComputeFinal(UnitStats unit, StatDefinition def)
+        private double ComputeFinal(Id unitId, UnitStats unit, StatDefinition def)
         {
             if (def.Group == "resistance" && !_options.EnableResistanceGroup)
             {
@@ -331,7 +331,7 @@ namespace Core.Numbers.StatBlock
 
             if (_options.EnableRatingConversion && def.IsRating)
             {
-                value = ConvertRating(def, value);
+                value = ConvertRating(unitId, def, value);
             }
 
             value *= (1 + pctSum);
@@ -353,19 +353,18 @@ namespace Core.Numbers.StatBlock
         /// <summary>
         /// 评级换算（06 第 1.1 节"某些属性在参与三段式聚合前先过一层评级曲线"）。
         /// <para>
-        /// 判断记录：06/04 均未给出"评级曲线以什么为自变量"的具体定义——魔兽原型（急速评级/
-        /// 命中评级）里评级换算是按角色等级分段的，但 <c>StatHost</c> 的契约（06 第 1.3 节）不
-        /// 接收"单位等级"这个输入，等级由同层但不同模块的 Progression（<c>core/numbers/progression</c>）
-        /// 管理，二者按 01 第 3 节"同层仅契约/仅事件"不能互相持有内部状态，也不应该为了一条
-        /// 换算曲线新增跨模块直接依赖。本实现把 <c>stat.rating_conversion.entries</c> 的
-        /// <c>level</c> 字段当作换算曲线自己的自变量断点（不是角色等级），插值的自变量就是
-        /// 待换算的评级原始值本身（<c>base + Σflat</c>）；这样 <c>StatHost</c> 保持自包含，
-        /// 曲线的断点疏密完全由数据决定，不引入对等级或任何其它模块的依赖。落地时若某游戏确实
-        /// 需要"曲线按角色等级分段"，可以在游戏层按角色等级挑选不同的
-        /// <c>rating_conversion_ref</c>（每个等级段一条独立曲线记录），不需要修改本模块。
+        /// 判断记录（2026-09-05，设计层裁定，取代原判断记录）：曲线 <c>entries[].level</c> 就是
+        /// 单位等级——按等级在 <c>entries</c>（已按 <c>level</c> 升序排列）上线性插值取得
+        /// <c>points_per_percent</c>（越界取端点），再用 <c>percent = rawValue / pointsPerPercent</c>
+        /// 算出换算结果；<c>rawValue</c>（<c>base + Σflat</c>）本身只作为被除数，不参与插值。
+        /// 单位等级经构造期注入的 <see cref="StatHostOptions.LevelLookup"/> 具名委托查询——
+        /// <c>StatHost</c> 仍然不直接引用 <c>core/numbers/progression</c> 的任何类型（01 第 3 节
+        /// "同层仅契约/仅事件"），由调用方把真正的等级来源（如
+        /// <c>IProgressionHost.GetLevel</c>）适配成该委托签名后注入；委托为 <c>null</c> 时等级
+        /// 一律按 1 处理。
         /// </para>
         /// </summary>
-        private double ConvertRating(StatDefinition def, double rawValue)
+        private double ConvertRating(Id unitId, StatDefinition def, double rawValue)
         {
             if (!def.RatingConversionRef.HasValue)
             {
@@ -376,25 +375,23 @@ namespace Core.Numbers.StatBlock
                 return rawValue;
             }
 
+            var level = _options.LevelLookup?.Invoke(unitId) ?? 1;
             var entries = conversion.Entries;
 
-            RatingEntry low;
-            RatingEntry high;
-
-            if (rawValue <= entries[0].Level)
+            if (level <= entries[0].Level)
             {
                 return DivideByPointsPerPercent(rawValue, entries[0].PointsPerPercent);
             }
-            if (rawValue >= entries[entries.Count - 1].Level)
+            if (level >= entries[entries.Count - 1].Level)
             {
                 return DivideByPointsPerPercent(rawValue, entries[entries.Count - 1].PointsPerPercent);
             }
 
-            low = entries[0];
-            high = entries[entries.Count - 1];
+            var low = entries[0];
+            var high = entries[entries.Count - 1];
             for (int i = 0; i < entries.Count - 1; i++)
             {
-                if (rawValue >= entries[i].Level && rawValue <= entries[i + 1].Level)
+                if (level >= entries[i].Level && level <= entries[i + 1].Level)
                 {
                     low = entries[i];
                     high = entries[i + 1];
@@ -402,7 +399,7 @@ namespace Core.Numbers.StatBlock
                 }
             }
 
-            var t = (rawValue - low.Level) / (double)(high.Level - low.Level);
+            var t = (level - low.Level) / (double)(high.Level - low.Level);
             var pointsPerPercent = low.PointsPerPercent + t * (high.PointsPerPercent - low.PointsPerPercent);
             return DivideByPointsPerPercent(rawValue, pointsPerPercent);
         }

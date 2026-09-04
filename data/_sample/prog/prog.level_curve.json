@@ -1,0 +1,15 @@
+{
+  "table": "prog.level_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "prog.curve.sample",
+      "max_level": 3,
+      "entries": [
+        { "level": 1, "xp_to_next": 100, "growth": {} },
+        { "level": 2, "xp_to_next": 200, "growth": { "stat.strength": 2, "stat.stamina": 3 } },
+        { "level": 3, "xp_to_next": 0, "growth": { "stat.strength": 2, "stat.stamina": 3 } }
+      ]
+    }
+  ]
+}

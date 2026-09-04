@@ -1,0 +1,11 @@
+{
+  "table": "arch.race",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "arch.race.sample_a",
+      "name_key": "l10n.race.sample_a.name",
+      "stat_mods": { "stat.strength": 1, "stat.stamina": 1 }
+    }
+  ]
+}

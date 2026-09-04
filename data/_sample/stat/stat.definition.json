@@ -2,6 +2,9 @@
   "table": "stat.definition",
   "schema_version": 1,
   "rows": [
-    { "id": "stat.strength", "name_key": "l10n.stat.strength.name", "group": "primary" }
+    { "id": "stat.strength", "name_key": "l10n.stat.strength.name", "group": "primary" },
+    { "id": "stat.stamina", "name_key": "l10n.stat.stamina.name", "group": "primary" },
+    { "id": "stat.armor", "name_key": "l10n.stat.armor.name", "group": "derived" },
+    { "id": "stat.crit_rating", "name_key": "l10n.stat.crit_rating.name", "group": "secondary", "is_rating": true, "rating_conversion_ref": "stat.rating.crit" }
   ]
 }

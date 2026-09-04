@@ -1,0 +1,7 @@
+{
+  "table": "prog.xp_source",
+  "schema_version": 1,
+  "rows": [
+    { "id": "prog.xp.kill_sample", "base_xp": 50, "weight": 1 }
+  ]
+}

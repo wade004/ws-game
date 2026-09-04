@@ -1,0 +1,13 @@
+{
+  "table": "stat.rating_conversion",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "stat.rating.crit",
+      "entries": [
+        { "level": 1, "points_per_percent": 50 },
+        { "level": 3, "points_per_percent": 20 }
+      ]
+    }
+  ]
+}

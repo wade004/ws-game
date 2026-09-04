@@ -2,6 +2,15 @@
   "table": "l10n.text",
   "schema_version": 1,
   "rows": [
-    { "key": "l10n.stat.strength.name", "locale": "l10n.locale.zh_cn", "text": "力量" }
+    { "key": "l10n.stat.strength.name", "locale": "l10n.locale.zh_cn", "text": "力量" },
+    { "key": "l10n.stat.stamina.name", "locale": "l10n.locale.zh_cn", "text": "耐力" },
+    { "key": "l10n.stat.armor.name", "locale": "l10n.locale.zh_cn", "text": "护甲" },
+    { "key": "l10n.stat.crit_rating.name", "locale": "l10n.locale.zh_cn", "text": "暴击等级" },
+    { "key": "l10n.power.health.name", "locale": "l10n.locale.zh_cn", "text": "生命值" },
+    { "key": "l10n.power.mana.name", "locale": "l10n.locale.zh_cn", "text": "法力值" },
+    { "key": "l10n.class.sample_a.name", "locale": "l10n.locale.zh_cn", "text": "示例职业A" },
+    { "key": "l10n.race.sample_a.name", "locale": "l10n.locale.zh_cn", "text": "示例种族A" },
+    { "key": "l10n.faction.player.name", "locale": "l10n.locale.zh_cn", "text": "玩家阵营" },
+    { "key": "l10n.faction.wildlife.name", "locale": "l10n.locale.zh_cn", "text": "野生生物" }
   ]
 }

@@ -1,0 +1,8 @@
+{
+  "table": "fac.faction",
+  "schema_version": 1,
+  "rows": [
+    { "id": "fac.player", "name_key": "l10n.faction.player.name", "default_reaction": "friendly" },
+    { "id": "fac.wildlife", "name_key": "l10n.faction.wildlife.name", "default_reaction": "neutral" }
+  ]
+}

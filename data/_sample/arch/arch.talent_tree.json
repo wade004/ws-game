@@ -1,0 +1,13 @@
+{
+  "table": "arch.talent_tree",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "arch.talent_tree.sample",
+      "nodes": [
+        { "id": "node_a", "prerequisites": [], "cost": 1, "grants": {} },
+        { "id": "node_b", "prerequisites": ["node_a"], "cost": 1, "grants": {} }
+      ]
+    }
+  ]
+}
