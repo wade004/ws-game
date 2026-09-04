@@ -153,7 +153,8 @@ namespace Tests.Foundation.Data
         // TableCount/RecordCount 改为"至少达到本次改动时的实际值"（>=）而不是精确相等——放宽
         // 方向选取原因：后续任务只会新增表/新增记录，不会删除已有 L0 表，`>=` 天然兼容"只增不减"
         // 的演进方向，不需要每次改动都回来同步这两个数字；仍然用精确值锁定的
-        // `found.event_catalog`（80）/`found.input_action`（7）两张 L0 自有表不受本任务影响，
+        // `found.event_catalog`（87，2026-09-05 事件命名勘误后：改名 3 行 + 新增 7 行）/
+        // `found.input_action`（7）两张 L0 自有表不受本任务影响，
         // 继续保持精确断言（它们的行数变化理应触发本文件的显式复核）。
         [Fact]
         public void LoadAll_RealSampleData_ZeroIssues_AndPublishesLoadCompleted()
@@ -178,7 +179,7 @@ namespace Tests.Foundation.Data
             Assert.False(report.IsBlocking);
 
             Assert.NotNull(registry.Get("stat.definition", new Id("stat.strength")));
-            Assert.Equal(80, registry.GetAll("found.event_catalog").Count);
+            Assert.Equal(87, registry.GetAll("found.event_catalog").Count);
             Assert.Equal(7, registry.GetAll("found.input_action").Count);
 
             Assert.NotNull(received);

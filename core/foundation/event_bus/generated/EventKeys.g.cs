@@ -99,11 +99,20 @@ namespace Core.Foundation.EventBus
         /// <summary>economy.vendor_restocked — 字段：vendorId。商人限量库存按刷新周期重置时触发（见 01 L4 模块表 economy 行、08 第 7、9 节）；字段为建议值。</summary>
         public static readonly Id EconomyVendorRestocked = new Id("economy.vendor_restocked");
 
-        /// <summary>encounter.completed — 字段：encounterId, result。遭遇结算完成时触发（见 01 L4 模块表 encounter 行）；08 第 9 节契约汇总表另记 encounter.won/encounter.lost 两个细分事件、无 encounter.completed，与本行是否为同一事件的替代命名待设计层核对，本行按 01 原文登记，字段为建议值。</summary>
-        public static readonly Id EncounterCompleted = new Id("encounter.completed");
+        /// <summary>encounter.lost — 字段：encounterId。遭遇结算失败时触发，与 encounter.won 对应（见 08 第 9 节契约汇总表）；字段为建议值，新增行。</summary>
+        public static readonly Id EncounterLost = new Id("encounter.lost");
 
         /// <summary>encounter.phase_changed — 字段：encounterId, oldPhase, newPhase。遭遇阶段切换时触发（见 01 L4 模块表 encounter 行、08 第 9 节契约汇总）；字段为建议值。</summary>
         public static readonly Id EncounterPhaseChanged = new Id("encounter.phase_changed");
+
+        /// <summary>encounter.started — 字段：encounterId。遭遇开始时触发（见 08 第 9 节契约汇总表）；字段为建议值，新增行。</summary>
+        public static readonly Id EncounterStarted = new Id("encounter.started");
+
+        /// <summary>encounter.wave_spawned — 字段：encounterId, waveIndex, entityIds。遭遇波次生成时触发（见 08 第 9 节契约汇总表）；字段为建议值，新增行。</summary>
+        public static readonly Id EncounterWaveSpawned = new Id("encounter.wave_spawned");
+
+        /// <summary>encounter.won — 字段：encounterId。遭遇结算胜利时触发（见 01 L4 模块表 encounter 行）；原名 encounter.completed，2026-09-05 勘误改名为 encounter.won（见 07/08 第 9 节契约汇总表），并拆分出 encounter.started/encounter.wave_spawned/encounter.lost；字段为建议值。</summary>
+        public static readonly Id EncounterWon = new Id("encounter.won");
 
         /// <summary>entity.created — 字段：entityId, kind, displayId。WorldSim 把新逻辑对象加入集合时触发，供 ViewBinder 创建 View（见 03 第 5 节逻辑对象与 View 的绑定协议）。</summary>
         public static readonly Id EntityCreated = new Id("entity.created");
@@ -114,11 +123,11 @@ namespace Core.Foundation.EventBus
         /// <summary>faction.relation_changed — 字段：factionId, otherFactionId, oldReaction, newReaction。阵营间敌对/中立/友好关系变化时触发（见 01 L1 模块表 faction 行、04 第 fac.reaction_matrix 说明）；字段为建议值。</summary>
         public static readonly Id FactionRelationChanged = new Id("faction.relation_changed");
 
+        /// <summary>gobj.interacted — 字段：unitId, gobjInstanceId。GameObjectHost.interact 交互触发时发出（见 01 L3 模块表 gobj 行、07 第 3.6 节 interact 契约）；原名 gobj.used，2026-09-05 勘误改名为 gobj.interacted（见 07/08 第 9 节契约汇总表）；字段为建议值。</summary>
+        public static readonly Id GobjInteracted = new Id("gobj.interacted");
+
         /// <summary>gobj.state_changed — 字段：gobjInstanceId, stateKey, oldValue, newValue。GameObject.state 可变字段变化时触发，对应一次 WorldState.set（见 01 L3 模块表 gobj 行、07 第 3.4 节、07 第 9 节契约汇总"对应一次 WorldState.set"）；字段为建议值。</summary>
         public static readonly Id GobjStateChanged = new Id("gobj.state_changed");
-
-        /// <summary>gobj.used — 字段：unitId, gobjInstanceId。GameObjectHost.interact 交互触发时发出（见 01 L3 模块表 gobj 行、07 第 3.6 节 interact 契约）；07 第 9 节契约汇总另记为 gobj.interacted，与本行是否为同一事件的替代命名待设计层核对，本行按 01 原文登记，字段为建议值。</summary>
-        public static readonly Id GobjUsed = new Id("gobj.used");
 
         /// <summary>hook.invoked — 字段：hookId。HookRegistry.invoke 被调用（调试用，见 01 模块表 hook_registry 行）；字段为建议值。</summary>
         public static readonly Id HookInvoked = new Id("hook.invoked");
@@ -129,17 +138,23 @@ namespace Core.Foundation.EventBus
         /// <summary>input.rebind_conflict — 字段：actionName, binding。重绑定检测到冲突（见 01 模块表 input_map 行、03 第 7 节）；字段为建议值。</summary>
         public static readonly Id InputRebindConflict = new Id("input.rebind_conflict");
 
-        /// <summary>item.acquired — 字段：unitId, itemInstanceId, itemTemplateId, count。物品加入背包时触发（见 01 L3 模块表 item 行、07 第 1.3 节 InventoryHost.addItem 契约）；07 第 9 节契约汇总另记为 item.added（并另有 item.removed），与本行是否为同一事件的替代命名待设计层核对，本行按 01 原文登记，字段为建议值。</summary>
-        public static readonly Id ItemAcquired = new Id("item.acquired");
+        /// <summary>item.added — 字段：unitId, itemInstanceId, itemTemplateId, count。物品加入背包时触发（见 01 L3 模块表 item 行、07 第 1.3 节 InventoryHost.addItem 契约）；原名 item.acquired，2026-09-05 勘误改名为 item.added（见 07/08 第 9 节契约汇总表），并新增 item.removed 细分事件；字段为建议值。</summary>
+        public static readonly Id ItemAdded = new Id("item.added");
 
         /// <summary>item.equipped — 字段：unitId, itemInstanceId, slot。装备穿戴生效后触发，供纸娃娃层更新对应槽位（见 07 第 1.4 节原文、01 L3 模块表 item 行）；字段为建议值。</summary>
         public static readonly Id ItemEquipped = new Id("item.equipped");
+
+        /// <summary>item.removed — 字段：unitId, itemInstanceId, count, reason。物品从背包移除时触发，与 item.added 对应（见 07 第 9 节契约汇总表）；字段为建议值，新增行。</summary>
+        public static readonly Id ItemRemoved = new Id("item.removed");
 
         /// <summary>item.unequipped — 字段：unitId, slot, itemInstanceId。装备卸下后触发，供纸娃娃层移除对应槽位（见 07 第 1.4 节原文、01 L3 模块表 item 行）；字段为建议值。</summary>
         public static readonly Id ItemUnequipped = new Id("item.unequipped");
 
         /// <summary>l10n.language_changed — 字段：locale。L10nHost.setLocale 切换语言完成（见 01 模块表 localization 行、03 第 9 节 L10nHost）；字段为建议值。</summary>
         public static readonly Id L10nLanguageChanged = new Id("l10n.language_changed");
+
+        /// <summary>loot.picked_up — 字段：unitId, lootInstanceId, items。拾取掉落物完成时触发（见 08 第 9 节契约汇总表）；字段为建议值，新增行。</summary>
+        public static readonly Id LootPickedUp = new Id("loot.picked_up");
 
         /// <summary>loot.rolled — 字段：tableId, contextId, items。LootHost.roll 完成一次掉落抽取后触发（见 01 L4 模块表 loot 行、08 第 9 节）；字段为建议值。</summary>
         public static readonly Id LootRolled = new Id("loot.rolled");
@@ -168,8 +183,14 @@ namespace Core.Foundation.EventBus
         /// <summary>quest.completed — 字段：unitId, questId。任务完成判定时触发（见 01 L4 模块表 quest 行、08 第 9 节）；08 第 9 节契约汇总另记 quest.turned_in（交任务）、quest.failed（失败）两个细分事件，与本行的完整覆盖关系待设计层核对，本行按 01 原文登记，字段为建议值。</summary>
         public static readonly Id QuestCompleted = new Id("quest.completed");
 
+        /// <summary>quest.failed — 字段：unitId, questId, reason。任务失败判定时触发（见 08 第 9 节契约汇总表）；字段为建议值，新增行。</summary>
+        public static readonly Id QuestFailed = new Id("quest.failed");
+
         /// <summary>quest.objective_progress — 字段：unitId, questId, objectiveId, progress。任务目标推进时触发（见 01 L4 模块表 quest 行、08 第 9 节）；字段为建议值。</summary>
         public static readonly Id QuestObjectiveProgress = new Id("quest.objective_progress");
+
+        /// <summary>quest.turned_in — 字段：unitId, questId。任务交还完成时触发（见 08 第 9 节契约汇总表）；字段为建议值，新增行。</summary>
+        public static readonly Id QuestTurnedIn = new Id("quest.turned_in");
 
         /// <summary>save.completed — 字段：slotId。存档写入完成（见 01 模块表 save_system 行）；字段为建议值。</summary>
         public static readonly Id SaveCompleted = new Id("save.completed");
@@ -282,20 +303,25 @@ namespace Core.Foundation.EventBus
             EconomyItemPurchased,
             EconomyItemSold,
             EconomyVendorRestocked,
-            EncounterCompleted,
+            EncounterLost,
             EncounterPhaseChanged,
+            EncounterStarted,
+            EncounterWaveSpawned,
+            EncounterWon,
             EntityCreated,
             EntityDestroyed,
             FactionRelationChanged,
+            GobjInteracted,
             GobjStateChanged,
-            GobjUsed,
             HookInvoked,
             InputActionTriggered,
             InputRebindConflict,
-            ItemAcquired,
+            ItemAdded,
             ItemEquipped,
+            ItemRemoved,
             ItemUnequipped,
             L10nLanguageChanged,
+            LootPickedUp,
             LootRolled,
             PowerChanged,
             PowerDepleted,
@@ -305,7 +331,9 @@ namespace Core.Foundation.EventBus
             ProgressionXpGained,
             QuestAccepted,
             QuestCompleted,
+            QuestFailed,
             QuestObjectiveProgress,
+            QuestTurnedIn,
             SaveCompleted,
             SaveLoaded,
             SaveMigrated,
