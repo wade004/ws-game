@@ -5,29 +5,44 @@
 // 可玩世界"的既有装配范例）+ presentation/assembly/README.md 的 PresentationAssembly 装配顺序，
 // 见 BuildWorld 内部注释逐段对应。
 //
-// 表现层铁律落地（任务硬性规则 6）：本类型只在 FixedUpdate 里推进 WorldSim.Tick（固定步长，
-// Time.fixedDeltaTime 本身是引擎的固定配置值，不是变帧率的挂钟时间，判断记录同
-// Adapter.Unity.EngineAdapter.UnityClock 顶部注释"确定性判断记录"）；Update 只做表现（
-// ViewBinder.SyncAll/CameraHost.Update 插值同步、三个反馈接收器的 Tick）。玩家操作一律先经
-// IInputMapHost 转成"意图"（移动/普攻/技能 1 走 IWorldSim.SubmitIntent，见 HandleFixedInput）或
-// 窄契约调用（交互走 GameObjectHost.Interact，见类型注释判断记录 2），不直接改 WorldSim/Carriers
-// 的任何状态。
+// 表现层铁律落地（任务硬性规则 6）：本类型不再直接驱动模拟——固定步长节拍改经
+// IClock.RequestFixedStep 注册（见下方"判断记录 1"），回调内调用 GameplayAssembly.Advance
+// （连续模式下等价于原先的 World.Tick(SimStep.Continuous(...))，见该方法契约）；帧插值改经
+// IClock.OnFrame 注册（ViewBinder.SyncAll/CameraHost.Update 插值同步、三个反馈接收器的 Tick）。
+// 玩家操作一律先经 IInputMapHost 转成"意图"（移动/普攻/技能 1 走 IWorldSim.SubmitIntent，见
+// HandleFixedInput）或窄契约调用（交互走 GameObjectHost.Interact，见类型注释判断记录 2），不直接
+// 改 WorldSim/Carriers 的任何状态。
 //
-// 判断记录 1（固定步驱动为什么不用 IClock.RequestFixedStep——原因已由 ADR-0016 部分解决，
-// 但保留现有 FixedUpdate 直驱写法）：UnityEngineHost 是 DontDestroyOnLoad 的组合根，其持有的
-// UnityClock 跨场景重进持续存活；此前 IClock 契约（02 第 1.2 节）只有注册方法，没有取消注册的
-// 方法，若改用 host.Clock.RequestFixedStep 注册一个闭包捕获本次 World 实例的固定步回调，场景重进
-// 时旧回调永远无法注销，会残留对着一个没有任何代码再读取的旧 World 做无意义的 Tick。ADR-0016
-// 决策 1 已经给 RequestFixedStep 补上 SubscriptionHandle 返回值，这条限制本身已解除；本类型仍然
-//保留直接在 GameFoundationBootstrap 自己的 MonoBehaviour FixedUpdate/Update 里驱动的写法——
-// 这两个方法只在本组件存活期间被引擎调用，场景卸载销毁本组件后自动停止，天然不残留任何注册，
-// 与"改经 RequestFixedStep 注册 + Dispose 退订"在效果上等价，前者不需要额外持有并退订句柄，
-// 属于同一结果的两种实现路径，本类型选择改动面更小的一种，不代表 RequestFixedStep 的
-// SubscriptionHandle 返回值没有用武之地——core/carriers/unit 等真正跨场景常驻、需要在"重建世界"
-// 这个明确时机主动退订的调用方（而非"随宿主组件销毁自然停止"）应该使用它，见该方法契约注释。
-// 插值 alpha 用"Update 累加、FixedUpdate 清零"的标准写法（与 Core.Foundation.SimLoop.SimClockHost
-// 内部累积器算法同一思路，只是不复用该类型——SimClockHost 自己内部调用 world.Tick，与"由
-// FixedUpdate 直接调用"是两种互斥的驱动方式，不能既注册给 SimClockHost 又自己再调一次）。
+// 判断记录 1（固定步驱动改走 IClock.RequestFixedStep，引擎侧收口任务）：此前本类型保留
+// MonoBehaviour FixedUpdate/Update 直驱写法，原因是"IClock 契约只有注册方法、没有取消注册方法"；
+// ADR-0016 决策 1 已经给 RequestFixedStep/OnFrame 补上 SubscriptionHandle 返回值，02 第 1.2 节把
+// requestFixedStep 定为"主循环驱动固定步长的唯一入口"，这条限制已经解除，不再有理由绕开它——
+// 本类型改为在 BuildWorld 末尾用 host.Clock.RequestFixedStep(Time.fixedDeltaTime, OnFixedStep)/
+// host.Clock.OnFrame(OnFrameTick) 各注册一次，持有返回的 SubscriptionHandle，
+// OnDestroy 里显式 Dispose 退订（见该方法）——场景卸载时机与"组件销毁自然停止"完全一致，只是
+// 现在显式表达为退订而不是隐式依赖 MonoBehaviour 生命周期，与 core/carriers/unit 等真正跨场景
+// 常驻调用方使用同一套契约，不再是两套并存的驱动方式。固定步长直接取 Time.fixedDeltaTime（Unity
+// 自身的固定步长本就是恒定配置值，非变帧率挂钟时间），与内部构造的 SimClockHost 的 StepSeconds
+// 取同一个值，两者按相同节拍推进，误差为零（不是"≤5%"这条性能约定里退让的近似值）。
+//
+// 判断记录 1b（combatParticipantsResolver 恒返回空列表——本类型保持连续模式，不接入真实离散
+// 战斗）：GameplayAssembly 构造函数只要 clockHost 非空就会同时装配 TurnScheduler/TimeModelSwitch
+// （见该构造函数第 3.5/10.5 步，两者共用同一个"clockHost != null"门槛，没有单独关闭
+// TimeModelSwitch 又保留 clockHost 的公开开关）——本类型为满足 02 第 1.2 节固定步契约，必须传入
+// clockHost 才能调用 Advance；而 data/_sample/found/found.time_model.json 的 combat 行现已声明
+// mode=discrete（另一并行任务落地），一旦 TimeModelSwitch 真的按半径+阵营解析出参战单位切换到
+// 离散模式，GreyBoxTests.cs 全部战斗相关用例会在 awaiting_input 子态卡死——core/ 目前没有任何
+// 调用方把 HandleFixedInput 提交的 cast/move 意图改经 TurnScheduler.SubmitIntent（离散模式下
+// TurnScheduler.NextStep 只有经它提交意图才会让 _hasPendingIntentForCurrentActor 变真，绕开它
+// 直接 World.SubmitIntent 永远无法解除 awaiting_input），且离散步不推进 SimTimers（04/03 既定
+// 设计——计时器换算只发生在模式切换那一刻），光环/冷却类效果在离散战斗里会随之"冻结"。这两处
+// 都是 core/ 侧的既有能力边界（不在本任务允许改动的 core/data 范围内解决），本类型因此把
+// combatParticipantsResolver 固定传一个恒返回空列表的委托——TimeModelSwitch.ResolveParticipants
+// 拿到空列表时 SwitchToDiscrete 直接提前返回（见该方法源码），战斗因此保持连续模式，与本次任务
+// 之前的行为完全一致，全部既有 PlayMode 用例不受影响。真正的离散战斗回合制引擎侧接线（HUD、
+// EndTurn、AI 回合、presentation.playback_finished 回放门）已经落地并独立验证，见
+// Tests/Runtime/DiscreteCombatTests.cs（该测试自建一份不经过本类型的 GameplayAssembly，
+// combatParticipantsResolver 用默认真实解析）与交付报告"判断记录"一节。
 //
 // 判断记录 2（交互此前是窄契约调用，已由 ADR-0016 改为提交意图）：core/carriers/gobj 的
 // GameObjectHost.Interact 是一个直接方法调用（见该类型签名 InteractResult Interact(Id unitId,
@@ -104,6 +119,12 @@ namespace Adapter.Unity.Bootstrap
         [Header("模拟")]
         [SerializeField] private ulong _seed = 20260905UL;
 
+        /// <summary>ADR-0013 节奏策略：true（默认）=等待表现层回放完毕（<see cref="WaitForPlaybackPacingPolicy"/>，
+        /// 03 §3.2 离散模式默认节奏），false=不等待（<see cref="ImmediatePacingPolicy"/>）。见文件顶部
+        /// "判断记录 1b"——本类型的 combatParticipantsResolver 恒空，战斗保持连续模式，本开关只决定
+        /// GameplayAssembly.Pacing 装配成哪一种实现，不影响本类型当前的实际行为。</summary>
+        [SerializeField] private bool _pacingWaitForPlayback = true;
+
         // -----------------------------------------------------------------
         // 消费 found.input_action 表声明的动作 id（见文件顶部"判断记录 3"，动作本身现由数据表
         // 声明，本类型不再代码内补充/绕开）。
@@ -126,7 +147,7 @@ namespace Adapter.Unity.Bootstrap
         public FlashReceiver? Flash { get; private set; }
 
         /// <summary>数据集加载/世界装配阶段出现阻断性错误时为真（见 <see cref="BuildWorld"/>）；
-        /// 为真时 <see cref="Update"/>/<see cref="FixedUpdate"/> 不做任何事，已经
+        /// 为真时不注册 <see cref="OnFixedStep"/>/<see cref="OnFrameTick"/>，已经
         /// <c>Debug.LogError</c> 过具体原因。</summary>
         public bool BootstrapFailed { get; private set; }
 
@@ -134,6 +155,11 @@ namespace Adapter.Unity.Bootstrap
         private IEventBus _bus = null!;
         private double _interpAccumulator;
         private readonly Dictionary<string, bool> _wasActionActive = new Dictionary<string, bool>(StringComparer.Ordinal);
+
+        /// <summary>见文件顶部"判断记录 1"：固定步/帧回调改经 <see cref="Core.Foundation.EngineAdapter.IClock"/>
+        /// 注册，本类型持有返回的句柄，<see cref="OnDestroy"/> 里显式退订。</summary>
+        private Core.Foundation.Common.SubscriptionHandle? _fixedStepHandle;
+        private Core.Foundation.Common.SubscriptionHandle? _frameHandle;
 
         private void Awake()
         {
@@ -210,11 +236,25 @@ namespace Adapter.Unity.Bootstrap
             // 事件被静默吞掉——SaveSlotsViewModel 正是靠订阅这两个事件才在存读档后自动刷新槽位列表
             // （见 presentation/ui/README.md），漏传 bus 会让存档槽 UI 表现为"存了档但列表看不到"。
             var saveSystem = new SaveSystem(_host.FileSystem, new SaveSystemOptions(new Id("game.greybox_demo")), _bus);
+
+            // ADR-0013/02 §1.2 固定步契约：clockHost 交给 host.Clock.RequestFixedStep 注册的回调
+            // （见 BuildWorld 末尾）驱动，stepSeconds 与该注册用的 Time.fixedDeltaTime 取同一个值，
+            // 两者按相同节拍推进（误差为零）。pacingPolicy 按 Inspector 开关二选一；
+            // combatParticipantsResolver 恒返回空列表——见文件顶部"判断记录 1b"。
+            var clockHost = new Core.Foundation.SimLoop.SimClockHost(
+                world, new Core.Foundation.SimLoop.SimLoopOptions { StepSeconds = Time.fixedDeltaTime });
+            IPacingPolicy pacingPolicy = _pacingWaitForPlayback
+                ? new WaitForPlaybackPacingPolicy()
+                : new ImmediatePacingPolicy();
+
             var gameplay = new GameplayAssembly(
                 _bus, registry, rng, world, _host.SpatialQuery, saveSystem,
                 playerUnitProvider: () => PlayerId,
                 playerFactionId: factionId,
-                navigation: _host.Navigation2D);
+                navigation: _host.Navigation2D,
+                clockHost: clockHost,
+                pacingPolicy: pacingPolicy,
+                combatParticipantsResolver: _ => Array.Empty<Id>());
             Gameplay = gameplay;
 
             var player = new PlayerUnit(PlayerId, mapId, factionId, classId)
@@ -342,6 +382,25 @@ namespace Adapter.Unity.Bootstrap
             // Adapter.Unity.Shell.FrameworkResidentHost 的同名判断记录同一处理，两条独立的
             // 装配路径（灰盒/Shell）各自订阅一次，互不影响。
             _bus.Subscribe(Core.Rules.Common.RulesEventKeys.UnitDied, OnUnitDied);
+
+            // ---------------------------------------------------------
+            // 7) ADR-0013 §9："表现层发出 presentation.playback_finished 后由调用方转发到
+            //    GameplayAssembly.NotifyPlaybackFinished()"——WaitForPlaybackPacingPolicy 本身不
+            //    持有 IEventBus、不会自行订阅（见该类型源码），这一步接线只能由引擎侧完成。见文件
+            //    顶部"判断记录 1b"：本类型的战斗保持连续模式，Pacing 因此实际不会进入
+            //    playing_back 节奏门，本订阅目前是安全的空操作，但契约上应当接好（数据/游戏层今后
+            //    改用真实 combatParticipantsResolver 时不需要再补这一行）。
+            // ---------------------------------------------------------
+            _bus.Subscribe(Core.Foundation.EventBus.EventKeys.PresentationPlaybackFinished,
+                _ => Gameplay!.NotifyPlaybackFinished());
+
+            // ---------------------------------------------------------
+            // 8) 固定步/帧回调改经 IClock 注册（见文件顶部"判断记录 1"）：删除此前的 MonoBehaviour
+            //    FixedUpdate/Update 直驱写法，改为持有 RequestFixedStep/OnFrame 返回的
+            //    SubscriptionHandle，OnDestroy 里显式退订。
+            // ---------------------------------------------------------
+            _fixedStepHandle = _host.Clock.RequestFixedStep(Time.fixedDeltaTime, OnFixedStep);
+            _frameHandle = _host.Clock.OnFrame(OnFrameTick);
         }
 
         private void OnUnitDied(IEvent evt)
@@ -360,9 +419,21 @@ namespace Adapter.Unity.Bootstrap
             _host.SpatialQuery.Unregister(died.UnitId);
         }
 
-        private void FixedUpdate()
+        /// <summary>由 <see cref="_fixedStepHandle"/>（<c>host.Clock.RequestFixedStep</c>）驱动，
+        /// 取代此前的 MonoBehaviour FixedUpdate（见文件顶部"判断记录 1"）。<paramref name="stepSeconds"/>
+        /// 恒等于注册时传入的 <c>Time.fixedDeltaTime</c>。节奏门：<see cref="WaitForPlaybackPacingPolicy"/>
+        /// 模式下，若上一个离散步仍在等待表现层回放完毕（<c>IsPlaybackFinished == false</c>），本次
+        /// 回调跳过 <see cref="GameplayAssembly.Advance"/>——03 第 9 节"调用方在推进下一离散步之前
+        /// 调用一次 IsPlaybackFinished 判定是否可以推进"正是这一层判定；见文件顶部"判断记录 1b"，
+        /// 本类型战斗保持连续模式，这条门槛目前恒为真、不产生任何跳过。</summary>
+        private void OnFixedStep(double stepSeconds)
         {
-            if (BootstrapFailed || World == null || Presentation == null)
+            if (BootstrapFailed || World == null || Presentation == null || Gameplay == null)
+            {
+                return;
+            }
+
+            if (Gameplay.Pacing is WaitForPlaybackPacingPolicy waitForPlayback && !waitForPlayback.IsPlaybackFinished)
             {
                 return;
             }
@@ -372,7 +443,7 @@ namespace Adapter.Unity.Bootstrap
             Presentation.InputMap.Update(_host.Input);
             HandleFixedInput();
 
-            World.Tick(SimStep.Continuous(Time.fixedDeltaTime));
+            Gameplay.Advance(stepSeconds);
         }
 
         private void HandleFixedInput()
@@ -422,32 +493,45 @@ namespace Adapter.Unity.Bootstrap
             }
         }
 
-        private void Update()
+        /// <summary>由 <see cref="_frameHandle"/>（<c>host.Clock.OnFrame</c>）驱动，取代此前的
+        /// MonoBehaviour Update（见文件顶部"判断记录 1"）：表现插值 + 三个反馈接收器的 Tick，同时
+        /// 按 <c>Presentation.Feedback.Update(dt)</c> 推进离散模式的顺序播放队列（09 第 6.4 节；
+        /// <see cref="Presentation.FeedbackBinder.Core.PlaybackQueue"/> 队列非空时才有实际推进，见该
+        /// 类型 Immediate/Sequential 两种模式的注释）。</summary>
+        private void OnFrameTick(double unscaledDelta)
         {
             if (BootstrapFailed || Presentation == null)
             {
                 return;
             }
 
-            var unscaledDelta = Time.unscaledDeltaTime;
             _interpAccumulator += unscaledDelta;
             var alpha = Mathf.Clamp01((float)(_interpAccumulator / Math.Max(Time.fixedDeltaTime, 0.0001f)));
 
-            // 顿帧只暂停表现层插值/相机，不影响 FixedUpdate 里的逻辑 tick（见 FreezeFrameReceiver
-            // 顶部判断记录）。
+            // 顿帧只暂停表现层插值/相机，不影响固定步里的逻辑推进（见 FreezeFrameReceiver 顶部
+            // 判断记录）。
             if (!Freeze!.IsFrozen)
             {
                 Presentation.ViewBinder.SyncAll(alpha);
                 Presentation.Camera.Update(alpha);
             }
 
-            FloatingText!.Tick(unscaledDelta);
+            Presentation.Feedback.Update(unscaledDelta);
+
+            FloatingText!.Tick((float)unscaledDelta);
             Freeze.Tick(unscaledDelta);
             Flash!.Tick(unscaledDelta);
         }
 
         private void OnDestroy()
         {
+            // 见文件顶部"判断记录 1"：固定步/帧回调改经 IClock 注册，场景卸载/组件销毁时显式退订，
+            // 避免旧回调残留继续对着一个没有任何代码再读取的旧 World/Presentation 做无意义调用。
+            _fixedStepHandle?.Dispose();
+            _fixedStepHandle = null;
+            _frameHandle?.Dispose();
+            _frameHandle = null;
+
             // 见 Adapter.Unity.Presentation.UnityViewFactory 顶部判断记录：ViewBinder/CameraHost
             // 不支持退订是 presentation/ 的已知缺口，本方法在引擎侧尽力而为地清理——退订能退订的
             // 部分（Presentation.Dispose()），再销毁全部本次场景创建过的 View（避免其 Sprite 实例

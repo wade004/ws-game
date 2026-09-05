@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Core.Foundation.Common;
+using Core.Gameplay.Assembly;
 using Presentation.Assembly;
 using Presentation.Ui;
 using TMPro;
@@ -318,6 +319,91 @@ namespace Adapter.Unity.Ui.Panels
                     break;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// 回合状态 HUD（ADR-0013 离散时间模型引擎侧接线，03 第 2/3 节）：显示当前行动者与轮次，
+    /// <c>awaiting_input</c> 子态下显示"结束回合"按钮。
+    /// <para>
+    /// 判断记录（不走 <see cref="UiPanel"/>/<see cref="UiPanelHost"/> 登记表这条既有路径）：
+    /// <see cref="UiPanel"/> 是文档明确拍板的"十个值，与十个视图模型一一对应"的封闭枚举（见该
+    /// 类型注释"保证……严格对齐，不产生……孤儿"），"状态栏"这类零散元素按既有判断记录应"并入
+    /// Hud"而不是新增第十一个枚举值——但 <see cref="HudViewModel"/> 属于 <c>presentation/ui</c>，
+    /// 不认识 <c>Core.Foundation.SimLoop.TurnScheduler</c>（回合制是 ADR-0013 新增的 L0 概念，
+    /// 未接入既有十个视图模型的任何一个）。改 <c>presentation/ui</c> 给 <c>HudViewModel</c>
+    /// 追加回合字段不属于"引擎侧接线被阻断时的最小改动"（20 行以内可以纯读 <see cref="GameplayAssembly"/>
+    /// 公开成员在引擎侧解决，不构成阻断）。本面板因此是engine侧独立元素：直接持有
+    /// <see cref="GameplayAssembly"/>/<see cref="UiIntents"/> 引用只读展示/转发意图，不经
+    /// <see cref="UiPanel"/> 登记、不进 <see cref="UiPanelHost"/> 的面板字典，由自己的
+    /// <see cref="Update"/> 每帧刷新（同 <see cref="SkillBookPanel"/> 自带 <c>Update</c> 处理数字键
+    /// 绑定的既有先例：本包面板不是所有交互都必须经 <c>UiPanelHost.Update</c> 统一驱动）。
+    /// </para>
+    /// </summary>
+    public sealed class TurnStatusPanel : UiPanelBehaviour
+    {
+        private GameplayAssembly _gameplay = null!;
+        private UiIntents _intents = null!;
+        private TextMeshProUGUI _label = null!;
+        private UnityEngine.UI.Button _endTurnButton = null!;
+
+        public void Construct(RectTransform parent, GameplayAssembly gameplay, UiIntents intents)
+        {
+            _gameplay = gameplay;
+            _intents = intents;
+
+            var root = UiWidgets.CreatePanelBackground("TurnStatusPanel", parent, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(300f, 76f), new Vector2(0f, -40f));
+            var list = UiWidgets.CreateVerticalList("List", root, 4f);
+            UiWidgets.SetRect(list, Vector2.zero, Vector2.one, new Vector2(8, 6), new Vector2(-8, -6));
+            _label = UiWidgets.CreateLabel("TurnInfo", list, "（未启用回合制）", 16, TextAlignmentOptions.Center);
+            var (_, button, _) = UiWidgets.CreateButton("EndTurnButton", list, "结束回合", OnEndTurnClicked);
+            _endTurnButton = button;
+
+            RefreshUi();
+        }
+
+        /// <summary>供 PlayMode 测试直接调用（等价于用户真实点击"结束回合"按钮），同
+        /// <see cref="ActionBarPanel.ClickSlot"/> 惯例。</summary>
+        public void ClickEndTurn() => OnEndTurnClicked();
+
+        /// <summary>供 PlayMode 测试直接读取当前"结束回合"按钮的可见性，不依赖
+        /// <c>Transform.Find</c> 按路径遍历——<see cref="Construct"/> 建出的可视化层级挂在传入的
+        /// <c>parent</c> 之下，不是本 MonoBehaviour 自己的 <c>gameObject</c> 子节点，同
+        /// <see cref="HudPanel"/> 等既有面板同一惯例。</summary>
+        public bool IsEndTurnButtonVisible => _endTurnButton.gameObject.activeSelf;
+
+        /// <summary>供 PlayMode 测试读取当前展示的回合信息文本。</summary>
+        public string TurnInfoText => _label.text;
+
+        private void OnEndTurnClicked() => _intents.EndTurn();
+
+        public override void RefreshUi()
+        {
+            var scheduler = _gameplay.TurnScheduler;
+            if (scheduler == null)
+            {
+                _label.text = "（未启用回合制）";
+                _endTurnButton.gameObject.SetActive(false);
+                return;
+            }
+
+            var currentActor = scheduler.GetCurrentActor();
+            _label.text = currentActor.HasValue
+                ? $"行动者：{ShortId(currentActor.Value)}  轮次：{scheduler.RoundIndex}"
+                : "（不在战斗中）";
+
+            var awaitingInput = _gameplay.AppState.CurrentSubState.HasValue &&
+                _gameplay.AppState.CurrentSubState.Value.Equals(_gameplay.AwaitingInputSubState);
+            _endTurnButton.gameObject.SetActive(awaitingInput);
+        }
+
+        private void Update() => RefreshUi();
+
+        private static string ShortId(Id id)
+        {
+            var v = id.Value;
+            var idx = v.LastIndexOf('.');
+            return idx >= 0 ? v.Substring(idx + 1) : v;
         }
     }
 

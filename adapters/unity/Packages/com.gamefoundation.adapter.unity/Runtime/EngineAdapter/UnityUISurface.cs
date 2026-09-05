@@ -74,7 +74,21 @@ namespace Adapter.Unity.EngineAdapter
         {
             _root = root ?? throw new ArgumentNullException(nameof(root));
 
-            if (EventSystem.current == null)
+            // 判断记录（引擎侧收口任务，根治"There are 2 event systems in the scene"）：此前用
+            // EventSystem.current == null 判定"场景里还没有 EventSystem"——但 EventSystem.current
+            // 只在某个 EventSystem 实例的 OnEnable() 真正跑过之后才会被赋值，与"场景里是否已经
+            // 存在一个 EventSystem GameObject（如 GreyBox.unity/Shell.unity 场景自带的那个，见
+            // Assets/Editor/GreyBoxSceneBuilder.cs/ShellSceneBuilder.cs）"是两回事——Unity 不保证
+            // 不同 GameObject 的 Awake/OnEnable 执行顺序，若本类型（随 UnityEngineHost.Awake 一并
+            // 构造）先于场景自带 EventSystem 的 OnEnable 执行，EventSystem.current 此时仍是 null，
+            // 本构造函数因此会再建一个 DontDestroyOnLoad 的 "GameFoundation.EventSystem"，随后
+            // 场景自带的那个也完成 OnEnable，两者同时存在，UGUI 记一条
+            // "There are 2 event systems in the scene" 警告（实测复现：VerticalSliceTests 恢复
+            // LogAssert.NoUnexpectedReceived() 收尾检查后被记成"未预期日志"判为失败）。改用
+            // FindFirstObjectByType 直接扫描场景对象图本身是否已经挂着一个 EventSystem（不依赖
+            // 它的 OnEnable 是否已经跑过），才是与"场景是否已经有一个"这句字面意图相符的判定，
+            // 消除这条时序竞争。
+            if (UnityEngine.Object.FindFirstObjectByType<EventSystem>() == null)
             {
                 var esGo = new GameObject("GameFoundation.EventSystem");
                 esGo.transform.SetParent(_root, worldPositionStays: false);

@@ -46,6 +46,14 @@ namespace Presentation.Ui
         private readonly IAudioLayerVolumeHost _audioVolume;
         private readonly ISkillBindingHost _skillBindings;
 
+        /// <summary>ADR-0013 离散时间模型："结束回合"意图的窄契约出口（见 <see cref="EndTurn"/>）。
+        /// 具体类型（而不是 <see cref="Core.Foundation.SimLoop.ITurnScheduler"/>）：只有具体类型才
+        /// 暴露 <c>EndTurn(Id)</c>/<c>GetCurrentActor()</c> 这两个便利成员，惯例同
+        /// <c>Core.Gameplay.Assembly.GameplayAssembly.TurnScheduler</c> 属性判断记录。可为空：未装配
+        /// 离散模式（调用方未构造 <c>GameplayAssembly(clockHost:)</c>）的既有调用方不受影响，
+        /// <see cref="EndTurn"/> 此时恒返回 <c>false</c>，不抛异常。</summary>
+        private readonly Core.Foundation.SimLoop.TurnScheduler? _turnScheduler;
+
         public UiIntents(
             Id playerId,
             IWorldSim worldSim,
@@ -57,7 +65,8 @@ namespace Presentation.Ui
             IL10nHost l10n,
             IAppStateHost appState,
             IAudioLayerVolumeHost audioVolume,
-            ISkillBindingHost skillBindings)
+            ISkillBindingHost skillBindings,
+            Core.Foundation.SimLoop.TurnScheduler? turnScheduler = null)
         {
             _playerId = playerId;
             _worldSim = worldSim ?? throw new ArgumentNullException(nameof(worldSim));
@@ -70,6 +79,7 @@ namespace Presentation.Ui
             _appState = appState ?? throw new ArgumentNullException(nameof(appState));
             _audioVolume = audioVolume ?? throw new ArgumentNullException(nameof(audioVolume));
             _skillBindings = skillBindings ?? throw new ArgumentNullException(nameof(skillBindings));
+            _turnScheduler = turnScheduler;
         }
 
         public void UseItem(Id instanceId)
@@ -126,6 +136,29 @@ namespace Presentation.Ui
         /// <summary>缺口 4：清空动作条 <paramref name="slot"/> 号槽位的绑定。</summary>
         public bool UnbindActionBarSlot(int slot) =>
             _skillBindings.Unbind(_playerId, ActionBarViewModel.SlotKey(slot));
+
+        /// <summary>ADR-0013 离散时间模型（03 第 3.2 节步骤 3"玩家……或调用 endTurn 提交'结束回合'
+        /// 意图"）：把 HUD"结束回合"按钮的点击转发到
+        /// <see cref="Core.Foundation.SimLoop.TurnScheduler.EndTurn(Id)"/> 这一窄契约，解除
+        /// <c>awaiting_input</c> 子态，让 <c>GameplayAssembly.Advance</c> 推进到下一行动者。未装配
+        /// 离散模式（构造期未传入 <c>turnScheduler</c>）或当前不轮到玩家行动时返回 <c>false</c>，
+        /// 不抛异常（与本类型其它意图方法"被拒绝时静默返回失败"一贯风格一致）。</summary>
+        public bool EndTurn()
+        {
+            if (_turnScheduler == null)
+            {
+                return false;
+            }
+
+            var current = _turnScheduler.GetCurrentActor();
+            if (current == null || !current.Value.Equals(_playerId))
+            {
+                return false;
+            }
+
+            _turnScheduler.EndTurn(_playerId);
+            return true;
+        }
 
         public bool Pause() => _appState.RequestTransition(AppState.Pause);
 

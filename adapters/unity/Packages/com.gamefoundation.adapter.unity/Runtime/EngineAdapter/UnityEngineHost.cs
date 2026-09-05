@@ -20,6 +20,7 @@ using System;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Adapter.Unity.EngineAdapter
 {
@@ -93,6 +94,48 @@ namespace Adapter.Unity.EngineAdapter
             SpatialQuery.SetLineOfSightBlocker((from, to) => Navigation2D.Raycast(DefaultMapId, from, to) != null);
 
             Application.logMessageReceived += HandleUnityLogMessage;
+
+            // 判断记录（引擎侧收口任务，根治"There are 2 event systems in the scene"）：本类型是
+            // DontDestroyOnLoad 单例，UISurface 的构造（进而其内部按需创建的兜底
+            // "GameFoundation.EventSystem"，见 UnityUISurface.cs 判断记录）只在本 Awake 执行的
+            // 那一次决定；而 Assets/Editor/GreyBoxSceneBuilder.cs/ShellSceneBuilder.cs/
+            // games/_template/Editor/GameSceneBuilder.cs 生成的场景各自烘焙了一份场景自己的
+            // EventSystem，随场景加载/卸载各自创建/销毁——一旦本类型早年（第一次 Ensure() 时）
+            // 判定"当时还没有"而建了兜底的那份，它会 DontDestroyOnLoad 持续存活，之后每次任意
+            // 场景加载出自己烘焙的那份，两者同时存在，UGUI 记"There are 2 event systems"警告
+            // （UnityUISurface.cs 的判断记录只能修正"第一次判定"本身的时序竞争，修不了"兜底份额外
+            // 持续存活、后续每次加载都会撞上"这个结构性问题）。改为订阅 SceneManager.sceneLoaded，
+            // 每次任意场景加载完成后做一次"全局至多一个 EventSystem"收敛：优先保留场景自己烘焙的
+            // 那份（名字不是 "GameFoundation.EventSystem"），销毁多余的（含本类型早年建的兜底份）。
+            SceneManager.sceneLoaded += (_, __) => DeduplicateEventSystems();
+        }
+
+        private static void DeduplicateEventSystems()
+        {
+            var systems = FindObjectsByType<UnityEngine.EventSystems.EventSystem>(FindObjectsSortMode.None);
+            if (systems.Length <= 1)
+            {
+                return;
+            }
+
+            UnityEngine.EventSystems.EventSystem? toKeep = null;
+            for (var i = 0; i < systems.Length; i++)
+            {
+                if (systems[i].gameObject.name != "GameFoundation.EventSystem")
+                {
+                    toKeep = systems[i];
+                    break;
+                }
+            }
+            toKeep ??= systems[0];
+
+            for (var i = 0; i < systems.Length; i++)
+            {
+                if (systems[i] != toKeep)
+                {
+                    Destroy(systems[i].gameObject);
+                }
+            }
         }
 
         private void Update()

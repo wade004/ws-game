@@ -228,6 +228,20 @@ namespace Adapter.Unity.EngineAdapter
             });
         }
 
+        /// <summary>测试/诊断用：仍在等待后台线程读取完成、尚未在主线程 <see cref="Tick"/> 处理完的
+        /// 资源加载请求数（<see cref="LoadAsync"/> 里 <c>_loading.Add</c>，<see cref="FinishOnMainThread"/>/
+        /// <see cref="FinishFontLoad"/> 里 <c>_loading.Remove</c>）。判断记录（PlayMode 测试根治
+        /// "相邻重负载用例的迟到异步日志"用）：本加载器把实际文件读取丢进 <c>Task.Run</c> 后台线程
+        /// （见类型顶部"加载方式"判断记录），结果排进 <see cref="_completions"/>，真正的解码/诊断
+        /// 日志只在下一次 <see cref="Tick"/>（由 <c>UnityEngineHost.Update</c> 每帧调用）于主线程
+        /// 处理完成时才发生——若某条 PlayMode 用例在后台线程尚未写回结果时就结束（场景卸载/
+        /// NUnit 进入下一条用例），这次迟到的 <see cref="Tick"/> 处理会在下一条完全无关的用例执行
+        /// 窗口内触发，产生的任何 <c>Debug.LogWarning</c>/<c>LogError</c> 被 Unity Test Framework
+        /// 记到那条无辜用例头上。触发大量资源首次引用的重负载 PlayMode 套件（见
+        /// <c>VerticalSliceTests</c>）应在收尾（<c>[UnityTearDown]</c>）轮询本属性直到归零，让全部
+        /// 异步加载在本用例自己的执行窗口内落地，见该测试类判断记录。</summary>
+        public int PendingLoadCount => _loading.Count;
+
         public bool IsLoaded(Id resourceId) => _loaded.Contains(resourceId);
 
         public double GetLoadProgress(Id resourceId)

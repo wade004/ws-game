@@ -1,0 +1,11 @@
+{
+  "table": "found.time_model",
+  "schema_version": 1,
+  "rows": [
+    { "id": "found.time_model.test_discrete_combat", "scope": "combat", "mode": "discrete",
+      "seconds_per_turn": 6,
+      "initiative_policy": "initiative_stat",
+      "initiative_stat": "stat.strength",
+      "movement_budget_rule": "distance" }
+  ]
+}

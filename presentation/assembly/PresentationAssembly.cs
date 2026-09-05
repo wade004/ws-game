@@ -347,10 +347,14 @@ namespace Presentation.Assembly
             // 缺口 4：动作条槽位绑定改接 gameplay.Carriers.SkillBindings（G1 新增
             // ISkillBindingHost，见 ActionBarViewModel/UiIntents 类型注释判断记录），删除此前的
             // ActionBarSlotBindingResolver 注入委托选项。
+            // ADR-0013 离散时间模型：把 gameplay.TurnScheduler（未装配离散模式时为 null）透传给
+            // UiIntents.EndTurn（见该方法判断记录），不需要 opts 新增任何配置项——是否启用离散模式
+            // 完全由调用方构造 GameplayAssembly 时是否传入 clockHost 决定，本类型只是如实转发。
             UiIntents = new UiIntents(
                 _playerId, world, gameplay.Carriers.Equipment, gameplay.Quest, gameplay.Dialog, gameplay.Economy,
                 InputMap, L10n, gameplay.AppState,
-                audioVolume: AudioVolume, skillBindings: gameplay.Carriers.SkillBindings);
+                audioVolume: AudioVolume, skillBindings: gameplay.Carriers.SkillBindings,
+                turnScheduler: gameplay.TurnScheduler);
 
             var actionBarSlots = ResolveActionBarSlotCount(registry, opts.ActionBarSlotCountFallback);
 

@@ -12,6 +12,19 @@
 // 因此是一个新的、独立的组合根，按同一套装配顺序（见 presentation/assembly/README.md、
 // core/gameplay/tests/EndToEnd/GameWorldFixture.cs）重新组装，但全部内容 id 与策略配置改由
 // GameOptions 提供，不出现任何硬编码的具体游戏内容。
+//
+// 判断记录（引擎侧收口任务，固定步驱动改走 IClock.RequestFixedStep + GameplayAssembly.Advance，
+// 顺带修复此前 GameOptions.PacingWaitForPlayback 的死配置项缺口）：本类型此前把 pacingPolicy
+// 传给 GameplayAssembly 构造函数，却从未传 clockHost——GameplayAssembly 只有 clockHost 非空时才会
+// 装配 Pacing/TurnScheduler/TimeModelSwitch（见该构造函数第 10.5 步"if (clockHost != null &&
+// scheduler != null)"），传了 pacingPolicy 没传 clockHost 等于这份配置被静默丢弃，
+// GameOptions.PacingWaitForPlayback 开关此前对任何行为都没有影响。本次一并补上 clockHost（固定
+// 步长取 host.Clock.RequestFixedStep 注册用的同一个 Time.fixedDeltaTime），combatParticipantsResolver
+// 用默认值（不传 = null，走 TimeModelSwitch 内建的"按半径+阵营解析"真实逻辑，不像
+// Adapter.Unity.Shell.FrameworkResidentHost/Bootstrap.GameFoundationBootstrap 那样恒返回空列表
+// 神经化——模板自带的最小数据集 games/_template/data/game/found/found.time_model.json 的 combat
+// 行是 mode=continuous，见该数据文件，即便真实参与者解析生效也不会触发离散模式切换，不需要那
+// 两个工作台场景那样的规避）。
 using System;
 using System.Linq;
 using Adapter.Unity.EngineAdapter;
@@ -61,8 +74,9 @@ namespace Game.Template
         public FreezeFrameReceiver Freeze { get; private set; } = null!;
         public FlashReceiver Flash { get; private set; } = null!;
 
-        /// <summary>数据集加载/世界装配阶段出现阻断性错误时为真；为真时 <see cref="Update"/>/
-        /// <see cref="FixedUpdate"/> 不做任何事，已经 <c>Debug.LogError</c> 过具体原因。</summary>
+        /// <summary>数据集加载/世界装配阶段出现阻断性错误时为真；为真时不注册
+        /// <see cref="OnFixedStep"/>/<see cref="OnFrameTick"/>，已经 <c>Debug.LogError</c> 过具体
+        /// 原因。</summary>
         public bool BootstrapFailed { get; private set; }
 
         /// <summary>本次加载完成后的校验报告（不阻断时也保留，供场景内调试面板/日志核对，见
@@ -80,6 +94,11 @@ namespace Game.Template
         private Id _classId;
         private bool _worldEverEntered;
         private double _interpAccumulator;
+
+        /// <summary>见文件顶部判断记录：固定步/帧回调改经 IClock 注册，本类型持有返回的句柄，
+        /// <see cref="OnDestroy"/> 里显式退订。</summary>
+        private Core.Foundation.Common.SubscriptionHandle? _fixedStepHandle;
+        private Core.Foundation.Common.SubscriptionHandle? _frameHandle;
 
         public static GameBootstrap Ensure()
         {
@@ -167,6 +186,11 @@ namespace Game.Template
 
             var saveSystem = new SaveSystem(_host.FileSystem, BuildSaveSystemOptions(), _bus);
 
+            // 02 §1.2 固定步契约：clockHost 交给 host.Clock.RequestFixedStep 注册的回调（见
+            // BuildWorld 末尾）驱动，stepSeconds 与该注册用的 Time.fixedDeltaTime 取同一个值（误差
+            // 为零）。见文件顶部判断记录：此前只传 pacingPolicy 不传 clockHost 是一处死配置。
+            var clockHost = new SimClockHost(world, new SimLoopOptions { StepSeconds = Time.fixedDeltaTime });
+
             var gameplay = new GameplayAssembly(
                 _bus, registry, rng, world, _host.SpatialQuery, saveSystem,
                 playerUnitProvider: () => PlayerId,
@@ -177,6 +201,7 @@ namespace Game.Template
                 targetingOptions: _options.BuildTargetingOptions(),
                 movementOptions: _options.BuildMovementOptions(),
                 lootOptions: _options.BuildLootOptions(),
+                clockHost: clockHost,
                 pacingPolicy: _options.PacingWaitForPlayback ? new WaitForPlaybackPacingPolicy() : new ImmediatePacingPolicy());
             Gameplay = gameplay;
 
@@ -229,6 +254,17 @@ namespace Game.Template
                 inputActionDefinitions[i] = Core.Foundation.InputMap.ActionDefinition.FromRecord(inputActionRecords[i]);
             }
             presentation.InputMap.DeclareActionSet(new Id("actionset.game_template"), inputActionDefinitions);
+
+            // ADR-0013 §9："表现层发出 presentation.playback_finished 后由调用方转发到
+            // GameplayAssembly.NotifyPlaybackFinished()"——WaitForPlaybackPacingPolicy 本身不持有
+            // IEventBus、不会自行订阅，这一步接线只能由引擎侧完成，游戏层复制本模板后不需要再补。
+            _bus.Subscribe(Core.Foundation.EventBus.EventKeys.PresentationPlaybackFinished,
+                _ => Gameplay.NotifyPlaybackFinished());
+
+            // 固定步/帧回调改经 IClock 注册（见文件顶部判断记录）：Bootstrap() 全局只执行一次
+            // （Ensure() 幂等单例），这两个句柄因此也只注册一次。
+            _fixedStepHandle = _host.Clock.RequestFixedStep(Time.fixedDeltaTime, OnFixedStep);
+            _frameHandle = _host.Clock.OnFrame(OnFrameTick);
         }
 
         private SaveSystemOptions BuildSaveSystemOptions()
@@ -293,7 +329,9 @@ namespace Game.Template
             }
         }
 
-        private void FixedUpdate()
+        /// <summary>由 <see cref="_fixedStepHandle"/>（<c>host.Clock.RequestFixedStep</c>）驱动，
+        /// 取代此前的 MonoBehaviour FixedUpdate（见文件顶部判断记录）。</summary>
+        private void OnFixedStep(double stepSeconds)
         {
             if (BootstrapFailed || Presentation == null)
             {
@@ -306,6 +344,11 @@ namespace Game.Template
                 return;
             }
 
+            if (Gameplay.Pacing is WaitForPlaybackPacingPolicy waitForPlayback && !waitForPlayback.IsPlaybackFinished)
+            {
+                return;
+            }
+
             _interpAccumulator = 0.0;
             Presentation.InputMap.Update(_host.Input);
             var moveAxis = Presentation.InputMap.GetActionAxis("input.action.move");
@@ -313,10 +356,12 @@ namespace Game.Template
             {
                 Gameplay.Carriers.Movement.Request(MoveRequest.InDirection(PlayerId, moveAxis));
             }
-            World.Tick(SimStep.Continuous(Time.fixedDeltaTime));
+            Gameplay.Advance(stepSeconds);
         }
 
-        private void Update()
+        /// <summary>由 <see cref="_frameHandle"/>（<c>host.Clock.OnFrame</c>）驱动，取代此前的
+        /// MonoBehaviour Update（见文件顶部判断记录）。</summary>
+        private void OnFrameTick(double unscaledDelta)
         {
             if (BootstrapFailed || Presentation == null)
             {
@@ -328,12 +373,16 @@ namespace Game.Template
             var state = Gameplay.AppState.GetState();
             var renderTicking = state == Core.Foundation.AppLifecycle.AppState.InWorld ||
                                  state == Core.Foundation.AppLifecycle.AppState.Pause;
+
+            // 见 Adapter.Unity.Shell.FrameworkResidentHost.OnFrameTick 同款判断记录：播放队列的
+            // 推进不受 renderTicking 门槛限制。
+            Presentation.Feedback.Update(unscaledDelta);
+
             if (!renderTicking)
             {
                 return;
             }
 
-            var unscaledDelta = Time.unscaledDeltaTime;
             _interpAccumulator += unscaledDelta;
             var alpha = Mathf.Clamp01((float)(_interpAccumulator / Math.Max(Time.fixedDeltaTime, 0.0001f)));
 
@@ -343,13 +392,18 @@ namespace Game.Template
                 Presentation.Camera.Update(alpha);
             }
 
-            FloatingText.Tick(unscaledDelta);
+            FloatingText.Tick((float)unscaledDelta);
             Freeze.Tick(unscaledDelta);
             Flash.Tick(unscaledDelta);
         }
 
         private void OnDestroy()
         {
+            _fixedStepHandle?.Dispose();
+            _fixedStepHandle = null;
+            _frameHandle?.Dispose();
+            _frameHandle = null;
+
             if (_instance == this)
             {
                 _instance = null;

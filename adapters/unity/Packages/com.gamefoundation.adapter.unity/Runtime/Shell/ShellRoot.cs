@@ -39,6 +39,9 @@ namespace Adapter.Unity.Shell
 
         public UiPanelHost UiPanelHost { get; private set; } = null!;
 
+        /// <summary>ADR-0013 回合状态 HUD：见该类型顶部判断记录（不走 <see cref="UiPanel"/> 登记表）。</summary>
+        public Adapter.Unity.Ui.Panels.TurnStatusPanel TurnStatus { get; private set; } = null!;
+
         private UiRoot _uiRoot = null!;
         private RectTransform _mainMenuRoot = null!;
         private RectTransform _newGameSetupRoot = null!;
@@ -65,6 +68,11 @@ namespace Adapter.Unity.Shell
                 SaveSlotCandidates, OnSaveSlotLoadClicked, OnSaveSlotPrimaryClicked, OnSaveSlotDeleteClicked, OnPauseOptionClicked,
                 getSfxBusVolume: () => Framework.Host.Audio.GetBusVolume(Core.Foundation.EngineAdapter.AudioBus.Sfx),
                 onSfxBusVolumeChanged: v => Framework.Host.Audio.SetBusVolume(Core.Foundation.EngineAdapter.AudioBus.Sfx, v));
+
+            var turnStatusGo = new GameObject("TurnStatus", typeof(RectTransform));
+            turnStatusGo.transform.SetParent(UiPanelHost.GameplayGroup, false);
+            TurnStatus = turnStatusGo.AddComponent<Adapter.Unity.Ui.Panels.TurnStatusPanel>();
+            TurnStatus.Construct(UiPanelHost.GameplayGroup, Framework.Gameplay, Framework.Presentation.UiIntents);
 
             BuildMainMenu();
             BuildNewGameSetup();

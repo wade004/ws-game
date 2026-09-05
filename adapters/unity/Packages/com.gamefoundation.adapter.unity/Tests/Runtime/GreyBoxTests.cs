@@ -221,5 +221,98 @@ namespace Adapter.Unity.Tests.Runtime
             yield return new WaitForFixedUpdate();
             Assert.IsFalse(bootstrapAfterThirdLoad.BootstrapFailed, "第三次进入灰盒场景仍应正常装配成功");
         }
+
+        /// <summary>
+        /// 引擎侧收口任务验收 1："固定步驱动改走 IClock.RequestFixedStep + GameplayAssembly.Advance
+        /// ……退订能退订……PlayMode 测试：退订后不再 tick；两次进图不重复 tick"。
+        /// <para>
+        /// 判断记录（用"两次重进后的稳态值是否一致"而不是"相对某个预先捕获的基线净增 1"）：
+        /// 本套件内每条用例之间没有显式清场（<see cref="TearDown"/> 判断记录"不额外清理"），前一条
+        /// 用例遗留的 <see cref="GameFoundationBootstrap"/> 实例在本用例开始时可能仍然存活、仍然
+        /// 持有一份固定步/帧回调注册——本用例开始时先捕获的"基线"因此已经把它算在内，"加载一次
+        /// 就该恰好 +1"这个假设在"进入本用例前 GreyBox 场景已经处于加载状态"时不成立（早期版本
+        /// 用这条假设断言，实测因执行顺序偶发失败："Expected: 基线+1, But was: 基线"——恰好等于
+        /// 未变化的基线，说明"卸载旧实例退订 -1、加载新实例注册 +1"两者相抵，而不是真的没有退订）。
+        /// 改为不依赖"进入本用例前是什么状态"这一假设：连续两次重进 GreyBox 场景，分别记录重进
+        /// 后的注册数，只要两次数值相等（不随重进次数累积增长），就证明每次重进都完整地"先退订
+        /// 旧的、再注册新的"，没有累积泄漏——这是"两次进图不重复 tick"真正要验证的性质，且不依赖
+        /// 执行顺序/前序用例残留状态。
+        /// </para>
+        /// </summary>
+        [UnityTest]
+        public IEnumerator ReenterScene_FixedStepAndFrameRegistrationCounts_StayConstantAcrossReloads()
+        {
+            var host = UnityEngineHost.Ensure();
+
+            yield return LoadGreyBoxScene();
+            RequireBootstrap();
+            var fixedStepAfterFirstLoad = host.Clock.FixedStepRegistrationCount;
+            var frameAfterFirstLoad = host.Clock.FrameRegistrationCount;
+
+            yield return LoadGreyBoxScene();
+            RequireBootstrap();
+            var fixedStepAfterSecondLoad = host.Clock.FixedStepRegistrationCount;
+            var frameAfterSecondLoad = host.Clock.FrameRegistrationCount;
+
+            yield return LoadGreyBoxScene();
+            RequireBootstrap();
+            var fixedStepAfterThirdLoad = host.Clock.FixedStepRegistrationCount;
+            var frameAfterThirdLoad = host.Clock.FrameRegistrationCount;
+
+            Assert.AreEqual(fixedStepAfterFirstLoad, fixedStepAfterSecondLoad,
+                "重进场景后固定步注册数不应比上一次多（旧句柄未被正确退订会逐次累加）");
+            Assert.AreEqual(fixedStepAfterFirstLoad, fixedStepAfterThirdLoad,
+                "第三次重进场景后固定步注册数仍不应累加");
+            Assert.AreEqual(frameAfterFirstLoad, frameAfterSecondLoad,
+                "重进场景后帧回调注册数不应比上一次多（旧句柄未被正确退订会逐次累加）");
+            Assert.AreEqual(frameAfterFirstLoad, frameAfterThirdLoad,
+                "第三次重进场景后帧回调注册数仍不应累加");
+        }
+
+        /// <summary>
+        /// 引擎侧收口任务验收 1 的另一半："两次进图不重复 tick"——用实际推进量而不是只看注册数
+        /// 佐证：玩家移动若干个固定步后记下位置，再次重进场景（新世界、新玩家，从 Vec2.Zero 重新
+        /// 出发）后同样移动同样多个固定步，两次位移量应当一致；若旧句柄未退订导致每个物理步都
+        /// 触发两次（甚至更多次）<c>GameplayAssembly.Advance</c>，第二次的位移量会明显偏大。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator ReenterScene_MovementDistancePerFixedStep_IsConsistentAcrossReloads()
+        {
+            yield return LoadGreyBoxScene();
+            var firstBootstrap = RequireBootstrap();
+            var startX1 = firstBootstrap.World!.GetEntity(firstBootstrap.PlayerId)!.Position.X;
+
+            // 判断记录：Core.Carriers.Unit.MovementHost.Request 内部把方向移动编码为
+            // {dx,dy,mode}（见该类型源码），不是 UiIntents.Move 手写的 {dir_x,dir_y}——本用例改用
+            // 与 VerticalSliceTests/ShellFlowTests 同一惯例的窄契约 Carriers.Movement.Request，
+            // 不自行拼 Intent 参数，避免字段名假设与真实契约不一致（早期版本直接手写
+            // {dir_x,dir_y}，实测因字段名不对，MovementTickHandler 读不到方向、玩家全程不移动，
+            // deltaX 恒为 0，与"退订未生效导致重复 tick"无关，是本用例自己的用法错误）。
+            const int steps = 20;
+            for (var i = 0; i < steps; i++)
+            {
+                firstBootstrap.Gameplay!.Carriers.Movement.Request(MoveRequest.InDirection(firstBootstrap.PlayerId, new Vec2(1, 0)));
+                yield return new WaitForFixedUpdate();
+            }
+            var deltaX1 = firstBootstrap.World.GetEntity(firstBootstrap.PlayerId)!.Position.X - startX1;
+            Assert.Greater(deltaX1, 0.0, "第一次进图移动后玩家 X 坐标应当增大");
+
+            yield return LoadGreyBoxScene();
+            var secondBootstrap = RequireBootstrap();
+            var startX2 = secondBootstrap.World!.GetEntity(secondBootstrap.PlayerId)!.Position.X;
+
+            for (var i = 0; i < steps; i++)
+            {
+                secondBootstrap.Gameplay!.Carriers.Movement.Request(MoveRequest.InDirection(secondBootstrap.PlayerId, new Vec2(1, 0)));
+                yield return new WaitForFixedUpdate();
+            }
+            var deltaX2 = secondBootstrap.World.GetEntity(secondBootstrap.PlayerId)!.Position.X - startX2;
+
+            // 允许浮点/首尾半步的小误差，但不允许"翻倍"这类量级差异（旧句柄未退订会导致同一份
+            // 移动意图在同一个物理步内被多个仍然存活的 Advance 回调重复消费/结算）。
+            Assert.AreEqual(deltaX1, deltaX2, deltaX1 * 0.2,
+                $"两次进图、同样步数的移动位移应当基本一致（第一次 {deltaX1}，第二次 {deltaX2}），" +
+                "明显偏大说明旧场景的固定步回调未被正确退订、发生了重复 tick");
+        }
     }
 }

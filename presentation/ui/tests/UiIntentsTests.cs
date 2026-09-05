@@ -209,6 +209,75 @@ namespace Tests.PresentationUi
         }
 
         [Fact]
+        public void EndTurn_delegates_to_turn_scheduler_when_it_is_the_players_turn()
+        {
+            var playerId = new Id("unit.hero");
+            var aiId = new Id("unit.beast");
+            var worldSim = new RecordingWorldSim();
+            var equipment = new FakeEquipmentHost();
+            var quest = new FakeQuestHost();
+            var dialog = new FakeDialogHost();
+            var economy = new FakeEconomyHost();
+            var inputMap = new FakeInputMapHost();
+            var l10n = new FakeL10nHost(new Id("l10n.en_us"), new[] { new Id("l10n.en_us") });
+            var appState = new AppStateHost(TestSupport.BuildEventBus());
+            var audioVolume = new FakeAudioLayerVolumeHost();
+            var skillBindings = new Core.Carriers.Unit.SkillBindingHost(TestSupport.BuildEventBus(), (_, __) => true);
+            var bus = TestSupport.BuildEventBus();
+            var scheduler = new Core.Foundation.SimLoop.TurnScheduler(
+                worldSim, initiativeStatProvider: _ => 0.0, isPlayerActor: id => id.Equals(playerId), bus);
+            scheduler.BeginCombat(new[] { playerId, aiId });
+
+            var intents = new UiIntents(playerId, worldSim, equipment, quest, dialog, economy, inputMap, l10n, appState,
+                audioVolume, skillBindings, turnScheduler: scheduler);
+
+            Assert.Equal(playerId, scheduler.GetCurrentActor());
+            var ok = intents.EndTurn();
+
+            Assert.True(ok);
+            Assert.Equal(aiId, scheduler.GetCurrentActor());
+        }
+
+        [Fact]
+        public void EndTurn_returns_false_when_no_turn_scheduler_is_configured()
+        {
+            var intents = Build(out _, out _, out _, out _, out _, out _, out _, out _, out _);
+
+            Assert.False(intents.EndTurn());
+        }
+
+        [Fact]
+        public void EndTurn_returns_false_when_it_is_not_the_players_turn()
+        {
+            var playerId = new Id("unit.hero");
+            var aiId = new Id("unit.beast");
+            var worldSim = new RecordingWorldSim();
+            var equipment = new FakeEquipmentHost();
+            var quest = new FakeQuestHost();
+            var dialog = new FakeDialogHost();
+            var economy = new FakeEconomyHost();
+            var inputMap = new FakeInputMapHost();
+            var l10n = new FakeL10nHost(new Id("l10n.en_us"), new[] { new Id("l10n.en_us") });
+            var appState = new AppStateHost(TestSupport.BuildEventBus());
+            var audioVolume = new FakeAudioLayerVolumeHost();
+            var skillBindings = new Core.Carriers.Unit.SkillBindingHost(TestSupport.BuildEventBus(), (_, __) => true);
+            var bus = TestSupport.BuildEventBus();
+            // aiId 排在先攻顺序第一位（isPlayerActor 只认 playerId），当前行动者因此是 aiId。
+            var scheduler = new Core.Foundation.SimLoop.TurnScheduler(
+                worldSim, initiativeStatProvider: _ => 0.0, isPlayerActor: id => id.Equals(playerId), bus);
+            scheduler.BeginCombat(new[] { aiId, playerId });
+
+            var intents = new UiIntents(playerId, worldSim, equipment, quest, dialog, economy, inputMap, l10n, appState,
+                audioVolume, skillBindings, turnScheduler: scheduler);
+
+            Assert.Equal(aiId, scheduler.GetCurrentActor());
+            var ok = intents.EndTurn();
+
+            Assert.False(ok);
+            Assert.Equal(aiId, scheduler.GetCurrentActor());
+        }
+
+        [Fact]
         public void Pause_resume_and_menu_intents_transition_app_state()
         {
             var intents = Build(out _, out _, out _, out _, out _, out _, out _, out var appState, out _);
