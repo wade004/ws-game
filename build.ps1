@@ -320,9 +320,16 @@ if ($Dist -ne "") {
             $relative = $item.FullName.Substring($src.Length).TrimStart('\')
             if ($relative -eq "") { return }
 
+            # 判断记录（2026-09-05 收尾修复）：排除判断此前只匹配"排除目录名出现在相对路径最前面"
+            # 这一种情况（如 ".venv" 在 "toolchain/.venv/..."），漏掉了排除目录名出现在更深层级的
+            # 情况（如 "__pycache__" 出现在 "toolchain/asset_import/__pycache__/..." ——
+            # asset_import 是普通业务目录，其下的 __pycache__ 子目录也需要被排除）。改为按路径分段
+            # 逐段比较（$relative 以 "\" 分隔），只要任意一段的名字精确等于某个排除名即命中，不再
+            # 依赖"是否出现在开头"这一前提，覆盖"排除目录出现在任意深度"的情况。
             $skip = $false
+            $relativeSegments = $relative -split '\\'
             foreach ($ex in $ExcludeDirNames) {
-                if ($relative -eq $ex -or $relative.StartsWith($ex + "\")) {
+                if ($relativeSegments -contains $ex) {
                     $skip = $true
                     break
                 }
