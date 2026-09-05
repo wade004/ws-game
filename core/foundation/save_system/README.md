@@ -160,13 +160,57 @@ save_system/
 
 **离散步回放（ADR-0013 补齐任务）**：`ReplayData` 新增 `Steps`（`IReadOnlyList<ReplayStepRecord>`，
 按 tick 号记录该 tick 实际使用的是 `Continuous` 还是 `Discrete` 步，后者含
-`actorId`/`phase`）与 `FormatVersion`（当前 2）。调用方在驱动主循环时每 tick 调用一次
-`IReplayRecorder.RecordStep(tick, step)`（与 `RecordInput` 同一 tick 编号体系），
-`IReplayPlayer.StepTo` 据此还原每个 tick 应该重放的 `SimStep` 种类——一份录像因此可以正确
-覆盖"连续 → 离散 → 连续"的模式切换。**旧格式兼容**：本任务之前唯一存在过的格式（无
+`actorId`/`phase`）与 `FormatVersion`（历史上曾是 2，见下"离散模式纯录像回放"）。调用方在驱动
+主循环时每 tick 调用一次 `IReplayRecorder.RecordStep(tick, step)`（与 `RecordInput` 同一 tick
+编号体系），`IReplayPlayer.StepTo` 据此还原每个 tick 应该重放的 `SimStep` 种类——一份录像因此
+可以正确覆盖"连续 → 离散 → 连续"的模式切换。**旧格式兼容**：本任务之前唯一存在过的格式（无
 `format_version`/`steps` 字段）解析后 `FormatVersion` 为 1、`Steps` 为空，`StepTo` 对没有
 对应记录的 tick 一律按 `Continuous` 处理，与该格式历来的唯一行为完全一致——旧录像文件不需要
 任何迁移即可继续读取。
+
+**离散模式纯录像回放（离散模式回放完整性任务，`FormatVersion` 由 2 升到 3）**：上一段描述的
+机制把"这个 tick 是谁的回合、什么阶段"（`ReplayStepRecord.ActorId`/`Phase`）也录进了录像，
+本质是把 `Core.Foundation.SimLoop.TurnScheduler` 的内部决策结果直接喂给
+`IWorldSim.Tick`——这与 03 第 3.2 节步骤 6"回放 = 意图序列……存档与重放只记录意图"的拍板结论
+不完全一致（意图之外还多记了一份调度器决策）。`IReplayPlayer.LoadDiscrete`（配
+`DiscreteWorldFactory`，产出一个已 `BeginCombat` 的 `TurnScheduler`）是修正后的路径：重放时
+真正驱动这个 `TurnScheduler`（`NextStep`/`SubmitIntent`/`Tick`/`NotifyStepConsumed`，与
+`Core.Gameplay.Assembly.GameplayAssembly.Advance` 同一驱动算法，本模块是 L0 不能反向依赖
+`GameplayAssembly` 所在的 L4，故原样内联该算法本身而不是调用那个类，见 `IReplayPlayer.LoadDiscrete`
+判断记录），只在 `NextStep` 返回空（轮到的行动者需要外部输入）时，才从 `ReplayData.Inputs`/
+新增的 `ReplayData.EndTurns`（`ReplayEndTurnRecord`，"结束回合"发生时刻，与提交意图是两种独立
+记录，不共用 `IntentKind` 字符串哨兵值）里查出录制时的决策原样提交/结束回合——"轮到谁"这件事
+交给重放时重新驱动的 `TurnScheduler` 自己算，不从录像里读。`IReplayRecorder.RecordStep` 在这条
+新路径下降级为纯诊断信息（人工核对"录制时这一步实际是谁"用），不再被 `LoadDiscrete` 播放路径
+读取。`Load`/`WorldFactory` 这条旧路径（整段录像直接按 `ReplayStepRecord` 重放给 `world.Tick`，
+不涉及 `TurnScheduler`）原样保留，未使用 `LoadDiscrete` 的调用方行为不变。
+
+## 迁移回归样例（存档版本迁移回归任务新增）
+
+`core/foundation/save_system/tests/Migration/` 存放存档版本迁移的固定回归产物（惯例同
+`core/gameplay/tests/Replay/` 对回放录像/基线文件的处理：手工构造、提交到仓库、测试只读不写）：
+
+- `v1_sample.save.json`：一份手工构造的旧版本（`save_version: 1`）存档文档；`world.current_position`
+  段故意写成 `[x, y]` 两元素数组（本任务选定的"真实且最小"迁移场景——`world.current_position` 是
+  `ISaveSystem.Load` 自身直接解析的字段，要求 `{x, y}` 对象形状，见 `LoadResult.CurrentPosition`
+  文档，框架自己就能定义、也真正需要一个迁移函数把数组转成对象，不需要越权替游戏层的段编造
+  迁移决定）。
+- `v_future_sample.save.json`：一份"运行时尚未见过"的未来版本（`save_version: 999`）样例，验证
+  `LoadStatus.MigrationFailed` 拒绝路径与原始文件不被覆盖/删除。
+- `SaveVersionMigrationRegressionTests.cs`：读取上述两份样例，验证——旧样例迁移成功
+  （`LoadResult.MigratedFromVersion` 正确、各段可读、`world.current_position` 迁移后能被正确
+  解析）→ 迁移后的世界重新存档、再读一遍无损（新落盘文件的 `world.current_position` 应已是新
+  的对象形态，不是继续携带旧数组形态）；未来版本样例被拒绝且给出点名两个具体版本号的诊断消息，
+  原始文件保持不变。
+
+**判断记录（新增迁移时必须同时新增旧样例）**：`ISaveMigration` 实现的正确性只有"喂一份真实构造
+的旧版本文档跑一遍迁移链"才能验证——纯内存拼字符串的单元测试（如 `SaveSystemTests.cs` 里的
+`RenameSectionMigration` 用例）验证的是迁移链**机制**本身（跳数、缺环节报错、异常处理等），
+不是某一次具体迁移**内容**是否正确；后者必须有一份独立于迁移函数实现本身、可被人工审阅的旧
+样例文档，否则"迁移函数改错了但样例文档也跟着一起改错"这种自欺欺人的回归漏洞完全可能发生。
+往后任何游戏层模块新增 `ISaveMigration` 实现（存档 schema 又发生不兼容变更）时，必须同时在自己
+的测试目录下补一份对应旧版本的手工样例文档与一条"旧样例迁移成功"的回归测试，不能只靠内存拼
+JSON 字符串验证——本条约定同样适用于 `ISettingsStore` 的设置文件迁移（见上"设置文件"一节）。
 
 ## 诊断
 

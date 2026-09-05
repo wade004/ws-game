@@ -3,6 +3,14 @@
   "schema_version": 1,
   "rows": [
     {
+      "id": "arch.power.health",
+      "override": true,
+      "name_key": "l10n.power.health.name",
+      "max_source": { "kind": "stat", "stat": "stat.stamina" },
+      "start_full": true,
+      "description": "示例覆盖：演示 override 语义——本行整行替换 data/_framework 的 arch.power.health（固定上限 100），改为随 stat.stamina 成长，恢复本表迁到 _framework 之前的示例原语义"
+    },
+    {
       "id": "arch.power.sample_vigor",
       "name_key": "l10n.power.sample_vigor.name",
       "max_source": { "kind": "stat", "stat": "stat.stamina" },

@@ -150,9 +150,15 @@ namespace Toolchain.Validator
             var tableCount = registry.Tables.Count;
             var recordCount = loadCompleted?.RecordCount ?? 0;
 
+            // 判断记录（数据行覆盖语义任务）：覆盖诊断（见 DataRegistry 类型级判断记录"覆盖语义"、
+            // OverrideDiagnostic）不是 ValidationIssue（既非 Warning 也非 Error），report.Issues 里
+            // 看不到；单独从 registry.GetOverrideDiagnostics() 取出打印，供人工核对"这次加载真的
+            // 按预期覆盖了哪些行"（如 arch.power.health 是否确实被 _sample 覆盖）。
+            var overrides = registry.GetOverrideDiagnostics();
+
             if (jsonOutput)
             {
-                PrintJson(report, tableCount, recordCount, listTables ? registry : null);
+                PrintJson(report, tableCount, recordCount, listTables ? registry : null, overrides);
             }
             else
             {
@@ -170,7 +176,16 @@ namespace Toolchain.Validator
                     Console.WriteLine(FormatIssue(issue));
                 }
 
-                Console.WriteLine($"tables {tableCount}, records {recordCount}, errors {report.ErrorCount}, warnings {report.WarningCount}");
+                if (overrides.Count > 0)
+                {
+                    Console.WriteLine($"覆盖清单（{overrides.Count} 条，见 data/README.md\"多根加载与合并规则\"）：");
+                    foreach (var diag in overrides.OrderBy(d => d.Table, StringComparer.Ordinal).ThenBy(d => d.RecordKey, StringComparer.Ordinal))
+                    {
+                        Console.WriteLine($"  [override] {diag.Table}[{diag.RecordKey}]: \"{diag.OverridingLocation}\" 覆盖 \"{diag.OverriddenLocation}\"");
+                    }
+                }
+
+                Console.WriteLine($"tables {tableCount}, records {recordCount}, errors {report.ErrorCount}, warnings {report.WarningCount}, overrides {overrides.Count}");
             }
 
             return report.IsBlocking ? 1 : 0;
@@ -196,7 +211,7 @@ namespace Toolchain.Validator
             return $"[{severity}] {loc}: {issue.Check}: {issue.Message}";
         }
 
-        private static void PrintJson(ValidationReport report, int tableCount, int recordCount, IDataRegistryView? tablesForListing)
+        private static void PrintJson(ValidationReport report, int tableCount, int recordCount, IDataRegistryView? tablesForListing, IReadOnlyList<OverrideDiagnostic> overrides)
         {
             var sb = new StringBuilder();
             sb.Append('{');
@@ -226,9 +241,28 @@ namespace Toolchain.Validator
                 if (i > 0) sb.Append(',');
                 AppendIssueJson(sb, report.Issues[i]);
             }
+            sb.Append("],");
+
+            sb.Append("\"overrides\":[");
+            for (var i = 0; i < overrides.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                AppendOverrideJson(sb, overrides[i]);
+            }
             sb.Append(']');
+
             sb.Append('}');
             Console.WriteLine(sb.ToString());
+        }
+
+        private static void AppendOverrideJson(StringBuilder sb, OverrideDiagnostic diag)
+        {
+            sb.Append('{');
+            sb.Append("\"table\":\"").Append(JsonEscape(diag.Table)).Append("\",");
+            sb.Append("\"record_key\":\"").Append(JsonEscape(diag.RecordKey)).Append("\",");
+            sb.Append("\"overriding_location\":\"").Append(JsonEscape(diag.OverridingLocation)).Append("\",");
+            sb.Append("\"overridden_location\":\"").Append(JsonEscape(diag.OverriddenLocation)).Append('"');
+            sb.Append('}');
         }
 
         private static void AppendIssueJson(StringBuilder sb, ValidationIssue issue)

@@ -1,5 +1,5 @@
 {
-  "format_version": 2,
+  "format_version": 3,
   "stepSeconds": 1,
   "tickCount": 20,
   "rngSeeds": {},
@@ -286,5 +286,6 @@
       "actorId": "unit.replay_npc",
       "phase": "Act"
     }
-  ]
+  ],
+  "end_turns": []
 }

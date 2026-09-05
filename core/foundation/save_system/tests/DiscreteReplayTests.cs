@@ -24,10 +24,19 @@ namespace Tests.Foundation.SaveSystem
     /// 夹具刻意不依赖 <c>core/rules</c>/<c>core/carriers</c>（那些模块由并行任务改动，本文件只
     /// 依赖 <c>core/foundation</c> 自身）：两个测试实体（<see cref="TestEntity"/>，来自
     /// <c>core/foundation/sim_loop/tests</c>，同一 <c>Tests.Foundation</c> 程序集可见）借用
-    /// <see cref="Entity.Position"/>.<c>X</c> 承载"HP"，<see cref="TurnScheduler"/> 按
-    /// <c>fixed_order</c> 策略在两者之间轮流产生离散步，一个自定义 <see cref="ITickPhaseHandler"/>
+    /// <see cref="Entity.Position"/>.<c>X</c> 承载"HP"，一个自定义 <see cref="ITickPhaseHandler"/>
     /// 在离散步里对"对手"造成固定伤害——全程无随机数、无玩家参与者，专注验证录像/回放机制本身
     /// （具体游戏规则的确定性回归见 <c>core/gameplay/tests/Discrete/DiscreteTickTests.cs</c>）。
+    /// </para>
+    /// <para>
+    /// 判断记录（离散模式回放完整性任务：本类新增一组不经"手工交替行动者"的用例）：上一段所指的
+    /// <see cref="RecordFight"/> 一组用例手工交替两个单位产生 <see cref="SimStep.Discrete"/>，不
+    /// 构造 <see cref="TurnScheduler"/>（见该方法判断记录"不经 TurnScheduler"）；本任务新增
+    /// <see cref="BuildWorldWithScheduler"/>/<see cref="RecordFightWithScheduler"/> 一组用例，
+    /// 真正装配并驱动一个 <see cref="TurnScheduler"/>（<c>initiative_stat</c> 策略），验证
+    /// <see cref="IReplayPlayer.LoadDiscrete"/> 播放路径——两组用例分工不同、互不替代：前者验证
+    /// "SimStep 序列本身能不能被忠实录制/重放"这一更底层的机制，后者验证"离散模式下由
+    /// TurnScheduler 决定行动顺序，重放能否自然复现同一顺序"这一 03 §3.2 步骤 6 要求的性质。
     /// </para>
     /// </summary>
     public sealed class DiscreteReplayTests
@@ -161,6 +170,158 @@ namespace Tests.Foundation.SaveSystem
 
             recorder.SetTickCount(tickNumber);
             return (world, audit, recorder.Export(), tickNumber);
+        }
+
+        // -----------------------------------------------------------------
+        // 离散模式回放完整性任务新增：TurnScheduler 真正驱动（见类型顶部判断记录）——
+        // IReplayPlayer.LoadDiscrete 播放路径的验证。
+        // -----------------------------------------------------------------
+
+        public const int SchedulerDrivenMaxSteps = 20;
+
+        /// <summary><c>Core.Foundation.SaveSystem.DiscreteWorldFactory</c> 形状：装配一个真正的
+        /// <see cref="TurnScheduler"/>（<c>initiative_stat</c> 策略，<see cref="UnitA"/> 先攻高于
+        /// <see cref="UnitB"/>，先手）并 <c>BeginCombat</c>，供 <see cref="RecordFightWithScheduler"/>
+        /// /直跑循环/<see cref="IReplayPlayer.LoadDiscrete"/> 共用。</summary>
+        private static (IWorldSim World, IRngHost Rng, TurnScheduler Scheduler) BuildWorldWithScheduler(ulong masterSeed, IEventBus bus)
+        {
+            var world = new WorldSim(bus);
+            world.AddEntity(new TestEntity(UnitA, MapId) { Position = new Vec2(AHp, 0) });
+            world.AddEntity(new TestEntity(UnitB, MapId) { Position = new Vec2(BHp, 0) });
+            world.RegisterPhaseHandler(TickPhase.CombatResolution, new FixedDamageHandler());
+
+            double Initiative(Id id) => id.Equals(UnitA) ? 20.0 : 10.0;
+            bool IsExternalActor(Id id) => true; // 两个测试实体都不接 AI，全靠外部（脚本/录像）提交意图。
+
+            var scheduler = new TurnScheduler(world, Initiative, IsExternalActor, bus);
+            scheduler.Configure(InitiativePolicy.InitiativeStat, new Dictionary<string, object>(StringComparer.Ordinal));
+            scheduler.BeginCombat(new[] { UnitA, UnitB });
+
+            return (world, new RngHost(masterSeed), scheduler);
+        }
+
+        /// <summary>直接驱动一遍（不经录像）：反复 <c>NextStep</c>，为空即代表轮到的行动者需要外部
+        /// 输入，提交一个内容无关紧要的 <c>"act"</c> 意图（<see cref="FixedDamageHandler"/> 只看
+        /// <c>step.ActorId</c>，不看意图内容）；非空即 <c>Tick</c> + <c>NotifyStepConsumed</c>。
+        /// 与 <see cref="Core.Gameplay.Assembly.GameplayAssembly.Advance"/>/<see cref="IReplayPlayer.LoadDiscrete"/>
+        /// 同一驱动算法（见后者判断记录）。直到一方"HP"（<c>Position.X</c>）归零或到达
+        /// <see cref="SchedulerDrivenMaxSteps"/> 步数上限。</summary>
+        private static (IWorldSim World, InMemoryEventAudit Audit, long FinalTick) RunFightWithScheduler()
+        {
+            var (bus, audit) = CreateAuditedBus();
+            var (world, _, scheduler) = BuildWorldWithScheduler(0UL, bus);
+
+            long ticksAdvanced = 0;
+            while (ticksAdvanced < SchedulerDrivenMaxSteps
+                   && world.GetEntity(UnitA)!.Position.X > 0 && world.GetEntity(UnitB)!.Position.X > 0)
+            {
+                var step = scheduler.NextStep();
+                if (step == null)
+                {
+                    var actorId = scheduler.GetCurrentActor()!.Value;
+                    scheduler.SubmitIntent(actorId, new Intent(actorId, "act", new JsonObjectBuilder().Build()));
+                    continue;
+                }
+
+                world.Tick(step.Value);
+                scheduler.NotifyStepConsumed(step.Value.ActorId!.Value);
+                ticksAdvanced++;
+            }
+
+            return (world, audit, ticksAdvanced);
+        }
+
+        /// <summary>录制一遍同一场战斗，产出 <see cref="ReplayData"/>——只记"第几个 tick、哪个行动者
+        /// 提交了什么意图"（<see cref="IReplayRecorder.RecordInput"/>），不记录 <c>TurnScheduler</c>
+        /// 算出的行动者/阶段（见 <see cref="IReplayPlayer.LoadDiscrete"/> 判断记录）。</summary>
+        private static ReplayData RecordFightWithScheduler()
+        {
+            var bus = CreateAuditedBus().Bus;
+            var (world, _, scheduler) = BuildWorldWithScheduler(0UL, bus);
+            var recorder = new ReplayRecorder(StepSeconds);
+            recorder.BeginRecording(new Dictionary<string, RngStreamState>(StringComparer.Ordinal));
+
+            long ticksAdvanced = 0;
+            while (ticksAdvanced < SchedulerDrivenMaxSteps
+                   && world.GetEntity(UnitA)!.Position.X > 0 && world.GetEntity(UnitB)!.Position.X > 0)
+            {
+                var step = scheduler.NextStep();
+                if (step == null)
+                {
+                    var actorId = scheduler.GetCurrentActor()!.Value;
+                    var tickNumber = ticksAdvanced + 1;
+                    var args = new JsonObjectBuilder().Build();
+                    recorder.RecordInput(tickNumber, new ReplayInputRecord(tickNumber, actorId, "act", args));
+                    scheduler.SubmitIntent(actorId, new Intent(actorId, "act", args));
+                    continue;
+                }
+
+                world.Tick(step.Value);
+                scheduler.NotifyStepConsumed(step.Value.ActorId!.Value);
+                ticksAdvanced++;
+            }
+
+            recorder.SetTickCount(ticksAdvanced);
+            return recorder.Export();
+        }
+
+        [Fact]
+        public void ReplayPlayer_LoadDiscrete_TurnSchedulerDrivenReplay_EventLogAndDigestMatchDirectRun()
+        {
+            var (directWorld, directAudit, finalTick) = RunFightWithScheduler();
+            var directSnapshot = WorldSnapshot.Capture(finalTick, ToEventLog(directAudit), directWorld);
+            Assert.True(finalTick > 1, "夹具应打满至少几步，tick 数应大于 1");
+
+            var replay = RecordFightWithScheduler();
+            var (replayBus, replayAudit) = CreateAuditedBus();
+            var player = new ReplayPlayer(BuildWorld, replayBus, replayAudit);
+            player.LoadDiscrete(replay, BuildWorldWithScheduler);
+            var replaySnapshot = player.StepTo(finalTick);
+
+            Assert.Equal(directSnapshot.EventLog, replaySnapshot.EventLog);
+            Assert.Equal(directSnapshot.Digest, replaySnapshot.Digest);
+        }
+
+        /// <summary>任务书验收点"录像重放的轮次/行动者序列与直跑一致"：订阅
+        /// <see cref="SimTurnStartedEvent"/>，直跑与重放两条路径各自独立收集
+        /// <c>(ActorId, RoundIndex)</c> 序列，逐项比较——直接证明重放侧的 <see cref="TurnScheduler"/>
+        /// 每一步都算出了与直跑侧相同的"轮到谁"，不是仅终局数值巧合相等。</summary>
+        [Fact]
+        public void ReplayPlayer_LoadDiscrete_TurnSequence_MatchesDirectRun()
+        {
+            var directTurns = new List<(string ActorId, int RoundIndex)>();
+            var (directBus, directAudit) = CreateAuditedBus();
+            directBus.Subscribe<SimTurnStartedEvent>(SimEventKeys.TurnStarted, e => directTurns.Add((e.ActorId.Value, e.RoundIndex)));
+            var (directWorld, _, directScheduler) = BuildWorldWithScheduler(0UL, directBus);
+
+            long ticksAdvanced = 0;
+            while (ticksAdvanced < SchedulerDrivenMaxSteps
+                   && directWorld.GetEntity(UnitA)!.Position.X > 0 && directWorld.GetEntity(UnitB)!.Position.X > 0)
+            {
+                var step = directScheduler.NextStep();
+                if (step == null)
+                {
+                    var actorId = directScheduler.GetCurrentActor()!.Value;
+                    directScheduler.SubmitIntent(actorId, new Intent(actorId, "act", new JsonObjectBuilder().Build()));
+                    continue;
+                }
+
+                directWorld.Tick(step.Value);
+                directScheduler.NotifyStepConsumed(step.Value.ActorId!.Value);
+                ticksAdvanced++;
+            }
+
+            var replay = RecordFightWithScheduler();
+            var replayTurns = new List<(string ActorId, int RoundIndex)>();
+            var (replayBus, replayAudit) = CreateAuditedBus();
+            replayBus.Subscribe<SimTurnStartedEvent>(SimEventKeys.TurnStarted, e => replayTurns.Add((e.ActorId.Value, e.RoundIndex)));
+            var player = new ReplayPlayer(BuildWorld, replayBus, replayAudit);
+            player.LoadDiscrete(replay, BuildWorldWithScheduler);
+            player.StepTo(ticksAdvanced);
+
+            Assert.NotEmpty(directTurns);
+            Assert.Equal(directTurns, replayTurns);
+            Assert.Equal(UnitA.Value, directTurns[0].ActorId); // 先攻更高的 UnitA 先手。
         }
 
         [Fact]

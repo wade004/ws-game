@@ -36,5 +36,13 @@ namespace Core.Foundation.DataRegistry
         /// <c>envelope</c> 错误；false 则以"无 schema 表"加载并只做信封检查（见
         /// <see cref="TableSchema.Unschematized"/>）。</summary>
         public bool FailOnUnknownTable { get; set; } = true;
+
+        /// <summary>框架数据行覆盖语义（数据行覆盖语义任务新增，见 <c>DataRegistry</c> 类型级判断
+        /// 记录"覆盖语义"）：多根合并时，是否允许后层行用行级字段 <c>"override": true</c> 整行替换
+        /// 前层同主键行（前层行声明 <c>"final": true</c> 时仍拒绝被覆盖，见该判断记录）。默认
+        /// <c>true</c>；设为 <c>false</c> 时 <c>override</c>/<c>final</c> 两个字段完全不生效，
+        /// 跨根同主键重复一律按原规则（改动前行为）判定为阻断错误——供需要禁用覆盖机制、
+        /// 强制"同名必须显式改名"的项目/测试选用。</summary>
+        public bool AllowOverride { get; set; } = true;
     }
 }

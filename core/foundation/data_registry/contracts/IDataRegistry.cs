@@ -74,5 +74,14 @@ namespace Core.Foundation.DataRegistry
         /// 会破坏其编译；只有 <c>DataRegistry</c> 本身实现完整的 <see cref="IDataRegistry"/>，加在
         /// 这一层没有同样的兼容性风险。</summary>
         IReadOnlyList<string> GetTableSourceLocations(string table);
+
+        /// <summary>只读诊断（数据行覆盖语义任务新增，见 <see cref="OverrideDiagnostic"/>、
+        /// <c>DataRegistry</c> 类型级判断记录"覆盖语义"）：最近一次 <see cref="LoadAll()"/>/
+        /// <see cref="LoadAll(IReadOnlyList{IDataSource})"/>（以及随后任意次 <see cref="Reload(string)"/>，
+        /// 按表增量更新）实际发生的全部行覆盖；不参与任何校验判定（覆盖成功不算警告也不算错误）。
+        /// 声明位置的理由与 <see cref="GetTableSourceLocations(string)"/> 相同（<c>core/carriers/
+        /// creature/tests</c> 下的 <see cref="IDataRegistryView"/> 测试替身不可改动，见任务书硬性
+        /// 规则 1）。</summary>
+        IReadOnlyList<OverrideDiagnostic> GetOverrideDiagnostics();
     }
 }

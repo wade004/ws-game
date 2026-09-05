@@ -263,11 +263,26 @@ namespace Tests.Rules
             // data/_sample 里 L0/L1（arch/fac/found/l10n/prog/stat）真实数据 + 阶段 3 新增的 L3
             // item/ 均不产生 Warning；RulesSchemaCatalog 注册的 L2（skill/combat/target/ai）表
             // 因此始终 0 行，同样不会产生 Warning。
+            //
+            // 判断记录（数据行覆盖语义任务）：本用例只加载 data/_sample 单根（不含
+            // data/_framework），而 data/_sample/arch/arch.power_type.json 新增了一条
+            // arch.power.health 的 "override": true 行（演示覆盖 data/_framework 同 id 行的
+            // 示例数据，见 data/README.md"arch.power_type"判断记录）——override 字段"仅在多根合并
+            // 且发生同主键跨根重复时才有意义"（见 DataRegistry 类型级判断记录"覆盖语义"），本用例
+            // 单根加载天然触发该字段的预期 Warning（DataRegistry.WarnStrayOverrideMetaFields），
+            // 是这条新增示例数据本身的正常提示，不是回归；下方显式排除这一条已知 Warning，其余任何
+            // 未预期的 Warning 仍然当作真实问题失败。
             // 若本断言失败，请把下面打印的 Warning 列表当作需要跟进的真实问题，而不是放宽断言。
-            if (report.WarningCount > 0)
+            var unexpectedWarnings = report.Issues
+                .Where(i => i.Severity == ValidationSeverity.Warning)
+                .Where(i => !(i.Table == "arch.power_type" && i.Check == "envelope" && i.Field == "override"
+                              && i.RecordKey == "arch.power.health"))
+                .ToList();
+            if (unexpectedWarnings.Count > 0)
             {
                 throw new Xunit.Sdk.XunitException(
-                    "预期 0 Warning，实际出现：" + string.Join("; ", report.Issues.Where(i => i.Severity == ValidationSeverity.Warning)));
+                    "预期 0 Warning（arch.power_type/arch.power.health 的 override 单根提示已知并排除），实际出现：" +
+                    string.Join("; ", unexpectedWarnings));
             }
         }
 

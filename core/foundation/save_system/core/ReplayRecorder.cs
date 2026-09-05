@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Core.Foundation.Common;
 using Core.Foundation.Rng;
 using Core.Foundation.SimLoop;
 
@@ -16,6 +17,7 @@ namespace Core.Foundation.SaveSystem
         private readonly double _stepSeconds;
         private readonly List<ReplayInputRecord> _inputs = new List<ReplayInputRecord>();
         private readonly List<ReplayStepRecord> _steps = new List<ReplayStepRecord>();
+        private readonly List<ReplayEndTurnRecord> _endTurns = new List<ReplayEndTurnRecord>();
 
         private IReadOnlyDictionary<string, RngStreamState>? _rngSeeds;
         private long _tickCount;
@@ -36,6 +38,7 @@ namespace Core.Foundation.SaveSystem
             _rngSeeds = rngSeeds ?? throw new ArgumentNullException(nameof(rngSeeds));
             _inputs.Clear();
             _steps.Clear();
+            _endTurns.Clear();
             _tickCount = 0;
             _began = true;
         }
@@ -97,10 +100,22 @@ namespace Core.Foundation.SaveSystem
             }
         }
 
+        /// <summary>见 <see cref="IReplayRecorder.RecordEndTurn"/>。</summary>
+        public void RecordEndTurn(long tick, Id actorId)
+        {
+            EnsureBegan();
+            _endTurns.Add(new ReplayEndTurnRecord(tick, actorId));
+
+            if (tick > _tickCount)
+            {
+                _tickCount = tick;
+            }
+        }
+
         public ReplayData Export()
         {
             EnsureBegan();
-            return new ReplayData(_rngSeeds!, _inputs.ToArray(), _stepSeconds, _tickCount, _steps.ToArray());
+            return new ReplayData(_rngSeeds!, _inputs.ToArray(), _stepSeconds, _tickCount, _steps.ToArray(), endTurns: _endTurns.ToArray());
         }
 
         private void EnsureBegan()

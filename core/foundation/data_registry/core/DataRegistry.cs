@@ -39,9 +39,33 @@ namespace Core.Foundation.DataRegistry
     /// 在多个根之间不一致，判定为阻断错误（<c>schema_version</c> 检查项，消息里点出两个根各自的
     /// 位置），不再合并该表（该表本次加载视为失败，不出现在 <see cref="Tables"/> 中，语义与其它
     /// envelope 级错误一致）；否则各根独立完成版本迁移与"根内"逐行建 <see cref="DataRecord"/>
-    /// （根内主键重复仍按原规则报 <c>primary_key</c> 错误），再把各根产出的记录集合并——合并阶段
-    /// 若同一主键在两个不同根间重复，判定为阻断错误（<c>primary_key</c> 检查项，消息里点出两个根
-    /// 各自的位置），该条记录不计入合并结果，但不影响其余不冲突记录正常合入。
+    /// （根内主键重复仍按原规则报 <c>primary_key</c> 错误），再按 <paramref name="sources"/> 声明
+    /// 顺序把各根产出的记录集合依次合并（顺序即"层"：先声明的根是前层，后声明的根是后层——典型
+    /// 用法是框架根在前、具体游戏根在后）——合并阶段若同一主键在两个不同根间重复，见下"覆盖语义"。
+    /// </para>
+    /// <para>
+    /// 覆盖语义（数据行覆盖语义任务新增，见 <c>data/README.md</c>"多根加载与合并规则"、
+    /// <see cref="DataRegistryOptions.AllowOverride"/>）：跨根同主键重复默认仍是阻断错误（防止
+    /// 无意撞键）；<see cref="DataRegistryOptions.AllowOverride"/> 为 <c>true</c>（默认）时，
+    /// 该行为可用行级字段显式改写——
+    /// <list type="bullet">
+    /// <item>后层行（合并处理顺序更靠后的根）声明 <c>"override": true</c>：整行替换已合入结果的
+    /// 前层同主键行（<see cref="DataRecord.Raw"/> 整体换成后层这一行，不做字段级合并），并记录一条
+    /// <see cref="OverrideDiagnostic"/>（见 <see cref="GetOverrideDiagnostics"/>）——覆盖成功不产生
+    /// 任何 <see cref="ValidationIssue"/>（既不是 Warning 也不是 Error，见该方法判断记录"为什么不进
+    /// ValidationReport.Issues"）。</item>
+    /// <item>已合入结果的前层行声明 <c>"final": true</c>：拒绝被后续任何后层行覆盖（无论后层行是否
+    /// 声明 <c>override</c>），判定为阻断错误（<c>primary_key</c> 检查项，消息点出两个根各自的
+    /// 位置与 <c>final</c> 语义），该条后层行不计入合并结果，其余不冲突记录不受影响。</item>
+    /// <item>都未声明（或 <see cref="DataRegistryOptions.AllowOverride"/> 为 <c>false</c>）：
+    /// 行为与改动前完全一致——跨根同主键重复即阻断错误。</item>
+    /// <item><c>override</c>/<c>final</c> 两个字段仅在多根合并且确实发生同主键跨根重复时才有意义；
+    /// 单根加载（该表本次加载只来自一个根，见 <see cref="LoadOneTable"/>）里出现值为 <c>true</c> 的
+    /// <c>override</c>/<c>final</c> 字段，判定为 Warning（检查项沿用 <c>envelope</c>），字段本身
+    /// 被忽略、不影响加载结果——两者"仅在多根合并时有意义"是同一条判断记录，行为对齐。</item>
+    /// </list>
+    /// <c>schema_version</c> 跨根不一致仍无条件阻断，不受覆盖语义影响（覆盖只发生在"两个根各自都
+    /// 已成功解析出内容"之后，见上"合并规则"）。
     /// </para>
     /// </summary>
     public sealed class DataRegistry : IDataRegistry
@@ -56,6 +80,11 @@ namespace Core.Foundation.DataRegistry
         private readonly List<IValidationRule> _rules = new List<IValidationRule>();
 
         private Dictionary<string, LoadedTable> _tables = new Dictionary<string, LoadedTable>(StringComparer.Ordinal);
+
+        /// <summary>最近一次加载/重载实际发生的全部行覆盖（见 <see cref="GetOverrideDiagnostics"/>、
+        /// 类型级判断记录"覆盖语义"）；<see cref="LoadAllCore"/> 整体重建，<see cref="Reload(string)"/>
+        /// 只替换对应表的条目。</summary>
+        private readonly List<OverrideDiagnostic> _overrideDiagnostics = new List<OverrideDiagnostic>();
 
         /// <summary>最近一次 <see cref="LoadAll()"/>/<see cref="LoadAll(IReadOnlyList{IDataSource})"/>
         /// 使用的完整根集合；<see cref="Reload(string)"/> 据此在全部根里重新定位待重载的表（多根注册表
@@ -155,6 +184,7 @@ namespace Core.Foundation.DataRegistry
             var issues = new List<ValidationIssue>();
             var loaded = new Dictionary<string, LoadedTable>(StringComparer.Ordinal);
             int recordCount = 0;
+            _overrideDiagnostics.Clear();
 
             // 按表名分组：同一表名出现在多个根时才走合并路径，出现在单个根时走原有单根路径
             // （保持与改动前逐字节相同的行为，见类型级判断记录）。
@@ -189,7 +219,7 @@ namespace Core.Foundation.DataRegistry
                 }
                 else
                 {
-                    LoadMergedTable(tableName, group, issues, loaded, ref recordCount);
+                    LoadMergedTable(tableName, group, issues, loaded, ref recordCount, _overrideDiagnostics);
                 }
             }
 
@@ -240,16 +270,25 @@ namespace Core.Foundation.DataRegistry
                 {
                     _tables[table] = loadedTable;
                 }
+                // 该表本次重载只来自单根（可能此前是多根合并表，某个根被移除/该表改名腾空）：
+                // 不再有合并、不可能再有覆盖关系，清掉它遗留的旧覆盖诊断。
+                _overrideDiagnostics.RemoveAll(d => d.Table == table);
             }
             else
             {
                 var loaded = new Dictionary<string, LoadedTable>(StringComparer.Ordinal);
                 int recordCount = 0;
-                LoadMergedTable(table, matches, localIssues, loaded, ref recordCount);
+                // 该表本次重载新产出的覆盖诊断先收集到本地列表，再整体替换 _overrideDiagnostics
+                // 里属于这张表的旧条目——不能直接就地追加（旧条目可能已不再成立，例如某个根改动后
+                // 覆盖关系反转），也不能像 LoadAllCore 那样整体清空（会丢掉其它表的诊断）。
+                var freshDiagnostics = new List<OverrideDiagnostic>();
+                LoadMergedTable(table, matches, localIssues, loaded, ref recordCount, freshDiagnostics);
                 if (loaded.TryGetValue(table, out var loadedTable))
                 {
                     _tables[table] = loadedTable;
                 }
+                _overrideDiagnostics.RemoveAll(d => d.Table == table);
+                _overrideDiagnostics.AddRange(freshDiagnostics);
             }
 
             return RunValidationAndBuildReport(localIssues);
@@ -345,6 +384,10 @@ namespace Core.Foundation.DataRegistry
         public IReadOnlyList<string> GetTableSourceLocations(string table) =>
             _tables.TryGetValue(table, out var t) ? t.Locations : Array.Empty<string>();
 
+        /// <summary>只读诊断：见 <see cref="IDataRegistry.GetOverrideDiagnostics"/>、类型级判断记录
+        /// "覆盖语义"。返回一份快照（调用方后续 <see cref="Reload(string)"/> 不会影响已返回的列表）。</summary>
+        public IReadOnlyList<OverrideDiagnostic> GetOverrideDiagnostics() => _overrideDiagnostics.ToArray();
+
         private void EnsureReadable()
         {
             if (_blocked)
@@ -362,6 +405,8 @@ namespace Core.Foundation.DataRegistry
             var partial = LoadOneTablePartial(tableSource, issues);
             if (partial == null) return;
 
+            WarnStrayOverrideMetaFields(tableSource.TableName, partial.RecordsInOrder, issues);
+
             recordCount += partial.RecordsInOrder.Count;
             loaded[tableSource.TableName] = new LoadedTable
             {
@@ -372,11 +417,36 @@ namespace Core.Foundation.DataRegistry
             };
         }
 
+        /// <summary>覆盖语义判断记录"override/final 仅在多根合并时有意义"：<paramref name="records"/>
+        /// 本次加载并未经历任何跨根合并（该表这次只来自一个根），若某一行仍显式声明
+        /// <c>"override": true</c> 或 <c>"final": true</c>，判定为 Warning——两个字段在这种场景下
+        /// 完全不生效（没有"前层"可覆盖、也没有后续合并会尝试覆盖它），提醒作者大概率是误留的模板
+        /// 残留或误解了字段语义；字段值本身被忽略，不影响加载结果。</summary>
+        private static void WarnStrayOverrideMetaFields(string tableName, List<DataRecord> records, List<ValidationIssue> issues)
+        {
+            for (int i = 0; i < records.Count; i++)
+            {
+                var record = records[i];
+                if (record.TryGetBool("override", out var isOverride) && isOverride)
+                {
+                    issues.Add(new ValidationIssue(ValidationSeverity.Warning, tableName, "envelope",
+                        "字段 \"override\" 仅在多根合并加载且发生同主键跨根重复时有意义；本次该表只来自单个数据根，已忽略",
+                        recordKey: record.Key, field: "override"));
+                }
+                if (record.TryGetBool("final", out var isFinal) && isFinal)
+                {
+                    issues.Add(new ValidationIssue(ValidationSeverity.Warning, tableName, "envelope",
+                        "字段 \"final\" 仅在多根合并加载且发生同主键跨根重复时有意义；本次该表只来自单个数据根，已忽略",
+                        recordKey: record.Key, field: "final"));
+                }
+            }
+        }
+
         // ---------------------------------------------------------------
-        // 加载并合并多根同名表（见类型级判断记录"合并规则"）
+        // 加载并合并多根同名表（见类型级判断记录"合并规则"/"覆盖语义"）
         // ---------------------------------------------------------------
 
-        private void LoadMergedTable(string tableName, List<DataTableSource> tableSources, List<ValidationIssue> issues, Dictionary<string, LoadedTable> loaded, ref int recordCount)
+        private void LoadMergedTable(string tableName, List<DataTableSource> tableSources, List<ValidationIssue> issues, Dictionary<string, LoadedTable> loaded, ref int recordCount, List<OverrideDiagnostic> diagnostics)
         {
             var partials = new List<PartialTable>();
             for (int i = 0; i < tableSources.Count; i++)
@@ -388,8 +458,10 @@ namespace Core.Foundation.DataRegistry
             if (partials.Count == 0) return; // 各根本身已各自报过 envelope 级错误。
             if (partials.Count == 1)
             {
-                // 只有一个根真正解析成功（其余根本身报了 envelope 级错误提前退出），按单根方式落表。
+                // 只有一个根真正解析成功（其余根本身报了 envelope 级错误提前退出），按单根方式落表——
+                // 没有第二个根参与合并，override/final 同样不生效。
                 var only = partials[0];
+                WarnStrayOverrideMetaFields(tableName, only.RecordsInOrder, issues);
                 recordCount += only.RecordsInOrder.Count;
                 loaded[tableName] = new LoadedTable
                 {
@@ -415,10 +487,13 @@ namespace Core.Foundation.DataRegistry
             }
             if (versionMismatch) return;
 
-            // 2) 合并记录：跨根主键冲突即阻断，冲突记录本身不计入合并结果，其余记录正常合入。
+            // 2) 合并记录：跨根主键冲突默认仍阻断；AllowOverride 打开时按行级 override/final 字段
+            //    改写（见类型级判断记录"覆盖语义"）。
+            var allowOverride = _options.AllowOverride;
             var mergedByKey = new Dictionary<string, DataRecord>(StringComparer.Ordinal);
             var mergedRecords = new List<DataRecord>();
-            var firstLocationByKey = new Dictionary<string, string>(StringComparer.Ordinal);
+            var mergedIndexByKey = new Dictionary<string, int>(StringComparer.Ordinal);
+            var mergedLocationByKey = new Dictionary<string, string>(StringComparer.Ordinal);
             var locations = new List<string>(partials.Count);
 
             for (int p = 0; p < partials.Count; p++)
@@ -429,16 +504,40 @@ namespace Core.Foundation.DataRegistry
                 for (int i = 0; i < partial.RecordsInOrder.Count; i++)
                 {
                     var record = partial.RecordsInOrder[i];
-                    if (mergedByKey.ContainsKey(record.Key))
+
+                    if (mergedByKey.TryGetValue(record.Key, out var existing))
                     {
+                        var existingLocation = mergedLocationByKey[record.Key];
+                        var existingIsFinal = allowOverride && existing.TryGetBool("final", out var fin) && fin;
+                        if (existingIsFinal)
+                        {
+                            issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "primary_key",
+                                $"主键重复：\"{record.Key}\"——数据根 \"{existingLocation}\" 的行声明 final=true，拒绝被数据根 \"{partial.Location}\" 覆盖",
+                                recordKey: record.Key));
+                            continue;
+                        }
+
+                        var rowIsOverride = allowOverride && record.TryGetBool("override", out var ov) && ov;
+                        if (rowIsOverride)
+                        {
+                            var idx = mergedIndexByKey[record.Key];
+                            mergedRecords[idx] = record;
+                            mergedByKey[record.Key] = record;
+                            mergedLocationByKey[record.Key] = partial.Location;
+                            diagnostics.Add(new OverrideDiagnostic(tableName, record.Key, partial.Location, existingLocation));
+                            continue;
+                        }
+
                         issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "primary_key",
-                            $"主键重复：\"{record.Key}\"（分别来自数据根 \"{firstLocationByKey[record.Key]}\" 与 \"{partial.Location}\"）",
+                            $"主键重复：\"{record.Key}\"（分别来自数据根 \"{existingLocation}\" 与 \"{partial.Location}\"）",
                             recordKey: record.Key));
                         continue;
                     }
+
+                    mergedIndexByKey[record.Key] = mergedRecords.Count;
                     mergedByKey.Add(record.Key, record);
                     mergedRecords.Add(record);
-                    firstLocationByKey[record.Key] = partial.Location;
+                    mergedLocationByKey[record.Key] = partial.Location;
                     recordCount++;
                 }
             }

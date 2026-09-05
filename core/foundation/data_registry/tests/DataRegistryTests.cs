@@ -922,5 +922,221 @@ namespace Tests.Foundation.Data
             Assert.Equal("New A", registry.Get("test.widget", "test.widget.a")!.GetString("name"));
             Assert.Equal("Old B", registry.Get("test.widget", "test.widget.b")!.GetString("name")); // 未改动的根保持不变。
         }
+
+        // -----------------------------------------------------------------
+        // 18. 覆盖语义（数据行覆盖语义任务新增：DataRegistryOptions.AllowOverride、
+        //     行级 "override"/"final" 字段、OverrideDiagnostic）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void LoadAll_MultiRoot_NoOverrideDeclared_SameKey_StillBlocks_DefaultBehaviorUnchanged()
+        {
+            // 回归基线：两个字段都不声明时，行为必须与改动前完全一致——跨根同主键重复即阻断，
+            // 不受本任务新增的 AllowOverride 默认 true 影响。
+            var rootA = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]"), location: "root_a/test.widget.json");
+            var rootB = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"A2\", \"count\": 9}]"), location: "root_b/test.widget.json");
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            var report = registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.True(report.IsBlocking);
+            Assert.Empty(registry.GetOverrideDiagnostics());
+        }
+
+        [Fact]
+        public void LoadAll_MultiRoot_LaterRootDeclaresOverride_ReplacesEarlierRow_NoBlockingError()
+        {
+            var rootA = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Framework\", \"count\": 1}]"), location: "data/_framework/test.widget.json");
+            var rootB = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Game\", \"count\": 9, \"override\": true}]"), location: "data/_sample/test.widget.json");
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            var report = registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.Equal(0, report.ErrorCount);
+            Assert.Equal(0, report.WarningCount);
+            Assert.False(report.IsBlocking);
+
+            // 整行替换：后层（_sample）行的全部字段值胜出，不是逐字段合并。
+            var record = registry.Get("test.widget", "test.widget.a")!;
+            Assert.Equal("Game", record.GetString("name"));
+            Assert.Equal(9, record.GetInt("count"));
+            Assert.Single(registry.GetAll("test.widget")); // 覆盖不产生重复行。
+        }
+
+        [Fact]
+        public void LoadAll_MultiRoot_OverrideSucceeds_RecordsOverrideDiagnosticWithTableKeyAndBothLocations()
+        {
+            var rootA = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Framework\", \"count\": 1}]"), location: "data/_framework/test.widget.json");
+            var rootB = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Game\", \"count\": 9, \"override\": true}]"), location: "data/_sample/test.widget.json");
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            var diagnostics = registry.GetOverrideDiagnostics();
+            var diag = Assert.Single(diagnostics);
+            Assert.Equal("test.widget", diag.Table);
+            Assert.Equal("test.widget.a", diag.RecordKey);
+            Assert.Equal("data/_sample/test.widget.json", diag.OverridingLocation);
+            Assert.Equal("data/_framework/test.widget.json", diag.OverriddenLocation);
+        }
+
+        [Fact]
+        public void LoadAll_MultiRoot_EarlierRowDeclaresFinal_RejectsOverride_ReportsBlockingErrorNamingBothRootsAndNoDiagnostic()
+        {
+            var rootA = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Framework\", \"count\": 1, \"final\": true}]"), location: "data/_framework/test.widget.json");
+            var rootB = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Game\", \"count\": 9, \"override\": true}]"), location: "data/_sample/test.widget.json");
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            var report = registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.True(report.IsBlocking);
+            var issue = Assert.Single(report.Issues, i => i.Check == "primary_key" && i.RecordKey == "test.widget.a");
+            Assert.Contains("data/_framework/test.widget.json", issue.Message);
+            Assert.Contains("data/_sample/test.widget.json", issue.Message);
+            Assert.Contains("final", issue.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(registry.GetOverrideDiagnostics()); // 拒绝覆盖不产生覆盖诊断。
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.widget"));
+        }
+
+        [Fact]
+        public void LoadAll_MultiRoot_AllowOverrideFalse_OverrideFieldIgnored_StillBlocks()
+        {
+            var rootA = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Framework\", \"count\": 1}]"), location: "data/_framework/test.widget.json");
+            var rootB = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Game\", \"count\": 9, \"override\": true}]"), location: "data/_sample/test.widget.json");
+
+            var registry = new DataRegistry(rootA, MakeBus(), new DataRegistryOptions { AllowOverride = false });
+            registry.RegisterSchema(WidgetSchema());
+            var report = registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.True(report.IsBlocking);
+            Assert.Empty(registry.GetOverrideDiagnostics());
+        }
+
+        [Fact]
+        public void LoadAll_SingleRoot_OverrideFieldTrue_WarnsAndIsIgnored()
+        {
+            // 单根加载（LoadAll() 无参）：override 字段没有第二个根可覆盖，判定为 Warning 并忽略，
+            // 不影响该行本身正常加载。
+            var rows = "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1, \"override\": true}]";
+            var source = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1, rows), location: "only_root/test.widget.json");
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+
+            var report = registry.LoadAll();
+
+            Assert.Equal(0, report.ErrorCount);
+            Assert.Equal(1, report.WarningCount);
+            Assert.False(report.IsBlocking); // 默认 WarningsAllowed，Warning 不阻断读取。
+            var warning = Assert.Single(report.Issues);
+            Assert.Equal(ValidationSeverity.Warning, warning.Severity);
+            Assert.Equal("override", warning.Field);
+            Assert.Equal("test.widget.a", warning.RecordKey);
+            Assert.Equal("A", registry.Get("test.widget", "test.widget.a")!.GetString("name"));
+            Assert.Empty(registry.GetOverrideDiagnostics());
+        }
+
+        [Fact]
+        public void LoadAll_SingleRoot_FinalFieldTrue_WarnsAndIsIgnored()
+        {
+            var rows = "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1, \"final\": true}]";
+            var source = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1, rows), location: "only_root/test.widget.json");
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+
+            var report = registry.LoadAll();
+
+            Assert.Equal(0, report.ErrorCount);
+            Assert.Equal(1, report.WarningCount);
+            var warning = Assert.Single(report.Issues);
+            Assert.Equal("final", warning.Field);
+        }
+
+        [Fact]
+        public void LoadAll_MultiRoot_TableOnlyInOneOfSeveralRoots_OverrideFieldStillWarns()
+        {
+            // 判断记录：本次 LoadAll 传了多个根，但 test.widget 这张表本身只出现在其中一个根
+            // （rootB 只贡献 test.owner）——对这张表而言并未发生任何合并，override 同样不生效，
+            // 与"整次加载是不是单根"无关，只看"这张表这次是不是只来自一个根"。
+            var rootA = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1, \"override\": true}]"), location: "root_a/test.widget.json");
+            var rootB = new InMemoryDataSource().Add("test.owner", Envelope("test.owner", 1,
+                "[{\"id\": \"test.owner.a\", \"name\": \"Owner A\"}]"));
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+            var report = registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.Equal(0, report.ErrorCount);
+            var warning = Assert.Single(report.Issues, i => i.Table == "test.widget");
+            Assert.Equal(ValidationSeverity.Warning, warning.Severity);
+            Assert.Equal("override", warning.Field);
+        }
+
+        [Fact]
+        public void LoadAll_MultiRoot_ThreeRoots_SecondOverridesFirst_ThirdPlainDuplicate_ErrorNamesCurrentWinnerLocation()
+        {
+            // 三根链式覆盖：root2 用 override 顶掉 root1，成为当前"胜出"的行；root3 未声明 override，
+            // 与 root2 撞键——错误消息应点出"当前实际生效"的位置（root2），而不是最初的 root1，
+            // 验证合并循环里 mergedLocationByKey 会随每次成功覆盖同步更新。
+            var root1 = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"R1\", \"count\": 1}]"), location: "root1/test.widget.json");
+            var root2 = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"R2\", \"count\": 2, \"override\": true}]"), location: "root2/test.widget.json");
+            var root3 = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"R3\", \"count\": 3}]"), location: "root3/test.widget.json");
+
+            var registry = new DataRegistry(root1, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            var report = registry.LoadAll(new IDataSource[] { root1, root2, root3 });
+
+            Assert.True(report.IsBlocking);
+            var issue = Assert.Single(report.Issues, i => i.Check == "primary_key" && i.RecordKey == "test.widget.a");
+            Assert.Contains("root2/test.widget.json", issue.Message); // 当前胜出者，不是最初的 root1。
+            Assert.Contains("root3/test.widget.json", issue.Message);
+            Assert.DoesNotContain("root1/test.widget.json", issue.Message);
+
+            var diag = Assert.Single(registry.GetOverrideDiagnostics());
+            Assert.Equal("root2/test.widget.json", diag.OverridingLocation);
+            Assert.Equal("root1/test.widget.json", diag.OverriddenLocation);
+        }
+
+        [Fact]
+        public void Reload_MultiRootTable_OverrideDiagnostics_UpdatedAfterRootStopsDeclaringOverride()
+        {
+            var rootA = new MutableSingleTableSource("test.widget",
+                Envelope("test.widget", 1, "[{\"id\": \"test.widget.a\", \"name\": \"Framework\", \"count\": 1}]"));
+            var rootB = new MutableSingleTableSource("test.widget",
+                Envelope("test.widget", 1, "[{\"id\": \"test.widget.a\", \"name\": \"Game\", \"count\": 9, \"override\": true}]"));
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.Single(registry.GetOverrideDiagnostics());
+            Assert.Equal("Game", registry.Get("test.widget", "test.widget.a")!.GetString("name"));
+
+            // rootB 不再声明 override：重载后应恢复"跨根同主键即阻断"，且旧的覆盖诊断被清空
+            // （不是继续累积一条过期条目）。
+            rootB.Json = Envelope("test.widget", 1, "[{\"id\": \"test.widget.a\", \"name\": \"Game2\", \"count\": 10}]");
+            var report = registry.Reload("test.widget");
+
+            Assert.True(report.IsBlocking);
+            Assert.Empty(registry.GetOverrideDiagnostics());
+        }
     }
 }

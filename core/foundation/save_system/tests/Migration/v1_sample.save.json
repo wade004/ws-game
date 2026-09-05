@@ -1,0 +1,20 @@
+{
+  "save_version": 1,
+  "sections": {
+    "meta": {
+      "save_version": 1,
+      "slot_id": "slot.migration_sample",
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-02T00:00:00Z",
+      "game_id": "game.demo"
+    },
+    "world_state_flags": {
+      "flag.tutorial_seen": true
+    },
+    "world.current_map_id": "map.migration_sample_area",
+    "world.current_position": [12.5, -3.25],
+    "rng.stream_states": {
+      "rng.default": "0000000000000001-0000000000000002-0000000000000003-0000000000000004"
+    }
+  }
+}

@@ -49,12 +49,17 @@ namespace Tests.Numbers
         private static readonly Id StatCritRating = new Id("stat.crit_rating");
         private static readonly Id PowerHealth = new Id("arch.power.health");
         private static readonly Id PowerMana = new Id("arch.power.mana");
-        // 收边任务补齐（数据行迁移）：arch.power.health 的行已从 data/_sample 迁到
-        // data/_framework/arch/arch.power_type.json，且框架行的 max_source 改为
-        // {kind: fixed, value: 100}（见 data/README.md "arch.power_type" 判断记录，理由：
-        // 框架级行不能依赖某个具体游戏未必定义的属性 stat.stamina）。本类"资源上限引用某个
-        // 属性、属性成长后上限跟着变"这条端到端测试路径因此改用 _sample 新增的另一个纯测试
-        // 用途资源类型承接，覆盖范围不变。
+        // 判断记录（数据行覆盖语义任务，取代下方已过期的"收边任务补齐"记录）：
+        // data/_framework/arch/arch.power_type.json 的 arch.power.health 保持框架级默认
+        // {kind: fixed, value: 100}；data/_sample/arch/arch.power_type.json 现新增一条同 id、
+        // "override": true 的行，把 max_source 改成 {kind: stat, stat: stat.stamina}——整行替换
+        // 框架那一行，演示 DataRegistry 的行覆盖语义（见 data/README.md"arch.power_type"判断记录、
+        // DataRegistry 类型级判断记录"覆盖语义"），同时恢复了本类此前"health 上限引用属性、属性
+        // 成长后上限跟着变"这条端到端测试路径的原语义——本类合并加载 _framework + _sample 后，
+        // PowerHealth 与 PowerSampleVigor 的期望值因此完全一致（两者 max_source 都是 stat.stamina）。
+        // sample_vigor 是此前"health 改成框架级固定值"阶段新增的替代资源类型，覆盖回归后不再是
+        // 唯一覆盖该路径的资源，但保留不删——它验证的是"未被覆盖时" stat 引用路径本身，与
+        // PowerHealth 验证的是"覆盖之后" stat 引用路径是分工不同的两条断言。
         private static readonly Id PowerSampleVigor = new Id("arch.power.sample_vigor");
         private static readonly Id FacPlayer = new Id("fac.player");
         private static readonly Id FacWildlife = new Id("fac.wildlife");
@@ -77,11 +82,11 @@ namespace Tests.Numbers
         }
 
         /// <summary>
-        /// 收边任务补齐（数据行迁移）：<c>arch.power.health</c> 已迁到
-        /// <c>data/_framework/arch/arch.power_type.json</c>，本类端到端联调必须把
-        /// <c>data/_framework</c> 与 <c>data/_sample</c> 一起按多根加载合并（否则
-        /// <c>arch.power.health</c> 这一行找不到），与
-        /// <c>core/foundation/data_registry/tests/DataRegistryTests.cs</c>
+        /// <c>arch.power.health</c> 在 <c>data/_framework/arch/arch.power_type.json</c> 有框架级
+        /// 默认行，<c>data/_sample/arch/arch.power_type.json</c> 有 <c>override: true</c> 的同 id
+        /// 行（见上 <see cref="PowerSampleVigor"/> 判断记录），本类端到端联调必须把
+        /// <c>data/_framework</c> 与 <c>data/_sample</c> 一起按多根加载合并（否则合并/覆盖这条
+        /// 行为本身就验证不到），与 <c>core/foundation/data_registry/tests/DataRegistryTests.cs</c>
         /// <c>BuildRealFrameworkAndSampleSources</c> 同一手法。
         /// </summary>
         private static (FileSystemDataSource Framework, FileSystemDataSource Sample) BuildRealFrameworkAndSampleSources()
@@ -254,9 +259,8 @@ namespace Tests.Numbers
         }
 
         // -----------------------------------------------------------------
-        // 3. ApplyTo 注册资源池：health（框架级，固定上限）+ mana（固定上限）+ sample_vigor
-        //    （上限引用 stamina，StatLookup 跨模块装配——收边任务补齐：数据行迁移后 health 的
-        //    max_source 改为 fixed，这条"上限引用属性"的端到端路径改由 sample_vigor 承接，见
+        // 3. ApplyTo 注册资源池：health（_sample 用 override 把框架级固定上限改成引用 stamina）+
+        //    mana（固定上限）+ sample_vigor（上限引用 stamina，StatLookup 跨模块装配，见
         //    PowerSampleVigor 判断记录）
         // -----------------------------------------------------------------
 
@@ -273,9 +277,11 @@ namespace Tests.Numbers
             Assert.True(world.PowerHost.HasPower(unit, PowerMana));
             Assert.True(world.PowerHost.HasPower(unit, PowerSampleVigor));
 
-            // arch.power.health（data/_framework）.max_source = {kind: fixed, value: 100}。
-            Assert.Equal(100.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
-            Assert.Equal(100.0, world.PowerHost.GetPower(unit, PowerHealth), 10); // start_full 默认 true
+            // arch.power.health：data/_framework 的框架级默认行 max_source = {kind: fixed, value:
+            // 100} 已被 data/_sample 声明 "override": true 的同 id 行整行替换，改为
+            // {kind: stat, stat: stat.stamina}；此时最终 stamina=9（同下方 sample_vigor 断言）。
+            Assert.Equal(9.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
+            Assert.Equal(9.0, world.PowerHost.GetPower(unit, PowerHealth), 10); // start_full 默认 true
 
             // arch.power.mana.max_source = {kind: fixed, value: 100}。
             Assert.Equal(100.0, world.PowerHost.GetPowerMax(unit, PowerMana), 10);
@@ -300,10 +306,9 @@ namespace Tests.Numbers
             world.ProgressionHost.RegisterUnit(unit, CurveSample);
 
             Assert.Equal(1, world.ProgressionHost.GetLevel(unit));
-            // 升级前：sample_vigor 上限=stamina=9（health 已是框架级固定 100，不再随属性变化，见
-            // PowerSampleVigor 判断记录）。
+            // 升级前：sample_vigor 与 health（_sample override 后）上限都=stamina=9。
             Assert.Equal(9.0, world.PowerHost.GetPowerMax(unit, PowerSampleVigor), 10);
-            Assert.Equal(100.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
+            Assert.Equal(9.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
 
             // prog.xp.kill_sample.base_xp=50；两次授予共 100 = level1.xp_to_next，恰好跨到 2 级。
             world.ProgressionHost.GrantFromSource(unit, XpKillSample);
@@ -316,12 +321,13 @@ namespace Tests.Numbers
             Assert.Equal(12.0, world.StatHost.GetStat(unit, StatStamina), 10);  // 9 + 3
 
             // PowerHost 不会自动感知 StatHost 的变化（跨模块无隐式依赖），需调用方显式
-            // RecomputeMax；调用后 sample_vigor 上限跟随新的 stamina 变化，当前值未超新上限，
-            // 不夹取；health 是框架级固定 100，RecomputeMax 后仍不变（无 stat 依赖）。
+            // RecomputeMax；调用后 sample_vigor 与 health（_sample override 后同样引用 stamina）
+            // 上限都跟随新的 stamina 变化，当前值未超新上限，不夹取。
             world.PowerHost.RecomputeMax(unit);
             Assert.Equal(12.0, world.PowerHost.GetPowerMax(unit, PowerSampleVigor), 10);
             Assert.Equal(9.0, world.PowerHost.GetPower(unit, PowerSampleVigor), 10); // 当前值不因上限提高而自动回满
-            Assert.Equal(100.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
+            Assert.Equal(12.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
+            Assert.Equal(9.0, world.PowerHost.GetPower(unit, PowerHealth), 10); // 同理，当前值不自动回满
         }
 
         // -----------------------------------------------------------------

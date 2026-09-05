@@ -6,7 +6,8 @@
       "id": "arch.power.health",
       "name_key": "l10n.power.health.name",
       "max_source": { "kind": "fixed", "value": 100 },
-      "start_full": true
+      "start_full": true,
+      "description": "框架级默认：固定上限 100，游戏可用 override 改为随属性成长"
     }
   ]
 }

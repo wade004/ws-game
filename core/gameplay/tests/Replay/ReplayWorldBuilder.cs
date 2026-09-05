@@ -29,14 +29,19 @@ namespace Tests.Gameplay.Replay
     /// <see cref="IEventBus"/> 独立驱动一遍相同的固定脚本，两者互不共享任何可变状态。
     /// </para>
     /// <para>
-    /// 判断记录（离散场景不经 <c>TurnScheduler</c>）：同 <c>core/foundation/save_system/tests/
-    /// DiscreteReplayTests.cs</c>"判断记录（不经 TurnScheduler，手工交替行动者）"——<c>sim.
-    /// turn_started</c>/<c>turn_ended</c>/<c>round_ended</c> 三个事件由 <c>TurnScheduler</c> 自己
-    /// <c>PublishImmediate</c>，不经过 <see cref="IWorldSim.Tick"/>，天然不在"回放 = 重放
-    /// SimStep 序列给 world.Tick"这一机制覆盖范围内；<see cref="BuildDiscreteWorld"/> 因此不装配
-    /// <c>TurnScheduler</c>/<c>TimeModelSwitch</c>，改由录制脚本手工交替产生
-    /// <see cref="SimStep.Discrete"/>，双方的技能施放也都是脚本直接提交 <c>cast</c> 意图（不依赖
-    /// AI 决策），保证"直接驱动"与"经录像重放"这两条路径覆盖的事件完全对齐。
+    /// 判断记录已作废（离散场景不经 <c>TurnScheduler</c>，本次改动前的做法）：此前
+    /// <c>core/foundation/save_system/tests/DiscreteReplayTests.cs</c>"判断记录（不经
+    /// TurnScheduler，手工交替行动者）"指出——<c>sim.turn_started</c>/<c>turn_ended</c>/
+    /// <c>round_ended</c> 三个事件由 <c>TurnScheduler</c> 自己 <c>PublishImmediate</c>，不经过
+    /// <see cref="IWorldSim.Tick"/>，"回放 = 重放 SimStep 序列给 world.Tick"这一（旧）机制天然覆盖
+    /// 不到；本类因此此前不装配 <c>TurnScheduler</c>，改由录制脚本手工交替产生
+    /// <see cref="SimStep.Discrete"/>。离散模式回放完整性任务（04/10 号文档"回放=意图序列"、
+    /// 03 §3.2 步骤 6）改用 <c>Core.Foundation.SaveSystem.IReplayPlayer.LoadDiscrete</c>——重放
+    /// 时真正持有并驱动一个 <c>TurnScheduler</c>（见 <see cref="BuildDiscreteWorldWithScheduler"/>），
+    /// <c>sim.turn_*</c>/<c>sim.round_ended</c> 三个事件在"直跑"与"经录像重放"两条路径下都由这个
+    /// （各自独立构造、但被同一份录像/确定性输入驱动的）<c>TurnScheduler</c> 发出，天然对齐，不再
+    /// 需要"回避这三个事件"这条折中；旧判断记录的技术前提仍然成立（<c>TurnScheduler</c> 确实不经
+    /// <c>world.Tick</c> 发事件），只是应对方式从"回避"改成了"重放侧也真正驱动一个调度器"。
     /// </para>
     /// </summary>
     internal static class ReplayWorldBuilder
@@ -67,9 +72,18 @@ namespace Tests.Gameplay.Replay
                 { ""id"": ""stat.armor"", ""name_key"": ""l10n.stat.armor.name"", ""group"": ""secondary"", ""default_base"": 0 },
                 { ""id"": ""stat.damage_done_pct"", ""name_key"": ""l10n.stat.damage_done_pct.name"", ""group"": ""secondary"", ""default_base"": 0 },
                 { ""id"": ""stat.damage_taken_pct"", ""name_key"": ""l10n.stat.damage_taken_pct.name"", ""group"": ""secondary"", ""default_base"": 0 },
-                { ""id"": ""stat.healing_done_pct"", ""name_key"": ""l10n.stat.healing_done_pct.name"", ""group"": ""secondary"", ""default_base"": 0 }
+                { ""id"": ""stat.healing_done_pct"", ""name_key"": ""l10n.stat.healing_done_pct.name"", ""group"": ""secondary"", ""default_base"": 0 },
+                { ""id"": ""stat.replay_initiative"", ""name_key"": ""l10n.stat.replay_initiative.name"", ""group"": ""secondary"", ""default_base"": 0 }
             ]
         }";
+
+        /// <summary>离散模式回放完整性任务新增：<c>TurnScheduler</c>（<c>initiative_stat</c> 策略）用
+        /// 的先攻属性——两个单位注册后各自 <c>SetBase</c> 成不同值（玩家更高，先手），保证行动顺序
+        /// 由 <c>TurnScheduler</c> 自己按先攻规则算出来，不是脚本硬编码的"奇数步玩家、偶数步 NPC"
+        /// （见 <see cref="BuildDiscreteWorldWithScheduler"/> 判断记录）。</summary>
+        public static readonly Id InitiativeStat = new Id("stat.replay_initiative");
+        public const double PlayerInitiative = 20.0;
+        public const double NpcInitiative = 10.0;
 
         private static string PowerTypeJson => @"
         {
@@ -239,14 +253,41 @@ namespace Tests.Gameplay.Replay
             return (world, rules.Rng);
         }
 
-        /// <summary><c>Core.Foundation.SaveSystem.WorldFactory</c> 形状：离散模式世界——数据/单位与
-        /// <see cref="BuildContinuousWorld"/> 完全相同，区别只在录制/重放脚本用
-        /// <see cref="SimStep.Discrete"/> 而非 <see cref="SimStep.Continuous"/> 推进（见类型顶部
-        /// 判断记录，本方法不装配 TurnScheduler）。</summary>
-        public static (IWorldSim World, IRngHost Rng) BuildDiscreteWorld(ulong masterSeed, IEventBus bus)
+        /// <summary>
+        /// <c>Core.Foundation.SaveSystem.DiscreteWorldFactory</c> 形状（离散模式回放完整性任务
+        /// 新增，取代此前"不装配 TurnScheduler、录制脚本手工交替行动者"的做法，见本类型顶部旧
+        /// 判断记录"离散场景不经 TurnScheduler"——该判断记录随本次改动一并作废）：数据/单位与
+        /// <see cref="BuildContinuousWorld"/> 相同，额外装配一个真正的
+        /// <see cref="TurnScheduler"/>（<c>initiative_stat</c> 策略）并 <c>BeginCombat</c>——行动
+        /// 顺序从此由 <see cref="TurnScheduler"/> 按先攻属性（<see cref="InitiativeStat"/>，玩家
+        /// <see cref="PlayerInitiative"/> &gt; NPC <see cref="NpcInitiative"/>，先手）自己算出来，
+        /// 不再是脚本硬编码的"奇数步玩家、偶数步 NPC"。
+        /// <para>
+        /// 判断记录（双方都是"外部输入"行动者，不接 AI）：<paramref name="isExternalActor"/>（本方法
+        /// 内联的 <c>IsPlayerActor</c> 委托，见 <see cref="TurnScheduler"/> 构造函数同名参数）对
+        /// <see cref="PlayerId"/>/<see cref="NpcId"/> 都返回 <c>true</c>——本夹具刻意不接
+        /// <c>RulesAssembly</c> 的 AI 决策管线（<c>AiTickHandler</c>，见类型顶部"固定脚本"注释：
+        /// 双方都是脚本直接提交 <c>cast</c> 意图，不依赖 AI），"NPC 也需要外部输入"只是意味着
+        /// "谁来决定 NPC 这一步做什么"这件事由脚本／录像扮演，而不是由真正的 AI 扮演；这不影响本
+        /// 方法要验证的核心性质——<b>行动顺序</b>本身仍然是 <see cref="TurnScheduler"/> 按先攻规则
+        /// 真实算出来的，录像只提供"轮到某个行动者时它具体做什么"，不提供"轮到谁"。
+        /// </para>
+        /// </summary>
+        public static (IWorldSim World, IRngHost Rng, TurnScheduler Scheduler) BuildDiscreteWorldWithScheduler(ulong masterSeed, IEventBus bus)
         {
             var (world, _, rules) = BuildCommon(bus);
-            return (world, rules.Rng);
+
+            rules.Stats.SetBase(PlayerId, InitiativeStat, PlayerInitiative);
+            rules.Stats.SetBase(NpcId, InitiativeStat, NpcInitiative);
+
+            double InitiativeProvider(Id unitId) => rules.Stats.GetStat(unitId, InitiativeStat);
+            bool IsExternalActor(Id unitId) => true;
+
+            var scheduler = new TurnScheduler(world, InitiativeProvider, IsExternalActor, bus);
+            scheduler.Configure(InitiativePolicy.InitiativeStat, new Dictionary<string, object>(StringComparer.Ordinal));
+            scheduler.BeginCombat(new[] { PlayerId, NpcId });
+
+            return (world, rules.Rng, scheduler);
         }
 
         // -----------------------------------------------------------------
@@ -298,44 +339,79 @@ namespace Tests.Gameplay.Replay
             return recorder.Export();
         }
 
-        /// <summary>直接驱动一遍固定离散脚本（不经录像），供"直跑"侧验证使用。玩家/NPC 交替行动
-        /// （奇数步玩家、偶数步 NPC），各自释放固定技能。</summary>
+        /// <summary>离散行动者这一步该释放哪个技能——玩家/NPC 各自固定一招（惯例同此前的手工
+        /// 交替脚本），供 <see cref="RunDiscreteFixedScript"/>/<see cref="RecordDiscreteFight"/>
+        /// 共用，保证"直跑"与"录制"两条路径的决策逻辑完全一致（唯一差别是要不要额外记一份
+        /// 录像）。</summary>
+        private static Id SkillFor(Id actorId) => actorId.Equals(PlayerId) ? SkillStrike : SkillBite;
+
+        /// <summary>直接驱动一遍固定离散脚本（不经录像），供"直跑"侧验证使用（离散模式回放完整性
+        /// 任务改写：不再手工交替行动者，改由 <see cref="BuildDiscreteWorldWithScheduler"/> 装配的
+        /// 真实 <see cref="TurnScheduler"/> 决定"轮到谁"——与
+        /// <see cref="Core.Gameplay.Assembly.GameplayAssembly.Advance"/> 同一驱动算法（<c>NextStep</c>
+        /// 非空即 <c>Tick</c>+<c>NotifyStepConsumed</c>；为空即代表轮到的行动者需要外部输入，本方法
+        /// 用 <see cref="SkillFor"/> 固定给出这一步的技能选择），只是本方法在离线测试夹具里原样
+        /// 内联这段算法，不经过 L4 的 <c>GameplayAssembly</c> 本身，见
+        /// <c>Core.Foundation.SaveSystem.IReplayPlayer.LoadDiscrete</c> 判断记录同一分层理由）。</summary>
         public static (IWorldSim World, IEventBus Bus, InMemoryEventAudit Audit, long FinalTick) RunDiscreteFixedScript()
         {
             var (bus, audit) = CreateAuditedBus();
-            var (world, _) = BuildDiscreteWorld(0UL, bus);
+            var (world, _, scheduler) = BuildDiscreteWorldWithScheduler(0UL, bus);
 
-            for (long tick = 1; tick <= DiscreteFixedSteps; tick++)
+            long ticksAdvanced = 0;
+            while (ticksAdvanced < DiscreteFixedSteps)
             {
-                var actorId = tick % 2 == 1 ? PlayerId : NpcId;
-                var skillId = tick % 2 == 1 ? SkillStrike : SkillBite;
-                world.SubmitIntent(new Intent(actorId, "cast", CastArgs(skillId)));
-                world.Tick(SimStep.Discrete(actorId, StepPhase.Act));
+                var step = scheduler.NextStep();
+                if (step == null)
+                {
+                    var actorId = scheduler.GetCurrentActor()!.Value;
+                    scheduler.SubmitIntent(actorId, new Intent(actorId, "cast", CastArgs(SkillFor(actorId))));
+                    continue;
+                }
+
+                world.Tick(step.Value);
+                scheduler.NotifyStepConsumed(step.Value.ActorId!.Value);
+                ticksAdvanced++;
             }
 
-            return (world, bus, audit, DiscreteFixedSteps);
+            return (world, bus, audit, ticksAdvanced);
         }
 
-        /// <summary>录制一遍固定离散脚本，产出 <see cref="ReplayData"/>（"录像"）。</summary>
+        /// <summary>录制一遍固定离散脚本，产出 <see cref="ReplayData"/>（"录像"）——与
+        /// <see cref="RunDiscreteFixedScript"/> 完全同一套决策逻辑（<see cref="SkillFor"/>），额外
+        /// 在每次"轮到的行动者需要外部输入"时用 <see cref="ReplayRecorder.RecordInput"/> 记下
+        /// "第几个 tick、哪个行动者、提交了什么意图"这个决策时刻（不记录"这个 tick 到底是谁的回合"
+        /// ——那是 <c>TurnScheduler</c> 的内部决策，见 <c>IReplayPlayer.LoadDiscrete</c> 判断记录）；
+        /// <see cref="ReplayRecorder.RecordStep"/> 仍然照记（诊断用途，见 <see cref="IReplayRecorder.RecordStep"/>
+        /// 判断记录），不影响 <see cref="ReplayPlayer.LoadDiscrete"/> 播放路径。</summary>
         public static ReplayData RecordDiscreteFight()
         {
             var bus = CreateAuditedBus().Bus;
-            var (world, _) = BuildDiscreteWorld(0UL, bus);
+            var (world, _, scheduler) = BuildDiscreteWorldWithScheduler(0UL, bus);
             var recorder = new ReplayRecorder(StepSeconds);
             recorder.BeginRecording(new Dictionary<string, RngStreamState>(StringComparer.Ordinal));
 
-            for (long tick = 1; tick <= DiscreteFixedSteps; tick++)
+            long ticksAdvanced = 0;
+            while (ticksAdvanced < DiscreteFixedSteps)
             {
-                var actorId = tick % 2 == 1 ? PlayerId : NpcId;
-                var skillId = tick % 2 == 1 ? SkillStrike : SkillBite;
-                recorder.RecordInput(tick, new ReplayInputRecord(tick, actorId, "cast", CastArgs(skillId)));
-                world.SubmitIntent(new Intent(actorId, "cast", CastArgs(skillId)));
-                var step = SimStep.Discrete(actorId, StepPhase.Act);
-                recorder.RecordStep(tick, step);
-                world.Tick(step);
+                var step = scheduler.NextStep();
+                if (step == null)
+                {
+                    var actorId = scheduler.GetCurrentActor()!.Value;
+                    var tickNumber = ticksAdvanced + 1;
+                    var skillId = SkillFor(actorId);
+                    recorder.RecordInput(tickNumber, new ReplayInputRecord(tickNumber, actorId, "cast", CastArgs(skillId)));
+                    scheduler.SubmitIntent(actorId, new Intent(actorId, "cast", CastArgs(skillId)));
+                    continue;
+                }
+
+                recorder.RecordStep(ticksAdvanced + 1, step.Value); // 诊断信息，见方法注释。
+                world.Tick(step.Value);
+                scheduler.NotifyStepConsumed(step.Value.ActorId!.Value);
+                ticksAdvanced++;
             }
 
-            recorder.SetTickCount(DiscreteFixedSteps);
+            recorder.SetTickCount(ticksAdvanced);
             return recorder.Export();
         }
 

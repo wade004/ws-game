@@ -19,9 +19,10 @@ namespace Tests.Gameplay.Replay
     /// （生成方式：<see cref="ReplayWorldBuilder.RecordContinuousFight"/>/
     /// <see cref="ReplayWorldBuilder.RecordDiscreteFight"/> 各跑一遍导出 <see cref="ReplayData"/>，
     /// 序列化写盘；基线的 <c>EventLog</c>/<c>Digest</c> 取自同一次固定脚本"直跑"结果，见本文件
-    /// 判断记录 2）。本类的三个 <c>[Fact]</c> 只读这三份文件、重放、比对，不在测试运行期间生成或
-    /// 覆写它们——"固定录像"意味着录像本身也应该是可审阅、可 diff 的仓库产物，不是每次跑测试都
-    /// 重新录一遍（那样任何行为变化都会被"录像"本身悄悄吸收掉，起不到回归防护作用）。
+    /// 判断记录 2；生成用的一次性代码跑完即从本文件删除，不留在最终提交里）。本类的 <c>[Fact]</c>
+    /// 只读这些文件、重放、比对，不在测试运行期间生成或覆写它们——"固定录像"意味着录像本身也应该
+    /// 是可审阅、可 diff 的仓库产物，不是每次跑测试都重新录一遍（那样任何行为变化都会被"录像"本身
+    /// 悄悄吸收掉，起不到回归防护作用）。
     /// </para>
     /// <para>
     /// 判断记录 2（额外验证"重放 = 直跑"，不只是"重放 = 基线"）：<see cref="ReplayRegression_Continuous_ReplayMatchesDirectRun"/>/
@@ -31,6 +32,21 @@ namespace Tests.Gameplay.Replay
     /// 是否忠实、播放器是否正确"，与"重放结果是否等于既往基线"（回归防护本体）是两个独立关心的
     /// 问题，即便两者恰好用同一份 <c>WorldSnapshot</c> 类型，也分成两组用例，理由与
     /// <c>DiscreteReplayTests</c> 一致。
+    /// </para>
+    /// <para>
+    /// 判断记录 3（离散模式回放完整性任务：<c>discrete_fight.replay.json</c> 改为纯录像驱动，
+    /// <c>format_version</c> 由 2 升到 3）：此前的离散录像/基线由"手工交替 <c>SimStep.Discrete</c>
+    /// 行动者"的脚本产出，不经过任何 <c>TurnScheduler</c>；本次改动后 <see cref="ReplayWorldBuilder.RecordDiscreteFight"/>
+    /// 改为真正驱动一个装配好的 <c>TurnScheduler</c>（见该方法、<see cref="ReplayWorldBuilder.BuildDiscreteWorldWithScheduler"/>
+    /// 判断记录），行动顺序由先攻规则算出来，<c>discrete_fight.replay.json</c> 因此重新生成——新
+    /// 录像的 <c>inputs</c> 与旧录像内容形式相同（tick/actorId/intentKind/args，本次固定脚本的先攻
+    /// 顺序恰好与旧脚本的手工交替顺序一致，见 <see cref="ReplayWorldBuilder.PlayerInitiative"/> 判断
+    /// 记录），但 <c>steps</c> 字段现在只是诊断信息（重放不再读取它，见 <c>IReplayRecorder.RecordStep</c>
+    /// 判断记录）；<c>replay_baseline.json</c>"discrete"一项的 <c>event_log</c>/<c>digest</c> 也
+    /// 随之重新生成——新事件流额外包含 <c>sim.turn_started</c>/<c>sim.turn_ended</c>/
+    /// <c>sim.round_ended</c>/<c>sim.awaiting_input</c>（此前的手工脚本从不驱动
+    /// <c>TurnScheduler</c>，这些事件从未出现过），条数从 92 涨到 166，这是"离散重放现在真正经过
+    /// <c>TurnScheduler</c>"这一行为改进的直接体现，不是数值漂移。
     /// </para>
     /// </summary>
     public sealed class ReplayBaselineTests
@@ -105,13 +121,20 @@ namespace Tests.Gameplay.Replay
         // 2. 离散场景：重放固定录像，比对既往基线
         // -----------------------------------------------------------------
 
+        // 判断记录（离散模式回放完整性任务：由 Load/WorldFactory 改为 LoadDiscrete/DiscreteWorldFactory）：
+        // 离散录像本身不再含"哪个 tick 是谁的回合"（见 discrete_fight.replay.json 判断记录、
+        // Core.Foundation.SaveSystem.IReplayPlayer.LoadDiscrete），重放必须经
+        // ReplayWorldBuilder.BuildDiscreteWorldWithScheduler 提供一个真正的 TurnScheduler，
+        // 由它在重放时重新算出行动顺序——这正是本任务要验证的核心性质："TurnScheduler 的顺序完全
+        // 由确定性输入决定，重放自然复现同一序列"，不是靠录像里的 actorId/phase 字段。
+
         [Fact]
         public void ReplayRegression_Discrete_MatchesBaseline()
         {
             var tape = LoadTape("discrete_fight.replay.json");
             var (bus, audit) = ReplayWorldBuilder.CreateAuditedBus();
-            var player = new ReplayPlayer(ReplayWorldBuilder.BuildDiscreteWorld, bus, audit);
-            player.Load(tape);
+            var player = new ReplayPlayer(ReplayWorldBuilder.BuildContinuousWorld, bus, audit);
+            player.LoadDiscrete(tape, ReplayWorldBuilder.BuildDiscreteWorldWithScheduler);
 
             var snapshot = player.StepTo(ReplayWorldBuilder.DiscreteFixedSteps);
 
@@ -123,8 +146,8 @@ namespace Tests.Gameplay.Replay
         {
             var tape = LoadTape("discrete_fight.replay.json");
             var (bus, audit) = ReplayWorldBuilder.CreateAuditedBus();
-            var player = new ReplayPlayer(ReplayWorldBuilder.BuildDiscreteWorld, bus, audit);
-            player.Load(tape);
+            var player = new ReplayPlayer(ReplayWorldBuilder.BuildContinuousWorld, bus, audit);
+            player.LoadDiscrete(tape, ReplayWorldBuilder.BuildDiscreteWorldWithScheduler);
             var replaySnapshot = player.StepTo(ReplayWorldBuilder.DiscreteFixedSteps);
 
             var (directWorld, _, directAudit, finalTick) = ReplayWorldBuilder.RunDiscreteFixedScript();
@@ -133,6 +156,63 @@ namespace Tests.Gameplay.Replay
 
             Assert.Equal(directSnapshot.EventLog, replaySnapshot.EventLog);
             Assert.Equal(directSnapshot.Digest, replaySnapshot.Digest);
+        }
+
+        /// <summary>
+        /// 任务书新增验收点："录像重放的轮次/行动者序列与直跑一致"：直接订阅
+        /// <see cref="Core.Foundation.SimLoop.SimTurnStartedEvent"/>（<c>TurnScheduler</c> 每次切到
+        /// 一个新行动者都会发一次，携带 <c>ActorId</c>/<c>RoundIndex</c>，见该事件类型注释）——
+        /// 分别在"直跑"侧（<see cref="ReplayWorldBuilder.RunDiscreteFixedScript"/> 复刻的驱动循环）
+        /// 与"经录像重放"侧（<see cref="ReplayPlayer.LoadDiscrete"/>）各自独立的
+        /// <see cref="IEventBus"/> 上挂一个收集器，逐项比较两条路径产生的 <c>(ActorId, RoundIndex)</c>
+        /// 序列——这是比"最终 EventLog/Digest 相等"更直接的证据：直接证明重放侧的
+        /// <c>TurnScheduler</c> 在每一步都算出了与直跑侧完全相同的"轮到谁"，而不是仅仅在终局的
+        /// 实体位置/事件计数上偶然吻合。
+        /// </summary>
+        [Fact]
+        public void ReplayRegression_Discrete_TurnSequence_MatchesDirectRun()
+        {
+            var directBus = ReplayWorldBuilder.CreateAuditedBus().Bus;
+            var directTurns = new System.Collections.Generic.List<(string ActorId, int RoundIndex)>();
+            directBus.Subscribe<Core.Foundation.SimLoop.SimTurnStartedEvent>(
+                Core.Foundation.SimLoop.SimEventKeys.TurnStarted,
+                e => directTurns.Add((e.ActorId.Value, e.RoundIndex)));
+
+            var (directWorld, _, directScheduler) = ReplayWorldBuilder.BuildDiscreteWorldWithScheduler(0UL, directBus);
+            long ticksAdvanced = 0;
+            while (ticksAdvanced < ReplayWorldBuilder.DiscreteFixedSteps)
+            {
+                var step = directScheduler.NextStep();
+                if (step == null)
+                {
+                    var actorId = directScheduler.GetCurrentActor()!.Value;
+                    var skillId = actorId.Equals(ReplayWorldBuilder.PlayerId) ? ReplayWorldBuilder.SkillStrike : ReplayWorldBuilder.SkillBite;
+                    directScheduler.SubmitIntent(actorId, new Core.Foundation.SimLoop.Intent(actorId, "cast", ReplayWorldBuilder.CastArgs(skillId)));
+                    continue;
+                }
+
+                directWorld.Tick(step.Value);
+                directScheduler.NotifyStepConsumed(step.Value.ActorId!.Value);
+                ticksAdvanced++;
+            }
+
+            var tape = LoadTape("discrete_fight.replay.json");
+            var (replayBus, replayAudit) = ReplayWorldBuilder.CreateAuditedBus();
+            var replayTurns = new System.Collections.Generic.List<(string ActorId, int RoundIndex)>();
+            replayBus.Subscribe<Core.Foundation.SimLoop.SimTurnStartedEvent>(
+                Core.Foundation.SimLoop.SimEventKeys.TurnStarted,
+                e => replayTurns.Add((e.ActorId.Value, e.RoundIndex)));
+
+            var player = new ReplayPlayer(ReplayWorldBuilder.BuildContinuousWorld, replayBus, replayAudit);
+            player.LoadDiscrete(tape, ReplayWorldBuilder.BuildDiscreteWorldWithScheduler);
+            player.StepTo(ReplayWorldBuilder.DiscreteFixedSteps);
+
+            Assert.NotEmpty(directTurns);
+            Assert.Equal(directTurns, replayTurns);
+            // 先攻属性玩家 > NPC（见 ReplayWorldBuilder.PlayerInitiative/NpcInitiative），首个行动者
+            // 必须是玩家——这条断言把"顺序确实是 TurnScheduler 按先攻规则算出来的"钉死，不是巧合
+            // 对上的。
+            Assert.Equal(ReplayWorldBuilder.PlayerId.Value, directTurns[0].ActorId);
         }
 
         // -----------------------------------------------------------------
@@ -152,5 +232,6 @@ namespace Tests.Gameplay.Replay
             Assert.Equal(ReplayData.CurrentFormatVersion, discreteTape.FormatVersion);
             Assert.All(discreteTape.Steps, s => Assert.Equal(Core.Foundation.SimLoop.SimStepKind.Discrete, s.Kind));
         }
+
     }
 }

@@ -21,6 +21,13 @@
 本文件不得重新实现其中任何一条判断逻辑——第 1 道检查覆盖的内容与第 2 道完全
 不重叠（信封/表名/id 格式 vs. 字段语义），这是有意为之的分工，不是"暂未实现"。
 
+**判断记录（数据行覆盖语义任务）**：多根合并时同表同主键行默认仍是阻断错误；行级
+``"override": true``/``"final": true`` 两个布尔字段可显式改写该行为（整行替换/拒绝被覆盖，
+判定逻辑与"单根出现时报 Warning 并忽略"均在 ``DataRegistry`` 侧实现，见该类型级判断记录
+"覆盖语义"），第二道真实校验的输出因此新增一段"覆盖清单"（见 ``toolchain/validator/
+Program.cs``）。第一道骨架检查只做"若出现必须是布尔值"这一最基础的形状检查（见
+``check_rows``），不判定覆盖是否生效——这仍然落在"第 1/2 道分工"边界内。
+
 **判断记录（数据目录框架/游戏分层任务，多根加载）**：``data/`` 下现分两类目录（见
 ``data/README.md``）——``data/_framework/`` 是框架级数据表（行被框架代码硬引用/生成，
 如 ``found.event_catalog``/``found.input_action``），``data/_sample``/``data/<game>/``
@@ -184,6 +191,17 @@ def check_rows(path: Path, data: Any) -> FileErrors:
             msg = _check_id_value(row["id"], domain_prefix, "id")
             if msg:
                 errors.append(f"rows[{index}] {msg}")
+
+        # 判断记录（数据行覆盖语义任务）：行级 "override"/"final" 字段（见
+        # core/foundation/data_registry/core/DataRegistry.cs 类型级判断记录"覆盖语义"、
+        # data/README.md"多根加载与合并规则"）本骨架检查允许其出现——两个字段是否生效、
+        # 单根出现时的 Warning 都由第二道真实校验（C# DataRegistry）判定，这里只做与"具体游戏
+        # 内容无关的最基础形状"检查：出现时必须是布尔值（不是布尔值会被 DataRegistry.TryGetBool
+        # 静默当作"未声明"处理，骨架检查在这里提前挡住这类容易被忽视的笔误，比如误写成字符串
+        # "\"override\": \"true\""）。
+        for meta_field in ("override", "final"):
+            if meta_field in row and not isinstance(row[meta_field], bool):
+                errors.append(f"rows[{index}] 字段 {meta_field} 若出现必须是布尔值（true/false）")
 
     return errors
 

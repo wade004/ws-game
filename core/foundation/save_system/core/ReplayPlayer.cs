@@ -31,6 +31,11 @@ namespace Core.Foundation.SaveSystem
         private long _ticksAdvanced;
         private Dictionary<long, ReplayStepRecord>? _stepsByTick;
 
+        /// <summary>非空表示本次是经 <see cref="LoadDiscrete"/> 加载的离散回放：<see cref="StepTo"/>
+        /// 改走"经 TurnScheduler 驱动"的路径（见 <see cref="IReplayPlayer.LoadDiscrete"/> 判断
+        /// 记录），不再使用 <see cref="_stepsByTick"/>。</summary>
+        private TurnScheduler? _scheduler;
+
         /// <summary>
         /// <paramref name="bus"/>/<paramref name="audit"/> 由调用方构造并持有：<paramref name="bus"/>
         /// 必须以 <c>EventBusOptions.AuditLog = true</c>、且以 <paramref name="audit"/> 作为其
@@ -57,12 +62,7 @@ namespace Core.Foundation.SaveSystem
                 throw new InvalidOperationException("WorldFactory 返回的 Rng 不能为 null");
             }
 
-            // 10 第 8 节"分流随机源初始状态"：把录制时记下的每条流状态原样恢复；工厂内部用
-            // 何种主种子构造 IRngHost 不重要，SetStreamState 会覆盖到位（见 WorldFactory 注释）。
-            foreach (var pair in data.RngSeeds)
-            {
-                rng.SetStreamState(new Id(pair.Key), pair.Value);
-            }
+            RestoreRngSeeds(data, rng);
 
             // ADR-0013：按 tick 号建一份 Steps 的查找表（见 ReplayStepRecord 类型注释"判断记录
             // （旧格式兼容）"——旧格式/未记录的 tick 在字典里找不到，StepTo 按 Continuous 兜底）。
@@ -73,14 +73,50 @@ namespace Core.Foundation.SaveSystem
                 _stepsByTick[record.Tick] = record;
             }
 
+            _scheduler = null;
             _ticksAdvanced = 0;
+        }
+
+        public void LoadDiscrete(ReplayData data, DiscreteWorldFactory factory)
+        {
+            if (factory == null)
+            {
+                throw new ArgumentNullException(nameof(factory));
+            }
+
+            _data = data ?? throw new ArgumentNullException(nameof(data));
+
+            var (world, rng, scheduler) = factory(0UL, _bus);
+            _world = world ?? throw new InvalidOperationException("DiscreteWorldFactory 返回的 World 不能为 null");
+            _scheduler = scheduler ?? throw new InvalidOperationException("DiscreteWorldFactory 返回的 Scheduler 不能为 null");
+
+            if (rng == null)
+            {
+                throw new InvalidOperationException("DiscreteWorldFactory 返回的 Rng 不能为 null");
+            }
+
+            RestoreRngSeeds(data, rng);
+
+            _stepsByTick = null;
+            _ticksAdvanced = 0;
+        }
+
+        /// <summary>10 第 8 节"分流随机源初始状态"：把录制时记下的每条流状态原样恢复；工厂内部用
+        /// 何种主种子构造 IRngHost 不重要，SetStreamState 会覆盖到位（见 WorldFactory 注释）。
+        /// <see cref="Load"/>/<see cref="LoadDiscrete"/> 共用。</summary>
+        private static void RestoreRngSeeds(ReplayData data, IRngHost rng)
+        {
+            foreach (var pair in data.RngSeeds)
+            {
+                rng.SetStreamState(new Id(pair.Key), pair.Value);
+            }
         }
 
         public WorldSnapshot StepTo(long tick)
         {
             if (_data == null || _world == null)
             {
-                throw new InvalidOperationException("StepTo 之前必须先调用 Load");
+                throw new InvalidOperationException("StepTo 之前必须先调用 Load/LoadDiscrete");
             }
 
             if (tick < _ticksAdvanced)
@@ -89,7 +125,78 @@ namespace Core.Foundation.SaveSystem
                     $"StepTo 只能向前推进：当前已推进到 tick {_ticksAdvanced}，不能回退到 {tick}", nameof(tick));
             }
 
-            var inputs = _data.Inputs;
+            return _scheduler != null ? StepToDiscrete(tick) : StepToContinuousTape(tick);
+        }
+
+        /// <summary>经 <see cref="LoadDiscrete"/> 加载后的推进路径：见 <see cref="IReplayPlayer.LoadDiscrete"/>
+        /// 判断记录——反复调用 <see cref="TurnScheduler.NextStep"/>，非空即直接 <c>world.Tick</c>；
+        /// 空即代表"轮到的行动者需要外部输入"，按当前 tick 号从录像的 <see cref="ReplayData.Inputs"/>/
+        /// <see cref="ReplayData.EndTurns"/> 里取出录制时的决策原样提交，找不到则判定录像与调度器
+        /// 决策不一致（不静默降级，见 11 第 4 节），抛出说明性异常。</summary>
+        private WorldSnapshot StepToDiscrete(long tick)
+        {
+            var inputs = _data!.Inputs;
+            var endTurns = _data.EndTurns;
+
+            while (_ticksAdvanced < tick)
+            {
+                var step = _scheduler!.NextStep();
+                if (step == null)
+                {
+                    var tickNumber = _ticksAdvanced + 1;
+                    var appliedAny = false;
+
+                    for (var i = 0; i < inputs.Count; i++)
+                    {
+                        var input = inputs[i];
+                        if (input.Tick != tickNumber)
+                        {
+                            continue;
+                        }
+
+                        _scheduler.SubmitIntent(input.ActorId, new Intent(input.ActorId, input.IntentKind, input.Args));
+                        appliedAny = true;
+                    }
+
+                    for (var i = 0; i < endTurns.Count; i++)
+                    {
+                        var endTurn = endTurns[i];
+                        if (endTurn.Tick != tickNumber)
+                        {
+                            continue;
+                        }
+
+                        _scheduler.EndTurn(endTurn.ActorId);
+                        appliedAny = true;
+                    }
+
+                    if (!appliedAny)
+                    {
+                        var waitingActor = _scheduler.GetCurrentActor();
+                        throw new InvalidOperationException(
+                            $"离散重放在 tick {tickNumber} 需要外部输入（TurnScheduler 等待行动者 " +
+                            $"\"{waitingActor}\" 提交意图或结束回合），但录像的 Inputs/EndTurns 里没有任何" +
+                            $"对应这个 tick 的记录——说明重放时的调度器决策与录制时不一致（可能是录像不" +
+                            "完整，也可能是 TurnScheduler 存在非确定性来源），拒绝静默继续。");
+                    }
+
+                    continue; // 已提交决策，回到循环开头重新问一次 NextStep（不消耗一个 tick）。
+                }
+
+                _world!.Tick(step.Value);
+                _scheduler.NotifyStepConsumed(step.Value.ActorId!.Value);
+                _ticksAdvanced++;
+            }
+
+            return WorldSnapshot.Capture(_ticksAdvanced, BuildEventLog(), _world!);
+        }
+
+        /// <summary>经 <see cref="Load"/> 加载后的推进路径（改动前既有行为，逐字节不变）：按录像里
+        /// 记下的 <see cref="ReplayStepRecord"/>（没有记录的 tick 按 Continuous 兜底）原样重放给
+        /// <c>world.Tick</c>，不涉及任何 <see cref="TurnScheduler"/>。</summary>
+        private WorldSnapshot StepToContinuousTape(long tick)
+        {
+            var inputs = _data!.Inputs;
 
             while (_ticksAdvanced < tick)
             {
@@ -103,7 +210,7 @@ namespace Core.Foundation.SaveSystem
                     var input = inputs[i];
                     if (input.Tick == tickNumber)
                     {
-                        _world.SubmitIntent(new Intent(input.ActorId, input.IntentKind, input.Args));
+                        _world!.SubmitIntent(new Intent(input.ActorId, input.IntentKind, input.Args));
                     }
                 }
 
@@ -114,11 +221,11 @@ namespace Core.Foundation.SaveSystem
                     ? stepRecord.ToSimStep(_data.StepSeconds)
                     : SimStep.Continuous(_data.StepSeconds);
 
-                _world.Tick(step);
+                _world!.Tick(step);
                 _ticksAdvanced++;
             }
 
-            return WorldSnapshot.Capture(_ticksAdvanced, BuildEventLog(), _world);
+            return WorldSnapshot.Capture(_ticksAdvanced, BuildEventLog(), _world!);
         }
 
         private IReadOnlyList<string> BuildEventLog()
