@@ -67,8 +67,13 @@ function Write-StepHeader {
     Write-Host "==== $Message ====" -ForegroundColor Cyan
 }
 
-# $Action 是一个不带参数的 scriptblock：约定返回 $true 表示通过、$false 表示失败；抛异常同样
-# 记为失败（异常消息进明细列）。任一步骤失败都不会中断后续步骤（"顺序执行并汇总"，见任务书）。
+# $Action 是一个不带参数的 scriptblock：约定返回值有三种形状——
+#   1) $null：通过，明细列留空（既有大多数步骤的写法）；
+#   2) $true/$false：直接就是通过/失败，明细列留空；
+#   3) [PSCustomObject]@{ Ok = <bool>; Detail = <string> }：通过/失败取 Ok，明细列取 Detail
+#      （H5 新增，供 Unity EditMode/PlayMode 步骤把 total/passed/failed 计数写进汇总表）。
+# 抛异常同样记为失败（异常消息进明细列）。任一步骤失败都不会中断后续步骤（"顺序执行并汇总"，
+# 见任务书）。
 function Invoke-CheckStep {
     param(
         [string]$Name,
@@ -83,6 +88,13 @@ function Invoke-CheckStep {
         $result = & $Action
         if ($null -eq $result) {
             $ok = $true
+        } elseif ($result -is [bool]) {
+            $ok = $result
+        } elseif ($result -is [pscustomobject] -and ($result.PSObject.Properties.Name -contains "Ok")) {
+            $ok = [bool]$result.Ok
+            if (($result.PSObject.Properties.Name -contains "Detail") -and $result.Detail) {
+                $detail = [string]$result.Detail
+            }
         } else {
             $ok = [bool]$result
         }
@@ -130,6 +142,90 @@ function Test-NativeExitCode {
     )
     & $Exe @ArgList
     return ($LASTEXITCODE -eq 0)
+}
+
+# H5 新增：跑一个"GUI 子系统"原生可执行文件（Unity.exe / 独立版 Shell.exe）并真正等待其退出、
+# 拿到真实退出码。
+#
+# 判断记录（根因 + 为什么不能继续用 `& $Exe @ArgList` + $LASTEXITCODE）：Unity.exe 与独立版
+# Shell.exe 都是 Windows GUI 子系统程序（不是控制台子系统程序）。PowerShell 的调用运算符 `&`
+# 对 GUI 子系统程序只负责"启动"，不会阻塞等待其退出（这是 Windows 进程创建层面的行为，不是
+# PowerShell 的 bug）——`& $Exe @ArgList` 这一行执行完就立即往下走，此时 Unity 可能才刚开始加载
+# 许可证/域重载，$LASTEXITCODE 读到的是上一条别的原生命令留下的陈旧值。H4 版 check.ps1 的 Unity
+# 四步之所以"0 秒内结束、编译步误判 PASS、其余步骤 FAIL"，根因正在这里：Unity 编译检查那一步
+# 的 `& Unity.exe -quit` 一启动就立即返回（判定用的 $LASTEXITCODE 是陈旧值，凑巧还是 0），脚本
+# 立即往下跑 EditMode/PlayMode/独立版构建，而这些新启动的 Unity 实例发现同一个工程已经被上一个
+# （其实还在后台跑）Unity 实例打开，直接失败退出（EditMode/PlayMode 各自的 xml/log 里只有许可证
+# 握手几行）。
+#
+# 改法：不用 `&`，改用 Start-Process -FilePath/-ArgumentList/-Wait/-PassThru/-NoNewWindow——
+# -Wait 是 Start-Process 自己实现的"轮询进程句柄直到退出"，不依赖 GUI/控制台子系统的差异；
+# -PassThru 拿到 Process 对象读真实 ExitCode（不再依赖 $LASTEXITCODE）。-ArgumentList 传数组
+# （不是拼接成一整根字符串）：Start-Process 内部按数组元素分别加引号，含空格/中文的路径参数
+# （如仓库路径、-logFile 输出路径）不需要调用方自己转义。
+#
+# $TimeoutSeconds > 0 时（独立版无人值守冒烟两步用到，见下方判断记录：无人值守冒烟一旦挂死，
+# 没有人会去按任何键，必须有兜底）：不能再用 -Wait（-Wait 本身不接受超时参数），改成不传 -Wait
+# 只传 -PassThru 拿到 Process 对象后，手工调用 Process.WaitForExit(毫秒) 限时等待；超时后
+# WaitForExit 返回 $false，尝试 Kill 掉这个挂死的子进程（仅 Kill 本函数自己刚刚 Start-Process
+# 启动的这一个句柄，不误杀任何其它进程），$TimedOut 置 $true、ExitCode 记为 -1（明确的失败标记，
+# 不会与任何真实退出码混淆——真实 Windows 退出码不会是负数）。
+#
+# 判断记录（限时分支不传 -NoNewWindow，与"不限时"分支不同——已实测复现的 Windows PowerShell 5.1
+# Start-Process 已知限制）：本函数最初两个分支都传 -NoNewWindow，实测（独立版冒烟两步）发现限时
+# 分支下 `$proc.ExitCode` 读回空字符串——进程确实已退出（HasExited 为真、日志也证实 Shell.exe
+# 内部 Application.Quit(0) 正常收尾），但 Start-Process 在"-PassThru 且不传 -Wait 却传了
+# -NoNewWindow"这一种组合下返回的 Process 对象丢失了退出码句柄（去掉 -NoNewWindow 后同样的
+# 手工 WaitForExit 流程能正确读到 ExitCode，实测反复复现两次，确认是这一个参数组合触发，不是
+# 偶发）。"不限时"分支（-Wait -PassThru -NoNewWindow 三个一起传）不受影响——Start-Process 自己
+# 实现的 -Wait 走的是另一条内部代码路径，能正确保留退出码，这也是任务书要求的默认写法，原样保留。
+# 限时分支因此改为只传 -PassThru：本来就是 GUI 子系统程序（Unity/独立版 Shell.exe 本身不分配
+# 控制台窗口），-batchmode 命令行参数已经保证不出现可见窗口，去掉 -NoNewWindow 不影响实际的
+# "无人值守"效果，只是绕开这一条 Start-Process 自身的退出码丢失路径。
+function Invoke-NativeAndWait {
+    param(
+        [string]$Exe,
+        [string[]]$ArgList,
+        [int]$TimeoutSeconds = 0
+    )
+
+    if ($TimeoutSeconds -le 0) {
+        $proc = Start-Process -FilePath $Exe -ArgumentList $ArgList -Wait -PassThru -NoNewWindow
+        return [PSCustomObject]@{ ExitCode = $proc.ExitCode; TimedOut = $false }
+    }
+
+    $proc = Start-Process -FilePath $Exe -ArgumentList $ArgList -PassThru
+    $exited = $proc.WaitForExit($TimeoutSeconds * 1000)
+    if (-not $exited) {
+        try { $proc.Kill() } catch { }
+        return [PSCustomObject]@{ ExitCode = -1; TimedOut = $true }
+    }
+    $proc.Refresh()
+    return [PSCustomObject]@{ ExitCode = $proc.ExitCode; TimedOut = $false }
+}
+
+# H5 新增：Unity 四步开跑前检查"同一工程"是否已经有一个残留的 Unity.exe 进程在跑（例如上一次
+# check.ps1 被中断、或另一个终端窗口手工开着 Unity Editor 独占了同一个工程的 .lock）——按命令行
+# 里是否含本工程路径判断，不是"任意 Unity.exe 都算残留"（开发机上完全可能同时开着别的工程的
+# Unity Editor）。发现残留只报告明确的失败信息（含 PID，方便手工定位/结束），不代为 Kill——
+# 任务书硬性规则"不 kill 非本脚本启动的进程"，残留进程可能是人正在交互使用的 Editor 窗口。
+function Test-NoResidualUnityProcess {
+    param([string]$ProjectPath)
+
+    try {
+        $procs = Get-CimInstance -ClassName Win32_Process -Filter "Name = 'Unity.exe'" -ErrorAction Stop
+    } catch {
+        # 查询进程列表本身失败（权限/WMI 服务异常等）：不能确认"没有残留"，但也不应该让整个门禁
+        # 因为一次诊断性查询失败而跳过 Unity 步骤——按"未发现残留"处理，继续往下跑。
+        return
+    }
+
+    $needle = $ProjectPath.TrimEnd("\", "/")
+    $hit = $procs | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($needle) }
+    if ($hit) {
+        $pids = ($hit | ForEach-Object { $_.ProcessId }) -join ", "
+        throw "检测到同一工程已有残留 Unity.exe 进程在运行（PID: $pids，工程路径 $ProjectPath），本脚本不会代为结束——请先手工关闭该 Unity Editor 窗口/进程，确认 $ProjectPath\Temp\UnityLockfile 已释放后重跑。"
+    }
 }
 
 # -----------------------------------------------------------------------------
@@ -303,80 +399,124 @@ if ($SkipUnity) {
     $resolvedUnityExe = Resolve-UnityExe -Explicit $UnityExe
     $unityProjectPath = Join-Path $RepoRoot "adapters\unity"
 
+    # H5 起：Unity 四步一律用 Invoke-NativeAndWait（不再用 Test-NativeExitCode 那套
+    # `& $Exe @ArgList` + $LASTEXITCODE——见该函数判断记录，对 GUI 子系统程序不阻塞，会导致本步骤
+    # 在 Unity 真正跑完之前就误判结束）；每步开跑前先查一次同工程有没有残留 Unity.exe（见
+    # Test-NoResidualUnityProcess）。
+
     Invoke-CheckStep "Unity 编译检查" {
+        Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
         $log = Join-Path $UnityOutDir "compile.log"
-        Test-NativeExitCode $resolvedUnityExe @(
+        $proc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
             "-batchmode", "-nographics", "-quit",
             "-projectPath", $unityProjectPath,
             "-logFile", $log
         )
+        [PSCustomObject]@{
+            Ok     = ($proc.ExitCode -eq 0)
+            Detail = "Unity 退出码 $($proc.ExitCode)"
+        }
     }
 
     Invoke-CheckStep "Unity EditMode 测试" {
+        Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
         $resultsXml = Join-Path $UnityOutDir "editmode.xml"
         $log = Join-Path $UnityOutDir "editmode.log"
-        $exitOk = Test-NativeExitCode $resolvedUnityExe @(
+        $proc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
             "-batchmode", "-nographics",
             "-projectPath", $unityProjectPath,
             "-runTests", "-testPlatform", "EditMode",
             "-testResults", $resultsXml,
             "-logFile", $log
         )
-        if (-not $exitOk) { return $false }
-        if (-not (Test-Path $resultsXml)) { return $false }
+        if ($proc.ExitCode -ne 0) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)" }
+        }
+        if (-not (Test-Path $resultsXml)) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "未生成结果 XML：$resultsXml" }
+        }
         # NUnit 结果 XML：根节点 result 属性非 Passed 视为失败（覆盖 Unity 某些版本"有失败用例
         # 但进程退出码仍为 0"的已知情况，不能只信退出码）。
         [xml]$xml = Get-Content -Path $resultsXml -Raw
         $root = $xml.DocumentElement
-        return ($root.result -eq "Passed")
+        [PSCustomObject]@{
+            Ok     = ($root.result -eq "Passed")
+            Detail = "total=$($root.total) passed=$($root.passed) failed=$($root.failed)"
+        }
     }
 
     Invoke-CheckStep "Unity PlayMode 测试" {
+        Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
         $resultsXml = Join-Path $UnityOutDir "playmode.xml"
         $log = Join-Path $UnityOutDir "playmode.log"
         # PlayMode 不加 -nographics（见 adapters/unity/README.md 判断记录：需要真实渲染/输入子系统）。
-        $exitOk = Test-NativeExitCode $resolvedUnityExe @(
+        $proc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
             "-batchmode",
             "-projectPath", $unityProjectPath,
             "-runTests", "-testPlatform", "PlayMode",
             "-testResults", $resultsXml,
             "-logFile", $log
         )
-        if (-not $exitOk) { return $false }
-        if (-not (Test-Path $resultsXml)) { return $false }
+        if ($proc.ExitCode -ne 0) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)" }
+        }
+        if (-not (Test-Path $resultsXml)) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "未生成结果 XML：$resultsXml" }
+        }
         [xml]$xml = Get-Content -Path $resultsXml -Raw
         $root = $xml.DocumentElement
-        return ($root.result -eq "Passed")
+        # H5 新增：除根节点 result 外，把 total/passed/failed 计数写进汇总表 Detail 列。
+        [PSCustomObject]@{
+            Ok     = ($root.result -eq "Passed")
+            Detail = "total=$($root.total) passed=$($root.passed) failed=$($root.failed)"
+        }
     }
 
     Invoke-CheckStep "独立版构建 + -gf-smoke 冒烟（连续模式默认流程）" {
+        Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
         $buildLog = Join-Path $UnityOutDir "build.log"
         $exePath = Join-Path $UnityOutDir "Shell.exe"
-        $buildOk = Test-NativeExitCode $resolvedUnityExe @(
+        $buildProc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
             "-batchmode", "-nographics", "-quit",
             "-projectPath", $unityProjectPath,
             "-buildWindows64Player", $exePath,
             "-logFile", $buildLog
         )
-        if (-not $buildOk) { return $false }
-        if (-not (Test-Path $exePath)) { return $false }
+        if ($buildProc.ExitCode -ne 0) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "Unity 构建退出码 $($buildProc.ExitCode)" }
+        }
+        if (-not (Test-Path $exePath)) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "未生成独立版产物：$exePath" }
+        }
 
         if ($SkipSmoke) {
             Write-Host "已跳过 -gf-smoke 冒烟子步骤（-SkipSmoke），只验证了构建产物存在。" -ForegroundColor Yellow
-            return $true
+            return [PSCustomObject]@{ Ok = $true; Detail = "已跳过 -gf-smoke（-SkipSmoke），只验证构建产物存在" }
         }
 
-        # 注意不加 -nographics（见包 README"独立版无头冒烟"判断记录）。
+        # 注意不加 -nographics（见包 README"独立版无头冒烟"判断记录）。H5 新增：加 180s 超时保护
+        # ——无人值守冒烟一旦挂死（例如场景资源加载死锁），没有人会去按任何键，Invoke-NativeAndWait
+        # 的 -Wait 会无限期挂住整个门禁脚本，必须有兜底。
         $smokeLog = Join-Path $UnityOutDir "smoke_player.log"
-        $smokeOk = Test-NativeExitCode $exePath @(
+        $smokeProc = Invoke-NativeAndWait -Exe $exePath -TimeoutSeconds 180 -ArgList @(
             "-batchmode", "-gf-smoke",
             "-logFile", $smokeLog,
             "-screen-width", "800", "-screen-height", "600"
         )
-        if (-not $smokeOk) { return $false }
-        if (-not (Test-Path $smokeLog)) { return $false }
+        if ($smokeProc.TimedOut) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "-gf-smoke 冒烟超过 180s 未退出，已强制结束（可能挂死）" }
+        }
+        if ($smokeProc.ExitCode -ne 0) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "独立版退出码 $($smokeProc.ExitCode)" }
+        }
+        if (-not (Test-Path $smokeLog)) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "未生成冒烟日志：$smokeLog" }
+        }
         $logText = Get-Content -Path $smokeLog -Raw
-        return ($logText -match "\[GF-SMOKE\] RESULT=OK")
+        [PSCustomObject]@{
+            Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK")
+            Detail = "见 $smokeLog"
+        }
     }
 
     # H4 新增：离散链路冒烟（-gf-smoke-discrete，见 Adapter.Unity.Shell.SmokeRunner.RunDiscreteSequence
@@ -385,23 +525,36 @@ if ($SkipUnity) {
     # 构建产物存在这一步已经在上一步做过，本步不重复）。
     Invoke-CheckStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" {
         $exePath = Join-Path $UnityOutDir "Shell.exe"
-        if (-not (Test-Path $exePath)) { return $false }
+        if (-not (Test-Path $exePath)) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "未生成独立版产物：$exePath" }
+        }
 
         if ($SkipSmoke) {
             Write-Host "已跳过 -gf-smoke-discrete 冒烟子步骤（-SkipSmoke）。" -ForegroundColor Yellow
-            return $true
+            return [PSCustomObject]@{ Ok = $true; Detail = "已跳过 -gf-smoke-discrete（-SkipSmoke）" }
         }
 
+        # H5 新增：同上一步，180s 超时保护。
         $smokeLog = Join-Path $UnityOutDir "smoke_player_discrete.log"
-        $smokeOk = Test-NativeExitCode $exePath @(
+        $smokeProc = Invoke-NativeAndWait -Exe $exePath -TimeoutSeconds 180 -ArgList @(
             "-batchmode", "-gf-smoke-discrete",
             "-logFile", $smokeLog,
             "-screen-width", "800", "-screen-height", "600"
         )
-        if (-not $smokeOk) { return $false }
-        if (-not (Test-Path $smokeLog)) { return $false }
+        if ($smokeProc.TimedOut) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "-gf-smoke-discrete 冒烟超过 180s 未退出，已强制结束（可能挂死）" }
+        }
+        if ($smokeProc.ExitCode -ne 0) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "独立版退出码 $($smokeProc.ExitCode)" }
+        }
+        if (-not (Test-Path $smokeLog)) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "未生成冒烟日志：$smokeLog" }
+        }
         $logText = Get-Content -Path $smokeLog -Raw
-        return ($logText -match "\[GF-SMOKE\] RESULT=OK") -and ($logText -match "step=discrete_round ok")
+        [PSCustomObject]@{
+            Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK") -and ($logText -match "step=discrete_round ok")
+            Detail = "见 $smokeLog"
+        }
     }
 }
 

@@ -9,6 +9,27 @@
 // 否则会连带影响 GreyBoxTests/ShellFlowTests/UiSuiteTests/VerticalSliceTests 等全部既有场景类用例
 // （它们都依赖场景默认的连续模式战斗）。本类型因此不加载 GreyBox 场景，而是在一个独立、不挂载到
 // 任何场景资产的 GameObject 上 AddComponent<GameFoundationBootstrap>，构造期先 SetActive(false)
+//
+// 判断记录（H5 排障：批次相关 PlayMode 失败根因，见 CleanupStaleSharedCompositionRoots）——
+// SharedBootstrap_EndTurnKeyBinding_UnblocksAwaitingInput 单独跑必过、混在全量套件（NUnit 按类型
+// 全名字母序执行，GreyBoxTests 恰好排在本类型之前）里必稳定败在"Expected: greater than or equal
+// to 1 But was: 0"：GreyBoxTests 每条用例开头都 SceneManager.LoadScene("GreyBox") 重进场景，但
+// 套件跑完最后一条用例后场景本身不会再被卸载/重进——GreyBox.unity 场景资产挂载的
+// GameFoundationBootstrap 实例因此在整个批处理进程剩余时间里继续存活。该类型 OnFixedStep（与
+// Adapter.Unity.Shell.FrameworkResidentHost.OnFixedStep 不同，没有 AppState==InWorld 门槛）
+// 每个固定步都无条件调用 Presentation.InputMap.Update(_host.Input)——本类型
+// BuildInactiveBootstrapWithDiscreteOverlay 另建的独立实例与这个"残留"实例共享同一个
+// UnityEngineHost.Ensure().Input 单例，而 IInput.PollEvents() 是"读了就清空"的单消费者队列语义
+// （见 UnityInputTests.PollEvents_DrainsQueue_SecondCallReturnsEmpty，本模块判断契约就是如此，
+// 不打算为多消费者场景改成非破坏性读取——生产环境同一时刻只应有一个组合根活跃，"两个组合根
+// 并存"本身就是测试隔离缺口，不是生产架构缺口）：两个 OnFixedStep 回调谁先注册谁在本次固定步
+// 先跑，会把 SharedBootstrap_EndTurnKeyBinding_UnblocksAwaitingInput 用 SimulateKeyForTest 注入
+// 的按键事件，在本类型自己的 InputMap.Update 读到之前抢先耗尽——GreyBox 场景的实例先于本类型
+// 注册（GreyBoxTests 先跑），因此稳定抢先，本类型的 InputMap 永远看不到那个按键事件，
+// IsActionActive 恒为 false，driveGuard/holdGuard 耗尽后断言失败。根治：见
+// CleanupStaleSharedCompositionRoots——构建本类型自己的实例之前，先同步销毁场景里任何残留的
+// GameFoundationBootstrap 实例，保证任一时刻只有本类型自己这一个组合根在消费共享输入队列。
+
 // （Unity 标准做法：组件加到未激活 GameObject 上时 Awake 会推迟到 SetActive(true) 才触发，见
 // Unity 生命周期文档"Awake is called even if the script instance is not enabled"一节的推论惯例），
 // 经反射把私有字段 _extraDatasetRoot 设为 Tests/Runtime/TestData/ 的绝对路径（同
@@ -28,6 +49,7 @@ using Adapter.Unity.Ui.Panels;
 using Core.Foundation.SimLoop;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
@@ -68,8 +90,28 @@ namespace Adapter.Unity.Tests.Runtime
                 "Tests", "Runtime", "TestData");
         }
 
+        /// <summary>H5 新增：见文件顶部判断记录——同步销毁场景里任何残留的 <see cref="GameFoundationBootstrap"/>
+        /// 实例（典型来源：GreyBoxTests 套件跑完后 GreyBox.unity 场景本身仍处于加载状态，其挂载的
+        /// 组件仍在被 <c>UnityEngineHost.Clock</c> 驱动 <c>OnFixedStep</c>），避免它与本类型即将
+        /// 构建的新实例共享同一个 <c>UnityEngineHost.Input</c> 单例时互相抢占按键事件队列。用
+        /// <see cref="UnityEngine.Object.DestroyImmediate(UnityEngine.Object)"/> 而不是
+        /// <see cref="UnityEngine.Object.Destroy(UnityEngine.Object)"/>：本方法是同步方法（调用方
+        /// <see cref="BuildInactiveBootstrapWithDiscreteOverlay"/> 也是同步方法，没有协程帧可
+        /// yield），<c>Destroy</c> 的销毁会推迟到本帧末尾才真正触发 <c>OnDestroy</c> 退订，来不及在
+        /// 本方法返回前生效——<c>DestroyImmediate</c> 立即同步调用 <c>OnDestroy</c>，紧接着构建的新
+        /// 实例注册固定步回调时，旧实例的回调已经确实退订完毕。</summary>
+        private static void CleanupStaleSharedCompositionRoots()
+        {
+            foreach (var stale in UnityEngine.Object.FindObjectsByType<GameFoundationBootstrap>(FindObjectsSortMode.None))
+            {
+                UnityEngine.Object.DestroyImmediate(stale.gameObject);
+            }
+        }
+
         private GameFoundationBootstrap BuildInactiveBootstrapWithDiscreteOverlay()
         {
+            CleanupStaleSharedCompositionRoots();
+
             var go = new GameObject("SharedBootstrapDiscreteTest");
             go.SetActive(false); // 见文件顶部判断记录：推迟 Awake，先注入测试数据根。
             var bootstrap = go.AddComponent<GameFoundationBootstrap>();
@@ -293,6 +335,107 @@ namespace Adapter.Unity.Tests.Runtime
                     bootstrap.Gameplay.TurnScheduler.RoundIndex, initialRound + 1,
                     "按 input.action.end_turn 绑定的键（key:t）应当能结束回合、推进轮次——" +
                     "验证 TurnStatusPanel 的键盘绑定接线本身（不是按钮点击回调）");
+            }
+            finally
+            {
+                UnityEngine.Object.Destroy(uiParent);
+            }
+        }
+
+        /// <summary>
+        /// H5 回归测试：直接复现文件顶部"H5 排障"判断记录描述的根因（场景残留的
+        /// <see cref="GameFoundationBootstrap"/> 实例与本类型自建实例共享同一个
+        /// <see cref="UnityEngineHost"/>.Input 单例，谁的 <c>OnFixedStep</c> 先跑就先耗尽共享按键
+        /// 事件队列），不依赖 NUnit 套件跑动顺序恰好把 GreyBoxTests 排在本类型之前——本用例自己先
+        /// <c>SceneManager.LoadScene("GreyBox")</c> 制造一个"残留"场景实例（模拟 GreyBoxTests 套件
+        /// 跑完最后一条用例后的收尾状态：场景已加载、从未清理），再走一遍与
+        /// <see cref="SharedBootstrap_EndTurnKeyBinding_UnblocksAwaitingInput"/> 相同的核心断言。
+        /// <see cref="CleanupStaleSharedCompositionRoots"/> 若被去掉或失效，本用例会以与原始故障
+        /// 完全相同的断言失败复现（"Expected: greater than or equal to 1 But was: 0"）；断言通过
+        /// 则证明"构建本类型自己的实例之前先同步销毁残留实例"这一清理确实生效。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator SharedBootstrap_EndTurnKeyBinding_StillWorks_WithStaleSceneBootstrapLeftAlive()
+        {
+            // 制造"残留"：加载 GreyBox 场景，让其 GameFoundationBootstrap 完整启动、注册好固定步
+            // 回调，但故意不做任何清理（同 GreyBoxTests.LoadGreyBoxScene 同一套等待惯例）。
+            SceneManager.LoadScene("GreyBox");
+            yield return null;
+            yield return new WaitForFixedUpdate();
+            yield return new WaitForFixedUpdate();
+            yield return null;
+
+            var staleBootstrap = UnityEngine.Object.FindFirstObjectByType<GameFoundationBootstrap>();
+            Assert.IsNotNull(staleBootstrap, "本用例应先有一个残留的场景 GameFoundationBootstrap 实例（模拟 GreyBoxTests 收尾状态）");
+            Assert.IsFalse(staleBootstrap!.BootstrapFailed, "残留场景实例本身应正常启动，才能构成本用例要验证的竞争场景");
+
+            var bootstrap = BuildInactiveBootstrapWithDiscreteOverlay();
+            Assert.IsFalse(bootstrap.BootstrapFailed, "叠加离散测试根后共享引导装配不应失败");
+
+            for (var i = 0; i < 30; i++)
+            {
+                yield return new WaitForFixedUpdate();
+            }
+
+            var uiParent = new GameObject("SharedBootstrapDiscreteStaleRootTestUi", typeof(RectTransform));
+            var uiParentRect = (RectTransform)uiParent.transform;
+            var turnStatus = new GameObject("TurnStatus", typeof(RectTransform)).AddComponent<TurnStatusPanel>();
+            turnStatus.transform.SetParent(uiParentRect, false);
+            turnStatus.Construct(uiParentRect, bootstrap.Gameplay!, bootstrap.Presentation!.UiIntents, bootstrap.Presentation!.InputMap);
+
+            var input = UnityEngineHost.Ensure().Input as UnityInput;
+            Assert.IsNotNull(input, "UnityEngineHost.Input 应当是 UnityInput 实现（H4 新增 SimulateKeyForTest 所在类型）");
+
+            try
+            {
+                var bus = typeof(GameFoundationBootstrap)
+                    .GetField("_bus", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .GetValue(bootstrap) as Core.Foundation.EventBus.IEventBus;
+                Assert.IsNotNull(bus, "共享引导应当持有内部事件总线");
+                bus!.PublishImmediate(new Core.Rules.Common.CombatEnteredEvent(bootstrap.PlayerId));
+
+                var enterGuard = 400;
+                while (bootstrap.Gameplay!.TimeModelSwitch!.CurrentMode != TimeModelMode.Discrete && enterGuard-- > 0)
+                {
+                    yield return new WaitForFixedUpdate();
+                }
+                Assert.AreEqual(TimeModelMode.Discrete, bootstrap.Gameplay!.TimeModelSwitch!.CurrentMode, "应已切到离散模式");
+
+                var initialRound = bootstrap.Gameplay.TurnScheduler!.RoundIndex;
+                var driveGuard = 3000;
+                var observedAwaitingInput = false;
+                var pressedKey = false;
+                while (bootstrap.Gameplay.TurnScheduler.RoundIndex < initialRound + 1 && driveGuard-- > 0)
+                {
+                    var awaitingInput = bootstrap.Gameplay.AppState.CurrentSubState.HasValue &&
+                        bootstrap.Gameplay.AppState.CurrentSubState.Value.Equals(bootstrap.Gameplay.AwaitingInputSubState);
+
+                    if (awaitingInput && bootstrap.Gameplay.TurnScheduler.GetCurrentActor()?.Equals(bootstrap.PlayerId) == true
+                        && !pressedKey)
+                    {
+                        observedAwaitingInput = true;
+                        pressedKey = true;
+                        var holdGuard = 120;
+                        var keyBindingTriggered = false;
+                        while (holdGuard-- > 0 && !keyBindingTriggered)
+                        {
+                            input!.SimulateKeyForTest("t", down: true);
+                            yield return new WaitForFixedUpdate();
+                            yield return null;
+                            keyBindingTriggered = bootstrap.Gameplay.TurnScheduler.RoundIndex >= initialRound + 1;
+                        }
+                        input!.SimulateKeyForTest("t", down: false);
+                    }
+
+                    yield return new WaitForFixedUpdate();
+                }
+
+                Assert.IsTrue(observedAwaitingInput, "本用例期间应当至少观察到一次轮到玩家的 awaiting_input 子态");
+                Assert.GreaterOrEqual(
+                    bootstrap.Gameplay.TurnScheduler.RoundIndex, initialRound + 1,
+                    "即便场景里残留着另一个仍在消费共享输入队列的 GameFoundationBootstrap 实例，" +
+                    "CleanupStaleSharedCompositionRoots 清理后按键结束回合也应正常生效（H5 回归——" +
+                    "复现场景残留组合根抢占共享输入事件这一根因）");
             }
             finally
             {
