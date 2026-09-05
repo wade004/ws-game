@@ -22,6 +22,7 @@
     { "key": "l10n.item.sample_token.name", "locale": "l10n.locale.zh_cn", "text": "示例信物" },
     { "key": "l10n.creature.tier.sample_normal.name", "locale": "l10n.locale.zh_cn", "text": "普通" },
     { "key": "l10n.creature.tier.sample_elite.name", "locale": "l10n.locale.zh_cn", "text": "精英" },
+    { "key": "l10n.creature.sample_hero.name", "locale": "l10n.locale.zh_cn", "text": "示例主角" },
     { "key": "l10n.creature.sample_beast.name", "locale": "l10n.locale.zh_cn", "text": "示例野兽" },
     { "key": "l10n.gobj.sample_chest.name", "locale": "l10n.locale.zh_cn", "text": "示例箱子" },
     { "key": "l10n.gobj.sample_door.name", "locale": "l10n.locale.zh_cn", "text": "示例门" },

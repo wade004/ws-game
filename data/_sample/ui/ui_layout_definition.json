@@ -1,0 +1,17 @@
+{
+  "table": "ui_layout_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ui_layout_definition.sample_hud",
+      "panel": "hud",
+      "fields": { "anchor": "top_left" }
+    },
+    {
+      "id": "ui_layout_definition.sample_action_bar",
+      "panel": "action_bar",
+      "slots": 8,
+      "fields": { "anchor": "bottom_center" }
+    }
+  ]
+}

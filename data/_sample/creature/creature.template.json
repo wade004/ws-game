@@ -3,6 +3,15 @@
   "schema_version": 1,
   "rows": [
     {
+      "id": "creature.sample_hero",
+      "name_key": "l10n.creature.sample_hero.name",
+      "level": 1,
+      "tier": "creature.tier.sample_normal",
+      "base_stats": { "stat.strength": 10, "stat.stamina": 10 },
+      "faction_id": "fac.player",
+      "display_ref": "display.map.sample_hero"
+    },
+    {
       "id": "creature.sample_beast",
       "name_key": "l10n.creature.sample_beast.name",
       "level": 1,

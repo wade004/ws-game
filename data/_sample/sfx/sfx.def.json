@@ -1,0 +1,24 @@
+{
+  "table": "sfx.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "sfx.sample_hit",
+      "layer": "combat",
+      "priority": 5,
+      "variants": ["sfx.hit_01", "sfx.hit_02"],
+      "resource_ref": "sfx.hit_01"
+    },
+    {
+      "id": "sfx.sample_cast",
+      "layer": "combat",
+      "priority": 3,
+      "resource_ref": "sfx.cast_01"
+    },
+    {
+      "id": "sfx.sample_ui_click",
+      "layer": "ui",
+      "resource_ref": "sfx.ui_click_01"
+    }
+  ]
+}

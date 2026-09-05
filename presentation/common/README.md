@@ -78,12 +78,6 @@ common/
   `presentation/render` 的 `SpriteViewBase` 用 `SetShaderParam` 的既有通用参数通道做了一个记录在案
   的工作绕：详见 `presentation/render/README.md`"契约缺口"一节，建议 02 文档评估是否给
   `IRenderer2D` 补一个高度/像素纵向偏移参数。
-- **裸档位名与 `Id` 格式的前缀不一致**（P4-2 核对发现，见 `DirectionSlots` 类型注释"Id 前缀判断
-  记录"）：14 第 2.1 节命名表、`toolchain/asset_import/directions.py`、
-  `assets/_placeholder/sprites/*/anchors.json` 三处一致使用不带前缀的裸档位名（如
-  `"front_side_r"`），但 `Core.Foundation.Common.Id` 要求"至少一个点分段"，裸名字不是合法 `Id`；
-  `core/foundation/display_info` 既有测试夹具（`DisplayInfoTestSupport.PlayerHeroSpriteRow`）已经
-  用 `"dir."` 前缀 + 罗盘缩写绕开这一点。`DirectionSlots` 沿用同一前缀惯例，只是把罗盘缩写换成 14
-  的档位族命名；这不是 14/工具链的错误（那两处的裸名字本就不经过 `Id` 类型），只有真正写入
-  `display.map.mirror_pairs` 时才需要补前缀，具体游戏的资产导入工具接入阶段需要在"裸名字 → Id"这
-  一步统一处理该前缀，架构文档未拍板具体拼接约定，如实汇报，不代为决定。
+（原"裸档位名与 `Id` 格式的前缀不一致"契约缺口已由设计层拍板并落地为 14 第 2.1 节 2026-09-05 勘误：
+运行期方向档位 Id 固定为 `"dir.<裸档位名>"`，文件名/标注文件/工具链一律用裸档位名，不再是待核对的
+契约缺口，见 `DirectionSlots` 类型注释"Id 前缀已拍板结论"。）

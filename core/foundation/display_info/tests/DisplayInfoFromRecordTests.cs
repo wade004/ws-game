@@ -115,8 +115,8 @@ namespace Tests.Foundation.DisplayInfo
             Assert.NotNull(info.Sprite);
             Assert.Single(info.Sprite!.MirrorPairs);
             var pair = info.Sprite.MirrorPairs[0];
-            Assert.Equal(new Id("dir.se"), pair.DirectionSlot);
-            Assert.Equal(new Id("dir.sw"), pair.MirrorOf);
+            Assert.Equal(new Id("dir.front_side_l"), pair.DirectionSlot);
+            Assert.Equal(new Id("dir.front_side_r"), pair.MirrorOf);
             Assert.True(pair.FlipX);
 
             Assert.Equal(new[] { "layer.base", "layer.armor" }, info.Sprite.PaperdollLayers);

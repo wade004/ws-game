@@ -1,0 +1,15 @@
+{
+  "table": "shell_menu_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "shell_menu_definition.sample_main",
+      "entries": [
+        { "id": "shell_menu_definition.sample_main.new_game", "text_key": "l10n.shell.sample_new_game", "action": "new_game" },
+        { "id": "shell_menu_definition.sample_main.load_game", "text_key": "l10n.shell.sample_load_game", "action": "load_game" },
+        { "id": "shell_menu_definition.sample_main.settings", "text_key": "l10n.shell.sample_settings", "action": "settings", "target_panel": "ui_layout_definition.sample_hud" },
+        { "id": "shell_menu_definition.sample_main.quit", "text_key": "l10n.shell.sample_quit", "action": "quit" }
+      ]
+    }
+  ]
+}

@@ -161,6 +161,15 @@ namespace Tests.Gameplay.EndToEnd
 
             var source = BuildRealSampleSource(fs);
             var options = GameplaySchemaCatalog.CreateOptions();
+            // 判断记录（阶段 4 收敛 B 追加）：data/_sample 现在同时装着 L0～L4（本类关心的）与
+            // presentation/assembly.PresentationSchemaCatalog 新登记的 L5 表现层表
+            // （vfx.def/sfx.def/camera_profile/... 等）；本类是纯 L4 端到端夹具，不应该为了看见
+            // 磁盘上共享的 L5 示例数据文件就反过来依赖 presentation/Presentation.Common.csproj
+            // （那会是一次向上依赖，违反 01_分层与依赖.md 的层次方向）。FailOnUnknownTable=false
+            // 让这些未在 GameplaySchemaCatalog 登记的表按"无 schema 表"只做信封检查后加载，不阻断
+            // 本类完全不关心的 L5 数据——这正是 DataRegistryOptions.FailOnUnknownTable 设计出来
+            // 要处理的场景。
+            options.FailOnUnknownTable = false;
             var registry = new DataRegistry(source, bus, options);
             GameplaySchemaCatalog.RegisterAll(registry);
             var report = registry.LoadAll();

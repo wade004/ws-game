@@ -1,0 +1,18 @@
+{
+  "table": "feedback.floating_text_style",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feedback.floating_text_style.sample_crit",
+      "color_ref": "color.sample_crit_orange",
+      "size_scale": 1.3,
+      "motion_profile": "feedback.motion.sample_pop_up"
+    },
+    {
+      "id": "feedback.floating_text_style.sample_normal",
+      "color_ref": "color.sample_white",
+      "size_scale": 1.0,
+      "motion_profile": "feedback.motion.sample_float_up"
+    }
+  ]
+}

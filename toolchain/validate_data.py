@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -296,7 +297,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     validator_project = repo_root / "toolchain" / "validator"
-    cmd = [dotnet_path, "run", "--project", str(validator_project), "--", "--data-root", str(target_root)]
+    cmd = [dotnet_path, "run", "--project", str(validator_project)]
+    # 判断记录：本工具（`dotnet run`）与 `dotnet build`/`dotnet test` 一样支持 `--artifacts-path`
+    # 统一构建产物落盘目录（见任务书硬性规则 5）；`validate_data.py` 本身不接受命令行参数指定该
+    # 路径（避免与 `--data-root`/`--strict` 等既有参数表面混杂），改用环境变量
+    # `WS_GAME_ARTIFACTS_PATH` 透传——未设置该环境变量时行为与改动前完全一致（不传
+    # `--artifacts-path`，使用 dotnet 默认输出目录）。
+    artifacts_path = os.environ.get("WS_GAME_ARTIFACTS_PATH")
+    if artifacts_path:
+        cmd += ["--artifacts-path", artifacts_path]
+    cmd += ["--", "--data-root", str(target_root)]
     if args.strict:
         cmd.append("--strict")
 

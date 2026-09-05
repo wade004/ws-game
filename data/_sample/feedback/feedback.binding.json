@@ -1,0 +1,34 @@
+{
+  "table": "feedback.binding",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feedback.sample_crit_damage",
+      "event": "combat.damage_dealt",
+      "condition": "event.is_crit",
+      "actions": [
+        { "kind": "floating_text", "params": { "style_id": "feedback.floating_text_style.sample_crit", "text_source": "amount" } },
+        { "kind": "play_vfx", "params": { "vfx_id": "vfx.sample_hit_spark", "attach": "target" } },
+        { "kind": "play_sfx", "params": { "sfx_id": "sfx.sample_hit" } },
+        { "kind": "freeze", "params": { "duration_ms": 40 } }
+      ]
+    },
+    {
+      "id": "feedback.sample_normal_damage",
+      "event": "combat.damage_dealt",
+      "condition": "not event.is_crit",
+      "actions": [
+        { "kind": "floating_text", "params": { "style_id": "feedback.floating_text_style.sample_normal", "text_source": "amount" } },
+        { "kind": "play_sfx", "params": { "sfx_id": "sfx.sample_hit" } }
+      ]
+    },
+    {
+      "id": "feedback.sample_aura_applied",
+      "event": "aura.applied",
+      "actions": [
+        { "kind": "play_vfx", "params": { "vfx_id": "vfx.sample_cast_circle", "attach": "target" } },
+        { "kind": "play_sfx", "params": { "sfx_id": "sfx.sample_cast" } }
+      ]
+    }
+  ]
+}

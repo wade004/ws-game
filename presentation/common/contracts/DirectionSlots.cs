@@ -16,25 +16,16 @@ namespace Presentation.Common
     /// 规则集中在这里，供 <c>presentation/render</c>、后续 Unity 侧引擎适配层与 <c>display.map</c>
     /// 数据解析共用同一套命名，不各自发明。
     /// <para>
-    /// <b>Id 前缀判断记录（契约缺口，見任务书"事项二"要求核对并汇报）</b>：<see cref="Core.Foundation.Common.Id"/>
-    /// 的格式固定要求"至少一个点分段"（<c>^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$</c>，见该类型注释），裸
-    /// 名字如 <c>"front_side_r"</c> 不是合法 <see cref="Id"/>；但 14 第 2.1 节命名表、
-    /// <c>toolchain/asset_import/directions.py</c>（<c>_CANONICAL_NAMES</c>）与
-    /// <c>assets/_placeholder/sprites/*/anchors.json</c>（<c>authored_directions</c>/
-    /// <c>directions</c>/<c>mirror_pairs</c> 键）三处一致地使用不带前缀的裸名字，与
-    /// <see cref="Id"/> 的格式要求直接冲突——这与 <c>core/foundation/display_info</c> 既有测试夹具
-    /// （<c>DisplayInfoTestSupport.PlayerHeroSpriteRow</c>）已经踩过的同一处不一致相同：该夹具把方向
-    /// 槽位写成 <c>"dir."</c> 前缀 + 罗盘缩写 se/sw 这种形式（罗盘命名 + <c>"dir."</c> 前缀），不是
-    /// 14 的裸名字。
-    /// 本类型选择继续使用 <c>"dir."</c> 前缀（<see cref="IdPrefix"/>）把 14 的裸名字包装成合法
-    /// <see cref="Id"/>（如 <c>"dir.front_side_r"</c>），与 <c>display_info</c> 既有测试夹具的前缀
-    /// 惯例保持一致，只是把罗盘命名换成 14 的档位族命名；<b>这不是 14/工具链的错误</b>——那两处的
-    /// 裸名字本就不经过 <see cref="Id"/> 类型（<c>directions.py</c> 是独立于 C# 类型系统的 Python
-    /// 工具，<c>anchors.json</c> 的键是标注文件内部约定），只有当这些名字真正流入
-    /// <c>display.map.mirror_pairs</c>（其 <c>direction_slot</c>/<c>mirror_of</c> 字段类型是
-    /// <see cref="Id"/>）时才需要补上前缀——这正是本类型存在的意义之一。具体游戏的资产导入工具接入
-    /// 阶段需要在"裸名字 → Id"这一步统一加上 <see cref="IdPrefix"/>（或设计层另行拍板一个不同的
-    /// 拼接约定），这里如实汇报该不一致，不代为决定。
+    /// <b>Id 前缀已拍板结论</b>（2026-09-05 勘误，见
+    /// [14_资产规格书模板.md](../../../architecture/14_资产规格书模板.md) 第 2.1 节末尾说明）：运行期
+    /// 方向档位 <see cref="Core.Foundation.Common.Id"/> 固定为 <c>"dir.&lt;裸档位名&gt;"</c> 形式（如
+    /// <c>"dir.front_side_r"</c>），满足 00 第 4.1 节的标识格式要求（<c>Id</c> 要求"至少一个点分段"，
+    /// 裸名字本身不合法）；文件名（见 14 第 1.2 节命名模板）、
+    /// <c>toolchain/asset_import/directions.py</c> 与
+    /// <c>assets/_placeholder/sprites/*/anchors.json</c> 标注文件一律使用不带前缀的裸档位名，两者一一
+    /// 对应，前缀只在裸名字流入 <c>Id</c> 类型字段（如 <c>display.map.mirror_pairs</c> 的
+    /// <c>direction_slot</c>/<c>mirror_of</c>）时补上。<see cref="IdPrefix"/> 承载这一拼接约定，
+    /// <see cref="StripPrefix"/> 承载反向还原。
     /// </para>
     /// </summary>
     public static class DirectionSlots

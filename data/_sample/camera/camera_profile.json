@@ -1,0 +1,28 @@
+{
+  "table": "camera_profile",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "camera_profile.sample_default",
+      "pitch_degrees": 45,
+      "yaw_degrees": 0,
+      "zoom_min": 6,
+      "zoom_max": 16,
+      "zoom_default": 10,
+      "follow_lerp": 0.15,
+      "shake_presets": [
+        { "id": "feedback.shake.sample_crit", "amplitude": 0.3, "duration": 0.15, "frequency": 30 }
+      ]
+    },
+    {
+      "id": "camera_profile.sample_boss_fight",
+      "pitch_degrees": 50,
+      "yaw_degrees": 0,
+      "zoom_min": 8,
+      "zoom_max": 20,
+      "zoom_default": 14,
+      "follow_lerp": 0.1,
+      "bounds": { "min": { "x": -20, "y": -20 }, "max": { "x": 20, "y": 20 } }
+    }
+  ]
+}

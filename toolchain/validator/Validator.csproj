@@ -8,11 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- 阶段 3 集成收尾"事项四"：改引用 Core.Gameplay.csproj（经其传递引用 Core.Carriers.csproj →
-         Core.Rules.csproj），调用 Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll 而不是只到
-         L3 的 Core.Carriers.Assembly.CarriersSchemaCatalog.RegisterAll，覆盖 L4 十张表的
+    <!-- 阶段 4 收敛 B：改引用 presentation/Presentation.Common.csproj（经其传递引用
+         core/gameplay/Core.Gameplay.csproj → Core.Carriers.csproj → Core.Rules.csproj），调用
+         Presentation.Assembly.PresentationSchemaCatalog.RegisterAll 而不是只到 L4 的
+         Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll，覆盖 L5 表现层全部表的
          TableSchema/IValidationRule，见 Program.cs 判断记录。 -->
-    <ProjectReference Include="../../core/gameplay/Core.Gameplay.csproj" />
+    <ProjectReference Include="../../presentation/Presentation.Common.csproj" />
     <ProjectReference Include="../../adapters/stub/Adapters.Stub.csproj" />
   </ItemGroup>
 

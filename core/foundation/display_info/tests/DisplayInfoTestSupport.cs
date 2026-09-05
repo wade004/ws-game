@@ -115,7 +115,7 @@ namespace Tests.Foundation.DisplayInfo
           ""kind"": ""sprite"",
           ""sprite_set_id"": ""sprite.creature.player_hero"",
           ""direction_count"": 8,
-          ""mirror_pairs"": [{""direction_slot"": ""dir.se"", ""mirror_of"": ""dir.sw"", ""flip_x"": true}],
+          ""mirror_pairs"": [{""direction_slot"": ""dir.front_side_l"", ""mirror_of"": ""dir.front_side_r"", ""flip_x"": true}],
           ""paperdoll_layers"": [""layer.base"", ""layer.armor""],
           ""anchor_points"": {""hand_main"": {""x"": 1.5, ""y"": 0.5}}
         }";
