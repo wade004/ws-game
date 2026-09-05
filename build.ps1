@@ -172,7 +172,11 @@ if (-not $ContentOnlyMode) {
 }
 
 # ---------------------------------------------------------------------------
-# 4. 内容数据集同步（U2-1 新增，见 -SyncContent 参数说明）：
+# 4. 内容数据集同步（U2-1 新增，见 -SyncContent 参数说明；数据目录框架/游戏分层任务追加
+#    data/_framework 同步）：
+#      data/_framework          -> Assets/StreamingAssets/GameFoundation/data/_framework
+#        （框架级数据表，见 data/README.md"两类目录"一节；与 data/_sample 各自独立子目录，
+#        不合并成一份文件树——Unity 侧引导代码按两个数据根分别加载，见 EngineAdapter 判断记录）
 #      data/_sample            -> Assets/StreamingAssets/GameFoundation/data/_sample
 #      assets/_placeholder     -> Assets/StreamingAssets/GameFoundation/assets/_placeholder（整体镜像）
 #      assets/_placeholder/sprites -> Assets/StreamingAssets/GameFoundation/sprites（UnityResourceLoader
@@ -233,8 +237,18 @@ function Sync-ContentTree {
     return @{ Copied = $copied; Skipped = $skipped; Removed = $removed; Total = $sourceFiles.Count }
 }
 
+$dataFrameworkSyncResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "data\_framework") -DestDir (Join-Path $StreamingAssetsRoot "data\_framework")
+Write-Host ("  data/_framework -> StreamingAssets/GameFoundation/data/_framework：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $dataFrameworkSyncResult.Total, $dataFrameworkSyncResult.Copied, $dataFrameworkSyncResult.Skipped, $dataFrameworkSyncResult.Removed)
+
 $dataSyncResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "data\_sample") -DestDir (Join-Path $StreamingAssetsRoot "data\_sample")
 Write-Host ("  data/_sample -> StreamingAssets/GameFoundation/data/_sample：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $dataSyncResult.Total, $dataSyncResult.Copied, $dataSyncResult.Skipped, $dataSyncResult.Removed)
+
+# games/_template 自带的最小数据集（见 games/_template/data/README.md）同步进工作台 StreamingAssets，
+# 供 games/_template/Runtime/GameBootstrap.cs 的 PlayMode 测试（在工作台里跑，见
+# games/_template/Tests/Runtime）默认 GameOptions（_gameDatasetRoot = "data/game"）能找到数据；
+# 与 data/_framework、data/_sample 同一治理方式（构建期产物、gitignore，不进源码库）。
+$templateDataSyncResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "games\_template\data\game") -DestDir (Join-Path $StreamingAssetsRoot "data\game")
+Write-Host ("  games/_template/data/game -> StreamingAssets/GameFoundation/data/game（模板自带最小数据集，供模板 PlayMode 测试使用）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $templateDataSyncResult.Total, $templateDataSyncResult.Copied, $templateDataSyncResult.Skipped, $templateDataSyncResult.Removed)
 
 $placeholderMirrorResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "assets\_placeholder") -DestDir (Join-Path $StreamingAssetsRoot "assets\_placeholder")
 Write-Host ("  assets/_placeholder -> StreamingAssets/GameFoundation/assets/_placeholder（整体镜像）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $placeholderMirrorResult.Total, $placeholderMirrorResult.Copied, $placeholderMirrorResult.Skipped, $placeholderMirrorResult.Removed)
@@ -349,6 +363,18 @@ $navResourceContent = '{"_placeholder":true,"_note":"SceneRouter 导航资源占
 Set-Content -Path $navResourcePath -Value $navResourceContent -NoNewline -Encoding utf8
 Write-Host "  已生成占位导航资源：$navResourcePath（nav.sample_field）"
 
+# 同上，为 games/_template 自带的最小地图（world.template_field，scene_ref=scene.template_field/
+# nav_ref=nav.template_field，见 games/_template/data/game/world/world.map.json）补一份同款占位
+# 场景/导航资源，供模板 PlayMode 测试里的 SceneRouter.LoadScene 找到可读文件（否则新游戏会在
+# LoadScene 这一步失败，见 presentation/shell/core/ShellHost.cs NewGame 判断记录）。
+$templateSceneResourcePath = Join-Path $sceneResourceDir "template_field.json"
+Set-Content -Path $templateSceneResourcePath -Value $sceneResourceContent -NoNewline -Encoding utf8
+Write-Host "  已生成占位场景资源：$templateSceneResourcePath（scene.template_field，供 games/_template 测试用）"
+
+$templateNavResourcePath = Join-Path $navResourceDir "template_field.json"
+Set-Content -Path $templateNavResourcePath -Value $navResourceContent -NoNewline -Encoding utf8
+Write-Host "  已生成占位导航资源：$templateNavResourcePath（nav.template_field，供 games/_template 测试用）"
+
 # ---------------------------------------------------------------------------
 # 5. 可选：打分发包 dist/<version>/
 # ---------------------------------------------------------------------------
@@ -413,6 +439,11 @@ if ($Dist -ne "") {
     $templateFileCount = Copy-DistDir -SourceRelative "games\_template" -DestName "games\_template"
     $toolchainFileCount = Copy-DistDir -SourceRelative "toolchain" -DestName "toolchain" -ExcludeDirNames @(".venv", "__pycache__")
     $assetsFileCount = Copy-DistDir -SourceRelative "assets\_placeholder" -DestName "assets\_placeholder"
+    # 数据目录框架/游戏分层任务新增：分发包只带框架级数据表（data/_framework），不带
+    # data/_sample（那是本仓库自测用的示例数据，不代表任何真实游戏内容，见 data/README.md）。
+    # 新游戏按 games/_template/README.md 的接入方式是"分发包 data/_framework + 自己的 data/<game>"
+    # 两根合并加载/校验（见 data/README.md"多根加载与合并规则"）。
+    $dataFrameworkFileCount = Copy-DistDir -SourceRelative "data\_framework" -DestName "data\_framework"
 
     $manifestPath = Join-Path $DistRoot "MANIFEST.txt"
     $manifestLines = @(
@@ -421,7 +452,8 @@ if ($Dist -ne "") {
         "adapters/unity/Packages/com.gamefoundation.adapter.unity: $adapterFileCount files",
         "games/_template: $templateFileCount files",
         "toolchain: $toolchainFileCount files",
-        "assets/_placeholder: $assetsFileCount files"
+        "assets/_placeholder: $assetsFileCount files",
+        "data/_framework: $dataFrameworkFileCount files"
     )
     Set-Content -Path $manifestPath -Value $manifestLines -Encoding utf8
     Write-Host "已生成 $manifestPath"

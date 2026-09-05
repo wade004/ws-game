@@ -21,6 +21,22 @@
 本文件不得重新实现其中任何一条判断逻辑——第 1 道检查覆盖的内容与第 2 道完全
 不重叠（信封/表名/id 格式 vs. 字段语义），这是有意为之的分工，不是"暂未实现"。
 
+**判断记录（数据目录框架/游戏分层任务，多根加载）**：``data/`` 下现分两类目录（见
+``data/README.md``）——``data/_framework/`` 是框架级数据表（行被框架代码硬引用/生成，
+如 ``found.event_catalog``/``found.input_action``），``data/_sample``/``data/<game>/``
+是示例或具体游戏内容；两类目录并列加载、行按表名合并（同名表主键跨根冲突、
+``schema_version`` 跨根不一致均判定为阻断错误，实现见
+``core/foundation/data_registry/core/DataRegistry.cs`` 的
+``LoadAll(IReadOnlyList<IDataSource>)`` 重载）。``--data-root`` 因此改为可重复传入
+（``action="append"``，未传时默认合并 ``data/_framework`` 与 ``data/_sample`` 两根）；
+新增 ``--framework-root`` 作为"额外追加一个框架级数据根"的便捷参数（默认不追加，
+不与"未传 --data-root 时的默认双根"重复），典型用法见下方"新游戏数据目录校验"。
+第一道骨架检查对每个根各自独立跑（不做跨根主键/版本一致性检查——那是 C# 侧
+``DataRegistry`` 合并逻辑的职责，见上一条判断记录，第一道检查本就只做"与具体游戏内容
+无关的最基础形状"检查，天然不适合做跨文件的合并判定）；第二道真实校验把全部根依次
+以 ``--data-root`` 重复参数透传给 ``toolchain/validator``，由其调用
+``DataRegistry.LoadAll(IReadOnlyList<IDataSource>)`` 做真正的合并加载与合并规则校验。
+
 返回码约定：
     0 —— 两道检查全部通过，无错误。
     1 —— 至少一道检查报出错误（``--strict`` 下 Warning 也算，见下）。
@@ -32,6 +48,22 @@
                        的 ``--strict``，见该工具 ``Program.cs``）。
     ``--skip-dotnet``  只跑第一道骨架检查，跳过第二道（用于没有安装 .NET SDK
                        的环境，或只想快速跑一遍最基础的形状检查）。
+    ``--data-root``    数据根目录，可重复传入以合并多个根（相对仓库根解析，也
+                       可传绝对路径）；一次都不传时默认合并 ``data/_framework``
+                       与 ``data/_sample`` 两根（框架自测默认路径）。
+    ``--framework-root`` 额外追加一个框架级数据根（默认不追加）；配合
+                       ``--data-root`` 传入游戏自己的数据目录时常用，例如新游戏
+                       仓库里校验"框架分发包 + 本游戏数据"：
+                       ``validate_data.py --framework-root <dist>/data/_framework
+                       --data-root ./data``。
+
+用法举例：
+    默认（框架自测，_framework + _sample 合并）：
+        ``python toolchain/validate_data.py``
+    只校验框架级数据表自身是否自洽：
+        ``python toolchain/validate_data.py --data-root data/_framework``
+    校验某个游戏数据目录 + 框架级数据表：
+        ``python toolchain/validate_data.py --framework-root data/_framework --data-root data/<game>``
 """
 
 from __future__ import annotations
@@ -212,13 +244,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--data-root",
-        default="data",
-        help="数据根目录，相对仓库根解析（默认 data）；也可传绝对路径",
+        dest="data_roots",
+        action="append",
+        default=None,
+        help="数据根目录，相对仓库根解析（也可传绝对路径）；可重复传入以合并多个根，"
+             "一次都不传时默认合并 data/_framework 与 data/_sample 两根",
+    )
+    parser.add_argument(
+        "--framework-root",
+        default=None,
+        help="额外追加一个框架级数据根（默认不追加），常与 --data-root 配合校验"
+             "\"框架级数据表 + 具体游戏/示例数据\"",
     )
     parser.add_argument(
         "--dataset",
         default=None,
-        help="只校验 <data-root>/<dataset>/ 下的表；省略则校验整个 data-root",
+        help="只校验每个根的 <root>/<dataset>/ 子目录；省略则校验整个根",
     )
     parser.add_argument(
         "--verbose",
@@ -244,37 +285,49 @@ def main(argv: list[str] | None = None) -> int:
 
     repo_root = find_repo_root()
 
-    data_root_arg = Path(args.data_root)
-    data_root = data_root_arg if data_root_arg.is_absolute() else (repo_root / data_root_arg)
-
-    if args.dataset:
-        target_root = data_root / args.dataset
+    # 根解析：--data-root 可重复，未传时默认合并 data/_framework 与 data/_sample 两根；
+    # --framework-root 在此基础上额外追加一个框架级根（见文件头判断记录）。
+    if args.data_roots:
+        root_args = list(args.data_roots)
     else:
-        target_root = data_root
+        root_args = ["data/_framework", "data/_sample"]
+    if args.framework_root:
+        root_args = [args.framework_root] + root_args
 
-    if not target_root.exists():
-        print(f"参数错误：目录不存在: {target_root}", file=sys.stderr)
-        return 2
-    if not target_root.is_dir():
-        print(f"参数错误：不是目录: {target_root}", file=sys.stderr)
-        return 2
+    def resolve_root(root_arg: str) -> Path:
+        p = Path(root_arg)
+        base = p if p.is_absolute() else (repo_root / p)
+        return (base / args.dataset) if args.dataset else base
+
+    target_roots = [resolve_root(r) for r in root_args]
+
+    for target_root in target_roots:
+        if not target_root.exists():
+            print(f"参数错误：目录不存在: {target_root}", file=sys.stderr)
+            return 2
+        if not target_root.is_dir():
+            print(f"参数错误：不是目录: {target_root}", file=sys.stderr)
+            return 2
 
     # ---------------------------------------------------------------
-    # 第一道：骨架级通用检查（本文件自己实现）。
+    # 第一道：骨架级通用检查（本文件自己实现）。每个根各自独立检查（信封/表名/id
+    # 格式与具体游戏内容无关，不涉及跨根合并判定——那是第二道 DataRegistry 的职责，
+    # 见文件头判断记录）。
     # ---------------------------------------------------------------
 
     total_files = 0
     total_errors = 0
 
-    for path in iter_json_files(target_root):
-        total_files += 1
-        rel_path = path.relative_to(repo_root) if _is_relative_to(path, repo_root) else path
-        file_errors = validate_file(path, args.verbose)
-        for message in file_errors:
-            print(f"{rel_path}: {message}")
-            total_errors += 1
+    for target_root in target_roots:
+        for path in iter_json_files(target_root):
+            total_files += 1
+            rel_path = path.relative_to(repo_root) if _is_relative_to(path, repo_root) else path
+            file_errors = validate_file(path, args.verbose)
+            for message in file_errors:
+                print(f"{rel_path}: {message}")
+                total_errors += 1
 
-    print(f"[第一道·骨架检查] checked {total_files} files, {total_errors} errors")
+    print(f"[第一道·骨架检查] checked {total_files} files across {len(target_roots)} root(s), {total_errors} errors")
     stage1_failed = total_errors > 0
 
     if args.skip_dotnet:
@@ -306,7 +359,9 @@ def main(argv: list[str] | None = None) -> int:
     artifacts_path = os.environ.get("WS_GAME_ARTIFACTS_PATH")
     if artifacts_path:
         cmd += ["--artifacts-path", artifacts_path]
-    cmd += ["--", "--data-root", str(target_root)]
+    cmd += ["--"]
+    for target_root in target_roots:
+        cmd += ["--data-root", str(target_root)]
     if args.strict:
         cmd.append("--strict")
 

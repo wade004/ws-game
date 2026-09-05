@@ -1,0 +1,11 @@
+{
+  "table": "fac.faction",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "fac.template_player",
+      "name_key": "l10n.fac.template_player.name",
+      "default_reaction": "friendly"
+    }
+  ]
+}

@@ -2,7 +2,9 @@
 """事件常量生成器（T1-8）。
 
 用途：读取事件词汇登记表 ``found.event_catalog``（默认
-``data/_sample/found/found.event_catalog.json``），为其中每一行生成一个
+``data/_framework/found/found.event_catalog.json``——判定为框架级数据表，见
+``data/README.md``"框架级数据表与游戏数据目录并列加载"一节：本表的行由
+``EventKeys.g.cs`` 常量硬引用），为其中每一行生成一个
 C# 强类型常量（``Core.Foundation.Common.Id``），写入
 ``core/foundation/event_bus/generated/EventKeys.g.cs``（默认路径）。
 
@@ -46,7 +48,7 @@ KEY_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
 
 EXPECTED_TABLE = "found.event_catalog"
 
-DEFAULT_CATALOG = "data/_sample/found/found.event_catalog.json"
+DEFAULT_CATALOG = "data/_framework/found/found.event_catalog.json"
 DEFAULT_OUTPUT = "core/foundation/event_bus/generated/EventKeys.g.cs"
 DEFAULT_NAMESPACE = "Core.Foundation.EventBus"
 

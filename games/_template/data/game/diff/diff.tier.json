@@ -1,0 +1,11 @@
+{
+  "table": "diff.tier",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "diff.template_normal",
+      "name_key": "l10n.diff.template_normal.name",
+      "loot_multiplier": 1.0
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "table": "combat.resist_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "combat.resist.template_physical",
+      "school": "school.physical",
+      "kind": "saturation",
+      "k": 100,
+      "max_reduction": 0.75
+    }
+  ]
+}

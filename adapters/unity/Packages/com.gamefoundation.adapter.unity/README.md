@@ -495,3 +495,22 @@ Shell.exe -batchmode -gf-smoke -logFile <out>\smoke_player.log -screen-width 800
 进程自行正常退出（未强制终止），日志里唯一的非诊断输出是若干条已知的
 `[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：...`（异步加载完成前的第一帧占位方块，
 既有设计行为，见 `UnityRenderer2D.cs` 判断记录，不影响冒烟结论）。
+
+## 游戏模板如何接入本包（数据目录框架/游戏分层任务）
+
+`games/_template/`（`com.gamefoundation.game-template` 包）是"复制即可起步"的新游戏模板，`Runtime/
+GameBootstrap.cs` 按本包同一套装配顺序（`DataRegistry` → `GameplayAssembly` → `PresentationAssembly`
+→ `SceneRouter`，与本包 `FrameworkResidentHost.Bootstrap`/`GameFoundationBootstrap.BuildWorld` 同一
+惯例）重新组装，但改由 `GameOptions` 参数化，不出现任何硬编码的具体游戏内容——本包（`Adapter.Unity`）
+不反向依赖 `games/_template`，两者的耦合方向仍是"游戏层引用引擎适配层"单向，未破坏依赖方向。
+
+数据根：本包自身的 `FrameworkResidentHost`/`GameFoundationBootstrap` 现从两个数据根合并加载
+（`data/_framework` + `data/_sample`，见两个类型各自的判断记录），`games/_template/Runtime/
+GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data/<game>`）——`data/_framework`
+是分发包随本包一起提供的框架级数据表（`found.event_catalog`/`found.input_action` 等，见仓库根
+`data/README.md`"两类目录"一节），新游戏不需要也不应该重新提供这些表。
+
+`Editor/GameSceneBuilder.cs`（模板自己的编辑器工具，不在本包内）复用本包 `Assets/Editor/
+{GreyBoxSceneBuilder,ShellSceneBuilder}.cs` 的相机/`EventSystem`/占位地面搭建手法（因这两个类型
+是工作台专属脚本、不在任何 asmdef 包里，无法被独立包引用，只能复制适配，见该文件顶部判断记录），
+一键生成"Shell + 首张地图"两个场景。详见 `games/_template/README.md`。

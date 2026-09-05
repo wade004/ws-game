@@ -1,0 +1,14 @@
+{
+  "table": "arch.class",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "arch.class.template_hero",
+      "name_key": "l10n.arch.template_hero.name",
+      "primary_stat": "stat.template_power",
+      "base_stats": { "stat.template_power": 10 },
+      "power_types": ["arch.power.health"],
+      "level_curve_ref": "prog.curve.template_default"
+    }
+  ]
+}

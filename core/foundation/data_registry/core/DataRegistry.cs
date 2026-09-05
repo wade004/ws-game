@@ -9,7 +9,7 @@ namespace Core.Foundation.DataRegistry
 {
     /// <summary>
     /// <see cref="IDataRegistry"/> 的默认实现（见 04 第 4 节、01_分层与依赖.md L0 模块表
-    /// <c>data_registry</c> 行）。加载流程（<see cref="LoadAll"/>）：读取每张表文本 → JSON
+    /// <c>data_registry</c> 行）。加载流程（<see cref="LoadAll()"/>）：读取每张表文本 → JSON
     /// 解析 → 信封检查（<c>table</c>/<c>schema_version</c>/<c>rows</c>，<c>table</c> 必须等于
     /// 文件名）→ 版本迁移（低于当前版本依次跑迁移链，缺环节报错；高于当前版本报错）→ 逐行建
     /// <see cref="DataRecord"/>（主键重复报错）→ 全部表进内存后跑第 5 节校验项 + 已注册
@@ -18,6 +18,31 @@ namespace Core.Foundation.DataRegistry
     /// <see cref="GetAll"/>/<see cref="Query(string, ExprNode)"/> 一律抛
     /// <see cref="InvalidOperationException"/>（见 11 第 4 节"不做静默降级"）。
     /// 无反射、无 LINQ 热路径、无线程。
+    /// <para>
+    /// 判断记录（数据目录框架/游戏分层任务，多根加载）：新增 <see cref="LoadAll(IReadOnlyList{IDataSource})"/>
+    /// 重载支持"同一张表可同时出现在多个数据根"（见 <c>data/README.md</c>"框架级数据表与游戏数据
+    /// 目录并列加载"一节）。选型：任务书给出两个等价选项——"<c>DataRegistryOptions.DataRoots:
+    /// IReadOnlyList&lt;string&gt;</c>"或"<c>LoadAll(IReadOnlyList&lt;string&gt; roots)</c>重载"，
+    /// 本实现采用第二种的变体：参数类型是 <see cref="IDataSource"/> 而不是原始路径字符串——
+    /// 本类本来就通过 <see cref="IDataSource"/> 与具体存储介质解耦（见构造函数），一个"根"在磁盘
+    /// 场景下就是一个 <c>new FileSystemDataSource(fs, rootPath)</c>；把参数类型定成
+    /// <c>IReadOnlyList&lt;string&gt;</c> 反而要求本类知道怎么把路径字符串转成 <see cref="IDataSource"/>
+    /// （需要引用 <see cref="Core.Foundation.EngineAdapter.IFileSystem"/>），与"本类不关心存储介质"
+    /// 的既有边界矛盾；调用方（如 toolchain/validator、Unity 适配层引导代码）自己按根路径逐个构造
+    /// <see cref="FileSystemDataSource"/> 传入即可，同时天然支持"内存根 + 磁盘根混合"等既有单根版本
+    /// 做不到的场景。<see cref="LoadAll()"/>（无参，构造函数传入的单一 <c>_source</c>）保持完全不变的
+    /// 行为与语义，等价于 <c>LoadAll(new[] { _source })</c>，向后兼容全部既有单根调用方。
+    /// </para>
+    /// <para>
+    /// 合并规则（同一表名出现在多个根时）：先各自独立做信封解析（读文本、JSON 解析、
+    /// <c>table</c>/<c>schema_version</c>/<c>rows</c> 检查）；若信封 <c>schema_version</c>
+    /// 在多个根之间不一致，判定为阻断错误（<c>schema_version</c> 检查项，消息里点出两个根各自的
+    /// 位置），不再合并该表（该表本次加载视为失败，不出现在 <see cref="Tables"/> 中，语义与其它
+    /// envelope 级错误一致）；否则各根独立完成版本迁移与"根内"逐行建 <see cref="DataRecord"/>
+    /// （根内主键重复仍按原规则报 <c>primary_key</c> 错误），再把各根产出的记录集合并——合并阶段
+    /// 若同一主键在两个不同根间重复，判定为阻断错误（<c>primary_key</c> 检查项，消息里点出两个根
+    /// 各自的位置），该条记录不计入合并结果，但不影响其余不冲突记录正常合入。
+    /// </para>
     /// </summary>
     public sealed class DataRegistry : IDataRegistry
     {
@@ -32,8 +57,14 @@ namespace Core.Foundation.DataRegistry
 
         private Dictionary<string, LoadedTable> _tables = new Dictionary<string, LoadedTable>(StringComparer.Ordinal);
 
+        /// <summary>最近一次 <see cref="LoadAll()"/>/<see cref="LoadAll(IReadOnlyList{IDataSource})"/>
+        /// 使用的完整根集合；<see cref="Reload(string)"/> 据此在全部根里重新定位待重载的表（多根注册表
+        /// 下，某张表可能同时来自多个根，<see cref="Reload(string)"/> 按同样的合并规则重新计算该表）。
+        /// 构造期默认只含构造函数传入的单一 <c>_source</c>。</summary>
+        private IReadOnlyList<IDataSource> _sources;
+
         /// <summary>true 时 <see cref="Get(string, string)"/>/<see cref="GetAll"/>/
-        /// <see cref="Query(string, ExprNode)"/> 拒绝读取；初始为 true（尚未 <see cref="LoadAll"/>
+        /// <see cref="Query(string, ExprNode)"/> 拒绝读取；初始为 true（尚未 <see cref="LoadAll()"/>
         /// 时不允许读取）。</summary>
         private bool _blocked = true;
 
@@ -42,6 +73,7 @@ namespace Core.Foundation.DataRegistry
             _source = source ?? throw new ArgumentNullException(nameof(source));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _options = options ?? new DataRegistryOptions();
+            _sources = new[] { _source };
         }
 
         private sealed class LoadedTable
@@ -49,6 +81,27 @@ namespace Core.Foundation.DataRegistry
             public TableSchema Schema = null!;
             public List<DataRecord> Records = null!;
             public Dictionary<string, DataRecord> ByKey = null!;
+
+            /// <summary>该表本次加载实际读取到的全部来源位置（诊断用，见
+            /// <see cref="IDataRegistryView.GetTableSourceLocations"/>）：单根加载时只有一条，
+            /// 多根合并时按参与合并的根顺序排列。</summary>
+            public List<string> Locations = null!;
+        }
+
+        /// <summary>单个数据根对一张表的独立解析结果（信封检查、版本迁移、根内建记录均已完成，
+        /// 尚未与其它根合并）——见类型级判断记录"合并规则"。</summary>
+        private sealed class PartialTable
+        {
+            public TableSchema Schema = null!;
+
+            /// <summary>该根这张表文件信封里的原始 <c>schema_version</c>（迁移前），供跨根一致性
+            /// 检查使用；未登记 schema（<see cref="TableSchema.IsUnschematized"/>）时无迁移，
+            /// 该值与迁移前后一致。</summary>
+            public int RawSchemaVersion;
+
+            public List<DataRecord> RecordsInOrder = null!;
+            public Dictionary<string, DataRecord> ByKey = null!;
+            public string Location = null!;
         }
 
         // ---------------------------------------------------------------
@@ -81,13 +134,63 @@ namespace Core.Foundation.DataRegistry
 
         public ValidationReport LoadAll()
         {
+            _sources = new[] { _source };
+            return LoadAllCore(_sources);
+        }
+
+        /// <summary>多根加载：见类型级判断记录"合并规则"。<paramref name="sources"/> 内的顺序
+        /// 只影响诊断信息（<see cref="LoadedTable.Locations"/> 的排列顺序、冲突消息里"先出现的根"
+        /// 是谁），不影响合并结果本身是否报错——两个根之间同一主键冲突/同一表 schema_version
+        /// 不一致，无论顺序都会报错。</summary>
+        public ValidationReport LoadAll(IReadOnlyList<IDataSource> sources)
+        {
+            if (sources == null) throw new ArgumentNullException(nameof(sources));
+            if (sources.Count == 0) throw new ArgumentException("sources 不能为空", nameof(sources));
+            _sources = sources;
+            return LoadAllCore(sources);
+        }
+
+        private ValidationReport LoadAllCore(IReadOnlyList<IDataSource> sources)
+        {
             var issues = new List<ValidationIssue>();
             var loaded = new Dictionary<string, LoadedTable>(StringComparer.Ordinal);
             int recordCount = 0;
 
-            foreach (var tableSource in _source.ListTables())
+            // 按表名分组：同一表名出现在多个根时才走合并路径，出现在单个根时走原有单根路径
+            // （保持与改动前逐字节相同的行为，见类型级判断记录）。
+            var byTable = new Dictionary<string, List<DataTableSource>>(StringComparer.Ordinal);
+            for (int s = 0; s < sources.Count; s++)
             {
-                LoadOneTable(tableSource, issues, loaded, ref recordCount);
+                var tableSources = sources[s].ListTables();
+                for (int i = 0; i < tableSources.Count; i++)
+                {
+                    var ts = tableSources[i];
+                    if (!byTable.TryGetValue(ts.TableName, out var list))
+                    {
+                        list = new List<DataTableSource>();
+                        byTable[ts.TableName] = list;
+                    }
+                    list.Add(ts);
+                }
+            }
+
+            // 确定性：按表名排序后再处理，保证多次运行、issues 顺序一致（呼应 Directory.Build.props
+            // "确定性"、本类既有"无 LINQ 热路径"风格——用手写排序代替 LINQ OrderBy）。
+            var tableNames = new List<string>(byTable.Keys);
+            tableNames.Sort(StringComparer.Ordinal);
+
+            for (int t = 0; t < tableNames.Count; t++)
+            {
+                var tableName = tableNames[t];
+                var group = byTable[tableName];
+                if (group.Count == 1)
+                {
+                    LoadOneTable(group[0], issues, loaded, ref recordCount);
+                }
+                else
+                {
+                    LoadMergedTable(tableName, group, issues, loaded, ref recordCount);
+                }
             }
 
             _tables = loaded;
@@ -105,27 +208,45 @@ namespace Core.Foundation.DataRegistry
 
         public ValidationReport Validate() => RunValidationAndBuildReport(new List<ValidationIssue>());
 
+        /// <summary>仅限开发期使用的单表热重载：在 <see cref="_sources"/> 全部根中重新定位
+        /// <paramref name="table"/>，按与初次加载相同的合并规则重建该表，替换内存态记录，随后
+        /// 重跑一次全量 <see cref="Validate"/>。多根注册表下，若该表来自多个根，重载会重新读取
+        /// 全部涉及的根（不只是"最初命中的那一个"），语义与首次 <see cref="LoadAll()"/> 一致。</summary>
         public ValidationReport Reload(string table)
         {
             if (string.IsNullOrEmpty(table)) throw new ArgumentException("table 不能为空", nameof(table));
 
-            DataTableSource? tableSource = null;
-            foreach (var ts in _source.ListTables())
+            var matches = new List<DataTableSource>();
+            for (int s = 0; s < _sources.Count; s++)
             {
-                if (ts.TableName == table) { tableSource = ts; break; }
+                var tableSources = _sources[s].ListTables();
+                for (int i = 0; i < tableSources.Count; i++)
+                {
+                    if (tableSources[i].TableName == table) matches.Add(tableSources[i]);
+                }
             }
 
             var localIssues = new List<ValidationIssue>();
-            if (tableSource == null)
+            if (matches.Count == 0)
             {
                 localIssues.Add(new ValidationIssue(ValidationSeverity.Error, table, "envelope", $"数据源中不存在表 \"{table}\""));
             }
+            else if (matches.Count == 1)
+            {
+                var loaded = new Dictionary<string, LoadedTable>(StringComparer.Ordinal);
+                int recordCount = 0;
+                LoadOneTable(matches[0], localIssues, loaded, ref recordCount);
+                if (loaded.TryGetValue(table, out var loadedTable))
+                {
+                    _tables[table] = loadedTable;
+                }
+            }
             else
             {
-                var singleLoaded = new Dictionary<string, LoadedTable>(StringComparer.Ordinal);
+                var loaded = new Dictionary<string, LoadedTable>(StringComparer.Ordinal);
                 int recordCount = 0;
-                LoadOneTable(tableSource, localIssues, singleLoaded, ref recordCount);
-                if (singleLoaded.TryGetValue(table, out var loadedTable))
+                LoadMergedTable(table, matches, localIssues, loaded, ref recordCount);
+                if (loaded.TryGetValue(table, out var loadedTable))
                 {
                     _tables[table] = loadedTable;
                 }
@@ -218,6 +339,12 @@ namespace Core.Foundation.DataRegistry
 
         public TableSchema? GetSchema(string table) => _schemas.TryGetValue(table, out var s) ? s : null;
 
+        /// <summary>只读诊断：<paramref name="table"/> 本次加载实际来自哪些根（<see cref="DataTableSource.Location"/>
+        /// 列表，单根加载时只有一条）；表未加载时返回空列表。不参与任何校验判定，纯粹供上层
+        /// （如 Unity 适配层引导日志、构建产物核对）观察"这张表到底是从哪个数据根读上来的"。</summary>
+        public IReadOnlyList<string> GetTableSourceLocations(string table) =>
+            _tables.TryGetValue(table, out var t) ? t.Locations : Array.Empty<string>();
+
         private void EnsureReadable()
         {
             if (_blocked)
@@ -227,10 +354,111 @@ namespace Core.Foundation.DataRegistry
         }
 
         // ---------------------------------------------------------------
-        // 加载单表
+        // 加载单表（单根路径，行为与改动前完全一致）
         // ---------------------------------------------------------------
 
         private void LoadOneTable(DataTableSource tableSource, List<ValidationIssue> issues, Dictionary<string, LoadedTable> loaded, ref int recordCount)
+        {
+            var partial = LoadOneTablePartial(tableSource, issues);
+            if (partial == null) return;
+
+            recordCount += partial.RecordsInOrder.Count;
+            loaded[tableSource.TableName] = new LoadedTable
+            {
+                Schema = partial.Schema,
+                Records = partial.RecordsInOrder,
+                ByKey = partial.ByKey,
+                Locations = new List<string> { partial.Location },
+            };
+        }
+
+        // ---------------------------------------------------------------
+        // 加载并合并多根同名表（见类型级判断记录"合并规则"）
+        // ---------------------------------------------------------------
+
+        private void LoadMergedTable(string tableName, List<DataTableSource> tableSources, List<ValidationIssue> issues, Dictionary<string, LoadedTable> loaded, ref int recordCount)
+        {
+            var partials = new List<PartialTable>();
+            for (int i = 0; i < tableSources.Count; i++)
+            {
+                var partial = LoadOneTablePartial(tableSources[i], issues);
+                if (partial != null) partials.Add(partial);
+            }
+
+            if (partials.Count == 0) return; // 各根本身已各自报过 envelope 级错误。
+            if (partials.Count == 1)
+            {
+                // 只有一个根真正解析成功（其余根本身报了 envelope 级错误提前退出），按单根方式落表。
+                var only = partials[0];
+                recordCount += only.RecordsInOrder.Count;
+                loaded[tableName] = new LoadedTable
+                {
+                    Schema = only.Schema,
+                    Records = only.RecordsInOrder,
+                    ByKey = only.ByKey,
+                    Locations = new List<string> { only.Location },
+                };
+                return;
+            }
+
+            // 1) 跨根 schema_version 一致性：不一致即阻断，不再合并该表（见类型级判断记录）。
+            var firstVersion = partials[0].RawSchemaVersion;
+            var versionMismatch = false;
+            for (int i = 1; i < partials.Count; i++)
+            {
+                if (partials[i].RawSchemaVersion != firstVersion)
+                {
+                    versionMismatch = true;
+                    issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "schema_version",
+                        $"表 \"{tableName}\" 在多个数据根之间的 schema_version 不一致：\"{partials[0].Location}\" 为 {firstVersion}，\"{partials[i].Location}\" 为 {partials[i].RawSchemaVersion}"));
+                }
+            }
+            if (versionMismatch) return;
+
+            // 2) 合并记录：跨根主键冲突即阻断，冲突记录本身不计入合并结果，其余记录正常合入。
+            var mergedByKey = new Dictionary<string, DataRecord>(StringComparer.Ordinal);
+            var mergedRecords = new List<DataRecord>();
+            var firstLocationByKey = new Dictionary<string, string>(StringComparer.Ordinal);
+            var locations = new List<string>(partials.Count);
+
+            for (int p = 0; p < partials.Count; p++)
+            {
+                var partial = partials[p];
+                locations.Add(partial.Location);
+
+                for (int i = 0; i < partial.RecordsInOrder.Count; i++)
+                {
+                    var record = partial.RecordsInOrder[i];
+                    if (mergedByKey.ContainsKey(record.Key))
+                    {
+                        issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "primary_key",
+                            $"主键重复：\"{record.Key}\"（分别来自数据根 \"{firstLocationByKey[record.Key]}\" 与 \"{partial.Location}\"）",
+                            recordKey: record.Key));
+                        continue;
+                    }
+                    mergedByKey.Add(record.Key, record);
+                    mergedRecords.Add(record);
+                    firstLocationByKey[record.Key] = partial.Location;
+                    recordCount++;
+                }
+            }
+
+            loaded[tableName] = new LoadedTable
+            {
+                Schema = partials[0].Schema,
+                Records = mergedRecords,
+                ByKey = mergedByKey,
+                Locations = locations,
+            };
+        }
+
+        /// <summary>单个根对一张表的独立解析：信封检查 → schema 匹配/未知表策略 → 版本迁移 →
+        /// 根内逐行建 <see cref="DataRecord"/>（根内主键重复报错）。任何早退错误已写入
+        /// <paramref name="issues"/>，返回 null；成功则返回 <see cref="PartialTable"/>，不直接
+        /// 写入任何"已加载表"字典——是否直接落表（单根）还是与同名表的其它根合并
+        /// （<see cref="LoadMergedTable"/>）由调用方决定。逻辑与改动前的 <c>LoadOneTable</c>
+        /// 完全一致，只是把"结果"从直接赋值给 <c>loaded[tableName]</c> 改成返回值。</summary>
+        private PartialTable? LoadOneTablePartial(DataTableSource tableSource, List<ValidationIssue> issues)
         {
             var tableName = tableSource.TableName;
 
@@ -242,7 +470,7 @@ namespace Core.Foundation.DataRegistry
             catch (Exception ex)
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "envelope", $"读取表文本失败：{ex.Message}"));
-                return;
+                return null;
             }
 
             JsonValue root;
@@ -253,25 +481,25 @@ namespace Core.Foundation.DataRegistry
             catch (JsonParseException ex)
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "envelope", $"JSON 解析失败：{ex.Message}"));
-                return;
+                return null;
             }
 
             if (!(root is JsonObject rootObj))
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "envelope", "顶层结构必须是 JSON 对象"));
-                return;
+                return null;
             }
 
             if (!rootObj.TryGetValue("table", out var tableVal) || !(tableVal is JsonString tableStr))
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "envelope", "缺少或非法的顶层字段 \"table\""));
-                return;
+                return null;
             }
             if (!string.Equals(tableStr.Value, tableName, StringComparison.Ordinal))
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "envelope",
                     $"table 字段 \"{tableStr.Value}\" 与文件名 \"{tableName}\" 不一致"));
-                return;
+                return null;
             }
 
             if (!rootObj.TryGetValue("schema_version", out var svVal) || !(svVal is JsonNumber svNum)
@@ -279,14 +507,14 @@ namespace Core.Foundation.DataRegistry
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "envelope",
                     "缺少或非法的顶层字段 \"schema_version\"（须为 >=1 的整数）"));
-                return;
+                return null;
             }
             var schemaVersion = (int)svLong;
 
             if (!rootObj.TryGetValue("rows", out var rowsVal) || !(rowsVal is JsonArray rowsArr))
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "envelope", "缺少或非法的顶层字段 \"rows\"（须为数组）"));
-                return;
+                return null;
             }
 
             TableSchema schema;
@@ -297,7 +525,7 @@ namespace Core.Foundation.DataRegistry
             else if (_options.FailOnUnknownTable)
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "envelope", $"表 \"{tableName}\" 未通过 RegisterSchema 登记"));
-                return;
+                return null;
             }
             else
             {
@@ -316,7 +544,7 @@ namespace Core.Foundation.DataRegistry
                 {
                     issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "schema_version",
                         $"schema_version {schemaVersion} 超过当前代码期望的版本 {schema.CurrentSchemaVersion}"));
-                    return;
+                    return null;
                 }
 
                 if (schemaVersion < schema.CurrentSchemaVersion)
@@ -326,7 +554,7 @@ namespace Core.Foundation.DataRegistry
                     {
                         issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "schema_version",
                             $"从版本 {schemaVersion} 到 {schema.CurrentSchemaVersion} 缺少迁移环节"));
-                        return;
+                        return null;
                     }
 
                     var migrated = new List<JsonValue>(rowsArr.Count);
@@ -422,10 +650,16 @@ namespace Core.Foundation.DataRegistry
                 var record = new DataRecord(schema, recordKey, idValue, rowObj);
                 recordsByKey.Add(recordKey, record);
                 recordsInOrder.Add(record);
-                recordCount++;
             }
 
-            loaded[tableName] = new LoadedTable { Schema = schema, Records = recordsInOrder, ByKey = recordsByKey };
+            return new PartialTable
+            {
+                Schema = schema,
+                RawSchemaVersion = schemaVersion,
+                RecordsInOrder = recordsInOrder,
+                ByKey = recordsByKey,
+                Location = tableSource.Location,
+            };
         }
 
         private static List<TableMigration>? BuildMigrationChain(TableSchema schema, int fromVersion, int toVersion)
@@ -453,7 +687,7 @@ namespace Core.Foundation.DataRegistry
         // ---------------------------------------------------------------
         // 字段级校验（04 第 5 节：required_field / field_type / reference_integrity /
         // text_key_exists / expr_parsable；envelope / schema_version / primary_key 已在
-        // LoadOneTable 中检查）
+        // LoadOneTablePartial 中检查）
         // ---------------------------------------------------------------
 
         private void RunFieldValidation(List<ValidationIssue> issues)

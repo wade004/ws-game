@@ -78,6 +78,13 @@ namespace Adapter.Unity.Bootstrap
     public sealed class GameFoundationBootstrap : MonoBehaviour
     {
         [Header("数据集（Inspector 可配置，默认指向框架自带的中性示例数据）")]
+        // 判断记录（数据目录框架/游戏分层任务，最小改动）：found.event_catalog/found.input_action
+        // 两张表已从 data/_sample 搬到 data/_framework（框架级数据表，见 data/README.md"两类目录"
+        // 一节）；本类型第 6 步无条件读取 found.input_action 整表声明动作集（见文件顶部"判断记录
+        // 3"），因此数据根改为"框架级数据根 + 既有数据集根"两根合并加载（见下方 BuildWorld 第 2 步
+        // registry.LoadAll(IReadOnlyList<IDataSource>)），只新增 _frameworkDatasetRoot 一个
+        // Inspector 字段与对应的第二个 FileSystemDataSource，不改动其余装配逻辑。
+        [SerializeField] private string _frameworkDatasetRoot = "data/_framework";
         [SerializeField] private string _datasetRoot = "data/_sample";
 
         [Header("示例地图与玩家（默认 id 均取自 core/gameplay/tests/EndToEnd/GameWorldFixture.cs 同一套中性示例数据）")]
@@ -161,6 +168,7 @@ namespace Adapter.Unity.Bootstrap
             //    PresentationSchemaCatalog（一次性注册 L0～L5 全部表）。
             // ---------------------------------------------------------
             var contentFs = new UnityFileSystem(readOnlyContentMode: true);
+            var frameworkSource = new FileSystemDataSource(contentFs, _frameworkDatasetRoot);
             var source = new FileSystemDataSource(contentFs, _datasetRoot);
             var options = PresentationSchemaCatalog.CreateOptions();
             // 判断记录（缺口 2 已解决后勘误）：found.input_action 的 TableSchema 其实已经由
@@ -173,7 +181,7 @@ namespace Adapter.Unity.Bootstrap
 
             var registry = new DataRegistry(source, _bus, options);
             PresentationSchemaCatalog.RegisterAll(registry);
-            var report = registry.LoadAll();
+            var report = registry.LoadAll(new IDataSource[] { frameworkSource, source });
             if (report.IsBlocking)
             {
                 BootstrapFailed = true;

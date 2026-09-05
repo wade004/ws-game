@@ -1,0 +1,12 @@
+{
+  "table": "shell_menu_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "shell_menu_definition.template_main",
+      "entries": [
+        { "id": "shell_menu_definition.template_main.new_game", "text_key": "l10n.shell.template_new_game", "action": "new_game" }
+      ]
+    }
+  ]
+}

@@ -158,6 +158,12 @@ namespace Adapter.Unity.Shell
             _bus = new Core.Foundation.EventBus.EventBus(catalog, new EventBusOptions { StrictCatalog = false, AuditLog = false });
 
             var contentFs = new UnityFileSystem(readOnlyContentMode: true);
+            // 判断记录（数据目录框架/游戏分层任务，最小改动）：found.event_catalog/found.input_action
+            // 两张表已从 data/_sample 搬到 data/_framework（框架级数据表，见 data/README.md"两类目录"
+            // 一节）；本类型下方无条件读取 found.input_action 整表声明动作集（同
+            // GameFoundationBootstrap.cs 同名判断记录），数据根改为"框架级数据根 +
+            // data/_sample"两根合并加载，只新增 frameworkSource 一个数据源，不改动其余装配逻辑。
+            var frameworkSource = new FileSystemDataSource(contentFs, "data/_framework");
             var source = new FileSystemDataSource(contentFs, "data/_sample");
             var options = PresentationSchemaCatalog.CreateOptions();
             options.FailOnUnknownTable = false;
@@ -165,7 +171,7 @@ namespace Adapter.Unity.Shell
             var registry = new DataRegistry(source, _bus, options);
             _registry = registry;
             PresentationSchemaCatalog.RegisterAll(registry);
-            var report = registry.LoadAll();
+            var report = registry.LoadAll(new IDataSource[] { frameworkSource, source });
             if (report.IsBlocking)
             {
                 BootstrapFailed = true;

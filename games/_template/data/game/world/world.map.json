@@ -1,0 +1,14 @@
+{
+  "table": "world.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "world.template_field",
+      "scene_ref": "scene.template_field",
+      "nav_ref": "nav.template_field",
+      "spawn_points": [
+        { "id": "world.template_field.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
+      ]
+    }
+  ]
+}

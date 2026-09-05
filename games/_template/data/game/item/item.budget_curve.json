@@ -1,0 +1,13 @@
+{
+  "table": "item.budget_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.budget.default",
+      "entries": [
+        { "item_level": 1, "budget": 10 },
+        { "item_level": 60, "budget": 100 }
+      ]
+    }
+  ]
+}

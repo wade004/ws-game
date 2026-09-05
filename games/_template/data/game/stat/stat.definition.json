@@ -1,0 +1,16 @@
+{
+  "table": "stat.definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "stat.template_power",
+      "name_key": "l10n.stat.template_power.name",
+      "group": "primary"
+    },
+    {
+      "id": "stat.strength",
+      "name_key": "l10n.stat.strength.name",
+      "group": "primary"
+    }
+  ]
+}

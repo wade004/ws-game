@@ -1,0 +1,13 @@
+{
+  "table": "prog.level_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "prog.curve.template_default",
+      "max_level": 1,
+      "entries": [
+        { "level": 1, "xp_to_next": 0, "growth": {} }
+      ]
+    }
+  ]
+}

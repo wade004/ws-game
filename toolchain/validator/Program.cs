@@ -52,7 +52,13 @@ namespace Toolchain.Validator
                 // 使用调用方已设置的编码，不视为致命错误。
             }
 
-            string? dataRootArg = null;
+            // 判断记录（数据目录框架/游戏分层任务，多根加载）：--data-root 由"最多一个"改为
+            // "可重复传入"，收集到 dataRootArgs 列表；每个根各自构造一个 FileSystemDataSource，
+            // 一起传给 DataRegistry.LoadAll(IReadOnlyList<IDataSource>)（见该方法类型级判断记录
+            // "合并规则"）——同名表跨根合并、主键冲突/schema_version 不一致跨根阻断，均由该方法
+            // 实现，本文件不重复实现任何判断逻辑（见类型头判断记录"唯一实现"）。只传一个
+            // --data-root 时行为与改动前完全一致（单元素列表）。
+            var dataRootArgs = new List<string>();
             var strict = false;
             var jsonOutput = false;
             var listTables = false;
@@ -67,7 +73,7 @@ namespace Toolchain.Validator
                             Console.Error.WriteLine("参数错误：--data-root 需要一个目录参数");
                             return 2;
                         }
-                        dataRootArg = args[++i];
+                        dataRootArgs.Add(args[++i]);
                         break;
 
                     case "--strict":
@@ -88,30 +94,34 @@ namespace Toolchain.Validator
                 }
             }
 
-            if (dataRootArg == null)
+            if (dataRootArgs.Count == 0)
             {
                 Console.Error.WriteLine(
-                    "参数错误：缺少必填参数 --data-root <dir>\n" +
-                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json] [--list-tables]");
+                    "参数错误：缺少必填参数 --data-root <dir>（可重复传入以合并多个数据根）\n" +
+                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables]");
                 return 2;
             }
 
             // 相对路径相对当前工作目录解析——调用方（toolchain/validate_data.py 或用户）需要在
             // 仓库根目录下运行本工具，此时"相对路径"与"相对仓库根"是同一件事，惯例同
             // toolchain/validate_data.py"从仓库根目录运行"。绝对路径原样使用。
-            var dataRoot = Path.IsPathRooted(dataRootArg)
-                ? dataRootArg
-                : Path.Combine(Directory.GetCurrentDirectory(), dataRootArg);
-            dataRoot = Path.GetFullPath(dataRoot).Replace('\\', '/');
-
-            if (!Directory.Exists(dataRoot))
-            {
-                Console.Error.WriteLine($"参数错误：目录不存在：{dataRoot}");
-                return 2;
-            }
-
+            var sources = new List<IDataSource>(dataRootArgs.Count);
             var fs = new DiskFileSystem();
-            var source = new FileSystemDataSource(fs, dataRoot);
+            foreach (var dataRootArg in dataRootArgs)
+            {
+                var dataRoot = Path.IsPathRooted(dataRootArg)
+                    ? dataRootArg
+                    : Path.Combine(Directory.GetCurrentDirectory(), dataRootArg);
+                dataRoot = Path.GetFullPath(dataRoot).Replace('\\', '/');
+
+                if (!Directory.Exists(dataRoot))
+                {
+                    Console.Error.WriteLine($"参数错误：目录不存在：{dataRoot}");
+                    return 2;
+                }
+
+                sources.Add(new FileSystemDataSource(fs, dataRoot));
+            }
 
             // 非严格 EventBus：本工具是一次性命令行进程，不关心 data.load_completed/
             // data.validation_failed 之外的任何事件登记，未登记的事件 key 只记警告、不抛异常
@@ -133,10 +143,10 @@ namespace Toolchain.Validator
             options.FailOnUnknownTable = true;
             options.Strictness = strict ? DataRegistryStrictness.WarningsBlock : DataRegistryStrictness.WarningsAllowed;
 
-            var registry = new DataRegistry(source, bus, options);
+            var registry = new DataRegistry(sources[0], bus, options);
             PresentationSchemaCatalog.RegisterAll(registry);
 
-            var report = registry.LoadAll();
+            var report = registry.LoadAll(sources);
             var tableCount = registry.Tables.Count;
             var recordCount = loadCompleted?.RecordCount ?? 0;
 

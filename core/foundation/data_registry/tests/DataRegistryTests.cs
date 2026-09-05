@@ -102,21 +102,39 @@ namespace Tests.Foundation.Data
             return dir.FullName;
         }
 
-        private static FileSystemDataSource BuildRealSampleSource(out StubFileSystem fs)
+        /// <summary>判断记录（数据目录框架/游戏分层任务）：<c>found.event_catalog</c>/
+        /// <c>found.input_action</c> 两张表已从 <c>data/_sample/found/</c> 搬到
+        /// <c>data/_framework/found/</c>（见 <c>data/README.md</c>"框架级数据表与游戏数据目录
+        /// 并列加载"一节——这两张表的行分别被 <c>EventKeys.g.cs</c>/Unity 适配层引导代码硬引用，
+        /// 判定为框架级）。真实数据下的加载测试因此改成同一个 <see cref="StubFileSystem"/> 上的
+        /// 两个 <see cref="FileSystemDataSource"/>（<c>data/_framework</c> + <c>data/_sample</c>），
+        /// 用新增的 <see cref="IDataRegistry.LoadAll(IReadOnlyList{IDataSource})"/> 多根加载合并
+        /// 校验——这本身就是"多根加载在真实数据上跑通"的端到端验证，不是单独为了绕开文件搬家。</summary>
+        private static (FileSystemDataSource Framework, FileSystemDataSource Sample) BuildRealFrameworkAndSampleSources(out StubFileSystem fs)
         {
             var repoRoot = FindRepoRoot();
-            var sampleRoot = Path.Combine(repoRoot, "data", "_sample");
-            fs = new StubFileSystem();
+            // 判断记录：out 参数不能被本地函数/lambda 捕获（CS1628），下面用局部变量 fsLocal
+            // 承接实际实例，本地函数捕获 fsLocal 而不是 out 参数 fs 本身，函数末尾再把
+            // fsLocal 赋回 out 参数。
+            var fsLocal = new StubFileSystem();
+            fs = fsLocal;
 
-            foreach (var file in Directory.GetFiles(sampleRoot, "*.json", SearchOption.AllDirectories))
+            FileSystemDataSource BuildOne(string datasetDirName)
             {
-                var rel = file.Substring(sampleRoot.Length)
-                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                    .Replace('\\', '/');
-                fs.WriteTextAtomic("data/_sample/" + rel, File.ReadAllText(file));
+                var root = Path.Combine(repoRoot, "data", datasetDirName);
+                foreach (var file in Directory.GetFiles(root, "*.json", SearchOption.AllDirectories))
+                {
+                    var rel = file.Substring(root.Length)
+                        .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        .Replace('\\', '/');
+                    fsLocal.WriteTextAtomic("data/" + datasetDirName + "/" + rel, File.ReadAllText(file));
+                }
+                return new FileSystemDataSource(fsLocal, "data/" + datasetDirName);
             }
 
-            return new FileSystemDataSource(fs, "data/_sample");
+            var framework = BuildOne("_framework");
+            var sample = BuildOne("_sample");
+            return (framework, sample);
         }
 
         private sealed class MutableSingleTableSource : IDataSource
@@ -147,21 +165,26 @@ namespace Tests.Foundation.Data
         // 1. 正向：真实 data/_sample 五表（T1-7b1 新增 found.input_action）
         // -----------------------------------------------------------------
 
-        // 判断记录（T2-1~T2-3 之后的计数断言）：data/_sample 现由 L0（found/l10n）与 L1 五个
+        // 判断记录（T2-1~T2-3 之后的计数断言）：data/_sample 现由 L0（l10n）与 L1 五个
         // 数值模块（stat/arch/prog/fac）共同贡献表；本类不属于任何一个模块，无法随每次模块给
         // data/_sample 增补示例表而同步改动。为避免这两条计数断言随后续任务持续失真，
         // TableCount/RecordCount 改为"至少达到本次改动时的实际值"（>=）而不是精确相等——放宽
         // 方向选取原因：后续任务只会新增表/新增记录，不会删除已有 L0 表，`>=` 天然兼容"只增不减"
         // 的演进方向，不需要每次改动都回来同步这两个数字；仍然用精确值锁定的
         // `found.event_catalog`（87，2026-09-05 事件命名勘误后：改名 3 行 + 新增 7 行）/
-        // `found.input_action`（缺口收敛 G3：由 7 行补齐到 13 行——新增 6 个战斗动作，见
-        // data/_sample/found/found.input_action.json）两张 L0 自有表不受本任务影响，
-        // 继续保持精确断言（它们的行数变化理应触发本文件的显式复核）。RecordCount 下限随
-        // input_action +6 行同步从 113 上调到 119。
+        // `found.input_action`（缺口收敛 G3：由 7 行补齐到 13 行——新增 6 个战斗动作）两张 L0
+        // 自有表不受本任务影响，继续保持精确断言（它们的行数变化理应触发本文件的显式复核）。
+        // RecordCount 下限随 input_action +6 行同步从 113 上调到 119。
+        //
+        // 判断记录（数据目录框架/游戏分层任务）：`found.event_catalog`/`found.input_action`
+        // 已从 `data/_sample/found/` 搬到 `data/_framework/found/`（见 `data/README.md`），
+        // 本测试因此从单根 `LoadAll()` 改为 `LoadAll(new[] { framework, sample })` 多根加载——
+        // 这两张表仍然在合并后的注册表里可查，计数断言不变，同时验证了"框架级数据表 + 示例数据
+        // 合并加载 0 错误 0 警告"这条真实端到端路径。
         [Fact]
-        public void LoadAll_RealSampleData_ZeroIssues_AndPublishesLoadCompleted()
+        public void LoadAll_RealFrameworkAndSampleData_ZeroIssues_AndPublishesLoadCompleted()
         {
-            var source = BuildRealSampleSource(out _);
+            var (frameworkSource, sampleSource) = BuildRealFrameworkAndSampleSources(out _);
             var bus = MakeBus();
             DataLoadCompletedEvent? received = null;
             bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, e => received = e);
@@ -171,10 +194,10 @@ namespace Tests.Foundation.Data
             // L1，见 01_分层与依赖.md）；这些表在本测试里改用 FailOnUnknownTable=false 以
             // "无 schema 表"方式加载（只做信封与主键格式检查，不做字段级校验——字段级校验由
             // core/numbers/tests/L1SampleDataTests.cs 用真实 L1 schema 覆盖）。
-            var registry = new DataRegistry(source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
+            var registry = new DataRegistry(frameworkSource, bus, new DataRegistryOptions { FailOnUnknownTable = false });
             RegisterBuiltins(registry);
 
-            var report = registry.LoadAll();
+            var report = registry.LoadAll(new IDataSource[] { frameworkSource, sampleSource });
 
             Assert.Equal(0, report.ErrorCount);
             Assert.Equal(0, report.WarningCount);
@@ -184,24 +207,35 @@ namespace Tests.Foundation.Data
             Assert.Equal(88, registry.GetAll("found.event_catalog").Count);
             Assert.Equal(13, registry.GetAll("found.input_action").Count);
 
+            // 只读诊断：found.event_catalog 只应来自 data/_framework 这一个根。
+            var locations = registry.GetTableSourceLocations("found.event_catalog");
+            Assert.Single(locations);
+            Assert.Contains("data/_framework", locations[0]);
+
             Assert.NotNull(received);
-            Assert.True(received!.TableCount >= 14, $"期望 data/_sample 至少 14 张表，实际 {received.TableCount}");
-            Assert.True(received.RecordCount >= 119, $"期望 data/_sample 至少 119 条记录，实际 {received.RecordCount}");
+            Assert.True(received!.TableCount >= 14, $"期望合并后至少 14 张表，实际 {received.TableCount}");
+            Assert.True(received.RecordCount >= 119, $"期望合并后至少 119 条记录，实际 {received.RecordCount}");
             Assert.Equal(0, received.ErrorCount);
             Assert.Equal(0, received.WarningCount);
         }
 
         [Fact]
-        public void FileSystemDataSource_WithStubFileSystem_ListsAllSampleTables()
+        public void FileSystemDataSource_WithStubFileSystem_ListsAllFrameworkAndSampleTables()
         {
-            var source = BuildRealSampleSource(out _);
-            var tables = source.ListTables();
+            var (frameworkSource, sampleSource) = BuildRealFrameworkAndSampleSources(out _);
 
-            Assert.True(tables.Count >= 14, $"期望 data/_sample 至少 14 张表，实际 {tables.Count}");
+            var frameworkNames = new HashSet<string>();
+            foreach (var t in frameworkSource.ListTables()) frameworkNames.Add(t.TableName);
+            Assert.Contains("found.event_catalog", frameworkNames);
+            Assert.Contains("found.input_action", frameworkNames);
+
+            var tables = sampleSource.ListTables();
+            Assert.True(tables.Count >= 13, $"期望 data/_sample 至少 13 张表，实际 {tables.Count}");
             var names = new HashSet<string>();
             foreach (var t in tables) names.Add(t.TableName);
-            Assert.Contains("found.event_catalog", names);
-            Assert.Contains("found.input_action", names);
+            // found.event_catalog/found.input_action 已搬到 data/_framework，不应再出现在 _sample。
+            Assert.DoesNotContain("found.event_catalog", names);
+            Assert.DoesNotContain("found.input_action", names);
             Assert.Contains("l10n.locale", names);
             Assert.Contains("l10n.text", names);
             Assert.Contains("stat.definition", names);
@@ -731,6 +765,161 @@ namespace Tests.Foundation.Data
 
             Assert.Equal(0, report.ErrorCount);
             Assert.Equal("New", registry.Get("test.widget", "test.widget.a")!.GetString("name"));
+        }
+
+        // -----------------------------------------------------------------
+        // 17. 多根加载（数据目录框架/游戏分层任务新增：LoadAll(IReadOnlyList<IDataSource>)）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void LoadAll_Parameterless_IsEquivalentToSingleElementSourcesList()
+        {
+            // 向后兼容：单根既有用法（LoadAll() 无参）行为不因新重载的存在而改变。
+            var rows = "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]";
+            var source = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1, rows));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+
+            var report = registry.LoadAll();
+
+            Assert.Equal(0, report.ErrorCount);
+            Assert.Single(registry.GetAll("test.widget"));
+            Assert.Equal(new[] { "memory://test.widget" }, registry.GetTableSourceLocations("test.widget"));
+        }
+
+        [Fact]
+        public void LoadAll_MultiRoot_DisjointTables_UnionsTableSet()
+        {
+            var rootA = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]"));
+            var rootB = new InMemoryDataSource().Add("test.owner", Envelope("test.owner", 1,
+                "[{\"id\": \"test.owner.a\", \"name\": \"Owner A\"}]"));
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.Equal(0, report.ErrorCount);
+            Assert.Single(registry.GetAll("test.widget"));
+            Assert.Single(registry.GetAll("test.owner"));
+        }
+
+        [Fact]
+        public void LoadAll_MultiRoot_SameTableDifferentKeys_MergesRowsFromBothRoots()
+        {
+            var rootA = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]"), location: "root_a/test.widget.json");
+            var rootB = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.b\", \"name\": \"B\", \"count\": 2}]"), location: "root_b/test.widget.json");
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+
+            var report = registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.Equal(0, report.ErrorCount);
+            var all = registry.GetAll("test.widget");
+            Assert.Equal(2, all.Count);
+            Assert.NotNull(registry.Get("test.widget", "test.widget.a"));
+            Assert.NotNull(registry.Get("test.widget", "test.widget.b"));
+
+            var locations = registry.GetTableSourceLocations("test.widget");
+            Assert.Equal(2, locations.Count);
+            Assert.Contains("root_a/test.widget.json", locations);
+            Assert.Contains("root_b/test.widget.json", locations);
+        }
+
+        [Fact]
+        public void LoadAll_MultiRoot_SameTableSamePrimaryKey_ReportsPrimaryKeyErrorNamingBothRoots()
+        {
+            var rootA = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]"), location: "root_a/test.widget.json");
+            var rootB = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"A2\", \"count\": 9}]"), location: "root_b/test.widget.json");
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+
+            var report = registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.True(report.IsBlocking);
+            var issue = Assert.Single(report.Issues, i => i.Check == "primary_key" && i.RecordKey == "test.widget.a");
+            Assert.Contains("root_a/test.widget.json", issue.Message);
+            Assert.Contains("root_b/test.widget.json", issue.Message);
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.widget"));
+        }
+
+        [Fact]
+        public void LoadAll_MultiRoot_SameTableDifferentSchemaVersion_ReportsSchemaVersionErrorNamingBothRoots()
+        {
+            // 判断记录：要制造"两个根各自都能独立通过校验、但信封 schema_version 原始值不同"
+            // 的场景，需要一张有迁移链的表——若两个根的原始版本都直接不合法（如其中一个超过
+            // CurrentSchemaVersion），会在单根解析阶段（LoadOneTablePartial）就先报出"schema_version
+            // 超过当前代码期望版本"这类逐文件错误并提前返回，根本走不到跨根一致性检查这一步。
+            // 这里复用"6~8. schema 版本与迁移"一节同款迁移链模式：CurrentSchemaVersion=2，
+            // 1→2 环节把 old_name 重命名为 name；root A 给版本 1（会被迁移到 2）、root B 直接给
+            // 版本 2（无需迁移）——两个根单独看都能正常解析成功，但原始 schema_version 不同
+            // （1 vs 2），应判定为跨根不一致。
+            MigrateDelegate migrate = row =>
+            {
+                var builder = new JsonObjectBuilder();
+                foreach (var kv in row)
+                {
+                    builder.Add(kv.Key == "old_name" ? "name" : kv.Key, kv.Value);
+                }
+                return builder.Build();
+            };
+            var schema = new TableSchema(
+                "test.legacy", "id", 2,
+                new[]
+                {
+                    new FieldSchema("id", FieldKind.Id, required: true),
+                    new FieldSchema("name", FieldKind.String, required: true),
+                },
+                migrations: new[] { new TableMigration(1, 2, migrate) });
+
+            var rootA = new InMemoryDataSource().Add("test.legacy",
+                Envelope("test.legacy", 1, "[{\"id\": \"test.legacy.a\", \"old_name\": \"A\"}]"),
+                location: "root_a/test.legacy.json");
+            var rootB = new InMemoryDataSource().Add("test.legacy",
+                Envelope("test.legacy", 2, "[{\"id\": \"test.legacy.b\", \"name\": \"B\"}]"),
+                location: "root_b/test.legacy.json");
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(schema);
+
+            var report = registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.True(report.IsBlocking);
+            var issue = Assert.Single(report.Issues, i => i.Table == "test.legacy" && i.Check == "schema_version");
+            Assert.Contains("root_a/test.legacy.json", issue.Message);
+            Assert.Contains("root_b/test.legacy.json", issue.Message);
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.legacy"));
+        }
+
+        [Fact]
+        public void Reload_MultiRootTable_RereadsAllContributingRootsAndReMerges()
+        {
+            var rootA = new MutableSingleTableSource("test.widget",
+                Envelope("test.widget", 1, "[{\"id\": \"test.widget.a\", \"name\": \"Old A\", \"count\": 1}]"));
+            var rootB = new MutableSingleTableSource("test.widget",
+                Envelope("test.widget", 1, "[{\"id\": \"test.widget.b\", \"name\": \"Old B\", \"count\": 2}]"));
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.Equal("Old A", registry.Get("test.widget", "test.widget.a")!.GetString("name"));
+            Assert.Equal("Old B", registry.Get("test.widget", "test.widget.b")!.GetString("name"));
+
+            rootA.Json = Envelope("test.widget", 1, "[{\"id\": \"test.widget.a\", \"name\": \"New A\", \"count\": 9}]");
+            var report = registry.Reload("test.widget");
+
+            Assert.Equal(0, report.ErrorCount);
+            Assert.Equal("New A", registry.Get("test.widget", "test.widget.a")!.GetString("name"));
+            Assert.Equal("Old B", registry.Get("test.widget", "test.widget.b")!.GetString("name")); // 未改动的根保持不变。
         }
     }
 }

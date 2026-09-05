@@ -1,0 +1,32 @@
+{
+    "name": "Game.Template.Tests",
+    "rootNamespace": "Game.Template.Tests",
+    "references": [
+        "Adapter.Unity",
+        "Game.Template",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "Unity.InputSystem",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll",
+        "Core.Foundation.dll",
+        "Core.Numbers.dll",
+        "Core.Rules.dll",
+        "Core.Carriers.dll",
+        "Core.Gameplay.dll",
+        "Presentation.Common.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

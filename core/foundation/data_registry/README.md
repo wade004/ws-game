@@ -43,6 +43,16 @@ data_registry/
 `Validate()` 在已加载数据上重跑一遍同样的校验（不重新读取/解析文件）；`Reload(table)`
 仅重新读取单张表、替换内存态记录后重跑一次全量 `Validate`（引用完整性等检查天然跨表）。
 
+## 多根加载（`LoadAll(IReadOnlyList<IDataSource>)`）
+
+数据目录框架/游戏分层任务新增：同一次加载可以传入多个 `IDataSource`（典型场景是"框架级数据表
+`data/_framework` + 具体游戏的 `data/<game>`"并列加载，见 `data/README.md`"多根加载与合并规则"）。
+同一张表出现在多个根时按主键并集合并；跨根主键重复、跨根信封 `schema_version` 不一致均判定为
+阻断错误（消息里点出两个根各自的 `Location`）。`LoadAll()`（无参，构造函数传入的单一
+`IDataSource`）行为完全不变，等价于单元素多根调用。只读诊断 `GetTableSourceLocations(table)`
+（声明在 `IDataRegistry`，见该接口判断记录）返回某表本次加载实际来自哪些根的 `Location` 列表，
+供上层核对"这张表到底是从哪个数据根读上来的"，不参与任何校验判定。
+
 ## 校验项检查名（04 第 5 节，`ValidationIssue.Check` 固定取值）
 
 | Check | 触发点 |
@@ -81,10 +91,10 @@ data_registry/
 
 ## `BuiltinSchemas`
 
-登记 L0 自有表：`found.event_catalog`、`l10n.locale`、`l10n.text`。**判断记录**：模块自有表
-的 schema 将随各模块实现迁移到各自模块目录（如 `l10n` 归 T1-7 本地化模块），届时应从
-`BuiltinSchemas` 移除对应登记；`stat.definition` 属 L1，不在 `BuiltinSchemas` 内，由调用方
-（如测试、L1 模块自身）临时构造 `TableSchema` 并 `RegisterSchema`。
+登记 L0 自有表：目前只剩 `found.event_catalog`。**判断记录**：`l10n.locale`/`l10n.text` 两张表
+的 schema 已搬到 `core/foundation/localization/contracts/L10nSchemas.cs`（`L10nSchemas.Locale`/
+`.Text`），不再登记在本类；`stat.definition` 属 L1，不在 `BuiltinSchemas` 内，由调用方（如测试、
+L1 模块自身）临时构造 `TableSchema` 并 `RegisterSchema`。
 
 ## `IFileSystem.ListFiles` 依赖的实现级约定
 
