@@ -5,9 +5,9 @@ namespace Core.Foundation.SimLoop
 {
     /// <summary>
     /// 本模块发出的事件 key 常量（对应 <c>found.event_catalog</c> 登记表，见
-    /// data/_sample/found/found.event_catalog.json）。<c>sim.turn_started</c>、
-    /// <c>sim.turn_ended</c>、<c>sim.round_ended</c>、<c>sim.awaiting_input</c> 四个
-    /// 属于离散模式，本项目暂不启用，本模块不发这四个事件，因此这里不登记对应常量。
+    /// data/_sample/found/found.event_catalog.json）。<c>sim.turn_started</c>/
+    /// <c>sim.turn_ended</c>/<c>sim.round_ended</c>/<c>sim.awaiting_input</c> 四个属于离散模式
+    /// （ADR-0013），由 <see cref="TurnScheduler"/> 发出，不是 <see cref="WorldSim"/>。
     /// </summary>
     public static class SimEventKeys
     {
@@ -15,6 +15,11 @@ namespace Core.Foundation.SimLoop
         public static readonly Id TickFinished = new Id("sim.tick_finished");
         public static readonly Id EntityCreated = new Id("entity.created");
         public static readonly Id EntityDestroyed = new Id("entity.destroyed");
+
+        public static readonly Id TurnStarted = new Id("sim.turn_started");
+        public static readonly Id TurnEnded = new Id("sim.turn_ended");
+        public static readonly Id RoundEnded = new Id("sim.round_ended");
+        public static readonly Id AwaitingInput = new Id("sim.awaiting_input");
     }
 
     /// <summary>
@@ -102,6 +107,77 @@ namespace Core.Foundation.SimLoop
         public EntityDestroyedEvent(Id entityId)
         {
             EntityId = entityId;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="TurnScheduler"/> 切到某行动者时触发（见 03 第 3.2 节、found.event_catalog
+    /// <c>sim.turn_started</c> 行字段表 <c>{actorId, roundIndex}</c>）：<see cref="BeginCombat"/>
+    /// 首个行动者、<see cref="AdvanceToNextActor"/> 每次切换都会发出一次。
+    /// </summary>
+    public sealed class SimTurnStartedEvent : IEvent
+    {
+        public Id Key => SimEventKeys.TurnStarted;
+
+        public Id ActorId { get; }
+
+        public int RoundIndex { get; }
+
+        public SimTurnStartedEvent(Id actorId, int roundIndex)
+        {
+            ActorId = actorId;
+            RoundIndex = roundIndex;
+        }
+    }
+
+    /// <summary>
+    /// 某行动者的回合结束时触发（见 03 第 3.2 节步骤 5、found.event_catalog
+    /// <c>sim.turn_ended</c> 行字段表 <c>{actorId}</c>）。
+    /// </summary>
+    public sealed class SimTurnEndedEvent : IEvent
+    {
+        public Id Key => SimEventKeys.TurnEnded;
+
+        public Id ActorId { get; }
+
+        public SimTurnEndedEvent(Id actorId)
+        {
+            ActorId = actorId;
+        }
+    }
+
+    /// <summary>
+    /// 一轮全部行动者结束时触发（见 03 第 3.2 节步骤 5、found.event_catalog
+    /// <c>sim.round_ended</c> 行字段表 <c>{roundIndex}</c>）：<see cref="RoundIndex"/> 是刚结束的
+    /// 那一轮的序号（从 0 起）。
+    /// </summary>
+    public sealed class SimRoundEndedEvent : IEvent
+    {
+        public Id Key => SimEventKeys.RoundEnded;
+
+        public int RoundIndex { get; }
+
+        public SimRoundEndedEvent(int roundIndex)
+        {
+            RoundIndex = roundIndex;
+        }
+    }
+
+    /// <summary>
+    /// 离散模式下轮到玩家行动、调度器暂无步产出（<see cref="ITurnScheduler.NextStep"/> 返回空）
+    /// 时触发（见 03 第 2 节 <c>awaiting_input</c> 子态、found.event_catalog
+    /// <c>sim.awaiting_input</c> 行字段表 <c>{actorId}</c>）。同一次等待只发一次（见
+    /// <c>TurnScheduler</c> 判断记录，避免同一玩家回合内重复调用 <c>NextStep</c> 刷屏）。
+    /// </summary>
+    public sealed class SimAwaitingInputEvent : IEvent
+    {
+        public Id Key => SimEventKeys.AwaitingInput;
+
+        public Id ActorId { get; }
+
+        public SimAwaitingInputEvent(Id actorId)
+        {
+            ActorId = actorId;
         }
     }
 }

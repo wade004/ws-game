@@ -109,8 +109,30 @@ namespace Core.Gameplay.Assembly
 
         public Func<Id> PlayerUnitProvider { get; }
 
+        /// <summary>ADR-0013 离散时间模型：只在构造函数传入 <c>clockHost</c> 时非空（见该构造参数
+        /// 判断记录）。未传入时全部三个属性保持 null，<see cref="Advance"/> 抛异常，其余行为与本
+        /// 任务之前完全一致（不破坏任何既有调用方——多数既有测试直接持有自己的
+        /// <see cref="ISimClockHost"/> 并调用其 <c>Advance</c>，压根不经过本类，见
+        /// <c>TimeModelSwitch</c> 判断记录 1）。</summary>
+        public TimeModelSwitch? TimeModelSwitch { get; }
+
+        /// <summary>暴露具体类型（而不是 <see cref="ITurnScheduler"/>）：<see cref="Advance"/> 需要
+        /// <see cref="Core.Foundation.SimLoop.TurnScheduler.NotifyStepConsumed"/>、
+        /// <see cref="Core.Foundation.SimLoop.TurnScheduler.CurrentTurnIndex"/>/
+        /// <see cref="Core.Foundation.SimLoop.TurnScheduler.RoundIndex"/> 等不属于
+        /// <see cref="ITurnScheduler"/> 契约的便利成员（惯例同 <c>WorldSim.DiagnosticsWarnings</c>
+        /// 判断记录：不为这些编排细节新增 03 文档之外的接口原语）。</summary>
+        public Core.Foundation.SimLoop.TurnScheduler? TurnScheduler { get; }
+
+        public IPacingPolicy? Pacing { get; }
+
+        public SubStateId AwaitingInputSubState { get; }
+
+        public SubStateId PlayingBackSubState { get; }
+
         private readonly IEventBus _bus;
         private readonly IWorldSim _world;
+        private readonly ISimClockHost? _clockHost;
         private readonly Dictionary<Id, double> _combatStartTimes = new Dictionary<Id, double>(EqualityComparer<Id>.Default);
 
         public GameplayAssembly(
@@ -145,7 +167,11 @@ namespace Core.Gameplay.Assembly
             AreaTriggerOptions? areaTriggerOptions = null,
             SpawnOptions? spawnOptions = null,
             Id? autosaveSlotId = null,
-            Func<string>? autosaveTimestampProvider = null)
+            Func<string>? autosaveTimestampProvider = null,
+            ISimClockHost? clockHost = null,
+            IPacingPolicy? pacingPolicy = null,
+            TimeModelSwitchOptions? timeModelSwitchOptions = null,
+            Func<Id, IReadOnlyList<Id>>? combatParticipantsResolver = null)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
@@ -217,9 +243,35 @@ namespace Core.Gameplay.Assembly
                 extraSchemas: new IExprSchema[] { GameplaySchemaCatalog.FullExprSchema });
 
             // ---------------------------------------------------------
+            // 3.5) ADR-0013 离散时间模型：TurnScheduler 提前在这里构造（而不是等到第 10 步
+            //     AppState 就绪后）——第 4 步 ExprHostFactory 需要把 time.turn_index/round_index/
+            //     is_my_turn 三个 Expr key 接到同一个调度器实例上（见 RulesExprHostFactory 判断
+            //     记录），先有 TurnScheduler 才能把访问器传给它。TimeModelSwitch（需要 AppState）
+            //     仍然留到第 10.5 步再构造，两者共用这里造好的同一个 scheduler 实例。只在调用方
+            //     传入 clockHost 时构造（见该构造参数判断记录）。
+            // ---------------------------------------------------------
+            Core.Foundation.SimLoop.TurnScheduler? scheduler = null;
+            Core.Gameplay.Assembly.TimeModelSwitch? timeModelSwitchRef = null;
+            if (clockHost != null)
+            {
+                double InitiativeStatProvider(Id unitId)
+                {
+                    var statId = timeModelSwitchRef?.CombatModel?.InitiativeStat;
+                    return statId.HasValue ? Carriers.Rules.Stats.GetStat(unitId, statId.Value) : 0.0;
+                }
+
+                bool IsPlayerActor(Id unitId) => unitId.Equals(PlayerUnitProvider());
+
+                scheduler = new Core.Foundation.SimLoop.TurnScheduler(world, InitiativeStatProvider, IsPlayerActor, bus);
+            }
+
+            // ---------------------------------------------------------
             // 4) ExprHostFactory（带 extraGroups 的第二份工厂，供 L4 全部宿主使用，见该属性判断记录）。
             //    combatStartTimeProvider：GameplayAssembly 独立订阅 combat.entered 自行追踪（不触碰
-            //    RulesAssembly 私有字段，见 TrackCombatStartTimes）。
+            //    RulesAssembly 私有字段，见 TrackCombatStartTimes）。turnIndexProvider/
+            //    roundIndexProvider/currentActorProvider：ADR-0013，未传入 clockHost 时
+            //    scheduler 为 null，三个委托整体不传（RulesExprHostFactory 未注入时保留旧占位
+            //    0/0/false 返回值，见该类型判断记录）。
             // ---------------------------------------------------------
             var extraGroups = new Dictionary<string, IExprGroupProvider>(StringComparer.Ordinal)
             {
@@ -235,7 +287,10 @@ namespace Core.Gameplay.Assembly
                 Carriers.Rules.Combat, Carriers.Rules.Combat.GetThreatTable(ThreatTablePlaceholderId), spatial,
                 Carriers.Rules.Factions, () => Carriers.Rules.SimTime, GetCombatStartTime,
                 extraGroups: extraGroups, skillHost: Carriers.Rules.Skill, diagnostics: null,
-                extraSchemas: new IExprSchema[] { GameplaySchemaCatalog.FullExprSchema });
+                extraSchemas: new IExprSchema[] { GameplaySchemaCatalog.FullExprSchema },
+                turnIndexProvider: scheduler != null ? () => scheduler.CurrentTurnIndex : (Func<int>?)null,
+                roundIndexProvider: scheduler != null ? () => scheduler.RoundIndex : (Func<int>?)null,
+                currentActorProvider: scheduler != null ? () => scheduler.GetCurrentActor() : (Func<Id?>?)null);
 
             // ---------------------------------------------------------
             // 5) DifficultyHost：先于 LootHost/CreatureDeathLootListener 构造——后者的
@@ -306,10 +361,46 @@ namespace Core.Gameplay.Assembly
 
             // ---------------------------------------------------------
             // 10) AppStateHost / HookRegistry（DialogHost 的两个必填依赖，本类自行装配——两者均属
-            //     L0，构造只需要 IEventBus）。
+            //     L0，构造只需要 IEventBus）。ADR-0013：额外登记两个自定义子状态 AwaitingInput/
+            //     PlayingBack（见 03 第 2 节 Combat 内子态"awaiting_input"/"playing_back"），
+            //     只允许在 Combat 与二者之间互相转移——本模块 app_lifecycle 的既有判断记录明确
+            //     指出这两个附加子态"不是 InWorldSubState 平级的独立子状态"，因此不改
+            //     InWorldSubState 枚举（不新增原语），改用 SubStateId 的自定义子状态扩展点
+            //     （AppStateMachineConfig.AddCustomSubState，专为此设计）。无论是否传入
+            //     clockHost，这两个自定义子状态与转移都会登记——只是新增的合法转移，不影响任何
+            //     既有转移的合法性，对不使用离散模式的调用方无副作用。
             // ---------------------------------------------------------
-            AppState = new AppStateHost(bus);
+            var appStateConfig = AppStateMachineConfig.Default();
+            AwaitingInputSubState = appStateConfig.AddCustomSubState("AwaitingInput");
+            PlayingBackSubState = appStateConfig.AddCustomSubState("PlayingBack");
+            appStateConfig.AllowSubTransition(SubStateId.Combat, AwaitingInputSubState);
+            appStateConfig.AllowSubTransition(AwaitingInputSubState, SubStateId.Combat);
+            appStateConfig.AllowSubTransition(SubStateId.Combat, PlayingBackSubState);
+            appStateConfig.AllowSubTransition(PlayingBackSubState, SubStateId.Combat);
+
+            AppState = new AppStateHost(bus, appStateConfig);
             Hooks = new HookRegistry(bus);
+
+            // ---------------------------------------------------------
+            // 10.5) ADR-0013 离散时间模型：只在调用方传入 clockHost 时装配（见该构造参数判断
+            //     记录）；scheduler 已在第 3.5 步造好（ExprHostFactory 需要提前拿到访问器），这里
+            //     只补 TimeModelSwitch（需要 AppState，第 10 步才就绪）并回填第 3.5 步声明的
+            //     timeModelSwitchRef 闭包变量（TurnScheduler 构造期传入的 InitiativeStatProvider
+            //     真正被调用时——战斗中——timeModelSwitchRef 早已赋值完毕，见该处判断记录）。
+            // ---------------------------------------------------------
+            _clockHost = clockHost;
+            if (clockHost != null && scheduler != null)
+            {
+                Pacing = pacingPolicy ?? new WaitForPlaybackPacingPolicy();
+
+                var switchInstance = new Core.Gameplay.Assembly.TimeModelSwitch(
+                    scheduler, clockHost, AppState, world, Carriers.Units, spatial, bus, registry,
+                    timeModelSwitchOptions, combatParticipantsResolver);
+                timeModelSwitchRef = switchInstance;
+
+                TurnScheduler = scheduler;
+                TimeModelSwitch = switchInstance;
+            }
 
             // ---------------------------------------------------------
             // 11) SpawnHost（GobjSpawner 接 GameObjectFactory.Spawn）。
@@ -467,6 +558,85 @@ namespace Core.Gameplay.Assembly
         }
 
         /// <summary>
+        /// "主循环一步"（ADR-0013、03 第 3 节）：连续模式下等价于 <c>ClockHost.Advance</c>；离散
+        /// 模式下驱动 <see cref="TurnScheduler"/> 直到需要停下等待——轮到玩家行动
+        /// （<see cref="TurnScheduler.NextStep"/> 返回空，见该类型）或表现回放
+        /// （<see cref="Pacing"/> 为 <see cref="PacingMode.WaitForPlayback"/>）——期间把
+        /// <see cref="AwaitingInputSubState"/>/<see cref="PlayingBackSubState"/> 压入/弹出
+        /// <see cref="AppState"/> 子状态栈（见 03 第 2 节两个附加子态的触发/解除条件）。
+        /// <see cref="PacingMode.Immediate"/> 下会在一次调用内连续推进多个离散步（例如整段 AI 行动
+        /// 链），直到轮到玩家或战斗结束。未在构造函数传入 <c>clockHost</c> 时抛
+        /// <see cref="InvalidOperationException"/>。
+        /// </summary>
+        public void Advance(double realDeltaSeconds)
+        {
+            if (_clockHost == null)
+            {
+                throw new InvalidOperationException(
+                    "未提供 ISimClockHost，无法调用 Advance；请在构造 GameplayAssembly 时传入 clockHost 参数");
+            }
+
+            if (_clockHost.Mode == TimeModelMode.Continuous)
+            {
+                _clockHost.Advance(realDeltaSeconds);
+                return;
+            }
+
+            while (true)
+            {
+                var step = TurnScheduler!.NextStep();
+                if (step == null)
+                {
+                    PopSubStateIfCurrent(PlayingBackSubState);
+                    PushSubStateIfNotCurrent(AwaitingInputSubState);
+                    return;
+                }
+
+                PopSubStateIfCurrent(AwaitingInputSubState);
+                PopSubStateIfCurrent(PlayingBackSubState);
+
+                _world.Tick(step.Value);
+                TurnScheduler.NotifyStepConsumed(step.Value.ActorId!.Value);
+
+                if (Pacing!.Mode() == PacingMode.WaitForPlayback)
+                {
+                    if (Pacing is WaitForPlaybackPacingPolicy waitForPlayback)
+                    {
+                        waitForPlayback.BeginStep();
+                    }
+
+                    PushSubStateIfNotCurrent(PlayingBackSubState);
+                    return;
+                }
+            }
+        }
+
+        /// <summary>表现层发出 <c>presentation.playback_finished</c> 后由调用方转发到这里（见 03
+        /// 第 9 节 <c>PacingPolicy.onPlaybackFinished</c>）：解除 <c>playing_back</c> 节奏门，下一次
+        /// <see cref="Advance"/> 才会继续推进离散步。未装配离散模式（<see cref="Pacing"/> 为空）时
+        /// 空操作。</summary>
+        public void NotifyPlaybackFinished()
+        {
+            Pacing?.OnPlaybackFinished();
+        }
+
+        private void PushSubStateIfNotCurrent(SubStateId sub)
+        {
+            if (!AppState.CurrentSubState.HasValue || !AppState.CurrentSubState.Value.Equals(sub))
+            {
+                AppState.PushSubState(sub);
+            }
+        }
+
+        private void PopSubStateIfCurrent(SubStateId sub)
+        {
+            if (AppState.CurrentSubState.HasValue && AppState.CurrentSubState.Value.Equals(sub))
+            {
+                AppState.PopSubState();
+            }
+        }
+
+        /// <summary>
         /// 按 10_存档与持久化.md §3 固定顺序把全部 L3/L4 <see cref="IPersistable"/> 注册进
         /// <paramref name="saveSystem"/>：world_state → player.inventory/equipment（按
         /// <paramref name="player"/>）→ currencies → quest → achievement → spawn_state →
@@ -504,6 +674,15 @@ namespace Core.Gameplay.Assembly
             saveSystem.RegisterPersistable(Spawn);
             saveSystem.RegisterPersistable(new DroppedLootPersistable(Loot));
             saveSystem.RegisterPersistable(Difficulty);
+
+            // ADR-0013：TurnScheduler 全部状态可存档（见任务书"全部状态可存档"），只在装配了离散
+            // 模式（构造函数传入 clockHost）时注册——段名 sim.turn_state 不在 10 号文档固定段序里
+            // （待勘误，见 TurnScheduler 判断记录），因此不登记进 SaveSections.KnownOrder，只是
+            // "自定义段"（按 key 序数排在已知段之后，见 SaveSections 注释）。
+            if (TurnScheduler is IPersistable turnSchedulerPersistable)
+            {
+                saveSystem.RegisterPersistable(turnSchedulerPersistable);
+            }
         }
 
         private void TeleportUnit(Id unitId, Id targetMap, Id? spawnPoint = null)

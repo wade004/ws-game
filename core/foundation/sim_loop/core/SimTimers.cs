@@ -68,6 +68,34 @@ namespace Core.Foundation.SimLoop
             }
         }
 
+        /// <summary>
+        /// 把全部存活计时器的剩余时长乘以 <paramref name="factor"/>（见 03 第 3.3 节步骤 2
+        /// "进入回合制时，正在生效的光环等以秒计的剩余时长按 seconds_per_turn 折算为剩余回合数；
+        /// 反之...按同一系数把剩余回合数折算回秒"）。不是 <see cref="ISimTimers"/> 契约的一部分
+        /// （同 <see cref="WorldSim.DiagnosticsWarnings"/> 的判断记录：03/09 没有为"时间单位换算"
+        /// 定义独立的接口原语，这是承载该文档要求行为的具体类型上的一个便利方法），只供
+        /// <c>core/gameplay/assembly.TimeModelSwitch</c> 在连续/离散模式切换时调用。
+        /// </summary>
+        public void RescaleAll(double factor)
+        {
+            if (factor <= 0)
+            {
+                throw new ArgumentException("factor 必须为正数", nameof(factor));
+            }
+
+            if (_remainingByHandle.Count == 0)
+            {
+                return;
+            }
+
+            var handles = new List<TimerHandle>(_remainingByHandle.Keys);
+            for (var i = 0; i < handles.Count; i++)
+            {
+                var handle = handles[i];
+                _remainingByHandle[handle] = _remainingByHandle[handle] * factor;
+            }
+        }
+
         private double GetRemainingOrThrow(TimerHandle handle)
         {
             if (_remainingByHandle.TryGetValue(handle, out var remaining))

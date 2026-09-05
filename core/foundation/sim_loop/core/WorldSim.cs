@@ -114,6 +114,27 @@ namespace Core.Foundation.SimLoop
             // 期间提交的意图使用（与本 tick 的 CurrentIntents 互不干扰）。
             _currentIntentsList = _pendingIntents;
             _pendingIntents = new List<Intent>();
+
+            // 离散步下第 1 步"输入意图收集"只收集当前行动者的意图（见 03 第 4.2 节步骤 1、
+            // ADR-0013 决策 2）：过滤掉任何 ActorId 不等于 step.ActorId 的意图——正常情况下不应该
+            // 存在这类"串门"意图（TurnScheduler.SubmitIntent 只允许当前行动者提交，见该类型），
+            // 这里的过滤是防御性的，同时也是文档要求的"离散步只处理当前行动者的意图"在实现层面
+            // 最直接、最不易遗漏的落点（放在这里而不是逐个 ITickPhaseHandler 各自过滤，保证任何
+            // 后续新增的阶段处理器都自动获得这条保证，不需要每个处理器自己记得再判一次）。
+            if (step.Kind == SimStepKind.Discrete && step.ActorId.HasValue)
+            {
+                var actorId = step.ActorId.Value;
+                var filtered = new List<Intent>(_currentIntentsList.Count);
+                for (var i = 0; i < _currentIntentsList.Count; i++)
+                {
+                    if (_currentIntentsList[i].ActorId.Equals(actorId))
+                    {
+                        filtered.Add(_currentIntentsList[i]);
+                    }
+                }
+                _currentIntentsList = filtered;
+            }
+
             _isTicking = true;
 
             // 判断记录：sim.tick_started 用 PublishImmediate 立即派发，先于本 tick 全部阶段
@@ -129,7 +150,9 @@ namespace Core.Foundation.SimLoop
             else
             {
                 _diagnosticsWarnings.Add(
-                    $"tick {tickIndex}：离散步（Discrete）不推进计时器——离散时间模型本项目暂不启用（见 ADR-0013）");
+                    $"tick {tickIndex}：离散步（Discrete）不推进全局计时器——离散步以行动者为粒度，" +
+                    "不代表统一的时间推进量，全局计时器（冷却/光环剩余时长等）的换算发生在连续/离散" +
+                    "模式切换时刻（见 03 第 3.3 节步骤 2、TimeModelSwitch），不是每个离散步都线性推进");
             }
 
             for (var i = 0; i < RegistrablePhaseOrder.Length; i++)

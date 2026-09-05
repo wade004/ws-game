@@ -2,18 +2,22 @@
 
 职责：按固定步长推进世界模拟（连续模式累积器 `SimClockHost`）、编排 `WorldSim` 每个 tick
 固定的八步顺序、维护实体公共基类 `Entity` 与实体集合、提供挂在模拟时间轴上的通用计时器
-`ISimTimers`（见 [03_运行时骨架.md](../../../architecture/03_运行时骨架.md) 第 3.1、4、8、9 节）。
+`ISimTimers`、按先攻规则驱动离散（回合制）模拟步的 `TurnScheduler`、离散步节奏门
+`PacingPolicy`（见 [03_运行时骨架.md](../../../architecture/03_运行时骨架.md) 第 3、4、8、9 节、
+[ADR-0013](../../../architecture/adr/0013-时间模型可替换即时与回合制同一规则层.md)）。
 
-**本任务（T1-5）范围**：只实现连续模式。离散模式（`TurnScheduler`、`PacingPolicy`）按
-[落地方案与分阶段计划.md](../../../architecture/落地计划/落地方案与分阶段计划.md) T1-5
-"禁止事项"只建接口骨架，逻辑留空并抛 `NotSupportedException`，**本项目暂不启用**——
-见 `contracts/ITurnScheduler.cs`、`contracts/IPacingPolicy.cs`、
-`core/NotEnabledTurnScheduler.cs`、`core/NotEnabledPacingPolicy.cs` 文件头注释。
+**离散时间模型已落地**（ADR-0013 解除了此前"本项目暂不启用"的限制）：`TurnScheduler`
+实现 `initiative_stat`/`action_points`/`fixed_order` 三种先攻策略（`atb` 仍是预留扩展位，
+`Configure` 遇到时抛 `NotSupportedException`），`ImmediatePacingPolicy`/
+`WaitForPlaybackPacingPolicy` 实现两种节奏策略；`found.time_model` 表的加载/解释、模式切换
+（连续 ⇄ 离散）由 `core/gameplay/assembly.TimeModelSwitch`/`GameplayAssembly.Advance` 驱动
+（本模块自身仍不加载数据表，只提供机制，见下方"基础架构提供/游戏层提供"）。
 
 依赖：只依赖 `core/foundation/common`（`Id`、`Vec2`）、`core/foundation/event_bus`
-（`IEvent`、`IEventBus`）与 .NET 标准库；不引用任何引擎适配层实现、不使用系统时间
-（`DateTime`/`Stopwatch`/`Environment.TickCount`）、不使用多线程、不使用反射、不使用
-系统级 `Random`（见落地方案与分阶段计划.md 第 4.1 节确定性要求）。
+（`IEvent`、`IEventBus`）、`core/foundation/data_registry`（`TimeModelSchema`/
+`TimeModelValidationRule` 的 `TableSchema`/`IValidationRule` 声明）与 .NET 标准库；不引用任何
+引擎适配层实现、不使用系统时间（`DateTime`/`Stopwatch`/`Environment.TickCount`）、不使用多
+线程、不使用反射、不使用系统级 `Random`（见落地方案与分阶段计划.md 第 4.1 节确定性要求）。
 
 不负责什么：
 
@@ -26,9 +30,12 @@
 - 不实现技能管线、AI 决策、战斗结算、触发评估的具体业务逻辑：`WorldSim` 只编排
   `TickPhase` 的固定顺序与处理器注册机制，各阶段"做什么"由外部模块经
   `RegisterPhaseHandler` 注入。
-- 不做离散模式（回合制）：见上方"本任务范围"。
-- 不加载 `found.time_model` 数据表：本模块拥有该表的字段说明（见 `schema/README.md`），
-  但连续模式不读取它，加载与解释属于后续启用离散模式时的工作，本阶段不实现。
+- 不判断"什么时候该从连续切到离散"：那是 `combat.entered`/`combat.left` 事件 + 数据集声明
+  （`found.time_model`）共同决定的编排逻辑，属于 `core/gameplay/assembly.TimeModelSwitch`
+  （L4）的职责，本模块（L0）只提供 `TurnScheduler`/`PacingPolicy`/`ISimClockHost.Mode` 三个
+  被驱动的机制点。
+- 不解释离散步下具体游戏规则如何结算（读条换算、移动预算数值等）：那些是数据集声明
+  + 各自模块（skill/carriers.unit 等）的解释，见 04 第 3.1 节"时间字段语义"。
 
 ## 目录
 
@@ -37,30 +44,38 @@ sim_loop/
   README.md
   contracts/
     SimStep.cs           SimStepKind、StepPhase、SimStep
-    ISimClockHost.cs      连续模式主循环契约
+    ISimClockHost.cs      连续/离散模式主循环契约（含 Mode 属性）
     SimLoopOptions.cs     步长/最大补偿步数/默认时间缩放配置
     IWorldSim.cs           TickPhase、ITickPhaseHandler、IWorldSim
     Entity.cs              EntityLifecycle、Entity 公共基类
     EntityFilter.cs        EntityPredicate、EntityFilter
     ISimTimers.cs           TimerHandle、ISimTimers
-    ITurnScheduler.cs       InitiativePolicy、ITurnScheduler（骨架，暂不启用）
-    IPacingPolicy.cs        PacingMode、IPacingPolicy（骨架，暂不启用）
+    ITurnScheduler.cs       InitiativePolicy、ITurnScheduler
+    IPacingPolicy.cs        PacingMode、IPacingPolicy
+    TimeModelMode.cs        Continuous/Discrete
+    TimeModelDefinition.cs  found.time_model 记录的强类型视图 + FromRecord
     Events.cs               SimEventKeys、SimTickStartedEvent、SimTickFinishedEvent、
-                             EntityCreatedEvent、EntityDestroyedEvent
+                             EntityCreatedEvent、EntityDestroyedEvent、
+                             SimTurnStartedEvent、SimTurnEndedEvent、SimRoundEndedEvent、
+                             SimAwaitingInputEvent
   core/
-    SimClockHost.cs         ISimClockHost 默认实现
-    WorldSim.cs              IWorldSim 默认实现
-    SimTimers.cs             ISimTimers 默认实现
-    NotEnabledTurnScheduler.cs   全部方法抛 NotSupportedException
-    NotEnabledPacingPolicy.cs    全部方法抛 NotSupportedException
+    SimClockHost.cs              ISimClockHost 默认实现（含离散模式分支）
+    WorldSim.cs                   IWorldSim 默认实现（离散步只收集当前行动者意图）
+    SimTimers.cs                  ISimTimers 默认实现 + RescaleAll（模式切换时间单位换算）
+    TurnScheduler.cs               ITurnScheduler 默认实现，同时实现 IPersistable
+    ImmediatePacingPolicy.cs       IPacingPolicy："不等待回放"
+    WaitForPlaybackPacingPolicy.cs IPacingPolicy："等待回放"
   schema/
-    README.md               found.time_model 字段说明（本模块拥有但暂不加载）
+    TimeModelSchema.cs      found.time_model 的 TableSchema + TimeModelValidationRule
+    README.md               found.time_model 字段说明（备查，权威定义见 04 第 3.1 节）
   tests/
-    SimClockHostTests.cs
+    SimClockHostTests.cs      含离散模式 Mode/Advance 分支
     WorldSimTickOrderTests.cs
     WorldSimEntityTests.cs
     SimTimersTests.cs
-    NotEnabledTests.cs
+    NotEnabledTests.cs         历史文件名沿用，现覆盖 WorldSim 处理离散步的基本契约
+    TurnSchedulerTests.cs
+    PacingPolicyTests.cs
     TestEntity.cs            测试用 Entity 子类
     DelegatePhaseHandler.cs  测试用 ITickPhaseHandler 适配器
     SimLoopTestSupport.cs    测试共用的 IEventBus 构造帮助方法
@@ -169,9 +184,35 @@ sim_loop/
 
 挂在模拟时间轴上，供冷却、光环持续时间等一切"经过若干模拟时间后触发"的需求统一使用
 （见 03 第 8 节）。`WorldSim` 在每个 `Continuous` tick 开头按 `step.Dt` 统一推进全部
-存活计时器；`Discrete` 步下**不推进**（离散时间模型本项目暂不启用），并记一条诊断警告
+存活计时器；`Discrete` 步下**不推进**（一个离散步只代表某一个行动者的一次行动，不是全体
+单位共享的统一时间增量，见 `WorldSim.cs` 判断记录），并记一条诊断警告
 （见 `WorldSim.DiagnosticsWarnings`）。到期的计时器保留"已到期"状态直到显式 `Cancel`，
-计时器本身不发事件，由调用方轮询 `IsExpired`。
+计时器本身不发事件，由调用方轮询 `IsExpired`。模式切换时刻的时间单位换算见
+`SimTimers.RescaleAll` 与 `TimeModelSwitch`。
+
+## 离散时间模型（ADR-0013）判断记录
+
+1. **`TurnScheduler` 一步一回合 vs 多次行动**：`initiative_stat`/`fixed_order` 两种策略下，
+   每次 `NextStep()` 产生的离散步即该行动者本回合唯一一次行动，`NotifyStepConsumed` 之后
+   立即推进到下一行动者；`action_points` 策略下 `NotifyStepConsumed` 按 1 点/步扣减行动点，
+   未耗尽则继续同一行动者，直到耗尽或调用方显式 `EndTurn`。04 未规定
+   `initiative_stat`/`fixed_order` 是否允许单回合多次行动，本实现按"一步一回合"处理——这是
+   两种最简策略的通行做法（多行动预算是 `action_points` 策略专属的语义）。
+2. **参与者名单只在 `BeginCombat` 一次性传入**：`ITurnScheduler` 契约（03 第 9 节）没有"追加
+   参与者"的原语，`TimeModelSwitch` 因此只在"进战单位数从 0 变 1"这一刻解析一次完整参与者
+   名单（默认按触发单位为圆心的空间查询近似，见该类型判断记录），战斗中途加入的单位不会被
+   补进当前回合顺序——已知简化，见任务交付报告"做不了的事"。
+3. **全局计时器换算 `SimTimers.RescaleAll` 不是 `ISimTimers` 契约的一部分**：03/09 未给"时间
+   单位换算"定义独立接口原语，本方法是承载该文档要求行为（第 3.3 节步骤 2）的具体类型便利
+   成员，惯例同 `WorldSim.DiagnosticsWarnings`。
+4. **`TurnScheduler` 的存档段 key `sim.turn_state` 尚未登记进
+   [10_存档与持久化.md](../../../architecture/10_存档与持久化.md)**（该文档不在本任务允许
+   改动的文档范围内）——`GameplayAssembly.RegisterPersistables` 已按此 key 接线（自定义段，
+   排在 `SaveSections.KnownOrder` 已知段之后），待后续任务把该段正式补进 10 号文档固定段序。
+5. **`found.time_model` 的 `movement_budget_rule: action_points`（以行动点计的移动预算）未
+   落地**：`core/carriers/unit.MovementTickHandler` 的离散分支只实现了 `distance` 预算规则
+   （见 `MovementOptions.DiscreteTurnEquivalentSeconds`），`action_points` 取值仍是数据校验
+   期合法枚举，但运行期按 `distance` 规则处理——已知简化，见交付报告"做不了的事"。
 
 ## 基础架构提供 / 游戏层提供
 
@@ -181,4 +222,4 @@ sim_loop/
 | `WorldSim` 八步 tick 固定顺序与阶段处理器注册机制 | 是 | 各阶段具体处理的业务逻辑（技能管线、AI 决策等实现） |
 | `Entity` 公共基类与实体集合管理、确定性查询/id 分配 | 是 | 具体实体子类（`Unit`/`GameObject` 等，属于更上层模块） |
 | 通用计时器原语 | 是 | 使用计时器的具体游戏内容（冷却时长等数值） |
-| 离散时间模型（回合调度器、节奏策略）接口骨架 | 是（骨架） | 本项目暂不启用，未来需要时再实现具体逻辑 |
+| 离散时间模型：`TurnScheduler`（三种先攻策略）、`PacingPolicy`（两种节奏）、`ISimClockHost.Mode` | 是 | 探索/战斗各自选用哪种时间模型（`found.time_model`）、先攻/节奏策略的具体参数、何时触发模式切换（`core/gameplay/assembly.TimeModelSwitch`，L4） |

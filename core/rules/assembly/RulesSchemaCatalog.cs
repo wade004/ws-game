@@ -3,6 +3,7 @@ using Core.Foundation.DisplayInfo;
 using Core.Foundation.InputMap;
 using Core.Foundation.Localization;
 using Core.Foundation.SceneRouter;
+using Core.Foundation.SimLoop;
 using Core.Numbers.Archetype;
 using Core.Numbers.Faction;
 using Core.Numbers.PowerSet;
@@ -72,6 +73,10 @@ namespace Core.Rules.Assembly
             registry.RegisterSchema(DisplaySchemas.AnimSet);
             registry.RegisterSchema(DisplaySchemas.EquipVisual);
             registry.RegisterSchema(WorldMapSchema.Table);
+
+            // ADR-0013 落地：found.time_model（见 core/foundation/sim_loop/schema/TimeModelSchema.cs）。
+            registry.RegisterSchema(TimeModelSchema.Table);
+            registry.RegisterValidationRule(new TimeModelValidationRule());
         }
 
         private static void RegisterL1Schemas(IDataRegistry registry)

@@ -1,0 +1,11 @@
+{
+  "_comment": "性能基线：中位数为本机实测值，阈值 = 中位数 × 5（见 11_工程规范与测试.md 第 6 节、PerfBaselineTests.cs 顶部注释）。更新方法见本目录 README。",
+  "machine": "win32, 32 logical processors, .NET 8 Release build",
+  "measured_at": "2026-09-05",
+  "tick_median_ms": 0.02085,
+  "tick_threshold_ms": 0.10425,
+  "spatial_query_median_ms": 0.0222,
+  "spatial_query_threshold_ms": 0.111,
+  "save_median_ms": 0.84645,
+  "save_threshold_ms": 4.23225
+}

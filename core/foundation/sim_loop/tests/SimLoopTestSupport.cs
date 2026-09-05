@@ -16,6 +16,10 @@ namespace Tests.Foundation.SimLoop
                 new EventDefinition(SimEventKeys.TickFinished, "sim", new[] { "tickIndex" }),
                 new EventDefinition(SimEventKeys.EntityCreated, "entity", new[] { "entityId", "kind", "displayId" }),
                 new EventDefinition(SimEventKeys.EntityDestroyed, "entity", new[] { "entityId" }),
+                new EventDefinition(SimEventKeys.TurnStarted, "sim", new[] { "actorId", "roundIndex" }),
+                new EventDefinition(SimEventKeys.TurnEnded, "sim", new[] { "actorId" }),
+                new EventDefinition(SimEventKeys.RoundEnded, "sim", new[] { "roundIndex" }),
+                new EventDefinition(SimEventKeys.AwaitingInput, "sim", new[] { "actorId" }),
             });
 
             return new EventBus(catalog, new EventBusOptions { StrictCatalog = false });

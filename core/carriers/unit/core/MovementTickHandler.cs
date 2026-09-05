@@ -64,15 +64,14 @@ namespace Core.Carriers.Unit
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
 
-            if (step.Kind != SimStepKind.Continuous)
-            {
-                _diagnostics.Warn(
-                    "MovementTickHandler 收到 Discrete 步，本项目未启用离散时间模型（见 ADR-0013），" +
-                    "本次 tick 不推进移动");
-                return;
-            }
+            // 离散步下"移动与导航"按该行动者的每回合移动预算结算位移，而非按连续时间的速度积分
+            // （见 03 第 4.2 节步骤 4、ADR-0013 决策 6）：复用同一套"速度 × 时间"位移公式，只是
+            // dt 换成 MovementOptions.DiscreteTurnEquivalentSeconds（一个固定的"每回合等效秒数"）
+            // 而不是真实经过的秒数，见 MovementOptions.DiscreteTurnEquivalentSeconds 判断记录。
+            var dt = step.Kind == SimStepKind.Continuous ? step.Dt : _options.DiscreteTurnEquivalentSeconds;
 
-            var dt = step.Dt;
+            // world.CurrentIntents 在离散步下已经只包含当前行动者的意图（见 WorldSim.Tick 判断
+            // 记录），第一遍循环不需要额外按 step.ActorId 过滤。
             var intents = world.CurrentIntents;
             var processedThisTick = new HashSet<Id>();
 
@@ -87,7 +86,17 @@ namespace Core.Carriers.Unit
                 processedThisTick.Add(unit.EntityId);
             }
 
-            // 第二遍：本 tick 未收到新意图、但仍有未走完路径的单位继续沿路径推进。
+            if (step.Kind == SimStepKind.Discrete)
+            {
+                // 离散步下只处理当前行动者：其余单位在别人的回合既不产生新意图，也不消耗自己的
+                // 移动预算继续沿旧路径推进（03 第 4.2 节"离散步只处理当前行动者的意图"，第二遍
+                // "无新意图但继续走已有路径"是连续模式特有的"每 tick 都会被驱动"语义，离散模式下
+                // 不成立——一名行动者两次轮到自己之间可能经过其他人的多个回合，若仍然沿用第二遍，
+                // 会让该单位在不属于它的回合里凭空继续移动）。
+                return;
+            }
+
+            // 第二遍：本 tick 未收到新意图、但仍有未走完路径的单位继续沿路径推进（仅连续模式）。
             foreach (var entity in world.QueryEntities(new EntityFilter(predicate: e => e is Unit)))
             {
                 if (processedThisTick.Contains(entity.EntityId)) continue;

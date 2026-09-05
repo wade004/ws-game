@@ -243,8 +243,18 @@ namespace Tests.Carriers.Unit
             Assert.Equal(expected, fixture.Units.GetPosition(HeroId).X, 6);
         }
 
+        /// <summary>
+        /// 判断记录：本用例名字看起来像"离散步不推动移动"，但实际验证的是另一件事——直接调用
+        /// <see cref="MovementTickHandler.Execute"/>（不经过 <see cref="WorldSim.Tick"/>）时，
+        /// <see cref="IWorldSim.CurrentIntents"/> 从未被搬运过（只有 <c>Tick</c> 开头才会把
+        /// <c>SubmitIntent</c> 提交的待处理队列搬进 <c>CurrentIntents</c>，见 <c>WorldSim.Tick</c>），
+        /// 因此第一遍循环读到的是空列表，不会移动——这与离散/连续无关，纯粹是"绕过 Tick 直接调用
+        /// Execute"这一调用方式本身的效果。ADR-0013 落地后离散步本身已经会真正处理移动（见下方
+        /// <see cref="DiscreteStep_ThroughWorldTick_MovesByBudget"/>），本用例改名前的旧断言仍然
+        /// 成立，保留作为"绕过 Tick 直接调 Execute 时不产生移动"这一调用约定的回归测试。
+        /// </summary>
         [Fact]
-        public void DiscreteStep_DoesNotAdvanceMovement()
+        public void DirectExecuteCall_WithoutGoingThroughTick_DoesNotSeeAnyIntents()
         {
             var fixture = Build();
             fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
@@ -252,6 +262,43 @@ namespace Tests.Carriers.Unit
             fixture.Handler.Execute(SimStep.Discrete(HeroId, StepPhase.Act), fixture.World);
 
             Assert.Equal(Vec2.Zero, fixture.Units.GetPosition(HeroId));
+        }
+
+        // -----------------------------------------------------------------
+        // 离散模式（ADR-0013、03 第 4.2 节步骤 4）：按每回合移动预算结算位移。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void DiscreteStep_ThroughWorldTick_MovesByBudget()
+        {
+            var fixture = Build(moveSpeed: 10.0);
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+
+            fixture.World.Tick(SimStep.Discrete(HeroId, StepPhase.Act));
+
+            // 预算 = 速度(10) × DiscreteTurnEquivalentSeconds(默认 1.0) = 10。
+            var expectedBudget = 10.0 * new MovementOptions().DiscreteTurnEquivalentSeconds;
+            Assert.Equal(expectedBudget, fixture.Units.GetPosition(HeroId).X, 6);
+        }
+
+        [Fact]
+        public void DiscreteStep_OtherUnitsWithExistingPath_DoNotContinueMoving_OnSomeoneElsesTurn()
+        {
+            var fixture = Build(moveSpeed: 10.0);
+
+            // 第二个单位：连续模式下建立一条尚未走完的路径。
+            var bystanderId = new Id("unit.bystander");
+            var bystander = new PlayerUnit(bystanderId, MapId, FactionId, ArchetypeId) { Position = new Vec2(0, 0) };
+            fixture.World.AddEntity(bystander);
+            fixture.World.SubmitIntent(new Intent(bystanderId, "move", TargetArgs(100, 0)));
+            fixture.World.Tick(SimStep.Continuous(0.1)); // 建立路径并走一小段。
+            var posAfterContinuous = fixture.Units.GetPosition(bystanderId);
+            Assert.True(posAfterContinuous.X > 0);
+
+            // 轮到 Hero 的离散步：bystander 没有新意图，不应该继续沿旧路径移动。
+            fixture.World.Tick(SimStep.Discrete(HeroId, StepPhase.Act));
+
+            Assert.Equal(posAfterContinuous, fixture.Units.GetPosition(bystanderId));
         }
     }
 }

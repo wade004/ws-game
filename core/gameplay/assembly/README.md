@@ -22,6 +22,7 @@ assembly/
   README.md
   GameplaySchemaCatalog.cs   L0～L4 全部 TableSchema/IValidationRule 的统一注册清单 + FullExprSchema
   GameplayAssembly.cs        L4 组装根
+  TimeModelSwitch.cs         ADR-0013 主循环模式切换（连续 ⇄ 离散），见下方"离散时间模型"一节
   tests/
     GameplayAssemblyTests.cs 烟雾测试（空数据装配、EnterMap 空图不抛异常）
     GameplayAssemblyMapReloadTests.cs 场景卸载级联清理（进图生成生物→LeaveMap→再进图 tick 数十次
@@ -90,6 +91,27 @@ assembly/
 `SpawnHost` → `DroppedLootPersistable` → `DifficultyHost`（自定义段 `world.difficulty`）→
 `RngStreamsPersistable`（10 §3 步骤 8，全序最末——调用方需要自行额外注册，本方法不持有
 `IRngHost`）。`player.progression` 段本方法不注册，见判断记录 6。
+
+## 离散时间模型（ADR-0013）
+
+`GameplayAssembly` 新增可选构造参数 `clockHost`（`ISimClockHost`）：不传时（默认）行为与本任务
+之前完全一致——`TimeModelSwitch`/`TurnScheduler`/`Pacing`/`Advance` 均不装配，`Advance` 抛
+`InvalidOperationException`。传入 `clockHost` 后：
+
+- 第 3.5 步（`CarriersAssembly` 之后）提前构造 `Core.Foundation.SimLoop.TurnScheduler`（供第 4 步
+  `ExprHostFactory` 接线 `time.turn_index`/`round_index`/`is_my_turn`）。
+- 第 10 步 `AppStateHost` 额外登记两个自定义子状态 `AwaitingInput`/`PlayingBack`
+  （`SubStateId` 扩展点，不改 `InWorldSubState` 枚举），并放行 `Combat ⇄ AwaitingInput`、
+  `Combat ⇄ PlayingBack` 两组转移。
+- 第 10.5 步构造 `TimeModelSwitch`（订阅 `combat.entered`/`combat.left`/`unit.died`，见该类型）。
+- `GameplayAssembly.Advance(realDeltaSeconds)`：连续模式转发给 `clockHost.Advance`；离散模式驱动
+  `TurnScheduler.NextStep()` 直到轮到玩家（`awaiting_input`）或需要等待回放（`playing_back`），
+  期间维护 `AwaitingInputSubState`/`PlayingBackSubState` 的压栈/弹栈。`NotifyPlaybackFinished()`
+  供表现层在 `presentation.playback_finished` 后转发调用，解除 `playing_back` 节奏门。
+- `RegisterPersistables` 在装配了离散模式时额外注册 `TurnScheduler` 的存档段（`sim.turn_state`，
+  自定义段，见 `core/foundation/sim_loop/README.md`"存档段 key"判断记录）。
+
+现有调用方（未传 `clockHost` 的既有测试与游戏层引导代码）不受任何影响——这是一处纯加法扩展。
 
 ## 判断记录
 

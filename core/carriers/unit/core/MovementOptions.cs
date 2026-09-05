@@ -21,5 +21,17 @@ namespace Core.Carriers.Unit
         /// <summary>"已到达"路点判定的距离阈值，默认 0.01（同 <c>MoveIntentHandler</c> 一类最小实现
         /// 惯例，取一个远小于典型移动速度×步长的量级，避免因浮点误差导致永远差一点点到不了）。</summary>
         public double ArrivalEpsilon { get; set; } = 0.01;
+
+        /// <summary>
+        /// 离散模式（ADR-0013）下每回合移动预算的距离换算：<c>movement_budget_rule: distance</c>
+        /// 时，本回合可移动距离 = 该单位速度属性 × 本值（见 06_规则层_属性技能战斗AI.md"每回合
+        /// 移动预算"、03 第 4.2 节步骤 4"离散步下按该行动者的每回合移动预算结算位移，而非按连续
+        /// 时间的速度积分"）。判断记录：把"每回合等效秒数"设为可配置项而不是固定距离常量，复用
+        /// 现有"速度属性 × 时间"的计算路径（<see cref="MovementTickHandler"/> 内部不需要为离散模式
+        /// 另写一套位移公式），默认 1.0（一回合 ≈ 一秒的移动量，具体数值由游戏层按口味调整）。
+        /// <c>movement_budget_rule: action_points</c>（以行动点计的移动预算）本任务未落地，仍按本
+        /// 字段的距离预算处理，已在交付报告"做不了的事"列出。
+        /// </summary>
+        public double DiscreteTurnEquivalentSeconds { get; set; } = 1.0;
     }
 }

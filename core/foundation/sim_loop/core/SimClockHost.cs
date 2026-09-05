@@ -19,6 +19,12 @@ namespace Core.Foundation.SimLoop
         private double _accumulator;
         private long _tickIndex;
 
+        /// <summary>离散模式下用于表现插值的独立累加器（见 <see cref="Mode"/> 注释、
+        /// <see cref="Advance"/> 离散分支判断记录）：与 <see cref="_accumulator"/>（连续模式的
+        /// tick 累积器）互不干扰，模式切回连续时 <see cref="_accumulator"/> 保留切换前的值继续
+        /// 使用，不需要额外的换算或清零。</summary>
+        private double _discretePhaseAccumulator;
+
         public SimClockHost(IWorldSim world, SimLoopOptions? options = null)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
@@ -48,6 +54,8 @@ namespace Core.Foundation.SimLoop
         /// 用一次乘法直接算出，不逐 tick 累加浮点数——避免大量小步长累加造成的浮点误差
         /// 累积（任务书明确要求）。</summary>
         public double SimTimeSeconds => _tickIndex * _stepSeconds;
+
+        public TimeModelMode Mode { get; set; } = TimeModelMode.Continuous;
 
         public void ConfigureStep(double stepSeconds, int maxCatchUpSteps)
         {
@@ -88,6 +96,11 @@ namespace Core.Foundation.SimLoop
                 throw new ArgumentException("realDeltaSeconds 不能为负数", nameof(realDeltaSeconds));
             }
 
+            if (Mode == TimeModelMode.Discrete)
+            {
+                return AdvanceDiscrete(realDeltaSeconds);
+            }
+
             if (!_isPaused)
             {
                 var scaledDelta = realDeltaSeconds * _timeScale;
@@ -120,6 +133,27 @@ namespace Core.Foundation.SimLoop
             }
 
             return _accumulator / _stepSeconds;
+        }
+
+        /// <summary>
+        /// 离散模式分支（见 03 第 9 节 <c>advance</c> 注释"离散模式：改由 TurnScheduler.nextStep
+        /// 产生步，本方法只驱动表现插值，不产生模拟步"）：不调用 <see cref="IWorldSim.Tick"/>、
+        /// 不推进 <see cref="_tickIndex"/>/<see cref="_accumulator"/>，只用一个独立的 0～1 循环
+        /// 累加器（<see cref="_discretePhaseAccumulator"/>）供表现层做纯视觉性的待机动画/呼吸效果
+        /// 插值——离散步之间没有"上一步/这一步"的位置差可插值（一次 <c>Discrete</c> 步是"这名
+        /// 行动者的一次行动"，不是固定的位移量），因此这里给出的 alpha 只是一个随真实时间循环的
+        /// 相位，不表示任何模拟状态插值，调用方不应像连续模式那样用它做位置线性插值。暂停/慢动作
+        /// 语义与连续模式一致。
+        /// </summary>
+        private double AdvanceDiscrete(double realDeltaSeconds)
+        {
+            if (!_isPaused && _stepSeconds > 0)
+            {
+                _discretePhaseAccumulator += realDeltaSeconds * _timeScale;
+                _discretePhaseAccumulator %= _stepSeconds;
+            }
+
+            return _discretePhaseAccumulator / _stepSeconds;
         }
 
         private static void ValidateStepSeconds(double stepSeconds)

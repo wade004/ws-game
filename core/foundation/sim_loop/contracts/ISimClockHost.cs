@@ -42,5 +42,15 @@ namespace Core.Foundation.SimLoop
 
         /// <summary>累计模拟秒数，等于 <see cref="TickIndex"/> × <see cref="StepSeconds"/>。</summary>
         double SimTimeSeconds { get; }
+
+        /// <summary>
+        /// 当前时间模型（见 03 第 9 节 <c>advance</c> 注释"模式状态 TimeModelMode 由主循环宿主
+        /// 持有"、ADR-0013）：默认 <see cref="TimeModelMode.Continuous"/>，切换由
+        /// <c>core/gameplay/assembly.TimeModelSwitch</c> 驱动（见该类型）。<see cref="Advance"/>
+        /// 在 <see cref="TimeModelMode.Discrete"/> 下不产生 <c>Continuous</c> 步（不调用
+        /// <c>WorldSim.Tick</c>），只驱动表现插值——离散模式的模拟步改由
+        /// <see cref="ITurnScheduler.NextStep"/> 产生。
+        /// </summary>
+        TimeModelMode Mode { get; set; }
     }
 }

@@ -42,11 +42,19 @@ namespace Tests.Rules.ExprHost
             public double SimTime = 100.0;
             public double CombatStartTime = 40.0;
 
+            // ADR-0013：离散模式 time.turn_index/round_index/is_my_turn 三个可选委托，默认 null
+            // （见 Time_DiscreteModePlaceholders_AllZeroOrFalse 用例，未注入时保留占位返回值）。
+            public Func<int>? TurnIndexProvider;
+            public Func<int>? RoundIndexProvider;
+            public Func<Id?>? CurrentActorProvider;
+
             public RulesExprHostFactory BuildFactory()
             {
                 return new RulesExprHostFactory(
                     Units, Stats, Powers, Auras, Combat, Combat.GetThreatTable(Player), Spatial, Factions,
-                    () => SimTime, _ => CombatStartTime, ExtraGroups, SkillHost, Diagnostics);
+                    () => SimTime, _ => CombatStartTime, ExtraGroups, SkillHost, Diagnostics,
+                    turnIndexProvider: TurnIndexProvider, roundIndexProvider: RoundIndexProvider,
+                    currentActorProvider: CurrentActorProvider);
             }
         }
 
@@ -310,6 +318,30 @@ namespace Tests.Rules.ExprHost
             Assert.Equal(0L, host.Query(ExprGroups.Time, "turn_index", Array.Empty<ExprValue>()).AsInt);
             Assert.Equal(0L, host.Query(ExprGroups.Time, "round_index", Array.Empty<ExprValue>()).AsInt);
             Assert.False(host.Query(ExprGroups.Time, "is_my_turn", Array.Empty<ExprValue>()).AsBool);
+        }
+
+        [Fact]
+        public void Time_TurnIndexAndRoundIndex_ReadFromInjectedProviders_WhenDiscreteModeWired()
+        {
+            var fx = BuildBasicWorld();
+            fx.TurnIndexProvider = () => 2;
+            fx.RoundIndexProvider = () => 5;
+            var host = fx.BuildFactory().CreateFor(Player, null, null);
+
+            Assert.Equal(2L, host.Query(ExprGroups.Time, "turn_index", Array.Empty<ExprValue>()).AsInt);
+            Assert.Equal(5L, host.Query(ExprGroups.Time, "round_index", Array.Empty<ExprValue>()).AsInt);
+        }
+
+        [Fact]
+        public void Time_IsMyTurn_TrueWhenCurrentActorMatchesSelf_FalseOtherwise()
+        {
+            var fx = BuildBasicWorld();
+            fx.CurrentActorProvider = () => Player;
+            var hostForPlayer = fx.BuildFactory().CreateFor(Player, null, null);
+            Assert.True(hostForPlayer.Query(ExprGroups.Time, "is_my_turn", Array.Empty<ExprValue>()).AsBool);
+
+            var hostForEnemy = fx.BuildFactory().CreateFor(Enemy, null, null);
+            Assert.False(hostForEnemy.Query(ExprGroups.Time, "is_my_turn", Array.Empty<ExprValue>()).AsBool);
         }
 
         // -----------------------------------------------------------------

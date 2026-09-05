@@ -65,6 +65,16 @@ namespace Core.Rules.ExprHost
         private readonly IFactionMatrix _factions;
         private readonly Func<double> _simTimeProvider;
         private readonly Func<Id, double> _combatStartTimeProvider;
+
+        // 判断记录（离散模式 time.turn_index/round_index/is_my_turn 的接线，ADR-0013）：三个可选
+        // 委托，未注入时保留此前"离散模式暂不启用"的占位返回值（0/0/false，见 QueryTime），不破坏
+        // 任何既有调用方；组装根（core/gameplay/assembly.GameplayAssembly）在持有
+        // Core.Foundation.SimLoop.TurnScheduler 时应传入真实实现
+        // （turnIndexProvider: () => scheduler.CurrentTurnIndex、roundIndexProvider: () =>
+        // scheduler.RoundIndex、currentActorProvider: () => scheduler.GetCurrentActor()）。
+        private readonly Func<int>? _turnIndexProvider;
+        private readonly Func<int>? _roundIndexProvider;
+        private readonly Func<Id?>? _currentActorProvider;
         private readonly IReadOnlyDictionary<string, IExprGroupProvider> _extraGroups;
         private readonly IExprDiagnostics _diagnostics;
 
@@ -103,8 +113,14 @@ namespace Core.Rules.ExprHost
             IReadOnlyDictionary<string, IExprGroupProvider>? extraGroups = null,
             ISkillHost? skillHost = null,
             IExprDiagnostics? diagnostics = null,
-            IReadOnlyList<IExprSchema>? extraSchemas = null)
+            IReadOnlyList<IExprSchema>? extraSchemas = null,
+            Func<int>? turnIndexProvider = null,
+            Func<int>? roundIndexProvider = null,
+            Func<Id?>? currentActorProvider = null)
         {
+            _turnIndexProvider = turnIndexProvider;
+            _roundIndexProvider = roundIndexProvider;
+            _currentActorProvider = currentActorProvider;
             _units = units ?? throw new ArgumentNullException(nameof(units));
             _stats = stats ?? throw new ArgumentNullException(nameof(stats));
             _powers = powers ?? throw new ArgumentNullException(nameof(powers));
@@ -438,12 +454,14 @@ namespace Core.Rules.ExprHost
                         // 占位：昼夜循环不属于本任务范围（见任务书"占位"），恒返回 0。
                         return ExprValue.OfNumber(0);
                     case "turn_index":
+                        // 未注入 turnIndexProvider（未启用离散模式的组装场景）时恒返回 0，见本类型
+                        // 顶部判断记录。
+                        return ExprValue.OfInt(_f._turnIndexProvider?.Invoke() ?? 0);
                     case "round_index":
-                        // 占位：离散（回合制）模式本项目暂不启用（ADR-0013），恒返回 0。
-                        return ExprValue.OfInt(0);
+                        return ExprValue.OfInt(_f._roundIndexProvider?.Invoke() ?? 0);
                     case "is_my_turn":
-                        // 占位：同上，离散模式暂不启用，恒返回 false。
-                        return ExprValue.OfBool(false);
+                        var currentActor = _f._currentActorProvider?.Invoke();
+                        return ExprValue.OfBool(currentActor.HasValue && currentActor.Value.Equals(_selfId));
                     default:
                         _f._diagnostics.Warn($"未知的 time.{key} 引用，按默认值处理");
                         return _f.DefaultFor(ExprGroups.Time, key);

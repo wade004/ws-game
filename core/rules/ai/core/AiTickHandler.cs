@@ -36,11 +36,9 @@ namespace Core.Rules.Ai
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
 
-            if (step.Kind != SimStepKind.Continuous)
+            if (step.Kind == SimStepKind.Discrete)
             {
-                _diagnostics.Warn(
-                    "AiTickHandler 收到 Discrete 步，本项目未启用离散时间模型（见 ADR-0013、" +
-                    "落地方案与分阶段计划.md T1-5 禁止事项），本次 tick 不推进 AI 决策");
+                ExecuteDiscrete(step, world);
                 return;
             }
 
@@ -59,6 +57,53 @@ namespace Core.Rules.Ai
                         // 回退到"下一 tick 生效"的 SubmitIntent，见本类型顶部注释。
                         world.SubmitIntent(intent);
                     }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 离散步下"AI 决策阶段只为当前行动者产意图"（见 03_运行时骨架.md 第 4.2 节步骤 2、
+        /// ADR-0013 决策 6"AI 仍用同一张优先级表，在自己回合求值一次"）：只有当
+        /// <see cref="SimStep.ActorId"/> 是一个已在 <see cref="AiHost"/> 登记的非玩家单位（即
+        /// <see cref="AiHost.RegisteredUnitIds"/> 包含它）时才求值一次；玩家行动者的意图经
+        /// <c>TurnScheduler.SubmitIntent</c> 在此之前已提交，不经本处理器。<paramref name="dt"/>
+        /// 传 1.0（离散模式下一个时间单位 = 一回合，见 ADR-0013 决策 1），保证按
+        /// <c>decision_interval</c> 节流的优先级表求值逻辑在"每回合求值一次"这一前提下总能触发
+        /// （而不是被"该单位距上次决策不足 decision_interval 秒"误判为跳过）。
+        /// </summary>
+        private void ExecuteDiscrete(SimStep step, IWorldSim world)
+        {
+            if (!step.ActorId.HasValue)
+            {
+                return;
+            }
+
+            var actorId = step.ActorId.Value;
+            var isRegistered = false;
+            foreach (var unitId in _host.RegisteredUnitIds)
+            {
+                if (unitId.Equals(actorId))
+                {
+                    isRegistered = true;
+                    break;
+                }
+            }
+
+            if (!isRegistered)
+            {
+                return; // 玩家行动者（或未登记 AI 的行动者），本处理器不介入。
+            }
+
+            var intents = _host.Step(actorId, 1.0);
+            foreach (var intent in intents)
+            {
+                try
+                {
+                    world.AppendCurrentIntent(intent);
+                }
+                catch (InvalidOperationException)
+                {
+                    world.SubmitIntent(intent);
                 }
             }
         }

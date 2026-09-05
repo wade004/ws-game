@@ -101,5 +101,73 @@ namespace Tests.Foundation.SimLoop
             Assert.Equal(100, clock.TickIndex);
             Assert.Equal(100 * step, clock.SimTimeSeconds, 12);
         }
+
+        // -----------------------------------------------------------------
+        // 离散模式（ADR-0013、03 第 9 节 SimClockHost.advance 离散分支）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Mode_DefaultsToContinuous()
+        {
+            var world = new WorldSim(SimLoopTestSupport.CreateBus());
+            var clock = new SimClockHost(world);
+            Assert.Equal(TimeModelMode.Continuous, clock.Mode);
+        }
+
+        [Fact]
+        public void Advance_InDiscreteMode_DoesNotTickWorldSim_TickIndexStaysZero()
+        {
+            var world = new WorldSim(SimLoopTestSupport.CreateBus());
+            var clock = new SimClockHost(world) { Mode = TimeModelMode.Discrete };
+
+            clock.Advance(1.0);
+            clock.Advance(1.0);
+
+            Assert.Equal(0, clock.TickIndex);
+            Assert.Equal(0.0, clock.SimTimeSeconds);
+        }
+
+        [Fact]
+        public void Advance_InDiscreteMode_ReturnsAlphaInZeroToOneRange()
+        {
+            var world = new WorldSim(SimLoopTestSupport.CreateBus());
+            var clock = new SimClockHost(world) { Mode = TimeModelMode.Discrete };
+
+            var alpha = clock.Advance(0.001);
+
+            Assert.InRange(alpha, 0.0, 1.0);
+        }
+
+        [Fact]
+        public void Advance_InDiscreteMode_WhilePaused_DoesNotAdvancePhase()
+        {
+            var world = new WorldSim(SimLoopTestSupport.CreateBus());
+            var clock = new SimClockHost(world) { Mode = TimeModelMode.Discrete };
+            clock.SetPaused(true);
+
+            var alpha1 = clock.Advance(1.0);
+            var alpha2 = clock.Advance(1.0);
+
+            Assert.Equal(alpha1, alpha2);
+        }
+
+        [Fact]
+        public void SwitchingBackToContinuous_ResumesTickingFromPreservedAccumulator()
+        {
+            var world = new WorldSim(SimLoopTestSupport.CreateBus());
+            var clock = new SimClockHost(world);
+            var step = clock.StepSeconds;
+
+            clock.Advance(step * 2); // 2 个连续 tick。
+            Assert.Equal(2, clock.TickIndex);
+
+            clock.Mode = TimeModelMode.Discrete;
+            clock.Advance(5.0); // 离散模式下不产生任何 tick。
+            Assert.Equal(2, clock.TickIndex);
+
+            clock.Mode = TimeModelMode.Continuous;
+            clock.Advance(step); // 切回连续模式，继续正常产 tick。
+            Assert.Equal(3, clock.TickIndex);
+        }
     }
 }
