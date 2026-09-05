@@ -34,3 +34,7 @@ adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/
 # 生成的 .meta，父目录 Assets/StreamingAssets/ 本身除了这个子目录不再有任何其它内容）。
 adapters/unity/Assets/StreamingAssets/
 adapters/unity/Assets/StreamingAssets.meta
+# Unity 测试框架（PlayMode 性能测试）每次跑测试在 Assets/Resources/ 下自动生成的运行时文件，不提交；
+# Assets/Resources/ 目录此前不存在于仓库中，此次由测试框架自动创建，其 .meta 一并忽略。
+adapters/unity/Assets/Resources/PerformanceTestRun*
+adapters/unity/Assets/Resources.meta
