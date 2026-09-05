@@ -103,7 +103,7 @@ namespace Adapter.Unity.Ui
             _panels[UiPanel.Dialog] = Dialog;
 
             SkillBook = CreatePanel<SkillBookPanel>("SkillBook", GameplayGroup);
-            SkillBook.Construct(GameplayGroup, presentation.SkillBook);
+            SkillBook.Construct(GameplayGroup, presentation.SkillBook, presentation.UiIntents);
             SkillBook.Hide();
             _panels[UiPanel.SkillBook] = SkillBook;
 

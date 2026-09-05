@@ -65,6 +65,7 @@ using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
 using Core.Foundation.InputMap;
 using Core.Foundation.Rng;
+using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Gameplay.Assembly;
 using Presentation.Assembly;
@@ -194,8 +195,15 @@ namespace Adapter.Unity.Bootstrap
             var factionId = new Id(_playerFactionId);
             var classId = new Id(_playerClassId);
 
+            // G1 遗留跟进：GameplayAssembly 构造函数新增第 6 位必填参数 ISaveSystem saveSystem
+            // （此前由 PresentationAssembly 自建，见 PresentationAssemblyOptions.SaveGameId 已删除）。
+            // 判断记录（bus 参数不可省略）：SaveSystem.Save/Load 经可选注入的 IEventBus 发
+            // save.completed/save.loaded（见其源码 `_bus?.PublishImmediate`），不传 bus 时这两个
+            // 事件被静默吞掉——SaveSlotsViewModel 正是靠订阅这两个事件才在存读档后自动刷新槽位列表
+            // （见 presentation/ui/README.md），漏传 bus 会让存档槽 UI 表现为"存了档但列表看不到"。
+            var saveSystem = new SaveSystem(_host.FileSystem, new SaveSystemOptions(new Id("game.greybox_demo")), _bus);
             var gameplay = new GameplayAssembly(
-                _bus, registry, rng, world, _host.SpatialQuery,
+                _bus, registry, rng, world, _host.SpatialQuery, saveSystem,
                 playerUnitProvider: () => PlayerId,
                 playerFactionId: factionId,
                 navigation: _host.Navigation2D);
@@ -274,7 +282,6 @@ namespace Adapter.Unity.Bootstrap
             // FloatingText/Freeze/Flash 三个属性赋成真正的实例。
             var presentationOptions = new PresentationAssemblyOptions
             {
-                SaveGameId = new Id("game.greybox_demo"),
                 OnFloatingText = (entityId, styleId, text) => FloatingText?.Show(entityId, styleId, text),
                 // 判断记录：见 Adapter.Unity.Shell.FrameworkResidentHost 同款判断记录——
                 // CompositeFeedbackSink.Freeze(double durationMs) 传入的是毫秒，

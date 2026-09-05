@@ -22,7 +22,10 @@ namespace Tests.PresentationUi
             appState.RequestTransition(AppState.Loading);
             appState.RequestTransition(AppState.InWorld);
 
-            var intents = new UiIntents(playerId, worldSim, equipment, quest, dialog, economy, inputMap, l10n, appState);
+            var audioVolume = new FakeAudioLayerVolumeHost();
+            var skillBindings = new Core.Carriers.Unit.SkillBindingHost(TestSupport.BuildEventBus(), (_, __) => true);
+            var intents = new UiIntents(playerId, worldSim, equipment, quest, dialog, economy, inputMap, l10n, appState,
+                audioVolume, skillBindings);
 
             var inventory = new Id("ui.panel.inventory");
             var settings = new Id("ui.panel.settings");

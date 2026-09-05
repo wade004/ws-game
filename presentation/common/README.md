@@ -21,7 +21,9 @@ common/
     ViewContext.cs           传给 IViewFactory 的绘制能力集合（IRenderer2D/IRenderer3D?/ICamera/DisplayInfo）
     IPresentationClock.cs   插值系数来源（03 §3.1、§9）
     ISimSnapshot.cs           只读快照门面（铁律 P1）
-    EntityKindMapping.cs     Entity.Kind 字符串 → ViewKind 映射（契约缺口，见下）
+    EntityKindMapping.cs     Entity.Kind 字符串 → ViewKind 映射（player/creature/gobj/loot 四类已改用
+                              Core.Foundation.SimLoop.EntityKinds 常量；projectile/area_trigger 两类
+                              仍是占位字符串，见下"契约缺口"）
     PresentationEventKeys.cs  presentation.playback_finished 常量 + PlaybackFinishedEvent
   core/
     WorldSimSnapshot.cs       ISimSnapshot 基于 IWorldSim 的只读实现
@@ -69,10 +71,12 @@ common/
 
 ## 契约缺口
 
-- **`Entity.Kind` 字符串词汇表未统一登记**：架构文档只"建议" `ViewKind` 应覆盖的五个分类，未规定
-  各 L3/L4 模块 `Entity.Kind` 该写什么字符串。目前代码库只有 `"player"`/`"creature"`/`"loot"` 三个
-  已落地取值；`EntityKindMapping` 为尚未落地的 `gobj`/`projectile`/`area_trigger` 三个模块先占位
-  `"gobj"`/`"projectile"`/`"area_trigger"`，留待这些模块落地后由设计层核对一致性。
+- **`Entity.Kind` 字符串词汇表未统一登记——已部分解决（G1）**：`Core.Foundation.SimLoop.EntityKinds`
+  （G1 新增）收敛了代码库里确有落地 `Entity` 子类在用的四个取值（`Player`/`Creature`/`Gobj`/
+  `Loot`），`EntityKindMapping` 已改用这四个常量，不再手写裸字符串。`"projectile"`/`"area_trigger"`
+  两个模块仍未落地对应 `Entity` 子类，`EntityKinds` 按"未使用的不发明"原则暂不登记（见其类型注释），
+  `EntityKindMapping` 继续为这两类保留占位字符串，留待落地后由设计层核对一致性、`EntityKinds` 补齐
+  常量。
 - **`IRenderer2D.SetTransform` 没有高度参数——已由 ADR-0016 解决**：`SetTransform` 现增加了
   `height` 参数（与 `IRenderer3D.SetPlacement` 对齐），`presentation/render` 的 `SpriteViewBase`
   已改为经这个正式参数传递高度，不再借用 `SetShaderParam` 通道，详见

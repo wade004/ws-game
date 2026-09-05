@@ -48,11 +48,6 @@ namespace Presentation.Assembly
         /// <c>TargetPathProvider</c>）。默认恒为 <c>null</c>（"当前无目标"）。</summary>
         public Func<Id?> TargetResolver { get; set; } = () => null;
 
-        /// <summary>动作条槽位 → 绑定技能 id 的查询（见 <c>presentation/ui/README.md</c>"已知契约
-        /// 缺口"：没有宿主契约暴露这份绑定，任务书点名的"保留注入委托"之一）。默认恒为
-        /// <c>null</c>（全部槽位未绑定技能）。</summary>
-        public Func<int, Id?> ActionBarSlotBindingResolver { get; set; } = _ => null;
-
         /// <summary>动作条槽位数量兜底值：<c>ui_layout_definition</c> 数据里若没有
         /// <c>panel: action_bar</c> 的行，或该行未声明 <c>slots</c>，按本值退化。默认 8。</summary>
         public int ActionBarSlotCountFallback { get; set; } = 8;
@@ -77,19 +72,6 @@ namespace Presentation.Assembly
         /// 动作（构造期通常为空，见 <c>presentation/ui/README.md</c>）。</summary>
         public IReadOnlyList<string>? SettingsActionNames { get; set; }
 
-        /// <summary>设置面板展示的分层音量轨道清单，默认从已加载的 <c>sfx.def.layer</c> 去重得到
-        /// （见 09 第 5.5 节"分层音效"）。</summary>
-        public IReadOnlyList<string>? SettingsLayers { get; set; }
-
-        /// <summary>按层读音量的回调（见 <c>presentation/ui/README.md</c>"契约缺口"：分层音效音量
-        /// 属于 <c>vfx_sfx</c>，本模块只表达为外部注入回调）。默认 null（<c>SettingsViewModel</c>
-        /// 内部退化为恒 1.0）。</summary>
-        public Func<string, double>? GetLayerVolume { get; set; }
-
-        /// <summary>按层写音量的回调，转给 <see cref="Presentation.VfxSfx.Contracts.ISfxPlayer.SetLayerVolume"/>。
-        /// 默认直接转发给本装配根构造的 <see cref="ISfxPlayer"/>。</summary>
-        public Action<string, double>? SetLayerVolume { get; set; }
-
         /// <summary>飘字动作的最终落地回调（见 09 第 6.1 节 <c>FloatingText</c>）：具体飘字 UI 控件
         /// 池不属于本框架任何一个 L5 模块的契约范围（见 <c>feedback_binder/README.md</c>），默认
         /// 空实现（不渲染，只是不阻断装配）。</summary>
@@ -108,10 +90,11 @@ namespace Presentation.Assembly
         /// 里没有任何 <c>camera_profile</c> 行时自动跳过，不抛异常。</summary>
         public bool AutoConfigureCameraFromFirstProfile { get; set; } = true;
 
-        /// <summary>Shell 当前加载地图 id 解析器（任务书点名的"保留注入委托"之一：见
-        /// <c>presentation/shell/contracts/ShellHostTypes.cs.LoadedMapIdResolver</c>）。默认读
-        /// <c>gameplay.PlayerUnitProvider()</c> 当前所在地图（<see cref="Entity.MapId"/>），找不到
-        /// 该实体时退化为占位 id <c>"world.unknown"</c>。</summary>
+        /// <summary>缺口 11 恢复：Shell 读档后地图 id 解析器降级为可选覆盖（见
+        /// <c>ShellHost.LoadGame</c> 判断记录）——<see cref="ShellHost"/> 现优先用
+        /// <see cref="Core.Foundation.SaveSystem.LoadResult.CurrentMapId"/>（G1 补的字段），只有该
+        /// 字段为 null 时才会调用本委托；默认 null（不覆盖，<see cref="LoadResult.CurrentMapId"/>
+        /// 为 null 时直接跳过场景切换，见 <c>ShellHost.LoadGame</c>）。</summary>
         public LoadedMapIdResolver? LoadedMapIdResolver { get; set; }
 
         /// <summary>Shell"新游戏"意图的实际落地（见 <c>NewGameStarter</c>）：如何创建一局新游戏的
@@ -124,6 +107,11 @@ namespace Presentation.Assembly
         public Func<string>? TimestampProvider { get; set; }
 
         public ViewBinderOptions? ViewBinderOptions { get; set; }
+
+        /// <summary>缺口 8（方向索引重映射策略）：见 <see cref="Presentation.Render.RenderOptions.DirectionIndexRemap"/>
+        /// 字段注释；默认 null（<c>RenderConventionHost</c> 用 <c>RenderOptions</c> 默认值构造，恒等映射）。</summary>
+        public Presentation.Render.RenderOptions? RenderOptions { get; set; }
+
         public VfxOptions? VfxOptions { get; set; }
         public SfxOptions? SfxOptions { get; set; }
         public CameraHostOptions? CameraHostOptions { get; set; }
@@ -163,6 +151,9 @@ namespace Presentation.Assembly
         public ISfxPlayer Sfx { get; }
 
         public IWeaponStyleResolver WeaponStyle { get; }
+
+        /// <summary>缺口 12：分层音量宿主，见 <see cref="Presentation.VfxSfx.Contracts.IAudioLayerVolumeHost"/>。</summary>
+        public Presentation.VfxSfx.Contracts.IAudioLayerVolumeHost AudioVolume { get; }
 
         public DisplayInfoResolver VfxSfxDisplayInfoResolver { get; }
 
@@ -225,7 +216,8 @@ namespace Presentation.Assembly
             IAudio audio,
             IFileSystem fileSystem,
             ISceneRouter sceneRouter,
-            PresentationAssemblyOptions? options = null)
+            PresentationAssemblyOptions? options = null,
+            IRenderer3D? renderer3D = null)
         {
             Gameplay = gameplay ?? throw new ArgumentNullException(nameof(gameplay));
             if (world == null) throw new ArgumentNullException(nameof(world));
@@ -242,13 +234,20 @@ namespace Presentation.Assembly
 
             _playerId = gameplay.PlayerUnitProvider();
 
+            // 缺口 12：SettingsStore 提前到最前面构造（原在第 4 步 ui 小节内），本装配根第 2 步
+            // vfx_sfx 小节构造 AudioLayerVolumeHost 时就需要用到同一个 ISettingsStore 实例。
+            SettingsStore = ResolveSettingsStore(fileSystem);
+
             // ---------------------------------------------------------
             // 1) view_binding + render + camera：只读 WorldSimSnapshot + DisplayInfoRegistry。
             // ---------------------------------------------------------
             var snapshot = new WorldSimSnapshot(world);
             DisplayInfo = new DisplayInfoRegistry(registry, bus);
-            ViewBinder = new ViewBinder(bus, viewFactory, snapshot, DisplayInfo, opts.ViewBinderOptions);
-            Render = new RenderConventionHost();
+            // 缺口 8：Render 先于 ViewBinder 构造，二者共享同一个 RenderConventionHost 实例，
+            // ViewBinder 的 IAnchorQuery 镜像判定与本装配根对外暴露的 Render 属性用同一份
+            // DirectionIndexRemap 配置，不会出现"锚点镜像"与"纸娃娃层镜像"各自看到不同重映射表。
+            Render = new RenderConventionHost(opts.RenderOptions);
+            ViewBinder = new ViewBinder(bus, viewFactory, snapshot, DisplayInfo, opts.ViewBinderOptions, renderConvention: Render);
 
             var followTarget = new SimSnapshotFollowTarget(snapshot);
             Camera = new CameraHost(camera, followTarget, bus, opts.CameraHostOptions);
@@ -264,8 +263,8 @@ namespace Presentation.Assembly
 
             // ---------------------------------------------------------
             // 2) vfx_sfx：从 vfx.def/sfx.def/display.weapon_style 建目录，构造播放器。entityPosition
-            //    用只读快照兜底（09 第 5.3 节判断记录"缺省用实体位置"）；AnchorResolver 留空——
-            //    render/view_binding 尚未提供锚点查询窄契约（见 vfx_sfx/README.md"契约缺口" 1）。
+            //    用只读快照兜底（09 第 5.3 节判断记录"缺省用实体位置"）；AnchorResolver 接
+            //    ViewBinder（缺口 6，见 IAnchorQuery 类型注释"谁实现本接口"判断记录）。
             // ---------------------------------------------------------
             var vfxCatalog = registry.GetAll(Presentation.VfxSfx.Schema.VfxSfxSchemas.Vfx.Name)
                 .Select(VfxDef.FromRecord).ToDictionary(d => d.Id);
@@ -277,14 +276,29 @@ namespace Presentation.Assembly
             EntityPositionResolver entityPositionResolver =
                 id => snapshot.Exists(id) ? (Vec2?)snapshot.GetPosition(id) : null;
 
+            // 缺口 13：renderer3D 可选（默认 null，纯 sprite 型游戏不接 IRenderer3D 也能正常装配）；
+            // modelHandleResolver 经 ViewBinder 持有的 View 绑定表解析（谁持有 View 谁提供，同缺口 6
+            // IAnchorQuery 判断记录），未接 renderer3D 时该委托即使传入也不会被 VfxPlayer 使用。
+            ModelHandleResolver modelHandleResolver = entityId =>
+                ViewBinder.TryGetView(entityId, out var view) && view is IModelHandleProvider provider
+                    ? provider.TryGetModelHandle()
+                    : null;
+
             var vfxPlayer = new VfxPlayer(
-                renderer2D, camera, vfxCatalog, opts.VfxOptions, anchorResolver: null,
-                entityPositionResolver: entityPositionResolver);
+                renderer2D, camera, vfxCatalog, opts.VfxOptions, anchorResolver: ViewBinder.GetAnchorWorldPosition,
+                entityPositionResolver: entityPositionResolver,
+                renderer3D: renderer3D, modelHandleResolver: modelHandleResolver);
             var sfxPlayer = new SfxPlayer(audio, rng, sfxCatalog, opts.SfxOptions);
             Vfx = vfxPlayer;
             Sfx = sfxPlayer;
             WeaponStyle = new WeaponStyleResolver(weaponStyleCatalog);
             VfxSfxDisplayInfoResolver = new DisplayInfoResolver(DisplayInfo);
+
+            // 缺口 12：分层音量宿主——层清单 = sfx.def.layer 去重（见 AudioLayerVolumeHost 判断记录，
+            // 顺序取数据出现顺序，同下方 settingsLayers 此前的去重口味一致，改用同一份计算结果）。
+            var sfxLayers = sfxCatalog.Values
+                .Select(d => d.Layer).Distinct(StringComparer.Ordinal).OrderBy(l => l, StringComparer.Ordinal).ToList();
+            AudioVolume = new AudioLayerVolumeHost(sfxLayers, sfxPlayer, audio, SettingsStore);
 
             // ---------------------------------------------------------
             // 3) feedback_binder：feedback.binding/feedback.floating_text_style 建规则集；
@@ -330,31 +344,27 @@ namespace Presentation.Assembly
             };
             UiData = new UiDataSource(bus, providers);
 
-            SetLayerVolumeCallback setLayerVolume = opts.SetLayerVolume != null
-                ? new SetLayerVolumeCallback(opts.SetLayerVolume)
-                : (layer, vol) => sfxPlayer.SetLayerVolume(layer, vol);
-
+            // 缺口 4：动作条槽位绑定改接 gameplay.Carriers.SkillBindings（G1 新增
+            // ISkillBindingHost，见 ActionBarViewModel/UiIntents 类型注释判断记录），删除此前的
+            // ActionBarSlotBindingResolver 注入委托选项。
             UiIntents = new UiIntents(
                 _playerId, world, gameplay.Carriers.Equipment, gameplay.Quest, gameplay.Dialog, gameplay.Economy,
                 InputMap, L10n, gameplay.AppState,
-                setLayerVolume: setLayerVolume);
+                audioVolume: AudioVolume, skillBindings: gameplay.Carriers.SkillBindings);
 
             var actionBarSlots = ResolveActionBarSlotCount(registry, opts.ActionBarSlotCountFallback);
 
             Hud = new HudViewModel(UiData, _playerId, opts.HudPowerTypes);
-            ActionBar = new ActionBarViewModel(UiData, _playerId, actionBarSlots, opts.ActionBarSlotBindingResolver);
+            ActionBar = new ActionBarViewModel(UiData, _playerId, actionBarSlots, gameplay.Carriers.SkillBindings);
             Inventory = new InventoryViewModel(UiData, opts.EquipmentSlotIds);
             QuestLog = new QuestLogViewModel(UiData, gameplay.Quest, _playerId);
             DialogView = new DialogViewModel(UiData, gameplay.Dialog, _playerId);
             SkillBook = new SkillBookViewModel(UiData, skillBookQuery, _playerId);
             CharacterStats = new CharacterStatsViewModel(UiData, L10n, _playerId, opts.CharacterStatConfig);
             SaveSystem = gameplay.SaveSystem;
-            SettingsStore = ResolveSettingsStore(fileSystem);
 
-            var settingsLayers = opts.SettingsLayers ?? sfxCatalog.Values
-                .Select(d => d.Layer).Distinct(StringComparer.Ordinal).OrderBy(l => l, StringComparer.Ordinal).ToList();
             var settingsActionNames = opts.SettingsActionNames ?? Array.Empty<string>();
-            Settings = new SettingsViewModel(UiData, L10n, InputMap, settingsActionNames, settingsLayers, opts.GetLayerVolume);
+            Settings = new SettingsViewModel(UiData, L10n, InputMap, settingsActionNames, AudioVolume);
 
             SaveSlots = new SaveSlotsViewModel(UiData, SaveSystem);
             PauseMenu = new PauseMenuViewModel(UiData, gameplay.AppState, opts.PauseMenuOptions);
@@ -379,7 +389,7 @@ namespace Presentation.Assembly
 
             Shell = new ShellHost(
                 gameplay.AppState, sceneRouter, SaveSystem, SettingsStore, gameplay.Difficulty, InputMap, bus,
-                newGameStarter, loadedMapIdResolver, timestampProvider);
+                newGameStarter, timestampProvider, loadedMapIdResolver: loadedMapIdResolver);
             ShellViewModel = new ShellViewModel(Shell, SaveSystem, bus, shellMenu);
         }
 
@@ -400,12 +410,11 @@ namespace Presentation.Assembly
             new SettingsStore(fileSystem);
 
         /// <summary>
-        /// 退订全部本装配根构造期建立的事件订阅（<see cref="FeedbackBinderCore"/>、<see cref="ShellHost"/>
-        /// 与十个 UI 视图模型 + <see cref="ShellViewModel"/>，均实现 <see cref="IDisposable"/> 并在
+        /// 退订全部本装配根构造期建立的事件订阅（<see cref="FeedbackBinderCore"/>、<see cref="ShellHost"/>、
+        /// <see cref="ViewBinder"/>、<see cref="Camera"/>（缺口 5：两者现均实现
+        /// <see cref="IDisposable"/>）与十个 UI 视图模型 + <see cref="ShellViewModel"/>，均在
         /// <c>Dispose</c> 内部释放各自持有的 <see cref="Core.Foundation.Common.SubscriptionHandle"/>，
-        /// 见各自类型源码）。<see cref="ViewBinder"/>/<see cref="CameraHost"/> 未实现
-        /// <see cref="IDisposable"/>（构造期内部订阅未对外暴露句柄，见 README"判断记录"），本方法
-        /// 不能代为退订，如实汇报为已知缺口。幂等：多次调用只生效一次。
+        /// 见各自类型源码）。幂等：多次调用只生效一次。
         /// </summary>
         public void Dispose()
         {
@@ -415,6 +424,8 @@ namespace Presentation.Assembly
             }
             _disposed = true;
 
+            ViewBinder.Dispose();
+            Camera.Dispose();
             Feedback.Dispose();
             Shell.Dispose();
             ShellViewModel.Dispose();

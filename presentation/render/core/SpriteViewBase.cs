@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Core.Carriers.Common;
 using Core.Foundation.Common;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EngineAdapter;
@@ -15,12 +16,14 @@ namespace Presentation.Render
     /// <see cref="SyncPose"/> 驱动 <see cref="IRenderer2D.SetTransform"/>、<see cref="Destroy"/>
     /// 驱动 <see cref="IRenderer2D.DestroySpriteInstance"/>。
     /// <para>
-    /// 判断记录：<see cref="OnEvent"/> 按任务书拍板"留虚方法给反馈层"——本类型默认空实现，不在
-    /// P4-1 范围内推测"收到 <c>item.equipped</c> 应该怎么改纸娃娃层"这类需要额外查"已装备物品的
-    /// DisplayInfo"（L3 <c>item</c> 模块尚未提供的查询能力）的策略；本类型只提供
-    /// <see cref="SetPaperdollLayers"/> 这个底层原语（排序 + 方向镜像回退 + 资源 Id 解析 +
-    /// <c>IRenderer2D.SetLayers</c>），具体"收到什么事件时该传什么层名列表"由具体游戏的 View 子类
-    /// （重写 <see cref="OnEvent"/>）或后续 <c>presentation/feedback_binder</c> 决定。
+    /// 判断记录（缺口 10 恢复，取代 P4-1"留虚方法给反馈层"的搁置）：<see cref="OnEvent"/> 现默认处理
+    /// <c>item.equipped</c>/<c>item.unequipped</c>（见 <c>found.event_catalog</c> 对应行、07 第 1.4
+    /// 节）——按 <c>display.equip_visual</c>（04 第 7.1.2 节）重新解析该槽位的纸娃娃层资源并调用
+    /// <see cref="IRenderer2D.SetLayers"/>；未在构造期注入 <c>equipVisualByItemInstanceId</c>，或该表
+    /// 查不到对应行时保持不变（不抛异常，不改动当前层集合）。字段解析/查找规则、"槽位→纸娃娃层名"
+    /// 换算判断记录见 <see cref="OnEvent"/>/<see cref="EquipVisualDef"/> 类型注释。具体游戏的 View 子类
+    /// 仍可重写 <see cref="OnEvent"/> 替换/扩展本默认行为（如接入真正的"物品实例 id → item.template"
+    /// 只读查询，见 <see cref="OnEvent"/> 判断记录）。
     /// </para>
     /// <para>
     /// 契约缺口——<c>sprite_set_id</c>/纸娃娃层名的字符串到 <see cref="Id"/> 转换：
@@ -51,16 +54,35 @@ namespace Presentation.Render
 
         private readonly Presentation.Common.ResourceReferenceTracker? _resourceTracker;
 
+        /// <summary>缺口 10：<c>item.template</c> 物品实例 id → <see cref="EquipVisualDef"/> 的查询表
+        /// （见 <see cref="OnEvent"/> 判断记录"为何按物品实例 id 而不是 item_id 索引"）。未注入
+        /// （null）时 <see cref="OnEvent"/> 对装备事件保持默认空处理，等价于 P4-1 行为。</summary>
+        private readonly IReadOnlyDictionary<Id, EquipVisualDef>? _equipVisuals;
+
+        /// <summary>当前各装备槽位覆盖的纸娃娃层：槽位 id → (层名, 该层资源 Id)。装备/卸下事件增删本表
+        /// 后重新调用 <see cref="RebuildEquippedLayers"/> 合成完整层列表。</summary>
+        private readonly Dictionary<Id, (string LayerName, Id ResourceId)> _equipOverridesBySlot =
+            new Dictionary<Id, (string, Id)>();
+
+        /// <summary><see cref="SyncPose"/> 最近一次收到的朝向，供 <see cref="RebuildEquippedLayers"/>
+        /// 重算未被装备覆盖的层的方向档位资源 Id（装备事件与 SyncPose 异步到达，不能假设装备事件自带
+        /// 朝向）。构造期以 <see cref="Direction.FromQuantized"/> 0 弧度、<c>DisplayInfo.Sprite.DirectionCount</c>
+        /// 档位初始化，首次 SyncPose 前触发的装备事件按该默认朝向合成，不阻断装配。</summary>
+        private Direction _lastFacing;
+
         /// <summary><paramref name="resourceLoader"/> 可选（同 <c>VfxPlayer</c>/<c>SfxPlayer</c>
         /// 判断记录）：注入时构造期对 <c>sprite_set_id</c>、<see cref="SetPaperdollLayers"/> 期间对
         /// 每个新解析出的纸娃娃层资源 id，均以 <see cref="ResourceKind.Image"/> 触发一次
-        /// <see cref="IResourceLoader.LoadAsync"/>（ADR-0016 决策 6："谁首次引用谁加载"）。</summary>
+        /// <see cref="IResourceLoader.LoadAsync"/>（ADR-0016 决策 6："谁首次引用谁加载"）。
+        /// <paramref name="equipVisualByItemInstanceId"/> 可选（缺口 10，见 <see cref="OnEvent"/>
+        /// 判断记录）。</summary>
         protected SpriteViewBase(
             IRenderer2D renderer,
             IRenderConventionHost conventions,
             DisplayInfo displayInfo,
             RenderOptions? options = null,
-            IResourceLoader? resourceLoader = null)
+            IResourceLoader? resourceLoader = null,
+            IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId = null)
         {
             Renderer = renderer ?? throw new ArgumentNullException(nameof(renderer));
             Conventions = conventions ?? throw new ArgumentNullException(nameof(conventions));
@@ -75,6 +97,8 @@ namespace Presentation.Render
 
             Options = options ?? new RenderOptions();
             _resourceTracker = resourceLoader != null ? new Presentation.Common.ResourceReferenceTracker(resourceLoader) : null;
+            _equipVisuals = equipVisualByItemInstanceId;
+            _lastFacing = Direction.FromQuantized(0.0, DisplayInfo.Sprite.DirectionCount);
 
             var spriteSetId = Id.Parse(DisplayInfo.Sprite.SpriteSetId);
             _resourceTracker?.EnsureLoading(spriteSetId, ResourceKind.Image);
@@ -87,14 +111,142 @@ namespace Presentation.Render
             IsAlive = true;
         }
 
-        /// <summary>默认空实现，留给具体游戏的 View 子类或后续反馈层重写（见类型注释判断记录）。</summary>
+        /// <summary>
+        /// 缺口 10 默认处理 <c>item.equipped</c>/<c>item.unequipped</c>（见类型注释）；其余事件类型
+        /// 空实现，留给具体游戏的 View 子类或后续反馈层重写。
+        /// <para>
+        /// 判断记录（为何 <see cref="_equipVisuals"/> 按"物品实例 id"索引，而不是 04 第 7.1.2 节
+        /// <c>display.equip_visual.item_id</c> 指向的 <c>item.template</c> id）：<see cref="ItemEquippedEvent"/>/
+        /// <see cref="ItemUnequippedEvent"/> 只携带 <c>itemInstanceId</c>，"实例 id → 模板 id"是 L3
+        /// <c>item</c> 模块的只读查询（<c>IInventoryQuery</c> 一类），本类型属 L5 <c>render</c>，构造期
+        /// 只接受表现层/数据层查询表，不持有任何 L3 宿主引用（09 第 1 节铁律 P1"只读逻辑层查询"的落实
+        /// 方式是"由装配根按需注入已解析好的表"，不是"View 自己去查逻辑层"）；因此把"实例 id → 模板 id
+        /// → equip_visual 行"这一步解析的责任交给注入方（通常是具体游戏的表现层装配代码，在拿到
+        /// <c>item.equipped</c> 通知时自行解析后维护/刷新这份按实例 id 索引的表，再传给
+        /// <c>SpriteViewBase</c> 的构造参数或未来的"替换查询表"扩展点），本类型只消费已解析好的结果。
+        /// </para>
+        /// <para>
+        /// 判断记录（槽位→纸娃娃层名换算）：<c>EquipVisualDef.SlotId</c> 取最后一个点分段作为纸娃娃层名
+        /// （与 <c>anchor_points</c>/<c>paperdoll_layers</c> 的裸层名同一惯例，如 <c>slot.hand_main</c> →
+        /// <c>hand_main</c>）；该层名不要求预先出现在 <c>DisplayInfo.Sprite.PaperdollLayers</c>
+        /// 默认集合里——装备可以给角色新增一层默认不绘制的部位（如武器）。
+        /// </para>
+        /// <para>
+        /// 判断记录（<c>mesh_ref</c> 不经方向档位换算）：见 <see cref="EquipVisualDef.MeshRef"/> 字段
+        /// 注释——04 未给该字段定义按方向拆分的子结构，本类型把它当作该层的唯一资源直接使用，是已知
+        /// 简化（该层因此不随朝向切换镜像素材，只整体跟随精灵实例翻转，同 <see cref="SyncPose"/> 的
+        /// <c>flipX</c>）。
+        /// </para>
+        /// </summary>
         public virtual void OnEvent(IEvent evt)
         {
+            if (_equipVisuals == null)
+            {
+                return;
+            }
+
+            switch (evt)
+            {
+                case ItemEquippedEvent equipped when equipped.UnitId.Equals(EntityId):
+                    HandleItemEquipped(equipped.Slot, equipped.ItemInstanceId);
+                    break;
+
+                case ItemUnequippedEvent unequipped when unequipped.UnitId.Equals(EntityId):
+                    HandleItemUnequipped(unequipped.Slot);
+                    break;
+            }
+        }
+
+        private void HandleItemEquipped(Id slot, Id itemInstanceId)
+        {
+            if (!_equipVisuals!.TryGetValue(itemInstanceId, out var def) || def.Mode != EquipVisualMode.SlotMesh
+                || def.SlotId == null || def.MeshRef == null)
+            {
+                // 无对应 equip_visual 行（或该行不是 slot_mesh 模式）：按判断记录保持不变。
+                return;
+            }
+
+            var layerName = LayerNameFromSlotId(def.SlotId.Value);
+            _equipOverridesBySlot[slot] = (layerName, def.MeshRef.Value);
+            RebuildEquippedLayers();
+        }
+
+        private void HandleItemUnequipped(Id slot)
+        {
+            if (_equipOverridesBySlot.Remove(slot))
+            {
+                RebuildEquippedLayers();
+            }
+        }
+
+        private static string LayerNameFromSlotId(Id slotId)
+        {
+            var value = slotId.Value;
+            var dotIndex = value.LastIndexOf('.');
+            return dotIndex < 0 ? value : value.Substring(dotIndex + 1);
+        }
+
+        /// <summary>用 <see cref="DisplayInfo.Sprite"/>.<c>PaperdollLayers</c> 的默认层名顺序为基底，
+        /// 逐层用 <see cref="_equipOverridesBySlot"/> 里当前生效的装备覆盖资源 Id 替换（未被任何槽位
+        /// 覆盖的层沿用 <see cref="ResolveLayerResourceId"/> 的常规方向档位换算）；装备覆盖引入的、不在
+        /// 默认层名集合里的新层追加在末尾（见 <see cref="OnEvent"/> 判断记录"装备可以新增一层"），按
+        /// <see cref="_equipOverridesBySlot"/> 的槽位 <see cref="Id"/> 升序排列以保证结果确定。</summary>
+        private void RebuildEquippedLayers()
+        {
+            var overridesByLayerName = new Dictionary<string, Id>(StringComparer.Ordinal);
+            foreach (var kv in _equipOverridesBySlot)
+            {
+                overridesByLayerName[kv.Value.LayerName] = kv.Value.ResourceId;
+            }
+
+            var placements = Conventions.ComposeSpriteLayers(DisplayInfo.Sprite!.PaperdollLayers, DisplayInfo.Sprite!, _lastFacing);
+            var resourceIds = new List<Id>(placements.Count);
+            var coveredLayerNames = new HashSet<string>(StringComparer.Ordinal);
+
+            for (var i = 0; i < placements.Count; i++)
+            {
+                var layerName = placements[i].LayerName;
+                coveredLayerNames.Add(layerName);
+
+                Id resourceId;
+                if (overridesByLayerName.TryGetValue(layerName, out var overrideId))
+                {
+                    resourceId = overrideId;
+                }
+                else
+                {
+                    resourceId = ResolveLayerResourceId(placements[i]);
+                }
+
+                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image);
+                resourceIds.Add(resourceId);
+            }
+
+            var extraLayerNames = new List<string>();
+            foreach (var layerName in overridesByLayerName.Keys)
+            {
+                if (!coveredLayerNames.Contains(layerName))
+                {
+                    extraLayerNames.Add(layerName);
+                }
+            }
+            extraLayerNames.Sort(StringComparer.Ordinal);
+
+            for (var i = 0; i < extraLayerNames.Count; i++)
+            {
+                var resourceId = overridesByLayerName[extraLayerNames[i]];
+                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image);
+                resourceIds.Add(resourceId);
+            }
+
+            Renderer.SetLayers(Handle, resourceIds);
         }
 
         public virtual void SyncPose(Vec2 pos, Direction facing, double height)
         {
             EnsureAlive();
+
+            _lastFacing = facing;
 
             var sortY = Conventions.ComputeSortY(pos, DisplayInfo.SortOffset);
             var (_, flipX) = Conventions.ResolveDirectionSlot(facing, DisplayInfo.Sprite!);

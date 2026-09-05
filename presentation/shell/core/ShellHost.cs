@@ -28,7 +28,11 @@ namespace Presentation.Shell
         private readonly IInputMapHost _inputMap;
         private readonly IEventBus _eventBus;
         private readonly NewGameStarter _newGameStarter;
-        private readonly LoadedMapIdResolver _loadedMapIdResolver;
+
+        /// <summary>缺口 11 恢复：G1 给 <see cref="LoadResult"/> 补了 <see cref="LoadResult.CurrentMapId"/>
+        /// 后，<see cref="LoadGame"/> 改读该字段，不再需要本委托作为唯一来源——保留为可选覆盖
+        /// （见该方法判断记录），未注入时为 null。</summary>
+        private readonly LoadedMapIdResolver? _loadedMapIdResolver;
         private readonly Func<string> _timestampProvider;
         private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
 
@@ -43,8 +47,8 @@ namespace Presentation.Shell
             IInputMapHost inputMap,
             IEventBus eventBus,
             NewGameStarter newGameStarter,
-            LoadedMapIdResolver loadedMapIdResolver,
-            Func<string> timestampProvider)
+            Func<string> timestampProvider,
+            LoadedMapIdResolver? loadedMapIdResolver = null)
         {
             _appState = appState ?? throw new ArgumentNullException(nameof(appState));
             _sceneRouter = sceneRouter ?? throw new ArgumentNullException(nameof(sceneRouter));
@@ -54,7 +58,7 @@ namespace Presentation.Shell
             _inputMap = inputMap ?? throw new ArgumentNullException(nameof(inputMap));
             _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
             _newGameStarter = newGameStarter ?? throw new ArgumentNullException(nameof(newGameStarter));
-            _loadedMapIdResolver = loadedMapIdResolver ?? throw new ArgumentNullException(nameof(loadedMapIdResolver));
+            _loadedMapIdResolver = loadedMapIdResolver;
             _timestampProvider = timestampProvider ?? throw new ArgumentNullException(nameof(timestampProvider));
 
             _subscriptions.Add(_eventBus.Subscribe(SceneRouterEventKeys.LoadStarted, OnSceneLoadStarted));
@@ -138,23 +142,36 @@ namespace Presentation.Shell
             return true;
         }
 
+        /// <summary>
+        /// 判断记录（缺口 11 恢复）：优先用 <see cref="LoadResult.CurrentMapId"/>（G1 补的字段，读自
+        /// <c>world.current_map_id</c> 段，见任务书"ShellHost 读档后用 LoadResult.CurrentMapId 进图"）；
+        /// 该字段为 null（存档未登记 world 段，或该段尚未来得及在游戏层实现——见其字段注释）时才回退
+        /// <see cref="_loadedMapIdResolver"/>（未注入时视为"无法确定地图 id"，跳过场景切换，读档结果
+        /// 本身仍照常返回，同下方两个 catch 分支"读档本身仍然算成功"的一贯处理）。
+        /// <see cref="LoadResult.CurrentPosition"/> 不在本方法内消费——ShellHost 不持有玩家实体引用
+        /// （铁律 P1/P3，见类型注释），原样保留在返回值里，由拿到 <see cref="LoadResult"/> 的调用方
+        /// （游戏层/表现层装配代码）在场景加载完成后自行落位玩家。
+        /// </summary>
         public LoadResult LoadGame(Id slotId)
         {
             var result = _saveSystem.Load(slotId);
             if (result.Status == LoadStatus.Loaded || result.Status == LoadStatus.LoadedFromBackup)
             {
-                var mapId = _loadedMapIdResolver();
-                try
+                var mapId = result.CurrentMapId ?? _loadedMapIdResolver?.Invoke();
+                if (mapId.HasValue)
                 {
-                    _sceneRouter.LoadScene(mapId);
-                }
-                catch (ArgumentException)
-                {
-                    // 地图 id 未知：读档本身仍然算成功，场景切换失败留给上层诊断/重试。
-                }
-                catch (InvalidOperationException)
-                {
-                    // 当前应用状态不允许切到 Loading（例如已经在 Loading 中）：同上，不吞掉读档结果。
+                    try
+                    {
+                        _sceneRouter.LoadScene(mapId.Value);
+                    }
+                    catch (ArgumentException)
+                    {
+                        // 地图 id 未知：读档本身仍然算成功，场景切换失败留给上层诊断/重试。
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // 当前应用状态不允许切到 Loading（例如已经在 Loading 中）：同上，不吞掉读档结果。
+                    }
                 }
             }
 

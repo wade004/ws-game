@@ -218,33 +218,106 @@ namespace Adapter.Unity.Ui.Panels
         }
     }
 
-    /// <summary>技能书（09 §7.1、<see cref="SkillBookViewModel"/>）。</summary>
+    /// <summary>
+    /// 技能书（09 §7.1、<see cref="SkillBookViewModel"/>）。
+    /// <para>
+    /// 缺口 4：技能书条目提供"绑定到动作条槽位 N"操作——按任务书"最简：点击技能书条目后按数字键
+    /// 即绑定"实现：每条已知技能是一个可点击按钮，点击后记为"已选中"（<see cref="_selectedSkillId"/>，
+    /// 标签前缀 <c>"> "</c> 高亮）；面板显示期间按数字键 0-9（<c>KeyCode.Alpha0</c>..
+    /// <c>Alpha9</c>）经 <see cref="UiIntents.BindActionBarSlot"/> 把已选中技能绑定到对应槽位号
+    /// （<see cref="Presentation.Ui.ActionBarViewModel.SlotKey"/> 换算槽位键，与动作条面板同一套
+    /// 槽位编号）。绑定被拒绝（技能不是玩家已知技能——理论上不会发生，本面板只列已知技能）时
+    /// <see cref="UiIntents.BindActionBarSlot"/> 静默返回 false，不弹任何提示（同其它面板"意图被
+    /// 拒绝时不崩溃"的一贯处理，见 <see cref="InventoryPanel"/> 同款判断记录）。
+    /// </para>
+    /// </summary>
     public sealed class SkillBookPanel : UiPanelBehaviour
     {
         private SkillBookViewModel _vm = null!;
-        private TextMeshProUGUI _body = null!;
+        private UiIntents _intents = null!;
+        private RectTransform _list = null!;
+        private TextMeshProUGUI _empty = null!;
+        private readonly List<(UnityEngine.UI.Button Button, TextMeshProUGUI Label, Id SkillId, string BaseText)> _rows =
+            new List<(UnityEngine.UI.Button, TextMeshProUGUI, Id, string)>();
+        private Id? _selectedSkillId;
 
-        public void Construct(RectTransform parent, SkillBookViewModel vm)
+        public void Construct(RectTransform parent, SkillBookViewModel vm, UiIntents intents)
         {
             _vm = vm;
+            _intents = intents;
             var root = UiWidgets.CreatePanelBackground("SkillBookPanel", parent, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(260f, 220f), new Vector2(-150f, 0f));
-            _body = UiWidgets.CreateLabel("Body", root, "（无已知技能）", 15);
-            UiWidgets.SetRect(_body.rectTransform, Vector2.zero, Vector2.one, new Vector2(8, 8), new Vector2(-8, -8));
+
+            _empty = UiWidgets.CreateLabel("Empty", root, "（无已知技能）", 15);
+            UiWidgets.SetRect(_empty.rectTransform, Vector2.zero, Vector2.one, new Vector2(8, 8), new Vector2(-8, -8));
+
+            var listGo = new GameObject("List", typeof(RectTransform));
+            _list = (RectTransform)listGo.transform;
+            _list.SetParent(root, false);
+            UiWidgets.SetRect(_list, Vector2.zero, Vector2.one, new Vector2(8, 8), new Vector2(-8, -8));
+            var layout = listGo.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            layout.spacing = 2f;
+            layout.childControlWidth = true; layout.childControlHeight = true;
+            layout.childForceExpandWidth = true; layout.childForceExpandHeight = false;
         }
 
         public override void RefreshUi()
         {
-            if (_vm.Entries.Count == 0)
+            // 判断记录：条目数量/内容可能随 known_skills 变化（学习新技能），每次刷新整体重建按钮
+            // 列表——本面板不是每帧刷新的高频路径（RefreshUi 只在相关事件触发时调用，见
+            // IUiPanel.cs 判断记录），重建成本可接受，避免维护一份"增量 diff 按钮列表"的额外复杂度。
+            foreach (var row in _rows)
             {
-                _body.text = "（无已知技能）";
-                return;
+                Destroy(row.Button.gameObject);
             }
-            var sb = new StringBuilder();
+            _rows.Clear();
+
+            _empty.gameObject.SetActive(_vm.Entries.Count == 0);
+
             foreach (var entry in _vm.Entries)
             {
-                sb.Append(entry.SkillId.Value).Append(entry.Ready ? "  就绪" : $"  冷却 {entry.Cooldown:0.0}s").Append('\n');
+                var skillId = entry.SkillId;
+                var baseText = entry.SkillId.Value + (entry.Ready ? "  就绪" : $"  冷却 {entry.Cooldown:0.0}s");
+                var (_, button, label) = UiWidgets.CreateButton($"Entry_{skillId.Value}", _list, baseText, () => OnEntryClicked(skillId));
+                _rows.Add((button, label, skillId, baseText));
             }
-            _body.text = sb.ToString();
+
+            if (_selectedSkillId.HasValue && !_vm.Entries.Any(e => e.SkillId.Equals(_selectedSkillId.Value)))
+            {
+                _selectedSkillId = null;
+            }
+
+            UpdateSelectionHighlight();
+        }
+
+        private void OnEntryClicked(Id skillId)
+        {
+            _selectedSkillId = skillId;
+            UpdateSelectionHighlight();
+        }
+
+        private void UpdateSelectionHighlight()
+        {
+            foreach (var row in _rows)
+            {
+                row.Label.text = (row.SkillId.Equals(_selectedSkillId) ? "> " : "") + row.BaseText;
+            }
+        }
+
+        private void Update()
+        {
+            if (!_selectedSkillId.HasValue)
+            {
+                return;
+            }
+
+            for (var slot = 0; slot <= 9; slot++)
+            {
+                if (Input.GetKeyDown(KeyCode.Alpha0 + slot))
+                {
+                    _intents.BindActionBarSlot(slot, _selectedSkillId.Value);
+                    break;
+                }
+            }
         }
     }
 

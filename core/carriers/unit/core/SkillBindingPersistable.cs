@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.SaveSystem;
@@ -12,15 +11,17 @@ namespace Core.Carriers.Unit
     /// 指定 <see cref="PlayerUnit"/> 的实例，调用方（<c>GameplayAssembly.RegisterPersistables</c>）
     /// 自行向 <see cref="ISaveSystem"/> 注册。
     /// <para>
-    /// 判断记录（<see cref="Load"/> 不经 <see cref="ISkillBindingHost.Bind"/> 的"已知技能"校验）：
-    /// 10 第 3 节汇总顺序把 <c>player.known_skills</c> 排在 <c>player.skill_bindings</c> 之前（同属
-    /// 步骤 5），但 <c>player.known_skills</c> 目前没有 <see cref="IPersistable"/> 实现（已知缺口，
-    /// 不在本任务范围）——若本类 <see cref="Load"/> 改经 <see cref="ISkillBindingHost.Bind"/> 校验，
-    /// 现状下会让读档整批丢弃全部绑定（因为读档时刻单位的"已知技能"集合总是空的）。本类改用
-    /// <see cref="SkillBindingHost.ReplaceAll"/> 直接整体还原，不重新校验业务不变量——与
-    /// <see cref="UnitPersistable"/> 各段 <c>Load</c> 直接赋值、不做业务校验的一贯做法一致；等
-    /// <c>player.known_skills</c> 的 <see cref="IPersistable"/> 补上后，二者仍会按声明顺序
-    /// （<see cref="SaveSections.KnownOrder"/>）先后加载，不需要改动本类。
+    /// 判断记录（G1 遗留恢复：<see cref="Load"/> 改回经 <see cref="ISkillBindingHost.Bind"/> 的
+    /// "已知技能"校验）：此前本类 <see cref="Load"/> 绕开 <see cref="ISkillBindingHost.Bind"/>、直接
+    /// 整体覆盖绑定表，原因是 <c>player.known_skills</c> 段当时没有 <see cref="IPersistable"/>
+    /// 实现，读档时刻单位的"已知技能"集合总是空，经 <c>Bind</c> 校验会让读档整批丢弃全部绑定。现在
+    /// <c>Core.Rules.Skill.KnownSkillsPersistable</c> 已补齐该段实现，且在
+    /// <see cref="SaveSections.KnownOrder"/> 里排在本段（<c>player.skill_bindings</c>，同属步骤 5）
+    /// 之前——<see cref="ISaveSystem"/> 按该顺序依次调用两段的 <c>Load</c>，本段 <c>Load</c> 执行时
+    /// 已知技能集合已经还原完毕，绕开校验的前提已经消除，本类因此改回逐条调用
+    /// <see cref="ISkillBindingHost.Bind"/>（存档里技能已被后续版本移除等极端情况下，对应槽位会被
+    /// <c>Bind</c> 静默拒绝、不写入——同 <c>Bind</c> 本身"未知技能返回 false，不改变任何状态"的一贯
+    /// 语义，不抛异常中断整份存档的读取）。
     /// </para>
     /// </summary>
     public static class SkillBindingPersistable
@@ -65,7 +66,6 @@ namespace Core.Carriers.Unit
                         $"player.skill_bindings 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
                 }
 
-                var bindings = new Dictionary<string, Id>(obj.Count, StringComparer.Ordinal);
                 foreach (var kv in obj)
                 {
                     if (!(kv.Value is JsonString text) || !Id.TryParse(text.Value, out var skillId))
@@ -74,10 +74,8 @@ namespace Core.Carriers.Unit
                             $"player.skill_bindings.{kv.Key} 不是合法的 Id 字符串");
                     }
 
-                    bindings[kv.Key] = skillId;
+                    _host.Bind(_player.EntityId, kv.Key, skillId);
                 }
-
-                _host.ReplaceAll(_player.EntityId, bindings);
             }
         }
     }

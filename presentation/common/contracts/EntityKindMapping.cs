@@ -1,18 +1,22 @@
+using Core.Foundation.SimLoop;
+
 namespace Presentation.Common
 {
     /// <summary>
     /// <c>Entity.Kind</c>（自由字符串，由各 L3/L4 模块自行给出，见 <c>Core.Foundation.SimLoop.Entity.Kind</c>
     /// 注释"实体类型（如 unit、gobj），由具体子类给出"）到 <see cref="ViewKind"/> 的映射。
     /// <para>
-    /// 契约缺口（见任务汇报"契约缺口"一节）：架构文档（09 第 2 节）只"建议"<see cref="ViewKind"/>
-    /// 应覆盖 unit/gameObject/projectile/areaTrigger/droppedLoot 五类，但没有规定各 L3/L4 模块
-    /// <c>Entity.Kind</c> 具体应该写什么字符串——目前代码库里只有三个已落地的 <c>Entity</c> 子类
-    /// 给出了确定值：<c>PlayerUnit.Kind == "player"</c>、<c>CreatureUnit.Kind == "creature"</c>
-    /// （见 core/carriers/unit）、<c>DroppedLootEntity.Kind == "loot"</c>（见 core/gameplay/loot）。
-    /// <c>core/carriers/gobj</c>（GameObject）、抛射物、区域触发器三个模块目前尚未落地对应的
-    /// <c>Entity</c> 子类，本类型按 09 第 2 节枚举命名的显而易见惯例先登记
-    /// <c>"gobj"</c>/<c>"projectile"</c>/<c>"area_trigger"</c> 三个占位字符串，留待这些模块落地后
-    /// 由设计层核对是否一致（若不一致，只需改本文件一处映射表，不影响其余表现层代码）。
+    /// 判断记录（G1 遗留恢复，取代此前"占位字符串"写法）：<see cref="Core.Foundation.SimLoop.EntityKinds"/>
+    /// （G1 新增，见其类型注释）已把代码库里确有落地 <c>Entity</c> 子类在用的取值收敛成词汇表——
+    /// <see cref="EntityKinds.Player"/>/<see cref="EntityKinds.Creature"/> 均映射
+    /// <see cref="ViewKind.Unit"/>、<see cref="EntityKinds.Gobj"/> 映射
+    /// <see cref="ViewKind.GameObject"/>、<see cref="EntityKinds.Loot"/> 映射
+    /// <see cref="ViewKind.DroppedLoot"/>，本类型改用这四个常量，不再手写裸字符串字面量。
+    /// <c>"projectile"</c>/<c>"area_trigger"</c> 两个字符串 <see cref="EntityKinds"/> 未登记（09 第 2
+    /// 节建议 <see cref="ViewKind"/> 覆盖五类，但 <c>core/</c> 内抛射物/区域触发器两个模块尚未落地对应
+    /// 的 <c>Entity</c> 子类，<see cref="EntityKinds"/> 按"未使用的不发明"原则暂不登记，见其类型注释
+    /// 判断记录）——本类型继续按 09 第 2 节命名惯例保留这两个占位字符串，留待对应模块落地
+    /// <c>Entity</c> 子类、<see cref="EntityKinds"/> 补上常量后再一并换掉。
     /// </para>
     /// </summary>
     public static class EntityKindMapping
@@ -23,11 +27,11 @@ namespace Presentation.Common
         {
             switch (entityKind)
             {
-                case "player":
-                case "creature":
+                case EntityKinds.Player:
+                case EntityKinds.Creature:
                     kind = ViewKind.Unit;
                     return true;
-                case "gobj":
+                case EntityKinds.Gobj:
                     kind = ViewKind.GameObject;
                     return true;
                 case "projectile":
@@ -36,7 +40,7 @@ namespace Presentation.Common
                 case "area_trigger":
                     kind = ViewKind.AreaTrigger;
                     return true;
-                case "loot":
+                case EntityKinds.Loot:
                     kind = ViewKind.DroppedLoot;
                     return true;
                 default:

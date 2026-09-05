@@ -74,32 +74,41 @@ assembly/
 | `sceneRouter` | `Core.Foundation.SceneRouter.ISceneRouter` | 建议与传给 `GameplayAssembly`（`AreaTriggerOptions.SceneRouter`）的是同一个实例，保证场景切换与区域触发一致 |
 | `options` | `PresentationAssemblyOptions?` | 可选，见下"可选知会点" |
 
-判断记录（`IRenderer3D` 不在必填参数里）：当前没有任何一个已实现的 L5 模块宿主在构造期直接依赖
-`IRenderer3D`（`model` 型外形的槽位/挂点/骨骼动画播放属于 `CharacterRig`，本任务集未落地），按
-"按各模块宿主实际需要的最小集合注入"原则不引入一个构造出来却用不到的参数；`model` 型外形接入时
-需要在此补上。
+判断记录（`IRenderer3D` 是可选参数，不在必填参数里）：`PresentationAssembly` 构造函数末尾新增
+`IRenderer3D? renderer3D = null`（缺口 13）——`VfxPlayer` 的 `attach_mode: socket` 真挂接（经
+`IModelHandleProvider`/`ModelHandleResolver`）需要它，但纯 sprite 型游戏不接模型渲染时仍应能正常
+装配，因此按"按各模块宿主实际需要的最小集合注入、未提供时降级"原则设为可选，未传时 `VfxPlayer`
+的 socket 模式保持退化为 world 播放（见 `presentation/vfx_sfx/README.md` 判断记录 1）。
 
 ### `PresentationAssemblyOptions` 可选知会点（任务书点名"保留注入委托"两项 + 其余游戏内容项）
 
 | 字段 | 默认值 | 说明 |
 |---|---|---|
-| `ActionBarSlotBindingResolver` | 恒 `null`（全部槽位未绑定） | 09 §7.1"动作条"槽位 → 技能 id，`presentation/ui` 没有宿主契约暴露这份绑定（既有契约缺口） |
-| `LoadedMapIdResolver` | 读 `gameplay.PlayerUnitProvider()` 当前 `Entity.MapId`，取不到时退化占位 id `world.unknown` | `ShellHost` 构造必填委托 |
+| `LoadedMapIdResolver` | `null`（缺口 11 恢复：`ShellHost.LoadGame` 现优先用 `LoadResult.CurrentMapId`，本委托降级为该字段为 null 时才用的可选覆盖） | 见 `presentation/shell/core/ShellHost.cs` `LoadGame` 判断记录 |
 | `TargetResolver` | 恒 `null`（当前无目标） | `TargetPathProvider` 用 |
 | `HudPowerTypes` | `[WellKnownPowers.Health]` | 与 `CreatureOptions.DefaultPowerTypes` 同一默认 |
-| `CharacterStatConfig`/`EquipmentSlotIds`/`PauseMenuOptions`/`SettingsActionNames`/`SettingsLayers` | 空列表（`SettingsLayers` 默认从已加载 `sfx.def.layer` 去重得到） | 架构未拍板具体游戏内容，见各字段注释 |
+| `CharacterStatConfig`/`EquipmentSlotIds`/`PauseMenuOptions`/`SettingsActionNames` | 空列表 | 架构未拍板具体游戏内容，见各字段注释 |
 | `OnFloatingText`/`OnFreeze`/`OnFlash` | 空实现 | 09 §6.1 四种反馈动作里，`play_vfx`/`play_sfx`/`shake_camera` 已经有默认落地（见装配步骤 3），其余三种的具体呈现（UI 控件池、tick 节奏、材质参数）不属于任何一个 L5 模块的契约范围 |
 | `AutoConfigureCameraFromFirstProfile` | `true` | 见装配步骤 1 |
-| `SaveGameId` | 占位 `game.unspecified` | 框架不知道具体游戏代号（见仓库 `CLAUDE.md` 硬性规则），具体游戏接入时应显式设置 |
+| `RenderOptions` | `null`（`RenderConventionHost` 用 `RenderOptions` 默认值构造，`DirectionIndexRemap` 恒等映射） | 缺口 8：镜头朝向与 05 §3.1 默认约定不一致时的口味配置项入口 |
 | `NewGameStarter` | 真正被调用时抛 `NotSupportedException`（构造期不调用，不影响"构造成功"） | 如何创建一局新游戏的起始状态是具体游戏的事，框架没有默认实现 |
 | `ViewBinderOptions`/`VfxOptions`/`SfxOptions`/`CameraHostOptions`/`FeedbackOptions` | 透传各模块自己的默认值（`null`） | 各模块既有策略配置项，见各自 README |
 
+（已解决，从本表删除）`ActionBarSlotBindingResolver`/`SaveGameId` 两项此前的"既有契约缺口"均已
+解决：动作条槽位绑定改经 `gameplay.Carriers.SkillBindings`（`Core.Carriers.Unit.ISkillBindingHost`，
+G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly` 构造期传入（G1 遗留跟进），
+`PresentationAssembly` 不再自建、`SaveGameId` 字段已删除，`SaveSystem` 属性直接转发
+`gameplay.SaveSystem`。`SettingsLayers`（原表格一行）已随 `SettingsViewModel` 改接
+`IAudioLayerVolumeHost`（缺口 12）一并删除——层清单现由 `AudioLayerVolumeHost` 从
+`sfx.def.layer` 去重 + `music` 计算，不再是可覆盖的选项字段。
+
 ## 退订
 
-`PresentationAssembly.Dispose()`（幂等）依次 `Dispose()`：`FeedbackBinder`、`ShellHost`、
-`ShellViewModel`、十个 UI 视图模型——这些类型自己持有 `SubscriptionHandle` 列表并在 `Dispose`
-里逐一释放（见各自源码）。`ViewBinder`/`CameraHost` 未实现 `IDisposable`（构造期内部
-`bus.Subscribe` 没有对外暴露句柄），本方法不能代为退订，这是已知缺口（见"判断记录"4）。
+`PresentationAssembly.Dispose()`（幂等）依次 `Dispose()`：`ViewBinder`、`Camera`（`CameraHost`）、
+`FeedbackBinder`、`ShellHost`、`ShellViewModel`、十个 UI 视图模型——全部类型均持有
+`SubscriptionHandle` 列表并在 `Dispose` 里逐一释放（见各自源码）。**`ViewBinder`/`CameraHost`
+未实现 `IDisposable` 已解决（缺口 5）**：两者均已实现，构造期内部 `bus.Subscribe` 返回的句柄
+现被保存并在各自 `Dispose` 里退订；测试见 `ViewBinderTests.Dispose_*`/`CameraHostTests.Dispose_*`。
 
 ## 判断记录
 
@@ -113,24 +122,22 @@ assembly/
    `IValidationRule.Validate(IDataRegistryView)` 形状不同，本类型不为其代造一个适配包装（避免
    发明新原语）；需要这项校验的调用方应在解析出 `FeedbackRule` 列表后自行调用，见
    `presentation/feedback_binder/README.md`。
-3. **`InputMapHost`/`L10nHost`/`ISaveSystem`/`ISettingsStore` 由本装配根自行构造，不是
-   `GameplayAssembly` 的属性**：前两者是 L0 基础设施但从未被 `GameplayAssembly` 十个 L4 宿主
-   持有；后两者的构造需要引擎侧 `IFileSystem`，`GameplayAssembly.RegisterPersistables` 的既有
-   签名只接收调用方已经构造好的 `ISaveSystem` 实例，说明"谁拥有 `ISaveSystem`"本就是组装层
-   （不是 `GameplayAssembly` 自己）的职责。调用方若已有自己的 `ISaveSystem` 实例（例如与
-   `GameplayAssembly.RegisterPersistables` 共用同一份），应改为直接读取
-   `PresentationAssembly.SaveSystem` 属性并把同一实例传给 `RegisterPersistables`，不要另建
-   第二份（`SaveSystem`/`SettingsStore` 本身不是单例，两份实例会指向同一 `IFileSystem` 目录但
-   互不知晓对方内存状态）。
-4. **`ViewBinder`/`CameraHost` 不支持退订**：两者构造期直接 `bus.Subscribe(...)`，不像
-   `FeedbackBinder`/`ShellHost`/UI 视图模型那样把 `SubscriptionHandle` 收集起来对外暴露
-   `Dispose()`。`PresentationAssembly.Dispose()` 如实只退订能退订的部分，这是遗留在
-   `presentation/view_binding`/`presentation/camera` 两个模块里的既有缺口，不在本任务允许改动
-   范围内（新增 `IDisposable` 是这两个模块的公开契约变更，需要走 12 第 5 节流程评估）。
-5. **`AnchorResolver` 留空**：`presentation/vfx_sfx` 早已把这个记录为契约缺口（`render`/
-   `view_binding` 未提供锚点查询窄契约，见 `vfx_sfx/README.md`），本装配根不能凭空造一个能查询
-   具体纸娃娃锚点的实现，`EntityPositionResolver` 兜底到实体位置已是该模块判断记录允许的退化
-   路径。
+3. **`InputMapHost`/`L10nHost`/`ISettingsStore` 由本装配根自行构造，不是 `GameplayAssembly` 的
+   属性；`ISaveSystem` 已改由调用方在 `GameplayAssembly` 构造期传入（G1 遗留跟进）**：
+   `InputMapHost`/`L10nHost` 是 L0 基础设施但从未被 `GameplayAssembly` 十个 L4 宿主持有，仍由本
+   装配根自建；`ISaveSystem` 此前由本装配根自建（需要引擎侧 `IFileSystem`），现改为
+   `GameplayAssembly` 构造函数的第 6 位必填参数，`PresentationAssembly.SaveSystem` 属性直接转发
+   `gameplay.SaveSystem`（不再自建第二份，见类型注释"缺口 16"）——调用方只需构造一份 `ISaveSystem`
+   传给 `GameplayAssembly`，`PresentationAssembly`/`RegisterPersistables` 自动共用同一实例，不再
+   需要"两份实例互不知晓对方状态"的额外注意事项。`ISettingsStore` 仍由本装配根自建（构造期提前到
+   第一步，供缺口 12 的 `AudioLayerVolumeHost` 使用，见装配步骤 2 注释）。
+4. **`ViewBinder`/`CameraHost` 不支持退订——已解决（缺口 5）**：两者均已实现 `IDisposable`，
+   构造期 `bus.Subscribe(...)` 返回的句柄现被保存并在各自 `Dispose` 里退订，`PresentationAssembly`
+   共享同一个 `RenderConventionHost` 实例（见"退订"一节）。
+5. **`AnchorResolver` 留空——已解决（缺口 6）**：`presentation/render` 新增 `IAnchorQuery`
+   （`ViewBinder` 实现，见其类型注释"谁实现本接口"判断记录），本装配根构造 `VfxPlayer` 时改传
+   `ViewBinder.GetAnchorWorldPosition` 作为 `anchorResolver`；`EntityPositionResolver` 仍作为
+   `IAnchorQuery` 查不到时的兜底路径（未绑定 View/model 型外形/锚点未登记）。
 
 ## 验收测试（`tests/PresentationAssemblyTests.cs`）
 

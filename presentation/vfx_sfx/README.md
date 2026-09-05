@@ -25,14 +25,16 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
 
 ## 判断记录
 
-1. **`socket` 挂接降级为 `world`（契约缺口）**：`IRenderer3D.AttachToSocket(ModelHandle handle,
-   Id socketId, ModelHandle child)` 要求被挂接的子体是一个已创建的 `ModelHandle`（骨骼模型实例），
-   而不是"把一个粒子特效句柄挂到挂点上"；本模块的输入只有 `vfx.def.resource_ref` 与
-   实体/挂点 id，既没有预先创建好的子模型句柄，也没有"host 实体自己的 `ModelHandle`"这一信息
-   （由 `render`/`view_binding` 模块持有）。按设计拍板"若接口有但形状不满足，记诊断降级为
-   world"处理：用 `EntityPositionResolver` 取该实体位置，经 `IRenderer2D.EmitParticle` 以世界坐标
-   方式播放，并记一条诊断。集成阶段需要 `render` 模块补一个"创建子模型并 AttachToSocket"或"取
-   某实体某挂点的可挂接容器"的窄契约，才能实现真正的挂点挂接。
+1. **`socket` 挂接已解决（缺口 13）**：`presentation/common/contracts/IModelHandleProvider.cs`
+   （`IView` 的可选能力接口，`TryGetModelHandle()`）+ `ModelHandleResolver` 委托补齐了此前缺的
+   "host 实体自己的 `ModelHandle`"这一信息——`PresentationAssembly` 用 `ViewBinder.TryGetView` +
+   `is IModelHandleProvider` 判定接线。`VfxPlayer` 新增可选构造参数 `renderer3D`/
+   `modelHandleResolver`：两者均注入且该实体的 View 返回非空句柄时，`Spawn` 改经
+   `IRenderer3D.CreateModelInstance` 创建子模型并 `AttachToSocket` 真挂接（`Stop` 对称走
+   `Detach`/`DestroyModelInstance`）；任一未注入或该实体查不到句柄时，才退回下方"降级为
+   world"路径（诊断文案不变）。`SpriteViewBase`（sprite 型外形）不实现
+   `IModelHandleProvider`——sprite 型没有模型实例，这类实体仍走 world 降级，符合预期，不是遗留
+   缺口。
 2. **`ISfxPlayer.Play` 的 `at` 参数已由 ADR-0016 解决**：`IAudio.PlaySfx` 增加了
    `position: Optional<Vec2>` 参数（决策 3），`SfxPlayer.Play` 现把 `at` 直接透传给
    `IAudio.PlaySfx(position)`；不支持空间音频的引擎侧实现可以忽略该参数按无空间方式播放，但不得

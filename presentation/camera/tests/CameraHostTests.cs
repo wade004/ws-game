@@ -227,5 +227,56 @@ namespace Tests.PresentationCamera
             Assert.Null(ex);
             Assert.Equal(new Id("camera_profile.default"), host.CurrentProfile?.Id);
         }
+
+        // -----------------------------------------------------------------
+        // 缺口 5（退订）：Dispose 后不再响应 scene.load_finished/encounter.phase_changed。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Dispose_ThenSceneLoadFinishedEvent_DoesNotResetFollowTarget()
+        {
+            var camera = new StubCamera();
+            var followTarget = new FakeFollowTarget { NextPosition = new Vec2(1, 1) };
+            var bus = CreateBus();
+            var host = new CameraHost(camera, followTarget, bus);
+            host.Configure(MakeProfile(new Id("camera_profile.default")));
+            host.Follow(new Id("unit.player_1"));
+            host.Dispose();
+
+            bus.PublishImmediate(new SceneLoadFinishedEvent(new Id("map.next")));
+
+            Assert.Equal(new Id("unit.player_1"), host.FollowEntityId);
+        }
+
+        [Fact]
+        public void Dispose_ThenEncounterPhaseChangedEvent_DoesNotSwitchProfile()
+        {
+            var camera = new StubCamera();
+            var bus = CreateBus();
+            var phaseSwitch = new Dictionary<int, Id> { [1] = new Id("camera_profile.phase1") };
+            var host = new CameraHost(camera, new FakeFollowTarget(), bus, new CameraHostOptions(phaseProfileSwitch: phaseSwitch));
+            host.Configure(MakeProfile(new Id("camera_profile.default")));
+            host.RegisterProfile(new CameraProfile(new Id("camera_profile.phase1"), pitchDegrees: 40, yawDegrees: 10, zoomMin: 1, zoomMax: 3, zoomDefault: 2, followLerp: 0.1));
+            host.Dispose();
+
+            bus.PublishImmediate(new EncounterPhaseChangedEvent(new Id("encounter.inst_1"), oldPhase: 0, newPhase: 1));
+
+            Assert.Equal(new Id("camera_profile.default"), host.CurrentProfile?.Id);
+        }
+
+        [Fact]
+        public void Dispose_IsIdempotent_CalledTwiceDoesNotThrow()
+        {
+            var camera = new StubCamera();
+            var host = new CameraHost(camera, new FakeFollowTarget());
+
+            var ex = Record.Exception(() =>
+            {
+                host.Dispose();
+                host.Dispose();
+            });
+
+            Assert.Null(ex);
+        }
     }
 }

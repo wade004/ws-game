@@ -13,13 +13,18 @@ namespace Presentation.Camera
     /// 全部操作经 <see cref="ICamera"/>（L-1）完成（铁律 P4）；跟随目标位置经
     /// <see cref="ICameraFollowTarget"/> 只读获取（铁律 P1）。
     /// </summary>
-    public sealed class CameraHost : ICameraHost
+    public sealed class CameraHost : ICameraHost, IDisposable
     {
         private readonly ICamera _camera;
         private readonly ICameraFollowTarget _followTarget;
         private readonly CameraHostOptions _options;
 
         private readonly Dictionary<Id, CameraProfile> _profiles = new Dictionary<Id, CameraProfile>();
+
+        /// <summary>缺口 5（退订）：构造期建立的全部事件订阅句柄（<paramref name="bus"/> 为 null 时
+        /// 恒为空列表），供 <see cref="Dispose"/> 统一退订。</summary>
+        private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
+        private bool _disposed;
 
         private CameraProfile? _currentProfile;
         private Id? _followEntityId;
@@ -36,9 +41,26 @@ namespace Presentation.Camera
 
             if (bus != null)
             {
-                bus.Subscribe<SceneLoadFinishedEvent>(SceneRouterEventKeys.LoadFinished, _ => OnSceneLoadFinished());
-                bus.Subscribe<EncounterPhaseChangedEvent>(EncounterEventKeys.PhaseChanged, OnEncounterPhaseChanged);
+                _subscriptions.Add(bus.Subscribe<SceneLoadFinishedEvent>(SceneRouterEventKeys.LoadFinished, _ => OnSceneLoadFinished()));
+                _subscriptions.Add(bus.Subscribe<EncounterPhaseChangedEvent>(EncounterEventKeys.PhaseChanged, OnEncounterPhaseChanged));
             }
+        }
+
+        /// <summary>退订构造期建立的全部事件订阅（缺口 5）。退订后场景加载完成/遭遇阶段变化不再
+        /// 更新镜头；幂等，多次调用只生效一次。</summary>
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _disposed = true;
+
+            foreach (var sub in _subscriptions)
+            {
+                sub.Dispose();
+            }
+            _subscriptions.Clear();
         }
 
         /// <summary>当前生效的 profile；未 <see cref="Configure"/> 前为 null。</summary>

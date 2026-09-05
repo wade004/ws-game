@@ -19,6 +19,11 @@
           "text_key": "l10n.dialog.sample_hunter.option_vendor",
           "visible_if": "true",
           "actions": [ { "kind": "vendor" } ]
+        },
+        {
+          "text_key": "l10n.dialog.sample_hunter.option_save",
+          "visible_if": "true",
+          "actions": [ { "kind": "save" } ]
         }
       ]
     }

@@ -57,8 +57,8 @@ namespace Tests.PresentationShell
                         StartedDifficultyId = difficultyId;
                         return StartMap;
                     },
-                    () => LoadedMapIdResult,
-                    () => "2026-09-05T00:00:00Z");
+                    () => "2026-09-05T00:00:00Z",
+                    loadedMapIdResolver: () => LoadedMapIdResult);
             }
         }
 
@@ -249,7 +249,7 @@ namespace Tests.PresentationShell
             var freshInputMap = new FakeInputMapHost();
             var freshShell = new ShellHost(
                 f.AppState, f.SceneRouter, f.SaveSys, f.SettingsStoreInstance, f.Difficulty, freshInputMap, f.EventBus,
-                (slotId, difficultyId, archetypeId) => f.StartMap, () => f.StartMap, () => "t");
+                (slotId, difficultyId, archetypeId) => f.StartMap, () => "t", loadedMapIdResolver: () => f.StartMap);
 
             var loaded = freshShell.LoadSettings();
 

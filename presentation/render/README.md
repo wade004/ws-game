@@ -97,8 +97,9 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
    `Presentation.Common.DirectionSlots.FromQuantized` 类型注释的完整推导：依据 05 第 3.1 节
    "sortY 越大越靠前，即 +y 朝向观察者"确定 `front` = 角度 90°（+Y 轴），配合
    `Core.Carriers.Unit.DirectionQuantizer` 的既有约定（index 0 = 角度 0 = +X 轴，按角度递增/逆时针
-   编号）反推出上方对照表。具体游戏镜头朝向如与此不一致，只需在游戏层加一层索引重映射（不改动本
-   模块任何签名）。
+   编号）反推出上方对照表。**"游戏层加一层索引重映射"已解决（缺口 8，见
+   `RenderConventionHost` 构造函数）**：`RenderOptions.DirectionIndexRemap`（长度须等于当前方向档位
+   数，默认 null 恒等映射）在 `ResolveDirectionSlot` 换算规范档位之前生效，不改本模块任何签名。
 2. **`Id` 前缀判断记录（契约缺口，见任务书要求核对并汇报）**：14 §2.1、
    `toolchain/asset_import/directions.py`、`assets/_placeholder/sprites/*/anchors.json` 三处一致
    使用不带前缀的裸档位名（如 `front_side_r`），但 `Core.Foundation.Common.Id` 的格式要求"至少一个
@@ -117,10 +118,13 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
    直接复用这套文件名模板（同一套命名，避免"文件叫什么"与"运行期 Id 叫什么"各自发明一套），只在
    外面包一层 `"layer."` 域前缀满足 `Id` 格式要求；方向档位段经 `DirectionSlots.StripPrefix` 还原
    成裸名字。`protected virtual`，具体游戏按自己的资源命名规则重写。
-4. **`SpriteViewBase.OnEvent` 默认空实现**：装备变化（`item.equipped`/`item.unequipped`）要更新
-   纸娃娃层，需要"已装备物品的 DisplayInfo"（尚待 L3 `item` 模块提供的查询能力，不在本任务范围），
-   本类型只提供 `SetPaperdollLayers` 这个底层原语，`OnEvent` 留给具体游戏 View 子类或后续
-   `presentation/feedback_binder` 重写实现"收到什么事件时传什么层名列表"这一策略。
+4. **`SpriteViewBase.OnEvent` 已默认处理装备变化（缺口 10）**：新增
+   `presentation/render/contracts/EquipVisualDef.cs`（`display.equip_visual` 强类型视图）+ 构造期
+   可选注入 `IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId`（按物品实例 id
+   索引，见判断记录"为何按实例 id 而不是 item_id"）；`OnEvent` 收到 `item.equipped`/
+   `item.unequipped` 时按该表重新解析对应槽位的纸娃娃层资源并调用 `SetLayers`，未注入该表或查不到
+   对应行时保持不变（等价于此前的默认空实现）。`mesh_ref` 不经方向档位换算，是已知简化（见类型
+   注释判断记录）。
 5. **高度偏移已由 ADR-0016 解决**：`IRenderer2D.SetTransform` 增加了 `height` 参数
    （与 `IRenderer3D.SetPlacement` 对齐），`SyncPose` 现直接把换算出的像素高度经这个正式参数传递，
    不再借用 `SetShaderParam` 通道，`HeightOffsetShaderParam` 常量已删除。
@@ -128,6 +132,12 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
    `sprite_set_id`、`SetPaperdollLayers` 期间对每个新解析出的纸娃娃层资源 id，均以
    `ResourceKind.Image` 触发一次 `LoadAsync`（同一 id 只触发一次，见
    `Presentation.Common.ResourceReferenceTracker`）。
+7. **`IAnchorQuery` 锚点查询已解决（缺口 6）**：`contracts/IAnchorQuery.cs` 声明
+   `Vec2? GetAnchorWorldPosition(Id entityId, Id anchorId)`，由 `presentation/view_binding` 的
+   `ViewBinder` 实现（谁持有 View 绑定表与 `ISimSnapshot` 谁实现，`RenderConventionHost` 本身无
+   状态不适合持有，见该接口类型注释判断记录）；镜像下锚点偏移的水平分量换算复用
+   `IRenderConventionHost.ResolveDirectionSlot` 同一套镜像判定，不重复实现。`PresentationAssembly`
+   把它接到 `vfx_sfx` 的 `AnchorResolver`。
 
 ## 契约缺口
 

@@ -59,10 +59,15 @@ unit.<id>.stat.<statId>
 - `SkillHost.GetKnownSkills` 不在 `ISkillHost` 契约上（是具体类 `Core.Rules.Skill.SkillHost` 的
   公开方法），本模块定义窄接口 `ISkillBookQuery` + 适配器 `SkillHostSkillBookQuery` 收敛依赖，
   测试用内存 Fake 替代，不必搭建 `SkillHost` 的完整构造依赖链。
-- 没有宿主契约暴露"动作条槽位 → 技能 id"的绑定查询（10 第 2.2 节 `skill_bindings` 只是存档
-  字段，无运行期查询接口），`ActionBarViewModel` 把绑定表达为外部注入的 `Func<int, Id?>`。
-- 分层音效音量属于 `presentation/vfx_sfx`（并行任务），`SettingsViewModel`/`UiIntents` 把它表达
-  为外部注入的读/写回调，不在本模块内定义音量宿主契约。
+（已解决，缺口 4）此前"没有宿主契约暴露'动作条槽位 → 技能 id'绑定查询"——G1 补了
+`Core.Carriers.Unit.ISkillBindingHost`（`player.skill_bindings` 运行期查询/写入），
+`ActionBarViewModel` 已改用它替代 `Func<int, Id?>` 注入委托；`UiIntents` 新增
+`BindActionBarSlot`/`UnbindActionBarSlot` 作为技能书面板拖放/点击绑定的意图入口。
+
+（已解决，缺口 12）此前"分层音效音量没有专门的音量宿主契约"——`presentation/vfx_sfx` 已补
+`IAudioLayerVolumeHost`（层清单 = `sfx.def.layer` 去重 + `music`，读写经 `IAudio`/`ISfxPlayer`
+落地并经 `ISettingsStore` 持久化），`SettingsViewModel`/`UiIntents` 已改用它，删除此前的
+`Func<string, double>`/`Action<string, double>` 注入回调。
 
 （P4-2 已修补，不再是契约缺口）`IDialogHost` 原先没有对称于 `GetStoryView` 的 `GetGossipView` 只读
 查询，`DialogViewModel` 的 gossip 视图需要打开菜单的调用方手动灌入；`IDialogHost.GetGossipView`

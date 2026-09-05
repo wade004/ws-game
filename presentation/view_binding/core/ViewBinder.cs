@@ -7,6 +7,8 @@ using Core.Foundation.Expr;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 using Presentation.Common;
+using Presentation.Render;
+using Presentation.VfxSfx.Contracts;
 
 namespace Presentation.ViewBinding
 {
@@ -41,7 +43,7 @@ namespace Presentation.ViewBinding
     /// 组装代码持有具体类型调用），不污染文档定义的最小接口面。
     /// </para>
     /// </summary>
-    public sealed class ViewBinder : IViewBinder
+    public sealed class ViewBinder : IViewBinder, IDisposable, IAnchorQuery
     {
         private static readonly string[] CandidateEntityFields =
         {
@@ -53,10 +55,20 @@ namespace Presentation.ViewBinding
         private readonly IDisplayInfoRegistry _displayInfo;
         private readonly ViewBinderOptions _options;
 
+        /// <summary>缺口 6（<see cref="IAnchorQuery"/>）：镜像判定复用 <see cref="RenderConventionHost"/>
+        /// 同一套逻辑，不重复实现（见 <see cref="IAnchorQuery"/> 类型注释判断记录）。</summary>
+        private readonly IRenderConventionHost _renderConvention;
+        private readonly IPresentationDiagnostics _diagnostics;
+
         private readonly Dictionary<Id, IView> _views = new Dictionary<Id, IView>();
         private readonly Dictionary<Id, Id> _displayIds = new Dictionary<Id, Id>();
         private readonly Dictionary<Id, Vec2> _prevPositions = new Dictionary<Id, Vec2>();
         private readonly Dictionary<Id, Vec2> _currPositions = new Dictionary<Id, Vec2>();
+
+        /// <summary>缺口 5（退订）：构造期建立的全部事件订阅句柄，供 <see cref="Dispose"/> 统一退订
+        /// （惯例同 <c>Presentation.FeedbackBinder.Core.FeedbackBinder</c>）。</summary>
+        private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
+        private bool _disposed;
 
         /// <summary>创建但映射不出已知 <see cref="ViewKind"/> 的实体 <c>Kind</c> 字符串（诊断用，
         /// 见 <see cref="Common.EntityKindMapping"/> 契约缺口说明），供测试/日志查看，不参与任何
@@ -69,7 +81,9 @@ namespace Presentation.ViewBinding
             IViewFactory factory,
             ISimSnapshot snapshot,
             IDisplayInfoRegistry displayInfo,
-            ViewBinderOptions? options = null)
+            ViewBinderOptions? options = null,
+            IRenderConventionHost? renderConvention = null,
+            IPresentationDiagnostics? diagnostics = null)
         {
             if (bus == null)
             {
@@ -80,15 +94,34 @@ namespace Presentation.ViewBinding
             _snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
             _displayInfo = displayInfo ?? throw new ArgumentNullException(nameof(displayInfo));
             _options = options ?? new ViewBinderOptions();
+            _renderConvention = renderConvention ?? new RenderConventionHost();
+            _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
 
-            bus.Subscribe<EntityCreatedEvent>(SimEventKeys.EntityCreated, e => OnEntityCreated(e.EntityId, e.Kind, e.DisplayId));
-            bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, e => OnEntityDestroyed(e.EntityId));
-            bus.Subscribe<SimTickFinishedEvent>(SimEventKeys.TickFinished, _ => OnTickFinished());
+            _subscriptions.Add(bus.Subscribe<EntityCreatedEvent>(SimEventKeys.EntityCreated, e => OnEntityCreated(e.EntityId, e.Kind, e.DisplayId)));
+            _subscriptions.Add(bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, e => OnEntityDestroyed(e.EntityId)));
+            _subscriptions.Add(bus.Subscribe<SimTickFinishedEvent>(SimEventKeys.TickFinished, _ => OnTickFinished()));
 
             for (var i = 0; i < _options.ForwardedEventKeys.Count; i++)
             {
-                bus.Subscribe(_options.ForwardedEventKeys[i], OnForwardableEvent);
+                _subscriptions.Add(bus.Subscribe(_options.ForwardedEventKeys[i], OnForwardableEvent));
             }
+        }
+
+        /// <summary>退订构造期建立的全部事件订阅（缺口 5）。退订后不再创建/销毁 View、不再更新
+        /// <see cref="OnTickFinished"/> 快照、不再转发事件；幂等，多次调用只生效一次。</summary>
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _disposed = true;
+
+            foreach (var sub in _subscriptions)
+            {
+                sub.Dispose();
+            }
+            _subscriptions.Clear();
         }
 
         /// <summary>当前绑定的 View 数量。</summary>
@@ -193,6 +226,69 @@ namespace Presentation.ViewBinding
             }
 
             return Direction.FromQuantized(facingRadians, _options.DefaultDirectionCount);
+        }
+
+        /// <summary>缺口 6：<see cref="IAnchorQuery"/> 实现，见接口注释判断记录。</summary>
+        public Vec2? GetAnchorWorldPosition(Id entityId, Id anchorId)
+        {
+            if (!_views.ContainsKey(entityId))
+            {
+                _diagnostics.Warn($"锚点查询：实体 \"{entityId}\" 未绑定 View");
+                return null;
+            }
+
+            if (!_displayIds.TryGetValue(entityId, out var displayId))
+            {
+                _diagnostics.Warn($"锚点查询：实体 \"{entityId}\" 没有关联的 DisplayId");
+                return null;
+            }
+
+            var info = _displayInfo.Lookup(displayId);
+            if (info == null)
+            {
+                _diagnostics.Warn($"锚点查询：DisplayId \"{displayId}\" 查不到 DisplayInfo（未登记/尚未 Reload）");
+                return null;
+            }
+
+            if (info.Kind != DisplayKind.Sprite || info.Sprite == null)
+            {
+                _diagnostics.Warn($"锚点查询：实体 \"{entityId}\" 是 model 型外形，锚点查询只服务 sprite 型（见 09 第 3.3.2 节挂点查询）");
+                return null;
+            }
+
+            var spriteInfo = info.Sprite;
+            if (!spriteInfo.AnchorPoints.TryGetValue(BareAnchorName(anchorId), out var baseOffset))
+            {
+                _diagnostics.Warn($"锚点查询：\"{displayId}\" 未登记锚点 \"{anchorId}\"");
+                return null;
+            }
+
+            if (!_snapshot.Exists(entityId))
+            {
+                _diagnostics.Warn($"锚点查询：实体 \"{entityId}\" 在 ISimSnapshot 中不存在");
+                return null;
+            }
+
+            var facing = _snapshot.GetFacing(entityId);
+            var direction = Direction.FromQuantized(facing, spriteInfo.DirectionCount);
+            var (_, flipX) = _renderConvention.ResolveDirectionSlot(direction, spriteInfo);
+
+            var offset = flipX ? new Vec2(-baseOffset.X, baseOffset.Y) : baseOffset;
+            var entityPos = _snapshot.GetPosition(entityId);
+            return entityPos + offset;
+        }
+
+        /// <summary>把调用方传入的锚点 <see cref="Id"/>（如 <c>"anchor.hand_main"</c>，见
+        /// <c>VfxAttach.Anchor</c> 调用惯例——<see cref="Id"/> 要求"至少一个点分段"，
+        /// <c>display.map.anchor_points</c> 的裸键名（如 <c>"hand_main"</c>）本身不满足该格式）还原成
+        /// <c>anchor_points</c> 字典使用的裸键名：取最后一个点分段，同
+        /// <see cref="Presentation.Common.DirectionSlots.StripPrefix"/>/
+        /// <c>SpriteViewBase.LayerNameFromSlotId</c> 同一惯例。</summary>
+        private static string BareAnchorName(Id anchorId)
+        {
+            var value = anchorId.Value;
+            var dotIndex = value.LastIndexOf('.');
+            return dotIndex < 0 ? value : value.Substring(dotIndex + 1);
         }
 
         private void OnTickFinished()

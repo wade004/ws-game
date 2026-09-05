@@ -48,8 +48,9 @@ namespace Tests.PresentationUi
             var world = new UiWorldFixture();
             var fireball = new Id("skill.fireball");
             world.SkillBook.SetCooldownForTest(world.PlayerId, fireball, 2.0);
+            world.SkillBindings.Bind(world.PlayerId, "slot_0", fireball);
 
-            using var vm = new ActionBarViewModel(world.DataSource, world.PlayerId, 2, slot => slot == 0 ? fireball : (Id?)null);
+            using var vm = new ActionBarViewModel(world.DataSource, world.PlayerId, 2, world.SkillBindings);
 
             Assert.Equal(2, vm.SlotCount);
             Assert.Equal(fireball, vm.Slots[0].SkillId);
@@ -144,8 +145,10 @@ namespace Tests.PresentationUi
             inputMap.SetBindingsForTest("input.action.move", "key:w");
             inputMap.SetBindingsForTest("input.action.jump", "key:w");
 
+            var audioVolume = new FakeAudioLayerVolumeHost(new[] { "sfx" });
+            audioVolume.SetVolume("sfx", 0.7);
             using var vm = new SettingsViewModel(
-                world.DataSource, l10n, inputMap, new[] { "input.action.move", "input.action.jump" }, new[] { "sfx" }, layer => 0.7);
+                world.DataSource, l10n, inputMap, new[] { "input.action.move", "input.action.jump" }, audioVolume);
 
             Assert.Equal(new Id("l10n.en_us"), vm.Locale);
             Assert.Equal(0.7, vm.LayerVolumes["sfx"]);

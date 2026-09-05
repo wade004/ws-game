@@ -7,6 +7,7 @@ using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 using Presentation.Common;
+using Presentation.VfxSfx.Contracts;
 using Presentation.ViewBinding;
 using Xunit;
 
@@ -369,6 +370,138 @@ namespace Tests.PresentationViewBinding
             bus.PublishImmediate(evt);
 
             Assert.Empty(factory.CreatedByEntityId[entity.EntityId].ReceivedEvents);
+        }
+
+        // -----------------------------------------------------------------
+        // 缺口 5（退订）：Dispose 后不再响应 entity.created/entity.destroyed/sim.tick_finished。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Dispose_ThenEntityCreatedEvent_DoesNotCreateView()
+        {
+            var (world, bus) = BuildWorld();
+            var binder = BuildBinder(world, bus, out var factory, out _);
+            binder.Dispose();
+
+            var entity = new TestEntity(new Id("unit.after_dispose"), MapId);
+            world.AddEntity(entity);
+            world.Tick(SimStep.Continuous(0.016));
+
+            Assert.Equal(0, binder.Count);
+            Assert.Empty(factory.Calls);
+        }
+
+        [Fact]
+        public void Dispose_IsIdempotent_CalledTwiceDoesNotThrow()
+        {
+            var (world, bus) = BuildWorld();
+            var binder = BuildBinder(world, bus, out _, out _);
+
+            var ex = Record.Exception(() =>
+            {
+                binder.Dispose();
+                binder.Dispose();
+            });
+
+            Assert.Null(ex);
+        }
+
+        // -----------------------------------------------------------------
+        // 缺口 6（IAnchorQuery）：占位英雄 hand_main 锚点在 front/side_l 两档位下的世界坐标。
+        // -----------------------------------------------------------------
+
+        private static DisplayInfo MakeSpriteDisplayInfo(Id displayId, Id logicalId, Vec2 handMainOffset)
+        {
+            var mirrorPairs = new List<MirrorPair>
+            {
+                new MirrorPair(DirectionSlots.SideL, DirectionSlots.SideR, flipX: true),
+                new MirrorPair(DirectionSlots.FrontSideL, DirectionSlots.FrontSideR, flipX: true),
+                new MirrorPair(DirectionSlots.BackSideL, DirectionSlots.BackSideR, flipX: true),
+            };
+            var anchorPoints = new Dictionary<string, Vec2> { ["hand_main"] = handMainOffset };
+            var sprite = new SpriteInfo("sprite.placeholder_hero", directionCount: 8, mirrorPairs, paperdollLayers: null, anchorPoints: anchorPoints);
+            return new DisplayInfo(
+                displayId, DisplayCategory.Creature, logicalId, DisplayKind.Sprite,
+                iconId: null, vfxId: null, sfxId: null, scale: 1.0, shadow: ShadowMode.Blob, sortOffset: 0,
+                weaponStyleRef: null, sprite: sprite, model: null);
+        }
+
+        [Fact]
+        public void GetAnchorWorldPosition_FrontAndSideL_MatchesAnchorPointsWithMirrorFlip()
+        {
+            var (world, bus) = BuildWorld();
+            var binder = BuildBinder(world, bus, out _, out var displayInfo);
+
+            // 判断记录：ViewBinder._displayIds 存的是 EntityCreatedEvent.DisplayId（=
+            // entity.TemplateId ?? entity.EntityId），而 IDisplayInfoRegistry.Lookup 按
+            // DisplayInfo.LogicalId 查（见 IDisplayInfoRegistry.Lookup 签名注释"按……逻辑对象的外形"），
+            // 两者是同一个 id——生产环境下 entity.TemplateId（如 CreatureUnit 的 creature.template
+            // id）与其 display.map 行的 logical_id 按惯例取同一个值，本测试直接令两者相等，不另造一个
+            // "display.map.<name>" 记录自身 id 去冒充它（那是 DisplayInfo.Id，不参与本次查找）。
+            var logicalId = new Id("creature.sample_hero");
+            var handMainOffset = new Vec2(1.1875, 1.8125);
+            displayInfo.Add(MakeSpriteDisplayInfo(new Id("display.map.sample_hero"), logicalId, handMainOffset));
+
+            var entity = new TestEntity(new Id("unit.anchor_hero"), MapId) { Position = new Vec2(10, 20), TemplateId = logicalId };
+            world.AddEntity(entity);
+            world.Tick(SimStep.Continuous(0.016));
+
+            // front：量化索引 2（8 方向），角度 90°（DirectionSlots 类型注释"8 方向完整对照表"）。
+            entity.Facing = Math.PI / 2;
+            var front = binder.GetAnchorWorldPosition(entity.EntityId, new Id("anchor.hand_main"));
+            Assert.NotNull(front);
+            Assert.Equal(10 + handMainOffset.X, front!.Value.X, 6);
+            Assert.Equal(20 + handMainOffset.Y, front.Value.Y, 6);
+
+            // side_l：量化索引 0，镜像自 side_r，水平分量取反。
+            entity.Facing = 0.0;
+            var sideL = binder.GetAnchorWorldPosition(entity.EntityId, new Id("anchor.hand_main"));
+            Assert.NotNull(sideL);
+            Assert.Equal(10 - handMainOffset.X, sideL!.Value.X, 6);
+            Assert.Equal(20 + handMainOffset.Y, sideL.Value.Y, 6);
+        }
+
+        [Fact]
+        public void GetAnchorWorldPosition_UnboundEntity_ReturnsNullAndRecordsDiagnostic()
+        {
+            var (world, bus) = BuildWorld();
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var factory = new FakeViewFactory();
+            var displayInfo = new FakeDisplayInfoRegistry();
+            var snapshot = new WorldSimSnapshot(world);
+            var binder = new ViewBinder(bus, factory, snapshot, displayInfo, diagnostics: diagnostics);
+
+            var result = binder.GetAnchorWorldPosition(new Id("unit.missing"), new Id("anchor.hand_main"));
+
+            Assert.Null(result);
+            Assert.NotEmpty(diagnostics.Warnings);
+        }
+
+        [Fact]
+        public void GetAnchorWorldPosition_ModelKindDisplayInfo_ReturnsNullAndRecordsDiagnostic()
+        {
+            var (world, bus) = BuildWorld();
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var factory = new FakeViewFactory();
+            var displayInfo = new FakeDisplayInfoRegistry();
+            var snapshot = new WorldSimSnapshot(world);
+            var binder = new ViewBinder(bus, factory, snapshot, displayInfo, diagnostics: diagnostics);
+
+            var logicalId = new Id("creature.model_hero");
+            var model = new ModelInfo(new Id("model.hero"), new Id("anim_set.hero"), sockets: null, slots: null, defaultSlotMeshes: null, materialParams: null);
+            displayInfo.Add(new DisplayInfo(
+                new Id("display.map.model_hero"), DisplayCategory.Creature, logicalId, DisplayKind.Model,
+                iconId: null, vfxId: null, sfxId: null, scale: 1.0, shadow: ShadowMode.Blob, sortOffset: 0,
+                weaponStyleRef: null, sprite: null, model: model));
+
+            var entity = new TestEntity(new Id("unit.model_hero"), MapId) { TemplateId = logicalId };
+            world.AddEntity(entity);
+            world.Tick(SimStep.Continuous(0.016));
+
+            var result = binder.GetAnchorWorldPosition(entity.EntityId, new Id("anchor.hand_main"));
+
+            Assert.Null(result);
+            Assert.NotEmpty(diagnostics.Warnings);
         }
     }
 }

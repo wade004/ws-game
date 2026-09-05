@@ -368,5 +368,29 @@ namespace Tests.Gameplay
                 "save_point 交互应经 GobjOptions.SaveRequester 触发 GameplayAssembly.SaveSystem.Save，" +
                 "在默认自动存档槽 \"slot.autosave\" 下写出文件");
         }
+
+        // -----------------------------------------------------------------
+        // 11. G1 遗留恢复：dialog.sample_hunter 第 4 个 gossip 选项（kind: save）经
+        //     DialogHost.saveRequested → GameplayAssembly.RequestAutosave → SaveSystem.Save 触发一次
+        //     自动存档（此前 saveRequested 传 null，08 第 3.1 节 gossip Action save 只记诊断、不产生
+        //     任何副作用）。与上一条用同一个默认自动存档槽 id，断言方式同上。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ChooseGossipSaveOption_TriggersAutosave_WritesAutosaveSlotFile()
+        {
+            var fx = GameWorldFixture.Build();
+
+            var autosaveSlotId = new Id("slot.autosave");
+            Assert.False(fx.Gameplay.SaveSystem.SlotExists(autosaveSlotId));
+
+            fx.Gameplay.Dialog.OpenGossip(GameWorldFixture.PlayerId, GameWorldFixture.NpcId, GameWorldFixture.DialogMenu);
+            var handled = fx.Gameplay.Dialog.ChooseOption(GameWorldFixture.PlayerId, 3); // save
+
+            Assert.True(handled);
+            Assert.True(fx.Gameplay.SaveSystem.SlotExists(autosaveSlotId),
+                "dialog.sample_hunter 的 save 选项应经 DialogHost.saveRequested 触发 GameplayAssembly.SaveSystem.Save，" +
+                "在默认自动存档槽 \"slot.autosave\" 下写出文件");
+        }
     }
 }

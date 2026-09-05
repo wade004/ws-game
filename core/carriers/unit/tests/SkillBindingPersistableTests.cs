@@ -54,9 +54,10 @@ namespace Tests.Carriers.Unit
 
             var saved = SkillBindingPersistable.For(savingHost, player).Save();
 
-            // 读档一侧：全新 host，已知技能查询恒返回 false（模拟"读档时刻已知技能集合为空"，见
-            // SkillBindingPersistable 判断记录——Load 不经 Bind 校验，理应不受影响）。
-            var loadingHost = new SkillBindingHost(NewBus(), (_, __) => false);
+            // 读档一侧：全新 host，已知技能查询恒返回 true（模拟 player.known_skills 段已先于本段
+            // 还原完毕，见 SkillBindingPersistable 判断记录——Load 现改回经 Bind 的已知技能校验，
+            // KnownSkillsPersistable 在 SaveSections.KnownOrder 里排在本段之前保证这一前提成立）。
+            var loadingHost = new SkillBindingHost(NewBus(), (_, __) => true);
             SkillBindingPersistable.For(loadingHost, player).Load(saved);
 
             var restored = loadingHost.GetBindings(player.EntityId);
@@ -93,6 +94,22 @@ namespace Tests.Carriers.Unit
             var badData = new JsonObjectBuilder().Add("slot_0", new JsonString("not an id")).Build();
 
             Assert.Throws<System.FormatException>(() => persistable.Load(badData));
+        }
+
+        [Fact]
+        public void Load_SkillNoLongerKnown_SkipsSlot_DoesNotThrow()
+        {
+            var savingHost = new SkillBindingHost(NewBus(), (_, __) => true);
+            var player = NewPlayer();
+            savingHost.Bind(player.EntityId, "slot_0", SkillFireball);
+            var saved = SkillBindingPersistable.For(savingHost, player).Save();
+
+            // 判断记录（G1 遗留恢复）：player.known_skills 段还原后不含 SkillFireball（例如内容更新
+            // 移除了该技能）——Load 改回经 Bind 校验后，该槽位被静默拒绝、不写入，不抛异常中断读档。
+            var loadingHost = new SkillBindingHost(NewBus(), (_, __) => false);
+            SkillBindingPersistable.For(loadingHost, player).Load(saved);
+
+            Assert.Empty(loadingHost.GetBindings(player.EntityId));
         }
     }
 }

@@ -26,13 +26,25 @@ namespace Presentation.VfxSfx.Core
         private readonly VfxPool _pool;
         private readonly Presentation.Common.ResourceReferenceTracker? _resourceTracker;
 
+        /// <summary>缺口 13：<c>attach_mode: socket</c> 真挂接所需的两项（均可选，任一为 null 时
+        /// socket 模式退回既有"降级为 world"路径，见 <see cref="TrySpawnAttachedToSocket"/>）。</summary>
+        private readonly IRenderer3D? _renderer3D;
+        private readonly ModelHandleResolver? _modelHandleResolver;
+
         /// <summary>句柄 → 所属 <c>vfx.def.category</c>，供 <see cref="Stop"/> 时同步从
         /// <see cref="_pool"/> 摘除记录（<see cref="VfxPool.Untrack"/> 需要遍历全部分类，这里
         /// 反向索引一份避免每次 Stop 都线性扫描全部池）。</summary>
         private readonly Dictionary<ParticleHandle, string> _handleCategory = new Dictionary<ParticleHandle, string>();
 
+        /// <summary>缺口 13：socket 真挂接产生的合成 <see cref="ParticleHandle"/>（见
+        /// <see cref="TrySpawnAttachedToSocket"/> 判断记录）→ 对应的子 <see cref="ModelHandle"/>，
+        /// 供 <see cref="StopInternal"/> 区分"该 Stop 调用要拆的是一次真挂接还是一次 2D 粒子"。</summary>
+        private readonly Dictionary<ParticleHandle, ModelHandle> _socketModelHandles = new Dictionary<ParticleHandle, ModelHandle>();
+
         /// <summary><paramref name="resourceLoader"/> 可选：未注入时不主动触发任何资源加载
-        /// （沿用注入前的行为，供不接 <see cref="IResourceLoader"/> 的最小测试/集成场景使用）。</summary>
+        /// （沿用注入前的行为，供不接 <see cref="IResourceLoader"/> 的最小测试/集成场景使用）。
+        /// <paramref name="renderer3D"/>/<paramref name="modelHandleResolver"/> 可选（缺口 13，见
+        /// <see cref="TrySpawnAttachedToSocket"/> 判断记录）。</summary>
         public VfxPlayer(
             IRenderer2D renderer2D,
             ICamera camera,
@@ -41,7 +53,9 @@ namespace Presentation.VfxSfx.Core
             AnchorResolver? anchorResolver = null,
             EntityPositionResolver? entityPositionResolver = null,
             IPresentationDiagnostics? diagnostics = null,
-            IResourceLoader? resourceLoader = null)
+            IResourceLoader? resourceLoader = null,
+            IRenderer3D? renderer3D = null,
+            ModelHandleResolver? modelHandleResolver = null)
         {
             _renderer2D = renderer2D ?? throw new ArgumentNullException(nameof(renderer2D));
             _camera = camera ?? throw new ArgumentNullException(nameof(camera));
@@ -52,6 +66,8 @@ namespace Presentation.VfxSfx.Core
             _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
             _pool = new VfxPool(_options, StopInternal);
             _resourceTracker = resourceLoader != null ? new Presentation.Common.ResourceReferenceTracker(resourceLoader) : null;
+            _renderer3D = renderer3D;
+            _modelHandleResolver = modelHandleResolver;
         }
 
         public ParticleHandle? Spawn(Id vfxId, VfxAttach at, IReadOnlyDictionary<string, double>? parameters)
@@ -67,6 +83,17 @@ namespace Presentation.VfxSfx.Core
                 _diagnostics.Warn(
                     $"vfx \"{vfxId}\" 声明 attach_mode={def.AttachMode}，但调用方传入的 VfxAttach.Mode={at.Mode} 不一致，跳过播放");
                 return null;
+            }
+
+            if (def.AttachMode == VfxAttachMode.Socket)
+            {
+                var attached = TrySpawnAttachedToSocket(vfxId, def, at);
+                if (attached.HasValue)
+                {
+                    return attached;
+                }
+                // 未能真挂接（_renderer3D/_modelHandleResolver 未注入，或该实体的 View 没有
+                // ModelHandle）：继续走下方 world 降级路径（ResolveSocketDowngradedToWorld）。
             }
 
             var emitParams = parameters ?? EmptyParams;
@@ -93,6 +120,54 @@ namespace Presentation.VfxSfx.Core
             return handle;
         }
 
+        /// <summary>
+        /// 缺口 13：<c>attach_mode: socket</c> 真挂接（见 <see cref="Presentation.Common.IModelHandleProvider"/>
+        /// 类型注释）。<paramref name="_renderer3D"/>/<paramref name="_modelHandleResolver"/> 任一未
+        /// 注入，或 <see cref="ModelHandleResolver"/> 对该实体返回 null（View 未实现
+        /// <see cref="Presentation.Common.IModelHandleProvider"/>，或实现了但当前没有可用句柄），
+        /// 均返回 null，调用方据此退回既有 world 降级路径——不在本方法内记诊断（降级路径的
+        /// <see cref="ResolveSocketDowngradedToWorld"/> 已经记过）。
+        /// <para>
+        /// 判断记录（合成句柄）：<see cref="IVfxPlayer.Spawn"/> 的返回类型固定为
+        /// <see cref="ParticleHandle"/>（既有契约，不新增原语），但真挂接产生的是
+        /// <see cref="ModelHandle"/>（经 <see cref="IRenderer3D.CreateModelInstance"/>）；本方法把
+        /// <c>ModelHandle.Value</c> 换算成负值区间的 <see cref="ParticleHandle"/>
+        /// （<c>-(modelHandleValue + 1)</c>）作为调用方持有的句柄——负值区间与常规
+        /// <see cref="IRenderer2D.EmitParticle"/> 分配的正值句柄（同 <c>StubRenderer2D</c> 惯例"从 1
+        /// 自增"）不重叠，避免 <see cref="_handleCategory"/>/<see cref="_pool"/> 按 <c>ParticleHandle</c>
+        /// 相等性（只比较 <c>Value</c>）索引时两种句柄互相冲突；<see cref="_socketModelHandles"/>
+        /// 记录这份换算关系，供 <see cref="StopInternal"/> 识别并转发到
+        /// <see cref="IRenderer3D.Detach"/>/<see cref="IRenderer3D.DestroyModelInstance"/>，而不是
+        /// <see cref="IRenderer2D.StopParticle"/>。
+        /// </para>
+        /// </summary>
+        private ParticleHandle? TrySpawnAttachedToSocket(Id vfxId, VfxDef def, VfxAttach at)
+        {
+            if (_renderer3D == null || _modelHandleResolver == null)
+            {
+                return null;
+            }
+
+            var entityId = at.EntityId!.Value;
+            var socketId = at.PointId!.Value;
+
+            var hostHandle = _modelHandleResolver(entityId);
+            if (!hostHandle.HasValue)
+            {
+                return null;
+            }
+
+            _resourceTracker?.EnsureLoading(def.ResourceRef, ResourceKind.Effect);
+            var childHandle = _renderer3D.CreateModelInstance(def.ResourceRef);
+            _renderer3D.AttachToSocket(hostHandle.Value, socketId, childHandle);
+
+            var particleHandle = new ParticleHandle(-(childHandle.Value + 1));
+            _socketModelHandles[particleHandle] = childHandle;
+            _handleCategory[particleHandle] = def.Category;
+            _pool.Track(def.Category, particleHandle, def.Lifetime);
+            return particleHandle;
+        }
+
         public void Stop(ParticleHandle handle)
         {
             _pool.Untrack(handle);
@@ -104,6 +179,15 @@ namespace Presentation.VfxSfx.Core
         private void StopInternal(ParticleHandle handle)
         {
             _handleCategory.Remove(handle);
+
+            if (_socketModelHandles.TryGetValue(handle, out var modelHandle))
+            {
+                _socketModelHandles.Remove(handle);
+                _renderer3D!.Detach(modelHandle);
+                _renderer3D!.DestroyModelInstance(modelHandle);
+                return;
+            }
+
             _renderer2D.StopParticle(handle);
         }
 

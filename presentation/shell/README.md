@@ -16,8 +16,8 @@
 - `NewGame(slotId, difficultyId, archetypeId?)`：`IDifficultyHost.Apply` → 经注入的
   `NewGameStarter` 委托由游戏层创建初始玩家状态、返回起始地图 id → `ISaveSystem.Save` 写入
   新槽的初始存档 → `ISceneRouter.LoadScene(起始地图)`（该调用内部把应用状态机转入 `Loading`）。
-- `LoadGame(slotId)`：`ISaveSystem.Load` → 经注入的 `LoadedMapIdResolver` 委托取得读档后的
-  地图 id → `ISceneRouter.LoadScene`。
+- `LoadGame(slotId)`：`ISaveSystem.Load` → 优先取 `LoadResult.CurrentMapId`（G1 新增字段，缺口
+  11 已解决，见下），为 null 时才回退可选注入的 `LoadedMapIdResolver` 委托 → `ISceneRouter.LoadScene`。
 - `ReturnToMainMenu()`：InWorld/Pause → MainMenu（`IAppStateHost.RequestTransition`）。
 - `Quit()`：`IAppStateHost.RequestExit`（仅 MainMenu 下允许）。
 - 设置：`SaveSettings` 把调用方传入的字段与 `IInputMapHost.ExportBindings()` 一并写入
@@ -26,11 +26,14 @@
 
 ## 已知契约缺口
 
-- 10_存档与持久化.md 第 3 节步骤 7 提到读档后应"触发场景路由加载对应地图"，但
-  `ISaveSystem.Load` 的返回值 `LoadResult` 只携带 meta 段，不携带 world 段的
-  `current_map_id`；本模块把这一步表达为构造期注入的 `LoadedMapIdResolver` 委托，由持有该
-  world 段 `IPersistable` 引用的组装层提供。建议后续给 world 段的宿主补一个只读属性，届时可以
-  去掉本委托直接查询。
+（已解决，缺口 11）10_存档与持久化.md 第 3 节步骤 7 提到读档后应"触发场景路由加载对应地图"，
+此前 `ISaveSystem.Load` 的返回值 `LoadResult` 只携带 meta 段、不携带 world 段的 `current_map_id`，
+`LoadGame` 因此把这一步表达为构造期注入的 `LoadedMapIdResolver` 委托。G1 给 `LoadResult` 补了
+`CurrentMapId`/`CurrentPosition` 两个字段（读自 `world.current_map_id`/`world.current_position`
+段），`LoadGame` 现优先用 `CurrentMapId`；`LoadedMapIdResolver` 降级为该字段为 null 时才生效的可选
+覆盖（默认 `null`，见 `ShellHost` 构造函数）。`CurrentPosition` 不在本模块内消费——`ShellHost`
+不持有玩家实体引用（铁律 P1/P3），原样保留在 `LoadGame` 返回值里，由拿到 `LoadResult` 的调用方
+（游戏层/表现层装配代码）在场景加载完成后自行落位玩家。
 - `NewGameStarter` 委托同理承担"创建初始玩家状态"这一游戏层专属步骤，返回起始地图 id 后由
   `ShellHost` 统一调用 `LoadScene`，见该委托类型注释判断记录。
 

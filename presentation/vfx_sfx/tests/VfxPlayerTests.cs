@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Adapters.Stub;
 using Core.Foundation.Common;
+using Core.Foundation.EngineAdapter;
 using Presentation.VfxSfx.Contracts;
 using Presentation.VfxSfx.Core;
 using Xunit;
@@ -94,6 +95,79 @@ namespace Tests.Presentation.VfxSfx
 
             Assert.NotNull(handle);
             Assert.Equal(new Vec2(7, 8), renderer.EmittedParticles[handle!.Value.Value].Position);
+        }
+
+        // -----------------------------------------------------------------
+        // 缺口 13（模型挂点）：renderer3D + modelHandleResolver 均注入且解析出句柄时真挂接。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Spawn_Socket_WithModelHandle_CallsAttachToSocket_NotEmitParticle()
+        {
+            var renderer2D = new StubRenderer2D();
+            var renderer3D = new StubRenderer3D();
+            var entity = new Id("unit.golem");
+            var socketId = new Id("socket.hand_main");
+            var hostHandle = renderer3D.CreateModelInstance(new Id("model.golem"));
+
+            var player = new VfxPlayer(
+                renderer2D, new StubCamera(), BuildCatalog(),
+                renderer3D: renderer3D,
+                modelHandleResolver: e => e.Equals(entity) ? hostHandle : (ModelHandle?)null);
+
+            var handle = player.Spawn(SocketVfx, VfxAttach.Socket(entity, socketId), null);
+
+            Assert.NotNull(handle);
+            Assert.Empty(renderer2D.EmittedParticles);
+            // StubRenderer3D.Attachments 以子模型句柄为键，值元组第二项是宿主句柄（见其源码
+            // AttachToSocket 实现：`Attachments[child.Value] = (socketId, handle.Value)`，命名沿用
+            // 该桩既有字段名 ChildHandle，语义上实为宿主句柄值，本测试按其真实行为断言）。
+            var attachment = Assert.Single(renderer3D.Attachments, kv => kv.Value.ChildHandle == hostHandle.Value);
+            Assert.Equal(socketId, attachment.Value.SocketId);
+            Assert.Equal(new Id("res.flame"), renderer3D.CreatedModels[attachment.Key]);
+        }
+
+        [Fact]
+        public void Spawn_Socket_ModelHandleResolverMisses_FallsBackToWorldDowngrade()
+        {
+            var renderer2D = new StubRenderer2D();
+            var renderer3D = new StubRenderer3D();
+            var entity = new Id("unit.golem");
+
+            var player = new VfxPlayer(
+                renderer2D, new StubCamera(), BuildCatalog(),
+                entityPositionResolver: e => e.Equals(entity) ? new Vec2(1, 2) : null,
+                renderer3D: renderer3D,
+                modelHandleResolver: _ => null);
+
+            var handle = player.Spawn(SocketVfx, VfxAttach.Socket(entity, new Id("socket.hand_main")), null);
+
+            Assert.NotNull(handle);
+            Assert.Equal(new Vec2(1, 2), renderer2D.EmittedParticles[handle!.Value.Value].Position);
+            Assert.Empty(renderer3D.Attachments);
+        }
+
+        [Fact]
+        public void Stop_SocketAttachedHandle_DetachesAndDestroysModelInstance_NotStopParticle()
+        {
+            var renderer2D = new StubRenderer2D();
+            var renderer3D = new StubRenderer3D();
+            var entity = new Id("unit.golem");
+            var hostHandle = renderer3D.CreateModelInstance(new Id("model.golem"));
+
+            var player = new VfxPlayer(
+                renderer2D, new StubCamera(), BuildCatalog(),
+                renderer3D: renderer3D,
+                modelHandleResolver: e => e.Equals(entity) ? hostHandle : (ModelHandle?)null);
+            var handle = player.Spawn(SocketVfx, VfxAttach.Socket(entity, new Id("socket.hand_main")), null);
+
+            player.Stop(handle!.Value);
+
+            // StubRenderer3D 对已销毁句柄再次调用任何方法会抛异常，据此间接验证 DestroyModelInstance
+            // 确实被调用过；EmittedParticles 全程为空验证从未经 IRenderer2D 播放。
+            Assert.Empty(renderer2D.EmittedParticles);
+            Assert.Throws<System.InvalidOperationException>(() => renderer3D.SetPlacement(
+                new ModelHandle(2), Vec2.Zero, 0, 0, 1, 0));
         }
 
         [Fact]

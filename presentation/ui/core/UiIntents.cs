@@ -9,22 +9,19 @@ using Core.Foundation.SimLoop;
 using Core.Gameplay.Dialog;
 using Core.Gameplay.Economy;
 using Core.Gameplay.Quest;
+using Core.Carriers.Unit;
+using Presentation.VfxSfx.Contracts;
 
 namespace Presentation.Ui
 {
-    /// <summary>供 <see cref="UiIntents.SetLayerVolume"/> 转发的音量分层设置回调（见
-    /// 09_表现层.md 第 5.5 节"音效按 layer 分组，每层可独立调节音量"）。本模块不拥有 SFX 播放器
-    /// （属于 <c>presentation/vfx_sfx</c>，见 01_分层与依赖.md L5 模块表），只把 UI 侧的"设置某层
-    /// 音量"这一意图转发出去，具体落地由调用方注入的回调决定（见 <see cref="UiIntents"/> 判断记录）。</summary>
-    public delegate void SetLayerVolumeCallback(string layer, double volume);
-
     /// <summary>
     /// UI 控件对用户输入的响应统一出口（见 09_表现层.md 第 7.2 节"UI 控件对用户输入的响应，一律
     /// 封装为'意图请求'经窄契约提交...不直接改变背包数据"）。本类型本身不持有、不修改任何逻辑
     /// 状态（铁律 P3），每个公开方法都只是把一次用户操作转发给规则层/玩法层的窄契约入口
     /// （<see cref="IWorldSim.SubmitIntent"/>、<see cref="IEquipmentHost"/>、<see cref="IQuestHost"/>、
     /// <see cref="IDialogHost"/>、<see cref="IEconomyHost"/>、<see cref="IInputMapHost"/>、
-    /// <see cref="IL10nHost"/>、<see cref="IAppStateHost"/>），裁决结果由被调用方给出，本类型只
+    /// <see cref="IL10nHost"/>、<see cref="IAppStateHost"/>、<see cref="IAudioLayerVolumeHost"/>
+    /// （缺口 12）、<see cref="ISkillBindingHost"/>（缺口 4）），裁决结果由被调用方给出，本类型只
     /// 原样透传返回值。
     /// <para>
     /// 判断记录（哪些操作走 <c>SubmitIntent</c>、哪些直接调用窄契约方法）：任务书拍板"装备穿脱是
@@ -46,7 +43,8 @@ namespace Presentation.Ui
         private readonly IInputMapHost _inputMap;
         private readonly IL10nHost _l10n;
         private readonly IAppStateHost _appState;
-        private readonly SetLayerVolumeCallback? _setLayerVolume;
+        private readonly IAudioLayerVolumeHost _audioVolume;
+        private readonly ISkillBindingHost _skillBindings;
 
         public UiIntents(
             Id playerId,
@@ -58,7 +56,8 @@ namespace Presentation.Ui
             IInputMapHost inputMap,
             IL10nHost l10n,
             IAppStateHost appState,
-            SetLayerVolumeCallback? setLayerVolume = null)
+            IAudioLayerVolumeHost audioVolume,
+            ISkillBindingHost skillBindings)
         {
             _playerId = playerId;
             _worldSim = worldSim ?? throw new ArgumentNullException(nameof(worldSim));
@@ -69,7 +68,8 @@ namespace Presentation.Ui
             _inputMap = inputMap ?? throw new ArgumentNullException(nameof(inputMap));
             _l10n = l10n ?? throw new ArgumentNullException(nameof(l10n));
             _appState = appState ?? throw new ArgumentNullException(nameof(appState));
-            _setLayerVolume = setLayerVolume;
+            _audioVolume = audioVolume ?? throw new ArgumentNullException(nameof(audioVolume));
+            _skillBindings = skillBindings ?? throw new ArgumentNullException(nameof(skillBindings));
         }
 
         public void UseItem(Id instanceId)
@@ -115,7 +115,17 @@ namespace Presentation.Ui
 
         public void SetLocale(Id locale) => _l10n.SetLocale(locale);
 
-        public void SetLayerVolume(string layer, double volume) => _setLayerVolume?.Invoke(layer, volume);
+        public void SetLayerVolume(string layer, double volume) => _audioVolume.SetVolume(layer, volume);
+
+        /// <summary>缺口 4：技能书面板拖放/点击绑定的意图入口——把 <paramref name="skillId"/> 绑定到
+        /// 动作条 <paramref name="slot"/> 号槽位（<see cref="ActionBarViewModel.SlotKey"/> 换算槽位键）。
+        /// 绑定被拒绝（<paramref name="skillId"/> 不是玩家已知技能）时原样返回 false，不抛异常。</summary>
+        public bool BindActionBarSlot(int slot, Id skillId) =>
+            _skillBindings.Bind(_playerId, ActionBarViewModel.SlotKey(slot), skillId);
+
+        /// <summary>缺口 4：清空动作条 <paramref name="slot"/> 号槽位的绑定。</summary>
+        public bool UnbindActionBarSlot(int slot) =>
+            _skillBindings.Unbind(_playerId, ActionBarViewModel.SlotKey(slot));
 
         public bool Pause() => _appState.RequestTransition(AppState.Pause);
 

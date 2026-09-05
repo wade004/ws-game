@@ -26,7 +26,7 @@ namespace Tests.PresentationShell
 
             var shell = new ShellHost(
                 appState, sceneRouter, saveSystem, settingsStore, difficulty, inputMap, eventBus,
-                (s, d, a) => new Id("world.map.starting_area"), () => new Id("world.map.starting_area"), () => "t");
+                (s, d, a) => new Id("world.map.starting_area"), () => "t", loadedMapIdResolver: () => new Id("world.map.starting_area"));
             shell.Start();
             saveSystem.Save(new SaveRequest(slotId, "2026-09-05T00:00:00Z"));
 
@@ -58,7 +58,7 @@ namespace Tests.PresentationShell
 
             var shell = new ShellHost(
                 appState, sceneRouter, saveSystem, settingsStore, difficulty, inputMap, eventBus,
-                (s, d, a) => mapId, () => mapId, () => "t");
+                (s, d, a) => mapId, () => "t", loadedMapIdResolver: () => mapId);
             shell.Start();
 
             var menu = new ShellMenuDefinition(new Id("shell.menu.main"), new List<ShellMenuEntry>());

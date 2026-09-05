@@ -45,6 +45,7 @@
     { "key": "l10n.dialog.sample_hunter.option_accept", "locale": "l10n.locale.zh_cn", "text": "接受狩猎任务" },
     { "key": "l10n.dialog.sample_hunter.option_turn_in", "locale": "l10n.locale.zh_cn", "text": "交付狩猎任务" },
     { "key": "l10n.dialog.sample_hunter.option_vendor", "locale": "l10n.locale.zh_cn", "text": "查看商品" },
+    { "key": "l10n.dialog.sample_hunter.option_save", "locale": "l10n.locale.zh_cn", "text": "存档" },
     { "key": "l10n.dialog.sample_hunter_story.node_intro", "locale": "l10n.locale.zh_cn", "text": "示例猎人：欢迎来到示例地图。" },
     { "key": "l10n.dialog.sample_hunter_story.node_end", "locale": "l10n.locale.zh_cn", "text": "示例猎人：一路小心。" },
     { "key": "l10n.dialog.sample_hunter_story.branch_continue", "locale": "l10n.locale.zh_cn", "text": "（继续）" },

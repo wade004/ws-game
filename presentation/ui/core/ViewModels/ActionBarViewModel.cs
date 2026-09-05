@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Core.Carriers.Common;
+using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
 using Core.Rules.Common;
@@ -29,17 +31,19 @@ namespace Presentation.Ui
     /// 动作条视图模型（见 09_表现层.md 第 7.1 节 UI 组成"动作条"、任务书"槽位→技能 id、冷却进度、
     /// 可用性；槽数由 UiLayoutDefinition 数据决定"）。
     /// <para>
-    /// 契约缺口（判断记录）：架构与既有契约集合里没有一个只读宿主暴露"槽位 → 技能 id"这份绑定
-    /// （10_存档与持久化.md 第 2.2 节 <c>player.skill_bindings: Map&lt;String, Id&gt;</c> 只说明它
-    /// 存在于存档段，未给出运行期查询接口）。本视图模型因此把槽位绑定表达为构造期注入的
-    /// <see cref="_slotBindingResolver"/> 回调，由调用方（游戏层组装代码，持有存档段/自定义绑定
-    /// 管理器）提供，不在本模块内新造一个绑定宿主契约（超出本任务改动范围：不得新增 core/ 契约）。
+    /// 判断记录（缺口 4 恢复，取代此前"注入 <see cref="Func{Int32, Nullable}"/> 回调"的搁置）：
+    /// 槽位绑定改由构造期注入的 <see cref="ISkillBindingHost"/>（<c>core/carriers/unit</c>，G1 新增，
+    /// 见 <c>PresentationAssembly</c> 接线处判断记录）提供，不再靠调用方自备一份平行的绑定管理器；
+    /// 槽位键固定为 <c>"slot_&lt;i&gt;"</c>（与 <see cref="ISkillBindingHost"/> 类型注释"约定"一致）。
+    /// 订阅 <c>unit.skill_binding_changed</c>（<see cref="CarriersEventKeys.UnitSkillBindingChanged"/>）
+    /// 与既有三个施法事件一起触发 <see cref="Refresh"/>，绑定变化（如技能书面板拖放绑定）后动作条
+    /// 立即反映。
     /// </para>
     /// </summary>
     public sealed class ActionBarViewModel : IDisposable
     {
         private readonly IUiDataSource _dataSource;
-        private readonly Func<int, Id?> _slotBindingResolver;
+        private readonly ISkillBindingHost _skillBindings;
         private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
         private ActionBarSlotSnapshot[] _slots;
 
@@ -53,18 +57,22 @@ namespace Presentation.Ui
 
         public IReadOnlyList<ActionBarSlotSnapshot> Slots => _slots;
 
-        public ActionBarViewModel(IUiDataSource dataSource, Id playerId, int slotCount, Func<int, Id?> slotBindingResolver)
+        /// <summary>槽位序号 → <see cref="ISkillBindingHost"/> 槽位键（见类型注释）。</summary>
+        public static string SlotKey(int slot) => $"slot_{slot}";
+
+        public ActionBarViewModel(IUiDataSource dataSource, Id playerId, int slotCount, ISkillBindingHost skillBindings)
         {
             _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
             PlayerId = playerId;
             if (slotCount < 0) throw new ArgumentOutOfRangeException(nameof(slotCount));
             SlotCount = slotCount;
-            _slotBindingResolver = slotBindingResolver ?? throw new ArgumentNullException(nameof(slotBindingResolver));
+            _skillBindings = skillBindings ?? throw new ArgumentNullException(nameof(skillBindings));
             _slots = new ActionBarSlotSnapshot[slotCount];
 
             _subscriptions.Add(_dataSource.Subscribe(RulesEventKeys.SkillCastStart, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(RulesEventKeys.SkillCastSuccess, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(RulesEventKeys.SkillCastFailed, OnRelevantEvent));
+            _subscriptions.Add(_dataSource.Subscribe(CarriersEventKeys.UnitSkillBindingChanged, OnRelevantEvent));
 
             Refresh();
         }
@@ -73,17 +81,17 @@ namespace Presentation.Ui
 
         public void Refresh()
         {
+            var bindings = _skillBindings.GetBindings(PlayerId);
             var next = new ActionBarSlotSnapshot[SlotCount];
             for (var i = 0; i < SlotCount; i++)
             {
-                var skillId = _slotBindingResolver(i);
-                if (!skillId.HasValue)
+                if (!bindings.TryGetValue(SlotKey(i), out var skillId))
                 {
                     next[i] = new ActionBarSlotSnapshot(null, 0);
                     continue;
                 }
 
-                var cooldown = _dataSource.Query($"player.skill.{skillId.Value}.cooldown");
+                var cooldown = _dataSource.Query($"player.skill.{skillId}.cooldown");
                 next[i] = new ActionBarSlotSnapshot(skillId, cooldown.HasValue ? cooldown.Value.AsNumber : 0);
             }
 

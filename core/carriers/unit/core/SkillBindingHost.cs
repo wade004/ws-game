@@ -71,19 +71,5 @@ namespace Core.Carriers.Unit
             // 不需要先查一遍 GetBindings 才能安全调用 Unbind；没有实际变化就不发事件。
             return true;
         }
-
-        /// <summary>供 <see cref="SkillBindingPersistable"/> 读档时按存档段内容整体替换某单位的绑定
-        /// （不经 <see cref="Bind"/> 的已知技能校验重新发一遍事件——读档不是"新增绑定"这一业务动作，
-        /// 见该类型判断记录）。</summary>
-        internal void ReplaceAll(Id unitId, IReadOnlyDictionary<string, Id> bindings)
-        {
-            var slots = new Dictionary<string, Id>(bindings.Count, StringComparer.Ordinal);
-            foreach (var kv in bindings)
-            {
-                slots[kv.Key] = kv.Value;
-            }
-
-            _bindings[unitId] = slots;
-        }
     }
 }

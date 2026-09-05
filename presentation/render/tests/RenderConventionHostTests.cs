@@ -114,5 +114,53 @@ namespace Tests.PresentationRender
         {
             Assert.Equal(expected, ShadowSpec.ToEngineShadowMode(dataMode));
         }
+
+        // -----------------------------------------------------------------
+        // 缺口 8（方向索引重映射策略）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ResolveDirectionSlot_WithDirectionIndexRemap_UsesRemappedIndex()
+        {
+            // 恒等映射下 index 2 -> "dir.front"；重映射把 2 指向 4（"dir.side_r"），验证 ResolveDirectionSlot
+            // 换算规范档位前先经重映射表这一步真的生效。
+            var remap = new[] { 0, 1, 4, 3, 2, 5, 6, 7 };
+            var host = new RenderConventionHost(new RenderOptions { DirectionIndexRemap = remap });
+            var sprite = new SpriteInfo("sprite.x", 8);
+            var direction = Direction.FromQuantized(System.Math.PI / 2, 8); // index 2
+
+            var (slotId, flipX) = host.ResolveDirectionSlot(direction, sprite);
+
+            Assert.Equal(DirectionSlots.SideR, slotId);
+            Assert.False(flipX);
+        }
+
+        [Fact]
+        public void ResolveDirectionSlot_DirectionIndexRemap_LengthMismatch_FallsBackToIdentity()
+        {
+            // 重映射表长度（4）与当前方向档位数（8）不一致时按恒等映射处理，不抛异常。
+            var remap = new[] { 0, 1, 2, 3 };
+            var host = new RenderConventionHost(new RenderOptions { DirectionIndexRemap = remap });
+            var sprite = new SpriteInfo("sprite.x", 8);
+            var direction = Direction.FromQuantized(System.Math.PI / 2, 8); // index 2 -> "dir.front"
+
+            var (slotId, flipX) = host.ResolveDirectionSlot(direction, sprite);
+
+            Assert.Equal(DirectionSlots.Front, slotId);
+            Assert.False(flipX);
+        }
+
+        [Fact]
+        public void ResolveDirectionSlot_NoDirectionIndexRemap_DefaultsToIdentity()
+        {
+            var host = new RenderConventionHost();
+            var sprite = new SpriteInfo("sprite.x", 8);
+            var direction = Direction.FromQuantized(System.Math.PI / 2, 8);
+
+            var (slotId, flipX) = host.ResolveDirectionSlot(direction, sprite);
+
+            Assert.Equal(DirectionSlots.Front, slotId);
+            Assert.False(flipX);
+        }
     }
 }

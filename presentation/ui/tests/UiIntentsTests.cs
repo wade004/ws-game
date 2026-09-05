@@ -16,7 +16,21 @@ namespace Tests.PresentationUi
             out FakeInputMapHost inputMap,
             out FakeL10nHost l10n,
             out AppStateHost appState,
-            out Id playerId)
+            out Id playerId) =>
+            Build(out worldSim, out equipment, out quest, out dialog, out economy, out inputMap, out l10n,
+                out appState, out playerId, out _);
+
+        private static UiIntents Build(
+            out RecordingWorldSim worldSim,
+            out FakeEquipmentHost equipment,
+            out FakeQuestHost quest,
+            out FakeDialogHost dialog,
+            out FakeEconomyHost economy,
+            out FakeInputMapHost inputMap,
+            out FakeL10nHost l10n,
+            out AppStateHost appState,
+            out Id playerId,
+            out Core.Carriers.Unit.SkillBindingHost skillBindings)
         {
             playerId = new Id("unit.hero");
             worldSim = new RecordingWorldSim();
@@ -27,8 +41,11 @@ namespace Tests.PresentationUi
             inputMap = new FakeInputMapHost();
             l10n = new FakeL10nHost(new Id("l10n.en_us"), new[] { new Id("l10n.en_us"), new Id("l10n.zh_cn") });
             appState = new AppStateHost(TestSupport.BuildEventBus());
+            var audioVolume = new FakeAudioLayerVolumeHost();
+            skillBindings = new Core.Carriers.Unit.SkillBindingHost(TestSupport.BuildEventBus(), (_, __) => true);
 
-            return new UiIntents(playerId, worldSim, equipment, quest, dialog, economy, inputMap, l10n, appState);
+            return new UiIntents(playerId, worldSim, equipment, quest, dialog, economy, inputMap, l10n, appState,
+                audioVolume, skillBindings);
         }
 
         [Fact]
@@ -142,7 +159,7 @@ namespace Tests.PresentationUi
         }
 
         [Fact]
-        public void SetLayerVolume_invokes_injected_callback()
+        public void SetLayerVolume_forwards_to_audio_layer_volume_host()
         {
             var playerId = new Id("unit.hero");
             var worldSim = new RecordingWorldSim();
@@ -153,16 +170,42 @@ namespace Tests.PresentationUi
             var inputMap = new FakeInputMapHost();
             var l10n = new FakeL10nHost(new Id("l10n.en_us"), new[] { new Id("l10n.en_us") });
             var appState = new AppStateHost(TestSupport.BuildEventBus());
+            var audioVolume = new FakeAudioLayerVolumeHost();
+            var skillBindings = new Core.Carriers.Unit.SkillBindingHost(TestSupport.BuildEventBus(), (_, __) => true);
 
-            string? capturedLayer = null;
-            double capturedVolume = 0;
             var intents = new UiIntents(playerId, worldSim, equipment, quest, dialog, economy, inputMap, l10n, appState,
-                (layer, volume) => { capturedLayer = layer; capturedVolume = volume; });
+                audioVolume, skillBindings);
 
             intents.SetLayerVolume("sfx", 0.5);
 
-            Assert.Equal("sfx", capturedLayer);
-            Assert.Equal(0.5, capturedVolume);
+            Assert.Single(audioVolume.SetCalls);
+            Assert.Equal("sfx", audioVolume.SetCalls[0].Layer);
+            Assert.Equal(0.5, audioVolume.SetCalls[0].Volume);
+        }
+
+        [Fact]
+        public void BindActionBarSlot_bindsKnownSkill_ViaSkillBindingHost()
+        {
+            var intents = Build(out _, out _, out _, out _, out _, out _, out _, out _, out var playerId,
+                out var skillBindings);
+
+            var ok = intents.BindActionBarSlot(0, new Id("skill.fireball"));
+
+            Assert.True(ok);
+            Assert.Equal(new Id("skill.fireball"), skillBindings.GetBindings(playerId)["slot_0"]);
+        }
+
+        [Fact]
+        public void UnbindActionBarSlot_clearsBinding()
+        {
+            var intents = Build(out _, out _, out _, out _, out _, out _, out _, out _, out var playerId,
+                out var skillBindings);
+            intents.BindActionBarSlot(1, new Id("skill.fireball"));
+
+            var ok = intents.UnbindActionBarSlot(1);
+
+            Assert.True(ok);
+            Assert.False(skillBindings.GetBindings(playerId).ContainsKey("slot_1"));
         }
 
         [Fact]

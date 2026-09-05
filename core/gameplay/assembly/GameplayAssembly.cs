@@ -158,6 +158,22 @@ namespace Core.Gameplay.Assembly
             _bus = bus;
             _world = world;
 
+            // 判断记录（缺口 16，自动存档槽 id/时间戳来源）：提前到构造函数最前面解析（原在第 14 步
+            // GobjOptions.SaveRequester 接线处才算，现第 12 步 DialogHost 构造 saveRequested 参数也
+            // 要用同一份，见 G1 遗留恢复"DialogHost.saveRequested 接 GameplayAssembly.SaveSystem"）。
+            // autosaveSlotId 默认 "slot.autosave"（任务书拍板）；autosaveTimestampProvider 默认取
+            // 墙钟时间——本字段只写入存档 meta 段的 updated_at/created_at（10 第 2.1 节），不参与模拟
+            // 状态，不属于"无系统时间"确定性铁律约束的范围（惯例同
+            // Presentation.Assembly.PresentationAssemblyOptions.TimestampProvider 的同款默认值）。
+            var resolvedAutosaveSlotId = autosaveSlotId ?? DefaultAutosaveSlotId;
+            var resolvedAutosaveTimestampProvider = autosaveTimestampProvider ?? (() => DateTime.UtcNow.ToString("o"));
+
+            // 本地函数（而非某个具体委托类型的变量）：DialogHost 的 SaveRequestedCallback 与
+            // GobjOptions 的 SaveRequesterDelegate 是两个独立声明、签名相同（Id unitId）的委托类型，
+            // 本地函数的方法组可以分别隐式转换到两者，不需要为"同一份存档逻辑"重复写两份 lambda。
+            void RequestAutosave(Id unitId) =>
+                saveSystem.Save(new SaveRequest(resolvedAutosaveSlotId, resolvedAutosaveTimestampProvider()));
+
             // ---------------------------------------------------------
             // 1) WorldState：只依赖 IEventBus，不依赖任何 L0～L3 宿主，可以在 CarriersAssembly 之前
             //    先造好——直接作为 IWorldFlags 注入 CarriersAssembly（依赖倒置回接第一处）。
@@ -338,9 +354,12 @@ namespace Core.Gameplay.Assembly
             EncounterStartRequestedCallback encounterStartRequested = encounterRef =>
                 Encounter.Start(encounterRef, world.GetEntity(PlayerUnitProvider())?.MapId ?? default, PlayerUnitProvider());
 
+            // G1 遗留恢复：DialogHost.saveRequested（08 第 3.1 节 gossip Action save）接同一份
+            // RequestAutosave（与 GobjOptions.SaveRequester 同一委托逻辑，见构造函数最前面判断记录），
+            // 不再传 null（此前"save 动作只记诊断、不真正存档"的缺口到此结束）。
             Dialog = new DialogHost(
                 gossipMenus, storyTrees, bus, ExprHostFactory, AppState, Quest, Hooks, WorldState, Carriers.Rules.Skill,
-                vendorOpenRequested: null, teleportRequested: teleportRequested, saveRequested: null,
+                vendorOpenRequested: null, teleportRequested: teleportRequested, saveRequested: RequestAutosave,
                 encounterStartRequested: encounterStartRequested, exprDiagnostics: null, diagnostics: null);
 
             // ---------------------------------------------------------
@@ -377,18 +396,11 @@ namespace Core.Gameplay.Assembly
             // TeleportTargetResolver 时使用。
             var teleportTargetResolver = new TeleportTargetResolver(registry);
 
-            // 判断记录（缺口 16，自动存档槽 id/时间戳来源）：autosaveSlotId 默认
-            // "slot.autosave"（任务书拍板）；autosaveTimestampProvider 默认取墙钟时间——本字段只
-            // 写入存档 meta 段的 updated_at/created_at（10 第 2.1 节），不参与模拟状态，不属于
-            // "无系统时间"确定性铁律约束的范围（惯例同
-            // Presentation.Assembly.PresentationAssemblyOptions.TimestampProvider 的同款默认值）。
-            var resolvedAutosaveSlotId = autosaveSlotId ?? DefaultAutosaveSlotId;
-            var resolvedAutosaveTimestampProvider = autosaveTimestampProvider ?? (() => DateTime.UtcNow.ToString("o"));
-
             resolvedGobjOptions.DialogOpener ??= (unitId, dialogRef) => Dialog.OpenGossip(unitId, dialogRef, dialogRef);
             resolvedGobjOptions.TeleportResolver ??= teleportTargetResolver.Resolve;
-            resolvedGobjOptions.SaveRequester ??= _ =>
-                saveSystem.Save(new SaveRequest(resolvedAutosaveSlotId, resolvedAutosaveTimestampProvider()));
+            // 自动存档槽 id/时间戳来源已在构造函数最前面解析为 RequestAutosave（缺口 16），
+            // DialogHost.saveRequested 与本处共用同一份，见该处判断记录。
+            resolvedGobjOptions.SaveRequester ??= RequestAutosave;
             resolvedGobjOptions.QuestActionDispatcher ??= (unitId, questActionRef) => Quest.Accept(unitId, questActionRef);
 
             // ---------------------------------------------------------
@@ -478,9 +490,12 @@ namespace Core.Gameplay.Assembly
             saveSystem.RegisterPersistable(UnitPersistable.CurrentPosition(player));
             saveSystem.RegisterPersistable(new InventoryPersistable(player.EntityId, Carriers.Inventory));
             saveSystem.RegisterPersistable(new EquipmentPersistable(player.EntityId, Carriers.Inventory, Carriers.Equipment));
-            // 缺口 4：player.skill_bindings（10 §3 步骤 5，与 player.known_skills 同组——后者尚无
-            // IPersistable 实现，见 SkillBindingPersistable 判断记录）。实际读写顺序由
-            // SaveSections.KnownOrder 决定，与本方法内 RegisterPersistable 调用顺序无关。
+            // G1 遗留恢复：player.known_skills（10 §3 步骤 5，此前缺 IPersistable 实现，见
+            // KnownSkillsPersistable 判断记录）与 player.skill_bindings（同属步骤 5，
+            // SkillBindingPersistable.Load 现已改回经 ISkillBindingHost.Bind 的已知技能校验，依赖
+            // known_skills 先还原完毕）。实际读写顺序由 SaveSections.KnownOrder 决定，与本方法内
+            // RegisterPersistable 调用顺序无关。
+            saveSystem.RegisterPersistable(Core.Rules.Skill.KnownSkillsPersistable.For(Carriers.Rules.Skill, player.EntityId));
             saveSystem.RegisterPersistable(SkillBindingPersistable.For(Carriers.SkillBindings, player));
             saveSystem.RegisterPersistable(new CurrencyPersistable(player.EntityId, Economy));
             saveSystem.RegisterPersistable(new VendorStockPersistable(Economy));

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Adapters.Stub;
+using Core.Carriers.Common;
 using Core.Foundation.Common;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EngineAdapter;
@@ -16,8 +17,11 @@ namespace Tests.PresentationRender
     /// 实现（见 <c>SpriteViewBase</c> 判断记录）。</summary>
     internal sealed class TestSpriteView : SpriteViewBase
     {
-        public TestSpriteView(IRenderer2D renderer, IRenderConventionHost conventions, DisplayInfo displayInfo, RenderOptions? options = null, IResourceLoader? resourceLoader = null)
-            : base(renderer, conventions, displayInfo, options, resourceLoader)
+        public TestSpriteView(
+            IRenderer2D renderer, IRenderConventionHost conventions, DisplayInfo displayInfo,
+            RenderOptions? options = null, IResourceLoader? resourceLoader = null,
+            IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId = null)
+            : base(renderer, conventions, displayInfo, options, resourceLoader, equipVisualByItemInstanceId)
         {
         }
 
@@ -206,6 +210,80 @@ namespace Tests.PresentationRender
             var ex = Record.Exception(() => view.OnEvent(new PlaybackFinishedEvent()));
 
             Assert.Null(ex);
+        }
+
+        // -----------------------------------------------------------------
+        // 缺口 10：item.equipped/item.unequipped 默认按 display.equip_visual 刷新纸娃娃层。
+        // -----------------------------------------------------------------
+
+        private static DisplayInfo MakeSpriteDisplayInfoWithLayers(IReadOnlyList<string> paperdollLayers) =>
+            new DisplayInfo(
+                new Id("display.hero"), DisplayCategory.Creature, new Id("creature.hero"), DisplayKind.Sprite,
+                null, null, null, 1.0, Core.Foundation.DisplayInfo.ShadowMode.Blob, 0.0, null,
+                new SpriteInfo("sprite.creature.hero", 8, mirrorPairs: null, paperdollLayers: paperdollLayers), null);
+
+        [Fact]
+        public void OnEvent_ItemEquipped_KnownItemInstance_ReplacesLayerResourceAndCallsSetLayers()
+        {
+            var renderer = new StubRenderer2D();
+            var displayInfo = MakeSpriteDisplayInfoWithLayers(new[] { "body", "hand_main" });
+            var equipVisuals = new Dictionary<Id, EquipVisualDef>
+            {
+                [new Id("item.instance_1")] = new EquipVisualDef(
+                    new Id("display.equip_visual.sword"), new Id("item.template.sword"), EquipVisualMode.SlotMesh,
+                    slotId: new Id("slot.hand_main"), meshRef: new Id("layer.sword_hand_main"), socketId: null, modelRef: null),
+            };
+            var view = new TestSpriteView(renderer, new RenderConventionHost(), displayInfo, equipVisualByItemInstanceId: equipVisuals);
+            view.Bind(new Id("unit.hero_1"));
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2, 8), 0.0);
+
+            view.OnEvent(new ItemEquippedEvent(new Id("unit.hero_1"), new Id("item.instance_1"), new Id("slot.hand_main")));
+
+            var handleValue = new List<int>(renderer.CreatedSpriteSets.Keys)[0];
+            var layers = renderer.Layers[handleValue];
+            Assert.Equal(2, layers.Count);
+            Assert.Equal(new Id("layer.creature_hero__front__body"), layers[0]);
+            Assert.Equal(new Id("layer.sword_hand_main"), layers[1]);
+        }
+
+        [Fact]
+        public void OnEvent_ItemEquipped_UnknownItemInstance_LeavesLayersUnchanged()
+        {
+            var renderer = new StubRenderer2D();
+            var displayInfo = MakeSpriteDisplayInfoWithLayers(new[] { "body" });
+            var equipVisuals = new Dictionary<Id, EquipVisualDef>();
+            var view = new TestSpriteView(renderer, new RenderConventionHost(), displayInfo, equipVisualByItemInstanceId: equipVisuals);
+            view.Bind(new Id("unit.hero_1"));
+
+            view.OnEvent(new ItemEquippedEvent(new Id("unit.hero_1"), new Id("item.instance_unknown"), new Id("slot.hand_main")));
+
+            var handleValue = new List<int>(renderer.CreatedSpriteSets.Keys)[0];
+            Assert.False(renderer.Layers.ContainsKey(handleValue));
+        }
+
+        [Fact]
+        public void OnEvent_ItemUnequipped_RemovesOverride_RestoresDefaultLayerResource()
+        {
+            var renderer = new StubRenderer2D();
+            var displayInfo = MakeSpriteDisplayInfoWithLayers(new[] { "body", "hand_main" });
+            var equipVisuals = new Dictionary<Id, EquipVisualDef>
+            {
+                [new Id("item.instance_1")] = new EquipVisualDef(
+                    new Id("display.equip_visual.sword"), new Id("item.template.sword"), EquipVisualMode.SlotMesh,
+                    slotId: new Id("slot.hand_main"), meshRef: new Id("layer.sword_hand_main"), socketId: null, modelRef: null),
+            };
+            var view = new TestSpriteView(renderer, new RenderConventionHost(), displayInfo, equipVisualByItemInstanceId: equipVisuals);
+            view.Bind(new Id("unit.hero_1"));
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2, 8), 0.0);
+            view.OnEvent(new ItemEquippedEvent(new Id("unit.hero_1"), new Id("item.instance_1"), new Id("slot.hand_main")));
+
+            view.OnEvent(new ItemUnequippedEvent(new Id("unit.hero_1"), new Id("slot.hand_main"), new Id("item.instance_1")));
+
+            var handleValue = new List<int>(renderer.CreatedSpriteSets.Keys)[0];
+            var layers = renderer.Layers[handleValue];
+            Assert.Equal(2, layers.Count);
+            Assert.Equal(new Id("layer.creature_hero__front__body"), layers[0]);
+            Assert.Equal(new Id("layer.creature_hero__front__hand_main"), layers[1]);
         }
     }
 }

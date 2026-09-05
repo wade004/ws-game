@@ -40,6 +40,7 @@ using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
 using Core.Foundation.InputMap;
 using Core.Foundation.Rng;
+using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Gameplay.Assembly;
 using Presentation.Assembly;
@@ -180,8 +181,15 @@ namespace Adapter.Unity.Shell
             var factionId = new Id(PlayerFactionId);
             _classId = new Id(PlayerClassId);
 
+            // G1 遗留跟进：GameplayAssembly 构造函数新增第 6 位必填参数 ISaveSystem saveSystem
+            // （此前由 PresentationAssembly 自建，见 PresentationAssemblyOptions.SaveGameId 已删除）。
+            // 复用同一个 IFileSystem/game id 惯例（此前挂在 presentationOptions.SaveGameId 上）。
+            // 判断记录（bus 参数不可省略，见 GameFoundationBootstrap 同款判断记录）：SaveSystem.Save/
+            // Load 经可选注入的 IEventBus 发 save.completed/save.loaded，不传会让
+            // SaveSlotsViewModel（订阅这两个事件驱动自动刷新）看不到存读档结果。
+            var saveSystem = new SaveSystem(_host.FileSystem, new SaveSystemOptions(new Id("game.sample")), _bus);
             var gameplay = new GameplayAssembly(
-                _bus, registry, rng, world, _host.SpatialQuery,
+                _bus, registry, rng, world, _host.SpatialQuery, saveSystem,
                 playerUnitProvider: () => PlayerId,
                 playerFactionId: factionId,
                 navigation: _host.Navigation2D);
@@ -219,6 +227,11 @@ namespace Adapter.Unity.Shell
             // 可展示（阶段 4 UI 套件验收 3 的一部分）。
             Gameplay.Carriers.Rules.Skill.LearnSkill(PlayerId, new Id(AttackSkillId));
             Gameplay.Carriers.Rules.Skill.LearnSkill(PlayerId, new Id(Skill1Id));
+            // 缺口 4：动作条槽位绑定改经真实 ISkillBindingHost（此前 ResolveActionBarSlot 是硬编码
+            // 的假绑定表，见 ActionBarViewModel/UiIntents 判断记录）；槽位键固定为 "slot_<i>"
+            // （ActionBarViewModel.SlotKey）。Bind 要求技能已知，上面两行 LearnSkill 必须先执行。
+            Gameplay.Carriers.SkillBindings.Bind(PlayerId, "slot_0", new Id(AttackSkillId));
+            Gameplay.Carriers.SkillBindings.Bind(PlayerId, "slot_1", new Id(Skill1Id));
 
             var viewFactoryDisplayInfo = new DisplayInfoRegistry(registry, _bus);
             var viewFactory = new UnityViewFactory(_host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader);
@@ -233,7 +246,6 @@ namespace Adapter.Unity.Shell
 
             var presentationOptions = new PresentationAssemblyOptions
             {
-                SaveGameId = new Id("game.sample"),
                 OnFloatingText = (entityId, styleId, text) => FloatingText?.Show(entityId, styleId, text),
                 // 判断记录（U3 排障发现的单位换算缺口）：PresentationAssemblyOptions.OnFreeze 的
                 // 契约（presentation/assembly/PresentationAssembly.cs）与实际调用来源
@@ -255,7 +267,6 @@ namespace Adapter.Unity.Shell
                 // CompositeFeedbackSink.Freeze/FreezeAction.DurationMs 的毫秒语义对齐。
                 OnFreeze = durationMs => Freeze?.Freeze(durationMs / 1000.0),
                 OnFlash = (entityId, profileId) => Flash?.Show(entityId, profileId),
-                ActionBarSlotBindingResolver = ResolveActionBarSlot,
                 CharacterStatConfig = new[]
                 {
                     (new Id("stat.strength"), new Id("l10n.stat.strength.name")),
@@ -313,13 +324,6 @@ namespace Adapter.Unity.Shell
             }
             presentation.InputMap.DeclareActionSet(new Id(ActionSetId), inputActionDefinitions);
         }
-
-        private Id? ResolveActionBarSlot(int slotIndex) => slotIndex switch
-        {
-            0 => new Id(AttackSkillId),
-            1 => new Id(Skill1Id),
-            _ => (Id?)null,
-        };
 
         /// <summary>示例 NewGameStarter：见包 README"示例 NewGameStarter 说明"——这是灰盒验收用的
         /// 示例实现，只按固定的示例数据集重置玩家为新游戏起始状态；具体游戏必须提供自己的

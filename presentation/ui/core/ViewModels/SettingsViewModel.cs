@@ -4,6 +4,7 @@ using Core.Foundation.Common;
 using Core.Foundation.EventBus;
 using Core.Foundation.InputMap;
 using Core.Foundation.Localization;
+using Presentation.VfxSfx.Contracts;
 
 namespace Presentation.Ui
 {
@@ -30,11 +31,12 @@ namespace Presentation.Ui
     /// 设置面板视图模型（见 09_表现层.md 第 7.1 节 UI 组成"设置""按键绑定面板"、任务书"音量分层、
     /// 语言、按键绑定列表与冲突提示"）。
     /// <para>
-    /// 判断记录（音量分层来源）：分层音效音量属于 <c>presentation/vfx_sfx</c> 的 <c>SfxPlayer</c>
-    /// （见 09 第 5.5 节"音效按 layer 分组，每层可独立调节音量"），不属于本任务范围（另一 agent
-    /// 并行开发），本模块因此把"读取当前某层音量"表达为构造期注入的
-    /// <see cref="Func{String, Double}"/> 回调，与 <see cref="UiIntents.SetLayerVolume"/> 的写入侧
-    /// 回调对称，不在本模块内重新定义一个音量宿主契约。
+    /// 判断记录（缺口 12 恢复，取代此前"注入 <see cref="Func{String, Double}"/> 回调"的搁置）：
+    /// 音量分层清单与读音量均改由构造期注入的 <see cref="IAudioLayerVolumeHost"/> 提供（见该接口
+    /// 类型注释），不再各自定义一份平行的层清单/回调；写音量仍经 <see cref="UiIntents.SetLayerVolume"/>
+    /// 转发（该方法内部同样已改接同一个 <see cref="IAudioLayerVolumeHost"/>，见其类型注释），本
+    /// 视图模型侧不直接持有写入口——UI 控件对用户输入的响应统一走 <see cref="UiIntents"/>（09 第
+    /// 7.2 节铁律 P3），本类型只负责"读出来展示"。
     /// </para>
     /// </summary>
     public sealed class SettingsViewModel : IDisposable
@@ -43,8 +45,7 @@ namespace Presentation.Ui
         private readonly IL10nHost _l10n;
         private readonly IInputMapHost _inputMap;
         private readonly IReadOnlyList<string> _actionNames;
-        private readonly IReadOnlyList<string> _layers;
-        private readonly Func<string, double> _getLayerVolume;
+        private readonly IAudioLayerVolumeHost _audioVolume;
         private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
         private readonly List<BindingRow> _bindingRows = new List<BindingRow>();
         private readonly Dictionary<string, double> _layerVolumes = new Dictionary<string, double>();
@@ -62,15 +63,13 @@ namespace Presentation.Ui
             IL10nHost l10n,
             IInputMapHost inputMap,
             IReadOnlyList<string> actionNames,
-            IReadOnlyList<string> layers,
-            Func<string, double>? getLayerVolume = null)
+            IAudioLayerVolumeHost audioVolume)
         {
             _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
             _l10n = l10n ?? throw new ArgumentNullException(nameof(l10n));
             _inputMap = inputMap ?? throw new ArgumentNullException(nameof(inputMap));
             _actionNames = actionNames ?? throw new ArgumentNullException(nameof(actionNames));
-            _layers = layers ?? throw new ArgumentNullException(nameof(layers));
-            _getLayerVolume = getLayerVolume ?? (_ => 1.0);
+            _audioVolume = audioVolume ?? throw new ArgumentNullException(nameof(audioVolume));
 
             _subscriptions.Add(_dataSource.Subscribe(L10nEventKeys.LanguageChanged, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(InputMapEventKeys.RebindConflict, OnRelevantEvent));
@@ -105,9 +104,9 @@ namespace Presentation.Ui
             }
 
             _layerVolumes.Clear();
-            foreach (var layer in _layers)
+            foreach (var layer in _audioVolume.Layers)
             {
-                _layerVolumes[layer] = _getLayerVolume(layer);
+                _layerVolumes[layer] = _audioVolume.GetVolume(layer);
             }
         }
 

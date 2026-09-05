@@ -15,6 +15,7 @@ using Core.Numbers.PowerSet;
 using Core.Numbers.Progression;
 using Core.Numbers.StatBlock;
 using Presentation.Ui;
+using Presentation.VfxSfx.Contracts;
 
 namespace Tests.PresentationUi
 {
@@ -547,12 +548,18 @@ namespace Tests.PresentationUi
         public readonly FakeSkillBookQuery SkillBook = new FakeSkillBookQuery();
         public readonly InMemoryUiDiagnostics Diagnostics = new InMemoryUiDiagnostics();
 
+        /// <summary>缺口 4：真实 <see cref="Core.Carriers.Unit.SkillBindingHost"/>，knownSkillQuery
+        /// 恒返回 true（测试不关心"已知技能"校验，见该类型构造参数）。</summary>
+        public readonly Core.Carriers.Unit.SkillBindingHost SkillBindings;
+
         public Id? CurrentTarget;
 
         public readonly UiDataSource DataSource;
 
         public UiWorldFixture()
         {
+            SkillBindings = new Core.Carriers.Unit.SkillBindingHost(EventBus, (_, __) => true);
+
             StatHost.RegisterUnit(PlayerId);
             StatHost.RegisterUnit(TargetId);
 
@@ -607,5 +614,35 @@ namespace Tests.PresentationUi
         public IReadOnlyList<Intent> CurrentIntents => SubmittedIntents;
 
         public void AppendCurrentIntent(Intent intent) => SubmittedIntents.Add(intent);
+    }
+
+    /// <summary>缺口 12 测试用最小假 <see cref="Presentation.VfxSfx.Contracts.IAudioLayerVolumeHost"/>：
+    /// 纯内存态，记录每次 <see cref="SetVolume"/> 调用供断言，不接 <c>IAudio</c>/<c>ISfxPlayer</c>/
+    /// <c>ISettingsStore</c>（真实落地与持久化行为由 <c>presentation/vfx_sfx/tests</c> 覆盖）。</summary>
+    internal sealed class FakeAudioLayerVolumeHost : IAudioLayerVolumeHost
+    {
+        private readonly Dictionary<string, double> _volumes;
+
+        public readonly List<(string Layer, double Volume)> SetCalls = new List<(string, double)>();
+
+        public FakeAudioLayerVolumeHost(IReadOnlyList<string>? layers = null)
+        {
+            Layers = layers ?? new[] { "combat", "ui", "music" };
+            _volumes = new Dictionary<string, double>();
+            foreach (var layer in Layers)
+            {
+                _volumes[layer] = 1.0;
+            }
+        }
+
+        public IReadOnlyList<string> Layers { get; }
+
+        public double GetVolume(string layer) => _volumes.TryGetValue(layer, out var v) ? v : 1.0;
+
+        public void SetVolume(string layer, double volume)
+        {
+            _volumes[layer] = volume;
+            SetCalls.Add((layer, volume));
+        }
     }
 }

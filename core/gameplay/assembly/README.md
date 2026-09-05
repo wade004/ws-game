@@ -59,10 +59,10 @@ assembly/
 | `SkillGranter` | `Carriers.Rules.Skill.LearnSkill/ForgetSkill` | `RewardDispatcher` | 具名委托闭包 |
 | `CurrencyGranter` | `EconomyHost.Add` | `RewardDispatcher` | 局部变量延迟闭包（步骤 7/8） |
 | `GobjSpawnerDelegate` | `Carriers.GameObjects.Spawn` | `SpawnHost`（`content_ref` 域名 `gobj` 时） | |
-| `SpawnRequester` | （已知契约缺口，恒返回空列表） | `EncounterHost` | 见判断记录 2 |
+| `SpawnRequester` | `Spawn.SpawnNow`（G1 已接线，见判断记录 2） | `EncounterHost` | 已解决 |
 | `DialogOpenerDelegate` | `Dialog.OpenGossip`（`dialogRef` 权宜当 `npcId` 使用，见判断记录 3） | `GobjOptions` → `GameObjectHost` | |
-| `TeleportResolverDelegate` | 恒把 `teleportTargetRef` 当目标地图、位置取 `Vec2.Zero` | `GobjOptions` → `GameObjectHost` | 简化实现，见判断记录 4 |
-| `SaveRequesterDelegate` | 空操作占位 | `GobjOptions` → `GameObjectHost` | 真正的存档触发由游戏层接 `ISaveSystem.Save` |
+| `TeleportResolverDelegate` | `TeleportTargetResolver.Resolve`（G1 已接线，按 `teleport_target_ref` 解析 `world.map`/`spawn_points`/`teleport_points`，见判断记录 4） | `GobjOptions` → `GameObjectHost` | 已解决 |
+| `SaveRequesterDelegate` | `RequestAutosave`（构造函数最前面的本地函数，`saveSystem.Save(autosaveSlotId)`；`DialogHost.saveRequested` 共用同一份，见 G1 遗留恢复判断记录） | `GobjOptions` → `GameObjectHost` | 已解决 |
 | `QuestActionDispatcherDelegate` | `Quest.Accept` | `GobjOptions` → `GameObjectHost` | 语义存疑，见判断记录 3 |
 | `TeleportRequestedCallback` | `GameplayAssembly.TeleportUnit`（只切 `MapId`，不落具体坐标） | `DialogHost` | |
 | `EncounterStartRequestedCallback` | `Encounter.Start(ref, 当前玩家所在地图, 玩家单位)` | `DialogHost`/`AreaTriggerOptions` | |
@@ -98,11 +98,11 @@ assembly/
    就定义这个闭包，C# 可空引用分析会因"声明时尚未确定赋值"报 CS8602（本仓库把可空引用警告当
    错误处理）。调整构造顺序（而不是加 `!` 抑制）保证语义与编译期检查同时成立。
 
-2. **`SpawnRequester` 恒返回空列表，是已知、已记录的契约缺口，不是疏漏**：`core/gameplay/spawn`
-   （并行开发）未公开"按单个 `spawnId` 立即生成一次"的方法，只有 `ApplyForMap`（整张地图）/
-   `Update`（计时）两个入口。`core/gameplay/encounter/contracts/SpawnRequester.cs` 顶部注释本就
-   记录了这条缺口与建议的接线形状；本类按建议接线，示例数据/端到端测试统一改用
-   `encounter.def.units[].template_ref`（内联模板）绕开这条路径。
+2. **`SpawnRequester` 已解决（G1）**：`core/gameplay/spawn` 补了
+   `ISpawnHost.SpawnNow(spawnId, mapId): List<Id>`（按单个 `spawnId` 立即生成一次，见 05 第 5.3
+   节勘误、`SpawnHost.SpawnNow` 源码），本类现直接 `SpawnRequester spawnRequester = Spawn.SpawnNow;`
+   接线，不再退化为恒返回空列表；示例数据/端到端测试此前绕开该路径改用
+   `encounter.def.units[].template_ref`（内联模板）的用法仍然有效，两条路径并存。
 
 3. **`GobjOptions` 四个回调的接线时机与已知简化**：`GobjOptions` 必须在 `CarriersAssembly`
    构造时就传入一个非空实例（不能让 `CarriersAssembly` 自己 new 一份默认值）——`GameObjectHost`
@@ -116,13 +116,16 @@ assembly/
    `quest_object` 交互触发接取任务"权宜接到 `Quest.Accept`。两处都是记录在案的简化，不是最终
    方案，见 `GameplayAssembly.cs` 对应代码注释。
 
-4. **`TeleportResolverDelegate`/`TeleportUnit` 只切换 `MapId`，不解析精确落点坐标**：
-   `AreaTriggerOptions.MapTransitionRequested` 判断记录已经指出"`spawn_point` 的具体落地不属于
-   `ISceneRouter` 现有签名覆盖范围，由组装层结合 `post_load` 钩子完成"——本类的 `EnterMap` 正是
-   那个 `post_load` 钩子应做的事（`AreaTriggerHost.LoadForMap` + `SpawnHost.ApplyForMap` +
-   `EconomyHost.OnMapEnter`），但"传送后精确站在哪个 `world.map.spawn_points` 条目上"仍需要调用方
-   （游戏层）在 `EnterMap` 之后自行按 `spawnPoint` 查表调用 `Carriers.Units.SetPosition`，本类不
-   越权代劳。
+4. **`TeleportResolverDelegate` 已解决（G1）**：`TeleportTargetResolver`（本目录新文件）按
+   `teleport_target_ref` 的 `'.'` 分段规则解析出精确落点（两段引用 `world.map` 取
+   `spawn_points[0]`；三段引用按第三段与该地图 `teleport_points[]`/`spawn_points[]` 逐条比较末段
+   id），不再是"恒把 ref 当目标地图、位置固定 `Vec2.Zero`"的简化实现；`resolvedGobjOptions.
+   TeleportResolver ??= teleportTargetResolver.Resolve` 接线，解析失败（非法引用/地图或点位不存在）
+   时返回 null，`GameObjectHost.DoTeleport` 记一条诊断，不抛异常。
+   `AreaTriggerOptions.MapTransitionRequested`（区域触发型传送，与本条 `teleporter` 型物件传送是
+   两条独立路径）判断记录仍然有效：`AreaTriggerHost` 触发的地图切换只经 `TeleportUnit` 切换
+   `MapId`，精确 `spawn_point` 落位仍由 `EnterMap` 之后的调用方（游戏层）按 `spawnPoint` 查表调用
+   `Carriers.Units.SetPosition` 完成，本类不越权代劳。
 
 5. **`economy`/`spawn` 的 `Update(dt)` 没有自带 `ITickPhaseHandler`**：不像 `loot`/
    `area_trigger`/`encounter` 三个模块各自导出了一个 tick 处理器，`IEconomyHost.Update`（
