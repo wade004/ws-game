@@ -15,7 +15,12 @@
     "overrideReferences": true,
     "precompiledReferences": [
         "nunit.framework.dll",
-        "Core.Foundation.dll"
+        "Core.Foundation.dll",
+        "Core.Numbers.dll",
+        "Core.Rules.dll",
+        "Core.Carriers.dll",
+        "Core.Gameplay.dll",
+        "Presentation.Common.dll"
     ],
     "autoReferenced": true,
     "defineConstraints": [

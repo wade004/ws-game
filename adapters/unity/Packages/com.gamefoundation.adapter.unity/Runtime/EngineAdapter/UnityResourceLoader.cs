@@ -219,8 +219,37 @@ namespace Adapter.Unity.EngineAdapter
         public bool TryGetDataTableText(Id resourceId, out string text) => _dataTableText.TryGetValue(resourceId, out text!);
 
         /// <summary>把资源引用 id 解析为磁盘路径，规则见类型顶部注释。</summary>
+        /// <remarks>
+        /// U2-1 判断记录（"layer." 类别的嵌套路径特例）：<c>presentation/render/core/
+        /// SpriteViewBase.ResolveLayerResourceId</c> 产出的纸娃娃层资源 id 形如
+        /// <c>"layer.&lt;spriteSetName&gt;__&lt;directionSlotName&gt;__&lt;layerName&gt;"</c>
+        /// （双下划线分隔三段，见该方法判断记录：文件名部分直接复用 14 第 1.2 节命名模板，只在外面
+        /// 包一层 <c>"layer."</c> 域前缀）。但 <c>toolchain/gen_placeholder_assets.py</c> 生成的占位
+        /// 精灵集实际磁盘布局是"目录按方向/层分层"（<c>sprites/&lt;spriteSet&gt;/&lt;direction&gt;/
+        /// &lt;layer&gt;.png</c>，见 <c>data/_sample/README.md</c>"判断记录（占位资产实际文件组织与
+        /// 14 第 1.2 节命名模板的差异，如实记录不代为修正）"），不是单一扁平文件名——若按其余
+        /// 资源种类的"去掉类别前缀、点号换下划线、直接拼成一个文件名"通用规则处理，会尝试查找一个
+        /// 从不存在的扁平文件（如 <c>sprites/placeholder_hero__front__body.png</c>）。任务书明确
+        /// 授权"若导入工具的输出布局与 UnityResourceLoader 期望的路径不一致，以 14 §1.2 模板为准
+        /// 修正加载器那一侧，不改文档"；本方法据此只对 <c>"layer."</c> 这一个类别加特例：把双下划线
+        /// 分隔的三段还原成三级目录，其余类别（<c>sprite.</c>/<c>icon.</c>/<c>data.</c> 等）的既有
+        /// 扁平解析规则不变（既有测试 <c>ResolvePath_StripsCategoryPrefixAndUsesKindSubfolder</c>
+        /// 之类的用例仍然覆盖非 layer 类别）。
+        /// </remarks>
         public static string ResolvePath(Id resourceId, ResourceKind kind)
         {
+            if (kind == ResourceKind.Image && IsLayerCategory(resourceId.Value))
+            {
+                var layerName = StripCategoryPrefix(resourceId.Value);
+                var parts = layerName.Split(new[] { "__" }, StringSplitOptions.None);
+                if (parts.Length == 3)
+                {
+                    return Path.Combine(RootDir, "sprites", parts[0], parts[1], parts[2] + ".png");
+                }
+                // 段数不是恰好 3 段：不是本判断记录假定的纸娃娃层资源 id 形状，退化为通用规则
+                // （下方按扁平文件名解析，大概率找不到文件、按"资源缺失"处理，不抛异常）。
+            }
+
             var name = StripCategoryPrefix(resourceId.Value);
             switch (kind)
             {
@@ -230,6 +259,13 @@ namespace Adapter.Unity.EngineAdapter
                 case ResourceKind.DataTable: return Path.Combine(RootDir, "data", name + ".json");
                 default: throw new ArgumentOutOfRangeException(nameof(kind), kind, "未知的资源种类");
             }
+        }
+
+        private static bool IsLayerCategory(string resourceRefId)
+        {
+            var dotIndex = resourceRefId.IndexOf('.');
+            var category = dotIndex < 0 ? resourceRefId : resourceRefId.Substring(0, dotIndex);
+            return category == "layer";
         }
 
         private static string StripCategoryPrefix(string resourceRefId)

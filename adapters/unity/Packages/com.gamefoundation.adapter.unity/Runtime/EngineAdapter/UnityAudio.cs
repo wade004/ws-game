@@ -64,8 +64,15 @@ namespace Adapter.Unity.EngineAdapter
             _musicSourceB.loop = true;
         }
 
+        /// <summary>累计 <see cref="PlaySfx"/> 调用次数（诊断/测试用，不属于 <see cref="IAudio"/>
+        /// 契约本身——与 <c>UnityResourceLoader.TryGetSprite</c> 之类"引擎实现之间的内部协作/诊断
+        /// 方法"同一惯例）。即便对应音效资源尚未加载（见下方 Debug.LogWarning 分支）也计数，因为
+        /// 本计数衡量的是"表现层→引擎适配层的播放调用链路是否被触发"，不是"是否真的听到了声音"。</summary>
+        public int PlaySfxCallCount { get; private set; }
+
         public SfxHandle PlaySfx(Id soundId, double volume, double pitch)
         {
+            PlaySfxCallCount++;
             var slot = RentSlot();
             var handle = _nextSfxHandle++;
             slot.Handle = handle;

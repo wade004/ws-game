@@ -171,6 +171,26 @@ namespace Adapter.Unity.EngineAdapter
                 return;
             }
 
+            // 判断记录（U2-3 反馈接收器"闪白"落地，见 Runtime/Presentation/UnitySpriteView.cs、
+            // FlashReceiver.cs 顶部注释）：09 第 6 节明确"闪白具体材质参数怎么应用不属于
+            // vfx_sfx/feedback_binder 契约范围"；本适配层按与 height_offset_px 完全同一套"命名
+            // 参数经既有 SetShaderParam 通道传递、Unity 侧解释具体语义"的机制处理，不新增
+            // IRenderer2D 契约方法。取 Adapter.Unity.Presentation.UnitySpriteView.FlashIntensityShaderParam
+            // 同一个参数名字符串（"flash_intensity"），值域 [0, +∞)：0 表示复原为正常颜色，
+            // 大于 0 时把纸娃娃层各 SpriteRenderer.color 过曝到 (1+value) 倍（常见的"受击闪白" hit
+            // flash 手法——SpriteRenderer.color 是乘法调色，任何 Sprite 兼容 Shader 都保证支持，
+            // 不要求占位/正式美术资源额外提供专用的"闪白"着色器属性）。
+            if (string.Equals(paramName, "flash_intensity", StringComparison.Ordinal))
+            {
+                var multiplier = 1f + Math.Max(0f, (float)value);
+                var flashColor = new Color(multiplier, multiplier, multiplier, 1f);
+                foreach (var renderer in instance.LayerRenderers)
+                {
+                    renderer.color = flashColor;
+                }
+                return;
+            }
+
             foreach (var renderer in instance.LayerRenderers)
             {
                 instance.PropertyBlock.SetFloat(paramName, (float)value);

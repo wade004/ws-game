@@ -29,3 +29,8 @@ Thumbs.db
 .DS_Store
 dist/
 adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/
+# U2-1：build.ps1 -SyncContent 生成的内容同步产物（data/_sample、assets/_placeholder 的镜像拷贝），
+# 源头在仓库 data/、assets/ 下，本目录纯粹是构建期拷贝，不提交（含 Unity 为该目录及其父目录自动
+# 生成的 .meta，父目录 Assets/StreamingAssets/ 本身除了这个子目录不再有任何其它内容）。
+adapters/unity/Assets/StreamingAssets/
+adapters/unity/Assets/StreamingAssets.meta

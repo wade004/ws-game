@@ -1,0 +1,23 @@
+{
+    "name": "GreyBoxTools",
+    "rootNamespace": "Adapter.Unity.EditorTools",
+    "references": [
+        "Adapter.Unity",
+        "Unity.InputSystem",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Core.Foundation.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

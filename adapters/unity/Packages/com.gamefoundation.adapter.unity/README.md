@@ -46,13 +46,13 @@ Application.streamingAssetsPath/GameFoundation/<kind 子目录>/<资源引用id�
 ## 命令行跑测试
 
 ```
-"C:\Program Files\Unity\Hub\Editor\6000.3.23f1\Editor\Unity.exe" -batchmode -nographics -quit ^
+"C:\Program Files\Unity\Hub\Editor\6000.3.23f1\Editor\Unity.exe" -batchmode -nographics ^
   -projectPath <repo>\adapters\unity ^
   -runTests -testPlatform EditMode ^
   -testResults <输出目录>\unity_editmode.xml ^
   -logFile <输出目录>\unity_editmode.log
 
-"C:\Program Files\Unity\Hub\Editor\6000.3.23f1\Editor\Unity.exe" -batchmode -quit ^
+"C:\Program Files\Unity\Hub\Editor\6000.3.23f1\Editor\Unity.exe" -batchmode ^
   -projectPath <repo>\adapters\unity ^
   -runTests -testPlatform PlayMode ^
   -testResults <输出目录>\unity_playmode.xml ^
@@ -61,6 +61,101 @@ Application.streamingAssetsPath/GameFoundation/<kind 子目录>/<资源引用id�
 
 PlayMode 测试用到真实的渲染/输入子系统，`-nographics` 下可能无法正确初始化，因此 PlayMode
 命令行未加该参数；EditMode 纯逻辑测试可以安全加 `-nographics`。
+
+判断记录（U2 阶段实测追加）：`-runTests` 命令行**不要**再加 `-quit`——两者同传时实测会出现
+`-quit` 先于测试真正跑起来就触发关闭（"Batchmode quit successfully invoked" 紧跟在资产刷新之后
+出现，测试结果 XML 从未生成），`-runTests` 本身在测试跑完后会自动退出进程，不需要也不应该再叠加
+`-quit`。`-quit` 只用于纯编译检查（`-executeMethod`/无 `-runTests` 时）与
+`-buildWindows64Player` 这类"跑完一件事就退出"的调用。
+
+跑测试/灰盒场景前需要先执行过一次内容同步（`build.ps1` 默认流程或 `-SyncContent`，见
+`adapters/unity/README.md`），否则 `data/_sample`/`assets/_placeholder` 不会出现在
+`Assets/StreamingAssets/GameFoundation/` 下，`GameFoundationBootstrap` 会在 `Awake` 里报数据集
+加载失败（`BootstrapFailed = true`，已 `Debug.LogError` 具体原因，不会抛异常穿透）。
+
+## U2：引导组装根、View、反馈接收器、内容同步、灰盒场景
+
+### 引导流程（`Runtime/Bootstrap/GameFoundationBootstrap.cs`）
+
+灰盒场景 `Assets/Framework/Scenes/GreyBox.unity` 唯一挂载的 `MonoBehaviour`。`Awake` 里按
+`core/gameplay/tests/EndToEnd/GameWorldFixture.cs` 同一套装配顺序（事件总线 → 只读数据集 →
+`WorldSim`/`GameplayAssembly`（`ISpatialQuery`/`INavigation2D` 接 `UnityEngineHost` 的真实实现，
+不是桩实现）→ 玩家单位 → `EnterMap`（自动触发 `spawn.sample_beast_field` 生成一只生物）→ 手动
+生成一个可交互 gobj → `PresentationAssembly`）构造整套世界，任一步骤失败（数据集校验阻断、异常）
+都 `Debug.LogError` 并把 `BootstrapFailed` 置 `true`，不抛异常穿透、不继续跑 `Update`/`FixedUpdate`。
+
+数据集根、示例地图 id、玩家模板 id 等均为 Inspector 可配置字段（`[SerializeField]`），默认值指向
+框架自带的中性示例数据（`data/_sample`、`creature.sample_hero` 等，与 `GameWorldFixture` 同一套
+id）。
+
+固定步长驱动：`FixedUpdate` 里 `IInputMapHost.Update` 轮询本帧输入 → 按当前动作状态提交
+"move"/"cast" 意图或调用 `GameObjectHost.Interact`（见下"输入→意图链路"）→
+`WorldSim.Tick(SimStep.Continuous(Time.fixedDeltaTime))`；`Update` 只做表现（`ViewBinder.SyncAll`/
+`CameraHost.Update` 插值同步、三个反馈接收器的 `Tick`）。判断记录：没有用
+`IClock.RequestFixedStep`（该契约没有取消订阅方法，跨场景重进会让旧回调永久残留在
+`UnityEngineHost` 持有的 `UnityClock` 里），改为直接在本组件自己的 `FixedUpdate`/`Update` 里驱动
+（组件销毁后引擎自动停止调用，不残留任何注册），插值 alpha 用"Update 累加、FixedUpdate 清零"的
+标准写法。
+
+### 输入→意图链路
+
+`GameFoundationBootstrap` 复用 `PresentationAssembly.InputMap`（同一个 `IInputMapHost` 实例，UI
+设置面板等也持有它），额外 `DeclareActionSet` 一个补充动作集（`actionset.greybox`：
+`input.action.move`/`input.action.interact` 复用与 `data/_sample/found/found.input_action.json`
+相同的绑定字符串，`input.action.greybox_attack`/`input.action.greybox_skill_1` 是本次新增的两个
+按钮动作——该示例数据表本身没有战斗类动作，见下"契约缺口"）。移动经
+`MovementHost.Request(MoveRequest.InDirection(...))`（内部转成 `move` 意图提交）；普攻/技能 1
+经 `IWorldSim.SubmitIntent` 提交一条 `cast` 意图（`skill_id` 分别为
+`skill.sample_strike`/`skill.sample_burn`，玩家注册等级设为 3 以同时解锁两个技能）；交互经
+`GameObjectHost.Interact(playerId, chestId)` 窄契约调用（`found.event_catalog`/`WorldSim` 没有任何
+消费 `interact` 意图的 tick 处理器，见 09/03 文档与该类型顶部"判断记录 2"）。三条路径均不直接改
+`WorldSim`/`Carriers` 状态，满足表现层铁律。
+
+### 视图与反馈接收器（`Runtime/Presentation/`）
+
+- `UnityViewFactory : IViewFactory` + `UnitySpriteView : SpriteViewBase`：按 `DisplayInfo.Kind`
+  选择创建真实 sprite 型 View 还是退化成不渲染的 `NullView`（没有 `kind=sprite` 的
+  `DisplayInfo` 时，如 gobj 类未来接入非 sprite 外形）。`UnitySpriteView` 在朝向变化时重新解析并
+  提交纸娃娃层资源加载（见下"判断记录：主动 LoadAsync"），`SetFlash`/`ClearFlash` 经既有
+  `SetShaderParam` 通道触发/复原过曝白色 hit-flash（`UnityRenderer2D` 新增
+  `"flash_intensity"` 参数名解释，见该类型判断记录）。
+- `FloatingTextReceiver`：世界空间 `TextMeshPro` 对象池，颜色按 `FloatingTextStyleDef.ColorRef`
+  的字面量做"是否含 crit"启发式区分（框架没有 id → 具体色值的查询能力，见类型注释）。
+- `FreezeFrameReceiver`：只暂停 `Update` 里的 `ViewBinder.SyncAll`/`CameraHost.Update`
+  两步调用，不影响 `FixedUpdate` 里的 `WorldSim.Tick`（09 第 6 节"顿帧"落地，判断记录见类型顶部）。
+- `FlashReceiver`：查 `ViewBinder.TryGetView` 拿到 `UnitySpriteView` 后调用 `SetFlash`/
+  `ClearFlash`；`Flash(entityId, profileId)` 没有随行的时长/强度数据（框架未定义
+  `flash_profile` 一类的表），固定用 0.15 秒/2 倍过曝，`profileId` 暂不参与具体数值解析。
+
+判断记录（`UnitySpriteView` 为什么要主动调 `IResourceLoader.LoadAsync`）：勘察
+`UnityRenderer2D.ResolveSprite`（`SetLayers`/`CreateSpriteInstance` 内部把资源 id 转成 `Sprite`
+的私有方法）发现它只读 `IResourceLoader.TryGetSprite` 缓存，从不主动发起加载——`IResourceLoader`
+契约本身没有规定"谁来触发首次加载"。若没有任何一方主动调用 `LoadAsync`，纸娃娃层会永远停在
+`UnityRenderer2D` 的洋红色占位方块上。`UnitySpriteView` 按"View 知道自己接下来要展示哪些方向/层，
+理应负责预取这些资源"的原则，在朝向变化时对该朝向用到的每个层资源 id 发起一次 `LoadAsync`（去重、
+幂等）。`UnityAudio.PlaySfx` 有完全相同的缺口（也只读 `TryGetAudioClip` 缓存），本任务只加了一个
+诊断计数器 `PlaySfxCallCount`（验证"播放调用链路已打通"），未追加音频资源预加载——这不在
+U2-1 明确要求范围内，记为下一步可选加强项。
+
+### 内容同步（`build.ps1 -SyncContent`）
+
+见 `adapters/unity/README.md`"build.ps1 各开关"一节；产物目录 `Assets/StreamingAssets/
+GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。
+
+`UnityResourceLoader.ResolvePath` 新增"`layer.` 类别"特例（三级目录路径，见该方法判断记录）：
+`presentation/render/core/SpriteViewBase.ResolveLayerResourceId` 产出的纸娃娃层资源 id 形如
+`"layer.<spriteSetName>__<direction>__<layerName>"`，但 `toolchain/gen_placeholder_assets.py`
+生成的占位精灵集实际磁盘布局是"目录按方向/层分层"（`sprites/<spriteSet>/<direction>/
+<layer>.png`），不是单一扁平文件名；本方法只对 `"layer."` 这一个类别把双下划线分隔的三段还原成
+三级目录，其余类别（`sprite.`/`icon.` 等）的既有扁平解析规则不变。
+
+### 灰盒场景与测试/构建
+
+见 `adapters/unity/README.md`"命令行跑测试/编译检查/构建"一节；场景由
+`Assets/Editor/GreyBoxSceneBuilder.cs`（`[MenuItem]`/`-executeMethod` 均可触发）程序化生成，不
+手工在编辑器里搭建（满足"全程命令行、不开 GUI"的硬性规则，也让场景内容可重复重建）。PlayMode
+测试见 `Tests/Runtime/GreyBoxTests.cs`（6 条，覆盖启动零阻断错误、玩家视图真实资源加载、移动、
+攻击伤害+飘字、SFX 播放、场景重进不重复）。
 
 ## 已知契约缺口
 
@@ -85,6 +180,19 @@ PlayMode 测试用到真实的渲染/输入子系统，`-nographics` 下可能�
 5. `ISpatialQuery`/`INavigation2D` 契约本身都没有定义"如何把地图对象/阻挡数据登记进实现"的
    方法；本适配层与 `adapters/stub` 同样的处理方式——提供非契约的 `Register`/
    `RegisterBlockingRect` 等协作方法。
+6. （U2 新增）`found.event_catalog`/`IWorldSim` 的 tick 阶段编排里没有任何消费 `Kind=="interact"`
+   意图的处理器——`core/carriers/gobj.GameObjectHost.Interact(unitId, gobjInstanceId)` 是一个直接
+   方法调用，不是意图驱动；`GameFoundationBootstrap` 按此把"交互"落成窄契约调用（09/03 文档"P3
+   窄契约调用"允许的落地方式之一），不是绕过表现层铁律。
+7. （U2 新增）`data/_sample/found/found.input_action.json` 的示例动作集只有
+   move/confirm/cancel/interact/open_menu/pause/camera_adjust 七个动作，不含任何战斗类动作
+   （数据本身在 `description` 字段声明"示例动作集，不构成任何游戏的操作定论"）；
+   `GameFoundationBootstrap` 需要"普攻"/"技能 1"两个按钮动作时，直接用 `IInputMapHost.
+   DeclareActionSet` 在代码里补充声明，不修改 `data/` 下任何文件。
+8. （U2 新增）`IResourceLoader` 契约没有规定"谁来触发某个资源 id 的首次加载"——
+   `UnityRenderer2D`/`UnityAudio` 都只读缓存（`TryGetSprite`/`TryGetAudioClip`），从不主动
+   `LoadAsync`；本任务在 `UnitySpriteView`（sprite 型 View）补了按需预取，`UnityAudio.PlaySfx`
+   只加了调用计数诊断，未补音频预取，见"内容同步"一节判断记录。
 
 ## 判断记录索引
 
@@ -101,3 +209,14 @@ PlayMode 测试用到真实的渲染/输入子系统，`-nographics` 下可能�
 - `UnityUISurface.cs`：`DrawText` 语义解释、占位字体生成方式。
 - `UnityCamera.cs`：世界平面坐标系与投影简化的判断记录。
 - `UnityRenderer3D.cs`：声明降级的理由。
+- `Runtime/Bootstrap/GameFoundationBootstrap.cs`：装配顺序、固定步驱动为什么不用
+  `IClock.RequestFixedStep`、交互为什么是窄契约调用、普攻/技能 1 为什么不读 `found.input_action`
+  表（三条判断记录见文件顶部）。
+- `Runtime/Bootstrap/StreamingAssetsFileSystem.cs`：为什么需要第二份 `IFileSystem` 实现（只读
+  内容数据集 vs 用户数据目录）。
+- `Runtime/Presentation/UnitySpriteView.cs`：为什么要主动调用 `IResourceLoader.LoadAsync`。
+- `Runtime/Presentation/UnityViewFactory.cs`：`DestroyAllCreatedViews` 弥补
+  `ViewBinder`/`CameraHost` 不支持退订的已知缺口。
+- `Runtime/Presentation/FlashReceiver.cs`：闪白时长/强度默认值的取舍理由。
+- `Runtime/Presentation/FreezeFrameReceiver.cs`：顿帧只暂停表现层、不暂停逻辑 tick 的落地方式。
+- `UnityResourceLoader.cs` `ResolvePath`：`"layer."` 类别嵌套路径特例的判断记录。
