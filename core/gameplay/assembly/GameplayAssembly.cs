@@ -58,6 +58,10 @@ namespace Core.Gameplay.Assembly
     {
         private static readonly Id ThreatTablePlaceholderId = new Id("system.gameplay_threat_placeholder");
 
+        /// <summary>缺口 16 拍板默认值：<c>GobjOptions.SaveRequester</c> 未显式指定
+        /// <c>autosaveSlotId</c> 时写入的存档槽。</summary>
+        private static readonly Id DefaultAutosaveSlotId = new Id("slot.autosave");
+
         public CarriersAssembly Carriers { get; }
 
         public IAppStateHost AppState { get; }
@@ -88,6 +92,16 @@ namespace Core.Gameplay.Assembly
 
         public RewardDispatcher Reward { get; }
 
+        /// <summary>
+        /// 缺口 16（ISaveSystem 归属调整）：本装配根持有并公开唯一一份 <see cref="ISaveSystem"/>
+        /// 实例（构造参数传入，调用方用 <see cref="Core.Foundation.EngineAdapter.IFileSystem"/>
+        /// 构造后传入，本类不自行 <c>new</c> 一份）——此前 <c>ISaveSystem</c> 由
+        /// <c>Presentation.Assembly.PresentationAssembly</c> 自行构造，<see cref="RegisterPersistables"/>
+        /// 要求调用方另行传入一份"同一实例"，两处容易各建各的、悄悄产生两份存档系统。归属调整后
+        /// <c>PresentationAssembly</c> 改为直接读取本属性，不再自行构造（见该类型判断记录）。
+        /// </summary>
+        public ISaveSystem SaveSystem { get; }
+
         /// <summary>供 <c>world</c>/<c>quest</c>/<c>player</c> 三个分组接线（extraGroups）的
         /// <see cref="IExprHostFactory"/>——与 <see cref="CarriersAssembly.Rules"/> 内部使用的那份
         /// （见该类型判断记录，无 extraGroups）是两个不同实例；L4 全部宿主构造期一律用这一份。</summary>
@@ -105,6 +119,7 @@ namespace Core.Gameplay.Assembly
             IRngHost rng,
             IWorldSim world,
             ISpatialQuery spatial,
+            ISaveSystem saveSystem,
             Func<Id> playerUnitProvider,
             Id playerFactionId,
             INavigation2D? navigation = null,
@@ -128,13 +143,16 @@ namespace Core.Gameplay.Assembly
             DifficultyOptions? difficultyOptions = null,
             AchievementOptions? achievementOptions = null,
             AreaTriggerOptions? areaTriggerOptions = null,
-            SpawnOptions? spawnOptions = null)
+            SpawnOptions? spawnOptions = null,
+            Id? autosaveSlotId = null,
+            Func<string>? autosaveTimestampProvider = null)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
             if (rng == null) throw new ArgumentNullException(nameof(rng));
             if (world == null) throw new ArgumentNullException(nameof(world));
             if (spatial == null) throw new ArgumentNullException(nameof(spatial));
+            SaveSystem = saveSystem ?? throw new ArgumentNullException(nameof(saveSystem));
             PlayerUnitProvider = playerUnitProvider ?? throw new ArgumentNullException(nameof(playerUnitProvider));
 
             _bus = bus;
@@ -287,13 +305,12 @@ namespace Core.Gameplay.Assembly
             Spawn = new SpawnHost(registry, WorldState, Carriers.Creatures, bus, ExprHostFactory, resolvedSpawnOptions);
 
             // ---------------------------------------------------------
-            // 12) EncounterHost + LevelHost。spawnRequester：契约缺口（见 SpawnRequester 类型顶部
-            //     判断记录——core/gameplay/spawn 未公开"按 spawn.table 单条 id 立即生成"的方法，只有
-            //     ApplyForMap(整张地图)/Update(计时) 两个入口）。本装配根按记录里的建议签名接线，
-            //     退化为"总是返回空列表"，不阻断装配——本任务示例数据的 encounter.def 全部用
-            //     units[].template_ref（内联生物），不经这条路径。
+            // 12) EncounterHost + LevelHost。spawnRequester：缺口 14 已在 core/gameplay/spawn 补上
+            //     ISpawnHost.SpawnNow(spawnId, mapId)，签名与 SpawnRequester 委托一致（见该委托类型
+            //     判断记录"组装期把 (spawnId, mapId) => spawnHost.Execute(spawnId, mapId) 一类适配
+            //     逻辑接到本委托签名"），本装配根直接把 Spawn.SpawnNow 接上，不再退化为空列表。
             // ---------------------------------------------------------
-            SpawnRequester spawnRequester = (spawnId, mapId) => Array.Empty<Id>();
+            SpawnRequester spawnRequester = Spawn.SpawnNow;
             Encounter = new EncounterHost(
                 registry, bus, Carriers.Creatures, Carriers.Rules.Ai, Hooks, ExprHostFactory, Reward, Carriers.Units,
                 spawnRequester, exprSchema: GameplaySchemaCatalog.FullExprSchema, diagnostics: null);
@@ -353,9 +370,25 @@ namespace Core.Gameplay.Assembly
             //     vendor/quest 回调定位，不要求是真正的生物单位）；需要更精确身份时应扩展
             //     core/carriers/gobj 的委托签名（不在本任务允许改动范围）。
             // ---------------------------------------------------------
+            // 判断记录（缺口 15，TeleportTargetResolver 未接 onFailure 诊断回调）：解析失败时
+            // GameObjectHost.DoTeleport 本已记一条诊断（"teleport_target_ref ... 无法解析"），本
+            // 装配根不重复接一份诊断出口——本类没有统一的诊断汇聚点（各 L4 宿主各自持有独立的
+            // I*Diagnostics 接口，见各自类型），onFailure 回调仅供单元测试直接构造
+            // TeleportTargetResolver 时使用。
+            var teleportTargetResolver = new TeleportTargetResolver(registry);
+
+            // 判断记录（缺口 16，自动存档槽 id/时间戳来源）：autosaveSlotId 默认
+            // "slot.autosave"（任务书拍板）；autosaveTimestampProvider 默认取墙钟时间——本字段只
+            // 写入存档 meta 段的 updated_at/created_at（10 第 2.1 节），不参与模拟状态，不属于
+            // "无系统时间"确定性铁律约束的范围（惯例同
+            // Presentation.Assembly.PresentationAssemblyOptions.TimestampProvider 的同款默认值）。
+            var resolvedAutosaveSlotId = autosaveSlotId ?? DefaultAutosaveSlotId;
+            var resolvedAutosaveTimestampProvider = autosaveTimestampProvider ?? (() => DateTime.UtcNow.ToString("o"));
+
             resolvedGobjOptions.DialogOpener ??= (unitId, dialogRef) => Dialog.OpenGossip(unitId, dialogRef, dialogRef);
-            resolvedGobjOptions.TeleportResolver ??= teleportTargetRef => (teleportTargetRef, Vec2.Zero);
-            resolvedGobjOptions.SaveRequester ??= _ => { };
+            resolvedGobjOptions.TeleportResolver ??= teleportTargetResolver.Resolve;
+            resolvedGobjOptions.SaveRequester ??= _ =>
+                saveSystem.Save(new SaveRequest(resolvedAutosaveSlotId, resolvedAutosaveTimestampProvider()));
             resolvedGobjOptions.QuestActionDispatcher ??= (unitId, questActionRef) => Quest.Accept(unitId, questActionRef);
 
             // ---------------------------------------------------------
@@ -445,6 +478,10 @@ namespace Core.Gameplay.Assembly
             saveSystem.RegisterPersistable(UnitPersistable.CurrentPosition(player));
             saveSystem.RegisterPersistable(new InventoryPersistable(player.EntityId, Carriers.Inventory));
             saveSystem.RegisterPersistable(new EquipmentPersistable(player.EntityId, Carriers.Inventory, Carriers.Equipment));
+            // 缺口 4：player.skill_bindings（10 §3 步骤 5，与 player.known_skills 同组——后者尚无
+            // IPersistable 实现，见 SkillBindingPersistable 判断记录）。实际读写顺序由
+            // SaveSections.KnownOrder 决定，与本方法内 RegisterPersistable 调用顺序无关。
+            saveSystem.RegisterPersistable(SkillBindingPersistable.For(Carriers.SkillBindings, player));
             saveSystem.RegisterPersistable(new CurrencyPersistable(player.EntityId, Economy));
             saveSystem.RegisterPersistable(new VendorStockPersistable(Economy));
             saveSystem.RegisterPersistable(new QuestPersistable(Quest, PlayerUnitProvider));

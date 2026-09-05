@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
+using Core.Foundation.SimLoop;
 
 namespace Core.Carriers.Unit
 {
@@ -22,7 +23,7 @@ namespace Core.Carriers.Unit
     {
         private static readonly JsonObject EmptyObject = new JsonObjectBuilder().Build();
 
-        public override string Kind => "player";
+        public override string Kind => EntityKinds.Player;
 
         /// <summary>职业模板引用（见 05 第 1.2 节 <c>archetypeId</c>）。</summary>
         public Id ArchetypeId { get; set; }

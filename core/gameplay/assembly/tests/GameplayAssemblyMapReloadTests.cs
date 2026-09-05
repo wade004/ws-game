@@ -3,6 +3,7 @@ using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.Rng;
+using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Gameplay.Assembly;
 using Xunit;
@@ -90,9 +91,10 @@ namespace Tests.Gameplay.Assembly
             world = new WorldSim(bus);
             var spatial = new StubSpatialQuery();
             var rng = new RngHost(1);
+            var saveSystem = new SaveSystem(new StubFileSystem(), new SaveSystemOptions(new Id("game.reload_test")));
 
             return new GameplayAssembly(
-                bus, registry, rng, world, spatial,
+                bus, registry, rng, world, spatial, saveSystem,
                 playerUnitProvider: () => PlayerId,
                 playerFactionId: PlayerFactionId);
         }

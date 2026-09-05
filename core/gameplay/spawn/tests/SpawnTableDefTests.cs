@@ -1,5 +1,6 @@
 using System.Linq;
 using Core.Foundation.Common;
+using Core.Foundation.SimLoop;
 using Core.Gameplay.Spawn;
 using Xunit;
 
@@ -57,7 +58,7 @@ namespace Tests.Gameplay.Spawn
             var def = SpawnTableDef.FromRecord(LoadRecord(
                 SpawnTestSupport.Row("spawn.sample_chest", "world.sample_map", "gobj.sample_chest", "once")));
 
-            Assert.Equal("gobj", def.ContentRef.Domain);
+            Assert.Equal(EntityKinds.Gobj, def.ContentRef.Domain);
         }
     }
 }

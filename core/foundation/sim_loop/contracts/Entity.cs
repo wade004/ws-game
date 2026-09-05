@@ -47,7 +47,8 @@ namespace Core.Foundation.SimLoop
         /// <summary>该实体读取世界状态时使用的命名空间前缀（可选，多数继承地图默认）。</summary>
         public Id? WorldFlagsScope { get; set; }
 
-        /// <summary>实体类型（如 "unit"、"gobj"），由具体子类给出。</summary>
+        /// <summary>实体类型（如 "unit"、"gobj"），由具体子类给出；已落地的具体取值见
+        /// <see cref="EntityKinds"/>。</summary>
         public abstract string Kind { get; }
 
         /// <summary>生命周期状态，由 <see cref="WorldSim"/> 管理（见类型注释）。</summary>

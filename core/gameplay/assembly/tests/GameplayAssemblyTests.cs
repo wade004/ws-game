@@ -3,6 +3,7 @@ using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.Rng;
+using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Gameplay.Assembly;
 using Xunit;
@@ -52,9 +53,10 @@ namespace Tests.Gameplay.Assembly
 
             var playerId = new Id("unit.smoke_player");
             var playerFaction = new Id("fac.smoke_player");
+            var saveSystem = new SaveSystem(new StubFileSystem(), new SaveSystemOptions(new Id("game.smoke_test")));
 
             return new GameplayAssembly(
-                bus, registry, rng, world, spatial,
+                bus, registry, rng, world, spatial, saveSystem,
                 playerUnitProvider: () => playerId,
                 playerFactionId: playerFaction);
         }

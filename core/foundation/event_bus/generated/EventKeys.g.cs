@@ -264,6 +264,9 @@ namespace Core.Foundation.EventBus
         /// <summary>unit.respawned — 字段：unitId, policy。按死亡复活策略处理完成（见 06 第 8 节）。</summary>
         public static readonly Id UnitRespawned = new Id("unit.respawned");
 
+        /// <summary>unit.skill_binding_changed — 字段：unitId, slot, skillId。技能槽位绑定关系变化时触发（缺口 4：core/carriers/unit.ISkillBindingHost.Bind/Unbind，对应存档段 player.skill_bindings，见 10 第 2.2 节）；skillId 在 Unbind 后为空（该槽位当前未绑定任何技能）。</summary>
+        public static readonly Id UnitSkillBindingChanged = new Id("unit.skill_binding_changed");
+
         /// <summary>unit.state_changed — 字段：unitId, oldState, newState。单位可视状态（如移动/待机/施法等外显状态）变化时触发，供表现层 View 同步（见 01 L5 模块表 render 行订阅示例、03 第 5 节同步小节原文列举）；字段为建议值，字段命名参照同表 ai.state_changed 行。</summary>
         public static readonly Id UnitStateChanged = new Id("unit.state_changed");
 
@@ -358,6 +361,7 @@ namespace Core.Foundation.EventBus
             UnitDied,
             UnitMoved,
             UnitRespawned,
+            UnitSkillBindingChanged,
             UnitStateChanged,
             WorldFlagChanged,
         };

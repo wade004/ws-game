@@ -54,6 +54,9 @@ namespace Core.Carriers.Assembly
         public GameObjectHost GameObjectInteractions { get; }
         public MovementHost Movement { get; }
 
+        /// <summary>缺口 4：技能槽位绑定宿主（见 <see cref="ISkillBindingHost"/>）。</summary>
+        public SkillBindingHost SkillBindings { get; }
+
         /// <summary>
         /// 参与 <see cref="ISpatialQuery"/> 空间索引登记的 <see cref="Entity.Kind"/> 清单默认值
         /// （见 <see cref="EntitySpatialSyncHost"/> 判断记录）：默认只登记 <c>creature</c>/
@@ -81,8 +84,8 @@ namespace Core.Carriers.Assembly
         public static IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig> DefaultSpatialSyncKinds { get; } =
             new Dictionary<string, EntitySpatialSyncHost.KindConfig>(StringComparer.Ordinal)
             {
-                ["creature"] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit" }),
-                ["player"] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit" }),
+                [EntityKinds.Creature] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit" }),
+                [EntityKinds.Player] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit" }),
             };
 
         public EntitySpatialSyncHost SpatialSync { get; }
@@ -155,6 +158,14 @@ namespace Core.Carriers.Assembly
                 statOptions, combatOptions, skillOptions, targetingOptions, aiOptions,
                 extraSchemas, staticImmunity, itemExtension,
                 autoRegisterTickHandlers: false);
+
+            // ---------------------------------------------------------
+            // 3a) SkillBindingHost（缺口 4）：KnownSkillQuery 委托接线到 Rules.Skill.Knows（惯例同
+            //     下面第 4 步 SkillGranter 对 Rules.Skill.LearnSkill/ForgetSkill 的接线——L3 不得
+            //     直接引用 L2 的具体宿主类型，见 KnownSkillQuery 判断记录）。
+            // ---------------------------------------------------------
+            KnownSkillQuery knownSkillQuery = (unitId, skillId) => Rules.Skill.Knows(unitId, skillId);
+            SkillBindings = new SkillBindingHost(bus, knownSkillQuery);
 
             // ---------------------------------------------------------
             // 4) EquipmentHost：SkillGranter 委托接线到 Rules.Skill.LearnSkill/ForgetSkill（见

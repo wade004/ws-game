@@ -179,7 +179,7 @@ namespace Tests.Foundation.Data
             Assert.False(report.IsBlocking);
 
             Assert.NotNull(registry.Get("stat.definition", new Id("stat.strength")));
-            Assert.Equal(87, registry.GetAll("found.event_catalog").Count);
+            Assert.Equal(88, registry.GetAll("found.event_catalog").Count);
             Assert.Equal(7, registry.GetAll("found.input_action").Count);
 
             Assert.NotNull(received);

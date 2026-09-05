@@ -3,6 +3,7 @@ using Core.Carriers.Creature;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
+using Core.Foundation.SimLoop;
 
 namespace Core.Gameplay.Spawn
 {
@@ -63,7 +64,7 @@ namespace Core.Gameplay.Spawn
                 }
 
                 var domain = contentRef.Domain;
-                if (domain != "creature" && domain != "gobj")
+                if (domain != EntityKinds.Creature && domain != EntityKinds.Gobj)
                 {
                     yield return new ValidationIssue(
                         ValidationSeverity.Error, SpawnSchemas.Table.Name, CheckName,
@@ -72,7 +73,7 @@ namespace Core.Gameplay.Spawn
                     continue;
                 }
 
-                var targetTable = domain == "creature" ? "creature.template" : "gobj.template";
+                var targetTable = domain == EntityKinds.Creature ? "creature.template" : "gobj.template";
                 var tableLoaded = false;
                 foreach (var t in view.Tables)
                 {
@@ -122,7 +123,7 @@ namespace Core.Gameplay.Spawn
 
             foreach (var record in view.GetAll(SpawnSchemas.Table.Name))
             {
-                if (!record.TryGetId("content_ref", out var contentRef) || contentRef.Domain != "creature")
+                if (!record.TryGetId("content_ref", out var contentRef) || contentRef.Domain != EntityKinds.Creature)
                 {
                     continue;
                 }

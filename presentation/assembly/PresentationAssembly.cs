@@ -123,13 +123,6 @@ namespace Presentation.Assembly
         /// <c>DateTime.UtcNow</c> 的 ISO-8601 表示。</summary>
         public Func<string>? TimestampProvider { get; set; }
 
-        /// <summary>本装配根自行构造 <see cref="ISaveSystem"/> 时使用的 <c>game_id</c>（10 第 2.1
-        /// 节 <c>SaveSystemOptions.GameId</c>，必填、写入存档 meta 段）。框架不知道具体游戏代号
-        /// （见 <c>CLAUDE.md</c> 硬性规则"不出现具体游戏代号"），默认占位值
-        /// <c>"game.unspecified"</c>，具体游戏接入时应显式设置为自己的 id，或直接注入自己已经
-        /// 构造好的 <see cref="ISaveSystem"/>（见 README 判断记录）。</summary>
-        public Id SaveGameId { get; set; } = new Id("game.unspecified");
-
         public ViewBinderOptions? ViewBinderOptions { get; set; }
         public VfxOptions? VfxOptions { get; set; }
         public SfxOptions? SfxOptions { get; set; }
@@ -205,6 +198,10 @@ namespace Presentation.Assembly
 
         public PauseMenuViewModel PauseMenu { get; }
 
+        /// <summary>缺口 16（ISaveSystem 归属调整）：直接转发 <see cref="GameplayAssembly.SaveSystem"/>
+        /// ——本装配根不再自行构造一份，避免与 <c>GameplayAssembly</c> 各持一份互不相知的
+        /// <see cref="ISaveSystem"/>（此前的隐患：<c>RegisterPersistables</c> 需要调用方另行传入
+        /// "同一实例"，容易被漏接）。</summary>
         public ISaveSystem SaveSystem { get; }
 
         public ISettingsStore SettingsStore { get; }
@@ -351,7 +348,7 @@ namespace Presentation.Assembly
             DialogView = new DialogViewModel(UiData, gameplay.Dialog, _playerId);
             SkillBook = new SkillBookViewModel(UiData, skillBookQuery, _playerId);
             CharacterStats = new CharacterStatsViewModel(UiData, L10n, _playerId, opts.CharacterStatConfig);
-            SaveSystem = ResolveSaveSystem(fileSystem, bus, opts.SaveGameId);
+            SaveSystem = gameplay.SaveSystem;
             SettingsStore = ResolveSettingsStore(fileSystem);
 
             var settingsLayers = opts.SettingsLayers ?? sfxCatalog.Values
@@ -398,15 +395,6 @@ namespace Presentation.Assembly
             }
             return fallback;
         }
-
-        /// <summary>判断记录：<see cref="ISaveSystem"/> 不是 <see cref="GameplayAssembly"/> 的公开
-        /// 属性（<c>RegisterPersistables</c> 只接收调用方已经构造好的实例，见该方法签名），本装配根
-        /// 用注入的 <see cref="IFileSystem"/> 自行构造一份默认配置的 <see cref="SaveSystem"/>，供
-        /// <c>SaveSlotsViewModel</c>/<c>ShellHost</c> 使用；调用方若已有自己的 <see cref="ISaveSystem"/>
-        /// 实例（例如与 <see cref="GameplayAssembly.RegisterPersistables"/> 共用同一份），应改为
-        /// 直接读取本属性并把同一实例传给 <c>RegisterPersistables</c>，不要另建第二份。</summary>
-        private static ISaveSystem ResolveSaveSystem(IFileSystem fileSystem, IEventBus bus, Id gameId) =>
-            new SaveSystem(fileSystem, new SaveSystemOptions(gameId), bus);
 
         private static ISettingsStore ResolveSettingsStore(IFileSystem fileSystem) =>
             new SettingsStore(fileSystem);

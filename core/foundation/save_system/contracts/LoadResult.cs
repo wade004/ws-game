@@ -1,3 +1,5 @@
+using Core.Foundation.Common;
+
 namespace Core.Foundation.SaveSystem
 {
     /// <summary>读档结果分类（见 <see cref="ISaveSystem.Load"/>）。</summary>
@@ -46,16 +48,34 @@ namespace Core.Foundation.SaveSystem
         /// <summary>非成功状态下的诊断消息；成功状态下通常为 null。</summary>
         public string? Message { get; }
 
-        private LoadResult(LoadStatus status, SaveMeta? meta, int? migratedFromVersion, string? message)
+        /// <summary>读档时从 <c>world.current_map_id</c> 段直接解析出的当前地图 id（见
+        /// 10_存档与持久化.md 第 2.3 节字段表）；旧存档缺该段、该段解析失败、或本次读档未走到
+        /// 成功/<see cref="LoadStatus.PersistableThrew"/> 状态时为 null（见
+        /// <see cref="ISaveSystem.Load"/> 判断记录——本字段不依赖调用方是否已经注册
+        /// <c>world.current_map_id</c> 对应的 <see cref="IPersistable"/>，直接读文档原始段，
+        /// 供"读档前先知道要加载哪张地图"的调用方（如场景路由）在任何 <see cref="Core.Carriers.Unit.PlayerUnit"/>
+        /// 实体存在之前就能拿到目标地图）。</summary>
+        public Id? CurrentMapId { get; }
+
+        /// <summary>同 <see cref="CurrentMapId"/>，读自 <c>world.current_position</c> 段。</summary>
+        public Vec2? CurrentPosition { get; }
+
+        private LoadResult(
+            LoadStatus status, SaveMeta? meta, int? migratedFromVersion, string? message,
+            Id? currentMapId = null, Vec2? currentPosition = null)
         {
             Status = status;
             Meta = meta;
             MigratedFromVersion = migratedFromVersion;
             Message = message;
+            CurrentMapId = currentMapId;
+            CurrentPosition = currentPosition;
         }
 
-        public static LoadResult Loaded(SaveMeta meta, int? migratedFromVersion, LoadStatus status) =>
-            new LoadResult(status, meta, migratedFromVersion, null);
+        public static LoadResult Loaded(
+            SaveMeta meta, int? migratedFromVersion, LoadStatus status,
+            Id? currentMapId = null, Vec2? currentPosition = null) =>
+            new LoadResult(status, meta, migratedFromVersion, null, currentMapId, currentPosition);
 
         public static LoadResult NotFound() => new LoadResult(LoadStatus.NotFound, null, null, null);
 
@@ -65,7 +85,9 @@ namespace Core.Foundation.SaveSystem
         public static LoadResult MigrationFailed(string message) =>
             new LoadResult(LoadStatus.MigrationFailed, null, null, message);
 
-        public static LoadResult PersistableThrew(SaveMeta meta, int? migratedFromVersion, string message) =>
-            new LoadResult(LoadStatus.PersistableThrew, meta, migratedFromVersion, message);
+        public static LoadResult PersistableThrew(
+            SaveMeta meta, int? migratedFromVersion, string message,
+            Id? currentMapId = null, Vec2? currentPosition = null) =>
+            new LoadResult(LoadStatus.PersistableThrew, meta, migratedFromVersion, message, currentMapId, currentPosition);
     }
 }

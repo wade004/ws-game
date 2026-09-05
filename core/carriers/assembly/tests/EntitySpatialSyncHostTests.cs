@@ -43,8 +43,8 @@ namespace Tests.Carriers.Assembly
             var nearest = spatial.Nearest(new Vec2(3, 4), QueryFilter.None);
             Assert.Equal(creature.EntityId, nearest);
 
-            // 打了 "unit" 标签：用 RequiredTags=["gobj"] 查询应该查不到。
-            var gobjOnly = spatial.QueryRadius(new Vec2(3, 4), 1.0, new QueryFilter(requiredTags: new[] { "gobj" }));
+            // 打了 "unit" 标签：用 RequiredTags=[EntityKinds.Gobj] 查询应该查不到。
+            var gobjOnly = spatial.QueryRadius(new Vec2(3, 4), 1.0, new QueryFilter(requiredTags: new[] { EntityKinds.Gobj }));
             Assert.Empty(gobjOnly);
 
             var unitOnly = spatial.QueryRadius(new Vec2(3, 4), 1.0, new QueryFilter(requiredTags: new[] { "unit" }));
@@ -64,7 +64,7 @@ namespace Tests.Carriers.Assembly
             var spatial = new StubSpatialQuery();
             var kinds = new Dictionary<string, EntitySpatialSyncHost.KindConfig>(StringComparer.Ordinal)
             {
-                ["gobj"] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "gobj" }),
+                [EntityKinds.Gobj] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { EntityKinds.Gobj }),
             };
             _ = new EntitySpatialSyncHost(bus, world, spatial, kinds);
 
@@ -78,7 +78,7 @@ namespace Tests.Carriers.Assembly
             var unitOnly = spatial.QueryRadius(new Vec2(10, 10), 1.0, new QueryFilter(requiredTags: new[] { "unit" }));
             Assert.Empty(unitOnly);
 
-            var gobjOnly = spatial.QueryRadius(new Vec2(10, 10), 1.0, new QueryFilter(requiredTags: new[] { "gobj" }));
+            var gobjOnly = spatial.QueryRadius(new Vec2(10, 10), 1.0, new QueryFilter(requiredTags: new[] { EntityKinds.Gobj }));
             Assert.Single(gobjOnly);
             Assert.Equal(gobj.EntityId, gobjOnly[0]);
         }
@@ -110,7 +110,7 @@ namespace Tests.Carriers.Assembly
         {
             // 回归防护：见 CarriersAssembly.DefaultSpatialSyncKinds 判断记录——默认清单不含 "gobj"，
             // 避免 core/rules/targeting 的 nearest_in_shape 一类不做标签过滤的策略把物件误当单位。
-            Assert.False(CarriersAssembly.DefaultSpatialSyncKinds.ContainsKey("gobj"));
+            Assert.False(CarriersAssembly.DefaultSpatialSyncKinds.ContainsKey(EntityKinds.Gobj));
         }
 
         [Fact]
@@ -140,7 +140,7 @@ namespace Tests.Carriers.Assembly
             // 只配置 "unit"，不配置 "gobj"——GameObjectEntity(Kind="gobj") 应被忽略。
             var kinds = new Dictionary<string, EntitySpatialSyncHost.KindConfig>(StringComparer.Ordinal)
             {
-                ["creature"] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit" }),
+                [EntityKinds.Creature] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit" }),
             };
             _ = new EntitySpatialSyncHost(bus, world, spatial, kinds);
 

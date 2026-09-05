@@ -136,6 +136,63 @@ namespace Tests.Gameplay.Spawn
             Assert.NotEmpty(diagnostics.Warnings);
         }
 
+        // ==== SpawnNow（缺口 14）================================================
+
+        [Fact]
+        public void SpawnNow_GeneratesExplicitly_ReturningEntityId()
+        {
+            var fx = Build(SpawnTestSupport.Row("spawn.sample_boss", "world.sample_map", "creature.sample_boss", "never"));
+
+            var generated = fx.Host.SpawnNow(new Id("spawn.sample_boss"), Map);
+
+            Assert.Single(generated);
+            Assert.Single(fx.Creatures.SpawnCalls);
+        }
+
+        [Fact]
+        public void SpawnNow_UnknownSpawnId_ReturnsEmptyAndRecordsError()
+        {
+            var diagnostics = new Core.Gameplay.Spawn.InMemorySpawnDiagnostics();
+            var fx = Build(SpawnTestSupport.Row("spawn.sample_boss", "world.sample_map", "creature.sample_boss", "never"));
+            var host = new SpawnHost(fx.Registry, fx.World, fx.Creatures, fx.Bus, fx.Expr, fx.Options, diagnostics);
+
+            var generated = host.SpawnNow(new Id("spawn.nope"), Map);
+
+            Assert.Empty(generated);
+            Assert.Empty(fx.Creatures.SpawnCalls);
+            Assert.NotEmpty(diagnostics.Errors);
+        }
+
+        [Fact]
+        public void SpawnNow_MapMismatch_ReturnsEmptyAndRecordsError_DoesNotGenerate()
+        {
+            var diagnostics = new Core.Gameplay.Spawn.InMemorySpawnDiagnostics();
+            var fx = Build(SpawnTestSupport.Row("spawn.sample_boss", "world.sample_map", "creature.sample_boss", "never"));
+            var host = new SpawnHost(fx.Registry, fx.World, fx.Creatures, fx.Bus, fx.Expr, fx.Options, diagnostics);
+
+            var generated = host.SpawnNow(new Id("spawn.sample_boss"), new Id("world.other_map"));
+
+            Assert.Empty(generated);
+            Assert.Empty(fx.Creatures.SpawnCalls);
+            Assert.NotEmpty(diagnostics.Errors);
+        }
+
+        [Fact]
+        public void SpawnNow_AlreadyAlive_ReturnsEmptyAndWarns_DoesNotGenerateAgain()
+        {
+            var diagnostics = new Core.Gameplay.Spawn.InMemorySpawnDiagnostics();
+            var fx = Build(SpawnTestSupport.Row("spawn.sample_boss", "world.sample_map", "creature.sample_boss", "never"));
+            var host = new SpawnHost(fx.Registry, fx.World, fx.Creatures, fx.Bus, fx.Expr, fx.Options, diagnostics);
+
+            var first = host.SpawnNow(new Id("spawn.sample_boss"), Map);
+            var second = host.SpawnNow(new Id("spawn.sample_boss"), Map);
+
+            Assert.Single(first);
+            Assert.Empty(second);
+            Assert.Single(fx.Creatures.SpawnCalls);
+            Assert.NotEmpty(diagnostics.Warnings);
+        }
+
         [Fact]
         public void Update_TimerExpires_RespawnsWhenMapLoaded()
         {

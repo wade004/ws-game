@@ -138,7 +138,7 @@ namespace Tests.Foundation.SceneRouter
 
             // 模拟遗留登记（不经由 entity.destroyed 同步的路径），验证整图兜底 Clear 生效。
             var townSquareMapId = new Id("world.town_square");
-            spatial.Register(new Id("gobj.leftover"), new Vec2(1, 1), 0.1, new[] { "gobj" });
+            spatial.Register(new Id("gobj.leftover"), new Vec2(1, 1), 0.1, new[] { EntityKinds.Gobj });
             navigation.SetBlocking(townSquareMapId, new[] { new Core.Foundation.Common.Rect(new Vec2(0, 0), new Vec2(5, 5)) });
             Assert.False(navigation.IsWalkable(townSquareMapId, new Vec2(1, 1)));
 

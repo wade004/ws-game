@@ -349,7 +349,7 @@ namespace Core.Gameplay.Loot
         /// <summary>生成一个地面掉落物实体（见 08 第 1.2 节、05 第 1.6 节）。</summary>
         public Id Drop(Id mapId, Vec2 position, IReadOnlyList<ItemStack> items, Id? ownerHint = null)
         {
-            var id = _world.AllocateEntityId("loot");
+            var id = _world.AllocateEntityId(EntityKinds.Loot);
             double? expireAt = _options.DefaultLifetime > 0 ? _simTimeProvider() + _options.DefaultLifetime : (double?)null;
 
             var entity = new DroppedLootEntity(id, mapId, items ?? Array.Empty<ItemStack>(), ownerHint, expireAt)
@@ -581,7 +581,7 @@ namespace Core.Gameplay.Loot
             int seq;
             do
             {
-                var allocated = _world.AllocateEntityId("loot");
+                var allocated = _world.AllocateEntityId(EntityKinds.Loot);
                 seq = ExtractSequence(allocated);
             } while (seq <= maxRestoredSequence);
         }

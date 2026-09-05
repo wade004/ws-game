@@ -9,6 +9,14 @@
       "position": { "x": 5, "y": 0 },
       "facing": 0,
       "respawn_policy": "on_map_enter"
+    },
+    {
+      "id": "spawn.sample_encounter_ambusher",
+      "map_id": "world.sample_field",
+      "content_ref": "creature.sample_beast",
+      "position": { "x": 8, "y": 0 },
+      "facing": 0,
+      "respawn_policy": "never"
     }
   ]
 }

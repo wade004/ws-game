@@ -10,7 +10,7 @@ namespace Core.Gameplay.Loot
     /// <summary>掉落在地面的拾取物运行期实体（见 05 第 1.6 节 <c>DroppedLoot</c> 字段表）。</summary>
     public sealed class DroppedLootEntity : Entity
     {
-        public override string Kind => "loot";
+        public override string Kind => EntityKinds.Loot;
 
         /// <summary>掉落物内容（见 05 第 1.6 节 <c>items</c>）；<see cref="LootHost.PickUp"/> 会随着
         /// 部分拾取逐步移除已拾走的堆叠，全部拾完后本列表为空并触发实体销毁。</summary>

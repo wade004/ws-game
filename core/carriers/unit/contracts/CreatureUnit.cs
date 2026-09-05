@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Core.Foundation.Common;
+using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 
 namespace Core.Carriers.Unit
@@ -9,7 +10,7 @@ namespace Core.Carriers.Unit
     /// </summary>
     public sealed class CreatureUnit : Unit
     {
-        public override string Kind => "creature";
+        public override string Kind => EntityKinds.Creature;
 
         /// <summary>行为外壳当前状态快照（见 05 第 1.2 节 <c>aiState</c>），复用
         /// <c>core/rules/ai</c> 已定义的 <see cref="BehaviorState"/> 枚举，不在本层另建一套平行状态

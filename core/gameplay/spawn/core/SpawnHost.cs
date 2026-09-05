@@ -5,6 +5,7 @@ using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
+using Core.Foundation.SimLoop;
 using Core.Foundation.Expr;
 using Core.Foundation.SaveSystem;
 using Core.Gameplay.WorldState;
@@ -282,19 +283,58 @@ namespace Core.Gameplay.Spawn
             var def = SpawnTableDef.FromRecord(record);
             var runtime = GetOrCreateRuntime(spawnId);
 
+            TrySpawnGuarded(def, runtime, "TriggerNever");
+        }
+
+        public IReadOnlyList<Id> SpawnNow(Id spawnId, Id mapId)
+        {
+            var record = _data.Get(SpawnSchemas.Table.Name, spawnId);
+            if (record == null)
+            {
+                _diagnostics.Error($"SpawnNow：未知的刷新点 \"{spawnId}\"");
+                return Array.Empty<Id>();
+            }
+
+            SpawnTableDef def;
+            try
+            {
+                def = SpawnTableDef.FromRecord(record);
+            }
+            catch (DataFieldException ex)
+            {
+                _diagnostics.Error($"SpawnNow：刷新点 \"{spawnId}\" 解析失败：{ex.Message}");
+                return Array.Empty<Id>();
+            }
+
+            if (!def.MapId.Equals(mapId))
+            {
+                _diagnostics.Error(
+                    $"SpawnNow：刷新点 \"{spawnId}\" 所属地图 \"{def.MapId}\" 与请求地图 \"{mapId}\" 不符，已跳过生成");
+                return Array.Empty<Id>();
+            }
+
+            var runtime = GetOrCreateRuntime(spawnId);
+            var entityId = TrySpawnGuarded(def, runtime, "SpawnNow");
+            return entityId.HasValue ? new[] { entityId.Value } : Array.Empty<Id>();
+        }
+
+        /// <summary>见 <see cref="TriggerNever"/>/<see cref="SpawnNow"/> 共用的"已有存活实例/
+        /// condition 不满足则只记一条诊断、不生成"守卫逻辑。</summary>
+        private Id? TrySpawnGuarded(SpawnTableDef def, RuntimeState runtime, string callerName)
+        {
             if (runtime.EntityId.HasValue)
             {
-                _diagnostics.Warn($"刷新点 \"{spawnId}\" 已有存活实例，TriggerNever 被忽略");
-                return;
+                _diagnostics.Warn($"刷新点 \"{def.Id}\" 已有存活实例，{callerName} 被忽略");
+                return null;
             }
 
             if (!ConditionPasses(def))
             {
-                _diagnostics.Warn($"刷新点 \"{spawnId}\" condition 不满足，TriggerNever 被忽略");
-                return;
+                _diagnostics.Warn($"刷新点 \"{def.Id}\" condition 不满足，{callerName} 被忽略");
+                return null;
             }
 
-            SpawnEntity(def, runtime);
+            return SpawnEntity(def, runtime);
         }
 
         public void UnloadMap(Id mapId)
@@ -411,11 +451,11 @@ namespace Core.Gameplay.Spawn
             Id entityId;
             var domain = def.ContentRef.Domain;
 
-            if (domain == "creature")
+            if (domain == EntityKinds.Creature)
             {
                 entityId = _creatureFactory.Spawn(def.ContentRef, def.MapId, def.Position, def.Facing);
             }
-            else if (domain == "gobj")
+            else if (domain == EntityKinds.Gobj)
             {
                 if (_options.GobjSpawner == null)
                 {

@@ -177,7 +177,7 @@ namespace Core.Carriers.Gobj
         /// <paramref name="radius"/> 的 <c>spell_focus</c> 物件是否存在。</summary>
         public bool HasSpellFocus(Vec2 position, Id tag, double radius)
         {
-            var candidates = _world.QueryEntities(new EntityFilter(kind: "gobj"));
+            var candidates = _world.QueryEntities(new EntityFilter(kind: EntityKinds.Gobj));
             for (var i = 0; i < candidates.Count; i++)
             {
                 if (!(candidates[i] is GameObjectEntity gobj) || !gobj.TemplateId.HasValue)

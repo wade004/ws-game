@@ -61,6 +61,17 @@
       "icon_id": "icon.placeholder_door",
       "shadow": "none",
       "sort_offset": -1
+    },
+    {
+      "id": "display.map.sample_save_point",
+      "category": "gobj",
+      "logical_id": "gobj.sample_save_point",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.placeholder_save_point",
+      "direction_count": 4,
+      "icon_id": "icon.placeholder_save_point",
+      "shadow": "none",
+      "sort_offset": -1
     }
   ]
 }

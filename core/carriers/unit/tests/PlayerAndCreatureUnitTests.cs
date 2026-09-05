@@ -1,5 +1,6 @@
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
+using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 using Xunit;
 
@@ -15,7 +16,7 @@ namespace Tests.Carriers.Unit
         {
             var player = new PlayerUnit(new Id("unit.hero"), MapId, FactionId, new Id("arch.class.sample"));
 
-            Assert.Equal("player", player.Kind);
+            Assert.Equal(EntityKinds.Player, player.Kind);
             Assert.Equal(new Id("arch.class.sample"), player.ArchetypeId);
             Assert.Empty(player.Talents);
             Assert.Empty(player.QuestLog);
@@ -38,7 +39,7 @@ namespace Tests.Carriers.Unit
             var templateId = new Id("creature.grey_wolf");
             var creature = new CreatureUnit(new Id("unit.wolf"), MapId, FactionId, templateId);
 
-            Assert.Equal("creature", creature.Kind);
+            Assert.Equal(EntityKinds.Creature, creature.Kind);
             Assert.Equal(templateId, creature.TemplateId);
             Assert.Equal(BehaviorState.Idle, creature.AiState);
             Assert.Empty(creature.Immunities);

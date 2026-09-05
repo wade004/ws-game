@@ -31,7 +31,7 @@ namespace Core.Carriers.Gobj
         /// 运行期实体 id（<c>"gobj.inst_&lt;n&gt;"</c>，见 <see cref="IWorldSim.AllocateEntityId"/>）。</summary>
         public Id Spawn(Id templateId, Id mapId, Vec2 position, double facing, Id? lockId = null)
         {
-            var entityId = _world.AllocateEntityId("gobj");
+            var entityId = _world.AllocateEntityId(EntityKinds.Gobj);
             var entity = new GameObjectEntity(entityId, mapId, templateId, lockId)
             {
                 Position = position,

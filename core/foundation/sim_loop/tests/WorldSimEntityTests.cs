@@ -93,7 +93,7 @@ namespace Tests.Foundation.SimLoop
 
             var unitC = new TestEntity(new Id("unit.c_hero"), mapA, kind: "unit");
             var unitA = new TestEntity(new Id("unit.a_hero"), mapA, kind: "unit");
-            var gobjInMapA = new TestEntity(new Id("gobj.chest"), mapA, kind: "gobj");
+            var gobjInMapA = new TestEntity(new Id("gobj.chest"), mapA, kind: EntityKinds.Gobj);
             var unitInMapB = new TestEntity(new Id("unit.b_hero"), mapB, kind: "unit");
 
             world.AddEntity(unitC);
@@ -165,7 +165,7 @@ namespace Tests.Foundation.SimLoop
 
             var unitId1 = world.AllocateEntityId("unit");
             var unitId2 = world.AllocateEntityId("unit");
-            var gobjId1 = world.AllocateEntityId("gobj");
+            var gobjId1 = world.AllocateEntityId(EntityKinds.Gobj);
 
             Assert.Equal("unit.inst_1", unitId1.Value);
             Assert.Equal("unit.inst_2", unitId2.Value);

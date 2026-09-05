@@ -175,7 +175,7 @@ namespace Tests.Carriers.Unit
         /// 任何正式类型）。</summary>
         private sealed class NonUnitTestEntity : Entity
         {
-            public override string Kind => "gobj";
+            public override string Kind => EntityKinds.Gobj;
 
             public NonUnitTestEntity(Id entityId, Id mapId) : base(entityId, mapId)
             {

@@ -140,6 +140,11 @@ sim_loop/
   业务代码只读。
 - `Unit`/`GameObject`/`Projectile`/`AreaTrigger`/`DroppedLoot` 等具体子类不属于本模块
   （见 05 第 1 节继承树），测试用一个内部的 `TestEntity : Entity` 子类。
+- `EntityKinds`（本模块 `contracts/EntityKinds.cs`）登记已落地子类实际使用的 `Kind`
+  取值常量：`Player`/`Creature`/`Gobj`/`Loot`（分别对应 `PlayerUnit`/`CreatureUnit`/
+  `GameObjectEntity`/`DroppedLootEntity`）。`core/`/`presentation/` 内引用这些取值一律
+  用该常量，不再手写字符串字面量；`summon`/`projectile`/`area_trigger` 三个模块尚未
+  落地对应 `Entity` 子类，暂不登记（见该类型判断记录"未使用的不发明"）。
 - `WorldSim` 内部用 `SortedDictionary<Id, Entity>` 保存实体集合，天然按 `Id` 序数升序
   遍历，`QueryEntities` 据此保证结果确定性排序，不需要额外排序步骤。
 - `AllocateEntityId(kind)` 按 `kind` 分别维护一个从 1 起的递增序号，产生

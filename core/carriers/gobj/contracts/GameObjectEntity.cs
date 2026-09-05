@@ -16,7 +16,7 @@ namespace Core.Carriers.Gobj
     /// </summary>
     public sealed class GameObjectEntity : Entity
     {
-        public override string Kind => "gobj";
+        public override string Kind => EntityKinds.Gobj;
 
         /// <summary>当前锁（可空，见 05 第 1.3 节 <c>GameObject.lockId</c>）：初始通常取
         /// <see cref="GameObjectTemplate.LockId"/>，但允许手工放置对象在生成时覆盖，或运行期被脚本

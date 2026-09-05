@@ -42,6 +42,10 @@ namespace Tests.Gameplay.EndToEnd
 
         public static readonly Id CreatureBeast = new Id("creature.sample_beast");
         public static readonly Id SpawnBeastField = new Id("spawn.sample_beast_field");
+        public static readonly Id SpawnEncounterAmbusher = new Id("spawn.sample_encounter_ambusher");
+        public static readonly Id EncounterBeastFight = new Id("encounter.sample_beast_fight");
+
+        public static readonly Id GobjSavePoint = new Id("gobj.sample_save_point");
 
         public static readonly Id ItemToken = new Id("item.sample_token");
         public static readonly Id ItemTonic = new Id("item.sample_tonic");
@@ -182,9 +186,13 @@ namespace Tests.Gameplay.EndToEnd
             var rng = new RngHost(seed);
             var world = new WorldSim(bus);
             var spatial = new StubSpatialQuery();
+            // 判断记录（缺口 16，ISaveSystem 归 GameplayAssembly 持有）：本夹具改在这里就地构造
+            // 唯一一份 RealSaveSystem 并直接传给 GameplayAssembly 构造函数——Fixture.SaveSystem
+            // 字段下方复用同一个实例（不再另建一份），与 GameplayAssembly.SaveSystem 属性等价。
+            var saveSystem = new RealSaveSystem(fs, new SaveSystemOptions(GameId), bus);
 
             var gameplay = new GameplayAssembly(
-                bus, registry, rng, world, spatial,
+                bus, registry, rng, world, spatial, saveSystem,
                 playerUnitProvider: () => PlayerId,
                 playerFactionId: FactionPlayer);
 
@@ -209,7 +217,7 @@ namespace Tests.Gameplay.EndToEnd
                 Gameplay = gameplay,
                 Player = player,
                 FileSystem = fs,
-                SaveSystem = new RealSaveSystem(fs, new SaveSystemOptions(GameId), bus),
+                SaveSystem = saveSystem,
             };
         }
     }

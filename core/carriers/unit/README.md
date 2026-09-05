@@ -24,6 +24,7 @@ unit/
     MovementState.cs        MovementState（05 §6.2）+ MoveMode 枚举
     MoveRequest.cs           MoveRequest（05 §6.2）
     ISpatialIndexSync.cs    WorldUnitAccess 可选注入的空间索引同步小接口
+    ISkillBindingHost.cs    缺口 4：技能槽位绑定契约 + KnownSkillQuery 具名委托
   core/
     WorldUnitAccess.cs       IUnitAccess 的真实实现
     MovementHost.cs           MoveRequest → Intent 提交入口 + OnMoveFailed 回调
@@ -31,6 +32,8 @@ unit/
     MovementOptions.cs       移动系统口味配置项
     DirectionQuantizer.cs    05 §3.2 方向量化算法（纯函数）
     UnitPersistable.cs        world.current_map_id / world.current_position 两个存档段
+    SkillBindingHost.cs      ISkillBindingHost 默认实现（缺口 4）
+    SkillBindingPersistable.cs  player.skill_bindings 存档段（惯例同 UnitPersistable 静态工厂写法）
   tests/
     ...
 ```

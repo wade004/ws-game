@@ -81,7 +81,7 @@ namespace Tests.Carriers.Creature
 
             var entity = f.World.GetEntity(id);
             Assert.NotNull(entity);
-            Assert.Equal("creature", entity!.Kind);
+            Assert.Equal(EntityKinds.Creature, entity!.Kind);
             var unit = Assert.IsType<CreatureUnit>(entity);
             Assert.Equal(new Id("fac.test_monster"), unit.FactionId);
             Assert.Equal(BasicTemplateId, unit.TemplateId);

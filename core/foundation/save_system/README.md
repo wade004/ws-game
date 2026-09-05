@@ -106,6 +106,23 @@ save_system/
   某个已注册段 `Load()` 抛异常 → `PersistableThrew`，此前已成功 `Load` 的段**不回滚**
   （由调用方决定如何处理这种"部分加载"状态，例如整体回到主菜单重新读档）。
 
+## `LoadResult.CurrentMapId` / `CurrentPosition`（缺口 11）
+
+- 10_存档与持久化.md 只定义了存档文档 `world.current_map_id`/`world.current_position` 两个段
+  的内容（第 2.3 节），没有定义 `ISaveSystem.Load` 这个 C# 方法本身的返回结构应该携带什么——
+  这两个新增字段属于本模块 API 的实现细节补齐，不是对 10 号文档的勘误。
+- `SaveSystem.Load` 在 `Loaded`/`LoadedFromBackup`/`PersistableThrew` 三种状态下都会尝试直接从
+  已解析出的 `sections` 原始 JSON 解析这两个字段（`TryGetSectionId`/`TryGetSectionVec2`），**不
+  依赖调用方是否已经为 `world.current_map_id`/`world.current_position` 注册对应的
+  `IPersistable`**（见 `Core.Carriers.Unit.UnitPersistable.CurrentMapId`/`CurrentPosition`）——
+  这是为了让"读档前需要先知道要加载哪张地图"的调用方（例如场景路由）在任何
+  `PlayerUnit` 实体存在之前就能拿到目标地图，不必等所有段都 `Load()` 完成。
+- 段缺失（旧存档没有这两个字段）或格式不符时两者均为 `null`，不记诊断、不阻断读档——10
+  第 2.3 节把它们标为"必填"，但本模块对"必填字段实际缺失"统一采取宽松兜底（呼应
+  `UnitPersistable.Load` 对 `JsonNull` 的处理），不因为这两个辅助字段解析失败就拒绝整次读档。
+- `NotFound`/`Corrupted`/`MigrationFailed` 三种失败状态下二者恒为 `null`（未走到 `sections`
+  解析步骤）。
+
 ## RngStreamsPersistable
 
 `core/RngStreamsPersistable.cs` 是 `rng.stream_states` 段的 `IPersistable` 实现：`Save()`

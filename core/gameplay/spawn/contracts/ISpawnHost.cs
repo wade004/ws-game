@@ -38,6 +38,24 @@ namespace Core.Gameplay.Spawn
         /// 只记一条诊断，不重复生成。</summary>
         void TriggerNever(Id spawnId);
 
+        /// <summary>
+        /// 按 <c>spawn.table</c> 条目 id 立即生成一次（缺口 14：核对 08 号文档发现"按 id 立即生成"
+        /// 未列在本契约方法清单里，本方法补齐这一细节），签名与
+        /// <c>Core.Gameplay.Encounter.SpawnRequester</c> 委托一致，供组装层直接把
+        /// <see cref="SpawnNow"/> 接给 <c>EncounterHost</c> 的同名回调（见该委托类型判断记录
+        /// "组装期把 (spawnId, mapId) =&gt; spawnHost.Execute(spawnId, mapId) 一类适配逻辑接到本委托
+        /// 签名"）。行为等价于 <see cref="TriggerNever"/> 去掉"未知 id 抛异常"、加上一次
+        /// <paramref name="mapId"/> 校验：不区分 <c>respawn_policy</c>（任何策略的行都可以被立即
+        /// 触发一次，同 <see cref="TriggerNever"/> 现有实现——它同样不检查策略），当前已有存活实例、
+        /// <c>condition</c> 不满足时只记一条诊断并返回空列表，不抛异常。
+        /// </summary>
+        /// <param name="spawnId"><c>spawn.table</c> 条目 id；不存在时记一条 Error 诊断并返回空列表。</param>
+        /// <param name="mapId">调用方期望的目标地图；与该条目 <c>map_id</c> 不一致时记一条 Error
+        /// 诊断并返回空列表，不生成（防止调用方对地图归属做出错误假设）。</param>
+        /// <returns>本次调用生成的实体 id 列表：正常情况下恰好一个元素；因诊断分支提前返回、或
+        /// 底层 <c>GobjSpawner</c> 未注入等原因未能生成时为空列表，从不为 null。</returns>
+        IReadOnlyList<Id> SpawnNow(Id spawnId, Id mapId);
+
         /// <summary>场景卸载时调用：清理本模块对 <paramref name="mapId"/> 下各刷新点持有的运行期
         /// 实例引用（不销毁实体本身，见 <see cref="SpawnHost"/> 判断记录），保留
         /// <see cref="SpawnRecord.RespawnRemaining"/>/<see cref="SpawnRecord.SpawnCount"/>（任务书

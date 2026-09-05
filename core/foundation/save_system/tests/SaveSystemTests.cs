@@ -260,6 +260,52 @@ namespace Tests.Foundation.SaveSystem
             Assert.Equal("t_second", meta.UpdatedAt);
         }
 
+        // ==== 3a. LoadResult.CurrentMapId / CurrentPosition（缺口 11）============
+
+        [Fact]
+        public void Load_PopulatesCurrentMapIdAndPosition_EvenWithoutRegisteredPersistable()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.world_position");
+            var mapId = new Id("world.sample_field");
+
+            var sutSave = CreateSut(fs);
+            sutSave.RegisterPersistable(new RecordingPersistable(SaveSections.WorldCurrentMapId, new JsonString(mapId.Value)));
+            sutSave.RegisterPersistable(new RecordingPersistable(
+                SaveSections.WorldCurrentPosition,
+                new JsonObjectBuilder().Add("x", new JsonNumber(12.5)).Add("y", new JsonNumber(-3.25)).Build()));
+            Assert.True(sutSave.Save(new SaveRequest(slotId, "t1")).Success);
+
+            // 读档一侧刻意不注册这两个段对应的 IPersistable（模拟"PlayerUnit 尚不存在，场景路由需要
+            // 先知道要加载哪张地图"的调用时机），验证 LoadResult 仍能直接从文档解析出这两个字段。
+            var sutLoad = CreateSut(fs);
+            var result = sutLoad.Load(slotId);
+
+            Assert.Equal(LoadStatus.Loaded, result.Status);
+            Assert.Equal((Id?)mapId, result.CurrentMapId);
+            Assert.Equal((Vec2?)new Vec2(12.5, -3.25), result.CurrentPosition);
+        }
+
+        [Fact]
+        public void Load_OldSaveWithoutWorldPositionSections_CurrentMapIdAndPositionAreNull()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.legacy_save");
+
+            // 旧存档：不注册 world.current_map_id/current_position 对应的段，模拟本字段引入之前
+            // 写出的存档文件里根本不存在这两个 key。
+            var sutSave = CreateSut(fs);
+            sutSave.RegisterPersistable(new RecordingPersistable(SaveSections.WorldStateFlags, new JsonObjectBuilder().Build()));
+            Assert.True(sutSave.Save(new SaveRequest(slotId, "t1")).Success);
+
+            var sutLoad = CreateSut(fs);
+            var result = sutLoad.Load(slotId);
+
+            Assert.Equal(LoadStatus.Loaded, result.Status);
+            Assert.Null(result.CurrentMapId);
+            Assert.Null(result.CurrentPosition);
+        }
+
         // ==== 4. ListSlots / DeleteSlot =========================================
 
         [Fact]

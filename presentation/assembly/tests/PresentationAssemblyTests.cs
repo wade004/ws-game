@@ -140,9 +140,16 @@ namespace Tests.Presentation.Assembly
             var rng = new RngHost(1);
             var playerFaction = new Id("fac.sample_player");
 
+            // 判断记录（缺口 16，ISaveSystem 归 GameplayAssembly 持有）：engine 需要提前构造出来，
+            // 才能拿到 engine.FileSystem 传给 GameplayAssembly 的 saveSystem 参数——PresentationAssembly
+            // 现在改为直接读 gameplay.SaveSystem，不再自行用 engine.FileSystem 另建一份。
+            engine = new StubEngine();
+            var saveSystem = new Core.Foundation.SaveSystem.SaveSystem(
+                engine.FileSystem, new SaveSystemOptions(new Id("game.unspecified")), bus);
+
             Id playerId = default;
             gameplay = new GameplayAssembly(
-                bus, registry, rng, world, spatial,
+                bus, registry, rng, world, spatial, saveSystem,
                 playerUnitProvider: () => playerId,
                 playerFactionId: playerFaction);
 
@@ -151,7 +158,6 @@ namespace Tests.Presentation.Assembly
             // 的 playerId 在此赋值后，后续调用（包括即将构造的 PresentationAssembly）都会取到它。
             playerId = gameplay.Carriers.Creatures.Spawn(SamplePlayerTemplateId, SampleMapId, Vec2.Zero, 0.0);
 
-            engine = new StubEngine();
             var viewFactory = new Tests.PresentationViewBinding.FakeViewFactory();
             var sceneRouter = new SceneRouter(registry, engine.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, bus);
             var presentationRng = new RngHost(2);
@@ -306,13 +312,15 @@ namespace Tests.Presentation.Assembly
             var world = new WorldSim(bus);
             var spatial = new StubSpatialQuery();
             var rng = new RngHost(1);
+            var engine = new StubEngine();
+            var saveSystem = new Core.Foundation.SaveSystem.SaveSystem(
+                engine.FileSystem, new SaveSystemOptions(new Id("game.unspecified")), bus);
             Id playerId = default;
             var gameplay = new GameplayAssembly(
-                bus, registry, rng, world, spatial,
+                bus, registry, rng, world, spatial, saveSystem,
                 playerUnitProvider: () => playerId, playerFactionId: new Id("fac.sample_player"));
             playerId = gameplay.Carriers.Creatures.Spawn(SamplePlayerTemplateId, SampleMapId, Vec2.Zero, 0.0);
 
-            var engine = new StubEngine();
             var viewFactory = new Tests.PresentationViewBinding.FakeViewFactory();
             var sceneRouter = new SceneRouter(registry, engine.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, bus);
 

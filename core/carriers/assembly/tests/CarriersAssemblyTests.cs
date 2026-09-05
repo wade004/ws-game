@@ -1,5 +1,6 @@
 using Adapters.Stub;
 using Core.Carriers.Assembly;
+using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.Rng;
@@ -80,6 +81,39 @@ namespace Tests.Carriers.Assembly
             Assert.NotNull(assembly.GameObjects);
             Assert.NotNull(assembly.GameObjectInteractions);
             Assert.NotNull(assembly.Movement);
+            Assert.NotNull(assembly.SkillBindings);
+        }
+
+        /// <summary>缺口 4 接线验收：<see cref="CarriersAssembly.SkillBindings"/> 的
+        /// <see cref="Core.Carriers.Unit.KnownSkillQuery"/> 委托确实接的是
+        /// <c>Rules.Skill.Knows</c>（不是测试假实现）——未学会时 Bind 被拒绝，
+        /// <c>Rules.Skill.LearnSkill</c> 之后同一次 Bind 才成功。</summary>
+        [Fact]
+        public void SkillBindings_Bind_UsesRulesSkillKnows_ForKnownSkillValidation()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+
+            var source = new InMemoryDataSource();
+            AddMinimalRequiredTables(source);
+            var registry = new DataRegistry(source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
+            CarriersSchemaCatalog.RegisterAll(registry);
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+
+            var world = new WorldSim(bus);
+            var spatial = new StubSpatialQuery();
+            var rng = new RngHost(1);
+            var assembly = new CarriersAssembly(bus, registry, rng, world, spatial);
+
+            var unitId = new Id("unit.skill_binding_smoke");
+            var skillId = new Id("skill.fireball");
+
+            Assert.False(assembly.SkillBindings.Bind(unitId, "slot_0", skillId));
+
+            assembly.Rules.Skill.LearnSkill(unitId, skillId);
+            Assert.True(assembly.SkillBindings.Bind(unitId, "slot_0", skillId));
         }
 
         [Fact]

@@ -87,6 +87,7 @@
     { "key": "unit.died", "domain": "unit", "fields": ["unitId", "killerId"], "description": "死亡结算完成（见 06 第 8 节）" },
     { "key": "unit.moved", "domain": "unit", "fields": ["unitId", "position"], "description": "单位逻辑位置变化时触发，供表现层 View 同步（见 01 L5 模块表 render 行订阅示例、03 第 5 节同步小节原文列举）；字段为建议值" },
     { "key": "unit.respawned", "domain": "unit", "fields": ["unitId", "policy"], "description": "按死亡复活策略处理完成（见 06 第 8 节）" },
+    { "key": "unit.skill_binding_changed", "domain": "unit", "fields": ["unitId", "slot", "skillId"], "description": "技能槽位绑定关系变化时触发（缺口 4：core/carriers/unit.ISkillBindingHost.Bind/Unbind，对应存档段 player.skill_bindings，见 10 第 2.2 节）；skillId 在 Unbind 后为空（该槽位当前未绑定任何技能）" },
     { "key": "unit.state_changed", "domain": "unit", "fields": ["unitId", "oldState", "newState"], "description": "单位可视状态（如移动/待机/施法等外显状态）变化时触发，供表现层 View 同步（见 01 L5 模块表 render 行订阅示例、03 第 5 节同步小节原文列举）；字段为建议值，字段命名参照同表 ai.state_changed 行" },
     { "key": "world.flag_changed", "domain": "world", "fields": ["flagKey", "oldValue", "newValue", "writerId"], "description": "WorldState.set 写入标志后触发（见 05 第 8.2 节，字段原文给出）" }
   ]

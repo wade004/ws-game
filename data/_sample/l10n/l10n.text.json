@@ -26,6 +26,7 @@
     { "key": "l10n.creature.sample_beast.name", "locale": "l10n.locale.zh_cn", "text": "示例野兽" },
     { "key": "l10n.gobj.sample_chest.name", "locale": "l10n.locale.zh_cn", "text": "示例箱子" },
     { "key": "l10n.gobj.sample_door.name", "locale": "l10n.locale.zh_cn", "text": "示例门" },
+    { "key": "l10n.gobj.sample_save_point.name", "locale": "l10n.locale.zh_cn", "text": "示例存档点" },
     { "key": "l10n.econ.currency.sample_coin.name", "locale": "l10n.locale.zh_cn", "text": "示例金币" },
     { "key": "l10n.econ.vendor.sample_hunter.name", "locale": "l10n.locale.zh_cn", "text": "示例猎人商人" },
     { "key": "l10n.quest.sample_hunt.title", "locale": "l10n.locale.zh_cn", "text": "示例狩猎任务" },

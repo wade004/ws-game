@@ -29,6 +29,7 @@ namespace Core.Carriers.Common
 
         public static readonly Id UnitMoved = new Id("unit.moved");
         public static readonly Id UnitStateChanged = new Id("unit.state_changed");
+        public static readonly Id UnitSkillBindingChanged = new Id("unit.skill_binding_changed");
     }
 
     /// <summary>物品加入背包时触发（见 found.event_catalog <c>item.added</c> 行、07 第 1.3 节
@@ -398,6 +399,46 @@ namespace Core.Carriers.Common
                 case "unitId": value = ExprValue.OfId(UnitId); return true;
                 case "oldState": value = ExprValue.OfString(OldState); return true;
                 case "newState": value = ExprValue.OfString(NewState); return true;
+                default: value = default; return false;
+            }
+        }
+    }
+
+    /// <summary>技能槽位绑定关系变化时触发（缺口 4：<c>Core.Carriers.Unit.ISkillBindingHost.Bind</c>/
+    /// <c>Unbind</c>，见 found.event_catalog <c>unit.skill_binding_changed</c> 行、
+    /// 10_存档与持久化.md 第 2.2 节 <c>player.skill_bindings</c>）。<see cref="SkillId"/> 在
+    /// <c>Unbind</c> 后为空（该槽位当前未绑定任何技能）。</summary>
+    public sealed class UnitSkillBindingChangedEvent : IEvent, IExprReadableEvent
+    {
+        public Id Key => CarriersEventKeys.UnitSkillBindingChanged;
+
+        public Id UnitId { get; }
+
+        public string Slot { get; }
+
+        public Id? SkillId { get; }
+
+        public UnitSkillBindingChangedEvent(Id unitId, string slot, Id? skillId)
+        {
+            UnitId = unitId;
+            Slot = slot ?? throw new ArgumentNullException(nameof(slot));
+            SkillId = skillId;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "slot": value = ExprValue.OfString(Slot); return true;
+                case "skillId":
+                    if (SkillId.HasValue)
+                    {
+                        value = ExprValue.OfId(SkillId.Value);
+                        return true;
+                    }
+                    value = default;
+                    return false;
                 default: value = default; return false;
             }
         }

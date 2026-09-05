@@ -87,7 +87,7 @@ namespace Core.Carriers.Creature
             var template = RequireTemplate(templateId);
             var tier = RequireTier(template.TierId);
 
-            var entityId = _world.AllocateEntityId("creature");
+            var entityId = _world.AllocateEntityId(EntityKinds.Creature);
             var unit = new CreatureUnit(entityId, mapId, template.FactionId, templateId)
             {
                 Position = position,

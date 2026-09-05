@@ -113,6 +113,34 @@ namespace Tests.Gameplay
         }
 
         // -----------------------------------------------------------------
+        // 1a. 缺口 14：encounter.def.units[].spawn_ref 经 SpawnRequester → ISpawnHost.SpawnNow
+        //     生成参战单位（此前 GameplayAssembly 的 spawnRequester 是"总是返回空列表"的占位，
+        //     data/_sample/encounter/encounter.def.json 此前用 template_ref 绕开这条路径——见
+        //     GameplayAssembly.cs 第 12 步判断记录）。spawn.sample_encounter_ambusher 的
+        //     respawn_policy 是 never，EnterMap（ApplyForMap）不会自动生成它，只有本次
+        //     Encounter.Start 才会经 spawnRequester 触发。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Encounter_Start_SpawnsUnit_ViaSpawnRequester_ReachingSpawnTableEntry()
+        {
+            var fx = GameWorldFixture.Build();
+            fx.Gameplay.EnterMap(GameWorldFixture.MapId, GameWorldFixture.PlayerId);
+
+            var beforeRecord = fx.Gameplay.Spawn.GetSpawnRecord(GameWorldFixture.SpawnEncounterAmbusher);
+            Assert.True(beforeRecord == null || !beforeRecord.EntityId.HasValue,
+                "spawn.sample_encounter_ambusher 是 never 策略，EnterMap 不应自动生成");
+
+            fx.Gameplay.Encounter.Start(GameWorldFixture.EncounterBeastFight, GameWorldFixture.MapId, GameWorldFixture.PlayerId);
+
+            var afterRecord = fx.Gameplay.Spawn.GetSpawnRecord(GameWorldFixture.SpawnEncounterAmbusher);
+            Assert.NotNull(afterRecord);
+            Assert.True(afterRecord!.EntityId.HasValue,
+                "encounter.sample_beast_fight 的 units[0].spawn_ref 应经 SpawnRequester(=ISpawnHost.SpawnNow) 生成一个实体");
+            Assert.True(fx.Gameplay.Carriers.Units.Exists(afterRecord.EntityId!.Value));
+        }
+
+        // -----------------------------------------------------------------
         // 2. 接任务：经 dialog.gossip_menu 的 quest_accept 动作，任务日志状态机进入 Active。
         // -----------------------------------------------------------------
 
@@ -313,6 +341,32 @@ namespace Tests.Gameplay
             var spawnRecordB = fxB.Gameplay.Spawn.GetSpawnRecord(GameWorldFixture.SpawnBeastField);
             Assert.NotNull(spawnRecordB);
             Assert.True(spawnRecordB!.SpawnCount >= 1);
+        }
+
+        // -----------------------------------------------------------------
+        // 10. 缺口 16：save_point 交互经 GobjOptions.SaveRequester → GameplayAssembly.SaveSystem
+        //     触发一次自动存档（此前 SaveRequester 是 "_ => { }" 占位，交互不产生任何副作用；
+        //     GameplayAssembly.cs 第 16 步判断记录）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void InteractWithSavePoint_TriggersAutosave_WritesAutosaveSlotFile()
+        {
+            var fx = GameWorldFixture.Build();
+
+            var autosaveSlotId = new Id("slot.autosave");
+            Assert.False(fx.Gameplay.SaveSystem.SlotExists(autosaveSlotId));
+
+            // 存档点摆在玩家出生位置（Vec2.Zero），落在 GobjOptions.InteractRange 默认值 2 以内。
+            var savePointId = fx.Gameplay.Carriers.GameObjects.Spawn(
+                GameWorldFixture.GobjSavePoint, GameWorldFixture.MapId, Vec2.Zero, 0.0);
+
+            var result = fx.Gameplay.Carriers.GameObjectInteractions.Interact(GameWorldFixture.PlayerId, savePointId);
+
+            Assert.True(result.Success);
+            Assert.True(fx.Gameplay.SaveSystem.SlotExists(autosaveSlotId),
+                "save_point 交互应经 GobjOptions.SaveRequester 触发 GameplayAssembly.SaveSystem.Save，" +
+                "在默认自动存档槽 \"slot.autosave\" 下写出文件");
         }
     }
 }

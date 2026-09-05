@@ -78,7 +78,7 @@ namespace Tests.Foundation.Determinism
             var rng = new RngHost(masterSeed);
             var world = new WorldSim(bus);
 
-            world.AddEntity(new DeterministicUnit(PlayerId, MapId, "player"));
+            world.AddEntity(new DeterministicUnit(PlayerId, MapId, EntityKinds.Player));
             world.AddEntity(new DeterministicUnit(NpcAId, MapId, "npc"));
             world.AddEntity(new DeterministicUnit(NpcBId, MapId, "npc"));
 

@@ -292,6 +292,17 @@ namespace Core.Foundation.SaveSystem
                 return LoadResult.Corrupted($"meta 段解析失败：{fe.Message}");
             }
 
+            // 判断记录（CurrentMapId/CurrentPosition 直接读 sections，不依赖 IPersistable 注册）：
+            // 见 LoadResult.CurrentMapId 文档——调用方可能需要在任何 world.current_map_id 对应的
+            // IPersistable（如 Core.Carriers.Unit.UnitPersistable.CurrentMapId）注册之前就知道
+            // 目标地图（例如驱动场景路由），因此这两个字段的解析独立于下面的 readOrder 循环，
+            // 直接从已解析出的 sections 原始 JSON 取值；解析失败（段缺失/类型不符，如旧存档没有
+            // 这两个段）不影响读档流程本身，静默为 null，不记诊断（10 文档未把这两个字段列为
+            // "缺失即损坏"，只是"必填"——本模块对必填字段的缺失采取宽松兜底，呼应
+            // UnitPersistable.Load 对 JsonNull 的处理）。
+            var currentMapId = TryGetSectionId(sections, SaveSections.WorldCurrentMapId);
+            var currentPosition = TryGetSectionVec2(sections, SaveSections.WorldCurrentPosition);
+
             var readOrder = ComputeReadOrder(sections);
             foreach (var key in readOrder)
             {
@@ -314,7 +325,9 @@ namespace Core.Foundation.SaveSystem
                 catch (Exception ex)
                 {
                     _diagnostics.Error($"存档段 \"{key}\" 的 Load() 抛出异常，此前已加载的段不会回滚", ex);
-                    return LoadResult.PersistableThrew(meta, migratedFrom, $"存档段 \"{key}\" 的 Load() 抛出异常：{ex.Message}");
+                    return LoadResult.PersistableThrew(
+                        meta, migratedFrom, $"存档段 \"{key}\" 的 Load() 抛出异常：{ex.Message}",
+                        currentMapId, currentPosition);
                 }
             }
 
@@ -325,7 +338,29 @@ namespace Core.Foundation.SaveSystem
 
             _bus?.PublishImmediate(new SaveLoadedEvent(slotId));
 
-            return LoadResult.Loaded(meta, migratedFrom, status);
+            return LoadResult.Loaded(meta, migratedFrom, status, currentMapId, currentPosition);
+        }
+
+        private static Id? TryGetSectionId(JsonObject sections, string key)
+        {
+            if (sections.TryGetValue(key, out var value) && value is JsonString text && Id.TryParse(text.Value, out var id))
+            {
+                return id;
+            }
+
+            return null;
+        }
+
+        private static Vec2? TryGetSectionVec2(JsonObject sections, string key)
+        {
+            if (sections.TryGetValue(key, out var value) && value is JsonObject obj
+                && obj.TryGetValue("x", out var xv) && xv is JsonNumber xn
+                && obj.TryGetValue("y", out var yv) && yv is JsonNumber yn)
+            {
+                return new Vec2(xn.Value, yn.Value);
+            }
+
+            return null;
         }
 
         private (JsonObject doc, LoadStatus status)? ReadValidEnvelope(Id slotId, string formalPath)
