@@ -146,6 +146,31 @@ namespace Tests.Gameplay.EndToEnd
             return new FileSystemDataSource(fs, "data/_sample");
         }
 
+        /// <summary>
+        /// 收边任务补齐（数据行迁移）：<c>arch.power.health</c> 已迁到
+        /// <c>data/_framework/arch/arch.power_type.json</c>，<see cref="ClassSample"/>
+        /// （<c>arch.class.sample_a</c>）的 <c>power_types</c> 仍然引用它——本夹具原先只加载
+        /// <c>data/_sample</c> 单根，<see cref="RegisterUnit"/> 装配 <see cref="Core.Numbers.
+        /// PowerSet.PowerHost"/> 时会因为找不到 <c>arch.power.health</c> 定义整体装配失败。改为与
+        /// <c>core/numbers/tests/L1SampleDataTests.cs</c>/<c>core/foundation/data_registry/tests/
+        /// DataRegistryTests.cs</c> 同一手法的多根加载（<c>_framework</c> + <c>_sample</c>）。
+        /// </summary>
+        private static FileSystemDataSource BuildRealFrameworkSource(StubFileSystem fs)
+        {
+            var repoRoot = FindRepoRoot();
+            var frameworkRoot = Path.Combine(repoRoot, "data", "_framework");
+
+            foreach (var file in Directory.GetFiles(frameworkRoot, "*.json", SearchOption.AllDirectories))
+            {
+                var rel = file.Substring(frameworkRoot.Length)
+                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    .Replace('\\', '/');
+                fs.WriteTextAtomic("data/_framework/" + rel, File.ReadAllText(file));
+            }
+
+            return new FileSystemDataSource(fs, "data/_framework");
+        }
+
         /// <summary>组装一整套全新世界。<paramref name="fileSystem"/> 未提供时新建一个（存档相关用例
         /// 需要在"保存"与"读档"两次 <see cref="Build"/> 之间复用同一个 <see cref="StubFileSystem"/>
         /// 实例，模拟"同一台机器上的磁盘"）。</summary>
@@ -163,6 +188,7 @@ namespace Tests.Gameplay.EndToEnd
                 bus.Subscribe(key, e => events.Add(e));
             }
 
+            var frameworkSource = BuildRealFrameworkSource(fs);
             var source = BuildRealSampleSource(fs);
             var options = GameplaySchemaCatalog.CreateOptions();
             // 判断记录（阶段 4 收敛 B 追加）：data/_sample 现在同时装着 L0～L4（本类关心的）与
@@ -174,9 +200,9 @@ namespace Tests.Gameplay.EndToEnd
             // 本类完全不关心的 L5 数据——这正是 DataRegistryOptions.FailOnUnknownTable 设计出来
             // 要处理的场景。
             options.FailOnUnknownTable = false;
-            var registry = new DataRegistry(source, bus, options);
+            var registry = new DataRegistry(frameworkSource, bus, options);
             GameplaySchemaCatalog.RegisterAll(registry);
-            var report = registry.LoadAll();
+            var report = registry.LoadAll(new IDataSource[] { frameworkSource, source });
             if (report.IsBlocking)
             {
                 throw new InvalidOperationException(

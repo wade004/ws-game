@@ -59,7 +59,8 @@ namespace Core.Rules.Skill
             IEffectExtension? effectExtension = null,
             ISkillDiagnostics? diagnostics = null,
             IExprSchema? exprSchema = null,
-            IStaticImmunityProvider? staticImmunity = null)
+            IStaticImmunityProvider? staticImmunity = null,
+            IProjectileSpawner? projectileSpawner = null)
         {
             _registry = dataRegistry ?? throw new ArgumentNullException(nameof(dataRegistry));
             _units = unitAccess ?? throw new ArgumentNullException(nameof(unitAccess));
@@ -91,7 +92,8 @@ namespace Core.Rules.Skill
 
             _effectDispatcher = new EffectDispatcher(
                 _auraHost, _cooldowns, _defs, powerHost, _units, combatHost, statHost, _spellMods,
-                effectExtension, _diagnostics, TriggerCastInternal, InterruptInternal, LearnSkill);
+                effectExtension, _diagnostics, TriggerCastInternal, InterruptInternal, LearnSkill,
+                projectileSpawner);
             _auraHost.EffectSink = _effectDispatcher;
 
             _pipeline = new CastPipeline(

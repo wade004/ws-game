@@ -7,7 +7,7 @@
       "name_key": "l10n.class.sample_a.name",
       "primary_stat": "stat.strength",
       "base_stats": { "stat.strength": 10, "stat.stamina": 8 },
-      "power_types": ["arch.power.health", "arch.power.mana"],
+      "power_types": ["arch.power.health", "arch.power.mana", "arch.power.sample_vigor"],
       "talent_tree_ref": "arch.talent_tree.sample",
       "level_curve_ref": "prog.curve.sample",
       "skill_book_ref": "skill.book.sample_a"

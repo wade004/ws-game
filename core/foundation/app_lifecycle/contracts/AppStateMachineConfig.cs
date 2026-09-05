@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Core.Foundation.DataRegistry;
 
 namespace Core.Foundation.AppLifecycle
 {
@@ -155,6 +156,51 @@ namespace Core.Foundation.AppLifecycle
             }
 
             return config;
+        }
+
+        /// <summary>
+        /// 收边任务补齐的契约缺口 2（见 <c>schema/FoundGameStateSchema.cs</c>、
+        /// <c>schema/found.game_state.md</c>"本模块不做什么"一节此前遗留的"从数据文件读取
+        /// 并转换成配置是数据注册表的职责"——本方法就是那个对接点：从
+        /// <paramref name="registry"/> 读取 <c>found.game_state</c> 表的全部行，逐行转换成
+        /// <see cref="GameStateTransitionDefinition"/> 后交给 <see cref="FromDefinitions"/>。
+        /// <para>
+        /// 判断记录（缺表时退化为 <see cref="Default"/>，行为不变）：<paramref name="registry"/>
+        /// 未注册/未加载 <c>found.game_state</c> 表时 <see cref="IDataRegistryView.GetAll"/>
+        /// 返回空列表（见 <c>DataRegistry.GetAll</c>），本方法据此判定"表不存在"并回退到
+        /// <see cref="Default"/>——不是"空表=空配置"，因为一个没有任何允许转移的配置会让
+        /// <c>AppStateHost</c> 完全无法工作，与"未提供数据时维持此前的内存默认行为"这一集成
+        /// 目标相悖。<c>data/_framework/found/found.game_state.json</c> 已提供与
+        /// <see cref="Default"/> 等价的默认数据行（见 schema/found.game_state.md"默认表等价于
+        /// 03 第 2 节"一节），正常装配路径下两者结果一致，只有测试刻意不加载该表时才会走到
+        /// 这条回退分支。
+        /// </para>
+        /// </summary>
+        public static AppStateMachineConfig FromRegistry(IDataRegistryView registry)
+        {
+            if (registry == null)
+            {
+                throw new ArgumentNullException(nameof(registry));
+            }
+
+            var rows = registry.GetAll(FoundGameStateSchema.Table.Name);
+            if (rows.Count == 0)
+            {
+                return Default();
+            }
+
+            var definitions = new List<GameStateTransitionDefinition>(rows.Count);
+            foreach (var row in rows)
+            {
+                var kindText = row.GetString("kind");
+                var kind = kindText == "main" ? GameStateTransitionKind.Main : GameStateTransitionKind.Sub;
+                row.TryGetString("description", out var description);
+                definitions.Add(new GameStateTransitionDefinition(
+                    row.GetString("id"), row.GetString("from"), row.GetString("to"), kind,
+                    string.IsNullOrEmpty(description) ? null : description));
+            }
+
+            return FromDefinitions(definitions);
         }
 
         private static AppState ParseAppState(string value)

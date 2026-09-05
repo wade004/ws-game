@@ -3,8 +3,8 @@
   "schema_version": 1,
   "rows": [
     {
-      "id": "arch.power.health",
-      "name_key": "l10n.power.health.name",
+      "id": "arch.power.sample_vigor",
+      "name_key": "l10n.power.sample_vigor.name",
       "max_source": { "kind": "stat", "stat": "stat.stamina" },
       "regen_out_of_combat": 2,
       "refill_on_leave_combat": true

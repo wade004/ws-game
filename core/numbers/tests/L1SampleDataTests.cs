@@ -49,6 +49,13 @@ namespace Tests.Numbers
         private static readonly Id StatCritRating = new Id("stat.crit_rating");
         private static readonly Id PowerHealth = new Id("arch.power.health");
         private static readonly Id PowerMana = new Id("arch.power.mana");
+        // 收边任务补齐（数据行迁移）：arch.power.health 的行已从 data/_sample 迁到
+        // data/_framework/arch/arch.power_type.json，且框架行的 max_source 改为
+        // {kind: fixed, value: 100}（见 data/README.md "arch.power_type" 判断记录，理由：
+        // 框架级行不能依赖某个具体游戏未必定义的属性 stat.stamina）。本类"资源上限引用某个
+        // 属性、属性成长后上限跟着变"这条端到端测试路径因此改用 _sample 新增的另一个纯测试
+        // 用途资源类型承接，覆盖范围不变。
+        private static readonly Id PowerSampleVigor = new Id("arch.power.sample_vigor");
         private static readonly Id FacPlayer = new Id("fac.player");
         private static readonly Id FacWildlife = new Id("fac.wildlife");
 
@@ -69,21 +76,33 @@ namespace Tests.Numbers
             return dir.FullName;
         }
 
-        private static FileSystemDataSource BuildRealSampleSource()
+        /// <summary>
+        /// 收边任务补齐（数据行迁移）：<c>arch.power.health</c> 已迁到
+        /// <c>data/_framework/arch/arch.power_type.json</c>，本类端到端联调必须把
+        /// <c>data/_framework</c> 与 <c>data/_sample</c> 一起按多根加载合并（否则
+        /// <c>arch.power.health</c> 这一行找不到），与
+        /// <c>core/foundation/data_registry/tests/DataRegistryTests.cs</c>
+        /// <c>BuildRealFrameworkAndSampleSources</c> 同一手法。
+        /// </summary>
+        private static (FileSystemDataSource Framework, FileSystemDataSource Sample) BuildRealFrameworkAndSampleSources()
         {
             var repoRoot = FindRepoRoot();
-            var sampleRoot = Path.Combine(repoRoot, "data", "_sample");
             var fs = new StubEngine().FileSystem;
 
-            foreach (var file in Directory.GetFiles(sampleRoot, "*.json", SearchOption.AllDirectories))
+            FileSystemDataSource BuildOne(string datasetDirName)
             {
-                var rel = file.Substring(sampleRoot.Length)
-                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                    .Replace('\\', '/');
-                fs.WriteTextAtomic("data/_sample/" + rel, File.ReadAllText(file));
+                var root = Path.Combine(repoRoot, "data", datasetDirName);
+                foreach (var file in Directory.GetFiles(root, "*.json", SearchOption.AllDirectories))
+                {
+                    var rel = file.Substring(root.Length)
+                        .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        .Replace('\\', '/');
+                    fs.WriteTextAtomic("data/" + datasetDirName + "/" + rel, File.ReadAllText(file));
+                }
+                return new FileSystemDataSource(fs, "data/" + datasetDirName);
             }
 
-            return new FileSystemDataSource(fs, "data/_sample");
+            return (BuildOne("_framework"), BuildOne("_sample"));
         }
 
         private static IEventBus MakeBus()
@@ -126,7 +145,7 @@ namespace Tests.Numbers
             FactionMatrix FactionMatrix,
             IEventBus Bus) BuildWorld()
         {
-            var source = BuildRealSampleSource();
+            var (frameworkSource, sampleSource) = BuildRealFrameworkAndSampleSources();
             var bus = MakeBus();
             // 判断记录（T2-12 新增 skill/combat/target/ai 示例表后）：data/_sample 现由 L0
             // （found/l10n）、L1 五个数值模块（stat/arch/prog/fac）与 L2 四个规则层模块
@@ -135,7 +154,7 @@ namespace Tests.Numbers
             // 既有做法），L2 贡献的表按 FailOnUnknownTable=false 以"无 schema 表"方式加载（只做
             // 信封与主键格式检查，不做字段级校验——字段级校验由 toolchain/validator 用真实
             // RulesSchemaCatalog 覆盖，见该项目 Program.cs）。
-            var registry = new DataRegistry(source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
+            var registry = new DataRegistry(frameworkSource, bus, new DataRegistryOptions { FailOnUnknownTable = false });
 
             // L0 内置 schema。
             foreach (var schema in BuiltinSchemas.All) registry.RegisterSchema(schema);
@@ -171,7 +190,7 @@ namespace Tests.Numbers
             // 字段本身在未来改声明为受支持的字段形状（或 DeclareReference 扩展支持这两种形状）
             // 后再补上。
 
-            var report = registry.LoadAll();
+            var report = registry.LoadAll(new IDataSource[] { frameworkSource, sampleSource });
 
             var statHost = new StatHost(registry, bus, new StatHostOptions());
 
@@ -235,7 +254,10 @@ namespace Tests.Numbers
         }
 
         // -----------------------------------------------------------------
-        // 3. ApplyTo 注册资源池：health 上限引用 stamina（StatLookup 跨模块装配）
+        // 3. ApplyTo 注册资源池：health（框架级，固定上限）+ mana（固定上限）+ sample_vigor
+        //    （上限引用 stamina，StatLookup 跨模块装配——收边任务补齐：数据行迁移后 health 的
+        //    max_source 改为 fixed，这条"上限引用属性"的端到端路径改由 sample_vigor 承接，见
+        //    PowerSampleVigor 判断记录）
         // -----------------------------------------------------------------
 
         [Fact]
@@ -249,14 +271,19 @@ namespace Tests.Numbers
 
             Assert.True(world.PowerHost.HasPower(unit, PowerHealth));
             Assert.True(world.PowerHost.HasPower(unit, PowerMana));
+            Assert.True(world.PowerHost.HasPower(unit, PowerSampleVigor));
 
-            // arch.power.health.max_source = {kind: stat, stat: stat.stamina}；此时最终 stamina=9。
-            Assert.Equal(9.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
-            Assert.Equal(9.0, world.PowerHost.GetPower(unit, PowerHealth), 10); // start_full 默认 true
+            // arch.power.health（data/_framework）.max_source = {kind: fixed, value: 100}。
+            Assert.Equal(100.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
+            Assert.Equal(100.0, world.PowerHost.GetPower(unit, PowerHealth), 10); // start_full 默认 true
 
             // arch.power.mana.max_source = {kind: fixed, value: 100}。
             Assert.Equal(100.0, world.PowerHost.GetPowerMax(unit, PowerMana), 10);
             Assert.Equal(100.0, world.PowerHost.GetPower(unit, PowerMana), 10);
+
+            // arch.power.sample_vigor.max_source = {kind: stat, stat: stat.stamina}；此时最终 stamina=9。
+            Assert.Equal(9.0, world.PowerHost.GetPowerMax(unit, PowerSampleVigor), 10);
+            Assert.Equal(9.0, world.PowerHost.GetPower(unit, PowerSampleVigor), 10); // start_full 默认 true
         }
 
         // -----------------------------------------------------------------
@@ -273,7 +300,10 @@ namespace Tests.Numbers
             world.ProgressionHost.RegisterUnit(unit, CurveSample);
 
             Assert.Equal(1, world.ProgressionHost.GetLevel(unit));
-            Assert.Equal(9.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10); // 升级前：health 上限=stamina=9
+            // 升级前：sample_vigor 上限=stamina=9（health 已是框架级固定 100，不再随属性变化，见
+            // PowerSampleVigor 判断记录）。
+            Assert.Equal(9.0, world.PowerHost.GetPowerMax(unit, PowerSampleVigor), 10);
+            Assert.Equal(100.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
 
             // prog.xp.kill_sample.base_xp=50；两次授予共 100 = level1.xp_to_next，恰好跨到 2 级。
             world.ProgressionHost.GrantFromSource(unit, XpKillSample);
@@ -286,10 +316,12 @@ namespace Tests.Numbers
             Assert.Equal(12.0, world.StatHost.GetStat(unit, StatStamina), 10);  // 9 + 3
 
             // PowerHost 不会自动感知 StatHost 的变化（跨模块无隐式依赖），需调用方显式
-            // RecomputeMax；调用后 health 上限跟随新的 stamina 变化，当前值未超新上限，不夹取。
+            // RecomputeMax；调用后 sample_vigor 上限跟随新的 stamina 变化，当前值未超新上限，
+            // 不夹取；health 是框架级固定 100，RecomputeMax 后仍不变（无 stat 依赖）。
             world.PowerHost.RecomputeMax(unit);
-            Assert.Equal(12.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
-            Assert.Equal(9.0, world.PowerHost.GetPower(unit, PowerHealth), 10); // 当前值不因上限提高而自动回满
+            Assert.Equal(12.0, world.PowerHost.GetPowerMax(unit, PowerSampleVigor), 10);
+            Assert.Equal(9.0, world.PowerHost.GetPower(unit, PowerSampleVigor), 10); // 当前值不因上限提高而自动回满
+            Assert.Equal(100.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
         }
 
         // -----------------------------------------------------------------

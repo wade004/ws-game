@@ -434,9 +434,25 @@ namespace Core.Rules.Common
 
         public Id UnitId { get; }
 
-        public CombatEnteredEvent(Id unitId)
+        /// <summary>
+        /// 收边任务补齐 <c>found.event_catalog</c> 的 <c>combat.entered</c> 行（首个敌对目标，见
+        /// 06 第 8 节事件词汇表勘误）：本次触发进战的交互对方 id，由
+        /// <see cref="Core.Rules.Common.ICombatHost.NotifyCombatEvent"/> 在该单位真正"首次"进战
+        /// 时填充（见该方法参数注释）。判断记录（不做阵营敌对判定）：字段名沿用文档"首个敌对
+        /// 目标"，但 <c>core/rules/combat</c> 的 <c>Resolver</c> 在造成伤害/治疗后统一
+        /// 对结算双方各调用一次 <c>NotifyCombatEvent(自己, 对方)</c>——不区分本次结算是伤害还是
+        /// 治疗，也不查询 <see cref="Core.Numbers.Faction.IFactionMatrix"/> 二次确认对方是否确实
+        /// 敌对：06 文档未规定"首个敌对目标"需要额外的阵营校验，本字段的语义收敛为"触发本次
+        /// 进战判定的交互对方"，与"进战"本身的既有触发条件（造成/受到伤害、被仇恨表记录）完全
+        /// 复用同一对 <c>(sourceId, targetId)</c>，不引入新的判定分支。可空：环境触发的进战（如
+        /// <c>SummonTickHandler</c> 同步召唤物进战状态）未传交互对方时为 null。
+        /// </summary>
+        public Id? HostileId { get; }
+
+        public CombatEnteredEvent(Id unitId, Id? hostileId = null)
         {
             UnitId = unitId;
+            HostileId = hostileId;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -444,6 +460,7 @@ namespace Core.Rules.Common
             switch (name)
             {
                 case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "hostileId" when HostileId.HasValue: value = ExprValue.OfId(HostileId.Value); return true;
                 default: value = default; return false;
             }
         }

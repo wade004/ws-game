@@ -13,8 +13,10 @@ namespace Core.Rules.Skill
     /// 三类先做本模块职责内的免疫短路与数值组装（基础值 + 系数 × 缩放属性、SpellMod
     /// <c>effect_value</c>/<c>crit_chance</c> 修正），再交给 <see cref="ICombatHost.ResolveEffect"/>；
     /// 06 第 4.1 节结算管线本身（命中/暴击/减免/吸收/落地/后置）完全是 combat 的职责，本类不重复
-    /// 实现。<c>projectile</c>/<c>summon</c>/<c>open_lock</c>/<c>create_item</c>/
-    /// <c>set_world_flag</c>/<c>script</c> 六类转交 <see cref="IEffectExtension"/>（见该接口注释）。
+    /// 实现。<c>projectile</c> 收边任务补齐后转交 <see cref="IProjectileSpawner"/>（见该接口判断
+    /// 记录"依赖倒置"，专用依赖倒置接口而非六合一扩展点，理由见该接口注释）；<c>summon</c>/
+    /// <c>open_lock</c>/<c>create_item</c>/<c>set_world_flag</c>/<c>script</c> 五类转交
+    /// <see cref="IEffectExtension"/>（见该接口注释）。
     /// </summary>
     public sealed class EffectDispatcher : IEffectSink
     {
@@ -27,6 +29,7 @@ namespace Core.Rules.Skill
         private readonly IStatHost _statHost;
         private readonly SpellModResolver _spellMods;
         private readonly IEffectExtension? _extension;
+        private readonly IProjectileSpawner? _projectileSpawner;
         private readonly ISkillDiagnostics _diagnostics;
         private readonly ProcHost.TriggerCastCallback _triggerCast;
         private readonly Action<Id, Id, Id?, double> _interrupt;
@@ -45,7 +48,8 @@ namespace Core.Rules.Skill
             ISkillDiagnostics diagnostics,
             ProcHost.TriggerCastCallback triggerCast,
             Action<Id, Id, Id?, double> interrupt,
-            Action<Id, Id> learnSkill)
+            Action<Id, Id> learnSkill,
+            IProjectileSpawner? projectileSpawner = null)
         {
             _auraHost = auraHost ?? throw new ArgumentNullException(nameof(auraHost));
             _cooldowns = cooldowns ?? throw new ArgumentNullException(nameof(cooldowns));
@@ -56,6 +60,7 @@ namespace Core.Rules.Skill
             _statHost = statHost ?? throw new ArgumentNullException(nameof(statHost));
             _spellMods = spellMods ?? throw new ArgumentNullException(nameof(spellMods));
             _extension = extension;
+            _projectileSpawner = projectileSpawner;
             _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             _triggerCast = triggerCast ?? throw new ArgumentNullException(nameof(triggerCast));
             _interrupt = interrupt ?? throw new ArgumentNullException(nameof(interrupt));
@@ -102,6 +107,8 @@ namespace Core.Rules.Skill
                     return ApplyLearnSkill(context);
 
                 case EffectKind.Projectile:
+                    return ApplyProjectile(context);
+
                 case EffectKind.Summon:
                 case EffectKind.OpenLock:
                 case EffectKind.CreateItem:
@@ -324,7 +331,26 @@ namespace Core.Rules.Skill
         }
 
         // -----------------------------------------------------------------
-        // 扩展点：projectile / summon / open_lock / create_item / set_world_flag / script
+        // projectile（收边任务补齐：从"未实现/委托六合一扩展点"改为委托 IProjectileSpawner，
+        // 见该接口判断记录"依赖倒置"）
+        // -----------------------------------------------------------------
+
+        private ResolveResult ApplyProjectile(EffectContext context)
+        {
+            if (_projectileSpawner != null)
+            {
+                _projectileSpawner.Spawn(context, this);
+                return NoOp(context);
+            }
+
+            _diagnostics.Warn(
+                "EffectKind.Projectile 未注入 IProjectileSpawner（见 core/rules/common/contracts/" +
+                "IProjectileSpawner.cs 判断记录\"依赖倒置\"，通常经 CarriersAssembly 注入），已按未处理返回");
+            return NoOp(context);
+        }
+
+        // -----------------------------------------------------------------
+        // 扩展点：summon / open_lock / create_item / set_world_flag / script
         // -----------------------------------------------------------------
 
         private ResolveResult ApplyExtension(EffectContext context)

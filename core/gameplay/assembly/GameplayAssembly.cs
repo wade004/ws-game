@@ -376,7 +376,11 @@ namespace Core.Gameplay.Assembly
             //     clockHost，这两个自定义子状态与转移都会登记——只是新增的合法转移，不影响任何
             //     既有转移的合法性，对不使用离散模式的调用方无副作用。
             // ---------------------------------------------------------
-            var appStateConfig = AppStateMachineConfig.Default();
+            // 收边任务补齐："GameplayAssembly 装配时优先用表"：found.game_state/found.hook 两张
+            // 表已进 data/_framework（见 FoundGameStateSchema/FoundHookSchema 判断记录），
+            // FromRegistry/LoadDefinitions 在表缺失时分别退化为 Default()/WellKnownHooks 两个
+            // 内置常量，行为与本次改动之前完全一致，只是优先读表。
+            var appStateConfig = AppStateMachineConfig.FromRegistry(registry);
             AwaitingInputSubState = appStateConfig.AddCustomSubState("AwaitingInput");
             PlayingBackSubState = appStateConfig.AddCustomSubState("PlayingBack");
             appStateConfig.AllowSubTransition(SubStateId.Combat, AwaitingInputSubState);
@@ -386,6 +390,7 @@ namespace Core.Gameplay.Assembly
 
             AppState = new AppStateHost(bus, appStateConfig);
             Hooks = new HookRegistry(bus);
+            Hooks.DeclareFromDefinitions(FoundHookSchema.LoadDefinitions(registry));
 
             // ---------------------------------------------------------
             // 10.5) ADR-0013 离散时间模型：只在调用方传入 clockHost 时装配（见该构造参数判断

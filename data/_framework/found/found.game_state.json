@@ -1,0 +1,23 @@
+{
+  "table": "found.game_state",
+  "schema_version": 1,
+  "rows": [
+    { "id": "found.state.boot_to_main_menu", "from": "Boot", "to": "MainMenu", "kind": "main", "description": "启动流程完成后进入主菜单（见 03 第 2 节状态机表）" },
+    { "id": "found.state.main_menu_to_loading", "from": "MainMenu", "to": "Loading", "kind": "main", "description": "玩家选择新游戏/读档后开始加载" },
+    { "id": "found.state.loading_to_in_world", "from": "Loading", "to": "InWorld", "kind": "main", "description": "场景与数据加载完成，进入游戏世界" },
+    { "id": "found.state.loading_to_main_menu", "from": "Loading", "to": "MainMenu", "kind": "main", "description": "加载失败回退到主菜单（03 第 2 节 T1-9 收尾修正，见 AppStateMachineConfig.Default 判断记录 3）" },
+    { "id": "found.state.in_world_to_pause", "from": "InWorld", "to": "Pause", "kind": "main", "description": "玩家触发暂停" },
+    { "id": "found.state.in_world_to_main_menu", "from": "InWorld", "to": "MainMenu", "kind": "main", "description": "玩家从游戏内返回主菜单" },
+    { "id": "found.state.in_world_to_loading", "from": "InWorld", "to": "Loading", "kind": "main", "description": "场景切换（跨地图传送等）重新进入加载态" },
+    { "id": "found.state.pause_to_in_world", "from": "Pause", "to": "InWorld", "kind": "main", "description": "玩家取消暂停，恢复游戏" },
+    { "id": "found.state.pause_to_main_menu", "from": "Pause", "to": "MainMenu", "kind": "main", "description": "暂停菜单中选择返回主菜单" },
+    { "id": "found.state.explore_to_combat", "from": "Explore", "to": "Combat", "kind": "sub", "description": "进入战斗（见 06 第 8 节 combat.entered 联动 InWorld 子状态）" },
+    { "id": "found.state.explore_to_dialog", "from": "Explore", "to": "Dialog", "kind": "sub", "description": "打开对话（gossip 或剧情）" },
+    { "id": "found.state.explore_to_menu_overlay", "from": "Explore", "to": "MenuOverlay", "kind": "sub", "description": "玩家触发'打开菜单'动作" },
+    { "id": "found.state.explore_to_cutscene", "from": "Explore", "to": "Cutscene", "kind": "sub", "description": "进入过场动画" },
+    { "id": "found.state.combat_to_explore", "from": "Combat", "to": "Explore", "kind": "sub", "description": "脱离战斗（combat.left）" },
+    { "id": "found.state.dialog_to_explore", "from": "Dialog", "to": "Explore", "kind": "sub", "description": "对话结束" },
+    { "id": "found.state.cutscene_to_explore", "from": "Cutscene", "to": "Explore", "kind": "sub", "description": "过场动画播放完成" },
+    { "id": "found.state.combat_to_menu_overlay", "from": "Combat", "to": "MenuOverlay", "kind": "sub", "description": "战斗中叠加打开菜单（AppStateMachineConfig.Default 判断记录：MenuOverlay 可叠加在 Combat 之上）" }
+  ]
+}

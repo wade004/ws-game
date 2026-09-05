@@ -18,11 +18,13 @@ data/<game>/<domain>/<table>.json       具体游戏的数据（放各自游戏�
     `FrameworkResidentHost`）无条件整批 `DeclareActionSet`，是 Shell/UI 导航（确认/取消/菜单等）
     正常工作的前提，不是游戏可选内容。
   - `found.hook`/`found.game_state`：架构文档已点名的框架级表（`WellKnownHooks` 硬编码挂载点
-    id、`AppStateMachineConfig.Default()` 等价于该表默认数据行），但截至本次改动两张表尚未有
-    实际 JSON 数据文件落地（对应模块目前只提供内存态默认配置，未接入数据注册表读取，见
-    `core/foundation/app_lifecycle/schema/found.game_state.md`"本模块不做什么"一节）——一旦所属
-    模块把它们接成真正从数据表加载，新增的数据文件应直接放 `data/_framework/found/`，不要放
-    `data/_sample/`。
+    id、`AppStateMachineConfig.Default()` 等价于该表默认数据行）。收边任务已把两张表接成真正从
+    数据注册表读取（`AppStateMachineConfig.FromRegistry`/`Core.Foundation.HookRegistry.
+    FoundHookSchema.LoadDefinitions`，表缺失时分别退化为 `Default()`/`WellKnownHooks`，行为不变）
+    并落地了对应的 `data/_framework/found/found.game_state.json`/`found.hook.json`
+    （内容分别等价于 `AppStateMachineConfig.Default()`、`WellKnownHooks` 两个常量，见
+    `core/foundation/app_lifecycle/schema/found.game_state.md`/
+    `core/foundation/hook_registry/schema/found.hook.md`）。
   - 判断记录（`found.time_model`，本次改动）：`Core.Gameplay.Assembly.TimeModelSwitch` 构造期
     只要求该表存在 `scope: exploration` 一条（缺失时抛异常），不硬编码具体行内容；`scope: combat`
     一条可以完全缺失（`CombatModel` 为空时恒不切换离散模式，见该类型判断记录"缺失战斗时间模型时
@@ -34,15 +36,46 @@ data/<game>/<domain>/<table>.json       具体游戏的数据（放各自游戏�
     `data/_sample/found/`，`games/_template/data/game/found/` 补一份模板默认（探索/战斗都
     `continuous`）供新游戏复制修改；随迁移移除了此前为满足 `initiative_stat` 硬引用而在模板
     `stat.definition` 里补的 `stat.strength` 占位行（模板已改用连续模式，不再需要）。
-  - 判断记录（`arch.power_type`）：`core/rules/common/contracts/WellKnownPowers.cs` 硬编码
-    `arch.power.health` 为固定常量（非可配置默认值，与 `stat.definition` 等表被
+  - 判断记录（`arch.power_type`，收边任务迁移）：`core/rules/common/contracts/WellKnownPowers.cs`
+    硬编码 `arch.power.health` 为固定常量（非可配置默认值，与 `stat.definition` 等表被
     `CombatOptions`/`MovementOptions` 之类"可配置默认值"引用的情况不同——后者游戏层可以整体
-    改配置指向别的 id，不构成"框架代码只认这一个固定值"），按判定规则本应算框架级；但该表
-    当前与 `data/_sample` 下的 `stat.definition`/`prog.*` 等示例数据深度耦合（
-    `core/numbers/tests/L1SampleDataTests.cs` 端到端断言 `arch.power.health` 通过
-    `max_source: {kind: stat, stat: stat.stamina}` 引用示例属性表算出的具体数值），拆分会破坏
-    该测试且该测试不在本次改动的写入范围内，故本次**保留 `arch.power_type` 整表在
-    `data/_sample`**，作为已知的判断记录/遗留项如实记录，不强行拆分。
+    改配置指向别的 id，不构成"框架代码只认这一个固定值"），按判定规则应算框架级。收边任务把
+    `arch.power.health` 这一行本身迁到 `data/_framework/arch/arch.power_type.json`（其余行如
+    `arch.power.mana` 继续留在 `data/_sample`，多根行合并，见下"多根加载与合并规则"）；
+    `games/_template/data/game/` 此前自带的一份 `arch.power.health` 行随之删除
+    （多根合并对同一主键在两个根间重复判定为阻断错误，不能与框架这一行共存）。
+    **判断记录（`max_source` 改为 `{kind: fixed, value: 100}`，不是原 `_sample` 那份
+    `{kind: stat, stat: stat.stamina}`）**：`data/_sample` 原行的上限来源引用 `stat.stamina`——
+    这是 `_sample` 自己的示例属性表内容，具体游戏未必定义同名属性（`games/_template`
+    就没有），框架级的 `arch.power.health` 行若继续依赖某个具体游戏可能不存在的属性 id，会让
+    "游戏不需要提供这张表"这句话变成假话（模板校验会因 `stat.stamina` 不存在而报错）。框架行
+    因此改用与 `games/_template` 迁移前自带的那份完全一致的 `{kind: fixed, value: 100}`
+    （游戏不需要任何前置属性即可使用），这是本次迁移在"复用 `_sample` 原内容"与"保证任意游戏
+    开箱可用"之间的取舍，选择了后者——游戏若需要"生命值上限跟随某个属性成长"，只能另开一个
+    新的资源类型 id（如 `arch.power.<game>_health_pool`）自行定义，不能覆盖/改写框架这一条。
+    配套地，`core/numbers/tests/L1SampleDataTests.cs` 里原本用 `arch.power.health` 验证
+    "`max_source: stat` 端到端算出正确数值、随属性成长 `RecomputeMax` 跟着变"这条测试路径，
+    改用 `_sample` 新增的另一个纯测试用途资源类型 `arch.power.sample_vigor`（内容与原
+    `arch.power.health` 行完全一致，只是改了 id/文本键）承接，覆盖范围不变；该测试类的数据加载
+    方式也从单根 `data/_sample` 改为 `data/_framework` + `data/_sample` 双根合并加载（同
+    `core/foundation/data_registry/tests/DataRegistryTests.cs` 的既有多根加载测试手法），
+    `arch.power.health`/`arch.power.mana`/`arch.power.sample_vigor` 三者合并后仍是同一份
+    `arch.class.sample_a.power_types` 清单能查到的资源集合。
+  - 判断记录（收边任务复核："`core/` 内是否还有其它硬编码数据行 id 未迁入 `_framework`"）：
+    对全仓库 `core/` 下 `new Id("...")` 字面量做过一轮排查（排除测试、生成物、`obj`/`bin`），
+    区分三类：(1) 事件 key 常量（如 `RulesEventKeys.CombatEntered = new Id("combat.entered")`）
+    ——不是数据行 id，是事件总线的路由 key，不在本判定规则范围内；(2) `XxxOptions` 类的
+    `{ get; set; }` 属性默认值（如 `CombatOptions.HitTableConfigId`/`ItemOptions.BudgetCurveId`/
+    `MovementOptions.MoveSpeedStat`）——游戏层可以整体改配置指向别的 id，是"可配置默认值"不是
+    "框架代码只认这一个固定值"，不算框架级（同本节判定规则原文）；(3) RNG 流名（如
+    `AiOptions.RngStream = new Id("ai.decision")`）、事件字段哨兵值（如
+    `DifficultyHost.GlobalScopeId`/`SpawnHost.NoPlayerSentinel`）、运行期生成的实例 id 前缀
+    （如 `AreaTriggerHost` 的 `"area.trap_" + seq`）——这些字符串从不作为某张 `TableSchema` 的
+    主键去 `IDataRegistryView.Get`/`GetAll` 查询，不是"数据行 id"，只是恰好也用 `Id` 类型/
+    `域名.名字` 格式的普通字符串常量。排查结果：全仓库唯二满足"`static readonly`
+    + 不可配置 + 确实作为某张内容表主键被查询"的情形就是 `WellKnownHooks`（`found.hook`，
+    见上）与 `WellKnownPowers.Health`（`arch.power_type`，本节），均已迁入 `_framework`；
+    未发现其它遗漏项。
   - 其余表（`stat.*`/`arch.class`/`arch.race`/`arch.talent_tree`/`prog.*`/`fac.*`/`item.*`/
     `skill.*`/`combat.*`/`ai.*`/`quest.*`/……）经逐表核对，均只被"可配置默认值"（`XxxOptions`
     类的字段默认值，游戏层可整体覆盖）引用或完全不被框架代码引用，属于示例/游戏内容，留在

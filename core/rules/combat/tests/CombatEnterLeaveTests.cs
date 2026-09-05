@@ -42,6 +42,66 @@ namespace Tests.Rules.Combat
             Assert.Equal(2, enteredCount);
         }
 
+        // 收边任务补齐：combat.entered.hostileId（首个敌对目标）——伤害结算对双方各触发一次
+        // NotifyCombatEvent(自己, 对方)，因此 Hero 一侧的 hostileId 应为 Dummy，Dummy 一侧的
+        // hostileId 应为 Hero（见 CombatEnteredEvent.HostileId 判断记录）。
+        [Fact]
+        public void Damage_CombatEnteredEvent_CarriesHostileIdAsCounterpart()
+        {
+            var fx = CombatTestSupport.Build(o => o.HitTableConfigId = new Id("combat.hit_table.default"));
+            CombatTestSupport.RegisterUnit(fx, Hero, CombatTestSupport.FactionParty);
+            CombatTestSupport.RegisterUnit(fx, Dummy, CombatTestSupport.FactionHorde);
+
+            fx.Host.ResolveEffect(DamageContext(Hero, Dummy));
+            fx.Bus.DispatchPending();
+
+            CombatEnteredEvent? heroEntered = null;
+            CombatEnteredEvent? dummyEntered = null;
+            foreach (var evt in fx.Events)
+            {
+                if (evt is CombatEnteredEvent entered)
+                {
+                    if (entered.UnitId.Equals(Hero)) heroEntered = entered;
+                    if (entered.UnitId.Equals(Dummy)) dummyEntered = entered;
+                }
+            }
+
+            Assert.NotNull(heroEntered);
+            Assert.NotNull(dummyEntered);
+            Assert.Equal(Dummy, heroEntered!.HostileId);
+            Assert.Equal(Hero, dummyEntered!.HostileId);
+        }
+
+        // 已在战中的单位再次调用 NotifyCombatEvent 不会重新触发 combat.entered（hostileId 也不会
+        // 被后续调用覆盖——事件只在"首次"进战这一次触发）。
+        [Fact]
+        public void NotifyCombatEvent_AlreadyInCombat_DoesNotRefireWithNewHostileId()
+        {
+            var fx = CombatTestSupport.Build(o => o.HitTableConfigId = new Id("combat.hit_table.default"));
+            CombatTestSupport.RegisterUnit(fx, Hero, CombatTestSupport.FactionParty);
+            CombatTestSupport.RegisterUnit(fx, Dummy, CombatTestSupport.FactionHorde);
+            var thirdParty = new Id("unit.enter_leave_third");
+            CombatTestSupport.RegisterUnit(fx, thirdParty, CombatTestSupport.FactionHorde);
+
+            fx.Host.NotifyCombatEvent(Hero, Dummy);
+            fx.Host.NotifyCombatEvent(Hero, thirdParty); // Hero 已在战中，这次调用应是空操作
+            fx.Bus.DispatchPending();
+
+            var heroEnteredCount = 0;
+            CombatEnteredEvent? heroEntered = null;
+            foreach (var evt in fx.Events)
+            {
+                if (evt is CombatEnteredEvent entered && entered.UnitId.Equals(Hero))
+                {
+                    heroEnteredCount++;
+                    heroEntered = entered;
+                }
+            }
+
+            Assert.Equal(1, heroEnteredCount);
+            Assert.Equal(Dummy, heroEntered!.HostileId);
+        }
+
         [Fact]
         public void Update_AfterDelay_NoLivingHostileSource_LeavesCombatAndClearsThreat()
         {

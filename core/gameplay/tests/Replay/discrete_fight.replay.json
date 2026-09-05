@@ -1,0 +1,290 @@
+{
+  "format_version": 2,
+  "stepSeconds": 1,
+  "tickCount": 20,
+  "rngSeeds": {},
+  "inputs": [
+    {
+      "tick": 1,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 2,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 3,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 4,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 5,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 6,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 7,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 8,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 9,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 10,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 11,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 12,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 13,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 14,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 15,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 16,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 17,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 18,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 19,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 20,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    }
+  ],
+  "steps": [
+    {
+      "tick": 1,
+      "kind": "discrete",
+      "actorId": "unit.replay_player",
+      "phase": "Act"
+    },
+    {
+      "tick": 2,
+      "kind": "discrete",
+      "actorId": "unit.replay_npc",
+      "phase": "Act"
+    },
+    {
+      "tick": 3,
+      "kind": "discrete",
+      "actorId": "unit.replay_player",
+      "phase": "Act"
+    },
+    {
+      "tick": 4,
+      "kind": "discrete",
+      "actorId": "unit.replay_npc",
+      "phase": "Act"
+    },
+    {
+      "tick": 5,
+      "kind": "discrete",
+      "actorId": "unit.replay_player",
+      "phase": "Act"
+    },
+    {
+      "tick": 6,
+      "kind": "discrete",
+      "actorId": "unit.replay_npc",
+      "phase": "Act"
+    },
+    {
+      "tick": 7,
+      "kind": "discrete",
+      "actorId": "unit.replay_player",
+      "phase": "Act"
+    },
+    {
+      "tick": 8,
+      "kind": "discrete",
+      "actorId": "unit.replay_npc",
+      "phase": "Act"
+    },
+    {
+      "tick": 9,
+      "kind": "discrete",
+      "actorId": "unit.replay_player",
+      "phase": "Act"
+    },
+    {
+      "tick": 10,
+      "kind": "discrete",
+      "actorId": "unit.replay_npc",
+      "phase": "Act"
+    },
+    {
+      "tick": 11,
+      "kind": "discrete",
+      "actorId": "unit.replay_player",
+      "phase": "Act"
+    },
+    {
+      "tick": 12,
+      "kind": "discrete",
+      "actorId": "unit.replay_npc",
+      "phase": "Act"
+    },
+    {
+      "tick": 13,
+      "kind": "discrete",
+      "actorId": "unit.replay_player",
+      "phase": "Act"
+    },
+    {
+      "tick": 14,
+      "kind": "discrete",
+      "actorId": "unit.replay_npc",
+      "phase": "Act"
+    },
+    {
+      "tick": 15,
+      "kind": "discrete",
+      "actorId": "unit.replay_player",
+      "phase": "Act"
+    },
+    {
+      "tick": 16,
+      "kind": "discrete",
+      "actorId": "unit.replay_npc",
+      "phase": "Act"
+    },
+    {
+      "tick": 17,
+      "kind": "discrete",
+      "actorId": "unit.replay_player",
+      "phase": "Act"
+    },
+    {
+      "tick": 18,
+      "kind": "discrete",
+      "actorId": "unit.replay_npc",
+      "phase": "Act"
+    },
+    {
+      "tick": 19,
+      "kind": "discrete",
+      "actorId": "unit.replay_player",
+      "phase": "Act"
+    },
+    {
+      "tick": 20,
+      "kind": "discrete",
+      "actorId": "unit.replay_npc",
+      "phase": "Act"
+    }
+  ]
+}

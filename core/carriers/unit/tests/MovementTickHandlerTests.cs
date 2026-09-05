@@ -363,6 +363,60 @@ namespace Tests.Carriers.Unit
             Assert.Equal(20.0, units.GetPosition(HeroId).X, 6);
         }
 
+        // 收边任务补齐：TurnScheduler.TryConsumeActionPoints 此前把移动预算的记账门槛误绑定到
+        // InitiativePolicy.ActionPoints 先攻策略（04 第 3.1 节字段表 action_points_per_turn 行原文
+        // "initiative_policy 或 movement_budget_rule 任一为 action_points 时，两者共享同一份每回合
+        // 行动点总额度"，与先攻策略取值无关）——本用例用 FixedOrder 先攻策略验证修正后
+        // movement_budget_rule: action_points 独立生效：先攻策略只决定顺序，不再决定"是否记账"。
+        [Fact]
+        public void DiscreteStep_ActionPointsBudgetRule_WithFixedOrderInitiativePolicy_StillEnforcesBudget()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+
+            var world = new WorldSim(bus);
+            var player = new PlayerUnit(HeroId, MapId, FactionId, ArchetypeId) { Position = Vec2.Zero };
+            world.AddEntity(player);
+
+            var units = new WorldUnitAccess(world);
+            var stats = new FakeStatHost();
+            stats.SetBase(HeroId, new MovementOptions().MoveSpeedStat, 10.0); // 速度 10。
+            var auras = new FakeAuraQuery();
+            var host = new MovementHost(world);
+
+            // 关键差异：先攻策略用 FixedOrder（修正前该策略下 TryConsumeActionPoints 恒返回 true，
+            // 即"不限制"），但仍然声明 action_points_per_turn，验证移动预算独立于先攻策略生效。
+            var scheduler = new TurnScheduler(world, id => 0, id => false, bus);
+            scheduler.Configure(InitiativePolicy.FixedOrder, new Dictionary<string, object> { ["action_points_per_turn"] = 15.0 });
+            scheduler.BeginCombat(new[] { HeroId });
+
+            var options = new MovementOptions
+            {
+                MovementBudgetRule = "action_points",
+                MovementActionCostPerUnit = 1.0,
+                TryConsumeActionPoints = scheduler.TryConsumeActionPoints,
+                RequestEndTurn = scheduler.EndTurn,
+            };
+
+            var handler = new MovementTickHandler(units, stats, auras, host, bus, options: options);
+            world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, handler);
+
+            // 第一次移动：预算充足（15 >= 10），成功位移 10。
+            world.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            world.Tick(SimStep.Discrete(HeroId, StepPhase.Act));
+            Assert.Equal(10.0, units.GetPosition(HeroId).X, 6);
+
+            var roundBeforeRejection = scheduler.RoundIndex;
+
+            // 第二次移动：只剩 5 点，需要 10 点，被拒绝——若先攻策略仍在错误地决定"是否记账"，
+            // FixedOrder 策略下本次调用会被误判为"不限制"而成功位移，本断言精确捕获这处回归。
+            world.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            world.Tick(SimStep.Discrete(HeroId, StepPhase.Act));
+            Assert.Equal(10.0, units.GetPosition(HeroId).X, 6); // 位置未变。
+            Assert.True(scheduler.RoundIndex > roundBeforeRejection, "行动点不足应触发 EndTurn，进而回绕到新一轮");
+        }
+
         [Fact]
         public void DiscreteStep_DistanceBudgetRule_Unaffected_WhenActionPointsDelegatesNotWired()
         {

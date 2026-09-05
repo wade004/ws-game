@@ -7,6 +7,6 @@
     { "key": "l10n.stat.template_power.name", "locale": "l10n.locale.zh_cn", "text": "力量" },
     { "key": "l10n.arch.template_hero.name", "locale": "l10n.locale.zh_cn", "text": "新手" },
     { "key": "l10n.fac.template_player.name", "locale": "l10n.locale.zh_cn", "text": "玩家阵营" },
-    { "key": "l10n.power.template_health.name", "locale": "l10n.locale.zh_cn", "text": "生命值" }
+    { "key": "l10n.power.health.name", "locale": "l10n.locale.zh_cn", "text": "生命值" }
   ]
 }

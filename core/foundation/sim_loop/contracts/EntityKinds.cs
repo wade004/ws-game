@@ -13,17 +13,20 @@ namespace Core.Foundation.SimLoop
     /// <item><see cref="Gobj"/>：<c>Core.Carriers.Gobj.GameObjectEntity.Kind</c>，同时是
     /// <c>spawn.table.content_ref</c> 的合法领域值之一（路由到 <c>GameObjectFactory</c>）。</item>
     /// <item><see cref="Loot"/>：<c>Core.Gameplay.Loot.DroppedLootEntity.Kind</c>。</item>
+    /// <item><see cref="Projectile"/>：<c>Core.Carriers.Projectile.ProjectileEntity.Kind</c>
+    /// （收边任务落地，见 05 第 1.4 节 <c>Projectile</c>），同时是
+    /// <c>presentation/common/contracts/EntityKindMapping.cs</c> 此前占位字符串
+    /// <c>"projectile"</c> 对应的正式常量。</item>
     /// </list>
     /// <para>
-    /// 判断记录（<c>summon</c>/<c>projectile</c>/<c>area_trigger</c> 未登记）：09 第 2 节建议
-    /// <c>ViewKind</c> 覆盖 unit/gameObject/projectile/areaTrigger/droppedLoot 五类，
-    /// <c>presentation/common/contracts/EntityKindMapping.cs</c> 因此先登记了
-    /// <c>"projectile"</c>/<c>"area_trigger"</c> 两个占位字符串，但 <c>core/</c> 内目前没有任何
-    /// <see cref="Entity"/> 子类把 <see cref="Entity.Kind"/> 取这两个值（抛射物/区域触发器尚未落地
-    /// 对应实体），<c>summon</c> 同理（<c>core/carriers/summon</c> 尚未落地 <see cref="Entity"/>
-    /// 子类）——按"未使用的不发明"原则本类暂不登记这三个，留待对应模块落地 <see cref="Entity"/>
-    /// 子类时再补（<c>presentation/common</c> 不在本次改动范围，见任务分工，届时其占位字符串也
-    /// 应同步换成本类常量）。
+    /// 判断记录（<c>summon</c>/<c>area_trigger</c> 仍未登记）：09 第 2 节建议 <c>ViewKind</c> 覆盖
+    /// unit/gameObject/projectile/areaTrigger/droppedLoot 五类，<c>presentation/common/contracts/
+    /// EntityKindMapping.cs</c> 因此先登记了 <c>"projectile"</c>/<c>"area_trigger"</c> 两个占位
+    /// 字符串；<c>projectile</c> 已随本次收边任务落地对应 <see cref="Entity"/> 子类（见上），
+    /// <c>area_trigger</c> 尚未落地，<c>summon</c> 同理（<c>core/carriers/summon</c> 尚未落地
+    /// <see cref="Entity"/> 子类）——按"未使用的不发明"原则本类暂不登记这两个，留待对应模块落地
+    /// <see cref="Entity"/> 子类时再补（<c>presentation/common</c> 不在本次改动范围，见任务分工，
+    /// 届时其 <c>"area_trigger"</c> 占位字符串也应同步换成本类常量）。
     /// </para>
     /// </summary>
     public static class EntityKinds
@@ -35,5 +38,7 @@ namespace Core.Foundation.SimLoop
         public const string Gobj = "gobj";
 
         public const string Loot = "loot";
+
+        public const string Projectile = "projectile";
     }
 }

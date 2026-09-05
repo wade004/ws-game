@@ -37,6 +37,35 @@
       ]
     },
     {
+      "id": "skill.sample_bolt",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 30,
+      "tags": ["skill.tag.sample_ranged"],
+      "cast_time": 0,
+      "cost": [{ "power_type": "arch.power.mana", "amount": 10 }],
+      "respects_gcd": true,
+      "target_shape_ref": "target.chain.sample_nearest_enemy",
+      "effects": [
+        {
+          "kind": "projectile",
+          "params": {
+            "travel_mode": "straight",
+            "hit_behavior": "impact_on_first",
+            "speed": 20,
+            "max_range": 30,
+            "display_ref": "projectile.sample_bolt",
+            "on_hit_effects": [
+              {
+                "kind": "school_damage",
+                "params": { "base_value": 12, "coefficient": 1.0, "school": "school.physical" }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
       "id": "skill.sample_passive",
       "school": "school.arcane",
       "kind": "passive",

@@ -28,7 +28,7 @@ namespace Tests.Rules.Skill
 
         public bool IsInCombat(Id unitId) => _inCombat.Contains(unitId);
 
-        public void NotifyCombatEvent(Id unitId) => _inCombat.Add(unitId);
+        public void NotifyCombatEvent(Id unitId, Id? hostileId = null) => _inCombat.Add(unitId);
 
         public void Update(double timeUnits)
         {

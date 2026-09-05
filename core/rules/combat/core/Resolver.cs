@@ -45,7 +45,7 @@ namespace Core.Rules.Combat
         private readonly IReadOnlyDictionary<Id, ResistCurve> _resistCurvesBySchool;
         private readonly ICombatDiagnostics _diagnostics;
         private readonly ThreatTable _threatTable;
-        private readonly Action<Id> _notifyCombatEvent;
+        private readonly Action<Id, Id?> _notifyCombatEvent;
 
         /// <summary>阶段 3 整理"事项三"：生物模板/tier 一类内容驱动的静态免疫，在光环免疫之外叠加
         /// 查询（见 <see cref="Resolve"/> 步骤 7）。可选构造参数，缺省
@@ -67,7 +67,7 @@ namespace Core.Rules.Combat
             IReadOnlyDictionary<Id, ResistCurve> resistCurvesBySchool,
             ICombatDiagnostics diagnostics,
             ThreatTable threatTable,
-            Action<Id> notifyCombatEvent,
+            Action<Id, Id?> notifyCombatEvent,
             IStaticImmunityProvider? staticImmunity = null)
         {
             _stats = stats ?? throw new ArgumentNullException(nameof(stats));
@@ -110,8 +110,8 @@ namespace Core.Rules.Combat
             if (hit == HitResult.Miss || hit == HitResult.Dodge || hit == HitResult.Parry)
             {
                 steps.Add($"terminal: hit={hit}，跳过步骤 2-8，FinalAmount=0");
-                _notifyCombatEvent(context.SourceId);
-                _notifyCombatEvent(context.TargetId);
+                _notifyCombatEvent(context.SourceId, context.TargetId);
+                _notifyCombatEvent(context.TargetId, context.SourceId);
                 return new ResolveResult(hit, 0.0, 0.0, 0.0, immune: false, isHeal, steps);
             }
 
@@ -239,8 +239,8 @@ namespace Core.Rules.Combat
                 }
             }
 
-            _notifyCombatEvent(context.SourceId);
-            _notifyCombatEvent(context.TargetId);
+            _notifyCombatEvent(context.SourceId, context.TargetId);
+            _notifyCombatEvent(context.TargetId, context.SourceId);
             steps.Add("post: 仇恨/进战/事件处理完成");
 
             return new ResolveResult(hit, requestedAmount, finalAmount, absorbed, immune, isHeal, steps);

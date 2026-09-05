@@ -14,7 +14,7 @@
     { "key": "aura.removed", "domain": "aura", "fields": ["targetId", "auraDefId", "reason"], "description": "光环到期/驱散/覆盖移除（见 06 第 8 节）" },
     { "key": "aura.stack_changed", "domain": "aura", "fields": ["targetId", "auraDefId", "oldStacks", "newStacks"], "description": "叠加层数变化（见 06 第 8 节）" },
     { "key": "combat.damage_dealt", "domain": "combat", "fields": ["sourceId", "targetId", "school", "amount", "isCrit", "hitResult"], "description": "结算管线\"落地\"步骤，伤害类效果（见 06 第 8 节）" },
-    { "key": "combat.entered", "domain": "combat", "fields": ["unitId"], "description": "进入战斗（见 06 第 8 节）" },
+    { "key": "combat.entered", "domain": "combat", "fields": ["unitId", "hostileId"], "description": "进入战斗（见 06 第 8 节）；2026-09-05 勘误补充 hostileId（首个敌对目标：本次触发进战的交互对方 id，CombatHost.NotifyCombatEvent 在该单位真正首次进战时填充，可空——环境触发的进战未传交互对方时为空）" },
     { "key": "combat.heal_done", "domain": "combat", "fields": ["sourceId", "targetId", "amount", "isCrit"], "description": "结算管线\"落地\"步骤，治疗类效果（见 06 第 8 节）" },
     { "key": "combat.left", "domain": "combat", "fields": ["unitId"], "description": "脱离战斗（见 06 第 8 节）" },
     { "key": "combat.threat_changed", "domain": "combat", "fields": ["unitId", "sourceId", "oldValue", "newValue"], "description": "仇恨表更新（见 06 第 8 节）" },

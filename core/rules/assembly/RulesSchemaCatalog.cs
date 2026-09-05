@@ -1,6 +1,8 @@
 using System.Collections.Generic;
+using Core.Foundation.AppLifecycle;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
+using Core.Foundation.HookRegistry;
 using Core.Foundation.InputMap;
 using Core.Foundation.Localization;
 using Core.Foundation.SceneRouter;
@@ -79,6 +81,12 @@ namespace Core.Rules.Assembly
             // ADR-0013 落地：found.time_model（见 core/foundation/sim_loop/schema/TimeModelSchema.cs）。
             registry.RegisterSchema(TimeModelSchema.Table);
             registry.RegisterValidationRule(new TimeModelValidationRule());
+
+            // 收边任务补齐：found.game_state（见 app_lifecycle/schema/FoundGameStateSchema.cs）、
+            // found.hook（见 hook_registry/schema/FoundHookSchema.cs），04 第 1.1 节总索引已点名
+            // 但此前两个模块只提供内存默认构造入口，未与 DataRegistry 对接。
+            registry.RegisterSchema(FoundGameStateSchema.Table);
+            registry.RegisterSchema(FoundHookSchema.Table);
         }
 
         private static void RegisterL1Schemas(IDataRegistry registry)

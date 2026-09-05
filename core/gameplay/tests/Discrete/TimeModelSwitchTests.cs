@@ -192,5 +192,40 @@ namespace Tests.Gameplay.Discrete
 
             Assert.Equal(TimeModelMode.Continuous, h.Switch.CurrentMode);
         }
+
+        // 收边任务补齐：combat.entered.hostileId 优先于半径 + 阵营近似（见 TimeModelSwitch.
+        // ResolveParticipants 判断记录"参与者解析"）——远在默认搜索半径（30.0）之外的对手，此前
+        // 版本的半径查询完全找不到它，现在凭事件携带的精确 hostileId 仍能正确纳入参与者集合。
+        [Fact]
+        public void CombatEntered_WithHostileIdFarOutsideSearchRadius_StillIncludesHostileInTurnOrder()
+        {
+            var h = Build("discrete");
+            var farHostile = new Id("unit.tms_far_hostile");
+            h.World.AddEntity(new PlayerUnit(farHostile, new Id("map.tms"), new Id("fac.tms_enemy"), new Id("arch.class.tms"))
+            {
+                Position = new Vec2(1000, 0), // 远超默认 ParticipantSearchRadius = 30.0。
+            });
+            h.Spatial.Register(farHostile, new Vec2(1000, 0), 0.1);
+
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero, farHostile));
+
+            Assert.Equal(TimeModelMode.Discrete, h.Switch.CurrentMode);
+            Assert.Contains(Hero, h.Scheduler.GetOrder());
+            Assert.Contains(farHostile, h.Scheduler.GetOrder());
+        }
+
+        // hostileId 指向一个不存在的单位（如已被销毁）时被安全忽略，不影响正常切换。
+        [Fact]
+        public void CombatEntered_WithHostileIdForNonExistentUnit_IgnoresItSafely()
+        {
+            var h = Build("discrete");
+            var ghost = new Id("unit.tms_ghost");
+
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero, ghost));
+
+            Assert.Equal(TimeModelMode.Discrete, h.Switch.CurrentMode);
+            Assert.Contains(Hero, h.Scheduler.GetOrder());
+            Assert.DoesNotContain(ghost, h.Scheduler.GetOrder());
+        }
     }
 }

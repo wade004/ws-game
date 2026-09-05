@@ -282,7 +282,7 @@ namespace Tests.Rules.Skill
                 new EventDefinition(RulesEventKeys.CombatDamageDealt, "combat", new[] { "sourceId", "targetId", "school", "amount", "isCrit", "hitResult" }),
                 new EventDefinition(RulesEventKeys.CombatHealDone, "combat", new[] { "sourceId", "targetId", "amount", "isCrit" }),
                 new EventDefinition(RulesEventKeys.CombatThreatChanged, "combat", new[] { "unitId", "sourceId", "oldValue", "newValue" }),
-                new EventDefinition(RulesEventKeys.CombatEntered, "combat", new[] { "unitId" }),
+                new EventDefinition(RulesEventKeys.CombatEntered, "combat", new[] { "unitId", "hostileId" }),
                 new EventDefinition(RulesEventKeys.CombatLeft, "combat", new[] { "unitId" }),
                 new EventDefinition(RulesEventKeys.AuraApplied, "aura", new[] { "targetId", "auraDefId", "sourceId", "stacks" }),
                 new EventDefinition(RulesEventKeys.AuraRemoved, "aura", new[] { "targetId", "auraDefId", "reason" }),

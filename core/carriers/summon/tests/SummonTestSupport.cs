@@ -30,7 +30,7 @@ namespace Tests.Carriers.Summon
 
         public bool IsInCombat(Id unitId) => _inCombat.Contains(unitId);
 
-        public void NotifyCombatEvent(Id unitId)
+        public void NotifyCombatEvent(Id unitId, Id? hostileId = null)
         {
             NotifyCalls.Add(unitId);
             _inCombat.Add(unitId);

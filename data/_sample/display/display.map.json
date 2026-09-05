@@ -74,6 +74,16 @@
       "sort_offset": -1
     },
     {
+      "id": "display.map.sample_bolt",
+      "category": "projectile",
+      "logical_id": "projectile.sample_bolt",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sample_blade",
+      "direction_count": 4,
+      "shadow": "none",
+      "sort_offset": 1
+    },
+    {
       "id": "display.map.sample_loot_pile",
       "category": "item",
       "logical_id": "loot.generic_pile",

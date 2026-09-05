@@ -4,7 +4,7 @@
   "rows": [
     {
       "id": "arch.power.health",
-      "name_key": "l10n.power.template_health.name",
+      "name_key": "l10n.power.health.name",
       "max_source": { "kind": "fixed", "value": 100 },
       "start_full": true
     }

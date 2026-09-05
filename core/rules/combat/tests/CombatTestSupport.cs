@@ -300,7 +300,7 @@ namespace Tests.Rules.Combat
                     new[] { "sourceId", "targetId", "amount", "isCrit" }),
                 new EventDefinition(RulesEventKeys.CombatThreatChanged, "combat",
                     new[] { "unitId", "sourceId", "oldValue", "newValue" }),
-                new EventDefinition(RulesEventKeys.CombatEntered, "combat", new[] { "unitId" }),
+                new EventDefinition(RulesEventKeys.CombatEntered, "combat", new[] { "unitId", "hostileId" }),
                 new EventDefinition(RulesEventKeys.CombatLeft, "combat", new[] { "unitId" }),
                 new EventDefinition(RulesEventKeys.UnitDied, "unit", new[] { "unitId", "killerId" }),
                 new EventDefinition(RulesEventKeys.UnitRespawned, "unit", new[] { "unitId", "policy" }),

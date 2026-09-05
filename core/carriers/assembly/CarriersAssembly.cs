@@ -4,6 +4,7 @@ using Core.Carriers.Common;
 using Core.Carriers.Creature;
 using Core.Carriers.Gobj;
 using Core.Carriers.Item;
+using Core.Carriers.Projectile;
 using Core.Carriers.Summon;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
@@ -24,15 +25,19 @@ using Core.Rules.Targeting;
 namespace Core.Carriers.Assembly
 {
     /// <summary>
-    /// L3（<c>core/carriers</c> 五模块：<c>unit</c>/<c>item</c>/<c>creature</c>/<c>summon</c>/
-    /// <c>gobj</c>）在 <see cref="RulesAssembly"/>（L0～L2）之上的组装根（阶段 3 整理"事项四"）。
+    /// L3（<c>core/carriers</c> 六模块：<c>unit</c>/<c>item</c>/<c>creature</c>/<c>summon</c>/
+    /// <c>gobj</c>/<c>projectile</c>）在 <see cref="RulesAssembly"/>（L0～L2）之上的组装根（阶段 3
+    /// 整理"事项四"，<c>projectile</c> 为收边任务补齐）。
     /// 接收一批"环境依赖"（事件总线、已加载数据、随机源、世界模拟、空间/导航查询，以及可选的
     /// L4 回调），按正确顺序装配全部 L3 宿主、把契约缺口用具名委托接线（<see cref="SkillGranter"/>
     /// → <see cref="SkillHost.LearnSkill"/>/<see cref="SkillHost.ForgetSkill"/>，
     /// <see cref="AiRegistrar"/> → <see cref="AiHost.RegisterUnit"/>/<see cref="AiHost.SetRotation"/>，
     /// <see cref="IStaticImmunityProvider"/> → <see cref="CreatureImmunityProvider"/>），把
     /// <c>create_item</c>/<c>open_lock</c>/<c>summon</c> 三类效果原语的真实实现组合后换入
-    /// <see cref="RulesAssembly.EffectExtension"/>，最终把全部宿主暴露为只读属性。
+    /// <see cref="RulesAssembly.EffectExtension"/>；<c>projectile</c> 效果原语走独立的依赖倒置
+    /// 接口 <see cref="Core.Rules.Common.IProjectileSpawner"/>（不经 <c>EffectExtension</c>，见该
+    /// 接口判断记录），直接在 <see cref="RulesAssembly"/> 构造期传入 <see cref="Projectiles"/>。
+    /// 最终把全部宿主暴露为只读属性。
     /// <para>
     /// 装配顺序、tick 阶段挂载表见 <c>core/carriers/assembly/README.md</c>。L4 回调
     /// （<see cref="IWorldFlags"/>/<see cref="ILootRoller"/>/<see cref="DialogOpenerDelegate"/> 等）
@@ -53,6 +58,11 @@ namespace Core.Carriers.Assembly
         public GameObjectFactory GameObjects { get; }
         public GameObjectHost GameObjectInteractions { get; }
         public MovementHost Movement { get; }
+
+        /// <summary>收边任务补齐：投射物生成/飞行推进宿主，同时是注入给 <see cref="RulesAssembly"/>
+        /// 的 <see cref="Core.Rules.Common.IProjectileSpawner"/> 实现（见该接口判断记录"依赖倒置"，
+        /// <c>projectile</c> 效果原语委托 L3 生成）。</summary>
+        public ProjectileHost Projectiles { get; }
 
         /// <summary>本次装配实际使用的 <see cref="Core.Carriers.Unit.MovementOptions"/> 实例（构造
         /// 参数为空时是本类型内部新建的默认值）。ADR-0013 离散时间模型补齐：
@@ -122,6 +132,7 @@ namespace Core.Carriers.Assembly
             SummonOptions? summonOptions = null,
             GobjOptions? gobjOptions = null,
             MovementOptions? movementOptions = null,
+            ProjectileOptions? projectileOptions = null,
             IReadOnlyList<IExprSchema>? extraSchemas = null)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
@@ -157,6 +168,17 @@ namespace Core.Carriers.Assembly
             var itemExtension = new ItemEffectExtension(Inventory);
 
             // ---------------------------------------------------------
+            // 2.5) ProjectileHost（IProjectileSpawner 实现，收边任务补齐）：只依赖构造期已有的
+            //    world/Units/spatial/navigation，不依赖 RulesAssembly 内部任何宿主（命中后效果的
+            //    回灌出口 IEffectSink 由每次 Spawn 调用自带，不需要构造期持有 Rules.Skill），可以
+            //    在 RulesAssembly 之前先造好并直接传给它（不像 gobj/summon 那样需要延迟绑定，见
+            //    DeferredEffectExtension 判断记录——那是"L3 组合实现要等 Ai 构造完成"的情形，
+            //    ProjectileHost 没有这层依赖）。
+            // ---------------------------------------------------------
+            var resolvedProjectileOptions = projectileOptions ?? new ProjectileOptions();
+            Projectiles = new ProjectileHost(world, Units, spatial, navigation, resolvedProjectileOptions);
+
+            // ---------------------------------------------------------
             // 3) RulesAssembly（L0～L2）：staticImmunity 直接注入；effectExtension 先只挂
             //    itemExtension（create_item 已经可用），gobj/summon 两类要等本类后续步骤把
             //    CreatureFactory/SummonHost/GameObjectHost 都造出来才能组合，届时经
@@ -168,7 +190,7 @@ namespace Core.Carriers.Assembly
                 bus, registry, rng, Units, spatial, world, navigation,
                 statOptions, combatOptions, skillOptions, targetingOptions, aiOptions,
                 extraSchemas, staticImmunity, itemExtension,
-                autoRegisterTickHandlers: false);
+                autoRegisterTickHandlers: false, projectileSpawner: Projectiles);
 
             // ---------------------------------------------------------
             // 3a) SkillBindingHost（缺口 4）：KnownSkillQuery 委托接线到 Rules.Skill.Knows（惯例同
@@ -251,6 +273,11 @@ namespace Core.Carriers.Assembly
             var movementTickHandler = new MovementTickHandler(
                 Units, Rules.Stats, Rules.Skill.AuraQuery, Movement, bus, navigation, resolvedMovementOptions);
             world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, movementTickHandler);
+
+            // 投射物飞行推进：紧随 MovementTickHandler 之后注册到同一阶段，见
+            // ProjectileTickHandler 判断记录"挂载阶段：移动步之后、战斗结算步之前"。
+            var projectileTickHandler = new ProjectileTickHandler(Projectiles, resolvedProjectileOptions);
+            world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, projectileTickHandler);
 
             // 交互意图消费（03 第 4.2 节步骤 6"触发评估"，见 InteractIntentTickHandler 判断记录：
             // 该步骤此前只有文档约定、没有实现——本次补上）。

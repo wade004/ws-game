@@ -112,7 +112,8 @@ namespace Core.Rules.Assembly
             IReadOnlyList<IExprSchema>? extraSchemas = null,
             IStaticImmunityProvider? staticImmunity = null,
             IEffectExtension? effectExtension = null,
-            bool autoRegisterTickHandlers = true)
+            bool autoRegisterTickHandlers = true,
+            IProjectileSpawner? projectileSpawner = null)
         {
             Bus = bus ?? throw new ArgumentNullException(nameof(bus));
             Registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -216,7 +217,7 @@ namespace Core.Rules.Assembly
             Skill = new SkillHost(
                 Registry, Bus, Units, Stats, Powers, Rng, Combat, Targeting, ExprHostFactory, Spatial,
                 resolvedSkillOptions, effectExtension: EffectExtension, diagnostics: null, exprSchema: null,
-                staticImmunity: staticImmunity);
+                staticImmunity: staticImmunity, projectileSpawner: projectileSpawner);
 
             // -------------------------------------------------------------
             // 6) IAuraQuery 回接：combat 此前拿到的 deferredAuras 代理现在指向真实的

@@ -1,0 +1,450 @@
+{
+  "format_version": 2,
+  "stepSeconds": 1,
+  "tickCount": 20,
+  "rngSeeds": {},
+  "inputs": [
+    {
+      "tick": 1,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 1,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 2,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 2,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 3,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 3,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 4,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 4,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 5,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 5,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 6,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 6,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 7,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 7,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 8,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 8,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 9,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 9,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 10,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 10,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 11,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 11,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 12,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 12,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 13,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 13,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 14,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 14,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 15,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 15,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 16,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 16,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 17,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 17,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 18,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 18,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 19,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 19,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    },
+    {
+      "tick": 20,
+      "actorId": "unit.replay_player",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_strike"
+      }
+    },
+    {
+      "tick": 20,
+      "actorId": "unit.replay_npc",
+      "intentKind": "cast",
+      "args": {
+        "skill_id": "skill.replay_bite"
+      }
+    }
+  ],
+  "steps": [
+    {
+      "tick": 1,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 2,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 3,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 4,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 5,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 6,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 7,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 8,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 9,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 10,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 11,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 12,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 13,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 14,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 15,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 16,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 17,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 18,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 19,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    },
+    {
+      "tick": 20,
+      "kind": "continuous",
+      "actorId": null,
+      "phase": null
+    }
+  ]
+}

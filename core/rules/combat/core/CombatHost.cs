@@ -74,7 +74,7 @@ namespace Core.Rules.Combat
 
         public bool IsInCombat(Id unitId) => _inCombat.TryGetValue(unitId, out var value) && value;
 
-        public void NotifyCombatEvent(Id unitId)
+        public void NotifyCombatEvent(Id unitId, Id? hostileId = null)
         {
             _timeSinceLastEvent[unitId] = 0.0;
 
@@ -85,7 +85,7 @@ namespace Core.Rules.Combat
 
             _inCombat[unitId] = true;
             _powers.SetInCombat(unitId, true);
-            _bus.Enqueue(new CombatEnteredEvent(unitId));
+            _bus.Enqueue(new CombatEnteredEvent(unitId, hostileId));
         }
 
         /// <summary>

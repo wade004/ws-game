@@ -23,13 +23,15 @@
 |---|---|---|
 | `found.event_catalog` | 框架级（`data/_framework`） | 事件词汇登记表，游戏不需要提供 |
 | `found.input_action` | 框架级（`data/_framework`） | 输入动作声明，Shell/UI 导航依赖，游戏不需要提供；如需新增自定义动作，在自己的数据目录里对该表补充新行即可（多根合并，见框架 `data/README.md`） |
+| `found.game_state` | 框架级（`data/_framework`） | 应用状态机的状态与合法迁移定义，游戏不需要提供；`Core.Foundation.AppLifecycle.AppStateMachineConfig.FromRegistry` 缺表时退化为 `Default()`（03 第 2 节默认表），行为等价 |
+| `found.hook` | 框架级（`data/_framework`） | 脚本钩子挂载点登记表（`found.hook.scene_pre_unload`/`found.hook.scene_post_load`），游戏不需要提供；`Core.Foundation.HookRegistry.FoundHookSchema.LoadDefinitions` 缺表时退化为 `WellKnownHooks` 两个内置常量，行为等价 |
 | `l10n.locale` | 游戏必填 | 至少一条默认语言（`l10n/l10n.locale.json`），`DataRegistryOptions.DefaultLocale` 默认取 `l10n.locale.zh_cn` |
 | `l10n.text` | 游戏必填 | 本目录其余表里出现的每个 `text_key` 都要有对应行（`l10n/l10n.text.json`），否则 `text_key_exists` 校验报错 |
 | `diff.tier` | 游戏必填 | 至少一档难度（`diff/diff.tier.json`），`Presentation.Shell.ShellHost.NewGame` 需要一个存在的难度 id 才能开局 |
 | `shell_menu_definition` | 游戏必填 | 主菜单入口（`shell/shell_menu_definition.json`），本模板的 `TemplateShellUi` 只处理 `action: "new_game"` 的入口；数据驱动，不改代码即可增删入口 |
 | `stat.definition` | 游戏必填 | 至少玩家职业的主属性一条（`stat/stat.definition.json`） |
 | `arch.class` | 游戏必填 | 至少玩家职业一条（`arch/arch.class.json`），`primary_stat` 必须指向 `stat.definition` 里存在的行；`power_types` 不能为空数组（`PowerHost.RegisterUnit` 要求至少一种资源类型，默认至少含生命值） |
-| `arch.power_type` | 游戏必填 | 至少 `arch.power.health` 一条（`arch/arch.power_type.json`）——`Core.Rules.Common.WellKnownPowers.Health` 硬编码这个固定 id（不是可配置默认值），`PresentationAssemblyOptions.HudPowerTypes` 也默认只展示它；skill/combat 对生命值的一切读写都经这个资源类型，见该常量类型注释 |
+| `arch.power_type` | 框架级（`data/_framework`） | `arch.power.health` 一条（`max_source: {kind: fixed, value: 100}`）已随收边任务迁入框架分发包，游戏不需要提供；`Core.Rules.Common.WellKnownPowers.Health` 硬编码这个固定 id（不是可配置默认值），`PresentationAssemblyOptions.HudPowerTypes` 也默认只展示它；skill/combat 对生命值的一切读写都经这个资源类型，见该常量类型注释。游戏若需要生命值上限跟随某个属性成长，需自行新增另一个资源类型（如 `arch.power.<game>_health_pool`）并在 `arch.class.power_types` 里同时声明两者，不能覆盖框架这一条（多根合并对同一主键重复判定为阻断错误） |
 | `prog.level_curve` | 游戏必填 | 至少一条（`prog/prog.level_curve.json`），`arch.class.level_curve_ref` 指向它——`RulesAssembly.RegisterUnit` 只在职业记录带 `level_curve_ref` 时才会顺带 `ProgressionHost.RegisterUnit`；玩家一旦不经这条路径注册，`HudViewModel`（经 `player.level` 路径查询）构造期就会因 `ProgressionHost.GetLevel` 抛异常整体装配失败——即便游戏暂时不关心升级成长，也必须给玩家职业挂一条最小曲线（可以只有 1 级、`growth` 为空） |
 | `combat.hit_table_config` | 游戏必填 | 至少 `combat.hit_table.default` 一条（`combat/combat.hit_table_config.json`），`CombatOptions.HitTableConfigId` 默认指向它——只要装配了 `CombatHost`（`GameOptions.BuildCombatOptions()` 默认总是装配），构造期就无条件要求该表存在 |
 | `combat.resist_curve` | 游戏必填 | 至少一条（`combat/combat.resist_curve.json`），同上——`CombatDataLoader` 构造期无条件要求该表存在，即便暂时没有任何需要走抗性结算的技能/物品 |

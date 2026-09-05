@@ -4,6 +4,8 @@
   "measured_at": "2026-09-05",
   "tick_median_ms": 0.02085,
   "tick_threshold_ms": 0.10425,
+  "full_pipeline_tick_median_ms": 6.4444,
+  "full_pipeline_tick_threshold_ms": 32.222,
   "spatial_query_median_ms": 0.0222,
   "spatial_query_threshold_ms": 0.111,
   "save_median_ms": 0.84645,

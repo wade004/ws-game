@@ -45,7 +45,7 @@ namespace Core.Foundation.EventBus
         /// <summary>combat.damage_dealt — 字段：sourceId, targetId, school, amount, isCrit, hitResult。结算管线"落地"步骤，伤害类效果（见 06 第 8 节）。</summary>
         public static readonly Id CombatDamageDealt = new Id("combat.damage_dealt");
 
-        /// <summary>combat.entered — 字段：unitId。进入战斗（见 06 第 8 节）。</summary>
+        /// <summary>combat.entered — 字段：unitId, hostileId。进入战斗（见 06 第 8 节）；2026-09-05 勘误补充 hostileId（首个敌对目标：本次触发进战的交互对方 id，CombatHost.NotifyCombatEvent 在该单位真正首次进战时填充，可空——环境触发的进战未传交互对方时为空）。</summary>
         public static readonly Id CombatEntered = new Id("combat.entered");
 
         /// <summary>combat.heal_done — 字段：sourceId, targetId, amount, isCrit。结算管线"落地"步骤，治疗类效果（见 06 第 8 节）。</summary>

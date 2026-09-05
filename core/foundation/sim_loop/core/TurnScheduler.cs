@@ -262,10 +262,11 @@ namespace Core.Foundation.SimLoop
                 return;
             }
 
-            if (_policy == InitiativePolicy.ActionPoints)
-            {
-                _actionPointsRemaining[actorId] = 0.0;
-            }
+            // 收边任务修正：与 ResetActionPointsForRound 同一判断记录，不再按 _policy 分支——
+            // 无条件清零移动预算账本（该行动者本回合结束，不管是被先攻策略本身的行动点耗尽推进，
+            // 还是被移动预算的行动点耗尽拒绝移动后调用本方法，遗留的账目都不应该带到下一次
+            // GetOrder 里这个位置的新占用者身上；下一轮 ResetActionPointsForRound 会重新分配）。
+            _actionPointsRemaining[actorId] = 0.0;
 
             AdvanceToNextActor();
         }
@@ -319,10 +320,11 @@ namespace Core.Foundation.SimLoop
 
             _order.Insert(insertAt, id);
 
-            if (_policy == InitiativePolicy.ActionPoints)
-            {
-                _actionPointsRemaining[id] = _actionPointsPerTurn;
-            }
+            // 收边任务修正：与 ResetActionPointsForRound 同一判断记录——移动预算账本的存在与否
+            // 不该由先攻策略决定，中途加入的参与者无条件分配本轮满额行动点（不分配会被
+            // TryConsumeActionPoints 当成"已耗尽"，也会被 NotifyStepConsumed 在 action_points
+            // 先攻策略下当成"已耗尽"，见该方法字典缺省值处理）。
+            _actionPointsRemaining[id] = _actionPointsPerTurn;
         }
 
         /// <summary>
@@ -404,22 +406,21 @@ namespace Core.Foundation.SimLoop
         /// 消费者）自行决定耗尽后做什么（通常是拒绝本次意图 + 调用 <see cref="EndTurn"/>，见
         /// <c>MovementTickHandler</c> 判断记录），本方法只负责记账。
         /// <para>
-        /// 判断记录（仅 <see cref="InitiativePolicy.ActionPoints"/> 策略下才真正记账）：只有该策略
-        /// 下 <see cref="_actionPointsRemaining"/> 才会在 <see cref="ResetActionPointsForRound"/> 里
-        /// 按 <see cref="_actionPointsPerTurn"/> 初始化；其余策略（<c>initiative_stat</c>/
-        /// <c>fixed_order</c>）下该账本恒空，"移动预算按行动点计"若与这两种先攻策略搭配使用，
-        /// 本方法找不到任何行动点账目可扣，为避免"账本不存在"被误判为"预算已耗尽"（进而阻塞一切
-        /// 移动），本方法在非 <see cref="InitiativePolicy.ActionPoints"/> 策略下恒返回
-        /// <c>true</c>（不做任何记账，等价于"不限制"）——04/06 未规定
-        /// <c>movement_budget_rule: action_points</c> 必须搭配
-        /// <c>initiative_policy: action_points</c> 使用，但任务书原文"与 TurnScheduler 的
-        /// action_points 策略共享同一预算"暗示两者应当配套，本类型按此拍板，不配套时退化为
-        /// "不限制"而不是抛异常/静默拒绝一切移动。
+        /// 判断记录（收边任务修正：不再按先攻策略分支——先攻策略只决定顺序）：04 第 3.1 节字段表
+        /// <c>action_points_per_turn</c> 行原文"<c>initiative_policy</c> 或 <c>movement_budget_rule</c>
+        /// 任一为 <c>action_points</c> 时，两者共享同一份每回合行动点总额度"，本就写清楚"任一"，
+        /// 与"先攻策略是否为 <c>action_points</c>"无关。此前实现把本方法的记账门槛误绑定到
+        /// <see cref="InitiativePolicy.ActionPoints"/> 先攻策略（<c>initiative_stat</c>/
+        /// <c>fixed_order</c> 搭配 <c>movement_budget_rule: action_points</c> 时账本恒空、本方法
+        /// 恒返回 true 变相"不限制"），按 12 第 5 节"实现错、文档已经是对的"处理规则直接修订实现：
+        /// <see cref="ResetActionPointsForRound"/>/<see cref="AddParticipant"/> 现在无条件为全部
+        /// 参与者维护 <see cref="_actionPointsRemaining"/> 账本（不再按 <see cref="_policy"/> 分支），
+        /// 本方法因此只需检查 <see cref="_inCombat"/> 即可正确记账，不区分先攻策略。
         /// </para>
         /// </summary>
         public bool TryConsumeActionPoints(Id actorId, double amount)
         {
-            if (!_inCombat || _policy != InitiativePolicy.ActionPoints)
+            if (!_inCombat)
             {
                 return true;
             }
@@ -491,16 +492,26 @@ namespace Core.Foundation.SimLoop
             return list;
         }
 
+        /// <summary>
+        /// 收边任务修正（04 第 3.1 节字段表 <c>action_points_per_turn</c> 行原文"<c>initiative_policy</c>
+        /// 或 <c>movement_budget_rule</c> 任一为 <c>action_points</c> 时，两者共享同一份每回合行动点
+        /// 总额度"——文档本就写清楚"任一"，此前实现在此处误收窄成"仅 <see cref="InitiativePolicy.ActionPoints"/>
+        /// 策略下才初始化账本"，导致 <c>movement_budget_rule: action_points</c> 搭配
+        /// <c>initiative_stat</c>/<c>fixed_order</c> 先攻策略时 <see cref="TryConsumeActionPoints"/>
+        /// 找不到账本、被迫退化为"不限制"，这正是 12 第 5 节"实现错，文档已经是对的"的情形，按该节
+        /// 处理规则直接修订实现，不改文档）：不再按 <see cref="_policy"/> 分支，每轮开始时无条件
+        /// 给全部参与者按 <see cref="_actionPointsPerTurn"/> 初始化账本——先攻策略只决定行动顺序，
+        /// 不决定"是否记账"；<see cref="NotifyStepConsumed"/>/<see cref="EndTurn"/> 里"是否按行动点
+        /// 耗尽与否推进到下一行动者"这条判断仍然按 <see cref="_policy"/> 分支（那是先攻策略本身的
+        /// 语义，与移动预算账本是否存在是两回事，见 <see cref="TryConsumeActionPoints"/> 判断记录）。
+        /// </summary>
         private void ResetActionPointsForRound()
         {
             _actionPointsRemaining.Clear();
 
-            if (_policy == InitiativePolicy.ActionPoints)
+            for (var i = 0; i < _order.Count; i++)
             {
-                for (var i = 0; i < _order.Count; i++)
-                {
-                    _actionPointsRemaining[_order[i]] = _actionPointsPerTurn;
-                }
+                _actionPointsRemaining[_order[i]] = _actionPointsPerTurn;
             }
         }
 

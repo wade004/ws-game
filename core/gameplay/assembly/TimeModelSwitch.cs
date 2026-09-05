@@ -27,19 +27,22 @@ namespace Core.Gameplay.Assembly
     /// <see cref="ISimClockHost.Mode"/>、全局计时器的时间单位换算（<see cref="SimTimers.RescaleAll"/>）
     /// 与 <see cref="IAppStateHost"/> 的 <c>Combat</c> 子状态。
     /// <para>
-    /// 判断记录（参与者解析，ADR-0013 补齐任务修订）：<c>combat.entered</c>/<c>combat.left</c>
-    /// （见 <c>Core.Rules.Combat.CombatHost</c>）按单位逐个触发，不是"一次战斗"的整体事件，事件
-    /// 本身只携带 <c>unitId</c>，06 第 8 节事件词汇表也未给它登记 <c>targetId</c>/<c>hostileId</c>
-    /// 一类"这次战斗还有哪些参战方"的字段——新增这类字段属于 12 第 2 节"新增原语"，需要单独走
-    /// 审批流程，不在本次补齐任务范围内。本类型因此仍走 03 第 3.3 节步骤 1 用语"参与者 = 该次
-    /// 战斗的敌对双方单位，取自 combat 事件字段<b>或</b> IUnitAccess"里的后一条路径，但把"IUnitAccess"
-    /// 这条路径本身做得更精确：<see cref="_factions"/> 非空时，半径内候选单位按"与触发单位同阵营
-    /// （友军协同作战）或与触发单位阵营互为敌对"过滤，排除半径内的中立/无关旁观者（本任务之前的
-    /// 实现不做任何阵营过滤，半径内任何存活单位都会被拉进战斗，是一处真实的精度缺口，见
-    /// <see cref="ResolveParticipants"/>）；<see cref="_factions"/> 为空时退化为本任务之前的行为
-    /// （半径内全部存活单位，不做阵营过滤），保持向后兼容。调用方（<c>GameplayAssembly</c>）如需
-    /// 更精确的参与者来源（如遭遇系统 <c>encounter.def.units</c> 登记的完整名单），仍可经构造参数
-    /// <c>participantsResolver</c> 注入自定义解析逻辑，优先级最高、完全覆盖默认行为。
+    /// 判断记录（参与者解析，ADR-0013 补齐任务修订；收边任务更新）：<c>combat.entered</c>/
+    /// <c>combat.left</c>（见 <c>Core.Rules.Combat.CombatHost</c>）按单位逐个触发，不是"一次战斗"
+    /// 的整体事件——06 第 8 节事件词汇表此前只给 <c>combat.entered</c> 登记 <c>unitId</c> 一个
+    /// 字段，收边任务已勘误补齐 <c>hostileId</c>（首个敌对目标，见
+    /// <see cref="Core.Rules.Common.Events.CombatEnteredEvent.HostileId"/>；事件字段是登记表内容，
+    /// 不是 12 第 2 节"新增原语"，不需要走该审批流程）。本类型因此走 03 第 3.3 节步骤 1
+    /// "参与者 = 该次战斗的敌对双方单位，取自 combat 事件字段<b>或</b> IUnitAccess"里的<b>前一条</b>
+    /// 路径为主：<see cref="ResolveParticipants"/> 收到非空 <c>hostileId</c> 时优先直接把它纳入
+    /// 参与者集合（精确值，不必猜）；半径查询 + 阵营近似从"唯一判定来源"降级为"回退/补充来源"，
+    /// 继续执行只是为了发现 <c>hostileId</c> 之外的其余参与者（如 AoE 命中的多个敌人）——
+    /// <see cref="_factions"/> 非空时，半径内候选单位按"与触发单位同阵营（友军协同作战）或与触发
+    /// 单位阵营互为敌对"过滤，排除半径内的中立/无关旁观者；<see cref="_factions"/> 为空时半径内
+    /// 全部存活单位都算参与者（不做阵营过滤）。调用方（<c>GameplayAssembly</c>）如需更精确的参与者
+    /// 来源（如遭遇系统 <c>encounter.def.units</c> 登记的完整名单），仍可经构造参数
+    /// <c>participantsResolver</c> 注入自定义解析逻辑，优先级最高、完全覆盖默认行为（含
+    /// <c>hostileId</c> 在内的默认解析都不会被调用）。
     /// </para>
     /// <para>
     /// 判断记录（中途加入/离场，ADR-0013 补齐任务新增）：<see cref="_activeCombatants"/> 从 0 变 1
@@ -171,7 +174,7 @@ namespace Core.Gameplay.Assembly
                 return;
             }
 
-            SwitchToDiscrete(evt.UnitId);
+            SwitchToDiscrete(evt.UnitId, evt.HostileId);
         }
 
         private void OnCombatLeft(CombatLeftEvent evt)
@@ -212,9 +215,9 @@ namespace Core.Gameplay.Assembly
             }
         }
 
-        private void SwitchToDiscrete(Id triggerUnit)
+        private void SwitchToDiscrete(Id triggerUnit, Id? hostileId)
         {
-            var participants = ResolveParticipants(triggerUnit);
+            var participants = ResolveParticipants(triggerUnit, hostileId);
             if (participants.Count == 0)
             {
                 return;
@@ -284,7 +287,7 @@ namespace Core.Gameplay.Assembly
             }
         }
 
-        private IReadOnlyList<Id> ResolveParticipants(Id triggerUnit)
+        private IReadOnlyList<Id> ResolveParticipants(Id triggerUnit, Id? hostileId)
         {
             if (_participantsResolver != null)
             {
@@ -294,6 +297,18 @@ namespace Core.Gameplay.Assembly
             var nearby = _spatial.QueryRadius(_units.GetPosition(triggerUnit), _options.ParticipantSearchRadius, QueryFilter.None);
             var set = new SortedSet<Id>();
             set.Add(triggerUnit);
+
+            // 收边任务补齐（06 第 8 节 combat.entered.hostileId 勘误）：本次触发进战事件携带的
+            // "首个敌对目标" 是精确值（来自 Resolver 结算时的 sourceId/targetId 配对，见
+            // CombatEnteredEvent.HostileId 判断记录），优先直接纳入参与者集合，不必经过下面
+            // 半径查询 + 阵营近似这条本就是"猜"的路径——半径 + 阵营近似从"唯一判定来源"降级为
+            // "回退/补充来源"，继续执行是为了发现 hostileId 之外的其余参与者（如 AoE 命中的
+            // 多个敌人），不代表 hostileId 的可靠性依赖它。
+            if (hostileId.HasValue && _units.Exists(hostileId.Value) && _units.IsAlive(hostileId.Value))
+            {
+                set.Add(hostileId.Value);
+            }
+
             var triggerFaction = _factions != null ? _units.GetFaction(triggerUnit) : default;
 
             for (var i = 0; i < nearby.Count; i++)
