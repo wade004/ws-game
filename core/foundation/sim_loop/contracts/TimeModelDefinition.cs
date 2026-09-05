@@ -32,9 +32,19 @@ namespace Core.Foundation.SimLoop
         /// <c>"distance"</c> 或 <c>"action_points"</c>。</summary>
         public string? MovementBudgetRule { get; }
 
+        /// <summary>04 第 3.1 节勘误：<c>initiative_policy: action_points</c> 或
+        /// <c>movement_budget_rule: action_points</c> 任一为 <c>action_points</c> 时使用的每回合
+        /// 行动点总额度，默认 1（同 <see cref="TurnScheduler"/> 未显式配置时的默认值）。</summary>
+        public double ActionPointsPerTurn { get; }
+
+        /// <summary>04 第 3.1 节勘误：<see cref="MovementBudgetRule"/> 为 <c>"action_points"</c>
+        /// 时必填，移动 1 单位距离消耗的行动点数；其余情形为 <c>null</c>。</summary>
+        public double? MovementActionCostPerUnit { get; }
+
         private TimeModelDefinition(
             Id id, string scope, TimeModelMode mode, double secondsPerTurn,
-            InitiativePolicy initiativePolicy, Id? initiativeStat, string? movementBudgetRule)
+            InitiativePolicy initiativePolicy, Id? initiativeStat, string? movementBudgetRule,
+            double actionPointsPerTurn, double? movementActionCostPerUnit)
         {
             Id = id;
             Scope = scope;
@@ -43,6 +53,8 @@ namespace Core.Foundation.SimLoop
             InitiativePolicy = initiativePolicy;
             InitiativeStat = initiativeStat;
             MovementBudgetRule = movementBudgetRule;
+            ActionPointsPerTurn = actionPointsPerTurn;
+            MovementActionCostPerUnit = movementActionCostPerUnit;
         }
 
         public static TimeModelDefinition FromRecord(DataRecord record)
@@ -73,7 +85,12 @@ namespace Core.Foundation.SimLoop
 
             var movementBudgetRule = record.TryGetString("movement_budget_rule", out var mbr) ? mbr : null;
 
-            return new TimeModelDefinition(id, scope, mode, secondsPerTurn, initiativePolicy, initiativeStat, movementBudgetRule);
+            var actionPointsPerTurn = record.TryGetNumber("action_points_per_turn", out var appt) ? appt : 1.0;
+            double? movementActionCostPerUnit = record.TryGetNumber("movement_action_cost_per_unit", out var macpu) ? macpu : (double?)null;
+
+            return new TimeModelDefinition(
+                id, scope, mode, secondsPerTurn, initiativePolicy, initiativeStat, movementBudgetRule,
+                actionPointsPerTurn, movementActionCostPerUnit);
         }
     }
 }

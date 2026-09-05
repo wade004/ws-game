@@ -31,6 +31,14 @@ namespace Tests.Gameplay.Discrete
         public static readonly Id FactionPlayer = new Id("fac.d_player");
         public static readonly Id FactionWildlife = new Id("fac.d_wildlife");
 
+        /// <summary>ADR-0013 补齐任务新增：与玩家/野生动物阵营都不互为敌对的中立阵营（
+        /// <c>default_reaction: neutral</c>，未在 <see cref="ReactionMatrixJson"/> 显式登记任何
+        /// 关系），供 <c>TimeModelSwitchParticipantTests</c> 验证
+        /// <c>Core.Gameplay.Assembly.TimeModelSwitch.ResolveParticipants</c> 的阵营过滤——半径内的
+        /// 中立旁观者不应被拉进战斗（见该方法判断记录）。仅新增一条未被任何既有测试引用的阵营
+        /// 登记行，不影响本夹具其它既有用例。</summary>
+        public static readonly Id FactionNeutral = new Id("fac.d_neutral");
+
         public static readonly Id ClassSample = new Id("arch.class.d_sample");
         public static readonly Id CurveSample = new Id("prog.curve.d_sample");
 
@@ -105,7 +113,8 @@ namespace Tests.Gameplay.Discrete
             ""schema_version"": 1,
             ""rows"": [
                 { ""id"": ""fac.d_player"", ""name_key"": ""l10n.fac.d_player.name"", ""default_reaction"": ""friendly"" },
-                { ""id"": ""fac.d_wildlife"", ""name_key"": ""l10n.fac.d_wildlife.name"", ""default_reaction"": ""neutral"" }
+                { ""id"": ""fac.d_wildlife"", ""name_key"": ""l10n.fac.d_wildlife.name"", ""default_reaction"": ""neutral"" },
+                { ""id"": ""fac.d_neutral"", ""name_key"": ""l10n.fac.d_neutral.name"", ""default_reaction"": ""neutral"" }
             ]
         }";
 
@@ -372,7 +381,8 @@ namespace Tests.Gameplay.Discrete
 
             var scheduler = new Core.Foundation.SimLoop.TurnScheduler(world, InitiativeProvider, IsPlayerActor, bus);
             var timeModelSwitch = new Core.Gameplay.Assembly.TimeModelSwitch(
-                scheduler, clock, appState, world, units, spatial, bus, registry);
+                scheduler, clock, appState, world, units, spatial, bus, registry,
+                factions: rules.Factions, combatOptions: rules.CombatOptions);
 
             return new Fixture
             {

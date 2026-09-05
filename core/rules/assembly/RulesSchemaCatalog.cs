@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.InputMap;
@@ -57,6 +58,7 @@ namespace Core.Rules.Assembly
             RegisterL1Schemas(registry);
             RegisterL2Schemas(registry);
             DeclareKnownReferences(registry);
+            RegisterTimeFieldConsistencyRule(registry);
         }
 
         private static void RegisterL0Schemas(IDataRegistry registry)
@@ -158,6 +160,56 @@ namespace Core.Rules.Assembly
             registry.DeclareReference("arch.class", "primary_stat", "stat.definition");
             registry.DeclareReference("skill.def", "target_shape_ref", "target.chain_def");
             registry.DeclareReference("skill.proc_def", "trigger_skill", "skill.def");
+        }
+
+        /// <summary>
+        /// 04 第 3.1/5 节"时间字段与时间模型一致"：登记 L1（<c>arch.power_type</c>）+ L2
+        /// （<c>skill.def</c>/<c>skill.aura_def</c>/<c>skill.proc_def</c>）范围内已知的时间字段
+        /// （见 <see cref="Core.Foundation.SimLoop.TimeFieldDeclaration"/> 判断记录：本类知道具体
+        /// 表/字段名，<c>core/foundation/sim_loop</c> 本身不知道）。L4 的 <c>spawn.table.respawn_timer</c>
+        /// 由 <c>core/gameplay/assembly/GameplaySchemaCatalog.cs</c> 另行登记一条独立规则实例（同一
+        /// 通用机制，L4 数据装配根才认识 spawn 表，见该类型对应方法判断记录）。
+        /// <para>
+        /// 判断记录（作用域归属拍板）：<c>skill.*</c> 三张表的全部时间字段（<c>cast_time</c>/
+        /// <c>channel_time</c>/<c>cooldown_duration</c>/<c>charges.recharge_time</c>/
+        /// <c>skill.aura_def.duration</c>/<c>skill.proc_def.internal_cooldown</c>）按 <c>combat</c>
+        /// 作用域校验——技能施放/冷却/光环持续本质是战斗机制的时间字段，即便某个具体技能也能在
+        /// 探索场景使用，也不改变"这些字段以战斗的时间模型解释"这一判断（04 未按"每张表"细分
+        /// 探索/战斗，需要本类自行拍板，见任务书授权）。<c>arch.power_type.regen_in_combat</c> 同样
+        /// 按 <c>combat</c>；<c>regen_out_of_combat</c>/<c>decay_out_of_combat</c> 字段名本身已明确
+        /// "脱战"语境，按 <c>exploration</c> 校验。
+        /// </para>
+        /// </summary>
+        private static void RegisterTimeFieldConsistencyRule(IDataRegistry registry)
+        {
+            double? Number(DataRecord record, string field) =>
+                record.TryGetNumber(field, out var value) ? value : (double?)null;
+
+            double? ChargesRechargeTime(DataRecord record)
+            {
+                if (record.TryGetObject("charges", out var charges) &&
+                    charges.TryGetValue("recharge_time", out var raw) &&
+                    raw is Core.Foundation.Common.Json.JsonNumber number)
+                {
+                    return number.Value;
+                }
+                return null;
+            }
+
+            var declarations = new List<Core.Foundation.SimLoop.TimeFieldDeclaration>
+            {
+                new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.def", "cast_time", "combat", r => Number(r, "cast_time")),
+                new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.def", "channel_time", "combat", r => Number(r, "channel_time")),
+                new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.def", "cooldown_duration", "combat", r => Number(r, "cooldown_duration")),
+                new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.def", "charges.recharge_time", "combat", ChargesRechargeTime),
+                new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.aura_def", "duration", "combat", r => Number(r, "duration")),
+                new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.proc_def", "internal_cooldown", "combat", r => Number(r, "internal_cooldown")),
+                new Core.Foundation.SimLoop.TimeFieldDeclaration("arch.power_type", "regen_in_combat", "combat", r => Number(r, "regen_in_combat")),
+                new Core.Foundation.SimLoop.TimeFieldDeclaration("arch.power_type", "regen_out_of_combat", "exploration", r => Number(r, "regen_out_of_combat")),
+                new Core.Foundation.SimLoop.TimeFieldDeclaration("arch.power_type", "decay_out_of_combat", "exploration", r => Number(r, "decay_out_of_combat")),
+            };
+
+            registry.RegisterValidationRule(new Core.Foundation.SimLoop.TimeFieldConsistencyRule(declarations));
         }
     }
 }

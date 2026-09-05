@@ -8,10 +8,14 @@
 
 **离散时间模型已落地**（ADR-0013 解除了此前"本项目暂不启用"的限制）：`TurnScheduler`
 实现 `initiative_stat`/`action_points`/`fixed_order` 三种先攻策略（`atb` 仍是预留扩展位，
-`Configure` 遇到时抛 `NotSupportedException`），`ImmediatePacingPolicy`/
-`WaitForPlaybackPacingPolicy` 实现两种节奏策略；`found.time_model` 表的加载/解释、模式切换
-（连续 ⇄ 离散）由 `core/gameplay/assembly.TimeModelSwitch`/`GameplayAssembly.Advance` 驱动
-（本模块自身仍不加载数据表，只提供机制，见下方"基础架构提供/游戏层提供"）。
+`Configure` 遇到时抛 `NotSupportedException`），额外提供 `AddParticipant`/`RemoveParticipant`
+（中途加入/离场，见判断记录 2）与 `TryConsumeActionPoints`（供移动等系统按行动点计消耗共享
+预算，见判断记录 5）；`ImmediatePacingPolicy`/`WaitForPlaybackPacingPolicy` 实现两种节奏策略；
+`found.time_model` 表的加载/解释、模式切换（连续 ⇄ 离散）由
+`core/gameplay/assembly.TimeModelSwitch`/`GameplayAssembly.Advance` 驱动（本模块自身仍不加载
+数据表，只提供机制，见下方"基础架构提供/游戏层提供"）。`schema/TimeFieldConsistencyRule.cs`
+提供 04 第 3.1/5 节"时间字段与时间模型一致"校验的通用机制（本模块不认识任何具体上层表/字段
+名，由 `core/rules/assembly`/`core/gameplay/assembly` 各自登记声明，见该类型判断记录）。
 
 依赖：只依赖 `core/foundation/common`（`Id`、`Vec2`）、`core/foundation/event_bus`
 （`IEvent`、`IEventBus`）、`core/foundation/data_registry`（`TimeModelSchema`/
@@ -198,21 +202,32 @@ sim_loop/
    未耗尽则继续同一行动者，直到耗尽或调用方显式 `EndTurn`。04 未规定
    `initiative_stat`/`fixed_order` 是否允许单回合多次行动，本实现按"一步一回合"处理——这是
    两种最简策略的通行做法（多行动预算是 `action_points` 策略专属的语义）。
-2. **参与者名单只在 `BeginCombat` 一次性传入**：`ITurnScheduler` 契约（03 第 9 节）没有"追加
-   参与者"的原语，`TimeModelSwitch` 因此只在"进战单位数从 0 变 1"这一刻解析一次完整参与者
-   名单（默认按触发单位为圆心的空间查询近似，见该类型判断记录），战斗中途加入的单位不会被
-   补进当前回合顺序——已知简化，见任务交付报告"做不了的事"。
+2. **参与者名单：`BeginCombat` 一次性传入 + 中途加入/离场实时同步**：`ITurnScheduler` 契约
+   （03 第 9 节）只有 `beginCombat(participants)` 这一个一次性传入整份名单的原语，`TimeModelSwitch`
+   仍然只在"进战单位数从 0 变 1"这一刻解析一次完整参与者名单（空间查询半径 + 阵营过滤，见该
+   类型判断记录"参与者解析"）；但战斗中途再有单位加入（`combat.entered`）或死亡
+   （`unit.died`），本模块具体类型 `TurnScheduler`（不在 `ITurnScheduler` 契约上，属于该具体
+   类型的便利成员，惯例同 `NotifyStepConsumed`）新增 `AddParticipant`/`RemoveParticipant` 两个
+   方法，由 `TimeModelSwitch` 在离散模式中收到这两个事件时调用，实时同步进当前轮的行动顺序
+   （`initiative_stat`/`action_points` 按先攻值插入尚未行动的序列，`fixed_order` 追加末尾；
+   死亡/离场移除，处理"移除的正是当前行动者本人"等边界情形，见该方法判断记录）。`combat.left`
+   （个体脱战，非死亡）不触发移除，是已知限制，见交付报告"做不了的事"。
 3. **全局计时器换算 `SimTimers.RescaleAll` 不是 `ISimTimers` 契约的一部分**：03/09 未给"时间
    单位换算"定义独立接口原语，本方法是承载该文档要求行为（第 3.3 节步骤 2）的具体类型便利
    成员，惯例同 `WorldSim.DiagnosticsWarnings`。
-4. **`TurnScheduler` 的存档段 key `sim.turn_state` 尚未登记进
-   [10_存档与持久化.md](../../../architecture/10_存档与持久化.md)**（该文档不在本任务允许
-   改动的文档范围内）——`GameplayAssembly.RegisterPersistables` 已按此 key 接线（自定义段，
-   排在 `SaveSections.KnownOrder` 已知段之后），待后续任务把该段正式补进 10 号文档固定段序。
-5. **`found.time_model` 的 `movement_budget_rule: action_points`（以行动点计的移动预算）未
-   落地**：`core/carriers/unit.MovementTickHandler` 的离散分支只实现了 `distance` 预算规则
-   （见 `MovementOptions.DiscreteTurnEquivalentSeconds`），`action_points` 取值仍是数据校验
-   期合法枚举，但运行期按 `distance` 规则处理——已知简化，见交付报告"做不了的事"。
+4. **`TurnScheduler` 的存档段 key `sim.turn_state` 已登记进
+   [10_存档与持久化.md](../../../architecture/10_存档与持久化.md) 第 3 节固定段序（步骤 7b，
+   2026-09-05 勘误：只在离散模式有内容，连续模式为空段）**——但同 `world.dropped_loot` 等"世界
+   附属段"一样，仍不登记进 `SaveSections.KnownOrder` 这份全序数组，作为"自定义段"按 key 序数
+   排在已知段之后（`GameplayAssembly.RegisterPersistables` 接线不变）。
+5. **`found.time_model` 的 `movement_budget_rule: action_points`（以行动点计的移动预算）已
+   落地**：`core/carriers/unit.MovementTickHandler` 离散分支在按 `distance` 规则（速度 ×
+   `DiscreteTurnEquivalentSeconds`）算出本步会移动的距离之后，`action_points` 规则额外叠加一层
+   "够不够行动点"的门槛——距离 × `found.time_model.movement_action_cost_per_unit` 算出所需
+   行动点，向 `TurnScheduler.TryConsumeActionPoints`（与 `initiative_policy: action_points`
+   共享同一份账本，见该方法判断记录）尝试扣减；不足时拒绝本次移动意图（不产生任何位移）并调用
+   `TurnScheduler.EndTurn` 结束该行动者的回合。`action_points_per_turn`/
+   `movement_action_cost_per_unit` 两个新字段已登记进 04 第 3.1 节（2026-09-05 勘误）。
 
 ## 基础架构提供 / 游戏层提供
 

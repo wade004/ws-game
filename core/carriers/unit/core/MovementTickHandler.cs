@@ -82,7 +82,7 @@ namespace Core.Carriers.Unit
                 if (intent.Kind != "move") continue;
                 if (!(world.GetEntity(intent.ActorId) is Unit unit)) continue;
 
-                ApplyIntent(unit, intent, dt);
+                ApplyIntent(unit, intent, dt, step.Kind == SimStepKind.Discrete);
                 processedThisTick.Add(unit.EntityId);
             }
 
@@ -110,11 +110,16 @@ namespace Core.Carriers.Unit
             }
         }
 
-        private void ApplyIntent(Unit unit, Intent intent, double dt)
+        private void ApplyIntent(Unit unit, Intent intent, double dt, bool isDiscrete)
         {
             if (IsLocked(unit))
             {
                 return;
+            }
+
+            if (isDiscrete && !TryConsumeMovementActionPoints(unit, dt))
+            {
+                return; // 行动点不足：本次移动意图被拒绝，见 TryConsumeMovementActionPoints 注释。
             }
 
             if (TryReadTarget(intent.Args, out var target))
@@ -134,6 +139,39 @@ namespace Core.Carriers.Unit
             _diagnostics.Warn(
                 $"MovementTickHandler: move 意图缺少 target(x,y) 或 direction(dx,dy) 参数，单位 " +
                 $"\"{unit.EntityId}\" 本次意图被忽略");
+        }
+
+        /// <summary>
+        /// ADR-0013 补齐：<see cref="MovementOptions.MovementBudgetRule"/> 为 <c>"action_points"</c>
+        /// 且已装配 <see cref="MovementOptions.TryConsumeActionPoints"/> 时，按"该单位这一步会移动
+        /// 的距离（速度 × <see cref="MovementOptions.DiscreteTurnEquivalentSeconds"/>，与
+        /// <c>"distance"</c> 规则同一基准，见 <see cref="MovementOptions.DiscreteTurnEquivalentSeconds"/>
+        /// 判断记录）× 每单位距离行动点消耗"算出本次移动需要的行动点，尝试一次性扣减；不足时拒绝
+        /// （返回 <c>false</c>，调用方不产生任何位移）并调用
+        /// <see cref="MovementOptions.RequestEndTurn"/> 结束该行动者的回合（06 第 6.2 节）。规则不是
+        /// <c>action_points</c>，或未装配 <see cref="MovementOptions.TryConsumeActionPoints"/> 时
+        /// 恒返回 <c>true</c>（不做任何检查，行为与本任务之前一致）。
+        /// </summary>
+        private bool TryConsumeMovementActionPoints(Unit unit, double dt)
+        {
+            if (_options.MovementBudgetRule != "action_points" || _options.TryConsumeActionPoints == null)
+            {
+                return true;
+            }
+
+            var speed = ResolveSpeed(unit.EntityId);
+            var distance = speed * dt;
+            var cost = distance * _options.MovementActionCostPerUnit;
+
+            if (_options.TryConsumeActionPoints(unit.EntityId, cost))
+            {
+                return true;
+            }
+
+            _options.RequestEndTurn?.Invoke(unit.EntityId);
+            _diagnostics.Warn(
+                $"MovementTickHandler: 单位 \"{unit.EntityId}\" 行动点不足（需要 {cost}），移动意图被拒绝，回合结束");
+            return false;
         }
 
         private void BeginPathTo(Unit unit, Vec2 target, MoveMode mode, double dt)

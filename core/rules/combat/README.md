@@ -109,10 +109,16 @@ combat/
     游戏层改学派命名时不需要改本模块源码。
 
 13. **`CombatTickHandler` 只负责脱战计时推进**：结算本身（`ICombatHost.ResolveEffect`）由
-    skill 模块在效果原语落地的那一刻同步调用，不经 tick 编排；`CombatTickHandler` 只把
-    `ICombatHost.Update(dt)`（脱战判定）接到 `TickPhase.CombatResolution`，离散步只记警告
-    （本项目未启用离散时间模型，见 ADR-0013）。这与任务书"效果结算本身由 skill 在步骤 3 调用
-    ResolveEffect 即时完成"的说明一致。
+    skill 模块在效果原语落地的那一刻同步调用，不经 tick 编排；`CombatTickHandler` 把
+    `ICombatHost.Update(dt)`（脱战判定）接到 `TickPhase.CombatResolution`，连续步按
+    `step.Dt` 驱动。这与任务书"效果结算本身由 skill 在步骤 3 调用 ResolveEffect 即时完成"的
+    说明一致。**离散模式（ADR-0013 补齐任务）**：`Discrete` 步恒 `Dt = 0`，不代表"经过了多少
+    时间"（一个离散步只是某一个行动者的一次行动），本处理器改为构造期订阅 `sim.round_ended`，
+    每轮结束调用一次 `Update(1.0)`；`CombatOptions.LeaveCombatDelay`（06 第 4.5 节脱战判定
+    时长）由 `core/gameplay/assembly.TimeModelSwitch` 在切入离散模式时按 `seconds_per_turn`
+    换算为等效轮数（向上取整，见该类型判断记录），切回连续模式时精确恢复——本处理器因此不需要
+    另行知道 `seconds_per_turn`，`Update(1.0)` 恒代表"过了 1 轮"。未装配离散模式的调用方
+    （构造 `CombatTickHandler` 时不传 `bus`）行为与本任务之前完全一致。
 
 14. **阶段 3 整理"事项三"：`Resolver` 步骤 7 免疫判定叠加 `IStaticImmunityProvider`**（新增
     `core/rules/common` 契约，见该文件顶部注释）：`Resolve` 步骤 7 的 `immune` 判定改为

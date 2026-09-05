@@ -74,15 +74,121 @@ namespace Core.Foundation.SaveSystem
     }
 
     /// <summary>
+    /// 单条录制的"本 tick 用的是哪种 <see cref="SimStep"/>"（ADR-0013 离散时间模型落地：本任务
+    /// 前的录像格式恒假定每个 tick 都是 <see cref="SimStepKind.Continuous"/>——<see cref="ReplayPlayer"/>
+    /// 硬编码 <c>world.Tick(SimStep.Continuous(...))</c>，见该类型 T1-9 阶段实现；本任务把"这个
+    /// tick 到底是连续步还是离散步（含离散步的 actorId/phase）"也记下来，使
+    /// <see cref="ReplayPlayer.StepTo"/> 能在模式切换的录像上正确重放，见该类型 §StepTo 判断记录）。
+    /// <para>
+    /// 判断记录（旧格式兼容）：<see cref="ReplayData.Steps"/> 是按 tick 号排列的稀疏/完整列表，
+    /// 旧格式（<see cref="ReplayData.FormatVersion"/> == 1，无 <c>steps</c> 字段）解析后为空列表；
+    /// <see cref="ReplayPlayer.StepTo"/> 对"没有对应记录的 tick"一律按
+    /// <see cref="SimStepKind.Continuous"/> 处理（与本任务之前的唯一行为完全一致），即"缺字段视为
+    /// 连续步"。
+    /// </para>
+    /// </summary>
+    public readonly struct ReplayStepRecord
+    {
+        /// <summary>本记录对应的 tick 号（从 1 起，与 <see cref="ReplayInputRecord.Tick"/> 同一
+        /// 编号体系）。</summary>
+        public long Tick { get; }
+
+        public SimStepKind Kind { get; }
+
+        /// <summary><see cref="Kind"/> 为 <see cref="SimStepKind.Discrete"/> 时有值。</summary>
+        public Id? ActorId { get; }
+
+        /// <summary><see cref="Kind"/> 为 <see cref="SimStepKind.Discrete"/> 时有值。</summary>
+        public StepPhase? Phase { get; }
+
+        private ReplayStepRecord(long tick, SimStepKind kind, Id? actorId, StepPhase? phase)
+        {
+            Tick = tick;
+            Kind = kind;
+            ActorId = actorId;
+            Phase = phase;
+        }
+
+        /// <summary>从驱动录制的调用方实际使用的 <see cref="SimStep"/> 构造一条记录（见
+        /// <see cref="IReplayRecorder.RecordStep"/>）。</summary>
+        public static ReplayStepRecord FromStep(long tick, SimStep step)
+        {
+            return step.Kind == SimStepKind.Continuous
+                ? new ReplayStepRecord(tick, SimStepKind.Continuous, null, null)
+                : new ReplayStepRecord(tick, SimStepKind.Discrete, step.ActorId, step.Phase);
+        }
+
+        /// <summary>还原为 <see cref="ReplayPlayer.StepTo"/> 传给 <c>world.Tick</c> 的
+        /// <see cref="SimStep"/>；连续步需要外部传入 <paramref name="stepSeconds"/>（本记录不重复
+        /// 存一份，与 <see cref="ReplayData.StepSeconds"/> 保持单一来源）。</summary>
+        public SimStep ToSimStep(double stepSeconds)
+        {
+            return Kind == SimStepKind.Continuous
+                ? SimStep.Continuous(stepSeconds)
+                : SimStep.Discrete(ActorId!.Value, Phase!.Value);
+        }
+
+        public JsonObject ToJson()
+        {
+            var builder = new JsonObjectBuilder()
+                .Add("tick", new JsonNumber(Tick))
+                .Add("kind", new JsonString(Kind == SimStepKind.Continuous ? "continuous" : "discrete"));
+
+            builder.Add("actorId", ActorId.HasValue ? (JsonValue)new JsonString(ActorId.Value.Value) : JsonNull.Instance);
+            builder.Add("phase", Phase.HasValue ? (JsonValue)new JsonString(Phase.Value.ToString()) : JsonNull.Instance);
+
+            return builder.Build();
+        }
+
+        public static ReplayStepRecord FromJson(JsonObject json)
+        {
+            if (json == null)
+            {
+                throw new ArgumentNullException(nameof(json));
+            }
+
+            if (!((JsonNumber)json["tick"]).TryGetInt64(out var tick))
+            {
+                throw new FormatException("ReplayStepRecord.tick 不是合法整数");
+            }
+
+            var kindText = ((JsonString)json["kind"]).Value;
+            if (kindText == "continuous")
+            {
+                return new ReplayStepRecord(tick, SimStepKind.Continuous, null, null);
+            }
+
+            if (kindText != "discrete")
+            {
+                throw new FormatException($"ReplayStepRecord.kind 取值非法：\"{kindText}\"");
+            }
+
+            var actorId = new Id(((JsonString)json["actorId"]).Value);
+            var phase = Enum.Parse<StepPhase>(((JsonString)json["phase"]).Value);
+            return new ReplayStepRecord(tick, SimStepKind.Discrete, actorId, phase);
+        }
+    }
+
+    /// <summary>
     /// 一份完整回放数据（10 第 8 节"回放 = 固定步长 + 分流随机源初始状态 + 输入录像"）。
     /// <see cref="StepSeconds"/>（固定步长本身）一并记录：虽然属于 <c>sim_loop</c> 的运行时
     /// 配置，但只记随机源与输入、不记步长会导致回放脱离原始运行的时间基准，
     /// 因此本类型把它一并纳入（T1-9 判断记录：契约原注释"固定步长本身...不属于本类型"
     /// 改为"必须一并记录，否则 <see cref="IReplayPlayer.StepTo"/> 无法独立于外部配置推进"）。
     /// <see cref="TickCount"/> 记录本次录像覆盖的总 tick 数（含没有任何输入的 tick）。
+    /// <see cref="Steps"/>/<see cref="FormatVersion"/> 是 ADR-0013 离散时间模型任务新增（见
+    /// <see cref="ReplayStepRecord"/> 类型注释）。
     /// </summary>
     public sealed class ReplayData
     {
+        /// <summary>当前录像格式版本，见 <see cref="ReplayStepRecord"/> 类型注释"判断记录（旧格式
+        /// 兼容）"。1 = 本任务之前的格式（无 <c>steps</c> 字段，恒连续步）；2 = 本任务新增
+        /// <see cref="Steps"/>。</summary>
+        public const int CurrentFormatVersion = 2;
+
+        /// <summary>本份数据的格式版本，见 <see cref="CurrentFormatVersion"/>。</summary>
+        public int FormatVersion { get; }
+
         /// <summary>录制开始时各分流随机源的初始状态（流 <see cref="Id"/> 的文本形式 →
         /// <see cref="RngStreamState"/>），与 <see cref="IRngHost.GetStreamState"/> 同构。</summary>
         public IReadOnlyDictionary<string, RngStreamState> RngSeeds { get; }
@@ -97,11 +203,19 @@ namespace Core.Foundation.SaveSystem
         /// <summary>录像覆盖的总 tick 数。</summary>
         public long TickCount { get; }
 
+        /// <summary>按 tick 号记录"这个 tick 用的是哪种 <see cref="SimStep"/>"（见
+        /// <see cref="ReplayStepRecord"/>）。旧格式（<see cref="FormatVersion"/> == 1）解析后为空；
+        /// 空列表或某个 tick 没有对应记录，<see cref="IReplayPlayer.StepTo"/> 都按
+        /// <see cref="SimStepKind.Continuous"/> 处理。</summary>
+        public IReadOnlyList<ReplayStepRecord> Steps { get; }
+
         public ReplayData(
             IReadOnlyDictionary<string, RngStreamState> rngSeeds,
             IReadOnlyList<ReplayInputRecord> inputs,
             double stepSeconds,
-            long tickCount)
+            long tickCount,
+            IReadOnlyList<ReplayStepRecord>? steps = null,
+            int formatVersion = CurrentFormatVersion)
         {
             if (stepSeconds <= 0)
             {
@@ -117,12 +231,16 @@ namespace Core.Foundation.SaveSystem
             Inputs = inputs ?? throw new ArgumentNullException(nameof(inputs));
             StepSeconds = stepSeconds;
             TickCount = tickCount;
+            Steps = steps ?? Array.Empty<ReplayStepRecord>();
+            FormatVersion = formatVersion;
         }
 
         /// <summary>序列化为 <see cref="JsonObject"/>（供存盘，见 10 第 8 节"问题复现：玩家反馈
         /// 的问题若能提供录像，可离线重放定位"——离线即意味着需要落盘）。键顺序固定，
         /// <see cref="RngSeeds"/> 按 key 的原始插入顺序写出（<see cref="JsonObjectBuilder"/>
-        /// 保序），不额外排序。</summary>
+        /// 保序），不额外排序。<c>format_version</c>/<c>steps</c> 恒写出（即便 <see cref="Steps"/>
+        /// 为空——"没有任何离散步"本身也是一条有意义的信息，与"这份录像根本没有 steps 字段的旧
+        /// 格式"是两回事，见 <see cref="FromJson"/> 判断记录）。</summary>
         public JsonObject ToJson()
         {
             var seedsBuilder = new JsonObjectBuilder();
@@ -137,21 +255,35 @@ namespace Core.Foundation.SaveSystem
                 inputsArray.Add(input.ToJson());
             }
 
+            var stepsArray = new List<JsonValue>(Steps.Count);
+            foreach (var step in Steps)
+            {
+                stepsArray.Add(step.ToJson());
+            }
+
             return new JsonObjectBuilder()
+                .Add("format_version", new JsonNumber(CurrentFormatVersion))
                 .Add("stepSeconds", new JsonNumber(StepSeconds))
                 .Add("tickCount", new JsonNumber(TickCount))
                 .Add("rngSeeds", seedsBuilder.Build())
                 .Add("inputs", new JsonArray(inputsArray))
+                .Add("steps", new JsonArray(stepsArray))
                 .Build();
         }
 
-        /// <summary>按 <see cref="ToJson"/> 的形状反序列化。</summary>
+        /// <summary>按 <see cref="ToJson"/> 的形状反序列化；<c>format_version</c>/<c>steps</c> 两个
+        /// 字段缺失时视为旧格式（<see cref="FormatVersion"/> = 1，<see cref="Steps"/> 为空，即
+        /// "每个 tick 都是连续步"——本任务之前唯一存在过的格式），保证旧录像文件仍可读。</summary>
         public static ReplayData FromJson(JsonObject json)
         {
             if (json == null)
             {
                 throw new ArgumentNullException(nameof(json));
             }
+
+            var formatVersion = json.TryGetValue("format_version", out var fv) && fv is JsonNumber fvn && fvn.TryGetInt64(out var fvi)
+                ? (int)fvi
+                : 1;
 
             var stepSeconds = ((JsonNumber)json["stepSeconds"]).Value;
 
@@ -173,7 +305,16 @@ namespace Core.Foundation.SaveSystem
                 inputs.Add(ReplayInputRecord.FromJson((JsonObject)item));
             }
 
-            return new ReplayData(seeds, inputs, stepSeconds, tickCount);
+            var steps = new List<ReplayStepRecord>();
+            if (json.TryGetValue("steps", out var stepsRaw) && stepsRaw is JsonArray stepsJson)
+            {
+                foreach (var item in stepsJson)
+                {
+                    steps.Add(ReplayStepRecord.FromJson((JsonObject)item));
+                }
+            }
+
+            return new ReplayData(seeds, inputs, stepSeconds, tickCount, steps, formatVersion);
         }
     }
 
@@ -188,6 +329,12 @@ namespace Core.Foundation.SaveSystem
 
         /// <summary>记录某个 tick 提交的一条输入意图。</summary>
         void RecordInput(long tick, ReplayInputRecord intent);
+
+        /// <summary>记录某个 tick 实际使用的 <see cref="SimStep"/>（ADR-0013：区分连续/离散步，见
+        /// <see cref="ReplayStepRecord"/> 类型注释）。调用方应在每次 <c>world.Tick(step)</c> 前后
+        /// 都调用一次，与 <see cref="RecordInput"/> 同一 tick 编号体系；不调用等价于该 tick 按
+        /// 连续步处理（旧格式录像的天然语义，见 <see cref="ReplayStepRecord"/>）。</summary>
+        void RecordStep(long tick, SimStep step);
 
         /// <summary>导出迄今为止录制的完整回放数据。</summary>
         ReplayData Export();

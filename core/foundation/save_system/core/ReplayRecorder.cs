@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Rng;
+using Core.Foundation.SimLoop;
 
 namespace Core.Foundation.SaveSystem
 {
@@ -14,6 +15,7 @@ namespace Core.Foundation.SaveSystem
     {
         private readonly double _stepSeconds;
         private readonly List<ReplayInputRecord> _inputs = new List<ReplayInputRecord>();
+        private readonly List<ReplayStepRecord> _steps = new List<ReplayStepRecord>();
 
         private IReadOnlyDictionary<string, RngStreamState>? _rngSeeds;
         private long _tickCount;
@@ -33,6 +35,7 @@ namespace Core.Foundation.SaveSystem
         {
             _rngSeeds = rngSeeds ?? throw new ArgumentNullException(nameof(rngSeeds));
             _inputs.Clear();
+            _steps.Clear();
             _tickCount = 0;
             _began = true;
         }
@@ -79,10 +82,25 @@ namespace Core.Foundation.SaveSystem
             _tickCount = tickCount;
         }
 
+        /// <summary>记录某个 tick 实际使用的 <see cref="SimStep"/>（见 <see cref="IReplayRecorder.RecordStep"/>、
+        /// <see cref="ReplayStepRecord"/> 类型注释）。不要求与 <see cref="RecordInput"/> 一一对应
+        /// （很多 tick 没有任何输入，仍应记步——离散步下"没人提交新意图、当前行动者是 AI"同样是
+        /// 一个合法的 tick）。</summary>
+        public void RecordStep(long tick, SimStep step)
+        {
+            EnsureBegan();
+            _steps.Add(ReplayStepRecord.FromStep(tick, step));
+
+            if (tick > _tickCount)
+            {
+                _tickCount = tick;
+            }
+        }
+
         public ReplayData Export()
         {
             EnsureBegan();
-            return new ReplayData(_rngSeeds!, _inputs.ToArray(), _stepSeconds, _tickCount);
+            return new ReplayData(_rngSeeds!, _inputs.ToArray(), _stepSeconds, _tickCount, _steps.ToArray());
         }
 
         private void EnsureBegan()

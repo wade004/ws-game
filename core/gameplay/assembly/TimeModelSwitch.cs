@@ -6,6 +6,8 @@ using Core.Foundation.DataRegistry;
 using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
+using Core.Numbers.Faction;
+using Core.Rules.Combat;
 using Core.Rules.Common;
 
 namespace Core.Gameplay.Assembly
@@ -25,28 +27,39 @@ namespace Core.Gameplay.Assembly
     /// <see cref="ISimClockHost.Mode"/>、全局计时器的时间单位换算（<see cref="SimTimers.RescaleAll"/>）
     /// 与 <see cref="IAppStateHost"/> 的 <c>Combat</c> 子状态。
     /// <para>
-    /// 判断记录（参与者解析）：<c>combat.entered</c>/<c>combat.left</c>（见
-    /// <c>Core.Rules.Combat.CombatHost</c>）按单位逐个触发，不是"一次战斗"的整体事件，事件本身
-    /// 只携带 <c>unitId</c>，不携带"这次战斗还有哪些参战方"。本类型默认按"触发单位为圆心、
-    /// <see cref="TimeModelSwitchOptions.ParticipantSearchRadius"/> 半径内全部存活单位"近似"该次
-    /// 战斗的敌对双方单位"（03 第 3.3 节步骤 1 用语"参与者 = 该次战斗的敌对双方单位，取自 combat
-    /// 事件字段或 IUnitAccess"——本类型走的正是"或 IUnitAccess"这条路径，经
-    /// <see cref="ISpatialQuery"/> 实现）；调用方（<c>GameplayAssembly</c>）如需更精确的参与者来源
-    /// （如遭遇系统 <c>encounter.def.units</c> 登记的完整名单），可经构造参数
-    /// <c>participantsResolver</c> 注入自定义解析逻辑覆盖默认行为。
+    /// 判断记录（参与者解析，ADR-0013 补齐任务修订）：<c>combat.entered</c>/<c>combat.left</c>
+    /// （见 <c>Core.Rules.Combat.CombatHost</c>）按单位逐个触发，不是"一次战斗"的整体事件，事件
+    /// 本身只携带 <c>unitId</c>，06 第 8 节事件词汇表也未给它登记 <c>targetId</c>/<c>hostileId</c>
+    /// 一类"这次战斗还有哪些参战方"的字段——新增这类字段属于 12 第 2 节"新增原语"，需要单独走
+    /// 审批流程，不在本次补齐任务范围内。本类型因此仍走 03 第 3.3 节步骤 1 用语"参与者 = 该次
+    /// 战斗的敌对双方单位，取自 combat 事件字段<b>或</b> IUnitAccess"里的后一条路径，但把"IUnitAccess"
+    /// 这条路径本身做得更精确：<see cref="_factions"/> 非空时，半径内候选单位按"与触发单位同阵营
+    /// （友军协同作战）或与触发单位阵营互为敌对"过滤，排除半径内的中立/无关旁观者（本任务之前的
+    /// 实现不做任何阵营过滤，半径内任何存活单位都会被拉进战斗，是一处真实的精度缺口，见
+    /// <see cref="ResolveParticipants"/>）；<see cref="_factions"/> 为空时退化为本任务之前的行为
+    /// （半径内全部存活单位，不做阵营过滤），保持向后兼容。调用方（<c>GameplayAssembly</c>）如需
+    /// 更精确的参与者来源（如遭遇系统 <c>encounter.def.units</c> 登记的完整名单），仍可经构造参数
+    /// <c>participantsResolver</c> 注入自定义解析逻辑，优先级最高、完全覆盖默认行为。
     /// </para>
     /// <para>
-    /// 判断记录（只在"首个进战单位"这一刻切换）：<see cref="_activeCombatants"/> 从 0 变 1 时才
-    /// 触发 <see cref="SwitchToDiscrete"/>（此时一次性解析出全部参与者，见上一条），后续同一场
-    /// 战斗里再有单位加入战斗（<c>combat.entered</c>）不会二次调用 <see cref="ITurnScheduler.BeginCombat"/>
-    /// ——<c>ITurnScheduler</c> 契约没有"追加参与者"的原语（03 第 9 节签名只有
-    /// <c>beginCombat(participants)</c> 一次性传入整份名单），中途追加不在本次任务范围内，已在
-    /// 交付报告"做不了的事"列出。
+    /// 判断记录（中途加入/离场，ADR-0013 补齐任务新增）：<see cref="_activeCombatants"/> 从 0 变 1
+    /// 时仍然触发 <see cref="SwitchToDiscrete"/>（此时一次性解析出全部参与者，见上一条）；但
+    /// 已处于离散模式后，同一场战斗里再有单位加入（<c>combat.entered</c>）或死亡（<c>unit.died</c>）
+    /// 不再是"整场战斗结束前的死信息"——本类型改用
+    /// <see cref="Core.Foundation.SimLoop.TurnScheduler.AddParticipant"/>/
+    /// <see cref="Core.Foundation.SimLoop.TurnScheduler.RemoveParticipant"/>（这两个方法不在
+    /// <see cref="ITurnScheduler"/> 契约里，属于该具体类型的便利成员，见其类型判断记录）实时同步
+    /// 到当前轮的行动顺序，本类型的 <see cref="_scheduler"/> 字段类型因此从 <see cref="ITurnScheduler"/>
+    /// 收紧为具体类型 <see cref="Core.Foundation.SimLoop.TurnScheduler"/>（惯例同
+    /// <c>GameplayAssembly.TurnScheduler</c> 属性判断记录）。<c>combat.left</c>（个体脱战，非死亡）
+    /// 不触发移除——任务书只要求"收到 combat.entered/unit.died 时调用"，脱战单位仍留在本轮行动
+    /// 顺序里继续被轮到，直至整场战斗结束（<see cref="_activeCombatants"/> 归零、<see cref="EndCombat"/>
+    /// 清空顺序），已知限制，见交付报告"做不了的事"。
     /// </para>
     /// </summary>
     public sealed class TimeModelSwitch
     {
-        private readonly ITurnScheduler _scheduler;
+        private readonly Core.Foundation.SimLoop.TurnScheduler _scheduler;
         private readonly ISimClockHost _clockHost;
         private readonly IAppStateHost _appState;
         private readonly IWorldSim _world;
@@ -55,6 +68,15 @@ namespace Core.Gameplay.Assembly
         private readonly IEventBus _bus;
         private readonly TimeModelSwitchOptions _options;
         private readonly Func<Id, IReadOnlyList<Id>>? _participantsResolver;
+        private readonly IFactionMatrix? _factions;
+        private readonly CombatOptions? _combatOptions;
+
+        /// <summary><see cref="_combatOptions"/> 非空时，构造期缓存的"连续模式基准值"——切入离散
+        /// 模式时按 <see cref="TimeModelDefinition.SecondsPerTurn"/> 从这个基准换算轮数（见
+        /// <see cref="SwitchToDiscrete"/>），切回连续模式时精确恢复到这个基准（见
+        /// <see cref="SwitchToContinuous"/>），不从"当前已经被换算过的值"再次换算，避免反复切换
+        /// 造成的舍入漂移。</summary>
+        private readonly double _continuousLeaveCombatDelay;
 
         private readonly HashSet<Id> _activeCombatants = new HashSet<Id>();
 
@@ -68,7 +90,7 @@ namespace Core.Gameplay.Assembly
         public TimeModelMode CurrentMode { get; private set; } = TimeModelMode.Continuous;
 
         public TimeModelSwitch(
-            ITurnScheduler scheduler,
+            Core.Foundation.SimLoop.TurnScheduler scheduler,
             ISimClockHost clockHost,
             IAppStateHost appState,
             IWorldSim world,
@@ -77,7 +99,9 @@ namespace Core.Gameplay.Assembly
             IEventBus bus,
             IDataRegistryView registry,
             TimeModelSwitchOptions? options = null,
-            Func<Id, IReadOnlyList<Id>>? participantsResolver = null)
+            Func<Id, IReadOnlyList<Id>>? participantsResolver = null,
+            IFactionMatrix? factions = null,
+            CombatOptions? combatOptions = null)
         {
             _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
             _clockHost = clockHost ?? throw new ArgumentNullException(nameof(clockHost));
@@ -90,6 +114,9 @@ namespace Core.Gameplay.Assembly
 
             _options = options ?? new TimeModelSwitchOptions();
             _participantsResolver = participantsResolver;
+            _factions = factions;
+            _combatOptions = combatOptions;
+            _continuousLeaveCombatDelay = combatOptions?.LeaveCombatDelay ?? 0.0;
 
             ExplorationModel = LoadModel(registry, "exploration")
                 ?? throw new InvalidOperationException("found.time_model 未登记 scope=exploration 的记录");
@@ -124,7 +151,15 @@ namespace Core.Gameplay.Assembly
         {
             _activeCombatants.Add(evt.UnitId);
 
-            if (CurrentMode != TimeModelMode.Continuous || _activeCombatants.Count != 1)
+            if (CurrentMode == TimeModelMode.Discrete)
+            {
+                // 中途加入（见类型判断记录"中途加入/离场"）：整场战斗已经在离散模式下进行，
+                // 新进战单位实时插入当前轮尚未行动的序列，不重新调用 BeginCombat。
+                _scheduler.AddParticipant(evt.UnitId);
+                return;
+            }
+
+            if (_activeCombatants.Count != 1)
             {
                 return;
             }
@@ -147,6 +182,13 @@ namespace Core.Gameplay.Assembly
         private void OnUnitDied(UnitDiedEvent evt)
         {
             _activeCombatants.Remove(evt.UnitId);
+
+            if (CurrentMode == TimeModelMode.Discrete)
+            {
+                // 死亡移除（见类型判断记录"中途加入/离场"）：死亡单位不应继续占据本轮行动顺序。
+                _scheduler.RemoveParticipant(evt.UnitId);
+            }
+
             SwitchToContinuousIfNoneActive();
         }
 
@@ -170,7 +212,24 @@ namespace Core.Gameplay.Assembly
             // 剩余回合数，即乘以 1/seconds_per_turn。
             RescaleTimers(1.0 / CombatModel!.SecondsPerTurn);
 
-            var parameters = new Dictionary<string, object>();
+            // 06 第 4.5 节脱战判定时长同样"以数据集声明的时间单位计"（见 CombatOptions.LeaveCombatDelay
+            // 注释）：离散模式下换算为等效轮数——向上取整（Math.Ceiling）而不是四舍五入/截断，
+            // 保证离散模式下的脱战判定不会比换算前的连续模式秒数更快触发（任务书拍板：按
+            // seconds_per_turn 换算为轮数），至少 1 轮（避免 seconds_per_turn 远大于原延迟时换出 0，
+            // 0 轮意味着"当轮立即脱战"，与"一段时间内未产生新战斗事件"的定义矛盾）。
+            if (_combatOptions != null)
+            {
+                var rounds = Math.Ceiling(_continuousLeaveCombatDelay / CombatModel.SecondsPerTurn);
+                _combatOptions.LeaveCombatDelay = Math.Max(1.0, rounds);
+            }
+
+            // ADR-0013 补齐：action_points_per_turn 此前恒不从 found.time_model 读取（本方法此前
+            // 传空字典，TurnScheduler.Configure 因此总是回退到默认值 1.0，见该方法参数注释），现
+            // 按任务书"每回合行动点来自 found.time_model 参数"改为透传 CombatModel.ActionPointsPerTurn。
+            var parameters = new Dictionary<string, object>
+            {
+                ["action_points_per_turn"] = CombatModel.ActionPointsPerTurn,
+            };
             _scheduler.Configure(CombatModel.InitiativePolicy, parameters);
             _scheduler.BeginCombat(participants);
 
@@ -188,6 +247,14 @@ namespace Core.Gameplay.Assembly
 
             // 反向换算：剩余回合数按 seconds_per_turn 折算回秒。
             RescaleTimers(CombatModel!.SecondsPerTurn);
+
+            // 脱战判定时长精确恢复到构造期缓存的连续模式基准值（不用"当前值 × seconds_per_turn"
+            // 反向换算——SwitchToDiscrete 用了 Math.Ceiling，反向换算无法精确复原，见
+            // _continuousLeaveCombatDelay 字段注释）。
+            if (_combatOptions != null)
+            {
+                _combatOptions.LeaveCombatDelay = _continuousLeaveCombatDelay;
+            }
 
             CurrentMode = TimeModelMode.Continuous;
 
@@ -215,13 +282,29 @@ namespace Core.Gameplay.Assembly
             var nearby = _spatial.QueryRadius(_units.GetPosition(triggerUnit), _options.ParticipantSearchRadius, QueryFilter.None);
             var set = new SortedSet<Id>();
             set.Add(triggerUnit);
+            var triggerFaction = _factions != null ? _units.GetFaction(triggerUnit) : default;
+
             for (var i = 0; i < nearby.Count; i++)
             {
                 var id = nearby[i];
-                if (_units.Exists(id) && _units.IsAlive(id))
+                if (!_units.Exists(id) || !_units.IsAlive(id))
                 {
-                    set.Add(id);
+                    continue;
                 }
+
+                // 阵营过滤（见类型判断记录"参与者解析"）：_factions 非空时只收"与触发单位同阵营
+                // （友军）或互为敌对"的单位，排除半径内的中立/无关旁观者；_factions 为空时保留
+                // 本任务之前的行为（半径内全部存活单位）。
+                if (_factions != null)
+                {
+                    var otherFaction = _units.GetFaction(id);
+                    if (!otherFaction.Equals(triggerFaction) && !_factions.IsHostile(triggerFaction, otherFaction))
+                    {
+                        continue;
+                    }
+                }
+
+                set.Add(id);
             }
 
             var result = new List<Id>(set.Count);

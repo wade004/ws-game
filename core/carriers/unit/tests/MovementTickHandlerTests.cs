@@ -300,5 +300,83 @@ namespace Tests.Carriers.Unit
 
             Assert.Equal(posAfterContinuous, fixture.Units.GetPosition(bystanderId));
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0013 补齐：movement_budget_rule: action_points（04 第 3.1 节勘误、06 第 6.2 节）——
+        // 移动预算按行动点计，与 TurnScheduler 的 action_points 策略共享同一份账本。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void DiscreteStep_ActionPointsBudgetRule_ConsumesSharedBudget_RejectsWhenExhausted_AndEndsTurn()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+
+            var world = new WorldSim(bus);
+            var player = new PlayerUnit(HeroId, MapId, FactionId, ArchetypeId) { Position = Vec2.Zero };
+            world.AddEntity(player);
+
+            var units = new WorldUnitAccess(world);
+            var stats = new FakeStatHost();
+            stats.SetBase(HeroId, new MovementOptions().MoveSpeedStat, 10.0); // 速度 10。
+            var auras = new FakeAuraQuery();
+            var host = new MovementHost(world);
+
+            // 只有 Hero 一名参与者：EndTurn 会立即回绕到"新一轮"，Hero 重新变成当前行动者且行动点
+            // 满额（见 TurnScheduler.AdvanceToNextActor 回绕逻辑），用来验证"回合结束"确实发生。
+            var scheduler = new TurnScheduler(world, id => 0, id => false, bus);
+            scheduler.Configure(InitiativePolicy.ActionPoints, new Dictionary<string, object> { ["action_points_per_turn"] = 15.0 });
+            scheduler.BeginCombat(new[] { HeroId });
+
+            // 每回合等效秒数默认 1.0 × 速度 10 = 每步移动 10 单位距离；单位成本 1.0 → 每次移动
+            // 消耗 10 点行动点，15 点预算最多支撑一次移动（第二次只剩 5 点，不够）。
+            var options = new MovementOptions
+            {
+                MovementBudgetRule = "action_points",
+                MovementActionCostPerUnit = 1.0,
+                TryConsumeActionPoints = scheduler.TryConsumeActionPoints,
+                RequestEndTurn = scheduler.EndTurn,
+            };
+
+            var handler = new MovementTickHandler(units, stats, auras, host, bus, options: options);
+            world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, handler);
+
+            // 第一次移动：预算充足（15 >= 10），成功位移 10。
+            world.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            world.Tick(SimStep.Discrete(HeroId, StepPhase.Act));
+            Assert.Equal(10.0, units.GetPosition(HeroId).X, 6);
+
+            var roundBeforeRejection = scheduler.RoundIndex;
+
+            // 第二次移动：只剩 5 点，需要 10 点，被拒绝——不产生位移，且回合结束（本用例唯一参与者，
+            // 回合结束即整轮结束、行动点重置）。
+            world.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            world.Tick(SimStep.Discrete(HeroId, StepPhase.Act));
+            Assert.Equal(10.0, units.GetPosition(HeroId).X, 6); // 位置未变。
+            Assert.True(scheduler.RoundIndex > roundBeforeRejection, "行动点不足应触发 EndTurn，进而回绕到新一轮");
+
+            // 第三次移动：新一轮行动点已重置满额（15），移动应重新成功，验证"回合结束"确实释放了
+            // 一份全新的预算，而不是本次拒绝之外没有任何实际效果。
+            world.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            world.Tick(SimStep.Discrete(HeroId, StepPhase.Act));
+            Assert.Equal(20.0, units.GetPosition(HeroId).X, 6);
+        }
+
+        [Fact]
+        public void DiscreteStep_DistanceBudgetRule_Unaffected_WhenActionPointsDelegatesNotWired()
+        {
+            // 默认 MovementBudgetRule="distance"（TryConsumeActionPoints/RequestEndTurn 均未装配）
+            // 时，行为必须与本任务之前完全一致——DiscreteStep_ThroughWorldTick_MovesByBudget 已经
+            // 覆盖这一点，本用例额外验证"即便显式把 MovementActionCostPerUnit 设成一个很大的数"，
+            // distance 规则下也完全不读取它，不会意外拒绝移动（回归防护：确保两套规则互不串扰）。
+            var fixture = Build(moveSpeed: 10.0);
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+
+            fixture.World.Tick(SimStep.Discrete(HeroId, StepPhase.Act));
+
+            var expectedBudget = 10.0 * new MovementOptions().DiscreteTurnEquivalentSeconds;
+            Assert.Equal(expectedBudget, fixture.Units.GetPosition(HeroId).X, 6);
+        }
     }
 }

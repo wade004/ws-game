@@ -29,6 +29,7 @@ namespace Core.Foundation.SaveSystem
         private ReplayData? _data;
         private IWorldSim? _world;
         private long _ticksAdvanced;
+        private Dictionary<long, ReplayStepRecord>? _stepsByTick;
 
         /// <summary>
         /// <paramref name="bus"/>/<paramref name="audit"/> 由调用方构造并持有：<paramref name="bus"/>
@@ -61,6 +62,15 @@ namespace Core.Foundation.SaveSystem
             foreach (var pair in data.RngSeeds)
             {
                 rng.SetStreamState(new Id(pair.Key), pair.Value);
+            }
+
+            // ADR-0013：按 tick 号建一份 Steps 的查找表（见 ReplayStepRecord 类型注释"判断记录
+            // （旧格式兼容）"——旧格式/未记录的 tick 在字典里找不到，StepTo 按 Continuous 兜底）。
+            _stepsByTick = new Dictionary<long, ReplayStepRecord>();
+            for (var i = 0; i < data.Steps.Count; i++)
+            {
+                var record = data.Steps[i];
+                _stepsByTick[record.Tick] = record;
             }
 
             _ticksAdvanced = 0;
@@ -97,7 +107,14 @@ namespace Core.Foundation.SaveSystem
                     }
                 }
 
-                _world.Tick(SimStep.Continuous(_data.StepSeconds));
+                // ADR-0013：按录制的 ReplayStepRecord 还原本 tick 实际使用的 SimStep（离散步含
+                // actorId/phase）；没有对应记录（旧格式录像，或本任务之前录的档）时按 Continuous
+                // 处理，与本任务之前唯一存在过的行为完全一致（见 ReplayStepRecord 类型注释）。
+                var step = _stepsByTick!.TryGetValue(tickNumber, out var stepRecord)
+                    ? stepRecord.ToSimStep(_data.StepSeconds)
+                    : SimStep.Continuous(_data.StepSeconds);
+
+                _world.Tick(step);
                 _ticksAdvanced++;
             }
 

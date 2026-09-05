@@ -54,6 +54,17 @@ namespace Core.Carriers.Assembly
         public GameObjectHost GameObjectInteractions { get; }
         public MovementHost Movement { get; }
 
+        /// <summary>本次装配实际使用的 <see cref="Core.Carriers.Unit.MovementOptions"/> 实例（构造
+        /// 参数为空时是本类型内部新建的默认值）。ADR-0013 离散时间模型补齐：
+        /// <c>Core.Gameplay.Assembly.GameplayAssembly</c> 需要在装配出
+        /// <c>Core.Foundation.SimLoop.TurnScheduler</c> 之后回填
+        /// <see cref="Core.Carriers.Unit.MovementOptions.MovementBudgetRule"/>/
+        /// <see cref="Core.Carriers.Unit.MovementOptions.TryConsumeActionPoints"/> 等字段（见该类型
+        /// 判断记录"构造后回填而非构造期传入"），必须拿到与 <see cref="MovementTickHandler"/>（本
+        /// 类内部持有，未对外暴露）内部实际使用的同一个实例，本属性是它唯一的对外暴露点（惯例同
+        /// <c>Core.Rules.Assembly.RulesAssembly.CombatOptions</c> 判断记录）。</summary>
+        public MovementOptions MovementOptions { get; }
+
         /// <summary>缺口 4：技能槽位绑定宿主（见 <see cref="ISkillBindingHost"/>）。</summary>
         public SkillBindingHost SkillBindings { get; }
 
@@ -236,6 +247,7 @@ namespace Core.Carriers.Assembly
 
             Movement = new MovementHost(world);
             var resolvedMovementOptions = movementOptions ?? new MovementOptions();
+            MovementOptions = resolvedMovementOptions;
             var movementTickHandler = new MovementTickHandler(
                 Units, Rules.Stats, Rules.Skill.AuraQuery, Movement, bus, navigation, resolvedMovementOptions);
             world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, movementTickHandler);

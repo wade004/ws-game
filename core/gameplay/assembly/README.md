@@ -103,13 +103,19 @@ assembly/
 - 第 10 步 `AppStateHost` 额外登记两个自定义子状态 `AwaitingInput`/`PlayingBack`
   （`SubStateId` 扩展点，不改 `InWorldSubState` 枚举），并放行 `Combat ⇄ AwaitingInput`、
   `Combat ⇄ PlayingBack` 两组转移。
-- 第 10.5 步构造 `TimeModelSwitch`（订阅 `combat.entered`/`combat.left`/`unit.died`，见该类型）。
+- 第 10.5 步构造 `TimeModelSwitch`（订阅 `combat.entered`/`combat.left`/`unit.died`，见该类型；
+  已处于离散模式时收到 `combat.entered`/`unit.died` 改为调用
+  `TurnScheduler.AddParticipant`/`RemoveParticipant` 实时同步参与者，见该类型判断记录"中途
+  加入/离场"），随后把 `found.time_model.combat` 声明的移动预算规则/单位成本、以及行动点消耗/
+  结束回合出口回填进 `Carriers.MovementOptions`（`movement_budget_rule: action_points` 落地，
+  见 `MovementOptions.TryConsumeActionPoints`/`RequestEndTurn` 判断记录）。
 - `GameplayAssembly.Advance(realDeltaSeconds)`：连续模式转发给 `clockHost.Advance`；离散模式驱动
   `TurnScheduler.NextStep()` 直到轮到玩家（`awaiting_input`）或需要等待回放（`playing_back`），
   期间维护 `AwaitingInputSubState`/`PlayingBackSubState` 的压栈/弹栈。`NotifyPlaybackFinished()`
   供表现层在 `presentation.playback_finished` 后转发调用，解除 `playing_back` 节奏门。
 - `RegisterPersistables` 在装配了离散模式时额外注册 `TurnScheduler` 的存档段（`sim.turn_state`，
-  自定义段，见 `core/foundation/sim_loop/README.md`"存档段 key"判断记录）。
+  已登记进 10 号文档第 3 节固定段序步骤 7b，但同世界附属段一样仍是"自定义段"，见
+  `core/foundation/sim_loop/README.md`"存档段 key"判断记录）。
 
 现有调用方（未传 `clockHost` 的既有测试与游戏层引导代码）不受任何影响——这是一处纯加法扩展。
 

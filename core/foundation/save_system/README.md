@@ -151,12 +151,22 @@ save_system/
 
 ## 回放（`IReplayRecorder`/`IReplayPlayer`）
 
-本模块提供 `ReplayData`/`ReplayInputRecord`/`WorldSnapshot` 三个数据类型与
+本模块提供 `ReplayData`/`ReplayInputRecord`/`ReplayStepRecord`/`WorldSnapshot` 数据类型与
 `IReplayRecorder`/`IReplayPlayer` 契约（10 第 8 节），并在 `core/ReplayRecorder.cs`、
-`core/ReplayPlayer.cs` 给出默认实现（T1-9）。`IReplayPlayer.StepTo` 返回的 `WorldSnapshot`
+`core/ReplayPlayer.cs` 给出默认实现。`IReplayPlayer.StepTo` 返回的 `WorldSnapshot`
 （`Tick`/`EventLog`/自写 FNV-1a 64 位 `Digest`）定义在 `contracts/Replay.cs`；世界如何组装
 （阶段处理器、意图词汇表等具体游戏内容）由调用方经 `WorldFactory` 委托提供，本模块自身不
 知道任何业务内容。
+
+**离散步回放（ADR-0013 补齐任务）**：`ReplayData` 新增 `Steps`（`IReadOnlyList<ReplayStepRecord>`，
+按 tick 号记录该 tick 实际使用的是 `Continuous` 还是 `Discrete` 步，后者含
+`actorId`/`phase`）与 `FormatVersion`（当前 2）。调用方在驱动主循环时每 tick 调用一次
+`IReplayRecorder.RecordStep(tick, step)`（与 `RecordInput` 同一 tick 编号体系），
+`IReplayPlayer.StepTo` 据此还原每个 tick 应该重放的 `SimStep` 种类——一份录像因此可以正确
+覆盖"连续 → 离散 → 连续"的模式切换。**旧格式兼容**：本任务之前唯一存在过的格式（无
+`format_version`/`steps` 字段）解析后 `FormatVersion` 为 1、`Steps` 为空，`StepTo` 对没有
+对应记录的 tick 一律按 `Continuous` 处理，与该格式历来的唯一行为完全一致——旧录像文件不需要
+任何迁移即可继续读取。
 
 ## 诊断
 

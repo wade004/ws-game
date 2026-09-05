@@ -107,6 +107,7 @@ namespace Core.Gameplay.Assembly
             RegisterAchievementSchemas(registry);
             RegisterAreaTriggerSchemas(registry);
             RegisterSpawnSchemas(registry, creatureTemplateQuery);
+            RegisterTimeFieldConsistencyRule(registry);
         }
 
         private static void RegisterWorldStateSchemas(IDataRegistry registry)
@@ -186,6 +187,27 @@ namespace Core.Gameplay.Assembly
             {
                 registry.RegisterValidationRule(new SpawnSummonOnlyCreatureRule(creatureTemplateQuery));
             }
+        }
+
+        /// <summary>
+        /// 04 第 3.1/5 节"时间字段与时间模型一致"，L4 部分：<c>spawn.table.respawn_timer</c>
+        /// （<c>respawn_policy: timer</c> 时才有值，见 <c>SpawnRespawnPolicyFieldGroupRule</c>）——
+        /// 按 <c>exploration</c> 作用域校验（刷新点计时属于世界探索机制，见
+        /// <c>Core.Rules.Assembly.RulesSchemaCatalog</c> 同名方法判断记录"作用域归属拍板"同一惯例）。
+        /// L0～L2 范围内的时间字段（<c>skill.*</c>/<c>arch.power_type</c>）由
+        /// <see cref="Core.Rules.Assembly.RulesSchemaCatalog"/> 另行登记，两条规则互不重叠、各自
+        /// 只认识自己所在层能看到的表名。
+        /// </summary>
+        private static void RegisterTimeFieldConsistencyRule(IDataRegistry registry)
+        {
+            var declarations = new[]
+            {
+                new Core.Foundation.SimLoop.TimeFieldDeclaration(
+                    "spawn.table", "respawn_timer", "exploration",
+                    r => r.TryGetNumber("respawn_timer", out var v) ? v : (double?)null),
+            };
+
+            registry.RegisterValidationRule(new Core.Foundation.SimLoop.TimeFieldConsistencyRule(declarations));
         }
     }
 }

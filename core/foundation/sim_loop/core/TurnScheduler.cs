@@ -24,8 +24,10 @@ namespace Core.Foundation.SimLoop
     /// </summary>
     public sealed class TurnScheduler : ITurnScheduler, IPersistable
     {
-        /// <summary>存档段 key（见 10_存档与持久化.md——该文档未定义本段，落地方案约定用此 key，
-        /// 属于待勘误项，见本模块 README）。</summary>
+        /// <summary>存档段 key（见 10_存档与持久化.md 第 3 节固定段序步骤 7b、ADR-0013 补齐任务
+        /// 勘误——与 <c>world.dropped_loot</c>/<c>world.vendor_stock</c> 等"世界附属段"同一惯例，
+        /// 登记进固定段序的叙述顺序，但不登记进 <see cref="Core.Foundation.SaveSystem.SaveSections.KnownOrder"/>
+        /// 这份全序数组，作为"自定义段"按 key 序数排在已知段之后，见该数组类型注释、本模块 README）。</summary>
         public const string SectionKeyConst = "sim.turn_state";
 
         private readonly IWorldSim _world;
@@ -218,6 +220,170 @@ namespace Core.Foundation.SimLoop
             }
 
             AdvanceToNextActor();
+        }
+
+        /// <summary>
+        /// 中途加入本轮战斗（见 03 第 3.3 节步骤 1 判断记录、ADR-0013 补齐任务拍板：
+        /// <c>Core.Gameplay.Assembly.TimeModelSwitch</c> 在离散模式中收到 <c>combat.entered</c> 时
+        /// 调用）。不改变已经行动过的顺序，只在"当前轮尚未行动的序列"（<c>_currentIndex</c> 之后，
+        /// 不含正在行动的位置本身）里插入：<see cref="InitiativePolicy.InitiativeStat"/>/
+        /// <see cref="InitiativePolicy.ActionPoints"/> 两种策略按先攻值降序插入（同值按 Id 序数，
+        /// 同 <see cref="OrderParticipants"/> 的排序规则；<c>action_points</c> 策略本身不按先攻值
+        /// 排序初始顺序，但插入新参与者时仍按先攻值定位——04/06 均未规定 <c>action_points</c> 策略
+        /// 下"插入点"该如何决定，任务书明确拍板"按先攻值插入"，本方法按此实现），
+        /// <see cref="InitiativePolicy.FixedOrder"/> 固定追加到整个 <see cref="_order"/> 末尾
+        /// （任务书原文）。<see cref="InitiativePolicy.ActionPoints"/> 策略额外给新参与者分配本轮
+        /// 满额行动点（不分配会被 <see cref="NotifyStepConsumed"/> 当成"已耗尽"，见该方法字典
+        /// 缺省值处理）。不在战斗中，或该 id 已在 <see cref="GetOrder"/> 里时是空操作（幂等：
+        /// <c>combat.entered</c> 在同一单位身上可能因 <c>CombatHost.NotifyCombatEvent</c> 的调用
+        /// 路径重复触发，见该方法"若已在战斗中直接返回"以外的场景）。
+        /// </summary>
+        public void AddParticipant(Id id)
+        {
+            if (!_inCombat)
+            {
+                return;
+            }
+
+            if (_order.Contains(id))
+            {
+                return;
+            }
+
+            if (_policy == InitiativePolicy.FixedOrder)
+            {
+                _order.Add(id);
+                return;
+            }
+
+            var insertAt = _order.Count;
+            var newValue = _initiativeStatProvider(id);
+            for (var i = _currentIndex + 1; i < _order.Count; i++)
+            {
+                var existingValue = _initiativeStatProvider(_order[i]);
+                var cmp = newValue.CompareTo(existingValue);
+                if (cmp > 0 || (cmp == 0 && string.CompareOrdinal(id.Value, _order[i].Value) < 0))
+                {
+                    insertAt = i;
+                    break;
+                }
+            }
+
+            _order.Insert(insertAt, id);
+
+            if (_policy == InitiativePolicy.ActionPoints)
+            {
+                _actionPointsRemaining[id] = _actionPointsPerTurn;
+            }
+        }
+
+        /// <summary>
+        /// 死亡/离场移除（见 03 第 3.3 节步骤 1 判断记录、ADR-0013 补齐任务拍板：
+        /// <c>Core.Gameplay.Assembly.TimeModelSwitch</c> 在离散模式中收到 <c>unit.died</c> 时
+        /// 调用）。不在 <see cref="GetOrder"/> 里、或不在战斗中时是空操作。移除位置在
+        /// <see cref="_currentIndex"/> 之前时，<see cref="_currentIndex"/> 相应减一以继续指向同一个
+        /// 当前行动者；移除的正是当前行动者本人时（如死于自己回合内的反伤/DoT），清空该位置遗留的
+        /// "待提交意图/等待输入已发出"标志——这两个标志属于被移除的旧占用者，<see cref="_currentIndex"/>
+        /// 位置移位后由新占用者顶替，不能沿用旧标志（否则 <see cref="NextStep"/> 可能把旧标志误用到
+        /// 新占用者身上）；若该位置恰好是本轮最后一位，按"轮结束"处理（同
+        /// <see cref="AdvanceToNextActor"/> 回绕逻辑），但不为被移除者发 <c>sim.turn_ended</c>
+        /// ——它没有正常结束自己的回合。移除后 <see cref="_order"/> 变空时清空当前行动者指针（整场
+        /// 战斗是否结束由调用方经 <see cref="EndCombat"/> 另行决定，本方法不自作主张调用它）。
+        /// </summary>
+        public void RemoveParticipant(Id id)
+        {
+            if (!_inCombat)
+            {
+                return;
+            }
+
+            var index = _order.IndexOf(id);
+            if (index < 0)
+            {
+                return;
+            }
+
+            _order.RemoveAt(index);
+            _actionPointsRemaining.Remove(id);
+
+            if (_order.Count == 0)
+            {
+                _currentIndex = -1;
+                _hasPendingIntentForCurrentActor = false;
+                _awaitingInputSignaled = false;
+                return;
+            }
+
+            if (index < _currentIndex)
+            {
+                _currentIndex--;
+                return;
+            }
+
+            if (index > _currentIndex)
+            {
+                return;
+            }
+
+            // index == _currentIndex：被移除的正是当前行动者。
+            _hasPendingIntentForCurrentActor = false;
+            _awaitingInputSignaled = false;
+
+            if (_currentIndex >= _order.Count)
+            {
+                _bus.PublishImmediate(new SimRoundEndedEvent(_roundIndex));
+                _roundIndex++;
+
+                if (_resortEachRound)
+                {
+                    _order = OrderParticipants(_order);
+                }
+
+                _currentIndex = 0;
+                ResetActionPointsForRound();
+            }
+
+            _bus.PublishImmediate(new SimTurnStartedEvent(_order[_currentIndex], _roundIndex));
+        }
+
+        /// <summary>
+        /// 供离散模式下"移动预算按行动点计"（04 第 3.1 节勘误
+        /// <c>movement_budget_rule: action_points</c>，见 <c>Core.Carriers.Unit.MovementTickHandler</c>
+        /// 判断记录）等其它系统尝试扣减 <paramref name="actorId"/> 剩余行动点：与
+        /// <see cref="NotifyStepConsumed"/> 读写同一份 <see cref="_actionPointsRemaining"/> 账本
+        /// （任务书拍板"与 TurnScheduler 的 action_points 策略共享同一预算"），但不像
+        /// <see cref="NotifyStepConsumed"/> 那样在耗尽时自动推进到下一行动者——调用方（本方法的
+        /// 消费者）自行决定耗尽后做什么（通常是拒绝本次意图 + 调用 <see cref="EndTurn"/>，见
+        /// <c>MovementTickHandler</c> 判断记录），本方法只负责记账。
+        /// <para>
+        /// 判断记录（仅 <see cref="InitiativePolicy.ActionPoints"/> 策略下才真正记账）：只有该策略
+        /// 下 <see cref="_actionPointsRemaining"/> 才会在 <see cref="ResetActionPointsForRound"/> 里
+        /// 按 <see cref="_actionPointsPerTurn"/> 初始化；其余策略（<c>initiative_stat</c>/
+        /// <c>fixed_order</c>）下该账本恒空，"移动预算按行动点计"若与这两种先攻策略搭配使用，
+        /// 本方法找不到任何行动点账目可扣，为避免"账本不存在"被误判为"预算已耗尽"（进而阻塞一切
+        /// 移动），本方法在非 <see cref="InitiativePolicy.ActionPoints"/> 策略下恒返回
+        /// <c>true</c>（不做任何记账，等价于"不限制"）——04/06 未规定
+        /// <c>movement_budget_rule: action_points</c> 必须搭配
+        /// <c>initiative_policy: action_points</c> 使用，但任务书原文"与 TurnScheduler 的
+        /// action_points 策略共享同一预算"暗示两者应当配套，本类型按此拍板，不配套时退化为
+        /// "不限制"而不是抛异常/静默拒绝一切移动。
+        /// </para>
+        /// </summary>
+        public bool TryConsumeActionPoints(Id actorId, double amount)
+        {
+            if (!_inCombat || _policy != InitiativePolicy.ActionPoints)
+            {
+                return true;
+            }
+
+            var remaining = _actionPointsRemaining.TryGetValue(actorId, out var r) ? r : 0.0;
+            if (remaining < amount)
+            {
+                return false;
+            }
+
+            _actionPointsRemaining[actorId] = remaining - amount;
+            return true;
         }
 
         public IReadOnlyList<Id> GetOrder() => _order;

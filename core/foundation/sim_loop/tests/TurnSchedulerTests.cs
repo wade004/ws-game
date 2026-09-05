@@ -258,6 +258,175 @@ namespace Tests.Foundation.SimLoop
         }
 
         // -----------------------------------------------------------------
+        // AddParticipant/RemoveParticipant：中途加入/离场（ADR-0013 补齐任务）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void AddParticipant_FixedOrder_AppendsToEndOfOrder()
+        {
+            var (scheduler, _, _, _) = Build();
+            scheduler.Configure(InitiativePolicy.FixedOrder, new Dictionary<string, object>());
+            scheduler.BeginCombat(new[] { Foe1, Foe2 });
+
+            scheduler.AddParticipant(Hero);
+
+            Assert.Equal(new[] { Foe1, Foe2, Hero }, scheduler.GetOrder());
+        }
+
+        [Fact]
+        public void AddParticipant_InitiativeStat_InsertsByValue_AmongFutureActorsOnly_NotAheadOfCurrent()
+        {
+            var stats = new Dictionary<Id, double> { [Foe1] = 30, [Foe2] = 10, [Ally] = 5, [Hero] = 20 };
+            var (scheduler, world, _, _) = Build(id => stats[id]);
+            scheduler.Configure(InitiativePolicy.InitiativeStat, new Dictionary<string, object>());
+            scheduler.BeginCombat(new[] { Foe1, Foe2, Ally }); // 降序：Foe1(30), Foe2(10), Ally(5)
+
+            RunOneStep(scheduler, world); // Foe1 已行动，当前指向 Foe2（本轮"正在行动"的位置）。
+
+            // Hero 先攻 20：虽然高于当前行动者 Foe2(10)，但不能插到 Foe2 前面（当前行动位置受
+            // 保护，见 AddParticipant 判断记录"不含正在行动的位置本身"）；比未行动的 Ally(5) 高，
+            // 应插在 Foe2 与 Ally 之间。
+            scheduler.AddParticipant(Hero);
+
+            Assert.Equal(new[] { Foe1, Foe2, Hero, Ally }, scheduler.GetOrder());
+        }
+
+        [Fact]
+        public void AddParticipant_ActionPoints_InsertsByInitiativeValue_AndGrantsFullBudget()
+        {
+            var stats = new Dictionary<Id, double> { [Foe1] = 10, [Hero] = 20 };
+            var (scheduler, _, _, _) = Build(id => stats[id]);
+            scheduler.Configure(InitiativePolicy.ActionPoints,
+                new Dictionary<string, object> { ["action_points_per_turn"] = 3.0 });
+            scheduler.BeginCombat(new[] { Foe1 });
+
+            // Hero 先攻 20 高于 Foe1(10)，但 Foe1 正是当前行动者（_currentIndex == 0，"正在行动的
+            // 位置"受保护，见 AddParticipant 判断记录），插入范围只看 _currentIndex 之后——此时
+            // 之后没有任何其它人，Hero 只能排在 Foe1 之后。
+            scheduler.AddParticipant(Hero);
+
+            Assert.Equal(new[] { Foe1, Hero }, scheduler.GetOrder());
+
+            // 新参与者应已获得满额行动点：轮到 Hero 时应可以连续行动 3 步才耗尽。
+            scheduler.EndTurn(Foe1);
+            Assert.Equal(Hero, scheduler.GetCurrentActor());
+
+            for (var i = 0; i < 2; i++)
+            {
+                var step = scheduler.NextStep();
+                Assert.Equal(Hero, step!.Value.ActorId);
+                scheduler.NotifyStepConsumed(Hero);
+                Assert.Equal(Hero, scheduler.GetCurrentActor()); // 预算未耗尽，仍是 Hero。
+            }
+        }
+
+        [Fact]
+        public void AddParticipant_AlreadyInOrder_IsIdempotent()
+        {
+            var (scheduler, _, _, _) = Build();
+            scheduler.Configure(InitiativePolicy.FixedOrder, new Dictionary<string, object>());
+            scheduler.BeginCombat(new[] { Foe1, Foe2 });
+
+            scheduler.AddParticipant(Foe2);
+
+            Assert.Equal(new[] { Foe1, Foe2 }, scheduler.GetOrder());
+        }
+
+        [Fact]
+        public void AddParticipant_NotInCombat_IsNoOp()
+        {
+            var (scheduler, _, _, _) = Build();
+
+            scheduler.AddParticipant(Hero);
+
+            Assert.Empty(scheduler.GetOrder());
+        }
+
+        [Fact]
+        public void RemoveParticipant_FutureActor_ShrinksOrder_CurrentActorUnaffected()
+        {
+            var (scheduler, _, _, _) = Build();
+            scheduler.Configure(InitiativePolicy.FixedOrder, new Dictionary<string, object>());
+            scheduler.BeginCombat(new[] { Foe1, Foe2, Hero });
+
+            scheduler.RemoveParticipant(Hero); // Hero 排在最后，尚未行动。
+
+            Assert.Equal(new[] { Foe1, Foe2 }, scheduler.GetOrder());
+            Assert.Equal(Foe1, scheduler.GetCurrentActor());
+        }
+
+        [Fact]
+        public void RemoveParticipant_PastActor_DecrementsCurrentIndex_KeepsCurrentActor()
+        {
+            var (scheduler, world, _, _) = Build();
+            scheduler.Configure(InitiativePolicy.FixedOrder, new Dictionary<string, object>());
+            scheduler.BeginCombat(new[] { Foe1, Foe2, Hero });
+
+            RunOneStep(scheduler, world); // Foe1 已行动，当前指向 Foe2。
+            scheduler.RemoveParticipant(Foe1); // 移除已经行动过的单位。
+
+            Assert.Equal(new[] { Foe2, Hero }, scheduler.GetOrder());
+            Assert.Equal(Foe2, scheduler.GetCurrentActor()); // 当前行动者不变。
+        }
+
+        [Fact]
+        public void RemoveParticipant_CurrentActor_NotLastInRound_AdvancesToNextWithoutTurnEndedEvent()
+        {
+            var (scheduler, _, _, events) = Build();
+            scheduler.Configure(InitiativePolicy.FixedOrder, new Dictionary<string, object>());
+            scheduler.BeginCombat(new[] { Foe1, Foe2, Hero });
+
+            scheduler.RemoveParticipant(Foe1); // 移除的正是当前行动者本人（死于自己回合内）。
+
+            Assert.Equal(new[] { Foe2, Hero }, scheduler.GetOrder());
+            Assert.Equal(Foe2, scheduler.GetCurrentActor());
+            // 不应为被移除者（Foe1）发 sim.turn_ended（它没有正常结束自己的回合，见方法判断记录）。
+            Assert.DoesNotContain(events, e => e is SimTurnEndedEvent ended && ended.ActorId.Equals(Foe1));
+            Assert.Contains(events, e => e is SimTurnStartedEvent started && started.ActorId.Equals(Foe2));
+        }
+
+        [Fact]
+        public void RemoveParticipant_CurrentActor_LastInRound_WrapsToNextRound()
+        {
+            var (scheduler, world, _, events) = Build();
+            scheduler.Configure(InitiativePolicy.FixedOrder, new Dictionary<string, object>());
+            scheduler.BeginCombat(new[] { Foe1, Foe2 });
+
+            RunOneStep(scheduler, world); // Foe1 已行动，当前指向 Foe2（本轮最后一位）。
+            scheduler.RemoveParticipant(Foe2); // 移除的正是当前行动者，且是本轮最后一位。
+
+            Assert.Equal(new[] { Foe1 }, scheduler.GetOrder());
+            Assert.Equal(Foe1, scheduler.GetCurrentActor()); // 回绕到新一轮，唯一剩下的 Foe1 重新变成当前行动者。
+            Assert.Equal(1, scheduler.RoundIndex);
+            Assert.Contains(events, e => e is SimRoundEndedEvent ended && ended.RoundIndex == 0);
+        }
+
+        [Fact]
+        public void RemoveParticipant_LastRemainingParticipant_ClearsOrderAndCurrentActor()
+        {
+            var (scheduler, _, _, _) = Build();
+            scheduler.Configure(InitiativePolicy.FixedOrder, new Dictionary<string, object>());
+            scheduler.BeginCombat(new[] { Foe1 }); // 唯一参与者。
+
+            scheduler.RemoveParticipant(Foe1);
+
+            Assert.Empty(scheduler.GetOrder());
+            Assert.Null(scheduler.GetCurrentActor());
+        }
+
+        [Fact]
+        public void RemoveParticipant_NotInOrder_IsNoOp()
+        {
+            var (scheduler, _, _, _) = Build();
+            scheduler.Configure(InitiativePolicy.FixedOrder, new Dictionary<string, object>());
+            scheduler.BeginCombat(new[] { Foe1 });
+
+            scheduler.RemoveParticipant(Hero);
+
+            Assert.Equal(new[] { Foe1 }, scheduler.GetOrder());
+        }
+
+        // -----------------------------------------------------------------
         // atb：预留扩展位
         // -----------------------------------------------------------------
 

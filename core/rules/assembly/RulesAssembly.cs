@@ -60,6 +60,15 @@ namespace Core.Rules.Assembly
         public RulesExprHostFactory ExprHostFactory { get; }
         public TargetHost Targeting { get; }
         public CombatHost Combat { get; }
+
+        /// <summary>本次装配实际使用的 <see cref="CombatOptions"/> 实例（构造参数为空时是本类型
+        /// 内部新建的默认值，非空时就是调用方传入的那个实例——ADR-0013 离散时间模型：
+        /// <c>Core.Gameplay.Assembly.TimeModelSwitch</c> 需要在切入/切出离散模式时改写
+        /// <see cref="CombatOptions.LeaveCombatDelay"/>（按 <c>seconds_per_turn</c> 换算轮数，
+        /// 见该类型判断记录），必须拿到与 <see cref="Combat"/> 内部实际使用的同一个实例，本属性
+        /// 是它唯一的对外暴露点）。</summary>
+        public CombatOptions CombatOptions { get; }
+
         public SkillHost Skill { get; }
         public AiHost Ai { get; }
 
@@ -180,6 +189,7 @@ namespace Core.Rules.Assembly
             var resolvedTargetingOptions = targetingOptions ?? new TargetingOptions();
 
             var resolvedCombatOptions = combatOptions ?? new CombatOptions();
+            CombatOptions = resolvedCombatOptions;
             Combat = new CombatHost(
                 Stats, Powers, Units, deferredAuras, Factions, Rng, Bus, Registry, resolvedCombatOptions,
                 diagnostics: null, staticImmunity: staticImmunity);
@@ -262,7 +272,7 @@ namespace Core.Rules.Assembly
         {
             World.RegisterPhaseHandler(TickPhase.AiDecision, new AiTickHandler(Ai));
             World.RegisterPhaseHandler(TickPhase.SkillPipeline, new SkillTickHandler(Skill));
-            World.RegisterPhaseHandler(TickPhase.CombatResolution, new CombatTickHandler(Combat));
+            World.RegisterPhaseHandler(TickPhase.CombatResolution, new CombatTickHandler(Combat, bus: Bus));
             World.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new PowerTickHandler(Powers));
         }
 

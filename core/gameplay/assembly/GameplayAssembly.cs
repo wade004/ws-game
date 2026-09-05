@@ -395,8 +395,23 @@ namespace Core.Gameplay.Assembly
 
                 var switchInstance = new Core.Gameplay.Assembly.TimeModelSwitch(
                     scheduler, clockHost, AppState, world, Carriers.Units, spatial, bus, registry,
-                    timeModelSwitchOptions, combatParticipantsResolver);
+                    timeModelSwitchOptions, combatParticipantsResolver,
+                    factions: Carriers.Rules.Factions, combatOptions: Carriers.Rules.CombatOptions);
                 timeModelSwitchRef = switchInstance;
+
+                // ADR-0013 补齐：movement_budget_rule: action_points 落地——把战斗时间模型声明的
+                // 移动预算规则/单位成本回填进 Carriers.MovementOptions（构造早于本处，见该属性
+                // 判断记录），并把行动点账本的消耗/结束回合出口接到刚造好的 scheduler（见
+                // MovementOptions.TryConsumeActionPoints/RequestEndTurn 判断记录）。CombatModel 为
+                // 空（数据集只声明了探索时间模型）时保持 MovementOptions 默认值（"distance"），
+                // 不做任何回填。
+                if (switchInstance.CombatModel != null)
+                {
+                    Carriers.MovementOptions.MovementBudgetRule = switchInstance.CombatModel.MovementBudgetRule ?? "distance";
+                    Carriers.MovementOptions.MovementActionCostPerUnit = switchInstance.CombatModel.MovementActionCostPerUnit ?? 0.0;
+                    Carriers.MovementOptions.TryConsumeActionPoints = scheduler.TryConsumeActionPoints;
+                    Carriers.MovementOptions.RequestEndTurn = scheduler.EndTurn;
+                }
 
                 TurnScheduler = scheduler;
                 TimeModelSwitch = switchInstance;
@@ -676,9 +691,10 @@ namespace Core.Gameplay.Assembly
             saveSystem.RegisterPersistable(Difficulty);
 
             // ADR-0013：TurnScheduler 全部状态可存档（见任务书"全部状态可存档"），只在装配了离散
-            // 模式（构造函数传入 clockHost）时注册——段名 sim.turn_state 不在 10 号文档固定段序里
-            // （待勘误，见 TurnScheduler 判断记录），因此不登记进 SaveSections.KnownOrder，只是
-            // "自定义段"（按 key 序数排在已知段之后，见 SaveSections 注释）。
+            // 模式（构造函数传入 clockHost）时注册——段名 sim.turn_state 已登记进 10 号文档第 3 节
+            // 固定段序（步骤 7b，见该文档 2026-09-05 勘误、TurnScheduler.SectionKeyConst 判断
+            // 记录），但同世界附属段一样不登记进 SaveSections.KnownOrder，只是"自定义段"（按 key
+            // 序数排在已知段之后，见 SaveSections 注释）。
             if (TurnScheduler is IPersistable turnSchedulerPersistable)
             {
                 saveSystem.RegisterPersistable(turnSchedulerPersistable);

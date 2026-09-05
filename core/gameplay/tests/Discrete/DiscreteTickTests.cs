@@ -87,17 +87,12 @@ namespace Tests.Gameplay.Discrete
         }
 
         /// <summary>
-        /// 判断记录（本用例不依赖离散步自动推进脱战计时）：<c>Core.Rules.Combat.CombatHost.Update
-        /// (double timeUnits)</c> 由 <c>CombatTickHandler</c> 按 <c>step.Dt</c> 驱动，但
-        /// <see cref="SimStep.Discrete"/> 恒 <c>Dt = 0</c>（见 <c>SimStep.Discrete</c> 构造函数）——
-        /// 离散步不产生"经过了多少时间单位"的全局增量（每步只代表某一个行动者的一次行动，不是
-        /// 全体单位共享的时间推进，同 <c>WorldSim.Tick</c> 里"离散步不推进全局计时器"的判断记录），
-        /// 因此脱战判定（依赖 <c>CombatOptions.LeaveCombatDelay</c> 时间单位的累积）在纯离散步驱动
-        /// 下不会自动前进，这是一个已知的、超出本任务列举范围的缺口（任务书第 6 步只列出"意图收集/
-        /// 移动预算/AI 决策/读条换算"四项离散步差异，未列"脱战判定"，已在交付报告"做不了的事"
-        /// 说明）。本用例改为直接调用 <c>CombatHost.Update</c> 模拟"离战斗事件已过去足够久"，
-        /// 验证 <see cref="Core.Gameplay.Assembly.TimeModelSwitch"/> 自身对 <c>combat.left</c> 的
-        /// 响应（切回连续模式）这一条本任务范围内的行为是正确的。
+        /// 直接调用 <c>CombatHost.Update</c> 模拟"离战斗事件已过去足够久"（不依赖离散步驱动），
+        /// 验证 <see cref="Core.Gameplay.Assembly.TimeModelSwitch"/> 对 <c>combat.left</c> 的响应
+        /// （切回连续模式）——这是一条不依赖"离散步是否自动推进脱战计时"的独立最小验证：无论
+        /// 脱战计时的推进方式如何变化，<c>combat.left</c> 触发后模式必须切回连续，本用例始终成立。
+        /// 依赖离散步序列本身自然推进脱战计时（<c>sim.round_ended</c> 驱动）的验收见
+        /// <see cref="CombatLeft_NaturallyTriggeredByDiscreteRounds_AfterEnemyDies"/>。
         /// </summary>
         [Fact]
         public void CombatLeft_SwitchesBackToContinuousMode()
@@ -112,6 +107,49 @@ namespace Tests.Gameplay.Discrete
 
             Assert.NotEmpty(fx.Events.OfType<CombatLeftEvent>());
             Assert.Equal(TimeModelMode.Continuous, fx.TimeModelSwitch.CurrentMode);
+            Assert.Equal(TimeModelMode.Continuous, fx.Clock.Mode);
+        }
+
+        /// <summary>
+        /// ADR-0013 补齐任务：离散模式下的脱战判定不再是"纯离散步驱动下不会自动前进"的缺口——
+        /// <c>CombatTickHandler</c> 订阅 <c>sim.round_ended</c>，每轮结束调用一次
+        /// <c>CombatHost.Update(1.0)</c>；<c>TimeModelSwitch</c> 切入离散模式时把
+        /// <c>CombatOptions.LeaveCombatDelay</c> 按 <c>seconds_per_turn</c>（本夹具 6）换算为等效
+        /// 轮数（默认 5 秒 → 向上取整 1 轮）。本用例只驱动离散步本身（不手动调用
+        /// <c>CombatHost.Update</c>），验证 NPC 死亡后玩家在"预期轮数"内自然触发 <c>combat.left</c>
+        /// 并切回连续模式（06 第 4.5 节脱战规则、任务书验收"离散战斗一方全灭后在预期轮数内
+        /// combat.left 触发并切回连续模式"）。
+        /// </summary>
+        [Fact]
+        public void CombatLeft_NaturallyTriggeredByDiscreteRounds_AfterEnemyDies()
+        {
+            var fx = DiscreteFightWorldBuilder.Build();
+            var finished = fx.Run();
+            Assert.True(finished);
+
+            // fx.Run() 在任一方死亡的瞬间就停止：本夹具的伤害配置保证是 NPC 先死（玩家 150 HP，
+            // NPC 60 HP，NPC 每回合还手，玩家先手，见 DiscreteFightWorldBuilder 常量）。
+            Assert.False(fx.Units.IsAlive(DiscreteFightWorldBuilder.NpcId));
+            Assert.True(fx.Units.IsAlive(DiscreteFightWorldBuilder.PlayerId));
+            Assert.Equal(TimeModelMode.Discrete, fx.TimeModelSwitch.CurrentMode);
+
+            // NPC 死亡后已被 TurnScheduler.RemoveParticipant 移出本轮顺序（见 TimeModelSwitch.
+            // OnUnitDied），行动顺序只剩玩家一人——继续驱动几步（每步都是新的一轮），预期在
+            // LeaveCombatDelay 换算后的轮数内（本夹具 1 轮）触发 combat.left。留足余量（5 步）
+            // 避免因换算细节差 1 轮而假失败。
+            var switchedBack = false;
+            for (var i = 0; i < 5 && !switchedBack; i++)
+            {
+                if (!fx.StepDiscrete(DiscreteFightWorldBuilder.SkillStrike))
+                {
+                    break;
+                }
+
+                switchedBack = fx.TimeModelSwitch.CurrentMode == TimeModelMode.Continuous;
+            }
+
+            Assert.True(switchedBack, "玩家应在预期轮数内自然脱战并切回连续模式");
+            Assert.NotEmpty(fx.Events.OfType<CombatLeftEvent>());
             Assert.Equal(TimeModelMode.Continuous, fx.Clock.Mode);
         }
 

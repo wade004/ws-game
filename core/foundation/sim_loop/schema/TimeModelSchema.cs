@@ -47,6 +47,13 @@ namespace Core.Foundation.SimLoop
                     description: "mode: discrete 时必填：离散模式下每回合移动预算的计算方式"),
                 new FieldSchema("grid_snap", FieldKind.Object, required: false,
                     description: "若启用格子吸附，声明 {cell_size: Number}；范围形状按格子中心采样"),
+                // 04 第 3.1 节勘误（ADR-0013 补齐任务）：initiative_policy 或 movement_budget_rule
+                // 任一为 action_points 时，两者共享同一份"每回合行动点总额度"，见
+                // TimeModelDefinition.ActionPointsPerTurn 判断记录。
+                new FieldSchema("action_points_per_turn", FieldKind.Number, required: false,
+                    description: "initiative_policy 或 movement_budget_rule 为 action_points 时使用的每回合行动点总额度，默认 1"),
+                new FieldSchema("movement_action_cost_per_unit", FieldKind.Number, required: false,
+                    description: "movement_budget_rule: action_points 时必填：移动 1 单位距离消耗的行动点数"),
             });
     }
 
@@ -74,6 +81,13 @@ namespace Core.Foundation.SimLoop
         public const string CheckDiscreteRequiresMovementBudgetRule = "time_model_discrete_requires_movement_budget_rule";
 
         public const string CheckSecondsPerTurnPositive = "time_model_seconds_per_turn_positive";
+
+        /// <summary>04 第 3.1 节勘误（ADR-0013 补齐任务）。</summary>
+        public const string CheckActionPointsMovementRuleRequiresCostPerUnit = "time_model_action_points_movement_rule_requires_cost_per_unit";
+
+        public const string CheckActionPointsPerTurnPositive = "time_model_action_points_per_turn_positive";
+
+        public const string CheckMovementActionCostPerUnitPositive = "time_model_movement_action_cost_per_unit_positive";
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
@@ -114,11 +128,40 @@ namespace Core.Foundation.SimLoop
                         "initiative_policy 为 initiative_stat 时 initiative_stat 必填", recordKey: record.Key, field: "initiative_stat");
                 }
 
-                if (!record.TryGetString("movement_budget_rule", out _))
+                if (!record.TryGetString("movement_budget_rule", out var movementBudgetRule))
                 {
                     yield return new ValidationIssue(
                         ValidationSeverity.Error, "found.time_model", CheckDiscreteRequiresMovementBudgetRule,
                         "mode 为 discrete 时 movement_budget_rule 必填", recordKey: record.Key, field: "movement_budget_rule");
+                    movementBudgetRule = null;
+                }
+
+                // 04 第 3.1 节勘误（ADR-0013 补齐任务）：movement_budget_rule 为 action_points 时，
+                // movement_action_cost_per_unit 必填且须为正数。
+                if (movementBudgetRule == "action_points")
+                {
+                    if (!record.TryGetNumber("movement_action_cost_per_unit", out var costPerUnit))
+                    {
+                        yield return new ValidationIssue(
+                            ValidationSeverity.Error, "found.time_model", CheckActionPointsMovementRuleRequiresCostPerUnit,
+                            "movement_budget_rule 为 action_points 时 movement_action_cost_per_unit 必填",
+                            recordKey: record.Key, field: "movement_action_cost_per_unit");
+                    }
+                    else if (costPerUnit <= 0)
+                    {
+                        yield return new ValidationIssue(
+                            ValidationSeverity.Error, "found.time_model", CheckMovementActionCostPerUnitPositive,
+                            $"movement_action_cost_per_unit 必须为正数，实际 {costPerUnit}",
+                            recordKey: record.Key, field: "movement_action_cost_per_unit");
+                    }
+                }
+
+                if (record.TryGetNumber("action_points_per_turn", out var actionPointsPerTurn) && actionPointsPerTurn <= 0)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, "found.time_model", CheckActionPointsPerTurnPositive,
+                        $"action_points_per_turn 必须为正数，实际 {actionPointsPerTurn}",
+                        recordKey: record.Key, field: "action_points_per_turn");
                 }
             }
         }
