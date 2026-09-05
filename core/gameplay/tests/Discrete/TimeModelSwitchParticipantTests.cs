@@ -74,6 +74,23 @@ namespace Tests.Gameplay.Discrete
             Assert.Equal(TimeModelMode.Discrete, fx.TimeModelSwitch.CurrentMode);
         }
 
+        [Fact]
+        public void CombatLeft_MidDiscreteFight_RemovesFromCurrentTurnOrder()
+        {
+            var fx = BuildInDiscreteModeWithThirdUnit();
+            fx.Rules.Combat.NotifyCombatEvent(ThirdUnitId);
+            fx.Bus.DispatchPending();
+            Assert.Contains(ThirdUnitId, fx.Scheduler.GetOrder());
+
+            // 个体脱战（非死亡）：见 TimeModelSwitch.OnCombatLeft 补齐段落判断记录——脱战单位同样
+            // 应该立即从当前轮行动顺序移除，不再被轮到。
+            fx.Bus.PublishImmediate(new CombatLeftEvent(ThirdUnitId));
+
+            Assert.DoesNotContain(ThirdUnitId, fx.Scheduler.GetOrder());
+            // 整场战斗仍在进行（原有两名参与者都还在场），不应因第三方脱战而误切回连续模式。
+            Assert.Equal(TimeModelMode.Discrete, fx.TimeModelSwitch.CurrentMode);
+        }
+
         /// <summary>
         /// <see cref="Core.Gameplay.Assembly.TimeModelSwitch.ResolveParticipants"/> 首次解析参与者
         /// 时（0→1 那一刻）的阵营过滤（见该方法判断记录"参与者解析"）：半径内一个与玩家/野生动物

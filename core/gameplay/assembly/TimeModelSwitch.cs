@@ -52,9 +52,10 @@ namespace Core.Gameplay.Assembly
     /// 到当前轮的行动顺序，本类型的 <see cref="_scheduler"/> 字段类型因此从 <see cref="ITurnScheduler"/>
     /// 收紧为具体类型 <see cref="Core.Foundation.SimLoop.TurnScheduler"/>（惯例同
     /// <c>GameplayAssembly.TurnScheduler</c> 属性判断记录）。<c>combat.left</c>（个体脱战，非死亡）
-    /// 不触发移除——任务书只要求"收到 combat.entered/unit.died 时调用"，脱战单位仍留在本轮行动
-    /// 顺序里继续被轮到，直至整场战斗结束（<see cref="_activeCombatants"/> 归零、<see cref="EndCombat"/>
-    /// 清空顺序），已知限制，见交付报告"做不了的事"。
+    /// 补齐后同样触发移除（见 <see cref="OnCombatLeft"/>）：离散模式下收到某单位的
+    /// <c>combat.left</c> 时，先把该单位从当前轮的行动顺序里 <c>RemoveParticipant</c>，再判断整场
+    /// 战斗是否清空——脱战单位不应继续占据行动顺序被轮到（此前版本只在死亡时移除，脱战不移除，
+    /// 属已知限制，本次任务补齐，与 <see cref="OnUnitDied"/> 走同一套移除路径）。
     /// </para>
     /// </summary>
     public sealed class TimeModelSwitch
@@ -176,6 +177,17 @@ namespace Core.Gameplay.Assembly
         private void OnCombatLeft(CombatLeftEvent evt)
         {
             _activeCombatants.Remove(evt.UnitId);
+
+            if (CurrentMode == TimeModelMode.Discrete)
+            {
+                // 个体脱战移除（见类型判断记录"中途加入/离场"补齐段落）：脱战单位不是死亡，但同样
+                // 不应继续占据当前轮的行动顺序被轮到——与 OnUnitDied 走同一套 RemoveParticipant
+                // 路径；若脱战单位恰好是整场战斗最后一个活跃单位，紧随其后的 SwitchToContinuousIfNoneActive
+                // 会整体 EndCombat 清空顺序，这里的单个移除仍然安全（TurnScheduler.RemoveParticipant
+                // 对不在当前轮次里的单位是幂等的，见其类型判断记录）。
+                _scheduler.RemoveParticipant(evt.UnitId);
+            }
+
             SwitchToContinuousIfNoneActive();
         }
 

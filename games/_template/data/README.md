@@ -36,7 +36,7 @@
 | `fac.faction` | 游戏必填 | 至少玩家阵营一条（`fac/fac.faction.json`） |
 | `world.map` | 游戏必填 | 至少起始地图一条（`world/world.map.json`），`scene_ref`/`nav_ref` 指向的场景/导航资源需要引擎适配层能读到（Unity 侧见 `Editor/GameSceneBuilder.cs`/`build.ps1` 判断记录：本仓库工作台自测用途，用同名占位资源；正式游戏接入自己的资产管线） |
 | `item.budget_curve` | 游戏必填 | 至少 `item.budget.default` 一条（`item/item.budget_curve.json`），`ItemOptions.BudgetCurveId` 默认指向它——即便游戏暂时还没有任何 `item.template` 行，框架 `ItemBudgetValidationRule` 也会无条件检查该曲线是否存在 |
-| `stat.definition` 的 `stat.strength` 一行 | 游戏必填（当前） | `data/_framework/found/found.time_model.json` 的 `found.time_model.combat` 行把 `initiative_stat` 硬编码指向 `stat.strength`，跨根引用完整性校验要求本目录（或任一同时加载的根）提供该 id；这是框架级数据表与具体 id 耦合的已知问题（框架表理应只被"可配置默认值"引用，不应硬编码指向某个具体属性名），本模板暂以补一行满足校验，待该表的默认先攻属性改为可配置或去掉硬编码后可移除 |
+| `found.time_model` | 游戏必填 | 探索/战斗各一条（`found/found.time_model.json`），`Core.Gameplay.Assembly.TimeModelSwitch` 构造期无条件要求至少存在 `scope: exploration` 一条；本模板两条都给 `mode: continuous`（探索/战斗都走连续模式，架构文档 `architecture/13_新游戏接入指南.md` 第 4 节"口味项"里的默认选择），游戏若要接入回合制战斗，把 `found.time_model.combat` 一行改成 `mode: discrete` 并按 04 第 3.1 节补齐 `seconds_per_turn`/`initiative_policy`/`movement_budget_rule` 等字段 |
 
 ## 判断记录：为什么没有 `creature.template`/`display.map`
 

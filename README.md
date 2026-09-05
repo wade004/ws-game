@@ -27,6 +27,7 @@ toolchain/              校验、构建、资产导入等跨游戏 Python 工具
 dist/<version>/         build.ps1 -Dist 产出的版本快照（构建产物，.gitignore，不入库，可由源码重建）
 Core.sln                六个核心类库 + 六个测试工程的 .NET 解决方案
 build.ps1               DLL 同步、内容同步、版本快照打包脚本（PowerShell 5.1 兼容）
+check.ps1               一键门禁脚本：构建/测试/校验/禁用词扫描/Unity 编译与测试/独立版冒烟一次跑完并汇总（PowerShell 5.1 兼容）
 ```
 
 ## 构建与测试
@@ -68,6 +69,18 @@ Unity.exe -batchmode                -projectPath adapters\unity -runTests -testP
 ```
 
 `-runTests` 不要再加 `-quit`（两者同传会在测试真正跑起来前提前退出）；`-nographics` 只用于 EditMode，PlayMode 需要真实渲染/输入子系统，不能加。独立版 Windows 命令行构建、灰盒/Shell 场景重建、独立版无头冒烟等更详细的命令与已知限制，见 [adapters/unity/README.md](adapters/unity/README.md) 与 [adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md](adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md)。
+
+## `check.ps1`（一键门禁，仓库根，见 11_工程规范与测试.md 第 8 节）
+
+依次跑：`.NET` 构建 + 测试（六工程，含性能基线）→ 数据校验（合并根）→ 事件常量/占位资产生成器一致性检查（`--check`，只读）→ `toolchain` 自身的 Python 测试 → 两道禁用词扫描（全仓库不出现具体游戏代号；`architecture` 正文不出现具体引擎/语言/框架/工具名）→ `build.ps1 -SkipTests` 同步 DLL → Unity 编译检查 → Unity EditMode/PlayMode 测试 → 独立版构建 + `-gf-smoke` 无人值守冒烟。每步单独计时与判定，最后打印一张汇总表；任一步失败，整体以非 0 退出码结束。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1              # 全量（含 Unity 四步）
+powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity   # 跳过 Unity 相关四步（Unity 编辑器被占用/未装时用）
+powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipSmoke   # Unity 独立版仍构建，只跳过 -gf-smoke 冒烟子步骤
+```
+
+`-ArtifactsPath <dir>` 可覆盖 `dotnet`/Unity 产物落地目录（默认 `bin\_check_artifacts`，已被 `.gitignore` 的 `bin/` 规则忽略）；`-UnityExe <path>` 可显式指定 Unity 可执行文件路径（默认按 Unity Hub 常见安装位置猜测，找不到则要求显式传参）。
 
 ## 新游戏如何消费本框架
 

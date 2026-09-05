@@ -196,6 +196,43 @@ namespace Core.Rules.Assembly
                 return null;
             }
 
+            // 判断记录：skill.aura_def.effects[].params 内的周期字段（interval/tick_interval，
+            // 见 04 第 3.1 节"光环…周期 interval"、TimeFieldConsistencyRule 判断记录"光环周期字段
+            // 覆盖"）——不预设具体 AuraEffectKind，只要某个数组元素的 params 对象里出现这两个
+            // 数值字段就纳入 discrete 整数检查，按元素下标定位错误消息。
+            IEnumerable<(string FieldLabel, double Value)> AuraEffectPeriodicFields(DataRecord record)
+            {
+                if (!record.TryGetArray("effects", out var effects))
+                {
+                    yield break;
+                }
+
+                for (var i = 0; i < effects.Count; i++)
+                {
+                    if (!(effects[i] is Core.Foundation.Common.Json.JsonObject effect))
+                    {
+                        continue;
+                    }
+                    if (!effect.TryGetValue("params", out var paramsRaw) ||
+                        !(paramsRaw is Core.Foundation.Common.Json.JsonObject effectParams))
+                    {
+                        continue;
+                    }
+
+                    if (effectParams.TryGetValue("interval", out var intervalRaw) &&
+                        intervalRaw is Core.Foundation.Common.Json.JsonNumber intervalNumber)
+                    {
+                        yield return ($"effects[{i}].params.interval", intervalNumber.Value);
+                    }
+
+                    if (effectParams.TryGetValue("tick_interval", out var tickRaw) &&
+                        tickRaw is Core.Foundation.Common.Json.JsonNumber tickNumber)
+                    {
+                        yield return ($"effects[{i}].params.tick_interval", tickNumber.Value);
+                    }
+                }
+            }
+
             var declarations = new List<Core.Foundation.SimLoop.TimeFieldDeclaration>
             {
                 new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.def", "cast_time", "combat", r => Number(r, "cast_time")),
@@ -203,6 +240,7 @@ namespace Core.Rules.Assembly
                 new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.def", "cooldown_duration", "combat", r => Number(r, "cooldown_duration")),
                 new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.def", "charges.recharge_time", "combat", ChargesRechargeTime),
                 new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.aura_def", "duration", "combat", r => Number(r, "duration")),
+                new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.aura_def", "effects[].params", "combat", AuraEffectPeriodicFields),
                 new Core.Foundation.SimLoop.TimeFieldDeclaration("skill.proc_def", "internal_cooldown", "combat", r => Number(r, "internal_cooldown")),
                 new Core.Foundation.SimLoop.TimeFieldDeclaration("arch.power_type", "regen_in_combat", "combat", r => Number(r, "regen_in_combat")),
                 new Core.Foundation.SimLoop.TimeFieldDeclaration("arch.power_type", "regen_out_of_combat", "exploration", r => Number(r, "regen_out_of_combat")),

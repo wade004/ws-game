@@ -1,0 +1,8 @@
+{
+  "table": "found.time_model",
+  "schema_version": 1,
+  "rows": [
+    { "id": "found.time_model.exploration", "scope": "exploration", "mode": "continuous" },
+    { "id": "found.time_model.combat", "scope": "combat", "mode": "continuous" }
+  ]
+}

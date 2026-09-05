@@ -23,6 +23,17 @@ data/<game>/<domain>/<table>.json       具体游戏的数据（放各自游戏�
     `core/foundation/app_lifecycle/schema/found.game_state.md`"本模块不做什么"一节）——一旦所属
     模块把它们接成真正从数据表加载，新增的数据文件应直接放 `data/_framework/found/`，不要放
     `data/_sample/`。
+  - 判断记录（`found.time_model`，本次改动）：`Core.Gameplay.Assembly.TimeModelSwitch` 构造期
+    只要求该表存在 `scope: exploration` 一条（缺失时抛异常），不硬编码具体行内容；`scope: combat`
+    一条可以完全缺失（`CombatModel` 为空时恒不切换离散模式，见该类型判断记录"缺失战斗时间模型时
+    恒不切换"）——两条行本身是 13_新游戏接入指南.md 第 4 节"口味项"里"探索/战斗时间模型"的具体
+    取值（`mode: continuous` 或 `discrete`，`discrete` 分支下的 `initiative_stat` 还会引用某个
+    具体 `stat.definition` 属性 id），按判定规则属于"可配置默认值"而非"框架代码只认这一个固定
+    值"，不应算框架级；此前（阶段落地时）曾放在 `data/_framework/found/`，是一处未经本判定规则
+    审核的遗留错放（见 `architecture/落地计划/文档代码一致性审计_2026-09-05.md`），本次改动移到
+    `data/_sample/found/`，`games/_template/data/game/found/` 补一份模板默认（探索/战斗都
+    `continuous`）供新游戏复制修改；随迁移移除了此前为满足 `initiative_stat` 硬引用而在模板
+    `stat.definition` 里补的 `stat.strength` 占位行（模板已改用连续模式，不再需要）。
   - 判断记录（`arch.power_type`）：`core/rules/common/contracts/WellKnownPowers.cs` 硬编码
     `arch.power.health` 为固定常量（非可配置默认值，与 `stat.definition` 等表被
     `CombatOptions`/`MovementOptions` 之类"可配置默认值"引用的情况不同——后者游戏层可以整体

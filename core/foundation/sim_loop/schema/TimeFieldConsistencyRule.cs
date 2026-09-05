@@ -36,8 +36,16 @@ namespace Core.Foundation.SimLoop
         public string Scope { get; }
 
         /// <summary>从记录里取出该时间字段的数值；字段未提供（可选字段缺失）时返回 <c>null</c>，
-        /// 视为"本条记录不适用该项检查"，不产生问题。</summary>
-        public Func<DataRecord, double?> Extract { get; }
+        /// 视为"本条记录不适用该项检查"，不产生问题。单值形态（<see cref="ExtractMany"/> 为
+        /// <c>null</c> 时使用）。</summary>
+        public Func<DataRecord, double?>? Extract { get; }
+
+        /// <summary>多值取值器（数组元素形态，见 <see cref="TimeFieldConsistencyRule"/> 判断记录
+        /// "effects[] 周期字段覆盖"）：一条记录可能产生 0~N 个待检查的 (字段路径, 取值) 对——
+        /// 典型用途是 <c>skill.aura_def.effects[]</c> 这种"数组元素内按 kind 变化的字段"，
+        /// 每个元素各自贡献一个字段路径（如 <c>effects[2].params.interval</c>）用于错误消息定位。
+        /// 与 <see cref="Extract"/> 互斥，两者恰好其中一个非空。</summary>
+        public Func<DataRecord, IEnumerable<(string FieldLabel, double Value)>>? ExtractMany { get; }
 
         public TimeFieldDeclaration(string table, string fieldLabel, string scope, Func<DataRecord, double?> extract)
         {
@@ -45,6 +53,19 @@ namespace Core.Foundation.SimLoop
             FieldLabel = fieldLabel ?? throw new ArgumentNullException(nameof(fieldLabel));
             Scope = scope ?? throw new ArgumentNullException(nameof(scope));
             Extract = extract ?? throw new ArgumentNullException(nameof(extract));
+        }
+
+        /// <summary>数组元素形态的构造器（见 <see cref="ExtractMany"/>）；<paramref name="fieldLabel"/>
+        /// 在此形态下只用作声明的可读标识（不出现在错误消息里，错误消息用
+        /// <see cref="ExtractMany"/> 逐条返回的字段路径），惯例传该数组字段名本身（如
+        /// <c>"effects[].params"</c>）。</summary>
+        public TimeFieldDeclaration(string table, string fieldLabel, string scope,
+            Func<DataRecord, IEnumerable<(string FieldLabel, double Value)>> extractMany)
+        {
+            Table = table ?? throw new ArgumentNullException(nameof(table));
+            FieldLabel = fieldLabel ?? throw new ArgumentNullException(nameof(fieldLabel));
+            Scope = scope ?? throw new ArgumentNullException(nameof(scope));
+            ExtractMany = extractMany ?? throw new ArgumentNullException(nameof(extractMany));
         }
     }
 
@@ -57,13 +78,16 @@ namespace Core.Foundation.SimLoop
     /// <c>Core.Gameplay.Assembly.TimeModelSwitch.CombatModel</c> 判断记录"缺失战斗时间模型时恒不
     /// 切换"——数据缺失不是错误，只是该项检查不适用）。
     /// <para>
-    /// 判断记录（光环周期 <c>tick_interval</c> 未覆盖）：04 第 3.1 节例举的时间字段还包括"光环…
-    /// 周期 interval"，但 <c>skill.aura_def.effects[].params.interval</c> 是嵌在不透明的
-    /// "kind + params" 数组元素里的字段（<c>effects</c> 的具体形状由 <c>kind</c> 决定，
-    /// schema 层不为每种 <c>kind</c> 分别建模，见 <c>SkillSchemas.AuraDef</c> 注释），本规则的
-    /// <see cref="TimeFieldDeclaration"/> 只能表达"表的顶层/一层嵌套字段"，取不到这类"数组元素
-    /// 内按 kind 变化的字段"，与既有 <c>TimeModelValidationRule</c> 判断记录里搁置同一问题的原因
-    /// 一致，留待后续任务专门为 <c>effects[]</c> 设计取值路径后再补齐。
+    /// 判断记录（光环周期字段覆盖，<c>effects[]</c> 数组元素形态）：04 第 3.1 节例举的时间字段还
+    /// 包括"光环…周期 interval"，<c>skill.aura_def.effects[].params.interval</c>/
+    /// <c>tick_interval</c> 嵌在不透明的"kind + params"数组元素里（<c>effects</c> 的具体形状由
+    /// <c>kind</c> 决定，schema 层不为每种 <c>kind</c> 分别建模，见 <c>SkillSchemas.AuraDef</c>
+    /// 注释），单值形态的 <see cref="TimeFieldDeclaration.Extract"/> 表达不了"数组元素内按 kind
+    /// 变化的字段"；<see cref="TimeFieldDeclaration.ExtractMany"/> 补了这个口子——不预设
+    /// <c>kind</c>，只要某个数组元素的 <c>params</c> 对象里出现 <c>interval</c> 或
+    /// <c>tick_interval</c> 数值字段就纳入检查（不关心具体是哪个 <c>kind</c>，字段名本身已经是
+    /// 04 第 3.1 节点名的时间字段），错误消息按元素下标定位为 <c>effects[N].params.interval</c>
+    /// 一类路径。登记方见 <c>core/rules/assembly/RulesSchemaCatalog.cs</c>。
     /// </para>
     /// </summary>
     public sealed class TimeFieldConsistencyRule : IValidationRule
@@ -96,23 +120,48 @@ namespace Core.Foundation.SimLoop
                 for (var r = 0; r < records.Count; r++)
                 {
                     var record = records[r];
-                    var value = declaration.Extract(record);
+
+                    if (declaration.ExtractMany != null)
+                    {
+                        foreach (var entry in declaration.ExtractMany(record))
+                        {
+                            var issue = CheckInteger(declaration, record, entry.FieldLabel, entry.Value);
+                            if (issue != null)
+                            {
+                                yield return issue.Value;
+                            }
+                        }
+                        continue;
+                    }
+
+                    var value = declaration.Extract!(record);
                     if (value == null)
                     {
                         continue;
                     }
 
-                    var rounded = Math.Round(value.Value);
-                    if (Math.Abs(value.Value - rounded) > IntegerEpsilon)
+                    var singleIssue = CheckInteger(declaration, record, declaration.FieldLabel, value.Value);
+                    if (singleIssue != null)
                     {
-                        yield return new ValidationIssue(
-                            ValidationSeverity.Error, declaration.Table, CheckTimeFieldMustBeInteger,
-                            $"作用域 \"{declaration.Scope}\" 的 found.time_model.mode 为 discrete 时，字段 " +
-                            $"\"{declaration.FieldLabel}\" 必须为整数（以回合计），实际 {value.Value}",
-                            recordKey: record.Key, field: declaration.FieldLabel);
+                        yield return singleIssue.Value;
                     }
                 }
             }
+        }
+
+        private static ValidationIssue? CheckInteger(TimeFieldDeclaration declaration, DataRecord record, string fieldLabel, double value)
+        {
+            var rounded = Math.Round(value);
+            if (Math.Abs(value - rounded) <= IntegerEpsilon)
+            {
+                return null;
+            }
+
+            return new ValidationIssue(
+                ValidationSeverity.Error, declaration.Table, CheckTimeFieldMustBeInteger,
+                $"作用域 \"{declaration.Scope}\" 的 found.time_model.mode 为 discrete 时，字段 " +
+                $"\"{fieldLabel}\" 必须为整数（以回合计），实际 {value}",
+                recordKey: record.Key, field: fieldLabel);
         }
 
         private static Dictionary<string, string> LoadScopeModes(IDataRegistryView view)
