@@ -28,9 +28,15 @@ namespace Adapters.Stub
         /// 驱动（见类型顶部注释）。默认 false，保持既有同步回调行为不变。</summary>
         public bool DeferCallbacks { get; set; }
 
+        /// <summary>测试用：每次 LoadAsync 调用的 (resourceId, kind)，按调用顺序追加（含重复调用，
+        /// 供"资源首次加载责任归属"——ADR-0016 决策 6——的调用方断言"同一 id 只调用一次"）。</summary>
+        public readonly List<(Id ResourceId, ResourceKind Kind)> LoadRequests = new List<(Id, ResourceKind)>();
+
         public void LoadAsync(Id resourceId, ResourceKind kind, LoadCallback callback)
         {
             if (callback == null) throw new ArgumentNullException(nameof(callback));
+
+            LoadRequests.Add((resourceId, kind));
 
             if (!DeferCallbacks)
             {

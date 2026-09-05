@@ -33,9 +33,10 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
    world"处理：用 `EntityPositionResolver` 取该实体位置，经 `IRenderer2D.EmitParticle` 以世界坐标
    方式播放，并记一条诊断。集成阶段需要 `render` 模块补一个"创建子模型并 AttachToSocket"或"取
    某实体某挂点的可挂接容器"的窄契约，才能实现真正的挂点挂接。
-2. **`ISfxPlayer.Play` 的 `at` 参数当前无处传递**：`IAudio.PlaySfx(Id soundId, double volume,
-   double pitch)` 没有位置参数，也没有 3D 声像重载；本实现记录但不使用 `at`，需要位置化音频
-   （如"从声源方向传来"）时须先在 02 补 `IAudio` 接口。
+2. **`ISfxPlayer.Play` 的 `at` 参数已由 ADR-0016 解决**：`IAudio.PlaySfx` 增加了
+   `position: Optional<Vec2>` 参数（决策 3），`SfxPlayer.Play` 现把 `at` 直接透传给
+   `IAudio.PlaySfx(position)`；不支持空间音频的引擎侧实现可以忽略该参数按无空间方式播放，但不得
+   因该参数报错或拒绝播放。
 3. **`sfx.def.priority` 的大小方向**：09 原文未定义，本实现采用"数值越大优先级越高"，未声明
    （`Priority` 为 `null`）按 `int.MinValue`（最低优先级）处理。
 4. **对象池"超容量按 lifetime 最旧回收"的判定标准**：解释为"剩余存活时间最短"而非"最早插入"
@@ -48,6 +49,10 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
 6. **`IWeaponStyleResolver` 只覆盖 vfx 相关查询**：`auto_attack_anim`/`cast_anim_override` 指向
    动作剪辑，属于 CharacterRig/动画状态机（09 第 4 节）职责范围，不在本模块（vfx_sfx）接口内；
    `WeaponStyleDef` 仍如实携带这两个字段供上游模块使用。
+7. **资源首次加载责任已由 ADR-0016 解决**：`VfxPlayer`/`SfxPlayer` 均可选注入 `IResourceLoader`，
+   `Spawn`/`Play` 首次引用某个 `resource_ref`（含 `sfx.def.variants` 命中的具体变体）时分别以
+   `ResourceKind.Effect`/`ResourceKind.Audio` 触发一次 `LoadAsync`（同一 id 只触发一次，见
+   `Presentation.Common.ResourceReferenceTracker`）；未注入时保持不主动触发任何加载的既有行为。
 
 ## 不负责什么
 

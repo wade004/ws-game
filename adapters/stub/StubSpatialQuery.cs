@@ -28,8 +28,11 @@ namespace Adapters.Stub
 
         private readonly Dictionary<Id, Entry> _entries = new Dictionary<Id, Entry>();
 
-        /// <summary>测试用：登记一个可被查询到的对象（id、位置、自身半径、可选标签）。</summary>
-        public void Register(Id id, Vec2 position, double radius, IReadOnlyList<string>? tags = null)
+        /// <summary>便捷重载：不带标签登记（大量既有测试调用点只关心位置/半径，见判断记录）。</summary>
+        public void Register(Id id, Vec2 position, double radius) => Register(id, position, radius, Array.Empty<string>());
+
+        /// <summary>登记一个对象进空间索引（契约方法，见 ISpatialQuery 第 1.9 节 / ADR-0016 决策 7）。</summary>
+        public void Register(Id id, Vec2 position, double radius, IReadOnlyList<string> tags)
         {
             var entry = new Entry { Id = id, Position = position, Radius = radius };
             if (tags != null)
@@ -43,10 +46,20 @@ namespace Adapters.Stub
             _entries[id] = entry;
         }
 
-        /// <summary>测试用：取消登记。</summary>
+        /// <summary>同步一个已登记对象的位置（契约方法）。未登记的 id 视为无操作，
+        /// 与真实实现"位置变化时调用"的语义保持宽松一致，不因调用时机差异而抛异常。</summary>
+        public void UpdatePosition(Id id, Vec2 position)
+        {
+            if (_entries.TryGetValue(id, out var entry))
+            {
+                entry.Position = position;
+            }
+        }
+
+        /// <summary>从空间索引移除一个对象的登记（契约方法）。</summary>
         public void Unregister(Id id) => _entries.Remove(id);
 
-        /// <summary>测试用：清空全部已登记对象。</summary>
+        /// <summary>清空整个空间索引（契约方法）。</summary>
         public void Clear() => _entries.Clear();
 
         public IReadOnlyList<Id> QueryRadius(Vec2 center, double radius, QueryFilter filter)

@@ -4,11 +4,13 @@
 // 二维平面坐标"的定位不完全贴合，直接手写二维网格 A* 更贴合 02 第 1.8 节的接口语义，
 // 也避免引入 com.unity.ai.navigation 包与烘焙流程）。
 //
-// 阻挡数据来源：ISpatialQuery/INavigation2D 契约本身都没有定义"如何把地图阻挡信息灌进实现"
-// 的方法（02 文档只描述查询语义），因此与 adapters/stub/StubNavigation2D 的处理方式一致——
-// 提供 RegisterBlockingRect(不属于 INavigation2D 接口) 供上层（地图加载代码）按 AABB 矩形登记
-// 阻挡区域；也可以调用 RegisterBlockingFromTilemap 从一个 Unity Tilemap 的实心格子生成同样的
-// 矩形集合（两条路径互不冲突，可同时使用）。
+// 阻挡数据来源（ADR-0016 决策 7 已给 INavigation2D 补上 SetBlocking(mapId, rects)/Clear(mapId)
+// 两个契约方法，取代此前"契约本身没有定义如何灌入阻挡数据"的缺口）：SetBlocking 是"整批替换"
+// 语义（一次调用替换该地图当前登记的全部动态阻挡，见 adapters/stub/StubNavigation2D 同款判断
+// 记录）；本类型额外保留一个非契约便捷方法 RegisterBlockingFromTilemap，从一个 Unity Tilemap
+// 的实心格子批量算出矩形集合后同样经 SetBlocking 整批替换（不是增量追加——此前有一个逐格追加的
+// RegisterBlockingRect 方法，已随 ADR-0016 落地删除，其增量语义现由调用方自行收集矩形列表后
+// 一次性调用 SetBlocking 承担）。
 //
 // 网格判断记录：BuildNavMesh 时按已登记矩形的包围盒 + 边距生成网格，格子尺寸在
 // DefaultCellSize（0.25 世界单位）与"包围盒必须能装进 MaxGridDimension×MaxGridDimension
@@ -131,33 +133,36 @@ namespace Adapter.Unity.EngineAdapter
             return closestHit;
         }
 
-        /// <summary>非契约方法：登记一个地图的矩形阻挡区域，供 BuildNavMesh/IsWalkable/FindPath/
-        /// Raycast 使用。</summary>
-        public void RegisterBlockingRect(Id mapId, Vec2 min, Vec2 max)
+        /// <summary>契约方法（INavigation2D / ADR-0016 决策 7）：以传入的整批矩形替换该地图当前
+        /// 登记的动态阻挡（不是追加，见类型顶部判断记录）。</summary>
+        public void SetBlocking(Id mapId, IReadOnlyList<Core.Foundation.Common.Rect> rects)
         {
-            if (!_blockingRects.TryGetValue(mapId, out var rects))
+            var list = new List<BlockingRect>(rects.Count);
+            foreach (var rect in rects)
             {
-                rects = new List<BlockingRect>();
-                _blockingRects[mapId] = rects;
+                list.Add(new BlockingRect(rect.Min, rect.Max));
             }
 
-            rects.Add(new BlockingRect(min, max));
+            _blockingRects[mapId] = list;
             _grids.Remove(mapId); // 阻挡数据变化后网格需要重建，下次 FindPath/BuildNavMesh 时重算。
         }
 
-        /// <summary>非契约方法：清空某地图已登记的阻挡区域。</summary>
-        public void ClearBlockingRects(Id mapId)
+        /// <summary>契约方法：清空某地图的全部动态阻挡登记（场景卸载时调用）。</summary>
+        public void Clear(Id mapId)
         {
             _blockingRects.Remove(mapId);
             _grids.Remove(mapId);
         }
 
-        /// <summary>非契约方法：从一个 Tilemap 的实心格子（TileBase 非空）生成阻挡矩形，每个实心
-        /// 格子登记为一个独立 AABB。供使用 Unity Tilemap 编辑地图的游戏调用。</summary>
+        /// <summary>非契约便捷方法：从一个 Tilemap 的实心格子（TileBase 非空）生成阻挡矩形，
+        /// 每个实心格子一个独立 AABB，整批经 <see cref="SetBlocking"/> 一次性替换该地图当前登记
+        /// （不是增量追加——同一张 Tilemap 的两次调用不会产生重复登记，供使用 Unity Tilemap
+        /// 编辑地图的游戏在地图加载时调用一次）。</summary>
         public void RegisterBlockingFromTilemap(Id mapId, Tilemap tilemap)
         {
             if (tilemap == null) throw new ArgumentNullException(nameof(tilemap));
 
+            var rects = new List<Core.Foundation.Common.Rect>();
             var bounds = tilemap.cellBounds;
             for (var x = bounds.xMin; x < bounds.xMax; x++)
             {
@@ -168,13 +173,14 @@ namespace Adapter.Unity.EngineAdapter
                     {
                         var worldMin = tilemap.CellToWorld(cellPos);
                         var cellSize = tilemap.cellSize;
-                        RegisterBlockingRect(
-                            mapId,
+                        rects.Add(new Core.Foundation.Common.Rect(
                             new Vec2(worldMin.x, worldMin.y),
-                            new Vec2(worldMin.x + cellSize.x, worldMin.y + cellSize.y));
+                            new Vec2(worldMin.x + cellSize.x, worldMin.y + cellSize.y)));
                     }
                 }
             }
+
+            SetBlocking(mapId, rects);
         }
 
         private NavGrid BuildGrid(Id mapId)

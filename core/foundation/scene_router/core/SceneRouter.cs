@@ -14,16 +14,9 @@ namespace Core.Foundation.SceneRouter
     /// <see cref="ISceneRouter"/> 的默认实现（见 03_运行时骨架.md 第 6 节场景路由六步流程、
     /// 第 9 节 <c>SceneRouter</c> 签名）。构造时向 <see cref="IHookRegistry"/> 声明
     /// <c>pre_unload</c>/<c>post_load</c> 两个挂载点（若已声明则复用，不重复声明）。
-    /// <para>
-    /// 判断记录（资源种类映射）：<see cref="IResourceLoader.LoadAsync"/> 的 <see cref="ResourceKind"/>
-    /// 只有 <c>Image|Audio|Font|DataTable</c> 四种（见 02_引擎适配层.md 第 1.7 节），没有一种
-    /// 精确对应"场景资源"（<c>scene_ref</c>）或"导航资源"（<c>nav_ref</c>）——这是本任务允许
-    /// 修改的文件范围之外的既有契约缺口（<c>IResourceLoader.cs</c> 不在本任务可改动范围），
-    /// 本实现选择用 <see cref="ResourceKind.DataTable"/> 承载这两类资源加载请求：二者都是
-    /// "结构化关卡/导航数据"而非图片/音频/字体一类媒体资源，是四个既有取值里语义最接近的一个，
-    /// 已在本模块 README"判断记录"详细记录，供设计层复核是否需要单独 ADR 给
-    /// <see cref="ResourceKind"/> 增补 <c>Scene</c>/<c>NavMesh</c> 一类取值。
-    /// </para>
+    /// <c>scene_ref</c>/<c>nav_ref</c> 分别经 <see cref="ResourceKind.Scene"/>/
+    /// <see cref="ResourceKind.NavMesh"/> 加载（ADR-0016 决策 5 已解决此前"资源种类映射"的
+    /// 契约缺口，取代此前借用 <see cref="ResourceKind.DataTable"/> 的临时做法）。
     /// <para>
     /// 判断记录（加载失败路径不新增事件）：04/01 登记表里没有 <c>scene.load_failed</c> 一类
     /// 事件，新增事件按 12_扩展与变更流程.md 走审批，不是本任务能单方面决定的事。任务书就此
@@ -50,6 +43,8 @@ namespace Core.Foundation.SceneRouter
         private readonly IHookRegistry _hooks;
         private readonly IEventBus _bus;
         private readonly ISceneDiagnostics _diagnostics;
+        private readonly ISpatialQuery? _spatial;
+        private readonly INavigation2D? _navigation;
 
         private Id? _currentScene;
         private SceneRouterState _state = SceneRouterState.Idle;
@@ -59,6 +54,15 @@ namespace Core.Foundation.SceneRouter
         private readonly List<Id> _pendingResourceOrder = new List<Id>();
         private bool _everCompletedOnce;
 
+        /// <summary>
+        /// <paramref name="spatial"/>/<paramref name="navigation"/> 可选：注入时，卸载旧场景
+        /// （<see cref="IWorldSim.ClearAll"/> 之后）额外调用 <see cref="ISpatialQuery.Clear"/> 与
+        /// <see cref="INavigation2D.Clear"/>（<c>mapId</c> 取被卸载的旧场景 id——判断记录：
+        /// 05/03 未见"场景 id 与地图 id 是否同一 Id"的显式条款，本实现按既有惯例
+        /// <c>Entity.MapId</c> 与所属场景 <c>world.map</c> 行 id 同值处理，供设计层复核），
+        /// 作为按实体逐个 <c>ISpatialQuery.Unregister</c>（经 entity.destroyed 事件驱动）之外的
+        /// 整图兜底清空，避免任何未经事件驱动同步的登记残留（见 ADR-0016 决策 7）。
+        /// </summary>
         public SceneRouter(
             IDataRegistryView registry,
             IResourceLoader loader,
@@ -66,7 +70,9 @@ namespace Core.Foundation.SceneRouter
             IWorldSim world,
             IHookRegistry hooks,
             IEventBus bus,
-            ISceneDiagnostics? diagnostics = null)
+            ISceneDiagnostics? diagnostics = null,
+            ISpatialQuery? spatial = null,
+            INavigation2D? navigation = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _loader = loader ?? throw new ArgumentNullException(nameof(loader));
@@ -75,6 +81,8 @@ namespace Core.Foundation.SceneRouter
             _hooks = hooks ?? throw new ArgumentNullException(nameof(hooks));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _diagnostics = diagnostics ?? new InMemorySceneDiagnostics();
+            _spatial = spatial;
+            _navigation = navigation;
 
             DeclareHookPointIfMissing(WellKnownHooks.ScenePreUnload, "sceneId: Id");
             DeclareHookPointIfMissing(WellKnownHooks.ScenePostLoad, "sceneId: Id");
@@ -132,12 +140,13 @@ namespace Core.Foundation.SceneRouter
             _pendingResourceOrder.Clear();
             _state = SceneRouterState.Loading;
 
-            // 步骤 3：对描述符里的资源引用逐个发起异步加载，记录回调结果（见类型注释"资源种类映射"判断记录）。
-            QueueLoad(Id.Parse(descriptor.SceneRef), ResourceKind.DataTable);
+            // 步骤 3：对描述符里的资源引用逐个发起异步加载（ResourceKind.Scene/NavMesh，见
+            // ADR-0016 决策 5）。
+            QueueLoad(Id.Parse(descriptor.SceneRef), ResourceKind.Scene);
 
             if (descriptor.NavRef != null)
             {
-                QueueLoad(Id.Parse(descriptor.NavRef), ResourceKind.DataTable);
+                QueueLoad(Id.Parse(descriptor.NavRef), ResourceKind.NavMesh);
             }
         }
 
@@ -246,6 +255,11 @@ namespace Core.Foundation.SceneRouter
                 // 先收到全部 entity.destroyed——与任务书"pre_unload 先于 ClearAll（实体计数
                 // 归零、entity.destroyed 送达）先于 scene.unloaded"的顺序要求一致。
                 _bus.DispatchPending();
+
+                // 见构造函数判断记录：整图兜底清空，配合上面 DispatchPending 已经驱动完成的
+                // 逐实体 ISpatialQuery.Unregister（经 entity.destroyed），双重保证不残留登记。
+                _spatial?.Clear();
+                _navigation?.Clear(oldSceneId);
 
                 _bus.PublishImmediate(new SceneUnloadedEvent(oldSceneId));
             }

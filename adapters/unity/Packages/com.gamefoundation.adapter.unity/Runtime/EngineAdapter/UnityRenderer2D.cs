@@ -12,24 +12,21 @@
 // Axis 设成世界 Y 轴，这是同一 sortingOrder 内的次级并列时的引擎自带兜底排序（两者不冲突，
 // 后者只在前者相等时才生效）。
 //
-// 高度偏移契约缺口的落地（对应 presentation/render/core/SpriteViewBase.cs 顶部"契约缺口"
-// 注释）：SetShaderParam 收到参数名 HeightOffsetShaderParam（"height_offset_px"）时，
-// 按"纵向像素偏移"解释——只平移 LayersRoot 子物体的本地 Y 坐标（像素值 / PixelsPerUnit 换算成
-// 世界单位），不改变根物体的位置/sortY/sortingOrder，因为 02 文档明确"height_offset_px"只是
-// 纯视觉工作绕，不代表任何真实的第三根世界坐标轴（同 UnityCamera.cs 顶部判断记录）。
-// 其余参数名一律尝试用 MaterialPropertyBlock 按同名 float 属性下发给全部纸娃娃层子渲染器，
-// 目标 Shader 没有该属性时 SetFloat 是无操作，不会报错。
+// 高度偏移（ADR-0016 决策 2 已解决，取代此前借用 SetShaderParam("height_offset_px") 的工作绕）：
+// SetTransform 新增的 height 参数按"纵向像素偏移"解释——只平移 LayersRoot 子物体的本地 Y 坐标
+// （像素值 / PixelsPerUnit 换算成世界单位），不改变根物体的位置/sortY/sortingOrder、不平移影子
+// （09 第 3.4 节）。SetShaderParam 现在只用于与位置无关的材质参数（闪白/溶解等）。
 //
 // 资源解析与占位：CreateSpriteInstance/SetLayers 用到的资源 id 一律经 UnityResourceLoader
 // 解析；解析不到（未加载或加载失败）时使用一个运行期生成的纯色方块精灵占位，并
 // Debug.LogWarning 一次（按 id 去重，避免刷屏），不抛异常——保证游戏在资源缺失时仍可运行，
 // 只是画面上看到占位方块。
 //
-// 粒子：EmitParticle/StopParticle 用 ParticleSystem 对象池。02 的 ResourceKind 枚举里没有
-// "粒子/特效预制体"这一种类（已知契约缺口，见包 README），因此 effectId 目前不解析到任何
-// 具体制作的粒子资产，一律播放一个内建的通用爆发粒子效果；parameters 里的
-// "duration"/"start_lifetime"/"start_speed"/"start_size" 四个已知键会覆盖对应模块参数，
-// 其余键被忽略。
+// 粒子（ADR-0016 决策 5 已解决）：EmitParticle 优先经 UnityResourceLoader.TryGetEffect(effectId)
+// 解析出具体特效资产（ResourceKind.Effect 加载完成后的序列帧/粒子预制体，见 UnityResourceLoader
+// 判断记录），解析不到时回退播放一个内建的通用爆发粒子效果（不抛异常、不阻断游戏运行）；
+// parameters 里的 "duration"/"start_lifetime"/"start_speed"/"start_size" 四个已知键会覆盖对应
+// 模块参数（仅回退路径生效，具体特效资产自带参数不经这四个键覆盖），其余键被忽略。
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
@@ -71,6 +68,8 @@ namespace Adapter.Unity.EngineAdapter
         private readonly Dictionary<int, SpriteInstance> _sprites = new Dictionary<int, SpriteInstance>();
         private readonly Dictionary<int, ParticleSystem> _particles = new Dictionary<int, ParticleSystem>();
         private readonly List<ParticleSystem> _particlePool = new List<ParticleSystem>();
+        private readonly Dictionary<int, EffectSequencePlayer> _sequencePlayers = new Dictionary<int, EffectSequencePlayer>();
+        private readonly List<EffectSequencePlayer> _sequencePlayerPool = new List<EffectSequencePlayer>();
         private readonly HashSet<string> _missingResourceWarned = new HashSet<string>(StringComparer.Ordinal);
         private int _nextSpriteHandle = 1;
         private int _nextParticleHandle = 1;
@@ -139,13 +138,19 @@ namespace Adapter.Unity.EngineAdapter
             ApplySortingOrders(instance);
         }
 
-        public void SetTransform(SpriteHandle handle, Vec2 position, double sortY, int layer, double rotation, double scale, bool flipX)
+        public void SetTransform(SpriteHandle handle, Vec2 position, double height, double sortY, int layer, double rotation, double scale, bool flipX)
         {
             var instance = EnsureAlive(handle);
 
             instance.Root.transform.localPosition = new Vector3((float)position.X, (float)position.Y, 0f);
             instance.Root.transform.localRotation = Quaternion.Euler(0f, 0f, (float)(rotation * Mathf.Rad2Deg));
             instance.Root.transform.localScale = new Vector3((float)scale, (float)scale, 1f);
+
+            // height：纵向绘制偏移，只平移 LayersRoot（不平移影子、不参与 sortY 排序，见
+            // ADR-0016 决策 2、09 第 3.4 节）；像素值经 PixelsPerUnit 换算成世界单位。
+            var worldHeightOffset = (float)(height / Math.Max(PixelsPerUnit, 0.0001));
+            var layersLocal = instance.LayersRoot.localPosition;
+            instance.LayersRoot.localPosition = new Vector3(layersLocal.x, worldHeightOffset, layersLocal.z);
 
             instance.Layer = layer;
             instance.SortY = sortY;
@@ -162,14 +167,6 @@ namespace Adapter.Unity.EngineAdapter
         public void SetShaderParam(SpriteHandle handle, string paramName, double value)
         {
             var instance = EnsureAlive(handle);
-
-            if (string.Equals(paramName, "height_offset_px", StringComparison.Ordinal))
-            {
-                var worldOffset = (float)(value / Math.Max(PixelsPerUnit, 0.0001));
-                var local = instance.LayersRoot.localPosition;
-                instance.LayersRoot.localPosition = new Vector3(local.x, worldOffset, local.z);
-                return;
-            }
 
             // 判断记录（U2-3 反馈接收器"闪白"落地，见 Runtime/Presentation/UnitySpriteView.cs、
             // FlashReceiver.cs 顶部注释）：09 第 6 节明确"闪白具体材质参数怎么应用不属于
@@ -208,6 +205,30 @@ namespace Adapter.Unity.EngineAdapter
         public ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters)
         {
             var handle = _nextParticleHandle++;
+
+            // ADR-0016 决策 5：effectId 优先经 UnityResourceLoader 解析到具体特效资产（序列帧），
+            // 找不到（未加载/加载失败/资源种类不是 Effect）时回退播放内建通用粒子效果，见类型
+            // 顶部注释。
+            if (_resourceLoader.TryGetEffect(effectId, out var effect))
+            {
+                var player = RentSequencePlayer();
+                player.transform.position = new Vector3((float)position.X, (float)position.Y, 0f);
+
+                var frames = new Sprite[effect.Frames.Length];
+                var durations = new double[effect.Frames.Length];
+                for (var i = 0; i < effect.Frames.Length; i++)
+                {
+                    frames[i] = effect.Frames[i].Sprite;
+                    durations[i] = effect.Frames[i].Duration;
+                }
+
+                player.gameObject.SetActive(true);
+                player.Play(frames, durations, effect.Loop);
+                _sequencePlayers[handle] = player;
+
+                return new ParticleHandle(handle);
+            }
+
             var ps = RentParticleSystem();
             ps.transform.position = new Vector3((float)position.X, (float)position.Y, 0f);
 
@@ -238,6 +259,15 @@ namespace Adapter.Unity.EngineAdapter
 
         public void StopParticle(ParticleHandle handle)
         {
+            if (_sequencePlayers.TryGetValue(handle.Value, out var player))
+            {
+                player.StopImmediately();
+                player.gameObject.SetActive(false);
+                _sequencePlayers.Remove(handle.Value);
+                _sequencePlayerPool.Add(player);
+                return;
+            }
+
             if (!_particles.TryGetValue(handle.Value, out var ps))
             {
                 throw new InvalidOperationException($"粒子句柄 {handle.Value} 已销毁或不存在");
@@ -291,11 +321,25 @@ namespace Adapter.Unity.EngineAdapter
 
             _placeholderSprite = Sprite.Create(
                 texture,
-                new Rect(0, 0, texture.width, texture.height),
+                new UnityEngine.Rect(0, 0, texture.width, texture.height),
                 new Vector2(0.5f, 0.5f),
                 PixelsPerUnit);
             _placeholderSprite.name = "placeholder.sprite";
             return _placeholderSprite;
+        }
+
+        private EffectSequencePlayer RentSequencePlayer()
+        {
+            if (_sequencePlayerPool.Count > 0)
+            {
+                var pooled = _sequencePlayerPool[_sequencePlayerPool.Count - 1];
+                _sequencePlayerPool.RemoveAt(_sequencePlayerPool.Count - 1);
+                return pooled;
+            }
+
+            var go = new GameObject("EffectSequence");
+            go.transform.SetParent(_root, worldPositionStays: false);
+            return go.AddComponent<EffectSequencePlayer>();
         }
 
         private ParticleSystem RentParticleSystem()

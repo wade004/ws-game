@@ -54,6 +54,39 @@ namespace Core.Carriers.Assembly
         public GameObjectHost GameObjectInteractions { get; }
         public MovementHost Movement { get; }
 
+        /// <summary>
+        /// 参与 <see cref="ISpatialQuery"/> 空间索引登记的 <see cref="Entity.Kind"/> 清单默认值
+        /// （见 <see cref="EntitySpatialSyncHost"/> 判断记录）：默认只登记 <c>creature</c>/
+        /// <c>player</c> 两类 Unit（打 <c>"unit"</c> 标签），半径统一默认 0.1（同此前
+        /// <c>WorldUnitAccess</c> 的默认 <c>spatialRadius</c>）。调用方可通过构造函数的
+        /// <c>spatialSyncKinds</c> 参数整体覆盖（例如接入体型差异更大的游戏时按 kind 给不同半径）。
+        /// <para>
+        /// 判断记录（默认不登记 <c>gobj</c>）：ADR-0016 背景一节提到"gobj 创建/销毁按需登记（带 tag
+        /// 区分 unit/gobj，避免'最近敌人'捞到物件）"，字面上鼓励把 gobj 也登记进同一份空间索引。
+        /// 但勘察 <c>core/rules/targeting/core/BuiltinTargetStrategies.NearestInShapeStrategy</c>
+        /// 发现它用 <c>QueryFilter.None</c>（不做标签过滤）查询空间索引后直接对每个候选调用
+        /// <c>IUnitAccess.GetPosition</c>，不像 <c>Core.Rules.Ai.AiHost.FindNearestHostile</c> 那样
+        /// 先用 <c>IUnitAccess.Exists</c> 防御性过滤——若 gobj 也登记进同一索引，任何用
+        /// <c>nearest_in_shape</c> 策略、不显式加 <c>RequiredTags:["unit"]</c> 过滤的技能目标解析都
+        /// 会在候选集合里混入 gobj id，进而在 <c>WorldUnitAccess.Require</c> 抛
+        /// <see cref="System.InvalidOperationException"/>（这正是 Unity 侧
+        /// <c>GameFoundationBootstrap</c> 此前手工登记空间索引时特意跳过 gobj 的原因，见该类型
+        /// "判断记录"，实测 PlayMode 复现过）。在 <c>core/rules/targeting</c> 各内置策略普遍加上
+        /// 标签过滤之前，默认清单按"不引入新的隐患"原则不含 <c>gobj</c>；确有需要把 gobj 纳入同一
+        /// 空间索引（如实现"最近可交互物件"一类查询）的游戏，应显式传入包含 <c>gobj</c> 条目的
+        /// <c>spatialSyncKinds</c>，并自行确保所有会遍历该索引全部候选的调用方都正确按标签过滤或
+        /// 防御性检查 <c>IUnitAccess.Exists</c>。
+        /// </para>
+        /// </summary>
+        public static IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig> DefaultSpatialSyncKinds { get; } =
+            new Dictionary<string, EntitySpatialSyncHost.KindConfig>(StringComparer.Ordinal)
+            {
+                ["creature"] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit" }),
+                ["player"] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit" }),
+            };
+
+        public EntitySpatialSyncHost SpatialSync { get; }
+
         public CarriersAssembly(
             IEventBus bus,
             IDataRegistryView registry,
@@ -61,7 +94,7 @@ namespace Core.Carriers.Assembly
             IWorldSim world,
             ISpatialQuery spatial,
             INavigation2D? navigation = null,
-            ISpatialIndexSync? spatialSync = null,
+            IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig>? spatialSyncKinds = null,
             IWorldFlags? worldFlags = null,
             ILootRoller? lootRoller = null,
             StatHostOptions? statOptions = null,
@@ -84,10 +117,19 @@ namespace Core.Carriers.Assembly
             if (spatial == null) throw new ArgumentNullException(nameof(spatial));
 
             // ---------------------------------------------------------
-            // 1) WorldUnitAccess（core/carriers/unit 的 IUnitAccess 真实实现，RulesAssembly 需要
-            //    调用方注入这份"环境依赖"，见 core/rules/assembly/README.md 步骤 0/1）。
+            // 0) EntitySpatialSyncHost：订阅 entity.created/entity.destroyed，按 Kind 登记/注销
+            //    空间索引（创建、销毁两个时机，见该类型判断记录）；必须先于任何会创建实体的宿主
+            //    构造（本类第 5/7 步的 CreatureFactory/GameObjectFactory），否则会错过它们构造期
+            //    间可能触发的创建事件。
             // ---------------------------------------------------------
-            Units = new WorldUnitAccess(world, spatialSync);
+            SpatialSync = new EntitySpatialSyncHost(bus, world, spatial, spatialSyncKinds ?? DefaultSpatialSyncKinds);
+
+            // ---------------------------------------------------------
+            // 1) WorldUnitAccess（core/carriers/unit 的 IUnitAccess 真实实现，RulesAssembly 需要
+            //    调用方注入这份"环境依赖"，见 core/rules/assembly/README.md 步骤 0/1）。移动时机的
+            //    空间索引同步（UpdatePosition）经这里注入的 spatial 完成，创建/销毁时机见上一步。
+            // ---------------------------------------------------------
+            Units = new WorldUnitAccess(world, spatial);
 
             // ---------------------------------------------------------
             // 2) CreatureImmunityProvider（IStaticImmunityProvider 的默认实现）+ InventoryHost +
@@ -186,6 +228,10 @@ namespace Core.Carriers.Assembly
             var movementTickHandler = new MovementTickHandler(
                 Units, Rules.Stats, Rules.Skill.AuraQuery, Movement, bus, navigation, resolvedMovementOptions);
             world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, movementTickHandler);
+
+            // 交互意图消费（03 第 4.2 节步骤 6"触发评估"，见 InteractIntentTickHandler 判断记录：
+            // 该步骤此前只有文档约定、没有实现——本次补上）。
+            world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new InteractIntentTickHandler(GameObjectInteractions));
         }
     }
 }

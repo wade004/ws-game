@@ -135,7 +135,7 @@ namespace Tests.PresentationCamera
         }
 
         [Fact]
-        public void Shake_KnownPreset_CallsICameraShakeWithAmplitudeAndDuration()
+        public void Shake_KnownPreset_CallsICameraShakeWithAmplitudeAndDurationAndFrequency()
         {
             var camera = new StubCamera();
             var host = new CameraHost(camera, new FakeFollowTarget());
@@ -146,6 +146,7 @@ namespace Tests.PresentationCamera
 
             Assert.Equal(0.3, camera.LastShakeIntensity);
             Assert.Equal(0.2, camera.LastShakeDurationSeconds);
+            Assert.Equal(10.0, camera.LastShakeFrequency);
         }
 
         [Fact]

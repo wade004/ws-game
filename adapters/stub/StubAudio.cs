@@ -17,12 +17,14 @@ namespace Adapters.Stub
             public readonly Id SoundId;
             public readonly double Volume;
             public readonly double Pitch;
+            public readonly Vec2? Position;
 
-            public SfxPlayback(Id soundId, double volume, double pitch)
+            public SfxPlayback(Id soundId, double volume, double pitch, Vec2? position)
             {
                 SoundId = soundId;
                 Volume = volume;
                 Pitch = pitch;
+                Position = position;
             }
         }
 
@@ -48,11 +50,11 @@ namespace Adapters.Stub
         public MusicPlayback? CurrentMusic { get; private set; }
         public double? LastStopMusicFadeOutSeconds { get; private set; }
 
-        public SfxHandle PlaySfx(Id soundId, double volume, double pitch)
+        public SfxHandle PlaySfx(Id soundId, double volume, double pitch, Vec2? position)
         {
             var handle = new SfxHandle(_nextSfxHandle++);
             _activeSfx.Add(handle.Value);
-            ActiveSfxPlaybacks[handle.Value] = new SfxPlayback(soundId, volume, pitch);
+            ActiveSfxPlaybacks[handle.Value] = new SfxPlayback(soundId, volume, pitch, position);
             return handle;
         }
 

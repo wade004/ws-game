@@ -38,6 +38,10 @@ namespace Core.Foundation.EngineAdapter
         /// </summary>
         Vec2? ScreenToWorld(Vec2 screen);
 
-        void Shake(double intensity, double durationSeconds);
+        /// <summary>
+        /// frequency 与 09_表现层.md 第 6.1 节震屏反馈动作引用的震屏预设的频率字段一一对应，
+        /// 强度、时长、频率三项经这一个方法完整传递（见 ADR-0016 决策 4）。
+        /// </summary>
+        void Shake(double intensity, double durationSeconds, double frequency);
     }
 }

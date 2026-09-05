@@ -44,7 +44,9 @@ namespace Core.Foundation.SceneRouter
         /// 发起加载时记录的回调结果（成功/失败）判定：任一资源加载失败 → 记诊断、
         /// <see cref="State"/> 回到 <see cref="SceneRouterState.Idle"/>、尝试把应用状态机转回
         /// <c>AppState.MainMenu</c>（见本模块 README"加载失败路径"判断记录）；全部资源就绪 →
-        /// 若已有当前场景，先触发 <c>pre_unload</c> 钩子、再 <c>IWorldSim.ClearAll</c>、发出
+        /// 若已有当前场景，先触发 <c>pre_unload</c> 钩子、再 <c>IWorldSim.ClearAll</c>（连带派发
+        /// 全部 <c>entity.destroyed</c>、按实体经 <c>ISpatialQuery.Unregister</c> 同步）、若注入了
+        /// <c>ISpatialQuery</c>/<c>INavigation2D</c> 则额外整图兜底 <c>Clear</c>、发出
         /// <c>scene.unloaded</c>，然后把应用状态机转入 <c>AppState.InWorld</c>、触发
         /// <c>post_load</c> 钩子、发出 <c>scene.load_finished</c>、更新
         /// <see cref="GetCurrentScene"/>、<see cref="State"/> 回到 Idle；仍有资源未就绪且无失败 →

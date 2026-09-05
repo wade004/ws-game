@@ -31,8 +31,11 @@ namespace Adapter.Unity.EngineAdapter
         private readonly Dictionary<Id, Entry> _entries = new Dictionary<Id, Entry>();
         private readonly Dictionary<(int, int), List<Entry>> _buckets = new Dictionary<(int, int), List<Entry>>();
 
-        /// <summary>非契约方法：登记一个可被查询到的对象（id、位置、自身半径、可选标签）。
-        /// 与 StubSpatialQuery.Register 同语义，供地图/生物系统在对象生成时调用。</summary>
+        /// <summary>契约方法（ISpatialQuery 第 1.9 节 / ADR-0016 决策 7）：登记一个可被查询到的
+        /// 对象（id、位置、自身半径、标签），供 <c>core/carriers/assembly.EntitySpatialSyncHost</c>
+        /// 在对象创建时调用。<c>tags</c> 保留一个可选默认值（空标签）供本类型的直接调用方
+        /// （非经 <see cref="ISpatialQuery"/> 接口）省去空数组样板代码，不影响接口实现——
+        /// 接口方法签名的参数类型本就相同，默认值不参与接口成员匹配。</summary>
         public void Register(Id id, Vec2 position, double radius, IReadOnlyList<string>? tags = null)
         {
             Unregister(id);
@@ -47,7 +50,8 @@ namespace Adapter.Unity.EngineAdapter
             BucketOf(position).Add(entry);
         }
 
-        /// <summary>非契约方法：更新一个已登记对象的位置（每帧随实体移动调用）。</summary>
+        /// <summary>契约方法：更新一个已登记对象的位置（每帧随实体移动调用）。未登记的 id
+        /// 视为无操作（与 <c>Adapters.Stub.StubSpatialQuery</c> 同一语义）。</summary>
         public void UpdatePosition(Id id, Vec2 position)
         {
             if (!_entries.TryGetValue(id, out var entry)) return;
@@ -56,6 +60,7 @@ namespace Adapter.Unity.EngineAdapter
             BucketOf(position).Add(entry);
         }
 
+        /// <summary>契约方法：从空间索引移除一个对象的登记。</summary>
         public void Unregister(Id id)
         {
             if (_entries.TryGetValue(id, out var entry))
@@ -65,6 +70,7 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
+        /// <summary>契约方法：清空整个空间索引（场景卸载时调用）。</summary>
         public void Clear()
         {
             _entries.Clear();

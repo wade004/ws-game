@@ -185,5 +185,31 @@ namespace Tests.Presentation.VfxSfx
 
             Assert.Throws<System.InvalidOperationException>(() => renderer.StopParticle(handle));
         }
+
+        [Fact]
+        public void Spawn_WithResourceLoaderInjected_LoadsResourceRefAsEffect_OnlyOnce()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader();
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), resourceLoader: loader);
+
+            player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+            player.Spawn(WorldVfx, VfxAttach.World(new Vec2(2, 2)), null);
+
+            var requests = loader.LoadRequests.FindAll(r => r.ResourceId.Equals(new Id("res.spark")));
+            Assert.Single(requests);
+            Assert.Equal(Core.Foundation.EngineAdapter.ResourceKind.Effect, requests[0].Kind);
+        }
+
+        [Fact]
+        public void Spawn_WithoutResourceLoaderInjected_DoesNotThrow()
+        {
+            var renderer = new StubRenderer2D();
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog());
+
+            var ex = Record.Exception(() => player.Spawn(WorldVfx, VfxAttach.World(Vec2.Zero), null));
+
+            Assert.Null(ex);
+        }
     }
 }

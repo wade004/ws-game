@@ -17,11 +17,6 @@ namespace Presentation.VfxSfx.Core
     /// 未声明 <c>priority</c>（<see cref="SfxDef.Priority"/> 为 null）按最低优先级
     /// （<see cref="int.MinValue"/>）处理，即同层容量不足时最先被抢占停止。
     /// </para>
-    /// <para>
-    /// 契约缺口（见 vfx_sfx/README.md）：<see cref="ISfxPlayer.Play"/> 的 <c>at</c>（定位坐标）
-    /// 在当前 <see cref="IAudio"/> 契约（<c>PlaySfx(Id, volume, pitch)</c>，无位置参数/无 3D
-    /// 声像重载）下无处传递，本实现只记录不使用；需要位置化音频时需先在 L-1 补接口。
-    /// </para>
     /// </summary>
     public sealed class SfxPlayer : ISfxPlayer
     {
@@ -43,20 +38,27 @@ namespace Presentation.VfxSfx.Core
         private readonly Dictionary<SfxHandle, ActivePlayback> _byHandle = new Dictionary<SfxHandle, ActivePlayback>();
         private readonly Dictionary<string, double> _layerVolume = new Dictionary<string, double>(StringComparer.Ordinal);
         private readonly HashSet<string> _mutedLayers = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Presentation.Common.ResourceReferenceTracker? _resourceTracker;
         private long _seq;
 
+        /// <summary><paramref name="resourceLoader"/> 可选（同 <c>VfxPlayer</c> 判断记录）：注入时
+        /// <see cref="Play"/> 首次引用某个音效资源 id（<c>sfx.def.resource_ref</c> 或其
+        /// <c>variants</c> 命中的具体变体）以 <see cref="ResourceKind.Audio"/> 触发一次
+        /// <see cref="IResourceLoader.LoadAsync"/>（ADR-0016 决策 6）。</summary>
         public SfxPlayer(
             IAudio audio,
             IRngHost rng,
             IReadOnlyDictionary<Id, SfxDef> catalog,
             SfxOptions? options = null,
-            IPresentationDiagnostics? diagnostics = null)
+            IPresentationDiagnostics? diagnostics = null,
+            IResourceLoader? resourceLoader = null)
         {
             _audio = audio ?? throw new ArgumentNullException(nameof(audio));
             _rng = rng ?? throw new ArgumentNullException(nameof(rng));
             _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             _options = options ?? new SfxOptions();
             _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
+            _resourceTracker = resourceLoader != null ? new Presentation.Common.ResourceReferenceTracker(resourceLoader) : null;
         }
 
         public SfxHandle? Play(Id sfxId, Vec2? at)
@@ -73,8 +75,10 @@ namespace Presentation.VfxSfx.Core
 
             MakeRoomIfNeeded(layer);
 
+            _resourceTracker?.EnsureLoading(resourceRef, ResourceKind.Audio);
+
             var volume = ResolveVolume(layer);
-            var handle = _audio.PlaySfx(resourceRef, volume, pitch: 1.0);
+            var handle = _audio.PlaySfx(resourceRef, volume, pitch: 1.0, position: at);
 
             var playback = new ActivePlayback { Handle = handle, Layer = layer, Priority = priority, InsertionSeq = _seq++ };
             GetOrCreateLayerList(layer).Add(playback);

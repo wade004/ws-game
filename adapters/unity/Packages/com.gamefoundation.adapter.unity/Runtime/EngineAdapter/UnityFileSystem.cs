@@ -2,8 +2,31 @@
 // UnityFileSystem：IFileSystem 的 Unity 引擎实现。
 //
 // 用户数据目录 = Application.persistentDataPath（Unity 官方跨平台约定的用户数据落盘位置）。
-// 本实现内部把 IFileSystem 的相对路径参数拼接到该目录下（用 '/' 分隔，与 02 第 1.6 节
-// listFiles 的相对路径分隔约定一致）。
+// 内容根目录（ADR-0016 决策 8 新增 GetContentRootDir）= Application.streamingAssetsPath/
+// GameFoundation（与 UnityResourceLoader.RootDir 同一个根，见该类型顶部注释"资源 id → 相对路径
+// 映射规则"）。本实现内部把 IFileSystem 的相对路径参数拼接到"当前根"下（用 '/' 分隔，与 02 第
+// 1.6 节 listFiles 的相对路径分隔约定一致）——"当前根"由构造参数 <see cref="ReadOnlyContentMode"/>
+// 决定，两种模式各对应一个独立实例，同一个实例内不做"按路径前缀判断该走哪个根"的动态路由
+// （见判断记录 1）。
+//
+// 判断记录 1（合并 StreamingAssetsFileSystem，取代"两个几乎重复的类"）：阶段 4 U2 曾经另建一个
+// `Adapter.Unity.Bootstrap.StreamingAssetsFileSystem` 类专门承担"只读内容根"这一半职责，
+// 与本类型的 ReadText/Exists/ListFiles 实现逐字重复，只是根目录与写入行为不同（该类型只读，
+// 且 GetContentRootDir 尚不存在时借用 GetUserDataDir 顶替，见该类型历史注释）。ADR-0016 给
+// IFileSystem 补上 GetContentRootDir 之后，两个类的唯一实质差异（"根目录 + 是否允许写"）可以
+// 收敛成一个构造参数：本类型现通过 <see cref="ReadOnlyContentMode"/> 在同一份实现里承担两种
+// 角色——默认（false）是原 UnityFileSystem 的"用户数据、可写"模式；传 true 时是原
+// StreamingAssetsFileSystem 的"只读内容根"模式（根目录换成 StreamingAssets，
+// WriteTextAtomic/DeleteFile 恒返回 false，语义与 ADR-0016 决策 8"内容根下写入/删除返回 false"
+// 完全一致，不再是专门为"只读"发明的另一套返回值）。`StreamingAssetsFileSystem.cs` 已删除，
+// 两处原有调用方（GameFoundationBootstrap、FrameworkResidentHost）改为
+// `new UnityFileSystem(readOnlyContentMode: true)`。
+//
+// 判断记录 2（GetContentRootDir 在两种模式下都返回同一个值）：无论 <see cref="ReadOnlyContentMode"/>
+// 是否为 true，GetContentRootDir() 都返回 StreamingAssets 内容根——即便当前实例是"用户数据"模式，
+// 调用方仍可能需要查询"内容根在哪"这个只读信息（例如诊断/日志），这与 GetUserDataDir() 在
+// ReadOnlyContentMode=true 时仍如实返回 persistentDataPath（而不是抛异常或返回内容根）是同一个
+// 原则："两个访问器各自回答自己的问题，不因为当前实例的读写模式而隐藏另一半信息"。
 //
 // 原子写入判断记录：WriteTextAtomic 按"写临时文件 + File.Replace"实现——先把内容写入同目录下
 // 的一个临时文件，再用 File.Replace 原子替换目标文件（File.Replace 在多数文件系统上是单次
@@ -23,7 +46,28 @@ namespace Adapter.Unity.EngineAdapter
     {
         private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
+        /// <summary>true 时本实例是"只读内容根"模式（取代原 StreamingAssetsFileSystem，见类型顶部
+        /// 判断记录 1）：<see cref="ReadText"/>/<see cref="Exists"/>/<see cref="ListFiles"/> 相对
+        /// <see cref="GetContentRootDir"/> 解析路径，<see cref="WriteTextAtomic"/>/
+        /// <see cref="DeleteFile"/> 恒返回 false；false（默认）时是原 UnityFileSystem 的"用户数据、
+        /// 可写"模式，相对 <see cref="GetUserDataDir"/> 解析路径。</summary>
+        public bool ReadOnlyContentMode { get; }
+
+        private readonly string _contentRoot;
+
+        public UnityFileSystem(bool readOnlyContentMode = false, string? contentRoot = null)
+        {
+            ReadOnlyContentMode = readOnlyContentMode;
+            _contentRoot = contentRoot ?? Path.Combine(Application.streamingAssetsPath, "GameFoundation");
+        }
+
         public string GetUserDataDir() => Application.persistentDataPath;
+
+        /// <summary>只读内容根目录（数据表、静态资产的落盘位置），与 <see cref="GetUserDataDir"/>
+        /// 分离（ADR-0016 决策 8）。两种模式下都返回同一个值，见类型顶部判断记录 2。</summary>
+        public string GetContentRootDir() => _contentRoot;
+
+        private string CurrentRoot => ReadOnlyContentMode ? _contentRoot : Application.persistentDataPath;
 
         public string? ReadText(string path)
         {
@@ -42,8 +86,14 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
+        /// <summary>内容根模式下恒返回 false，不真正执行写入、不抛异常（ADR-0016 决策 8）。</summary>
         public bool WriteTextAtomic(string path, string content)
         {
+            if (ReadOnlyContentMode)
+            {
+                return false;
+            }
+
             var fullPath = ResolveFullPath(path);
             var directory = Path.GetDirectoryName(fullPath);
 
@@ -108,8 +158,14 @@ namespace Adapter.Unity.EngineAdapter
             return results;
         }
 
+        /// <summary>内容根模式下恒返回 false，不真正执行删除、不抛异常（ADR-0016 决策 8）。</summary>
         public bool DeleteFile(string path)
         {
+            if (ReadOnlyContentMode)
+            {
+                return false;
+            }
+
             var fullPath = ResolveFullPath(path);
             try
             {
@@ -127,16 +183,16 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
-        private static string ResolveFullPath(string relativeOrPath)
+        private string ResolveFullPath(string relativeOrPath)
         {
             if (string.IsNullOrEmpty(relativeOrPath))
             {
-                return Application.persistentDataPath;
+                return CurrentRoot;
             }
 
             // path 可能是调用方拼出的以 '/' 分隔的相对路径；统一交给 Path.Combine 处理，
             // Windows/Unix 分隔符都能被正确解析。
-            return Path.Combine(Application.persistentDataPath, relativeOrPath.Replace('/', Path.DirectorySeparatorChar));
+            return Path.Combine(CurrentRoot, relativeOrPath.Replace('/', Path.DirectorySeparatorChar));
         }
 
         private static void TryDeleteQuiet(string path)

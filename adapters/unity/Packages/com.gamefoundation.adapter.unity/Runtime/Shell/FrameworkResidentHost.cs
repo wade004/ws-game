@@ -30,7 +30,6 @@
 // 这样无论是"新游戏"还是"读档"都走同一条"HandlePostLoad 负责挂载"的路径，不重复实现两遍。
 using System;
 using System.Linq;
-using Adapter.Unity.Bootstrap;
 using Adapter.Unity.EngineAdapter;
 using Adapter.Unity.Presentation;
 using Core.Carriers.Unit;
@@ -153,7 +152,7 @@ namespace Adapter.Unity.Shell
             var catalog = EventCatalog.FromDefinitions(definitions);
             _bus = new Core.Foundation.EventBus.EventBus(catalog, new EventBusOptions { StrictCatalog = false, AuditLog = false });
 
-            var contentFs = new StreamingAssetsFileSystem();
+            var contentFs = new UnityFileSystem(readOnlyContentMode: true);
             var source = new FileSystemDataSource(contentFs, "data/_sample");
             var options = PresentationSchemaCatalog.CreateOptions();
             options.FailOnUnknownTable = false;
@@ -202,7 +201,10 @@ namespace Adapter.Unity.Shell
             // 因此只需注册一次，不需要在每次 HandlePostLoad 里重复判断。
             Gameplay.Carriers.Rules.RegisterUnit(PlayerId, _classId, raceId: null, level: PlayerLevel);
             Gameplay.Economy.RegisterUnit(PlayerId);
-            _host.SpatialQuery.Register(PlayerId, _player.Position, 0.5);
+            // 空间索引登记改由 L3 同步（core/carriers/assembly.EntitySpatialSyncHost 订阅
+            // entity.created，见 ADR-0016 决策 7）：_player 此刻尚未 World.AddEntity（见
+            // HandlePostLoad），不需要在这里手工调用 host.SpatialQuery.Register——真正加入世界时
+            // HandlePostLoad 会补一次 DispatchPending 让登记生效。
 
             // 判断记录：SkillHost._knownSkills 只经显式 LearnSkill（通常由 learn_skill 效果/任务
             // 奖励触发，见 core/rules/skill/core/EffectDispatcher.cs ApplyLearnSkill）填充，
@@ -219,8 +221,11 @@ namespace Adapter.Unity.Shell
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(Seed ^ 0x9E3779B97F4A7C15UL);
+            // spatial/navigation 注入（ADR-0016 决策 7、场景卸载级联清理，见 SceneRouter 构造函数
+            // 判断记录）。
             var sceneRouter = new Core.Foundation.SceneRouter.SceneRouter(
-                registry, _host.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, _bus);
+                registry, _host.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, _bus,
+                spatial: _host.SpatialQuery, navigation: _host.Navigation2D);
 
             var presentationOptions = new PresentationAssemblyOptions
             {
@@ -280,19 +285,17 @@ namespace Adapter.Unity.Shell
             sceneRouter.RegisterPreUnloadHook(HandlePreUnload);
             sceneRouter.RegisterPostLoadHook(HandlePostLoad);
 
-            // 判断记录（发现的契约缺口："死亡单位不会自动从 AiHost/ISpatialQuery 退场"）：
-            // core/rules/ai/core/AiHost.cs 公开了 UnregisterUnit，但勘察 core/gameplay/assembly/
-            // GameplayAssembly.cs 与 core/gameplay/spawn 全文，没有任何一处在 unit.died 时调用它——
-            // AiTickHandler.Execute 每 tick 无条件遍历 AiHost.RegisteredUnitIds 逐个 Step，一个已经
-            // 死亡（从 WorldSim 移除）但仍留在 AiHost 内部注册表里的单位会在下一次 Tick 让
-            // WorldUnitAccess.Require 抛 InvalidOperationException，进而让整条 FixedUpdate 崩溃
-            // （本任务实测复现：U2 既有测试从未让任何生物真正死亡过，这条路径此前未被任何测试
-            // 覆盖到）。这是 core/ 层面的既有缺口（不在本任务允许改动的文件范围内，core/rules/ai
-            // 不能改），本类型按"窄契约调用"的既有惯例（同 GameObjectHost.Interact 判断记录）
-            // 在引擎适配层订阅 unit.died 自行补上退场清理：AiHost.UnregisterUnit +
-            // ISpatialQuery.Unregister（后者是 UnitySpatialQuery 的非契约协作方法，见该类型
-            // 判断记录），使"生物死亡"这条此前从未被走通的链路在本框架的 Unity 集成里不再崩溃。
-            // 建议设计层复核是否需要在 core/gameplay 补一个真正的死亡退场编排（12 号文档流程）。
+            // 判断记录（发现的契约缺口"死亡单位不会自动从 AiHost/ISpatialQuery 退场"，核心一半
+            // 已由 ADR-0016 背景一节联动解决）：core/rules/ai/core/AiHost.cs 现已直接订阅
+            // entity.destroyed 自行静默清理登记（见该类型构造函数判断记录），一个单位被真正销毁
+            // 后不会再让 AiTickHandler.Execute 遍历到它、也就不会再让 WorldUnitAccess.Require 抛
+            // InvalidOperationException——这半个缺口已解决，不需要引擎适配层代为清理。
+            // 本处理器仍然保留：它订阅的是 unit.died（逻辑死亡，早于 entity.destroyed 的实体真正
+            // 销毁，见 05 对象模型"死亡是逻辑状态，不是生命周期状态"），目的是让尸体立刻停止
+            // AI 决策、从战斗目标空间索引里移除（避免"死了但还能被当目标选中/还在原地决策"的
+            // 观感问题），是提前于核心自愈时机的体验优化，不是安全网。AiHost.UnregisterUnit/
+            // ISpatialQuery.Unregister 都是契约方法（ADR-0016 决策 7 起 Unregister 也是
+            // ISpatialQuery 的正式契约方法，不再是"非契约协作方法"）。
             _bus.Subscribe(Core.Rules.Common.RulesEventKeys.UnitDied, OnUnitDied);
 
             presentation.InputMap.DeclareActionSet(new Id(ActionSetId), new[]
@@ -343,38 +346,31 @@ namespace Adapter.Unity.Shell
         }
 
         /// <summary>
-        /// 判断记录（发现的第二个契约缺口："world.ClearAll 不会级联清理 AiHost/SpawnHost 的登记
-        /// 表"）：Core.Foundation.SceneRouter.SceneRouter.FinishLoading 在"这不是本 SceneRouter
-        /// 实例第一次调用 LoadScene"时会调用 world.ClearAll()（把 WorldSim 自己的实体字典清空），
-        /// 但 <see cref="Core.Rules.Ai.AiHost"/>（下一次 AiTickHandler.Execute 还会继续遍历它内部
-        /// 保留的 RegisteredUnitIds）与 <see cref="Core.Gameplay.Spawn.SpawnHost"/>（"on_map_enter"
-        /// 重生策略靠自己 runtime.EntityId 是否非空判断"该出生点是否已经有存活实体"，不知道
-        /// WorldSim 那边已经清空）都对此一无所知——第二次进入地图（"新游戏"再来一局、"读档"）时，
-        /// 上一局遗留的 AI 注册表项会在下一次 Tick 让 WorldUnitAccess.Require 抛
-        /// InvalidOperationException（U3 实测复现：本任务是本框架第一次真正走通"离开地图→再次
-        /// 进入地图"这条路径的 Unity 集成测试，此前 U1/U2 的 PlayMode 测试从未在同一个
-        /// SceneRouter 实例上调用过第二次 LoadScene）。这同样是 core/ 层面的既有缺口
-        /// （core/rules/ai、core/gameplay/spawn 均不在本任务允许改动范围内），按"窄契约调用"
-        /// 惯例在 pre_unload 钩子（ClearAll 生效之前）里对已知追踪的实体主动退场：
-        /// AiHost.UnregisterUnit + ISpatialQuery.Unregister（同 OnUnitDied 判断记录）+
-        /// SpawnHost.NotifyDespawn（清空 runtime.EntityId，允许下次 EnterMap 的 on_map_enter
-        /// 重新生成一个新实例）。建议设计层复核是否需要在 core/foundation/scene_router 或
-        /// core/gameplay/assembly 补一个真正的"地图卸载退场编排"（12 号文档流程）。
+        /// 判断记录（发现的第二个契约缺口"world.ClearAll 不会级联清理 AiHost/SpawnHost 的登记
+        /// 表"，已由 ADR-0016 背景一节联动解决）：<c>Core.Foundation.SceneRouter.SceneRouter.FinishLoading</c>
+        /// 在"这不是本 SceneRouter 实例第一次调用 LoadScene"时会调用 <c>world.ClearAll()</c>（把
+        /// WorldSim 自己的实体字典清空、Enqueue 每个实体的 entity.destroyed，随后立即
+        /// DispatchPending 派发），但此前 <see cref="Core.Rules.Ai.AiHost"/>（下一次
+        /// AiTickHandler.Execute 还会继续遍历它内部保留的 RegisteredUnitIds）与
+        /// <see cref="Core.Gameplay.Spawn.SpawnHost"/>（"on_map_enter" 重生策略靠自己
+        /// runtime.EntityId 是否非空判断"该出生点是否已经有存活实体"，不知道 WorldSim 那边已经
+        /// 清空）都对此一无所知——第二次进入地图（"新游戏"再来一局、"读档"）时，上一局遗留的
+        /// AI 注册表项会在下一次 Tick 让 WorldUnitAccess.Require 抛 InvalidOperationException
+        /// （U3 实测复现）。现分两处解决：<see cref="Core.Rules.Ai.AiHost"/> 已直接订阅
+        /// entity.destroyed 自行静默清理（core/rules/ai/core/AiHost.cs 构造函数），
+        /// <see cref="Core.Gameplay.Assembly.GameplayAssembly.LeaveMap"/> 把
+        /// <c>AreaTrigger.UnloadMap</c>/<c>Spawn.UnloadMap</c> 打包成"出图"入口（对应既有的
+        /// <c>EnterMap</c>"进图"入口）。本方法因此不再需要手工
+        /// AiHost.UnregisterUnit/ISpatialQuery.Unregister/SpawnHost.NotifyDespawn 逐个实体退场，
+        /// 改为在 pre_unload 钩子里统一调用一次 <c>Gameplay.LeaveMap(mapId)</c>
+        /// （ISpatialQuery 的整图兜底 Clear 由 SceneRouter 自己在 ClearAll 之后调用，见该类型
+        /// 构造函数判断记录，本方法不重复处理）。
         /// </summary>
         private void HandlePreUnload(Id mapId)
         {
             ViewFactory.DestroyAllCreatedViews();
 
-            if (BeastEntityId.HasValue)
-            {
-                var beastId = BeastEntityId.Value;
-                if (Gameplay.Carriers.Rules.Ai.RegisteredUnitIds.Contains(beastId))
-                {
-                    Gameplay.Carriers.Rules.Ai.UnregisterUnit(beastId);
-                }
-                _host.SpatialQuery.Unregister(beastId);
-                Gameplay.Spawn.NotifyDespawn(beastId, "map_transition");
-            }
+            Gameplay.LeaveMap(mapId);
 
             BeastEntityId = null;
             _worldEverEntered = false;
@@ -385,19 +381,25 @@ namespace Adapter.Unity.Shell
             if (World.GetEntity(PlayerId) == null)
             {
                 World.AddEntity(_player);
-                _host.SpatialQuery.Register(PlayerId, _player.Position, 0.5);
+                // 空间索引登记改由 L3 同步（core/carriers/assembly.EntitySpatialSyncHost 订阅
+                // entity.created，见 ADR-0016 决策 7），不再手工调用 host.SpatialQuery.Register；
+                // 紧接着 DispatchPending 一次立即完成登记（同 GameFoundationBootstrap 同款判断
+                // 记录），避免玩家在第一个 tick 的 AiDecision 阶段之前还没被空间索引收录。
+                _bus.DispatchPending();
             }
 
             Gameplay.EnterMap(mapId, PlayerId);
 
             if (!_worldEverEntered)
             {
+                // EnterMap 内部经 Spawn.ApplyForMap 生成的野兽同样只是 Enqueue 了
+                // entity.created，这里补一次 DispatchPending。
+                _bus.DispatchPending();
+
                 var spawnRecord = Gameplay.Spawn.GetSpawnRecord(new Id(BeastSpawnId));
                 if (spawnRecord?.EntityId != null)
                 {
                     BeastEntityId = spawnRecord.EntityId.Value;
-                    var beastPos = Gameplay.Carriers.Units.GetPosition(BeastEntityId.Value);
-                    _host.SpatialQuery.Register(BeastEntityId.Value, beastPos, 0.5);
                 }
                 _worldEverEntered = true;
             }

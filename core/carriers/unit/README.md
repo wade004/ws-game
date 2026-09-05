@@ -55,13 +55,16 @@ unit/
    `Core.Foundation.SimLoop` 程序集可写），`Core.Carriers` 程序集从任何路径都无法修改它，`SetAlive`
    只能触碰 `Unit.Alive` 这一个字段——契约层面就保证了"死亡不销毁实体"，不需要额外防御代码。
 
-4. **`ISpatialIndexSync` 是任务书拍板的补充小接口**：`ISpatialQuery`（见 02 第 1.9 节）本身只有
-   查询方法，没有登记/更新方法（"对象如何进入索引"是引擎适配层实现的内部细节，见
-   `Adapters.Stub.StubSpatialQuery` 顶部注释）；`WorldUnitAccess.SetPosition` 写入新位置后如果不
-   同步空间索引，会导致后续查询读到过期位置。测试里用一个包一层的小适配器把
-   `StubSpatialQuery.Register`/`Unregister` 转成本接口（见 `tests/TestSupport.cs`
-   `TestSpatialIndexSync`）；生产环境由具体引擎适配层实现同时满足 `ISpatialQuery` 与本接口，或提供
-   等价的包装器。
+4. **`ISpatialIndexSync` 已删除——已由 ADR-0016 解决**：此前 `ISpatialQuery`（见 02 第 1.9 节）
+   只有查询方法、没有登记/更新方法，本模块曾自行拍板一个补充小接口 `ISpatialIndexSync` 让
+   `WorldUnitAccess.SetPosition` 写入新位置后同步空间索引；ADR-0016 决策 7 直接给
+   `ISpatialQuery` 增加了 `Register`/`UpdatePosition`/`Unregister`/`Clear` 四个契约方法，
+   `ISpatialIndexSync` 因此完全冗余，已删除。`WorldUnitAccess` 现改为直接持有可选的
+   `ISpatialQuery`，`SetPosition` 直接调用其 `UpdatePosition`（移动同步）；首次登记
+   （`Register`，创建时机）与销毁移除（`Unregister`）不是 `WorldUnitAccess` 的职责，由
+   `core/carriers/assembly/EntitySpatialSyncHost` 订阅 `entity.created`/`entity.destroyed`
+   统一处理（按 `Entity.Kind` 决定标签，见该类型判断记录——`creature`/`player` 打 `unit` 标签、
+   `gobj` 打 `gobj` 标签，避免范围查询把物件当成单位命中）。
 
 5. **`MovementHost.Request` 与 `MovementTickHandler` 分工**：`MovementHost.Request` 只做"把
    `MoveRequest` 转译成一条 `Kind == "move"` 的 `Intent` 并 `SubmitIntent`"这一件事，不直接改变任何

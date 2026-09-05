@@ -245,17 +245,26 @@ Write-Host ("  assets/_placeholder/sprites -> StreamingAssets/GameFoundation/spr
 $audioSyncResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "assets\_placeholder\sfx") -DestDir (Join-Path $StreamingAssetsRoot "audio")
 Write-Host ("  assets/_placeholder/sfx -> StreamingAssets/GameFoundation/audio（加载器路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $audioSyncResult.Total, $audioSyncResult.Copied, $audioSyncResult.Skipped, $audioSyncResult.Removed)
 
+# ADR-0016 决策 5 新增 ResourceKind.Effect：UnityResourceLoader.ResolveEffectDir 按
+# "GameFoundation/vfx/<name>/" 解析（见该方法判断记录），与 assets/_placeholder/vfx/<name>/
+# 同一套相对路径，因此整棵 vfx 目录树同步过去、不改名（不同于 sprites/sfx 需要改名到加载器
+# 期望的扁平子目录，vfx 本身已经是"<kind 子目录>/<name>/"两级结构，直接对应）。
+$vfxSyncResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "assets\_placeholder\vfx") -DestDir (Join-Path $StreamingAssetsRoot "vfx")
+Write-Host ("  assets/_placeholder/vfx -> StreamingAssets/GameFoundation/vfx（ResourceKind.Effect 加载器路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $vfxSyncResult.Total, $vfxSyncResult.Copied, $vfxSyncResult.Skipped, $vfxSyncResult.Removed)
+
 $totalContentFiles = (Get-ChildItem -Path $StreamingAssetsRoot -Recurse -File -ErrorAction SilentlyContinue).Count
-Write-Host ("StreamingAssets/GameFoundation/ 下文件总数（含以上四棵树的并集，sprites/audio 与 assets/_placeholder 下同名文件各自独立计数）：{0}" -f $totalContentFiles)
+Write-Host ("StreamingAssets/GameFoundation/ 下文件总数（含以上五棵树的并集，sprites/audio/vfx 与 assets/_placeholder 下同名文件各自独立计数）：{0}" -f $totalContentFiles)
 
 # ---------------------------------------------------------------------------
-# 4.1 U3 新增：占位场景/导航资源文件（供 Core.Foundation.SceneRouter.SceneRouter.LoadScene 通过
-#     world.map 记录里既有的 scene_ref="scene.sample_field"/nav_ref="nav.sample_field" 解析出的
-#     UnityResourceLoader.ResourceKind.DataTable 路径 StreamingAssets/GameFoundation/data/
-#     sample_field.json 找到一个可读文件（两个引用去掉类别前缀后恰好是同一个文件名
-#     "sample_field"，见该加载器 ResolvePath 的"去掉类别前缀、点号换下划线"规则——不是 bug，
-#     SceneRouter 只要求文件存在且可解码为文本，从不解析其内容，见 SceneRouter.cs 类型注释
-#     "资源种类映射"判断记录）。
+# 4.1 占位场景/导航资源文件（供 Core.Foundation.SceneRouter.SceneRouter.LoadScene 通过 world.map
+#     记录里既有的 scene_ref="scene.sample_field"/nav_ref="nav.sample_field" 分别以
+#     ResourceKind.Scene/ResourceKind.NavMesh 解析出的 UnityResourceLoader 路径
+#     StreamingAssets/GameFoundation/scene/sample_field.json、
+#     StreamingAssets/GameFoundation/nav_mesh/sample_field.json 各自找到一个可读文件（ADR-0016
+#     决策 5 给 ResourceKind 增补了 Scene/NavMesh 专用取值，两类资源不再共用同一个 "data/"
+#     路径——此前两者去掉类别前缀后恰好是同一个文件名，借用同一份字节，是 Scene/NavMesh 取值
+#     补齐之前的过渡写法，现按各自子目录分别生成，内容仍然不重要：SceneRouter 只要求文件存在
+#     且可解码为文本，从不解析其内容，见 SceneRouter.cs 类型注释）。
 #
 #     判断记录（为什么在 build.ps1 生成而不是放进 data/_sample 或 assets/_placeholder）：
 #     data/_sample 的可改动范围限定于"UI/Shell 需要补的示例行"（登记表数据），这个文件不是任何
@@ -263,18 +272,26 @@ Write-Host ("StreamingAssets/GameFoundation/ 下文件总数（含以上四棵�
 #     assets/_placeholder 是本任务硬性规则明确不动的目录。该资源在 SceneRouter 眼里是纯粹的
 #     "占位字节"（内容完全不解析），属于构建期产物而非源内容，因此选择在 build.ps1（内容同步
 #     步骤，允许改动）里直接生成，与 StreamingAssets/GameFoundation/ 其余产物同一治理方式
-#     （构建时产生、.gitignore、不进源码库）。此为框架尚未提供"场景/导航资源内容管线"这一已知
-#     契约缺口（见 SceneRouter.cs 类型注释、任务书"资源种类映射"判断记录）的最小可行绕过，供
-#     设计层复核是否需要走 ADR 给 ResourceKind 增补 Scene/NavMesh 专用取值。
+#     （构建时产生、.gitignore、不进源码库）。框架层面的"场景/导航资源内容管线"仍是已知能力
+#     缺口（ResourceKind 已经区分种类，但具体场景/导航数据格式与生产管线不在本次范围内）。
 # ---------------------------------------------------------------------------
-$sceneResourceDir = Join-Path $StreamingAssetsRoot "data"
+$sceneResourceDir = Join-Path $StreamingAssetsRoot "scene"
 if (-not (Test-Path $sceneResourceDir)) {
     New-Item -ItemType Directory -Force -Path $sceneResourceDir | Out-Null
 }
 $sceneResourcePath = Join-Path $sceneResourceDir "sample_field.json"
-$sceneResourceContent = '{"_placeholder":true,"_note":"SceneRouter 场景/导航资源占位字节，内容不被解析，见 build.ps1 判断记录"}'
+$sceneResourceContent = '{"_placeholder":true,"_note":"SceneRouter 场景资源占位字节，内容不被解析，见 build.ps1 判断记录"}'
 Set-Content -Path $sceneResourcePath -Value $sceneResourceContent -NoNewline -Encoding utf8
-Write-Host "  已生成占位场景/导航资源：$sceneResourcePath（scene.sample_field 与 nav.sample_field 共用同一份字节）"
+Write-Host "  已生成占位场景资源：$sceneResourcePath（scene.sample_field）"
+
+$navResourceDir = Join-Path $StreamingAssetsRoot "nav_mesh"
+if (-not (Test-Path $navResourceDir)) {
+    New-Item -ItemType Directory -Force -Path $navResourceDir | Out-Null
+}
+$navResourcePath = Join-Path $navResourceDir "sample_field.json"
+$navResourceContent = '{"_placeholder":true,"_note":"SceneRouter 导航资源占位字节，内容不被解析，见 build.ps1 判断记录"}'
+Set-Content -Path $navResourcePath -Value $navResourceContent -NoNewline -Encoding utf8
+Write-Host "  已生成占位导航资源：$navResourcePath（nav.sample_field）"
 
 # ---------------------------------------------------------------------------
 # 5. 可选：打分发包 dist/<version>/

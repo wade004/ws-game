@@ -209,7 +209,7 @@ namespace Tests.Carriers.Unit
         public void Navigation_BlockedPath_RaisesMoveFailedCallback_AndDoesNotMove()
         {
             var nav = new StubNavigation2D();
-            nav.AddBlockingRect(MapId, new Vec2(1, -1), new Vec2(2, 1));
+            nav.SetBlocking(MapId, new[] { new Rect(new Vec2(1, -1), new Vec2(2, 1)) });
             var fixture = Build(moveSpeed: 5.0, navigation: nav);
 
             Id? failedUnit = null;

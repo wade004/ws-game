@@ -18,6 +18,7 @@
 //     算法与 adapters/stub/StubClock.Advance 的固定步累积逻辑一致。
 using System;
 using System.Collections.Generic;
+using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
 using UnityEngine;
 
@@ -25,15 +26,22 @@ namespace Adapter.Unity.EngineAdapter
 {
     public sealed class UnityClock : IClock
     {
+        private sealed class FrameRegistration
+        {
+            public FrameCallback Callback = null!;
+            public bool Disposed;
+        }
+
         private sealed class FixedStepRegistration
         {
             public double StepSeconds;
             public FixedStepCallback Callback = null!;
             public double Accumulator;
+            public bool Disposed;
         }
 
         private double _lastFrameDelta;
-        private readonly List<FrameCallback> _frameCallbacks = new List<FrameCallback>();
+        private readonly List<FrameRegistration> _frameCallbacks = new List<FrameRegistration>();
         private readonly List<FixedStepRegistration> _fixedSteps = new List<FixedStepRegistration>();
 
         /// <summary>
@@ -46,27 +54,44 @@ namespace Adapter.Unity.EngineAdapter
 
         public double GetDeltaSeconds() => _lastFrameDelta;
 
-        public void OnFrame(FrameCallback callback)
+        /// <summary>返回 <see cref="SubscriptionHandle"/>（ADR-0016 决策 1）：主循环在场景/世界
+        /// 重建前必须退订旧世界注册的全部固定步回调，避免旧回调残留导致重复推进。</summary>
+        public SubscriptionHandle OnFrame(FrameCallback callback)
         {
             if (callback == null) throw new ArgumentNullException(nameof(callback));
-            _frameCallbacks.Add(callback);
+            var registration = new FrameRegistration { Callback = callback };
+            _frameCallbacks.Add(registration);
+            return new SubscriptionHandle(() =>
+            {
+                registration.Disposed = true;
+                _frameCallbacks.Remove(registration);
+            });
         }
 
-        public void RequestFixedStep(double stepSeconds, FixedStepCallback callback)
+        public SubscriptionHandle RequestFixedStep(double stepSeconds, FixedStepCallback callback)
         {
             if (stepSeconds <= 0) throw new ArgumentOutOfRangeException(nameof(stepSeconds), "步长必须为正数");
             if (callback == null) throw new ArgumentNullException(nameof(callback));
-            _fixedSteps.Add(new FixedStepRegistration { StepSeconds = stepSeconds, Callback = callback, Accumulator = 0 });
+            var registration = new FixedStepRegistration { StepSeconds = stepSeconds, Callback = callback, Accumulator = 0 };
+            _fixedSteps.Add(registration);
+            return new SubscriptionHandle(() =>
+            {
+                registration.Disposed = true;
+                _fixedSteps.Remove(registration);
+            });
         }
 
         /// <summary>由 <see cref="UnityEngineHost"/>.Update 调用：触发全部帧回调、更新
-        /// GetDeltaSeconds() 的返回值。</summary>
+        /// GetDeltaSeconds() 的返回值。用快照遍历，回调内部退订不会破坏本次遍历、也不会导致
+        /// 刚退订的回调在本次调用内被再次触发（同 <c>StubClock.Advance</c> 判断记录）。</summary>
         internal void TickFrame(double deltaSeconds)
         {
             _lastFrameDelta = deltaSeconds;
-            for (var i = 0; i < _frameCallbacks.Count; i++)
+            var snapshot = _frameCallbacks.ToArray();
+            for (var i = 0; i < snapshot.Length; i++)
             {
-                _frameCallbacks[i](deltaSeconds);
+                if (snapshot[i].Disposed) continue;
+                snapshot[i].Callback(deltaSeconds);
             }
         }
 
@@ -74,19 +99,25 @@ namespace Adapter.Unity.EngineAdapter
         /// 独立累积结算，与 <c>StubClock.Advance</c> 的固定步循环算法一致。</summary>
         internal void TickFixedStep(double deltaSeconds)
         {
-            for (var i = 0; i < _fixedSteps.Count; i++)
+            var snapshot = _fixedSteps.ToArray();
+            for (var i = 0; i < snapshot.Length; i++)
             {
-                var registration = _fixedSteps[i];
+                var registration = snapshot[i];
+                if (registration.Disposed) continue;
                 registration.Accumulator += deltaSeconds;
                 while (registration.Accumulator >= registration.StepSeconds)
                 {
+                    if (registration.Disposed) break;
                     registration.Accumulator -= registration.StepSeconds;
                     registration.Callback(registration.StepSeconds);
                 }
             }
         }
 
-        /// <summary>测试/诊断用：已登记的固定步回调数量。</summary>
+        /// <summary>测试/诊断用：已登记（未退订）的固定步回调数量。</summary>
         public int FixedStepRegistrationCount => _fixedSteps.Count;
+
+        /// <summary>测试/诊断用：已登记（未退订）的帧回调数量。</summary>
+        public int FrameRegistrationCount => _frameCallbacks.Count;
     }
 }

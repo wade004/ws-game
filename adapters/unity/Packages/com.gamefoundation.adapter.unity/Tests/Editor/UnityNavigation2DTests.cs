@@ -24,12 +24,36 @@ namespace Adapter.Unity.Tests.Editor
         }
 
         [Test]
-        public void RegisterBlockingRect_MakesPointInsideUnwalkable()
+        public void SetBlocking_ContractMethod_MakesPointInsideUnwalkable()
         {
-            _nav.RegisterBlockingRect(MapId, new Vec2(0, 0), new Vec2(2, 2));
+            // 契约方法（INavigation2D / ADR-0016 决策 7）：此前的非契约便捷方法 RegisterBlockingRect
+            // 已删除，调用方自行收集矩形列表后一次性调用 SetBlocking。
+            _nav.SetBlocking(MapId, new[] { new Rect(new Vec2(0, 0), new Vec2(2, 2)) });
 
             Assert.IsFalse(_nav.IsWalkable(MapId, new Vec2(1, 1)));
             Assert.IsTrue(_nav.IsWalkable(MapId, new Vec2(5, 5)));
+        }
+
+        [Test]
+        public void SetBlocking_CalledAgain_ReplacesPreviousBatch_DoesNotAccumulate()
+        {
+            _nav.SetBlocking(MapId, new[] { new Rect(new Vec2(0, 0), new Vec2(2, 2)) });
+            Assert.IsFalse(_nav.IsWalkable(MapId, new Vec2(1, 1)));
+
+            _nav.SetBlocking(MapId, new[] { new Rect(new Vec2(10, 10), new Vec2(12, 12)) });
+
+            Assert.IsTrue(_nav.IsWalkable(MapId, new Vec2(1, 1)), "第二次 SetBlocking 应整批替换，不是追加");
+            Assert.IsFalse(_nav.IsWalkable(MapId, new Vec2(11, 11)));
+        }
+
+        [Test]
+        public void Clear_ContractMethod_RemovesAllBlockingForMap()
+        {
+            _nav.SetBlocking(MapId, new[] { new Rect(new Vec2(0, 0), new Vec2(2, 2)) });
+
+            _nav.Clear(MapId);
+
+            Assert.IsTrue(_nav.IsWalkable(MapId, new Vec2(1, 1)));
         }
 
         [Test]
@@ -49,11 +73,15 @@ namespace Adapter.Unity.Tests.Editor
         public void FindPath_GoalFullyEnclosed_ReturnsNull()
         {
             // 用四条互相咬合、无缝隙的阻挡矩形围成一个实心方框，把起点完全困在框内
-            // （上下两条横贯整个宽度，覆盖四角，避免 8 方向寻路从对角缝隙穿出）。
-            _nav.RegisterBlockingRect(MapId, new Vec2(-6, 4), new Vec2(6, 6));    // 上（含四角）
-            _nav.RegisterBlockingRect(MapId, new Vec2(-6, -6), new Vec2(6, -4)); // 下（含四角）
-            _nav.RegisterBlockingRect(MapId, new Vec2(-6, -4), new Vec2(-4, 4)); // 左
-            _nav.RegisterBlockingRect(MapId, new Vec2(4, -4), new Vec2(6, 4));   // 右
+            // （上下两条横贯整个宽度，覆盖四角，避免 8 方向寻路从对角缝隙穿出）。一次性经
+            // SetBlocking 整批登记（不再是逐条 RegisterBlockingRect 追加）。
+            _nav.SetBlocking(MapId, new[]
+            {
+                new Rect(new Vec2(-6, 4), new Vec2(6, 6)),    // 上（含四角）
+                new Rect(new Vec2(-6, -6), new Vec2(6, -4)),  // 下（含四角）
+                new Rect(new Vec2(-6, -4), new Vec2(-4, 4)),  // 左
+                new Rect(new Vec2(4, -4), new Vec2(6, 4)),    // 右
+            });
             _nav.BuildNavMesh(MapId);
 
             var path = _nav.FindPath(MapId, new Vec2(0, 0), new Vec2(10, 10));
@@ -64,7 +92,7 @@ namespace Adapter.Unity.Tests.Editor
         [Test]
         public void Raycast_HitsBlockingRect_ReturnsEntryPoint()
         {
-            _nav.RegisterBlockingRect(MapId, new Vec2(2, -1), new Vec2(4, 1));
+            _nav.SetBlocking(MapId, new[] { new Rect(new Vec2(2, -1), new Vec2(4, 1)) });
 
             var hit = _nav.Raycast(MapId, new Vec2(0, 0), new Vec2(10, 0));
 

@@ -126,5 +126,21 @@ namespace Core.Foundation.EngineAdapter
         Id? Nearest(Vec2 point, QueryFilter filter);
 
         bool HasLineOfSight(Vec2 from, Vec2 to);
+
+        /// <summary>
+        /// 登记一个对象进空间索引：WorldSim 在对象创建时调用，把该对象的位置、半径与
+        /// 过滤用标签登记进空间索引（见 ADR-0016 决策 7）。以上查询方法只查询已登记的对象，
+        /// 登记时机与登记内容由调用方负责，接口本身不主动扫描场景。
+        /// </summary>
+        void Register(Id id, Vec2 position, double radius, IReadOnlyList<string> tags);
+
+        /// <summary>对象位置变化时调用，同步该对象在空间索引里的位置。</summary>
+        void UpdatePosition(Id id, Vec2 position);
+
+        /// <summary>对象销毁时调用，从空间索引移除该对象的登记。</summary>
+        void Unregister(Id id);
+
+        /// <summary>场景卸载时调用，清空整个空间索引。</summary>
+        void Clear();
     }
 }

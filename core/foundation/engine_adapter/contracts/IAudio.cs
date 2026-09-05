@@ -39,7 +39,13 @@ namespace Core.Foundation.EngineAdapter
     /// </summary>
     public interface IAudio
     {
-        SfxHandle PlaySfx(Id soundId, double volume, double pitch);
+        /// <summary>
+        /// position 为空时按无空间衰减方式播放（与既有行为一致，向后兼容）；非空时允许实现
+        /// 按二维位置做空间衰减/声像（对应 09_表现层.md 第 5.3 节 SfxPlayer.Play 的 at 参数）；
+        /// 不支持空间音频的实现可以忽略该参数按无空间方式播放，但不得因该参数报错或拒绝播放
+        /// （见 ADR-0016 决策 3）。
+        /// </summary>
+        SfxHandle PlaySfx(Id soundId, double volume, double pitch, Vec2? position);
 
         void StopSfx(SfxHandle handle);
 

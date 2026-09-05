@@ -73,11 +73,10 @@ common/
   各 L3/L4 模块 `Entity.Kind` 该写什么字符串。目前代码库只有 `"player"`/`"creature"`/`"loot"` 三个
   已落地取值；`EntityKindMapping` 为尚未落地的 `gobj`/`projectile`/`area_trigger` 三个模块先占位
   `"gobj"`/`"projectile"`/`"area_trigger"`，留待这些模块落地后由设计层核对一致性。
-- **`IRenderer2D.SetTransform` 没有高度参数**：09 第 3.4 节要求高度偏移"只平移精灵……的纵向绘制
-  位置"，`IRenderer3D.SetPlacement` 有显式 `height` 参数，但 `IRenderer2D.SetTransform` 没有——
-  `presentation/render` 的 `SpriteViewBase` 用 `SetShaderParam` 的既有通用参数通道做了一个记录在案
-  的工作绕：详见 `presentation/render/README.md`"契约缺口"一节，建议 02 文档评估是否给
-  `IRenderer2D` 补一个高度/像素纵向偏移参数。
+- **`IRenderer2D.SetTransform` 没有高度参数——已由 ADR-0016 解决**：`SetTransform` 现增加了
+  `height` 参数（与 `IRenderer3D.SetPlacement` 对齐），`presentation/render` 的 `SpriteViewBase`
+  已改为经这个正式参数传递高度，不再借用 `SetShaderParam` 通道，详见
+  `presentation/render/README.md`"契约缺口"一节。
 （原"裸档位名与 `Id` 格式的前缀不一致"契约缺口已由设计层拍板并落地为 14 第 2.1 节 2026-09-05 勘误：
 运行期方向档位 Id 固定为 `"dir.<裸档位名>"`，文件名/标注文件/工具链一律用裸档位名，不再是待核对的
 契约缺口，见 `DirectionSlots` 类型注释"Id 前缀已拍板结论"。）

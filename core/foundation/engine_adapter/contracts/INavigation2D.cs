@@ -26,5 +26,16 @@ namespace Core.Foundation.EngineAdapter
         /// 视线是否受阻即 "Raycast 返回值是否非空"。
         /// </summary>
         Vec2? Raycast(Id mapId, Vec2 from, Vec2 to);
+
+        /// <summary>
+        /// 登记一批运行时动态阻挡矩形（如临时关闭的门、被摧毁的可破坏物），供
+        /// IsWalkable/FindPath/Raycast 在原有静态导航数据之上叠加判定，不需要重新
+        /// BuildNavMesh 整图（见 ADR-0016 决策 7）。同一 mapId 再次调用以传入的整批矩形
+        /// 替换此前登记的动态阻挡（不是追加）。
+        /// </summary>
+        void SetBlocking(Id mapId, IReadOnlyList<Rect> rects);
+
+        /// <summary>清空某地图的全部动态阻挡登记，供场景卸载时重置。</summary>
+        void Clear(Id mapId);
     }
 }

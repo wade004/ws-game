@@ -29,7 +29,7 @@ namespace Adapter.Unity.Tests.Runtime
         public void PlaySfx_MissingClip_ReturnsHandleWithoutThrowing()
         {
             SfxHandle handle = default;
-            Assert.DoesNotThrow(() => handle = _audio.PlaySfx(new Id("sfx.sample_hit"), 1.0, 1.0));
+            Assert.DoesNotThrow(() => handle = _audio.PlaySfx(new Id("sfx.sample_hit"), 1.0, 1.0, null));
             Assert.Greater(handle.Value, 0);
         }
 
@@ -42,8 +42,25 @@ namespace Adapter.Unity.Tests.Runtime
         [Test]
         public void PlaySfx_ThenStopSfx_DoesNotThrow()
         {
-            var handle = _audio.PlaySfx(new Id("sfx.sample_hit"), 1.0, 1.0);
+            var handle = _audio.PlaySfx(new Id("sfx.sample_hit"), 1.0, 1.0, null);
             Assert.DoesNotThrow(() => _audio.StopSfx(handle));
+        }
+
+        [Test]
+        public void PlaySfx_WithPosition_SetsSpatialBlendAndPosition()
+        {
+            // ADR-0016 决策 3：position 非空时启用 2D 声像（见 UnityAudio.PlaySfx 判断记录）。
+            SfxHandle handle = default;
+            Assert.DoesNotThrow(() => handle = _audio.PlaySfx(new Id("sfx.sample_hit"), 1.0, 1.0, new Vec2(3, 4)));
+            Assert.Greater(handle.Value, 0);
+        }
+
+        [Test]
+        public void PlaySfx_WithoutPosition_DoesNotThrow()
+        {
+            SfxHandle handle = default;
+            Assert.DoesNotThrow(() => handle = _audio.PlaySfx(new Id("sfx.sample_hit"), 1.0, 1.0, null));
+            Assert.Greater(handle.Value, 0);
         }
 
         [Test]

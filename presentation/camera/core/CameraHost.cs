@@ -110,7 +110,7 @@ namespace Presentation.Camera
             {
                 if (presets[i].Id.Equals(shakePresetId))
                 {
-                    _camera.Shake(presets[i].Amplitude, presets[i].Duration);
+                    _camera.Shake(presets[i].Amplitude, presets[i].Duration, presets[i].Frequency);
                     return;
                 }
             }

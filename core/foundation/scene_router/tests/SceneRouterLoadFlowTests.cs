@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Adapters.Stub;
 using Core.Foundation.AppLifecycle;
 using Core.Foundation.Common;
 using Core.Foundation.SceneRouter;
@@ -114,6 +115,40 @@ namespace Tests.Foundation.SceneRouter
             Assert.Single(destroyedIds);
             Assert.Equal(entity.EntityId, destroyedIds[0]);
             Assert.Equal(new Id("world.forest_path"), harness.Router.GetCurrentScene());
+        }
+
+        [Fact]
+        public void SecondLoadScene_ClearsSpatialIndexAndNavigationBlocking_WhenInjected()
+        {
+            // ADR-0016 决策 7 场景卸载级联清理：SceneRouter 注入 ISpatialQuery/INavigation2D 时，
+            // 卸载旧场景应额外整图兜底 Clear（配合 ClearAll 派发的 entity.destroyed 逐实体
+            // Unregister，见 EntitySpatialSyncHostTests 覆盖逐实体路径；本测试覆盖"就算没有任何
+            // 实体经事件同步注册，遗留的登记也会被整图清空"这一兜底路径）。
+            var rows = "[" + SceneRouterTestSupport.TownSquareRow + "," + SceneRouterTestSupport.ForestPathRow + "]";
+            var spatial = new StubSpatialQuery();
+            var navigation = new StubNavigation2D();
+            var harness = new SceneRouterTestSupport.Harness(rows, deferCallbacks: true, spatial: spatial, navigation: navigation);
+            harness.App.RequestTransition(AppState.MainMenu);
+
+            harness.Router.LoadScene(new Id("world.town_square"));
+            harness.Loader.CompletePending(new Id("scene.town_square"));
+            harness.Loader.CompletePending(new Id("nav.town_square"));
+            harness.Router.Update();
+            Assert.Equal(AppState.InWorld, harness.App.GetState());
+
+            // 模拟遗留登记（不经由 entity.destroyed 同步的路径），验证整图兜底 Clear 生效。
+            var townSquareMapId = new Id("world.town_square");
+            spatial.Register(new Id("gobj.leftover"), new Vec2(1, 1), 0.1, new[] { "gobj" });
+            navigation.SetBlocking(townSquareMapId, new[] { new Core.Foundation.Common.Rect(new Vec2(0, 0), new Vec2(5, 5)) });
+            Assert.False(navigation.IsWalkable(townSquareMapId, new Vec2(1, 1)));
+
+            harness.Router.LoadScene(new Id("world.forest_path"));
+            harness.Loader.CompletePending(new Id("scene.forest_path"));
+            harness.Loader.CompletePending(new Id("nav.forest_path"));
+            harness.Router.Update();
+
+            Assert.Null(spatial.Nearest(new Vec2(1, 1), Core.Foundation.EngineAdapter.QueryFilter.None));
+            Assert.True(navigation.IsWalkable(townSquareMapId, new Vec2(1, 1)));
         }
 
         [Fact]

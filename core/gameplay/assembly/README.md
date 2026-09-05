@@ -11,7 +11,9 @@
 3. `registry.LoadAll()`。
 4. `new GameplayAssembly(bus, registry, rng, world, spatial, playerUnitProvider, playerFactionId, ...)`
    拿到全部十个 L4 宿主 + `AppState`/`Hooks`/`Reward`/`ExprHostFactory`。
-5. 场景切换完成后调用一次 `GameplayAssembly.EnterMap(mapId, playerUnitId)`。
+5. 场景切换完成后调用一次 `GameplayAssembly.EnterMap(mapId, playerUnitId)`；旧场景卸载前
+   （场景路由 `pre_unload` 钩子）调用一次 `GameplayAssembly.LeaveMap(mapId)`（ADR-0016 背景一节
+   联动发现的既有缺口——此前只有"进图"入口，见该方法判断记录）。
 
 ## 目录
 
@@ -22,6 +24,8 @@ assembly/
   GameplayAssembly.cs        L4 组装根
   tests/
     GameplayAssemblyTests.cs 烟雾测试（空数据装配、EnterMap 空图不抛异常）
+    GameplayAssemblyMapReloadTests.cs 场景卸载级联清理（进图生成生物→LeaveMap→再进图 tick 数十次
+      不抛异常，见 GameplayAssembly.LeaveMap 判断记录）
 ```
 
 ## 装配顺序（`GameplayAssembly` 构造函数内部步骤）

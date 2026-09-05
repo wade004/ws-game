@@ -63,8 +63,10 @@
    解析委托替换掉这一处（预留在 `FeedbackBinder.DispatchFloatingTextAction` 的 `Literal` 分支，
    已用注释标出）。
 7. **`sfx.def`/`play_sfx` 没有挂接坐标**：09 第 6.1 节 `PlaySfx(sfxId)` 伪代码本就没有 `attach`
-   字段，`CompositeFeedbackSink.PlaySfx` 统一传 `at: null`（非定位音效），与
-   `Presentation.VfxSfx.README.md` 记录的 `IAudio` 契约缺口一致。
+   字段，`CompositeFeedbackSink.PlaySfx` 统一传 `at: null`（非定位音效）——这是本模块按伪代码字面
+   拍板的设计选择，不是契约缺口：`IAudio.PlaySfx` 已由 ADR-0016 补上 `position` 参数，`at: null`
+   经 `SfxPlayer.Play` 透传后就是"按无空间衰减方式播放"，行为与此前一致；`play_sfx` 动作本身若要
+   携带挂接坐标，需要先在 `feedback.binding` 数据层给该动作类型补字段（不在本模块契约范围）。
 8. **`FeedbackRuleValidator` 的校验范围**：`FeedbackAction` 是强类型判别联合（见该类型注释），
    "action kind 合法""params 必填"两项在 `FeedbackRule.FromRecord` 解析期已经由类型系统/构造函数
    强制满足——一条规则能被构造出来就已经通过这两项；`FeedbackRuleValidator` 只补运行期/跨记录才能

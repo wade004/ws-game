@@ -8,6 +8,7 @@ using Core.Numbers.Faction;
 using Core.Numbers.PowerSet;
 using Core.Rules.Ai;
 using Core.Rules.Common;
+using Core.Foundation.SimLoop;
 using Xunit;
 
 namespace Tests.Rules.Ai
@@ -245,6 +246,12 @@ namespace Tests.Rules.Ai
                     new[] { "unitId", "oldState", "newState" }),
                 new EventDefinition(RulesEventKeys.AiDecisionMade, "ai",
                     new[] { "unitId", "decisionId" }),
+                // AiHost 订阅 entity.destroyed 做场景卸载级联清理（见 AiHostCascadeCleanupTests，
+                // ADR-0016 背景一节联动发现的既有缺口），测试需要能合法 PublishImmediate 这个 key。
+                new EventDefinition(SimEventKeys.EntityCreated, "entity",
+                    new[] { "entityId", "kind", "displayId" }),
+                new EventDefinition(SimEventKeys.EntityDestroyed, "entity",
+                    new[] { "entityId" }),
             });
             return new EventBus(catalog);
         }

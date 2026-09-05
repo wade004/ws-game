@@ -10,6 +10,9 @@ namespace Presentation.VfxSfx.Core
     /// <see cref="IVfxPlayer"/> 的默认实现（见 09_表现层.md 第 5.3 节）：查 <c>vfx.def</c> 得到
     /// <see cref="VfxAttachMode"/>，据此解释调用方传入的 <see cref="VfxAttach"/>，经
     /// <see cref="IRenderer2D.EmitParticle"/> 播放（表现层铁律 P4：只经 L-1 接口绘制）。
+    /// <c>vfx.def.resource_ref</c> 首次被引用（<see cref="Spawn"/> 首次用到某个 <c>resourceRef</c>）
+    /// 时以 <see cref="ResourceKind.Effect"/> 触发一次 <see cref="IResourceLoader.LoadAsync"/>
+    /// （ADR-0016 决策 5、6："谁首次引用谁加载"，见 <see cref="Presentation.Common.ResourceReferenceTracker"/>）。
     /// </summary>
     public sealed class VfxPlayer : IVfxPlayer
     {
@@ -21,12 +24,15 @@ namespace Presentation.VfxSfx.Core
         private readonly EntityPositionResolver? _entityPositionResolver;
         private readonly IPresentationDiagnostics _diagnostics;
         private readonly VfxPool _pool;
+        private readonly Presentation.Common.ResourceReferenceTracker? _resourceTracker;
 
         /// <summary>句柄 → 所属 <c>vfx.def.category</c>，供 <see cref="Stop"/> 时同步从
         /// <see cref="_pool"/> 摘除记录（<see cref="VfxPool.Untrack"/> 需要遍历全部分类，这里
         /// 反向索引一份避免每次 Stop 都线性扫描全部池）。</summary>
         private readonly Dictionary<ParticleHandle, string> _handleCategory = new Dictionary<ParticleHandle, string>();
 
+        /// <summary><paramref name="resourceLoader"/> 可选：未注入时不主动触发任何资源加载
+        /// （沿用注入前的行为，供不接 <see cref="IResourceLoader"/> 的最小测试/集成场景使用）。</summary>
         public VfxPlayer(
             IRenderer2D renderer2D,
             ICamera camera,
@@ -34,7 +40,8 @@ namespace Presentation.VfxSfx.Core
             VfxOptions? options = null,
             AnchorResolver? anchorResolver = null,
             EntityPositionResolver? entityPositionResolver = null,
-            IPresentationDiagnostics? diagnostics = null)
+            IPresentationDiagnostics? diagnostics = null,
+            IResourceLoader? resourceLoader = null)
         {
             _renderer2D = renderer2D ?? throw new ArgumentNullException(nameof(renderer2D));
             _camera = camera ?? throw new ArgumentNullException(nameof(camera));
@@ -44,6 +51,7 @@ namespace Presentation.VfxSfx.Core
             _entityPositionResolver = entityPositionResolver;
             _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
             _pool = new VfxPool(_options, StopInternal);
+            _resourceTracker = resourceLoader != null ? new Presentation.Common.ResourceReferenceTracker(resourceLoader) : null;
         }
 
         public ParticleHandle? Spawn(Id vfxId, VfxAttach at, IReadOnlyDictionary<string, double>? parameters)
@@ -78,6 +86,7 @@ namespace Presentation.VfxSfx.Core
                 return null;
             }
 
+            _resourceTracker?.EnsureLoading(def.ResourceRef, ResourceKind.Effect);
             var handle = _renderer2D.EmitParticle(def.ResourceRef, worldPos.Value, emitParams);
             _handleCategory[handle] = def.Category;
             _pool.Track(def.Category, handle, def.Lifetime);

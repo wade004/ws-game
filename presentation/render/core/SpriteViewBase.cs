@@ -23,14 +23,6 @@ namespace Presentation.Render
     /// （重写 <see cref="OnEvent"/>）或后续 <c>presentation/feedback_binder</c> 决定。
     /// </para>
     /// <para>
-    /// 契约缺口——高度偏移无专用参数（见 <c>presentation/common/README.md</c>"契约缺口"一节）：
-    /// <see cref="IRenderer2D.SetTransform"/> 没有高度参数（不同于 <c>IRenderer3D.SetPlacement</c>
-    /// 显式携带 <c>height</c>），本类型把换算出的像素高度经既有的
-    /// <see cref="IRenderer2D.SetShaderParam"/> 通道（参数名 <see cref="HeightOffsetShaderParam"/>）
-    /// 传给引擎侧实现，作为一个可随时替换的工作绕；建议 02 文档评估是否给
-    /// <see cref="IRenderer2D.SetTransform"/> 补一个高度/像素纵向偏移参数。
-    /// </para>
-    /// <para>
     /// 契约缺口——<c>sprite_set_id</c>/纸娃娃层名的字符串到 <see cref="Id"/> 转换：
     /// <see cref="SpriteInfo.SpriteSetId"/> 类型是 <see cref="string"/>，<see cref="Core.Foundation.EngineAdapter.IRenderer2D.CreateSpriteInstance"/>
     /// 需要 <see cref="Id"/>；本类型假定内容已按现有测试夹具的惯例把它写成合法的 <c>Id</c> 格式
@@ -41,10 +33,6 @@ namespace Presentation.Render
     /// </summary>
     public abstract class SpriteViewBase : IView
     {
-        /// <summary>高度偏移换算出的像素值经 <see cref="IRenderer2D.SetShaderParam"/> 传递时使用的
-        /// 参数名（见类型注释"契约缺口"）。</summary>
-        public const string HeightOffsetShaderParam = "height_offset_px";
-
         protected IRenderer2D Renderer { get; }
 
         protected IRenderConventionHost Conventions { get; }
@@ -61,11 +49,18 @@ namespace Presentation.Render
 
         private bool _destroyed;
 
+        private readonly Presentation.Common.ResourceReferenceTracker? _resourceTracker;
+
+        /// <summary><paramref name="resourceLoader"/> 可选（同 <c>VfxPlayer</c>/<c>SfxPlayer</c>
+        /// 判断记录）：注入时构造期对 <c>sprite_set_id</c>、<see cref="SetPaperdollLayers"/> 期间对
+        /// 每个新解析出的纸娃娃层资源 id，均以 <see cref="ResourceKind.Image"/> 触发一次
+        /// <see cref="IResourceLoader.LoadAsync"/>（ADR-0016 决策 6："谁首次引用谁加载"）。</summary>
         protected SpriteViewBase(
             IRenderer2D renderer,
             IRenderConventionHost conventions,
             DisplayInfo displayInfo,
-            RenderOptions? options = null)
+            RenderOptions? options = null,
+            IResourceLoader? resourceLoader = null)
         {
             Renderer = renderer ?? throw new ArgumentNullException(nameof(renderer));
             Conventions = conventions ?? throw new ArgumentNullException(nameof(conventions));
@@ -79,8 +74,10 @@ namespace Presentation.Render
             }
 
             Options = options ?? new RenderOptions();
+            _resourceTracker = resourceLoader != null ? new Presentation.Common.ResourceReferenceTracker(resourceLoader) : null;
 
             var spriteSetId = Id.Parse(DisplayInfo.Sprite.SpriteSetId);
+            _resourceTracker?.EnsureLoading(spriteSetId, ResourceKind.Image);
             Handle = Renderer.CreateSpriteInstance(spriteSetId);
         }
 
@@ -102,10 +99,8 @@ namespace Presentation.Render
             var sortY = Conventions.ComputeSortY(pos, DisplayInfo.SortOffset);
             var (_, flipX) = Conventions.ResolveDirectionSlot(facing, DisplayInfo.Sprite!);
 
-            Renderer.SetTransform(Handle, pos, sortY, RenderLayers.Units, 0.0, DisplayInfo.Scale, flipX);
-
             var heightPixels = Conventions.HeightOffsetToPixels(height, Options.PixelsPerUnit);
-            Renderer.SetShaderParam(Handle, HeightOffsetShaderParam, heightPixels);
+            Renderer.SetTransform(Handle, pos, heightPixels, sortY, RenderLayers.Units, 0.0, DisplayInfo.Scale, flipX);
         }
 
         /// <summary>用给定层名顺序与当前朝向重新合成纸娃娃层并应用到 <see cref="IRenderer2D.SetLayers"/>
@@ -119,7 +114,9 @@ namespace Presentation.Render
             var resourceIds = new List<Id>(placements.Count);
             for (var i = 0; i < placements.Count; i++)
             {
-                resourceIds.Add(ResolveLayerResourceId(placements[i]));
+                var resourceId = ResolveLayerResourceId(placements[i]);
+                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image);
+                resourceIds.Add(resourceId);
             }
 
             Renderer.SetLayers(Handle, resourceIds);

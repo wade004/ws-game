@@ -1,17 +1,17 @@
 #nullable enable
 // UnityCamera：ICamera 的 Unity 引擎实现。
 //
-// 判断记录（坐标系与投影简化）：本框架的既有约定（见 presentation/render/core/SpriteViewBase.cs
-// 顶部"契约缺口"注释与 ProjectSetup.cs 把 URP 2D Renderer 的 Transparency Sort Axis 设为世界
-// Y 轴）把逻辑世界平面 Vec2(X, Y) 直接映射到 Unity 世界坐标的 (X, Y)，"height" 一律通过
-// IRenderer2D.SetShaderParam 的 height_offset_px 通道转换成纯视觉像素偏移，不是真正的第三根
-// 世界坐标轴（IRenderer3D 本迭代整体声明降级，见该类型注释，因此也不存在"3D 模型摆放需要真实
-// 高度轴"的真实需求）。据此，本相机保持正交投影、镜头朝向固定沿 -Z 轴看向 XY 平面：
+// 判断记录（坐标系与投影简化）：本框架的既有约定（见 ProjectSetup.cs 把 URP 2D Renderer 的
+// Transparency Sort Axis 设为世界 Y 轴）把逻辑世界平面 Vec2(X, Y) 直接映射到 Unity 世界坐标的
+// (X, Y)，"height" 经 IRenderer2D.SetTransform 的正式 height 参数（ADR-0016 决策 2，取代此前
+// 借用 SetShaderParam 的 height_offset_px 工作绕）转换成纯视觉像素偏移，不是真正的第三根世界
+// 坐标轴（IRenderer3D 本迭代整体声明降级，见该类型注释，因此也不存在"3D 模型摆放需要真实高度
+// 轴"的真实需求）。据此，本相机保持正交投影、镜头朝向固定沿 -Z 轴看向 XY 平面：
 // Configure 的 pitchDegrees/yawDegrees 只记录配置值（供未来若干接口方法演进为真正透视投影时使用，
 // 当前渲染管线选型是 URP 2D Renderer，2D Renderer 不支持真正的透视俯角），不据此旋转相机，
 // 避免在 2D 渲染管线上做一个"看起来歪但不产生正确透视效果"的假动作；WorldToScreen 的
-// height 参数按与 SpriteViewBase 一致的换算方向，直接作为世界 Y 方向的附加偏移量（等效于
-// "抬高的物体在画面上更靠上"），与 IRenderer2D 的 height_offset_px 视觉语义保持一致。
+// height 参数按与 IRenderer2D.SetTransform 一致的换算方向，直接作为世界 Y 方向的附加偏移量
+// （等效于"抬高的物体在画面上更靠上"）。
 // zoom 直接映射为正交相机的 orthographicSize（世界单位可视半高），zoomRange 即其合法区间。
 using System;
 using Core.Foundation.Common;
@@ -36,8 +36,14 @@ namespace Adapter.Unity.EngineAdapter
         private bool _shaking;
         private double _shakeIntensity;
         private double _shakeDuration;
+        private double _shakeFrequency;
         private double _shakeElapsed;
         private Vector3 _shakeOffset;
+
+        /// <summary>Perlin 噪声在 X/Y 两个方向的采样偏移量，避免两个方向用同一条噪声曲线导致抖动
+        /// 轨迹退化成一条直线（见 <see cref="Tick"/> 判断记录）。</summary>
+        private const float ShakeNoiseSeedX = 0f;
+        private const float ShakeNoiseSeedY = 37.1f;
 
         /// <summary>不含震屏偏移的"真实"相机位置。判断记录：Tick 不能每帧从
         /// <c>_camera.transform.position</c> 反推基准位置——那个值在上一帧已经叠加过震屏偏移，
@@ -111,17 +117,26 @@ namespace Adapter.Unity.EngineAdapter
             return new Vec2(hit.x, hit.y);
         }
 
-        public void Shake(double intensity, double durationSeconds)
+        /// <summary>
+        /// <paramref name="frequency"/>（ADR-0016 决策 4 新增）控制抖动轨迹的振荡速度：
+        /// 用 Perlin 噪声按 <c>elapsed * frequency</c> 采样（见 <see cref="Tick"/>）取代此前的
+        /// <see cref="UnityEngine.Random.Range(float,float)"/>逐帧独立采样——后者没有"频率"这个
+        /// 概念可以对应（纯白噪声，帧间无相关性），换成 Perlin 噪声后 frequency 越高、抖动轨迹
+        /// 振荡越快，越低则越接近缓慢的漂移，这是 <c>frequency</c> 语义在视觉上的直接体现。
+        /// </summary>
+        public void Shake(double intensity, double durationSeconds, double frequency)
         {
             _shaking = true;
             _shakeIntensity = intensity;
             _shakeDuration = Math.Max(durationSeconds, 0.0001);
+            _shakeFrequency = Math.Max(frequency, 0.0001);
             _shakeElapsed = 0;
         }
 
         /// <summary>由 UnityEngineHost.Update 每帧调用：推进跟随平滑与震屏偏移，
-        /// 并把最终结果写入相机 Transform。震屏用 UnityEngine.Random 生成偏移——纯表现层抖动，
-        /// 不回流进逻辑层，不违反"确定性铁律"（见任务书硬性规则 8）。</summary>
+        /// 并把最终结果写入相机 Transform。震屏用 Perlin 噪声按 frequency 采样生成偏移
+        /// （见 <see cref="Shake"/> 判断记录）——纯表现层抖动，不回流进逻辑层，不违反
+        /// "确定性铁律"（见任务书硬性规则 8）。</summary>
         internal void Tick(double deltaSeconds)
         {
             if (_following)
@@ -145,10 +160,11 @@ namespace Adapter.Unity.EngineAdapter
                 {
                     var falloff = 1.0 - _shakeElapsed / _shakeDuration;
                     var magnitude = (float)(_shakeIntensity * falloff);
-                    _shakeOffset = new Vector3(
-                        UnityEngine.Random.Range(-magnitude, magnitude),
-                        UnityEngine.Random.Range(-magnitude, magnitude),
-                        0f);
+                    var sampleT = (float)(_shakeElapsed * _shakeFrequency);
+                    // Mathf.PerlinNoise 返回 [0,1]，映射到 [-magnitude, magnitude]。
+                    var noiseX = Mathf.PerlinNoise(ShakeNoiseSeedX, sampleT) * 2f - 1f;
+                    var noiseY = Mathf.PerlinNoise(ShakeNoiseSeedY, sampleT) * 2f - 1f;
+                    _shakeOffset = new Vector3(noiseX * magnitude, noiseY * magnitude, 0f);
                 }
             }
 

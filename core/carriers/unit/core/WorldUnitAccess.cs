@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Core.Foundation.Common;
+using Core.Foundation.EngineAdapter;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 
@@ -16,21 +17,20 @@ namespace Core.Carriers.Unit
     public sealed class WorldUnitAccess : IUnitAccess
     {
         private readonly IWorldSim _world;
-        private readonly ISpatialIndexSync? _spatialSync;
-        private readonly double _spatialRadius;
+        private readonly ISpatialQuery? _spatial;
 
         /// <summary>
-        /// <paramref name="spatialSync"/> 可选（见 <see cref="ISpatialIndexSync"/> 顶部判断记录）：
-        /// 提供时 <see cref="SetPosition"/> 在写入实体位置后同步登记新位置，未提供时只写位置，不做
-        /// 任何空间索引同步。<paramref name="spatialRadius"/> 是同步登记时使用的统一半径（同
-        /// <c>Adapters.Stub.StubSpatialQuery.Register</c> 惯例：每个登记对象带一个自身半径），
-        /// 默认 0.1。
+        /// <paramref name="spatial"/> 可选：提供时 <see cref="SetPosition"/> 在写入实体位置后经
+        /// <see cref="ISpatialQuery.UpdatePosition"/> 同步新位置（ADR-0016 决策 7：单位移动时调用
+        /// UpdatePosition 同步空间索引），未提供时只写位置，不做任何空间索引同步。首次登记
+        /// （<see cref="ISpatialQuery.Register"/>）不在本类型职责内——单位创建时机由
+        /// <c>core/carriers/assembly/EntitySpatialSyncHost</c> 订阅 <c>entity.created</c> 统一处理
+        /// （创建、移动、销毁三个时机分属不同类型，见该类型判断记录）。
         /// </summary>
-        public WorldUnitAccess(IWorldSim world, ISpatialIndexSync? spatialSync = null, double spatialRadius = 0.1)
+        public WorldUnitAccess(IWorldSim world, ISpatialQuery? spatial = null)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
-            _spatialSync = spatialSync;
-            _spatialRadius = spatialRadius;
+            _spatial = spatial;
         }
 
         public bool Exists(Id unitId) => _world.GetEntity(unitId) is Unit;
@@ -42,12 +42,12 @@ namespace Core.Carriers.Unit
 
         public Vec2 GetPosition(Id unitId) => Require(unitId).Position;
 
-        /// <summary>写入位置后，若注入了 <see cref="ISpatialIndexSync"/>，同步登记新位置（见构造函数
-        /// 判断记录）。</summary>
+        /// <summary>写入位置后，若注入了 <see cref="ISpatialQuery"/>，同步更新空间索引里的位置
+        /// （见构造函数判断记录）。</summary>
         public void SetPosition(Id unitId, Vec2 position)
         {
             Require(unitId).Position = position;
-            _spatialSync?.Upsert(unitId, position, _spatialRadius);
+            _spatial?.UpdatePosition(unitId, position);
         }
 
         public Id GetFaction(Id unitId) => Require(unitId).FactionId;

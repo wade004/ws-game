@@ -1,8 +1,12 @@
 // StubNavigation2D：INavigation2D 的最小可用桩实现——直线导航，不构建任何真实导航网格。
 // 用途：测试依赖寻路/可行走判定/视线遮挡的上层逻辑，而不依赖真实导航网格生成算法。
 // 与真实实现的差异：FindPath 只返回起点、终点两点组成的直线路径（找不到时才返回 null），
-// 不做任何绕障路径规划；可行走判定默认全部可走，测试可用 AddBlockingRect 登记按地图分组的
-// 阻挡矩形（Vec2 min, Vec2 max 的 AABB），IsWalkable/FindPath/Raycast 均据此判定。
+// 不做任何绕障路径规划；可行走判定默认全部可走，调用方可用契约方法 SetBlocking(mapId, rects)
+// 登记按地图分组的阻挡矩形（Rect 的 AABB），IsWalkable/FindPath/Raycast 均据此判定；
+// SetBlocking 语义为整批替换（不是追加）——判断记录：ADR-0016 决策 7 与 02 第 1.8 节都只说
+// "登记一批"，未规定与既有登记的关系；契约没有单独的"移除某一个矩形"方法，若语义是追加，
+// 调用方将永远无法在不 Clear 整图的前提下移除单个阻挡（例如重新打开一扇门），
+// 因此按"调用方自行维护当前完整阻挡集合、每次整批替换"实现，Clear(mapId) 用于场景卸载重置。
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
@@ -143,19 +147,20 @@ namespace Adapters.Stub
             return tMin <= tMax;
         }
 
-        /// <summary>测试用：为某张地图登记一个矩形阻挡区域。</summary>
-        public void AddBlockingRect(Id mapId, Vec2 min, Vec2 max)
+        /// <summary>契约方法（见 INavigation2D 第 1.8 节 / ADR-0016 决策 7）：以传入的整批矩形
+        /// 替换该地图当前登记的动态阻挡（不是追加，见类型顶部判断记录）。</summary>
+        public void SetBlocking(Id mapId, IReadOnlyList<Rect> rects)
         {
-            if (!_blockingRects.TryGetValue(mapId, out var rects))
+            var list = new List<BlockingRect>(rects.Count);
+            foreach (var rect in rects)
             {
-                rects = new List<BlockingRect>();
-                _blockingRects[mapId] = rects;
+                list.Add(new BlockingRect(rect.Min, rect.Max));
             }
 
-            rects.Add(new BlockingRect(min, max));
+            _blockingRects[mapId] = list;
         }
 
-        /// <summary>测试用：清空某张地图的全部阻挡区域。</summary>
-        public void ClearBlockingRects(Id mapId) => _blockingRects.Remove(mapId);
+        /// <summary>契约方法：清空某地图的全部动态阻挡登记。</summary>
+        public void Clear(Id mapId) => _blockingRects.Remove(mapId);
     }
 }

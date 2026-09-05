@@ -28,6 +28,12 @@ namespace Toolchain.Validator
     {
         public string GetUserDataDir() => Directory.GetCurrentDirectory();
 
+        // 判断记录：本工具只读数据目录，不区分"用户数据"与"内容根"两类目录（校验器的
+        // --data-root 本身就是内容根），因此两者返回同一个当前工作目录；契约要求的
+        // "内容根下 WriteTextAtomic/DeleteFile 返回 false"由本类型统一按 NotSupportedException
+        // 处理（见类型注释判断记录：校验器发现自己被调用写入路径应立刻暴露，而不是返回 false）。
+        public string GetContentRootDir() => Directory.GetCurrentDirectory();
+
         public string? ReadText(string path)
         {
             return File.Exists(path) ? File.ReadAllText(path) : null;

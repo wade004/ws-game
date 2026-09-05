@@ -13,23 +13,30 @@
 // 窄契约调用（交互走 GameObjectHost.Interact，见类型注释判断记录 2），不直接改 WorldSim/Carriers
 // 的任何状态。
 //
-// 判断记录 1（固定步驱动为什么不用 IClock.RequestFixedStep）：UnityEngineHost 是 DontDestroyOnLoad
-// 的组合根，其持有的 UnityClock 跨场景重进持续存活；IClock 契约（02 第 1.2 节）只有注册方法，没有
-// 取消注册的方法。若本类型改用 host.Clock.RequestFixedStep 注册一个闭包捕获本次 World 实例的固定
-// 步回调，场景重进时旧回调永远无法注销，会残留在 UnityClock 内部列表里对着一个没有任何代码再读取
-// 的旧 World 做无意义的 Tick（不产生功能错误，但有累积 CPU 开销）。本类型改为直接在
-// GameFoundationBootstrap 自己的 MonoBehaviour FixedUpdate/Update 里驱动（这两个方法只在本组件
-// 存活期间被引擎调用，场景卸载销毁本组件后自动停止，不残留任何注册），插值 alpha 用"Update 累加、
-// FixedUpdate 清零"的标准写法（与 Core.Foundation.SimLoop.SimClockHost 内部累积器算法同一思路，
-// 只是不复用该类型——SimClockHost 自己内部调用 world.Tick，与"由 FixedUpdate 直接调用"是两种互斥
-// 的驱动方式，不能既注册给 SimClockHost 又自己再调一次）。
+// 判断记录 1（固定步驱动为什么不用 IClock.RequestFixedStep——原因已由 ADR-0016 部分解决，
+// 但保留现有 FixedUpdate 直驱写法）：UnityEngineHost 是 DontDestroyOnLoad 的组合根，其持有的
+// UnityClock 跨场景重进持续存活；此前 IClock 契约（02 第 1.2 节）只有注册方法，没有取消注册的
+// 方法，若改用 host.Clock.RequestFixedStep 注册一个闭包捕获本次 World 实例的固定步回调，场景重进
+// 时旧回调永远无法注销，会残留对着一个没有任何代码再读取的旧 World 做无意义的 Tick。ADR-0016
+// 决策 1 已经给 RequestFixedStep 补上 SubscriptionHandle 返回值，这条限制本身已解除；本类型仍然
+//保留直接在 GameFoundationBootstrap 自己的 MonoBehaviour FixedUpdate/Update 里驱动的写法——
+// 这两个方法只在本组件存活期间被引擎调用，场景卸载销毁本组件后自动停止，天然不残留任何注册，
+// 与"改经 RequestFixedStep 注册 + Dispose 退订"在效果上等价，前者不需要额外持有并退订句柄，
+// 属于同一结果的两种实现路径，本类型选择改动面更小的一种，不代表 RequestFixedStep 的
+// SubscriptionHandle 返回值没有用武之地——core/carriers/unit 等真正跨场景常驻、需要在"重建世界"
+// 这个明确时机主动退订的调用方（而非"随宿主组件销毁自然停止"）应该使用它，见该方法契约注释。
+// 插值 alpha 用"Update 累加、FixedUpdate 清零"的标准写法（与 Core.Foundation.SimLoop.SimClockHost
+// 内部累积器算法同一思路，只是不复用该类型——SimClockHost 自己内部调用 world.Tick，与"由
+// FixedUpdate 直接调用"是两种互斥的驱动方式，不能既注册给 SimClockHost 又自己再调一次）。
 //
-// 判断记录 2（交互为什么是窄契约调用而不是 Intent）：core/carriers/gobj 的 GameObjectHost.Interact
-// 是一个直接方法调用（见该类型签名 InteractResult Interact(Id unitId, Id gobjInstanceId)），
-// found.event_catalog/WorldSim 的 tick 阶段编排里没有任何消费 Kind=="interact" 意图的处理器（勘察
-// 确认，见任务汇报"契约缺口"）；presentation/assembly/README.md 对 PresentationAssembly 铁律落地的
-// 表述本就是"全部用户输入经 UiIntents 转成 IWorldSim.SubmitIntent 或窄契约调用（P3）"——窄契约调用
-// 同样是 P3 允许的输入落地方式，不是绕过铁律，本类型按此调用 GameObjectHost.Interact。
+// 判断记录 2（交互此前是窄契约调用，已由 ADR-0016 改为提交意图）：core/carriers/gobj 的
+// GameObjectHost.Interact 是一个直接方法调用（见该类型签名 InteractResult Interact(Id unitId,
+// Id gobjInstanceId)），此前 WorldSim 的 tick 阶段编排里没有任何消费 Kind=="interact" 意图的
+// 处理器（勘察确认，属于"03 第 4.2 节步骤 6 早已写明由 GameObjectHost 消费、实现尚未跟上文档"的
+// 情形，不是契约缺口），本类型因此只能按 P3 允许的另一种输入落地方式（窄契约调用）暂代。
+// ADR-0016 背景一节联动补齐 Core.Carriers.Gobj.InteractIntentTickHandler（挂在
+// TickPhase.TriggerEvaluation，见 core/carriers/assembly/CarriersAssembly.cs）后，本类型改为与
+// CastSkill 同一套"经 IWorldSim.SubmitIntent 提交意图"落地方式，见 Interact() 方法。
 //
 // 判断记录 3（普攻/技能 1 为什么不读 found.input_action 表）：该表的示例动作集只有
 // move/confirm/cancel/interact/open_menu/pause/camera_adjust 七个动作，不含任何战斗类动作（数据
@@ -138,10 +145,12 @@ namespace Adapter.Unity.Bootstrap
             _bus = new Core.Foundation.EventBus.EventBus(catalog, new EventBusOptions { StrictCatalog = false, AuditLog = false });
 
             // ---------------------------------------------------------
-            // 2) 数据集：只读 StreamingAssetsFileSystem（不是存档用的 host.FileSystem，见该类型
-            //    顶部判断记录）+ PresentationSchemaCatalog（一次性注册 L0～L5 全部表）。
+            // 2) 数据集：只读内容根 UnityFileSystem(readOnlyContentMode: true)（不是存档用的
+            //    host.FileSystem，见 UnityFileSystem 类型顶部判断记录 1——此前是独立的
+            //    StreamingAssetsFileSystem 类，ADR-0016 补上 GetContentRootDir 后已合并）+
+            //    PresentationSchemaCatalog（一次性注册 L0～L5 全部表）。
             // ---------------------------------------------------------
-            var contentFs = new StreamingAssetsFileSystem();
+            var contentFs = new UnityFileSystem(readOnlyContentMode: true);
             var source = new FileSystemDataSource(contentFs, _datasetRoot);
             var options = PresentationSchemaCatalog.CreateOptions();
             // 判断记录：found.input_action 未被任一 catalog 登记 schema（本类型改用代码直接声明
@@ -186,8 +195,15 @@ namespace Adapter.Unity.Bootstrap
                 TemplateId = new Id(_playerTemplateId),
             };
             world.AddEntity(player);
+            // 空间索引登记改由 L3 同步（core/carriers/assembly.EntitySpatialSyncHost 订阅
+            // entity.created，见 ADR-0016 决策 7），不再手工调用 host.SpatialQuery.Register。
+            // 判断记录（这里不能提前 DispatchPending）：本方法第 5 步才构造 PresentationAssembly/
+            // ViewBinder（同样订阅 entity.created 创建 View），此刻提前 DispatchPending 会让
+            // entity.created 派发给零订阅者、事件丢失，ViewBinder 永远收不到玩家的创建通知。
+            // 空间索引登记因此推迟到第一次 world.Tick 的 EventDispatch 阶段（phase 7）才生效——
+            // 比 AiDecision 阶段（phase 2）晚一拍，属于可接受的一次性启动延迟（后续 tick 都已就绪），
+            // 不影响本类型示例场景的验收断言（beast 的 AI 感知在第二个 tick 起才需要找到玩家）。
             gameplay.Carriers.Rules.RegisterUnit(PlayerId, classId, raceId: null, level: _playerLevel);
-            _host.SpatialQuery.Register(PlayerId, player.Position, 0.5);
             gameplay.Economy.RegisterUnit(PlayerId);
 
             // ---------------------------------------------------------
@@ -197,13 +213,12 @@ namespace Adapter.Unity.Bootstrap
             //    生成一个可交互 gobj（框架当前没有"静态地图对象登记表"，见任务汇报"契约缺口"）。
             // ---------------------------------------------------------
             gameplay.EnterMap(mapId, PlayerId);
+            // 见上面第 3 步同款判断记录：这里同样不能提前 DispatchPending（ViewBinder 尚未构造）。
 
             var spawnRecord = gameplay.Spawn.GetSpawnRecord(new Id(_beastSpawnId));
             if (spawnRecord?.EntityId != null)
             {
                 BeastEntityId = spawnRecord.EntityId.Value;
-                var beastPos = gameplay.Carriers.Units.GetPosition(BeastEntityId.Value);
-                _host.SpatialQuery.Register(BeastEntityId.Value, beastPos, 0.5);
             }
             else
             {
@@ -212,14 +227,15 @@ namespace Adapter.Unity.Bootstrap
 
             var chestPosition = new Vec2(2, 2);
             ChestEntityId = gameplay.Carriers.GameObjects.Spawn(new Id(_chestTemplateId), mapId, chestPosition, facing: 0.0);
-            // 判断记录：本 gobj 不登记进 host.SpatialQuery——该空间索引同时被
+            // 判断记录（与框架默认一致，见 CarriersAssembly.DefaultSpatialSyncKinds 判断记录）：
+            // 本 gobj 不会被 EntitySpatialSyncHost 登记进 host.SpatialQuery——该空间索引同时被
             // target.chain.sample_nearest_enemy 一类战斗目标解析策略共用，其内部（
             // Core.Rules.Targeting.BuiltinTargetStrategies.NearestInShapeStrategy）拿到查询结果后
-            // 一律当"单位"处理（调用 WorldUnitAccess.GetPosition），登记一个 gobj 实体进同一个索引
+            // 一律当"单位"处理（调用 WorldUnitAccess.GetPosition），若 gobj 登记进同一个索引
             // 会在附近敌人解析时把它也捞进来，进而抛 InvalidOperationException（实测跑 PlayMode
-            // 测试时复现）。交互功能不需要空间查询——本类型的 Interact() 直接持有
-            // ChestEntityId 常量引用，不做"最近可交互物件"检索，因此 gobj 干脆不登记进这份
-            // 面向战斗单位的空间索引，避免污染查询结果。
+            // 测试时复现过，因此框架默认清单不含 gobj）。交互功能不需要空间查询——本类型的
+            // Interact() 直接持有 ChestEntityId 常量引用，不做"最近可交互物件"检索，因此 gobj
+            // 干脆不登记进这份面向战斗单位的空间索引，避免污染查询结果。
 
             // ---------------------------------------------------------
             // 5) L5 表现层：见 presentation/assembly/README.md 装配顺序；viewFactory 需要在
@@ -233,8 +249,11 @@ namespace Adapter.Unity.Bootstrap
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(_seed ^ 0x9E3779B97F4A7C15UL);
+            // spatial/navigation 注入（ADR-0016 决策 7、场景卸载级联清理，见 SceneRouter 构造函数
+            // 判断记录）：卸载旧场景时除逐实体经 entity.destroyed 同步注销外，额外整图兜底 Clear。
             var sceneRouter = new Core.Foundation.SceneRouter.SceneRouter(
-                registry, _host.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, _bus);
+                registry, _host.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, _bus,
+                spatial: _host.SpatialQuery, navigation: _host.Navigation2D);
 
             // 三个反馈接收器由 PresentationAssemblyOptions 的回调"延迟读取"（闭包捕获的是本类型
             // 的属性访问，不是构造期的值）：PresentationAssembly 构造函数内部第 3 步装配
@@ -283,17 +302,19 @@ namespace Adapter.Unity.Bootstrap
                     new[] { "key:digit1" }, description: "灰盒演示：技能 1（skill.sample_burn）"),
             });
 
-            // 判断记录（U3 新增，契约缺口发现）：core/rules/ai/core/AiHost.cs 公开了
-            // UnregisterUnit，但勘察 core/gameplay/assembly/GameplayAssembly.cs 与
-            // core/gameplay/spawn 全文，没有任何一处在 unit.died 时调用它——AiTickHandler.Execute
-            // 每 tick 无条件遍历 AiHost.RegisteredUnitIds 逐个 Step，一个已死亡但仍留在 AiHost
-            // 内部注册表里的单位会在下一次 Tick 让 WorldUnitAccess.Require 抛
-            // InvalidOperationException（U3 实测复现：本任务的 PlayMode 用例首次让示例生物真正
-            // 战斗至死亡，暴露了这条此前从未被走通的路径；一旦复现，之后每次 FixedUpdate 都会
-            // 重新抛出，直至场景重进）。这是 core/ 层面的既有缺口（core/rules/ai 不在本任务允许
-            // 改动范围内），按"窄契约调用"惯例（同本文件"判断记录 2"GameObjectHost.Interact）在
-            // 引擎适配层订阅 unit.died 自行补上退场清理：AiHost.UnregisterUnit +
-            // ISpatialQuery.Unregister（后者是 UnitySpatialQuery 的非契约协作方法）。与
+            // 判断记录（U3 发现的核心缺口，已由 ADR-0016 背景一节联动修复一半）：
+            // core/rules/ai/core/AiHost.cs 公开了 UnregisterUnit，但此前没有任何一处在实体真正
+            // 销毁（entity.destroyed）时调用它——AiTickHandler.Execute 每 tick 无条件遍历
+            // AiHost.RegisteredUnitIds 逐个 Step，一个已销毁但仍留在 AiHost 内部注册表里的单位会
+            // 在下一次 Tick 让 WorldUnitAccess.Require 抛 InvalidOperationException（U3 实测复现）。
+            // AiHost 现已订阅 entity.destroyed 自行静默清理（core/rules/ai/core/AiHost.cs 构造函数，
+            // 见该处判断记录），这半个缺口已解决，不再需要引擎适配层代为清理。
+            // 本处理器仍然保留——它订阅的是 unit.died（逻辑死亡，早于 entity.destroyed 的实体真正
+            // 销毁，见 05 对象模型"死亡是逻辑状态，不是生命周期状态"），目的是让尸体立刻停止
+            // AI 决策、从战斗目标空间索引里移除（避免"死了但还能被当目标选中/还在原地决策"的观感
+            // 问题），是提前于 AiHost 自愈时机的一个体验优化，不是安全网，AiHost.UnregisterUnit/
+            // ISpatialQuery.Unregister 都是契约方法（ADR-0016 决策 7 起 Unregister 也是
+            // ISpatialQuery 的正式契约方法，不再是"非契约协作方法"）。与
             // Adapter.Unity.Shell.FrameworkResidentHost 的同名判断记录同一处理，两条独立的
             // 装配路径（灰盒/Shell）各自订阅一次，互不影响。
             _bus.Subscribe(Core.Rules.Common.RulesEventKeys.UnitDied, OnUnitDied);
@@ -362,13 +383,18 @@ namespace Adapter.Unity.Bootstrap
             World!.SubmitIntent(new Intent(PlayerId, "cast", args));
         }
 
-        /// <summary>把"交互"落成对 <c>GameObjectHost.Interact</c> 的窄契约调用（见文件顶部
-        /// "判断记录 2"）。</summary>
+        /// <summary>把"交互"落成一条 <c>interact</c> 意图（见文件顶部"判断记录 2"：此前受限于
+        /// core/carriers/gobj 尚未提供消费该意图的 <c>ITickPhaseHandler</c>，只能窄契约直接调用
+        /// <c>GameObjectHost.Interact</c>；ADR-0016 背景一节联动补齐
+        /// <c>Core.Carriers.Gobj.InteractIntentTickHandler</c>（挂在 <c>TickPhase.TriggerEvaluation</c>）
+        /// 后，改为与 <see cref="CastSkill"/> 同一套"经 <see cref="IWorldSim.SubmitIntent"/> 进入
+        /// L0"落地方式，不再直接调用 <c>GameObjectHost.Interact</c>）。</summary>
         private void Interact()
         {
             if (ChestEntityId.HasValue)
             {
-                Gameplay!.Carriers.GameObjectInteractions.Interact(PlayerId, ChestEntityId.Value);
+                var args = new JsonObjectBuilder().Add("gobj_instance_id", new JsonString(ChestEntityId.Value.Value)).Build();
+                World!.SubmitIntent(new Intent(PlayerId, "interact", args));
             }
         }
 

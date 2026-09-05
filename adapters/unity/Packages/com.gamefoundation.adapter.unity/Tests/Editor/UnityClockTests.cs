@@ -64,5 +64,48 @@ namespace Adapter.Unity.Tests.Editor
 
             Assert.GreaterOrEqual(second, first);
         }
+
+        [Test]
+        public void OnFrame_DisposeHandle_StopsFutureCallbacks()
+        {
+            // ADR-0016 决策 1：OnFrame 返回 SubscriptionHandle，Dispose 后不再触发。
+            var callCount = 0;
+            var handle = _clock.OnFrame(_ => callCount++);
+
+            _clock.TickFrame(0.016);
+            Assert.AreEqual(1, callCount);
+
+            handle.Dispose();
+            _clock.TickFrame(0.016);
+
+            Assert.AreEqual(1, callCount);
+            Assert.AreEqual(0, _clock.FrameRegistrationCount);
+        }
+
+        [Test]
+        public void RequestFixedStep_DisposeHandle_StopsFutureCallbacks()
+        {
+            var fireCount = 0;
+            var handle = _clock.RequestFixedStep(0.02, _ => fireCount++);
+
+            _clock.TickFixedStep(0.02);
+            Assert.AreEqual(1, fireCount);
+
+            handle.Dispose();
+            _clock.TickFixedStep(0.02);
+
+            Assert.AreEqual(1, fireCount);
+            Assert.AreEqual(0, _clock.FixedStepRegistrationCount);
+        }
+
+        [Test]
+        public void Dispose_IsIdempotent_DoesNotThrowWhenCalledTwice()
+        {
+            var handle = _clock.OnFrame(_ => { });
+
+            handle.Dispose();
+
+            Assert.DoesNotThrow(() => handle.Dispose());
+        }
     }
 }

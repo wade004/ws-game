@@ -10,18 +10,18 @@ URP 2D Renderer + Input System 1.20"这一件事，不包含任何具体游戏�
 | 接口 | 实现类 | 关键判断 / 限制 |
 |---|---|---|
 | `IWindow` | `UnityWindow` | 运行期无法重建操作系统窗口本体、也无公开跨平台 API 改标题栏文字；`OnCloseRequested` 接到 `Application.wantsToQuit`（返回 false 阻止默认退出，交由上层决定何时调 `Destroy()` 真正退出）。 |
-| `IClock` | `UnityClock` | `Now()` = `Time.realtimeSinceStartupAsDouble`（只供表现/UI 动画使用）；帧回调由 `UnityEngineHost.Update` 驱动（`Time.unscaledDeltaTime`），固定步长回调由 `FixedUpdate` 驱动（`Time.fixedDeltaTime`），满足"逻辑层 tick 由固定步长驱动"的确定性铁律。 |
-| `IRenderer2D` | `UnityRenderer2D` | 句柄 = 根 GameObject（挂 `SortingGroup`）+ `LayersRoot` 子物体承载纸娃娃层；`sortingOrder = layer*100000 - round(sortY*1000)`，纸娃娃层内序号追加为子渲染器自身 `sortingOrder`；`height_offset_px` 只平移 `LayersRoot` 本地 Y，不影响排序；资源缺失时用洋红色占位方块 + 一次性警告，不抛异常；`EmitParticle` 目前不解析 `effectId` 到具体制作的粒子资产（`ResourceKind` 没有粒子/预制体种类，见下"已知契约缺口"），一律播放内建通用爆发效果。 |
-| `IAudio` | `UnityAudio` | 总线音量方案选"简单分组乘算"而非 AudioMixer（避免引入需要手工创建的 `.mixer` 资产）；SFX 用 `AudioSource` 对象池，音乐用两路 `AudioSource` 做交叉淡入淡出；SFX 播放期间总线音量变化不影响"已经在播的那次"，只影响之后新播放的。 |
+| `IClock` | `UnityClock` | `Now()` = `Time.realtimeSinceStartupAsDouble`（只供表现/UI 动画使用）；帧回调由 `UnityEngineHost.Update` 驱动（`Time.unscaledDeltaTime`），固定步长回调由 `FixedUpdate` 驱动（`Time.fixedDeltaTime`），满足"逻辑层 tick 由固定步长驱动"的确定性铁律；`OnFrame`/`RequestFixedStep` 均返回 `SubscriptionHandle`（ADR-0016 决策 1），`Dispose()` 后不再触发，退订对遍历安全。 |
+| `IRenderer2D` | `UnityRenderer2D` | 句柄 = 根 GameObject（挂 `SortingGroup`）+ `LayersRoot` 子物体承载纸娃娃层；`sortingOrder = layer*1000 - round(sortY*1)`，纸娃娃层内序号追加为子渲染器自身 `sortingOrder`；`SetTransform` 的 `height` 参数（ADR-0016 决策 2）只平移 `LayersRoot` 本地 Y，不影响排序、不平移影子；资源缺失时用洋红色占位方块 + 一次性警告，不抛异常；`EmitParticle` 优先经 `UnityResourceLoader.TryGetEffect` 把 `effectId` 解析到具体特效资产（序列帧，`ResourceKind.Effect`，见 ADR-0016 决策 5），解析不到才回退播放内建通用爆发效果。 |
+| `IAudio` | `UnityAudio` | 总线音量方案选"简单分组乘算"而非 AudioMixer（避免引入需要手工创建的 `.mixer` 资产）；SFX 用 `AudioSource` 对象池，音乐用两路 `AudioSource` 做交叉淡入淡出；SFX 播放期间总线音量变化不影响"已经在播的那次"，只影响之后新播放的；`PlaySfx` 的 `position` 参数（ADR-0016 决策 3）非空时把音源移到该坐标并启用 `spatialBlend=1`（Unity 默认对数衰减），空时 `spatialBlend=0`（无空间衰减，与既有行为一致）。 |
 | `IInput` | `UnityInput` | 运行时用代码搭建 `InputActionMap`（不依赖 `.inputactions` 资产）；键盘离散事件靠 `<Keyboard>/anyKey` 触发后扫描 `wasPressedThisFrame/wasReleasedThisFrame` 精确定位具体按键（避免 `anyKey` 聚合控件"拿不到具体是哪个键"的限制）；鼠标左/右/中键各自独立绑定；手柄连接/断开走 `InputSystem.onDeviceChange`；手柄按钮离散事件目前没有专用绑定，测试/上层可用 `SimulateGamepadButtonForTest` 驱动；文本输入用 `Keyboard.current.onTextInput` 累积字符。 |
-| `IFileSystem` | `UnityFileSystem` | 用户目录 = `Application.persistentDataPath`；原子写入 = 写临时文件 + `File.Replace`（目标已存在）/ `File.Move`（目标不存在），失败时清理临时文件、旧内容保持不变。 |
-| `IResourceLoader` | `UnityResourceLoader` | 后台 `Task` 读取文件字节（纯 `System.IO`，不碰任何 UnityEngine API），解码与回调统一在 `Tick()`（由宿主 `Update` 每帧调用）里于主线程完成，满足"回调总在主线程排队执行"的线程约定；音频只支持标准 PCM16 WAV（内置 `WavDecoder`，不依赖 UnityWebRequest/协程）；`Font` 种类只能读原始字节，不能产出可用的 TMP 字体资产（见下）。 |
-| `INavigation2D` | `UnityNavigation2D` | 网格 A*（不引入第三方寻路包，也不用 Unity 内置三维 NavMesh）；阻挡数据靠非契约方法 `RegisterBlockingRect`/`RegisterBlockingFromTilemap` 登记；网格尺寸自适应（默认格子 0.25 世界单位，超过 192×192 格时放大格子），起止点落在已登记范围外时退化为直线可达性检查。 |
-| `ISpatialQuery` | `UnitySpatialQuery` | 自维护登记表 + 均匀网格分桶（非 Physics2D，避免同步 Collider2D 的额外成本与结果顺序不确定性）；结果一律按 `Id` 排序；`HasLineOfSight` 默认恒真，可用 `SetLineOfSightBlocker` 接入 `UnityNavigation2D.Raycast` 做真实遮挡判定（`UnityEngineHost` 已默认接好）。 |
+| `IFileSystem` | `UnityFileSystem` | 用户目录 = `Application.persistentDataPath`；内容根目录（`GetContentRootDir`，ADR-0016 决策 8）= `Application.streamingAssetsPath/GameFoundation`；原子写入 = 写临时文件 + `File.Replace`（目标已存在）/ `File.Move`（目标不存在），失败时清理临时文件、旧内容保持不变；构造参数 `readOnlyContentMode` 切换"用户数据可写"/"内容根只读"两种角色（原独立的 `StreamingAssetsFileSystem` 已合并进本类，见其判断记录 1），只读模式下 `WriteTextAtomic`/`DeleteFile` 恒返回 `false`。 |
+| `IResourceLoader` | `UnityResourceLoader` | 后台 `Task` 读取文件字节（纯 `System.IO`，不碰任何 UnityEngine API），解码与回调统一在 `Tick()`（由宿主 `Update` 每帧调用）里于主线程完成，满足"回调总在主线程排队执行"的线程约定；音频只支持标准 PCM16 WAV（内置 `WavDecoder`，不依赖 UnityWebRequest/协程）；`Font` 种类只能读原始字节，不能产出可用的 TMP 字体资产（见下）；`Scene`/`NavMesh`（ADR-0016 决策 5）按"只校验存在性"读文本处理，`Effect` 额外读取 `atlas.png`+`frames.json` 组成 `EffectAsset`（序列帧）。 |
+| `INavigation2D` | `UnityNavigation2D` | 网格 A*（不引入第三方寻路包，也不用 Unity 内置三维 NavMesh）；契约方法 `SetBlocking`/`Clear`（ADR-0016 决策 7，`SetBlocking` 整批替换）为主，另保留非契约便捷方法 `RegisterBlockingRect`/`RegisterBlockingFromTilemap`（增量追加，供地图加载代码按格子/瓦片逐个登记）；网格尺寸自适应（默认格子 0.25 世界单位，超过 192×192 格时放大格子），起止点落在已登记范围外时退化为直线可达性检查。 |
+| `ISpatialQuery` | `UnitySpatialQuery` | 自维护登记表 + 均匀网格分桶（非 Physics2D，避免同步 Collider2D 的额外成本与结果顺序不确定性）；结果一律按 `Id` 排序；`Register`/`UpdatePosition`/`Unregister`/`Clear` 均为契约方法（ADR-0016 决策 7，此前是本类自行拍板的协作方法）；`HasLineOfSight` 默认恒真，可用 `SetLineOfSightBlocker` 接入 `UnityNavigation2D.Raycast` 做真实遮挡判定（`UnityEngineHost` 已默认接好）。 |
 | `IUISurface` | `UnityUISurface` | uGUI `Canvas`（Screen Space - Overlay）+ TextMeshPro；`DrawText` 没有契约层面的句柄/去重机制，按调用顺序累加创建文本元素，非契约方法 `ClearSurface` 供逐帧刷新场景复位；`fontId` 目前不区分具体字体资源，统一用包内占位字体运行期 `TMP_FontAsset.CreateFontAsset` 生成，失败时回退 `TMP_Settings.defaultFontAsset`。 |
 | `IPlatform` | `UnityPlatform` | 语言映射 `Application.systemLanguage` → 常见 BCP-47 短代码；剪贴板 = `GUIUtility.systemCopyBuffer`；崩溃日志经 `UnityFileSystem` 原子写入用户目录 `crash_log.txt`，`UnityEngineHost` 额外把 `Application.logMessageReceived` 的 Error/Exception 日志自动转发到 `ReportCrash`。 |
 | `IRenderer3D` | `UnityRenderer3D` | **声明降级**：全部方法一律抛 `NotSupportedException`（本迭代表现路线固定 sprite 型外形，02 第 1.12 节该接口"条件必需"，本框架未选用 model 型外形）。 |
-| `ICamera` | `UnityCamera` | 正交投影，世界平面固定为 Unity 的 XY 平面（Z=0），与 `IRenderer2D` 精灵摆放平面一致；`pitchDegrees`/`yawDegrees` 只记录配置值，不据此做真实透视投影（URP 2D Renderer 不支持）；`zoom` 直接映射 `orthographicSize`；`height` 参数按与 `height_offset_px` 一致的方向作为世界 Y 附加偏移。 |
+| `ICamera` | `UnityCamera` | 正交投影，世界平面固定为 Unity 的 XY 平面（Z=0），与 `IRenderer2D` 精灵摆放平面一致；`pitchDegrees`/`yawDegrees` 只记录配置值，不据此做真实透视投影（URP 2D Renderer 不支持）；`zoom` 直接映射 `orthographicSize`；`SetTransform`/`WorldToScreen` 的 `height` 参数作为世界 Y 附加偏移；`Shake` 的 `frequency` 参数（ADR-0016 决策 4）驱动 Perlin 噪声按 `elapsed*frequency` 采样生成抖动偏移，取代此前逐帧独立采样的 `UnityEngine.Random`。 |
 
 `UnityEngineHost`（`MonoBehaviour`，`DontDestroyOnLoad`）是组合根，持有以上 13 个实例；静态
 `UnityEngineHost.Ensure()` 获取（必要时创建）全局唯一实例。`Update`/`FixedUpdate`/
@@ -37,6 +37,10 @@ Application.streamingAssetsPath/GameFoundation/<kind 子目录>/<资源引用id�
   Audio     -> audio/<name>.wav（仅支持标准 PCM16 WAV）
   Font      -> fonts/<name>.ttf（只读字节，见下"已知契约缺口"）
   DataTable -> data/<name>.json
+  Scene     -> scene/<name>.json（ADR-0016 决策 5 新增，内容不被解析，见 build.ps1 判断记录）
+  NavMesh   -> nav_mesh/<name>.json（同上）
+  Effect    -> vfx/<name>/atlas.png + vfx/<name>/frames.json（ADR-0016 决策 5 新增；不是单一文件，
+              走 UnityResourceLoader.ResolveEffectDir，不经上面的通用扩展名规则）
 ```
 
 命名规则与 `architecture/14_资产规格书模板.md` 第 1.2 节文件名模板、
@@ -159,70 +163,93 @@ GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。
 
 ## 已知契约缺口
 
-以下缺口不在本次任务的契约修改范围内（契约本身不能改，只记录）：
+以下 1、2、3、5、6、8 六条已由 ADR-0016（`architecture/adr/0016-引擎适配层契约阶段4联调补齐.md`）
+解决，保留在此作为历史记录；4、7 两条仍是未解决的缺口。
 
-1. `IRenderer2D.SetTransform` 没有高度参数（不同于 `IRenderer3D.SetPlacement` 显式带
-   `height`）；表现层（`presentation/render/core/SpriteViewBase`）已经把换算出的像素高度经
-   `SetShaderParam` 的 `"height_offset_px"` 参数名传递，本适配层把该参数名解释为"平移
-   `LayersRoot` 子物体的本地纵向像素偏移"。
-2. `IAudio.PlaySfx` 没有位置参数——本适配层的 SFX 播放不做 3D/2D 空间衰减，全部按二维
-   （无空间）方式播放。
-3. `ResourceKind` 枚举缺 `Scene`/`NavMesh`，也缺"粒子/特效预制体"这一种类；`IRenderer2D.
-   EmitParticle` 因此无法把 `effectId` 解析到具体制作的粒子资产，一律播放内建通用效果。
-4. `IResourceLoader` 的 `Font` 种类只能提供原始字节，Unity 运行期没有公开 API 能把任意字体
-   字节数组转换成可用于 TMP 渲染的字体资产（`TMP_FontAsset.CreateFontAsset` 需要一个已被
-   Unity 资产管线导入过的 `UnityEngine.Font` 对象）；`UnityUISurface` 的默认字体因此改走专用
-   路径（包内预先导入好的占位字体 `Resources/Fonts/NotoSansCJKsc-Regular`），不经过通用资源
-   加载器，`fontId` 参数目前不区分具体字体资源。该路径还依赖 `adapters/unity/Assets/
+1. **已由 ADR-0016 决策 2 解决**：`IRenderer2D.SetTransform` 此前没有高度参数（不同于
+   `IRenderer3D.SetPlacement` 显式带 `height`），表现层曾借用 `SetShaderParam` 的
+   `"height_offset_px"` 参数名传递像素高度。`SetTransform` 现已正式携带 `height` 参数，
+   `SpriteViewBase`/`UnityRenderer2D` 均已改走该参数，`HeightOffsetShaderParam` 常量与相关工作绕
+   已删除。
+2. **已由 ADR-0016 决策 3 解决**：`IAudio.PlaySfx` 此前没有位置参数。现已增加
+   `position: Optional<Vec2>`，`SfxPlayer.Play` 的 `at` 透传给它，`UnityAudio` 非空时启用
+   `spatialBlend=1` 做基本的 2D 声像。
+3. **已由 ADR-0016 决策 5 解决**：`ResourceKind` 此前缺 `Scene`/`NavMesh`，也缺"粒子/特效预制体"
+   这一种类。现已增加 `Scene`/`NavMesh`/`Effect` 三个取值，`SceneRouter` 改用前两者加载
+   `scene_ref`/`nav_ref`，`UnityRenderer2D.EmitParticle` 优先经 `UnityResourceLoader.TryGetEffect`
+   把 `effectId` 解析到具体特效资产（序列帧），解析不到才回退内建通用效果。
+4. **仍是未解决的缺口**：`IResourceLoader` 的 `Font` 种类只能提供原始字节，Unity 运行期没有公开
+   API 能把任意字体字节数组转换成可用于 TMP 渲染的字体资产（`TMP_FontAsset.CreateFontAsset`
+   需要一个已被 Unity 资产管线导入过的 `UnityEngine.Font` 对象）；`UnityUISurface` 的默认字体因此
+   改走专用路径（包内预先导入好的占位字体 `Resources/Fonts/NotoSansCJKsc-Regular`），不经过通用
+   资源加载器，`fontId` 参数目前不区分具体字体资源。该路径还依赖 `adapters/unity/Assets/
    TextMesh Pro/`（TMP 官方 Essential Resources 的标准内容——`TMP Settings.asset`、
    SDF 着色器、默认字体等，与手动执行编辑器菜单"Import TMP Essential Resources"产生的文件
    完全一致）已提交进本仓库，见 `UnityUISurface.cs` 顶部"判断记录（TMP 运行期依赖）"。
-5. `ISpatialQuery`/`INavigation2D` 契约本身都没有定义"如何把地图对象/阻挡数据登记进实现"的
-   方法；本适配层与 `adapters/stub` 同样的处理方式——提供非契约的 `Register`/
-   `RegisterBlockingRect` 等协作方法。
-6. （U2 新增）`found.event_catalog`/`IWorldSim` 的 tick 阶段编排里没有任何消费 `Kind=="interact"`
-   意图的处理器——`core/carriers/gobj.GameObjectHost.Interact(unitId, gobjInstanceId)` 是一个直接
-   方法调用，不是意图驱动；`GameFoundationBootstrap` 按此把"交互"落成窄契约调用（09/03 文档"P3
-   窄契约调用"允许的落地方式之一），不是绕过表现层铁律。
-7. （U2 新增）`data/_sample/found/found.input_action.json` 的示例动作集只有
+5. **已由 ADR-0016 决策 7 解决**：`ISpatialQuery`/`INavigation2D` 契约本身此前都没有定义"如何把
+   地图对象/阻挡数据登记进实现"的方法，本适配层曾提供非契约协作方法。现已分别补上契约方法
+   `ISpatialQuery.Register`/`UpdatePosition`/`Unregister`/`Clear`、
+   `INavigation2D.SetBlocking`/`Clear`；`UnitySpatialQuery` 的 `Register`/`UpdatePosition`/
+   `Unregister`/`Clear` 现直接就是契约实现，`UnityNavigation2D` 新增契约方法 `SetBlocking`/
+   `Clear`（整批替换），另保留非契约便捷方法 `RegisterBlockingRect`/`RegisterBlockingFromTilemap`
+   （增量追加）供地图加载代码使用。空间索引的登记/注销时机现由
+   `core/carriers/assembly.EntitySpatialSyncHost`（创建/销毁）与
+   `Core.Carriers.Unit.WorldUnitAccess.SetPosition`（移动）统一驱动，引擎侧/游戏侧不再需要手工
+   调用 `Register`/`Unregister`。
+6. **已由 ADR-0016 背景一节联动解决**（U2 新增）：`found.event_catalog`/`IWorldSim` 的 tick 阶段
+   编排里此前没有任何消费 `Kind=="interact"` 意图的处理器，`GameFoundationBootstrap` 曾把"交互"
+   落成对 `GameObjectHost.Interact` 的窄契约调用。现已补上
+   `Core.Carriers.Gobj.InteractIntentTickHandler`（挂在 `TickPhase.TriggerEvaluation`，见
+   `core/carriers/assembly/CarriersAssembly.cs`），`GameFoundationBootstrap.Interact()` 已改为
+   提交 `interact` 意图，不再直接调用 `GameObjectHost.Interact`。
+7. （U2 新增，仍是未解决的缺口）`data/_sample/found/found.input_action.json` 的示例动作集只有
    move/confirm/cancel/interact/open_menu/pause/camera_adjust 七个动作，不含任何战斗类动作
    （数据本身在 `description` 字段声明"示例动作集，不构成任何游戏的操作定论"）；
    `GameFoundationBootstrap` 需要"普攻"/"技能 1"两个按钮动作时，直接用 `IInputMapHost.
    DeclareActionSet` 在代码里补充声明，不修改 `data/` 下任何文件。
-8. （U2 新增）`IResourceLoader` 契约没有规定"谁来触发某个资源 id 的首次加载"——
-   `UnityRenderer2D`/`UnityAudio` 都只读缓存（`TryGetSprite`/`TryGetAudioClip`），从不主动
-   `LoadAsync`；本任务在 `UnitySpriteView`（sprite 型 View）补了按需预取，`UnityAudio.PlaySfx`
-   只加了调用计数诊断，未补音频预取，见"内容同步"一节判断记录。
+8. **已由 ADR-0016 决策 6 解决**（U2 新增）：`IResourceLoader` 契约此前没有规定"谁来触发某个
+   资源 id 的首次加载"。现已在 02 第 1.7 节写入"谁首次引用谁加载"条款；`presentation/common`
+   新增共享实现 `ResourceReferenceTracker`，`SpriteViewBase`/`VfxPlayer`/`SfxPlayer` 均已接入
+   （可选注入 `IResourceLoader`），`UnitySpriteView` 此前自行实现的
+   `_requestedLoads`/`RequestLoads` 已删除，改由基类统一负责。
 
 ## 判断记录索引
 
 详细判断记录写在各实现文件顶部注释里，此处只列索引：
 
-- `UnityClock.cs`：确定性铁律的落地方式（帧回调 vs 固定步回调的驱动源）。
-- `UnityRenderer2D.cs`：排序公式、高度偏移契约缺口落地、资源缺失占位、粒子契约缺口。
-- `UnityAudio.cs`：总线音量方案二选一的取舍理由。
+- `UnityClock.cs`：确定性铁律的落地方式（帧回调 vs 固定步回调的驱动源）；`SubscriptionHandle`
+  退订的快照遍历安全性。
+- `UnityRenderer2D.cs`：排序公式、`height` 参数落地、资源缺失占位、`Effect` 资源优先解析
+  （ADR-0016 决策 2、5）。
+- `UnityAudio.cs`：总线音量方案二选一的取舍理由；`position` 参数的 2D 声像落地（ADR-0016 决策 3）。
+- `UnityCamera.cs`：世界平面坐标系与投影简化的判断记录；`frequency` 参数驱动 Perlin 噪声采样
+  取代 `UnityEngine.Random`（ADR-0016 决策 4）。
 - `UnityInput.cs`：不依赖 `.inputactions` 资产、`anyKey` 聚合控件的绕过方式。
 - `UnityResourceLoader.cs`：资源 id→路径映射、后台线程 + 主线程完成队列的线程模型、音频/字体
-  解码能力边界。
-- `UnityNavigation2D.cs`：网格 A* 选型理由、网格自适应策略。
-- `UnitySpatialQuery.cs`：自维护登记表 vs Physics2D 的取舍理由。
+  解码能力边界、`Scene`/`NavMesh`/`Effect` 三个新种类的加载路径（ADR-0016 决策 5）。
+- `UnityNavigation2D.cs`：网格 A* 选型理由、网格自适应策略、`SetBlocking`（契约方法，整批替换）
+  与 `RegisterBlockingRect`（非契约便捷方法，增量追加）的分工（ADR-0016 决策 7）。
+- `UnitySpatialQuery.cs`：自维护登记表 vs Physics2D 的取舍理由；`Register`/`UpdatePosition`/
+  `Unregister`/`Clear` 现为契约方法（ADR-0016 决策 7）。
 - `UnityUISurface.cs`：`DrawText` 语义解释、占位字体生成方式。
-- `UnityCamera.cs`：世界平面坐标系与投影简化的判断记录。
 - `UnityRenderer3D.cs`：声明降级的理由。
+- `UnityFileSystem.cs`：`readOnlyContentMode` 构造参数合并原 `StreamingAssetsFileSystem`
+  的判断记录 1、`GetContentRootDir` 两种模式下语义一致的判断记录 2（ADR-0016 决策 8）。
+- `EffectSequencePlayer.cs`：`ResourceKind.Effect` 序列帧动画的最小播放组件。
 - `Runtime/Bootstrap/GameFoundationBootstrap.cs`：装配顺序、固定步驱动为什么不用
-  `IClock.RequestFixedStep`、交互为什么是窄契约调用、普攻/技能 1 为什么不读 `found.input_action`
-  表（三条判断记录见文件顶部）。
-- `Runtime/Bootstrap/StreamingAssetsFileSystem.cs`：为什么需要第二份 `IFileSystem` 实现（只读
-  内容数据集 vs 用户数据目录）。
-- `Runtime/Presentation/UnitySpriteView.cs`：为什么要主动调用 `IResourceLoader.LoadAsync`。
+  `IClock.RequestFixedStep`（原因已由 ADR-0016 决策 1 部分解决，但保留现有写法）、交互为什么
+  改为提交意图（原判断记录 2，已由 ADR-0016 联动解决）、普攻/技能 1 为什么不读
+  `found.input_action` 表、空间索引登记为什么改由 L3 同步（判断记录见文件顶部与各处内联注释）。
+- `Runtime/Presentation/UnitySpriteView.cs`：资源加载已下沉到 `SpriteViewBase`
+  （ADR-0016 决策 6），本类型的重复实现已删除。
 - `Runtime/Presentation/UnityViewFactory.cs`：`DestroyAllCreatedViews` 弥补
   `ViewBinder`/`CameraHost` 不支持退订的已知缺口。
 - `Runtime/Presentation/FlashReceiver.cs`：闪白时长/强度默认值的取舍理由。
 - `Runtime/Presentation/FreezeFrameReceiver.cs`：顿帧只暂停表现层、不暂停逻辑 tick 的落地方式。
 - `UnityResourceLoader.cs` `ResolvePath`：`"layer."` 类别嵌套路径特例的判断记录。
 - `Runtime/Shell/FrameworkResidentHost.cs`：框架常驻部分为什么不直接改造
-  `GameFoundationBootstrap`、世界/装配根只构造一次、`AiHost`/`SpawnHost` 不会级联清理的两个
-  契约缺口发现与窄契约调用兜底。
+  `GameFoundationBootstrap`、世界/装配根只构造一次、`AiHost`/`SpawnHost` 级联清理缺口（核心一半
+  已由 ADR-0016 解决，`GameplayAssembly.LeaveMap` 承担出图退场，见 `HandlePreUnload` 判断记录）。
 
 ## U3：UI 套件默认皮肤、Shell 流程、灰盒竖切测试与独立版冒烟
 
@@ -278,9 +305,11 @@ Boot ──Start()──> MainMenu ──ShowSlots()──> SaveSlots ──(选
 - `FrameworkResidentHost`（DontDestroyOnLoad 单例，`Ensure()` 幂等获取）：框架常驻部分——数据集/
   `EventBus`/`GameplayAssembly`/`PresentationAssembly` 全程只构造一次；玩家 `PlayerUnit` 对象在
   Awake 构造一次（不立即 `AddEntity`），`RegisterPersistables` 绑定同一对象引用；`SceneRouter`
-  `post_load`/`pre_unload` 钩子负责"进入地图部分"——按需重新 `AddEntity`、`EnterMap`、（仅第一次）
-  生成示例生物，`pre_unload` 里对追踪的生物做 `AiHost.UnregisterUnit`+`ISpatialQuery.Unregister`+
-  `SpawnHost.NotifyDespawn` 退场清理（见下"契约缺口发现"）。
+  `post_load`/`pre_unload` 钩子负责"进入/离开地图部分"——按需重新 `AddEntity`、`EnterMap`、
+  （仅第一次）生成示例生物，`pre_unload` 里统一调用一次 `Gameplay.LeaveMap(mapId)`（ADR-0016
+  背景一节联动新增，见 `GameplayAssembly.LeaveMap` 判断记录；此前逐个实体手工
+  `AiHost.UnregisterUnit`+`ISpatialQuery.Unregister`+`SpawnHost.NotifyDespawn` 的窄契约兜底已删除，
+  见下"契约缺口发现"）。
 - `ShellRoot`：Awake 时 `Ensure()` 常驻部分、建 `UiRoot`/`UiPanelHost`/主菜单/新游戏难度选择/加载画面
   四块 UI，`Update()` 按 `ShellHost.Page` 切换显示哪一块、驱动 `Esc` 暂停/恢复。
 - 示例 `NewGameStarter`（`FrameworkResidentHost.SampleNewGameStarter`）：**这是灰盒验收用的示例
@@ -289,27 +318,29 @@ Boot ──Start()──> MainMenu ──ShowSlots()──> SaveSlots ──(选
   `presentation/shell/contracts/ShellHostTypes.cs` 判断记录）。`SaveGameId` 设为中性 id
   `game.sample`；示例存档槽固定为 `game.sample.slot_1/2/3`（`ShellRoot.SaveSlotCandidates`）。
 - 场景资源占位（判断记录）：`world.sample_field` 的 `scene_ref`/`nav_ref` 需要
-  `UnityResourceLoader` 能读到对应文件才能让 `SceneRouter.LoadScene` 成功；框架目前没有场景/
-  导航资源内容管线（`ResourceKind` 缺 `Scene`/`NavMesh` 专用取值，见本文件"资源种类映射"一节），
-  `build.ps1` 因此在内容同步步骤里额外生成一份静态占位字节
-  `StreamingAssets/GameFoundation/data/sample_field.json`（`scene.sample_field`/
-  `nav.sample_field` 去掉类别前缀后恰好是同一文件名，内容本就不被解析，见 build.ps1 该步骤判断
-  记录），不修改 `data/_sample`/`assets/_placeholder`。
+  `UnityResourceLoader` 能读到对应文件才能让 `SceneRouter.LoadScene` 成功；`ResourceKind` 现已有
+  `Scene`/`NavMesh` 专用取值（ADR-0016 决策 5），`build.ps1` 因此在内容同步步骤里分别生成两份
+  静态占位字节 `StreamingAssets/GameFoundation/scene/sample_field.json`、
+  `StreamingAssets/GameFoundation/nav_mesh/sample_field.json`（内容本就不被解析，见 build.ps1
+  该步骤判断记录），不修改 `data/_sample`/`assets/_placeholder`。
 
-### 契约缺口发现（U3 新增，均已用"窄契约调用"兜底，core/ 本身未改动）
+### 契约缺口发现（U3 新增，核心一半已由 ADR-0016 背景一节联动解决）
 
 9. `Core.Foundation.SceneRouter.SceneRouter.FinishLoading` 在"非本实例首次 LoadScene"时调用
-   `world.ClearAll()`，但 `Core.Rules.Ai.AiHost`（内部 `RegisteredUnitIds`）与
+   `world.ClearAll()`，但此前 `Core.Rules.Ai.AiHost`（内部 `RegisteredUnitIds`）与
    `Core.Gameplay.Spawn.SpawnHost`（`on_map_enter` 重生策略靠 `runtime.EntityId` 判断"该出生点
    是否已有存活实体"）都不知道 WorldSim 那边已经清空——第二次进入地图时，上一局残留的 AI 注册表
    项会在下一次 `AiTickHandler.Execute` 让 `WorldUnitAccess.Require` 抛
-   `InvalidOperationException`（U3 实测复现：此前 U1/U2 的 PlayMode 测试从未在同一个 SceneRouter
-   实例上调用过第二次 `LoadScene`）。`FrameworkResidentHost.HandlePreUnload` 按窄契约调用兜底：
-   `AiHost.UnregisterUnit` + `ISpatialQuery.Unregister`（非契约协作方法）+
-   `SpawnHost.NotifyDespawn`。同一缺口也会在"生物战斗至真正死亡"这条此前从未被走通的路径上单独
-   出现（`unit.died` 触发，非地图切换触发）——`GameFoundationBootstrap`/`FrameworkResidentHost`
-   均额外订阅 `unit.died` 做相同兜底。建议设计层复核是否需要在 `core/foundation/scene_router` 或
-   `core/gameplay/assembly` 补一个真正的"地图卸载/死亡退场编排"。
+   `InvalidOperationException`（U3 实测复现）。现已分两处解决：`AiHost` 直接订阅
+   `entity.destroyed` 自行静默清理（`core/rules/ai/core/AiHost.cs` 构造函数），
+   `GameplayAssembly.LeaveMap` 把 `AreaTrigger.UnloadMap`/`Spawn.UnloadMap` 打包成"出图"入口。
+   `FrameworkResidentHost.HandlePreUnload`/`GameFoundationBootstrap` 因此不再需要逐个实体手工
+   `AiHost.UnregisterUnit`+`ISpatialQuery.Unregister`+`SpawnHost.NotifyDespawn`，改为统一调用
+   `Gameplay.LeaveMap(mapId)`（`ISpatialQuery.Unregister` 现也是契约方法，见 ADR-0016 决策 7）。
+   同一缺口也会在"生物战斗至真正死亡"这条路径（`unit.died` 触发，非地图切换触发）上单独出现，
+   `AiHost` 的 `entity.destroyed` 订阅同样覆盖——`GameFoundationBootstrap`/`FrameworkResidentHost`
+   订阅的 `unit.died` 处理器改为体验优化（尸体立刻停止 AI 决策/退出战斗目标空间索引），不再是
+   崩溃安全网，见两处 `OnUnitDied` 判断记录。
 10. `data/_sample/skill/skill.def.json` 的 `apply_aura` 效果 `params` 字段名写成了 `aura_id`，但
     `Core.Rules.Skill.EffectDispatcher.ApplyAuraEffectPrimitive` 读取的键是 `aura_def`——
     `skill.sample_burn`/`skill.sample_passive` 的光环因此从未真正生效过（`ParamsX.GetId` 找不到

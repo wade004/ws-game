@@ -23,6 +23,7 @@ namespace Adapters.Stub
 
         public double LastShakeIntensity { get; private set; }
         public double LastShakeDurationSeconds { get; private set; }
+        public double LastShakeFrequency { get; private set; }
 
         public void Configure(double pitchDegrees, double yawDegrees, ZoomRange zoomRange)
         {
@@ -53,10 +54,11 @@ namespace Adapters.Stub
             return screen;
         }
 
-        public void Shake(double intensity, double durationSeconds)
+        public void Shake(double intensity, double durationSeconds, double frequency)
         {
             LastShakeIntensity = intensity;
             LastShakeDurationSeconds = durationSeconds;
+            LastShakeFrequency = frequency;
         }
     }
 }

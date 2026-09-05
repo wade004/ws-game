@@ -121,5 +121,44 @@ namespace Tests.Presentation.VfxSfx
 
             Assert.False(audio.ActiveSfxPlaybacks.ContainsKey(handle.Value));
         }
+
+        [Fact]
+        public void Play_WithPosition_PassesPositionThroughToPlaySfx()
+        {
+            // ADR-0016 决策 3：IAudio.PlaySfx 增加 position 参数，SfxPlayer.Play 的 at 要透传过去
+            // （此前只记录不使用，见该类型历史判断记录，本次已解决）。
+            var audio = new StubAudio();
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog());
+
+            var handle = player.Play(PlainSfx, new Vec2(3, 4))!.Value;
+
+            Assert.Equal(new Vec2(3, 4), audio.ActiveSfxPlaybacks[handle.Value].Position);
+        }
+
+        [Fact]
+        public void Play_WithoutPosition_PassesNullPosition()
+        {
+            var audio = new StubAudio();
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog());
+
+            var handle = player.Play(PlainSfx, null)!.Value;
+
+            Assert.Null(audio.ActiveSfxPlaybacks[handle.Value].Position);
+        }
+
+        [Fact]
+        public void Play_WithResourceLoaderInjected_LoadsResolvedResourceAsAudio_OnlyOnce()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader();
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), resourceLoader: loader);
+
+            player.Play(PlainSfx, null);
+            player.Play(PlainSfx, null);
+
+            var requests = loader.LoadRequests.FindAll(r => r.ResourceId.Equals(new Id("res.footstep")));
+            Assert.Single(requests);
+            Assert.Equal(Core.Foundation.EngineAdapter.ResourceKind.Audio, requests[0].Kind);
+        }
     }
 }

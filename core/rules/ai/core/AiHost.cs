@@ -99,6 +99,17 @@ namespace Core.Rules.Ai
             LoadPatrolPaths(registry);
             LoadRotations(registry);
             LoadProfiles(registry);
+
+            // 场景卸载级联清理（见 core/carriers/assembly/README.md、ADR-0016 决策 7 背景一节
+            // 联动发现的既有缺口）：IWorldSim.ClearAll/单个实体销毁都会（分别经批量或逐条）派发
+            // entity.destroyed；本类此前只能通过显式 UnregisterUnit 移除登记，场景整体卸载时无人
+            // 调用它，导致 _states 残留已销毁单位的行为外壳状态——下次 AiTickHandler 推进到这些
+            // 残留 id 时，Step 内 _units.IsAlive(unitId) 会因实体已不存在而抛
+            // InvalidOperationException（WorldUnitAccess.Require）。订阅 entity.destroyed 静默移除
+            // 对应登记（找不到对应登记时无操作，不等价于公开的 UnregisterUnit——后者找不到会抛异常，
+            // 语义是"调用方明知已注册、要求显式注销"，本订阅是被动清理，不应该因为"这个销毁的实体
+            // 本来就不是已注册单位"而抛异常）。
+            _bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, evt => _states.Remove(evt.EntityId.Value));
         }
 
         /// <summary>全部已注册单位，按 <see cref="Id"/> 序数排序（供 <see cref="AiTickHandler"/>

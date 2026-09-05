@@ -33,12 +33,24 @@
 // UnityUISurface 专用的路径（运行期用包内预先以 Unity 资产管线导入好的 Font 对象调用
 // TMP_FontAsset.CreateFontAsset，见该类型注释），不依赖本加载器的 Font 种类。此为已知契约/
 // 实现能力缺口，已记录在包 README"已知契约缺口"一节。
+//
+// Scene/NavMesh/Effect 三个种类（ADR-0016 决策 5 新增，取代此前 SceneRouter 借用
+// ResourceKind.DataTable 的工作绕）：
+//   Scene/NavMesh —— 与 DataTable 同一套"读文本、只校验存在性"处理：SceneRouter 只关心加载
+//     成功/失败，从不解析内容（见 SceneRouter.cs 类型注释），本加载器分别落到
+//     "scene/<name>.json"/"nav_mesh/<name>.json" 两个独立子目录（build.ps1 生成对应占位文件）。
+//   Effect —— vfx.def.resource_ref 指向一个目录（"vfx/<name>/atlas.png" + "frames.json"，
+//     结构同 assets/_placeholder/vfx/<name>/，见 toolchain/gen_placeholder_assets.py 产出），
+//     不是单一文件；本加载器为 Effect 单独走一条"同时读 atlas 字节 + frames.json 文本"的后台
+//     加载路径，主线程按 frames.json 描述的帧矩形切出多张 Sprite，装配成 EffectAsset 供
+//     UnityRenderer2D.EmitParticle 优先使用（找不到时回退内建通用粒子效果）。
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Core.Foundation.Common;
+using Core.Foundation.Common.Json;
 using Core.Foundation.EngineAdapter;
 using UnityEngine;
 
@@ -46,6 +58,33 @@ namespace Adapter.Unity.EngineAdapter
 {
     public sealed class UnityResourceLoader : IResourceLoader
     {
+        /// <summary>解码出的一帧序列帧动画（<see cref="EffectAsset"/> 的元素）。</summary>
+        public readonly struct EffectFrame
+        {
+            public readonly Sprite Sprite;
+            public readonly double Duration;
+
+            public EffectFrame(Sprite sprite, double duration)
+            {
+                Sprite = sprite;
+                Duration = duration;
+            }
+        }
+
+        /// <summary>一个 <c>ResourceKind.Effect</c> 资源解码后的可播放形态：按 frames.json 顺序切好
+        /// 的 Sprite 序列 + 每帧时长 + 是否循环。</summary>
+        public sealed class EffectAsset
+        {
+            public EffectFrame[] Frames { get; }
+            public bool Loop { get; }
+
+            public EffectAsset(EffectFrame[] frames, bool loop)
+            {
+                Frames = frames;
+                Loop = loop;
+            }
+        }
+
         private struct PendingCompletion
         {
             public Id ResourceId;
@@ -53,6 +92,10 @@ namespace Adapter.Unity.EngineAdapter
             public byte[]? Bytes;
             public bool ReadSuccess;
             public LoadCallback Callback;
+
+            /// <summary>仅 <see cref="ResourceKind.Effect"/> 使用：frames.json 的文本内容
+            /// （<see cref="Bytes"/> 此时承载 atlas.png 的字节）。</summary>
+            public string? EffectFramesJson;
         }
 
         private static readonly string RootDir = Path.Combine(Application.streamingAssetsPath, "GameFoundation");
@@ -65,6 +108,9 @@ namespace Adapter.Unity.EngineAdapter
         private readonly Dictionary<Id, AudioClip> _audioClips = new Dictionary<Id, AudioClip>();
         private readonly Dictionary<Id, byte[]> _fontBytes = new Dictionary<Id, byte[]>();
         private readonly Dictionary<Id, string> _dataTableText = new Dictionary<Id, string>();
+        private readonly Dictionary<Id, string> _sceneText = new Dictionary<Id, string>();
+        private readonly Dictionary<Id, string> _navMeshText = new Dictionary<Id, string>();
+        private readonly Dictionary<Id, EffectAsset> _effects = new Dictionary<Id, EffectAsset>();
 
         /// <summary>本加载器使用的像素-单位换算比，供 Sprite.Create 使用；与
         /// architecture/14_资产规格书模板.md 第 2.2 节"pixels_per_unit"游戏填写项对应，
@@ -76,8 +122,46 @@ namespace Adapter.Unity.EngineAdapter
         {
             if (callback == null) throw new ArgumentNullException(nameof(callback));
 
-            var path = ResolvePath(resourceId, kind);
             _loading.Add(resourceId);
+
+            if (kind == ResourceKind.Effect)
+            {
+                var effectDir = ResolveEffectDir(resourceId);
+                Task.Run(() =>
+                {
+                    byte[]? atlasBytes = null;
+                    string? framesJson = null;
+                    var ok = false;
+                    try
+                    {
+                        var atlasPath = Path.Combine(effectDir, "atlas.png");
+                        var framesPath = Path.Combine(effectDir, "frames.json");
+                        if (File.Exists(atlasPath) && File.Exists(framesPath))
+                        {
+                            atlasBytes = File.ReadAllBytes(atlasPath);
+                            framesJson = File.ReadAllText(framesPath);
+                            ok = true;
+                        }
+                    }
+                    catch
+                    {
+                        ok = false;
+                    }
+
+                    _completions.Enqueue(new PendingCompletion
+                    {
+                        ResourceId = resourceId,
+                        Kind = kind,
+                        Bytes = atlasBytes,
+                        EffectFramesJson = framesJson,
+                        ReadSuccess = ok,
+                        Callback = callback
+                    });
+                });
+                return;
+            }
+
+            var path = ResolvePath(resourceId, kind);
 
             Task.Run(() =>
             {
@@ -123,6 +207,9 @@ namespace Adapter.Unity.EngineAdapter
             _audioClips.Remove(resourceId);
             _fontBytes.Remove(resourceId);
             _dataTableText.Remove(resourceId);
+            _sceneText.Remove(resourceId);
+            _navMeshText.Remove(resourceId);
+            _effects.Remove(resourceId);
         }
 
         /// <summary>由 UnityEngineHost.Update 每帧调用：把后台线程读完的文件字节在主线程完成
@@ -162,6 +249,18 @@ namespace Adapter.Unity.EngineAdapter
                     _dataTableText[pending.ResourceId] = System.Text.Encoding.UTF8.GetString(pending.Bytes);
                     success = true;
                     break;
+                case ResourceKind.Scene:
+                    _sceneText[pending.ResourceId] = System.Text.Encoding.UTF8.GetString(pending.Bytes);
+                    success = true;
+                    break;
+                case ResourceKind.NavMesh:
+                    _navMeshText[pending.ResourceId] = System.Text.Encoding.UTF8.GetString(pending.Bytes);
+                    success = true;
+                    break;
+                case ResourceKind.Effect:
+                    success = pending.EffectFramesJson != null &&
+                        TryDecodeEffect(pending.ResourceId, pending.Bytes, pending.EffectFramesJson);
+                    break;
                 default:
                     success = false;
                     break;
@@ -186,13 +285,83 @@ namespace Adapter.Unity.EngineAdapter
 
             var sprite = Sprite.Create(
                 texture,
-                new Rect(0, 0, texture.width, texture.height),
+                new UnityEngine.Rect(0, 0, texture.width, texture.height),
                 new Vector2(0.5f, 0.5f),
                 PixelsPerUnit);
             sprite.name = resourceId.Value;
             _sprites[resourceId] = sprite;
             return true;
         }
+
+        /// <summary>解析 <c>frames.json</c>（结构见 <c>assets/_placeholder/vfx/&lt;name&gt;/frames.json</c>：
+        /// <c>{frame_w,frame_h,fps,frame_duration,loop,frames:[{index,x,y,w,h,duration}]}</c>）+
+        /// <c>atlas.png</c> 字节，按每帧矩形从图集切出 Sprite，装配成 <see cref="EffectAsset"/>。
+        /// <c>frames.json</c> 顶层 <c>loop</c> 缺省为 <c>false</c>；每帧 <c>duration</c> 缺省时退回顶层
+        /// <c>frame_duration</c>，仍缺省时退回 <c>1/fps</c>（<c>fps</c> 缺省 12）。</summary>
+        private bool TryDecodeEffect(Id resourceId, byte[] atlasBytes, string framesJson)
+        {
+            JsonObject root;
+            try
+            {
+                root = (JsonObject)JsonReader.Parse(framesJson);
+            }
+            catch
+            {
+                return false;
+            }
+
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!texture.LoadImage(atlasBytes))
+            {
+                UnityEngine.Object.Destroy(texture);
+                return false;
+            }
+
+            var loop = root.TryGetValue("loop", out var loopVal) && loopVal is JsonBool loopBool && loopBool.Value;
+            var fps = root.TryGetValue("fps", out var fpsVal) && fpsVal is JsonNumber fpsNum ? fpsNum.Value : 12.0;
+            var defaultDuration = root.TryGetValue("frame_duration", out var fdVal) && fdVal is JsonNumber fdNum
+                ? fdNum.Value
+                : (fps > 0 ? 1.0 / fps : 0.05);
+
+            if (!root.TryGetValue("frames", out var framesVal) || !(framesVal is JsonArray framesArr))
+            {
+                UnityEngine.Object.Destroy(texture);
+                return false;
+            }
+
+            var frames = new EffectFrame[framesArr.Count];
+            for (var i = 0; i < framesArr.Count; i++)
+            {
+                if (!(framesArr[i] is JsonObject frameObj))
+                {
+                    UnityEngine.Object.Destroy(texture);
+                    return false;
+                }
+
+                var x = ReadNumber(frameObj, "x", 0);
+                var y = ReadNumber(frameObj, "y", 0);
+                var w = ReadNumber(frameObj, "w", texture.width);
+                var h = ReadNumber(frameObj, "h", texture.height);
+                var duration = frameObj.TryGetValue("duration", out var durVal) && durVal is JsonNumber durNum
+                    ? durNum.Value
+                    : defaultDuration;
+
+                var sprite = Sprite.Create(
+                    texture,
+                    new UnityEngine.Rect((float)x, (float)y, (float)w, (float)h),
+                    new Vector2(0.5f, 0.5f),
+                    PixelsPerUnit);
+                sprite.name = $"{resourceId.Value}_frame{i}";
+
+                frames[i] = new EffectFrame(sprite, duration);
+            }
+
+            _effects[resourceId] = new EffectAsset(frames, loop);
+            return true;
+        }
+
+        private static double ReadNumber(JsonObject obj, string key, double fallback) =>
+            obj.TryGetValue(key, out var val) && val is JsonNumber num ? num.Value : fallback;
 
         private bool TryDecodeWav(Id resourceId, byte[] bytes)
         {
@@ -217,6 +386,15 @@ namespace Adapter.Unity.EngineAdapter
         public bool TryGetFontBytes(Id resourceId, out byte[] bytes) => _fontBytes.TryGetValue(resourceId, out bytes!);
 
         public bool TryGetDataTableText(Id resourceId, out string text) => _dataTableText.TryGetValue(resourceId, out text!);
+
+        public bool TryGetSceneText(Id resourceId, out string text) => _sceneText.TryGetValue(resourceId, out text!);
+
+        public bool TryGetNavMeshText(Id resourceId, out string text) => _navMeshText.TryGetValue(resourceId, out text!);
+
+        /// <summary>供 <see cref="UnityRenderer2D.EmitParticle"/> 按 <c>effectId</c> 取回已解码的
+        /// 序列帧特效资产（<see cref="ResourceKind.Effect"/>，未加载/加载失败时返回 false，调用方
+        /// 回退播放内建通用效果，见该方法判断记录）。</summary>
+        public bool TryGetEffect(Id resourceId, out EffectAsset asset) => _effects.TryGetValue(resourceId, out asset!);
 
         /// <summary>把资源引用 id 解析为磁盘路径，规则见类型顶部注释。</summary>
         /// <remarks>
@@ -257,9 +435,18 @@ namespace Adapter.Unity.EngineAdapter
                 case ResourceKind.Audio: return Path.Combine(RootDir, "audio", name + ".wav");
                 case ResourceKind.Font: return Path.Combine(RootDir, "fonts", name + ".ttf");
                 case ResourceKind.DataTable: return Path.Combine(RootDir, "data", name + ".json");
-                default: throw new ArgumentOutOfRangeException(nameof(kind), kind, "未知的资源种类");
+                case ResourceKind.Scene: return Path.Combine(RootDir, "scene", name + ".json");
+                case ResourceKind.NavMesh: return Path.Combine(RootDir, "nav_mesh", name + ".json");
+                default: throw new ArgumentOutOfRangeException(nameof(kind), kind, "未知的资源种类（Effect 走 ResolveEffectDir，不经本方法）");
             }
         }
+
+        /// <summary>解析 <c>ResourceKind.Effect</c> 资源 id 到目录（不是单一文件，见类型顶部
+        /// 注释）：<c>GameFoundation/vfx/&lt;资源引用id去掉类别前缀、点号换下划线&gt;/</c>，
+        /// 与 <c>assets/_placeholder/vfx/&lt;name&gt;/</c> 同一套命名（build.ps1 把前者整棵目录
+        /// 同步到 StreamingAssets 时保持该相对路径不变）。</summary>
+        public static string ResolveEffectDir(Id resourceId) =>
+            Path.Combine(RootDir, "vfx", StripCategoryPrefix(resourceId.Value));
 
         private static bool IsLayerCategory(string resourceRefId)
         {

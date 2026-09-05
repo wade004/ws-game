@@ -82,14 +82,34 @@ namespace Tests.Carriers.Unit
         {
             var world = NewWorld();
             var spatial = new StubSpatialQuery();
-            var units = new WorldUnitAccess(world, new TestSpatialIndexSync(spatial), spatialRadius: 0.5);
+            var units = new WorldUnitAccess(world, spatial);
             var player = new PlayerUnit(new Id("unit.hero"), MapId, FactionId, ArchetypeId);
             world.AddEntity(player);
+            // 首次登记（ISpatialQuery.Register）不是 WorldUnitAccess 的职责——由
+            // core/carriers/assembly/EntitySpatialSyncHost 订阅 entity.created 处理（见
+            // WorldUnitAccess 构造函数判断记录）；本测试直接模拟"已登记"状态，只验证
+            // SetPosition 经 UpdatePosition 同步位置这一件事。
+            spatial.Register(player.EntityId, Vec2.Zero, 0.5, new[] { "unit" });
 
             units.SetPosition(player.EntityId, new Vec2(10, 10));
 
             var nearest = spatial.Nearest(new Vec2(10, 10), Core.Foundation.EngineAdapter.QueryFilter.None);
             Assert.Equal(player.EntityId, nearest);
+        }
+
+        [Fact]
+        public void SetPosition_UnregisteredId_DoesNotThrow_AndIsNoOp()
+        {
+            var world = NewWorld();
+            var spatial = new StubSpatialQuery();
+            var units = new WorldUnitAccess(world, spatial);
+            var player = new PlayerUnit(new Id("unit.hero"), MapId, FactionId, ArchetypeId);
+            world.AddEntity(player);
+
+            var ex = Record.Exception(() => units.SetPosition(player.EntityId, new Vec2(10, 10)));
+
+            Assert.Null(ex);
+            Assert.Null(spatial.Nearest(new Vec2(10, 10), Core.Foundation.EngineAdapter.QueryFilter.None));
         }
 
         [Fact]

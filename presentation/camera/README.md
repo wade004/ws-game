@@ -54,8 +54,9 @@ camera/
 
 ## 契约缺口
 
-- `ShakePreset.Frequency` 无对应的 `ICamera` 参数可传递，见判断记录 3；若震屏需要频率语义，需评估
-  是否给 `ICamera.Shake` 增补参数（走 02 文档变更流程）。
+- （已由 ADR-0016 解决）`ShakePreset.Frequency` 此前无对应的 `ICamera` 参数可传递（见判断记录 3
+  历史记录）；`ICamera.Shake` 现增加 `frequency` 参数，`CameraHost.Shake` 已把
+  `ShakePresets[i].Frequency` 传给它，强度/时长/频率三项完整经这一个方法传递。
 - （P4-2 已修补，不再是契约缺口）`camera_profile` 表原先未提供 `DataRegistry`/`FromRecord` 数据行
   解析器，现由 `CameraSchemas.Profile` + `CameraProfile.FromRecord` 提供，见 `schema/README.md`
   "数据行解析"一节。

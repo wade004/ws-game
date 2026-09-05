@@ -94,12 +94,19 @@ scene_router/
    `AllowTransition(AppState.Loading, AppState.MainMenu)`（本模块测试即如此配置）。供设计层
    复核是否应该把这条转移补进 `AppStateMachineConfig.Default()`。
 
-4. **资源种类映射：`scene_ref`/`nav_ref` 都用 `ResourceKind.DataTable`**：
-   `IResourceLoader.LoadAsync` 的 `ResourceKind` 只有 `Image|Audio|Font|DataTable` 四种
-   （02 第 1.7 节），没有一种精确对应场景/导航资源；`IResourceLoader.cs` 不在本任务允许
-   修改的文件范围内，因此选用四者中语义最接近的 `DataTable`（"结构化数据"而非媒体资源）。
-   详见 `core/SceneRouter.cs` 类型注释，供设计层复核是否需要单独 ADR 给 `ResourceKind`
-   增补 `Scene`/`NavMesh` 一类取值。
+4. **资源种类映射：已由 ADR-0016 解决**：`scene_ref`/`nav_ref` 此前都借用
+   `ResourceKind.DataTable`（`IResourceLoader.LoadAsync` 当时只有 `Image|Audio|Font|DataTable`
+   四种，没有一种精确对应场景/导航资源）；ADR-0016 决策 5 给 `ResourceKind` 增补了
+   `Scene`/`NavMesh`/`Effect` 三个取值，本模块现改用 `ResourceKind.Scene`/`ResourceKind.NavMesh`
+   分别加载 `scene_ref`/`nav_ref`。
+
+5. **场景卸载级联清理**：`SceneRouter` 可选注入 `ISpatialQuery`/`INavigation2D`
+   （ADR-0016 决策 7）；卸载旧场景时，`IWorldSim.ClearAll` 已经把每个实体的 `entity.destroyed`
+   入队，`DispatchPending` 后逐实体经 `ISpatialQuery.Unregister` 同步移除登记（见
+   `core/carriers/assembly/EntitySpatialSyncHost`），本模块再额外调用一次
+   `ISpatialQuery.Clear()`/`INavigation2D.Clear(mapId)` 做整图兜底清空（`mapId` 取被卸载的
+   旧场景 id——判断记录：05/03 未见"场景 id 与地图 id 是否同一 Id"的显式条款，按既有惯例
+   `Entity.MapId` 与所属场景 `world.map` 行 id 同值处理，供设计层复核）。
 
 5. **03 第 6 节步骤 4"先 pre_unload 再卸载旧场景"的时序：放在异步加载完成之后（`Update`
    内），不是 `LoadScene` 调用当下**：03 原文步骤编号顺序是 1 触发 → 2 转 Loading → 3 异步

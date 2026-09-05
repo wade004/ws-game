@@ -60,12 +60,17 @@ namespace Core.Foundation.EngineAdapter
         void SetLayers(SpriteHandle handle, IReadOnlyList<Id> layers);
 
         /// <summary>
-        /// sortY：同层内按纵坐标排序，用于 2.5D 的前后遮挡，且与 IRenderer3D 模型实例的
-        /// sortY 共享同一排序空间；layer：离散图层。
+        /// height：跳跃/击飞/悬浮类效果的纵向绘制偏移，只平移绘制位置，不参与 sortY 排序、
+        /// 不平移影子（语义见 09_表现层.md 第 3.4 节，与 IRenderer3D.SetPlacement 的 height
+        /// 参数对齐，见 ADR-0016 决策 2）；sortY：同层内按纵坐标排序，用于 2.5D 的前后遮挡，
+        /// 且与 IRenderer3D 模型实例的 sortY 共享同一排序空间；layer：离散图层。
         /// </summary>
-        void SetTransform(SpriteHandle handle, Vec2 position, double sortY, int layer, double rotation, double scale, bool flipX);
+        void SetTransform(SpriteHandle handle, Vec2 position, double height, double sortY, int layer, double rotation, double scale, bool flipX);
 
-        /// <summary>参数含义由 DisplayInfo 映射决定，本接口不理解参数语义。</summary>
+        /// <summary>
+        /// 参数含义由 DisplayInfo 映射决定，本接口不理解参数语义；不承载高度这类已有正式
+        /// 参数通路的量——高度一律经 SetTransform 的 height 参数传递（见 ADR-0016 决策 2）。
+        /// </summary>
         void SetShaderParam(SpriteHandle handle, string paramName, double value);
 
         void DestroySpriteInstance(SpriteHandle handle);

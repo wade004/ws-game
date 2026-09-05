@@ -80,5 +80,47 @@ namespace Adapter.Unity.Tests.Editor
         {
             Assert.IsNull(_fs.ReadText(_subDir + "/does_not_exist.json"));
         }
+
+        [Test]
+        public void GetContentRootDir_DiffersFromGetUserDataDir_InUserDataMode()
+        {
+            // ADR-0016 决策 8：GetContentRootDir 与 GetUserDataDir 是两个独立目录。
+            Assert.AreNotEqual(_fs.GetUserDataDir(), _fs.GetContentRootDir());
+            StringAssert.Contains("StreamingAssets", _fs.GetContentRootDir());
+        }
+
+        [Test]
+        public void ReadOnlyContentMode_WriteTextAtomic_ReturnsFalse_DoesNotThrow()
+        {
+            var contentFs = new UnityFileSystem(readOnlyContentMode: true);
+
+            var ok = contentFs.WriteTextAtomic(_subDir + "/should_not_write.json", "x");
+
+            Assert.IsFalse(ok);
+            Assert.IsFalse(contentFs.Exists(_subDir + "/should_not_write.json"));
+        }
+
+        [Test]
+        public void ReadOnlyContentMode_DeleteFile_ReturnsFalse_DoesNotThrow()
+        {
+            var contentFs = new UnityFileSystem(readOnlyContentMode: true);
+
+            Assert.IsFalse(contentFs.DeleteFile(_subDir + "/anything.json"));
+        }
+
+        [Test]
+        public void ReadOnlyContentMode_ResolvesUnderConfiguredContentRoot()
+        {
+            var contentRoot = Path.Combine(Application.persistentDataPath, _subDir);
+            var contentFs = new UnityFileSystem(readOnlyContentMode: true, contentRoot: contentRoot);
+
+            // 直接用普通模式实例把探针文件写进 contentRoot 对应的目录（等价于测试夹具预置好一份
+            // 内容），验证只读模式实例确实从这个自定义 contentRoot 读取，而不是
+            // Application.persistentDataPath 根目录。
+            _fs.WriteTextAtomic(_subDir + "/probe.json", "{\"ok\":true}");
+
+            Assert.AreEqual("{\"ok\":true}", contentFs.ReadText("probe.json"));
+            Assert.AreEqual(contentRoot, contentFs.GetContentRootDir());
+        }
     }
 }

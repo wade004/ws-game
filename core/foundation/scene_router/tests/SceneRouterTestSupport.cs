@@ -108,7 +108,7 @@ namespace Tests.Foundation.SceneRouter
             public Core.Foundation.HookRegistry.HookRegistry Hooks { get; }
             public Core.Foundation.SceneRouter.SceneRouter Router { get; }
 
-            public Harness(string worldMapRowsJson, bool deferCallbacks = false)
+            public Harness(string worldMapRowsJson, bool deferCallbacks = false, StubSpatialQuery? spatial = null, StubNavigation2D? navigation = null)
             {
                 Bus = CreateBus();
                 Registry = BuildWorldMapRegistry(worldMapRowsJson, Bus);
@@ -116,7 +116,7 @@ namespace Tests.Foundation.SceneRouter
                 App = CreateAppStateHostAllowingLoadingToMainMenu(Bus);
                 World = new WorldSim(Bus);
                 Hooks = new Core.Foundation.HookRegistry.HookRegistry(Bus);
-                Router = new Core.Foundation.SceneRouter.SceneRouter(Registry, Loader, App, World, Hooks, Bus);
+                Router = new Core.Foundation.SceneRouter.SceneRouter(Registry, Loader, App, World, Hooks, Bus, spatial: spatial, navigation: navigation);
             }
 
             /// <summary>把场景资源引用登记为"可加载成功"（非 defer 模式下 LoadAsync 会立即

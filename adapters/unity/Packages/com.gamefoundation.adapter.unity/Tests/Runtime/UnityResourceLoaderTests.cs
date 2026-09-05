@@ -85,6 +85,96 @@ namespace Adapter.Unity.Tests.Runtime
             StringAssert.EndsWith(expectedSuffix, path);
         }
 
+        [Test]
+        public void ResolvePath_SceneAndNavMesh_UseDedicatedSubfolders()
+        {
+            // ADR-0016 决策 5：Scene/NavMesh 不再借用 DataTable 的 "data/" 子目录。
+            var scenePath = UnityResourceLoader.ResolvePath(new Id("scene.sample_field"), ResourceKind.Scene);
+            var navPath = UnityResourceLoader.ResolvePath(new Id("nav.sample_field"), ResourceKind.NavMesh);
+
+            StringAssert.Contains("scene", scenePath);
+            StringAssert.EndsWith("sample_field.json", scenePath);
+            StringAssert.Contains("nav_mesh", navPath);
+            StringAssert.EndsWith("sample_field.json", navPath);
+        }
+
+        [Test]
+        public void ResolveEffectDir_StripsCategoryPrefix_UsesVfxSubfolder()
+        {
+            var dir = UnityResourceLoader.ResolveEffectDir(new Id("vfx.hit_spark"));
+
+            StringAssert.Contains("vfx", dir);
+            StringAssert.EndsWith(System.IO.Path.Combine("vfx", "hit_spark"), dir);
+        }
+
+        [UnityTest]
+        public IEnumerator LoadAsync_MissingSceneResource_InvokesCallbackWithFalse()
+        {
+            var resourceId = new Id("scene.sample_missing");
+            bool? success = null;
+
+            _loader.LoadAsync(resourceId, ResourceKind.Scene, (id, ok) => success = ok);
+
+            var timeout = 5f;
+            while (success == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= 0.02f;
+            }
+
+            Assert.IsNotNull(success);
+            Assert.IsFalse(success!.Value);
+        }
+
+        [UnityTest]
+        public IEnumerator LoadAsync_MissingEffectResource_InvokesCallbackWithFalse()
+        {
+            var resourceId = new Id("vfx.sample_missing_effect");
+            bool? success = null;
+
+            _loader.LoadAsync(resourceId, ResourceKind.Effect, (id, ok) => success = ok);
+
+            var timeout = 5f;
+            while (success == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= 0.02f;
+            }
+
+            Assert.IsNotNull(success);
+            Assert.IsFalse(success!.Value);
+            Assert.IsFalse(_loader.TryGetEffect(resourceId, out _));
+        }
+
+        /// <summary>依赖 build.ps1 -SyncContent 已经把 assets/_placeholder/vfx/ 同步进
+        /// StreamingAssets/GameFoundation/vfx/（见包 README"内容同步"一节），同
+        /// LoadAsync_PlaceholderHeroFrontBody_LoadsWithExpectedSize 判断记录。</summary>
+        [UnityTest]
+        public IEnumerator LoadAsync_PlaceholderHitSparkEffect_LoadsFramesSuccessfully()
+        {
+            var resourceId = new Id("vfx.hit_spark");
+            bool? success = null;
+
+            _loader.LoadAsync(resourceId, ResourceKind.Effect, (id, ok) => success = ok);
+
+            var timeout = 5f;
+            while (success == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+
+            Assert.IsNotNull(success, "加载在超时前应当有结果（成功或失败），不应当悬而不决");
+            Assert.IsTrue(success!.Value,
+                "占位 hit_spark 特效资源加载应当成功——若失败，请先跑一次 build.ps1 -SyncContent 同步占位资产");
+            Assert.IsTrue(_loader.TryGetEffect(resourceId, out var asset));
+            Assert.AreEqual(8, asset.Frames.Length, "assets/_placeholder/vfx/hit_spark/frames.json 声明了 8 帧");
+            Assert.IsFalse(asset.Loop, "assets/_placeholder/vfx/hit_spark/frames.json 的 loop 为 false");
+        }
+
         /// <summary>U2-1 验收要求（任务书原句）："加载占位英雄 front/body 成功、宽高 64×96"。依赖
         /// build.ps1 -SyncContent 已经把 assets/_placeholder/sprites/ 同步进
         /// StreamingAssets/GameFoundation/sprites/（见包 README"内容同步"一节）；命令行跑测试前

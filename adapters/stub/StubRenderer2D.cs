@@ -15,15 +15,17 @@ namespace Adapters.Stub
         public readonly struct TransformRecord
         {
             public readonly Vec2 Position;
+            public readonly double Height;
             public readonly double SortY;
             public readonly int Layer;
             public readonly double Rotation;
             public readonly double Scale;
             public readonly bool FlipX;
 
-            public TransformRecord(Vec2 position, double sortY, int layer, double rotation, double scale, bool flipX)
+            public TransformRecord(Vec2 position, double height, double sortY, int layer, double rotation, double scale, bool flipX)
             {
                 Position = position;
+                Height = height;
                 SortY = sortY;
                 Layer = layer;
                 Rotation = rotation;
@@ -57,10 +59,10 @@ namespace Adapters.Stub
             Layers[handle.Value] = layers;
         }
 
-        public void SetTransform(SpriteHandle handle, Vec2 position, double sortY, int layer, double rotation, double scale, bool flipX)
+        public void SetTransform(SpriteHandle handle, Vec2 position, double height, double sortY, int layer, double rotation, double scale, bool flipX)
         {
             EnsureSpriteAlive(handle);
-            Transforms[handle.Value] = new TransformRecord(position, sortY, layer, rotation, scale, flipX);
+            Transforms[handle.Value] = new TransformRecord(position, height, sortY, layer, rotation, scale, flipX);
         }
 
         public void SetShaderParam(SpriteHandle handle, string paramName, double value)

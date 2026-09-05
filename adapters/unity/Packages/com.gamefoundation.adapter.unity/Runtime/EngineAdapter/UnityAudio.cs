@@ -70,7 +70,14 @@ namespace Adapter.Unity.EngineAdapter
         /// 本计数衡量的是"表现层→引擎适配层的播放调用链路是否被触发"，不是"是否真的听到了声音"。</summary>
         public int PlaySfxCallCount { get; private set; }
 
-        public SfxHandle PlaySfx(Id soundId, double volume, double pitch)
+        /// <summary>
+        /// <paramref name="position"/>（ADR-0016 决策 3 新增）为空时按无空间衰减方式播放
+        /// （<c>spatialBlend = 0</c>，与既有行为一致）；非空时把音源挪到该世界坐标并启用 2D 声像
+        /// （<c>spatialBlend = 1</c>，Unity 默认的对数衰减曲线），提供基本的"离得越远越小声"效果——
+        /// 不要求精确匹配任何具体游戏的衰减调校，属于"允许忽略"范围内的最小合理实现（见 02 第 1.4
+        /// 节"不支持空间音频的实现可以忽略该参数"）。
+        /// </summary>
+        public SfxHandle PlaySfx(Id soundId, double volume, double pitch, Vec2? position)
         {
             PlaySfxCallCount++;
             var slot = RentSlot();
@@ -87,6 +94,16 @@ namespace Adapter.Unity.EngineAdapter
             {
                 slot.Source.clip = null;
                 Debug.LogWarning($"[UnityAudio] 音效资源未加载或不存在，跳过播放：{soundId}");
+            }
+
+            if (position.HasValue)
+            {
+                slot.Source.transform.position = new Vector3((float)position.Value.X, (float)position.Value.Y, 0f);
+                slot.Source.spatialBlend = 1f;
+            }
+            else
+            {
+                slot.Source.spatialBlend = 0f;
             }
 
             slot.Source.volume = (float)(volume * _busVolumes[AudioBus.Sfx]);

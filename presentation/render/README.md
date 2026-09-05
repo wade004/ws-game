@@ -121,13 +121,16 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
    纸娃娃层，需要"已装备物品的 DisplayInfo"（尚待 L3 `item` 模块提供的查询能力，不在本任务范围），
    本类型只提供 `SetPaperdollLayers` 这个底层原语，`OnEvent` 留给具体游戏 View 子类或后续
    `presentation/feedback_binder` 重写实现"收到什么事件时传什么层名列表"这一策略。
-5. **高度偏移经 `SetShaderParam` 工作绕**：见 `SpriteViewBase` 类型注释与
-   `presentation/common/README.md`"契约缺口"一节。
+5. **高度偏移已由 ADR-0016 解决**：`IRenderer2D.SetTransform` 增加了 `height` 参数
+   （与 `IRenderer3D.SetPlacement` 对齐），`SyncPose` 现直接把换算出的像素高度经这个正式参数传递，
+   不再借用 `SetShaderParam` 通道，`HeightOffsetShaderParam` 常量已删除。
+6. **资源首次加载责任已由 ADR-0016 解决**：`SpriteViewBase` 可选注入 `IResourceLoader`，构造期对
+   `sprite_set_id`、`SetPaperdollLayers` 期间对每个新解析出的纸娃娃层资源 id，均以
+   `ResourceKind.Image` 触发一次 `LoadAsync`（同一 id 只触发一次，见
+   `Presentation.Common.ResourceReferenceTracker`）。
 
 ## 契约缺口
 
-- `IRenderer2D.SetTransform` 缺少高度/像素纵向偏移参数（对比 `IRenderer3D.SetPlacement` 显式携带
-  `height`），建议 02 文档评估是否补充。
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
 - 裸档位名与 `Id` 格式之间需要一道前缀转换，14/工具链/占位资产与 `Id` 类型本身三处未统一约定该
   转换应该发生在哪一步，见判断记录 2。

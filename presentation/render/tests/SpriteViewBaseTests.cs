@@ -16,8 +16,8 @@ namespace Tests.PresentationRender
     /// 实现（见 <c>SpriteViewBase</c> 判断记录）。</summary>
     internal sealed class TestSpriteView : SpriteViewBase
     {
-        public TestSpriteView(IRenderer2D renderer, IRenderConventionHost conventions, DisplayInfo displayInfo, RenderOptions? options = null)
-            : base(renderer, conventions, displayInfo, options)
+        public TestSpriteView(IRenderer2D renderer, IRenderConventionHost conventions, DisplayInfo displayInfo, RenderOptions? options = null, IResourceLoader? resourceLoader = null)
+            : base(renderer, conventions, displayInfo, options, resourceLoader)
         {
         }
 
@@ -98,7 +98,7 @@ namespace Tests.PresentationRender
         }
 
         [Fact]
-        public void SyncPose_WritesHeightOffsetShaderParam()
+        public void SyncPose_PassesHeightThroughSetTransform()
         {
             var renderer = new StubRenderer2D();
             var view = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo(), new RenderOptions { PixelsPerUnit = 10.0 });
@@ -106,8 +106,11 @@ namespace Tests.PresentationRender
 
             view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2, 8), 3.0);
 
-            var handleValue = new List<int>(renderer.ShaderParams.Keys)[0];
-            Assert.Equal(30.0, renderer.ShaderParams[handleValue][SpriteViewBase.HeightOffsetShaderParam]);
+            var handleValue = new List<int>(renderer.Transforms.Keys)[0];
+            // 高度经 IRenderer2D.SetTransform 的 height 参数传递（ADR-0016 决策 2），
+            // 不再借用 SetShaderParam 通道。
+            Assert.Equal(30.0, renderer.Transforms[handleValue].Height);
+            Assert.Empty(renderer.ShaderParams);
         }
 
         [Fact]
@@ -162,6 +165,35 @@ namespace Tests.PresentationRender
 
             Assert.False(view.IsAlive);
             Assert.Null(ex);
+        }
+
+        [Fact]
+        public void Construct_WithResourceLoaderInjected_LoadsSpriteSetIdAsImage()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader();
+
+            _ = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo(), resourceLoader: loader);
+
+            var requests = loader.LoadRequests.FindAll(r => r.ResourceId.Equals(new Id("sprite.creature.hero")));
+            Assert.Single(requests);
+            Assert.Equal(ResourceKind.Image, requests[0].Kind);
+        }
+
+        [Fact]
+        public void SetPaperdollLayers_WithResourceLoaderInjected_LoadsEachResolvedLayerId_OnlyOnce()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader();
+            var view = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo(), resourceLoader: loader);
+            view.Bind(new Id("unit.hero_1"));
+
+            view.SetPaperdollLayersPublic(new[] { "body" }, Direction.FromQuantized(System.Math.PI / 2, 8));
+            view.SetPaperdollLayersPublic(new[] { "body" }, Direction.FromQuantized(System.Math.PI / 2, 8));
+
+            var requests = loader.LoadRequests.FindAll(r => r.ResourceId.Equals(new Id("layer.creature_hero__front__body")));
+            Assert.Single(requests);
+            Assert.Equal(ResourceKind.Image, requests[0].Kind);
         }
 
         [Fact]

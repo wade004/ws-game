@@ -82,5 +82,34 @@ namespace Adapter.Unity.Tests.Editor
         {
             Assert.IsTrue(_query.HasLineOfSight(Vec2.Zero, new Vec2(10, 10)));
         }
+
+        [Test]
+        public void UpdatePosition_MovesRegisteredObject_QueryReflectsNewPosition()
+        {
+            var id = new Id("unit.mover");
+            _query.Register(id, Vec2.Zero, 0.1);
+
+            _query.UpdatePosition(id, new Vec2(10, 10));
+
+            CollectionAssert.IsEmpty(_query.QueryRadius(Vec2.Zero, 1, QueryFilter.None));
+            CollectionAssert.Contains(_query.QueryRadius(new Vec2(10, 10), 1, QueryFilter.None), id);
+        }
+
+        [Test]
+        public void UpdatePosition_UnregisteredId_IsNoOp_DoesNotThrow()
+        {
+            Assert.DoesNotThrow(() => _query.UpdatePosition(new Id("unit.never_registered"), new Vec2(1, 1)));
+        }
+
+        [Test]
+        public void Clear_RemovesAllRegisteredObjects()
+        {
+            _query.Register(new Id("unit.a"), Vec2.Zero, 0.1);
+            _query.Register(new Id("unit.b"), new Vec2(5, 5), 0.1);
+
+            _query.Clear();
+
+            Assert.IsNull(_query.Nearest(Vec2.Zero, QueryFilter.None));
+        }
     }
 }

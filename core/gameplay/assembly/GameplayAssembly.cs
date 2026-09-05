@@ -108,7 +108,7 @@ namespace Core.Gameplay.Assembly
             Func<Id> playerUnitProvider,
             Id playerFactionId,
             INavigation2D? navigation = null,
-            ISpatialIndexSync? spatialSync = null,
+            IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig>? spatialSyncKinds = null,
             ISceneRouter? sceneRouter = null,
             StatHostOptions? statOptions = null,
             CombatOptions? combatOptions = null,
@@ -174,7 +174,7 @@ namespace Core.Gameplay.Assembly
             var resolvedGobjOptions = gobjOptions ?? new GobjOptions();
 
             Carriers = new CarriersAssembly(
-                bus, registry, rng, world, spatial, navigation, spatialSync,
+                bus, registry, rng, world, spatial, navigation, spatialSyncKinds,
                 worldFlags: WorldState, lootRoller: deferredLootRoller,
                 statOptions: statOptions, combatOptions: combatOptions, skillOptions: skillOptions,
                 targetingOptions: targetingOptions, aiOptions: aiOptions, inventoryOptions: inventoryOptions,
@@ -380,6 +380,45 @@ namespace Core.Gameplay.Assembly
             AreaTrigger.LoadForMap(mapId, Carriers.Rules.Registry);
             Spawn.ApplyForMap(mapId);
             Economy.OnMapEnter(mapId);
+        }
+
+        /// <summary>
+        /// <see cref="EnterMap"/> 的卸载对应物（ADR-0016 背景一节联动发现的既有缺口——本类此前只有
+        /// "进图"入口，没有"出图"入口）：调用方（场景路由的 <c>pre_unload</c> 钩子，或测试直接调用）
+        /// 在切换到新地图、旧地图即将卸载前调用一次，把 <see cref="AreaTrigger"/>/<see cref="Spawn"/>
+        /// 两个按地图持有内容登记（触发器实例、刷新点运行时状态）的宿主提前清空——二者都早已各自
+        /// 提供 <c>UnloadMap(Id)</c> 方法（<c>AreaTriggerHost</c>/<c>SpawnHost</c>），只是此前没有
+        /// 任何调用方接线，属于实现未跟上既有能力的情形（同类还有 <c>Core.Rules.Ai.AiHost</c>——
+        /// 它没有按地图分片的登记，改为直接订阅 <c>entity.destroyed</c> 逐单位清理，见该类型判断
+        /// 记录，不需要挂在本方法）。
+        /// <para>
+        /// 判断记录（复现路径与验收）：不调用本方法也不会立刻抛异常——<c>IWorldSim.ClearAll</c> 会把
+        /// 实体清空、<c>AiHost</c> 订阅 <c>entity.destroyed</c> 自行清理，两者都不依赖本方法；但
+        /// <c>SpawnHost</c> 按 <c>spawn.table</c> 记录 id（不是实体 id）持有 <c>RuntimeState</c>，
+        /// 记录 id 在同一张地图重新进图时保持不变——不调用 <c>LeaveMap</c> 会让 <c>RuntimeState</c>
+        /// 里的 <c>EntityId</c> 继续指向已被 <c>ClearAll</c> 销毁的旧实体，下次 <c>ApplyForMap</c>
+        /// 误判"该刷新点仍然存活"而跳过重新生成——不是崩溃，是刷新逻辑悄悄失效，任务验收用例
+        /// "进图 → 生成生物 → 卸载 → 再进图 → tick 数十次不抛异常"覆盖的是 <c>AiHost</c> 那一半
+        /// 缺口（不调用本方法确实会抛 <see cref="System.InvalidOperationException"/>，见
+        /// <c>AiHostCascadeCleanupTests</c>），<c>SpawnHost</c> 这一半缺口由 <c>LeaveMap</c> 补上、
+        /// 由 <c>GameplayAssemblyMapReloadTests</c> 覆盖"卸载重进后刷新点能再次生成"。
+        /// </para>
+        /// </summary>
+        public void LeaveMap(Id mapId)
+        {
+            // 判断记录（先 DispatchPending 再清理）：调用方约定顺序是"world.ClearAll() → 本方法"
+            // （同 SceneRouter.FinishLoading 的既有顺序）；ClearAll 只把每个实体的 entity.destroyed
+            // Enqueue（不立即派发，见 IWorldSim.ClearAll 注释），若不在这里补一次 DispatchPending，
+            // Core.Rules.Ai.AiHost（订阅 entity.destroyed 清理登记，见该类型判断记录）与
+            // core/carriers/assembly.EntitySpatialSyncHost 都不会来得及在下一次 world.Tick 之前收到
+            // 通知——下一次 tick 的 AiDecision 阶段（TickPhase 顺序第 2 步，早于第 7 步
+            // EventDispatch）仍会用残留的旧登记推进已销毁单位，重新触发本方法要解决的那个
+            // InvalidOperationException。直接调用方若已经自己 DispatchPending 过（如 SceneRouter），
+            // 这里再调一次是无害的空操作。
+            _bus.DispatchPending();
+
+            AreaTrigger.UnloadMap(mapId);
+            Spawn.UnloadMap(mapId);
         }
 
         /// <summary>

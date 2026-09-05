@@ -85,22 +85,4 @@ namespace Tests.Carriers.Unit
         public IReadOnlyList<Id> GetActiveAuraDefs(Id unitId) => Array.Empty<Id>();
     }
 
-    /// <summary>
-    /// 把 <see cref="StubSpatialQuery"/> 的测试用登记方法（<c>Register</c>/<c>Unregister</c>）包一层
-    /// 成 <see cref="Core.Carriers.Unit.ISpatialIndexSync"/>（见该接口顶部判断记录"桩的 Register 方法
-    /// 在测试里包一层"），供 <see cref="Core.Carriers.Unit.WorldUnitAccess"/> 的空间索引同步测试使用。
-    /// </summary>
-    internal sealed class TestSpatialIndexSync : Core.Carriers.Unit.ISpatialIndexSync
-    {
-        private readonly StubSpatialQuery _spatial;
-
-        public TestSpatialIndexSync(StubSpatialQuery spatial)
-        {
-            _spatial = spatial;
-        }
-
-        public void Upsert(Id id, Vec2 position, double radius) => _spatial.Register(id, position, radius);
-
-        public void Remove(Id id) => _spatial.Unregister(id);
-    }
 }

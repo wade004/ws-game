@@ -70,13 +70,28 @@ namespace Adapter.Unity.Tests.Runtime
         {
             _cameraGo.transform.position = new Vector3(0, 0, -10);
 
-            _camera.Shake(1.0, 0.05);
+            _camera.Shake(1.0, 0.05, frequency: 20.0);
             _camera.Tick(0.02);
             _camera.Tick(0.02);
             _camera.Tick(0.02); // 超过 duration，抖动应结束
 
             Assert.AreEqual(0f, _cameraGo.transform.position.x, 0.001f);
             Assert.AreEqual(0f, _cameraGo.transform.position.y, 0.001f);
+        }
+
+        [Test]
+        public void Shake_DuringActiveWindow_AppliesNonZeroOffset()
+        {
+            // ADR-0016 决策 4：frequency 参数驱动 Perlin 噪声采样（见 UnityCamera.Shake 判断记录），
+            // 本用例只断言"震屏期间确有偏移产生"，不断言具体数值（噪声轨迹不追求可预测）。
+            _cameraGo.transform.position = new Vector3(0, 0, -10);
+
+            _camera.Shake(5.0, 1.0, frequency: 15.0);
+            _camera.Tick(0.1);
+
+            var offsetX = _cameraGo.transform.position.x;
+            var offsetY = _cameraGo.transform.position.y;
+            Assert.IsTrue(offsetX != 0f || offsetY != 0f, "震屏期间相机位置应偏离基准位置");
         }
     }
 }
