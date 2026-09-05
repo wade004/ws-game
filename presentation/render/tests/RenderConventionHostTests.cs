@@ -39,65 +39,48 @@ namespace Tests.PresentationRender
         }
 
         [Fact]
-        public void ResolveDirectionSlot_NoMirrorPair_ReturnsCanonicalSlot_NoFlip()
+        public void ResolveDirectionSlot_CanonicalSlotWithNoDefaultMirror_ReturnsCanonicalSlot_NoFlip()
         {
             var sprite = new SpriteInfo("sprite.x", 8);
-            var direction = Direction.FromQuantized(0.0, 8); // index 0 -> "dir.e"
+            var direction = Direction.FromQuantized(System.Math.PI / 2, 8); // 90 度 -> index 2 -> "dir.front"（面朝观察者，无镜像）
 
             var (slotId, flipX) = _host.ResolveDirectionSlot(direction, sprite);
 
-            Assert.Equal(new Id("dir.e"), slotId);
+            Assert.Equal(DirectionSlots.Front, slotId);
             Assert.False(flipX);
         }
 
         [Fact]
-        public void ResolveDirectionSlot_WithMirrorPair_ReturnsMirrorOfAndFlip()
+        public void ResolveDirectionSlot_LSlot_NoMirrorPairRegistered_FallsBackToDefault14MirrorTable()
         {
-            var mirrorPairs = new[] { new MirrorPair(new Id("dir.nw"), new Id("dir.ne"), true) };
-            var sprite = new SpriteInfo("sprite.x", 8, mirrorPairs);
-            var direction = Direction.FromQuantized(System.Math.PI * 3 / 4, 8); // 135 度 -> index 3 -> "dir.nw"
+            var sprite = new SpriteInfo("sprite.x", 8); // 未登记 mirror_pairs
+            var direction = Direction.FromQuantized(0.0, 8); // index 0 -> "dir.side_l"（14 默认镜像自 side_r）
 
             var (slotId, flipX) = _host.ResolveDirectionSlot(direction, sprite);
 
-            Assert.Equal(new Id("dir.ne"), slotId);
+            Assert.Equal(DirectionSlots.SideR, slotId);
             Assert.True(flipX);
         }
 
-        [Theory]
-        [InlineData(0, "dir.e")]
-        [InlineData(1, "dir.ne")]
-        [InlineData(2, "dir.n")]
-        [InlineData(3, "dir.nw")]
-        [InlineData(4, "dir.w")]
-        [InlineData(5, "dir.sw")]
-        [InlineData(6, "dir.s")]
-        [InlineData(7, "dir.se")]
-        public void CanonicalDirectionSlotId_8Directions_MatchesCompassLabels(int index, string expected)
-        {
-            Assert.Equal(new Id(expected), RenderConventionHost.CanonicalDirectionSlotId(index, 8));
-        }
-
-        [Theory]
-        [InlineData(0, "dir.e")]
-        [InlineData(1, "dir.n")]
-        [InlineData(2, "dir.w")]
-        [InlineData(3, "dir.s")]
-        public void CanonicalDirectionSlotId_4Directions_MatchesCompassLabels(int index, string expected)
-        {
-            Assert.Equal(new Id(expected), RenderConventionHost.CanonicalDirectionSlotId(index, 4));
-        }
-
         [Fact]
-        public void CanonicalDirectionSlotId_16Directions_FallsBackToNumericSlot()
+        public void ResolveDirectionSlot_ExplicitMirrorPair_OverridesDefault14MirrorTable()
         {
-            Assert.Equal(new Id("dir.slot_5"), RenderConventionHost.CanonicalDirectionSlotId(5, 16));
+            // 内容侧显式登记的 mirror_pairs 优先于 14 的默认镜像表回退（09 第 3.2 节镜像规则表）。
+            var mirrorPairs = new[] { new MirrorPair(DirectionSlots.SideL, DirectionSlots.Front, true) };
+            var sprite = new SpriteInfo("sprite.x", 8, mirrorPairs);
+            var direction = Direction.FromQuantized(0.0, 8); // index 0 -> "dir.side_l"
+
+            var (slotId, flipX) = _host.ResolveDirectionSlot(direction, sprite);
+
+            Assert.Equal(DirectionSlots.Front, slotId);
+            Assert.True(flipX);
         }
 
         [Fact]
         public void ComposeSpriteLayers_PreservesOrder_AndAppliesSameSlotToAllLayers()
         {
             var sprite = new SpriteInfo("sprite.x", 8);
-            var direction = Direction.FromQuantized(0.0, 8);
+            var direction = Direction.FromQuantized(System.Math.PI / 2, 8); // index 2 -> "dir.front"
             var layers = new List<string> { "body", "chest_armor", "weapon" };
 
             var placements = _host.ComposeSpriteLayers(layers, sprite, direction);
@@ -106,7 +89,7 @@ namespace Tests.PresentationRender
             Assert.Equal("body", placements[0].LayerName);
             Assert.Equal("chest_armor", placements[1].LayerName);
             Assert.Equal("weapon", placements[2].LayerName);
-            Assert.All(placements, p => Assert.Equal(new Id("dir.e"), p.DirectionSlotId));
+            Assert.All(placements, p => Assert.Equal(DirectionSlots.Front, p.DirectionSlotId));
         }
 
         [Fact]

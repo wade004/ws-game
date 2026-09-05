@@ -15,6 +15,7 @@ common/
   contracts/
     ViewKind.cs             View 种类枚举（09 §2）
     Direction.cs             量化方向索引 + 档位数 + 原始弧度（09 §2、§3.2）
+    DirectionSlots.cs        方向档位命名与镜像回退的唯一来源（14 §2.1；P4-2 新增，见下判断记录）
     IView.cs                 View 绑定协议（09 §2）
     IViewFactory.cs          View 工厂（09 §2，由引擎侧实现）
     ViewContext.cs           传给 IViewFactory 的绘制能力集合（IRenderer2D/IRenderer3D?/ICamera/DisplayInfo）
@@ -58,6 +59,13 @@ common/
    类型不可空，选择"不存在则抛异常"（调用前应先 `Exists`）；`GetDisplayId`/`GetKind` 返回值本就是
    `Optional`，选择"不存在则返回 null"，与"实体不存在"和"实体存在但映射不出结果"两种情形统一为
    同一个 null（`GetKind` 在 `Entity.Kind` 无法映射时也返回 null，见 `EntityKindMapping`）。
+4. **`DirectionSlots` 集中"量化索引 → 档位 id"与"档位 id → 默认镜像来源"两条规则**（P4-2 新增，取代
+   `presentation/render` P4-1 自造的罗盘命名）：档位族命名本身取自 14 第 2.1 节固定表，但"量化索引
+   0 对应哪个具体档位"仍是本类型的判断记录（游戏镜头朝向问题，架构文档不预先拍板）——依据 05 第
+   3.1 节"sortY 越大越靠前，即 +y 朝向观察者"确定 `front` = 角度 90°（+Y 轴），配合
+   `Core.Carriers.Unit.DirectionQuantizer` 的既有约定（index 0 = 角度 0 = +X 轴，逆时针编号）反推出
+   完整对照表，见该类型 `FromQuantized` 方法注释与 `presentation/render/README.md`"索引→档位对应
+   表"一节。
 
 ## 契约缺口
 
@@ -70,3 +78,12 @@ common/
   `presentation/render` 的 `SpriteViewBase` 用 `SetShaderParam` 的既有通用参数通道做了一个记录在案
   的工作绕：详见 `presentation/render/README.md`"契约缺口"一节，建议 02 文档评估是否给
   `IRenderer2D` 补一个高度/像素纵向偏移参数。
+- **裸档位名与 `Id` 格式的前缀不一致**（P4-2 核对发现，见 `DirectionSlots` 类型注释"Id 前缀判断
+  记录"）：14 第 2.1 节命名表、`toolchain/asset_import/directions.py`、
+  `assets/_placeholder/sprites/*/anchors.json` 三处一致使用不带前缀的裸档位名（如
+  `"front_side_r"`），但 `Core.Foundation.Common.Id` 要求"至少一个点分段"，裸名字不是合法 `Id`；
+  `core/foundation/display_info` 既有测试夹具（`DisplayInfoTestSupport.PlayerHeroSpriteRow`）已经
+  用 `"dir."` 前缀 + 罗盘缩写绕开这一点。`DirectionSlots` 沿用同一前缀惯例，只是把罗盘缩写换成 14
+  的档位族命名；这不是 14/工具链的错误（那两处的裸名字本就不经过 `Id` 类型），只有真正写入
+  `display.map.mirror_pairs` 时才需要补前缀，具体游戏的资产导入工具接入阶段需要在"裸名字 → Id"这
+  一步统一处理该前缀，架构文档未拍板具体拼接约定，如实汇报，不代为决定。

@@ -104,6 +104,31 @@ namespace Core.Gameplay.Dialog
             return new GossipView(menuId, options);
         }
 
+        public GossipView? GetGossipView(Id unitId)
+        {
+            if (!_sessions.TryGetValue(unitId, out var session) || !session.GossipMenuId.HasValue || !session.NpcId.HasValue)
+            {
+                return null;
+            }
+
+            var menuId = session.GossipMenuId.Value;
+            var npcId = session.NpcId.Value;
+            var menu = RequireMenu(menuId);
+
+            var host = _exprHostFactory.CreateFor(unitId, npcId, null);
+            var options = new List<(int, Id)>();
+            for (var i = 0; i < menu.Options.Count; i++)
+            {
+                var option = menu.Options[i];
+                if (option.VisibleIf == null || ExprEvaluator.EvaluateBool(option.VisibleIf, host, _exprDiagnostics))
+                {
+                    options.Add((i, option.TextKey));
+                }
+            }
+
+            return new GossipView(menuId, options);
+        }
+
         public bool ChooseOption(Id unitId, int index)
         {
             if (!_sessions.TryGetValue(unitId, out var session) || !session.GossipMenuId.HasValue || !session.NpcId.HasValue)

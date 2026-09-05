@@ -49,11 +49,14 @@
    本就是"多段伤害"数值场景。`FloatingTextMerger` 类型注释有完整判断记录。
 4. **合并窗口不因追加命中而延长**：从该 `(entityId, styleId)` 组合第一次出现起固定计时，行为对
    测试/回放更容易预测；09 原文未规定这一细节。
-5. **`from_display: source/target` 是契约缺口**：09 第 5.6 节"逻辑 id"特指技能/光环/物品/生物
-   模板 id，不是运行期实体 id；`from_display: skill` 经事件的 `skillId`/`auraDefId` 字段直接就是
-   这种逻辑 id，可以完整实现。`source`/`target` 需要"实体 id → 模板 id"这层映射，本任务契约清单
-   没有提供（`IUnitAccess` 没有模板 id 访问器），因此设计为可选注入
-   `EntityLogicalIdResolver`：未注入时记一条诊断并跳过该动作，不崩溃、不影响规则里的其它动作。
+5. **`from_display: source/target` 契约缺口已修补（P4-2）**：09 第 5.6 节"逻辑 id"特指技能/光环/
+   物品/生物模板 id，不是运行期实体 id；`from_display: skill` 经事件的 `skillId`/`auraDefId` 字段
+   直接就是这种逻辑 id，可以完整实现。`source`/`target` 需要"实体 id → 模板 id"这层映射——原判断
+   记录称"本任务契约清单没有提供（`IUnitAccess` 没有模板 id 访问器）"，但 `IUnitAccess` 契约本身
+   已经补上 `GetTemplateId(Id unitId): Id?`（05 第 1.1 节 `Entity.templateId`），这一契约缺口已不
+   存在。`FeedbackBinder.ResolveEntityLogicalId` 现按"先看可选注入的 `EntityLogicalIdResolver`（仍
+   保留，供需要与模板 id 不同映射规则的具体游戏覆盖），没有注入时默认经 `IUnitAccess.GetTemplateId`
+   取模板 id"的顺序解析；两者都未注入时仍记一条诊断并跳过该动作，不崩溃、不影响规则里的其它动作。
 6. **`text_source: literal` 的本地化解析**：`l10n.text` 查表（04 第 7.2 节）不在本模块契约范围
    内，当前实现直接把文本键原文（如 `"l10n.combat.dodge"`）当作展示文本传给
    `IFeedbackSink.FloatingText`，只是一个占位；集成阶段需要注入一个 `Func<Id,string>` 本地化
@@ -71,8 +74,8 @@
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行
   协调"。
-- 不实现 `l10n.text` 查表（判断记录 6）、`from_display: source/target` 的实体 → 模板 id 映射
-  （判断记录 5）——均为显式声明的契约缺口，不是遗漏。
+- 不实现 `l10n.text` 查表（判断记录 6）——显式声明的契约缺口，不是遗漏；`from_display: source/target`
+  的实体 → 模板 id 映射已在 P4-2 修补（判断记录 5），不再是契约缺口。
 - 不接入 `data/_sample/`：`schema/FeedbackSchemas` 只声明表结构，测试用 `InMemoryDataSource`
   内联 JSON 验证 `FromRecord` 的解析正确性。
 - 顿帧（`Freeze`）、震屏（`ShakeCamera`）、闪白（`Flash`）的具体落地（tick 节奏/镜头/材质参数）

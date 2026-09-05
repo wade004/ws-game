@@ -20,6 +20,18 @@ namespace Core.Rules.ExprHost
     /// 三个模块原先各自的临时 <c>IExprHostFactory</c> 占位（测试用 Fake）不受影响，本类型是它们在
     /// 生产组装（<c>core/rules/assembly</c>）里注入的真实实现。
     /// </summary>
+    /// <remarks>
+    /// <b>event.&lt;field&gt; 字段名映射</b>（P4-3 契约缺口最小修补）：<see cref="IExprReadableEvent"/>
+    /// 登记的字段名是 camelCase（如 <c>"isCrit"</c>/<c>"sourceId"</c>），但
+    /// <c>Core.Foundation.Expr.ExprLexer</c> 的标识符词法只接受全小写 <c>a-z0-9_</c>，内容侧按 04 第
+    /// 2.1 节 Id 惯例只能写 <c>event.is_crit</c>/<c>event.source_id</c> 这种 snake_case 引用，两者原本
+    /// 无法对上。<c>Host.QueryEvent</c> 现在按"先原样查找，查不到再转成 camelCase 重试一次"的顺序解析
+    /// <c>event.&lt;field&gt;</c>：先保留原样查找是为了不破坏"字段名本就恰好不含下划线"（如
+    /// <c>event.amount</c>）或调用方直接以 camelCase 传入的既有用法；转换只在原样查找失败时触发，不
+    /// 改变 <see cref="IExprReadableEvent"/> 契约本身仍以 camelCase 登记字段这一事实。<b>内容作者一律按
+    /// snake_case 书写 <c>event.&lt;field&gt;</c> 引用</b>（如 <c>event.is_crit</c>），这是本约定对内容
+    /// 侧的唯一要求。
+    /// </remarks>
     public sealed class RulesExprHostFactory : IExprHostFactory
     {
         /// <summary>缺目标/缺事件字段/未知 key 等场景下 Id 类型的占位默认值（见 04 第 6.3 节
@@ -444,15 +456,32 @@ namespace Core.Rules.ExprHost
 
             private ExprValue QueryEvent(string key)
             {
-                if (_triggeringEvent is IExprReadableEvent readable && readable.TryGetField(key, out var value))
+                if (_triggeringEvent is IExprReadableEvent readable)
                 {
-                    return value;
+                    // 判断记录（P4-3 契约缺口最小修补，见 RulesExprHostFactory 类型顶部
+                    // "event.<field> 字段名映射"一节）：先按原样查找（兼容
+                    // IExprReadableEvent.TryGetField 已经登记的任何字段名写法），查不到且 key 含
+                    // 下划线（说明可能是内容侧按 04 惯例写的 snake_case，如 "is_crit"/"source_id"）
+                    // 时再转成 camelCase 重试一次——ExprLexer 的标识符只接受全小写 a-z0-9_（见
+                    // core/foundation/expr/core/ExprLexer.cs IsIdentBodyChar），content 里天然写不出
+                    // IExprReadableEvent 登记的 camelCase 字段名（如 "isCrit"），本次转换正是补上
+                    // 这一段命名映射，不改变 IExprReadableEvent 契约本身（仍以 camelCase 为登记名）。
+                    if (readable.TryGetField(key, out var value))
+                    {
+                        return value;
+                    }
+
+                    var camelCaseKey = SnakeCaseToCamelCase(key);
+                    if (!ReferenceEquals(camelCaseKey, key) && readable.TryGetField(camelCaseKey, out var convertedValue))
+                    {
+                        return convertedValue;
+                    }
                 }
 
                 _f._diagnostics.Warn(
                     _triggeringEvent == null
                         ? $"event.{key}：本次求值没有绑定触发事件，按默认值处理"
-                        : $"event.{key}：触发事件 \"{_triggeringEvent.Key}\" 不携带该字段，按默认值处理");
+                        : $"event.{key}：触发事件 \"{_triggeringEvent.Key}\" 不携带该字段（原样与 camelCase 转换均未命中），按默认值处理");
 
                 // 判断记录：event.<field> 的具体类型随事件而异，RulesExprSchema（严格模式）对 event
                 // 分组不逐字段登记类型，因此这里统一用 Bool(false) 作为缺失时的默认值——DefaultFor
@@ -478,6 +507,46 @@ namespace Core.Rules.ExprHost
                 }
 
                 return _f.DefaultFor(group, key);
+            }
+
+            /// <summary>把 snake_case 字符串转成 camelCase（"is_crit" -&gt; "isCrit"，"source_id" -&gt;
+            /// "sourceId"）；不含下划线时原样返回同一个字符串引用（<see cref="QueryEvent"/> 用
+            /// <see cref="ReferenceEquals"/> 判断"是否发生了转换"，避免转换结果恰好等于原值时的
+            /// 二次查找）。</summary>
+            private static string SnakeCaseToCamelCase(string snakeCase)
+            {
+                if (string.IsNullOrEmpty(snakeCase) || snakeCase.IndexOf('_') < 0)
+                {
+                    return snakeCase;
+                }
+
+                var parts = snakeCase.Split('_');
+                var sb = new System.Text.StringBuilder(snakeCase.Length);
+                var isFirstSegment = true;
+                for (var i = 0; i < parts.Length; i++)
+                {
+                    var part = parts[i];
+                    if (part.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    if (isFirstSegment)
+                    {
+                        sb.Append(part);
+                        isFirstSegment = false;
+                    }
+                    else
+                    {
+                        sb.Append(char.ToUpperInvariant(part[0]));
+                        if (part.Length > 1)
+                        {
+                            sb.Append(part, 1, part.Length - 1);
+                        }
+                    }
+                }
+
+                return sb.ToString();
             }
 
             private static double Pct(double current, double max) => max > 0 ? current / max : 0.0;

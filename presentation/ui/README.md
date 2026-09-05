@@ -61,7 +61,10 @@ unit.<id>.stat.<statId>
   测试用内存 Fake 替代，不必搭建 `SkillHost` 的完整构造依赖链。
 - 没有宿主契约暴露"动作条槽位 → 技能 id"的绑定查询（10 第 2.2 节 `skill_bindings` 只是存档
   字段，无运行期查询接口），`ActionBarViewModel` 把绑定表达为外部注入的 `Func<int, Id?>`。
-- `IDialogHost` 没有对称于 `GetStoryView` 的 `GetGossipView` 只读查询，`DialogViewModel` 的
-  gossip 视图需要打开菜单的调用方手动灌入（见 `DialogViewModel.SetGossipView`）。
 - 分层音效音量属于 `presentation/vfx_sfx`（并行任务），`SettingsViewModel`/`UiIntents` 把它表达
   为外部注入的读/写回调，不在本模块内定义音量宿主契约。
+
+（P4-2 已修补，不再是契约缺口）`IDialogHost` 原先没有对称于 `GetStoryView` 的 `GetGossipView` 只读
+查询，`DialogViewModel` 的 gossip 视图需要打开菜单的调用方手动灌入；`IDialogHost.GetGossipView`
+现已补上，`DialogViewModel.Refresh` 与 `Story` 同一惯例直接查询，`SetGossipView` 仅保留供尚未升级
+的既有调用方兼容使用（见 `DialogViewModel` 类型注释）。

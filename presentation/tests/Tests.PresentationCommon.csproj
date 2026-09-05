@@ -19,13 +19,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../Presentation.Common.csproj" />
-    <ProjectReference Include="../ui/Presentation.Ui.csproj" />
-    <ProjectReference Include="../shell/Presentation.Shell.csproj" />
-    <ProjectReference Include="../view_binding/Presentation.ViewBinding.csproj" />
-    <ProjectReference Include="../render/Presentation.Render.csproj" />
-    <ProjectReference Include="../camera/Presentation.Camera.csproj" />
-    <ProjectReference Include="../vfx_sfx/Presentation.VfxSfx.csproj" />
-    <ProjectReference Include="../feedback_binder/Presentation.FeedbackBinder.csproj" />
     <ProjectReference Include="../../adapters/stub/Adapters.Stub.csproj" />
   </ItemGroup>
 

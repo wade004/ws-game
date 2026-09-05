@@ -32,6 +32,7 @@ namespace Presentation.FeedbackBinder.Core
         private readonly IFeedbackSink _sink;
         private readonly DisplayInfoResolver? _displayInfoResolver;
         private readonly EntityLogicalIdResolver? _entityLogicalIdResolver;
+        private readonly IUnitAccess? _unitAccess;
         private readonly FeedbackOptions _options;
         private readonly IExprDiagnostics _exprDiagnostics;
         private readonly IPresentationDiagnostics _diagnostics;
@@ -49,6 +50,7 @@ namespace Presentation.FeedbackBinder.Core
             IFeedbackSink sink,
             DisplayInfoResolver? displayInfoResolver = null,
             EntityLogicalIdResolver? entityLogicalIdResolver = null,
+            IUnitAccess? unitAccess = null,
             FeedbackOptions? options = null,
             IExprDiagnostics? exprDiagnostics = null,
             IPresentationDiagnostics? diagnostics = null)
@@ -58,6 +60,7 @@ namespace Presentation.FeedbackBinder.Core
             _sink = sink ?? throw new ArgumentNullException(nameof(sink));
             _displayInfoResolver = displayInfoResolver;
             _entityLogicalIdResolver = entityLogicalIdResolver;
+            _unitAccess = unitAccess;
             _options = options ?? new FeedbackOptions();
             _exprDiagnostics = exprDiagnostics ?? new ExprDiagnosticsRecorder();
             _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
@@ -260,9 +263,9 @@ namespace Presentation.FeedbackBinder.Core
         /// <summary>统一解析 <c>vfx_id?|from_display</c>（<c>play_vfx</c>）与
         /// <c>sfx_id?|from_display</c>（<c>play_sfx</c>）二选一（见 09 第 6.1 节）：字面 id 优先；
         /// <c>from_display: skill</c> 经事件的 <c>skillId</c>/<c>auraDefId</c> 字段查
-        /// <see cref="DisplayInfoResolver"/>（任务书拍板路径）；<c>source</c>/<c>target</c> 经可选
-        /// 注入的 <see cref="EntityLogicalIdResolver"/>（契约缺口，见 <see cref="FromDisplaySource"/>
-        /// 类型注释），未注入时记诊断并跳过整个动作。</summary>
+        /// <see cref="DisplayInfoResolver"/>（任务书拍板路径）；<c>source</c>/<c>target</c> 经
+        /// <see cref="ResolveEntityLogicalId"/>（P4-2 起默认改用 <see cref="Core.Rules.Common.IUnitAccess.GetTemplateId"/>，
+        /// 见该方法判断记录），查不到时记诊断并跳过整个动作。</summary>
         private Id? ResolveDisplayVfxOrSfxId(Id? literalId, FromDisplaySource? fromDisplay, IEvent evt, Id selfId, Id? targetId, bool isVfx)
         {
             if (literalId.HasValue)
@@ -279,8 +282,8 @@ namespace Presentation.FeedbackBinder.Core
             Id? logicalId = fromDisplay switch
             {
                 FromDisplaySource.Skill => ExtractId(evt, "skillId", "auraDefId"),
-                FromDisplaySource.Source => _entityLogicalIdResolver?.Invoke(selfId),
-                FromDisplaySource.Target => targetId.HasValue ? _entityLogicalIdResolver?.Invoke(targetId.Value) : null,
+                FromDisplaySource.Source => ResolveEntityLogicalId(selfId),
+                FromDisplaySource.Target => targetId.HasValue ? ResolveEntityLogicalId(targetId.Value) : null,
                 _ => null,
             };
 
@@ -296,6 +299,35 @@ namespace Presentation.FeedbackBinder.Core
                 _diagnostics.Warn($"feedback 规则 from_display={fromDisplay}：逻辑 id \"{logicalId}\" 在 display.map 未声明 {(isVfx ? "vfx_id" : "sfx_id")}，跳过该动作");
             }
             return resolved;
+        }
+
+        /// <summary>
+        /// 按运行期实体 id 取其"逻辑 id"（技能/光环/物品/生物模板 id），供
+        /// <see cref="FromDisplaySource.Source"/>/<see cref="FromDisplaySource.Target"/> 使用（见
+        /// <see cref="EntityLogicalIdResolver"/> 类型注释）。
+        /// <para>
+        /// 判断记录（P4-2 契约缺口最小修补）：<see cref="Core.Rules.Common.IUnitAccess"/> 契约本身已
+        /// 补上 <c>GetTemplateId(Id unitId): Id?</c>（05 第 1.1 节 <c>Entity.templateId</c>），本模块
+        /// 原先记录的"契约清单没有提供实体 id → 模板 id 映射"这一契约缺口已不存在——默认经注入的
+        /// <see cref="_unitAccess"/> 直接取模板 id，不再强依赖单独的 <see cref="EntityLogicalIdResolver"/>
+        /// 委托；<see cref="_entityLogicalIdResolver"/> 仍保留为可选覆盖（优先于
+        /// <see cref="_unitAccess"/>），供需要与"模板 id"不同的映射规则（例如按运行期外形覆盖而非
+        /// 出生模板）的具体游戏接入时使用。两者都未注入时记诊断并跳过该动作，与此前行为一致。
+        /// </para>
+        /// </summary>
+        private Id? ResolveEntityLogicalId(Id entityId)
+        {
+            if (_entityLogicalIdResolver != null)
+            {
+                return _entityLogicalIdResolver(entityId);
+            }
+
+            if (_unitAccess != null)
+            {
+                return _unitAccess.GetTemplateId(entityId);
+            }
+
+            return null;
         }
 
         // ------------------------------------------------------------------

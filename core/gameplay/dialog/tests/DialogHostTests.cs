@@ -360,6 +360,76 @@ namespace Tests.Gameplay.Dialog
             Assert.Equal(0, only.Index);
         }
 
+        // ---------------------------------------------------------------
+        // GetGossipView（对称于 GetStoryView 的契约缺口补齐）
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void GetGossipView_ReturnsNull_WhenNoSessionOpen()
+        {
+            var h = new Harness(Array.Empty<GossipMenuDefinition>(), Array.Empty<StoryTreeDefinition>());
+
+            Assert.Null(h.Host.GetGossipView(Player));
+        }
+
+        [Fact]
+        public void GetGossipView_AfterOpenGossip_ReflectsSameOptionsAsOpenGossipReturnValue()
+        {
+            var visibleIf = ExprParser.Parse("player.level >= 5", Schema);
+            var menu = new GossipMenuDefinition(new Id("dialog.sample_menu"), new[]
+            {
+                new GossipOption(new Id("l10n.opt_low"), null, new[] { Action(DialogActionKind.Save) }),
+                new GossipOption(new Id("l10n.opt_high"), visibleIf, new[] { Action(DialogActionKind.Save) }),
+            });
+            var h = new Harness(new[] { menu }, Array.Empty<StoryTreeDefinition>(),
+                playerGroup: (key, args) => key == "level" ? ExprValue.OfInt(1) : ExprValue.OfBool(false));
+
+            h.Host.OpenGossip(Player, Npc, menu.Id);
+            var view = h.Host.GetGossipView(Player);
+
+            Assert.NotNull(view);
+            Assert.Equal(menu.Id, view!.MenuId);
+            var only = Assert.Single(view.Options);
+            Assert.Equal(0, only.Index);
+            Assert.Equal(new Id("l10n.opt_low"), only.TextKey);
+        }
+
+        [Fact]
+        public void GetGossipView_ReturnsNull_WhenSessionMovedIntoStory()
+        {
+            var menu = new GossipMenuDefinition(new Id("dialog.sample_menu"), new[]
+            {
+                new GossipOption(new Id("l10n.opt_a"), null, new[] { Action(DialogActionKind.StartStory, new Id("dialog.sample_tree")) }),
+            });
+            var treeId = new Id("dialog.sample_tree");
+            var tree = new StoryTreeDefinition(treeId, new[]
+            {
+                new StoryNodeDefinition(new Id("dialog.node_1"), new Id("l10n.node1"), null, Array.Empty<StoryBranchDef>(), null),
+            });
+            var h = new Harness(new[] { menu }, new[] { tree });
+
+            h.Host.OpenGossip(Player, Npc, menu.Id);
+            h.Host.ChooseOption(Player, 0);
+
+            Assert.Null(h.Host.GetGossipView(Player));
+            Assert.NotNull(h.Host.GetStoryView(Player));
+        }
+
+        [Fact]
+        public void GetGossipView_ReturnsNull_AfterClose()
+        {
+            var menu = new GossipMenuDefinition(new Id("dialog.sample_menu"), new[]
+            {
+                new GossipOption(new Id("l10n.opt_a"), null, new[] { Action(DialogActionKind.Save) }),
+            });
+            var h = new Harness(new[] { menu }, Array.Empty<StoryTreeDefinition>());
+            h.Host.OpenGossip(Player, Npc, menu.Id);
+
+            Assert.True(h.Host.Close(Player));
+
+            Assert.Null(h.Host.GetGossipView(Player));
+        }
+
         [Fact]
         public void AdvanceStory_ToNextNode_FiresStoryNodeEnteredEvent()
         {

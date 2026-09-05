@@ -125,12 +125,46 @@ namespace Presentation.Render
             Renderer.SetLayers(Handle, resourceIds);
         }
 
-        /// <summary>把一条已解析方向槽位的纸娃娃层放置信息转换成 <see cref="IRenderer2D.SetLayers"/>
-        /// 可消费的资源 <see cref="Id"/>（见 <see cref="SpriteLayerPlacement"/> 类型注释的契约缺口）。
-        /// 默认约定：<c>"layer.&lt;layerName&gt;"</c>——只是一个可随时被具体游戏覆盖的占位命名，
-        /// 不代表架构拍板的资源命名格式。</summary>
-        protected virtual Id ResolveLayerResourceId(SpriteLayerPlacement placement) =>
-            new Id($"layer.{placement.LayerName}");
+        /// <summary>
+        /// 把一条已解析方向槽位的纸娃娃层放置信息转换成 <see cref="IRenderer2D.SetLayers"/> 可消费的
+        /// 资源 <see cref="Id"/>（见 <see cref="SpriteLayerPlacement"/> 类型注释的契约缺口）。
+        /// <para>
+        /// 判断记录（P4-2 恢复，改用 14_资产规格书模板.md 第 1.2 节命名模板，取代 P4-1 的占位
+        /// <c>"layer.&lt;layerName&gt;"</c>）：14 第 1.2 节给出的是"文件名"模板
+        /// <c>&lt;资源引用id去掉类别前缀，点号换下划线&gt;[__&lt;方向档位id&gt;][__&lt;层id&gt;]…</c>
+        /// （原文示例 <c>sprite_set_id: sprite.creature.wolf_grey</c> 在 <c>front</c> 档位、<c>body</c>
+        /// 层下的文件名为 <c>creature_wolf_grey__front__body</c>），不是运行期资源 <see cref="Id"/>
+        /// 的格式规定；但 04/09/14 均未给出"层名 + 已解析方向档位 → 引擎可消费的资源 Id"的独立映射
+        /// 规则（<see cref="SpriteLayerPlacement"/> 类型注释同一契约缺口），本方法选择让资源 Id 的
+        /// "名字"部分直接复用 14 §1.2 的文件名模板（同一套命名，减少"文件在磁盘上叫什么"与"运行期
+        /// 用什么 Id 去引用它"两处各自发明命名的必要），只在外面包一层 <c>"layer."</c>
+        /// 域前缀满足 <see cref="Id"/> 的格式要求（同 <see cref="Presentation.Common.DirectionSlots"/>
+        /// 类型注释"Id 前缀判断记录"的同一原因）。方向档位段经
+        /// <see cref="Presentation.Common.DirectionSlots.StripPrefix"/> 还原成 14 的裸档位名（不带
+        /// 本模块内部使用的 <c>"dir."</c> 前缀），<c>flipX</c> 不编码进资源 Id——它是整个精灵实例的
+        /// 水平翻转（经 <see cref="SyncPose"/> 传给 <see cref="IRenderer2D.SetTransform"/>），不是
+        /// "换一张镜像图"，同一份 <c>_r</c> 原图配合 <c>flipX</c> 足够表达镜像档位，不需要为 <c>_l</c>
+        /// 档位单独生成资源 Id（<see cref="SpriteLayerPlacement.DirectionSlotId"/> 本就已经是
+        /// <see cref="IRenderConventionHost.ResolveDirectionSlot"/> 镜像回退后的 <c>_r</c> 档位，见
+        /// 该接口方法签名注释）。<c>protected virtual</c>，具体游戏按自己的资源命名规则覆盖。
+        /// </para>
+        /// </summary>
+        protected virtual Id ResolveLayerResourceId(SpriteLayerPlacement placement)
+        {
+            var spriteSetName = StripCategoryPrefix(DisplayInfo.Sprite!.SpriteSetId);
+            var directionSlotName = Presentation.Common.DirectionSlots.StripPrefix(placement.DirectionSlotId);
+            return new Id($"layer.{spriteSetName}__{directionSlotName}__{placement.LayerName}");
+        }
+
+        /// <summary>去掉资源引用 id 的"类别前缀"（第一个点分段，如 <c>sprite.creature.wolf_grey</c>
+        /// 的 <c>sprite</c>），剩余部分把点号换成下划线（见 14 第 1.2 节命名模板
+        /// "&lt;资源引用id去掉类别前缀，点号换下划线&gt;"）。</summary>
+        private static string StripCategoryPrefix(string resourceRefId)
+        {
+            var dotIndex = resourceRefId.IndexOf('.');
+            var withoutCategory = dotIndex < 0 ? resourceRefId : resourceRefId.Substring(dotIndex + 1);
+            return withoutCategory.Replace('.', '_');
+        }
 
         public virtual void Destroy()
         {

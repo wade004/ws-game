@@ -6,13 +6,15 @@ namespace Presentation.Render
     /// <see cref="IRenderConventionHost.ComposeSpriteLayers"/> 产出的单条纸娃娃层放置信息（见 09
     /// 第 3.3.1 节"层内 z 序 = 列表顺序"）。
     /// <para>
-    /// 判断记录（契约缺口，见模块 README）：<c>DisplayInfo.Sprite.PaperdollLayers</c> 的类型是
+    /// 判断记录（P4-2 补充）：<c>DisplayInfo.Sprite.PaperdollLayers</c> 的类型是
     /// <c>IReadOnlyList&lt;string&gt;</c>（纸娃娃分层引用名，如 <c>"body"</c>/<c>"chest_armor"</c>），
-    /// 而 <c>IRenderer2D.SetLayers</c> 需要的是 <c>IReadOnlyList&lt;Id&gt;</c>；两者之间"层名 +
-    /// 已解析方向档位 → 引擎可消费的具体资源 Id"的组装规则，架构文档未给出（04/09 均未规定
-    /// 拼接格式）。本类型只把"排序 + 方向镜像回退"这一段本模块能确定的逻辑产出为结构化结果
-    /// （层名 + 已解析方向槽位 id + 是否翻转），具体资源 Id 的拼接留给消费方（<see cref="SpriteViewBase"/>
-    /// 或具体游戏的引擎适配实现）决定，避免本模块替架构文档"发明"一个未拍板的资源命名格式。
+    /// 而 <c>IRenderer2D.SetLayers</c> 需要的是 <c>IReadOnlyList&lt;Id&gt;</c>；本类型只把"排序 +
+    /// 方向镜像回退"这一段本模块能确定的逻辑产出为结构化结果（层名 + 已解析方向槽位 id + 是否
+    /// 翻转），具体资源 Id 的拼接交给消费方 <see cref="SpriteViewBase.ResolveLayerResourceId"/>
+    /// 决定——该方法现已按 14_资产规格书模板.md 第 1.2 节命名模板实现默认拼接规则（见其类型注释判断
+    /// 记录），不再是未拍板的占位；本类型继续保持"不直接产出资源 Id"，因为 14 §1.2 的命名模板需要
+    /// <c>DisplayInfo.Sprite.SpriteSetId</c>（本类型不持有），拼接职责天然属于持有完整 DisplayInfo
+    /// 的 <see cref="SpriteViewBase"/>。
     /// </para>
     /// </summary>
     public readonly struct SpriteLayerPlacement

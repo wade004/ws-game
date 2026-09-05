@@ -84,7 +84,9 @@ namespace Tests.PresentationRender
             var view = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo(sortOffset: 2.0, scale: 1.5));
             view.Bind(new Id("unit.hero_1"));
 
-            view.SyncPose(new Vec2(1, 10), Direction.FromQuantized(0.0, 8), 0.0);
+            // index 2（角度 90 度）-> "dir.front"：canonical 档位本身无默认镜像，flipX 应为 false
+            // （见 Presentation.Common.DirectionSlots 类型注释"索引→档位对应表"）。
+            view.SyncPose(new Vec2(1, 10), Direction.FromQuantized(System.Math.PI / 2, 8), 0.0);
 
             var handleValue = new List<int>(renderer.Transforms.Keys)[0];
             var transform = renderer.Transforms[handleValue];
@@ -102,7 +104,7 @@ namespace Tests.PresentationRender
             var view = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo(), new RenderOptions { PixelsPerUnit = 10.0 });
             view.Bind(new Id("unit.hero_1"));
 
-            view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), 3.0);
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2, 8), 3.0);
 
             var handleValue = new List<int>(renderer.ShaderParams.Keys)[0];
             Assert.Equal(30.0, renderer.ShaderParams[handleValue][SpriteViewBase.HeightOffsetShaderParam]);
@@ -112,7 +114,9 @@ namespace Tests.PresentationRender
         public void SyncPose_MirroredDirection_SetsFlipXTrue()
         {
             var renderer = new StubRenderer2D();
-            var mirrorPairs = new[] { new MirrorPair(new Id("dir.nw"), new Id("dir.ne"), true) };
+            // index 0（角度 0 度）-> "dir.side_l"：未登记 mirror_pairs 时按 14 默认镜像表回退，等价于
+            // 显式登记 side_l 镜像自 side_r（此处显式登记只是为了同时覆盖"显式登记"这条路径）。
+            var mirrorPairs = new[] { new MirrorPair(DirectionSlots.SideL, DirectionSlots.SideR, true) };
             var displayInfo = new DisplayInfo(
                 new Id("display.hero"), DisplayCategory.Creature, new Id("creature.hero"), DisplayKind.Sprite,
                 null, null, null, 1.0, Core.Foundation.DisplayInfo.ShadowMode.Blob, 0.0, null,
@@ -120,7 +124,7 @@ namespace Tests.PresentationRender
             var view = new TestSpriteView(renderer, new RenderConventionHost(), displayInfo);
             view.Bind(new Id("unit.hero_1"));
 
-            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI * 3 / 4, 8), 0.0);
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), 0.0);
 
             var handleValue = new List<int>(renderer.Transforms.Keys)[0];
             Assert.True(renderer.Transforms[handleValue].FlipX);
@@ -133,13 +137,17 @@ namespace Tests.PresentationRender
             var view = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo());
             view.Bind(new Id("unit.hero_1"));
 
-            view.SetPaperdollLayersPublic(new[] { "body", "chest_armor" }, Direction.FromQuantized(0.0, 8));
+            // index 2（角度 90 度）-> "dir.front"，配合 MakeSpriteDisplayInfo 的
+            // sprite_set_id "sprite.creature.hero"：按 14 第 1.2 节命名模板，资源 Id 应为
+            // "layer.<sprite_set_id 去掉类别前缀、点号换下划线>__<方向裸档位名>__<层名>"（见
+            // SpriteViewBase.ResolveLayerResourceId 判断记录）。
+            view.SetPaperdollLayersPublic(new[] { "body", "chest_armor" }, Direction.FromQuantized(System.Math.PI / 2, 8));
 
             var handleValue = new List<int>(renderer.Layers.Keys)[0];
             var layers = renderer.Layers[handleValue];
             Assert.Equal(2, layers.Count);
-            Assert.Equal(new Id("layer.body"), layers[0]);
-            Assert.Equal(new Id("layer.chest_armor"), layers[1]);
+            Assert.Equal(new Id("layer.creature_hero__front__body"), layers[0]);
+            Assert.Equal(new Id("layer.creature_hero__front__chest_armor"), layers[1]);
         }
 
         [Fact]

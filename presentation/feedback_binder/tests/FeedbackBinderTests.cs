@@ -29,9 +29,10 @@ namespace Tests.Presentation.FeedbackBinder
             return rules;
         }
 
-        // 两条规则按 event.amount 阈值分流（见 FeedbackBinderTestSupport 判断记录：Expr 词法只接受
-        // 全小写标识符，事件的 camelCase 字段如 isCrit 无法出现在 event.<field> 引用里，改用 amount
-        // 阈值演示 09 第 6.1 节"同一事件按条件分流到不同表现"的意图）。
+        // 两条规则按 event.is_crit 分流（见 FeedbackBinderTestSupport 判断记录：P4-3 已在
+        // RulesExprHostFactory.Host.QueryEvent 补上 snake_case -> camelCase 的字段名映射，
+        // event.is_crit 现在可以直接命中 IExprReadableEvent 登记的 "isCrit" 字段，按 09 第 6.1 节
+        // 原文示例"同一事件按条件分流到不同表现"实现，不再需要绕道 amount 阈值）。
         [Fact]
         public void OnEvent_ConditionTrue_DispatchesFloatingTextAndShakeCamera()
         {
@@ -126,6 +127,89 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.NotEmpty(diagnostics.Warnings);
             // 其余动作（play_sfx/flash/freeze）不受 play_vfx 失败影响，照常派发。
             Assert.Single(sink.PlaySfxCalls);
+        }
+
+        [Fact]
+        public void FromDisplayTarget_ResolvesViaEntityLogicalIdResolver_WhenInjected()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.TargetVfxFromDisplayRuleRow);
+
+            var displayRegistry = new FakeDisplayInfoRegistry(new Dictionary<Id, DisplayInfo>
+            {
+                [new Id("creature.wolf")] = FakeDisplayInfoRegistry.Simple(
+                    new Id("display.wolf"), new Id("creature.wolf"), DisplayCategory.Creature, new Id("vfx.wolf_hit"), null),
+            });
+            var resolver = new DisplayInfoResolver(displayRegistry);
+            EntityLogicalIdResolver entityLogicalIdResolver = entityId =>
+                entityId.Equals(new Id("unit.wolf")) ? new Id("creature.wolf") : (Id?)null;
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink,
+                displayInfoResolver: resolver, entityLogicalIdResolver: entityLogicalIdResolver);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            Assert.Single(sink.PlayVfxCalls);
+            Assert.Equal(new Id("vfx.wolf_hit"), sink.PlayVfxCalls[0].VfxId);
+            Assert.Equal(new Id("unit.wolf"), sink.PlayVfxCalls[0].Attach.EntityId);
+        }
+
+        [Fact]
+        public void FromDisplayTarget_ResolvesViaUnitAccess_WhenNoResolverInjected()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.TargetVfxFromDisplayRuleRow);
+
+            var displayRegistry = new FakeDisplayInfoRegistry(new Dictionary<Id, DisplayInfo>
+            {
+                [new Id("creature.wolf")] = FakeDisplayInfoRegistry.Simple(
+                    new Id("display.wolf"), new Id("creature.wolf"), DisplayCategory.Creature, new Id("vfx.wolf_hit"), null),
+            });
+            var resolver = new DisplayInfoResolver(displayRegistry);
+            var unitAccess = new FakeUnitAccess(new Dictionary<Id, Id>
+            {
+                [new Id("unit.wolf")] = new Id("creature.wolf"),
+            });
+
+            // 判断记录：本用例不注入 EntityLogicalIdResolver，验证 P4-2 的默认路径（
+            // FeedbackBinder.ResolveEntityLogicalId 直接经 IUnitAccess.GetTemplateId 取模板 id）
+            // 独立生效，不再强依赖单独的解析委托。
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink,
+                displayInfoResolver: resolver, unitAccess: unitAccess);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            Assert.Single(sink.PlayVfxCalls);
+            Assert.Equal(new Id("vfx.wolf_hit"), sink.PlayVfxCalls[0].VfxId);
+            Assert.Equal(new Id("unit.wolf"), sink.PlayVfxCalls[0].Attach.EntityId);
+        }
+
+        [Fact]
+        public void FromDisplayTarget_NeitherResolverNorUnitAccessInjected_SkipsActionWithDiagnostic()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.TargetVfxFromDisplayRuleRow);
+
+            var displayRegistry = new FakeDisplayInfoRegistry(new Dictionary<Id, DisplayInfo>());
+            var resolver = new DisplayInfoResolver(displayRegistry);
+            var diagnostics = new PresentationDiagnosticsRecorder();
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink,
+                displayInfoResolver: resolver, diagnostics: diagnostics);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            Assert.Empty(sink.PlayVfxCalls);
+            Assert.NotEmpty(diagnostics.Warnings);
         }
 
         [Fact]

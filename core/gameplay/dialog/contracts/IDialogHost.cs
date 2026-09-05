@@ -58,6 +58,13 @@ namespace Core.Gameplay.Dialog
         /// 抛 <see cref="System.ArgumentException"/>。</summary>
         GossipView OpenGossip(Id unitId, Id npcId, Id menuId);
 
+        /// <summary>当前 gossip 会话视图（契约缺口补齐，对称于 <see cref="GetStoryView"/>，见
+        /// <c>presentation/ui/README.md</c>"已知契约缺口"一节）：<paramref name="unitId"/> 当前不在
+        /// 一个已打开的 gossip 会话中（未打开过，或已转入剧情/已关闭）时返回 null；否则按当前会话的
+        /// <c>menuId</c> 重新求值 <c>visible_if</c> 得到可见选项列表，不重复推子状态、不重复发
+        /// <c>dialog.gossip_opened</c>（那是 <see cref="OpenGossip"/> 的职责，本方法只读）。</summary>
+        GossipView? GetGossipView(Id unitId);
+
         /// <summary>选择当前已打开菜单的第 <paramref name="index"/> 项（<see cref="GossipView.Options"/>
         /// 中的原始下标），依次执行该项全部动作。要求 <paramref name="unitId"/> 当前处于一个已打开的
         /// gossip 会话，否则返回 false。</summary>

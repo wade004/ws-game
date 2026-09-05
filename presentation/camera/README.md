@@ -15,9 +15,10 @@ camera/
   README.md
   schema/
     README.md                  camera_profile 表字段表
+    CameraSchemas.cs            camera_profile 的 TableSchema 登记（P4-2 新增）
   contracts/
     ICameraHost.cs
-    CameraProfile.cs             CameraProfile / CameraBounds / ShakePreset
+    CameraProfile.cs             CameraProfile / CameraBounds / ShakePreset / FromRecord（P4-2 新增数据行解析器）
     ICameraFollowTarget.cs       跟随目标位置来源（解耦 view_binding）
     CameraHostOptions.cs
   core/
@@ -26,6 +27,7 @@ camera/
     DelegateFollowTarget.cs        ICameraFollowTarget 基于委托的实现
   tests/
     CameraHostTests.cs            14 个用例
+    CameraProfileFromRecordTests.cs  2 个用例（P4-2 新增）
 ```
 
 ## 谁实现 / 谁调用
@@ -52,6 +54,8 @@ camera/
 
 ## 契约缺口
 
-- `camera_profile` 表未提供 `DataRegistry`/`FromRecord` 数据行解析器，见 `schema/README.md`。
 - `ShakePreset.Frequency` 无对应的 `ICamera` 参数可传递，见判断记录 3；若震屏需要频率语义，需评估
   是否给 `ICamera.Shake` 增补参数（走 02 文档变更流程）。
+- （P4-2 已修补，不再是契约缺口）`camera_profile` 表原先未提供 `DataRegistry`/`FromRecord` 数据行
+  解析器，现由 `CameraSchemas.Profile` + `CameraProfile.FromRecord` 提供，见 `schema/README.md`
+  "数据行解析"一节。

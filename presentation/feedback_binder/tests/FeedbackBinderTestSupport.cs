@@ -44,11 +44,51 @@ namespace Tests.Presentation.FeedbackBinder
 
                 public ExprValue Query(string group, string key, IReadOnlyList<ExprValue> args)
                 {
-                    if (group == ExprGroups.Event && _evt is IExprReadableEvent readable && readable.TryGetField(key, out var value))
+                    if (group == ExprGroups.Event && _evt is IExprReadableEvent readable)
                     {
-                        return value;
+                        // 同 Core.Rules.ExprHost.RulesExprHostFactory.Host.QueryEvent 的
+                        // "先原样查找，查不到再转 camelCase 重试"惯例（P4-3），这里是精简版复刻——
+                        // 本 Fake 只服务 event.* 求值，没有理由让"字段名映射"这条规则只在生产实现里
+                        // 生效、测试夹具里失效。
+                        if (readable.TryGetField(key, out var value))
+                        {
+                            return value;
+                        }
+
+                        var camelCaseKey = SnakeCaseToCamelCase(key);
+                        if (camelCaseKey != key && readable.TryGetField(camelCaseKey, out var convertedValue))
+                        {
+                            return convertedValue;
+                        }
                     }
                     return ExprValue.OfBool(false);
+                }
+
+                private static string SnakeCaseToCamelCase(string snakeCase)
+                {
+                    if (string.IsNullOrEmpty(snakeCase) || snakeCase.IndexOf('_') < 0)
+                    {
+                        return snakeCase;
+                    }
+
+                    var parts = snakeCase.Split('_');
+                    var sb = new System.Text.StringBuilder(snakeCase.Length);
+                    var isFirstSegment = true;
+                    foreach (var part in parts)
+                    {
+                        if (part.Length == 0) continue;
+                        if (isFirstSegment)
+                        {
+                            sb.Append(part);
+                            isFirstSegment = false;
+                        }
+                        else
+                        {
+                            sb.Append(char.ToUpperInvariant(part[0]));
+                            if (part.Length > 1) sb.Append(part, 1, part.Length - 1);
+                        }
+                    }
+                    return sb.ToString();
                 }
             }
         }
@@ -74,19 +114,24 @@ namespace Tests.Presentation.FeedbackBinder
         private static string Envelope(string table, string rowsJson) =>
             "{\"table\": \"" + table + "\", \"schema_version\": 1, \"rows\": " + rowsJson + "}";
 
-        // 判断记录（Expr 词法与事件字段命名约定的契约缺口，见 feedback_binder/README.md）：
-        // Core.Foundation.Expr.ExprLexer 的标识符只接受全小写 a-z/0-9/_（IsIdentBodyChar，同
-        // Id 格式），而 IExprReadableEvent 约定事件字段名为 camelCase（如 CombatDamageDealtEvent
-        // 的 "isCrit"/"sourceId"）——含大写字母的字段名一律无法出现在 event.<field> 引用里
-        // （词法阶段直接报"非法字符"）。这是 Expr 模块（不属于本任务契约范围）与事件字段命名约定
-        // 之间的既有不一致，本任务不修改 core/foundation/expr；这里改用天然全小写的 amount 字段做
-        // 数值阈值分流演示同一事件按条件路由到不同规则（09 第 6.1 节原文示例的 is_crit 分流意图
-        // 不变，只是受限于当前 Expr 词法用可解析的字段代替）。
+        // 判断记录（更新，P4-3 契约缺口已修补，见 feedback_binder/README.md、
+        // core/rules/expr_host/RulesExprHostFactory.cs 类型 remarks"event.<field> 字段名映射"）：
+        // 本判断记录曾记录"Core.Foundation.Expr.ExprLexer 的标识符只接受全小写 a-z/0-9/_，而
+        // IExprReadableEvent 约定事件字段名为 camelCase（如 CombatDamageDealtEvent 的
+        // "isCrit"/"sourceId"），含大写字母的字段名一律无法出现在 event.<field> 引用里"这一契约
+        // 缺口，并因此改用天然全小写的 amount 字段做数值阈值分流演示（而非 09 第 6.1 节原文示例的
+        // is_crit 分流）。P4-3 已在 RulesExprHostFactory.Host.QueryEvent 补上"原样查找失败时转
+        // camelCase 重试"的映射，event.is_crit 一类 snake_case 引用现在可以直接命中
+        // IExprReadableEvent 登记的 "isCrit" 字段——下面两条规则改回按 09 原文示例用
+        // event.is_crit 分流（保留 amount 字段供飘字文本取值），验证契约缺口已修补；见
+        // FeedbackBinderTests.OnEvent_ConditionTrue_DispatchesFloatingTextAndShakeCamera/
+        // OnEvent_ConditionFalse_RoutesToTheOtherRule（两条既有测试的事件夹具本就分别传
+        // isCrit: true/false，规则条件文本改用 event.is_crit 后行为不变，只是不再受词法限制）。
         public const string CritDamageRuleRow = @"
         {
           ""id"": ""feedback.crit_damage_text"",
           ""event"": ""combat.damage_dealt"",
-          ""condition"": ""event.amount >= 20"",
+          ""condition"": ""event.is_crit"",
           ""actions"": [
             {""kind"": ""floating_text"", ""params"": {""style_id"": ""feedback.style.crit"", ""text_source"": ""amount""}},
             {""kind"": ""shake_camera"", ""params"": {""profile_id"": ""feedback.shake.crit""}}
@@ -97,7 +142,7 @@ namespace Tests.Presentation.FeedbackBinder
         {
           ""id"": ""feedback.normal_damage_text"",
           ""event"": ""combat.damage_dealt"",
-          ""condition"": ""event.amount < 20"",
+          ""condition"": ""not event.is_crit"",
           ""actions"": [
             {""kind"": ""floating_text"", ""params"": {""style_id"": ""feedback.style.normal"", ""text_source"": ""amount""}}
           ]
@@ -112,6 +157,18 @@ namespace Tests.Presentation.FeedbackBinder
             {""kind"": ""play_sfx"", ""params"": {""sfx_id"": ""sfx.buff_apply""}},
             {""kind"": ""flash"", ""params"": {""profile_id"": ""feedback.flash.buff"", ""target"": ""target""}},
             {""kind"": ""freeze"", ""params"": {""duration_ms"": 40}}
+          ]
+        }";
+
+        // 判断记录：09 第 5.6 节"逻辑 id"特指技能/光环/物品/生物模板 id，from_display: target 需要
+        // "运行期实体 id → 模板 id"这层映射（见 FeedbackBinder.ResolveEntityLogicalId 判断记录，
+        // P4-2 起默认经 IUnitAccess.GetTemplateId 提供）。
+        public const string TargetVfxFromDisplayRuleRow = @"
+        {
+          ""id"": ""feedback.target_vfx_from_display"",
+          ""event"": ""combat.damage_dealt"",
+          ""actions"": [
+            {""kind"": ""play_vfx"", ""params"": {""from_display"": ""target"", ""attach"": ""target""}}
           ]
         }";
 

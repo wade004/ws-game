@@ -3,19 +3,21 @@
   <PropertyGroup>
     <AssemblyName>Presentation.Common</AssemblyName>
     <RootNamespace>Presentation.Common</RootNamespace>
-    <!-- 判断记录（P4-1 补充）：presentation/ 下每个 L5 模块都有自己的 .csproj（Presentation.ViewBinding/
-         Presentation.Render/Presentation.Camera/……），但本文件位于 presentation/ 根目录，SDK 默认
-         Compile glob 会递归纳入整个 presentation/ 子树（含其它模块目录，以及并行开发中的
-         shell/vfx_sfx/ui 等），既会把本不属于 Presentation.Common 的类型编进本程序集，又会在引用了
-         多个模块程序集的下游项目（如 Tests.PresentationCommon）里造成同名类型二义性。关闭默认隐式
-         glob，改为下方显式 Include，把本程序集严格限定为 presentation/ 根目录下的散装文件（如
-         LayerMarker.cs）与 presentation/common/ 子树，不随意扩大范围。 -->
-    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- 判断记录（P4-2 恢复）：与 core/<layer>/Core.<Layer>.csproj 的既有约定一致（见
+         core/foundation/Core.Foundation.csproj）——presentation/ 下每个子目录（common/view_binding/
+         render/camera/vfx_sfx/feedback_binder/ui/shell）是"模块"而不是独立程序集，本文件是
+         presentation 整层唯一的类库工程，用 SDK 默认 Compile glob 递归纳入整个 presentation/ 子树，
+         只排除各模块的 tests/ 子目录（见下）。P4-1 阶段曾因"每模块各一个 csproj + 本文件收窄为只编
+         common/**"临时避免二义性，设计层已裁定改回单一程序集，见任务书"事项一"。 -->
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="*.cs" />
-    <Compile Include="common/**/*.cs" Exclude="common/tests/**/*.cs" />
+    <Compile Remove="**/tests/**" />
+    <!-- P4-1 遗留的模块级 csproj 各自在其目录下产生过 bin/obj（含生成的 AssemblyInfo.cs 等，
+         AssemblyName 各不相同），默认 Compile glob 只自动排除 SDK 项目自身根目录下的 bin/obj，
+         不会排除这些嵌套在子目录下的旧构建产物；显式排除，避免程序集级特性冲突。 -->
+    <Compile Remove="**/bin/**" />
+    <Compile Remove="**/obj/**" />
   </ItemGroup>
 
   <ItemGroup>

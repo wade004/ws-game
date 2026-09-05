@@ -11,17 +11,20 @@ namespace Presentation.Render
     /// </summary>
     public sealed class RenderConventionHost : IRenderConventionHost
     {
-        /// <summary>4 档方向槽位命名（东/北/西/南，逆时针，见类型注释判断记录）。</summary>
-        private static readonly string[] Compass4 = { "e", "n", "w", "s" };
-
-        /// <summary>8 档方向槽位命名（逆时针，index 0 = 角度 0 = +X 轴，与
-        /// <c>Core.Carriers.Unit.DirectionQuantizer</c> 的量化桶编号约定一致）。</summary>
-        private static readonly string[] Compass8 = { "e", "ne", "n", "nw", "w", "sw", "s", "se" };
-
         public double ComputeSortY(Vec2 logicalPos, double sortOffset) => logicalPos.Y + sortOffset;
 
         public IComparer<(Id Id, double SortY)> TieBreakComparer { get; } = new SortYThenIdComparer();
 
+        /// <summary>
+        /// 判断记录（P4-2 恢复，见模块 README"索引→档位对应表"一节、
+        /// <see cref="Presentation.Common.DirectionSlots"/> 类型注释）：量化索引先经
+        /// <see cref="DirectionSlots.FromQuantized"/> 换算成 14 第 2.1 节命名的规范档位 id
+        /// （<c>front</c>/<c>front_side_r</c>/…）；先查 <c>display.map.mirror_pairs</c>（内容侧显式
+        /// 登记优先，见 09 第 3.2 节镜像规则表），没有登记时再按
+        /// <see cref="DirectionSlots.MirrorSourceOf"/> 给出的 14 默认镜像表回退（<c>_l</c> 档位镜像
+        /// 自同族 <c>_r</c> 档位）；两处都没有命中（<c>front</c>/<c>back</c>/<c>_r</c> 档位本身）时
+        /// 直接使用规范档位、不翻转。
+        /// </summary>
         public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteInfo spriteInfo)
         {
             if (spriteInfo == null)
@@ -29,7 +32,7 @@ namespace Presentation.Render
                 throw new System.ArgumentNullException(nameof(spriteInfo));
             }
 
-            var canonical = CanonicalDirectionSlotId(direction.Index, direction.DirectionCount);
+            var canonical = DirectionSlots.FromQuantized(direction.Index, direction.DirectionCount);
 
             for (var i = 0; i < spriteInfo.MirrorPairs.Count; i++)
             {
@@ -38,6 +41,12 @@ namespace Presentation.Render
                 {
                     return (pair.MirrorOf, pair.FlipX);
                 }
+            }
+
+            var defaultMirror = DirectionSlots.MirrorSourceOf(canonical);
+            if (defaultMirror.HasValue)
+            {
+                return (defaultMirror.Value.MirrorOf, defaultMirror.Value.FlipX);
             }
 
             return (canonical, false);
@@ -63,43 +72,6 @@ namespace Presentation.Render
         }
 
         public double HeightOffsetToPixels(double height, double pixelsPerUnit) => height * pixelsPerUnit;
-
-        /// <summary>
-        /// 量化方向索引 → 规范方向槽位 id 的命名约定。
-        /// <para>
-        /// 判断记录（契约缺口，见模块 README）：09 第 3.2 节只给出方向槽位 id 的"举例"
-        /// （<c>front</c>/<c>front_side</c>/<c>side</c>/<c>back_side</c>/<c>back</c>），04 的
-        /// <c>display.map.mirror_pairs</c> 测试夹具用的是 <c>dir.se</c>/<c>dir.sw</c> 这类罗盘缩写，
-        /// 两处均未规定"量化索引 0 对应哪个具体方向"这一约定——这天然是"逻辑坐标系的 +X/+Y 朝向
-        /// 与游戏镜头朝向如何对应"的游戏层/口味问题，架构文档不可能在不知道具体游戏镜头摆放方式的
-        /// 前提下预先拍板。本方法选择一个确定、可测试、与
-        /// <c>Core.Carriers.Unit.DirectionQuantizer</c>（index 0 = 角度 0 = +X 轴，按角度递增方向即
-        /// 逆时针编号）直接对应的罗盘命名：4 档 <c>dir.e/n/w/s</c>，8 档
-        /// <c>dir.e/ne/n/nw/w/sw/s/se</c>，16 档退化为 <c>dir.slot_&lt;index&gt;</c>（16 档没有
-        /// 简洁通用的英文罗盘缩写，不强行发明）。这只是一个可随时替换的默认命名约定，集中在本方法
-        /// 一处——具体游戏的镜头朝向如果与"角度 0 = 东"不一致，只需要在游戏层提供一个方向索引重映射
-        /// （不改动本模块任何签名），或者游戏内容作者按本约定反向命名 <c>mirror_pairs</c> 的
-        /// <c>direction_slot</c> 取值。
-        /// </para>
-        /// </summary>
-        public static Id CanonicalDirectionSlotId(int index, int directionCount)
-        {
-            string label;
-            if (directionCount == 4 && index >= 0 && index < 4)
-            {
-                label = Compass4[index];
-            }
-            else if (directionCount == 8 && index >= 0 && index < 8)
-            {
-                label = Compass8[index];
-            }
-            else
-            {
-                label = $"slot_{index}";
-            }
-
-            return new Id($"dir.{label}");
-        }
 
         private sealed class SortYThenIdComparer : IComparer<(Id Id, double SortY)>
         {

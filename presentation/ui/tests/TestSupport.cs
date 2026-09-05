@@ -321,6 +321,10 @@ namespace Tests.PresentationUi
 
         public GossipView OpenGossip(Id unitId, Id npcId, Id menuId) => new GossipView(menuId, Array.Empty<(int, Id)>());
 
+        /// <summary>本 Fake 只服务 <c>DialogViewModel</c> 的 <c>StoryView</c> 相关测试，Gossip 视图
+        /// 恒返回 null（没有测试依赖它）。</summary>
+        public GossipView? GetGossipView(Id unitId) => null;
+
         public bool ChooseOption(Id unitId, int index)
         {
             ChosenIndices.Add(index);

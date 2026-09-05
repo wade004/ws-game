@@ -16,11 +16,22 @@ camera_profile"、[09_表现层.md](../../../architecture/09_表现层.md) 第 3
 | `bounds` | Optional\<{min: Vec2, max: Vec2}\> | 否 | 跟随边界，`Update` 时把目标位置夹到边界内 |
 | `shake_presets` | List\<{id: Id, amplitude: Number, duration: Number, frequency: Number}\> | 否 | 震屏档位清单，供 `CameraHost.Shake(id)` 按 id 查找 |
 
+## 数据行解析
+
+`CameraSchemas.Profile`（`schema/CameraSchemas.cs`）登记 schema，`CameraProfile.FromRecord`
+（`contracts/CameraProfile.cs`）从已加载的 `DataRecord` 构造强类型 `CameraProfile`（P4-2 补齐，取代
+P4-1"本模块不做什么"一节原先记录的契约缺口）。字段解析惯例同
+`Core.Foundation.DisplayInfo.DisplayInfo.FromRecord`：必填字段用 `GetXxx`（缺失时
+`DataFieldException`），可选字段用 `TryGetXxx`；`bounds`/`shake_presets` 是嵌套 JSON 结构，04 未给出
+专用访问器，按 `DisplayInfo.FromRecord` 解析 `mirror_pairs`/`anchor_points` 的同一惯例手动展开
+`JsonObject`/`JsonArray`。`shake_presets` 每项的 `id` 字段随内容表 `id` 命名惯例点分书写，但不受
+`camera_profile` 表自身的"id domain 前缀必须等于表名"这条 `primary_key` 校验约束——它是嵌套在
+`Array` 字段里的普通对象属性，不是独立注册的表行。测试见
+`presentation/camera/tests/CameraProfileFromRecordTests.cs`。
+
 ## 本模块不做什么
 
-- 不提供 `camera_profile` 表的 `DataRegistry`/`FromRecord` 数据行解析器——本任务（P4-1）只要求给出
-  表 schema 与强类型 C# 结构，数据加载器留待具体游戏接入阶段按 `core/foundation/data_registry`
-  惯例补充（见模块 README"契约缺口"一节）。
 - `shake_presets.frequency` 字段随表结构一并登记，但 `ICamera.Shake(intensity, durationSeconds)`
   本身没有频率参数（见 02 第 1.13 节），`CameraHost.Shake` 当前不传递该字段，只是随数据行保留，
-  供未来接口扩展或引擎侧自行按约定解释。
+  供未来接口扩展或引擎侧自行按约定解释；`CameraProfile.FromRecord` 未声明 `frequency` 时按 `0.0`
+  兜底（09 原文未规定缺省值，判断记录）。

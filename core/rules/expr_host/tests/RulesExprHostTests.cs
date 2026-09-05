@@ -328,6 +328,39 @@ namespace Tests.Rules.ExprHost
             Assert.Equal(Player, host.Query(ExprGroups.Event, "targetId", Array.Empty<ExprValue>()).AsId);
         }
 
+        // 判断记录（P4-3 契约缺口最小修补）：ExprLexer 标识符只接受全小写 a-z0-9_，内容侧写不出
+        // IExprReadableEvent 登记的 camelCase 字段名（"isCrit"/"sourceId"），RulesExprHostFactory.
+        // Host.QueryEvent 现在"先原样查找，查不到再转 camelCase 重试"，使 event.is_crit 一类
+        // snake_case 引用也能命中——本组测试直接用 Core.Foundation.Expr.ExprParser 解析含点分
+        // snake_case 引用的表达式文本，端到端验证 09 第 6.1 节"同一事件按条件分流"的
+        // event.is_crit 场景不再受词法限制。
+        [Fact]
+        public void Event_SnakeCaseField_IsCrit_MapsToExprReadableEvent_IsCrit()
+        {
+            var fx = BuildBasicWorld();
+            var evt = new CombatDamageDealtEvent(Enemy, Player, new Id("school.fire"), 42.0, true, HitResult.Crit);
+            var host = fx.BuildFactory().CreateFor(Player, null, evt);
+
+            Assert.True(host.Query(ExprGroups.Event, "is_crit", Array.Empty<ExprValue>()).AsBool);
+            Assert.Equal(Player, host.Query(ExprGroups.Event, "target_id", Array.Empty<ExprValue>()).AsId);
+            Assert.Empty(fx.Diagnostics.Warnings);
+        }
+
+        [Fact]
+        public void Event_SnakeCaseField_ExpressionText_RoutesByIsCrit()
+        {
+            var fx = BuildBasicWorld();
+            var critEvent = new CombatDamageDealtEvent(Enemy, Player, new Id("school.fire"), 42.0, true, HitResult.Crit);
+            var normalEvent = new CombatDamageDealtEvent(Enemy, Player, new Id("school.fire"), 10.0, false, HitResult.Hit);
+            var expr = ExprParser.Parse("event.is_crit", RulesExprSchema.Base);
+
+            var critHost = fx.BuildFactory().CreateFor(Player, null, critEvent);
+            var normalHost = fx.BuildFactory().CreateFor(Player, null, normalEvent);
+
+            Assert.True(ExprEvaluator.EvaluateBool(expr, critHost, fx.Diagnostics));
+            Assert.False(ExprEvaluator.EvaluateBool(expr, normalHost, fx.Diagnostics));
+        }
+
         [Fact]
         public void Event_NoTriggeringEvent_DefaultsToFalse_AndWarns()
         {
