@@ -226,7 +226,25 @@ namespace Adapter.Unity.Shell
             {
                 SaveGameId = new Id("game.sample"),
                 OnFloatingText = (entityId, styleId, text) => FloatingText?.Show(entityId, styleId, text),
-                OnFreeze = seconds => Freeze?.Freeze(seconds),
+                // 判断记录（U3 排障发现的单位换算缺口）：PresentationAssemblyOptions.OnFreeze 的
+                // 契约（presentation/assembly/PresentationAssembly.cs）与实际调用来源
+                // Presentation.FeedbackBinder.Core.CompositeFeedbackSink.Freeze(double durationMs)
+                // 都明确点名参数是"毫秒"（09 第 6.1 节 Freeze(durationMs)），但
+                // FreezeFrameReceiver.Freeze(double seconds) 要的是"秒"——此前这里直接把毫秒数
+                // 原样传给 Freeze()，把 duration_ms=40（0.04 秒）当成了 40 秒，顿帧会持续 40 秒
+                // 真实时间才解冻（FreezeFrameReceiver.Tick 用 Time.unscaledDeltaTime 推进，不受
+                // 游戏内时间缩放影响）。此前没有任何测试暴露这个问题：
+                // Feedback_CritDamage_TriggersFreeze 只断言 TriggerCount 增加、不检查画面是否卡住
+                // 或者卡多久；其余用例此前从未有真实战斗持续到"随机命中一次暴击"又紧接着继续跑完
+                // 若干条其它用例的场景（U3 修复死亡判断后，FullVerticalSlice 第一次把普攻循环真正
+                // 跑到生物死亡为止，期间命中暴击的概率大幅提升，一旦触发就会把 40 秒的顿帧带进
+                // 后续几条用例——ViewBinder.SyncAll/CameraHost.Update 在顿帧期间被跳过，实测复现
+                // Paperdoll_LayerOrder_MatchesDisplayMapDeclaredOrder/
+                // YSorting_TwoEntitiesWithDifferentY_SortingOrderReflectsY 两条用例断言"应有精灵
+                // 渲染"/"排序应反映 Y 坐标"失败——因为顿帧期间根本没有任何 View 被 SyncPose 过，
+                // 玩家纸娃娃层从未被创建）。改为除以 1000 换算成秒，与
+                // CompositeFeedbackSink.Freeze/FreezeAction.DurationMs 的毫秒语义对齐。
+                OnFreeze = durationMs => Freeze?.Freeze(durationMs / 1000.0),
                 OnFlash = (entityId, profileId) => Flash?.Show(entityId, profileId),
                 ActionBarSlotBindingResolver = ResolveActionBarSlot,
                 CharacterStatConfig = new[]

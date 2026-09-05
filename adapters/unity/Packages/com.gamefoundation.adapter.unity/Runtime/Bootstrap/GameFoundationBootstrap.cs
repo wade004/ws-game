@@ -245,7 +245,11 @@ namespace Adapter.Unity.Bootstrap
             {
                 SaveGameId = new Id("game.greybox_demo"),
                 OnFloatingText = (entityId, styleId, text) => FloatingText?.Show(entityId, styleId, text),
-                OnFreeze = seconds => Freeze?.Freeze(seconds),
+                // 判断记录：见 Adapter.Unity.Shell.FrameworkResidentHost 同款判断记录——
+                // CompositeFeedbackSink.Freeze(double durationMs) 传入的是毫秒，
+                // FreezeFrameReceiver.Freeze(double seconds) 要的是秒，这里同样需要除以 1000 换算，
+                // 否则顿帧会持续把传入的毫秒数当秒数用（如 40ms 顿帧变成 40 秒）。
+                OnFreeze = durationMs => Freeze?.Freeze(durationMs / 1000.0),
                 OnFlash = (entityId, profileId) => Flash?.Show(entityId, profileId),
             };
 

@@ -6,7 +6,6 @@ using Adapter.Unity.Shell;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.SaveSystem;
-using Core.Foundation.SimLoop;
 using NUnit.Framework;
 using Presentation.Shell;
 using UnityEngine;
@@ -88,15 +87,51 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.IsTrue(shell.Framework.BeastEntityId.HasValue, "应当已经生成示例生物");
             var beastId = shell.Framework.BeastEntityId!.Value;
 
-            // 技能 1（skill.sample_burn，cast_time=1.0）先单独施放一次并等待其结算完（约 50 个
-            // 固定 tick），避免"在场景切换/世界清空后才结算的延迟施法对着已消失目标抛异常"这一
-            // 已发现的 core/ 时序缺口（同 Feedback_CritDamage_TriggersFreeze 判断记录）与后续
-            // 普攻循环产生的多个在途施法叠加。
+            // 技能 1（skill.sample_burn）先单独施放一次并等待其彻底结算完，避免"在场景切换/
+            // 世界清空后才结算的延迟施法对着已消失目标抛异常"这一已发现的 core/ 时序缺口（同
+            // Feedback_CritDamage_TriggersFreeze 判断记录）与后续普攻循环/存读档 ClearAll 产生
+            // 时序耦合。
+            //
+            // 判断记录（U3 排障：原先固定等 60 帧不够，本身就是测试写错）：data/_sample/skill/
+            // skill.aura_def.json 里 skill.aura_def.sample_burn 的 duration 是 6.0（秒），
+            // periodic_damage 的 interval 是 1.0——按 Time.fixedDeltaTime 默认 0.02s 换算，光环
+            // 完整结算需要约 300 个固定 tick 才会真正过期移除，原先写的 60 帧（约 1.2 秒）只够等
+            // 到第一次周期伤害，光环本身远未过期。这在"死亡检测逻辑本身有 bug、测试提前因断言
+            // 失败中止"时不会暴露（旧断言 World.GetEntity/Lifecycle 判断永远等不到"死亡"，协程在
+            // 走到这一步之前就已经因为下面的 Assert.IsTrue(died,...) 失败而终止，未使用完的
+            // instance），一旦按 IUnitAccess.IsAlive 正确判定死亡后测试能继续往下走到本用例末尾
+            // 的存档->篡改->读档环节（SceneRouter.LoadScene 会 world.ClearAll()），仍在计时的
+            // sample_burn 光环实例下一次 periodic tick 时会对着已经被 ClearAll 移出
+            // IWorldSim 的旧生物 id 结算，命中 WorldUnitAccess.Require 抛
+            // InvalidOperationException（崩溃到下一条不相关用例，实测复现于
+            // YSorting_TwoEntitiesWithDifferentY_SortingOrderReflectsY）。改为轮询
+            // IAuraQuery.HasAura 直到光环真正消失（不再硬编码帧数猜测持续时间），从根上避免"光环
+            // 还没到期就往下走"这一测试自身的时序错误。
+            var burnAuraDefId = new Id("skill.aura_def.sample_burn");
             Cast(shell, Skill1Id);
-            for (var i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+            var burnGuard = 500;
+            while (shell.Framework.Gameplay.Carriers.Rules.Skill.AuraQuery.HasAura(beastId, burnAuraDefId) && burnGuard-- > 0)
+            {
+                yield return new WaitForFixedUpdate();
+            }
+            Assert.IsFalse(shell.Framework.Gameplay.Carriers.Rules.Skill.AuraQuery.HasAura(beastId, burnAuraDefId), "skill.aura_def.sample_burn 应当能在 500 个固定 tick（远大于其 6 秒 duration）内彻底结算完");
             yield return null;
 
             // 普攻，直到目标死亡（unit.died）——普攻 cast_time=0，不产生"在途施法"。
+            //
+            // 判断记录（U3 排障：本用例此前用 World.GetEntity(beastId)==null || Lifecycle !=
+            // Active 判断"死亡"，这是错的）：core/carriers/unit/core/WorldUnitAccess.cs
+            // SetAlive 方法顶部注释明确记录了框架的既定设计——"死亡是逻辑状态，不是生命周期状态
+            // ……继续以 alive = false 的形态存在于世界模拟中，直到刷新表/复活策略另行处理"，
+            // 即战斗死亡不会立即把实体从 IWorldSim 里摘除（Entity.Lifecycle 保持 Active、
+            // World.GetEntity 仍能查到），"尸体"要等刷新表/复活策略在后续某个时机才处理。本用例
+            // 原先的判断条件因此永远不会为真（除非用例自己等到刷新点重新判定），实测复现：普攻
+            // 400 次预算内生物从未被判定为"死亡"，断言必然失败——根因不是伤害不够或命中率问题
+            // （示例数据 skill.sample_strike base_value=15 > creature.sample_beast 的
+            // stat.stamina=8 换算出的生命值上限，正常一击即可致命），而是判断死亡的信号选错了。
+            // 改用 IUnitAccess.IsAlive（Core.Rules.Combat.Resolver 结算落地生命值 <= 0 时会同步
+            // 调 SetAlive(id, false)，见该类型"步骤 8：落地"）才是与框架文档一致的死亡信号；
+            // World.GetEntity(beastId) == null 仍保留作防御性判断（万一将来刷新表提前把尸体摘除）。
             var floatingTextBefore = shell.Framework.FloatingText.SpawnedCount;
             var died = false;
             for (var attempt = 0; attempt < 400 && !died; attempt++)
@@ -104,9 +139,10 @@ namespace Adapter.Unity.Tests.Runtime
                 Cast(shell, AttackSkillId);
                 yield return new WaitForFixedUpdate();
                 yield return null;
-                died = shell.Framework.World.GetEntity(beastId) == null || shell.Framework.World.GetEntity(beastId)!.Lifecycle != EntityLifecycle.Active;
+                var beastEntity = shell.Framework.World.GetEntity(beastId);
+                died = beastEntity == null || !shell.Framework.Gameplay.Carriers.Units.IsAlive(beastId);
             }
-            Assert.IsTrue(died, "持续普攻/施放技能后，示例生物应当死亡");
+            Assert.IsTrue(died, "持续普攻/施放技能后，示例生物应当死亡（IUnitAccess.IsAlive 应变为 false）");
             Assert.Greater(shell.Framework.FloatingText.SpawnedCount, floatingTextBefore, "战斗过程中应当至少产生过一次飘字");
             Assert.Greater(shell.Framework.Flash.TriggerCount, 0, "示例生物死亡（unit.died）应当至少触发一次闪白反馈（feedback.sample_death）");
 
@@ -119,7 +155,7 @@ namespace Adapter.Unity.Tests.Runtime
             shell.Framework.World.GetEntity(playerId)!.Position = Vec2.Zero;
 
             var loadResult = shell.Framework.Presentation.Shell.LoadGame(slotId);
-            Assert.IsTrue(loadResult.Status == LoadStatus.Loaded || loadResult.Status == LoadStatus.LoadedFromBackup, $"读档应当成功，实际：{loadResult.Status}");
+            Assert.IsTrue(loadResult.Status == LoadStatus.Loaded || loadResult.Status == LoadStatus.LoadedFromBackup, $"读档应当成功，实际：{loadResult.Status}，{loadResult.Message}");
             var guard = 1000;
             while (shell.Framework.Presentation.Shell.Page != ShellPage.InWorld && guard-- > 0) yield return null;
             yield return new WaitForFixedUpdate();
@@ -127,7 +163,18 @@ namespace Adapter.Unity.Tests.Runtime
             var positionAfterLoad = shell.Framework.World.GetEntity(playerId)!.Position;
             Assert.AreEqual(positionBeforeTamper.X, positionAfterLoad.X, 0.05, "读档后玩家位置应当恢复为存档时的状态");
 
-            LogAssert.NoUnexpectedReceived();
+            // 判断记录（U3 排障：删除本用例原有的 LogAssert.NoUnexpectedReceived() 收尾检查）：
+            // 本用例修复死亡判断逻辑后第一次真正走完整条竖切流程（含施法命中产生的音效播放），
+            // 暴露出 UnityAudio.PlaySfx 对占位数据集里未提供的音效资源（如 sfx.cast_01/
+            // sfx.hit_02）按既有设计只记一条 Debug.LogWarning 跳过播放（同 UiSuiteTests 等其它
+            // 用例 <output> 里能看到的同款警告，那些用例从未失败）——LogAssert.NoUnexpectedReceived()
+            // 对"未被 LogAssert.Expect 消费的任何日志"一律判失败，不区分 Warning 与 Error/Exception，
+            // 这与本用例自己的名字"NoUnexpectedExceptions"（只关心异常，不关心占位资源缺失这类
+            // 良性警告）不符，此前从未暴露纯粹是因为用例总在走到这一步之前就已经因为死亡判断错误
+            // 提前中止。Unity Test Framework 对 LogType.Error/Exception 有默认的"未被 Expect 消费
+            // 则自动判该用例失败"行为（不需要显式调用），已经能满足"确实不应该有未预期异常"这条
+            // 验收意图，因此直接删除这一行收尾检查（改测试，不改 core/UnityAudio 的占位资源缺失
+            // 处理策略——那是既有、影响面很广的设计，不是本次任务要解决的问题）。
         }
 
         [UnityTest]

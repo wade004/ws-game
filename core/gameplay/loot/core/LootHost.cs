@@ -517,9 +517,46 @@ namespace Core.Gameplay.Loot
 
         /// <summary>把一个从存档反序列化出的实体直接接回世界与本模块的跟踪表，不重新分配 id、不发
         /// <c>loot.rolled</c>/<c>loot.picked_up</c> 事件（这不是"发生了一次新的掉落/拾取"，只是恢复
-        /// 既有状态，惯例同 <c>core/carriers/item.InventoryHost.ReplaceBag</c>）。</summary>
+        /// 既有状态，惯例同 <c>core/carriers/item.InventoryHost.ReplaceBag</c>）。
+        /// <para>
+        /// 判断记录（U3 排障发现的契约缺口：同一局内"存档 -&gt; 读档"这条路径会撞上"实体 id
+        /// 重复"异常）：<c>Presentation.Shell.ShellHost.LoadGame</c> 的既有实现顺序是
+        /// <c>ISaveSystem.Load</c>（本方法在这一步被调用）先于 <c>ISceneRouter.LoadScene</c>
+        /// （真正触发 <c>IWorldSim.ClearAll</c> 清空旧实体的地方）——也就是说本方法执行时，
+        /// 存档快照里记录的地面掉落物 id，如果是"读档前那局游戏本身还没被拾取/过期就已经掉落在地上"
+        /// 的同一个 <c>DroppedLootEntity</c>，此时仍然原样存在于 <see cref="IWorldSim"/> 里（还没被
+        /// 清空），直接调 <c>IWorldSim.AddEntity</c> 会因为 id 已存在抛
+        /// <c>InvalidOperationException("实体 id 重复")</c>（U3 实测复现：`
+        /// VerticalSliceTests.FullVerticalSlice_...` 是第一条"击杀生物产生地面掉落 + 存档 -&gt;
+        /// 读档"两件事同时发生的测试，此前从未有测试同时触碰过这条路径）。<see cref="IWorldSim"/>
+        /// 没有暴露"立即同步移除单个实体"的入口（<see cref="IWorldSim.MarkForDestruction"/> 只是
+        /// 排入下一次 Tick 阶段 8 才真正生效，本方法内联调用后立刻 <c>AddEntity</c> 仍会撞上同一个
+        /// 异常），本方法退而求其次：若发现同 id 的地面掉落物已经存在于世界里，判定为"读档快照与
+        /// 当前存活实体本就是同一份掉落物"，直接原地把存档内容写回这个已存在的实体对象（位置/物品/
+        /// 归属提示/过期时间），不重新 <c>AddEntity</c>、不产生"重复实体"——不改动
+        /// <see cref="IWorldSim"/> 契约（新增一个"立即同步移除"的公开方法会牵动其全部实现/测试替身，
+        /// 超出本次最小修复范围），也不改动 <c>ShellHost.LoadGame</c> 既有的
+        /// "先恢复段、后切场景"顺序（那会影响全部 <see cref="IPersistable"/> 段，改动面过大）。
+        /// </para>
+        /// </summary>
         public void RestoreDropped(DroppedLootEntity entity)
         {
+            if (_world.GetEntity(entity.EntityId) is DroppedLootEntity existing)
+            {
+                existing.Position = entity.Position;
+                existing.Items.Clear();
+                existing.Items.AddRange(entity.Items);
+                existing.OwnerHint = entity.OwnerHint;
+                existing.ExpireAt = entity.ExpireAt;
+
+                _dropped[entity.EntityId] = existing;
+                if (!_order.Contains(entity.EntityId))
+                {
+                    _order.Add(entity.EntityId);
+                }
+                return;
+            }
+
             _world.AddEntity(entity);
             _dropped[entity.EntityId] = entity;
             _order.Add(entity.EntityId);

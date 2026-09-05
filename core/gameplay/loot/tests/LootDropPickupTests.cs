@@ -251,5 +251,42 @@ namespace Tests.Gameplay.Loot
             var newLootId = f2.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), items);
             Assert.NotEqual(lootId, newLootId);
         }
+
+        /// <summary>U3 排障发现的契约缺口回归测试（见 <see cref="LootHost.RestoreDropped"/> 判断
+        /// 记录）：同一局游戏内"存档 -&gt; （不清空世界）-&gt; 立即读档"这条路径——
+        /// <c>Presentation.Shell.ShellHost.LoadGame</c> 的既有实现顺序是 <c>ISaveSystem.Load</c>
+        /// 先于 <c>ISceneRouter.LoadScene</c>（真正触发 <c>IWorldSim.ClearAll</c> 的地方）——存档
+        /// 快照里的地面掉落物在读档这一刻仍然原样存在于世界里，<see cref="LootHost.RestoreDropped"/>
+        /// 此前直接调 <c>IWorldSim.AddEntity</c> 会因为 id 已存在抛
+        /// <c>InvalidOperationException("实体 id 重复")</c>。</summary>
+        [Fact]
+        public void DroppedLootPersistable_LoadOntoSameLiveWorld_DoesNotThrow_OverwritesInPlace()
+        {
+            var f = NewFixture(SingleChanceTable, new LootOptions { DefaultLifetime = 100 });
+            f.SimTime = 0;
+            var items = new[] { new ItemStack(new Id("item.sample_ore"), 3) };
+            var lootId = f.Host.Drop(new Id("map.sample_1"), new Vec2(2, 3), items, ownerHint: new Id("player.sample_owner"));
+
+            var persistable = new DroppedLootPersistable(f.Host);
+            var saved = persistable.Save();
+
+            // 不清空 f.World/f.Host，直接在同一个存活世界上重放"读档"——模拟真实 ShellHost.LoadGame
+            // 顺序（Load 早于 LoadScene/ClearAll）。
+            var ex = Record.Exception(() => persistable.Load(saved));
+            Assert.Null(ex);
+
+            Assert.Single(f.Host.ActiveLootIds);
+            Assert.Contains(lootId, f.Host.ActiveLootIds);
+            Assert.True(f.Host.TryGetDropped(lootId, out var restored));
+            Assert.Equal(new Vec2(2, 3), restored.Position);
+            Assert.Single(restored.Items);
+            Assert.Equal(3, restored.Items[0].Count);
+            Assert.Equal(new Id("player.sample_owner"), restored.OwnerHint);
+            Assert.Equal(100.0, restored.ExpireAt);
+
+            // 读档后继续 Drop 仍不应与恢复的实体 id 冲突。
+            var newLootId = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), items);
+            Assert.NotEqual(lootId, newLootId);
+        }
     }
 }

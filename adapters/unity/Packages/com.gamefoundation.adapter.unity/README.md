@@ -321,6 +321,44 @@ Boot ──Start()──> MainMenu ──ShowSlots()──> SaveSlots ──(选
     没有防御性判断（`WorldUnitAccess.Require` 直接抛异常，不是返回失败结果）；有 `cast_time` 的
     技能（如 `skill.sample_burn`，1 秒）在场景切换/世界清空后才结算时会命中这条路径。U3 的做法是
     在测试里"先单独施放一次并等待其结算完，再进入不产生在途施法的普攻循环"规避，未改动 core/。
+    U3 排障新增（阶段 4 U3 修复补充）：`FullVerticalSlice_...` 原先只等 60 个固定 tick（约 1.2
+    秒）就认为 `skill.sample_burn` "结算完"，但 `skill.aura_def.sample_burn` 的
+    `duration` 是 6.0 秒（`interval` 1.0 秒周期伤害）——60 帧只够等到第一次周期伤害，光环本身
+    远未过期；这条时序漏洞此前没有暴露纯粹是因为 `VerticalSliceTests.cs` 自己的死亡判断逻辑写错
+    （见下条 12），测试总在走到存档/读档触发 `ClearAll` 之前就已经因为断言"生物应当死亡"失败而
+    提前中止，光环实例的后续周期 tick 从未真正对着一个已被 `ClearAll` 移出 `WorldSim` 的旧目标
+    结算过。修正死亡判断后，测试能正常走到存档→篡改→读档这一步，`ClearAll` 真的会在光环还没
+    过期时把旧生物实体移出世界，下一次周期 tick 命中本条已记录的核心缺口而崩溃
+    （`WorldUnitAccess.Require` 抛 `InvalidOperationException`，实测复现于崩溃到下一条不相关
+    用例 `YSorting_TwoEntitiesWithDifferentY_SortingOrderReflectsY`）。已把测试里的固定帧数等待
+    改为轮询 `IAuraQuery.HasAura` 直到光环真正消失（上限 500 帧，远大于 6 秒对应的约 300 帧），
+    未改动 core/。
+12. `Core.Carriers.Unit.WorldUnitAccess.SetAlive` 顶部注释记录的既定设计：死亡是逻辑状态，不是
+    生命周期状态——生物战斗死亡后仍以 `alive = false` 的"尸体"形态留在 `IWorldSim` 里
+    （`Entity.Lifecycle` 不变、`World.GetEntity` 仍查得到），直到刷新表/复活策略另行处理，不会被
+    立即移出世界。`VerticalSliceTests.FullVerticalSlice_...` 原先用
+    `World.GetEntity(beastId) == null || Lifecycle != EntityLifecycle.Active` 判断"死亡"，与这条
+    既定设计不符——该条件在正常战斗死亡路径下永远不会为真（U3 排障最初曾按"死亡该让实体真正退场"
+    这一假设给 `core/gameplay/spawn` 新增了一个 `unit.died -> ICreatureFactory.Despawn` 的监听器
+    去补"退场"，但这会立即销毁尸体，与上述既定设计直接冲突，且会让 `GreyBoxTests`/`UiSuiteTests`
+    等此前一直稳定通过的"击中生物后继续查询其血量"类用例因为生物已被销毁而抛
+    `InvalidOperationException`——已废弃该方案，未改动 core/）。正确修法是让测试改用与既定设计
+    一致的死亡信号：`Core.Rules.Common.IUnitAccess.IsAlive`（`Core.Rules.Combat.Resolver` 结算
+    落地生命值 `<= 0` 时会同步调 `SetAlive(id, false)`，见该类型"步骤 8：落地"），
+    `World.GetEntity(beastId) == null` 仅保留作防御性判断。
+13. `data/_sample/feedback/feedback.binding.json` 的 `feedback.sample_death`（绑定 `unit.died`）
+    flash 动作 `params.target` 原先写的是 `"target"`，但 `Presentation.FeedbackBinder.Core.
+    FeedbackBinder.OnEvent` 对通用事件的 `selfId`/`targetId` 提取规则是
+    `selfId ExtractId(evt, "sourceId","casterId","unitId")` /
+    `targetId ExtractId(evt, "targetId")`——`unit.died`（`Core.Rules.Common.UnitDiedEvent`）只有
+    `unitId`/`killerId` 两个字段，没有字面量 `targetId`，因此死亡的那个单位按上述规则会被解析成
+    `selfId`，`targetId` 恒为空。`DispatchFlash` 对 `target: target` 但 `targetId` 缺失的情况是
+    "记一条诊断、直接跳过"（不抛异常，见该方法源码），`floating_text`/`shake_camera` 两个动作因为
+    各自的 entityId 解析逻辑都带了"`targetId` 缺失退回 `selfId`"的兜底所以不受影响——这条数据笔误
+    因此从未被任何人工/自动化验收发现过（此前也没有任何测试真正验证过"生物死亡触发闪白"，见
+    `VerticalSliceTests.FullVerticalSlice_...` 判断记录 12：死亡判断逻辑本身写错，从未真正走到过
+    这条断言）。已把该 flash 动作的 `"target": "target"` 改为 `"target": "source"`（纯粹的取值
+    笔误修复，不改变表结构/新增内容，`python toolchain/validate_data.py` 复核 0 错误）。
 
 ### 人工验收清单（阶段 4 验收标准 1～5）
 

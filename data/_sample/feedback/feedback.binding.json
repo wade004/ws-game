@@ -36,7 +36,7 @@
       "actions": [
         { "kind": "floating_text", "params": { "style_id": "feedback.floating_text_style.sample_normal", "text_source": "literal:l10n.combat.sample_death_text" } },
         { "kind": "shake_camera", "params": { "profile_id": "feedback.shake.sample_crit" } },
-        { "kind": "flash", "params": { "profile_id": "vfx.sample_death_flash", "target": "target" } }
+        { "kind": "flash", "params": { "profile_id": "vfx.sample_death_flash", "target": "source" } }
       ]
     }
   ]
