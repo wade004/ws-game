@@ -297,7 +297,8 @@ if ($SkipUnity) {
     Add-SkippedStep "Unity 编译检查" "-SkipUnity"
     Add-SkippedStep "Unity EditMode 测试" "-SkipUnity"
     Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity"
-    Add-SkippedStep "独立版构建 + -gf-smoke 冒烟" "-SkipUnity"
+    Add-SkippedStep "独立版构建 + -gf-smoke 冒烟（连续模式默认流程）" "-SkipUnity"
+    Add-SkippedStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" "-SkipUnity"
 } else {
     $resolvedUnityExe = Resolve-UnityExe -Explicit $UnityExe
     $unityProjectPath = Join-Path $RepoRoot "adapters\unity"
@@ -348,7 +349,7 @@ if ($SkipUnity) {
         return ($root.result -eq "Passed")
     }
 
-    Invoke-CheckStep "独立版构建 + -gf-smoke 冒烟" {
+    Invoke-CheckStep "独立版构建 + -gf-smoke 冒烟（连续模式默认流程）" {
         $buildLog = Join-Path $UnityOutDir "build.log"
         $exePath = Join-Path $UnityOutDir "Shell.exe"
         $buildOk = Test-NativeExitCode $resolvedUnityExe @(
@@ -376,6 +377,31 @@ if ($SkipUnity) {
         if (-not (Test-Path $smokeLog)) { return $false }
         $logText = Get-Content -Path $smokeLog -Raw
         return ($logText -match "\[GF-SMOKE\] RESULT=OK")
+    }
+
+    # H4 新增：离散链路冒烟（-gf-smoke-discrete，见 Adapter.Unity.Shell.SmokeRunner.RunDiscreteSequence
+    # 判断记录）——同一份独立版构建产物（上一步已生成），另起一次进程跑离散分支，验证"进入战斗→
+    # awaiting_input→结束回合→AI 行动→战斗结束"这条链路本身（-SkipSmoke 时同样跳过，只验证过
+    # 构建产物存在这一步已经在上一步做过，本步不重复）。
+    Invoke-CheckStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" {
+        $exePath = Join-Path $UnityOutDir "Shell.exe"
+        if (-not (Test-Path $exePath)) { return $false }
+
+        if ($SkipSmoke) {
+            Write-Host "已跳过 -gf-smoke-discrete 冒烟子步骤（-SkipSmoke）。" -ForegroundColor Yellow
+            return $true
+        }
+
+        $smokeLog = Join-Path $UnityOutDir "smoke_player_discrete.log"
+        $smokeOk = Test-NativeExitCode $exePath @(
+            "-batchmode", "-gf-smoke-discrete",
+            "-logFile", $smokeLog,
+            "-screen-width", "800", "-screen-height", "600"
+        )
+        if (-not $smokeOk) { return $false }
+        if (-not (Test-Path $smokeLog)) { return $false }
+        $logText = Get-Content -Path $smokeLog -Raw
+        return ($logText -match "\[GF-SMOKE\] RESULT=OK") -and ($logText -match "step=discrete_round ok")
     }
 }
 

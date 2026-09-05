@@ -288,7 +288,13 @@ namespace Tests.Gameplay.Discrete
                 var step = Scheduler.NextStep();
                 if (step == null)
                 {
-                    Scheduler.SubmitIntent(DiscreteFightWorldBuilder.PlayerId, new Intent(DiscreteFightWorldBuilder.PlayerId, "cast", CastArgs(playerSkillId)));
+                    // H4 补齐（意图路由缺口 1）：经 World.SubmitIntent（而不是直接调用
+                    // Scheduler.SubmitIntent 这条本任务之前唯一能用的旁路）提交——本夹具在
+                    // Build() 已经 AttachDiscreteRouting，这里改用真实调用链入口，顺带把 H4
+                    // 之前"WorldSim.SubmitIntent 在离散模式下无法解除 awaiting_input"的缺口
+                    // 覆盖进本模块既有的整套离散战斗测试（TimeModelSwitchTests/DiscreteTickTests/
+                    // TimeModelSwitchParticipantTests 均复用本夹具）。
+                    World.SubmitIntent(new Intent(DiscreteFightWorldBuilder.PlayerId, "cast", CastArgs(playerSkillId)));
                     step = Scheduler.NextStep();
                     if (step == null)
                     {
@@ -380,6 +386,12 @@ namespace Tests.Gameplay.Discrete
             bool IsPlayerActor(Id unitId) => unitId.Equals(PlayerId);
 
             var scheduler = new Core.Foundation.SimLoop.TurnScheduler(world, InitiativeProvider, IsPlayerActor, bus);
+
+            // H4 补齐（意图路由缺口 1，见 WorldSim.AttachDiscreteRouting 判断记录）：本夹具不经过
+            // GameplayAssembly（自建 fixture，见类型顶部注释），需要自己接线，与
+            // GameplayAssembly 构造函数第 10.5 步的接线逻辑等价。
+            world.AttachDiscreteRouting(clock, scheduler);
+
             var timeModelSwitch = new Core.Gameplay.Assembly.TimeModelSwitch(
                 scheduler, clock, appState, world, units, spatial, bus, registry,
                 factions: rules.Factions, combatOptions: rules.CombatOptions);

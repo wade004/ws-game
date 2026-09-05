@@ -25,24 +25,24 @@
 // 自身的固定步长本就是恒定配置值，非变帧率挂钟时间），与内部构造的 SimClockHost 的 StepSeconds
 // 取同一个值，两者按相同节拍推进，误差为零（不是"≤5%"这条性能约定里退让的近似值）。
 //
-// 判断记录 1b（combatParticipantsResolver 恒返回空列表——本类型保持连续模式，不接入真实离散
-// 战斗）：GameplayAssembly 构造函数只要 clockHost 非空就会同时装配 TurnScheduler/TimeModelSwitch
-// （见该构造函数第 3.5/10.5 步，两者共用同一个"clockHost != null"门槛，没有单独关闭
-// TimeModelSwitch 又保留 clockHost 的公开开关）——本类型为满足 02 第 1.2 节固定步契约，必须传入
-// clockHost 才能调用 Advance；而 data/_sample/found/found.time_model.json 的 combat 行现已声明
-// mode=discrete（另一并行任务落地），一旦 TimeModelSwitch 真的按半径+阵营解析出参战单位切换到
-// 离散模式，GreyBoxTests.cs 全部战斗相关用例会在 awaiting_input 子态卡死——core/ 目前没有任何
-// 调用方把 HandleFixedInput 提交的 cast/move 意图改经 TurnScheduler.SubmitIntent（离散模式下
-// TurnScheduler.NextStep 只有经它提交意图才会让 _hasPendingIntentForCurrentActor 变真，绕开它
-// 直接 World.SubmitIntent 永远无法解除 awaiting_input），且离散步不推进 SimTimers（04/03 既定
-// 设计——计时器换算只发生在模式切换那一刻），光环/冷却类效果在离散战斗里会随之"冻结"。这两处
-// 都是 core/ 侧的既有能力边界（不在本任务允许改动的 core/data 范围内解决），本类型因此把
-// combatParticipantsResolver 固定传一个恒返回空列表的委托——TimeModelSwitch.ResolveParticipants
-// 拿到空列表时 SwitchToDiscrete 直接提前返回（见该方法源码），战斗因此保持连续模式，与本次任务
-// 之前的行为完全一致，全部既有 PlayMode 用例不受影响。真正的离散战斗回合制引擎侧接线（HUD、
-// EndTurn、AI 回合、presentation.playback_finished 回放门）已经落地并独立验证，见
-// Tests/Runtime/DiscreteCombatTests.cs（该测试自建一份不经过本类型的 GameplayAssembly，
-// combatParticipantsResolver 用默认真实解析）与交付报告"判断记录"一节。
+// 判断记录 1b（H4 收官：combatParticipantsResolver 恢复真实解析，接入真实离散战斗）：本判断记录
+// 此前把 combatParticipantsResolver 固定传一个恒返回空列表的委托，理由是 core/ 侧当时有两处能力
+// 缺口——(a) HandleFixedInput 提交的 cast/move 意图经 IWorldSim.SubmitIntent 进入 L0 后，离散模式
+// 下无法到达 TurnScheduler、永远解除不了 awaiting_input；(b) 离散步不推进 SimTimers/冷却/光环，
+// 战斗中会"冻结"。这两处缺口已在 core/foundation/sim_loop.WorldSim.AttachDiscreteRouting（意图
+// 路由集中在 WorldSim.SubmitIntent 本身，本类型的 HandleFixedInput/Interact 不需要改一行）+
+// core/rules/skill.SkillTickHandler/core/rules/combat.CombatTickHandler 订阅 sim.round_ended
+// 统一推进（见三者判断记录）补齐——GameplayAssembly 构造函数第 10.5 步现在会在装配了 clockHost 时
+// 自动调用 world.AttachDiscreteRouting，本类型不需要任何额外接线。combatParticipantsResolver 因此
+// 不再传参（缺省 null，走 TimeModelSwitch 内建的"按半径+阵营解析"真实逻辑，与
+// games/_template/Runtime/GameBootstrap.cs 同款默认值）；data/_sample/found/found.time_model.json
+// 的 combat 行改回 mode=continuous（示例/灰盒默认连续，离散示例数据改放
+// Tests/Runtime/TestData/、core 测试数据，见该文件与 core/gameplay/tests/Discrete 判断记录），
+// 本类型因此在现有示例数据集下战斗仍走连续模式，行为不变；一旦游戏数据集把战斗声明为
+// discrete，本类型会自动走真实离散链路（HUD、EndTurn、AI 回合、presentation.playback_finished
+// 回放门已独立落地并验证，见 Tests/Runtime/DiscreteCombatTests.cs 与新增的
+// Tests/Runtime/SharedBootstrapDiscreteTests.cs——后者用本类型 + 叠加离散测试根验证共享引导下的
+// 真实离散链路）。
 //
 // 判断记录 2（交互此前是窄契约调用，已由 ADR-0016 改为提交意图）：core/carriers/gobj 的
 // GameObjectHost.Interact 是一个直接方法调用（见该类型签名 InteractResult Interact(Id unitId,
@@ -102,6 +102,15 @@ namespace Adapter.Unity.Bootstrap
         [SerializeField] private string _frameworkDatasetRoot = "data/_framework";
         [SerializeField] private string _datasetRoot = "data/_sample";
 
+        /// <summary>H4 收官新增：可选的第三数据根，留空（默认）时不加载，对现有 GreyBox.unity 场景
+        /// 零行为变化。供 <c>Tests/Runtime/SharedBootstrapDiscreteTests.cs</c> 叠加一份只补
+        /// <c>found.time_model</c> 的 combat=discrete 行的测试根（同 <c>DiscreteCombatTests.cs</c>
+        /// 使用的 <c>Tests/Runtime/TestData/</c>），验证本类型（真实共享引导，不是自建 fixture）
+        /// 在数据集把战斗声明为离散时，经真实 combatParticipantsResolver（见文件顶部"判断记录
+        /// 1b"）能正确驱动离散战斗——不是仅由 <c>DiscreteCombatTests.cs</c> 自建的最小
+        /// GameplayAssembly 验证。</summary>
+        [SerializeField] private string _extraDatasetRoot = "";
+
         [Header("示例地图与玩家（默认 id 均取自 core/gameplay/tests/EndToEnd/GameWorldFixture.cs 同一套中性示例数据）")]
         [SerializeField] private string _mapId = "world.sample_field";
         [SerializeField] private string _playerUnitId = "unit.sample_player";
@@ -121,8 +130,9 @@ namespace Adapter.Unity.Bootstrap
 
         /// <summary>ADR-0013 节奏策略：true（默认）=等待表现层回放完毕（<see cref="WaitForPlaybackPacingPolicy"/>，
         /// 03 §3.2 离散模式默认节奏），false=不等待（<see cref="ImmediatePacingPolicy"/>）。见文件顶部
-        /// "判断记录 1b"——本类型的 combatParticipantsResolver 恒空，战斗保持连续模式，本开关只决定
-        /// GameplayAssembly.Pacing 装配成哪一种实现，不影响本类型当前的实际行为。</summary>
+        /// "判断记录 1b"——H4 收官后 combatParticipantsResolver 已恢复真实解析，本开关在当前示例数据集
+        /// （战斗仍声明为 continuous）下仍只决定 GameplayAssembly.Pacing 装配成哪一种实现，一旦数据集把
+        /// 战斗声明为 discrete，本开关会真正影响离散步的节奏。</summary>
         [SerializeField] private bool _pacingWaitForPlayback = true;
 
         // -----------------------------------------------------------------
@@ -207,7 +217,12 @@ namespace Adapter.Unity.Bootstrap
 
             var registry = new DataRegistry(source, _bus, options);
             PresentationSchemaCatalog.RegisterAll(registry);
-            var report = registry.LoadAll(new IDataSource[] { frameworkSource, source });
+            // H4 收官新增：_extraDatasetRoot 非空时叠加为第三根（见该字段判断记录），留空时行为
+            // 与此前完全一致（只有 frameworkSource + source 两根）。
+            var sources = string.IsNullOrEmpty(_extraDatasetRoot)
+                ? new IDataSource[] { frameworkSource, source }
+                : new IDataSource[] { frameworkSource, source, new FileSystemDataSource(contentFs, _extraDatasetRoot) };
+            var report = registry.LoadAll(sources);
             if (report.IsBlocking)
             {
                 BootstrapFailed = true;
@@ -240,7 +255,8 @@ namespace Adapter.Unity.Bootstrap
             // ADR-0013/02 §1.2 固定步契约：clockHost 交给 host.Clock.RequestFixedStep 注册的回调
             // （见 BuildWorld 末尾）驱动，stepSeconds 与该注册用的 Time.fixedDeltaTime 取同一个值，
             // 两者按相同节拍推进（误差为零）。pacingPolicy 按 Inspector 开关二选一；
-            // combatParticipantsResolver 恒返回空列表——见文件顶部"判断记录 1b"。
+            // combatParticipantsResolver 不传（缺省 null）——见文件顶部"判断记录 1b"：H4 收官后
+            // 恢复真实解析，与 games/_template/Runtime/GameBootstrap.cs 同款默认值。
             var clockHost = new Core.Foundation.SimLoop.SimClockHost(
                 world, new Core.Foundation.SimLoop.SimLoopOptions { StepSeconds = Time.fixedDeltaTime });
             IPacingPolicy pacingPolicy = _pacingWaitForPlayback
@@ -253,8 +269,7 @@ namespace Adapter.Unity.Bootstrap
                 playerFactionId: factionId,
                 navigation: _host.Navigation2D,
                 clockHost: clockHost,
-                pacingPolicy: pacingPolicy,
-                combatParticipantsResolver: _ => Array.Empty<Id>());
+                pacingPolicy: pacingPolicy);
             Gameplay = gameplay;
 
             var player = new PlayerUnit(PlayerId, mapId, factionId, classId)
@@ -387,9 +402,9 @@ namespace Adapter.Unity.Bootstrap
             // 7) ADR-0013 §9："表现层发出 presentation.playback_finished 后由调用方转发到
             //    GameplayAssembly.NotifyPlaybackFinished()"——WaitForPlaybackPacingPolicy 本身不
             //    持有 IEventBus、不会自行订阅（见该类型源码），这一步接线只能由引擎侧完成。见文件
-            //    顶部"判断记录 1b"：本类型的战斗保持连续模式，Pacing 因此实际不会进入
-            //    playing_back 节奏门，本订阅目前是安全的空操作，但契约上应当接好（数据/游戏层今后
-            //    改用真实 combatParticipantsResolver 时不需要再补这一行）。
+            //    顶部"判断记录 1b"：H4 收官后 combatParticipantsResolver 已恢复真实解析，当前示例
+            //    数据集下战斗仍声明为 continuous、Pacing 因此实际不会进入 playing_back 节奏门，本
+            //    订阅目前是安全的空操作；一旦数据集把战斗声明为 discrete，本订阅立即生效。
             // ---------------------------------------------------------
             _bus.Subscribe(Core.Foundation.EventBus.EventKeys.PresentationPlaybackFinished,
                 _ => Gameplay!.NotifyPlaybackFinished());
@@ -517,6 +532,22 @@ namespace Adapter.Unity.Bootstrap
             }
 
             Presentation.Feedback.Update(unscaledDelta);
+
+            // H4 补齐（离散模式"零事件步"自动解除回放门，见 PlaybackQueue 类型注释判断记录
+            // "零事件时可以同步立即调用 OnPlaybackFinished，等价于不等待"）：WaitForPlaybackPacingPolicy
+            // 下，某个离散步若没有产生任何需要回放的动作（结束回合本身不经 world.Tick、AI 决策也
+            // 可能没有命中任何 feedback.binding 规则），PlaybackQueue.Finished 永远不会触发（它是
+            // "队列由非空变空"边沿触发，不是"队列本来就是空"），若不主动判定会永久卡在
+            // playing_back 子态、后续离散步再也推进不下去——这是 combatParticipantsResolver 此前
+            // 恒返回空列表、战斗从未真正进入离散模式时被掩盖的一处引擎侧缺口（见文件顶部"判断记录
+            // 1b"），本类型因此在这里补上与 Tests/Runtime/DiscreteCombatTests.cs 测试专用 Tick()
+            // 辅助方法完全相同的判定逻辑，落到生产代码本身（不只是测试夹具）。
+            if (Gameplay!.Pacing is WaitForPlaybackPacingPolicy waitForPlayback
+                && !waitForPlayback.IsPlaybackFinished
+                && Presentation.Feedback.Queue.PendingCount == 0)
+            {
+                Gameplay.NotifyPlaybackFinished();
+            }
 
             FloatingText!.Tick((float)unscaledDelta);
             Freeze.Tick(unscaledDelta);

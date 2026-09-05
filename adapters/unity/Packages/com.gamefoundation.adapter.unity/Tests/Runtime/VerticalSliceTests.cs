@@ -6,6 +6,7 @@ using Adapter.Unity.Shell;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.SaveSystem;
+using Core.Foundation.SimLoop;
 using NUnit.Framework;
 using Presentation.Shell;
 using UnityEngine;
@@ -223,6 +224,38 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.Greater(shell.Framework.FloatingText.SpawnedCount, floatingTextBefore, "战斗过程中应当至少产生过一次飘字");
             Assert.Greater(shell.Framework.Flash.TriggerCount, 0, "示例生物死亡（unit.died）应当至少触发一次闪白反馈（feedback.sample_death）");
 
+            // H4 补齐（判断记录：掉落物 View 创建用确定性等待，不是固定帧数，见方法末尾恢复
+            // LogAssert.NoUnexpectedReceived() 的判断记录）：CreatureDeathLootListener 订阅
+            // unit.died 同步调用 LootHost.Drop，但 WorldSim.AddEntity 产生的 entity.created 走
+            // IEventBus.Enqueue（排队，不立即派发，见该事件类型注释），具体在哪一次
+            // DispatchPending/哪一个 tick 边界送达 ViewBinder 不是本用例需要关心的细节——轮询
+            // "掉落物实体已经在世界里 且 ViewBinder 已经为它绑定 View"直到成立，比硬编码固定帧数
+            // 更贴合"用确定性条件代替时间猜测"的既有测试哲学（同本方法上面 burnGuard/died 两处轮询
+            // 惯例）。
+            var lootGuard = 300;
+            Id? lootEntityId = null;
+            while (lootGuard-- > 0)
+            {
+                var lootEntities = shell.Framework.World.QueryEntities(new EntityFilter(kind: EntityKinds.Loot));
+                if (lootEntities.Count > 0)
+                {
+                    lootEntityId = lootEntities[0].EntityId;
+                    if (shell.Framework.Presentation.ViewBinder.TryGetView(lootEntityId.Value, out _))
+                    {
+                        break;
+                    }
+                }
+
+                yield return new WaitForFixedUpdate();
+                yield return null;
+            }
+            Assert.IsTrue(lootEntityId.HasValue, "示例生物死亡后应当结算出至少一件掉落物（creature.sample_beast 的 loot_table_ref）");
+            Assert.IsTrue(
+                shell.Framework.Presentation.ViewBinder.TryGetView(lootEntityId!.Value, out _),
+                "掉落物实体应当已经绑定 View——data/_sample/display/display.map.json 已补齐 " +
+                "display.map.sample_loot_pile 行（logical_id=loot.generic_pile），" +
+                "DroppedLootEntity.TemplateId 现固定为该 id（见该类型判断记录）");
+
             // 存档 -> 篡改状态 -> 读档 -> 状态恢复。
             var slotId = new Id("game.sample.slot_vslice");
             var saveResult = shell.Framework.Presentation.Shell.OverwriteSlot(slotId, playTimeSeconds: null, displaySummary: null);
@@ -240,32 +273,19 @@ namespace Adapter.Unity.Tests.Runtime
             var positionAfterLoad = shell.Framework.World.GetEntity(playerId)!.Position;
             Assert.AreEqual(positionBeforeTamper.X, positionAfterLoad.X, 0.05, "读档后玩家位置应当恢复为存档时的状态");
 
-            // 判断记录（尝试恢复 LogAssert.NoUnexpectedReceived() 收尾检查、最终未恢复，如实记录）：
-            // 此前删除时记录的原因是"UnityAudio.PlaySfx 对占位数据集里未提供的音效资源（sfx.cast_01/
-            // sfx.hit_02）只记一条 Debug.LogWarning 跳过播放"——重新核对 assets/_placeholder/sfx/
-            // 目录，cast_01.wav/hit_01.wav/hit_02.wav 三个文件其实一直都存在，不是真的缺失，是
-            // "首次引用"（ResourceReferenceTracker.EnsureLoading）晚于"本帧就要播放"这一步之差；
-            // 已在 FrameworkResidentHost.PreWarmSfxResources 从根上解决（世界装配阶段提前为
-            // sfx.def 表登记的每个 resource_ref/variants 触发一次 LoadAsync，给后台线程留足从
-            // "世界装配"到"玩家真正打出第一下"之间的真实时间），实测 sfx.cast_01/sfx.hit_01 两条
-            // 音效相关警告都不再出现。但恢复该检查后继续暴露出两处更深的既有缺口，判断均超出本任务
-            // 允许改动范围：
-            // 1）示例生物死亡后按 loot.table 结算掉落，UnityViewFactory.CreateView 对没有匹配
-            //    DisplayInfo 的实体记一条 Debug.LogWarning 并退化为空视图（不渲染，见该类型源码，
-            //    "资源缺失时优雅降级"的既有设计，不是 bug）——data/_sample/display/display.map.json
-            //    没有登记 kind=DroppedLoot 的任何一行，是数据集范围缺口，补一行需要改
-            //    data/_sample，不在本任务允许改动的 core/data 范围内（本任务硬性规则 1）。
-            // 2）掉落件数/掉落物 View 创建相对"死亡判定"这一帧的延迟不固定（实测同一份固定种子/
-            //    流程下也会波动，猜测与命中/暴击消耗的随机数序列耦合），既不能用 LogAssert.Expect
-            //    登记固定次数（次数不符会被判"Expected log did not appear"失败），扩大
-            //    LogAssert.ignoreFailingMessages 窗口去覆盖又会在窗口边界之外再次撞见同一条
-            //    警告、或让窗口重叠到下一段流程掩盖真正的回归，两种方向都试过，均不能稳定复现"零
-            //    未预期日志"。这是比"占位音效缺失"更深的 core/ 时序缺口（掉落结算与其表现层 View
-            //    创建之间没有确定性的先后保证），修复需要改动 core/gameplay/loot 或
-            //    presentation/render 的既有设计，不在本任务允许改动范围，也不应该为了让一条断言
-            //    通过而放宽 LogAssert 的整体拦截力（不放宽断言，根治优先——见任务硬性规则 4）。
-            // 因此保留本用例删除该收尾检查前的状态（不新增 LogAssert.NoUnexpectedReceived()），
-            // 如实记录到交付报告"做不了的事"，供后续任务在 core/data 范围内继续推进。
+            // H4 收官：恢复 LogAssert.NoUnexpectedReceived() 收尾检查（见方法上方两处判断记录）。
+            // 此前两处阻碍均已根治：
+            // 1）"UnityAudio.PlaySfx 占位音效未加载"一项此前已由 FrameworkResidentHost.
+            //    PreWarmSfxResources 解决（世界装配阶段提前 LoadAsync，见该方法判断记录）。
+            // 2）"掉落物没有匹配 DisplayInfo，UnityViewFactory 退化为空视图并记警告"——
+            //    data/_sample/display/display.map.json 已补 display.map.sample_loot_pile 行
+            //    （logical_id=loot.generic_pile），core/gameplay/loot.DroppedLootEntity 新增
+            //    GenericDisplayTemplateId 常量、LootHost.Drop 把它写进新建实体的 TemplateId（此前
+            //    从未设置，退化成逐实例不同的 EntityId，不可能有任何 display.map 静态行与之匹配）；
+            //    "掉落结算与其表现层 View 创建之间没有确定性先后保证"这一时序缺口，改为本方法上方
+            //    新增的确定性轮询（等 ViewBinder 真正绑定掉落物 View）从测试侧根治，不再猜测固定
+            //    帧数、也不需要放宽 LogAssert 的拦截力。
+            LogAssert.NoUnexpectedReceived();
         }
 
         [UnityTest]

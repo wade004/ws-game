@@ -14,6 +14,7 @@
     { "key": "input.action.skill_2", "kind": "button", "default_bindings": ["key:2", "pad:rt"], "rebind_group": "default", "description": "技能槽 2 意图（缺口 2 补充）；示例动作集，不构成任何游戏的操作定论" },
     { "key": "input.action.skill_3", "kind": "button", "default_bindings": ["key:3", "pad:lt"], "rebind_group": "default", "description": "技能槽 3 意图（缺口 2 补充）；示例动作集，不构成任何游戏的操作定论" },
     { "key": "input.action.skill_4", "kind": "button", "default_bindings": ["key:4", "pad:l3"], "rebind_group": "default", "description": "技能槽 4 意图（缺口 2 补充）；示例动作集，不构成任何游戏的操作定论" },
-    { "key": "input.action.use_item", "kind": "button", "default_bindings": ["key:f", "pad:r3"], "rebind_group": "default", "description": "使用道具意图，可选（缺口 2 补充）；示例动作集，不构成任何游戏的操作定论" }
+    { "key": "input.action.use_item", "kind": "button", "default_bindings": ["key:f", "pad:r3"], "rebind_group": "default", "description": "使用道具意图，可选（缺口 2 补充）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.end_turn", "kind": "button", "default_bindings": ["key:t", "pad:select"], "rebind_group": "default", "description": "离散时间模型下结束当前回合意图（H4 补充：ADR-0013，见 03 第 3.2 节 awaiting_input 子态）；示例动作集，不构成任何游戏的操作定论" }
   ]
 }

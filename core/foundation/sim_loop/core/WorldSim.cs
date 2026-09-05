@@ -41,6 +41,13 @@ namespace Core.Foundation.SimLoop
         private SimTimers _timers = new SimTimers();
         private readonly List<string> _diagnosticsWarnings = new List<string>();
 
+        // H4 补齐（意图路由缺口 1）：可选持有的离散路由依赖，见 AttachDiscreteRouting 判断记录。
+        // 持有具体类型 TurnScheduler（而不是 ITurnScheduler）——同 GameplayAssembly.TurnScheduler
+        // 属性判断记录，避免为"内部路由用的记账方法"新增 03 文档之外的接口原语。未调用
+        // AttachDiscreteRouting 时两个字段保持 null，SubmitIntent 行为与 H4 之前完全一致。
+        private ISimClockHost? _clockHost;
+        private TurnScheduler? _turnScheduler;
+
         // T1-9 新增：意图队列（见 IWorldSim.SubmitIntent/CurrentIntents 注释）。_pendingIntents
         // 收集 tick 外提交的意图；每次 Tick 阶段 1 开头整体搬到 _currentIntents（保持提交顺序，
         // 确定性），阶段 8 末清空 _currentIntents，_pendingIntents 换上新的空列表供下一 tick 使用。
@@ -58,6 +65,36 @@ namespace Core.Foundation.SimLoop
         public WorldSim(IEventBus bus)
         {
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
+
+            // H4 补齐（意图路由缺口 2）：离散步下 Tick 本身不推进全局计时器（见 Tick 方法内
+            // 分支与其注释），改为"每轮结束推进一轮"——订阅 sim.round_ended，与
+            // core/rules/combat.CombatTickHandler 的既有惯例完全一致（该类型构造函数同样
+            // `bus?.Subscribe<SimRoundEndedEvent>(SimEventKeys.RoundEnded, _ => _host.Update(1.0))`，
+            // 见其类型注释——"1.0"即"一轮"，与 CombatOptions.LeaveCombatDelay 已经在
+            // TimeModelSwitch 切模式时按 seconds_per_turn 换算为等效轮数的做法同一单位约定）。
+            // 本类构造函数 bus 恒非空（上面已判空），不需要像 CombatTickHandler 那样把 bus
+            // 声明为可选——WorldSim 本来就总是持有一份 IEventBus。sim.round_ended 只在
+            // TurnScheduler.BeginCombat 之后才可能触发（见该类型），未使用离散模式的调用方
+            // 这条订阅永远不会被触发，对连续模式零副作用。
+            _bus.Subscribe<SimRoundEndedEvent>(SimEventKeys.RoundEnded, _ => _timers.Advance(1.0));
+        }
+
+        /// <summary>
+        /// H4 补齐（意图路由缺口 1，见 03 §3.2 步骤 3、TurnScheduler 类型顶部"主循环驱动协议"）：
+        /// 由 <c>Core.Gameplay.Assembly.GameplayAssembly</c> 在装配了 <paramref name="clockHost"/> +
+        /// <paramref name="turnScheduler"/>（即启用了离散时间模型）时调用本方法接线，使
+        /// <see cref="SubmitIntent"/> 在 <see cref="TimeModelMode.Discrete"/> 下能把玩家经
+        /// <c>CastSkill</c>/<c>MovementHost.Request</c> 等既有调用链提交的意图正确路由到
+        /// <see cref="TurnScheduler"/>（解除 <c>awaiting_input</c>、产出该行动者的离散步）——此前
+        /// <see cref="SubmitIntent"/> 一律塞进 <see cref="_pendingIntents"/>，<see cref="TurnScheduler"/>
+        /// 完全不知道玩家已经提交，<see cref="TurnScheduler.NextStep"/> 永远返回 null，战斗卡死在
+        /// <c>awaiting_input</c>（H3a 如实记录的缺口 1）。未调用本方法时 <see cref="SubmitIntent"/>
+        /// 行为与此前完全一致（两个字段保持 null）。
+        /// </summary>
+        public void AttachDiscreteRouting(ISimClockHost clockHost, TurnScheduler turnScheduler)
+        {
+            _clockHost = clockHost ?? throw new ArgumentNullException(nameof(clockHost));
+            _turnScheduler = turnScheduler ?? throw new ArgumentNullException(nameof(turnScheduler));
         }
 
         public ISimTimers Timers => _timers;
@@ -83,6 +120,28 @@ namespace Core.Foundation.SimLoop
 
         public void SubmitIntent(Intent intent)
         {
+            // H4 补齐（意图路由缺口 1，见 AttachDiscreteRouting 判断记录）：仅当已接线离散路由
+            // 且当前处于 Discrete 模式时才拦截——路由集中在本方法（调用方 CastSkill/
+            // MovementHost.Request 等不用改），不是当前等待输入行动者的意图直接拒绝（记诊断、
+            // 不入队，不产生离散步）；是当前行动者时，先经 TurnScheduler 做一次与
+            // TurnScheduler.SubmitIntent 相同的记账（解除 awaiting_input、标记本行动者已有待处理
+            // 意图），再落到本类统一的 _pendingIntents 队列——记账放在 TurnScheduler 一侧、真正
+            // 入队放在这里，是为了避免 TurnScheduler.SubmitIntent（它自己也会调用
+            // world.SubmitIntent，见该方法）与本方法互相调用造成递归，见
+            // TurnScheduler.TryAcceptExternalIntent 判断记录。AI 在自己的离散步内经
+            // IWorldSim.AppendCurrentIntent 产生的意图走另一条路径（tick 执行期间直接写入
+            // CurrentIntents），不经过本方法，不受这里的路由影响（见该方法注释）。
+            if (_clockHost != null && _turnScheduler != null && _clockHost.Mode == TimeModelMode.Discrete)
+            {
+                if (!_turnScheduler.TryAcceptExternalIntent(intent.ActorId))
+                {
+                    _diagnosticsWarnings.Add(
+                        $"离散模式下拒绝意图：actorId=\"{intent.ActorId}\" 当前不是等待输入的行动者" +
+                        "（见 TurnScheduler.GetCurrentActor），意图被丢弃，不入队、不产生离散步");
+                    return;
+                }
+            }
+
             _pendingIntents.Add(intent);
         }
 

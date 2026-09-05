@@ -35,6 +35,7 @@ using System.Linq;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.SaveSystem;
+using Core.Foundation.SimLoop;
 using Presentation.Shell;
 using UnityEngine;
 
@@ -43,19 +44,60 @@ namespace Adapter.Unity.Shell
     public sealed class SmokeRunner : MonoBehaviour
     {
         private const string CommandLineFlag = "-gf-smoke";
+
+        /// <summary>H4 新增：离散链路冒烟——"进入战斗→awaiting_input→结束回合→AI 行动→战斗结束"
+        /// （见 <see cref="RunDiscreteSequence"/>）。与 <see cref="CommandLineFlag"/> 互斥，一次进程
+        /// 只跑其中一种（<c>check.ps1</c> 分两次独立启动独立版进程各跑一种，见该脚本"独立版构建 +
+        /// -gf-smoke 冒烟"步骤）。</summary>
+        private const string DiscreteCommandLineFlag = "-gf-smoke-discrete";
+
         private const float TotalTimeoutSeconds = 60f;
         private const string SmokeSlotId = "slot.smoke";
         private const string AttackSkillId = "skill.sample_strike";
         private const string LogPrefix = "[GF-SMOKE]";
 
         private bool _finished;
+        private bool _discreteMode;
 
-        /// <summary>命令行不带 "-gf-smoke" 时本类型完全不介入（不新建任何 GameObject/组件），
-        /// 正常游戏/编辑器/既有 PlayMode 测试运行路径不受影响。</summary>
+        /// <summary>
+        /// H4 新增：<see cref="DiscreteCommandLineFlag"/> 需要在
+        /// <see cref="Adapter.Unity.Shell.FrameworkResidentHost.ForceDiscreteCombatForSmoke"/> 生效
+        /// 之后才有意义（见该字段判断记录：必须在 <c>Ensure()</c> 第一次被调用、也就是场景里第一个
+        /// 触碰 <c>FrameworkResidentHost</c> 的 <c>Awake</c>——通常是 <c>ShellRoot.Awake</c>——执行
+        /// 之前设置），因此本方法用 <c>BeforeSceneLoad</c>（早于任何场景 <c>Awake</c>），比
+        /// <see cref="TryStart"/> 的 <c>AfterSceneLoad</c> 更早一步。命令行不带该标志时不设置
+        /// 任何东西，正常游戏/编辑器/既有 PlayMode 测试运行路径不受影响。
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void TrySetDiscreteOverlayBeforeSceneLoad()
+        {
+            if (Environment.GetCommandLineArgs().Contains(DiscreteCommandLineFlag, StringComparer.Ordinal))
+            {
+                FrameworkResidentHost.ForceDiscreteCombatForSmoke = true;
+            }
+        }
+
+        /// <summary>命令行不带 "-gf-smoke"/"-gf-smoke-discrete" 时本类型完全不介入（不新建任何
+        /// GameObject/组件），正常游戏/编辑器/既有 PlayMode 测试运行路径不受影响。
+        /// <para>
+        /// 判断记录（H4 排障：<c>_discreteMode</c> 不能靠 <c>AddComponent</c> 之后再赋值）：
+        /// <c>GameObject.AddComponent&lt;T&gt;()</c> 在目标 GameObject 处于激活状态时会同步立即调用
+        /// 该组件的 <c>Awake()</c>（不像"先 SetActive(false) 再 AddComponent"那种测试常见手法会
+        /// 推迟 Awake），本方法此前的写法是"AddComponent 之后再给 <c>runner._discreteMode</c>
+        /// 赋值"——<c>Awake()</c> 早已在 <c>AddComponent</c> 调用内部同步跑完、已经用默认值 false
+        /// 启动了 <see cref="RunSequence"/>，随后的赋值形同虚设（实测复现：独立版下
+        /// <c>-gf-smoke-discrete</c> 跑出来的日志是 <see cref="RunSequence"/> 那一套连续模式步骤，
+        /// 不是 <see cref="RunDiscreteSequence"/>）。改为 <c>Awake()</c> 自己直接从命令行参数判定
+        /// 离散/连续，不依赖任何外部时序赋值。
+        /// </para>
+        /// </summary>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void TryStart()
         {
-            if (!Environment.GetCommandLineArgs().Contains(CommandLineFlag, StringComparer.Ordinal))
+            var args = Environment.GetCommandLineArgs();
+            var discrete = args.Contains(DiscreteCommandLineFlag, StringComparer.Ordinal);
+            var normal = args.Contains(CommandLineFlag, StringComparer.Ordinal);
+            if (!discrete && !normal)
             {
                 return;
             }
@@ -67,8 +109,11 @@ namespace Adapter.Unity.Shell
 
         private void Awake()
         {
+            // 见 TryStart 判断记录：Awake 自己判定，不依赖调用方在 AddComponent 之后再赋值
+            // （那个时序已经太晚）。
+            _discreteMode = Environment.GetCommandLineArgs().Contains(DiscreteCommandLineFlag, StringComparer.Ordinal);
             StartCoroutine(RunWatchdog());
-            StartCoroutine(RunSequence());
+            StartCoroutine(_discreteMode ? RunDiscreteSequence() : RunSequence());
         }
 
         private IEnumerator RunWatchdog()
@@ -147,6 +192,114 @@ namespace Adapter.Unity.Shell
             if (_finished) yield break;
 
             // 6) 退出（见类型顶部"为什么用 Application.Quit"判断记录）
+            _finished = true;
+            Debug.Log($"{LogPrefix} RESULT=OK");
+            Application.Quit(0);
+        }
+
+        /// <summary>
+        /// H4 新增：<c>-gf-smoke-discrete</c> 分支——"进入战斗→awaiting_input→结束回合→AI 行动→
+        /// 战斗结束"，验证独立版下真正的离散时间模型引擎侧接线（不是 <see cref="RunSequence"/>
+        /// 那套连续模式默认流程）。<see cref="FrameworkResidentHost.ForceDiscreteCombatForSmoke"/>
+        /// 已在 <c>BeforeSceneLoad</c> 阶段设为 true（见 <see cref="TrySetDiscreteOverlayBeforeSceneLoad"/>），
+        /// 战斗因此按内存叠加数据源声明为 <c>discrete</c>。合成 <c>combat.entered</c>/
+        /// <c>combat.left</c> 事件绕开真实战斗结算的不确定性（同
+        /// <c>Tests/Runtime/DiscreteCombatTests.cs</c>/<c>SharedBootstrapDiscreteTests.cs</c> 判断
+        /// 记录），只验证离散链路本身：回合调度、awaiting_input、结束回合意图（真实
+        /// <c>UiIntents.EndTurn</c> 调用链）、AI 回合、轮次推进、脱战切回连续模式。
+        /// </summary>
+        private IEnumerator RunDiscreteSequence()
+        {
+            ShellRoot? shell = null;
+            var findGuard = 600;
+            while (shell == null && findGuard-- > 0)
+            {
+                shell = FindFirstObjectByType<ShellRoot>();
+                if (shell == null) yield return null;
+            }
+            if (shell == null) { Fail("shell_root_not_found"); yield break; }
+            if (shell.Framework.BootstrapFailed) { Fail("bootstrap_failed"); yield break; }
+
+            yield return WaitForPage(shell, ShellPage.MainMenu, "boot_main_menu");
+            if (_finished) yield break;
+
+            shell.Framework.Presentation.Shell.ShowSlots();
+            yield return WaitForPage(shell, ShellPage.SaveSlots, "show_slots");
+            if (_finished) yield break;
+
+            shell.Framework.Presentation.Shell.ShowNewGameSetup();
+            yield return WaitForPage(shell, ShellPage.NewGameSetup, "show_new_game_setup");
+            if (_finished) yield break;
+
+            var tierId = ResolveDefaultDifficulty(shell);
+            if (tierId == null) { Fail("no_difficulty_tier_registered"); yield break; }
+
+            var newGameOk = shell.Framework.Presentation.Shell.NewGame(new Id(SmokeSlotId + "_discrete"), tierId.Value, archetypeId: null);
+            if (!newGameOk) { Fail("new_game_rejected"); yield break; }
+
+            yield return WaitForPage(shell, ShellPage.InWorld, "new_game_enter_world", maxFrames: 1200);
+            if (_finished) yield break;
+
+            // 合成 combat.entered 触发进入战斗（同 DiscreteCombatTests.cs 判断记录：绕开真实战斗
+            // 结算的不稳定性，只验证"离散模式引擎侧接线"这条链路）。
+            shell.Framework.Bus.PublishImmediate(new Core.Rules.Common.CombatEnteredEvent(shell.Framework.PlayerId));
+
+            var enterGuard = 400;
+            while (shell.Framework.Gameplay.TimeModelSwitch?.CurrentMode != TimeModelMode.Discrete && enterGuard-- > 0)
+            {
+                if (_finished) yield break;
+                yield return new WaitForFixedUpdate();
+            }
+            if (shell.Framework.Gameplay.TimeModelSwitch?.CurrentMode != TimeModelMode.Discrete)
+            {
+                Fail("discrete_mode_not_entered");
+                yield break;
+            }
+            Log("enter_discrete_combat");
+
+            // 驱动直到轮到玩家等待输入，提交结束回合意图（真实调用链：UiIntents.EndTurn，同
+            // ShellRoot.TurnStatus 按钮/键盘绑定走的同一条路径），再等 AI 行动、轮次推进。
+            var initialRound = shell.Framework.Gameplay.TurnScheduler!.RoundIndex;
+            var driveGuard = 3000;
+            var observedAwaitingInput = false;
+            while (shell.Framework.Gameplay.TurnScheduler.RoundIndex < initialRound + 1 && driveGuard-- > 0)
+            {
+                if (_finished) yield break;
+
+                var awaitingInput = shell.Framework.Gameplay.AppState.CurrentSubState.HasValue &&
+                    shell.Framework.Gameplay.AppState.CurrentSubState.Value.Equals(shell.Framework.Gameplay.AwaitingInputSubState);
+                if (awaitingInput && shell.Framework.Gameplay.TurnScheduler.GetCurrentActor()?.Equals(shell.Framework.PlayerId) == true)
+                {
+                    observedAwaitingInput = true;
+                    shell.Framework.Presentation.UiIntents.EndTurn();
+                }
+
+                yield return new WaitForFixedUpdate();
+            }
+            if (!observedAwaitingInput) { Fail("awaiting_input_not_observed"); yield break; }
+            if (shell.Framework.Gameplay.TurnScheduler.RoundIndex < initialRound + 1) { Fail("round_not_advanced"); yield break; }
+            Log("discrete_round");
+
+            // 合成 combat.left 让双方都脱战，验证切回连续模式（战斗结束）。
+            shell.Framework.Bus.PublishImmediate(new Core.Rules.Common.CombatLeftEvent(shell.Framework.PlayerId));
+            if (shell.Framework.BeastEntityId.HasValue)
+            {
+                shell.Framework.Bus.PublishImmediate(new Core.Rules.Common.CombatLeftEvent(shell.Framework.BeastEntityId.Value));
+            }
+
+            var exitGuard = 400;
+            while (shell.Framework.Gameplay.TimeModelSwitch?.CurrentMode != TimeModelMode.Continuous && exitGuard-- > 0)
+            {
+                if (_finished) yield break;
+                yield return new WaitForFixedUpdate();
+            }
+            if (shell.Framework.Gameplay.TimeModelSwitch?.CurrentMode != TimeModelMode.Continuous)
+            {
+                Fail("combat_not_exited");
+                yield break;
+            }
+            Log("exit_discrete_combat");
+
             _finished = true;
             Debug.Log($"{LogPrefix} RESULT=OK");
             Application.Quit(0);

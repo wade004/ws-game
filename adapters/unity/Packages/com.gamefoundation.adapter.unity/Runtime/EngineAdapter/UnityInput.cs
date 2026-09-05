@@ -232,5 +232,16 @@ namespace Adapter.Unity.EngineAdapter
                 key: button,
                 gamepadIndex: gamepadIndex));
         }
+
+        /// <summary>H4 新增：与 <see cref="SimulateGamepadButtonForTest"/> 同一惯例——测试可直接
+        /// 调用本方法模拟一次键盘按键事件（<paramref name="key"/> 用 Input System 控件名，如
+        /// <c>Keyboard.current.tKey.name</c> == "t"，与 <c>found.input_action</c> 表
+        /// <c>key:&lt;name&gt;</c> 绑定字符串的 <c>&lt;name&gt;</c> 部分同一命名空间），不依赖批处理
+        /// 环境下是否有真实键盘设备/<c>&lt;Keyboard&gt;/anyKey</c> 这一真实按键路径的时序细节，
+        /// 驱动上层 InputMap 的键盘绑定分支。</summary>
+        public void SimulateKeyForTest(string key, bool down)
+        {
+            _pendingEvents.Add(new InputEvent(down ? InputEventKind.KeyDown : InputEventKind.KeyUp, key: key));
+        }
     }
 }

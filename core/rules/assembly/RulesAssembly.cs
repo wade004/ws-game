@@ -271,7 +271,7 @@ namespace Core.Rules.Assembly
         public void RegisterTickHandlers()
         {
             World.RegisterPhaseHandler(TickPhase.AiDecision, new AiTickHandler(Ai));
-            World.RegisterPhaseHandler(TickPhase.SkillPipeline, new SkillTickHandler(Skill));
+            World.RegisterPhaseHandler(TickPhase.SkillPipeline, new SkillTickHandler(Skill, bus: Bus));
             World.RegisterPhaseHandler(TickPhase.CombatResolution, new CombatTickHandler(Combat, bus: Bus));
             World.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new PowerTickHandler(Powers));
         }

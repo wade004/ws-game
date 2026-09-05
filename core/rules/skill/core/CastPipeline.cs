@@ -273,32 +273,49 @@ namespace Core.Rules.Skill
             var casterIds = new List<Id>(_casting.Keys);
             foreach (var casterId in casterIds)
             {
-                if (!_casting.TryGetValue(casterId, out var state))
-                {
-                    continue;
-                }
+                AdvanceOne(casterId, dt);
+            }
+        }
 
-                if (state.IsChannel)
-                {
-                    state.TickAccumulator += dt;
-                    while (state.TickInterval > 0 && state.TickAccumulator >= state.TickInterval && _casting.ContainsKey(casterId))
-                    {
-                        state.TickAccumulator -= state.TickInterval;
-                        ExecuteEffectsOnly(casterId, state.Def, state.Targets);
-                    }
-                }
+        /// <summary>
+        /// H4 补齐（离散模式"读条跨回合"，见 <c>SkillHost.AdvanceCastForActor</c>/
+        /// <c>SkillTickHandler</c> 判断记录）：只推进 <paramref name="casterId"/> 自己的读条/引导
+        /// 剩余时间与周期效果（逻辑与 <see cref="Update"/> 对单个施法者所做的完全一致，
+        /// <see cref="Update"/> 现改为对 <see cref="_casting"/> 里每个施法者各调用一次本方法，
+        /// 行为不变），但只处理这一个施法者，不遍历全部在场单位——离散模式下"我方读条是否推进"
+        /// 应当只在该行动者自己的离散步内发生（一步 = 该行动者的一回合），不能像连续模式那样
+        /// 每个 tick 对全体施法者统一推进（离散步是"以行动者为粒度"，见 03 第 4.2 节步骤 1、
+        /// <c>Core.Foundation.SimLoop.WorldSim</c> 判断记录）。该单位当前未在读条/引导时空操作。不推进
+        /// <see cref="AdvanceSchoolLocks"/>——学派锁定与"世界时钟"一样按轮统一推进（见
+        /// <c>SkillHost.AdvanceRoundTimers</c>），不属于"该行动者自己的时间"。
+        /// </summary>
+        public void AdvanceOne(Id casterId, double dt)
+        {
+            if (!_casting.TryGetValue(casterId, out var state))
+            {
+                return;
+            }
 
-                if (!_casting.ContainsKey(casterId))
+            if (state.IsChannel)
+            {
+                state.TickAccumulator += dt;
+                while (state.TickInterval > 0 && state.TickAccumulator >= state.TickInterval && _casting.ContainsKey(casterId))
                 {
-                    // 引导期间的效果触发了自我打断（例如控制类效果）。
-                    continue;
+                    state.TickAccumulator -= state.TickInterval;
+                    ExecuteEffectsOnly(casterId, state.Def, state.Targets);
                 }
+            }
 
-                state.Remaining -= dt;
-                if (state.Remaining <= 0)
-                {
-                    FinishCast(casterId, state);
-                }
+            if (!_casting.ContainsKey(casterId))
+            {
+                // 引导期间的效果触发了自我打断（例如控制类效果）。
+                return;
+            }
+
+            state.Remaining -= dt;
+            if (state.Remaining <= 0)
+            {
+                FinishCast(casterId, state);
             }
         }
 

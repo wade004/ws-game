@@ -62,6 +62,38 @@ namespace Tests.Gameplay.Loot
             Assert.Equal(1, f.Inventory.CountOf(unitId, new Id("item.sample_ore")));
         }
 
+        // -----------------------------------------------------------------
+        // H4 补齐：掉落物固定复用同一个"地面拾取物外观"逻辑 id（见
+        // DroppedLootEntity.GenericDisplayTemplateId 判断记录），WorldSim.AddEntity 才能算出稳定
+        // 的 displayId，而不是每次都退化成不可能有 display.map 覆盖的逐实例 EntityId。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Drop_SetsGenericDisplayTemplateId_OnTheEntity()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var lootId = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), new[] { new ItemStack(new Id("item.sample_ore"), 1) });
+
+            var entity = f.World.GetEntity(lootId);
+            Assert.NotNull(entity);
+            Assert.Equal(DroppedLootEntity.GenericDisplayTemplateId, entity!.TemplateId);
+        }
+
+        [Fact]
+        public void Drop_EntityCreatedEvent_CarriesGenericDisplayId_NotThePerInstanceEntityId()
+        {
+            var f = NewFixture(SingleChanceTable);
+            EntityCreatedEvent? captured = null;
+            f.Bus.Subscribe<EntityCreatedEvent>(SimEventKeys.EntityCreated, e => captured = e);
+
+            var lootId = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), new[] { new ItemStack(new Id("item.sample_ore"), 1) });
+            f.Bus.DispatchPending();
+
+            Assert.NotNull(captured);
+            Assert.Equal(DroppedLootEntity.GenericDisplayTemplateId, captured!.DisplayId);
+            Assert.NotEqual(lootId, captured.DisplayId); // 不是逐实例的 EntityId（H3a 如实记录的缺口 2）。
+        }
+
         [Fact]
         public void PickUp_BeyondRange_FailsTooFar()
         {

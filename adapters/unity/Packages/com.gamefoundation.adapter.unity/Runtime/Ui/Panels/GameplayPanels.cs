@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Core.Foundation.Common;
+using Core.Foundation.InputMap;
 using Core.Gameplay.Assembly;
 using Presentation.Assembly;
 using Presentation.Ui;
@@ -342,15 +343,31 @@ namespace Adapter.Unity.Ui.Panels
     /// </summary>
     public sealed class TurnStatusPanel : UiPanelBehaviour
     {
+        /// <summary>H4 新增：结束回合的键盘/手柄输入动作 id（见
+        /// <c>data/_framework/found/found.input_action.json</c> 新增的
+        /// <c>input.action.end_turn</c> 行，默认绑定 key:t / pad:select）。</summary>
+        private const string EndTurnActionName = "input.action.end_turn";
+
         private GameplayAssembly _gameplay = null!;
         private UiIntents _intents = null!;
+        private IInputMapHost? _inputMap;
+        private bool _endTurnActionWasActive;
         private TextMeshProUGUI _label = null!;
         private UnityEngine.UI.Button _endTurnButton = null!;
 
-        public void Construct(RectTransform parent, GameplayAssembly gameplay, UiIntents intents)
+        /// <summary>
+        /// H4 新增 <paramref name="inputMap"/>（可选，默认 null）：非空时本面板在 <c>awaiting_input</c>
+        /// 且结束回合按钮可见时，额外监听 <c>input.action.end_turn</c> 的按下沿（同
+        /// <c>GameFoundationBootstrap.HandleButtonRisingEdge</c> 惯例，本面板自己维护一份
+        /// "上一帧是否激活"状态，不依赖 <see cref="Core.Foundation.InputMap.InputActionTriggeredEvent"/>
+        /// ——本面板本就已经有逐帧 <see cref="Update"/>，不需要额外接一份事件订阅/退订）——触发时与
+        /// 点击"结束回合"按钮完全等价（同一个 <see cref="OnEndTurnClicked"/>）。留空（既有调用方/
+        /// 测试不传）时行为与 H4 之前完全一致，只能点击按钮。</summary>
+        public void Construct(RectTransform parent, GameplayAssembly gameplay, UiIntents intents, IInputMapHost? inputMap = null)
         {
             _gameplay = gameplay;
             _intents = intents;
+            _inputMap = inputMap;
 
             var root = UiWidgets.CreatePanelBackground("TurnStatusPanel", parent, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(300f, 76f), new Vector2(0f, -40f));
             var list = UiWidgets.CreateVerticalList("List", root, 4f);
@@ -397,7 +414,37 @@ namespace Adapter.Unity.Ui.Panels
             _endTurnButton.gameObject.SetActive(awaitingInput);
         }
 
-        private void Update() => RefreshUi();
+        private void Update()
+        {
+            RefreshUi();
+            HandleEndTurnKeybinding();
+        }
+
+        /// <summary>H4 新增：结束回合按钮可见（<c>awaiting_input</c>）时，<c>input.action.end_turn</c>
+        /// 出现按下沿即等价于点击按钮；不可见（不是轮到玩家/不在回合制中）时不响应，且清空"上一帧
+        /// 是否激活"状态——避免"按下沿恰好跨越可见性切换那一帧"误触发，也避免玩家长按期间恰好轮到
+        /// 自己时立即被上一次残留的"已激活"状态误判为一次新按下。</summary>
+        private void HandleEndTurnKeybinding()
+        {
+            if (_inputMap == null)
+            {
+                return;
+            }
+
+            if (!IsEndTurnButtonVisible)
+            {
+                _endTurnActionWasActive = false;
+                return;
+            }
+
+            var active = _inputMap.IsActionActive(EndTurnActionName);
+            var wasActive = _endTurnActionWasActive;
+            _endTurnActionWasActive = active;
+            if (active && !wasActive)
+            {
+                OnEndTurnClicked();
+            }
+        }
 
         private static string ShortId(Id id)
         {

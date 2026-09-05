@@ -327,18 +327,34 @@ namespace Core.Gameplay.Assembly
             return result;
         }
 
+        /// <summary>
+        /// H4 补齐（判断记录：多根合并时"后声明覆盖先声明"，不是"先声明生效"）：
+        /// <see cref="IDataRegistry.LoadAll(System.Collections.Generic.IReadOnlyList{IDataSource})"/>
+        /// 按传入的根顺序合并同名表记录（<c>DataRegistry.LoadMergedTable</c> 按 <c>partials</c>
+        /// 顺序 <c>mergedRecords.Add</c>，见该方法源码），主键不同（同一 <c>scope</c> 允许多条不同
+        /// id 的记录并存，schema 只约束 <c>id</c> 唯一，不约束 <c>scope</c> 唯一）时不会触发跨根主键
+        /// 冲突阻断。本方法因此需要自己决定"同一 scope 出现多条记录时该用哪一条"——按"后加载的根
+        /// 优先"选取最后一条匹配记录（遍历不提前返回，持续覆盖），而不是历史实现"遇到第一条匹配
+        /// 就返回"：后者会让"框架级/示例级数据根 + 一个专门叠加测试用 discrete 行的测试根"这种
+        /// 常见的多根叠加测试手法失效（示例数据根声明 <c>continuous</c>、测试根想叠加声明
+        /// <c>discrete</c> 时，测试根若排在示例根之后加载却因为"先来先得"被忽略）——
+        /// <c>adapters/unity/.../Tests/Runtime/TestData/found/found.time_model.json</c> 与
+        /// <c>Tests/Runtime/DiscreteCombatTests.cs</c>/<c>SharedBootstrapDiscreteTests.cs</c> 正是
+        /// 这个手法的实际使用方，"后来者覆盖"是这些测试原本设计时假定的语义。
+        /// </summary>
         private static TimeModelDefinition? LoadModel(IDataRegistryView registry, string scope)
         {
             var records = registry.GetAll("found.time_model");
+            TimeModelDefinition? result = null;
             for (var i = 0; i < records.Count; i++)
             {
                 var def = TimeModelDefinition.FromRecord(records[i]);
                 if (def.Scope == scope)
                 {
-                    return def;
+                    result = def;
                 }
             }
-            return null;
+            return result;
         }
     }
 }

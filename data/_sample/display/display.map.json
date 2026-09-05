@@ -72,6 +72,17 @@
       "icon_id": "icon.placeholder_save_point",
       "shadow": "none",
       "sort_offset": -1
+    },
+    {
+      "id": "display.map.sample_loot_pile",
+      "category": "item",
+      "logical_id": "loot.generic_pile",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.placeholder_chest",
+      "direction_count": 4,
+      "icon_id": "icon.placeholder_chest",
+      "shadow": "blob",
+      "sort_offset": -1
     }
   ]
 }

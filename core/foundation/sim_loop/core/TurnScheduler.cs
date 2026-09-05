@@ -35,6 +35,14 @@ namespace Core.Foundation.SimLoop
         private readonly Func<Id, bool> _isPlayerActor;
         private readonly IEventBus _bus;
 
+        // H4 补齐（读条跨回合，见 SkillHost.AdvanceCastForActor/CastPipeline.AdvanceOne 判断记录）：
+        // 可选委托，供调用方（GameplayAssembly）告知"该行动者当前是否正忙于一个跨越多轮的动作
+        // （读条/引导）"——为 true 时 NextStep 对玩家行动者也照常产步，不等待新的输入意图（该行动者
+        // 本回合没有新选择要做，只是继续上一次已经开始的动作）。未传入（null）时行为与此前完全
+        // 一致：玩家行动者恒等待新意图。不新增 03 文档之外的必需契约——本参数为可选（默认 null），
+        // 现有调用方不受影响。
+        private readonly Func<Id, bool>? _isBusyContinuing;
+
         private InitiativePolicy _policy = InitiativePolicy.FixedOrder;
         private double _actionPointsPerTurn = 1.0;
         private bool _resortEachRound;
@@ -52,12 +60,14 @@ namespace Core.Foundation.SimLoop
             IWorldSim world,
             Func<Id, double> initiativeStatProvider,
             Func<Id, bool> isPlayerActor,
-            IEventBus bus)
+            IEventBus bus,
+            Func<Id, bool>? isBusyContinuing = null)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
             _initiativeStatProvider = initiativeStatProvider ?? throw new ArgumentNullException(nameof(initiativeStatProvider));
             _isPlayerActor = isPlayerActor ?? throw new ArgumentNullException(nameof(isPlayerActor));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
+            _isBusyContinuing = isBusyContinuing;
         }
 
         public string SectionKey => SectionKeyConst;
@@ -125,7 +135,13 @@ namespace Core.Foundation.SimLoop
 
             var actor = _order[_currentIndex];
 
-            if (_isPlayerActor(actor) && !_hasPendingIntentForCurrentActor)
+            // H4 补齐（读条跨回合，见 _isBusyContinuing 字段判断记录）：该行动者正忙于一个跨越
+            // 多轮的动作时，即便是玩家、即便本回合还没有新的待处理意图，也照常产步——本回合对他
+            // 而言没有新选择要做，只是继续上一次已经开始的动作（典型：读条 2 回合的技能，在其
+            // 第 2 个己方回合自动继续，不应卡在 awaiting_input 等一个不存在的新意图）。
+            var isBusy = _isBusyContinuing != null && _isBusyContinuing(actor);
+
+            if (_isPlayerActor(actor) && !_hasPendingIntentForCurrentActor && !isBusy)
             {
                 if (!_awaitingInputSignaled)
                 {
@@ -137,6 +153,38 @@ namespace Core.Foundation.SimLoop
             }
 
             return SimStep.Discrete(actor, StepPhase.Act);
+        }
+
+        /// <summary>
+        /// H4 补齐（意图路由缺口 1）：供 <see cref="WorldSim.SubmitIntent"/> 在 Discrete 模式下
+        /// 路由外部（通常是玩家 UI，经 <c>CastSkill</c>/<c>MovementHost.Request</c> 等既有调用链）
+        /// 提交的意图使用——只做"是否为当前等待输入的行动者"校验 + 与
+        /// <see cref="SubmitIntent"/> 相同的记账（清除 <c>awaiting_input</c> 标志、标记本行动者
+        /// 已有待处理意图），<b>不</b>再调用 <see cref="IWorldSim.SubmitIntent"/>——真正把
+        /// <see cref="Intent"/> 加入 world 待处理队列的操作留给调用方（<see cref="WorldSim"/>）自己
+        /// 做，避免与调用方 <c>WorldSim.SubmitIntent</c> 之间产生递归调用。返回 <c>true</c> 表示
+        /// <paramref name="actorId"/> 确实是当前等待输入的行动者（调用方应正常入队）；返回
+        /// <c>false</c> 表示不是（不在战斗中，或不是当前行动者）——调用方应拒绝，不入队、不产生
+        /// 离散步。<see cref="SubmitIntent"/>（既有的、供直接持有 <see cref="ITurnScheduler"/> 的
+        /// 调用方/测试使用的入口）不受影响，仍是原来的"校验 + 记账 + 调用 world.SubmitIntent"，
+        /// 与本方法各自独立、互不依赖。
+        /// </summary>
+        public bool TryAcceptExternalIntent(Id actorId)
+        {
+            if (!_inCombat)
+            {
+                return false;
+            }
+
+            var current = GetCurrentActor();
+            if (current == null || !current.Value.Equals(actorId))
+            {
+                return false;
+            }
+
+            _hasPendingIntentForCurrentActor = true;
+            _awaitingInputSignaled = false;
+            return true;
         }
 
         public void SubmitIntent(Id actorId, Intent intent)

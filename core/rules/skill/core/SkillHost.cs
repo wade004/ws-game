@@ -191,6 +191,21 @@ namespace Core.Rules.Skill
         public void Update(double dt)
         {
             _pipeline.Update(dt);
+            AdvanceRoundTimers(dt);
+        }
+
+        /// <summary>
+        /// H4 补齐（离散模式"统一推进"，见 <c>SkillTickHandler</c> 判断记录）：只推进冷却/充能/
+        /// 公共冷却/光环/Proc 内部冷却，<b>不</b>推进读条/引导管线（<see cref="CastPipeline"/>）——
+        /// 后者按"施法者自己的离散步"单独推进（见 <see cref="AdvanceCastForActor"/>），二者混在一起
+        /// 会导致读条在轮结束时被全局统一推进一次、又在施法者自己回合内被推进一次，双重计数。
+        /// 由 <c>SkillTickHandler</c> 构造期订阅 <c>sim.round_ended</c> 时以 <c>dt=1.0</c>（一轮）
+        /// 调用，与 <c>core/rules/combat.CombatTickHandler</c> 的既有惯例一致（见该类型注释）；
+        /// <see cref="Update"/>（连续模式每 tick 调用）内部转调本方法 + <c>_pipeline.Update</c>，
+        /// 连续模式行为不变。
+        /// </summary>
+        public void AdvanceRoundTimers(double dt)
+        {
             _cooldowns.Update(dt);
 
             foreach (var (unitId, skillId) in _cooldowns.TrackedChargeKeys)
@@ -204,6 +219,16 @@ namespace Core.Rules.Skill
             _auraHost.Update(dt);
             _procHost.Update(dt);
         }
+
+        /// <summary>
+        /// H4 补齐（离散模式"读条跨回合"）：只推进 <paramref name="actorId"/> 自己的读条/引导剩余
+        /// 时间（见 <see cref="CastPipeline.AdvanceOne"/>），供 <c>SkillTickHandler</c> 在该行动者
+        /// 自己的 Discrete 步内调用，<c>dt</c> 固定传 1（一步 = 该行动者的一个回合，见 04 第 3.1 节
+        /// "以数据集声明的时间单位计"——离散作用域下 <c>cast_time</c>/<c>channel_time</c> 已是整数
+        /// 回合）。跨回合读条见 <c>SkillTickHandler</c>/<c>TurnScheduler</c> 判断记录（该行动者忙于
+        /// 读条时，即便是玩家也不等待新意图，自动继续）。
+        /// </summary>
+        public void AdvanceCastForActor(Id actorId, double dt) => _pipeline.AdvanceOne(actorId, dt);
 
         // -----------------------------------------------------------------
         // 内部回调（绑定给 EffectDispatcher/ProcHost，见构造函数注释）

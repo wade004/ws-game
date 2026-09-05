@@ -355,6 +355,9 @@ namespace Core.Gameplay.Loot
             var entity = new DroppedLootEntity(id, mapId, items ?? Array.Empty<ItemStack>(), ownerHint, expireAt)
             {
                 Position = position,
+                // H4 补齐（见 DroppedLootEntity.GenericDisplayTemplateId 判断记录）：固定复用同一个
+                // "地面拾取物外观"逻辑 id，让 WorldSim.AddEntity 能算出一个稳定、非空的 displayId。
+                TemplateId = DroppedLootEntity.GenericDisplayTemplateId,
             };
 
             _world.AddEntity(entity);

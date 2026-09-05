@@ -205,7 +205,8 @@ namespace Tests.Foundation.Data
 
             Assert.NotNull(registry.Get("stat.definition", new Id("stat.strength")));
             Assert.Equal(88, registry.GetAll("found.event_catalog").Count);
-            Assert.Equal(13, registry.GetAll("found.input_action").Count);
+            // H4 新增 input.action.end_turn（离散时间模型结束回合意图，见该表判断记录），13 -> 14。
+            Assert.Equal(14, registry.GetAll("found.input_action").Count);
 
             // 只读诊断：found.event_catalog 只应来自 data/_framework 这一个根。
             var locations = registry.GetTableSourceLocations("found.event_catalog");

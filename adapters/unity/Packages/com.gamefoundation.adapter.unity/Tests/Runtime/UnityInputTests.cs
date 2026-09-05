@@ -57,6 +57,29 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         [Test]
+        public void SimulateKeyForTest_EnqueuesEvent_PollEventsReturnsIt()
+        {
+            _input.SimulateKeyForTest("t", down: true);
+
+            var events = _input.PollEvents();
+
+            Assert.AreEqual(1, events.Count);
+            Assert.AreEqual(InputEventKind.KeyDown, events[0].Kind);
+            Assert.AreEqual("t", events[0].Key);
+        }
+
+        [Test]
+        public void SimulateKeyForTest_KeyUp_EnqueuesKeyUpEvent()
+        {
+            _input.SimulateKeyForTest("t", down: false);
+
+            var events = _input.PollEvents();
+
+            Assert.AreEqual(1, events.Count);
+            Assert.AreEqual(InputEventKind.KeyUp, events[0].Kind);
+        }
+
+        [Test]
         public void PollEvents_DrainsQueue_SecondCallReturnsEmpty()
         {
             _input.SimulateGamepadButtonForTest(0, "South", down: true);

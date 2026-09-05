@@ -141,6 +141,13 @@ namespace Core.Gameplay.Loot
             return new DroppedLootEntity(entityId, mapId, items, ownerHint, expireAt)
             {
                 Position = position,
+                // H4 补齐（见 DroppedLootEntity.GenericDisplayTemplateId 判断记录）：读档还原的掉落物
+                // 同样要经这条路径重新落地 TemplateId——LootHost.Drop 只在"首次掉落"那一刻设置一次，
+                // 存档只序列化 items/ownerHint/expireAt/position（见本类型 Save 方法），不含
+                // TemplateId 本身，读档反序列化时若不重新赋值，读档产生的掉落物 View 又会退化回
+                // "没有匹配 DisplayInfo"的空视图（本缺口正是 VerticalSliceTests.
+                // FullVerticalSlice_..._Save_Load_... 用例"存档 -> 读档"环节实测复现的来源）。
+                TemplateId = DroppedLootEntity.GenericDisplayTemplateId,
             };
         }
     }

@@ -72,7 +72,9 @@ namespace Adapter.Unity.Shell
             var turnStatusGo = new GameObject("TurnStatus", typeof(RectTransform));
             turnStatusGo.transform.SetParent(UiPanelHost.GameplayGroup, false);
             TurnStatus = turnStatusGo.AddComponent<Adapter.Unity.Ui.Panels.TurnStatusPanel>();
-            TurnStatus.Construct(UiPanelHost.GameplayGroup, Framework.Gameplay, Framework.Presentation.UiIntents);
+            // H4 新增：接入 input.action.end_turn 键盘/手柄绑定（见 TurnStatusPanel.Construct
+            // 判断记录），awaiting_input 下按键即可结束回合，不必只能点击按钮。
+            TurnStatus.Construct(UiPanelHost.GameplayGroup, Framework.Gameplay, Framework.Presentation.UiIntents, Framework.Presentation.InputMap);
 
             BuildMainMenu();
             BuildNewGameSetup();

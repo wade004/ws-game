@@ -262,7 +262,13 @@ namespace Core.Gameplay.Assembly
 
                 bool IsPlayerActor(Id unitId) => unitId.Equals(PlayerUnitProvider());
 
-                scheduler = new Core.Foundation.SimLoop.TurnScheduler(world, InitiativeStatProvider, IsPlayerActor, bus);
+                // H4 补齐（读条跨回合，见 TurnScheduler._isBusyContinuing 字段判断记录）：
+                // Carriers.Rules.Skill 已在第 3 步（CarriersAssembly 构造）就绪，此处可以安全闭包
+                // 引用——真正被调用（NextStep）时战斗早已开始，Carriers 更是构造完毕已久。
+                bool IsBusyContinuing(Id unitId) => Carriers.Rules.Skill.IsCasting(unitId);
+
+                scheduler = new Core.Foundation.SimLoop.TurnScheduler(
+                    world, InitiativeStatProvider, IsPlayerActor, bus, IsBusyContinuing);
             }
 
             // ---------------------------------------------------------
@@ -415,6 +421,18 @@ namespace Core.Gameplay.Assembly
 
                 TurnScheduler = scheduler;
                 TimeModelSwitch = switchInstance;
+
+                // H4 补齐（意图路由缺口 1，见 WorldSim.AttachDiscreteRouting 判断记录）：只有
+                // world 是具体类型 WorldSim 时才能接线（IWorldSim 接口本身不暴露这个便利方法，
+                // 同 TurnScheduler/DiagnosticsWarnings 一贯的判断记录）——调用方一律传入
+                // WorldSim 实例（见 03 第 9 节 IWorldSim 唯一实现），这里用 is 模式做防御性判断，
+                // 不是 WorldSim 时静默跳过（不抛异常：理论上允许调用方传入自定义 IWorldSim 测试替身，
+                // 此时离散模式下 SubmitIntent 路由不生效，退化为 H4 之前的行为——同一份"未接线时
+                // 完全无副作用"的兼容性承诺，见该方法判断记录）。
+                if (world is Core.Foundation.SimLoop.WorldSim worldSimConcrete)
+                {
+                    worldSimConcrete.AttachDiscreteRouting(clockHost, scheduler);
+                }
             }
 
             // ---------------------------------------------------------

@@ -37,23 +37,21 @@
 // 不会因为"进入地图"（HandlePostLoad）/"离开地图"（HandlePreUnload）反复触发而重复注册（这两个
 // 方法与固定步/帧回调的注册时机完全独立，见文件顶部"世界/装配根为什么只构造一次"同款设计）。
 //
-// 判断记录（combatParticipantsResolver 恒返回空列表——本类型保持连续模式）：与
-// Adapter.Unity.Bootstrap.GameFoundationBootstrap 同款判断记录（该文件顶部"判断记录 1b"）：
-// GameplayAssembly 构造函数只要 clockHost 非空就会同时装配 TurnScheduler/TimeModelSwitch，无法
-// 单独关闭；而 data/_sample/found/found.time_model.json 的 combat 行已声明 mode=discrete，一旦
-// TimeModelSwitch 真的按半径+阵营解析出参战单位切换到离散模式，本类型驱动的 CastSkill/
-// HandleFixedInput 仍然是"直接 IWorldSim.SubmitIntent"（没有改经 TurnScheduler.SubmitIntent），
-// 离散模式下 TurnScheduler.NextStep 只有经它提交意图才会解除 awaiting_input——VerticalSliceTests/
-// ShellFlowTests/UiSuiteTests 现有的战斗类用例（普攻循环、暴击反馈等）会因此卡死在 awaiting_input
-// 子态，永远等不到下一次 world.Tick；即便解除卡死，离散步不推进 SimTimers（04/03 既定设计），
-// skill.aura_def.sample_burn 一类周期效果在离散战斗里会"冻结"，FullVerticalSlice 用例轮询
-// HasAura 归零的收尾逻辑也无法达成。这两处都是 core/ 侧的既有能力边界，不在本任务允许改动的
-// core/data 范围内解决。本类型因此把 combatParticipantsResolver 固定传一个恒返回空列表的委托，
-// TimeModelSwitch.SwitchToDiscrete 拿到空参战列表会提前返回（见该方法源码），战斗保持连续模式，
-// 与本次任务之前的行为完全一致，全部既有 PlayMode 用例不受影响；真正的离散战斗回合制引擎侧接线
-// （HUD、EndTurn、AI 回合、presentation.playback_finished 回放门）已独立落地并验证，见
-// Tests/Runtime/DiscreteCombatTests.cs（自建一份不经过本类型的 GameplayAssembly，
-// combatParticipantsResolver 用默认真实解析）与交付报告"判断记录"一节。
+// 判断记录（H4 收官：combatParticipantsResolver 恢复真实解析）：与
+// Adapter.Unity.Bootstrap.GameFoundationBootstrap 同款判断记录（该文件顶部"判断记录 1b"）——此前
+// 固定传一个恒返回空列表的委托，理由是 HandleFixedInput 提交的 cast/move 意图经
+// IWorldSim.SubmitIntent 在离散模式下到不了 TurnScheduler、解除不了 awaiting_input，且离散步不
+// 推进 SimTimers/冷却/光环。两处缺口已在 core/foundation/sim_loop.WorldSim.AttachDiscreteRouting
+// （路由集中在 WorldSim.SubmitIntent 本身，HandleFixedInput 不需要改一行）+
+// core/rules/skill.SkillTickHandler/core/rules/combat.CombatTickHandler 订阅 sim.round_ended 统一
+// 推进补齐——GameplayAssembly 构造函数第 10.5 步现在会在装配了 clockHost 时自动调用
+// world.AttachDiscreteRouting，本类型不需要任何额外接线。combatParticipantsResolver 因此不再传参
+// （缺省 null，走真实"按半径+阵营解析"）；data/_sample/found/found.time_model.json 的 combat 行已
+// 改回 mode=continuous（示例/灰盒默认连续，离散示例数据改放 Tests/Runtime/TestData/、core 测试
+// 数据），本类型在现有示例数据集下战斗仍走连续模式，VerticalSliceTests/ShellFlowTests/UiSuiteTests
+// 全部既有用例不受影响；一旦游戏数据集把战斗声明为 discrete，本类型会自动走真实离散链路（HUD、
+// EndTurn、AI 回合、presentation.playback_finished 回放门已独立落地并验证，见
+// Tests/Runtime/DiscreteCombatTests.cs 与 Tests/Runtime/SharedBootstrapDiscreteTests.cs）。
 using System;
 using System.Linq;
 using Adapter.Unity.EngineAdapter;
@@ -94,8 +92,8 @@ namespace Adapter.Unity.Shell
         private const ulong Seed = 20260905UL;
 
         /// <summary>ADR-0013 节奏策略：见 Adapter.Unity.Bootstrap.GameFoundationBootstrap 同名字段
-        /// 判断记录——本类型的 combatParticipantsResolver 恒空，战斗保持连续模式，本开关目前不影响
-        /// 实际行为，只决定 GameplayAssembly.Pacing 装配成哪一种实现。</summary>
+        /// 判断记录——H4 收官后 combatParticipantsResolver 已恢复真实解析，本开关在当前示例数据集
+        /// （战斗仍声明为 continuous）下仍只决定 GameplayAssembly.Pacing 装配成哪一种实现。</summary>
         private const bool PacingWaitForPlayback = true;
 
         // 判断记录（缺口 2 已解决，同 Adapter.Unity.Bootstrap.GameFoundationBootstrap 同名判断
@@ -142,6 +140,20 @@ namespace Adapter.Unity.Shell
         /// <see cref="OnDestroy"/> 里显式退订。</summary>
         private Core.Foundation.Common.SubscriptionHandle? _fixedStepHandle;
         private Core.Foundation.Common.SubscriptionHandle? _frameHandle;
+
+        /// <summary>H4 新增（独立版无人值守冒烟"-gf-smoke-discrete"分支，见
+        /// <c>Adapter.Unity.Shell.SmokeRunner</c> 判断记录）：置为 true 时 <see cref="Bootstrap"/>
+        /// 额外叠加一份只声明 <c>found.time_model</c> combat=discrete 行的内存数据源（见该方法），
+        /// 让战斗切到离散模式，供冒烟脚本验证离散链路。用内存数据源而不是磁盘上的第三数据根——
+        /// 独立版播放器构建产物不包含 <c>Packages/.../Tests/</c> 目录（Unity 构建管线本就不打包
+        /// Tests 内容），<c>adapters/unity/.../Tests/Runtime/TestData/</c>（PlayMode 测试用，见
+        /// <c>DiscreteCombatTests.cs</c>）在独立版里读不到；内存数据源不依赖任何文件路径，Editor
+        /// PlayMode 与独立版 Player 行为一致。<see cref="Ensure"/> 只会调用一次 <see cref="Bootstrap"/>
+        /// （单例，见类型判断记录"世界/装配根为什么只构造一次"），本标志必须在 <see cref="Ensure"/>
+        /// 第一次被调用之前设置——<c>SmokeRunner</c> 用
+        /// <c>RuntimeInitializeLoadType.BeforeSceneLoad</c>（早于任何场景 <c>Awake</c>，包括
+        /// <c>ShellRoot.Awake</c> 间接触发的 <see cref="Ensure"/>）设置本标志。</summary>
+        public static bool ForceDiscreteCombatForSmoke;
 
         public static FrameworkResidentHost Ensure()
         {
@@ -208,7 +220,15 @@ namespace Adapter.Unity.Shell
             var registry = new DataRegistry(source, _bus, options);
             _registry = registry;
             PresentationSchemaCatalog.RegisterAll(registry);
-            var report = registry.LoadAll(new IDataSource[] { frameworkSource, source });
+
+            // H4 新增（见 ForceDiscreteCombatForSmoke 判断记录）：冒烟脚本要求离散链路时，叠加一份
+            // 内存数据源，只补一条 found.time_model 的 combat=discrete 行——与
+            // Core.Gameplay.Assembly.TimeModelSwitch.LoadModel"后声明覆盖先声明"的判断记录配合，
+            // 排在 source（data/_sample，已声明 combat=continuous）之后加载即可生效。
+            var sources = ForceDiscreteCombatForSmoke
+                ? new IDataSource[] { frameworkSource, source, BuildDiscreteOverlaySource() }
+                : new IDataSource[] { frameworkSource, source };
+            var report = registry.LoadAll(sources);
             if (report.IsBlocking)
             {
                 BootstrapFailed = true;
@@ -236,7 +256,7 @@ namespace Adapter.Unity.Shell
 
             // ADR-0013/02 §1.2 固定步契约：clockHost 交给 host.Clock.RequestFixedStep 注册的回调
             // （见本方法末尾）驱动，stepSeconds 与该注册用的 Time.fixedDeltaTime 取同一个值；
-            // combatParticipantsResolver 恒空——见文件顶部判断记录。
+            // combatParticipantsResolver 不传（缺省 null，真实解析）——见文件顶部判断记录。
             var clockHost = new Core.Foundation.SimLoop.SimClockHost(
                 world, new Core.Foundation.SimLoop.SimLoopOptions { StepSeconds = Time.fixedDeltaTime });
             IPacingPolicy pacingPolicy = PacingWaitForPlayback
@@ -249,8 +269,7 @@ namespace Adapter.Unity.Shell
                 playerFactionId: factionId,
                 navigation: _host.Navigation2D,
                 clockHost: clockHost,
-                pacingPolicy: pacingPolicy,
-                combatParticipantsResolver: _ => Array.Empty<Id>());
+                pacingPolicy: pacingPolicy);
             Gameplay = gameplay;
 
             _player = new PlayerUnit(PlayerId, new Id(SampleMapId), factionId, _classId)
@@ -392,6 +411,27 @@ namespace Adapter.Unity.Shell
             // （Ensure() 幂等单例），这两个句柄因此也只注册一次，不会因为反复进/出地图而重复注册。
             _fixedStepHandle = _host.Clock.RequestFixedStep(Time.fixedDeltaTime, OnFixedStep);
             _frameHandle = _host.Clock.OnFrame(OnFrameTick);
+        }
+
+        /// <summary>H4 新增：见 <see cref="ForceDiscreteCombatForSmoke"/> 判断记录——内存数据源，
+        /// 只登记一条 <c>found.time_model</c> 记录（<c>scope=combat</c>/<c>mode=discrete</c>），
+        /// 字段取值与 <c>adapters/unity/.../Tests/Runtime/TestData/found/found.time_model.json</c>
+        /// 完全一致（同一份"离散示例行"，只是换成不依赖文件系统的内存表示）。</summary>
+        private static IDataSource BuildDiscreteOverlaySource()
+        {
+            const string json = @"
+            {
+                ""table"": ""found.time_model"",
+                ""schema_version"": 1,
+                ""rows"": [
+                    { ""id"": ""found.time_model.smoke_discrete_combat"", ""scope"": ""combat"", ""mode"": ""discrete"",
+                      ""seconds_per_turn"": 6,
+                      ""initiative_policy"": ""initiative_stat"",
+                      ""initiative_stat"": ""stat.strength"",
+                      ""movement_budget_rule"": ""distance"" }
+                ]
+            }";
+            return new InMemoryDataSource().Add("found.time_model", json);
         }
 
         /// <summary>
@@ -596,6 +636,18 @@ namespace Adapter.Unity.Shell
             // 也应继续推进（例如战斗结算后立刻切到读档画面，队列里仍有排队的表现动作应当照常清空，
             // 不应卡住 playing_back 节奏门），因此本调用不受 renderTicking 门槛限制。
             Presentation.Feedback.Update(unscaledDelta);
+
+            // H4 补齐（离散模式"零事件步"自动解除回放门）：与
+            // Adapter.Unity.Bootstrap.GameFoundationBootstrap.OnFrameTick 同款判断记录——
+            // WaitForPlaybackPacingPolicy 下某个离散步没有产生任何需要回放的动作时，
+            // PlaybackQueue.Finished 永远不会触发（边沿触发，不是"本来就空"），需要主动判定，否则
+            // 永久卡在 playing_back。同样不受 renderTicking 门槛限制（原因同上一条判断记录）。
+            if (Gameplay.Pacing is WaitForPlaybackPacingPolicy waitForPlayback
+                && !waitForPlayback.IsPlaybackFinished
+                && Presentation.Feedback.Queue.PendingCount == 0)
+            {
+                Gameplay.NotifyPlaybackFinished();
+            }
 
             if (!renderTicking)
             {

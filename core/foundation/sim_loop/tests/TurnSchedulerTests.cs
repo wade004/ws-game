@@ -22,7 +22,8 @@ namespace Tests.Foundation.SimLoop
 
         private static (TurnScheduler scheduler, WorldSim world, IEventBus bus, List<IEvent> events) Build(
             Func<Id, double>? initiativeStatProvider = null,
-            Func<Id, bool>? isPlayerActor = null)
+            Func<Id, bool>? isPlayerActor = null,
+            Func<Id, bool>? isBusyContinuing = null)
         {
             var bus = SimLoopTestSupport.CreateBus();
             var events = new List<IEvent>();
@@ -36,7 +37,8 @@ namespace Tests.Foundation.SimLoop
                 world,
                 initiativeStatProvider ?? (id => 0),
                 isPlayerActor ?? (id => false),
-                bus);
+                bus,
+                isBusyContinuing);
 
             return (scheduler, world, bus, events);
         }
@@ -169,6 +171,39 @@ namespace Tests.Foundation.SimLoop
 
             // 意图应已进入世界的待收集队列，供下一次 Tick 的 IntentCollection 阶段消费。
             world.Tick(step.Value);
+        }
+
+        [Fact]
+        public void PlayerTurn_BusyContinuing_NextStepProducesStep_WithoutNewIntent()
+        {
+            // H4 补齐（读条跨回合）：即便玩家本回合没有提交新意图，只要 isBusyContinuing 报告
+            // "正忙于跨轮动作"，NextStep 也应照常产步，不再等待一个不存在的新意图（也不重复发
+            // awaiting_input）。
+            var busyIds = new HashSet<Id> { Hero };
+            var (scheduler, _, _, events) = Build(
+                isPlayerActor: id => id.Equals(Hero),
+                isBusyContinuing: id => busyIds.Contains(id));
+
+            scheduler.Configure(InitiativePolicy.FixedOrder, new Dictionary<string, object>());
+            scheduler.BeginCombat(new[] { Hero, Ally });
+
+            var step = scheduler.NextStep();
+            Assert.NotNull(step);
+            Assert.Equal(Hero, step!.Value.ActorId);
+            Assert.DoesNotContain(events, e => e is SimAwaitingInputEvent);
+        }
+
+        [Fact]
+        public void PlayerTurn_NotBusy_StillWaitsForIntent_DespiteIsBusyContinuingDelegate()
+        {
+            var (scheduler, _, _, _) = Build(
+                isPlayerActor: id => id.Equals(Hero),
+                isBusyContinuing: id => false); // 委托存在，但报告"不忙"。
+
+            scheduler.Configure(InitiativePolicy.FixedOrder, new Dictionary<string, object>());
+            scheduler.BeginCombat(new[] { Hero, Ally });
+
+            Assert.Null(scheduler.NextStep()); // 行为与未传 isBusyContinuing 时一致。
         }
 
         [Fact]
