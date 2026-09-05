@@ -38,12 +38,20 @@
 // TickPhase.TriggerEvaluation，见 core/carriers/assembly/CarriersAssembly.cs）后，本类型改为与
 // CastSkill 同一套"经 IWorldSim.SubmitIntent 提交意图"落地方式，见 Interact() 方法。
 //
-// 判断记录 3（普攻/技能 1 为什么不读 found.input_action 表）：该表的示例动作集只有
-// move/confirm/cancel/interact/open_menu/pause/camera_adjust 七个动作，不含任何战斗类动作（数据
-// 文件本身在 description 里声明"示例动作集，不构成任何游戏的操作定论"）；data/ 是本任务硬性规则
-// 明确不动的目录。IInputMapHost.DeclareActionSet 本身是通用 API，不要求动作定义必须来自某张数据表，
-// 本类型直接在代码里声明一个补充动作集（复用 move/interact 与示例表相同的绑定字符串，攻击/技能 1
-// 是本类型新增的两个按钮动作），不修改任何 data/ 下的文件。
+// 判断记录 3（缺口 2 已解决——普攻/技能改读 found.input_action 表，不再代码内补充声明）：
+// data/_sample/found/found.input_action.json 原先的示例动作集只有 move/confirm/cancel/interact/
+// open_menu/pause/camera_adjust 七个非战斗动作；本类型此前因此在代码里额外声明一个补充动作集
+// （actionset.greybox，"input.action.greybox_attack"/"input.action.greybox_skill_1" 两个本类型
+// 自造的按钮动作，绕开数据表）。缺口 2 已经给该表补上 attack/skill_1~skill_4/use_item 若干战斗类
+// 按钮动作（见该数据文件、schema/found.input_action.md），本类型现改为与
+// core/foundation/input_map/tests/InputMapHostTests.cs
+// FromRecord_LoadsSevenSampleActionsFromInMemoryTable 同一套加载方式——从已经装配好的
+// registry（第 2 步 registry.LoadAll() 装载的同一份，found.input_action 的 TableSchema 由
+// core/rules/assembly/RulesSchemaCatalog.RegisterAll 登记，经 PresentationSchemaCatalog 级联
+// 注册，早已随第 2 步完成，不需要额外注册）读出全部行，逐行 ActionDefinition.FromRecord 转换后
+// 整批 DeclareActionSet，不再在代码里另造一份重复/绕开数据表的动作声明；本类型只保留"哪些
+// 动作 id 对应普攻/技能 1/交互/移动"这层数据消费逻辑（HandleFixedInput），动作本身的存在性/
+// 默认绑定完全交给 found.input_action 表决定。
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -89,13 +97,14 @@ namespace Adapter.Unity.Bootstrap
         [SerializeField] private ulong _seed = 20260905UL;
 
         // -----------------------------------------------------------------
-        // 自定义补充输入动作集（见文件顶部"判断记录 3"）。
+        // 消费 found.input_action 表声明的动作 id（见文件顶部"判断记录 3"，动作本身现由数据表
+        // 声明，本类型不再代码内补充/绕开）。
         // -----------------------------------------------------------------
-        private const string ActionSetId = "actionset.greybox";
+        private const string ActionSetId = "actionset.sample_input_action";
         private const string ActionMove = "input.action.move";
         private const string ActionInteract = "input.action.interact";
-        private const string ActionAttack = "input.action.greybox_attack";
-        private const string ActionSkill1 = "input.action.greybox_skill_1";
+        private const string ActionAttack = "input.action.attack";
+        private const string ActionSkill1 = "input.action.skill_1";
 
         public GameplayAssembly? Gameplay { get; private set; }
         public PresentationAssembly? Presentation { get; private set; }
@@ -153,9 +162,12 @@ namespace Adapter.Unity.Bootstrap
             var contentFs = new UnityFileSystem(readOnlyContentMode: true);
             var source = new FileSystemDataSource(contentFs, _datasetRoot);
             var options = PresentationSchemaCatalog.CreateOptions();
-            // 判断记录：found.input_action 未被任一 catalog 登记 schema（本类型改用代码直接声明
-            // 动作集，见文件顶部"判断记录 3"，不读该表），保留 FailOnUnknownTable=false 兜底，
-            // 避免数据集里任何一张未被登记 schema 的表阻断整套装配（惯例同 GameWorldFixture）。
+            // 判断记录（缺口 2 已解决后勘误）：found.input_action 的 TableSchema 其实已经由
+            // core/rules/assembly/RulesSchemaCatalog.RegisterAll 登记（经本行 PresentationSchemaCatalog
+            // 级联注册），本类型第 6 步会读取该表（见文件顶部"判断记录 3"）；此前这里的注释误写为
+            // "未被任一 catalog 登记 schema"，与 registry.RegisterSchema(InputActionSchema.Table) 的
+            // 既有事实不符，已如实更正。FailOnUnknownTable=false 仍然保留兜底（避免数据集里任何一张
+            // 未被登记 schema 的表阻断整套装配，惯例同 GameWorldFixture），与本次修正无关。
             options.FailOnUnknownTable = false;
 
             var registry = new DataRegistry(source, _bus, options);
@@ -287,20 +299,17 @@ namespace Adapter.Unity.Bootstrap
             Flash = new FlashReceiver(presentation.ViewBinder);
 
             // ---------------------------------------------------------
-            // 6) 输入：声明补充动作集（见文件顶部"判断记录 3"），复用 PresentationAssembly 已经
-            //    构造好的同一个 IInputMapHost 实例（UI 设置面板等也持有这一个实例，不另建第二个）。
+            // 6) 输入：声明动作集（见文件顶部"判断记录 3"）——从 found.input_action 表已加载的
+            //    全部行整批声明，不再由本类型代码补充/绕开；复用 PresentationAssembly 已经构造好
+            //    的同一个 IInputMapHost 实例（UI 设置面板等也持有这一个实例，不另建第二个）。
             // ---------------------------------------------------------
-            presentation.InputMap.DeclareActionSet(new Id(ActionSetId), new[]
+            var inputActionRecords = registry.GetAll("found.input_action");
+            var inputActionDefinitions = new ActionDefinition[inputActionRecords.Count];
+            for (var i = 0; i < inputActionRecords.Count; i++)
             {
-                new ActionDefinition(new Id(ActionMove), ActionKind.Axis2D,
-                    new[] { "composite2d:key:w|key:s|key:a|key:d" }, description: "灰盒演示：平面移动"),
-                new ActionDefinition(new Id(ActionInteract), ActionKind.Button,
-                    new[] { "key:e" }, description: "灰盒演示：与最近可交互物件互动"),
-                new ActionDefinition(new Id(ActionAttack), ActionKind.Button,
-                    new[] { "key:j", "mouse:MouseLeft" }, description: "灰盒演示：普攻（skill.sample_strike）"),
-                new ActionDefinition(new Id(ActionSkill1), ActionKind.Button,
-                    new[] { "key:digit1" }, description: "灰盒演示：技能 1（skill.sample_burn）"),
-            });
+                inputActionDefinitions[i] = ActionDefinition.FromRecord(inputActionRecords[i]);
+            }
+            presentation.InputMap.DeclareActionSet(new Id(ActionSetId), inputActionDefinitions);
 
             // 判断记录（U3 发现的核心缺口，已由 ADR-0016 背景一节联动修复一半）：
             // core/rules/ai/core/AiHost.cs 公开了 UnregisterUnit，但此前没有任何一处在实体真正

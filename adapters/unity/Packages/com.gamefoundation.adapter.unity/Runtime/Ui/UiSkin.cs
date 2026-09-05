@@ -22,7 +22,7 @@ namespace Adapter.Unity.Ui
     /// 贴图），本类型不假设任何具体游戏的美术风格。</summary>
     public static class UiSkin
     {
-        private const string PlaceholderFontResourcePath = "Fonts/NotoSansCJKsc-Regular";
+        private const string PlaceholderFontResourcePath = "Fonts/noto_sans_cjk_sc";
 
         /// <summary>面板背景色（半透明深色，见任务书"基础色板"）。</summary>
         public static readonly Color PanelBackground = new Color(0.09f, 0.10f, 0.13f, 0.90f);

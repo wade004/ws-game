@@ -18,6 +18,21 @@ from typing import Any
 # 字符串常量，不重新发明规则）。
 ID_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
 
+# 方向档位 Id 前缀：见 architecture/14_资产规格书模板.md 第 2.1 节末尾"Id 前缀"勘误结论、
+# presentation/common/contracts/DirectionSlots.cs（唯一权威实现，IdPrefix 字段）——运行期方向
+# 档位 Id 固定为 "dir.<裸档位名>" 形式（裸名字本身不含点号，不满足 Id 格式，见 ID_RE），
+# 文件名/toolchain/asset_import/directions.py/assets/_placeholder/sprites/*/anchors.json 标注
+# 文件一律使用不带前缀的裸档位名，前缀只在裸名字流入 Id 类型字段（如
+# display.map.mirror_pairs 的 direction_slot/mirror_of）时补上，见 to_direction_slot_id。
+DIRECTION_SLOT_ID_PREFIX = "dir."
+
+
+def to_direction_slot_id(bare_direction_slot_name: str) -> str:
+    """把 directions.py 产出的裸方向档位名包装成合法 Id（见 DIRECTION_SLOT_ID_PREFIX 判断记录）；
+    只用于写入 display.map 等 Id 类型字段，文件名/内部查表仍使用裸名字，不要在那些场景调用本函数。
+    """
+    return DIRECTION_SLOT_ID_PREFIX + bare_direction_slot_name
+
 
 class AssetImportError(Exception):
     """本工具内可预期的用户可见错误（数据/参数问题），main() 捕获后打印并返回码 1。"""

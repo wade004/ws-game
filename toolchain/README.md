@@ -148,7 +148,13 @@ python toolchain/import_assets.py <子命令> ...
   具体命名，见 `toolchain/asset_import/directions.py`），其余方向档位（`front_side_l`/`side_l`/
   `back_side_l` 等，命名规则是把来源 canonical 档位名中最后一个独立的 `r` 分段替换为 `l`）在
   `--mirror auto`（默认）下自动用水平镜像回填并记入 `mirror_pairs`；`--mirror none` 时缺失档位
-  不回填（打印警告，跳过）。
+  不回填（打印警告，跳过）。**Id 前缀判断记录**（14 第 2.1 节末尾勘误、
+  `presentation/common/contracts/DirectionSlots.cs` `IdPrefix`）：`mirror_pairs` 里
+  `direction_slot`/`mirror_of` 两个字段是 `Id` 类型，写入 `display.map` 时会自动加上 `"dir."`
+  前缀（如 `"dir.front_side_l"`），裸名字（不含点号）不满足 `Id` 格式；文件名、`--anchors` 参数、
+  `anchors.json` 标注文件、本节其余提到的"档位名"一律仍是不带前缀的裸名字，两者按
+  `toolchain/asset_import/common.py` 的 `to_direction_slot_id` 一一对应，只在拼进 `mirror_pairs`
+  时转换一次，不影响文件系统路径。
   `--anchors` 指向的 JSON 文件格式为 `{"<direction_slot>": {"<anchor_name>": [x_px, y_px], ...}}`
   （像素坐标）；缺失档位用 `--anchor-default name=fx,fy`（画布比例，可重复，默认
   `root=0.5,1.0`）回填并记警告；`--trim` 会按裁剪掉的透明边偏移量平移锚点。写入

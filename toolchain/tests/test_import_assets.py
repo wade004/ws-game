@@ -190,14 +190,18 @@ class SpriteBasicFlowTest(ImportAssetsTestBase):
         self.assertEqual(1.0, row["scale"])
 
     def test_mirror_pairs_has_three_entries(self) -> None:
+        # 缺口 9：direction_slot/mirror_of 是 Id 类型字段，写入 display.map 时须带 "dir." 前缀
+        # （见 presentation/common/contracts/DirectionSlots.cs "Id 前缀"判断记录、
+        # toolchain/asset_import/common.py to_direction_slot_id）；文件名/anchors.json 标注仍是
+        # 裸名字，不在本用例断言范围内。
         row = self.display_map["rows"][0]
         mirror_pairs = row["mirror_pairs"]
         self.assertEqual(3, len(mirror_pairs))
         actual = {(m["direction_slot"], m["mirror_of"], m["flip_x"]) for m in mirror_pairs}
         expected = {
-            ("front_side_l", "front_side_r", True),
-            ("side_l", "side_r", True),
-            ("back_side_l", "back_side_r", True),
+            ("dir.front_side_l", "dir.front_side_r", True),
+            ("dir.side_l", "dir.side_r", True),
+            ("dir.back_side_l", "dir.back_side_r", True),
         }
         self.assertEqual(expected, actual)
 

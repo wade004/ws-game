@@ -13,7 +13,8 @@ adapters/unity/
     Editor/                      仅编辑器工具（见下 GreyBoxTools），随包不分发
       GreyBoxSceneBuilder.cs       程序化生成/重建 Assets/Framework/Scenes/GreyBox.unity
     Framework/
-      Resources/Fonts/            TMP 占位字体（NotoSansCJKsc-Regular），UnityUISurface 依赖
+      Resources/Fonts/            按 "font.<name>" id 预导入的字体资产（当前 noto_sans_cjk_sc.otf），
+                                   UnityResourceLoader/UnityUISurface 依赖，见包 README"资源 id → 路径规则"
       Scenes/Shell.unity           Shell 场景（U3），已加入 Build Settings 第 0 位（启动场景）
       Scenes/GreyBox.unity         灰盒测试场景（U2-4），已加入 Build Settings 第 1 位
     StreamingAssets/GameFoundation/  build.ps1 -SyncContent 生成物，不提交（见 .gitignore）
@@ -42,6 +43,7 @@ adapters/unity/
 | `assets/_placeholder/` | `Assets/StreamingAssets/GameFoundation/assets/_placeholder/`（整体镜像） | 保留原始目录结构，供直接按路径访问（如灰盒地面纹理） |
 | `assets/_placeholder/sprites/` | `Assets/StreamingAssets/GameFoundation/sprites/` | `UnityResourceLoader` 的 `ResourceKind.Image` 路径规则 |
 | `assets/_placeholder/sfx/` | `Assets/StreamingAssets/GameFoundation/audio/` | `UnityResourceLoader` 的 `ResourceKind.Audio` 路径规则（源目录名 `sfx`，目标固定叫 `audio`） |
+| `assets/_placeholder/fonts/*.otf\|*.ttf` | `Assets/Framework/Resources/Fonts/`（注意不是 StreamingAssets） | `ResourceKind.Font` 走 `Resources.Load<Font>`，字体资产必须先被 Unity 资产管线导入，见包 README"资源 id → 路径规则"（缺口 1） |
 
 ## 命令行跑测试 / 编译检查 / 构建（见包 README 同一节，此处只给最终命令）
 

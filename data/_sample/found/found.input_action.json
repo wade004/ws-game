@@ -8,6 +8,12 @@
     { "key": "input.action.interact", "kind": "button", "default_bindings": ["key:e", "pad:x"], "rebind_group": "default", "description": "与最近可交互物件互动（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" },
     { "key": "input.action.open_menu", "kind": "button", "default_bindings": ["key:tab", "pad:y"], "rebind_group": "default", "description": "打开菜单叠加界面（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" },
     { "key": "input.action.pause", "kind": "button", "default_bindings": ["key:p", "pad:start"], "rebind_group": "default", "description": "触发暂停状态（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" },
-    { "key": "input.action.camera_adjust", "kind": "axis1d", "default_bindings": ["pad_axis:zoom"], "rebind_group": "default", "description": "镜头缩放或视角微调，可选（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" }
+    { "key": "input.action.camera_adjust", "kind": "axis1d", "default_bindings": ["pad_axis:zoom"], "rebind_group": "default", "description": "镜头缩放或视角微调，可选（03 第 7 节示例）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.attack", "kind": "button", "default_bindings": ["key:space", "pad:rb"], "rebind_group": "default", "description": "普通攻击意图（缺口 2 补充：示例动作集原先只有非战斗动作）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.skill_1", "kind": "button", "default_bindings": ["key:1", "pad:lb"], "rebind_group": "default", "description": "技能槽 1 意图（缺口 2 补充）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.skill_2", "kind": "button", "default_bindings": ["key:2", "pad:rt"], "rebind_group": "default", "description": "技能槽 2 意图（缺口 2 补充）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.skill_3", "kind": "button", "default_bindings": ["key:3", "pad:lt"], "rebind_group": "default", "description": "技能槽 3 意图（缺口 2 补充）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.skill_4", "kind": "button", "default_bindings": ["key:4", "pad:l3"], "rebind_group": "default", "description": "技能槽 4 意图（缺口 2 补充）；示例动作集，不构成任何游戏的操作定论" },
+    { "key": "input.action.use_item", "kind": "button", "default_bindings": ["key:f", "pad:r3"], "rebind_group": "default", "description": "使用道具意图，可选（缺口 2 补充）；示例动作集，不构成任何游戏的操作定论" }
   ]
 }

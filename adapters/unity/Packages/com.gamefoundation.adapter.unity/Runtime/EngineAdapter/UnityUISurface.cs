@@ -10,15 +10,19 @@
 // 调用顺序累加创建 TMP_Text 子元素，不去重、不跨帧清空——上层如需要每帧刷新的动态文本，应自行
 // 在合适时机调用非契约方法 ClearSurface 复位（同 adapters/stub 系"契约之外的协作方法"惯例）。
 //
-// 字体判断记录（对应任务书"若批处理下生成字体资产困难，用 Resources/StreamingAssets 路径运行期
-// 创建 TMP_FontAsset.CreateFontAsset"）：DrawText 的 fontId 参数目前不区分不同字体资源——
-// UnityResourceLoader 的 Font 资源种类只能提供原始字节，无法在运行期从任意字节数组产出可用于
-// TMP 渲染的字体资产（见 UnityResourceLoader.cs 顶部判断记录）；本实现改为使用包内已经被 Unity
-// 资产管线正常导入过的占位字体（adapters/unity/Assets/Framework/Resources/Fonts/
-// NotoSansCJKsc-Regular.otf，导入后是一个可以被 Resources.Load<Font> 取到的 UnityEngine.Font
-// 对象），在首次使用时调用 TMPro.TMP_FontAsset.CreateFontAsset 动态生成一份运行期 TMP 字体资产
-// 并缓存复用；找不到该 Font 资源或生成失败时回退到 TMP 内置默认字体（TMP_Settings.
-// defaultFontAsset），并 Debug.LogWarning 一次。这是一个已知限制，已记录在包 README。
+// 字体判断记录（缺口 1 已解决，约定见包 README"资源 id → 路径规则"）：DrawText 的 fontId 参数
+// 现按 id 区分具体字体资源——UnityResourceLoader 已经把 Font 种类的 LoadAsync 改为在主线程调用
+// Resources.Load<Font>("Fonts/<name>")（<name> 为 fontId 去掉 "font." 前缀、点号换下划线，见
+// UnityResourceLoader.cs 顶部"判断记录（Font 资源种类）"）；本类型对每个 fontId 各自缓存一份
+// 由 TMPro.TMP_FontAsset.CreateFontAsset 生成的 TMP 字体资产（TMP_FontAsset 本身不能跨字体共享，
+// 每个不同的底层 UnityEngine.Font 需要各自生成一次并缓存复用）。ResolveFontAsset 不依赖调用方
+// 事先调用 IResourceLoader.LoadAsync（DrawText 契约本身没有"资源必须已加载"这一前置要求）——
+// 直接同步调用 Resources.Load 判定该 fontId 对应的资产是否存在：存在则生成/复用对应
+// TMP_FontAsset；不存在（未导入该字体资产，或 fontId 是未知/占位测试值）则回退到包内默认占位
+// 字体（原有的单一路径，见下 ResolveDefaultFontAsset），仍找不到才最终回退 TMP 内置默认字体
+// （TMP_Settings.defaultFontAsset）；每一次回退都 Debug.LogWarning 一次诊断，不抛异常。这是
+// 一个已知限制（字体资产必须先被 Unity 资产管线导入，运行期无法从任意字节数组生成），已记录在
+// 包 README。
 //
 // 判断记录（TMP 运行期依赖）：实测 TMP_FontAsset.CreateFontAsset 与 TMP_Settings.
 // defaultFontAsset 在"一个全新 Unity 工程从未打开过 TextMeshPro 相关窗口"的批处理环境下都会
@@ -45,13 +49,24 @@ namespace Adapter.Unity.EngineAdapter
 {
     public sealed class UnityUISurface : IUISurface
     {
-        private const string PlaceholderFontResourcePath = "Fonts/NotoSansCJKsc-Regular";
+        /// <summary>无法按 fontId 解析出具体字体资产时的最终回退路径（缺口 1 解决前的唯一路径，
+        /// 现降级为"回退"角色，见类型顶部字体判断记录）。</summary>
+        private const string PlaceholderFontResourcePath = "Fonts/noto_sans_cjk_sc";
 
         private readonly Transform _root;
         private readonly Dictionary<Id, Canvas> _surfaces = new Dictionary<Id, Canvas>();
         private readonly Dictionary<Id, string> _layouts = new Dictionary<Id, string>();
         private readonly Dictionary<Id, GameObject> _focusableElements = new Dictionary<Id, GameObject>();
         private Id? _focusedElement;
+
+        /// <summary>按 fontId 缓存生成好的 TMP 字体资产（缺口 1 已解决：fontId 现在真的区分具体
+        /// 字体资源，见类型顶部字体判断记录）。</summary>
+        private readonly Dictionary<Id, TMP_FontAsset> _fontAssetsByFontId = new Dictionary<Id, TMP_FontAsset>();
+
+        /// <summary>fontId 找不到对应字体资产时记过一次诊断的集合，避免同一个未知 fontId 每次
+        /// DrawText 都刷一遍警告日志。</summary>
+        private readonly HashSet<Id> _missingFontIdsWarned = new HashSet<Id>();
+
         private TMP_FontAsset? _placeholderFontAsset;
         private bool _placeholderFontLoadAttempted;
 
@@ -162,9 +177,74 @@ namespace Adapter.Unity.EngineAdapter
 
         public string? GetLayoutForTest(Id surfaceId) => _layouts.TryGetValue(surfaceId, out var layout) ? layout : null;
 
+        /// <summary>按 fontId 解析出对应的 TMP 字体资产（缺口 1 已解决，见类型顶部字体判断记录）：
+        /// 先查本实例缓存；未缓存则按"font.&lt;name&gt; -&gt; Resources/Fonts/&lt;name&gt;"规则同步
+        /// 尝试 <c>Resources.Load</c> + <c>TMP_FontAsset.CreateFontAsset</c>；解析不到（字体资产
+        /// 未导入、fontId 本身是未知/占位测试值等）则记一条诊断（同一 fontId 只记一次，避免刷屏）并
+        /// 回退到包内默认占位字体，仍失败才最终回退 TMP 内置默认字体。</summary>
         private TMP_FontAsset ResolveFontAsset(Id fontId)
         {
-            // fontId 目前不区分具体字体资源，见类型顶部"字体判断记录"。
+            if (_fontAssetsByFontId.TryGetValue(fontId, out var cached))
+            {
+                return cached;
+            }
+
+            var resolved = TryCreateFontAssetForId(fontId);
+            if (resolved != null)
+            {
+                _fontAssetsByFontId[fontId] = resolved;
+                return resolved;
+            }
+
+            if (_missingFontIdsWarned.Add(fontId))
+            {
+                Debug.LogWarning(
+                    $"[UnityUISurface] fontId \"{fontId}\" 未解析到可用字体资产" +
+                    $"（Resources/Fonts/{ResourcesFontName(fontId)} 不存在或生成失败），回退到默认占位字体。");
+            }
+
+            return ResolveDefaultFontAsset();
+        }
+
+        /// <summary>按 fontId 尝试解析字体资产，解析不到返回 null（不记诊断——由调用方
+        /// <see cref="ResolveFontAsset"/> 统一决定是否记录，避免重复日志）。</summary>
+        private static TMP_FontAsset? TryCreateFontAssetForId(Id fontId)
+        {
+            var osFont = Resources.Load<Font>("Fonts/" + ResourcesFontName(fontId));
+            if (osFont == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return TMP_FontAsset.CreateFontAsset(osFont);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning(
+                    $"[UnityUISurface] fontId \"{fontId}\" 对应字体资产 TMP_FontAsset.CreateFontAsset 抛出异常：{ex.Message}。");
+                return null;
+            }
+        }
+
+        /// <summary>"font.&lt;name&gt;" -&gt; "&lt;name&gt;"：去掉 id 第一个点分段（类别前缀）、
+        /// 剩余点号换下划线，与 UnityResourceLoader.StripCategoryPrefix 同一套规则（04 文档"逻辑 id
+        /// 与底层资源解耦"约定）。两处各自维护一份是因为二者分处不同文件、职责独立，逻辑本身足够
+        /// 简单，重复一次比新增跨文件私有依赖更简单。</summary>
+        private static string ResourcesFontName(Id fontId)
+        {
+            var value = fontId.Value;
+            var dotIndex = value.IndexOf('.');
+            var withoutCategory = dotIndex < 0 ? value : value.Substring(dotIndex + 1);
+            return withoutCategory.Replace('.', '_');
+        }
+
+        /// <summary>无法按 fontId 解析出字体资产时的最终回退：包内默认占位字体
+        /// （<see cref="PlaceholderFontResourcePath"/>），仍失败才回退 TMP 内置默认字体
+        /// （缺口 1 解决前的唯一路径，现降级为兜底角色）。</summary>
+        private TMP_FontAsset ResolveDefaultFontAsset()
+        {
             if (_placeholderFontAsset != null) return _placeholderFontAsset;
 
             if (!_placeholderFontLoadAttempted)

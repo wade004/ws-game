@@ -35,13 +35,26 @@ URP 2D Renderer + Input System 1.20"这一件事，不包含任何具体游戏�
 Application.streamingAssetsPath/GameFoundation/<kind 子目录>/<资源引用id去掉类别前缀，点号换下划线>.<扩展名>
   Image     -> sprites/<name>.png
   Audio     -> audio/<name>.wav（仅支持标准 PCM16 WAV）
-  Font      -> fonts/<name>.ttf（只读字节，见下"已知契约缺口"）
   DataTable -> data/<name>.json
   Scene     -> scene/<name>.json（ADR-0016 决策 5 新增，内容不被解析，见 build.ps1 判断记录）
   NavMesh   -> nav_mesh/<name>.json（同上）
   Effect    -> vfx/<name>/atlas.png + vfx/<name>/frames.json（ADR-0016 决策 5 新增；不是单一文件，
               走 UnityResourceLoader.ResolveEffectDir，不经上面的通用扩展名规则）
 ```
+
+Font 种类不走上表这条 StreamingAssets 规则（缺口 1 已解决，约定）：
+
+```
+Resources/Fonts/<资源引用id去掉 "font." 前缀，点号换下划线>（不带扩展名，Resources.Load<Font> 自动匹配）
+  例：font.noto_sans_cjk_sc -> Resources/Fonts/noto_sans_cjk_sc（对应 assets/_placeholder/fonts/
+      noto_sans_cjk_sc.otf，由 build.ps1 -SyncContent 同步进 adapters/unity/Assets/Framework/
+      Resources/Fonts/，见下"内容同步"一节）
+```
+
+该资产必须是已被 Unity 资产管线导入过的 `UnityEngine.Font` 对象（不能是任意字节数组，见下"已知
+契约缺口"第 4 条）；`UnityResourceLoader.LoadAsync(kind=Font)` 对该路径存在的字体资产标记为
+"已加载"（`IsLoaded` 一致），`UnityUISurface` 按 `fontId` 解析对应 `TMP_FontAsset`（找不到时回退
+默认字体并记一条诊断）。
 
 命名规则与 `architecture/14_资产规格书模板.md` 第 1.2 节文件名模板、
 `presentation/render/core/SpriteViewBase.ResolveLayerResourceId` 的"去掉类别前缀、点号换下划线"
@@ -104,16 +117,16 @@ id）。
 ### 输入→意图链路
 
 `GameFoundationBootstrap` 复用 `PresentationAssembly.InputMap`（同一个 `IInputMapHost` 实例，UI
-设置面板等也持有它），额外 `DeclareActionSet` 一个补充动作集（`actionset.greybox`：
-`input.action.move`/`input.action.interact` 复用与 `data/_sample/found/found.input_action.json`
-相同的绑定字符串，`input.action.greybox_attack`/`input.action.greybox_skill_1` 是本次新增的两个
-按钮动作——该示例数据表本身没有战斗类动作，见下"契约缺口"）。移动经
-`MovementHost.Request(MoveRequest.InDirection(...))`（内部转成 `move` 意图提交）；普攻/技能 1
-经 `IWorldSim.SubmitIntent` 提交一条 `cast` 意图（`skill_id` 分别为
-`skill.sample_strike`/`skill.sample_burn`，玩家注册等级设为 3 以同时解锁两个技能）；交互经
-`GameObjectHost.Interact(playerId, chestId)` 窄契约调用（`found.event_catalog`/`WorldSim` 没有任何
-消费 `interact` 意图的 tick 处理器，见 09/03 文档与该类型顶部"判断记录 2"）。三条路径均不直接改
-`WorldSim`/`Carriers` 状态，满足表现层铁律。
+设置面板等也持有它），`DeclareActionSet` 时整批读取 `data/_sample/found/found.input_action.json`
+（经 `registry.GetAll("found.input_action")` + `ActionDefinition.FromRecord` 逐行转换）已加载的
+全部动作行——缺口 2 已给该表补上 `attack`/`skill_1`~`skill_4`/`use_item` 若干战斗类按钮动作，本
+类型不再像此前那样在代码里另造一个绕开数据表的补充动作集（`actionset.greybox`），见下"已知
+契约缺口"第 7 条。移动经 `MovementHost.Request(MoveRequest.InDirection(...))`（内部转成 `move`
+意图提交）；普攻/技能 1 经 `IWorldSim.SubmitIntent` 提交一条 `cast` 意图（`skill_id` 分别为
+`skill.sample_strike`/`skill.sample_burn`，玩家注册等级设为 3 以同时解锁两个技能）；交互同样经
+`IWorldSim.SubmitIntent` 提交一条 `interact` 意图（`Core.Carriers.Gobj.InteractIntentTickHandler`
+消费，见下"已知契约缺口"第 6 条，`GameFoundationBootstrap.Interact()` 已不再直接窄契约调用
+`GameObjectHost.Interact`）。三条路径均不直接改 `WorldSim`/`Carriers` 状态，满足表现层铁律。
 
 ### 视图与反馈接收器（`Runtime/Presentation/`）
 
@@ -164,7 +177,7 @@ GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。
 ## 已知契约缺口
 
 以下 1、2、3、5、6、8 六条已由 ADR-0016（`architecture/adr/0016-引擎适配层契约阶段4联调补齐.md`）
-解决，保留在此作为历史记录；4、7 两条仍是未解决的缺口。
+解决，4、7 两条已由本任务（工具链/引擎侧缺口收敛）约定解决，均保留在此作为历史记录。
 
 1. **已由 ADR-0016 决策 2 解决**：`IRenderer2D.SetTransform` 此前没有高度参数（不同于
    `IRenderer3D.SetPlacement` 显式带 `height`），表现层曾借用 `SetShaderParam` 的
@@ -178,14 +191,23 @@ GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。
    这一种类。现已增加 `Scene`/`NavMesh`/`Effect` 三个取值，`SceneRouter` 改用前两者加载
    `scene_ref`/`nav_ref`，`UnityRenderer2D.EmitParticle` 优先经 `UnityResourceLoader.TryGetEffect`
    把 `effectId` 解析到具体特效资产（序列帧），解析不到才回退内建通用效果。
-4. **仍是未解决的缺口**：`IResourceLoader` 的 `Font` 种类只能提供原始字节，Unity 运行期没有公开
-   API 能把任意字体字节数组转换成可用于 TMP 渲染的字体资产（`TMP_FontAsset.CreateFontAsset`
-   需要一个已被 Unity 资产管线导入过的 `UnityEngine.Font` 对象）；`UnityUISurface` 的默认字体因此
-   改走专用路径（包内预先导入好的占位字体 `Resources/Fonts/NotoSansCJKsc-Regular`），不经过通用
-   资源加载器，`fontId` 参数目前不区分具体字体资源。该路径还依赖 `adapters/unity/Assets/
-   TextMesh Pro/`（TMP 官方 Essential Resources 的标准内容——`TMP Settings.asset`、
-   SDF 着色器、默认字体等，与手动执行编辑器菜单"Import TMP Essential Resources"产生的文件
-   完全一致）已提交进本仓库，见 `UnityUISurface.cs` 顶部"判断记录（TMP 运行期依赖）"。
+4. **已解决**（约定：字体资源 id `font.<name>` → 引擎侧预导入字体资产 `Resources/Fonts/<name>`，
+   `<name>` 为该 id 去掉 `font.` 前缀、点号换下划线后的结果，见下"资源 id → 路径规则"）：
+   `IResourceLoader` 的 `Font` 种类此前只能提供原始字节，Unity 运行期没有公开 API 能把任意字体
+   字节数组转换成可用于 TMP 渲染的字体资产（`TMP_FontAsset.CreateFontAsset` 需要一个已被 Unity
+   资产管线导入过的 `UnityEngine.Font` 对象）。现改为：`UnityResourceLoader.LoadAsync(kind=Font)`
+   在主线程对 `Resources/Fonts/<name>` 调用 `Resources.Load<Font>` 判定"已加载"（`IsLoaded` 与之
+   一致，不再只读字节，见该类型顶部"判断记录（Font 资源种类）"）；`UnityUISurface.ResolveFontAsset`
+   按 `fontId` 各自缓存一份 `TMP_FontAsset.CreateFontAsset` 生成的字体资产，解析不到（未导入该
+   字体资产、fontId 未知等）才回退到包内默认占位字体 `Resources/Fonts/noto_sans_cjk_sc`（原
+   `NotoSansCJKsc-Regular`，已重命名为与 id 约定一致的裸名，见 `assets/_placeholder/fonts/README.md`
+   "用途/引用名"），仍失败才最终回退 TMP 内置默认字体，每次回退都记一条诊断
+   （`Debug.LogWarning`）。`build.ps1 -SyncContent` 把 `assets/_placeholder/fonts/*.otf|*.ttf`
+   哈希比对同步到 `Assets/Framework/Resources/Fonts/`（见 `adapters/unity/README.md`"内容同步"
+   一节）。该路径仍依赖 `adapters/unity/Assets/TextMesh Pro/`（TMP 官方 Essential Resources 的
+   标准内容——`TMP Settings.asset`、SDF 着色器、默认字体等，与手动执行编辑器菜单"Import TMP
+   Essential Resources"产生的文件完全一致）已提交进本仓库，见 `UnityUISurface.cs` 顶部"判断记录
+   （TMP 运行期依赖）"（这部分未变）。
 5. **已由 ADR-0016 决策 7 解决**：`ISpatialQuery`/`INavigation2D` 契约本身此前都没有定义"如何把
    地图对象/阻挡数据登记进实现"的方法，本适配层曾提供非契约协作方法。现已分别补上契约方法
    `ISpatialQuery.Register`/`UpdatePosition`/`Unregister`/`Clear`、
@@ -202,11 +224,17 @@ GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。
    `Core.Carriers.Gobj.InteractIntentTickHandler`（挂在 `TickPhase.TriggerEvaluation`，见
    `core/carriers/assembly/CarriersAssembly.cs`），`GameFoundationBootstrap.Interact()` 已改为
    提交 `interact` 意图，不再直接调用 `GameObjectHost.Interact`。
-7. （U2 新增，仍是未解决的缺口）`data/_sample/found/found.input_action.json` 的示例动作集只有
-   move/confirm/cancel/interact/open_menu/pause/camera_adjust 七个动作，不含任何战斗类动作
-   （数据本身在 `description` 字段声明"示例动作集，不构成任何游戏的操作定论"）；
-   `GameFoundationBootstrap` 需要"普攻"/"技能 1"两个按钮动作时，直接用 `IInputMapHost.
-   DeclareActionSet` 在代码里补充声明，不修改 `data/` 下任何文件。
+7. **已解决**（U2 新增，本任务补齐）：`data/_sample/found/found.input_action.json` 原先的示例
+   动作集只有 move/confirm/cancel/interact/open_menu/pause/camera_adjust 七个动作，不含任何战斗
+   类动作（`GameFoundationBootstrap`/`FrameworkResidentHost` 因此此前各自在代码里另造一个绕开
+   数据表的补充动作集）。现已给该表补上 `attack`/`skill_1`~`skill_4`/`use_item`（可选）若干战斗
+   类按钮动作（`description` 字段仍声明"示例动作集，不构成任何游戏的操作定论"），
+   `GameFoundationBootstrap`/`FrameworkResidentHost` 均已改为整批读取该表已加载的全部行
+   （`registry.GetAll("found.input_action")` + `ActionDefinition.FromRecord` 逐行转换后
+   `DeclareActionSet`），删除了此前各自代码内的补充声明（`actionset.greybox`/`actionset.shell`
+   两个自造动作集、`input.action.greybox_attack`/`input.action.greybox_skill_1`/
+   `input.action.shell_attack`/`input.action.shell_skill_1` 四个绕开数据表的动作 id），不再修改
+   `data/` 之外任何逻辑。
 8. **已由 ADR-0016 决策 6 解决**（U2 新增）：`IResourceLoader` 契约此前没有规定"谁来触发某个
    资源 id 的首次加载"。现已在 02 第 1.7 节写入"谁首次引用谁加载"条款；`presentation/common`
    新增共享实现 `ResourceReferenceTracker`，`SpriteViewBase`/`VfxPlayer`/`SfxPlayer` 均已接入
@@ -410,14 +438,60 @@ Boot ──Start()──> MainMenu ──ShowSlots()──> SaveSlots ──(选
 # 独立版构建（Shell.unity 已经是 Build Settings 第 0 位，直接沿用 U2 命令）：
 Unity.exe -batchmode -nographics -quit -projectPath adapters\unity -buildWindows64Player <out>\Shell.exe -logFile <out>\build.log
 
-# 无人值守冒烟（已知限制见下）：
-<out>\Shell.exe -batchmode -nographics -logFile <out>\smoke_player.log
+# 无人值守冒烟（缺口 3 已解决，见下"独立版无头冒烟"一节；注意不加 -nographics）：
+<out>\Shell.exe -batchmode -gf-smoke -logFile <out>\smoke_player.log -screen-width 800 -screen-height 600
 ```
 
-判断记录（独立版无头冒烟的限制）：`-nographics` 强制 `NullGfxDevice`，`UiRoot`/`InputSystemUIInputModule`
-依赖的渲染/输入子系统在该模式下按包 README 既有判断记录"可能无法正确初始化"；U3 实测复现——
-进程能正常启动、加载全部程序集、不抛异常，但日志在引擎子系统初始化完成后不再产生新内容（无法
-从日志判断是否真的推进到了"新游戏→游戏内"），需要强制终止进程。本任务未在 `ShellRoot`/
-`FrameworkResidentHost` 里实现命令行参数驱动的"自动新游戏→移动→普攻→存档→退出"脚本化流程
-（超出本任务时间范围），因此以 `VerticalSliceTests.FullVerticalSlice_...`（PlayMode，全程带渲染/
-输入子系统真实初始化，覆盖完全相同的操作序列并断言每一步）作为替代证据。
+### 独立版无头冒烟（缺口 3 已解决）
+
+`Runtime/Shell/SmokeRunner.cs`：`[RuntimeInitializeOnLoadMethod(AfterSceneLoad)]` 检测命令行参数
+`-gf-smoke`，命中时新建一个 `DontDestroyOnLoad` 的 `SmokeRunner` 组件跑一遍"主菜单 → 新游戏
+（`diff.tier` 表 `sort_weight` 最小的一档为默认难度）→ 进入地图 → 向右移动 1 秒 → 普攻一次
+（`skill.sample_strike`）→ 存档到 `slot.smoke` → 读档 → 退出"，每步
+`Debug.Log("[GF-SMOKE] step=<name> ok")`；成功以 `[GF-SMOKE] RESULT=OK` +
+`Application.Quit(0)` 收尾，任一步失败 `[GF-SMOKE] RESULT=FAIL reason=...` +
+`Application.Quit(2)`，总耗时超过 60 秒（`RunWatchdog` 协程）`Application.Quit(3)`。命令行未带
+`-gf-smoke` 时本类型完全不介入（不新建任何 GameObject），正常游戏/编辑器/既有 PlayMode 测试运行
+路径不受影响。
+
+判断记录（为什么直接调用 `Presentation.Shell`/`GameplayAssembly` API，不模拟鼠标点击 UI 按钮，
+详见类型顶部注释）：`ShellRoot.cs` 类型顶部已有判断记录指出按钮 `OnClick` 回调本身就是直接调用
+`Framework.Presentation.Shell` 的同一批方法，`ShellFlowTests`/`VerticalSliceTests` 也一律走这条
+路径而不模拟点击；`SmokeRunner` 沿用同一惯例，是"真实点击"与"程序化驱动"共享的同一条调用路径，
+不是另一条需要额外验证是否等价的旁路。
+
+判断记录（为什么不加 `-nographics`，且这次冒烟真的能正常退出）：`SmokeRunner` 不依赖任何鼠标/
+键盘物理事件（全走程序化 API 调用），理论上可以带 `-nographics` 跑；但任务书明确要求命令行不加
+该参数（允许弹窗），故按原样执行，也因此不再触碰"已知限制"一节记录的"`-nographics` 强制
+`NullGfxDevice` 时 `UiRoot`/`InputSystemUIInputModule` 依赖的渲染/输入子系统可能无法正确初始化"
+这个问题——那条限制描述的是 U3 阶段"不加脚本化驱动、单纯启动后干等"时 `-nographics` 场景下的
+观察，不是本类型的实测结果。另外勘察 `UnityWindow.cs` 确认 `Application.Quit()`
+不会被 `Application.wantsToQuit`（`HandleWantsToQuit` 返回 `false` 阻止默认退出）拦截——该钩子
+只在 `IWindow.Create` 被调用过之后才会挂上，全仓库勘察确认 Shell 运行时路径从未调用过
+`UnityEngineHost.Window.Create`（只有 `UnityWindowTests.cs` 单独测试过该方法），因此本类型可以
+直接调用 `Application.Quit(exitCode)` 正常退出进程。
+
+实测记录（U-缺口收敛阶段，Windows 独立版，`adapters/unity/Assets/Editor` 构建入口产出的
+`Shell.exe`）：
+
+```
+Shell.exe -batchmode -gf-smoke -logFile <out>\smoke_player.log -screen-width 800 -screen-height 600
+```
+
+退出码 `0`；日志全部 `[GF-SMOKE]` 行：
+
+```
+[GF-SMOKE] step=boot_main_menu ok
+[GF-SMOKE] step=show_slots ok
+[GF-SMOKE] step=show_new_game_setup ok
+[GF-SMOKE] step=new_game_enter_world ok
+[GF-SMOKE] step=move_right_1s ok
+[GF-SMOKE] step=attack_once ok
+[GF-SMOKE] step=save_slot_smoke ok
+[GF-SMOKE] step=load_slot_smoke ok
+[GF-SMOKE] RESULT=OK
+```
+
+进程自行正常退出（未强制终止），日志里唯一的非诊断输出是若干条已知的
+`[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：...`（异步加载完成前的第一帧占位方块，
+既有设计行为，见 `UnityRenderer2D.cs` 判断记录，不影响冒烟结论）。

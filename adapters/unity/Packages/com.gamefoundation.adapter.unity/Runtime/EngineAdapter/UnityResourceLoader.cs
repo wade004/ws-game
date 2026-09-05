@@ -8,10 +8,11 @@
 //   其中 <kind 子目录> 与 <扩展名> 按 ResourceKind 固定：
 //     Image     -> "sprites/<name>.png"
 //     Audio     -> "audio/<name>.wav"（占位音频约定为标准 PCM16 WAV，见 判断记录）
-//     Font      -> "fonts/<name>.ttf"
 //     DataTable -> "data/<name>.json"
 //   根目录固定为 Application.streamingAssetsPath（跨平台只读只读资源目录，桌面平台上是普通
-//   文件系统路径，可直接用 System.IO 同步读取，见下）。
+//   文件系统路径，可直接用 System.IO 同步读取，见下）。Font 种类不走这条规则（不是
+//   StreamingAssets 下的裸字节，而是 Resources/Fonts/<name> 下已被资产管线导入好的字体资产，
+//   见下"判断记录（Font 资源种类）"）。
 //
 // 判断记录（加载方式）：不使用 UnityWebRequest/协程，改用 System.Threading.Tasks.Task 在后台
 // 线程做纯文件字节读取（不调用任何 UnityEngine API，线程安全），读取完成后把结果放进一个
@@ -26,13 +27,22 @@
 // 大多数游戏音频制作管线导出的未压缩 WAV，具体音频格式选型见 architecture/选型/（本文档不预设
 // 结论）。非 WAV/非 PCM16 数据会解析失败并按"加载失败"回调 false。
 //
-// 判断记录（Font 资源种类）：Unity 运行期没有公开 API 能把任意字体文件字节数组转换成可用于
-// TMP 渲染的字体资产（TMP_FontAsset.CreateFontAsset 需要一个已被 Unity 资产管线导入过的
-// UnityEngine.Font 对象，而非裸字节）；因此本加载器对 Font 种类只保证"文件存在性校验 + 原始
-// 字节读取（TryGetFontBytes）"，不产生可直接渲染的字体资产。界面默认字体走
-// UnityUISurface 专用的路径（运行期用包内预先以 Unity 资产管线导入好的 Font 对象调用
-// TMP_FontAsset.CreateFontAsset，见该类型注释），不依赖本加载器的 Font 种类。此为已知契约/
-// 实现能力缺口，已记录在包 README"已知契约缺口"一节。
+// 判断记录（Font 资源种类，缺口 1 已解决——约定见包 README"资源 id → 路径规则"）：Unity 运行期
+// 没有公开 API 能把任意字体文件字节数组转换成可用于 TMP 渲染的字体资产
+// （TMP_FontAsset.CreateFontAsset 需要一个已被 Unity 资产管线导入过的 UnityEngine.Font 对象，
+// 而非裸字节），因此 Font 种类不能沿用其它种类"后台线程读字节 + Task.Run"的通用路径。约定：
+// 字体资源 id 形如 "font.<name>" 时，<name> 为该 id 去掉 "font." 前缀、点号换下划线后的结果
+// （与其它种类共用同一条 StripCategoryPrefix 规则），对应一个已被 Unity 资产管线预先导入好的
+// Font 资产，路径固定为 "Resources/Fonts/<name>"（该资产必须实际存在于某个 Resources/Fonts/
+// 目录下，才能被 Resources.Load<Font> 取到——本仓库当前由 build.ps1 -SyncContent 把
+// assets/_placeholder/fonts/*.otf|*.ttf 同步进 adapters/unity/Assets/Framework/Resources/Fonts/，
+// 见该脚本判断记录）。Resources.Load 只能在主线程调用，因此 LoadAsync 对 Font 种类不走
+// Task.Run 后台字节读取，而是把请求排入 Tick() 处理的专用队列，在下一次 Tick（仍由
+// UnityEngineHost.Update 驱动）里于主线程调用 Resources.Load<Font> 完成判定——资产存在即视为
+// "已加载"（IsLoaded 返回 true），不存在则按"加载失败"回调 false，保持"回调总在 Tick 里于
+// 主线程排队执行"这条既有线程约定不变。加载成功后的 UnityEngine.Font 对象供
+// UnityUISurface.ResolveFontAsset 取用以生成/复用对应的 TMP_FontAsset（该步骤仍需要
+// TMP_FontAsset.CreateFontAsset，逻辑见 UnityUISurface.cs）。
 //
 // Scene/NavMesh/Effect 三个种类（ADR-0016 决策 5 新增，取代此前 SceneRouter 借用
 // ResourceKind.DataTable 的工作绕）：
@@ -85,6 +95,15 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
+        /// <summary>一次 Font 种类的加载请求，排队等到下一次 <see cref="Tick"/> 在主线程调用
+        /// <c>Resources.Load</c> 完成判定（见类型顶部"Font 资源种类"判断记录）。</summary>
+        private struct PendingFontLoad
+        {
+            public Id ResourceId;
+            public string ResourcesFontName;
+            public LoadCallback Callback;
+        }
+
         private struct PendingCompletion
         {
             public Id ResourceId;
@@ -100,13 +119,18 @@ namespace Adapter.Unity.EngineAdapter
 
         private static readonly string RootDir = Path.Combine(Application.streamingAssetsPath, "GameFoundation");
 
+        /// <summary>仅 <see cref="ResourceKind.Font"/> 使用：主线程专用队列（见类型顶部"Font 资源
+        /// 种类"判断记录），不与 <see cref="_completions"/> 共用——后者由后台线程写入，前者只在
+        /// 主线程内部排队等到下一次 <see cref="Tick"/> 处理，不需要并发安全的队列类型。</summary>
+        private readonly Queue<PendingFontLoad> _pendingFontLoads = new Queue<PendingFontLoad>();
+
         private readonly HashSet<Id> _loading = new HashSet<Id>();
         private readonly HashSet<Id> _loaded = new HashSet<Id>();
         private readonly ConcurrentQueue<PendingCompletion> _completions = new ConcurrentQueue<PendingCompletion>();
 
         private readonly Dictionary<Id, Sprite> _sprites = new Dictionary<Id, Sprite>();
         private readonly Dictionary<Id, AudioClip> _audioClips = new Dictionary<Id, AudioClip>();
-        private readonly Dictionary<Id, byte[]> _fontBytes = new Dictionary<Id, byte[]>();
+        private readonly Dictionary<Id, Font> _fonts = new Dictionary<Id, Font>();
         private readonly Dictionary<Id, string> _dataTableText = new Dictionary<Id, string>();
         private readonly Dictionary<Id, string> _sceneText = new Dictionary<Id, string>();
         private readonly Dictionary<Id, string> _navMeshText = new Dictionary<Id, string>();
@@ -123,6 +147,19 @@ namespace Adapter.Unity.EngineAdapter
             if (callback == null) throw new ArgumentNullException(nameof(callback));
 
             _loading.Add(resourceId);
+
+            if (kind == ResourceKind.Font)
+            {
+                // Resources.Load 只能在主线程调用，不走后台 Task.Run 字节读取路径，见类型顶部
+                // "Font 资源种类"判断记录。
+                _pendingFontLoads.Enqueue(new PendingFontLoad
+                {
+                    ResourceId = resourceId,
+                    ResourcesFontName = "Fonts/" + StripCategoryPrefix(resourceId.Value),
+                    Callback = callback
+                });
+                return;
+            }
 
             if (kind == ResourceKind.Effect)
             {
@@ -205,7 +242,7 @@ namespace Adapter.Unity.EngineAdapter
             _loaded.Remove(resourceId);
             _sprites.Remove(resourceId);
             _audioClips.Remove(resourceId);
-            _fontBytes.Remove(resourceId);
+            _fonts.Remove(resourceId);
             _dataTableText.Remove(resourceId);
             _sceneText.Remove(resourceId);
             _navMeshText.Remove(resourceId);
@@ -216,10 +253,33 @@ namespace Adapter.Unity.EngineAdapter
         /// 引擎侧解码并触发调用方回调。</summary>
         internal void Tick()
         {
+            while (_pendingFontLoads.Count > 0)
+            {
+                FinishFontLoad(_pendingFontLoads.Dequeue());
+            }
+
             while (_completions.TryDequeue(out var pending))
             {
                 FinishOnMainThread(pending);
             }
+        }
+
+        /// <summary>在主线程完成一次 Font 资源的加载判定：路径存在的已导入字体资产即视为
+        /// "已加载"（见类型顶部"Font 资源种类"判断记录），不存在则按"加载失败"回调 false。</summary>
+        private void FinishFontLoad(PendingFontLoad pending)
+        {
+            _loading.Remove(pending.ResourceId);
+
+            var font = Resources.Load<Font>(pending.ResourcesFontName);
+            if (font == null)
+            {
+                pending.Callback(pending.ResourceId, false);
+                return;
+            }
+
+            _fonts[pending.ResourceId] = font;
+            _loaded.Add(pending.ResourceId);
+            pending.Callback(pending.ResourceId, true);
         }
 
         private void FinishOnMainThread(PendingCompletion pending)
@@ -240,10 +300,6 @@ namespace Adapter.Unity.EngineAdapter
                     break;
                 case ResourceKind.Audio:
                     success = TryDecodeWav(pending.ResourceId, pending.Bytes);
-                    break;
-                case ResourceKind.Font:
-                    _fontBytes[pending.ResourceId] = pending.Bytes;
-                    success = true;
                     break;
                 case ResourceKind.DataTable:
                     _dataTableText[pending.ResourceId] = System.Text.Encoding.UTF8.GetString(pending.Bytes);
@@ -383,7 +439,10 @@ namespace Adapter.Unity.EngineAdapter
 
         public bool TryGetAudioClip(Id resourceId, out AudioClip clip) => _audioClips.TryGetValue(resourceId, out clip!);
 
-        public bool TryGetFontBytes(Id resourceId, out byte[] bytes) => _fontBytes.TryGetValue(resourceId, out bytes!);
+        /// <summary>供 <see cref="Adapter.Unity.EngineAdapter.UnityUISurface"/> 按 <c>fontId</c>
+        /// 取回已加载的 <see cref="UnityEngine.Font"/> 资产（缺口 1 已解决，见类型顶部"Font 资源
+        /// 种类"判断记录），未加载/找不到时返回 false，调用方自行回退默认字体。</summary>
+        public bool TryGetFont(Id resourceId, out Font font) => _fonts.TryGetValue(resourceId, out font!);
 
         public bool TryGetDataTableText(Id resourceId, out string text) => _dataTableText.TryGetValue(resourceId, out text!);
 
@@ -433,11 +492,11 @@ namespace Adapter.Unity.EngineAdapter
             {
                 case ResourceKind.Image: return Path.Combine(RootDir, "sprites", name + ".png");
                 case ResourceKind.Audio: return Path.Combine(RootDir, "audio", name + ".wav");
-                case ResourceKind.Font: return Path.Combine(RootDir, "fonts", name + ".ttf");
                 case ResourceKind.DataTable: return Path.Combine(RootDir, "data", name + ".json");
                 case ResourceKind.Scene: return Path.Combine(RootDir, "scene", name + ".json");
                 case ResourceKind.NavMesh: return Path.Combine(RootDir, "nav_mesh", name + ".json");
-                default: throw new ArgumentOutOfRangeException(nameof(kind), kind, "未知的资源种类（Effect 走 ResolveEffectDir，不经本方法）");
+                default: throw new ArgumentOutOfRangeException(nameof(kind), kind,
+                    "未知的资源种类（Effect 走 ResolveEffectDir，Font 走 Resources.Load，均不经本方法）");
             }
         }
 

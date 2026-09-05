@@ -256,6 +256,62 @@ $totalContentFiles = (Get-ChildItem -Path $StreamingAssetsRoot -Recurse -File -E
 Write-Host ("StreamingAssets/GameFoundation/ 下文件总数（含以上五棵树的并集，sprites/audio/vfx 与 assets/_placeholder 下同名文件各自独立计数）：{0}" -f $totalContentFiles)
 
 # ---------------------------------------------------------------------------
+# 4.05 字体资源同步（缺口 1 新增）：assets/_placeholder/fonts/*.otf|*.ttf 哈希比对同步到
+#      adapters/unity/Assets/Framework/Resources/Fonts/（注意目标不是 StreamingAssets——字体
+#      资源不走 UnityResourceLoader 的通用"后台读字节"路径，必须是已被 Unity 资产管线导入过的
+#      UnityEngine.Font 对象，见该类型顶部"判断记录（Font 资源种类）"）；供 UnityResourceLoader/
+#      UnityUISurface 按 "font.<name>" id 规则（去掉 "font." 前缀、点号换下划线）以
+#      "Resources.Load<Font>(\"Fonts/<name>\")" 解析，规则见包 README"资源 id → 路径规则"。
+#      只同步 .otf/.ttf 两个扩展名本身（不含该目录下 README.md/LICENSE-OFL.txt 等说明文件——
+#      Assets/Framework/Resources/ 是 Unity 会整体扫描导入的目录，混入非字体文件会被当成多余
+#      资产一并导入，不属于本步骤职责）；已提交的同名文件哈希一致则不拷贝（避免不必要的 Unity
+#      重新导入）；源目录里已删除的字体文件会被镜像删除（连同其 .meta，否则下次放回同名文件会
+#      被 Unity 复用旧 .meta 里过期的导入设置）。
+# ---------------------------------------------------------------------------
+$fontsSourceDir = Join-Path $RepoRoot "assets\_placeholder\fonts"
+$fontsDestDir = Join-Path $RepoRoot "adapters\unity\Assets\Framework\Resources\Fonts"
+$fontCopied = 0
+$fontSkipped = 0
+$fontRemoved = 0
+$fontTotal = 0
+
+if (Test-Path $fontsSourceDir) {
+    if (-not (Test-Path $fontsDestDir)) {
+        New-Item -ItemType Directory -Force -Path $fontsDestDir | Out-Null
+    }
+
+    $fontSourceFiles = Get-ChildItem -Path $fontsSourceDir -Recurse -File |
+        Where-Object { $_.Extension -eq ".otf" -or $_.Extension -eq ".ttf" }
+    $fontKeepNames = New-Object System.Collections.Generic.HashSet[string]
+    foreach ($fontFile in $fontSourceFiles) {
+        $fontTotal++
+        [void]$fontKeepNames.Add($fontFile.Name)
+        $destPath = Join-Path $fontsDestDir $fontFile.Name
+        $changed = Copy-IfChanged -SourcePath $fontFile.FullName -DestPath $destPath
+        if ($changed) { $fontCopied++ } else { $fontSkipped++ }
+    }
+
+    if (Test-Path $fontsDestDir) {
+        $existingFontFiles = Get-ChildItem -Path $fontsDestDir -File |
+            Where-Object { $_.Extension -eq ".otf" -or $_.Extension -eq ".ttf" }
+        foreach ($existing in $existingFontFiles) {
+            if (-not $fontKeepNames.Contains($existing.Name)) {
+                Remove-Item -Path $existing.FullName -Force
+                $fontRemoved++
+                $metaPath = $existing.FullName + ".meta"
+                if (Test-Path $metaPath) {
+                    Remove-Item -Path $metaPath -Force
+                }
+            }
+        }
+    }
+} else {
+    Write-Host "  源目录不存在，跳过字体同步：$fontsSourceDir" -ForegroundColor Yellow
+}
+
+Write-Host ("  assets/_placeholder/fonts/*.otf|*.ttf -> Assets/Framework/Resources/Fonts（字体资源 id -> 路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $fontTotal, $fontCopied, $fontSkipped, $fontRemoved)
+
+# ---------------------------------------------------------------------------
 # 4.1 占位场景/导航资源文件（供 Core.Foundation.SceneRouter.SceneRouter.LoadScene 通过 world.map
 #     记录里既有的 scene_ref="scene.sample_field"/nav_ref="nav.sample_field" 分别以
 #     ResourceKind.Scene/ResourceKind.NavMesh 解析出的 UnityResourceLoader 路径

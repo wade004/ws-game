@@ -34,6 +34,7 @@ from .common import (
     read_json,
     resolve_root,
     strip_domain,
+    to_direction_slot_id,
     validate_id,
     write_json_pretty,
 )
@@ -275,7 +276,20 @@ def run(args: argparse.Namespace) -> int:
         "direction_count": args.direction_count,
     }
     if mirror_pairs_recorded:
-        row["mirror_pairs"] = mirror_pairs_recorded
+        # 判断记录（缺口 9）：display.map.mirror_pairs 的 direction_slot/mirror_of 是 Id 类型字段
+        # （见 core/foundation/display_info/contracts/SpriteInfo.cs MirrorPair、
+        # presentation/common/contracts/DirectionSlots.cs "Id 前缀"判断记录），裸方向档位名（如
+        # "front_side_l"）不含点号、不满足 Id 格式，写入前必须补上 "dir." 前缀；
+        # mirror_pairs_recorded 本身（供上面 mirror_source_of 查表用）与文件名/anchors.json 标注
+        # 仍然保持裸名字不变，只在这里拼进最终写入 display.map 的 row 时转换。
+        row["mirror_pairs"] = [
+            {
+                "direction_slot": to_direction_slot_id(rec["direction_slot"]),
+                "mirror_of": to_direction_slot_id(rec["mirror_of"]),
+                "flip_x": rec["flip_x"],
+            }
+            for rec in mirror_pairs_recorded
+        ]
     if paperdoll_layers:
         row["paperdoll_layers"] = paperdoll_layers
     if display_anchor_points:

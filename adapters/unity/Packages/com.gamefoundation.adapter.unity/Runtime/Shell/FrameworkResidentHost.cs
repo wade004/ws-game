@@ -65,10 +65,14 @@ namespace Adapter.Unity.Shell
         private const string Skill1Id = "skill.sample_burn";
         private const ulong Seed = 20260905UL;
 
-        private const string ActionSetId = "actionset.shell";
+        // 判断记录（缺口 2 已解决，同 Adapter.Unity.Bootstrap.GameFoundationBootstrap 同名判断
+        // 记录）：动作 id 现直接对应 data/_sample/found/found.input_action.json 表里的行
+        // （attack/skill_1，缺口 2 新增），不再是本类型此前自造、绕开数据表的
+        // "input.action.shell_attack"/"input.action.shell_skill_1"。
+        private const string ActionSetId = "actionset.sample_input_action";
         private const string ActionMove = "input.action.move";
-        private const string ActionAttack = "input.action.shell_attack";
-        private const string ActionSkill1 = "input.action.shell_skill_1";
+        private const string ActionAttack = "input.action.attack";
+        private const string ActionSkill1 = "input.action.skill_1";
 
         public GameplayAssembly Gameplay { get; private set; } = null!;
         public PresentationAssembly Presentation { get; private set; } = null!;
@@ -298,15 +302,16 @@ namespace Adapter.Unity.Shell
             // ISpatialQuery 的正式契约方法，不再是"非契约协作方法"）。
             _bus.Subscribe(Core.Rules.Common.RulesEventKeys.UnitDied, OnUnitDied);
 
-            presentation.InputMap.DeclareActionSet(new Id(ActionSetId), new[]
+            // 缺口 2 已解决：动作声明整批读自 found.input_action 表已加载的全部行（与
+            // Adapter.Unity.Bootstrap.GameFoundationBootstrap 同一套加载方式），不再由本类型代码
+            // 补充/绕开——见文件顶部 ActionAttack/ActionSkill1 判断记录。
+            var inputActionRecords = registry.GetAll("found.input_action");
+            var inputActionDefinitions = new ActionDefinition[inputActionRecords.Count];
+            for (var i = 0; i < inputActionRecords.Count; i++)
             {
-                new ActionDefinition(new Id(ActionMove), ActionKind.Axis2D,
-                    new[] { "composite2d:key:w|key:s|key:a|key:d" }, description: "Shell 演示：平面移动"),
-                new ActionDefinition(new Id(ActionAttack), ActionKind.Button,
-                    new[] { "key:j", "mouse:MouseLeft" }, description: "Shell 演示：普攻（skill.sample_strike）"),
-                new ActionDefinition(new Id(ActionSkill1), ActionKind.Button,
-                    new[] { "key:digit1" }, description: "Shell 演示：技能 1（skill.sample_burn）"),
-            });
+                inputActionDefinitions[i] = ActionDefinition.FromRecord(inputActionRecords[i]);
+            }
+            presentation.InputMap.DeclareActionSet(new Id(ActionSetId), inputActionDefinitions);
         }
 
         private Id? ResolveActionBarSlot(int slotIndex) => slotIndex switch

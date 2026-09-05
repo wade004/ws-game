@@ -154,8 +154,10 @@ namespace Tests.Foundation.Data
         // 方向选取原因：后续任务只会新增表/新增记录，不会删除已有 L0 表，`>=` 天然兼容"只增不减"
         // 的演进方向，不需要每次改动都回来同步这两个数字；仍然用精确值锁定的
         // `found.event_catalog`（87，2026-09-05 事件命名勘误后：改名 3 行 + 新增 7 行）/
-        // `found.input_action`（7）两张 L0 自有表不受本任务影响，
-        // 继续保持精确断言（它们的行数变化理应触发本文件的显式复核）。
+        // `found.input_action`（缺口收敛 G3：由 7 行补齐到 13 行——新增 6 个战斗动作，见
+        // data/_sample/found/found.input_action.json）两张 L0 自有表不受本任务影响，
+        // 继续保持精确断言（它们的行数变化理应触发本文件的显式复核）。RecordCount 下限随
+        // input_action +6 行同步从 113 上调到 119。
         [Fact]
         public void LoadAll_RealSampleData_ZeroIssues_AndPublishesLoadCompleted()
         {
@@ -180,11 +182,11 @@ namespace Tests.Foundation.Data
 
             Assert.NotNull(registry.Get("stat.definition", new Id("stat.strength")));
             Assert.Equal(88, registry.GetAll("found.event_catalog").Count);
-            Assert.Equal(7, registry.GetAll("found.input_action").Count);
+            Assert.Equal(13, registry.GetAll("found.input_action").Count);
 
             Assert.NotNull(received);
             Assert.True(received!.TableCount >= 14, $"期望 data/_sample 至少 14 张表，实际 {received.TableCount}");
-            Assert.True(received.RecordCount >= 113, $"期望 data/_sample 至少 113 条记录，实际 {received.RecordCount}");
+            Assert.True(received.RecordCount >= 119, $"期望 data/_sample 至少 119 条记录，实际 {received.RecordCount}");
             Assert.Equal(0, received.ErrorCount);
             Assert.Equal(0, received.WarningCount);
         }
