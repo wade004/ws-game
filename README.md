@@ -25,6 +25,7 @@ data/_sample/           框架自测/校验器自测用的示例数据表，不�
 assets/_placeholder/    灰盒竖切用的通用占位资产包（精灵、特效、音效、字体等），随版本快照一并交付
 toolchain/              校验、构建、资产导入等跨游戏 Python 工具链（validate_data.py、import_assets.py 等）
 dist/<version>/         build.ps1 -Dist 产出的版本快照（构建产物，.gitignore，不入库，可由源码重建）
+VERSION                 单一版本源（纯文本版本号，如 0.2.0），两个 package.json 与 dist 快照均以此为准，见"版本与快照"一节
 Core.sln                六个核心类库 + 六个测试工程的 .NET 解决方案
 build.ps1               DLL 同步、内容同步、版本快照打包脚本（PowerShell 5.1 兼容）
 check.ps1               一键门禁脚本：构建/测试/校验/禁用词扫描/Unity 编译与测试/独立版冒烟一次跑完并汇总（PowerShell 5.1 兼容）
@@ -55,9 +56,10 @@ python toolchain/validate_data.py
 | `powershell -File build.ps1 -SkipTests` | 同上，跳过 `dotnet test` |
 | `powershell -File build.ps1 -SyncOnly` | 跳过 `dotnet build/test`，只做 DLL 同步 + 内容同步（要求此前至少完整 build 过一次） |
 | `powershell -File build.ps1 -SyncContent` | 只做内容同步（跳过 `dotnet build/test` 与 DLL 同步）；只改了 `data/_sample`/`assets/_placeholder`、没改任何 C# 代码时的快速路径 |
-| `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`）、`assets/_placeholder` 打成一份版本快照 `dist/<version>/`，并生成 `MANIFEST.txt` |
+| `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`）、`assets/_placeholder`、`data/_framework` 打成一份版本快照 `dist/<version>/`，并生成扩展后的 `MANIFEST.txt`（见下方"版本与快照"一节） |
+| `powershell -File build.ps1 -Dist auto` | 同上，但版本号不由调用方指定，改为读取仓库根 `VERSION` 文件当前内容 |
 
-同步与打包均按文件哈希比较、只处理变化的文件；`-Dist` 打的快照不入库，可随时由源码重新生成。
+同步与打包均按文件哈希比较、只处理变化的文件；`-Dist` 打的快照不入库，可随时由源码重新生成；`-Dist` 传入的版本号必须形如 `X.Y.Z`（三段纯数字），格式非法直接报错退出。
 
 ### Unity 工作台（命令行跑测试）
 
@@ -72,7 +74,7 @@ Unity.exe -batchmode                -projectPath adapters\unity -runTests -testP
 
 ## `check.ps1`（一键门禁，仓库根，见 11_工程规范与测试.md 第 8 节）
 
-依次跑：`.NET` 构建 + 测试（六工程，含性能基线）→ 数据校验（合并根）→ 事件常量/占位资产生成器一致性检查（`--check`，只读）→ `toolchain` 自身的 Python 测试 → 两道禁用词扫描（全仓库不出现具体游戏代号；`architecture` 正文不出现具体引擎/语言/框架/工具名）→ `build.ps1 -SkipTests` 同步 DLL → Unity 编译检查 → Unity EditMode/PlayMode 测试 → 独立版构建 + `-gf-smoke` 无人值守冒烟。每步单独计时与判定，最后打印一张汇总表；任一步失败，整体以非 0 退出码结束。
+依次跑：`.NET` 构建 + 测试（六工程，含性能基线）→ 数据校验（合并根）→ 事件常量/占位资产生成器一致性检查（`--check`，只读）→ `toolchain` 自身的 Python 测试 → 两道禁用词扫描（全仓库不出现具体游戏代号；`architecture` 正文不出现具体引擎/语言/框架/工具名）→ 版本一致性（`VERSION` 与两个 `package.json`）→ `build.ps1 -SkipTests` 同步 DLL → Unity 编译检查 → Unity EditMode/PlayMode 测试 → 独立版构建 + `-gf-smoke` 无人值守冒烟。每步单独计时与判定，最后打印一张汇总表；任一步失败，整体以非 0 退出码结束。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1              # 全量（含 Unity 四步）
@@ -81,6 +83,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipSmoke   # Uni
 ```
 
 `-ArtifactsPath <dir>` 可覆盖 `dotnet`/Unity 产物落地目录（默认 `bin\_check_artifacts`，已被 `.gitignore` 的 `bin/` 规则忽略）；`-UnityExe <path>` 可显式指定 Unity 可执行文件路径（默认按 Unity Hub 常见安装位置猜测，找不到则要求显式传参）。
+
+`check.ps1` 另有一步"版本一致性"（不需要 `-Dist`，`-SkipUnity` 下同样会跑）：只读比较仓库根 `VERSION` 文件与两个 `package.json`（`adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json`、`games/_template/package.json`，含后者对适配层包的依赖版本号）是否一致，三处任一处漏改都会让这一步失败。
+
+## 版本与快照
+
+版本号的单一来源是仓库根的 `VERSION` 文件（纯文本，如 `0.2.0`，UTF-8 无 BOM）：升级版本号时只改这一处，`adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json`、`games/_template/package.json` 两个 `package.json` 的 `version` 字段（含 `games/_template` 对适配层包的依赖版本号）需要同步改成同一个值，`check.ps1` 的"版本一致性"步骤会校验这三处是否一致（见上一节）。
+
+`build.ps1 -Dist <version>` 打快照时会把最终使用的版本号（显式传参，或 `-Dist auto` 时从 `VERSION` 读到的值）回写进 `dist/<version>/` 内两个 `package.json` 的 `version` 字段，并生成扩展后的 `MANIFEST.txt`，记录本次快照的可追溯信息（见 [11_工程规范与测试.md](architecture/11_工程规范与测试.md) 第 7 节"版本号必须可追溯到对应的架构文档版本与数据 schema 版本组合"）：
+
+- `version`/`date`/`git_commit`（`git rev-parse --short HEAD`，打包时工作树不干净则追加 `-dirty`）；
+- 各目录文件数（`[directory_file_counts]`）；
+- `[architecture_docs]`：`architecture/0*.md`、`1*.md` 每篇文档标题里的版本号（如 `01_分层与依赖.md: v3`）——注意 `dist/` 本身不打包 `architecture/` 目录，这一节只是把"打这份快照时架构文档集处于哪个版本组合"记录下来，供事后核对；
+- `[data_schemas]`：`data/_framework` 下每张表的 `table`/`schema_version`（`data/_sample` 不随 `dist` 分发，不列入）；
+- `[core_assemblies]`：六个核心 DLL 的 sha256。
 
 ## 新游戏如何消费本框架
 

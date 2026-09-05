@@ -314,5 +314,80 @@ namespace Adapter.Unity.Tests.Runtime
                 $"两次进图、同样步数的移动位移应当基本一致（第一次 {deltaX1}，第二次 {deltaX2}），" +
                 "明显偏大说明旧场景的固定步回调未被正确退订、发生了重复 tick");
         }
+
+        /// <summary>
+        /// 引擎侧收边任务验收：<see cref="GameFoundationBootstrap.OnFixedStep"/> 新增的
+        /// <c>AppState == InWorld</c> 门槛（见该方法判断记录，与
+        /// <c>Adapter.Unity.Shell.FrameworkResidentHost.OnFixedStep</c> 对齐）——本用例直接断言
+        /// 门槛本身生效，与
+        /// <c>SharedBootstrapDiscreteTests.SharedBootstrap_EndTurnKeyBinding_StillWorks_WithStaleSceneBootstrapLeftAlive</c>
+        /// （验证"即便场景里残留另一个实例，真正活跃的实例仍能正常工作"）互补：把场景里唯一的
+        /// <see cref="GameFoundationBootstrap"/> 实例本身手工切出 InWorld（效果等价于"一个已经
+        /// 离开 InWorld 但仍残留在场景里继续跑固定步的引导实例"），验证此时真实按下移动键
+        /// （<c>'d'</c>，绑定 <c>input.action.move</c> 的 <c>composite2d</c> 右方向子键，见
+        /// <c>data/_framework/found/found.input_action.json</c>）不会消费共享输入队列——玩家
+        /// 位置不应移动；切回 InWorld 后同一份按键立即恢复生效，证明门槛只是"暂停消费"而不是
+        /// 输入队列或世界状态被破坏。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator OnFixedStep_SkipsInputConsumption_WhenAppStateNotInWorld()
+        {
+            yield return LoadGreyBoxScene();
+            var bootstrap = RequireBootstrap();
+
+            // BuildWorld 第 9 步（引擎侧收边任务新增）已自驱 AppState 走到 InWorld，见该方法
+            // 判断记录："本类型是灰盒场景唯一挂载的组件，没有外部菜单/读档流程，需要自己驱动
+            // Boot->MainMenu->Loading->InWorld 这条链路"。
+            Assert.AreEqual(
+                Core.Foundation.AppLifecycle.AppState.InWorld, bootstrap.Gameplay!.AppState.GetState(),
+                "灰盒场景自身的 GameFoundationBootstrap 装配完成后应已自驱到 InWorld");
+
+            var input = UnityEngineHost.Ensure().Input as UnityInput;
+            Assert.IsNotNull(input, "UnityEngineHost.Input 应当是 UnityInput 实现（SimulateKeyForTest 所在类型）");
+
+            // 手工把它切出 InWorld（legal InWorld->MainMenu 转移，见 AppStateMachineConfig.Default()），
+            // 模拟"应用已经离开 InWorld，但引导实例仍残留在场景里继续跑固定步"这一场景。
+            bootstrap.Gameplay.AppState.RequestTransition(Core.Foundation.AppLifecycle.AppState.MainMenu);
+            Assert.AreEqual(Core.Foundation.AppLifecycle.AppState.MainMenu, bootstrap.Gameplay.AppState.GetState());
+
+            var positionBeforeNonInWorld = bootstrap.World!.GetEntity(bootstrap.PlayerId)!.Position;
+
+            // 持续按住向右移动键若干个固定步——若 OnFixedStep 未能正确跳过
+            // Presentation.InputMap.Update/HandleFixedInput，这里玩家会明显向 +X 移动
+            // （同 Move_Right_IncreasesPlayerX_AndTurnsSideways 的持续提交惯例，改用真实按键而不是
+            // 直接调用 Carriers.Movement.Request，覆盖 InputMap.Update 这一步本身）。
+            for (var i = 0; i < 15; i++)
+            {
+                input!.SimulateKeyForTest("d", down: true);
+                yield return new WaitForFixedUpdate();
+            }
+            input!.SimulateKeyForTest("d", down: false);
+            yield return new WaitForFixedUpdate();
+
+            var positionAfterNonInWorld = bootstrap.World!.GetEntity(bootstrap.PlayerId)!.Position;
+            Assert.AreEqual(positionBeforeNonInWorld.X, positionAfterNonInWorld.X, 0.0001,
+                "AppState 非 InWorld 期间，OnFixedStep 应跳过 Presentation.InputMap.Update/" +
+                "HandleFixedInput，真实按键输入不应移动玩家");
+            Assert.AreEqual(positionBeforeNonInWorld.Y, positionAfterNonInWorld.Y, 0.0001);
+
+            // 切回 InWorld（MainMenu->Loading->InWorld，同 AppStateMachineConfig.Default() 登记的
+            // 合法转移），确认同一份按键立即恢复生效——证明门槛只是暂停消费，不是输入队列或世界
+            // 状态被破坏。
+            bootstrap.Gameplay.AppState.RequestTransition(Core.Foundation.AppLifecycle.AppState.Loading);
+            bootstrap.Gameplay.AppState.RequestTransition(Core.Foundation.AppLifecycle.AppState.InWorld);
+            Assert.AreEqual(Core.Foundation.AppLifecycle.AppState.InWorld, bootstrap.Gameplay.AppState.GetState());
+
+            for (var i = 0; i < 15; i++)
+            {
+                input!.SimulateKeyForTest("d", down: true);
+                yield return new WaitForFixedUpdate();
+            }
+            input!.SimulateKeyForTest("d", down: false);
+            yield return new WaitForFixedUpdate();
+
+            var positionAfterResume = bootstrap.World!.GetEntity(bootstrap.PlayerId)!.Position;
+            Assert.Greater(positionAfterResume.X, positionAfterNonInWorld.X,
+                "回到 InWorld 后，同一份移动按键应当恢复生效——证明门槛不是永久性失效");
+        }
     }
 }

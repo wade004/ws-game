@@ -416,6 +416,34 @@ namespace Adapter.Unity.Bootstrap
             // ---------------------------------------------------------
             _fixedStepHandle = _host.Clock.RequestFixedStep(Time.fixedDeltaTime, OnFixedStep);
             _frameHandle = _host.Clock.OnFrame(OnFrameTick);
+
+            // ---------------------------------------------------------
+            // 9) 引擎侧收边任务新增：自驱 AppState 主状态走到 InWorld（Boot -> MainMenu ->
+            //    Loading -> InWorld，AppStateMachineConfig.Default() 登记的合法链路）。
+            //
+            //    判断记录（为什么本类型需要自己驱动这条链路，而不是像 FrameworkResidentHost 一样
+            //    依赖外部的菜单/读档流程）：本类型是灰盒场景（GreyBox.unity）唯一挂载的组件，从
+            //    Awake 到这里为止的整条装配路径里从未出现主菜单/读档流程（没有 ShellRoot，见类型
+            //    注释"灰盒场景唯一挂载的引导组件"）——AppStateHost 构造后默认停在 AppState.Boot
+            //    （见 core/foundation/app_lifecycle/core/AppStateHost.cs），且此前 OnFixedStep 不
+            //    检查 AppState，World.Tick 无论主状态是什么都照常推进，GreyBoxTests/UiSuiteTests
+            //    的既有用例（移动、施法、拾取等全部经 HandleFixedInput 或直接
+            //    IWorldSim.SubmitIntent 注入）因此从未依赖过主状态。上面新增的 OnFixedStep
+            //    AppState==InWorld 门槛（见该方法判断记录）若不补这一步，会让本类型的世界推进
+            //    永久卡在 Boot 状态——不是"更安全的门槛"，而是让灰盒场景整体失效。与
+            //    SharedBootstrapDiscreteTests.BuildInactiveBootstrapWithDiscreteOverlay 此前用反射
+            //    在测试代码里手工补的同一条 Boot->MainMenu->Loading->InWorld 链路同一处理（该测试
+            //    判断记录："AppStateMachineConfig.Default() 只允许 Boot->MainMenu->Loading->InWorld
+            //    这条链路，主状态若停留在默认 Boot...都会因为非法转移而静默失败"）——现在改为本类型
+            //    自己在装配完成时就走完这条链路，测试代码里的等价调用因此变成一次无害的
+            //    InWorld->MainMenu->Loading->InWorld 循环（AppStateMachineConfig.Default() 同样
+            //    登记了 InWorld->MainMenu 这条合法转移，见该类型判断记录 3 附近的转移表），不需要
+            //    改动测试。RequestTransition 对非法转移只返回 false、不抛异常（IAppStateHost 契约），
+            //    因此即便未来状态机配置收紧也不会让 Bootstrap() 本身失败。
+            // ---------------------------------------------------------
+            Gameplay.AppState.RequestTransition(Core.Foundation.AppLifecycle.AppState.MainMenu);
+            Gameplay.AppState.RequestTransition(Core.Foundation.AppLifecycle.AppState.Loading);
+            Gameplay.AppState.RequestTransition(Core.Foundation.AppLifecycle.AppState.InWorld);
         }
 
         private void OnUnitDied(IEvent evt)
@@ -436,14 +464,39 @@ namespace Adapter.Unity.Bootstrap
 
         /// <summary>由 <see cref="_fixedStepHandle"/>（<c>host.Clock.RequestFixedStep</c>）驱动，
         /// 取代此前的 MonoBehaviour FixedUpdate（见文件顶部"判断记录 1"）。<paramref name="stepSeconds"/>
-        /// 恒等于注册时传入的 <c>Time.fixedDeltaTime</c>。节奏门：<see cref="WaitForPlaybackPacingPolicy"/>
-        /// 模式下，若上一个离散步仍在等待表现层回放完毕（<c>IsPlaybackFinished == false</c>），本次
-        /// 回调跳过 <see cref="GameplayAssembly.Advance"/>——03 第 9 节"调用方在推进下一离散步之前
-        /// 调用一次 IsPlaybackFinished 判定是否可以推进"正是这一层判定；见文件顶部"判断记录 1b"，
-        /// 本类型战斗保持连续模式，这条门槛目前恒为真、不产生任何跳过。</summary>
+        /// 恒等于注册时传入的 <c>Time.fixedDeltaTime</c>。
+        ///
+        /// 判断记录（引擎侧收边任务：补 <c>AppState == InWorld</c> 门槛，与
+        /// <c>Adapter.Unity.Shell.FrameworkResidentHost.OnFixedStep</c> 对齐）：此前本方法只判空、
+        /// 不判应用级状态——场景里若残留一个已 <c>Bootstrap()</c> 成功、但应用已经离开 InWorld（例如
+        /// 回到主菜单、暂停、或场景切换过程中残留的旧引导实例，见
+        /// <c>SharedBootstrap_EndTurnKeyBinding_StillWorks_WithStaleSceneBootstrapLeftAlive</c> 覆盖
+        /// 的"残留场景引导实例"场景）的 <see cref="GameFoundationBootstrap"/> 实例，仍会在每个固定步
+        /// 消费共享输入队列（<c>Presentation.InputMap.Update</c>）并调用
+        /// <see cref="GameplayAssembly.Advance"/>——与 <see cref="FrameworkResidentHost"/> 不对称，
+        /// 也会让非 InWorld 状态下场景残留的引导实例"偷走"本应只由当前活跃引导消费的一次输入
+        /// 边沿（<c>HandleButtonRisingEdge</c> 的 rising-edge 状态是逐实例维护的，被残留实例抢先
+        /// Update 一次会导致真正处于 InWorld 的引导实例读到"已经不是上升沿"）。改为与
+        /// <see cref="FrameworkResidentHost.OnFixedStep"/> 同款判断：只有 <c>Gameplay.AppState</c>
+        /// 处于 <see cref="Core.Foundation.AppLifecycle.AppState.InWorld"/> 时才继续；<c>InWorld</c>
+        /// 是应用级主状态（见 <c>AppState</c> 枚举），离散模式下的 <c>awaiting_input</c>/
+        /// <c>playing_back</c>（表现层回放门）都是 <c>InWorld</c> 内部的节奏子状态、不是独立的
+        /// <c>AppState</c> 枚举值，因此天然仍满足本判断——不需要额外识别这两个子态，紧接着的
+        /// <see cref="WaitForPlaybackPacingPolicy"/> 节奏门（若上一个离散步仍在等待表现层回放完毕，
+        /// <c>IsPlaybackFinished == false</c>）才是"InWorld 内部再细分 awaiting_input/playing_back
+        /// 是否可以推进下一步"这一层判定——03 第 9 节"调用方在推进下一离散步之前调用一次
+        /// IsPlaybackFinished 判定是否可以推进"正是这一层；见文件顶部"判断记录 1b"，本类型战斗保持
+        /// 连续模式，这条门槛目前恒为真、不产生任何跳过。<c>Presentation.InputMap.Update</c> 随
+        /// <c>AppState</c> 门槛一起跳过（见下方——本身就是"输入消费"，理应与其余逻辑推进同一条
+        /// 门槛，不应该在非 InWorld 状态下抢占共享输入队列的边沿状态）。</summary>
         private void OnFixedStep(double stepSeconds)
         {
             if (BootstrapFailed || World == null || Presentation == null || Gameplay == null)
+            {
+                return;
+            }
+
+            if (Gameplay.AppState.GetState() != Core.Foundation.AppLifecycle.AppState.InWorld)
             {
                 return;
             }

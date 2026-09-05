@@ -16,7 +16,7 @@
       "depth": 0,
       "source": "local",
       "dependencies": {
-        "com.gamefoundation.adapter.unity": "0.0.1"
+        "com.gamefoundation.adapter.unity": "0.2.0"
       }
     },
     "com.unity.2d.animation": {

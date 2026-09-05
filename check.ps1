@@ -363,7 +363,51 @@ Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/�
 }
 
 # -----------------------------------------------------------------------------
-# 8. build.ps1 -SkipTests（同步六个核心 DLL 到 Unity 适配层包 + 同步内容数据集）
+# 8. 版本一致性（版本可追溯任务新增，见 11_工程规范与测试.md 第 7 节"版本号必须可追溯到
+#    对应的架构文档版本与数据 schema 版本组合"）：单一版本源仓库根 VERSION 文件必须与
+#    adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json、
+#    games/_template/package.json 两处 version 字段一致（含 games/_template 对适配层包的
+#    依赖版本号），避免三处手改漏掉其中一处导致 dist 快照与源码割裂。只读比较，不改写任何文件。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "版本一致性：VERSION 与两个 package.json" {
+    $versionPath = Join-Path $RepoRoot "VERSION"
+    if (-not (Test-Path $versionPath)) {
+        throw "找不到版本文件：$versionPath"
+    }
+    $version = (Get-Content -Path $versionPath -Raw).Trim()
+    if ($version -notmatch '^\d+\.\d+\.\d+$') {
+        throw "VERSION 内容格式非法：'$version'（需形如 X.Y.Z）"
+    }
+
+    $adapterPkgPath = Join-Path $RepoRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json"
+    $templatePkgPath = Join-Path $RepoRoot "games\_template\package.json"
+
+    # 判断记录：两个 package.json 是不带 BOM 的 UTF-8；Windows PowerShell 5.1 的 Get-Content
+    # 在没有 BOM 时按系统 ANSI 代码页猜编码，读中文会乱码甚至让 ConvertFrom-Json 报错，
+    # 必须显式 -Encoding UTF8（与 build.ps1 打包步骤同一判断记录）。
+    $adapterPkg = (Get-Content -Path $adapterPkgPath -Raw -Encoding UTF8) | ConvertFrom-Json
+    $templatePkg = (Get-Content -Path $templatePkgPath -Raw -Encoding UTF8) | ConvertFrom-Json
+
+    $mismatches = @()
+    if ($adapterPkg.version -ne $version) {
+        $mismatches += "adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json version=$($adapterPkg.version) != VERSION=$version"
+    }
+    if ($templatePkg.version -ne $version) {
+        $mismatches += "games/_template/package.json version=$($templatePkg.version) != VERSION=$version"
+    }
+    $templateDepVersion = $templatePkg.dependencies."com.gamefoundation.adapter.unity"
+    if ($templateDepVersion -ne $version) {
+        $mismatches += "games/_template/package.json dependencies.com.gamefoundation.adapter.unity=$templateDepVersion != VERSION=$version"
+    }
+
+    if ($mismatches.Count -gt 0) {
+        throw ("版本不一致：`n" + ($mismatches -join "`n"))
+    }
+    [PSCustomObject]@{ Ok = $true; Detail = "VERSION=$version，两个 package.json 一致" }
+}
+
+# -----------------------------------------------------------------------------
+# 9. build.ps1 -SkipTests（同步六个核心 DLL 到 Unity 适配层包 + 同步内容数据集）
 #    另起一个 powershell 子进程跑，避免 build.ps1 内部的 exit 语句连带终止本脚本。
 # -----------------------------------------------------------------------------
 Invoke-CheckStep "build.ps1 -SkipTests（同步 DLL）" {

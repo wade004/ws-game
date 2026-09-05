@@ -24,9 +24,19 @@
     目标目录里的文件。
 
 .PARAMETER Dist
-    传入版本号（如 0.0.1）时，额外把引擎适配层包（含刚同步的 DLL）、games/_template、
-    toolchain（排除 .venv 与 __pycache__）、assets/_placeholder 复制到 dist/<version>/ 下，
-    并生成 MANIFEST.txt。不传则跳过打包步骤。
+    版本可追溯任务新增语义（见 11_工程规范与测试.md 第 7 节"版本号必须可追溯到对应的架构文档
+    版本与数据 schema 版本组合"；单一版本源见仓库根 VERSION 文件）：
+      - 传入具体版本号（如 0.2.0）：以参数为准，并校验格式必须形如 X.Y.Z（三段纯数字，用点号
+        分隔），格式非法直接报错退出，不落地任何 dist 产物。
+      - 传入字面量 "auto"：不由调用方指定具体版本号，改为读取仓库根 VERSION 文件的内容作为
+        本次打包版本（"不传版本时读它"——PowerShell 5.1 的 [string] 类型参数无法在完全不给值的
+        情况下识别"传了这个开关但没给值"，因此用 "auto" 这个不会是合法版本号的字面量表达
+        "不指定版本、从单一版本源取值"这一语义，同时保留 `-Dist <显式版本号>` 这一行之前就有、
+        任务验收命令仍在用的调用方式不变）。
+      - 不传（默认空字符串）：跳过打包步骤，行为与此前一致。
+    打包时会把最终解析出的版本号写入 dist 内两个 package.json 的 version 字段（含
+    games/_template/package.json 对适配层包的依赖版本号），并生成扩展后的 MANIFEST.txt
+    （version/date/git_commit/各目录文件数/architecture_docs/data_schemas/core_assemblies）。
 
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符。
@@ -44,6 +54,36 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = $PSScriptRoot
 $SolutionPath = Join-Path $RepoRoot "Core.sln"
 $PluginsCoreDir = Join-Path $RepoRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core"
+$VersionFilePath = Join-Path $RepoRoot "VERSION"
+$VersionFormatPattern = '^\d+\.\d+\.\d+$'
+
+# 版本可追溯任务新增：单一版本源读取 + -Dist 参数解析（见上方 .PARAMETER Dist 说明）。
+# 校验在脚本一开始就做（哪怕本次调用根本不带 -Dist），提前暴露 VERSION 文件本身格式错误。
+function Get-FrameworkVersionFromFile {
+    if (-not (Test-Path $VersionFilePath)) {
+        throw "找不到版本文件：$VersionFilePath（单一版本源，见 11_工程规范与测试.md 第 7 节）"
+    }
+    $v = (Get-Content -Path $VersionFilePath -Raw).Trim()
+    if ($v -notmatch $VersionFormatPattern) {
+        throw "$VersionFilePath 内容格式非法：'$v'（需形如 X.Y.Z）"
+    }
+    return $v
+}
+
+$DistRequested = ($Dist -ne "")
+$ResolvedDistVersion = ""
+if ($DistRequested) {
+    if ($Dist -eq "auto") {
+        $ResolvedDistVersion = Get-FrameworkVersionFromFile
+        Write-Host "-Dist auto：从 $VersionFilePath 读取版本号 -> $ResolvedDistVersion" -ForegroundColor Cyan
+    } else {
+        if ($Dist -notmatch $VersionFormatPattern) {
+            Write-Host "-Dist 版本号格式非法：'$Dist'（需形如 X.Y.Z，或传 'auto' 从 VERSION 文件读取）" -ForegroundColor Red
+            exit 1
+        }
+        $ResolvedDistVersion = $Dist
+    }
+}
 
 # 六个需要发布给 Unity 端的核心 DLL；不拷贝 Adapters.Stub、不拷贝任何测试或 xunit 相关程序集。
 $CoreAssemblies = @(
@@ -378,10 +418,10 @@ Write-Host "  已生成占位导航资源：$templateNavResourcePath（nav.templ
 # ---------------------------------------------------------------------------
 # 5. 可选：打分发包 dist/<version>/
 # ---------------------------------------------------------------------------
-if ($Dist -ne "") {
-    Write-Step "打分发包 dist/$Dist/"
+if ($DistRequested) {
+    Write-Step "打分发包 dist/$ResolvedDistVersion/"
 
-    $DistRoot = Join-Path $RepoRoot ("dist\" + $Dist)
+    $DistRoot = Join-Path $RepoRoot ("dist\" + $ResolvedDistVersion)
     if (Test-Path $DistRoot) {
         Remove-Item -Path $DistRoot -Recurse -Force -Confirm:$false
     }
@@ -431,7 +471,7 @@ if ($Dist -ne "") {
         }
 
         $fileCount = (Get-ChildItem -Path $dst -Recurse -File).Count
-        Write-Host ("  {0} -> dist\{1}\{2}  ({3} files)" -f $SourceRelative, $Dist, $DestName, $fileCount)
+        Write-Host ("  {0} -> dist\{1}\{2}  ({3} files)" -f $SourceRelative, $ResolvedDistVersion, $DestName, $fileCount)
         return $fileCount
     }
 
@@ -445,16 +485,142 @@ if ($Dist -ne "") {
     # 两根合并加载/校验（见 data/README.md"多根加载与合并规则"）。
     $dataFrameworkFileCount = Copy-DistDir -SourceRelative "data\_framework" -DestName "data\_framework"
 
+    # -------------------------------------------------------------------
+    # 5.1 版本可追溯任务新增：把解析出的版本号写回 dist 内两个 package.json
+    #     （含 games/_template 对适配层包的依赖版本号），保持"单一版本源"——
+    #     源码仓库里的两个 package.json 已经在提交时同步改成当前 VERSION，这里
+    #     针对的是"显式传入与仓库当前 VERSION 不同的版本号打历史/预发布快照"这一种
+    #     场景（例如 -Dist auto 之外的显式覆盖），确保 dist 产物里的 package.json
+    #     永远与本次打包的 $ResolvedDistVersion 一致，不依赖调用方提前手改源码。
+    # -------------------------------------------------------------------
+    function Set-DistPackageJsonVersion {
+        param(
+            [string]$JsonPath,
+            [string]$Version
+        )
+        if (-not (Test-Path $JsonPath)) {
+            Write-Host "  未找到 $JsonPath，跳过版本回写" -ForegroundColor Yellow
+            return
+        }
+        # 判断记录：这些 package.json 是不带 BOM 的 UTF-8（git 常见约定）。Windows PowerShell 5.1
+        # 的 Get-Content 在没有 BOM 时按系统 ANSI 代码页猜编码，会把文件里的中文字符读成乱码
+        # （ConvertFrom-Json 甚至可能因此报"Invalid object passed in"）；必须显式 -Encoding UTF8。
+        $obj = (Get-Content -Path $JsonPath -Raw -Encoding UTF8) | ConvertFrom-Json
+        $obj.version = $Version
+        if (($obj.PSObject.Properties.Name -contains "dependencies") -and
+            ($obj.dependencies.PSObject.Properties.Name -contains "com.gamefoundation.adapter.unity")) {
+            $obj.dependencies."com.gamefoundation.adapter.unity" = $Version
+        }
+        ($obj | ConvertTo-Json -Depth 10) | Set-Content -Path $JsonPath -Encoding utf8
+        Write-Host "  已回写版本号 $Version -> $JsonPath"
+    }
+
+    Set-DistPackageJsonVersion -JsonPath (Join-Path $DistRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json") -Version $ResolvedDistVersion
+    Set-DistPackageJsonVersion -JsonPath (Join-Path $DistRoot "games\_template\package.json") -Version $ResolvedDistVersion
+
+    # -------------------------------------------------------------------
+    # 5.2 版本可追溯任务新增：git_commit（工作树不干净时加 -dirty 后缀）
+    # -------------------------------------------------------------------
+    Push-Location $RepoRoot
+    try {
+        $gitCommitShort = (& git rev-parse --short HEAD).Trim()
+        $gitStatusPorcelain = & git status --porcelain
+        $gitDirty = $false
+        if ($null -ne $gitStatusPorcelain) {
+            $joined = ($gitStatusPorcelain -join "`n").Trim()
+            if ($joined -ne "") { $gitDirty = $true }
+        }
+        if ($gitDirty) {
+            $gitCommit = "$gitCommitShort-dirty"
+        } else {
+            $gitCommit = $gitCommitShort
+        }
+    } catch {
+        $gitCommit = "(unknown：$($_.Exception.Message))"
+    } finally {
+        Pop-Location
+    }
+
+    # -------------------------------------------------------------------
+    # 5.3 版本可追溯任务新增：architecture_docs —— 逐篇解析 architecture/0*.md、1*.md
+    #     首行标题里的版本号（形如"# xxx vN"）。dist 本身不打包 architecture/ 目录（见
+    #     Copy-DistDir 调用列表），这里只是把"打这份快照时，架构文档集处于哪个版本组合"
+    #     记录进 MANIFEST，供 11 第 7 节要求的可追溯性核对。
+    # -------------------------------------------------------------------
+    $archDocLines = @()
+    $archDir = Join-Path $RepoRoot "architecture"
+    $archFiles = @()
+    $archFiles += Get-ChildItem -Path $archDir -Filter "0*.md" -File -ErrorAction SilentlyContinue
+    $archFiles += Get-ChildItem -Path $archDir -Filter "1*.md" -File -ErrorAction SilentlyContinue
+    $archFiles = $archFiles | Sort-Object Name
+    foreach ($af in $archFiles) {
+        $firstLine = Get-Content -Path $af.FullName -TotalCount 1 -Encoding UTF8
+        $m = [regex]::Match($firstLine, 'v(\d+)\s*$')
+        if ($m.Success) {
+            $archDocLines += ("  {0}: v{1}" -f $af.Name, $m.Groups[1].Value)
+        } else {
+            $archDocLines += ("  {0}: (未识别到版本号，首行：{1})" -f $af.Name, $firstLine.Trim())
+        }
+    }
+
+    # -------------------------------------------------------------------
+    # 5.4 版本可追溯任务新增：data_schemas —— 遍历 data/_framework 下每张表的
+    #     table/schema_version（data/_sample 不随 dist 分发，因此不列入；见 data/README.md
+    #     "两类目录"一节与 build.ps1 判断记录）。
+    # -------------------------------------------------------------------
+    $dataSchemaLines = @()
+    $dataFrameworkSrcDir = Join-Path $RepoRoot "data\_framework"
+    if (Test-Path $dataFrameworkSrcDir) {
+        $schemaJsonFiles = Get-ChildItem -Path $dataFrameworkSrcDir -Filter "*.json" -File -Recurse | Sort-Object FullName
+        foreach ($sjf in $schemaJsonFiles) {
+            try {
+                $tableObj = (Get-Content -Path $sjf.FullName -Raw -Encoding UTF8) | ConvertFrom-Json
+                $dataSchemaLines += ("  {0}: schema_version={1}" -f $tableObj.table, $tableObj.schema_version)
+            } catch {
+                $dataSchemaLines += ("  {0}: 解析失败（{1}）" -f $sjf.Name, $_.Exception.Message)
+            }
+        }
+    }
+
+    # -------------------------------------------------------------------
+    # 5.5 版本可追溯任务新增：core_assemblies —— 六个核心 DLL 的 sha256，取 dist 内
+    #     刚拷贝进适配层包的那一份（与实际分发物一致，而不是仓库内 core/*/bin/ 下的构建产物，
+    #     两者理论上内容相同，但直接对 dist 内文件取哈希更贴合"这份快照实际包含什么"）。
+    # -------------------------------------------------------------------
+    $coreAssemblyLines = @()
+    $distPluginsCoreDir = Join-Path $DistRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core"
+    foreach ($asm in $CoreAssemblies) {
+        $distDllPath = Join-Path $distPluginsCoreDir ($asm.Name + ".dll")
+        if (Test-Path $distDllPath) {
+            $sha = (Get-FileHash -Path $distDllPath -Algorithm SHA256).Hash.ToLower()
+            $coreAssemblyLines += ("  {0}.dll: sha256={1}" -f $asm.Name, $sha)
+        } else {
+            $coreAssemblyLines += ("  {0}.dll: 未找到（{1}）" -f $asm.Name, $distDllPath)
+        }
+    }
+
     $manifestPath = Join-Path $DistRoot "MANIFEST.txt"
     $manifestLines = @(
-        "version: $Dist",
+        "version: $ResolvedDistVersion",
         "date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
+        "git_commit: $gitCommit",
+        "",
+        "[directory_file_counts]",
         "adapters/unity/Packages/com.gamefoundation.adapter.unity: $adapterFileCount files",
         "games/_template: $templateFileCount files",
         "toolchain: $toolchainFileCount files",
         "assets/_placeholder: $assetsFileCount files",
-        "data/_framework: $dataFrameworkFileCount files"
-    )
+        "data/_framework: $dataFrameworkFileCount files",
+        "",
+        "[architecture_docs]"
+    ) + $archDocLines + @(
+        "",
+        "[data_schemas]"
+    ) + $dataSchemaLines + @(
+        "",
+        "[core_assemblies]"
+    ) + $coreAssemblyLines
+
     Set-Content -Path $manifestPath -Value $manifestLines -Encoding utf8
     Write-Host "已生成 $manifestPath"
 } else {
