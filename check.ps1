@@ -609,7 +609,16 @@ Write-Host ""
 Write-Host "==== 汇总 ====" -ForegroundColor Cyan
 $script:Results | Format-Table -AutoSize Step, Result, Seconds, Detail | Out-String -Width 4096 | Write-Host
 
-$failed = $script:Results | Where-Object { $_.Result -eq "FAIL" }
+# 收边任务修正（严重的单步失败漏判 bug）：不加 @() 强制数组上下文时，Where-Object 恰好只匹配到
+# 一个对象会返回裸的 PSCustomObject 标量而不是集合——标量没有 Count 属性，$failed.Count 取到
+# $null，下面 `$null -gt 0` 在 PowerShell 里是 $false，导致"恰好只有一步失败"这一种情况被误判为
+# "门禁通过"（0 步失败、2+ 步失败都不受影响：前者 Where-Object 本就返回 $null 恰好也是"假"，
+# 后者返回真正的数组 .Count 正常工作，只有"恰好 1 步失败"这个边界会静默漏判）。实测复现：本次
+# 收边 I3 门禁第一次跑 Unity PlayMode 测试步骤失败（本步骤本身汇总多个 NUnit 用例结果为一个
+# FAIL），全部其余 14 步通过，$failed 因此恰好命中这个漏洞，脚本打印"门禁通过：全部 15 步"、
+# exit 0——与该步骤自己汇总表里明确打印的 FAIL 行直接矛盾。加 @() 强制数组上下文后 .Count 在
+# 0/1/多个匹配下都正确。
+$failed = @($script:Results | Where-Object { $_.Result -eq "FAIL" })
 $totalSeconds = ($script:Results | Measure-Object -Property Seconds -Sum).Sum
 
 if ($failed.Count -gt 0) {

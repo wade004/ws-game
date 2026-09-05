@@ -4,6 +4,7 @@ using Adapters.Stub;
 using Core.Carriers.Unit;
 using Core.Foundation.AppLifecycle;
 using Core.Foundation.Common;
+using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
@@ -179,6 +180,97 @@ namespace Tests.Gameplay.Discrete
             h.Bus.PublishImmediate(new CombatEnteredEvent(Hero));
 
             Assert.Equal(TimeModelMode.Discrete, h.Switch.CurrentMode);
+        }
+
+        // 收边任务补齐："反向"覆盖：found.time_model.combat 默认已是 discrete，某次遭遇声明
+        // combat_mode_override: continuous 时应强制维持连续，不切换——PendingCombatModeOverride
+        // 改为三态 bool? 之前，OnCombatEntered 的判断是 PendingOverrideIsDiscrete（false）||
+        // CombatModel.Mode==Discrete（true）＝ true，覆盖形同虚设；改为三态后覆盖完全取代默认判断
+        // （见该属性判断记录）。
+        [Fact]
+        public void SetPendingOverride_Continuous_ForcesStayContinuous_EvenWhenDefaultCombatModelIsDiscrete()
+        {
+            var h = Build("discrete");
+
+            h.Switch.SetPendingOverride("continuous");
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero));
+
+            Assert.Equal(TimeModelMode.Continuous, h.Switch.CurrentMode);
+            Assert.Equal(TimeModelMode.Continuous, h.Clock.Mode);
+        }
+
+        // 未声明覆盖（SetPendingOverride 从未被调用）时行为与覆盖机制补齐之前完全一致：仍按
+        // CombatModel.Mode 的默认值判断——三态 bool? 的 null 分支（"未声明覆盖"）与旧实现的
+        // "PendingOverrideIsDiscrete 恒为 false 且未被 SetPendingOverride 调用过"等价。
+        [Fact]
+        public void NoPendingOverride_FallsBackToCombatModelDefault_Discrete()
+        {
+            var h = Build("discrete");
+
+            Assert.Null(h.Switch.PendingCombatModeOverride);
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero));
+
+            Assert.Equal(TimeModelMode.Discrete, h.Switch.CurrentMode);
+        }
+
+        // 遭遇结束清除（08 判断记录）：SetPendingOverride(null) 把 PendingCombatModeOverride 恢复为
+        // null（"未声明覆盖"），不是恢复成"强制连续"——二者语义不同（null 会回退到 CombatModel
+        // 默认值，false 会强制维持连续，即便默认是 discrete）。
+        [Fact]
+        public void SetPendingOverride_Null_ClearsToNoOverride_NotToForceContinuous()
+        {
+            var h = Build("discrete");
+
+            h.Switch.SetPendingOverride("continuous");
+            h.Switch.SetPendingOverride(null); // 遭遇结束清除。
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero));
+
+            // 清除后应回退到 CombatModel 默认（discrete），而不是残留"强制连续"。
+            Assert.Equal(TimeModelMode.Discrete, h.Switch.CurrentMode);
+        }
+
+        // 收边任务补齐：initiative_override.params.action_points_per_turn 覆盖 CombatModel 的默认
+        // 每回合行动点总额——TryConsumeActionPoints 与先攻策略无关（见该方法判断记录），直接用它
+        // 验证覆盖值确实被 TurnScheduler.Configure 采纳。
+        [Fact]
+        public void SetPendingOverride_InitiativeOverride_ActionPointsPerTurn_OverridesCombatModelDefault()
+        {
+            var h = Build("discrete"); // found.time_model.combat 默认 action_points_per_turn 未声明，回退 1.0。
+
+            var initiativeOverride = new JsonObjectBuilder()
+                .Add("policy", new JsonString("action_points"))
+                .Add("params", new JsonObjectBuilder().Add("action_points_per_turn", new JsonNumber(3)).Build())
+                .Build();
+            h.Switch.SetPendingOverride("discrete", initiativeOverride);
+
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero));
+
+            Assert.True(h.Scheduler.TryConsumeActionPoints(Hero, 3.0), "覆盖后每回合行动点总额应为 3，非默认的 1");
+            Assert.False(h.Scheduler.TryConsumeActionPoints(Hero, 0.1), "3 点已耗尽，不应再有剩余");
+        }
+
+        // 收边任务补齐：initiative_override.params.initiative_stat 覆盖生效期间通过
+        // EffectiveInitiativeStat 可见（供 GameplayAssembly.InitiativeStatProvider 闭包读取），
+        // 切回连续模式后清空、回退 CombatModel 默认。
+        [Fact]
+        public void SetPendingOverride_InitiativeOverride_InitiativeStat_VisibleViaEffectiveInitiativeStat_UntilSwitchBack()
+        {
+            var h = Build("discrete"); // CombatModel.InitiativeStat 为 null（未声明 initiative_stat 字段）。
+            Assert.Null(h.Switch.EffectiveInitiativeStat);
+
+            var overrideStat = new Id("stat.tms_override_initiative");
+            var initiativeOverride = new JsonObjectBuilder()
+                .Add("policy", new JsonString("initiative_stat"))
+                .Add("params", new JsonObjectBuilder().Add("initiative_stat", new JsonString(overrideStat.Value)).Build())
+                .Build();
+            h.Switch.SetPendingOverride("discrete", initiativeOverride);
+
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero));
+            Assert.Equal(overrideStat, h.Switch.EffectiveInitiativeStat);
+
+            h.Bus.PublishImmediate(new UnitDiedEvent(Hero, killerId: null));
+            Assert.Equal(TimeModelMode.Continuous, h.Switch.CurrentMode);
+            Assert.Null(h.Switch.EffectiveInitiativeStat);
         }
 
         [Fact]

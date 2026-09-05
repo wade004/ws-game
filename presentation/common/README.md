@@ -71,12 +71,13 @@ common/
 
 ## 契约缺口
 
-- **`Entity.Kind` 字符串词汇表未统一登记——已部分解决（G1）**：`Core.Foundation.SimLoop.EntityKinds`
-  （G1 新增）收敛了代码库里确有落地 `Entity` 子类在用的四个取值（`Player`/`Creature`/`Gobj`/
-  `Loot`），`EntityKindMapping` 已改用这四个常量，不再手写裸字符串。`"projectile"`/`"area_trigger"`
-  两个模块仍未落地对应 `Entity` 子类，`EntityKinds` 按"未使用的不发明"原则暂不登记（见其类型注释），
-  `EntityKindMapping` 继续为这两类保留占位字符串，留待落地后由设计层核对一致性、`EntityKinds` 补齐
-  常量。
+- **`Entity.Kind` 字符串词汇表未统一登记——已进一步解决（G1 + 收边任务）**：`Core.Foundation.SimLoop.EntityKinds`
+  （G1 新增）收敛了代码库里确有落地 `Entity` 子类在用的取值，收边任务 `core/carriers/projectile`
+  落地 `ProjectileHost`/`ProjectileEntity` 时补上第五个常量 `EntityKinds.Projectile`——
+  `EntityKindMapping` 现已改用全部五个常量（`Player`/`Creature`/`Gobj`/`Loot`/`Projectile`），不再
+  为 `projectile` 手写裸字符串。`"area_trigger"` 一个模块仍未落地对应 `Entity` 子类，`EntityKinds`
+  按"未使用的不发明"原则暂不登记（见其类型注释），`EntityKindMapping` 继续为这一类保留占位字符串，
+  留待落地后由设计层核对一致性、`EntityKinds` 补齐常量。
 - **`IRenderer2D.SetTransform` 没有高度参数——已由 ADR-0016 解决**：`SetTransform` 现增加了
   `height` 参数（与 `IRenderer3D.SetPlacement` 对齐），`presentation/render` 的 `SpriteViewBase`
   已改为经这个正式参数传递高度，不再借用 `SetShaderParam` 通道，详见

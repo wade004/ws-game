@@ -45,6 +45,14 @@ namespace Tests.Gameplay.EndToEnd
         public static readonly Id SpawnEncounterAmbusher = new Id("spawn.sample_encounter_ambusher");
         public static readonly Id EncounterBeastFight = new Id("encounter.sample_beast_fight");
 
+        /// <summary>收边任务补齐：与 <see cref="EncounterBeastFight"/> 同一批参战单位/胜负条件，唯一
+        /// 差异是声明了 <c>combat_mode_override: "discrete"</c>（见 <c>data/_sample/encounter/
+        /// encounter.def.json</c>），供 <c>EncounterModeOverrideTests</c> 验证该字段经
+        /// <c>GameplayAssembly</c> 接线到 <c>TimeModelSwitch.SetPendingOverride</c> 后真正生效
+        /// ——本仓库 <c>found.time_model.combat</c> 示例数据默认 <c>continuous</c>（见
+        /// <c>data/_sample/found/found.time_model.json</c>），本遭遇进行期间应仍强制进入离散模式。</summary>
+        public static readonly Id EncounterBeastFightModeOverrideDiscrete = new Id("encounter.sample_mode_override_discrete");
+
         public static readonly Id GobjSavePoint = new Id("gobj.sample_save_point");
 
         public static readonly Id ItemToken = new Id("item.sample_token");
@@ -173,8 +181,18 @@ namespace Tests.Gameplay.EndToEnd
 
         /// <summary>组装一整套全新世界。<paramref name="fileSystem"/> 未提供时新建一个（存档相关用例
         /// 需要在"保存"与"读档"两次 <see cref="Build"/> 之间复用同一个 <see cref="StubFileSystem"/>
-        /// 实例，模拟"同一台机器上的磁盘"）。</summary>
-        public static Fixture Build(ulong seed = 20260905UL, StubFileSystem? fileSystem = null)
+        /// 实例，模拟"同一台机器上的磁盘"）。
+        /// <para>
+        /// 收边任务补齐（<paramref name="enableDiscreteTimeModel"/>）：默认 <c>false</c>，与此前完全
+        /// 一致——<see cref="Fixture.Clock"/> 虽然一直存在，但从未传给
+        /// <see cref="GameplayAssembly"/> 构造函数的 <c>clockHost</c> 参数，<c>TimeModelSwitch</c>
+        /// 因此从未装配。传 <c>true</c> 时把同一个 <see cref="Fixture.Clock"/> 接给
+        /// <c>clockHost</c>，供需要真实驱动 <c>encounter.def.combat_mode_override</c> 的测试
+        /// （<c>EncounterModeOverrideTests</c>）使用——只做这一个新增测试的专用开关，不改变默认路径，
+        /// 本仓库其余全部既有用例（不传该参数）行为不受影响。
+        /// </para>
+        /// </summary>
+        public static Fixture Build(ulong seed = 20260905UL, StubFileSystem? fileSystem = null, bool enableDiscreteTimeModel = false)
         {
             var engine = new StubEngine();
             var fs = fileSystem ?? engine.FileSystem;
@@ -217,18 +235,19 @@ namespace Tests.Gameplay.EndToEnd
             // 字段下方复用同一个实例（不再另建一份），与 GameplayAssembly.SaveSystem 属性等价。
             var saveSystem = new RealSaveSystem(fs, new SaveSystemOptions(GameId), bus);
 
+            var clock = new SimClockHost(world, new SimLoopOptions { StepSeconds = StepSeconds, MaxCatchUpSteps = 4 });
+
             var gameplay = new GameplayAssembly(
                 bus, registry, rng, world, spatial, saveSystem,
                 playerUnitProvider: () => PlayerId,
-                playerFactionId: FactionPlayer);
+                playerFactionId: FactionPlayer,
+                clockHost: enableDiscreteTimeModel ? clock : null);
 
             var player = new PlayerUnit(PlayerId, MapId, FactionPlayer, ClassSample) { Position = new Vec2(0, 0) };
             world.AddEntity(player);
             gameplay.Carriers.Rules.RegisterUnit(PlayerId, ClassSample, raceId: null, level: 1);
             spatial.Register(PlayerId, player.Position, 0.5);
             gameplay.Economy.RegisterUnit(PlayerId);
-
-            var clock = new SimClockHost(world, new SimLoopOptions { StepSeconds = StepSeconds, MaxCatchUpSteps = 4 });
 
             return new Fixture
             {

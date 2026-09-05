@@ -47,6 +47,14 @@ namespace Core.Gameplay.Encounter
             public ExprNode VictoryCondition = null!;
             public ExprNode DefeatCondition = null!;
             public RewardBundle Rewards = RewardBundle.Empty;
+
+            /// <summary>收边任务补齐（08 第 4.1 节字段表 <c>combat_mode_override</c>/
+            /// <c>initiative_override</c>）：此前只在 <see cref="EncounterDefinition"/> 落地读取，
+            /// 从未透传到 <see cref="CompiledDef"/>/<see cref="Instance"/>，<c>TimeModelSwitch.
+            /// SetPendingOverride</c> 因此从无调用点——本次任务补上：<see cref="Start"/> 时原样
+            /// 带入实例，供 <see cref="TryGetModeOverride"/> 供 <c>GameplayAssembly</c> 读取。</summary>
+            public string? CombatModeOverride;
+            public JsonObject? InitiativeOverride;
         }
 
         private sealed class Instance
@@ -114,6 +122,8 @@ namespace Core.Gameplay.Encounter
                     VictoryCondition = ExprParser.Parse(def.VictoryConditionText, schema),
                     DefeatCondition = ExprParser.Parse(def.DefeatConditionText, schema),
                     Rewards = def.Rewards,
+                    CombatModeOverride = def.CombatModeOverride,
+                    InitiativeOverride = def.InitiativeOverride,
                 };
 
                 foreach (var wave in def.Waves)
@@ -261,6 +271,29 @@ namespace Core.Gameplay.Encounter
         {
             var instance = RequireInstance(instanceId);
             return new EncounterState(instance.CurrentPhaseIndex, (bool[])instance.WaveTriggered.Clone(), instance.IsActive);
+        }
+
+        /// <summary>收边任务补齐：不在 <see cref="IEncounterHost"/> 契约里的具体类型便利成员
+        /// （惯例同 <c>TurnScheduler.AddParticipant</c>/<c>RemoveParticipant</c> 判断记录），供
+        /// <c>GameplayAssembly</c> 在收到 <see cref="EncounterStartedEvent"/> 时读取该次运行对应
+        /// <c>encounter.def</c> 的 <c>combat_mode_override</c>/<c>initiative_override</c>，据此调用
+        /// <c>TimeModelSwitch.SetPendingOverride</c>（见 08 第 4.1 节字段表）。<paramref name="instanceId"/>
+        /// 不存在时返回 <c>false</c>（防御性：调用方是事件订阅回调，不应因为查不到实例就抛异常）。
+        /// 实例结束（<see cref="EncounterState.IsActive"/> 为 false）后仍可查询——<see cref="_instances"/>
+        /// 不移除已结束的实例（见 <see cref="Abort"/> 判断记录），<c>encounter.won</c>/<c>encounter.lost</c>
+        /// 收尾时调用方仍需要能查到（尽管收尾只是清空 pending override，不再依赖具体取值）。</summary>
+        public bool TryGetModeOverride(Id instanceId, out string? combatModeOverride, out JsonObject? initiativeOverride)
+        {
+            if (_instances.TryGetValue(instanceId.Value, out var instance))
+            {
+                combatModeOverride = instance.Def.CombatModeOverride;
+                initiativeOverride = instance.Def.InitiativeOverride;
+                return true;
+            }
+
+            combatModeOverride = null;
+            initiativeOverride = null;
+            return false;
         }
 
         public IReadOnlyList<Id> ActiveInstanceIds

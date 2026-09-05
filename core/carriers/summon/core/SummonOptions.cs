@@ -27,17 +27,26 @@ namespace Core.Carriers.Summon
         public bool SyncCombatState { get; set; } = true;
 
         /// <summary>是否共享仇恨表（见 07 第 4 节"是否共享仇恨表是策略配置项"）。
-        /// <para>判断记录：本任务未获得任何仇恨表读写契约的注入点（<c>SummonHost</c>/
-        /// <c>SummonTickHandler</c> 构造参数不含 <c>IThreatTable</c>），本选项目前只是数据位，
-        /// 不驱动任何运行期行为——真正接入共享仇恨表需要 <c>core/rules/combat</c> 侧配合暴露
-        /// "把某单位的仇恨表指向另一单位"一类契约，超出本次 T3-4 范围，见 README"契约缺口"。</para>
+        /// <para>判断记录（收边任务补齐）：<c>ICombatHost.GetThreatTable</c> 已落地（此前不存在任何
+        /// 仇恨表读写契约的注入点），<see cref="SummonTickHandler"/> 现经该契约实现最小语义——
+        /// 每 tick 把 owner 与召唤物各自的仇恨表条目按来源合并（同源取较大值）后回写到双方，效果上
+        /// 等价于"共享一张仇恨表"，不修改 <c>core/rules/combat</c> 的存储结构（详见
+        /// <see cref="SummonTickHandler"/> 的 <c>ShareThreatWithOwner</c> 判断记录）。默认 <c>false</c>
+        /// 时不调用 <c>GetThreatTable</c>，零额外开销，行为与补齐之前一致。</para>
         /// </summary>
         public bool ShareThreat { get; set; } = false;
 
         /// <summary>玩家是否可直接操控召唤物（见 07 第 4 节召唤与宠物策略配置项列举的口味之一）。
-        /// <para>判断记录：本任务范围不包含任何"玩家输入路由"相关契约（不属于 07 第 4 节"跟随/
-        /// 联动机制"本身），本选项同 <see cref="ShareThreat"/> 只是数据位，供游戏层/输入系统未来
-        /// 读取，不在 <c>SummonTickHandler</c> 内驱动任何行为。</para>
+        /// <para>判断记录（收边任务补齐）：经 <see cref="SummonHost.IsControllableByOwner"/> 接入两处——
+        /// ①供游戏层/输入系统查询"当前召唤物是否允许玩家直接输入"，再决定要不要把玩家操作转成
+        /// <c>world.SubmitIntent(new Intent(summonId, ...))</c>（<c>WorldSim.SubmitIntent</c> 本身
+        /// 对 <c>Intent.ActorId</c> 是谁没有限制，这条路由本就通，只是此前没有"是否应该允许"的可
+        /// 查询判断）；②<c>GameplayAssembly</c> 的 <c>IsPlayerActor</c> 判定——为 <c>true</c> 且
+        /// <c>unitId</c> 确实是玩家拥有的召唤物时，该召唤物在离散模式下与玩家本人同等对待：轮到它
+        /// 时等待外部提交意图，不会被 AI 自动接管（"离散模式下召唤物是否独立行动者"的判断记录：
+        /// 按 <see cref="PlayerCanControl"/> 决定，开启则是独立的玩家行动者，未开启仍是普通 AI
+        /// 行动者）。默认 <c>false</c> 时 <c>IsControllableByOwner</c> 恒返回 false，行为与补齐之前
+        /// 完全一致。</para>
         /// </summary>
         public bool PlayerCanControl { get; set; } = false;
 

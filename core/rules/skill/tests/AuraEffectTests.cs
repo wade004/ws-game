@@ -1,4 +1,5 @@
 using Core.Foundation.Common;
+using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 using Xunit;
 
@@ -33,6 +34,68 @@ namespace Tests.Rules.Skill
             Assert.Equal(3, world.Combat.ResolveCalls.Count);
             Assert.All(world.Combat.ResolveCalls, ctx => Assert.Equal(EffectKind.SchoolDamage, ctx.Kind));
             Assert.All(world.Combat.ResolveCalls, ctx => Assert.True(ctx.IsPeriodic));
+        }
+
+        // 收边任务补齐（AuraHost 自愈，见该类型 OnEntityDestroyed 判断记录）：目标单位被销毁
+        // （entity.destroyed）时应立即移除其名下光环实例，此后即便继续 Update 推进，也不应再对该
+        // 目标结算周期效果——此前 AuraHost 不订阅任何事件，唯一能感知"目标已消失"的时机是下一次
+        // Update 命中周期计时器时，届时会对着一个只在 IWorldSim 层面消失、但 AuraHost 自己的实例表
+        // 里仍然存在的目标结算，命中真实 WorldUnitAccess 实现会抛异常（本假想世界的 FakeUnitAccess
+        // 不会抛，测试改为直接断言"不再产生新的 ResolveEffect 调用"，语义等价、不依赖真实抛异常
+        // 路径）。
+        [Fact]
+        public void EntityDestroyed_RemovesAuraInstance_AndStopsPeriodicTicking()
+        {
+            var aura = J.O(
+                ("id", J.S("skill.aura_def.sample_dot")),
+                ("duration", J.N(30)),
+                ("effects", J.A(
+                    J.O(("kind", J.S("periodic_damage")),
+                        ("params", J.O(
+                            ("interval", J.N(2)),
+                            ("base_value", J.N(3)),
+                            ("coefficient", J.N(0)),
+                            ("school", J.S("skill.school_sample"))))))));
+
+            var world = new SkillWorldBuilder().AuraDef(aura).Build();
+            world.AddUnit(new Id("unit.target"));
+
+            world.Host.EffectSink.ApplyAura(new Id("unit.target"), new Id("skill.aura_def.sample_dot"), new Id("unit.source"));
+            Assert.True(world.Host.AuraQuery.HasAura(new Id("unit.target"), new Id("skill.aura_def.sample_dot")));
+
+            world.Host.Update(2.0);
+            Assert.Single(world.Combat.ResolveCalls); // 到期前先正常触发一次，证明光环本身在正常运作。
+
+            world.Bus.PublishImmediate(new EntityDestroyedEvent(new Id("unit.target")));
+            Assert.False(world.Host.AuraQuery.HasAura(new Id("unit.target"), new Id("skill.aura_def.sample_dot")), "entity.destroyed 后光环实例应当已被移除");
+
+            world.Host.Update(2.0);
+            world.Host.Update(2.0);
+            Assert.Single(world.Combat.ResolveCalls); // 目标已消失，不应再产生新的周期结算调用。
+        }
+
+        [Fact]
+        public void EntityDestroyed_UnrelatedUnit_DoesNotRemoveAura()
+        {
+            var aura = J.O(
+                ("id", J.S("skill.aura_def.sample_dot2")),
+                ("duration", J.N(30)),
+                ("effects", J.A(
+                    J.O(("kind", J.S("periodic_damage")),
+                        ("params", J.O(
+                            ("interval", J.N(2)),
+                            ("base_value", J.N(3)),
+                            ("coefficient", J.N(0)),
+                            ("school", J.S("skill.school_sample"))))))));
+
+            var world = new SkillWorldBuilder().AuraDef(aura).Build();
+            world.AddUnit(new Id("unit.target"));
+
+            world.Host.EffectSink.ApplyAura(new Id("unit.target"), new Id("skill.aura_def.sample_dot2"), new Id("unit.source"));
+
+            world.Bus.PublishImmediate(new EntityDestroyedEvent(new Id("unit.unrelated")));
+
+            Assert.True(world.Host.AuraQuery.HasAura(new Id("unit.target"), new Id("skill.aura_def.sample_dot2")), "不相关单位销毁不应影响本目标的光环");
         }
 
         [Fact]

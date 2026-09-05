@@ -21,6 +21,7 @@ namespace Adapter.Unity.Tests.Runtime
         private const string TierId = "diff.sample_story";
         private const string AttackSkillId = "skill.sample_strike";
         private const string Skill1Id = "skill.sample_burn";
+        private const string BoltSkillId = "skill.sample_bolt";
 
         private static IEnumerator LoadShellScene()
         {
@@ -331,6 +332,66 @@ namespace Adapter.Unity.Tests.Runtime
                 yield return null;
             }
             Assert.Greater(shell.Framework.FloatingText.SpawnedCount, before, "命中后应当至少产生一次飘字（feedback.sample_normal_damage/sample_crit_damage 均含 floating_text 动作）");
+        }
+
+        /// <summary>
+        /// 收边任务补齐（步骤 3：Unity 侧对齐——收边 I1 落地 <c>core/carriers/projectile</c> 后，
+        /// 灰盒/竖切场景里施放 <c>skill.sample_bolt</c> 应看到投射物视图，见 <c>UnityViewFactory</c>
+        /// 对 <c>projectile</c> 种类走 sprite 视图、<c>display.map.sample_bolt</c> 已在 I1 补齐）：
+        /// 施放投射物技能 → 投射物实体出现（<c>EntityKinds.Projectile</c>）→ <c>ViewBinder</c>
+        /// 为它绑定 View → 命中目标后（<c>ProjectileHost</c> 结算 <c>on_hit_effects</c> 并销毁自身，
+        /// 见 07 载体层判断记录）实体与其 View 一并移除。惯例同上方"掉落物 View 创建"确定性轮询
+        /// （不猜固定帧数，等条件真正成立）。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Projectile_CastBoltSkill_ShowsProjectileView_ThenRemovedOnHit()
+        {
+            yield return LoadShellScene();
+            var shell = RequireShellRoot();
+            yield return EnterInWorld(shell, "projectile");
+            Assert.IsTrue(shell.Framework.BeastEntityId.HasValue, "应当已经生成示例生物（skill.sample_bolt 的目标）");
+
+            // 判断记录（不能只施法一次）：EnterInWorld 结束时示例生物刚生成不久，entity.created
+            // 是 Enqueue（排队，不立即派发，见该事件类型注释）——EntitySpatialSyncHost 要等它派发
+            // 完才会把新实体计入空间索引，第一次尝试施法可能命中 target_shape_ref 解析不到目标
+            // （CastFailureReason.NoValidTarget），惯例同上方"普攻直到目标死亡"/"飘字"两处循环：
+            // 每次循环都重新施法，不是只施法一次后被动轮询结果。
+            var spawnGuard = 120;
+            Id? projectileEntityId = null;
+            while (spawnGuard-- > 0)
+            {
+                var projectiles = shell.Framework.World.QueryEntities(new EntityFilter(kind: EntityKinds.Projectile));
+                if (projectiles.Count > 0)
+                {
+                    projectileEntityId = projectiles[0].EntityId;
+                    if (shell.Framework.Presentation.ViewBinder.TryGetView(projectileEntityId.Value, out _))
+                    {
+                        break;
+                    }
+                }
+
+                Cast(shell, BoltSkillId);
+                yield return new WaitForFixedUpdate();
+                yield return null;
+            }
+            Assert.IsTrue(projectileEntityId.HasValue, "施放 skill.sample_bolt 后应当生成一个 EntityKinds.Projectile 实体");
+            Assert.IsTrue(
+                shell.Framework.Presentation.ViewBinder.TryGetView(projectileEntityId!.Value, out _),
+                "投射物实体应当已绑定 View（EntityKindMapping.TryMap 把 EntityKinds.Projectile 映射到 " +
+                "ViewKind.Projectile，UnityViewFactory 按该种类创建 sprite 视图，display.map.sample_bolt 已登记）");
+
+            // 命中后销毁：实体从 World 移除，其 View 也随之移除。
+            var hitGuard = 300;
+            while (shell.Framework.World.GetEntity(projectileEntityId.Value) != null && hitGuard-- > 0)
+            {
+                yield return new WaitForFixedUpdate();
+            }
+            Assert.IsNull(shell.Framework.World.GetEntity(projectileEntityId.Value), "投射物命中目标后应当被销毁移除（ProjectileHost 结算 on_hit_effects 后 despawn 自身）");
+
+            yield return null; // 让 entity.destroyed 事件（Enqueue）派发到 ViewBinder 完成 View 移除。
+            Assert.IsFalse(
+                shell.Framework.Presentation.ViewBinder.TryGetView(projectileEntityId.Value, out _),
+                "投射物实体销毁后，ViewBinder 应当已移除其对应 View");
         }
 
         [UnityTest]

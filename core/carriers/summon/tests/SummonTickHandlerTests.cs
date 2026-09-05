@@ -201,6 +201,53 @@ namespace Tests.Carriers.Summon
             Assert.DoesNotContain(summonId, f.Combat.NotifyCalls);
         }
 
+        // -----------------------------------------------------------------
+        // 收边任务补齐（缺口 (c) ShareThreat）：见 SummonTickHandler.ShareThreatWithOwner 判断记录。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Execute_ShareThreatTrue_MergesEntries_TakingMax_AndWritesToBothBuckets()
+        {
+            var f = Build(new SummonOptions { ShareThreat = true });
+            var summonId = f.SummonHost.Summon(OwnerId, BasicTemplateId, Vec2.Zero);
+
+            var attackerA = new Id("unit.threat_attacker_a"); // 只打过 owner。
+            var attackerB = new Id("unit.threat_attacker_b"); // 只打过召唤物。
+            var attackerC = new Id("unit.threat_attacker_c"); // 两边都打过，取较大值。
+
+            var table = f.Combat.GetThreatTable(OwnerId);
+            table.AddThreat(OwnerId, attackerA, 10);
+            table.AddThreat(OwnerId, attackerC, 5);
+            table.AddThreat(summonId, attackerB, 7);
+            table.AddThreat(summonId, attackerC, 20);
+
+            f.World.Tick(SimStep.Continuous(1.0));
+
+            Assert.Equal(10, table.GetThreat(OwnerId, attackerA), 6);
+            Assert.Equal(7, table.GetThreat(OwnerId, attackerB), 6);
+            Assert.Equal(20, table.GetThreat(OwnerId, attackerC), 6);
+
+            Assert.Equal(10, table.GetThreat(summonId, attackerA), 6);
+            Assert.Equal(7, table.GetThreat(summonId, attackerB), 6);
+            Assert.Equal(20, table.GetThreat(summonId, attackerC), 6);
+        }
+
+        [Fact]
+        public void Execute_ShareThreatFalse_DoesNotTouchThreatTable()
+        {
+            var f = Build(new SummonOptions { ShareThreat = false });
+            var summonId = f.SummonHost.Summon(OwnerId, BasicTemplateId, Vec2.Zero);
+
+            var attackerA = new Id("unit.threat_attacker_only_owner");
+            var table = f.Combat.GetThreatTable(OwnerId);
+            table.AddThreat(OwnerId, attackerA, 10);
+
+            f.World.Tick(SimStep.Continuous(1.0));
+
+            Assert.Equal(10, table.GetThreat(OwnerId, attackerA), 6);
+            Assert.Equal(0, table.GetThreat(summonId, attackerA), 6); // 默认关闭时不合并、不回写。
+        }
+
         [Fact]
         public void Execute_DiscreteStep_DoesNothing()
         {

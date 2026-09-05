@@ -193,5 +193,39 @@ namespace Tests.Carriers.Summon
 
             Assert.Throws<ArgumentException>(() => f.SummonHost.Dismiss(new Id("creature.inst_999")));
         }
+
+        // -----------------------------------------------------------------
+        // 收边任务补齐（缺口 (c) PlayerCanControl）：见 SummonHost.IsControllableByOwner 判断记录。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void IsControllableByOwner_PlayerCanControlEnabled_TrueForActualOwner_FalseForOthers()
+        {
+            var f = Build(new SummonOptions { PlayerCanControl = true });
+            var summonId = f.SummonHost.Summon(OwnerId, BasicTemplateId, Vec2.Zero);
+            var stranger = new Id("unit.not_the_owner");
+
+            Assert.True(f.SummonHost.IsControllableByOwner(summonId, OwnerId));
+            Assert.False(f.SummonHost.IsControllableByOwner(summonId, stranger));
+        }
+
+        [Fact]
+        public void IsControllableByOwner_PlayerCanControlDisabled_AlwaysFalse_EvenForActualOwner()
+        {
+            var f = Build(new SummonOptions { PlayerCanControl = false }); // 也是默认值。
+            var summonId = f.SummonHost.Summon(OwnerId, BasicTemplateId, Vec2.Zero);
+
+            Assert.False(f.SummonHost.IsControllableByOwner(summonId, OwnerId));
+        }
+
+        [Fact]
+        public void IsControllableByOwner_UnknownSummon_ReturnsFalse_DoesNotThrow()
+        {
+            var f = Build(new SummonOptions { PlayerCanControl = true });
+
+            var result = f.SummonHost.IsControllableByOwner(new Id("creature.inst_999"), OwnerId);
+
+            Assert.False(result);
+        }
     }
 }

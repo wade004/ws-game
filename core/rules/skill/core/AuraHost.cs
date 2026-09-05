@@ -4,6 +4,7 @@ using System.Linq;
 using Core.Foundation.Common;
 using Core.Numbers.StatBlock;
 using Core.Foundation.EventBus;
+using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 
 namespace Core.Rules.Skill
@@ -91,6 +92,44 @@ namespace Core.Rules.Skill
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             _staticImmunity = staticImmunity ?? NullStaticImmunityProvider.Instance;
+
+            // 收边任务补齐（自愈，见 OnEntityDestroyed 判断记录）：本类型此前不订阅任何事件，
+            // 光环实例的移除完全依赖 ApplyAura/RemoveAura/Dispel/Update 到期四条主动路径——目标单位
+            // 从 IWorldSim 移除（entity.destroyed，如 World.ClearAll、正常实体销毁）不会让这里的
+            // 光环实例表跟着清空。周期性效果（periodic_damage/periodic_heal）仍会在下一次 Update
+            // 命中该实例并对着已经消失的目标结算，命中 WorldUnitAccess.Require 抛异常——该缺口此前
+            // 已被 adapters/unity 侧的测试判断记录明确记录并靠"停止 tick"规避（见
+            // VerticalSliceTests.TearDown 判断记录"AuraHost 自愈...不在本任务允许改动的 core/data
+            // 范围内"），本任务写入范围包含 core/，在根源补齐。
+            _bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, OnEntityDestroyed);
+        }
+
+        /// <summary>目标单位被销毁时立即移除其名下全部光环实例（不等到该光环自然到期/下一次
+        /// <see cref="Update"/> 才发现目标已经不存在），防止 <see cref="FirePeriodic"/> 对着已经从
+        /// <c>IWorldSim</c> 移除的目标结算。只处理"作为目标（<see cref="AuraInstanceState.TargetId"/>）"
+        /// 的光环——来源单位（<see cref="AuraInstanceState.SourceId"/>）被销毁不代表已施加到其他目标
+        /// 身上的光环应当消失，06 未规定这种情形，稳妥起见只收窄到"目标已消失"这一确定安全的情形。</summary>
+        private void OnEntityDestroyed(EntityDestroyedEvent evt)
+        {
+            var targetId = evt.EntityId;
+            List<AuraInstanceState>? toRemove = null;
+            foreach (var instance in _instances.Values)
+            {
+                if (instance.TargetId.Equals(targetId))
+                {
+                    (toRemove ??= new List<AuraInstanceState>()).Add(instance);
+                }
+            }
+
+            if (toRemove == null)
+            {
+                return;
+            }
+
+            foreach (var instance in toRemove)
+            {
+                RemoveInstanceInternal(instance, "target_destroyed", targetMayBeUnregistered: true);
+            }
         }
 
         // -----------------------------------------------------------------
@@ -182,9 +221,22 @@ namespace Core.Rules.Skill
             }
         }
 
-        private void RemoveInstanceInternal(AuraInstanceState instance, string reason)
+        /// <summary><paramref name="targetMayBeUnregistered"/>（默认 false，惟一 true 调用方是
+        /// <see cref="OnEntityDestroyed"/>）：正常移除路径（<see cref="ApplyAura"/> 叠加溢出、
+        /// <see cref="RemoveAura"/>、<see cref="Dispel"/>、<see cref="Update"/> 到期）全部假定目标
+        /// 仍在 <see cref="IStatHost"/> 注册——这是既有不变量，本参数不改变这些路径的行为。
+        /// <c>entity.destroyed</c> 触发的移除不能沿用这条假设：<c>IStatHost</c> 的单位注册状态与
+        /// <c>IWorldSim</c> 实体生命周期相互独立（没有任何耦合机制保证同步），<c>true</c> 时先查
+        /// <see cref="IStatHost.IsRegistered"/> 再决定是否调用
+        /// <see cref="IStatHost.RemoveModifiersBySource"/>，避免把"目标已从世界移除"这一件事变成
+        /// 一次新的未注册单位异常。</summary>
+        private void RemoveInstanceInternal(AuraInstanceState instance, string reason, bool targetMayBeUnregistered = false)
         {
-            _statHost.RemoveModifiersBySource(instance.TargetId, instance.InstanceId);
+            if (!targetMayBeUnregistered || _statHost.IsRegistered(instance.TargetId))
+            {
+                _statHost.RemoveModifiersBySource(instance.TargetId, instance.InstanceId);
+            }
+
             _instances.Remove(instance.InstanceId);
             var sourceKey = _options.AllowMultiSourceTiming ? (Id?)instance.SourceId : null;
             _slots.Remove((instance.TargetId, instance.DefId, sourceKey));

@@ -125,6 +125,38 @@ namespace Core.Carriers.Summon
         public Id? GetOwner(Id summonId) =>
             _summons.TryGetValue(summonId.Value, out var record) ? record.OwnerId : (Id?)null;
 
+        /// <summary>收边任务补齐（缺口 (c)：<see cref="SummonOptions.PlayerCanControl"/> 此前只是
+        /// 数据位，不驱动任何运行期行为，见该属性判断记录）：把配置位转成可供调用方（游戏层/输入
+        /// 系统，以及本模块之外的 <c>GameplayAssembly</c>）直接查询的判定——<c>true</c> 当且仅当
+        /// <see cref="SummonOptions.PlayerCanControl"/> 已开启，且 <paramref name="requestingUnitId"/>
+        /// 确实是 <paramref name="summonId"/> 登记的拥有者（<see cref="GetOwner"/>）。<c>07 第 4 节
+        /// "玩家是否可直接操控召唤物"</c> 没有区分"哪个召唤物"，本选项是全局策略（<see cref="SummonOptions"/>
+        /// 构造期一份，非按实例覆盖），因此本方法只按"是不是拥有者"过滤，不含额外的按实例白名单。
+        /// <para>
+        /// 用途：①（编排层）本任务把它接进 <c>GameplayAssembly</c> 的 <c>IsPlayerActor</c> 判定
+        /// （见该处判断记录"离散模式下召唤物是否独立行动者"）——<c>true</c> 时召唤物在离散模式下
+        /// 与玩家本人同等对待：轮到它时 <c>TurnScheduler.NextStep</c> 会等待外部经
+        /// <c>WorldSim.SubmitIntent</c> 提交意图（<c>awaiting_input</c>），不会被 AI 自动接管；
+        /// <c>false</c>（默认）时召唤物仍是普通的 AI 驱动行动者，与此前行为一致。②（游戏层/输入
+        /// 系统）无论连续/离散模式，UI 层可用本方法判断"当前选中的召唤物是否允许玩家直接输入" 再
+        /// 决定要不要把玩家操作转成 <c>world.SubmitIntent(new Intent(summonId, ...))</c>——
+        /// <c>WorldSim.SubmitIntent</c> 本身对 <c>Intent.ActorId</c> 是谁没有任何限制（连续模式
+        /// 恒接受；离散模式只检查"是不是当前行动者"，见 <c>TurnScheduler.TryAcceptExternalIntent</c>，
+        /// 不检查"提交者是谁"），"主人为召唤物提交"这条路由本就通——本方法只是把"是否应该允许"这
+        /// 条策略判断从"完全没有"补成"可查询"。
+        /// </para>
+        /// </summary>
+        public bool IsControllableByOwner(Id summonId, Id requestingUnitId)
+        {
+            if (!_options.PlayerCanControl)
+            {
+                return false;
+            }
+
+            var owner = GetOwner(summonId);
+            return owner.HasValue && owner.Value.Equals(requestingUnitId);
+        }
+
         /// <summary>判断记录（"排序稳定"）：按 <see cref="Summon"/> 调用顺序（插入顺序）返回，
         /// 多次调用对同一批召唤物返回同样的顺序——07 第 4 节补充信息表"测试方式"未要求按
         /// <see cref="Id"/> 字典序排序，插入顺序已经满足"稳定"（确定性、可重复）这一验收点。</summary>

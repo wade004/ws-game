@@ -256,11 +256,23 @@ namespace Core.Gameplay.Assembly
             {
                 double InitiativeStatProvider(Id unitId)
                 {
-                    var statId = timeModelSwitchRef?.CombatModel?.InitiativeStat;
+                    // 收边任务补齐：改读 TimeModelSwitch.EffectiveInitiativeStat（离散模式下若当次
+                    // 遭遇声明了 initiative_override.params.initiative_stat 则取覆盖值，否则回退
+                    // CombatModel 默认——见该属性判断记录），此前恒读 CombatModel?.InitiativeStat，
+                    // 遭遇级先攻属性覆盖无法生效。
+                    var statId = timeModelSwitchRef?.EffectiveInitiativeStat;
                     return statId.HasValue ? Carriers.Rules.Stats.GetStat(unitId, statId.Value) : 0.0;
                 }
 
-                bool IsPlayerActor(Id unitId) => unitId.Equals(PlayerUnitProvider());
+                // 收边任务补齐（缺口 (c) PlayerCanControl，判断记录"离散模式下召唤物是否独立行动者"）：
+                // SummonOptions.PlayerCanControl 开启且 unitId 确实是玩家当前拥有的召唤物时，该召唤物
+                // 在离散模式下与玩家本人同等对待——轮到它时 TurnScheduler.NextStep 会等待外部经
+                // WorldSim.SubmitIntent 提交意图（awaiting_input），不会被 AiTickHandler 自动接管；
+                // PlayerCanControl 为 false（默认）时 IsControllableByOwner 恒返回 false，行为与
+                // 补齐之前完全一致。Carriers 已在第 3 步（CarriersAssembly 构造）就绪，可安全闭包
+                // 引用（同 IsBusyContinuing 判断记录）。
+                bool IsPlayerActor(Id unitId) =>
+                    unitId.Equals(PlayerUnitProvider()) || Carriers.Summons.IsControllableByOwner(unitId, PlayerUnitProvider());
 
                 // H4 补齐（读条跨回合，见 TurnScheduler._isBusyContinuing 字段判断记录）：
                 // Carriers.Rules.Skill 已在第 3 步（CarriersAssembly 构造）就绪，此处可以安全闭包
@@ -462,6 +474,34 @@ namespace Core.Gameplay.Assembly
             Level = new LevelHost(registry, Encounter, bus);
 
             // ---------------------------------------------------------
+            // 12.5) 收边任务补齐（缺口 (a)：EncounterDefinition.CombatModeOverride/InitiativeOverride
+            //     此前只落地读取字段，TimeModelSwitch.SetPendingOverride 从无调用点，见该方法与
+            //     EncounterHost.TryGetModeOverride 判断记录）：只在离散时间模型已装配
+            //     （TimeModelSwitch != null，即调用方传入了 clockHost）时才订阅——未传入 clockHost
+            //     的组合根（多数纯连续模式测试夹具）不受影响，encounter.started/won/lost 照常发布，
+            //     只是没有订阅者读取覆盖字段。encounter.started 时经实例 id 反查该次运行对应
+            //     encounter.def 的覆盖字段并转交 TimeModelSwitch；encounter.won/lost（遭遇结束的
+            //     两个终点事件，08 未定义单独的"遭遇结束"事件）时清空——避免一次声明了覆盖但从未
+            //     真正引发战斗（combat.entered 从未触发）的遭遇，残留的 pending 覆盖意外影响下一次
+            //     不相关的战斗（08 判断记录"遭遇结束清除"）。
+            // ---------------------------------------------------------
+            if (TimeModelSwitch != null)
+            {
+                var timeModelSwitchForEncounter = TimeModelSwitch;
+                var encounterHostForOverride = Encounter;
+
+                bus.Subscribe<EncounterStartedEvent>(EncounterEventKeys.Started, evt =>
+                {
+                    if (encounterHostForOverride.TryGetModeOverride(evt.EncounterId, out var combatModeOverride, out var initiativeOverride))
+                    {
+                        timeModelSwitchForEncounter.SetPendingOverride(combatModeOverride, initiativeOverride);
+                    }
+                });
+                bus.Subscribe<EncounterWonEvent>(EncounterEventKeys.Won, _ => timeModelSwitchForEncounter.SetPendingOverride(null));
+                bus.Subscribe<EncounterLostEvent>(EncounterEventKeys.Lost, _ => timeModelSwitchForEncounter.SetPendingOverride(null));
+            }
+
+            // ---------------------------------------------------------
             // 13) AchievementHost。
             // ---------------------------------------------------------
             Achievement = new AchievementHost(
@@ -539,7 +579,9 @@ namespace Core.Gameplay.Assembly
             //     胜负评估（依赖本 tick 内已经完成的战斗结算）→ 掉落过期清理 → 经济/刷新计时推进。
             // ---------------------------------------------------------
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new AreaTriggerTickHandler(AreaTrigger, Carriers.Units));
-            world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new EncounterTickHandler(Encounter));
+            // 收边任务补齐（缺口 (b)：见 EncounterTickHandler 判断记录）：传入 bus 以便按
+            // 离散/连续区分求值时机——离散模式下改由 sim.turn_ended/sim.round_ended 事件驱动。
+            world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new EncounterTickHandler(Encounter, bus));
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new LootExpiryTickHandler(Loot, () => Carriers.Rules.SimTime));
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new EconomySpawnUpdateTickHandler(Economy, Spawn));
         }

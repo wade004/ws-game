@@ -11,12 +11,14 @@ namespace Presentation.Common
     /// <see cref="EntityKinds.Player"/>/<see cref="EntityKinds.Creature"/> 均映射
     /// <see cref="ViewKind.Unit"/>、<see cref="EntityKinds.Gobj"/> 映射
     /// <see cref="ViewKind.GameObject"/>、<see cref="EntityKinds.Loot"/> 映射
-    /// <see cref="ViewKind.DroppedLoot"/>，本类型改用这四个常量，不再手写裸字符串字面量。
-    /// <c>"projectile"</c>/<c>"area_trigger"</c> 两个字符串 <see cref="EntityKinds"/> 未登记（09 第 2
-    /// 节建议 <see cref="ViewKind"/> 覆盖五类，但 <c>core/</c> 内抛射物/区域触发器两个模块尚未落地对应
-    /// 的 <c>Entity</c> 子类，<see cref="EntityKinds"/> 按"未使用的不发明"原则暂不登记，见其类型注释
-    /// 判断记录）——本类型继续按 09 第 2 节命名惯例保留这两个占位字符串，留待对应模块落地
-    /// <c>Entity</c> 子类、<see cref="EntityKinds"/> 补上常量后再一并换掉。
+    /// <see cref="ViewKind.DroppedLoot"/>、<see cref="EntityKinds.Projectile"/>（收边任务补齐：
+    /// <c>core/carriers/projectile</c> 落地 <c>ProjectileHost</c> 时一并登记，见其类型注释）映射
+    /// <see cref="ViewKind.Projectile"/>，本类型改用这五个常量，不再手写裸字符串字面量。
+    /// <c>"area_trigger"</c> 一个字符串 <see cref="EntityKinds"/> 仍未登记（09 第 2 节建议
+    /// <see cref="ViewKind"/> 覆盖五类，但 <c>core/</c> 内区域触发器模块尚未落地对应的 <c>Entity</c>
+    /// 子类，<see cref="EntityKinds"/> 按"未使用的不发明"原则暂不登记，见其类型注释判断记录）——本
+    /// 类型继续按 09 第 2 节命名惯例保留这一个占位字符串，留待该模块落地 <c>Entity</c> 子类、
+    /// <see cref="EntityKinds"/> 补上常量后再换掉。
     /// </para>
     /// </summary>
     public static class EntityKindMapping
@@ -34,7 +36,7 @@ namespace Presentation.Common
                 case EntityKinds.Gobj:
                     kind = ViewKind.GameObject;
                     return true;
-                case "projectile":
+                case EntityKinds.Projectile:
                     kind = ViewKind.Projectile;
                     return true;
                 case "area_trigger":

@@ -104,7 +104,57 @@ namespace Core.Carriers.Summon
                 _combat.NotifyCombatEvent(summonId);
             }
 
+            if (_options.ShareThreat)
+            {
+                ShareThreatWithOwner(summonId, ownerId.Value);
+            }
+
             TryFollow(world, summonId, ownerId.Value);
+        }
+
+        /// <summary>收边任务补齐（缺口 (c)：<see cref="SummonOptions.ShareThreat"/> 此前只是数据位，
+        /// 不驱动任何运行期行为——本任务补上最小语义，见判断记录）。<see cref="ICombatHost.
+        /// GetThreatTable"/> 已在收边任务落地（此前不存在任何仇恨表读写契约的注入点），但按单位维度
+        /// 存取（<see cref="IThreatTable.GetAll"/>/<see cref="IThreatTable.SetThreat"/> 都要求传
+        /// unitId），owner 与召唤物并不天然共用同一个 bucket——本方法因此在每 tick 把 owner 与召唤物
+        /// 各自仇恨表条目按来源合并（同一来源取较大值），合并结果回写到双方各自的 bucket，效果上
+        /// 等价于"共享一张仇恨表"：任何一方受到的攻击者（威胁来源）都会同时计入另一方的仇恨值，AI
+        /// 选目标（06 第 4.4 节 <c>ThreatTable</c> 唯一用途）不会因为伤害恰好只打在 owner 或只打在
+        /// 召唤物身上而遗漏另一方。不修改 <c>core/rules/combat</c> 的存储结构（07 表格"召唤与宠物"
+        /// 依赖列只列到 AiHost/CombatHost 既有契约，不含"新增仇恨表存储原语"，本方法完全经既有
+        /// <see cref="IThreatTable"/> 契约实现）。只在 <see cref="SummonOptions.ShareThreat"/> 为
+        /// true 时才调用 <see cref="ICombatHost.GetThreatTable"/>，默认 false 时零额外开销。</summary>
+        private void ShareThreatWithOwner(Id summonId, Id ownerId)
+        {
+            var table = _combat.GetThreatTable(summonId);
+            var ownerEntries = table.GetAll(ownerId);
+            var summonEntries = table.GetAll(summonId);
+
+            if (ownerEntries.Count == 0 && summonEntries.Count == 0)
+            {
+                return;
+            }
+
+            var merged = new Dictionary<string, double>(StringComparer.Ordinal);
+            for (var i = 0; i < ownerEntries.Count; i++)
+            {
+                merged[ownerEntries[i].source.Value] = ownerEntries[i].amount;
+            }
+            for (var i = 0; i < summonEntries.Count; i++)
+            {
+                var key = summonEntries[i].source.Value;
+                if (!merged.TryGetValue(key, out var existing) || summonEntries[i].amount > existing)
+                {
+                    merged[key] = summonEntries[i].amount;
+                }
+            }
+
+            foreach (var kv in merged)
+            {
+                var sourceId = new Id(kv.Key);
+                table.SetThreat(ownerId, sourceId, kv.Value);
+                table.SetThreat(summonId, sourceId, kv.Value);
+            }
         }
 
         /// <summary>07 第 4 节"owner 移动超出跟随距离时优先转入向 owner 靠拢的移动"：目标点选在
