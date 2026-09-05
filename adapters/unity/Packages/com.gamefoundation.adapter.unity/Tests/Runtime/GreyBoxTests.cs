@@ -33,7 +33,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
-    public sealed class GreyBoxTests
+    public sealed class GreyBoxTests : PlayModeTestBase
     {
         private const string SceneName = "GreyBox";
 

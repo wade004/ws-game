@@ -485,6 +485,20 @@ if ($DistRequested) {
     # 两根合并加载/校验（见 data/README.md"多根加载与合并规则"）。
     $dataFrameworkFileCount = Copy-DistDir -SourceRelative "data\_framework" -DestName "data\_framework"
 
+    # 消费方演练任务新增（toolchain/consumer_smoke.ps1 实跑暴露的 dist 缺口，见该脚本判断记录）：
+    # TextMeshPro 是 games/_template 主菜单 UI（TemplateShellUi 经 UnityUISurface.DrawText）的运行期
+    # 硬依赖，但 "TMP Essential Resources"（TMP_Settings.asset、SDF 着色器等）从未随 dist 分发——
+    # 工作台工程（adapters/unity）把这些内容当作普通 Assets 提交在
+    # adapters/unity/Assets/TextMesh Pro/（见 UnityUISurface.cs 顶部"判断记录（TMP 运行期依赖）"：
+    # AssetDatabase.ImportPackage 在批处理下是异步的、无法可靠等待完成，因此不能指望新消费方工程
+    # 自己在批处理流程里"导入 TMP Essential Resources"），此前 dist 只打包了
+    # adapters/unity/Packages/com.gamefoundation.adapter.unity（Packages 目录），不包含
+    # adapters/unity/Assets/ 下任何内容，导致任何新游戏工程照 games/_template/README.md 走完接入
+    # 步骤后，主菜单一渲染文字就会因为 TMP_Settings 单例不存在而抛异常——首次跑
+    # consumer_smoke.ps1 实测复现。现补一份 assets/textmesh_pro_essentials/，新消费方工程按
+    # games/_template/README.md 的指引整份拷进自己的 Assets/TextMesh Pro/。
+    $tmpEssentialsFileCount = Copy-DistDir -SourceRelative "adapters\unity\Assets\TextMesh Pro" -DestName "assets\textmesh_pro_essentials"
+
     # -------------------------------------------------------------------
     # 5.1 版本可追溯任务新增：把解析出的版本号写回 dist 内两个 package.json
     #     （含 games/_template 对适配层包的依赖版本号），保持"单一版本源"——
@@ -611,6 +625,7 @@ if ($DistRequested) {
         "toolchain: $toolchainFileCount files",
         "assets/_placeholder: $assetsFileCount files",
         "data/_framework: $dataFrameworkFileCount files",
+        "assets/textmesh_pro_essentials: $tmpEssentialsFileCount files",
         "",
         "[architecture_docs]"
     ) + $archDocLines + @(

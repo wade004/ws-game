@@ -15,7 +15,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
-    public sealed class VerticalSliceTests
+    public sealed class VerticalSliceTests : PlayModeTestBase
     {
         private const string SceneName = "Shell";
         private const string TierId = "diff.sample_story";
@@ -68,82 +68,12 @@ namespace Adapter.Unity.Tests.Runtime
 
         private static void Cast(ShellRoot shell, string skillId) => shell.Framework.CastSkill(new Id(skillId));
 
-        /// <summary>
-        /// 判断记录（根治"相邻重负载用例的迟到异步日志"，见
-        /// <c>Game.Template.Tests.GameTemplateSmokeTests.LoadShellScene</c> 同款判断记录——那里只是
-        /// 缓解症状，本方法根治源头）：本套件（尤其 <see cref="FullVerticalSlice_NewGame_Move_Attack_Skill_Death_Save_Load_NoUnexpectedExceptions"/>）
-        /// 战斗过程中触发大量 sfx/vfx 资源首次引用（<c>Presentation.Common.ResourceReferenceTracker.EnsureLoading</c>），
-        /// <c>Adapter.Unity.EngineAdapter.UnityResourceLoader.LoadAsync</c> 把实际文件读取丢进
-        /// <c>Task.Run</c> 后台线程，真正的解码与"资源未加载或不存在"诊断只在下一次
-        /// <c>UnityEngineHost.Update</c> -&gt; <c>UnityResourceLoader.Tick</c> 于主线程处理完成时才
-        /// 发生（见该类型顶部"加载方式"判断记录）。若本套件的某条用例在还有后台线程尚未写回结果
-        /// 时就结束（<c>SceneManager.LoadScene</c> 卸载场景 / NUnit 进入下一条用例），这次迟到的
-        /// <c>Tick</c> 处理会在下一条完全无关的用例（实测复现于
-        /// <c>Game.Template.Tests.GameTemplateSmokeTests</c>，同一次 <c>-runTests</c> 子进程内按序
-        /// 执行）执行窗口内触发，产生的任何 <c>Debug.LogWarning</c>/<c>LogError</c> 被 Unity Test
-        /// Framework 记成那条无辜用例的"Unhandled log message"失败。根治：本套件每条用例结束时
-        /// 轮询 <c>UnityResourceLoader.PendingLoadCount</c> 直到归零（后台线程写完 + 下一帧 Tick
-        /// 处理完），让全部异步加载在本用例自己的执行窗口内落地，不再向后泄漏。300 帧仍未清零视为
-        /// 真正的加载卡死（而非正常的迟到），放行避免整套用例因此永久挂起——那种情况本身会在
-        /// PendingLoadCount 判断之外，被 IsLoaded/相关断言暴露。
-        /// <para>
-        /// 判断记录（额外调用 World.ClearAll 清空在途效果）：本套件多条用例都会施放带
-        /// <c>cast_time</c>/持续时长的技能（如 skill.sample_burn 的周期伤害光环），这类效果的剩余
-        /// 结算靠 <c>Core.Foundation.SimLoop.SimTimers</c> 排的计时器回调，在用例已经存档/篡改/读档
-        /// 甚至已经结束之后仍可能残留在计时器队列里——FrameworkResidentHost 是跨整个批处理进程
-        /// 常驻的单例（同一个 IWorldSim 从未真正销毁，只在 SceneRouter.LoadScene 时 ClearAll 一次），
-        /// 若本套件某条用例结束时队列里还有尚未触发的旧计时器，下一次 NewGame（可能是同套件下一条
-        /// 用例，也可能是排在后面的完全不同套件，如 Game.Template.Tests.GameTemplateSmokeTests）
-        /// 只会 ClearAll 一次实体，不专门清空计时器队列以外的"在途效果"状态（技能施法管线本身的
-        /// 待结算队列不是 SimTimers，另有独立状态）；这类回调一旦在旧目标已经不存在（ClearAll 移除）
-        /// 之后才触发，会命中 WorldUnitAccess.Require 抛 InvalidOperationException，同资源加载
-        /// 一样"迟到"到下一条无关用例的执行窗口内（实测复现于 GameTemplateSmokeTests，见该类型
-        /// judgment record"上一条用例场景卸载后仍有一次迟到的异步日志"）。本方法额外对仍存活的
-        /// FrameworkResidentHost 主动调用一次 World.ClearAll()（见该方法注释："换上全新 SimTimers
-        /// 实例，旧实例持有的全部计时器随之失效"）——把本用例可能遗留的在途效果在本用例自己的
-        /// 执行窗口内提前作废，不留给下一条无关用例承受。
-        /// </para>
-        /// </summary>
-        [UnityTearDown]
-        public IEnumerator TearDown()
-        {
-            var shell = Object.FindFirstObjectByType<ShellRoot>();
-            if (shell != null && !shell.Framework.BootstrapFailed)
-            {
-                shell.Framework.World.ClearAll();
-                shell.Framework.Bus.DispatchPending();
-
-                // 判断记录（World.ClearAll 不足以拦下 core/rules/skill.AuraHost 的在途周期效果，
-                // 实测复现于 Game.Template.Tests.GameTemplateSmokeTests，比"上一条用例场景卸载后
-                // 仍有一次迟到的异步日志"更进一步——不是"迟到一次"，是持续泄漏到后续所有用例）：
-                // AuraHost 内部按"单位 id + 光环定义 id"维护自己的活跃光环实例表，不订阅
-                // entity.destroyed（不像 AiHost/EntitySpatialSyncHost 那样自愈），World.ClearAll()
-                // 只清空 WorldSim 自己的实体字典/计时器，不知道也不会清空 AuraHost 这份独立状态；
-                // Adapter.Unity.Shell.FrameworkResidentHost 是 DontDestroyOnLoad 单例，其
-                // OnFixedStep 固定步回调只要 Gameplay.AppState.GetState() 仍是 InWorld 就会继续
-                // 调用 GameplayAssembly.Advance -> world.Tick，一旦某条用例结束时场上还留有尚未
-                // 完全结算完的周期光环实例（如本套件的 skill.sample_burn），它会在完全不相关的
-                // 后续套件（如 GameTemplateSmokeTests，加载的是另一个场景 GameTemplateShell.unity，
-                // 但 FrameworkResidentHost 这个单例仍在后台按 Time.fixedDeltaTime 持续 tick 着自己
-                // 那个已经空的世界）执行窗口内触发 AuraHost.FirePeriodic，对着已被 ClearAll 移出
-                // IWorldSim 的旧生物 id 结算，命中 WorldUnitAccess.Require 抛
-                // InvalidOperationException。修 AuraHost 自愈（订阅 entity.destroyed 清理自己的
-                // 光环实例表）属于 core/rules/skill 的改动，不在本任务允许改动的 core/data 范围内
-                // （本任务硬性规则 1）。改为在引擎侧兜底：本套件每条用例结束时把 AppState 切回
-                // MainMenu——OnFixedStep 的 InWorld 门槛因此对后续任意用例（不管是不是本套件自己
-                // 的）全部关闭，FrameworkResidentHost 彻底停止在后台 tick，不会再有任何残留光环
-                // （或其它未来可能出现的类似"在途效果"）有机会命中已清空的世界，直到下一条用例
-                // 重新 NewGame/LoadGame 把 AppState 带回 InWorld 为止。
-                shell.Framework.Gameplay.AppState.RequestTransition(Core.Foundation.AppLifecycle.AppState.MainMenu);
-            }
-
-            var loader = Adapter.Unity.EngineAdapter.UnityEngineHost.Ensure().ResourceLoader;
-            var guard = 300;
-            while (loader.PendingLoadCount > 0 && guard-- > 0)
-            {
-                yield return null;
-            }
-        }
+        // 判断记录（收边任务 3：本套件此前独有的 TearDown 已收敛到
+        // Tests/Runtime/PlayModeIsolation.cs，由基类 PlayModeTestBase 统一调用——世界清空 +
+        // AppState 复位 MainMenu（原"根治残留光环命中已清空世界"判断记录）、ResourceLoader
+        // PendingLoadCount 轮询归零（原"根治相邻重负载用例的迟到异步日志"判断记录）两条逻辑与
+        // 本套件此前的写法逐字一致，完整判断记录见 PlayModeIsolation.TearDownAfterTest 顶部注释，
+        // 不在本文件重复）。
 
         [UnityTest]
         public IEnumerator FullVerticalSlice_NewGame_Move_Attack_Skill_Death_Save_Load_NoUnexpectedExceptions()

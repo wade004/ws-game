@@ -12,6 +12,12 @@
     仍跑 Unity 独立版构建，但跳过"-gf-smoke 无人值守冒烟"这一子步骤（-SkipUnity 已整体跳过
     Unity 时本开关不生效）。
 
+.PARAMETER SkipConsumer
+    跳过"消费方演练"这一步（toolchain/consumer_smoke.ps1，见该脚本头注释）。该步骤会从零搭建一个
+    独立于本仓库源码树的最小 Unity 消费方工程，耗时较长（包含至少四次 Unity 批处理调用：首次
+    编译/包解析、生成场景、PlayMode 测试、构建独立版）；-SkipUnity 已整体跳过 Unity 时本开关不
+    生效（该步骤本身就需要 Unity）。
+
 .PARAMETER ArtifactsPath
     dotnet build/test 的 --artifacts-path。默认 <仓库根>\bin\_check_artifacts（"bin"
     这一层已被 .gitignore 的 `bin/` 规则忽略，不会误入库）；Unity 编译日志/测试结果 XML/
@@ -34,6 +40,7 @@
 param(
     [switch]$SkipUnity,
     [switch]$SkipSmoke,
+    [switch]$SkipConsumer,
     [string]$ArtifactsPath = "",
     [string]$UnityExe = "",
     [string]$Configuration = "Release"
@@ -439,6 +446,7 @@ if ($SkipUnity) {
     Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity"
     Add-SkippedStep "独立版构建 + -gf-smoke 冒烟（连续模式默认流程）" "-SkipUnity"
     Add-SkippedStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" "-SkipUnity"
+    Add-SkippedStep "消费方演练" "-SkipUnity"
 } else {
     $resolvedUnityExe = Resolve-UnityExe -Explicit $UnityExe
     $unityProjectPath = Join-Path $RepoRoot "adapters\unity"
@@ -598,6 +606,27 @@ if ($SkipUnity) {
         [PSCustomObject]@{
             Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK") -and ($logText -match "step=discrete_round ok")
             Detail = "见 $smokeLog"
+        }
+    }
+
+    # -------------------------------------------------------------------
+    # 消费方演练（第七项验收关卡的自动化形式，见 13_新游戏接入指南.md 第 7 节 /
+    # toolchain/consumer_smoke.ps1 头注释）：默认跑，-SkipConsumer 跳过；另起一个 powershell 子
+    # 进程跑，避免其内部的 exit 语句连带终止本脚本（惯例同 build.ps1 步骤）。耗时较长（内部至少
+    # 四次 Unity 批处理调用），不计入本脚本自身的 Unity 编译检查/EditMode/PlayMode/独立版构建
+    # 四步。
+    # -------------------------------------------------------------------
+    if ($SkipConsumer) {
+        Add-SkippedStep "消费方演练" "-SkipConsumer"
+    } else {
+        Invoke-CheckStep "消费方演练（toolchain/consumer_smoke.ps1）" {
+            $consumerScript = Join-Path $RepoRoot "toolchain\consumer_smoke.ps1"
+            $consumerArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $consumerScript)
+            if ($UnityExe -ne "") {
+                $consumerArgs += @("-UnityExe", $resolvedUnityExe)
+            }
+            & powershell @consumerArgs
+            return ($LASTEXITCODE -eq 0)
         }
     }
 }

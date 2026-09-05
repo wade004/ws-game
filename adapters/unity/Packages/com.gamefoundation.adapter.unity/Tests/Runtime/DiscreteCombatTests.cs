@@ -64,7 +64,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
-    public sealed class DiscreteCombatTests
+    public sealed class DiscreteCombatTests : PlayModeTestBase
     {
         private const string PlayerUnitId = "unit.sample_player";
         private const string PlayerFactionId = "fac.player";

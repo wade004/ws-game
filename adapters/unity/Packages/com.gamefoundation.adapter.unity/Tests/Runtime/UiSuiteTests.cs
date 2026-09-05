@@ -19,7 +19,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
-    public sealed class UiSuiteTests
+    public sealed class UiSuiteTests : PlayModeTestBase
     {
         private const string SceneName = "Shell";
         private const string SlotId = "game.sample.slot_1";

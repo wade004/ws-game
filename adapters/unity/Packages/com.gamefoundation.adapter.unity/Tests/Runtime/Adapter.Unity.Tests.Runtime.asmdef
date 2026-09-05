@@ -3,6 +3,7 @@
     "rootNamespace": "Adapter.Unity.Tests.Runtime",
     "references": [
         "Adapter.Unity",
+        "Adapters.Conformance",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "Unity.InputSystem",

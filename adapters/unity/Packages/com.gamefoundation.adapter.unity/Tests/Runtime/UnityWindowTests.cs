@@ -4,7 +4,7 @@ using NUnit.Framework;
 
 namespace Adapter.Unity.Tests.Runtime
 {
-    public sealed class UnityWindowTests
+    public sealed class UnityWindowTests : PlayModeTestBase
     {
         [Test]
         public void Create_SetsFieldsAndCreatedTrue()

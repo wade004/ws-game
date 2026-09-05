@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "com.gamefoundation.conformance": "file:../../../adapters/conformance",
     "com.gamefoundation.game-template": "file:../../../games/_template",
     "com.unity.2d.animation": "10.1.4",
     "com.unity.2d.sprite": "1.0.0",

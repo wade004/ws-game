@@ -54,7 +54,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
-    public sealed class SharedBootstrapDiscreteTests
+    public sealed class SharedBootstrapDiscreteTests : PlayModeTestBase
     {
         private GameObject? _go;
 

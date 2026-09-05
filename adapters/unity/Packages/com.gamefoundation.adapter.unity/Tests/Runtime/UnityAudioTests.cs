@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace Adapter.Unity.Tests.Runtime
 {
-    public sealed class UnityAudioTests
+    public sealed class UnityAudioTests : PlayModeTestBase
     {
         private GameObject _rootGo = null!;
         private UnityAudio _audio = null!;

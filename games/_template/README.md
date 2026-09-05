@@ -80,6 +80,15 @@ games/_template/
    `Adapter.Unity` 也不出现任何具体游戏代号——本模板同样遵守这条规则，`Runtime`/`Editor` 两个
    asmdef 都只引用 `Adapter.Unity`，不引用工作台任何专属脚本（见 `Editor/GameSceneBuilder.cs`
    顶部判断记录"为什么复制而不是引用工作台的 GreyBoxSceneBuilder/ShellSceneBuilder"）。
+7. **补齐 TextMeshPro 运行期资源与占位字体**（消费方演练任务实跑发现的必需步骤，缺了会在主菜单
+   渲染文字这一步抛异常）：把分发包 `dist/<version>/assets/textmesh_pro_essentials/` 整份拷进新
+   工程的 `Assets/TextMesh Pro/`（TMP_Settings 单例、SDF 着色器等，Unity 批处理环境下无法可靠地
+   靠"导入 TMP Essential Resources"这条异步菜单流程自动补齐，只能整份提交为普通 Assets，见
+   `adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/
+   UnityUISurface.cs` 顶部"判断记录（TMP 运行期依赖）"）；再把 `dist/<version>/assets/_placeholder/
+   fonts/*.otf`/`*.ttf` 拷进 `Assets/Framework/Resources/Fonts/`（`UnityUISurface`/
+   `UnityResourceLoader` 按 `font.<name>` -> `Resources/Fonts/<name>` 规则解析，见包 README"资源
+   id → 路径规则"）。两步都是一次性的文件拷贝，不需要打开 Unity 编辑器操作。
 
 ## 生成场景并跑一遍
 

@@ -8,7 +8,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
-    public sealed class UnityUISurfaceTests
+    public sealed class UnityUISurfaceTests : PlayModeTestBase
     {
         private GameObject _rootGo = null!;
         private UnityUISurface _ui = null!;

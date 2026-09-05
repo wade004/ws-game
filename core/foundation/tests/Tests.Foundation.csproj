@@ -15,6 +15,10 @@
   <ItemGroup>
     <!-- Pull in module-level test sources that live under core/foundation/<module>/tests/ -->
     <Compile Include="../*/tests/**/*.cs" />
+    <!-- L-1 引擎适配层契约一致性场景源码（与测试框架无关，见 adapters/conformance/README.md
+         判断记录 2：选择直接编译源码而不是把 adapters/conformance 做成独立类库加进 Core.sln）。
+         同一份源码也被 adapters/unity 工作台工程以 Unity 本地包形式引用，供 Unity 侧测试使用。 -->
+    <Compile Include="../../../adapters/conformance/**/*.cs" />
   </ItemGroup>
 
   <ItemGroup>

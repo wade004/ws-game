@@ -1,0 +1,7 @@
+{
+  "name": "com.gamefoundation.conformance",
+  "version": "0.2.0",
+  "displayName": "Game Foundation Engine Adapter Conformance Scenarios",
+  "description": "L-1 引擎适配层契约一致性测试场景源码（与测试框架、UnityEngine 均无关），仅供 adapters/unity 工作台工程以 file: 方式引用，不进 dist 分发包。",
+  "unity": "6000.3"
+}

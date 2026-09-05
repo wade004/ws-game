@@ -11,6 +11,12 @@
         "com.unity.ugui": "2.0.0"
       }
     },
+    "com.gamefoundation.conformance": {
+      "version": "file:../../../adapters/conformance",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "com.gamefoundation.game-template": {
       "version": "file:../../../games/_template",
       "depth": 0,
