@@ -357,9 +357,32 @@ Invoke-Step "同步内容数据集 + TextMeshPro 运行期资源到消费方工�
         }
     }
 
+    # 加固J3 新增：占位场景/导航资源文件（供 Core.Foundation.SceneRouter.SceneRouter.LoadScene
+    # 通过 games/_template 的 world.template_field 记录里 scene_ref="scene.template_field"/
+    # nav_ref="nav.template_field" 分别以 ResourceKind.Scene/ResourceKind.NavMesh 解析出的
+    # UnityResourceLoader 路径 StreamingAssets/GameFoundation/scene/template_field.json、
+    # StreamingAssets/GameFoundation/nav_mesh/template_field.json 各自找到一个可读文件；内容不重要
+    # （SceneRouter 只要求文件存在且可解码为文本，从不解析其内容），惯例与文件格式完全照抄
+    # build.ps1"占位场景/导航资源文件"一节判断记录——但 build.ps1 只把这两个文件直接生成进工作台
+    # 自己的 Assets/StreamingAssets/GameFoundation/（构建期产物，不进 dist 快照，见该判断记录"为
+    # 什么在 build.ps1 生成而不是放进 data/_sample 或 assets/_placeholder"），consumer_smoke.ps1
+    # 搭建的是一个全新的、独立于工作台的消费方工程，不会经过工作台那次 build.ps1 运行，因此这两个
+    # 文件必须在本脚本里另外生成一份，否则 -gf-smoke-template 冒烟第一次 "新游戏" 就会卡在
+    # SceneRouter.LoadScene 这一步（Page 停在 MainMenu 不再前进，见任务实跑复现：加固J3 把
+    # consumer_smoke.ps1 第 10 步从"限时引导自检"改成真正驱动新游戏之前，这个缺口从未被这条演练
+    # 流程实际触达过，因此一直没有暴露）。
+    $sceneResourceDir = Join-Path $streamingRoot "scene"
+    New-Item -ItemType Directory -Force -Path $sceneResourceDir | Out-Null
+    $navResourceDir = Join-Path $streamingRoot "nav_mesh"
+    New-Item -ItemType Directory -Force -Path $navResourceDir | Out-Null
+    $placeholderResourceContent = '{"_placeholder":true,"_note":"SceneRouter 场景/导航资源占位字节，内容不被解析，见 build.ps1/consumer_smoke.ps1 判断记录"}'
+    Set-Utf8NoBom -Path (Join-Path $sceneResourceDir "template_field.json") -Content $placeholderResourceContent
+    Set-Utf8NoBom -Path (Join-Path $navResourceDir "template_field.json") -Content $placeholderResourceContent
+    $c5 = 2
+
     [PSCustomObject]@{
-        Ok = ($c1 -gt 0) -and ($c2 -gt 0) -and ($c3 -gt 0) -and ($c4 -gt 0)
-        Detail = "data/_framework=$c1 files, data/game=$c2 files, TMP essentials=$c3 files, fonts=$c4 files"
+        Ok = ($c1 -gt 0) -and ($c2 -gt 0) -and ($c3 -gt 0) -and ($c4 -gt 0) -and ($c5 -eq 2)
+        Detail = "data/_framework=$c1 files, data/game=$c2 files, TMP essentials=$c3 files, fonts=$c4 files, scene/nav placeholders=$c5 files"
     }
 }
 
@@ -458,41 +481,41 @@ $buildOk = Invoke-Step "构建独立版" {
 }
 
 # -----------------------------------------------------------------------------
-# 10) 引导自检（判断记录：games/_template 没有工作台 Adapter.Unity.Shell.SmokeRunner 那样的
-#     "-gf-smoke" 命令行无人值守冒烟入口——本任务对 games/_template 的写入范围只有 README/Tests，
-#     不允许新增 Runtime/Editor 代码去补一个等价的命令行冒烟入口。退化为"引导自检"：直接跑起
-#     独立版产物（启动场景是 Build Settings 第 0 位的 GameTemplateShell.unity，由
-#     GameSceneBuilder.BuildShellScene 的 insertFirst:true 保证），限时观察，检查日志里
-#     没有 [GameBootstrap] 记录的装配失败错误、没有未处理异常，即视为"引导链路本身走通"
-#     （数据加载 -> GameplayAssembly/PresentationAssembly 装配 -> 主菜单可见，与
-#     GameTemplateSmokeTests 在 PlayMode 下断言的是同一条链路，这里是它在独立版产物上的等价验证）。
+# 10) 无人值守冒烟（加固J3：games/_template 新增 Game.Template.TemplateSmokeRunner，
+#     "-gf-smoke-template" 命令行标志驱动，日志格式/退出码约定沿用 Adapter.Unity.Shell.SmokeRunner
+#     ——见该类型头注释判断记录。命令行标志与工作台的 "-gf-smoke" 不同，理由同样见该类型头注释：
+#     Game.Template.asmdef 引用了 Adapter.Unity，独立版产物里两个 SmokeRunner 类型的静态钩子同处
+#     一个进程，沿用同一个标志字符串会撞车）。真正驱动一遍"数据零阻断 → 主菜单 → 新游戏 → 进图 →
+#     移动 1 秒 → 存档 slot.smoke → 读档 → 退出"，断言日志出现 "RESULT=OK"，不再是限时观察 + 日志
+#     关键字排除法的"引导自检"退化版本。
 # -----------------------------------------------------------------------------
 if ($buildOk) {
-    Invoke-Step "引导自检（独立版限时运行 + 日志检查）" {
-        $log = Join-Path $UnityLogDir "05_boot_selfcheck.log"
-        $proc = Invoke-NativeAndWait -Exe $exePath -TimeoutSeconds 45 -ArgList @(
-            "-batchmode",
+    Invoke-Step "-gf-smoke-template 无人值守冒烟" {
+        $log = Join-Path $UnityLogDir "05_smoke_template.log"
+        $proc = Invoke-NativeAndWait -Exe $exePath -TimeoutSeconds 60 -ArgList @(
+            "-batchmode", "-gf-smoke-template",
             "-logFile", $log,
             "-screen-width", "800", "-screen-height", "600"
         )
-        # 判断记录：本步骤故意允许 TimedOut——独立版没有任何会自行退出的逻辑（主菜单会一直停在那里
-        # 等待点击），45s 后强制结束是预期路径，不代表失败；真正判定"引导是否成功"的依据是日志
-        # 内容本身。
+        if ($proc.TimedOut) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "-gf-smoke-template 冒烟超过 60s 未退出，已强制结束（可能挂死），见 $log" }
+        }
+        if ($proc.ExitCode -ne 0) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "独立版退出码 $($proc.ExitCode)，见 $log" }
+        }
         if (-not (Test-Path $log)) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "未生成日志：$log（独立版可能启动失败，退出码 $($proc.ExitCode)）" }
+            return [PSCustomObject]@{ Ok = $false; Detail = "未生成冒烟日志：$log" }
         }
         $logText = Get-Content -Path $log -Raw
-        $bootstrapErrors = Select-String -InputObject $logText -Pattern "\[GameBootstrap\].*(失败|未通过)" -AllMatches
-        $unhandledExceptions = Select-String -InputObject $logText -Pattern "Unhandled Exception|NullReferenceException|InvalidOperationException" -AllMatches
         [PSCustomObject]@{
-            Ok = ($bootstrapErrors.Matches.Count -eq 0) -and ($unhandledExceptions.Matches.Count -eq 0)
-            Detail = "[GameBootstrap] 失败标记命中 $($bootstrapErrors.Matches.Count) 处，未处理异常命中 $($unhandledExceptions.Matches.Count) 处，见 $log"
+            Ok = ($logText -match "\[GF-SMOKE\] RESULT=OK")
+            Detail = "见 $log"
         }
     } | Out-Null
 } else {
-    Write-StepHeader "引导自检（独立版限时运行 + 日志检查）"
+    Write-StepHeader "-gf-smoke-template 无人值守冒烟"
     Write-Host "已跳过：上一步独立版构建未成功，没有可运行的产物。" -ForegroundColor Yellow
-    $script:Results.Add([PSCustomObject]@{ Step = "引导自检（独立版限时运行 + 日志检查）"; Result = "SKIP"; Seconds = 0; Detail = "独立版构建未成功" })
+    $script:Results.Add([PSCustomObject]@{ Step = "-gf-smoke-template 无人值守冒烟"; Result = "SKIP"; Seconds = 0; Detail = "独立版构建未成功" })
 }
 
 # -----------------------------------------------------------------------------

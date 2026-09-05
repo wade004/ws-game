@@ -262,6 +262,20 @@ Invoke-CheckStep "python toolchain/validate_data.py（合并根）" {
 }
 
 # -----------------------------------------------------------------------------
+# 3b. 框架根单独完整校验（加固J3：core/carriers/item 的预算超标规则改为"item.template 一行
+#     都没有时跳过"后，data/_framework 单独跑完整两道校验不再需要 --skip-dotnet 规避，见
+#     data/README.md"与校验器的关系"一节判断记录）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验）" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/validate_data.py", "--data-root", "data/_framework")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
 # 4. 事件常量生成器一致性检查
 # -----------------------------------------------------------------------------
 Invoke-CheckStep "python toolchain/gen_event_constants.py --check" {

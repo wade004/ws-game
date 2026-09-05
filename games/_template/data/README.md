@@ -29,7 +29,7 @@
 | `l10n.text` | 游戏必填 | 本目录其余表里出现的每个 `text_key` 都要有对应行（`l10n/l10n.text.json`），否则 `text_key_exists` 校验报错 |
 | `diff.tier` | 游戏必填 | 至少一档难度（`diff/diff.tier.json`），`Presentation.Shell.ShellHost.NewGame` 需要一个存在的难度 id 才能开局 |
 | `shell_menu_definition` | 游戏必填 | 主菜单入口（`shell/shell_menu_definition.json`），本模板的 `TemplateShellUi` 只处理 `action: "new_game"` 的入口；数据驱动，不改代码即可增删入口 |
-| `stat.definition` | 游戏必填 | 至少玩家职业的主属性一条（`stat/stat.definition.json`） |
+| `stat.definition` | 游戏必填 | 至少玩家职业的主属性一条（`stat/stat.definition.json`）；另需一条 `stat.move_speed`（`MovementOptions.MoveSpeedStat` 默认指向它）——`Core.Carriers.Unit.MovementTickHandler.ResolveSpeed` 读值时若该属性完全未在 `stat.definition` 登记会直接抛 `ArgumentException`（不是"缺省退回 `MovementOptions.DefaultSpeed`"那种缺值场景，是"属性本身未定义"），玩家一旦提交任何移动意图就会装配期之后的第一次 `FixedUpdate` 崩溃；只要给这个 id 登记一行（`default_base` 可以就是 `MovementOptions.DefaultSpeed` 的量级，模板给了 5），单位没有显式设置过时会自动落回这个缺省基值 |
 | `arch.class` | 游戏必填 | 至少玩家职业一条（`arch/arch.class.json`），`primary_stat` 必须指向 `stat.definition` 里存在的行；`power_types` 不能为空数组（`PowerHost.RegisterUnit` 要求至少一种资源类型，默认至少含生命值） |
 | `arch.power_type` | 框架级（`data/_framework`） | `arch.power.health` 一条（`max_source: {kind: fixed, value: 100}`）已随收边任务迁入框架分发包，游戏不需要提供；`Core.Rules.Common.WellKnownPowers.Health` 硬编码这个固定 id（不是可配置默认值），`PresentationAssemblyOptions.HudPowerTypes` 也默认只展示它；skill/combat 对生命值的一切读写都经这个资源类型，见该常量类型注释。游戏若需要生命值上限跟随某个属性成长，见下"覆盖 `arch.power.health`（可选）"一节 |
 | `prog.level_curve` | 游戏必填 | 至少一条（`prog/prog.level_curve.json`），`arch.class.level_curve_ref` 指向它——`RulesAssembly.RegisterUnit` 只在职业记录带 `level_curve_ref` 时才会顺带 `ProgressionHost.RegisterUnit`；玩家一旦不经这条路径注册，`HudViewModel`（经 `player.level` 路径查询）构造期就会因 `ProgressionHost.GetLevel` 抛异常整体装配失败——即便游戏暂时不关心升级成长，也必须给玩家职业挂一条最小曲线（可以只有 1 级、`growth` 为空） |
@@ -37,7 +37,7 @@
 | `combat.resist_curve` | 游戏必填 | 至少一条（`combat/combat.resist_curve.json`），同上——`CombatDataLoader` 构造期无条件要求该表存在，即便暂时没有任何需要走抗性结算的技能/物品 |
 | `fac.faction` | 游戏必填 | 至少玩家阵营一条（`fac/fac.faction.json`） |
 | `world.map` | 游戏必填 | 至少起始地图一条（`world/world.map.json`），`scene_ref`/`nav_ref` 指向的场景/导航资源需要引擎适配层能读到（Unity 侧见 `Editor/GameSceneBuilder.cs`/`build.ps1` 判断记录：本仓库工作台自测用途，用同名占位资源；正式游戏接入自己的资产管线） |
-| `item.budget_curve` | 游戏必填 | 至少 `item.budget.default` 一条（`item/item.budget_curve.json`），`ItemOptions.BudgetCurveId` 默认指向它——即便游戏暂时还没有任何 `item.template` 行，框架 `ItemBudgetValidationRule` 也会无条件检查该曲线是否存在 |
+| `item.budget_curve` | 游戏必填（若已有 `item.template` 内容）/ 可选（尚无任何物品内容时） | 至少 `item.budget.default` 一条（`item/item.budget_curve.json`），`ItemOptions.BudgetCurveId` 默认指向它——加固J3 起 `ItemBudgetValidationRule` 只在数据集确实登记了 `item.template` 行时才要求该曲线存在（没有物品就没有预算可超标，见框架 `data/README.md`"与校验器的关系"一节判断记录）；本模板暂无 `item.template` 行，这里保留的一条只是留作示例 |
 | `found.time_model` | 游戏必填 | 探索/战斗各一条（`found/found.time_model.json`），`Core.Gameplay.Assembly.TimeModelSwitch` 构造期无条件要求至少存在 `scope: exploration` 一条；本模板两条都给 `mode: continuous`（探索/战斗都走连续模式，架构文档 `architecture/13_新游戏接入指南.md` 第 4 节"口味项"里的默认选择），游戏若要接入回合制战斗，把 `found.time_model.combat` 一行改成 `mode: discrete` 并按 04 第 3.1 节补齐 `seconds_per_turn`/`initiative_policy`/`movement_budget_rule` 等字段 |
 
 ## 覆盖 `arch.power.health`（可选）

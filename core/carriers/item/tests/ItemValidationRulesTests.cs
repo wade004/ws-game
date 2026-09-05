@@ -84,6 +84,48 @@ namespace Tests.Carriers.Item
             Assert.Single(issues);
         }
 
+        /// <summary>加固J3：数据集完全没有 item 域（item.template 一行都没有，例如单独校验
+        /// data/_framework——该数据根只登记 found.* 两张框架级纯登记表）时，预算规则应容错跳过，
+        /// 不因为"预算曲线也不存在"而报错。</summary>
+        [Fact]
+        public void BudgetRule_NoItemDomain_NoIssue()
+        {
+            var view = TestSupport.BuildRegistry(source =>
+            {
+                // 故意不往 source 里塞任何 item.* 表数据（对应"数据集完全没有 item 域"），
+                // 惯例同 BuildView 但省去全部四个 source.Add 调用。
+            });
+
+            var issues = new ItemBudgetValidationRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        /// <summary>加固J3：数据集确实登记了 item.template（哪怕只有一条）但预算曲线缺失时，
+        /// 仍然报错——"有 item 域"与"无 item 域"的容错边界，不能因为容错就连真正缺配置的情况
+        /// 也放过。</summary>
+        [Fact]
+        public void BudgetRule_ItemTemplatePresent_MissingBudgetCurve_ReportsIssue()
+        {
+            var view = TestSupport.BuildRegistry(source =>
+            {
+                source.Add("item.slot_definition", TestSupport.Table("item.slot_definition", SlotJson));
+                source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", QualityJson));
+                // 故意不注册 item.budget_curve 任何行（曲线 id "item.budget.default" 不存在）。
+                source.Add("item.template", TestSupport.Table("item.template",
+                    "[{\"id\": \"item.sample_no_curve\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
+                    " \"item_level\": 1, \"display_ref\": \"display.item.sample_no_curve\", \"stack_size\": 5," +
+                    " \"name_key\": \"l10n.item.sample_no_curve\"," +
+                    " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 5}]}]"));
+            });
+
+            var issues = new ItemBudgetValidationRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            Assert.Single(issues);
+            Assert.Equal(ItemBudgetValidationRule.Check, issues[0].Check);
+            Assert.Equal(ValidationSeverity.Error, issues[0].Severity);
+        }
+
         [Fact]
         public void WeaponProfileRule_WeaponSlotMissingProfile_ReportsIssue()
         {

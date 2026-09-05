@@ -72,14 +72,35 @@ Unity.exe -batchmode                -projectPath adapters\unity -runTests -testP
 
 `-runTests` 不要再加 `-quit`（两者同传会在测试真正跑起来前提前退出）；`-nographics` 只用于 EditMode，PlayMode 需要真实渲染/输入子系统，不能加。独立版 Windows 命令行构建、灰盒/Shell 场景重建、独立版无头冒烟等更详细的命令与已知限制，见 [adapters/unity/README.md](adapters/unity/README.md) 与 [adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md](adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md)。
 
-## `check.ps1`（一键门禁，仓库根，见 11_工程规范与测试.md 第 8 节）
+### 消费方演练（`toolchain/consumer_smoke.ps1`）
 
-依次跑：`.NET` 构建 + 测试（六工程，含性能基线）→ 数据校验（合并根）→ 事件常量/占位资产生成器一致性检查（`--check`，只读）→ `toolchain` 自身的 Python 测试 → 两道禁用词扫描（全仓库不出现具体游戏代号；`architecture` 正文不出现具体引擎/语言/框架/工具名）→ 版本一致性（`VERSION` 与两个 `package.json`）→ `build.ps1 -SkipTests` 同步 DLL → Unity 编译检查 → Unity EditMode/PlayMode 测试 → 独立版构建 + `-gf-smoke` 无人值守冒烟。每步单独计时与判定，最后打印一张汇总表；任一步失败，整体以非 0 退出码结束。
+从零搭建一个独立于本仓库源码树、只以 `dist/<version>/` 为输入的最小 Unity 消费方工程，完整走一遍
+[games/_template/README.md](games/_template/README.md) 描述的接入步骤，验证"一个从未见过本仓库
+源码的新游戏工程，照着文档操作能不能真正跑起来"——不是靠工作台工程（`adapters/unity`，源码级直接
+引用本仓库内容）自证。共 10 步：确保分发包快照存在 → 准备全新工作目录 → 复制并改名
+`games/_template` → 创建消费方工程骨架（`file:` 引用两个包）→ 同步内容数据集 + TextMeshPro 运行期
+资源 + 占位场景/导航资源 → 首次批处理编译（0 编译错误）→ 生成 Shell + Map 场景 → 模板 PlayMode
+测试 → 构建独立版 → `-gf-smoke-template` 无人值守冒烟（真正驱动"主菜单→新游戏→进图→移动→存档→
+读档→退出"，断言日志出现 `RESULT=OK`）。
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1              # 全量（含 Unity 四步）
-powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity   # 跳过 Unity 相关四步（Unity 编辑器被占用/未装时用）
-powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipSmoke   # Unity 独立版仍构建，只跳过 -gf-smoke 冒烟子步骤
+powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\consumer_smoke.ps1
+```
+
+默认版本号读仓库根 `VERSION`、工作目录落在系统临时目录下的 `gf_consumer_smoke\`（每次运行前清空
+重建）；`-DistVersion`/`-WorkDir`/`-UnityExe`/`-SkipCleanWorkDir` 可覆盖，见该脚本头注释。
+`check.ps1` 默认会跑这一步（`-SkipConsumer` 跳过，`-SkipUnity` 时一并跳过），是 11 号文档"提交
+门槛清单"的一部分。
+
+## `check.ps1`（一键门禁，仓库根，见 11_工程规范与测试.md 第 8 节）
+
+依次跑：`.NET` 构建 + 测试（六工程，含性能基线）→ 数据校验（合并根 + `data/_framework` 框架根单独完整校验）→ 事件常量/占位资产生成器一致性检查（`--check`，只读）→ `toolchain` 自身的 Python 测试 → 两道禁用词扫描（全仓库不出现具体游戏代号；`architecture` 正文不出现具体引擎/语言/框架/工具名）→ 版本一致性（`VERSION` 与两个 `package.json`）→ `build.ps1 -SkipTests` 同步 DLL → Unity 编译检查 → Unity EditMode/PlayMode 测试 → 独立版构建 + 两种无人值守冒烟（`-gf-smoke` 连续模式默认流程、`-gf-smoke-discrete` 离散模式链路）→ 消费方演练（`toolchain/consumer_smoke.ps1`，见下一节）。每步单独计时与判定，最后打印一张汇总表；任一步失败，整体以非 0 退出码结束。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1              # 全量（含 Unity 相关步骤与消费方演练）
+powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity   # 跳过 Unity 相关步骤与消费方演练（Unity 编辑器被占用/未装时用）
+powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipSmoke   # Unity 独立版仍构建，只跳过两种无人值守冒烟子步骤
+powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipConsumer # 跳过消费方演练这一步（其余 Unity 步骤仍跑）
 ```
 
 `-ArtifactsPath <dir>` 可覆盖 `dotnet`/Unity 产物落地目录（默认 `bin\_check_artifacts`，已被 `.gitignore` 的 `bin/` 规则忽略）；`-UnityExe <path>` 可显式指定 Unity 可执行文件路径（默认按 Unity Hub 常见安装位置猜测，找不到则要求显式传参）。

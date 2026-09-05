@@ -26,6 +26,20 @@ namespace Core.Carriers.Item
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
+            var templates = view.GetAll("item.template");
+
+            // 加固J3 容错（见 data/README.md 曾记录的已知现象）：数据集完全没有 item 域
+            // （item.template 一行都没有——如 data/_framework 单独校验，该数据根只登记
+            // found.event_catalog/found.input_action 两张框架级纯登记表）时，本规则设计上假定
+            // "跑校验的是一份完整游戏/示例数据"这一前提不成立，不应该因为"预算曲线也不存在"而报错——
+            // 没有物品就没有什么预算可超标。一旦数据集确实登记了至少一条 item.template（哪怕只有一条），
+            // 就视为"有 item 域"，下面 curveRecord == null 的分支仍然按原样报错（"有 item 表但缺
+            // item.budget.default"不属于可容错的场景，说明该数据集本该配一条默认预算曲线却没配）。
+            if (templates.Count == 0)
+            {
+                yield break;
+            }
+
             var curveRecord = view.Get("item.budget_curve", _budgetCurveId);
             if (curveRecord == null)
             {
@@ -43,7 +57,7 @@ namespace Core.Carriers.Item
                 qualityMultipliers[q.Key] = q.TryGetNumber("budget_multiplier", out var m) ? m : 1.0;
             }
 
-            foreach (var record in view.GetAll("item.template"))
+            foreach (var record in templates)
             {
                 if (!record.TryGetArray("stats", out var stats) || stats.Count == 0)
                 {

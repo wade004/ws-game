@@ -92,5 +92,50 @@ namespace Game.Template.Tests
             Assert.AreEqual(Presentation.Shell.ShellPage.MainMenu, shellUi.Bootstrap.Presentation.Shell.Page,
                 "默认启动后 Shell 应停在主菜单页");
         }
+
+        /// <summary>验证 <c>-gf-smoke-template</c> 冒烟序列本身在编辑器内可跑通（见
+        /// <see cref="TemplateSmokeRunner"/> 类型头注释）：不经由命令行标志触发
+        /// （<c>-runTests</c> 跑 PlayMode 测试的命令行不会带这个标志，见该类型
+        /// <c>TryStart</c> 静态钩子的判定条件），改为测试代码自己
+        /// <c>AddComponent&lt;TemplateSmokeRunner&gt;()</c>，惯例同该类型 <c>IsFinished</c>/
+        /// <c>Succeeded</c> 属性注释——两个属性正是为本用例公开的。
+        /// <para>
+        /// 判断记录（为什么在编辑器 PlayMode 测试里放心跑到 <c>Application.Quit</c> 那一步，
+        /// 不会真的中断测试进程/退出 Play 模式）：Unity 官方行为——<c>Application.Quit</c> 在
+        /// 编辑器内（无论是手动 Play 还是 <c>-runTests</c> 批处理 PlayMode）是纯粹的空操作，
+        /// 既不会退出 Play 模式也不会关闭编辑器进程，只在真正的独立版构建产物里才生效；
+        /// 这也是为什么 <c>check.ps1</c>/<c>consumer_smoke.ps1</c> 的 <c>-gf-smoke</c>/
+        /// <c>-gf-smoke-template</c> 冒烟步骤都必须先构建独立版再运行，不能直接在 PlayMode
+        /// 测试里验证"退出码"本身——本用例只验证"序列本身能跑通并打印 RESULT=OK"，不验证
+        /// 退出码语义（那是 <c>toolchain/consumer_smoke.ps1</c> 第 10 步的职责，见该脚本）。
+        /// </para>
+        /// </summary>
+        [UnityTest]
+        public IEnumerator TemplateSmokeRunner_InEditor_CompletesSequenceSuccessfully()
+        {
+            yield return LoadShellScene();
+
+            var bootstrap = Object.FindFirstObjectByType<GameBootstrap>();
+            Assert.IsNotNull(bootstrap, "场景里应当有且仅有一个 GameBootstrap 实例");
+            Assert.IsFalse(bootstrap!.BootstrapFailed, "默认 GameOptions 下 GameBootstrap 不应装配失败");
+
+            var runnerGo = new GameObject("TestTemplateSmokeRunner");
+            var runner = runnerGo.AddComponent<TemplateSmokeRunner>();
+
+            // 冒烟序列内部两处"等待 InWorld 页面"的轮询上限各 1200 帧、外加"移动 1 秒"，实测在
+            // PlayMode 测试环境下远快于看门狗的 60 秒实时上限；这里给一个比看门狗更宽松的保底
+            // （65 秒实时），避免真正卡死时把本用例挂到 Unity 测试框架自己的默认超时上，报出的
+            // 失败原因更明确（下面的 Assert.Fail 消息），而不是一个含糊的框架级超时。
+            var guardDeadline = Time.realtimeSinceStartup + 65f;
+            while (!runner.IsFinished && Time.realtimeSinceStartup < guardDeadline)
+            {
+                yield return null;
+            }
+
+            Assert.IsTrue(runner.IsFinished, "TemplateSmokeRunner 冒烟序列应在保底时限内跑完（成功或失败）");
+            Assert.IsTrue(runner.Succeeded, "TemplateSmokeRunner 冒烟序列应成功跑完（RESULT=OK），失败原因见上方 Console 日志");
+
+            Object.Destroy(runnerGo);
+        }
     }
 }
