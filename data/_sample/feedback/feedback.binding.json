@@ -29,6 +29,15 @@
         { "kind": "play_vfx", "params": { "vfx_id": "vfx.sample_cast_circle", "attach": "target" } },
         { "kind": "play_sfx", "params": { "sfx_id": "sfx.sample_cast" } }
       ]
+    },
+    {
+      "id": "feedback.sample_death",
+      "event": "unit.died",
+      "actions": [
+        { "kind": "floating_text", "params": { "style_id": "feedback.floating_text_style.sample_normal", "text_source": "literal:l10n.combat.sample_death_text" } },
+        { "kind": "shake_camera", "params": { "profile_id": "feedback.shake.sample_crit" } },
+        { "kind": "flash", "params": { "profile_id": "vfx.sample_death_flash", "target": "target" } }
+      ]
     }
   ]
 }

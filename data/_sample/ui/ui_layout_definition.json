@@ -12,6 +12,46 @@
       "panel": "action_bar",
       "slots": 8,
       "fields": { "anchor": "bottom_center" }
+    },
+    {
+      "id": "ui_layout_definition.sample_inventory",
+      "panel": "inventory",
+      "fields": { "anchor": "top_right" }
+    },
+    {
+      "id": "ui_layout_definition.sample_quest_log",
+      "panel": "quest_log",
+      "fields": { "anchor": "left_center" }
+    },
+    {
+      "id": "ui_layout_definition.sample_dialog",
+      "panel": "dialog",
+      "fields": { "anchor": "bottom_center" }
+    },
+    {
+      "id": "ui_layout_definition.sample_skill_book",
+      "panel": "skill_book",
+      "fields": { "anchor": "right_center" }
+    },
+    {
+      "id": "ui_layout_definition.sample_character_stats",
+      "panel": "character_stats",
+      "fields": { "anchor": "top_left" }
+    },
+    {
+      "id": "ui_layout_definition.sample_settings",
+      "panel": "settings",
+      "fields": { "anchor": "center" }
+    },
+    {
+      "id": "ui_layout_definition.sample_save_slots",
+      "panel": "save_slots",
+      "fields": { "anchor": "center" }
+    },
+    {
+      "id": "ui_layout_definition.sample_pause_menu",
+      "panel": "pause_menu",
+      "fields": { "anchor": "center" }
     }
   ]
 }

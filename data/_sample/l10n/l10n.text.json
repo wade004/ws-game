@@ -32,6 +32,21 @@
     { "key": "l10n.quest.sample_hunt.description", "locale": "l10n.locale.zh_cn", "text": "击败示例野兽并收集信物" },
     { "key": "l10n.diff.sample_story.name", "locale": "l10n.locale.zh_cn", "text": "故事难度" },
     { "key": "l10n.diff.sample_veteran.name", "locale": "l10n.locale.zh_cn", "text": "老兵难度" },
-    { "key": "l10n.achv.sample_hunter.name", "locale": "l10n.locale.zh_cn", "text": "示例猎人成就" }
+    { "key": "l10n.achv.sample_hunter.name", "locale": "l10n.locale.zh_cn", "text": "示例猎人成就" },
+    { "key": "l10n.shell.sample_new_game", "locale": "l10n.locale.zh_cn", "text": "新游戏" },
+    { "key": "l10n.shell.sample_load_game", "locale": "l10n.locale.zh_cn", "text": "读取存档" },
+    { "key": "l10n.shell.sample_settings", "locale": "l10n.locale.zh_cn", "text": "设置" },
+    { "key": "l10n.shell.sample_quit", "locale": "l10n.locale.zh_cn", "text": "退出" },
+    { "key": "l10n.pause.sample_resume", "locale": "l10n.locale.zh_cn", "text": "继续游戏" },
+    { "key": "l10n.pause.sample_settings", "locale": "l10n.locale.zh_cn", "text": "设置" },
+    { "key": "l10n.pause.sample_main_menu", "locale": "l10n.locale.zh_cn", "text": "返回主菜单" },
+    { "key": "l10n.pause.sample_quit", "locale": "l10n.locale.zh_cn", "text": "退出游戏" },
+    { "key": "l10n.dialog.sample_hunter.option_accept", "locale": "l10n.locale.zh_cn", "text": "接受狩猎任务" },
+    { "key": "l10n.dialog.sample_hunter.option_turn_in", "locale": "l10n.locale.zh_cn", "text": "交付狩猎任务" },
+    { "key": "l10n.dialog.sample_hunter.option_vendor", "locale": "l10n.locale.zh_cn", "text": "查看商品" },
+    { "key": "l10n.dialog.sample_hunter_story.node_intro", "locale": "l10n.locale.zh_cn", "text": "示例猎人：欢迎来到示例地图。" },
+    { "key": "l10n.dialog.sample_hunter_story.node_end", "locale": "l10n.locale.zh_cn", "text": "示例猎人：一路小心。" },
+    { "key": "l10n.dialog.sample_hunter_story.branch_continue", "locale": "l10n.locale.zh_cn", "text": "（继续）" },
+    { "key": "l10n.combat.sample_death_text", "locale": "l10n.locale.zh_cn", "text": "阵亡" }
   ]
 }

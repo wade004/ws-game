@@ -178,6 +178,13 @@ namespace Adapter.Unity.EngineAdapter
             _busVolumes[bus] = volume;
         }
 
+        /// <summary>U3 新增：非契约诊断读取（同 <see cref="PlaySfxCallCount"/> 一类"引擎实现之间的
+        /// 内部协作方法"惯例，见包 README）——<see cref="IAudio"/> 契约本身只有 <see cref="SetBusVolume"/>
+        /// 没有对应的读取方法（见类型顶部"总线音量方案"判断记录），Unity 设置面板/测试需要一个只读
+        /// 途径确认"总线音量确实已按设置面板的输入变化"，因此补一个只读属性访问器，不改变
+        /// <see cref="IAudio"/> 契约本身。</summary>
+        public double GetBusVolume(AudioBus bus) => _busVolumes.TryGetValue(bus, out var v) ? v : 1.0;
+
         /// <summary>由 UnityEngineHost.Update 每帧调用：推进音乐淡入淡出并把总线音量实时应用到
         /// 正在播放的音乐（SFX 总线音量只影响新播放，见类型顶部判断记录）。</summary>
         internal void Tick(double deltaSeconds)

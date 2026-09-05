@@ -14,7 +14,8 @@ adapters/unity/
       GreyBoxSceneBuilder.cs       程序化生成/重建 Assets/Framework/Scenes/GreyBox.unity
     Framework/
       Resources/Fonts/            TMP 占位字体（NotoSansCJKsc-Regular），UnityUISurface 依赖
-      Scenes/GreyBox.unity         灰盒测试场景（U2-4），已加入 Build Settings 第 0 位
+      Scenes/Shell.unity           Shell 场景（U3），已加入 Build Settings 第 0 位（启动场景）
+      Scenes/GreyBox.unity         灰盒测试场景（U2-4），已加入 Build Settings 第 1 位
     StreamingAssets/GameFoundation/  build.ps1 -SyncContent 生成物，不提交（见 .gitignore）
     TextMesh Pro/                 TMP 官方 Essential Resources（U1 已提交）
   Packages/
@@ -55,9 +56,18 @@ Unity.exe -batchmode                -projectPath adapters\unity -runTests -testP
 # 重新生成灰盒场景（场景文件损坏/需要调整时）
 Unity.exe -batchmode -nographics -quit -projectPath adapters\unity -executeMethod Adapter.Unity.EditorTools.GreyBoxSceneBuilder.Build -logFile <out>\scene.log
 
-# Windows 独立版构建
-Unity.exe -batchmode -nographics -quit -projectPath adapters\unity -buildWindows64Player <out>\GreyBox.exe -logFile <out>\build.log
+# 重新生成 Shell 场景（U3 新增，同上）
+Unity.exe -batchmode -nographics -quit -projectPath adapters\unity -executeMethod Adapter.Unity.EditorTools.ShellSceneBuilder.Build -logFile <out>\scene.log
+
+# Windows 独立版构建（启动场景 = Build Settings 第 0 位 = Shell.unity）
+Unity.exe -batchmode -nographics -quit -projectPath adapters\unity -buildWindows64Player <out>\Shell.exe -logFile <out>\build.log
 ```
 
 跑测试/构建前需要先跑过一次 `build.ps1`（至少 `-SyncContent`），否则灰盒场景加载数据集/占位资源会
-因为 `Assets/StreamingAssets/GameFoundation/` 不存在而失败。
+因为 `Assets/StreamingAssets/GameFoundation/` 不存在而失败；U3 新增的 `data/sample_field.json`
+占位场景资源同样由该步骤生成，Shell 场景的"新游戏/读档"依赖它（见包 README U3 一节判断记录）。
+
+## U3：UI 套件、Shell 流程、灰盒竖切测试
+
+见包 `README.md`"U3：UI 套件默认皮肤、Shell 流程、灰盒竖切测试与独立版冒烟"一节（十个界面单元
+清单、Shell 状态流程图、示例 NewGameStarter、契约缺口发现、人工验收清单、命令行跑法）。

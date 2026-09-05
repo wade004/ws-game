@@ -278,6 +278,37 @@ namespace Adapter.Unity.Bootstrap
                 new ActionDefinition(new Id(ActionSkill1), ActionKind.Button,
                     new[] { "key:digit1" }, description: "灰盒演示：技能 1（skill.sample_burn）"),
             });
+
+            // 判断记录（U3 新增，契约缺口发现）：core/rules/ai/core/AiHost.cs 公开了
+            // UnregisterUnit，但勘察 core/gameplay/assembly/GameplayAssembly.cs 与
+            // core/gameplay/spawn 全文，没有任何一处在 unit.died 时调用它——AiTickHandler.Execute
+            // 每 tick 无条件遍历 AiHost.RegisteredUnitIds 逐个 Step，一个已死亡但仍留在 AiHost
+            // 内部注册表里的单位会在下一次 Tick 让 WorldUnitAccess.Require 抛
+            // InvalidOperationException（U3 实测复现：本任务的 PlayMode 用例首次让示例生物真正
+            // 战斗至死亡，暴露了这条此前从未被走通的路径；一旦复现，之后每次 FixedUpdate 都会
+            // 重新抛出，直至场景重进）。这是 core/ 层面的既有缺口（core/rules/ai 不在本任务允许
+            // 改动范围内），按"窄契约调用"惯例（同本文件"判断记录 2"GameObjectHost.Interact）在
+            // 引擎适配层订阅 unit.died 自行补上退场清理：AiHost.UnregisterUnit +
+            // ISpatialQuery.Unregister（后者是 UnitySpatialQuery 的非契约协作方法）。与
+            // Adapter.Unity.Shell.FrameworkResidentHost 的同名判断记录同一处理，两条独立的
+            // 装配路径（灰盒/Shell）各自订阅一次，互不影响。
+            _bus.Subscribe(Core.Rules.Common.RulesEventKeys.UnitDied, OnUnitDied);
+        }
+
+        private void OnUnitDied(IEvent evt)
+        {
+            if (!(evt is Core.Rules.Common.UnitDiedEvent died))
+            {
+                return;
+            }
+
+            var wasRegistered = Gameplay!.Carriers.Rules.Ai.RegisteredUnitIds.Contains(died.UnitId);
+            if (wasRegistered)
+            {
+                Gameplay.Carriers.Rules.Ai.UnregisterUnit(died.UnitId);
+            }
+
+            _host.SpatialQuery.Unregister(died.UnitId);
         }
 
         private void FixedUpdate()

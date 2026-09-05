@@ -249,6 +249,34 @@ $totalContentFiles = (Get-ChildItem -Path $StreamingAssetsRoot -Recurse -File -E
 Write-Host ("StreamingAssets/GameFoundation/ 下文件总数（含以上四棵树的并集，sprites/audio 与 assets/_placeholder 下同名文件各自独立计数）：{0}" -f $totalContentFiles)
 
 # ---------------------------------------------------------------------------
+# 4.1 U3 新增：占位场景/导航资源文件（供 Core.Foundation.SceneRouter.SceneRouter.LoadScene 通过
+#     world.map 记录里既有的 scene_ref="scene.sample_field"/nav_ref="nav.sample_field" 解析出的
+#     UnityResourceLoader.ResourceKind.DataTable 路径 StreamingAssets/GameFoundation/data/
+#     sample_field.json 找到一个可读文件（两个引用去掉类别前缀后恰好是同一个文件名
+#     "sample_field"，见该加载器 ResolvePath 的"去掉类别前缀、点号换下划线"规则——不是 bug，
+#     SceneRouter 只要求文件存在且可解码为文本，从不解析其内容，见 SceneRouter.cs 类型注释
+#     "资源种类映射"判断记录）。
+#
+#     判断记录（为什么在 build.ps1 生成而不是放进 data/_sample 或 assets/_placeholder）：
+#     data/_sample 的可改动范围限定于"UI/Shell 需要补的示例行"（登记表数据），这个文件不是任何
+#     登记表的一行，塞进去会被 toolchain/validate_data.py 当成一张缺失 schema 的表校验报错；
+#     assets/_placeholder 是本任务硬性规则明确不动的目录。该资源在 SceneRouter 眼里是纯粹的
+#     "占位字节"（内容完全不解析），属于构建期产物而非源内容，因此选择在 build.ps1（内容同步
+#     步骤，允许改动）里直接生成，与 StreamingAssets/GameFoundation/ 其余产物同一治理方式
+#     （构建时产生、.gitignore、不进源码库）。此为框架尚未提供"场景/导航资源内容管线"这一已知
+#     契约缺口（见 SceneRouter.cs 类型注释、任务书"资源种类映射"判断记录）的最小可行绕过，供
+#     设计层复核是否需要走 ADR 给 ResourceKind 增补 Scene/NavMesh 专用取值。
+# ---------------------------------------------------------------------------
+$sceneResourceDir = Join-Path $StreamingAssetsRoot "data"
+if (-not (Test-Path $sceneResourceDir)) {
+    New-Item -ItemType Directory -Force -Path $sceneResourceDir | Out-Null
+}
+$sceneResourcePath = Join-Path $sceneResourceDir "sample_field.json"
+$sceneResourceContent = '{"_placeholder":true,"_note":"SceneRouter 场景/导航资源占位字节，内容不被解析，见 build.ps1 判断记录"}'
+Set-Content -Path $sceneResourcePath -Value $sceneResourceContent -NoNewline -Encoding utf8
+Write-Host "  已生成占位场景/导航资源：$sceneResourcePath（scene.sample_field 与 nav.sample_field 共用同一份字节）"
+
+# ---------------------------------------------------------------------------
 # 5. 可选：打分发包 dist/<version>/
 # ---------------------------------------------------------------------------
 if ($Dist -ne "") {
