@@ -207,7 +207,10 @@ namespace Tests.PresentationRender
             var view = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo());
             view.Bind(new Id("unit.hero_1"));
 
-            var ex = Record.Exception(() => view.OnEvent(new PlaybackFinishedEvent()));
+            // 任意 IEvent 均可——本用例只关心默认实现不抛异常，不关心具体事件语义（原用
+            // Presentation.Common.PlaybackFinishedEvent 当占位事件，该类型已随 09 勘误"去重"删除，
+            // 见 PresentationEventKeys 类型注释，这里换一个已在本文件 using 范围内的真实事件类型）。
+            var ex = Record.Exception(() => view.OnEvent(new UnitMovedEvent(new Id("unit.other"), Vec2.Zero)));
 
             Assert.Null(ex);
         }

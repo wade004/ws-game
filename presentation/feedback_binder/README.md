@@ -57,11 +57,12 @@
    存在。`FeedbackBinder.ResolveEntityLogicalId` 现按"先看可选注入的 `EntityLogicalIdResolver`（仍
    保留，供需要与模板 id 不同映射规则的具体游戏覆盖），没有注入时默认经 `IUnitAccess.GetTemplateId`
    取模板 id"的顺序解析；两者都未注入时仍记一条诊断并跳过该动作，不崩溃、不影响规则里的其它动作。
-6. **`text_source: literal` 的本地化解析**：`l10n.text` 查表（04 第 7.2 节）不在本模块契约范围
-   内，当前实现直接把文本键原文（如 `"l10n.combat.dodge"`）当作展示文本传给
-   `IFeedbackSink.FloatingText`，只是一个占位；集成阶段需要注入一个 `Func<Id,string>` 本地化
-   解析委托替换掉这一处（预留在 `FeedbackBinder.DispatchFloatingTextAction` 的 `Literal` 分支，
-   已用注释标出）。
+6. **`text_source: literal` 的本地化解析——已解决（缺口 7）**：`FeedbackBinder` 构造函数新增可选
+   `Func<Id, string>? textResolver` 参数；未注入时保留此前"直接把文本键原文当展示文本"的退化占位
+   行为（不阻断装配），注入后经它解析出真正文案。`PresentationAssembly` 默认接
+   `key => L10n.Text(key)`（`IL10nHost.Text`，见 09 第 7.3 节"文案一律经本地化表用 key 间接引用"），
+   `L10nHost` 因此提前到 `feedback_binder` 小节构造（原在 `ui` 小节，见 `assembly/README.md` 判断
+   记录）。
 7. **`sfx.def`/`play_sfx` 没有挂接坐标**：09 第 6.1 节 `PlaySfx(sfxId)` 伪代码本就没有 `attach`
    字段，`CompositeFeedbackSink.PlaySfx` 统一传 `at: null`（非定位音效）——这是本模块按伪代码字面
    拍板的设计选择，不是契约缺口：`IAudio.PlaySfx` 已由 ADR-0016 补上 `position` 参数，`at: null`
@@ -71,14 +72,25 @@
    "action kind 合法""params 必填"两项在 `FeedbackRule.FromRecord` 解析期已经由类型系统/构造函数
    强制满足——一条规则能被构造出来就已经通过这两项；`FeedbackRuleValidator` 只补运行期/跨记录才能
    判断的三项：`event` 已登记、`id` 落在 `feedback` domain、`id` 在规则集内不重复。
+9. **`FeedbackOptions.QueueMode` 默认 `Immediate`，离散模式下的切换不由本模块自己决定（拍板 5）**：
+   `PlaybackQueue.Mode` 是公开可写属性，支持运行期切换；但"什么时候该切"依赖 03/ADR-0013 的时间
+   模型状态（`core/gameplay/assembly.TimeModelSwitch`），不是 `feedback_binder`/`vfx_sfx` 两个模块
+   自己能判断的信息——切换时机的决策与接线放在装配根，见 `presentation/assembly/README.md`
+   `PresentationAssemblyOptions.FeedbackQueueMode` 判断记录；此前 Unity 引导侧"靠零事件兜底短路"
+   的临时手法已随本次收口废弃。
 
 ## 不负责什么
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行
   协调"。
-- 不实现 `l10n.text` 查表（判断记录 6）——显式声明的契约缺口，不是遗漏；`from_display: source/target`
-  的实体 → 模板 id 映射已在 P4-2 修补（判断记录 5），不再是契约缺口。
+- 不自己实现 `l10n.text` 查表逻辑（那是 `core/foundation/localization` 的事）——本模块只暴露一个
+  可选 `textResolver` 注入点（判断记录 6），`l10n.text` 不再是未接线的契约缺口；`from_display:
+  source/target` 的实体 → 模板 id 映射已在 P4-2 修补（判断记录 5），同样不再是契约缺口。
 - 不接入 `data/_sample/`：`schema/FeedbackSchemas` 只声明表结构，测试用 `InMemoryDataSource`
   内联 JSON 验证 `FromRecord` 的解析正确性。
-- 顿帧（`Freeze`）、震屏（`ShakeCamera`）、闪白（`Flash`）的具体落地（tick 节奏/镜头/材质参数）
-  留给 `IFeedbackSink` 实现方注入的委托，本模块只发指令。
+- 顿帧（`Freeze`）、震屏（`ShakeCamera`）的具体落地（tick 节奏/镜头）仍留给 `IFeedbackSink`
+  实现方注入的委托，本模块只发指令；闪白（`Flash`）已由 `PresentationAssembly` 默认接到
+  `presentation/render` 的 `ICharacterRig.ProceduralAnim.Flash` 原语（见拍板 6/09 第 4.1 节），
+  不再是未接线的空回调——`OnFlash` 选项仍保留供调用方完全覆盖默认行为。09 未定义
+  `flash_profile` 登记表，`profileId → FlashParams`（强度/时长）的解析仍是契约缺口（默认恒返回
+  `FlashParams.Default`，见 `PresentationAssemblyOptions.FlashProfileResolver`）。

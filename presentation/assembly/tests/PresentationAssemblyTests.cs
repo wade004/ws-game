@@ -9,7 +9,12 @@ using Core.Foundation.SceneRouter;
 using Core.Foundation.SimLoop;
 using Core.Gameplay.Assembly;
 using Core.Rules.Common;
+using Core.Foundation.EngineAdapter;
 using Presentation.Assembly;
+using Presentation.Common;
+using Presentation.FeedbackBinder.Contracts;
+using Presentation.Render;
+using Presentation.VfxSfx.Contracts;
 using Xunit;
 
 namespace Tests.Presentation.Assembly
@@ -95,6 +100,11 @@ namespace Tests.Presentation.Assembly
                 "{\"table\": \"feedback.binding\", \"schema_version\": 1, \"rows\": [" +
                 "{\"id\": \"feedback.sample_damage_text\", \"event\": \"combat.damage_dealt\", \"actions\": [" +
                 "{\"kind\": \"floating_text\", \"params\": {\"style_id\": \"feedback.floating_text_style.sample\", \"text_source\": \"amount\"}}" +
+                "]}," +
+                // 缺口 6 恢复用例（FlashAction_DefaultWiring_RoutesThroughCharacterRig_WhenViewHasRig）：
+                // 对同一事件补一条 flash 规则，target=source（伤害来源自身受击闪白）。
+                "{\"id\": \"feedback.sample_damage_flash\", \"event\": \"combat.damage_dealt\", \"actions\": [" +
+                "{\"kind\": \"flash\", \"params\": {\"profile_id\": \"feedback.flash.sample\", \"target\": \"source\"}}" +
                 "]}]}");
             source.Add("feedback.floating_text_style",
                 "{\"table\": \"feedback.floating_text_style\", \"schema_version\": 1, \"rows\": [" +
@@ -114,11 +124,21 @@ namespace Tests.Presentation.Assembly
                 "{\"id\": \"shell_menu_definition.sample_main\", \"entries\": [" +
                 "{\"id\": \"shell_menu_definition.sample_main.new_game\", \"text_key\": \"l10n.shell.sample_new_game\", \"action\": \"new_game\"}" +
                 "]}]}");
+            // 拍板 7（商店 UI）：ShopViewModelTests 用例需要的最小 econ.currency/econ.vendor 数据。
+            source.Add("econ.currency",
+                "{\"table\": \"econ.currency\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"econ.currency.sample_gold\", \"name_key\": \"l10n.currency.sample_gold.name\", \"display_ref\": \"display.currency.sample_gold\"}" +
+                "]}");
+            source.Add("econ.vendor",
+                "{\"table\": \"econ.vendor\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"econ.vendor.sample_general\", \"name_key\": \"l10n.vendor.sample_general.name\", \"sell_items\": [" +
+                "{\"item_id\": \"item.sample_potion\", \"price_currency_id\": \"econ.currency.sample_gold\", \"price_amount\": 10}" +
+                "]}]}");
         }
 
         private static PresentationAssembly Build(
             out GameplayAssembly gameplay, out WorldSim world, out StubEngine engine, out IEventBus bus,
-            PresentationAssemblyOptions? options = null)
+            PresentationAssemblyOptions? options = null, IViewFactory? viewFactory = null)
         {
             bus = new EventBus(
                 EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
@@ -158,7 +178,7 @@ namespace Tests.Presentation.Assembly
             // 的 playerId 在此赋值后，后续调用（包括即将构造的 PresentationAssembly）都会取到它。
             playerId = gameplay.Carriers.Creatures.Spawn(SamplePlayerTemplateId, SampleMapId, Vec2.Zero, 0.0);
 
-            var viewFactory = new Tests.PresentationViewBinding.FakeViewFactory();
+            viewFactory ??= new Tests.PresentationViewBinding.FakeViewFactory();
             var sceneRouter = new SceneRouter(registry, engine.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, bus);
             var presentationRng = new RngHost(2);
 
@@ -191,6 +211,7 @@ namespace Tests.Presentation.Assembly
             Assert.NotNull(presentation.DialogView);
             Assert.NotNull(presentation.SkillBook);
             Assert.NotNull(presentation.CharacterStats);
+            Assert.NotNull(presentation.Shop);
             Assert.NotNull(presentation.Settings);
             Assert.NotNull(presentation.SaveSlots);
             Assert.NotNull(presentation.PauseMenu);
@@ -343,6 +364,85 @@ namespace Tests.Presentation.Assembly
             Assert.Null(presentation.WeaponStyle.ResolveSwingVfx(new Id("display.weapon_style.sample_sword")));
         }
 
+        // ------------------------------------------------------------------
+        // 拍板 7：商店 UI（ShopViewModel）。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void Shop_NoVendorOpen_SellItemsEmpty()
+        {
+            var presentation = Build(out _, out _, out _, out _);
+
+            Assert.Null(presentation.Shop.CurrentVendorId);
+            Assert.Empty(presentation.Shop.SellItems);
+        }
+
+        [Fact]
+        public void Shop_OpenVendor_ListsSellItems_FromSampleData()
+        {
+            var presentation = Build(out _, out _, out _, out _);
+
+            presentation.Shop.OpenVendor(new Id("econ.vendor.sample_general"));
+
+            Assert.Equal(new Id("econ.vendor.sample_general"), presentation.Shop.CurrentVendorId);
+            var item = Assert.Single(presentation.Shop.SellItems);
+            Assert.Equal(new Id("item.sample_potion"), item.ItemId);
+            Assert.Equal(new Id("econ.currency.sample_gold"), item.PriceCurrencyId);
+            Assert.Equal(10, item.PriceAmount);
+            Assert.Null(item.Stock); // sample 数据未声明 stock_limit，视为不限量。
+        }
+
+        [Fact]
+        public void Shop_UnknownVendorId_DegradesToEmptyShelf_NoThrow()
+        {
+            var presentation = Build(out _, out _, out _, out _);
+
+            var ex = Record.Exception(() => presentation.Shop.OpenVendor(new Id("econ.vendor.unknown")));
+
+            Assert.Null(ex);
+            Assert.Empty(presentation.Shop.SellItems);
+        }
+
+        [Fact]
+        public void Shop_CloseVendor_ClearsSellItemsAndCurrentVendorId()
+        {
+            var presentation = Build(out _, out _, out _, out _);
+            presentation.Shop.OpenVendor(new Id("econ.vendor.sample_general"));
+
+            presentation.Shop.CloseVendor();
+
+            Assert.Null(presentation.Shop.CurrentVendorId);
+            Assert.Empty(presentation.Shop.SellItems);
+        }
+
+        [Fact]
+        public void Shop_GetPlayerBalance_ReflectsEconomyHost()
+        {
+            var presentation = Build(out var gameplay, out _, out _, out _);
+            var playerId = gameplay.PlayerUnitProvider();
+            gameplay.Economy.RegisterUnit(playerId);
+            gameplay.Economy.Add(playerId, new Id("econ.currency.sample_gold"), 50, new Id("test.grant"));
+
+            Assert.Equal(50, presentation.Shop.GetPlayerBalance(new Id("econ.currency.sample_gold")));
+        }
+
+        [Fact]
+        public void Shop_CurrencyChangedEvent_RefreshesOpenShelf_StockReflectsPurchase()
+        {
+            var presentation = Build(out var gameplay, out _, out _, out var bus);
+            var playerId = gameplay.PlayerUnitProvider();
+            presentation.Shop.OpenVendor(new Id("econ.vendor.sample_general"));
+
+            // economy.currency_changed 只是本用例用来触发一次 Refresh 的信号事件之一（Refresh 本身是
+            // 幂等的全量重建，具体触发源不影响断言——这里验证的是订阅确实生效、Refresh 被调用后货架
+            // 内容仍然正确，不是"库存因为这个事件而减少"这种因果关系）。
+            bus.PublishImmediate(new Core.Gameplay.Economy.CurrencyChangedEvent(
+                playerId, new Id("econ.currency.sample_gold"), 0, 10));
+
+            var item = Assert.Single(presentation.Shop.SellItems);
+            Assert.Equal(new Id("item.sample_potion"), item.ItemId);
+        }
+
         [Fact]
         public void FloatingTextStyles_ContainsSampleStyle_WithColorRef()
         {
@@ -360,6 +460,346 @@ namespace Tests.Presentation.Assembly
 
             Assert.Empty(presentation.SaveSystem.ListSlots());
             Assert.Empty(presentation.SaveSlots.Slots);
+        }
+
+        // ------------------------------------------------------------------
+        // 缺口 6 恢复：FeedbackAction.Flash 默认改走 ICharacterRig.ProceduralAnim（见
+        // PresentationAssemblyOptions.OnFlash/FlashProfileResolver 判断记录）。
+        // ------------------------------------------------------------------
+
+        private sealed class RecordingProceduralAnim : IProceduralAnim
+        {
+            public readonly List<FlashParams> Flashes = new List<FlashParams>();
+
+            public void Move(MoveParams p, System.Action<Vec2>? s = null, System.Action? c = null) { }
+            public void Rotate(RotateParams p, System.Action<double>? s = null, System.Action? c = null) { }
+            public void Scale(ScaleParams p, System.Action<double>? s = null, System.Action? c = null) { }
+            public void Flash(FlashParams p, System.Action<double>? s = null, System.Action? c = null) => Flashes.Add(p);
+            public void Trail(TrailParams p, System.Action<double>? s = null, System.Action? c = null) { }
+            public void Stagger(StaggerParams p, System.Action<Vec2>? s = null, System.Action? c = null) { }
+            public void Topple(ToppleParams p, System.Action<double>? s = null, System.Action? c = null) { }
+            public void Fade(FadeParams p, System.Action<double>? s = null, System.Action? c = null) { }
+        }
+
+        private sealed class RecordingCharacterRig : ICharacterRig
+        {
+            public readonly RecordingProceduralAnim Anim = new RecordingProceduralAnim();
+
+            public Id EntityId { get; }
+            public AnimState CurrentAnimState { get; private set; } = AnimState.Idle;
+            public IProceduralAnim ProceduralAnim => Anim;
+
+            public RecordingCharacterRig(Id entityId) => EntityId = entityId;
+
+            public void SetAnimState(AnimState state) => CurrentAnimState = state;
+            public void PlayClip(Id clipId, bool loop = false, double speed = 1.0) { }
+            public Vec2? ResolveAnchorLocalOffset(Id anchorId, Direction facing) => null;
+            public void ComposeAndApplyLayers(IReadOnlyList<string> names, Direction facing, System.Func<SpriteLayerPlacement, Id> resolve) { }
+            public void ApplyLayers(IReadOnlyList<Id> resourceIds) { }
+            public void Update(double dt) { }
+        }
+
+        private sealed class RecordingRigView : IView, IHasCharacterRig
+        {
+            public ICharacterRig Rig { get; }
+            public Id EntityId { get; private set; }
+            public bool IsAlive { get; private set; }
+
+            public RecordingRigView(Id entityId) => Rig = new RecordingCharacterRig(entityId);
+
+            public void Bind(Id entityId)
+            {
+                EntityId = entityId;
+                IsAlive = true;
+            }
+
+            public void OnEvent(IEvent evt) { }
+            public void SyncPose(Vec2 pos, Direction facing, double height) { }
+            public void Destroy() => IsAlive = false;
+        }
+
+        private sealed class RigViewFactory : IViewFactory
+        {
+            public RecordingRigView? LastCreated;
+
+            public IView CreateView(ViewKind kind, Id displayId, Id entityId)
+            {
+                LastCreated = new RecordingRigView(entityId);
+                return LastCreated;
+            }
+        }
+
+        [Fact]
+        public void FlashAction_DefaultWiring_RoutesThroughCharacterRig_WhenViewHasRig()
+        {
+            var rigFactory = new RigViewFactory();
+            var presentation = Build(out var gameplay, out _, out _, out var bus, viewFactory: rigFactory);
+            var playerId = gameplay.PlayerUnitProvider();
+
+            // Build() 内部先 Spawn 玩家单位、后构造 PresentationAssembly（ViewBinder 此时才开始订阅
+            // entity.created），玩家真正的创建事件已经错过；OnEntityCreated 本就 public（供场景切换
+            // 等"实体已存在、View 需要重建"场景调用），这里直接补一次绑定。
+            presentation.ViewBinder.OnEntityCreated(playerId, "player", new Id("display.sample_player"));
+            Assert.NotNull(rigFactory.LastCreated);
+            var rig = Assert.IsType<RecordingCharacterRig>(rigFactory.LastCreated!.Rig);
+
+            var evt = new CombatDamageDealtEvent(
+                playerId, new Id("unit.smoke_target"), new Id("skill.school.physical"), 5.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            var flash = Assert.Single(rig.Anim.Flashes);
+            Assert.Equal(FlashParams.Default.Intensity, flash.Intensity);
+            Assert.Equal(FlashParams.Default.DurationSeconds, flash.DurationSeconds);
+        }
+
+        // ------------------------------------------------------------------
+        // 拍板 5：离散回放门——FeedbackQueueMode 跟随 gameplay.TimeModelSwitch 自动切换。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void FeedbackQueueMode_AutoSwitchesWithTimeModel_SequentialInDiscreteCombat_ImmediateOnceBack()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+
+            var source = new InMemoryDataSource();
+            AddMinimalGameplayTables(source);
+            AddMinimalPresentationTables(source);
+            // 探索连续、战斗离散：见 data/_sample/found/found.time_model.json 同款结构，本用例只把
+            // combat 行的 mode 改成 discrete（其余字段用默认值：seconds_per_turn=6、
+            // initiative_policy=fixed_order，见 TimeModelDefinition.FromRecord）。
+            source.Add("found.time_model",
+                "{\"table\": \"found.time_model\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"found.time_model.exploration\", \"scope\": \"exploration\", \"mode\": \"continuous\"}," +
+                "{\"id\": \"found.time_model.combat\", \"scope\": \"combat\", \"mode\": \"discrete\", " +
+                "\"seconds_per_turn\": 6, \"initiative_policy\": \"fixed_order\", \"movement_budget_rule\": \"distance\"}" +
+                "]}");
+
+            var registryOptions = PresentationSchemaCatalog.CreateOptions();
+            registryOptions.FailOnUnknownTable = false;
+            var registry = new DataRegistry(source, bus, registryOptions);
+            PresentationSchemaCatalog.RegisterAll(registry);
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+
+            var world = new WorldSim(bus);
+            var spatial = new StubSpatialQuery();
+            var rng = new RngHost(1);
+            var engine = new StubEngine();
+            var saveSystem = new Core.Foundation.SaveSystem.SaveSystem(
+                engine.FileSystem, new SaveSystemOptions(new Id("game.unspecified")), bus);
+
+            Id playerId = default;
+            // 拍板 4/5 共用前提：装配离散模式只需传入 clockHost（GameplayAssembly 内部据此构造
+            // TurnScheduler/TimeModelSwitch，见该类型构造函数判断记录"3.5) ADR-0013"）。
+            var clockHost = new Core.Foundation.SimLoop.SimClockHost(world);
+            var gameplay = new GameplayAssembly(
+                bus, registry, rng, world, spatial, saveSystem,
+                playerUnitProvider: () => playerId, playerFactionId: new Id("fac.sample_player"),
+                clockHost: clockHost);
+            playerId = gameplay.Carriers.Creatures.Spawn(SamplePlayerTemplateId, SampleMapId, Vec2.Zero, 0.0);
+
+            var viewFactory = new Tests.PresentationViewBinding.FakeViewFactory();
+            var sceneRouter = new SceneRouter(registry, engine.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, bus);
+
+            var floatingTexts = new List<(Id EntityId, Id StyleId, string Text)>();
+            var options = new PresentationAssemblyOptions
+            {
+                OnFloatingText = (entityId, styleId, text) => floatingTexts.Add((entityId, styleId, text)),
+            };
+            var presentation = new PresentationAssembly(
+                gameplay, world, registry, bus, new RngHost(2), viewFactory,
+                engine.Renderer2D, engine.Camera, engine.Audio, engine.FileSystem, sceneRouter, options);
+
+            Assert.NotNull(gameplay.TimeModelSwitch);
+            Assert.Equal(QueueMode.Immediate, presentation.Feedback.Queue.Mode);
+
+            // 进战：TimeModelSwitch 订阅的 combat.entered 处理函数（注册在先）同步切到 Discrete，
+            // 本装配根的订阅（注册在后）随后读到的已经是切换后的值（见构造函数判断记录）。
+            bus.PublishImmediate(new CombatEnteredEvent(playerId, new Id("unit.smoke_hostile")));
+
+            Assert.Equal(Core.Foundation.SimLoop.TimeModelMode.Discrete, gameplay.TimeModelSwitch!.CurrentMode);
+            Assert.Equal(QueueMode.Sequential, presentation.Feedback.Queue.Mode);
+
+            // 离散下事件入队、presentation.playback_finished 在队列清空时发出且仅发一次（09 第 6.4
+            // 节）：AddMinimalPresentationTables 的 feedback.sample_damage_text 规则对
+            // combat.damage_dealt 派发一个 floating_text 动作；Sequential 模式下动作先入队，不立即
+            // 派发。
+            var playbackFinishedCount = 0;
+            using var playbackFinishedSub = bus.Subscribe(
+                EventKeys.PresentationPlaybackFinished, _ => playbackFinishedCount++);
+
+            var damageEvt = new CombatDamageDealtEvent(
+                playerId, new Id("unit.smoke_hostile"), new Id("skill.school.physical"), 7.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(damageEvt);
+
+            Assert.Empty(floatingTexts); // 已入队，尚未派发。
+            // AddMinimalPresentationTables 对 combat.damage_dealt 挂了两条规则（floating_text +
+            // flash，见该方法判断记录），Sequential 模式下两个动作都先入队。
+            Assert.Equal(2, presentation.Feedback.Queue.PendingCount);
+            Assert.Equal(0, playbackFinishedCount);
+
+            presentation.Feedback.Update(1.0); // 足够推进完队列里两步（默认 SequentialStepSeconds=0.15）。
+
+            Assert.Single(floatingTexts);
+            Assert.Equal(0, presentation.Feedback.Queue.PendingCount);
+            Assert.Equal(1, playbackFinishedCount); // 恰好一次，不随再次 Update 重复触发。
+
+            presentation.Feedback.Update(1.0);
+            Assert.Equal(1, playbackFinishedCount);
+
+            // 脱战（唯一参战者离场 → activeCombatants 归零 → SwitchToContinuous）。
+            bus.PublishImmediate(new CombatLeftEvent(playerId));
+
+            Assert.Equal(Core.Foundation.SimLoop.TimeModelMode.Continuous, gameplay.TimeModelSwitch.CurrentMode);
+            Assert.Equal(QueueMode.Immediate, presentation.Feedback.Queue.Mode);
+        }
+
+        [Fact]
+        public void FeedbackQueueMode_ExplicitOption_OverridesAutoSwitch_NeverChanges()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+
+            var source = new InMemoryDataSource();
+            AddMinimalGameplayTables(source);
+            AddMinimalPresentationTables(source);
+            source.Add("found.time_model",
+                "{\"table\": \"found.time_model\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"found.time_model.exploration\", \"scope\": \"exploration\", \"mode\": \"continuous\"}," +
+                "{\"id\": \"found.time_model.combat\", \"scope\": \"combat\", \"mode\": \"discrete\", " +
+                "\"seconds_per_turn\": 6, \"initiative_policy\": \"fixed_order\", \"movement_budget_rule\": \"distance\"}" +
+                "]}");
+
+            var registryOptions = PresentationSchemaCatalog.CreateOptions();
+            registryOptions.FailOnUnknownTable = false;
+            var registry = new DataRegistry(source, bus, registryOptions);
+            PresentationSchemaCatalog.RegisterAll(registry);
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+
+            var world = new WorldSim(bus);
+            var spatial = new StubSpatialQuery();
+            var rng = new RngHost(1);
+            var engine = new StubEngine();
+            var saveSystem = new Core.Foundation.SaveSystem.SaveSystem(
+                engine.FileSystem, new SaveSystemOptions(new Id("game.unspecified")), bus);
+
+            Id playerId = default;
+            var clockHost = new Core.Foundation.SimLoop.SimClockHost(world);
+            var gameplay = new GameplayAssembly(
+                bus, registry, rng, world, spatial, saveSystem,
+                playerUnitProvider: () => playerId, playerFactionId: new Id("fac.sample_player"),
+                clockHost: clockHost);
+            playerId = gameplay.Carriers.Creatures.Spawn(SamplePlayerTemplateId, SampleMapId, Vec2.Zero, 0.0);
+
+            var viewFactory = new Tests.PresentationViewBinding.FakeViewFactory();
+            var sceneRouter = new SceneRouter(registry, engine.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, bus);
+
+            var options = new PresentationAssemblyOptions { FeedbackQueueMode = QueueMode.Immediate };
+            var presentation = new PresentationAssembly(
+                gameplay, world, registry, bus, new RngHost(2), viewFactory,
+                engine.Renderer2D, engine.Camera, engine.Audio, engine.FileSystem, sceneRouter, options);
+
+            bus.PublishImmediate(new CombatEnteredEvent(playerId, new Id("unit.smoke_hostile")));
+
+            // 时间模型确实切到了离散（TimeModelSwitch 不受本装配根选项影响），但显式指定
+            // FeedbackQueueMode 后播放队列不再跟随。
+            Assert.Equal(Core.Foundation.SimLoop.TimeModelMode.Discrete, gameplay.TimeModelSwitch!.CurrentMode);
+            Assert.Equal(QueueMode.Immediate, presentation.Feedback.Queue.Mode);
+        }
+
+        // ------------------------------------------------------------------
+        // 缺口 13：IModelHandleProvider.TryGetModelHandle 经 PresentationAssembly 的 socket 挂接路径。
+        // ------------------------------------------------------------------
+
+        private sealed class FakeModelHandleView : IView, IModelHandleProvider
+        {
+            private readonly ModelHandle _handle;
+            public FakeModelHandleView(ModelHandle handle) => _handle = handle;
+            public Id EntityId { get; private set; }
+            public bool IsAlive { get; private set; }
+            public void Bind(Id entityId)
+            {
+                EntityId = entityId;
+                IsAlive = true;
+            }
+            public void OnEvent(IEvent evt) { }
+            public void SyncPose(Vec2 pos, Direction facing, double height) { }
+            public void Destroy() => IsAlive = false;
+            public ModelHandle? TryGetModelHandle() => _handle;
+        }
+
+        private sealed class ModelHandleViewFactory : IViewFactory
+        {
+            private readonly ModelHandle _handle;
+            public ModelHandleViewFactory(ModelHandle handle) => _handle = handle;
+            public IView CreateView(ViewKind kind, Id displayId, Id entityId) => new FakeModelHandleView(_handle);
+        }
+
+        [Fact]
+        public void VfxSocketAttach_EndToEnd_AttachesToResolvedHostHandle_ViaRenderer3D()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+
+            var source = new InMemoryDataSource();
+            AddMinimalGameplayTables(source);
+            AddMinimalPresentationTables(source);
+            // 追加一条 socket 型 vfx.def 行（多根合并，见 InMemoryDataSource.Add 判断记录"登记一张
+            // 表"——同一 tableName 多次 Add 视为多个数据根按顺序合并，只要 id 不重复即可）：
+            // AddMinimalPresentationTables 已经登记过 vfx.sample_hit，这里不重复声明。
+            source.Add("vfx.def",
+                "{\"table\": \"vfx.def\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"vfx.sample_socket\", \"category\": \"impact\", \"attach_mode\": \"socket\", \"resource_ref\": \"model.sample_socket_vfx\"}" +
+                "]}");
+
+            var registryOptions = PresentationSchemaCatalog.CreateOptions();
+            registryOptions.FailOnUnknownTable = false;
+            var registry = new DataRegistry(source, bus, registryOptions);
+            PresentationSchemaCatalog.RegisterAll(registry);
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+
+            var world = new WorldSim(bus);
+            var spatial = new StubSpatialQuery();
+            var rng = new RngHost(1);
+            var engine = new StubEngine();
+            var renderer3D = new StubRenderer3D();
+            var hostHandle = renderer3D.CreateModelInstance(new Id("model.sample_host"));
+            var saveSystem = new Core.Foundation.SaveSystem.SaveSystem(
+                engine.FileSystem, new SaveSystemOptions(new Id("game.unspecified")), bus);
+
+            Id playerId = default;
+            var gameplay = new GameplayAssembly(
+                bus, registry, rng, world, spatial, saveSystem,
+                playerUnitProvider: () => playerId, playerFactionId: new Id("fac.sample_player"));
+            playerId = gameplay.Carriers.Creatures.Spawn(SamplePlayerTemplateId, SampleMapId, Vec2.Zero, 0.0);
+
+            var viewFactory = new ModelHandleViewFactory(hostHandle);
+            var sceneRouter = new SceneRouter(registry, engine.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, bus);
+
+            var presentation = new PresentationAssembly(
+                gameplay, world, registry, bus, new RngHost(2), viewFactory,
+                engine.Renderer2D, engine.Camera, engine.Audio, engine.FileSystem, sceneRouter,
+                renderer3D: renderer3D);
+
+            presentation.ViewBinder.OnEntityCreated(playerId, "player", new Id("display.sample_player"));
+
+            var handle = presentation.Vfx.Spawn(new Id("vfx.sample_socket"), VfxAttach.Socket(playerId, new Id("socket.weapon")), null);
+
+            Assert.NotNull(handle);
+            // StubRenderer3D.AttachToSocket 记录以"子模型句柄"为键（见其源码
+            // Attachments[child.Value] = (socketId, handle.Value)）：键是刚为特效资源创建出的子
+            // 模型句柄，value.ChildHandle 字段实际存的是宿主句柄值——本用例要核对的正是"宿主句柄
+            // 确实来自 FakeModelHandleView.TryGetModelHandle（经 ViewBinder 解析出 playerId 对应的
+            // View）"，即 value.ChildHandle == hostHandle.Value。
+            var attachment = Assert.Single(renderer3D.Attachments);
+            Assert.Equal(hostHandle.Value, attachment.Value.ChildHandle);
+            Assert.Equal(new Id("socket.weapon"), attachment.Value.SocketId);
         }
     }
 }

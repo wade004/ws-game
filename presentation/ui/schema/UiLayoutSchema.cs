@@ -7,14 +7,20 @@ namespace Presentation.Ui
 {
     /// <summary>
     /// 面板类别（见 01_分层与依赖.md L5 模块表 <c>ui</c> 行"主要数据表：ui_layout_definition"、
-    /// 09_表现层.md 第 7.1 节 UI 组成清单）。任务书拍板"panel（enum 十个）"，本模块把十个值定为
-    /// 与 <c>core/ViewModels</c> 下十个视图模型一一对应（09 §7.1 清单里的"状态栏"并入 Hud、
-    /// "目标框"同样并入 Hud——两者都由 <see cref="HudViewModel"/> 一并承载；"商店"未单列专属视图
-    /// 模型，复用 <see cref="UiIntents.Buy"/>/<see cref="UiIntents.Sell"/> 意图 + 数据来源与
-    /// <see cref="InventoryViewModel"/> 相同，不需要单独面板类别；"按键绑定面板"并入 Settings，
-    /// 因为 <see cref="SettingsViewModel"/> 已经承载绑定列表——见本目录 README 判断记录），
-    /// 保证"面板类别"与"落地计划要求的十个视图模型"严格对齐，不产生"有面板无视图模型"或反之
-    /// 的孤儿。
+    /// 09_表现层.md 第 7.1 节 UI 组成清单）。本模块把十一个值定为与 <c>core/ViewModels</c> 下十一个
+    /// 视图模型一一对应（09 §7.1 清单里的"状态栏"并入 Hud、"目标框"同样并入 Hud——两者都由
+    /// <see cref="HudViewModel"/> 一并承载；"按键绑定面板"并入 Settings，因为
+    /// <see cref="SettingsViewModel"/> 已经承载绑定列表——见本目录 README 判断记录），保证"面板类别"
+    /// 与"落地计划要求的视图模型"严格对齐，不产生"有面板无视图模型"或反之的孤儿。
+    /// <para>
+    /// 判断记录（拍板 7 恢复 <see cref="Shop"/>，第 11 个值）：09 §7.1 UI 组成清单本就列了"商店"一项
+    /// （不是新增原语），P4-1 阶段曾判断"复用 <see cref="UiIntents.Buy"/>/<see cref="UiIntents.Sell"/>
+    /// 意图 + 数据来源与 <see cref="InventoryViewModel"/> 相同，不需要单独面板类别/视图模型"——但商店
+    /// 货架（谁在卖、卖什么、多少钱、库存还剩多少）与背包（玩家自己持有什么）是两份完全不同的数据
+    /// （分别来自 <c>Core.Gameplay.Economy.EconomyHost.GetVendorDef</c>/<see cref="InventoryViewModel"/>
+    /// 读的 <c>player.inventory.*</c> 路径），复用背包视图模型无法展示"商人库存/价格"，此前判断记录
+    /// 属恢复缺口而非拍板取舍——本次补上 <see cref="ShopViewModel"/> 与本枚举值，见该类型注释。
+    /// </para>
     /// </summary>
     public enum UiPanel
     {
@@ -28,6 +34,7 @@ namespace Presentation.Ui
         Settings,
         SaveSlots,
         PauseMenu,
+        Shop,
     }
 
     public static class UiPanelWireNames
@@ -35,7 +42,7 @@ namespace Presentation.Ui
         public static readonly string[] EnumValues =
         {
             "hud", "action_bar", "inventory", "quest_log", "dialog",
-            "skill_book", "character_stats", "settings", "save_slots", "pause_menu",
+            "skill_book", "character_stats", "settings", "save_slots", "pause_menu", "shop",
         };
 
         public static bool TryParse(string text, out UiPanel value)
@@ -52,6 +59,7 @@ namespace Presentation.Ui
                 case "settings": value = UiPanel.Settings; return true;
                 case "save_slots": value = UiPanel.SaveSlots; return true;
                 case "pause_menu": value = UiPanel.PauseMenu; return true;
+                case "shop": value = UiPanel.Shop; return true;
                 default: value = default; return false;
             }
         }

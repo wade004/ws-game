@@ -12,7 +12,7 @@
 3. `registry.LoadAll()`。
 4. 按既有惯例构造 `GameplayAssembly`（见 `core/gameplay/assembly/README.md`）。
 5. `new PresentationAssembly(gameplay, world, registry, bus, rng, viewFactory, renderer2D, camera,
-   audio, fileSystem, sceneRouter, options)` 拿到全部表现层宿主 + 十个 UI 视图模型 + Shell。
+   audio, fileSystem, sceneRouter, options)` 拿到全部表现层宿主 + 十一个 UI 视图模型 + Shell。
 6. 不再需要表现层时调用 `PresentationAssembly.Dispose()`（见"退订"一节）。
 
 ## 目录
@@ -50,8 +50,8 @@ assembly/
 |---|---|---|
 | 1 | `view_binding`+`render`+`camera`：`WorldSimSnapshot`（只读）→ `DisplayInfoRegistry` → `ViewBinder` → `RenderConventionHost`（无状态）→ `CameraHost`；若数据集里有 `camera_profile` 行且 `AutoConfigureCameraFromFirstProfile`（默认 true），立即用第一条记录 `Configure` + `Follow` 玩家单位 | `IWorldSim`、`IDataRegistryView`、注入的 `IViewFactory`/`ICamera` |
 | 2 | `vfx_sfx`：从 `vfx.def`/`sfx.def`/`display.weapon_style` 建目录 → `VfxPlayer`/`SfxPlayer`/`WeaponStyleResolver`/`DisplayInfoResolver`；`EntityPositionResolver` 接第 1 步的只读快照，`AnchorResolver` 留空（见"契约缺口"） | 注入的 `IRenderer2D`/`ICamera`/`IAudio`/`IRngHost` |
-| 3 | `feedback_binder`：解析 `feedback.binding`/`feedback.floating_text_style` → `CompositeFeedbackSink`（`play_vfx`/`play_sfx` 接第 2 步播放器，`shake_camera` 接第 1 步 `CameraHost.Shake`，飘字/顿帧/闪白转给 `PresentationAssemblyOptions` 注入回调，默认空实现）→ `FeedbackBinder` | `GameplayAssembly.ExprHostFactory`、`GameplayAssembly.Carriers.Units`（`IUnitAccess`） |
-| 4 | `ui`：本装配根自行构造 `InputMapHost`/`L10nHost`（两者是 L0 基础设施，不属于 `GameplayAssembly` 十个 L4 宿主，见判断记录 3）→ 三个 `IUiPathProvider`（player/target/unit）→ `UiDataSource` → `UiIntents` → 十个视图模型 | `GameplayAssembly.Carriers.Rules.*`/`Carriers.Inventory`/`Equipment`、`GameplayAssembly.Quest`/`Economy`/`Dialog`/`AppState` |
+| 3 | `feedback_binder`：本步提前构造 `L10nHost`（缺口 7，供 `textResolver` 使用，见判断记录 6）→ 解析 `feedback.binding`/`feedback.floating_text_style` → `CompositeFeedbackSink`（`play_vfx`/`play_sfx` 接第 2 步播放器，`shake_camera` 接第 1 步 `CameraHost.Shake`，`flash` 默认经 `ViewBinder.TryGetView` + `IHasCharacterRig` 接到 `ICharacterRig.ProceduralAnim.Flash`——拍板 6，见判断记录 7；飘字/顿帧仍转给 `PresentationAssemblyOptions` 注入回调，默认空实现）→ `FeedbackBinder`（`textResolver: key => L10n.Text(key)`）→ 拍板 5：按 `opts.FeedbackQueueMode` 或跟随 `gameplay.TimeModelSwitch.CurrentMode` 自动切换播放队列模式（见判断记录 8） | `GameplayAssembly.ExprHostFactory`、`GameplayAssembly.Carriers.Units`（`IUnitAccess`）、`GameplayAssembly.TimeModelSwitch` |
+| 4 | `ui`：本装配根自行构造 `InputMapHost`（L0 基础设施，不属于 `GameplayAssembly` 十个 L4 宿主，见判断记录 3；`L10nHost` 已提前到第 3 步）→ 三个 `IUiPathProvider`（player/target/unit）→ `UiDataSource` → `UiIntents` → 十一个视图模型（含拍板 7 新增 `ShopViewModel`，直接持有 `gameplay.Economy`，见 `presentation/ui/README.md`） | `GameplayAssembly.Carriers.Rules.*`/`Carriers.Inventory`/`Equipment`、`GameplayAssembly.Quest`/`Economy`/`Dialog`/`AppState` |
 | 5 | `shell`：`ShellMenuDefinition` 取 `shell_menu_definition` 表第一条（无数据时退化为空菜单）→ 本装配根自行构造 `ISaveSystem`/`ISettingsStore`（同判断记录 3，见下）→ `ShellHost` → `ShellViewModel` | 注入的 `ISceneRouter`/`IFileSystem`、`GameplayAssembly.Difficulty`（`IDifficultyHost`） |
 
 ## 注入点清单（调用方 / 引擎侧必须提供什么）
@@ -88,9 +88,12 @@ assembly/
 | `TargetResolver` | 恒 `null`（当前无目标） | `TargetPathProvider` 用 |
 | `HudPowerTypes` | `[WellKnownPowers.Health]` | 与 `CreatureOptions.DefaultPowerTypes` 同一默认 |
 | `CharacterStatConfig`/`EquipmentSlotIds`/`PauseMenuOptions`/`SettingsActionNames` | 空列表 | 架构未拍板具体游戏内容，见各字段注释 |
-| `OnFloatingText`/`OnFreeze`/`OnFlash` | 空实现 | 09 §6.1 四种反馈动作里，`play_vfx`/`play_sfx`/`shake_camera` 已经有默认落地（见装配步骤 3），其余三种的具体呈现（UI 控件池、tick 节奏、材质参数）不属于任何一个 L5 模块的契约范围 |
+| `OnFloatingText`/`OnFreeze` | 空实现 | 09 §6.1 反馈动作里，`play_vfx`/`play_sfx`/`shake_camera` 已经有默认落地（见装配步骤 3），飘字/顿帧的具体呈现（UI 控件池、tick 节奏）不属于任何一个 L5 模块的契约范围 |
+| `OnFlash` | `null`（默认改走 `ICharacterRig.ProceduralAnim.Flash`，见判断记录 7；显式提供时完全覆盖默认行为） | 拍板 6（09 §4 动画层缺口 6 恢复）：此前空实现，现经 `ViewBinder`+`IHasCharacterRig` 接到程序动画原语 |
+| `FlashProfileResolver` | `null`（恒返回 `FlashParams.Default`，忽略 `profileId`） | 09 §6.1 `Flash(profileId, target)` 未定义 `flash_profile` 登记表，具体强度/时长解析留给游戏层；仅在 `OnFlash` 未被显式覆盖时生效 |
 | `AutoConfigureCameraFromFirstProfile` | `true` | 见装配步骤 1 |
 | `RenderOptions` | `null`（`RenderConventionHost` 用 `RenderOptions` 默认值构造，`DirectionIndexRemap` 恒等映射） | 缺口 8：镜头朝向与 05 §3.1 默认约定不一致时的口味配置项入口 |
+| `FeedbackQueueMode` | `null`（跟随 `gameplay.TimeModelSwitch.CurrentMode` 自动切换：离散 `Sequential`、连续 `Immediate`；显式提供时一次性设定且不再自动跟随） | 拍板 5（09 §6.4 离散回放门），见判断记录 8 |
 | `NewGameStarter` | 真正被调用时抛 `NotSupportedException`（构造期不调用，不影响"构造成功"） | 如何创建一局新游戏的起始状态是具体游戏的事，框架没有默认实现 |
 | `ViewBinderOptions`/`VfxOptions`/`SfxOptions`/`CameraHostOptions`/`FeedbackOptions` | 透传各模块自己的默认值（`null`） | 各模块既有策略配置项，见各自 README |
 
@@ -138,6 +141,28 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
    （`ViewBinder` 实现，见其类型注释"谁实现本接口"判断记录），本装配根构造 `VfxPlayer` 时改传
    `ViewBinder.GetAnchorWorldPosition` 作为 `anchorResolver`；`EntityPositionResolver` 仍作为
    `IAnchorQuery` 查不到时的兜底路径（未绑定 View/model 型外形/锚点未登记）。
+6. **`L10nHost` 从第 4 步 `ui` 提前到第 3 步 `feedback_binder` 构造（拍板 6/缺口 7）**：
+   `FeedbackBinder` 新增可选 `textResolver: Func<Id,string>` 参数解析 `text_source: literal` 飘字
+   文本键（09 第 7.3 节"文案一律经本地化表用 key 间接引用"），需要在构造 `FeedbackBinder` 之前就
+   有一个可用的 `IL10nHost` 实例；`InputMapHost` 与本步无关，仍留在第 4 步原位构造，不随之提前。
+7. **`OnFlash` 默认接线改走 `ICharacterRig.ProceduralAnim.Flash`（拍板 6，09 §4 动画层缺口 6 恢复）**：
+   此前 `OnFlash` 默认是空实现（09 §6.1 四种"非 play_vfx/play_sfx/shake_camera"反馈动作里唯一没有
+   落地的一个）；本装配根现按事件携带的实体 id 经 `ViewBinder.TryGetView` 查 View，若其实现
+   `IHasCharacterRig`（`presentation/render` 新增能力接口）则调用 `Rig.ProceduralAnim.Flash`
+   （具体强度/时长经 `FlashProfileResolver` 解析，见上表）；查不到 View 或 View 未持有
+   `ICharacterRig`（如自定义 `model` 型 View 尚未接 rig）时静默跳过，不抛异常——`OnFlash` 显式提供
+   时仍完全覆盖本默认行为。
+8. **播放队列模式跟随时间模型自动切换（拍板 5，09 §6.4 离散回放门）**：`FeedbackBinder.Queue.Mode`
+   本就是运行期可写属性；本装配根在 `opts.FeedbackQueueMode` 为 `null` 且
+   `gameplay.TimeModelSwitch != null`（即调用方为 `GameplayAssembly` 传入了 `clockHost`，装配了
+   离散模式）时，订阅与 `TimeModelSwitch` 相同的 `combat.entered`/`combat.left`/`unit.died` 三个
+   事件 key，在处理函数里按 `TimeModelSwitch.CurrentMode` 同步切换（离散 → `Sequential`、连续 →
+   `Immediate`）。判断记录（为何不需要额外的时序同步机制）：`TimeModelSwitch` 在
+   `GameplayAssembly` 构造期（早于本装配根）就已订阅同一批事件并在处理函数内部同步更新
+   `CurrentMode`；`Core.Foundation.EventBus.EventBus` 按订阅注册顺序派发同一事件 key 的全部订阅者
+   （`List<SubscriberEntry>` 尾插 + 遍历），本装配根的订阅注册在后，收到通知时读到的
+   `CurrentMode` 必然已经是切换后的最新值。此前 Unity 引导侧靠"零事件兜底"短路的临时手法随本次
+   收口废弃。
 
 ## 验收测试（`tests/PresentationAssemblyTests.cs`）
 
@@ -152,6 +177,11 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
 | `WeaponStyle_ResolvesSwingVfx_FromSampleData` | `WeaponStyleResolver` 接的是本装配根真正建出的目录 |
 | `FloatingTextStyles_ContainsSampleStyle_WithColorRef` | 飘字样式目录可读 |
 | `SaveSlots_ListsNoSlots_OnFreshFileSystem` | 本装配根自建的 `ISaveSystem`/`SaveSlotsViewModel` 能正常工作 |
+| `FlashAction_DefaultWiring_RoutesThroughCharacterRig_WhenViewHasRig` | 拍板 6：`OnFlash` 默认经 `ViewBinder`+`IHasCharacterRig` 落到 `ICharacterRig.ProceduralAnim.Flash`，参数为 `FlashParams.Default` |
+| `FeedbackQueueMode_AutoSwitchesWithTimeModel_SequentialInDiscreteCombat_ImmediateOnceBack` | 拍板 5：进战切离散 → `Queue.Mode=Sequential`（事件先入队，`presentation.playback_finished` 在队列清空时发出且仅发一次）；脱战切回连续 → `Immediate` |
+| `FeedbackQueueMode_ExplicitOption_OverridesAutoSwitch_NeverChanges` | `opts.FeedbackQueueMode` 显式提供时不再跟随时间模型切换 |
+| `VfxSocketAttach_EndToEnd_AttachesToResolvedHostHandle_ViaRenderer3D` | 缺口 13：`IModelHandleProvider.TryGetModelHandle` 经 `ViewBinder` 解析、真正驱动 `IRenderer3D.AttachToSocket` |
+| `Shop_OpenVendor_ListsSellItems_FromSampleData`（及同组用例） | 拍板 7：`ShopViewModel` 读 `gameplay.Economy` 的商人出售清单/库存/价格，事件驱动刷新，未知商人 id 静默退化 |
 
 夹具用 `Core.Carriers.Creature.CreatureFactory.Spawn` 生成一个真正经 `Stats`/`Powers`/
 `Progression` 三处注册的单位当"玩家"（见测试文件 `AddMinimalGameplayTables` 类型注释）——

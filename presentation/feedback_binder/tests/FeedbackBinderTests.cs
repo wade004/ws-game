@@ -105,6 +105,49 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Equal(40.0, sink.Freezes[0]);
         }
 
+        // ------------------------------------------------------------------
+        // 缺口 7 恢复：text_source: literal 经注入的 textResolver 解析真正文案（09 第 7.3 节）。
+        // ------------------------------------------------------------------
+
+        private const string LiteralFloatingTextRuleRow =
+            "{\"id\": \"feedback.sample_literal_text\", \"event\": \"aura.applied\", \"actions\": [" +
+            "{\"kind\": \"floating_text\", \"params\": {\"style_id\": \"feedback.style.buff\", \"text_source\": \"literal:l10n.combat.dodge\"}}" +
+            "]}";
+
+        [Fact]
+        public void TextSourceLiteral_NoResolverInjected_FallsBackToRawTextKey()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(LiteralFloatingTextRuleRow);
+
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+
+            var evt = new AuraAppliedEvent(new Id("unit.wolf"), new Id("skill.aura.burning"), new Id("unit.hero"), 1);
+            bus.PublishImmediate(evt);
+
+            Assert.Single(sink.FloatingTexts);
+            Assert.Equal("l10n.combat.dodge", sink.FloatingTexts[0].Text);
+        }
+
+        [Fact]
+        public void TextSourceLiteral_ResolverInjected_ResolvesRealText()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(LiteralFloatingTextRuleRow);
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink,
+                textResolver: key => key.Equals(new Id("l10n.combat.dodge")) ? "闪避！" : key.Value);
+
+            var evt = new AuraAppliedEvent(new Id("unit.wolf"), new Id("skill.aura.burning"), new Id("unit.hero"), 1);
+            bus.PublishImmediate(evt);
+
+            Assert.Single(sink.FloatingTexts);
+            Assert.Equal("闪避！", sink.FloatingTexts[0].Text);
+        }
+
         [Fact]
         public void FromDisplaySkill_MissingDisplayMapEntry_SkipsActionWithoutCrashing()
         {

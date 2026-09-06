@@ -1,9 +1,11 @@
-# L5 表现层 · render（2.5D 渲染约定）
+# L5 表现层 · render（2.5D 渲染约定 + 纸娃娃/动画）
 
 职责：落地 [01_分层与依赖.md](../../architecture/01_分层与依赖.md) L5 模块表 `render` 行（契约接口名
-`RenderConventionHost`）、[09_表现层.md](../../architecture/09_表现层.md) 第 3.1～3.4 节：统一
-`sortY` 排序、方向量化到方向槽位的镜像回退解析、纸娃娃层合成顺序、影子锚点、高度像素换算，以及
-`sprite` 型 `IView` 的引擎无关骨架 `SpriteViewBase`（09 第 4.1 节 CharacterRig 职责的一部分）。
+`RenderConventionHost`）、[09_表现层.md](../../architecture/09_表现层.md) 第 3.1～3.4、4 节：统一
+`sortY` 排序、方向量化到方向槽位的镜像回退解析、纸娃娃层合成顺序、影子锚点、高度像素换算；
+`sprite` 型 `IView` 的引擎无关骨架 `SpriteViewBase`；`CharacterRig`（09 §4.1）、`AnimState` 七态
+状态机（09 §4.2）、命中帧同步（09 §4.3）、序列帧播放器预留接口（09 §4.5）、程序动画八原语
+（09 §4.1）——拍板 6，本轮（W3a）落地 sprite 型全套引擎无关部分，model 型只留接口占位。
 
 依赖：`Presentation.Common.csproj`。
 
@@ -14,16 +16,31 @@ render/
   README.md
   contracts/
     IRenderConventionHost.cs
+    AnimState.cs                动画状态七态枚举（09 §4.2）
+    ICharacterRig.cs             CharacterRig 契约（09 §4.1）：层管理/锚点查询/剪辑播放/程序动画入口
+    IHasCharacterRig.cs          能力接口：IView 实现可选暴露内部持有的 ICharacterRig
+    IProceduralAnim.cs           程序动画八原语契约 + 各原语参数结构（09 §4.1）
+    IFrameAnimPlayer.cs          序列帧播放器契约（09 §4.5，勘误扩展 onAnimEvent）
+    FrameAnimClip.cs             引擎无关序列帧剪辑元数据（帧数/帧率/关键帧标记，09 勘误新增字段）
   core/
     RenderLayers.cs            六层的整数层号常量
-    RenderOptions.cs             口味配置项（方向档位数、PixelsPerUnit）
+    RenderOptions.cs             口味配置项（方向档位数、PixelsPerUnit、HitFrameSync 策略）
     SpriteLayerPlacement.cs      ComposeSpriteLayers 产出的单条层放置信息
     ShadowSpec.cs                 影子锚点 + ShadowMode 数据侧→引擎侧转换
     RenderConventionHost.cs       IRenderConventionHost 默认实现
-    SpriteViewBase.cs             sprite 型 IView 骨架
+    SpriteViewBase.cs             sprite 型 IView 骨架，持有并委托 SpriteCharacterRig
+    SpriteCharacterRig.cs         ICharacterRig 的 sprite 型实现 + model 型占位 ModelCharacterRig
+    AnimStateMachine.cs           AnimState 七态状态机的引擎无关实现（订阅 06 事件词汇表驱动切换）
+    ProceduralAnimSequencer.cs    IProceduralAnim 默认实现：纯时间推进 + 曲线求值，不调用任何 L-1 接口
+    FrameAnimPlayer.cs            IFrameAnimPlayer 参考实现：帧号推进 + 关键帧/播放完成事件派发
   tests/
     RenderConventionHostTests.cs   12 个用例
     SpriteViewBaseTests.cs         10 个用例
+    AnimStateMachineTests.cs       逐条转移 + 优先级用例
+    SpriteCharacterRigTests.cs     层合成/锚点/程序动画/命中帧同步策略用例
+    ModelCharacterRigTests.cs      model 型占位实现的 NotSupportedException 用例
+    ProceduralAnimSequencerTests.cs  八原语时序 + 结束回调 + 同类型替换用例
+    FrameAnimPlayerTests.cs        帧推进/关键帧/循环/播放完成用例
 ```
 
 方向档位命名/镜像回退的量化索引对照表现在唯一来源于 `presentation/common/contracts/DirectionSlots.cs`
@@ -88,6 +105,10 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
 |---|---|---|
 | `IRenderConventionHost`（`RenderConventionHost`） | 本模块 | `SpriteViewBase`、后续 `presentation/vfx_sfx`（特效挂点排序）、具体游戏的 View 实现 |
 | `SpriteViewBase` | 本模块提供骨架，具体游戏/引擎适配层继承 | `presentation/view_binding` 的 `ViewBinder`（经 `IViewFactory` 产出的具体子类） |
+| `ICharacterRig`（`SpriteCharacterRig`/`ModelCharacterRig`） | 本模块 | `SpriteViewBase`（持有并委托，经 `IHasCharacterRig` 对外暴露）、`PresentationAssembly`（Flash 原语默认接线） |
+| `AnimStateMachine` | 本模块 | 具体游戏/装配层订阅 `StateChanged` 后据此调用 `ICharacterRig.SetAnimState`/`PlayClip`（本轮未在 `PresentationAssembly` 强制接线，留给游戏层按自己的武器表现档案查表逻辑接入，见判断记录 8） |
+| `IProceduralAnim`（`ProceduralAnimSequencer`） | 本模块（`SpriteCharacterRig`/`ModelCharacterRig` 各自持有一份） | `FeedbackBinder`（经 `PresentationAssembly` 默认 Flash 接线）、W3b 引擎适配层（其余七个原语的 `onSample` 落地） |
+| `IFrameAnimPlayer`（`FrameAnimPlayer`） | 本模块提供引擎无关参考实现，W3b 可整体替换/包装 | `ICharacterRig.PlayClip` 转发目标；`SpriteCharacterRig` 订阅其 `OnAnimEvent` 服务命中帧同步 |
 
 ## 判断记录
 
@@ -100,7 +121,7 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
    编号）反推出上方对照表。**"游戏层加一层索引重映射"已解决（缺口 8，见
    `RenderConventionHost` 构造函数）**：`RenderOptions.DirectionIndexRemap`（长度须等于当前方向档位
    数，默认 null 恒等映射）在 `ResolveDirectionSlot` 换算规范档位之前生效，不改本模块任何签名。
-2. **`Id` 前缀判断记录（契约缺口，见任务书要求核对并汇报）**：14 §2.1、
+2. **`Id` 前缀判断记录（已由设计层拍板落地，不再是待核对的契约缺口）**：14 §2.1、
    `toolchain/asset_import/directions.py`、`assets/_placeholder/sprites/*/anchors.json` 三处一致
    使用不带前缀的裸档位名（如 `front_side_r`），但 `Core.Foundation.Common.Id` 的格式要求"至少一个
    点分段"，裸名字不是合法 `Id`。`DirectionSlots` 沿用 `core/foundation/display_info` 既有测试夹具
@@ -108,8 +129,9 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
    （如 `"dir.front_side_r"`），只是把该夹具原有的罗盘缩写换成 14 的档位族命名；`StripPrefix` 提供
    反向转换，供需要裸名字的场景（文件名/资源 id 拼接）使用。**这不是 14/工具链的错误**——那两处的
    裸名字本就不经过 `Id` 类型，只有真正写入 `display.map.mirror_pairs`（字段类型是 `Id`）时才需要
-   加前缀；具体游戏的资产导入工具接入阶段需要在这一步统一处理，见 `DirectionSlots` 类型注释详细
-   说明。
+   加前缀。设计层已拍板并落地为 14 第 2.1 节 2026-09-05 勘误："运行期方向档位 Id 固定为
+   `dir.<裸档位名>`，文件名/标注文件/工具链一律用裸档位名"，与 `common/README.md` 判断记录同一条
+   结论，见 `DirectionSlots` 类型注释"Id 前缀已拍板结论"。
 3. **`SpriteViewBase.ResolveLayerResourceId` 改用 14 §1.2 命名模板**（取代 P4-1 的
    `"layer.<layerName>"` 占位）：`DisplayInfo.Sprite.PaperdollLayers` 类型是
    `IReadOnlyList<string>`，`IRenderer2D.SetLayers` 需要 `IReadOnlyList<Id>`；04/09/14 均未给出
@@ -137,10 +159,47 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
    `ViewBinder` 实现（谁持有 View 绑定表与 `ISimSnapshot` 谁实现，`RenderConventionHost` 本身无
    状态不适合持有，见该接口类型注释判断记录）；镜像下锚点偏移的水平分量换算复用
    `IRenderConventionHost.ResolveDirectionSlot` 同一套镜像判定，不重复实现。`PresentationAssembly`
-   把它接到 `vfx_sfx` 的 `AnchorResolver`。
+   把它接到 `vfx_sfx` 的 `AnchorResolver`。`ICharacterRig.ResolveAnchorLocalOffset`（新增）是同一套
+   镜像判定的另一份独立实现（不加实体世界坐标，只算局部偏移），两处刻意不合并——见判断记录 8。
+8. **`CharacterRig` 归并任务（拍板 6）：`SpriteViewBase` 委托而非直接继承 `ICharacterRig`**：09
+   §4.1 CharacterRig 职责表要求归并层/槽位管理、锚点查询、动画状态机驱动、程序动画原语四项；
+   `SpriteViewBase` 已有的装备覆盖合并逻辑（`RebuildEquippedLayers`）比"给定层名顺序直接合成"复杂
+   得多，本次不推翻既有实现——`SpriteCharacterRig` 只归并两段全部 sprite 型角色都需要的通用步骤
+   （`ComposeAndApplyLayers`/`ApplyLayers`），`SpriteViewBase` 持有一个 `SpriteCharacterRig` 实例并
+   委托，经 `IHasCharacterRig.Rig` 对外暴露；`ICharacterRig.ResolveAnchorLocalOffset` 是新增能力
+   （不是从 `ViewBinder.GetAnchorWorldPosition` 抽取——那份实现测试已充分覆盖、风险高于收益，见上一条
+   "两处刻意不合并"）。
+9. **"动画状态机驱动"职责拆成"记账"与"播放"两个独立方法**：`AnimStateMachine`（引擎无关）只回答
+   "当前该处于哪个 `AnimState`"，不知道具体该播哪个剪辑——那依赖 09 第 4.4 节武器表现档案查表
+   （同一 `cast` 状态装备双手剑和法杖播不同美术），是内容相关逻辑，不适合固化进本模块契约。
+   `ICharacterRig.SetAnimState`（记账）与 `PlayClip`（转发到已解析好的具体 clip id）因此是两个独立
+   方法，中间的"状态 + 武器 → clip id"查表环节留给具体游戏的组装代码，`PresentationAssembly` 本轮
+   未强制接线（见上表"谁实现/谁调用"）。
+10. **`AnimStateMachine` 事件→状态映射与优先级表是本模块的判断记录，非 09 拍板内容**：09 只给出
+    `AnimState` 七态集合本身，未给事件词汇表对照与优先级表；完整推导（为何用 `unit.state_changed`
+    而非 `unit.moved`、为何 `jump` 走手工 `RequestOverride` 而非事件驱动、优先级数值表）见
+    `AnimStateMachine` 类型注释。
+11. **`IProceduralAnim` 八原语的曲线与叠加/互斥规则是本模块的判断记录**：09 只拍板了原语名称与
+    "参数留白由具体引擎适配层解释"，未给缓动曲线与多原语叠加规则；`ProceduralAnimSequencer` 选择
+    "同类型互相替换（旧实例的 `onComplete` 立即以'被替换'方式触发）、跨类型互相独立"的简单规则 +
+    线性/对称三角波两种曲线，完整推导见该类型注释。
+12. **`SpriteCharacterRig.ProceduralAnim.Flash` 是八原语里唯一有开箱即用落地的一个**：受击/无敌帧
+    闪白是最高频场景，固定接 `IRenderer2D.SetShaderParam` 的 `"flash_intensity"` 参数；其余七个
+    原语只转发到 `ProceduralAnimSequencer`，合理默认表现留给调用方（通常是 W3b）在 `onSample` 里
+    决定，本模块不代为拍板，见 `SpriteCharacterRig` 类型注释。
+13. **命中帧同步策略切换（`RenderOptions.HitFrameSync`）目前只有 sprite 型接线**：`SpriteCharacterRig`
+    在 `AnimKeyframeDriven` 策略下把 `FrameAnimClip.HitFrameMarker` 对应的 `IFrameAnimPlayer.OnAnimEvent`
+    重新广播为 `HitFrameReached` 事件（携带实体 id），供命中反馈的落地代码延迟到这一刻才播放；
+    `LogicDriven`（默认）策略下不触发，命中反馈沿用 `FeedbackBinder` 收到 `combat.damage_dealt`
+    立即派发的既有行为，不需要本模块参与。
 
 ## 契约缺口
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
-- 裸档位名与 `Id` 格式之间需要一道前缀转换，14/工具链/占位资产与 `Id` 类型本身三处未统一约定该
-  转换应该发生在哪一步，见判断记录 2。
+（原"裸档位名与 `Id` 格式之间需要一道前缀转换"契约缺口已解决，见判断记录 2。）
+- `AnimStateMachine` 的 `jump` 状态没有事件驱动来源（06 事件词汇表当前无 `unit.jumped`/
+  `unit.landed`），只能靠 `RequestOverride` 手工触发，见判断记录 10、类型注释"jump 判断记录"。
+- `FlashParams` 的具体数值（强度/时长）没有对应的 `flash_profile` 登记表（09 §6.1 只拍板了
+  `profileId: Id`，未定义该表结构），`PresentationAssemblyOptions.FlashProfileResolver` 默认恒
+  返回 `FlashParams.Default`，见 `presentation/assembly/README.md`、`feedback_binder/README.md`
+  判断记录 9。

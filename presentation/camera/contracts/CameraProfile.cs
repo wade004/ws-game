@@ -39,10 +39,10 @@ namespace Presentation.Camera
 
         public double Duration { get; }
 
-        /// <summary>震屏频率；<c>ICamera.Shake(intensity, durationSeconds)</c>（见 02 第 1.13 节）
-        /// 本身没有频率参数，本字段随 <c>camera_profile</c> 表结构一并登记，供未来接口扩展或
-        /// 引擎侧按需自行解释，当前 <see cref="Presentation.Camera.CameraHost.Shake"/> 调用
-        /// <c>ICamera.Shake</c> 时不传递本字段（见模块 README 契约缺口）。</summary>
+        /// <summary>震屏频率；已由 ADR-0016 解决——<c>ICamera.Shake(intensity, durationSeconds,
+        /// frequency)</c>（见 02 第 1.13 节）现有第三个频率参数，
+        /// <see cref="Presentation.Camera.CameraHost.Shake"/> 调用 <c>ICamera.Shake</c> 时把本字段
+        /// 原样传给它，强度/时长/频率三项完整经这一个方法传递（见模块 README 判断记录 3）。</summary>
         public double Frequency { get; }
 
         public ShakePreset(Id id, double amplitude, double duration, double frequency)

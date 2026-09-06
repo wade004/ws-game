@@ -196,8 +196,16 @@ namespace Presentation.ViewBinding
         }
 
         /// <summary>驱动全部已绑定 View 的 <see cref="IView.SyncPose"/>（见 09 第 2 节
-        /// "syncPose 由主循环在插值阶段调用"）。<paramref name="alpha"/> 通常来自
-        /// <see cref="IPresentationClock.Alpha"/>。</summary>
+        /// "syncPose 由主循环在插值阶段调用"）。<paramref name="alpha"/> 的来源：09 全文未定义
+        /// "表现时钟"这一具体契约名，只泛泛提到"插值仍用于固定步长模拟与渲染帧率解耦，见 03"；
+        /// <c>Core.Foundation.SimLoop.ISimClockHost.Advance</c> 才是真正产出 alpha 的地方（返回值即
+        /// 插值系数，见其接口注释），但 <c>Core.Gameplay.Assembly.GameplayAssembly.Advance</c> 当前
+        /// 丢弃了这个返回值、也不对外暴露 <c>ISimClockHost</c> 实例——本模块因此不新造一个"包一层
+        /// alpha"的悬空契约（09 勘误：此前的 <c>Presentation.Common.IPresentationClock</c> 恰是这样
+        /// 一个零实现、零调用点的契约，已删除），<paramref name="alpha"/> 改由调用方（引擎适配层/
+        /// W3b）自行从 <c>IClock.RequestFixedStep</c> 固定步驱动或改造后的
+        /// <c>GameplayAssembly.Advance</c> 换算得到并直接传入，真正把"alpha 从哪来"接通属于 W2/W3b
+        /// 的后续工作，见 presentation/common/README.md"契约缺口"。</summary>
         public void SyncAll(double alpha)
         {
             foreach (var pair in _views)

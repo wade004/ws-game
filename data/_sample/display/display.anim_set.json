@@ -1,0 +1,17 @@
+{
+  "table": "display.anim_set",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.anim_set.sample_hero",
+      "clips": {
+        "idle": { "resource_ref": "anim.sample_hero_idle", "events": [] },
+        "move": { "resource_ref": "anim.sample_hero_move", "events": [] },
+        "attack": { "resource_ref": "anim.sample_hero_attack", "events": [{ "name": "hit_frame", "time_pct": 0.5 }] },
+        "cast": { "resource_ref": "anim.sample_hero_cast", "events": [] },
+        "hit": { "resource_ref": "anim.sample_hero_hit", "events": [] },
+        "death": { "resource_ref": "anim.sample_hero_death", "events": [] }
+      }
+    }
+  ]
+}

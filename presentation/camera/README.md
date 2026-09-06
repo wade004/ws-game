@@ -45,9 +45,10 @@ camera/
    之间不产生编译期依赖（呼应 01 第 3 节"同一层内的模块之间只经契约接口与事件总线交互"）。
 2. **`SimSnapshotFollowTarget` 不插值**：`ICamera.Follow(planePos, smoothing)` 本身带平滑系数，
    逐帧用"当前"位置驱动、由引擎侧 lerp 平滑即可，不强求跟随位置与角色精灵像素级同步。
-3. **`ShakePreset.Frequency` 暂不传给 `ICamera.Shake`**：`ICamera.Shake(intensity, durationSeconds)`
-   没有频率参数（见 02 第 1.13 节），字段随 `camera_profile` 表结构一并登记但当前不使用，见
-   `schema/README.md`。
+3. **`ShakePreset.Frequency` 已传给 `ICamera.Shake`（ADR-0016 解决，勘误更正判断记录）**：
+   `ICamera.Shake(intensity, durationSeconds, frequency)`（见 02 第 1.13 节）现有频率参数，
+   `CameraHost.Shake` 调用时把 `ShakePresets[i].Frequency` 一并传入，强度/时长/频率三项完整落地，
+   不再是"登记但不使用"的字段，见 `schema/README.md`、下"契约缺口"一节的同款结论。
 4. **`encounter.phase_changed` 的切档映射用 `newPhase`（int 阶段下标）而非 `Id`**：
    `EncounterPhaseChangedEvent.NewPhase` 类型是 `int`（见 `core/gameplay/encounter` 判断记录：06
    未给阶段命名 id），`CameraHostOptions.PhaseProfileSwitch` 随之用 `IReadOnlyDictionary<int, Id>`。

@@ -46,13 +46,18 @@ unit.<id>.stat.<statId>
 路径语法非法/引用了格式非法的 Id/首段没有注册 Provider 时返回 `null` 并记一条诊断；路径语法
 合法但当前无值（未选中目标、槽位为空、下标越界）同样返回 `null`，但不记诊断。
 
-## 十个视图模型
+## 十一个视图模型
 
 `HudViewModel`、`ActionBarViewModel`、`InventoryViewModel`、`QuestLogViewModel`、
 `DialogViewModel`、`SkillBookViewModel`、`CharacterStatsViewModel`、`SettingsViewModel`、
-`SaveSlotsViewModel`、`PauseMenuViewModel`（`core/ViewModels/`），与 `schema/UiLayoutSchema.cs`
-的 `UiPanel` 十个枚举值一一对应。均实现 `IDisposable`，构造期完成一次 `Refresh()` 并订阅相关
-事件触发后续自动刷新。
+`SaveSlotsViewModel`、`PauseMenuViewModel`、`ShopViewModel`（`core/ViewModels/`），与
+`schema/UiLayoutSchema.cs` 的 `UiPanel` 十一个枚举值一一对应（拍板 7 补 `Shop`，见该类型注释）。
+均实现 `IDisposable`，构造期完成一次 `Refresh()`（`ShopViewModel` 例外——未 `OpenVendor` 前没有
+货架可刷新，见其类型注释）并订阅相关事件触发后续自动刷新。
+
+`ShopViewModel` 与其余十个不同：不经 `IUiPathProvider` 路径查询，直接持有
+`Core.Gameplay.Economy.EconomyHost`（具体类型，见其类型注释判断记录）只读查询商人出售清单/库存/
+价格，买卖仍走既有 `UiIntents.Buy`/`UiIntents.Sell`。
 
 ## 已知契约缺口
 
@@ -73,6 +78,11 @@ unit.<id>.stat.<statId>
 查询，`DialogViewModel` 的 gossip 视图需要打开菜单的调用方手动灌入；`IDialogHost.GetGossipView`
 现已补上，`DialogViewModel.Refresh` 与 `Story` 同一惯例直接查询，`SetGossipView` 仅保留供尚未升级
 的既有调用方兼容使用（见 `DialogViewModel` 类型注释）。
+
+（已解决，拍板 7）此前"商店 UI 单元无视图模型/面板，只有 `UiIntents.Buy`/`UiIntents.Sell`"——补
+`ShopViewModel`（见上"十一个视图模型"一节）+ `UiPanel.Shop` 第 11 值 + `ui_layout_definition`
+schema/示例行同步扩枚举；09 第 7.1 节勘误已补 changelog 说明技能书/角色属性/存档槽/暂停菜单为
+实现级单元（无专属数据表，纯查询/意图组合，见该文档）。
 
 （已解决，技术债 17，2026-09-06 收口）回合顺序条/行动点显示/"结束回合"按钮三个离散模式界面单元
 （09 第 7.1 节）此前只有引擎侧 `TurnStatusPanel` 一份实现（不经 `UiPanelHost` 登记，直接读

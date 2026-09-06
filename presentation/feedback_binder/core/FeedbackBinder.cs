@@ -36,6 +36,7 @@ namespace Presentation.FeedbackBinder.Core
         private readonly FeedbackOptions _options;
         private readonly IExprDiagnostics _exprDiagnostics;
         private readonly IPresentationDiagnostics _diagnostics;
+        private readonly Func<Id, string>? _textResolver;
 
         private readonly Dictionary<Id, List<FeedbackRule>> _rulesByEvent = new Dictionary<Id, List<FeedbackRule>>();
         private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
@@ -53,7 +54,8 @@ namespace Presentation.FeedbackBinder.Core
             IUnitAccess? unitAccess = null,
             FeedbackOptions? options = null,
             IExprDiagnostics? exprDiagnostics = null,
-            IPresentationDiagnostics? diagnostics = null)
+            IPresentationDiagnostics? diagnostics = null,
+            Func<Id, string>? textResolver = null)
         {
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _exprHosts = exprHosts ?? throw new ArgumentNullException(nameof(exprHosts));
@@ -64,6 +66,7 @@ namespace Presentation.FeedbackBinder.Core
             _options = options ?? new FeedbackOptions();
             _exprDiagnostics = exprDiagnostics ?? new ExprDiagnosticsRecorder();
             _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
+            _textResolver = textResolver;
 
             _queue = new PlaybackQueue(_options.SequentialStepSeconds) { Mode = _options.QueueMode };
             _queue.Finished += () => _bus.PublishImmediate(new PlaybackFinishedEvent());
@@ -200,10 +203,16 @@ namespace Presentation.FeedbackBinder.Core
                 }
 
                 case TextSourceKind.Literal:
-                    // 本地化解析（l10n.text）不在本模块契约范围内（04 第 7.2 节），按判断记录直接
-                    // 用文本键原文占位，见 feedback_binder/README.md 契约缺口。
-                    _merger.OfferImmediate(entityId, action.StyleId, action.TextSource.TextKey!.Value.Value);
+                {
+                    // 缺口 7 恢复：09 第 7.3 节"文案一律经本地化表用 key 间接引用"同样约束飘字文本——
+                    // _textResolver 未注入（历史默认，见 feedback_binder/README.md 契约缺口）时保留
+                    // 此前"直接用文本键原文占位"的退化行为，不阻断装配；注入后（PresentationAssembly
+                    // 默认接 IL10nHost.Text，见该类型判断记录）经本地化表解析出真正文案。
+                    var textKey = action.TextSource.TextKey!.Value;
+                    var text = _textResolver != null ? _textResolver(textKey) : textKey.Value;
+                    _merger.OfferImmediate(entityId, action.StyleId, text);
                     return;
+                }
             }
         }
 

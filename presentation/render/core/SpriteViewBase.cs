@@ -34,7 +34,7 @@ namespace Presentation.Render
     /// <see cref="ResolveLayerResourceId"/> 的判断记录。
     /// </para>
     /// </summary>
-    public abstract class SpriteViewBase : IView
+    public abstract class SpriteViewBase : IView, IHasCharacterRig
     {
         protected IRenderer2D Renderer { get; }
 
@@ -49,6 +49,16 @@ namespace Presentation.Render
         public Id EntityId { get; private set; }
 
         public bool IsAlive { get; private set; }
+
+        /// <summary>缺口（09 §4.1 CharacterRig 归并任务）：层/槽位管理、锚点查询、动画状态机驱动、
+        /// 程序动画原语四项职责归并到独立的 <see cref="SpriteCharacterRig"/>，本类型持有并委托（见
+        /// <see cref="SetPaperdollLayers"/>/<see cref="RebuildEquippedLayers"/> 判断记录、
+        /// <see cref="SpriteCharacterRig"/> 类型注释"层管理与 SpriteViewBase 既有逻辑的分工"）。经
+        /// <see cref="IHasCharacterRig"/> 能力接口对外暴露，供反馈层/帧驱动代码取用（同
+        /// <c>IModelHandleProvider</c> 一贯的能力接口惯例）。</summary>
+        public ICharacterRig Rig => _rig;
+
+        private readonly SpriteCharacterRig _rig;
 
         private bool _destroyed;
 
@@ -103,11 +113,13 @@ namespace Presentation.Render
             var spriteSetId = Id.Parse(DisplayInfo.Sprite.SpriteSetId);
             _resourceTracker?.EnsureLoading(spriteSetId, ResourceKind.Image);
             Handle = Renderer.CreateSpriteInstance(spriteSetId);
+            _rig = new SpriteCharacterRig(default, Renderer, Handle, Conventions, DisplayInfo, _resourceTracker);
         }
 
         public virtual void Bind(Id entityId)
         {
             EntityId = entityId;
+            _rig.Bind(entityId);
             IsAlive = true;
         }
 
@@ -239,7 +251,7 @@ namespace Presentation.Render
                 resourceIds.Add(resourceId);
             }
 
-            Renderer.SetLayers(Handle, resourceIds);
+            _rig.ApplyLayers(resourceIds);
         }
 
         public virtual void SyncPose(Vec2 pos, Direction facing, double height)
@@ -262,16 +274,7 @@ namespace Presentation.Render
         {
             EnsureAlive();
 
-            var placements = Conventions.ComposeSpriteLayers(layerNamesInOrder, DisplayInfo.Sprite!, currentFacing);
-            var resourceIds = new List<Id>(placements.Count);
-            for (var i = 0; i < placements.Count; i++)
-            {
-                var resourceId = ResolveLayerResourceId(placements[i]);
-                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image);
-                resourceIds.Add(resourceId);
-            }
-
-            Renderer.SetLayers(Handle, resourceIds);
+            _rig.ComposeAndApplyLayers(layerNamesInOrder, currentFacing, ResolveLayerResourceId);
         }
 
         /// <summary>

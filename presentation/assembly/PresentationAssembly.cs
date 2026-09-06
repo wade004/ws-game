@@ -81,9 +81,20 @@ namespace Presentation.Assembly
         /// 不属于表现层契约范围。默认空实现。</summary>
         public Action<double>? OnFreeze { get; set; }
 
-        /// <summary>闪白动作的最终落地回调（见 09 第 6.1 节 <c>Flash</c>）：闪白具体材质参数怎么应用
-        /// 不属于 <c>vfx_sfx</c>/<c>feedback_binder</c> 契约范围。默认空实现。</summary>
+        /// <summary>闪白动作的最终落地回调（见 09 第 6.1 节 <c>Flash</c>）：显式提供时完全覆盖默认
+        /// 行为。默认（null）改走 <see cref="ICharacterRig.ProceduralAnim"/> 原语（09 §4 缺口 6 恢复，
+        /// 取代此前的空实现）——按事件携带的实体 id 经 <see cref="ViewBinder.TryGetView"/> 找到 View，
+        /// 若其实现 <see cref="IHasCharacterRig"/> 则调用 <c>Rig.ProceduralAnim.Flash</c>（见
+        /// <see cref="FlashProfileResolver"/> 决定具体参数）；查不到 View 或 View 不持有
+        /// CharacterRig（如自定义 <c>model</c> 型 View 尚未接 rig）时静默跳过，不抛异常。</summary>
         public Action<Id, Id>? OnFlash { get; set; }
+
+        /// <summary>Flash 原语参数解析（见 09 第 6.1 节 <c>Flash(profileId, target)</c>）：09 未定义
+        /// <c>flash_profile</c> 登记表（见 <c>presentation/feedback_binder/README.md</c> 契约缺口），
+        /// 按 <c>profileId</c> 解析出具体 <see cref="FlashParams"/> 因此暂时留给具体游戏。默认忽略
+        /// <c>profileId</c>、恒返回 <see cref="FlashParams.Default"/>。仅在 <see cref="OnFlash"/> 未被
+        /// 显式覆盖时生效。</summary>
+        public Func<Id, FlashParams>? FlashProfileResolver { get; set; }
 
         /// <summary>构造完成后是否立即用 <c>camera_profile</c> 表第一条记录 Configure 镜头并
         /// Follow 玩家单位（见 <see cref="PresentationAssembly"/>"判断记录"）。默认 true；数据集
@@ -116,6 +127,12 @@ namespace Presentation.Assembly
         public SfxOptions? SfxOptions { get; set; }
         public CameraHostOptions? CameraHostOptions { get; set; }
         public FeedbackOptions? FeedbackOptions { get; set; }
+
+        /// <summary>拍板 5（离散回放门）：显式指定时一次性设定 <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder.Queue"/>
+        /// 的 <see cref="QueueMode"/>，且本装配根不再跟随 <c>gameplay.TimeModelSwitch</c> 自动切换
+        /// （调用方明确接管节奏）。默认 null：由本装配根跟随时间模型自动切换（离散 Sequential、连续
+        /// Immediate），见 <see cref="PresentationAssembly"/> 构造函数判断记录。</summary>
+        public QueueMode? FeedbackQueueMode { get; set; }
     }
 
     /// <summary>
@@ -183,6 +200,10 @@ namespace Presentation.Assembly
 
         public CharacterStatsViewModel CharacterStats { get; }
 
+        /// <summary>拍板 7：商店视图模型（见 09 第 7.1 节 UI 组成清单"商店"、
+        /// <see cref="Presentation.Ui.ShopViewModel"/> 类型注释）。</summary>
+        public ShopViewModel Shop { get; }
+
         public SettingsViewModel Settings { get; }
 
         public SaveSlotsViewModel SaveSlots { get; }
@@ -203,6 +224,12 @@ namespace Presentation.Assembly
 
         private readonly Id _playerId;
         private bool _disposed;
+
+        /// <summary>拍板 5（离散回放门）本装配根自己建立的事件订阅（同 <c>combat.entered</c>/
+        /// <c>combat.left</c>/<c>unit.died</c> 跟随自动切队列模式），随 <see cref="Dispose"/> 一并
+        /// 释放。仅在启用自动模式（<see cref="PresentationAssemblyOptions.FeedbackQueueMode"/> 为
+        /// null 且装配了离散模式）时非空。</summary>
+        private readonly List<Core.Foundation.Common.SubscriptionHandle> _subscriptions = new List<Core.Foundation.Common.SubscriptionHandle>();
 
         public PresentationAssembly(
             GameplayAssembly gameplay,
@@ -311,26 +338,69 @@ namespace Presentation.Assembly
             FloatingTextStyles = registry.GetAll(Presentation.FeedbackBinder.Schema.FeedbackSchemas.FloatingTextStyle.Name)
                 .Select(FloatingTextStyleDef.FromRecord).ToDictionary(d => d.Id);
 
+            // 缺口 7：L10nHost 提前到这里构造（原在第 4 步 ui 小节内）——本步 FeedbackBinder 的
+            // textResolver 需要用到同一个 IL10nHost 实例解析 text_source: literal 飘字文本键
+            // （09 第 7.3 节"文案一律经本地化表用 key 间接引用"）；InputMapHost 与本步无关，仍留在
+            // 第 4 步原位构造。
+            L10n = new L10nHost(registry, bus);
+
+            var flashProfileResolver = opts.FlashProfileResolver ?? (_ => FlashParams.Default);
             var feedbackSink = new CompositeFeedbackSink(
                 vfxPlayer, sfxPlayer,
                 onFloatingText: opts.OnFloatingText ?? ((_, __, ___) => { }),
                 onFreeze: opts.OnFreeze ?? (_ => { }),
                 onShakeCamera: profileId => Camera.Shake(profileId),
-                onFlash: opts.OnFlash ?? ((_, __) => { }),
+                onFlash: opts.OnFlash ?? ((entityId, profileId) =>
+                {
+                    // 缺口 6 恢复（09 第 4.1 节程序动画原语）：见 PresentationAssemblyOptions.OnFlash
+                    // 判断记录——ViewBinder 在装配根第 1 步已经构造好，这里按需查询，不缓存。
+                    if (ViewBinder.TryGetView(entityId, out var view) && view is IHasCharacterRig hasRig)
+                    {
+                        hasRig.Rig.ProceduralAnim.Flash(flashProfileResolver(profileId));
+                    }
+                }),
                 entityPositionResolver: entityPositionResolver);
 
             Feedback = new FeedbackBinderCore(
                 bus, gameplay.ExprHostFactory, feedbackRules, feedbackSink,
                 displayInfoResolver: VfxSfxDisplayInfoResolver, entityLogicalIdResolver: null,
-                unitAccess: gameplay.Carriers.Units, options: opts.FeedbackOptions);
+                unitAccess: gameplay.Carriers.Units, options: opts.FeedbackOptions,
+                textResolver: key => L10n.Text(key));
+
+            // 拍板 5（离散回放门）：opts.FeedbackQueueMode 显式提供时一次性设定、不再自动跟随时间
+            // 模型切换（调用方明确接管）；未提供（默认 null）时由本装配根跟随
+            // gameplay.TimeModelSwitch.CurrentMode 自动切换——离散 Sequential、连续 Immediate（09 第
+            // 6.4 节"一个离散步……瞬间产生多条事件……不并行播放、不打乱事件间的因果顺序"要求离散模式下
+            // 逐条顺序回放；此前 Unity 引导侧只能靠"零事件兜底"短路，本次收口）。若
+            // gameplay.TimeModelSwitch 为 null（游戏未装配离散模式，构造 GameplayAssembly 时未传
+            // clockHost），恒 Immediate，同 FeedbackOptions.QueueMode 默认值。
+            if (opts.FeedbackQueueMode.HasValue)
+            {
+                Feedback.Queue.Mode = opts.FeedbackQueueMode.Value;
+            }
+            else if (gameplay.TimeModelSwitch != null)
+            {
+                var timeModelSwitch = gameplay.TimeModelSwitch;
+                SyncFeedbackQueueMode(timeModelSwitch);
+
+                // 判断记录（订阅顺序保证"后订阅者后执行"）：TimeModelSwitch 在 GameplayAssembly 构造期
+                // （早于本装配根）就已订阅 combat.entered/combat.left 并在处理函数内部同步切换
+                // CurrentMode；EventBus 按注册顺序派发同一事件 key 的全部订阅者（见
+                // core/foundation/event_bus/core/EventBus.cs 类型注释"派发循环用普通 for"+
+                // AddSubscriber 尾插），本装配根在这里（晚于 TimeModelSwitch 构造）重新订阅同一对
+                // 事件 key，能保证收到通知时 CurrentMode 已经是切换后的最新值，不需要额外的时序同步
+                // 机制。
+                _subscriptions.Add(bus.Subscribe<CombatEnteredEvent>(RulesEventKeys.CombatEntered, _ => SyncFeedbackQueueMode(timeModelSwitch)));
+                _subscriptions.Add(bus.Subscribe<CombatLeftEvent>(RulesEventKeys.CombatLeft, _ => SyncFeedbackQueueMode(timeModelSwitch)));
+                _subscriptions.Add(bus.Subscribe<UnitDiedEvent>(RulesEventKeys.UnitDied, _ => SyncFeedbackQueueMode(timeModelSwitch)));
+            }
 
             // ---------------------------------------------------------
-            // 4) ui：InputMapHost/L10nHost 由本装配根自行构造（两者均为 L0 基础设施，不属于
-            //    GameplayAssembly 的十个 L4 宿主，见 README 判断记录）；UiDataSource 接三个路径
-            //    provider；十个视图模型逐一构造。
+            // 4) ui：InputMapHost 由本装配根自行构造（L0 基础设施，不属于 GameplayAssembly 的十个
+            //    L4 宿主，见 README 判断记录；L10nHost 已提前到上一步构造，见缺口 7 判断记录）；
+            //    UiDataSource 接三个路径 provider；十个视图模型逐一构造。
             // ---------------------------------------------------------
             InputMap = new Core.Foundation.InputMap.InputMapHost(bus);
-            L10n = new L10nHost(registry, bus);
 
             var skillBookQuery = new SkillHostSkillBookQuery(gameplay.Carriers.Rules.Skill);
             var providers = new IUiPathProvider[]
@@ -372,6 +442,7 @@ namespace Presentation.Assembly
             DialogView = new DialogViewModel(UiData, gameplay.Dialog, _playerId);
             SkillBook = new SkillBookViewModel(UiData, skillBookQuery, _playerId);
             CharacterStats = new CharacterStatsViewModel(UiData, L10n, _playerId, opts.CharacterStatConfig);
+            Shop = new ShopViewModel(UiData, gameplay.Economy, _playerId);
             SaveSystem = gameplay.SaveSystem;
 
             var settingsActionNames = opts.SettingsActionNames ?? Array.Empty<string>();
@@ -402,6 +473,16 @@ namespace Presentation.Assembly
                 gameplay.AppState, sceneRouter, SaveSystem, SettingsStore, gameplay.Difficulty, InputMap, bus,
                 newGameStarter, timestampProvider, loadedMapIdResolver: loadedMapIdResolver);
             ShellViewModel = new ShellViewModel(Shell, SaveSystem, bus, shellMenu);
+        }
+
+        /// <summary>拍板 5：按 <paramref name="timeModelSwitch"/>.<c>CurrentMode</c> 把
+        /// <see cref="Feedback"/> 的播放队列模式同步为离散 → <see cref="QueueMode.Sequential"/>、
+        /// 连续 → <see cref="QueueMode.Immediate"/>（见 09 第 6.4 节）。</summary>
+        private void SyncFeedbackQueueMode(Core.Gameplay.Assembly.TimeModelSwitch timeModelSwitch)
+        {
+            Feedback.Queue.Mode = timeModelSwitch.CurrentMode == Core.Foundation.SimLoop.TimeModelMode.Discrete
+                ? QueueMode.Sequential
+                : QueueMode.Immediate;
         }
 
         private static int ResolveActionBarSlotCount(IDataRegistryView registry, int fallback)
@@ -435,6 +516,12 @@ namespace Presentation.Assembly
             }
             _disposed = true;
 
+            foreach (var sub in _subscriptions)
+            {
+                sub.Dispose();
+            }
+            _subscriptions.Clear();
+
             ViewBinder.Dispose();
             Camera.Dispose();
             Feedback.Dispose();
@@ -447,6 +534,7 @@ namespace Presentation.Assembly
             DialogView.Dispose();
             SkillBook.Dispose();
             CharacterStats.Dispose();
+            Shop.Dispose();
             Settings.Dispose();
             SaveSlots.Dispose();
             PauseMenu.Dispose();

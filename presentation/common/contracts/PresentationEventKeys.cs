@@ -1,5 +1,4 @@
 using Core.Foundation.Common;
-using Core.Foundation.EventBus;
 
 namespace Presentation.Common
 {
@@ -9,21 +8,17 @@ namespace Presentation.Common
     /// 明确"表现层只订阅事件……<c>presentation.playback_finished</c> 是表现层唯一允许发出、并被
     /// L0 消费的事件"（见 09_表现层.md 第 1 节 P2、第 6.4 节）。已在 <c>found.event_catalog</c>
     /// 登记（<c>data/_sample/found/found.event_catalog.json</c>），字段列表为空。
+    /// <para>
+    /// 判断记录（去重，09 勘误）：本类型此前还声明了一个同名 <c>PlaybackFinishedEvent</c> 事件类，
+    /// 与 <c>presentation/feedback_binder/contracts/PlaybackFinishedEvent.cs</c>（
+    /// <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/> 实际发布使用的那一个，key 引用
+    /// 生成物常量 <c>Core.Foundation.EventBus.EventKeys.PresentationPlaybackFinished</c>，与本类型的
+    /// <see cref="PlaybackFinished"/> 是同一字符串值）重复定义、从未被生产代码使用——已删除，只保留
+    /// 本常量供文档/测试核对 key 字符串值与生成物是否一致，不再声明第二个 <see cref="IEvent"/> 实现。
+    /// </para>
     /// </summary>
     public static class PresentationEventKeys
     {
         public static readonly Id PlaybackFinished = new Id("presentation.playback_finished");
-    }
-
-    /// <summary>
-    /// 表现层回放队列清空后发出（见 09 第 6.4 节、03 第 9 节 <c>PacingPolicy.onPlaybackFinished</c>）。
-    /// 不携带、也不允许携带任何会被 L0 解释为"逻辑判定"的数据（见 09 第 6.4 节最后一条），因此本
-    /// 类型不声明任何业务字段——只作为节奏门的解除信号。本项目当前只启用连续时间模型（离散模式
-    /// 暂不启用，见 <c>core/foundation/sim_loop</c> README），发出方（本模块以外的回放队列实现，
-    /// 不在 P4-1 范围内）尚未落地，这里只提供事件类型本身。
-    /// </summary>
-    public sealed class PlaybackFinishedEvent : IEvent
-    {
-        public Id Key => PresentationEventKeys.PlaybackFinished;
     }
 }

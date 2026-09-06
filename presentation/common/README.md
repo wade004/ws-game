@@ -19,12 +19,13 @@ common/
     IView.cs                 View 绑定协议（09 §2）
     IViewFactory.cs          View 工厂（09 §2，由引擎侧实现）
     ViewContext.cs           传给 IViewFactory 的绘制能力集合（IRenderer2D/IRenderer3D?/ICamera/DisplayInfo）
-    IPresentationClock.cs   插值系数来源（03 §3.1、§9）
     ISimSnapshot.cs           只读快照门面（铁律 P1）
-    EntityKindMapping.cs     Entity.Kind 字符串 → ViewKind 映射（player/creature/gobj/loot 四类已改用
-                              Core.Foundation.SimLoop.EntityKinds 常量；projectile/area_trigger 两类
-                              仍是占位字符串，见下"契约缺口"）
-    PresentationEventKeys.cs  presentation.playback_finished 常量 + PlaybackFinishedEvent
+    EntityKindMapping.cs     Entity.Kind 字符串 → ViewKind 映射：player/creature/gobj/loot/projectile/
+                              area_trigger 六类已全部改用 Core.Foundation.SimLoop.EntityKinds 常量，
+                              不再有占位裸字符串（见下"判断记录"）
+    PresentationEventKeys.cs  presentation.playback_finished key 常量（PlaybackFinishedEvent 事件类
+                              已删除，见下"判断记录"去重一条；实际发布用
+                              presentation/feedback_binder/contracts/PlaybackFinishedEvent.cs）
   core/
     WorldSimSnapshot.cs       ISimSnapshot 基于 IWorldSim 的只读实现
   tests/
@@ -36,7 +37,7 @@ common/
 | 铁律 | 本模块如何满足 |
 |---|---|
 | P1 只读逻辑状态 | `ISimSnapshot`/`WorldSimSnapshot` 只暴露只读查询方法（`Get*`/`Exists`），不提供任何写入方法；`WorldSimSnapshot` 不缓存字段，每次调用直接查 `IWorldSim.GetEntity` |
-| P2 只订阅事件 | 本模块不订阅任何事件（订阅逻辑在 `view_binding`），但提供 `PlaybackFinishedEvent`——表现层唯一允许发出的事件，不携带任何逻辑判定数据 |
+| P2 只订阅事件 | 本模块不订阅任何事件（订阅逻辑在 `view_binding`）；只登记 `presentation.playback_finished` 这一个 key 常量（表现层唯一允许发出的事件），事件类本体在 `presentation/feedback_binder`，见下"判断记录"去重一条 |
 | P3 不写回 | 本模块不提供任何"提交意图"的接口（意图提交属于 UI 框架，见 09 第 7.2 节，不在本模块范围） |
 | P4 只经 L-1 绘制 | `ViewContext` 只打包 `IRenderer2D`/`IRenderer3D?`/`ICamera`（均为 L-1 接口），不新增任何绕过 L-1 的绘制通道 |
 
@@ -48,8 +49,7 @@ common/
 | `IViewFactory` | 引擎侧 | `ViewBinder` |
 | `ViewContext` | `presentation/view_binding` 或游戏层组装代码构造后传给 `IViewFactory.CreateView` 的实现方使用 | `IViewFactory` 实现内部 |
 | `ISimSnapshot`（`WorldSimSnapshot`） | 本模块 | `ViewBinder`、`presentation/camera` 的 `CameraHost` |
-| `IPresentationClock` | 主循环组装代码（把 `SimClockHost.Advance` 返回的 alpha 包一层） | `ViewBinder.SyncAll`、`CameraHost.Update` |
-| `PlaybackFinishedEvent` | 回放队列实现（09 第 6.4 节，不在 P4-1 范围，本项目当前只启用连续时间模型，暂无发布方） | 主循环的 `PacingPolicy.onPlaybackFinished` 消费方 |
+| `PresentationEventKeys.PlaybackFinished`（key 常量） | 本模块 | `Presentation.FeedbackBinder.Contracts.PlaybackFinishedEvent`（实际发布用的事件类，见 `feedback_binder/README.md`）间接引用同一字符串值的生成物常量 |
 
 ## 判断记录
 
@@ -68,20 +68,34 @@ common/
    `Core.Carriers.Unit.DirectionQuantizer` 的既有约定（index 0 = 角度 0 = +X 轴，逆时针编号）反推出
    完整对照表，见该类型 `FromQuantized` 方法注释与 `presentation/render/README.md`"索引→档位对应
    表"一节。
+5. **去重：删除 `PlaybackFinishedEvent` 事件类、`IPresentationClock` 契约（09 勘误）**：
+   `PresentationEventKeys.cs` 此前额外声明了一个 `PlaybackFinishedEvent` 事件类，与
+   `presentation/feedback_binder/contracts/PlaybackFinishedEvent.cs`（`FeedbackBinder` 实际
+   `PublishImmediate` 使用的那一个）同名重复，且前者从未被任何生产代码引用——已删除，只保留 key
+   常量本身（供测试核对与生成物 `EventKeys.PresentationPlaybackFinished` 字符串值一致，见
+   `PresentationEventKeysTests`）。`IPresentationClock.cs` 是一个零实现、零调用点的悬空契约——09
+   全文未定义"表现时钟/插值 alpha"这一具体契约名（只泛泛提到"插值仍用于固定步长模拟与渲染帧率
+   解耦，见 03"），真正产出 alpha 的 `Core.Foundation.SimLoop.ISimClockHost.Advance` 的返回值目前
+   被 `Core.Gameplay.Assembly.GameplayAssembly.Advance` 丢弃、也没有对外暴露的读取点——已删除本
+   契约及其在 `ViewBinder.SyncAll` 文档注释里的引用，`alpha` 参数改由调用方自行传入，真正接通
+   "alpha 从哪来"留给 W2/W3b，见下"契约缺口"。
 
 ## 契约缺口
 
-- **`Entity.Kind` 字符串词汇表未统一登记——已进一步解决（G1 + 收边任务）**：`Core.Foundation.SimLoop.EntityKinds`
-  （G1 新增）收敛了代码库里确有落地 `Entity` 子类在用的取值，收边任务 `core/carriers/projectile`
-  落地 `ProjectileHost`/`ProjectileEntity` 时补上第五个常量 `EntityKinds.Projectile`——
-  `EntityKindMapping` 现已改用全部五个常量（`Player`/`Creature`/`Gobj`/`Loot`/`Projectile`），不再
-  为 `projectile` 手写裸字符串。`"area_trigger"` 一个模块仍未落地对应 `Entity` 子类，`EntityKinds`
-  按"未使用的不发明"原则暂不登记（见其类型注释），`EntityKindMapping` 继续为这一类保留占位字符串，
-  留待落地后由设计层核对一致性、`EntityKinds` 补齐常量。
+- **`Entity.Kind` 字符串词汇表已完整登记（G1 + 收边任务 + 加固任务）**：`Core.Foundation.SimLoop.EntityKinds`
+  现收齐六个常量（`Player`/`Creature`/`Gobj`/`Loot`/`Projectile`/`AreaTrigger`，加固任务补齐
+  `core/gameplay/area_trigger` 落地 `AreaTriggerEntity` 后的最后一个），`EntityKindMapping` 全部改用
+  常量引用，不再有裸字符串占位；本条缺口已完全解决，仅 `summon` 一个模块（尚未落地 `Entity` 子类）
+  按"未使用的不发明"暂不登记，留待该模块落地后再补。
 - **`IRenderer2D.SetTransform` 没有高度参数——已由 ADR-0016 解决**：`SetTransform` 现增加了
   `height` 参数（与 `IRenderer3D.SetPlacement` 对齐），`presentation/render` 的 `SpriteViewBase`
   已改为经这个正式参数传递高度，不再借用 `SetShaderParam` 通道，详见
   `presentation/render/README.md`"契约缺口"一节。
+- **表现层插值 alpha 的产出与消费尚未接通（见判断记录 5）**：`ISimClockHost.Advance` 的返回值即
+  alpha，但 `GameplayAssembly.Advance` 当前丢弃它、不对外暴露 `ISimClockHost` 实例本身；
+  `ViewBinder.SyncAll(alpha)`/`CameraHost.Update(alpha)` 已经就绪、只等调用方传入正确的 alpha——
+  接通方式（`GameplayAssembly` 补一个只读属性 or 由引擎适配层自己另建一份 `IClock.RequestFixedStep`
+  驱动的累积器）不在本轮（W3a）范围，留给 W2（如需改 `GameplayAssembly`）/W3b（引擎侧接线）。
 （原"裸档位名与 `Id` 格式的前缀不一致"契约缺口已由设计层拍板并落地为 14 第 2.1 节 2026-09-05 勘误：
 运行期方向档位 Id 固定为 `"dir.<裸档位名>"`，文件名/标注文件/工具链一律用裸档位名，不再是待核对的
 契约缺口，见 `DirectionSlots` 类型注释"Id 前缀已拍板结论"。）
