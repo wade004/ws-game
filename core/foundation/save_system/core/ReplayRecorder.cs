@@ -20,6 +20,7 @@ namespace Core.Foundation.SaveSystem
         private readonly List<ReplayEndTurnRecord> _endTurns = new List<ReplayEndTurnRecord>();
 
         private IReadOnlyDictionary<string, RngStreamState>? _rngSeeds;
+        private ulong _masterSeed;
         private long _tickCount;
         private bool _began;
 
@@ -33,8 +34,9 @@ namespace Core.Foundation.SaveSystem
             _stepSeconds = stepSeconds;
         }
 
-        public void BeginRecording(IReadOnlyDictionary<string, RngStreamState> rngSeeds)
+        public void BeginRecording(ulong masterSeed, IReadOnlyDictionary<string, RngStreamState> rngSeeds)
         {
+            _masterSeed = masterSeed;
             _rngSeeds = rngSeeds ?? throw new ArgumentNullException(nameof(rngSeeds));
             _inputs.Clear();
             _steps.Clear();
@@ -115,7 +117,7 @@ namespace Core.Foundation.SaveSystem
         public ReplayData Export()
         {
             EnsureBegan();
-            return new ReplayData(_rngSeeds!, _inputs.ToArray(), _stepSeconds, _tickCount, _steps.ToArray(), endTurns: _endTurns.ToArray());
+            return new ReplayData(_rngSeeds!, _inputs.ToArray(), _stepSeconds, _tickCount, _steps.ToArray(), endTurns: _endTurns.ToArray(), masterSeed: _masterSeed);
         }
 
         private void EnsureBegan()

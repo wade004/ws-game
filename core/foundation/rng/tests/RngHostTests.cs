@@ -122,6 +122,47 @@ namespace Tests.Foundation.Rng
             Assert.False(RngStreamState.TryParse("0-0-0-0-0", out _));
         }
 
+        /// <summary>P3-01 收口回归：此前 <c>TryParseSegment</c> 只用 <c>ulong.TryParse</c> 校验能否
+        /// 解析为十六进制数，未检查段长度和大小写，<c>"0-0-0-0"</c> 这类非规范短文本也会被接受
+        /// （见 rng/README.md 第 51～53 行的定长规范文本格式承诺）。现在应逐段拒绝短段、长段、
+        /// 大写字母，只接受 16 个小写十六进制字符。</summary>
+        [Fact]
+        public void RngStreamState_TryParse_RejectsNonCanonicalSegmentLengthAndCase()
+        {
+            // 短段：数值上可能代表合法状态，但绕过了定长规范格式。
+            Assert.False(RngStreamState.TryParse("0-0-0-0", out _));
+            Assert.False(RngStreamState.TryParse("1-1-1-1", out _));
+
+            // 长段：超过 16 位十六进制字符。
+            Assert.False(RngStreamState.TryParse(
+                "00000000000000001-0000000000000000-0000000000000000-0000000000000000", out _));
+
+            // 大写字母：ToString 恒输出小写，Parse 应严格对称，不接受大写变体。
+            Assert.False(RngStreamState.TryParse(
+                "AAAAAAAAAAAAAAAA-0000000000000000-0000000000000000-0000000000000000", out _));
+
+            // 恰好 16 位小写十六进制的规范文本应被接受（正对照，避免上面全部断言"假阳性通过"）。
+            Assert.True(RngStreamState.TryParse(
+                "0000000000000001-0000000000000000-0000000000000000-0000000000000000", out var parsed));
+            Assert.Equal(1UL, parsed.S0);
+        }
+
+        /// <summary>P1-03/P1-04 收口新增：<see cref="IRngHost.MasterSeed"/> 应原样返回构造时传入的
+        /// 主种子，<see cref="IRngHost.Reset"/> 后应更新为新种子——供
+        /// <see cref="Core.Foundation.SaveSystem.RngStreamsPersistable"/> 存读该值。</summary>
+        [Fact]
+        public void MasterSeed_ReflectsConstructorArgument_AndUpdatesAfterReset()
+        {
+            var host = new RngHost(42UL);
+            Assert.Equal(42UL, host.MasterSeed);
+
+            host.Next(StreamA);
+            Assert.Equal(42UL, host.MasterSeed); // 消耗随机数不改变主种子。
+
+            host.Reset(999UL);
+            Assert.Equal(999UL, host.MasterSeed);
+        }
+
         [Fact]
         public void Next_AlwaysFallsWithinZeroToOneExclusiveUpperBound()
         {

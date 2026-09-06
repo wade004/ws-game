@@ -224,19 +224,22 @@ namespace Core.Rules.Assembly
                 Stats, Powers, Units, deferredAuras, Factions, Rng, Bus, Registry, resolvedCombatOptions,
                 diagnostics: null, staticImmunity: staticImmunity);
 
+            // P2-01 收口（此前判断记录 3 的做法：ExprHostFactory 构造时 skillHost 传 null，
+            // TargetHost/SkillHost 永久绑定这份"不带 skillHost"的工厂；下面第 7 步只重新构造第二份
+            // 带 skillHost 的工厂给 AiHost 单独用——self.is_casting/combat.is_casting 在
+            // Targeting 的 target chain filters 与 Skill 自己的 ProcHost 条件求值里因此恒为
+            // false，见 audit-20260907/foundation-rules.md P2-01）。改用与 deferredAuras 同一惯例
+            // 的延迟绑定代理 DeferredSkillCastQuery（见本文件下方判断记录 2.5）：SkillHost 构造完成
+            // 后立即 Bind，全部三个消费方（Targeting/Skill/Ai）自此共享同一份、也是唯一一份
+            // ExprHostFactory，不再需要重新构造第二份工厂。
+            var deferredSkillHost = new DeferredSkillCastQuery();
+
             ExprHostFactory = new RulesExprHostFactory(
                 Units, Stats, Powers, deferredAuras, Combat, Combat.GetThreatTable(ThreatTablePlaceholderId),
                 Spatial, Factions, () => _simTime, GetCombatStartTime,
-                extraGroups: null, skillHost: null, diagnostics: null, extraSchemas: extraSchemas,
+                extraGroups: null, skillHost: deferredSkillHost, diagnostics: null, extraSchemas: extraSchemas,
                 turnIndexProvider: discreteTurnIndexProvider, roundIndexProvider: discreteRoundIndexProvider,
                 currentActorProvider: discreteCurrentActorProvider);
-            // 判断记录 3：ExprHostFactory 构造时 skillHost 传 null——此刻 SkillHost 还不存在
-            // （SkillHost 的构造反过来需要 IExprHostFactory，见判断记录 2 同一循环）。
-            // RulesExprHostFactory 对 skillHost 缺失的处理已经是"按默认值 false + 警告一次"
-            // （见 core/rules/expr_host/README.md），不是硬性依赖；SkillHost 构造完成后
-            // 用 <see cref="BindSkillHostIntoExprFactory"/> 反射式手段行不通（字段是 readonly），
-            // 因此改为下面第 7 步把 ExprHostFactory 换成一个感知到 SkillHost 的新实例——见该步骤
-            // 注释。
 
             Targeting = new TargetHost(
                 strategyRegistry, Registry, Units, Spatial, Factions, Powers, ExprHostFactory,
@@ -252,29 +255,18 @@ namespace Core.Rules.Assembly
             skill = Skill; // 回填第 3 步 archAuraApplier 闭包捕获的局部变量。
 
             // -------------------------------------------------------------
-            // 6) IAuraQuery 回接：combat 此前拿到的 deferredAuras 代理现在指向真实的
-            //    SkillHost.AuraQuery（见判断记录 2）。
+            // 6) IAuraQuery / ISkillHost 回接：combat 此前拿到的 deferredAuras 代理现在指向真实的
+            //    SkillHost.AuraQuery（见判断记录 2）；ExprHostFactory 此前拿到的 deferredSkillHost
+            //    代理现在指向真实的 SkillHost 本身（见判断记录 2.5，P2-01 收口）——Targeting/Skill/
+            //    Ai 共享的同一份 ExprHostFactory 自此都能读到真实 IsCasting。
             // -------------------------------------------------------------
             deferredAuras.Bind(Skill.AuraQuery);
+            deferredSkillHost.Bind(Skill);
 
             // -------------------------------------------------------------
-            // 7) 重新构造一份感知到 SkillHost 的 ExprHostFactory，供 AiHost 使用（self/target/
-            //    combat 的 is_casting 需要 ISkillHost，见判断记录 3）。TargetHost/SkillHost 已经
-            //    绑定了第 5 步那份"不带 skillHost"的工厂——它们只在各自模块内部消费
-            //    IExprHostFactory 来求值 filters/proc 条件，不涉及 is_casting，继续用旧实例不影响
-            //    正确性，不重新构造它们；只有 AiHost（构造期注入的 IExprHostFactory 用于
-            //    Rotation/transitions 条件，很可能引用 self.is_casting/combat.is_casting）换上
-            //    带 skillHost 的新工厂。<see cref="ExprHostFactory"/> 属性对外暴露的是这份"完整版"。
-            // -------------------------------------------------------------
-            ExprHostFactory = new RulesExprHostFactory(
-                Units, Stats, Powers, deferredAuras, Combat, Combat.GetThreatTable(ThreatTablePlaceholderId),
-                Spatial, Factions, () => _simTime, GetCombatStartTime,
-                extraGroups: null, skillHost: Skill, diagnostics: null, extraSchemas: extraSchemas,
-                turnIndexProvider: discreteTurnIndexProvider, roundIndexProvider: discreteRoundIndexProvider,
-                currentActorProvider: discreteCurrentActorProvider);
-
-            // -------------------------------------------------------------
-            // 8) AiHost。
+            // 7) AiHost：与 Targeting/Skill 共享同一份第 5 步的 ExprHostFactory（P2-01 收口后不再
+            //    重新构造第二份），self/target/combat 的 is_casting 与 Targeting/Skill 内部求值
+            //    读到的是同一个真实 SkillHost。
             // -------------------------------------------------------------
             var resolvedAiOptions = aiOptions ?? new AiOptions();
             Ai = new AiHost(
@@ -282,7 +274,7 @@ namespace Core.Rules.Assembly
                 ExprHostFactory, Bus, Rng, Navigation, resolvedAiOptions);
 
             // -------------------------------------------------------------
-            // 9) tick 处理器挂载（见 README"tick 阶段挂载表"）——除非调用方要求延后
+            // 8) tick 处理器挂载（见 README"tick 阶段挂载表"）——除非调用方要求延后
             // （autoRegisterTickHandlers=false，见该参数与 RegisterTickHandlers 判断记录）。
             // -------------------------------------------------------------
             if (autoRegisterTickHandlers)
@@ -415,6 +407,52 @@ namespace Core.Rules.Assembly
             public IReadOnlyList<Id> GetActiveAuraDefs(Id unitId) => Real.GetActiveAuraDefs(unitId);
             public IReadOnlyList<Id> GetActiveSpellModRefs(Id unitId) => Real.GetActiveSpellModRefs(unitId);
             public Id? ResolveSkillOverride(Id unitId, Id skillId) => Real.ResolveSkillOverride(unitId, skillId);
+        }
+
+        /// <summary>
+        /// 判断记录 2.5（P2-01 收口，<see cref="ISkillHost"/> 延迟绑定代理，惯例同上方
+        /// <see cref="DeferredAuraQuery"/>）：<see cref="RulesExprHostFactory"/>（第 5 步）需要一个
+        /// 非空 <see cref="ISkillHost"/> 才能正确求值 <c>self.is_casting</c>/<c>combat.is_casting</c>
+        /// （见 <c>core/rules/expr_host/RulesExprHostFactory.cs</c> 判断记录"null skillHost 时按默认值
+        /// false + 警告一次处理"），而真正的 <see cref="SkillHost"/>（第 5 步同一批构造）反过来需要
+        /// 已经构造好的 <see cref="ExprHostFactory"/> 才能构造自己——与 <c>CombatHost</c> ↔
+        /// <c>SkillHost</c>（<see cref="DeferredAuraQuery"/>）同一种循环依赖，同一种解法：先给
+        /// <see cref="RulesExprHostFactory"/> 一个代理，<see cref="SkillHost"/> 构造完成后立即
+        /// <see cref="Bind"/> 到真实实例（见构造函数第 6 步）。此前的做法是构造两份
+        /// <see cref="RulesExprHostFactory"/>（一份 <c>skillHost: null</c> 给 Targeting/Skill 内部
+        /// 求值 filters/proc 条件用，一份 <c>skillHost: Skill</c> 只给 AiHost 用）——前者会让
+        /// Targeting 的 target chain filters 与 Skill 自己的 <c>ProcHost</c> 条件求值里
+        /// <c>is_casting</c> 恒为 false，即便 Skill 本身确实在读条中（见
+        /// <c>audit-20260907/foundation-rules.md</c> P2-01）。改用本代理后全部三个消费方
+        /// （Targeting/Skill/Ai）自此共享同一份、也是唯一一份 <see cref="ExprHostFactory"/>，不再需要
+        /// 重新构造第二份工厂，也不会再有"哪个消费方拿到的是旧工厂"这种隐性差异。
+        /// <para>
+        /// <see cref="ISkillHost"/> 是一个较宽的接口（<c>core/rules/skill</c> 对外的完整契约，见该
+        /// 接口类型注释"供 combat/targeting/ai 三个模块调用"），本代理逐一转发全部成员——不是只转发
+        /// <see cref="RulesExprHostFactory"/> 实际用到的 <c>IsCasting</c>，因为 <c>skillHost</c>
+        /// 参数的静态类型就是 <see cref="ISkillHost"/> 整个接口，代理必须实现完整契约才能满足类型
+        /// 系统，其余成员目前没有调用方经这条路径触达，但仍需要一个转发实现（而不是抛
+        /// <see cref="NotSupportedException"/>）以保持"未绑定前调用任何成员都给出同一种可诊断的
+        /// 异常信息"这一惯例，与 <see cref="DeferredAuraQuery"/> 一致。
+        /// </para>
+        /// </summary>
+        private sealed class DeferredSkillCastQuery : ISkillHost
+        {
+            private ISkillHost? _real;
+
+            public void Bind(ISkillHost real) => _real = real ?? throw new ArgumentNullException(nameof(real));
+
+            private ISkillHost Real => _real ?? throw new InvalidOperationException(
+                "DeferredSkillCastQuery 尚未绑定真实的 ISkillHost（RulesAssembly 构造尚未完成，" +
+                "不应该在组合根构造函数返回之前调用任何查询方法）");
+
+            public Vec2 GetPosition(Id unitId) => Real.GetPosition(unitId);
+            public IReadOnlyList<Id> FindUnits(Shape shape, Vec2 origin, UnitFilter filter) => Real.FindUnits(shape, origin, filter);
+            public void ApplyStatMod(Id sourceId, Id unitId, Id stat, StatModifierOp op, double value) => Real.ApplyStatMod(sourceId, unitId, stat, op, value);
+            public CastResult CastSkill(Id casterId, Id skillId, IReadOnlyList<Id> targets) => Real.CastSkill(casterId, skillId, targets);
+            public double GetCooldown(Id unitId, Id skillId) => Real.GetCooldown(unitId, skillId);
+            public bool IsCasting(Id unitId) => Real.IsCasting(unitId);
+            public void Interrupt(Id unitId, Id interrupterId, Id? lockSchool, double lockDuration) => Real.Interrupt(unitId, interrupterId, lockSchool, lockDuration);
         }
     }
 }

@@ -385,6 +385,62 @@ namespace Tests.Gameplay
         }
 
         // -----------------------------------------------------------------
+        // 9.6 P1-03/P1-04 收口：rng.stream_states 此前虽已实现（RngStreamsPersistable）、也已登记
+        //     进 SaveSections.KnownOrder，但从未在 GameplayAssembly.RegisterPersistables 里默认
+        //     注册——默认 bootstrap 的存档因此从不含该段，读档后已消耗过的流从新主种子重新懒创建，
+        //     后续掉落/命中/proc 等随机序列与保存点的"应得序列"不一致。本用例验证：(a) 默认装配的
+        //     Save JSON 含 rng.stream_states 段；(b) 已消耗过的流读档后续接同一序列；(c) 读档前
+        //     在新装配上产生的"残留流"（未出现在存档里）会被读档清空，不带着残留状态继续。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void SaveThenLoad_RngStreams_ContinuesSameSequence_AndClearsResidualStreams()
+        {
+            var fs = new StubFileSystem();
+            var fxA = GameWorldFixture.Build(fileSystem: fs);
+
+            var streamA = new Id("test.e2e_rng_a");
+            var streamB = new Id("test.e2e_rng_b"); // 存档时从未创建过，验证"未来新流"的主种子一致性。
+
+            fxA.Gameplay.Rng.Next(streamA); // 触发懒创建并消耗一次，产生非初始状态。
+
+            var player = fxA.Player;
+            player.MapId = GameWorldFixture.MapId;
+            fxA.Gameplay.RegisterPersistables(fxA.SaveSystem, player);
+
+            var saveResult = fxA.SaveSystem.Save(new Core.Foundation.SaveSystem.SaveRequest(GameWorldFixture.SaveSlot, "2026-09-07T00:00:00Z"));
+            Assert.True(saveResult.Success, saveResult.Message);
+
+            // Save JSON 应含 rng.stream_states 段与 master_seed 字段（直接找存档文件核对：
+            // StubFileSystem 是内存字典，key 即 SaveSystemOptions 约定的 "user://saves/<slot>.json"）。
+            var savedJson = fs.ReadText($"user://saves/{GameWorldFixture.SaveSlot.Value}.json");
+            Assert.NotNull(savedJson);
+            Assert.Contains("rng.stream_states", savedJson);
+            Assert.Contains("master_seed", savedJson);
+
+            // "应得"的后续序列：不读档，直接在 fxA 上继续消耗 streamA/streamB，作为对照基准。
+            var expectedNextA = fxA.Gameplay.Rng.Next(streamA);
+            var expectedFirstB = fxA.Gameplay.Rng.Next(streamB);
+
+            // 全新装配读档：读档前先制造一个"残留流"（同 id streamB，但状态由全新装配的默认主种子
+            // 懒创建产生，与 fxA 的默认主种子一致，因此本身不构成残留——改用一次 Next 推进它，
+            // 制造"已经被消耗过"的非初始残留状态，验证读档会清空重来）。
+            var fxB = GameWorldFixture.Build(fileSystem: fs);
+            fxB.Gameplay.Rng.Next(streamB); // 读档前的残留访问。
+            var playerB = fxB.Player;
+            fxB.Gameplay.RegisterPersistables(fxB.SaveSystem, playerB);
+
+            var loadResult = fxB.SaveSystem.Load(GameWorldFixture.SaveSlot);
+            Assert.Equal(Core.Foundation.SaveSystem.LoadStatus.Loaded, loadResult.Status);
+
+            var actualNextA = fxB.Gameplay.Rng.Next(streamA);
+            Assert.Equal(expectedNextA, actualNextA);
+
+            var actualFirstB = fxB.Gameplay.Rng.Next(streamB);
+            Assert.Equal(expectedFirstB, actualFirstB);
+        }
+
+        // -----------------------------------------------------------------
         // 10. 缺口 16：save_point 交互经 GobjOptions.SaveRequester → GameplayAssembly.SaveSystem
         //     触发一次自动存档（此前 SaveRequester 是 "_ => { }" 占位，交互不产生任何副作用；
         //     GameplayAssembly.cs 第 16 步判断记录）。

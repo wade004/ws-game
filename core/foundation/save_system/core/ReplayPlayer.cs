@@ -54,7 +54,10 @@ namespace Core.Foundation.SaveSystem
         {
             _data = data ?? throw new ArgumentNullException(nameof(data));
 
-            var (world, rng) = _factory(0UL, _bus);
+            // P1-04 收口：传 data.MasterSeed（录制时的真实主种子）而不是恒定 0UL，见
+            // Core.Foundation.SaveSystem.WorldFactory 判断记录——"录制起点之后才第一次被访问的流"
+            // 不在 RngSeeds 里，它们的懒创建初始状态需要与录制时相同的主种子才能派生出一致的序列。
+            var (world, rng) = _factory(data.MasterSeed, _bus);
             _world = world ?? throw new InvalidOperationException("WorldFactory 返回的 World 不能为 null");
 
             if (rng == null)
@@ -86,7 +89,8 @@ namespace Core.Foundation.SaveSystem
 
             _data = data ?? throw new ArgumentNullException(nameof(data));
 
-            var (world, rng, scheduler) = factory(0UL, _bus);
+            // P1-04 收口：同 Load 的判断记录，传 data.MasterSeed 而不是恒定 0UL。
+            var (world, rng, scheduler) = factory(data.MasterSeed, _bus);
             _world = world ?? throw new InvalidOperationException("DiscreteWorldFactory 返回的 World 不能为 null");
             _scheduler = scheduler ?? throw new InvalidOperationException("DiscreteWorldFactory 返回的 Scheduler 不能为 null");
 
@@ -101,8 +105,10 @@ namespace Core.Foundation.SaveSystem
             _ticksAdvanced = 0;
         }
 
-        /// <summary>10 第 8 节"分流随机源初始状态"：把录制时记下的每条流状态原样恢复；工厂内部用
-        /// 何种主种子构造 IRngHost 不重要，SetStreamState 会覆盖到位（见 WorldFactory 注释）。
+        /// <summary>10 第 8 节"分流随机源初始状态"：把录制时记下的每条流状态原样恢复（P1-04 收口：
+        /// 工厂内部用哪个主种子构造 IRngHost 现在很重要——见 WorldFactory 判断记录，
+        /// <see cref="Load"/>/<see cref="LoadDiscrete"/> 已改为传入 <see cref="ReplayData.MasterSeed"/>；
+        /// 本方法只负责覆盖"录制开始时已经创建过的流"，未覆盖到的流依赖工厂拿到的主种子派生）。
         /// <see cref="Load"/>/<see cref="LoadDiscrete"/> 共用。</summary>
         private static void RestoreRngSeeds(ReplayData data, IRngHost rng)
         {
@@ -112,7 +118,7 @@ namespace Core.Foundation.SaveSystem
             }
         }
 
-        public WorldSnapshot StepTo(long tick)
+        public WorldSnapshot StepTo(long tick, Func<Id, IReadOnlyList<string>>? entityStateProvider = null)
         {
             if (_data == null || _world == null)
             {
@@ -125,15 +131,23 @@ namespace Core.Foundation.SaveSystem
                     $"StepTo 只能向前推进：当前已推进到 tick {_ticksAdvanced}，不能回退到 {tick}", nameof(tick));
             }
 
-            return _scheduler != null ? StepToDiscrete(tick) : StepToContinuousTape(tick);
+            return _scheduler != null ? StepToDiscrete(tick, entityStateProvider) : StepToContinuousTape(tick, entityStateProvider);
         }
+
+        /// <summary>F6 收口新增：暴露本次 <see cref="Load"/>/<see cref="LoadDiscrete"/> 内部构造的
+        /// 世界，供调用方在 <see cref="StepTo"/> 之后（或期间）按需查询该世界之外的战斗状态
+        /// （例如经与 <see cref="WorldFactory"/> 同一构造链路取到的 <c>IPowerHost</c>）以构造
+        /// <see cref="WorldSnapshot.Capture"/> 的 <c>entityStateProvider</c>——本类型只读暴露，不
+        /// 因此产生新的跨层依赖（见该方法参数判断记录）。<see cref="Load"/>/<see cref="LoadDiscrete"/>
+        /// 之前为 <c>null</c>。</summary>
+        public IWorldSim? World => _world;
 
         /// <summary>经 <see cref="LoadDiscrete"/> 加载后的推进路径：见 <see cref="IReplayPlayer.LoadDiscrete"/>
         /// 判断记录——反复调用 <see cref="TurnScheduler.NextStep"/>，非空即直接 <c>world.Tick</c>；
         /// 空即代表"轮到的行动者需要外部输入"，按当前 tick 号从录像的 <see cref="ReplayData.Inputs"/>/
         /// <see cref="ReplayData.EndTurns"/> 里取出录制时的决策原样提交，找不到则判定录像与调度器
         /// 决策不一致（不静默降级，见 11 第 4 节），抛出说明性异常。</summary>
-        private WorldSnapshot StepToDiscrete(long tick)
+        private WorldSnapshot StepToDiscrete(long tick, Func<Id, IReadOnlyList<string>>? entityStateProvider)
         {
             var inputs = _data!.Inputs;
             var endTurns = _data.EndTurns;
@@ -188,13 +202,13 @@ namespace Core.Foundation.SaveSystem
                 _ticksAdvanced++;
             }
 
-            return WorldSnapshot.Capture(_ticksAdvanced, BuildEventLog(), _world!);
+            return WorldSnapshot.Capture(_ticksAdvanced, BuildEventLog(), _world!, entityStateProvider);
         }
 
         /// <summary>经 <see cref="Load"/> 加载后的推进路径（改动前既有行为，逐字节不变）：按录像里
         /// 记下的 <see cref="ReplayStepRecord"/>（没有记录的 tick 按 Continuous 兜底）原样重放给
         /// <c>world.Tick</c>，不涉及任何 <see cref="TurnScheduler"/>。</summary>
-        private WorldSnapshot StepToContinuousTape(long tick)
+        private WorldSnapshot StepToContinuousTape(long tick, Func<Id, IReadOnlyList<string>>? entityStateProvider)
         {
             var inputs = _data!.Inputs;
 
@@ -225,7 +239,7 @@ namespace Core.Foundation.SaveSystem
                 _ticksAdvanced++;
             }
 
-            return WorldSnapshot.Capture(_ticksAdvanced, BuildEventLog(), _world!);
+            return WorldSnapshot.Capture(_ticksAdvanced, BuildEventLog(), _world!, entityStateProvider);
         }
 
         private IReadOnlyList<string> BuildEventLog()

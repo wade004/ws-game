@@ -35,5 +35,15 @@ namespace Core.Foundation.Rng
 
         /// <summary>清空全部已存在的流并更换主种子；用于开新档或读档前重建。</summary>
         void Reset(ulong masterSeed);
+
+        /// <summary>
+        /// 当前主种子（P1-04 收口新增）：任何"录制/存档时刻尚未创建、之后才第一次被访问"的流，
+        /// 其初始状态由本值经 <see cref="Reset"/> 构造时的 <c>SeedDerivation</c> 派生（见
+        /// rng/README.md"懒创建与派生"一节）——存档/回放系统必须把它一并持久化/传递，否则这类
+        /// "未来新流"在读档/重放后会派生自与录制/保存时不同的主种子，产生不同的随机序列
+        /// （见 <see cref="RngStreamsPersistable"/>、<c>Core.Foundation.SaveSystem.ReplayPlayer</c>
+        /// 判断记录）。
+        /// </summary>
+        ulong MasterSeed { get; }
     }
 }

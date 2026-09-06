@@ -76,8 +76,31 @@ namespace Core.Foundation.Rng
             return true;
         }
 
+        /// <summary>段长度固定为 16 个 ASCII 十六进制字符（<c>0-9a-f</c>，小写，定长补零，与
+        /// <see cref="ToString"/> 的输出格式严格一致）。P3-01 收口：此前只用
+        /// <see cref="ulong.TryParse(string,NumberStyles,IFormatProvider,out ulong)"/> 校验能否解析
+        /// 为十六进制数，未检查段长度和大小写，导致 <c>"0-0-0-0"</c> 这类非规范短文本也被接受
+        /// （数值上可能代表同一状态，但绕过了文档承诺的定长规范文本格式，见 rng/README.md 第
+        /// 51～53 行、本类型类型注释）。现改为逐字符检查长度与字符集，拒绝短段/长段/大写字母。</summary>
         private static bool TryParseSegment(string segment, out ulong value)
         {
+            value = 0;
+
+            if (segment.Length != 16)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < segment.Length; i++)
+            {
+                var c = segment[i];
+                var isLowerHexDigit = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+                if (!isLowerHexDigit)
+                {
+                    return false;
+                }
+            }
+
             return ulong.TryParse(
                 segment,
                 NumberStyles.AllowHexSpecifier,

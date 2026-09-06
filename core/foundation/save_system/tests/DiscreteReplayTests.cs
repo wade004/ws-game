@@ -145,7 +145,7 @@ namespace Tests.Foundation.SaveSystem
             var (bus, audit) = CreateAuditedBus();
             var (world, _) = BuildWorld(0UL, bus);
             var recorder = new ReplayRecorder(StepSeconds);
-            recorder.BeginRecording(new Dictionary<string, RngStreamState>(StringComparer.Ordinal));
+            recorder.BeginRecording(0UL, new Dictionary<string, RngStreamState>(StringComparer.Ordinal));
 
             long tickNumber = 0;
 
@@ -239,7 +239,7 @@ namespace Tests.Foundation.SaveSystem
             var bus = CreateAuditedBus().Bus;
             var (world, _, scheduler) = BuildWorldWithScheduler(0UL, bus);
             var recorder = new ReplayRecorder(StepSeconds);
-            recorder.BeginRecording(new Dictionary<string, RngStreamState>(StringComparer.Ordinal));
+            recorder.BeginRecording(0UL, new Dictionary<string, RngStreamState>(StringComparer.Ordinal));
 
             long ticksAdvanced = 0;
             while (ticksAdvanced < SchedulerDrivenMaxSteps

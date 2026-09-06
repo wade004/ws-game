@@ -280,7 +280,7 @@ namespace Tests.Foundation
             {
                 [DeterministicWorld.WanderStream.Value] = rng.GetStreamState(DeterministicWorld.WanderStream),
             };
-            recorder.BeginRecording(seeds);
+            recorder.BeginRecording(rng.MasterSeed, seeds);
 
             var snapshots = new Dictionary<long, WorldSnapshot>();
 

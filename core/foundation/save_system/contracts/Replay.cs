@@ -233,10 +233,21 @@ namespace Core.Foundation.SaveSystem
         /// 兼容）"。1 = 本任务之前的格式（无 <c>steps</c> 字段，恒连续步）；2 = ADR-0013 任务新增
         /// <see cref="Steps"/>；3 = 离散模式回放完整性任务新增 <see cref="EndTurns"/>（"结束回合"
         /// 发生时刻，见该属性注释、<see cref="IReplayPlayer.LoadDiscrete"/>）。</summary>
-        public const int CurrentFormatVersion = 3;
+        /// <summary>P1-04 收口新增 <see cref="MasterSeed"/> 字段。</summary>
+        public const int CurrentFormatVersion = 4;
 
         /// <summary>本份数据的格式版本，见 <see cref="CurrentFormatVersion"/>。</summary>
         public int FormatVersion { get; }
+
+        /// <summary>
+        /// 录制开始时使用的 <see cref="IRngHost.MasterSeed"/>（P1-04 收口新增，
+        /// <see cref="FormatVersion"/> &lt; 4 的旧格式解析后为 <c>0</c>——旧格式从未记录过主种子，
+        /// 这是已知的旧录像兼容边界，见 <see cref="ReplayPlayer"/> 判断记录）。<see cref="ReplayPlayer.Load"/>/
+        /// <see cref="ReplayPlayer.LoadDiscrete"/> 把它原样传给 <see cref="WorldFactory"/>/
+        /// <see cref="DiscreteWorldFactory"/>，使"录制起点之后才第一次被访问的流"（<see cref="RngSeeds"/>
+        /// 没有覆盖到的流）也能派生自与录制时相同的主种子，而不是工厂另行给出的任意值。
+        /// </summary>
+        public ulong MasterSeed { get; }
 
         /// <summary>录制开始时各分流随机源的初始状态（流 <see cref="Id"/> 的文本形式 →
         /// <see cref="RngStreamState"/>），与 <see cref="IRngHost.GetStreamState"/> 同构。</summary>
@@ -271,7 +282,8 @@ namespace Core.Foundation.SaveSystem
             long tickCount,
             IReadOnlyList<ReplayStepRecord>? steps = null,
             int formatVersion = CurrentFormatVersion,
-            IReadOnlyList<ReplayEndTurnRecord>? endTurns = null)
+            IReadOnlyList<ReplayEndTurnRecord>? endTurns = null,
+            ulong masterSeed = 0UL)
         {
             if (stepSeconds <= 0)
             {
@@ -290,6 +302,7 @@ namespace Core.Foundation.SaveSystem
             Steps = steps ?? Array.Empty<ReplayStepRecord>();
             EndTurns = endTurns ?? Array.Empty<ReplayEndTurnRecord>();
             FormatVersion = formatVersion;
+            MasterSeed = masterSeed;
         }
 
         /// <summary>序列化为 <see cref="JsonObject"/>（供存盘，见 10 第 8 节"问题复现：玩家反馈
@@ -328,6 +341,9 @@ namespace Core.Foundation.SaveSystem
                 .Add("format_version", new JsonNumber(CurrentFormatVersion))
                 .Add("stepSeconds", new JsonNumber(StepSeconds))
                 .Add("tickCount", new JsonNumber(TickCount))
+                // 十六进制文本而非 JsonNumber：同 RngStreamsPersistable.Save 判断记录，避免 ulong
+                // 全值域经 JsonNumber 内部 double 存储丢精度。
+                .Add("master_seed", new JsonString(MasterSeed.ToString("x16", CultureInfo.InvariantCulture)))
                 .Add("rngSeeds", seedsBuilder.Build())
                 .Add("inputs", new JsonArray(inputsArray))
                 .Add("steps", new JsonArray(stepsArray))
@@ -354,6 +370,17 @@ namespace Core.Foundation.SaveSystem
             if (!((JsonNumber)json["tickCount"]).TryGetInt64(out var tickCount))
             {
                 throw new FormatException("ReplayData.tickCount 不是合法整数");
+            }
+
+            // master_seed：FormatVersion < 4 的旧格式没有该字段，退化为 0（见 MasterSeed 属性注释
+            // "已知的旧录像兼容边界"）。
+            var masterSeed = 0UL;
+            if (json.TryGetValue("master_seed", out var masterSeedRaw) && masterSeedRaw is JsonString masterSeedText)
+            {
+                if (!ulong.TryParse(masterSeedText.Value, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out masterSeed))
+                {
+                    throw new FormatException("ReplayData.master_seed 文本非法");
+                }
             }
 
             var seeds = new Dictionary<string, RngStreamState>(StringComparer.Ordinal);
@@ -387,7 +414,7 @@ namespace Core.Foundation.SaveSystem
                 }
             }
 
-            return new ReplayData(seeds, inputs, stepSeconds, tickCount, steps, formatVersion, endTurns);
+            return new ReplayData(seeds, inputs, stepSeconds, tickCount, steps, formatVersion, endTurns, masterSeed);
         }
     }
 
@@ -397,8 +424,9 @@ namespace Core.Foundation.SaveSystem
     /// </summary>
     public interface IReplayRecorder
     {
-        /// <summary>开始录制，记下各分流随机源当时的初始状态。</summary>
-        void BeginRecording(IReadOnlyDictionary<string, RngStreamState> rngSeeds);
+        /// <summary>开始录制，记下当前主种子（<paramref name="masterSeed"/>，P1-04 收口新增参数，
+        /// 见 <see cref="ReplayData.MasterSeed"/>）与各分流随机源当时的初始状态。</summary>
+        void BeginRecording(ulong masterSeed, IReadOnlyDictionary<string, RngStreamState> rngSeeds);
 
         /// <summary>记录某个 tick 提交的一条输入意图。</summary>
         void RecordInput(long tick, ReplayInputRecord intent);
@@ -480,17 +508,26 @@ namespace Core.Foundation.SaveSystem
         /// </summary>
         void LoadDiscrete(ReplayData data, DiscreteWorldFactory factory);
 
-        /// <summary>推进播放到指定 tick（只能向前推进，不支持回退），返回该 tick 的世界快照。</summary>
-        WorldSnapshot StepTo(long tick);
+        /// <summary>推进播放到指定 tick（只能向前推进，不支持回退），返回该 tick 的世界快照。
+        /// <paramref name="entityStateProvider"/>（F6 收口新增，可选，见
+        /// <see cref="WorldSnapshot.Capture"/> 判断记录）原样转给 <see cref="WorldSnapshot.Capture"/>，
+        /// 默认 <c>null</c> 时行为与此前完全一致。</summary>
+        WorldSnapshot StepTo(long tick, Func<Id, IReadOnlyList<string>>? entityStateProvider = null);
     }
 
     /// <summary>
     /// 世界工厂：由持有具体游戏内容（阶段处理器、意图词汇表等）的调用方（测试/更上层模块）
     /// 提供"如何组装一个带处理器的世界"，<see cref="ReplayPlayer"/> 自身不知道任何具体业务
     /// 内容，只按 10 第 8 节"回放"流程驱动世界推进与随机源状态恢复。
-    /// <paramref name="masterSeed"/> 只用于工厂内部构造 <c>IRngHost</c> 的初始主种子（实际每条
-    /// 分流随机源的状态会在 <see cref="ReplayPlayer.Load"/> 内按 <see cref="ReplayData.RngSeeds"/>
-    /// 逐条 <c>SetStreamState</c> 覆盖，因此具体传入值对回放结果不产生影响，工厂可忽略）；
+    /// <paramref name="masterSeed"/> 用于工厂内部构造 <c>IRngHost</c> 的初始主种子——
+    /// <see cref="ReplayPlayer.Load"/> 传入的是 <see cref="ReplayData.MasterSeed"/>（录制时的真实
+    /// 主种子）。P1-04 收口：此前本注释声称"具体传入值对回放结果不产生影响，工厂可忽略"、
+    /// <see cref="ReplayPlayer.Load"/> 也恒传 <c>0UL</c>——这个说法只对"录制开始时已经创建过的流"
+    /// 成立（那些流会在 <see cref="ReplayPlayer.Load"/> 内按 <see cref="ReplayData.RngSeeds"/>
+    /// 逐条 <c>SetStreamState</c> 覆盖）；但"录制起点之后才第一次被访问的流"不在
+    /// <see cref="ReplayData.RngSeeds"/> 里，它们的懒创建初始状态由工厂构造 <c>IRngHost</c> 时给的
+    /// 主种子派生——传 <c>0UL</c> 会让这类流在重放里产生与录制时不同的随机序列。工厂不应再忽略本
+    /// 参数，必须原样用它构造 <c>IRngHost</c>；
     /// <paramref name="bus"/> 由 <see cref="ReplayPlayer"/> 持有生命周期并传入，工厂只负责在其上
     /// 注册阶段处理器与构造世界，不自行另建事件总线（否则 <see cref="ReplayPlayer"/> 读不到
     /// 事件审计日志）。
@@ -542,8 +579,23 @@ namespace Core.Foundation.SaveSystem
         /// ——例如确定性回归测试——复用同一套摘要算法，保证两条路径的 <see cref="Digest"/>
         /// 可比）。只读取 <paramref name="world"/>，不产生任何副作用、不消耗随机数、
         /// 不引入系统时间/线程。
+        /// <para>
+        /// F6 收口新增 <paramref name="entityStateProvider"/>（可选，默认 <c>null</c> 时行为与此前
+        /// 完全一致，既有基线文件的摘要口径不受影响）：本类型所在的 <c>core/foundation</c> 是 L0
+        /// 基础层，天然不知道 HP/伤害/资源池这类由 L2/L3（<c>core/numbers/power_set</c> 等）持有的
+        /// 战斗状态语义（见 01_分层与依赖.md 依赖方向）——此前的摘要只覆盖事件 key 序列与
+        /// <c>(EntityId, Position, LayerDepth)</c>，两份"同位置、同实体 id/layer、同事件 key，但
+        /// 伤害/HP payload 不同"的状态会得到相同 Digest（见本类型判断记录）。调用方（持有 L2/L3
+        /// 具体战斗状态查询能力的上层，例如测试夹具经 <c>IPowerHost</c> 查询）可选择性地传入一个
+        /// "取某实体额外状态摘要字段"的委托，其返回的每个字符串都会按实体顺序折入哈希——不引入
+        /// 新的跨层依赖，只是把"要不要、要哪些额外字段"的决定权交给持有那些字段语义的调用方。
+        /// </para>
         /// </summary>
-        public static WorldSnapshot Capture(long tick, IReadOnlyList<string> eventLog, IWorldSim world)
+        public static WorldSnapshot Capture(
+            long tick,
+            IReadOnlyList<string> eventLog,
+            IWorldSim world,
+            Func<Id, IReadOnlyList<string>>? entityStateProvider = null)
         {
             if (eventLog == null)
             {
@@ -572,6 +624,18 @@ namespace Core.Foundation.SaveSystem
                 hash = FnvCombine(hash, entity.Position.X.ToString("R", CultureInfo.InvariantCulture));
                 hash = FnvCombine(hash, entity.Position.Y.ToString("R", CultureInfo.InvariantCulture));
                 hash = FnvCombine(hash, entity.LayerDepth.ToString("R", CultureInfo.InvariantCulture));
+
+                if (entityStateProvider != null)
+                {
+                    var extraState = entityStateProvider(entity.EntityId);
+                    if (extraState != null)
+                    {
+                        for (var j = 0; j < extraState.Count; j++)
+                        {
+                            hash = FnvCombine(hash, extraState[j]);
+                        }
+                    }
+                }
             }
 
             return new WorldSnapshot(tick, eventLog, hash.ToString("x16", CultureInfo.InvariantCulture));

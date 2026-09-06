@@ -132,6 +132,15 @@ namespace Core.Gameplay.Assembly
         /// </summary>
         public ISaveSystem SaveSystem { get; }
 
+        /// <summary>
+        /// P1-03 收口新增：构造函数传入的 <see cref="IRngHost"/> 实例——此前本类只把它转手传给
+        /// <see cref="RulesAssembly"/>/<see cref="CarriersAssembly"/> 等下游装配根，自身没有持有，
+        /// 导致 <see cref="RegisterPersistables"/> 拿不到它来注册 <see cref="RngStreamsPersistable"/>
+        /// （见该方法判断记录）。全部下游装配根共享同一份实例，本属性只是额外暴露一个引用，不改变
+        /// 现有装配拓扑。
+        /// </summary>
+        public IRngHost Rng { get; }
+
         /// <summary>供 <c>world</c>/<c>quest</c>/<c>player</c> 三个分组接线（extraGroups）的
         /// <see cref="IExprHostFactory"/>——与 <see cref="CarriersAssembly.Rules"/> 内部使用的那份
         /// （见该类型判断记录，无 extraGroups）是两个不同实例；L4 全部宿主构造期一律用这一份。</summary>
@@ -232,6 +241,7 @@ namespace Core.Gameplay.Assembly
             if (world == null) throw new ArgumentNullException(nameof(world));
             if (spatial == null) throw new ArgumentNullException(nameof(spatial));
             SaveSystem = saveSystem ?? throw new ArgumentNullException(nameof(saveSystem));
+            Rng = rng;
             PlayerUnitProvider = playerUnitProvider ?? throw new ArgumentNullException(nameof(playerUnitProvider));
 
             _bus = bus;
@@ -976,6 +986,13 @@ namespace Core.Gameplay.Assembly
             {
                 saveSystem.RegisterPersistable(turnSchedulerPersistable);
             }
+
+            // P1-03 收口：rng.stream_states（10 §3 步骤 8，全序最末）此前虽已在
+            // SaveSections.KnownOrder 登记、RngStreamsPersistable 也已实现，但从未在默认生产装配
+            // 里构造并注册——默认 bootstrap 保存的存档因此不含该段，读档后 RngHost 从新的主种子
+            // 懒创建流，掉落/命中/proc 等分流随机序列不再是保存点的后续序列，破坏 10 号文档
+            // "确定性/回放"前提。现在用同一个构造期传入的 IRngHost 实例（见 Rng 属性）注册。
+            saveSystem.RegisterPersistable(new RngStreamsPersistable(Rng));
         }
 
         private void TeleportUnit(Id unitId, Id targetMap, Id? spawnPoint = null)

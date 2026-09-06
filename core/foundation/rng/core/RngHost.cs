@@ -75,6 +75,8 @@ namespace Core.Foundation.Rng
 
         public IReadOnlyList<Id> Streams => new List<Id>(_streams.Keys);
 
+        public ulong MasterSeed => _masterSeed;
+
         public void Reset(ulong masterSeed)
         {
             _streams.Clear();

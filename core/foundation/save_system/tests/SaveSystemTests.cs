@@ -179,6 +179,74 @@ namespace Tests.Foundation.SaveSystem
             Assert.Equal(expectedNext, actualNext);
         }
 
+        /// <summary>P1-04 收口回归：读档前该 <see cref="IRngHost"/> 实例上已经被访问过、但存档里
+        /// 没有记录的"残留流"，读档后必须被清空（Load 前 Reset），不能继续携带读档前的状态——否则
+        /// 该残留流后续的随机序列与"从未创建过"的正确重放行为不一致。</summary>
+        [Fact]
+        public void Load_ClearsStaleStreamsNotPresentInSave_AndRestoresMasterSeedDerivation()
+        {
+            var fs = new StubFileSystem();
+            var bus = CreateBus();
+            var slotId = new Id("slot.rng_residual");
+            var streamA = new Id("stream.a");
+            var streamB = new Id("stream.b");
+
+            // 存档一侧：只创建并保存 A，从未创建过 B。
+            var rngA = new RngHost(12345UL);
+            rngA.Next(streamA);
+            var sutA = CreateSut(fs, bus: bus);
+            sutA.RegisterPersistable(new RngStreamsPersistable(rngA));
+            Assert.True(sutA.Save(new SaveRequest(slotId, "t1")).Success);
+
+            // 干净参照：与存档使用同一主种子，从未读过档，直接创建 B——代表"B 首次出现时应得的序列"。
+            var cleanReferenceRng = new RngHost(12345UL);
+            var expectedFirstB = cleanReferenceRng.Next(streamB);
+
+            // 读档一侧：读档前先在同一个 Host 实例上访问过 B（制造"残留流"），且用不同的构造种子。
+            var rngLoaded = new RngHost(777UL);
+            rngLoaded.Next(streamB); // 残留：读档前已经被访问、消耗过随机数，且不在存档里。
+            var sutLoad = CreateSut(fs, bus: bus);
+            sutLoad.RegisterPersistable(new RngStreamsPersistable(rngLoaded));
+            var loadResult = sutLoad.Load(slotId);
+            Assert.Equal(LoadStatus.Loaded, loadResult.Status);
+
+            // 读档后 B 是"首次被访问"（残留状态已被 Reset 清空），应得到与干净参照一致的序列，
+            // 而不是延续读档前的残留状态、也不是延续构造时的错误主种子 777。
+            var actualFirstB = rngLoaded.Next(streamB);
+            Assert.Equal(expectedFirstB, actualFirstB);
+
+            // A 仍应按存档状态续接（同 RoundTrip 测试）。
+            var referenceRngA = new RngHost(12345UL);
+            referenceRngA.Next(streamA);
+            var expectedNextA = referenceRngA.Next(streamA);
+            Assert.Equal(expectedNextA, rngLoaded.Next(streamA));
+        }
+
+        /// <summary>P1-03 收口回归：<see cref="RngStreamsPersistable.Save"/> 必须写出
+        /// <c>master_seed</c> 字段，供 <see cref="RngStreamsPersistable.Load"/> 恢复用；旧格式
+        /// （无该字段）读档时退化为不 Reset，只逐条 SetStreamState（已知的旧存档兼容边界）。</summary>
+        [Fact]
+        public void Save_WritesMasterSeedField_LoadFallsBackWhenFieldMissing()
+        {
+            var rng = new RngHost(0xABCDUL);
+            var persistable = new RngStreamsPersistable(rng);
+            var saved = persistable.Save();
+
+            Assert.IsType<JsonObject>(saved);
+            var savedObject = (JsonObject)saved;
+            Assert.True(savedObject.TryGetValue("master_seed", out var masterSeedValue));
+            var masterSeedText = Assert.IsType<JsonString>(masterSeedValue).Value;
+            Assert.Equal(0xABCDUL, ulong.Parse(masterSeedText, System.Globalization.NumberStyles.AllowHexSpecifier));
+
+            // 旧格式（没有 master_seed 字段）：Load 不应抛异常，按旧行为只恢复已存的流。
+            var legacyJson = new JsonObjectBuilder()
+                .Add("stream.legacy", new JsonString(new RngStreamState(1, 2, 3, 4).ToString()))
+                .Build();
+            var rngLegacyTarget = new RngHost(999UL);
+            new RngStreamsPersistable(rngLegacyTarget).Load(legacyJson);
+            Assert.Equal(new RngStreamState(1, 2, 3, 4), rngLegacyTarget.GetStreamState(new Id("stream.legacy")));
+        }
+
         // ==== 2. 加载顺序 ========================================================
 
         [Fact]

@@ -1,5 +1,6 @@
 {
-  "format_version": 3,
+  "format_version": 4,
+  "master_seed": "0000000000000000",
   "stepSeconds": 1,
   "tickCount": 20,
   "rngSeeds": {},

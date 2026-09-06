@@ -8,6 +8,7 @@ using Core.Foundation.EventBus;
 using Core.Foundation.Rng;
 using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
+using Core.Numbers.PowerSet;
 using Core.Rules.Assembly;
 using Core.Rules.Common;
 
@@ -210,10 +211,50 @@ namespace Tests.Gameplay.Replay
             return (registry, report);
         }
 
-        private static (WorldSim World, WorldUnitAccessBundle Units, RulesAssembly Rules) BuildCommon(IEventBus bus)
+        /// <summary>F6 收口新增：世界 → 该世界所属 <see cref="PowerHost"/> 的弱引用映射，供
+        /// <see cref="PowersOf"/>/<see cref="HpState"/> 在 <see cref="BuildCommon"/> 之外按已构造好
+        /// 的 <see cref="IWorldSim"/> 反查——用弱引用是因为本类型是静态类，不随任何一次测试用例的
+        /// 世界生命周期回收，若用普通 <see cref="System.Collections.Generic.Dictionary{TKey,TValue}"/>
+        /// 会造成每个测试用例构造的世界都被本静态字段永久强引用、内存只增不减。</summary>
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IWorldSim, PowerHost> PowersByWorld =
+            new System.Runtime.CompilerServices.ConditionalWeakTable<IWorldSim, PowerHost>();
+
+        /// <summary>F6 收口新增：取某个由本类型构造的世界对应的 <see cref="PowerHost"/>（供
+        /// <see cref="HpState"/>/回放摘要测试按实体查 HP，见 <see cref="ReplayBaselineTests"/>）。
+        /// <paramref name="world"/> 必须是本类型某个 Build* 方法返回过的世界，否则抛异常——不静默
+        /// 返回 null，调用方传错世界属于用法错误，应立即暴露。</summary>
+        public static PowerHost PowersOf(IWorldSim world)
+        {
+            if (!PowersByWorld.TryGetValue(world, out var powers))
+            {
+                throw new InvalidOperationException("PowersOf: world 不是本类型构造过的世界（未在 PowersByWorld 登记）");
+            }
+
+            return powers;
+        }
+
+        /// <summary>F6 收口新增：某实体当前 HP 的稳定文本形式，供
+        /// <see cref="Core.Foundation.SaveSystem.WorldSnapshot.Capture"/> 的
+        /// <c>entityStateProvider</c> 使用——实体未注册该资源类型（理论上不会发生，本夹具的两个
+        /// 单位都注册了 <see cref="PowerHealth"/>）时返回空列表，不抛异常（Capture 对空列表的处理
+        /// 等价于"这个实体没有额外状态字段"）。</summary>
+        public static IReadOnlyList<string> HpState(IWorldSim world, Id unitId)
+        {
+            var powers = PowersOf(world);
+            return powers.HasPower(unitId, PowerHealth)
+                ? new[] { powers.GetPower(unitId, PowerHealth).ToString("R", CultureInfo.InvariantCulture) }
+                : Array.Empty<string>();
+        }
+
+        /// <summary>P1-04 收口：世界工厂现在必须诚实使用调用方传入的 <paramref name="masterSeed"/>
+        /// 构造 <see cref="IRngHost"/>（见 <c>Core.Foundation.SaveSystem.WorldFactory</c> 判断记录
+        /// ——录制起点之后才第一次被访问的流依赖这个主种子派生），此前本方法恒用 <c>0UL</c>；本仓库
+        /// 现有全部调用点本来就固定传 <c>0UL</c>（不使用命中表随机分支，见类型顶部判断记录"命中表
+        /// 全部分支禁用"），因此改动不影响任何既有测试结果，只是让代码不再对参数说谎。</summary>
+        private static (WorldSim World, WorldUnitAccessBundle Units, RulesAssembly Rules) BuildCommon(ulong masterSeed, IEventBus bus)
         {
             var (registry, _) = BuildRegistry(bus);
-            var rng = new RngHost(0UL); // 主种子不重要：不使用命中表随机分支，见类型顶部判断记录。
+            var rng = new RngHost(masterSeed);
             var world = new WorldSim(bus);
 
             world.AddEntity(new Core.Carriers.Unit.PlayerUnit(PlayerId, MapId, FactionPlayer, ClassSample) { Position = new Vec2(0, 0) });
@@ -229,6 +270,8 @@ namespace Tests.Gameplay.Replay
             rules.RegisterUnit(NpcId, ClassSample, raceId: null, level: 1);
 
             rules.Powers.ModifyPower(NpcId, PowerHealth, NpcStartHp - PlayerMaxHp, sourceId: new Id("system.replay_fixture_setup"));
+
+            PowersByWorld.Add(world, rules.Powers);
 
             return (world, new WorldUnitAccessBundle(units, spatial), rules);
         }
@@ -249,7 +292,7 @@ namespace Tests.Gameplay.Replay
         /// 离散相关组件）。</summary>
         public static (IWorldSim World, IRngHost Rng) BuildContinuousWorld(ulong masterSeed, IEventBus bus)
         {
-            var (world, _, rules) = BuildCommon(bus);
+            var (world, _, rules) = BuildCommon(masterSeed, bus);
             return (world, rules.Rng);
         }
 
@@ -275,7 +318,7 @@ namespace Tests.Gameplay.Replay
         /// </summary>
         public static (IWorldSim World, IRngHost Rng, TurnScheduler Scheduler) BuildDiscreteWorldWithScheduler(ulong masterSeed, IEventBus bus)
         {
-            var (world, _, rules) = BuildCommon(bus);
+            var (world, _, rules) = BuildCommon(masterSeed, bus);
 
             rules.Stats.SetBase(PlayerId, InitiativeStat, PlayerInitiative);
             rules.Stats.SetBase(NpcId, InitiativeStat, NpcInitiative);
@@ -322,7 +365,7 @@ namespace Tests.Gameplay.Replay
             var bus = CreateAuditedBus().Bus;
             var (world, _) = BuildContinuousWorld(0UL, bus);
             var recorder = new ReplayRecorder(StepSeconds);
-            recorder.BeginRecording(new Dictionary<string, RngStreamState>(StringComparer.Ordinal));
+            recorder.BeginRecording(0UL, new Dictionary<string, RngStreamState>(StringComparer.Ordinal));
 
             for (long tick = 1; tick <= ContinuousFixedTicks; tick++)
             {
@@ -389,7 +432,7 @@ namespace Tests.Gameplay.Replay
             var bus = CreateAuditedBus().Bus;
             var (world, _, scheduler) = BuildDiscreteWorldWithScheduler(0UL, bus);
             var recorder = new ReplayRecorder(StepSeconds);
-            recorder.BeginRecording(new Dictionary<string, RngStreamState>(StringComparer.Ordinal));
+            recorder.BeginRecording(0UL, new Dictionary<string, RngStreamState>(StringComparer.Ordinal));
 
             long ticksAdvanced = 0;
             while (ticksAdvanced < DiscreteFixedSteps)

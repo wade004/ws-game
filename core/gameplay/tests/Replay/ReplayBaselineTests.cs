@@ -233,5 +233,86 @@ namespace Tests.Gameplay.Replay
             Assert.All(discreteTape.Steps, s => Assert.Equal(Core.Foundation.SimLoop.SimStepKind.Discrete, s.Kind));
         }
 
+        /// <summary>录像本身应记录录制时的主种子（P1-04 收口：<c>ReplayData.MasterSeed</c>，见
+        /// <see cref="ReplayWorldBuilder.RecordContinuousFight"/>/<see cref="ReplayWorldBuilder.RecordDiscreteFight"/>
+        /// 均以 <c>0UL</c> 录制）——回归本仓库两份固定录像文件已补齐 <c>master_seed</c> 字段
+        /// （<c>format_version</c> 随之由 3 升到 4，见本文件类型注释判断记录 3 的同类先例）。</summary>
+        [Fact]
+        public void Tapes_RecordMasterSeed()
+        {
+            Assert.Equal(0UL, LoadTape("continuous_fight.replay.json").MasterSeed);
+            Assert.Equal(0UL, LoadTape("discrete_fight.replay.json").MasterSeed);
+        }
+
+        // -----------------------------------------------------------------
+        // 4. F6 收口：回放摘要（WorldSnapshot.Digest）此前只覆盖事件 key 序列与
+        //    (EntityId, Position, LayerDepth)，两份"同位置、同实体 id/layer、同事件 key，但伤害/HP
+        //    payload 不同"的状态会得到相同 Digest——见 audit-20260907/delivery-validation.md F6。
+        //    WorldSnapshot.Capture 现补充可选 entityStateProvider 参数（默认 null，行为与此前逐字节
+        //    一致，见 Capture 判断记录——上面 1/2 节既有的 4 个回归用例与 replay_baseline.json 的
+        //    既有 digest 因此不需要重新生成，只有 format_version/master_seed 两个字段随 P1-04
+        //    的格式升级而变化，见本文件"3. 录像本身"一节）；本节新增用例验证：调用方（这里是持有
+        //    RulesAssembly.Powers 的测试夹具，经 ReplayWorldBuilder.HpState 桥接）传入
+        //    entityStateProvider 后，HP 变化确实改变 Digest，事件序列比较（EventLog）不受影响。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void WorldSnapshot_Capture_WithEntityStateProvider_IsSensitiveToHpChange_EventLogUnaffected()
+        {
+            var (bus, _) = ReplayWorldBuilder.CreateAuditedBus();
+            var (world, _) = ReplayWorldBuilder.BuildContinuousWorld(0UL, bus);
+
+            var eventLog = new System.Collections.Generic.List<string> { "sim.tick_started", "sim.tick_finished" };
+            Core.Foundation.SaveSystem.WorldSnapshot HpAwareSnapshot() =>
+                Core.Foundation.SaveSystem.WorldSnapshot.Capture(1, eventLog, world, id => ReplayWorldBuilder.HpState(world, id));
+
+            var before = HpAwareSnapshot();
+
+            // 造成一次伤害：NPC 掉血，实体 id/位置/LayerDepth/事件 key 序列全部不变。
+            ReplayWorldBuilder.PowersOf(world).ModifyPower(
+                ReplayWorldBuilder.NpcId, ReplayWorldBuilder.PowerHealth, -10, sourceId: new Core.Foundation.Common.Id("test.f6_damage"));
+
+            var after = HpAwareSnapshot();
+
+            Assert.Equal(before.EventLog, after.EventLog); // 事件序列比较仍保留、不受影响。
+            Assert.NotEqual(before.Digest, after.Digest);   // HP 变化必须改变摘要（F6 收口核心断言）。
+
+            // 不传 entityStateProvider（默认 null）时行为与此前逐字节一致：同样的 HP 变化不会反映到
+            // 摘要——证明"既有基线文件的既有摘要口径不受本次改动影响"。
+            var legacyBefore = Core.Foundation.SaveSystem.WorldSnapshot.Capture(1, eventLog, world);
+            ReplayWorldBuilder.PowersOf(world).ModifyPower(
+                ReplayWorldBuilder.NpcId, ReplayWorldBuilder.PowerHealth, -5, sourceId: new Core.Foundation.Common.Id("test.f6_damage_2"));
+            var legacyAfter = Core.Foundation.SaveSystem.WorldSnapshot.Capture(1, eventLog, world);
+            Assert.Equal(legacyBefore.Digest, legacyAfter.Digest);
+        }
+
+        /// <summary>同一条能力沿 <see cref="IReplayPlayer.StepTo"/> 打通（不是只在 Capture 单元层面
+        /// 验证）：经录像重放到底后，传入 HP 的 entityStateProvider 得到的 Digest 应与不传时不同
+        /// ——证明生产可用的重放路径（<see cref="ReplayPlayer"/>，非直接摆弄 WorldSim）也能感知
+        /// HP，不是只有测试内联调用 Capture 才生效。</summary>
+        [Fact]
+        public void ReplayPlayer_StepTo_WithEntityStateProvider_DigestDiffersFromWithout()
+        {
+            var tape = LoadTape("continuous_fight.replay.json");
+
+            var (busA, auditA) = ReplayWorldBuilder.CreateAuditedBus();
+            var playerA = new ReplayPlayer(ReplayWorldBuilder.BuildContinuousWorld, busA, auditA);
+            playerA.Load(tape);
+            var snapshotWithoutProvider = playerA.StepTo(ReplayWorldBuilder.ContinuousFixedTicks);
+
+            var (busB, auditB) = ReplayWorldBuilder.CreateAuditedBus();
+            var playerB = new ReplayPlayer(ReplayWorldBuilder.BuildContinuousWorld, busB, auditB);
+            playerB.Load(tape);
+            var snapshotWithProvider = playerB.StepTo(
+                ReplayWorldBuilder.ContinuousFixedTicks,
+                id => ReplayWorldBuilder.HpState(playerB.World!, id));
+
+            // 两条路径的战斗结算完全相同（同一份录像），事件序列/最终 tick 应一致；但一侧的摘要额外
+            // 折入了 HP 字段，两个 Digest 不应相等——固定战斗脚本里 NPC 会掉血到非初始值（见
+            // ReplayWorldBuilder 类型顶部"固定脚本"注释），HP 差异确保这里不是巧合相等。
+            Assert.Equal(snapshotWithoutProvider.EventLog, snapshotWithProvider.EventLog);
+            Assert.Equal(snapshotWithoutProvider.Tick, snapshotWithProvider.Tick);
+            Assert.NotEqual(snapshotWithoutProvider.Digest, snapshotWithProvider.Digest);
+        }
     }
 }
