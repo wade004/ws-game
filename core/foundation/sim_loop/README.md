@@ -240,7 +240,7 @@ sim_loop/
    时才真正关闭节奏门。生产接线（探针如何接上真正的播放队列）落在 L4/L5：
    `core/gameplay/assembly.GameplayAssembly.SetPendingPlaybackProbe` 提供窄回填入口（本模块构造
    期拿不到表现层的播放队列，只能"先占位、后回填"），`presentation/assembly.PresentationAssembly`
-   在装配好 `FeedbackBinder` 之后调用它接上 `() => Feedback.Queue.PendingCount > 0`；Unity 引导
+   在装配好 `FeedbackBinder` 之后调用它接上 `() => Feedback.HasPendingPlayback`；Unity 引导
    （`adapters/unity` 的 `GameFoundationBootstrap`/`FrameworkResidentHost`）不需要任何轮询兜底。
 
 ## 基础架构提供 / 游戏层提供

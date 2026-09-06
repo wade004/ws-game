@@ -105,5 +105,46 @@ namespace Tests.Presentation.FeedbackBinder
 
             Assert.Equal(2, dispatched.Count);
         }
+
+        // ------------------------------------------------------------------
+        // GP-PRES-03 跟进：HasPendingMerges——供 FeedbackBinder.HasPendingPlayback 组合使用。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void HasPendingMerges_FalseInitially_AndAfterNoWindowOffer()
+        {
+            var (merger, _) = Build(window: 0);
+
+            Assert.False(merger.HasPendingMerges);
+
+            // window<=0 时 Offer 恒立即派发，不进入 _pending，HasPendingMerges 应始终为 false。
+            merger.Offer(Entity, Style, 10, MergeMode.Sum);
+
+            Assert.False(merger.HasPendingMerges);
+        }
+
+        [Fact]
+        public void HasPendingMerges_TrueWhileWindowOpen_FalseAfterExpiryOrFlushAll()
+        {
+            var (merger, _) = Build(window: 1.0, MergeMode.Sum);
+
+            Assert.False(merger.HasPendingMerges);
+
+            merger.Offer(Entity, Style, 10, MergeMode.Sum);
+            Assert.True(merger.HasPendingMerges);
+
+            merger.Update(0.5);
+            Assert.True(merger.HasPendingMerges, "窗口未到期，仍应有待合并飘字");
+
+            merger.Update(0.6);
+            Assert.False(merger.HasPendingMerges, "窗口到期并已 Flush，不应再有待合并飘字");
+
+            // 另一路径：FlushAll 立即结算，同样应清空 _pending。
+            merger.Offer(Entity, Style, 3, MergeMode.Sum);
+            Assert.True(merger.HasPendingMerges);
+
+            merger.FlushAll();
+            Assert.False(merger.HasPendingMerges);
+        }
     }
 }

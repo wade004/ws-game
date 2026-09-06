@@ -718,7 +718,8 @@ namespace Tests.Presentation.Assembly
 
         /// <summary>
         /// 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：本装配根
-        /// 构造期把 <c>() =&gt; Feedback.Queue.PendingCount &gt; 0</c> 经
+        /// 构造期把 <c>() =&gt; Feedback.HasPendingPlayback</c>（GP-PRES-03 跟进：统一查询，不再只看
+        /// <c>Queue.PendingCount</c>，见该属性判断记录）经
         /// <see cref="Core.Gameplay.Assembly.GameplayAssembly.SetPendingPlaybackProbe"/> 接入
         /// <c>gameplay.Pacing</c>（离散模式默认的 <see cref="Core.Foundation.SimLoop.WaitForPlaybackPacingPolicy"/>）
         /// ——本用例直接读 <c>HasPendingPlayback</c> 探针的实时求值结果，验证接线确实反映
@@ -798,6 +799,98 @@ namespace Tests.Presentation.Assembly
 
             Assert.Equal(0, presentation.Feedback.Queue.PendingCount);
             Assert.False(pacing.HasPendingPlayback!(), "队列播放耗尽后探针应回到 false");
+        }
+
+        /// <summary>
+        /// GP-PRES-03 跟进：验证装配根接的确实是 <see cref="Presentation.FeedbackBinder.Core.
+        /// FeedbackBinder.HasPendingPlayback"/> 这一统一查询，不是 <c>Queue.PendingCount</c>——
+        /// <see cref="FeedbackOptions.MergeWindow"/> &gt; 0 时数值飘字会先暂存在
+        /// <c>FloatingTextMerger</c> 内部、不进队列，若探针仍只看队列长度，队列因"这一步只有 flash
+        /// 一个非飘字动作"而先播空时就会误判整步表现已经播完，节奏门/playback_finished 提前解除。
+        /// </summary>
+        [Fact]
+        public void PendingPlaybackProbe_HoldsWhileMergeWindowPending_UntilMergedTextPlayed()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+
+            var source = new InMemoryDataSource();
+            AddMinimalGameplayTables(source);
+            AddMinimalPresentationTables(source);
+            source.Add("found.time_model",
+                "{\"table\": \"found.time_model\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"found.time_model.exploration\", \"scope\": \"exploration\", \"mode\": \"continuous\"}," +
+                "{\"id\": \"found.time_model.combat\", \"scope\": \"combat\", \"mode\": \"discrete\", " +
+                "\"seconds_per_turn\": 6, \"initiative_policy\": \"fixed_order\", \"movement_budget_rule\": \"distance\"}" +
+                "]}");
+
+            var registryOptions = PresentationSchemaCatalog.CreateOptions();
+            registryOptions.FailOnUnknownTable = false;
+            var registry = new DataRegistry(source, bus, registryOptions);
+            PresentationSchemaCatalog.RegisterAll(registry);
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+
+            var world = new WorldSim(bus);
+            var spatial = new StubSpatialQuery();
+            var rng = new RngHost(1);
+            var engine = new StubEngine();
+            var saveSystem = new Core.Foundation.SaveSystem.SaveSystem(
+                engine.FileSystem, new SaveSystemOptions(new Id("game.unspecified")), bus);
+
+            Id playerId = default;
+            var clockHost = new Core.Foundation.SimLoop.SimClockHost(world);
+            var gameplay = new GameplayAssembly(
+                bus, registry, rng, world, spatial, saveSystem,
+                playerUnitProvider: () => playerId, playerFactionId: new Id("fac.sample_player"),
+                clockHost: clockHost);
+            playerId = gameplay.Carriers.Creatures.Spawn(SamplePlayerTemplateId, SampleMapId, Vec2.Zero, 0.0);
+
+            var viewFactory = new Tests.PresentationViewBinding.FakeViewFactory();
+            var sceneRouter = new SceneRouter(registry, engine.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, bus);
+
+            // 不设 FeedbackQueueMode：让播放队列模式随进战自动切 Sequential（拍板 5）。
+            var options = new PresentationAssemblyOptions
+            {
+                FeedbackOptions = new FeedbackOptions { MergeWindow = 1.0, MergeMode = MergeMode.Sum },
+            };
+            var presentation = new PresentationAssembly(
+                gameplay, world, registry, bus, new RngHost(2), viewFactory,
+                engine.Renderer2D, engine.Camera, engine.Audio, engine.FileSystem, sceneRouter, options);
+
+            var pacing = Assert.IsType<Core.Foundation.SimLoop.WaitForPlaybackPacingPolicy>(gameplay.Pacing);
+            Assert.NotNull(pacing.HasPendingPlayback);
+
+            var finishedCount = 0;
+            bus.Subscribe(EventKeys.PresentationPlaybackFinished, _ => finishedCount++);
+
+            bus.PublishImmediate(new CombatEnteredEvent(playerId, new Id("unit.smoke_hostile")));
+            Assert.Equal(Core.Foundation.SimLoop.TimeModelMode.Discrete, gameplay.TimeModelSwitch!.CurrentMode);
+            Assert.Equal(QueueMode.Sequential, presentation.Feedback.Queue.Mode);
+
+            // AddMinimalPresentationTables 对 combat.damage_dealt 挂了 floating_text(amount) + flash
+            // 两条规则：floating_text 走合并窗口（不进队列），flash 直接入队。
+            var damageEvt = new CombatDamageDealtEvent(
+                playerId, new Id("unit.smoke_hostile"), new Id("skill.school.physical"), 7.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(damageEvt);
+
+            Assert.Equal(1, presentation.Feedback.Queue.PendingCount);
+            Assert.True(pacing.HasPendingPlayback!(), "flash 已入队，探针应为 true");
+            Assert.Equal(0, finishedCount);
+
+            // 默认 SequentialStepSeconds=0.15，0.3s 足够播完 flash 这一步；合并窗口（1.0s）远未到期。
+            presentation.Feedback.Update(0.3);
+
+            Assert.Equal(0, presentation.Feedback.Queue.PendingCount);
+            Assert.True(pacing.HasPendingPlayback!(), "flash 播完但飘字仍在合并窗口内，探针不应回到 false");
+            Assert.Equal(0, finishedCount);
+
+            // 继续推进：剩余窗口 0.7s，0.8s 足以让窗口到期、合并结果入队并播出。
+            presentation.Feedback.Update(0.8);
+
+            Assert.False(pacing.HasPendingPlayback!(), "合并结果已播出，探针应回到 false");
+            Assert.Equal(1, finishedCount);
         }
 
         // ------------------------------------------------------------------

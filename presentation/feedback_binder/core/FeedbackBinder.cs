@@ -69,9 +69,26 @@ namespace Presentation.FeedbackBinder.Core
             _textResolver = textResolver;
 
             _queue = new PlaybackQueue(_options.SequentialStepSeconds) { Mode = _options.QueueMode };
-            _queue.Finished += () => _bus.PublishImmediate(new PlaybackFinishedEvent());
 
+            // 判断记录（GP-PRES-03 跟进：_merger 先于 _queue.Finished 订阅构造）：下面的订阅 lambda
+            // 引用了 _merger，C# 闭包按变量捕获、lambda 体延迟求值，_merger 在订阅触发（PlaybackQueue
+            // 播空）之前完成赋值即可，构造顺序本不影响正确性；这里仍把 _merger 的构造提前到订阅之前，
+            // 只是为了消除阅读时"订阅引用了一个还没构造的字段"的疑虑，不改变任何运行期行为。
             _merger = new FloatingTextMerger(_options.MergeWindow, _options.NumberFormat, DispatchFloatingText);
+
+            // PlaybackFinishedEvent 的发出条件：队列播空 **且** 没有仍停留在合并窗口内、尚未入队的
+            // 待合并飘字（见 HasPendingPlayback 判断记录）。MergeWindow > 0 时，数值飘字先暂存在
+            // _merger 内部，窗口到期前 PlaybackQueue 可能因为"这一步只有非飘字动作先播完"而先由非空
+            // 变空一次——此时不能认为整个离散步的表现已经播完，否则节奏门会在飘字真正播出前提前解除。
+            // 窗口到期后 _merger.Flush 经 DispatchFloatingText 把合并结果送进队列，队列再次由非空变空
+            // 时 Finished 会第二次触发，那一次 _merger.HasPendingMerges 已经是 false，才真正发布事件。
+            _queue.Finished += () =>
+            {
+                if (!_merger.HasPendingMerges)
+                {
+                    _bus.PublishImmediate(new PlaybackFinishedEvent());
+                }
+            };
 
             if (rules == null) throw new ArgumentNullException(nameof(rules));
             foreach (var rule in rules)
@@ -101,6 +118,23 @@ namespace Presentation.FeedbackBinder.Core
 
         /// <summary>供离散模式主循环/测试直接控制播放节奏（09 第 6.4 节"加速与跳过"）。</summary>
         public PlaybackQueue Queue => _queue;
+
+        /// <summary>当前离散步是否还有尚未回放完的表现动作：播放队列非空，或仍有停留在合并窗口、
+        /// 尚未入队的数值飘字。
+        /// <para>
+        /// 判断记录（GP-PRES-03 跟进，统一查询）：命名与 <see cref="Core.Foundation.SimLoop.
+        /// WaitForPlaybackPacingPolicy.HasPendingPlayback"/> 探针对齐——本属性就是
+        /// <see cref="Core.Gameplay.Assembly.GameplayAssembly.SetPendingPlaybackProbe"/> 应该接入的
+        /// 那个统一查询。此前 <c>PresentationAssembly</c> 直接接 <c>() => Queue.PendingCount &gt; 0</c>，
+        /// 在 <see cref="FeedbackOptions.MergeWindow"/> &gt; 0 时会漏看仍停留在
+        /// <see cref="FloatingTextMerger"/>（经 <see cref="FloatingTextMerger.HasPendingMerges"/>）里、
+        /// 尚未进 <see cref="Queue"/> 的数值飘字——队列此刻可能恰好为空（这一步没有其它动作，或其它
+        /// 动作已播完），探针因此误判"没有待回放内容"而提前放行节奏门，飘字还没播出就已经解除等待。
+        /// 装配根、调用方一律应改用本属性作为节奏门探针，不要再直接用 <see cref="PlaybackQueue.
+        /// PendingCount"/>。
+        /// </para>
+        /// </summary>
+        public bool HasPendingPlayback => _queue.PendingCount > 0 || _merger.HasPendingMerges;
 
         public void Dispose()
         {

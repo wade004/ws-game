@@ -28,7 +28,7 @@ namespace Core.Foundation.SimLoop
     /// L0～L4 之上），因此改为"先占位、后回填"——<c>PresentationAssembly</c> 装配好
     /// <c>FeedbackBinder</c>（播放队列随之就绪）之后，经
     /// <see cref="Core.Gameplay.Assembly.GameplayAssembly.SetPendingPlaybackProbe"/> 这一窄方法把
-    /// <c>() =&gt; Feedback.Queue.PendingCount &gt; 0</c> 接进来，同本类型一贯"未接线时不影响装配
+    /// <c>() =&gt; Feedback.HasPendingPlayback</c> 接进来，同本类型一贯"未接线时不影响装配
     /// 成功、只是退化"的取舍——未接线（<c>null</c>，如只装配了 <c>core</c>/<c>gameplay</c> 两层、
     /// 没有表现层的核心测试/纯逻辑场景）时本类型不知道"有没有要回放的东西"，按"没有"处理（立即
     /// 完成），不会因为没有表现层而永久卡死——这也是本类型在生产接线完成前（构造 <c>Presentation

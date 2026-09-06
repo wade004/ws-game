@@ -102,6 +102,17 @@ namespace Presentation.FeedbackBinder.Core
             }
         }
 
+        /// <summary>当前是否还有停留在合并窗口内、尚未派发进 <c>PlaybackQueue</c> 的数值飘字。
+        /// <para>
+        /// 供 <see cref="FeedbackBinder"/> 组合成"当前离散步是否还有未回放完的表现"这一统一查询
+        /// （见 <see cref="FeedbackBinder.HasPendingPlayback"/> 判断记录）：<see cref="Offer"/> 在
+        /// <c>MergeWindow &gt; 0</c> 时把飘字暂存进本类私有的 <c>_pending</c> 列表，窗口到期前既不
+        /// 派发给 <c>_dispatch</c>、也不进入 <c>PlaybackQueue</c>——仅看 <c>PlaybackQueue.PendingCount</c>
+        /// 无法感知这部分"看不见但确实还没播完"的表现内容。
+        /// </para>
+        /// </summary>
+        public bool HasPendingMerges => _pending.Count > 0;
+
         /// <summary>立即结算全部进行中的窗口（不等待自然到期），例如 <c>PlaybackQueue.Skip()</c>
         /// 联动场景；调用方按需选用，本模块 <c>FeedbackBinder</c> 默认不主动调用。</summary>
         public void FlushAll()

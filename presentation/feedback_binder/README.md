@@ -78,6 +78,17 @@
    自己能判断的信息——切换时机的决策与接线放在装配根，见 `presentation/assembly/README.md`
    `PresentationAssemblyOptions.FeedbackQueueMode` 判断记录；此前 Unity 引导侧"靠零事件兜底短路"
    的临时手法已随本次收口废弃。
+10. **`HasPendingPlayback` 统一查询与 `playback_finished` 推迟发出（GP-PRES-03 跟进）**：
+    `FeedbackBinder.HasPendingPlayback`（`Queue.PendingCount > 0 || FloatingTextMerger.
+    HasPendingMerges`）是"当前离散步是否还有未回放完的表现"这一问题的唯一正确答案——
+    `MergeWindow > 0` 时数值飘字先暂存在 `FloatingTextMerger` 内部，窗口到期前既不派发也不进入
+    `PlaybackQueue`，只看 `Queue.PendingCount` 会漏看这部分表现；`presentation/assembly.
+    PresentationAssembly` 装配根接 `GameplayAssembly.SetPendingPlaybackProbe` 时改用本属性，不再
+    直接用 `Queue.PendingCount`（见 `assembly/README.md` 判断记录 9 跟进）。配套地，构造函数里
+    `_queue.Finished` 订阅也收紧为"仅当 `!_merger.HasPendingMerges` 时才发布
+    `PlaybackFinishedEvent`"——飘字还停留在合并窗口内时，队列因"这一步只有非飘字动作"而先播空一次
+    不代表本步表现已经结束；窗口到期后合并结果经 `DispatchFloatingText` 入队、再次播空时
+    `Finished` 会第二次触发，那一次才真正发布事件，与 `HasPendingPlayback` 的语义保持一致。
 
 ## 不负责什么
 

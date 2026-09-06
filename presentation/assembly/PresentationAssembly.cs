@@ -391,7 +391,16 @@ namespace Presentation.Assembly
             // 接上本探针后 WaitForPlaybackPacingPolicy.BeginStep 能在 BeginStep 那一刻就确认"这一步
             // 到底有没有东西要回放"，没有时立即放行、不进入 playing_back。未装配离散模式或调用方
             // 显式传入自定义 IPacingPolicy 时，SetPendingPlaybackProbe 内部静默跳过，不影响装配。
-            gameplay.SetPendingPlaybackProbe(() => Feedback.Queue.PendingCount > 0);
+            //
+            // 跟进（GP-PRES-03）：本探针改接 Feedback.HasPendingPlayback，不再只看
+            // Feedback.Queue.PendingCount——FeedbackOptions.MergeWindow > 0 时，FloatingTextMerger
+            // 把数值飘字暂存在自己的内部列表，窗口到期前既不派发也不进入 PlaybackQueue，此时队列可能
+            // 恰好为空（本步没有其它动作，或其它动作已播完），只看 Queue.PendingCount 会误判"没有
+            // 待回放内容"而提前放行节奏门。FeedbackBinder 内部也同步收紧了 playback_finished 的发出
+            // 时机——PlaybackQueue.Finished 触发时若仍有待合并飘字（HasPendingMerges），不发布该
+            // 事件，推迟到窗口到期、合并结果真正入队播完后再发（见 FeedbackBinder.HasPendingPlayback/
+            // 构造函数判断记录），两处收紧配合一致，避免节奏门与并行协调事件各自看到不同的"是否播完"。
+            gameplay.SetPendingPlaybackProbe(() => Feedback.HasPendingPlayback);
 
             // 拍板 5（离散回放门）：opts.FeedbackQueueMode 显式提供时一次性设定、不再自动跟随时间
             // 模型切换（调用方明确接管）；未提供（默认 null）时由本装配根跟随
