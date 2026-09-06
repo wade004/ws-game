@@ -32,10 +32,12 @@ namespace Tests.PresentationRender
 
     public class SpriteViewBaseTests
     {
-        private static DisplayInfo MakeSpriteDisplayInfo(double sortOffset = 0.0, double scale = 1.0) =>
+        private static DisplayInfo MakeSpriteDisplayInfo(
+            double sortOffset = 0.0, double scale = 1.0,
+            Core.Foundation.DisplayInfo.ShadowMode shadow = Core.Foundation.DisplayInfo.ShadowMode.Blob) =>
             new DisplayInfo(
                 new Id("display.hero"), DisplayCategory.Creature, new Id("creature.hero"), DisplayKind.Sprite,
-                null, null, null, scale, Core.Foundation.DisplayInfo.ShadowMode.Blob, sortOffset, null,
+                null, null, null, scale, shadow, sortOffset, null,
                 new SpriteInfo("sprite.creature.hero", 8), null);
 
         [Fact]
@@ -59,6 +61,29 @@ namespace Tests.PresentationRender
                 null, new ModelInfo(new Id("model.golem"), new Id("display.golem_anim")));
 
             Assert.Throws<ArgumentException>(() => new TestSpriteView(renderer, new RenderConventionHost(), modelInfo));
+        }
+
+        // -----------------------------------------------------------------
+        // GP-PRES-05 收口回归（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
+        // 此前 DisplayInfo.Shadow 只存在于数据/转换层，从未被任何实际 View 消费——构造时应该按
+        // DisplayInfo.Shadow 调用 IRenderer2D.SetShadow，且经 ShadowSpec.ToEngineShadowMode 正确
+        // 转换枚举（数据侧 Core.Foundation.DisplayInfo.ShadowMode → 引擎侧
+        // Core.Foundation.EngineAdapter.ShadowMode）。分别覆盖 none/blob/projected 三种取值。
+        // -----------------------------------------------------------------
+
+        [Theory]
+        [InlineData(Core.Foundation.DisplayInfo.ShadowMode.None, Core.Foundation.EngineAdapter.ShadowMode.None)]
+        [InlineData(Core.Foundation.DisplayInfo.ShadowMode.Blob, Core.Foundation.EngineAdapter.ShadowMode.Blob)]
+        [InlineData(Core.Foundation.DisplayInfo.ShadowMode.Projected, Core.Foundation.EngineAdapter.ShadowMode.Projected)]
+        public void Construct_SetsShadowOnRenderer_MatchingDisplayInfoShadow(
+            Core.Foundation.DisplayInfo.ShadowMode dataShadow, Core.Foundation.EngineAdapter.ShadowMode expectedEngineShadow)
+        {
+            var renderer = new StubRenderer2D();
+            var view = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo(shadow: dataShadow));
+
+            var handleValue = new List<int>(renderer.CreatedSpriteSets.Keys)[0];
+            Assert.True(renderer.Shadows.TryGetValue(handleValue, out var actualShadow));
+            Assert.Equal(expectedEngineShadow, actualShadow);
         }
 
         [Fact]

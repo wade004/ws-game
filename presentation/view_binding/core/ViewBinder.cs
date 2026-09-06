@@ -278,7 +278,7 @@ namespace Presentation.ViewBinding
             }
 
             var spriteInfo = info.Sprite;
-            if (!spriteInfo.AnchorPoints.TryGetValue(BareAnchorName(anchorId), out var baseOffset))
+            if (!spriteInfo.AnchorPoints.TryGetValue(BareAnchorName(anchorId), out var anchorDef))
             {
                 _diagnostics.Warn($"锚点查询：\"{displayId}\" 未登记锚点 \"{anchorId}\"");
                 return null;
@@ -292,8 +292,13 @@ namespace Presentation.ViewBinding
 
             var facing = _snapshot.GetFacing(entityId);
             var direction = Direction.FromQuantized(facing, spriteInfo.DirectionCount);
-            var (_, flipX) = _renderConvention.ResolveDirectionSlot(direction, spriteInfo);
+            var (slotId, flipX) = _renderConvention.ResolveDirectionSlot(direction, spriteInfo);
 
+            // GP-PRES-07 收口：按当前方向槽位取 offset_by_direction 覆盖值，缺省回退 Offset（见
+            // AnchorDef.ResolveOffset 判断记录）；镜像（flipX）仍然是独立于方向覆盖的第二步—— 09
+            // 第 3.2 节镜像规则表本身就是"用已有方向的美术资源经水平翻转顶替另一方向"，覆盖值/默认
+            // 值一旦选定，镜像处理方式不变。
+            var baseOffset = anchorDef.ResolveOffset(slotId);
             var offset = flipX ? new Vec2(-baseOffset.X, baseOffset.Y) : baseOffset;
             var entityPos = _snapshot.GetPosition(entityId);
             return entityPos + offset;

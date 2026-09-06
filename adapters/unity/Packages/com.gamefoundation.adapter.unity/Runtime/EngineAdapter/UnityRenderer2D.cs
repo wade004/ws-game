@@ -68,6 +68,15 @@ namespace Adapter.Unity.EngineAdapter
             // 掉另一个已经生效的分量（见 ApplyColor 判断记录）。
             public float FlashMultiplier = 1f;
             public float FadeAlpha = 1f;
+
+            /// <summary>GP-PRES-05 新增（09 第 3.4 节"每个可见单位默认携带一个地面投影影子"）：
+            /// 懒创建，<see cref="ShadowMode.None"/> 时为 null（未曾创建，或已被销毁）。直接挂在
+            /// <see cref="Root"/> 下（不是 <see cref="LayersRoot"/>），因此不随 <c>height</c> 偏移
+            /// 平移——height 只平移 LayersRoot 的本地 Y，见 <see cref="SetTransform"/> 判断记录
+            /// "不平移影子"。</summary>
+            public SpriteRenderer? ShadowRenderer;
+
+            public ShadowMode Shadow = ShadowMode.None;
         }
 
         private readonly Transform _root;
@@ -78,9 +87,11 @@ namespace Adapter.Unity.EngineAdapter
         private readonly Dictionary<int, EffectSequencePlayer> _sequencePlayers = new Dictionary<int, EffectSequencePlayer>();
         private readonly List<EffectSequencePlayer> _sequencePlayerPool = new List<EffectSequencePlayer>();
         private readonly HashSet<string> _missingResourceWarned = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<int> _projectedShadowWarned = new HashSet<int>();
         private int _nextSpriteHandle = 1;
         private int _nextParticleHandle = 1;
         private Sprite? _placeholderSprite;
+        private Sprite? _shadowSprite;
 
         public float PixelsPerUnit => _resourceLoader.PixelsPerUnit;
 
@@ -170,6 +181,59 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             ApplySortingOrders(instance);
+        }
+
+        /// <summary>
+        /// GP-PRES-05 收口（09 第 3.4 节）：<see cref="ShadowMode.None"/> 销毁/不创建影子；
+        /// <see cref="ShadowMode.Blob"/> 懒创建一个贴地椭圆占位精灵（半透明深色，正式游戏应替换为
+        /// 真实美术资源——本适配层不接触具体游戏内容，见类型顶部"资源解析与占位"判断记录同一惯例）；
+        /// <see cref="ShadowMode.Projected"/> 在纯 2D 渲染管线下没有真正的投影阴影几何（那属于
+        /// <see cref="IRenderer3D.SetShadow"/> 的 model 路线），降级为 <see cref="ShadowMode.Blob"/>
+        /// 并 <see cref="Debug.LogWarning"/> 一次（按句柄去重，不刷屏）——不是静默吞掉这个差异。
+        /// 影子挂在 <see cref="SpriteInstance.Root"/> 下（不是 <see cref="SpriteInstance.LayersRoot"/>），
+        /// 因此天然不随 <c>height</c> 偏移平移，锚定在逻辑平面坐标（见 <see cref="SetTransform"/>
+        /// 判断记录）；<c>sortingOrder</c> 固定 -1，低于全部纸娃娃层（层序号从 0 起，见
+        /// <see cref="ApplySortingOrders"/>），保证影子恒在角色本体之下。
+        /// </summary>
+        public void SetShadow(SpriteHandle handle, ShadowMode mode)
+        {
+            var instance = EnsureAlive(handle);
+
+            if (mode == ShadowMode.Projected)
+            {
+                if (_projectedShadowWarned.Add(handle.Value))
+                {
+                    Debug.LogWarning(
+                        $"[UnityRenderer2D] SpriteHandle {handle.Value}：sprite 路线不支持真正的投影阴影几何" +
+                        "（那是 IRenderer3D.SetShadow 的 model 路线能力），降级为 Blob。");
+                }
+
+                mode = ShadowMode.Blob;
+            }
+
+            instance.Shadow = mode;
+
+            if (mode == ShadowMode.None)
+            {
+                if (instance.ShadowRenderer != null)
+                {
+                    UnityEngine.Object.Destroy(instance.ShadowRenderer.gameObject);
+                    instance.ShadowRenderer = null;
+                }
+                return;
+            }
+
+            // mode == Blob（含 Projected 降级而来）。
+            if (instance.ShadowRenderer == null)
+            {
+                var shadowGo = new GameObject("Shadow");
+                shadowGo.transform.SetParent(instance.Root.transform, worldPositionStays: false);
+                shadowGo.transform.localPosition = Vector3.zero;
+                var renderer = shadowGo.AddComponent<SpriteRenderer>();
+                renderer.sprite = GetShadowSprite();
+                renderer.sortingOrder = -1;
+                instance.ShadowRenderer = renderer;
+            }
         }
 
         public void SetShaderParam(SpriteHandle handle, string paramName, double value)
@@ -373,6 +437,46 @@ namespace Adapter.Unity.EngineAdapter
                 PixelsPerUnit);
             _placeholderSprite.name = "placeholder.sprite";
             return _placeholderSprite;
+        }
+
+        /// <summary>GP-PRES-05 收口新增：一个运行期生成的圆形半透明深色占位精灵，供
+        /// <see cref="SetShadow"/> 的 <see cref="ShadowMode.Blob"/> 分支使用——同
+        /// <see cref="GetPlaceholderSprite"/> 惯例（本适配层不接触具体游戏内容，不内置任何正式
+        /// 美术资源），只生成一次并缓存复用（全部实例共享同一张贴图，不区分单位大小——单位大小的
+        /// 差异经 <see cref="SetTransform"/> 的 <c>scale</c> 一并缩放整个精灵实例，包括本影子，
+        /// 见该方法"instance.Root.transform.localScale"一行）。</summary>
+        private Sprite GetShadowSprite()
+        {
+            if (_shadowSprite != null) return _shadowSprite;
+
+            const int size = 32;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) { name = "GameFoundationShadowPlaceholder" };
+            var pixels = new Color32[size * size];
+            var center = (size - 1) / 2f;
+            var radius = size / 2f;
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var dx = x - center;
+                    var dy = y - center;
+                    var dist = Mathf.Sqrt(dx * dx + dy * dy);
+                    // 圆内半透明黑色，圆外全透明——最朴素的贴地椭圆影子占位形状，边缘留一点点羽化
+                    // 避免像素锯齿过于生硬。
+                    var alpha = Mathf.Clamp01(1f - (dist - (radius - 2f)) / 2f) * 0.5f;
+                    pixels[y * size + x] = new Color32(0, 0, 0, (byte)(alpha * 255));
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply();
+
+            _shadowSprite = Sprite.Create(
+                texture,
+                new UnityEngine.Rect(0, 0, texture.width, texture.height),
+                new Vector2(0.5f, 0.5f),
+                PixelsPerUnit);
+            _shadowSprite.name = "shadow.blob_placeholder";
+            return _shadowSprite;
         }
 
         private EffectSequencePlayer RentSequencePlayer()

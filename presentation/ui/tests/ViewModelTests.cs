@@ -119,6 +119,70 @@ namespace Tests.PresentationUi
             Assert.False(vm.CanEndTurn);
         }
 
+        /// <summary>GP-PRES-09 收口回归（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
+        /// <see cref="HudViewModel.TurnOrder"/> 应反映 <c>TurnScheduler.GetOrder()</c> 的完整队列
+        /// （不只是当前行动者），<see cref="HudViewModel.ActionPointsRemaining"/> 应反映当前行动者
+        /// 的剩余行动点——<c>fixed_order</c> 策略下账本同样无条件维护（见
+        /// <c>TurnScheduler.TryConsumeActionPoints</c> 判断记录），本用例覆盖该策略。</summary>
+        [Fact]
+        public void HudViewModel_TurnOrderAndActionPoints_ReflectScheduler_FixedOrderPolicy()
+        {
+            var world = new UiWorldFixture();
+            world.Progression.SetForTest(world.PlayerId, 1, 0, 100);
+            var aiId = new Id("unit.beast");
+
+            var worldSim = new RecordingWorldSim();
+            var scheduler = new TurnScheduler(
+                worldSim, initiativeStatProvider: _ => 0.0, isPlayerActor: id => id.Equals(world.PlayerId), world.EventBus);
+            scheduler.Configure(Core.Foundation.SimLoop.InitiativePolicy.FixedOrder, new Dictionary<string, object> { ["action_points_per_turn"] = 3.0 });
+
+            using var vm = new HudViewModel(world.DataSource, world.PlayerId, new[] { Health }, turnScheduler: scheduler);
+
+            // 未开战：空队列、0 行动点（CurrentActorId 为 null）。
+            Assert.Empty(vm.TurnOrder);
+            Assert.Equal(0.0, vm.ActionPointsRemaining);
+
+            scheduler.BeginCombat(new[] { world.PlayerId, aiId });
+
+            Assert.Equal(new[] { world.PlayerId, aiId }, vm.TurnOrder);
+            Assert.Equal(world.PlayerId, vm.CurrentActorId);
+            Assert.Equal(3.0, vm.ActionPointsRemaining);
+
+            // 消耗 1 点，HudViewModel 未自动感知（TryConsumeActionPoints 不发事件，见其判断记录），
+            // 但手动 Refresh 之后应读到最新剩余量——证明确实转发的是实时账本，不是构造期快照。
+            Assert.True(scheduler.TryConsumeActionPoints(world.PlayerId, 1.0));
+            vm.Refresh();
+            Assert.Equal(2.0, vm.ActionPointsRemaining);
+        }
+
+        /// <summary>同上一条用例，覆盖 <c>action_points</c> 先攻策略——09 §7.1"行动点显示"文档字面
+        /// 场景，额外验证耗尽行动点后 <c>NotifyStepConsumed</c> 推进到下一行动者时
+        /// <see cref="HudViewModel.ActionPointsRemaining"/> 切到新行动者自己的剩余量。</summary>
+        [Fact]
+        public void HudViewModel_TurnOrderAndActionPoints_ReflectScheduler_ActionPointsPolicy()
+        {
+            var world = new UiWorldFixture();
+            world.Progression.SetForTest(world.PlayerId, 1, 0, 100);
+            var aiId = new Id("unit.beast");
+
+            var worldSim = new RecordingWorldSim();
+            var scheduler = new TurnScheduler(
+                worldSim, initiativeStatProvider: _ => 0.0, isPlayerActor: id => id.Equals(world.PlayerId), world.EventBus);
+            scheduler.Configure(Core.Foundation.SimLoop.InitiativePolicy.ActionPoints, new Dictionary<string, object> { ["action_points_per_turn"] = 1.0 });
+
+            using var vm = new HudViewModel(world.DataSource, world.PlayerId, new[] { Health }, turnScheduler: scheduler);
+
+            scheduler.BeginCombat(new[] { world.PlayerId, aiId });
+            Assert.Equal(new[] { world.PlayerId, aiId }, vm.TurnOrder);
+            Assert.Equal(1.0, vm.ActionPointsRemaining);
+
+            // NotifyStepConsumed 在 action_points 策略下耗尽当前行动者的行动点即推进到下一行动者
+            // （sim.turn_ended/sim.turn_started 会触发 HudViewModel 自动 Refresh，不需要手动调用）。
+            scheduler.NotifyStepConsumed(world.PlayerId);
+            Assert.Equal(aiId, vm.CurrentActorId);
+            Assert.Equal(1.0, vm.ActionPointsRemaining); // 新行动者的满额行动点，不是玩家耗尽后的 0。
+        }
+
         [Fact]
         public void ActionBarViewModel_reads_slot_bindings_and_cooldowns()
         {

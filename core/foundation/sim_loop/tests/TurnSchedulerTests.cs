@@ -120,6 +120,35 @@ namespace Tests.Foundation.SimLoop
             Assert.Contains(events, e => e is SimTurnEndedEvent ended && ended.ActorId.Equals(Hero));
         }
 
+        /// <summary>GP-PRES-09 收口回归：<see cref="TurnScheduler.GetActionPointsRemaining"/> 是不
+        /// 产生副作用的只读查询（不像 <see cref="TurnScheduler.TryConsumeActionPoints"/> 那样真的
+        /// 扣减），供 HUD 一类只读消费方使用；不在战斗中或未参战的 id 返回 0，不抛异常。</summary>
+        [Fact]
+        public void GetActionPointsRemaining_ReflectsLedger_WithoutConsuming_ReturnsZeroWhenNotTracked()
+        {
+            var (scheduler, _, _, _) = Build();
+
+            // 未开战：任意 id 恒 0，不抛异常。
+            Assert.Equal(0.0, scheduler.GetActionPointsRemaining(Hero));
+
+            scheduler.Configure(InitiativePolicy.ActionPoints,
+                new Dictionary<string, object> { ["action_points_per_turn"] = 3.0 });
+            scheduler.BeginCombat(new[] { Hero, Ally });
+
+            Assert.Equal(3.0, scheduler.GetActionPointsRemaining(Hero));
+            Assert.Equal(3.0, scheduler.GetActionPointsRemaining(Ally));
+
+            // 只读查询本身不消耗；重复调用结果不变。
+            Assert.Equal(3.0, scheduler.GetActionPointsRemaining(Hero));
+
+            Assert.True(scheduler.TryConsumeActionPoints(Hero, 1.0));
+            Assert.Equal(2.0, scheduler.GetActionPointsRemaining(Hero));
+            Assert.Equal(3.0, scheduler.GetActionPointsRemaining(Ally)); // 未受影响。
+
+            // 未参战的 id：不在账本里，返回 0。
+            Assert.Equal(0.0, scheduler.GetActionPointsRemaining(Foe1));
+        }
+
         [Fact]
         public void ActionPoints_ExplicitEndTurn_EndsEarlyEvenWithBudgetRemaining()
         {

@@ -93,6 +93,40 @@ namespace Game.Template.Tests
                 "默认启动后 Shell 应停在主菜单页");
         }
 
+        /// <summary>GP-PRES-08 收口回归（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
+        /// 主菜单标题与"新游戏"按钮文案此前硬编码中文字符串，绕开了 09 第 7.3 节"面向玩家文案一律
+        /// 经本地化表"的铁律。本用例断言两处渲染文本都与经 L10n.Text 查到的对应 key 一致——标题用
+        /// l10n.shell.template_main_menu_title（新增），按钮沿用 shell_menu_definition 已登记的
+        /// l10n.shell.template_new_game，并断言两个 key 在数据表里确有真实文案（HasText），不是
+        /// 靠 MissingKeyPolicy 的占位兜底侥幸凑巧相等。</summary>
+        [UnityTest]
+        public IEnumerator TemplateShellUi_MainMenuTexts_ComeFromL10n_NotHardcoded()
+        {
+            yield return LoadShellScene();
+
+            var shellUi = Object.FindFirstObjectByType<TemplateShellUi>();
+            Assert.IsNotNull(shellUi, "Shell 场景应挂有 TemplateShellUi");
+            var l10n = shellUi!.Bootstrap.Presentation.L10n;
+
+            var titleKey = new Core.Foundation.Common.Id("l10n.shell.template_main_menu_title");
+            var newGameKey = new Core.Foundation.Common.Id("l10n.shell.template_new_game");
+            Assert.IsTrue(l10n.HasText(titleKey), "l10n.shell.template_main_menu_title 应当在 data/game/l10n/l10n.text.json 里有真实登记，不是靠占位兜底");
+            Assert.IsTrue(l10n.HasText(newGameKey), "l10n.shell.template_new_game 应当在 data/game/l10n/l10n.text.json 里有真实登记");
+
+            var titleLabel = Object.FindObjectsByType<TMPro.TextMeshProUGUI>(FindObjectsSortMode.None)
+                .FirstOrDefault(t => t.name == "Title");
+            Assert.IsNotNull(titleLabel, "主菜单应有一个名为 Title 的 TextMeshProUGUI");
+            Assert.AreEqual(l10n.Text(titleKey), titleLabel!.text, "标题文案应当来自 L10n.Text(l10n.shell.template_main_menu_title)，不是硬编码字符串");
+
+            // UiWidgets.CreateButton 把按钮文案落在名为 "Label" 的子物体上（见该方法源码），按钮
+            // 根物体名为 "Entry_{index}"（TemplateShellUi.BuildMainMenu，本模板只登记了一条
+            // new_game 入口，因此固定是 "Entry_0"）。
+            var newGameButtonLabel = Object.FindObjectsByType<TMPro.TextMeshProUGUI>(FindObjectsSortMode.None)
+                .FirstOrDefault(t => t.name == "Label" && t.transform.parent != null && t.transform.parent.name.StartsWith("Entry_"));
+            Assert.IsNotNull(newGameButtonLabel, "\"新游戏\"入口按钮应有一个名为 Label 的子 TextMeshProUGUI 承载文案");
+            Assert.AreEqual(l10n.Text(newGameKey), newGameButtonLabel!.text, "按钮文案应当来自 L10n.Text(l10n.shell.template_new_game)，不是硬编码字符串");
+        }
+
         /// <summary>验证 <c>-gf-smoke-template</c> 冒烟序列本身在编辑器内可跑通（见
         /// <see cref="TemplateSmokeRunner"/> 类型头注释）：不经由命令行标志触发
         /// （<c>-runTests</c> 跑 PlayMode 测试的命令行不会带这个标志，见该类型

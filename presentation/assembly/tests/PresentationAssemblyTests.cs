@@ -138,7 +138,8 @@ namespace Tests.Presentation.Assembly
 
         private static PresentationAssembly Build(
             out GameplayAssembly gameplay, out WorldSim world, out StubEngine engine, out IEventBus bus,
-            PresentationAssemblyOptions? options = null, IViewFactory? viewFactory = null)
+            PresentationAssemblyOptions? options = null, IViewFactory? viewFactory = null,
+            bool withResourceLoader = false)
         {
             bus = new EventBus(
                 EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
@@ -182,9 +183,13 @@ namespace Tests.Presentation.Assembly
             var sceneRouter = new SceneRouter(registry, engine.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, bus);
             var presentationRng = new RngHost(2);
 
+            // GP-PRES-04 收口：默认仍不传（withResourceLoader=false），保持既有测试行为逐字节不变；
+            // 需要断言"首次引用触发 LoadAsync"的用例显式传 true，拿到 engine.ResourceLoader
+            // （StubResourceLoader，可观察 LoadRequests）。
             return new PresentationAssembly(
                 gameplay, world, registry, bus, presentationRng, viewFactory,
-                engine.Renderer2D, engine.Camera, engine.Audio, engine.FileSystem, sceneRouter, options);
+                engine.Renderer2D, engine.Camera, engine.Audio, engine.FileSystem, sceneRouter, options,
+                resourceLoader: withResourceLoader ? engine.ResourceLoader : null);
         }
 
         [Fact]
@@ -884,6 +889,51 @@ namespace Tests.Presentation.Assembly
             var attachment = Assert.Single(renderer3D.Attachments);
             Assert.Equal(hostHandle.Value, attachment.Value.ChildHandle);
             Assert.Equal(new Id("socket.weapon"), attachment.Value.SocketId);
+        }
+
+        // -----------------------------------------------------------------
+        // GP-PRES-04 收口回归（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
+        // 此前本构造函数没有 IResourceLoader 参数，VfxPlayer/SfxPlayer 只能拿到 null，永远不会
+        // 调用 IResourceLoader.LoadAsync——ADR-0016"谁首次引用谁加载"的责任没有落地。下面两条用例
+        // 直接断言：传入 resourceLoader 后，首次 Spawn/Play 会触发一次对应资源 id 的 LoadAsync。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Construct_WithResourceLoader_VfxSpawn_TriggersLoadAsync_ForResourceRef()
+        {
+            var presentation = Build(out _, out _, out var engine, out _, withResourceLoader: true);
+
+            Assert.Empty(engine.ResourceLoader.LoadRequests);
+
+            var handle = presentation.Vfx.Spawn(new Id("vfx.sample_hit"), VfxAttach.World(Vec2.Zero), null);
+
+            Assert.NotNull(handle);
+            Assert.Contains(engine.ResourceLoader.LoadRequests, r => r.ResourceId.Equals(new Id("vfx.sample_hit")));
+        }
+
+        [Fact]
+        public void Construct_WithResourceLoader_SfxPlay_TriggersLoadAsync_ForResourceRef()
+        {
+            var presentation = Build(out _, out _, out var engine, out _, withResourceLoader: true);
+
+            Assert.Empty(engine.ResourceLoader.LoadRequests);
+
+            var handle = presentation.Sfx.Play(new Id("sfx.sample_hit"), Vec2.Zero);
+
+            Assert.NotNull(handle);
+            Assert.Contains(engine.ResourceLoader.LoadRequests, r => r.ResourceId.Equals(new Id("sfx.sample_hit")));
+        }
+
+        [Fact]
+        public void Construct_WithoutResourceLoader_VfxSpawn_DoesNotThrow_BehavesAsBefore()
+        {
+            // 默认（不传 resourceLoader）行为不变：不抛异常，仍能正常 Spawn——覆盖"未装配资源
+            // 加载器的默认模板启动不受影响"（GP-PRES-04 验收标准之一）。
+            var presentation = Build(out _, out _, out _, out _, withResourceLoader: false);
+
+            var handle = presentation.Vfx.Spawn(new Id("vfx.sample_hit"), VfxAttach.World(Vec2.Zero), null);
+
+            Assert.NotNull(handle);
         }
     }
 }

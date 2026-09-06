@@ -362,10 +362,13 @@ namespace Adapter.Unity.Bootstrap
                 OnFlash = (entityId, profileId) => Flash?.Show(entityId, profileId),
             };
 
+            // GP-PRES-04 收口（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
+            // 传入 _host.ResourceLoader，让 VfxPlayer/SfxPlayer 具备"首次引用加载"能力（同
+            // FrameworkResidentHost/games/_template.GameBootstrap 同名判断记录）。
             var presentation = new PresentationAssembly(
                 gameplay, world, registry, _bus, presentationRng,
                 viewFactory, _host.Renderer2D, _host.Camera, _host.Audio, _host.FileSystem, sceneRouter,
-                presentationOptions);
+                presentationOptions, resourceLoader: _host.ResourceLoader);
             Presentation = presentation;
 
             // 三个反馈接收器都需要 PresentationAssembly 构造完成后才能建出（FloatingText 需要

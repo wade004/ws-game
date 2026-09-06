@@ -55,6 +55,14 @@ namespace Adapter.Unity.Ui.Panels
         private TextMeshProUGUI _powerLabel = null!;
         private TextMeshProUGUI _targetLabel = null!;
         private TextMeshProUGUI _turnInfoLabel = null!;
+
+        /// <summary>GP-PRES-09 收口新增（09 §7.1"回合顺序条（仅离散模式）""行动点显示（仅离散
+        /// 模式且启用 action_points 先攻策略）"）：此前本面板只展示当前行动者与轮次
+        /// （<see cref="_turnInfoLabel"/>），完整队列与行动点完全没有落地——见
+        /// architecture/落地计划/audit-20260907/gameplay-presentation.md GP-PRES-09。</summary>
+        private TextMeshProUGUI _turnOrderLabel = null!;
+
+        private TextMeshProUGUI _actionPointsLabel = null!;
         private UnityEngine.UI.Button _endTurnButton = null!;
 
         /// <summary>
@@ -75,6 +83,8 @@ namespace Adapter.Unity.Ui.Panels
             _powerLabel = UiWidgets.CreateLabel("Power", list, "-", 16);
             _targetLabel = UiWidgets.CreateLabel("Target", list, "目标：无", 16);
             _turnInfoLabel = UiWidgets.CreateLabel("TurnInfo", list, "（未启用回合制）", 16);
+            _turnOrderLabel = UiWidgets.CreateLabel("TurnOrder", list, "", 14);
+            _actionPointsLabel = UiWidgets.CreateLabel("ActionPoints", list, "", 14);
             var (_, button, _) = UiWidgets.CreateButton("EndTurnButton", list, "结束回合", OnEndTurnClicked);
             _endTurnButton = button;
 
@@ -92,6 +102,12 @@ namespace Adapter.Unity.Ui.Panels
 
         /// <summary>供 PlayMode 测试读取当前展示的回合信息文本；原 <c>TurnStatusPanel.TurnInfoText</c>。</summary>
         public string TurnInfoText => _turnInfoLabel.text;
+
+        /// <summary>GP-PRES-09 收口新增：供 PlayMode 测试读取当前展示的回合顺序条文本。</summary>
+        public string TurnOrderText => _turnOrderLabel.text;
+
+        /// <summary>GP-PRES-09 收口新增：供 PlayMode 测试读取当前展示的行动点文本。</summary>
+        public string ActionPointsText => _actionPointsLabel.text;
 
         private void OnEndTurnClicked() => _intents.EndTurn();
 
@@ -112,6 +128,8 @@ namespace Adapter.Unity.Ui.Panels
             if (!_vm.IsTurnBased)
             {
                 _turnInfoLabel.text = "（未启用回合制）";
+                _turnOrderLabel.text = "";
+                _actionPointsLabel.text = "";
                 _endTurnButton.gameObject.SetActive(false);
                 return;
             }
@@ -119,6 +137,21 @@ namespace Adapter.Unity.Ui.Panels
             _turnInfoLabel.text = _vm.CurrentActorId.HasValue
                 ? $"行动者：{ShortId(_vm.CurrentActorId.Value)}  轮次：{_vm.RoundIndex}"
                 : "（不在战斗中）";
+
+            // GP-PRES-09 收口：回合顺序条——完整队列，按 HudViewModel.TurnOrder（转发
+            // TurnScheduler.GetOrder，稳定排序）原样展示，当前行动者用方括号标出，不额外重排。
+            _turnOrderLabel.text = _vm.TurnOrder.Count > 0
+                ? "顺序：" + string.Join(" ", _vm.TurnOrder.Select(id =>
+                    _vm.CurrentActorId.HasValue && id.Equals(_vm.CurrentActorId.Value) ? $"[{ShortId(id)}]" : ShortId(id)))
+                : "";
+
+            // 行动点显示：09 §7.1 文档字面只要求 action_points 先攻策略下展示，但
+            // HudViewModel.ActionPointsRemaining 在全部策略下都有意义（账本无条件维护，见该属性
+            // 判断记录）——本面板选择"有当前行动者就展示"，不按策略过滤，更简单也不算过度展示
+            // （多显示一个数字不违反 09 铁律，09 只规定"至少要展示什么"，不禁止展示更多只读信息）。
+            _actionPointsLabel.text = _vm.CurrentActorId.HasValue
+                ? $"行动点：{_vm.ActionPointsRemaining}"
+                : "";
 
             _endTurnButton.gameObject.SetActive(_vm.CanEndTurn);
         }

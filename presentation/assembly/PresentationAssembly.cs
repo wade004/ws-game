@@ -231,6 +231,19 @@ namespace Presentation.Assembly
         /// null 且装配了离散模式）时非空。</summary>
         private readonly List<Core.Foundation.Common.SubscriptionHandle> _subscriptions = new List<Core.Foundation.Common.SubscriptionHandle>();
 
+        /// <summary>
+        /// GP-PRES-04 收口新增 <paramref name="resourceLoader"/>（可选，默认 <c>null</c>）：ADR-0016
+        /// 决定首次引用资源的一方（这里是 <see cref="Presentation.VfxSfx.Core.VfxPlayer"/>/
+        /// <see cref="Presentation.VfxSfx.Core.SfxPlayer"/>）调用 <see cref="IResourceLoader.LoadAsync"/>，
+        /// 但此前本构造函数没有 <c>IResourceLoader</c> 参数，两个播放器只能拿到 <c>null</c>（见各自
+        /// 类型"仅在该依赖非空时创建 tracker"的判断记录）——`games/_template` 虽然把
+        /// <c>_host.ResourceLoader</c> 传给了 <c>SceneRouter</c>/<c>UnityViewFactory</c>，却没有传
+        /// 给本类型，导致 <c>feedback.binding</c> 里配置的 VFX/SFX 资源首次播放时不会触发加载
+        /// （见 <c>architecture/落地计划/audit-20260907/gameplay-presentation.md</c> GP-PRES-04）。
+        /// 调用方（模板/具体游戏）应传入宿主的 <c>IResourceLoader</c>，让播放器保持"首次引用加载"
+        /// 语义；不传时行为与此前完全一致（播放器内部按需回退，见 Unity 侧 <c>UnityAudio</c>/
+        /// <c>UnityRenderer2D</c> 判断记录）。
+        /// </summary>
         public PresentationAssembly(
             GameplayAssembly gameplay,
             IWorldSim world,
@@ -244,7 +257,8 @@ namespace Presentation.Assembly
             IFileSystem fileSystem,
             ISceneRouter sceneRouter,
             PresentationAssemblyOptions? options = null,
-            IRenderer3D? renderer3D = null)
+            IRenderer3D? renderer3D = null,
+            IResourceLoader? resourceLoader = null)
         {
             Gameplay = gameplay ?? throw new ArgumentNullException(nameof(gameplay));
             if (world == null) throw new ArgumentNullException(nameof(world));
@@ -313,9 +327,9 @@ namespace Presentation.Assembly
 
             var vfxPlayer = new VfxPlayer(
                 renderer2D, camera, vfxCatalog, opts.VfxOptions, anchorResolver: ViewBinder.GetAnchorWorldPosition,
-                entityPositionResolver: entityPositionResolver,
+                entityPositionResolver: entityPositionResolver, resourceLoader: resourceLoader,
                 renderer3D: renderer3D, modelHandleResolver: modelHandleResolver);
-            var sfxPlayer = new SfxPlayer(audio, rng, sfxCatalog, opts.SfxOptions);
+            var sfxPlayer = new SfxPlayer(audio, rng, sfxCatalog, opts.SfxOptions, resourceLoader: resourceLoader);
             Vfx = vfxPlayer;
             Sfx = sfxPlayer;
             WeaponStyle = new WeaponStyleResolver(weaponStyleCatalog);

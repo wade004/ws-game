@@ -43,15 +43,24 @@ namespace Core.Foundation.DisplayInfo
         /// <summary>纸娃娃分层引用列表，仅 item/creature 使用，可选，默认空列表。</summary>
         public IReadOnlyList<string> PaperdollLayers { get; }
 
-        /// <summary>挂点定义，供特效/武器/头顶信息等对齐，可选，默认空字典。</summary>
-        public IReadOnlyDictionary<string, Vec2> AnchorPoints { get; }
+        /// <summary>
+        /// 挂点定义，供特效/武器/头顶信息等对齐，可选，默认空字典；键是锚点 id 的裸名字符串（同
+        /// <see cref="AnchorDef.AnchorId"/> 的 <c>Id.Value</c>）。
+        /// <para>
+        /// GP-PRES-07 收口（09 第 3.3.1 节"锚点表"）：值类型此前是裸 <see cref="Vec2"/>（等价于
+        /// 09 表格 <c>offset</c> 一个字段），<c>parent_layer</c>（必填）与
+        /// <c>offset_by_direction</c>（可选）两个文档字段没有运行期模型落点——现在改为完整的
+        /// <see cref="AnchorDef"/>。
+        /// </para>
+        /// </summary>
+        public IReadOnlyDictionary<string, AnchorDef> AnchorPoints { get; }
 
         public SpriteInfo(
             string spriteSetId,
             int directionCount,
             IReadOnlyList<MirrorPair>? mirrorPairs = null,
             IReadOnlyList<string>? paperdollLayers = null,
-            IReadOnlyDictionary<string, Vec2>? anchorPoints = null)
+            IReadOnlyDictionary<string, AnchorDef>? anchorPoints = null)
         {
             SpriteSetId = spriteSetId;
             DirectionCount = directionCount;
@@ -60,7 +69,7 @@ namespace Core.Foundation.DisplayInfo
             AnchorPoints = anchorPoints ?? EmptyAnchorPoints;
         }
 
-        private static readonly IReadOnlyDictionary<string, Vec2> EmptyAnchorPoints =
-            new Dictionary<string, Vec2>();
+        private static readonly IReadOnlyDictionary<string, AnchorDef> EmptyAnchorPoints =
+            new Dictionary<string, AnchorDef>();
     }
 }

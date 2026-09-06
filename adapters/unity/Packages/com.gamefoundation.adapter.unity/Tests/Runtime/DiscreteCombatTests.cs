@@ -66,6 +66,17 @@ namespace Adapter.Unity.Tests.Runtime
 {
     public sealed class DiscreteCombatTests : PlayModeTestBase
     {
+        /// <summary>GP-PRES-09 收口新增：复刻 <c>Adapter.Unity.Ui.Panels.HudPanel.ShortId</c>（私有，
+        /// 不对外暴露）的同一套截断规则（取最后一个点号之后的部分），供本文件断言
+        /// <see cref="Adapter.Unity.Ui.Panels.HudPanel.TurnOrderText"/> 时定位子串，不依赖完整 Id
+        /// 文本。</summary>
+        private static string ShortIdFor(Id id)
+        {
+            var v = id.Value;
+            var idx = v.LastIndexOf('.');
+            return idx >= 0 ? v.Substring(idx + 1) : v;
+        }
+
         private const string PlayerUnitId = "unit.sample_player";
         private const string PlayerFactionId = "fac.player";
         private const string PlayerClassId = "arch.class.sample_a";
@@ -305,6 +316,14 @@ namespace Adapter.Unity.Tests.Runtime
                     observedAwaitingInput = true;
                     hud.RefreshUi();
                     Assert.IsTrue(hud.IsEndTurnButtonVisible, "轮到玩家等待输入时应显示结束回合按钮");
+
+                    // GP-PRES-09 收口回归：回合顺序条应包含全部参战者（玩家 + 示例生物），行动点
+                    // 文本应非空（HudViewModel.ActionPointsRemaining 在有当前行动者时恒有值，见
+                    // 该属性判断记录）——只在离散战斗真实进行中才有意义，本用例复用同一个已经
+                    // 驱动到"轮到玩家"这一时刻的真实 TurnScheduler，不额外搭建夹具。
+                    StringAssert.Contains(ShortIdFor(fixture.PlayerId), hud.TurnOrderText, "回合顺序条应包含玩家");
+                    StringAssert.Contains(ShortIdFor(fixture.BeastId), hud.TurnOrderText, "回合顺序条应包含示例生物");
+                    Assert.IsNotEmpty(hud.ActionPointsText, "轮到玩家时应显示行动点文本");
 
                     // 经真实点击回调（同用户点击）而不是直接调 TurnScheduler，验证
                     // UiIntents.EndTurn -> HudPanel 这条链路本身。

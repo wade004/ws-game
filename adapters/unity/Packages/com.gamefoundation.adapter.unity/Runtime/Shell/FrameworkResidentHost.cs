@@ -364,10 +364,15 @@ namespace Adapter.Unity.Shell
                 NewGameStarter = SampleNewGameStarter,
             };
 
+            // GP-PRES-04 收口（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
+            // 传入 _host.ResourceLoader，让 VfxPlayer 也具备"首次引用加载"能力——本类型此前只给
+            // SfxPlayer 配了 PreWarmSfxResources 手工预热（见该方法判断记录，ADR-0016 决策 6 的
+            // "统一预热"分支），VFX 完全没有对应机制；两者不冲突（UnityResourceLoader.LoadAsync
+            // 内部按资源 id 去重，重复调用无副作用，见 PreWarmSfxResources 判断记录）。
             var presentation = new PresentationAssembly(
                 gameplay, world, registry, _bus, presentationRng,
                 viewFactory, _host.Renderer2D, _host.Camera, _host.Audio, _host.FileSystem, sceneRouter,
-                presentationOptions);
+                presentationOptions, resourceLoader: _host.ResourceLoader);
             Presentation = presentation;
 
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);

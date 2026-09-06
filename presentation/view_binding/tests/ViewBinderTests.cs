@@ -426,7 +426,9 @@ namespace Tests.PresentationViewBinding
         // 缺口 6（IAnchorQuery）：占位英雄 hand_main 锚点在 front/side_l 两档位下的世界坐标。
         // -----------------------------------------------------------------
 
-        private static DisplayInfo MakeSpriteDisplayInfo(Id displayId, Id logicalId, Vec2 handMainOffset)
+        private static DisplayInfo MakeSpriteDisplayInfo(
+            Id displayId, Id logicalId, Vec2 handMainOffset,
+            IReadOnlyDictionary<Id, Vec2>? handMainOffsetByDirection = null)
         {
             var mirrorPairs = new List<MirrorPair>
             {
@@ -434,7 +436,10 @@ namespace Tests.PresentationViewBinding
                 new MirrorPair(DirectionSlots.FrontSideL, DirectionSlots.FrontSideR, flipX: true),
                 new MirrorPair(DirectionSlots.BackSideL, DirectionSlots.BackSideR, flipX: true),
             };
-            var anchorPoints = new Dictionary<string, Vec2> { ["hand_main"] = handMainOffset };
+            var anchorPoints = new Dictionary<string, AnchorDef>
+            {
+                ["hand_main"] = new AnchorDef("layer.hand", handMainOffset, handMainOffsetByDirection)
+            };
             var sprite = new SpriteInfo("sprite.placeholder_hero", directionCount: 8, mirrorPairs, paperdollLayers: null, anchorPoints: anchorPoints);
             return new DisplayInfo(
                 displayId, DisplayCategory.Creature, logicalId, DisplayKind.Sprite,
@@ -475,6 +480,43 @@ namespace Tests.PresentationViewBinding
             Assert.NotNull(sideL);
             Assert.Equal(10 - handMainOffset.X, sideL!.Value.X, 6);
             Assert.Equal(20 + handMainOffset.Y, sideL.Value.Y, 6);
+        }
+
+        /// <summary>GP-PRES-07 收口回归：<c>offset_by_direction</c> 命中方向槽位时应覆盖默认
+        /// offset，未命中方向仍回退默认值——用同一个实体、同一个锚点，front（默认）与 side_r
+        /// （显式覆盖）两个方向分别断言 <see cref="IAnchorQuery.GetAnchorWorldPosition"/> 返回的
+        /// 世界坐标。</summary>
+        [Fact]
+        public void GetAnchorWorldPosition_OffsetByDirection_OverridesForMatchingSlot_FallsBackOtherwise()
+        {
+            var (world, bus) = BuildWorld();
+            var binder = BuildBinder(world, bus, out _, out var displayInfo);
+
+            var logicalId = new Id("creature.sample_hero");
+            var defaultOffset = new Vec2(1.1875, 1.8125);
+            var sideROverrideOffset = new Vec2(2.5, 0.25);
+            displayInfo.Add(MakeSpriteDisplayInfo(
+                new Id("display.map.sample_hero"), logicalId, defaultOffset,
+                handMainOffsetByDirection: new Dictionary<Id, Vec2> { [DirectionSlots.SideR] = sideROverrideOffset }));
+
+            var entity = new TestEntity(new Id("unit.anchor_hero_direction_override"), MapId) { Position = new Vec2(10, 20), TemplateId = logicalId };
+            world.AddEntity(entity);
+            world.Tick(SimStep.Continuous(0.016));
+
+            // front：量化索引 2，没有覆盖值，回退默认 offset（同上一条用例）。
+            entity.Facing = Math.PI / 2;
+            var front = binder.GetAnchorWorldPosition(entity.EntityId, new Id("anchor.hand_main"));
+            Assert.NotNull(front);
+            Assert.Equal(10 + defaultOffset.X, front!.Value.X, 6);
+            Assert.Equal(20 + defaultOffset.Y, front.Value.Y, 6);
+
+            // side_r：量化索引 4（180°），命中 offset_by_direction 覆盖值，不镜像（side_r 本身是
+            // 原创绘制档位，不是 _l 档位，见 DirectionSlots 类型注释）。
+            entity.Facing = Math.PI;
+            var sideR = binder.GetAnchorWorldPosition(entity.EntityId, new Id("anchor.hand_main"));
+            Assert.NotNull(sideR);
+            Assert.Equal(10 + sideROverrideOffset.X, sideR!.Value.X, 6);
+            Assert.Equal(20 + sideROverrideOffset.Y, sideR.Value.Y, 6);
         }
 
         [Fact]

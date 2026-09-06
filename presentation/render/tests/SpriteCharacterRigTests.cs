@@ -11,7 +11,7 @@ namespace Tests.PresentationRender
 {
     public class SpriteCharacterRigTests
     {
-        private static DisplayInfo MakeDisplayInfo(IReadOnlyDictionary<string, Vec2>? anchors = null) =>
+        private static DisplayInfo MakeDisplayInfo(IReadOnlyDictionary<string, AnchorDef>? anchors = null) =>
             new DisplayInfo(
                 new Id("display.hero"), DisplayCategory.Creature, new Id("creature.hero"), DisplayKind.Sprite,
                 null, null, null, 1.0, Core.Foundation.DisplayInfo.ShadowMode.Blob, 0.0, null,
@@ -19,7 +19,7 @@ namespace Tests.PresentationRender
 
         private static SpriteCharacterRig MakeRig(
             StubRenderer2D renderer, Core.Foundation.EngineAdapter.SpriteHandle handle,
-            IReadOnlyDictionary<string, Vec2>? anchors = null, IFrameAnimPlayer? frameAnimPlayer = null,
+            IReadOnlyDictionary<string, AnchorDef>? anchors = null, IFrameAnimPlayer? frameAnimPlayer = null,
             RenderOptions? options = null) =>
             new SpriteCharacterRig(
                 new Id("unit.hero_1"), renderer, handle, new RenderConventionHost(), MakeDisplayInfo(anchors),
@@ -68,7 +68,7 @@ namespace Tests.PresentationRender
         {
             var renderer = new StubRenderer2D();
             var handle = renderer.CreateSpriteInstance(new Id("sprite.creature.hero"));
-            var anchors = new Dictionary<string, Vec2> { ["hand_main"] = new Vec2(1.0, 0.5) };
+            var anchors = new Dictionary<string, AnchorDef> { ["hand_main"] = new AnchorDef("layer.hand", new Vec2(1.0, 0.5)) };
             var rig = MakeRig(renderer, handle, anchors);
 
             // 角度 90 度 → front 档位（不镜像，见 render/README 索引→档位对应表）。
@@ -82,7 +82,7 @@ namespace Tests.PresentationRender
         {
             var renderer = new StubRenderer2D();
             var handle = renderer.CreateSpriteInstance(new Id("sprite.creature.hero"));
-            var anchors = new Dictionary<string, Vec2> { ["hand_main"] = new Vec2(1.0, 0.5) };
+            var anchors = new Dictionary<string, AnchorDef> { ["hand_main"] = new AnchorDef("layer.hand", new Vec2(1.0, 0.5)) };
             var rig = MakeRig(renderer, handle, anchors);
 
             // 角度 45 度 → front_side_l（量化索引 1，见 render/README 索引→档位对应表）：_l 档位
@@ -91,6 +91,32 @@ namespace Tests.PresentationRender
             var result = rig.ResolveAnchorLocalOffset(new Id("anchor.hand_main"), Direction.FromQuantized(Math.PI / 4, 8));
 
             Assert.Equal(new Vec2(-1.0, 0.5), result);
+        }
+
+        /// <summary>GP-PRES-07 收口回归：<c>offset_by_direction</c> 命中时应覆盖默认
+        /// <c>offset</c>，未命中的方向仍回退默认值——用同一个锚点配置 front（默认）与 side_r
+        /// （覆盖）两套 offset，分别断言两个方向解析出不同的世界/本地坐标。</summary>
+        [Fact]
+        public void ResolveAnchorLocalOffset_OffsetByDirection_OverridesDefaultOffset_ForMatchingSlotOnly()
+        {
+            var renderer = new StubRenderer2D();
+            var handle = renderer.CreateSpriteInstance(new Id("sprite.creature.hero"));
+            var anchors = new Dictionary<string, AnchorDef>
+            {
+                ["hand_main"] = new AnchorDef(
+                    "layer.hand", new Vec2(1.0, 0.5),
+                    offsetByDirection: new Dictionary<Id, Vec2> { [new Id("dir.side_r")] = new Vec2(3.0, 0.5) })
+            };
+            var rig = MakeRig(renderer, handle, anchors);
+
+            // 角度 90 度 → front 档位：没有覆盖值，回退默认 offset。
+            var frontResult = rig.ResolveAnchorLocalOffset(new Id("anchor.hand_main"), Direction.FromQuantized(Math.PI / 2, 8));
+            Assert.Equal(new Vec2(1.0, 0.5), frontResult);
+
+            // 角度 180 度 → side_r 档位（量化索引 4，见 render/README 索引→档位对应表）：命中
+            // offset_by_direction 覆盖值，不镜像（side_r 本身是原创绘制档位，不是 _l 档位）。
+            var sideResult = rig.ResolveAnchorLocalOffset(new Id("anchor.hand_main"), Direction.FromQuantized(Math.PI, 8));
+            Assert.Equal(new Vec2(3.0, 0.5), sideResult);
         }
 
         [Fact]

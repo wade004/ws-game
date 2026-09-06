@@ -45,6 +45,10 @@ namespace Adapters.Stub
         public readonly Dictionary<int, Dictionary<string, double>> ShaderParams = new Dictionary<int, Dictionary<string, double>>();
         public readonly Dictionary<int, (Id EffectId, Vec2 Position)> EmittedParticles = new Dictionary<int, (Id, Vec2)>();
 
+        /// <summary>GP-PRES-05 收口新增：记录每个句柄最近一次 <see cref="SetShadow"/> 的模式，供
+        /// 测试断言。</summary>
+        public readonly Dictionary<int, ShadowMode> Shadows = new Dictionary<int, ShadowMode>();
+
         public SpriteHandle CreateSpriteInstance(Id spriteSetId)
         {
             var handle = new SpriteHandle(_nextSpriteHandle++);
@@ -75,6 +79,12 @@ namespace Adapters.Stub
             }
 
             parameters[paramName] = value;
+        }
+
+        public void SetShadow(SpriteHandle handle, ShadowMode mode)
+        {
+            EnsureSpriteAlive(handle);
+            Shadows[handle.Value] = mode;
         }
 
         public void DestroySpriteInstance(SpriteHandle handle)

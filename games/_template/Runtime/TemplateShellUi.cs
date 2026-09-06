@@ -22,6 +22,11 @@ namespace Game.Template
     {
         private static readonly Id DefaultSaveSlotId = new Id("game.template.slot_1");
 
+        /// <summary>GP-PRES-08 收口：shell_menu_definition 的入口缺 text_key（或表整体为空）时
+        /// 的本地化兜底 key——复用 data/game/l10n/l10n.text.json 已登记的
+        /// l10n.shell.template_new_game 一行，语义上就是同一个"开始游戏"动作，不新造第二份文案。</summary>
+        private static readonly Id FallbackNewGameTextKey = new Id("l10n.shell.template_new_game");
+
         public GameBootstrap Bootstrap { get; private set; } = null!;
 
         private UiRoot _uiRoot = null!;
@@ -51,7 +56,13 @@ namespace Game.Template
             _mainMenuRoot = UiWidgets.CreatePanelBackground("MainMenu", _uiRoot.Content, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(320f, 220f), Vector2.zero);
             var list = UiWidgets.CreateVerticalList("List", _mainMenuRoot, 8f);
             UiWidgets.SetRect(list, Vector2.zero, Vector2.one, new Vector2(14, 14), new Vector2(-14, -14));
-            UiWidgets.CreateLabel("Title", list, "<game> 示例主菜单", 20);
+            // GP-PRES-08 收口（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
+            // 标题此前硬编码中文字符串，绕开了 09 第 7.3 节"面向玩家文案一律经本地化表"的铁律。
+            // 改经 l10n.text（见 data/game/l10n/l10n.text.json 的 l10n.shell.template_main_menu_title
+            // 一行）——L10n.Text 对缺失 key 有既定的兜底策略（记诊断 + 占位文本，不抛异常，见
+            // IL10nHost.Text 判断记录），复制本模板到新游戏时若忘记补这一行 key，标题会显示为
+            // 可诊断的占位符而不是静默显示错误语言/硬编码文案。
+            UiWidgets.CreateLabel("Title", list, Bootstrap.Presentation.L10n.Text(new Id("l10n.shell.template_main_menu_title")), 20);
 
             // 数据驱动：菜单入口读自 shell_menu_definition 表（见模板 data/game/shell/
             // shell_menu_definition.json 的最小示例，只登记 new_game 一条），不是硬编码按钮——
@@ -66,16 +77,22 @@ namespace Game.Template
                     if (!entryObj.TryGetValue("action", out var actionVal) || !(actionVal is JsonString actionStr)) continue;
                     if (actionStr.Value != "new_game") continue; // 最小闭环只处理"新游戏"这一种入口。
 
+                    // GP-PRES-08 收口：text_key 缺失/为空时此前直接硬编码"开始游戏"，绕开本地化——
+                    // 改用同一个已登记的 l10n.shell.template_new_game 兜底 key（data/game/l10n/
+                    // l10n.text.json 已有该行），仍然经 L10n.Text 出文案，不再有任何硬编码产品
+                    // 文案分支；两个分支现在统一走同一条本地化通道，唯一差别是 key 来源。
                     var textKeyStr = entryObj.TryGetValue("text_key", out var tk) && tk is JsonString tks ? tks.Value : "";
-                    var label = string.IsNullOrEmpty(textKeyStr) ? "开始游戏" : Bootstrap.Presentation.L10n.Text(new Id(textKeyStr));
+                    var textKey = string.IsNullOrEmpty(textKeyStr) ? FallbackNewGameTextKey : new Id(textKeyStr);
+                    var label = Bootstrap.Presentation.L10n.Text(textKey);
                     UiWidgets.CreateButton($"Entry_{i}", list, label, OnNewGameClicked);
                 }
             }
             else
             {
-                // shell_menu_definition 表为空/未登记时的兜底：仍然给一个可点的"开始游戏"按钮，
-                // 保证"最小闭环不依赖任何具体数据行才能进图"这一验收前提始终成立。
-                UiWidgets.CreateButton("Entry_Fallback", list, "开始游戏", OnNewGameClicked);
+                // shell_menu_definition 表为空/未登记时的兜底：仍然给一个可点的按钮，保证"最小闭环
+                // 不依赖任何具体数据行才能进图"这一验收前提始终成立——GP-PRES-08 收口：文案同样经
+                // L10n.Text 出（同 FallbackNewGameTextKey），不再硬编码。
+                UiWidgets.CreateButton("Entry_Fallback", list, Bootstrap.Presentation.L10n.Text(FallbackNewGameTextKey), OnNewGameClicked);
             }
         }
 

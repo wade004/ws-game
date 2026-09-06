@@ -105,6 +105,28 @@ namespace Presentation.Ui
         /// <summary>当前轮次（未启用回合制时恒为 0）。</summary>
         public int RoundIndex { get; private set; }
 
+        /// <summary>
+        /// GP-PRES-09 收口新增（09 第 7.1 节"回合顺序条（仅离散模式）"）：完整的、稳定排序后的
+        /// 行动顺序快照（<see cref="Core.Foundation.SimLoop.TurnScheduler.GetOrder"/> 只读转发），
+        /// 未启用离散模式（<see cref="IsTurnBased"/> 为 <c>false</c>）时恒为空列表。此前
+        /// <see cref="CurrentActorId"/>/<see cref="RoundIndex"/>/<see cref="CanEndTurn"/> 三个字段
+        /// 只覆盖"当前行动者/轮次/能否结束回合"，玩家看不到完整队列——见
+        /// <c>architecture/落地计划/audit-20260907/gameplay-presentation.md</c> GP-PRES-09。
+        /// </summary>
+        public IReadOnlyList<Id> TurnOrder { get; private set; } = Array.Empty<Id>();
+
+        /// <summary>
+        /// GP-PRES-09 收口新增（09 第 7.1 节"行动点显示（仅离散模式且启用 action_points 先攻
+        /// 策略）"）：当前行动者本轮剩余行动点（<see cref="Core.Foundation.SimLoop.TurnScheduler.GetActionPointsRemaining"/>
+        /// 只读转发）。未启用离散模式，或当前没有行动者（<see cref="CurrentActorId"/> 为
+        /// <c>null</c>）时恒为 0——账本现在无条件为全部参与者维护（不区分先攻策略，见
+        /// <c>TurnScheduler.TryConsumeActionPoints</c> 判断记录），因此本属性在 <c>fixed_order</c>/
+        /// <c>initiative_stat</c> 策略下同样有意义；是否要在 UI 上展示（09 文档字面只要求
+        /// <c>action_points</c> 策略下展示）由具体游戏的面板实现按策略自行取舍，本视图模型只负责
+        /// 提供数据，不做策略过滤。
+        /// </summary>
+        public double ActionPointsRemaining { get; private set; }
+
         /// <summary>是否应展示"结束回合"意图入口——语义与原 <c>TurnStatusPanel</c> 的按钮可见性
         /// 完全一致（应用状态当前子态等于 <c>awaitingInputSubState</c>），不额外附加"当前行动者是
         /// 玩家"这条件：是否真的轮到玩家由 <see cref="UiIntents.EndTurn"/> 把关，本属性只表达
@@ -180,6 +202,10 @@ namespace Presentation.Ui
 
             CurrentActorId = _turnScheduler?.GetCurrentActor();
             RoundIndex = _turnScheduler?.RoundIndex ?? 0;
+            TurnOrder = _turnScheduler?.GetOrder() ?? Array.Empty<Id>();
+            ActionPointsRemaining = CurrentActorId.HasValue
+                ? _turnScheduler!.GetActionPointsRemaining(CurrentActorId.Value)
+                : 0.0;
             CanEndTurn = _appState != null && _awaitingInputSubState.HasValue &&
                 _appState.CurrentSubState.HasValue &&
                 _appState.CurrentSubState.Value.Equals(_awaitingInputSubState.Value);

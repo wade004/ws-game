@@ -73,6 +73,19 @@ namespace Core.Foundation.EngineAdapter
         /// </summary>
         void SetShaderParam(SpriteHandle handle, string paramName, double value);
 
+        /// <summary>
+        /// GP-PRES-05 收口新增（09 第 3.4 节"每个可见单位默认携带一个地面投影影子"）：设置该 sprite
+        /// 实例的地面影子呈现模式，与 <see cref="IRenderer3D.SetShadow"/> 共享同一个
+        /// <see cref="ShadowMode"/> 枚举、同样的语义——影子锚定在逻辑平面坐标（<see cref="SetTransform"/>
+        /// 的 <c>position</c>，不随 <c>height</c> 偏移，见该方法参数注释"不平移影子"）。
+        /// <see cref="ShadowMode.Projected"/> 在纯 2D 渲染管线下允许降级为
+        /// <see cref="ShadowMode.Blob"/>（09 明确 model 路线的投影阴影是可选能力，sprite 路线未
+        /// 强制要求真正的投影阴影几何），降级时实现应记诊断，不静默；不是必需接口的实现可以直接
+        /// 忽略本调用（no-op），但不应该抛异常——"没有影子"本身也是 <see cref="ShadowMode.None"/>
+        /// 的合法表现。
+        /// </summary>
+        void SetShadow(SpriteHandle handle, ShadowMode mode);
+
         void DestroySpriteInstance(SpriteHandle handle);
 
         ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters);

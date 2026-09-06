@@ -102,11 +102,21 @@ namespace Presentation.Ui
             _worldSim.SubmitIntent(new Intent(_playerId, "cast", builder.Build()));
         }
 
+        /// <summary>
+        /// GP-PRES-02 收口（<c>architecture/落地计划/audit-20260907/gameplay-presentation.md</c>）：
+        /// 参数键改为 <c>dx</c>/<c>dy</c>，与 <see cref="Core.Carriers.Unit.MovementHost.Request"/>
+        /// 内部方向移动编码、<c>MovementTickHandler.TryReadDirection</c> 的实际读取键一致（此前本方法
+        /// 手写 <c>dir_x</c>/<c>dir_y</c>，与消费端字段名不一致，移动处理器读不到方向、按"缺失
+        /// target/direction 参数"的诊断分支忽略整条意图，位置恒不变——该错误只影响本便利 API，不
+        /// 影响模板默认键盘路径，因为那条路径走的是 <see cref="Core.Carriers.Unit.MovementHost.Request"/>
+        /// 而不是本方法，见类型顶部审计记录）。窄契约统一为 <c>dx</c>/<c>dy</c> 一套，不新增第三套
+        /// 字段名。
+        /// </summary>
         public void Move(Vec2 direction)
         {
             var args = new JsonObjectBuilder()
-                .Add("dir_x", new JsonNumber(direction.X))
-                .Add("dir_y", new JsonNumber(direction.Y))
+                .Add("dx", new JsonNumber(direction.X))
+                .Add("dy", new JsonNumber(direction.Y))
                 .Build();
             _worldSim.SubmitIntent(new Intent(_playerId, "move", args));
         }

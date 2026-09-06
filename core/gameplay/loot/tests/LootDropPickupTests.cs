@@ -320,5 +320,103 @@ namespace Tests.Gameplay.Loot
             var newLootId = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), items);
             Assert.NotEqual(lootId, newLootId);
         }
+
+        // -----------------------------------------------------------------
+        // GP-PRES-01 收口回归（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
+        // 读档恢复的地面掉落在 ISceneRouter.LoadScene 触发 IWorldSim.ClearAll 时被清空——LootHost
+        // 自己的跟踪表（_dropped/_order）不受 ClearAll 影响，但 IWorldSim 侧的实体已经不在了。
+        // 下面三条用例直接模拟"读档 → ClearAll（场景切换）→ ReattachToWorld（post-load 钩子）"
+        // 这条真实链路，不依赖 Presentation/Unity。
+        // -----------------------------------------------------------------
+
+        /// <summary>核心回归：Drop（模拟"读档恢复出一件掉落物，此刻仍在世界里"）→ ClearAll（模拟
+        /// 场景切换）→ 断言 IWorldSim 侧已经找不到该实体（复现 GP-PRES-01 的清空现象）→
+        /// ReattachToWorld → 断言实体重新出现在 IWorldSim 里，且位置/物品/OwnerHint/ExpireAt 与
+        /// 清空前一致。</summary>
+        [Fact]
+        public void ReattachToWorld_AfterWorldClearAll_RestoresDroppedLootIntoWorld()
+        {
+            var f = NewFixture(SingleChanceTable, new LootOptions { DefaultLifetime = 100 });
+            var mapId = new Id("map.sample_1");
+            var items = new[] { new ItemStack(new Id("item.sample_ore"), 3) };
+            var lootId = f.Host.Drop(mapId, new Vec2(2, 3), items, ownerHint: new Id("player.sample_owner"));
+
+            Assert.NotNull(f.World.GetEntity(lootId)); // 清空前：确实在世界里。
+
+            f.World.ClearAll();
+            Assert.Null(f.World.GetEntity(lootId)); // 复现 GP-PRES-01：ClearAll 后从 IWorldSim 消失。
+            Assert.Contains(lootId, f.Host.ActiveLootIds); // 但 LootHost 自己的跟踪表不受影响。
+
+            f.Host.ReattachToWorld(mapId);
+
+            var reattached = f.World.GetEntity(lootId);
+            Assert.NotNull(reattached);
+            var restored = Assert.IsType<DroppedLootEntity>(reattached);
+            Assert.Equal(new Vec2(2, 3), restored.Position);
+            Assert.Single(restored.Items);
+            Assert.Equal(3, restored.Items[0].Count);
+            Assert.Equal(new Id("player.sample_owner"), restored.OwnerHint);
+            Assert.Equal(100.0, restored.ExpireAt);
+        }
+
+        /// <summary>只重接属于目标地图的掉落物：属于另一张地图的记录不应该被塞进当前正在激活的
+        /// <see cref="IWorldSim"/>（见 <see cref="LootHost.ReattachToWorld"/> 判断记录"按 mapId
+        /// 过滤"）。</summary>
+        [Fact]
+        public void ReattachToWorld_OnlyReattachesEntitiesForGivenMap()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var mapA = new Id("map.sample_1");
+            var mapB = new Id("map.sample_2");
+            var items = new[] { new ItemStack(new Id("item.sample_ore"), 1) };
+
+            var lootA = f.Host.Drop(mapA, new Vec2(0, 0), items);
+            var lootB = f.Host.Drop(mapB, new Vec2(1, 1), items);
+
+            f.World.ClearAll();
+            Assert.Null(f.World.GetEntity(lootA));
+            Assert.Null(f.World.GetEntity(lootB));
+
+            f.Host.ReattachToWorld(mapA);
+
+            Assert.NotNull(f.World.GetEntity(lootA));
+            Assert.Null(f.World.GetEntity(lootB)); // 另一张地图的掉落物不应被带回当前世界。
+        }
+
+        /// <summary>幂等：连续调用两次（例如同一张地图反复触发 post-load 钩子）不应抛"实体 id 重复"
+        /// 异常，也不应产生重复条目。</summary>
+        [Fact]
+        public void ReattachToWorld_CalledTwice_IsIdempotent_DoesNotThrow()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var mapId = new Id("map.sample_1");
+            var items = new[] { new ItemStack(new Id("item.sample_ore"), 1) };
+            var lootId = f.Host.Drop(mapId, new Vec2(0, 0), items);
+
+            f.World.ClearAll();
+            f.Host.ReattachToWorld(mapId);
+
+            var ex = Record.Exception(() => f.Host.ReattachToWorld(mapId));
+            Assert.Null(ex);
+            Assert.NotNull(f.World.GetEntity(lootId));
+            Assert.Single(f.Host.ActiveLootIds);
+        }
+
+        /// <summary>首次进图（从未发生过 ClearAll）时调用应是安全的空操作：实体本就在世界里，
+        /// <see cref="LootHost.ReattachToWorld"/> 跳过已存在的实体，不抛异常。</summary>
+        [Fact]
+        public void ReattachToWorld_WhenEntityStillInWorld_IsNoOp()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var mapId = new Id("map.sample_1");
+            var items = new[] { new ItemStack(new Id("item.sample_ore"), 1) };
+            var lootId = f.Host.Drop(mapId, new Vec2(5, 5), items);
+
+            var ex = Record.Exception(() => f.Host.ReattachToWorld(mapId));
+            Assert.Null(ex);
+
+            var entity = Assert.IsType<DroppedLootEntity>(f.World.GetEntity(lootId));
+            Assert.Equal(new Vec2(5, 5), entity.Position);
+        }
     }
 }

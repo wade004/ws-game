@@ -87,6 +87,113 @@ namespace Tests.PresentationUi
             Assert.Equal("move", submitted.Kind);
         }
 
+        /// <summary>GP-PRES-02 收口回归：断言 <see cref="UiIntents.Move"/> 提交的参数键就是
+        /// <c>dx</c>/<c>dy</c>（<c>Core.Carriers.Unit.MovementTickHandler.TryReadDirection</c>
+        /// 实际读取的键）——不只是断言 <c>Kind</c>，此前的测试恰恰因为只断言了 <c>Kind</c> 才没能
+        /// 发现字段名错误（<c>dir_x</c>/<c>dir_y</c> 与消费端不一致，见
+        /// <c>architecture/落地计划/audit-20260907/gameplay-presentation.md</c> GP-PRES-02）。</summary>
+        [Fact]
+        public void Move_submits_dx_dy_argument_keys_matching_MovementTickHandler_contract()
+        {
+            var intents = Build(out var worldSim, out _, out _, out _, out _, out _, out _, out _, out _);
+
+            intents.Move(new Core.Foundation.Common.Vec2(3, 4));
+
+            var submitted = Assert.Single(worldSim.SubmittedIntents);
+            Assert.True(submitted.Args.TryGetValue("dx", out var dxValue));
+            Assert.True(submitted.Args.TryGetValue("dy", out var dyValue));
+            Assert.Equal(3, ((Core.Foundation.Common.Json.JsonNumber)dxValue).Value);
+            Assert.Equal(4, ((Core.Foundation.Common.Json.JsonNumber)dyValue).Value);
+            Assert.False(submitted.Args.ContainsKey("dir_x"));
+            Assert.False(submitted.Args.ContainsKey("dir_y"));
+        }
+
+        /// <summary>GP-PRES-02 收口的端到端证据：<see cref="UiIntents.Move"/> 提交的意图真的经
+        /// <c>Core.Carriers.Unit.MovementTickHandler</c> 让单位移动了——不是只断言参数键存在，而是
+        /// 跑一次真实的 <c>WorldSim.Tick</c>，断言位置按预期位移。此前的 bug（<c>dir_x</c>/<c>dir_y</c>）
+        /// 会让 <c>TryReadDirection</c> 读不到任何方向，<c>ApplyIntent</c> 落入"缺少 target/direction"
+        /// 诊断分支直接忽略，位置恒不变——本用例正是覆盖这条此前完全没有测试触达的路径。</summary>
+        [Fact]
+        public void Move_EndToEnd_ThroughMovementTickHandler_DisplacesUnitPosition()
+        {
+            var playerId = new Id("unit.hero");
+            var mapId = new Id("map.ui_intents_test");
+            var factionId = new Id("fac.player");
+            var archetypeId = new Id("arch.class.sample");
+            const double moveSpeed = 10.0;
+
+            var bus = new Core.Foundation.EventBus.EventBus(
+                Core.Foundation.EventBus.EventCatalog.FromDefinitions(System.Array.Empty<Core.Foundation.EventBus.EventDefinition>()),
+                new Core.Foundation.EventBus.EventBusOptions { StrictCatalog = false });
+
+            var world = new Core.Foundation.SimLoop.WorldSim(bus);
+            var player = new Core.Carriers.Unit.PlayerUnit(playerId, mapId, factionId, archetypeId)
+            {
+                Position = Core.Foundation.Common.Vec2.Zero,
+            };
+            world.AddEntity(player);
+
+            var stats = new MoveSpeedOnlyStatHost(moveSpeed);
+            var auras = new NoControlFlagsAuraQuery();
+            var movementHost = new Core.Carriers.Unit.MovementHost(world);
+            var handler = new Core.Carriers.Unit.MovementTickHandler(
+                new Core.Carriers.Unit.WorldUnitAccess(world), stats, auras, movementHost, bus);
+            world.RegisterPhaseHandler(Core.Foundation.SimLoop.TickPhase.MovementAndNavigation, handler);
+
+            // UiIntents.Move 本身只依赖 IWorldSim.SubmitIntent（构造函数第二参）——直接把真实
+            // WorldSim 传进去，让"UI 提交意图"与"移动处理器消费意图"共用同一个 WorldSim 实例；
+            // 其余依赖（equipment/quest/dialog/...）本用例不会触达 Move 之外的任何方法，用与
+            // Build() 同一套测试假实现即可。
+            var intents = new UiIntents(
+                playerId, world, new FakeEquipmentHost(), new FakeQuestHost(), new FakeDialogHost(),
+                new FakeEconomyHost(), new FakeInputMapHost(),
+                new FakeL10nHost(new Id("l10n.en_us"), new[] { new Id("l10n.en_us") }),
+                new AppStateHost(TestSupport.BuildEventBus()), new FakeAudioLayerVolumeHost(),
+                new Core.Carriers.Unit.SkillBindingHost(TestSupport.BuildEventBus(), (_, __) => true));
+
+            intents.Move(new Core.Foundation.Common.Vec2(1, 0)); // 单位向量，向 +X 移动。
+
+            world.Tick(Core.Foundation.SimLoop.SimStep.Continuous(0.5)); // 0.5s * 10 units/s = 5.0
+
+            var position = new Core.Carriers.Unit.WorldUnitAccess(world).GetPosition(playerId);
+            Assert.Equal(5.0, position.X, 3);
+            Assert.Equal(0.0, position.Y, 3);
+        }
+
+        /// <summary>最小 <c>IStatHost</c> 假实现：<c>MovementTickHandler</c> 只调用
+        /// <see cref="GetStat"/>（见其源码），其余成员本用例不会触达，抛异常以便一旦被意外调用能
+        /// 立即暴露（不是静默返回错误值）。</summary>
+        private sealed class MoveSpeedOnlyStatHost : Core.Numbers.StatBlock.IStatHost
+        {
+            private readonly double _moveSpeed;
+            public MoveSpeedOnlyStatHost(double moveSpeed) => _moveSpeed = moveSpeed;
+
+            public double GetStat(Id unitId, Id stat) => _moveSpeed;
+
+            public void RegisterUnit(Id unitId) => throw new System.NotSupportedException();
+            public void UnregisterUnit(Id unitId) => throw new System.NotSupportedException();
+            public bool IsRegistered(Id unitId) => throw new System.NotSupportedException();
+            public void SetBase(Id unitId, Id stat, double value) => throw new System.NotSupportedException();
+            public double GetBase(Id unitId, Id stat) => throw new System.NotSupportedException();
+            public void AddModifier(Id unitId, Core.Numbers.StatBlock.StatModifier modifier) => throw new System.NotSupportedException();
+            public void RemoveModifiersBySource(Id unitId, Id sourceId) => throw new System.NotSupportedException();
+            public System.Collections.Generic.IReadOnlyList<Core.Numbers.StatBlock.StatModifier> GetModifiers(Id unitId, Id stat) => throw new System.NotSupportedException();
+        }
+
+        /// <summary>最小 <c>IAuraQuery</c> 假实现：<c>MovementTickHandler</c> 只调用
+        /// <see cref="GetControlFlags"/>（判断是否被禁锢，见其源码），本用例的单位从不带任何光环，
+        /// 恒返回 <c>ControlFlags.None</c>。</summary>
+        private sealed class NoControlFlagsAuraQuery : Core.Rules.Common.IAuraQuery
+        {
+            public Core.Rules.Common.ControlFlags GetControlFlags(Id unitId) => Core.Rules.Common.ControlFlags.None;
+
+            public bool HasAura(Id unitId, Id auraDefId) => false;
+            public int GetStacks(Id unitId, Id auraDefId) => 0;
+            public bool IsImmune(Id unitId, Id school, Core.Rules.Common.EffectKind kind) => false;
+            public double ConsumeAbsorb(Id unitId, Id school, double amount) => 0;
+            public System.Collections.Generic.IReadOnlyList<Id> GetActiveAuraDefs(Id unitId) => System.Array.Empty<Id>();
+        }
+
         [Fact]
         public void Equip_calls_equipment_host_directly_not_via_submit_intent()
         {

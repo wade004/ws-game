@@ -172,13 +172,13 @@ namespace Core.Foundation.DisplayInfo
                 paperdollLayers = list;
             }
 
-            IReadOnlyDictionary<string, Vec2>? anchorPoints = null;
+            IReadOnlyDictionary<string, AnchorDef>? anchorPoints = null;
             if (record.TryGetObject("anchor_points", out var anchorObj))
             {
-                var dict = new Dictionary<string, Vec2>();
+                var dict = new Dictionary<string, AnchorDef>();
                 foreach (var kv in anchorObj)
                 {
-                    dict[kv.Key] = ParseVec2(record, "anchor_points", kv.Value);
+                    dict[kv.Key] = ParseAnchorDef(record, kv.Key, kv.Value);
                 }
                 anchorPoints = dict;
             }
@@ -249,6 +249,66 @@ namespace Core.Foundation.DisplayInfo
                 return new Vec2(xn.Value, yn.Value);
             }
             throw new DataFieldException(record.Table.Name, record.Key, field, "期望 Vec2（{\"x\": Number, \"y\": Number}）");
+        }
+
+        /// <summary>
+        /// GP-PRES-07 收口新增：把 <c>anchor_points.&lt;anchorName&gt;</c> 对应的值解析为一个
+        /// <see cref="AnchorDef"/>（09 第 3.3.1 节锚点表：<c>parent_layer</c>/<c>offset</c> 必填，
+        /// <c>offset_by_direction</c> 可选）。<paramref name="anchorName"/> 就是
+        /// <see cref="SpriteInfo.AnchorPoints"/> 字典的键，同时也是本对象的
+        /// <see cref="AnchorDef.AnchorId"/>。
+        /// </summary>
+        private static AnchorDef ParseAnchorDef(DataRecord record, string anchorName, JsonValue value)
+        {
+            const string field = "anchor_points";
+
+            if (!(value is JsonObject anchorObj))
+            {
+                throw new DataFieldException(record.Table.Name, record.Key, field,
+                    $"锚点 \"{anchorName}\" 的值必须是对象（{{\"parent_layer\": String, \"offset\": Vec2, \"offset_by_direction\"?: Map<Id,Vec2>}}）");
+            }
+
+            // parent_layer 引用 SpriteInfo.PaperdollLayers 的一个元素，那份列表本身是裸字符串
+            // （不要求点分 Id 格式，见 AnchorDef.ParentLayer 判断记录），因此这里同样只要求非空
+            // 字符串，不额外收紧成 Id 格式。
+            if (!anchorObj.TryGetValue("parent_layer", out var parentLayerRaw) || !(parentLayerRaw is JsonString parentLayerStr)
+                || string.IsNullOrEmpty(parentLayerStr.Value))
+            {
+                throw new DataFieldException(record.Table.Name, record.Key, field,
+                    $"锚点 \"{anchorName}\" 缺少合法的 parent_layer（必填，非空字符串）");
+            }
+            var parentLayer = parentLayerStr.Value;
+
+            if (!anchorObj.TryGetValue("offset", out var offsetRaw))
+            {
+                throw new DataFieldException(record.Table.Name, record.Key, field,
+                    $"锚点 \"{anchorName}\" 缺少必填字段 offset");
+            }
+            var offset = ParseVec2(record, field, offsetRaw);
+
+            IReadOnlyDictionary<Id, Vec2>? offsetByDirection = null;
+            if (anchorObj.TryGetValue("offset_by_direction", out var obdRaw) && !(obdRaw is JsonNull))
+            {
+                if (!(obdRaw is JsonObject obdObj))
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, field,
+                        $"锚点 \"{anchorName}\" 的 offset_by_direction 必须是对象（Map<Id,Vec2>）");
+                }
+
+                var dict = new Dictionary<Id, Vec2>();
+                foreach (var kv in obdObj)
+                {
+                    if (!Id.TryParse(kv.Key, out var directionSlotId))
+                    {
+                        throw new DataFieldException(record.Table.Name, record.Key, field,
+                            $"锚点 \"{anchorName}\" 的 offset_by_direction 键 \"{kv.Key}\" 不是合法的 Id");
+                    }
+                    dict[directionSlotId] = ParseVec2(record, field, kv.Value);
+                }
+                offsetByDirection = dict;
+            }
+
+            return new AnchorDef(parentLayer, offset, offsetByDirection);
         }
     }
 }

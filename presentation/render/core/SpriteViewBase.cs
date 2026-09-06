@@ -124,6 +124,13 @@ namespace Presentation.Render
             var spriteSetId = Id.Parse(DisplayInfo.Sprite.SpriteSetId);
             _resourceTracker?.EnsureLoading(spriteSetId, ResourceKind.Image);
             Handle = Renderer.CreateSpriteInstance(spriteSetId);
+
+            // GP-PRES-05 收口（09 第 3.4 节"每个可见单位默认携带一个地面投影影子"）：此前
+            // DisplayInfo.Shadow 只在数据/转换层（ShadowSpec）存在，从未被任何实际 View 消费——
+            // 构造时按 DisplayInfo.Shadow 设置一次，后续该值不会随生命周期变化（DisplayInfo 本身
+            // 不可变），不需要在 SyncPose 里重复设置。
+            Renderer.SetShadow(Handle, ShadowSpec.ToEngineShadowMode(DisplayInfo.Shadow));
+
             _rig = new SpriteCharacterRig(default, Renderer, Handle, Conventions, DisplayInfo, _resourceTracker, frameAnimPlayer, Options);
         }
 

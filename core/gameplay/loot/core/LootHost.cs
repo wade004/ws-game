@@ -541,6 +541,21 @@ namespace Core.Gameplay.Loot
         /// 超出本次最小修复范围），也不改动 <c>ShellHost.LoadGame</c> 既有的
         /// "先恢复段、后切场景"顺序（那会影响全部 <see cref="IPersistable"/> 段，改动面过大）。
         /// </para>
+        /// <para>
+        /// GP-PRES-01 收口（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
+        /// 上一段判断记录只处理了"读档时同 id 实体仍原地存活"这一种情况，没有处理"读档 →
+        /// ISceneRouter.LoadScene 触发 IWorldSim.ClearAll"这个更常见的后续步骤——本方法把恢复的
+        /// 实体同时写入 _world 与本模块自己的跟踪表 _dropped/_order，但 IWorldSim.ClearAll 只清空
+        /// IWorldSim 自己的实体集合，不知道也不会通知 LootHost（本模块没有订阅 entity.destroyed，
+        /// 见类型顶部判断记录——不需要，本模块自己的增删入口 Drop/PickUp/DestroyDropped 已经足够
+        /// 维护 _dropped）：结果是 _dropped 里的引用在 ClearAll 之后变成"游戏逻辑上仍认为存在，
+        /// 但已经不在 IWorldSim 里"的孤儿状态，掉落物随场景切换静默消失。修复不改
+        /// ShellHost.LoadGame/ISaveSystem.Load 的既有顺序（理由同上一段），改为在场景真正就绪之后
+        /// （ScenePostLoad 钩子，晚于 ClearAll）调用 <see cref="ReattachToWorld"/> 把 _dropped 里
+        /// "应该在当前地图、但当前不在 IWorldSim 里"的实体重新 AddEntity 回去——见该方法与
+        /// games/_template/Runtime/GameBootstrap.HandlePostLoad（该方法已经用同一个钩子重新添加
+        /// 玩家实体，本次只是给同一个钩子再加一步）。
+        /// </para>
         /// </summary>
         public void RestoreDropped(DroppedLootEntity entity)
         {
@@ -563,6 +578,54 @@ namespace Core.Gameplay.Loot
             _world.AddEntity(entity);
             _dropped[entity.EntityId] = entity;
             _order.Add(entity.EntityId);
+        }
+
+        /// <summary>
+        /// GP-PRES-01 收口新增：把本模块自己跟踪表（<see cref="_dropped"/>）里"属于
+        /// <paramref name="mapId"/>、但当前不在 <see cref="_world"/> 里"的地面掉落物重新
+        /// <c>AddEntity</c> 回世界——见 <see cref="RestoreDropped"/> 判断记录"GP-PRES-01 收口"一节。
+        /// 调用方（<c>games/_template/Runtime/GameBootstrap.HandlePostLoad</c>）应在
+        /// <c>ISceneRouter</c> 的 <c>ScenePostLoad</c> 钩子里、场景真正切好之后调用本方法——早于此
+        /// 调用（例如 <c>ClearAll</c> 之前）没有意义（此时实体还没被清掉），晚于此调用（例如下一次
+        /// 场景切换的 <c>ClearAll</c> 之后才想起来调用）会导致空档期内本应存在的掉落物从
+        /// <see cref="IWorldSim"/> 视角"消失"。
+        /// <para>
+        /// 按 <paramref name="mapId"/> 过滤（不是把 <see cref="_dropped"/> 全部重新
+        /// <c>AddEntity</c>）：<see cref="_dropped"/> 会跨地图累积（本模块从不因为"玩家离开了这张
+        /// 地图"就清理该地图上尚未拾取/过期的掉落物——见类型顶部判断记录，<see cref="IWorldSim.ClearAll"/>
+        /// 每次场景切换都会触发，但那只是"当前渲染/模拟的地图"清空，不代表其它地图的掉落物应该被
+        /// 遗忘），只应该把属于"即将激活的这张地图"的记录重新接回 <see cref="_world"/>，否则会把
+        /// 其它地图的掉落物错误地混入当前地图的 <see cref="IWorldSim"/> 实体集合。
+        /// </para>
+        /// <para>
+        /// 幂等：已经在 <see cref="_world"/> 里的实体（<see cref="IWorldSim.GetEntity"/> 非
+        /// null）会被跳过，不重复 <c>AddEntity</c>（那会触发"实体 id 重复"异常）——正常
+        /// 首次进入地图（<c>HandlePostLoad</c> 在没有发生过 <c>ClearAll</c> 的"游戏刚启动、第一次
+        /// 进图"场景下也会被调用一次）时 <see cref="_dropped"/> 本就是空的，本方法是安全的空操作。
+        /// </para>
+        /// </summary>
+        public void ReattachToWorld(Id mapId)
+        {
+            // 快照 key 列表：AddEntity 不会修改 _dropped，但遍历期间调用其它 LootHost 方法（理论上
+            // 调用方不应该在本方法执行期间重入）仍然按惯例（同 PurgeExpired）避免边遍历边改。
+            var ids = new List<Id>(_order);
+            foreach (var id in ids)
+            {
+                if (!_dropped.TryGetValue(id, out var entity))
+                {
+                    continue;
+                }
+
+                if (!entity.MapId.Equals(mapId))
+                {
+                    continue;
+                }
+
+                if (_world.GetEntity(id) == null)
+                {
+                    _world.AddEntity(entity);
+                }
+            }
         }
 
         /// <summary>

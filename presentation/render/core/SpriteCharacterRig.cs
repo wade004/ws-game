@@ -135,12 +135,15 @@ namespace Presentation.Render
         public Vec2? ResolveAnchorLocalOffset(Id anchorId, Direction facing)
         {
             var spriteInfo = _displayInfo.Sprite!;
-            if (!spriteInfo.AnchorPoints.TryGetValue(BareName(anchorId), out var baseOffset))
+            if (!spriteInfo.AnchorPoints.TryGetValue(BareName(anchorId), out var anchorDef))
             {
                 return null;
             }
 
-            var (_, flipX) = _conventions.ResolveDirectionSlot(facing, spriteInfo);
+            var (slotId, flipX) = _conventions.ResolveDirectionSlot(facing, spriteInfo);
+            // GP-PRES-07 收口：同 ViewBinder.GetAnchorWorldPosition 判断记录——按方向槽位取
+            // offset_by_direction 覆盖值，镜像仍是独立于方向覆盖的第二步。
+            var baseOffset = anchorDef.ResolveOffset(slotId);
             return flipX ? new Vec2(-baseOffset.X, baseOffset.Y) : baseOffset;
         }
 

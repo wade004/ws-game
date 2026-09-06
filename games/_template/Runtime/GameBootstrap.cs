@@ -229,10 +229,14 @@ namespace Game.Template
 
             var presentationOptions = BuildPresentationOptions();
 
+            // GP-PRES-04 收口：传入 _host.ResourceLoader（与上面 viewFactory/sceneRouter 同一份
+            // 宿主资源加载器），让 VfxPlayer/SfxPlayer 也能在首次引用反馈资源时触发
+            // IResourceLoader.LoadAsync（见 PresentationAssembly 构造函数判断记录）——此前本处未传，
+            // 播放器拿到的是 null。
             var presentation = new PresentationAssembly(
                 gameplay, world, registry, _bus, presentationRng,
                 viewFactory, _host.Renderer2D, _host.Camera, _host.Audio, _host.FileSystem, sceneRouter,
-                presentationOptions);
+                presentationOptions, resourceLoader: _host.ResourceLoader);
             Presentation = presentation;
 
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
@@ -319,6 +323,16 @@ namespace Game.Template
                 World.AddEntity(_player);
                 _bus.DispatchPending();
             }
+
+            // GP-PRES-01 收口（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
+            // 读档恢复的地面掉落物在 ISceneRouter.LoadScene 触发 IWorldSim.ClearAll 时被一并清空
+            // （LootHost 自己的跟踪表不受 ClearAll 影响，但 IWorldSim 侧的实体已经不在了，见
+            // LootHost.RestoreDropped 判断记录）——同上面玩家实体的"缺失才重新添加"惯例，本钩子
+            // （晚于 ClearAll，场景真正就绪之后）把属于当前地图的掉落物重新接回 IWorldSim；已经在
+            // 世界里的（例如首次进图、ClearAll 从未发生过）会被 LootHost.ReattachToWorld 跳过，
+            // 幂等，可安全每次 post-load 都调用。
+            Gameplay.Loot.ReattachToWorld(mapId);
+            _bus.DispatchPending();
 
             Gameplay.EnterMap(mapId, PlayerId);
 

@@ -437,6 +437,18 @@ namespace Core.Foundation.SimLoop
 
         public IReadOnlyList<Id> GetOrder() => _order;
 
+        /// <summary>
+        /// GP-PRES-09 收口新增（09 第 7.1 节"行动点显示"）：某参与者本轮剩余行动点的正式只读查询，
+        /// 供 <c>Presentation.Ui.HudViewModel</c> 一类只读消费方使用——此前 <see cref="_actionPointsRemaining"/>
+        /// 只能经 <see cref="TryConsumeActionPoints"/>（写操作，会真的扣减）间接探测，没有不产生
+        /// 副作用的读接口。语义与 <see cref="TryConsumeActionPoints"/> 判断记录一致：账本现在无条件
+        /// 为全部参与者维护（不区分先攻策略），<paramref name="actorId"/> 不在账本里（未参战/已经
+        /// 脱战）时返回 0，不抛异常——0 与"账本里显式记着 0"在展示语义上没有区别，调用方不需要额外
+        /// 判空。
+        /// </summary>
+        public double GetActionPointsRemaining(Id actorId) =>
+            _actionPointsRemaining.TryGetValue(actorId, out var remaining) ? remaining : 0.0;
+
         public Id? GetCurrentActor() =>
             _inCombat && _currentIndex >= 0 && _currentIndex < _order.Count ? _order[_currentIndex] : (Id?)null;
 

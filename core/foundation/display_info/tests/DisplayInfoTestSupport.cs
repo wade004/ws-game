@@ -117,7 +117,13 @@ namespace Tests.Foundation.DisplayInfo
           ""direction_count"": 8,
           ""mirror_pairs"": [{""direction_slot"": ""dir.front_side_l"", ""mirror_of"": ""dir.front_side_r"", ""flip_x"": true}],
           ""paperdoll_layers"": [""layer.base"", ""layer.armor""],
-          ""anchor_points"": {""hand_main"": {""x"": 1.5, ""y"": 0.5}}
+          ""anchor_points"": {
+            ""hand_main"": {
+              ""parent_layer"": ""layer.armor"",
+              ""offset"": {""x"": 1.5, ""y"": 0.5},
+              ""offset_by_direction"": {""dir.side_r"": {""x"": 2.0, ""y"": 0.5}}
+            }
+          }
         }";
     }
 }

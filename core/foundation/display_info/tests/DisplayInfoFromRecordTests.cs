@@ -121,8 +121,13 @@ namespace Tests.Foundation.DisplayInfo
 
             Assert.Equal(new[] { "layer.base", "layer.armor" }, info.Sprite.PaperdollLayers);
 
+            // GP-PRES-07 收口：AnchorPoints 的值类型从裸 Vec2 改为完整的 AnchorDef（parent_layer
+            // 必填、offset 必填、offset_by_direction 可选，见该类型注释）。
             Assert.True(info.Sprite.AnchorPoints.TryGetValue("hand_main", out var anchor));
-            Assert.Equal(new Vec2(1.5, 0.5), anchor);
+            Assert.Equal("layer.armor", anchor.ParentLayer);
+            Assert.Equal(new Vec2(1.5, 0.5), anchor.Offset);
+            Assert.Equal(new Vec2(1.5, 0.5), anchor.ResolveOffset(new Id("dir.front"))); // 无覆盖：回退 Offset。
+            Assert.Equal(new Vec2(2.0, 0.5), anchor.ResolveOffset(new Id("dir.side_r"))); // 有覆盖：命中 offset_by_direction。
         }
 
         [Fact]
