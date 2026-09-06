@@ -137,6 +137,19 @@ namespace Presentation.ViewBinding
                 return;
             }
 
+            // 判断记录（区域触发实体显式跳过，不查外形映射）：加固任务把 AreaTrigger 从"纯数据记录"
+            // 改为真正的 Entity 子类（见 core/gameplay/area_trigger/contracts/AreaTriggerEntity.cs）
+            // 后，它同样会经 WorldSim.AddEntity 触发 entity.created；但区域触发体在设计上永远没有
+            // 可见外观（05_对象模型与世界.md 第 1.5/7 节：只负责"检测进入/离开+发事件"，不是一个会被
+            // 渲染的对象），任何 CreateView 调用对它来说必然查不到 display.map 行，只会让
+            // UnityViewFactory 徒增一次性"缺失 DisplayInfo"警告（噪音，不是需要修的内容缺口）。这里
+            // 在 EntityKindMapping.TryMap 之前显式跳过：不创建 View、不记入 _unmappedEntityKinds
+            // （那份列表是给"确有渲染需求但内容漏配"的场景用的诊断，本情形不属于该类），不抛异常。
+            if (string.Equals(kind, EntityKinds.AreaTrigger, StringComparison.Ordinal))
+            {
+                return;
+            }
+
             if (!EntityKindMapping.TryMap(kind, out var viewKind))
             {
                 _unmappedEntityKinds.Add(kind);

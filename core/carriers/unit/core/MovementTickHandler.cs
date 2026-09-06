@@ -39,6 +39,7 @@ namespace Core.Carriers.Unit
         private readonly INavigation2D? _navigation;
         private readonly MovementOptions _options;
         private readonly IExprDiagnostics _diagnostics;
+        private readonly ISpatialQuery? _spatial;
 
         public MovementTickHandler(
             IUnitAccess units,
@@ -48,7 +49,8 @@ namespace Core.Carriers.Unit
             IEventBus bus,
             INavigation2D? navigation = null,
             MovementOptions? options = null,
-            IExprDiagnostics? diagnostics = null)
+            IExprDiagnostics? diagnostics = null,
+            ISpatialQuery? spatial = null)
         {
             _units = units ?? throw new ArgumentNullException(nameof(units));
             _stats = stats ?? throw new ArgumentNullException(nameof(stats));
@@ -58,6 +60,9 @@ namespace Core.Carriers.Unit
             _navigation = navigation;
             _options = options ?? new MovementOptions();
             _diagnostics = diagnostics ?? new ExprDiagnosticsRecorder();
+            // spatial 是新增可选依赖（加固任务：MovementOptions.UnitBlocking 落地）——放在参数列表
+            // 末尾而不是插在 navigation 之前，是为了不破坏既有按位置传参的调用点（见本模块 tests）。
+            _spatial = spatial;
         }
 
         public void Execute(SimStep step, IWorldSim world)
@@ -206,6 +211,11 @@ namespace Core.Carriers.Unit
             var speed = ResolveSpeed(unit.EntityId);
             var newPos = unit.Position + normalized * (speed * dt);
 
+            if (IsBlockedByUnit(unit.EntityId, newPos))
+            {
+                return; // 判断记录见 IsBlockedByUnit：本次不位移，不改朝向/状态，原地不动。
+            }
+
             _units.SetPosition(unit.EntityId, newPos);
             unit.Facing = Math.Atan2(normalized.Y, normalized.X);
             EnqueueMoved(unit.EntityId, newPos);
@@ -265,6 +275,15 @@ namespace Core.Carriers.Unit
 
             if (!pos.Equals(unit.Position))
             {
+                if (IsBlockedByUnit(unit.EntityId, pos))
+                {
+                    // 判断记录见 IsBlockedByUnit：本次 tick 算出的终点被其他单位占据——本次 tick
+                    // 完全不生效（不写位置/朝向、不改 MovementState），path/index 保持调用前的
+                    // 既有值，下一 tick 用同样的路径与起点重试（简单确定性，不做滑动/绕行，见
+                    // MovementOptions.UnitBlocking 判断记录"后续可扩展为滑动/绕行"）。
+                    return;
+                }
+
                 _units.SetPosition(unit.EntityId, pos);
                 unit.Facing = lastFacing;
                 EnqueueMoved(unit.EntityId, pos);
@@ -280,6 +299,44 @@ namespace Core.Carriers.Unit
             {
                 unit.MovementState = new MovementState(path, state.Mode, state.MovementLocked, index);
             }
+        }
+
+        /// <summary>
+        /// 加固任务（05 §3.6 碰撞层规划落地）：<see cref="MovementOptions.UnitBlocking"/> 为
+        /// <c>true</c> 时，查询 <paramref name="targetPosition"/> 附近携带
+        /// <see cref="CollisionLayers.UnitBlock"/> 标签、非 <paramref name="selfId"/> 自身的对象；
+        /// 命中即视为"目标落点已被占据"。
+        /// <para>
+        /// 判断记录（简单确定性：整体拒绝，不做滑动/绕行）：05 §3.6 只规划了"是否阻挡"这一个策略
+        /// 开关，未规定阻挡后的位移应该如何调整；任务书拍板"命中则本次不位移（停在原地，不做滑动，
+        /// 简单确定性）"——本方法因此只回答"是/否被阻挡"，由调用方（<see cref="ApplyDirectionalMove"/>/
+        /// <see cref="ContinuePathCore"/>）决定"是"时整体放弃本次位移，不尝试贴着障碍物滑动或绕开，
+        /// 后续如需要更自然的碰撞响应（滑动、pathfinding 绕行）可在此基础上扩展，不影响本方法契约。
+        /// </para>
+        /// <para>
+        /// 判断记录（<see cref="_spatial"/> 为 null 时恒不阻挡）：本类型的 <c>spatial</c> 依赖是新增
+        /// 可选参数（见构造函数判断记录），未注入时不应该让 <see cref="MovementOptions.UnitBlocking"/>
+        /// 抛异常——静默视为"不阻挡"，行为退化为本任务之前的既有语义。
+        /// </para>
+        /// </summary>
+        private bool IsBlockedByUnit(Id selfId, Vec2 targetPosition)
+        {
+            if (!_options.UnitBlocking || _spatial == null)
+            {
+                return false;
+            }
+
+            var filter = new QueryFilter(requiredTags: new[] { CollisionLayers.UnitBlock });
+            var candidates = _spatial.QueryRadius(targetPosition, _options.UnitBlockRadius, filter);
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                if (!candidates[i].Equals(selfId))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>控制效果影响（见 05 第 6.2 节"控制效果影响...移动系统只读这些派生状态，不知道

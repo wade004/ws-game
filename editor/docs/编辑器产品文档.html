@@ -1,0 +1,2728 @@
+<title>编辑器产品文档</title>
+<meta charset="utf-8">
+<style>
+:root{
+  --bg:#f6f6f3;
+  --bg-alt:#eef0ee;
+  --fg:#242a33;
+  --muted:#6b7280;
+  --card:#ffffff;
+  --border:#e0e0dc;
+  --accent:#2563eb;
+  --accent-bg:#e3edfd;
+
+  --l-1:#6b7280;  --l-1-bg:#e9ebee;
+  --l0:#2563eb;   --l0-bg:#e3edfd;
+  --l1:#0e8fa3;   --l1-bg:#dff4f7;
+  --l2:#d9660b;   --l2-bg:#fdece0;
+  --l3:#16a34a;   --l3-bg:#e5f7ec;
+  --l4:#7c3aed;   --l4-bg:#f1e9fc;
+  --l5:#c0267d;   --l5-bg:#fbe6f0;
+  --game:#a3790a; --game-bg:#faf1d6;
+  --tool:#0f766e; --tool-bg:#e1f5f2;
+
+  --sidebar-w:290px;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1b1d22; --bg-alt:#22252b; --fg:#e5e7eb; --muted:#9aa2af;
+    --card:#242830; --border:#33373f; --accent:#5b8def; --accent-bg:#1e2a42;
+    --l-1-bg:#2b2e33; --l0-bg:#1e2a42; --l1-bg:#123338; --l2-bg:#3a260f;
+    --l3-bg:#12301f; --l4-bg:#2a1f3d; --l5-bg:#3a1327; --game-bg:#332a10;
+    --tool-bg:#0f2b28;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1b1d22; --bg-alt:#22252b; --fg:#e5e7eb; --muted:#9aa2af;
+  --card:#242830; --border:#33373f; --accent:#5b8def; --accent-bg:#1e2a42;
+  --l-1-bg:#2b2e33; --l0-bg:#1e2a42; --l1-bg:#123338; --l2-bg:#3a260f;
+  --l3-bg:#12301f; --l4-bg:#2a1f3d; --l5-bg:#3a1327; --game-bg:#332a10;
+  --tool-bg:#0f2b28;
+}
+*{ box-sizing:border-box; }
+html{ scroll-behavior:smooth; }
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--fg);
+  font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;
+  line-height:1.7;
+  font-size:16px;
+  overflow-wrap:break-word;
+  word-break:break-word;
+  overflow-x:hidden;
+}
+/* 判断记录：md 里大量"`a`/`b`/`c`"形式的连续行内代码枚举（无空格分隔），部分浏览器不会在
+   相邻 <code> 标签之间的裸 "/" 处断行，导致整行被当成一个不可断的长 token 撑出横向滚动；
+   在 code 上加 overflow-wrap 让其在无天然断点时也能强制换行，是修正措施而非"宽内容加滚动
+   容器"（这里是正文行文本，不是表格/代码块那类应保留横向滚动的宽内容）。*/
+code{ overflow-wrap:anywhere; }
+
+/* ---------- 顶部导航 ---------- */
+.topnav{
+  position:sticky; top:0; z-index:30;
+  background:var(--bg); opacity:0.98;
+  border-bottom:1px solid var(--border);
+}
+.topnav-inner{
+  display:flex; align-items:center; gap:14px;
+  padding:10px 24px; flex-wrap:wrap;
+}
+.topnav a{ color:var(--accent); text-decoration:none; font-size:14px; }
+.topnav a:hover{ text-decoration:underline; }
+.topnav .doc-title{ font-weight:700; color:var(--fg); font-size:15px; }
+.topnav .spacer{ flex:1 1 auto; }
+.topnav button.theme-toggle{
+  cursor:pointer; font-size:13px; color:var(--fg);
+  padding:4px 10px; border:1px solid var(--border);
+  border-radius:8px; background:var(--card);
+}
+.topnav button.theme-toggle:hover{ border-color:var(--accent); }
+.topnav .home-link{ color:var(--muted); font-size:13px; }
+.topnav-toc{ display:none; position:relative; }
+.topnav-toc summary{
+  cursor:pointer; font-size:13px; color:var(--fg);
+  list-style:none; padding:4px 10px; border:1px solid var(--border);
+  border-radius:8px; background:var(--card);
+}
+.topnav-toc summary::-webkit-details-marker{ display:none; }
+.topnav-toc[open] summary{ border-color:var(--accent); }
+.topnav-toc .menu{
+  position:absolute; right:0; top:calc(100% + 6px);
+  background:var(--card); border:1px solid var(--border);
+  border-radius:10px; padding:8px; min-width:280px; max-height:70vh; overflow-y:auto;
+  box-shadow:0 8px 24px rgba(0,0,0,0.18);
+}
+
+/* ---------- 侧边栏 + 正文 两栏布局 ---------- */
+.layout{ display:flex; align-items:flex-start; }
+.sidebar{
+  flex:0 0 var(--sidebar-w);
+  width:var(--sidebar-w);
+  position:sticky; top:49px;
+  max-height:calc(100vh - 49px);
+  overflow-y:auto;
+  padding:18px 14px 40px 20px;
+  border-right:1px solid var(--border);
+}
+.toc-list{ list-style:none; margin:0; padding:0; font-size:13px; }
+.toc-list > li{ margin:2px 0; }
+.toc-list a{ color:var(--fg); text-decoration:none; display:block; padding:3px 8px; border-radius:6px; }
+.toc-list a:hover{ background:var(--bg-alt); }
+.toc-list a.active{ background:var(--accent-bg); color:var(--accent); font-weight:700; }
+.toc-sub{ list-style:none; margin:0; padding-left:14px; border-left:1px solid var(--border); }
+.toc-sub a{ font-size:12px; color:var(--muted); padding:2px 8px; }
+.toc-sub a.active{ color:var(--accent); background:var(--accent-bg); }
+
+.content-wrap{ flex:1 1 auto; min-width:0; display:flex; justify-content:center; }
+.page{ max-width:1100px; width:100%; margin:0 auto; padding:0 28px 60px; min-width:0; }
+
+h1{ font-size:28px; margin:26px 0 8px; }
+h2{ font-size:22px; margin:44px 0 6px; border-left:5px solid var(--accent); padding-left:12px; scroll-margin-top:60px; }
+h3{ font-size:17px; margin:28px 0 6px; color:var(--fg); scroll-margin-top:60px; }
+p{ margin:10px 0; }
+ul,ol{ padding-left:26px; }
+li{ margin:4px 0; }
+blockquote{
+  margin:14px 0; padding:8px 16px; border-left:4px solid var(--accent);
+  background:var(--accent-bg); border-radius:0 8px 8px 0; color:var(--fg);
+}
+blockquote p{ margin:4px 0; }
+code{
+  font-family:Consolas,"Cascadia Code",monospace;
+  background:var(--bg-alt); border:1px solid var(--border);
+  border-radius:5px; padding:1px 6px; font-size:14px;
+}
+pre{
+  font-family:Consolas,"Cascadia Code",monospace;
+  background:var(--bg-alt); border:1px solid var(--border);
+  border-radius:var(--radius); padding:12px 16px; font-size:12.5px;
+  overflow-x:auto; line-height:1.5; margin:14px 0;
+}
+pre code{ background:none; border:none; padding:0; font-size:inherit; }
+a{ color:var(--accent); }
+
+table{ width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; }
+table{ color:inherit; }
+th,td{ border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; color:inherit; }
+th{ background:var(--bg-alt); }
+.tbl-wrap{ overflow-x:auto; }
+
+hr{ border:none; border-top:1px dotted var(--border); margin:28px 0; }
+
+details.ascii-fallback{
+  margin:10px 0 18px;
+  border:1px solid var(--border); border-radius:var(--radius);
+  background:var(--bg-alt); padding:4px 14px;
+}
+details.ascii-fallback > summary{
+  cursor:pointer; font-size:13px; color:var(--muted); padding:6px 0;
+}
+details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
+
+/* ---------- CSS 线框通用样式 ---------- */
+.wf{ margin:16px 0 8px; }
+.wf-cap{ font-size:12px; color:var(--muted); margin:0 0 8px; }
+.wf-frame{
+  background:var(--card); border:1px solid var(--border); border-radius:10px;
+  overflow:hidden; font-size:11.5px; color:var(--fg);
+}
+.wf-menubar{ display:flex; gap:12px; padding:5px 10px; background:var(--bg-alt); border-bottom:1px solid var(--border); color:var(--muted); flex-wrap:wrap; align-items:center; }
+.wf-toolbar{ display:flex; gap:6px; align-items:center; padding:5px 10px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+.wf-btn{ display:inline-block; border:1px solid var(--border); border-radius:5px; padding:2px 8px; background:var(--card); white-space:nowrap; font-size:11px; margin:2px 2px 2px 0; }
+.wf-search{ flex:1; min-width:120px; border:1px solid var(--border); border-radius:6px; padding:3px 10px; color:var(--muted); background:var(--bg); }
+.wf-body{ display:flex; flex-wrap:wrap; }
+.wf-col{ padding:9px 10px; border-right:1px solid var(--border); min-width:0; }
+.wf-col:last-child{ border-right:none; }
+.wf-col-title{ font-weight:700; font-size:11.5px; letter-spacing:.02em; color:var(--muted); margin-bottom:6px; }
+.wf-tabs{ display:flex; gap:3px; margin-bottom:6px; flex-wrap:wrap; }
+.wf-tab{ padding:2px 8px; border:1px solid var(--border); border-bottom:none; border-radius:5px 5px 0 0; background:var(--bg-alt); color:var(--muted); font-size:10px; }
+.wf-tab.on{ background:var(--card); color:var(--accent); font-weight:700; }
+.wf-tree{ list-style:none; margin:0; padding:0; }
+.wf-tree li{ padding:2px 0 2px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wf-tree li.lvl2{ padding-left:16px; }
+.wf-tree li.lvl3{ padding-left:26px; }
+.wf-badge{ display:inline-block; border-radius:8px; font-size:9px; padding:0 5px; margin-left:5px; }
+.wf-badge.err{ background:#e5484d2e; color:#c92a2a; }
+.wf-badge.warn{ background:#f0b4292e; color:#a86400; }
+.wf-field{ display:flex; align-items:center; justify-content:space-between; gap:6px; border:1px solid var(--border); border-radius:5px; padding:2px 7px; margin:3px 0; background:var(--bg-alt); }
+.wf-field .k{ color:var(--muted); flex:0 0 auto; }
+.wf-field span:last-child{ text-align:right; }
+.wf-field.wf-strong{ font-weight:700; }
+.wf-muted{ color:var(--muted); font-size:11px; }
+.wf-progress{ height:7px; border-radius:4px; background:var(--border); overflow:hidden; margin:5px 0; }
+.wf-progress > span{ display:block; height:100%; background:var(--accent); }
+.wf-statusbar{ display:flex; gap:12px; padding:4px 10px; border-top:1px solid var(--border); background:var(--bg-alt); color:var(--muted); font-size:10px; flex-wrap:wrap; }
+.wf-panel-bottom{ border-top:1px solid var(--border); padding:6px 10px; font-size:10.5px; }
+.wf-issue{ margin:2px 0; }
+.wf-link{ color:var(--accent); }
+.wf-card{ border:1px solid var(--border); border-radius:6px; background:var(--card); padding:5px 8px; margin:5px 0; font-size:11px; }
+.wf-card .hd{ display:flex; justify-content:space-between; gap:8px; color:var(--muted); font-size:10px; margin-bottom:3px; }
+.wf-card.wf-nested{ margin-left:10px; background:var(--bg-alt); }
+.wf-table{ width:100%; font-size:10px; margin:4px 0; }
+.wf-table th,.wf-table td{ padding:3px 5px; }
+.wf-chart{ display:flex; align-items:flex-end; gap:16px; height:70px; border-left:1px solid var(--border); border-bottom:1px solid var(--border); padding:4px 12px 0; }
+.wf-bar{ width:16px; background:var(--l1); border-radius:3px 3px 0 0; }
+.wf-chart-axis{ display:flex; gap:16px; padding-left:12px; color:var(--muted); font-size:10px; }
+.wf-chart-axis span{ width:16px; text-align:center; }
+.wf-svg{ width:100%; max-width:460px; height:auto; display:block; margin:6px 0; }
+.wf-svg-node{ fill:var(--card); stroke:var(--border); stroke-width:1.5; }
+.wf-svg-node-start{ stroke:var(--accent); stroke-width:2; }
+.wf-svg-text{ font-size:11px; fill:var(--fg); text-anchor:middle; font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif; }
+.wf-svg-label{ font-size:10px; fill:var(--muted); font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif; }
+.wf-svg-edge{ fill:none; stroke:var(--muted); stroke-width:1.6; }
+.wf-svg-arrow{ fill:var(--muted); }
+
+@media (max-width:900px){
+  .sidebar{ display:none; }
+  .topnav-toc{ display:block; }
+  .page{ padding:0 16px 50px; }
+  body{ font-size:15px; }
+  h1{ font-size:23px; } h2{ font-size:19px; } h3{ font-size:16px; }
+  .wf-col{ flex:1 1 100% !important; border-right:none; border-bottom:1px solid var(--border); }
+}
+</style>
+
+<div class="topnav">
+  <div class="topnav-inner">
+    <span class="doc-title">GF 内容编辑器 产品文档</span>
+    <a class="home-link" href="../../README.md">返回仓库 README</a>
+    <div class="spacer"></div>
+    <details class="topnav-toc">
+      <summary>目录</summary>
+      <div class="menu"><ul class="toc-list"><li><a href="#s1" data-toc-id="s1">1. 概述</a><ul class="toc-sub"><li><a href="#s1-1" data-toc-id="s1-1">1.1 目的</a></li><li><a href="#s1-2" data-toc-id="s1-2">1.2 定位</a></li><li><a href="#s1-3" data-toc-id="s1-3">1.3 面向用户</a></li><li><a href="#s1-4" data-toc-id="s1-4">1.4 典型用户故事</a></li><li><a href="#s1-5" data-toc-id="s1-5">1.5 与现有工具链的关系（先给结论，细节见第 3 章）</a></li></ul></li><li><a href="#s2" data-toc-id="s2">2. 术语与范围</a><ul class="toc-sub"><li><a href="#s2-1" data-toc-id="s2-1">2.1 术语表（详版见附录 E）</a></li><li><a href="#s2-2" data-toc-id="s2-2">2.2 范围内</a></li><li><a href="#s2-3" data-toc-id="s2-3">2.3 范围外（明确不做）</a></li></ul></li><li><a href="#s3" data-toc-id="s3">3. 总体方案</a><ul class="toc-sub"><li><a href="#s3-1" data-toc-id="s3-1">3.1 架构图</a></li><li><a href="#s3-2" data-toc-id="s3-2">3.2 数据流</a></li><li><a href="#s3-3" data-toc-id="s3-3">3.3 核心技术主张（编辑器实现层面的选型建议，非架构结论）</a></li><li><a href="#s3-4" data-toc-id="s3-4">3.4 与既有工具链的复用关系一览</a></li></ul></li><li><a href="#s4" data-toc-id="s4">4. 工程与工作区</a><ul class="toc-sub"><li><a href="#s4-1" data-toc-id="s4-1">4.1 新建/打开工程向导</a></li><li><a href="#s4-2" data-toc-id="s4-2">4.2 最近工程</a></li><li><a href="#s4-3" data-toc-id="s4-3">4.3 工程文件 .gfeditor/workspace.json</a></li></ul></li><li><a href="#s5" data-toc-id="s5">5. 主界面布局</a><ul class="toc-sub"><li><a href="#s5-1" data-toc-id="s5-1">5.1 整体线框图</a></li><li><a href="#s5-2" data-toc-id="s5-2">5.2 顶部：菜单栏 / 工具栏 / 全局搜索</a></li><li><a href="#s5-3" data-toc-id="s5-3">5.3 左侧：导航区</a></li><li><a href="#s5-4" data-toc-id="s5-4">5.4 中央：文档区</a></li><li><a href="#s5-5" data-toc-id="s5-5">5.5 右侧：检视区</a></li><li><a href="#s5-6" data-toc-id="s5-6">5.6 底部：面板区</a></li><li><a href="#s5-7" data-toc-id="s5-7">5.7 状态栏</a></li><li><a href="#s5-8" data-toc-id="s5-8">5.8 主题、DPI、窗口与布局</a></li></ul></li><li><a href="#s6" data-toc-id="s6">6. 通用表编辑器（Schema 驱动）</a><ul class="toc-sub"><li><a href="#s6-1" data-toc-id="s6-1">6.1 三视图同步</a></li><li><a href="#s6-2" data-toc-id="s6-2">6.2 字段类型 → 控件映射表</a></li><li><a href="#s6-3" data-toc-id="s6-3">6.3 记录操作</a></li><li><a href="#s6-4" data-toc-id="s6-4">6.4 撤销/重做</a></li><li><a href="#s6-5" data-toc-id="s6-5">6.5 保存</a></li></ul></li><li><a href="#s7" data-toc-id="s7">7. 专项编辑器</a><ul class="toc-sub"><li><a href="#s7-1" data-toc-id="s7-1">7.1 人物与生物编辑器</a></li><li><a href="#s7-2" data-toc-id="s7-2">7.2 技能/状态/触发编辑器</a></li><li><a href="#s7-3" data-toc-id="s7-3">7.3 物品编辑器</a></li><li><a href="#s7-4" data-toc-id="s7-4">7.4 掉落与爆率编辑器</a></li><li><a href="#s7-5" data-toc-id="s7-5">7.5 经验与成长编辑器</a></li><li><a href="#s7-6" data-toc-id="s7-6">7.6 任务与对话编辑器</a></li><li><a href="#s7-7" data-toc-id="s7-7">7.7 世界/遭遇/刷新/区域编辑器</a></li><li><a href="#s7-8" data-toc-id="s7-8">7.8 本地化编辑器</a></li><li><a href="#s7-9" data-toc-id="s7-9">7.9 外形与表现编辑器</a></li><li><a href="#s7-10" data-toc-id="s7-10">7.10 其余表：通用编辑器 + 小增强</a></li><li><a href="#s7-11" data-toc-id="s7-11">7.11 表 → 归属编辑器总表</a></li></ul></li><li><a href="#s8" data-toc-id="s8">8. 新增内容向导</a></li><li><a href="#s9" data-toc-id="s9">9. 校验、诊断与引用分析</a><ul class="toc-sub"><li><a href="#s9-1" data-toc-id="s9-1">9.1 三个校验时机</a></li><li><a href="#s9-2" data-toc-id="s9-2">9.2 问题面板设计</a></li><li><a href="#s9-3" data-toc-id="s9-3">9.3 覆盖诊断</a></li><li><a href="#s9-4" data-toc-id="s9-4">9.4 引用图（引用了谁 / 被谁引用）</a></li><li><a href="#s9-5" data-toc-id="s9-5">9.5 schema 迁移</a></li></ul></li><li><a href="#s10" data-toc-id="s10">10. 数值沙盘（预览与模拟）</a></li><li><a href="#s11" data-toc-id="s11">11. 批量与导入导出</a></li><li><a href="#s12" data-toc-id="s12">12. 版本控制与协作</a><ul class="toc-sub"><li><a href="#s12-1" data-toc-id="s12-1">12.1 git 状态显示</a></li><li><a href="#s12-2" data-toc-id="s12-2">12.2 变更文件列表与 diff 预览</a></li><li><a href="#s12-3" data-toc-id="s12-3">12.3 提交前自动校验</a></li><li><a href="#s12-4" data-toc-id="s12-4">12.4 冲突时的记录级合并辅助</a></li></ul></li><li><a href="#s13" data-toc-id="s13">13. 运行联调</a><ul class="toc-sub"><li><a href="#s13-1" data-toc-id="s13-1">13.1 配置游戏可执行文件/Unity 工程路径</a></li><li><a href="#s13-2" data-toc-id="s13-2">13.2 一键运行</a></li><li><a href="#s13-3" data-toc-id="s13-3">13.3 保存触发热重载</a></li><li><a href="#s13-4" data-toc-id="s13-4">13.4 从游戏日志反查编辑器记录</a></li></ul></li><li><a href="#s14" data-toc-id="s14">14. 设置与扩展</a><ul class="toc-sub"><li><a href="#s14-1" data-toc-id="s14-1">14.1 设置项清单</a></li><li><a href="#s14-2" data-toc-id="s14-2">14.2 插件机制</a></li><li><a href="#s14-3" data-toc-id="s14-3">14.3 schema 变化自动适配的原则</a></li></ul></li><li><a href="#s15" data-toc-id="s15">15. 非功能需求</a><ul class="toc-sub"><li><a href="#s15-1" data-toc-id="s15-1">15.1 性能指标</a></li><li><a href="#s15-2" data-toc-id="s15-2">15.2 可靠性</a></li><li><a href="#s15-3" data-toc-id="s15-3">15.3 可用性</a></li><li><a href="#s15-4" data-toc-id="s15-4">15.4 兼容性</a></li><li><a href="#s15-5" data-toc-id="s15-5">15.5 安全</a></li></ul></li><li><a href="#s16" data-toc-id="s16">16. 技术选型建议</a><ul class="toc-sub"><li><a href="#s16-1" data-toc-id="s16-1">16.1 桌面壳：WPF 与 Avalonia 对比</a></li><li><a href="#s16-2" data-toc-id="s16-2">16.2 理由与备选（Web 壳 + 本地服务）对比</a></li><li><a href="#s16-3" data-toc-id="s16-3">16.3 图表、代码编辑控件、文件监视、git 调用方式（默认方案，可调整）</a></li><li><a href="#s16-4" data-toc-id="s16-4">16.4 与 toolchain/validator 共享注册逻辑的方式</a></li></ul></li><li><a href="#s17" data-toc-id="s17">17. 里程碑与验收标准</a></li><li><a href="#s18" data-toc-id="s18">18. 附录</a><ul class="toc-sub"><li><a href="#apx-a" data-toc-id="apx-a">附录 A：快捷键表</a></li><li><a href="#apx-b" data-toc-id="apx-b">附录 B：字段类型→控件映射（详见第 6.2 节）</a></li><li><a href="#apx-c" data-toc-id="apx-c">附录 C：校验项→编辑器反馈方式映射（对应 04 第 5 节 14 项）</a></li><li><a href="#apx-d" data-toc-id="apx-d">附录 D：表 → 编辑器总表</a></li><li><a href="#apx-e" data-toc-id="apx-e">附录 E：术语表（详版）</a></li><li><a href="#apx-f" data-toc-id="apx-f">附录 F：与架构文档的对应关系</a></li></ul></li></ul></div>
+    </details>
+    <button class="theme-toggle" type="button" onclick="__cycleTheme()">主题</button>
+  </div>
+</div>
+
+<div class="layout">
+  <aside class="sidebar"><ul class="toc-list"><li><a href="#s1" data-toc-id="s1">1. 概述</a><ul class="toc-sub"><li><a href="#s1-1" data-toc-id="s1-1">1.1 目的</a></li><li><a href="#s1-2" data-toc-id="s1-2">1.2 定位</a></li><li><a href="#s1-3" data-toc-id="s1-3">1.3 面向用户</a></li><li><a href="#s1-4" data-toc-id="s1-4">1.4 典型用户故事</a></li><li><a href="#s1-5" data-toc-id="s1-5">1.5 与现有工具链的关系（先给结论，细节见第 3 章）</a></li></ul></li><li><a href="#s2" data-toc-id="s2">2. 术语与范围</a><ul class="toc-sub"><li><a href="#s2-1" data-toc-id="s2-1">2.1 术语表（详版见附录 E）</a></li><li><a href="#s2-2" data-toc-id="s2-2">2.2 范围内</a></li><li><a href="#s2-3" data-toc-id="s2-3">2.3 范围外（明确不做）</a></li></ul></li><li><a href="#s3" data-toc-id="s3">3. 总体方案</a><ul class="toc-sub"><li><a href="#s3-1" data-toc-id="s3-1">3.1 架构图</a></li><li><a href="#s3-2" data-toc-id="s3-2">3.2 数据流</a></li><li><a href="#s3-3" data-toc-id="s3-3">3.3 核心技术主张（编辑器实现层面的选型建议，非架构结论）</a></li><li><a href="#s3-4" data-toc-id="s3-4">3.4 与既有工具链的复用关系一览</a></li></ul></li><li><a href="#s4" data-toc-id="s4">4. 工程与工作区</a><ul class="toc-sub"><li><a href="#s4-1" data-toc-id="s4-1">4.1 新建/打开工程向导</a></li><li><a href="#s4-2" data-toc-id="s4-2">4.2 最近工程</a></li><li><a href="#s4-3" data-toc-id="s4-3">4.3 工程文件 .gfeditor/workspace.json</a></li></ul></li><li><a href="#s5" data-toc-id="s5">5. 主界面布局</a><ul class="toc-sub"><li><a href="#s5-1" data-toc-id="s5-1">5.1 整体线框图</a></li><li><a href="#s5-2" data-toc-id="s5-2">5.2 顶部：菜单栏 / 工具栏 / 全局搜索</a></li><li><a href="#s5-3" data-toc-id="s5-3">5.3 左侧：导航区</a></li><li><a href="#s5-4" data-toc-id="s5-4">5.4 中央：文档区</a></li><li><a href="#s5-5" data-toc-id="s5-5">5.5 右侧：检视区</a></li><li><a href="#s5-6" data-toc-id="s5-6">5.6 底部：面板区</a></li><li><a href="#s5-7" data-toc-id="s5-7">5.7 状态栏</a></li><li><a href="#s5-8" data-toc-id="s5-8">5.8 主题、DPI、窗口与布局</a></li></ul></li><li><a href="#s6" data-toc-id="s6">6. 通用表编辑器（Schema 驱动）</a><ul class="toc-sub"><li><a href="#s6-1" data-toc-id="s6-1">6.1 三视图同步</a></li><li><a href="#s6-2" data-toc-id="s6-2">6.2 字段类型 → 控件映射表</a></li><li><a href="#s6-3" data-toc-id="s6-3">6.3 记录操作</a></li><li><a href="#s6-4" data-toc-id="s6-4">6.4 撤销/重做</a></li><li><a href="#s6-5" data-toc-id="s6-5">6.5 保存</a></li></ul></li><li><a href="#s7" data-toc-id="s7">7. 专项编辑器</a><ul class="toc-sub"><li><a href="#s7-1" data-toc-id="s7-1">7.1 人物与生物编辑器</a></li><li><a href="#s7-2" data-toc-id="s7-2">7.2 技能/状态/触发编辑器</a></li><li><a href="#s7-3" data-toc-id="s7-3">7.3 物品编辑器</a></li><li><a href="#s7-4" data-toc-id="s7-4">7.4 掉落与爆率编辑器</a></li><li><a href="#s7-5" data-toc-id="s7-5">7.5 经验与成长编辑器</a></li><li><a href="#s7-6" data-toc-id="s7-6">7.6 任务与对话编辑器</a></li><li><a href="#s7-7" data-toc-id="s7-7">7.7 世界/遭遇/刷新/区域编辑器</a></li><li><a href="#s7-8" data-toc-id="s7-8">7.8 本地化编辑器</a></li><li><a href="#s7-9" data-toc-id="s7-9">7.9 外形与表现编辑器</a></li><li><a href="#s7-10" data-toc-id="s7-10">7.10 其余表：通用编辑器 + 小增强</a></li><li><a href="#s7-11" data-toc-id="s7-11">7.11 表 → 归属编辑器总表</a></li></ul></li><li><a href="#s8" data-toc-id="s8">8. 新增内容向导</a></li><li><a href="#s9" data-toc-id="s9">9. 校验、诊断与引用分析</a><ul class="toc-sub"><li><a href="#s9-1" data-toc-id="s9-1">9.1 三个校验时机</a></li><li><a href="#s9-2" data-toc-id="s9-2">9.2 问题面板设计</a></li><li><a href="#s9-3" data-toc-id="s9-3">9.3 覆盖诊断</a></li><li><a href="#s9-4" data-toc-id="s9-4">9.4 引用图（引用了谁 / 被谁引用）</a></li><li><a href="#s9-5" data-toc-id="s9-5">9.5 schema 迁移</a></li></ul></li><li><a href="#s10" data-toc-id="s10">10. 数值沙盘（预览与模拟）</a></li><li><a href="#s11" data-toc-id="s11">11. 批量与导入导出</a></li><li><a href="#s12" data-toc-id="s12">12. 版本控制与协作</a><ul class="toc-sub"><li><a href="#s12-1" data-toc-id="s12-1">12.1 git 状态显示</a></li><li><a href="#s12-2" data-toc-id="s12-2">12.2 变更文件列表与 diff 预览</a></li><li><a href="#s12-3" data-toc-id="s12-3">12.3 提交前自动校验</a></li><li><a href="#s12-4" data-toc-id="s12-4">12.4 冲突时的记录级合并辅助</a></li></ul></li><li><a href="#s13" data-toc-id="s13">13. 运行联调</a><ul class="toc-sub"><li><a href="#s13-1" data-toc-id="s13-1">13.1 配置游戏可执行文件/Unity 工程路径</a></li><li><a href="#s13-2" data-toc-id="s13-2">13.2 一键运行</a></li><li><a href="#s13-3" data-toc-id="s13-3">13.3 保存触发热重载</a></li><li><a href="#s13-4" data-toc-id="s13-4">13.4 从游戏日志反查编辑器记录</a></li></ul></li><li><a href="#s14" data-toc-id="s14">14. 设置与扩展</a><ul class="toc-sub"><li><a href="#s14-1" data-toc-id="s14-1">14.1 设置项清单</a></li><li><a href="#s14-2" data-toc-id="s14-2">14.2 插件机制</a></li><li><a href="#s14-3" data-toc-id="s14-3">14.3 schema 变化自动适配的原则</a></li></ul></li><li><a href="#s15" data-toc-id="s15">15. 非功能需求</a><ul class="toc-sub"><li><a href="#s15-1" data-toc-id="s15-1">15.1 性能指标</a></li><li><a href="#s15-2" data-toc-id="s15-2">15.2 可靠性</a></li><li><a href="#s15-3" data-toc-id="s15-3">15.3 可用性</a></li><li><a href="#s15-4" data-toc-id="s15-4">15.4 兼容性</a></li><li><a href="#s15-5" data-toc-id="s15-5">15.5 安全</a></li></ul></li><li><a href="#s16" data-toc-id="s16">16. 技术选型建议</a><ul class="toc-sub"><li><a href="#s16-1" data-toc-id="s16-1">16.1 桌面壳：WPF 与 Avalonia 对比</a></li><li><a href="#s16-2" data-toc-id="s16-2">16.2 理由与备选（Web 壳 + 本地服务）对比</a></li><li><a href="#s16-3" data-toc-id="s16-3">16.3 图表、代码编辑控件、文件监视、git 调用方式（默认方案，可调整）</a></li><li><a href="#s16-4" data-toc-id="s16-4">16.4 与 toolchain/validator 共享注册逻辑的方式</a></li></ul></li><li><a href="#s17" data-toc-id="s17">17. 里程碑与验收标准</a></li><li><a href="#s18" data-toc-id="s18">18. 附录</a><ul class="toc-sub"><li><a href="#apx-a" data-toc-id="apx-a">附录 A：快捷键表</a></li><li><a href="#apx-b" data-toc-id="apx-b">附录 B：字段类型→控件映射（详见第 6.2 节）</a></li><li><a href="#apx-c" data-toc-id="apx-c">附录 C：校验项→编辑器反馈方式映射（对应 04 第 5 节 14 项）</a></li><li><a href="#apx-d" data-toc-id="apx-d">附录 D：表 → 编辑器总表</a></li><li><a href="#apx-e" data-toc-id="apx-e">附录 E：术语表（详版）</a></li><li><a href="#apx-f" data-toc-id="apx-f">附录 F：与架构文档的对应关系</a></li></ul></li></ul></aside>
+  <div class="content-wrap">
+    <div class="page" id="top">
+<h1>GF 内容编辑器 产品文档</h1>
+<ul>
+<li>版本：v1</li>
+<li>日期：2026-09-06</li>
+<li>状态：草案（待用户确认）</li>
+<li>上游文档：<a href="../../architecture/README.md">architecture/README.md</a> · <a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线.md</a> · <a href="../../architecture/06_规则层_属性技能战斗AI.md">06_规则层_属性技能战斗AI.md</a> · <a href="../../architecture/07_载体层_物品生物物件.md">07_载体层_物品生物物件.md</a> · <a href="../../architecture/08_玩法层_掉落任务对话关卡.md">08_玩法层_掉落任务对话关卡.md</a> · <a href="../../data/README.md">data/README.md</a> · <a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划.md</a></li>
+</ul>
+<h2 id="changelog">变更记录</h2>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>日期</th>
+<th>版本</th>
+<th>摘要</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2026-09-06</td>
+<td>v1</td>
+<td>首版草案：完整 18 章产品方案，待用户确认后进入 HTML 版转换与实现立项</td>
+</tr>
+</tbody>
+</table></div>
+<hr>
+<h2 id="toc-list">目录</h2>
+<ol>
+<li>概述</li>
+<li>术语与范围</li>
+<li>总体方案</li>
+<li>工程与工作区</li>
+<li>主界面布局</li>
+<li>通用表编辑器（Schema 驱动）</li>
+<li>专项编辑器</li>
+<li>新增内容向导</li>
+<li>校验、诊断与引用分析</li>
+<li>数值沙盘（预览与模拟）</li>
+<li>批量与导入导出</li>
+<li>版本控制与协作</li>
+<li>运行联调</li>
+<li>设置与扩展</li>
+<li>非功能需求</li>
+<li>技术选型建议</li>
+<li>里程碑与验收标准</li>
+<li>附录</li>
+</ol>
+<hr>
+<h2 id="s1">1. 概述</h2>
+<h3 id="s1-1">1.1 目的</h3>
+<p>本文档定义 <strong>GF 内容编辑器</strong>（下文简称"编辑器"）的产品方案：它是什么、给谁用、解决什么问题、界面长什么样、每个功能怎么操作、系统怎么反馈。文档面向数值策划、系统策划、关卡策划、文案/本地化、程序、美术六类读者，作为后续实现立项、UI 详细设计、开发排期的唯一依据。本文档不涉及具体实现技术栈的最终拍板（第 16 章"技术选型建议"明确标注为实现层面的建议，不是架构结论），也不新增任何架构原语（技能效果类型、光环效果类型、职能标志位等的新增仍走 <a href="../../architecture/12_扩展与变更流程.md">12_扩展与变更流程.md</a> 的 ADR 审批）。</p>
+<h3 id="s1-2">1.2 定位</h3>
+<p><strong>GF 内容编辑器</strong>（Game Foundation Editor，简称 GF 编辑器；命名来自框架包名前缀 <code>com.gamefoundation</code>）是一个 <strong>Windows 桌面程序</strong>，用来编辑基于本框架（<code>architecture/</code> 文档集）立项的任意一款 <code>&lt;game&gt;</code> 的<strong>全部内容数据</strong>。</p>
+<p>一句话说清它做什么：游戏世界里能被策划改动的一切——人物与生物、职业与天赋、属性、技能、光环、触发器、施法修正、物品（含新增装备）、套装、词缀、槽位与品质定义、掉落与爆率、经验与等级曲线、任务、对话（菜单与剧情树）、遭遇与关卡、刷新表、区域触发、难度档位、成就、货币与商人、阵营与反应矩阵、目标选择链、AI 行为外壳与优先级表、外形映射与动画集与装备外观、特效与音效定义、飘字/镜头/界面布局/外壳菜单等表现层配置、本地化文本——全部是 <a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线.md</a> 第 1.1 节总索引里登记的<strong>60 余张结构化数据表</strong>里的行，编辑器就是编辑这些表的通用工具。</p>
+<p>理论基础是 ADR-0004 拍下的"数据即内容"：游戏世界一切具体内容都是结构化文本表里的行，运行时只认 id 与字段，不认具体内容。这句话反过来定义了编辑器的能力边界：</p>
+<blockquote>
+<p><strong>编辑器 = 对所有表的通用编辑能力 + 对高频域的专项编辑器 + 与运行时完全一致的校验 + 数值预览/模拟。</strong></p>
+</blockquote>
+<p>编辑器<strong>只编辑内容，不新增原语</strong>：新增一种效果类型（如给 <code>skill.def.effects</code> 加一种新的原语）、新增一种光环效果类型、新增一种职能标志位，都属于"改变运行时代码能理解的词汇表"，必须先过 ADR 审批并由程序落地代码，编辑器本身不提供"发明新原语"的入口；编辑器能做的是<strong>列出已经登记的原语供策划选择、组合、填参数</strong>——这与"数据即内容"的边界完全一致：内容作者只管往表里加行，不碰运行时代码。</p>
+<h3 id="s1-3">1.3 面向用户</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>角色</th>
+<th>典型诉求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数值策划</td>
+<td>调技能伤害系数、属性成长曲线、物品预算、经验曲线，需要立刻看到结算结果，不想自己心算三段式聚合</td>
+</tr>
+<tr>
+<td>系统策划</td>
+<td>设计新机制对应的内容组合（新装备、新光环、新触发器），需要看到"这条数据会影响哪些既有内容"</td>
+</tr>
+<tr>
+<td>关卡策划</td>
+<td>配掉落表、遭遇/波次/阶段、刷新点、区域触发，需要在地图上直接摆放坐标而不是心算 Vec2</td>
+</tr>
+<tr>
+<td>文案/本地化</td>
+<td>补齐/核对多语言文本，需要一张能看清"哪些 key 缺哪个语言"的矩阵，不想在几十个 JSON 文件里翻找</td>
+</tr>
+<tr>
+<td>程序</td>
+<td>升级框架版本后要跑迁移、跑全量校验，需要确认"编辑器里看到的红线 = 运行时/门禁会报的错"</td>
+</tr>
+<tr>
+<td>美术</td>
+<td>核对外形映射（<code>display.map</code> 等）里引用的资源是否存在、纸娃娃层是否齐全，不想手动比对文件名</td>
+</tr>
+</tbody>
+</table></div>
+<p>单机单用户使用场景：编辑器不做账号体系、不做多人实时协作，文件落地即 JSON（见 <a href="../../data/README.md">data/README.md</a> 的信封与主键规则），协作方式是团队各自用编辑器改自己负责的表，再靠 git 提交、review、合并（见第 12 章"版本控制与协作"）。</p>
+<h3 id="s1-4">1.4 典型用户故事</h3>
+<p>以下六个场景覆盖编辑器最核心的价值主张，后续各章的功能设计均以能完整走通这六个场景为验收基准。</p>
+<p><strong>故事 1：数值策划改一条技能伤害并立刻看结算预览。</strong>
+数值策划打开"技能/状态/触发编辑器"，在技能列表里选中 <code>skill.sample_strike</code>，在效果卡片里把 <code>school_damage</code> 的 <code>coefficient</code> 从 <code>1.0</code> 改成 <code>1.2</code>；右侧"结算预览"面板已经选好了施法者模板 <code>creature.sample_hero</code> 与目标模板 <code>creature.sample_beast</code>，数值改动的瞬间（字段失焦或按 Enter）预览面板重新跑一次确定性模拟，命中表、护甲减免、最终伤害与期望 DPS 立即刷新，策划不需要保存、不需要打开游戏、不需要心算三段式聚合。</p>
+<p><strong>故事 2：系统策划新增一件装备并自动生成外形/文本行。</strong>
+系统策划在"物品编辑器"点"新增物品"，向导依次选槽位（<code>item.slot_definition</code> 下拉）、品质（<code>item.quality_definition</code> 下拉）、物品等级、输入显示名；系统自动生成 <code>item.&lt;name&gt;</code> 形式的 id、<code>l10n.item.&lt;name&gt;.name</code> 文本键并写入默认语言正文、在 <code>display.map</code> 里创建一行外形占位（<code>display.&lt;name&gt;</code>，等待美术核对具体资源）；向导第三步进入属性分配，实时显示"预算消耗 / 预算上限"进度条；完成后自动跑一次字段级 + 表级校验，0 错误时向导关闭并把新记录带到检视区。</p>
+<p><strong>故事 3：关卡策划配掉落表并模拟 1 万次。</strong>
+关卡策划在"掉落与爆率编辑器"给 <code>loot.sample_beast</code> 加一个 <code>weighted_pick_one</code> 分组，塞入三件候选物品，各自设权重；右侧"模拟面板"输入次数 10000、种子 <code>12345</code>，点"运行模拟"，几秒内输出每件物品的出现次数、实际概率（与权重归一化后的理论概率对比）、平均获得数量、按物品预算估算的期望价值，策划据此判断"稀有件出现频率是否符合设计目标"。</p>
+<p><strong>故事 4：文案补齐缺失文本键。</strong>
+文案打开"本地化编辑器"，矩阵视图按"缺失单元格"排序，看到 <code>l10n.quest.deliver_letter.description</code> 在 <code>zh-CN</code> 有正文但 <code>en-US</code> 缺失（高亮黄色）；文案双击该单元格直接填入译文，保存后该行的缺失标记消失，问题面板里对应的一条"文本键存在"警告随之清除。</p>
+<p><strong>故事 5：程序升级框架版本后跑迁移与全量校验。</strong>
+程序把工程的框架快照路径从 <code>dist/0.2.0/</code> 改指到 <code>dist/0.3.0/</code>，重新打开工程时状态栏提示"框架版本 0.3.0，检测到 2 张表 <code>schema_version</code> 落后"；程序在"校验、诊断与引用分析"面板点"执行迁移"，预览迁移前后字段差异（如新增字段的默认值）后确认执行，迁移完成后触发一次全量校验，报告 0 错误后程序提交这批因迁移产生的文件改动。</p>
+<p><strong>故事 6：美术核对外形映射资源是否存在。</strong>
+美术打开"外形与表现编辑器"，筛选"资源缺失"，看到 <code>display.map.sample_new_monster</code> 一行的 <code>sprite_set_id</code> 在工程 <code>assets/</code> 目录下找不到对应文件，黄色感叹号标注；美术确认是资源还没导出，先在编辑器里记下待办，等 ComfyUI 出图与 <code>import_assets.py</code> 跑完后重新扫描，该行的黄标自动消失。</p>
+<h3 id="s1-5">1.5 与现有工具链的关系（先给结论，细节见第 3 章）</h3>
+<p>编辑器不是另起一套数据规范或校验规则，而是仓库既有工具链（<code>data/README.md</code>、<code>toolchain/validate_data.py</code>、<code>toolchain/validator</code>、<code>toolchain/import_assets.py</code>）之上的图形化前端：数据文件组织、信封、主键规则、多根合并、字段级/引用级校验规则、外形映射生成方式，编辑器全部复用，不重复定义、不产生第二套语义。第 3 章"总体方案"给出编辑器如何在实现层面直接复用这些既有能力。</p>
+<hr>
+<h2 id="s2">2. 术语与范围</h2>
+<h3 id="s2-1">2.1 术语表（详版见附录 E）</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>术语</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>工程</td>
+<td>编辑器打开的一个游戏数据编辑单元，对应某个 <code>&lt;game&gt;</code> 仓库的 <code>data/&lt;game&gt;/</code> 数据根 + 其锁定的框架快照 <code>dist/&lt;version&gt;/</code></td>
+</tr>
+<tr>
+<td>工作区</td>
+<td>工程在编辑器本地的偏好与状态存档（<code>&lt;game&gt;/.gfeditor/workspace.json</code>），非数据本身</td>
+</tr>
+<tr>
+<td>数据根</td>
+<td>一批同构织入的数据文件目录，编辑器按"多根合并"规则同时加载框架根（<code>data/_framework/</code>）与游戏根（<code>data/&lt;game&gt;/</code>），见 <a href="../../architecture/04_数据与内容管线.md#4-dataregistry-接口">04 第 4 节</a></td>
+</tr>
+<tr>
+<td>层（框架层/游戏层）</td>
+<td>数据根的归属：框架层数据（随 <code>dist/&lt;version&gt;/data/_framework/</code> 交付）默认只读，游戏层数据（<code>data/&lt;game&gt;/</code>）可编辑；框架层记录可通过"覆盖到游戏层"生成可编辑副本（见第 6.4 节）</td>
+</tr>
+<tr>
+<td>表 / 域 / 记录 / 字段</td>
+<td>表 = 一个 <code>.json</code> 文件对应的一组同构记录；域 = 表名第一段（如 <code>skill</code>、<code>item</code>）；记录 = 表里的一行；字段 = 记录里的一个键值对</td>
+</tr>
+<tr>
+<td>引用</td>
+<td>某字段的值是另一条记录的 id，由 <code>FieldKind.Reference</code> 或 <code>DataRegistry.declareReference</code> 声明，编辑器据此做引用完整性检查与"跳转到目标记录"</td>
+</tr>
+<tr>
+<td>文本键</td>
+<td><code>l10n.text</code> 表的 <code>key</code>，格式 <code>l10n.&lt;来源域&gt;.&lt;来源记录name&gt;.&lt;字段名&gt;</code>，由 <code>FieldKind.TextKey</code> 字段承载</td>
+</tr>
+<tr>
+<td>Expr</td>
+<td>全架构统一的条件/表达式语言，见 <a href="../../architecture/04_数据与内容管线.md#6-expr-条件表达式语言">04 第 6 节</a></td>
+</tr>
+<tr>
+<td>校验报告</td>
+<td>一次校验（字段级/表级/全量）产出的问题列表，含错误与警告两级</td>
+</tr>
+<tr>
+<td>变更集</td>
+<td>编辑器一次会话内累积的未保存改动集合，是撤销栈与"保存哪些表"判断的基础</td>
+</tr>
+<tr>
+<td>原语</td>
+<td>效果类型、光环效果类型、职能标志位等运行时代码认识的固定词汇表条目，新增须走 ADR</td>
+</tr>
+<tr>
+<td>时间模型</td>
+<td><code>found.time_model</code> 声明的连续（<code>continuous</code>，单位秒）或离散（<code>discrete</code>，单位回合）模式，决定编辑器里时间字段显示"秒"还是"回合"</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s2-2">2.2 范围内</h3>
+<ul>
+<li>编辑 <code>data/&lt;game&gt;/</code> 下全部内容表的记录（增删改、克隆、重命名 id、跨层覆盖）。</li>
+<li>与运行时完全一致的校验（复用 <code>DataRegistry</code> 与全部 <code>IValidationRule</code>）。</li>
+<li>高频域的专项编辑体验（技能/物品/生物/掉落/经验/任务对话/世界遭遇/本地化/外形表现）。</li>
+<li>脱离引擎的数值预览与确定性模拟（结算预览、掉落模拟、经验估算、简易战斗回放）。</li>
+<li>批量编辑、查找替换、CSV 导入导出。</li>
+<li>与 git 的只读感知（状态显示、diff 预览、提交前自动校验提示），不内置完整 git 客户端。</li>
+<li>与游戏可执行文件/Unity 工程的联调（一键运行、保存触发热重载、日志反查）。</li>
+</ul>
+<h3 id="s2-3">2.3 范围外（明确不做）</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>不做的事</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>不编辑引擎场景资源本身（精灵图、模型、音频文件的二进制编辑）</td>
+<td>属于美术/引擎工具职责，编辑器只管理"逻辑 id → 资源引用"的映射行，资源本身由 <code>import_assets.py</code> 或引擎编辑器产出</td>
+</tr>
+<tr>
+<td>不做代码编辑</td>
+<td>编辑器编辑的是数据表，不是 C#/脚本源码；<code>script</code> 效果原语与 <code>found.hook</code> 钩子的具体实现在代码里，编辑器只填钩子 id</td>
+</tr>
+<tr>
+<td>不新增原语</td>
+<td>见 1.2 节；新增效果类型/光环类型/职能标志位需过 ADR 并由程序实现</td>
+</tr>
+<tr>
+<td>不做多人实时协作（无锁机制、无云端会话）</td>
+<td>单机单用户工具，协作靠 git，见第 12 章</td>
+</tr>
+<tr>
+<td>不做在线服务（无账号、无云同步、无遥测上报）</td>
+<td>见第 15.4 节"安全"：编辑器不联网、不上传</td>
+</tr>
+<tr>
+<td>不做完整的 git 客户端（不做分支管理、不做交互式 rebase）</td>
+<td>复杂 git 操作交给专业 git 工具，编辑器只做"内容改动"视角需要的最小 git 感知</td>
+</tr>
+</tbody>
+</table></div>
+<hr>
+<h2 id="s3">3. 总体方案</h2>
+<h3 id="s3-1">3.1 架构图</h3>
+<pre><code>                                +-----------------------------------+
+                                |            编辑器壳（UI）           |
+                                |  菜单/工具栏/命令面板/主题/DPI/布局   |
+                                +-----------------+-------------------+
+                                                  |
+                                +-----------------v-------------------+
+                                |            编辑核心                  |
+                                |  工作区管理 / 文档模型 / 撤销栈       |
+                                |  变更集 / 字段级即时校验调度          |
+                                |  控件工厂（FieldKind → 控件）        |
+                                +-----------------+-------------------+
+                                                  |
+              +-----------------------------------+-----------------------------------+
+              |                                   |                                   |
++-------------v-------------+     +---------------v---------------+     +-------------v--------------+
+|      框架核心库（DLL）      |     |         外部工具（子进程）        |     |        文件系统 / git       |
+| DataRegistry（加载/查询/    |     | toolchain/validate_data.py     |     | data/&lt;game&gt;/**/*.json      |
+|   校验/多根合并/迁移）       |     | toolchain/validator（.NET）    |     | .gfeditor/workspace.json   |
+| TableSchema/FieldSchema     |     | toolchain/import_assets.py     |     | 本地 git 仓库（状态/diff）  |
+| Expr 解析器                 |     | 游戏可执行文件 / Unity 工程     |     |                             |
+| 全部 IValidationRule        |     |  (运行联调，第 13 章)           |     |                             |
+| 桩适配层（数值沙盘用）       |     +---------------------------------+     +-----------------------------+
++------------------------------+
+</code></pre>
+<p>编辑器壳只负责界面呈现与交互；一切"表长什么样""这个字段该怎么校验""结算怎么算"的权威判断都下沉到框架核心库与外部工具，编辑器不重复实现。</p>
+<h3 id="s3-2">3.2 数据流</h3>
+<pre><code>打开工程
+  → 探测数据根（框架快照 data/_framework/ + 游戏根 data/&lt;game&gt;/）
+  → DataRegistry.loadAll(多根) —— 按主键合并、按 schema_version 检查、跑迁移
+  → 内存记录集（DataRecord 集合，按表分组）
+  → 用户编辑（网格/表单/源码三视图任一）
+  → 字段级即时校验（编辑动作发生时，FieldKind 对应的单字段规则）
+  → 保存（该记录所属表文件整份格式化写回：稳定字段顺序、2 空格缩进、LF、无 BOM）
+  → 表级校验（该表全部记录的 IValidationRule）
+  → （用户手动触发或提交前）全量校验 —— 等价 toolchain/validate_data.py 两道校验，可选 --strict
+  → git（编辑器展示状态与 diff，用户在编辑器内或外部 git 工具提交）
+</code></pre>
+<h3 id="s3-3">3.3 核心技术主张（编辑器实现层面的选型建议，非架构结论）</h3>
+<blockquote>
+<p>本节标注的四点是"编辑器如何实现"层面的建议，供第 16 章"技术选型建议"进一步展开评估，不是架构文档的结论，不影响 <code>architecture/</code> 的任何既有拍板。</p>
+</blockquote>
+<p>编辑器进程内<strong>直接引用框架的六个核心类库</strong>（<code>Core.Foundation</code> → <code>Core.Numbers</code> → <code>Core.Rules</code> → <code>Core.Carriers</code> → <code>Core.Gameplay</code> → <code>Presentation.Common</code>，由 <code>build.ps1</code> 编译出的 Release DLL，目标框架 <code>.NET Standard 2.1</code>）与桩适配层（<code>Adapters.Stub</code>，纯 .NET 实现），而不是自己重新描述表结构、重新实现校验、重新实现结算算法。这样做换来四个"零重复"：</p>
+<ol>
+<li><strong>表结构零重复</strong>：核心库的 <code>TableSchema</code>/<code>FieldSchema</code>（<code>core/foundation/data_registry/contracts/</code>）已经登记了每张表的字段名、<code>FieldKind</code>（<code>Bool</code>/<code>Int</code>/<code>Number</code>/<code>String</code>/<code>Id</code>/<code>IdList</code>/<code>Reference</code>/<code>TextKey</code>/<code>Expr</code>/<code>Enum</code>/<code>Vec2</code>/<code>Object</code>/<code>Array</code>，见 <code>FieldKind.cs</code>）、<code>Required</code>、<code>EnumValues</code>、<code>ReferenceTable</code>/<code>ReferenceDomain</code>、<code>Description</code>（见 <code>FieldSchema.cs</code>）、当前 <code>CurrentSchemaVersion</code> 与 <code>Migrations</code> 迁移链（见 <code>TableSchema.cs</code>）。编辑器读取这些声明<strong>自动生成</strong>网格列与表单控件（见第 6.2 节控件映射表），新表/新字段只要在核心库登记，编辑器零改动即可编辑——不需要为每张新表单独写一份 UI 代码。</li>
+<li><strong>校验规则零重复</strong>：编辑器直接调用 <code>DataRegistry.LoadAll</code>/<code>Validate</code>/<code>Reload</code> 与全部已注册的 <code>IValidationRule</code>，做到"编辑器里看到的红线 = 运行时/门禁会报的错"这一硬承诺；不存在"编辑器说没问题，但 <code>validate_data.py</code> 报错"的割裂体验。</li>
+<li><strong>数值预览与模拟零重复</strong>：确定性固定步长模拟（拍板决策 3）本身可以脱离引擎运行，编辑器借桩适配层（<code>Adapters.Stub</code>）跑结算管线（06 第 4.1 节）、掉落抽取（08 第 1 节）、经验曲线换算等"数值沙盘"（第 10 章），预览结果与游戏内真实运行结果保证一致，因为走的是同一份规则层代码。</li>
+<li><strong>版本对齐</strong>：编辑器随框架 <code>dist/&lt;version&gt;/</code> 同版本发布，或自身声明兼容的框架版本范围；打开工程时核对游戏工程 <code>Packages/manifest.json</code> 里 <code>file:</code> 锁定的框架快照版本，版本不匹配时提示但不阻断打开（只读模式下仍可查看）。</li>
+</ol>
+<h3 id="s3-4">3.4 与既有工具链的复用关系一览</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>既有工具/文档</th>
+<th>编辑器如何复用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../../data/README.md">data/README.md</a></td>
+<td>文件组织（<code>data/&lt;game&gt;/&lt;domain&gt;/&lt;table&gt;.json</code>）、信封（<code>table</code>/<code>schema_version</code>/<code>rows</code>）、主键规则（内容表 <code>id</code>、登记表 <code>key</code>、<code>l10n.text</code> 复合键）、编码格式（UTF-8 无 BOM、2 空格、LF）全部照搬，保存动作严格产出符合此约定的文件</td>
+</tr>
+<tr>
+<td><code>toolchain/validate_data.py</code></td>
+<td>编辑器"手动全量校验"命令等价调用它的两道校验（骨架级 + <code>toolchain/validator</code>），支持传等价的 <code>--strict</code></td>
+</tr>
+<tr>
+<td><code>toolchain/validator</code>（.NET）</td>
+<td>编辑器进程内直接引用同一套 <code>DataRegistry</code> + <code>IValidationRule</code> 实现（而非再拉起子进程），字段级/表级校验走同一套代码路径；全量校验可选择"进程内跑"或"拉起子进程跑，日志汇入输出面板"两种模式（后者用于跟门禁行为完全对齐地复核）</td>
+</tr>
+<tr>
+<td><code>toolchain/import_assets.py</code></td>
+<td>编辑器"外形与表现编辑器"提供调用入口（见第 7.9 节），把出图产物生成 <code>display.map</code>/<code>display.equip_visual</code> 行，编辑器本身不重复实现资产扫描逻辑</td>
+</tr>
+<tr>
+<td>04 第 4 节多根加载与合并规则</td>
+<td>编辑器打开工程即按此规则加载框架根 + 游戏根，<code>override</code>/<code>final</code> 字段在记录操作里可视化呈现（见第 6.4 节）</td>
+</tr>
+<tr>
+<td>04 §4 <code>DataRegistry.reload(domain)</code></td>
+<td>编辑器保存文件后，若联调面板检测到游戏侧以开发期构建运行，转发一次 reload 请求触发热重载（见第 13 章）</td>
+</tr>
+</tbody>
+</table></div>
+<hr>
+<h2 id="s4">4. 工程与工作区</h2>
+<h3 id="s4-1">4.1 新建/打开工程向导</h3>
+<p>编辑器首次启动或点"新建/打开工程"时弹出向导：</p>
+<ol>
+<li><strong>选游戏仓库根</strong>：文件选择器选中某个 <code>&lt;game&gt;</code> 仓库的根目录（例如用户本地的游戏仓库路径）。</li>
+<li><strong>自动探测数据根</strong>：编辑器在所选根目录下查找 <code>data/&lt;game&gt;/</code>（<code>&lt;game&gt;</code> 段名由该仓库自己决定，编辑器不关心具体拼写），探测到即列为"游戏层数据根";若找不到，提示用户手动指定路径或改为"仅浏览框架层"的只读模式。</li>
+<li><strong>自动探测框架快照</strong>：读取该仓库 Unity 工程 <code>Packages/manifest.json</code> 里 <code>com.gamefoundation.adapter.unity</code>/<code>com.gamefoundation.game-template</code> 的 <code>file:</code> 依赖路径，解析出所指向的 <code>dist/&lt;version&gt;/</code> 目录，从中读取 <code>dist/&lt;version&gt;/data/_framework/</code> 作为框架层数据根、读取内嵌的核心 DLL 供编辑器加载；若 <code>manifest.json</code> 不存在或依赖路径解析失败，弹出手动选择框架快照目录的对话框。</li>
+<li><strong>显示框架版本与编辑器兼容性</strong>：向导最后一步展示"检测到框架版本 <code>0.3.0</code>，本编辑器兼容 <code>0.2.x ~ 0.3.x</code>"一类结论；版本超出兼容范围时给出黄色警告但允许继续（只读优先，写操作前二次确认）。</li>
+<li>确认后进入主界面，状态栏立即显示工程名与框架版本（见第 5.7 节）。</li>
+</ol>
+<h3 id="s4-2">4.2 最近工程</h3>
+<p>主界面欢迎页与"文件"菜单下列出最近打开的工程（路径 + 上次打开时间 + 框架版本），点击直接按 4.1 节流程重新加载；工程路径不存在时该项标灰并提示"未找到，是否移除记录"。</p>
+<h3 id="s4-3">4.3 工程文件 <code>.gfeditor/workspace.json</code></h3>
+<p>工程首次打开成功后，编辑器在游戏仓库 <code>&lt;game&gt;/.gfeditor/workspace.json</code> 写入/更新一份工作区文件，记录：</p>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dataRoots</code></td>
+<td>已探测/手动指定的数据根路径列表（框架层 + 游戏层）</td>
+</tr>
+<tr>
+<td><code>frameworkSnapshotPath</code></td>
+<td>当前锁定的 <code>dist/&lt;version&gt;/</code> 路径</td>
+</tr>
+<tr>
+<td><code>defaultLocale</code></td>
+<td>默认语言，用于文本键校验与内联编辑默认显示语言</td>
+</tr>
+<tr>
+<td><code>preferences</code></td>
+<td>编辑器偏好（布局、主题、最近打开的标签页等，纯 UI 状态）</td>
+</tr>
+<tr>
+<td><code>lastValidationSummary</code></td>
+<td>上次全量校验的时间与结果摘要，供打开工程时快速展示"距上次校验已过 N 天"</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>是否入库的建议（默认方案，可调整）</strong>：<code>workspace.json</code> 里 <code>dataRoots</code>/<code>frameworkSnapshotPath</code>/<code>defaultLocale</code> 属于"团队共享的工程配置"，建议入库（多人打开工程时行为一致）；<code>preferences</code>（布局、最近标签等纯个人偏好）与自动保存草稿目录（见第 15.2 节 <code>.gfeditor/autosave/</code>）不建议入库，建议在游戏仓库 <code>.gitignore</code> 里为 <code>.gfeditor/autosave/</code> 与 <code>.gfeditor/*.local.json</code> 加忽略规则；编辑器首次写入 <code>workspace.json</code> 时如检测到仓库尚无对应 <code>.gitignore</code> 规则，弹出一次性提示询问是否代为写入。</p>
+<hr>
+<h2 id="s5">5. 主界面布局</h2>
+<p>主界面是编辑器最高频的操作现场，本章给出整体线框图、各区域的默认尺寸/折叠规则，以及尺寸调整、主题、DPI 的行为约定。</p>
+<h3 id="s5-1">5.1 整体线框图</h3>
+
+<div class="wf">
+<p class="wf-cap">真实感线框（对应下方 ASCII 线框）</p>
+<div class="wf-frame">
+  <div class="wf-menubar"><span>文件</span><span>编辑</span><span>视图</span><span>工程</span><span>校验</span><span>工具</span><span>运行</span><span>帮助</span><span class="wf-search" style="margin-left:auto;max-width:280px;">Ctrl+K 全局搜索/命令面板…</span></div>
+  <div class="wf-toolbar"><span class="wf-btn">新建</span><span class="wf-btn">打开</span><span class="wf-btn">保存</span><span class="wf-btn">撤销</span><span class="wf-btn">重做</span><span class="wf-btn">校验:全量</span><span class="wf-btn">模拟:沙盘</span><span class="wf-btn" style="margin-left:auto;color:var(--accent);font-weight:700;">运行 ▶</span></div>
+  <div class="wf-body">
+    <div class="wf-col" style="flex:0 0 22%;">
+      <div class="wf-col-title">导航区 280px</div>
+      <div class="wf-tabs"><span class="wf-tab on">层/域/表</span><span class="wf-tab">专项编辑器</span><span class="wf-tab">收藏</span><span class="wf-tab">最近</span></div>
+      <ul class="wf-tree">
+        <li>▾ L2 规则层</li>
+        <li class="lvl2">▾ skill</li>
+        <li class="lvl3">skill.def* <span class="wf-badge err">23,1错</span></li>
+        <li class="lvl2">▾ combat</li>
+      </ul>
+      <div class="wf-col-title" style="margin-top:8px;">筛选</div>
+      <div class="wf-muted">有错误 · 未保存 · 孤儿 · 仅游戏层</div>
+    </div>
+    <div class="wf-col" style="flex:1 1 46%;">
+      <div class="wf-col-title">文档区（多标签、可分栏）</div>
+      <div class="wf-tabs"><span class="wf-tab on">skill.def 网格</span><span class="wf-tab">skill.sample_strike 表单</span></div>
+      <table class="wf-table">
+        <thead><tr><th>id</th><th>school</th><th>kind</th><th>range</th><th>cast_time</th></tr></thead>
+        <tbody>
+          <tr><td>skill.sample_strike</td><td>school.physical</td><td>active</td><td>30</td><td>0</td></tr>
+          <tr><td>skill.sample_bolt</td><td>school.fire</td><td>active</td><td>30</td><td>1.0</td></tr>
+          <tr><td>skill.sample_passive</td><td>school.arcane</td><td>passive</td><td>0</td><td>0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="wf-col" style="flex:0 0 26%;">
+      <div class="wf-col-title">检视区 360px</div>
+      <div class="wf-tabs"><span class="wf-tab on">属性</span><span class="wf-tab">引用</span><span class="wf-tab">预览</span></div>
+      <div class="wf-field"><span class="k">id</span><span>skill.sample_strike</span></div>
+      <div class="wf-field"><span class="k">school</span><span>下拉 ▾</span></div>
+      <div class="wf-field"><span class="k">kind</span><span>(●) active</span></div>
+      <div class="wf-field"><span class="k">range</span><span>30</span></div>
+      <div class="wf-field"><span class="k">effects</span><span>[+效果卡片]</span></div>
+    </div>
+  </div>
+  <div class="wf-panel-bottom">
+    <div class="wf-tabs"><span class="wf-tab on">问题(12)</span><span class="wf-tab">输出</span><span class="wf-tab">模拟结果</span><span class="wf-tab">git 变更(3)</span></div>
+    <div class="wf-issue">✕ skill.def.skill_x：引用完整性 target_shape_ref 未找到 target.chain.xxx <span class="wf-link">[跳转]</span></div>
+    <div class="wf-issue">⚠ item.template.item_y：预算超标（消耗 42 / 上限 38） <span class="wf-link">[跳转]</span></div>
+  </div>
+  <div class="wf-statusbar">
+    <span>工程: &lt;game&gt;-dev</span><span>框架 0.3.0</span><span>数据根 2 层</span><span>未保存 3 张表</span><span>错误 1 警告 4</span><span>战斗:离散(回合)</span><span>git main 3 处改动</span><span>zh-CN</span>
+  </div>
+</div>
+</div>
+
+<details class="ascii-fallback"><summary>查看 ASCII 线框</summary>
+<pre><code>+--------------------------------------------------------------------------------------------------+
+| 文件  编辑  视图  工程  校验  工具  运行  帮助         [Ctrl+K 全局搜索/命令面板.......................] |
++--------------------------------------------------------------------------------------------------+
+| [新建][打开][保存][撤销][重做] | [校验:全量] [模拟:沙盘] | [运行▶]                                     |
++---------------+--------------------------------------------------------------+---------------------+
+| 导航区(280px) |                        文档区（多标签、可分栏）                 |   检视区(360px)      |
+| [层/域/表|专项| +----------------------------------------------------------+  | [属性][引用][预览]    |
+|  编辑器|收藏|  | 标签: skill.def 网格 | skill.sample_strike 表单 | ...    [x]|  |                      |
+|  最近|问题]   | +----------------------------------------------------------+  | 表单视图：            |
+|               | | id       school        kind    range  cast_time  ...   | |  id: skill.sample... |
+| ▾ L2 规则层    | | skill... school.phys.. active  30     0          ...   | |  school: [下拉▾]     |
+|   ▾ skill     | | skill... school.fire   active  30     1.0        ...   | |  kind: (●)active     |
+|     skill.def*| | skill... school.phys.. active  30     0          ...   | |         ( )passive   |
+|      (23,1错) | | skill... school.arc..  passive 0      0          ...   | |  range: [30      ]   |
+|   ▾ combat    | +----------------------------------------------------------+  |  effects: [+效果卡片] |
+|     ...       |                                                             |  ...                 |
+| [筛选: 有错误 |                                                             |  ----------------------|
+|  未保存 孤儿  |                                                             | 引用面板/预览面板切换  |
+|  仅游戏层]    |                                                             |                      |
++---------------+--------------------------------------------------------------+---------------------+
+| 问题(12) | 输出 | 模拟结果 | git 变更(3)                                     [面板区 220px，可折叠]      |
+| ✕ skill.def.skill_x: 引用完整性 target_shape_ref 未找到 target.chain.xxx    [跳转]                     |
+| ⚠ item.template.item_y: 预算超标 (消耗 42 / 上限 38)                       [跳转]                     |
++--------------------------------------------------------------------------------------------------+
+| 工程: &lt;game&gt;-dev · 框架 0.3.0 · 数据根 2 层 · 未保存 3 张表 · 错误 1 警告 4 · 战斗:离散(回合) · git main 3 处改动 · zh-CN |
++--------------------------------------------------------------------------------------------------+
+</code></pre>
+</details>
+
+<h3 id="s5-2">5.2 顶部：菜单栏 / 工具栏 / 全局搜索</h3>
+<ul>
+<li><strong>菜单栏</strong>：文件（新建/打开/最近/保存/另存/退出）、编辑（撤销/重做/查找替换）、视图（面板显隐/布局保存重置/主题）、工程（工程设置/数据根管理/框架版本核对）、校验（字段级开关/表级校验/全量校验/严格模式开关）、工具（数值沙盘/批量编辑/导入导出/调用 <code>import_assets.py</code>）、运行（配置可执行文件路径/一键运行/热重载设置）、帮助（快捷键表/关于/日志目录）。</li>
+<li><strong>工具栏</strong>：常用动作的图标化快捷入口（新建/打开/保存/撤销/重做/全量校验/打开沙盘/运行）。</li>
+<li><strong>全局搜索/命令面板</strong>（<code>Ctrl+K</code>）：输入框弹出居中浮层，支持三类结果混合展示并按相关度排序：
+  1. 内容记录（按 id、显示名模糊匹配，如输入 <code>sample_str</code> 命中 <code>skill.sample_strike</code>）；
+  2. 表名（如输入 <code>item.temp</code> 命中 <code>item.template</code> 表，回车直接打开该表网格）；
+  3. 命令（如输入 <code>全量校验</code>、<code>运行模拟</code>，回车直接执行）。
+  每条结果显示所属表/域图标 + id + 显示名摘要；方向键选择，回车打开/执行，<code>Esc</code> 关闭。</li>
+</ul>
+<h3 id="s5-3">5.3 左侧：导航区</h3>
+<p>默认宽度 280px，可拖拽调整（120px~600px），可通过左边缘的折叠按钮或 <code>Ctrl+B</code> 完全收起（收起后留一条 32px 的图标条，悬停临时展开）。顶部是四个 Tab：</p>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>Tab</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>按层/域/表</td>
+<td>树形结构：L0 基础层 → L1 数值层 → L2 规则层 → L3 载体层 → L4 玩法层 → L5 表现层 → 显示与本地化，逐层展开到模块再到具体表；每张表节点右侧显示"行数"与"错误数徽标"（红色数字，0 时不显示；有警告无错误时显示黄色感叹号）</td>
+</tr>
+<tr>
+<td>专项编辑器</td>
+<td>固定列表：人物与生物、技能/状态/触发、物品、掉落与爆率、经验与成长、任务与对话、世界/遭遇/刷新/区域、本地化、外形与表现、其余表（通用），点击直接打开对应专项编辑器标签</td>
+</tr>
+<tr>
+<td>收藏</td>
+<td>用户手动收藏的记录/表，支持拖拽排序</td>
+</tr>
+<tr>
+<td>最近</td>
+<td>最近打开过的记录/表，按时间倒序，超过 50 条自动裁剪</td>
+</tr>
+</tbody>
+</table></div>
+<p>树形结构下方有<strong>筛选行</strong>（复选框组合，可多选）：<code>有错误</code> / <code>未保存</code> / <code>孤儿</code>（未被任何已知入口引用）/ <code>仅游戏层</code> / <code>仅框架层</code>；勾选后树只显示命中筛选条件的表/记录节点，父节点级联显示（子节点命中则父节点也显示但标灰非本身命中）。</p>
+<h3 id="s5-4">5.4 中央：文档区</h3>
+<p>多标签页容器，每个标签可以是：一张表的网格视图、一条记录的表单/源码视图、一个专项编辑器实例、一个数值沙盘面板。标签支持：</p>
+<ul>
+<li>左右拖拽重排序；</li>
+<li>右键菜单"在新的垂直/水平分栏中打开"，实现左右或上下分栏对照编辑（例如左边看 <code>skill.def</code> 网格、右边看某条 <code>skill.aura_def</code> 表单）；</li>
+<li>未保存的标签标题前显示圆点脏标记（<code>● skill.sample_strike</code>）；</li>
+<li><code>Ctrl+Tab</code>/<code>Ctrl+Shift+Tab</code> 在已打开标签间循环切换；<code>Ctrl+W</code> 关闭当前标签（若脏则先弹出"保存/放弃/取消"）。</li>
+</ul>
+<h3 id="s5-5">5.5 右侧：检视区</h3>
+<p>默认宽度 360px，可折叠规则同导航区。三个子 Tab：</p>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>子面板</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>属性检视器</td>
+<td>当前选中记录的表单视图（与文档区表单视图共享同一套控件渲染，联动同步：任一处改动立即反映到另一处）</td>
+</tr>
+<tr>
+<td>引用面板</td>
+<td>当前选中记录"引用了谁"（本记录各引用字段指向的目标，点击跳转）与"被谁引用"（反向查找，见第 9 章引用图）</td>
+</tr>
+<tr>
+<td>预览面板</td>
+<td>按记录类别切换内容：技能/物品/生物显示图标与精灵缩略图（读取 <code>display.map</code> 解出的资源）；文本键类字段显示各语言正文对照；纯数值记录显示关键数值摘要卡片（如物品显示"预算 24/38"进度条）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s5-6">5.6 底部：面板区</h3>
+<p>默认高度 220px，可折叠（<code>Ctrl+J</code> 切换）。四个子 Tab：</p>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>子面板</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>问题</td>
+<td>当前工程全部校验问题列表（错误/警告/覆盖诊断三类），可按"所属表""问题类型""来源（字段级/表级/全量）"筛选，双击一条问题跳转到对应记录的对应字段并高亮</td>
+</tr>
+<tr>
+<td>输出</td>
+<td>外部工具调用日志（<code>validate_data.py</code>/<code>import_assets.py</code>/联调运行日志），只读文本流，支持按关键字过滤</td>
+</tr>
+<tr>
+<td>模拟结果</td>
+<td>数值沙盘（第 10 章）运行结果的文本/表格输出历史</td>
+</tr>
+<tr>
+<td>git 变更</td>
+<td>当前工程 git 状态的文件级列表（新增/修改/删除），点击文件展示 diff 预览（见第 12 章）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s5-7">5.7 状态栏</h3>
+<p>固定单行，自左至右依次展示：<code>工程名</code> · <code>框架版本</code> · <code>数据根层数</code>（如"2 层"表示框架层+游戏层） · <code>未保存表数</code> · <code>错误/警告数</code>（红/黄两色数字） · <code>探索/战斗时间模型</code>（分别显示，例如"探索:连续 战斗:离散(回合)"，决定编辑器里时间字段单位显示"秒"还是"回合"，见第 6.2 节） · <code>git 分支与脏文件数</code> · <code>当前 locale</code>。任一项点击可跳转到对应详情面板（例如点错误数跳到问题面板）。</p>
+<h3 id="s5-8">5.8 主题、DPI、窗口与布局</h3>
+<ul>
+<li>主题：浅色 / 深色 / 跟随系统三选一，设置项见第 14.1 节；切换即时生效不需重启。</li>
+<li>DPI 缩放：跟随系统 DPI 设置自动缩放界面元素与字体，最小窗口尺寸 <code>1280×800</code>（低于该尺寸时禁止进一步缩小，允许滚动）。</li>
+<li>布局：导航区/检视区/面板区的宽高、折叠状态、文档区分栏结构整体可"保存为默认布局"或"重置为出厂布局"（视图菜单）；布局保存在 <code>workspace.json</code> 的 <code>preferences</code> 段（个人偏好，见第 4.3 节，不建议入库）。</li>
+</ul>
+<hr>
+<h2 id="s6">6. 通用表编辑器（Schema 驱动）</h2>
+<p>通用表编辑器是编辑器的地基：任何一张登记在 <code>TableSchema</code> 里的表，不需要任何专项定制即可用它编辑；第 7 章的专项编辑器都是在通用表编辑器基础上叠加的"更好用的皮肤 + 专属校验/预览"，专项编辑器覆盖不到的表（第 7.10 节）直接落回通用表编辑器。</p>
+<h3 id="s6-1">6.1 三视图同步</h3>
+<p>一条记录或一整张表在文档区可以三种视图打开，三者对同一份内存记录集读写，切换视图不丢失未保存的编辑，字段级校验状态三视图共享。</p>
+<pre><code>+----------------------------------------------------------------------------------+
+| [网格视图] [表单视图] [源码视图]                              记录: skill.sample_burn |
++----------------------------------------------------------------------------------+
+| 网格视图（整表）：                                                                  |
+|  id 冻结列 | school | kind | range | cast_time | cost | ... （可排序/筛选/分组/隐藏列）|
+|  多选后可批量改字段（见第11章）；行内编辑，Tab/Enter 移动焦点                          |
++----------------------------------------------------------------------------------+
+| 表单视图（单条记录，按 schema 顺序分组）：                                            |
+|  [基础] id / school / kind / range                                                |
+|  [引用] target_shape_ref                                                          |
+|  [数值] cast_time / cooldown_duration / cost                                       |
+|  [表现] （该表若有 display 相关字段则归入本组）                                        |
+|  [高级] tags / interrupt_flags / action_cost                                       |
+|  必填字段星标(*)，字段旁 (?) 悬停显示 FieldSchema.Description                          |
++----------------------------------------------------------------------------------+
+| 源码视图（该记录或整表 JSON，语法高亮）：                                             |
+|  {                                                                                 |
+|    &quot;id&quot;: &quot;skill.sample_burn&quot;,                                                     |
+|    &quot;school&quot;: &quot;school.fire&quot;,                                                       |
+|    ...                                                                            |
+|  }                                                                                 |
+|  保存时若 JSON 解析失败 → 进入&quot;修复模式&quot;（红色边框 + 错误行号提示），不覆盖磁盘文件      |
++----------------------------------------------------------------------------------+
+</code></pre>
+<ul>
+<li><strong>网格视图</strong>：列 = 字段，虚拟化渲染（保证 5 万行级表滚动流畅，见第 15.1 节性能指标）；冻结主键列（<code>id</code>/<code>key</code>）；支持列排序、按字段值筛选、按枚举字段分组折叠、隐藏/显示列（列头右键菜单）；行内编辑（双击进入编辑态，控件按第 6.2 节映射表渲染）；支持多选（<code>Shift</code>/<code>Ctrl</code> 点选，或框选）。</li>
+<li><strong>表单视图</strong>：按 <code>TableSchema.Fields</code> 的登记顺序分组展示（基础/引用/数值/表现/高级五个语义分组，具体某字段归入哪组由字段命名与 <code>FieldKind</code> 启发式判断，见附录 B 控件映射表最后一列的"分组建议"；未来若核心库补充字段分组元数据，编辑器优先读取显式声明）；必填字段（<code>FieldSchema.Required == true</code>）显示红色星标；每个字段标签旁的 <code>(?)</code> 图标悬停显示 <code>FieldSchema.Description</code>。</li>
+<li><strong>源码视图</strong>：可查看/编辑单条记录或整张表的原始 JSON，语法高亮（键名/字符串/数字/布尔各自配色）；保存时先做 JSON 语法解析，解析失败不覆盖磁盘文件、进入"修复模式"（编辑区红框 + 错误所在行号与列号提示），修复通过后才允许写盘。</li>
+</ul>
+<h3 id="s6-2">6.2 字段类型 → 控件映射表</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th><code>FieldKind</code></th>
+<th>渲染控件</th>
+<th>交互细节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Bool</code></td>
+<td>开关（Toggle）</td>
+<td>点击切换，无需二次确认</td>
+</tr>
+<tr>
+<td><code>Int</code> / <code>Number</code></td>
+<td>数字输入框</td>
+<td>支持步进按钮与拖拽微调；识别为"时间字段"（<code>cast_time</code>/<code>channel_time</code>/<code>cooldown_duration</code>/光环 <code>duration</code>/<code>interval</code>/<code>internal_cooldown</code> 等，见 04 第 3.1 节清单）时，输入框带单位后缀（"秒"或"回合"，取决于该记录所属作用域的 <code>found.time_model.mode</code>），离散模式下拒绝输入小数（失焦时四舍五入并提示"离散模式下时间字段必须为整数"）</td>
+</tr>
+<tr>
+<td><code>String</code></td>
+<td>单行文本框</td>
+<td>无格式限制的自由文本（如 <code>sprite_set_id</code> 一类资源引用字符串）</td>
+</tr>
+<tr>
+<td><code>Enum</code></td>
+<td>下拉选择框</td>
+<td>选项列表 = <code>FieldSchema.EnumValues</code>；不允许手输不在列表内的值</td>
+</tr>
+<tr>
+<td><code>Id</code></td>
+<td>Id 输入框</td>
+<td>自动补全 <code>domain</code> 前缀（按所属表的 domain 段，见 04 第 2.2 节）；实时按正则 <code>^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$</code> 校验格式；主键字段额外做同表唯一性检查，冲突时输入框标红并提示已存在的记录</td>
+</tr>
+<tr>
+<td><code>IdList</code></td>
+<td>标签编辑器（Chips）</td>
+<td>每个 id 显示为一个可删除的标签；输入区支持按域筛选的自动补全下拉</td>
+</tr>
+<tr>
+<td><code>Reference</code></td>
+<td>引用选择器</td>
+<td>点击弹出搜索浮层，可搜索 <code>ReferenceTable</code>/<code>ReferenceDomain</code> 声明的目标表/域内记录，列表显示"显示名 + id + 缩略图"；<code>Ctrl+点击</code>已填值直接跳转到目标记录；悬停已填值显示目标记录的预览卡（名称/关键字段摘要）；目标缺失时输入框标红并提供"创建目标记录"按钮（跳转到对应新增流程，见第 8 章）</td>
+</tr>
+<tr>
+<td><code>TextKey</code></td>
+<td>本地化内联编辑框</td>
+<td>直接显示/编辑默认语言（<code>workspace.json.defaultLocale</code>）正文；首次填入非空文本时按规则 <code>l10n.&lt;来源域&gt;.&lt;来源记录id去掉domain前缀&gt;.&lt;字段名&gt;</code> 自动生成 key 并写入 <code>l10n.text</code>；其余已登记语言若该 key 缺失，框下方显示"缺失 N 种语言"提示，点击展开逐语言小输入框</td>
+</tr>
+<tr>
+<td><code>Expr</code></td>
+<td>表达式编辑器</td>
+<td>语法高亮（关键字/分组名/字符串/数字/括号配色）；输入 <code>group.</code> 后弹出该分组下已知 <code>key</code> 的自动补全列表（九个分组：<code>self</code>/<code>target</code>/<code>event</code>/<code>world</code>/<code>quest</code>/<code>player</code>/<code>combat</code>/<code>enemies</code>/<code>time</code>，见 04 第 6.2 节）；括号自动匹配高亮；失焦时按 04 第 6.1 节 BNF 做实时解析，语法错误处标红下划线并在状态提示条给出错误位置；点分标识符若域名段与九个分组同名但未登记为 <code>group.key</code>，标黄"疑似引用拼写错误"警告（对应 04 第 5 节该项校验）；识别为合法内容 id 字面量的片段可点击跳转到目标记录</td>
+</tr>
+<tr>
+<td><code>Vec2</code></td>
+<td>双数字框（x/y）</td>
+<td>相邻两个数字框；若该记录所属专项编辑器提供地图画布（第 7.7 节），双数字框与画布上的点位联动：拖拽画布上的点等价于改这两个数字</td>
+</tr>
+<tr>
+<td><code>Object</code></td>
+<td>结构化子表单 / JSON 子编辑</td>
+<td>若该字段结构已在模块登记（如技能 <code>effects</code>、掉落 <code>groups</code>、任务 <code>objectives</code>、对话 <code>nodes</code> 等，均在第 7 章专项编辑器中定制为卡片/子表格），渲染对应的定制子表单；未登记定制的 <code>Object</code> 字段退化为一段内嵌的 JSON 子编辑器（同源码视图的编辑体验，但只作用于该字段）</td>
+</tr>
+<tr>
+<td><code>Array</code></td>
+<td>结构化子表格 / JSON 子编辑</td>
+<td>同 <code>Object</code>，已登记的模块结构渲染为可增删排序的子表格（如效果列表卡片可拖拽排序），未登记的退化为 JSON 子编辑</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s6-3">6.3 记录操作</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>用户怎么做</th>
+<th>系统反馈</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>新增</td>
+<td>网格视图工具栏"新增"按钮，或右键"在此表新增记录"</td>
+<td>生成新记录，主键按"表 domain 前缀 + 用户输入名字段"规则自动生成 id 建议值（可编辑），其余字段按 <code>FieldSchema</code> 声明的类型给出合理默认值（<code>Bool→false</code>、<code>Number→0</code>、<code>Enum→</code> 第一个枚举值等，模板可由专项编辑器覆盖为更贴合语义的默认值，见第 8 章新增内容向导）；新记录自动打开表单视图供继续填写</td>
+</tr>
+<tr>
+<td>克隆</td>
+<td>选中记录右键"克隆"</td>
+<td>弹出对话框要求输入新 id，默认建议 <code>&lt;原id&gt;_copy</code>；若原记录存在被同类结构引用的关联行（如物品的 <code>display_ref</code>），提供"级联克隆关联行"复选框（默认不勾选），勾选后连带克隆并重新绑定引用</td>
+</tr>
+<tr>
+<td>删除</td>
+<td>选中记录右键"删除"或按 <code>Delete</code></td>
+<td>先弹出"影响分析"对话框（见第 9.3 节引用图）列出"哪些记录引用了本记录"，若存在引用则默认按钮为"取消"，需用户显式点击"仍然删除"二次确认；确认后记录从内存集移除并标记该表为脏</td>
+</tr>
+<tr>
+<td>重命名 id</td>
+<td>选中记录右键"重命名 id"</td>
+<td>弹出对话框输入新 id，系统扫描全部表中的引用字段、<code>Expr</code> 中的 id 字面量、<code>l10n.text</code> 的 key 前缀，生成一份"改动清单"预览（哪些表哪些字段会被级联更新），用户确认后统一执行并标记全部受影响表为脏</td>
+</tr>
+<tr>
+<td>移动到另一层</td>
+<td>框架层只读记录右键"覆盖到游戏层"</td>
+<td>在游戏层数据根生成一份内容相同、带 <code>override: true</code> 的副本记录，覆盖诊断面板新增一条"该记录已被游戏层覆盖"的信息级提示（非错误）；若原框架层记录声明 <code>final: true</code>，菜单项显示为禁用并附锁形图标提示"该记录不可覆盖"</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s6-4">6.4 撤销/重做</h3>
+<p>跨记录、跨表的<strong>事务式撤销栈</strong>：一次原子编辑（改一个字段值、执行一次批量替换、执行一次重命名 id 级联更新）作为一个撤销单元；<code>Ctrl+Z</code>/<code>Ctrl+Y</code> 在整个工程范围内撤销/重做，不限定在当前打开的标签；<strong>保存动作不清空撤销栈</strong>（保存只是把当前内存状态落盘，撤销栈仍保留保存前后的完整历史，允许"保存后又想撤销回保存前的状态"）。撤销栈上限为可配置的操作步数（默认 500 步，见第 14.1 节设置项），超出上限从最早的操作开始丢弃。</p>
+<h3 id="s6-5">6.5 保存</h3>
+<ul>
+<li>按表文件写回：一次保存动作只重写该记录所属的表文件（<code>data/&lt;game&gt;/&lt;domain&gt;/&lt;table&gt;.json</code>），不触碰其它未改动的表文件。</li>
+<li>稳定字段顺序：按 <code>TableSchema.Fields</code> 声明的顺序输出字段；核心库尚未登记但文件里已存在的未知字段，保留在已知字段之后、按原文件中的相对顺序追加，不丢弃。</li>
+<li>格式：2 空格缩进、LF 行尾、UTF-8 无 BOM，与 <a href="../../data/README.md">data/README.md</a> "编码与格式"一节要求一致，保证 git diff 最小（只有真正改动的字段产生 diff 行）。</li>
+<li>外部修改检测：编辑器对已打开工程的数据根文件保持文件系统监视；若磁盘文件在编辑器外被修改（如另一进程的脚本改了 JSON，或 git 切换分支），弹出提示"检测到外部修改"，提供"重新加载（丢弃编辑器内改动）"与"对比差异后决定"两个选项，避免静默覆盖。</li>
+</ul>
+<hr>
+<h2 id="s7">7. 专项编辑器</h2>
+<p>专项编辑器是通用表编辑器之上，针对高频域定制的更好用的界面：更贴合语义的布局、专属的可视化控件（画布、卡片、图表）、更聚焦的专属校验与预览。每个专项编辑器覆盖固定的一组表，不覆盖到的表仍可从导航区"按层/域/表"进入通用表编辑器直接编辑。</p>
+<h3 id="s7-1">7.1 人物与生物编辑器</h3>
+<p><strong>目的</strong>：编辑生物模板与其依赖的职业/种族/天赋/资源类型/属性/阵营定义，让策划一次看清"一只生物由哪些表拼成"。</p>
+<p><strong>覆盖的表</strong>：<code>creature.template</code>、<code>creature.tier_definition</code>、<code>arch.class</code>、<code>arch.race</code>、<code>arch.talent_tree</code>、<code>arch.power_type</code>、<code>stat.definition</code>、<code>fac.faction</code>、<code>fac.reaction_matrix</code>。</p>
+<p><strong>界面布局线框</strong>：</p>
+<pre><code>+----------------------------------------------------------------------------------------+
+| 生物列表(左, 可筛选:阵营/tier/职能标志)  |  中央：基础信息 / 属性面板 / 职能 / AI / 掉落 / 外形 |
++---------------------------+--------------------------------------------------------------+
+| [搜索....]                | 基础信息                                                       |
+| ▸ creature.sample_hero    |  id: creature.sample_beast   name_key: [灰狼 (zh-CN)      ]    |
+| ▾ creature.sample_beast * |  level: [1]   tier: [creature.tier.sample_normal ▾]           |
+|                            |  faction: [fac.wildlife ▾]                                    |
+|                            +--------------------------------------------------------------+
+|                            | 属性面板                                                       |
+|                            |  base_stats 表格:  stat.strength=5  stat.stamina=8            |
+|                            |  [+添加属性]                                                    |
+|                            |  等级 1..N 成长预览（按 stat_growth_ref 计算）：                 |
+|                            |   Lv |strength|stamina|      12 ┤            ___/               |
+|                            |    1 |    5   |   8   |         │        __/                    |
+|                            |    5 |    9   |  16   |       6 ┤   ___/                        |
+|                            |   10 |   14   |  26   |         └──────────────── Lv            |
+|                            +--------------------------------------------------------------+
+|                            | 职能标志位: [ ]vendor [ ]trainer [ ]questgiver [ ]gossip       |
+|                            |            [ ]save_point [✓]summon_only                        |
+|                            +--------------------------------------------------------------+
+|                            | AI 绑定: ai_rotation_ref [ai.rotation.melee_basic ▾][打开]     |
+|                            |         ai_behavior_ref [ai.profile.sample_melee ▾][打开]      |
+|                            +--------------------------------------------------------------+
+|                            | 掉落绑定: loot_table_ref [loot.sample_beast ▾][打开]           |
+|                            | 免疫列表: [+添加] school.frost ×                               |
+|                            +--------------------------------------------------------------+
+|                            | 外形预览: [缩略图]  display_ref: display.map.sample_beast      |
++----------------------------------------------------------------------------------------+
+</code></pre>
+<p><strong>交互流程</strong>：</p>
+<ol>
+<li>左侧列表选中一只生物，中央区域按上图分块展示；每块都是对通用表单视图的重新编排，字段控件仍按第 6.2 节映射表渲染，只是布局更贴合"策划心里怎么想一只生物"的顺序。</li>
+<li>属性面板的"等级 1..N 成长预览"：读取 <code>stat_growth_ref</code> 指向的成长曲线（与 <code>prog.level_curve</code> 同类结构）与 <code>tier</code> 对应的分档倍率，逐级算出 <code>base_stats</code> 之外每级的最终属性值，渲染为表格 + 折线图；纯预览，不产生任何写盘副作用。</li>
+<li>职能标志位为复选框组（第 07 文档 2.2 节六项固定枚举，<code>FieldKind.IdList</code> 的语义化呈现），勾选/取消即改 <code>npc_flags</code> 列表。</li>
+<li>AI 绑定、掉落绑定两处的下拉本质是 <code>Reference</code> 控件；"打开"按钮跳转到对应记录（AI 优先级表落回通用表编辑器，掉落表跳到 7.4 节掉落编辑器）。</li>
+<li><strong>职业编辑（<code>arch.class</code>）</strong>：主属性引用（<code>Reference</code> 到 <code>stat.definition</code>）、资源类型引用（<code>Reference</code> 到 <code>arch.power_type</code>，可多选）、技能书（<code>Reference</code> 到 <code>skill.book</code>）、天赋树引用（<code>Reference</code> 到 <code>arch.talent_tree</code>）四个字段按同样的分块表单呈现；点击天赋树引用旁"打开"进入下方的天赋树画布。</li>
+<li><strong>天赋树画布</strong>：节点（每个节点 = 一条天赋，绑定一个被动光环或 <code>override_skill</code>/<code>spell_mod</code> 效果，见 06 第 3.5、5 节）以卡片形式摆放在画布上，前置关系画连线；拖拽节点改变位置（纯展示布局，不影响数据语义）；拖拽节点边缘到另一节点建立/删除前置连线；系统在每次连线改动后运行成环检测（DFS 沿前置边遍历），检测到环时该连线显示红色警示线并在问题面板报"循环引用检测"错误，阻止保存。</li>
+<li><strong>反应矩阵（<code>fac.reaction_matrix</code>）</strong>：二维网格呈现，行/列均为 <code>fac.faction</code> 记录，单元格是枚举下拉（敌对/中立/友好）；对角线单元格（阵营对自身）灰化不可编辑，恒为"友好"。</li>
+</ol>
+<p><strong>专属校验/预览</strong>：属性成长预览、天赋树成环检测（对应 04 第 5 节"循环引用检测"）、反应矩阵对称性提示（若 A 对 B 是敌对但 B 对 A 未设为敌对，出信息级提示，不阻断，因为设计上允许单向敌意）。</p>
+<h3 id="s7-2">7.2 技能/状态/触发编辑器</h3>
+<p><strong>目的</strong>：编辑"万物皆法术"体系的核心——技能、光环、触发器、施法修正、技能书、目标选择链、战斗配置，并提供结算预览把抽象的效果参数换算成具体伤害数字。</p>
+<p><strong>覆盖的表</strong>：<code>skill.def</code>、<code>skill.aura_def</code>、<code>skill.proc_def</code>、<code>skill.spell_mod_def</code>、<code>skill.book</code>、<code>target.chain_def</code>、<code>combat.hit_table_config</code>、<code>combat.resist_curve</code>。</p>
+<p><strong>界面布局线框</strong>：</p>
+
+<div class="wf">
+<p class="wf-cap">真实感线框（对应下方 ASCII 线框）</p>
+<div class="wf-frame">
+  <div class="wf-body">
+    <div class="wf-col" style="flex:0 0 20%;">
+      <div class="wf-col-title">技能列表</div>
+      <div class="wf-muted" style="margin-bottom:4px;">筛选: school▾ kind▾ tag▾</div>
+      <ul class="wf-tree">
+        <li>▸ skill.sample_strike</li>
+        <li>▾ skill.sample_bolt *</li>
+        <li class="lvl2">skill.sample_burn</li>
+        <li class="lvl2">skill.sample_passive</li>
+      </ul>
+    </div>
+    <div class="wf-col" style="flex:1 1 48%;">
+      <div class="wf-col-title">效果列表（卡片，拖拽排序） · skill.sample_bolt</div>
+      <div class="wf-field"><span class="k">school / kind</span><span>school.physical / active</span></div>
+      <div class="wf-field"><span class="k">range / cast_time / cost</span><span>30 / 0 / 10 mana</span></div>
+      <div class="wf-field"><span class="k">target_shape_ref</span><span>target.chain.sample_…</span></div>
+      <div class="wf-muted" style="margin-top:6px;">效果数 2 / 8 上限</div>
+      <div class="wf-progress"><span style="width:25%"></span></div>
+      <div class="wf-card">
+        <div class="hd"><span>#1 projectile</span><span class="wf-muted">⋮拖拽 · 删除</span></div>
+        <div class="wf-field"><span class="k">travel_mode</span><span>straight</span></div>
+        <div class="wf-field"><span class="k">hit_behavior</span><span>impact_on_first</span></div>
+        <div class="wf-field"><span class="k">speed / max_range</span><span>20 / 30</span></div>
+        <div class="wf-field"><span class="k">display_ref</span><span>projectile.sample_bolt</span></div>
+        <div class="wf-card wf-nested">
+          <div class="hd"><span>└ #1 school_damage（嵌套于 on_hit_effects）</span></div>
+          <div class="wf-field"><span class="k">base_value</span><span>12</span></div>
+          <div class="wf-field"><span class="k">coefficient</span><span>1.0</span></div>
+        </div>
+      </div>
+      <span class="wf-btn">+添加效果原语 ▾</span>
+    </div>
+    <div class="wf-col" style="flex:0 0 26%;">
+      <div class="wf-col-title">结算预览</div>
+      <div class="wf-field"><span class="k">施法者</span><span>creature.sample_hero ▾</span></div>
+      <div class="wf-field"><span class="k">目标</span><span>creature.sample_beast ▾</span></div>
+      <div class="wf-btn" style="margin:4px 0;">运行结算预览</div>
+      <div class="wf-field"><span class="k">命中判定</span><span>命中 (91%)</span></div>
+      <div class="wf-field"><span class="k">基础值</span><span>12</span></div>
+      <div class="wf-field"><span class="k">暴击</span><span>否 (crit 5%)</span></div>
+      <div class="wf-field"><span class="k">施法者乘区</span><span>×1.10</span></div>
+      <div class="wf-field"><span class="k">护甲减免</span><span>-18%</span></div>
+      <div class="wf-field"><span class="k">目标乘区</span><span>×1.00</span></div>
+      <div class="wf-field"><span class="k">免疫/吸收</span><span>无</span></div>
+      <div class="wf-field wf-strong"><span class="k">最终伤害</span><span>10.8</span></div>
+      <div class="wf-field"><span class="k">期望DPS(读条后)</span><span>10.8</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<details class="ascii-fallback"><summary>查看 ASCII 线框</summary>
+<pre><code>+----------------------------------------------------------------------------------------------+
+| 技能列表(左,按学派/kind/标签筛选) |     中央：效果列表(卡片,拖拽排序)     |   右：结算预览        |
++---------------------------+---------------------------------------------+------------------------+
+| [筛选: school▾ kind▾ tag▾]| skill.sample_bolt                            | 施法者: [creature.     |
+| ▸ skill.sample_strike     |  school: school.physical  kind: active       |         sample_hero ▾]|
+| ▾ skill.sample_bolt *     |  range: 30  cast_time: 0  cost: 10 mana       | 目标:   [creature.     |
+|   skill.sample_burn       |  target_shape_ref: target.chain.sample_...   |         sample_beast▾]|
+|   skill.sample_passive    |                                                | [运行结算预览]         |
+|                            | 效果列表 (2/8 上限):  ▓▓░░░░░░                | ------------------------|
+|                            | ┌────────────────────────────────────────┐  | 命中判定: 命中 (91%)   |
+|                            | │ #1 projectile        [⋮拖拽][删除]      │  | 基础值: 12             |
+|                            | │  travel_mode: straight                  │  | 暴击: 否 (crit 5%)     |
+|                            | │  hit_behavior: impact_on_first           │  | 施法者乘区: ×1.10      |
+|                            | │  speed: 20   max_range: 30               │  | 护甲减免: -18%         |
+|                            | │  display_ref: projectile.sample_bolt     │  | 目标乘区: ×1.00        |
+|                            | │  on_hit_effects: [+添加嵌套效果]          │  | 免疫/吸收: 无           |
+|                            | │   └ #1 school_damage                    │  | ------------------------|
+|                            | │      base_value:12 coefficient:1.0       │  | 最终伤害: 10.8          |
+|                            | └────────────────────────────────────────┘  | 期望DPS(读条后): 10.8  |
+|                            | [+添加效果原语 ▾]                             |                        |
++---------------------------+---------------------------------------------+------------------------+
+</code></pre>
+</details>
+
+<p><strong>交互流程</strong>：</p>
+<ol>
+<li>左侧技能列表按 <code>school</code>（学派）/<code>kind</code>（<code>active</code>|<code>passive</code>）/<code>tags</code> 组合筛选；星号标记未保存。</li>
+<li>中央基础字段区（<code>school</code>/<code>range</code>/<code>cast_time</code>/<code>cost</code> 等）是紧凑表单，字段控件同第 6.2 节映射表；<code>cast_time</code>/<code>cooldown_duration</code> 等时间字段显示单位随该技能所属作用域的时间模型（连续=秒，离散=回合，见 04 第 3.1 节）。</li>
+<li>效果列表以卡片呈现，每种效果原语一张参数卡（<code>school_damage</code>/<code>weapon_damage_pct</code>/<code>heal</code>/<code>apply_aura</code>/<code>dispel</code>/<code>energize</code>/<code>trigger_spell</code>/<code>modify_cooldown</code>/<code>add_charge</code>/<code>projectile</code>/<code>move</code>/<code>summon</code>/<code>interrupt</code>/<code>teleport</code>/<code>open_lock</code>/<code>create_item</code>/<code>learn_skill</code>/<code>set_world_flag</code>/<code>script</code>，见 06 第 3.2 节原语注册表）；卡片右上角拖拽手柄支持排序；<code>projectile</code> 卡片的 <code>on_hit_effects</code> 是嵌套子卡片列表（如上图 <code>#1 school_damage</code> 嵌套在 <code>projectile</code> 卡片内）；<code>script</code> 效果卡片额外要求填写一个"使用理由"文本框（对应 06 第 3.2 节"使用需在内容评审中说明理由"），为空时该卡片标黄警告但不阻断保存（走人工评审而非机器校验）。</li>
+<li>效果列表上方的进度条显示"当前效果数 / 策略配置的上限"（04 第 5 节"效果数上限"校验项），接近上限变黄、超过变红并在问题面板报错。</li>
+<li><strong>光环编辑</strong>（<code>skill.aura_def</code>）：<code>duration</code>（留空 = 永久，输入框占位提示显示"留空=永久"）、<code>max_stacks</code>、<code>stack_category</code>（下拉，选中已有类别时若与当前光环的叠加语义冲突，立即标红并提示"同类别下已存在互斥叠加语义"，对应 04 第 5 节"叠加类别冲突"）、<code>dispel_type</code>、<code>effects</code> 列表（<code>mod_stat</code>/<code>periodic_damage</code>/<code>periodic_heal</code>/<code>absorb</code>/<code>immunity</code>/<code>proc_trigger</code>/<code>spell_mod</code>/<code>override_skill</code>/<code>control</code>/<code>flag</code> 十种 <code>AuraEffect</code> 类型，见 06 第 3.3 节，同样以卡片呈现）。</li>
+<li><strong>触发器编辑</strong>（<code>skill.proc_def</code>）：<code>trigger_event</code> 下拉数据源来自 <code>found.event_catalog</code>（框架层只读登记表）；<code>condition</code> 是 <code>Expr</code> 编辑器；<code>proc_chance</code> 数字框限定 <code>0~1</code>；<code>internal_cooldown</code> 按时间模型显示单位。</li>
+<li><strong>施法修正</strong>（<code>skill.spell_mod_def</code>）：<code>targetDimension</code>（枚举下拉：<code>cast_time</code>/<code>cost</code>/<code>cooldown</code>/<code>crit_chance</code>/<code>effect_value</code>/<code>charges</code>）、<code>op</code>（<code>flat</code>/<code>pct</code>）、<code>value</code>、<code>affects</code>（技能过滤器：按学派/标签/具体技能 id 三种过滤方式的组合表单）。</li>
+<li><strong>右侧结算预览</strong>：下拉选施法者模板与目标模板（数据源为 <code>creature.template</code>），点"运行结算预览"调用桩适配层跑一次确定性结算（06 第 4.1 节固定管线：判定 → 基础值 → 暴击 → 施法者乘区 → 减免 → 目标乘区 → 免疫吸收 → 落地 → 后置），分步展示每一步的中间值与最终伤害/治疗量，并给出"期望 DPS"（若 <code>cast_time</code> &gt; 0，按读条时间折算）。字段改动后预览自动标记为"已过期"（半透明 + "结果可能已过期，重新运行"提示），不做静默自动重算（避免频繁改字段时预览抖动）。</li>
+</ol>
+<p><strong>专属校验/预览</strong>：效果数上限进度提示、叠加类别冲突高亮、结算预览分步展示。</p>
+<h3 id="s7-3">7.3 物品编辑器</h3>
+<p><strong>目的</strong>：编辑物品模板与其依赖的槽位/品质/预算曲线/套装/词缀定义，核心体验是"新增一件装备"向导与"属性预算是否超标"的实时反馈。</p>
+<p><strong>覆盖的表</strong>：<code>item.template</code>、<code>item.set</code>、<code>item.affix</code>、<code>item.slot_definition</code>、<code>item.quality_definition</code>、<code>item.budget_curve</code>。</p>
+<p><strong>界面布局线框</strong>：</p>
+
+<div class="wf">
+<p class="wf-cap">真实感线框（对应下方 ASCII 线框）</p>
+<div class="wf-frame">
+  <div class="wf-body">
+    <div class="wf-col" style="flex:0 0 24%;">
+      <div class="wf-col-title">物品列表</div>
+      <span class="wf-btn">新增物品向导</span>
+      <ul class="wf-tree" style="margin-top:6px;">
+        <li>▸ item.sample_blade</li>
+        <li>item.sample_tonic</li>
+        <li>item.sample_token</li>
+      </ul>
+    </div>
+    <div class="wf-col" style="flex:1 1 76%;">
+      <div class="wf-col-title">item.sample_blade</div>
+      <div class="wf-field"><span class="k">name_key</span><span>铁剑</span></div>
+      <div class="wf-field"><span class="k">slot / quality / ilvl</span><span>main_hand ▾ / common ▾ / 1</span></div>
+      <div class="wf-field"><span class="k">display_ref</span><span>display.map.sample_blade ▾ [预览缩略图]</span></div>
+      <div class="wf-muted" style="margin-top:6px;">预算：2 / 4（品质 common × 倍率 1.0）</div>
+      <div class="wf-progress"><span style="width:50%"></span></div>
+      <div class="wf-field"><span class="k">stats</span><span>stat.strength flat +2 [删除] · [+添加属性]</span></div>
+      <div class="wf-field"><span class="k">grants</span><span>skills[+] auras[+]</span></div>
+      <div class="wf-field"><span class="k">affixes / set_id</span><span>[+] / -</span></div>
+      <div class="wf-field"><span class="k">weapon_profile</span><span>dmg[3~6] speed[1.5] school[physical ▾]</span></div>
+      <div class="wf-field"><span class="k">stack_size / requirements.level</span><span>1 / -</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<details class="ascii-fallback"><summary>查看 ASCII 线框</summary>
+<pre><code>+----------------------------------------------------------------------------------------+
+| 物品列表(左,按槽位/品质筛选)  |            中央：物品详情                                    |
++---------------------------+--------------------------------------------------------------+
+| [新增物品向导]              | item.sample_blade                                            |
+| ▸ item.sample_blade        |  name_key: [铁剑] slot:[main_hand▾] quality:[common▾] ilvl:[1]|
+|   item.sample_tonic        |  display_ref: [display.map.sample_blade ▾] [预览缩略图]        |
+|   item.sample_token        +--------------------------------------------------------------+
+|                             | 预算条: ▓▓▓▓▓▓▓▓░░░░░░░░  2 / 4  (品质common×倍率1.0)          |
+|                             +--------------------------------------------------------------+
+|                             | stats:  stat.strength  flat  +2   [删除]                      |
+|                             |  [+添加属性]                                                   |
+|                             +--------------------------------------------------------------+
+|                             | grants: skills[+] auras[+]                                    |
+|                             | affixes: [+]     set_id: [ - ]                                 |
+|                             +--------------------------------------------------------------+
+|                             | weapon_profile: dmg[3~6] speed[1.5] school[physical▾]          |
+|                             | stack_size:[1] requirements.level:[ - ]                        |
++---------------------------+--------------------------------------------------------------+
+</code></pre>
+</details>
+
+<p><strong>新增物品向导</strong>：</p>
+<ol>
+<li>步骤 1 选槽位（<code>item.slot_definition</code> 下拉，显示"是否为装备位"标签）。</li>
+<li>步骤 2 选品质（<code>item.quality_definition</code> 下拉，显示该品质的预算倍率）。</li>
+<li>步骤 3 输入物品等级与名称，名称输入后自动生成建议 id（<code>item.&lt;拼音/拉丁转写占位&gt;</code>，默认方案，可调整：具体转写规则留给实现阶段按团队命名习惯定，本向导只保证生成一个合法且唯一的 id 建议值，用户可编辑）与 <code>l10n.item.&lt;name&gt;.name</code> 文本键，正文写入默认语言。</li>
+<li>步骤 4 选外形：从已有 <code>display.map</code> 记录中选择，或点"新建外形行"在向导内直接创建一行占位（<code>kind</code>/<code>sprite_set_id</code>/<code>icon_id</code> 留空待美术填写），并检查资产目录里是否已存在同名 <code>sprite_set_id</code>/<code>icon_id</code> 资源（存在则自动填入，不存在则黄标提示"资源待补"）。</li>
+<li>步骤 5 属性与授予：添加 <code>stats</code> 条目（<code>stat</code>/<code>op</code>/<code>value</code>）与 <code>grants.skills</code>/<code>grants.auras</code>；每添加一条，预算条实时刷新"实际消耗 / 上限"（上限 = <code>item.budget_curve</code> 按 <code>item_level</code> 插值 × 品质预算倍率，见 04 第 5 节"预算超标"说明）；超标时预算条变红且步骤 5 的"完成"按钮变为"仍然完成（将产生校验错误）"。</li>
+<li>完成后自动跑一次字段级 + 表级校验，0 错误时向导关闭，新记录带到检视区；有错误则向导停留在最后一步并在旁列出问题列表供修正。</li>
+</ol>
+<p><strong>其余界面元素</strong>：武器档案（<code>weapon_profile</code>）表单只在槽位定义标记为武器类时显示；套装件数门槛表（<code>item.set</code>）以"件数 → 额外光环"的二列表格呈现；品质与槽位定义表落回通用表编辑器的紧凑网格视图（本编辑器提供快捷跳转入口）；预算曲线（<code>item.budget_curve</code>）以"物品等级 → 预算上限"折线图 + 可编辑表格双视图呈现。</p>
+<p><strong>专属校验/预览</strong>：属性预算条实时计算与超标高亮（04 第 5 节"预算超标"）、外形映射存在性检查（04 第 5 节"外形映射存在"）。</p>
+<h3 id="s7-4">7.4 掉落与爆率编辑器</h3>
+<p><strong>目的</strong>：编辑掉落表结构并提供蒙特卡洛模拟，让策划用"跑一万次看分布"代替心算权重。</p>
+<p><strong>覆盖的表</strong>：<code>loot.table</code>。</p>
+<p><strong>界面布局线框</strong>：</p>
+
+<div class="wf">
+<p class="wf-cap">真实感线框（对应下方 ASCII 线框）</p>
+<div class="wf-frame">
+  <div class="wf-body">
+    <div class="wf-col" style="flex:0 0 18%;">
+      <div class="wf-col-title">掉落表列表</div>
+      <ul class="wf-tree"><li>▸ loot.sample_beast</li></ul>
+    </div>
+    <div class="wf-col" style="flex:1 1 46%;">
+      <div class="wf-col-title">分组树 + 条目 · loot.sample_beast</div>
+      <div class="wf-field"><span class="k">guaranteed_min</span><span>1</span></div>
+      <div class="wf-card">
+        <div class="hd">▾ 分组1 · roll_mode: chance_each</div>
+        <div class="wf-field"><span class="k">item.sample_token</span><span>chance:1.0 count:[1~1]</span></div>
+        <div class="wf-field"><span class="k">item.sample_tonic</span><span>chance:0.5 count:[1~1]</span></div>
+      </div>
+      <span class="wf-btn">+添加分组</span> <span class="wf-btn">+添加条目</span>
+      <div class="wf-muted" style="margin-top:6px;">反向查询：该物品出现于哪些掉落表/生物</div>
+    </div>
+    <div class="wf-col" style="flex:0 0 36%;">
+      <div class="wf-col-title">模拟面板</div>
+      <div class="wf-field"><span class="k">次数 / 种子</span><span>10000 / 12345</span></div>
+      <span class="wf-btn">运行模拟</span>
+      <table class="wf-table" style="margin-top:6px;">
+        <thead><tr><th>物品</th><th>出现次数</th><th>概率</th><th>平均数量</th></tr></thead>
+        <tbody>
+          <tr><td>item.sample_token</td><td>10000</td><td>100.0%</td><td>1.00</td></tr>
+          <tr><td>item.sample_tonic</td><td>5024</td><td>50.2%</td><td>1.00</td></tr>
+        </tbody>
+      </table>
+      <div class="wf-muted" style="margin-top:6px;">对比设计目标：[手动填写目标概率对照]</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<details class="ascii-fallback"><summary>查看 ASCII 线框</summary>
+<pre><code>+----------------------------------------------------------------------------------------+
+| 掉落表列表(左)  |   中央：分组树 + 条目            |   右：模拟面板                          |
++-----------------+-----------------------------------+------------------------------------------+
+| ▸ loot.sample_.. | loot.sample_beast                  | 次数: [10000]  种子: [12345]            |
+|                   |  guaranteed_min: [1]               | [运行模拟]                                |
+|                   | ▾ 分组1  roll_mode: chance_each     | ------------------------------------------|
+|                   |    ├ item.sample_token  chance:1.0 | 结果 (10000 次):                          |
+|                   |    │  count:[1~1] cond:[ - ]        |  item.sample_token  出现10000次 概率100.0%|
+|                   |    └ item.sample_tonic  chance:0.5 |    平均数量 1.00  期望价值(占位) ~         |
+|                   |       count:[1~1]                  |  item.sample_tonic  出现5024次  概率50.2% |
+|                   | [+添加分组] [+添加条目]              |    平均数量 1.00                          |
+|                   |                                     | ------------------------------------------|
+|                   | 反向查询: 该物品出现于哪些掉落表/生物 | 对比设计目标: [手动填写目标概率对照]        |
++-----------------+-----------------------------------+------------------------------------------+
+</code></pre>
+</details>
+
+<p><strong>交互流程</strong>：</p>
+<ol>
+<li>分组树按 <code>groups</code> 数组呈现，每个分组标注 <code>roll_mode</code>（<code>chance_each</code>/<code>weighted_pick_one</code>）与（<code>weighted_pick_one</code> 时）<code>pick_count</code>。</li>
+<li>条目行显示缩略图（引用目标为 <code>item.template</code> 时）或"嵌套表"图标（引用目标为另一张 <code>loot.table</code> 时，见 08 第 1.1 节嵌套规则），<code>weight_or_chance</code>、<code>count_range</code>、<code>condition</code>（<code>Expr</code> 编辑器）均可编辑；<code>weighted_pick_one</code> 分组内的条目额外显示一列"归一化后实际概率"（权重 / 该组权重总和，只读计算列）。</li>
+<li>嵌套表条目可展开预览被引用表的分组/条目（只读，避免在此处递归编辑造成混乱；双击可跳转到该嵌套表的独立标签）。</li>
+<li><code>guaranteed_min</code> 是整表级别的保底计数输入框。</li>
+<li>模拟面板：输入次数（默认 10000）与种子，点"运行模拟"调用桩适配层的确定性抽取逻辑，重复跑 N 次并统计每件物品的出现次数、实际概率（与权重归一化后的理论概率并列对比）、平均获得数量；若知道物品预算/价值，可选择性给出"期望价值"估算（占位口径：默认按物品预算值线性折算，默认方案，可调整）。</li>
+<li><strong>反向查询</strong>：输入或选中一件物品，列出所有引用它的掉落表（含通过嵌套表间接引用）与直接绑定该掉落表的生物模板。</li>
+</ol>
+<p><strong>专属校验/预览</strong>：模拟输出对比设计目标（用户手动记录期望概率作对照，非机器判定）、反向查询辅助设计核对。</p>
+<h3 id="s7-5">7.5 经验与成长编辑器</h3>
+<p><strong>目的</strong>：编辑等级到经验、到属性成长的曲线，以及经验来源定义，配合图表与批量公式填充降低手填每一级数值的成本。</p>
+<p><strong>覆盖的表</strong>：<code>prog.level_curve</code>、<code>prog.xp_source</code>。</p>
+<p><strong>界面布局线框</strong>：</p>
+
+<div class="wf">
+<p class="wf-cap">真实感线框（对应下方 ASCII 线框）</p>
+<div class="wf-frame">
+  <div class="wf-body">
+    <div class="wf-col" style="flex:0 0 18%;">
+      <div class="wf-col-title">曲线列表</div>
+      <ul class="wf-tree"><li>▸ prog.curve.sample</li></ul>
+    </div>
+    <div class="wf-col" style="flex:1 1 54%;">
+      <div class="wf-col-title">曲线表格</div>
+      <div class="wf-field"><span class="k">max_level</span><span>3　<span class="wf-btn" style="padding:0 6px;">批量公式填充</span></span></div>
+      <table class="wf-table">
+        <thead><tr><th>level</th><th>xp_to_next</th><th>累计</th><th>strength</th><th>stamina</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>100</td><td>100</td><td>0</td><td>0</td></tr>
+          <tr><td>2</td><td>200</td><td>300</td><td>+2</td><td>+3</td></tr>
+          <tr><td>3</td><td>0</td><td>300</td><td>+2</td><td>+3</td></tr>
+        </tbody>
+      </table>
+      <div class="wf-col-title" style="margin-top:8px;">折线图：xp_to_next 随 level</div>
+      <div class="wf-chart">
+        <div class="wf-bar" style="height:50%;" title="Lv1 xp_to_next=100"></div>
+        <div class="wf-bar" style="height:100%;" title="Lv2 xp_to_next=200"></div>
+        <div class="wf-bar" style="height:3%;" title="Lv3 xp_to_next=0"></div>
+      </div>
+      <div class="wf-chart-axis"><span>Lv1</span><span>Lv2</span><span>Lv3</span></div>
+    </div>
+    <div class="wf-col" style="flex:0 0 28%;">
+      <div class="wf-col-title">估算面板</div>
+      <div class="wf-field"><span class="k">每级平均xp来源</span><span>50</span></div>
+      <div class="wf-field"><span class="k">每次击杀平均xp</span><span>20</span></div>
+      <div class="wf-field"><span class="k">目标等级</span><span>3</span></div>
+      <div class="wf-field wf-strong"><span class="k">→ 估算所需击杀数</span><span>15</span></div>
+      <div class="wf-field"><span class="k">→ 估算所需时长</span><span>~12分钟(占位)</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<details class="ascii-fallback"><summary>查看 ASCII 线框</summary>
+<pre><code>+----------------------------------------------------------------------------------------+
+| 曲线列表(左)   |   中央：曲线表格 + 图表                      |  右：估算面板                |
++----------------+-----------------------------------------------+-------------------------------+
+| ▸ prog.curve.  | max_level: [3]  [批量公式填充]                 | 给定:                          |
+|   sample       | level|xp_to_next|累计|strength|stamina        |  每级平均xp来源: [50]          |
+|                |   1  |   100    | 100 |  0    |  0             |  每次击杀平均xp: [20]          |
+|                |   2  |   200    | 300 |  +2   | +3             | 目标等级: [3]                  |
+|                |   3  |    0     | 300 |  +2   | +3             | → 估算所需击杀数: 15            |
+|                |                                                 | → 估算所需时长: ~12分钟(占位)   |
+|                | 折线图: xp_to_next 随 level                     |                               |
+|                |  200┤        ●                                 |                               |
+|                |     │    ●                                     |                               |
+|                |  100┤●                                         |                               |
+|                |     └─────────── level                          |                               |
++----------------+-----------------------------------------------+-------------------------------+
+</code></pre>
+</details>
+
+<p><strong>交互流程</strong>：</p>
+<ol>
+<li>曲线表格逐级展示 <code>level</code>/<code>xp_to_next</code>/累计经验（只读计算列）/<code>growth</code> 里各属性列（动态列，随实际引用到的 <code>stat.definition</code> 生成）。</li>
+<li><code>max_level</code> 修改后联动增删表格行（增：追加新行使用最后一行的值作为初始建议；删：从末尾裁剪，若被裁剪行已有非默认数据则二次确认）。</li>
+<li><strong>批量公式填充</strong>：选择区间（起始级~结束级），选择目标列（<code>xp_to_next</code> 或某个 <code>growth</code> 属性），输入公式文本（如 <code>100 * level ^ 1.5</code>），点"预览"后表格对应单元格以对比态（旧值 → 新值）高亮显示，确认后应用；公式支持基本四则运算与 <code>^</code> 幂运算、<code>level</code> 变量，属实现层面的便捷计算器，不是 Expr（Expr 用于条件判定，此处只是数值批量生成的书写便利）。</li>
+<li><code>prog.xp_source</code> 列表为紧凑表格：<code>id</code>/<code>base_xp</code>/<code>weight</code>。</li>
+<li><strong>估算面板</strong>：输入"每级平均 xp 来源"与"每次击杀平均 xp"与目标等级，结合曲线表格的累计经验，估算达到目标等级所需的击杀次数（<code>累计经验 / 平均单次收益</code>）与粗略时长（按"每次击杀预计耗时"的可配置假设换算，默认方案，可调整：默认假设值 45 秒/次，可在设置里调整）。</li>
+</ol>
+<p><strong>专属校验/预览</strong>：批量公式预览对比、估算面板。</p>
+<h3 id="s7-6">7.6 任务与对话编辑器</h3>
+<p><strong>目的</strong>：编辑任务定义与对话（gossip 菜单、剧情树），核心可视化是任务前置 DAG 图与剧情节点画布。</p>
+<p><strong>覆盖的表</strong>：<code>quest.def</code>、<code>dialog.gossip_menu</code>、<code>dialog.story_tree</code>。</p>
+<p><strong>界面布局线框（任务）</strong>：</p>
+<pre><code>+----------------------------------------------------------------------------------------+
+| 任务列表(左)  |  中央：任务详情 + 前置DAG图                                                |
++---------------+----------------------------------------------------------------------------+
+| ▸ quest.      | title_key:[护送商队] start_method:[npc_gossip▾] turn_in:[npc_gossip▾]      |
+|   deliver_..  | prerequisite: [Expr编辑器]  exclusive_group:[ - ]  repeatable:[none▾]        |
+|               +----------------------------------------------------------------------------+
+|               | objectives:                                                                 |
+|               |  #1 kill    targetRef:creature.sample_beast  count:[5]                       |
+|               |  #2 talk    targetRef:dialog.innkeeper_greet  count:[1]                       |
+|               |  [+添加目标]                                                                  |
+|               +----------------------------------------------------------------------------+
+|               | 前置任务DAG图:                                                                |
+|               |   [quest.intro] ──▶ [quest.deliver_letter] ──▶ [quest.reward_talk]           |
+|               |   (成环检测: 通过)                                                             |
+|               +----------------------------------------------------------------------------+
+|               | rewards: items[+] xp:[50] currency[+] skills[+] world_flags[+] talent_pts:[0]|
++---------------+----------------------------------------------------------------------------+
+</code></pre>
+<p><strong>交互流程</strong>：</p>
+<ol>
+<li>基础字段（<code>title_key</code>/<code>description_key</code>/<code>prerequisite</code>/<code>exclusive_group</code>/<code>start_method</code>/<code>turn_in_method</code>/<code>repeatable</code>）按通用表单渲染，<code>prerequisite</code> 是 <code>Expr</code> 编辑器。</li>
+<li><code>objectives</code> 列表：每条按 <code>type</code>（八种枚举，见 08 第 2.1 节表）切换 <code>targetRef</code> 的引用选择器过滤范围（<code>kill</code>→<code>creature.template</code>，<code>collect</code>→<code>item.template</code>，<code>interact</code>→<code>gobj.template</code>，<code>explore</code>→<code>area.trigger_def</code>，<code>escort</code>→<code>creature.template</code>，<code>event</code>→事件类型选择器，<code>cast</code>→<code>skill.def</code>，<code>talk</code>→对话节点选择器）；<code>count</code>、<code>descriptionKey</code>、<code>param</code>（随 <code>type</code> 显示专属参数子表单，如 <code>collect</code> 类型显示 <code>consume_on_progress</code> 开关）。</li>
+<li><strong>前置任务 DAG 图</strong>：读取 <code>prerequisite</code> 中出现的 <code>quest.is_active(...)</code>/<code>quest.is_completed(...)</code> 类引用与 <code>exclusive_group</code> 归属，画出任务间的前置箭头图；成环检测（对应 08 无直接声明但沿用 04 第 5 节"循环引用检测"的通用能力）跑在这张图上，检出环时红色高亮该环并阻止保存。</li>
+<li>rewards 区块：<code>items</code>/<code>currency</code> 为可增删的行列表，<code>xp</code>/<code>talent_points</code> 为数字框，<code>skills</code> 为 <code>IdList</code>，<code>world_flags</code> 为"标志键 + 值"配对列表。</li>
+</ol>
+<p><strong>界面布局线框（对话）</strong>：</p>
+
+<div class="wf">
+<p class="wf-cap">真实感线框（对应下方 ASCII 线框）</p>
+<div class="wf-frame">
+  <div class="wf-body" style="display:block;padding:10px;">
+    <div class="wf-col-title">gossip 菜单 · dialog.innkeeper_greet</div>
+    <div class="wf-field"><span class="k">#1</span><span>textKey:[你好，旅人] visibleIf:[-] actions:[quest_accept:quest.intro]</span></div>
+    <div class="wf-field"><span class="k">#2</span><span>textKey:[我要买点东西] visibleIf:[-] actions:[vendor]</span></div>
+    <div class="wf-col-title" style="margin-top:10px;">剧情树节点画布（story_tree）</div>
+    <svg viewBox="0 0 460 140" class="wf-svg">
+      <defs>
+        <marker id="wf-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 z" class="wf-svg-arrow"/>
+        </marker>
+      </defs>
+      <path d="M100,60 C150,40 170,25 198,25" class="wf-svg-edge" marker-end="url(#wf-arrow)"/>
+      <path d="M100,80 C150,100 170,115 198,115" class="wf-svg-edge" marker-end="url(#wf-arrow)"/>
+      <rect x="10" y="55" width="90" height="30" rx="6" class="wf-svg-node wf-svg-node-start"/>
+      <text x="55" y="74" class="wf-svg-text">起始:node_1</text>
+      <rect x="200" y="10" width="110" height="30" rx="6" class="wf-svg-node"/>
+      <text x="255" y="29" class="wf-svg-text">node_2</text>
+      <rect x="200" y="100" width="150" height="30" rx="6" class="wf-svg-node"/>
+      <text x="275" y="119" class="wf-svg-text">node_3（终止）</text>
+      <text x="130" y="35" class="wf-svg-label">分支A(cond)</text>
+      <text x="140" y="105" class="wf-svg-label">分支B</text>
+    </svg>
+    <div class="wf-muted">点击节点：右侧编辑 textKey / speakerRef / performanceHookRef ・ [试讲] 从选中节点开始模拟走一遍分支</div>
+  </div>
+</div>
+</div>
+
+<details class="ascii-fallback"><summary>查看 ASCII 线框</summary>
+<pre><code>+----------------------------------------------------------------------------------------+
+| 对话列表(左)  |  中央：gossip选项表 / 剧情树节点画布                                        |
++---------------+----------------------------------------------------------------------------+
+| ▾ gossip      | dialog.innkeeper_greet                                                      |
+|   innkeeper_..| options:                                                                     |
+| ▾ story       |  #1 textKey:[你好，旅人] visibleIf:[ - ] actions:[quest_accept:quest.intro] |
+|   intro_tree  |  #2 textKey:[我要买点东西] visibleIf:[ - ] actions:[vendor]                  |
+|               |  [+添加选项]                                                                 |
++---------------+----------------------------------------------------------------------------+
+|               | 剧情树节点画布（story_tree）：                                               |
+|               |  [起始:node_1]──分支A(cond)──▶[node_2]                                       |
+|               |        └──────分支B────────▶[node_3(终止)]                                   |
+|               |  点击节点：右侧编辑 textKey / speakerRef / performanceHookRef                |
+|               |  [试讲] 从选中节点开始模拟走一遍分支                                          |
++----------------------------------------------------------------------------------------+
+</code></pre>
+</details>
+
+<ol>
+<li>gossip 菜单：选项列表，<code>visibleIf</code> 是 <code>Expr</code> 编辑器，<code>actions</code> 是可增删的动作列表（十种动作类型，见 08 第 3.1 节：<code>vendor</code>/<code>quest_accept</code>/<code>quest_turn_in</code>/<code>teleport</code>/<code>save</code>/<code>set_flag</code>/<code>start_encounter</code>/<code>cast_skill</code>/<code>start_story</code>/<code>script</code>，每种类型切换对应的参数子表单）。</li>
+<li>剧情树：节点画布，起始节点固定为 <code>nodes</code> 数组第一个元素（画布上用特殊边框标出）；分支连线标注 <code>condition</code>（若有）；<code>performanceHookRef</code> 下拉数据源来自 <code>found.hook</code>（框架层只读登记表）。</li>
+<li>剧情树成环检测：沿 <code>branches[].nextNodeId</code> 遍历，检出环时高亮环路径并阻止保存。</li>
+<li><strong>"试讲"</strong>：从选中节点开始，按分支 <code>condition</code>（用当前选定的一组模拟 Expr 上下文，如"假设 world 标志全为默认值"）走一遍最可能的分支路径，在画布上高亮经过的节点序列，供文案快速核对台词衔接是否通顺；纯预览，不产生任何写盘副作用。</li>
+</ol>
+<p><strong>专属校验/预览</strong>：任务前置 DAG 成环检测、剧情树分支成环检测、试讲预览。</p>
+<h3 id="s7-7">7.7 世界/遭遇/刷新/区域编辑器</h3>
+<p><strong>目的</strong>：在一张简易 2D 地图画布上摆放/核对刷新点、区域触发形状、巡逻路径，并编辑遭遇/关卡的单位、波次、阶段、胜负条件。</p>
+<p><strong>覆盖的表</strong>：<code>world.map</code>、<code>spawn.table</code>、<code>area.trigger_def</code>、<code>encounter.def</code>、<code>encounter.level</code>、<code>ai.patrol_path</code>。</p>
+<p><strong>界面布局线框</strong>：</p>
+<pre><code>+----------------------------------------------------------------------------------------+
+| 地图列表(左)  |             中央：2D 地图画布                        | 右：图层与属性         |
++---------------+-------------------------------------------------------+-------------------------+
+| ▸ world.      |  ┌───────────────────────────────────────────┐        | 图层显隐：              |
+|   town_square |  │   ▲spawn.forest_wolves_01 (拖拽改坐标)      │        |  [✓]出生/传送点         |
+|               |  │        ▨area.cave_entrance (矩形触发区)     │        |  [✓]刷新点              |
+|               |  │   ┄┄┄&gt; ai.patrol_path.guard_01 (虚线路径)   │        |  [✓]区域触发            |
+|               |  │            ●spawn点  ◆传送点                │        |  [✓]巡逻路径            |
+|               |  └───────────────────────────────────────────┘        | 选中对象属性(表单):     |
+|               |  [缩放-][缩放+] [网格吸附:开]                          |  spawn.table 字段...   |
++---------------+-------------------------------------------------------+-------------------------+
+|               | 遭遇/关卡标签页: encounter.def / encounter.level                                 |
+|               |  units 列表 | waves 列表 | phases(Expr切换) | victory/defeat条件(Expr)           |
++----------------------------------------------------------------------------------------+
+</code></pre>
+<p><strong>交互流程</strong>：</p>
+<ol>
+<li>画布读取所选 <code>world.map</code> 定义中的出生点/传送点坐标，叠加同地图关联的 <code>spawn.table</code> 刷新点、<code>area.trigger_def</code> 区域形状（按 <code>Shape</code> 类型渲染为矩形/圆形/多边形轮廓）、<code>ai.patrol_path</code> 巡逻路径（有序点连成折线，<code>loop</code>/<code>pingpong</code> 模式用箭头样式区分）。</li>
+<li>拖拽画布上的任意点位图标即改变其底层 <code>Vec2</code> 字段值（与右侧属性表单的双数字框双向联动，见第 6.2 节 <code>Vec2</code> 控件说明）；"网格吸附"开关开启时拖拽结果吸附到 <code>found.time_model.grid_snap.cell_size</code>（若声明）定义的格子。</li>
+<li>右侧图层复选框控制各类点位/区域/路径的显隐，避免密集地图上互相遮挡。</li>
+<li>遭遇/关卡以下方标签页承载（非画布内容，因为遭遇定义本身不含坐标语义，<code>units</code> 里的 <code>position</code> 字段除外——该字段可选中后跳转画布定位）：<code>units</code> 列表（引用 <code>spawn.table</code> 条目或直接内联 <code>creature.template</code> + 坐标，二选一见 08 第 8 节）、<code>waves</code>（触发条件 <code>Expr</code> + 生成引用列表）、<code>phases</code>（<code>enterCondition</code> Expr + <code>aiRotationOverride</code> 映射表 + <code>onEnterHook</code>）、<code>victory_condition</code>/<code>defeat_condition</code>（均为 <code>Expr</code> 编辑器）、<code>combat_mode_override</code>/<code>initiative_override</code>（离散/连续覆盖，仅在需要偏离场景默认时序时填写）。</li>
+<li><strong>关卡</strong>（<code>encounter.level</code>）：<code>mapRef</code> 引用选择器、<code>encounterSequence</code> 为可排序的有序引用列表、<code>entryDifficultyOptions</code> 为 <code>diff.tier</code> 多选。</li>
+</ol>
+<p><strong>专属校验/预览</strong>：地图画布上的坐标合法性直观核对（点位是否落在地图边界内，若地图有边界声明）、遭遇阶段切换的 <code>aiRotationOverride</code> 引用完整性。</p>
+<h3 id="s7-8">7.8 本地化编辑器</h3>
+<p><strong>目的</strong>：以矩阵视图集中管理全部语言的文本，让文案一眼看清缺口。</p>
+<p><strong>覆盖的表</strong>：<code>l10n.text</code>、<code>l10n.locale</code>。</p>
+<p><strong>界面布局线框</strong>：</p>
+<pre><code>+----------------------------------------------------------------------------------------+
+| 筛选：来源域[skill▾] 缺失[✓] 孤儿[ ]              [导出CSV] [导入CSV]                     |
++----------------------------------------------------------------------------------------+
+| key                              | zh-CN(默认)      | en-US            | ja-JP           |
++-----------------------------------+------------------+------------------+-----------------+
+| l10n.skill.sample_burn.name      | 灼烧              | Burn             | ⚠ 缺失(双击填入) |
+| l10n.item.sample_blade.name      | 铁剑              | Iron Blade       | 鉄の剣           |
+| l10n.quest.deliver_letter.title  | 护送商队           | ⚠ 缺失(双击填入)  | 護送商隊         |
++-----------------------------------+------------------+------------------+-----------------+
+| 占位符一致性: l10n.item.sample_blade.desc 中 {level} 在 en-US 缺失该占位符  [跳转]         |
++----------------------------------------------------------------------------------------+
+</code></pre>
+<p><strong>交互流程</strong>：</p>
+<ol>
+<li>矩阵：行 = <code>key</code>（按来源域可折叠分组），列 = <code>l10n.locale</code> 中登记的各语言；单元格显示该语言正文，缺失单元格黄色背景 + <code>⚠</code> 标记。</li>
+<li>双击缺失单元格直接进入行内编辑，输入译文回车保存，保存后该单元格黄标消失，问题面板对应"文本键存在"警告随之清除。</li>
+<li>筛选栏：按来源域（key 前缀第二段）筛选、"仅显示有缺失的行"开关、"孤儿 key"开关（不被任何记录字段引用到的 key，见 04 第 5 节"孤儿记录检测"思想在文本键上的应用）。</li>
+<li><strong>CSV/表格导入导出</strong>：导出时选定语言列与来源域范围，产出便于外包翻译的 CSV（列头 = key + 各语言列）；导入时先弹出预览表格标出"新增行/覆盖行/无变化行"三类差异，用户确认后写入，不静默覆盖已有译文。</li>
+<li><strong>占位符 <code>{var}</code> 一致性检查</strong>：对同一 key 的多语言正文提取 <code>{xxx}</code> 占位符集合，若某语言缺少默认语言存在的占位符（或多出未知占位符），在矩阵下方问题条列出，点击跳转定位单元格。</li>
+</ol>
+<p><strong>专属校验/预览</strong>：缺失矩阵高亮、孤儿 key 提示、占位符一致性检查。</p>
+<h3 id="s7-9">7.9 外形与表现编辑器</h3>
+<p><strong>目的</strong>：管理逻辑 id 到外形资源的映射，核对资源是否真实存在，串联 <code>import_assets.py</code> 出图产物。</p>
+<p><strong>覆盖的表</strong>：<code>display.map</code>、<code>display.anim_set</code>、<code>display.equip_visual</code>、<code>display.weapon_style</code>、<code>vfx.def</code>、<code>sfx.def</code>、<code>feedback.binding</code>、<code>feedback.floating_text_style</code>、<code>camera_profile</code>、<code>ui_layout_definition</code>、<code>shell_menu_definition</code>。</p>
+<p><strong>界面布局线框</strong>：</p>
+<pre><code>+----------------------------------------------------------------------------------------+
+| 外形映射列表(左,筛选:资源缺失/category) |  中央：kind切换表单                | 右：预览      |
++------------------------------------------+---------------------------------------+---------------+
+| ▸ display.map.sample_beast               | kind: (●)sprite ( )model              | [缩略图]       |
+| ⚠ display.map.sample_new_monster         | ── sprite 组 (灰化: model 组) ──       | icon_id 预览   |
+|                                            | sprite_set_id:[sprite.creature.wolf_.]| sfx 试听按钮   |
+|                                            | direction_count:[8▾]                  |               |
+|                                            | mirror_pairs:[+]  anchor_points:[+]    |               |
+|                                            | paperdoll_layers:[+]                  |               |
+|                                            | icon_id:[icon.creature.wolf_grey]      |               |
+|                                            +---------------------------------------+               |
+|                                            | 反查: 该逻辑id还没有display行 → [一键补建N条]           |
+|                                            | [调用 import_assets.py] 输出日志:...  |
++------------------------------------------+---------------------------------------+---------------+
+</code></pre>
+<p><strong>交互流程</strong>：</p>
+<ol>
+<li>列表按 <code>category</code>（<code>skill</code>|<code>aura</code>|<code>item</code>|<code>creature</code>|<code>gobj</code>|<code>projectile</code>）与"资源缺失"筛选；缺失（工程 <code>assets/</code> 目录下找不到 <code>sprite_set_id</code>/<code>icon_id</code>/<code>model_ref</code> 等对应文件）的行前缀黄色感叹号。</li>
+<li><code>kind</code> 单选切换 <code>sprite</code>/<code>model</code> 两组专属字段（07 表现层 7.1 节字段表），未选中的一组整体灰化只读，对应 04 第 5 节"外形类型字段组完整"校验项在此以界面禁用的方式提前预防，而不是等保存后报错。</li>
+<li><strong>资源引用存在性检查</strong>：编辑器在打开工程时扫描一次工程 <code>assets/</code> 目录建立文件名索引，每个引用字段（<code>sprite_set_id</code>/<code>icon_id</code>/<code>model_ref</code>/<code>sfx_id</code> 等）失焦时对照索引查找，找不到则该字段标黄，右侧检视区预览面板显示"资源缺失"占位图。</li>
+<li>预览：精灵/图标类字段显示缩略图（读取匹配到的实际图片文件）；<code>sfx_id</code> 提供"试听"按钮（本地播放对应音频文件，无音频输出设备时按钮置灰并提示）。</li>
+<li><strong>"外形映射存在"反查</strong>（对应 04 第 5 节同名校验项）：扫描全部表中标记为需要外形映射的逻辑 id 集合（技能/光环/物品/生物/物件），列出"还没有 <code>display.map</code> 行"的清单，提供"一键补建"批量生成占位行（<code>kind</code> 留待用户选择，其余字段留空）。</li>
+<li><strong>调用 <code>import_assets.py</code></strong>：面板提供"选择出图产物目录"按钮，点击后作为子进程调用 <code>toolchain/import_assets.py</code>，标准输出/错误实时汇入本面板下方日志区（同时也汇入主界面"输出"面板，见第 5.6 节），执行完成后自动刷新一次资源存在性索引与相关 <code>display.map</code>/<code>display.equip_visual</code> 记录（对应 ADR-0014"外形表行由工具生成而非手填"）。</li>
+<li>其余表（<code>display.anim_set</code>/<code>display.equip_visual</code>/<code>display.weapon_style</code>/<code>vfx.def</code>/<code>sfx.def</code>/<code>feedback.binding</code>/<code>feedback.floating_text_style</code>/<code>camera_profile</code>/<code>ui_layout_definition</code>/<code>shell_menu_definition</code>）在本编辑器内以标签页形式提供紧凑表单，字段渲染沿用第 6.2 节映射表，不单独定制画布。</li>
+</ol>
+<p><strong>专属校验/预览</strong>：资源存在性检查、外形映射存在反查、外形类型字段组完整的界面级预防、<code>import_assets.py</code> 调用与日志。</p>
+<h3 id="s7-10">7.10 其余表：通用编辑器 + 小增强</h3>
+<p>未被 7.1~7.9 覆盖的表（<code>diff.tier</code>、<code>achv.def</code>、<code>econ.currency</code>、<code>econ.vendor</code>、<code>ai.rotation</code>、<code>ai.behavior_profile</code>、<code>gobj.template</code>、<code>gobj.lock</code>、<code>found.game_state</code>、<code>found.input_action</code>、<code>found.hook</code>、<code>found.event_catalog</code>、<code>found.time_model</code>、<code>stat.rating_conversion</code> 等）直接使用第 6 章通用表编辑器打开，叠加以下小增强：</p>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>表</th>
+<th>小增强</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ai.rotation</code></td>
+<td><code>RotationEntry</code> 列表支持按 <code>priority</code> 拖拽排序（拖拽后自动重新赋值 <code>priority</code> 数字，保持有序）</td>
+</tr>
+<tr>
+<td><code>achv.def</code></td>
+<td><code>Criterion.observeEvent</code> 下拉数据源为 <code>found.event_catalog</code> 登记表，而非自由文本输入</td>
+</tr>
+<tr>
+<td><code>gobj.template</code></td>
+<td><code>on_use</code> 字段按"指向技能"或"指向对话动作项"二选一切换对应引用选择器范围（见 07 第 3.3 节）</td>
+</tr>
+<tr>
+<td><code>gobj.lock</code></td>
+<td><code>requirement</code> 按三种变体（<code>item_key</code>/<code>world_flag</code>/<code>skill_check</code>）切换专属参数子表单</td>
+</tr>
+<tr>
+<td><code>econ.vendor</code></td>
+<td><code>sell_items</code> 列表中 <code>restockPolicy</code> 选 <code>timer</code> 时才显示 <code>restockTimer</code> 输入框，选 <code>on_map_enter</code> 时显示只读提示"随 <code>map_id</code> 进入触发"</td>
+</tr>
+<tr>
+<td><code>found.time_model</code></td>
+<td>顶部提示条固定展示"这是决定编辑器全局时间单位显示的表，修改后需重新打开工程生效"（避免用户误以为改了立即生效但界面未刷新）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s7-11">7.11 表 → 归属编辑器总表</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>表名</th>
+<th>层</th>
+<th>归属编辑器</th>
+<th>框架层常见</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>found.game_state</code></td>
+<td>L0</td>
+<td>通用编辑器（7.10）</td>
+<td>是</td>
+</tr>
+<tr>
+<td><code>found.input_action</code></td>
+<td>L0</td>
+<td>通用编辑器（7.10）</td>
+<td>是</td>
+</tr>
+<tr>
+<td><code>found.hook</code></td>
+<td>L0</td>
+<td>通用编辑器（7.10），对话/遭遇编辑器内以引用选择器形式出现</td>
+<td>是</td>
+</tr>
+<tr>
+<td><code>found.event_catalog</code></td>
+<td>L0</td>
+<td>通用编辑器（7.10），触发/成就编辑器内以下拉数据源形式出现</td>
+<td>是</td>
+</tr>
+<tr>
+<td><code>found.time_model</code></td>
+<td>L0</td>
+<td>通用编辑器（7.10）</td>
+<td>否（可配置默认值，见 <code>data/README.md</code>）</td>
+</tr>
+<tr>
+<td><code>prog.level_curve</code></td>
+<td>L1</td>
+<td>经验与成长编辑器（7.5）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>prog.xp_source</code></td>
+<td>L1</td>
+<td>经验与成长编辑器（7.5）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>stat.definition</code></td>
+<td>L1</td>
+<td>人物与生物编辑器（7.1）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>stat.rating_conversion</code></td>
+<td>L1</td>
+<td>通用编辑器（7.10）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>arch.class</code></td>
+<td>L1</td>
+<td>人物与生物编辑器（7.1）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>arch.race</code></td>
+<td>L1</td>
+<td>人物与生物编辑器（7.1）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>arch.talent_tree</code></td>
+<td>L1</td>
+<td>人物与生物编辑器（7.1，天赋树画布）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>arch.power_type</code></td>
+<td>L1</td>
+<td>人物与生物编辑器（7.1）</td>
+<td>部分（<code>arch.power.health</code> 一行框架级）</td>
+</tr>
+<tr>
+<td><code>fac.faction</code></td>
+<td>L1</td>
+<td>人物与生物编辑器（7.1）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>fac.reaction_matrix</code></td>
+<td>L1</td>
+<td>人物与生物编辑器（7.1，二维网格）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>skill.def</code></td>
+<td>L2</td>
+<td>技能/状态/触发编辑器（7.2）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>skill.aura_def</code></td>
+<td>L2</td>
+<td>技能/状态/触发编辑器（7.2）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>skill.proc_def</code></td>
+<td>L2</td>
+<td>技能/状态/触发编辑器（7.2）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>skill.spell_mod_def</code></td>
+<td>L2</td>
+<td>技能/状态/触发编辑器（7.2）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>skill.book</code></td>
+<td>L2</td>
+<td>技能/状态/触发编辑器（7.2），职业编辑内引用</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>combat.hit_table_config</code></td>
+<td>L2</td>
+<td>通用编辑器（7.10）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>combat.resist_curve</code></td>
+<td>L2</td>
+<td>通用编辑器（7.10）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>ai.rotation</code></td>
+<td>L2</td>
+<td>通用编辑器（7.10，拖拽排序增强）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>ai.behavior_profile</code></td>
+<td>L2</td>
+<td>人物与生物编辑器（7.1，AI 绑定区）/通用编辑器</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>ai.patrol_path</code></td>
+<td>L2</td>
+<td>世界/遭遇/刷新/区域编辑器（7.7，画布）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>target.chain_def</code></td>
+<td>L2</td>
+<td>技能/状态/触发编辑器（7.2）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>item.template</code></td>
+<td>L3</td>
+<td>物品编辑器（7.3）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>item.set</code></td>
+<td>L3</td>
+<td>物品编辑器（7.3）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>item.affix</code></td>
+<td>L3</td>
+<td>物品编辑器（7.3）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>item.slot_definition</code></td>
+<td>L3</td>
+<td>物品编辑器（7.3）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>item.quality_definition</code></td>
+<td>L3</td>
+<td>物品编辑器（7.3）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>item.budget_curve</code></td>
+<td>L3</td>
+<td>物品编辑器（7.3，曲线图）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>creature.template</code></td>
+<td>L3</td>
+<td>人物与生物编辑器（7.1）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>creature.tier_definition</code></td>
+<td>L3</td>
+<td>人物与生物编辑器（7.1）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>gobj.template</code></td>
+<td>L3</td>
+<td>通用编辑器（7.10）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>gobj.lock</code></td>
+<td>L3</td>
+<td>通用编辑器（7.10）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>loot.table</code></td>
+<td>L4</td>
+<td>掉落与爆率编辑器（7.4）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>quest.def</code></td>
+<td>L4</td>
+<td>任务与对话编辑器（7.6）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>dialog.gossip_menu</code></td>
+<td>L4</td>
+<td>任务与对话编辑器（7.6）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>dialog.story_tree</code></td>
+<td>L4</td>
+<td>任务与对话编辑器（7.6，节点画布）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>encounter.def</code></td>
+<td>L4</td>
+<td>世界/遭遇/刷新/区域编辑器（7.7）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>encounter.level</code></td>
+<td>L4</td>
+<td>世界/遭遇/刷新/区域编辑器（7.7）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>diff.tier</code></td>
+<td>L4</td>
+<td>通用编辑器（7.10）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>achv.def</code></td>
+<td>L4</td>
+<td>通用编辑器（7.10，事件下拉增强）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>econ.currency</code></td>
+<td>L4</td>
+<td>通用编辑器（7.10）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>econ.vendor</code></td>
+<td>L4</td>
+<td>通用编辑器（7.10，条件字段增强）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>world.map</code></td>
+<td>L4</td>
+<td>世界/遭遇/刷新/区域编辑器（7.7，画布）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>world.flag_schema</code></td>
+<td>L4</td>
+<td>通用编辑器（7.10，纯文档化 schema）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>spawn.table</code></td>
+<td>L4</td>
+<td>世界/遭遇/刷新/区域编辑器（7.7，画布）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>area.trigger_def</code></td>
+<td>L4</td>
+<td>世界/遭遇/刷新/区域编辑器（7.7，画布）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>display.map</code></td>
+<td>L0/L5</td>
+<td>外形与表现编辑器（7.9）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>display.anim_set</code></td>
+<td>L0/L5</td>
+<td>外形与表现编辑器（7.9）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>display.equip_visual</code></td>
+<td>L0/L5</td>
+<td>外形与表现编辑器（7.9）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>display.weapon_style</code></td>
+<td>L0/L5</td>
+<td>外形与表现编辑器（7.9）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>l10n.text</code></td>
+<td>L0</td>
+<td>本地化编辑器（7.8）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>l10n.locale</code></td>
+<td>L0</td>
+<td>本地化编辑器（7.8）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>vfx.def</code></td>
+<td>L5</td>
+<td>外形与表现编辑器（7.9）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>sfx.def</code></td>
+<td>L5</td>
+<td>外形与表现编辑器（7.9）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>feedback.binding</code></td>
+<td>L5</td>
+<td>外形与表现编辑器（7.9）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>feedback.floating_text_style</code></td>
+<td>L5</td>
+<td>外形与表现编辑器（7.9）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>camera_profile</code></td>
+<td>L5</td>
+<td>外形与表现编辑器（7.9）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>ui_layout_definition</code></td>
+<td>L5</td>
+<td>外形与表现编辑器（7.9）</td>
+<td>否</td>
+</tr>
+<tr>
+<td><code>shell_menu_definition</code></td>
+<td>L5</td>
+<td>外形与表现编辑器（7.9）</td>
+<td>否</td>
+</tr>
+</tbody>
+</table></div>
+<hr>
+<h2 id="s8">8. 新增内容向导</h2>
+<p>对应 <a href="../../architecture/04_数据与内容管线.md#8-新增一个内容标准流程">04 第 8 节</a>"新增一个内容"标准流程的九类，编辑器为每一类提供一个专属向导入口（在"工程"菜单"新增内容"子菜单，或对应专项编辑器的"新增"按钮直达）。</p>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>新增类型</th>
+<th>向导步骤</th>
+<th>自动创建的关联行</th>
+<th>自动执行的校验项</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>新技能</td>
+<td>①填基础字段（学派/kind/射程/读条）②选目标选择链（可新建）③添加效果原语卡片（若含 <code>apply_aura</code> 引导新建光环）④若需被学习，勾选加入某个 <code>skill.book</code> ⑤外形（新建或引用 <code>display.map</code> 行）⑥文本（技能名/描述）</td>
+<td><code>display.map</code> 一行；<code>l10n.text</code> 技能名/描述键；（若勾选）光环 <code>skill.aura_def</code> 一行、触发器 <code>skill.proc_def</code> 一行</td>
+<td>引用完整性、效果数上限、外形映射存在、文本键存在、表达式可解析（若效果含条件）</td>
+</tr>
+<tr>
+<td>新光环</td>
+<td>①填 <code>duration</code>/<code>max_stacks</code>/<code>stack_category</code>/<code>dispel_type</code> ②添加 <code>AuraEffect</code> 卡片 ③（可选）外形（独立图标/持续特效）④文本</td>
+<td>（可选）<code>display.map</code> 一行；<code>l10n.text</code> 光环名/描述键</td>
+<td>叠加类别冲突、外形映射存在、文本键存在</td>
+</tr>
+<tr>
+<td>新装备</td>
+<td>见第 7.3 节"新增物品向导"五步</td>
+<td><code>display.map</code>（外形与纸娃娃层）、<code>display.equip_visual</code>（model 型外形的槽位网格或挂点模型，若外形类型为 model）、<code>l10n.text</code>（名称，如后续补充描述再补对应键）</td>
+<td>引用完整性（授予的技能/光环存在）、预算超标、外形映射存在、外形类型字段组完整、文本键存在</td>
+</tr>
+<tr>
+<td>新怪</td>
+<td>①基础字段（等级/tier/阵营/属性）②（可选）绑定专属掉落表（可就地新建）③（可选）绑定 AI 优先级表/行为外壳（可就地新建）④外形⑤文本</td>
+<td><code>display.map</code> 一行；<code>l10n.text</code> 名称键；（若选择新建）<code>loot.table</code>/<code>ai.rotation</code>/<code>ai.behavior_profile</code></td>
+<td>引用完整性（AI/掉落/外形引用）、外形映射存在、文本键存在</td>
+</tr>
+<tr>
+<td>新物件</td>
+<td>①选类型（<code>door</code>/<code>chest</code>/<code>quest_object</code>/<code>trap</code>/<code>spell_focus</code>/<code>gather_node</code>/<code>teleporter</code>/<code>save_point</code>/<code>lever</code>/<code>sign</code>）②填该类型专属字段③（可选）绑定锁（可就地新建 <code>gobj.lock</code>）④（可选）外形⑤文本</td>
+<td>（可选）<code>display.map</code> 一行；<code>l10n.text</code> 名称键；（若选择新建）<code>gobj.lock</code> 一行</td>
+<td>引用完整性（<code>on_use</code> 指向的技能/对话存在）、外形映射存在、文本键存在</td>
+</tr>
+<tr>
+<td>新地图</td>
+<td>①填地图基础信息（场景引用、导航引用）②摆放出生点/传送点（画布交互）③（可选）绑定刷新表（可就地新建）④文本（地图名）</td>
+<td>（按需）<code>spawn.table</code> 一份；<code>l10n.text</code> 地图名键</td>
+<td>引用完整性（场景资源引用、出生点/传送点合法）、文本键存在</td>
+</tr>
+<tr>
+<td>新任务</td>
+<td>①填基础字段（起始/交付方式、可重复性）②添加目标（八种类型任选）③前置条件（Expr，DAG 图实时预览）④奖励⑤在某个 <code>dialog.gossip_menu</code> 挂接接取/交付动作⑥文本（标题/目标描述/对话文本）</td>
+<td><code>dialog.gossip_menu</code> 中新增/挂接 <code>quest_accept</code>/<code>quest_turn_in</code> 选项；<code>l10n.text</code>（标题、目标描述、对话文本）</td>
+<td>引用完整性（前置任务、奖励物品/技能存在）、表达式可解析（前置条件）、文本键存在、循环引用检测（前置链）</td>
+</tr>
+<tr>
+<td>新对话</td>
+<td>①选类型（gossip 菜单或剧情树）②gossip：添加选项与动作／剧情树：在画布上添加节点与分支③（可选）挂接演出钩子（<code>found.hook</code> 引用）④文本</td>
+<td><code>l10n.text</code>（对话文本）；（若涉及演出）登记引用 <code>found.hook</code>（不新建钩子本身，钩子的代码实现属于程序职责）</td>
+<td>引用完整性（动作指向的技能/任务/传送点存在）、表达式可解析（显隐条件）、文本键存在、循环引用检测（对话树分支）</td>
+</tr>
+<tr>
+<td>新成就</td>
+<td>①基础字段（名称）②添加达成条件（六种 <code>Criterion.type</code> 任选，<code>observeEvent</code> 下拉自 <code>found.event_catalog</code>）③（可选）奖励④外形（图标）⑤文本</td>
+<td>（可选）<code>display.map</code> 一行（成就图标）；<code>l10n.text</code>（名称键）</td>
+<td>引用完整性（观察事件已登记）、文本键存在</td>
+</tr>
+</tbody>
+</table></div>
+<p>每类向导的最后一步统一执行"字段级 + 表级"校验（不做全量校验，避免向导响应变慢），0 错误时向导关闭；有错误时向导停留并列出问题供当场修正，用户也可选择"忽略并稍后处理"关闭向导（问题会保留在问题面板）。</p>
+<hr>
+<h2 id="s9">9. 校验、诊断与引用分析</h2>
+<h3 id="s9-1">9.1 三个校验时机</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>时机</th>
+<th>触发条件</th>
+<th>范围</th>
+<th>反馈方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>编辑即字段级</td>
+<td>字段失焦、下拉选择变更、卡片参数改动</td>
+<td>仅该字段（格式、枚举、引用格式、Expr 语法等不依赖同表其它记录的检查）</td>
+<td>字段旁即时标红/标黄下划线，悬停显示错误文本</td>
+</tr>
+<tr>
+<td>保存即表级</td>
+<td>保存该表文件时</td>
+<td>该表全部记录的 <code>IValidationRule</code>（预算超标、叠加类别冲突、效果数上限等需要跨记录/跨表核对的规则）</td>
+<td>问题面板增量刷新该表相关问题；保存本身不因表级警告而失败，但表级错误会在问题面板高亮且状态栏错误数增加</td>
+</tr>
+<tr>
+<td>手动/提交前全量</td>
+<td>用户点"校验"菜单"全量校验"，或提交前钩子触发</td>
+<td>全部已加载数据根，等价 <code>toolchain/validate_data.py</code> 两道校验，可选 <code>--strict</code>（警告也阻断）</td>
+<td>弹出/刷新完整校验报告，问题面板全量重建，状态栏错误/警告数刷新为全量结果</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s9-2">9.2 问题面板设计</h3>
+<p>问题面板（第 5.6 节底部面板区）列表每行结构：<code>[级别图标] 所属表.记录id: 检查项名称 — 说明文本 [跳转]</code>；支持按"所属表"/"问题类型"（对应 04 第 5 节 14 项检查项名称）/"来源"（字段级/表级/全量）三维筛选与组合排序；双击任意一行跳转到对应记录的对应字段并高亮闪烁一次。</p>
+<h3 id="s9-3">9.3 覆盖诊断</h3>
+<p>多根合并产生的 <code>override: true</code>/<code>final: true</code> 行为（见 04 第 4 节 2026-09-06 修订）不是错误，而是一类<strong>信息级诊断</strong>，单独列在问题面板的"覆盖诊断"分类下：</p>
+<ul>
+<li>某记录被后层 <code>override: true</code> 覆盖：显示"框架层原始版本 vs 游戏层覆盖版本"的并排字段差异对比。</li>
+<li>某记录声明 <code>final: true</code> 且被后层尝试覆盖：显示为阻断错误（04 定义为仍判定阻断），提示"该记录禁止被覆盖，请改用其它 id 新增而非覆盖同名记录"。</li>
+<li>单根场景（该表本次未跨根合并）出现 <code>override</code>/<code>final</code> 字段为真值：显示为警告"该字段仅在跨根同主键重叠时生效，当前单根场景下已被忽略"，对应 04 第 4 节该行为定义。</li>
+</ul>
+<h3 id="s9-4">9.4 引用图（引用了谁 / 被谁引用）</h3>
+<ul>
+<li>检视区"引用面板"（第 5.5 节）对当前选中记录展示两个列表：<strong>引用了谁</strong>（本记录全部 <code>Reference</code>/<code>Id</code>（识别为引用字面量）/<code>Expr</code> 中 id 字面量指向的目标，逐条可点击跳转）与<strong>被谁引用</strong>（反向索引，扫描全部已加载记录中指向本记录的引用字段，逐条可点击跳转）。</li>
+<li><strong>删除影响分析对话框</strong>（第 6.3 节"删除"操作触发）：复用同一份反向索引，列出"被谁引用"的完整清单，按所属表分组，用户可展开查看具体字段路径。</li>
+<li><strong>孤儿视图</strong>：本地化编辑器（7.8）与通用表编辑器筛选行（"孤儿"复选框，第 5.3 节）共用同一份反向索引数据源，展示"没有被任何已知入口引用"的记录（对应 04 第 5 节"孤儿记录检测"，警告级，不阻断，便于清理）。</li>
+</ul>
+<h3 id="s9-5">9.5 schema 迁移</h3>
+<p>打开工程时若检测到某表记录的 <code>schema_version</code> 低于核心库 <code>TableSchema.CurrentSchemaVersion</code>，状态栏与问题面板同时提示"N 张表待迁移"；用户在"校验"菜单点"执行迁移"，弹出预览对话框逐表展示迁移前后的字段差异（新增字段的默认值、被拆分/合并的字段），确认后按 <code>TableSchema.Migrations</code> 声明的迁移链顺序执行（04 第 3 节"迁移链只增不减"），执行完成后记录的 <code>schema_version</code> 写为当前版本、<code>migrated_from</code> 记为原始版本号，随后自动触发一次全量校验确认迁移未引入新问题。</p>
+<hr>
+<h2 id="s10">10. 数值沙盘（预览与模拟）</h2>
+<p>数值沙盘全部基于框架核心库 + 桩适配层（<code>Adapters.Stub</code>）运行，不依赖引擎、不依赖网络；种子可复现（同种子同输入必然同输出，对应确定性拍板决策 3），是编辑器区别于"纯表格编辑工具"的核心差异化能力。沙盘以独立标签页形式在文档区打开（"工具"菜单"数值沙盘"或各专项编辑器内的快捷入口）。</p>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>沙盘</th>
+<th>输入</th>
+<th>输出</th>
+<th>依据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>伤害/治疗结算器</td>
+<td>施法者模板、目标模板、技能/效果、（可选）种子</td>
+<td>分步结算过程（判定→基础值→暴击→施法者乘区→减免→目标乘区→免疫吸收→落地）与最终数值、期望 DPS</td>
+<td>06 第 4.1 节结算管线固定步骤</td>
+</tr>
+<tr>
+<td>掉落模拟</td>
+<td>掉落表、次数、种子</td>
+<td>每件物品出现次数/概率/平均数量/期望价值</td>
+<td>08 第 1 节 <code>LootHost.roll</code></td>
+</tr>
+<tr>
+<td>经验估算</td>
+<td>等级曲线、经验来源假设</td>
+<td>达到目标等级所需击杀数/时长估算</td>
+<td>见第 7.5 节</td>
+</tr>
+<tr>
+<td>生物属性成长</td>
+<td>生物模板、成长曲线、tier 分档倍率</td>
+<td>等级 1..N 属性表格与折线图</td>
+<td>见第 7.1 节</td>
+</tr>
+<tr>
+<td>简易战斗回放（可选）</td>
+<td>两个生物模板、时长（N 秒或 N 回合）、种子</td>
+<td>战斗日志（逐条 Combat Log 风格事件文本）与胜率统计（多次重复跑取胜率，若跑多次）</td>
+<td>06 第 8 节事件词汇表、结算管线</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>简易战斗回放细节</strong>：两套模板互相攻击直到一方死亡或达到时长上限，输出格式对齐 06 第 8 节"Combat Log 风格"事件词汇表（如 <code>combat.damage_dealt</code>、<code>aura.applied</code>、<code>unit.died</code> 逐条按时间顺序列出，附带触发该事件的字段值）；若时间模型为离散（回合制），日志按"回合 N：行动者 X 使用 Y"分组呈现；若为连续，按"第 N 秒"分组。回放结果窗口提供"导出为文本"按钮，便于策划贴到评审文档里讨论平衡性问题（导出为本地文本文件，见第 15 章不涉及云上传）。</p>
+<hr>
+<h2 id="s11">11. 批量与导入导出</h2>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>用户怎么操作</th>
+<th>系统反馈</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>多选批量改字段</td>
+<td>网格视图多选若干行 → 右键"批量编辑字段" → 选目标字段 → 输入新值或"按公式计算"（如 <code>旧值 * 1.1</code>）</td>
+<td>预览对比表（旧值→新值逐行列出）供确认，确认后统一应用并标记涉及的表为脏</td>
+</tr>
+<tr>
+<td>查找替换</td>
+<td><code>Ctrl+H</code> 打开查找替换面板，可限定"仅当前表"/"全工程"，可限定"仅某类 <code>FieldKind</code>"（如仅 <code>String</code> 或仅 <code>Expr</code> 字段），支持正则表达式开关</td>
+<td>命中结果列表逐条可勾选是否替换，支持"全部替换"与逐条确认两种模式</td>
+</tr>
+<tr>
+<td>CSV/表格导入导出</td>
+<td>表工具栏"导出为 CSV"/"从 CSV 导入"；导出弹窗选字段范围；导入弹窗做字段映射（CSV 列 ↔ 表字段）与冲突策略选择（<code>跳过</code>/<code>覆盖</code>/<code>仅新增</code>）</td>
+<td>导入前展示预览差异表（新增/覆盖/无变化/格式错误四类计数），确认后写入并触发表级校验</td>
+</tr>
+<tr>
+<td>公式列</td>
+<td>网格视图列头右键"添加公式列"（仅数字类字段），输入基于其它列的公式（如 <code>item_level * 2</code>）</td>
+<td>公式列以浅色背景标识为"计算列"，双击可编辑公式，不写入实际数据文件（纯查看辅助），除非用户显式点"固化为普通列"转为真实字段写入</td>
+</tr>
+</tbody>
+</table></div>
+<hr>
+<h2 id="s12">12. 版本控制与协作</h2>
+<h3 id="s12-1">12.1 git 状态显示</h3>
+<p>底部面板区"git 变更"子面板（第 5.6 节）列出当前工程数据根内相对 git <code>HEAD</code> 的文件级改动（新增/修改/删除三色图标），实时随保存动作刷新；状态栏（第 5.7 节）显示当前分支名与脏文件计数。</p>
+<h3 id="s12-2">12.2 变更文件列表与 diff 预览</h3>
+<p>点击"git 变更"面板中的任一文件，右侧弹出并排 diff 预览（旧内容 | 新内容，逐行高亮增删），diff 渲染基于文本行比较（因为保存动作保证稳定字段顺序，diff 天然聚焦在真正改动的字段行，见第 6.5 节）；面板提供"暂存该文件"/"撤销该文件改动（还原为 <code>HEAD</code> 版本）"两个操作，其余 git 操作（提交、拉取、推送、分支管理）引导用户使用外部专业 git 工具或命令行完成，编辑器不重复实现完整 git 客户端（第 2.3 节范围外声明）。</p>
+<h3 id="s12-3">12.3 提交前自动校验</h3>
+<p>对应仓库既有 <code>.githooks/pre-commit</code> 的快速门禁思想：编辑器"校验"菜单提供"提交前检查"命令，一键跑一次全量校验（等价 <code>validate_data.py</code> 两道校验）并汇总结果；若配置了自动模式（第 14.1 节设置项），编辑器检测到用户即将通过其内置的"暂存"操作提交时会先自动跑一次该检查，报错时弹出确认框"仍有 N 个错误，是否继续提交"，默认按钮为"取消"。</p>
+<h3 id="s12-4">12.4 冲突时的记录级合并辅助</h3>
+<p>当 git 报告某数据表文件存在合并冲突（例如 pull 时与远端改动冲突）时，编辑器提供"记录级合并"辅助视图：读取冲突文件的双方版本（<code>--ours</code>/<code>--theirs</code>，经外部 git 命令获取原始文本），按主键对比出"仅本地改""仅远端改""双方都改"三类记录，双方都改的记录并排展示字段级差异，用户逐条选择"用本地"/"用远端"/"手动编辑合并"，全部记录确认后拼装出合并结果并写回文件，供用户在 git 里标记该文件为已解决冲突；此辅助视图不自动执行 git 命令本身（<code>add</code>/<code>commit</code> 等），只负责生成正确的合并后文件内容。</p>
+<hr>
+<h2 id="s13">13. 运行联调</h2>
+<h3 id="s13-1">13.1 配置游戏可执行文件/Unity 工程路径</h3>
+<p>"运行"菜单"配置联调目标"：选择该游戏的 Unity 工程路径（用于一键在编辑器内启动 Unity 编辑器打开该工程）或独立版可执行文件路径（用于一键启动打包后的游戏）；两者均可配置，互不冲突（开发阶段常用 Unity 工程内运行，验收阶段用独立版可执行文件运行）。</p>
+<h3 id="s13-2">13.2 一键运行</h3>
+<p>"运行"菜单"运行▶"（或工具栏按钮）按已配置的目标启动：若目标是 Unity 工程，拉起本机 Unity Editor 以命令行参数打开该工程并进入 Play 模式（需要该工程已同步过最新的 <code>data/&lt;game&gt;/</code>，编辑器保存动作已保证这一点）；若目标是独立版可执行文件，直接启动该进程；启动日志汇入"输出"面板。</p>
+<h3 id="s13-3">13.3 保存触发热重载</h3>
+<p>保存动作完成后，若联调面板检测到目标游戏进程正以<strong>开发期构建</strong>运行（编辑器与目标进程之间通过本地约定的开发期热重载通道通信，具体传输机制留给实现阶段按 <a href="../../architecture/04_数据与内容管线.md#4-dataregistry-接口">04 §4</a> <code>DataRegistry.reload(domain)</code> 与落地计划"数据加载"一节"编辑器内构建监听 JSON 文件变化触发重载并发 <code>data.load_completed</code>"的既有设计落地，默认方案，可调整），编辑器发出一次针对该表所属 domain 的 reload 请求；成功回执后"输出"面板打印"已触发 <code>&lt;domain&gt;</code> 热重载"。</p>
+<p><strong>前提与限制（必须在界面上明确提示，避免用户误判"为什么没生效"）</strong>：</p>
+<ul>
+<li>仅对开发期构建有效，发布构建默认关闭热重载通道（对应落地计划"编辑器内构建...仅限编辑器内构建"）。</li>
+<li>结构性改动（新增字段、改变字段类型、<code>schema_version</code> 提升）仍需要重启游戏进程才能生效，热重载只对"同结构下的数值/内容变化"生效；编辑器保存后若判断本次改动可能涉及结构变化（如触发了迁移），主动提示"本次改动建议重启联调目标"而不是尝试热重载。</li>
+</ul>
+<h3 id="s13-4">13.4 从游戏日志反查编辑器记录</h3>
+<p>联调运行时，编辑器订阅目标进程输出的日志流（若目标提供，默认约定读取标准输出/标准错误或指定日志文件路径，具体接入方式属实现细节）；日志文本中出现符合 id 格式（<code>^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$</code>）的片段时，"输出"面板对该片段做超链接高亮，点击直接在编辑器内跳转打开对应记录，便于"游戏里报了个奇怪的 <code>skill.xxx</code> 找不到"这类问题的快速定位。</p>
+<hr>
+<h2 id="s14">14. 设置与扩展</h2>
+<h3 id="s14-1">14.1 设置项清单</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>设置项</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主题</td>
+<td>跟随系统</td>
+<td>浅色/深色/跟随系统</td>
+</tr>
+<tr>
+<td>默认语言（<code>defaultLocale</code>）</td>
+<td>首次打开工程时按检测到的系统语言建议，可改</td>
+<td>决定 <code>TextKey</code> 内联编辑默认显示的语言列</td>
+</tr>
+<tr>
+<td>撤销栈上限</td>
+<td>500 步</td>
+<td>见第 6.4 节</td>
+</tr>
+<tr>
+<td>自动保存草稿间隔</td>
+<td>120 秒</td>
+<td>见第 15.2 节</td>
+</tr>
+<tr>
+<td>全量校验是否默认 <code>--strict</code></td>
+<td>关闭</td>
+<td>开启后警告也视为需要处理（不阻断保存，但提交前检查会拦）</td>
+</tr>
+<tr>
+<td>提交前自动校验</td>
+<td>开启</td>
+<td>见第 12.3 节</td>
+</tr>
+<tr>
+<td>战斗回放导出目录</td>
+<td><code>&lt;工程&gt;/.gfeditor/exports/</code></td>
+<td>数值沙盘导出文本落地目录</td>
+</tr>
+<tr>
+<td>网格虚拟化行高</td>
+<td>28px</td>
+<td>影响大表滚动的渲染密度，性能与信息密度的折中项</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s14-2">14.2 插件机制</h3>
+<p>编辑器提供四类扩展点，供后续按需扩展而不改动编辑器核心：</p>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>扩展点</th>
+<th>用途</th>
+<th>约束</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>专项编辑器插件</td>
+<td>为某张/某组表提供更定制的界面（类似第 7 章九个专项编辑器的编写方式）</td>
+<td>必须通过核心库 <code>DataRegistry</code> 读写记录，不允许绕过其校验直接操作文件</td>
+</tr>
+<tr>
+<td>字段控件插件</td>
+<td>为特定 <code>FieldKind</code> 或特定字段（按表名+字段名匹配）提供自定义控件渲染</td>
+<td>控件只做展示与编辑交互，字段值的读写仍经统一的记录模型 API</td>
+</tr>
+<tr>
+<td>沙盘插件</td>
+<td>新增一种数值预览/模拟面板（第 10 章之外的自定义沙盘）</td>
+<td>必须使用桩适配层跑逻辑，不允许沙盘内直接读写磁盘数据文件</td>
+</tr>
+<tr>
+<td>导入器插件</td>
+<td>新增一种批量导入格式（CSV 之外，如 Excel、专有格式）</td>
+<td>导入结果必须经过与手工编辑相同的字段级/表级校验，不允许跳过校验直接写盘</td>
+</tr>
+</tbody>
+</table></div>
+<p>插件目录：<code>&lt;编辑器安装目录&gt;/plugins/&lt;插件名&gt;/</code>，每个插件是独立目录，含清单文件（声明插件类型、兼容的编辑器版本范围、入口）与实现文件；编辑器启动时扫描该目录加载。<strong>不允许绕过核心库校验</strong>是插件机制的硬约束（对应第 1.2 节"编辑器只编辑内容，不新增原语"的产品定位，插件也不例外）。</p>
+<h3 id="s14-3">14.3 schema 变化自动适配的原则</h3>
+<p>核心库新增一张表或给已有表新增字段时，编辑器不需要跟着改代码即可继续工作：新表自动出现在导航区"按层/域/表"树中（归入通用表编辑器）；已有表新增字段自动出现在表单视图的对应分组末尾与网格视图的新增列（默认显示，用户可手动隐藏）。只有当某张表需要<strong>专属</strong>的可视化（画布、卡片、图表）时才需要更新对应专项编辑器或走插件机制补一个专项编辑器插件；这是"零改动可编辑新表"（第 3.3 节主张 1）与"专项体验需要额外投入"之间的边界。</p>
+<hr>
+<h2 id="s15">15. 非功能需求</h2>
+<h3 id="s15-1">15.1 性能指标</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>冷启动到主界面可交互</td>
+<td>≤ 3 秒（不含首次打开工程的数据加载）</td>
+</tr>
+<tr>
+<td>打开工程（框架层+游戏层两根合并加载）</td>
+<td>中等规模数据集（约 60 张表、单表数千行以内）≤ 5 秒</td>
+</tr>
+<tr>
+<td>5 万行 <code>l10n.text</code> 网格滚动</td>
+<td>虚拟化渲染，滚动帧率不低于 30fps，无明显掉帧卡顿</td>
+</tr>
+<tr>
+<td>保存单张表（数千行内）</td>
+<td>≤ 1 秒</td>
+</tr>
+<tr>
+<td>全量校验（中等规模数据集）</td>
+<td>≤ 10 秒（进程内跑；拉子进程跑对齐 <code>validate_data.py</code> 实际耗时，不额外设上限）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s15-2">15.2 可靠性</h3>
+<p><strong>崩溃恢复</strong>：编辑器按第 14.1 节设置的间隔（默认 120 秒）自动把当前未保存的变更集快照写入 <code>&lt;game&gt;/.gfeditor/autosave/</code>（不覆盖用户的正式保存文件）；异常退出后再次启动时检测到该目录存在快照，提示"检测到上次异常退出遗留的自动保存草稿，是否恢复"，用户可选择恢复、丢弃或先对比差异；正常退出（用户主动关闭且已无未保存改动，或已确认放弃改动）时清空该次会话对应的草稿文件。</p>
+<h3 id="s15-3">15.3 可用性</h3>
+<ul>
+<li>键盘优先：全部高频操作有快捷键（见附录 A），网格视图/表单视图之间的字段导航支持 <code>Tab</code>/<code>Shift+Tab</code>/方向键。</li>
+<li>无鼠标可完成主要流程：新增记录、填字段、保存、触发校验、切换标签均可纯键盘完成（命令面板 <code>Ctrl+K</code> 是无鼠标操作的核心入口）。</li>
+<li>屏幕阅读器基本支持：控件具备可读的名称/角色/值（Name/Role/Value）语义标注，满足基本的辅助技术识别需求（不要求达到完整无障碍认证等级，作为基础可用性底线）。</li>
+</ul>
+<h3 id="s15-4">15.4 兼容性</h3>
+<ul>
+<li>操作系统：Windows 10/11 x64。</li>
+<li>分辨率：1080p 至 4K，含 125%/150%/200% 等常见 DPI 缩放档位（见第 5.8 节）。</li>
+<li>最小窗口尺寸 <code>1280×800</code>（见第 5.8 节）。</li>
+</ul>
+<h3 id="s15-5">15.5 安全</h3>
+<p>编辑器<strong>不联网、不上传</strong>任何数据（不含遥测、不含自动检查更新的默认开启项——若未来加入检查更新功能，须默认关闭并需用户显式开启）；全部数据读写限定在用户显式打开的工程目录、<code>.gfeditor/</code> 子目录与用户显式指定的导入导出路径内。</p>
+<hr>
+<h2 id="s16">16. 技术选型建议</h2>
+<blockquote>
+<p>本章标注为<strong>实现层面的建议，非架构结论</strong>，可在实现立项时另出评估文档拍板，不影响 <code>architecture/</code> 目录下任何既有结论。</p>
+</blockquote>
+<h3 id="s16-1">16.1 桌面壳：WPF 与 Avalonia 对比</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>WPF（.NET 8）</th>
+<th>Avalonia（.NET 8）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>平台范围</td>
+<td>仅 Windows</td>
+<td>跨平台（本产品只需 Windows，此项非决定因素）</td>
+</tr>
+<tr>
+<td>与核心 DLL（.NET Standard 2.1）互操作</td>
+<td>原生，无额外适配层</td>
+<td>原生，无额外适配层</td>
+</tr>
+<tr>
+<td>生态成熟度（数据网格、代码高亮控件）</td>
+<td>成熟（第三方控件库选择多，社区历史悠久）</td>
+<td>逐步成熟（部分控件需自行封装或用较新的第三方库）</td>
+</tr>
+<tr>
+<td>主题/深浅色支持</td>
+<td>需要自行搭建资源字典体系</td>
+<td>内置 Fluent 主题与浅深色切换支持较完善</td>
+</tr>
+<tr>
+<td>团队现有经验（假设）</td>
+<td>Windows 桌面团队通常更熟悉</td>
+<td>需要一定学习曲线</td>
+</tr>
+<tr>
+<td><strong>建议</strong></td>
+<td><strong>首选</strong>（默认方案，可调整）：本产品明确只需 Windows，WPF 生态里的数据网格/代码编辑控件选型更直接，减少自研控件的工作量</td>
+<td>若未来有跨平台需求（当前无）可重新评估</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s16-2">16.2 理由与备选（Web 壳 + 本地服务）对比</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>桌面壳（WPF/Avalonia）直接引用核心 DLL</th>
+<th>Web 壳（本地 HTTP 服务 + 浏览器/内嵌 WebView 前端）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>与核心库集成方式</td>
+<td>进程内直接引用，无序列化开销</td>
+<td>核心库跑在本地服务进程，前端通过 HTTP/WebSocket 调用，需要额外设计 API 协议与序列化</td>
+</tr>
+<tr>
+<td>启动性能</td>
+<td>更快（无需起服务进程 + 浏览器渲染进程）</td>
+<td>较慢（两个进程 + WebView 启动开销）</td>
+</tr>
+<tr>
+<td>离线可靠性（第 15.5 节"不联网"要求下的自洽性）</td>
+<td>天然离线，无端口占用/防火墙提示等困扰</td>
+<td>本地服务仍可能触发系统防火墙首次提示，用户体验有干扰</td>
+</tr>
+<tr>
+<td>UI 生态（图表、代码高亮控件）</td>
+<td>需要选型桌面端专属控件库</td>
+<td>可直接复用成熟的 Web 前端生态（图表库、代码编辑器组件更丰富）</td>
+</tr>
+<tr>
+<td><strong>结论</strong></td>
+<td><strong>选桌面壳</strong>：第 15.5 节离线要求与启动性能优先级更高，UI 生态差距可通过桌面端成熟的第三方控件库弥补</td>
+<td>仅在未来若需要"团队远程协作查看只读快照"一类场景时才重新评估 Web 壳路线</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s16-3">16.3 图表、代码编辑控件、文件监视、git 调用方式（默认方案，可调整）</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>建议方案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>图表（成长曲线、经验曲线、结算预览条形图）</td>
+<td>桌面端成熟图表库（如 OxyPlot 一类开源图表库），满足折线/柱状/进度条即可，不需要复杂交互式图表</td>
+</tr>
+<tr>
+<td>代码/JSON 高亮编辑控件（源码视图、Expr 编辑器）</td>
+<td>桌面端成熟的代码编辑控件（如 AvalonEdit 一类），自行扩展语法高亮规则以支持 Expr 语法与 JSON</td>
+</tr>
+<tr>
+<td>文件监视（外部修改检测、资源存在性扫描）</td>
+<td>操作系统原生文件系统监视 API（.NET <code>FileSystemWatcher</code> 一类），叠加去抖动处理避免同一次外部改动触发多次刷新</td>
+</tr>
+<tr>
+<td>git 调用方式</td>
+<td>拉起本机已安装的 <code>git</code> 命令行工具（子进程），解析其文本输出得到状态/diff；不内嵌完整 git 实现库，保持与用户本机 git 配置（凭据、hooks）行为一致</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s16-4">16.4 与 <code>toolchain/validator</code> 共享注册逻辑的方式</h3>
+<p><code>toolchain/validator</code>（.NET）的 <code>Program.cs</code> 并不自己枚举各层的表与规则，而是直接调用核心库已经存在的级联注册目录：<code>core/rules/assembly/RulesSchemaCatalog</code>（注册 L0 内置 + L1 五模块 + L2 四模块的 <code>TableSchema</code>/<code>IValidationRule</code>）→ <code>core/carriers/assembly/CarriersSchemaCatalog</code>（级联 <code>RulesSchemaCatalog</code> 后再补 L3）→ <code>core/gameplay/assembly/GameplaySchemaCatalog</code>（级联后再补 L4）→ <code>presentation/assembly/PresentationSchemaCatalog</code>（级联后再补 L5）；<code>toolchain/validator/Program.cs</code> 实际调用的正是最外层的 <code>PresentationSchemaCatalog.RegisterAll</code>，一次性注册齐全部 L0～L5 模块。编辑器建议直接引用与 <code>toolchain/validator</code> 相同的注册入口——<code>core/rules/assembly/RulesSchemaCatalog</code> 等各层 assembly 注册目录（编辑器按需覆盖到哪一层，就引用哪一层级联到底的目录，通常是最外层的 <code>PresentationSchemaCatalog</code>）——从而保证"编辑器已知的表清单与校验规则"与"门禁用的校验器已知的表清单与校验规则"永远是同一份代码产出的同一份注册结果，不需要人工保持两处同步。若后续把 <code>toolchain/validator</code> <code>Program.cs</code> 里"调用汇总注册入口 + 设置 <code>FailOnUnknownTable</code>/<code>Strictness</code> 等选项"这一小段本身也抽成一个核心库内、专供 <code>toolchain/validator</code> 与编辑器两个消费方共用的更薄的汇总入口更佳（默认方案，可调整：是否需要再抽这一层、抽到哪个程序集，留待实现阶段与 <code>toolchain/validator</code> 的实际代码结构对齐决定），本节结论不影响 <code>architecture/</code> 的任何既有拍板。</p>
+<hr>
+<h2 id="s17">17. 里程碑与验收标准</h2>
+<p>验收统一使用仓库自带的 <code>data/_sample/</code> 作为验收数据集（框架仓库自测用示例数据，不代表任何真实游戏内容，见 <code>data/README.md</code>）；每条验收条目要求"用编辑器完成动作后，跑 <code>python toolchain/validate_data.py</code> 或编辑器内等价的全量校验，得到预期结果"，保证验收标准是可机器判定的，不是主观描述。</p>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>里程碑</th>
+<th>范围</th>
+<th>验收条目（示例）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>M1</td>
+<td>工程与工作区（第 4 章）+ 通用表编辑器（第 6 章）+ 校验（第 9 章前两个时机）</td>
+<td>1. 打开 <code>data/_sample</code> 工程成功加载全部表且行数与源文件一致；2. 用编辑器新增一条 <code>stat.definition</code> 记录并保存，<code>validate_data.py --data-root data/_sample</code> 结果为 0 错误；3. 手工改坏一个 <code>Reference</code> 字段指向不存在的 id，字段级校验能在不保存的情况下即时标红</td>
+</tr>
+<tr>
+<td>M2</td>
+<td>技能/物品/生物/掉落/经验五个专项编辑器（第 7.1～7.5 节）</td>
+<td>1. 用"物品编辑器"新增物品向导新增一件装备（含外形与文本自动生成），保存后全量校验 0 错误；2. 用"掉落与爆率编辑器"对 <code>loot.sample_beast</code> 跑 10000 次模拟并得到与权重归一化理论概率误差在合理统计范围内的结果；3. 用"技能/状态/触发编辑器"改 <code>skill.sample_strike</code> 的 <code>coefficient</code> 后结算预览面板数值随之变化</td>
+</tr>
+<tr>
+<td>M3</td>
+<td>新增内容向导（第 8 章）+ 引用分析（第 9.4 节）+ 批量与导入导出（第 11 章）+ 本地化编辑器（第 7.8 节）</td>
+<td>1. 走完"新任务"向导后自动挂接的 <code>dialog.gossip_menu</code> 动作项存在且引用完整性校验通过；2. 删除一条被引用的记录时能弹出正确的影响分析清单；3. 本地化编辑器导出 CSV 后再导入同一份文件（未改动）得到"无变化"计数等于总行数</td>
+</tr>
+<tr>
+<td>M4</td>
+<td>数值沙盘（第 10 章）+ 任务/对话画布、世界/遭遇画布（第 7.6、7.7 节）+ 热重载（第 13.3 节）</td>
+<td>1. 战斗回放沙盘对同一对模板、同一种子跑两次得到完全一致的战斗日志；2. 剧情树画布能正确检出人为造出的一个环并阻止保存；3. 联调面板检测到开发期构建运行时，保存一条技能数值改动后游戏侧在数秒内可观察到新数值生效（不需重启进程）</td>
+</tr>
+<tr>
+<td>M5</td>
+<td>插件机制（第 14.2 节）+ 打磨 + 性能（第 15.1 节）</td>
+<td>1. 按插件清单接口实现一个最小示例字段控件插件，编辑器能正确加载并渲染；2. 5 万行 <code>l10n.text</code> 网格滚动帧率不低于 30fps 的性能指标现场实测通过；3. 全部第 15 章非功能需求逐项现场核对通过</td>
+</tr>
+</tbody>
+</table></div>
+<hr>
+<h2 id="s18">18. 附录</h2>
+<h3 id="apx-a">附录 A：快捷键表</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>快捷键</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Ctrl+K</code></td>
+<td>打开全局搜索/命令面板</td>
+</tr>
+<tr>
+<td><code>Ctrl+N</code></td>
+<td>新增记录（当前打开的表/专项编辑器上下文）</td>
+</tr>
+<tr>
+<td><code>Ctrl+S</code></td>
+<td>保存当前标签</td>
+</tr>
+<tr>
+<td><code>Ctrl+Shift+S</code></td>
+<td>保存全部未保存标签</td>
+</tr>
+<tr>
+<td><code>Ctrl+Z</code> / <code>Ctrl+Y</code></td>
+<td>撤销 / 重做</td>
+</tr>
+<tr>
+<td><code>Ctrl+F</code> / <code>Ctrl+H</code></td>
+<td>查找 / 查找替换</td>
+</tr>
+<tr>
+<td><code>Ctrl+B</code></td>
+<td>折叠/展开导航区</td>
+</tr>
+<tr>
+<td><code>Ctrl+J</code></td>
+<td>折叠/展开面板区</td>
+</tr>
+<tr>
+<td><code>Ctrl+Tab</code> / <code>Ctrl+Shift+Tab</code></td>
+<td>下一个 / 上一个标签</td>
+</tr>
+<tr>
+<td><code>Ctrl+W</code></td>
+<td>关闭当前标签</td>
+</tr>
+<tr>
+<td><code>Delete</code></td>
+<td>删除选中记录（网格视图多选状态下）</td>
+</tr>
+<tr>
+<td><code>F5</code></td>
+<td>运行（一键联调启动）</td>
+</tr>
+<tr>
+<td><code>F7</code></td>
+<td>手动触发全量校验</td>
+</tr>
+<tr>
+<td><code>Ctrl+点击</code>（引用字段）</td>
+<td>跳转到引用目标记录</td>
+</tr>
+<tr>
+<td><code>Tab</code> / <code>Shift+Tab</code>（表单视图内）</td>
+<td>下一个 / 上一个字段</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="apx-b">附录 B：字段类型→控件映射（详见第 6.2 节）</h3>
+<p>本附录不重复列出完整表格，引用第 6.2 节"字段类型 → 控件映射表"为唯一权威版本。</p>
+<h3 id="apx-c">附录 C：校验项→编辑器反馈方式映射（对应 04 第 5 节 14 项）</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>校验项（04 第 5 节原文）</th>
+<th>编辑器反馈方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>引用完整性</td>
+<td><code>Reference</code> 控件失焦即时标红 + 问题面板表级/全量条目</td>
+</tr>
+<tr>
+<td>id 格式合法</td>
+<td><code>Id</code> 控件输入时实时按正则标红</td>
+</tr>
+<tr>
+<td>枚举合法</td>
+<td><code>Enum</code> 控件只允许从合法枚举下拉选择，不存在非法输入路径</td>
+</tr>
+<tr>
+<td>表达式可解析</td>
+<td><code>Expr</code> 编辑器失焦实时解析标红下划线；"疑似引用拼写错误"标黄警告</td>
+</tr>
+<tr>
+<td>效果数上限</td>
+<td>技能/光环编辑器效果列表上方进度条，接近/超过上限变黄/变红</td>
+</tr>
+<tr>
+<td>预算超标</td>
+<td>物品编辑器预算条实时计算，超标变红</td>
+</tr>
+<tr>
+<td>叠加类别冲突</td>
+<td>光环编辑器 <code>stack_category</code> 下拉选中冲突类别即时标红</td>
+</tr>
+<tr>
+<td>外形映射存在</td>
+<td>外形与表现编辑器"一键补建"反查清单；相关记录引用字段缺失外形时黄标</td>
+</tr>
+<tr>
+<td>外形类型字段组完整</td>
+<td><code>display.map</code> 表单按 <code>kind</code> 切换灰化另一组字段，界面级预防</td>
+</tr>
+<tr>
+<td>文本键存在</td>
+<td><code>TextKey</code> 控件下方"缺失 N 种语言"提示；本地化编辑器矩阵黄标</td>
+</tr>
+<tr>
+<td>schema 版本已知</td>
+<td>打开工程时状态栏/问题面板提示"N 张表待迁移"，第 9.5 节迁移流程</td>
+</tr>
+<tr>
+<td>循环引用检测</td>
+<td>天赋树/任务前置 DAG/剧情树画布实时成环检测并红色高亮环路径</td>
+</tr>
+<tr>
+<td>孤儿记录检测</td>
+<td>导航区筛选行"孤儿"复选框 + 本地化编辑器"孤儿 key"筛选，警告级不阻断</td>
+</tr>
+<tr>
+<td>时间字段与时间模型一致</td>
+<td>时间字段控件按所属作用域时间模型限定整数/小数输入，离散模式下非整数输入即时拦截提示</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="apx-d">附录 D：表 → 编辑器总表</h3>
+<p>引用第 7.11 节"表 → 归属编辑器总表"为唯一权威版本，本附录不重复列出。</p>
+<h3 id="apx-e">附录 E：术语表（详版）</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>术语</th>
+<th>定义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据即内容</td>
+<td>ADR-0004 拍板：游戏世界一切具体内容是结构化文本表里的行，运行时只认 id 与字段</td>
+</tr>
+<tr>
+<td><code>DataRegistry</code></td>
+<td>L0 基础层暴露给全架构的唯一数据入口，见 04 第 4 节</td>
+</tr>
+<tr>
+<td><code>TableSchema</code>/<code>FieldSchema</code></td>
+<td>核心库对每张表/每个字段的静态结构声明，见 <code>core/foundation/data_registry/contracts/</code></td>
+</tr>
+<tr>
+<td><code>FieldKind</code></td>
+<td>字段类型标签枚举：<code>Bool</code>/<code>Int</code>/<code>Number</code>/<code>String</code>/<code>Id</code>/<code>IdList</code>/<code>Reference</code>/<code>TextKey</code>/<code>Expr</code>/<code>Enum</code>/<code>Vec2</code>/<code>Object</code>/<code>Array</code></td>
+</tr>
+<tr>
+<td>Expr</td>
+<td>全架构统一的条件表达式语言，九个宿主分组：<code>self</code>/<code>target</code>/<code>event</code>/<code>world</code>/<code>quest</code>/<code>player</code>/<code>combat</code>/<code>enemies</code>/<code>time</code></td>
+</tr>
+<tr>
+<td><code>override</code>/<code>final</code></td>
+<td>多根合并时的行级显式覆盖控制字段，见 04 第 4 节 2026-09-06 修订</td>
+</tr>
+<tr>
+<td>覆盖诊断</td>
+<td>编辑器对 <code>override</code>/<code>final</code> 生效情况的信息级展示，非错误</td>
+</tr>
+<tr>
+<td>桩适配层（<code>Adapters.Stub</code>）</td>
+<td>纯 .NET 实现的最小可用适配层，供脱离引擎的测试与数值沙盘使用</td>
+</tr>
+<tr>
+<td>确定性模拟</td>
+<td>拍板决策 3：同种子同输入必然同输出，是数值沙盘"可复现"的基础</td>
+</tr>
+<tr>
+<td>万物皆法术</td>
+<td>拍板决策 1：任何"让世界发生变化"的动作都建模为 Skill（效果+光环+触发）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="apx-f">附录 F：与架构文档的对应关系</h3>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>本文档章节</th>
+<th>依据的架构文档</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>第 1 章 概述、产品定位</td>
+<td><a href="../../architecture/00_架构总则.md">00_架构总则</a>、<a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a>（"数据即内容"ADR-0004）</td>
+</tr>
+<tr>
+<td>第 3、4 章 总体方案、工程与工作区</td>
+<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 4 节、<a href="../../data/README.md">data/README.md</a>、<a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划</a> 第 3 节</td>
+</tr>
+<tr>
+<td>第 6 章 通用表编辑器</td>
+<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 2、3、5 节、<code>core/foundation/data_registry/contracts/</code></td>
+</tr>
+<tr>
+<td>第 7.1 节 人物与生物编辑器</td>
+<td><a href="../../architecture/06_规则层_属性技能战斗AI.md">06_规则层_属性技能战斗AI</a> 第 1、2 节、<a href="../../architecture/07_载体层_物品生物物件.md">07_载体层_物品生物物件</a> 第 2、5 节</td>
+</tr>
+<tr>
+<td>第 7.2 节 技能/状态/触发编辑器</td>
+<td><a href="../../architecture/06_规则层_属性技能战斗AI.md">06_规则层_属性技能战斗AI</a> 第 3、4 节</td>
+</tr>
+<tr>
+<td>第 7.3 节 物品编辑器</td>
+<td><a href="../../architecture/07_载体层_物品生物物件.md">07_载体层_物品生物物件</a> 第 1 节</td>
+</tr>
+<tr>
+<td>第 7.4 节 掉落与爆率编辑器</td>
+<td><a href="../../architecture/08_玩法层_掉落任务对话关卡.md">08_玩法层_掉落任务对话关卡</a> 第 1 节</td>
+</tr>
+<tr>
+<td>第 7.5 节 经验与成长编辑器</td>
+<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 1.1 节表清单（<code>prog.*</code>）</td>
+</tr>
+<tr>
+<td>第 7.6 节 任务与对话编辑器</td>
+<td><a href="../../architecture/08_玩法层_掉落任务对话关卡.md">08_玩法层_掉落任务对话关卡</a> 第 2、3 节</td>
+</tr>
+<tr>
+<td>第 7.7 节 世界/遭遇/刷新/区域编辑器</td>
+<td><a href="../../architecture/08_玩法层_掉落任务对话关卡.md">08_玩法层_掉落任务对话关卡</a> 第 4 节</td>
+</tr>
+<tr>
+<td>第 7.8 节 本地化编辑器</td>
+<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 7.2 节</td>
+</tr>
+<tr>
+<td>第 7.9 节 外形与表现编辑器</td>
+<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 7.1 节</td>
+</tr>
+<tr>
+<td>第 8 章 新增内容向导</td>
+<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 8 节</td>
+</tr>
+<tr>
+<td>第 9 章 校验、诊断与引用分析</td>
+<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 5 节、第 4 节多根合并规则</td>
+</tr>
+<tr>
+<td>第 10 章 数值沙盘</td>
+<td><a href="../../architecture/06_规则层_属性技能战斗AI.md">06_规则层_属性技能战斗AI</a> 第 4.1 节结算管线、<a href="../../architecture/08_玩法层_掉落任务对话关卡.md">08_玩法层_掉落任务对话关卡</a> 第 1 节</td>
+</tr>
+<tr>
+<td>第 13 章 运行联调</td>
+<td><a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划</a> 第 4.3 节数据加载/热重载</td>
+</tr>
+<tr>
+<td>第 16 章 技术选型建议</td>
+<td><a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划</a> 第 3 节工程结构（仅参考其分层原则，选型结论为本文档独立给出，非架构结论）</td>
+</tr>
+</tbody>
+</table></div>
+<hr>
+<p><em>（文档完）</em></p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var KEY = 'gf-editor-doc-theme';
+  function apply(mode){
+    if(mode === 'light' || mode === 'dark'){
+      document.documentElement.setAttribute('data-theme', mode);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }
+  var saved = null;
+  try { saved = localStorage.getItem(KEY); } catch(e){}
+  apply(saved);
+  window.__cycleTheme = function(){
+    var cur = null;
+    try { cur = localStorage.getItem(KEY); } catch(e){}
+    var next = (cur === null) ? 'light' : (cur === 'light' ? 'dark' : null);
+    try { if(next === null){ localStorage.removeItem(KEY); } else { localStorage.setItem(KEY, next); } } catch(e){}
+    apply(next);
+  };
+})();
+
+(function(){
+  var links = Array.prototype.slice.call(document.querySelectorAll('[data-toc-id]'));
+  if(!links.length) return;
+  var byId = {};
+  links.forEach(function(a){
+    var list = byId[a.getAttribute('data-toc-id')] || [];
+    list.push(a);
+    byId[a.getAttribute('data-toc-id')] = list;
+  });
+  var headers = Object.keys(byId).map(function(id){ return document.getElementById(id); }).filter(Boolean);
+  function setActive(id){
+    links.forEach(function(a){ a.classList.remove('active'); });
+    (byId[id] || []).forEach(function(a){ a.classList.add('active'); });
+  }
+  if('IntersectionObserver' in window){
+    var observer = new IntersectionObserver(function(entries){
+      var visible = entries.filter(function(e){ return e.isIntersecting; });
+      if(visible.length){
+        visible.sort(function(a,b){ return a.boundingClientRect.top - b.boundingClientRect.top; });
+        setActive(visible[0].target.id);
+      }
+    }, { rootMargin: '-56px 0px -70% 0px', threshold: 0 });
+    headers.forEach(function(h){ observer.observe(h); });
+  }
+})();
+</script>

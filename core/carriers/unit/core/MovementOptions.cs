@@ -75,5 +75,28 @@ namespace Core.Carriers.Unit
         /// 行动点/移动预算耗尽...调用 TurnScheduler.endTurn"）。典型绑定：
         /// <c>Core.Foundation.SimLoop.TurnScheduler.EndTurn</c>。</summary>
         public Action<Id>? RequestEndTurn { get; set; }
+
+        /// <summary>
+        /// 加固任务（05 §3.6 碰撞层规划落地）：单位间是否互相阻挡移动的策略开关，默认 <c>false</c>
+        /// （05 §3.6 原文"默认关闭，允许单位重叠，简化 2.5D 拥挤场景处理"）；13 §4 第 20 行"单位间
+        /// 移动阻挡（<c>unit_block</c>）"口味清单项即接到本字段（见 <c>games/_template/Runtime/
+        /// GameOptions.UnitBlockEnabled</c>）。为 <c>true</c> 时 <see cref="MovementTickHandler"/> 在
+        /// 应用每次位移前，查询目标落点附近携带
+        /// <see cref="Core.Foundation.EngineAdapter.CollisionLayers.UnitBlock"/> 标签、非自身的对象，
+        /// 命中则本次不产生位移（见 <see cref="UnitBlockRadius"/>、<c>MovementTickHandler</c> 判断
+        /// 记录"停在原地，不做滑动"）。
+        /// </summary>
+        public bool UnitBlocking { get; set; } = false;
+
+        /// <summary>
+        /// <see cref="UnitBlocking"/> 为 <c>true</c> 时，阻挡判定查询目标落点的半径。判断记录：
+        /// 默认 0.5——不直接复用 <c>EntitySpatialSyncHost.KindConfig.Radius</c>（`creature`/`player`
+        /// 默认注册半径 0.1）的理由是二者语义不同：注册半径是"这个对象在空间索引里占多大"，服务于
+        /// 通用范围查询（技能命中、AI 感知等，允许较小近似）；本字段是"两个单位中心距离多近算互相
+        /// 阻挡"，语义更接近"两个单位的物理体积不能重叠"，0.1 会导致单位几乎贴脸才互相阻挡、观感上
+        /// 仍然像"允许重叠"，与"确实阻挡移动"的口味意图不符，故取一个更接近典型单位间距的默认值；
+        /// 具体数值仍是口味配置项，游戏层可按自己的单位密度调整。
+        /// </summary>
+        public double UnitBlockRadius { get; set; } = 0.5;
     }
 }

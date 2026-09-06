@@ -392,5 +392,55 @@ namespace Tests.Gameplay
                 "dialog.sample_hunter 的 save 选项应经 DialogHost.saveRequested 触发 GameplayAssembly.SaveSystem.Save，" +
                 "在默认自动存档槽 \"slot.autosave\" 下写出文件");
         }
+
+        // -----------------------------------------------------------------
+        // 12. 加固任务：自动存档开关门控（GameplayAssembly.RequestAutosave 先查
+        //     ISaveSystem.ShouldAutoSave(AutoSaveTrigger.SavePoint)，见该本地函数判断记录）。
+        //     上面两条用例覆盖的是 OnSavePoint 默认值 true（触发）；下面两条覆盖显式关闭
+        //     OnSavePoint 后两个触发点（存档点物件交互、对话 save 动作）均不再写盘。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void InteractWithSavePoint_WhenOnSavePointDisabled_DoesNotAutosave()
+        {
+            var options = new Core.Foundation.SaveSystem.SaveSystemOptions(GameWorldFixture.GameId)
+            {
+                AutoSave = new Core.Foundation.SaveSystem.AutoSavePolicy { OnSavePoint = false },
+            };
+            var fx = GameWorldFixture.Build(saveSystemOptions: options);
+
+            var autosaveSlotId = new Id("slot.autosave");
+            Assert.False(fx.Gameplay.SaveSystem.SlotExists(autosaveSlotId));
+
+            var savePointId = fx.Gameplay.Carriers.GameObjects.Spawn(
+                GameWorldFixture.GobjSavePoint, GameWorldFixture.MapId, Vec2.Zero, 0.0);
+            var result = fx.Gameplay.Carriers.GameObjectInteractions.Interact(GameWorldFixture.PlayerId, savePointId);
+
+            Assert.True(result.Success);
+            Assert.False(fx.Gameplay.SaveSystem.SlotExists(autosaveSlotId),
+                "AutoSave.OnSavePoint=false 时，save_point 交互不应经 GobjOptions.SaveRequester 触发 " +
+                "GameplayAssembly.SaveSystem.Save（见 GameplayAssembly.RequestAutosave 判断记录）");
+        }
+
+        [Fact]
+        public void ChooseGossipSaveOption_WhenOnSavePointDisabled_DoesNotAutosave()
+        {
+            var options = new Core.Foundation.SaveSystem.SaveSystemOptions(GameWorldFixture.GameId)
+            {
+                AutoSave = new Core.Foundation.SaveSystem.AutoSavePolicy { OnSavePoint = false },
+            };
+            var fx = GameWorldFixture.Build(saveSystemOptions: options);
+
+            var autosaveSlotId = new Id("slot.autosave");
+            Assert.False(fx.Gameplay.SaveSystem.SlotExists(autosaveSlotId));
+
+            fx.Gameplay.Dialog.OpenGossip(GameWorldFixture.PlayerId, GameWorldFixture.NpcId, GameWorldFixture.DialogMenu);
+            var handled = fx.Gameplay.Dialog.ChooseOption(GameWorldFixture.PlayerId, 3); // save
+
+            Assert.True(handled);
+            Assert.False(fx.Gameplay.SaveSystem.SlotExists(autosaveSlotId),
+                "AutoSave.OnSavePoint=false 时，dialog.sample_hunter 的 save 选项不应经 DialogHost.saveRequested " +
+                "触发 GameplayAssembly.SaveSystem.Save（见 GameplayAssembly.RequestAutosave 判断记录）");
+        }
     }
 }

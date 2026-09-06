@@ -39,10 +39,27 @@ namespace Core.Carriers.Assembly
             public double Radius { get; }
             public IReadOnlyList<string> Tags { get; }
 
-            public KindConfig(double radius, IReadOnlyList<string> tags)
+            /// <summary>
+            /// 加固任务补充（05 §3.6 碰撞层落地，`trigger_only` 半径按形状外接半径）：可选的按实体
+            /// 求半径委托，非空时优先于 <see cref="Radius"/> 使用。
+            /// <para>
+            /// 判断记录（用委托而非"KindConfig 里塞 Shape 相关字段"或"EntitySpatialSyncHost 认识
+            /// 具体 Entity 子类"）：本类型（<c>core/carriers/assembly</c>）是 L3，01 第 3 节依赖矩阵
+            /// 禁止 L3 依赖 L4——区域触发实体 <c>Core.Gameplay.AreaTrigger.AreaTriggerEntity</c>（持有
+            /// `Shape` 字段）恰好是 L4 类型，本类不能在这里 `is AreaTriggerEntity` 强转。委托类型
+            /// 只依赖 L0 的 <see cref="Entity"/> 基类，由真正认识具体子类的调用方（L4
+            /// `core/gameplay/assembly.GameplayAssembly`）构造闭包传入，本类只管调用，不关心闭包内部
+            /// 做了什么强转——与 <c>CarriersAssembly</c> 里 <c>AiRegistrar</c>/<c>SkillGranter</c> 一类
+            /// "契约缺口委托接线"是同一惯例。
+            /// </para>
+            /// </summary>
+            public Func<Entity, double>? RadiusResolver { get; }
+
+            public KindConfig(double radius, IReadOnlyList<string> tags, Func<Entity, double>? radiusResolver = null)
             {
                 Radius = radius;
                 Tags = tags;
+                RadiusResolver = radiusResolver;
             }
         }
 
@@ -79,7 +96,11 @@ namespace Core.Carriers.Assembly
                 return;
             }
 
-            _spatial.Register(evt.EntityId, entity.Position, config.Radius, config.Tags);
+            // 半径解析委托优先（见 KindConfig.RadiusResolver 判断记录）：未提供时退回固定 Radius，
+            // 行为与本任务之前完全一致。
+            var radius = config.RadiusResolver != null ? config.RadiusResolver(entity) : config.Radius;
+
+            _spatial.Register(evt.EntityId, entity.Position, radius, config.Tags);
             _registered.Add(evt.EntityId);
         }
 

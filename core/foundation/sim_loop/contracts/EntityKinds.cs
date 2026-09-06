@@ -17,16 +17,18 @@ namespace Core.Foundation.SimLoop
     /// （收边任务落地，见 05 第 1.4 节 <c>Projectile</c>），同时是
     /// <c>presentation/common/contracts/EntityKindMapping.cs</c> 此前占位字符串
     /// <c>"projectile"</c> 对应的正式常量。</item>
+    /// <item><see cref="AreaTrigger"/>：<c>Core.Gameplay.AreaTrigger.AreaTriggerEntity.Kind</c>
+    /// （加固任务落地，见 05 第 1.5 节 <c>AreaTrigger</c>；<c>AreaTriggerHost.RegisterTrap</c>
+    /// 动态登记的陷阱触发体同样落这个 Kind，见该实体类型判断记录），同时是
+    /// <c>presentation/common/contracts/EntityKindMapping.cs</c> 此前占位字符串
+    /// <c>"area_trigger"</c> 对应的正式常量。</item>
     /// </list>
     /// <para>
-    /// 判断记录（<c>summon</c>/<c>area_trigger</c> 仍未登记）：09 第 2 节建议 <c>ViewKind</c> 覆盖
-    /// unit/gameObject/projectile/areaTrigger/droppedLoot 五类，<c>presentation/common/contracts/
-    /// EntityKindMapping.cs</c> 因此先登记了 <c>"projectile"</c>/<c>"area_trigger"</c> 两个占位
-    /// 字符串；<c>projectile</c> 已随本次收边任务落地对应 <see cref="Entity"/> 子类（见上），
-    /// <c>area_trigger</c> 尚未落地，<c>summon</c> 同理（<c>core/carriers/summon</c> 尚未落地
-    /// <see cref="Entity"/> 子类）——按"未使用的不发明"原则本类暂不登记这两个，留待对应模块落地
-    /// <see cref="Entity"/> 子类时再补（<c>presentation/common</c> 不在本次改动范围，见任务分工，
-    /// 届时其 <c>"area_trigger"</c> 占位字符串也应同步换成本类常量）。
+    /// 判断记录（<c>summon</c> 仍未登记）：09 第 2 节建议 <c>ViewKind</c> 覆盖
+    /// unit/gameObject/projectile/areaTrigger/droppedLoot 五类；<c>projectile</c>/<c>area_trigger</c>
+    /// 均已随各自收边/加固任务落地对应 <see cref="Entity"/> 子类（见上），<c>summon</c> 尚未落地
+    /// （<c>core/carriers/summon</c> 尚未落地 <see cref="Entity"/> 子类）——按"未使用的不发明"原则
+    /// 本类暂不登记这一个，留待该模块落地 <see cref="Entity"/> 子类时再补。
     /// </para>
     /// </summary>
     public static class EntityKinds
@@ -40,5 +42,7 @@ namespace Core.Foundation.SimLoop
         public const string Loot = "loot";
 
         public const string Projectile = "projectile";
+
+        public const string AreaTrigger = "area_trigger";
     }
 }

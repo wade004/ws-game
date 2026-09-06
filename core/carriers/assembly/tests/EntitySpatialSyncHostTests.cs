@@ -114,6 +114,68 @@ namespace Tests.Carriers.Assembly
         }
 
         [Fact]
+        public void DefaultSpatialSyncKinds_IncludesAreaTrigger_WithTriggerOnlyTag_NotUnitTag()
+        {
+            // 事实更新（加固任务：05 §3.6 碰撞层规划落地，见 CarriersAssembly.DefaultSpatialSyncKinds
+            // 判断记录）：此前默认清单（只含 creature/player）不含 "area_trigger"；现在刻意登记区域
+            // 触发实体，目的是让"按 trigger_only 标签查询范围内触发体"一类未来查询成为可能。只打
+            // CollisionLayers.TriggerOnly 单一标签，不含 "unit"——因此不会被 core/rules/targeting、
+            // core/rules/ai 等已经按 "unit"/RequiredTags 过滤或防御性检查 IUnitAccess.Exists 的既有
+            // 查询误当命中候选（见各自查询点判断记录、CollisionLayers.TriggerOnly 类型注释）。
+            Assert.True(CarriersAssembly.DefaultSpatialSyncKinds.TryGetValue(EntityKinds.AreaTrigger, out var config));
+            Assert.Contains(CollisionLayers.TriggerOnly, config.Tags);
+            Assert.DoesNotContain("unit", config.Tags);
+        }
+
+        [Fact]
+        public void DefaultSpatialSyncKinds_CreatureAndPlayer_CarryUnitBlockTag()
+        {
+            // 加固任务：05 §3.6 碰撞层规划落地——creature/player 在既有 "unit" 标签之外补
+            // CollisionLayers.UnitBlock，供 MovementOptions.UnitBlocking=true 时的阻挡查询使用；
+            // 打标签本身不改变现状行为（阻挡与否仍由 MovementOptions.UnitBlocking 决定，默认 false）。
+            Assert.True(CarriersAssembly.DefaultSpatialSyncKinds.TryGetValue(EntityKinds.Creature, out var creatureConfig));
+            Assert.Contains("unit", creatureConfig.Tags);
+            Assert.Contains(CollisionLayers.UnitBlock, creatureConfig.Tags);
+
+            Assert.True(CarriersAssembly.DefaultSpatialSyncKinds.TryGetValue(EntityKinds.Player, out var playerConfig));
+            Assert.Contains("unit", playerConfig.Tags);
+            Assert.Contains(CollisionLayers.UnitBlock, playerConfig.Tags);
+        }
+
+        /// <summary>不构造真实的 <c>Core.Gameplay.AreaTrigger.AreaTriggerEntity</c>（L4 类型，本测试
+        /// 项目所在的 <c>Core.Carriers</c> 是 L3，不能引用 L4，见 01 第 3 节依赖矩阵）——用一个本地
+        /// 最小 <see cref="Entity"/> 子类站台，只为了验证 <see cref="EntitySpatialSyncHost"/> 按
+        /// <see cref="Entity.Kind"/> 字符串登记的通用机制对 <c>"area_trigger"</c> 这个 Kind 同样生效，
+        /// 不依赖具体子类是谁。</summary>
+        private sealed class FakeAreaTriggerEntity : Entity
+        {
+            public override string Kind => EntityKinds.AreaTrigger;
+
+            public FakeAreaTriggerEntity(Id entityId, Id mapId) : base(entityId, mapId)
+            {
+            }
+        }
+
+        [Fact]
+        public void EntityCreated_AreaTriggerKind_RegistersWithTriggerOnlyTag_UsingDefaultKinds()
+        {
+            var bus = NewBus();
+            var world = new WorldSim(bus);
+            var spatial = new StubSpatialQuery();
+            _ = new EntitySpatialSyncHost(bus, world, spatial, CarriersAssembly.DefaultSpatialSyncKinds);
+
+            var trigger = new FakeAreaTriggerEntity(new Id("area.trap_1"), MapId) { Position = new Vec2(5, 5) };
+            world.AddEntity(trigger);
+            bus.DispatchPending();
+
+            var triggerOnly = spatial.QueryRadius(new Vec2(5, 5), 1.0, new QueryFilter(requiredTags: new[] { CollisionLayers.TriggerOnly }));
+            Assert.Single(triggerOnly);
+
+            var unitOnly = spatial.QueryRadius(new Vec2(5, 5), 1.0, new QueryFilter(requiredTags: new[] { "unit" }));
+            Assert.Empty(unitOnly);
+        }
+
+        [Fact]
         public void EntityCreated_GobjWithDefaultKinds_IsNotRegistered()
         {
             var bus = NewBus();

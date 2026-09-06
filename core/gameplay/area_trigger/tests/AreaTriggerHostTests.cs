@@ -18,10 +18,15 @@ namespace Tests.Gameplay.AreaTrigger
             IHookRegistry? hooks = null)
         {
             var bus = AreaTriggerTestSupport.NewEventBus();
-            var world = new Core.Gameplay.WorldState.WorldState(bus);
+            // 加固任务（AreaTrigger 实体化）：AreaTriggerHost 新增 IWorldSim 依赖，测试用真实
+            // WorldSim（惯例同 core/gameplay/loot/tests/LootTestSupport.NewWorld），与 bus 共用
+            // 同一份事件总线，才能让 entity.created/entity.destroyed 与 area.trigger_entered/left
+            // 落在同一条可观测的事件流上。
+            var worldSim = new Core.Foundation.SimLoop.WorldSim(bus);
+            var worldState = new Core.Gameplay.WorldState.WorldState(bus);
             var expr = new FakeExprHostFactory();
             var options = new AreaTriggerOptions();
-            var host = new AreaTriggerHost(world, bus, expr, hooks, options);
+            var host = new AreaTriggerHost(worldSim, worldState, bus, expr, hooks, options);
             return (host, bus, expr, options);
         }
 
@@ -236,8 +241,9 @@ namespace Tests.Gameplay.AreaTrigger
             var report = registry.LoadAll();
             Assert.False(report.IsBlocking);
 
-            var world = new Core.Gameplay.WorldState.WorldState(bus);
-            var host = new AreaTriggerHost(world, bus, new FakeExprHostFactory());
+            var worldSim = new Core.Foundation.SimLoop.WorldSim(bus);
+            var worldState = new Core.Gameplay.WorldState.WorldState(bus);
+            var host = new AreaTriggerHost(worldSim, worldState, bus, new FakeExprHostFactory());
             host.LoadForMap(new Id("world.sample_map"), registry);
 
             var events = Subscribe(bus);
@@ -256,8 +262,9 @@ namespace Tests.Gameplay.AreaTrigger
                 AreaTriggerTestSupport.QuestExploreRow("area.sample_other", "world.other_map"));
             registry.LoadAll();
 
-            var world = new Core.Gameplay.WorldState.WorldState(bus);
-            var host = new AreaTriggerHost(world, bus, new FakeExprHostFactory());
+            var worldSim = new Core.Foundation.SimLoop.WorldSim(bus);
+            var worldState = new Core.Gameplay.WorldState.WorldState(bus);
+            var host = new AreaTriggerHost(worldSim, worldState, bus, new FakeExprHostFactory());
             host.LoadForMap(new Id("world.sample_map"), registry);
             host.LoadForMap(new Id("world.other_map"), registry);
 
@@ -297,6 +304,127 @@ namespace Tests.Gameplay.AreaTrigger
 
             var ex = Record.Exception(() => host.Evaluate(new Id("unit.sample_player"), new Vec2(0, 0)));
             Assert.Null(ex);
+        }
+
+        // -----------------------------------------------------------------
+        // 加固任务：AreaTrigger 从"纯数据记录 + 宿主字典"改为真正的 Entity 子类
+        // （见 core/gameplay/area_trigger/contracts/AreaTriggerEntity.cs）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Register_CreatesAreaTriggerEntity_WithPositionAndMapIdFromDef()
+        {
+            var bus = AreaTriggerTestSupport.NewEventBus();
+            var worldSim = new Core.Foundation.SimLoop.WorldSim(bus);
+            var worldState = new Core.Gameplay.WorldState.WorldState(bus);
+            var host = new AreaTriggerHost(worldSim, worldState, bus, new FakeExprHostFactory());
+
+            host.Register(AreaTriggerDef.FromRecord(RecordOf(
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map"))));
+
+            var entities = worldSim.QueryEntities(new Core.Foundation.SimLoop.EntityFilter(
+                kind: Core.Foundation.SimLoop.EntityKinds.AreaTrigger));
+            var entity = Assert.Single(entities);
+            Assert.Equal(new Id("world.sample_map"), entity.MapId);
+            // QuestExploreRow 用 CircleShape(0, 0, 5)：Shape.Origin 即圆心 (0,0)。
+            Assert.Equal(new Vec2(0, 0), entity.Position);
+            Assert.Equal(new Id("area.sample_grove"), entity.TemplateId);
+        }
+
+        [Fact]
+        public void Unregister_MarksEntityForDestruction_EmitsEntityDestroyed()
+        {
+            var bus = AreaTriggerTestSupport.NewEventBus();
+            var worldSim = new Core.Foundation.SimLoop.WorldSim(bus);
+            var worldState = new Core.Gameplay.WorldState.WorldState(bus);
+            var host = new AreaTriggerHost(worldSim, worldState, bus, new FakeExprHostFactory());
+
+            var triggerId = host.Register(AreaTriggerDef.FromRecord(RecordOf(
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map"))));
+
+            var destroyed = new System.Collections.Generic.List<Id>();
+            bus.Subscribe<Core.Foundation.SimLoop.EntityDestroyedEvent>(
+                Core.Foundation.SimLoop.SimEventKeys.EntityDestroyed, e => destroyed.Add(e.EntityId));
+
+            host.Unregister(triggerId);
+            // MarkForDestruction 只是排入下一次 Tick 的生命周期清理阶段才真正生效（见
+            // IWorldSim.MarkForDestruction 注释），本测试推进一次 tick 让 entity.destroyed 真正派发。
+            worldSim.Tick(Core.Foundation.SimLoop.SimStep.Continuous(0.016));
+
+            Assert.Single(destroyed);
+            Assert.Empty(worldSim.QueryEntities(new Core.Foundation.SimLoop.EntityFilter(
+                kind: Core.Foundation.SimLoop.EntityKinds.AreaTrigger)));
+        }
+
+        [Fact]
+        public void UnloadMap_DestroysEntitiesForThatMapOnly()
+        {
+            var bus = AreaTriggerTestSupport.NewEventBus();
+            var registry = AreaTriggerTestSupport.BuildRegistry(bus,
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map"),
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_other", "world.other_map"));
+            registry.LoadAll();
+
+            var worldSim = new Core.Foundation.SimLoop.WorldSim(bus);
+            var worldState = new Core.Gameplay.WorldState.WorldState(bus);
+            var host = new AreaTriggerHost(worldSim, worldState, bus, new FakeExprHostFactory());
+            host.LoadForMap(new Id("world.sample_map"), registry);
+            host.LoadForMap(new Id("world.other_map"), registry);
+
+            host.UnloadMap(new Id("world.sample_map"));
+            worldSim.Tick(Core.Foundation.SimLoop.SimStep.Continuous(0.016));
+
+            var remaining = worldSim.QueryEntities(new Core.Foundation.SimLoop.EntityFilter(
+                kind: Core.Foundation.SimLoop.EntityKinds.AreaTrigger));
+            var entity = Assert.Single(remaining);
+            Assert.Equal(new Id("world.other_map"), entity.MapId);
+        }
+
+        [Fact]
+        public void RegisterTrap_CreatesAreaTriggerEntity_WithNullTriggerType()
+        {
+            var bus = AreaTriggerTestSupport.NewEventBus();
+            var worldSim = new Core.Foundation.SimLoop.WorldSim(bus);
+            var worldState = new Core.Gameplay.WorldState.WorldState(bus);
+            var host = new AreaTriggerHost(worldSim, worldState, bus, new FakeExprHostFactory());
+
+            var shape = Core.Foundation.EngineAdapter.Shape.Circle(new Vec2(7, 9), 3);
+            host.RegisterTrap(new Id("gobj.sample_trap"), shape, Map);
+
+            var entities = worldSim.QueryEntities(new Core.Foundation.SimLoop.EntityFilter(
+                kind: Core.Foundation.SimLoop.EntityKinds.AreaTrigger));
+            var entity = Assert.Single(entities);
+            var areaTriggerEntity = Assert.IsType<AreaTriggerEntity>(entity);
+            Assert.Null(areaTriggerEntity.TriggerType);
+            Assert.False(areaTriggerEntity.OneShot);
+            Assert.Equal(new Vec2(7, 9), entity.Position);
+        }
+
+        [Fact]
+        public void Evaluate_OneShot_FiredStateStillRecordedInWorldState()
+        {
+            var bus = AreaTriggerTestSupport.NewEventBus();
+            var worldSim = new Core.Foundation.SimLoop.WorldSim(bus);
+            var worldState = new Core.Gameplay.WorldState.WorldState(bus);
+            var host = new AreaTriggerHost(worldSim, worldState, bus, new FakeExprHostFactory());
+
+            host.Register(AreaTriggerDef.FromRecord(RecordOf(
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map", oneShot: true))));
+
+            host.Evaluate(new Id("unit.sample_player"), new Vec2(0, 0));
+
+            // 05 第 1.5 节"oneShot 已触发的状态经 WorldState 记录"——本实体化改动不改变这一路径，
+            // 已触发标志仍然落在 IWorldState，不落在 AreaTriggerEntity 本身（本类型没有暴露任何
+            // "已触发"字段）。
+            Assert.True(worldState.Has(new Id("world.area.sample_grove.fired")));
+        }
+
+        [Fact]
+        public void AreaTriggerHostAndEntity_DoNotImplementIPersistable()
+        {
+            // 见 05 第 1.5 节"进存档：手工放置的固定触发体不进存档（随地图数据加载）"。
+            Assert.False(typeof(Core.Foundation.SaveSystem.IPersistable).IsAssignableFrom(typeof(AreaTriggerHost)));
+            Assert.False(typeof(Core.Foundation.SaveSystem.IPersistable).IsAssignableFrom(typeof(AreaTriggerEntity)));
         }
 
         // -----------------------------------------------------------------

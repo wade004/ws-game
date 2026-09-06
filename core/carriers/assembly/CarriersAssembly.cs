@@ -101,12 +101,32 @@ namespace Core.Carriers.Assembly
         /// <c>spatialSyncKinds</c>，并自行确保所有会遍历该索引全部候选的调用方都正确按标签过滤或
         /// 防御性检查 <c>IUnitAccess.Exists</c>。
         /// </para>
+        /// <para>
+        /// 判断记录（加固任务：补 <see cref="Core.Foundation.EngineAdapter.CollisionLayers.UnitBlock"/>
+        /// 标签、新增 <c>area_trigger</c> 条目）：05 §3.6 碰撞层规划落地——`creature`/`player` 在既有
+        /// `"unit"` 标签之外再打一份 <c>CollisionLayers.UnitBlock</c>（是否据此阻挡移动由
+        /// <c>Core.Carriers.Unit.MovementOptions.UnitBlocking</c> 这个口味开关决定，默认 false，
+        /// 打标签本身不改变现状行为）。<c>EntityKinds.AreaTrigger</c> 加入白名单、打
+        /// <c>CollisionLayers.TriggerOnly</c> 单一标签（不含 `"unit"`）——与判断记录"默认不含 gobj"
+        /// 同一顾虑相反：这里刻意登记，目的是让"按 `trigger_only` 标签查询范围内触发体"这类未来
+        /// 查询成为可能；因此本任务同时要求全仓库排查所有不带 `RequiredTags` 的既有空间查询点
+        /// （`core/rules/targeting/core/BuiltinTargetStrategies.cs`、`core/rules/ai/core/AiHost.cs`、
+        /// `core/rules/expr_host/RulesExprHostFactory.cs`、`core/gameplay/assembly/TimeModelSwitch.cs`）
+        /// 补 `ExcludedTags = [CollisionLayers.TriggerOnly]`，避免区域触发体被误当命中/感知候选（见
+        /// 各自判断记录）；带 `RequiredTags: ["unit"]` 的查询（如 `core/carriers/projectile`
+        /// `ProjectileOptions.HitQueryTags` 默认值）天然排除，不需要改动。半径用固定近似值 0.5（本类
+        /// 型是 L3，01 第 3 节依赖矩阵禁止依赖 L4，不能在这里引用 `Core.Gameplay.AreaTrigger.
+        /// AreaTriggerEntity` 按其 `Shape` 精确计算外接半径）；真正装配全部 L0～L4 的
+        /// `Core.Gameplay.Assembly.GameplayAssembly` 用 <see cref="EntitySpatialSyncHost.KindConfig.RadiusResolver"/>
+        /// 覆盖这一条目，按 `AreaTriggerEntity.BoundingRadius` 精确计算（见该类型判断记录）。
+        /// </para>
         /// </summary>
         public static IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig> DefaultSpatialSyncKinds { get; } =
             new Dictionary<string, EntitySpatialSyncHost.KindConfig>(StringComparer.Ordinal)
             {
-                [EntityKinds.Creature] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit" }),
-                [EntityKinds.Player] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit" }),
+                [EntityKinds.Creature] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit", CollisionLayers.UnitBlock }),
+                [EntityKinds.Player] = new EntitySpatialSyncHost.KindConfig(0.1, new[] { "unit", CollisionLayers.UnitBlock }),
+                [EntityKinds.AreaTrigger] = new EntitySpatialSyncHost.KindConfig(0.5, new[] { CollisionLayers.TriggerOnly }),
             };
 
         public EntitySpatialSyncHost SpatialSync { get; }
@@ -270,8 +290,11 @@ namespace Core.Carriers.Assembly
             Movement = new MovementHost(world);
             var resolvedMovementOptions = movementOptions ?? new MovementOptions();
             MovementOptions = resolvedMovementOptions;
+            // spatial 注入（加固任务：unit_block 阻挡判定，见 MovementTickHandler 判断记录）：
+            // MovementTickHandler 构造期已有的 spatial 就是本方法参数，不需要额外装配。
             var movementTickHandler = new MovementTickHandler(
-                Units, Rules.Stats, Rules.Skill.AuraQuery, Movement, bus, navigation, resolvedMovementOptions);
+                Units, Rules.Stats, Rules.Skill.AuraQuery, Movement, bus, navigation, resolvedMovementOptions,
+                spatial: spatial);
             world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, movementTickHandler);
 
             // 投射物飞行推进：紧随 MovementTickHandler 之后注册到同一阶段，见

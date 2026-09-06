@@ -179,6 +179,59 @@ namespace Tests.Rules.Targeting
         }
 
         // -----------------------------------------------------------------
+        // 2.5 加固任务（05 §3.6 碰撞层落地）：trigger_only 标签的对象登记进空间索引后，
+        // nearest_in_shape/all_in_shape 必须排除它，不能崩溃、也不能被当成候选目标。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void NearestInShape_ExcludesTriggerOnlyTaggedObject_DoesNotThrow()
+        {
+            const string rows = @"[
+                { ""id"": ""target.chain.nearest_any"", ""source"": ""nearest_in_shape"",
+                  ""shape"": { ""kind"": ""circle"", ""radius"": 50 } }
+            ]";
+
+            var fx = Build(rows, (units, spatial, powers, threat) =>
+            {
+                units.Add(new Id("unit.caster"), HeroFaction, new Vec2(0, 0));
+                units.Add(new Id("unit.hostile"), MonsterFaction, new Vec2(10, 0));
+                spatial.Register(new Id("unit.hostile"), new Vec2(10, 0), 0);
+
+                // 模拟区域触发实体：只登记进空间索引（不登记进 FakeUnitAccess），且比
+                // unit.hostile 更靠近施法者——若 NearestInShapeStrategy 不排除
+                // CollisionLayers.TriggerOnly，ctx.Units.GetPosition(id) 会因为这个 id 根本不是
+                // 已知单位而抛异常（同 WorldUnitAccess.Require 在生产代码里的行为），而不是"选错
+                // 目标"这种更温和的失败。
+                spatial.Register(new Id("area.trap_1"), new Vec2(1, 0), 0, new[] { Core.Foundation.EngineAdapter.CollisionLayers.TriggerOnly });
+            });
+
+            var result = fx.Host.Resolve(new Id("target.chain.nearest_any"), new Id("unit.caster"));
+
+            Assert.Equal(new[] { new Id("unit.hostile") }, result);
+        }
+
+        [Fact]
+        public void AllInShape_ExcludesTriggerOnlyTaggedObject()
+        {
+            const string rows = @"[
+                { ""id"": ""target.chain.all_any"", ""source"": ""all_in_shape"",
+                  ""shape"": { ""kind"": ""circle"", ""radius"": 50 } }
+            ]";
+
+            var fx = Build(rows, (units, spatial, powers, threat) =>
+            {
+                units.Add(new Id("unit.caster"), HeroFaction, new Vec2(0, 0));
+                units.Add(new Id("unit.hostile"), MonsterFaction, new Vec2(10, 0));
+                spatial.Register(new Id("unit.hostile"), new Vec2(10, 0), 0);
+                spatial.Register(new Id("area.trap_1"), new Vec2(1, 0), 0, new[] { Core.Foundation.EngineAdapter.CollisionLayers.TriggerOnly });
+            });
+
+            var result = fx.Host.Resolve(new Id("target.chain.all_any"), new Id("unit.caster"));
+
+            Assert.Equal(new[] { new Id("unit.hostile") }, result);
+        }
+
+        // -----------------------------------------------------------------
         // 3. sort_by hp_pct asc 选血量最低友方（含 party_lowest_hp_pct 自然序）
         // -----------------------------------------------------------------
 

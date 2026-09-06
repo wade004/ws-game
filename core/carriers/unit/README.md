@@ -104,6 +104,14 @@ unit/
     render`，L5，不在本任务范围）按 `display.map` 的 `direction_count` 字段决定的职责，本模块只
     提供算法本身，不判断"该不该量化"。
 
+11. **加固任务补充：`MovementOptions.UnitBlocking` 落地 05 §3.6 `unit_block` 碰撞层**——默认
+    `false`（允许单位重叠，行为不变）；为 `true` 时 `MovementTickHandler` 在每次应用位移前用新增的
+    可选 `ISpatialQuery` 依赖查询目标落点附近携带
+    `Core.Foundation.EngineAdapter.CollisionLayers.UnitBlock` 标签、非自身的对象，命中则本次不位移
+    （停在原地，不做滑动/绕行，见 `MovementTickHandler.IsBlockedByUnit` 判断记录）。`spatial` 是
+    构造函数新增的末位可选参数（不插在 `navigation` 之前，避免破坏既有按位置传参的调用点），
+    `CarriersAssembly` 用它已持有的 `ISpatialQuery` 实例接线。
+
 ## L2 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.IUnitAccess` 没有 `SetFacing`：`WorldUnitAccess` 未补这个方法（不修改

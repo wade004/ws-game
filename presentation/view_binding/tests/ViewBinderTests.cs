@@ -104,6 +104,22 @@ namespace Tests.PresentationViewBinding
         }
 
         [Fact]
+        public void OnEntityCreated_AreaTriggerKind_SkipsWithoutCreatingViewOrDiagnostic()
+        {
+            // 判断记录：区域触发实体化后同样会触发 entity.created（见 ViewBinder.OnEntityCreated
+            // 显式跳过分支的判断记录），但它没有可见外观，不应创建 View，也不应像"unmapped kind"
+            // 那样记入 UnmappedEntityKinds（那份诊断是给"确有渲染需求但内容漏配"用的，不是本情形）。
+            var (world, bus) = BuildWorld();
+            var binder = BuildBinder(world, bus, out var factory, out _);
+
+            binder.OnEntityCreated(new Id("area_trigger.inst_1"), EntityKinds.AreaTrigger, new Id("area.sample_door"));
+
+            Assert.Equal(0, binder.Count);
+            Assert.Empty(factory.Calls);
+            Assert.DoesNotContain(EntityKinds.AreaTrigger, binder.UnmappedEntityKinds);
+        }
+
+        [Fact]
         public void OnEntityCreated_DuplicateId_DoesNotCreateSecondView()
         {
             var (world, bus) = BuildWorld();

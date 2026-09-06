@@ -73,6 +73,20 @@ namespace Core.Rules.Targeting
             public IReadOnlyList<Id> Collect(TargetContext ctx) => new[] { ctx.CasterId };
         }
 
+        /// <summary>
+        /// 加固任务（05 §3.6 碰撞层落地）：不带 <c>RequiredTags</c> 的空间查询点排查——见
+        /// <c>Core.Carriers.Assembly.CarriersAssembly.DefaultSpatialSyncKinds</c> 判断记录，区域触发
+        /// 实体现在会打 <see cref="CollisionLayers.TriggerOnly"/> 标签登记进空间索引。本类
+        /// <see cref="QueryFilter.None"/> 不做任何标签过滤，若不排除该标签，<c>QueryShape</c> 结果会
+        /// 混入触发体 id；<see cref="NearestInShapeStrategy"/> 紧接着对每个候选调用
+        /// <c>ctx.Units.GetPosition(id)</c>（<c>WorldUnitAccess.Require</c> 内部 <c>is Unit</c> 强转
+        /// 失败即抛 <see cref="InvalidOperationException"/>），命中即在这里直接崩溃——不是理论风险，
+        /// 是真实的必现异常（同 <c>CarriersAssembly.DefaultSpatialSyncKinds</c>"默认不含 gobj"判断
+        /// 记录描述的同一类问题，但那里是"理论上可能被误捞"，这里是"一定会抛异常"）。
+        /// </summary>
+        private static readonly QueryFilter ExcludeTriggerOnly =
+            new QueryFilter(excludedTags: new[] { CollisionLayers.TriggerOnly });
+
         private sealed class NearestInShapeStrategy : ITargetSourceStrategy
         {
             public string Name => BuiltinTargetStrategies.NearestInShape;
@@ -83,9 +97,9 @@ namespace Core.Rules.Targeting
                 // 保证确定性）返回完整候选集合，交给 TargetHost 的通用过滤/排序/max_targets 管线
                 // 处理；数据未显式声明 sort_by 时 max_targets 默认 1，效果等价于"取最近一个"，同时
                 // 允许链再叠加 relation:hostile 一类过滤而不必对本策略做特殊处理（见
-                // targeting/README.md 判断记录）。
+                // targeting/README.md 判断记录）。ExcludeTriggerOnly 见本文件顶部判断记录。
                 var shape = ctx.Shape!.Value;
-                var raw = ctx.Spatial.QueryShape(shape, QueryFilter.None);
+                var raw = ctx.Spatial.QueryShape(shape, ExcludeTriggerOnly);
                 return raw
                     .Select(id => (Id: id, Dist: Vec2.Distance(ctx.Origin, ctx.Units.GetPosition(id))))
                     .OrderBy(x => x.Dist)
@@ -101,8 +115,11 @@ namespace Core.Rules.Targeting
 
             public IReadOnlyList<Id> Collect(TargetContext ctx)
             {
+                // ExcludeTriggerOnly 见本文件顶部判断记录：即便本策略自身不在 Collect 内调用
+                // GetPosition，返回的候选集合会直接流出到调用方（技能释放目标列表等），下游同样可能
+                // 把触发体 id 当作单位 id 处理。
                 var shape = ctx.Shape!.Value;
-                return ctx.Spatial.QueryShape(shape, QueryFilter.None)
+                return ctx.Spatial.QueryShape(shape, ExcludeTriggerOnly)
                     .OrderBy(id => id)
                     .ToList();
             }

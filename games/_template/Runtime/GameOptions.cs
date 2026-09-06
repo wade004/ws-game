@@ -147,7 +147,8 @@ namespace Game.Template
         // 13 §4 第 19 行：光环多来源分别计时 —— SkillOptions.AllowMultiSourceTiming。
         public bool AuraMultiSourceTimingEnabled = false;
 
-        // 13 §4 第 20 行：单位间移动阻挡（unit_block）—— 无专用框架 Options 字段，待游戏层使用。
+        // 13 §4 第 20 行：单位间移动阻挡（unit_block）—— MovementOptions.UnitBlocking（加固任务
+        // 已接线，见 BuildMovementOptions()；05 §3.6 碰撞层规划落地）。
         public bool UnitBlockEnabled = false;
 
         // 13 §4 第 21 行：地面掉落物是否随存档持久化 —— LootOptions.PersistDropped。
@@ -187,6 +188,10 @@ namespace Game.Template
         internal Core.Carriers.Unit.MovementOptions BuildMovementOptions() => new Core.Carriers.Unit.MovementOptions
         {
             DiscreteTurnEquivalentSeconds = DiscreteTurnEquivalentSeconds,
+            // 13 §4 第 20 行：单位间移动阻挡（unit_block）→ MovementOptions.UnitBlocking（加固任务，
+            // 05 §3.6 碰撞层规划落地，见该字段判断记录）。UnitBlockRadius 沿用 MovementOptions 自身
+            // 默认值 0.5，本模板暂不额外暴露口味项，游戏层如需调整直接改 GameOptions 或绕过本方法。
+            UnitBlocking = UnitBlockEnabled,
         };
 
         internal Core.Gameplay.Loot.LootOptions BuildLootOptions() => new Core.Gameplay.Loot.LootOptions

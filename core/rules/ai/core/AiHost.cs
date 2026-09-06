@@ -529,9 +529,18 @@ namespace Core.Rules.Ai
         // 感知 / 目标
         // -----------------------------------------------------------------
 
+        /// <summary>加固任务（05 §3.6 碰撞层落地）：查询排除 <see cref="CollisionLayers.TriggerOnly"/>
+        /// 标签——区域触发实体现在会登记进空间索引（见 <c>CarriersAssembly.DefaultSpatialSyncKinds</c>
+        /// 判断记录）。本方法下面紧跟 <c>_units.Exists(candidate)</c> 防御性检查，理论上即便不排除也
+        /// 不会因触发体混入而抛异常（<c>WorldUnitAccess.Exists</c> 只是 <c>is Unit</c> 判断，触发体不
+        /// 是 <c>Unit</c> 会被判 false 后 <c>continue</c>）；这里仍然显式排除，避免每次查询都把触发体
+        /// 拉进候选集合再逐个探测存在性的无谓开销，也与其余查询点的处理方式保持一致。</summary>
+        private static readonly QueryFilter ExcludeTriggerOnly =
+            new QueryFilter(excludedTags: new[] { CollisionLayers.TriggerOnly });
+
         private Id? FindNearestHostile(Id unitId, Vec2 position, double radius)
         {
-            var candidates = _spatialQuery.QueryRadius(position, radius, QueryFilter.None);
+            var candidates = _spatialQuery.QueryRadius(position, radius, ExcludeTriggerOnly);
             var selfFaction = _units.GetFaction(unitId);
 
             var bestDistSqr = double.MaxValue;

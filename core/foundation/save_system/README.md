@@ -138,6 +138,13 @@ save_system/
 节点……）并在返回 true 时实际调用 `Save`，是上层（`scene_router`、玩法层任务系统等）的
 职责——机制到此为止，接线是游戏层的事。
 
+判断记录（加固任务）：`core/gameplay/assembly/GameplayAssembly.cs` 的 `RequestAutosave`
+本地函数此前无条件调用 `Save`，未接本方法的 `SavePoint` 判断——存档点物件交互
+（`GobjOptions.SaveRequester`）与对话中的存档动作（`DialogHost.saveRequested`）两个接线点
+共用这一份逻辑，均已属于"触发点已接线"状态，现补上 `ShouldAutoSave(AutoSaveTrigger.SavePoint)`
+判断，`OnSavePoint=false` 时两者均不再调用 `Save`（见该本地函数判断记录、
+`core/gameplay/tests/EndToEndTests.cs` 新增用例）。
+
 ## 设置文件
 
 `SettingsStore`（`ISettingsStore`）落盘信封 `{ "settings_version": N, "settings": {...} }`；

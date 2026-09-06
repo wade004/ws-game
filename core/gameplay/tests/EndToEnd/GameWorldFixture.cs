@@ -191,8 +191,20 @@ namespace Tests.Gameplay.EndToEnd
         /// （<c>EncounterModeOverrideTests</c>）使用——只做这一个新增测试的专用开关，不改变默认路径，
         /// 本仓库其余全部既有用例（不传该参数）行为不受影响。
         /// </para>
+        /// <para>
+        /// 判断记录（加固任务，<paramref name="saveSystemOptions"/>）：默认 <c>null</c>，行为与此前
+        /// 完全一致——就地新建一份 <c>new SaveSystemOptions(GameId)</c>（<c>AutoSave</c> 保持
+        /// <see cref="Core.Foundation.SaveSystem.AutoSavePolicy"/> 默认值，<c>OnSavePoint</c> 为
+        /// <c>true</c>）。传入非空值时改用调用方提供的这一份，供
+        /// <c>GameplayAssemblyAutosaveGateTests</c> 之类需要覆盖 <c>AutoSave.OnSavePoint</c> 的用例
+        /// 构造出"该触发点被关闭"的世界，不需要每个用例重复复制本方法其余几十行装配逻辑。
+        /// </para>
         /// </summary>
-        public static Fixture Build(ulong seed = 20260905UL, StubFileSystem? fileSystem = null, bool enableDiscreteTimeModel = false)
+        public static Fixture Build(
+            ulong seed = 20260905UL,
+            StubFileSystem? fileSystem = null,
+            bool enableDiscreteTimeModel = false,
+            SaveSystemOptions? saveSystemOptions = null)
         {
             var engine = new StubEngine();
             var fs = fileSystem ?? engine.FileSystem;
@@ -233,7 +245,7 @@ namespace Tests.Gameplay.EndToEnd
             // 判断记录（缺口 16，ISaveSystem 归 GameplayAssembly 持有）：本夹具改在这里就地构造
             // 唯一一份 RealSaveSystem 并直接传给 GameplayAssembly 构造函数——Fixture.SaveSystem
             // 字段下方复用同一个实例（不再另建一份），与 GameplayAssembly.SaveSystem 属性等价。
-            var saveSystem = new RealSaveSystem(fs, new SaveSystemOptions(GameId), bus);
+            var saveSystem = new RealSaveSystem(fs, saveSystemOptions ?? new SaveSystemOptions(GameId), bus);
 
             var clock = new SimClockHost(world, new SimLoopOptions { StepSeconds = StepSeconds, MaxCatchUpSteps = 4 });
 

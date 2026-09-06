@@ -174,6 +174,14 @@ namespace Core.Rules.ExprHost
         // 绑定了具体 (selfId, targetId, triggeringEvent) 上下文的 IExprHost 实现
         // -----------------------------------------------------------------
 
+        /// <summary>加固任务（05 §3.6 碰撞层落地）：<c>enemies.*</c> 分组的两处半径查询排除
+        /// <see cref="CollisionLayers.TriggerOnly"/> 标签——区域触发实体现在会登记进空间索引（见
+        /// <c>CarriersAssembly.DefaultSpatialSyncKinds</c> 判断记录）。下方 <c>IsHostileEnemy</c> 已经
+        /// 有 <c>_f._units.Exists(candidateId)</c> 防御性检查，即便不排除也不会因触发体混入而抛异常，
+        /// 这里排除是为了避免每次查询都把触发体拉进候选集合再逐个探测存在性的无谓开销。</summary>
+        private static readonly QueryFilter ExcludeTriggerOnly =
+            new QueryFilter(excludedTags: new[] { CollisionLayers.TriggerOnly });
+
         private sealed class Host : IExprHost
         {
             private readonly RulesExprHostFactory _f;
@@ -385,7 +393,7 @@ namespace Core.Rules.ExprHost
             {
                 var selfPos = _f._units.GetPosition(_selfId);
                 var selfFaction = _f._units.GetFaction(_selfId);
-                var candidates = _f._spatial.QueryRadius(selfPos, radius, QueryFilter.None);
+                var candidates = _f._spatial.QueryRadius(selfPos, radius, ExcludeTriggerOnly);
 
                 var count = 0;
                 foreach (var id in candidates)
@@ -403,7 +411,7 @@ namespace Core.Rules.ExprHost
             {
                 var selfPos = _f._units.GetPosition(_selfId);
                 var selfFaction = _f._units.GetFaction(_selfId);
-                var candidates = _f._spatial.QueryRadius(selfPos, UnboundedSearchRadius, QueryFilter.None);
+                var candidates = _f._spatial.QueryRadius(selfPos, UnboundedSearchRadius, ExcludeTriggerOnly);
 
                 var best = NoEnemyDistance;
                 foreach (var id in candidates)

@@ -62,6 +62,30 @@ namespace Core.Gameplay.Assembly
         /// <c>autosaveSlotId</c> 时写入的存档槽。</summary>
         private static readonly Id DefaultAutosaveSlotId = new Id("slot.autosave");
 
+        /// <summary>
+        /// 加固任务（05 §3.6 碰撞层落地）：<c>spatialSyncKinds</c> 构造参数未显式提供时使用的默认值——
+        /// 以 <see cref="CarriersAssembly.DefaultSpatialSyncKinds"/> 为底，把其中
+        /// <c>EntityKinds.AreaTrigger</c> 条目的固定半径换成按 <see cref="AreaTriggerEntity.BoundingRadius"/>
+        /// 取值的 <see cref="EntitySpatialSyncHost.KindConfig.RadiusResolver"/>（判断记录见构造函数
+        /// 调用点、<c>CarriersAssembly.DefaultSpatialSyncKinds</c>、<c>AreaTriggerEntity.BoundingRadius</c>
+        /// 三处）。其余条目（creature/player）原样保留。
+        /// </summary>
+        private static IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig> BuildDefaultSpatialSyncKinds()
+        {
+            var kinds = new Dictionary<string, EntitySpatialSyncHost.KindConfig>(
+                CarriersAssembly.DefaultSpatialSyncKinds, StringComparer.Ordinal);
+
+            if (kinds.TryGetValue(EntityKinds.AreaTrigger, out var existing))
+            {
+                kinds[EntityKinds.AreaTrigger] = new EntitySpatialSyncHost.KindConfig(
+                    existing.Radius,
+                    existing.Tags,
+                    radiusResolver: entity => entity is AreaTriggerEntity trigger ? trigger.BoundingRadius : existing.Radius);
+            }
+
+            return kinds;
+        }
+
         public CarriersAssembly Carriers { get; }
 
         public IAppStateHost AppState { get; }
@@ -197,8 +221,27 @@ namespace Core.Gameplay.Assembly
             // 本地函数（而非某个具体委托类型的变量）：DialogHost 的 SaveRequestedCallback 与
             // GobjOptions 的 SaveRequesterDelegate 是两个独立声明、签名相同（Id unitId）的委托类型，
             // 本地函数的方法组可以分别隐式转换到两者，不需要为"同一份存档逻辑"重复写两份 lambda。
-            void RequestAutosave(Id unitId) =>
+            //
+            // 判断记录（加固任务，自动存档开关门控）：此前本地函数无条件调用 saveSystem.Save，未经
+            // ISaveSystem.ShouldAutoSave(AutoSaveTrigger) 判断（10 第 6 节"基础架构提供触发点机制，
+            // 不强制具体游戏必须启用哪几个"——本类是"接线"方，理应先查策略）。存档点物件交互
+            // （GobjOptions.SaveRequester）与对话中的 save 动作（DialogHost.saveRequested）在 10
+            // 第 6 节自动存档表里都属于"存档点"（SavePoint）触发点，两者共用同一份门控判断。
+            // 判断为 false 时不写盘、直接返回——本类没有统一的诊断汇聚点（见本文件其余全部
+            // "diagnostics: null"传参与对应判断记录，各 L4 宿主各自独立持有 I*Diagnostics 接口，
+            // GameplayAssembly 本身未声明任何诊断出口），因此这里不新增一个只为本处使用的诊断
+            // 通道，静默返回（同 15 步 TeleportTargetResolver.onFailure 判断记录"本装配根不重复
+            // 接一份诊断出口"的一贯取舍）。手动存档（菜单，调用方直接调 SaveSystem.Save，不经过
+            // 本函数）不受此门控约束。
+            void RequestAutosave(Id unitId)
+            {
+                if (!saveSystem.ShouldAutoSave(AutoSaveTrigger.SavePoint))
+                {
+                    return;
+                }
+
                 saveSystem.Save(new SaveRequest(resolvedAutosaveSlotId, resolvedAutosaveTimestampProvider()));
+            }
 
             // ---------------------------------------------------------
             // 1) WorldState：只依赖 IEventBus，不依赖任何 L0～L3 宿主，可以在 CarriersAssembly 之前
@@ -233,8 +276,16 @@ namespace Core.Gameplay.Assembly
             // 同一个对象才能"回填"生效。
             var resolvedGobjOptions = gobjOptions ?? new GobjOptions();
 
+            // 判断记录（加固任务：05 §3.6 碰撞层落地，area_trigger 半径按形状外接半径精确计算）：
+            // spatialSyncKinds 为 null（调用方未显式覆盖）时，不直接用 CarriersAssembly.
+            // DefaultSpatialSyncKinds（那份固定近似半径 0.5，见其判断记录——L3 不能依赖 L4 的
+            // AreaTriggerEntity 类型），而是在这里（L4，已经引用 Core.Gameplay.AreaTrigger）用
+            // BuildDefaultSpatialSyncKinds 换上一份按 AreaTriggerEntity.BoundingRadius 取值的
+            // RadiusResolver；调用方显式传入 spatialSyncKinds 时尊重调用方的选择，不做任何叠加。
+            var resolvedSpatialSyncKinds = spatialSyncKinds ?? BuildDefaultSpatialSyncKinds();
+
             Carriers = new CarriersAssembly(
-                bus, registry, rng, world, spatial, navigation, spatialSyncKinds,
+                bus, registry, rng, world, spatial, navigation, resolvedSpatialSyncKinds,
                 worldFlags: WorldState, lootRoller: deferredLootRoller,
                 statOptions: statOptions, combatOptions: combatOptions, skillOptions: skillOptions,
                 targetingOptions: targetingOptions, aiOptions: aiOptions, inventoryOptions: inventoryOptions,
@@ -546,7 +597,10 @@ namespace Core.Gameplay.Assembly
                 TeleportUnit(unitId, targetMap, spawnPoint);
             resolvedAreaTriggerOptions.SceneRouter ??= sceneRouter;
 
-            AreaTrigger = new AreaTriggerHost(WorldState, bus, ExprHostFactory, Hooks, resolvedAreaTriggerOptions);
+            // 加固任务（AreaTrigger 实体化，见 core/gameplay/area_trigger/contracts/AreaTriggerEntity.cs
+            // 判断记录）：新增 world（IWorldSim）依赖，供 AreaTriggerHost 在 Register/RegisterTrap/
+            // Unregister/UnloadMap 时创建/销毁对应实体。
+            AreaTrigger = new AreaTriggerHost(world, WorldState, bus, ExprHostFactory, Hooks, resolvedAreaTriggerOptions);
 
             // ---------------------------------------------------------
             // 16) 补上 gobj 侧四个 L4 回调（GobjOptions 是 CarriersAssembly 构造时已经用过的同一个

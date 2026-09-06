@@ -5,6 +5,7 @@ using Core.Carriers.Common;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
+using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
@@ -431,6 +432,106 @@ namespace Tests.Carriers.Unit
 
             var expectedBudget = 10.0 * new MovementOptions().DiscreteTurnEquivalentSeconds;
             Assert.Equal(expectedBudget, fixture.Units.GetPosition(HeroId).X, 6);
+        }
+
+        // -----------------------------------------------------------------
+        // 加固任务（05 §3.6 碰撞层规划落地）：MovementOptions.UnitBlocking。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void UnitBlockingDisabled_ByDefault_UnitsCanOverlap()
+        {
+            // 判断记录：本用例是"现状不变"的回归防护——05 §3.6 原文"默认关闭，允许单位重叠"，
+            // 即便目标落点已经站着另一个打了 unit_block 标签的单位，UnitBlocking 默认 false 时
+            // 移动系统完全不查询空间索引，照常位移到重叠位置。
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+            var world = new WorldSim(bus);
+            var mover = new PlayerUnit(HeroId, MapId, FactionId, ArchetypeId) { Position = Vec2.Zero };
+            world.AddEntity(mover);
+
+            var units = new WorldUnitAccess(world);
+            var stats = new FakeStatHost();
+            stats.SetBase(HeroId, new MovementOptions().MoveSpeedStat, 10.0);
+            var auras = new FakeAuraQuery();
+            var host = new MovementHost(world);
+            var spatial = new StubSpatialQuery();
+            var blockerId = new Id("unit.blocker");
+            spatial.Register(blockerId, new Vec2(1, 0), 0.1, new[] { CollisionLayers.UnitBlock });
+
+            var handler = new MovementTickHandler(units, stats, auras, host, bus, spatial: spatial);
+            world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, handler);
+
+            world.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            world.Tick(SimStep.Continuous(0.1));
+
+            Assert.Equal(new Vec2(1, 0), units.GetPosition(HeroId));
+        }
+
+        [Fact]
+        public void UnitBlockingEnabled_DirectionalMove_TargetOccupied_StaysInPlace()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+            var world = new WorldSim(bus);
+            var mover = new PlayerUnit(HeroId, MapId, FactionId, ArchetypeId) { Position = Vec2.Zero };
+            world.AddEntity(mover);
+
+            var units = new WorldUnitAccess(world);
+            var stats = new FakeStatHost();
+            stats.SetBase(HeroId, new MovementOptions().MoveSpeedStat, 10.0);
+            var auras = new FakeAuraQuery();
+            var host = new MovementHost(world);
+            var spatial = new StubSpatialQuery();
+            var blockerId = new Id("unit.blocker");
+            // 目标落点 (1,0) 附近登记一个打了 unit_block 标签的对象（半径足够覆盖阻挡判定半径）。
+            spatial.Register(blockerId, new Vec2(1, 0), 0.1, new[] { CollisionLayers.UnitBlock });
+
+            var options = new MovementOptions { UnitBlocking = true, UnitBlockRadius = 0.5 };
+            var handler = new MovementTickHandler(units, stats, auras, host, bus, options: options, spatial: spatial);
+            world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, handler);
+
+            world.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            world.Tick(SimStep.Continuous(0.1)); // 移动 1 单位 → 落点 (1,0)，被阻挡。
+
+            Assert.Equal(Vec2.Zero, units.GetPosition(HeroId)); // 停在原地，不抛异常。
+        }
+
+        [Fact]
+        public void UnitBlockingEnabled_TargetMove_PathBlockedMidway_StopsAtLastUnblockedTick()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+            var world = new WorldSim(bus);
+            var mover = new PlayerUnit(HeroId, MapId, FactionId, ArchetypeId) { Position = Vec2.Zero };
+            world.AddEntity(mover);
+
+            var units = new WorldUnitAccess(world);
+            var stats = new FakeStatHost();
+            stats.SetBase(HeroId, new MovementOptions().MoveSpeedStat, 1.0); // 每秒 1 单位。
+            var auras = new FakeAuraQuery();
+            var host = new MovementHost(world);
+            var spatial = new StubSpatialQuery();
+            var blockerId = new Id("unit.blocker");
+            spatial.Register(blockerId, new Vec2(3, 0), 0.1, new[] { CollisionLayers.UnitBlock });
+
+            var options = new MovementOptions { UnitBlocking = true, UnitBlockRadius = 0.5 };
+            var handler = new MovementTickHandler(units, stats, auras, host, bus, options: options, spatial: spatial);
+            world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, handler);
+
+            world.SubmitIntent(new Intent(HeroId, "move", TargetArgs(10, 0)));
+
+            for (var i = 0; i < 5; i++)
+            {
+                world.Tick(SimStep.Continuous(1.0));
+            }
+
+            // 逐步走到 x=2 时下一步落点 x=3 命中阻挡范围（半径 0.5），此后每 tick 都原地不动，
+            // 不会绕过阻挡点、也不会抛异常。
+            Assert.Equal(2.0, units.GetPosition(HeroId).X, 6);
         }
     }
 }

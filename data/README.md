@@ -92,10 +92,17 @@ data/<game>/<domain>/<table>.json       具体游戏的数据（放各自游戏�
 `core/foundation/data_registry/core/DataRegistry.cs`）支持同一次加载传入多个数据根：同一张表
 可以同时出现在多个根（例如 `data/_framework` 与游戏自己的 `data/<game>`），加载时按表名合并：
 
-- 不同根贡献的记录按主键并集合并；同一主键在两个根间重复，判定为阻断错误（消息中点出两个根各自
-  的位置）。
+- 不同根贡献的记录按主键并集合并；同一主键在两个根间重复，默认判定为阻断错误（消息中点出两个根
+  各自的位置）。
+- 记录可用行级布尔字段显式改写上一条默认行为（勘误：2026-09-06 起，见
+  `core/foundation/data_registry/core/DataRegistry.cs` 类型级判断记录"覆盖语义"、04 第 4 节
+  `loadAll` 一行同一次改动）：后层记录声明 `"override": true` 时整行替换前层同主键记录（不做
+  字段级合并），改记为一条覆盖诊断（`toolchain/validator` 会打印"覆盖清单"，见其 `Program.cs`），
+  不产生校验问题；前层记录声明 `"final": true` 时拒绝被覆盖，仍判定为阻断错误。两个字段仅在确实
+  发生跨根同主键重复时才生效，单根场景（该表本次未经历合并）出现值为真的这两个字段判定为警告并
+  忽略。用法示例见 `games/_template/data/README.md`"覆盖 `arch.power.health`（可选）"一节。
 - 同一张表在不同根的信封 `schema_version` 不一致，判定为阻断错误（消息中点出两个根各自的位置），
-  不再合并该表。
+  不再合并该表；`override`/`final` 不改变这条规则。
 - 单根用法（只传一个数据源）行为与改动前完全一致，`LoadAll()`（无参）等价于单元素多根调用。
 
 `toolchain/validate_data.py`/`toolchain/validator` 已按此规则支持 `--data-root` 重复传入与

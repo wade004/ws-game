@@ -398,6 +398,13 @@ namespace Core.Gameplay.Assembly
             }
         }
 
+        /// <summary>加固任务（05 §3.6 碰撞层落地）：排除 <see cref="CollisionLayers.TriggerOnly"/>
+        /// 标签——区域触发实体现在会登记进空间索引（见 <c>CarriersAssembly.DefaultSpatialSyncKinds</c>
+        /// 判断记录）。下方循环已有 <c>_units.Exists(id)</c> 防御性检查，即便不排除也不会因触发体
+        /// 混入而把它错当"战斗参与者"，这里排除是为了避免无谓地把触发体拉进候选集合。</summary>
+        private static readonly QueryFilter ExcludeTriggerOnly =
+            new QueryFilter(excludedTags: new[] { CollisionLayers.TriggerOnly });
+
         private IReadOnlyList<Id> ResolveParticipants(Id triggerUnit, Id? hostileId)
         {
             if (_participantsResolver != null)
@@ -405,7 +412,7 @@ namespace Core.Gameplay.Assembly
                 return _participantsResolver(triggerUnit);
             }
 
-            var nearby = _spatial.QueryRadius(_units.GetPosition(triggerUnit), _options.ParticipantSearchRadius, QueryFilter.None);
+            var nearby = _spatial.QueryRadius(_units.GetPosition(triggerUnit), _options.ParticipantSearchRadius, ExcludeTriggerOnly);
             var set = new SortedSet<Id>();
             set.Add(triggerUnit);
 

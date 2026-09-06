@@ -25,6 +25,18 @@ assembly/
     CarriersAssemblyTests.cs    烟雾测试：空数据构造不抛异常、tick 几次不抛异常
 ```
 
+## 加固任务补充：`DefaultSpatialSyncKinds` 接上 05 §3.6 碰撞层三常量
+
+`EntitySpatialSyncHost.KindConfig` 新增可选的 `RadiusResolver`（`Func<Entity, double>`）——半径解析
+委托非空时优先于固定 `Radius` 使用，只依赖 L0 的 `Entity` 基类，供真正认识具体 `Entity` 子类的
+调用方（L4 `core/gameplay/assembly.GameplayAssembly`）注入闭包，本类不因此对 L4 产生编译期依赖（见
+该字段判断记录）。`CarriersAssembly.DefaultSpatialSyncKinds` 相应新增：`creature`/`player` 补
+`Core.Foundation.EngineAdapter.CollisionLayers.UnitBlock` 标签（供
+`Core.Carriers.Unit.MovementOptions.UnitBlocking` 使用）；`EntityKinds.AreaTrigger` 加入白名单，打
+`CollisionLayers.TriggerOnly` 单一标签，半径用固定近似值 0.5（本类是 L3，不能引用 L4 的
+`AreaTriggerEntity` 按其 `Shape` 精确计算——`GameplayAssembly` 用上面的 `RadiusResolver` 换成精确值，
+见其判断记录）。详见各自类型判断记录。
+
 ## 分层判断记录：不注册/不引用 L4
 
 `CarriersSchemaCatalog.RegisterAll` **不**注册 `core/gameplay/world_state` 的
