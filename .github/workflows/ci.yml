@@ -1,0 +1,81 @@
+name: CI
+
+# 判断记录（为什么只跑非 Unity 门禁）：check.ps1 全量还含 Unity 编译检查/EditMode/PlayMode/
+# 独立版构建与两种无人值守冒烟/消费方演练共六步，这些步骤要求本机已安装并激活 Unity 授权
+# （见仓库根 check.ps1 -UnityExe 参数说明、README「Unity 工作台」一节）。GitHub 托管的
+# windows-latest 运行器既没有装 Unity，也没有可用的 Unity 授权（个人版授权与具体机器绑定，
+# 不能在无人值守的托管运行器上激活），因此 CI 固定传 -SkipUnity，只跑 .NET 构建测试、两道
+# 数据校验、生成器一致性检查、toolchain 自身测试、两道禁用词扫描、版本一致性、
+# build.ps1 -SkipTests 同步 DLL 这些不依赖 Unity 编辑器的步骤；Unity 四步与消费方演练仍然是
+# 本机 check.ps1 全量跑（含 -Il2cpp 可选步骤）的职责，不进 CI。
+#
+# 判断记录（windows-latest 上 PowerShell 5.1 与 7 的兼容性）：check.ps1/build.ps1 头注释都
+# 明确写了"PowerShell 5.1 兼容：不使用 &&、??、三元运算符"，这两个脚本本身没有用到任何仅
+# PowerShell 7 才有的语法。windows-latest 镜像上 `powershell.exe`（Windows PowerShell 5.1，
+# 系统自带）与 `pwsh`（PowerShell 7，镜像预装）两者都在，本工作流固定用 `powershell.exe`
+# 调用（与本机开发者的调用方式、.githooks/pre-commit 的调用方式保持一致，不依赖镜像上是否
+# 预装 pwsh）；本地模拟验证阶段额外用 `pwsh` 跑过一次同样通过，两者都可用，选 `powershell.exe`
+# 只是为了和其余所有调用点统一。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8.0.x
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: toolchain/requirements.txt
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Install Python dependencies
+        # 判断记录：只装 requirements.txt（必需依赖，当前是 Pillow —— 占位资产生成器
+        # 一致性检查 gen_placeholder_assets.py --check 要用到）；requirements-optional.txt
+        # 的 rembg 是资产导入工具的可选抠图后端，体积大且需要本机预先准备好 ~/.u2net/*.onnx
+        # 权重才真正可用，check.ps1 门禁的任何一步都不依赖它，CI 不装，见该文件头注释。
+        run: pip install -r toolchain/requirements.txt
+
+      - name: Run check.ps1 -SkipUnity
+        shell: powershell
+        # 判断记录：check.ps1 本身只把汇总表打到控制台（Write-Host），没有自己的落地日志文件；
+        # 用 Tee-Object 把完整控制台输出（含每步 PASS/FAIL 明细与最后的汇总表）落一份文本文件，
+        # 供下一步以 artifact 形式上传，失败时不用重跑一次就能看到完整现场。exit 码通过
+        # $LASTEXITCODE 转发（Tee-Object 管道会吞掉原生 exit code，需要显式转发，否则该步骤
+        # 永远"成功"，即便 check.ps1 内部门禁失败）。
+        run: |
+          $artifactsPath = Join-Path $env:RUNNER_TEMP "gf_check_artifacts"
+          $logPath = Join-Path $env:RUNNER_TEMP "check_output.log"
+          powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -ArtifactsPath $artifactsPath 2>&1 |
+            Tee-Object -FilePath $logPath
+          exit $LASTEXITCODE
+
+      - name: Upload check.ps1 logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-logs
+          path: |
+            ${{ runner.temp }}/check_output.log
+            ${{ runner.temp }}/gf_check_artifacts/**/*.log
+            ${{ runner.temp }}/gf_check_artifacts/**/*.binlog
+          if-no-files-found: ignore

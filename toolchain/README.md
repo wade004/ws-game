@@ -15,11 +15,22 @@ skill/combat/target/ai 等各模块的专属校验规则）复用 `core/foundati
 python -m venv toolchain/.venv
 ```
 
-`toolchain/.venv/` 已在仓库根 `.gitignore` 中忽略，不会被提交。当前阶段无第三方依赖（见 `requirements.txt`），创建虚拟环境后无需安装任何包即可运行脚本；后续如需第三方依赖，激活虚拟环境后执行：
+`toolchain/.venv/` 已在仓库根 `.gitignore` 中忽略，不会被提交。数据校验（`validate_data.py`）
+本身无第三方依赖；资产导入工具（`import_assets.py`）需要 Pillow，激活虚拟环境后执行：
 
 ```
 pip install -r toolchain/requirements.txt
 ```
+
+`requirements.txt` 只含必需依赖（当前是 Pillow）；`rembg`（`import_assets.py --matting rembg`
+用到的可选抠图后端，体积大且需要本机预先准备好 `~/.u2net/*.onnx` 权重才真正可用）拆到单独的
+`requirements-optional.txt`，按需再装：
+
+```
+pip install -r toolchain/requirements-optional.txt
+```
+
+`check.ps1`/CI 一键门禁只依赖 `requirements.txt`（Pillow），不需要 `requirements-optional.txt`。
 
 ## 运行校验器
 

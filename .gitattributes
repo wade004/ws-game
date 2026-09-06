@@ -1,0 +1,11 @@
+# 工程收尾 K 新增：仅约束 .githooks/ 下的文件强制用 LF 换行、正常纳入文本 diff。
+#
+# 判断记录：本机 `core.autocrlf=true`（Windows 常见配置），默认会在检出到工作目录时把仓库里的
+# LF 转成 CRLF。`.githooks/pre-commit` 是一个 POSIX sh 脚本，Windows Git Bash 调用 `sh.exe`
+# 解释执行时，脚本首行 `#!/bin/sh` 如果带 CRLF（`#!/bin/sh\r`），在多数 sh 实现下会被当成整行
+# shebang 的一部分从而解析失败或产生难以排查的问题；任务硬性规则明确要求该钩子"LF 换行"。用
+# `.gitattributes` 显式声明 `.githooks/*` 为 `text eol=lf`，不管本机/协作者的 `core.autocrlf`
+# 如何配置，检出到工作目录时这一路径下的文件始终保持 LF，覆盖全局 autocrlf 设置（Git 的
+# `.gitattributes` 逐路径规则优先级高于全局 `core.autocrlf`）。范围只限定 `.githooks/`，不影响
+# 仓库其它任何文件的换行策略。
+.githooks/* text eol=lf
