@@ -32,13 +32,16 @@ namespace Core.Gameplay.Encounter
         public RewardBundle Rewards { get; }
 
         /// <summary>覆盖场景默认战斗时间模型（08 第 4.1 节 <c>combat_mode_override</c>），
-        /// <c>"continuous"</c>/<c>"discrete"</c> 之一；本项目离散模式未启用（ADR-0013），本字段
-        /// 只登记读取，<c>EncounterHost</c> 不据此切换任何运行时行为（见该类型判断记录）。</summary>
+        /// <c>"continuous"</c>/<c>"discrete"</c> 之一；本类型本身只登记读取——真正的运行时切换由
+        /// `core/gameplay/assembly.GameplayAssembly` 订阅 `encounter.started` 后经
+        /// `EncounterHost.TryGetModeOverride` 转交 `TimeModelSwitch.SetPendingOverride` 执行
+        /// （ADR-0013 离散时间模型已接线，见 `encounter/README.md` 判断记录 6）。</summary>
         public string? CombatModeOverride { get; }
 
         /// <summary>覆盖默认先攻策略（08 第 4.1 节 <c>initiative_override</c>），原样保留 JSON 结构
-        /// （字段本身只在 <c>combat_mode_override</c> 为 <c>discrete</c> 时才有意义，本项目未启用
-        /// 离散模式，同上只登记不使用）。</summary>
+        /// （字段本身只在 <c>combat_mode_override</c> 为 <c>discrete</c> 时才有意义）。同
+        /// <see cref="CombatModeOverride"/>，本类型只登记读取，真正生效由
+        /// `GameplayAssembly`/`TimeModelSwitch` 承担。</summary>
         public JsonObject? InitiativeOverride { get; }
 
         private EncounterDefinition(

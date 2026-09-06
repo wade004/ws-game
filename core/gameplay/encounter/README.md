@@ -52,13 +52,14 @@ encounter/
    `defeat_condition`——`self.hp_pct`/`enemies.count_in_range` 等分组均以这个单位为视角，不是
    "参战单位里的某一个"的抽象聚合。
 
-2. **`SpawnRequester` 是本模块对 `core/gameplay/spawn` 的唯一接触面，且存在已知契约缺口**：
+2. **`SpawnRequester` 是本模块对 `core/gameplay/spawn` 的唯一接触面**（历史契约缺口已解决）：
    `EncounterUnitSpec.SpawnRef`/`EncounterWaveDefinition.SpawnRefs` 需要"给一个 `spawn.table`
-   条目 id，生成对应单位、返回生成的实体 id 列表"这一能力，`core/gameplay/spawn`
-   （与本模块并行开发）目前只公开 `ApplyForMap`（整张地图）/`Update`（计时）两个入口，没有
-   "按单个 `spawnId` 立即生成一次"的方法——`core/gameplay/assembly.GameplayAssembly` 按这条已知
-   缺口把 `spawnRequester` 接线为"恒返回空列表"（见该类型判断记录），本模块的示例数据/端到端测试
-   一律用 `units[].template_ref`（内联模板）绕开这条路径，不代表 `spawn_ref` 分支已验证可用。
+   条目 id，生成对应单位、返回生成的实体 id 列表"这一能力，`core/gameplay/spawn` 现已补上
+   `ISpawnHost.SpawnNow(spawnId, mapId)`（按单个 `spawnId` 立即生成一次），签名与
+   `SpawnRequester` 委托一致——`core/gameplay/assembly.GameplayAssembly` 已把 `spawnRequester`
+   接线为真实实现 `Spawn.SpawnNow`（不再是"恒返回空列表"），端到端测试
+   `Encounter_Start_SpawnsUnit_ViaSpawnRequester_ReachingSpawnTableEntry` 验证 `spawn_ref` 分支
+   真实可用。
 
 3. **`waves`/`phases` 为空时的默认行为**：`units[]` 描述的参战单位在 `Start` 时一次性全部生成
    （无需等待任何波次触发），`victory_condition`/`defeat_condition` 从第一次 `Evaluate` 起就参与
@@ -73,9 +74,13 @@ encounter/
 5. **`LevelHost.StartLevel` 重复调用先清理上一次运行遗留的 `encounter.won` 订阅**：同一玩家中途
    放弃重开时，旧订阅若不清理会在新一轮运行期间继续存活，造成事件串扰或订阅泄漏。
 
-6. **`combat_mode_override`/`initiative_override` 只登记读取，不参与任何运行时行为**：本项目未
-   启用离散战斗模式（ADR-0013），这两个字段是为未来扩展预留的占位，`EncounterHost` 不据此切换
-   任何结算逻辑。
+6. **`combat_mode_override`/`initiative_override` 已接入真实运行时行为**（历史判断记录，保留
+   备查）：`GameplayAssembly` 第 12.5 步订阅 `encounter.started`/`won`/`lost`，经
+   `EncounterHost.TryGetModeOverride` 读出这两个字段后转交
+   `TimeModelSwitch.SetPendingOverride`——只在离散时间模型已装配（传入 `clockHost`）时生效，
+   遭遇结束（won/lost）时清空，避免残留覆盖影响下一次不相关的战斗。纯连续模式的组装根不受
+   影响，`EncounterHost` 本身仍然只负责登记与读取，不直接切换结算逻辑（执行方在
+   `TimeModelSwitch`）。
 
 ## 不负责什么
 

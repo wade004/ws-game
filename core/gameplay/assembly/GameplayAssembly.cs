@@ -114,6 +114,12 @@ namespace Core.Gameplay.Assembly
 
         public SpawnHost Spawn { get; }
 
+        /// <summary>W2 收边补齐（DECISIONS 拍板 3）：死亡复活三策略执行主体，见该类型注释。只在
+        /// 装配了 <see cref="AppState"/>/<see cref="Foundation.SaveSystem.ISaveSystem"/>（构造函数
+        /// 必填参数，恒非空）时构造——本属性恒非空，不像 <see cref="TurnScheduler"/> 那样依赖可选的
+        /// <c>clockHost</c>。</summary>
+        public Core.Gameplay.Death.DeathPolicyHost Death { get; }
+
         public RewardDispatcher Reward { get; }
 
         /// <summary>
@@ -150,6 +156,20 @@ namespace Core.Gameplay.Assembly
 
         public IPacingPolicy? Pacing { get; }
 
+        /// <summary>
+        /// W2b 收边补齐（插值系数暴露）：<see cref="Advance"/> 每次调用后的表现插值系数——连续模式下
+        /// 等于本次调用 <see cref="ISimClockHost.Advance"/> 返回的 alpha（<c>[0,1)</c>，见该接口方法
+        /// 注释"累积器 / 步长"）；离散模式下恒为 <c>1.0</c>（离散步之间没有"上一步/这一步"的位置差可
+        /// 插值，见 <see cref="Core.Foundation.SimLoop.SimClockHost"/> 离散分支判断记录"调用方不应
+        /// 像连续模式那样用它做位置线性插值"——本类型的 <see cref="Advance"/> 离散分支不调用
+        /// <c>ISimClockHost.Advance</c>，因此不会拿到那份"纯视觉相位"alpha，直接固定给 1.0，表示
+        /// "按当前已提交状态渲染，不做帧间插值"）；未在构造函数传入 <c>clockHost</c>（<see cref="Advance"/>
+        /// 恒抛异常，从未被成功调用过）时同样为 <c>1.0</c>（默认值，见字段初始化）。
+        /// 供表现层（Unity 侧 <c>ViewBinder.SyncAll(alpha)</c>）在每帧调用完 <see cref="Advance"/> 后
+        /// 读取——本属性只读，只在 <see cref="Advance"/> 内部更新。
+        /// </summary>
+        public double InterpolationAlpha { get; private set; } = 1.0;
+
         public SubStateId AwaitingInputSubState { get; }
 
         public SubStateId PlayingBackSubState { get; }
@@ -157,6 +177,14 @@ namespace Core.Gameplay.Assembly
         private readonly IEventBus _bus;
         private readonly IWorldSim _world;
         private readonly ISimClockHost? _clockHost;
+
+        /// <summary>W2 收边补齐（SkillOptions.IsDiscreteStep 判断记录）：仅在 <see cref="Advance"/>
+        /// 内部处理某一个 Discrete 步（<c>_world.Tick(step.Value)</c> 调用期间）为 true，供
+        /// <c>resolvedSkillOptions.IsDiscreteStep</c> 闭包读取——技能施放（含离散意图路由、AI
+        /// tick）在离散模式下都发生在这次 <c>Tick</c> 调用范围内，因此本字段能正确圈定"当前是否
+        /// 正在处理离散步"这一范围，而不是只看 <see cref="ISimClockHost.Mode"/>（那只说明"装配的
+        /// 是哪种时间模型"，不说明"此刻是否真的在推进一个离散步"）。</summary>
+        private bool _isProcessingDiscreteStep;
         private readonly Dictionary<Id, double> _combatStartTimes = new Dictionary<Id, double>(EqualityComparer<Id>.Default);
 
         public GameplayAssembly(
@@ -195,7 +223,8 @@ namespace Core.Gameplay.Assembly
             ISimClockHost? clockHost = null,
             IPacingPolicy? pacingPolicy = null,
             TimeModelSwitchOptions? timeModelSwitchOptions = null,
-            Func<Id, IReadOnlyList<Id>>? combatParticipantsResolver = null)
+            Func<Id, IReadOnlyList<Id>>? combatParticipantsResolver = null,
+            Core.Gameplay.Death.DeathPolicyOptions? deathPolicyOptions = null)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
@@ -284,14 +313,36 @@ namespace Core.Gameplay.Assembly
             // RadiusResolver；调用方显式传入 spatialSyncKinds 时尊重调用方的选择，不做任何叠加。
             var resolvedSpatialSyncKinds = spatialSyncKinds ?? BuildDefaultSpatialSyncKinds();
 
+            // W2 收边补齐（A3 审计 #4/#5/#7，DECISIONS 拍板 4）：resolvedSkillOptions 必须在这里
+            // 就地 new 出来（同 resolvedGobjOptions 判断记录）——CarriersAssembly 构造期就要把它
+            // 转给 RulesAssembly/CastPipeline 持有同一份引用，本方法随后（第 10.5 步）才能回填
+            // TryConsumeActionPoints/IsDiscreteStep 两个委托，必须是同一个对象才能"回填"生效。
+            //
+            // scheduler 提前在这里声明（而不是等到下面 3.5 步）：discreteTurnIndexProvider/
+            // discreteRoundIndexProvider/discreteCurrentActorProvider 三个闭包需要在
+            // CarriersAssembly 构造期（本步）就传给它——CarriersAssembly 转发给
+            // RulesAssembly，后者用它们构造内部感知 SkillHost 的 RulesExprHostFactory（供
+            // AiHost 的 ai.rotation 条件求值 time.is_my_turn 等 key，见该类型），但 scheduler
+            // 本身要等 Carriers 构造完成之后（3.5 步，需要 Carriers.Rules.Stats/Summons/Skill）
+            // 才能真正 new 出来——闭包捕获局部变量 scheduler（而不是值），3.5 步赋值后，此前已经
+            // 传出去的闭包在真正被调用（求值 Expr，发生在装配完成之后）时会读到赋值后的实例，
+            // 惯例同 deferredLootRoller/deferredQuestGroup 等"先占位、后绑定"的延迟绑定手法。
+            // 未传入 clockHost 时 scheduler 恒为 null，三个闭包分别恒返回 0/0/null，与未装配离散
+            // 模式时的既有默认行为完全一致。
+            Core.Foundation.SimLoop.TurnScheduler? scheduler = null;
+            var resolvedSkillOptions = skillOptions ?? new SkillOptions();
+
             Carriers = new CarriersAssembly(
                 bus, registry, rng, world, spatial, navigation, resolvedSpatialSyncKinds,
                 worldFlags: WorldState, lootRoller: deferredLootRoller,
-                statOptions: statOptions, combatOptions: combatOptions, skillOptions: skillOptions,
+                statOptions: statOptions, combatOptions: combatOptions, skillOptions: resolvedSkillOptions,
                 targetingOptions: targetingOptions, aiOptions: aiOptions, inventoryOptions: inventoryOptions,
                 itemOptions: itemOptions, creatureOptions: creatureOptions, summonOptions: summonOptions,
                 gobjOptions: resolvedGobjOptions, movementOptions: movementOptions,
-                extraSchemas: new IExprSchema[] { GameplaySchemaCatalog.FullExprSchema });
+                extraSchemas: new IExprSchema[] { GameplaySchemaCatalog.FullExprSchema },
+                discreteTurnIndexProvider: () => scheduler?.CurrentTurnIndex ?? 0,
+                discreteRoundIndexProvider: () => scheduler?.RoundIndex ?? 0,
+                discreteCurrentActorProvider: () => scheduler?.GetCurrentActor());
 
             // ---------------------------------------------------------
             // 3.5) ADR-0013 离散时间模型：TurnScheduler 提前在这里构造（而不是等到第 10 步
@@ -301,7 +352,6 @@ namespace Core.Gameplay.Assembly
             //     仍然留到第 10.5 步再构造，两者共用这里造好的同一个 scheduler 实例。只在调用方
             //     传入 clockHost 时构造（见该构造参数判断记录）。
             // ---------------------------------------------------------
-            Core.Foundation.SimLoop.TurnScheduler? scheduler = null;
             Core.Gameplay.Assembly.TimeModelSwitch? timeModelSwitchRef = null;
             if (clockHost != null)
             {
@@ -490,6 +540,23 @@ namespace Core.Gameplay.Assembly
                 TurnScheduler = scheduler;
                 TimeModelSwitch = switchInstance;
 
+                // W2 收边补齐（A3 审计 #4/#5，DECISIONS 拍板 4，SkillOptions.TryConsumeActionPoints/
+                // IsDiscreteStep 判断记录）：与上面 MovementOptions 的回填手法一致——resolvedSkillOptions
+                // 是第 3 步传给 CarriersAssembly（进而 RulesAssembly/CastPipeline）的同一个实例引用，
+                // 这里回填两个委托后，CastPipeline 后续每次读取 _options.TryConsumeActionPoints/
+                // IsDiscreteStep 都会看到装配完成后的值。与 MovementOptions 的回填不同，这里不放在
+                // "CombatModel != null"分支内——技能施放的行动点检查/GCD 离散豁免不依赖战斗时间模型
+                // 是否声明了移动预算规则，只要装配了离散模式（scheduler 非空）就应生效。
+                // TryConsumeActionPoints 与 MovementOptions 共用同一账本（scheduler.TryConsumeActionPoints
+                // 同一个方法组，见 SkillOptions.TryConsumeActionPoints 判断记录"同一账本"）。
+                // IsDiscreteStep：真正处于离散模式（_clockHost.Mode == Discrete）且当前正在
+                // Advance() 内处理某一个 Discrete 步（_isProcessingDiscreteStep，见该字段与
+                // Advance 判断记录）两者都为真才返回 true——避免连续模式下（即便曾经装配过离散
+                // 模式）误判为离散步。
+                resolvedSkillOptions.TryConsumeActionPoints = scheduler.TryConsumeActionPoints;
+                resolvedSkillOptions.IsDiscreteStep =
+                    () => _clockHost != null && _clockHost.Mode == TimeModelMode.Discrete && _isProcessingDiscreteStep;
+
                 // H4 补齐（意图路由缺口 1，见 WorldSim.AttachDiscreteRouting 判断记录）：只有
                 // world 是具体类型 WorldSim 时才能接线（IWorldSim 接口本身不暴露这个便利方法，
                 // 同 TurnScheduler/DiagnosticsWarnings 一贯的判断记录）——调用方一律传入
@@ -638,6 +705,34 @@ namespace Core.Gameplay.Assembly
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new EncounterTickHandler(Encounter, bus));
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new LootExpiryTickHandler(Loot, () => Carriers.Rules.SimTime));
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new EconomySpawnUpdateTickHandler(Economy, Spawn));
+
+            // ---------------------------------------------------------
+            // 18) DeathPolicyHost（W2 收边补齐，DECISIONS 拍板 3）：death 是一个新 L4 模块，本步
+            //     骤惯例同第 3/16 步——resolvedDeathPolicyOptions 就地 new 出来，ReviveUnit/
+            //     ResolveDefaultSpawn 两个 L4↔L3 边界委托用 ??= 只在调用方未显式覆盖时接线（同
+            //     resolvedGobjOptions 四个回调的接线手法）：
+            //     - ReviveUnit 接 WorldUnitAccess.Revive——只有 Carriers.Units 运行期确实是
+            //       WorldUnitAccess（真实装配的唯一实现，测试替身可能不是）时才能接线，用 is 模式
+            //       防御性判断（同第 10.5 步 world is WorldSim 的一贯做法），不是时静默跳过（不
+            //       抛异常：respawn_point 策略此时退化为"只记诊断、不复活"，见 DeathPolicyHost
+            //       判断记录）。
+            //     - ResolveDefaultSpawn 接同一个 teleportTargetResolver（第 16 步已构造）的
+            //       Resolve 方法组——传入地图 id 本身即命中该方法"整串即地图 id"的两段式解析路径，
+            //       不需要为 death 模块另造一份地图查找逻辑。
+            //     defaultCombatDeathPolicy 取 Carriers.Rules.CombatOptions.DeathPolicy（06 第 4.6
+            //     节"策略来自 CombatOptions.DeathPolicy"），deathPolicyOptions.Policy 非空时覆盖。
+            // ---------------------------------------------------------
+            var resolvedDeathPolicyOptions = deathPolicyOptions ?? new Core.Gameplay.Death.DeathPolicyOptions();
+            if (Carriers.Units is Core.Carriers.Unit.WorldUnitAccess worldUnitAccessForDeath)
+            {
+                resolvedDeathPolicyOptions.ReviveUnit ??= worldUnitAccessForDeath.Revive;
+            }
+
+            resolvedDeathPolicyOptions.ResolveDefaultSpawn ??= teleportTargetResolver.Resolve;
+
+            Death = new Core.Gameplay.Death.DeathPolicyHost(
+                bus, world, SaveSystem, AppState, Carriers.Rules.CombatOptions.DeathPolicy, resolvedDeathPolicyOptions);
+            world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, Death);
         }
 
         /// <summary>
@@ -712,9 +807,15 @@ namespace Core.Gameplay.Assembly
 
             if (_clockHost.Mode == TimeModelMode.Continuous)
             {
-                _clockHost.Advance(realDeltaSeconds);
+                InterpolationAlpha = _clockHost.Advance(realDeltaSeconds);
                 return;
             }
+
+            // 离散模式：本分支不调用 ISimClockHost.Advance（离散步改由 TurnScheduler.NextStep
+            // 产生，见类型注释），因此拿不到、也不需要连续模式那份基于累积器的插值系数——固定给
+            // 1.0（见 InterpolationAlpha 属性判断记录）。while 循环内两个 return 分支（轮到玩家/
+            // 需要等待表现回放）都复用这个统一赋值，不需要在每个 return 前分别设置。
+            InterpolationAlpha = 1.0;
 
             while (true)
             {
@@ -729,7 +830,20 @@ namespace Core.Gameplay.Assembly
                 PopSubStateIfCurrent(AwaitingInputSubState);
                 PopSubStateIfCurrent(PlayingBackSubState);
 
-                _world.Tick(step.Value);
+                // W2 收边补齐：本次 Tick 调用范围内（离散意图路由、AiTickHandler 驱动的技能施放都
+                // 发生在这次调用期间）标记"正在处理离散步"，供 resolvedSkillOptions.IsDiscreteStep
+                // 闭包读取（见 _isProcessingDiscreteStep 字段判断记录）。try/finally 确保 Tick 内部
+                // 抛异常时标记也能正确复位，不会把"正在处理离散步"状态泄漏到本次 Advance 调用之外。
+                _isProcessingDiscreteStep = true;
+                try
+                {
+                    _world.Tick(step.Value);
+                }
+                finally
+                {
+                    _isProcessingDiscreteStep = false;
+                }
+
                 TurnScheduler.NotifyStepConsumed(step.Value.ActorId!.Value);
 
                 if (Pacing!.Mode() == PacingMode.WaitForPlayback)
@@ -772,16 +886,19 @@ namespace Core.Gameplay.Assembly
 
         /// <summary>
         /// 按 10_存档与持久化.md §3 固定顺序把全部 L3/L4 <see cref="IPersistable"/> 注册进
-        /// <paramref name="saveSystem"/>：world_state → player.inventory/equipment（按
-        /// <paramref name="player"/>）→ currencies → quest → achievement → spawn_state →
-        /// dropped_loot → world.difficulty → rng.stream_states。<see cref="RngHost"/> 段放最后
-        /// （10 §3 步骤 8，全序最末）。
+        /// <paramref name="saveSystem"/>：world_state → player.progression/archetype →
+        /// player.inventory/equipment（按 <paramref name="player"/>）→ currencies → quest →
+        /// achievement → spawn_state → dropped_loot → world.difficulty → rng.stream_states。
+        /// <see cref="RngHost"/> 段放最后（10 §3 步骤 8，全序最末）。实际读写顺序由
+        /// <see cref="SaveSections.KnownOrder"/> 决定，与本方法内 <c>RegisterPersistable</c>
+        /// 调用顺序无关。
         /// <para>
-        /// 判断记录（progression 段缺席）：<c>core/numbers/progression.ProgressionHost</c> 未实现
-        /// <see cref="IPersistable"/>（阶段 3 集成收尾勘察确认，见任务汇报"契约缺口"），10 §2.2
-        /// <c>player.progression</c> 段因此暂无持久化实现可挂——本方法不假装注册一个不存在的
-        /// 段，如实跳过并在此记录；真正需要落盘等级/经验时，需要先在
-        /// <c>core/numbers/progression</c> 补一个 <c>IPersistable</c> 实现（不在本任务允许改动范围）。
+        /// W2 收边补齐（A4 审计 F1，此前 progression/archetype 两段完全未持久化）：
+        /// <c>core/numbers/progression.ProgressionHost</c> 已补 <see cref="ProgressionPersistable"/>
+        /// 静态工厂（段 <see cref="SaveSections.PlayerProgression"/>），<see cref="PlayerUnit"/>
+        /// 已补 <see cref="UnitPersistable.ArchetypeId"/>（段 <see cref="SaveSections.PlayerArchetype"/>，
+        /// 只存 <see cref="PlayerUnit.ArchetypeId"/> 本身，同 05 第 1.2 节判断记录"种族引用在当前
+        /// 框架实现下即等价于 ArchetypeId"）——本方法不再跳过这两段。
         /// </para>
         /// </summary>
         public void RegisterPersistables(ISaveSystem saveSystem, PlayerUnit player)
@@ -790,6 +907,8 @@ namespace Core.Gameplay.Assembly
             if (player == null) throw new ArgumentNullException(nameof(player));
 
             saveSystem.RegisterPersistable(WorldState);
+            saveSystem.RegisterPersistable(ProgressionPersistable.For(Carriers.Rules.Progression, player.EntityId));
+            saveSystem.RegisterPersistable(UnitPersistable.ArchetypeId(player));
             saveSystem.RegisterPersistable(UnitPersistable.CurrentMapId(player));
             saveSystem.RegisterPersistable(UnitPersistable.CurrentPosition(player));
             saveSystem.RegisterPersistable(new InventoryPersistable(player.EntityId, Carriers.Inventory));
@@ -812,8 +931,10 @@ namespace Core.Gameplay.Assembly
             // ADR-0013：TurnScheduler 全部状态可存档（见任务书"全部状态可存档"），只在装配了离散
             // 模式（构造函数传入 clockHost）时注册——段名 sim.turn_state 已登记进 10 号文档第 3 节
             // 固定段序（步骤 7b，见该文档 2026-09-05 勘误、TurnScheduler.SectionKeyConst 判断
-            // 记录），但同世界附属段一样不登记进 SaveSections.KnownOrder，只是"自定义段"（按 key
-            // 序数排在已知段之后，见 SaveSections 注释）。
+            // 记录）。W2 收边补齐（A4 审计 F2）：sim.turn_state 与四个世界附属段（步骤 7a）现已
+            // 一并登记进 SaveSections.KnownOrder（固定在 7a 之后、rng.stream_states 之前），不再
+            // 落入"自定义段"分支按 key 序数排序——此前按序数排序会让 sim.turn_state 实际排在全部
+            // 7a 段之前，与文档"7a 后 7b"的文字顺序不完全一致。
             if (TurnScheduler is IPersistable turnSchedulerPersistable)
             {
                 saveSystem.RegisterPersistable(turnSchedulerPersistable);
@@ -885,8 +1006,9 @@ namespace Core.Gameplay.Assembly
         /// <see cref="ISpawnHost.Update"/>（<c>respawn_policy=timer</c> 刷新倒计时）都需要按秒推进，
         /// 但两个模块都没有自带 <see cref="ITickPhaseHandler"/>（不像 loot/area_trigger/encounter 三个
         /// 模块各自导出了一个）——本类补一个最小适配器，按每个连续步的 <see cref="SimStep.Dt"/> 转发
-        /// 给两者，离散步（<see cref="SimStepKind.Discrete"/>）不推进（本项目未启用离散模式，
-        /// ADR-0013，同 <see cref="LootExpiryTickHandler"/> 惯例）。
+        /// 给两者，离散步（<see cref="SimStepKind.Discrete"/>）不推进（ADR-0013 离散时间模型现已
+        /// 接线，但计时型补货/刷新倒计时按设计只在连续步推进，离散步内维持不变，同
+        /// <see cref="LootExpiryTickHandler"/> 惯例）。
         /// </summary>
         private sealed class EconomySpawnUpdateTickHandler : ITickPhaseHandler
         {

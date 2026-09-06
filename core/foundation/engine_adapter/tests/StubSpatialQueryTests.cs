@@ -90,5 +90,63 @@ namespace Tests.Foundation.EngineAdapter
             var query = new StubSpatialQuery();
             Assert.Null(query.Nearest(Vec2.Zero, QueryFilter.None));
         }
+
+        // W2 收边补齐（A1 审计第 7 节，测试完备性缺口）：QueryCone/QueryLine 此前只在 QueryShape
+        // 内部分发时被自身间接调用（QueryCone 还被 ProjectileHost 弹道命中判定间接覆盖），没有
+        // 一条把它们本身作为断言主语的直接场景。
+
+        [Fact]
+        public void QueryCone_ReturnsOnlyObjectsWithinAngleAndRange_SortedById()
+        {
+            var query = new StubSpatialQuery();
+            // direction=0（朝 +x 轴），angle=90 度扇形（弧度制，见文件顶部判断记录）。
+            query.Register(new Id("unit.ahead"), new Vec2(5, 0), 0); // 正前方，命中。
+            query.Register(new Id("unit.behind"), new Vec2(-5, 0), 0); // 正后方，角度超限，不命中。
+            query.Register(new Id("unit.too_far"), new Vec2(100, 0), 0); // 正前方但超出 range，不命中。
+
+            var result = query.QueryCone(Vec2.Zero, direction: 0, angle: System.Math.PI / 2, range: 10, QueryFilter.None);
+
+            Assert.Equal(new[] { new Id("unit.ahead") }, result);
+        }
+
+        [Fact]
+        public void QueryCone_RespectsTagFilter()
+        {
+            var query = new StubSpatialQuery();
+            query.Register(new Id("unit.enemy"), new Vec2(5, 0), 0, new[] { "hostile" });
+            query.Register(new Id("unit.friend"), new Vec2(5, 0), 0, new[] { "friendly" });
+
+            var result = query.QueryCone(
+                Vec2.Zero, direction: 0, angle: System.Math.PI / 2, range: 10,
+                new QueryFilter(requiredTags: new[] { "hostile" }));
+
+            Assert.Equal(new[] { new Id("unit.enemy") }, result);
+        }
+
+        [Fact]
+        public void QueryLine_ReturnsObjectsWithinRadiusOfSegment_SortedById()
+        {
+            var query = new StubSpatialQuery();
+            query.Register(new Id("unit.near_line"), new Vec2(5, 0.5), 1.0); // 垂距 0.5 <= 半径 1，命中。
+            query.Register(new Id("unit.off_line"), new Vec2(5, 20), 1.0); // 远离线段，不命中。
+            query.Register(new Id("unit.beyond_segment"), new Vec2(50, 0), 1.0); // 在直线延长线上但超出线段端点范围，不命中。
+
+            var result = query.QueryLine(new Vec2(0, 0), new Vec2(10, 0), QueryFilter.None);
+
+            Assert.Equal(new[] { new Id("unit.near_line") }, result);
+        }
+
+        [Fact]
+        public void QueryLine_RespectsTagFilter()
+        {
+            var query = new StubSpatialQuery();
+            query.Register(new Id("unit.enemy"), new Vec2(5, 0), 0.5, new[] { "hostile" });
+            query.Register(new Id("unit.friend"), new Vec2(5, 0), 0.5, new[] { "friendly" });
+
+            var result = query.QueryLine(
+                new Vec2(0, 0), new Vec2(10, 0), new QueryFilter(requiredTags: new[] { "hostile" }));
+
+            Assert.Equal(new[] { new Id("unit.enemy") }, result);
+        }
     }
 }

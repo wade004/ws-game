@@ -24,7 +24,7 @@ namespace Core.Foundation.EventBus
         /// <summary>app.state_changed — 字段：oldState, newState。应用级状态机状态迁移完成（见 01 模块表 app_lifecycle 行、03 第 1、2 节 AppStateHost.onStateChanged）；字段为建议值。</summary>
         public static readonly Id AppStateChanged = new Id("app.state_changed");
 
-        /// <summary>archetype.applied — 字段：unitId, archetypeId。职业/种族/天赋模板应用到单位后触发（见 01 L1 模块表 archetype 行、07 第 5 节职业与天赋数据）；字段为建议值。</summary>
+        /// <summary>archetype.applied — 字段：unitId, classId, raceId。职业/种族/天赋模板应用到单位后触发（见 01 L1 模块表 archetype 行、07 第 5 节职业与天赋数据）；字段为建议值（W1 收边勘误：与 ArchetypeAppliedEvent{UnitId,ClassId,RaceId} 实际字段同步，此前登记的 archetypeId 与代码不对应，见 A3 审计 #10）。</summary>
         public static readonly Id ArchetypeApplied = new Id("archetype.applied");
 
         /// <summary>area.trigger_entered — 字段：triggerId, unitId。单位进入区域触发范围且满足 condition 时发出（见 05 第 7.1 节 AreaTrigger 事件与契约，字段原文给出）。</summary>
@@ -120,7 +120,7 @@ namespace Core.Foundation.EventBus
         /// <summary>entity.destroyed — 字段：entityId。WorldSim 生命周期清理阶段真正移除某实体前触发，供 ViewBinder 销毁 View（见 03 第 5 节、第 4.2 节 tick 步骤 8）。</summary>
         public static readonly Id EntityDestroyed = new Id("entity.destroyed");
 
-        /// <summary>faction.relation_changed — 字段：factionId, otherFactionId, oldReaction, newReaction。阵营间敌对/中立/友好关系变化时触发（见 01 L1 模块表 faction 行、04 第 fac.reaction_matrix 说明）；字段为建议值。</summary>
+        /// <summary>faction.relation_changed — 字段：from, to, oldReaction, newReaction。阵营间敌对/中立/友好关系变化时触发（见 01 L1 模块表 faction 行、04 第 fac.reaction_matrix 说明）；字段为建议值（W1 收边勘误：与代码实际字段 {From,To,OldReaction,NewReaction} 同步，此前登记的 factionId/otherFactionId 与代码不对应，见 A3 审计 #11）。</summary>
         public static readonly Id FactionRelationChanged = new Id("faction.relation_changed");
 
         /// <summary>gobj.interacted — 字段：unitId, gobjInstanceId。GameObjectHost.interact 交互触发时发出（见 01 L3 模块表 gobj 行、07 第 3.6 节 interact 契约）；原名 gobj.used，2026-09-05 勘误改名为 gobj.interacted（见 07/08 第 9 节契约汇总表）；字段为建议值。</summary>
@@ -255,7 +255,7 @@ namespace Core.Foundation.EventBus
         /// <summary>targeting.resolved — 字段：unitId, chainId, targetIds。目标解析策略链求解完成后触发（见 01 L2 模块表 targeting 行、06 第 5 节 Targeting）；字段为建议值。</summary>
         public static readonly Id TargetingResolved = new Id("targeting.resolved");
 
-        /// <summary>unit.died — 字段：unitId, killerId。死亡结算完成（见 06 第 8 节）。</summary>
+        /// <summary>unit.died — 字段：unitId, killerId, mapId, position。死亡结算完成（见 06 第 8 节）；W1 收边补 mapId/position（死亡那一刻的地图/坐标快照，供死亡复活执行主体使用，position 不经 Expr 暴露）。</summary>
         public static readonly Id UnitDied = new Id("unit.died");
 
         /// <summary>unit.moved — 字段：unitId, position。单位逻辑位置变化时触发，供表现层 View 同步（见 01 L5 模块表 render 行订阅示例、03 第 5 节同步小节原文列举）；字段为建议值。</summary>

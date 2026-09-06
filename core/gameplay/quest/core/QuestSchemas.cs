@@ -20,8 +20,8 @@ namespace Core.Gameplay.Quest
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "quest.<name>"),
-                new FieldSchema("title_key", FieldKind.TextKey, required: true, description: "任务标题文本键（08 原文未列出，任务书拍板补录）"),
-                new FieldSchema("description_key", FieldKind.TextKey, required: false, description: "任务描述文本键（08 原文未列出，任务书拍板补录）"),
+                new FieldSchema("title_key", FieldKind.TextKey, required: true, description: "任务标题文本键（08 第 2.1 节已登记，必填）"),
+                new FieldSchema("description_key", FieldKind.TextKey, required: false, description: "任务描述文本键（08 第 2.1 节已登记，可选）"),
                 new FieldSchema("objectives", FieldKind.Array, required: true, description: "List<QuestObjective>，见 08 第 2.1 节"),
                 new FieldSchema("prerequisite", FieldKind.Expr, required: false, description: "前置条件 Expr"),
                 new FieldSchema("exclusive_group", FieldKind.Id, required: false, description: "互斥组 id"),

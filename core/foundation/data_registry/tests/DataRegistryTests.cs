@@ -1138,5 +1138,29 @@ namespace Tests.Foundation.Data
             Assert.True(report.IsBlocking);
             Assert.Empty(registry.GetOverrideDiagnostics());
         }
+
+        // W2 收边补齐（A1 审计第 7 节，测试完备性缺口）：GetSchema 此前只有生产代码内部调用点
+        // （DataRegistry 自身解析谓词文本、CombatValidationRules），没有一处测试把它作为断言主语
+        // 直接调用。
+
+        [Fact]
+        public void GetSchema_RegisteredTable_ReturnsSameSchemaInstance()
+        {
+            var registry = new DataRegistry(new InMemoryDataSource(), MakeBus());
+            var schema = WidgetSchema();
+            registry.RegisterSchema(schema);
+
+            var result = registry.GetSchema("test.widget");
+
+            Assert.Same(schema, result);
+        }
+
+        [Fact]
+        public void GetSchema_UnregisteredTable_ReturnsNull()
+        {
+            var registry = new DataRegistry(new InMemoryDataSource(), MakeBus());
+
+            Assert.Null(registry.GetSchema("test.never_registered"));
+        }
     }
 }

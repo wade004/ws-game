@@ -1,0 +1,104 @@
+# L4 玩法层 · quest（任务）
+
+职责：落地 08_玩法层_掉落任务对话关卡.md 第 2 节 Quest——`quest.def` 定义任务目标/前置条件/奖励、
+`unavailable → available → active → objectives_complete → turned_in`（及 `failed`）任务日志状态机、
+八种目标类型（`kill｜collect｜interact｜explore｜escort｜event｜cast｜talk`）的事件驱动进度、任务
+交付时经 `IRewardDispatcher` 结算奖励。对应 01 第 L4 模块表"任务"行（契约 `QuestHost`、数据表
+`quest.def`、事件 `quest.accepted`/`quest.objective_progress`/`quest.completed`/`quest.turned_in`/
+`quest.failed`、策略配置项"任务目标类型集合"）。字段表分片见 `schema/quest.def.md`。
+
+依赖（按实际 `using` 语句核实）：
+
+- L0：`Core.Foundation.Common`、`Core.Foundation.Common.Json`、`Core.Foundation.EventBus`、
+  `Core.Foundation.Expr`、`Core.Foundation.DataRegistry`、`Core.Foundation.SaveSystem`。
+- L1：`Core.Numbers.Progression`（`IProgressionHost`，`PlayerExprGroupProvider` 的 `player.level` 用）。
+- L2：`Core.Rules.Common`（`IUnitAccess`、`IExprHostFactory`、`IExprDiagnostics`、
+  `RulesEventKeys`/`CarriersEventKeys` 及对应事件类型 `UnitDiedEvent`/`ItemAddedEvent`/
+  `ItemRemovedEvent`/`GobjInteractedEvent`/`SkillCastSuccessEvent`，事件驱动进度的订阅源）、
+  `Core.Rules.ExprHost`（`IExprGroupProvider` 基接口）。
+- L3：`Core.Carriers.Common`（`IInventoryHost`，`collect` 目标计数与交付扣物品用）。
+- L4 姊妹模块（同一 `Core.Gameplay` 程序集内跨模块引用，不产生新 `ProjectReference`）：
+  `Core.Gameplay.Common`（`IRewardDispatcher`/`RewardBundle`）、`Core.Gameplay.Dialog`
+  （`GossipOpenedEvent`/`StoryNodeEnteredEvent`/`DialogEventKeys`，`talk` 目标进度判定用，见判断
+  记录 1）、`Core.Gameplay.WorldState`（`WorldExprSchemaEntries`，`QuestExprSchemaEntries.
+  BuildParsingSchema` 合并 `world` 分组用）。
+
+## 目录
+
+```
+quest/
+  README.md
+  contracts/
+    Events.cs                    QuestEventKeys + 五个事件类型（Accepted/ObjectiveProgress/
+                                  Completed/TurnedIn/Failed）
+    IQuestHost.cs                 任务系统对外契约（GetState/Accept/UpdateProgress/TurnIn/Fail/
+                                  GetLog/GetActiveObjectives/Update）
+    QuestDefinition.cs            quest.def 一条记录的内存态表示 + FromRecord 解析（运行期与
+                                  校验期共用）
+    QuestEnums.cs                  StartMethod/TurnInMethod/Repeatable/State 四枚举 + wire 名互转
+    QuestExprSchemaEntries.cs     quest/player 分组的精确签名登记表 + BuildParsingSchema（额外合并
+                                  world_state 三键、放宽 event 分组）
+    QuestObjective.cs             单条任务目标强类型模型（type 按属性拆解 param）
+    QuestObjectiveType.cs         八种目标类型 + targetRef 域名/count==1 规则
+    QuestOptions.cs               AllowFail 等构造期策略配置
+    QuestProgress.cs              单位对单条任务的持久化进度快照
+  core/
+    PlayerExprGroupProvider.cs    player 分组的 IExprGroupProvider 实现（level/has_item/item_count）
+    QuestContentValidationRule.cs quest.def 内容校验规则（捕获 FromRecord 解析异常）
+    QuestExprGroupProvider.cs     quest 分组的 IExprGroupProvider 实现（is_active/is_completed/
+                                  is_available/objective_progress）
+    QuestHost.cs                   IQuestHost 唯一实现：状态机 + 固定订阅事件驱动进度
+    QuestPersistable.cs           player.quest_state 段
+    QuestSchemas.cs                quest.def 的 TableSchema
+  schema/
+    quest.def.md                  quest.def 字段表（本次新增，见"与 08 原文的差异"一节）
+  tests/
+    QuestHostTests.cs
+    TestSupport.cs
+```
+
+## 判断记录
+
+1. **Quest 与 Dialog 是一对双向依赖的 L4 姊妹模块**：`DialogHost` 依赖 `IQuestHost`（gossip 菜单的
+   `quest_accept`/`quest_turn_in` 两种动作直接调用），而 `QuestHost` 反过来订阅 `Dialog` 模块发出的
+   `GossipOpenedEvent`/`StoryNodeEnteredEvent`（判定 `talk` 类目标是否推进）——两个模块互相持有对方
+   的类型引用。因为二者同属 `Core.Gameplay` 单一程序集，不产生编译期循环 `ProjectReference` 的问题，
+   但确实是一处类型层面的双向耦合，记录在案（`core/gameplay/dialog/README.md` 对称记录同一事实）。
+
+2. **`area.trigger_entered` 事件按非泛型订阅 + `IExprReadableEvent` 反射式读字段处理**：该事件由
+   `core/gameplay/area_trigger` 模块发布（与本模块同批次由另一 agent 并行建设，本任务不允许改动该
+   目录），本模块不对其具体事件类做编译期依赖，改用 `IEventBus.Subscribe(Id, EventHandler)` +
+   按字段名读取 `triggerId`/`unitId`，不要求编译期已知具体事件类型。
+
+3. **事件驱动进度采用"构造期固定订阅一次、每次事件到达时按当前 Active 快照过滤"，而不是
+   "接取时动态订阅、交付/失败时取消订阅"**：后者需要为"daily 可重复任务多次接取/交付"这类场景反复
+   订阅/取消订阅同一组事件，且要正确处理"同一 unitId 同时持有多条引用同一 target_ref 的不同任务"的
+   句柄归属，复杂度明显高于固定订阅方案，且两者性能特征在单机场景下差异可忽略（活跃任务数量级小）。
+
+4. **`ObjectivesComplete → Active` 的反向同步**：`collect` 目标计数变化后按当前实际是否全部达标
+   双向同步任务状态——不仅 `Active → ObjectivesComplete`（达标）需要处理，此前已达标的 `collect`
+   目标若因物品被移除/卖出而回落，`ObjectivesComplete → Active` 同样需要处理，否则"已达标"会与
+   "背包里其实已经没有足够物品"这一实际情况脱节。回落时不发送专门的"取消完成"事件——08 第 9 节
+   事件词汇表没有定义这一事件，`quest.objective_progress` 已经足够让订阅方感知数值变化。
+
+5. **`IQuestHost.Update`（驱动 `auto` 起始/交付）不会被 `UpdateProgress` 自动触发**：避免"进度更新"
+   这一相对高频操作里隐式发生任务交付这类有较重副作用（结算奖励）的转移；调用方需要按需（如每次
+   场景加载、每次事件驱动进度更新之后）显式调用 `Update`。
+
+6. **`quest.def` 的 `title_key`/`description_key`、`QuestObjective.description_key` 三个字段代码
+   注释与当前 08 文档表述不一致**：详见 `schema/quest.def.md`"与 08 原文的差异"一节——代码注释称
+   这三个字段是"08 原文未列出，任务书拍板补录"，但当前版本 08 第 2.1 节字段表与 `QuestObjective`
+   结构原文实际已经收录它们，二者字段集合本身一致，只是代码注释的说法有点滞后（推测是 08 文档在
+   本模块实现后又经历过一轮勘误补充）。
+
+## 不负责什么
+
+- 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
+- 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`
+  三元组，具体位置由调用方按 `targetRef` 对应实体查询，本模块不涉及空间查询（08 第 2.3 节"逻辑层
+  只暴露当前激活目标的位置查询接口"）。
+- 不做任务分类显示（08 第 2.4 节"属于表现层/UI 归类，不在本表定义"）。
+- 不自动向任何 `ISaveSystem` 注册 `QuestPersistable`——是组装层的事（惯例同
+  `core/gameplay/loot`/`core/gameplay/world_state`）。
+- 不解决 `Core.Gameplay.Common` 判断记录 2 描述的 `CurrencyGranter`/`TalentPointGranter` 契约缺口
+  本身——奖励结算全部委托给 `IRewardDispatcher`，本模块只负责在 `TurnIn` 时机调用它。

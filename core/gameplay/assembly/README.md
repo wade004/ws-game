@@ -50,6 +50,7 @@ assembly/
 | 15 | `AreaTriggerHost`（`TrapTrigger`/`EncounterStartRequested`/`MapTransitionRequested`/`SceneRouter` 回调接线） | `WorldState`、`ExprHostFactory`、`Hooks` |
 | 16 | 回填 `GobjOptions` 四个 L4 回调（`DialogOpener`/`TeleportResolver`/`SaveRequester`/`QuestActionDispatcher`，见判断记录 3） | `Dialog`、`Quest` |
 | 17 | tick 处理器挂载（见下表） | `IWorldSim` |
+| 18 | `DeathPolicyHost`（W2 收边补齐，DECISIONS 拍板 3）：`ReviveUnit`/`ResolveDefaultSpawn` 两个委托 `??=` 接线（`Carriers.Units is WorldUnitAccess` 时接 `.Revive`；`teleportTargetResolver.Resolve`），同时作为 tick 处理器挂上 `TriggerEvaluation` | `AppState`、`SaveSystem`、`Carriers.Rules.CombatOptions.DeathPolicy`、第 16 步的 `teleportTargetResolver` |
 
 ## 回调接线矩阵（依赖倒置 / 契约缺口回接）
 
@@ -82,15 +83,21 @@ assembly/
 | 2 | `EncounterTickHandler` | `CombatResolution` 阶段已完成的战斗结算 |
 | 3 | `LootExpiryTickHandler` | 无 |
 | 4 | `EconomySpawnUpdateTickHandler`（本类私有适配器，转发 `EconomyHost.Update(dt)`/`SpawnHost.Update(dt)`，见判断记录 5） | 无 |
+| 5 | `Death`（`Core.Gameplay.Death.DeathPolicyHost`，W2 收边补齐）：推进 `respawn_point` 策略的延迟复活队列，不区分 `Continuous`/`Discrete` 步（见该类型判断记录 3） | 无 |
 
 ## 存档段顺序（`RegisterPersistables(ISaveSystem, PlayerUnit)`）
 
 按 10_存档与持久化.md 第 3 节固定顺序：`WorldState`（`world_state_flags`）→
+`ProgressionPersistable.For`（`player.progression`）/`UnitPersistable.ArchetypeId`
+（`player.archetype`，W2 收边补齐，见判断记录 6）→
 `UnitPersistable.CurrentMapId`/`CurrentPosition` → `InventoryPersistable`/`EquipmentPersistable`
 → `CurrencyPersistable`/`VendorStockPersistable` → `QuestPersistable` → `AchievementHost` →
 `SpawnHost` → `DroppedLootPersistable` → `DifficultyHost`（自定义段 `world.difficulty`）→
+`TurnScheduler`（`sim.turn_state`，只在装配了离散模式时注册）→
 `RngStreamsPersistable`（10 §3 步骤 8，全序最末——调用方需要自行额外注册，本方法不持有
-`IRngHost`）。`player.progression` 段本方法不注册，见判断记录 6。
+`IRngHost`）。实际读写顺序由 `SaveSections.KnownOrder` 决定（W2 收边补齐已把 7a 世界附属段与
+7b `sim.turn_state` 一并登记进该表，顺序与 10 文档"7a 后 7b"一致，见该表判断记录），与本方法内
+`RegisterPersistable` 调用顺序无关。
 
 ## 离散时间模型（ADR-0013）
 
@@ -112,10 +119,15 @@ assembly/
 - `GameplayAssembly.Advance(realDeltaSeconds)`：连续模式转发给 `clockHost.Advance`；离散模式驱动
   `TurnScheduler.NextStep()` 直到轮到玩家（`awaiting_input`）或需要等待回放（`playing_back`），
   期间维护 `AwaitingInputSubState`/`PlayingBackSubState` 的压栈/弹栈。`NotifyPlaybackFinished()`
-  供表现层在 `presentation.playback_finished` 后转发调用，解除 `playing_back` 节奏门。
+  供表现层在 `presentation.playback_finished` 后转发调用，解除 `playing_back` 节奏门。每次
+  `Advance` 调用后可读 `InterpolationAlpha`（`double`，只读）：连续模式下等于本次调用
+  `ISimClockHost.Advance` 返回的插值系数（`[0,1)`）；离散模式、以及未传入 `clockHost` 时恒为
+  `1.0`（离散步之间没有可插值的位置差，见该属性判断记录）——表现层（Unity 侧 `adapters/unity`）
+  在每帧调用完 `Advance` 后应据此驱动 `ViewBinder.SyncAll(alpha)`。
 - `RegisterPersistables` 在装配了离散模式时额外注册 `TurnScheduler` 的存档段（`sim.turn_state`，
-  已登记进 10 号文档第 3 节固定段序步骤 7b，但同世界附属段一样仍是"自定义段"，见
-  `core/foundation/sim_loop/README.md`"存档段 key"判断记录）。
+  已登记进 10 号文档第 3 节固定段序步骤 7b，W2 收边补齐后已随四个世界附属段一并登记进
+  `SaveSections.KnownOrder`，不再是按 key 序数排序的"自定义段"，见
+  `core/foundation/sim_loop/README.md`"存档段 key"判断记录、`SaveSections.KnownOrder` 判断记录）。
 
 现有调用方（未传 `clockHost` 的既有测试与游戏层引导代码）不受任何影响——这是一处纯加法扩展。
 
@@ -160,6 +172,10 @@ assembly/
    `restock_policy=timer` 补货倒计时）与 `ISpawnHost.Update`（`respawn_policy=timer` 刷新倒计时）
    需要调用方自己按秒推进。本类补了一个私有的 `EconomySpawnUpdateTickHandler` 最小适配器。
 
-6. **`RegisterPersistables` 不注册 `player.progression` 段**：`core/numbers/progression.
-   ProgressionHost` 未实现 `IPersistable`（勘察确认，不在本任务允许改动的目录范围内补），10 §2.2
-   `player.progression` 段因此暂无持久化实现可挂——本方法如实跳过，不假装注册一个不存在的段。
+6. **`RegisterPersistables` 已注册 `player.progression`/`player.archetype` 两段（历史缺口已解决，
+   W2 收边补齐，见 A4 审计 F1）**：`core/numbers/progression.ProgressionHost` 已补
+   `ProgressionPersistable` 静态工厂（段 `SaveSections.PlayerProgression`），`PlayerUnit` 已补
+   `UnitPersistable.ArchetypeId`（段 `SaveSections.PlayerArchetype`）——`GameplayAssembly.
+   RegisterPersistables` 现分别注册两者，玩家等级/经验/职业模板引用可正常跨读档保留，端到端
+   回归见 `core/gameplay/tests/EndToEndTests.cs`
+   `SaveThenLoad_AfterLevelUp_RestoresProgressionAndArchetype` 一类用例。

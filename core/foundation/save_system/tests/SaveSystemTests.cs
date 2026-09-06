@@ -216,6 +216,57 @@ namespace Tests.Foundation.SaveSystem
             Assert.Equal(new[] { SaveSections.WorldStateFlags, SaveSections.RngStreamStates, "custom.notes" }, log);
         }
 
+        [Fact]
+        public void Load_WorldAppendageAndTurnStateSections_FollowKnownOrder_7aBefore7b()
+        {
+            // W2 收边补齐（A4 审计 F2）：世界附属段（10 第 3 节步骤 7a：world.dropped_loot/
+            // world.vendor_stock/world.difficulty/spawn_state）与 sim.turn_state（步骤 7b）此前
+            // 未登记进 SaveSections.KnownOrder，落入自定义段分支按 key 的 Ordinal 序数排序，导致
+            // sim.turn_state 实际排在全部 7a 段之前，与文档"7a 后 7b"的文字顺序不一致。现已登记，
+            // 本测试验证实际调用顺序与 SaveSections.KnownOrder（进而与 10 文档）一致。
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.order_7a_7b");
+            var log = new List<string>();
+
+            var droppedLoot = new RecordingPersistable(SaveSections.WorldDroppedLoot, new JsonString("a")) { OrderLog = log };
+            var vendorStock = new RecordingPersistable(SaveSections.WorldVendorStock, new JsonString("b")) { OrderLog = log };
+            var difficulty = new RecordingPersistable(SaveSections.WorldDifficulty, new JsonString("c")) { OrderLog = log };
+            var spawnState = new RecordingPersistable(SaveSections.SpawnState, new JsonString("d")) { OrderLog = log };
+            var turnState = new RecordingPersistable(SaveSections.SimTurnState, new JsonString("e")) { OrderLog = log };
+            var rng = new RecordingPersistable(SaveSections.RngStreamStates, new JsonObjectBuilder().Build()) { OrderLog = log };
+
+            var sutSave = CreateSut(fs);
+            // 故意乱序注册（不按 KnownOrder 顺序），验证实际写入顺序只看 SaveSections.KnownOrder，
+            // 与 RegisterPersistable 调用顺序无关。
+            sutSave.RegisterPersistable(turnState);
+            sutSave.RegisterPersistable(rng);
+            sutSave.RegisterPersistable(spawnState);
+            sutSave.RegisterPersistable(droppedLoot);
+            sutSave.RegisterPersistable(difficulty);
+            sutSave.RegisterPersistable(vendorStock);
+            Assert.True(sutSave.Save(new SaveRequest(slotId, "t1")).Success);
+
+            var sutLoad = CreateSut(fs);
+            sutLoad.RegisterPersistable(new RecordingPersistable(SaveSections.SimTurnState, JsonNull.Instance) { OrderLog = log });
+            sutLoad.RegisterPersistable(new RecordingPersistable(SaveSections.RngStreamStates, JsonNull.Instance) { OrderLog = log });
+            sutLoad.RegisterPersistable(new RecordingPersistable(SaveSections.SpawnState, JsonNull.Instance) { OrderLog = log });
+            sutLoad.RegisterPersistable(new RecordingPersistable(SaveSections.WorldDroppedLoot, JsonNull.Instance) { OrderLog = log });
+            sutLoad.RegisterPersistable(new RecordingPersistable(SaveSections.WorldDifficulty, JsonNull.Instance) { OrderLog = log });
+            sutLoad.RegisterPersistable(new RecordingPersistable(SaveSections.WorldVendorStock, JsonNull.Instance) { OrderLog = log });
+
+            log.Clear();
+            var result = sutLoad.Load(slotId);
+
+            Assert.Equal(LoadStatus.Loaded, result.Status);
+            Assert.Equal(
+                new[]
+                {
+                    SaveSections.WorldDroppedLoot, SaveSections.WorldVendorStock, SaveSections.WorldDifficulty,
+                    SaveSections.SpawnState, SaveSections.SimTurnState, SaveSections.RngStreamStates,
+                },
+                log);
+        }
+
         // ==== 3. meta 字段往返 ====================================================
 
         [Fact]

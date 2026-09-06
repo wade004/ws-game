@@ -136,6 +136,44 @@ namespace Tests.Gameplay.Spawn
             Assert.NotEmpty(diagnostics.Warnings);
         }
 
+        [Fact]
+        public void TriggerNever_RecordParseFailure_RecordsErrorAndSkips_DoesNotThrow()
+        {
+            // README 判断记录 6 收边补齐：此前 TriggerNever 对 SpawnTableDef.FromRecord 解析失败
+            // 不捕获、直接向上抛出，与 ApplyForMap/Update/SpawnNow 三者"记诊断并跳过该条，不抛
+            // 异常"不一致。这里用一条 respawn_policy 非法取值的记录复现该失败——正常经
+            // SpawnTestSupport.BuildRegistry 注册 schema 时，FieldKind.Enum 会在 LoadAll 阶段
+            // 就拦截非法枚举值，因此本用例故意不注册 schema（DataRegistryOptions.
+            // FailOnUnknownTable=false 时退化为 Unschematized，跳过字段级校验），模拟"数据内容
+            // 本身有问题，但绕过了加载期拦截"这一场景，直接触发 SpawnTableDef.FromRecord 内部的
+            // DataFieldException。
+            var bus = SpawnTestSupport.NewEventBus();
+            var source = new Core.Foundation.DataRegistry.InMemoryDataSource();
+            var row = SpawnTestSupport.Row("spawn.sample_bogus", "world.sample_map", "creature.sample_wolf", "bogus_policy");
+            var root = J.O(
+                ("table", J.S(SpawnSchemas.Table.Name)),
+                ("schema_version", J.N(1)),
+                ("rows", new Core.Foundation.Common.Json.JsonArray(new Core.Foundation.Common.Json.JsonValue[] { row })));
+            source.Add(SpawnSchemas.Table.Name, Core.Foundation.Common.Json.JsonWriter.Write(root));
+
+            var registry = new Core.Foundation.DataRegistry.DataRegistry(
+                source, bus, new Core.Foundation.DataRegistry.DataRegistryOptions { FailOnUnknownTable = false });
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking, string.Join("\n", report.Issues.Select(i => i.ToString())));
+
+            var world = new Core.Gameplay.WorldState.WorldState(bus);
+            var creatures = new FakeCreatureFactory(bus);
+            var expr = new FakeExprHostFactory();
+            var diagnostics = new Core.Gameplay.Spawn.InMemorySpawnDiagnostics();
+            var host = new SpawnHost(registry, world, creatures, bus, expr, new SpawnOptions(), diagnostics);
+
+            var ex = Record.Exception(() => host.TriggerNever(new Id("spawn.sample_bogus")));
+
+            Assert.Null(ex);
+            Assert.Empty(creatures.SpawnCalls);
+            Assert.NotEmpty(diagnostics.Errors);
+        }
+
         // ==== SpawnNow（缺口 14）================================================
 
         [Fact]

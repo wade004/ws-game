@@ -169,5 +169,39 @@ namespace Tests.Foundation.SimLoop
             clock.Advance(step); // 切回连续模式，继续正常产 tick。
             Assert.Equal(3, clock.TickIndex);
         }
+
+        // W2 收边补齐（A1 审计第 7 节，测试完备性缺口）：ConfigureStep 此前只被构造函数间接
+        // 覆盖（全部既有用例都用 new SimClockHost(world) 依赖构造期默认值），没有一处显式调用
+        // ConfigureStep 断言"运行期重新配置步长/补偿上限"这条路径。
+
+        [Fact]
+        public void ConfigureStep_UpdatesStepSecondsAndMaxCatchUpSteps_AffectingSubsequentAdvance()
+        {
+            var world = new WorldSim(SimLoopTestSupport.CreateBus());
+            var clock = new SimClockHost(world); // 默认 stepSeconds = 1/60，maxCatchUpSteps = 5。
+
+            clock.ConfigureStep(0.1, 2);
+
+            Assert.Equal(0.1, clock.StepSeconds);
+            Assert.Equal(2, clock.MaxCatchUpSteps);
+
+            // 运行期改配置后，Advance 的补偿行为立即按新参数生效：0.35 秒理论上要补 3.5 个
+            // 0.1 秒步长，触发新的 maxCatchUpSteps=2 上限，只补 2 个 tick。
+            var alpha = clock.Advance(0.35);
+            Assert.Equal(2, clock.TickIndex);
+            Assert.Equal(0.0, alpha, 9);
+        }
+
+        [Fact]
+        public void ConfigureStep_NonPositiveStepSeconds_ThrowsAndDoesNotChangeExistingConfig()
+        {
+            var world = new WorldSim(SimLoopTestSupport.CreateBus());
+            var clock = new SimClockHost(world);
+            var originalStep = clock.StepSeconds;
+
+            Assert.Throws<System.ArgumentException>(() => clock.ConfigureStep(0.0, 5));
+
+            Assert.Equal(originalStep, clock.StepSeconds); // 校验失败不改变既有配置。
+        }
     }
 }

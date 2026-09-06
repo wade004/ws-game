@@ -141,13 +141,11 @@ sim_loop/
    `IWorldSim` 契约的一部分，只是具体类型上的便利成员），每次 `Tick` 收到 `Discrete`
    步时记一条警告。
 
-7. **`ITurnScheduler.SubmitIntent` 的 `intent` 参数用 `object` 占位**：03 第 9 节伪代码
-   写的是 `submitIntent(actorId: Id, intent: Intent)`，但 `Intent` 这个具体数据结构
-   尚未在本仓库任何模块中定义（属于 03 第 4.2 节步骤 1"意图收集"要用到的类型，应该由
-   实现意图收集的模块定义）。既然 `ITurnScheduler` 本任务只建骨架、全部方法都抛
-   `NotSupportedException`，此处不提前发明一个可能与后续设计冲突的具体 `Intent` 类型，
-   用 `object` 占位；真正启用离散模式时应替换为届时已定义的 `Intent` 类型（这是一处
-   已知的、有意为之的简化，不是遗漏）。
+7. **`ITurnScheduler.SubmitIntent` 已改用具体 `Intent` 类型**：03 第 9 节伪代码写的是
+   `submitIntent(actorId: Id, intent: Intent)`——此前 `Intent` 数据结构尚未定义时曾用
+   `object` 占位，现已在 `contracts/Intent.cs` 定义具体类型，`ITurnScheduler.SubmitIntent`
+   签名为 `SubmitIntent(Id actorId, Intent intent)`，不再是占位签名（历史判断记录，保留
+   备查）。
 
 ## `Entity` 与实体集合
 
@@ -160,10 +158,11 @@ sim_loop/
 - `Unit`/`GameObject`/`Projectile`/`AreaTrigger`/`DroppedLoot` 等具体子类不属于本模块
   （见 05 第 1 节继承树），测试用一个内部的 `TestEntity : Entity` 子类。
 - `EntityKinds`（本模块 `contracts/EntityKinds.cs`）登记已落地子类实际使用的 `Kind`
-  取值常量：`Player`/`Creature`/`Gobj`/`Loot`（分别对应 `PlayerUnit`/`CreatureUnit`/
-  `GameObjectEntity`/`DroppedLootEntity`）。`core/`/`presentation/` 内引用这些取值一律
-  用该常量，不再手写字符串字面量；`summon`/`projectile`/`area_trigger` 三个模块尚未
-  落地对应 `Entity` 子类，暂不登记（见该类型判断记录"未使用的不发明"）。
+  取值常量：`Player`/`Creature`/`Gobj`/`Loot`/`Projectile`/`AreaTrigger`（分别对应
+  `PlayerUnit`/`CreatureUnit`/`GameObjectEntity`/`DroppedLootEntity`/`ProjectileEntity`/
+  `AreaTriggerEntity`）。`core/`/`presentation/` 内引用这些取值一律用该常量，不再手写
+  字符串字面量；仅 `summon` 一个模块仍未落地对应 `Entity` 子类（按设计复用 creature
+  模板，见 01 文档），暂不登记（见该类型判断记录"未使用的不发明"）。
 - `WorldSim` 内部用 `SortedDictionary<Id, Entity>` 保存实体集合，天然按 `Id` 序数升序
   遍历，`QueryEntities` 据此保证结果确定性排序，不需要额外排序步骤。
 - `AllocateEntityId(kind)` 按 `kind` 分别维护一个从 1 起的递增序号，产生
@@ -217,9 +216,12 @@ sim_loop/
    成员，惯例同 `WorldSim.DiagnosticsWarnings`。
 4. **`TurnScheduler` 的存档段 key `sim.turn_state` 已登记进
    [10_存档与持久化.md](../../../architecture/10_存档与持久化.md) 第 3 节固定段序（步骤 7b，
-   2026-09-05 勘误：只在离散模式有内容，连续模式为空段）**——但同 `world.dropped_loot` 等"世界
-   附属段"一样，仍不登记进 `SaveSections.KnownOrder` 这份全序数组，作为"自定义段"按 key 序数
-   排在已知段之后（`GameplayAssembly.RegisterPersistables` 接线不变）。
+   2026-09-05 勘误：只在离散模式有内容，连续模式为空段）**——W2 收边补齐（A4 审计 F2）后，
+   `sim.turn_state` 已与 `world.dropped_loot` 等四个"世界附属段"（步骤 7a）一并登记进
+   `SaveSections.KnownOrder` 这份全序数组（固定排在 7a 之后、`rng.stream_states` 之前），不再
+   是按 key 序数排序的"自定义段"——此前按序数排序会让 `sim.turn_state` 实际排在全部 7a 段之前，
+   与文档"7a 后 7b"的文字顺序不完全一致，现已消除该偏差（`GameplayAssembly.RegisterPersistables`
+   接线本身不变，只是排序依据变了）。
 5. **`found.time_model` 的 `movement_budget_rule: action_points`（以行动点计的移动预算）已
    落地**：`core/carriers/unit.MovementTickHandler` 离散分支在按 `distance` 规则（速度 ×
    `DiscreteTurnEquivalentSeconds`）算出本步会移动的距离之后，`action_points` 规则额外叠加一层

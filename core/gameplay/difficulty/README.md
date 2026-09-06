@@ -56,10 +56,12 @@ difficulty/
    `DifficultyHost.GlobalScopeId`（`"diff.scope.global"`）表示全局作用域，`DifficultyScope.Map`
    时取实际 `mapId`，二者统一用 `Id` 承载（Expr 无联合类型）。
 
-5. **存档段 `world.difficulty`（`DifficultyHost.SectionKeyValue`）不在 `SaveSections` 登记表**：
-   10 文档未给难度状态分配固定段 key，`IPersistable.SectionKey` 允许任意非空字符串（惯例同
-   `core/gameplay/loot.DroppedLootPersistable`/`economy.VendorStockPersistable`），本模块直接用
-   字面量，不触碰 `SaveSections`。落盘内容：`CurrentTier`/`CurrentScope`/`CurrentMapId` 三元组；
+5. **存档段 `world.difficulty`（`DifficultyHost.SectionKeyValue`）现已登记进 `SaveSections`
+   （W2 收边补齐，A4 审计 F2）**：10 文档给该段分配的固定位置是第 3 节步骤 7a（世界附属段），
+   本模块自身仍直接用字面量 `"world.difficulty"` 作为 `IPersistable.SectionKey`（不新增对
+   `core/foundation/save_system` 的编译期依赖），但 `SaveSections.KnownOrder` 现已把这个字符串
+   值登记为 `SaveSections.WorldDifficulty` 常量，固定其相对于其余已知段的排序位置（不再按 key
+   序数排在全部已知段之后）。落盘内容：`CurrentTier`/`CurrentScope`/`CurrentMapId` 三元组；
    读档不重放 `difficulty.applied`（同 `WorldState`/`SpawnHost` 判断记录"读档不是一次业务事件"）。
 
 6. **`diff.tier.modifier_aura_refs`/`affix_pool_ref` 用 `FieldKind.IdList`/`FieldKind.Id` 而非
@@ -72,4 +74,6 @@ difficulty/
 - 不实现词缀池（`affix_pool_ref`）的具体生成规则——本版只登记挂载点，不解析、不应用。
 - 不提供把 `IDataRegistryView` 里的 `diff.tier` 列表转换成 UI 选项（关卡入场难度选择界面）的代码，
   那是表现层/游戏层的事。
-- 不做离散战斗模式（`combat_mode_override`）相关的任何难度联动——本项目未启用离散模式（ADR-0013）。
+- 不做离散战斗模式（`combat_mode_override`）相关的任何难度联动——ADR-0013 离散时间模型现已接线
+  （见 `core/gameplay/encounter/README.md`/`GameplayAssembly` 判断记录），但本模块（难度档位）
+  与该覆盖字段没有交集，08/06 文档均未要求二者联动，不是遗留限制。

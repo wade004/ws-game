@@ -11,7 +11,7 @@
 不负责什么：
 
 - 不知道任何具体游戏系统的字段含义（`self.hp_pct` 的 `hp_pct` 具体怎么算，是宿主的事）。
-- 不做数据表加载、schema 迁移、引用完整性校验，那是 `DataRegistry`（本阶段尚未创建）的职责；
+- 不做数据表加载、schema 迁移、引用完整性校验，那是 `DataRegistry`（`core/foundation/data_registry`）的职责；
   本模块只保证"给定一段 Expr 文本，能否解析、能否通过静态类型校验、给定宿主如何求值"。
 - 不引入第二种语法或任何脚本引擎：纯手写词法 + 递归下降语法分析，无反射、无
   `System.Linq.Expressions`、无 Roslyn/CodeDom、无多线程、无系统时钟依赖。

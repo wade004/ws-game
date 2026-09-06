@@ -46,9 +46,9 @@ namespace Core.Gameplay.Encounter
                 new FieldSchema("defeat_condition", FieldKind.Expr, required: true),
                 RewardSchemaFields.Rewards(),
                 new FieldSchema("combat_mode_override", FieldKind.Enum, required: false, enumValues: CombatModeValues,
-                    description: "覆盖场景默认 combat_time_model，仅本遭遇生效；本项目离散模式未启用，只登记不使用"),
+                    description: "覆盖场景默认 combat_time_model，仅本遭遇生效；由 GameplayAssembly/TimeModelSwitch 在离散模式下真实执行"),
                 new FieldSchema("initiative_override", FieldKind.Object, required: false,
-                    description: "{policy, params}，同上只登记不使用"),
+                    description: "{policy, params}，同上由 GameplayAssembly/TimeModelSwitch 真实执行"),
             });
 
         public static readonly TableSchema Level = new TableSchema(

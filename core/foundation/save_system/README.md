@@ -81,9 +81,15 @@ save_system/
 `world_state_flags` → `player.progression` → `player.archetype` → `player.inventory` →
 `player.equipment` → `player.known_skills` → `player.skill_bindings` → `player.quest_state` →
 `player.achievement_state` → `player.currencies` → `world.current_map_id` →
-`world.current_position` → `rng.stream_states`）。写入与读取都按该顺序处理已注册/已存在的段；
-**未列入 `KnownOrder` 的自定义段在这些段之后，按其 key 的序数（ordinal, `StringComparer.Ordinal`）
-排序处理**——测试 `Load_CallsPersistablesInSaveSectionsOrder_CustomSectionsLast` 验证。
+`world.current_position` → `world.dropped_loot` → `world.vendor_stock` → `world.difficulty` →
+`spawn_state`（以上四段为 10 第 3 节步骤 7a"世界附属段"）→ `sim.turn_state`（步骤 7b，
+ADR-0013 离散时间模型，只在装配了离散模式时有内容）→ `rng.stream_states`）。写入与读取都按
+该顺序处理已注册/已存在的段；**未列入 `KnownOrder` 的自定义段在这些段之后，按其 key 的序数
+（ordinal, `StringComparer.Ordinal`）排序处理**——测试
+`Load_CallsPersistablesInSaveSectionsOrder_CustomSectionsLast` 验证。（W2 收边补齐：上述 7a/7b
+五个段此前未登记进 `KnownOrder`，落入自定义段分支按 key 序数排序，导致 `sim.turn_state` 实际
+排在全部 7a 段之前，与 10 文档"7a 后 7b"的文字顺序不完全一致，见 A4 审计 F2；现已登记，顺序
+与文档一致。）
 
 `meta` 段永远由 `SaveSystem` 自己读写，不经 `IPersistable`：`RegisterPersistable` 对
 `SectionKey == "meta"` 直接抛 `ArgumentException`。

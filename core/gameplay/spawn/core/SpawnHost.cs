@@ -280,7 +280,25 @@ namespace Core.Gameplay.Spawn
         {
             var record = _data.Get(SpawnSchemas.Table.Name, spawnId)
                 ?? throw new ArgumentException($"未知的刷新点：\"{spawnId}\"", nameof(spawnId));
-            var def = SpawnTableDef.FromRecord(record);
+
+            // README 判断记录 6（W2 收边补齐）：此前本方法对 SpawnTableDef.FromRecord 解析失败
+            // 不捕获、直接向上抛出，与 ApplyForMap/Update/SpawnNow 三者"记诊断并跳过该条，不抛
+            // 异常"的一贯处理方式不一致（11 第 4 节错误处理约定：数据解析失败按诊断降级，不假设
+            // 调用方能处理异常）。"未知 spawnId"（上面的 ArgumentException）与"记录存在但字段
+            // 非法"是两类不同性质的失败——前者是调用方传参错误，后者是数据内容问题——统一改动
+            // 只覆盖后者，不改变前者的既有契约（ISpawnHost.SpawnNow 的文档注释仍以"去掉未知 id
+            // 抛异常"这一点对比二者，该对比继续成立）。
+            SpawnTableDef def;
+            try
+            {
+                def = SpawnTableDef.FromRecord(record);
+            }
+            catch (DataFieldException ex)
+            {
+                _diagnostics.Error($"TriggerNever：刷新点 \"{spawnId}\" 解析失败，已跳过：{ex.Message}");
+                return;
+            }
+
             var runtime = GetOrCreateRuntime(spawnId);
 
             TrySpawnGuarded(def, runtime, "TriggerNever");

@@ -344,6 +344,47 @@ namespace Tests.Gameplay
         }
 
         // -----------------------------------------------------------------
+        // 9.5 W2 收边补齐（A4 审计 F1）：player.progression/player.archetype 此前完全未持久化，
+        //     任何存档→读档后玩家等级/经验/职业模板引用都会丢失。GameplayAssembly.RegisterPersistables
+        //     现已注册 ProgressionPersistable.For(...)/UnitPersistable.ArchetypeId(...) 两段，
+        //     本用例验证升级后存档→读档能恢复等级、当前经验与职业引用。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void SaveThenLoad_AfterLevelUp_RestoresProgressionAndArchetype()
+        {
+            var fs = new StubFileSystem();
+            var fxA = GameWorldFixture.Build(fileSystem: fs);
+
+            // data/_sample/prog/prog.level_curve.json：prog.curve.sample 第 1 级 xp_to_next=100，
+            // 第 2 级 xp_to_next=200，满级 3。灌 150 点经验：跨 1 级，停在 2 级、级内剩余 50 经验。
+            fxA.Gameplay.Carriers.Rules.Progression.AddXp(GameWorldFixture.PlayerId, new Id("test.e2e_xp"), 150);
+            Assert.Equal(2, fxA.Gameplay.Carriers.Rules.Progression.GetLevel(GameWorldFixture.PlayerId));
+            Assert.Equal(50, fxA.Gameplay.Carriers.Rules.Progression.GetXp(GameWorldFixture.PlayerId));
+
+            // 职业引用改成与新装配默认值不同的一个 Id，避免"读档前后恰好相同"造成假阳性断言。
+            var overriddenArchetype = new Id("arch.class.e2e_overridden");
+            var player = fxA.Player;
+            player.ArchetypeId = overriddenArchetype;
+            player.MapId = GameWorldFixture.MapId;
+
+            fxA.Gameplay.RegisterPersistables(fxA.SaveSystem, player);
+            var saveResult = fxA.SaveSystem.Save(new Core.Foundation.SaveSystem.SaveRequest(GameWorldFixture.SaveSlot, "2026-09-07T00:00:00Z"));
+            Assert.True(saveResult.Success, saveResult.Message);
+
+            var fxB = GameWorldFixture.Build(fileSystem: fs);
+            var playerB = fxB.Player;
+            fxB.Gameplay.RegisterPersistables(fxB.SaveSystem, playerB);
+
+            var loadResult = fxB.SaveSystem.Load(GameWorldFixture.SaveSlot);
+            Assert.Equal(Core.Foundation.SaveSystem.LoadStatus.Loaded, loadResult.Status);
+
+            Assert.Equal(2, fxB.Gameplay.Carriers.Rules.Progression.GetLevel(GameWorldFixture.PlayerId));
+            Assert.Equal(50, fxB.Gameplay.Carriers.Rules.Progression.GetXp(GameWorldFixture.PlayerId));
+            Assert.Equal(overriddenArchetype, playerB.ArchetypeId);
+        }
+
+        // -----------------------------------------------------------------
         // 10. 缺口 16：save_point 交互经 GobjOptions.SaveRequester → GameplayAssembly.SaveSystem
         //     触发一次自动存档（此前 SaveRequester 是 "_ => { }" 占位，交互不产生任何副作用；
         //     GameplayAssembly.cs 第 16 步判断记录）。
@@ -441,6 +482,41 @@ namespace Tests.Gameplay
             Assert.False(fx.Gameplay.SaveSystem.SlotExists(autosaveSlotId),
                 "AutoSave.OnSavePoint=false 时，dialog.sample_hunter 的 save 选项不应经 DialogHost.saveRequested " +
                 "触发 GameplayAssembly.SaveSystem.Save（见 GameplayAssembly.RequestAutosave 判断记录）");
+        }
+
+        // -----------------------------------------------------------------
+        // W2b 收边补齐：GameplayAssembly.InterpolationAlpha（插值系数暴露，连续模式一半）——
+        // 离散模式恒 1.0 的用例见 core/gameplay/tests/Discrete/GameplayAssemblyDiscreteWiringTests.cs
+        // 的 DiscreteMode_InterpolationAlpha_IsAlwaysOne。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Advance_ContinuousMode_InterpolationAlpha_TracksAccumulatorAcrossSteps()
+        {
+            // enableDiscreteTimeModel: true 只是为了把 clockHost 真正接给 GameplayAssembly
+            // （不传 clockHost 时 Advance 恒抛异常）——data/_sample 的 found.time_model.combat
+            // 默认 continuous（见 GameWorldFixture.Build 判断记录），本用例全程不触发任何战斗，
+            // TimeModelSwitch 恒保持连续模式，不受影响。
+            var fx = GameWorldFixture.Build(enableDiscreteTimeModel: true);
+            const double stepSeconds = GameWorldFixture.StepSeconds; // 0.5
+
+            // 半步：累积器未达一个步长，不产生 tick（SimClockHost.Advance 判断记录第 4 步），
+            // alpha = accumulator / stepSeconds 应严格落在 (0,1) 开区间内。
+            fx.Gameplay.Advance(stepSeconds / 2.0);
+            Assert.True(
+                fx.Gameplay.InterpolationAlpha > 0.0 && fx.Gameplay.InterpolationAlpha < 1.0,
+                $"半步后 alpha 应严格落在 (0,1)，实际 {fx.Gameplay.InterpolationAlpha}");
+
+            // 再推进半步、凑满一个整步：累积器扣减归零（SimClockHost.Advance 判断记录第 5 步
+            // "返回 accumulator / stepSeconds"，本次调用属于正常整步消耗，不触发"清零而非取模"
+            // 那条超出 MaxCatchUpSteps 上限时才会走到的丢弃分支），alpha 回到 0——以
+            // SimClockHost.Advance 的既有实现语义为准。
+            fx.Gameplay.Advance(stepSeconds / 2.0);
+            Assert.Equal(0.0, fx.Gameplay.InterpolationAlpha);
+
+            Assert.Equal(
+                Core.Foundation.SimLoop.TimeModelMode.Continuous,
+                fx.Gameplay.TimeModelSwitch!.CurrentMode);
         }
     }
 }

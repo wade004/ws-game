@@ -17,7 +17,7 @@
   `IRngHost.Next`/`NextInt` 自行组合的职责；本模块只提供分流的底层数值随机源。
 - 不做存档文件的读写，只提供 `RngStreamState` 这个可被存档系统序列化的值类型与
   `getStreamState`/`setStreamState` 两个契约方法；持久化格式与时机是
-  `core/foundation/save_system`（本阶段尚未创建）的职责。
+  `core/foundation/save_system` 的职责。
 - 不使用任何系统级非确定随机源、系统挂钟时间、`string.GetHashCode()`（.NET Core 下逐进程
   随机化）、多线程或锁——全架构要求核心模拟可确定性复现，见
   [00_架构总则.md](../../../architecture/00_架构总则.md)。

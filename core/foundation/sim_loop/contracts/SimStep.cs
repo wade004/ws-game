@@ -5,10 +5,10 @@ namespace Core.Foundation.SimLoop
 {
     /// <summary>
     /// 模拟步的"种类"：<see cref="Continuous"/> 携带经过的秒数，<see cref="Discrete"/>
-    /// 携带当前行动者与阶段（见 03_运行时骨架.md 第 3、9 节）。离散模式本项目暂不启用
-    /// （见 ADR-0013、落地方案与分阶段计划.md T1-5 禁止事项），但 <see cref="SimStep"/> 类型
-    /// 本身、<see cref="WorldSim.Tick"/> 对 Discrete 步的八步编排仍按文档要求提供，
-    /// 只是不会有真实产出 Discrete 步的调度器。
+    /// 携带当前行动者与阶段（见 03_运行时骨架.md 第 3、9 节）。ADR-0013 离散时间模型现已接线：
+    /// <see cref="Core.Foundation.SimLoop.TurnScheduler"/> 是真实产出 <see cref="Discrete"/> 步的
+    /// 调度器，<see cref="WorldSim.Tick"/> 对 Discrete 步的八步编排是其真实消费方，不再是"仅按
+    /// 文档要求提供、暂无调用方"的占位形态。
     /// </summary>
     public enum SimStepKind
     {

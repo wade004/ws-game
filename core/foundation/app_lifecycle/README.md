@@ -22,8 +22,9 @@ InWorld 下可操作，进入/离开 InWorld 分别自动置顶/清空栈）、"
 
 - 不定义 InWorld 之外的其它复合状态：主状态只有 `Boot`/`MainMenu`/`Loading`/`InWorld`/
   `Pause` 五个，`InWorld` 内的 `awaiting_input`/`playing_back` 两个仅离散时间模型下出现的
-  附加子态属于 `sim_loop` 模块管辖（该模块 T1-5 已声明本项目暂不启用离散模式），本模块不
-  建模它们（见 `contracts/InWorldSubState.cs` 注释）。
+  附加子态由 `sim_loop` 模块的 `TurnScheduler`/`PacingPolicy` 驱动（ADR-0013 现已接线），
+  经 `AppStateMachineConfig.AddCustomSubState` 自定义子状态扩展点登记，本模块不把它们收进
+  `InWorldSubState` 枚举本身（见 `contracts/InWorldSubState.cs` 注释）。
 - 不实现"退出应用"的具体行为（关闭窗口、保存设置等）：`RequestExit` 只记录
   `IsExitRequested` 标志位，触发后续动作属于游戏外壳 Shell（L5）的职责。
 - 不读取 `found.game_state` 数据文件：本模块拥有该表的字段说明（见

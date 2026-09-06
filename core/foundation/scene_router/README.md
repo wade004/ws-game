@@ -83,16 +83,12 @@ scene_router/
 3. **加载失败路径：不新增事件，记诊断 + 状态回落 Idle + 尝试 `RequestTransition(MainMenu)`**：
    `found.event_catalog.json` 未登记 `scene.load_failed`，新增事件需要走 12 的扩展流程，不
    是本任务能单方面拍板新增的。任务书据此明确改为"记诊断、状态回到 Idle、
-   `app.RequestTransition(MainMenu)`"。**已知缺口**：`AppStateMachineConfig.Default()`
-   （`app_lifecycle` 模块，不在本任务允许改动范围）目前没有登记 `Loading→MainMenu` 这条
-   转移（默认表只有 Boot→MainMenu、MainMenu→Loading、Loading→InWorld、
-   InWorld→{Pause,MainMenu,Loading}、Pause→{InWorld,MainMenu}）——也就是说按默认配置调用
-   加载失败路径时，`RequestTransition(MainMenu)` 会返回 false（`AppStateHost` 内部记一条
-   诊断警告，`SceneRouter` 不重复报错），应用状态机会卡在 Loading，直到调用方走别的路径
-   离开。调用方如果需要"加载失败后真的能回到主菜单"这个功能生效，需要自行在装配期对传入
-   `SceneRouter` 的 `IAppStateHost` 所用 `AppStateMachineConfig` 追加
-   `AllowTransition(AppState.Loading, AppState.MainMenu)`（本模块测试即如此配置）。供设计层
-   复核是否应该把这条转移补进 `AppStateMachineConfig.Default()`。
+   `app.RequestTransition(MainMenu)`"。**已知缺口已解决**：`AppStateMachineConfig.Default()`
+   （`app_lifecycle` 模块）T1-9 收尾修正已补上 `AllowTransition(AppState.Loading,
+   AppState.MainMenu)` 这条转移（默认表现为 Boot→MainMenu、MainMenu→Loading、
+   Loading→{InWorld,MainMenu}、InWorld→{Pause,MainMenu,Loading}、Pause→{InWorld,MainMenu}）
+   ——按默认配置调用加载失败路径时，`RequestTransition(MainMenu)` 现在可以正常返回 true，
+   应用状态机不会再卡在 Loading。
 
 4. **资源种类映射：已由 ADR-0016 解决**：`scene_ref`/`nav_ref` 此前都借用
    `ResourceKind.DataTable`（`IResourceLoader.LoadAsync` 当时只有 `Image|Audio|Font|DataTable`
