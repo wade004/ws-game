@@ -210,6 +210,15 @@ def render(rows: list[EventRow], namespace: str, catalog_rel: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows 控制台默认代码页通常不是 UTF-8，输出里的中文文本会因此乱码；显式把标准
+    # 输出/标准错误 reconfigure 成 UTF-8，惯例同 toolchain/validate_data.py。某些非交互式
+    # 重定向目标可能不支持 reconfigure，失败时静默保留原编码，不影响生成逻辑本身。
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, OSError):
+            pass
+
     parser = argparse.ArgumentParser(
         description="从事件词汇登记表生成 C# 事件 key 常量（EventKeys.g.cs）"
     )

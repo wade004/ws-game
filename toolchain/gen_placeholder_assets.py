@@ -1142,6 +1142,15 @@ def run_generate(out: Path, seed: int, clean: bool = False) -> int:
 
 
 def main():
+    # Windows 控制台默认代码页通常不是 UTF-8，输出里的中文文本会因此乱码；显式把标准
+    # 输出/标准错误 reconfigure 成 UTF-8，惯例同 toolchain/validate_data.py。某些非交互式
+    # 重定向目标可能不支持 reconfigure，失败时静默保留原编码，不影响生成逻辑本身。
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, OSError):
+            pass
+
     parser = argparse.ArgumentParser(description="生成/校验框架级通用占位资产包")
     parser.add_argument("--out", default="assets/_placeholder", help="输出目录（默认 assets/_placeholder）")
     parser.add_argument("--seed", type=int, default=1, help="确定性种子（默认 1）")

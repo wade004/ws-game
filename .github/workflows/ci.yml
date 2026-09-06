@@ -24,6 +24,14 @@ on:
 jobs:
   check:
     runs-on: windows-latest
+    # 判断记录：windows-latest 运行器上 Python 进程的 stdout/stderr 被 Tee-Object 管道
+    # 接管后默认代码页不是 UTF-8，toolchain 下多个脚本用 print 输出中文会触发
+    # UnicodeEncodeError（`'charmap' codec can't encode characters`）而整步失败。多数脚本
+    # 已在各自 main() 里显式 reconfigure(encoding="utf-8")，但 `python -m pytest` 等入口
+    # 无法逐个改代码；PYTHONUTF8=1 在作业级兜底，强制该 Python 解释器全程使用 UTF-8 模式
+    # （PEP 540），覆盖所有子进程，不依赖单个脚本是否已修复。
+    env:
+      PYTHONUTF8: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
