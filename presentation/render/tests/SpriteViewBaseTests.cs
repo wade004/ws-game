@@ -20,8 +20,9 @@ namespace Tests.PresentationRender
         public TestSpriteView(
             IRenderer2D renderer, IRenderConventionHost conventions, DisplayInfo displayInfo,
             RenderOptions? options = null, IResourceLoader? resourceLoader = null,
-            IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId = null)
-            : base(renderer, conventions, displayInfo, options, resourceLoader, equipVisualByItemInstanceId)
+            IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId = null,
+            IFrameAnimPlayer? frameAnimPlayer = null)
+            : base(renderer, conventions, displayInfo, options, resourceLoader, equipVisualByItemInstanceId, frameAnimPlayer)
         {
         }
 
@@ -287,6 +288,39 @@ namespace Tests.PresentationRender
             Assert.Equal(2, layers.Count);
             Assert.Equal(new Id("layer.creature_hero__front__body"), layers[0]);
             Assert.Equal(new Id("layer.creature_hero__front__hand_main"), layers[1]);
+        }
+
+        /// <summary>W3b 判断记录 2 收口配套用例：构造期注入的 <see cref="IFrameAnimPlayer"/> 经
+        /// <see cref="SpriteViewBase"/> 转交内部 <c>Rig</c>，<c>Rig.PlayClip</c> 不再是结构性 no-op
+        /// （见该类型构造函数 <c>frameAnimPlayer</c> 参数判断记录）。</summary>
+        [Fact]
+        public void Construct_WithFrameAnimPlayer_RigPlayClipForwardsToIt()
+        {
+            var renderer = new StubRenderer2D();
+            var clipId = new Id("anim.sample_attack");
+            var player = new FrameAnimPlayer(new Dictionary<Id, FrameAnimClip> { [clipId] = new FrameAnimClip(clipId, 4, 4.0) });
+            var view = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo(), frameAnimPlayer: player);
+
+            view.Rig.PlayClip(clipId, loop: true, speed: 2.0);
+
+            Assert.Equal(clipId, player.CurrentClipId);
+        }
+
+        /// <summary>配套用例：构造期未注入时，<see cref="SpriteViewBase.AttachFrameAnimPlayer"/> 允许
+        /// 之后再补一个 <see cref="IFrameAnimPlayer"/>，同 <see cref="SpriteCharacterRig.AttachFrameAnimPlayer"/>
+        /// 判断记录"精灵根节点天然晚于构造"的典型调用方（如 <c>UnitySpriteView</c>）。</summary>
+        [Fact]
+        public void AttachFrameAnimPlayer_PostConstruction_RigPlayClipForwardsToIt()
+        {
+            var renderer = new StubRenderer2D();
+            var clipId = new Id("anim.sample_attack");
+            var player = new FrameAnimPlayer(new Dictionary<Id, FrameAnimClip> { [clipId] = new FrameAnimClip(clipId, 4, 4.0) });
+            var view = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo());
+
+            view.AttachFrameAnimPlayer(player);
+            view.Rig.PlayClip(clipId, loop: true, speed: 2.0);
+
+            Assert.Equal(clipId, player.CurrentClipId);
         }
     }
 }

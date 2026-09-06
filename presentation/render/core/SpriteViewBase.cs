@@ -85,14 +85,25 @@ namespace Presentation.Render
         /// 每个新解析出的纸娃娃层资源 id，均以 <see cref="ResourceKind.Image"/> 触发一次
         /// <see cref="IResourceLoader.LoadAsync"/>（ADR-0016 决策 6："谁首次引用谁加载"）。
         /// <paramref name="equipVisualByItemInstanceId"/> 可选（缺口 10，见 <see cref="OnEvent"/>
-        /// 判断记录）。</summary>
+        /// 判断记录）。
+        /// <para>
+        /// 判断记录（W3b 判断记录 2 收口，<paramref name="frameAnimPlayer"/>）：构造期已经拿得到具体
+        /// <see cref="IFrameAnimPlayer"/> 实现（如引擎无关测试用内存实现）的调用方可以直接经本参数
+        /// 注入，随 <see cref="Options"/> 一并转交内部 <see cref="SpriteCharacterRig"/>，使
+        /// <see cref="ICharacterRig.PlayClip"/>/命中帧同步不再是结构性 no-op（此前本构造函数固定省略
+        /// 这两项去构造 <see cref="SpriteCharacterRig"/>，见该类型历史版本）；构造期还拿不到具体实现
+        /// （常见于引擎侧实现是"挂在精灵根节点上的组件"，根节点要等本构造函数跑完才能被定位到，见
+        /// <see cref="SpriteCharacterRig.AttachFrameAnimPlayer"/> 判断记录）的调用方改用
+        /// <see cref="AttachFrameAnimPlayer"/> 在拿到之后补接线，两条路径共用同一套接线逻辑。</para>
+        /// </summary>
         protected SpriteViewBase(
             IRenderer2D renderer,
             IRenderConventionHost conventions,
             DisplayInfo displayInfo,
             RenderOptions? options = null,
             IResourceLoader? resourceLoader = null,
-            IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId = null)
+            IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId = null,
+            IFrameAnimPlayer? frameAnimPlayer = null)
         {
             Renderer = renderer ?? throw new ArgumentNullException(nameof(renderer));
             Conventions = conventions ?? throw new ArgumentNullException(nameof(conventions));
@@ -113,7 +124,7 @@ namespace Presentation.Render
             var spriteSetId = Id.Parse(DisplayInfo.Sprite.SpriteSetId);
             _resourceTracker?.EnsureLoading(spriteSetId, ResourceKind.Image);
             Handle = Renderer.CreateSpriteInstance(spriteSetId);
-            _rig = new SpriteCharacterRig(default, Renderer, Handle, Conventions, DisplayInfo, _resourceTracker);
+            _rig = new SpriteCharacterRig(default, Renderer, Handle, Conventions, DisplayInfo, _resourceTracker, frameAnimPlayer, Options);
         }
 
         public virtual void Bind(Id entityId)
@@ -122,6 +133,11 @@ namespace Presentation.Render
             _rig.Bind(entityId);
             IsAlive = true;
         }
+
+        /// <summary>见构造函数 <c>frameAnimPlayer</c> 参数判断记录：转发到
+        /// <see cref="SpriteCharacterRig.AttachFrameAnimPlayer"/>，供构造期还拿不到具体
+        /// <see cref="IFrameAnimPlayer"/> 实现的具体游戏/引擎侧 View 子类在拿到之后补接线。</summary>
+        public void AttachFrameAnimPlayer(IFrameAnimPlayer player) => _rig.AttachFrameAnimPlayer(player);
 
         /// <summary>
         /// 缺口 10 默认处理 <c>item.equipped</c>/<c>item.unequipped</c>（见类型注释）；其余事件类型

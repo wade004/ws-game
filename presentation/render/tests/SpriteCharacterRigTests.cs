@@ -209,5 +209,45 @@ namespace Tests.PresentationRender
 
             Assert.Equal(new Id("unit.hero_1"), firedFor);
         }
+
+        /// <summary>W3b 判断记录 2 收口配套用例：<see cref="SpriteCharacterRig.AttachFrameAnimPlayer"/>
+        /// 允许在构造之后再补一个 <see cref="IFrameAnimPlayer"/>，验证 <see cref="ICharacterRig.PlayClip"/>
+        /// 不再要求构造期就拿到具体实现（见该方法判断记录"精灵根节点天然晚于 rig 构造"）。</summary>
+        [Fact]
+        public void AttachFrameAnimPlayer_PostConstruction_PlayClipForwardsToIt()
+        {
+            var renderer = new StubRenderer2D();
+            var handle = renderer.CreateSpriteInstance(new Id("sprite.creature.hero"));
+            var clipId = new Id("anim.sample_attack");
+            var player = new FrameAnimPlayer(new Dictionary<Id, FrameAnimClip> { [clipId] = new FrameAnimClip(clipId, 4, 4.0) });
+            var rig = MakeRig(renderer, handle);
+
+            // 构造期未注入 frameAnimPlayer：此时 PlayClip 仍是静默无操作（同 PlayClip_NoFrameAnimPlayerInjected_DoesNotThrow）。
+            rig.AttachFrameAnimPlayer(player);
+            rig.PlayClip(clipId, loop: true, speed: 2.0);
+
+            Assert.Equal(clipId, player.CurrentClipId);
+        }
+
+        /// <summary>配套用例：补接线之后，<see cref="HitFrameSyncStrategy.AnimKeyframeDriven"/> 策略下的
+        /// 命中帧同步同样生效，不要求 <see cref="IFrameAnimPlayer"/> 在构造期就已就绪。</summary>
+        [Fact]
+        public void AttachFrameAnimPlayer_PostConstruction_AnimKeyframeDriven_FiresHitFrameReached()
+        {
+            var renderer = new StubRenderer2D();
+            var handle = renderer.CreateSpriteInstance(new Id("sprite.creature.hero"));
+            var clipId = new Id("anim.sample_attack");
+            var keyframes = new Dictionary<string, int> { [FrameAnimClip.HitFrameMarker] = 1 };
+            var player = new FrameAnimPlayer(new Dictionary<Id, FrameAnimClip> { [clipId] = new FrameAnimClip(clipId, 4, 4.0, keyframes) });
+            var rig = MakeRig(renderer, handle, options: new RenderOptions { HitFrameSync = HitFrameSyncStrategy.AnimKeyframeDriven });
+            Id? firedFor = null;
+            rig.HitFrameReached += id => firedFor = id;
+
+            rig.AttachFrameAnimPlayer(player);
+            rig.PlayClip(clipId);
+            player.Update(0.25); // 第 1 帧。
+
+            Assert.Equal(new Id("unit.hero_1"), firedFor);
+        }
     }
 }

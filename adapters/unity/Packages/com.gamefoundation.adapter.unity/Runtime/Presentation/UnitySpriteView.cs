@@ -38,11 +38,6 @@ namespace Adapter.Unity.Presentation
         private Direction? _lastFacing;
         private bool _layersInitialized;
 
-        /// <summary>见 <see cref="AttachFrameAnimPlayer"/> 判断记录：<see cref="SpriteViewBase"/>
-        /// 构造期未把任何 <see cref="IFrameAnimPlayer"/> 转交给内部 <c>Rig</c>（见该类型构造函数），
-        /// <c>Rig.PlayClip</c> 因此结构性 no-op；本类型自己持有一份、自己转发，绕开这个结构性缺口。</summary>
-        private IFrameAnimPlayer? _frameAnimPlayer;
-
         // 八个程序动画原语里 Move/Rotate/Scale/Stagger/Topple 五个需要叠加到每帧的 Transform 上
         // （Flash/Fade 已经有独立通道——Flash 经 SpriteCharacterRig 直接接 flash_intensity，
         // Fade 经本类型新增的 fade_alpha，两者都不需要经过 Transform；Trail 走 TrailRenderer，
@@ -60,33 +55,27 @@ namespace Adapter.Unity.Presentation
             IRenderConventionHost conventions,
             Core.Foundation.DisplayInfo.DisplayInfo displayInfo,
             IResourceLoader resourceLoader,
-            RenderOptions? options = null)
-            : base(renderer, conventions, displayInfo, options, resourceLoader)
+            RenderOptions? options = null,
+            IFrameAnimPlayer? frameAnimPlayer = null)
+            : base(renderer, conventions, displayInfo, options, resourceLoader, frameAnimPlayer: frameAnimPlayer)
         {
         }
 
-        /// <summary>供组装/引导代码在拿到本 View 之后注入一个具体的 <see cref="IFrameAnimPlayer"/>
-        /// 实现（通常是同一个精灵实例下挂的 <see cref="UnityFrameAnimPlayer"/> 组件）。
-        /// <para>
-        /// 判断记录（为什么不经 <c>Rig</c> 注入，而是本类型另开一条通路）：
-        /// <see cref="Presentation.Render.SpriteViewBase"/> 构造函数把
-        /// <c>frameAnimPlayer</c>/<c>RenderOptions</c> 两个参数固定省略（恒传 null/默认）
-        /// 地构造内部 <c>SpriteCharacterRig</c>（见该类型源码 <c>_rig = new SpriteCharacterRig(default,
-        /// Renderer, Handle, Conventions, DisplayInfo, _resourceTracker)</c> 一行，只传六个参数）——
-        /// presentation/ 不在本任务允许改动范围（见任务书写入范围），本类型因此无法让
-        /// <c>Rig.PlayClip</c>/<c>Rig</c> 的命中帧同步经 <see cref="IFrameAnimPlayer"/> 真正工作。
-        /// <see cref="PlayClip"/> 改为本类型自己持有并直接转发，是在这条结构性限制下能给出的最小
-        /// 可用形状；<see cref="Presentation.Render.ICharacterRig.ProceduralAnim"/>（八个程序动画
-        /// 原语）不受影响——那条通路的 <c>Renderer</c>/<c>Handle</c> 两个参数在 <c>SpriteViewBase</c>
-        /// 构造函数里正常传递，见 <see cref="SyncPose"/> 判断记录。
-        /// </para>
+        /// <summary>
+        /// 判断记录（W3b 判断记录 2 收口——曾经的"另开通路"绕过已撤销）：本类型此前自己持有一份
+        /// <c>_frameAnimPlayer</c> 字段、自己实现 <c>AttachFrameAnimPlayer</c>/<c>PlayClip</c>，原因是
+        /// <see cref="Presentation.Render.SpriteViewBase"/> 构造函数曾固定省略
+        /// <c>frameAnimPlayer</c>/<c>RenderOptions</c> 两个参数去构造内部 <c>SpriteCharacterRig</c>，
+        /// 导致 <c>Rig.PlayClip</c>/命中帧同步结构性 no-op。<see cref="SpriteViewBase"/> 现已支持
+        /// 构造期注入（构造函数新增的 <c>frameAnimPlayer</c> 可选参数，见该类型构造函数判断记录）与
+        /// 构造后补接线（<see cref="SpriteViewBase.AttachFrameAnimPlayer"/>），本类型改为
+        /// 经这两条路径统一走 <c>Rig</c>：构造函数把可选的 <paramref name="frameAnimPlayer"/> 直接转交
+        /// 基类；拿不到（组装代码需要先定位到 <see cref="EngineHandle"/> 对应的精灵根节点才能挂载
+        /// <see cref="UnityFrameAnimPlayer"/> 组件，天然晚于构造）的调用方改调本类型继承自基类的
+        /// <c>AttachFrameAnimPlayer</c> 方法补接线（未重写，直接沿用基类实现）。<see cref="PlayClip"/>
+        /// 保留为本类型的便捷转发（改经 <c>Rig.PlayClip</c>），调用方无需改写既有调用形状。
         /// </summary>
-        public void AttachFrameAnimPlayer(IFrameAnimPlayer player) => _frameAnimPlayer = player;
-
-        /// <summary>播放一个已解析好的具体动画剪辑（见 <see cref="AttachFrameAnimPlayer"/> 判断
-        /// 记录）；未注入 <see cref="IFrameAnimPlayer"/> 时静默跳过，语义同
-        /// <see cref="Presentation.Render.ICharacterRig.PlayClip"/> 文档"未注入时静默跳过"。</summary>
-        public void PlayClip(Id clipId, bool loop = false, double speed = 1.0) => _frameAnimPlayer?.Play(clipId, loop, speed);
+        public void PlayClip(Id clipId, bool loop = false, double speed = 1.0) => Rig.PlayClip(clipId, loop, speed);
 
         /// <summary>本 View 挂接的引擎侧精灵句柄，供 <c>UnityViewFactory</c> 一类同属引擎适配层的
         /// 协作代码取用（如定位精灵根节点挂载 <see cref="UnityFrameAnimPlayer"/>/
