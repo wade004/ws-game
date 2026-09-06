@@ -114,7 +114,13 @@ namespace Adapter.Unity.Shell
         public FloatingTextReceiver FloatingText { get; private set; } = null!;
         public FreezeFrameReceiver Freeze { get; private set; } = null!;
         public FlashReceiver Flash { get; private set; } = null!;
+        public RespawnFeedbackReceiver Respawn { get; private set; } = null!;
         public bool BootstrapFailed { get; private set; }
+
+        /// <summary>W3b 新增：本次 <see cref="OnFrameTick"/> 内某个表现步骤抛出的异常次数累计
+        /// （拍板 12"表现层异常隔离：OnFrameTick 内各表现步骤 try/catch 记诊断，不影响固定步"，
+        /// 见该方法判断记录）。供 PlayMode 测试断言"注入的假接收器抛异常后固定步仍照常推进"。</summary>
+        public int PresentationStepExceptionCount { get; private set; }
 
         public IDataRegistryView Registry => _registry;
 
@@ -132,7 +138,6 @@ namespace Adapter.Unity.Shell
         private PlayerUnit _player = null!;
         private Id _classId;
         private bool _worldEverEntered;
-        private double _interpAccumulator;
         private readonly System.Collections.Generic.Dictionary<string, bool> _wasActionActive =
             new System.Collections.Generic.Dictionary<string, bool>(StringComparer.Ordinal);
 
@@ -368,6 +373,9 @@ namespace Adapter.Unity.Shell
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
             Freeze = new FreezeFrameReceiver();
             Flash = new FlashReceiver(presentation.ViewBinder);
+            // W3b 新增（拍板 3/8，复活演出）：ViewBinder 已随 PresentationAssembly 构造完成，可以
+            // 立即订阅 unit.respawned（同 Flash/Freeze 两个接收器构造期即订阅的既有惯例）。
+            Respawn = new RespawnFeedbackReceiver(_bus, presentation.ViewBinder);
 
             // 判断记录：见文件顶部——玩家 IPersistable 段绑定的是本类型持有的同一个 _player 对象
             // 引用，构造期只注册一次；此后无论"新游戏"重置字段还是"读档"覆盖字段，都作用于同一份
@@ -581,7 +589,6 @@ namespace Adapter.Unity.Shell
                 return;
             }
 
-            _interpAccumulator = 0.0;
             Presentation.InputMap.Update(_host.Input);
             HandleFixedInput();
             Gameplay.Advance(stepSeconds);
@@ -616,8 +623,28 @@ namespace Adapter.Unity.Shell
             World.SubmitIntent(new Intent(PlayerId, "cast", args));
         }
 
+        /// <summary>W3b 新增（拍板 12"表现层异常隔离"）：供 PlayMode 测试注入一个会抛异常的假
+        /// 表现步骤（见 <see cref="OnFrameTick"/> 判断记录），验证"某一步骤抛异常不影响固定步与
+        /// 其余表现步骤"这一隔离效果——生产代码路径不订阅本事件，恒为 no-op。</summary>
+        public event Action<double>? ExtraPresentationStepForTests;
+
         /// <summary>由 <see cref="_frameHandle"/>（<c>host.Clock.OnFrame</c>）驱动，取代此前的
-        /// MonoBehaviour Update（见文件顶部判断记录）。</summary>
+        /// MonoBehaviour Update（见文件顶部判断记录）。
+        /// <para>
+        /// 判断记录（拍板 12，表现层异常隔离）：本方法此前是一串顺序调用，任何一步（尤其是具体
+        /// 游戏可能重写/替换的接收器，如 <see cref="FloatingText"/>/<see cref="Flash"/>）抛出未捕获
+        /// 异常会中断本方法剩余全部步骤——包括 <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder.Update"/>
+        /// 的顺序播放队列推进与"零事件步"回放门判定，间接可能让离散模式永久卡在
+        /// <c>playing_back</c>。<see cref="Core.Foundation.SimLoop.IClock.RequestFixedStep"/> 驱动的
+        /// 固定步（<see cref="OnFixedStep"/>）是完全独立的另一个回调订阅，逻辑推进本身不受本方法
+        /// 影响，但本方法異常若被引擎适配层的 <c>IClock</c> 实现视为"这个订阅者本次回调失败"而不是
+        /// "整条 OnFrame 分发链路失败"，其它同样订阅了 <c>OnFrame</c> 的调用方仍可能被波及——本方法
+        /// 因此把内部每个表现步骤单独包一层 try/catch，异常只记诊断
+        /// （<see cref="Debug.LogException"/> + <see cref="PresentationStepExceptionCount"/> 计数），
+        /// 不重新抛出，确保一步失败不阻塞同一帧内后续步骤，也不会让 <see cref="OnFixedStep"/> 那条
+        /// 独立回调链路收到任何波及。
+        /// </para>
+        /// </summary>
         private void OnFrameTick(double unscaledDelta)
         {
             if (BootstrapFailed || Presentation == null)
@@ -625,7 +652,7 @@ namespace Adapter.Unity.Shell
                 return;
             }
 
-            Presentation.Shell.Update();
+            RunPresentationStep(() => Presentation.Shell.Update());
 
             var state = Gameplay.AppState.GetState();
             var renderTicking = state == Core.Foundation.AppLifecycle.AppState.InWorld ||
@@ -635,37 +662,92 @@ namespace Adapter.Unity.Shell
             // 节），与 ViewBinder/相机插值不同——即便当前不在 InWorld/Pause（renderTicking 为假）
             // 也应继续推进（例如战斗结算后立刻切到读档画面，队列里仍有排队的表现动作应当照常清空，
             // 不应卡住 playing_back 节奏门），因此本调用不受 renderTicking 门槛限制。
-            Presentation.Feedback.Update(unscaledDelta);
+            RunPresentationStep(() => Presentation.Feedback.Update(unscaledDelta));
 
-            // H4 补齐（离散模式"零事件步"自动解除回放门）：与
-            // Adapter.Unity.Bootstrap.GameFoundationBootstrap.OnFrameTick 同款判断记录——
-            // WaitForPlaybackPacingPolicy 下某个离散步没有产生任何需要回放的动作时，
-            // PlaybackQueue.Finished 永远不会触发（边沿触发，不是"本来就空"），需要主动判定，否则
-            // 永久卡在 playing_back。同样不受 renderTicking 门槛限制（原因同上一条判断记录）。
-            if (Gameplay.Pacing is WaitForPlaybackPacingPolicy waitForPlayback
-                && !waitForPlayback.IsPlaybackFinished
-                && Presentation.Feedback.Queue.PendingCount == 0)
-            {
-                Gameplay.NotifyPlaybackFinished();
-            }
+            // 拍板 5/DECISIONS 收口（离散回放门生产实测）：presentation/feedback_binder/README.md
+            // 判断记录 9"此前 Unity 引导侧'靠零事件兜底短路'的临时手法已随本次收口废弃"——原 H4 在
+            // 此处补的"WaitForPlaybackPacingPolicy 下 PendingCount==0 时主动调用
+            // NotifyPlaybackFinished"逐帧轮询短路已删除。playing_back 节奏门现仅由
+            // PlaybackQueue.Finished（队列由非空变空的边沿事件，见该类型注释）经
+            // FeedbackBinder 构造函数里的 `_queue.Finished += () => _bus.PublishImmediate(new
+            // PlaybackFinishedEvent())` 联动、本类型订阅 presentation.playback_finished 转发到
+            // Gameplay.NotifyPlaybackFinished() 解除——这是"正常发出 playback_finished"的唯一
+            // 路径。已知局限（记录供 W5 判断是否需要在 core/gameplay/assembly 补一个结构性兜底，
+            // 不在本任务 adapters/unity 写入范围内解决）：若某个离散步在 Sequential 队列模式下确实
+            // 一个反馈动作都没有入队（PlaybackQueue.Finished 是"由非空变空"的边沿触发，队列若从未
+            // 变过非空则永远不会触发），playing_back 会永久卡住——DiscreteCombatTests.cs/
+            // SharedBootstrapDiscreteTests.cs 新增的门实测用例只覆盖"产生反馈动作"的正路径（见任务
+            // 书原句），不覆盖这一理论边界情形。
 
             if (!renderTicking)
             {
                 return;
             }
 
-            _interpAccumulator += unscaledDelta;
-            var alpha = Mathf.Clamp01((float)(_interpAccumulator / Math.Max(Time.fixedDeltaTime, 0.0001f)));
+            // W3b 新增（拍板 9，插值系数）：core/gameplay/assembly.GameplayAssembly.InterpolationAlpha
+            // 现已落地（由 Advance 内部的 ISimClockHost.Advance 返回值驱动），取代本类型此前自行
+            // 用 _interpAccumulator/Time.fixedDeltaTime 重新实现的同一套"距上次固定步过去了多久"
+            // 累加器——两者语义一致（都是"0~1 之间，供渲染插值"的系数），改用核心侧权威值后不再需要
+            // 本类型自己维护累加器状态。已知局限（供 W5 参考）：InterpolationAlpha 只在
+            // OnFixedStep→Gameplay.Advance 调用时更新（固定步节奏），本类型 OnFrameTick 按渲染帧
+            // 节奏读取，两者节奏不同——渲染帧率高于物理帧率时，同一个固定步区间内的多个渲染帧会读到
+            // 同一个 alpha 值直到下一次固定步更新它，不是逐渲染帧连续增长，插值平滑度弱于此前的
+            // 逐帧累加实现；这是 core/gameplay/assembly 的既有行为，不在 adapters/unity 写入范围内
+            // 调整。
+            var alpha = Mathf.Clamp01((float)Gameplay.InterpolationAlpha);
 
             if (!Freeze.IsFrozen)
             {
-                Presentation.ViewBinder.SyncAll(alpha);
-                Presentation.Camera.Update(alpha);
+                RunPresentationStep(() => Presentation.ViewBinder.SyncAll(alpha));
+                RunPresentationStep(() => Presentation.Camera.Update(alpha));
             }
 
-            FloatingText.Tick((float)unscaledDelta);
-            Freeze.Tick(unscaledDelta);
-            Flash.Tick(unscaledDelta);
+            // W3b 新增（拍板 6，八个程序动画原语可视化）：推进每个仍存活的 sprite 型 View 持有的
+            // ICharacterRig.ProceduralAnim 时间轴（见 ICharacterRig.Update 判断记录"由表现帧驱动
+            // 代码……每帧调用一次"——presentation/view_binding.ViewBinder 本身不调用这一步，见
+            // Runtime/Presentation/UnitySpriteView.cs 类型注释，本类型是"表现帧驱动代码"的落地，
+            // 补上这个此前无人调用的职责）。放在 ViewBinder.SyncAll 之后：先推进各原语的采样值
+            // （更新 UnitySpriteView 内部累积的偏移/旋转/缩放字段），下一帧 SyncPose 才会读到本帧
+            // 更新后的值——严格来说存在一帧延迟，可接受（同类系统里"本帧输入下一帧生效"的常见简化，
+            // 09 未对程序动画原语的采样延迟拍板具体要求）。
+            RunPresentationStep(AdvanceCharacterRigs);
+
+            RunPresentationStep(() => FloatingText.Tick((float)unscaledDelta));
+            RunPresentationStep(() => Freeze.Tick(unscaledDelta));
+            RunPresentationStep(() => Flash.Tick(unscaledDelta));
+            RunPresentationStep(() => Respawn.Tick(unscaledDelta));
+
+            if (ExtraPresentationStepForTests != null)
+            {
+                RunPresentationStep(() => ExtraPresentationStepForTests?.Invoke(unscaledDelta));
+            }
+        }
+
+        private void AdvanceCharacterRigs()
+        {
+            var views = ViewFactory.CreatedViews;
+            for (var i = 0; i < views.Count; i++)
+            {
+                if (views[i].IsAlive && views[i] is IHasCharacterRig hasRig)
+                {
+                    hasRig.Rig.Update(Time.deltaTime);
+                }
+            }
+        }
+
+        /// <summary>见 <see cref="OnFrameTick"/> 判断记录：单个表现步骤的异常隔离落地——记诊断、
+        /// 计数，不重新抛出。</summary>
+        private void RunPresentationStep(Action step)
+        {
+            try
+            {
+                step();
+            }
+            catch (Exception ex)
+            {
+                PresentationStepExceptionCount++;
+                Debug.LogException(ex);
+            }
         }
 
         private void OnDestroy()
@@ -679,6 +761,7 @@ namespace Adapter.Unity.Shell
             {
                 _instance = null;
             }
+            Respawn?.Dispose();
             Presentation?.Dispose();
             ViewFactory?.DestroyAllCreatedViews();
         }

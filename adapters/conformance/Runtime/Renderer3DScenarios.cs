@@ -20,6 +20,7 @@ namespace Adapters.Conformance
             new ConformanceScenario<IRenderer3D>("创建销毁_按降级标志分别验证", CreateThenDestroy_RespectsSupportFlag),
             new ConformanceScenario<IRenderer3D>("放置与动画_按降级标志分别验证", PlacementAndAnim_RespectsSupportFlag),
             new ConformanceScenario<IRenderer3D>("槽位挂点材质阴影_按降级标志分别验证", SlotSocketMaterialShadow_RespectsSupportFlag),
+            new ConformanceScenario<IRenderer3D>("OnAnimEvent_按降级标志分别验证", OnAnimEvent_RespectsSupportFlag),
         };
 
         private static readonly Id ModelId = new Id("model.conformance_placeholder");
@@ -77,6 +78,30 @@ namespace Adapters.Conformance
 
             renderer.DestroyModelInstance(parent);
             renderer.DestroyModelInstance(child);
+        }
+
+        /// <summary>W3b 审计发现补齐：<see cref="IRenderer3D.OnAnimEvent"/> 此前未被任何场景覆盖
+        /// （降级路径尤其未验证——见任务书"降级路径断言"）。同本文件其余三条场景一贯的
+        /// "声明降级时断言抛同一种异常，未降级时验证真实注册可用"两条腿。</summary>
+        private static IEnumerator OnAnimEvent_RespectsSupportFlag(IRenderer3D renderer, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            if (!ctx.SupportsRenderer3D)
+            {
+                assert.Throws<NotSupportedException>(
+                    () => renderer.OnAnimEvent(default, (handle, eventId) => { }),
+                    "声明降级的实现，OnAnimEvent 应抛 NotSupportedException");
+                yield break;
+            }
+
+            var handle = renderer.CreateModelInstance(ModelId);
+            SubscriptionHandle? subscription = null;
+            assert.DoesNotThrow(
+                () => subscription = renderer.OnAnimEvent(handle, (h, eventId) => { }),
+                "OnAnimEvent 对存活句柄不应抛异常");
+            assert.NotNull(subscription, "OnAnimEvent 应当返回一个非空的 SubscriptionHandle");
+            assert.DoesNotThrow(() => subscription!.Dispose(), "退订返回的 SubscriptionHandle 不应抛异常");
+
+            renderer.DestroyModelInstance(handle);
         }
     }
 }

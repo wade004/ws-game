@@ -141,6 +141,21 @@ namespace Adapter.Unity.Tests.Runtime
             // 改用 IUnitAccess.IsAlive（Core.Rules.Combat.Resolver 结算落地生命值 <= 0 时会同步
             // 调 SetAlive(id, false)，见该类型"步骤 8：落地"）才是与框架文档一致的死亡信号；
             // World.GetEntity(beastId) == null 仍保留作防御性判断（万一将来刷新表提前把尸体摘除）。
+            // W3b 发现补齐（不属于本用例历史两处已根治阻碍之一，见方法末尾判断记录）：
+            // feedback.sample_death 的死亡飘字取 l10n.combat.sample_death_text（中文"阵亡"，见
+            // data/_sample/l10n/l10n.text.json），占位字体 LiberationSans SDF（TMP 自带默认字体，
+            // 见包 README"字体"一节）不含 CJK 字形，TextMeshPro 会记一条
+            // Debug.LogWarning（非本模块代码触发，是 TMP 包内部对缺字形的降级处理）——这不是本用例
+            // 覆盖范围内任何契约的违反（占位字体本就不含 CJK 字形是已知的占位资产限制，见 14 号文档
+            // "Noto Sans CJK SC" 勘误，真正的 CJK 字体尚未接入占位资产管线），因此预期并放行这一条
+            // 警告，不放宽 LogAssert.NoUnexpectedReceived() 对其它任何未预期日志的拦截力。
+            // "阵亡"两个字都不在占位字体字形表内，TMP 逐字符各记一条警告（"阵"阵、"亡"亡），
+            // 因此需要预期两条，不是一条。
+            var missingGlyphWarning = new System.Text.RegularExpressions.Regex(
+                @"was not found in the \[LiberationSans SDF\] font asset");
+            LogAssert.Expect(UnityEngine.LogType.Warning, missingGlyphWarning);
+            LogAssert.Expect(UnityEngine.LogType.Warning, missingGlyphWarning);
+
             var floatingTextBefore = shell.Framework.FloatingText.SpawnedCount;
             var died = false;
             for (var attempt = 0; attempt < 400 && !died; attempt++)

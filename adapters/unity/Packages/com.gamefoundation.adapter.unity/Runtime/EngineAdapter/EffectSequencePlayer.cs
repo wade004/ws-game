@@ -22,8 +22,33 @@ namespace Adapter.Unity.EngineAdapter
         /// <summary>非循环播放自然结束时触发一次，供调用方回收本实例。</summary>
         public event Action? OnFinished;
 
-        private SpriteRenderer Renderer =>
-            _renderer ??= gameObject.GetComponent<SpriteRenderer>() ?? gameObject.AddComponent<SpriteRenderer>();
+        // 判断记录（W3b 修复：不用 ??/??= 惰性初始化 UnityEngine.Object 字段）：C# 的 ??/??=
+        // 运算符对引用类型只做 CLR 层面的真 null 判断，不会调用 UnityEngine.Object 重载的
+        // operator==（后者额外检查原生对象是否已被销毁，即"伪 null"，见 Unity 官方文档"Custom
+        // == operator..."一节的一贯提醒）——本类型此前用 `_renderer ??= gameObject.GetComponent
+        // <SpriteRenderer>() ?? gameObject.AddComponent<SpriteRenderer>();` 在批处理 PlayMode 测试
+        // 环境下实测触发 `SpriteRenderer.set_sprite` 抛 `MissingComponentException`（首次真正驱动
+        // EffectSequencePlayer.Play 的 PlayMode 用例复现，见 UnityRenderer2DTests.
+        // EmitParticle_WithRealSequenceFrameResource_TriggersEffectSequencePlayer_NotFallback 判断
+        // 记录）：`gameObject.AddComponent<SpriteRenderer>()` 在该场景下返回的引用未能通过后续
+        // `_renderer.sprite = ...` 的原生对象存活性检查，怀疑与 `??=` 把一个"实际存活但 CLR 引用
+        // 相等性判断异常"的返回值直接缓存有关。改为显式 `if (_renderer == null)`（触发
+        // UnityEngine.Object 的重载 == ，真正检查原生对象是否存活）后不再复现。
+        private SpriteRenderer Renderer
+        {
+            get
+            {
+                if (_renderer == null)
+                {
+                    _renderer = gameObject.GetComponent<SpriteRenderer>();
+                    if (_renderer == null)
+                    {
+                        _renderer = gameObject.AddComponent<SpriteRenderer>();
+                    }
+                }
+                return _renderer;
+            }
+        }
 
         public void Play(Sprite[] frames, double[] frameDurations, bool loop)
         {

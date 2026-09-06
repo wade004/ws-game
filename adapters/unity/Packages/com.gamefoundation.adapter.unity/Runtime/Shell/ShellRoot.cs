@@ -39,6 +39,11 @@ namespace Adapter.Unity.Shell
 
         public UiPanelHost UiPanelHost { get; private set; } = null!;
 
+        /// <summary>W3b 新增（拍板 10，加载画面可见性断言此前缺失）：供 PlayMode 测试直接读取加载
+        /// 画面 GameObject 的显隐状态，不需要新增公开 UI 契约——<c>internal</c> 经
+        /// Runtime/AssemblyInfo.cs 的 InternalsVisibleTo 对 Tests.Runtime/Tests.Editor 可见。</summary>
+        internal bool IsLoadingScreenVisible => _loadingRoot.gameObject.activeSelf;
+
         private UiRoot _uiRoot = null!;
         private RectTransform _mainMenuRoot = null!;
         private RectTransform _newGameSetupRoot = null!;

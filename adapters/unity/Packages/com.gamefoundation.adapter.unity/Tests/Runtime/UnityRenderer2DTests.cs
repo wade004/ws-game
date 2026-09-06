@@ -2,6 +2,7 @@
 using System.Collections;
 using Adapter.Unity.EngineAdapter;
 using Core.Foundation.Common;
+using Core.Foundation.EngineAdapter;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -120,6 +121,47 @@ namespace Adapter.Unity.Tests.Runtime
         {
             var handle = _renderer.EmitParticle(new Id("vfx.sample_hit"), new Vec2(1, 1), new System.Collections.Generic.Dictionary<string, double>());
             yield return null;
+
+            Assert.DoesNotThrow(() => _renderer.StopParticle(handle));
+        }
+
+        /// <summary>W3b 审计发现补齐："EffectSequencePlayer.Play 是否被 UnityRenderer2DTests.EmitParticle_*
+        /// 真正触发未知（vfx.sample_hit 是否解析到序列帧资源）"——既有用例的 <c>"vfx.sample_hit"</c>
+        /// 不对应任何真实占位资源（不是 <c>UnityResourceLoader.ResolveEffectDir</c> 能解析到的目录，
+        /// 见该方法命名规则），因此既有用例走的其实是回退到内建通用粒子的分支（<c>RentParticleSystem</c>，
+        /// GameObject 名 <c>"ParticleEffect"</c>），从未真正触发过 <see cref="EffectSequencePlayer"/>。
+        /// 本用例改用真实占位序列帧资源 <c>vfx.hit_spark</c>（assets/_placeholder/vfx/hit_spark/，
+        /// 同 <c>UnityResourceLoaderTests.LoadAsync_PlaceholderHitSparkEffect_LoadsFramesSuccessfully</c>
+        /// 已验证能加载成功），加载完成后再 EmitParticle，断言落地的是名为 <c>"EffectSequence"</c> 的
+        /// <see cref="EffectSequencePlayer"/> 分支（而不是 <c>"ParticleEffect"</c> 回退分支），且其
+        /// <see cref="SpriteRenderer"/> 已经切到第 0 帧真实贴图（不是占位洋红色方块）。</summary>
+        [UnityTest]
+        public IEnumerator EmitParticle_WithRealSequenceFrameResource_TriggersEffectSequencePlayer_NotFallback()
+        {
+            var effectId = new Id("vfx.hit_spark");
+            bool? loadSuccess = null;
+            _resourceLoader.LoadAsync(effectId, ResourceKind.Effect, (id, ok) => loadSuccess = ok);
+
+            var timeout = 5f;
+            while (loadSuccess == null && timeout > 0f)
+            {
+                _resourceLoader.Tick();
+                yield return null;
+                timeout -= Time.unscaledDeltaTime > 0 ? Time.unscaledDeltaTime : 0.02f;
+            }
+            Assert.IsTrue(loadSuccess == true, "占位 hit_spark 序列帧特效资源加载应当成功（先跑一次 build.ps1 -SyncContent）");
+
+            var handle = _renderer.EmitParticle(effectId, new Vec2(1, 1), new System.Collections.Generic.Dictionary<string, double>());
+            yield return null;
+
+            var effectChild = _rootGo.transform.Find("EffectSequence");
+            Assert.IsNotNull(effectChild, "解析到真实序列帧资源时应当落到 EffectSequencePlayer 分支（子物体名 \"EffectSequence\"），而不是回退到通用粒子");
+            Assert.IsNull(_rootGo.transform.Find("ParticleEffect"), "不应当同时存在回退分支的 \"ParticleEffect\" 子物体");
+
+            var player = effectChild!.GetComponent<EffectSequencePlayer>();
+            Assert.IsNotNull(player, "EffectSequence 子物体应当挂有 EffectSequencePlayer 组件");
+            var spriteRenderer = effectChild.GetComponent<SpriteRenderer>();
+            Assert.IsNotNull(spriteRenderer.sprite, "Play 被真正触发后 SpriteRenderer.sprite 应当已经切到第 0 帧真实贴图");
 
             Assert.DoesNotThrow(() => _renderer.StopParticle(handle));
         }

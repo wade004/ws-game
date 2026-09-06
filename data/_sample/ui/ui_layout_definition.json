@@ -52,6 +52,11 @@
       "id": "ui_layout_definition.sample_pause_menu",
       "panel": "pause_menu",
       "fields": { "anchor": "center" }
+    },
+    {
+      "id": "ui_layout_definition.sample_shop",
+      "panel": "shop",
+      "fields": { "anchor": "center" }
     }
   ]
 }

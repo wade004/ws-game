@@ -14,6 +14,7 @@ namespace Adapters.Conformance
             new ConformanceScenario<IWindow>("SetResolution_更新尺寸", SetResolution_UpdatesDimensions),
             new ConformanceScenario<IWindow>("SetFullscreen_切换标志位", SetFullscreen_TogglesFlag),
             new ConformanceScenario<IWindow>("OnCloseRequested_关闭请求触发回调", OnCloseRequested_FiresCallback),
+            new ConformanceScenario<IWindow>("Destroy_创建后销毁不抛异常", Destroy_AfterCreate_DoesNotThrow),
         };
 
         private static IEnumerator Create_SetsCreatedAndDimensions(IWindow window, IConformanceAssert assert, ConformanceContext ctx)
@@ -51,6 +52,16 @@ namespace Adapters.Conformance
             window.OnCloseRequested(() => fired = true);
             ctx.TriggerWindowClose();
             assert.True(fired, "触发关闭请求后，已注册的 OnCloseRequested 回调应被调用");
+        }
+
+        /// <summary>W3b 审计发现补齐：<see cref="IWindow.Destroy"/> 此前未被任何场景覆盖。契约
+        /// 未规定重复 Destroy/Destroy 之后再调用其它方法的行为，本场景只验证最基本的一条契约
+        /// 义务——"创建后调用 Destroy 不应抛异常"，不额外假设更细的生命周期语义。</summary>
+        private static IEnumerator Destroy_AfterCreate_DoesNotThrow(IWindow window, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            window.Create("Conformance Window", 640, 480);
+            assert.DoesNotThrow(() => window.Destroy(), "创建后调用 Destroy 不应抛异常");
+            yield break;
         }
     }
 }

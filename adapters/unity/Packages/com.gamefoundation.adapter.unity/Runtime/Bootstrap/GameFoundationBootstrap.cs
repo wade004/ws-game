@@ -163,8 +163,16 @@ namespace Adapter.Unity.Bootstrap
 
         private UnityEngineHost _host = null!;
         private IEventBus _bus = null!;
-        private double _interpAccumulator;
         private readonly Dictionary<string, bool> _wasActionActive = new Dictionary<string, bool>(StringComparer.Ordinal);
+
+        /// <summary>W3b 新增（拍板 12"表现层异常隔离"）：本次 <see cref="OnFrameTick"/> 内某个表现
+        /// 步骤抛出的异常次数累计，同 <see cref="Adapter.Unity.Shell.FrameworkResidentHost.PresentationStepExceptionCount"/>
+        /// 同款判断记录。</summary>
+        public int PresentationStepExceptionCount { get; private set; }
+
+        /// <summary>供 PlayMode 测试注入一个会抛异常的假表现步骤，同
+        /// <see cref="Adapter.Unity.Shell.FrameworkResidentHost.ExtraPresentationStepForTests"/>。</summary>
+        public event Action<double>? ExtraPresentationStepForTests;
 
         /// <summary>见文件顶部"判断记录 1"：固定步/帧回调改经 <see cref="Core.Foundation.EngineAdapter.IClock"/>
         /// 注册，本类型持有返回的句柄，<see cref="OnDestroy"/> 里显式退订。</summary>
@@ -506,8 +514,6 @@ namespace Adapter.Unity.Bootstrap
                 return;
             }
 
-            _interpAccumulator = 0.0;
-
             Presentation.InputMap.Update(_host.Input);
             HandleFixedInput();
 
@@ -565,7 +571,14 @@ namespace Adapter.Unity.Bootstrap
         /// MonoBehaviour Update（见文件顶部"判断记录 1"）：表现插值 + 三个反馈接收器的 Tick，同时
         /// 按 <c>Presentation.Feedback.Update(dt)</c> 推进离散模式的顺序播放队列（09 第 6.4 节；
         /// <see cref="Presentation.FeedbackBinder.Core.PlaybackQueue"/> 队列非空时才有实际推进，见该
-        /// 类型 Immediate/Sequential 两种模式的注释）。</summary>
+        /// 类型 Immediate/Sequential 两种模式的注释）。
+        /// <para>
+        /// 判断记录（拍板 12，表现层异常隔离；拍板 5/DECISIONS 收口，删除"零事件兜底短路"）：两条
+        /// 判断记录与 <see cref="Adapter.Unity.Shell.FrameworkResidentHost.OnFrameTick"/> 完全同款，
+        /// 见该方法源码判断记录，不重复展开。<c>_interpAccumulator</c> 字段已删除，改读
+        /// <c>Gameplay.InterpolationAlpha</c>（拍板 9）。
+        /// </para>
+        /// </summary>
         private void OnFrameTick(double unscaledDelta)
         {
             if (BootstrapFailed || Presentation == null)
@@ -573,38 +586,45 @@ namespace Adapter.Unity.Bootstrap
                 return;
             }
 
-            _interpAccumulator += unscaledDelta;
-            var alpha = Mathf.Clamp01((float)(_interpAccumulator / Math.Max(Time.fixedDeltaTime, 0.0001f)));
+            var alpha = Mathf.Clamp01((float)Gameplay!.InterpolationAlpha);
 
             // 顿帧只暂停表现层插值/相机，不影响固定步里的逻辑推进（见 FreezeFrameReceiver 顶部
             // 判断记录）。
             if (!Freeze!.IsFrozen)
             {
-                Presentation.ViewBinder.SyncAll(alpha);
-                Presentation.Camera.Update(alpha);
+                RunPresentationStep(() => Presentation.ViewBinder.SyncAll(alpha));
+                RunPresentationStep(() => Presentation.Camera.Update(alpha));
             }
 
-            Presentation.Feedback.Update(unscaledDelta);
+            RunPresentationStep(() => Presentation.Feedback.Update(unscaledDelta));
 
-            // H4 补齐（离散模式"零事件步"自动解除回放门，见 PlaybackQueue 类型注释判断记录
-            // "零事件时可以同步立即调用 OnPlaybackFinished，等价于不等待"）：WaitForPlaybackPacingPolicy
-            // 下，某个离散步若没有产生任何需要回放的动作（结束回合本身不经 world.Tick、AI 决策也
-            // 可能没有命中任何 feedback.binding 规则），PlaybackQueue.Finished 永远不会触发（它是
-            // "队列由非空变空"边沿触发，不是"队列本来就是空"），若不主动判定会永久卡在
-            // playing_back 子态、后续离散步再也推进不下去——这是 combatParticipantsResolver 此前
-            // 恒返回空列表、战斗从未真正进入离散模式时被掩盖的一处引擎侧缺口（见文件顶部"判断记录
-            // 1b"），本类型因此在这里补上与 Tests/Runtime/DiscreteCombatTests.cs 测试专用 Tick()
-            // 辅助方法完全相同的判定逻辑，落到生产代码本身（不只是测试夹具）。
-            if (Gameplay!.Pacing is WaitForPlaybackPacingPolicy waitForPlayback
-                && !waitForPlayback.IsPlaybackFinished
-                && Presentation.Feedback.Queue.PendingCount == 0)
+            // 拍板 5/DECISIONS 收口：原 H4"零事件步"兜底短路已删除，见
+            // FrameworkResidentHost.OnFrameTick 同款判断记录（playback_finished 现只经
+            // PlaybackQueue.Finished 正常发出）。
+
+            RunPresentationStep(() => FloatingText!.Tick((float)unscaledDelta));
+            RunPresentationStep(() => Freeze.Tick(unscaledDelta));
+            RunPresentationStep(() => Flash!.Tick(unscaledDelta));
+
+            if (ExtraPresentationStepForTests != null)
             {
-                Gameplay.NotifyPlaybackFinished();
+                RunPresentationStep(() => ExtraPresentationStepForTests?.Invoke(unscaledDelta));
             }
+        }
 
-            FloatingText!.Tick((float)unscaledDelta);
-            Freeze.Tick(unscaledDelta);
-            Flash!.Tick(unscaledDelta);
+        /// <summary>见 <see cref="OnFrameTick"/> 判断记录：单个表现步骤的异常隔离落地——记诊断、
+        /// 计数，不重新抛出，同 <see cref="Adapter.Unity.Shell.FrameworkResidentHost"/> 同名方法。</summary>
+        private void RunPresentationStep(Action step)
+        {
+            try
+            {
+                step();
+            }
+            catch (Exception ex)
+            {
+                PresentationStepExceptionCount++;
+                Debug.LogException(ex);
+            }
         }
 
         private void OnDestroy()

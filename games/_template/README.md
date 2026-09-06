@@ -91,6 +91,13 @@ games/_template/
    fonts/*.otf`/`*.ttf` 拷进 `Assets/Framework/Resources/Fonts/`（`UnityUISurface`/
    `UnityResourceLoader` 按 `font.<name>` -> `Resources/Fonts/<name>` 规则解析，见包 README"资源
    id → 路径规则"）。两步都是一次性的文件拷贝，不需要打开 Unity 编辑器操作。
+   **已自动化的部分（W3b 收边核实）**：`build.ps1 -Dist` 已把 `adapters/unity/Assets/TextMesh Pro/`
+   整份打进分发包 `dist/<version>/assets/textmesh_pro_essentials/`（见 `build.ps1` "assets/
+   textmesh_pro_essentials" 步骤）；`toolchain/consumer_smoke.ps1`（消费方演练脚本，模拟"新游戏
+   工程从分发包搭建"全流程）"同步内容数据集 + TextMeshPro 运行期资源到消费方工程"一步已经把它与
+   占位字体自动镜像拷贝进消费方工程——**用该脚本搭建/验证消费方工程时，本步骤不需要再手工执行**，
+   上面两段描述的是"手工新建 Unity 工程、不经 consumer_smoke.ps1"这条路径仍然需要的一次性拷贝
+   操作（没有对应的自动化入口，Unity 批处理环境不提供"新建工程时自动拉取分发包"这一步）。
 
 ## 生成场景并跑一遍
 

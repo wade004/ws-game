@@ -33,6 +33,7 @@ namespace Adapter.Unity.Ui
         public SettingsPanel Settings { get; private set; } = null!;
         public SaveSlotsPanel SaveSlots { get; private set; } = null!;
         public PauseMenuPanel PauseMenu { get; private set; } = null!;
+        public ShopPanel Shop { get; private set; } = null!;
 
         public IReadOnlyDictionary<UiPanel, IUiPanel> Panels => _panels;
 
@@ -132,6 +133,13 @@ namespace Adapter.Unity.Ui
             PauseMenu.Construct(content, presentation.PauseMenu, presentation.L10n, onPauseOptionClicked);
             PauseMenu.Hide();
             _panels[UiPanel.PauseMenu] = PauseMenu;
+
+            // 拍板 7：Shop 挂在 GameplayGroup 下（同 Inventory/QuestLog 一贯的"游戏内菜单类面板"归属，
+            // 不像 SaveSlots/PauseMenu/Settings 需要在主菜单页面下也能单独打开）。
+            Shop = CreatePanel<ShopPanel>("Shop", GameplayGroup);
+            Shop.Construct(GameplayGroup, presentation.Shop, presentation.Inventory, presentation.UiIntents);
+            Shop.Hide();
+            _panels[UiPanel.Shop] = Shop;
         }
 
         private static Action SaveSettingsToStore(PresentationAssembly presentation) => () =>

@@ -61,6 +61,13 @@ namespace Adapter.Unity.EngineAdapter
             public double SortY;
             public bool FlipX;
             public MaterialPropertyBlock PropertyBlock = new MaterialPropertyBlock();
+
+            // W3b 新增（八个程序动画原语可视化，拍板 6）：flash_intensity 与 fade_alpha 两个命名
+            // 参数都经 SpriteRenderer.color 落地（前者乘法调色的 RGB 分量、后者是 Alpha 分量），
+            // 各自独立存储、合成时才组合成一个 Color 写回，避免其中一个 SetShaderParam 调用覆盖
+            // 掉另一个已经生效的分量（见 ApplyColor 判断记录）。
+            public float FlashMultiplier = 1f;
+            public float FadeAlpha = 1f;
         }
 
         private readonly Transform _root;
@@ -133,6 +140,7 @@ namespace Adapter.Unity.EngineAdapter
 
                 renderer.sprite = ResolveSprite(layers[i]);
                 renderer.flipX = instance.FlipX;
+                renderer.color = ComputeColor(instance);
             }
 
             ApplySortingOrders(instance);
@@ -179,12 +187,23 @@ namespace Adapter.Unity.EngineAdapter
             // 不要求占位/正式美术资源额外提供专用的"闪白"着色器属性）。
             if (string.Equals(paramName, "flash_intensity", StringComparison.Ordinal))
             {
-                var multiplier = 1f + Math.Max(0f, (float)value);
-                var flashColor = new Color(multiplier, multiplier, multiplier, 1f);
-                foreach (var renderer in instance.LayerRenderers)
-                {
-                    renderer.color = flashColor;
-                }
+                instance.FlashMultiplier = 1f + Math.Max(0f, (float)value);
+                ApplyColor(instance);
+                return;
+            }
+
+            // W3b 新增（八个程序动画原语可视化，拍板 6）："fade" 原语（09 第 4.1 节"淡出（消失、
+            // 隐身切换）"）落地为一个新命名参数 "fade_alpha"，与 flash_intensity 同一套"经既有
+            // SetShaderParam 通道传递、Unity 侧解释具体语义"机制（同 SetShaderParam 类型顶部判断
+            // 记录），不新增 IRenderer2D 契约方法。值域 [0, 1]：1 表示完全不透明（默认，同精灵初始
+            // 状态），0 表示完全透明。<see cref="Presentation.Render.SpriteCharacterRig"/> 的
+            // Fade 原语转发经 <c>Rig.ProceduralAnim.Fade(...)</c> 触发时，其 onSample 委托（见
+            // Runtime/Presentation/UnitySpriteView.cs）直接调用本参数名落地，不需要新的原语专属
+            // 契约通道。
+            if (string.Equals(paramName, "fade_alpha", StringComparison.Ordinal))
+            {
+                instance.FadeAlpha = Mathf.Clamp01((float)value);
+                ApplyColor(instance);
                 return;
             }
 
@@ -194,6 +213,34 @@ namespace Adapter.Unity.EngineAdapter
                 renderer.SetPropertyBlock(instance.PropertyBlock);
             }
         }
+
+        /// <summary>合成 <see cref="SpriteInstance.FlashMultiplier"/>（RGB 乘法调色）与
+        /// <see cref="SpriteInstance.FadeAlpha"/>（Alpha）为一个 <see cref="Color"/>，供
+        /// <see cref="SetShaderParam"/> 两个分支与 <see cref="SetLayers"/>（新建/复用层渲染器时
+        /// 重新套用当前已生效的闪白/淡出状态，避免方向切换重建层后短暂丢失表现状态）共用。</summary>
+        private static Color ComputeColor(SpriteInstance instance) =>
+            new Color(instance.FlashMultiplier, instance.FlashMultiplier, instance.FlashMultiplier, instance.FadeAlpha);
+
+        private static void ApplyColor(SpriteInstance instance)
+        {
+            var color = ComputeColor(instance);
+            foreach (var renderer in instance.LayerRenderers)
+            {
+                renderer.color = color;
+            }
+        }
+
+        /// <summary>W3b 新增（八个程序动画原语可视化，拍板 6）：供
+        /// <c>Adapter.Unity.Presentation.UnitySpriteView</c> 取回精灵实例的根 <see cref="GameObject"/>，
+        /// 落地 Trail 原语（挂/摘 <see cref="UnityEngine.TrailRenderer"/>，见该类型判断记录）——
+        /// <see cref="IRenderer2D"/> 契约本身不暴露引擎侧 GameObject（P4"具体绘制细节留给适配层"），
+        /// 但 <c>UnitySpriteView</c> 与本类型同属 <c>Adapter.Unity.*</c> 命名空间、同属引擎适配层，
+        /// 直接持有 <c>UnityRenderer2D</c> 具体类型（而不是 <see cref="IRenderer2D"/> 接口）向下转型
+        /// 取用引擎细节，不违反表现层对逻辑层的只读铁律（P1~P4 约束的是"表现层不得绕过契约操作逻辑
+        /// 层"，不禁止引擎适配层内部互相知道对方的具体类型）。查不到（已销毁/未知句柄）时返回
+        /// null，调用方按"跳过本次原语的引擎侧落地，不崩溃"处理。</summary>
+        public GameObject? GetSpriteRoot(SpriteHandle handle) =>
+            _sprites.TryGetValue(handle.Value, out var instance) ? instance.Root : null;
 
         public void DestroySpriteInstance(SpriteHandle handle)
         {

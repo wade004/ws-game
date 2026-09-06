@@ -332,5 +332,133 @@ namespace Adapter.Unity.Tests.Runtime
             hud.RefreshUi();
             Assert.IsFalse(hud.IsEndTurnButtonVisible, "切回连续模式后结束回合按钮应重新隐藏");
         }
+
+        /// <summary>驱动到"轮到玩家、awaiting_input"这一状态，复用既有 <see cref="Tick"/>
+        /// 辅助方法（本类型私有测试基础设施，见该方法判断记录——"零事件时可以同步立即调用
+        /// OnPlaybackFinished"本就是 <c>WaitForPlaybackPacingPolicy</c> 类型注释记录的既有契约，
+        /// DECISIONS 拍板 5 删除的是"共享引导"（生产代码）里逐帧轮询版本的短路，不是测试基础设施
+        /// 本身），只用于把两条新用例都需要的"进入离散战斗 + 轮到玩家"这段前置流程收敛成一个
+        /// 公共步骤，避免重复。</summary>
+        private static IEnumerator DriveToPlayerAwaitingInput(Fixture fixture)
+        {
+            var dt = Time.fixedDeltaTime;
+            fixture.Bus.PublishImmediate(new Core.Rules.Common.CombatEnteredEvent(fixture.PlayerId));
+
+            var enterGuard = 200;
+            while (fixture.Gameplay.TimeModelSwitch!.CurrentMode != TimeModelMode.Discrete && enterGuard-- > 0)
+            {
+                Tick(fixture, dt);
+                yield return null;
+            }
+            Assert.AreEqual(TimeModelMode.Discrete, fixture.Gameplay.TimeModelSwitch!.CurrentMode);
+
+            var driveGuard = 3000;
+            while (driveGuard-- > 0)
+            {
+                var awaitingInput = fixture.Gameplay.AppState.CurrentSubState.HasValue &&
+                    fixture.Gameplay.AppState.CurrentSubState.Value.Equals(fixture.Gameplay.AwaitingInputSubState);
+                if (awaitingInput && fixture.Gameplay.TurnScheduler!.GetCurrentActor()?.Equals(fixture.PlayerId) == true)
+                {
+                    yield break;
+                }
+                Tick(fixture, dt);
+                yield return null;
+            }
+            Assert.Fail("未能在预算步数内驱动到玩家 awaiting_input");
+        }
+
+        /// <summary>拍板 5/DECISIONS 收口验收：离散回放门生产实测——离散步产生反馈动作时应入队、
+        /// 节奏门在回放完成前保持关闭；不使用本类型私有的 <see cref="Tick"/> 短路辅助方法推进本用例
+        /// 的核心断言步骤，直接调用 <see cref="GameplayAssembly.Advance"/> 与
+        /// <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder.Update"/>，验证的正是删除了
+        /// "零事件兜底短路"之后的生产逻辑路径（<c>FrameworkResidentHost</c>/
+        /// <c>GameFoundationBootstrap</c> 现在的 <c>OnFrameTick</c> 与本用例走的是同一套
+        /// <c>Presentation.Feedback.Update</c> + <c>PlaybackQueue.Finished</c> 联动机制）。</summary>
+        [UnityTest]
+        public IEnumerator DiscreteStep_WithFeedbackAction_QueuesAction_AndKeepsPlaybackGateClosed()
+        {
+            var fixture = BuildFixture();
+            _fixture = fixture;
+
+            for (var i = 0; i < 5; i++)
+            {
+                Tick(fixture, Time.fixedDeltaTime);
+                yield return null;
+            }
+
+            yield return DriveToPlayerAwaitingInput(fixture);
+
+            var pacing = (WaitForPlaybackPacingPolicy)fixture.Gameplay.Pacing!;
+            Assert.IsTrue(pacing.IsPlaybackFinished, "轮到玩家等待输入时节奏门应处于开启（已完成）状态");
+
+            // 合成一条普通伤害事件（非暴击分支：floating_text + play_sfx 两个动作，见
+            // data/_sample/feedback/feedback.binding.json 的 feedback.sample_normal_damage），
+            // 与 VerticalSliceTests.Feedback_CritDamage_TriggersFreeze 同一手法直接 PublishImmediate，
+            // 不依赖真实攻击命中判定的随机性。QueueMode.Sequential 下两个动作应当入队而不是立即执行
+            // （见 PlaybackQueue.Enqueue 判断记录）。
+            fixture.Bus.PublishImmediate(new Core.Rules.Common.CombatDamageDealtEvent(
+                fixture.BeastId, fixture.PlayerId, new Id("school.physical"), 5.0, isCrit: false, Core.Rules.Common.HitResult.Hit));
+
+            Assert.Greater(fixture.Presentation.Feedback.Queue.PendingCount, 0,
+                "非暴击伤害事件应当经 feedback.sample_normal_damage 规则入队至少一个待回放动作");
+
+            // 提交玩家结束回合意图并推进一次离散步：GameplayAssembly.Advance 处理完这一步后，
+            // Pacing.Mode()==WaitForPlayback 恒进入 playing_back（见该方法源码），此时队列里仍有
+            // 上面刚入队、尚未被消费的动作，节奏门理应保持关闭。
+            fixture.Presentation.UiIntents.EndTurn();
+            fixture.Gameplay.Advance(Time.fixedDeltaTime);
+
+            Assert.IsFalse(pacing.IsPlaybackFinished, "回放完成前节奏门应保持关闭（playing_back）");
+            Assert.Greater(fixture.Presentation.Feedback.Queue.PendingCount, 0, "此时队列里应仍有尚未回放完的动作");
+        }
+
+        /// <summary>拍板 5/DECISIONS 收口验收（续，PlayMode ≥2 的第二条）：逐条回放推进（不使用
+        /// <see cref="PlaybackQueue.Skip"/> 一次性跳过，验证逐步 <c>Update</c> 推进）后，
+        /// <c>PlaybackQueue.Finished</c> 事件应经 <c>FeedbackBinder</c> 构造函数里的既有联动
+        /// （<c>_queue.Finished += () =&gt; _bus.PublishImmediate(new PlaybackFinishedEvent())</c>）
+        /// 与本类型 <see cref="BuildFixture"/> 里对 <c>presentation.playback_finished</c> 的订阅
+        /// （转发到 <see cref="GameplayAssembly.NotifyPlaybackFinished"/>）自动放行节奏门——全程不
+        /// 调用任何"零事件兜底"式的手工判定，验证的正是删除短路之后"仅由 PlaybackQueue 为空时
+        /// PresentationAssembly 正常发出 playback_finished"这条路径本身确实工作。</summary>
+        [UnityTest]
+        public IEnumerator DiscreteStep_SequentialPlayback_DrainsQueue_ThenReleasesPlaybackGate()
+        {
+            var fixture = BuildFixture();
+            _fixture = fixture;
+
+            for (var i = 0; i < 5; i++)
+            {
+                Tick(fixture, Time.fixedDeltaTime);
+                yield return null;
+            }
+
+            yield return DriveToPlayerAwaitingInput(fixture);
+
+            var pacing = (WaitForPlaybackPacingPolicy)fixture.Gameplay.Pacing!;
+
+            fixture.Bus.PublishImmediate(new Core.Rules.Common.CombatDamageDealtEvent(
+                fixture.BeastId, fixture.PlayerId, new Id("school.physical"), 5.0, isCrit: false, Core.Rules.Common.HitResult.Hit));
+            var queuedCount = fixture.Presentation.Feedback.Queue.PendingCount;
+            Assert.Greater(queuedCount, 0, "前置条件：应有待回放动作入队");
+
+            fixture.Presentation.UiIntents.EndTurn();
+            fixture.Gameplay.Advance(Time.fixedDeltaTime);
+            Assert.IsFalse(pacing.IsPlaybackFinished, "推进离散步后、回放耗尽前节奏门应保持关闭");
+
+            // 逐步按 SequentialStepSeconds（BuildFixture 里配置为 0.02s）推进，不使用 Skip 一次性
+            // 跳过——每步之间断言队列长度只减不增，验证"逐条回放"（任务书原句）而不是一次性清空。
+            var guard = 200;
+            var previousPending = fixture.Presentation.Feedback.Queue.PendingCount;
+            while (fixture.Presentation.Feedback.Queue.PendingCount > 0 && guard-- > 0)
+            {
+                fixture.Presentation.Feedback.Update(0.02);
+                Assert.LessOrEqual(fixture.Presentation.Feedback.Queue.PendingCount, previousPending, "逐条回放期间队列长度不应回涨");
+                previousPending = fixture.Presentation.Feedback.Queue.PendingCount;
+                yield return null;
+            }
+
+            Assert.AreEqual(0, fixture.Presentation.Feedback.Queue.PendingCount, "回放应当在预算步数内耗尽队列");
+            Assert.IsTrue(pacing.IsPlaybackFinished, "队列耗尽后节奏门应当经 PlaybackQueue.Finished -> presentation.playback_finished -> NotifyPlaybackFinished 自动放行");
+        }
     }
 }
