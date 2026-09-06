@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import check_cmd, icon_cmd, sfx_cmd, sprite_cmd, vfx_cmd
+from . import check_cmd, icon_cmd, map_cmd, sfx_cmd, sprite_cmd, vfx_cmd
 from .common import AssetImportError, setup_utf8_streams
 
 
@@ -40,6 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_sfx = sub.add_parser("sfx", help="音频文件 -> 复制到 assets/<dataset>/sfx/ + sfx.def 行")
     sfx_cmd.add_arguments(p_sfx)
     p_sfx.set_defaults(func=sfx_cmd.run)
+
+    p_map = sub.add_parser("map", help="地图分层图源目录 -> assets/<dataset>/maps/ + world.map 行")
+    map_cmd.add_arguments(p_map)
+    p_map.set_defaults(func=map_cmd.run)
 
     p_check = sub.add_parser("check", help="assets/<dataset>/ 与 data/<dataset>/ 交叉校验")
     check_cmd.add_arguments(p_check)

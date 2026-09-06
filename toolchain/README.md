@@ -156,27 +156,32 @@ python toolchain/gen_event_constants.py
 ## 资产导入工具（import_assets.py）
 
 `toolchain/import_assets.py`（薄入口，实现在 `toolchain/asset_import/` 包）：把出图产物
-（精灵集、图标、特效序列帧、音效）规范化落到 `assets/<dataset>/`，并把对应的
-`display.map`/`vfx.def`/`sfx.def` 数据行合并写入 `data/<dataset>/`，对应
+（精灵集、图标、特效序列帧、音效、地图分层图）规范化落到 `assets/<dataset>/`，并把对应的
+`display.map`/`vfx.def`/`sfx.def`/`world.map` 数据行合并写入 `data/<dataset>/`，对应
 [11_工程规范与测试.md](../architecture/11_工程规范与测试.md) 第 2.1 节"资产导入工具"与
 [落地方案与分阶段计划.md](../architecture/落地计划/落地方案与分阶段计划.md) 第 15 节。字段定义
 以 [04_数据与内容管线.md](../architecture/04_数据与内容管线.md) 第 7.1 节（`display.map`）、
 [09_表现层.md](../architecture/09_表现层.md) 第 3.2～3.4 节（方向量化机制、镜像字段结构、纸娃娃层、
 锚点、影子）与 [14_资产规格书模板.md](../architecture/14_资产规格书模板.md) 第 2 节（方向档位的
-权威命名与 `mirror_of` 关系表）为准；`vfx.def`/`sfx.def` 目前架构文档只登记了表名与外键指向
-（04 总索引），具体字段（`category`/`attach_mode`/`lifetime`/`resource_ref` 与
-`layer`/`priority`/`variants`）是本工具自定的落地口径，后续架构文档正式展开这两张表字段时以
-架构文档为准并同步调整本工具。
+权威命名与 `mirror_of` 关系表、第 1.2 节纸娃娃层资源 id 命名模板）为准；`vfx.def`/`sfx.def`
+字段以 `presentation/vfx_sfx/schema/VfxSfxSchemas.cs` 登记的 schema 为准（`vfx.def`：
+`id`/`category`/`attach_mode`/`lifetime`（可选）/`resource_ref`；`sfx.def`：
+`id`/`layer`/`priority`（可选）/`variants`（可选 Id 列表）/`resource_ref`）。
 
 ```
 python toolchain/import_assets.py <子命令> ...
 ```
 
-五个子命令（各自 `--help` 查看完整参数）：
+六个子命令（各自 `--help` 查看完整参数）：
 
 - `sprite`：精灵集源目录 -> 规范化精灵资源 + `display.map` 行。
   输入约定：`<src>/<direction_slot>/<layer>.png`（纸娃娃多层）或 `<src>/<direction_slot>.png`
   （单层）；`<src>` 目录名即 `sprite_set_name`；`<src>/icon.png`（可选）随精灵集一并登记图标。
+  输出目录为 `assets/<dataset>/sprites/<category>_<sprite_set_name>/`（`sprite_set_id`
+  即 `sprite.<category>.<sprite_set_name>` 去掉首段类别前缀 `sprite.` 后把剩余点号换成
+  下划线），与运行时资源 id 解析规则（14 第 1.2 节命名模板、
+  `adapters/unity/.../UnityResourceLoader.cs`/`SpriteViewBase.ResolveLayerResourceId`）对齐，
+  不是只用 `sprite_set_name` 本身。
   方向档位只需要画"canonical"档位（14 第 2.1 节命名表：8 方向下的
   `front`/`front_side_r`/`side_r`/`back_side_r`/`back` 五个；4 方向为
   `front`/`side_r`/`back`；16 方向的具体命名 14 只给延伸规则，本工具按该规则自行扩展出一套
@@ -201,28 +206,102 @@ python toolchain/import_assets.py <子命令> ...
 - `icon`：一批图标源图 -> 归一化尺寸（等比缩放 + 透明居中垫底，默认 64x64）落到
   `assets/<dataset>/icons/<category>/<name>.png`，打印 `icon.<category>.<name>` 清单（不写数据表，
   `icon_id` 由引用方（如 `sprite`/未来的 `display.equip_visual` 等）自行填写）。
-- `vfx`：序列帧目录（按文件名排序的一组 `.png`）-> 图集 + `vfx.def` 行（`id`/`category`/
-  `attach_mode`/`lifetime`/`resource_ref`）；`--lifetime` 省略时用 `帧数 / --fps` 推算。
+- `vfx`：序列帧目录（按文件名排序的一组 `.png`）-> 图集 `atlas.png` + `frames.json` +
+  `vfx.def` 行（`id`/`category`/`attach_mode`/`lifetime`（可选）/`resource_ref`）。
+  `--attach-mode` 取值 `world`（按世界坐标播放）/`anchor`（挂接到 sprite 型锚点跟随）/
+  `socket`（挂接到 model 型挂点跟随）/`screen`（按屏幕空间坐标播放），默认 `world`，与
+  `presentation/vfx_sfx/contracts/VfxAttachMode.cs` 枚举一一对应。
+  `frames.json` 结构 `{frame_w, frame_h, fps, frame_duration, loop, frames:
+  [{index, x, y, w, h, duration}]}`，与运行时 `ResourceKind.Effect` 加载器
+  （`UnityResourceLoader.TryDecodeEffect`）对齐，示例见
+  `assets/_placeholder/vfx/burn/frames.json`；不再写旧版 `atlas.json`。`--fps` 决定
+  `frame_duration`（`1/fps`）；`--loop` 写 `loop: true`（循环特效，如持续光环），且
+  `--loop` 时若省略 `--lifetime` 则该行不写 `lifetime`（循环特效没有固有时长）；非循环时
+  仍按 `帧数 / --fps` 推算（除非显式传 `--lifetime`）。
 - `sfx`：一批 `.wav`（无压缩 PCM；用标准库 `wave` 读采样率/时长做基本校验，非 wav 或无法解析
-  一律报错）作为同一 `sfx.def` id 下的随机变体，复制到 `assets/<dataset>/sfx/<name>/v<N>.wav`
-  并写入 `layer`/`priority`/`variants`（每个变体含 `resource_ref`/`sample_rate`/`duration_sec`）。
-- `check`：交叉校验 `assets/<dataset>/` 与 `data/<dataset>/display|vfx|sfx`——`sprite_set_id`/
-  `icon_id`/`vfx.def`/`sfx.def` 的 `resource_ref` 对应文件是否存在、每个精灵集同一层跨方向档位
-  尺寸是否一致、锚点是否落在对应方向档位画布范围内、实际落地的方向档位数是否与
-  `direction_count` 一致。只打印问题清单，不写任何文件；返回码 `0`（无问题）/`1`（有问题）。
+  一律报错）作为同一 `sfx.def` id 下的随机变体，扁平复制到
+  `assets/<dataset>/sfx/<name>_v<N>.wav`（不是子目录）。行固定写
+  `resource_ref: "sfx.<name>_v0"`（第一个源文件）；只有传入 >= 2 个源文件时才写
+  `variants`（含 `resource_ref` 本身在内的全部变体 Id 数组），单文件不写 `variants`。
+  采样率/时长只用于本命令自身的 PCM 合法性校验并打印到日志，不再进数据表字段。
+- `map`：地图分层图源目录（`ground.png`/`overlay.png` 必需，`decal.png`/`nav_hint.png` 可选，见
+  14 第 9 节"场景与地图"）-> 规范化落到 `assets/<dataset>/maps/<map>/<layer>.png` + `world.map` 行
+  （`id`/`scene_ref`/`nav_ref`/`spawn_points`）。`scene_ref`/`nav_ref` 固定按"类别前缀 + 地图名"
+  写成 `scene.<map>`/`nav.<map>`，与 `adapters/unity` 侧 `UnityResourceLoader` 的 `Scene`/
+  `NavMesh` 种类解析规则同一套引用 id 命名口径（见该包 README"资源 id → 路径规则"一节）；本工具
+  不生成场景/导航资源本身（05 第 4.1 节"导航与碰撞...由引擎适配层侧在场景中手工绘制"）。
+  `--spawn x,y[,facing]` 可重复传入覆盖默认出生点（省略时写一条 `<map>.spawn.default`，原点、
+  朝向 0）；未识别的分层文件名（非 `ground`/`overlay`/`decal`/`nav_hint`）原样跳过并打印警告。
+- `check`：交叉校验 `assets/<dataset>/` 与 `data/<dataset>/display|vfx|sfx|world`——
+  `sprite_set_id`/`icon_id` 对应目录/文件、`vfx.def` 的 `resource_ref` 对应 `atlas.png`/
+  `frames.json`、`sfx.def` 的 `resource_ref`（必查）与 `variants`（若存在，逐项查且必须包含
+  `resource_ref` 本身）各自对应的扁平 `.wav` 文件是否存在、每个精灵集
+  同一层跨方向档位尺寸是否一致、锚点是否落在对应方向档位画布范围内、实际落地的方向档位数是否与
+  `direction_count` 一致、**`mirror_pairs` 完整性**（每个已落地但不属于 canonical 档位集合的方向
+  档位必须有对应的镜像来源声明，声明的来源必须已落地）、**声明锚点缺失**（`display.map.
+  anchor_points` 声明的每个锚点必须能在精灵集自己的 `anchors.json` 默认档位标注中找到，对应
+  14 第 11 节"缺锚点"校验项）、`world.map` 引用的地图分层图（`map` 子命令产出）是否存在。
+  `--only sprite,vfx,sfx,world`（逗号分隔，省略则四项全跑）只跑选定的检查域，供门禁在某个数据集
+  只有部分域已接入真实资产时缩小本次运行覆盖范围（不放宽已选中域自身的判断逻辑）。只打印问题
+  清单，不写任何文件；返回码 `0`（无问题）/`1`（有问题）。
 
 全部子命令支持 `--dataset`（默认 `_sample`）、`--assets-root`/`--data-root`
 （默认仓库 `assets/`/`data/`，可指向任意目录，测试与临时数据集用此覆盖）、`--dry-run`
 （`check` 本身不写文件，无需此参数）；图像处理只用 Pillow：`--matting none|rembg|colorkey:#RRGGBB`
 ——`colorkey` 抠图是本工具自写的容差比色（`--colorkey-tolerance`，默认 32），`rembg` 仅在本机
 `~/.u2net/` 下已有权重文件时可用（本工具不会自动联网下载模型权重，未准备好权重直接报错并提示
-改用 `none`/`colorkey`）。合并写入 `display.map.json`/`vfx.def.json`/`sfx.def.json` 时：已存在
-同 `id` 的行整体替换，否则新增，其余行原样保留，整份文件按 `id` 重新排序后整体写出（2 空格缩进、
-LF、UTF-8 无 BOM，同 `data/README.md` 约定）。
+改用 `none`/`colorkey`）。合并写入 `display.map.json`/`vfx.def.json`/`sfx.def.json`/
+`world.map.json` 时：已存在同 `id` 的行整体替换，否则新增，其余行原样保留，整份文件按 `id`
+重新排序后整体写出（2 空格缩进、LF、UTF-8 无 BOM，同 `data/README.md` 约定）。
 
-写完 `sprite`/`vfx`/`sfx` 后应跑 `python toolchain/import_assets.py check --dataset <name>` 确认
-资产与数据表互相对得上，再跑 `python toolchain/validate_data.py --dataset <name>` 走完整的表级
-校验（04 第 5 节"外形映射存在"等检查项）。
+写完 `sprite`/`vfx`/`sfx`/`map` 后应跑 `python toolchain/import_assets.py check --dataset <name>`
+确认资产与数据表互相对得上，再跑 `python toolchain/validate_data.py --dataset <name>` 走完整的
+表级校验（04 第 5 节"外形映射存在"等检查项）。
 
 单元测试：`python -m unittest toolchain.tests.test_import_assets -v`（标准库 `unittest`；测试数据
-写在系统临时目录，不接触仓库内 `assets/`/`data/`）。
+写在系统临时目录，不接触仓库内 `assets/`/`data/`），也可用 `python -m pytest toolchain/tests -q`。
+
+## `data/_sample` 的资产来源（`import_sample_assets.py`）
+
+`data/_sample/display/display.map.json`/`vfx/vfx.def.json`/`sfx/sfx.def.json`/`world/world.map.json`
+是框架仓库自身灰盒竖切/PlayMode 测试用的示例数据（见该目录顶层 `README.md`"两类目录"一节）。
+这四张表引用的 `assets/_sample/` 资产由驱动脚本 `toolchain/import_sample_assets.py` 统一生成：
+它把 `assets/_placeholder/` 的占位素材（外加一张 Pillow 现生成的存档点占位图）依次喂给
+`import_assets.py` 的 `sprite`/`icon`/`vfx`/`sfx`/`map` 真实子命令，再把子命令产出的引用字段
+（`sprite_set_id`/`icon_id`/`mirror_pairs`/`resource_ref`/`variants`/`lifetime`/`priority`）回写进
+`data/_sample` 既有行——四张表每一行的 `id`/`logical_id`/`category` 全程不变。
+
+来源 -> 产物对应关系（完整表见该脚本文件头 docstring）：
+
+| `data/_sample` 行 | 占位素材来源 | 产物 |
+| --- | --- | --- |
+| `display.map.sample_hero`/`sample_beast` | `assets/_placeholder/sprites/placeholder_{hero,beast}/` 5 个 canonical 方向档位 | `assets/_sample/sprites/creature_sample_{hero,beast}/` |
+| `display.map.sample_blade`/`sample_bolt`（共用精灵集） | `assets/_placeholder/icons/icon_placeholder_blade.png` | `assets/_sample/sprites/item_sample_blade/` |
+| `display.map.sample_chest`/`sample_loot_pile`（共用精灵集） | `assets/_placeholder/sprites/placeholder_chest/closed.png` | `assets/_sample/sprites/gobj_sample_chest/` |
+| `display.map.sample_door` | `assets/_placeholder/sprites/placeholder_door/closed.png` | `assets/_sample/sprites/gobj_sample_door/` |
+| `display.map.sample_save_point` | 脚本用 Pillow 确定性生成的占位立柱图 | `assets/_sample/sprites/gobj_sample_save_point/` |
+| `vfx.def.sample_cast_circle`/`sample_hit_spark`/`sample_burn` | `assets/_placeholder/vfx/{cast_circle,hit_spark,burn}/frame_*.png` | `assets/_sample/vfx/sample_*/{atlas.png,frames.json}` |
+| `sfx.def.sample_hit`/`sample_cast`/`sample_ui_click` | `assets/_placeholder/sfx/*.wav` | `assets/_sample/sfx/sample_*_v<N>.wav` |
+| `world.map.sample_field` | `assets/_placeholder/maps/placeholder_field/` | `assets/_sample/maps/sample_field/` |
+
+精灵集目录名规则 `<category>_<sprite_set_name>`（如 `creature_sample_hero`）与
+`sprite` 子命令本身的落地规则、运行时 `UnityResourceLoader`/`SpriteViewBase.
+ResolveLayerResourceId` 的资源 id 解析规则、[14_资产规格书模板.md](../architecture/14_资产规格书模板.md)
+第 1.2 节命名模板三方一致（见上面 `sprite` 子命令说明）。
+
+`build.ps1` 第 4 节"内容数据集同步"把 `assets/_placeholder/{sprites,sfx,vfx}` 与
+`assets/_sample/{sprites,sfx,vfx}` 同时同步进 Unity 工作台的
+`Assets/StreamingAssets/GameFoundation/{sprites,audio,vfx}`（`Sync-ContentTree` 现支持多个
+源目录，后列源目录同名文件覆盖前者）。
+
+重新生成命令（幂等，改了 `assets/_placeholder/` 下的源素材或需要修复 `data/_sample` 引用时重跑
+即可）：
+
+```
+python toolchain/import_sample_assets.py
+```
+
+脚本末尾会自动跑一次 `python toolchain/import_assets.py check --dataset _sample`（全量四域），
+非 0 直接失败退出，不会把校验不过的产物留在仓库里。单元测试：
+`python -m unittest toolchain.tests.test_import_sample_assets -v`（测试数据写在系统临时目录，
+不接触仓库内 `assets/`/`data/`）。

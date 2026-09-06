@@ -253,8 +253,12 @@ def run(args: argparse.Namespace) -> int:
         icon_id = f"icon.{args.category}.{sprite_set_name}"
         icon_out_path = assets_root / args.dataset / "icons" / args.category / f"{sprite_set_name}.png"
 
-    # 输出路径。
-    sprite_out_dir = assets_root / args.dataset / "sprites" / sprite_set_name
+    # 输出路径：目录名与运行时资源 id 解析规则对齐（14 第 1.2 节命名模板、
+    # adapters/unity 侧 UnityResourceLoader/SpriteViewBase.ResolveLayerResourceId），
+    # 即 sprite_set_id（"sprite.<category>.<sprite_set_name>"）去掉首段类别前缀
+    # "sprite." 后把剩余点号换成下划线，得到 "<category>_<sprite_set_name>"；不能只用
+    # sprite_set_name 本身（会与运行时按 sprite_set_id 解析出的路径不一致）。
+    sprite_out_dir = assets_root / args.dataset / "sprites" / f"{args.category}_{sprite_set_name}"
     atlas_png_path = sprite_out_dir / "atlas.png"
     atlas_json_path = sprite_out_dir / "atlas.json"
     anchors_json_path = sprite_out_dir / "anchors.json"

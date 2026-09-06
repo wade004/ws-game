@@ -34,7 +34,7 @@ adapters/unity/
 | `powershell -File build.ps1` | 完整流程：`dotnet build/test` → 同步六个核心 DLL 到 `Runtime/Plugins/Core/` → 同步内容数据集到 `Assets/StreamingAssets/GameFoundation/`（见下） |
 | `powershell -File build.ps1 -SkipTests` | 同上，跳过 `dotnet test` |
 | `powershell -File build.ps1 -SyncOnly` | 跳过 `dotnet build/test`，DLL 同步 + 内容同步都执行（要求此前至少完整 build 过一次） |
-| `powershell -File build.ps1 -SyncContent` | 只做内容同步（跳过 `dotnet build/test` 与 DLL 同步）；只改了 `data/_sample`/`assets/_placeholder`、没改任何 C# 代码时的快速路径 |
+| `powershell -File build.ps1 -SyncContent` | 只做内容同步（跳过 `dotnet build/test` 与 DLL 同步）；只改了 `data/_sample`/`assets/_placeholder`/`assets/_sample`、没改任何 C# 代码时的快速路径 |
 | `powershell -File build.ps1 -Dist 0.0.1` | 额外打一份分发包到 `dist/0.0.1/` |
 
 内容同步（U2-1 新增，一律哈希比较、只拷变化文件、镜像删除源目录已不存在的文件）：
@@ -43,8 +43,9 @@ adapters/unity/
 |---|---|---|
 | `data/_sample/` | `Assets/StreamingAssets/GameFoundation/data/_sample/` | `GameFoundationBootstrap` 用只读 `StreamingAssetsFileSystem` + `FileSystemDataSource` 加载 |
 | `assets/_placeholder/` | `Assets/StreamingAssets/GameFoundation/assets/_placeholder/`（整体镜像） | 保留原始目录结构，供直接按路径访问（如灰盒地面纹理） |
-| `assets/_placeholder/sprites/` | `Assets/StreamingAssets/GameFoundation/sprites/` | `UnityResourceLoader` 的 `ResourceKind.Image` 路径规则 |
-| `assets/_placeholder/sfx/` | `Assets/StreamingAssets/GameFoundation/audio/` | `UnityResourceLoader` 的 `ResourceKind.Audio` 路径规则（源目录名 `sfx`，目标固定叫 `audio`） |
+| `assets/_placeholder/sprites/` + `assets/_sample/sprites/` | `Assets/StreamingAssets/GameFoundation/sprites/`（两个源目录同步进同一棵目标目录树，见 `Sync-ContentTree` 的 `$SourceDirs` 数组） | `UnityResourceLoader` 的 `ResourceKind.Image` 路径规则；`assets/_sample/` 由 `toolchain/import_sample_assets.py` 导入 |
+| `assets/_placeholder/sfx/` + `assets/_sample/sfx/` | `Assets/StreamingAssets/GameFoundation/audio/` | `UnityResourceLoader` 的 `ResourceKind.Audio` 路径规则（源目录名 `sfx`，目标固定叫 `audio`） |
+| `assets/_placeholder/vfx/` + `assets/_sample/vfx/` | `Assets/StreamingAssets/GameFoundation/vfx/` | `UnityResourceLoader` 的 `ResourceKind.Effect` 路径规则 |
 | `assets/_placeholder/fonts/*.otf\|*.ttf` | `Assets/Framework/Resources/Fonts/`（注意不是 StreamingAssets） | `ResourceKind.Font` 走 `Resources.Load<Font>`，字体资产必须先被 Unity 资产管线导入，见包 README"资源 id → 路径规则"（缺口 1） |
 
 ## 命令行跑测试 / 编译检查 / 构建（见包 README 同一节，此处只给最终命令）

@@ -2,13 +2,6 @@
   "table": "world.map",
   "schema_version": 1,
   "rows": [
-    {
-      "id": "world.sample_field",
-      "scene_ref": "scene.sample_field",
-      "nav_ref": "nav.sample_field",
-      "spawn_points": [
-        { "id": "world.sample_field.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
-      ]
-    }
+    {"id": "world.sample_field", "scene_ref": "scene.sample_field", "nav_ref": "nav.sample_field", "spawn_points": [{"id": "world.sample_field.spawn.default", "position": {"x": 0, "y": 0}, "facing": 0}]}
   ]
 }

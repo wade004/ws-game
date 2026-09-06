@@ -157,14 +157,18 @@ U2-1 明确要求范围内，记为下一步可选加强项。
 ### 内容同步（`build.ps1 -SyncContent`）
 
 见 `adapters/unity/README.md`"build.ps1 各开关"一节；产物目录 `Assets/StreamingAssets/
-GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。
+GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。`sprites`/`audio`/`vfx` 三个目标目录
+同时同步 `assets/_placeholder/` 与 `assets/_sample/`（后者由 `toolchain/import_sample_assets.py`
+导入，见该脚本与 `toolchain/README.md`），二者汇入同一棵目标目录树。
 
 `UnityResourceLoader.ResolvePath` 新增"`layer.` 类别"特例（三级目录路径，见该方法判断记录）：
 `presentation/render/core/SpriteViewBase.ResolveLayerResourceId` 产出的纸娃娃层资源 id 形如
 `"layer.<spriteSetName>__<direction>__<layerName>"`，但 `toolchain/gen_placeholder_assets.py`
-生成的占位精灵集实际磁盘布局是"目录按方向/层分层"（`sprites/<spriteSet>/<direction>/
-<layer>.png`），不是单一扁平文件名；本方法只对 `"layer."` 这一个类别把双下划线分隔的三段还原成
-三级目录，其余类别（`sprite.`/`icon.` 等）的既有扁平解析规则不变。
+生成的占位精灵集（以及 `toolchain/import_sample_assets.py` 经 `import_assets.py` `sprite` 子命令
+导入的 `assets/_sample/sprites/` 精灵集，两者磁盘布局一致）实际磁盘布局是"目录按方向/层分层"
+（`sprites/<spriteSet>/<direction>/<layer>.png`），不是单一扁平文件名；本方法只对 `"layer."` 这一
+个类别把双下划线分隔的三段还原成三级目录，其余类别（`sprite.`/`icon.` 等）的既有扁平解析规则
+不变。
 
 ### 灰盒场景与测试/构建
 

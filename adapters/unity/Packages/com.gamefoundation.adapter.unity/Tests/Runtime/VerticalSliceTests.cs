@@ -381,8 +381,10 @@ namespace Adapter.Unity.Tests.Runtime
             // data/_sample/display/display.map.json），越靠后的层应当以更高的 sortingOrder 叠加在
             // 上层（人工核对步骤见包 README"人工验收清单"：在编辑器里选中玩家 LayersRoot 下的三个
             // SpriteRenderer，确认 Inspector 里的 Sorting Order 数值满足 body < hand_main < head）。
+            // 前缀 "layer.creature_sample_hero__" 来自该行 sprite_set_id="sprite.creature.sample_hero"
+            // （去掉 "sprite." 前缀、点号换下划线，见 SpriteViewBase.ResolveLayerResourceId）。
             var renderers = Object.FindObjectsByType<SpriteRenderer>(FindObjectsSortMode.None)
-                .Where(r => r.sprite != null && r.sprite.name.StartsWith("layer.placeholder_hero__"))
+                .Where(r => r.sprite != null && r.sprite.name.StartsWith("layer.creature_sample_hero__"))
                 .ToList();
             Assert.GreaterOrEqual(renderers.Count, 2, "玩家纸娃娃层应当至少渲染出两层精灵");
 
