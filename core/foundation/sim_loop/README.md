@@ -230,6 +230,18 @@ sim_loop/
    共享同一份账本，见该方法判断记录）尝试扣减；不足时拒绝本次移动意图（不产生任何位移）并调用
    `TurnScheduler.EndTurn` 结束该行动者的回合。`action_points_per_turn`/
    `movement_action_cost_per_unit` 两个新字段已登记进 04 第 3.1 节（2026-09-05 勘误）。
+6. **`WaitForPlaybackPacingPolicy` 零反馈离散步永久卡在 `playing_back` 已根治（W5c，第三轮
+   审计"仍保留项"收口）**：`PlaybackQueue.Finished` 只在队列"由非空变空"的边沿触发，一个从未
+   变过非空的队列（该离散步没有产生任何反馈动作）不会触发该边沿——此前 `WaitForPlaybackPacingPolicy`
+   每个离散步都无条件进入等待，没有表现层主动通知就永久卡死。本类型现新增可选属性
+   `HasPendingPlayback`（`Func<bool>?`，见该类型判断记录）："当前是否存在尚未回放完的表现动作"
+   这项知识不属于本模块（本模块不知道播放队列的存在），由调用方注入；`BeginStep` 按探针结果
+   判定——未接线或探针返回 `false` 时立即视为回放完成，不进入 `playing_back`；探针返回 `true`
+   时才真正关闭节奏门。生产接线（探针如何接上真正的播放队列）落在 L4/L5：
+   `core/gameplay/assembly.GameplayAssembly.SetPendingPlaybackProbe` 提供窄回填入口（本模块构造
+   期拿不到表现层的播放队列，只能"先占位、后回填"），`presentation/assembly.PresentationAssembly`
+   在装配好 `FeedbackBinder` 之后调用它接上 `() => Feedback.Queue.PendingCount > 0`；Unity 引导
+   （`adapters/unity` 的 `GameFoundationBootstrap`/`FrameworkResidentHost`）不需要任何轮询兜底。
 
 ## 基础架构提供 / 游戏层提供
 

@@ -221,12 +221,21 @@ namespace Adapter.Unity.Tests.Runtime
 
         /// <summary>手动驱动一次"固定步"，与 GameFoundationBootstrap.OnFixedStep 同一套节奏门：
         /// WaitForPlayback 模式下若仍在等待表现层回放，跳过 Advance，只推进播放队列
-        /// （Presentation.Feedback.Update，同 FrameworkResidentHost.OnFrameTick）。额外的"零事件步
-        /// 立即解除"分支落地 09 第 6.4 节/PlaybackQueue 类型注释判断记录"零事件时可以同步立即调用
-        /// OnPlaybackFinished，等价于不等待"这条契约——离散步若没有产生任何需要回放的动作（如玩家
-        /// 结束回合本身不经 world.Tick，AI 决策也可能没有命中任何 feedback.binding 规则），
-        /// PlaybackQueue.Finished 永远不会触发，必须由调用方主动判定"这一步没有可等待的内容"并
-        /// 立即解除，否则永久卡在 playing_back。</summary>
+        /// （Presentation.Feedback.Update，同 FrameworkResidentHost.OnFrameTick）。
+        /// <para>
+        /// 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：此前本方法在
+        /// 这里额外补了一段"零事件步立即解除"的手工短路（PendingCount==0 时主动调用
+        /// NotifyPlaybackFinished）——测试基础设施里的这段逻辑，本质上和 DECISIONS 拍板 5 删除的
+        /// Unity 引导（生产代码）"零事件兜底"短路是同一类手法，只是搬到了测试侧。缺陷已在生产代码
+        /// 根治（<c>WaitForPlaybackPacingPolicy.HasPendingPlayback</c> 探针 +
+        /// <c>GameplayAssembly.SetPendingPlaybackProbe</c>，<c>PresentationAssembly</c> 装配 Feedback
+        /// 后自动接上 <c>() =&gt; Feedback.Queue.PendingCount &gt; 0</c>，见三者判断记录）之后，
+        /// 零反馈离散步在 <c>GameplayAssembly.Advance</c> 内部的 <c>BeginStep</c> 那一刻就已经立即
+        /// 判定 <c>IsPlaybackFinished=true</c>、不进入 <c>playing_back</c>，不再需要任何轮询式短路
+        /// 兜底——本方法删除该短路，改走与生产 <c>OnFixedStep</c> 完全一致的真实路径（先查节奏门是否
+        /// 已开启，开启则推进 Advance，否则本帧只推进播放队列）。
+        /// </para>
+        /// </summary>
         private static void Tick(Fixture fixture, double dt)
         {
             fixture.Presentation.Feedback.Update(dt);
@@ -234,19 +243,10 @@ namespace Adapter.Unity.Tests.Runtime
             var pacing = fixture.Gameplay.Pacing as WaitForPlaybackPacingPolicy;
             if (pacing != null && !pacing.IsPlaybackFinished)
             {
-                if (fixture.Presentation.Feedback.Queue.PendingCount == 0)
-                {
-                    fixture.Gameplay.NotifyPlaybackFinished();
-                }
                 return;
             }
 
             fixture.Gameplay.Advance(dt);
-
-            if (pacing != null && !pacing.IsPlaybackFinished && fixture.Presentation.Feedback.Queue.PendingCount == 0)
-            {
-                fixture.Gameplay.NotifyPlaybackFinished();
-            }
         }
 
         [UnityTest]
@@ -334,11 +334,9 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         /// <summary>驱动到"轮到玩家、awaiting_input"这一状态，复用既有 <see cref="Tick"/>
-        /// 辅助方法（本类型私有测试基础设施，见该方法判断记录——"零事件时可以同步立即调用
-        /// OnPlaybackFinished"本就是 <c>WaitForPlaybackPacingPolicy</c> 类型注释记录的既有契约，
-        /// DECISIONS 拍板 5 删除的是"共享引导"（生产代码）里逐帧轮询版本的短路，不是测试基础设施
-        /// 本身），只用于把两条新用例都需要的"进入离散战斗 + 轮到玩家"这段前置流程收敛成一个
-        /// 公共步骤，避免重复。</summary>
+        /// 辅助方法（本类型私有测试基础设施，见该方法判断记录——W5c 根治修复后 <see cref="Tick"/>
+        /// 已经走与生产代码完全一致的真实路径，不再依赖任何短路），只用于把两条新用例都需要的
+        /// "进入离散战斗 + 轮到玩家"这段前置流程收敛成一个公共步骤，避免重复。</summary>
         private static IEnumerator DriveToPlayerAwaitingInput(Fixture fixture)
         {
             var dt = Time.fixedDeltaTime;

@@ -163,6 +163,15 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
    （`List<SubscriberEntry>` 尾插 + 遍历），本装配根的订阅注册在后，收到通知时读到的
    `CurrentMode` 必然已经是切换后的最新值。此前 Unity 引导侧靠"零事件兜底"短路的临时手法随本次
    收口废弃。
+9. **离散回放门"零事件步骤"永久卡死已根治（W5c，第三轮审计"仍保留项"收口）**：`PlaybackQueue.
+   Finished` 只在队列"由非空变空"的边沿触发，一个没有产生任何反馈动作的离散步不会触发该边沿，
+   `GameplayAssembly.Advance` 此前每个离散步都无条件进入 `playing_back` 等待，会永久卡死——本
+   装配根在 `Feedback`（第 3 步）构造完成后，立即经 `GameplayAssembly.SetPendingPlaybackProbe`
+   把 `() => Feedback.Queue.PendingCount > 0` 接入 `gameplay.Pacing`（若其具体类型是
+   `Core.Foundation.SimLoop.WaitForPlaybackPacingPolicy`，见该方法与该类型判断记录）；未装配
+   离散模式或调用方显式传入自定义 `IPacingPolicy` 时 `SetPendingPlaybackProbe` 内部静默跳过，不
+   影响装配成功。生产代码不再需要 Unity 引导侧任何轮询兜底（`adapters/unity` 的
+   `GameFoundationBootstrap`/`FrameworkResidentHost` 判断记录同步更新）。
 
 ## 验收测试（`tests/PresentationAssemblyTests.cs`）
 
@@ -180,6 +189,7 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
 | `FlashAction_DefaultWiring_RoutesThroughCharacterRig_WhenViewHasRig` | 拍板 6：`OnFlash` 默认经 `ViewBinder`+`IHasCharacterRig` 落到 `ICharacterRig.ProceduralAnim.Flash`，参数为 `FlashParams.Default` |
 | `FeedbackQueueMode_AutoSwitchesWithTimeModel_SequentialInDiscreteCombat_ImmediateOnceBack` | 拍板 5：进战切离散 → `Queue.Mode=Sequential`（事件先入队，`presentation.playback_finished` 在队列清空时发出且仅发一次）；脱战切回连续 → `Immediate` |
 | `FeedbackQueueMode_ExplicitOption_OverridesAutoSwitch_NeverChanges` | `opts.FeedbackQueueMode` 显式提供时不再跟随时间模型切换 |
+| `PendingPlaybackProbe_WiresToGameplayPacing_TracksFeedbackQueuePendingCount` | W5c：`GameplayAssembly.SetPendingPlaybackProbe` 接线正确，探针实时反映 `Feedback.Queue.PendingCount` 变化（入队变 true、播放耗尽变回 false） |
 | `VfxSocketAttach_EndToEnd_AttachesToResolvedHostHandle_ViaRenderer3D` | 缺口 13：`IModelHandleProvider.TryGetModelHandle` 经 `ViewBinder` 解析、真正驱动 `IRenderer3D.AttachToSocket` |
 | `Shop_OpenVendor_ListsSellItems_FromSampleData`（及同组用例） | 拍板 7：`ShopViewModel` 读 `gameplay.Economy` 的商人出售清单/库存/价格，事件驱动刷新，未知商人 id 静默退化 |
 

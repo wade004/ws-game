@@ -384,7 +384,44 @@ namespace Core.Gameplay.Assembly
             // SetPendingOverride/SwitchToDiscrete 重新落定）。
             _activeInitiativeStatOverride = null;
 
-            if (_appState.CurrentSubState == SubStateId.Combat)
+            PopSubStatesThroughCombat();
+        }
+
+        /// <summary>
+        /// 根治修复（W5c，PlayMode 门实测暴露的既有缺陷，与本轮"离散回放门零事件步骤"根治任务同批
+        /// 发现）：<see cref="SwitchToContinuous"/> 此前只在 <c>_appState.CurrentSubState == SubStateId.Combat</c>
+        /// 严格相等时才弹出一次——但 <see cref="SwitchToDiscrete"/> 压入的只是 <c>Combat</c> 本身，
+        /// <c>GameplayAssembly.Advance</c> 在离散步驱动期间还会把 <c>AwaitingInput</c>/<c>PlayingBack</c>
+        /// 两个自定义子状态嵌套压在 <c>Combat</c> 之上（见该方法判断记录）；<c>combat.left</c> 完全
+        /// 可能恰好在"轮到玩家等待输入"（栈顶是 <c>AwaitingInput</c>，不是 <c>Combat</c>）那一刻触发
+        /// ——此时严格相等检查失手，<c>Combat</c>（连同其上的 <c>AwaitingInput</c>）永久残留在子状态
+        /// 栈里，<see cref="Presentation.Ui.HudViewModel.CanEndTurn"/> 之类依赖
+        /// <c>AppState.CurrentSubState</c> 的下游会持续读到"仍在等待输入"的假状态（复现：
+        /// <c>adapters/unity/.../Tests/Runtime/DiscreteCombatTests.cs</c> 的
+        /// <c>EnterDiscreteCombat_AwaitingInput_EndTurn_AiActs_RoundAdvances_ExitsBackToContinuous</c>，
+        /// 断言"切回连续模式后结束回合按钮应重新隐藏"失败——该失败在本类型未改动前的既有代码上就能
+        /// 复现，与本轮回放门修复无因果关系，是同一批 PlayMode 门实测顺带发现的独立缺陷，一并根治）。
+        /// 改为循环弹出：先弹掉 <c>Combat</c> 之上的任意嵌套子状态，直到栈顶回到 <c>Combat</c> 本身
+        /// 再弹出它——不需要本类型知道 <c>AwaitingInput</c>/<c>PlayingBack</c> 具体是哪两个
+        /// <see cref="SubStateId"/>（它们由 <c>GameplayAssembly</c> 动态注册，本类型不持有其值，也
+        /// 没必要持有：只要不是 <c>Combat</c> 本身，一律弹出）。<see cref="IAppStateHost.PopSubState"/>
+        /// 在栈底 <c>Explore</c> 不可弹出时返回 <c>false</c>（见该方法契约），本方法据此防御性退出，
+        /// 不会死循环——即便 <c>Combat</c> 因某种异常原因不在栈内（理论上不会发生：<see cref="CurrentMode"/>
+        /// 只在 <see cref="SwitchToDiscrete"/> 压入 <c>Combat</c> 之后才置为 <see cref="TimeModelMode.Discrete"/>，
+        /// 本方法只在 <see cref="CurrentMode"/> 为 <c>Discrete</c> 时被调用，见 <see cref="OnCombatLeft"/>/
+        /// <see cref="SwitchToContinuousIfNoneActive"/>）。
+        /// </summary>
+        private void PopSubStatesThroughCombat()
+        {
+            while (_appState.CurrentSubState.HasValue && !_appState.CurrentSubState.Value.Equals(SubStateId.Combat))
+            {
+                if (!_appState.PopSubState())
+                {
+                    return;
+                }
+            }
+
+            if (_appState.CurrentSubState.HasValue && _appState.CurrentSubState.Value.Equals(SubStateId.Combat))
             {
                 _appState.PopSubState();
             }

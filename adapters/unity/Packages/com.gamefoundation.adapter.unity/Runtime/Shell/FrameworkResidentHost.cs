@@ -671,13 +671,20 @@ namespace Adapter.Unity.Shell
             // PlaybackQueue.Finished（队列由非空变空的边沿事件，见该类型注释）经
             // FeedbackBinder 构造函数里的 `_queue.Finished += () => _bus.PublishImmediate(new
             // PlaybackFinishedEvent())` 联动、本类型订阅 presentation.playback_finished 转发到
-            // Gameplay.NotifyPlaybackFinished() 解除——这是"正常发出 playback_finished"的唯一
-            // 路径。已知局限（记录供 W5 判断是否需要在 core/gameplay/assembly 补一个结构性兜底，
-            // 不在本任务 adapters/unity 写入范围内解决）：若某个离散步在 Sequential 队列模式下确实
-            // 一个反馈动作都没有入队（PlaybackQueue.Finished 是"由非空变空"的边沿触发，队列若从未
-            // 变过非空则永远不会触发），playing_back 会永久卡住——DiscreteCombatTests.cs/
-            // SharedBootstrapDiscreteTests.cs 新增的门实测用例只覆盖"产生反馈动作"的正路径（见任务
-            // 书原句），不覆盖这一理论边界情形。
+            // Gameplay.NotifyPlaybackFinished() 解除——这是"确有回放内容"时唯一的解除路径。
+            //
+            // 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：此前这里
+            // 记录的"已知局限"——某个离散步在 Sequential 队列模式下一个反馈动作都没有入队时，
+            // PlaybackQueue.Finished 永远不会触发（"由非空变空"的边沿事件，队列若从未变过非空则
+            // 不会触发），playing_back 因此永久卡住——已在 core/gameplay/assembly 侧结构性根治：
+            // Core.Foundation.SimLoop.WaitForPlaybackPacingPolicy 新增可选 HasPendingPlayback 探针，
+            // Core.Gameplay.Assembly.GameplayAssembly.SetPendingPlaybackProbe 提供窄回填入口，
+            // Presentation.Assembly.PresentationAssembly 在装配好本类型的 Feedback 之后自动接上
+            // `() => Feedback.Queue.PendingCount > 0`（见三者判断记录）——零反馈的离散步在
+            // GameplayAssembly.Advance 内部 BeginStep 那一刻就立即判定 IsPlaybackFinished=true，
+            // 不再进入 playing_back，本类型（Unity 引导）不需要任何轮询兜底即可正确工作，上面这段
+            // OnFixedStep 的 IsPlaybackFinished 门槛判断保持不变——它本就只负责"节奏门关闭时跳过
+            // Advance"，不负责判定"这一步有没有东西要回放"，后者从一开始就不该是引导层的职责。
 
             if (!renderTicking)
             {

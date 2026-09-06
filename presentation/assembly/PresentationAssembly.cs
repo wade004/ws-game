@@ -367,6 +367,18 @@ namespace Presentation.Assembly
                 unitAccess: gameplay.Carriers.Units, options: opts.FeedbackOptions,
                 textResolver: key => L10n.Text(key));
 
+            // 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：
+            // Feedback（播放队列 Queue 随之就绪）已构造完成，把"当前是否存在尚未回放完的表现动作"
+            // 探针经 GameplayAssembly.SetPendingPlaybackProbe 回填给 gameplay.Pacing（若其具体类型
+            // 是 WaitForPlaybackPacingPolicy，见该方法判断记录"先占位、后回填"）——此前
+            // GameplayAssembly.Advance 每个离散步都无条件进入 playing_back 等待
+            // presentation.playback_finished，而 PlaybackQueue.Finished 只在队列"由非空变空"的
+            // 边沿触发，一个没有产生任何反馈动作的离散步永远不会让队列变过非空，节奏门因此永久卡死；
+            // 接上本探针后 WaitForPlaybackPacingPolicy.BeginStep 能在 BeginStep 那一刻就确认"这一步
+            // 到底有没有东西要回放"，没有时立即放行、不进入 playing_back。未装配离散模式或调用方
+            // 显式传入自定义 IPacingPolicy 时，SetPendingPlaybackProbe 内部静默跳过，不影响装配。
+            gameplay.SetPendingPlaybackProbe(() => Feedback.Queue.PendingCount > 0);
+
             // 拍板 5（离散回放门）：opts.FeedbackQueueMode 显式提供时一次性设定、不再自动跟随时间
             // 模型切换（调用方明确接管）；未提供（默认 null）时由本装配根跟随
             // gameplay.TimeModelSwitch.CurrentMode 自动切换——离散 Sequential、连续 Immediate（09 第

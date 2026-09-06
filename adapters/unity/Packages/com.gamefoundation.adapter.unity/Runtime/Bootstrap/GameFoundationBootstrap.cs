@@ -600,7 +600,10 @@ namespace Adapter.Unity.Bootstrap
 
             // 拍板 5/DECISIONS 收口：原 H4"零事件步"兜底短路已删除，见
             // FrameworkResidentHost.OnFrameTick 同款判断记录（playback_finished 现只经
-            // PlaybackQueue.Finished 正常发出）。
+            // PlaybackQueue.Finished 正常发出）。根治修复（W5c）：该判断记录里记录的"零事件步骤
+            // 永久卡住"已知局限已在 core/gameplay/assembly.GameplayAssembly.SetPendingPlaybackProbe
+            // / Core.Foundation.SimLoop.WaitForPlaybackPacingPolicy.HasPendingPlayback 探针 +
+            // presentation/assembly.PresentationAssembly 自动接线三处结构性根治，详见该判断记录。
 
             RunPresentationStep(() => FloatingText!.Tick((float)unscaledDelta));
             RunPresentationStep(() => Freeze.Tick(unscaledDelta));

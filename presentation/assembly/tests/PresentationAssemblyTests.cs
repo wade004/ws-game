@@ -711,6 +711,90 @@ namespace Tests.Presentation.Assembly
             Assert.Equal(QueueMode.Immediate, presentation.Feedback.Queue.Mode);
         }
 
+        /// <summary>
+        /// 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：本装配根
+        /// 构造期把 <c>() =&gt; Feedback.Queue.PendingCount &gt; 0</c> 经
+        /// <see cref="Core.Gameplay.Assembly.GameplayAssembly.SetPendingPlaybackProbe"/> 接入
+        /// <c>gameplay.Pacing</c>（离散模式默认的 <see cref="Core.Foundation.SimLoop.WaitForPlaybackPacingPolicy"/>）
+        /// ——本用例直接读 <c>HasPendingPlayback</c> 探针的实时求值结果，验证接线确实反映
+        /// <c>Feedback.Queue.PendingCount</c> 的真实变化（入队时变 true、播放耗尽后变回 false），
+        /// 不需要驱动完整的 <c>GameplayAssembly.Advance</c> 离散步循环（那条端到端路径见
+        /// <c>core/gameplay/tests/Discrete/GameplayAssemblyDiscreteWiringTests.cs</c> 的
+        /// <c>DiscretePacing_*</c> 系列，用手工可控探针验证节奏门本身；本用例反过来验证"探针确实是
+        /// 接到真实播放队列上的，不是某个恒定值"）。
+        /// </summary>
+        [Fact]
+        public void PendingPlaybackProbe_WiresToGameplayPacing_TracksFeedbackQueuePendingCount()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+
+            var source = new InMemoryDataSource();
+            AddMinimalGameplayTables(source);
+            AddMinimalPresentationTables(source);
+            source.Add("found.time_model",
+                "{\"table\": \"found.time_model\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"found.time_model.exploration\", \"scope\": \"exploration\", \"mode\": \"continuous\"}," +
+                "{\"id\": \"found.time_model.combat\", \"scope\": \"combat\", \"mode\": \"discrete\", " +
+                "\"seconds_per_turn\": 6, \"initiative_policy\": \"fixed_order\", \"movement_budget_rule\": \"distance\"}" +
+                "]}");
+
+            var registryOptions = PresentationSchemaCatalog.CreateOptions();
+            registryOptions.FailOnUnknownTable = false;
+            var registry = new DataRegistry(source, bus, registryOptions);
+            PresentationSchemaCatalog.RegisterAll(registry);
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+
+            var world = new WorldSim(bus);
+            var spatial = new StubSpatialQuery();
+            var rng = new RngHost(1);
+            var engine = new StubEngine();
+            var saveSystem = new Core.Foundation.SaveSystem.SaveSystem(
+                engine.FileSystem, new SaveSystemOptions(new Id("game.unspecified")), bus);
+
+            Id playerId = default;
+            var clockHost = new Core.Foundation.SimLoop.SimClockHost(world);
+            var gameplay = new GameplayAssembly(
+                bus, registry, rng, world, spatial, saveSystem,
+                playerUnitProvider: () => playerId, playerFactionId: new Id("fac.sample_player"),
+                clockHost: clockHost);
+            playerId = gameplay.Carriers.Creatures.Spawn(SamplePlayerTemplateId, SampleMapId, Vec2.Zero, 0.0);
+
+            var viewFactory = new Tests.PresentationViewBinding.FakeViewFactory();
+            var sceneRouter = new SceneRouter(registry, engine.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, bus);
+
+            var presentation = new PresentationAssembly(
+                gameplay, world, registry, bus, new RngHost(2), viewFactory,
+                engine.Renderer2D, engine.Camera, engine.Audio, engine.FileSystem, sceneRouter);
+
+            var pacing = Assert.IsType<Core.Foundation.SimLoop.WaitForPlaybackPacingPolicy>(gameplay.Pacing);
+            Assert.NotNull(pacing.HasPendingPlayback);
+
+            // 战斗前（连续模式，队列默认 Immediate、永远为空）：探针应反映"当前没有待回放内容"。
+            Assert.False(pacing.HasPendingPlayback!());
+
+            bus.PublishImmediate(new CombatEnteredEvent(playerId, new Id("unit.smoke_hostile")));
+            Assert.Equal(Core.Foundation.SimLoop.TimeModelMode.Discrete, gameplay.TimeModelSwitch!.CurrentMode);
+            Assert.Equal(QueueMode.Sequential, presentation.Feedback.Queue.Mode);
+            Assert.False(pacing.HasPendingPlayback!(), "进战瞬间队列仍为空，探针应仍为 false");
+
+            // AddMinimalPresentationTables 对 combat.damage_dealt 挂了两条规则（floating_text +
+            // flash），Sequential 模式下两个动作先入队——探针应立即反映"确有待回放内容"。
+            var damageEvt = new CombatDamageDealtEvent(
+                playerId, new Id("unit.smoke_hostile"), new Id("skill.school.physical"), 7.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(damageEvt);
+
+            Assert.Equal(2, presentation.Feedback.Queue.PendingCount);
+            Assert.True(pacing.HasPendingPlayback!(), "队列非空时探针应返回 true");
+
+            presentation.Feedback.Update(1.0); // 足够推进完队列里两步（默认 SequentialStepSeconds=0.15）。
+
+            Assert.Equal(0, presentation.Feedback.Queue.PendingCount);
+            Assert.False(pacing.HasPendingPlayback!(), "队列播放耗尽后探针应回到 false");
+        }
+
         // ------------------------------------------------------------------
         // 缺口 13：IModelHandleProvider.TryGetModelHandle 经 PresentationAssembly 的 socket 挂接路径。
         // ------------------------------------------------------------------

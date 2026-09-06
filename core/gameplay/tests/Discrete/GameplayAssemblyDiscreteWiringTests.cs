@@ -179,7 +179,8 @@ namespace Tests.Gameplay.Discrete
             }
         }
 
-        private static Fixture Build(int actionPointsPerTurn, string initiativePolicy = "fixed_order")
+        private static Fixture Build(
+            int actionPointsPerTurn, string initiativePolicy = "fixed_order", IPacingPolicy? pacingPolicy = null)
         {
             var definitions = EventKeys.All.Select(k => new EventDefinition(k, k.Domain, Array.Empty<string>())).ToList();
             var catalog = EventCatalog.FromDefinitions(definitions);
@@ -219,7 +220,7 @@ namespace Tests.Gameplay.Discrete
                 playerUnitProvider: () => PlayerId,
                 playerFactionId: FactionPlayer,
                 clockHost: clock,
-                pacingPolicy: new ImmediatePacingPolicy(),
+                pacingPolicy: pacingPolicy ?? new ImmediatePacingPolicy(),
                 // GcdEnabled 显式开启（默认 false，见 SkillOptions 判断记录）：不开启的话公共冷却
                 // 检查恒直接通过，"离散步跳过 GCD"这条用例会无论接线是否正确都通过（假阳性）。
                 // GcdDuration 给一个远超单次测试执行时间的值，确保"若未正确跳过"这条分支必然可观测。
@@ -460,6 +461,111 @@ namespace Tests.Gameplay.Discrete
             Assert.Contains(
                 fx.Events,
                 e => e is SkillCastSuccessEvent sc && sc.CasterId.Equals(NpcId) && sc.SkillId.Equals(SkillAiTurnOnly));
+        }
+
+        // -----------------------------------------------------------------
+        // 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：
+        // GameplayAssembly.Advance 的 WaitForPlayback 分支 + WaitForPlaybackPacingPolicy.
+        // HasPendingPlayback 探针端到端验证——本组用例用默认的 WaitForPlaybackPacingPolicy（而不是
+        // 其余全部用例使用的 ImmediatePacingPolicy），经 GameplayAssembly.SetPendingPlaybackProbe
+        // 手工接一个可控的探针（不装配 PresentationAssembly，直接控制"是否有待回放内容"这一布尔值），
+        // 验证节奏门本身的行为，不依赖真实表现层——真实表现层接线（Feedback.Queue.PendingCount）的
+        // 验证见 presentation/assembly/tests/PresentationAssemblyTests.cs。
+        // -----------------------------------------------------------------
+
+        /// <summary>零反馈离散步（探针恒返回 false）：Advance 不应停在 playing_back，应像
+        /// ImmediatePacingPolicy 一样一次调用内继续推进直到下一次真正需要停下（本例是再次轮到玩家
+        /// 等待输入）——不调用 NotifyPlaybackFinished 也不应卡死，这正是本次要根治的缺陷。</summary>
+        [Fact]
+        public void DiscretePacing_ZeroFeedbackStep_DoesNotEnterPlayingBack_AdvancesWithoutNotify()
+        {
+            var fx = Build(actionPointsPerTurn: 1, pacingPolicy: new WaitForPlaybackPacingPolicy());
+            fx.Gameplay.SetPendingPlaybackProbe(() => false);
+
+            fx.AdvanceUntilAwaitingPlayerInput();
+            fx.SubmitPlayerCast(SkillCheap);
+            fx.Gameplay.Advance(0);
+
+            Assert.False(
+                fx.Gameplay.AppState.CurrentSubState.HasValue &&
+                fx.Gameplay.AppState.CurrentSubState.Value.Equals(fx.Gameplay.PlayingBackSubState),
+                "探针恒返回 false（零反馈）时不应停在 playing_back 子态");
+            Assert.Contains(fx.Events, e => e is SkillCastSuccessEvent sc && sc.SkillId.Equals(SkillCheap));
+
+            var pacing = Assert.IsType<WaitForPlaybackPacingPolicy>(fx.Gameplay.Pacing);
+            Assert.True(pacing.IsPlaybackFinished, "零反馈步之后节奏门应处于开启（已完成）状态");
+        }
+
+        /// <summary>有反馈离散步（探针恒返回 true）：Advance 应停在 playing_back 并保持，直到调用方
+        /// 调用 NotifyPlaybackFinished 才解除——不再依赖任何"零事件兜底"，验证的正是"确有内容才
+        /// 关闭节奏门"这条恒等语义在有内容时仍然成立（不被本次修复误伤成"恒不等待"）。</summary>
+        [Fact]
+        public void DiscretePacing_PendingFeedbackStep_EntersPlayingBack_WaitsForNotifyPlaybackFinished()
+        {
+            var fx = Build(actionPointsPerTurn: 1, pacingPolicy: new WaitForPlaybackPacingPolicy());
+            var hasPending = true; // 模拟"这一步确有反馈动作已入队、尚未播放完"。
+            fx.Gameplay.SetPendingPlaybackProbe(() => hasPending);
+
+            fx.AdvanceUntilAwaitingPlayerInput();
+            fx.SubmitPlayerCast(SkillCheap);
+            fx.Gameplay.Advance(0);
+
+            var pacing = Assert.IsType<WaitForPlaybackPacingPolicy>(fx.Gameplay.Pacing);
+            Assert.False(pacing.IsPlaybackFinished, "探针返回 true 时应关闭节奏门（playing_back）");
+            Assert.True(
+                fx.Gameplay.AppState.CurrentSubState.HasValue &&
+                fx.Gameplay.AppState.CurrentSubState.Value.Equals(fx.Gameplay.PlayingBackSubState),
+                "有待回放动作时应停在 playing_back 子态");
+
+            // 节奏门仍关闭：与生产接线一致（GameFoundationBootstrap.OnFixedStep 同款判断），调用方
+            // 应先查 IsPlaybackFinished 再决定是否调用 Advance；这里不重复调用 Advance，只验证状态
+            // 保持关闭，直到显式解除。
+            Assert.False(pacing.IsPlaybackFinished);
+
+            // 模拟表现层把队列播放完毕（真实场景下 PlaybackQueue.Finished 触发时 PendingCount 已经
+            // 归零，探针自然改口）之后才发出 presentation.playback_finished → NotifyPlaybackFinished。
+            hasPending = false;
+            fx.Gameplay.NotifyPlaybackFinished();
+            Assert.True(pacing.IsPlaybackFinished, "NotifyPlaybackFinished 后节奏门应解除");
+
+            fx.Gameplay.Advance(0);
+            Assert.False(
+                fx.Gameplay.AppState.CurrentSubState.HasValue &&
+                fx.Gameplay.AppState.CurrentSubState.Value.Equals(fx.Gameplay.PlayingBackSubState),
+                "节奏门解除后 Advance 应继续推进，不再停在 playing_back");
+        }
+
+        /// <summary>连续多步混合：同一场战斗里，探针在"有反馈"与"零反馈"之间切换，验证
+        /// WaitForPlaybackPacingPolicy 每步都重新读取当前探针值（不缓存上一步的判定结果）——零反馈的
+        /// 步骤照常直接推进，有反馈的步骤仍然正确停下等待。</summary>
+        [Fact]
+        public void DiscretePacing_MixedFeedbackAndZeroFeedbackSteps_GatesOnlyWhenPending()
+        {
+            var fx = Build(actionPointsPerTurn: 1, pacingPolicy: new WaitForPlaybackPacingPolicy());
+            var hasPending = false;
+            fx.Gameplay.SetPendingPlaybackProbe(() => hasPending);
+            var pacing = Assert.IsType<WaitForPlaybackPacingPolicy>(fx.Gameplay.Pacing);
+
+            // 第一步：零反馈，应直接推进到下一次轮到玩家等待输入，不停在 playing_back。
+            fx.AdvanceUntilAwaitingPlayerInput();
+            fx.SubmitPlayerCast(SkillCheap);
+            fx.Gameplay.Advance(0);
+            Assert.True(pacing.IsPlaybackFinished, "第一步（零反馈）之后节奏门应保持开启");
+
+            // 第二步：切到"有反馈"，应停在 playing_back，直到手动解除。
+            hasPending = true;
+            fx.SubmitPlayerCast(SkillCheap);
+            fx.Gameplay.Advance(0);
+            Assert.False(pacing.IsPlaybackFinished, "第二步（有反馈）应关闭节奏门");
+            fx.Gameplay.NotifyPlaybackFinished();
+            Assert.True(pacing.IsPlaybackFinished);
+
+            // 第三步：切回零反馈，应再次直接推进，不需要 NotifyPlaybackFinished。
+            hasPending = false;
+            fx.Gameplay.Advance(0); // 上一步已停在 playing_back 解除后回到 awaiting_input，需要新意图。
+            fx.SubmitPlayerCast(SkillCheap);
+            fx.Gameplay.Advance(0);
+            Assert.True(pacing.IsPlaybackFinished, "第三步（零反馈）之后节奏门应再次保持开启");
         }
     }
 }

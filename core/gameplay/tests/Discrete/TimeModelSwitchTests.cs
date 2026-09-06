@@ -37,6 +37,8 @@ namespace Tests.Gameplay.Discrete
             public IAppStateHost AppState = null!;
             public Core.Foundation.SimLoop.TurnScheduler Scheduler = null!;
             public TimeModelSwitchType Switch = null!;
+            public SubStateId AwaitingInputSubState;
+            public SubStateId PlayingBackSubState;
         }
 
         private static Harness Build(string combatMode)
@@ -106,6 +108,8 @@ namespace Tests.Gameplay.Discrete
                 AppState = appState,
                 Scheduler = scheduler,
                 Switch = timeModelSwitch,
+                AwaitingInputSubState = awaitingInput,
+                PlayingBackSubState = playingBack,
             };
         }
 
@@ -166,6 +170,74 @@ namespace Tests.Gameplay.Discrete
             // seconds_per_turn = 6：2 回合 → 12 秒。
             Assert.Equal(12.0, h.World.Timers.Remaining(handle), 9);
             Assert.Equal(TimeModelMode.Continuous, h.Switch.CurrentMode);
+        }
+
+        /// <summary>
+        /// 根治修复（W5c，PlayMode 门实测暴露的既有缺陷，与本轮"离散回放门零事件步骤"根治任务同批
+        /// 发现，见 <c>TimeModelSwitch.PopSubStatesThroughCombat</c> 判断记录）：脱战恰好发生在
+        /// <c>CurrentSubState == SubStateId.Combat</c>（未嵌套任何离散节奏子状态，测试直接发布事件、
+        /// 不经 <c>GameplayAssembly.Advance</c> 驱动时的典型情形）——回归验证本次改动没有破坏这条
+        /// 最简单的路径：子状态应当弹回到 <see cref="SubStateId.Explore"/>，不是停在 <c>Combat</c>。
+        /// </summary>
+        [Fact]
+        public void CombatLeft_WhenSubStateIsExactlyCombat_PopsBackToExplore()
+        {
+            var h = Build("discrete");
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero));
+            Assert.Equal(SubStateId.Combat, h.AppState.CurrentSubState);
+
+            h.Bus.PublishImmediate(new CombatLeftEvent(Hero));
+
+            Assert.Equal(TimeModelMode.Continuous, h.Switch.CurrentMode);
+            Assert.Equal(SubStateId.Explore, h.AppState.CurrentSubState);
+        }
+
+        /// <summary>
+        /// 根治修复（W5c）核心验收：脱战发生在 <c>AwaitingInput</c> 嵌套子状态之上（模拟
+        /// <c>GameplayAssembly.Advance</c> 离散步驱动期间"轮到玩家等待输入"那一刻——<c>combat.left</c>
+        /// 完全可能恰好在这个时间点触发，见 <c>TimeModelSwitch.PopSubStatesThroughCombat</c> 判断
+        /// 记录的复现路径）。修复前：<c>SwitchToContinuous</c> 严格比较
+        /// <c>CurrentSubState == SubStateId.Combat</c> 会失手（此刻栈顶是 <c>AwaitingInput</c>，不是
+        /// <c>Combat</c>），<c>Combat</c>/<c>AwaitingInput</c> 两层永久残留在子状态栈里，
+        /// <c>CurrentSubState</c> 永远读不回 <see cref="SubStateId.Explore"/>。修复后：应当把
+        /// <c>AwaitingInput</c> 与其下的 <c>Combat</c> 一并弹出，回到 <c>Explore</c>。
+        /// </summary>
+        [Fact]
+        public void CombatLeft_WhenSubStateIsNestedAwaitingInput_PopsThroughCombat_BackToExplore()
+        {
+            var h = Build("discrete");
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero));
+            Assert.Equal(SubStateId.Combat, h.AppState.CurrentSubState);
+
+            // 模拟 GameplayAssembly.Advance 离散分支"轮到玩家、等待输入"时的压栈（见该方法源码
+            // PushSubStateIfNotCurrent(AwaitingInputSubState)）——本用例不经完整 Advance 循环，直接
+            // 复现它在 AppState 栈上留下的效果。
+            h.AppState.PushSubState(h.AwaitingInputSubState);
+            Assert.Equal(h.AwaitingInputSubState, h.AppState.CurrentSubState);
+
+            h.Bus.PublishImmediate(new CombatLeftEvent(Hero));
+
+            Assert.Equal(TimeModelMode.Continuous, h.Switch.CurrentMode);
+            Assert.True(
+                h.AppState.CurrentSubState.HasValue && h.AppState.CurrentSubState.Value.Equals(SubStateId.Explore),
+                $"脱战应当弹掉 AwaitingInput 与其下的 Combat 两层，回到 Explore，不能停在中途任何一层；实际是 {h.AppState.CurrentSubState}");
+        }
+
+        /// <summary>同上，覆盖 <c>PlayingBack</c> 嵌套子状态（离散步产生了待回放动作、脱战恰好在
+        /// 表现层回放期间触发的情形），验证 <see cref="TimeModelSwitch"/> 的修复不依赖具体是哪一个
+        /// 嵌套子状态——只要不是 <c>Combat</c> 本身就一律弹出。</summary>
+        [Fact]
+        public void CombatLeft_WhenSubStateIsNestedPlayingBack_PopsThroughCombat_BackToExplore()
+        {
+            var h = Build("discrete");
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero));
+            h.AppState.PushSubState(h.PlayingBackSubState);
+            Assert.Equal(h.PlayingBackSubState, h.AppState.CurrentSubState);
+
+            h.Bus.PublishImmediate(new CombatLeftEvent(Hero));
+
+            Assert.Equal(TimeModelMode.Continuous, h.Switch.CurrentMode);
+            Assert.Equal(SubStateId.Explore, h.AppState.CurrentSubState);
         }
 
         [Fact]

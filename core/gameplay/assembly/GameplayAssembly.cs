@@ -850,12 +850,49 @@ namespace Core.Gameplay.Assembly
                 {
                     if (Pacing is WaitForPlaybackPacingPolicy waitForPlayback)
                     {
+                        // 根治修复（W5c，第三轮审计"仍保留项"收口）：BeginStep 内部按
+                        // WaitForPlaybackPacingPolicy.HasPendingPlayback 探针（经 SetPendingPlaybackProbe
+                        // 由 PresentationAssembly 接线）判定本步是否确有待回放内容——没有（探针未接
+                        // 线，或接线后确认这一步没有把任何反馈动作排进播放队列）时 IsPlaybackFinished
+                        // 立即变回 true，不需要再进入 playing_back 子态等待一个永远不会到来的
+                        // presentation.playback_finished，continue 本循环继续推进下一离散步（同
+                        // PacingMode.Immediate 分支"一次调用内连续推进直到需要停下"的语义，只是这里是
+                        // 确认"这一步不需要停下"之后才继续，不是恒定不停）。
                         waitForPlayback.BeginStep();
+                        if (waitForPlayback.IsPlaybackFinished)
+                        {
+                            continue;
+                        }
                     }
 
                     PushSubStateIfNotCurrent(PlayingBackSubState);
                     return;
                 }
+            }
+        }
+
+        /// <summary>
+        /// 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：把"当前是否
+        /// 存在尚未回放完的表现动作"探针接入 <see cref="Pacing"/>（若其具体类型是
+        /// <see cref="WaitForPlaybackPacingPolicy"/>）。本类构造期（第 10.5 步）尚无法拿到这份探针
+        /// ——表现层（<c>Presentation.Assembly.PresentationAssembly</c>）依赖已构造完成的本类才能
+        /// 构造（L5 在 L0～L4 之上），构造顺序上必然晚于本类；调用方（<c>PresentationAssembly</c>
+        /// 构造函数）在装配好 <c>FeedbackBinder</c>（播放队列随之就绪）之后调用本方法一次回填，
+        /// 同 <c>resolvedGobjOptions</c> 等既有"先占位、后回填"惯例（见本类构造函数第 16 步判断
+        /// 记录）。未装配离散模式（<see cref="Pacing"/> 为 <c>null</c>）或调用方构造
+        /// <see cref="GameplayAssembly"/> 时显式传入了自定义 <see cref="IPacingPolicy"/>（不是
+        /// <see cref="WaitForPlaybackPacingPolicy"/> 具体类型）时静默跳过，不抛异常——同本类一贯
+        /// "未接线时不影响装配成功"的取舍；核心测试也可以在不装配表现层的情况下直接调用本方法传入
+        /// 一个手工控制的探针，验证 <see cref="Advance"/> 的节奏门行为本身（见
+        /// <c>core/gameplay/tests/Discrete/GameplayAssemblyDiscreteWiringTests.cs</c>）。
+        /// </summary>
+        public void SetPendingPlaybackProbe(Func<bool> hasPendingPlayback)
+        {
+            if (hasPendingPlayback == null) throw new ArgumentNullException(nameof(hasPendingPlayback));
+
+            if (Pacing is WaitForPlaybackPacingPolicy waitForPlayback)
+            {
+                waitForPlayback.HasPendingPlayback = hasPendingPlayback;
             }
         }
 
