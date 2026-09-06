@@ -3,7 +3,15 @@
 # 后续阶段如需第三方包，请在此追加并注明用途（例如：某包 —— 用于某检查项/某构建步骤）。
 
 # 阶段 5：资产导入工具（import_assets.py / toolchain/asset_import/）新增依赖。
+# 工程收尾 K（CI）新增判断记录：本文件只列"必需"依赖——CI 与本地一键门禁（check.ps1）都要用到
+# Pillow（占位资产生成器一致性检查 gen_placeholder_assets.py --check 依赖它）；rembg 是一个较重的
+# 可选依赖（体积大、且需要本机预先准备好 ~/.u2net/*.onnx 权重才真正可用，见下方 requirements-
+# optional.txt 头注释），CI 环境不需要装它，拆到 requirements-optional.txt 单独安装，避免每次 CI
+# 运行都白白花时间下载一个大多数校验路径用不到的包。
 Pillow>=10.0  # 必需 —— 精灵/图标/特效帧的抠图、裁边、缩放、图集打包（sprite/icon/vfx 子命令）。
-rembg>=2.0  # 可选 —— 仅 `--matting rembg` 用到；本工具不会自动联网下载 u2net 权重，需本地
-            # 已有 ~/.u2net/*.onnx 权重才可用，否则该子命令报错并提示改用 --matting none
-            # 或 --matting colorkey:#RRGGBB（见 toolchain/asset_import/image_ops.py）。
+
+# 工程收尾 K（CI）判断记录：check.ps1 与 CI 工作流都会跑
+# `python -m pytest toolchain/tests -q`（toolchain 自身单元测试），此前遗漏声明该依赖——
+# 本机因开发环境已预装 pytest 而未暴露，GitHub 托管的 windows-latest 运行器是干净环境，
+# 只装 requirements.txt 声明的依赖，运行到该步骤即报 "No module named pytest" 而失败。
+pytest>=7.0  # 必需 —— toolchain/tests 下的单元测试运行器。

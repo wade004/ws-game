@@ -1,0 +1,36 @@
+#!/bin/sh
+# 提交前钩子（工程收尾 K 新增，见仓库根 README.md「提交前钩子」一节）。
+#
+# 判断记录（为什么是版本化目录 .githooks/ 而不是 .git/hooks/）：.git/hooks/ 不受版本控制，换一台
+# 机器或换一个协作者克隆本仓库都不会自带钩子；.githooks/ 提交进仓库本身，配合
+# toolchain/install_hooks.ps1 把 git 的 core.hooksPath 指向这里，做到"钩子内容跟着仓库走"。
+#
+# 判断记录（为什么是 POSIX sh 而不是 PowerShell 脚本本身）：git 在 Windows 上（Git for Windows）
+# 调用钩子固定经由随附的 Git Bash（sh.exe）执行，钩子文件本身必须是一个 POSIX shell 脚本（这里
+# 只做一件事——转调 check.ps1 -SkipUnity -Quick），不能直接把 .ps1 当钩子文件放。
+#
+# 判断记录（为什么调用 -SkipUnity -Quick 两个开关一起传，而不是只传 -Quick）：check.ps1 的
+# -Quick 本身已经隐含跳过全部 Unity 步骤（见 check.ps1 .PARAMETER Quick 说明），单传 -Quick
+# 效果等价；这里两个都传是为了钩子文件本身的语义在不读 check.ps1 源码的情况下也一目了然
+# （"跳过 Unity 步骤 + 只跑快速子集"），双写不冲突。
+#
+# 找仓库根：钩子被 git 调用时的当前工作目录就是仓库根（不是 .git/ 或 .githooks/），直接用相对
+# 路径 check.ps1 即可；显式 cd 到 git 报告的顶层目录只是防御性写法，防止未来钩子被从子目录触发
+# 的某些 git 版本/前端在调用约定上有出入。
+set -e
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+echo "[pre-commit] 跑 check.ps1 -SkipUnity -Quick（快速子集，不能替代完整门禁）..."
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick
+status=$?
+
+if [ "$status" -ne 0 ]; then
+    echo "[pre-commit] check.ps1 -SkipUnity -Quick 未通过（退出码 $status），提交已拦截。"
+    echo "[pre-commit] 紧急情况可用 'git commit --no-verify' 跳过（不建议常态化使用）。"
+    exit 1
+fi
+
+echo "[pre-commit] 通过。"
+exit 0

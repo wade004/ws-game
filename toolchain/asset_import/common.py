@@ -13,6 +13,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# toolchain/_console.py 是 toolchain/ 顶层模块（不属于本包），供 toolchain/validate_data.py、
+# toolchain/gen_event_constants.py 等顶层入口脚本与本包共用同一份 UTF-8 控制台设置逻辑，
+# 避免各处各写一份、也避免顶层脚本反过来 import 本包造成循环导入（见该文件头注释）。
+# import_assets.py 已把 toolchain/ 目录本身放进 sys.path（"允许直接以 python
+# toolchain/import_assets.py 方式运行"），这里兜底再插一次，保证本模块被其他方式导入
+# （如未来新增的脚本、单测直接 import asset_import.common）时同样能找到 _console。
+_TOOLCHAIN_DIR = Path(__file__).resolve().parent.parent
+if str(_TOOLCHAIN_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLCHAIN_DIR))
+
+from _console import ensure_utf8_stdio  # noqa: E402
+
 # id 格式：见 architecture/04_数据与内容管线.md 第 2.1 节，与
 # toolchain/validate_data.py 的 ID_RE 保持一致（唯一权威定义在架构文档，这里复用同一正则
 # 字符串常量，不重新发明规则）。
@@ -44,12 +56,14 @@ def find_repo_root() -> Path:
 
 
 def setup_utf8_streams() -> None:
-    """把标准输出/标准错误 reconfigure 成 UTF-8，惯例同 toolchain/validate_data.py。"""
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except (AttributeError, OSError):
-            pass
+    """把标准输出/标准错误 reconfigure 成 UTF-8。
+
+    实现已收敛到 ``toolchain/_console.py`` 的 ``ensure_utf8_stdio()``（与
+    ``toolchain/validate_data.py``、``toolchain/gen_event_constants.py``、
+    ``toolchain/gen_placeholder_assets.py`` 共用同一份逻辑，不再各自维护一份）；本函数保留
+    只是不改调用方（``toolchain/asset_import/cli.py``）的调用点。
+    """
+    ensure_utf8_stdio()
 
 
 def resolve_root(value: str | None, repo_root: Path, default_name: str) -> Path:

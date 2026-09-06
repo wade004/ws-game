@@ -43,6 +43,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# 允许直接以 "python toolchain/gen_event_constants.py" 方式运行（不依赖 PYTHONPATH/包安装），
+# 与 toolchain/import_assets.py 的惯例一致；把 toolchain/ 目录本身放进 sys.path 后即可直接
+# import 顶层的 _console 模块。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _console import ensure_utf8_stdio  # noqa: E402
+
 # 与 core/foundation/common/contracts/Id.cs 的 FormatRegex 保持一致。
 KEY_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
 
@@ -210,6 +217,13 @@ def render(rows: list[EventRow], namespace: str, catalog_rel: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows 控制台默认代码页通常不是 UTF-8，本文件打印的说明/错误消息（如
+    # "check 通过"/"check 失败"）会因此乱码甚至 UnicodeEncodeError 崩溃；入口最先调用
+    # toolchain/_console.py 的 ensure_utf8_stdio()，与 toolchain/validate_data.py、
+    # toolchain/asset_import 包的 setup_utf8_streams() 保持一致（此前 ae3f667 曾在此内联
+    # 同一段 reconfigure 循环，现收敛为共用入口，去重）。
+    ensure_utf8_stdio()
+
     parser = argparse.ArgumentParser(
         description="从事件词汇登记表生成 C# 事件 key 常量（EventKeys.g.cs）"
     )

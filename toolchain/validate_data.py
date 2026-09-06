@@ -85,6 +85,13 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+# 允许直接以 "python toolchain/validate_data.py" 方式运行（不依赖 PYTHONPATH/包安装），
+# 与 toolchain/import_assets.py 的惯例一致；把 toolchain/ 目录本身放进 sys.path 后即可直接
+# import 顶层的 _console 模块。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _console import ensure_utf8_stdio  # noqa: E402
+
 # id 格式：见 architecture/04_数据与内容管线.md 第 2.1 节。
 # <domain>.<segment>(.<segment>)*，domain 与各 segment 均为小写字母/数字/下划线，
 # domain 首字符必须是字母。
@@ -247,15 +254,11 @@ def validate_file(path: Path, verbose: bool) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     # Windows 控制台默认代码页通常不是 UTF-8，输出里的中文文本（本文件与
-    # toolchain/validator 打印的说明/错误消息）会因此乱码；显式把标准输出/标准错误
-    # reconfigure 成 UTF-8，惯例同 toolchain/validator/Program.cs 对 Console.OutputEncoding
-    # 的处理。某些非交互式重定向目标可能不支持 reconfigure，失败时静默保留原编码，不影响
-    # 校验逻辑本身。
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except (AttributeError, OSError):
-            pass
+    # toolchain/validator 打印的说明/错误消息）会因此乱码甚至 UnicodeEncodeError 崩溃；
+    # 统一复用 toolchain/_console.py 的 ensure_utf8_stdio()（惯例同
+    # toolchain/validator/Program.cs 对 Console.OutputEncoding 的处理、
+    # toolchain/asset_import 包的 setup_utf8_streams()，三处不再各自维护一份同样的逻辑）。
+    ensure_utf8_stdio()
 
     parser = argparse.ArgumentParser(
         description="数据表校验器（第一道骨架级通用检查 + 第二道调用 toolchain/validator 的真实校验）"

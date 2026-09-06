@@ -1,0 +1,117 @@
+name: CI
+
+# 判断记录（为什么只跑非 Unity 门禁）：check.ps1 全量还含 Unity 编译检查/EditMode/PlayMode/
+# 独立版构建与两种无人值守冒烟/消费方演练共六步，这些步骤要求本机已安装并激活 Unity 授权
+# （见仓库根 check.ps1 -UnityExe 参数说明、README「Unity 工作台」一节）。GitHub 托管的
+# windows-latest 运行器既没有装 Unity，也没有可用的 Unity 授权（个人版授权与具体机器绑定，
+# 不能在无人值守的托管运行器上激活），因此 CI 固定传 -SkipUnity，只跑 .NET 构建测试、两道
+# 数据校验、生成器一致性检查、toolchain 自身测试、两道禁用词扫描、版本一致性、
+# build.ps1 -SkipTests 同步 DLL 这些不依赖 Unity 编辑器的步骤；Unity 四步与消费方演练仍然是
+# 本机 check.ps1 全量跑（含 -Il2cpp 可选步骤）的职责，不进 CI。
+#
+# 判断记录（windows-latest 上 PowerShell 5.1 与 7 的兼容性）：check.ps1/build.ps1 头注释都
+# 明确写了"PowerShell 5.1 兼容：不使用 &&、??、三元运算符"，这两个脚本本身没有用到任何仅
+# PowerShell 7 才有的语法。windows-latest 镜像上 `powershell.exe`（Windows PowerShell 5.1，
+# 系统自带）与 `pwsh`（PowerShell 7，镜像预装）两者都在，本工作流固定用 `powershell.exe`
+# 调用（与本机开发者的调用方式、.githooks/pre-commit 的调用方式保持一致，不依赖镜像上是否
+# 预装 pwsh）；本地模拟验证阶段额外用 `pwsh` 跑过一次同样通过，两者都可用，选 `powershell.exe`
+# 只是为了和其余所有调用点统一。
+#
+# 判断记录（持续集成修复：控制台 UTF-8 + PowerShell 5.1 原生 stderr 包装两处根因）：
+# PR #1 首跑在 `python toolchain/gen_event_constants.py --check` 这一步失败。根因一
+# （真正让 Python 崩溃的原因）：`windows-latest` 运行器的控制台代码页不是 UTF-8（非交互式
+# 管道场景下 Python 拿不到真实控制台代码页，退化为系统 ANSI 代码页，英文版镜像上是
+# cp1252），该脚本打印中文提示（如"check 通过…"）时未做任何编码处理，直接
+# UnicodeEncodeError 崩溃退出——`toolchain/validate_data.py` 与 `toolchain/asset_import`
+# 包因为已经在入口 reconfigure 成 UTF-8（见 `toolchain/_console.py`）所以没有中招。已在
+# `toolchain/_console.py` 新增共用的 `ensure_utf8_stdio()`，全部命令行入口脚本
+# （`gen_event_constants.py`/`gen_placeholder_assets.py`/`validate_data.py`/
+# `asset_import` 包）统一在最开始调用；本工作流仍额外设置 `PYTHONUTF8`/`PYTHONIOENCODING`
+# 两个环境变量做双保险（即便未来哪个新脚本忘了调用 `ensure_utf8_stdio()`，也不至于在这个
+# 运行器上直接崩溃）。根因二（真正让人看不到 traceback 的原因）：`check.ps1` 脚本作用域把
+# `$ErrorActionPreference` 设成了 `"Stop"`，PowerShell 5.1 对"原生命令写到 stderr 的任意
+# 一行"在该偏好下会提升成终止性的 `NativeCommandError` 异常、只保留第一行文本——Python 未
+# 捕获异常的 traceback 正文因此被吞掉，`check.ps1` 汇总表 Detail 列里只剩一句
+# "Traceback (most recent call last):"，看不出真正报错原因；已在 `check.ps1` 的
+# `Test-NativeExitCode` 函数内部把 `$ErrorActionPreference` 局部降级为 `"Continue"`
+# 根治（函数作用域，不影响脚本其余部分）。此外，GitHub Actions 的 `shell: powershell`
+# 步骤本身也默认注入 `$ErrorActionPreference = "Stop"`（连同调用 `check.ps1` 那一层原本还
+# 用 `2>&1 | Tee-Object` 把子进程 stderr 并入管道，双重叠加同一类风险），因此下面调用
+# `check.ps1` 的步骤脚本第一行显式设为 `Continue`，并去掉外层的 `2>&1 | Tee-Object`
+# 包装，改让 `check.ps1` 自己通过新增的 `-LogFile` 参数（内部用 `Start-Transcript`）把完整
+# 输出落盘，退出码仍然是 `check.ps1` 最后 `exit 0`/`exit 1` 的真实值，经 `$LASTEXITCODE`
+# 原样透传。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    env:
+      # 双保险：见上方判断记录"控制台 UTF-8 + PowerShell 5.1 原生 stderr 包装两处根因"。
+      # 作用于本 job 全部步骤（含下面的 pip install 与 check.ps1，以及 check.ps1 内部再拉起
+      # 的 dotnet/python 子进程——环境变量沿子进程继承链原样传递）。这一组变量是
+      # PYTHONUTF8（先于本次合入已在 ae3f667 加入的作业级兜底）与 PYTHONIOENCODING 的超集，
+      # 两者合并保留，不丢失任何一侧的覆盖面。
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8.0.x
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: toolchain/requirements.txt
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Install Python dependencies
+        # 判断记录：只装 requirements.txt（必需依赖，当前是 Pillow —— 占位资产生成器
+        # 一致性检查 gen_placeholder_assets.py --check 要用到）；requirements-optional.txt
+        # 的 rembg 是资产导入工具的可选抠图后端，体积大且需要本机预先准备好 ~/.u2net/*.onnx
+        # 权重才真正可用，check.ps1 门禁的任何一步都不依赖它，CI 不装，见该文件头注释。
+        run: pip install -r toolchain/requirements.txt
+
+      - name: Run check.ps1 -SkipUnity
+        shell: powershell
+        # 判断记录：见文件头"控制台 UTF-8 + PowerShell 5.1 原生 stderr 包装两处根因"。
+        # 第一行显式把本步骤自身的 $ErrorActionPreference 降级为 Continue（覆盖 GitHub
+        # Actions 对 `shell: powershell` 步骤默认注入的 Stop），避免子进程（check.ps1）写到
+        # stderr 的内容在这一层再被提升成终止性异常；不再对 `powershell -File check.ps1 ...`
+        # 外层包 `2>&1 | Tee-Object`——完整控制台输出（含每步 PASS/FAIL 明细与最后的汇总表）
+        # 改由 check.ps1 自己通过新增的 -LogFile 参数（内部 Start-Transcript）落盘到
+        # $logPath，供下一步以 artifact 形式上传；exit 码就是 `powershell -File` 这次调用的
+        # $LASTEXITCODE，未经任何管道包装，原样透传。
+        run: |
+          $ErrorActionPreference = "Continue"
+          $artifactsPath = Join-Path $env:RUNNER_TEMP "gf_check_artifacts"
+          $logPath = Join-Path $env:RUNNER_TEMP "check_output.log"
+          powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -ArtifactsPath $artifactsPath -LogFile $logPath
+          exit $LASTEXITCODE
+
+      - name: Upload check.ps1 logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-logs
+          path: |
+            ${{ runner.temp }}/check_output.log
+            ${{ runner.temp }}/gf_check_artifacts/**/*.log
+            ${{ runner.temp }}/gf_check_artifacts/**/*.binlog
+          if-no-files-found: ignore

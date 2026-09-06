@@ -1,0 +1,6 @@
+# 可选依赖（工程收尾 K 新增，从 requirements.txt 拆出，见该文件头注释判断记录）。
+# 本地跑 toolchain/asset_import 的 `--matting rembg` 抠图模式时才需要安装；CI 与
+# check.ps1 一键门禁均不依赖本文件（gen_placeholder_assets.py --check 等只用 Pillow）。
+rembg>=2.0  # 可选 —— 仅 `--matting rembg` 用到；本工具不会自动联网下载 u2net 权重，需本地
+            # 已有 ~/.u2net/*.onnx 权重才可用，否则该子命令报错并提示改用 --matting none
+            # 或 --matting colorkey:#RRGGBB（见 toolchain/asset_import/image_ops.py）。

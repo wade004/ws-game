@@ -9,17 +9,52 @@ skill/combat/target/ai 等各模块的专属校验规则）复用 `core/foundati
 `toolchain/validator`（一个 .NET 控制台工具）完成——两套判断逻辑不重复实现，`core` 内的校验
 规则是唯一权威来源。
 
+## 控制台编码
+
+本目录下的命令行工具脚本（`validate_data.py`/`gen_event_constants.py`/
+`gen_placeholder_assets.py`/`import_assets.py` 及其 `asset_import` 包）打印的说明/错误信息
+都是中文。Windows 控制台默认代码页通常不是 UTF-8——尤其是非交互式场景（CI 运行器的管道
+重定向、被其他进程捕获输出等），Python 拿不到真实控制台代码页，会退化为系统 ANSI 代码页
+（例如英文版 Windows/GitHub Actions `windows-latest` 运行器上是 `cp1252`），这时 `print()`
+遇到中文字符会直接抛 `UnicodeEncodeError` 崩溃，而不只是打印乱码。
+
+统一的修法是 `toolchain/_console.py` 提供的 `ensure_utf8_stdio()`：把 `sys.stdout`/
+`sys.stderr` 显式 reconfigure 成 UTF-8，不依赖运行环境的默认代码页；`reconfigure` 在极少数
+不支持的重定向目标上会抛 `AttributeError`/`OSError`，静默忽略即可。本目录下全部命令行入口都
+在最开始调用它（`toolchain/asset_import/common.py` 的 `setup_utf8_streams()` 也已改为委托
+给同一个函数，不再各自维护一份）——新增命令行入口脚本时同样要在 `main()` 最开始调用
+`ensure_utf8_stdio()`（顶层脚本用 `sys.path.insert(0, str(Path(__file__).resolve().parent))`
+把 `toolchain/` 目录本身放进 `sys.path` 后 `from _console import ensure_utf8_stdio`，惯例见
+`toolchain/gen_event_constants.py`；`asset_import` 包内新增模块直接
+`from _console import ensure_utf8_stdio`，包入口已把 `toolchain/` 放进 `sys.path`）。
+
+`.github/workflows/ci.yml` 额外在 job 级 `env` 设置了 `PYTHONUTF8: "1"` /
+`PYTHONIOENCODING: "utf-8"` 作为双保险；这两个环境变量不能替代 `ensure_utf8_stdio()`——新脚本
+忘了调用它、又在这两个环境变量不生效的场合（例如本机开发者直接双击运行、或未来某个调用方
+清空了环境变量）运行，仍然会在非 UTF-8 控制台上崩溃。
+
 ## 虚拟环境
 
 ```
 python -m venv toolchain/.venv
 ```
 
-`toolchain/.venv/` 已在仓库根 `.gitignore` 中忽略，不会被提交。当前阶段无第三方依赖（见 `requirements.txt`），创建虚拟环境后无需安装任何包即可运行脚本；后续如需第三方依赖，激活虚拟环境后执行：
+`toolchain/.venv/` 已在仓库根 `.gitignore` 中忽略，不会被提交。数据校验（`validate_data.py`）
+本身无第三方依赖；资产导入工具（`import_assets.py`）需要 Pillow，激活虚拟环境后执行：
 
 ```
 pip install -r toolchain/requirements.txt
 ```
+
+`requirements.txt` 只含必需依赖（当前是 Pillow）；`rembg`（`import_assets.py --matting rembg`
+用到的可选抠图后端，体积大且需要本机预先准备好 `~/.u2net/*.onnx` 权重才真正可用）拆到单独的
+`requirements-optional.txt`，按需再装：
+
+```
+pip install -r toolchain/requirements-optional.txt
+```
+
+`check.ps1`/CI 一键门禁只依赖 `requirements.txt`（Pillow），不需要 `requirements-optional.txt`。
 
 ## 运行校验器
 

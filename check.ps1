@@ -32,19 +32,58 @@
 .PARAMETER Configuration
     dotnet 构建配置，默认 Release。
 
+.PARAMETER LogFile
+    持续集成修复新增：给出路径时，用 Start-Transcript 把本次运行的完整控制台输出（含每步
+    PASS/FAIL 明细与最后的汇总表）额外落一份文本文件到该路径，同时仍然正常打印到控制台；
+    省略（默认空字符串）时不额外落日志，行为与之前完全一致。用于替代调用方在外层再包一层
+    `... 2>&1 | Tee-Object` 的做法——见 .github/workflows/ci.yml 判断记录：外层包一层
+    `2>&1` 会把子进程（本脚本）的原生 stderr 输出合并进管道，在 PowerShell 5.1 +
+    `$ErrorActionPreference = "Stop"`（GitHub Actions 的 `shell: powershell` 步骤默认注入
+    该偏好）组合下，第一行 stderr 就会被提升成终止性的 NativeCommandError 异常，把本该完整
+    打印的汇总表和失败明细整个吞掉；改为本脚本自己控制日志落盘，调用方只需直接跑
+    `check.ps1 ... -LogFile <path>`、不再包外层管道，退出码仍然是本脚本最后 `exit 0`/
+    `exit 1` 的真实值，原样透传给调用方的 `$LASTEXITCODE`。
+
+.PARAMETER Quick
+    工程收尾 K 新增，供 `.githooks/pre-commit` 调用：只跑"秒级能跑完"的子集——dotnet
+    build/test、两道数据校验（合并根 + data/_framework 框架根）、事件常量一致性检查、两道禁用词
+    扫描、版本一致性；跳过占位资产生成器检查（`gen_placeholder_assets.py --check`，需要 Pillow
+    且逐张比较占位图较慢）、`toolchain` 自身 pytest、`build.ps1 -SkipTests` 同步、全部 Unity
+    相关步骤与消费方演练——本开关本身就意味着不跑任何 Unity 步骤（等价于隐含 -SkipUnity，同传
+    -SkipUnity 不冲突也没有必要）。不能替代完整门禁，只用于提交前快速把关。
+
+.PARAMETER Il2cpp
+    工程收尾 K 新增，默认不跑（因为耗时数分钟到十几分钟，见 adapters/unity/README.md"IL2CPP
+    发布路径验证"一节判断记录）：额外跑一遍 IL2CPP 脚本后端的独立版构建
+    （Adapter.Unity.EditorTools.Il2CppPlayerBuilder.BuildWindows64PlayerIl2cpp，构建前临时切
+    NamedBuildTarget.Standalone 的脚本后端到 IL2CPP，构建后还原，不永久修改 ProjectSettings）+
+    两种无人值守冒烟（-gf-smoke / -gf-smoke-discrete），验证核心类库在 AOT 编译（无反射兜底）下
+    的真实可运行性。`-SkipUnity` 时本开关不生效（-SkipUnity 已整体跳过 Unity）。
+
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符。
     本脚本只读跑校验/测试/构建，不修改仓库内容（`toolchain/gen_event_constants.py`/
-    `gen_placeholder_assets.py` 都用 `--check` 只读校验模式，不落地写文件）。
+    `gen_placeholder_assets.py` 都用 `--check` 只读校验模式，不落地写文件；`-Il2cpp` 步骤对
+    ProjectSettings 的脚本后端改动只发生在 Unity 子进程内存里，见 Il2CppPlayerBuilder.cs 判断
+    记录，不落盘）。
 #>
 param(
     [switch]$SkipUnity,
     [switch]$SkipSmoke,
     [switch]$SkipConsumer,
+    [switch]$Quick,
+    [switch]$Il2cpp,
     [string]$ArtifactsPath = "",
     [string]$UnityExe = "",
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    [string]$LogFile = ""
 )
+
+# -Quick 隐含不跑任何 Unity 步骤（见 .PARAMETER Quick 说明），与显式 -SkipUnity 合并为同一个
+# 内部开关，下面 Unity 四步 + 消费方演练的 if ($SkipUnity) 分支判断处两者等价处理。
+if ($Quick) {
+    $SkipUnity = $true
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -60,6 +99,34 @@ if (-not (Test-Path $ArtifactsPath)) {
 $UnityOutDir = Join-Path $ArtifactsPath "unity"
 if (-not (Test-Path $UnityOutDir)) {
     New-Item -ItemType Directory -Force -Path $UnityOutDir | Out-Null
+}
+
+# -----------------------------------------------------------------------------
+# -LogFile：见 .PARAMETER LogFile 判断记录。Start-Transcript 会原样录下本脚本之后所有
+# Write-Host/输出到宿主的内容（不需要逐处 Write-Host 调用另外写文件），脚本正常从两个 exit
+# 出口结束时会显式 Stop-Transcript；trap 兜底覆盖"某处抛出未被 Invoke-CheckStep 接住的
+# 异常、脚本非正常终止"这一少见路径——先关闭 transcript（保证已产生的内容落盘、不因为文件
+# 句柄未释放而在 CI 的 upload-artifact 步骤里读到空文件或半截文件），再把异常继续往外抛
+# （trap 结尾不写 continue/break 时默认行为就是重新抛出，退出码/错误信息不受影响）。
+# -----------------------------------------------------------------------------
+$script:TranscriptStarted = $false
+if ($LogFile -ne "") {
+    $logFileDir = Split-Path -Parent $LogFile
+    if ($logFileDir -and -not (Test-Path $logFileDir)) {
+        New-Item -ItemType Directory -Force -Path $logFileDir | Out-Null
+    }
+    try {
+        Start-Transcript -Path $LogFile -Force | Out-Null
+        $script:TranscriptStarted = $true
+    } catch {
+        Write-Host "警告：Start-Transcript 失败（$($_.Exception.Message)），本次运行不落 -LogFile，仅打印到控制台。" -ForegroundColor Yellow
+    }
+}
+trap {
+    if ($script:TranscriptStarted) {
+        try { Stop-Transcript | Out-Null } catch {}
+        $script:TranscriptStarted = $false
+    }
 }
 
 # -----------------------------------------------------------------------------
@@ -142,11 +209,29 @@ function Add-SkippedStep {
 # 跑一个原生可执行文件并按退出码判定通过/失败（PowerShell 5.1 对原生命令非零退出码不会抛出
 # 终止性异常，需要手动读 $LASTEXITCODE；命令本身找不到会抛异常，由 Invoke-CheckStep 的 catch
 # 接住）。
+#
+# 判断记录（持续集成修复：本函数内部临时把 $ErrorActionPreference 降级为 Continue）：
+# 本脚本顶部把 $ErrorActionPreference 设成了 "Stop"（脚本作用域）。PowerShell 对"原生命令
+# 写到 stderr 的每一行"有一条广为人知但违反直觉的行为——在 $ErrorActionPreference = "Stop"
+# 下，只要原生命令往 stderr 写了任何一行东西（不管进程退出码是不是 0，例如某些工具的
+# warning、或本例的 Python 未捕获异常 traceback），PowerShell 会把这一行提升成终止性的
+# NativeCommandError 异常，当场中断 `& $Exe @ArgList` 这一句，只把"第一行" stderr 文本当成
+# 异常消息抛出——后续 stderr 行（往往才是真正有诊断价值的部分，例如 Python traceback 的
+# 具体报错类型与代码行）永远读不到。此前 `python toolchain/gen_event_constants.py --check`
+# 在 CI 运行器上因控制台编码问题崩溃时，Invoke-CheckStep 汇总表 Detail 列里只剩一句
+# "Traceback (most recent call last):" 的根因正在这里。
+#
+# 把 $ErrorActionPreference 赋值为函数局部变量（不加 $script:/$global: 前缀，PowerShell
+# 变量赋值默认只在当前作用域生效，函数返回后自动失效，不影响脚本其余部分与调用方），让本函数
+# 内的原生命令调用把 stderr 只当成普通输出流，不提升为异常；退出码判定逻辑完全不变，仍然只认
+# $LASTEXITCODE。找不到可执行文件这类"启动失败"仍然会正常抛异常，由 Invoke-CheckStep 的
+# catch 接住，不受这次改动影响。
 function Test-NativeExitCode {
     param(
         [string]$Exe,
         [string[]]$ArgList
     )
+    $ErrorActionPreference = "Continue"
     & $Exe @ArgList
     return ($LASTEXITCODE -eq 0)
 }
@@ -288,26 +373,34 @@ Invoke-CheckStep "python toolchain/gen_event_constants.py --check" {
 }
 
 # -----------------------------------------------------------------------------
-# 5. 占位资产生成器一致性检查
+# 5. 占位资产生成器一致性检查（-Quick 跳过：需要 Pillow 且逐张比较占位图，不是秒级步骤）
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/gen_placeholder_assets.py --check" {
-    Push-Location $RepoRoot
-    try {
-        Test-NativeExitCode "python" @("toolchain/gen_placeholder_assets.py", "--check")
-    } finally {
-        Pop-Location
+if ($Quick) {
+    Add-SkippedStep "python toolchain/gen_placeholder_assets.py --check" "-Quick"
+} else {
+    Invoke-CheckStep "python toolchain/gen_placeholder_assets.py --check" {
+        Push-Location $RepoRoot
+        try {
+            Test-NativeExitCode "python" @("toolchain/gen_placeholder_assets.py", "--check")
+        } finally {
+            Pop-Location
+        }
     }
 }
 
 # -----------------------------------------------------------------------------
-# 6. toolchain 自身的 pytest 套件
+# 6. toolchain 自身的 pytest 套件（-Quick 跳过：见 .PARAMETER Quick 说明）
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "python -m pytest toolchain/tests -q" {
-    Push-Location $RepoRoot
-    try {
-        Test-NativeExitCode "python" @("-m", "pytest", "toolchain/tests", "-q")
-    } finally {
-        Pop-Location
+if ($Quick) {
+    Add-SkippedStep "python -m pytest toolchain/tests -q" "-Quick"
+} else {
+    Invoke-CheckStep "python -m pytest toolchain/tests -q" {
+        Push-Location $RepoRoot
+        try {
+            Test-NativeExitCode "python" @("-m", "pytest", "toolchain/tests", "-q")
+        } finally {
+            Pop-Location
+        }
     }
 }
 
@@ -430,11 +523,17 @@ Invoke-CheckStep "版本一致性：VERSION 与两个 package.json" {
 # -----------------------------------------------------------------------------
 # 9. build.ps1 -SkipTests（同步六个核心 DLL 到 Unity 适配层包 + 同步内容数据集）
 #    另起一个 powershell 子进程跑，避免 build.ps1 内部的 exit 语句连带终止本脚本。
+#    -Quick 跳过：这一步只有 Unity 相关步骤需要（同步 DLL/内容数据集给 Unity 工程用），
+#    -Quick 本身不跑任何 Unity 步骤，跳过它不影响 -Quick 覆盖的 dotnet/python 校验结论。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "build.ps1 -SkipTests（同步 DLL）" {
-    $buildScript = Join-Path $RepoRoot "build.ps1"
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SkipTests
-    return ($LASTEXITCODE -eq 0)
+if ($Quick) {
+    Add-SkippedStep "build.ps1 -SkipTests（同步 DLL）" "-Quick"
+} else {
+    Invoke-CheckStep "build.ps1 -SkipTests（同步 DLL）" {
+        $buildScript = Join-Path $RepoRoot "build.ps1"
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SkipTests
+        return ($LASTEXITCODE -eq 0)
+    }
 }
 
 # -----------------------------------------------------------------------------
@@ -624,6 +723,120 @@ if ($SkipUnity) {
     }
 
     # -------------------------------------------------------------------
+    # IL2CPP 发布路径验证（工程收尾 K 新增，-Il2cpp 显式开启才跑，默认跳过——耗时数分钟到十几
+    # 分钟，见 adapters/unity/README.md"IL2CPP 发布路径验证"一节）：额外用 IL2CPP 脚本后端构建
+    # 一份独立的独立版产物（与上面两步默认 Mono 后端的产物分开落地，互不覆盖），再跑一遍同样的
+    # 两种无人值守冒烟，验证核心类库（含自写零依赖 JSON 读写器等原本就是为 AOT 场景设计、但此前
+    # 从未在 IL2CPP 下实测过的代码）在真正的 AOT 编译（无反射兜底）下可运行，而不是只靠默认 Mono
+    # 后端的构建自证。
+    # -------------------------------------------------------------------
+    if (-not $Il2cpp) {
+        Add-SkippedStep "IL2CPP 独立版构建" "未传 -Il2cpp"
+        Add-SkippedStep "IL2CPP 独立版 -gf-smoke 冒烟" "未传 -Il2cpp"
+        Add-SkippedStep "IL2CPP 独立版 -gf-smoke-discrete 冒烟" "未传 -Il2cpp"
+    } else {
+        # 判断记录（2026-09-06 实跑暴露）：IL2CPP 独立版产物不能和上一步 Mono 独立版产物共用同一个
+        # 输出目录——即使 .exe 文件名不同（Shell.exe vs Shell_il2cpp.exe，各自的 "<name>_Data"
+        # 子目录名也因此不同），Unity 的 BuildPipeline 仍会报
+        # "Build path contains a project previously built with the Mono2x scripting backend,
+        # the current setting is for IL2CPP"——它按输出目录（而不是按 <name>_Data 子目录名）记录
+        # 上一次构建这个目录用的脚本后端，同目录换后端会被直接拒绝。改法：IL2CPP 产物落在
+        # $UnityOutDir 下一个独立子目录 il2cpp\，与 Mono 产物所在目录完全分开，不复用同一个输出
+        # 目录。
+        $il2cppOutDir = Join-Path $UnityOutDir "il2cpp"
+        if (-not (Test-Path $il2cppOutDir)) {
+            New-Item -ItemType Directory -Force -Path $il2cppOutDir | Out-Null
+        }
+        $il2cppExePath = Join-Path $il2cppOutDir "Shell_il2cpp.exe"
+
+        Invoke-CheckStep "IL2CPP 独立版构建" {
+            Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
+            $buildLog = Join-Path $UnityOutDir "build_il2cpp.log"
+            # 判断记录：输出路径经 GF_IL2CPP_OUTPUT_PATH 环境变量传给 Editor 方法（见
+            # Il2CppPlayerBuilder.cs 头注释——命令行参数与环境变量二选一，这里选环境变量，避免
+            # Start-Process -ArgumentList 数组里额外插入一对自定义参数与 Unity 自身参数混在一起
+            # 不易辨认）；只在本次子进程调用的范围内设置，不污染 check.ps1 之外的环境。
+            $prevEnv = $env:GF_IL2CPP_OUTPUT_PATH
+            $env:GF_IL2CPP_OUTPUT_PATH = $il2cppExePath
+            try {
+                $buildProc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
+                    "-batchmode", "-nographics", "-quit",
+                    "-projectPath", $unityProjectPath,
+                    "-executeMethod", "Adapter.Unity.EditorTools.Il2CppPlayerBuilder.BuildWindows64PlayerIl2cpp",
+                    "-logFile", $buildLog
+                )
+            } finally {
+                $env:GF_IL2CPP_OUTPUT_PATH = $prevEnv
+            }
+            if ($buildProc.ExitCode -ne 0) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "Unity 构建退出码 $($buildProc.ExitCode)，见 $buildLog" }
+            }
+            if (-not (Test-Path $il2cppExePath)) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "未生成 IL2CPP 独立版产物：$il2cppExePath" }
+            }
+            [PSCustomObject]@{ Ok = $true; Detail = "见 $buildLog" }
+        }
+
+        Invoke-CheckStep "IL2CPP 独立版 -gf-smoke 冒烟" {
+            if (-not (Test-Path $il2cppExePath)) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "未生成 IL2CPP 独立版产物：$il2cppExePath" }
+            }
+            if ($SkipSmoke) {
+                return [PSCustomObject]@{ Ok = $true; Detail = "已跳过（-SkipSmoke），只验证构建产物存在" }
+            }
+            $smokeLog = Join-Path $UnityOutDir "smoke_player_il2cpp.log"
+            $smokeProc = Invoke-NativeAndWait -Exe $il2cppExePath -TimeoutSeconds 180 -ArgList @(
+                "-batchmode", "-gf-smoke",
+                "-logFile", $smokeLog,
+                "-screen-width", "800", "-screen-height", "600"
+            )
+            if ($smokeProc.TimedOut) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "-gf-smoke 冒烟超过 180s 未退出，已强制结束（可能挂死）" }
+            }
+            if ($smokeProc.ExitCode -ne 0) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "独立版退出码 $($smokeProc.ExitCode)" }
+            }
+            if (-not (Test-Path $smokeLog)) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "未生成冒烟日志：$smokeLog" }
+            }
+            $logText = Get-Content -Path $smokeLog -Raw
+            [PSCustomObject]@{
+                Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK")
+                Detail = "见 $smokeLog"
+            }
+        }
+
+        Invoke-CheckStep "IL2CPP 独立版 -gf-smoke-discrete 冒烟" {
+            if (-not (Test-Path $il2cppExePath)) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "未生成 IL2CPP 独立版产物：$il2cppExePath" }
+            }
+            if ($SkipSmoke) {
+                return [PSCustomObject]@{ Ok = $true; Detail = "已跳过（-SkipSmoke）" }
+            }
+            $smokeLog = Join-Path $UnityOutDir "smoke_player_il2cpp_discrete.log"
+            $smokeProc = Invoke-NativeAndWait -Exe $il2cppExePath -TimeoutSeconds 180 -ArgList @(
+                "-batchmode", "-gf-smoke-discrete",
+                "-logFile", $smokeLog,
+                "-screen-width", "800", "-screen-height", "600"
+            )
+            if ($smokeProc.TimedOut) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "-gf-smoke-discrete 冒烟超过 180s 未退出，已强制结束（可能挂死）" }
+            }
+            if ($smokeProc.ExitCode -ne 0) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "独立版退出码 $($smokeProc.ExitCode)" }
+            }
+            if (-not (Test-Path $smokeLog)) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "未生成冒烟日志：$smokeLog" }
+            }
+            $logText = Get-Content -Path $smokeLog -Raw
+            [PSCustomObject]@{
+                Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK") -and ($logText -match "step=discrete_round ok")
+                Detail = "见 $smokeLog"
+            }
+        }
+    }
+
+    # -------------------------------------------------------------------
     # 消费方演练（第七项验收关卡的自动化形式，见 13_新游戏接入指南.md 第 7 节 /
     # toolchain/consumer_smoke.ps1 头注释）：默认跑，-SkipConsumer 跳过；另起一个 powershell 子
     # 进程跑，避免其内部的 exit 语句连带终止本脚本（惯例同 build.ps1 步骤）。耗时较长（内部至少
@@ -666,8 +879,16 @@ $totalSeconds = ($script:Results | Measure-Object -Property Seconds -Sum).Sum
 
 if ($failed.Count -gt 0) {
     Write-Host "门禁失败：$($failed.Count) 步未通过（共 $($script:Results.Count) 步，总用时 ${totalSeconds}s）。" -ForegroundColor Red
-    exit 1
+    $exitCode = 1
 } else {
     Write-Host "门禁通过：全部 $($script:Results.Count) 步（总用时 ${totalSeconds}s）。" -ForegroundColor Green
-    exit 0
+    $exitCode = 0
 }
+
+# 两个出口统一在这里落地：先关 transcript（保证汇总表本身也写进 -LogFile，不止步骤明细），
+# 再退出，退出码原样透传给调用方的 $LASTEXITCODE（见 .PARAMETER LogFile 判断记录）。
+if ($script:TranscriptStarted) {
+    try { Stop-Transcript | Out-Null } catch {}
+    $script:TranscriptStarted = $false
+}
+exit $exitCode
