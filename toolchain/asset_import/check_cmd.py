@@ -294,6 +294,31 @@ def _check_world_row(row: dict, assets_root: Path, dataset: str, problems: list[
         )
 
 
+def _check_world_row(row: dict, assets_root: Path, dataset: str, problems: list[str]) -> None:
+    """校验 world.map 一行引用的地图分层图（map 子命令产出）是否存在，见 14 第 9 节。"""
+    row_id = row.get("id", "?")
+    name = strip_domain(row_id) if "." in row_id else row_id
+    map_dir = assets_root / dataset / "maps" / name
+    if not map_dir.is_dir():
+        problems.append(f"{row_id}: 地图分层图目录不存在: {map_dir}（见 import_assets.py map 子命令）")
+        return
+    for layer_file in REQUIRED_MAP_LAYERS:
+        layer_path = map_dir / layer_file
+        if not layer_path.is_file():
+            problems.append(f"{row_id}: 地图分层图缺失: {layer_path}")
+
+    scene_ref = row.get("scene_ref")
+    if scene_ref is not None and scene_ref != f"scene.{name}":
+        problems.append(
+            f"{row_id}: scene_ref '{scene_ref}' 与地图目录名推导出的引用 id 'scene.{name}' 不一致"
+        )
+    nav_ref = row.get("nav_ref")
+    if nav_ref is not None and nav_ref != f"nav.{name}":
+        problems.append(
+            f"{row_id}: nav_ref '{nav_ref}' 与地图目录名推导出的引用 id 'nav.{name}' 不一致"
+        )
+
+
 def run(args: argparse.Namespace) -> int:
     repo_root = find_repo_root()
     assets_root = resolve_root(args.assets_root, repo_root, "assets")

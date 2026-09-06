@@ -118,6 +118,16 @@ data/<game_or_sample>/<domain>/<table>.json
 - `<domain>`：表名的第一段（见 04 第 2.2 节域名清单），例如 `stat`、`l10n`。
 - `<table>.json`：一张表一个文件，文件名（不含扩展名）就是表名，例如 `stat/stat.definition.json` 对应表名 `stat.definition`。
 
+## 由资产导入工具生成/合并的表
+
+`display.map`/`vfx.def`/`sfx.def`/`world.map` 四张表的行通常不手填——由
+[`toolchain/import_assets.py`](../toolchain/README.md)"资产导入工具"一节的 `sprite`/`icon`/
+`vfx`/`sfx`/`map` 子命令读取出图产物/地图分层图后自动生成，合并写入本目录对应文件（已存在同
+主键的行整体替换，其余行原样保留，见该工具"合并写入行为"说明），格式仍遵循本文件"文件顶层
+信封"/"编码与格式"两节约定；该工具的 `check` 子命令另外交叉校验这四张表引用的资产文件/目录是否
+存在（含 `world.map` 引用的地图分层图，见 `toolchain/README.md`"已知缺口"一节——`data/_sample`
+的 `display`/`vfx`/`sfx` 三张表历史遗留未接入该校验，`world.map` 已接入）。
+
 ## 文件顶层信封
 
 每个数据文件顶层固定为以下结构：

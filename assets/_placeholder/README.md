@@ -35,6 +35,7 @@ assets/_placeholder/
     hit_spark/  burn/  cast_circle/
       frame_00.png..frame_07.png, atlas.png, frames.json
   sfx/                               9 个短音效 .wav（44.1kHz/16bit/单声道，峰值 -12dBFS）
+  music/                             loop_01.wav（4 秒确定性可无缝循环 BGM，峰值 -14dBFS）
   ui/                                九宫格面板、按钮三态、血条背景/填充、背包格
   maps/placeholder_field/           ground.png / overlay.png / nav_hint.png
   fonts/README.md                   字体候选说明（本任务不下载字体文件）
@@ -68,6 +69,7 @@ assets/_placeholder/
 | UI 开启音效 | `sfx_id` | `sfx.placeholder_ui_open_01` |
 | 拾取音效 | `sfx_id` | `sfx.placeholder_pickup_01` |
 | 升级音效 | `sfx_id` | `sfx.placeholder_level_up_01` |
+| 循环背景音乐 | 直接按路径引用（无内容 Id） | `music/loop_01.wav` |
 | 占位地图（草地场景） | 直接按路径引用（无内容 Id） | `maps/placeholder_field/{ground,overlay,nav_hint}.png` |
 | UI 套件基础皮肤 | 直接按路径引用（无内容 Id） | `ui/{panel_9slice,button_normal,button_hover,button_pressed,bar_bg,bar_fill,slot}.png` |
 
@@ -89,5 +91,5 @@ python toolchain/gen_placeholder_assets.py --out assets/_placeholder --check
 ## 当前生成状态
 
 - 文件总数：89
-- 总体积：约 0.24 MB
+- 总体积：约 0.58 MB
 - 详细清单见同目录 `MANIFEST.json`（每个文件的路径、字节数、sha256、尺寸/时长等元信息）

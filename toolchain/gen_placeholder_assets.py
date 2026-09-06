@@ -122,6 +122,8 @@ QUALITY_BORDERS = {
 
 SAMPLE_RATE = 44100
 SFX_PEAK_DBFS = -12.0
+MUSIC_PEAK_DBFS = -14.0
+MUSIC_LOOP_DURATION_S = 4.0
 
 
 # --------------------------------------------------------------------------
@@ -726,6 +728,62 @@ def gen_sfx(out: Path, seed: int, manifest: Manifest):
 
 
 # ==========================================================================
+# 6b. music/loop_01.wav（确定性、可无缝循环的占位背景音乐）
+# ==========================================================================
+
+def snap_freq_to_loop(freq_hz: float, duration_s: float) -> float:
+    """把频率吸附到"在 duration_s 内恰好走过整数个周期"的最近取值。
+
+    正弦波频率若满足 f * duration_s = 整数，则该正弦波在 [0, duration_s) 区间首尾的取值与
+    一阶导数都完全相等（周期恰好等于循环时长的整数分之一），拼接循环播放时不会在接缝处产生
+    可闻的爆音/跳变，不需要额外做首尾交叉淡化（crossfade）处理。
+    """
+    cycles = max(1, round(freq_hz * duration_s))
+    return cycles / duration_s
+
+
+def gen_music(out: Path, seed: int, manifest: Manifest):
+    """生成一段确定性、可无缝循环的占位背景音乐 loop（大三和弦琶音式 pad + 缓慢音量起伏）。
+
+    "可无缝循环"通过 ``snap_freq_to_loop`` 让每个正弦分量与音量 LFO 的频率都恰好是
+    ``1 / MUSIC_LOOP_DURATION_S`` 的整数倍达成（见该函数判断记录），而不是靠首尾交叉淡化；
+    同一 ``seed`` 下多次运行产出字节完全一致（``rng_for`` 派生的扰动量在吸附前加入，
+    吸附后仍是整数周期，不破坏循环性，只影响音高的细微观感）。
+    """
+    base = out / "music"
+    duration_s = MUSIC_LOOP_DURATION_S
+    n = int(SAMPLE_RATE * duration_s)
+    rng = rng_for(seed, "music_loop_01")
+
+    # 根音、三音、五音、高八度根音（C3/E3/G3/C4 附近），每个分量各自独立吸附到整数周期频率。
+    chord_notes = [130.81, 164.81, 196.00, 261.63]
+    amps = [0.35, 0.28, 0.22, 0.16]
+    detune = rng.uniform(-0.4, 0.4)
+    freqs = [snap_freq_to_loop(f + detune, duration_s) for f in chord_notes]
+
+    # 音量 LFO：循环内起伏 2 个整周期，同样天然首尾连续。
+    lfo_cycles = 2
+
+    samples = [0.0] * n
+    for i in range(n):
+        t = i / SAMPLE_RATE
+        lfo = 0.75 + 0.25 * math.sin(2 * math.pi * lfo_cycles * t / duration_s)
+        s = 0.0
+        for f, a in zip(freqs, amps):
+            s += a * math.sin(2 * math.pi * f * t)
+        samples[i] = s * lfo * 0.5  # 整体降幅避免多分量叠加削波
+
+    samples = normalize_peak(samples, target_dbfs=MUSIC_PEAK_DBFS)
+    p = base / "loop_01.wav"
+    write_wav(p, samples)
+    peak = max((abs(s) for s in samples), default=0.0)
+    manifest.add(p, "wav", {
+        "sample_rate": SAMPLE_RATE, "channels": 1, "sampwidth": 2,
+        "duration_s": round(duration_s, 4), "peak": round(peak, 4), "loop": True,
+    })
+
+
+# ==========================================================================
 # 7. ui/
 # ==========================================================================
 
@@ -918,6 +976,7 @@ assets/_placeholder/
     hit_spark/  burn/  cast_circle/
       frame_00.png..frame_07.png, atlas.png, frames.json
   sfx/                               9 个短音效 .wav（44.1kHz/16bit/单声道，峰值 -12dBFS）
+  music/                             loop_01.wav（4 秒确定性可无缝循环 BGM，峰值 -14dBFS）
   ui/                                九宫格面板、按钮三态、血条背景/填充、背包格
   maps/placeholder_field/           ground.png / overlay.png / nav_hint.png
   fonts/README.md                   字体候选说明（本任务不下载字体文件）
@@ -951,6 +1010,7 @@ assets/_placeholder/
 | UI 开启音效 | `sfx_id` | `sfx.placeholder_ui_open_01` |
 | 拾取音效 | `sfx_id` | `sfx.placeholder_pickup_01` |
 | 升级音效 | `sfx_id` | `sfx.placeholder_level_up_01` |
+| 循环背景音乐 | 直接按路径引用（无内容 Id） | `music/loop_01.wav` |
 | 占位地图（草地场景） | 直接按路径引用（无内容 Id） | `maps/placeholder_field/{{ground,overlay,nav_hint}}.png` |
 | UI 套件基础皮肤 | 直接按路径引用（无内容 Id） | `ui/{{panel_9slice,button_normal,button_hover,button_pressed,bar_bg,bar_fill,slot}}.png` |
 
@@ -1022,6 +1082,13 @@ def expected_files(out: Path):
                  "ui_click_01", "ui_open_01", "pickup_01", "level_up_01"):
         items.append((base / f"{name}.wav", ("wav", None, None)))
 
+    # music/loop_01.wav：比短音效长得多（循环 BGM），wav 校验的时长上限单独放宽到
+    # MUSIC_LOOP_DURATION_S 的 2 倍（留冗余，见 4 元组第 4 项 max_duration，省略则默认 0.6 秒，
+    # 与既有 sfx 校验口径一致，见 run_check）。
+    items.append(
+        (out / "music" / "loop_01.wav", ("wav", None, None, MUSIC_LOOP_DURATION_S * 2))
+    )
+
     base = out / "ui"
     items.append((base / "panel_9slice.png", ("image", (64, 64), "RGBA")))
     for name in ("button_normal", "button_hover", "button_pressed"):
@@ -1066,14 +1133,17 @@ def run_check(out: Path) -> int:
                         fail += 1
                         continue
             elif kind == "wav":
+                # spec 第 4 项（可选）覆盖时长上限，默认 0.6 秒（短音效口径）；music/loop_01.wav
+                # 传了更宽的上限，见 expected_files。
+                max_duration = spec[3] if len(spec) > 3 else 0.6
                 with wave.open(str(path), "rb") as wf:
                     if wf.getframerate() != SAMPLE_RATE or wf.getnchannels() != 1 or wf.getsampwidth() != 2:
                         print(f"[BAD WAV PARAMS] {path}")
                         fail += 1
                         continue
                     dur = wf.getnframes() / wf.getframerate()
-                    if dur <= 0 or dur > 0.6:
-                        print(f"[BAD WAV DURATION] {path} duration={dur:.3f}s")
+                    if dur <= 0 or dur > max_duration:
+                        print(f"[BAD WAV DURATION] {path} duration={dur:.3f}s (max {max_duration:.3f}s)")
                         fail += 1
                         continue
             elif kind == "json":
@@ -1127,13 +1197,21 @@ def run_generate(out: Path, seed: int, clean: bool = False) -> int:
     gen_icons(out, seed, manifest)
     gen_vfx(out, seed, manifest)
     gen_sfx(out, seed, manifest)
+    gen_music(out, seed, manifest)
     gen_ui(out, seed, manifest)
     gen_map(out, seed, manifest)
 
     fonts_dir = out / "fonts"
     fonts_dir.mkdir(parents=True, exist_ok=True)
-    (fonts_dir / "README.md").write_text(FONTS_README, encoding="utf-8")
-    manifest.add(fonts_dir / "README.md", "text", {})
+    # 判断记录：若本目录已经有真实字体文件落地（联网下载 + 用户确认后手工加入，见该目录
+    # README.md 自己的记录），说明 FONTS_README 这份"待下载占位说明"已过期——不能无条件覆盖，
+    # 否则会用本脚本内置的旧占位文案冲掉已手工维护好的真实字体信息（曾经出的一次真实回归）。
+    # 只有目录下还没有任何真实字体文件时才写占位说明；已有真实字体文件时保留其现有 README.md
+    # 原样不动（不在 manifest 清单里重复登记它——manifest 只登记本脚本自己生成/接管的文件）。
+    has_real_font = any(fonts_dir.glob("*.otf")) or any(fonts_dir.glob("*.ttf"))
+    if not has_real_font:
+        (fonts_dir / "README.md").write_text(FONTS_README, encoding="utf-8")
+        manifest.add(fonts_dir / "README.md", "text", {})
 
     # 先写一次 manifest 拿到统计数据用于 README，再补写 README 自身条目
     manifest_data = manifest.write(out, seed)

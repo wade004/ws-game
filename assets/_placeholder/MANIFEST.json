@@ -2,7 +2,7 @@
   "seed": 1,
   "pixels_per_unit": 32,
   "file_count": 90,
-  "total_bytes": 258058,
+  "total_bytes": 610022,
   "files": [
     {
       "path": "assets/_placeholder/sprites/placeholder_hero/front/body.png",
@@ -999,6 +999,20 @@
       }
     },
     {
+      "path": "assets/_placeholder/music/loop_01.wav",
+      "kind": "wav",
+      "bytes": 352844,
+      "sha256": "2f9a26b7c95255f9278de19ab788b8f2a7724d33ecfefa4f467d87cc4956dbb7",
+      "meta": {
+        "sample_rate": 44100,
+        "channels": 1,
+        "sampwidth": 2,
+        "duration_s": 4.0,
+        "peak": 0.1995,
+        "loop": true
+      }
+    },
+    {
       "path": "assets/_placeholder/ui/panel_9slice.png",
       "kind": "image",
       "bytes": 205,
@@ -1129,17 +1143,10 @@
       }
     },
     {
-      "path": "assets/_placeholder/fonts/README.md",
-      "kind": "text",
-      "bytes": 1074,
-      "sha256": "64126b664d512da25d40b0a1545b2ce412c91ddd3dbe0dde9016ac1f6e7bedeb",
-      "meta": {}
-    },
-    {
       "path": "assets/_placeholder/README.md",
       "kind": "text",
-      "bytes": 5581,
-      "sha256": "93e1e5b2fe1ad57307a1c2816829c8656ae3e4ecfa69788ab22acc6609610643",
+      "bytes": 5775,
+      "sha256": "3cef57450b8b6057f0762e127dbade0d0d216e65dd31bd5e918948440e62a0db",
       "meta": {}
     }
   ]
