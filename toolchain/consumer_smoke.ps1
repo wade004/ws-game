@@ -118,10 +118,18 @@ function Invoke-Step {
 
 # 见 check.ps1 Invoke-NativeAndWait 同款判断记录：Unity.exe / 独立版 Shell.exe 都是 GUI 子系统
 # 程序，PowerShell 的 `&` 调用运算符不会阻塞等待其退出，必须用 Start-Process -Wait/-PassThru。
+# 不限时分支不再用 -Wait：PS 5.1 的 -Wait 等待的是整个进程树，Unity 退出后其 VBCSCompiler 编译
+# 服务子进程还会再存活约 600 秒，-Wait 会把这约 600 秒也一起等掉；改用 Process.WaitForExit()
+# 只等 Unity 自己的进程句柄，不受子进程影响，详见 check.ps1 Invoke-NativeAndWait 上方 2026-09-06
+# 判断记录。两个分支都不传 -NoNewWindow，原因同样是 PS 5.1 的已知限制：-PassThru 不配 -Wait 时
+# 若再传 -NoNewWindow，读回的 ExitCode 是空字符串；GUI 子系统程序加 -batchmode 本就不会弹窗，
+# 去掉 -NoNewWindow 不影响无人值守效果。
 function Invoke-NativeAndWait {
     param([string]$Exe, [string[]]$ArgList, [int]$TimeoutSeconds = 0)
     if ($TimeoutSeconds -le 0) {
-        $proc = Start-Process -FilePath $Exe -ArgumentList $ArgList -Wait -PassThru -NoNewWindow
+        $proc = Start-Process -FilePath $Exe -ArgumentList $ArgList -PassThru
+        $proc.WaitForExit()
+        $proc.Refresh()
         return [PSCustomObject]@{ ExitCode = $proc.ExitCode; TimedOut = $false }
     }
     $proc = Start-Process -FilePath $Exe -ArgumentList $ArgList -PassThru

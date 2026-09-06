@@ -269,11 +269,43 @@ function Test-NativeExitCode {
 # 内部 Application.Quit(0) 正常收尾），但 Start-Process 在"-PassThru 且不传 -Wait 却传了
 # -NoNewWindow"这一种组合下返回的 Process 对象丢失了退出码句柄（去掉 -NoNewWindow 后同样的
 # 手工 WaitForExit 流程能正确读到 ExitCode，实测反复复现两次，确认是这一个参数组合触发，不是
-# 偶发）。"不限时"分支（-Wait -PassThru -NoNewWindow 三个一起传）不受影响——Start-Process 自己
-# 实现的 -Wait 走的是另一条内部代码路径，能正确保留退出码，这也是任务书要求的默认写法，原样保留。
-# 限时分支因此改为只传 -PassThru：本来就是 GUI 子系统程序（Unity/独立版 Shell.exe 本身不分配
-# 控制台窗口），-batchmode 命令行参数已经保证不出现可见窗口，去掉 -NoNewWindow 不影响实际的
-# "无人值守"效果，只是绕开这一条 Start-Process 自身的退出码丢失路径。
+# 偶发）。"不限时"分支（-Wait -PassThru -NoNewWindow 三个一起传）当时不受影响——Start-Process
+# 自己实现的 -Wait 走的是另一条内部代码路径，能正确保留退出码，这也曾是任务书要求的默认写法，
+# 彼时原样保留。限时分支因此改为只传 -PassThru：本来就是 GUI 子系统程序（Unity/独立版 Shell.exe
+# 本身不分配控制台窗口），-batchmode 命令行参数已经保证不出现可见窗口，去掉 -NoNewWindow 不影响
+# 实际的"无人值守"效果，只是绕开这一条 Start-Process 自身的退出码丢失路径。
+#
+# 判断记录（2026-09-06 实测：不限时分支不再用 -Wait——Unity 退出后仍空等约 10 分钟的根因）：
+# 上面"不限时分支保留 -Wait"的写法后来被证明还有第二个坑，与 ExitCode 丢失无关，而是"等太久"。
+# Unity 6000.3.23f1 在批处理模式编译脚本时，会另外启动一个 Roslyn 编译器服务进程作为 Unity.exe
+# 的子进程（命令行形如 `...\NetCoreRuntime\dotnet.exe exec ...\DotNetSdkRoslyn\VBCSCompiler.dll
+# -pipename:...`），用于跨次编译复用、加速后续启动；这个子进程在 Unity.exe 本体退出、日志已经
+# 写下"Exiting batchmode successfully now!"之后仍然存活，默认空闲保活时间约 600 秒才会自行退出。
+# 而 Windows PowerShell 5.1 的 `Start-Process -Wait` 等待的不只是目标进程本身，而是"进程树"——
+# 只要还有它派生出的子进程（含孙进程）活着就不返回。结果是 Unity 四步（编译检查/EditMode/
+# PlayMode/独立版构建）以及 toolchain/consumer_smoke.ps1 里另外 4 处调用 Unity 的地方，每一步
+# 都可能在 Unity 本体早已退出之后，被这个残留的 VBCSCompiler 子进程额外拖住最多约 10 分钟。
+# 改法：不限时分支与限时分支统一改成只传 -PassThru（不传 -Wait、不传 -NoNewWindow），退出等待
+# 改由手工调用 .NET 的 `Process.WaitForExit()`（无超时参数的重载）——它只轮询 Unity.exe 自己的
+# 进程句柄，不关心其子孙进程是否还活着，VBCSCompiler 继续在后台跑不影响本函数返回；返回前统一
+# `$proc.Refresh()` 后再读 `$proc.ExitCode`，与限时分支保持一致的读取方式。-NoNewWindow 两个
+# 分支都不再传：一是上面已实测的 PS 5.1 限制（-PassThru 不配 -Wait 时若再传 -NoNewWindow，
+# ExitCode 读回空字符串）；二是 Unity.exe / 独立版 Shell.exe 本身是 GUI 子系统程序且总带
+# -batchmode 参数，不会弹出可见窗口，去掉 -NoNewWindow 不影响"无人值守"效果。
+# 验证证据（2026-09-06）：新代码门禁实跑（check.ps1 -SkipConsumer -SkipSmoke）四步，脚本记录的
+# Seconds 与对应 Unity 日志 CreationTime→LastWriteTime 之差逐步比对：编译检查 30.8s/30.3s、
+# EditMode 9.4s/9.1s、PlayMode 27.8s/27.4s、独立版构建 29.2s/28.9s——每步相差不到 1 秒；且在
+# 函数返回的瞬间确认编译服务进程（VBCSCompiler/dotnet.exe）仍然存活，证明它不再阻塞函数返回。
+# 旧代码同日在另一份仍跑 -Wait 版本的检出上实测：compile.log 由 Unity 写在 18:29:35→18:29:53
+# （Unity 本体 18 秒完事），但下一步 editmode.log 直到 18:48:08 才出现——脚本在两步之间空等约
+# 18 分钟，恰好是 18:29:37 随该 Unity.exe 派生、父进程已退出的孤儿 VBCSCompiler 的存活时长
+# （只要还有其他 Unity 运行复用它就不退出，最后一次被用后约 600 秒自行退出）。同一次运行里，
+# 独立版构建这一步 Unity 于 18:49:03 退出前又在 18:48:50 新起一个 VBCSCompiler，脚本再次被拖住。
+# 补充说明：旧代码约 600 秒的空等只在 Unity 需要自己新起 VBCSCompiler 子进程时出现（启动时没有
+# 存活的服务可连，例如闲置超过 10 分钟后的第一次 Unity 运行，是 check.ps1 全新一轮的常见情形）；
+# 若已有更早 Unity 实例留下的服务还活着，Unity 只是通过命名管道连接它、并非 Start-Process 的子
+# 进程，旧代码 -Wait 同样能及时返回（实测过一次，只多等 1.4 秒）。新代码两种情况下都不受影响，
+# 因为它只等待 Unity 自己的进程句柄。
 function Invoke-NativeAndWait {
     param(
         [string]$Exe,
@@ -282,7 +314,9 @@ function Invoke-NativeAndWait {
     )
 
     if ($TimeoutSeconds -le 0) {
-        $proc = Start-Process -FilePath $Exe -ArgumentList $ArgList -Wait -PassThru -NoNewWindow
+        $proc = Start-Process -FilePath $Exe -ArgumentList $ArgList -PassThru
+        $proc.WaitForExit()
+        $proc.Refresh()
         return [PSCustomObject]@{ ExitCode = $proc.ExitCode; TimedOut = $false }
     }
 
