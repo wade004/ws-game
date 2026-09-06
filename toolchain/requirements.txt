@@ -9,3 +9,9 @@
 # optional.txt 头注释），CI 环境不需要装它，拆到 requirements-optional.txt 单独安装，避免每次 CI
 # 运行都白白花时间下载一个大多数校验路径用不到的包。
 Pillow>=10.0  # 必需 —— 精灵/图标/特效帧的抠图、裁边、缩放、图集打包（sprite/icon/vfx 子命令）。
+
+# 工程收尾 K（CI）判断记录：check.ps1 与 CI 工作流都会跑
+# `python -m pytest toolchain/tests -q`（toolchain 自身单元测试），此前遗漏声明该依赖——
+# 本机因开发环境已预装 pytest 而未暴露，GitHub 托管的 windows-latest 运行器是干净环境，
+# 只装 requirements.txt 声明的依赖，运行到该步骤即报 "No module named pytest" 而失败。
+pytest>=7.0  # 必需 —— toolchain/tests 下的单元测试运行器。
