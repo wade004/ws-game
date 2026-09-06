@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Carriers.Common;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
+using Core.Foundation.Common.Json;
 using Core.Foundation.EventBus;
 using Core.Foundation.Rng;
 using Core.Foundation.SimLoop;
@@ -417,6 +418,114 @@ namespace Tests.Gameplay.Loot
 
             var entity = Assert.IsType<DroppedLootEntity>(f.World.GetEntity(lootId));
             Assert.Equal(new Vec2(5, 5), entity.Position);
+        }
+
+        // -----------------------------------------------------------------
+        // 外部审核阻塞项 1 收口回归（architecture/落地计划/audit-20260907/followup-2026-09-07.md
+        // "外部审核阻塞项处理"一节）：读档一致性——DroppedLootPersistable.Load 此前只管"增补"，
+        // 从不清理"当前跟踪、但这次读档的存档快照里已经不再提及"的旧记录，见
+        // LootHost.ClearDroppedExcept 判断记录。下面三条用例复现外部审核实测的缺口"保存空掉落档 →
+        // 产生物品 B → 读取旧档 → 清场并重新挂载"后 B 仍出现，以及正常场景不受影响、跨地图场景
+        // 掉落物只出现在正确的地图上。
+        // -----------------------------------------------------------------
+
+        /// <summary>核心复现：存一份不含任何掉落物的存档 → 之后产生一件掉落物 B → 读取那份旧档 →
+        /// B 应该消失（既不在 <see cref="LootHost.ActiveLootIds"/> 里，也不能被拾取）。</summary>
+        [Fact]
+        public void SaveEmpty_SpawnB_LoadOld_BGone()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var persistable = new DroppedLootPersistable(f.Host);
+
+            // 保存一份空掉落档（此刻还没有任何掉落物）。
+            var savedEmpty = persistable.Save();
+            Assert.IsType<JsonArray>(savedEmpty);
+            Assert.Empty((JsonArray)savedEmpty);
+
+            // 之后产生一件掉落物 B。
+            var lootB = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), new[] { new ItemStack(new Id("item.sample_ore"), 1) });
+            Assert.Contains(lootB, f.Host.ActiveLootIds);
+
+            // 读取旧档（不含 B）：B 应该被清掉。
+            persistable.Load(savedEmpty);
+
+            Assert.Empty(f.Host.ActiveLootIds);
+            Assert.DoesNotContain(lootB, f.Host.ActiveLootIds);
+            Assert.False(f.Host.TryGetDropped(lootB, out _));
+
+            var unitId = new Id("player.sample_1");
+            LootTestSupport.AddPlayer(f.World, unitId, new Id("map.sample_1"), new Vec2(0, 0));
+            Assert.False(f.Host.PickUp(unitId, lootB).Success);
+        }
+
+        /// <summary>正常场景（存档含掉落物 A → 场景清空 → 读同一份档）不应受"清理陈旧记录"这一根治
+        /// 修复影响：A 仍应存在于世界里且可拾取——同 id 的记录既在"要保留的集合"里，也在
+        /// <see cref="LootHost.RestoreDropped"/> 的"原地覆写/重新 AddEntity"两个既有分支的覆盖范围
+        /// 内，不会被 <see cref="LootHost.ClearDroppedExcept"/> 误删。</summary>
+        [Fact]
+        public void SaveWithA_Load_AfterSceneClear_APresentAndPickable()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var persistable = new DroppedLootPersistable(f.Host);
+            var mapId = new Id("map.sample_1");
+
+            var lootA = f.Host.Drop(mapId, new Vec2(2, 2), new[] { new ItemStack(new Id("item.sample_ore"), 1) });
+            var saved = persistable.Save();
+
+            // 模拟真实 ShellHost.LoadGame 顺序（ISaveSystem.Load 先于 ISceneRouter.LoadScene/
+            // ClearAll）：先读档（此刻 A 仍在世界里，走 RestoreDropped 的"原地覆写"分支），再清空
+            // 场景，再由 post_load 钩子重新挂载。
+            persistable.Load(saved);
+            f.World.ClearAll();
+            Assert.Null(f.World.GetEntity(lootA));
+
+            f.Host.ReattachToWorld(mapId);
+
+            var entity = f.World.GetEntity(lootA);
+            Assert.NotNull(entity);
+            Assert.IsType<DroppedLootEntity>(entity);
+
+            var unitId = new Id("player.sample_1");
+            LootTestSupport.AddPlayer(f.World, unitId, mapId, new Vec2(2, 2));
+            var result = f.Host.PickUp(unitId, lootA);
+            Assert.True(result.Success);
+        }
+
+        /// <summary>跨地图：在 A 图存档（掉落物只在 A 图）→ 移动到 B 图（A 图的掉落物随场景切换
+        /// 从 <see cref="IWorldSim"/> 消失，但 LootHost 自己的跟踪表仍记得）→ 读取那份旧档、再切回
+        /// A 图——掉落物应该出现在 A 图，绝不应该出现在 B 图。</summary>
+        [Fact]
+        public void SaveOnMapA_Load_ReturnToMapA_LootPresentOnA_AbsentFromMapB()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var persistable = new DroppedLootPersistable(f.Host);
+            var mapA = new Id("map.sample_1");
+            var mapB = new Id("map.sample_2");
+
+            var lootA = f.Host.Drop(mapA, new Vec2(1, 1), new[] { new ItemStack(new Id("item.sample_ore"), 1) });
+            var saved = persistable.Save();
+
+            // 移动到 B 图：场景切换清空世界，B 图不应捞到属于 A 图的掉落物。
+            f.World.ClearAll();
+            f.Host.ReattachToWorld(mapB);
+            Assert.Null(f.World.GetEntity(lootA));
+
+            // 读取旧档（world 此刻是空的——世界侧已经被上一次 ClearAll 清空，符合"读档时旧局掉落物
+            // 已经不在 IWorldSim 里"的常见情形，见 LootHost.RestoreDropped 判断记录）。
+            persistable.Load(saved);
+
+            // 切回 A 图：掉落物应该重新出现。
+            f.World.ClearAll();
+            f.Host.ReattachToWorld(mapA);
+
+            var entityOnA = f.World.GetEntity(lootA);
+            Assert.NotNull(entityOnA);
+            Assert.Equal(mapA, ((DroppedLootEntity)entityOnA!).MapId);
+
+            // 再切到 B 图：不应该把 A 图的掉落物错误地带过去。
+            f.World.ClearAll();
+            f.Host.ReattachToWorld(mapB);
+            Assert.Null(f.World.GetEntity(lootA));
         }
     }
 }

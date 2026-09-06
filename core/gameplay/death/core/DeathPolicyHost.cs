@@ -20,8 +20,12 @@ namespace Core.Gameplay.Death
     /// <see cref="DeathPolicyOptions.RespawnDelayTicks"/> 个 tick 后调用
     /// <see cref="DeathPolicyOptions.ReviveUnit"/> 复活并发布
     /// <see cref="UnitRespawnedEvent"/>。</item>
-    /// <item><c>reload_save</c>：直接调用 <c>ISaveSystem.Load(AutosaveSlotId)</c>——读档本身会
-    /// 按 10 号文档固定顺序恢复全部已注册段（含玩家位置/生命值等），不需要本模块额外处理。</item>
+    /// <item><c>reload_save</c>：经 <see cref="DeathPolicyOptions.ReloadSave"/>（未装配时退化为直接
+    /// 调用 <c>ISaveSystem.Load(AutosaveSlotId)</c>）读档——读档本身会按 10 号文档固定顺序恢复全部
+    /// 已注册段（含玩家位置/存活状态/生命值——见 <c>Core.Gameplay.Assembly.PlayerVitalsPersistable</c>、
+    /// 目标地图与当前地图不同时的场景切换——见 <c>Core.Gameplay.Assembly.GameplayAssembly.RestoreFromSlot</c>），
+    /// 不需要本模块额外处理；读档失败（如尚无可用自动存档）时回退到 <c>respawn_point</c> 策略同一
+    /// 套默认复活点逻辑，见 <see cref="OnUnitDied"/> 判断记录。</item>
     /// <item><c>permadeath</c>：删除"当前槽"（<see cref="DeathPolicyOptions.CurrentSlotIdProvider"/>
     /// 未提供时回退 <see cref="DeathPolicyOptions.AutosaveSlotId"/>）后请求
     /// <see cref="IAppStateHost.RequestTransition"/> 切到 <see cref="AppState.MainMenu"/>。</item>
@@ -93,11 +97,30 @@ namespace Core.Gameplay.Death
                     break;
 
                 case RespawnPolicy.ReloadSave:
-                    var loadResult = _saveSystem.Load(_options.AutosaveSlotId);
-                    if (loadResult.Status != LoadStatus.Loaded)
+                    // 外部审核阻塞项 2 收口（见 DeathPolicyOptions.ReloadSaveDelegate 判断记录）：
+                    // 未装配 DeathPolicyOptions.ReloadSave（如未经 GameplayAssembly 的单元测试场景）
+                    // 时退化为此前的行为——直接调用注入的 ISaveSystem.Load，不切场景、不额外处理，
+                    // 不破坏任何既有测试。
+                    var loadResult = _options.ReloadSave != null
+                        ? _options.ReloadSave(_options.AutosaveSlotId)
+                        : _saveSystem.Load(_options.AutosaveSlotId);
+
+                    // 根治修复：此前只把 LoadStatus.Loaded 视为成功，LoadStatus.LoadedFromBackup
+                    // （正式文件损坏时自动回退备份，见该枚举值注释）被误判为失败——读到备份同样是
+                    // 一次完整、可用的读档结果，10 号文档第 4 节明确把它列为"读档"的两种成功形态
+                    // 之一（同 ShellHost.LoadGame/GameplayAssembly.RestoreFromSlot 的既有判断口径）。
+                    if (loadResult.Status != LoadStatus.Loaded && loadResult.Status != LoadStatus.LoadedFromBackup)
                     {
+                        // 外部审核阻塞项 2 收口：此前读档失败（典型场景——游戏刚开始、存档点/任务
+                        // 完成触发点都还没来得及写过一次自动存档，reload_save 读到的槽 id 根本不
+                        // 存在，见 LoadStatus.NotFound）只记一条诊断，玩家从此永久停留在"已死亡"
+                        // 状态（Unit.Alive 无人再置回 true），没有任何兜底。现回退到 respawn_point
+                        // 策略同一套"死亡地图默认复活点"逻辑（见 EnqueueRespawn），保证 reload_save
+                        // 在没有可用存档时仍然收敛到一个玩家能继续游玩的状态，而不是卡死。
                         _diagnostics.Error(
-                            $"DeathPolicyHost（reload_save）：读取存档槽 \"{_options.AutosaveSlotId}\" 失败，状态 {loadResult.Status}");
+                            $"DeathPolicyHost（reload_save）：读取存档槽 \"{_options.AutosaveSlotId}\" 失败，状态 {loadResult.Status}，" +
+                            "回退到 respawn_point 策略在死亡地图的默认复活点复活");
+                        EnqueueRespawn(evt);
                     }
 
                     break;

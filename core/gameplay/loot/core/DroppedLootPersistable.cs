@@ -60,10 +60,26 @@ namespace Core.Gameplay.Loot
                 throw new FormatException($"{SectionKey} 段的数据不是 JSON 数组（实际种类：{data.Kind}）");
             }
 
-            var maxSequence = 0;
+            // 外部审核阻塞项 1 收口（见 LootHost.ClearDroppedExcept 判断记录）：先把整份存档快照
+            // 反序列化出来、收集本次要恢复的全部 entityId，再一次性清掉"当前跟踪、但不在这份快照
+            // 里"的陈旧记录——顺序很关键：必须先知道"这次要保留哪些 id"才能决定"清理哪些 id"，不能
+            // 边解析边清理（否则先解析出的实体尚未来得及登记进 keepIds，就可能被后解析的另一条记录
+            // 的清理逻辑误删——虽然本模块内不会发生这种情况，但两阶段分离本身更不容易出错，也更
+            // 贴近"读档 = 归零重建"的语义：先确定目标状态全貌，再一次性收敛到它）。
+            var entities = new List<DroppedLootEntity>(array.Count);
+            var restoredIds = new HashSet<Id>();
             foreach (var raw in array)
             {
                 var entity = FromJson(raw);
+                entities.Add(entity);
+                restoredIds.Add(entity.EntityId);
+            }
+
+            _lootHost.ClearDroppedExcept(restoredIds);
+
+            var maxSequence = 0;
+            foreach (var entity in entities)
+            {
                 _lootHost.RestoreDropped(entity);
                 var seq = LootHost.ExtractSequence(entity.EntityId);
                 if (seq > maxSequence)

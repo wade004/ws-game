@@ -652,6 +652,48 @@ namespace Core.Gameplay.Loot
             } while (seq <= maxRestoredSequence);
         }
 
+        /// <summary>
+        /// 外部审核阻塞项 1 收口（见 <c>DroppedLootPersistable.Load</c> 判断记录、
+        /// architecture/落地计划/audit-20260907/followup-2026-09-07.md"外部审核阻塞项处理"一节）：
+        /// 读档一致性根治——把本模块当前跟踪的地面掉落物中"不在这次要恢复的 id 集合
+        /// （<paramref name="keepIds"/>）里"的全部按既有 <see cref="DestroyDropped"/> 语义清掉（标记
+        /// 世界待销毁 + 立即移出 <see cref="_dropped"/>/<see cref="_order"/> 跟踪表），复现的缺口是：
+        /// "保存空掉落档 → 产生物品 B → 读取旧档（该旧档不含 B）→ B 仍出现"——旧实现的
+        /// <c>DroppedLootPersistable.Load</c> 只管往 <see cref="_dropped"/>/<see cref="_order"/> 里
+        /// 加（经 <see cref="RestoreDropped"/>），从不清理"当前存在、但这次读档的存档快照里已经不再
+        /// 提及"的旧记录，读档因此只有"增补"、没有"归零重建"的语义，与 10 号文档"读档恢复到存档
+        /// 时刻的完整状态"这一预期不符。
+        /// <para>
+        /// 判断记录（<paramref name="keepIds"/> 内的 id 不动，交给随后的 <see cref="RestoreDropped"/>
+        /// 处理，而不是本方法先统一销毁再全部重新 <see cref="IWorldSim.AddEntity"/>）：本方法只清理
+        /// "不会被这次读档覆盖"的陈旧记录；对于"这次读档的快照里仍然存在同一个 id"的情形（典型场景
+        /// 见 <see cref="RestoreDropped"/> 判断记录"U3 排障发现的契约缺口"——同一局内存档后未清空
+        /// 世界就立即读档，该实体仍原样存活在 <see cref="_world"/> 里），若本方法也把它
+        /// <see cref="MarkForDestruction"/>，会把该 id 排入 <see cref="IWorldSim"/> 的待销毁队列，
+        /// 而随后 <see cref="RestoreDropped"/> 发现"世界里仍有同 id 实体"会走"原地覆写"分支、不重新
+        /// <see cref="IWorldSim.AddEntity"/>——那个刚被标记待销毁的实体对象会在下一次
+        /// <see cref="IWorldSim.Tick"/> 的生命周期清理阶段被真正移除，即便 <see cref="_dropped"/>/
+        /// <see cref="_order"/> 都认为它仍然存活，产生"逻辑上存在、下一 tick 却突然消失"的新缺口。
+        /// 只清理"不在 keepIds 里"的部分，天然避开这个问题——两个方法各自负责一半，合起来才是完整
+        /// 的"读档=归零重建"语义。
+        /// </para>
+        /// </summary>
+        public void ClearDroppedExcept(IReadOnlyCollection<Id> keepIds)
+        {
+            var keep = keepIds as ISet<Id> ?? new HashSet<Id>(keepIds);
+
+            // 快照 id 列表：DestroyDropped 会修改 _order/_dropped，边遍历边改容易漏处理（同
+            // PurgeExpired/ReattachToWorld 一贯惯例）。
+            var ids = new List<Id>(_order);
+            foreach (var id in ids)
+            {
+                if (!keep.Contains(id))
+                {
+                    DestroyDropped(id);
+                }
+            }
+        }
+
         internal static int ExtractSequence(Id lootEntityId)
         {
             const string prefix = "loot.inst_";

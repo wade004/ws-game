@@ -160,5 +160,73 @@ namespace Tests.Presentation.VfxSfx
             Assert.Single(requests);
             Assert.Equal(Core.Foundation.EngineAdapter.ResourceKind.Audio, requests[0].Kind);
         }
+
+        // -----------------------------------------------------------------
+        // 外部审核阻塞项 4 收口回归（architecture/落地计划/audit-20260907/followup-2026-09-07.md
+        // "外部审核阻塞项处理"一节）：首次音效加载边界——同 VfxPlayerTests 同款判断记录，此前 Play
+        // 只是"发起加载 + 不管成不成功都立即 PlaySfx"，首次引用一个真正异步加载的资源会在资源就绪
+        // 前就播放（实际是播放了一份引擎侧尚未就绪的音效资源）。下面三条用例用
+        // StubResourceLoader.DeferCallbacks=true 模拟真实异步加载，断言 IAudio.PlaySfx 推迟到加载
+        // 完成之后才发生、且恰好一次。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Play_ResourceNotYetLoaded_DoesNotPlayImmediately_PlaysExactlyOnceAfterLoadCompletes()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), resourceLoader: loader);
+
+            var handle = player.Play(PlainSfx, new Vec2(1, 1));
+
+            Assert.Null(handle); // 资源尚未加载完成，本次调用不能立即拿到真实句柄。
+            Assert.Empty(audio.ActiveSfxPlaybacks); // 首次施法命中音效不应该在资源就绪前就播放。
+
+            loader.CompletePending(new Id("res.footstep"));
+
+            Assert.Single(audio.ActiveSfxPlaybacks);
+            var playback = audio.ActiveSfxPlaybacks[1];
+            Assert.Equal(new Id("res.footstep"), playback.SoundId);
+            Assert.Equal(new Vec2(1, 1), playback.Position);
+        }
+
+        [Fact]
+        public void Play_ResourceLoadFails_DoesNotPlay_RecordsDiagnostic()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), diagnostics: diagnostics, resourceLoader: loader);
+
+            player.Play(PlainSfx, null);
+            loader.FailPending(new Id("res.footstep"));
+
+            Assert.Empty(audio.ActiveSfxPlaybacks);
+            Assert.Contains(diagnostics.Warnings, w => w.Contains("res.footstep") && w.Contains("加载失败"));
+        }
+
+        [Fact]
+        public void Play_ResourceLoadNeverCompletes_TimesOut_DoesNotPlay_RecordsDiagnostic()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var options = new SfxOptions { FirstLoadTimeoutSeconds = 0.0 };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), options: options, diagnostics: diagnostics, resourceLoader: loader);
+
+            player.Play(PlainSfx, null);
+
+            // ISfxPlayer 没有 Update(dt)（见 SfxOptions.FirstLoadTimeoutSeconds 判断记录），超时清理
+            // 改在下一次任意 Play 调用开头惰性扫一遍——FirstLoadTimeoutSeconds=0 使第一次排队请求
+            // 立即视为已超时，下一次 Play 调用（哪怕是另一条音效）会在处理自己的请求之前先扫掉它。
+            player.Play(VariantSfx, null);
+
+            Assert.DoesNotContain(audio.ActiveSfxPlaybacks.Values, p => p.SoundId.Equals(new Id("res.footstep")));
+            Assert.Contains(diagnostics.Warnings, w => w.Contains("res.footstep") && w.Contains("超时"));
+
+            // 迟到的加载完成不应该在超时丢弃之后又补播放一次。
+            loader.CompletePending(new Id("res.footstep"));
+            Assert.DoesNotContain(audio.ActiveSfxPlaybacks.Values, p => p.SoundId.Equals(new Id("res.footstep")));
+        }
     }
 }

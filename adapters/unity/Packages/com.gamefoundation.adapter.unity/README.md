@@ -135,7 +135,15 @@ id）。
   `DisplayInfo` 时，如 gobj 类未来接入非 sprite 外形）。`UnitySpriteView` 在朝向变化时重新解析并
   提交纸娃娃层资源加载（见下"判断记录：主动 LoadAsync"），`SetFlash`/`ClearFlash` 经既有
   `SetShaderParam` 通道触发/复原过曝白色 hit-flash（`UnityRenderer2D` 新增
-  `"flash_intensity"` 参数名解释，见该类型判断记录）。
+  `"flash_intensity"` 参数名解释，见该类型判断记录）。外部审核阻塞项 3 收口（2026-09-07）：
+  `CreateView` 对 `DisplayCategory.Creature` 分类默认挂接 `UnityFrameAnimPlayer` +
+  全局单例 `AnimClipResolver`（构造函数新增可选 `bus`/`dataRegistry` 参数），使
+  `Rig.PlayClip` 在不需要 `FrameworkResidentHost`/`GameFoundationBootstrap`/
+  `games/_template.GameBootstrap` 任何一方手工接线的情况下默认可用——此前
+  `UnityFrameAnimPlayer`/`AnimClipResolver` 均已实现且有独立单测
+  （`Tests/Runtime/AnimationLayerTests.cs`），但没有任何生产代码路径真正构造并挂接它们，见
+  `Runtime/Presentation/UnityViewFactory.cs` `AttachDefaultAnimation`/`RegisterDefaultClips`
+  判断记录。
 - `FloatingTextReceiver`：世界空间 `TextMeshPro` 对象池，颜色按 `FloatingTextStyleDef.ColorRef`
   的字面量做"是否含 crit"启发式区分（框架没有 id → 具体色值的查询能力，见类型注释）。
 - `FreezeFrameReceiver`：只暂停 `Update` 里的 `ViewBinder.SyncAll`/`CameraHost.Update`

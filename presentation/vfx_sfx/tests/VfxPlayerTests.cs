@@ -285,5 +285,74 @@ namespace Tests.Presentation.VfxSfx
 
             Assert.Null(ex);
         }
+
+        // -----------------------------------------------------------------
+        // 外部审核阻塞项 4 收口回归（architecture/落地计划/audit-20260907/followup-2026-09-07.md
+        // "外部审核阻塞项处理"一节）：首次特效加载边界——此前 Spawn 只是"发起加载 + 不管成不成功
+        // 都立即 EmitParticle"（fire-and-forget），首次引用一个真正异步加载的资源时会在资源就绪前
+        // 就调用 EmitParticle。下面三条用例用 StubResourceLoader.DeferCallbacks=true 模拟真实的
+        // 异步加载（LoadAsync 调用后不立即回调，需要显式 CompletePending/FailPending 或本类型自己
+        // 推进 Update 到超时），断言 EmitParticle 确实推迟到加载完成之后才发生、且恰好一次。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Spawn_ResourceNotYetLoaded_DoesNotEmitImmediately_EmitsExactlyOnceAfterLoadCompletes()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), resourceLoader: loader);
+
+            var handle = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+
+            Assert.Null(handle); // 资源尚未加载完成，本次调用不能立即拿到真实句柄。
+            Assert.Empty(renderer.EmittedParticles); // 首次施法命中特效不应该在资源就绪前就播放。
+
+            loader.CompletePending(new Id("res.spark"));
+
+            Assert.Single(renderer.EmittedParticles);
+            var (effectId, pos) = renderer.EmittedParticles[1];
+            Assert.Equal(new Id("res.spark"), effectId);
+            Assert.Equal(new Vec2(1, 1), pos);
+        }
+
+        [Fact]
+        public void Spawn_ResourceLoadFails_DoesNotEmit_RecordsDiagnostic()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), diagnostics: diagnostics, resourceLoader: loader);
+
+            player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+            loader.FailPending(new Id("res.spark"));
+
+            Assert.Empty(renderer.EmittedParticles);
+            Assert.Contains(diagnostics.Warnings, w => w.Contains("res.spark") && w.Contains("加载失败"));
+        }
+
+        [Fact]
+        public void Spawn_ResourceLoadNeverCompletes_TimesOut_DoesNotEmit_RecordsDiagnostic()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var options = new VfxOptions { FirstLoadTimeoutSeconds = 2.0 };
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), options: options, diagnostics: diagnostics, resourceLoader: loader);
+
+            player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+
+            player.Update(1.0);
+            Assert.Empty(renderer.EmittedParticles); // 还没到超时，仍在排队等待。
+
+            player.Update(1.5); // 累计 2.5s，超过 2.0s 超时阈值。
+
+            Assert.Empty(renderer.EmittedParticles); // 超时丢弃，不会补播放。
+            Assert.Contains(diagnostics.Warnings, w => w.Contains("res.spark") && w.Contains("超时"));
+
+            // 迟到的加载完成（真实引擎里资源终究还是加载好了）不应该在超时丢弃之后又补播放一次
+            // ——这次播放请求已经被放弃，不是"延迟生效"。
+            loader.CompletePending(new Id("res.spark"));
+            Assert.Empty(renderer.EmittedParticles);
+        }
     }
 }

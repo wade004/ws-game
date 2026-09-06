@@ -316,7 +316,11 @@ namespace Adapter.Unity.Shell
             Gameplay.Carriers.SkillBindings.Bind(PlayerId, "slot_1", new Id(Skill1Id));
 
             var viewFactoryDisplayInfo = new DisplayInfoRegistry(registry, _bus);
-            var viewFactory = new UnityViewFactory(_host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader);
+            // 外部审核阻塞项 3 收口（architecture/落地计划/audit-20260907/followup-2026-09-07.md
+            // "外部审核阻塞项处理"一节）：传入 bus/registry 两个可选参数，使 UnityViewFactory 默认
+            // 给"生物"型 sprite 视图挂接 UnityFrameAnimPlayer + AnimClipResolver（见该类型
+            // AttachDefaultAnimation 判断记录），不再需要本类型自己另外接一遍。
+            var viewFactory = new UnityViewFactory(_host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader, bus: _bus, dataRegistry: registry);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(Seed ^ 0x9E3779B97F4A7C15UL);
@@ -325,6 +329,11 @@ namespace Adapter.Unity.Shell
             var sceneRouter = new Core.Foundation.SceneRouter.SceneRouter(
                 registry, _host.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, _bus,
                 spatial: _host.SpatialQuery, navigation: _host.Navigation2D);
+            // 外部审核阻塞项 2 收口（见 GameplayAssembly._sceneRouter 字段判断记录）：真实
+            // SceneRouter 必然晚于 GameplayAssembly 构造完成（需要 gameplay.AppState/gameplay.Hooks），
+            // 回填给 GameplayAssembly.RestoreFromSlot 使用，使 death.reload_save 策略读档后能在
+            // 目标地图与当前地图不同时真正切场景。
+            gameplay.AttachSceneRouter(sceneRouter);
 
             var presentationOptions = new PresentationAssemblyOptions
             {
@@ -552,6 +561,13 @@ namespace Adapter.Unity.Shell
                 _bus.DispatchPending();
             }
 
+            // 外部审核阻塞项 1 收口（architecture/落地计划/audit-20260907/followup-2026-09-07.md
+            // "外部审核阻塞项处理"一节）：此前本类型（框架自身的 Shell 读档入口，
+            // Presentation.Shell.ShellHost.LoadGame → ISceneRouter → 本 post_load 钩子）从未调用过
+            // LootHost.ReattachToWorld——读档恢复的地面掉落物随场景切换（ClearAll）静默消失，是
+            // GP-PRES-01 只接进了 games/_template/Runtime/GameBootstrap、没有接进框架自身入口的
+            // 那一半缺口。现改为 GameplayAssembly.EnterMap 自身第一步统一调用
+            // Loot.ReattachToWorld（见该方法判断记录），本类型不需要再单独接线。
             Gameplay.EnterMap(mapId, PlayerId);
 
             if (!_worldEverEntered)

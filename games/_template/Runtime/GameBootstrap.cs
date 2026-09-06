@@ -219,13 +219,22 @@ namespace Game.Template
             Gameplay.Economy.RegisterUnit(PlayerId);
 
             var viewFactoryDisplayInfo = new DisplayInfoRegistry(registry, _bus);
-            var viewFactory = new UnityViewFactory(_host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader);
+            // 外部审核阻塞项 3 收口（architecture/落地计划/audit-20260907/followup-2026-09-07.md
+            // "外部审核阻塞项处理"一节）：传入 bus/registry 两个可选参数，使 UnityViewFactory 默认
+            // 给"生物"型 sprite 视图挂接 UnityFrameAnimPlayer + AnimClipResolver（见该类型
+            // AttachDefaultAnimation 判断记录），本模板不再需要自己另外接一遍。
+            var viewFactory = new UnityViewFactory(_host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader, bus: _bus, dataRegistry: registry);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(_options.Seed ^ 0x9E3779B97F4A7C15UL);
             var sceneRouter = new Core.Foundation.SceneRouter.SceneRouter(
                 registry, _host.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, _bus,
                 spatial: _host.SpatialQuery, navigation: _host.Navigation2D);
+            // 外部审核阻塞项 2 收口（见 GameplayAssembly._sceneRouter 字段判断记录）：真实
+            // SceneRouter 必然晚于 GameplayAssembly 构造完成（需要 gameplay.AppState/gameplay.Hooks），
+            // 回填给 GameplayAssembly.RestoreFromSlot 使用，使 death.reload_save 策略读档后能在
+            // 目标地图与当前地图不同时真正切场景。
+            gameplay.AttachSceneRouter(sceneRouter);
 
             var presentationOptions = BuildPresentationOptions();
 
@@ -327,13 +336,18 @@ namespace Game.Template
             // GP-PRES-01 收口（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
             // 读档恢复的地面掉落物在 ISceneRouter.LoadScene 触发 IWorldSim.ClearAll 时被一并清空
             // （LootHost 自己的跟踪表不受 ClearAll 影响，但 IWorldSim 侧的实体已经不在了，见
-            // LootHost.RestoreDropped 判断记录）——同上面玩家实体的"缺失才重新添加"惯例，本钩子
-            // （晚于 ClearAll，场景真正就绪之后）把属于当前地图的掉落物重新接回 IWorldSim；已经在
-            // 世界里的（例如首次进图、ClearAll 从未发生过）会被 LootHost.ReattachToWorld 跳过，
-            // 幂等，可安全每次 post-load 都调用。
-            Gameplay.Loot.ReattachToWorld(mapId);
-            _bus.DispatchPending();
-
+            // LootHost.RestoreDropped 判断记录）——同上面玩家实体的"缺失才重新添加"惯例，需要在
+            // 场景真正就绪之后把属于当前地图的掉落物重新接回 IWorldSim。
+            //
+            // 外部审核阻塞项 1 收口（architecture/落地计划/audit-20260907/followup-2026-09-07.md
+            // "外部审核阻塞项处理"一节）：此前这一步在本类型（模板专属的 post_load 钩子）里手工
+            // 调用 Gameplay.Loot.ReattachToWorld(mapId)，是"只接进了模板"的那一半缺口——框架自身
+            // 的 Shell 读档入口（Presentation.Shell.ShellHost.LoadGame）没有任何等价接线，读档后
+            // 掉落物在纯框架（不经本模板）场景下仍然会随场景切换静默消失。现改为
+            // GameplayAssembly.EnterMap 自身第一步就调用 Loot.ReattachToWorld（见该方法判断记录），
+            // 本类型不再重复接线，直接调用 EnterMap 即可获得同样的效果——幂等（同上，
+            // LootHost.ReattachToWorld 对"已经在世界里的实体"是安全的空操作），可安全每次
+            // post-load 都调用，不需要额外的 DispatchPending。
             Gameplay.EnterMap(mapId, PlayerId);
 
             if (!_worldEverEntered)

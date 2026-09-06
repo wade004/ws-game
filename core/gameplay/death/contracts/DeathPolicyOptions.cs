@@ -1,5 +1,6 @@
 using System;
 using Core.Foundation.Common;
+using Core.Foundation.SaveSystem;
 
 namespace Core.Gameplay.Death
 {
@@ -25,6 +26,18 @@ namespace Core.Gameplay.Death
     /// 存在的一方）。
     /// </summary>
     public delegate (Id MapId, Vec2 Position)? ResolveDefaultSpawnDelegate(Id mapId);
+
+    /// <summary>
+    /// 外部审核阻塞项 2 收口新增（见 <c>core/gameplay/assembly/GameplayAssembly.RestoreFromSlot</c>
+    /// 类型注释）：<c>reload_save</c> 策略读档的窄契约——签名与 <see cref="ISaveSystem.Load"/> 完全
+    /// 一致（入参存档槽 id，返回 <see cref="LoadResult"/>）。<see cref="DeathPolicyHost"/>（L4）不
+    /// 直接持有 <c>ISceneRouter</c>（本模块构造函数依赖清单本就没有它，见该类型），"读档后若目标
+    /// 地图与当前地图不同则切场景"这一步交给注入方实现——惯例同 <see cref="ReviveUnitDelegate"/>/
+    /// <see cref="ResolveDefaultSpawnDelegate"/> 两个既有 L4↔L3/L4↔L0 边界委托，<c>GameplayAssembly</c>
+    /// （组装根，同时持有 <see cref="ISaveSystem"/> 与 <c>ISceneRouter</c>）把
+    /// <c>GameplayAssembly.RestoreFromSlot</c> 方法组接给本委托。
+    /// </summary>
+    public delegate LoadResult ReloadSaveDelegate(Id slotId);
 
     /// <summary>
     /// <c>core/gameplay/death</c> 模块的构造期口味配置（见 06_规则层_属性技能战斗AI.md 第 4.6 节
@@ -84,5 +97,15 @@ namespace Core.Gameplay.Death
         /// <summary>解析默认复活点的窄契约，见 <see cref="ResolveDefaultSpawnDelegate"/>。为
         /// <c>null</c> 或解析失败时同上，只记诊断、不复活。</summary>
         public ResolveDefaultSpawnDelegate? ResolveDefaultSpawn { get; set; }
+
+        /// <summary>
+        /// 外部审核阻塞项 2 收口新增：<c>reload_save</c> 策略读档的窄契约，见
+        /// <see cref="ReloadSaveDelegate"/>。为 <c>null</c>（默认，未装配 <c>GameplayAssembly</c> 的
+        /// 单元测试场景）时，<see cref="DeathPolicyHost"/> 退化为直接调用注入的
+        /// <c>ISaveSystem.Load</c>（本模块构造函数既有依赖，不切场景、不额外处理），与本次收口之前
+        /// 完全一致的既有行为——只是生产装配（<c>GameplayAssembly</c>）总会接上一份真正"读档 + 必要
+        /// 时切场景"的实现，见 <c>GameplayAssembly.RestoreFromSlot</c>。
+        /// </summary>
+        public ReloadSaveDelegate? ReloadSave { get; set; }
     }
 }

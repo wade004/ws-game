@@ -187,6 +187,24 @@ namespace Core.Gameplay.Assembly
         private readonly IWorldSim _world;
         private readonly ISimClockHost? _clockHost;
 
+        /// <summary>外部审核阻塞项 2 收口新增：<see cref="RestoreFromSlot"/> 需要它判断"读档后是否
+        /// 需要切场景"，见该方法判断记录。构造函数参数本就可选（<c>sceneRouter</c> 未传入时多个既有
+        /// 用途——如 <c>AreaTriggerOptions.SceneRouter</c>——已经按"未装配场景路由"静默退化，本字段
+        /// 延续同一约定：为 null 时 <see cref="RestoreFromSlot"/> 只读档、不尝试切场景。
+        /// <para>
+        /// 判断记录（非 <c>readonly</c>，配 <see cref="AttachSceneRouter"/> 回填）：生产装配的真实
+        /// <c>Core.Foundation.SceneRouter.SceneRouter</c> 构造需要 <see cref="AppState"/>/
+        /// <see cref="Hooks"/> 两个属性（见其构造函数），而它们要到本类型构造函数内部第 10 步才
+        /// 产生——调用方（<c>Adapter.Unity.Bootstrap.GameFoundationBootstrap</c>/
+        /// <c>FrameworkResidentHost</c>/<c>games/_template/GameBootstrap</c>）因此一律在
+        /// <c>new GameplayAssembly(...)</c> 完成之后才能构造真正的 <c>SceneRouter</c>，构造函数的
+        /// <c>sceneRouter</c> 参数在这三处生产装配里实际传入的都是 <c>null</c>——本字段延续本类型
+        /// 一贯的"先占位、后回填"惯例（同 <see cref="SetPendingPlaybackProbe"/> 判断记录），供这三处
+        /// 在真正构造好 <c>SceneRouter</c> 后调用 <see cref="AttachSceneRouter"/> 补上引用。
+        /// </para>
+        /// </summary>
+        private ISceneRouter? _sceneRouter;
+
         /// <summary>W2 收边补齐（SkillOptions.IsDiscreteStep 判断记录）：仅在 <see cref="Advance"/>
         /// 内部处理某一个 Discrete 步（<c>_world.Tick(step.Value)</c> 调用期间）为 true，供
         /// <c>resolvedSkillOptions.IsDiscreteStep</c> 闭包读取——技能施放（含离散意图路由、AI
@@ -246,6 +264,7 @@ namespace Core.Gameplay.Assembly
 
             _bus = bus;
             _world = world;
+            _sceneRouter = sceneRouter;
 
             // 判断记录（缺口 16，自动存档槽 id/时间戳来源）：提前到构造函数最前面解析（原在第 14 步
             // GobjOptions.SaveRequester 接线处才算，现第 12 步 DialogHost 构造 saveRequested 参数也
@@ -740,6 +759,12 @@ namespace Core.Gameplay.Assembly
 
             resolvedDeathPolicyOptions.ResolveDefaultSpawn ??= teleportTargetResolver.Resolve;
 
+            // 外部审核阻塞项 2 收口：reload_save 策略此前只调用 ISaveSystem.Load 本身，既不切场景、
+            // 也不管玩家存活状态是否被正确覆盖（见 DeathPolicyHost.OnUnitDied 判断记录、
+            // RestoreFromSlot 类型注释）——接同一份"读档 + 必要时切场景"协议，行为与
+            // ShellHost.LoadGame 保持一致。
+            resolvedDeathPolicyOptions.ReloadSave ??= RestoreFromSlot;
+
             Death = new Core.Gameplay.Death.DeathPolicyHost(
                 bus, world, SaveSystem, AppState, Carriers.Rules.CombatOptions.DeathPolicy, resolvedDeathPolicyOptions);
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, Death);
@@ -752,9 +777,88 @@ namespace Core.Gameplay.Assembly
         /// </summary>
         public void EnterMap(Id mapId, Id playerUnitId)
         {
+            // 外部审核阻塞项 1 收口（见 architecture/落地计划/audit-20260907/followup-2026-09-07.md
+            // "外部审核阻塞项处理"一节）：此前 LootHost.ReattachToWorld 只在
+            // games/_template/Runtime/GameBootstrap.HandlePostLoad 里手工接了一次，框架自身的
+            // Shell 读档入口（Presentation.Shell.ShellHost.LoadGame → ISceneRouter.LoadScene →
+            // post_load 钩子）没有任何调用方保证会调用它——只要某个宿主（引擎适配层/未来其它游戏）
+            // 的 post_load 钩子调用了本方法（EnterMap 本就是"一站式进入地图"的既定入口，见本方法
+            // 类型注释），就自动补上这一步，不再要求每个宿主各自记得接线。放在最前面：
+            // ReattachToWorld 只操作 LootHost 自己的跟踪表与 IWorldSim，不依赖本方法下面三行
+            // （AreaTrigger/Spawn/Economy）任何一行的执行结果，顺序上谁先谁后都不影响正确性，放最
+            // 前面只是让"进图先恢复掉落物、再处理该地图的其它进图逻辑"这一顺序更直观。幂等（见该
+            // 方法判断记录"已经在世界里的会被跳过"），首次进图（从未发生过 ClearAll）时是安全的
+            // 空操作，不会因为重复调用产生副作用。
+            Loot.ReattachToWorld(mapId);
+
             AreaTrigger.LoadForMap(mapId, Carriers.Rules.Registry);
             Spawn.ApplyForMap(mapId);
             Economy.OnMapEnter(mapId);
+        }
+
+        /// <summary>
+        /// 外部审核阻塞项 2 收口新增（见 architecture/落地计划/audit-20260907/followup-2026-09-07.md
+        /// "外部审核阻塞项处理"一节）：<c>ISaveSystem.Load</c> + "若目标地图与当前地图不同则切场景"
+        /// 这段逻辑，供 <c>Presentation.Shell.ShellHost.LoadGame</c>（L5）与
+        /// <see cref="Core.Gameplay.Death.DeathPolicyHost"/>（同 L4，经
+        /// <see cref="Core.Gameplay.Death.DeathPolicyOptions.ReloadSave"/> 委托接线，见构造函数第
+        /// 18 步）两处共用同一份协议。
+        /// <para>
+        /// 判断记录（不是"同一份代码"，是"同一份协议、各自一份实现"）：<c>ShellHost</c> 是 L5，不
+        /// 持有、也不允许反向依赖本类型（L4，铁律 P1/P3——L5 只编排窄契约，不直接持有 L4 具体状态），
+        /// 因此不能把 <c>ShellHost.LoadGame</c> 直接改成调用本方法；<c>ShellHost.LoadGame</c> 保留
+        /// 自己那份等价实现（读 <c>LoadResult.CurrentMapId</c>、必要时调用
+        /// <c>ISceneRouter.LoadScene</c>，见该方法判断记录"缺口 11 恢复"）。<see cref="DeathPolicyHost"/>
+        /// 与本类型同属 L4、由本类型的构造函数统一装配，可以直接接线，不需要重复实现一遍。
+        /// </para>
+        /// <para>
+        /// 判断记录（只发起 <c>LoadScene</c>，不在本方法内同步调用 <see cref="EnterMap"/>）：
+        /// <see cref="ISceneRouter.LoadScene"/> 只是发起一次异步加载（见该方法注释"本方法本身不
+        /// 等待加载完成"），真正的"切场景完成 → 进图"由调用方早已注册好的
+        /// <c>ISceneRouter.RegisterPostLoadHook</c> 钩子驱动（该钩子内部调用 <see cref="EnterMap"/>，
+        /// 已经把 <see cref="Loot"/>.<c>ReattachToWorld</c> 接了进去，见该方法判断记录）——本方法
+        /// 重复调用一次 <see cref="EnterMap"/> 只会导致同一张地图被进两次，不属于本方法职责。
+        /// 目标地图与当前地图相同（无需切场景）时，<c>ISaveSystem.Load</c> 已经把全部已注册段
+        /// （含本次外部审核阻塞项 2 新增的 <see cref="PlayerVitalsPersistable"/>）直接写回长期存活
+        /// 的 <c>PlayerUnit</c>/<c>Unit</c> 运行期对象——该对象此前从未因"死亡"被移出
+        /// <see cref="IWorldSim"/>（05 文档"死亡是逻辑状态，不是生命周期状态"），不需要任何"重新
+        /// 进图"步骤即可生效。
+        /// </para>
+        /// </summary>
+        public LoadResult RestoreFromSlot(Id slotId)
+        {
+            // 判断记录（必须在 SaveSystem.Load 之前取"当前地图"）：SaveSystem.Load 内部会依次调用
+            // 全部已注册 IPersistable 的 Load（含 world.current_map_id 段——UnitPersistable.
+            // CurrentMapId 直接把玩家实体的 MapId 字段改写成存档里的地图 id），调用完成后
+            // "玩家实体当前的 MapId"已经等于"存档里的地图 id"，不再反映"读档前玩家实际在哪张
+            // 地图"——若在 Load 之后才读取 _world.GetEntity(...)?.MapId 来判断"是否需要切场景"，
+            // 这个比较永远是"相等"，切场景分支会被误判为不需要执行而跳过（本方法收口过程中实测
+            // 复现的一处时序缺口）。
+            var mapIdBeforeLoad = _world.GetEntity(PlayerUnitProvider())?.MapId;
+
+            var result = SaveSystem.Load(slotId);
+
+            if ((result.Status == LoadStatus.Loaded || result.Status == LoadStatus.LoadedFromBackup) &&
+                result.CurrentMapId.HasValue && _sceneRouter != null &&
+                (mapIdBeforeLoad == null || !mapIdBeforeLoad.Value.Equals(result.CurrentMapId.Value)))
+            {
+                try
+                {
+                    _sceneRouter.LoadScene(result.CurrentMapId.Value);
+                }
+                catch (ArgumentException)
+                {
+                    // 地图 id 未知：读档本身仍然算成功，场景切换失败留给上层诊断/重试（同
+                    // ShellHost.LoadGame 同款判断记录）。
+                }
+                catch (InvalidOperationException)
+                {
+                    // 当前应用状态不允许切到 Loading（例如已经在 Loading 中）：同上，不吞掉
+                    // 读档结果本身。
+                }
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -896,6 +1000,19 @@ namespace Core.Gameplay.Assembly
         /// 一个手工控制的探针，验证 <see cref="Advance"/> 的节奏门行为本身（见
         /// <c>core/gameplay/tests/Discrete/GameplayAssemblyDiscreteWiringTests.cs</c>）。
         /// </summary>
+        /// <summary>
+        /// 外部审核阻塞项 2 收口新增（见 <see cref="_sceneRouter"/> 字段判断记录）：补上生产装配真实
+        /// <c>ISceneRouter</c> 的引用，供 <see cref="RestoreFromSlot"/> 使用。调用方应在构造好真实
+        /// <c>Core.Foundation.SceneRouter.SceneRouter</c>（需要本类型的 <see cref="AppState"/>/
+        /// <see cref="Hooks"/>，因此必然晚于本类型构造完成）之后立即调用一次；未调用时
+        /// <see cref="RestoreFromSlot"/> 只读档、不尝试切场景（同构造函数 <c>sceneRouter</c> 参数
+        /// 未传入时的既有退化行为，未调用不影响装配成功，只是场景切换这一步不生效）。
+        /// </summary>
+        public void AttachSceneRouter(ISceneRouter sceneRouter)
+        {
+            _sceneRouter = sceneRouter ?? throw new ArgumentNullException(nameof(sceneRouter));
+        }
+
         public void SetPendingPlaybackProbe(Func<bool> hasPendingPlayback)
         {
             if (hasPendingPlayback == null) throw new ArgumentNullException(nameof(hasPendingPlayback));
@@ -974,6 +1091,10 @@ namespace Core.Gameplay.Assembly
             saveSystem.RegisterPersistable(Spawn);
             saveSystem.RegisterPersistable(new DroppedLootPersistable(Loot));
             saveSystem.RegisterPersistable(Difficulty);
+            // 外部审核阻塞项 2 收口：player.vitals 段（存活状态 + 生命值当前值），见
+            // PlayerVitalsPersistable 类型注释——放在 world.difficulty 之后、TurnScheduler/rng 之前
+            // （10 号文档固定段序此前未列出本段，本次一并补录，见该文档"2026-09-07 勘误"）。
+            saveSystem.RegisterPersistable(new PlayerVitalsPersistable(player, Carriers.Rules.Powers));
 
             // ADR-0013：TurnScheduler 全部状态可存档（见任务书"全部状态可存档"），只在装配了离散
             // 模式（构造函数传入 clockHost）时注册——段名 sim.turn_state 已登记进 10 号文档第 3 节

@@ -51,10 +51,20 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
 6. **`IWeaponStyleResolver` 只覆盖 vfx 相关查询**：`auto_attack_anim`/`cast_anim_override` 指向
    动作剪辑，属于 CharacterRig/动画状态机（09 第 4 节）职责范围，不在本模块（vfx_sfx）接口内；
    `WeaponStyleDef` 仍如实携带这两个字段供上游模块使用。
-7. **资源首次加载责任已由 ADR-0016 解决**：`VfxPlayer`/`SfxPlayer` 均可选注入 `IResourceLoader`，
-   `Spawn`/`Play` 首次引用某个 `resource_ref`（含 `sfx.def.variants` 命中的具体变体）时分别以
-   `ResourceKind.Effect`/`ResourceKind.Audio` 触发一次 `LoadAsync`（同一 id 只触发一次，见
-   `Presentation.Common.ResourceReferenceTracker`）；未注入时保持不主动触发任何加载的既有行为。
+7. **资源首次加载责任已由 ADR-0016 解决，首次引用时排队等待加载完成才播放（外部审核阻塞项 4
+   收口，2026-09-07）**：`VfxPlayer`/`SfxPlayer` 均可选注入 `IResourceLoader`，`Spawn`/`Play` 首次
+   引用某个 `resource_ref`（含 `sfx.def.variants` 命中的具体变体）时触发一次
+   `ResourceKind.Effect`/`ResourceKind.Audio` 的 `LoadAsync`（同一 id 此后永远不再重复触发，含加载
+   失败的情形——失败不重试）；未注入时保持不主动触发任何加载的既有行为。**此前**这一步只是
+   fire-and-forget（不管加载成功与否都在同一次调用内立即 `EmitParticle`/`PlaySfx`），首次引用一个
+   真正异步加载的资源会在资源就绪前就播放（复现为"首次施法命中特效/音效不播放/播放通用退化效果"）。
+   **现在**资源尚未加载完成时不立即播放，改为排队（`VfxPlayer.PendingSpawn`/`SfxPlayer.PendingPlay`）
+   等待 `LoadAsync` 回调补播放；同步加载器（测试桩/引擎缓存命中）在同一次调用栈内完成时，
+   `Spawn`/`Play` 仍能同步返回真实句柄，不退化调用方体验。排队等待有超时（`VfxOptions`/
+   `SfxOptions.FirstLoadTimeoutSeconds`，默认 5 秒），超时丢弃并记一条诊断，不是无限期等待——
+   `VfxPlayer` 经 `Update(dt)`（`IVfxPlayer` 契约本就有该方法）累计倒计时，`SfxPlayer` 因
+   `ISfxPlayer` 契约没有 `Update` 方法（09 原文未定义，不新增契约方法）改为在下一次任意 `Play`
+   调用开头惰性扫过期项。
 
 ## 不负责什么
 

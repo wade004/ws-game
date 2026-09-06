@@ -19,5 +19,16 @@ namespace Presentation.VfxSfx.Contracts
         /// 找不到交点时的兜底行为：true（默认）记诊断并跳过播放（返回 null 句柄）；见
         /// vfx_sfx/README.md 判断记录。</summary>
         public bool SkipOnUnresolvableScreenAttach { get; set; } = true;
+
+        /// <summary>
+        /// 外部审核阻塞项 4 收口（首次特效加载边界，见 <c>Presentation.VfxSfx.Core.VfxPlayer.Spawn</c>
+        /// 判断记录）：某个 <c>vfx.def.resource_ref</c> 首次被引用、资源尚未加载完成时，一次排队
+        /// 等待的最长秒数（按 <see cref="IVfxPlayer.Update"/> 的 <c>dt</c> 累计倒计时，不是墙钟时间——
+        /// 与本模块其余时间量纲一致）；超时仍未加载完成则丢弃这次排队的播放请求并记一条诊断，不是
+        /// 无限期等待。默认 5 秒——一次资源加载在正常网络/磁盘条件下应远快于此，超时基本只会在资源
+        /// id 拼写错误、资源确实缺失等异常情况下触发，5 秒足够覆盖正常首帧加载抖动同时不会让异常
+        /// 情况无限期占用内存。
+        /// </summary>
+        public double FirstLoadTimeoutSeconds { get; set; } = 5.0;
     }
 }

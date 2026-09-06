@@ -336,7 +336,11 @@ namespace Adapter.Unity.Bootstrap
             //    registry/bus，语义一致，不产生状态不一致（判断记录）。
             // ---------------------------------------------------------
             var viewFactoryDisplayInfo = new DisplayInfoRegistry(registry, _bus);
-            var viewFactory = new UnityViewFactory(_host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader);
+            // 外部审核阻塞项 3 收口（architecture/落地计划/audit-20260907/followup-2026-09-07.md
+            // "外部审核阻塞项处理"一节）：传入 bus/registry 两个可选参数，使 UnityViewFactory 默认
+            // 给"生物"型 sprite 视图挂接 UnityFrameAnimPlayer + AnimClipResolver（见该类型
+            // AttachDefaultAnimation 判断记录），不再需要本类型自己另外接一遍。
+            var viewFactory = new UnityViewFactory(_host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader, bus: _bus, dataRegistry: registry);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(_seed ^ 0x9E3779B97F4A7C15UL);
@@ -345,6 +349,11 @@ namespace Adapter.Unity.Bootstrap
             var sceneRouter = new Core.Foundation.SceneRouter.SceneRouter(
                 registry, _host.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, _bus,
                 spatial: _host.SpatialQuery, navigation: _host.Navigation2D);
+            // 外部审核阻塞项 2 收口（见 GameplayAssembly._sceneRouter 字段判断记录）：真实
+            // SceneRouter 必然晚于 GameplayAssembly 构造完成（需要 gameplay.AppState/gameplay.Hooks），
+            // 回填给 GameplayAssembly.RestoreFromSlot 使用，使 death.reload_save 策略读档后能在
+            // 目标地图与当前地图不同时真正切场景。
+            gameplay.AttachSceneRouter(sceneRouter);
 
             // 三个反馈接收器由 PresentationAssemblyOptions 的回调"延迟读取"（闭包捕获的是本类型
             // 的属性访问，不是构造期的值）：PresentationAssembly 构造函数内部第 3 步装配

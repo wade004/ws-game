@@ -989,12 +989,21 @@ namespace Tests.Presentation.Assembly
         // 此前本构造函数没有 IResourceLoader 参数，VfxPlayer/SfxPlayer 只能拿到 null，永远不会
         // 调用 IResourceLoader.LoadAsync——ADR-0016"谁首次引用谁加载"的责任没有落地。下面两条用例
         // 直接断言：传入 resourceLoader 后，首次 Spawn/Play 会触发一次对应资源 id 的 LoadAsync。
+        //
+        // 外部审核阻塞项 4 收口（首次特效/音效加载边界，见 architecture/落地计划/audit-20260907/
+        // followup-2026-09-07.md"外部审核阻塞项处理"一节）：Register 先把资源登记为"可加载成功"
+        // ——VfxPlayer.Spawn/SfxPlayer.Play 现在会等资源真正加载完成才播放（不再是此前"发起加载 +
+        // 不管成不成功都立即播放"的 fire-and-forget，那正是"首次施法命中特效/音效不播放"的根因）；
+        // StubResourceLoader 默认同步回调（DeferCallbacks=false），Register 过的资源在 LoadAsync
+        // 调用当下就会同步标记为已加载完成，因此本用例仍能在同一次调用内拿到非空句柄，验证的是
+        // "加载成功后确实播放了"这一更贴近真实场景的路径，而不是此前"不管资源是否已就绪都硬播"。
         // -----------------------------------------------------------------
 
         [Fact]
         public void Construct_WithResourceLoader_VfxSpawn_TriggersLoadAsync_ForResourceRef()
         {
             var presentation = Build(out _, out _, out var engine, out _, withResourceLoader: true);
+            engine.ResourceLoader.Register(new Id("vfx.sample_hit"));
 
             Assert.Empty(engine.ResourceLoader.LoadRequests);
 
@@ -1008,6 +1017,7 @@ namespace Tests.Presentation.Assembly
         public void Construct_WithResourceLoader_SfxPlay_TriggersLoadAsync_ForResourceRef()
         {
             var presentation = Build(out _, out _, out var engine, out _, withResourceLoader: true);
+            engine.ResourceLoader.Register(new Id("sfx.sample_hit"));
 
             Assert.Empty(engine.ResourceLoader.LoadRequests);
 

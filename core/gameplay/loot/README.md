@@ -96,6 +96,21 @@ loot/
    子类）。若该单位在事件派发时已经从 `IWorldSim` 集合中移除（不应发生，但契约未绝对保证），本
    监听器放弃本次掉落生成而不抛异常，避免阻断死亡结算流程的其它订阅者。
 
+9. **外部审核阻塞项 1 收口（2026-09-07）——`DroppedLootPersistable.Load` 读档前先清空陈旧记录，
+   `LootHost.ReattachToWorld` 接进框架自身的 `EnterMap`**：此前 `Load` 只管往 `_dropped`/`_order`
+   跟踪表里"增补"（经 `RestoreDropped`），从不清理"当前跟踪、但这次读档的存档快照里已经不再
+   提及"的旧记录——复现路径"保存空掉落档 → 产生物品 B → 读取旧档（不含 B）→ B 仍出现"。新增
+   `LootHost.ClearDroppedExcept(keepIds)`：`Load` 先解析出整份存档快照要恢复的全部 entityId 集合，
+   再一次性清掉不在这个集合里的旧记录（复用既有 `DestroyDropped` 语义：标记世界待销毁 + 立即移出
+   跟踪表），随后才逐条 `RestoreDropped`——只清理"不会被这次读档覆盖"的部分，同 id 记录留给
+   `RestoreDropped` 既有的"原地覆写/重新 AddEntity"两个分支处理，避免"先销毁再恢复"两步之间出现
+   `IWorldSim` 待销毁队列与跟踪表状态不一致的窗口。另外，`ReattachToWorld`（GP-PRES-01 收口新增）
+   此前只接进了 `games/_template/Runtime/GameBootstrap.cs`，框架自身的 Shell 读档入口
+   （`Presentation.Shell.ShellHost.LoadGame` → `ISceneRouter` → post_load 钩子）从未调用过；改为
+   `core/gameplay/assembly.GameplayAssembly.EnterMap`（"一站式进入地图"的既定入口，全部生产宿主的
+   post_load 钩子都会调用它）第一步统一调用 `Loot.ReattachToWorld(mapId)`，不再要求每个宿主各自
+   记得接线。
+
 ## 不负责什么
 
 - 不实现难度倍率的具体计算——`CreatureDeathLootListener` 的 `Multiplier` 只是一个

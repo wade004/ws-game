@@ -45,6 +45,13 @@ namespace Core.Foundation.SaveSystem
         /// <summary>player.currencies 段（10 第 2.2、3 节步骤 6）。</summary>
         public const string PlayerCurrencies = "player.currencies";
 
+        /// <summary>player.vitals 段（10 第 2.2、3 节步骤 6a——外部审核阻塞项 2 收口新增，见
+        /// <c>Core.Gameplay.Assembly.PlayerVitalsPersistable</c>）：存活状态与
+        /// <c>arch.power.health</c> 当前值。放在 <see cref="PlayerCurrencies"/> 之后、
+        /// <see cref="WorldCurrentMapId"/> 之前——同属"玩家自身状态"分组，且不依赖也不被
+        /// world.* 分组任何字段依赖，放在 player.* 分组末尾即可。</summary>
+        public const string PlayerVitals = "player.vitals";
+
         /// <summary>world.current_map_id 段（10 第 2.3、3 节步骤 7）。</summary>
         public const string WorldCurrentMapId = "world.current_map_id";
 
@@ -115,6 +122,7 @@ namespace Core.Foundation.SaveSystem
             PlayerQuestState,
             PlayerAchievementState,
             PlayerCurrencies,
+            PlayerVitals,
             WorldCurrentMapId,
             WorldCurrentPosition,
             WorldDroppedLoot,

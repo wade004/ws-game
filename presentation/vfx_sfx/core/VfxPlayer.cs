@@ -25,6 +25,45 @@ namespace Presentation.VfxSfx.Core
         private readonly IPresentationDiagnostics _diagnostics;
         private readonly VfxPool _pool;
         private readonly Presentation.Common.ResourceReferenceTracker? _resourceTracker;
+        private readonly IResourceLoader? _resourceLoader;
+
+        /// <summary>外部审核阻塞项 4 收口（首次特效加载边界）：见 <see cref="Spawn"/> 判断记录
+        /// "首次引用未加载完成的资源"。<see cref="PendingSpawn"/> 是引用类型（class），
+        /// <see cref="Update"/> 直接原地递减 <see cref="PendingSpawn.TimeoutRemaining"/>，不需要
+        /// 写回列表。</summary>
+        private sealed class PendingSpawn
+        {
+            public Id VfxId;
+            public Id ResourceRef;
+            public string Category = string.Empty;
+            public double? Lifetime;
+            public Vec2 WorldPos;
+            public IReadOnlyDictionary<string, double> Parameters = EmptyParams;
+            public double TimeoutRemaining;
+
+            /// <summary>判断记录（同步加载器场景，如测试用 <c>StubResourceLoader</c>——
+            /// <c>DeferCallbacks=false</c> 时 <c>LoadAsync</c> 在调用当下就同步触发回调，或真实引擎
+            /// 对已缓存资源的同步命中路径）：<see cref="QueuePendingSpawn"/> 调用
+            /// <see cref="IResourceLoader.LoadAsync"/> 之后，若该资源恰好同步加载完成，
+            /// <see cref="OnResourceLoadCompleted"/> 会在同一次调用栈内就把本条目从
+            /// <see cref="_pendingSpawns"/> 摘除并真正 <c>EmitParticle</c>——<see cref="PendingSpawn"/>
+            /// 是引用类型，<see cref="QueuePendingSpawn"/> 持有的局部变量与已被摘除的列表条目是
+            /// 同一个对象，写在这里的句柄依然可读，供 <see cref="QueuePendingSpawn"/> 判断"这次
+            /// Spawn 调用是否其实可以同步返回一个真实句柄"，不必总是返回 null（否则纯同步的测试/
+            /// 引擎场景会出现"资源明明已经播放了，调用方却拿到 null 句柄"的体验倒退）。</summary>
+            public ParticleHandle? Handle;
+        }
+
+        private readonly List<PendingSpawn> _pendingSpawns = new List<PendingSpawn>();
+
+        /// <summary>已经调用过 <see cref="IResourceLoader.LoadAsync"/> 的资源 id 集合，且此后永远
+        /// 不再移除（同 <see cref="Presentation.Common.ResourceReferenceTracker"/>"同一 id 只调用
+        /// 一次 LoadAsync"的既有惯例，含加载失败的情形——失败不重试，避免对一个确定加载失败的资源
+        /// id 反复发起请求）：同一资源 id 在加载完成前被多次引用（如同一帧连续两次命中同一
+        /// <c>vfx.def</c>）时，只触发一次 <see cref="IResourceLoader.LoadAsync"/>。本字典额外持有
+        /// "加载完成时要通知谁"的回调本身，<see cref="Presentation.Common.ResourceReferenceTracker"/>
+        /// 的回调固定是空实现（见该类型），无法复用来驱动"加载完成后补播放"这个新行为。</summary>
+        private readonly HashSet<Id> _pendingResourceLoads = new HashSet<Id>();
 
         /// <summary>缺口 13：<c>attach_mode: socket</c> 真挂接所需的两项（均可选，任一为 null 时
         /// socket 模式退回既有"降级为 world"路径，见 <see cref="TrySpawnAttachedToSocket"/>）。</summary>
@@ -66,6 +105,7 @@ namespace Presentation.VfxSfx.Core
             _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
             _pool = new VfxPool(_options, StopInternal);
             _resourceTracker = resourceLoader != null ? new Presentation.Common.ResourceReferenceTracker(resourceLoader) : null;
+            _resourceLoader = resourceLoader;
             _renderer3D = renderer3D;
             _modelHandleResolver = modelHandleResolver;
         }
@@ -113,11 +153,92 @@ namespace Presentation.VfxSfx.Core
                 return null;
             }
 
-            _resourceTracker?.EnsureLoading(def.ResourceRef, ResourceKind.Effect);
+            // 外部审核阻塞项 4 收口（首次特效加载边界，见 architecture/落地计划/audit-20260907/
+            // followup-2026-09-07.md"外部审核阻塞项处理"一节）：此前本方法只调用
+            // ResourceReferenceTracker.EnsureLoading（fire-and-forget，见该类型注释"不关心加载
+            // 成功/失败"）就立即在同一次调用内 EmitParticle——真实引擎的 IResourceLoader.LoadAsync
+            // 是异步的，首次引用某个 resource_ref 时 EmitParticle 拿到的是一个引擎侧尚未就绪的资源
+            // id，落地为"首次施法命中特效不播放"（外部审核实测复现）。改为：资源尚未加载完成时不
+            // 立即 EmitParticle，改把这次播放请求的全部信息排队（见 PendingSpawn），自己发起
+            // LoadAsync 并在其回调里补播放（见 OnResourceLoadCompleted）——不复用
+            // ResourceReferenceTracker.EnsureLoading，因为它的回调固定是空实现，没有办法挂载"加载
+            // 完成后要做什么"这个新行为；本方法退而求其次自己直接调用 IResourceLoader.LoadAsync，
+            // 用 _pendingResourceLoads 去重，效果上等价于 ResourceReferenceTracker 的"同一 id 只
+            // 触发一次加载"承诺。已加载完成的资源（绝大多数情况——同一 vfx 在同一局游戏内的第二次
+            // 及以后引用）走原有同步路径，不受影响，不产生任何行为变化。
+            if (_resourceLoader != null && !_resourceLoader.IsLoaded(def.ResourceRef))
+            {
+                // 判断记录（可能同步返回真实句柄，见 PendingSpawn.Handle）：真正异步的加载器
+                // （回调要等到未来某一帧才触发）会让本次调用如实返回 null——EmitParticle 调用推迟到
+                // OnResourceLoadCompleted 才发生，见该方法判断记录；同步加载器（测试桩/引擎缓存
+                // 命中）则可能已经在 QueuePendingSpawn 内部就完成了整个"加载 -> 补播放"，此时直接
+                // 返回那次同步产生的真实句柄，不退化调用方体验。
+                return QueuePendingSpawn(vfxId, def, worldPos.Value, emitParams);
+            }
+
+            // 判断记录（不再调用 _resourceTracker?.EnsureLoading）：走到这里说明
+            // _resourceLoader.IsLoaded(def.ResourceRef) 已经为 true（上面的分支已经处理了"未加载"
+            // 的情况），不需要再触发一次加载；继续调用 EnsureLoading 曾经导致"同一资源被
+            // _pendingResourceLoads 与 ResourceReferenceTracker 两套独立去重机制分别各记一次、
+            // 对同一资源触发两次 LoadAsync"（两套机制互不知道对方的存在，见
+            // ResourceReferenceTrackerTests 与本方法 PendingSpawn 相关判断记录），现改为
+            // _pendingResourceLoads 这一套机制统一负责本方法主路径的"资源是否已请求过加载"，
+            // 不再重复经由 ResourceReferenceTracker。_resourceTracker 仍保留（构造函数字段），供
+            // TrySpawnAttachedToSocket（缺口 13 的 socket 真挂接路径，本次改动未涉及）使用。
             var handle = _renderer2D.EmitParticle(def.ResourceRef, worldPos.Value, emitParams);
             _handleCategory[handle] = def.Category;
             _pool.Track(def.Category, handle, def.Lifetime);
             return handle;
+        }
+
+        private ParticleHandle? QueuePendingSpawn(Id vfxId, VfxDef def, Vec2 worldPos, IReadOnlyDictionary<string, double> parameters)
+        {
+            var pending = new PendingSpawn
+            {
+                VfxId = vfxId,
+                ResourceRef = def.ResourceRef,
+                Category = def.Category,
+                Lifetime = def.Lifetime,
+                WorldPos = worldPos,
+                Parameters = parameters,
+                TimeoutRemaining = _options.FirstLoadTimeoutSeconds,
+            };
+            _pendingSpawns.Add(pending);
+
+            if (_pendingResourceLoads.Add(def.ResourceRef))
+            {
+                _resourceLoader!.LoadAsync(def.ResourceRef, ResourceKind.Effect, OnResourceLoadCompleted);
+            }
+
+            // 见 PendingSpawn.Handle 判断记录：同步加载器场景下，上面的 LoadAsync 调用可能已经在
+            // 调用栈内把 pending 从 _pendingSpawns 摘除并写好了 Handle；异步场景下 pending 仍在
+            // 队列里、Handle 仍是 null，原样返回 null。
+            return pending.Handle;
+        }
+
+        private void OnResourceLoadCompleted(Id resourceId, bool success)
+        {
+            for (var i = _pendingSpawns.Count - 1; i >= 0; i--)
+            {
+                var pending = _pendingSpawns[i];
+                if (!pending.ResourceRef.Equals(resourceId))
+                {
+                    continue;
+                }
+
+                _pendingSpawns.RemoveAt(i);
+
+                if (!success)
+                {
+                    _diagnostics.Warn($"vfx \"{pending.VfxId}\" 的资源 \"{resourceId}\" 加载失败，丢弃这次排队等待加载完成后播放的请求");
+                    continue;
+                }
+
+                var handle = _renderer2D.EmitParticle(pending.ResourceRef, pending.WorldPos, pending.Parameters);
+                _handleCategory[handle] = pending.Category;
+                _pool.Track(pending.Category, handle, pending.Lifetime);
+                pending.Handle = handle; // 见 PendingSpawn.Handle 判断记录：供同步加载器场景下 QueuePendingSpawn 取回。
+            }
         }
 
         /// <summary>
@@ -174,7 +295,33 @@ namespace Presentation.VfxSfx.Core
             StopInternal(handle);
         }
 
-        public void Update(double dt) => _pool.Update(dt);
+        public void Update(double dt)
+        {
+            _pool.Update(dt);
+
+            // 外部审核阻塞项 4 收口：推进排队等待首次加载完成的播放请求的超时倒计时（见
+            // VfxOptions.FirstLoadTimeoutSeconds、QueuePendingSpawn 判断记录）——正常情况下
+            // OnResourceLoadCompleted 会先一步把对应项从 _pendingSpawns 里摘除，本方法只在资源
+            // 迟迟不回调（拼写错误的 resource_ref、资源确实缺失等异常情况）时才会真的把某一项等到
+            // 超时。
+            if (_pendingSpawns.Count == 0)
+            {
+                return;
+            }
+
+            for (var i = _pendingSpawns.Count - 1; i >= 0; i--)
+            {
+                var pending = _pendingSpawns[i];
+                pending.TimeoutRemaining -= dt;
+                if (pending.TimeoutRemaining <= 0)
+                {
+                    _pendingSpawns.RemoveAt(i);
+                    _diagnostics.Warn(
+                        $"vfx \"{pending.VfxId}\" 等待资源 \"{pending.ResourceRef}\" 加载超时" +
+                        $"（{_options.FirstLoadTimeoutSeconds}s），丢弃这次排队的播放请求");
+                }
+            }
+        }
 
         private void StopInternal(ParticleHandle handle)
         {

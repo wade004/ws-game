@@ -63,12 +63,20 @@ death/
    `AutosaveSlotId`——单存档槽的游戏这一默认值已经足够；多存档槽的游戏（有独立于自动存档槽的
    "当前正在进行的存档周期"概念）应显式提供该委托。
 
-5. **`reload_save` 不做任何"复活单位"的专门处理**：直接调用 `ISaveSystem.Load(AutosaveSlotId)`——
-   读档本身会按 10 号文档固定顺序恢复全部已注册段（含玩家位置、生命值经各自 `IPersistable`），
-   不需要本模块额外调用 `ReviveUnit` 或做任何单位状态改写，"回退到最近一次存档"这句话本身就是
-   "整体读档"的准确技术含义。读档失败（如自动存档槽从未写入过）只记一条诊断错误，不抛异常、
-   不做任何回退处理（保留死亡后的世界状态原样，同 `ISaveSystem.Load` 契约本身"失败不改变当前
-   运行期状态"的既有语义）。
+5. **`reload_save` 不做任何"复活单位"的专门处理，但经注入的 `ReloadSaveDelegate` 读档**（外部
+   审核阻塞项 2 收口，2026-09-07）：不直接调用 `ISaveSystem.Load(AutosaveSlotId)`，改经
+   `DeathPolicyOptions.ReloadSave`（未装配时退化为直接调用 `ISaveSystem.Load`，行为与收口前完全
+   一致）——`core/gameplay/assembly.GameplayAssembly` 默认把 `RestoreFromSlot` 接给这个委托，读档
+   本身按 10 号文档固定顺序恢复全部已注册段（含玩家位置、存活状态与生命值当前值——见
+   `core/gameplay/assembly.PlayerVitalsPersistable`"player.vitals" 段——、目标地图与当前地图不同
+   时经 `ISceneRouter` 切场景），本模块仍然不需要额外调用 `ReviveUnit` 或做任何单位状态改写，
+   "回退到最近一次存档"这句话本身就是"整体读档"的准确技术含义；只是"整体读档"现在真的包含了
+   存活状态/生命值/场景切换这几步，此前这几步在框架层面是缺失的（`Unit.Alive`/资源池当前值此前
+   完全没有 `IPersistable` 落点）。读档失败（如自动存档槽从未写入过，`LoadStatus.NotFound`）不再
+   只记一条诊断错误就此了事——回退到 `respawn_point` 策略同一套默认复活点逻辑（`EnqueueRespawn`），
+   避免玩家永久停留在"已死亡"状态；`DeathPolicyHost` 本身仍不直接持有 `ISceneRouter`（构造函数
+   依赖清单未变），场景切换这一步完全在注入的委托实现里完成，同 `ReviveUnit`/`ResolveDefaultSpawn`
+   两个既有 L4↔L3/L0 边界委托一贯的接线手法。
 
 6. **`EffectivePolicy` 在构造期一次性解析，运行期不重新读取 `CombatOptions.DeathPolicy`**：
    `CombatOptions.DeathPolicy` 是构造期口味配置（同 `SkillOptions`/`CombatOptions` 其余字段），
