@@ -98,13 +98,17 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.IsTrue(view!.IsAlive);
 
             // 等待纸娃娃层资源异步加载完成（UnitySpriteView 在首次 SyncPose 时发起 LoadAsync，
-            // 由 UnityResourceLoader 后台线程读取 + 每帧 Tick 在主线程完成解码）。
+            // 由 UnityResourceLoader 后台线程读取 + 每帧 Tick 在主线程完成解码）。前缀
+            // "layer.creature_sample_hero__" 来自 data/_sample/display/display.map.json 的
+            // display.map.sample_hero 行 sprite_set_id="sprite.creature.sample_hero"（去掉
+            // "sprite." 前缀、点号换下划线，见 SpriteViewBase.ResolveLayerResourceId），资源实体
+            // 由 toolchain/import_sample_assets.py 导入到 assets/_sample/sprites/creature_sample_hero/。
             SpriteRenderer? heroBodyLayer = null;
             var timeout = 5f;
             while (timeout > 0f)
             {
                 heroBodyLayer = Object.FindObjectsByType<SpriteRenderer>(FindObjectsSortMode.None)
-                    .FirstOrDefault(r => r.sprite != null && r.sprite.name.StartsWith("layer.placeholder_hero__") && r.sprite.name.EndsWith("__body"));
+                    .FirstOrDefault(r => r.sprite != null && r.sprite.name.StartsWith("layer.creature_sample_hero__") && r.sprite.name.EndsWith("__body"));
                 if (heroBodyLayer != null)
                 {
                     break;
@@ -139,7 +143,7 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.Greater(endX, startX, "向 +X 方向持续提交移动意图后，玩家世界坐标 x 应当增大");
 
             var sidewaysSprite = Object.FindObjectsByType<SpriteRenderer>(FindObjectsSortMode.None)
-                .FirstOrDefault(r => r.sprite != null && r.sprite.name.StartsWith("layer.placeholder_hero__") &&
+                .FirstOrDefault(r => r.sprite != null && r.sprite.name.StartsWith("layer.creature_sample_hero__") &&
                                       SidewaysDirectionSlots.Any(slot => r.sprite.name.Contains("__" + slot.Substring("dir.".Length) + "__")));
             Assert.IsNotNull(sidewaysSprite, "移动后玩家视图的方向档位应当已从 front 转为侧向档位之一（side_r/side_l/front_side_r/front_side_l）");
         }

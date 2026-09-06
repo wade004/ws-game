@@ -16,12 +16,12 @@
     避免每次都触发 Unity 重新导入全部六个 DLL。
 
 .PARAMETER SyncContent
-    U2-1 新增。内容数据集同步（data/_sample、assets/_placeholder -> Unity 工程
+    U2-1 新增。内容数据集同步（data/_sample、assets/_placeholder、assets/_sample -> Unity 工程
     Assets/StreamingAssets/GameFoundation/）本身在默认构建流程与 -SyncOnly 下都会无条件执行
     （见下）；本开关单独传且不带 -SyncOnly 时，额外跳过 dotnet build/test 与 DLL 同步两步，
-    只做内容同步（"只改了 data/_sample 或 assets/_placeholder、没有改任何 C# 代码"时的快速路径）。
-    内容同步一律按文件哈希比较、只拷变化的文件，并镜像删除源目录里已经不存在、但上次同步残留在
-    目标目录里的文件。
+    只做内容同步（"只改了 data/_sample 或 assets/_placeholder、assets/_sample、没有改任何 C# 代码"
+    时的快速路径）。内容同步一律按文件哈希比较、只拷变化的文件，并镜像删除源目录里已经不存在、
+    但上次同步残留在目标目录里的文件。
 
 .PARAMETER Dist
     版本可追溯任务新增语义（见 11_工程规范与测试.md 第 7 节"版本号必须可追溯到对应的架构文档
@@ -219,31 +219,46 @@ if (-not $ContentOnlyMode) {
 #        不合并成一份文件树——Unity 侧引导代码按两个数据根分别加载，见 EngineAdapter 判断记录）
 #      data/_sample            -> Assets/StreamingAssets/GameFoundation/data/_sample
 #      assets/_placeholder     -> Assets/StreamingAssets/GameFoundation/assets/_placeholder（整体镜像）
-#      assets/_placeholder/sprites -> Assets/StreamingAssets/GameFoundation/sprites（UnityResourceLoader
-#        期望的 Image 路径规则，见该类型顶部注释）
-#      assets/_placeholder/sfx     -> Assets/StreamingAssets/GameFoundation/audio（UnityResourceLoader
-#        期望的 Audio 路径规则；源目录名 "sfx" 与目标目录名 "audio" 不同，是加载器一侧的固定
-#        子目录约定，见该类型判断记录）
+#      assets/_placeholder/sprites + assets/_sample/sprites -> Assets/StreamingAssets/GameFoundation/sprites
+#        （UnityResourceLoader 期望的 Image 路径规则，见该类型顶部注释；两个数据集的精灵集同步进
+#        同一棵目标目录树，_sample 侧目录名已按 "<category>_<name>" 规则与 _placeholder 侧的占位
+#        精灵集不同名，正常不会互相覆盖）
+#      assets/_placeholder/sfx + assets/_sample/sfx -> Assets/StreamingAssets/GameFoundation/audio
+#        （UnityResourceLoader 期望的 Audio 路径规则；源目录名 "sfx" 与目标目录名 "audio" 不同，
+#        是加载器一侧的固定子目录约定，见该类型判断记录）
+#      assets/_placeholder/vfx + assets/_sample/vfx -> Assets/StreamingAssets/GameFoundation/vfx
+#    以上 sprites/audio/vfx 三处传两个源目录（Sync-ContentTree 的 $SourceDirs 数组，见其函数
+#    注释），任一源目录不存在仍照旧跳过，不影响另一个正常同步。
 #    无条件执行（默认构建流程、-SyncOnly、-SyncContent 三种模式下都会执行，见参数说明）。
 # ---------------------------------------------------------------------------
 Write-Step "同步内容数据集到 StreamingAssets/GameFoundation/（哈希不同才拷贝，镜像删除源目录已不存在的文件）"
 
 $StreamingAssetsRoot = Join-Path $RepoRoot "adapters\unity\Assets\StreamingAssets\GameFoundation"
 
-# 按源目录 -> 目标目录逐一镜像同步；返回 拷贝/跳过/删除 计数，一律用绝对路径（不含尾部分隔符）
-# 参与 Substring 计算相对路径，避免路径分隔符/结尾斜杠的边界情况算错相对路径。
+# 按（一个或多个）源目录 -> 目标目录镜像同步；返回 拷贝/跳过/删除 计数，一律用绝对路径
+# （不含尾部分隔符）参与 Substring 计算相对路径，避免路径分隔符/结尾斜杠的边界情况算错相对路径。
+# $SourceDirs 支持传多个源目录（数组）：keepRelative（决定目标目录里保留哪些相对路径、
+# 删除哪些残留文件）取全部源目录相对路径的并集；多个源目录出现同名相对路径时，按数组顺序
+# 后列源目录覆盖前者（内容以后列为准）并打印警告——调用方按"优先级从低到高"的顺序传入。
+# 单个源目录不存在时照旧跳过它（不影响其余源目录正常同步）；全部源目录都不存在则整体跳过。
 function Sync-ContentTree {
     param(
-        [string]$SourceDir,
+        [string[]]$SourceDirs,
         [string]$DestDir
     )
 
-    if (-not (Test-Path $SourceDir)) {
-        Write-Host "  源目录不存在，跳过同步：$SourceDir" -ForegroundColor Yellow
+    $resolvedSources = @()
+    foreach ($dir in $SourceDirs) {
+        if (Test-Path $dir) {
+            $resolvedSources += (Resolve-Path $dir).Path.TrimEnd('\', '/')
+        } else {
+            Write-Host "  源目录不存在，跳过同步：$dir" -ForegroundColor Yellow
+        }
+    }
+    if ($resolvedSources.Count -eq 0) {
         return @{ Copied = 0; Skipped = 0; Removed = 0; Total = 0 }
     }
 
-    $resolvedSource = (Resolve-Path $SourceDir).Path.TrimEnd('\', '/')
     if (-not (Test-Path $DestDir)) {
         New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
     }
@@ -253,13 +268,18 @@ function Sync-ContentTree {
     $skipped = 0
     $keepRelative = New-Object System.Collections.Generic.HashSet[string]
 
-    $sourceFiles = Get-ChildItem -Path $resolvedSource -Recurse -File
-    foreach ($file in $sourceFiles) {
-        $relative = $file.FullName.Substring($resolvedSource.Length).TrimStart('\', '/')
-        [void]$keepRelative.Add($relative)
-        $destPath = Join-Path $resolvedDest $relative
-        $changed = Copy-IfChanged -SourcePath $file.FullName -DestPath $destPath
-        if ($changed) { $copied++ } else { $skipped++ }
+    foreach ($resolvedSource in $resolvedSources) {
+        $sourceFiles = Get-ChildItem -Path $resolvedSource -Recurse -File
+        foreach ($file in $sourceFiles) {
+            $relative = $file.FullName.Substring($resolvedSource.Length).TrimStart('\', '/')
+            if ($keepRelative.Contains($relative)) {
+                Write-Host ("  警告：多个源目录都提供了相对路径 '{0}'，以后列源目录为准（当前来自 '{1}'）" -f $relative, $resolvedSource) -ForegroundColor Yellow
+            }
+            [void]$keepRelative.Add($relative)
+            $destPath = Join-Path $resolvedDest $relative
+            $changed = Copy-IfChanged -SourcePath $file.FullName -DestPath $destPath
+            if ($changed) { $copied++ } else { $skipped++ }
+        }
     }
 
     $removed = 0
@@ -274,37 +294,39 @@ function Sync-ContentTree {
         }
     }
 
-    return @{ Copied = $copied; Skipped = $skipped; Removed = $removed; Total = $sourceFiles.Count }
+    return @{ Copied = $copied; Skipped = $skipped; Removed = $removed; Total = $keepRelative.Count }
 }
 
-$dataFrameworkSyncResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "data\_framework") -DestDir (Join-Path $StreamingAssetsRoot "data\_framework")
+$dataFrameworkSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "data\_framework")) -DestDir (Join-Path $StreamingAssetsRoot "data\_framework")
 Write-Host ("  data/_framework -> StreamingAssets/GameFoundation/data/_framework：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $dataFrameworkSyncResult.Total, $dataFrameworkSyncResult.Copied, $dataFrameworkSyncResult.Skipped, $dataFrameworkSyncResult.Removed)
 
-$dataSyncResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "data\_sample") -DestDir (Join-Path $StreamingAssetsRoot "data\_sample")
+$dataSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "data\_sample")) -DestDir (Join-Path $StreamingAssetsRoot "data\_sample")
 Write-Host ("  data/_sample -> StreamingAssets/GameFoundation/data/_sample：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $dataSyncResult.Total, $dataSyncResult.Copied, $dataSyncResult.Skipped, $dataSyncResult.Removed)
 
 # games/_template 自带的最小数据集（见 games/_template/data/README.md）同步进工作台 StreamingAssets，
 # 供 games/_template/Runtime/GameBootstrap.cs 的 PlayMode 测试（在工作台里跑，见
 # games/_template/Tests/Runtime）默认 GameOptions（_gameDatasetRoot = "data/game"）能找到数据；
 # 与 data/_framework、data/_sample 同一治理方式（构建期产物、gitignore，不进源码库）。
-$templateDataSyncResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "games\_template\data\game") -DestDir (Join-Path $StreamingAssetsRoot "data\game")
+$templateDataSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "games\_template\data\game")) -DestDir (Join-Path $StreamingAssetsRoot "data\game")
 Write-Host ("  games/_template/data/game -> StreamingAssets/GameFoundation/data/game（模板自带最小数据集，供模板 PlayMode 测试使用）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $templateDataSyncResult.Total, $templateDataSyncResult.Copied, $templateDataSyncResult.Skipped, $templateDataSyncResult.Removed)
 
-$placeholderMirrorResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "assets\_placeholder") -DestDir (Join-Path $StreamingAssetsRoot "assets\_placeholder")
+$placeholderMirrorResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "assets\_placeholder")) -DestDir (Join-Path $StreamingAssetsRoot "assets\_placeholder")
 Write-Host ("  assets/_placeholder -> StreamingAssets/GameFoundation/assets/_placeholder（整体镜像）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $placeholderMirrorResult.Total, $placeholderMirrorResult.Copied, $placeholderMirrorResult.Skipped, $placeholderMirrorResult.Removed)
 
-$spritesSyncResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "assets\_placeholder\sprites") -DestDir (Join-Path $StreamingAssetsRoot "sprites")
-Write-Host ("  assets/_placeholder/sprites -> StreamingAssets/GameFoundation/sprites（加载器路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $spritesSyncResult.Total, $spritesSyncResult.Copied, $spritesSyncResult.Skipped, $spritesSyncResult.Removed)
+# sprites/audio/vfx 三处同时同步 assets/_placeholder/<x>（占位素材）与 assets/_sample/<x>
+# （toolchain/import_sample_assets.py 导入的样例资产）到同一棵目标目录树，见上方 4 节头注释。
+$spritesSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "assets\_placeholder\sprites"), (Join-Path $RepoRoot "assets\_sample\sprites")) -DestDir (Join-Path $StreamingAssetsRoot "sprites")
+Write-Host ("  assets/_placeholder/sprites + assets/_sample/sprites -> StreamingAssets/GameFoundation/sprites（加载器路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $spritesSyncResult.Total, $spritesSyncResult.Copied, $spritesSyncResult.Skipped, $spritesSyncResult.Removed)
 
-$audioSyncResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "assets\_placeholder\sfx") -DestDir (Join-Path $StreamingAssetsRoot "audio")
-Write-Host ("  assets/_placeholder/sfx -> StreamingAssets/GameFoundation/audio（加载器路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $audioSyncResult.Total, $audioSyncResult.Copied, $audioSyncResult.Skipped, $audioSyncResult.Removed)
+$audioSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "assets\_placeholder\sfx"), (Join-Path $RepoRoot "assets\_sample\sfx")) -DestDir (Join-Path $StreamingAssetsRoot "audio")
+Write-Host ("  assets/_placeholder/sfx + assets/_sample/sfx -> StreamingAssets/GameFoundation/audio（加载器路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $audioSyncResult.Total, $audioSyncResult.Copied, $audioSyncResult.Skipped, $audioSyncResult.Removed)
 
 # ADR-0016 决策 5 新增 ResourceKind.Effect：UnityResourceLoader.ResolveEffectDir 按
 # "GameFoundation/vfx/<name>/" 解析（见该方法判断记录），与 assets/_placeholder/vfx/<name>/
 # 同一套相对路径，因此整棵 vfx 目录树同步过去、不改名（不同于 sprites/sfx 需要改名到加载器
 # 期望的扁平子目录，vfx 本身已经是"<kind 子目录>/<name>/"两级结构，直接对应）。
-$vfxSyncResult = Sync-ContentTree -SourceDir (Join-Path $RepoRoot "assets\_placeholder\vfx") -DestDir (Join-Path $StreamingAssetsRoot "vfx")
-Write-Host ("  assets/_placeholder/vfx -> StreamingAssets/GameFoundation/vfx（ResourceKind.Effect 加载器路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $vfxSyncResult.Total, $vfxSyncResult.Copied, $vfxSyncResult.Skipped, $vfxSyncResult.Removed)
+$vfxSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "assets\_placeholder\vfx"), (Join-Path $RepoRoot "assets\_sample\vfx")) -DestDir (Join-Path $StreamingAssetsRoot "vfx")
+Write-Host ("  assets/_placeholder/vfx + assets/_sample/vfx -> StreamingAssets/GameFoundation/vfx（ResourceKind.Effect 加载器路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $vfxSyncResult.Total, $vfxSyncResult.Copied, $vfxSyncResult.Skipped, $vfxSyncResult.Removed)
 
 $totalContentFiles = (Get-ChildItem -Path $StreamingAssetsRoot -Recurse -File -ErrorAction SilentlyContinue).Count
 Write-Host ("StreamingAssets/GameFoundation/ 下文件总数（含以上五棵树的并集，sprites/audio/vfx 与 assets/_placeholder 下同名文件各自独立计数）：{0}" -f $totalContentFiles)

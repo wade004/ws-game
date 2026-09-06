@@ -1,0 +1,50 @@
+{
+  "front": {
+    "canvas_size": [
+      48,
+      48
+    ],
+    "anchors": {
+      "root": [
+        24.0,
+        48.0
+      ]
+    }
+  },
+  "side_r": {
+    "canvas_size": [
+      48,
+      48
+    ],
+    "anchors": {
+      "root": [
+        24.0,
+        48.0
+      ]
+    }
+  },
+  "back": {
+    "canvas_size": [
+      48,
+      48
+    ],
+    "anchors": {
+      "root": [
+        24.0,
+        48.0
+      ]
+    }
+  },
+  "side_l": {
+    "canvas_size": [
+      48,
+      48
+    ],
+    "anchors": {
+      "root": [
+        24.0,
+        48.0
+      ]
+    }
+  }
+}

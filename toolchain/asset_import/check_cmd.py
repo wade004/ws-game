@@ -148,7 +148,10 @@ def _check_sprite_row(row: dict, assets_root: Path, dataset: str, problems: list
     if len(parts) != 3:
         problems.append(f"{row_id}: sprite_set_id '{sprite_set_id}' 格式不是 sprite.<category>.<name>")
         return
-    name = parts[2]
+    # 目录名与 sprite 子命令的落地规则、运行时 UnityResourceLoader/SpriteViewBase 的资源 id
+    # 解析规则对齐：sprite_set_id 去掉首段类别前缀 "sprite." 后把剩余点号换成下划线，
+    # 即 "<category>_<name>"（parts[1] + "_" + parts[2]），不是只用 parts[2]。
+    name = parts[1] + "_" + parts[2]
     set_dir = assets_root / dataset / "sprites" / name
     if not set_dir.is_dir():
         problems.append(f"{row_id}: sprite_set_id '{sprite_set_id}' 对应目录不存在: {set_dir}")
@@ -233,19 +236,37 @@ def _check_vfx_row(row: dict, assets_root: Path, dataset: str, problems: list[st
     out_dir = assets_root / dataset / "vfx" / name
     if not (out_dir / "atlas.png").is_file():
         problems.append(f"{row_id}: resource_ref 对应图集缺失: {out_dir / 'atlas.png'}")
-    if not (out_dir / "atlas.json").is_file():
-        problems.append(f"{row_id}: resource_ref 对应图集索引缺失: {out_dir / 'atlas.json'}")
+    # 运行时 ResourceKind.Effect 读 frames.json（非 atlas.json），见
+    # UnityResourceLoader.TryDecodeEffect 与 assets/_placeholder/vfx/burn/frames.json 样例。
+    if not (out_dir / "frames.json").is_file():
+        problems.append(f"{row_id}: resource_ref 对应帧数据缺失: {out_dir / 'frames.json'}")
 
 
 def _check_sfx_row(row: dict, assets_root: Path, dataset: str, problems: list[str]) -> None:
+    """校验 resource_ref（必填）与 variants（可选）各自对应的扁平音频文件是否存在，
+    并校验 variants 若存在则必须包含 resource_ref 本身（见 sfx 子命令落地口径与
+    presentation/vfx_sfx/schema/VfxSfxSchemas.cs 的 sfx.def schema：resource_ref 必填 Id、
+    variants 可选 Id 列表）。运行时 ResourceKind.Audio 按
+    "audio/<资源引用 id 去掉 'sfx.'>.wav" 解析（扁平文件，非子目录），这里同规则校验。
+    """
     row_id = row.get("id", "?")
-    name = strip_domain(row_id).replace(".", "_") if "." in row_id else row_id
-    out_dir = assets_root / dataset / "sfx" / name
+    sfx_dir = assets_root / dataset / "sfx"
+
+    resource_ref = row.get("resource_ref")
+    if not resource_ref:
+        problems.append(f"{row_id}: kind=sfx 但缺少 resource_ref")
+    else:
+        ref_path = sfx_dir / f"{strip_domain(resource_ref)}.wav"
+        if not ref_path.is_file():
+            problems.append(f"{row_id}: resource_ref '{resource_ref}' 对应音频文件缺失: {ref_path}")
+
     variants = row.get("variants", [])
-    for idx in range(len(variants)):
-        variant_path = out_dir / f"v{idx}.wav"
-        if not variant_path.is_file():
-            problems.append(f"{row_id}: variants[{idx}] 对应音频文件缺失: {variant_path}")
+    if variants and resource_ref and resource_ref not in variants:
+        problems.append(f"{row_id}: variants {variants} 未包含 resource_ref '{resource_ref}'")
+    for ref in variants:
+        ref_path = sfx_dir / f"{strip_domain(ref)}.wav"
+        if not ref_path.is_file():
+            problems.append(f"{row_id}: variants 引用 '{ref}' 对应音频文件缺失: {ref_path}")
 
 
 def _check_world_row(row: dict, assets_root: Path, dataset: str, problems: list[str]) -> None:

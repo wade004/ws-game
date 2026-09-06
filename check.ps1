@@ -424,16 +424,16 @@ if ($Quick) {
 
 # -----------------------------------------------------------------------------
 # 5b. 资产导入工具交叉校验（import_assets.py check，见 11 第 8 节"新增资产已经过导入工具并
-#     通过资产校验"）：只跑 world 域（--only world）——data/_sample 的 display/vfx/sfx 表引用
-#     的资产尚未接入本工具的 sprite/vfx/sfx 子命令产出物（历史遗留，见
-#     toolchain/README.md"已知缺口"一节），全量跑会在改动范围之外提前失败；world 域（本次新增
-#     的 map 子命令 + world.map 交叉校验）在当前数据集下应始终通过，不属于 -Quick 可跳过的慢步骤
-#     （不读图片，只比对文件是否存在）。
+#     通过资产校验"）：全量交叉校验（sprite/vfx/sfx/world 四域）——data/_sample 的
+#     display/vfx/sfx/world 四张表引用的资产均已经由 toolchain/import_sample_assets.py 驱动
+#     import_assets.py 的 sprite/icon/vfx/sfx/map 子命令导入到 assets/_sample/（见
+#     toolchain/README.md"data/_sample 的资产来源（import_sample_assets.py）"一节），四域在
+#     当前数据集下应始终通过，不属于 -Quick 可跳过的慢步骤（不读图片，只比对文件是否存在）。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/import_assets.py check --dataset _sample --only world" {
+Invoke-CheckStep "python toolchain/import_assets.py check --dataset _sample" {
     Push-Location $RepoRoot
     try {
-        Test-NativeExitCode "python" @("toolchain/import_assets.py", "check", "--dataset", "_sample", "--only", "world")
+        Test-NativeExitCode "python" @("toolchain/import_assets.py", "check", "--dataset", "_sample")
     } finally {
         Pop-Location
     }
@@ -582,7 +582,9 @@ if ($Quick) {
 } else {
     Invoke-CheckStep "build.ps1 -SkipTests（同步 DLL）" {
         $buildScript = Join-Path $RepoRoot "build.ps1"
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SkipTests
+        # 同源假阳性同一修法，判断记录见下方"消费方演练"步骤：原生调用未消费的 stdout 会混进
+        # scriptblock 返回值把失败判成 PASS，用 `| Out-Null` 吃掉即可，$LASTEXITCODE 不受影响。
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SkipTests | Out-Null
         return ($LASTEXITCODE -eq 0)
     }
 }
@@ -903,7 +905,21 @@ if ($SkipUnity) {
             if ($UnityExe -ne "") {
                 $consumerArgs += @("-UnityExe", $resolvedUnityExe)
             }
-            & powershell @consumerArgs
+            # 判断记录（门禁误判修复：子脚本真失败仍被记 PASS）：`Invoke-CheckStep` 用
+            # `$result = & $Action` 取整个 scriptblock 的输出流当返回值——不止最后一句 `return`，
+            # scriptblock 内每一句"没被消费"的输出都会被收进去。`& powershell @consumerArgs` 这个
+            # 原生调用一旦不赋值/不重定向，它自己的整段控制台输出（consumer_smoke.ps1 内部每一步
+            # 的 Write-Host，含步骤头、PASS/FAIL、汇总表——不区分它用的是 Write-Host 还是
+            # Write-Output，从外层进程看都是同一股 stdout）就会被 PowerShell 当成管道对象，跟下一句
+            # `return ($LASTEXITCODE -eq 0)` 的布尔值一起，被 `& $Action` 收成一个非空数组
+            # （形如 @("...若干行文本...", $false)）。`Invoke-CheckStep` 的分类逻辑对数组
+            # 落到 `else { $ok = [bool]$result } ` 分支——PowerShell 把"非空数组"直接转 `$true`，
+            # 不看数组元素内容，于是不管子脚本真实退出码是什么，这一步恒定判 PASS（该子脚本控制台
+            # 输出因此也从没打进 check.ps1 自己的 -LogFile transcript，是这个误判的旁证）。
+            # 复现与验证见 toolchain/consumer_smoke.ps1 头注释旁的验证记录（本次改动未留仓库内）。
+            # 修法：先用 `| Out-Null` 把子进程那股 stdout 在管道里吃掉，不让它混进 scriptblock 的
+            # 返回值；$LASTEXITCODE 由子进程退出码设置，不受管道重定向影响，随后单独读取不受影响。
+            & powershell @consumerArgs | Out-Null
             return ($LASTEXITCODE -eq 0)
         }
     }

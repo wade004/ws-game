@@ -2,25 +2,8 @@
   "table": "vfx.def",
   "schema_version": 1,
   "rows": [
-    {
-      "id": "vfx.sample_cast_circle",
-      "category": "cast",
-      "attach_mode": "anchor",
-      "lifetime": 1.2,
-      "resource_ref": "vfx.cast_circle"
-    },
-    {
-      "id": "vfx.sample_hit_spark",
-      "category": "impact",
-      "attach_mode": "world",
-      "lifetime": 0.4,
-      "resource_ref": "vfx.hit_spark"
-    },
-    {
-      "id": "vfx.sample_burn",
-      "category": "dot",
-      "attach_mode": "anchor",
-      "resource_ref": "vfx.burn"
-    }
+    {"id": "vfx.sample_burn", "category": "dot", "attach_mode": "anchor", "resource_ref": "vfx.sample_burn"},
+    {"id": "vfx.sample_cast_circle", "category": "cast", "attach_mode": "anchor", "lifetime": 1.2, "resource_ref": "vfx.sample_cast_circle"},
+    {"id": "vfx.sample_hit_spark", "category": "impact", "attach_mode": "world", "lifetime": 0.4, "resource_ref": "vfx.sample_hit_spark"}
   ]
 }

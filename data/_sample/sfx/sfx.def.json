@@ -2,23 +2,8 @@
   "table": "sfx.def",
   "schema_version": 1,
   "rows": [
-    {
-      "id": "sfx.sample_hit",
-      "layer": "combat",
-      "priority": 5,
-      "variants": ["sfx.hit_01", "sfx.hit_02"],
-      "resource_ref": "sfx.hit_01"
-    },
-    {
-      "id": "sfx.sample_cast",
-      "layer": "combat",
-      "priority": 3,
-      "resource_ref": "sfx.cast_01"
-    },
-    {
-      "id": "sfx.sample_ui_click",
-      "layer": "ui",
-      "resource_ref": "sfx.ui_click_01"
-    }
+    {"id": "sfx.sample_cast", "layer": "combat", "priority": 3, "resource_ref": "sfx.sample_cast_v0"},
+    {"id": "sfx.sample_hit", "layer": "combat", "priority": 5, "variants": ["sfx.sample_hit_v0", "sfx.sample_hit_v1"], "resource_ref": "sfx.sample_hit_v0"},
+    {"id": "sfx.sample_ui_click", "layer": "ui", "priority": 0, "resource_ref": "sfx.sample_ui_click_v0"}
   ]
 }

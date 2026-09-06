@@ -1,0 +1,194 @@
+{
+  "front": {
+    "canvas_size": [
+      64,
+      96
+    ],
+    "anchors": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        38,
+        58
+      ],
+      "head": [
+        33.8,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    }
+  },
+  "front_side_r": {
+    "canvas_size": [
+      64,
+      96
+    ],
+    "anchors": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        46,
+        58
+      ],
+      "head": [
+        36.2,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    }
+  },
+  "side_r": {
+    "canvas_size": [
+      64,
+      96
+    ],
+    "anchors": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        52,
+        58
+      ],
+      "head": [
+        38.0,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    }
+  },
+  "back_side_r": {
+    "canvas_size": [
+      64,
+      96
+    ],
+    "anchors": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        46,
+        58
+      ],
+      "head": [
+        36.2,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    }
+  },
+  "back": {
+    "canvas_size": [
+      64,
+      96
+    ],
+    "anchors": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        38,
+        58
+      ],
+      "head": [
+        33.8,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    }
+  },
+  "back_side_l": {
+    "canvas_size": [
+      64,
+      96
+    ],
+    "anchors": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        18,
+        58
+      ],
+      "head": [
+        27.799999999999997,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    }
+  },
+  "front_side_l": {
+    "canvas_size": [
+      64,
+      96
+    ],
+    "anchors": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        18,
+        58
+      ],
+      "head": [
+        27.799999999999997,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    }
+  },
+  "side_l": {
+    "canvas_size": [
+      64,
+      96
+    ],
+    "anchors": {
+      "root": [
+        32,
+        92
+      ],
+      "hand_main": [
+        12,
+        58
+      ],
+      "head": [
+        26.0,
+        4
+      ],
+      "overhead": [
+        32,
+        2
+      ]
+    }
+  }
+}
