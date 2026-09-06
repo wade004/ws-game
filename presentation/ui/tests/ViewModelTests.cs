@@ -7,6 +7,7 @@ using Core.Gameplay.Quest;
 using Presentation.Ui;
 using Xunit;
 using FoundationSaveSystem = Core.Foundation.SaveSystem;
+using TurnScheduler = Core.Foundation.SimLoop.TurnScheduler;
 
 namespace Tests.PresentationUi
 {
@@ -40,6 +41,82 @@ namespace Tests.PresentationUi
 
             Assert.True(vm.HasTarget);
             Assert.Equal(20, vm.TargetPowerBars[Health].Current);
+        }
+
+        /// <summary>技术债 17 收口：未传入 <c>turnScheduler</c>（既有调用方的既有用法）时，回合相关
+        /// 四个新属性应保持"未启用回合制"的退化默认值——覆盖既有调用方/既有测试行为完全不变这条
+        /// 判断记录。</summary>
+        [Fact]
+        public void HudViewModel_turn_state_defaults_when_no_scheduler_configured()
+        {
+            var world = new UiWorldFixture();
+            world.Progression.SetForTest(world.PlayerId, 1, 0, 100);
+
+            using var vm = new HudViewModel(world.DataSource, world.PlayerId, new[] { Health });
+
+            Assert.False(vm.IsTurnBased);
+            Assert.Null(vm.CurrentActorId);
+            Assert.Equal(0, vm.RoundIndex);
+            Assert.False(vm.CanEndTurn);
+        }
+
+        /// <summary>技术债 17 收口：装配了 <c>turnScheduler</c>/<c>appState</c>/
+        /// <c>awaitingInputSubState</c> 时，<see cref="HudViewModel.CurrentActorId"/>/
+        /// <see cref="HudViewModel.RoundIndex"/> 应随 <c>sim.turn_started</c> 一类事件自动刷新，
+        /// <see cref="HudViewModel.CanEndTurn"/> 应随 <see cref="IAppStateHost.OnSubStateChanged"/>
+        /// 自动刷新。同时覆盖该类型判断记录里指出的时序缺口本身：<c>sim.awaiting_input</c> 触发的
+        /// 刷新严格早于子状态真正压栈，此时 <see cref="HudViewModel.CanEndTurn"/> 应仍为
+        /// <c>false</c>；只有子状态真正压栈（<see cref="IAppStateHost.PushSubState"/>）之后才应变为
+        /// <c>true</c>——这正是本类型选择直接订阅 <see cref="IAppStateHost.OnSubStateChanged"/>
+        /// （而不只是 <c>sim.awaiting_input</c>/<c>app.state_changed</c>）的理由。</summary>
+        [Fact]
+        public void HudViewModel_refreshes_turn_state_from_scheduler_and_app_state()
+        {
+            var world = new UiWorldFixture();
+            world.Progression.SetForTest(world.PlayerId, 1, 0, 100);
+            var aiId = new Id("unit.beast");
+
+            var appConfig = AppStateMachineConfig.Default();
+            var awaitingInput = appConfig.AddCustomSubState("AwaitingInput");
+            appConfig.AllowSubTransition(SubStateId.Explore, awaitingInput);
+            appConfig.AllowSubTransition(awaitingInput, SubStateId.Explore);
+            var appState = new AppStateHost(world.EventBus, appConfig);
+            appState.RequestTransition(AppState.MainMenu);
+            appState.RequestTransition(AppState.Loading);
+            appState.RequestTransition(AppState.InWorld);
+
+            var worldSim = new RecordingWorldSim();
+            var scheduler = new TurnScheduler(
+                worldSim, initiativeStatProvider: _ => 0.0, isPlayerActor: id => id.Equals(world.PlayerId), world.EventBus);
+
+            using var vm = new HudViewModel(
+                world.DataSource, world.PlayerId, new[] { Health },
+                turnScheduler: scheduler, appState: appState, awaitingInputSubState: awaitingInput);
+
+            Assert.True(vm.IsTurnBased);
+            Assert.Null(vm.CurrentActorId);
+            Assert.Equal(0, vm.RoundIndex);
+            Assert.False(vm.CanEndTurn);
+
+            // BeginCombat 发出 sim.turn_started，HudViewModel 的订阅应据此自动刷新（不需要手动
+            // 调用 Refresh()）。
+            scheduler.BeginCombat(new[] { world.PlayerId, aiId });
+            Assert.Equal(world.PlayerId, vm.CurrentActorId);
+            Assert.Equal(0, vm.RoundIndex);
+
+            // 轮到玩家且没有待处理意图：NextStep 发出 sim.awaiting_input，但此刻 GameplayAssembly
+            // 尚未（本测试直接模拟其后续动作）把 awaiting_input 压入应用状态子状态栈——CanEndTurn
+            // 此时应仍为 false（判断记录里指出的时序缺口）。
+            var step = scheduler.NextStep();
+            Assert.Null(step);
+            Assert.False(vm.CanEndTurn);
+
+            // 子状态真正压栈后，OnSubStateChanged 订阅应立即触发 Refresh，CanEndTurn 变为 true。
+            Assert.True(appState.PushSubState(awaitingInput));
+            Assert.True(vm.CanEndTurn);
+
+            Assert.True(appState.PopSubState());
+            Assert.False(vm.CanEndTurn);
         }
 
         [Fact]

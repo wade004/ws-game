@@ -358,7 +358,14 @@ namespace Presentation.Assembly
 
             var actionBarSlots = ResolveActionBarSlotCount(registry, opts.ActionBarSlotCountFallback);
 
-            Hud = new HudViewModel(UiData, _playerId, opts.HudPowerTypes);
+            // 技术债 17 收口：回合状态（当前行动者/轮次/"结束回合"可用性）并入 HudViewModel（见该
+            // 类型判断记录），同上面 UiIntents 一样把 gameplay.TurnScheduler/AppState/
+            // AwaitingInputSubState 如实透传；未装配离散模式（clockHost 为空）时 TurnScheduler 为
+            // null，HudViewModel 退化为此前行为（IsTurnBased=false），不需要 opts 新增配置项。
+            Hud = new HudViewModel(
+                UiData, _playerId, opts.HudPowerTypes,
+                turnScheduler: gameplay.TurnScheduler, appState: gameplay.AppState,
+                awaitingInputSubState: gameplay.AwaitingInputSubState);
             ActionBar = new ActionBarViewModel(UiData, _playerId, actionBarSlots, gameplay.Carriers.SkillBindings);
             Inventory = new InventoryViewModel(UiData, opts.EquipmentSlotIds);
             QuestLog = new QuestLogViewModel(UiData, gameplay.Quest, _playerId);

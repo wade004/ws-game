@@ -258,7 +258,7 @@ namespace Adapter.Unity.Shell
             Log("enter_discrete_combat");
 
             // 驱动直到轮到玩家等待输入，提交结束回合意图（真实调用链：UiIntents.EndTurn，同
-            // ShellRoot.TurnStatus 按钮/键盘绑定走的同一条路径），再等 AI 行动、轮次推进。
+            // UiPanelHost.Hud（HudPanel）按钮/键盘绑定走的同一条路径），再等 AI 行动、轮次推进。
             var initialRound = shell.Framework.Gameplay.TurnScheduler!.RoundIndex;
             var driveGuard = 3000;
             var observedAwaitingInput = false;

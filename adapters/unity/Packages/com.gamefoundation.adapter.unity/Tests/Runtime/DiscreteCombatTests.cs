@@ -266,12 +266,16 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(TimeModelMode.Continuous, fixture.Gameplay.TimeModelSwitch!.CurrentMode, "战斗触发前应仍是连续模式");
 
             // ---- HUD：战斗前应显示"不在战斗中"，结束回合按钮隐藏。----
+            // 技术债 17 收口：原独立的 TurnStatusPanel 已删除，回合状态并入 HudViewModel/HudPanel
+            // （见二者判断记录）；本面板未注册进任何 UiPanelHost（独立 GameObject，同原
+            // TurnStatusPanel 用法），HudPanel.Update 不再每帧调用 RefreshUi（该职责改由
+            // UiPanelHost.Update 对"打开状态"的登记面板承担），断言前需显式调用 RefreshUi()。
             _uiParent = new GameObject("DiscreteCombatTestUi", typeof(RectTransform));
             var uiParentRect = (RectTransform)_uiParent.transform;
-            var turnStatus = new GameObject("TurnStatus", typeof(RectTransform)).AddComponent<TurnStatusPanel>();
-            turnStatus.transform.SetParent(uiParentRect, false);
-            turnStatus.Construct(uiParentRect, fixture.Gameplay, fixture.Presentation.UiIntents);
-            Assert.IsFalse(turnStatus.IsEndTurnButtonVisible, "不在战斗中时不应显示结束回合按钮");
+            var hud = new GameObject("Hud", typeof(RectTransform)).AddComponent<HudPanel>();
+            hud.transform.SetParent(uiParentRect, false);
+            hud.Construct(uiParentRect, fixture.Presentation.Hud, fixture.Presentation.UiIntents);
+            Assert.IsFalse(hud.IsEndTurnButtonVisible, "不在战斗中时不应显示结束回合按钮");
 
             // ---- 合成 combat.entered 触发进入战斗（不走真实攻击，见文件顶部判断记录）。----
             fixture.Bus.PublishImmediate(new Core.Rules.Common.CombatEnteredEvent(fixture.PlayerId));
@@ -299,11 +303,12 @@ namespace Adapter.Unity.Tests.Runtime
                 if (awaitingInput && fixture.Gameplay.TurnScheduler.GetCurrentActor()?.Equals(fixture.PlayerId) == true)
                 {
                     observedAwaitingInput = true;
-                    Assert.IsTrue(turnStatus.IsEndTurnButtonVisible, "轮到玩家等待输入时应显示结束回合按钮");
+                    hud.RefreshUi();
+                    Assert.IsTrue(hud.IsEndTurnButtonVisible, "轮到玩家等待输入时应显示结束回合按钮");
 
                     // 经真实点击回调（同用户点击）而不是直接调 TurnScheduler，验证
-                    // UiIntents.EndTurn -> TurnStatusPanel 这条链路本身。
-                    turnStatus.ClickEndTurn();
+                    // UiIntents.EndTurn -> HudPanel 这条链路本身。
+                    hud.ClickEndTurn();
                 }
 
                 Tick(fixture, dt);
@@ -324,7 +329,8 @@ namespace Adapter.Unity.Tests.Runtime
                 yield return null;
             }
             Assert.AreEqual(TimeModelMode.Continuous, fixture.Gameplay.TimeModelSwitch!.CurrentMode, "双方脱战后应当切回连续模式");
-            Assert.IsFalse(turnStatus.IsEndTurnButtonVisible, "切回连续模式后结束回合按钮应重新隐藏");
+            hud.RefreshUi();
+            Assert.IsFalse(hud.IsEndTurnButtonVisible, "切回连续模式后结束回合按钮应重新隐藏");
         }
     }
 }

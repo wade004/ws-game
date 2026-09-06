@@ -79,8 +79,11 @@ namespace Adapter.Unity.Ui
 
             GameplayGroup = UiWidgets.CreateRoot("GameplayGroup", content);
 
+            // 技术债 17 收口：Hud 面板并入回合状态展示，额外接 UiIntents（"结束回合"意图转发）与
+            // InputMap（input.action.end_turn 键盘/手柄绑定，见 HudPanel.Construct 判断记录）；原
+            // 独立于本登记表之外的 TurnStatusPanel 已删除。
             Hud = CreatePanel<HudPanel>("Hud", GameplayGroup);
-            Hud.Construct(GameplayGroup, presentation.Hud);
+            Hud.Construct(GameplayGroup, presentation.Hud, presentation.UiIntents, presentation.InputMap);
             _panels[UiPanel.Hud] = Hud;
 
             ActionBar = CreatePanel<ActionBarPanel>("ActionBar", GameplayGroup);

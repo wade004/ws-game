@@ -74,8 +74,9 @@ unit.<id>.stat.<statId>
 现已补上，`DialogViewModel.Refresh` 与 `Story` 同一惯例直接查询，`SetGossipView` 仅保留供尚未升级
 的既有调用方兼容使用（见 `DialogViewModel` 类型注释）。
 
-（技术债，2026-09-06 D 组审计登记，未解决）回合顺序条/行动点显示/"结束回合"按钮三个离散模式界面单元
-（09 第 7.1 节）目前只有引擎侧 `TurnStatusPanel` 一份实现（不经 `UiPanelHost` 登记，直接读
-`GameplayAssembly`、经 `UiIntents` 转发意图），本模块十个视图模型均不认识 `TurnScheduler`。
-下次修改本模块时应迁入引擎无关视图模型（并入 `HudViewModel` 或新增回合状态视图模型），
-并同步撤销 01 L5 `ui` 行与 09 第 7.1 节的例外注记；台账见落地计划"已知未解决缺口"第 17 条。
+（已解决，技术债 17，2026-09-06 收口）回合顺序条/行动点显示/"结束回合"按钮三个离散模式界面单元
+（09 第 7.1 节）此前只有引擎侧 `TurnStatusPanel` 一份实现（不经 `UiPanelHost` 登记，直接读
+`GameplayAssembly`、经 `UiIntents` 转发意图），本模块十个视图模型均不认识 `TurnScheduler`。现已
+迁入 `HudViewModel`（可选注入 `Core.Foundation.SimLoop.TurnScheduler`/`IAppStateHost`/等待输入
+子态，见该类型判断记录），引擎侧 `HudPanel` 只做渲染与键盘轮询，`TurnStatusPanel` 已删除；
+01 L5 `ui` 行与 09 第 7.1 节的例外注记已同步撤销；台账见落地计划"已知未解决缺口"第 17 条。

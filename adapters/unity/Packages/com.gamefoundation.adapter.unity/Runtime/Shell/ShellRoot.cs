@@ -39,9 +39,6 @@ namespace Adapter.Unity.Shell
 
         public UiPanelHost UiPanelHost { get; private set; } = null!;
 
-        /// <summary>ADR-0013 回合状态 HUD：见该类型顶部判断记录（不走 <see cref="UiPanel"/> 登记表）。</summary>
-        public Adapter.Unity.Ui.Panels.TurnStatusPanel TurnStatus { get; private set; } = null!;
-
         private UiRoot _uiRoot = null!;
         private RectTransform _mainMenuRoot = null!;
         private RectTransform _newGameSetupRoot = null!;
@@ -69,12 +66,9 @@ namespace Adapter.Unity.Shell
                 getSfxBusVolume: () => Framework.Host.Audio.GetBusVolume(Core.Foundation.EngineAdapter.AudioBus.Sfx),
                 onSfxBusVolumeChanged: v => Framework.Host.Audio.SetBusVolume(Core.Foundation.EngineAdapter.AudioBus.Sfx, v));
 
-            var turnStatusGo = new GameObject("TurnStatus", typeof(RectTransform));
-            turnStatusGo.transform.SetParent(UiPanelHost.GameplayGroup, false);
-            TurnStatus = turnStatusGo.AddComponent<Adapter.Unity.Ui.Panels.TurnStatusPanel>();
-            // H4 新增：接入 input.action.end_turn 键盘/手柄绑定（见 TurnStatusPanel.Construct
-            // 判断记录），awaiting_input 下按键即可结束回合，不必只能点击按钮。
-            TurnStatus.Construct(UiPanelHost.GameplayGroup, Framework.Gameplay, Framework.Presentation.UiIntents, Framework.Presentation.InputMap);
+            // 技术债 17 收口：回合状态（含 input.action.end_turn 键盘/手柄绑定）已并入
+            // UiPanelHost.Hud（HudViewModel/HudPanel，见二者判断记录），不再需要本类型单独创建/
+            // 接线一个不经 UiPanelHost 登记的回合状态面板。
 
             BuildMainMenu();
             BuildNewGameSetup();

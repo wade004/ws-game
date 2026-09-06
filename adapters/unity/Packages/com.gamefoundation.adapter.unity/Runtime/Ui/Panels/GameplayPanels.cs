@@ -25,24 +25,75 @@ using UnityEngine;
 
 namespace Adapter.Unity.Ui.Panels
 {
-    /// <summary>HUD：生命/资源条 + 等级 + 目标框（09 §7.1、<see cref="HudViewModel"/>）。</summary>
+    /// <summary>
+    /// HUD：生命/资源条 + 等级 + 目标框（09 §7.1、<see cref="HudViewModel"/>），并入技术债 17 收口
+    /// 后的回合状态展示（回合顺序条/行动点显示的最小实现——当前行动者与轮次文本——与"结束回合"
+    /// 意图按钮，09 §7.1 离散模式三个单元）。
+    /// <para>
+    /// 判断记录（原 <c>TurnStatusPanel</c> 迁入本类型，不新增第十一个 <see cref="UiPanel"/> 枚举值）：
+    /// 见 <see cref="HudViewModel"/> 类型注释"技术债 17 收口"一节——回合状态此前由不经
+    /// <see cref="Adapter.Unity.Ui.UiPanelHost"/> 登记的独立引擎侧面板 <c>TurnStatusPanel</c> 承载，
+    /// 现随视图模型一起并入 <see cref="UiPanel.Hud"/>，本类型因此额外持有 <see cref="UiIntents"/>
+    /// （转发"结束回合"意图）与可选的 <see cref="IInputMapHost"/>（键盘/手柄绑定，见
+    /// <see cref="Update"/>），构造签名与既有 <c>Construct(parent, vm)</c> 调用方不兼容——这是一次
+    /// 蓄意的破坏性签名变更（原类型已删除，不保留过渡重载），仅有的调用方
+    /// （<c>UiPanelHost.Initialize</c>、PlayMode 测试）随本次改动一并更新。
+    /// </para>
+    /// </summary>
     public sealed class HudPanel : UiPanelBehaviour
     {
+        /// <summary>H4 新增：结束回合的键盘/手柄输入动作 id（原 <c>TurnStatusPanel</c> 常量，见
+        /// <c>data/_framework/found/found.input_action.json</c> 的 <c>input.action.end_turn</c> 行，
+        /// 默认绑定 key:t / pad:select）。</summary>
+        private const string EndTurnActionName = "input.action.end_turn";
+
         private HudViewModel _vm = null!;
+        private UiIntents _intents = null!;
+        private IInputMapHost? _inputMap;
+        private bool _endTurnActionWasActive;
         private TextMeshProUGUI _levelLabel = null!;
         private TextMeshProUGUI _powerLabel = null!;
         private TextMeshProUGUI _targetLabel = null!;
+        private TextMeshProUGUI _turnInfoLabel = null!;
+        private UnityEngine.UI.Button _endTurnButton = null!;
 
-        public void Construct(RectTransform parent, HudViewModel vm)
+        /// <summary>
+        /// <paramref name="intents"/>：新增，"结束回合"按钮点击转发（原 <c>TurnStatusPanel.Construct</c>
+        /// 同名参数）。<paramref name="inputMap"/>：可选（默认 null，同原 <c>TurnStatusPanel</c>
+        /// H4 判断记录）——非空时本面板在 <see cref="HudViewModel.CanEndTurn"/> 为真时额外监听
+        /// <c>input.action.end_turn</c> 的按下沿，触发时与点击"结束回合"按钮完全等价。
+        /// </summary>
+        public void Construct(RectTransform parent, HudViewModel vm, UiIntents intents, IInputMapHost? inputMap = null)
         {
             _vm = vm;
-            var root = UiWidgets.CreatePanelBackground("HudPanel", parent, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(320f, 100f), new Vector2(170f, -70f));
+            _intents = intents;
+            _inputMap = inputMap;
+            var root = UiWidgets.CreatePanelBackground("HudPanel", parent, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(320f, 140f), new Vector2(170f, -70f));
             var list = UiWidgets.CreateVerticalList("List", root, 2f);
             UiWidgets.SetRect(list, Vector2.zero, Vector2.one, new Vector2(8, 6), new Vector2(-8, -6));
             _levelLabel = UiWidgets.CreateLabel("Level", list, "Lv.-", 18);
             _powerLabel = UiWidgets.CreateLabel("Power", list, "-", 16);
             _targetLabel = UiWidgets.CreateLabel("Target", list, "目标：无", 16);
+            _turnInfoLabel = UiWidgets.CreateLabel("TurnInfo", list, "（未启用回合制）", 16);
+            var (_, button, _) = UiWidgets.CreateButton("EndTurnButton", list, "结束回合", OnEndTurnClicked);
+            _endTurnButton = button;
+
+            RefreshUi();
         }
+
+        /// <summary>供 PlayMode 测试直接调用（等价于用户真实点击"结束回合"按钮），同
+        /// <see cref="ActionBarPanel.ClickSlot"/> 惯例；原 <c>TurnStatusPanel.ClickEndTurn</c>。</summary>
+        public void ClickEndTurn() => OnEndTurnClicked();
+
+        /// <summary>供 PlayMode 测试直接读取当前"结束回合"按钮的可见性；原
+        /// <c>TurnStatusPanel.IsEndTurnButtonVisible</c>，惯例不变（读 <c>activeSelf</c>，不依赖
+        /// <c>Transform.Find</c>）。</summary>
+        public bool IsEndTurnButtonVisible => _endTurnButton.gameObject.activeSelf;
+
+        /// <summary>供 PlayMode 测试读取当前展示的回合信息文本；原 <c>TurnStatusPanel.TurnInfoText</c>。</summary>
+        public string TurnInfoText => _turnInfoLabel.text;
+
+        private void OnEndTurnClicked() => _intents.EndTurn();
 
         public override void RefreshUi()
         {
@@ -57,6 +108,72 @@ namespace Adapter.Unity.Ui.Panels
             _targetLabel.text = _vm.HasTarget
                 ? "目标：" + string.Join(" ", _vm.TargetPowerBars.Select(kv => $"{kv.Key.Value} {(int)kv.Value.Current}/{(int)kv.Value.Max}"))
                 : "目标：无";
+
+            if (!_vm.IsTurnBased)
+            {
+                _turnInfoLabel.text = "（未启用回合制）";
+                _endTurnButton.gameObject.SetActive(false);
+                return;
+            }
+
+            _turnInfoLabel.text = _vm.CurrentActorId.HasValue
+                ? $"行动者：{ShortId(_vm.CurrentActorId.Value)}  轮次：{_vm.RoundIndex}"
+                : "（不在战斗中）";
+
+            _endTurnButton.gameObject.SetActive(_vm.CanEndTurn);
+        }
+
+        /// <summary>
+        /// 判断记录（键盘轮询不重复调用 <see cref="RefreshUi"/>）：本面板注册在
+        /// <see cref="Adapter.Unity.Ui.UiPanelHost"/> 下时，<c>UiPanelHost.Update</c> 已经对"当前
+        /// 处于打开状态"的面板逐帧调用一次 <see cref="RefreshUi"/>（见 <c>IUiPanel.cs</c> 顶部判断
+        /// 记录），本 <see cref="Update"/> 因此只做键盘轮询，不重复刷新视觉；<see cref="SkillBookPanel"/>
+        /// 自带 <c>Update</c> 处理数字键绑定是同一惯例的既有先例。可见性判断读
+        /// <see cref="HudViewModel.CanEndTurn"/>（视图模型自身经事件订阅维持的最新值，见该类型
+        /// 判断记录），不读 <see cref="IsEndTurnButtonVisible"/>（按钮 <c>activeSelf</c>）——本面板
+        /// 未必总是注册在 <see cref="Adapter.Unity.Ui.UiPanelHost"/> 下（PlayMode 测试常见"独立
+        /// GameObject 不挂进任何 UiPanelHost"的用法，见 <c>DiscreteCombatTests</c>/
+        /// <c>SharedBootstrapDiscreteTests</c>），此时没有任何人每帧调用 <see cref="RefreshUi"/>，
+        /// 若可见性判断依赖 <c>activeSelf</c>（只在 <see cref="RefreshUi"/> 被调用时才更新），键盘
+        /// 绑定会在这类场景下失效；直接读视图模型属性不依赖 <see cref="RefreshUi"/> 是否被调用过。
+        /// </summary>
+        private void Update()
+        {
+            HandleEndTurnKeybinding();
+        }
+
+        /// <summary>H4 新增：结束回合按钮可见（<see cref="HudViewModel.CanEndTurn"/>）时，
+        /// <c>input.action.end_turn</c> 出现按下沿即等价于点击按钮；不可见（不是轮到玩家/不在回合制
+        /// 中）时不响应，且清空"上一帧是否激活"状态——避免"按下沿恰好跨越可见性切换那一帧"误触发，
+        /// 也避免玩家长按期间恰好轮到自己时立即被上一次残留的"已激活"状态误判为一次新按下。原
+        /// <c>TurnStatusPanel.HandleEndTurnKeybinding</c>，逻辑原样搬入。</summary>
+        private void HandleEndTurnKeybinding()
+        {
+            if (_inputMap == null)
+            {
+                return;
+            }
+
+            if (!_vm.CanEndTurn)
+            {
+                _endTurnActionWasActive = false;
+                return;
+            }
+
+            var active = _inputMap.IsActionActive(EndTurnActionName);
+            var wasActive = _endTurnActionWasActive;
+            _endTurnActionWasActive = active;
+            if (active && !wasActive)
+            {
+                OnEndTurnClicked();
+            }
+        }
+
+        private static string ShortId(Id id)
+        {
+            var v = id.Value;
+            var idx = v.LastIndexOf('.');
+            return idx >= 0 ? v.Substring(idx + 1) : v;
         }
     }
 
@@ -320,137 +437,6 @@ namespace Adapter.Unity.Ui.Panels
                     break;
                 }
             }
-        }
-    }
-
-    /// <summary>
-    /// 回合状态 HUD（ADR-0013 离散时间模型引擎侧接线，03 第 2/3 节）：显示当前行动者与轮次，
-    /// <c>awaiting_input</c> 子态下显示"结束回合"按钮。
-    /// <para>
-    /// 判断记录（不走 <see cref="UiPanel"/>/<see cref="UiPanelHost"/> 登记表这条既有路径）：
-    /// <see cref="UiPanel"/> 是文档明确拍板的"十个值，与十个视图模型一一对应"的封闭枚举（见该
-    /// 类型注释"保证……严格对齐，不产生……孤儿"），"状态栏"这类零散元素按既有判断记录应"并入
-    /// Hud"而不是新增第十一个枚举值——但 <see cref="HudViewModel"/> 属于 <c>presentation/ui</c>，
-    /// 不认识 <c>Core.Foundation.SimLoop.TurnScheduler</c>（回合制是 ADR-0013 新增的 L0 概念，
-    /// 未接入既有十个视图模型的任何一个）。改 <c>presentation/ui</c> 给 <c>HudViewModel</c>
-    /// 追加回合字段不属于"引擎侧接线被阻断时的最小改动"（20 行以内可以纯读 <see cref="GameplayAssembly"/>
-    /// 公开成员在引擎侧解决，不构成阻断）。本面板因此是engine侧独立元素：直接持有
-    /// <see cref="GameplayAssembly"/>/<see cref="UiIntents"/> 引用只读展示/转发意图，不经
-    /// <see cref="UiPanel"/> 登记、不进 <see cref="UiPanelHost"/> 的面板字典，由自己的
-    /// <see cref="Update"/> 每帧刷新（同 <see cref="SkillBookPanel"/> 自带 <c>Update</c> 处理数字键
-    /// 绑定的既有先例：本包面板不是所有交互都必须经 <c>UiPanelHost.Update</c> 统一驱动）。
-    /// </para>
-    /// </summary>
-    public sealed class TurnStatusPanel : UiPanelBehaviour
-    {
-        /// <summary>H4 新增：结束回合的键盘/手柄输入动作 id（见
-        /// <c>data/_framework/found/found.input_action.json</c> 新增的
-        /// <c>input.action.end_turn</c> 行，默认绑定 key:t / pad:select）。</summary>
-        private const string EndTurnActionName = "input.action.end_turn";
-
-        private GameplayAssembly _gameplay = null!;
-        private UiIntents _intents = null!;
-        private IInputMapHost? _inputMap;
-        private bool _endTurnActionWasActive;
-        private TextMeshProUGUI _label = null!;
-        private UnityEngine.UI.Button _endTurnButton = null!;
-
-        /// <summary>
-        /// H4 新增 <paramref name="inputMap"/>（可选，默认 null）：非空时本面板在 <c>awaiting_input</c>
-        /// 且结束回合按钮可见时，额外监听 <c>input.action.end_turn</c> 的按下沿（同
-        /// <c>GameFoundationBootstrap.HandleButtonRisingEdge</c> 惯例，本面板自己维护一份
-        /// "上一帧是否激活"状态，不依赖 <see cref="Core.Foundation.InputMap.InputActionTriggeredEvent"/>
-        /// ——本面板本就已经有逐帧 <see cref="Update"/>，不需要额外接一份事件订阅/退订）——触发时与
-        /// 点击"结束回合"按钮完全等价（同一个 <see cref="OnEndTurnClicked"/>）。留空（既有调用方/
-        /// 测试不传）时行为与 H4 之前完全一致，只能点击按钮。</summary>
-        public void Construct(RectTransform parent, GameplayAssembly gameplay, UiIntents intents, IInputMapHost? inputMap = null)
-        {
-            _gameplay = gameplay;
-            _intents = intents;
-            _inputMap = inputMap;
-
-            var root = UiWidgets.CreatePanelBackground("TurnStatusPanel", parent, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(300f, 76f), new Vector2(0f, -40f));
-            var list = UiWidgets.CreateVerticalList("List", root, 4f);
-            UiWidgets.SetRect(list, Vector2.zero, Vector2.one, new Vector2(8, 6), new Vector2(-8, -6));
-            _label = UiWidgets.CreateLabel("TurnInfo", list, "（未启用回合制）", 16, TextAlignmentOptions.Center);
-            var (_, button, _) = UiWidgets.CreateButton("EndTurnButton", list, "结束回合", OnEndTurnClicked);
-            _endTurnButton = button;
-
-            RefreshUi();
-        }
-
-        /// <summary>供 PlayMode 测试直接调用（等价于用户真实点击"结束回合"按钮），同
-        /// <see cref="ActionBarPanel.ClickSlot"/> 惯例。</summary>
-        public void ClickEndTurn() => OnEndTurnClicked();
-
-        /// <summary>供 PlayMode 测试直接读取当前"结束回合"按钮的可见性，不依赖
-        /// <c>Transform.Find</c> 按路径遍历——<see cref="Construct"/> 建出的可视化层级挂在传入的
-        /// <c>parent</c> 之下，不是本 MonoBehaviour 自己的 <c>gameObject</c> 子节点，同
-        /// <see cref="HudPanel"/> 等既有面板同一惯例。</summary>
-        public bool IsEndTurnButtonVisible => _endTurnButton.gameObject.activeSelf;
-
-        /// <summary>供 PlayMode 测试读取当前展示的回合信息文本。</summary>
-        public string TurnInfoText => _label.text;
-
-        private void OnEndTurnClicked() => _intents.EndTurn();
-
-        public override void RefreshUi()
-        {
-            var scheduler = _gameplay.TurnScheduler;
-            if (scheduler == null)
-            {
-                _label.text = "（未启用回合制）";
-                _endTurnButton.gameObject.SetActive(false);
-                return;
-            }
-
-            var currentActor = scheduler.GetCurrentActor();
-            _label.text = currentActor.HasValue
-                ? $"行动者：{ShortId(currentActor.Value)}  轮次：{scheduler.RoundIndex}"
-                : "（不在战斗中）";
-
-            var awaitingInput = _gameplay.AppState.CurrentSubState.HasValue &&
-                _gameplay.AppState.CurrentSubState.Value.Equals(_gameplay.AwaitingInputSubState);
-            _endTurnButton.gameObject.SetActive(awaitingInput);
-        }
-
-        private void Update()
-        {
-            RefreshUi();
-            HandleEndTurnKeybinding();
-        }
-
-        /// <summary>H4 新增：结束回合按钮可见（<c>awaiting_input</c>）时，<c>input.action.end_turn</c>
-        /// 出现按下沿即等价于点击按钮；不可见（不是轮到玩家/不在回合制中）时不响应，且清空"上一帧
-        /// 是否激活"状态——避免"按下沿恰好跨越可见性切换那一帧"误触发，也避免玩家长按期间恰好轮到
-        /// 自己时立即被上一次残留的"已激活"状态误判为一次新按下。</summary>
-        private void HandleEndTurnKeybinding()
-        {
-            if (_inputMap == null)
-            {
-                return;
-            }
-
-            if (!IsEndTurnButtonVisible)
-            {
-                _endTurnActionWasActive = false;
-                return;
-            }
-
-            var active = _inputMap.IsActionActive(EndTurnActionName);
-            var wasActive = _endTurnActionWasActive;
-            _endTurnActionWasActive = active;
-            if (active && !wasActive)
-            {
-                OnEndTurnClicked();
-            }
-        }
-
-        private static string ShortId(Id id)
-        {
-            var v = id.Value;
-            var idx = v.LastIndexOf('.');
-            return idx >= 0 ? v.Substring(idx + 1) : v;
         }
     }
 

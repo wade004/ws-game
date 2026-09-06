@@ -132,7 +132,7 @@ namespace Adapter.Unity.Tests.Runtime
             // PushSubState(Combat)/GameplayAssembly.Advance 里的 PushSubStateIfNotCurrent
             // (AwaitingInputSubState) 都会因为非法转移而静默失败（AppStateHost 对非法转移不抛异常，
             // 只返回 false）——TurnScheduler 内部数据层面完全正确切到离散模式、正确等待玩家输入，
-            // 但 AppState.CurrentSubState 永远读不到，TurnStatusPanel 的结束回合按钮可见性/键盘
+            // 但 AppState.CurrentSubState 永远读不到，HudPanel 的结束回合按钮可见性/键盘
             // 绑定门槛（均读 AppState.CurrentSubState）因此也永远不会打开（实测复现：两条用例都卡
             // 在"从未观察到 awaiting_input"）。本方法补上这条驱动，让"共享引导 + 离散测试根"这套
             // 装配的 AppState 语义与 DiscreteCombatTests.cs/真实 Shell 流程一致。
@@ -164,11 +164,12 @@ namespace Adapter.Unity.Tests.Runtime
                 yield return new WaitForFixedUpdate();
             }
 
+            // 技术债 17 收口：原独立的 TurnStatusPanel 已删除，回合状态并入 HudViewModel/HudPanel。
             var uiParent = new GameObject("SharedBootstrapDiscreteTestUi", typeof(RectTransform));
             var uiParentRect = (RectTransform)uiParent.transform;
-            var turnStatus = new GameObject("TurnStatus", typeof(RectTransform)).AddComponent<TurnStatusPanel>();
-            turnStatus.transform.SetParent(uiParentRect, false);
-            turnStatus.Construct(uiParentRect, bootstrap.Gameplay!, bootstrap.Presentation!.UiIntents);
+            var hud = new GameObject("Hud", typeof(RectTransform)).AddComponent<HudPanel>();
+            hud.transform.SetParent(uiParentRect, false);
+            hud.Construct(uiParentRect, bootstrap.Presentation!.Hud, bootstrap.Presentation!.UiIntents);
 
             try
             {
@@ -195,7 +196,7 @@ namespace Adapter.Unity.Tests.Runtime
                     bootstrap.Gameplay.TurnScheduler!.GetOrder(), bootstrap.PlayerId,
                     "真实 combatParticipantsResolver（按半径+阵营解析）应当把玩家自己纳入参战顺序");
 
-                // 驱动直到轮到玩家等待输入，经真实 TurnStatusPanel 点击结束回合（走
+                // 驱动直到轮到玩家等待输入，经真实 HudPanel 点击结束回合（走
                 // UiIntents.EndTurn -> GameplayAssembly.TurnScheduler.EndTurn 这条真实调用链），
                 // 验证共享引导下"HandleFixedInput 提交的意图不需要任何改动即可在离散模式下正确
                 // 路由"（H4 核心修复：WorldSim.AttachDiscreteRouting）。
@@ -210,7 +211,7 @@ namespace Adapter.Unity.Tests.Runtime
                     if (awaitingInput && bootstrap.Gameplay.TurnScheduler.GetCurrentActor()?.Equals(bootstrap.PlayerId) == true)
                     {
                         observedAwaitingInput = true;
-                        turnStatus.ClickEndTurn();
+                        hud.ClickEndTurn();
                     }
 
                     yield return new WaitForFixedUpdate();
@@ -235,9 +236,10 @@ namespace Adapter.Unity.Tests.Runtime
         /// 共用同一套"叠加离散测试根"装配，但改用真实按键（经
         /// <see cref="UnityInput.SimulateKeyForTest"/> 注入、真实
         /// <c>GameFoundationBootstrap.OnFixedStep</c> 里的 <c>Presentation.InputMap.Update(_host.Input)</c>
-        /// 驱动，不是直接调用 <see cref="TurnStatusPanel.ClickEndTurn"/>）——验证
-        /// <see cref="TurnStatusPanel.Construct"/> 新增的 <c>inputMap</c> 接线本身，而不只是
-        /// <see cref="TurnStatusPanel"/> 的按钮点击回调。
+        /// 驱动，不是直接调用 <see cref="HudPanel.ClickEndTurn"/>）——验证
+        /// <see cref="HudPanel.Construct"/> 新增的 <c>inputMap</c> 接线本身，而不只是
+        /// <see cref="HudPanel"/> 的按钮点击回调（技术债 17 收口：原 <c>TurnStatusPanel</c> 已删除，
+        /// 回合状态并入 <c>HudViewModel</c>/<c>HudPanel</c>）。
         /// </summary>
         [UnityTest]
         public IEnumerator SharedBootstrap_EndTurnKeyBinding_UnblocksAwaitingInput()
@@ -256,11 +258,11 @@ namespace Adapter.Unity.Tests.Runtime
 
             var uiParent = new GameObject("SharedBootstrapDiscreteKeybindTestUi", typeof(RectTransform));
             var uiParentRect = (RectTransform)uiParent.transform;
-            var turnStatus = new GameObject("TurnStatus", typeof(RectTransform)).AddComponent<TurnStatusPanel>();
-            turnStatus.transform.SetParent(uiParentRect, false);
-            // 传入真实 InputMap（第 4 个参数，H4 新增，见 TurnStatusPanel.Construct 判断记录）——
+            var hud = new GameObject("Hud", typeof(RectTransform)).AddComponent<HudPanel>();
+            hud.transform.SetParent(uiParentRect, false);
+            // 传入真实 InputMap（第 4 个参数，H4 新增，见 HudPanel.Construct 判断记录）——
             // 与 ShellRoot.cs 生产接线一致，不是 3 参重载（那条路径没有键盘响应）。
-            turnStatus.Construct(uiParentRect, bootstrap.Gameplay!, bootstrap.Presentation!.UiIntents, bootstrap.Presentation!.InputMap);
+            hud.Construct(uiParentRect, bootstrap.Presentation!.Hud, bootstrap.Presentation!.UiIntents, bootstrap.Presentation!.InputMap);
 
             var input = UnityEngineHost.Ensure().Input as UnityInput;
             Assert.IsNotNull(input, "UnityEngineHost.Input 应当是 UnityInput 实现（H4 新增 SimulateKeyForTest 所在类型）");
@@ -297,17 +299,17 @@ namespace Adapter.Unity.Tests.Runtime
                         // 真实按下 't' 键，交给 GameFoundationBootstrap 内部驱动的
                         // Presentation.InputMap.Update(_host.Input)（挂在 UnityEngineHost.Update
                         // 内部，见 UnityClock.TickFrame）解析出 input.action.end_turn 的按下沿，再由
-                        // TurnStatusPanel.Update（另一个独立的 MonoBehaviour Update，与
+                        // HudPanel.Update（另一个独立的 MonoBehaviour Update，与
                         // UnityEngineHost.Update 之间没有强制的脚本执行顺序保证）响应——不是本用例
                         // 直接调用 ClickEndTurn。按住多帧（而不是只按一帧）覆盖"两个 Update 谁先谁
-                        // 后"的不确定性，确保 TurnStatusPanel.Update 至少有一帧能在
+                        // 后"的不确定性，确保 HudPanel.Update 至少有一帧能在
                         // InputMap 已经解析出按下状态之后才检查 IsActionActive。
                         // 判断记录（按住期间反复补发 KeyDown，不是只发一次）：PollEvents() 会立即
                         // 清空待处理事件队列（见 UnityInput.PollEvents），若只发一次 KeyDown，
                         // "当前是否激活"这一持续状态在批处理环境下与其它并行运行的用例共用同一个
                         // UnityEngineHost 单例时，观测到偶发被更早/更晚经过的其它帧处理路径提前
                         // 复位——在整个持有窗口内每帧都补发一次 KeyDown，确保不管 InputMap.Update
-                        // 与 TurnStatusPanel.Update 的相对调用顺序如何、也不管这一批次里跑了多少条
+                        // 与 HudPanel.Update 的相对调用顺序如何、也不管这一批次里跑了多少条
                         // 其它用例，本用例持有 't' 键期间 IsActionActive 都能被稳定观测到 true。
                         var holdGuard = 120;
                         var keyBindingTriggered = false;
@@ -316,8 +318,8 @@ namespace Adapter.Unity.Tests.Runtime
                             input!.SimulateKeyForTest("t", down: true);
                             // 交替等 FixedUpdate（驱动 GameFoundationBootstrap.OnFixedStep ->
                             // Presentation.InputMap.Update）与普通 Update（驱动
-                            // TurnStatusPanel.Update -> HandleEndTurnKeybinding）各一次——只等
-                            // WaitForFixedUpdate 不保证 TurnStatusPanel 的常规 MonoBehaviour.Update
+                            // HudPanel.Update -> HandleEndTurnKeybinding）各一次——只等
+                            // WaitForFixedUpdate 不保证 HudPanel 的常规 MonoBehaviour.Update
                             // 一定在其后紧跟着跑（两者是不同的 Update 分组，见上方判断记录），显式
                             // 各等一次覆盖这层不确定性。
                             yield return new WaitForFixedUpdate();
@@ -334,7 +336,7 @@ namespace Adapter.Unity.Tests.Runtime
                 Assert.GreaterOrEqual(
                     bootstrap.Gameplay.TurnScheduler.RoundIndex, initialRound + 1,
                     "按 input.action.end_turn 绑定的键（key:t）应当能结束回合、推进轮次——" +
-                    "验证 TurnStatusPanel 的键盘绑定接线本身（不是按钮点击回调）");
+                    "验证 HudPanel 的键盘绑定接线本身（不是按钮点击回调）");
             }
             finally
             {
@@ -379,9 +381,9 @@ namespace Adapter.Unity.Tests.Runtime
 
             var uiParent = new GameObject("SharedBootstrapDiscreteStaleRootTestUi", typeof(RectTransform));
             var uiParentRect = (RectTransform)uiParent.transform;
-            var turnStatus = new GameObject("TurnStatus", typeof(RectTransform)).AddComponent<TurnStatusPanel>();
-            turnStatus.transform.SetParent(uiParentRect, false);
-            turnStatus.Construct(uiParentRect, bootstrap.Gameplay!, bootstrap.Presentation!.UiIntents, bootstrap.Presentation!.InputMap);
+            var hud = new GameObject("Hud", typeof(RectTransform)).AddComponent<HudPanel>();
+            hud.transform.SetParent(uiParentRect, false);
+            hud.Construct(uiParentRect, bootstrap.Presentation!.Hud, bootstrap.Presentation!.UiIntents, bootstrap.Presentation!.InputMap);
 
             var input = UnityEngineHost.Ensure().Input as UnityInput;
             Assert.IsNotNull(input, "UnityEngineHost.Input 应当是 UnityInput 实现（H4 新增 SimulateKeyForTest 所在类型）");
