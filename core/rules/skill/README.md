@@ -17,7 +17,7 @@ skill/
   README.md
   contracts/
     SkillOptions.cs        构造期口味配置 + StackOverflowPolicy 枚举
-    IEffectExtension.cs    六类委托效果原语的扩展点
+    IEffectExtension.cs    五类委托效果原语的扩展点
     ISkillDiagnostics.cs   诊断出口
   schema/
     README.md              skill.* 五张表字段 + 校验规则说明
@@ -77,10 +77,11 @@ skill/
    诊断警告（不是完全静默，也不抛异常，呼应第 5 节"运行时不做静默降级"精神但为可选依赖留出口）。
 
 4. **法术队列窗口外的再次施法请求**：06 第 3.6 节只描述了"窗口内入队"的行为，未规定窗口外再次
-   `CastSkill` 的处理方式。本模块拍板：窗口外一律拒绝（每单位只有一个队列槽，不支持排更多队），
-   复用 `CastFailureReason.OnCooldown` 作为最接近的失败语义（施法者当前"不可用"，只是原因是仍在
-   读条/引导而非真正冷却）——`CastFailureReason` 枚举由 `common` 定义，本模块不得新增值，这是现有
-   取值集合下最贴近的选择。
+   `CastSkill` 的处理方式。本模块拍板：窗口外一律拒绝（每单位只有一个队列槽，不支持排更多队）。
+   契约缺口已补齐：原实现在这一分支复用 `CastFailureReason.OnCooldown` 作为最接近的失败语义，
+   但施法者此刻并非真的处于技能冷却中，只是"忙"——读条/引导占用中；`CastFailureReason` 已补上
+   专门的 `Busy` 原因码（见该枚举注释），本分支现在返回 `Busy`，`OnCooldown` 恢复只表示步骤 3
+   冷却/充能未就绪这一单一语义。
 
 5. **公共冷却在读条开始（步骤 8）而非完成（步骤 9）时启动**：多数同类系统里 GCD 从施法瞬间开始
    计时而不是等技能结算完才开始，本模块按此常见语义实现；`SkillOptions.GcdDuration` 的默认值
@@ -172,9 +173,11 @@ skill/
     `params.distance`）均直接调用 `IUnitAccess.SetPosition`，06 原文本节未规定位移的插值/寻路
     细节，交给 L3 移动系统在表现层/物理层精化（呼应 05 对象模型的移动系统分工）。
 
-20. **`IEffectExtension` 六类委托效果原语**：`projectile`/`summon`/`open_lock`/`create_item`/
-    `set_world_flag`/`script` 均需要 L3 载体层（抛射物/召唤物/物品）或 L4 玩法层（GameObject 开锁/
-    世界标志）或脚本钩子才能真正落地，不在本模块依赖范围内。未注入 `IEffectExtension`，或注入后
+20. **`IEffectExtension` 五类委托效果原语**：`summon`/`open_lock`/`create_item`/
+    `set_world_flag`/`script` 均需要 L3 载体层（召唤物/物品）或 L4 玩法层（GameObject 开锁/
+    世界标志）或脚本钩子才能真正落地，不在本模块依赖范围内（`projectile` 已按架构演进拆出独立的
+    `IProjectileSpawner` 依赖倒置接口，不再经 `IEffectExtension`，故本项从此前的六类改为五类，见
+    `IEffectExtension.cs` 类型注释）。未注入 `IEffectExtension`，或注入后
     `TryHandle` 返回 false，`EffectDispatcher` 记一条诊断警告并返回一个"未处理"的
     `ResolveResult`（`Hit=Hit, RequestedAmount=FinalAmount=Absorbed=0, Immune=false`），不抛异常、
     不阻断同一次施法里其余效果继续执行。

@@ -31,6 +31,7 @@ namespace Core.Numbers.Archetype
         private readonly StatBaseWriter _statBaseWriter;
         private readonly StatModifierWriter _statModifierWriter;
         private readonly PowerRegistrar _powerRegistrar;
+        private readonly AuraApplier? _auraApplier;
 
         private readonly Dictionary<string, ClassDefinition> _classes = new Dictionary<string, ClassDefinition>(StringComparer.Ordinal);
         private readonly Dictionary<string, RaceDefinition> _races = new Dictionary<string, RaceDefinition>(StringComparer.Ordinal);
@@ -39,18 +40,26 @@ namespace Core.Numbers.Archetype
 
         public IReadOnlyList<ClassDefinition> Classes => _classOrder;
 
+        /// <param name="auraApplier">
+        /// W1 收边补齐：种族 <c>passive_auras</c> 的施加出口（见 <see cref="AuraApplier"/>）。为 null
+        /// （默认，向后兼容既有调用方——本模块并行开发期 <c>core/rules/skill</c> 可能尚未就绪）时
+        /// <see cref="ApplyTo"/> 跳过被动光环这一步，行为与本次改动之前完全一致；非 null 时才会对
+        /// <c>race.passive_auras</c> 逐个调用。
+        /// </param>
         public ArchetypeRegistry(
             IDataRegistryView registry,
             IEventBus bus,
             StatBaseWriter statBaseWriter,
             StatModifierWriter statModifierWriter,
-            PowerRegistrar powerRegistrar)
+            PowerRegistrar powerRegistrar,
+            AuraApplier? auraApplier = null)
         {
             if (registry == null) throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _statBaseWriter = statBaseWriter ?? throw new ArgumentNullException(nameof(statBaseWriter));
             _statModifierWriter = statModifierWriter ?? throw new ArgumentNullException(nameof(statModifierWriter));
             _powerRegistrar = powerRegistrar ?? throw new ArgumentNullException(nameof(powerRegistrar));
+            _auraApplier = auraApplier;
 
             foreach (var record in registry.GetAll("arch.race"))
             {
@@ -93,6 +102,17 @@ namespace Core.Numbers.Archetype
                 foreach (var kv in race.StatMods)
                 {
                     _statModifierWriter(unitId, new Id(kv.Key), "flat", kv.Value, raceId.Value);
+                }
+
+                // W1 收边补齐（A3 审计 #8）：race.passive_auras 此前只解析进 RaceDefinition、
+                // 从未施加——Models.cs 旧注释"L2 skill 未实现"的前提已过期。sourceId 固定用种族
+                // 自身 id，与上面 StatModifierWriter 的来源选取理由一致。
+                if (_auraApplier != null)
+                {
+                    foreach (var auraDefId in race.PassiveAuras)
+                    {
+                        _auraApplier(unitId, auraDefId, raceId.Value);
+                    }
                 }
             }
 

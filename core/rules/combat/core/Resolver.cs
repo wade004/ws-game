@@ -218,7 +218,12 @@ namespace Core.Rules.Combat
                     if (_powers.GetPower(context.TargetId, WellKnownPowers.Health) <= 0.0)
                     {
                         _units.SetAlive(context.TargetId, false);
-                        _bus.Enqueue(new UnitDiedEvent(context.TargetId, context.SourceId));
+                        // W1 收边补齐（拍板 3 前置）：随事件带上死亡那一刻的地图/坐标快照，供
+                        // core/gameplay/death.DeathPolicyHost 的 respawn_point 策略取 spawn_points[0]
+                        // 不必再反查（见 UnitDiedEvent 类型注释）。
+                        _bus.Enqueue(new UnitDiedEvent(
+                            context.TargetId, context.SourceId,
+                            _units.GetMapId(context.TargetId), _units.GetPosition(context.TargetId)));
                         steps.Add($"land: 目标生命降至 0，死亡结算，killerId={context.SourceId}");
                     }
                 }

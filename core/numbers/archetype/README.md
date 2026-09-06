@@ -54,10 +54,11 @@ archetype/
    （`arch.talent_tree`、`prog.level_curve`），直接声明为 `Reference`，`level_curve_ref`
    指向不存在的曲线时会被 04 内置的 `reference_integrity` 检查拦截（验收标准原文）。
 
-3. **`ApplyTo` 的调用顺序固定为 base → race flat → powers → 事件**：任务书原文"按顺序
-   StatBaseWriter 写 base_stats → StatModifierWriter 写种族修正 → PowerRegistrar 注册资源 →
-   发 archetype.applied"；`raceId` 为 `null` 时完全跳过种族修正这一步（不调用
-   `StatModifierWriter`），不是"调用一次值为 0 的修正"。
+3. **`ApplyTo` 的调用顺序固定为 base → race flat → race passive_auras → powers → 事件**：
+   任务书原文"按顺序 StatBaseWriter 写 base_stats → StatModifierWriter 写种族修正 →
+   PowerRegistrar 注册资源 → 发 archetype.applied"；W1 收边补齐在种族修正之后、注册资源之前
+   插入被动光环施加（见判断记录 7）。`raceId` 为 `null` 时完全跳过种族修正与被动光环这两步
+   （不调用 `StatModifierWriter`/`AuraApplier`），不是"调用一次值为 0 的修正"。
 
 4. **种族修正的 `sourceId` 取种族 id 本身**：见 `ArchetypeRegistry` 类文档判断记录——任务书
    没有指定这个来源 id 具体是什么，选用种族 id 本身语义最直接、也便于调用方按种族切换时
@@ -74,10 +75,16 @@ archetype/
    `id`），不重复做前置存在性/无环检查——那需要遍历同一张表的其它记录做跨行分析，属于
    `IValidationRule` 的职责边界，不适合放进单条记录的构造期解析。
 
+7. **W1 收边补齐：`race.passive_auras` 经注入的 `AuraApplier` 委托施加**（A3 审计 #8）——
+   此前"本模块只保存不应用"的前提是"L2 `skill` 模块尚未实现"，该前提已过期（`core/rules/skill`
+   目前已完整实现光环系统）。构造函数新增可选参数 `AuraApplier? auraApplier = null`：非空时
+   `ApplyTo` 对 `race.passive_auras` 逐个调用（`sourceId` 固定用种族 id 本身，与
+   `StatModifierWriter` 同一选取理由，见判断记录 4）；为 null（未装配，向后兼容）时行为与本次
+   改动之前完全一致，仍旧只保存不应用。真正的接线（把 `IEffectSink.ApplyAura` 转发进来）在
+   `core/rules/assembly/RulesAssembly.cs` 完成，本模块本身不引用 `core/rules/skill` 任何类型。
+
 ## 不负责什么
 
 - 不实现属性聚合/资源池的具体运算，只通过 `StatBaseWriter`/`StatModifierWriter`/
-  `PowerRegistrar` 三个具名委托与外界交互（见判断记录 2）。
-- 不应用种族的 `passive_auras`（被动光环）——L2 `skill` 模块尚未实现，本模块只保存该字段
-  供未来消费（任务书原文"本模块只保存不应用"）。
+  `PowerRegistrar`/`AuraApplier` 四个具名委托与外界交互（见判断记录 2、7）。
 - 不处理天赋点消耗/学习流程，只提供 `GetTalentTree` 只读查询（见判断记录 5）。

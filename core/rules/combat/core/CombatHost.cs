@@ -137,6 +137,39 @@ namespace Core.Rules.Combat
             }
         }
 
+        /// <summary>
+        /// W2b 收边补齐（判断记录 3，离散模式下 fixed_order 策略跨轮出现 combat.left → combat.entered
+        /// 虚假往返的根因修复）：06 第 4.5 节"周边无存活的敌对仇恨来源"须双向判断，此前只查
+        /// <paramref name="unitId"/> 自己的仇恨表（谁打过我），漏查<paramref name="unitId"/> 是否仍
+        /// 挂在某个存活敌对单位的仇恨表里（我在打谁）——<see cref="ThreatTable.AddThreat"/> 只记到
+        /// <c>被攻击方</c>（<c>context.TargetId</c>）的表上，主动进攻、尚未被对方反击过的一方自己的
+        /// 仇恨表恒为空。
+        /// <para>
+        /// 复现（离散模式，<c>fixed_order</c> 先攻策略，两单位互相攻击，回归测试见
+        /// <c>Tests.Gameplay.Discrete.GameplayAssemblyDiscreteWiringTests.FixedOrder_MutualCombatAcrossThreeRounds_DoesNotLeaveAndReenterCombat</c>）：
+        /// <c>TimeModelSwitch.SwitchToDiscrete</c> 把 <c>LeaveCombatDelay</c> 按 <c>seconds_per_turn</c>
+        /// 换算为轮数并 <c>Math.Ceiling</c> 向上取整、至少 1 轮（见该方法）——一旦换算结果恰好等于
+        /// 1，<c>CombatTickHandler</c> 每轮结束调用一次 <see cref="Update"/>(1.0)，任何单位只要在
+        /// 本轮参与过一次战斗事件（<c>_timeSinceLastEvent</c> 被刚刚清零），下一次轮结束时
+        /// <c>elapsed</c> 必然恰好等于 <c>LeaveCombatDelay</c>（1.0），"未达延迟"这条 continue 分支
+        /// （见 <see cref="Update"/> 内 <c>elapsed &lt; _options.LeaveCombatDelay</c> 判断）在离散模式
+        /// 下形同虚设——每一次轮结束都会落到本方法，完全依赖仇恨表判断是否仍在交战。两个单位互相
+        /// 攻击时，若某一方在本轮尚未被对方真正命中过（如对方本轮先手，尚未轮到它还手），该方自己
+        /// 的仇恨表为空，本方法此前判定其"周边无存活敌对来源"而被误判脱战，随即在对方下一步反击时
+        /// 经 <see cref="NotifyCombatEvent"/> 重新进战——观测到虚假的 <c>combat.left → combat.entered</c>
+        /// 往返，并把该单位从 <c>TurnScheduler</c> 当前轮行动顺序里移除又重新追加到末尾（见
+        /// <c>TimeModelSwitch.OnCombatLeft</c>/<c>OnCombatEntered</c> 对 <c>fixed_order</c> 策略的
+        /// <c>RemoveParticipant</c>/<c>AddParticipant</c> 处理），扰乱既定的行动顺序。
+        /// </para>
+        /// <para>
+        /// 修复：新增反向检查——<paramref name="unitId"/> 自己仇恨表为空（或没有存活敌对来源）时，
+        /// 进一步查是否仍作为攻击来源挂在某个存活敌对单位的仇恨表里（即"我是否仍在主动攻击某个
+        /// 活着的敌人"）。两个方向任一成立即视为"周边仍有存活敌对仇恨来源"，与主动进攻方在对方
+        /// 反击之前就被判定脱战的场景相符——一旦双方任一方已经死亡或不再敌对，两个方向都不会再有
+        /// 匹配，脱战判定不受影响（见 <c>CombatEnterLeaveTests.Update_AfterDelay_NoLivingHostileSource_LeavesCombatAndClearsThreat</c>
+        /// 等既有用例：攻击者死亡后两个方向均查不到存活敌对来源，防御方仍会正常脱战）。
+        /// </para>
+        /// </summary>
         private bool HasLivingHostileThreatSource(Id unitId)
         {
             if (!_units.Exists(unitId))
@@ -145,6 +178,8 @@ namespace Core.Rules.Combat
             }
 
             var unitFaction = _units.GetFaction(unitId);
+
+            // 方向一：unitId 自己的仇恨表——谁攻击过/仇恨过 unitId。
             foreach (var (source, _) in _threatTable.GetAll(unitId))
             {
                 if (!_units.Exists(source) || !_units.IsAlive(source))
@@ -153,6 +188,26 @@ namespace Core.Rules.Combat
                 }
 
                 if (_factions.IsHostile(unitFaction, _units.GetFaction(source)))
+                {
+                    return true;
+                }
+            }
+
+            // 方向二：unitId 是否仍作为攻击来源挂在某个存活敌对单位的仇恨表里——unitId 主动进攻
+            // 某个活着的敌人，但对方尚未反击、unitId 自己的仇恨表因此为空（见本方法判断记录）。
+            foreach (var trackedUnit in _threatTable.TrackedUnits)
+            {
+                if (trackedUnit.Equals(unitId) || !_units.Exists(trackedUnit) || !_units.IsAlive(trackedUnit))
+                {
+                    continue;
+                }
+
+                if (_threatTable.GetThreat(trackedUnit, unitId) <= 0.0)
+                {
+                    continue;
+                }
+
+                if (_factions.IsHostile(unitFaction, _units.GetFaction(trackedUnit)))
                 {
                     return true;
                 }

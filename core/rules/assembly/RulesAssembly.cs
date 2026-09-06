@@ -96,6 +96,24 @@ namespace Core.Rules.Assembly
 
         public double SimTime => _simTime;
 
+        /// <param name="discreteTurnIndexProvider">
+        /// W1 收边补齐（A3 审计 #7、#11）：转发给 <see cref="ExprHostFactory"/> 的
+        /// <c>time.turn_index</c> provider（见 <see cref="RulesExprHostFactory"/> 构造函数同名参数
+        /// 判断记录）。<see cref="RulesExprHostFactory"/> 本身早已支持并测试过这三个可选委托
+        /// （<c>core/rules/expr_host/tests/RulesExprHostTests.cs</c> 的
+        /// <c>Time_TurnIndexAndRoundIndex_ReadFromInjectedProviders_WhenDiscreteModeWired</c>/
+        /// <c>Time_IsMyTurn_TrueWhenCurrentActorMatchesSelf_FalseOtherwise</c> 两例已验证注入假
+        /// provider 后三个 Expr key 返回真实值），此前缺的只是"生产组装时传入真实
+        /// <c>ITurnScheduler</c>"这一步——本参数就是那个缺口的窄注入点：调用方（<c>core/gameplay/
+        /// assembly.GameplayAssembly</c>，持有真正的 <c>ITurnScheduler</c> 实例）在离散模式接通后
+        /// 应传 <c>() =&gt; scheduler.CurrentTurnIndex</c>；三者均为 null（默认）时行为与本次改动
+        /// 之前完全一致（<c>time.turn_index</c>/<c>time.round_index</c>/<c>time.is_my_turn</c> 恒
+        /// 占位值 0/0/false）。
+        /// </param>
+        /// <param name="discreteRoundIndexProvider">同上，对应 <c>time.round_index</c>，调用方应传
+        /// <c>() =&gt; scheduler.RoundIndex</c>。</param>
+        /// <param name="discreteCurrentActorProvider">同上，对应 <c>time.is_my_turn</c>，调用方应传
+        /// <c>() =&gt; scheduler.GetCurrentActor()</c>。</param>
         public RulesAssembly(
             IEventBus bus,
             IDataRegistryView registry,
@@ -113,7 +131,10 @@ namespace Core.Rules.Assembly
             IStaticImmunityProvider? staticImmunity = null,
             IEffectExtension? effectExtension = null,
             bool autoRegisterTickHandlers = true,
-            IProjectileSpawner? projectileSpawner = null)
+            IProjectileSpawner? projectileSpawner = null,
+            Func<int>? discreteTurnIndexProvider = null,
+            Func<int>? discreteRoundIndexProvider = null,
+            Func<Id?>? discreteCurrentActorProvider = null)
         {
             Bus = bus ?? throw new ArgumentNullException(nameof(bus));
             Registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -172,7 +193,15 @@ namespace Core.Rules.Assembly
             ArchStatModifierWriter archModifierWriter = (unitId, stat, op, value, sourceId) =>
                 Stats.AddModifier(unitId, new StatModifier(stat, ParseOp(op), value, sourceId));
             PowerRegistrar archPowerRegistrar = (unitId, types) => Powers.RegisterUnit(unitId, types);
-            Archetypes = new ArchetypeRegistry(Registry, Bus, archBaseWriter, archModifierWriter, archPowerRegistrar);
+
+            // W1 收边补齐（race.passive_auras，A3 审计 #8）：闭包提前捕获尚未赋值的 skill 局部
+            // 变量，与上面第 1 步 progression 闭包同一种处理手法——ArchetypeRegistry（第 3 步）
+            // 构造时 SkillHost（第 5 步）还不存在，只要真正调用（RegisterUnit/ApplyTo）发生在
+            // 构造完成之后（第 5 步之后回填 skill = Skill），提前绑定是安全的。
+            SkillHost skill = null!;
+            AuraApplier archAuraApplier = (unitId, auraDefId, sourceId) =>
+                skill.EffectSink.ApplyAura(unitId, auraDefId, sourceId);
+            Archetypes = new ArchetypeRegistry(Registry, Bus, archBaseWriter, archModifierWriter, archPowerRegistrar, archAuraApplier);
 
             // -------------------------------------------------------------
             // 4) FactionMatrix。
@@ -198,7 +227,9 @@ namespace Core.Rules.Assembly
             ExprHostFactory = new RulesExprHostFactory(
                 Units, Stats, Powers, deferredAuras, Combat, Combat.GetThreatTable(ThreatTablePlaceholderId),
                 Spatial, Factions, () => _simTime, GetCombatStartTime,
-                extraGroups: null, skillHost: null, diagnostics: null, extraSchemas: extraSchemas);
+                extraGroups: null, skillHost: null, diagnostics: null, extraSchemas: extraSchemas,
+                turnIndexProvider: discreteTurnIndexProvider, roundIndexProvider: discreteRoundIndexProvider,
+                currentActorProvider: discreteCurrentActorProvider);
             // 判断记录 3：ExprHostFactory 构造时 skillHost 传 null——此刻 SkillHost 还不存在
             // （SkillHost 的构造反过来需要 IExprHostFactory，见判断记录 2 同一循环）。
             // RulesExprHostFactory 对 skillHost 缺失的处理已经是"按默认值 false + 警告一次"
@@ -218,6 +249,7 @@ namespace Core.Rules.Assembly
                 Registry, Bus, Units, Stats, Powers, Rng, Combat, Targeting, ExprHostFactory, Spatial,
                 resolvedSkillOptions, effectExtension: EffectExtension, diagnostics: null, exprSchema: null,
                 staticImmunity: staticImmunity, projectileSpawner: projectileSpawner);
+            skill = Skill; // 回填第 3 步 archAuraApplier 闭包捕获的局部变量。
 
             // -------------------------------------------------------------
             // 6) IAuraQuery 回接：combat 此前拿到的 deferredAuras 代理现在指向真实的
@@ -237,7 +269,9 @@ namespace Core.Rules.Assembly
             ExprHostFactory = new RulesExprHostFactory(
                 Units, Stats, Powers, deferredAuras, Combat, Combat.GetThreatTable(ThreatTablePlaceholderId),
                 Spatial, Factions, () => _simTime, GetCombatStartTime,
-                extraGroups: null, skillHost: Skill, diagnostics: null, extraSchemas: extraSchemas);
+                extraGroups: null, skillHost: Skill, diagnostics: null, extraSchemas: extraSchemas,
+                turnIndexProvider: discreteTurnIndexProvider, roundIndexProvider: discreteRoundIndexProvider,
+                currentActorProvider: discreteCurrentActorProvider);
 
             // -------------------------------------------------------------
             // 8) AiHost。

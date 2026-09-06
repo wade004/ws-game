@@ -26,6 +26,8 @@ progression/
     IProgressionHost.cs        IProgressionHost
   core/
     ProgressionHost.cs             IProgressionHost 默认实现
+    ProgressionPersistable.cs      player.progression 存档段（静态工厂，惯例同 core/carriers/unit
+                                    的 UnitPersistable 写法，W1 收边补齐，A4 审计 F1）
     ProgLevelCurveValidationRule.cs prog.level_curve 的 entries 连续性校验规则
     InMemoryProgressionDiagnostics.cs
   schema/
@@ -54,9 +56,15 @@ progression/
    跨两级却把成长值分两次写、后一次覆盖前一次只剩最后一级增量的错误。
 
 4. **成长写入的来源 id 固定为 `prog.growth`，`RegisterUnit` 不隐式写入成长**：见
-   `ProgressionHost` 类文档判断记录——`RegisterUnit` 定位是"初始化/读档到已知等级"，不应
+   `ProgressionHost` 类文档判断记录——`RegisterUnit` 定位是"全新单位从起始等级开始"，不应
    用曲线重算结果覆盖存档已有的属性值；只有真正经由 `AddXp`/`GrantFromSource` 触发的升级
    路径才会调用成长写入委托。
+   **W1 收边补齐（A4 审计 F1）**：本条判断记录写下时"读档到已知等级"这一场景实际上从未真正
+   落地过——10 第 2.5 节"属性快照默认不存"意味着读档后除非有人重新写入成长修正，否则等级
+   越高的单位属性会缺失越多层成长（这正是 A4 审计发现的存档缺口本身）。现在
+   `ProgressionPersistable`/`ProgressionHost.RestoreState` 补上了这条路径：读档专用，允许指定
+   非零 `xp`，且**会**调用 `ApplyGrowth` 按 1..level 重新聚合成长——与 `RegisterUnit`（全新单位，
+   `xp` 恒 0，不重算成长）是两个语义不同的入口，不冲突。
 
 5. **满级后 `AddXp` 整笔丢弃、记诊断、不发 `XpGainedEvent`**：任务书"到 max_level
    后经验不再累积（丢弃并记诊断）"。区分两种满级丢弃场景：调用时已在满级（整笔丢弃，不发

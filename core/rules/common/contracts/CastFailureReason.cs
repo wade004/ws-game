@@ -8,12 +8,13 @@ namespace Core.Rules.Common
     /// <see cref="NoValidTarget"/> 对应步骤 6；<see cref="OutOfRange"/>/<see cref="LineOfSight"/> 对应
     /// 步骤 7；<see cref="Interrupted"/> 对应步骤 8。
     /// <para>
-    /// 以下五项 06 原文未列出，属任务书要求的补充（"06 §3.6 原因码 + 必要补充"），标注「补充」：
+    /// 以下六项 06 原文未列出，属任务书要求的补充（"06 §3.6 原因码 + 必要补充"），标注「补充」：
     /// <see cref="None"/>（补充，表示尚未失败/无原因，供 <see cref="CastResult"/> 成功分支使用）、
     /// <see cref="UnknownSkill"/>（补充，<c>skillId</c> 未在 <c>skill.def</c> 登记，早于步骤 1 的前置校验）、
     /// <see cref="PassiveSkill"/>（补充，<c>kind = passive</c> 的技能不可主动施放，见 06 第 3.1 节
     /// <c>kind</c> 字段说明，同样早于步骤 1）、<see cref="NoCharges"/>（补充，细化步骤 3"充能是否 &gt; 0"
-    /// 这一具体失败分支，区别于普通冷却未就绪）、<see cref="Busy"/>（集成任务补充，见其注释）。
+    /// 这一具体失败分支，区别于普通冷却未就绪）、<see cref="Busy"/>（集成任务补充，见其注释）、
+    /// <see cref="InsufficientActionPoints"/>（W1 收边补充，见其注释）。
     /// </para>
     /// </summary>
     public enum CastFailureReason
@@ -52,5 +53,15 @@ namespace Core.Rules.Common
         /// <see cref="OnCooldown"/> 恢复只表示步骤 3 冷却/充能未就绪这一单一语义。
         /// </summary>
         Busy,
+
+        /// <summary>
+        /// W1 收边补充（06 第 3.1 节 <c>action_cost</c>）：离散步内，<c>skill.def.action_cost</c>
+        /// 大于 0 且调用方已装配 <see cref="Core.Rules.Skill.SkillOptions.IsDiscreteStep"/>/
+        /// <see cref="Core.Rules.Skill.SkillOptions.TryConsumeActionPoints"/> 时，施法者当前剩余行动点
+        /// 不足以支付本次施放。是步骤 5"资源"检查在离散模式下的补充分支（与 <see cref="InsufficientPower"/>
+        /// 同属"资源不够"这一大类，用独立原因码区分"资源池不足"与"行动点不足"，便于 AI Rotation
+        /// 条件与 UI 分别处理）。连续模式恒不触发本原因码。
+        /// </summary>
+        InsufficientActionPoints,
     }
 }

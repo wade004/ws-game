@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
+using Core.Rules.Common;
 
 namespace Core.Rules.Skill
 {
@@ -22,6 +23,25 @@ namespace Core.Rules.Skill
         private readonly Dictionary<(Id Unit, Id Category), double> _categoryCooldowns = new Dictionary<(Id, Id), double>();
         private readonly Dictionary<(Id Unit, Id Skill), ChargeState> _charges = new Dictionary<(Id, Id), ChargeState>();
         private readonly Dictionary<Id, double> _gcdRemaining = new Dictionary<Id, double>();
+
+        /// <summary>
+        /// W1 收边补齐（06 第 3.5 节 <c>SpellModDimension.Charges</c>）：延迟注入的 SpellMod 解析器，
+        /// 供 <see cref="EffectiveChargesMax"/>/<see cref="EffectiveRechargeTime"/> 按当前生效的
+        /// <c>charges</c> 维度 SpellMod 修正充能上限与单次恢复时间。延迟为可写属性（而非构造参数）
+        /// 是因为 <c>SkillHost</c> 构造顺序里 <see cref="CooldownTracker"/> 先于
+        /// <see cref="SpellModResolver"/> 构造（后者依赖 <c>SkillDefCache</c>/<c>AuraHost</c>），与
+        /// <c>AuraHost.ProcHost</c>/<c>AuraHost.EffectSink</c> 同一种"先构造、后回填"处理循环依赖的
+        /// 既有写法。为 null（未接线）时按 <c>def.ChargesMax</c>/<c>def.ChargesRechargeTime</c>
+        /// 原始值计算，行为与本次改动之前完全一致。
+        /// <para>
+        /// 判断记录：06 原文只给出 <c>charges</c> 这一个维度同时对应"充能次数与单次恢复时间"两个
+        /// 数值（第 3.1 节 <c>charges: Optional&lt;{max, recharge_time}&gt;</c>），未规定 SpellMod
+        /// 具体修正二者中的哪一个；本模块拍板两者都受同一维度的 flat/pct 修正各自独立解析（各自以
+        /// 原始值为 <c>baseValue</c> 调 <see cref="SpellModResolver.Apply"/>），呼应"充能"天赋常见的
+        /// 两种口味（多给一次充能 / 缩短恢复时间）都能表达，不强行二选一。
+        /// </para>
+        /// </summary>
+        public SpellModResolver? SpellMods { get; set; }
 
         /// <summary>该技能是否就绪（不含公共冷却，公共冷却由 <see cref="IsGcdReady"/> 单独判断，
         /// 见 06 第 3.6 节步骤 3/4 是两个独立步骤）：有充能配置时看充能数 &gt; 0，否则看技能自身
@@ -106,9 +126,9 @@ namespace Core.Rules.Skill
                     state.Current--;
                 }
 
-                if (state.RechargeRemaining <= 0 && state.Current < def.ChargesMax!.Value)
+                if (state.RechargeRemaining <= 0 && state.Current < EffectiveChargesMax(unitId, def))
                 {
-                    state.RechargeRemaining = def.ChargesRechargeTime;
+                    state.RechargeRemaining = EffectiveRechargeTime(unitId, def);
                 }
 
                 return;
@@ -159,8 +179,9 @@ namespace Core.Rules.Skill
             }
 
             var state = GetOrCreateChargeState(unitId, def);
-            state.Current = Math.Min(def.ChargesMax!.Value, state.Current + amount);
-            if (state.Current >= def.ChargesMax.Value)
+            var max = EffectiveChargesMax(unitId, def);
+            state.Current = Math.Min(max, state.Current + amount);
+            if (state.Current >= max)
             {
                 state.RechargeRemaining = 0;
             }
@@ -198,17 +219,18 @@ namespace Core.Rules.Skill
                 return;
             }
 
+            var max = EffectiveChargesMax(unitId, def);
             state.RechargeRemaining -= dt;
-            while (state.RechargeRemaining <= 0 && state.Current < def.ChargesMax!.Value)
+            while (state.RechargeRemaining <= 0 && state.Current < max)
             {
                 state.Current++;
-                if (state.Current >= def.ChargesMax.Value)
+                if (state.Current >= max)
                 {
                     state.RechargeRemaining = 0;
                     break;
                 }
 
-                state.RechargeRemaining += def.ChargesRechargeTime;
+                state.RechargeRemaining += EffectiveRechargeTime(unitId, def);
             }
         }
 
@@ -217,11 +239,38 @@ namespace Core.Rules.Skill
             var key = (unitId, def.Id);
             if (!_charges.TryGetValue(key, out var state))
             {
-                state = new ChargeState { Current = def.ChargesMax!.Value, RechargeRemaining = 0 };
+                state = new ChargeState { Current = EffectiveChargesMax(unitId, def), RechargeRemaining = 0 };
                 _charges[key] = state;
             }
 
             return state;
+        }
+
+        /// <summary>见 <see cref="SpellMods"/> 判断记录：<c>charges</c> 维度 SpellMod 修正后的充能
+        /// 上限，四舍五入取整并夹取到至少 1（不允许修正后变成 0 或负数——那会让"有充能配置"的技能
+        /// 永久不可用，属于内容/数值配平层面才应做出的决定，本层只兜底不允许运行时崩溃）。</summary>
+        private int EffectiveChargesMax(Id unitId, SkillDef def)
+        {
+            var max = def.ChargesMax!.Value;
+            if (SpellMods == null)
+            {
+                return max;
+            }
+
+            var modified = SpellMods.Apply(unitId, SpellModDimension.Charges, def.Id, def.School, def.Tags, max);
+            return Math.Max(1, (int)Math.Round(modified, MidpointRounding.AwayFromZero));
+        }
+
+        /// <summary>见 <see cref="SpellMods"/> 判断记录：<c>charges</c> 维度 SpellMod 修正后的单次
+        /// 恢复时间，夹取到不小于 0。</summary>
+        private double EffectiveRechargeTime(Id unitId, SkillDef def)
+        {
+            if (SpellMods == null)
+            {
+                return def.ChargesRechargeTime;
+            }
+
+            return Math.Max(0, SpellMods.Apply(unitId, SpellModDimension.Charges, def.Id, def.School, def.Tags, def.ChargesRechargeTime));
         }
 
         private static void AdvanceMap<TKey>(Dictionary<TKey, double> map, double dt) where TKey : notnull

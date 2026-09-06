@@ -21,7 +21,7 @@
 | `cooldown_category` | Id | 否 | 冷却分类引用，同分类技能共享冷却 |
 | `cooldown_duration` | Number | 否 | 冷却时长，缺省 0 |
 | `charges` | Object | 否 | `{max: Int, recharge_time: Number}`；存在时冷却判定改走充能而非 `cooldown_duration` |
-| `action_cost` | Number | 否 | 离散模式行动点消耗；本项目未启用离散模式（ADR-0013），本模块只解析不使用 |
+| `action_cost` | Number | 否 | 离散模式行动点消耗；`SkillDefCache` 解析为 `SkillDef.ActionCost`（缺省 0），`CastPipeline` 经注入的 `SkillOptions.TryConsumeActionPoints`/`IsDiscreteStep` 在离散步内扣减（连续模式或未装配注入点时忽略本字段，见 W1 收边补齐、A3 审计 #5） |
 | `respects_gcd` | Bool | 是 | 是否受公共冷却影响 |
 | `target_shape_ref` | Id | 是 | 指向 `target.chain_def`（本模块施法管线步骤 6 按此语义直接传给 `ITargetHost.Resolve`，见 README"判断记录"第 1 条） |
 | `effects` | Array | 是 | `[{kind: String(snake_case), params: Object}, ...]`，`kind` 取值见 `EffectKindNames` |

@@ -525,5 +525,112 @@ namespace Tests.Numbers.StatBlock
 
             Assert.Equal(valueX, valueY); // 逐位相等（xunit 对 double 的默认 Equal 是精确比较）
         }
+
+        // -----------------------------------------------------------------
+        // W1 收边补齐（A3 审计 #16）：IsRegistered/UnregisterUnit/GetBase/GetModifiers 无直接测试
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void IsRegistered_FalseBeforeRegister_TrueAfter_FalseAfterUnregister()
+        {
+            var (host, _, _, _) = BuildHost();
+            var unit = new Id("unit.registration");
+
+            Assert.False(host.IsRegistered(unit));
+
+            host.RegisterUnit(unit);
+            Assert.True(host.IsRegistered(unit));
+
+            host.UnregisterUnit(unit);
+            Assert.False(host.IsRegistered(unit));
+        }
+
+        [Fact]
+        public void UnregisterUnit_UnknownUnit_DoesNotThrow()
+        {
+            var (host, _, _, _) = BuildHost();
+
+            var ex = Record.Exception(() => host.UnregisterUnit(new Id("unit.never_registered")));
+
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void UnregisterUnit_SubsequentGetStat_ThrowsAsUnregistered()
+        {
+            var (host, _, _, _) = BuildHost();
+            var unit = new Id("unit.unregister_then_read");
+            host.RegisterUnit(unit);
+            host.SetBase(unit, StatA, 5.0);
+
+            host.UnregisterUnit(unit);
+
+            Assert.Throws<InvalidOperationException>(() => host.GetStat(unit, StatA));
+        }
+
+        [Fact]
+        public void GetBase_ReturnsDefaultBase_WhenNeverSet()
+        {
+            var (host, _, _, _) = BuildHost();
+            var unit = new Id("unit.get_base_default");
+            host.RegisterUnit(unit);
+
+            Assert.Equal(0.0, host.GetBase(unit, StatA));
+        }
+
+        [Fact]
+        public void GetBase_ReturnsSetValue_UnaffectedByModifiers()
+        {
+            var (host, _, _, _) = BuildHost();
+            var unit = new Id("unit.get_base_set");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatA, 10.0);
+            host.AddModifier(unit, new StatModifier(StatA, StatModifierOp.Flat, 100.0, new Id("src.a")));
+
+            Assert.Equal(10.0, host.GetBase(unit, StatA)); // GetBase 只看基础值，不含修正。
+            Assert.Equal(110.0, host.GetStat(unit, StatA)); // 对照：GetStat 含修正。
+        }
+
+        [Fact]
+        public void GetModifiers_EmptyBeforeAnyAdded_ThenReflectsAddedModifiers()
+        {
+            var (host, _, _, _) = BuildHost();
+            var unit = new Id("unit.get_modifiers");
+            host.RegisterUnit(unit);
+
+            Assert.Empty(host.GetModifiers(unit, StatA));
+
+            var mod1 = new StatModifier(StatA, StatModifierOp.Flat, 3.0, new Id("src.a"));
+            var mod2 = new StatModifier(StatA, StatModifierOp.Pct, 0.1, new Id("src.b"));
+            host.AddModifier(unit, mod1);
+            host.AddModifier(unit, mod2);
+
+            var modifiers = host.GetModifiers(unit, StatA);
+            Assert.Equal(2, modifiers.Count);
+            Assert.Contains(modifiers, m => m.SourceId == mod1.SourceId && m.Op == StatModifierOp.Flat);
+            Assert.Contains(modifiers, m => m.SourceId == mod2.SourceId && m.Op == StatModifierOp.Pct);
+
+            // 其它属性的修正列表不受影响（GetModifiers 按 stat 独立索引）。
+            Assert.Empty(host.GetModifiers(unit, StatB));
+        }
+
+        [Fact]
+        public void GetModifiers_ReturnsSnapshot_NotLiveView()
+        {
+            var (host, _, _, _) = BuildHost();
+            var unit = new Id("unit.get_modifiers_snapshot");
+            host.RegisterUnit(unit);
+            host.AddModifier(unit, new StatModifier(StatA, StatModifierOp.Flat, 1.0, new Id("src.a")));
+
+            var snapshot = host.GetModifiers(unit, StatA);
+            Assert.Single(snapshot);
+
+            host.AddModifier(unit, new StatModifier(StatA, StatModifierOp.Flat, 2.0, new Id("src.b")));
+
+            // 快照本身（GetModifiers 内部 ToArray()）不随后续 AddModifier 变化。
+            Assert.Single(snapshot);
+            Assert.Equal(2, host.GetModifiers(unit, StatA).Count);
+        }
     }
 }

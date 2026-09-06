@@ -161,6 +161,65 @@ namespace Tests.Carriers.Unit
             Assert.Equal(MapId, units.GetMapId(creature.EntityId));
         }
 
+        // -----------------------------------------------------------------
+        // Revive（W1 收边补齐，拍板 3 前置：死亡复活链路）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Revive_RestoresAliveAndPosition_SyncsSpatialIndex_WhenInjected()
+        {
+            var world = NewWorld();
+            var spatial = new StubSpatialQuery();
+            var units = new WorldUnitAccess(world, spatial);
+            var creature = new CreatureUnit(new Id("unit.wolf"), MapId, FactionId, CreatureTemplateId)
+            {
+                Position = new Vec2(0, 0),
+            };
+            world.AddEntity(creature);
+            spatial.Register(creature.EntityId, Vec2.Zero, 0.5, new[] { "unit" });
+            units.SetAlive(creature.EntityId, false);
+
+            units.Revive(creature.EntityId, new Vec2(9, 9), healthFraction: 1.0);
+
+            Assert.True(units.IsAlive(creature.EntityId));
+            Assert.Equal(new Vec2(9, 9), units.GetPosition(creature.EntityId));
+            var nearest = spatial.Nearest(new Vec2(9, 9), Core.Foundation.EngineAdapter.QueryFilter.None);
+            Assert.Equal(creature.EntityId, nearest);
+        }
+
+        [Fact]
+        public void Revive_InvokesInjectedHealthFractionSetter_WithClampedFraction()
+        {
+            var world = NewWorld();
+            var calls = new System.Collections.Generic.List<(Id UnitId, double Fraction)>();
+            HealthFractionSetter setter = (unitId, fraction) => calls.Add((unitId, fraction));
+            var units = new WorldUnitAccess(world, spatial: null, healthFractionSetter: setter);
+            var creature = new CreatureUnit(new Id("unit.wolf"), MapId, FactionId, CreatureTemplateId);
+            world.AddEntity(creature);
+            units.SetAlive(creature.EntityId, false);
+
+            units.Revive(creature.EntityId, Vec2.Zero, healthFraction: 1.5); // 越界值应被夹取到 1.0。
+
+            var call = Assert.Single(calls);
+            Assert.Equal(creature.EntityId, call.UnitId);
+            Assert.Equal(1.0, call.Fraction);
+        }
+
+        [Fact]
+        public void Revive_WithoutHealthFractionSetterInjected_DoesNotThrow()
+        {
+            var world = NewWorld();
+            var units = new WorldUnitAccess(world);
+            var creature = new CreatureUnit(new Id("unit.wolf"), MapId, FactionId, CreatureTemplateId);
+            world.AddEntity(creature);
+            units.SetAlive(creature.EntityId, false);
+
+            var ex = Record.Exception(() => units.Revive(creature.EntityId, new Vec2(1, 1), healthFraction: 0.5));
+
+            Assert.Null(ex);
+            Assert.True(units.IsAlive(creature.EntityId));
+        }
+
         [Fact]
         public void AccessorsOnUnknownUnit_Throw()
         {

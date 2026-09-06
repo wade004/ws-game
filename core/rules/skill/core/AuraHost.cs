@@ -21,6 +21,15 @@ namespace Core.Rules.Skill
         public Id SourceId;
         public int Stacks;
 
+        /// <summary>W1 收边补齐（A3 审计 #9）：施加本光环实例时的调用方标签集合（通常来自
+        /// 触发 <c>apply_aura</c> 效果原语的 <c>skill.def.tags</c>，见
+        /// <see cref="EffectDispatcher.ApplyAuraEffectPrimitive"/>），供 <see cref="AuraHost.FirePeriodic"/>
+        /// 构造 <see cref="EffectContext"/> 时透传，让周期性光环效果的 effect_value/crit_chance
+        /// 维度 SpellMod 也能按标签过滤（此前恒空列表，只有学派/技能 id 两维度生效）。未提供
+        /// （如种族被动光环——见 <c>Core.Numbers.Archetype.AuraApplier</c>）时为空列表，行为与
+        /// 本次改动之前一致。</summary>
+        public IReadOnlyList<Id> Tags = Array.Empty<Id>();
+
         /// <summary>剩余持续时间；null 表示永久（见 06 第 3.3 节 <c>duration</c> 可空语义）。</summary>
         public double? Remaining;
 
@@ -136,27 +145,29 @@ namespace Core.Rules.Skill
         // 施加 / 移除 / 驱散
         // -----------------------------------------------------------------
 
-        public AuraInstanceRef ApplyAura(Id targetId, Id defId, Id sourceId, double? durationOverride)
+        public AuraInstanceRef ApplyAura(Id targetId, Id defId, Id sourceId, double? durationOverride, IReadOnlyList<Id>? tags = null)
         {
             var def = _defs.GetAuraDef(defId);
             var sourceKey = _options.AllowMultiSourceTiming ? (Id?)sourceId : null;
             var slotKey = (targetId, defId, sourceKey);
+            var safeTags = tags ?? Array.Empty<Id>();
 
             if (_slots.TryGetValue(slotKey, out var existingId) && _instances.TryGetValue(existingId, out var existing))
             {
-                return ReapplyExisting(existing, def, sourceId, durationOverride);
+                return ReapplyExisting(existing, def, sourceId, durationOverride, safeTags);
             }
 
-            return CreateInstance(targetId, def, sourceId, durationOverride);
+            return CreateInstance(targetId, def, sourceId, durationOverride, safeTags);
         }
 
-        private AuraInstanceRef ReapplyExisting(AuraInstanceState existing, AuraDef def, Id sourceId, double? durationOverride)
+        private AuraInstanceRef ReapplyExisting(AuraInstanceState existing, AuraDef def, Id sourceId, double? durationOverride, IReadOnlyList<Id> tags)
         {
             var newStacks = existing.Stacks + 1;
             if (newStacks <= def.MaxStacks)
             {
                 existing.Remaining = durationOverride ?? def.Duration;
                 existing.SourceId = sourceId;
+                existing.Tags = tags;
                 var old = existing.Stacks;
                 existing.Stacks = newStacks;
                 ReapplyStatMods(existing, def);
@@ -176,14 +187,14 @@ namespace Core.Rules.Skill
 
                 case StackOverflowPolicy.Replace:
                     RemoveInstanceInternal(existing, "overwritten");
-                    return CreateInstance(existing.TargetId, def, sourceId, durationOverride);
+                    return CreateInstance(existing.TargetId, def, sourceId, durationOverride, tags);
 
                 default:
                     throw new InvalidOperationException($"未知的 StackOverflowPolicy：{_options.StackOverflowPolicy}");
             }
         }
 
-        private AuraInstanceRef CreateInstance(Id targetId, AuraDef def, Id sourceId, double? durationOverride)
+        private AuraInstanceRef CreateInstance(Id targetId, AuraDef def, Id sourceId, double? durationOverride, IReadOnlyList<Id>? tags = null)
         {
             var instance = new AuraInstanceState
             {
@@ -194,6 +205,7 @@ namespace Core.Rules.Skill
                 Stacks = 1,
                 Remaining = durationOverride ?? def.Duration,
                 SeqNo = _seq,
+                Tags = tags ?? Array.Empty<Id>(),
             };
 
             ApplyStaticEffects(instance, def);
@@ -346,7 +358,8 @@ namespace Core.Rules.Skill
                 auraInstanceId: instance.InstanceId,
                 isPeriodic: true,
                 canCrit: true,
-                canMiss: false);
+                canMiss: false,
+                tags: instance.Tags);
 
             EffectSink.ApplyEffect(context);
         }

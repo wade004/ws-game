@@ -77,5 +77,52 @@ namespace Tests.Carriers.Unit
 
             Assert.Equal(MapId, player.MapId);
         }
+
+        // -----------------------------------------------------------------
+        // ArchetypeId（W1 收边补齐：A4 审计 F1，player.archetype 段）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ArchetypeId_SectionKey_MatchesSaveSections()
+        {
+            var player = new PlayerUnit(new Id("unit.hero"), MapId, FactionId, ArchetypeId);
+            var persistable = UnitPersistable.ArchetypeId(player);
+
+            Assert.Equal(SaveSections.PlayerArchetype, persistable.SectionKey);
+        }
+
+        [Fact]
+        public void ArchetypeId_RoundTrips()
+        {
+            var player = new PlayerUnit(new Id("unit.hero"), MapId, FactionId, ArchetypeId);
+            var persistable = UnitPersistable.ArchetypeId(player);
+
+            var saved = persistable.Save();
+
+            var loadedInto = new PlayerUnit(new Id("unit.hero"), MapId, FactionId, new Id("arch.class.other"));
+            UnitPersistable.ArchetypeId(loadedInto).Load(saved);
+
+            Assert.Equal(ArchetypeId, loadedInto.ArchetypeId);
+        }
+
+        [Fact]
+        public void ArchetypeId_Load_RejectsWrongShape()
+        {
+            var player = new PlayerUnit(new Id("unit.hero"), MapId, FactionId, ArchetypeId);
+            var persistable = UnitPersistable.ArchetypeId(player);
+
+            Assert.Throws<System.FormatException>(() => persistable.Load(new JsonObjectBuilder().Build()));
+        }
+
+        [Fact]
+        public void ArchetypeId_Load_NullData_LeavesUnchanged()
+        {
+            var player = new PlayerUnit(new Id("unit.hero"), MapId, FactionId, ArchetypeId);
+            var persistable = UnitPersistable.ArchetypeId(player);
+
+            persistable.Load(JsonNull.Instance);
+
+            Assert.Equal(ArchetypeId, player.ArchetypeId);
+        }
     }
 }

@@ -362,5 +362,50 @@ namespace Tests.Carriers.Item
             var removedCount = f.EffectSink.Removed.Count;
             Assert.True(removedCount >= 1);
         }
+
+        // -----------------------------------------------------------------
+        // GetAllEquipped（W1 收边补齐：A3 审计 #18，此前无直接测试覆盖）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void GetAllEquipped_ReturnsEmpty_WhenNothingEquipped()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+
+            Assert.Empty(f.Equipment.GetAllEquipped(Player));
+        }
+
+        [Fact]
+        public void GetAllEquipped_ReturnsAllEquippedSlots_KeyedBySlot()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var weaponId = GiveAndReturnInstance(f, "item.sample_weapon_a");
+            var chestId = GiveAndReturnInstance(f, "item.sample_chest_armor");
+
+            f.Equipment.Equip(Player, weaponId, new Id("item.slot.main_hand"));
+            f.Equipment.Equip(Player, chestId, new Id("item.slot.chest"));
+
+            var all = f.Equipment.GetAllEquipped(Player);
+
+            Assert.Equal(2, all.Count);
+            Assert.Equal(weaponId, all[new Id("item.slot.main_hand")].InstanceId);
+            Assert.Equal(chestId, all[new Id("item.slot.chest")].InstanceId);
+        }
+
+        [Fact]
+        public void GetAllEquipped_UnequipRemovesSlotFromResult()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var weaponId = GiveAndReturnInstance(f, "item.sample_weapon_a");
+            f.Equipment.Equip(Player, weaponId, new Id("item.slot.main_hand"));
+            Assert.Single(f.Equipment.GetAllEquipped(Player));
+
+            f.Equipment.Unequip(Player, new Id("item.slot.main_hand"));
+
+            Assert.Empty(f.Equipment.GetAllEquipped(Player));
+        }
     }
 }

@@ -211,6 +211,7 @@ namespace Core.Rules.Skill
 
             var respectsGcd = record.GetBool("respects_gcd");
             var targetShapeRef = record.GetId("target_shape_ref");
+            var actionCost = record.TryGetNumber("action_cost", out var ac) ? ac : 0;
 
             var effects = ParseEffectRefs(record.GetArray("effects"));
 
@@ -233,7 +234,7 @@ namespace Core.Rules.Skill
             return new SkillDef(
                 id, school, isPassive, range, tags, castTime, channelTime, cost,
                 cooldownCategory, cooldownDuration, chargesMax, chargesRecharge,
-                respectsGcd, targetShapeRef, effects, interruptFlags);
+                respectsGcd, targetShapeRef, effects, interruptFlags, actionCost);
         }
 
         internal static IReadOnlyList<EffectRef> ParseEffectRefs(JsonArray array)

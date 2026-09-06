@@ -39,13 +39,21 @@ namespace Core.Rules.Skill
         public IReadOnlyList<EffectRef> Effects { get; }
         public InterruptFlags InterruptFlags { get; }
 
+        /// <summary>离散模式下释放本技能消耗的行动点数量（06 第 3.1 节 <c>action_cost</c>）；
+        /// 连续模式忽略本字段。未声明时为 0（不消耗行动点），与"该字段可选"的文档语义一致。
+        /// W1 收边补齐：此前 <see cref="SkillDefCache"/> 只把该字段登记进 schema 供数据校验通过，
+        /// 从未解析进 <see cref="SkillDef"/>，<see cref="CastPipeline"/> 也从未消费——离散模式下
+        /// 技能可无限连续释放，见 A3 审计 #5。</summary>
+        public double ActionCost { get; }
+
         public bool HasCharges => ChargesMax.HasValue;
 
         public SkillDef(
             Id id, Id school, bool isPassive, double range, IReadOnlyList<Id> tags,
             double castTime, double channelTime, IReadOnlyList<(Id, double)> cost,
             Id? cooldownCategory, double cooldownDuration, int? chargesMax, double chargesRechargeTime,
-            bool respectsGcd, Id targetShapeRef, IReadOnlyList<EffectRef> effects, InterruptFlags interruptFlags)
+            bool respectsGcd, Id targetShapeRef, IReadOnlyList<EffectRef> effects, InterruptFlags interruptFlags,
+            double actionCost = 0)
         {
             Id = id;
             School = school;
@@ -63,6 +71,7 @@ namespace Core.Rules.Skill
             TargetShapeRef = targetShapeRef;
             Effects = effects;
             InterruptFlags = interruptFlags;
+            ActionCost = actionCost;
         }
     }
 

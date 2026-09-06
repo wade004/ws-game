@@ -50,7 +50,10 @@ namespace Core.Numbers.Archetype
     }
 
     /// <summary><c>arch.race</c> 一行的只读视图（见 <see cref="ArchSchemas.Race"/>）。
-    /// <see cref="PassiveAuras"/> 本模块只保存、不应用（任务书原文）。</summary>
+    /// <see cref="PassiveAuras"/> 由 <see cref="ArchetypeRegistry.ApplyTo"/> 经注入的
+    /// <see cref="AuraApplier"/> 施加（W1 收边补齐，见该方法注释——此前"本模块只保存、不应用"的
+    /// 前提是"L2 skill 尚未实现"，该前提已过期，<c>core/rules/skill</c> 目前已完整实现）；
+    /// 未注入 <see cref="AuraApplier"/>（调用方未装配）时仍旧只保存不应用，向后兼容。</summary>
     public sealed class RaceDefinition
     {
         public Id Id { get; }

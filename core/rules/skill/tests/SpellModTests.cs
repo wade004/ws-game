@@ -61,6 +61,7 @@ namespace Tests.Rules.Skill
         [InlineData("cost")]
         [InlineData("cooldown")]
         [InlineData("effect_value")]
+        [InlineData("charges")] // W1 收边补齐（A3 审计 #6）：见 core/rules/skill/tests/ChargesSpellModTests.cs 的 CooldownTracker 消费端集成用例。
         public void FlatThenPct_MatchesHandCalculation(string dimensionText)
         {
             var dimension = dimensionText switch
@@ -68,6 +69,7 @@ namespace Tests.Rules.Skill
                 "cast_time" => SpellModDimension.CastTime,
                 "cost" => SpellModDimension.Cost,
                 "cooldown" => SpellModDimension.Cooldown,
+                "charges" => SpellModDimension.Charges,
                 _ => SpellModDimension.EffectValue,
             };
 

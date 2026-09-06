@@ -116,12 +116,20 @@ namespace Tests.Numbers.Archetype
             public Id SourceId;
         }
 
+        private sealed class AuraApplyCall
+        {
+            public Id UnitId;
+            public Id AuraDefId;
+            public Id SourceId;
+        }
+
         private sealed class RecordingWriters
         {
             public readonly List<string> CallOrder = new List<string>();
             public readonly List<BaseWriteCall> BaseWrites = new List<BaseWriteCall>();
             public readonly List<ModWriteCall> ModWrites = new List<ModWriteCall>();
             public readonly List<(Id UnitId, IReadOnlyList<Id> PowerTypes)> PowerRegistrations = new List<(Id, IReadOnlyList<Id>)>();
+            public readonly List<AuraApplyCall> AuraApplies = new List<AuraApplyCall>();
 
             public void WriteBase(Id unitId, Id stat, double value)
             {
@@ -140,10 +148,20 @@ namespace Tests.Numbers.Archetype
                 CallOrder.Add("powers");
                 PowerRegistrations.Add((unitId, powerTypes));
             }
+
+            /// <summary>W1 收边补齐：race.passive_auras 施加记录（见 <see cref="AuraApplier"/>）。</summary>
+            public void ApplyAura(Id unitId, Id auraDefId, Id sourceId)
+            {
+                CallOrder.Add("aura");
+                AuraApplies.Add(new AuraApplyCall { UnitId = unitId, AuraDefId = auraDefId, SourceId = sourceId });
+            }
         }
 
-        private static ArchetypeRegistry MakeRegistryHost(IDataRegistryView registry, IEventBus bus, RecordingWriters writers) =>
-            new ArchetypeRegistry(registry, bus, writers.WriteBase, writers.WriteMod, writers.RegisterPowers);
+        private static ArchetypeRegistry MakeRegistryHost(
+            IDataRegistryView registry, IEventBus bus, RecordingWriters writers, bool withAuraApplier = false) =>
+            new ArchetypeRegistry(
+                registry, bus, writers.WriteBase, writers.WriteMod, writers.RegisterPowers,
+                withAuraApplier ? writers.ApplyAura : (AuraApplier?)null);
 
         // -----------------------------------------------------------------
         // 1. 加载 class / race / talent_tree
@@ -250,6 +268,50 @@ namespace Tests.Numbers.Archetype
 
             Assert.Equal("prog.curve.sample", result.LevelCurveRef!.Value.Value);
             Assert.Equal("arch.race.sample_x", result.RaceId!.Value.Value);
+        }
+
+        // -----------------------------------------------------------------
+        // 2b. race.passive_auras 施加（W1 收边补齐，A3 审计 #8）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ApplyTo_WithRaceAndAuraApplier_AppliesPassiveAuras_AfterModWriters()
+        {
+            var registry = MakeRegistry(ClassRows, RaceRows, GoodTalentTreeRows, out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeRegistryHost(registry, bus, writers, withAuraApplier: true);
+
+            var unit = new Id("unit.hero_05");
+            host.ApplyTo(unit, new Id("arch.class.sample_a"), new Id("arch.race.sample_x"));
+
+            // 顺序：base(×2) → mod(×2) → aura(×1) → powers(×1)——被动光环紧跟种族属性修正之后。
+            Assert.Equal(new[] { "base", "base", "mod", "mod", "aura", "powers" }, writers.CallOrder);
+
+            Assert.Single(writers.AuraApplies);
+            var applied = writers.AuraApplies[0];
+            Assert.Equal(unit, applied.UnitId);
+            Assert.Equal("skill.aura.sample_glow", applied.AuraDefId.Value);
+            Assert.Equal("arch.race.sample_x", applied.SourceId.Value);
+        }
+
+        [Fact]
+        public void ApplyTo_WithoutAuraApplierInjected_SkipsPassiveAuras_DoesNotThrow()
+        {
+            // 向后兼容：调用方未装配 AuraApplier（比如 core/rules/skill 尚未就绪的并行开发期）时，
+            // ApplyTo 不应抛异常，只是跳过这一步（行为与本次改动之前完全一致）。
+            var registry = MakeRegistry(ClassRows, RaceRows, GoodTalentTreeRows, out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeRegistryHost(registry, bus, writers, withAuraApplier: false);
+
+            var unit = new Id("unit.hero_06");
+            host.ApplyTo(unit, new Id("arch.class.sample_a"), new Id("arch.race.sample_x"));
+
+            Assert.Empty(writers.AuraApplies);
+            Assert.DoesNotContain("aura", writers.CallOrder);
         }
 
         // -----------------------------------------------------------------

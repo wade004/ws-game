@@ -14,6 +14,7 @@ using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
 using Core.Foundation.Rng;
 using Core.Foundation.SimLoop;
+using Core.Numbers.PowerSet;
 using Core.Numbers.StatBlock;
 using Core.Rules.Ai;
 using Core.Rules.Assembly;
@@ -153,7 +154,16 @@ namespace Core.Carriers.Assembly
             GobjOptions? gobjOptions = null,
             MovementOptions? movementOptions = null,
             ProjectileOptions? projectileOptions = null,
-            IReadOnlyList<IExprSchema>? extraSchemas = null)
+            IReadOnlyList<IExprSchema>? extraSchemas = null,
+            // W1 收边补齐（A3 审计 #7/#11）：原样转发给 RulesAssembly 同名三个参数——
+            // core/gameplay/assembly.GameplayAssembly（持有真正的 ITurnScheduler）在离散模式接通
+            // 后应传入 () => scheduler.CurrentTurnIndex / RoundIndex / GetCurrentActor()，让
+            // time.turn_index/round_index/is_my_turn 三个 Expr key 不再恒占位值（见
+            // RulesAssembly.cs 构造函数同名参数的完整判断记录）。三者均为 null（默认）时行为与
+            // 本次改动之前完全一致。
+            Func<int>? discreteTurnIndexProvider = null,
+            Func<int>? discreteRoundIndexProvider = null,
+            Func<Id?>? discreteCurrentActorProvider = null)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
@@ -173,8 +183,21 @@ namespace Core.Carriers.Assembly
             // 1) WorldUnitAccess（core/carriers/unit 的 IUnitAccess 真实实现，RulesAssembly 需要
             //    调用方注入这份"环境依赖"，见 core/rules/assembly/README.md 步骤 0/1）。移动时机的
             //    空间索引同步（UpdatePosition）经这里注入的 spatial 完成，创建/销毁时机见上一步。
+            //    W1 收边补齐（拍板 3 前置：死亡复活链路）：HealthFractionSetter 委托闭包提前捕获
+            //    尚未赋值的 powers 局部变量（与本类第 9 步 Rules 构造完成后回填同一种处理循环依赖
+            //    的手法——PowerHost 由 RulesAssembly 内部构造，而 RulesAssembly 构造又需要先拿到
+            //    WorldUnitAccess 作为 IUnitAccess 传入，两者互相需要对方，只要真正调用（Revive）
+            //    发生在构造完成之后即可安全提前绑定，见 core/rules/assembly/RulesAssembly.cs
+            //    progression/archAuraApplier 同款判断记录）。
             // ---------------------------------------------------------
-            Units = new WorldUnitAccess(world, spatial);
+            PowerHost powers = null!;
+            HealthFractionSetter healthFractionSetter = (unitId, fraction) =>
+            {
+                var max = powers.GetPowerMax(unitId, WellKnownPowers.Health);
+                var current = powers.GetPower(unitId, WellKnownPowers.Health);
+                powers.ModifyPower(unitId, WellKnownPowers.Health, max * fraction - current, new Id("system.revive"));
+            };
+            Units = new WorldUnitAccess(world, spatial, healthFractionSetter);
 
             // ---------------------------------------------------------
             // 2) CreatureImmunityProvider（IStaticImmunityProvider 的默认实现）+ InventoryHost +
@@ -210,7 +233,11 @@ namespace Core.Carriers.Assembly
                 bus, registry, rng, Units, spatial, world, navigation,
                 statOptions, combatOptions, skillOptions, targetingOptions, aiOptions,
                 extraSchemas, staticImmunity, itemExtension,
-                autoRegisterTickHandlers: false, projectileSpawner: Projectiles);
+                autoRegisterTickHandlers: false, projectileSpawner: Projectiles,
+                discreteTurnIndexProvider: discreteTurnIndexProvider,
+                discreteRoundIndexProvider: discreteRoundIndexProvider,
+                discreteCurrentActorProvider: discreteCurrentActorProvider);
+            powers = Rules.Powers; // 回填第 1 步 healthFractionSetter 闭包捕获的局部变量。
 
             // ---------------------------------------------------------
             // 3a) SkillBindingHost（缺口 4）：KnownSkillQuery 委托接线到 Rules.Skill.Knows（惯例同

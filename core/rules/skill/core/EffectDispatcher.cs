@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Numbers.PowerSet;
 using Core.Numbers.StatBlock;
@@ -121,6 +122,9 @@ namespace Core.Rules.Skill
             }
         }
 
+        // 判断记录：本方法实现 IEffectSink.ApplyAura（接口签名不带 tags，见该接口判断记录），
+        // 恒不传标签（AuraHost.ApplyAura 的 tags 参数缺省 null）——真正携带标签的施加路径是
+        // ApplyAuraEffectPrimitive 直接调用 AuraHost.ApplyAura 的重载，不经过本方法。
         public AuraInstanceRef ApplyAura(Id targetId, Id auraDefId, Id sourceId, double? durationOverride = null) =>
             _auraHost.ApplyAura(targetId, auraDefId, sourceId, durationOverride);
 
@@ -155,9 +159,10 @@ namespace Core.Rules.Skill
             // 契约缺口已补齐：EffectContext.Tags 携带技能标签集合（来自 skill.def.tags），
             // effect_value/crit_chance 维度的 SpellMod 过滤现在按学派/技能 id/标签三个维度一并
             // 匹配（见 SkillFilter.Matches）。CastPipeline.ExecuteEffectsOnly 构造 EffectContext
-            // 时会传入 def.Tags；周期性光环效果等脱离具体 skill.def 上下文的调用点（AuraHost.
-            // FirePeriodic）不传，按 EffectContext.Tags 默认空列表处理，退化为原先"按学派/技能 id"
-            // 匹配的行为。
+            // 时会传入 def.Tags；周期性光环效果（AuraHost.FirePeriodic）W1 收边补齐后也会带上
+            // 施加该光环时传入的标签（见 AuraInstanceState.Tags/IEffectSink.ApplyAura 的 tags
+            // 参数），不再恒为空——只有调用方本身没传标签（如种族被动光环、装备 grants.auras）时
+            // 才退化为原先"按学派/技能 id"匹配的行为。
             value = _spellMods.Apply(context.SourceId, SpellModDimension.EffectValue, context.SkillId, context.School, context.Tags, value);
 
             var critBonus = _spellMods.Apply(context.SourceId, SpellModDimension.CritChance, context.SkillId, context.School, context.Tags, 0);
@@ -182,7 +187,10 @@ namespace Core.Rules.Skill
                 ? ParamsX.GetNumber(context.Params, "duration_override")
                 : (double?)null;
 
-            _auraHost.ApplyAura(context.TargetId, auraDefId, context.SourceId, durationOverride);
+            // W1 收边补齐（A3 审计 #9）：把触发本次 apply_aura 的 EffectContext.Tags（源自
+            // skill.def.tags，见 CastPipeline.ExecuteEffectsOnly）转发给 AuraHost，供后续周期效果
+            // 结算按标签过滤 SpellMod（此前恒不传，见 AuraHost.FirePeriodic/AuraInstanceState.Tags）。
+            _auraHost.ApplyAura(context.TargetId, auraDefId, context.SourceId, durationOverride, context.Tags);
             return NoOp(context);
         }
 
@@ -362,7 +370,7 @@ namespace Core.Rules.Skill
 
             _diagnostics.Warn(
                 $"EffectKind.{context.Kind} 未被 IEffectExtension 处理（见 core/rules/skill/README.md" +
-                " \"六类效果原语委托扩展点\"），已按未处理返回");
+                " \"五类效果原语委托扩展点\"），已按未处理返回");
             return NoOp(context);
         }
 

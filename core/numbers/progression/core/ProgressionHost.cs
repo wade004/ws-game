@@ -236,6 +236,55 @@ namespace Core.Numbers.Progression
             }
         }
 
+        // -----------------------------------------------------------------
+        // 存档（W1 收边补齐：10 第 2.2 节 player.progression 字段，见 core/numbers/progression/
+        // core/ProgressionPersistable.cs 判断记录——本模块不直接实现 IPersistable，理由与
+        // core/carriers/unit/core/UnitPersistable.cs 同款静态工厂模式一致：本模块可能同时管理
+        // 多个单位（NPC 也可注册 Progression），但存档只关心"哪个单位是玩家"，这一决定权在调用方
+        // （游戏层引导代码知道谁是玩家），本模块自己不应该假设"唯一一个已注册单位就是玩家"。
+        // -----------------------------------------------------------------
+
+        /// <summary>序列化 <paramref name="unitId"/> 当前的 Progression 状态（<c>curve_id</c>/
+        /// <c>level</c>/<c>xp</c>）。<paramref name="unitId"/> 必须已经过 <see cref="RegisterUnit"/>
+        /// 注册，否则抛 <see cref="ArgumentException"/>（与其它公开方法一致的前置校验，见
+        /// <see cref="GetUnitOrThrow"/>）。</summary>
+        public JsonValue SaveUnit(Id unitId)
+        {
+            var unit = GetUnitOrThrow(unitId);
+            return new JsonObjectBuilder()
+                .Add("curve_id", new JsonString(unit.Curve.Id.Value))
+                .Add("level", new JsonNumber(unit.Level))
+                .Add("xp", new JsonNumber(unit.Xp))
+                .Build();
+        }
+
+        /// <summary>
+        /// 读档专用状态恢复入口——与 <see cref="RegisterUnit"/> 的区别是允许指定非零
+        /// <paramref name="xp"/>（<see cref="RegisterUnit"/> 恒 <c>xp=0</c>，语义是"全新单位从
+        /// 起始等级开始"，不适合读档场景）。恢复状态后按 <see cref="ApplyGrowth"/> 同一逻辑重新
+        /// 聚合 1..<paramref name="level"/> 的全部成长修正——见 10 第 2.5 节"属性快照默认不存……
+        /// 存基础来源（装备、已知天赋等）后可在读档时重新聚合"，成长修正是该原则里的"基础来源"
+        /// 之一，本模块负责在读档时重建它（<see cref="StatModifierWriter"/> 写入的修正不参与
+        /// 存档，读档后必须由持有方重新写入）。<b>调用方必须确保 <paramref name="unitId"/> 已在
+        /// 属性宿主（StatHost）完成注册</b>——本方法与 <see cref="ApplyGrowth"/> 一样直接调用
+        /// <see cref="StatModifierWriter"/>/<see cref="StatModifierRemover"/>，未注册的单位会被
+        /// 属性宿主自身的前置校验拒绝（本模块不重复做这层校验，职责边界见类型注释"不依赖具体属性
+        /// 宿主实现"）。
+        /// </summary>
+        public void RestoreState(Id unitId, Id curveId, int level, long xp)
+        {
+            var curve = GetCurveOrThrow(curveId);
+            if (level < 1 || level > curve.MaxLevel)
+            {
+                throw new ArgumentException(
+                    $"读档等级 {level} 超出曲线 \"{curveId}\" 的范围 [1,{curve.MaxLevel}]", nameof(level));
+            }
+
+            var unit = new UnitState { Curve = curve, Level = level, Xp = xp };
+            _units[unitId.Value] = unit;
+            ApplyGrowth(unitId, unit);
+        }
+
         public void GrantFromSource(Id unitId, Id xpSourceId, double multiplier = 1)
         {
             if (!_xpSources.TryGetValue(xpSourceId.Value, out var source))

@@ -54,9 +54,12 @@ power_set/
    `schema/README.md`"判断记录"一节，供设计层复核是否需要同步更新 04 第 1.1 节总索引。
 2. **`PowerTickHandler` 挂在 `TickPhase.TriggerEvaluation`**——03 第 4.2 节固定的六个可注册
    阶段里，`TriggerEvaluation`（"触发评估"）在语义上最接近"随时间推进的被动结算"；06 原文未
-   规定 PowerSet 应挂在哪个阶段，任务书拍板选定该阶段。离散步（本项目暂不启用）不推进，只记
-   一条诊断警告，不抛异常（离散步在本架构里代表"回合制的一步"，PowerSet 的连续时间推进语义
-   在离散模式下如何工作留给未来真正启用离散模式时再设计）。
+   规定 PowerSet 应挂在哪个阶段，任务书拍板选定该阶段。离散步不推进，只记一条诊断警告，不抛
+   异常——这是有意的一致取舍，不是"离散模式未启用"的遗留：ADR-0013 离散时间模型已在
+   `core/gameplay/assembly` 真实接通（`ITurnScheduler`/`TimeModelSwitch`），但 PowerSet 的资源
+   回复/衰减本身按连续时间语义设计（"随时间线性回复"），离散步（回合制的一步）不产生自然的
+   "经过了多少秒"，所以本模块拍板离散步下按兵不动、只记警告，把"资源是否也该按回合推进"这一
+   口味决策留给游戏层（如需要，可在游戏层按回合数×固定换算调用 `AdvanceAll`）。
 3. **`power.depleted` 事件字段 `{unitId, powerType}`**——06 第 2.2 节只详细定义了
    `power.changed` 的字段，`power.depleted` 只在 01 模块表"主要事件"列出现了 key 名字，未给
    出字段。任务书拍板携带 `{unitId, powerType}`（触发条件已经隐含了"降到了 min"这一信息，

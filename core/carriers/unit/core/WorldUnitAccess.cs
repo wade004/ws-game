@@ -18,6 +18,7 @@ namespace Core.Carriers.Unit
     {
         private readonly IWorldSim _world;
         private readonly ISpatialQuery? _spatial;
+        private readonly HealthFractionSetter? _healthFractionSetter;
 
         /// <summary>
         /// <paramref name="spatial"/> 可选：提供时 <see cref="SetPosition"/> 在写入实体位置后经
@@ -26,11 +27,14 @@ namespace Core.Carriers.Unit
         /// （<see cref="ISpatialQuery.Register"/>）不在本类型职责内——单位创建时机由
         /// <c>core/carriers/assembly/EntitySpatialSyncHost</c> 订阅 <c>entity.created</c> 统一处理
         /// （创建、移动、销毁三个时机分属不同类型，见该类型判断记录）。
+        /// <paramref name="healthFractionSetter"/> 可选（W1 收边补齐，见 <see cref="Revive"/>）：
+        /// 未注入时 <see cref="Revive"/> 只恢复存活状态与坐标，不触碰生命值。
         /// </summary>
-        public WorldUnitAccess(IWorldSim world, ISpatialQuery? spatial = null)
+        public WorldUnitAccess(IWorldSim world, ISpatialQuery? spatial = null, HealthFractionSetter? healthFractionSetter = null)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
             _spatial = spatial;
+            _healthFractionSetter = healthFractionSetter;
         }
 
         public bool Exists(Id unitId) => _world.GetEntity(unitId) is Unit;
@@ -74,6 +78,30 @@ namespace Core.Carriers.Unit
         /// 基于真实的 <see cref="Entity.MapId"/>，能够返回真实值（同
         /// <c>core/rules/tests/Integration/WorldUnitAccess.GetMapId</c> 判断记录）。</summary>
         public Id? GetMapId(Id unitId) => Require(unitId).MapId;
+
+        /// <summary>
+        /// W1 收边补齐（拍板 3 前置：死亡复活链路，见 <c>architecture/adr/</c> DECISIONS 拍板 3
+        /// "DeathPolicyHost：respawn_point 策略……置于当前地图 spawn_points[0]、恢复生命并发
+        /// unit.respawned"）：复活单位的窄契约——恢复 <see cref="Unit.Alive"/>、写入复活坐标
+        /// <paramref name="position"/>（与 <see cref="SetPosition"/> 同样经 <see cref="ISpatialQuery"/>
+        /// 同步空间索引），并（若已注入 <see cref="HealthFractionSetter"/>）按
+        /// <paramref name="healthFraction"/>（<c>[0,1]</c>，越界自动夹取）恢复生命值。
+        /// <para>
+        /// 本方法只是一个可供调用的窄契约，<b>不</b>自行判断死亡复活策略、<b>不</b>自行订阅
+        /// <c>unit.died</c>、<b>不</b>自行发布 <c>unit.respawned</c>——这些属于死亡复活的执行主体
+        /// （L4 <c>core/gameplay/death.DeathPolicyHost</c>，见 06 第 4.6 节、DECISIONS 拍板 3）的
+        /// 职责，本模块（L3 载体层）不持有 <c>ITurnScheduler</c>/存档系统/主菜单跳转等 L4 依赖，
+        /// 无法承担整条复活流程，只提供它需要的"改写单位运行期状态"这一步。
+        /// </para>
+        /// </summary>
+        public void Revive(Id unitId, Vec2 position, double healthFraction)
+        {
+            var unit = Require(unitId);
+            unit.Alive = true;
+            unit.Position = position;
+            _spatial?.UpdatePosition(unitId, position);
+            _healthFractionSetter?.Invoke(unitId, Math.Clamp(healthFraction, 0.0, 1.0));
+        }
 
         private Unit Require(Id unitId)
         {

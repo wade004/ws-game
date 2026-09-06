@@ -252,6 +252,17 @@ namespace Tests.Rules.Ai
                     new[] { "entityId", "kind", "displayId" }),
                 new EventDefinition(SimEventKeys.EntityDestroyed, "entity",
                     new[] { "entityId" }),
+                // W1 收边补齐：AiDiscreteTurnBudgetTests 需要驱动一个真实 WorldSim + TurnScheduler
+                // （ADR-0013 决策 6 集成场景），二者在 BeginCombat/NextStep/NotifyStepConsumed/
+                // Tick 过程中会 PublishImmediate 这四个 sim.* 事件，此前本目录的事件目录未登记它们，
+                // StrictCatalog（默认开启）会直接抛异常——只登记 key/domain，不逐字段校验（惯例同
+                // core/rules/tests/Integration/FightWorldBuilder.cs 用 EventKeys.All 构造目录）。
+                new EventDefinition(SimEventKeys.TickStarted, "sim", Array.Empty<string>()),
+                new EventDefinition(SimEventKeys.TickFinished, "sim", Array.Empty<string>()),
+                new EventDefinition(SimEventKeys.TurnStarted, "sim", Array.Empty<string>()),
+                new EventDefinition(SimEventKeys.TurnEnded, "sim", Array.Empty<string>()),
+                new EventDefinition(SimEventKeys.RoundEnded, "sim", Array.Empty<string>()),
+                new EventDefinition(SimEventKeys.AwaitingInput, "sim", Array.Empty<string>()),
             });
             return new EventBus(catalog);
         }

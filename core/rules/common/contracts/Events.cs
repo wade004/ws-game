@@ -490,7 +490,23 @@ namespace Core.Rules.Common
 
     /// <summary>死亡结算完成（见 06 第 8 节）。<see cref="KillerId"/> 判断记录：环境死亡（跌落、脚本
     /// 赐死等无明确攻击者的场景）不存在"击杀者"，06 原文字段表未标注是否可空，本类型放宽为可空以
-    /// 覆盖这类场景；有明确攻击者时正常传入。</summary>
+    /// 覆盖这类场景；有明确攻击者时正常传入。
+    /// <para>
+    /// W1 收边补齐（拍板 3、A3 审计 #2 前置）：新增 <see cref="MapId"/>/<see cref="Position"/> 两个
+    /// 字段（06 第 8 节只给出 <c>unitId, killerId</c>，本次追加是为 L4 死亡复活执行主体
+    /// （<c>core/gameplay/death.DeathPolicyHost</c>，见拍板 3）铺垫——<c>respawn_point</c> 策略需要
+    /// 知道死亡单位所在地图才能取 <c>spawn_points[0]</c>；死亡坐标供未来"最近复活点"一类更精细的
+    /// 策略使用。二者都来自 <see cref="IUnitAccess.GetMapId"/>/<see cref="IUnitAccess.GetPosition"/>
+    /// 在死亡结算那一刻的快照（单位死亡后仍留在世界中，实时查询本可行，但事件里带一份快照更贴近
+    /// "死亡结算完成"这一时刻的真相，避免消费者拿到的是"之后又移动过的位置"）。<see cref="MapId"/>
+    /// 同 <see cref="IUnitAccess.GetMapId"/> 一样可空（未接入地图概念的调用方，如部分测试假实现，
+    /// 恒返回 null）；<see cref="Position"/>（<c>Vec2</c>）未在 <see cref="IExprReadableEvent"/>
+    /// 暴露——<c>ExprValue</c> 没有向量类型，强行拆成 <c>positionX</c>/<c>positionY</c> 两个 Expr
+    /// key 超出本次收边范围，需要用坐标做 Expr 判断的场景待未来有真实需求再补；本字段仍以强类型
+    /// C# 属性对外（<c>Subscribe&lt;UnitDiedEvent&gt;</c> 的订阅方可直接读取，如
+    /// <c>DeathPolicyHost</c>）。
+    /// </para>
+    /// </summary>
     public sealed class UnitDiedEvent : IEvent, IExprReadableEvent
     {
         public Id Key => RulesEventKeys.UnitDied;
@@ -499,21 +515,31 @@ namespace Core.Rules.Common
 
         public Id? KillerId { get; }
 
-        public UnitDiedEvent(Id unitId, Id? killerId)
+        /// <summary>死亡单位所属地图 id 快照，见类型注释。</summary>
+        public Id? MapId { get; }
+
+        /// <summary>死亡单位的世界坐标快照，见类型注释。</summary>
+        public Vec2 Position { get; }
+
+        public UnitDiedEvent(Id unitId, Id? killerId, Id? mapId = null, Vec2 position = default)
         {
             UnitId = unitId;
             KillerId = killerId;
+            MapId = mapId;
+            Position = position;
         }
 
-        /// <summary><see cref="KillerId"/> 可空（环境死亡无击杀者，见本类型上方判断记录）：为
-        /// null 时查询 "killerId" 返回 false（字段逻辑缺失），交由 <c>event</c> 分组的宿主实现按
-        /// "字段缺失 → 默认值 + 警告"统一处理（见 <see cref="IExprReadableEvent"/> 类型注释）。</summary>
+        /// <summary><see cref="KillerId"/>/<see cref="MapId"/> 均可空（环境死亡无击杀者、部分调用方
+        /// 未接入地图概念，见本类型上方判断记录）：为 null 时对应字段查询返回 false（字段逻辑
+        /// 缺失），交由 <c>event</c> 分组的宿主实现按"字段缺失 → 默认值 + 警告"统一处理（见
+        /// <see cref="IExprReadableEvent"/> 类型注释）。</summary>
         public bool TryGetField(string name, out ExprValue value)
         {
             switch (name)
             {
                 case "unitId": value = ExprValue.OfId(UnitId); return true;
                 case "killerId" when KillerId.HasValue: value = ExprValue.OfId(KillerId.Value); return true;
+                case "mapId" when MapId.HasValue: value = ExprValue.OfId(MapId.Value); return true;
                 default: value = default; return false;
             }
         }

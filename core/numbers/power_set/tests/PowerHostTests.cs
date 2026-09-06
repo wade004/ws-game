@@ -353,5 +353,53 @@ namespace Tests.Numbers.PowerSet
             Assert.Throws<InvalidOperationException>(() =>
                 host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana")));
         }
+
+        // -----------------------------------------------------------------
+        // W1 收边补齐（A3 审计 #16）：UnregisterUnit 无直接测试
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void UnregisterUnit_RemovesUnit_SubsequentQueriesThrow()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+
+            Assert.True(host.HasPower(Hero, Rage));
+
+            host.UnregisterUnit(Hero);
+
+            Assert.False(host.HasPower(Hero, Rage));
+            Assert.Throws<InvalidOperationException>(() => host.GetPower(Hero, Rage));
+        }
+
+        [Fact]
+        public void UnregisterUnit_UnknownUnit_Throws()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100);
+            var host = new PowerHost(new[] { rage }, bus);
+
+            Assert.Throws<InvalidOperationException>(() => host.UnregisterUnit(new Id("unit.never_registered")));
+        }
+
+        [Fact]
+        public void UnregisterUnit_ThenRegisterAgain_Succeeds()
+        {
+            // UnregisterUnit 应真正从内部索引移除该单位，允许之后用同一个 id 重新 RegisterUnit
+            // （RegisterUnit 对已注册单位会抛异常，见 RegisterUnit_DuplicateUnit_Throws 一类既有用例）。
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100, startFull: false, min: 0);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+            host.ModifyPower(Hero, Rage, 40, ModifySource);
+
+            host.UnregisterUnit(Hero);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+
+            // 重新注册后应是全新状态（回到 min，而不是保留 Unregister 之前的 40）。
+            Assert.Equal(0, host.GetPower(Hero, Rage));
+        }
     }
 }

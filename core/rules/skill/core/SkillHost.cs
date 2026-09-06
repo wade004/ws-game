@@ -89,6 +89,9 @@ namespace Core.Rules.Skill
             _auraHost.ProcHost = _procHost;
 
             _spellMods = new SpellModResolver(_defs, _auraHost);
+            // W1 收边补齐：CooldownTracker 早于 SpellModResolver 构造（避免循环依赖，见构造顺序
+            // 类注释），回填后 SpellModDimension.Charges 才真正生效（见 CooldownTracker.SpellMods）。
+            _cooldowns.SpellMods = _spellMods;
 
             _effectDispatcher = new EffectDispatcher(
                 _auraHost, _cooldowns, _defs, powerHost, _units, combatHost, statHost, _spellMods,

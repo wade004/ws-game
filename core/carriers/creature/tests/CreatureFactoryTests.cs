@@ -172,6 +172,30 @@ namespace Tests.Carriers.Creature
             Assert.False(f.Factory.HasFlag(BasicTemplateId, NpcFlag.Vendor));
         }
 
+        // -----------------------------------------------------------------
+        // ICreatureTemplateQuery.Get（W1 收边补齐：A3 审计 #18，公开 API 本身此前无直接测试断言，
+        // 只被 CreatureFactory.RequireTemplate 间接复用同一索引）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Get_ReturnsStrongTypedTemplate_MatchingRegisteredFields()
+        {
+            ICreatureTemplateQuery query = Build().Factory;
+
+            var template = query.Get(BasicTemplateId);
+
+            Assert.Equal(BasicTemplateId, template.Id);
+            Assert.Equal(new Id("l10n.creature.sample_basic.name"), template.NameKey);
+        }
+
+        [Fact]
+        public void Get_UnknownTemplateId_Throws()
+        {
+            ICreatureTemplateQuery query = Build().Factory;
+
+            Assert.Throws<ArgumentException>(() => query.Get(new Id("creature.does_not_exist")));
+        }
+
         [Fact]
         public void Spawn_WritesImmunitiesFromTemplateAndTierControlImmune()
         {

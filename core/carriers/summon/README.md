@@ -16,14 +16,20 @@
 ```
 summon/
   README.md
-  core/
+  contracts/
     SummonOptions.cs           口味配置项（跟随距离、是否参战、进出战斗联动、阵营继承…）
+  core/
     SummonHost.cs                ISummonHost 默认实现 + 内部驱动版本扩展方法
     SummonTickHandler.cs        挂在 TickPhase.AiDecision 的跟随/联动/生命周期逻辑
     SummonEffectExtension.cs    IEffectExtension，落地 EffectKind.Summon
   tests/
     ...
 ```
+
+W1 收边补齐：`SummonOptions.cs` 从 `core/` 移入新增的 `contracts/` 目录，与本仓库其余载体层模块
+（`item`/`gobj`/`creature`）"公开契约/配置放 `contracts/`，实现放 `core/`"的既有布局惯例对齐；
+命名空间（`Core.Carriers.Summon`）不变，纯物理位置调整，不影响任何调用方（`csproj` 用 SDK 风格
+通配符引用，不需要同步改 `.csproj`）。
 
 ## 设计要点与判断记录
 
@@ -71,12 +77,13 @@ summon/
    联动而返回 true，也不应该停止跟随——落地为"距离 > FollowDistance 且（召唤物不在战斗中 或
    JoinCombat=false）→ 跟随"这一条件。
 
-7. **`ShareThreat`/`PlayerCanControl` 目前只是数据位，不驱动任何运行期行为（契约缺口）**：
-   07 第 4 节把"是否共享仇恨表"列为策略配置项之一，但本任务未获得任何仇恨表读写契约的注入点
-   （`SummonHost`/`SummonTickHandler` 构造参数不含 `Core.Rules.Common.IThreatTable`），真正接入
-   需要 `core/rules/combat` 侧配合暴露"把某单位的仇恨表指向另一单位"一类契约，超出 T3-4 范围；
-   `PlayerCanControl` 同理不属于本任务"跟随/联动机制"本身，只保留为供游戏层/输入系统未来读取的
-   配置位。
+7. **`ShareThreat`/`PlayerCanControl` 已驱动真实运行期行为（收边任务补齐，文档勘误）**：
+   07 第 4 节把"是否共享仇恨表"/"玩家是否可操控"列为策略配置项——`ShareThreat=true` 时
+   `SummonTickHandler.ShareThreatWithOwner` 每 tick 把召唤物累计到的仇恨并入 owner 的仇恨表
+   （经注入的 `Core.Rules.Common.IThreatTable` 契约，非新增原语，只是把已有契约接进本模块）；
+   `PlayerCanControl=true` 时 `SummonHost.IsControllableByOwner` 允许 owner 本人直接操控该召唤物
+   （供输入系统在下发移动/技能意图前先做权限判断）。二者均默认 `false`，关闭时行为与"只是数据位"
+   完全一致，不影响既有调用方。
 
 8. **召唤物不进存档**：见 07 第 4 节"召唤物生命周期...不进存档（同 05 对 CreatureUnit 的默认
    结论），读档后由拥有者相关状态...驱动重建"——本模块（`SummonHost`）的 `_summons`/`_byOwner`
@@ -88,13 +95,11 @@ summon/
 
 - `Core.Rules.Common.IAuraQuery.IsImmune` 不读取 `CreatureUnit.Immunities`（见
   `core/carriers/creature` README 判断记录 2，本模块生成的召唤物同样受此限制）。
-- `ShareThreat` 缺少仇恨表读写契约的注入点（见判断记录 7）。
 - `ISummonHost.Dismiss(Id)` 契约签名不带 reason，`SummonHost` 用重载方法补齐（见判断记录 2，
   不修改 `core/carriers/common` 的既有契约签名）。
 
 ## 不负责什么
 
-- 不实现共享仇恨表/玩家操控召唤物的具体逻辑（契约缺口，见上）。
 - 不实现召唤物的存档重建——由拥有者相关状态驱动，属于 L4 职责。
 - 不实现 `EffectKind.Summon` 之外任何原语的落地（`SummonEffectExtension.TryHandle` 对其余五类
   原语一律返回 false）。

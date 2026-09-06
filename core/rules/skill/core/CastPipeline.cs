@@ -167,8 +167,10 @@ namespace Core.Rules.Skill
                 return Fail(casterId, skillId, reason);
             }
 
-            // 步骤 4：公共冷却
-            if (_options.GcdEnabled && def.RespectsGcd && !_cooldowns.IsGcdReady(casterId))
+            // 步骤 4：公共冷却（离散步内恒通过，见 06 第 3.6 节"离散模式下的解释"、
+            // SkillOptions.IsDiscreteStep 注释）
+            var isDiscreteStep = _options.IsDiscreteStep?.Invoke() ?? false;
+            if (_options.GcdEnabled && def.RespectsGcd && !isDiscreteStep && !_cooldowns.IsGcdReady(casterId))
             {
                 return Fail(casterId, skillId, CastFailureReason.GcdActive);
             }
@@ -180,6 +182,15 @@ namespace Core.Rules.Skill
                 if (_powerHost.GetPower(casterId, powerType) < amount)
                 {
                     return Fail(casterId, skillId, CastFailureReason.InsufficientPower);
+                }
+            }
+
+            // 步骤 5b：行动点（离散模式补充，06 第 3.1 节 action_cost；连续模式/未装配委托恒跳过）
+            if (isDiscreteStep && def.ActionCost > 0)
+            {
+                if (_options.TryConsumeActionPoints == null || !_options.TryConsumeActionPoints(casterId, def.ActionCost))
+                {
+                    return Fail(casterId, skillId, CastFailureReason.InsufficientActionPoints);
                 }
             }
 
@@ -479,7 +490,8 @@ namespace Core.Rules.Skill
             var modifiedCooldown = _spellMods.Apply(casterId, SpellModDimension.Cooldown, def.Id, def.School, def.Tags, def.CooldownDuration);
             _cooldowns.StartCooldown(casterId, def, modifiedCooldown);
 
-            if (_options.GcdEnabled && def.RespectsGcd)
+            var isDiscreteStep = _options.IsDiscreteStep?.Invoke() ?? false;
+            if (_options.GcdEnabled && def.RespectsGcd && !isDiscreteStep)
             {
                 _cooldowns.StartGcd(casterId, _options.GcdDuration);
             }

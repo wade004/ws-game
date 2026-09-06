@@ -73,5 +73,27 @@ namespace Core.Rules.Skill
         /// （见 03 第 9 节 <c>RngHost</c>"按 stream 分流生成随机数以保证可复现"）。默认
         /// <c>skill.proc</c>。</summary>
         public Id RngStream { get; set; } = new Id("skill.proc");
+
+        /// <summary>
+        /// W1 收边补齐（06 第 3.1 节 <c>action_cost</c>、ADR-0013）：离散步内尝试扣减
+        /// <c>unitId</c> 的行动点，成功返回 <c>true</c>；不足返回 <c>false</c>。签名与
+        /// <c>Core.Foundation.SimLoop.TurnScheduler.TryConsumeActionPoints</c>/
+        /// <c>core/carriers/unit.MovementOptions.TryConsumeActionPoints</c> 完全一致（同一账本，
+        /// 供 <c>GameplayAssembly</c> 直接把同一个委托传给两处，见该二者判断记录）。为 null（本模块
+        /// 未装配离散接线，或游戏当前是连续模式）时 <see cref="CastPipeline"/> 不做任何行动点检查，
+        /// 与"连续模式忽略本字段"一致。是否真的处于离散步由 <see cref="IsDiscreteStep"/> 单独判断——
+        /// 两者都需要为真才会真正扣减，避免连续模式下误消耗一个"离散语义"的资源。
+        /// </summary>
+        public System.Func<Id, double, bool>? TryConsumeActionPoints { get; set; }
+
+        /// <summary>
+        /// W1 收边补齐（06 第 3.6 节"离散模式下的解释：公共冷却在离散模式下恒关闭"、ADR-0013 决策
+        /// 6）：调用方（<c>GameplayAssembly</c>/<c>TimeModelSwitch</c>）装配后，<see cref="CastPipeline"/>
+        /// 在当前步骤为离散步（返回 <c>true</c>）时——步骤 4 恒通过 GCD 检查、步骤 9 不再启动 GCD 计时
+        /// ——不改变 <see cref="GcdEnabled"/> 本身（该项仍决定连续模式下 GCD 是否生效）。为 null（未
+        /// 装配）时视为恒为连续模式，行为与本次改动之前完全一致（GCD 是否生效只看
+        /// <see cref="GcdEnabled"/>），呼应"没有调用方主动声明离散步，就不应该有任何行为变化"。
+        /// </summary>
+        public System.Func<bool>? IsDiscreteStep { get; set; }
     }
 }
