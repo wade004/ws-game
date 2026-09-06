@@ -73,3 +73,9 @@ unit.<id>.stat.<statId>
 查询，`DialogViewModel` 的 gossip 视图需要打开菜单的调用方手动灌入；`IDialogHost.GetGossipView`
 现已补上，`DialogViewModel.Refresh` 与 `Story` 同一惯例直接查询，`SetGossipView` 仅保留供尚未升级
 的既有调用方兼容使用（见 `DialogViewModel` 类型注释）。
+
+（技术债，2026-09-06 D 组审计登记，未解决）回合顺序条/行动点显示/"结束回合"按钮三个离散模式界面单元
+（09 第 7.1 节）目前只有引擎侧 `TurnStatusPanel` 一份实现（不经 `UiPanelHost` 登记，直接读
+`GameplayAssembly`、经 `UiIntents` 转发意图），本模块十个视图模型均不认识 `TurnScheduler`。
+下次修改本模块时应迁入引擎无关视图模型（并入 `HudViewModel` 或新增回合状态视图模型），
+并同步撤销 01 L5 `ui` 行与 09 第 7.1 节的例外注记；台账见落地计划"已知未解决缺口"第 17 条。
