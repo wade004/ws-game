@@ -1,0 +1,4 @@
+执行方式：附件 `GP-PRES-01-world-clear-repro.csproj` 是 net8.0 console 工程，使用相对 ProjectReference 引用当前工作树的 Core.Foundation、Core.Carriers、Core.Gameplay。
+执行命令：dotnet run --project architecture/落地计划/audit-20260907/evidence/GP-PRES-01-world-clear-repro.csproj --configuration Release
+输出：restored_before_clear=true; loot_after_scene_clear=False
+结论：真实 WorldSim 在恢复实体已存在时执行 ClearAll 后不再包含该掉落物；该附件复现清理段，不声称已运行完整 Unity ShellHost。构建生成的 bin/obj 由仓库忽略规则处理，不作为审计证据提交。
