@@ -9,9 +9,20 @@
 InWorld 下可操作，进入/离开 InWorld 分别自动置顶/清空栈）、"请求退出应用"标志位
 （`RequestExit`，只允许在 MainMenu）。
 
-**本任务（T1-7a）范围**：不依赖数据注册表。`found.game_state` 表本任务只写字段说明
-（`schema/found.game_state.md`）并提供"从定义列表构造"的入口
-（`AppStateMachineConfig.FromDefinitions`），JSON 加载由数据注册表对接（T1-4，另一任务）。
+**T1-7a 范围**（历史记录，已被后续任务超越，见下）：不依赖数据注册表，`found.game_state`
+表当时只写字段说明（`schema/found.game_state.md`）并提供"从定义列表构造"的入口
+（`AppStateMachineConfig.FromDefinitions`）。
+
+**F5 收口更新（architecture/落地计划/audit-20260907/delivery-validation.md）**：本模块现已
+提供 `AppStateMachineConfig.FromRegistry(IDataRegistryView)`（`contracts/AppStateMachineConfig.cs`），
+优先从数据注册表已加载的 `found.game_state` 表构造配置（按 `kind` 分派到
+`AllowTransition`/`AllowSubTransition`，逻辑与 `FromDefinitions` 共用），表未登记任何行时
+退化为 `Default()`——`core/gameplay/assembly/GameplayAssembly.cs` 的默认装配已经调用
+`AppStateMachineConfig.FromRegistry(registry)`，不再是"只能内存构造、JSON 加载留给未来对接"
+的状态。本模块自身仍然不做 JSON 文本反序列化（那部分职责保持在数据注册表 `core/foundation/data_registry`），
+`FromRegistry` 只做"表已加载完成后转换成配置对象"这一步，与 `event_bus` 处理
+`found.event_catalog`、`hook_registry` 处理 `found.hook` 同一惯例——差别只是"已经真的接线
+进默认装配"和"当时还没有"。
 
 依赖：只依赖 `core/foundation/common`（`Id`、`SubscriptionHandle`）、
 `core/foundation/event_bus`（`IEvent`、`IEventBus`，用于发出 `app.state_changed`）与
@@ -27,9 +38,11 @@ InWorld 下可操作，进入/离开 InWorld 分别自动置顶/清空栈）、"
   `InWorldSubState` 枚举本身（见 `contracts/InWorldSubState.cs` 注释）。
 - 不实现"退出应用"的具体行为（关闭窗口、保存设置等）：`RequestExit` 只记录
   `IsExitRequested` 标志位，触发后续动作属于游戏外壳 Shell（L5）的职责。
-- 不读取 `found.game_state` 数据文件：本模块拥有该表的字段说明（见
-  `schema/found.game_state.md`），但只提供内存构造入口 `AppStateMachineConfig.Default()`/
-  `FromDefinitions`，JSON 读取属于数据注册表（T1-4）职责。
+- 不做 JSON 文本反序列化：本模块拥有 `found.game_state` 的字段说明（见
+  `schema/found.game_state.md`）与"表已加载完成后转换成配置对象"的入口
+  （`AppStateMachineConfig.Default()`/`FromDefinitions`/`FromRegistry`，见上方 F5 收口更新），
+  但 JSON 文本本身的读取/解析属于数据注册表（`core/foundation/data_registry`）职责——
+  `FromRegistry` 消费的是数据注册表已加载好的 `IDataRegistryView`，不直接碰文件系统。
 
 ## 目录
 
@@ -129,6 +142,6 @@ app_lifecycle/
 | 能力 | 基础架构提供 | 游戏层提供 |
 |---|---|---|
 | 主状态机与 InWorld 子状态栈的定义与转移规则实现机制 | 是 | 需要叠加的自定义子状态、自定义转移（经 `AllowTransition`/`AllowSubTransition`/`AddCustomSubState` 扩展） |
-| `found.game_state` 表字段定义与内存构造入口 | 是 | 具体转移数据行（未来经数据注册表加载） |
+| `found.game_state` 表字段定义、内存构造入口与 `FromRegistry` 数据注册表接入 | 是 | 具体转移数据行（框架级默认表见 `data/_framework/found/`，游戏层可补充/覆盖） |
 | `app.state_changed` 事件与 `OnStateChanged`/`OnSubStateChanged` 回调通道 | 是 | 具体订阅者与响应逻辑 |
 | "请求退出应用"标志位机制 | 是 | 退出应用的具体行为（游戏外壳 Shell） |

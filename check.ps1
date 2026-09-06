@@ -160,6 +160,22 @@ function Invoke-CheckStep {
     $detail = ""
     try {
         $result = & $Action
+
+        # F1 根治第二层防护（Test-NativeExitCode 本身已经不再泄漏原生命令的 stdout 到管道，见该
+        # 函数判断记录；这里额外加一道防线，防止今后有人写出新的 helper 同样把中间输出漏进
+        # scriptblock 的返回值）：$result 若是"多元素集合"，说明 $Action 在真正的结果之前还
+        # 产生过别的管道输出——按 PowerShell"scriptblock 最后一条表达式的值即返回值"的惯例，
+        # 只取最后一个元素参与判定，同时显式告警，让这种"本不该发生"的情况在日志里可见，而不是
+        # 被 [bool] 数组转换悄悄吞成恒真（这正是 F1 复现的根因：非空 System.Object[] 经 [bool]
+        # 转换恒为 $true，与内容/元素数量无关）。单元素集合（PowerShell 常见的"标量结果被包成
+        # 一元数组"情形）直接拆包，不告警。
+        if ($result -is [array]) {
+            if ($result.Count -gt 1) {
+                Write-Host "[$Name] 警告：检查步骤脚本块返回了 $($result.Count) 个对象（应恰好一个），只取最后一个参与判定——前面的对象可能是原生命令泄漏的输出，请检查该步骤实现" -ForegroundColor Yellow
+            }
+            $result = if ($result.Count -gt 0) { $result[-1] } else { $null }
+        }
+
         if ($null -eq $result) {
             $ok = $true
         } elseif ($result -is [bool]) {
@@ -226,13 +242,27 @@ function Add-SkippedStep {
 # 内的原生命令调用把 stderr 只当成普通输出流，不提升为异常；退出码判定逻辑完全不变，仍然只认
 # $LASTEXITCODE。找不到可执行文件这类"启动失败"仍然会正常抛异常，由 Invoke-CheckStep 的
 # catch 接住，不受这次改动影响。
+# F1 根治（architecture/落地计划/audit-20260907/delivery-validation.md）：此前 `& $Exe @ArgList`
+# 直接执行，原生命令写到标准输出的每一行都会作为本函数自己的管道输出（PowerShell 函数没有显式
+# `return` 拦截之前的语句同样会被收集进调用方拿到的结果）；调用方 Invoke-CheckStep 用
+# `$result = & $Action` 捕获整个 scriptblock 的输出，一旦 scriptblock 是 `{ Test-NativeExitCode ... }`
+# 这种形状，`$result` 就会变成"原生 stdout 的每一行字符串 + 末尾一个 [bool]"拼成的
+# `System.Object[]`；`[bool]$result` 对非空数组恒为 `$true`（PowerShell 只看数组是否非空，不看
+# 元素内容），导致"有任何一行 stdout 输出、同时退出码非 0"的失败命令被判为 PASS——已实测复现
+# （见 delivery-validation.md F1、repro-check-native-exit.ps1）。
+#
+# 改法：把原生命令的输出通过管道显式送进 `Out-Host`——`Out-Host` 直接写到宿主（用户仍能在控制台/
+# transcript 里看到完整的 dotnet/python/pytest 输出，`-LogFile` 的 transcript 同样会录到），
+# 不进入 PowerShell 的成功输出流，因此不会被 `& $Action`/`$result = ...` 捕获到。本函数自身此后
+# 只有末尾一条 `return` 语句产生输出，`Invoke-CheckStep` 拿到的 `$result` 保证是一个干净的
+# `[bool]`，不需要调用方做任何特殊处理。
 function Test-NativeExitCode {
     param(
         [string]$Exe,
         [string[]]$ArgList
     )
     $ErrorActionPreference = "Continue"
-    & $Exe @ArgList
+    & $Exe @ArgList | Out-Host
     return ($LASTEXITCODE -eq 0)
 }
 
@@ -352,6 +382,31 @@ function Test-NoResidualUnityProcess {
         $pids = ($hit | ForEach-Object { $_.ProcessId }) -join ", "
         throw "检测到同一工程已有残留 Unity.exe 进程在运行（PID: $pids，工程路径 $ProjectPath），本脚本不会代为结束——请先手工关闭该 Unity Editor 窗口/进程，确认 $ProjectPath\Temp\UnityLockfile 已释放后重跑。"
     }
+}
+
+# -----------------------------------------------------------------------------
+# 0. 门禁自检（F1 根治回归，architecture/落地计划/audit-20260907/delivery-validation.md）：
+#    Test-NativeExitCode 此前会把原生命令的 stdout 泄漏进 Invoke-CheckStep 的结果判定，导致
+#    "有输出且退出码非零"的失败命令被误判为 PASS（复现细节见两函数上方判断记录）。本步骤在
+#    全部真正的检查步骤之前，用两个独立探针（失败/成功各一次，均带 stdout 输出）验证判定逻辑
+#    本身是可信的——如果这一步本身失败，说明门禁基础设施有问题，后续全部步骤的 PASS/FAIL 都
+#    不可信，理应第一个报告。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定" {
+    # 探针 1：F1 复现的确切形状——打印一行 stdout，随后以非零退出码结束。修复前会被误判为成功。
+    $failProbeOk = Test-NativeExitCode "powershell.exe" @("-NoProfile", "-Command", "Write-Output 'F1_SELF_CHECK_PROBE'; exit 7")
+    if ($failProbeOk) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "失败探针（stdout 非空 + exit 7）被误判为成功——Test-NativeExitCode 回归，见该函数判断记录" }
+    }
+
+    # 探针 2：同样有 stdout 输出，但正常以 0 退出——必须仍判定为成功，证明探针 1 的修复没有
+    # 反过来误伤真正成功、只是恰好有输出的命令（dotnet/python 几乎每次都会打印一些内容）。
+    $passProbeOk = Test-NativeExitCode "powershell.exe" @("-NoProfile", "-Command", "Write-Output 'F1_SELF_CHECK_PROBE'; exit 0")
+    if (-not $passProbeOk) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "成功探针（stdout 非空 + exit 0）被误判为失败" }
+    }
+
+    $true
 }
 
 # -----------------------------------------------------------------------------

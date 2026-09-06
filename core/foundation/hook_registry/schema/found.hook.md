@@ -3,11 +3,17 @@
 对应 `01_分层与依赖.md` L0 模块表 `hook_registry` 行的主要数据表、`04_数据与内容管线.md`
 第 1.1 节表清单里的 `found.hook`（"脚本钩子注册表：钩子 id、触发时机、参数签名"）。
 
-本模块（T1-7a）只提供从内存定义列表构造挂载点登记表的入口
-（`IHookRegistry.DeclareFromDefinitions(IEnumerable<HookPointDefinition>)`），不做 JSON
-读取；从数据文件读取并转换成 `HookPointDefinition` 列表是数据注册表
-（`core/foundation/data_registry`，T1-4）的职责，与 `event_bus` 处理 `found.event_catalog`
-同一惯例（见 `core/foundation/event_bus/schema/found.event_catalog.md`"本模块不做什么"一节）。
+本模块提供从内存定义列表构造挂载点登记表的入口
+（`IHookRegistry.DeclareFromDefinitions(IEnumerable<HookPointDefinition>)`），以及从数据
+注册表已加载的本表构造定义列表的入口（`FoundHookSchema.LoadDefinitions(IDataRegistryView)`，
+`schema/FoundHookSchema.cs`）——`core/gameplay/assembly/GameplayAssembly.cs` 的默认装配
+已经调用 `Hooks.DeclareFromDefinitions(FoundHookSchema.LoadDefinitions(registry))`，
+`data/_framework/found/found.hook.json` 是框架级默认挂载点数据（F5 收口，
+architecture/落地计划/audit-20260907/delivery-validation.md）。本模块自身不做 JSON 文本
+反序列化；从文件读出 JSON 并交给 `LoadDefinitions` 转换之前的那一步（文本 → 已加载的
+`IDataRegistryView`）是数据注册表（`core/foundation/data_registry`）的职责，与 `event_bus`
+处理 `found.event_catalog` 同一惯例（见
+`core/foundation/event_bus/schema/found.event_catalog.md`"本模块不做什么"一节）。
 
 ## 字段
 
@@ -38,8 +44,8 @@
 
 ## 本模块不做什么
 
-- 不读取 `found.hook.json`（或具体游戏的对应数据文件）；只提供
-  `IHookRegistry.DeclareFromDefinitions(IEnumerable<HookPointDefinition>)` 供数据注册表
-  转换后批量调用。
+- 不做 JSON 文本本身的读取/解析（见上方 F5 收口更新）；提供
+  `IHookRegistry.DeclareFromDefinitions(IEnumerable<HookPointDefinition>)` 与
+  `FoundHookSchema.LoadDefinitions(IDataRegistryView)` 两个入口。
 - 不知道任何具体挂载点应该在什么时机被 `Invoke`——挂载点的声明与调用时机由使用方
   （`SceneRouter` 等更上层模块）决定，本模块只提供登记与调用机制本身。

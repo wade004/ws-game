@@ -9,11 +9,15 @@
 （见 `AppStateMachineConfig.AddCustomSubState`），不随数据行变化；本表的每一行是"允许
 从 X 转移到 Y"这条边本身，供游戏层在 03 第 2 节默认表之外扩展自定义转移。
 
-本模块（T1-7a）只提供从内存转移定义构造配置的入口
-（`AppStateMachineConfig.Default()` 等价于本表默认数据、`AllowTransition`/
-`AllowSubTransition` 是运行期追加入口），不做 JSON 读取；从数据文件读取并转换成配置是
-数据注册表（`core/foundation/data_registry`，T1-4）的职责，与 `event_bus` 处理
-`found.event_catalog`、`hook_registry` 处理 `found.hook` 同一惯例。
+本模块提供从内存转移定义构造配置的入口（`AppStateMachineConfig.Default()` 等价于本表默认
+数据、`AllowTransition`/`AllowSubTransition` 是运行期追加入口），以及从数据注册表已加载的
+本表构造配置的入口（`AppStateMachineConfig.FromRegistry(IDataRegistryView)`，表未登记任何
+行时退化为 `Default()`）——`core/gameplay/assembly/GameplayAssembly.cs` 的默认装配已调用
+`FromRegistry`，`data/_framework/found/found.game_state.json` 是框架级默认数据行（F5 收口，
+architecture/落地计划/audit-20260907/delivery-validation.md）。本模块自身不做 JSON 文本
+反序列化；从文件读出 JSON 并交给 `FromRegistry` 转换成配置对象之前的那一步（文本 → 已加载
+的 `IDataRegistryView`）是数据注册表（`core/foundation/data_registry`）的职责，与
+`event_bus` 处理 `found.event_catalog`、`hook_registry` 处理 `found.hook` 同一惯例。
 
 ## 字段
 
@@ -78,7 +82,9 @@
 
 ## 本模块不做什么
 
-- 不读取 `found.game_state.json`（或具体游戏的对应数据文件）；只提供
-  `AppStateMachineConfig.Default()`/`AllowTransition`/`AllowSubTransition` 的内存构造入口。
+- 不做 JSON 文本本身的读取/解析：`FromRegistry` 消费的是数据注册表已加载好的
+  `IDataRegistryView`（见上方 F5 收口更新），不直接打开文件；本模块提供
+  `AppStateMachineConfig.Default()`/`AllowTransition`/`AllowSubTransition`/`FromRegistry`
+  四个构造/扩展入口。
 - 不校验 `id` 字段格式与 `from`/`to` 是否指向存在的状态名——这属于数据注册表引用完整性
   校验器（04 第 5 节）未来对接本表时的职责。

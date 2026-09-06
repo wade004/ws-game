@@ -7,9 +7,18 @@
 （`Register`，按 `order` 升序、同 `order` 按注册先后）、挂载点调用（`Invoke`，单个回调异常
 被隔离，不中断其余回调、不向调用方抛出）。
 
-**本任务（T1-7a）范围**：不依赖数据注册表。`found.hook` 表本任务只写字段说明
-（`schema/found.hook.md`）并提供"从定义列表构造"的入口
-（`IHookRegistry.DeclareFromDefinitions`），JSON 加载由数据注册表对接（T1-4，另一任务）。
+**T1-7a 范围**（历史记录，已被后续任务超越，见下）：不依赖数据注册表，`found.hook` 表当时
+只写字段说明（`schema/found.hook.md`）并提供"从定义列表构造"的入口
+（`IHookRegistry.DeclareFromDefinitions`）。
+
+**F5 收口更新（architecture/落地计划/audit-20260907/delivery-validation.md）**：本模块
+（`schema/FoundHookSchema.cs`）现已提供 `FoundHookSchema.LoadDefinitions(IDataRegistryView)`，
+从数据注册表已加载的 `found.hook` 表读出全部挂载点定义，交给
+`IHookRegistry.DeclareFromDefinitions` 登记——`core/gameplay/assembly/GameplayAssembly.cs`
+的默认装配已经调用这条路径，优先从 `data/_framework/found/found.hook.json` 登记框架级
+挂载点，不再是"只能内存构造、JSON 加载留给未来对接"的状态。本模块自身仍然不做 JSON 文本
+反序列化（那部分职责保持在数据注册表 `core/foundation/data_registry`），`LoadDefinitions`
+只做"表已加载完成后转换成定义列表"这一步。
 
 依赖：只依赖 `core/foundation/common`（`Id`、`SubscriptionHandle`）、
 `core/foundation/event_bus`（`IEvent`、`IEventBus`，仅在 `HookRegistryOptions.EmitInvokedEvent`
@@ -21,8 +30,10 @@
 - 不知道任何具体挂载点应该在什么时机被 `Invoke`：挂载点的声明与调用时机由使用方
   （例如 `SceneRouter` 在场景卸载前调用 `found.hook.scene_pre_unload`）决定，本模块只提供
   登记与调用机制本身。
-- 不读取 `found.hook` 数据文件：本模块拥有该表的字段说明（见 `schema/found.hook.md`），
-  但只提供内存构造入口 `DeclareFromDefinitions`，JSON 读取属于数据注册表（T1-4）职责。
+- 不做 JSON 文本本身的读取/解析：本模块拥有 `found.hook` 的字段说明（见
+  `schema/found.hook.md`）与"表已加载完成后转换成定义列表/登记"的入口
+  （`DeclareFromDefinitions`/`FoundHookSchema.LoadDefinitions`，见上方 F5 收口更新），但
+  JSON 文本本身的读取/解析属于数据注册表（`core/foundation/data_registry`）职责。
 - 不做参数的强类型 / 签名校验：`HookPointDefinition.Signature` 只是文档化的说明文本，
   `HookArgs.Get<T>`/`TryGet<T>` 在取值时才做运行期类型检查，声明期不校验回调是否"符合签名"。
 
@@ -111,6 +122,6 @@ hook_registry/
 | 能力 | 基础架构提供 | 游戏层提供 |
 |---|---|---|
 | 挂载点声明、注册、按序调用、异常隔离的实现机制 | 是 | 具体挂载点 id、参数签名、`AllowMultiple` 取值 |
-| `found.hook` 表字段定义与内存构造入口 | 是 | 具体挂载点数据行（未来经数据注册表加载） |
+| `found.hook` 表字段定义、内存构造入口与 `LoadDefinitions` 数据注册表接入 | 是 | 具体挂载点数据行（框架级默认表见 `data/_framework/found/`，游戏层可补充/覆盖） |
 | `pre_unload`/`post_load` 挂载点 id 常量（`WellKnownHooks`） | 是 | 在这些挂载点上注册的具体回调实现 |
 | `hook.invoked` 调试事件开关 | 是 | 是否开启、订阅该事件做调试呈现 |
