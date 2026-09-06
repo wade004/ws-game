@@ -32,6 +32,18 @@
 .PARAMETER Configuration
     dotnet 构建配置，默认 Release。
 
+.PARAMETER LogFile
+    持续集成修复新增：给出路径时，用 Start-Transcript 把本次运行的完整控制台输出（含每步
+    PASS/FAIL 明细与最后的汇总表）额外落一份文本文件到该路径，同时仍然正常打印到控制台；
+    省略（默认空字符串）时不额外落日志，行为与之前完全一致。用于替代调用方在外层再包一层
+    `... 2>&1 | Tee-Object` 的做法——见 .github/workflows/ci.yml 判断记录：外层包一层
+    `2>&1` 会把子进程（本脚本）的原生 stderr 输出合并进管道，在 PowerShell 5.1 +
+    `$ErrorActionPreference = "Stop"`（GitHub Actions 的 `shell: powershell` 步骤默认注入
+    该偏好）组合下，第一行 stderr 就会被提升成终止性的 NativeCommandError 异常，把本该完整
+    打印的汇总表和失败明细整个吞掉；改为本脚本自己控制日志落盘，调用方只需直接跑
+    `check.ps1 ... -LogFile <path>`、不再包外层管道，退出码仍然是本脚本最后 `exit 0`/
+    `exit 1` 的真实值，原样透传给调用方的 `$LASTEXITCODE`。
+
 .PARAMETER Quick
     工程收尾 K 新增，供 `.githooks/pre-commit` 调用：只跑"秒级能跑完"的子集——dotnet
     build/test、两道数据校验（合并根 + data/_framework 框架根）、事件常量一致性检查、两道禁用词
@@ -63,7 +75,8 @@ param(
     [switch]$Il2cpp,
     [string]$ArtifactsPath = "",
     [string]$UnityExe = "",
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    [string]$LogFile = ""
 )
 
 # -Quick 隐含不跑任何 Unity 步骤（见 .PARAMETER Quick 说明），与显式 -SkipUnity 合并为同一个
@@ -86,6 +99,34 @@ if (-not (Test-Path $ArtifactsPath)) {
 $UnityOutDir = Join-Path $ArtifactsPath "unity"
 if (-not (Test-Path $UnityOutDir)) {
     New-Item -ItemType Directory -Force -Path $UnityOutDir | Out-Null
+}
+
+# -----------------------------------------------------------------------------
+# -LogFile：见 .PARAMETER LogFile 判断记录。Start-Transcript 会原样录下本脚本之后所有
+# Write-Host/输出到宿主的内容（不需要逐处 Write-Host 调用另外写文件），脚本正常从两个 exit
+# 出口结束时会显式 Stop-Transcript；trap 兜底覆盖"某处抛出未被 Invoke-CheckStep 接住的
+# 异常、脚本非正常终止"这一少见路径——先关闭 transcript（保证已产生的内容落盘、不因为文件
+# 句柄未释放而在 CI 的 upload-artifact 步骤里读到空文件或半截文件），再把异常继续往外抛
+# （trap 结尾不写 continue/break 时默认行为就是重新抛出，退出码/错误信息不受影响）。
+# -----------------------------------------------------------------------------
+$script:TranscriptStarted = $false
+if ($LogFile -ne "") {
+    $logFileDir = Split-Path -Parent $LogFile
+    if ($logFileDir -and -not (Test-Path $logFileDir)) {
+        New-Item -ItemType Directory -Force -Path $logFileDir | Out-Null
+    }
+    try {
+        Start-Transcript -Path $LogFile -Force | Out-Null
+        $script:TranscriptStarted = $true
+    } catch {
+        Write-Host "警告：Start-Transcript 失败（$($_.Exception.Message)），本次运行不落 -LogFile，仅打印到控制台。" -ForegroundColor Yellow
+    }
+}
+trap {
+    if ($script:TranscriptStarted) {
+        try { Stop-Transcript | Out-Null } catch {}
+        $script:TranscriptStarted = $false
+    }
 }
 
 # -----------------------------------------------------------------------------
@@ -168,11 +209,29 @@ function Add-SkippedStep {
 # 跑一个原生可执行文件并按退出码判定通过/失败（PowerShell 5.1 对原生命令非零退出码不会抛出
 # 终止性异常，需要手动读 $LASTEXITCODE；命令本身找不到会抛异常，由 Invoke-CheckStep 的 catch
 # 接住）。
+#
+# 判断记录（持续集成修复：本函数内部临时把 $ErrorActionPreference 降级为 Continue）：
+# 本脚本顶部把 $ErrorActionPreference 设成了 "Stop"（脚本作用域）。PowerShell 对"原生命令
+# 写到 stderr 的每一行"有一条广为人知但违反直觉的行为——在 $ErrorActionPreference = "Stop"
+# 下，只要原生命令往 stderr 写了任何一行东西（不管进程退出码是不是 0，例如某些工具的
+# warning、或本例的 Python 未捕获异常 traceback），PowerShell 会把这一行提升成终止性的
+# NativeCommandError 异常，当场中断 `& $Exe @ArgList` 这一句，只把"第一行" stderr 文本当成
+# 异常消息抛出——后续 stderr 行（往往才是真正有诊断价值的部分，例如 Python traceback 的
+# 具体报错类型与代码行）永远读不到。此前 `python toolchain/gen_event_constants.py --check`
+# 在 CI 运行器上因控制台编码问题崩溃时，Invoke-CheckStep 汇总表 Detail 列里只剩一句
+# "Traceback (most recent call last):" 的根因正在这里。
+#
+# 把 $ErrorActionPreference 赋值为函数局部变量（不加 $script:/$global: 前缀，PowerShell
+# 变量赋值默认只在当前作用域生效，函数返回后自动失效，不影响脚本其余部分与调用方），让本函数
+# 内的原生命令调用把 stderr 只当成普通输出流，不提升为异常；退出码判定逻辑完全不变，仍然只认
+# $LASTEXITCODE。找不到可执行文件这类"启动失败"仍然会正常抛异常，由 Invoke-CheckStep 的
+# catch 接住，不受这次改动影响。
 function Test-NativeExitCode {
     param(
         [string]$Exe,
         [string[]]$ArgList
     )
+    $ErrorActionPreference = "Continue"
     & $Exe @ArgList
     return ($LASTEXITCODE -eq 0)
 }
@@ -820,8 +879,16 @@ $totalSeconds = ($script:Results | Measure-Object -Property Seconds -Sum).Sum
 
 if ($failed.Count -gt 0) {
     Write-Host "门禁失败：$($failed.Count) 步未通过（共 $($script:Results.Count) 步，总用时 ${totalSeconds}s）。" -ForegroundColor Red
-    exit 1
+    $exitCode = 1
 } else {
     Write-Host "门禁通过：全部 $($script:Results.Count) 步（总用时 ${totalSeconds}s）。" -ForegroundColor Green
-    exit 0
+    $exitCode = 0
 }
+
+# 两个出口统一在这里落地：先关 transcript（保证汇总表本身也写进 -LogFile，不止步骤明细），
+# 再退出，退出码原样透传给调用方的 $LASTEXITCODE（见 .PARAMETER LogFile 判断记录）。
+if ($script:TranscriptStarted) {
+    try { Stop-Transcript | Out-Null } catch {}
+    $script:TranscriptStarted = $false
+}
+exit $exitCode

@@ -37,6 +37,13 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+# 允许直接以 "python toolchain/gen_placeholder_assets.py" 方式运行（不依赖 PYTHONPATH/
+# 包安装），与 toolchain/import_assets.py 的惯例一致；把 toolchain/ 目录本身放进 sys.path
+# 后即可直接 import 顶层的 _console 模块。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _console import ensure_utf8_stdio  # noqa: E402
+
 # --------------------------------------------------------------------------
 # 常量与调色板
 # --------------------------------------------------------------------------
@@ -1142,14 +1149,12 @@ def run_generate(out: Path, seed: int, clean: bool = False) -> int:
 
 
 def main():
-    # Windows 控制台默认代码页通常不是 UTF-8，输出里的中文文本会因此乱码；显式把标准
-    # 输出/标准错误 reconfigure 成 UTF-8，惯例同 toolchain/validate_data.py。某些非交互式
-    # 重定向目标可能不支持 reconfigure，失败时静默保留原编码，不影响生成逻辑本身。
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except (AttributeError, OSError):
-            pass
+    # Windows 控制台默认代码页通常不是 UTF-8，本文件打印的说明/错误消息（如
+    # "--check 完成：通过 N / M"）会因此乱码甚至 UnicodeEncodeError 崩溃；入口最先调用
+    # toolchain/_console.py 的 ensure_utf8_stdio()，与 toolchain/validate_data.py、
+    # toolchain/gen_event_constants.py、toolchain/asset_import 包保持一致（此前 ae3f667
+    # 曾在此内联同一段 reconfigure 循环，现收敛为共用入口，去重）。
+    ensure_utf8_stdio()
 
     parser = argparse.ArgumentParser(description="生成/校验框架级通用占位资产包")
     parser.add_argument("--out", default="assets/_placeholder", help="输出目录（默认 assets/_placeholder）")
