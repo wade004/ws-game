@@ -423,6 +423,23 @@ if ($Quick) {
 }
 
 # -----------------------------------------------------------------------------
+# 5b. 资产导入工具交叉校验（import_assets.py check，见 11 第 8 节"新增资产已经过导入工具并
+#     通过资产校验"）：只跑 world 域（--only world）——data/_sample 的 display/vfx/sfx 表引用
+#     的资产尚未接入本工具的 sprite/vfx/sfx 子命令产出物（历史遗留，见
+#     toolchain/README.md"已知缺口"一节），全量跑会在改动范围之外提前失败；world 域（本次新增
+#     的 map 子命令 + world.map 交叉校验）在当前数据集下应始终通过，不属于 -Quick 可跳过的慢步骤
+#     （不读图片，只比对文件是否存在）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/import_assets.py check --dataset _sample --only world" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/import_assets.py", "check", "--dataset", "_sample", "--only", "world")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
 # 6. toolchain 自身的 pytest 套件（-Quick 跳过：见 .PARAMETER Quick 说明）
 # -----------------------------------------------------------------------------
 if ($Quick) {

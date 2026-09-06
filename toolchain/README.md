@@ -156,8 +156,8 @@ python toolchain/gen_event_constants.py
 ## 资产导入工具（import_assets.py）
 
 `toolchain/import_assets.py`（薄入口，实现在 `toolchain/asset_import/` 包）：把出图产物
-（精灵集、图标、特效序列帧、音效）规范化落到 `assets/<dataset>/`，并把对应的
-`display.map`/`vfx.def`/`sfx.def` 数据行合并写入 `data/<dataset>/`，对应
+（精灵集、图标、特效序列帧、音效、地图分层图）规范化落到 `assets/<dataset>/`，并把对应的
+`display.map`/`vfx.def`/`sfx.def`/`world.map` 数据行合并写入 `data/<dataset>/`，对应
 [11_工程规范与测试.md](../architecture/11_工程规范与测试.md) 第 2.1 节"资产导入工具"与
 [落地方案与分阶段计划.md](../architecture/落地计划/落地方案与分阶段计划.md) 第 15 节。字段定义
 以 [04_数据与内容管线.md](../architecture/04_数据与内容管线.md) 第 7.1 节（`display.map`）、
@@ -172,7 +172,7 @@ python toolchain/gen_event_constants.py
 python toolchain/import_assets.py <子命令> ...
 ```
 
-五个子命令（各自 `--help` 查看完整参数）：
+六个子命令（各自 `--help` 查看完整参数）：
 
 - `sprite`：精灵集源目录 -> 规范化精灵资源 + `display.map` 行。
   输入约定：`<src>/<direction_slot>/<layer>.png`（纸娃娃多层）或 `<src>/<direction_slot>.png`
@@ -206,23 +206,51 @@ python toolchain/import_assets.py <子命令> ...
 - `sfx`：一批 `.wav`（无压缩 PCM；用标准库 `wave` 读采样率/时长做基本校验，非 wav 或无法解析
   一律报错）作为同一 `sfx.def` id 下的随机变体，复制到 `assets/<dataset>/sfx/<name>/v<N>.wav`
   并写入 `layer`/`priority`/`variants`（每个变体含 `resource_ref`/`sample_rate`/`duration_sec`）。
-- `check`：交叉校验 `assets/<dataset>/` 与 `data/<dataset>/display|vfx|sfx`——`sprite_set_id`/
-  `icon_id`/`vfx.def`/`sfx.def` 的 `resource_ref` 对应文件是否存在、每个精灵集同一层跨方向档位
-  尺寸是否一致、锚点是否落在对应方向档位画布范围内、实际落地的方向档位数是否与
-  `direction_count` 一致。只打印问题清单，不写任何文件；返回码 `0`（无问题）/`1`（有问题）。
+- `map`：地图分层图源目录（`ground.png`/`overlay.png` 必需，`decal.png`/`nav_hint.png` 可选，见
+  14 第 9 节"场景与地图"）-> 规范化落到 `assets/<dataset>/maps/<map>/<layer>.png` + `world.map` 行
+  （`id`/`scene_ref`/`nav_ref`/`spawn_points`）。`scene_ref`/`nav_ref` 固定按"类别前缀 + 地图名"
+  写成 `scene.<map>`/`nav.<map>`，与 `adapters/unity` 侧 `UnityResourceLoader` 的 `Scene`/
+  `NavMesh` 种类解析规则同一套引用 id 命名口径（见该包 README"资源 id → 路径规则"一节）；本工具
+  不生成场景/导航资源本身（05 第 4.1 节"导航与碰撞...由引擎适配层侧在场景中手工绘制"）。
+  `--spawn x,y[,facing]` 可重复传入覆盖默认出生点（省略时写一条 `<map>.spawn.default`，原点、
+  朝向 0）；未识别的分层文件名（非 `ground`/`overlay`/`decal`/`nav_hint`）原样跳过并打印警告。
+- `check`：交叉校验 `assets/<dataset>/` 与 `data/<dataset>/display|vfx|sfx|world`——
+  `sprite_set_id`/`icon_id`/`vfx.def`/`sfx.def` 的 `resource_ref` 对应文件是否存在、每个精灵集
+  同一层跨方向档位尺寸是否一致、锚点是否落在对应方向档位画布范围内、实际落地的方向档位数是否与
+  `direction_count` 一致、**`mirror_pairs` 完整性**（每个已落地但不属于 canonical 档位集合的方向
+  档位必须有对应的镜像来源声明，声明的来源必须已落地）、**声明锚点缺失**（`display.map.
+  anchor_points` 声明的每个锚点必须能在精灵集自己的 `anchors.json` 默认档位标注中找到，对应
+  14 第 11 节"缺锚点"校验项）、`world.map` 引用的地图分层图（`map` 子命令产出）是否存在。
+  `--only sprite,vfx,sfx,world`（逗号分隔，省略则四项全跑）只跑选定的检查域，供门禁在某个数据集
+  只有部分域已接入真实资产时缩小本次运行覆盖范围（不放宽已选中域自身的判断逻辑）。只打印问题
+  清单，不写任何文件；返回码 `0`（无问题）/`1`（有问题）。
 
 全部子命令支持 `--dataset`（默认 `_sample`）、`--assets-root`/`--data-root`
 （默认仓库 `assets/`/`data/`，可指向任意目录，测试与临时数据集用此覆盖）、`--dry-run`
 （`check` 本身不写文件，无需此参数）；图像处理只用 Pillow：`--matting none|rembg|colorkey:#RRGGBB`
 ——`colorkey` 抠图是本工具自写的容差比色（`--colorkey-tolerance`，默认 32），`rembg` 仅在本机
 `~/.u2net/` 下已有权重文件时可用（本工具不会自动联网下载模型权重，未准备好权重直接报错并提示
-改用 `none`/`colorkey`）。合并写入 `display.map.json`/`vfx.def.json`/`sfx.def.json` 时：已存在
-同 `id` 的行整体替换，否则新增，其余行原样保留，整份文件按 `id` 重新排序后整体写出（2 空格缩进、
-LF、UTF-8 无 BOM，同 `data/README.md` 约定）。
+改用 `none`/`colorkey`）。合并写入 `display.map.json`/`vfx.def.json`/`sfx.def.json`/
+`world.map.json` 时：已存在同 `id` 的行整体替换，否则新增，其余行原样保留，整份文件按 `id`
+重新排序后整体写出（2 空格缩进、LF、UTF-8 无 BOM，同 `data/README.md` 约定）。
 
-写完 `sprite`/`vfx`/`sfx` 后应跑 `python toolchain/import_assets.py check --dataset <name>` 确认
-资产与数据表互相对得上，再跑 `python toolchain/validate_data.py --dataset <name>` 走完整的表级
-校验（04 第 5 节"外形映射存在"等检查项）。
+写完 `sprite`/`vfx`/`sfx`/`map` 后应跑 `python toolchain/import_assets.py check --dataset <name>`
+确认资产与数据表互相对得上，再跑 `python toolchain/validate_data.py --dataset <name>` 走完整的
+表级校验（04 第 5 节"外形映射存在"等检查项）。
 
 单元测试：`python -m unittest toolchain.tests.test_import_assets -v`（标准库 `unittest`；测试数据
-写在系统临时目录，不接触仓库内 `assets/`/`data/`）。
+写在系统临时目录，不接触仓库内 `assets/`/`data/`），也可用 `python -m pytest toolchain/tests -q`。
+
+## 已知缺口：`data/_sample` 的 display/vfx/sfx 引用尚未接入本工具产出物
+
+`data/_sample/display/display.map.json`/`vfx/vfx.def.json`/`sfx/sfx.def.json` 是框架仓库自身
+灰盒竖切/PlayMode 测试用的示例数据（见该目录顶层 `README.md`"两类目录"一节），历史上先于
+`import_assets.py`（尤其 `check` 子命令的 `sprite_set_id`/`icon_id` 三段式格式校验）成型，两者
+从未对齐过：`sprite_set_id`（如 `sprite.placeholder_hero`）是旧的两段式命名，也没有经
+`sprite`/`vfx`/`sfx` 子命令生成过 `assets/_sample/` 下的真实资产文件（该目录此前不存在）。
+`python toolchain/import_assets.py check --dataset _sample`（不加 `--only`）因此在当前仓库状态下
+仍会报出这些历史遗留问题；本次任务新增的 `world` 域（`map` 子命令 + world.map 交叉校验）已用
+`assets/_placeholder/maps/placeholder_field/` 的分层图真实导入 `assets/_sample/maps/sample_field/`
+并校验通过（`--only world`），`check.ps1`/`games/_template/validate.ps1` 门禁步骤按 `--only world`
+接入，不因这一历史缺口失败；把 `sprite`/`vfx`/`sfx` 三域也接起来（重新生成/整理
+`data/_sample` 对应表 + 补齐 `assets/_sample/` 资产）留作后续独立任务，不在本次改动范围内。

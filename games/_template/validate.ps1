@@ -2,7 +2,8 @@
 .SYNOPSIS
     校验本游戏数据目录（默认 data\game）与框架分发包的框架级数据表（data\_framework）合并后
     是否 0 错误，调用框架仓库的 toolchain/validate_data.py（见该脚本文件头说明"新游戏数据目录
-    校验"用法）。
+    校验"用法）；随后额外跑一遍 toolchain/import_assets.py check --only world，校验
+    world.map 引用的地图分层图是否已落地（assets/<name>/ 目录不存在时自动跳过，不阻断）。
 
 .PARAMETER FrameworkRoot
     框架级数据表目录，默认按"本模板与框架仓库/分发包同级"猜测两处常见位置之一（优先分发包
@@ -93,4 +94,35 @@ if ($SkipDotnet) { $pythonArgs += "--skip-dotnet" }
 if ($Strict) { $pythonArgs += "--strict" }
 
 & $PythonExe @pythonArgs
-exit $LASTEXITCODE
+$dataValidateExitCode = $LASTEXITCODE
+
+# -----------------------------------------------------------------------------
+# 资产导入工具交叉校验（import_assets.py check --only world，见 architecture/11_工程规范与
+# 测试.md 第 8 节"新增资产已经过导入工具并通过资产校验"、toolchain/README.md"已知缺口"一节）：
+# 只校验 world.map 引用的地图分层图（见 import_assets.py map 子命令）是否已落地，不校验
+# sprite/vfx/sfx——本模板默认只带最小数据集，尚未接入真实美术资产。资产目录按与 $DataRoot
+# 同一套"<repo>/data/<name>、<repo>/assets/<name>"并列约定探测（见 11 第 1 节仓库与目录约定），
+# 复制模板改名后若同步改了 -DataRoot，此处按同一约定自动推导，无需单独传参；找不到 assets 目录
+# 说明尚未接入资产，跳过本步骤而不是报错阻断（呼应 11 第 8 节"门禁脚本可按场景只跑其子集"）。
+# -----------------------------------------------------------------------------
+$importAssetsExitCode = 0
+$assetsRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $DataRoot)) "assets"
+$datasetName = Split-Path -Leaf $DataRoot
+$assetsDatasetDir = Join-Path $assetsRoot $datasetName
+$importAssetsScript = Join-Path (Split-Path -Parent $ValidateDataScript) "import_assets.py"
+
+Write-Host ""
+if (-not (Test-Path $assetsDatasetDir)) {
+    Write-Host "跳过资产导入校验：$assetsDatasetDir 不存在（尚未接入真实美术资产）" -ForegroundColor Yellow
+} elseif (-not (Test-Path $importAssetsScript)) {
+    Write-Host "跳过资产导入校验：找不到 $importAssetsScript" -ForegroundColor Yellow
+} else {
+    Write-Host "资产目录：      $assetsDatasetDir"
+    & $PythonExe $importAssetsScript check --dataset $datasetName --data-root (Split-Path -Parent $DataRoot) --assets-root $assetsRoot --only world
+    $importAssetsExitCode = $LASTEXITCODE
+}
+
+if ($dataValidateExitCode -ne 0) {
+    exit $dataValidateExitCode
+}
+exit $importAssetsExitCode

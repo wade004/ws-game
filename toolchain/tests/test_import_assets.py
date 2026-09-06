@@ -31,6 +31,7 @@ if str(TOOLCHAIN_DIR) not in sys.path:
 
 from asset_import.cli import main as cli_main  # noqa: E402
 from asset_import.common import AssetImportError  # noqa: E402
+from asset_import.vfx_cmd import ATTACH_MODE_CHOICES  # noqa: E402
 
 CANONICAL_8 = ["front", "front_side_r", "side_r", "back_side_r", "back"]
 
@@ -448,6 +449,325 @@ class CheckDetectsMissingFileTest(ImportAssetsTestBase):
         self.assertIn(str(victim), output)
 
 
+class CheckMirrorPairsAndAnchorTest(ImportAssetsTestBase):
+    """check 子命令对 mirror_pairs 完整性、声明锚点缺失两类问题的独立重校验。"""
+
+    def _build_valid_sprite(self, case_name: str) -> tuple[Path, Path, Path]:
+        case_dir = self.new_case_dir(case_name)
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src" / "critter"
+        build_layered_sprite_src(src_dir, CANONICAL_8)
+        anchors_path = case_dir / "anchors.json"
+        write_json(
+            anchors_path,
+            {slot: {"root": [20, 60], "hand_main": [35, 20]} for slot in CANONICAL_8},
+        )
+        code, output = run_cli(
+            [
+                "sprite",
+                str(src_dir),
+                "--dataset",
+                "_test",
+                "--category",
+                "creature",
+                "--logical-id",
+                "creature.critter_test",
+                "--direction-count",
+                "8",
+                "--anchors",
+                str(anchors_path),
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+        return assets_root, data_root, data_root / "_test" / "display" / "display.map.json"
+
+    def _run_check(self, assets_root: Path, data_root: Path) -> tuple[int, str]:
+        return run_cli(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+
+    def test_missing_mirror_declaration_detected(self) -> None:
+        assets_root, data_root, display_map_path = self._build_valid_sprite("mirror_missing_decl")
+        data = json.loads(display_map_path.read_text(encoding="utf-8"))
+        row = data["rows"][0]
+        # 已落地的 front_side_l 目录仍在磁盘上，但从 mirror_pairs 里删掉它的声明。
+        row["mirror_pairs"] = [
+            m for m in row["mirror_pairs"] if m["direction_slot"] != "dir.front_side_l"
+        ]
+        write_json(display_map_path, data)
+
+        code, output = self._run_check(assets_root, data_root)
+        self.assertEqual(1, code, msg=output)
+        self.assertIn("front_side_l", output)
+        self.assertIn("mirror_pairs", output)
+
+    def test_mirror_source_not_materialized_detected(self) -> None:
+        assets_root, data_root, display_map_path = self._build_valid_sprite("mirror_bad_source")
+        data = json.loads(display_map_path.read_text(encoding="utf-8"))
+        row = data["rows"][0]
+        for m in row["mirror_pairs"]:
+            if m["direction_slot"] == "dir.front_side_l":
+                m["mirror_of"] = "dir.nonexistent_slot"
+        write_json(display_map_path, data)
+
+        code, output = self._run_check(assets_root, data_root)
+        self.assertEqual(1, code, msg=output)
+        self.assertIn("nonexistent_slot", output)
+        self.assertIn("未落地", output)
+
+    def test_declared_anchor_missing_in_anchors_json_detected(self) -> None:
+        assets_root, data_root, display_map_path = self._build_valid_sprite("anchor_missing")
+        data = json.loads(display_map_path.read_text(encoding="utf-8"))
+        row = data["rows"][0]
+        row["anchor_points"]["overhead"] = {"x": 0.0, "y": 1.0}
+        write_json(display_map_path, data)
+
+        code, output = self._run_check(assets_root, data_root)
+        self.assertEqual(1, code, msg=output)
+        self.assertIn("overhead", output)
+        self.assertIn("缺失", output)
+
+
+class MapCommandTest(ImportAssetsTestBase):
+    def _build_layer_src(self, src_dir: Path, layers: dict[str, tuple[int, int]]) -> None:
+        src_dir.mkdir(parents=True, exist_ok=True)
+        for name, size in layers.items():
+            make_layer_image(size, color=(30, 60, 30, 255)).save(src_dir / f"{name}.png")
+
+    def test_map_imports_layers_and_writes_world_row(self) -> None:
+        case_dir = self.new_case_dir("map_cmd_basic")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src"
+        self._build_layer_src(
+            src_dir, {"ground": (16, 16), "overlay": (16, 16), "decal": (16, 16), "nav_hint": (16, 16)}
+        )
+
+        code, output = run_cli(
+            [
+                "map",
+                str(src_dir),
+                "--map",
+                "grass_field",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+        out_dir = assets_root / "_test" / "maps" / "grass_field"
+        for name in ("ground", "overlay", "decal", "nav_hint"):
+            self.assertTrue((out_dir / f"{name}.png").is_file())
+
+        world_map_path = data_root / "_test" / "world" / "world.map.json"
+        data = json.loads(world_map_path.read_text(encoding="utf-8"))
+        self.assertEqual("world.map", data["table"])
+        row = data["rows"][0]
+        self.assertEqual("world.grass_field", row["id"])
+        self.assertEqual("scene.grass_field", row["scene_ref"])
+        self.assertEqual("nav.grass_field", row["nav_ref"])
+        self.assertEqual(1, len(row["spawn_points"]))
+        self.assertEqual("world.grass_field.spawn.default", row["spawn_points"][0]["id"])
+        self.assertEqual({"x": 0, "y": 0}, row["spawn_points"][0]["position"])
+
+        # 用 check --only world 交叉验证真正落地（不校验 sprite/vfx/sfx，本用例没有那些数据）。
+        code, output = run_cli(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--only",
+                "world",
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+    def test_map_missing_required_layer_raises(self) -> None:
+        case_dir = self.new_case_dir("map_cmd_missing_layer")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src"
+        self._build_layer_src(src_dir, {"ground": (16, 16)})  # 缺 overlay
+
+        code, output = run_cli(
+            [
+                "map",
+                str(src_dir),
+                "--map",
+                "broken_field",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(1, code)
+        self.assertIn("overlay.png", output)
+
+    def test_map_dry_run_writes_nothing(self) -> None:
+        case_dir = self.new_case_dir("map_cmd_dry_run")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src"
+        self._build_layer_src(src_dir, {"ground": (16, 16), "overlay": (16, 16)})
+
+        code, output = run_cli(
+            [
+                "map",
+                str(src_dir),
+                "--map",
+                "dry_field",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--dry-run",
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+        self.assertFalse((assets_root / "_test" / "maps" / "dry_field").exists())
+        self.assertFalse((data_root / "_test" / "world" / "world.map.json").exists())
+
+    def test_map_custom_spawn_points(self) -> None:
+        case_dir = self.new_case_dir("map_cmd_spawns")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src"
+        self._build_layer_src(src_dir, {"ground": (16, 16), "overlay": (16, 16)})
+
+        code, output = run_cli(
+            [
+                "map",
+                str(src_dir),
+                "--map",
+                "spawn_field",
+                "--dataset",
+                "_test",
+                "--spawn",
+                "1,2,90",
+                "--spawn",
+                "3,4",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+        world_map_path = data_root / "_test" / "world" / "world.map.json"
+        row = json.loads(world_map_path.read_text(encoding="utf-8"))["rows"][0]
+        self.assertEqual(2, len(row["spawn_points"]))
+        self.assertEqual("world.spawn_field.spawn.default", row["spawn_points"][0]["id"])
+        self.assertEqual({"x": 1.0, "y": 2.0}, row["spawn_points"][0]["position"])
+        self.assertEqual(90.0, row["spawn_points"][0]["facing"])
+        self.assertEqual("world.spawn_field.spawn.1", row["spawn_points"][1]["id"])
+        self.assertEqual({"x": 3.0, "y": 4.0}, row["spawn_points"][1]["position"])
+        self.assertEqual(0.0, row["spawn_points"][1]["facing"])
+
+
+class CheckWorldMapTest(ImportAssetsTestBase):
+    def test_check_reports_missing_map_dir(self) -> None:
+        case_dir = self.new_case_dir("check_world_missing_dir")
+        assets_root, data_root = self.roots(case_dir)
+        write_json(
+            data_root / "_test" / "world" / "world.map.json",
+            {
+                "table": "world.map",
+                "schema_version": 1,
+                "rows": [
+                    {
+                        "id": "world.ghost_field",
+                        "scene_ref": "scene.ghost_field",
+                        "nav_ref": "nav.ghost_field",
+                        "spawn_points": [],
+                    }
+                ],
+            },
+        )
+
+        code, output = run_cli(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--only",
+                "world",
+            ]
+        )
+        self.assertEqual(1, code)
+        self.assertIn("world.ghost_field", output)
+        self.assertIn("地图分层图目录不存在", output)
+
+    def test_check_reports_missing_required_layer_file(self) -> None:
+        case_dir = self.new_case_dir("check_world_missing_layer")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        make_layer_image((16, 16)).save(src_dir / "ground.png")
+        make_layer_image((16, 16)).save(src_dir / "overlay.png")
+
+        code, output = run_cli(
+            [
+                "map",
+                str(src_dir),
+                "--map",
+                "half_built_field",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+        # 事后误删其中一个必需分层文件，模拟资产被误删/未提交的情况。
+        victim = assets_root / "_test" / "maps" / "half_built_field" / "overlay.png"
+        self.assertTrue(victim.is_file())
+        victim.unlink()
+
+        code, output = run_cli(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--only",
+                "world",
+            ]
+        )
+        self.assertEqual(1, code)
+        self.assertIn(str(victim), output)
+
+
 class IconCommandTest(ImportAssetsTestBase):
     def test_icon_normalizes_size_and_lists_manifest(self) -> None:
         case_dir = self.new_case_dir("icon_cmd")
@@ -519,6 +839,120 @@ class VfxCommandTest(ImportAssetsTestBase):
         self.assertEqual("socket", row["attach_mode"])
         self.assertAlmostEqual(4 / 20, row["lifetime"])
         self.assertEqual("vfx.fire_impact_test", row["resource_ref"])
+
+    def test_vfx_single_frame_boundary(self) -> None:
+        """边界用例：只有 1 帧时图集尺寸应等于该帧尺寸本身，lifetime 按 1/fps 推算。"""
+        case_dir = self.new_case_dir("vfx_single_frame")
+        assets_root, data_root = self.roots(case_dir)
+        frames_dir = case_dir / "spark_frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        make_layer_image((12, 12), color=(255, 255, 0, 255)).save(frames_dir / "frame_0000.png")
+
+        code, output = run_cli(
+            [
+                "vfx",
+                str(frames_dir),
+                "--dataset",
+                "_test",
+                "--id",
+                "vfx.spark_single_test",
+                "--fps",
+                "10",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+        out_dir = assets_root / "_test" / "vfx" / "spark_single_test"
+        with Image.open(out_dir / "atlas.png") as atlas:
+            self.assertEqual((12, 12), atlas.size)
+        atlas_index = json.loads((out_dir / "atlas.json").read_text(encoding="utf-8"))
+        self.assertEqual(1, len(atlas_index["frames"]))
+
+        vfx_def = json.loads((data_root / "_test" / "vfx" / "vfx.def.json").read_text(encoding="utf-8"))
+        row = vfx_def["rows"][0]
+        self.assertAlmostEqual(1 / 10, row["lifetime"])
+
+    def test_vfx_many_frames_with_explicit_lifetime_override(self) -> None:
+        """边界用例：多帧（16 帧）+ 显式 --lifetime 时应直接采用显式值，不按帧数/fps 推算。"""
+        case_dir = self.new_case_dir("vfx_many_frames")
+        assets_root, data_root = self.roots(case_dir)
+        frames_dir = case_dir / "burn_frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(16):
+            make_layer_image((8, 8), color=(200, 80, 0, 255)).save(frames_dir / f"frame_{i:04d}.png")
+
+        code, output = run_cli(
+            [
+                "vfx",
+                str(frames_dir),
+                "--dataset",
+                "_test",
+                "--id",
+                "vfx.burn_many_test",
+                "--fps",
+                "24",
+                "--lifetime",
+                "9.99",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+        out_dir = assets_root / "_test" / "vfx" / "burn_many_test"
+        atlas_index = json.loads((out_dir / "atlas.json").read_text(encoding="utf-8"))
+        self.assertEqual(16, len(atlas_index["frames"]))
+
+        vfx_def = json.loads((data_root / "_test" / "vfx" / "vfx.def.json").read_text(encoding="utf-8"))
+        row = vfx_def["rows"][0]
+        self.assertEqual(9.99, row["lifetime"])
+
+    def test_vfx_attach_mode_variants_round_trip(self) -> None:
+        """多变体用例：三种 attach_mode 各自独立导入，category/attach_mode 均应原样落到各自的行。"""
+        case_dir = self.new_case_dir("vfx_attach_mode_variants")
+        assets_root, data_root = self.roots(case_dir)
+
+        for attach_mode in ATTACH_MODE_CHOICES:
+            frames_dir = case_dir / f"frames_{attach_mode}"
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            for i in range(2):
+                make_layer_image((6, 6), color=(0, 128, 255, 255)).save(frames_dir / f"frame_{i:04d}.png")
+
+            code, output = run_cli(
+                [
+                    "vfx",
+                    str(frames_dir),
+                    "--dataset",
+                    "_test",
+                    "--id",
+                    f"vfx.variant_{attach_mode}_test",
+                    "--category",
+                    "aura",
+                    "--attach-mode",
+                    attach_mode,
+                    "--fps",
+                    "12",
+                    "--assets-root",
+                    str(assets_root),
+                    "--data-root",
+                    str(data_root),
+                ]
+            )
+            self.assertEqual(0, code, msg=output)
+
+        vfx_def = json.loads((data_root / "_test" / "vfx" / "vfx.def.json").read_text(encoding="utf-8"))
+        by_id = {row["id"]: row for row in vfx_def["rows"]}
+        self.assertEqual(len(ATTACH_MODE_CHOICES), len(by_id))
+        for attach_mode in ATTACH_MODE_CHOICES:
+            row = by_id[f"vfx.variant_{attach_mode}_test"]
+            self.assertEqual("aura", row["category"])
+            self.assertEqual(attach_mode, row["attach_mode"])
 
 
 class SfxCommandTest(ImportAssetsTestBase):
