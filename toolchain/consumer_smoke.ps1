@@ -27,18 +27,50 @@
     跳过"运行前清空 WorkDir"（调试用：保留上一次运行留下的工程，便于用 Unity Editor 打开检查失败
     原因）。默认不传——每次都是全新工程。
 
+.PARAMETER ArtifactsPath
+    本脚本自己的完整控制台记录（Start-Transcript）落盘目录，默认 <仓库根>\bin\_check_artifacts
+    （与 check.ps1 -ArtifactsPath 默认值同一约定）。日志文件固定名 consumer_smoke.log（覆盖
+    上一次运行）。见下方判断记录（P07 根治之二）——check.ps1 全量门禁调用本脚本时会用
+    `| Out-Null` 吞掉本脚本子进程的全部控制台输出，这份落盘记录是失败后唯一能追溯到的完整现场。
+
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符。UTF-8 with BOM（PS 5.1 默认按系统代码页读取
     不带 BOM 的脚本文件，中文字符/字符串字面量在无 BOM 时会被读错）。
     本脚本只读引用仓库内容（复制到 WorkDir 之外的独立目录），不修改仓库内任何文件（build.ps1
     -SyncOnly -Dist 会在仓库内的 dist/<version>/ 落地/覆盖分发包快照，这是 build.ps1 一贯的既有
     行为，不是本脚本新增的写入）。
+
+    判断记录（P07 根治之一，2026-09-08，起 Unity 前不检查残留进程）：check.ps1 全量门禁里，前面
+    Unity 编译检查/EditMode/PlayMode/独立版构建四步刚跑完就紧接着跑本脚本，本脚本自己内部又要
+    另外拉起四次全新的 Unity.exe（首次编译、场景构建器、PlayMode 测试、独立版构建）——Unity.exe
+    本体退出（Process.WaitForExit 返回）到它彻底走完许可协商释放/临时文件清理之间存在滞后，
+    曾实测复现"上一个 Unity.exe 刚退出、下一个 Unity.exe 紧接着启动"时的瞬时失败（不是真的代码/
+    数据问题，是启动时机撞上了残留清理窗口）。改法：Wait-NoResidualUnityProcess 在本脚本每一次
+    拉起 Unity 批处理之前都轮询一次系统里是否还有 Unity.exe 进程（不按工程路径过滤——与 check.ps1
+    自己的 Test-NoResidualUnityProcess 语义不同，那个函数只在乎"同一工程"、发现即报错不等待，
+    因为残留可能是人正在交互使用的 Editor 窗口，不该代为等待；本脚本这里几乎总是刚退出的上一步
+    残留清理未完成，等一等大概率自己会消失，因此改为等待），最多等 60 秒，超时才报错并给出诊断
+    （PID + 命令行），不会无限期挂起、也不会假装没看见继续往下跑导致更难定位的失败。两个脚本各自
+    保留一份独立实现（惯例同上——两个脚本各自可以单独运行，不互相依赖），语义按各自场景分别设计，
+    不是简单复制粘贴。
+
+    判断记录（P07 根治之二，2026-09-08，check.ps1 全量门禁下失败现场丢失）：check.ps1 用
+    `& powershell @consumerArgs | Out-Null` 调用本脚本（判断记录见 check.ps1 该处调用点注释——
+    `Invoke-CheckStep` 把子进程整段 stdout 当返回值，不吃掉会把每一步 PASS/FAIL 明细和最终汇总表
+    都错判成一个非空数组、恒定判 PASS），代价是本脚本自己 Write-Host 出来的全部步骤明细、失败
+    Detail、汇总表都被吞掉，check.ps1 自己的 -LogFile transcript 里也不会有这些内容——本脚本一旦
+    真的失败，唯一的失败现场就此丢失，只能重新手工单独跑一遍才能看到发生了什么。改法：本脚本自己
+    用 Start-Transcript 把从此处开始的全部控制台输出（含 Unity 四步各自的 Detail、汇总表）额外落盘
+    到 -ArtifactsPath\consumer_smoke.log，不依赖调用方是否吞掉了自己的 stdout；脚本任何一个失败
+    退出点在 Stop-Transcript 之后都会把该日志文件最后 30 行重新打到控制台，方便本脚本被直接单独
+    运行（未经 check.ps1 的 Out-Null 包裹）时不用另外打开文件就能看到关键片段。
 #>
 param(
     [string]$DistVersion = "",
     [string]$WorkDir = "",
     [string]$UnityExe = "",
-    [switch]$SkipCleanWorkDir
+    [switch]$SkipCleanWorkDir,
+    [string]$ArtifactsPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -62,6 +94,42 @@ if ($WorkDir -eq "") {
     $WorkDir = Join-Path $env:TEMP "gf_consumer_smoke"
 }
 
+if ($ArtifactsPath -eq "") {
+    $ArtifactsPath = Join-Path $RepoRoot "bin\_check_artifacts"
+}
+if (-not (Test-Path $ArtifactsPath)) {
+    New-Item -ItemType Directory -Force -Path $ArtifactsPath | Out-Null
+}
+$LogFile = Join-Path $ArtifactsPath "consumer_smoke.log"
+
+# 判断记录（P07 根治之二）见本文件头 .NOTES："check.ps1 全量门禁下失败现场丢失"一节——本脚本
+# 从这里开始把全部控制台输出（Write-Host/Write-Output 均含）额外落盘到 $LogFile，独立于调用方
+# 是否吞掉了本脚本子进程自己的 stdout。Start-Transcript 在极少数环境下可能因为已有另一个未正常
+# 关闭的 transcript 会话而抛错（例如上一次运行被强杀、没走到 Stop-Transcript）——这种情况不应该
+# 阻断整个演练，只是丢失这一份落盘记录，因此吞掉异常继续往下跑。
+$script:TranscriptStarted = $false
+try {
+    Start-Transcript -Path $LogFile -Force | Out-Null
+    $script:TranscriptStarted = $true
+} catch {
+    Write-Host "警告：Start-Transcript 失败（$($_.Exception.Message)），本次运行不落盘 $LogFile，不影响演练本身" -ForegroundColor Yellow
+}
+
+# 失败/成功退出前统一调用：停止落盘记录；失败时把 $LogFile 最后 30 行重新打到控制台——本脚本被
+# check.ps1 用 `| Out-Null` 包裹调用时这段打印同样会被吞掉（预期内，届时应查 $LogFile 本身），但
+# 本脚本被人直接单独运行时，不用另外打开文件就能立刻看到失败现场，见头部 .NOTES。
+function Stop-TranscriptAndReport {
+    param([bool]$Failed)
+    if ($script:TranscriptStarted) {
+        try { Stop-Transcript | Out-Null } catch {}
+    }
+    if ($Failed -and (Test-Path $LogFile)) {
+        Write-Host ""
+        Write-Host "==== 失败诊断：$LogFile 最后 30 行 ====" -ForegroundColor Yellow
+        Get-Content -Path $LogFile -Tail 30 | ForEach-Object { Write-Host $_ }
+    }
+}
+
 function Resolve-UnityExe {
     param([string]$Explicit)
     if ($Explicit -ne "") {
@@ -74,6 +142,34 @@ function Resolve-UnityExe {
     return "Unity.exe"
 }
 $ResolvedUnityExe = Resolve-UnityExe -Explicit $UnityExe
+
+# 判断记录（P07 根治之一）见本文件头 .NOTES："起 Unity 前不检查残留进程"一节——每次拉起 Unity
+# 批处理（Editor，不含独立版产物自己的 exe）前先调用本函数，等到系统里没有 Unity.exe 进程了才
+# 真正启动，避免与上一步刚退出、还没走完清理流程的 Unity.exe 撞车导致的瞬时失败。不按工程路径过滤
+# （与 check.ps1 的 Test-NoResidualUnityProcess 语义不同，见该函数上方判断记录及本文件头 .NOTES
+# 的区分说明）。
+function Wait-NoResidualUnityProcess {
+    param([int]$TimeoutSeconds = 60)
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ($true) {
+        try {
+            $procs = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'Unity.exe'" -ErrorAction Stop)
+        } catch {
+            # 查询进程列表本身失败（权限/WMI 服务异常等）：不能确认"没有残留"，但不应该让整个
+            # 演练因为一次诊断性查询失败而卡死——按"未发现残留"处理，放行。
+            return
+        }
+        if ($procs.Count -eq 0) {
+            return
+        }
+        if ((Get-Date) -ge $deadline) {
+            $detail = ($procs | ForEach-Object { "PID $($_.ProcessId): $($_.CommandLine)" }) -join "; "
+            throw "等待 $TimeoutSeconds 秒后仍检测到残留 Unity.exe 进程未退出（$detail），本脚本不会代为结束——请先手工确认该进程状态（是否是人正在交互使用的 Editor 窗口）后重跑。"
+        }
+        Start-Sleep -Milliseconds 1000
+    }
+}
 
 # -----------------------------------------------------------------------------
 # 步骤汇总基础设施（惯例同 check.ps1，独立一份——两个脚本各自可以单独运行，不互相依赖）。
@@ -200,11 +296,13 @@ $step1 = Invoke-Step "build.ps1 -SyncOnly -Dist $DistVersion（确保分发包�
 if (-not $step1) {
     Write-Host "分发包快照生成失败，后续步骤无法进行，提前退出。" -ForegroundColor Red
     $script:Results | Format-Table -AutoSize | Out-String -Width 4096 | Write-Host
+    Stop-TranscriptAndReport -Failed $true
     exit 1
 }
 
 if (-not (Test-Path $DistRoot)) {
     Write-Host "分发包快照不存在：$DistRoot" -ForegroundColor Red
+    Stop-TranscriptAndReport -Failed $true
     exit 1
 }
 
@@ -404,6 +502,7 @@ Invoke-Step "同步内容数据集 + TextMeshPro 运行期资源到消费方工�
 # 6) 首次批处理编译（解析新包依赖 + 首次 Library 导入，正常耗时较长）：0 编译错误。
 # -----------------------------------------------------------------------------
 Invoke-Step "首次批处理编译（包解析 + 0 编译错误）" {
+    Wait-NoResidualUnityProcess
     $log = Join-Path $UnityLogDir "01_compile.log"
     $proc = Invoke-NativeAndWait -Exe $ResolvedUnityExe -ArgList @(
         "-batchmode", "-nographics", "-quit",
@@ -427,6 +526,7 @@ Invoke-Step "首次批处理编译（包解析 + 0 编译错误）" {
 # 7) 用模板的场景构建器生成场景（-executeMethod，命名空间未改，仍是 Game.Template.EditorTools）。
 # -----------------------------------------------------------------------------
 Invoke-Step "用场景构建器生成 Shell + Map 场景" {
+    Wait-NoResidualUnityProcess
     $log = Join-Path $UnityLogDir "02_scene_builder.log"
     $proc = Invoke-NativeAndWait -Exe $ResolvedUnityExe -ArgList @(
         "-batchmode", "-nographics", "-quit",
@@ -449,6 +549,7 @@ Invoke-Step "用场景构建器生成 Shell + Map 场景" {
 # 8) 跑模板的 PlayMode 测试（-testFilter 限定到 Game.Template.Tests 命名空间）：全过。
 # -----------------------------------------------------------------------------
 Invoke-Step "模板 PlayMode 测试（-testFilter Game.Template.Tests）" {
+    Wait-NoResidualUnityProcess
     $resultsXml = Join-Path $UnityLogDir "03_playmode.xml"
     $log = Join-Path $UnityLogDir "03_playmode.log"
     $proc = Invoke-NativeAndWait -Exe $ResolvedUnityExe -ArgList @(
@@ -478,6 +579,7 @@ Invoke-Step "模板 PlayMode 测试（-testFilter Game.Template.Tests）" {
 # -----------------------------------------------------------------------------
 $exePath = Join-Path $UnityLogDir "ConsumerShell.exe"
 $buildOk = Invoke-Step "构建独立版" {
+    Wait-NoResidualUnityProcess
     $log = Join-Path $UnityLogDir "04_build.log"
     $proc = Invoke-NativeAndWait -Exe $ResolvedUnityExe -ArgList @(
         "-batchmode", "-nographics", "-quit",
@@ -542,8 +644,10 @@ $script:Results | Format-Table -AutoSize Step, Result, Seconds, Detail | Out-Str
 $failed = @($script:Results | Where-Object { $_.Result -eq "FAIL" })
 if ($failed.Count -gt 0) {
     Write-Host "消费方演练失败：$($failed.Count) 步未通过（共 $($script:Results.Count) 步）。" -ForegroundColor Red
+    Stop-TranscriptAndReport -Failed $true
     exit 1
 } else {
     Write-Host "消费方演练通过：全部 $($script:Results.Count) 步。" -ForegroundColor Green
+    Stop-TranscriptAndReport -Failed $false
     exit 0
 }

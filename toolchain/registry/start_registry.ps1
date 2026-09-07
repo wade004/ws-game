@@ -19,8 +19,15 @@
     -Detach 模式下写入 PID 的文件路径，默认本目录 verdaccio.pid（.gitignore 已忽略）。
 
 .PARAMETER Stop
-    停止由 -Detach 启动、PID 记录在 -PidFile 的 Verdaccio 进程；找不到 PID 文件或进程已不存在时
-    只打印提示，不报错退出（幂等）。传 -Stop 时忽略其余参数（-Listen/-ConfigPath 等）。
+    停止 Verdaccio 进程。先按 -PidFile 记录的 PID 停一次，再按 -Listen 指定的端口兜底查找真正
+    监听该端口的进程并停止（见下方判断记录——PID 文件记录的 PID 不一定是真正监听端口的那个
+    进程），最后核验端口确实已释放。找不到 PID 文件、记录的进程已不存在、或端口本来就没人监听时
+    只打印提示，不报错退出（幂等，可重复调用）。传 -Stop 时忽略 -ConfigPath/-SkipInstall。
+
+.PARAMETER Status
+    查看 Verdaccio 运行状态：-PidFile 记录的 PID 是否存活，以及 -Listen 指定端口当前真正监听的
+    进程 PID（可能与 PID 文件不一致，见下方判断记录）。只读，不改变任何状态。传 -Status 时忽略
+    -ConfigPath/-SkipInstall。
 
 .PARAMETER SkipInstall
     跳过 `npm ci`（本目录 node_modules 已经安装过、且 package.json/package-lock.json 未变化时可用，
@@ -35,6 +42,15 @@
     会留下无法用本脚本 -Stop 干净收尾的残留监听进程。直接用 `node <node_modules>\verdaccio\bin\
     verdaccio` 启动，`Start-Process` 拿到的就是真正监听端口的那个 node.exe 进程本身的 PID，
     -Stop 一定能对应上要杀的那个进程。
+
+    判断记录二（P07 根治，2026-09-08，-Stop 停不掉私服）：仅凭上面"直接起 node"这一条，仍不能
+    保证 100% 可靠——verdaccio 未来版本变化、或运行环境导致 Start-Process 拿到的 PID 与实际监听
+    端口的进程出现偏差都不能完全排除，且 -PidFile 本身可能因为人为删除/磁盘异常而丢失或损坏。
+    因此改为双保险：-Detach 就绪后额外按 -Listen 端口用 `Get-NetTCPConnection -LocalPort <port>
+    -State Listen` 查一次真正监听该端口的进程 PID，与 Start-Process 记录的 PID 不一致时以端口
+    查到的为准重写 -PidFile；-Stop 时先按 -PidFile 停一次，再按端口兜底查一次仍在监听的进程一并
+    停止，最后轮询确认端口已释放才算真正停止成功（不再是"PID 文件对应进程已不存在就当作已停止"
+    这种可能与实际监听状态脱节的判定）。-Status 同样以端口实际监听到的 PID 为准做诊断输出。
 #>
 param(
     [string]$ConfigPath = "",
@@ -42,6 +58,7 @@ param(
     [switch]$Detach,
     [string]$PidFile = "",
     [switch]$Stop,
+    [switch]$Status,
     [switch]$SkipInstall
 )
 
@@ -57,26 +74,117 @@ function Write-Step {
     Write-Host "==== $Message ====" -ForegroundColor Cyan
 }
 
+# 从 "host:port" 形式的 -Listen 取出端口号（Get-NetTCPConnection 按端口查询要用到）。
+function Get-ListenPort {
+    param([string]$ListenValue)
+    $parts = $ListenValue -split ":"
+    return [int]$parts[-1]
+}
+
+# 按端口查真正处于 Listen 状态的进程 PID（去重）：见脚本头判断记录二——这是比 -PidFile 更权威的
+# "谁在真正监听这个端口"信息源，-Detach 就绪校验、-Stop 兜底、-Status 诊断三处共用。查询本身失败
+# （权限/网络栈异常等，非常罕见）时返回空数组，调用方按"未发现"处理，不中断主流程。
+function Get-ListenOwningProcessIds {
+    param([int]$Port)
+    try {
+        $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop
+    } catch {
+        return @()
+    }
+    return @($conns | Select-Object -ExpandProperty OwningProcess -Unique)
+}
+
 # -----------------------------------------------------------------------------
-# -Stop：独立分支，直接处理完就退出。
+# -Status：独立分支，只读诊断，直接处理完就退出。
+# -----------------------------------------------------------------------------
+if ($Status) {
+    Write-Step "-Status：查看 Verdaccio 运行状态（--listen $Listen）"
+    $port = Get-ListenPort -ListenValue $Listen
+
+    Write-Host "  PID 文件：$PidFile"
+    if (Test-Path $PidFile) {
+        $filePid = (Get-Content -Path $PidFile -Raw).Trim()
+        $fileProc = Get-Process -Id $filePid -ErrorAction SilentlyContinue
+        if ($null -ne $fileProc) {
+            Write-Host "    记录 PID $filePid，进程存活（$($fileProc.ProcessName)）" -ForegroundColor Green
+        } else {
+            Write-Host "    记录 PID $filePid，对应进程已不存在（残留 PID 文件，未反映真实状态）" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "    不存在"
+    }
+
+    $owningPids = Get-ListenOwningProcessIds -Port $port
+    Write-Host "  端口 $port 监听状态（权威判据，见脚本头判断记录二）："
+    if ($owningPids.Count -eq 0) {
+        Write-Host "    未监听：服务未运行（或实际监听地址与 -Listen $Listen 指定的不一致）" -ForegroundColor Yellow
+        exit 0
+    }
+    foreach ($p in $owningPids) {
+        $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
+        $name = "?"
+        if ($null -ne $proc) { $name = $proc.ProcessName }
+        Write-Host "    真实监听进程 PID $p（$name）" -ForegroundColor Green
+    }
+    exit 0
+}
+
+# -----------------------------------------------------------------------------
+# -Stop：独立分支，直接处理完就退出。先按 -PidFile 停一次，再按端口兜底查一次仍在监听的进程一并
+# 停止，最后轮询核验端口确实已释放——三步缺一不可，见脚本头判断记录二。幂等：重复调用、或本来就
+# 没在跑时都正常退出 0。
 # -----------------------------------------------------------------------------
 if ($Stop) {
-    Write-Step "-Stop：停止后台 Verdaccio 进程"
-    if (-not (Test-Path $PidFile)) {
-        Write-Host "  找不到 PID 文件：$PidFile（未在跑，或从未用 -Detach 启动过），无需操作" -ForegroundColor Yellow
-        exit 0
+    Write-Step "-Stop：停止 Verdaccio 进程（--listen $Listen）"
+    $port = Get-ListenPort -ListenValue $Listen
+    $stoppedAny = $false
+
+    if (Test-Path $PidFile) {
+        $recordedPid = (Get-Content -Path $PidFile -Raw).Trim()
+        $proc = Get-Process -Id $recordedPid -ErrorAction SilentlyContinue
+        if ($null -ne $proc) {
+            Stop-Process -Id $recordedPid -Force -Confirm:$false
+            Write-Host "  已按 PID 文件停止 PID $recordedPid" -ForegroundColor Green
+            $stoppedAny = $true
+        } else {
+            Write-Host "  PID 文件记录的 PID $recordedPid 对应进程已不存在（继续按端口兜底核实）" -ForegroundColor Yellow
+        }
+        Remove-Item -Path $PidFile -Force -ErrorAction SilentlyContinue
+    } else {
+        Write-Host "  找不到 PID 文件：$PidFile（继续按端口兜底核实）" -ForegroundColor Yellow
     }
-    $recordedPid = (Get-Content -Path $PidFile -Raw).Trim()
-    $proc = Get-Process -Id $recordedPid -ErrorAction SilentlyContinue
-    if ($null -eq $proc) {
-        Write-Host "  PID $recordedPid 对应的进程已不存在，直接清理 PID 文件" -ForegroundColor Yellow
-        Remove-Item -Path $PidFile -Force
-        exit 0
-    }
-    Stop-Process -Id $recordedPid -Force -Confirm:$false
+
+    # 端口兜底：不管上面 PID 文件那一步有没有找到/停掉进程，都再按端口查一次真正监听 $port 的
+    # 进程——覆盖"PID 文件记录的是包装进程/PID 已被复用给别的进程/PID 文件丢失但服务仍在跑"等
+    # 场景（见脚本头判断记录二）。
     Start-Sleep -Milliseconds 300
-    Remove-Item -Path $PidFile -Force -ErrorAction SilentlyContinue
-    Write-Host "  已停止 PID $recordedPid，已清理 $PidFile" -ForegroundColor Green
+    $owningPids = Get-ListenOwningProcessIds -Port $port
+    foreach ($p in $owningPids) {
+        $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
+        if ($null -ne $proc) {
+            Write-Host "  端口 $port 仍被 PID $p（$($proc.ProcessName)）监听，一并停止" -ForegroundColor Yellow
+            Stop-Process -Id $p -Force -Confirm:$false
+            $stoppedAny = $true
+        }
+    }
+
+    # 核验端口释放：最多轮询 5 秒（Stop-Process 是异步请求终止，端口释放有一点延迟）。
+    $released = $false
+    for ($i = 0; $i -lt 10; $i++) {
+        if ((Get-ListenOwningProcessIds -Port $port).Count -eq 0) { $released = $true; break }
+        Start-Sleep -Milliseconds 500
+    }
+
+    if (-not $released) {
+        Write-Host "  端口 $port 停止后仍处于监听状态，请手工排查：Get-NetTCPConnection -LocalPort $port -State Listen" -ForegroundColor Red
+        exit 1
+    }
+
+    if ($stoppedAny) {
+        Write-Host "  已停止，端口 $port 已释放" -ForegroundColor Green
+    } else {
+        Write-Host "  未发现在跑的 Verdaccio 进程（PID 文件与端口均未命中），端口 $port 本来就是释放状态，无需操作" -ForegroundColor Yellow
+    }
     exit 0
 }
 
@@ -150,7 +258,18 @@ if ($Detach) {
         exit 1
     }
     Write-Host "  就绪：$pingUrl 返回 200" -ForegroundColor Green
+
+    # 双保险（见脚本头判断记录二）：就绪后按端口再核实一次真正监听的 PID，与 Start-Process 记录
+    # 的不一致时（正常情况下不会发生——本脚本已经是直接起 node、不经过 npx 包装进程，这里只是
+    # 防御未来环境/版本漂移导致的偏差）以端口查到的为准重写 -PidFile，保证 -Stop/-Status 读到的
+    # 始终是真正监听端口的那个 PID。
+    $realPids = Get-ListenOwningProcessIds -Port (Get-ListenPort -ListenValue $Listen)
+    if ($realPids.Count -gt 0 -and ($realPids -notcontains $proc.Id)) {
+        Write-Host "  提示：Start-Process 记录的 PID $($proc.Id) 与真正监听端口的 PID($($realPids -join ', '))不一致，已按端口监听结果重写 PID 文件" -ForegroundColor Yellow
+        [System.IO.File]::WriteAllText($PidFile, [string]$realPids[0], (New-Object System.Text.UTF8Encoding($false)))
+    }
     Write-Host "  停止：powershell -File $($MyInvocation.MyCommand.Path) -Stop"
+    Write-Host "  状态：powershell -File $($MyInvocation.MyCommand.Path) -Status"
 } else {
     Write-Step "前台启动 Verdaccio（--listen $Listen，Ctrl+C 停止）"
     & node $verdaccioBin --config $ConfigPath --listen $Listen

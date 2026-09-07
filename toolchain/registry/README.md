@@ -14,6 +14,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\registry\start_reg
 
 # 1'. 或后台常驻（写 PID 到 toolchain/registry/verdaccio.pid）
 powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\registry\start_registry.ps1 -Detach
+powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\registry\start_registry.ps1 -Status
 powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\registry\start_registry.ps1 -Stop
 
 # 2. 无人值守建发布账号 + 令牌（写入本目录 .npmrc，不动全局 ~/.npmrc）
@@ -111,3 +112,13 @@ download` 或 `-FromLocalDist`）是并列的两条消费通道，不是"私服�
   对外提供服务、需要真实用户体系时应替换为该场景下合适的身份方案，不在本次交付范围内。
 - **`storage/`/`node_modules/`/`htpasswd`/`.npmrc`/`verdaccio.pid`/`*.log` 均已 `.gitignore`**：
   这些要么是可重新生成的依赖安装产物，要么是本机私服的运行状态/凭据，不应提交进源码仓库。
+- **`-Stop` 停不掉私服 / `-PidFile` 记的 PID 不一定是真正监听端口的进程（P07 根治，2026-09-08）**：
+  `start_registry.ps1` 头部判断记录二——`-Detach` 就绪后额外按 `-Listen` 端口用
+  `Get-NetTCPConnection -LocalPort <port> -State Listen` 核实一次真正监听该端口的进程 PID，与
+  `Start-Process` 记录的不一致时以端口查到的为准重写 PID 文件；`-Stop` 先按 PID 文件停一次，再
+  按端口兜底查一次仍在监听的进程一并停止，最后轮询确认端口已释放才算真正停止成功，可重复调用
+  （幂等）。新增 `-Status` 只读诊断 PID 文件记录的 PID 是否存活、端口当前真正监听的进程
+  PID——两者不一致时以后者为准。本机实测：`-Detach` → `/-/ping` 200 → `-Status`（真实 PID 与
+  端口一致）→ `-Stop`（端口释放、`ping` 超时）→ `-Status`（未监听）→ 重复 `-Stop`（幂等，
+  提示"本来就是释放状态"）；另单独验证了 PID 文件被删除/损坏但服务仍在跑时 `-Stop` 仍能靠端口
+  兜底找到并停止。
