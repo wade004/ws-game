@@ -78,6 +78,22 @@ namespace Adapter.Unity.EngineAdapter
         /// 逐字相等，命中帧事件因此自动对齐，不需要为它单独特判。</summary>
         public const string AnimEventDomainPrefix = "anim_event.";
 
+        /// <summary>H5b 根治新增：<see cref="ModelCharacterRig.AnimFinishedEventId"/> 换算成裸事件名
+        /// （去掉 <see cref="AnimEventDomainPrefix"/> 域前缀）——<see cref="RaiseAnimEvent"/> 统一接受
+        /// 裸事件名再加前缀，本类型内部驱动"完成"事件复用同一条通路，不另开一条直发 <see cref="Id"/>
+        /// 的旁路。</summary>
+        private const string AnimFinishedBareEventName = "finished";
+
+        /// <summary>H5b 根治新增：单个模型实例驱动 <see cref="PlayAnim"/> 的方式——供 <see cref="Tick"/>
+        /// 判断该按哪条路径检测"非循环剪辑自然播放完成"（见 <see cref="ModelCharacterRig.AnimFinishedEventId"/>
+        /// 判断记录）。</summary>
+        private enum AnimDriveMode
+        {
+            None,
+            Animator,
+            Legacy,
+        }
+
         private sealed class ModelInstance
         {
             public GameObject Root = null!;
@@ -90,6 +106,15 @@ namespace Adapter.Unity.EngineAdapter
 
             // 见类型顶部"三维放置的坐标换算"判断记录：sortY 只存不用，保留字段只为诊断/未来扩展。
             public double LastSortY;
+
+            // H5b 根治新增（游戏侧复核发现 1）：当前一次 PlayAnim 的驱动方式/目标状态或剪辑名/是否
+            // 循环/是否已经通知过完成——供 Tick() 逐实例检测"非循环剪辑自然播放完成"，见该方法判断
+            // 记录。FinishNotified 初始为 true（尚未播放过任何剪辑，没有"未完成的播放"需要检测）。
+            public AnimDriveMode Drive = AnimDriveMode.None;
+            public string? CurrentStateName;
+            public string? CurrentClipName;
+            public bool CurrentClipLoop = true;
+            public bool FinishNotified = true;
         }
 
         private readonly Transform _root;
@@ -166,6 +191,21 @@ namespace Adapter.Unity.EngineAdapter
             instance.LastSortY = sortY;
         }
 
+        /// <summary>
+        /// 判断记录（H5b 根治，游戏侧复核发现 2"同状态重入不重播"model 一侧）：<c>Animator.CrossFadeInFixedTime</c>
+        /// 用于"进入一个此前不是当前状态的目标状态"（含从别的状态切入，享受混合过渡）；但
+        /// <see cref="AnimStateMachine.StateRetriggered"/>（见其类型判断记录）驱动的是"目标状态与
+        /// Animator 当前正在播放的状态是同一个"这一特殊情形（连续两次普攻，第二次在第一次动画播完前
+        /// 到达）——继续调用 CrossFadeInFixedTime 混合到"自己当前所在的状态"在不同 Unity 版本上的
+        /// 行为不总是可靠地重启 <c>normalizedTime</c>（部分实现会把它优化成无操作，因为目标状态已经是
+        /// 当前状态），达不到"重播一遍完整剪辑"的要求。本方法据此按"这次要播的状态是否与实例当前正在
+        /// 驱动的状态相同"分两支：不同（含首次播放）走原有的 <c>CrossFadeInFixedTime</c> 混合过渡；
+        /// 相同则改用 <c>Animator.Play(stateName, layer: -1, normalizedTime: 0f)</c>——该重载显式传入
+        /// <c>normalizedTime</c> 时是有文档保证的硬切（不管目标状态是不是已经是当前状态，都会立即把
+        /// 播放头拨回指定的归一化时间点），牺牲这一次重播的混合过渡，换取"确定性地从头重新播放"这一
+        /// 更重要的正确性要求（连击类玩法的美术诉求本就是"每一下都要看到完整的挥击"，不是"丝滑但可能
+        /// 播不全"）。
+        /// </summary>
         public void PlayAnim(ModelHandle handle, Id clipId, bool loop, double speed, double blendSeconds)
         {
             var instance = EnsureAlive(handle);
@@ -174,7 +214,25 @@ namespace Adapter.Unity.EngineAdapter
             if (instance.Animator != null && AnimatorHasState(instance.Animator, stateName))
             {
                 instance.Animator.speed = (float)speed;
-                instance.Animator.CrossFadeInFixedTime(stateName, (float)Math.Max(blendSeconds, 0.0));
+
+                var isRetrigger = instance.Drive == AnimDriveMode.Animator && instance.CurrentStateName == stateName;
+                if (isRetrigger)
+                {
+                    instance.Animator.Play(stateName, -1, 0f);
+                }
+                else
+                {
+                    instance.Animator.CrossFadeInFixedTime(stateName, (float)Math.Max(blendSeconds, 0.0));
+                }
+
+                instance.Drive = AnimDriveMode.Animator;
+                instance.CurrentStateName = stateName;
+                instance.CurrentClipName = null;
+                instance.CurrentClipLoop = loop;
+                // 见 Tick() 判断记录：FinishNotified 恒随每次 PlayAnim 调用重置——循环剪辑直接标记
+                // "已通知"（Tick 因此永不对它检测），非循环剪辑（含本次重播）标记"未通知"，交给 Tick
+                // 检测这一次播放的自然完成。
+                instance.FinishNotified = loop;
                 return;
             }
 
@@ -206,12 +264,103 @@ namespace Adapter.Unity.EngineAdapter
                 animation.AddClip(clip, clip.name);
             }
 
+            // 判断记录：UnityEngine.Animation.Play 对"再次播放同一个已在播放的剪辑"的既有行为就是从头
+            // 重新播放（内部按 PlayMode.StopSameLayer 停掉同层旧播放状态后重新开始），不需要像 Animator
+            // 分支那样额外分两支处理重播——legacy 路径的"重播语义"天然正确。
             animation.Play(clip.name);
             var state = animation[clip.name];
             if (state != null)
             {
                 state.speed = (float)speed;
             }
+
+            instance.Drive = AnimDriveMode.Legacy;
+            instance.CurrentStateName = null;
+            instance.CurrentClipName = clip.name;
+            instance.CurrentClipLoop = loop;
+            instance.FinishNotified = loop;
+        }
+
+        /// <summary>
+        /// H5b 根治新增（游戏侧复核发现 1"model 路线没有完成回调"）：由 <c>Adapter.Unity.EngineAdapter.UnityEngineHost.Update</c>
+        /// 每帧驱动（同 <see cref="UnityResourceLoader.Tick"/>/<c>UnityCamera.Tick</c> 一贯的"引擎适配层
+        /// 实现自己不驱动自己，由宿主组合根统一每帧调用"惯例，见该类型判断记录）：逐实例检测"当前这
+        /// 一次 <see cref="PlayAnim"/>（<c>loop: false</c>）播放的剪辑是否已经自然播放完成"，完成时
+        /// 经既有 <see cref="RaiseAnimEvent"/> 通路发出一次 <see cref="ModelCharacterRig.AnimFinishedEventId"/>
+        /// （<see cref="AnimFinishedBareEventName"/> 经 <see cref="AnimEventDomainPrefix"/> 换算，逐字
+        /// 等于该常量）。<see cref="ModelInstance.FinishNotified"/> 保证同一次播放只通知一次（非循环
+        /// 剪辑自然播完后 Animator/Animation 都会继续停留在"已完成"状态，若不去重，下一帧的 Tick 会
+        /// 反复重新检测到同一个"已完成"信号，反复发出事件）；循环剪辑（<c>CurrentClipLoop == true</c>）
+        /// 从不检测——<see cref="PlayAnim"/> 已经把这类实例的 <c>FinishNotified</c> 直接置 true，本方法
+        /// 因此天然跳过它们，不需要在这里重复判断 loop 标志。
+        /// </summary>
+        public void Tick()
+        {
+            foreach (var kv in _instances)
+            {
+                var instance = kv.Value;
+                if (instance.FinishNotified)
+                {
+                    continue;
+                }
+
+                bool finished;
+                switch (instance.Drive)
+                {
+                    case AnimDriveMode.Animator:
+                        finished = instance.Animator != null
+                            && IsAnimatorStateFinished(instance.Animator, instance.CurrentStateName);
+                        break;
+                    case AnimDriveMode.Legacy:
+                        finished = instance.LegacyAnimation != null && instance.CurrentClipName != null
+                            && !instance.LegacyAnimation.IsPlaying(instance.CurrentClipName);
+                        break;
+                    default:
+                        finished = false;
+                        break;
+                }
+
+                if (!finished)
+                {
+                    continue;
+                }
+
+                instance.FinishNotified = true;
+                RaiseAnimEvent(kv.Key, AnimFinishedBareEventName);
+            }
+        }
+
+        /// <summary>见 <see cref="Tick"/> 判断记录：<paramref name="stateName"/> 对应的层已经不在
+        /// 过渡中（<c>IsInTransition</c> 为假——过渡中的 <c>normalizedTime</c> 含义是过渡本身的进度，
+        /// 不是目标状态剪辑的播放进度，不能用来判定剪辑是否播完）且该层当前状态的
+        /// <c>shortNameHash</c> 精确等于目标状态、<c>normalizedTime &gt;= 1</c>（该状态的
+        /// <c>AnimatorState</c>"Loop Time"应当与传给 <see cref="PlayAnim"/> 的 <c>loop</c> 参数保持
+        /// 一致——占位内容按此约定烘焙，见 <c>Adapter.Unity.Editor.GeneratePlaceholderModelAssets</c>；
+        /// 具体游戏若不遵守这一约定，非循环 <c>loop: false</c> 但 Animator 状态本身"Loop Time"开着的
+        /// 剪辑，<c>normalizedTime</c> 会持续增长永不停留在 1 附近，本方法仍能在恰好越过 1 的那一帧
+        /// 检测到"完成"，之后剪辑继续循环播放不受影响——不是本方法需要规避的错误场景）。</summary>
+        private static bool IsAnimatorStateFinished(Animator animator, string? stateName)
+        {
+            if (stateName == null)
+            {
+                return false;
+            }
+
+            var hash = Animator.StringToHash(stateName);
+            for (var layer = 0; layer < animator.layerCount; layer++)
+            {
+                if (animator.IsInTransition(layer))
+                {
+                    continue;
+                }
+
+                var info = animator.GetCurrentAnimatorStateInfo(layer);
+                if (info.shortNameHash == hash && info.normalizedTime >= 1f)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public void SetAnimSpeed(ModelHandle handle, double speed)

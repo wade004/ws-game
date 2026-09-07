@@ -683,15 +683,22 @@ namespace Adapter.Unity.Presentation
         /// <see cref="AnimClipResolver"/>（与 sprite 路线共用同一个实例——<see cref="AnimStateMachine"/>
         /// 本就是跨实体共享的全局状态表，见 sprite 路线同名判断记录，不需要为 model 型另建一份）。
         /// <para>
-        /// 判断记录（不接 <c>OnComplete</c> 回调解 Attack/Hit 终态锁）：sprite 路线的
-        /// <see cref="UnityFrameAnimPlayer.OnComplete"/> 是"序列帧播放器自己知道一条非循环剪辑何时
-        /// 播完"；Animator 驱动的 model 路线没有对等的通用完成回调（<c>Animator.CrossFadeInFixedTime</c>
-        /// 是即发即忘，退出条件依赖具体 AnimatorController 的状态机配置，本类型不假设占位内容之外的
-        /// 任何具体游戏 Animator 布局），这是已知简化——占位内容的 Attack/Cast 状态因此不会像 sprite
-        /// 路线那样在剪辑播完后自动回落到运动态，需要具体游戏在自己的 AnimatorController 里另行处理
-        /// （例如状态机内部的 Exit Time 转移），或者按 09 第 4.2 节"逻辑层显式发
-        /// skill.cast_interrupted"一类事件驱动回落。命中帧（<see cref="ModelCharacterRig.HitFrameReached"/>）
-        /// 不受影响——命中帧走独立的 AnimationEvent 通道，不依赖本判断记录讨论的"回落"机制。
+        /// 判断记录（H5b 根治，游戏侧复核发现 1"model 路线没有完成回调"，取代此前"不接 OnComplete
+        /// 回调解 Attack/Hit 终态锁"的已知简化）：sprite 路线的 <see cref="UnityFrameAnimPlayer.OnComplete"/>
+        /// 是"序列帧播放器自己知道一条非循环剪辑何时播完"；model 路线现在也有对等的完成信号——
+        /// <see cref="IRenderer3D.OnAnimEvent"/> 通道会在具体实现（<see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D"/>）
+        /// 侦测到一次 <c>PlayAnim(loop: false)</c> 自然播放完成时，以 <see cref="ModelCharacterRig.AnimFinishedEventId"/>
+        /// 为 <c>eventId</c> 触发一次（见该常量判断记录——这是 <see cref="IRenderer3D"/> 追加的契约
+        /// 义务，不是可选能力）。本方法因此直接订阅 <see cref="_renderer3D"/>.<see cref="IRenderer3D.OnAnimEvent"/>
+        /// （不经 <see cref="ModelCharacterRig"/> 中转——该类型已经把 <c>HitFrameReached</c> 一类事件
+        /// 收敛进 <see cref="ICharacterRig"/> 契约，但"完成回调"只是装配层内部接线细节，不需要放大成
+        /// 契约成员，同 sprite 路线 <c>player.OnComplete(...)</c> 直接在本类型接线、不经
+        /// <see cref="SpriteCharacterRig"/> 中转的一贯做法），接回
+        /// <see cref="AnimStateMachine.NotifyTransientStateFinished"/>，与 sprite 路线接的是同一个
+        /// 全局单例状态机、同一套"以回调触发那一刻状态机记录的当前状态"作为 <c>finishedState</c> 的
+        /// 判断记录（见 <see cref="AttachDefaultAnimation"/> 对应段落）。命中帧
+        /// （<see cref="ModelCharacterRig.HitFrameReached"/>）不受影响——命中帧与完成事件是
+        /// <see cref="IRenderer3D.OnAnimEvent"/> 同一通道上两个不同的 <c>eventId</c>，互不干扰。
         /// </para>
         /// </summary>
         private void AttachDefaultModelAnimation(UnityModelView view, Core.Foundation.DisplayInfo.DisplayInfo info, Id entityId)
@@ -706,6 +713,19 @@ namespace Adapter.Unity.Presentation
             _animClipsByEntity[entityId] = clips;
 
             EnsureAnimClipResolver();
+
+            // 见本方法判断记录：_renderer3D 在走到这里之前必然非空（CreateView 只在
+            // info.Kind == DisplayKind.Model && _renderer3D != null 这一分支才会构造 UnityModelView
+            // 并调用本方法，见该方法判断记录）；_animStateMachine 在 EnsureAnimClipResolver 之后必已
+            // 构造完成，同 AttachDefaultAnimation 同款判断记录，不会是 null。
+            var stateMachine = _animStateMachine!;
+            _renderer3D!.OnAnimEvent(view.EngineHandle, (handle, eventId) =>
+            {
+                if (eventId == ModelCharacterRig.AnimFinishedEventId)
+                {
+                    stateMachine.NotifyTransientStateFinished(entityId, stateMachine.GetState(entityId));
+                }
+            });
         }
 
         /// <summary>解析 <c>DisplayInfo.Model.AnimSetRef</c> 指向的 <c>display.anim_set</c> 行（model

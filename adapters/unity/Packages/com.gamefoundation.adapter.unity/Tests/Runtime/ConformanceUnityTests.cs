@@ -220,6 +220,10 @@ namespace Adapter.Unity.Tests.Runtime
             var host = UnityEngineHost.Ensure();
             var ctx = NewContext();
             ctx.SupportsRenderer3D = true;
+            // H5b 根治新增：真实等待足够的真实时间——占位内容 attack.anim 时长 0.5 秒、idle.anim
+            // 循环 1.0 秒（见 Editor/GeneratePlaceholderModelAssets.cs），UnityEngineHost.Update 每帧
+            // 驱动 UnityRenderer3D.Tick 侦测自然播放完成，1.5 秒真实时间足以覆盖两者一整轮。
+            ctx.CompleteNonLoopAnim = handle => AdvanceRealtime(1.5);
             yield return RunScenario(Renderer3DScenarios.All, scenarioName, (IRenderer3D)host.Renderer3D, ctx);
         }
 

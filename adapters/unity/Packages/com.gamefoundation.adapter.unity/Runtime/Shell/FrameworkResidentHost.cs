@@ -99,9 +99,15 @@ namespace Adapter.Unity.Shell
         /// <summary>W6 收口新增（ADR-0017 决策 d 遗留缺口收口，同 Adapter.Unity.Bootstrap.
         /// GameFoundationBootstrap 同名字段判断记录）：命中帧同步开关，同一个布尔值驱动
         /// RenderOptions.HitFrameSync 与 FeedbackOptions.HitFrameSync。默认 false（LogicDriven，
-        /// 与改动前行为一致）——本类型是纯 sprite 型场景（不装配 IRenderer3D/model 型外形），
-        /// 但命中帧同步策略同样适用于 sprite 型外形（见 SpriteCharacterRig 判断记录），因此本类型
-        /// 仍补齐这条开关与对应的 HitFrameSource 接线（同 GameFoundationBootstrap 一致的机制层）。</summary>
+        /// 与改动前行为一致）——命中帧同步策略同时适用于 sprite/model 两种外形类型（见
+        /// SpriteCharacterRig/ModelCharacterRig 判断记录），因此本类型补齐这条开关与对应的
+        /// HitFrameSource 接线（同 GameFoundationBootstrap 一致的机制层）。H5b 根治（游戏侧复核
+        /// 发现 3）：本类型此前的判断记录称"本类型是纯 sprite 型场景（不装配 IRenderer3D/model 型
+        /// 外形）"——这是不准确的既有限定，不是有意的产品决策；示例数据集当前只声明了 sprite 型
+        /// 外形，本类型因此实际观感仍是"只画出 sprite"，但装配本身现在与 GameFoundationBootstrap/
+        /// games/_template.GameBootstrap 一样完整支持 model 型（见下方 UnityViewFactory 构造调用
+        /// 新增的 renderer3D/weaponStyleSource 两个参数），任何具体游戏把示例数据集换成声明
+        /// kind=model 的 display.map 行即可直接生效，不需要再改本类型代码。</summary>
         private const bool HitFrameSyncEnabled = false;
 
         // 判断记录（缺口 2 已解决，同 Adapter.Unity.Bootstrap.GameFoundationBootstrap 同名判断
@@ -112,6 +118,12 @@ namespace Adapter.Unity.Shell
         private const string ActionMove = "input.action.move";
         private const string ActionAttack = "input.action.attack";
         private const string ActionSkill1 = "input.action.skill_1";
+
+        /// <summary>H5b 根治新增（游戏侧复核发现 3）：同 GameFoundationBootstrap/
+        /// games/_template.GameBootstrap 一致的主手槽位 id，供下方 EquipmentWeaponStyleSource 解析
+        /// "实体 -> 武器风格引用"（ADR-0017 决策 e），使本类型的 model 型装配与另外两处装配根具备
+        /// 同等能力（武器风格覆盖 Attack/Cast 剪辑）。</summary>
+        private const string MainHandSlotId = "item.slot.sample_main_hand";
 
         public GameplayAssembly Gameplay { get; private set; } = null!;
         public PresentationAssembly Presentation { get; private set; } = null!;
@@ -126,9 +138,8 @@ namespace Adapter.Unity.Shell
 
         /// <summary>W6 收口新增：本次装配的命中帧同步注册表（见 <see cref="HitFrameSyncEnabled"/>
         /// 判断记录、<c>Presentation.FeedbackBinder.Contracts.IHitFrameSource</c> 类型注释、
-        /// ADR-0017 决策 d）。本类型只装配 sprite 型 View（未传 <c>renderer3D</c>），但
-        /// <see cref="UnityViewFactory"/> 的两条 View 创建路线（sprite/model）都会向已装配的
-        /// <c>hitFrameSource</c> 登记 rig，本类型因此同样能受益。</summary>
+        /// ADR-0017 决策 d）。<see cref="UnityViewFactory"/> 的两条 View 创建路线（sprite/model）都会
+        /// 向已装配的 <c>hitFrameSource</c> 登记 rig。</summary>
         public global::Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource? HitFrameSource { get; private set; }
 
         public bool BootstrapFailed { get; private set; }
@@ -154,6 +165,9 @@ namespace Adapter.Unity.Shell
         private PlayerUnit _player = null!;
         private Id _classId;
         private bool _worldEverEntered;
+
+        /// <summary>H5b 根治新增（游戏侧复核发现 3）：见 <see cref="MainHandSlotId"/> 判断记录。</summary>
+        private global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource? _weaponStyleSource;
         private readonly System.Collections.Generic.Dictionary<string, bool> _wasActionActive =
             new System.Collections.Generic.Dictionary<string, bool>(StringComparer.Ordinal);
 
@@ -334,18 +348,33 @@ namespace Adapter.Unity.Shell
             var viewFactoryDisplayInfo = new DisplayInfoRegistry(registry, _bus);
             // 外部审核阻塞项 3 收口（architecture/落地计划/audit-20260907/followup-2026-09-07.md
             // "外部审核阻塞项处理"一节）：传入 bus/registry 两个可选参数，使 UnityViewFactory 默认
-            // 给"生物"型 sprite 视图挂接 UnityFrameAnimPlayer + AnimClipResolver（见该类型
-            // AttachDefaultAnimation 判断记录），不再需要本类型自己另外接一遍。
+            // 给"生物"型 sprite/model 视图挂接默认动画接线（见该类型 AttachDefaultAnimation/
+            // AttachDefaultModelAnimation 判断记录），不再需要本类型自己另外接一遍。
             // W6 收口：命中帧同步注册表（ADR-0017 决策 d），见 HitFrameSource 属性判断记录。
+            // H5b 根治（游戏侧复核发现 3）：补齐 renderer3D/weaponStyleSource 两个参数，与
+            // GameFoundationBootstrap/games/_template.GameBootstrap 两处装配根同等支持 model 型外形
+            // （见 HitFrameSyncEnabled/MainHandSlotId 判断记录）——此前本类型是三处装配入口里唯一
+            // 没有传 renderer3D 的一处，kind=model 的 DisplayInfo 会被 UnityViewFactory.CreateView
+            // 静默退化为 NullView（不渲染）。
             // _renderOptions 只构造一次、同一个实例分别传给下面的 UnityViewFactory（决定
-            // SpriteCharacterRig 构造期实际拿到的 HitFrameSync 策略，见该工厂 _renderOptions
-            // 字段判断记录）与下方 presentationOptions.RenderOptions，避免两处各自独立构造、取值
-            // 不一致（同 GameFoundationBootstrap/games/_template.GameBootstrap 同名判断记录）。
+            // SpriteCharacterRig/ModelCharacterRig 构造期实际拿到的 HitFrameSync 策略，见该工厂
+            // _renderOptions 字段判断记录）与下方 presentationOptions.RenderOptions，避免两处各自
+            // 独立构造、取值不一致（同 GameFoundationBootstrap/games/_template.GameBootstrap 同名
+            // 判断记录）。
             HitFrameSource = new global::Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource();
             var renderOptions = new global::Presentation.Render.RenderOptions { HitFrameSync = ResolveHitFrameSyncStrategy() };
+            var mainHandSlotId = new Id(MainHandSlotId);
+            global::Presentation.VfxSfx.Contracts.MainHandWeaponTemplateResolver mainHandResolver = unitId =>
+                gameplay.Carriers.Equipment.GetAllEquippedInstances(unitId).TryGetValue(mainHandSlotId, out var instance)
+                    ? instance.TemplateId
+                    : (Id?)null;
+            var weaponStyleSource = new global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource(_bus, mainHandResolver, viewFactoryDisplayInfo);
+            _weaponStyleSource = weaponStyleSource;
             var viewFactory = new UnityViewFactory(
                 _host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader,
-                bus: _bus, dataRegistry: registry, hitFrameSource: HitFrameSource, renderOptions: renderOptions);
+                bus: _bus, dataRegistry: registry,
+                renderer3D: _host.Renderer3D, hitFrameSource: HitFrameSource, weaponStyleSource: weaponStyleSource,
+                renderOptions: renderOptions);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(Seed ^ 0x9E3779B97F4A7C15UL);
@@ -848,6 +877,11 @@ namespace Adapter.Unity.Shell
             Respawn?.Dispose();
             Presentation?.Dispose();
             ViewFactory?.DestroyAllCreatedViews();
+
+            // H5b 根治新增：退订 EquipmentWeaponStyleSource 的 item.equipped/item.unequipped 订阅
+            // （同 GameFoundationBootstrap.OnDestroy 一致的清理惯例）。
+            _weaponStyleSource?.Dispose();
+            _weaponStyleSource = null;
         }
     }
 }

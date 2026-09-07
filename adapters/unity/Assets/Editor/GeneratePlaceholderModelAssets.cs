@@ -8,13 +8,21 @@
 //     UnityRenderer3D.CreateModelInstance 判断记录"AnimationEvent 中继必须与 Animator 同一
 //     GameObject"）+ 两个子对象 "socket.main_hand"（空挂点，供 AttachToSocket 测试）/
 //     "slot.head"（球体占位头部，带 MeshFilter/MeshRenderer，供 SetSlotMesh 测试）。
-//   models/placeholder_biped.controller —— AnimatorController，三个状态 idle（loop）/attack/cast，
-//     默认状态 idle。
-//   anim_clips/idle.anim / attack.anim / cast.anim —— 与上述三个状态一一对应的 AnimationClip；
-//     attack.anim 在 50% 时间点内嵌一个 AnimationEvent（functionName="OnAnimEvent"，
+//   models/placeholder_biped.controller —— AnimatorController，四个状态 idle（loop）/attack/cast/
+//     hit（H5b 根治新增，见下），默认状态 idle。
+//   anim_clips/idle.anim / attack.anim / cast.anim / hit.anim —— 与上述四个状态一一对应的
+//     AnimationClip；attack.anim 在 50% 时间点内嵌一个 AnimationEvent（functionName="OnAnimEvent"，
 //     stringParameter="hit_frame"，见 UnityRenderer3D.AnimEventFunctionName/AnimEventDomainPrefix）
 //     ——与 AnimClipResolver 的数据驱动事件注册（见该类型判断记录）双重覆盖同一份命中帧描述，
 //     即便某个具体游戏后续替换掉这条数据驱动注册路径，占位内容本身仍然自带可用的命中帧事件。
+//   hit.anim（H5b 根治新增，游戏侧复核发现"PlayMode 用例缺'受击后继续攻击'覆盖"）：0.3 秒非循环
+//     剪辑，不内嵌任何 AnimationEvent（受击本身不需要命中帧）——此前占位内容只有
+//     idle/attack/cast 三个状态，data/_sample/display/display.anim_set.json 的
+//     display.anim_set.placeholder_biped 因此从未声明 hit 剪辑，model 型实体受击后 Animator 不会
+//     播放任何东西，也就永远不会触发本文件 UnityRenderer3D.Tick 侦测的"非循环剪辑自然播放完成"，
+//     AnimStateMachine 会永久卡在 Hit（下一次攻击优先级不足以覆盖 Hit，见该类型判断记录"优先级
+//     表"）——这是"完成回调"修复要能在生产数据集下端到端验证"受击后继续攻击"必须一并补上的资产
+//     缺口，与 09/02 勘误"引擎适配层必须在非循环剪辑结束时发出完成事件"是同一件事的资产落地半。
 //
 // 判断记录（为什么胶囊体本体也是 Animator 所在的 GameObject，而不是另建一个空根节点）：
 // UnityRenderer3D.CreateModelInstance 用 GetComponentInChildren<Animator>() 定位 Animator（不要求
@@ -48,6 +56,7 @@ namespace Adapter.Unity.EditorTools
         private const string IdleClipPath = AnimClipsDir + "/idle.anim";
         private const string AttackClipPath = AnimClipsDir + "/attack.anim";
         private const string CastClipPath = AnimClipsDir + "/cast.anim";
+        private const string HitClipPath = AnimClipsDir + "/hit.anim";
 
         /// <summary>命中帧事件名（裸名，见 UnityRenderer3D.AnimEventDomainPrefix 判断记录，换算后
         /// 等于 Presentation.Render.ModelCharacterRig.HitFrameEventId 的 "anim_event." 域前缀 +
@@ -63,8 +72,9 @@ namespace Adapter.Unity.EditorTools
             var idleClip = CreateOrReplaceClip(IdleClipPath, "idle", length: 1.0f, loop: true, hitFrameAtPct: null);
             var attackClip = CreateOrReplaceClip(AttackClipPath, "attack", length: 0.5f, loop: false, hitFrameAtPct: 0.5f);
             var castClip = CreateOrReplaceClip(CastClipPath, "cast", length: 0.6f, loop: false, hitFrameAtPct: null);
+            var hitClip = CreateOrReplaceClip(HitClipPath, "hit", length: 0.3f, loop: false, hitFrameAtPct: null);
 
-            var controller = CreateOrReplaceController(ControllerPath, idleClip, attackClip, castClip);
+            var controller = CreateOrReplaceController(ControllerPath, idleClip, attackClip, castClip, hitClip);
 
             CreateOrReplacePrefab(PrefabPath, controller);
 
@@ -73,7 +83,7 @@ namespace Adapter.Unity.EditorTools
 
             Debug.Log(
                 $"[GeneratePlaceholderModelAssets] 生成完成：{PrefabPath} / {ControllerPath} / " +
-                $"{IdleClipPath} / {AttackClipPath} / {CastClipPath}");
+                $"{IdleClipPath} / {AttackClipPath} / {CastClipPath} / {HitClipPath}");
         }
 
         /// <summary>供 -executeMethod 批处理调用（同 Il2CppPlayerBuilder 一类入口惯例）：生成后立即
@@ -119,7 +129,7 @@ namespace Adapter.Unity.EditorTools
         }
 
         private static AnimatorController CreateOrReplaceController(
-            string path, AnimationClip idleClip, AnimationClip attackClip, AnimationClip castClip)
+            string path, AnimationClip idleClip, AnimationClip attackClip, AnimationClip castClip, AnimationClip hitClip)
         {
             if (AssetDatabase.LoadAssetAtPath<AnimatorController>(path) != null)
             {
@@ -138,6 +148,12 @@ namespace Adapter.Unity.EditorTools
 
             var castState = stateMachine.AddState("cast");
             castState.motion = castClip;
+
+            // H5b 根治新增：见文件顶部判断记录——补齐 hit 状态，使 display.anim_set.placeholder_biped
+            // 能声明一条真正会被 Animator 播放、进而能被 UnityRenderer3D.Tick 侦测到自然播放完成的
+            // 受击剪辑。
+            var hitState = stateMachine.AddState("hit");
+            hitState.motion = hitClip;
 
             return controller;
         }

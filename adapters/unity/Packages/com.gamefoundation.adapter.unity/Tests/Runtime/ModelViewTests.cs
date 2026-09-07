@@ -232,5 +232,34 @@ namespace Adapter.Unity.Tests.Runtime
             rig.Dispose();
             renderer3D.DestroyModelInstance(handle);
         }
+
+        /// <summary>H5b 根治验收：直接对 UnityRenderer3D 播放 hit.anim（非循环），验证
+        /// UnityEngineHost.Update 驱动的 Tick() 侦测到自然播放完成后确实经 OnAnimEvent 发出一次
+        /// "anim_event.finished"（与 ModelCharacterRig.AnimFinishedEventId 逐字相等）——隔离验证底层
+        /// 机制本身，不经 GameFoundationBootstrap 全链路（全链路端到端覆盖见
+        /// AnimReplayAndFinishEndToEndTests.cs）。</summary>
+        [UnityTest]
+        public IEnumerator PlayHitClip_NonLoop_ReachesFinished_RaisesFinishedEvent()
+        {
+            var fx = BuildFixture();
+            var renderer3D = (UnityRenderer3D)fx.Host.Renderer3D;
+            var handle = renderer3D.CreateModelInstance(new Id("model.placeholder_biped"));
+
+            var received = new System.Collections.Generic.List<Id>();
+            renderer3D.OnAnimEvent(handle, (h, id) => received.Add(id));
+
+            renderer3D.PlayAnim(handle, new Id("anim.hit"), loop: false, speed: 1.0, blendSeconds: 0.15);
+
+            var deadline = Time.realtimeSinceStartup + 3f;
+            while (received.Count == 0 && Time.realtimeSinceStartup < deadline)
+            {
+                yield return null;
+            }
+
+            Assert.AreEqual(1, received.Count, "非循环 hit 剪辑播放完成后应当发出一次 anim_event.finished");
+            Assert.AreEqual(new Id("anim_event.finished"), received[0]);
+
+            renderer3D.DestroyModelInstance(handle);
+        }
     }
 }

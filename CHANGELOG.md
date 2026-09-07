@@ -11,6 +11,54 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.3.1] - 2026-09-08
+
+游戏侧复核 1.3.0 发现三项问题并根治：model 型动画状态机永久卡死、瞬态状态同状态重入不重播、
+框架常驻壳（`FrameworkResidentHost`）未接通 model 型外形。均属表现层/引擎适配层缺陷修复，无数据
+表字段变更，无存档格式变更。
+
+### 修复
+
+- **model 路线动画完成回调缺失**（`presentation/render/**`、`adapters/unity/**`）：sprite 型经
+  `IFrameAnimPlayer.OnComplete` 把非循环剪辑（Attack/Hit 等瞬态状态）自然播完的信号接回动画状态机
+  解除优先级锁，model 型此前没有对等通道，播完后永不回落——第二次普攻停在同一状态、受击后卡死。
+  `IRenderer3D` 追加契约义务：非循环剪辑（`loop=false`）自然播放完成时必须经 `OnAnimEvent` 额外
+  发出一次 `anim_event.finished`（循环剪辑不发）；`Adapter.Unity.EngineAdapter.UnityRenderer3D`
+  新增 `Tick()`（由 `UnityEngineHost.Update` 每帧驱动），逐模型实例检测 Animator/`Animation`
+  组件的播放进度，检测方式见下"迁移说明"。`Presentation.Render.ModelCharacterRig` 新增
+  `AnimFinishedEventId` 常量，装配代码（`Adapter.Unity.Presentation.UnityViewFactory.AttachDefaultModelAnimation`）
+  把该事件接回 `AnimStateMachine.NotifyTransientStateFinished`，与 sprite 路线走同一套回落机制。
+- **同状态重入不重播**（`presentation/render/core/AnimStateMachine.cs`、
+  `Adapter.Unity.Presentation.AnimClipResolver`、`UnityRenderer3D`）：瞬态状态（Attack/Cast/Hit/
+  Jump）同状态重入（如第二次普攻在第一次动画播完前到达）此前被状态机当作"无变化"直接丢弃，第二次
+  攻击不会重播剪辑、命中帧不会再次触发。`AnimStateMachine` 新增 `StateRetriggered` 事件（与真正的
+  状态切换 `StateChangedWithSkill` 分开触发，语义"重播一遍"，Idle/Move 等持续态不受影响、继续保持
+  幂等，Death 终态不受影响）；`AnimClipResolver` 同时订阅两个事件，用同一套"解析剪辑并播放"逻辑
+  处理；`UnityRenderer3D.PlayAnim` 对"目标状态与实例当前正在驱动的状态相同"的情形改用
+  `Animator.Play(stateName, -1, 0f)` 硬切重播（而非 `CrossFadeInFixedTime`，理由见类型判断记录），
+  确保确定性地从头重新播放。
+- **`FrameworkResidentHost` 未接通 model 型外形**（`adapters/unity/**`）：三处引擎侧装配根
+  （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）里，只有
+  `FrameworkResidentHost` 此前没有把 `renderer3D` 传给 `UnityViewFactory`，`kind=model` 的
+  `DisplayInfo` 会被静默退化为不渲染的 `NullView`，与文档"三处装配入口均支持 model"的描述不符。
+  现补齐 `renderer3D`/`weaponStyleSource`（同 `GameFoundationBootstrap` 一致的
+  `EquipmentWeaponStyleSource` 接线，主手槽位 id 常量 `item.slot.sample_main_hand`）两个构造参数，
+  三处装配根现已对等支持 model 型外形（命中帧同步/武器风格/完成回调）。
+
+### 迁移说明（引擎适配层新增义务）
+
+- **`IRenderer3D` 实现新增契约义务**（02 第 1.12 节勘误）：`PlayAnim` 播放的非循环剪辑
+  （`loop=false`）自然播放完成时，必须经既有 `OnAnimEvent` 通道额外发出一次约定的"播放完成"事件
+  （循环剪辑不发）；具体事件 id 由消费方（表现层装配代码）约定，本仓库 Unity 实现固定用
+  `anim_event.finished`（与 `Presentation.Render.ModelCharacterRig.AnimFinishedEventId` 逐字相等）。
+  自行实现 `IRenderer3D`（迁移到其它引擎，见 02 第 4 节迁移步骤）的具体游戏，必须在自己的实现里
+  补齐这条完成事件，否则 model 型外形的 Attack/Hit/Cast 等瞬态动画状态会永久卡死，无法回落。
+  `adapters/conformance/Runtime/Renderer3DScenarios.cs`/`adapters/stub/StubRenderer3D.cs` 新增对应
+  契约一致性场景与测试专用完成钩子（`CompleteAnimForTest`），供自实现方按同一套场景验证。
+- 占位模型资产新增 `hit` 状态与 `anim_clips/hit.anim`（`adapters/unity/Assets/Editor/GeneratePlaceholderModelAssets.cs`
+  可重复运行生成）；`data/_sample/display/display.anim_set.json` 的
+  `display.anim_set.placeholder_biped` 补 `hit` 剪辑声明，供"受击后继续攻击"端到端验收使用。
+
 ## [1.3.0] - 2026-09-08
 
 W6 表现能力补齐：补齐"能力边界与未默认接入能力索引"表中长期标记"未接入"的三项表现能力——装备

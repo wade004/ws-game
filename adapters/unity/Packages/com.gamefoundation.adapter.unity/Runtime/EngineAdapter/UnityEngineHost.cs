@@ -147,6 +147,9 @@ namespace Adapter.Unity.EngineAdapter
             Camera.Tick(deltaSeconds);
             Audio.Tick(deltaSeconds);
             ResourceLoader.Tick();
+            // H5b 根治新增（游戏侧复核发现 1）：见 UnityRenderer3D.Tick 判断记录——逐 model 实例检测
+            // 非循环剪辑自然播放完成，与其余几个 *.Tick() 同一惯例，每帧调用一次。
+            Renderer3D.Tick();
         }
 
         private void FixedUpdate()

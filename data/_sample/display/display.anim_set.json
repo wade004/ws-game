@@ -18,7 +18,8 @@
       "clips": {
         "idle": { "resource_ref": "anim.idle", "events": [] },
         "attack": { "resource_ref": "anim.attack", "events": [{ "name": "hit_frame", "time_pct": 0.5 }] },
-        "cast": { "resource_ref": "anim.cast", "events": [] }
+        "cast": { "resource_ref": "anim.cast", "events": [] },
+        "hit": { "resource_ref": "anim.hit", "events": [] }
       }
     }
   ]

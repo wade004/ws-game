@@ -82,9 +82,21 @@ namespace Adapter.Unity.Presentation
             _weaponStyles = weaponStyles;
 
             _stateMachine.StateChangedWithSkill += OnStateChangedWithSkill;
+            // H5b 根治（游戏侧复核发现 2）：AnimStateMachine.StateRetriggered（同状态重入，见其类型
+            // 判断记录）与 StateChangedWithSkill（状态真的切换了）需要同一套"解析剪辑并播放"逻辑
+            // ——两者唯一的区别只是"这次调用是不是状态数值真的变了"，播放器本身对"再调用一次
+            // playClip"的语义就是"从头重播"，本类型因此把两个事件处理方法收敛到同一个
+            // PlayResolvedClip，不重复实现一遍查表逻辑。
+            _stateMachine.StateRetriggered += OnStateRetriggered;
         }
 
-        private void OnStateChangedWithSkill(Id entityId, AnimState from, AnimState to, Id? triggerSkillId)
+        private void OnStateChangedWithSkill(Id entityId, AnimState from, AnimState to, Id? triggerSkillId) =>
+            PlayResolvedClip(entityId, to, triggerSkillId);
+
+        private void OnStateRetriggered(Id entityId, AnimState state, Id? triggerSkillId) =>
+            PlayResolvedClip(entityId, state, triggerSkillId);
+
+        private void PlayResolvedClip(Id entityId, AnimState to, Id? triggerSkillId)
         {
             Id? clipId = null;
 
@@ -120,6 +132,10 @@ namespace Adapter.Unity.Presentation
             }
         }
 
-        public void Dispose() => _stateMachine.StateChangedWithSkill -= OnStateChangedWithSkill;
+        public void Dispose()
+        {
+            _stateMachine.StateChangedWithSkill -= OnStateChangedWithSkill;
+            _stateMachine.StateRetriggered -= OnStateRetriggered;
+        }
     }
 }
