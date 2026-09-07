@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../../core/foundation/Core.Foundation.csproj" />
+    <ProjectReference Include="../../../../adapters/stub/Adapters.Stub.csproj" />
+    <ProjectReference Include="../../../../presentation/Presentation.Common.csproj" />
+    <Compile Include="../../../../core/foundation/scene_router/tests/SceneRouterTestSupport.cs" Link="Support/SceneRouterTestSupport.cs" />
+    <Compile Include="../../../../adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/AnimClipResolver.cs" Link="Support/AnimClipResolver.cs" />
+  </ItemGroup>
+</Project>

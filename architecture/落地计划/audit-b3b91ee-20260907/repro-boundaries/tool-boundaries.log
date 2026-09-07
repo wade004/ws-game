@@ -1,0 +1,12 @@
+cwd=D:\workespace\ws-game-review-b3b91ee
+git rev-parse HEAD
+b3b91ee624332c56637240fd1bc7941c6b2ebbc5
+
+dotnet build architecture\落地计划\audit-b3b91ee-20260907\repro-boundaries\ReproBoundaries.csproj --configuration Release
+生成成功：0 个警告，0 个错误
+
+dotnet run --project architecture\落地计划\audit-b3b91ee-20260907\repro-boundaries\ReproBoundaries.csproj --configuration Release --no-build
+FND02 SceneRouter stale callback | expected=old nav.town_square callback is ignored; after replay Router remains Loading/Loading until Forest resources complete | actual=afterTownFailure=Idle/MainMenu, beforeStaleUpdate=Loading/Loading, afterStaleUpdate=Idle/MainMenu, forestControl=Idle/InWorld/world.forest_path | REPRODUCED
+FND03 DataRegistry blocked state | expected=bad JSON keeps registry blocked until a successful data load/reload | actual=initial(IsBlocking=True, errors=1), initialReadBlocked=True, Validate(IsBlocking=False, errors=0), laterReadBlocked=False | REPRODUCED
+FND08 InputMapHost same-batch edge | expected=Q down+up in one PollEvents batch still emits one triggered action | actual=sameBatch(active=False, actionCount=0), splitDown(active=True, actionCount=1), splitUp(active=False, actionCount=1) | REPRODUCED
+GP02 animation completion/death wiring | expected=resolver wires player completion to NotifyTransientStateFinished and death/respawn/view teardown to Forget or reset | actual=clipAtHit=anim.hit, playerAfterHit=<none>, stateAfterHitComplete=Hit, stateAfterMoveAndAttack=Hit, stateAfterDeathComplete=Death, stateAfterRespawnAndAttack=Death, stateBeforeManualForget=Death, stateAfterManualForget=Idle | component-chain-only (no UnityViewFactory/Unity runtime) | REPRODUCED

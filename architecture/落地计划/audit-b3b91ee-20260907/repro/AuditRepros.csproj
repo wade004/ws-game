@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../../core/foundation/Core.Foundation.csproj" />
+    <ProjectReference Include="../../../../core/numbers/Core.Numbers.csproj" />
+    <ProjectReference Include="../../../../core/rules/Core.Rules.csproj" />
+    <ProjectReference Include="../../../../core/carriers/Core.Carriers.csproj" />
+    <ProjectReference Include="../../../../core/gameplay/Core.Gameplay.csproj" />
+    <ProjectReference Include="../../../../adapters/stub/Adapters.Stub.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../../../core/carriers/item/tests/TestSupport.cs" Link="Support/ItemTestSupport.cs" />
+    <Compile Include="../../../../core/rules/skill/tests/SkillTestSupport.cs" Link="Support/SkillTestSupport.cs" />
+    <Compile Include="../../../../core/rules/skill/tests/FakeTargetHost.cs" Link="Support/FakeTargetHost.cs" />
+    <Compile Include="../../../../core/rules/skill/tests/FakeUnitAccess.cs" Link="Support/FakeSkillUnitAccess.cs" />
+    <Compile Include="../../../../core/rules/skill/tests/FakeCombatHost.cs" Link="Support/FakeCombatHost.cs" />
+    <Compile Include="../../../../core/rules/skill/tests/FakeExprHostFactory.cs" Link="Support/FakeExprHostFactory.cs" />
+  </ItemGroup>
+</Project>

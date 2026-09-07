@@ -1,0 +1,16 @@
+check=D:\workespace\ws-game-review-b3b91ee\check.ps1
+powershell=5.1.26100.9168
+known_zero_exit=0
+missing_executable=__ws_game_audit_missing_executable__
+extracted_function=function Test-NativeExitCode {
+    param(
+        [string]$Exe,
+        [string[]]$ArgList
+    )
+    $ErrorActionPreference = "Continue"
+    & $Exe @ArgList | Out-Host
+    return ($LASTEXITCODE -eq 0)
+}
+actual=True
+expected=False
+result=PASS_FOR_REPRO (missing executable returned true)

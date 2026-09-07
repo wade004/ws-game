@@ -1,0 +1,7 @@
+ids=sfx.fire.hit,sfx.fire_hit
+run_exit_codes=[0, 0]
+rows=[('sfx.fire.hit', 'sfx.fire_hit_v0'), ('sfx.fire_hit', 'sfx.fire_hit_v0')]
+audio_file_count=1
+both_records_share_resource=True
+shared_file_is_second_source=True
+result=PASS_FOR_REPRO (distinct IDs collide and second source overwrites first)
