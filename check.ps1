@@ -48,11 +48,12 @@
     工程收尾 K 新增，供 `.githooks/pre-commit` 调用：只跑"秒级能跑完"的子集——dotnet
     build/test、两道数据校验（合并根 + data/_framework 框架根）、事件常量一致性检查、两道禁用词
     扫描、版本一致性；跳过占位资产生成器检查（`gen_placeholder_assets.py --check`，需要 Pillow
-    且逐张比较占位图较慢）、`toolchain` 自身 pytest、包清单一致性（私服交付通道新增，需要跑一遍
-    `build.ps1 -SyncOnly -Dist auto` + `npm pack`，与下面 `build.ps1 -SkipTests` 同步同一类
-    "非 Unity 但耗时的构建期动作"）、`build.ps1 -SkipTests` 同步、全部 Unity 相关步骤与消费方
-    演练——本开关本身就意味着不跑任何 Unity 步骤（等价于隐含 -SkipUnity，同传 -SkipUnity 不冲突
-    也没有必要）。不能替代完整门禁，只用于提交前快速把关。
+    且逐张比较占位图较慢）、`toolchain` 自身 pytest、`build.ps1 -SkipTests` 同步、包清单一致性
+    （私服交付通道新增，需要跑一遍 `build.ps1 -SyncOnly -Dist auto` + `npm pack`，与
+    `build.ps1 -SkipTests` 同步同一类"非 Unity 但耗时的构建期动作"，且依赖它先把六个核心 DLL
+    构建到 `bin\` 下——`-SyncOnly` 要求产物已存在，见该步骤判断记录，故排在其之后）、全部
+    Unity 相关步骤与消费方演练——本开关本身就意味着不跑任何 Unity 步骤（等价于隐含 -SkipUnity，
+    同传 -SkipUnity 不冲突也没有必要）。不能替代完整门禁，只用于提交前快速把关。
 
 .PARAMETER Il2cpp
     工程收尾 K 新增，默认不跑（因为耗时数分钟到十几分钟，见 adapters/unity/README.md"IL2CPP
@@ -681,16 +682,57 @@ Invoke-CheckStep "版本一致性：VERSION、两个 package.json 与 CHANGELOG.
 }
 
 # -----------------------------------------------------------------------------
-# 8.5 包清单一致性（私服交付通道新增，见 toolchain/registry/README.md、build.ps1 -Dist"私服交付
+# 9. build.ps1 -SkipTests（同步六个核心 DLL 到 Unity 适配层包 + 同步内容数据集）
+#    另起一个 powershell 子进程跑，避免 build.ps1 内部的 exit 语句连带终止本脚本。
+#    -Quick 跳过：这一步只有 Unity 相关步骤需要（同步 DLL/内容数据集给 Unity 工程用），
+#    -Quick 本身不跑任何 Unity 步骤，跳过它不影响 -Quick 覆盖的 dotnet/python 校验结论。
+# -----------------------------------------------------------------------------
+if ($Quick) {
+    Add-SkippedStep "build.ps1 -SkipTests（同步 DLL）" "-Quick"
+} else {
+    Invoke-CheckStep "build.ps1 -SkipTests（同步 DLL）" {
+        $buildScript = Join-Path $RepoRoot "build.ps1"
+        # 同源假阳性同一修法，判断记录见下方"消费方演练"步骤：原生调用未消费的 stdout 会混进
+        # scriptblock 返回值把失败判成 PASS，用 `| Out-Null` 吃掉即可，$LASTEXITCODE 不受影响。
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SkipTests | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 9.5 包清单一致性（私服交付通道新增，见 toolchain/registry/README.md、build.ps1 -Dist"私服交付
 #     通道新增"说明）：跑一遍 `build.ps1 -SyncOnly -Dist auto`（不需要 Unity，只是文件同步 +
-#     npm pack，复用同一份 -Quick 判断——见下方 if ($Quick) 分支，与"9. build.ps1 -SkipTests"
-#     那一步同一类"非 Unity 但耗时的构建期同步动作"，-Quick 下同样跳过），核对：
+#     npm pack，复用同一份 -Quick 判断——见下方 if ($Quick) 分支，-Quick 下同样跳过），核对：
 #       1) 组装出的三个包 package.json 的 version 字段都等于 VERSION（跟"8. 版本一致性"校验的是
 #          两份提交进源码库的 package.json 不同，这里校验的是 build.ps1 打包逻辑本身有没有正确
 #          把解析出的版本号写进新组装的三个包，属于"打包逻辑自检"而不是"源码一致性"）；
 #       2) 对每个包目录跑 `npm pack --dry-run --json`，核对文件清单里不包含
 #          __pycache__/bin/obj/storage（含 registry/ 相关的排除规则真的生效，见 build.ps1
 #          Copy-DistDir 调用列表的 -ExcludeDirNames）。
+#
+#     判断记录（2026-09-07，CI f0389f8 失败，根治：本步骤挪到"9. build.ps1 -SkipTests"之后，
+#     不再挪到之前）：本步骤依赖的 `build.ps1 -SyncOnly -Dist auto` 有一条硬性前置条件——
+#     `-SyncOnly` 要求六个核心 DLL（见 build.ps1 `$CoreAssemblies` 列表的六个 `Dir`）已经存在于
+#     各自工程的 `bin\$Configuration\netstandard2.1\` 下（build.ps1 里 `-SyncOnly` 分支不跑
+#     `dotnet build`，只做同步；找不到源 DLL 时判断记录写得很直白："-SyncOnly 要求产物已存在，
+#     请先不带 -SyncOnly 跑一次完整构建"，随即 `exit 1`）。而在本仓库现有的步骤顺序里，真正会把
+#     这六个 DLL 构建到 `bin\` 下的是本脚本"1. dotnet build"（用 `--artifacts-path`，产物落在
+#     `$ArtifactsPath` 而不是 `bin\` 下）与"9. build.ps1 -SkipTests"（内部跑不带
+#     `--artifacts-path` 的 `dotnet build`，产物才会落在 `bin\Release\netstandard2.1\`，见
+#     build.ps1"1. dotnet build"一节）。此前本步骤排在"8. 版本一致性"之后、"9. build.ps1
+#     -SkipTests"之前（旧编号"8.5"），在本机能通过纯属侥幸——本机仓库历史上跑过多次不带
+#     `-SyncOnly` 的 `build.ps1`，`bin\` 下留有陈旧但存在的 DLL；GitHub Actions 的
+#     `windows-latest` 运行器每次都是全新 checkout，`bin\` 目录不存在，本步骤在 CI 上必然在
+#     `-SyncOnly` 内部的 DLL 存在性检查处以退出码 1 失败（见 CI 运行 f0389f8，Detail 只有一句
+#     "build.ps1 -SyncOnly -Dist auto 失败，退出码 1"，因为当时调用处用 `| Out-Null` 把
+#     build.ps1 自己打印的"找不到构建产物：...""-SyncOnly 要求产物已存在..."两行诊断信息吞掉了，
+#     见本步骤下方"不再吞输出"的判断记录）。根治方案二选一：a) 把本步骤挪到"9. build.ps1
+#     -SkipTests"之后（依赖关系上"先有构建产物，再打包"，本步骤现在采用的方案）；b) 让本步骤自身
+#     在检测到 DLL 缺失时自动改调 `build.ps1 -SkipTests -Dist auto`（不用 -SyncOnly）。选 a）
+#     不选 b）：b) 会让本步骤内部再悄悄多做一遍"9. build.ps1 -SkipTests"同样的构建+同步工作，
+#     `-Quick` 之外的正常全量门禁跑两次实质等价的构建同步、更慢且更难追踪是哪一次真正产生的
+#     `bin\Plugins\Core\` 内容；a) 只是单纯调整步骤顺序（依赖方在依赖项之后跑，符合直觉），两个
+#     步骤各自职责不变（9 管"构建产物落地"，9.5 管"打包清单是否正确"），不引入任何隐式的重复构建。
 # -----------------------------------------------------------------------------
 if ($Quick) {
     Add-SkippedStep "包清单一致性（三个 npm 包版本号 + npm pack --dry-run 排除规则）" "-Quick"
@@ -700,9 +742,26 @@ if ($Quick) {
         $version = (Get-Content -Path $versionPath -Raw).Trim()
 
         $buildScript = Join-Path $RepoRoot "build.ps1"
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SyncOnly -Dist auto | Out-Null
+        # 判断记录（不再用 `| Out-Null` 吞掉 build.ps1 的输出）：此前失败时 Detail 列只有一句
+        # "build.ps1 -SyncOnly -Dist auto 失败，退出码 N"，看不到 build.ps1 自己打印的具体原因
+        # （例如"找不到构建产物：..."这一行）——CI 上 f0389f8 那次失败就是因为这一行被吞掉，
+        # 排查时只能凭猜测。改法：局部把 $ErrorActionPreference 降级为 Continue（原因同
+        # Test-NativeExitCode 函数判断记录：`&` 调用外部 powershell.exe 时，Stop 偏好会把它写到
+        # stderr 的任意一行提升成终止性异常，只保留第一行），把 stdout/stderr 逐行同时
+        # Write-Host（控制台/-LogFile transcript 仍能实时看到完整输出，行为与之前一致）和收集进
+        # 列表；失败时把收集到的最后 30 行并入 throw 的消息，让汇总表 Detail 列也能看到根因，不需要
+        # 额外翻 -LogFile。这里对该 scriptblock 的局部赋值不影响脚本其余部分（`&` 调用操作符本身
+        # 创建新作用域）。
+        $ErrorActionPreference = "Continue"
+        $buildOutputLines = New-Object System.Collections.Generic.List[string]
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SyncOnly -Dist auto 2>&1 | ForEach-Object {
+            $line = $_.ToString()
+            Write-Host $line
+            $buildOutputLines.Add($line)
+        }
         if ($LASTEXITCODE -ne 0) {
-            throw "build.ps1 -SyncOnly -Dist auto 失败，退出码 $LASTEXITCODE"
+            $tailLines = $buildOutputLines | Select-Object -Last 30
+            throw ("build.ps1 -SyncOnly -Dist auto 失败，退出码 $LASTEXITCODE。最后 " + $tailLines.Count + " 行输出：`n" + ($tailLines -join "`n"))
         }
 
         $packagesRoot = Join-Path $RepoRoot ("dist\" + $version + "\packages")
@@ -751,24 +810,6 @@ if ($Quick) {
             throw ("包清单一致性校验失败：`n  " + ($problems -join "`n  "))
         }
         [PSCustomObject]@{ Ok = $true; Detail = "三个包 version=$version 一致，npm pack --dry-run 清单均不含排除项" }
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 9. build.ps1 -SkipTests（同步六个核心 DLL 到 Unity 适配层包 + 同步内容数据集）
-#    另起一个 powershell 子进程跑，避免 build.ps1 内部的 exit 语句连带终止本脚本。
-#    -Quick 跳过：这一步只有 Unity 相关步骤需要（同步 DLL/内容数据集给 Unity 工程用），
-#    -Quick 本身不跑任何 Unity 步骤，跳过它不影响 -Quick 覆盖的 dotnet/python 校验结论。
-# -----------------------------------------------------------------------------
-if ($Quick) {
-    Add-SkippedStep "build.ps1 -SkipTests（同步 DLL）" "-Quick"
-} else {
-    Invoke-CheckStep "build.ps1 -SkipTests（同步 DLL）" {
-        $buildScript = Join-Path $RepoRoot "build.ps1"
-        # 同源假阳性同一修法，判断记录见下方"消费方演练"步骤：原生调用未消费的 stdout 会混进
-        # scriptblock 返回值把失败判成 PASS，用 `| Out-Null` 吃掉即可，$LASTEXITCODE 不受影响。
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SkipTests | Out-Null
-        return ($LASTEXITCODE -eq 0)
     }
 }
 

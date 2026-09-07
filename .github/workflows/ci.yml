@@ -6,8 +6,8 @@ name: CI
 # windows-latest 运行器既没有装 Unity，也没有可用的 Unity 授权（个人版授权与具体机器绑定，
 # 不能在无人值守的托管运行器上激活），因此 CI 固定传 -SkipUnity，只跑 .NET 构建测试、两道
 # 数据校验、生成器一致性检查、toolchain 自身测试、两道禁用词扫描、版本一致性、
-# build.ps1 -SkipTests 同步 DLL 这些不依赖 Unity 编辑器的步骤；Unity 四步与消费方演练仍然是
-# 本机 check.ps1 全量跑（含 -Il2cpp 可选步骤）的职责，不进 CI。
+# build.ps1 -SkipTests 同步 DLL、包清单一致性这些不依赖 Unity 编辑器的步骤；Unity 四步与
+# 消费方演练仍然是本机 check.ps1 全量跑（含 -Il2cpp 可选步骤）的职责，不进 CI。
 #
 # 判断记录（windows-latest 上 PowerShell 5.1 与 7 的兼容性）：check.ps1/build.ps1 头注释都
 # 明确写了"PowerShell 5.1 兼容：不使用 &&、??、三元运算符"，这两个脚本本身没有用到任何仅
@@ -41,6 +41,19 @@ name: CI
 # 包装，改让 `check.ps1` 自己通过新增的 `-LogFile` 参数（内部用 `Start-Transcript`）把完整
 # 输出落盘，退出码仍然是 `check.ps1` 最后 `exit 0`/`exit 1` 的真实值，经 `$LASTEXITCODE`
 # 原样透传。
+#
+# 判断记录（2026-09-07，CI 运行 f0389f8 失败：唯一失败步骤"包清单一致性"，Detail
+# "build.ps1 -SyncOnly -Dist auto 失败，退出码 1"，仅用时 0.6s）：根因是 check.ps1 当时的步骤
+# 顺序把"包清单一致性"（跑 `build.ps1 -SyncOnly -Dist auto`）排在"build.ps1 -SkipTests
+# 同步 DLL"之前，而 `-SyncOnly` 要求六个核心 DLL 已经存在于各工程 `bin\Release\netstandard2.1\`
+# 下（见 build.ps1"1. dotnet build"/"3. 同步六个核心 DLL"两节）；本仓库前面的 `dotnet build`
+# 步骤用了 `--artifacts-path`，产物不落在 `bin\` 下，真正会把 DLL 构建到 `bin\` 的
+# `build.ps1 -SkipTests` 排在这一步之后，导致该步骤在全新 checkout（`bin\` 不存在）的
+# `windows-latest` 运行器上必然失败；本机之前之所以能通过，只是因为仓库历史上跑过其它
+# `build.ps1` 留下的陈旧 `bin\` 目录侥幸存在。根治：把该步骤挪到"build.ps1 -SkipTests"之后
+# （详见 check.ps1"9.5 包清单一致性"步骤上方判断记录），并把该步骤里 `build.ps1` 的输出从
+# `| Out-Null` 改为逐行 Write-Host + 收集，失败时把最后 30 行并入 throw 的消息，避免类似问题
+# 再次出现时 CI 日志又只剩一句"退出码 1"看不出具体原因。
 on:
   push:
     branches: [main]
