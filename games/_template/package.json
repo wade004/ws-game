@@ -1,10 +1,10 @@
 {
     "name":  "com.gamefoundation.game-template",
-    "version":  "1.1.0",
+    "version":  "1.2.0",
     "displayName":  "Game Foundation Game Template",
     "description":  "游戏层组装模板，新游戏复制本目录作为起步骨架；本框架仓库不出现任何具体游戏代号。",
     "unity":  "6000.3",
     "dependencies":  {
-                         "com.gamefoundation.adapter.unity":  "1.1.0"
+                         "com.gamefoundation.adapter.unity":  "1.2.0"
                      }
 }
