@@ -386,7 +386,7 @@ namespace Core.Foundation.SaveSystem
             if (formalText != null)
             {
                 anyCandidateExisted = true;
-                if (TryParseEnvelope(formalText, out var formalDoc))
+                if (TryParseEnvelope(formalText, out var formalDoc) && IsCandidateMetaUsable(formalDoc, slotId))
                 {
                     return (formalDoc, LoadStatus.Loaded);
                 }
@@ -407,7 +407,7 @@ namespace Core.Foundation.SaveSystem
                 }
 
                 anyCandidateExisted = true;
-                if (TryParseEnvelope(backupText, out var backupDoc))
+                if (TryParseEnvelope(backupText, out var backupDoc) && IsCandidateMetaUsable(backupDoc, slotId))
                 {
                     _diagnostics.Warn($"存档槽 \"{slotId}\" 已从备份 bak{i.ToString(CultureInfo.InvariantCulture)} 恢复读取");
                     return (backupDoc, LoadStatus.LoadedFromBackup);
@@ -837,6 +837,52 @@ namespace Core.Foundation.SaveSystem
             return false;
         }
 
+        /// <summary>
+        /// C10 收口（外部审计 7e63d66 第四轮）：<see cref="TryParseEnvelope"/> 只校验信封顶层形状
+        /// （<c>save_version</c> 是整数、<c>sections.meta</c> 是对象），不校验 meta 内部
+        /// <see cref="ParseMeta"/> 实际要求的语义必填字段（<c>created_at</c>/<c>updated_at</c>/
+        /// <c>game_id</c> 等）。此前 <see cref="ReadValidEnvelope"/> 只按 <see cref="TryParseEnvelope"/>
+        /// 的结果选出候选并立即返回——若这份候选恰好是正式文件、顶层形状合法但 meta 语义字段缺失
+        /// （例如 <c>{"save_version":1,"sections":{"meta":{}}}</c>），选择阶段会"成功"一次并不再
+        /// 尝试任何备份，真正读取 meta 时才在 <see cref="Load"/> 更深处的 <see cref="ParseMeta"/>
+        /// 失败判 <c>Corrupted</c>——即便存在完好可用的备份，也不会被尝试。
+        /// <para>
+        /// 让候选筛选阶段直接复用 <see cref="ParseMeta"/> 本身作为验收标准（不是再手写一份平行、
+        /// 容易再次悄悄漂移变浅的语义校验），使"候选被选中"与"<see cref="Load"/> 后续对它的 meta
+        /// 解析一定能成功"这一保证不再依赖两处代码手工同步——与 FND-07/N15 收口对
+        /// <see cref="TryParseEnvelope"/> 本身采用的"复用而非平行手写"策略一致。
+        /// </para>
+        /// <para>
+        /// 仅在候选顶层 <c>save_version</c> 已经等于当前运行时版本（<see cref="SaveSystemOptions.CurrentSaveVersion"/>，
+        /// 即无需迁移）时才提前做这层语义校验；需要迁移的候选，其 <c>sections.meta</c> 在迁移完成
+        /// 前的形状允许与当前版本的必填字段要求不同——这正是迁移链存在的意义，提前按当前版本的
+        /// meta 形状去校验一份尚未迁移的旧文档并不恰当，维持原有行为，交给 <see cref="Load"/> 在
+        /// 迁移完成之后再校验。
+        /// </para>
+        /// </summary>
+        private bool IsCandidateMetaUsable(JsonObject doc, Id slotId)
+        {
+            if (!TryGetInt(doc, "save_version", out var docVersion) || docVersion != _options.CurrentSaveVersion)
+            {
+                return true;
+            }
+
+            if (!TryGetSectionsMeta(doc, out var metaObj))
+            {
+                return false;
+            }
+
+            try
+            {
+                ParseMeta(metaObj, slotId);
+                return true;
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
+        }
+
         private static bool TryGetSectionsMeta(JsonObject doc, out JsonObject metaObj)
         {
             if (TryGetObject(doc, "sections", out var sections) &&
@@ -985,10 +1031,37 @@ namespace Core.Foundation.SaveSystem
                     continue;
                 }
 
-                anyLegacyCandidateExisted = true;
-
                 if (!TryParseEnvelope(legacyText, out var legacyDoc))
                 {
+                    // 存在但无法解析的文件仍然是"这个精确路径上确实有过东西"的信号，计入候选存在，
+                    // 让 Load 在没有任何其它候选时能判 Corrupted 而不是 NotFound。
+                    anyLegacyCandidateExisted = true;
+                    continue;
+                }
+
+                // C01 收口（外部审计 7e63d66 第四轮）：这个精确路径不仅可能是 slotId 真正的旧顶层
+                // 备份，还可能恰好是另一个货真价实、id 长得像 "<slotId>.bakN" 的正式槽（例如请求
+                // Load("slot.a") 时，"slot.a.bak1.json" 也可以是槽 "slot.a.bak1" 自己保存出来的
+                // 正式文件——FND-01 判断记录已明确这种命名碰撞在 <see cref="BackupPath"/> 层面是
+                // 允许的合法槽名）。此前只要这个路径下的内容能通过信封校验就无条件当作 slotId 的
+                // 备份返回，会把另一个独立正式槽的存档跨槽"借"给 slotId，还会把它误写进 slotId 的
+                // 新布局备份目录。现在核对信封内 meta.slot_id：显式声明了且与 slotId 不一致，说明
+                // 这份内容属于别的槽，不是 slotId 的候选——既不当备份用，也不计入
+                // anyLegacyCandidateExisted（它对 slotId 而言纯属路径命名巧合，与 slotId 是否存在
+                // 无关，不能把它转化成 slotId 的 Corrupted 判定信号）。meta 未显式记录 slot_id 时
+                // （早于 slot_id 字段引入的、真正意义上的旧存档）无法反证身份，按原语义放行，与
+                // <see cref="ParseMeta"/> 对缺失 slot_id 时回退到请求槽名的宽松处理保持一致。
+                if (!TryGetSectionsMeta(legacyDoc, out var metaObj) || !LegacyCandidateMatchesSlot(metaObj, slotId))
+                {
+                    continue;
+                }
+
+                anyLegacyCandidateExisted = true;
+
+                if (!IsCandidateMetaUsable(legacyDoc, slotId))
+                {
+                    // C10 收口：身份核对通过，但 meta 语义必填字段（save_version/created_at 等）
+                    // 缺失——与新布局候选一致，不能当作可用候选返回，继续尝试下一个编号。
                     continue;
                 }
 
@@ -1006,6 +1079,23 @@ namespace Core.Foundation.SaveSystem
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// C01 收口辅助：核对旧顶层备份候选的信封内 <c>meta.slot_id</c> 与当前 <see cref="Load"/>
+        /// 请求的槽名是否一致。<c>slot_id</c> 字段缺失（早于该字段引入的真正旧存档）视为无法反证，
+        /// 放行；字段存在但类型非法或与请求槽名不同，判定为"属于另一个槽"，不匹配。
+        /// </summary>
+        private static bool LegacyCandidateMatchesSlot(JsonObject metaObj, Id slotId)
+        {
+            if (!metaObj.TryGetValue("slot_id", out var slotIdValue))
+            {
+                return true;
+            }
+
+            return slotIdValue is JsonString slotIdText &&
+                   Id.TryParse(slotIdText.Value, out var parsedSlotId) &&
+                   parsedSlotId == slotId;
         }
     }
 }

@@ -238,6 +238,61 @@ skill/
     发生位移）不触发。见 `RulesAssembly.cs`、`SkillHost.cs`、`MovementInterruptWiringTests.cs`
     （新增）。
 
+27. **C02 收口（外部审计 7e63d66 第四轮，P1，成立，跨模块——本模块负责的一半）：来源真实
+    `Despawn` 后周期效果不再抛异常，缩放贡献降级为 0**：`EffectDispatcher.ApplyDamageOrHeal`
+    此前在效果声明了 `scaling_stat` 时无条件调用 `IStatHost.GetStat(context.SourceId, ...)`——
+    周期性效果（`periodic_damage`/`periodic_heal`）的 `EffectContext.SourceId` 恒是施加光环时的
+    施法者（`AuraHost.FirePeriodic` 每次都用 `instance.SourceId` 重建上下文），而光环只在"目标"
+    被销毁时才由 `AuraHost.OnEntityDestroyed` 摘除（来源销毁不代表已施加到其他目标身上的光环
+    应当消失，见本文件条目 9/`OnEntityDestroyed` 判断记录）——真实 `Core.Carriers.Creature.
+    CreatureFactory.Despawn` 会同步注销来源的 `IStatHost` 注册，来源销毁后光环仍按周期结算，
+    命中未注册单位直接抛 `InvalidOperationException`。现在先查 `IStatHost.IsRegistered
+    (context.SourceId)`，未注册时缩放贡献按 0 处理（只保留 `base_value`），不中断周期结算、不抛
+    异常；另一半（`Core.Rules.Combat.CombatHost.NotifyCombatEvent` 对不存在单位静默跳过进战
+    通知）见 `core/rules/combat/README.md` 同编号条目。验收（真实 `CreatureFactory`+`AuraHost`+
+    `CombatHost` 全链路集成测试，不是 fake unit access）：
+    `Tests.Carriers.Assembly.CreatureDespawnPeriodicEffectTests.
+    PeriodicDotWithScalingStat_SourceDespawnedThenMultipleTicksElapse_DoesNotThrow_
+    AndKeepsLandingDamage`（`core/carriers/assembly/tests/`）。06/05 文档同步补充语义说明，见两者
+    变更记录。
+28. **C03 收口（外部审计 7e63d66 第四轮，P1，成立）：`ConsumeAbsorb` 吸收耗尽移除实例传递触发
+    链深度**：`AuraHost.ConsumeAbsorb` 吸收池耗尽时走 `RemoveInstanceInternal(instance,
+    "absorb_depleted")`，此前没有 `triggerChainDepth` 参数，恒以深度 0（根事件）发布
+    `aura.removed`，绕开了 `SkillOptions.MaxTriggerDepth` 的收敛预算——与本文件条目 22（RC-01）
+    已经覆盖的"触发链深度随事件传播"是同一类问题，但 `absorb_depleted` 是与 `dispel`（RC-01/N04
+    已覆盖）完全独立的另一条 `aura.removed` 发布入口，此前遗漏。永久 proc 光环监听
+    `aura.removed`、造成恰好耗尽自身吸收池的自伤，可以借此反复触发自己，不受 `MaxTriggerDepth`
+    限制。现在新增 `ConsumeAbsorb(Id, Id, double, int triggerChainDepth)` 重载（`IAuraQuery` 用
+    C#8 默认接口方法转发到三参数重载，等价于此前恒 0 的行为，避免强制其它 combat/expr_host/
+    carriers 测试假实现连带改动），`AuraHost` 提供真正实现，把深度透传给 `aura.removed`；
+    `core/rules/combat/core/Resolver.cs` 步骤 7"免疫吸收"传入 `context.TriggerChainDepth`；
+    `RulesAssembly.DeferredAuraQuery` 代理显式转发（不能依赖默认接口方法的隐式转发，否则会绕开
+    代理把深度悄悄丢回 0）。验收：`Tests.Rules.Skill.ProcTests.
+    TriggerChain_ViaAuraRemoved_AbsorbDepletedLoop_IsBoundedByMaxTriggerDepth`（永久 proc + 吸收
+    耗尽自伤循环，有限 pass 内收敛，惯例同条目 22 的 `TriggerChain_ViaAuraRemoved_
+    ApplyThenDispelLoop_IsBoundedByMaxTriggerDepth`）。
+29. **C08 收口（外部审计 7e63d66 第四轮，P2，成立，跨模块——本模块提供机制，`core/carriers/item`
+    消费）：`AuraHost` 新增 `InstanceReplaced` 事件，`StackOverflowPolicy.Replace` 换句柄时同步
+    通知订阅者**：`ReapplyExisting` 的 `Replace` 分支摘除旧实例、创建新实例（新 `AuraInstanceRef`）
+    时，旧句柄从此在光环系统内部彻底失效；此前没有任何机制把这次换句柄告知外部按句柄记账的
+    调用方（如 `core/carriers/item.EquipmentHost` 按装备实例记录"自己授予了哪个光环句柄"），
+    导致这类调用方的账本与真实存活的实例发生偏差。`IAuraQuery` 新增
+    `event Action<Id targetId, Id defId, Id oldInstanceId, Id newInstanceId> InstanceReplaced`
+    （C#8 默认接口成员，`add`/`remove` 均空实现——对不会触发 `Replace` 的测试假实现是安全的
+    等价降级），`AuraHost` 在旧实例摘除、新实例创建完成的同一步同步触发（不经 `IEventBus`
+    异步队列）；`RulesAssembly.DeferredAuraQuery` 显式转发 `add`/`remove`（同条目 28 的惯例，
+    不能依赖默认接口成员的隐式转发）。具体消费方与验收见 `core/carriers/item/README.md`/
+    `core/carriers/assembly/README.md` 同编号条目。
+30. **C09 收口（外部审计 7e63d66 第四轮，P2，成立，跨模块——本模块提供的原语，
+    `KnownSkillsPersistable` 消费）**：见本文件"不负责什么"之外无新增原语——`SkillHost.
+    LearnSkill(Id,Id)`/`ForgetSkill(Id,Id)`（不带来源，归属内部 `PermanentGrantSource` 哨兵来源）
+    与 `GetPermanentlyKnownSkills(Id)` 三个既有方法已经足够支撑"先撤销当前有、快照没有的永久
+    技能，再补上快照里的全部技能"这套替换语义，本次收口不需要改动 `SkillHost` 本身，只改动
+    `KnownSkillsPersistable.Load`（存档段实现，`core/rules/skill/core/KnownSkillsPersistable.cs`）。
+    具体判断记录见该文件类型注释；验收见 `Tests.Rules.Skill.KnownSkillsPersistableTests.
+    Load_SameHost_ReplacesCurrentPermanentSkillSet_RemovingSkillsLearnedAfterSnapshot`/
+    `Load_SameHost_ReplacePermanentSet_DoesNotBreakIndependentEquipmentGrantLifecycle`。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全

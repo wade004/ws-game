@@ -113,7 +113,8 @@ namespace Core.Carriers.Item
             SkillGranter skillGranter,
             IUnitAccess unitAccess,
             ItemOptions? options = null,
-            IItemDiagnostics? diagnostics = null)
+            IItemDiagnostics? diagnostics = null,
+            IAuraQuery? auraQuery = null)
         {
             if (registry == null) throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
@@ -134,6 +135,69 @@ namespace Core.Carriers.Item
             {
                 _sets[record.GetId("id")] = record;
             }
+
+            // C08 收口（外部审计 7e63d66 第四轮）：可选注入，未提供时（null，惯例同本类型其它可选
+            // 依赖）行为与本次改动之前完全一致——只是重新暴露了 C08 描述的那个缺口，不会抛异常或
+            // 改变既有测试断言。真实生产装配（见 CarriersAssembly）传入 Rules.Skill.AuraQuery（真实
+            // AuraHost），使 StackOverflowPolicy.Replace 换句柄后本类记录的授予句柄能同步随之更新，
+            // 见 OnAuraInstanceReplaced 判断记录。
+            if (auraQuery != null)
+            {
+                auraQuery.InstanceReplaced += OnAuraInstanceReplaced;
+            }
+        }
+
+        /// <summary>
+        /// C08 收口：<see cref="IAuraQuery.InstanceReplaced"/> 的订阅回调——<paramref name="oldInstanceId"/>
+        /// 已经在光环系统内部失效，<paramref name="newInstanceId"/> 是接替它的新句柄。把
+        /// <see cref="_grantedAuras"/> 里全部仍引用 <paramref name="oldInstanceId"/> 的授予记录（可能
+        /// 来自任意一件装备，不只是刚发起本次 Replace 调用的那一件）原子迁移到新句柄，并把
+        /// <see cref="_auraHandleRefCount"/> 上旧句柄名下的计数原样搬到新句柄名下（与新句柄自己已有的
+        /// 计数——即刚触发本次 Replace 的那次施加自身贡献的 1——相加，不是覆盖）。
+        /// <para>
+        /// 判断记录（为什么必须搬计数，不能只搬 <see cref="_grantedAuras"/> 记录）：<see cref="RevertGrants"/>
+        /// 卸装时按 <see cref="_auraHandleRefCount"/> 上"这个句柄还有几个来源"决定是否真的调用
+        /// <see cref="IEffectSink.RemoveAura"/>；如果只迁移 <see cref="_grantedAuras"/> 而不迁移计数，
+        /// 旧句柄名下的计数会变成孤儿（永远不会再被任何 <see cref="RevertGrants"/> 调用递减，因为
+        /// 已经没有任何 <see cref="_grantedAuras"/> 条目还指向它），新句柄的计数又只反映"触发 Replace
+        /// 的这一次施加"，少算了此前其它装备已经持有的份额——任一件先卸下都会把计数错误地减到 0
+        /// 并提前把光环真的移除掉，另一件仍装备着却没有了应有光环（外部审计 C08 复现场景本身）。
+        /// </para>
+        /// </summary>
+        private void OnAuraInstanceReplaced(Id targetId, Id defId, Id oldInstanceId, Id newInstanceId)
+        {
+            foreach (var kv in _grantedAuras)
+            {
+                if (!kv.Key.UnitId.Equals(targetId))
+                {
+                    continue;
+                }
+
+                var list = kv.Value;
+                for (var i = 0; i < list.Count; i++)
+                {
+                    if (list[i].Ref.AuraInstanceId.Equals(oldInstanceId))
+                    {
+                        list[i] = (list[i].AuraDefId, new AuraInstanceRef(newInstanceId));
+                    }
+                }
+            }
+
+            var oldHandleKey = (targetId, oldInstanceId);
+            if (!_auraHandleRefCount.TryGetValue(oldHandleKey, out var migratingCount))
+            {
+                // 没有任何装备记录持有过这个旧句柄（例如触发 Replace 的这次施加根本不是经
+                // EquipmentHost.ApplyGrants 发起——种族被动光环、法术直接施加同一 aura_def 恰好撞上
+                // 装备槽位等），没有需要迁移的计数，直接返回。
+                return;
+            }
+
+            _auraHandleRefCount.Remove(oldHandleKey);
+            var newHandleKey = (targetId, newInstanceId);
+            _auraHandleRefCount[newHandleKey] =
+                _auraHandleRefCount.TryGetValue(newHandleKey, out var existingCount)
+                    ? existingCount + migratingCount
+                    : migratingCount;
         }
 
         public EquipResult Equip(Id unitId, Id instanceId, Id slot)

@@ -77,6 +77,18 @@ rules.RegisterUnit(playerId, classId: new Id("arch.class.sample_a"), raceId: nul
 属性对外暴露的是这份完整版。两份工厂共享其余全部依赖（`Units`/`Stats`/`Powers`/`deferredAuras`/
 `Combat`/`Spatial`/`Factions`/两个时间委托），只有 `skillHost` 不同，重建成本可忽略。
 
+**C03/C08 收口（外部审计 7e63d66 第四轮）：`DeferredAuraQuery` 新增成员必须显式转发，不能依赖
+`IAuraQuery` 默认接口成员的隐式转发**——`IAuraQuery` 新增的
+`ConsumeAbsorb(Id, Id, double, int triggerChainDepth)` 重载与 `InstanceReplaced` 事件都是 C#8
+默认接口成员（分别默认转发到三参数重载、默认空 `add`/`remove`），目的是不强制其它测试假实现
+连带改动；但 `DeferredAuraQuery` 本身也是 `IAuraQuery` 的一个具体实现——如果它不显式覆盖这两个
+成员，`Real.ConsumeAbsorb(a,b,c,depth)`/`Real.InstanceReplaced += ...` 这类调用会被静态类型
+`DeferredAuraQuery` 自己的默认接口实现接住，深度参数被默认转发悄悄丢回 0、事件订阅被默认空
+`add` 悄悄吞掉，永远不会真正转发到 `Real`（真实 `AuraHost`）——这不是"未接入方行为不变"的安全
+降级，而是"看似接入了、实际上悄悄失效"的陷阱。因此本类为这两个成员都写了显式转发（`add =>
+Real.InstanceReplaced += value; remove => Real.InstanceReplaced -= value;` 同理），与既有全部
+成员"逐一转发，不使用反射/动态代理"的惯例一致。
+
 ## tick 阶段挂载表
 
 | `TickPhase` | 处理器 | 驱动 |

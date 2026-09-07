@@ -46,12 +46,15 @@ namespace Tests.Rules.Integration
 
         // 评级换算属性（is_rating + rating_conversion_ref）的等级失效见
         // core/numbers/stat_block/tests/StatHostTests.cs
-        // LevelUp_ProgressionEvent_RecomputesRatingConvertedStat_ViaRecomputeRatingStats——评级换算
-        // 需要额外的 stat.rating_conversion 表与 StatHostOptions.EnableRatingConversion 开关，
-        // StatHostTests.cs 已有现成夹具（BuildHost(enableRatingConversion:true, ...)），不重复
-        // 在本文件另起一份 RulesAssembly 级别的等价数据。RulesAssembly 是否真的把
-        // StatHost.RecomputeRatingStats 接到 progression.level_up 上，见
-        // core/rules/assembly/RulesAssembly.cs 构造函数"RC-06 收边补齐"判断记录源码本身——两处
-        // 订阅代码紧邻在一起，调用的正是 StatHostTests.cs 那条用例验证过的同一个方法。
+        // RecomputeRatingStats_AfterLevelLookupChanges_UpdatesCacheAndFiresStatChanged（勘误：原引用
+        // 的 LevelUp_ProgressionEvent_RecomputesRatingConvertedStat_ViaRecomputeRatingStats 从未存在
+        // 于该文件，是笔误的历史测试名；上述才是该文件里实际验证"RecomputeRatingStats 更新缓存并
+        // 广播 stat.changed"这条行为的用例）——评级换算需要额外的 stat.rating_conversion 表与
+        // StatHostOptions.EnableRatingConversion 开关，StatHostTests.cs 已有现成夹具
+        // （BuildHost(enableRatingConversion:true, ...)），不重复在本文件另起一份 RulesAssembly
+        // 级别的等价数据。RulesAssembly 是否真的把 StatHost.RecomputeRatingStats 接到
+        // progression.level_up 上，见 core/rules/assembly/RulesAssembly.cs 构造函数"RC-06 收边补齐"
+        // 判断记录源码本身——两处订阅代码紧邻在一起，调用的正是 StatHostTests.cs 那条用例验证过的
+        // 同一个方法。
     }
 }

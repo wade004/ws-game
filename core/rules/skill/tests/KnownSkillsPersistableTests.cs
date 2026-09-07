@@ -174,5 +174,65 @@ namespace Tests.Rules.Skill
 
             Assert.True(world.Host.Knows(UnitId, SkillFireball));
         }
+
+        // ==== C09（外部审计 7e63d66 第四轮，P2）：同一 host 回档须替换永久技能集合，不是只增不减 ====
+
+        /// <summary>核心复现：同一个长期存活的 <see cref="SkillHost"/> 上先存一份只有 A 的快照，
+        /// 之后（存档之后）又永久学会 B（集合变成 {A,B}），再读回那份只有 A 的旧快照——正确结果
+        /// 应该只剩 A（B 是快照之外、之后才学会的，读一份更早的存档应当把它撤销）。修复前
+        /// <see cref="KnownSkillsPersistable.Load"/> 只增不减，B 会原样保留，读档退化成"至少有快照
+        /// 里那些技能"而不是"恰好是快照那个时间点的状态"。</summary>
+        [Fact]
+        public void Load_SameHost_ReplacesCurrentPermanentSkillSet_RemovingSkillsLearnedAfterSnapshot()
+        {
+            var world = new SkillWorldBuilder().Build();
+            world.AddUnit(UnitId);
+
+            world.Host.LearnSkill(UnitId, SkillFireball); // A
+            var snapshotOnlyA = KnownSkillsPersistable.For(world.Host, UnitId).Save();
+
+            world.Host.LearnSkill(UnitId, SkillHeal); // 存档之后又学会 B：当前集合变成 {A,B}
+            Assert.True(world.Host.Knows(UnitId, SkillFireball));
+            Assert.True(world.Host.Knows(UnitId, SkillHeal));
+
+            KnownSkillsPersistable.For(world.Host, UnitId).Load(snapshotOnlyA);
+
+            // 修复前该断言会失败：Heal 会原样保留在已知集合里。
+            Assert.True(world.Host.Knows(UnitId, SkillFireball));
+            Assert.False(world.Host.Knows(UnitId, SkillHeal));
+            Assert.Single(world.Host.GetPermanentlyKnownSkills(UnitId));
+        }
+
+        /// <summary>C09 验收口径二："之后卸装备不误清永久 A"：读档把永久集合替换回只有 A 之后，
+        /// A 又被一件装备以临时来源重新授予一次；卸下这件装备只应撤销装备来源这一份引用，A 的
+        /// 永久来源份额不受影响，<c>Knows</c> 应继续为真——验证 C09 的替换语义只清空/重建永久来源
+        /// 那一份账本（<see cref="SkillHost.ForgetSkill(Id,Id)"/> 不带来源参数，只归属永久哨兵来源，
+        /// 见 <see cref="SkillHost"/> 来源引用计数判断记录），不会连带误伤装备等临时来源的独立生命
+        /// 周期。</summary>
+        [Fact]
+        public void Load_SameHost_ReplacePermanentSet_DoesNotBreakIndependentEquipmentGrantLifecycle()
+        {
+            var world = new SkillWorldBuilder().Build();
+            world.AddUnit(UnitId);
+            var equipmentSource = new Id("item.inst_sample_c09_equipment");
+
+            world.Host.LearnSkill(UnitId, SkillFireball); // A（永久）
+            var snapshotOnlyA = KnownSkillsPersistable.For(world.Host, UnitId).Save();
+
+            world.Host.LearnSkill(UnitId, SkillHeal); // B（永久，快照之外）
+
+            KnownSkillsPersistable.For(world.Host, UnitId).Load(snapshotOnlyA); // 替换回只有 A
+            Assert.True(world.Host.Knows(UnitId, SkillFireball));
+            Assert.False(world.Host.Knows(UnitId, SkillHeal));
+
+            // 装备也授予 A（模拟 EquipmentHost 经 SkillGranter 以装备实例 id 为来源调用）。
+            world.Host.LearnSkill(UnitId, SkillFireball, equipmentSource);
+            Assert.True(world.Host.Knows(UnitId, SkillFireball));
+
+            // 卸下这件装备：只应撤销装备来源，A 的永久来源份额仍在，不应被误清。
+            world.Host.ForgetSkill(UnitId, SkillFireball, equipmentSource);
+            Assert.True(world.Host.Knows(UnitId, SkillFireball));
+            Assert.Contains(SkillFireball, world.Host.GetPermanentlyKnownSkills(UnitId));
+        }
     }
 }

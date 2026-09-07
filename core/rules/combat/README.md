@@ -139,6 +139,27 @@ combat/
     行为；真实实现（`CreatureImmunityProvider`）在 `core/carriers/creature`，本模块不产生对 L3 的
     编译期依赖。
 
+15. **C02 收口（外部审计 7e63d66 第四轮，P1，成立，跨模块——本模块负责的一半）：
+    `NotifyCombatEvent` 对不存在单位静默跳过，不再抛异常**：`RC-02`（条目 13）当时只补齐了
+    "`Update` 因脱战延迟到期"这一条路径的幂等清理，没有覆盖"来源已销毁但仍在产生新战斗事件"这
+    一条——`Resolver.Resolve` 每次结算都对结算双方各调用一次 `NotifyCombatEvent(自己, 对方)`
+    （见判断记录 7 上方 `Resolver.cs` 步骤 1/9 两处调用点），而真实 `CreatureFactory.Despawn`
+    同步注销 `IPowerHost` 注册后，已施加到其它存活目标身上、来源正是这个被销毁单位的周期性
+    效果（`periodic_damage`/`periodic_heal`，见 `core/rules/skill` 模块 `AuraHost.
+    OnEntityDestroyed` 判断记录"来源销毁不移除已施加到其他目标身上的光环"）不会因来源销毁而
+    停止结算，`NotifyCombatEvent(来源, ...)` 因此可能对着一个已注销的单位调用
+    `IPowerHost.SetInCombat`，直接抛 `InvalidOperationException`。现在方法入口先查
+    `IUnitAccess.Exists(unitId)`（惯例同本模块 `HasLivingHostileThreatSource`/`Resolver` 多处已有
+    的防御性检查，不新增 `IPowerHost` 契约成员），不存在则静默跳过——不写入 `_inCombat`/
+    `_timeSinceLastEvent`，不访问 `IPowerHost`，不发布 `combat.entered`；"进战"这件事对一个已经
+    不存在于世界中的单位没有意义（既不会再被 AI/UI 观察到，也不会再脱战）。另一半
+    （`core/rules/skill.EffectDispatcher` 周期效果缩放贡献降级为 0）见 `core/rules/skill/
+    README.md` 同编号条目。验收（真实 `CreatureFactory`+`AuraHost`+`CombatHost` 全链路集成测试）：
+    `Tests.Carriers.Assembly.CreatureDespawnPeriodicEffectTests.
+    PeriodicDotWithScalingStat_SourceDespawnedThenMultipleTicksElapse_DoesNotThrow_
+    AndKeepsLandingDamage`（`core/carriers/assembly/tests/`）。06/05 文档同步补充语义说明，见两者
+    变更记录。
+
 ## 契约缺口 / 未决问题
 
 - `IThreatTable` 契约的方法签名对"是否每单位一份实例"没有强约束（见判断记录 1），如果后续

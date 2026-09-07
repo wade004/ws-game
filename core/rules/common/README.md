@@ -96,6 +96,25 @@ common/
    上一步的输出...不允许跨步骤回填修改，保证同种子同输入同结果"（拍板决策 3）；集合类字段
    （如 `ResolveResult.Steps`）在构造期做防御性拷贝，构造后外部持有的原始列表被修改不影响本实例。
 
+8. **C03/C08 收口（外部审计 7e63d66 第四轮）：`IAuraQuery` 新增两个 C#8 默认接口成员，均不强制
+   既有测试假实现连带改动**：
+   - `ConsumeAbsorb(Id unitId, Id school, double amount, int triggerChainDepth)` 重载——吸收池
+     耗尽会移除对应光环实例并发布 `aura.removed`，这个移除本应像 `dispel`（`ITriggerChainEvent`
+     机制，见本文件 `AuraRemovedEvent`/`ITriggerChainEvent` 相关判断记录）一样携带产生它的触发链
+     深度、受 `MaxTriggerDepth` 收敛约束，此前恒以深度 0（根事件）发布，绕开了收敛预算（外部
+     审计 C03 复现：永久 proc 光环监听 `aura.removed`、借助"造成恰好耗尽自身吸收池的伤害"反复
+     触发自己）。默认转发到既有的三参数重载（等价于此前恒 0 的行为）。
+   - `event Action<Id targetId, Id defId, Id oldInstanceId, Id newInstanceId> InstanceReplaced`——
+     `StackOverflowPolicy.Replace` 换实例句柄时的同步通知，供按句柄记账的调用方（如
+     `core/carriers/item.EquipmentHost`）原子迁移自己的记录（外部审计 C08 复现：装备 A/B 共享
+     同一光环槽位，Replace 换句柄后卸下其中一件会把另一件应有的光环误清空）。默认 `add`/`remove`
+     均不做任何事。
+   - 两者都只有 `core/rules/skill.AuraHost` 提供真正实现；`core/rules/assembly.RulesAssembly`
+     内部的 `DeferredAuraQuery` 代理必须显式转发这两个新成员，不能依赖默认接口成员的隐式转发
+     （否则深度/事件订阅会在代理层悄悄失效），见 `core/rules/assembly/README.md` 同编号条目。
+     本接口已有的多个 combat/expr_host/carriers 测试假实现（改动范围不允许连带修改它们）继承
+     默认实现即是安全的等价降级——它们本就不模拟 `Replace` 策略或吸收耗尽的深度传播。
+
 ## 不负责什么
 
 - 不实现施法管线、结算管线、仇恨表、行为外壳状态机等任何具体算法——那些是 skill/combat/ai 各自

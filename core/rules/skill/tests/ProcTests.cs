@@ -317,5 +317,95 @@ namespace Tests.Rules.Skill
             world.Flush();
             Assert.True(world.Powers.GetPower(new Id("unit.caster"), new Id("arch.power.sample_counter")) > powerBefore);
         }
+
+        /// <summary>C03（外部审计 7e63d66 第四轮，P1）：永久 Proc P 监听 <c>aura.removed</c>
+        /// （<c>chance=1</c>、无 ICD，P 自己不会被这条链路移除）；S 施放的技能每次都先施加一个
+        /// 吸收光环 A，再对自己造成"恰好耗尽 A、且完全被 A 吸收"的伤害——吸收耗尽由
+        /// <see cref="AuraHost.ConsumeAbsorb(Id, Id, double)"/> 内部的
+        /// <c>RemoveInstanceInternal(instance, "absorb_depleted")</c> 发布 <c>aura.removed</c>，
+        /// 这条入口与 <see cref="TriggerChain_ViaAuraRemoved_ApplyThenDispelLoop_IsBoundedByMaxTriggerDepth"/>
+        /// 覆盖的 <c>dispel</c> 入口完全独立（见 <c>AuraHost.ConsumeAbsorb</c> 判断记录 C03）。
+        /// <para>
+        /// 用 <c>world.Combat.ResolveFunc</c> 手工复刻 <c>core/rules/combat/core/Resolver.cs</c>
+        /// 步骤 7"免疫吸收"分支的真实行为（<c>absorbed = _auras.ConsumeAbsorb(target, school,
+        /// requestedAmount, context.TriggerChainDepth); finalAmount = requestedAmount - absorbed</c>）
+        /// ——本模块测试假实现 <see cref="FakeCombatHost"/> 本就不跑真实 <c>Resolver</c>，惯例同
+        /// <see cref="TriggerChain_AcrossEventBusDispatch_IsBoundedByMaxTriggerDepth_NotByGlobalDispatchPasses"/>
+        /// 对 <c>combat.heal_done</c> 真实转发行为的手工复刻。
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void TriggerChain_ViaAuraRemoved_AbsorbDepletedLoop_IsBoundedByMaxTriggerDepth()
+        {
+            const string loopSkillId = "skill.sample_absorb_depleted_loop";
+            const string absorbAuraId = "skill.aura_def.sample_absorb_depleted_loop_absorb";
+            const string holderAuraId = "skill.aura_def.sample_absorb_depleted_loop_holder";
+            const double absorbAmount = 5;
+
+            var absorbAura = J.O(
+                ("id", J.S(absorbAuraId)),
+                ("duration", J.N(30)),
+                ("effects", J.A(
+                    J.O(("kind", J.S("absorb")),
+                        ("params", J.O(("amount", J.N(absorbAmount)), ("school", J.S("skill.school_sample"))))))));
+
+            // 一次施法内依次：energize 计数（复用既有测试的计数手法）、apply_aura 施加一个全新的
+            // 吸收池、school_damage 对自己造成恰好等于吸收池容量的伤害——完全被吸收（FinalAmount=0，
+            // 见下方 ResolveFunc），S 自身不掉血，不会因为这条自伤路径提前终止循环。
+            var loopSkill = J.O(
+                ("id", J.S(loopSkillId)),
+                ("school", J.S("skill.school_sample")),
+                ("kind", J.S("active")),
+                ("range", J.N(0)),
+                ("cast_time", J.N(0)),
+                ("respects_gcd", J.B(false)),
+                ("target_shape_ref", J.S("target.chain.sample")),
+                ("effects", J.A(
+                    J.O(("kind", J.S("energize")), ("params", J.O(("power_type", J.S("arch.power.sample_counter")), ("amount", J.N(1))))),
+                    J.O(("kind", J.S("apply_aura")), ("params", J.O(("aura_def", J.S(absorbAuraId))))),
+                    J.O(("kind", J.S("school_damage")), ("params", J.O(("base_value", J.N(absorbAmount)), ("coefficient", J.N(0))))))));
+
+            var proc = ProcDef("skill.proc_def.sample_absorb_depleted_loop", "aura.removed", loopSkillId, 1.0);
+            var holderAura = ProcAura(holderAuraId, "skill.proc_def.sample_absorb_depleted_loop");
+
+            var builder = new SkillWorldBuilder().SkillDef(loopSkill).ProcDef(proc).AuraDef(absorbAura).AuraDef(holderAura)
+                .Power("arch.power.sample_counter", 1_000_000, startFull: false);
+            builder.Options.MaxTriggerDepth = 3;
+
+            var world = builder.Build();
+            world.AddUnit(new Id("unit.caster"));
+            world.Targets.SetChain(new Id("target.chain.sample"), new Id("unit.caster"));
+            world.Host.EffectSink.ApplyAura(new Id("unit.caster"), new Id(holderAuraId), new Id("unit.caster"));
+
+            world.Combat.ResolveFunc = context =>
+            {
+                var absorbed = world.Host.AuraQuery.ConsumeAbsorb(
+                    context.TargetId, context.School, context.BaseValue, context.TriggerChainDepth);
+                var finalAmount = context.BaseValue - absorbed;
+                return new ResolveResult(HitResult.Hit, context.BaseValue, finalAmount, absorbed, immune: false, isHeal: false);
+            };
+
+            var result = world.Host.CastSkill(new Id("unit.caster"), new Id(loopSkillId), System.Array.Empty<Id>());
+            Assert.True(result.Success);
+
+            world.Flush();
+
+            var castCount = world.Powers.GetPower(new Id("unit.caster"), new Id("arch.power.sample_counter"));
+            // 修复前该断言会失败：ConsumeAbsorb 内部固定以 triggerChainDepth=0 发布 aura.removed，
+            // MaxTriggerDepth 从未生效，castCount 会顶到 EventBusOptions.MaxDispatchPasses 附近（远大于
+            // MaxTriggerDepth + 2）。
+            Assert.InRange(castCount, 2, builder.Options.MaxTriggerDepth + 2);
+            Assert.NotEmpty(world.Diagnostics.Errors);
+
+            // 循环被拒绝后不应残留吸收光环实例（最后一次施加的吸收池已经在同一次施法内被同一次
+            // 自伤耗尽摘除），下一次施法仍应正常工作，验证队列已排空。
+            Assert.False(world.Host.AuraQuery.HasAura(new Id("unit.caster"), new Id(absorbAuraId)));
+
+            var powerBefore = world.Powers.GetPower(new Id("unit.caster"), new Id("arch.power.sample_counter"));
+            var again = world.Host.CastSkill(new Id("unit.caster"), new Id(loopSkillId), System.Array.Empty<Id>());
+            Assert.True(again.Success);
+            world.Flush();
+            Assert.True(world.Powers.GetPower(new Id("unit.caster"), new Id("arch.power.sample_counter")) > powerBefore);
+        }
     }
 }

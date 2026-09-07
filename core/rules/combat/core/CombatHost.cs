@@ -107,8 +107,37 @@ namespace Core.Rules.Combat
 
         public bool IsInCombat(Id unitId) => _inCombat.TryGetValue(unitId, out var value) && value;
 
+        /// <summary>
+        /// C02 收口（外部审计 7e63d66 第四轮）：真实 <c>CreatureFactory.Despawn</c> 会同步注销
+        /// <see cref="IPowerHost"/>/<see cref="IStatHost"/> 的单位注册（见 <see cref="OnEntityDestroyed"/>
+        /// 判断记录），但已施加到其它存活目标身上、来源正是这个被销毁单位的周期性效果
+        /// （<c>periodic_damage</c>/<c>periodic_heal</c>）不会因为来源销毁而停止结算——
+        /// <see cref="Resolver"/> 每次结算都会对结算双方各调用一次本方法（见 <see cref="Resolver"/>
+        /// 构造判断记录"对结算双方各调用一次 NotifyCombatEvent(自己, 对方)"），来源一侧因此可能是
+        /// 一个已经被销毁、<see cref="IPowerHost"/> 注册已撤销的单位——直接调用
+        /// <see cref="IPowerHost.SetInCombat"/> 会抛 <see cref="InvalidOperationException"/>（"单位
+        /// 未注册"），这正是 <c>RC-02</c> 判断记录提到的"访问已注销的单位直接抛异常"崩溃路径的
+        /// 另一个未覆盖入口（RC-02 当时只补齐了 <see cref="Update"/> 因脱战延迟到期这一条路径，未
+        /// 覆盖"来源已销毁但仍在产生新战斗事件"这一条）。
+        /// <para>
+        /// 判断记录（进战通知对不存在单位静默跳过，不是"冻结/降级"）：与 C02 另一处（周期效果读取
+        /// 来源缩放属性，见 <see cref="Core.Rules.Skill.EffectDispatcher"/> 判断记录）不同，"进战"
+        /// 这件事对一个已经不存在于世界中的单位没有任何有意义的语义（它既不会再被 AI/UI 观察到，
+        /// 也不会再脱战——脱战判定需要的 <see cref="IUnitAccess.Exists"/> 已经为 false），静默跳过
+        /// 是唯一合理的策略：不写入 <see cref="_inCombat"/>/<see cref="_timeSinceLastEvent"/>，不
+        /// 访问 <see cref="IPowerHost"/>，不发布 <see cref="CombatEnteredEvent"/>。用
+        /// <see cref="IUnitAccess.Exists"/> 判断"是否仍存在"——本模块已有的
+        /// <see cref="HasLivingHostileThreatSource"/>/<see cref="Resolver"/> 多处判断记录同样用它
+        /// 做防御性检查，惯例一致，不需要新增 <see cref="IPowerHost"/> 契约成员。
+        /// </para>
+        /// </summary>
         public void NotifyCombatEvent(Id unitId, Id? hostileId = null)
         {
+            if (!_units.Exists(unitId))
+            {
+                return;
+            }
+
             _timeSinceLastEvent[unitId] = 0.0;
 
             if (IsInCombat(unitId))

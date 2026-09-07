@@ -121,3 +121,16 @@ AI 决策意图优先，见 `SummonTickHandler` 判断记录），但 `AiTickHan
 `tests/CarriersAssemblyTests.cs` 是烟雾测试，不是端到端玩法测试：验证"空数据也能正确装配出全部
 宿主、tick 几次不抛异常"，重点覆盖本类接线量最大、编译期检查不到的构造期顺序问题。逐模块的行为
 正确性（背包/装备/生物工厂/召唤/游戏对象/移动/免疫）由各自模块自己的测试覆盖，不在本类重复。
+
+同目录下 `tests/CreatureDespawnPeriodicEffectTests.cs`（C02）、`core/carriers/item/tests/
+EquipmentReplaceHandleTests.cs`（C08，见下）两个新增测试文件用的正是本类装配出的真实全链路
+（`CreatureFactory`/`AuraHost`/`EquipmentHost`/`CombatHost` 等），不是任何模块内部的 fake unit
+access——外部审计 7e63d66 第四轮明确要求这两条缺陷必须用真实组合复现，不能靠测试假实现规避。
+
+## C08 收口（外部审计 7e63d66 第四轮，P2）：`EquipmentHost` 接入 `Rules.Skill.AuraQuery`
+
+`StackOverflowPolicy.Replace` 换掉一个光环实例句柄时，`EquipmentHost` 需要同步收到通知才能正确
+更新自己按装备实例记录的授予句柄（详见 `core/carriers/item/README.md`/`core/rules/skill/
+README.md` 同编号条目）。本类第 4 步构造 `Equipment` 时新增传入 `auraQuery: Rules.Skill.AuraQuery`
+（真实 `AuraHost`，不是 `RulesAssembly.DeferredAuraQuery` 那个延迟绑定代理——`SkillHost.AuraQuery`
+在这里已经构造完成，直接返回真实实例，不存在判断记录 2 那种循环依赖，不需要延迟绑定）。

@@ -267,9 +267,12 @@ namespace Core.Carriers.Assembly
                     Rules.Skill.ForgetSkill(unitId, skillId, sourceId);
                 }
             };
+            // C08 收口：注入 Rules.Skill.AuraQuery（真实 AuraHost）——StackOverflowPolicy.Replace
+            // 换句柄时，EquipmentHost 借此同步更新自己记录的授予句柄，见 EquipmentHost 构造函数
+            // 判断记录、IAuraQuery.InstanceReplaced 判断记录。
             Equipment = new EquipmentHost(
                 registry, bus, Inventory, Rules.Stats, Rules.Skill.EffectSink, skillGranter, Units,
-                resolvedItemOptions);
+                resolvedItemOptions, auraQuery: Rules.Skill.AuraQuery);
 
             // RC-11 收边补齐：EquipmentHost 实现 IWeaponDamageQuery（见该类型 GetWeaponBaseDamage
             // 判断记录），换上 RulesAssembly 构造期先用的延迟绑定代理（见 DeferredWeaponDamageQuery

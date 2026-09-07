@@ -87,6 +87,9 @@ namespace Core.Rules.Skill
         /// <see cref="SkillHost"/> 在 <see cref="EffectDispatcher"/> 构造完成后设置。</summary>
         public IEffectSink? EffectSink { get; set; }
 
+        /// <summary>C08 收口：见 <see cref="IAuraQuery.InstanceReplaced"/> 判断记录。</summary>
+        public event Action<Id, Id, Id, Id>? InstanceReplaced;
+
         public AuraHost(
             SkillDefCache defs,
             IStatHost statHost,
@@ -191,8 +194,25 @@ namespace Core.Rules.Skill
                     return new AuraInstanceRef(existing.InstanceId);
 
                 case StackOverflowPolicy.Replace:
+                {
+                    // C08 收口：先记下即将失效的旧句柄/目标/定义 id（RemoveInstanceInternal 只是把
+                    // existing 从内部字典摘除，不会清空这个对象自身的字段，但这里显式先取值更清楚，
+                    // 也不依赖"摘除后对象字段仍可读"这一实现细节）。
+                    var oldInstanceId = existing.InstanceId;
+                    var targetId = existing.TargetId;
+                    var defId = def.Id;
+
                     RemoveInstanceInternal(existing, "overwritten", triggerChainDepth: triggerChainDepth);
-                    return CreateInstance(existing.TargetId, def, sourceId, durationOverride, tags, triggerChainDepth);
+                    var replacement = CreateInstance(targetId, def, sourceId, durationOverride, tags, triggerChainDepth);
+
+                    // 新旧句柄都已经确定（旧实例摘除、新实例创建，两步都已完成）——同步通知订阅者
+                    // （如 EquipmentHost）原子迁移自己记录里对旧句柄的引用，见 IAuraQuery.
+                    // InstanceReplaced 判断记录。必须晚于 CreateInstance（订阅者需要拿到真正的新
+                    // 句柄），且仍在本次 ApplyAura 调用返回之前触发（同步事件，不经 IEventBus）。
+                    InstanceReplaced?.Invoke(targetId, defId, oldInstanceId, replacement.AuraInstanceId);
+
+                    return replacement;
+                }
 
                 default:
                     throw new InvalidOperationException($"未知的 StackOverflowPolicy：{_options.StackOverflowPolicy}");
@@ -535,7 +555,15 @@ namespace Core.Rules.Skill
             return false;
         }
 
-        public double ConsumeAbsorb(Id unitId, Id school, double amount)
+        public double ConsumeAbsorb(Id unitId, Id school, double amount) =>
+            ConsumeAbsorb(unitId, school, amount, triggerChainDepth: 0);
+
+        /// <summary>C03 收口（外部审计 7e63d66 第四轮）：见 <see cref="IAuraQuery.ConsumeAbsorb(Id, Id, double, int)"/>
+        /// 判断记录。吸收耗尽移除实例时把 <paramref name="triggerChainDepth"/> 传给
+        /// <see cref="RemoveInstanceInternal"/>，使 <c>aura.removed</c> 事件携带产生这次结算的真实
+        /// 触发链深度，纳入 <see cref="SkillOptions.MaxTriggerDepth"/> 收敛预算——与 <see cref="Dispel"/>
+        /// 已经做到的深度传播保持一致，不再恒为 0（根事件）。</summary>
+        public double ConsumeAbsorb(Id unitId, Id school, double amount, int triggerChainDepth)
         {
             double consumed = 0;
             var candidates = _instances.Values
@@ -554,7 +582,7 @@ namespace Core.Rules.Skill
 
                 if (instance.AbsorbRemaining <= 0)
                 {
-                    RemoveInstanceInternal(instance, "absorb_depleted");
+                    RemoveInstanceInternal(instance, "absorb_depleted", triggerChainDepth: triggerChainDepth);
                 }
             }
 

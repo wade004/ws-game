@@ -101,6 +101,31 @@ item/
    `EquipmentHostTests.cs`（`Unequip_OneOfTwoItemsGrantingSameAura_IndependentInstances_
    EachRemovedOnItsOwnUnequip`）。
 
+8. **C08 收口（外部审计 7e63d66 第四轮，P2，成立）：装备来源记录随 `StackOverflowPolicy.Replace`
+   换句柄原子更新**——N09（上一条）解决了"两件不同来源装备共享同一实例句柄"的正常计数问题，
+   但没有覆盖`AllowMultiSourceTiming=false`、`maxStacks=1`、`StackOverflowPolicy.Replace` 下的
+   换句柄场景：装备 A 授予 aura 得到句柄 h1，装备 B（不同槽位，授予同一个 `aura_def`）触发
+   `Replace` 策略，`AuraHost` 内部删除 h1、创建全新句柄 h2——A 的授予记录（`_grantedAuras`）与
+   `_auraHandleRefCount` 仍停留在已经失效的 h1，B 只知道 h2；任一件先卸下都会按自己记录的
+   （可能已失效的）句柄错误判断"是否还有其它来源"，导致另一件仍装备着却没有了应有光环。现在
+   `Core.Rules.Common.IAuraQuery` 新增 `InstanceReplaced` 事件（见 `core/rules/skill/README.md`
+   同编号条目，C#8 默认接口成员、`AuraHost` 提供真正实现），`EquipmentHost` 新增可选构造参数
+   `IAuraQuery? auraQuery`——注入后订阅该事件，把 `_grantedAuras` 里全部仍引用旧句柄的授予记录
+   原子迁移到新句柄，并把 `_auraHandleRefCount` 上旧句柄名下的计数原样搬到新句柄名下（与新句柄
+   自己已有的计数相加，不是覆盖）；未注入时（`null`，默认）行为与本次改动之前完全一致，只是
+   重新暴露这个缺口，不抛异常、不改变既有测试断言。真实生产装配见
+   `core/carriers/assembly/README.md` 同编号条目。判断记录（为什么不改成"原地复用同一个实例
+   id"）见 `EquipmentHost.OnAuraInstanceReplaced` 类型注释——`AuraHost.ReapplyExisting` 的 Replace
+   分支本就会发布一对 `AuraRemovedEvent("overwritten")`+`AuraAppliedEvent`，改成原地复用会
+   连带改变这一对事件的既有发布契约（例如监听 `aura.removed` 的 proc），风险与收益不对称，选择
+   新增一条独立的同步通知而不改动既有的换实例机制本身。测试假实现放在本模块新增的
+   `core/carriers/item/tests/EquipmentReplaceHandleTests.cs`（不改动既有
+   `EquipmentHostTests.cs`/`TestSupport.cs`），用真实 `CreatureFactory`+`AuraHost`+
+   `EquipmentHost` 全链路组合验证：`ReplacePolicy_TwoItemsGrantSameAura_
+   EitherUnequippedFirst_KeepsAuraUntilBothUnequipped`/
+   `ReplacePolicy_TwoItemsGrantSameAura_UnequipAFirst_KeepsAuraUntilBothUnequipped`
+   （两种卸载顺序都验证"任一件仍装备着，光环就还在，全卸才清空"）。
+
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.ISkillHost` 没有"学习/遗忘技能"方法（技能书能力目前只存在于

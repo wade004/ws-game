@@ -753,6 +753,135 @@ namespace Tests.Foundation.SaveSystem
             Assert.Equal(LoadStatus.NotFound, result.Status);
         }
 
+        // ==== 5d. C01 收口（外部审计 7e63d66 第四轮）：合法槽名与旧顶层备份路径撞名时不跨槽误读 ==
+        // TryReadLegacyBackup 按精确路径 "<SavesDir>/<slotId>.bakN.json" 只读探测；这条路径本身
+        // 也是一个合法槽名（例如 "slot.a.bak1"）的正式文件路径。此前只要该路径下内容能通过信封
+        // 校验就无条件当作 slotId 的备份返回，会把另一个独立正式槽的存档当成 slotId 的旧备份读
+        // 出来（外部审计 CORE-A 真实复现，见 audit-7e63d66-20260907/repro/Program.cs）。
+
+        /// <summary>核心复现：真实保存合法正式槽 "slot.a.bak1"，随后 Load("slot.a")（该槽从未
+        /// 保存过、也没有任何新布局备份）。修复前结果是 LoadedFromBackup 并读到 slot.a.bak1 的
+        /// 业务内容；修复后必须是 NotFound，且不产生任何跨槽副作用（不会往 slot.a 的新布局备份
+        /// 目录写入从 slot.a.bak1 抄来的内容）。</summary>
+        [Fact]
+        public void Load_RequestedSlotHasNoOwnBackup_ButPathCollidesWithAnotherRealSlotsFormalFile_ReturnsNotFound_NoCrossSlotRead()
+        {
+            var fs = new StubFileSystem();
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+            var lookAlikeSlot = new Id("slot.a.bak1"); // 名字与 "slot.a" 的旧顶层备份路径逐字节相同。
+            var requestedSlot = new Id("slot.a");
+
+            var payload = new RecordingPersistable("custom.payload", new JsonString("from-other-slot"));
+            sut.RegisterPersistable(payload);
+
+            Assert.True(sut.Save(new SaveRequest(lookAlikeSlot, "t0")).Success);
+
+            // 把段值改掉，验证 Load(slot.a) 不会把它跨槽读回来。
+            payload.Value = new JsonString("should-not-leak-into-slot-a");
+
+            var result = sut.Load(requestedSlot);
+
+            // 修复前该断言会失败：result.Status 会是 LoadedFromBackup，marker 会是 "from-other-slot"。
+            Assert.Equal(LoadStatus.NotFound, result.Status);
+
+            // slot.a.bak1 作为独立正式槽仍然完整可用：能被单独 Load、出现在 ListSlots、能被单独删除。
+            var lookAlikeLoad = sut.Load(lookAlikeSlot);
+            Assert.Equal(LoadStatus.Loaded, lookAlikeLoad.Status);
+
+            var slotIds = sut.ListSlots().Select(s => s.SlotId.Value).ToArray();
+            Assert.Contains("slot.a.bak1", slotIds);
+            Assert.DoesNotContain("slot.a", slotIds);
+
+            Assert.False(fs.Exists(BackupPath("slot.a", 1))); // 不应产生跨槽续存副作用。
+            Assert.True(sut.DeleteSlot(lookAlikeSlot));
+        }
+
+        /// <summary>meta.slot_id 缺失的真正旧存档（早于 slot_id 字段引入）仍然按原语义放行——
+        /// C01 收口只拒绝"显式声明的 slot_id 与请求槽名不一致"的候选，不影响 N16 已有回归。</summary>
+        [Fact]
+        public void Load_LegacyBackupWithoutSlotIdField_StillRecoversForRequestedSlot()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.legacy_no_slot_id");
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+
+            var legacyMetaWithoutSlotId = new JsonObjectBuilder()
+                .Add("save_version", new JsonNumber(1))
+                .Add("created_at", new JsonString("t0"))
+                .Add("updated_at", new JsonString("t0"))
+                .Add("game_id", new JsonString("game.demo"))
+                .Build();
+            var legacyDoc = new JsonObjectBuilder()
+                .Add("save_version", new JsonNumber(1))
+                .Add("sections", new JsonObjectBuilder()
+                    .Add(SaveSections.Meta, legacyMetaWithoutSlotId)
+                    .Build())
+                .Build();
+            fs.WriteTextAtomic("user://saves/slot.legacy_no_slot_id.bak1.json", JsonWriter.Write(legacyDoc));
+            fs.WriteTextAtomic(SlotPath("slot.legacy_no_slot_id"), "{ broken");
+
+            var result = sut.Load(slotId);
+
+            Assert.Equal(LoadStatus.LoadedFromBackup, result.Status);
+        }
+
+        // ==== 5e. C10 收口（外部审计 7e63d66 第四轮）：候选筛选阶段复用 meta 语义校验 =========
+        // TryParseEnvelope 只校验信封顶层形状（save_version 是整数、sections.meta 是对象），不校验
+        // ParseMeta 实际要求的语义必填字段。此前候选一旦通过顶层形状校验就被选中并停止尝试其它
+        // 候选，真正解析 meta 时才判 Corrupted，即便存在健康备份也不会被尝试。
+
+        /// <summary>核心验收：正式文件顶层信封形状合法，但 sections.meta 缺失 save_version/
+        /// created_at 等语义必填字段；存在一份健康备份。修复前 Load 直接判 Corrupted，不会尝试
+        /// 备份；修复后必须回退到健康备份并保留诊断（LoadedFromBackup）。</summary>
+        [Fact]
+        public void Load_FormalPassesShapeCheckButMetaMissingRequiredFields_FallsBackToHealthyBackup()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.meta_semantic_gap");
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+
+            Assert.True(sut.Save(new SaveRequest(slotId, "t1")).Success);
+            Assert.True(sut.Save(new SaveRequest(slotId, "t2")).Success); // 此时 bak1 = t1 的完整合法内容。
+
+            // 顶层形状合法（save_version 是整数、sections.meta 是对象），meta 内部却是空对象——
+            // TryParseEnvelope 会放行，ParseMeta 会因缺少 save_version/created_at 等必填字段失败。
+            var brokenMetaDoc = new JsonObjectBuilder()
+                .Add("save_version", new JsonNumber(1))
+                .Add("sections", new JsonObjectBuilder()
+                    .Add(SaveSections.Meta, new JsonObjectBuilder().Build())
+                    .Build())
+                .Build();
+            fs.WriteTextAtomic(SlotPath("slot.meta_semantic_gap"), JsonWriter.Write(brokenMetaDoc));
+
+            var result = sut.Load(slotId);
+
+            // 修复前该断言会失败：result.Status 会是 Corrupted，不是 LoadedFromBackup。
+            Assert.Equal(LoadStatus.LoadedFromBackup, result.Status);
+            Assert.Equal("t1", result.Meta!.UpdatedAt);
+        }
+
+        /// <summary>没有任何健康候选时，meta 语义缺陷仍然正确判 Corrupted（不是误判为 NotFound
+        /// 或静默放行一份读不出必填字段的 meta）。</summary>
+        [Fact]
+        public void Load_FormalMetaSemanticGap_NoHealthyCandidateAvailable_ReturnsCorrupted()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.meta_semantic_gap_no_backup");
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+
+            var brokenMetaDoc = new JsonObjectBuilder()
+                .Add("save_version", new JsonNumber(1))
+                .Add("sections", new JsonObjectBuilder()
+                    .Add(SaveSections.Meta, new JsonObjectBuilder().Build())
+                    .Build())
+                .Build();
+            fs.WriteTextAtomic(SlotPath("slot.meta_semantic_gap_no_backup"), JsonWriter.Write(brokenMetaDoc));
+
+            var result = sut.Load(slotId);
+
+            Assert.Equal(LoadStatus.Corrupted, result.Status);
+        }
+
         // ==== 6. 写入失败 ========================================================
 
         [Fact]

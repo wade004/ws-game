@@ -191,7 +191,10 @@ namespace Core.Rules.Combat
             }
             else if (!isHeal)
             {
-                absorbed = _auras.ConsumeAbsorb(context.TargetId, context.School, requestedAmount);
+                // C03 收口：把产生本次结算的 EffectContext.TriggerChainDepth 传给吸收扣减，
+                // 让吸收耗尽移除光环实例发布的 aura.removed 事件携带真实触发链深度，纳入
+                // MaxTriggerDepth 收敛预算（见 IAuraQuery.ConsumeAbsorb(Id, Id, double, int) 判断记录）。
+                absorbed = _auras.ConsumeAbsorb(context.TargetId, context.School, requestedAmount, context.TriggerChainDepth);
                 finalAmount = requestedAmount - absorbed;
                 steps.Add($"immune_absorb: absorbed={absorbed} -> FinalAmount={finalAmount}");
             }

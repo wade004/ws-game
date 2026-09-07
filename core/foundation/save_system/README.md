@@ -160,6 +160,40 @@ ADR-0013 离散时间模型，只在装配了离散模式时有内容）→ `rng
   不受影响，旧布局备份也**不会**因此被排除在配额计数之外——这一点在当前"槽 id 允许长得像备份
   文件名"的硬约束下无法安全达成，是本次收边的已知局限，不是遗漏。
 
+- **C01 收口（外部审计 7e63d66 第四轮，P1，成立）：`TryReadLegacyBackup` 的精确路径
+  `<SavesDir>/<slotId>.bakN.json` 核对信封内 `meta.slot_id` 与请求槽名是否一致，不匹配即不算
+  候选。** N16 收边补齐时只做"这个精确路径下有没有能通过信封校验的内容"这一层判断，没有考虑到
+  这个精确路径本身也可能是另一个货真价实、id 长得像 `<slotId>.bakN` 的正式槽（FND-01 判断记录
+  早已明确这种命名碰撞是允许的合法槽名，例如槽 `slot.a.bak1` 自己的正式文件路径恰好等于槽
+  `slot.a` 的这个旧顶层备份精确路径）——此前只要该路径下内容能通过信封校验就无条件当作
+  `slotId` 的备份返回，会把另一个独立正式槽的存档内容跨槽"借"给请求的 `slotId`（真实 Runtime
+  console 复现：`Load("slot.a")` 在 `slot.a` 从未存过、也没有新布局备份的前提下，被
+  `slot.a.bak1.json`——即槽 `slot.a.bak1` 自己的正式文件——命中并返回 `LoadedFromBackup`）。
+  现在核对信封内 `sections.meta.slot_id`：显式声明且与请求槽名不同即判定"属于另一个槽"，跳过
+  （既不当备份用，也不计入候选存在信号，避免把纯属路径命名巧合的文件转化成 `Corrupted` 判定
+  信号）；`slot_id` 缺失（早于该字段引入的真正旧存档）视为无法反证身份，按原语义放行——见
+  `SaveSystem.LegacyCandidateMatchesSlot`。验收：`SaveSystemTests.
+  Load_RequestedSlotHasNoOwnBackup_ButPathCollidesWithAnotherRealSlotsFormalFile_ReturnsNotFound_NoCrossSlotRead`
+  （`Load("slot.a")` 正确返回 `NotFound`，`slot.a.bak1` 仍可独立 `Load`/`ListSlots`/`DeleteSlot`）、
+  `Load_LegacyBackupWithoutSlotIdField_StillRecoversForRequestedSlot`（缺 `slot_id` 字段的真正
+  旧存档不受影响）；既有 FND-01（`SlotIdLooksLikeBackupFileName_...`）与 N16 全部三条回归测试
+  保持通过。
+- **C10 收口（外部审计 7e63d66 第四轮，P2，成立）：`ReadValidEnvelope`/`TryReadLegacyBackup`
+  选中候选前额外核对 `ParseMeta` 是否真的能成功（`IsCandidateMetaUsable`），不再只看
+  `TryParseEnvelope` 的顶层形状。** FND-07/N15 已经把信封校验加深到"顶层字段类型正确"，但仍然
+  只是"能通过 `Load` 后续两处早期校验"这一层，没有覆盖更深处 `ParseMeta` 本身要求的 meta 语义
+  必填字段（`created_at`/`updated_at`/`game_id` 等）——`{"save_version":1,"sections":{"meta":{}}}`
+  这类顶层形状合法、meta 却是空对象的文档能通过 `TryParseEnvelope`，若它恰好是正式文件，
+  `ReadValidEnvelope` 仍会在这里"成功"一次并停止尝试任何备份，直到 `Load` 更深处的 `ParseMeta`
+  才失败判 `Corrupted`——即便存在完好可用的备份也不会被尝试，与 FND-07/N15 要解决的问题同一
+  形状，只是校验深度又往下差了一层。`IsCandidateMetaUsable` 只在候选顶层 `save_version` 已经
+  等于当前运行时版本（无需迁移）时才提前做这层语义校验——需要迁移的候选，其 meta 在迁移完成前
+  的形状允许与当前版本要求不同，这正是迁移链存在的意义，维持原有行为交给 `Load` 迁移完成后
+  再校验。验收：`SaveSystemTests.Load_FormalPassesShapeCheckButMetaMissingRequiredFields_
+  FallsBackToHealthyBackup`（回退到健康备份）、`Load_FormalMetaSemanticGap_
+  NoHealthyCandidateAvailable_ReturnsCorrupted`（没有健康候选时仍正确判 `Corrupted`，不误判为
+  `NotFound`）。
+
 ## `LoadResult.CurrentMapId` / `CurrentPosition`（缺口 11）
 
 - 10_存档与持久化.md 只定义了存档文档 `world.current_map_id`/`world.current_position` 两个段

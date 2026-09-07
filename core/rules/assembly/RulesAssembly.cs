@@ -467,9 +467,24 @@ namespace Core.Rules.Assembly
             public ControlFlags GetControlFlags(Id unitId) => Real.GetControlFlags(unitId);
             public bool IsImmune(Id unitId, Id school, EffectKind kind) => Real.IsImmune(unitId, school, kind);
             public double ConsumeAbsorb(Id unitId, Id school, double amount) => Real.ConsumeAbsorb(unitId, school, amount);
+
+            // C03 收口：必须显式转发这个重载，不能依赖 IAuraQuery 默认接口方法的隐式转发——
+            // 那会经由本类自己的三参数重载把 triggerChainDepth 悄悄丢回 0，绕开代理直接把
+            // Resolver 传入的真实深度吞掉，见 IAuraQuery.ConsumeAbsorb(Id, Id, double, int) 判断记录。
+            public double ConsumeAbsorb(Id unitId, Id school, double amount, int triggerChainDepth) =>
+                Real.ConsumeAbsorb(unitId, school, amount, triggerChainDepth);
             public IReadOnlyList<Id> GetActiveAuraDefs(Id unitId) => Real.GetActiveAuraDefs(unitId);
             public IReadOnlyList<Id> GetActiveSpellModRefs(Id unitId) => Real.GetActiveSpellModRefs(unitId);
             public Id? ResolveSkillOverride(Id unitId, Id skillId) => Real.ResolveSkillOverride(unitId, skillId);
+
+            // C08 收口：必须显式转发 add/remove，不能依赖 IAuraQuery 默认接口成员的隐式空实现——
+            // 那会让订阅者以为自己订阅成功，实际上永远收不到 Real 触发的事件。见
+            // IAuraQuery.InstanceReplaced 判断记录、ConsumeAbsorb(Id, Id, double, int) 同一惯例。
+            public event Action<Id, Id, Id, Id> InstanceReplaced
+            {
+                add => Real.InstanceReplaced += value;
+                remove => Real.InstanceReplaced -= value;
+            }
         }
 
         /// <summary>

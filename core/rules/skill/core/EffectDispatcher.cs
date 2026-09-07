@@ -163,7 +163,41 @@ namespace Core.Rules.Skill
                 var baseValue = ParamsX.GetNumber(context.Params, "base_value", context.BaseValue);
                 coefficient = ParamsX.GetNumber(context.Params, "coefficient", context.Coefficient);
                 var scalingStat = ParamsX.GetIdOpt(context.Params, "scaling_stat");
-                value = baseValue + (scalingStat.HasValue ? coefficient * _statHost.GetStat(context.SourceId, scalingStat.Value) : 0);
+
+                // C02 收口（外部审计 7e63d66 第四轮）：周期性效果（periodic_damage/periodic_heal）
+                // 的 EffectContext.SourceId 恒是施加光环时的施法者（AuraHost.FirePeriodic 每次都
+                // 用 instance.SourceId 重建上下文），真实 CreatureFactory.Despawn 会同步注销来源的
+                // IStatHost 注册（见 CreatureFactory.Despawn），但光环实例只在"目标"被销毁时才由
+                // AuraHost.OnEntityDestroyed 摘除（判断记录：来源销毁不代表已施加到其他目标身上的
+                // 光环应当消失，06 未规定这种情形）——来源销毁后光环仍会继续按周期结算，此前
+                // 无条件调用 _statHost.GetStat(context.SourceId, ...) 会因来源已注销直接抛
+                // InvalidOperationException（外部审计复现：真实 Despawn 施法者后下一次周期 tick）。
+                // <para>
+                // 判断记录（降级为无缩放，不做"快照冻结"）：来源销毁后，"这份周期效果本该按来源
+                // 死前哪个时刻的属性值继续缩放"没有唯一正确答案（06 未规定），而"来源已经不存在，
+                // 缩放属性无从查起"是明确可判定的边界条件——参照 AuraHost.OnEntityDestroyed 判断
+                // 记录同一惯例（面对未规定的情形选择"确定安全"的退化路径，不是引入一整套额外的
+                // 按实例快照基础设施），来源未注册时这部分周期效果的缩放贡献按 0 处理（只保留
+                // base_value，不含来源属性加成），效果本身继续正常结算/落地，不中断周期 tick 循环、
+                // 不抛异常。非周期效果的 SourceId 通常是"正在执行的施法者"，理论上不会遇到这种
+                // 情形，本次改动同时覆盖它是为了不在"什么时候会未注册"这件事上做额外的路径区分。
+                // </para>
+                double scalingContribution = 0;
+                if (scalingStat.HasValue)
+                {
+                    if (_statHost.IsRegistered(context.SourceId))
+                    {
+                        scalingContribution = coefficient * _statHost.GetStat(context.SourceId, scalingStat.Value);
+                    }
+                    else
+                    {
+                        _diagnostics.Warn(
+                            $"效果的来源 \"{context.SourceId}\" 未注册（很可能已被销毁），" +
+                            $"scaling_stat \"{scalingStat.Value}\" 的缩放贡献已按 0 处理（见 EffectDispatcher.ApplyDamageOrHeal 判断记录 C02）");
+                    }
+                }
+
+                value = baseValue + scalingContribution;
             }
 
             // 契约缺口已补齐：EffectContext.Tags 携带技能标签集合（来自 skill.def.tags），
