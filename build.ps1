@@ -38,6 +38,56 @@
     games/_template/package.json 对适配层包的依赖版本号），并生成扩展后的 MANIFEST.txt
     （version/date/git_commit/各目录文件数/architecture_docs/data_schemas/core_assemblies）。
 
+.PARAMETER Release
+    版本管理方案新增：走一次完整的"发布"流程（校验 -> 更新版本号 -> 全量门禁 -> 打包 -> 提交 ->
+    打标签），产出可直接对外发布的版本快照。传入目标版本号（形如 X.Y.Z），流程：
+      1. 校验版本号格式，且必须严格大于仓库根 VERSION 文件当前值（语义化版本数值比较，不是字符串
+         比较）。
+      2. 校验 `git status --porcelain` 为空（工作树干净），否则报错退出——发布快照必须对应一个
+         干净的提交状态，不能夹带未提交的改动。
+      3. 校验仓库根 CHANGELOG.md 已存在形如 `## [X.Y.Z]` 的条目（不含该条目直接报错退出，提示先
+         在 CHANGELOG.md 补齐该版本的变更记录）。
+      4. 非 `-DryRun` 时：把该版本号写回仓库根 VERSION 文件与两个 package.json（含
+         `games/_template/package.json` 对适配层包的依赖版本号）——这一步是本次发布"成为新的当前
+         版本"的唯一写入点，`-DryRun` 时跳过，不触碰任何源码文件。
+      5. 跑一遍 `check.ps1`（默认全量，含 Unity 相关步骤与消费方演练；`-ReleaseSkipUnity` 传
+         `-SkipUnity` 给 check.ps1，用于没有装 Unity 的机器，但默认要求全量门禁通过才能发布）。
+      6. 打包 `dist/<ver>/`（复用 `-Dist` 打包逻辑）、`dist/ws-game-<ver>.zip`（`Compress-Archive`，
+         zip 内顶层目录为 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、git_commit、
+         六个核心 DLL 的 sha256，供游戏仓库复制为自己的 `ws-game.lock`）。
+      7. 非 `-DryRun` 时：提交 VERSION/两个 package.json/CHANGELOG.md 的改动（提交信息
+         `发布 <ver>`），打带注释标签 `v<ver>`（标签信息取 CHANGELOG.md 该版本条目正文），并在
+         `dist/release-notes-<ver>.txt` 落一份同样内容供 `gh release create --notes-file` 使用。
+      8. 打印后续需要人工/设计层执行的两条命令（`git push origin main --tags` 与
+         `gh release create v<ver> ...`）；若版本号的 MAJOR 或 MINOR 段发生了变化（而不仅是
+         PATCH 递增），额外打印建议的维护分支创建命令 `git branch release/X.Y.x vX.Y.0`（见仓库根
+         README.md"维护分支与 PATCH 发布流程"一节）。
+
+.PARAMETER DryRun
+    仅与 `-Release` 同传有效。跑完上面第 1～3、5、6 步的全部校验与打包（打包目标目录/文件名额外带
+    `-dryrun` 后缀，如 `dist/1.0.0-dryrun/`、`dist/ws-game-1.0.0-dryrun.zip`，避免与真实发布产物
+    混淆或互相覆盖），但跳过第 4、7 步——不改写 VERSION/package.json/CHANGELOG.md、不
+    `git commit`、不 `git tag`。用于在真正发布前验证整条发布流水线是否能跑通。
+
+.PARAMETER Publish
+    仅与 `-Release`（且未传 `-DryRun`）同传有效。第 7 步打完标签后，自动依次执行第 8 步打印的两条
+    命令（`git push origin main --tags`、`gh release create ...`），不再需要人工另行复制粘贴执行。
+    省略时（默认）只打印这两条命令，不自动执行，由人工/设计层确认后自行运行。
+
+.PARAMETER ReleaseSkipUnity
+    仅与 `-Release` 同传有效。第 5 步跑 `check.ps1` 时额外传 `-SkipUnity`，跳过 Unity 相关四步与
+    消费方演练（没有装 Unity 或 Unity 被占用的机器上用）。省略时（默认）要求 `check.ps1` 全量通过
+    才能发布——"发布"这个动作本身就意味着要对外承诺质量，默认不放宽。
+
+.PARAMETER Zip
+    独立于 `-Release` 使用：与 `-Dist`/`-Dist auto` 同传时，额外打一份 `dist/ws-game-<ver>.zip`
+    与 `dist/ws-game-<ver>.lock`（与 `-Release` 第 6 步同一份打包逻辑），但不做 `-Release`
+    的版本号校验、写回、`check.ps1` 门禁、提交、打标签——只是"把已经存在的 dist/<ver>/ 目录再打成
+    zip+lock 两个可上传附件"这一件事。用途：`.github/workflows/release.yml` 在 CI 里对一个已经由
+    本机 `-Release`（未传 `-Publish`）提交并打好标签的版本重新打包上传附件，这种场景不需要也不
+    应该重新走版本号写回/提交/打标签（那些已经在本机完成）。`-Release` 本身已经隐含这份打包
+    （不需要再显式传 `-Zip`）。
+
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符。
 #>
@@ -46,7 +96,12 @@ param(
     [switch]$SkipTests,
     [switch]$SyncOnly,
     [switch]$SyncContent,
-    [string]$Dist = ""
+    [string]$Dist = "",
+    [string]$Release = "",
+    [switch]$DryRun,
+    [switch]$Publish,
+    [switch]$ReleaseSkipUnity,
+    [switch]$Zip
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,6 +127,7 @@ function Get-FrameworkVersionFromFile {
 
 $DistRequested = ($Dist -ne "")
 $ResolvedDistVersion = ""
+$DistDirVersion = ""
 if ($DistRequested) {
     if ($Dist -eq "auto") {
         $ResolvedDistVersion = Get-FrameworkVersionFromFile
@@ -83,6 +139,181 @@ if ($DistRequested) {
         }
         $ResolvedDistVersion = $Dist
     }
+    $DistDirVersion = $ResolvedDistVersion
+}
+
+# -----------------------------------------------------------------------------
+# 版本管理方案新增：-Release 发布流程（见上方 .PARAMETER Release/DryRun/Publish/ReleaseSkipUnity
+# 说明）。本节只做第 1～3 步的前置校验并把 -Release 转译成等价的 -Dist 请求（复用下方既有的打包
+# 逻辑，只是打包目录名在 -DryRun 时额外带 -dryrun 后缀，见 $DistDirVersion）；第 4 步（写回源码
+# 版本号）紧跟本节之后单独一节；check.ps1 门禁、zip/lock 产物、提交与打标签在打包完成之后（脚本
+# 末尾）另起一节，因为它们依赖打包已经产出的 dist/<dir>/ 目录与其中的 DLL 哈希。
+# -----------------------------------------------------------------------------
+$ReleaseRequested = ($Release -ne "")
+
+if ((-not $ReleaseRequested) -and ($DryRun -or $Publish -or $ReleaseSkipUnity)) {
+    Write-Host "-DryRun/-Publish/-ReleaseSkipUnity 仅在同传 -Release 时有效" -ForegroundColor Red
+    exit 1
+}
+if ($DryRun -and $Publish) {
+    Write-Host "-DryRun 与 -Publish 不能同传（-DryRun 语义上不产生任何可发布的提交/标签）" -ForegroundColor Red
+    exit 1
+}
+if ($Zip -and (-not $DistRequested) -and (-not $ReleaseRequested)) {
+    Write-Host "-Zip 需要同传 -Dist/-Dist auto（或 -Release，其本身已隐含 -Zip 的效果）——没有 dist/<ver>/ 目录可打包" -ForegroundColor Red
+    exit 1
+}
+
+# 用于判断"MAJOR/MINOR 是否变化"（决定是否建议开维护分支）与语义化版本数值比较（不能用字符串比较，
+# 例如 "10.0.0" 按字符串比较会小于 "9.0.0"）。
+function ConvertTo-SemVerParts {
+    param([string]$Version)
+    $segments = $Version -split '\.'
+    return [PSCustomObject]@{
+        Major = [int]$segments[0]
+        Minor = [int]$segments[1]
+        Patch = [int]$segments[2]
+    }
+}
+
+# 返回 -1/0/1，语义同 [string]::Compare 但按数值逐段比较。
+function Compare-SemVer {
+    param([string]$VersionA, [string]$VersionB)
+    $a = ConvertTo-SemVerParts -Version $VersionA
+    $b = ConvertTo-SemVerParts -Version $VersionB
+    if ($a.Major -ne $b.Major) { if ($a.Major -gt $b.Major) { return 1 } else { return -1 } }
+    if ($a.Minor -ne $b.Minor) { if ($a.Minor -gt $b.Minor) { return 1 } else { return -1 } }
+    if ($a.Patch -ne $b.Patch) { if ($a.Patch -gt $b.Patch) { return 1 } else { return -1 } }
+    return 0
+}
+
+$ReleaseBumpIsMajorOrMinor = $false
+$ReleaseChangelogSection = ""
+$ReleaseCurrentVersion = ""
+
+if ($ReleaseRequested) {
+    Write-Step "-Release $Release：发布流程前置校验"
+
+    # 第 1 步：版本号格式 + 严格大于当前 VERSION。
+    if ($Release -notmatch $VersionFormatPattern) {
+        Write-Host "-Release 版本号格式非法：'$Release'（需形如 X.Y.Z）" -ForegroundColor Red
+        exit 1
+    }
+    $ReleaseCurrentVersion = Get-FrameworkVersionFromFile
+    $cmp = Compare-SemVer -VersionA $Release -VersionB $ReleaseCurrentVersion
+    if ($cmp -le 0) {
+        Write-Host "目标版本 $Release 必须严格大于当前版本 $ReleaseCurrentVersion（语义化版本数值比较）" -ForegroundColor Red
+        exit 1
+    }
+    $oldParts = ConvertTo-SemVerParts -Version $ReleaseCurrentVersion
+    $newParts = ConvertTo-SemVerParts -Version $Release
+    if (($newParts.Major -ne $oldParts.Major) -or ($newParts.Minor -ne $oldParts.Minor)) {
+        $ReleaseBumpIsMajorOrMinor = $true
+    }
+    Write-Host "  版本号校验通过：$ReleaseCurrentVersion -> $Release"
+
+    # 第 2 步：工作树必须干净（发布快照不能夹带未提交的改动）。DryRun 同样校验——DryRun 的目的是
+    # 验证"整条发布流水线打完收工时工作树会是什么状态"，跳过这一步校验会让 DryRun 失去意义。
+    Push-Location $RepoRoot
+    try {
+        $releaseGitStatus = & git status --porcelain
+        $releaseGitDirty = $false
+        if ($null -ne $releaseGitStatus) {
+            $releaseGitStatusJoined = ($releaseGitStatus -join "`n").Trim()
+            if ($releaseGitStatusJoined -ne "") { $releaseGitDirty = $true }
+        }
+    } finally {
+        Pop-Location
+    }
+    if ($releaseGitDirty) {
+        Write-Host "工作树不干净（git status --porcelain 非空），发布前请先提交或清理改动" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  git 工作树干净：校验通过"
+
+    # 第 3 步：CHANGELOG.md 必须已有该版本的条目（形如 "## [X.Y.Z]"，允许行尾附日期等其余文本）。
+    $changelogPath = Join-Path $RepoRoot "CHANGELOG.md"
+    if (-not (Test-Path $changelogPath)) {
+        Write-Host "找不到 $changelogPath，无法核对该版本的变更记录" -ForegroundColor Red
+        exit 1
+    }
+    $changelogLines = Get-Content -Path $changelogPath -Encoding UTF8
+    $headingPattern = '^##\s*\[' + [regex]::Escape($Release) + '\]'
+    $headingIndex = -1
+    for ($i = 0; $i -lt $changelogLines.Count; $i++) {
+        if ($changelogLines[$i] -match $headingPattern) { $headingIndex = $i; break }
+    }
+    if ($headingIndex -lt 0) {
+        Write-Host "CHANGELOG.md 缺少 '## [$Release]' 条目，请先在 CHANGELOG.md 中补充该版本的变更记录再发布" -ForegroundColor Red
+        exit 1
+    }
+    $sectionEndIndex = $changelogLines.Count
+    for ($i = $headingIndex + 1; $i -lt $changelogLines.Count; $i++) {
+        if ($changelogLines[$i] -match '^##\s*\[') { $sectionEndIndex = $i; break }
+    }
+    $ReleaseChangelogSection = ($changelogLines[$headingIndex..($sectionEndIndex - 1)] -join "`n").Trim()
+    Write-Host "  CHANGELOG.md 已找到 [$Release] 条目：校验通过"
+
+    # -Dist 与 -Release 二选一：-Release 内部转译为一次 -Dist 请求，复用下方既有打包逻辑；
+    # 若调用方同时显式传了 -Dist，以 -Release 为准（更明确的意图），并提示一句。
+    if ($DistRequested -and ($ResolvedDistVersion -ne $Release)) {
+        Write-Host "  同时传了 -Dist $Dist 与 -Release $Release，以 -Release 的版本号为准" -ForegroundColor Yellow
+    }
+    $DistRequested = $true
+    $ResolvedDistVersion = $Release
+    if ($DryRun) {
+        $DistDirVersion = $Release + "-dryrun"
+        Write-Host "  -DryRun：打包目录/产物名额外带 -dryrun 后缀（$DistDirVersion），不写回任何源码文件、不提交、不打标签"
+    } else {
+        $DistDirVersion = $Release
+    }
+
+    # 第 4 步：写回源码版本号（VERSION + 两个 package.json，含模板对适配层包的依赖版本号）。
+    # DryRun 时跳过——这是本次发布"成为新的当前版本"的唯一写入点。
+    if (-not $DryRun) {
+        Write-Step "写回版本号 $Release -> VERSION、两个 package.json"
+
+        # 判断记录：VERSION 文件是不带 BOM、不带尾随换行的纯 ASCII 文本（既有约定，见仓库根
+        # VERSION 文件实际内容）；两个 package.json 是不带 BOM 的 UTF-8（含中文 description 字段）。
+        # PowerShell 5.1 的 `Set-Content -Encoding utf8` 固定带 BOM，因此这里改用
+        # [System.IO.File]::WriteAllText + 显式 UTF8Encoding($false) 避免污染已提交的源码文件
+        # （与本文件下方 Set-DistPackageJsonVersion 只作用于 dist/ 构建产物、允许带 BOM 不同——
+        # 那些是不入库的构建产物，这里是要提交进仓库的源码文件）。
+        [System.IO.File]::WriteAllText($VersionFilePath, $Release, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "  已写回 $VersionFilePath -> $Release"
+
+        function Set-SourcePackageJsonVersion {
+            param([string]$JsonPath, [string]$Version)
+            if (-not (Test-Path $JsonPath)) {
+                throw "找不到 $JsonPath，无法回写版本号"
+            }
+            $obj = (Get-Content -Path $JsonPath -Raw -Encoding UTF8) | ConvertFrom-Json
+            $obj.version = $Version
+            if (($obj.PSObject.Properties.Name -contains "dependencies") -and
+                ($obj.dependencies.PSObject.Properties.Name -contains "com.gamefoundation.adapter.unity")) {
+                $obj.dependencies."com.gamefoundation.adapter.unity" = $Version
+            }
+            $jsonText = ($obj | ConvertTo-Json -Depth 10)
+            [System.IO.File]::WriteAllText($JsonPath, $jsonText, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Host "  已写回 $JsonPath -> $Version"
+        }
+
+        Set-SourcePackageJsonVersion -JsonPath (Join-Path $RepoRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json") -Version $Release
+        Set-SourcePackageJsonVersion -JsonPath (Join-Path $RepoRoot "games\_template\package.json") -Version $Release
+    }
+
+    # 第 5 步：全量门禁（-ReleaseSkipUnity 时传 -SkipUnity 给 check.ps1）。DryRun 同样跑——
+    # DryRun 的目的正是验证"发布流水线全流程能否走通"，门禁本身不写文件，天然安全。
+    Write-Step "check.ps1 门禁（-Release 第 5 步）"
+    $checkScript = Join-Path $RepoRoot "check.ps1"
+    $checkArgs = @()
+    if ($ReleaseSkipUnity) { $checkArgs += "-SkipUnity" }
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript @checkArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "check.ps1 未通过（退出码 $LASTEXITCODE），发布流程终止" -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+    Write-Host "  check.ps1 通过"
 }
 
 # 六个需要发布给 Unity 端的核心 DLL；不拷贝 Adapters.Stub、不拷贝任何测试或 xunit 相关程序集。
@@ -441,9 +672,9 @@ Write-Host "  已生成占位导航资源：$templateNavResourcePath（nav.templ
 # 5. 可选：打分发包 dist/<version>/
 # ---------------------------------------------------------------------------
 if ($DistRequested) {
-    Write-Step "打分发包 dist/$ResolvedDistVersion/"
+    Write-Step "打分发包 dist/$DistDirVersion/"
 
-    $DistRoot = Join-Path $RepoRoot ("dist\" + $ResolvedDistVersion)
+    $DistRoot = Join-Path $RepoRoot ("dist\" + $DistDirVersion)
     if (Test-Path $DistRoot) {
         Remove-Item -Path $DistRoot -Recurse -Force -Confirm:$false
     }
@@ -493,7 +724,7 @@ if ($DistRequested) {
         }
 
         $fileCount = (Get-ChildItem -Path $dst -Recurse -File).Count
-        Write-Host ("  {0} -> dist\{1}\{2}  ({3} files)" -f $SourceRelative, $ResolvedDistVersion, $DestName, $fileCount)
+        Write-Host ("  {0} -> dist\{1}\{2}  ({3} files)" -f $SourceRelative, $DistDirVersion, $DestName, $fileCount)
         return $fileCount
     }
 
@@ -624,14 +855,19 @@ if ($DistRequested) {
     #     两者理论上内容相同，但直接对 dist 内文件取哈希更贴合"这份快照实际包含什么"）。
     # -------------------------------------------------------------------
     $coreAssemblyLines = @()
+    # 版本管理方案新增：与 $coreAssemblyLines（人读文本）并行记一份哈希映射表，供下面 -Release
+    # 流程生成 ws-game.lock（机读 JSON）复用，避免重新计算或反解析上面那行文本。
+    $coreAssemblyShaMap = [ordered]@{}
     $distPluginsCoreDir = Join-Path $DistRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core"
     foreach ($asm in $CoreAssemblies) {
         $distDllPath = Join-Path $distPluginsCoreDir ($asm.Name + ".dll")
         if (Test-Path $distDllPath) {
             $sha = (Get-FileHash -Path $distDllPath -Algorithm SHA256).Hash.ToLower()
             $coreAssemblyLines += ("  {0}.dll: sha256={1}" -f $asm.Name, $sha)
+            $coreAssemblyShaMap[$asm.Name + ".dll"] = $sha
         } else {
             $coreAssemblyLines += ("  {0}.dll: 未找到（{1}）" -f $asm.Name, $distDllPath)
+            $coreAssemblyShaMap[$asm.Name + ".dll"] = $null
         }
     }
 
@@ -660,8 +896,133 @@ if ($DistRequested) {
 
     Set-Content -Path $manifestPath -Value $manifestLines -Encoding utf8
     Write-Host "已生成 $manifestPath"
+
+    # -------------------------------------------------------------------
+    # 5.6 版本管理方案新增：zip + lock。默认只在 -Release 时跑（单纯 -Dist/-Dist auto 只需要
+    #     dist/<version>/ 目录本身，不需要额外打 zip/lock，见既有调用方 consumer_smoke.ps1/
+    #     games/_template/README.md 的用法——都是直接指向 dist/<version>/ 目录，不消费 zip）；
+    #     独立开关 -Zip 可以在不走 -Release 校验/提交/打标签的前提下单独触发这一步（见
+    #     .PARAMETER Zip 说明，`.github/workflows/release.yml` 用这条路径）。
+    # -------------------------------------------------------------------
+    if ($ReleaseRequested -or $Zip) {
+        Write-Step "打 zip + lock（dist/ws-game-$DistDirVersion.zip / .lock）"
+
+        $zipPath = Join-Path $RepoRoot ("dist\ws-game-" + $DistDirVersion + ".zip")
+        $zipTopLevelName = "ws-game-" + $DistDirVersion
+        $zipStagingRoot = Join-Path $env:TEMP ("ws_game_zip_staging_" + [guid]::NewGuid().ToString("N"))
+        $zipStagingDir = Join-Path $zipStagingRoot $zipTopLevelName
+        New-Item -ItemType Directory -Force -Path $zipStagingDir | Out-Null
+        try {
+            # Copy-Item -Recurse 复制 $DistRoot 的内容（不含 $DistRoot 自身这层目录名）到
+            # $zipStagingDir，这样 Compress-Archive 传入 $zipStagingDir 时，zip 内顶层目录名
+            # 就是 $zipStagingDir 的 basename（即 "ws-game-<ver>"），而不是 "<ver>"。
+            Copy-Item -Path (Join-Path $DistRoot "*") -Destination $zipStagingDir -Recurse -Force
+            if (Test-Path $zipPath) {
+                Remove-Item -Path $zipPath -Force
+            }
+            Compress-Archive -Path $zipStagingDir -DestinationPath $zipPath -CompressionLevel Optimal
+        } finally {
+            Remove-Item -Path $zipStagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        $zipSizeBytes = (Get-Item $zipPath).Length
+        $zipSizeMb = [Math]::Round($zipSizeBytes / 1MB, 2)
+        Write-Host ("  已生成 {0}（{1} MB，zip 内顶层目录 {2}/）" -f $zipPath, $zipSizeMb, $zipTopLevelName)
+
+        # ws-game.lock 示例锁文件：版本号、git_commit、六个核心 DLL 的 sha256（复用上面 5.5 节已经
+        # 算好的 $coreAssemblyShaMap，不重复计算）。字段内容一律用干净版本号 $ResolvedDistVersion
+        # （不带 -dryrun 后缀）——DryRun 只是产物文件名带后缀以避免覆盖真实发布产物，锁文件内容
+        # 描述的仍然是"这是版本 X.Y.Z 的锁定信息"这一事实本身。游戏仓库拿到这份文件后原样复制为
+        # 自己的 ws-game.lock（见 toolchain/get_framework.ps1）。
+        $lockPath = Join-Path $RepoRoot ("dist\ws-game-" + $DistDirVersion + ".lock")
+        $lockObj = [ordered]@{
+            version    = $ResolvedDistVersion
+            git_commit = $gitCommit
+            dlls       = $coreAssemblyShaMap
+        }
+        $lockJson = ($lockObj | ConvertTo-Json -Depth 5)
+        [System.IO.File]::WriteAllText($lockPath, $lockJson, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "  已生成 $lockPath"
+
+        # -------------------------------------------------------------------
+        # 5.7 版本管理方案新增：-Release 第 7 步——非 DryRun 时提交 + 打标签；DryRun 到此为止
+        #     （第 6 步的 zip/lock 已经落在 dist/ 下的 -dryrun 后缀路径，dist/ 整体 .gitignore，
+        #     不影响"结束时工作树干净"这条要求）。
+        # -------------------------------------------------------------------
+        if ($ReleaseRequested -and (-not $DryRun)) {
+            Write-Step "-Release 第 7 步：提交版本号改动 + 打带注释标签 v$Release"
+
+            $releaseNotesPath = Join-Path $RepoRoot ("dist\release-notes-" + $Release + ".txt")
+            [System.IO.File]::WriteAllText($releaseNotesPath, $ReleaseChangelogSection, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Host "  已生成 $releaseNotesPath（CHANGELOG.md [$Release] 条目正文，供 gh release create --notes-file 使用）"
+
+            Push-Location $RepoRoot
+            try {
+                & git add "VERSION" "adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json" "games/_template/package.json" "CHANGELOG.md"
+                if ($LASTEXITCODE -ne 0) { throw "git add 失败，退出码 $LASTEXITCODE" }
+
+                $commitMessage = "发布 $Release"
+                & git commit -m $commitMessage
+                if ($LASTEXITCODE -ne 0) { throw "git commit 失败，退出码 $LASTEXITCODE" }
+                Write-Host "  已提交：$commitMessage"
+
+                $tagName = "v$Release"
+                $tagMessageFile = Join-Path $RepoRoot ("dist\tag-message-" + $Release + ".txt")
+                $tagMessageContent = "$tagName`n`n$ReleaseChangelogSection"
+                [System.IO.File]::WriteAllText($tagMessageFile, $tagMessageContent, (New-Object System.Text.UTF8Encoding($false)))
+                & git tag -a $tagName -F $tagMessageFile
+                if ($LASTEXITCODE -ne 0) { throw "git tag 失败，退出码 $LASTEXITCODE" }
+                Remove-Item -Path $tagMessageFile -Force -ErrorAction SilentlyContinue
+                Write-Host "  已打标签：$tagName"
+            } finally {
+                Pop-Location
+            }
+
+            # 第 8 步：打印后续需要人工/设计层执行的两条命令；-Publish 时自动执行。
+            $pushCmd = "git push origin main --tags"
+            $releaseCmd = "gh release create $tagName `"$zipPath`" `"$lockPath`" --title `"$tagName`" --notes-file `"$releaseNotesPath`""
+
+            Write-Host ""
+            Write-Host "==== -Release 完成：$ReleaseCurrentVersion -> $Release（已提交 + 已打标签 $tagName） ====" -ForegroundColor Green
+            Write-Host "后续需要人工/设计层执行（-Publish 可自动执行，本次未传则仅打印）：" -ForegroundColor Cyan
+            Write-Host "  1) $pushCmd"
+            Write-Host "  2) $releaseCmd"
+
+            if ($ReleaseBumpIsMajorOrMinor) {
+                $branchName = "release/" + $newParts.Major + "." + $newParts.Minor + ".x"
+                $branchPoint = "v" + $newParts.Major + "." + $newParts.Minor + ".0"
+                Write-Host ""
+                Write-Host "本次版本号 MAJOR 或 MINOR 段发生了变化，建议开一条维护分支（见根 README.md" -ForegroundColor Cyan
+                Write-Host "'维护分支与 PATCH 发布流程'一节）：" -ForegroundColor Cyan
+                Write-Host "  git branch $branchName $branchPoint"
+            }
+
+            if ($Publish) {
+                Write-Step "-Publish：自动执行上面两条命令"
+                Push-Location $RepoRoot
+                try {
+                    Write-Host "  执行：$pushCmd"
+                    & git push origin main --tags
+                    if ($LASTEXITCODE -ne 0) { throw "git push 失败，退出码 $LASTEXITCODE" }
+
+                    Write-Host "  执行：$releaseCmd"
+                    & gh release create $tagName $zipPath $lockPath --title $tagName --notes-file $releaseNotesPath
+                    if ($LASTEXITCODE -ne 0) { throw "gh release create 失败，退出码 $LASTEXITCODE" }
+                } finally {
+                    Pop-Location
+                }
+                Write-Host "  -Publish 完成：已推送并创建 GitHub Release $tagName"
+            }
+        } elseif ($ReleaseRequested -and $DryRun) {
+            Write-Host ""
+            Write-Host "==== -DryRun 完成：$Release 的发布流水线全流程校验 + 打包已跑通，未改写任何源码文件、未提交、未打标签 ====" -ForegroundColor Green
+            Write-Host "  dist/$DistDirVersion/、$zipPath、$lockPath 均为验证产物（dist/ 已 .gitignore，可随时删除）"
+        } else {
+            Write-Host ""
+            Write-Host "==== -Zip 完成：$zipPath、$lockPath 已生成，未涉及版本号写回/提交/打标签（-Zip 独立于 -Release 使用） ====" -ForegroundColor Green
+        }
+    }
 } else {
-    Write-Step "未传 -Dist，跳过打包步骤"
+    Write-Step "未传 -Dist/-Release，跳过打包步骤"
 }
 
 Write-Host ""

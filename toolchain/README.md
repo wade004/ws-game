@@ -317,3 +317,25 @@ python toolchain/import_sample_assets.py
 非 0 直接失败退出，不会把校验不过的产物留在仓库里。单元测试：
 `python -m unittest toolchain.tests.test_import_sample_assets -v`（测试数据写在系统临时目录，
 不接触仓库内 `assets/`/`data/`）。
+
+## `get_framework.ps1`（游戏侧按版本号引用本框架）
+
+与本目录其余脚本不同，`get_framework.ps1` 运行在**游戏仓库**那一侧（游戏仓库把它复制/引用过去
+用），不属于本框架仓库自身的构建/门禁链路——它是框架随每次发布产物一并提供、供游戏侧调用的工具，
+职责是"按版本号取得一份可信的框架发布产物"：
+
+```powershell
+powershell -File toolchain\get_framework.ps1 -Version 1.0.0 -Target packages
+powershell -File toolchain\get_framework.ps1 -Version 1.0.0 -Target packages -FromLocalDist path\to\ws-game-1.0.0.zip
+```
+
+在线路径依赖 `gh`（GitHub CLI）已登录，按 `v<Version>` 标签从框架仓库的 Release 下载
+`ws-game-<Version>.zip` 与配套的 `.lock` 锁文件；离线路径 `-FromLocalDist` 直接指定本机已有的
+zip（同目录需要有同名 `.lock` 文件）。两条路径都会：解压到临时目录 → 按锁文件记录的 sha256 校验
+六个核心 DLL（`Core.Foundation`/`Core.Numbers`/`Core.Rules`/`Core.Carriers`/`Core.Gameplay`/
+`Presentation.Common`）→ 校验通过才落地到 `<Target>/ws-game-<Version>/`（旧目录整体删除重建）→
+在当前目录写入/校验 `ws-game.lock`（游戏仓库根，内容与下载到的锁文件一致）。校验失败（哈希不
+一致、DLL 缺失）时不会改动 `-Target` 与 `ws-game.lock`，保持"校验通过才落地"。
+
+版本号格式、锁文件字段、`build.ps1 -Release`/`-Zip` 如何产出这两个文件，见框架仓库根
+`README.md`"版本与发布"一节与 `architecture/落地计划/落地方案与分阶段计划.md` 第 3.5 节。

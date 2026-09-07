@@ -63,32 +63,41 @@ games/_template/
 4. **数据目录改名**：`data/game/` 改成 `data/<你的游戏目录名>`（如 `data/mygame`），同步改
    `Runtime/GameBootstrap.cs` 的 `_gameDatasetRoot` 默认值（Inspector 字段，也可以留着默认值不改、
    直接在场景里的 `GameBootstrap` 组件上改 Inspector 值）与 `validate.ps1` 的 `-DataRoot` 默认值。
-5. 在新游戏的 Unity 工程 `Packages/manifest.json` 中用 `file:` 相对路径引用两个包：本框架的引擎
-   适配层包 `com.gamefoundation.adapter.unity`（分发包 `dist/<version>/adapters/unity/Packages/
-   com.gamefoundation.adapter.unity/`）与复制改名后的游戏层包，例如：
+5. 先按目标版本号取得一份本框架的发布产物（而不是直接引用框架的开发目录）：`toolchain/
+   get_framework.ps1 -Version <version> -Target packages` 从框架的 Release 拉取
+   `ws-game-<version>.zip` 与配套的锁文件，校验六个核心 DLL 的哈希与锁文件一致后解压到
+   `packages/ws-game-<version>/`，并在游戏仓库根写入/校验 `ws-game.lock`（记录当前引用的版本号
+   与六个核心 DLL 的 sha256，供后续升级或核对内容完整性；离线场景可传 `-FromLocalDist <本机
+   zip 路径>`，或在框架仓库对应标签上本机跑 `build.ps1 -Dist <version>` 后直接使用产出的
+   `dist/<version>/`，两条路径产出的目录结构一致，都可以直接被下一步的 `file:` 引用）。
+6. 在新游戏的 Unity 工程 `Packages/manifest.json` 中用 `file:` 相对路径引用两个包：本框架的引擎
+   适配层包 `com.gamefoundation.adapter.unity`（`packages/ws-game-<version>/adapters/unity/
+   Packages/com.gamefoundation.adapter.unity/`）与复制改名后的游戏层包，例如：
    ```json
    {
      "dependencies": {
-       "com.gamefoundation.adapter.unity": "file:../../dist/0.1.0/adapters/unity/Packages/com.gamefoundation.adapter.unity",
-       "com.<studio>.game-<name>": "file:../../dist/0.1.0/games/_template"
+       "com.gamefoundation.adapter.unity": "file:../../packages/ws-game-1.0.0/adapters/unity/Packages/com.gamefoundation.adapter.unity",
+       "com.<studio>.game-<name>": "file:../../packages/ws-game-1.0.0/games/_template"
      },
      "testables": [
        "com.<studio>.game-<name>"
      ]
    }
    ```
-   （具体相对路径层级、分发包版本号以实际情况为准；见落地计划 3.5 节"新游戏如何消费本框架"。）
-6. 依赖方向单向：新游戏的程序集引用 `Adapter.Unity`，`Adapter.Unity` 不反向引用任何游戏层程序集；
+   （具体相对路径层级、版本号以实际情况为准；见落地计划 3.5 节"新游戏如何消费本框架"。）
+7. 依赖方向单向：新游戏的程序集引用 `Adapter.Unity`，`Adapter.Unity` 不反向引用任何游戏层程序集；
    `Adapter.Unity` 也不出现任何具体游戏代号——本模板同样遵守这条规则，`Runtime`/`Editor` 两个
    asmdef 都只引用 `Adapter.Unity`，不引用工作台任何专属脚本（见 `Editor/GameSceneBuilder.cs`
    顶部判断记录"为什么复制而不是引用工作台的 GreyBoxSceneBuilder/ShellSceneBuilder"）。
-7. **补齐 TextMeshPro 运行期资源与占位字体**（消费方演练任务实跑发现的必需步骤，缺了会在主菜单
-   渲染文字这一步抛异常）：把分发包 `dist/<version>/assets/textmesh_pro_essentials/` 整份拷进新
-   工程的 `Assets/TextMesh Pro/`（TMP_Settings 单例、SDF 着色器等，Unity 批处理环境下无法可靠地
-   靠"导入 TMP Essential Resources"这条异步菜单流程自动补齐，只能整份提交为普通 Assets，见
-   `adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/
-   UnityUISurface.cs` 顶部"判断记录（TMP 运行期依赖）"）；再把 `dist/<version>/assets/_placeholder/
-   fonts/*.otf`/`*.ttf` 拷进 `Assets/Framework/Resources/Fonts/`（`UnityUISurface`/
+8. **补齐 TextMeshPro 运行期资源与占位字体**（消费方演练任务实跑发现的必需步骤，缺了会在主菜单
+   渲染文字这一步抛异常）：把发布产物内 `assets/textmesh_pro_essentials/`（即第 5 步落地的
+   `packages/ws-game-<version>/assets/textmesh_pro_essentials/`，或本机直接用
+   `dist/<version>/assets/textmesh_pro_essentials/`）整份拷进新工程的 `Assets/TextMesh Pro/`
+   （TMP_Settings 单例、SDF 着色器等，Unity 批处理环境下无法可靠地靠"导入 TMP Essential
+   Resources"这条异步菜单流程自动补齐，只能整份提交为普通 Assets，见 `adapters/unity/Packages/
+   com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityUISurface.cs` 顶部"判断记录（TMP
+   运行期依赖）"）；再把 `assets/_placeholder/fonts/*.otf`/`*.ttf`（同一份发布产物或
+   `dist/<version>/` 下）拷进 `Assets/Framework/Resources/Fonts/`（`UnityUISurface`/
    `UnityResourceLoader` 按 `font.<name>` -> `Resources/Fonts/<name>` 规则解析，见包 README"资源
    id → 路径规则"）。两步都是一次性的文件拷贝，不需要打开 Unity 编辑器操作。
    **已自动化的部分（W3b 收边核实）**：`build.ps1 -Dist` 已把 `adapters/unity/Assets/TextMesh Pro/`

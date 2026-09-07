@@ -11,7 +11,7 @@
 ## 顶层目录结构
 
 ```
-.github/workflows/      GitHub Actions 持续集成工作流（ci.yml，见"持续集成"一节）
+.github/workflows/      GitHub Actions 持续集成工作流（ci.yml + release.yml，见"持续集成"一节）
 .githooks/              版本化 git 钩子（pre-commit，见"提交前钩子"一节）
 architecture/          架构文档集（已定稿），本仓库唯一的规范来源；00~14 号文档 + adr/（16 条 ADR）+ 落地计划/ + 选型/
 core/                  L0~L4 纯逻辑类库，零引擎依赖，目标框架 .NET Standard 2.1
@@ -28,12 +28,13 @@ games/_template/        游戏层骨架模板（本地包 com.gamefoundation.gam
 data/_sample/           框架自测/校验器自测用的示例数据表，不代表任何真实游戏内容；真实游戏数据放各自仓库的 data/<game>/
 assets/_placeholder/    灰盒竖切用的通用占位资产包（精灵、特效、音效、音乐、地图分层图、字体等源素材），随版本快照一并交付
 assets/_sample/         由 toolchain/import_sample_assets.py 驱动资产导入工具真实产出并提交入库的样例资产（消费 assets/_placeholder 源素材生成），供 data/_sample 的 display/vfx/sfx/world 四张表引用；改了 assets/_placeholder 源素材或需修复 data/_sample 引用时重跑该脚本幂等重新生成，见 toolchain/README.md"data/_sample 的资产来源"一节
-toolchain/              校验、构建、资产导入等跨游戏 Python 工具链（validate_data.py、import_assets.py 等）
+toolchain/              校验、构建、资产导入等跨游戏 Python 工具链（validate_data.py、import_assets.py 等）；get_framework.ps1 是游戏侧按版本号引用本框架的工具，见"版本与发布"一节
 editor/                游戏内容编辑器（Windows 桌面程序）：docs/ 产品文档（markdown + 离线 HTML）；实现尚未开始
-dist/<version>/         build.ps1 -Dist 产出的版本快照（构建产物，.gitignore，不入库，可由源码重建）
-VERSION                 单一版本源（纯文本版本号，如 0.2.0），两个 package.json 与 dist 快照均以此为准，见"版本与快照"一节
+dist/<version>/         build.ps1 -Dist 产出的版本快照（构建产物，.gitignore，不入库，可由源码重建）；-Release/-Zip 额外产出 ws-game-<version>.zip/.lock
+VERSION                 单一版本源（纯文本版本号，如 0.2.0），两个 package.json、CHANGELOG.md、dist 快照均以此为准，见"版本与发布"一节
+CHANGELOG.md             变更日志（Keep a Changelog 风格），发布时随 VERSION 一并更新
 Core.sln                六个核心类库 + 六个测试工程的 .NET 解决方案
-build.ps1               DLL 同步、内容同步、版本快照打包脚本（PowerShell 5.1 兼容）
+build.ps1               DLL 同步、内容同步、版本快照打包、发布流程脚本（PowerShell 5.1 兼容）
 check.ps1               一键门禁脚本：构建/测试/校验/禁用词扫描/Unity 编译与测试/独立版冒烟一次跑完并汇总（PowerShell 5.1 兼容）
 ```
 
@@ -62,8 +63,10 @@ python toolchain/validate_data.py
 | `powershell -File build.ps1 -SkipTests` | 同上，跳过 `dotnet test` |
 | `powershell -File build.ps1 -SyncOnly` | 跳过 `dotnet build/test`，只做 DLL 同步 + 内容同步（要求此前至少完整 build 过一次） |
 | `powershell -File build.ps1 -SyncContent` | 只做内容同步（跳过 `dotnet build/test` 与 DLL 同步）；只改了 `data/_sample`/`assets/_placeholder`/`assets/_sample`、没改任何 C# 代码时的快速路径 |
-| `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`）、`assets/_placeholder`、`data/_framework` 打成一份版本快照 `dist/<version>/`，并生成扩展后的 `MANIFEST.txt`（见下方"版本与快照"一节） |
+| `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`）、`assets/_placeholder`、`data/_framework` 打成一份版本快照 `dist/<version>/`，并生成扩展后的 `MANIFEST.txt`（见下方"版本与发布"一节） |
 | `powershell -File build.ps1 -Dist auto` | 同上，但版本号不由调用方指定，改为读取仓库根 `VERSION` 文件当前内容 |
+| `powershell -File build.ps1 -Dist <version> -Zip` | 在 `-Dist` 基础上额外打 `dist/ws-game-<version>.zip` + `dist/ws-game-<version>.lock`，不做任何版本号写回/提交/打标签（`.github/workflows/release.yml` 用这条路径） |
+| `powershell -File build.ps1 -Release <version> [-DryRun] [-Publish] [-ReleaseSkipUnity]` | 完整发布流程：校验 → 写回版本号 → 全量门禁 → 打包 + zip + lock → 提交 → 打标签；见下方"版本与发布"一节 |
 
 同步与打包均按文件哈希比较、只处理变化的文件；`-Dist` 打的快照不入库，可随时由源码重新生成；`-Dist` 传入的版本号必须形如 `X.Y.Z`（三段纯数字），格式非法直接报错退出。
 
@@ -111,7 +114,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipConsumer # �
 
 `-ArtifactsPath <dir>` 可覆盖 `dotnet`/Unity 产物落地目录（默认 `bin\_check_artifacts`，已被 `.gitignore` 的 `bin/` 规则忽略）；`-UnityExe <path>` 可显式指定 Unity 可执行文件路径（默认按 Unity Hub 常见安装位置猜测，找不到则要求显式传参）。
 
-`check.ps1` 另有一步"版本一致性"（不需要 `-Dist`，`-SkipUnity` 下同样会跑）：只读比较仓库根 `VERSION` 文件与两个 `package.json`（`adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json`、`games/_template/package.json`，含后者对适配层包的依赖版本号）是否一致，三处任一处漏改都会让这一步失败。
+`check.ps1` 另有一步"版本一致性"（不需要 `-Dist`，`-SkipUnity` 下同样会跑）：只读比较仓库根 `VERSION` 文件与两个 `package.json`（`adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json`、`games/_template/package.json`，含后者对适配层包的依赖版本号）是否一致；并校验根 `CHANGELOG.md` 含 `VERSION` 对应版本号的条目（形如 `## [X.Y.Z]`）或存在 `## [Unreleased]` 段，四处任一处漏改都会让这一步失败。
 
 `check.ps1 -Quick`（工程收尾 K 新增，供 `.githooks/pre-commit` 调用）：只跑 dotnet build/test、两道数据校验、事件常量一致性检查、禁用词扫描、版本一致性这几步"秒级能跑完"的子集，跳过占位资产生成器检查、`toolchain` 自身 pytest、`build.ps1 -SkipTests` 同步、全部 Unity 相关步骤与消费方演练；与 `-SkipUnity` 可以同传但没有必要（`-Quick` 本身已经不跑 Unity 相关任何一步）。资产导入工具交叉校验（`import_assets.py check --dataset _sample`，全量交叉校验 sprite/vfx/sfx/world 四域，只比对文件是否存在、不读图片，秒级完成，见 [toolchain/README.md](toolchain/README.md)"`data/_sample` 的资产来源"一节）不属于可跳过的慢步骤，`-Quick` 下同样会跑。目标总用时 30 秒左右（视本机是否需要重新编译而定），供提交前钩子做"能拦住的先拦住，剩下的交给 CI/手工全量 `check.ps1`"这一级快速把关，不能替代完整门禁。
 
@@ -120,6 +123,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipConsumer # �
 ## 持续集成（GitHub Actions）
 
 `.github/workflows/ci.yml`：`push` 到 `main` 与任意 `pull_request` 时，在 `windows-latest` 运行器上跑 `check.ps1 -SkipUnity`（安装 .NET 8.0.x SDK 与 Python 3.12 + `toolchain/requirements.txt` 后执行；缓存 NuGet 包与 pip 依赖），并把控制台输出与门禁产物日志上传为 artifact。CI 不跑 Unity 相关四步与消费方演练——托管运行器既没有装 Unity，也无法激活个人版 Unity 授权，这部分职责仍由本机全量 `check.ps1`（含可选的 `-Il2cpp`）承担，见上一节。
+
+`.github/workflows/release.yml`：推送形如 `v*` 的标签时触发，跑一遍快速门禁（`check.ps1 -SkipUnity -Quick`，作为标签指向的提交未被意外改动的交叉验证——完整门禁已经在本机 `build.ps1 -Release` 第 5 步跑过），再用 `build.ps1 -SyncOnly -Dist <标签去掉 v 前缀> -Zip` 重新打包出 `dist/ws-game-<version>.zip`/`.lock`，上传为该标签对应 GitHub Release 的附件（Release 不存在则新建）。
 
 ## 提交前钩子（`.githooks/`）
 
@@ -131,21 +136,69 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\install_hooks.ps1
 
 该脚本把 `git config core.hooksPath` 指向 `.githooks/`（幂等，重复跑不报错）；`-Uninstall` 还原为默认值。安装后每次 `git commit` 前会自动跑一遍 `check.ps1 -SkipUnity -Quick`，未通过则本次提交被拦截（终端打印失败明细，同 `check.ps1` 汇总表）；紧急情况需要跳过时用 `git commit --no-verify`（不建议常态化使用）。
 
-## 版本与快照
+## 版本与发布
 
-版本号的单一来源是仓库根的 `VERSION` 文件（纯文本，如 `0.2.0`，UTF-8 无 BOM）：升级版本号时只改这一处，`adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json`、`games/_template/package.json` 两个 `package.json` 的 `version` 字段（含 `games/_template` 对适配层包的依赖版本号）需要同步改成同一个值，`check.ps1` 的"版本一致性"步骤会校验这三处是否一致（见上一节）。
+### 单一版本源
 
-`build.ps1 -Dist <version>` 打快照时会把最终使用的版本号（显式传参，或 `-Dist auto` 时从 `VERSION` 读到的值）回写进 `dist/<version>/` 内两个 `package.json` 的 `version` 字段，并生成扩展后的 `MANIFEST.txt`，记录本次快照的可追溯信息（见 [11_工程规范与测试.md](architecture/11_工程规范与测试.md) 第 7 节"版本号必须可追溯到对应的架构文档版本与数据 schema 版本组合"）：
+版本号的单一来源是仓库根的 `VERSION` 文件（纯文本，如 `0.2.0`，UTF-8 无 BOM）。版本号遵循语义化版本 `MAJOR.MINOR.PATCH`：MAJOR 表示不兼容变更（走 ADR 审批的契约签名变化、存档格式不兼容、数据表字段删改），MINOR 表示向后兼容的新增能力，PATCH 表示缺陷修复与文档勘误（判据见 [11_工程规范与测试.md](architecture/11_工程规范与测试.md) 第 7 节）。`adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json`、`games/_template/package.json` 两个 `package.json` 的 `version` 字段（含 `games/_template` 对适配层包的依赖版本号）与仓库根 `CHANGELOG.md`（[Keep a Changelog](https://keepachangelog.com/) 风格）需要与 `VERSION` 同步，`check.ps1` 的"版本一致性"步骤会校验这几处是否一致（见上一节）；日常开发中的变更先累积到 `CHANGELOG.md` 的 `## [Unreleased]` 段，发布时由 `build.ps1 -Release` 归档为对应版本号的条目。
+
+### 发布不可变
+
+每一个已发布的版本号一旦打了标签即视为定版，不得就地修改或用同一版本号重新打包替换；发现问题一律发新的 PATCH 版本修复，不兼容的修复经维护分支处理（见下方"维护分支与 PATCH 发布"）。
+
+### `build.ps1 -Release`：完整发布流程
+
+```powershell
+powershell -File build.ps1 -Release 1.0.0                                    # 完整发布：校验 → 写回版本号 → 全量门禁 → 打包+zip+lock → 提交 → 打标签
+powershell -File build.ps1 -Release 1.0.0 -ReleaseSkipUnity                  # 同上，但门禁跳过 Unity 相关步骤（没装 Unity 的机器）
+powershell -File build.ps1 -Release 1.0.0 -DryRun -ReleaseSkipUnity          # 只跑校验+打包，不改任何源码文件、不提交、不打标签（产物名带 -dryrun 后缀）
+powershell -File build.ps1 -Release 1.0.0 -Publish                          # 打完标签后自动执行 git push 与创建 GitHub Release
+```
+
+流程内部依次做：
+
+1. 校验版本号格式，且必须严格大于 `VERSION` 当前值（语义化版本数值比较）。
+2. 校验 `git status` 干净（工作树不能有未提交改动）。
+3. 校验 `CHANGELOG.md` 已存在 `## [X.Y.Z]` 条目（没有则报错，提示先补齐变更记录）。
+4. 把版本号写回 `VERSION` 与两个 `package.json`（`-DryRun` 时跳过这一步，不触碰任何源码文件）。
+5. 跑一遍 `check.ps1`（默认全量，`-ReleaseSkipUnity` 传 `-SkipUnity` 给它）。
+6. 打包 `dist/<ver>/`、`dist/ws-game-<ver>.zip`（zip 内顶层目录 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、`git_commit`、六个核心 DLL 的 sha256）。
+7. 非 `-DryRun` 时：提交 `VERSION`/两个 `package.json`/`CHANGELOG.md`（提交信息 `发布 <ver>`），打带注释标签 `v<ver>`（标签信息取 `CHANGELOG.md` 该版本条目正文），并打印后续需要人工/设计层执行的两条命令：
+
+   ```powershell
+   git push origin main --tags
+   gh release create v<ver> dist/ws-game-<ver>.zip dist/ws-game-<ver>.lock --title v<ver> --notes-file dist/release-notes-<ver>.txt
+   ```
+
+   传 `-Publish` 则自动执行这两条命令；省略时只打印，由人工确认后自行运行（`.github/workflows/release.yml` 也会在标签推送后重新打包上传附件，两条路径幂等，见"持续集成"一节）。若本次版本号的 MAJOR 或 MINOR 段发生变化，额外打印建议的维护分支创建命令。
+
+`dist/ws-game-<ver>.zip` 内的 `dist/<ver>/` 目录本身与既有 `-Dist` 打快照的产物结构一致（`MANIFEST.txt` 记录内容见下）；单独打 `dist/<ver>/` 而不做发布流程仍用 `build.ps1 -Dist <version>`；只想在已有 `dist/<ver>/` 基础上补一份 zip+lock（不校验/不提交/不打标签）用 `build.ps1 -Dist <version> -Zip`。
+
+`MANIFEST.txt` 记录本次快照的可追溯信息（见 [11_工程规范与测试.md](architecture/11_工程规范与测试.md) 第 7 节"版本号必须可追溯到对应的架构文档版本与数据 schema 版本组合"）：
 
 - `version`/`date`/`git_commit`（`git rev-parse --short HEAD`，打包时工作树不干净则追加 `-dirty`）；
 - 各目录文件数（`[directory_file_counts]`）；
 - `[architecture_docs]`：`architecture/0*.md`、`1*.md` 每篇文档标题里的版本号（如 `01_分层与依赖.md: v3`）——注意 `dist/` 本身不打包 `architecture/` 目录，这一节只是把"打这份快照时架构文档集处于哪个版本组合"记录下来，供事后核对；
 - `[data_schemas]`：`data/_framework` 下每张表的 `table`/`schema_version`（`data/_sample` 不随 `dist` 分发，不列入）；
-- `[core_assemblies]`：六个核心 DLL 的 sha256。
+- `[core_assemblies]`：六个核心 DLL 的 sha256（与 `ws-game.lock` 的 `dlls` 字段同一份数据）。
+
+### 维护分支与 PATCH 发布
+
+一次 MAJOR 或 MINOR 发布之后，若该版本线需要修复缺陷但不能带上主线后续已经在开发的新功能，从对应标签切一条维护分支：
+
+```powershell
+git branch release/1.0.x v1.0.0
+```
+
+在 `release/1.0.x` 分支上修复缺陷、提交，再在该分支上跑 `build.ps1 -Release 1.0.1`（PATCH 递增，其余步骤与主线发布完全一致），发布完成后把修复本身（不是整条分支历史）回合（cherry-pick 或 PR）到 `main`，避免主线丢失同一处缺陷的修复。
+
+### 游戏侧引用与升级
+
+游戏侧不直接引用框架仓库的开发目录，而是按版本号引用一份发布产物快照：`toolchain/get_framework.ps1 -Version <ver> -Target packages` 从 GitHub Release 拉取 `ws-game-<ver>.zip`/`.lock`，校验六个核心 DLL 的哈希与锁文件一致后解压到 `packages/ws-game-<ver>/`，并在游戏仓库根写入/校验 `ws-game.lock`；`-FromLocalDist <本机 zip 路径>` 可离线来源（校验规则不变）。完整的四条消费通道、五条多游戏共用规则与升级步骤见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md) 第 3.5 节；接入步骤见 [architecture/13_新游戏接入指南.md](architecture/13_新游戏接入指南.md) 第 1 节。
 
 ## 新游戏如何消费本框架
 
-原则：框架仓库是被依赖方，任何游戏不进入框架仓库。新游戏 = 自己目录里的一个 Unity 工程 + `data/` + `assets/` + 自己的设计文档与 git 仓库，经 `file:` 相对路径引用框架某个 `dist/<version>/` 版本快照。完整的四条消费通道、五条多游戏共用规则与升级步骤，见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md) 第 3.5 节；从"选引擎"到"跑验收"的完整立项步骤与检查表见 [architecture/13_新游戏接入指南.md](architecture/13_新游戏接入指南.md)。
+原则：框架仓库是被依赖方，任何游戏不进入框架仓库。新游戏 = 自己目录里的一个 Unity 工程 + `data/` + `assets/` + 自己的设计文档与 git 仓库，按版本号引用框架的一份发布产物快照（经 `toolchain/get_framework.ps1` 拉取校验后 `file:` 相对路径引用，见上方"版本与发布"一节"游戏侧引用与升级"）。完整的四条消费通道、五条多游戏共用规则与升级步骤，见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md) 第 3.5 节；从"选引擎"到"跑验收"的完整立项步骤与检查表见 [architecture/13_新游戏接入指南.md](architecture/13_新游戏接入指南.md)。
 
 ## 文档入口
 

@@ -619,8 +619,12 @@ Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/�
 #    adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json、
 #    games/_template/package.json 两处 version 字段一致（含 games/_template 对适配层包的
 #    依赖版本号），避免三处手改漏掉其中一处导致 dist 快照与源码割裂。只读比较，不改写任何文件。
+#    版本管理方案新增：额外校验仓库根 CHANGELOG.md 含 VERSION 对应版本号的条目（形如
+#    "## [X.Y.Z]"），或存在 "## [Unreleased]" 段——覆盖两种合法状态：已发布版本（VERSION 与
+#    CHANGELOG 条目一一对应）与开发中版本（VERSION 尚指向上一个已发布版本，变更累积在
+#    [Unreleased] 段，等下一次 build.ps1 -Release 时归档），避免改了代码却忘了写变更记录。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "版本一致性：VERSION 与两个 package.json" {
+Invoke-CheckStep "版本一致性：VERSION、两个 package.json 与 CHANGELOG.md" {
     $versionPath = Join-Path $RepoRoot "VERSION"
     if (-not (Test-Path $versionPath)) {
         throw "找不到版本文件：$versionPath"
@@ -651,10 +655,27 @@ Invoke-CheckStep "版本一致性：VERSION 与两个 package.json" {
         $mismatches += "games/_template/package.json dependencies.com.gamefoundation.adapter.unity=$templateDepVersion != VERSION=$version"
     }
 
+    $changelogPath = Join-Path $RepoRoot "CHANGELOG.md"
+    if (-not (Test-Path $changelogPath)) {
+        $mismatches += "找不到 CHANGELOG.md（见根 README.md'版本与发布'一节）"
+    } else {
+        $changelogLines = Get-Content -Path $changelogPath -Encoding UTF8
+        $versionHeadingPattern = '^##\s*\[' + [regex]::Escape($version) + '\]'
+        $hasVersionEntry = $false
+        $hasUnreleasedSection = $false
+        foreach ($line in $changelogLines) {
+            if ($line -match $versionHeadingPattern) { $hasVersionEntry = $true }
+            if ($line -match '^##\s*\[Unreleased\]') { $hasUnreleasedSection = $true }
+        }
+        if ((-not $hasVersionEntry) -and (-not $hasUnreleasedSection)) {
+            $mismatches += "CHANGELOG.md 既没有 '## [$version]' 条目，也没有 '## [Unreleased]' 段——VERSION=$version 的变更记录缺失"
+        }
+    }
+
     if ($mismatches.Count -gt 0) {
         throw ("版本不一致：`n" + ($mismatches -join "`n"))
     }
-    [PSCustomObject]@{ Ok = $true; Detail = "VERSION=$version，两个 package.json 一致" }
+    [PSCustomObject]@{ Ok = $true; Detail = "VERSION=$version，两个 package.json 与 CHANGELOG.md 一致" }
 }
 
 # -----------------------------------------------------------------------------

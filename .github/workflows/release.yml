@@ -1,0 +1,129 @@
+name: Release
+
+# 判断记录（为什么只跑快速门禁，而不是完整门禁）：完整门禁（含 Unity 编译检查/EditMode/PlayMode/
+# 独立版构建与两种无人值守冒烟/消费方演练）在打 tag 之前、本机执行 `build.ps1 -Release` 时已经
+# 跑过一遍（`-Release` 第 5 步默认要求 check.ps1 全量通过才允许继续，见 build.ps1 .PARAMETER
+# Release 说明）；GitHub 托管的 windows-latest 运行器既没有装 Unity，也无法激活个人版 Unity
+# 授权（同 ci.yml 的既有判断记录），因此本工作流只对刚推送的 tag 重新跑一遍快速门禁
+# （`check.ps1 -SkipUnity -Quick`）作为"这个 tag 指向的提交没有被后续意外改动"的一层兜底交叉
+# 验证，不代表这是本次发布唯一的质量门槛。
+#
+# 判断记录（为什么打包用 `build.ps1 -SyncOnly -Dist <ver> -Zip` 而不是 `-Release`）：`-Release`
+# 会做版本号写回校验、`git commit`、`git tag` 等只应该在本机执行一次的操作；tag 已经在本机打好并
+# 推送到这里触发本工作流，此时仓库内的 VERSION/package.json 已经是发布版本号本身（tag 指向的提交
+# 就是 `-Release` 提交的那一个），本工作流只需要"基于当前已构建产物重新打一份 zip + lock 上传为
+# Release 附件"，对应 build.ps1 新增的独立开关 `-Zip`（不做版本号校验/提交/打标签，见其
+# .PARAMETER Zip 说明）；`-SyncOnly` 跳过 dotnet build/test（前面 check.ps1 -Quick 已经跑过一遍
+# dotnet build/test），只做 DLL 同步 + 内容同步 + 打包，加快本工作流耗时。
+#
+# 判断记录（Release 附件的产生与上传时机）：若本机 `build.ps1 -Release <ver> -Publish` 已经自动
+# 创建了 GitHub Release 并上传了 zip/lock（`-Publish` 开关，见 build.ps1 说明），下面
+# `softprops/action-gh-release` 步骤对同一 tag 重新上传同名附件会直接覆盖（该 action 的既有行为，
+# 不需要本工作流额外判断"Release 是否已存在"）；若本机只打了 tag、未传 `-Publish`（例如设计层要求
+# 先只推 tag，人工确认后再决定是否发布 Release），本工作流是"tag 一推送就自动出 Release"的兜底
+# 路径，两条路径不冲突，幂等收敛到同一份 Release 附件内容。
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      # 双保险：见 ci.yml 判断记录"控制台 UTF-8 + PowerShell 5.1 原生 stderr 包装两处根因"。
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8.0.x
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: toolchain/requirements.txt
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Install Python dependencies
+        run: pip install -r toolchain/requirements.txt
+
+      - name: Resolve version from tag
+        id: version
+        shell: powershell
+        # 判断记录：tag 名固定形如 "vX.Y.Z"（on.push.tags 的 "v*" 模式），去掉前导 "v" 就是
+        # build.ps1 -Dist/-Zip 需要的纯版本号；同时校验一遍格式，格式不对（理论上不会发生，
+        # "v*" 模式本身不保证后半截是合法 semver）直接失败，不静默用一个错误版本号继续打包。
+        run: |
+          $ErrorActionPreference = "Continue"
+          $tagName = "${{ github.ref_name }}"
+          if (-not ($tagName -like "v*")) {
+            Write-Host "非预期的 tag 名：$tagName（应形如 vX.Y.Z）"
+            exit 1
+          }
+          $version = $tagName.Substring(1)
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Host "从 tag 解析出的版本号格式非法：'$version'（需形如 X.Y.Z）"
+            exit 1
+          }
+          Write-Host "tag=$tagName -> version=$version"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Run check.ps1 -SkipUnity -Quick
+        shell: powershell
+        # 判断记录：见 ci.yml 同名步骤的判断记录（$ErrorActionPreference 降级 + -LogFile 落盘，
+        # 不再对外层包 2>&1 管道）。
+        run: |
+          $ErrorActionPreference = "Continue"
+          $artifactsPath = Join-Path $env:RUNNER_TEMP "gf_release_check_artifacts"
+          $logPath = Join-Path $env:RUNNER_TEMP "release_check_output.log"
+          powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick -ArtifactsPath $artifactsPath -LogFile $logPath
+          exit $LASTEXITCODE
+
+      - name: Upload check.ps1 logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-check-logs
+          path: |
+            ${{ runner.temp }}/release_check_output.log
+            ${{ runner.temp }}/gf_release_check_artifacts/**/*.log
+            ${{ runner.temp }}/gf_release_check_artifacts/**/*.binlog
+          if-no-files-found: ignore
+
+      - name: build.ps1 -SyncOnly -Dist <version> -Zip
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -SyncOnly -Dist "${{ steps.version.outputs.version }}" -Zip
+          exit $LASTEXITCODE
+
+      - name: Upload Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            dist/ws-game-${{ steps.version.outputs.version }}.zip
+            dist/ws-game-${{ steps.version.outputs.version }}.lock
+          # 判断记录：不传 body/generate_release_notes——若 Release 已由本机 `-Release -Publish`
+          # 创建（已带标题与 CHANGELOG.md 摘录的说明文本），这里只追加/覆盖附件，不覆盖已有说明；
+          # 若 Release 尚不存在，本步骤会新建一个，说明文本留空由后续人工在 GitHub 网页补充，
+          # 也可以直接照 CHANGELOG.md 对应版本条目复制——不在本工作流里重新生成一份，避免与本机
+          # `-Release` 生成的 dist/release-notes-<ver>.txt 出现两份措辞不一致的发布说明。
+          fail_on_unmatched_files: true
