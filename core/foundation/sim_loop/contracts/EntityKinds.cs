@@ -25,7 +25,8 @@ namespace Core.Foundation.SimLoop
     /// </list>
     /// <para>
     /// 判断记录（<c>summon</c> 仍未登记）：09 第 2 节建议 <c>ViewKind</c> 覆盖
-    /// unit/gameObject/projectile/areaTrigger/droppedLoot 五类；<c>projectile</c>/<c>area_trigger</c>
+    /// unit/gobj/projectile/areaTrigger/droppedLoot 五类（<c>gobj</c> 一项第八方深度审核自检时由
+    /// <c>GameObject</c> 改名而来，见 <c>ViewKind</c> 类型注释判断记录）；<c>projectile</c>/<c>area_trigger</c>
     /// 均已随各自收边/加固任务落地对应 <see cref="Entity"/> 子类（见上），<c>summon</c> 尚未落地
     /// （<c>core/carriers/summon</c> 尚未落地 <see cref="Entity"/> 子类）——按"未使用的不发明"原则
     /// 本类暂不登记这一个，留待该模块落地 <see cref="Entity"/> 子类时再补。

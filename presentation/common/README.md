@@ -84,6 +84,13 @@ common/
    `ViewBinder.SyncAll`/`CameraHost.Update`）均已接通，不再是"留待后续"，见下"契约缺口"一节
    已经改写为完成时态的对应条目（"表现层插值 alpha 的产出与消费已接通"）。
 
+6. **`ViewKind.GameObject` 改名为 `ViewKind.Gobj`**（第八方深度审核自检，
+   `architecture/落地计划/audit-5c444f1-20260908/`）：原枚举成员名与具体引擎的核心类型同名，在
+   技术无关的架构文档/接口正文里构成模糊的技术名误报；改名后与
+   `Core.Foundation.SimLoop.EntityKinds.Gobj`（常量值 `"gobj"`，`core/carriers/gobj` 模块既有的
+   中立缩写）保持一致，逻辑分类语义不变，只影响 `EntityKindMapping.TryMap` 内部映射与调用方对该
+   枚举成员的引用（生产代码仅 `presentation/common/contracts/EntityKindMapping.cs` 一处消费）。
+
 ## 契约缺口
 
 - **`Entity.Kind` 字符串词汇表已完整登记（G1 + 收边任务 + 加固任务）**：`Core.Foundation.SimLoop.EntityKinds`

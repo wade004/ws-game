@@ -10,7 +10,7 @@ namespace Presentation.Common
     /// （G1 新增，见其类型注释）已把代码库里确有落地 <c>Entity</c> 子类在用的取值收敛成词汇表——
     /// <see cref="EntityKinds.Player"/>/<see cref="EntityKinds.Creature"/> 均映射
     /// <see cref="ViewKind.Unit"/>、<see cref="EntityKinds.Gobj"/> 映射
-    /// <see cref="ViewKind.GameObject"/>、<see cref="EntityKinds.Loot"/> 映射
+    /// <see cref="ViewKind.Gobj"/>、<see cref="EntityKinds.Loot"/> 映射
     /// <see cref="ViewKind.DroppedLoot"/>、<see cref="EntityKinds.Projectile"/>（收边任务补齐：
     /// <c>core/carriers/projectile</c> 落地 <c>ProjectileHost</c> 时一并登记，见其类型注释）映射
     /// <see cref="ViewKind.Projectile"/>、<see cref="EntityKinds.AreaTrigger"/>（加固任务补齐：
@@ -33,7 +33,7 @@ namespace Presentation.Common
                     kind = ViewKind.Unit;
                     return true;
                 case EntityKinds.Gobj:
-                    kind = ViewKind.GameObject;
+                    kind = ViewKind.Gobj;
                     return true;
                 case EntityKinds.Projectile:
                     kind = ViewKind.Projectile;

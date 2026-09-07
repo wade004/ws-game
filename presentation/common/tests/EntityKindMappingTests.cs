@@ -8,7 +8,7 @@ namespace Tests.PresentationCommon
         [Theory]
         [InlineData("player", ViewKind.Unit)]
         [InlineData("creature", ViewKind.Unit)]
-        [InlineData("gobj", ViewKind.GameObject)]
+        [InlineData("gobj", ViewKind.Gobj)]
         [InlineData("projectile", ViewKind.Projectile)]
         [InlineData("area_trigger", ViewKind.AreaTrigger)]
         [InlineData("loot", ViewKind.DroppedLoot)]
