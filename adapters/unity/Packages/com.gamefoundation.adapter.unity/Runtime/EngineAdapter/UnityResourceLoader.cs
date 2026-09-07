@@ -54,6 +54,31 @@
 //     不是单一文件；本加载器为 Effect 单独走一条"同时读 atlas 字节 + frames.json 文本"的后台
 //     加载路径，主线程按 frames.json 描述的帧矩形切出多张 Sprite，装配成 EffectAsset 供
 //     UnityRenderer2D.EmitParticle 优先使用（找不到时回退内建通用粒子效果）。
+//
+// W6-B 新增（ADR-0017 决策 a/b，ResourceKind.Model）：三维模型预制体不是"任意压缩字节数组"，
+// 与 Font 同一处境——运行期没有公开 API 能把裸字节反序列化成可用的 GameObject 层级/骨骼/
+// Animator 绑定，只能消费已经被 Unity 资产管线预先导入好的资源，经 Resources.Load<GameObject>
+// 取用（同 Font 种类"判断记录"的同一约束，见类型顶部该节）。约定：模型资源 id 形如
+// "model.<name>" 时，<name> 为该 id 去掉 "model." 前缀、点号换下划线后的结果（与其它种类共用
+// 同一条 StripCategoryPrefix 规则），对应路径固定为
+// "Resources/GameFoundation/models/<name>"（该预制体必须实际存在于某个
+// Resources/GameFoundation/models/ 目录下才能被 Resources.Load<GameObject> 取到；本迭代由
+// Editor/GeneratePlaceholderModelAssets.cs 一次性生成 placeholder_biped 并提交生成结果，见该
+// 脚本与包 README"资源路径约定"一节）。Resources.Load 只能在主线程调用，因此 LoadAsync 对
+// Model 种类同 Font 一样不走 Task.Run 后台字节读取路径，改为把请求排入 Tick() 处理的专用队列，
+// 在下一次 Tick 里于主线程调用 Resources.Load<GameObject> 完成判定——资产存在即视为"已加载"
+// （IsLoaded 返回 true，且缓存进 <see cref="_modelPrefabs"/> 供 <see cref="TryGetModelPrefab"/>/
+// <see cref="UnityRenderer3D.CreateModelInstance"/> 取用），不存在则按"加载失败"回调 false，
+// 保持"回调总在 Tick 里于主线程排队执行"这条既有线程约定不变。
+//
+// 与 Model 同一套 Resources.Load 约定的姊妹路径——动画剪辑资产（供 model 型 <c>display.anim_set</c>
+// 消费，见 <see cref="ResolveAnimClipResourcesPath"/>）：<c>display.anim_set.clips[*].resource_ref</c>
+// 对 model 型剪辑指向一个已导入的 <see cref="UnityEngine.AnimationClip"/> 资产，路径固定为
+// "Resources/GameFoundation/anim_clips/<name>"，与 <see cref="AnimClipResolver"/>/
+// <see cref="Adapter.Unity.Presentation.UnityViewFactory"/> 把 <c>events</c> 数据驱动写回该资产的
+// <c>AnimationClip.events</c>（关键帧事件）配合使用，见两者判断记录——本类型不直接消费这条约定
+// （不需要 LoadAsync/IsLoaded 语义，Resources.Load<AnimationClip> 由调用方直接同步调用），只提供
+// 路径解析这一静态辅助方法，避免调用方各自重复实现"去类别前缀、点号换下划线"这条既有规则。
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -104,6 +129,16 @@ namespace Adapter.Unity.EngineAdapter
             public LoadCallback Callback;
         }
 
+        /// <summary>一次 <see cref="ResourceKind.Model"/> 种类的加载请求，排队等到下一次
+        /// <see cref="Tick"/> 在主线程调用 <c>Resources.Load&lt;GameObject&gt;</c> 完成判定（见类型
+        /// 顶部"W6-B 新增"判断记录，同 <see cref="PendingFontLoad"/> 同一套处理惯例）。</summary>
+        private struct PendingModelLoad
+        {
+            public Id ResourceId;
+            public string ResourcesModelPath;
+            public LoadCallback Callback;
+        }
+
         private struct PendingCompletion
         {
             public Id ResourceId;
@@ -124,6 +159,10 @@ namespace Adapter.Unity.EngineAdapter
         /// 主线程内部排队等到下一次 <see cref="Tick"/> 处理，不需要并发安全的队列类型。</summary>
         private readonly Queue<PendingFontLoad> _pendingFontLoads = new Queue<PendingFontLoad>();
 
+        /// <summary>仅 <see cref="ResourceKind.Model"/> 使用：主线程专用队列，同
+        /// <see cref="_pendingFontLoads"/> 同一套惯例（见类型顶部"W6-B 新增"判断记录）。</summary>
+        private readonly Queue<PendingModelLoad> _pendingModelLoads = new Queue<PendingModelLoad>();
+
         private readonly HashSet<Id> _loading = new HashSet<Id>();
         private readonly HashSet<Id> _loaded = new HashSet<Id>();
         private readonly ConcurrentQueue<PendingCompletion> _completions = new ConcurrentQueue<PendingCompletion>();
@@ -135,6 +174,10 @@ namespace Adapter.Unity.EngineAdapter
         private readonly Dictionary<Id, string> _sceneText = new Dictionary<Id, string>();
         private readonly Dictionary<Id, string> _navMeshText = new Dictionary<Id, string>();
         private readonly Dictionary<Id, EffectAsset> _effects = new Dictionary<Id, EffectAsset>();
+
+        /// <summary>W6-B 新增：<see cref="ResourceKind.Model"/> 已加载的预制体资产缓存，供
+        /// <see cref="TryGetModelPrefab"/>/<see cref="UnityRenderer3D.CreateModelInstance"/> 取用。</summary>
+        private readonly Dictionary<Id, GameObject> _modelPrefabs = new Dictionary<Id, GameObject>();
 
         /// <summary>本加载器使用的像素-单位换算比，供 Sprite.Create 使用；与
         /// architecture/14_资产规格书模板.md 第 2.2 节"pixels_per_unit"游戏填写项对应，
@@ -156,6 +199,19 @@ namespace Adapter.Unity.EngineAdapter
                 {
                     ResourceId = resourceId,
                     ResourcesFontName = "Fonts/" + StripCategoryPrefix(resourceId.Value),
+                    Callback = callback
+                });
+                return;
+            }
+
+            if (kind == ResourceKind.Model)
+            {
+                // Resources.Load 只能在主线程调用，不走后台 Task.Run 字节读取路径，见类型顶部
+                // "W6-B 新增"判断记录，同 Font 种类同一套处理。
+                _pendingModelLoads.Enqueue(new PendingModelLoad
+                {
+                    ResourceId = resourceId,
+                    ResourcesModelPath = ResolveModelResourcesPath(resourceId),
                     Callback = callback
                 });
                 return;
@@ -261,6 +317,7 @@ namespace Adapter.Unity.EngineAdapter
             _sceneText.Remove(resourceId);
             _navMeshText.Remove(resourceId);
             _effects.Remove(resourceId);
+            _modelPrefabs.Remove(resourceId);
         }
 
         /// <summary>由 UnityEngineHost.Update 每帧调用：把后台线程读完的文件字节在主线程完成
@@ -270,6 +327,11 @@ namespace Adapter.Unity.EngineAdapter
             while (_pendingFontLoads.Count > 0)
             {
                 FinishFontLoad(_pendingFontLoads.Dequeue());
+            }
+
+            while (_pendingModelLoads.Count > 0)
+            {
+                FinishModelLoad(_pendingModelLoads.Dequeue());
             }
 
             while (_completions.TryDequeue(out var pending))
@@ -292,6 +354,25 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             _fonts[pending.ResourceId] = font;
+            _loaded.Add(pending.ResourceId);
+            pending.Callback(pending.ResourceId, true);
+        }
+
+        /// <summary>在主线程完成一次 <see cref="ResourceKind.Model"/> 资源的加载判定：路径存在的
+        /// 已导入预制体资产即视为"已加载"并缓存进 <see cref="_modelPrefabs"/>（见类型顶部"W6-B 新增"
+        /// 判断记录），不存在则按"加载失败"回调 false。</summary>
+        private void FinishModelLoad(PendingModelLoad pending)
+        {
+            _loading.Remove(pending.ResourceId);
+
+            var prefab = Resources.Load<GameObject>(pending.ResourcesModelPath);
+            if (prefab == null)
+            {
+                pending.Callback(pending.ResourceId, false);
+                return;
+            }
+
+            _modelPrefabs[pending.ResourceId] = prefab;
             _loaded.Add(pending.ResourceId);
             pending.Callback(pending.ResourceId, true);
         }
@@ -468,6 +549,26 @@ namespace Adapter.Unity.EngineAdapter
         /// 序列帧特效资产（<see cref="ResourceKind.Effect"/>，未加载/加载失败时返回 false，调用方
         /// 回退播放内建通用效果，见该方法判断记录）。</summary>
         public bool TryGetEffect(Id resourceId, out EffectAsset asset) => _effects.TryGetValue(resourceId, out asset!);
+
+        /// <summary>W6-B 新增：供 <see cref="UnityRenderer3D.CreateModelInstance"/> 按 <c>modelId</c>
+        /// 取回已加载的模型预制体（见类型顶部"W6-B 新增"判断记录）。未加载/找不到时返回 false——
+        /// <see cref="UnityRenderer3D.CreateModelInstance"/> 据此回退为同步直接
+        /// <c>Resources.Load&lt;GameObject&gt;</c>（该方法契约本身是同步的，不能等待
+        /// <see cref="LoadAsync"/> 走完 Tick 排队，见其判断记录），两条路径共用同一个
+        /// <see cref="ResolveModelResourcesPath"/> 约定，互不冲突。</summary>
+        public bool TryGetModelPrefab(Id resourceId, out GameObject prefab) => _modelPrefabs.TryGetValue(resourceId, out prefab!);
+
+        /// <summary>W6-B 新增：把 <see cref="ResourceKind.Model"/> 种类资源引用 id 解析为
+        /// <c>Resources.Load</c> 可消费的相对路径（不含扩展名，见类型顶部"W6-B 新增"判断记录）。</summary>
+        public static string ResolveModelResourcesPath(Id resourceId) =>
+            "GameFoundation/models/" + StripCategoryPrefix(resourceId.Value);
+
+        /// <summary>W6-B 新增：把 model 型 <c>display.anim_set.clips[*].resource_ref</c> 解析为
+        /// <c>Resources.Load&lt;AnimationClip&gt;</c> 可消费的相对路径，与 <see cref="ResolveModelResourcesPath"/>
+        /// 同一套 <see cref="StripCategoryPrefix"/> 规则、不同子目录（见类型顶部"与 Model 同一套
+        /// Resources.Load 约定的姊妹路径"判断记录）。</summary>
+        public static string ResolveAnimClipResourcesPath(Id resourceId) =>
+            "GameFoundation/anim_clips/" + StripCategoryPrefix(resourceId.Value);
 
         /// <summary>把资源引用 id 解析为磁盘路径，规则见类型顶部注释。</summary>
         /// <remarks>

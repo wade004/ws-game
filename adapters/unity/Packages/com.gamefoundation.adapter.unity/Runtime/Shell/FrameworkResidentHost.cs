@@ -96,6 +96,14 @@ namespace Adapter.Unity.Shell
         /// （战斗仍声明为 continuous）下仍只决定 GameplayAssembly.Pacing 装配成哪一种实现。</summary>
         private const bool PacingWaitForPlayback = true;
 
+        /// <summary>W6 收口新增（ADR-0017 决策 d 遗留缺口收口，同 Adapter.Unity.Bootstrap.
+        /// GameFoundationBootstrap 同名字段判断记录）：命中帧同步开关，同一个布尔值驱动
+        /// RenderOptions.HitFrameSync 与 FeedbackOptions.HitFrameSync。默认 false（LogicDriven，
+        /// 与改动前行为一致）——本类型是纯 sprite 型场景（不装配 IRenderer3D/model 型外形），
+        /// 但命中帧同步策略同样适用于 sprite 型外形（见 SpriteCharacterRig 判断记录），因此本类型
+        /// 仍补齐这条开关与对应的 HitFrameSource 接线（同 GameFoundationBootstrap 一致的机制层）。</summary>
+        private const bool HitFrameSyncEnabled = false;
+
         // 判断记录（缺口 2 已解决，同 Adapter.Unity.Bootstrap.GameFoundationBootstrap 同名判断
         // 记录）：动作 id 现直接对应 data/_sample/found/found.input_action.json 表里的行
         // （attack/skill_1，缺口 2 新增），不再是本类型此前自造、绕开数据表的
@@ -115,6 +123,14 @@ namespace Adapter.Unity.Shell
         public FreezeFrameReceiver Freeze { get; private set; } = null!;
         public FlashReceiver Flash { get; private set; } = null!;
         public RespawnFeedbackReceiver Respawn { get; private set; } = null!;
+
+        /// <summary>W6 收口新增：本次装配的命中帧同步注册表（见 <see cref="HitFrameSyncEnabled"/>
+        /// 判断记录、<c>Presentation.FeedbackBinder.Contracts.IHitFrameSource</c> 类型注释、
+        /// ADR-0017 决策 d）。本类型只装配 sprite 型 View（未传 <c>renderer3D</c>），但
+        /// <see cref="UnityViewFactory"/> 的两条 View 创建路线（sprite/model）都会向已装配的
+        /// <c>hitFrameSource</c> 登记 rig，本类型因此同样能受益。</summary>
+        public global::Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource? HitFrameSource { get; private set; }
+
         public bool BootstrapFailed { get; private set; }
 
         /// <summary>W3b 新增：本次 <see cref="OnFrameTick"/> 内某个表现步骤抛出的异常次数累计
@@ -320,7 +336,16 @@ namespace Adapter.Unity.Shell
             // "外部审核阻塞项处理"一节）：传入 bus/registry 两个可选参数，使 UnityViewFactory 默认
             // 给"生物"型 sprite 视图挂接 UnityFrameAnimPlayer + AnimClipResolver（见该类型
             // AttachDefaultAnimation 判断记录），不再需要本类型自己另外接一遍。
-            var viewFactory = new UnityViewFactory(_host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader, bus: _bus, dataRegistry: registry);
+            // W6 收口：命中帧同步注册表（ADR-0017 决策 d），见 HitFrameSource 属性判断记录。
+            // _renderOptions 只构造一次、同一个实例分别传给下面的 UnityViewFactory（决定
+            // SpriteCharacterRig 构造期实际拿到的 HitFrameSync 策略，见该工厂 _renderOptions
+            // 字段判断记录）与下方 presentationOptions.RenderOptions，避免两处各自独立构造、取值
+            // 不一致（同 GameFoundationBootstrap/games/_template.GameBootstrap 同名判断记录）。
+            HitFrameSource = new global::Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource();
+            var renderOptions = new global::Presentation.Render.RenderOptions { HitFrameSync = ResolveHitFrameSyncStrategy() };
+            var viewFactory = new UnityViewFactory(
+                _host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader,
+                bus: _bus, dataRegistry: registry, hitFrameSource: HitFrameSource, renderOptions: renderOptions);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(Seed ^ 0x9E3779B97F4A7C15UL);
@@ -371,6 +396,10 @@ namespace Adapter.Unity.Shell
                     new PauseMenuOption(new Id("pause.quit"), new Id("l10n.pause.sample_quit")),
                 },
                 NewGameStarter = SampleNewGameStarter,
+                // W6 收口：复用上面已经传给 viewFactory 的同一个 renderOptions 实例（见该处判断记录），
+                // 不再另外 new 一份。
+                RenderOptions = renderOptions,
+                FeedbackOptions = new global::Presentation.FeedbackBinder.Contracts.FeedbackOptions { HitFrameSync = ResolveHitFrameSyncStrategy() },
             };
 
             // GP-PRES-04 收口（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
@@ -381,7 +410,7 @@ namespace Adapter.Unity.Shell
             var presentation = new PresentationAssembly(
                 gameplay, world, registry, _bus, presentationRng,
                 viewFactory, _host.Renderer2D, _host.Camera, _host.Audio, _host.FileSystem, sceneRouter,
-                presentationOptions, resourceLoader: _host.ResourceLoader);
+                presentationOptions, resourceLoader: _host.ResourceLoader, hitFrameSource: HitFrameSource);
             Presentation = presentation;
 
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
@@ -488,6 +517,14 @@ namespace Adapter.Unity.Shell
                 }
             }
         }
+
+        /// <summary>见 <see cref="HitFrameSyncEnabled"/> 判断记录：本方法只是把编译期常量开关换算成
+        /// 对应策略枚举，两处 Options 取同一个值（09/ADR-0017"渲染侧/反馈绑定侧是同一个口味配置项的
+        /// 两个落点"）。</summary>
+        private static global::Presentation.Render.HitFrameSyncStrategy ResolveHitFrameSyncStrategy() =>
+            HitFrameSyncEnabled
+                ? global::Presentation.Render.HitFrameSyncStrategy.AnimKeyframeDriven
+                : global::Presentation.Render.HitFrameSyncStrategy.LogicDriven;
 
         /// <summary>示例 NewGameStarter：见包 README"示例 NewGameStarter 说明"——这是灰盒验收用的
         /// 示例实现，只按固定的示例数据集重置玩家为新游戏起始状态；具体游戏必须提供自己的

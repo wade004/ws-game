@@ -209,7 +209,9 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         // ---------------------------------------------------------------------------------
-        // IRenderer3D —— 共享宿主实例；本迭代整体声明降级，全部方法抛 NotSupportedException。
+        // IRenderer3D —— 共享宿主实例；W6-B 收口，不再整体声明降级，走真实实现路径（见
+        // UnityRenderer3D.cs 类型注释、Renderer3DScenarios.ModelId 现指向占位模型
+        // model.placeholder_biped）。
         // ---------------------------------------------------------------------------------
         private static IEnumerable<string> Renderer3DNames() => Renderer3DScenarios.All.Select(s => s.Name);
         [UnityTest]
@@ -217,7 +219,7 @@ namespace Adapter.Unity.Tests.Runtime
         {
             var host = UnityEngineHost.Ensure();
             var ctx = NewContext();
-            ctx.SupportsRenderer3D = false;
+            ctx.SupportsRenderer3D = true;
             yield return RunScenario(Renderer3DScenarios.All, scenarioName, (IRenderer3D)host.Renderer3D, ctx);
         }
 

@@ -13,6 +13,11 @@
       "auto_attack_anim": "anim.sample_staff_jab",
       "cast_anim_override": { "skill.sample_fireball": "anim.sample_staff_cast" },
       "swing_vfx": "vfx.sample_cast_circle"
+    },
+    {
+      "id": "display.weapon_style.sample_model_sword",
+      "auto_attack_anim": "anim.attack",
+      "cast_anim_override": { "skill.sample_burn": "anim.cast" }
     }
   ]
 }

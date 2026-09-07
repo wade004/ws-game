@@ -377,8 +377,15 @@ namespace Adapter.Unity.EngineAdapter
             _sprites.Remove(handle.Value);
         }
 
+        /// <summary>累计 <see cref="EmitParticle"/> 调用次数（诊断/测试用，不属于 <see cref="IRenderer2D"/>
+        /// 契约本身——同 <see cref="UnityAudio.PlaySfxCallCount"/> 一类"引擎实现之间的内部协作/诊断
+        /// 方法"惯例）。供 PlayMode 测试观察"表现层→引擎适配层的特效播放调用链路是否被触发"（如
+        /// ADR-0017 决策 d 命中帧同步端到端用例：命中帧到达前不应触发本计数，到达后才触发）。</summary>
+        public int EmitParticleCallCount { get; private set; }
+
         public ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters)
         {
+            EmitParticleCallCount++;
             var handle = _nextParticleHandle++;
 
             // ADR-0016 决策 5：effectId 优先经 UnityResourceLoader 解析到具体特效资产（序列帧），

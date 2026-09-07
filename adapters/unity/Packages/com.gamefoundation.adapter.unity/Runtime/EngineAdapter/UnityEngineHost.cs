@@ -88,7 +88,9 @@ namespace Adapter.Unity.EngineAdapter
             SpatialQuery = new UnitySpatialQuery();
             UISurface = new UnityUISurface(transform);
             Platform = new UnityPlatform(FileSystem);
-            Renderer3D = new UnityRenderer3D();
+            // W6-B 收口：UnityRenderer3D 不再整体声明降级，构造依赖同 Renderer2D 一致的
+            // (Transform root, UnityResourceLoader resourceLoader) 两参（见该类型顶部判断记录）。
+            Renderer3D = new UnityRenderer3D(transform, ResourceLoader);
             Camera = new UnityCamera(cameraComponent);
 
             SpatialQuery.SetLineOfSightBlocker((from, to) => Navigation2D.Raycast(DefaultMapId, from, to) != null);

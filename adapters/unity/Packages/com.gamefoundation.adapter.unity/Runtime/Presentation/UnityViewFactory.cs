@@ -22,7 +22,9 @@ using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 using Presentation.Common;
+using Presentation.FeedbackBinder.Contracts;
 using Presentation.Render;
+using Presentation.VfxSfx.Contracts;
 using UnityEngine;
 
 namespace Adapter.Unity.Presentation
@@ -65,9 +67,47 @@ namespace Adapter.Unity.Presentation
         private readonly IResourceLoader _resourceLoader;
         private readonly IEventBus? _bus;
         private readonly IDataRegistryView? _dataRegistry;
+
+        /// <summary>W6-B 新增：model 型外形的三维渲染实现，可选（默认 null，纯 sprite 型游戏不需要
+        /// 提供，见 02 第 1.12 节"条件必需"）——未提供时遇到 kind=model 的 DisplayInfo 退化为
+        /// <see cref="NullView"/>（同"没有可用 sprite 型 DisplayInfo"分支同一套宽容处理，见
+        /// <see cref="CreateView"/> 判断记录）。</summary>
+        private readonly IRenderer3D? _renderer3D;
+
+        /// <summary>W6-B 新增（ADR-0017 决策 d）：命中帧同步的按实体 rig 注册表，可选——未注入时
+        /// View 创建/销毁不做任何登记（同本类型一贯"未装配的能力静默跳过"惯例），装配方需要
+        /// <c>RenderOptions.HitFrameSync == AnimKeyframeDriven</c> 时应传入同一个实例并把它也接给
+        /// <c>Presentation.FeedbackBinder.Core.FeedbackBinder</c> 的 <c>hitFrameSource</c> 构造参数
+        /// （装配层职责，见包 README"命中帧同步接线步骤"）。</summary>
+        private readonly IHitFrameSource? _hitFrameSource;
+
+        /// <summary>W6-B 新增（ADR-0017 决策 e）：实体 -> 武器风格引用查询，可选——非空时
+        /// <see cref="AnimClipResolver"/> 的 Attack/Cast 状态额外尝试武器风格覆盖（见该类型判断
+        /// 记录）。</summary>
+        private readonly IWeaponStyleSource? _weaponStyleSource;
+
+        /// <summary>W6 收口新增（ADR-0017 决策 d 遗留缺口收口）：构造 <c>UnitySpriteView</c>/
+        /// <c>UnityModelView</c> 时透传的 <see cref="RenderOptions"/>，决定 <see cref="SpriteCharacterRig"/>/
+        /// <see cref="ModelCharacterRig"/> 的 <c>HitFrameSync</c> 策略——此前本类型两处 View 构造调用
+        /// （<see cref="CreateView"/>）都省略了这个可选参数，即便装配方把 <c>AnimKeyframeDriven</c>
+        /// 配到别处（如 <see cref="Presentation.Assembly.PresentationAssemblyOptions.RenderOptions"/>），
+        /// rig 构造期实际拿到的仍是 <c>options: null</c>（默认 <c>LogicDriven</c>），<c>HitFrameReached</c>
+        /// 事件永远不会被订阅/触发（见两个 Rig 类型构造函数判断记录）——是比 <c>PresentationAssembly</c>
+        /// 未暴露 <c>hitFrameSource</c> 构造参数更深一层、此前未被发现的接线缺口，与该缺口同属"命中帧
+        /// 同步端到端未打通"这同一个问题，一并收口。装配方需要把同一个 <see cref="RenderOptions"/>
+        /// 实例分别传给本参数与 <c>PresentationAssemblyOptions.RenderOptions</c>（见包 README"命中帧
+        /// 同步接线步骤"），保证两处看到同一个 <c>HitFrameSync</c> 取值；不传时（默认 null）行为与
+        /// 改动前完全一致。</summary>
+        private readonly RenderOptions? _renderOptions;
+
         private readonly List<IView> _created = new List<IView>();
         private readonly HashSet<string> _warnedMissingDisplay = new HashSet<string>();
         private readonly HashSet<string> _warnedAnimDegraded = new HashSet<string>();
+
+        /// <summary>W6-B 新增：已经处理过关键帧事件注册的 model 型剪辑资源引用去重集合（见
+        /// <see cref="RegisterModelClipEvents"/> 判断记录），避免同一份 <c>AnimationClip</c> 资产被
+        /// 多个共享同一 <c>display.anim_set</c> 的实体重复设置 <c>events</c>。</summary>
+        private readonly HashSet<Id> _registeredModelClipEvents = new HashSet<Id>();
 
         // 外部审核阻塞项 3 收口（见 architecture/落地计划/audit-20260907/followup-2026-09-07.md
         // "外部审核阻塞项处理"一节）：默认动画接线状态——entityId -> 已挂接的播放器/该实体的剪辑表，
@@ -78,6 +118,13 @@ namespace Adapter.Unity.Presentation
         // 事件、重复计算，没有任何好处。
         private readonly Dictionary<Id, UnityFrameAnimPlayer> _animPlayersByEntity = new Dictionary<Id, UnityFrameAnimPlayer>();
         private readonly Dictionary<Id, IReadOnlyDictionary<string, Id>> _animClipsByEntity = new Dictionary<Id, IReadOnlyDictionary<string, Id>>();
+
+        /// <summary>W6-B 新增：model 型实体的默认动画路由表——同 <see cref="_animPlayersByEntity"/>
+        /// 姊妹表，供 <see cref="EnsureAnimClipResolver"/> 的 <c>playClip</c> 委托在查不到
+        /// <see cref="UnityFrameAnimPlayer"/>（sprite 专属）时改走该实体的
+        /// <see cref="Presentation.Render.ModelCharacterRig.PlayClip"/>。</summary>
+        private readonly Dictionary<Id, UnityModelView> _modelViewsByEntity = new Dictionary<Id, UnityModelView>();
+
         private AnimStateMachine? _animStateMachine;
 
         // GP-06 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：冷启动时
@@ -94,8 +141,12 @@ namespace Adapter.Unity.Presentation
         // (player, clipId) 列表——同一份资源可能被多个实体的多个状态引用（例如同一个 anim_set 的
         // idle 剪辑），加载完成时需要通知全部等待方，不止最早发起加载的那一个。
         private readonly HashSet<Id> _pendingAnimResourceLoads = new HashSet<Id>();
-        private readonly Dictionary<Id, List<(UnityFrameAnimPlayer Player, Id ClipId)>> _pendingAnimClipWaiters =
-            new Dictionary<Id, List<(UnityFrameAnimPlayer, Id)>>();
+        // W6-B 新增（ADR-0017 决策 c）：等待元组追加 Events——events 属于具体某一条 AnimClipDef
+        // （某个状态对某个 resourceRef 的引用），不是 resourceRef 本身的固有属性（理论上不同状态可能
+        // 引用同一份 resource_ref 但声明不同的 events，虽然占位内容不会这样做），因此按等待方各自
+        // 携带自己的 events，而不是按 resourceRef 缓存一份"代表性"events。
+        private readonly Dictionary<Id, List<(UnityFrameAnimPlayer Player, Id ClipId, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> Events)>> _pendingAnimClipWaiters =
+            new Dictionary<Id, List<(UnityFrameAnimPlayer, Id, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec>)>>();
         private AnimClipResolver? _animClipResolver;
 
         private static Sprite? _fallbackFrame;
@@ -109,6 +160,9 @@ namespace Adapter.Unity.Presentation
         /// <c>GameFoundationBootstrap</c>/<c>FrameworkResidentHost</c>/<c>games/_template.GameBootstrap</c>）
         /// 三处一律传入两者，使 <c>Rig.PlayClip</c> 默认可用，三处调用方不需要各自再手工接一遍
         /// <see cref="UnityFrameAnimPlayer"/>/<see cref="AnimClipResolver"/>。
+        /// W6-B 新增三个可选参数（<paramref name="renderer3D"/>/<paramref name="hitFrameSource"/>/
+        /// <paramref name="weaponStyleSource"/>）：均遵循本类型既有"未装配的能力静默跳过"惯例，均默认
+        /// null 时行为与改动前完全一致（纯 sprite 型装配不需要改任何调用点）。
         /// </summary>
         public UnityViewFactory(
             IRenderer2D renderer2D,
@@ -116,7 +170,11 @@ namespace Adapter.Unity.Presentation
             IDisplayInfoRegistry displayInfo,
             IResourceLoader resourceLoader,
             IEventBus? bus = null,
-            IDataRegistryView? dataRegistry = null)
+            IDataRegistryView? dataRegistry = null,
+            IRenderer3D? renderer3D = null,
+            IHitFrameSource? hitFrameSource = null,
+            IWeaponStyleSource? weaponStyleSource = null,
+            RenderOptions? renderOptions = null)
         {
             _renderer2D = renderer2D ?? throw new ArgumentNullException(nameof(renderer2D));
             _conventions = conventions ?? throw new ArgumentNullException(nameof(conventions));
@@ -124,6 +182,10 @@ namespace Adapter.Unity.Presentation
             _resourceLoader = resourceLoader ?? throw new ArgumentNullException(nameof(resourceLoader));
             _bus = bus;
             _dataRegistry = dataRegistry;
+            _renderer3D = renderer3D;
+            _hitFrameSource = hitFrameSource;
+            _weaponStyleSource = weaponStyleSource;
+            _renderOptions = renderOptions;
 
             if (_bus != null)
             {
@@ -145,6 +207,11 @@ namespace Adapter.Unity.Presentation
             _animStateMachine?.Forget(evt.EntityId);
             _animPlayersByEntity.Remove(evt.EntityId);
             _animClipsByEntity.Remove(evt.EntityId);
+            _modelViewsByEntity.Remove(evt.EntityId);
+
+            // W6-B 新增：命中帧同步注册表同一套"随实体销毁清理"惯例（见 IHitFrameSource.UnregisterRig
+            // 契约注释"未登记过时 no-op"，对从未注册过 hit frame 的实体调用同样安全）。
+            _hitFrameSource?.UnregisterRig(evt.EntityId);
         }
 
         /// <summary>GP-02 根治：复活时同一个 View/播放器组件通常原地复用（不是"销毁重建"），只清空
@@ -181,21 +248,42 @@ namespace Adapter.Unity.Presentation
         /// <c>Tests.Editor</c> 可见，不是公开契约的一部分。</summary>
         internal AnimStateMachine? AnimStateMachineForTests => _animStateMachine;
 
+        /// <summary>W6-B 收口：<paramref name="displayId"/> 解析到 kind=model 的 DisplayInfo 时
+        /// （见 <see cref="DisplayKind"/>），若装配方提供了 <see cref="_renderer3D"/> 走真实三维渲染
+        /// 分支，否则与"完全没有可用 DisplayInfo"同一套退化处理——本类型不假设任何 model 型外形都必须
+        /// 有 <see cref="IRenderer3D"/>，02 第 1.12 节"条件必需"的落实方式正是"未提供时该外形静默不
+        /// 可见，不阻断装配"。</summary>
         public IView CreateView(ViewKind kind, Id displayId, Id entityId)
         {
             var info = _displayInfo.Lookup(displayId);
             IView view;
-            if (info == null || info.Kind != DisplayKind.Sprite)
+
+            if (info != null && info.Kind == DisplayKind.Model && _renderer3D != null)
+            {
+                var modelView = new UnityModelView(entityId, _renderer3D, _conventions, info, _renderOptions);
+                view = modelView;
+
+                if (info.Category == DisplayCategory.Creature)
+                {
+                    AttachDefaultModelAnimation(modelView, info, entityId);
+                }
+
+                _hitFrameSource?.RegisterRig(entityId, modelView.Rig);
+            }
+            else if (info == null || info.Kind != DisplayKind.Sprite)
             {
                 if (_warnedMissingDisplay.Add(displayId.Value))
                 {
-                    Debug.LogWarning($"[UnityViewFactory] displayId \"{displayId}\" 没有 kind=sprite 的 DisplayInfo，退化为空视图（不渲染）：kind={kind}");
+                    var reason = info != null && info.Kind == DisplayKind.Model
+                        ? "kind=model 但本工厂未装配 IRenderer3D"
+                        : "没有 kind=sprite 的 DisplayInfo";
+                    Debug.LogWarning($"[UnityViewFactory] displayId \"{displayId}\" {reason}，退化为空视图（不渲染）：kind={kind}");
                 }
                 view = new NullView();
             }
             else
             {
-                var spriteView = new UnitySpriteView(_renderer2D, _conventions, info, _resourceLoader);
+                var spriteView = new UnitySpriteView(_renderer2D, _conventions, info, _resourceLoader, _renderOptions);
                 view = spriteView;
 
                 // 外部审核阻塞项 3 收口：只给"生物"（玩家/NPC/怪物——唯一会真正经
@@ -207,6 +295,11 @@ namespace Adapter.Unity.Presentation
                 {
                     AttachDefaultAnimation(spriteView, info, entityId);
                 }
+
+                // W6-B 新增：sprite 路线也登记进命中帧同步注册表（见 IHitFrameSource 类型注释、
+                // ADR-0017 决策 d）——与 model 路线同一套接线，不管外形类型，只要挂了 CharacterRig
+                // 就登记。
+                _hitFrameSource?.RegisterRig(entityId, spriteView.Rig);
             }
 
             _created.Add(view);
@@ -304,28 +397,33 @@ namespace Adapter.Unity.Presentation
         /// <c>display.anim_set</c> 行——与示例数据 <c>data/_sample/display/display.anim_set.json</c>
         /// 的 <c>display.anim_set.sample_hero</c> 行天然对上（"占位英雄"，见任务书原文）。查不到该行、
         /// 或行内某个状态没有声明剪辑、或声明了但 <c>resource_ref</c> 加载失败（当前占位资源集没有
-        /// 真正的角色序列帧资源，见 <see cref="AnimClipResolver"/> 与 <see cref="AnimSetRecordParser"/>
-        /// 类型顶部判断记录），均逐状态退化为"单帧剪辑"（复用同一张 1x1 占位帧，见
+        /// 真正的角色序列帧资源，见 <see cref="AnimClipResolver"/> 类型顶部判断记录），均逐状态退化为
+        /// "单帧剪辑"（复用同一张 1x1 占位帧，见
         /// <see cref="FallbackFrame"/>）——不抛异常，只在每个 (displayId, 状态) 组合首次退化时记一条
         /// 诊断（<see cref="_warnedAnimDegraded"/> 去重，避免同一实体反复创建/销毁刷屏）。
         /// </para>
         /// </summary>
         private IReadOnlyDictionary<string, Id> RegisterDefaultClips(UnityFrameAnimPlayer player, Core.Foundation.DisplayInfo.DisplayInfo info)
         {
-            var animSetClips = TryResolveAnimSetClips(info.Id);
+            var animSet = TryResolveAnimSet(info.Id);
             var result = new Dictionary<string, Id>(StringComparer.Ordinal);
 
             for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
             {
                 var stateKey = DefaultAnimStateKeys[i];
                 var clipId = new Id($"anim.default.{info.Id.Value}.{stateKey}");
-                var hasDeclaredResource = animSetClips != null && animSetClips.TryGetValue(stateKey, out var resourceRef);
+                Core.Foundation.DisplayInfo.AnimClipDef? clipDef = null;
+                var hasDeclaredResource = animSet != null && animSet.Clips.TryGetValue(stateKey, out clipDef);
+                var resourceRef = hasDeclaredResource ? clipDef!.ResourceRef : default;
+                var events = hasDeclaredResource ? clipDef!.Events : Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>();
                 var unityLoader = _resourceLoader as Adapter.Unity.EngineAdapter.UnityResourceLoader;
 
                 if (hasDeclaredResource && unityLoader != null && unityLoader.TryGetEffect(resourceRef, out var effect))
                 {
-                    // 资源已经在缓存里（非首次引用，或恰好是同步加载器）：直接登记真实多帧剪辑。
-                    player.RegisterClipFromEffect(clipId, effect);
+                    // 资源已经在缓存里（非首次引用，或恰好是同步加载器）：直接登记真实多帧剪辑，
+                    // ADR-0017 决策 c：把 events 换算成帧索引关键帧（见 ComputeKeyframes 判断记录）
+                    // 一并注册。
+                    player.RegisterClipFromEffect(clipId, effect, ComputeKeyframes(events, effect.Frames.Length));
                 }
                 else if (hasDeclaredResource && unityLoader != null)
                 {
@@ -333,7 +431,7 @@ namespace Adapter.Unity.Presentation
                     // "压根没配"。先登记单帧占位保证立即可用，同时发起真正加载，完成后原地升级成
                     // 真实多帧剪辑（见 RequestAnimClipUpgrade 判断记录），不再永久停留在单帧退化。
                     player.RegisterSingleFrameClip(clipId, FallbackFrame);
-                    RequestAnimClipUpgrade(unityLoader, resourceRef, player, clipId, stateKey);
+                    RequestAnimClipUpgrade(unityLoader, resourceRef, player, clipId, stateKey, events);
                 }
                 else
                 {
@@ -364,14 +462,15 @@ namespace Adapter.Unity.Presentation
         /// </summary>
         private void RequestAnimClipUpgrade(
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id resourceRef,
-            UnityFrameAnimPlayer player, Id clipId, string stateKey)
+            UnityFrameAnimPlayer player, Id clipId, string stateKey,
+            IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events)
         {
             if (!_pendingAnimClipWaiters.TryGetValue(resourceRef, out var waiters))
             {
-                waiters = new List<(UnityFrameAnimPlayer, Id)>();
+                waiters = new List<(UnityFrameAnimPlayer, Id, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec>)>();
                 _pendingAnimClipWaiters[resourceRef] = waiters;
             }
-            waiters.Add((player, clipId));
+            waiters.Add((player, clipId, events));
 
             if (!_pendingAnimResourceLoads.Add(resourceRef))
             {
@@ -403,19 +502,50 @@ namespace Adapter.Unity.Presentation
 
                 for (var i = 0; i < pendingWaiters.Count; i++)
                 {
-                    var (waitingPlayer, waitingClipId) = pendingWaiters[i];
+                    var (waitingPlayer, waitingClipId, waitingEvents) = pendingWaiters[i];
                     if (waitingPlayer == null)
                     {
                         // 加载完成前 View 已被销毁（切图/实体销毁）：Unity 对象销毁后与 null 比较为
                         // 真，跳过即可，不需要也不应该再对一个已销毁的组件重新登记剪辑。
                         continue;
                     }
-                    waitingPlayer.RegisterClipFromEffect(waitingClipId, loadedEffect);
+                    waitingPlayer.RegisterClipFromEffect(waitingClipId, loadedEffect, ComputeKeyframes(waitingEvents, loadedEffect.Frames.Length));
                 }
             });
         }
 
-        private IReadOnlyDictionary<string, Id>? TryResolveAnimSetClips(Id displayMapId)
+        /// <summary>ADR-0017 决策 c：把 <c>display.anim_set.clips[*].events</c>（时间轴百分比 + 裸
+        /// 事件名）换算成 <see cref="UnityFrameAnimPlayer.RegisterClip"/> 系列方法要求的"事件名 -> 帧
+        /// 索引"关键帧表（见 <see cref="Presentation.Render.FrameAnimClip.Keyframes"/>）：
+        /// <c>frameIndex = round(time_pct × (frameCount − 1))</c>，四舍五入后夹在
+        /// <c>[0, frameCount − 1]</c> 区间（<paramref name="frameCount"/> 为 0 时返回空表，避免除零/
+        /// 负索引）。<paramref name="events"/> 为空或 null 时返回 null（<see cref="UnityFrameAnimPlayer.RegisterClipFromEffect"/>
+        /// 的 <c>keyframes</c> 参数本就是可选的，传 null 与"没有任何关键帧"语义一致，不需要额外分配一个
+        /// 空字典）。</summary>
+        private static IReadOnlyDictionary<string, int>? ComputeKeyframes(
+            IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec>? events, int frameCount)
+        {
+            if (events == null || events.Count == 0 || frameCount <= 0)
+            {
+                return null;
+            }
+
+            var result = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (var i = 0; i < events.Count; i++)
+            {
+                var frameIndex = (int)Math.Round(events[i].TimePct * (frameCount - 1), MidpointRounding.AwayFromZero);
+                frameIndex = Math.Max(0, Math.Min(frameCount - 1, frameIndex));
+                result[events[i].Name] = frameIndex;
+            }
+            return result;
+        }
+
+        /// <summary>解析 <paramref name="displayMapId"/>（<c>display.map</c> 行自身 id）对应的
+        /// <c>display.anim_set</c> 行（sprite 型没有专属字段直接引用，见 <see cref="AnimClipResolver"/>
+        /// 类型顶部判断记录"约定 id"）。W6-B 收口：不再经本文件自造的 <c>AnimSetRecordParser</c>
+        /// 中转，直接消费 <see cref="Core.Foundation.DisplayInfo.AnimSetDef.FromRecord"/>（W6-A 新增，
+        /// 同时解析 <c>resource_ref</c> 与 <c>events</c>，取代此前"显式跳过 events"的临时简化）。</summary>
+        private Core.Foundation.DisplayInfo.AnimSetDef? TryResolveAnimSet(Id displayMapId)
         {
             if (_dataRegistry == null)
             {
@@ -427,7 +557,7 @@ namespace Adapter.Unity.Presentation
             var animSetId = new Id("display.anim_set." + lastSegment);
 
             var record = _dataRegistry.Get("display.anim_set", animSetId);
-            return record == null ? null : AnimSetRecordParser.ParseClips(record);
+            return record == null ? null : Core.Foundation.DisplayInfo.AnimSetDef.FromRecord(record);
         }
 
         /// <summary>全局单例 <see cref="AnimClipResolver"/>：首次挂接默认动画时懒构造，此后全部实体
@@ -448,9 +578,52 @@ namespace Adapter.Unity.Presentation
                     if (_animPlayersByEntity.TryGetValue(entityId, out var player))
                     {
                         player.Play(clipId, loop, speed);
+                        return;
                     }
-                });
+
+                    // W6-B 新增：model 型实体没有 UnityFrameAnimPlayer，改直接转发到该实体持有的
+                    // ModelCharacterRig.PlayClip（经 IRenderer3D.PlayAnim 落地，见该类型判断记录）。
+                    if (_modelViewsByEntity.TryGetValue(entityId, out var modelView))
+                    {
+                        modelView.Rig.PlayClip(clipId, loop, speed);
+                    }
+                },
+                weaponStyleSource: _weaponStyleSource,
+                weaponStyles: ResolveWeaponStyleCatalog());
         }
+
+        /// <summary>W6-B 新增：懒解析一次 <c>display.weapon_style</c> 全表（见 <see cref="AnimClipResolver"/>
+        /// 构造参数 <c>weaponStyles</c> 判断记录——与 <c>Presentation.Assembly.PresentationAssembly</c>
+        /// 内部同名解析各自独立一份，二者都是只读投影，语义一致，不产生状态不一致，同
+        /// <c>viewFactoryDisplayInfo</c> 既有判断记录同一惯例）；<see cref="_dataRegistry"/> 未注入或
+        /// 数据集里没有该表时返回 null（<see cref="AnimClipResolver"/> 对 null 目录的处理是"跳过武器
+        /// 风格覆盖，退回默认剪辑表"，见其构造函数注释）。只解析一次并缓存，武器风格表在装配期之后
+        /// 不会变化（同 <c>display.map</c>/<c>display.anim_set</c> 一贯的"内容表只读、装配期加载一次"
+        /// 惯例）。</summary>
+        private IReadOnlyDictionary<Id, WeaponStyleDef>? ResolveWeaponStyleCatalog()
+        {
+            if (_dataRegistry == null)
+            {
+                return null;
+            }
+
+            if (_weaponStyleCatalog != null)
+            {
+                return _weaponStyleCatalog;
+            }
+
+            var records = _dataRegistry.GetAll("display.weapon_style");
+            var catalog = new Dictionary<Id, WeaponStyleDef>();
+            for (var i = 0; i < records.Count; i++)
+            {
+                var def = WeaponStyleDef.FromRecord(records[i]);
+                catalog[def.Id] = def;
+            }
+            _weaponStyleCatalog = catalog;
+            return _weaponStyleCatalog;
+        }
+
+        private IReadOnlyDictionary<Id, WeaponStyleDef>? _weaponStyleCatalog;
 
         /// <summary>单帧退化剪辑复用的占位帧：1x1 白色像素合成的 <see cref="Sprite"/>，跨全部实体
         /// 共享同一份（不需要每个实体各自持有一份视觉上完全等价的纹理）。<see cref="UnityFrameAnimPlayer"/>
@@ -496,6 +669,122 @@ namespace Adapter.Unity.Presentation
             // 引用，装配一次即可跨局复用。
             _animPlayersByEntity.Clear();
             _animClipsByEntity.Clear();
+            _modelViewsByEntity.Clear();
+        }
+
+        // --------------------------------------------------------------
+        // W6-B 新增：model 型外形默认动画接线（与 sprite 路线 AttachDefaultAnimation/RegisterDefaultClips
+        // 同一套职责划分，见两者判断记录）。
+        // --------------------------------------------------------------
+
+        /// <summary>与 <see cref="AttachDefaultAnimation"/> 同一职责的 model 型版本：登记默认剪辑表
+        /// （见 <see cref="RegisterDefaultModelClips"/>）、把该实体登记进 <see cref="_modelViewsByEntity"/>
+        /// 供 <see cref="EnsureAnimClipResolver"/> 的 <c>playClip</c> 委托路由、懒构造全局单例
+        /// <see cref="AnimClipResolver"/>（与 sprite 路线共用同一个实例——<see cref="AnimStateMachine"/>
+        /// 本就是跨实体共享的全局状态表，见 sprite 路线同名判断记录，不需要为 model 型另建一份）。
+        /// <para>
+        /// 判断记录（不接 <c>OnComplete</c> 回调解 Attack/Hit 终态锁）：sprite 路线的
+        /// <see cref="UnityFrameAnimPlayer.OnComplete"/> 是"序列帧播放器自己知道一条非循环剪辑何时
+        /// 播完"；Animator 驱动的 model 路线没有对等的通用完成回调（<c>Animator.CrossFadeInFixedTime</c>
+        /// 是即发即忘，退出条件依赖具体 AnimatorController 的状态机配置，本类型不假设占位内容之外的
+        /// 任何具体游戏 Animator 布局），这是已知简化——占位内容的 Attack/Cast 状态因此不会像 sprite
+        /// 路线那样在剪辑播完后自动回落到运动态，需要具体游戏在自己的 AnimatorController 里另行处理
+        /// （例如状态机内部的 Exit Time 转移），或者按 09 第 4.2 节"逻辑层显式发
+        /// skill.cast_interrupted"一类事件驱动回落。命中帧（<see cref="ModelCharacterRig.HitFrameReached"/>）
+        /// 不受影响——命中帧走独立的 AnimationEvent 通道，不依赖本判断记录讨论的"回落"机制。
+        /// </para>
+        /// </summary>
+        private void AttachDefaultModelAnimation(UnityModelView view, Core.Foundation.DisplayInfo.DisplayInfo info, Id entityId)
+        {
+            if (_bus == null)
+            {
+                return;
+            }
+
+            var clips = RegisterDefaultModelClips(info);
+            _modelViewsByEntity[entityId] = view;
+            _animClipsByEntity[entityId] = clips;
+
+            EnsureAnimClipResolver();
+        }
+
+        /// <summary>解析 <c>DisplayInfo.Model.AnimSetRef</c> 指向的 <c>display.anim_set</c> 行（model
+        /// 型专属字段，直接可用——不像 sprite 路线需要"按 display.map 行 id 最后一段猜测约定 id"，见
+        /// <see cref="TryResolveAnimSet"/> 判断记录；model 型 <c>ModelInfo.AnimSetRef</c> 本就是
+        /// 显式声明的引用，不需要猜测），返回"剪辑名 -> resource_ref"表供
+        /// <see cref="AnimClipResolver"/> 查表，并顺带触发每条剪辑的关键帧事件注册（见
+        /// <see cref="RegisterModelClipEvents"/>）。数据集没有该 <c>_dataRegistry</c>、查不到该行，或
+        /// 该行没有声明 <c>clips</c> 字段时返回空表——不抛异常，同表现层一贯宽容策略；查不到某个具体
+        /// 状态时 <see cref="AnimClipResolver"/> 自然跳过那一次状态切换的播放，不特殊处理。</summary>
+        private IReadOnlyDictionary<string, Id> RegisterDefaultModelClips(Core.Foundation.DisplayInfo.DisplayInfo info)
+        {
+            var result = new Dictionary<string, Id>(StringComparer.Ordinal);
+            if (_dataRegistry == null || info.Model == null)
+            {
+                return result;
+            }
+
+            var record = _dataRegistry.Get("display.anim_set", info.Model.AnimSetRef);
+            if (record == null)
+            {
+                return result;
+            }
+
+            var animSet = Core.Foundation.DisplayInfo.AnimSetDef.FromRecord(record);
+            foreach (var kv in animSet.Clips)
+            {
+                result[kv.Key] = kv.Value.ResourceRef;
+                RegisterModelClipEvents(kv.Value);
+            }
+            return result;
+        }
+
+        /// <summary>ADR-0017 决策 c 落地（model 型一侧）：把 <paramref name="clipDef"/>.<c>Events</c>
+        /// （<c>display.anim_set.clips[*].events</c> 数据）数据驱动地写回该剪辑对应的 Unity
+        /// <see cref="AnimationClip"/> 资产的 <see cref="AnimationClip.events"/>（运行期可写属性，不是
+        /// <c>UnityEditor.AnimationUtility</c> 编辑器专属 API），命中帧一律用
+        /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.AnimEventFunctionName"/> 函数名 +
+        /// 裸事件名 String Parameter（见该类型判断记录，<c>"hit_frame"</c> 经
+        /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.RaiseAnimEvent"/> 换算后与
+        /// <see cref="Presentation.Render.ModelCharacterRig.HitFrameEventId"/> 逐字相等）。
+        /// <para>
+        /// 判断记录（为什么直接改资产对象的运行期内存状态就能让 Animator 生效）：
+        /// <see cref="Resources.Load{T}(string)"/> 对同一路径返回的是 Unity 内部资产缓存的同一个对象
+        /// 实例——本方法与 <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D"/> 播放该剪辑时
+        /// Animator 内部引用的是同一个 <see cref="AnimationClip"/> 对象，因此这里设置的 <c>events</c>
+        /// 会在下一次该状态被播放时生效，不需要额外的"通知 Animator 重新加载"步骤；本类型因此只需要在
+        /// 该剪辑第一次被某个实体引用时设置一次（<see cref="_registeredModelClipEvents"/> 去重），
+        /// 之后同一份资产被其它实体复用时事件已经生效，不需要重复设置。占位内容（见
+        /// Editor/GeneratePlaceholderModelAssets.cs）额外在美术资产里预先烘焙了同一个事件作为
+        /// 双重覆盖，即便某个具体游戏后续替换掉这条数据驱动注册路径，占位内容仍然自带可用的命中帧
+        /// 事件（见该脚本判断记录）。
+        /// </para>
+        /// </summary>
+        private void RegisterModelClipEvents(Core.Foundation.DisplayInfo.AnimClipDef clipDef)
+        {
+            if (clipDef.Events.Count == 0 || !_registeredModelClipEvents.Add(clipDef.ResourceRef))
+            {
+                return;
+            }
+
+            var clip = Resources.Load<AnimationClip>(
+                Adapter.Unity.EngineAdapter.UnityResourceLoader.ResolveAnimClipResourcesPath(clipDef.ResourceRef));
+            if (clip == null)
+            {
+                return;
+            }
+
+            var events = new AnimationEvent[clipDef.Events.Count];
+            for (var i = 0; i < clipDef.Events.Count; i++)
+            {
+                events[i] = new AnimationEvent
+                {
+                    time = (float)(clipDef.Events[i].TimePct * clip.length),
+                    functionName = Adapter.Unity.EngineAdapter.UnityRenderer3D.AnimEventFunctionName,
+                    stringParameter = clipDef.Events[i].Name,
+                };
+            }
+            clip.events = events;
         }
     }
 }

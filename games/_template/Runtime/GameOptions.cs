@@ -123,6 +123,24 @@ namespace Game.Template
         // 待游戏层按自己的槽位登记表填入。
         public string[] EquipmentSlotIds = Array.Empty<string>();
 
+        // W6-B 新增（ADR-0017 决策 e）：主手槽位 id —— Presentation.VfxSfx.Core.
+        // EquipmentWeaponStyleSource 的 MainHandWeaponTemplateResolver 用它从
+        // EquipmentHost.GetAllEquippedInstances(unitId) 取主手武器的物品模板 id，进而查
+        // display.map.weapon_style_ref（见该类型判断记录"未新增 item.template 字段"）。09/04
+        // 未定义全局槽位登记表，本字段是该口味配置项在本模板的落点，默认 "item.slot.main_hand"；
+        // 找不到该槽位当前装备时解析结果为 null（不影响其它 13 §4 第 13 行既有装备槽位口味项）。
+        public string MainHandSlotId = "item.slot.main_hand";
+
+        // W6 收口新增（ADR-0017 决策 d 遗留缺口收口）：命中帧同步开关 —— 与 09/ADR-0017"渲染侧/
+        // 反馈绑定侧是同一个口味配置项的两个落点"一致，同一个布尔值驱动
+        // Presentation.Render.RenderOptions.HitFrameSync 与
+        // Presentation.FeedbackBinder.Contracts.FeedbackOptions.HitFrameSync（见下方
+        // BuildRenderOptions/BuildFeedbackOptions）。默认 false（LogicDriven，与改动前行为一致）；
+        // 置 true 后（AnimKeyframeDriven）需要 display.map 的 model 型外形声明 anim_set 的
+        // hit_frame 事件、feedback.binding 声明 sync: hit_frame 才有实际效果（09 第 4.3/6.1 节），
+        // sprite 型外形同样受同一策略驱动（见 SpriteCharacterRig 判断记录），不是 model 型专属。
+        public bool HitFrameSyncEnabled = false;
+
         // 13 §4 第 14 行：影子方式 —— 无专用框架 Options 字段，待游戏层使用。
         public string ShadowMode = "blob";
 
@@ -202,11 +220,13 @@ namespace Game.Template
         internal RenderOptions BuildRenderOptions() => new RenderOptions
         {
             DirectionCount = DirectionCount,
+            HitFrameSync = HitFrameSyncEnabled ? HitFrameSyncStrategy.AnimKeyframeDriven : HitFrameSyncStrategy.LogicDriven,
         };
 
         internal FeedbackOptions BuildFeedbackOptions() => new FeedbackOptions
         {
             MergeWindow = FeedbackMergeWindowSeconds,
+            HitFrameSync = HitFrameSyncEnabled ? HitFrameSyncStrategy.AnimKeyframeDriven : HitFrameSyncStrategy.LogicDriven,
         };
 
         internal IReadOnlyList<Id> BuildEquipmentSlotIds()

@@ -74,6 +74,15 @@ namespace Game.Template
         public FreezeFrameReceiver Freeze { get; private set; } = null!;
         public FlashReceiver Flash { get; private set; } = null!;
 
+        /// <summary>W6-B 新增：本次装配的命中帧同步注册表（见
+        /// <c>Presentation.FeedbackBinder.Contracts.IHitFrameSource</c> 类型注释、ADR-0017 决策 d），
+        /// 传给 <see cref="ViewFactory"/> 使 sprite/model 两条路线的 View 创建/销毁都自动登记/注销。
+        /// W6 收口：<c>PresentationAssembly</c> 已补齐 <c>hitFrameSource</c> 构造参数（见
+        /// <see cref="Bootstrap"/> 构造点），本实例已一并接给内部 <c>FeedbackBinderCore</c>——是否
+        /// 真正生效由 <see cref="GameOptions.HitFrameSyncEnabled"/> 开关决定（默认 false，
+        /// 行为与改动前一致）。</summary>
+        public global::Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource? HitFrameSource { get; private set; }
+
         /// <summary>数据集加载/世界装配阶段出现阻断性错误时为真；为真时不注册
         /// <see cref="OnFixedStep"/>/<see cref="OnFrameTick"/>，已经 <c>Debug.LogError</c> 过具体
         /// 原因。</summary>
@@ -94,6 +103,15 @@ namespace Game.Template
         private Id _classId;
         private bool _worldEverEntered;
         private double _interpAccumulator;
+
+        /// <summary>W6-B 新增：见 <see cref="Bootstrap"/>（或对应装配方法）构造点判断记录，
+        /// <see cref="OnDestroy"/> 里显式 Dispose（退订 item.equipped/item.unequipped）。</summary>
+        private global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource? _weaponStyleSource;
+
+        /// <summary>W6 收口新增：见 <see cref="Bootstrap"/> 构造点判断记录——同一个 <c>RenderOptions</c>
+        /// 实例既传给 <see cref="ViewFactory"/> 又传给 <see cref="BuildPresentationOptions"/> 内部的
+        /// <c>PresentationAssemblyOptions.RenderOptions</c>，避免两处各自独立构造、取值不一致。</summary>
+        private Presentation.Render.RenderOptions? _renderOptions;
 
         /// <summary>见文件顶部判断记录：固定步/帧回调改经 IClock 注册，本类型持有返回的句柄，
         /// <see cref="OnDestroy"/> 里显式退订。</summary>
@@ -219,11 +237,37 @@ namespace Game.Template
             Gameplay.Economy.RegisterUnit(PlayerId);
 
             var viewFactoryDisplayInfo = new DisplayInfoRegistry(registry, _bus);
+
+            // W6-B 新增：命中帧同步注册表（ADR-0017 决策 d）+ 武器风格来源（ADR-0017 决策 e），
+            // 主手槽位 id 取 13 §4 新增口味配置项 GameOptions.MainHandSlotId（见该字段注释）。两者都是
+            // "框架提供机制、游戏层按需接线"的可选能力（见 W6-A 判断记录 5），本模板按默认约定接上。
+            HitFrameSource = new global::Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource();
+            var mainHandSlotId = new Id(_options.MainHandSlotId);
+            global::Presentation.VfxSfx.Contracts.MainHandWeaponTemplateResolver mainHandResolver = unitId =>
+                gameplay.Carriers.Equipment.GetAllEquippedInstances(unitId).TryGetValue(mainHandSlotId, out var instance)
+                    ? instance.TemplateId
+                    : (Id?)null;
+            _weaponStyleSource = new global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource(_bus, mainHandResolver, viewFactoryDisplayInfo);
+
+            // W6 收口（ADR-0017 决策 d 遗留缺口收口）：_renderOptions 只构造一次、同一个实例分别传给
+            // 下面的 UnityViewFactory（决定 SpriteCharacterRig/ModelCharacterRig 构造期实际拿到的
+            // HitFrameSync 策略，见该工厂 _renderOptions 字段判断记录）与 BuildPresentationOptions()
+            // 内部的 PresentationAssemblyOptions.RenderOptions——此前两处各自独立构造，即便
+            // GameOptions.HitFrameSyncEnabled 已经开启，rig 构造期实际拿到的仍是默认 LogicDriven
+            // （比 PresentationAssembly 未暴露 hitFrameSource 更深一层的接线缺口，一并收口）。
+            _renderOptions = _options.BuildRenderOptions();
+
             // 外部审核阻塞项 3 收口（architecture/落地计划/audit-20260907/followup-2026-09-07.md
             // "外部审核阻塞项处理"一节）：传入 bus/registry 两个可选参数，使 UnityViewFactory 默认
-            // 给"生物"型 sprite 视图挂接 UnityFrameAnimPlayer + AnimClipResolver（见该类型
-            // AttachDefaultAnimation 判断记录），本模板不再需要自己另外接一遍。
-            var viewFactory = new UnityViewFactory(_host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader, bus: _bus, dataRegistry: registry);
+            // 给"生物"型 sprite/model 视图挂接默认动画接线（见该类型 AttachDefaultAnimation/
+            // AttachDefaultModelAnimation 判断记录），本模板不再需要自己另外接一遍。W6-B 追加传入
+            // _host.Renderer3D/HitFrameSource/_weaponStyleSource 三个新可选参数。W6 收口追加传入
+            // _renderOptions（见上方判断记录）。
+            var viewFactory = new UnityViewFactory(
+                _host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader,
+                bus: _bus, dataRegistry: registry,
+                renderer3D: _host.Renderer3D, hitFrameSource: HitFrameSource, weaponStyleSource: _weaponStyleSource,
+                renderOptions: _renderOptions);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(_options.Seed ^ 0x9E3779B97F4A7C15UL);
@@ -242,10 +286,15 @@ namespace Game.Template
             // 宿主资源加载器），让 VfxPlayer/SfxPlayer 也能在首次引用反馈资源时触发
             // IResourceLoader.LoadAsync（见 PresentationAssembly 构造函数判断记录）——此前本处未传，
             // 播放器拿到的是 null。
+            // W6 收口（ADR-0017 决策 d 遗留缺口收口）：PresentationAssembly 新增 hitFrameSource
+            // 构造参数，把上面已经构造好的 HitFrameSource（rig 登记表）接给内部 FeedbackBinderCore——
+            // 是否真正生效仍由 presentationOptions.RenderOptions/FeedbackOptions 的 HitFrameSync
+            // 开关决定（GameOptions.HitFrameSyncEnabled，见 BuildRenderOptions/BuildFeedbackOptions），
+            // 本参数只负责接线，不传时（开关为 false）行为与改动前完全一致。
             var presentation = new PresentationAssembly(
                 gameplay, world, registry, _bus, presentationRng,
                 viewFactory, _host.Renderer2D, _host.Camera, _host.Audio, _host.FileSystem, sceneRouter,
-                presentationOptions, resourceLoader: _host.ResourceLoader);
+                presentationOptions, resourceLoader: _host.ResourceLoader, hitFrameSource: HitFrameSource);
             Presentation = presentation;
 
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
@@ -302,7 +351,11 @@ namespace Game.Template
             ActionBarSlotCountFallback = _options.ActiveSkillSlotCount,
             HudPowerTypes = new[] { Core.Rules.Common.WellKnownPowers.Health },
             EquipmentSlotIds = _options.BuildEquipmentSlotIds(),
-            RenderOptions = _options.BuildRenderOptions(),
+            // W6 收口：复用 Bootstrap() 里已经构造并传给 ViewFactory 的同一个 _renderOptions 实例
+            // （见该字段判断记录），不再另外调用一次 _options.BuildRenderOptions()——两次调用会各自
+            // 产生独立的 RenderOptions 对象，即便字段取值相同也不是"同一份"，与 UnityViewFactory
+            // 侧的 rig 构造脱节。
+            RenderOptions = _renderOptions,
             FeedbackOptions = _options.BuildFeedbackOptions(),
             NewGameStarter = new SampleNewGameStarter(this).Start,
         };
@@ -463,6 +516,10 @@ namespace Game.Template
             }
             Presentation?.Dispose();
             ViewFactory?.DestroyAllCreatedViews();
+
+            // W6-B 新增：退订 EquipmentWeaponStyleSource 的 item.equipped/item.unequipped 订阅。
+            _weaponStyleSource?.Dispose();
+            _weaponStyleSource = null;
         }
     }
 }

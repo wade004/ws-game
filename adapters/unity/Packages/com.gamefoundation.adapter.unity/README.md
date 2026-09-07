@@ -20,7 +20,7 @@ URP 2D Renderer + Input System 1.20"这一件事，不包含任何具体游戏�
 | `ISpatialQuery` | `UnitySpatialQuery` | 自维护登记表 + 均匀网格分桶（非 Physics2D，避免同步 Collider2D 的额外成本与结果顺序不确定性）；结果一律按 `Id` 排序；`Register`/`UpdatePosition`/`Unregister`/`Clear` 均为契约方法（ADR-0016 决策 7，此前是本类自行拍板的协作方法）；`HasLineOfSight` 默认恒真，可用 `SetLineOfSightBlocker` 接入 `UnityNavigation2D.Raycast` 做真实遮挡判定（`UnityEngineHost` 已默认接好）。 |
 | `IUISurface` | `UnityUISurface` | uGUI `Canvas`（Screen Space - Overlay）+ TextMeshPro；`DrawText` 没有契约层面的句柄/去重机制，按调用顺序累加创建文本元素，非契约方法 `ClearSurface` 供逐帧刷新场景复位；`fontId` 目前不区分具体字体资源，统一用包内占位字体运行期 `TMP_FontAsset.CreateFontAsset` 生成，失败时回退 `TMP_Settings.defaultFontAsset`。 |
 | `IPlatform` | `UnityPlatform` | 语言映射 `Application.systemLanguage` → 常见 BCP-47 短代码；剪贴板 = `GUIUtility.systemCopyBuffer`；崩溃日志经 `UnityFileSystem` 原子写入用户目录 `crash_log.txt`，`UnityEngineHost` 额外把 `Application.logMessageReceived` 的 Error/Exception 日志自动转发到 `ReportCrash`。 |
-| `IRenderer3D` | `UnityRenderer3D` | **声明降级**：全部方法一律抛 `NotSupportedException`（本迭代表现路线固定 sprite 型外形，02 第 1.12 节该接口"条件必需"，本框架未选用 model 型外形）。 |
+| `IRenderer3D` | `UnityRenderer3D` | **W6-B 收口，真实实现**（ADR-0017 决策 b）：句柄 = 模型预制体实例根 GameObject；`CreateModelInstance` 经 `UnityResourceLoader` 缓存优先、未命中回退同步 `Resources.Load<GameObject>`（约定路径见下"资源 id → 路径规则"），找不到资源直接抛带路径的 `InvalidOperationException`（与 sprite 型"缺资源用占位方块顶上"的宽容立场刻意不同，见该类型判断记录）；三维放置换算 `世界坐标=(planePos.X, height, planePos.Y)`、`Y 轴欧拉角=-facing×(180/π)`（无既有 3D 坐标约定，本类型拍板并记录，见其判断记录）；`PlayAnim` 优先用 Animator 按状态名（`clipId` 末段）`CrossFadeInFixedTime`，找不到对应状态时回退 `UnityEngine.Animation` 组件 + 约定路径加载的 `AnimationClip`；命中帧等关键帧事件经 Unity `AnimationEvent`（函数名固定 `OnAnimEvent`，字符串参数＝裸事件名）中继回调；`SetSlotMesh`/`AttachToSocket` 按子对象精确名字查找（约定子对象名＝挂点/槽位 `Id` 原文，见占位资产生成脚本）；`SetShadow` 的 `Blob` 用贴地占位 Quad、`Projected` 直接用 Unity 内建实时阴影（与 sprite 路线"Projected 降级为 Blob"不同——model 型有真正三维几何体）。 |
 | `ICamera` | `UnityCamera` | 正交投影，世界平面固定为 Unity 的 XY 平面（Z=0），与 `IRenderer2D` 精灵摆放平面一致；`pitchDegrees`/`yawDegrees` 只记录配置值，不据此做真实透视投影（URP 2D Renderer 不支持）；`zoom` 直接映射 `orthographicSize`；`SetTransform`/`WorldToScreen` 的 `height` 参数作为世界 Y 附加偏移；`Shake` 的 `frequency` 参数（ADR-0016 决策 4）驱动 Perlin 噪声按 `elapsed*frequency` 采样生成抖动偏移，取代此前逐帧独立采样的 `UnityEngine.Random`。 |
 
 `UnityEngineHost`（`MonoBehaviour`，`DontDestroyOnLoad`）是组合根，持有以上 13 个实例；静态
@@ -59,6 +59,32 @@ Resources/Fonts/<资源引用id去掉 "font." 前缀，点号换下划线>（不
 命名规则与 `architecture/14_资产规格书模板.md` 第 1.2 节文件名模板、
 `presentation/render/core/SpriteViewBase.ResolveLayerResourceId` 的"去掉类别前缀、点号换下划线"
 规则保持同一套口径。
+
+Model/AnimClip 两个种类（W6-B 新增，ADR-0017 决策 a/c）同样不走 StreamingAssets——运行期没有公开
+API 能把裸字节数组反序列化成可用的 GameObject 层级/骨骼/Animator 绑定或 AnimationClip 资产，只能
+消费已经被 Unity 资产管线预先导入好的资源（与 Font 种类同一处境）：
+
+```
+Resources/GameFoundation/models/<资源引用id去掉类别前缀，点号换下划线>（不带扩展名）
+  例：model.placeholder_biped -> Resources/GameFoundation/models/placeholder_biped
+      （对应 Assets/Resources/GameFoundation/models/placeholder_biped.prefab，见下"model 型外形
+      占位资产"一节）；SetSlotMesh 的网格资源引用复用同一套约定与子目录（Resources.Load<Mesh>）。
+
+Resources/GameFoundation/anim_clips/<资源引用id去掉类别前缀，点号换下划线>（不带扩展名）
+  例：anim.attack -> Resources/GameFoundation/anim_clips/attack
+      （对应 Assets/Resources/GameFoundation/anim_clips/attack.anim）；model 型
+      display.anim_set.clips[*].resource_ref 走这条约定——判断记录（W6-B）：resource_ref 建议只用
+      一个点分段（如 "anim.idle"，不要写成 "anim.<角色名>_idle"）——UnityRenderer3D.PlayAnim 用
+      clipId 的"最后一个点分段"匹配 Animator 状态名，UnityResourceLoader.ResolveAnimClipResourcesPath
+      用"去掉第一个点分段"解析磁盘路径，两者在只有一个点号时结果自动一致；多角色共用不同剪辑时
+      应各自登记不同的 resource_ref（如 "anim.hero_idle"/"anim.beast_idle"），不要求全局唯一命名
+      规则，只要求"同一 resource_ref 只对应一份 Animator 状态名 + 一份剪辑资产"。
+```
+
+`UnityResourceLoader.LoadAsync(kind=Model)` 同 Font 一样排队到下一次 `Tick()` 于主线程完成判定
+（结果缓存供 `UnityRenderer3D.CreateModelInstance` 优先复用，避免重复 `Resources.Load`）；
+`AnimClip` 种类不经 `IResourceLoader`（`Resources.Load<AnimationClip>` 由 `AnimClipResolver`/
+`UnityViewFactory`/`UnityRenderer3D` 各自直接同步调用，见下文判断记录）。
 
 ## 命令行跑测试
 
@@ -553,6 +579,91 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
 `CreateView_ForNonCreatureCategory_DoesNotAttachAnimPlayer`/
 `UnitRespawned_SamePlayerInstance_CanTransitionToMoveAgain`）、`Tests/Runtime/AnimationLayerTests.cs`
 （`UnityFrameAnimPlayer`/`AnimClipResolver` 组件本身的独立单测）。
+
+## model 型外形（W6-B 收口，ADR-0017）
+
+### 占位模型资产
+
+`Assets/Editor/GeneratePlaceholderModelAssets.cs`（`Adapter.Unity.EditorTools` 命名空间，编辑器
+菜单 `GameFoundation/Generate Placeholder Model Assets`，或
+`-executeMethod Adapter.Unity.EditorTools.GeneratePlaceholderModelAssets.GenerateAndExit` 批处理）
+一次性（可重复运行、覆盖重建）生成：
+
+- `Assets/Resources/GameFoundation/models/placeholder_biped.prefab`：胶囊体本体（`Animator` 直接
+  挂在该 GameObject 上）+ 两个子对象——`socket.main_hand`（空挂点）、`slot.head`（球体占位头部，带
+  `MeshFilter`/`MeshRenderer`）。**子对象名逐字等于挂点/槽位 `Id` 的 `Value`**（含域前缀，不做
+  "去掉前缀"处理）——`UnityRenderer3D.SetSlotMesh`/`AttachToSocket` 按这个精确名字递归查找，具体
+  游戏的美术资产接入时子对象命名必须遵循同一约定。
+- `Assets/Resources/GameFoundation/models/placeholder_biped.controller`：`AnimatorController`，三个
+  状态 `idle`（loop）/`attack`/`cast`，默认状态 `idle`。
+- `Assets/Resources/GameFoundation/anim_clips/{idle,attack,cast}.anim`：对应 `AnimationClip`；
+  `attack.anim` 在 50% 时间点内嵌一个 `AnimationEvent`（`functionName="OnAnimEvent"`,
+  `stringParameter="hit_frame"`）。
+
+### 命中帧同步接线步骤（ADR-0017 决策 d）
+
+1. 装配根构造一个 `Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource` 实例。
+2. 传给 `UnityViewFactory` 构造函数的 `hitFrameSource` 参数——该工厂此后对每个创建的
+   sprite/model 型 View（`DisplayCategory.Creature`）自动 `RegisterRig`/`UnregisterRig`（随
+   `entity.destroyed` 清理）。
+3. 需要真正启用 `anim_keyframe_driven` 策略时，构造**同一个** `Presentation.Render.RenderOptions`
+   实例（`HitFrameSync = AnimKeyframeDriven`），分别传给：
+   - `UnityViewFactory` 构造函数新增的 `renderOptions` 参数（W6 收口新增——决定
+     `ModelCharacterRig`/`SpriteCharacterRig` 构造期实际拿到的 `HitFrameSync` 策略，是否订阅
+     `HitFrameReached` 由这一份 `RenderOptions` 说了算，不是随便哪份同值的 `RenderOptions` 都行，
+     必须是传给 `UnityViewFactory` 的这同一份）；
+   - `Presentation.Assembly.PresentationAssemblyOptions.RenderOptions`（`PresentationAssembly.Render`
+     对外报告的只读投影，与上面这份保持同一实例，避免"rig 侧已切到 AnimKeyframeDriven，但
+     `PresentationAssembly.Render` 报告默认值"这类装配内部不一致）。
+   同时把第 1 步的 `CharacterRigHitFrameSource` 实例传给
+   `Presentation.Assembly.PresentationAssembly` 构造函数新增的 `hitFrameSource` 参数（W6 收口新增，
+   内部原样转发给 `Presentation.FeedbackBinder.Core.FeedbackBinder` 同名构造参数），并把
+   `Presentation.FeedbackBinder.Contracts.FeedbackOptions.HitFrameSync` 同步切到
+   `AnimKeyframeDriven`。
+4. 三处引擎侧装配根（`GameFoundationBootstrap`/`Adapter.Unity.Shell.FrameworkResidentHost`/
+   `games/_template.GameBootstrap`）均已完成上述 1～3 步的接线，由各自的口味配置项（前两者是
+   `[SerializeField] private bool _hitFrameSyncEnabled`，后者是 `GameOptions.HitFrameSyncEnabled`）
+   一键切换，默认 `false`（`LogicDriven`，行为与本次收口前完全一致）；端到端链路见
+   `Tests/Runtime/HitFrameSyncEndToEndTests.cs`（经真实 `GameFoundationBootstrap` 生产装配根，不是
+   手工构造 `FeedbackBinderCore`）。
+
+### 武器风格接线步骤（ADR-0017 决策 e）
+
+1. 提供一个 `Presentation.VfxSfx.Contracts.MainHandWeaponTemplateResolver` 委托（按单位 id 查询其
+   当前装备的主手武器物品模板 id，通常包一层
+   `EquipmentHost.GetAllEquippedInstances(unitId)[主手槽位id].TemplateId`——"主手槽位具体是哪个
+   id"由具体游戏决定，`GameFoundationBootstrap`/`games/_template.GameOptions` 分别用
+   `_mainHandSlotId` 字段/`GameOptions.MainHandSlotId` 承载这一口味配置项）。
+2. 用该委托构造 `Presentation.VfxSfx.Core.EquipmentWeaponStyleSource`（还需要 `IEventBus` 与
+   `IDisplayInfoRegistry`），传给 `UnityViewFactory` 构造函数的 `weaponStyleSource` 参数。
+3. `UnityViewFactory` 内部懒解析一次 `display.weapon_style` 全表，与 `weaponStyleSource` 一并
+   注入 `AnimClipResolver`——Attack 状态优先用 `WeaponStyleDef.AutoAttackAnim`、Cast 状态按触发
+   技能 id 优先用 `WeaponStyleDef.CastAnimOverride`，两者都查不到才退回按状态查的默认剪辑表。
+4. 数据侧关联链路：`item.template.display_ref → display.map.logical_id`（该行本身即物品模板
+   id）→ `display.map.weapon_style_ref → display.weapon_style` 行——不需要在 `item.template`
+   新增任何字段（见 `EquipmentWeaponStyleSource` 类型判断记录）。
+
+### model 型 View（`Runtime/Presentation/UnityModelView.cs`）
+
+`UnityViewFactory.CreateView` 解析到 `kind=model` 的 `DisplayInfo` 且装配方提供了
+`IRenderer3D`（构造函数 `renderer3D` 参数）时创建 `UnityModelView`（直接实现
+`IView`/`IHasCharacterRig`/`IModelHandleProvider` 三件套，持有一个
+`Presentation.Render.ModelCharacterRig`——presentation/render/core 目前没有对等 sprite 型
+`SpriteViewBase` 的 model 型基类可继承，见该类型判断记录）；未提供 `IRenderer3D` 时退化为
+`NullView`（同"没有可用 sprite 型 DisplayInfo"一致的宽容处理，不阻断装配）。`AttachDefaultModelAnimation`
+（`DisplayCategory.Creature` 专属）解析 `DisplayInfo.Model.AnimSetRef` 指向的 `display.anim_set`
+行——与 sprite 路线"按 `display.map` 行 id 最后一段猜测约定 id"不同，model 型 `anim_set_ref` 是
+显式字段，直接可用；同时把每条剪辑的 `events`（ADR-0017 决策 c）数据驱动写回对应
+`Resources.Load<AnimationClip>` 取到的资产（`AnimationClip.events` 运行期可写属性，不是
+`UnityEditor.AnimationUtility` 编辑器专属 API），命中帧固定映射到
+`ModelCharacterRig.HitFrameEventId`。
+
+对应测试：`Tests/Runtime/ModelViewTests.cs`（创建/销毁、`PlayAnim(attack)` 经真实 Animator 播放到
+50% 触发命中帧、挂点/槽位、height/flash/fade）、`Tests/Runtime/AnimClipResolverTests.cs`
+（Attack/Cast 武器风格决策逻辑）、`Tests/Runtime/ModelIntegrationTests.cs`（武器风格端到端播放到
+真实 Animator 状态、命中帧同步端到端延迟/超时兜底）、`Tests/Runtime/UnityRenderer3DTests.cs`、
+`Tests/Runtime/ConformanceUnityTests.cs`（`Renderer3D`/`ResourceLoader` 场景组，`SupportsRenderer3D`
+现为 `true`）。
 
 ## 游戏模板如何接入本包（数据目录框架/游戏分层任务）
 

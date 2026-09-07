@@ -14,6 +14,13 @@ adapters/unity/
       GreyBoxSceneBuilder.cs       程序化生成/重建 Assets/Framework/Scenes/GreyBox.unity
       Il2CppPlayerBuilder.cs       IL2CPP 脚本后端独立版构建入口（工程收尾 K 新增，见本文档
                                    "IL2CPP 发布路径验证"一节与 check.ps1 -Il2cpp）
+      GeneratePlaceholderModelAssets.cs  W6-B 新增：生成 model 型外形占位资产（见下 Resources/ 一行、
+                                   包 README"model 型外形"一节），菜单
+                                   GameFoundation/Generate Placeholder Model Assets，或
+                                   -executeMethod ...GeneratePlaceholderModelAssets.GenerateAndExit
+    Resources/GameFoundation/    W6-B 新增：model/anim_clips 占位资产（由上面的脚本生成并提交），
+                                 UnityRenderer3D/UnityViewFactory 经 Resources.Load 消费，见包 README
+                                 "资源 id → 路径规则"
     Framework/
       Resources/Fonts/            按 "font.<name>" id 预导入的字体资产（当前 noto_sans_cjk_sc.otf），
                                    UnityResourceLoader/UnityUISurface 依赖，见包 README"资源 id → 路径规则"
@@ -63,6 +70,10 @@ Unity.exe -batchmode -nographics -quit -projectPath adapters\unity -executeMetho
 
 # 重新生成 Shell 场景（U3 新增，同上）
 Unity.exe -batchmode -nographics -quit -projectPath adapters\unity -executeMethod Adapter.Unity.EditorTools.ShellSceneBuilder.Build -logFile <out>\scene.log
+
+# 重新生成 model 型外形占位资产（W6-B 新增，占位模型/AnimatorController/AnimationClip 规格变化时用；
+# 可重复运行，覆盖重建，见包 README"model 型外形"一节）
+Unity.exe -batchmode -nographics -quit -projectPath adapters\unity -executeMethod Adapter.Unity.EditorTools.GeneratePlaceholderModelAssets.GenerateAndExit -logFile <out>\gen_model.log
 
 # Windows 独立版构建（启动场景 = Build Settings 第 0 位 = Shell.unity；默认脚本后端，见
 # ProjectSettings 当前保存的值，历史上一直是 Mono）

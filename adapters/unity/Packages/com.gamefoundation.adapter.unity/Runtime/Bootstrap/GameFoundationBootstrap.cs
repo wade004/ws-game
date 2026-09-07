@@ -125,6 +125,23 @@ namespace Adapter.Unity.Bootstrap
         [SerializeField] private string _attackSkillId = "skill.sample_strike";
         [SerializeField] private string _skill1Id = "skill.sample_burn";
 
+        /// <summary>W6-B 新增（ADR-0017 决策 e）：<c>global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource</c>
+        /// 需要的"主手槽位 id"（见 09 第 4.4 节、该类型判断记录"未新增 item.template 字段"）——
+        /// 09/04 未定义全局槽位登记表（同 <c>presentation/ui/README.md</c> 既有契约缺口"装备槽位 id
+        /// 清单"），本字段是该口味配置项在灰盒装配根的落点。默认取
+        /// <c>data/_sample/item/item.slot_definition.json</c> 已有的
+        /// <c>"item.slot.sample_main_hand"</c>（与示例数据 <c>item.sample_blade.slot</c> 一致，见该
+        /// 文件），不是任意新造的 id；找不到该槽位当前装备时
+        /// <see cref="global::Presentation.VfxSfx.Contracts.MainHandWeaponTemplateResolver"/> 返回 null（见
+        /// <see cref="BuildWorld"/> 第 5 步该委托的实现）。</summary>
+        [SerializeField] private string _mainHandSlotId = "item.slot.sample_main_hand";
+
+        /// <summary>W6 收口新增（ADR-0017 决策 d 遗留缺口收口）：命中帧同步开关，同一个布尔值驱动
+        /// <see cref="Presentation.Render.RenderOptions.HitFrameSync"/> 与
+        /// <see cref="Presentation.FeedbackBinder.Contracts.FeedbackOptions.HitFrameSync"/>（见
+        /// <see cref="BuildWorld"/> 第 5 步）。默认 false（<c>LogicDriven</c>，与改动前行为一致）。</summary>
+        [SerializeField] private bool _hitFrameSyncEnabled = false;
+
         [Header("模拟")]
         [SerializeField] private ulong _seed = 20260905UL;
 
@@ -156,6 +173,17 @@ namespace Adapter.Unity.Bootstrap
         public FreezeFrameReceiver? Freeze { get; private set; }
         public FlashReceiver? Flash { get; private set; }
 
+        /// <summary>W6-B 新增：本次装配的命中帧同步注册表（见 <see cref="Presentation.FeedbackBinder.Contracts.IHitFrameSource"/>
+        /// 类型注释、ADR-0017 决策 d），传给 <see cref="ViewFactory"/> 使 sprite/model 两条路线的
+        /// View 创建/销毁都自动登记/注销。W6 收口：<see cref="Presentation.Assembly.PresentationAssembly"/>
+        /// 已补齐 <c>hitFrameSource</c> 构造参数（见 <see cref="BuildWorld"/> 构造点），本实例已一并
+        /// 接给内部 <c>FeedbackBinderCore</c>——是否真正生效由 <see cref="_hitFrameSyncEnabled"/>
+        /// 开关决定（默认 false，<c>RenderOptions</c>/<c>FeedbackOptions</c> 均保持 <c>LogicDriven</c>，
+        /// 行为与改动前一致）。也供测试直接构造独立的 <c>FeedbackBinderCore</c> 验证命中帧同步等待
+        /// 队列本身（见 <c>Tests/Runtime/ModelIntegrationTests.cs</c>），或经本类型开关走生产装配根
+        /// 端到端验证（见 <c>Tests/Runtime/HitFrameSyncEndToEndTests.cs</c>）。</summary>
+        public global::Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource? HitFrameSource { get; private set; }
+
         /// <summary>数据集加载/世界装配阶段出现阻断性错误时为真（见 <see cref="BuildWorld"/>）；
         /// 为真时不注册 <see cref="OnFixedStep"/>/<see cref="OnFrameTick"/>，已经
         /// <c>Debug.LogError</c> 过具体原因。</summary>
@@ -164,6 +192,10 @@ namespace Adapter.Unity.Bootstrap
         private UnityEngineHost _host = null!;
         private IEventBus _bus = null!;
         private readonly Dictionary<string, bool> _wasActionActive = new Dictionary<string, bool>(StringComparer.Ordinal);
+
+        /// <summary>W6-B 新增：见 <see cref="BuildWorld"/> 第 5 步构造点判断记录，<see cref="OnDestroy"/>
+        /// 里显式 Dispose（退订 <c>item.equipped</c>/<c>item.unequipped</c>）。</summary>
+        private global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource? _weaponStyleSource;
 
         /// <summary>W3b 新增（拍板 12"表现层异常隔离"）：本次 <see cref="OnFrameTick"/> 内某个表现
         /// 步骤抛出的异常次数累计，同 <see cref="Adapter.Unity.Shell.FrameworkResidentHost.PresentationStepExceptionCount"/>
@@ -336,11 +368,44 @@ namespace Adapter.Unity.Bootstrap
             //    registry/bus，语义一致，不产生状态不一致（判断记录）。
             // ---------------------------------------------------------
             var viewFactoryDisplayInfo = new DisplayInfoRegistry(registry, _bus);
+
+            // W6-B 新增：命中帧同步注册表（ADR-0017 决策 d）+ 武器风格来源（ADR-0017 决策 e）。
+            // 两者均是"框架提供机制、游戏层按需接线"的可选能力（见 W6-A 判断记录 5），本类型作为灰盒
+            // 装配根按 09/13 给出的默认约定接上，具体游戏可以按自己的装备宿主实现另行构造。
+            HitFrameSource = new global::Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource();
+            var mainHandSlotId = new Id(_mainHandSlotId);
+            global::Presentation.VfxSfx.Contracts.MainHandWeaponTemplateResolver mainHandResolver = unitId =>
+                gameplay.Carriers.Equipment.GetAllEquippedInstances(unitId).TryGetValue(mainHandSlotId, out var instance)
+                    ? instance.TemplateId
+                    : (Id?)null;
+            var weaponStyleSource = new global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource(_bus, mainHandResolver, viewFactoryDisplayInfo);
+            _weaponStyleSource = weaponStyleSource;
+
+            // W6 收口（ADR-0017 决策 d 遗留缺口收口）：_hitFrameSyncEnabled 同时驱动 RenderOptions/
+            // FeedbackOptions 两处 HitFrameSync（09/ADR-0017"同一个口味配置项的两个落点，装配层
+            // 负责保持一致"）——同一个 RenderOptions 实例既要传给下面 UnityViewFactory（决定
+            // SpriteCharacterRig/ModelCharacterRig 构造期实际拿到的 HitFrameSync 策略，见该工厂
+            // _renderOptions 字段判断记录"比 PresentationAssembly 未暴露 hitFrameSource 更深一层的
+            // 接线缺口"），也要传给下面 presentationOptions.RenderOptions（PresentationAssembly.Render
+            // 对外暴露的只读投影）——两处必须是同一份取值，否则会出现"rig 侧已经切到
+            // AnimKeyframeDriven，但 PresentationAssembly.Render 报告的仍是默认值"这类装配内部不一致。
+            // 默认（开关 false）时两者都保持 LogicDriven，与改动前行为一致。
+            var hitFrameSyncStrategy = _hitFrameSyncEnabled
+                ? global::Presentation.Render.HitFrameSyncStrategy.AnimKeyframeDriven
+                : global::Presentation.Render.HitFrameSyncStrategy.LogicDriven;
+            var renderOptions = new global::Presentation.Render.RenderOptions { HitFrameSync = hitFrameSyncStrategy };
+
             // 外部审核阻塞项 3 收口（architecture/落地计划/audit-20260907/followup-2026-09-07.md
             // "外部审核阻塞项处理"一节）：传入 bus/registry 两个可选参数，使 UnityViewFactory 默认
-            // 给"生物"型 sprite 视图挂接 UnityFrameAnimPlayer + AnimClipResolver（见该类型
-            // AttachDefaultAnimation 判断记录），不再需要本类型自己另外接一遍。
-            var viewFactory = new UnityViewFactory(_host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader, bus: _bus, dataRegistry: registry);
+            // 给"生物"型 sprite/model 视图挂接默认动画接线（见该类型 AttachDefaultAnimation/
+            // AttachDefaultModelAnimation 判断记录），不再需要本类型自己另外接一遍。W6-B 追加传入
+            // _host.Renderer3D/HitFrameSource/weaponStyleSource 三个新可选参数，见各自判断记录。
+            // W6 收口追加传入 renderOptions（见上方判断记录）。
+            var viewFactory = new UnityViewFactory(
+                _host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader,
+                bus: _bus, dataRegistry: registry,
+                renderer3D: _host.Renderer3D, hitFrameSource: HitFrameSource, weaponStyleSource: weaponStyleSource,
+                renderOptions: renderOptions);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(_seed ^ 0x9E3779B97F4A7C15UL);
@@ -360,6 +425,9 @@ namespace Adapter.Unity.Bootstrap
             // feedback_binder 时只是把这三个委托存起来，真正被调用要等到后续事件触发（构造期本身
             // 不触发任何一种反馈动作），因此可以先把委托接上、稍后（见下）再把
             // FloatingText/Freeze/Flash 三个属性赋成真正的实例。
+            // W6 收口：presentationOptions.RenderOptions 复用上面同一个 renderOptions 实例（不是另建
+            // 一份新的），保证 UnityViewFactory 侧的 rig 构造与 PresentationAssembly.Render 对外报告的
+            // 取值一致（见上方 renderOptions 判断记录）。
             var presentationOptions = new PresentationAssemblyOptions
             {
                 OnFloatingText = (entityId, styleId, text) => FloatingText?.Show(entityId, styleId, text),
@@ -369,6 +437,8 @@ namespace Adapter.Unity.Bootstrap
                 // 否则顿帧会持续把传入的毫秒数当秒数用（如 40ms 顿帧变成 40 秒）。
                 OnFreeze = durationMs => Freeze?.Freeze(durationMs / 1000.0),
                 OnFlash = (entityId, profileId) => Flash?.Show(entityId, profileId),
+                RenderOptions = renderOptions,
+                FeedbackOptions = new global::Presentation.FeedbackBinder.Contracts.FeedbackOptions { HitFrameSync = hitFrameSyncStrategy },
             };
 
             // GP-PRES-04 收口（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
@@ -377,7 +447,7 @@ namespace Adapter.Unity.Bootstrap
             var presentation = new PresentationAssembly(
                 gameplay, world, registry, _bus, presentationRng,
                 viewFactory, _host.Renderer2D, _host.Camera, _host.Audio, _host.FileSystem, sceneRouter,
-                presentationOptions, resourceLoader: _host.ResourceLoader);
+                presentationOptions, resourceLoader: _host.ResourceLoader, hitFrameSource: HitFrameSource);
             Presentation = presentation;
 
             // 三个反馈接收器都需要 PresentationAssembly 构造完成后才能建出（FloatingText 需要
@@ -682,6 +752,10 @@ namespace Adapter.Unity.Bootstrap
             // 挂在 DontDestroyOnLoad 的渲染根下跨场景重进泄漏）。
             Presentation?.Dispose();
             ViewFactory?.DestroyAllCreatedViews();
+
+            // W6-B 新增：退订 EquipmentWeaponStyleSource 的 item.equipped/item.unequipped 订阅。
+            _weaponStyleSource?.Dispose();
+            _weaponStyleSource = null;
         }
     }
 }

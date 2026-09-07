@@ -12,6 +12,14 @@
         "hit": { "resource_ref": "anim.sample_hero_hit", "events": [] },
         "death": { "resource_ref": "anim.sample_hero_death", "events": [] }
       }
+    },
+    {
+      "id": "display.anim_set.placeholder_biped",
+      "clips": {
+        "idle": { "resource_ref": "anim.idle", "events": [] },
+        "attack": { "resource_ref": "anim.attack", "events": [{ "name": "hit_frame", "time_pct": 0.5 }] },
+        "cast": { "resource_ref": "anim.cast", "events": [] }
+      }
     }
   ]
 }
