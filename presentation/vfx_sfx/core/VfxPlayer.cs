@@ -295,6 +295,8 @@ namespace Presentation.VfxSfx.Core
             StopInternal(handle);
         }
 
+        public int PendingSpawnCount => _pendingSpawns.Count;
+
         public void Update(double dt)
         {
             _pool.Update(dt);

@@ -354,5 +354,49 @@ namespace Tests.Presentation.VfxSfx
             loader.CompletePending(new Id("res.spark"));
             Assert.Empty(renderer.EmittedParticles);
         }
+
+        // -----------------------------------------------------------------
+        // GP-09 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        // PendingSpawnCount 供 CompositeFeedbackSink/FeedbackBinder.HasPendingPlayback 把"首次
+        // 异步加载中的 vfx"计入离散步表现完成门。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void PendingSpawnCount_ZeroWhenNothingQueued()
+        {
+            var renderer = new StubRenderer2D();
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog());
+
+            Assert.Equal(0, player.PendingSpawnCount);
+        }
+
+        [Fact]
+        public void PendingSpawnCount_OneWhileLoading_ZeroAfterLoadCompletes()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), resourceLoader: loader);
+
+            player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+            Assert.Equal(1, player.PendingSpawnCount);
+
+            loader.CompletePending(new Id("res.spark"));
+            Assert.Equal(0, player.PendingSpawnCount);
+        }
+
+        [Fact]
+        public void PendingSpawnCount_ZeroAfterTimeout()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var options = new VfxOptions { FirstLoadTimeoutSeconds = 2.0 };
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), options: options, resourceLoader: loader);
+
+            player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+            Assert.Equal(1, player.PendingSpawnCount);
+
+            player.Update(2.5);
+            Assert.Equal(0, player.PendingSpawnCount);
+        }
     }
 }

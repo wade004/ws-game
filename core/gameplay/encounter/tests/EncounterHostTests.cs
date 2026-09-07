@@ -8,6 +8,7 @@ namespace Tests.Gameplay.Encounter
     public class EncounterHostTests
     {
         private static readonly Id MapA = new Id("map.sample_dungeon");
+        private static readonly Id MapB = new Id("map.sample_other_dungeon");
         private static readonly Id Player = new Id("unit.sample_player");
 
         private const string DefRows = "[" +
@@ -315,6 +316,63 @@ namespace Tests.Gameplay.Encounter
 
             Assert.False(host.GetState(instanceId).IsActive);
             Assert.Empty(rewards.Grants);
+        }
+
+        // -------------------------------------------------------------
+        // AbortForMap（GP-04：LeaveMap 未终止旧地图遭遇的复现与回归）
+        // -------------------------------------------------------------
+
+        /// <summary>GP-04 复现的核心断言：不按地图终止时，A 图的遭遇会在切到 B 图后继续被
+        /// <see cref="EncounterHost.Evaluate"/> 求值（例如误发奖励）；<see cref="EncounterHost.AbortForMap"/>
+        /// 必须只终止目标地图的实例，同图/异图的其它实例不受影响。</summary>
+        [Fact]
+        public void AbortForMap_MarksOnlyMatchingMapInstancesInactive_LeavesOthersUntouched()
+        {
+            var host = MakeHost(out _, out _, out _, out var rewards, out var exprFactory, out _);
+            var instanceOnA = host.Start(new Id("encounter.sample_basic"), MapA, Player);
+            var otherOnA = host.Start(new Id("encounter.sample_spawnref"), MapA, Player);
+            var instanceOnB = host.Start(new Id("encounter.sample_basic"), MapB, Player);
+
+            var aborted = host.AbortForMap(MapA);
+
+            Assert.Equal(new[] { instanceOnA, otherOnA }, aborted);
+            Assert.False(host.GetState(instanceOnA).IsActive);
+            Assert.False(host.GetState(otherOnA).IsActive);
+            Assert.True(host.GetState(instanceOnB).IsActive);
+            Assert.Contains(instanceOnB, host.ActiveInstanceIds);
+            Assert.DoesNotContain(instanceOnA, host.ActiveInstanceIds);
+            Assert.DoesNotContain(otherOnA, host.ActiveInstanceIds);
+
+            // 复现 GP-04 的直接后果：终止之后，即使 victory_condition 变为 true，
+            // 已终止的 A 图实例也不应该再触发 Evaluate 副作用（发奖励/发事件）。
+            exprFactory.Set("self.is_alive", true);
+            host.Evaluate(instanceOnA);
+            Assert.Empty(rewards.Grants);
+        }
+
+        [Fact]
+        public void AbortForMap_UnknownMap_ReturnsEmptyAndDoesNotThrow()
+        {
+            var host = MakeHost(out _, out _, out _, out _, out _, out _);
+            host.Start(new Id("encounter.sample_basic"), MapA, Player);
+
+            var aborted = host.AbortForMap(new Id("map.never_used"));
+
+            Assert.Empty(aborted);
+            Assert.Single(host.ActiveInstanceIds);
+        }
+
+        [Fact]
+        public void AbortForMap_CalledTwice_SecondCallReturnsEmpty()
+        {
+            var host = MakeHost(out _, out _, out _, out _, out _, out _);
+            host.Start(new Id("encounter.sample_basic"), MapA, Player);
+
+            var first = host.AbortForMap(MapA);
+            var second = host.AbortForMap(MapA);
+
+            Assert.Single(first);
+            Assert.Empty(second);
         }
 
         [Fact]

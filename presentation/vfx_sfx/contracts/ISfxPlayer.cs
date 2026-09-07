@@ -23,5 +23,11 @@ namespace Presentation.VfxSfx.Contracts
         /// <summary>静音/取消静音某条分层音效轨道；静音时 <see cref="Play"/> 仍会调用
         /// <see cref="Core.Foundation.EngineAdapter.IAudio.PlaySfx"/>（保持句柄语义一致），但音量倍率按 0 传入。</summary>
         void SetLayerMuted(string layer, bool muted);
+
+        /// <summary>GP-09 新增（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        /// 仍在排队等待首次异步加载完成（或超时）的播放请求数——同 <see cref="Presentation.VfxSfx.
+        /// Contracts.IVfxPlayer.PendingSpawnCount"/> 判断记录，冷资源首次加载的音效同样不应该被
+        /// 当作"这一步已经播完"。</summary>
+        int PendingPlayCount { get; }
     }
 }

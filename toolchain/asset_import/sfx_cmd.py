@@ -22,7 +22,9 @@ from pathlib import Path
 
 from .common import (
     AssetImportError,
+    check_no_resource_collision,
     find_repo_root,
+    flatten_id_segment,
     log,
     merge_write_row,
     resolve_root,
@@ -64,7 +66,9 @@ def run(args: argparse.Namespace) -> int:
     data_root = resolve_root(args.data_root, repo_root, "data")
 
     validate_id(args.id, "sfx", "--id")
-    name = strip_domain(args.id).replace(".", "_")
+    # 归一化用 flatten_id_segment（先转义下划线再替换点号），避免 'sfx.fire.hit' 与
+    # 'sfx.fire_hit' 这类不同合法 id 归一到同一个物理文件名（TOOL-02 判断记录）。
+    name = flatten_id_segment(strip_domain(args.id))
 
     src_paths = [Path(p) for p in args.src]
     for p in src_paths:
@@ -104,6 +108,10 @@ def run(args: argparse.Namespace) -> int:
             log(f"计划复制音频: {src} -> {dst}", dry_run=True)
         log(f"计划合并写入 sfx.def 行: {row['id']} -> {sfx_def_path}", dry_run=True)
         return 0
+
+    # 写文件前先做碰撞防护：不同 id 不得共用同一条物理 resource_ref（TOOL-02 判断记录），
+    # 碰撞时报错而不是让后写入的源文件静默覆盖先写入的音频。
+    check_no_resource_collision(sfx_def_path, args.id, resource_refs)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     for src, dst in plan_lines:

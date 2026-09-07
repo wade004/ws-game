@@ -49,6 +49,17 @@ namespace Core.Gameplay.Quest
                 case "is_completed":
                     return ExprValue.OfBool(IsCompleted(player, RequireQuestIdArg(key, args)));
 
+                // GP-05 收边新增（architecture/落地计划/audit-b3b91ee-20260907/code-review.md 判断
+                // 记录）：此前只有 is_active/is_available/is_completed 三个状态谓词，任务状态机
+                // Available -> Active -> ObjectivesComplete -> TurnedIn 里唯独 ObjectivesComplete
+                // 这一档没有对应查询——内容作者写"任务可交付时显示交任务选项"只能用 is_active，
+                // 但目标全部达标后状态已经推进到 ObjectivesComplete，is_active 变为 false，交任务
+                // 选项反而在真正该出现的时候被隐藏（GP-05 根治 ChooseOption 执行前重验 VisibleIf 后，
+                // 这个此前被"从不重验"掩盖的数据缺口才会真正表现为交互失败，见
+                // data/_sample/dialog/dialog.gossip_menu.json "option_turn_in" 勘误）。
+                case "is_objectives_complete":
+                    return ExprValue.OfBool(_questHost.GetState(player, RequireQuestIdArg(key, args)) == QuestState.ObjectivesComplete);
+
                 case "objective_progress":
                     return ExprValue.OfInt(ObjectiveProgress(player, args));
 

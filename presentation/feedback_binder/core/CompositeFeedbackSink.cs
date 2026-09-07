@@ -64,6 +64,11 @@ namespace Presentation.FeedbackBinder.Core
 
         public void Flash(Id entityId, Id profileId) => _onFlash(entityId, profileId);
 
+        /// <summary>GP-09 根治：直接转发 <see cref="IVfxPlayer.PendingSpawnCount"/>/
+        /// <see cref="ISfxPlayer.PendingPlayCount"/>，见 <see cref="IFeedbackSink.HasPendingPlayback"/>
+        /// 判断记录。</summary>
+        public bool HasPendingPlayback => _vfxPlayer.PendingSpawnCount > 0 || _sfxPlayer.PendingPlayCount > 0;
+
         private VfxAttach? ResolveVfxAttach(Id vfxId, FeedbackAttachSpec attach)
         {
             if (attach.Target == FeedbackAttachTarget.World)

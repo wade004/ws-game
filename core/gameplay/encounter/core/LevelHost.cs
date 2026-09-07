@@ -20,6 +20,10 @@ namespace Core.Gameplay.Encounter
             public Id PlayerUnitId;
             public int SequenceIndex;
             public SubscriptionHandle? WonSubscription;
+
+            /// <summary>本次运行所属的关卡定义（GP-04 新增：<see cref="AbortForMap"/> 靠它反查
+            /// <c>map_ref</c>，避免额外一次按 id 查表往返）。</summary>
+            public EncounterLevelDefinition Def = null!;
         }
 
         private readonly SortedDictionary<string, EncounterLevelDefinition> _levels =
@@ -60,12 +64,37 @@ namespace Core.Gameplay.Encounter
                 _activeRuns.Remove(playerUnitId.Value);
             }
 
-            var state = new LevelRunState { PlayerUnitId = playerUnitId, SequenceIndex = 0 };
+            var state = new LevelRunState { PlayerUnitId = playerUnitId, SequenceIndex = 0, Def = def };
             _activeRuns[playerUnitId.Value] = state;
             StartNextEncounter(state, def);
         }
 
         public IReadOnlyList<Id> GetEntryDifficultyOptions(Id levelId) => RequireLevel(levelId).EntryDifficultyOptions;
+
+        public void AbortForMap(Id mapId)
+        {
+            List<string>? toRemove = null;
+            foreach (var kv in _activeRuns)
+            {
+                if (!kv.Value.Def.MapRef.Equals(mapId))
+                {
+                    continue;
+                }
+
+                kv.Value.WonSubscription?.Dispose();
+                (toRemove ??= new List<string>()).Add(kv.Key);
+            }
+
+            if (toRemove == null)
+            {
+                return;
+            }
+
+            foreach (var key in toRemove)
+            {
+                _activeRuns.Remove(key);
+            }
+        }
 
         // -----------------------------------------------------------------
         // 内部辅助

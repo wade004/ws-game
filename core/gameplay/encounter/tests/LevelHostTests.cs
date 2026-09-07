@@ -118,5 +118,55 @@ namespace Tests.Gameplay.Encounter
 
             Assert.Throws<ArgumentException>(() => levelHost.GetEntryDifficultyOptions(new Id("encounter.level.sample_nonexistent")));
         }
+
+        // -------------------------------------------------------------
+        // AbortForMap（GP-04：LeaveMap 未终止旧地图关卡运行的复现与回归）
+        // -------------------------------------------------------------
+
+        /// <summary>GP-04 复现：不终止关卡运行时，离开地图后若旧遭遇实例迟到的 Won 事件仍会被
+        /// <see cref="LevelHost"/> 的订阅接住，误以为"上一遭遇打赢了"而自动开始序列里的下一个——
+        /// <see cref="LevelHost.AbortForMap"/> 必须释放该订阅，之后同一个 Won 事件不再推进关卡。</summary>
+        [Fact]
+        public void AbortForMap_MatchingMap_DisposesSubscription_LateWonEventNoLongerAdvances()
+        {
+            var (levelHost, encounterHost, world, _, bus) = MakeHosts();
+            levelHost.StartLevel(new Id("encounter.level.sample"), Player);
+            var firstInstanceId = Assert.Single(encounterHost.ActiveInstanceIds);
+            Assert.Single(world.SpawnCalls);
+
+            levelHost.AbortForMap(MapA);
+
+            // 模拟"迟到"的 Won 事件（真实场景里对应 GameplayAssembly.LeaveMap 已经调用了
+            // EncounterHost.AbortForMap，不会再有新 Won 产生；这里直接发事件是为了单独验证
+            // LevelHost 这一侧的订阅确实已经断开，不依赖 EncounterHost 那一侧的实现细节）。
+            bus.PublishImmediate(new EncounterWonEvent(firstInstanceId));
+
+            Assert.Single(world.SpawnCalls); // 没有第二次 Start——序列没有被推进
+        }
+
+        [Fact]
+        public void AbortForMap_UnrelatedMap_DoesNotAffectActiveRun()
+        {
+            var (levelHost, encounterHost, world, exprFactory, _) = MakeHosts();
+            levelHost.StartLevel(new Id("encounter.level.sample"), Player);
+
+            levelHost.AbortForMap(new Id("map.unrelated"));
+
+            var firstInstanceId = Assert.Single(encounterHost.ActiveInstanceIds);
+            exprFactory.Set("self.is_alive", true);
+            encounterHost.Evaluate(firstInstanceId);
+
+            Assert.Equal(2, world.SpawnCalls.Count); // 关卡运行未受影响，仍能正常推进到第二个遭遇
+        }
+
+        [Fact]
+        public void AbortForMap_NoActiveRun_DoesNotThrow()
+        {
+            var (levelHost, _, _, _, _) = MakeHosts();
+
+            var ex = Record.Exception(() => levelHost.AbortForMap(MapA));
+
+            Assert.Null(ex);
+        }
     }
 }

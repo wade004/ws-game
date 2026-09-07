@@ -122,12 +122,16 @@ namespace Tests.Gameplay.Common
         [Fact]
         public void Grant_WithSkillsAndTalentPoints_CallsDelegates()
         {
-            var skillCalls = new List<(Id UnitId, Id SkillId, bool Learn)>();
+            // GP-04/RC-05 接线跟进：SkillGranter 委托签名从 (unitId, skillId, learn) 三参改为
+            // (unitId, skillId, sourceId, learn) 四参（见 core/carriers/item/contracts/
+            // SkillGranter.cs，供 SkillHost 按来源引用计数），RewardDispatcher.GrantSkills 现在把
+            // Grant 收到的 sourceId 透传进去——本用例一并断言这个透传。
+            var skillCalls = new List<(Id UnitId, Id SkillId, Id SourceId, bool Learn)>();
             var talentCalls = new List<(Id UnitId, int Amount, Id SourceId)>();
             var currencyCalls = new List<(Id UnitId, Id CurrencyId, long Amount, Id SourceId)>();
 
             var dispatcher = new Core.Gameplay.Common.RewardDispatcher(
-                skillGranter: (unitId, skillId, learn) => skillCalls.Add((unitId, skillId, learn)),
+                skillGranter: (unitId, skillId, sourceId, learn) => skillCalls.Add((unitId, skillId, sourceId, learn)),
                 talentPointGranter: (unitId, amount, sourceId) => talentCalls.Add((unitId, amount, sourceId)),
                 currencyGranter: (unitId, currencyId, amount, sourceId) => currencyCalls.Add((unitId, currencyId, amount, sourceId)));
 
@@ -141,6 +145,7 @@ namespace Tests.Gameplay.Common
 
             Assert.Single(skillCalls);
             Assert.True(skillCalls[0].Learn);
+            Assert.Equal(Source, skillCalls[0].SourceId);
             Assert.Single(talentCalls);
             Assert.Equal(1, talentCalls[0].Amount);
             Assert.Single(currencyCalls);

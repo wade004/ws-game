@@ -10,16 +10,24 @@
 // AnimationLayerTests.cs 顶部判断记录——本文件验证的是 UnityViewFactory 这一个单元"默认动画接线"
 // 这一具体行为，不需要完整游戏世界装配。
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using Adapter.Unity.EngineAdapter;
 using Adapter.Unity.Presentation;
 using Core.Foundation.Common;
+using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
+using Core.Rules.Common;
+using Core.Foundation.SimLoop;
 using NUnit.Framework;
+using Presentation.Assembly;
 using Presentation.Common;
 using Presentation.Render;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 // 判断记录：UnityEngine 自身也有一个名为 DisplayInfo 的结构体（显示器信息，与本模块的
 // Core.Foundation.DisplayInfo.DisplayInfo 外形信息完全是两回事），本文件同时 using
@@ -164,6 +172,181 @@ namespace Adapter.Unity.Tests.Runtime
             var root = _renderer.GetSpriteRoot(spriteView.EngineHandle);
             Assert.IsNotNull(root);
             Assert.IsNull(root!.GetComponent<UnityFrameAnimPlayer>(), "非生物分类不应该挂接默认动画（item/gobj/projectile 不会收到任何状态切换事件）");
+        }
+
+        // -----------------------------------------------------------------
+        // GP-02 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        // 默认动画此前只接了 StateChanged -> Play 这一半，播放完成从不回头通知 AnimStateMachine，
+        // 也不订阅 unit.respawned/entity.destroyed 清理——受击/死亡后角色永久锁死，复活/销毁后旧
+        // 播放器引用与状态记账悬空残留。
+        // -----------------------------------------------------------------
+
+        /// <summary>受击（Hit，瞬态优先级锁）播放完成后必须能再次进入 Move——修复前
+        /// UnityFrameAnimPlayer.OnComplete 从不调用 AnimStateMachine.NotifyTransientStateFinished，
+        /// Hit 状态会永久锁住后续全部状态切换（含本用例断言的 move）。</summary>
+        [UnityTest]
+        public IEnumerator CreateView_AfterHitClipCompletes_CanTransitionToMove()
+        {
+            var (bus, info, entityId, displayInfo) = BuildFixture();
+            var factory = new UnityViewFactory(_renderer, new RenderConventionHost(), displayInfo, _resourceLoader, bus: bus, dataRegistry: null);
+            var view = factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
+            var spriteView = (UnitySpriteView)view;
+            var root = _renderer.GetSpriteRoot(spriteView.EngineHandle);
+            var player = root!.GetComponent<UnityFrameAnimPlayer>();
+
+            // 单帧剪辑（dataRegistry:null 走单帧退化路径）用 RegisterSingleFrameClip 登记，
+            // frameRate 固定 1.0（见该方法判断记录），即单帧播放时长约 1 秒才会触发 OnComplete
+            // ——用自己的订阅精确等待完成，不用固定帧数猜时长（不同机器/负载下每帧真实耗时不同，
+            // 固定帧数在慢机器上可能等不到 1 秒）。
+            var hitCompleted = false;
+            player.OnComplete(() => hitCompleted = true);
+
+            bus.PublishImmediate(new CombatDamageDealtEvent(
+                new Id("unit.gp02_attacker"), entityId, new Id("school.physical"), 5.0,
+                isCrit: false, HitResult.Hit));
+            var hitClipId = player.CurrentClipId;
+            Assert.IsTrue(hitClipId.HasValue);
+            Assert.IsTrue(hitClipId!.Value.Value.EndsWith(".hit", StringComparison.Ordinal));
+
+            var deadline = Time.realtimeSinceStartup + 5f;
+            while (!hitCompleted && Time.realtimeSinceStartup < deadline)
+            {
+                yield return new WaitForFixedUpdate();
+                yield return null;
+            }
+            Assert.IsTrue(hitCompleted, "Hit 单帧剪辑（约 1 秒时长）应当在 5 秒超时前触发 OnComplete");
+
+            bus.PublishImmediate(new Core.Carriers.Common.UnitStateChangedEvent(entityId, "Idle", "Walk"));
+            var moveClipId = player.CurrentClipId;
+
+            Assert.IsTrue(moveClipId.HasValue);
+            Assert.IsTrue(
+                moveClipId!.Value.Value.EndsWith(".move", StringComparison.Ordinal),
+                $"Hit 剪辑播放完成后应当已经回落到 locomotion，move 状态切换应当生效（GP-02 根治），实际仍是：{moveClipId.Value}");
+        }
+
+        /// <summary>entity.destroyed 后同一个 entityId 被新实体复用（重新 CreateView）：新实例必须从
+        /// Idle 开始，不能继承旧实体死亡前的终态锁——修复前本工厂从不订阅 entity.destroyed，
+        /// AnimStateMachine 里的旧记账会一直残留。</summary>
+        [UnityTest]
+        public IEnumerator EntityDestroyed_SameIdReused_NewViewStartsFromIdle_NotStuckOnOldDeathLock()
+        {
+            var (bus, info, entityId, displayInfo) = BuildFixture();
+            var factory = new UnityViewFactory(_renderer, new RenderConventionHost(), displayInfo, _resourceLoader, bus: bus, dataRegistry: null);
+
+            var firstView = factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
+            var firstRoot = _renderer.GetSpriteRoot(((UnitySpriteView)firstView).EngineHandle);
+            var firstPlayer = firstRoot!.GetComponent<UnityFrameAnimPlayer>();
+
+            bus.PublishImmediate(new UnitDiedEvent(entityId, killerId: null));
+            Assert.IsTrue(firstPlayer.CurrentClipId!.Value.Value.EndsWith(".death", StringComparison.Ordinal));
+
+            bus.PublishImmediate(new EntityDestroyedEvent(entityId));
+            firstView.Destroy();
+
+            // 同一个 entityId 被一个全新实体复用（同真实场景"旧实体销毁、新实体在同一帧/后续帧
+            // 生成、entityId 由 WorldSim 复用"）。
+            var secondView = factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
+            var secondRoot = _renderer.GetSpriteRoot(((UnitySpriteView)secondView).EngineHandle);
+            var secondPlayer = secondRoot!.GetComponent<UnityFrameAnimPlayer>();
+            Assert.AreNotSame(firstPlayer, secondPlayer, "新实体应当挂接一个全新的播放器组件");
+
+            bus.PublishImmediate(new Core.Carriers.Common.UnitStateChangedEvent(entityId, "Idle", "Walk"));
+            var moveClipId = secondPlayer.CurrentClipId;
+
+            Assert.IsTrue(moveClipId.HasValue);
+            Assert.IsTrue(
+                moveClipId!.Value.Value.EndsWith(".move", StringComparison.Ordinal),
+                $"新实体应当能正常进入 move 状态（AnimStateMachine 记账已随 entity.destroyed 清空），实际：{moveClipId.Value}");
+
+            yield break;
+        }
+
+        /// <summary>unit.respawned 后同一个播放器组件必须能重新进入 Move（不是"销毁重建"，是原地
+        /// 复用）——修复前本工厂从不订阅 unit.respawned，死亡是终态锁，复活后角色会永久卡在死亡
+        /// 姿势。</summary>
+        [Test]
+        public void UnitRespawned_SamePlayerInstance_CanTransitionToMoveAgain()
+        {
+            var (bus, info, entityId, displayInfo) = BuildFixture();
+            var factory = new UnityViewFactory(_renderer, new RenderConventionHost(), displayInfo, _resourceLoader, bus: bus, dataRegistry: null);
+            var view = factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
+            var root = _renderer.GetSpriteRoot(((UnitySpriteView)view).EngineHandle);
+            var player = root!.GetComponent<UnityFrameAnimPlayer>();
+
+            bus.PublishImmediate(new UnitDiedEvent(entityId, killerId: null));
+            Assert.IsTrue(player.CurrentClipId!.Value.Value.EndsWith(".death", StringComparison.Ordinal));
+
+            bus.PublishImmediate(new UnitRespawnedEvent(entityId, RespawnPolicy.RespawnPoint));
+            bus.PublishImmediate(new Core.Carriers.Common.UnitStateChangedEvent(entityId, "Idle", "Walk"));
+
+            var moveClipId = player.CurrentClipId;
+            Assert.IsTrue(moveClipId.HasValue);
+            Assert.IsTrue(
+                moveClipId!.Value.Value.EndsWith(".move", StringComparison.Ordinal),
+                $"复活后同一播放器应当能正常进入 move 状态（GP-02 根治），实际仍是：{moveClipId.Value}");
+        }
+
+        // -----------------------------------------------------------------
+        // GP-06 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        // display.anim_set 声明了 resource_ref、但 UnityResourceLoader 尚未加载进缓存（冷启动）时，
+        // 修复前直接登记单帧 fallback、从不 LoadAsync，纸娃娃永久退化成白点。用真实
+        // data/_sample/display/display.anim_set.sample_hero（引用的 anim.sample_hero_* 资源文件
+        // 当前占位资产集里确实不存在，见该表判断记录）验证：冷启动仍然立即可用（不抛异常、
+        // CurrentClipId 有值），且确实发起了一次真正的加载请求（不是"什么都不做的永久 fallback"）。
+        // -----------------------------------------------------------------
+
+        [UnityTest]
+        public IEnumerator CreateView_ColdAnimSetResource_ImmediatelyUsable_AndTriggersRealLoadRequest()
+        {
+            var host = UnityEngineHost.Ensure();
+            var definitions = EventKeys.All.Select(k => new EventDefinition(k, k.Domain, Array.Empty<string>())).ToList();
+            var catalog = EventCatalog.FromDefinitions(definitions);
+            var bus = new EventBus(catalog, new EventBusOptions { StrictCatalog = false, AuditLog = false });
+
+            var repoRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", ".."));
+            var contentFs = new UnityFileSystem(readOnlyContentMode: true, contentRoot: repoRoot);
+            var sampleSource = new FileSystemDataSource(contentFs, "data/_sample");
+            var frameworkSource = new FileSystemDataSource(contentFs, "data/_framework");
+
+            var options = PresentationSchemaCatalog.CreateOptions();
+            options.FailOnUnknownTable = false;
+            var registry = new DataRegistry(sampleSource, bus, options);
+            PresentationSchemaCatalog.RegisterAll(registry);
+            var report = registry.LoadAll(new IDataSource[] { frameworkSource, sampleSource });
+            Assert.IsFalse(report.IsBlocking, "测试数据集应当能无阻断加载：" + string.Join("; ", report.Issues));
+
+            var displayInfo = new DisplayInfoRegistry(registry, bus);
+            var entityId = new Id("unit.gp06_cold_start_entity");
+            var factory = new UnityViewFactory(host.Renderer2D, new RenderConventionHost(), displayInfo, host.ResourceLoader, bus: bus, dataRegistry: registry);
+
+            var view = factory.CreateView(ViewKind.Unit, new Id("creature.sample_hero"), entityId);
+            var spriteView = (UnitySpriteView)view;
+            var root = host.Renderer2D.GetSpriteRoot(spriteView.EngineHandle);
+            var player = root!.GetComponent<UnityFrameAnimPlayer>();
+
+            // 冷启动立即可用：不抛异常，Idle 状态已经登记了某个 clipId（单帧 fallback 或真实剪辑，
+            // 取决于本次运行是否恰好已有缓存），Rig.PlayClip 不会因为资源没加载完就整个哑掉。
+            Assert.IsTrue(player.HasClip(new Id($"anim.default.display.map.sample_hero.idle")));
+
+            // GP-06 核心断言：确实发起了一次真正的加载请求（PendingLoadCount 短暂 > 0，或者最终
+            // 收到加载完成/失败的诊断），不是"TryGetEffect 未命中就登记 fallback、此后再也不管"。
+            var sawPendingLoad = host.ResourceLoader.PendingLoadCount > 0;
+            var timeout = 5f;
+            while (!sawPendingLoad && timeout > 0f)
+            {
+                sawPendingLoad = host.ResourceLoader.PendingLoadCount > 0;
+                host.ResourceLoader.Tick();
+                yield return null;
+                timeout -= 0.02f;
+            }
+
+            Assert.IsTrue(
+                sawPendingLoad,
+                "GP-06 根治：display.anim_set 声明了 resource_ref 但缓存未命中时，必须实际发起一次 LoadAsync，" +
+                "不能只登记单帧 fallback 就再也不管——PendingLoadCount 应当在加载排队期间短暂大于 0");
+
+            view.Destroy();
         }
     }
 }

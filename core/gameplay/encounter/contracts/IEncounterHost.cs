@@ -34,6 +34,18 @@ namespace Core.Gameplay.Encounter
         /// 具体收尾行为，见 README 判断记录，具体清理交给调用方按需处理）。</summary>
         void Abort(Id instanceId);
 
+        /// <summary>
+        /// 按地图批量终止（GP-04 判断记录，architecture/落地计划/audit-b3b91ee-20260907/
+        /// code-review.md）：把 <paramref name="mapId"/> 下全部仍活跃的实例标记为不再活跃（语义
+        /// 同对每一个逐个调用 <see cref="Abort"/>），用于地图切换——离开一张地图时，绑定在该地图上
+        /// 的遭遇不应继续在新地图的上下文里被 <see cref="Evaluate"/>（波次/胜负条件引用的单位位置、
+        /// 场地边界等都已不再对应新地图）。不销毁参战单位、不发 <see cref="EncounterWonEvent"/>/
+        /// <see cref="EncounterLostEvent"/>（离开地图不是"打赢/打输"）。返回本次实际终止的实例 id
+        /// 列表（未处于活跃状态或不属于该地图的实例不计入），供调用方（<see cref="ILevelHost"/>）
+        /// 据此清理自己关联的运行记录。
+        /// </summary>
+        IReadOnlyList<Id> AbortForMap(Id mapId);
+
         /// <summary>查询一个实例当前的阶段/波次/活跃状态快照。<paramref name="instanceId"/> 不存在时抛
         /// <see cref="System.ArgumentException"/>。</summary>
         EncounterState GetState(Id instanceId);

@@ -28,5 +28,17 @@ namespace Core.Gameplay.Encounter
         /// <summary><c>encounter.level.entry_difficulty_options</c>，供 UI 查询可选难度档位。
         /// <paramref name="levelId"/> 未登记时抛 <see cref="System.ArgumentException"/>。</summary>
         IReadOnlyList<Id> GetEntryDifficultyOptions(Id levelId);
+
+        /// <summary>
+        /// 按地图终止当前进行中的关卡运行（GP-04 判断记录，architecture/落地计划/
+        /// audit-b3b91ee-20260907/code-review.md）：若某玩家当前关卡运行绑定的 <c>map_ref</c>
+        /// 等于 <paramref name="mapId"/>，释放其 <see cref="EncounterWonEvent"/> 订阅并从活跃运行表
+        /// 移除——避免地图卸载后订阅继续存活（下次在别的地图巧合触发同一玩家的 Won 事件时误判为
+        /// "上一遭遇打赢了，自动开始下一个"），或调用方误以为关卡仍在进行。不终止
+        /// <see cref="IEncounterHost"/> 侧的具体遭遇实例——调用方（<c>GameplayAssembly.LeaveMap</c>）
+        /// 已经单独调用 <see cref="IEncounterHost.AbortForMap"/> 处理那一半，两者顺序不敏感。
+        /// 没有匹配的进行中运行时空操作。
+        /// </summary>
+        void AbortForMap(Id mapId);
     }
 }

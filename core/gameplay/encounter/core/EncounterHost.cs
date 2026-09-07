@@ -267,6 +267,20 @@ namespace Core.Gameplay.Encounter
             instance.IsActive = false;
         }
 
+        public IReadOnlyList<Id> AbortForMap(Id mapId)
+        {
+            var aborted = new List<Id>();
+            foreach (var id in _instanceOrder)
+            {
+                if (_instances.TryGetValue(id.Value, out var instance) && instance.IsActive && instance.MapId.Equals(mapId))
+                {
+                    instance.IsActive = false;
+                    aborted.Add(id);
+                }
+            }
+            return aborted;
+        }
+
         public EncounterState GetState(Id instanceId)
         {
             var instance = RequireInstance(instanceId);

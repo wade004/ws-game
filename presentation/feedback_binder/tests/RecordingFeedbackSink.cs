@@ -26,5 +26,9 @@ namespace Tests.Presentation.FeedbackBinder
         public void ShakeCamera(Id profileId) => Shakes.Add(profileId);
 
         public void Flash(Id entityId, Id profileId) => Flashes.Add((entityId, profileId));
+
+        /// <summary>GP-09 新增：测试按需手工置位（模拟"vfx/sfx 首次加载中"），默认 false（同真实
+        /// <c>CompositeFeedbackSink</c> 在没有任何冷资源排队时的取值）。</summary>
+        public bool HasPendingPlayback { get; set; }
     }
 }

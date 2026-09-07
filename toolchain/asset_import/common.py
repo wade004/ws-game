@@ -98,6 +98,59 @@ def strip_domain(logical_id: str) -> str:
     return logical_id.split(".", 1)[1]
 
 
+def flatten_id_segment(bare_name: str) -> str:
+    """把已去掉 domain 前缀的 id 剩余部分编码为扁平文件名/资源引用片段。
+
+    判断记录（TOOL-02）：旧实现直接 ``.replace(".", "_")``，会让"点分段"与"本就带下划线"
+    的不同合法 id 归一到同一个物理文件名——例如 ``sfx.fire.hit``（strip_domain 后
+    ``fire.hit``）与合法的 ``sfx.fire_hit``（strip_domain 后 ``fire_hit``）都会得到
+    ``fire_hit``，第二次导入会静默覆盖第一次写出的音频/图集文件（且 sfx.def/vfx.def 两行
+    最终指向同一份物理资源）。
+
+    改法：把点号（段分隔符）替换成双下划线，单个下划线原样保留——与
+    presentation/展示层已经在用的"结构分隔用双下划线"口径一致（见 14 §1.2 纸娃娃扁平
+    文件名模板 ``<...>__<direction_slot>__<layer_id>``），且不影响绝大多数本就只含单下划线、
+    不含点号的既有 id 的落盘文件名。仍有极端情况（id 本身就显式写了双下划线，恰好撞上某个
+    点分 id 编码后的结果）不能仅靠编码规则排除，由调用方在写入前另做
+    ``check_no_resource_collision`` 兜底，碰撞时报错而不是覆盖。
+    """
+    return bare_name.replace(".", "__")
+
+
+def check_no_resource_collision(
+    table_path: Path,
+    new_id: str,
+    new_resource_refs: list[str],
+) -> None:
+    """写入 sfx.def/vfx.def 前的碰撞防护：不同 id 的记录不得共用同一条物理 resource_ref
+    （含 variants）。
+
+    判断记录（TOOL-02）：``flatten_id_segment`` 已让归一化本身不再产生碰撞，但这里作为
+    运行期兜底防线保留显式校验——碰撞时报错而不是静默覆盖（旧行为：``merge_write_row``
+    按 id 合并，不同 id 各自成行，但两行若指向同一物理文件，后写入的源文件会覆盖先写入的，
+    早前写的资源就此损坏且不可见）。同一 id 的重复导入（更新/重跑同一资源）不算碰撞。
+    """
+    if not table_path.exists():
+        return
+    existing = read_json(table_path)
+    if not isinstance(existing, dict):
+        return
+    new_refs = set(new_resource_refs)
+    for row in existing.get("rows", []):
+        row_id = row.get("id")
+        if row_id == new_id:
+            continue
+        row_refs = set(row.get("variants") or [])
+        if row.get("resource_ref"):
+            row_refs.add(row["resource_ref"])
+        collided = row_refs & new_refs
+        if collided:
+            raise AssetImportError(
+                f"resource_ref 碰撞：id '{new_id}' 与既有记录 '{row_id}' 共用同一物理资源引用 "
+                f"{sorted(collided)}，请检查 id 是否重复或存在编码冲突后重试（不会覆盖既有资源）"
+            )
+
+
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 

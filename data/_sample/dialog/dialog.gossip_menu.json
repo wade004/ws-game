@@ -12,7 +12,7 @@
         },
         {
           "text_key": "l10n.dialog.sample_hunter.option_turn_in",
-          "visible_if": "quest.is_active(quest.sample_hunt)",
+          "visible_if": "quest.is_active(quest.sample_hunt) or quest.is_objectives_complete(quest.sample_hunt)",
           "actions": [ { "kind": "quest_turn_in", "ref": "quest.sample_hunt" } ]
         },
         {

@@ -14,8 +14,9 @@ namespace Core.Gameplay.Quest
     /// <c>quest.is_active(quest.deliver_letter)</c> 里的参数 <c>quest.deliver_letter</c> 会被
     /// 误判成一次新的 <c>quest.deliver_letter</c> 引用而不是 Id 字面量（ADR-0015，任务书原句提醒）。
     /// <see cref="BuildStandalone"/> 产出的独立 schema 没有这个问题：<c>quest</c> 分组只精确登记
-    /// <see cref="QuestExprGroupProvider"/> 实际认识的四个 key（<c>is_active</c>/<c>is_completed</c>/
-    /// <c>is_available</c>/<c>objective_progress</c>），<c>quest.deliver_letter</c> 这类"quest 域名
+    /// <see cref="QuestExprGroupProvider"/> 实际认识的五个 key（<c>is_active</c>/<c>is_completed</c>/
+    /// <c>is_available</c>/<c>is_objectives_complete</c>/<c>objective_progress</c>，
+    /// <c>is_objectives_complete</c> 为 GP-05 收边新增，见该类型判断记录），<c>quest.deliver_letter</c> 这类"quest 域名
     /// 但不是这四个 key 之一"的点分标识符找不到匹配签名，按 ADR-0015 规则退化为 Id 字面量解析，
     /// 与期望行为一致。
     /// </summary>
@@ -28,6 +29,7 @@ namespace Core.Gameplay.Quest
             schema.Register(ExprGroups.Quest, "is_active", ExprValueKind.Bool, ExprValueKind.Id);
             schema.Register(ExprGroups.Quest, "is_completed", ExprValueKind.Bool, ExprValueKind.Id);
             schema.Register(ExprGroups.Quest, "is_available", ExprValueKind.Bool, ExprValueKind.Id);
+            schema.Register(ExprGroups.Quest, "is_objectives_complete", ExprValueKind.Bool, ExprValueKind.Id);
             schema.Register(ExprGroups.Quest, "objective_progress", ExprValueKind.Int, ExprValueKind.Id, ExprValueKind.Int);
 
             schema.Register(ExprGroups.Player, "level", ExprValueKind.Int);

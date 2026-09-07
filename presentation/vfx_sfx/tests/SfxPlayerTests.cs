@@ -228,5 +228,33 @@ namespace Tests.Presentation.VfxSfx
             loader.CompletePending(new Id("res.footstep"));
             Assert.DoesNotContain(audio.ActiveSfxPlaybacks.Values, p => p.SoundId.Equals(new Id("res.footstep")));
         }
+
+        // -----------------------------------------------------------------
+        // GP-09 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        // PendingPlayCount 供 CompositeFeedbackSink/FeedbackBinder.HasPendingPlayback 把"首次
+        // 异步加载中的 sfx"计入离散步表现完成门。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void PendingPlayCount_ZeroWhenNothingQueued()
+        {
+            var player = new SfxPlayer(new StubAudio(), new RngHost(1), BuildCatalog());
+
+            Assert.Equal(0, player.PendingPlayCount);
+        }
+
+        [Fact]
+        public void PendingPlayCount_OneWhileLoading_ZeroAfterLoadCompletes()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), resourceLoader: loader);
+
+            player.Play(PlainSfx, new Vec2(1, 1));
+            Assert.Equal(1, player.PendingPlayCount);
+
+            loader.CompletePending(new Id("res.footstep"));
+            Assert.Equal(0, player.PendingPlayCount);
+        }
     }
 }

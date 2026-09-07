@@ -1037,6 +1037,59 @@ class VfxCommandTest(ImportAssetsTestBase):
             self.assertEqual("aura", row["category"])
             self.assertEqual(attach_mode, row["attach_mode"])
 
+    def test_dotted_and_underscored_ids_do_not_collide(self) -> None:
+        """TOOL-02 复现/回归（VFX 侧）：'vfx.fire.impact' 与合法的 'vfx.fire_impact' 曾被旧的
+        .replace('.', '_') 同时归一成 'fire_impact'，第二次导入会把第一次的图集/帧数据目录
+        整个覆盖掉。修复后二者必须落在各自独立的目录下。"""
+        case_dir = self.new_case_dir("vfx_no_collision")
+        assets_root, data_root = self.roots(case_dir)
+
+        def make_frames(name: str, color: tuple[int, int, int, int]) -> Path:
+            frames_dir = case_dir / name
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            for i in range(2):
+                make_layer_image((6, 6), color=color).save(frames_dir / f"frame_{i:04d}.png")
+            return frames_dir
+
+        frames_a = make_frames("frames_dotted", (255, 0, 0, 255))
+        frames_b = make_frames("frames_underscored", (0, 255, 0, 255))
+
+        code_a, output_a = run_cli(
+            [
+                "vfx", str(frames_a), "--dataset", "_test", "--id", "vfx.fire.impact",
+                "--assets-root", str(assets_root), "--data-root", str(data_root),
+            ]
+        )
+        self.assertEqual(0, code_a, msg=output_a)
+
+        code_b, output_b = run_cli(
+            [
+                "vfx", str(frames_b), "--dataset", "_test", "--id", "vfx.fire_impact",
+                "--assets-root", str(assets_root), "--data-root", str(data_root),
+            ]
+        )
+        self.assertEqual(0, code_b, msg=output_b)
+
+        vfx_def = json.loads((data_root / "_test" / "vfx" / "vfx.def.json").read_text(encoding="utf-8"))
+        by_id = {row["id"]: row for row in vfx_def["rows"]}
+        self.assertEqual(2, len(by_id), msg=f"两条不同 id 的记录被合并/覆盖: {by_id}")
+        self.assertNotEqual(
+            by_id["vfx.fire.impact"]["resource_ref"], by_id["vfx.fire_impact"]["resource_ref"]
+        )
+
+        vfx_root = assets_root / "_test" / "vfx"
+        subdirs = sorted(p.name for p in vfx_root.iterdir() if p.is_dir())
+        self.assertEqual(2, len(subdirs), msg=f"应各自落盘独立目录: {subdirs}")
+
+        # 用 check 交叉验证：两条记录各自的图集/帧数据都能被找到（对齐 check_cmd 的归一化口径）。
+        code_check, output_check = run_cli(
+            [
+                "check", "--dataset", "_test", "--assets-root", str(assets_root),
+                "--data-root", str(data_root), "--only", "vfx",
+            ]
+        )
+        self.assertEqual(0, code_check, msg=output_check)
+
 
 class SfxCommandTest(ImportAssetsTestBase):
     def _write_silent_wav(self, path: Path, seconds: float = 0.1, framerate: int = 8000) -> None:
@@ -1148,6 +1201,83 @@ class SfxCommandTest(ImportAssetsTestBase):
         )
         self.assertEqual(1, code)
         self.assertIn(".wav", output)
+
+    def test_dotted_and_underscored_ids_do_not_collide(self) -> None:
+        """TOOL-02 复现/回归：'sfx.fire.hit'（strip_domain 后 'fire.hit'）与合法的
+        'sfx.fire_hit'（strip_domain 后 'fire_hit'）曾被旧的 .replace('.', '_') 同时
+        归一成 'fire_hit'，第二次导入会静默覆盖第一次写出的音频文件、且两条 sfx.def
+        记录指向同一份物理资源。修复后二者必须各自拥有独立的音频文件与 resource_ref。"""
+        case_dir = self.new_case_dir("sfx_cmd_no_collision")
+        assets_root, data_root = self.roots(case_dir)
+        wav_a = case_dir / "a.wav"
+        wav_b = case_dir / "b.wav"
+        self._write_silent_wav(wav_a)
+        self._write_silent_wav(wav_b)
+
+        code_a, output_a = run_cli(
+            [
+                "sfx", str(wav_a), "--dataset", "_test", "--id", "sfx.fire.hit",
+                "--assets-root", str(assets_root), "--data-root", str(data_root),
+            ]
+        )
+        self.assertEqual(0, code_a, msg=output_a)
+
+        code_b, output_b = run_cli(
+            [
+                "sfx", str(wav_b), "--dataset", "_test", "--id", "sfx.fire_hit",
+                "--assets-root", str(assets_root), "--data-root", str(data_root),
+            ]
+        )
+        self.assertEqual(0, code_b, msg=output_b)
+
+        sfx_def = json.loads((data_root / "_test" / "sfx" / "sfx.def.json").read_text(encoding="utf-8"))
+        by_id = {row["id"]: row for row in sfx_def["rows"]}
+        self.assertEqual(2, len(by_id), msg=f"两条不同 id 的记录被合并/覆盖: {by_id}")
+        self.assertNotEqual(
+            by_id["sfx.fire.hit"]["resource_ref"], by_id["sfx.fire_hit"]["resource_ref"]
+        )
+
+        audio_files = sorted((assets_root / "_test" / "sfx").glob("*.wav"))
+        self.assertEqual(2, len(audio_files), msg=f"应各自落盘独立音频文件: {audio_files}")
+
+    def test_resource_ref_collision_is_rejected_not_overwritten(self) -> None:
+        """碰撞防护兜底：即使人为构造出会撞车的 resource_ref，也必须报错而不是覆盖既有资源
+        （TOOL-02 验收口径）。用两次同 id 但故意在中途手工在表里塞入一条假冲突记录来触发。"""
+        case_dir = self.new_case_dir("sfx_cmd_forced_collision")
+        assets_root, data_root = self.roots(case_dir)
+        wav_a = case_dir / "a.wav"
+        self._write_silent_wav(wav_a)
+
+        code_a, output_a = run_cli(
+            [
+                "sfx", str(wav_a), "--dataset", "_test", "--id", "sfx.thud_a",
+                "--assets-root", str(assets_root), "--data-root", str(data_root),
+            ]
+        )
+        self.assertEqual(0, code_a, msg=output_a)
+
+        sfx_def_path = data_root / "_test" / "sfx" / "sfx.def.json"
+        original_audio = (assets_root / "_test" / "sfx" / "thud_a_v0.wav").read_bytes()
+
+        # 手工在表里伪造一条记录，其 resource_ref 恰好等于即将导入的新 id 天然会生成的
+        # resource_ref（'sfx.thud_c_v0'），模拟"编码本应不冲突、但物理引用仍然撞车"的场景。
+        table = json.loads(sfx_def_path.read_text(encoding="utf-8"))
+        table["rows"].append({"id": "sfx.thud_x", "layer": "sfx", "priority": 0, "resource_ref": "sfx.thud_c_v0"})
+        sfx_def_path.write_text(json.dumps(table, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        wav_c = case_dir / "c.wav"
+        self._write_silent_wav(wav_c)
+        code_c, output_c = run_cli(
+            [
+                "sfx", str(wav_c), "--dataset", "_test", "--id", "sfx.thud_c",
+                "--assets-root", str(assets_root), "--data-root", str(data_root),
+            ]
+        )
+        self.assertNotEqual(0, code_c)
+        self.assertIn("碰撞", output_c)
+        # 既有物理音频文件不应被覆盖，且不应新建 thud_c 的音频文件。
+        self.assertEqual(original_audio, (assets_root / "_test" / "sfx" / "thud_a_v0.wav").read_bytes())
+        self.assertFalse((assets_root / "_test" / "sfx" / "thud_c_v0.wav").exists())
 
 
 class CheckSfxReferenceTest(ImportAssetsTestBase):

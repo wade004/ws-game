@@ -406,6 +406,12 @@ namespace Game.Template
             // 推进不受 renderTicking 门槛限制。
             Presentation.Feedback.Update(unscaledDelta);
 
+            // GP-03 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：同上，
+            // VfxPlayer.Update(dt) 也不受 renderTicking 门槛限制——已在播放的循环特效应当继续按
+            // lifetime 正常停止、首次异步加载的超时倒计时应当继续推进，不因为当前不在 InWorld/
+            // Pause 就卡住（同 FrameworkResidentHost.OnFrameTick 同款判断记录）。
+            Presentation.Vfx.Update(unscaledDelta);
+
             if (!renderTicking)
             {
                 return;
@@ -420,9 +426,28 @@ namespace Game.Template
                 Presentation.Camera.Update(alpha);
             }
 
+            // GP-10 根治：同 FrameworkResidentHost.OnFrameTick 同款判断记录（拍板 6）——推进每个
+            // 仍存活的 sprite 型 View 持有的 ICharacterRig.ProceduralAnim 时间轴，此前本模板也漏了
+            // 这一步。
+            AdvanceCharacterRigs();
+
             FloatingText.Tick((float)unscaledDelta);
             Freeze.Tick(unscaledDelta);
             Flash.Tick(unscaledDelta);
+        }
+
+        /// <summary>GP-10 根治新增：同 <see cref="Adapter.Unity.Shell.FrameworkResidentHost"/>
+        /// 同名方法。</summary>
+        private void AdvanceCharacterRigs()
+        {
+            var views = ViewFactory.CreatedViews;
+            for (var i = 0; i < views.Count; i++)
+            {
+                if (views[i].IsAlive && views[i] is Presentation.Render.IHasCharacterRig hasRig)
+                {
+                    hasRig.Rig.Update(Time.deltaTime);
+                }
+            }
         }
 
         private void OnDestroy()

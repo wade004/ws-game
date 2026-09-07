@@ -63,8 +63,16 @@ namespace Core.Gameplay.Quest
 
         public void Load(JsonValue data)
         {
+            var player = _playerUnitProvider();
+
+            // GP-01 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：旧实现
+            // 只对快照里出现的 questId 调用 RestoreProgress，快照未覆盖到的任务（包括"空档"——
+            // 即当前 questId 集合为空，运行期却已接取/完成了任务）原样残留，读档无法回滚到保存点。
+            // 改法：JsonNull（段显式为空）与"空对象快照"都按同一语义处理——把该玩家单位的任务状态
+            // 整体替换为快照内容（空快照即清空全部任务），而不是"什么都不做"。
             if (data is JsonNull)
             {
+                _host.ReplaceAllProgress(player, Array.Empty<QuestProgress>());
                 return;
             }
             if (!(data is JsonObject obj))
@@ -72,8 +80,10 @@ namespace Core.Gameplay.Quest
                 throw new FormatException($"player.quest_state 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
             }
 
-            var player = _playerUnitProvider();
-
+            // 先把整段 JSON 完整解析/校验进临时列表——任何一条格式非法都会在这里抛异常，此时还
+            // 没有触碰 QuestHost 的任何运行期状态；全部校验通过后才一次性提交替换，避免"解析到一半
+            // 失败、部分任务已被清空"的半提交状态（见 GP-01 验收"临时状态校验后一次提交"）。
+            var snapshot = new List<QuestProgress>(obj.Count);
             foreach (var kv in obj)
             {
                 var questId = new Id(kv.Key);
@@ -112,8 +122,10 @@ namespace Core.Gameplay.Quest
                     lastCompletedDay = lcdLong;
                 }
 
-                _host.RestoreProgress(player, new QuestProgress(questId, state, counts, completionCount, lastCompletedDay));
+                snapshot.Add(new QuestProgress(questId, state, counts, completionCount, lastCompletedDay));
             }
+
+            _host.ReplaceAllProgress(player, snapshot);
         }
     }
 }

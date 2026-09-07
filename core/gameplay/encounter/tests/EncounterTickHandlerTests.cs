@@ -34,6 +34,8 @@ namespace Tests.Gameplay.Encounter
 
             public void Abort(Id instanceId) => throw new NotImplementedException();
 
+            public IReadOnlyList<Id> AbortForMap(Id mapId) => throw new NotImplementedException();
+
             public Core.Gameplay.Encounter.EncounterState GetState(Id instanceId) => throw new NotImplementedException();
 
             public IReadOnlyList<Id> ActiveInstanceIds { get; } = new[] { InstanceA };

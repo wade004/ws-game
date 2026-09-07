@@ -166,6 +166,25 @@ namespace Core.Gameplay.Quest
             };
 
             Publish(new QuestAcceptedEvent(unitId, questId));
+
+            // GP-08 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：非消耗型
+            // （consumeOnProgress == false）collect 目标此前只能靠后续 item.added/item.removed 事件
+            // 联动推进（见 HandleItemAdded/HandleItemRemoved 的 SetObjectiveAbsolute 分支）——刚接取
+            // 时无条件从 0 起算，若玩家在接取之前就已经持有足量目标物品（先攒够材料、再去接任务这一
+            // 常见玩法顺序），任务会错误地显示"尚未收集"，必须再触发一次物品增减事件才能被动纠正。
+            // 改法：接取的一瞬间就按当前库存把非消耗目标的进度设为绝对值（可能因此直接
+            // ObjectivesComplete，见 SetObjectiveAbsolute -> ApplyObjectiveCount 的双向同步）。消耗型
+            // （consumeOnProgress == true）目标不在此列——它的语义是"接取后主动上交/消耗"，不是
+            // "统计当前持有量"，接取时不应该倒扣已有库存（GP-08 验收明确只覆盖 nonconsume）。
+            for (var i = 0; i < def.Objectives.Count; i++)
+            {
+                var objective = def.Objectives[i];
+                if (objective.Type == QuestObjectiveType.Collect && !objective.ConsumeOnProgress)
+                {
+                    SetObjectiveAbsolute(unitId, questId, i, _inventoryHost.CountOf(unitId, objective.TargetRef));
+                }
+            }
+
             return true;
         }
 
@@ -294,24 +313,61 @@ namespace Core.Gameplay.Quest
             }
         }
 
-        /// <summary>供 <see cref="QuestPersistable"/> 读档恢复用：直接注入一份运行期记录（不做
-        /// Accept/TurnIn 的合法性检查、不发任何事件——读档不是业务转移，见 10 第 3 节步骤 6"随存档
-        /// 写入"的一次性整体恢复语义）。</summary>
-        internal void RestoreProgress(Id unitId, QuestProgress progress)
+        /// <summary>供 <see cref="QuestPersistable"/> 读档恢复用：把某个单位的任务状态整体替换为
+        /// 存档快照（GP-01 判断记录，architecture/落地计划/audit-b3b91ee-20260907/code-review.md）。
+        /// 判断记录：本方法取代了旧的逐条 <c>RestoreProgress(unitId, progress)</c> 注入方式——
+        /// 那种"只覆盖快照里出现的 questId"的做法正是 GP-01 的根因，已删除，不再保留。
+        /// <para>
+        /// 旧实现（<see cref="RestoreProgress"/> 逐条调用）只会覆盖快照里出现的 questId，运行期
+        /// 已有、但快照里不存在的任务（例如存档时还未接取、读档后已经接取/完成的任务）会原样残留，
+        /// 导致"读空档"无法回到"什么任务都没有"的保存点，完成计数/每日记录同理只能被覆盖不能被
+        /// 清除。本方法按"快照即权威真相"语义：读档后该单位的任务状态必须恰好等于快照内容，
+        /// 快照未覆盖到的 questId 一律移除。
+        /// </para>
+        /// <para>
+        /// 先用 <paramref name="snapshot"/> 构建完整的新记录集合（未知 questId 会在
+        /// <see cref="RequireDef"/> 处抛异常）校验全部通过后，再一次性删除该单位旧记录、写入新
+        /// 记录——保证不会出现"校验到一半失败，部分任务已被清空、部分还是旧值"的半提交状态。
+        /// </para>
+        /// <para>
+        /// 只按 <paramref name="unitId"/> 过滤 <c>_progress</c> 的 key，不触碰其他单位的记录——
+        /// 天然满足"跨槽隔离"要求（不同存档槽通过各自独立的 <see cref="QuestHost"/> 实例隔离，
+        /// 同一实例内不同单位通过 <c>(UnitId, QuestId)</c> 复合键隔离）。
+        /// </para>
+        /// </summary>
+        internal void ReplaceAllProgress(Id unitId, IReadOnlyList<QuestProgress> snapshot)
         {
-            var def = RequireDef(progress.QuestId);
-            var counts = new int[def.Objectives.Count];
-            for (var i = 0; i < counts.Length && i < progress.ObjectiveCounts.Count; i++)
+            var newEntries = new List<((Id UnitId, Id QuestId) Key, QuestRuntimeState State)>(snapshot.Count);
+            foreach (var progress in snapshot)
             {
-                counts[i] = progress.ObjectiveCounts[i];
+                var def = RequireDef(progress.QuestId);
+                var counts = new int[def.Objectives.Count];
+                for (var i = 0; i < counts.Length && i < progress.ObjectiveCounts.Count; i++)
+                {
+                    counts[i] = progress.ObjectiveCounts[i];
+                }
+
+                newEntries.Add(((unitId, progress.QuestId), new QuestRuntimeState
+                {
+                    State = progress.State,
+                    ObjectiveCounts = counts,
+                    CompletionCount = progress.CompletionCount,
+                    LastCompletedDay = progress.LastCompletedDay,
+                }));
             }
-            _progress[(unitId, progress.QuestId)] = new QuestRuntimeState
+
+            foreach (var key in new List<(Id UnitId, Id QuestId)>(_progress.Keys))
             {
-                State = progress.State,
-                ObjectiveCounts = counts,
-                CompletionCount = progress.CompletionCount,
-                LastCompletedDay = progress.LastCompletedDay,
-            };
+                if (key.UnitId.Equals(unitId))
+                {
+                    _progress.Remove(key);
+                }
+            }
+
+            foreach (var (key, state) in newEntries)
+            {
+                _progress[key] = state;
+            }
         }
 
         /// <summary>供 <see cref="QuestPersistable"/> 存档写入用：全部单位的运行期记录快照。</summary>
@@ -585,8 +641,20 @@ namespace Core.Gameplay.Quest
                         {
                             continue;
                         }
-                        _inventoryHost.RemoveItem(evt.UnitId, evt.ItemInstanceId, take);
-                        UpdateProgress(evt.UnitId, key.QuestId, i, take);
+                        // GP-07 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+                        // 旧实现无条件按事件携带的数量 take 推进进度，即使 RemoveItem 扣除失败
+                        // （返回 false）也一样——IInventoryHost.RemoveItem 是"要么整取要么不取"的
+                        // 语义（见该接口注释"成功后发出 item.removed"，不支持部分移除返回实际数量），
+                        // 失败时背包里其实一件都没扣，却仍然把 take 记进任务进度，会让同一件物品
+                        // 同时喂饱多个 consume 型目标（例如两条任务都要"消耗 1 个同款材料"，背包只有
+                        // 1 个也都各自记满进度）。改法：只有扣除真正成功时才推进，失败（比如物品已被
+                        // 另一处并发消费掉、或本次事件描述的数量超过当前实际持有量）时本目标本次不
+                        // 计入任何进度——按"实际成功扣除量"推进，这里对齐 RemoveItem 的
+                        // 全有全无语义，成功即整个 take 都算数，失败即 0。
+                        if (_inventoryHost.RemoveItem(evt.UnitId, evt.ItemInstanceId, take))
+                        {
+                            UpdateProgress(evt.UnitId, key.QuestId, i, take);
+                        }
                     }
                     else
                     {

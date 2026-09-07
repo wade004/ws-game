@@ -22,5 +22,14 @@ namespace Presentation.FeedbackBinder.Contracts
         void ShakeCamera(Id profileId);
 
         void Flash(Id entityId, Id profileId);
+
+        /// <summary>GP-09 新增（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        /// 本 sink 转发出去的 <c>play_vfx</c>/<c>play_sfx</c> 是否仍有排队等待首次异步加载完成
+        /// （或超时）、因此还没真正产生播放效果的请求——<see cref="PlayVfx"/>/<see cref="PlaySfx"/>
+        /// 命中冷资源时立即返回，不会阻塞调用方，但也不提供任何"这条播放到底有没有真的开始"的信号；
+        /// <c>FeedbackBinder.HasPendingPlayback</c> 需要这个信号才能把"首次加载中的 vfx/sfx"也计入
+        /// 离散步的表现完成门，否则该步会在特效/音效真正播出前就被判定为已完成，后续动作可能在它
+        /// 前面先播、造成乱序。</summary>
+        bool HasPendingPlayback { get; }
     }
 }

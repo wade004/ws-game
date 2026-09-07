@@ -354,6 +354,26 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.False(binder.HasPendingPlayback);
         }
 
+        /// <summary>GP-09 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        /// 队列为空、没有待合并飘字，但 sink 侧仍有首次加载中的 vfx/sfx——修复前
+        /// <c>HasPendingPlayback</c> 只看 <c>Queue.PendingCount</c>/<c>FloatingTextMerger.
+        /// HasPendingMerges</c>，会在这种情况下误判为"没有待回放内容"，离散步提前判定完成。</summary>
+        [Fact]
+        public void HasPendingPlayback_TrueWhenSinkReportsPendingVfxSfxLoad_EvenWithEmptyQueue()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink { HasPendingPlayback = true };
+            var rules = LoadRules(FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+
+            Assert.Equal(0, binder.Queue.PendingCount);
+            Assert.True(binder.HasPendingPlayback, "sink 侧仍有首次加载中的 vfx/sfx，不应视为播完");
+
+            sink.HasPendingPlayback = false; // 模拟加载完成/超时丢弃。
+            Assert.False(binder.HasPendingPlayback);
+        }
+
         [Fact]
         public void HasPendingPlayback_TracksQueue_WhenNoMergeWindow()
         {

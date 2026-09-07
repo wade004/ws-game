@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using Core.Carriers.Common;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
 using Core.Gameplay.Dialog;
+using Core.Gameplay.Quest;
+using Core.Gameplay.WorldState;
 
 namespace Presentation.Ui
 {
@@ -13,6 +16,18 @@ namespace Presentation.Ui
     /// 契约缺口补齐（P4-2）：<see cref="IDialogHost"/> 现已提供对称于 <see cref="IDialogHost.GetStoryView"/>
     /// 的只读查询 <see cref="IDialogHost.GetGossipView"/>，<see cref="Refresh"/> 与剧情视图同一惯例
     /// 直接查询即可，不再需要调用方手动灌入（见下 <see cref="SetGossipView"/> 判断记录）。
+    /// </para>
+    /// <para>
+    /// GP-05 根治补充（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：<c>gossip_menu.
+    /// options[].visible_if</c>/<c>story_node.branches[].condition</c> 可以引用任意 Expr 分组（任务
+    /// 状态、物品数量、世界标志……），此前本视图模型只在对话框自身的三个事件
+    /// （StoryNodeEntered/GossipOpened/Ended）上刷新——对话框开着的时候，若任务被其它渠道推进/
+    /// 完成、物品被拾取/消耗、世界标志被翻转，当前显示的选项列表不会跟着刷新，玩家会看到一份
+    /// "过期"的可见性快照（仍然能点，直到 <see cref="IDialogHost.ChooseOption"/>/
+    /// <see cref="IDialogHost.AdvanceStory"/> 内部重验才会被拒绝——见这两个方法的判断记录）。
+    /// 改法：额外订阅 Quest 四类推进事件、物品增减事件、世界标志变化事件，命中即
+    /// <see cref="Refresh"/>，让"显示"与"可执行"用的是同一份最新状态，不必等玩家点击才发现选项
+    /// 已经失效。
     /// </para>
     /// </summary>
     public sealed class DialogViewModel : IDisposable
@@ -37,6 +52,17 @@ namespace Presentation.Ui
             _subscriptions.Add(_dataSource.Subscribe(DialogEventKeys.StoryNodeEntered, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(DialogEventKeys.GossipOpened, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(DialogEventKeys.Ended, OnRelevantEvent));
+
+            // GP-05 新增：VisibleIf/Condition 常见的引用来源——任务状态变化、背包物品增减、世界
+            // 标志翻转——命中任意一个都刷新，见类型判断记录。
+            _subscriptions.Add(_dataSource.Subscribe(QuestEventKeys.Accepted, OnRelevantEvent));
+            _subscriptions.Add(_dataSource.Subscribe(QuestEventKeys.ObjectiveProgress, OnRelevantEvent));
+            _subscriptions.Add(_dataSource.Subscribe(QuestEventKeys.Completed, OnRelevantEvent));
+            _subscriptions.Add(_dataSource.Subscribe(QuestEventKeys.TurnedIn, OnRelevantEvent));
+            _subscriptions.Add(_dataSource.Subscribe(QuestEventKeys.Failed, OnRelevantEvent));
+            _subscriptions.Add(_dataSource.Subscribe(CarriersEventKeys.ItemAdded, OnRelevantEvent));
+            _subscriptions.Add(_dataSource.Subscribe(CarriersEventKeys.ItemRemoved, OnRelevantEvent));
+            _subscriptions.Add(_dataSource.Subscribe(WorldStateEventKeys.FlagChanged, OnRelevantEvent));
 
             Refresh();
         }

@@ -469,10 +469,17 @@ namespace Core.Gameplay.Assembly
             EconomyHost economyForGrant = null!;
             CurrencyGranter currencyGranter = (unitId, currencyId, amount, sourceId) =>
                 economyForGrant.Add(unitId, currencyId, amount, sourceId);
-            SkillGranter skillGranter = (unitId, skillId, learn) =>
+            // 接线跟进（Y1/Y2 侧 RC-05"装备授予技能缺来源计数"根治，见
+            // core/carriers/item/contracts/SkillGranter.cs：委托签名从 (unitId, skillId, learn) 三参
+            // 改为 (unitId, skillId, sourceId, learn) 四参，供 SkillHost.LearnSkill(Id,Id,Id)/
+            // ForgetSkill(Id,Id,Id) 的按来源引用计数）：这里把奖励发放/剧情动作等触发的技能授予也
+            // 按来源登记（sourceId 由 RewardDispatcher.GrantSkills 透传自 Grant 收到的奖励来源 id），
+            // 而不是退化成不计来源的哨兵——不然这条路径授予的技能会与真正"永久学习"的技能混在一起，
+            // 卸下另一件不相关的装备时可能被误撤销。
+            SkillGranter skillGranter = (unitId, skillId, sourceId, learn) =>
             {
-                if (learn) Carriers.Rules.Skill.LearnSkill(unitId, skillId);
-                else Carriers.Rules.Skill.ForgetSkill(unitId, skillId);
+                if (learn) Carriers.Rules.Skill.LearnSkill(unitId, skillId, sourceId);
+                else Carriers.Rules.Skill.ForgetSkill(unitId, skillId, sourceId);
             };
 
             Reward = new RewardDispatcher(
@@ -898,6 +905,28 @@ namespace Core.Gameplay.Assembly
 
             AreaTrigger.UnloadMap(mapId);
             Spawn.UnloadMap(mapId);
+
+            // GP-04 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：本方法此前
+            // 只卸载 AreaTrigger/Spawn，从未终止 Encounter/Level——EncounterTickHandler.EvaluateAll
+            // 每次仍会枚举 IEncounterHost.ActiveInstanceIds 全部活跃实例（不按地图过滤），A 图的遭遇
+            // 会在玩家已经身处 B 图时继续被求值：用 B 图的玩家位置判定 A 图遭遇的场地边界/胜负条件，
+            // 可能误发波次、误判胜负发奖励、或触发"离开边界重置"把 A 图的遭遇状态在 B 图上下文里
+            // 反复重置。改法：离开地图时把绑定在该地图上的遭遇/关卡运行一并终止，下次重新进图时
+            // Encounter.Start/Level.StartLevel 会建立全新实例，不会复用旧实例的波次/阶段进度。
+            // 顺序上先终止 Level（释放它的 Won 订阅）再终止 Encounter 本身：若反过来，Encounter 侧
+            // 标记为不活跃后仍可能在同一帧内已经排队的 Won 事件回调触发 LevelHost 尝试推进下一个
+            // 遭遇——虽然本方法调用期间不会有新事件派发（都是同步直接调用，不经 EventBus），但两个
+            // 子系统各自独立维护状态、顺序对结果没有影响，先 Level 后 Encounter 只是让"先断开对外
+            // 的编排关系，再终止被编排的具体运行"这个收尾顺序更直观。
+            Level.AbortForMap(mapId);
+            Encounter.AbortForMap(mapId);
+            if (TimeModelSwitch != null)
+            {
+                // 该地图上任何遭遇留下的战斗节奏/先攻覆盖都已随遭遇终止一并失效——离开地图不是
+                // "遭遇结束"（不发 Won/Lost），显式清空 pending override，避免带着上一张图的覆盖值
+                // 进入下一张图（该图可能没有任何 encounter.started 事件来覆盖掉它）。
+                TimeModelSwitch.SetPendingOverride(null);
+            }
         }
 
         /// <summary>

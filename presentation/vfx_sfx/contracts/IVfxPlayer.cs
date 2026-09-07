@@ -23,5 +23,13 @@ namespace Presentation.VfxSfx.Contracts
         /// <summary>按 <paramref name="dt"/> 推进对象池：到达 <c>vfx.def.lifetime</c> 的播放实例
         /// 自动回收（见 09 第 5.4 节对象池"按 lifetime 超时回收"）。</summary>
         void Update(double dt);
+
+        /// <summary>GP-09 新增（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        /// 仍在排队等待首次异步加载完成（或超时）的播放请求数——<see cref="Spawn"/> 命中未加载完成
+        /// 的资源时不会立即产生播放效果，也不返回可用于判定"这一步已经播完"的信号（返回 null），
+        /// 调用方（<c>Presentation.FeedbackBinder.Core.CompositeFeedbackSink</c>/
+        /// <c>FeedbackBinder.HasPendingPlayback</c>）需要靠本属性把"冷资源首次加载"也计入离散步的
+        /// 表现完成门，否则该步会在特效真正播出前就被判定为已完成。</summary>
+        int PendingSpawnCount { get; }
     }
 }

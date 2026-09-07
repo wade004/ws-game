@@ -217,6 +217,8 @@ namespace Presentation.VfxSfx.Core
             }
         }
 
+        public int PendingPlayCount => _pendingPlays.Count;
+
         public void Stop(SfxHandle handle)
         {
             if (_byHandle.TryGetValue(handle, out var playback))

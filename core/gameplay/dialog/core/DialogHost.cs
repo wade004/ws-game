@@ -146,6 +146,23 @@ namespace Core.Gameplay.Dialog
             var npcId = session.NpcId.Value;
             var option = menu.Options[index];
 
+            // GP-05 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+            // OpenGossip/GetGossipView 只在"构造视图给 UI 显示"那一刻按 VisibleIf 过滤过一次——
+            // 玩家看到选项、到真正点击执行之间，世界状态可能已经变化（另一渠道推进了任务、物品被
+            // 消耗、标志被翻转），此前本方法直接按 index 执行 Actions，完全不管 VisibleIf 当下是否
+            // 还成立，导致"显示时隐藏"的选项如果客户端缓存了旧的索引仍能被强行执行。改法：执行前
+            // 用当前世界状态重新求值一次同一个 VisibleIf，不成立就拒绝（不执行任何 Action、不改变
+            // 任何状态），调用方应当据此刷新视图（见 DialogViewModel 判断记录，已订阅 quest/item/
+            // world 状态变化事件主动 Refresh，尽量让玩家在点击前就已经看到最新的可见性）。
+            if (option.VisibleIf != null)
+            {
+                var revalidateHost = _exprHostFactory.CreateFor(unitId, npcId, null);
+                if (!ExprEvaluator.EvaluateBool(option.VisibleIf, revalidateHost, _exprDiagnostics))
+                {
+                    return false;
+                }
+            }
+
             foreach (var action in option.Actions)
             {
                 ExecuteAction(unitId, npcId, menuId, action);
@@ -212,6 +229,17 @@ namespace Core.Gameplay.Dialog
             }
 
             var branch = node.Branches[branchIndex];
+
+            // GP-05 根治：同 ChooseOption 判断记录——执行前重验 Condition，不成立则拒绝。
+            if (branch.Condition != null)
+            {
+                var revalidateHost = _exprHostFactory.CreateFor(unitId, node.SpeakerRef, null);
+                if (!ExprEvaluator.EvaluateBool(branch.Condition, revalidateHost, _exprDiagnostics))
+                {
+                    return false;
+                }
+            }
+
             if (!branch.NextNodeId.HasValue)
             {
                 return Close(unitId);

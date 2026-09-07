@@ -1,9 +1,12 @@
 using System.Collections.Generic;
 using Adapters.Stub;
+using Core.Carriers.Common;
 using Core.Foundation.AppLifecycle;
 using Core.Foundation.Common;
+using Core.Foundation.Expr;
 using Core.Gameplay.Dialog;
 using Core.Gameplay.Quest;
+using Core.Gameplay.WorldState;
 using Presentation.Ui;
 using Xunit;
 using FoundationSaveSystem = Core.Foundation.SaveSystem;
@@ -244,6 +247,41 @@ namespace Tests.PresentationUi
 
             Assert.True(vm.IsOpen);
             Assert.Equal(new Id("dialog.tree.intro"), vm.Story!.TreeId);
+        }
+
+        /// <summary>GP-05 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        /// 对话框开着的时候，任务被推进/物品增减/世界标志翻转都应该让视图模型主动刷新——不需要
+        /// 调用方手动调用 <see cref="DialogViewModel.Refresh"/>，也不需要等对话框自身的三个事件
+        /// （StoryNodeEntered/GossipOpened/Ended）。用 <see cref="FakeDialogHost.StoryViewToReturn"/>
+        /// 在每次事件之间换一个新值，断言视图模型的 <see cref="DialogViewModel.Story"/> 紧跟着变化。</summary>
+        [Fact]
+        public void DialogViewModel_refreshes_on_quest_item_and_worldflag_events()
+        {
+            var world = new UiWorldFixture();
+            var dialog = new FakeDialogHost
+            {
+                StoryViewToReturn = new StoryView(
+                    new Id("dialog.tree.intro"), new Id("dialog.node.start"), new Id("l10n.a"), null,
+                    new List<(int, Id)>())
+            };
+            using var vm = new DialogViewModel(world.DataSource, dialog, world.PlayerId);
+            Assert.Equal(new Id("dialog.node.start"), vm.Story!.NodeId);
+
+            dialog.StoryViewToReturn = new StoryView(
+                new Id("dialog.tree.intro"), new Id("dialog.node.after_quest"), new Id("l10n.b"), null, new List<(int, Id)>());
+            world.EventBus.PublishImmediate(new QuestAcceptedEvent(world.PlayerId, new Id("quest.sample")));
+            Assert.Equal(new Id("dialog.node.after_quest"), vm.Story!.NodeId);
+
+            dialog.StoryViewToReturn = new StoryView(
+                new Id("dialog.tree.intro"), new Id("dialog.node.after_item"), new Id("l10n.c"), null, new List<(int, Id)>());
+            world.EventBus.PublishImmediate(new ItemAddedEvent(world.PlayerId, new Id("item.instance_1"), new Id("item.sample"), 1));
+            Assert.Equal(new Id("dialog.node.after_item"), vm.Story!.NodeId);
+
+            dialog.StoryViewToReturn = new StoryView(
+                new Id("dialog.tree.intro"), new Id("dialog.node.after_flag"), new Id("l10n.d"), null, new List<(int, Id)>());
+            world.EventBus.PublishImmediate(new WorldFlagChangedEvent(
+                new Id("flag.sample"), ExprValue.OfBool(false), ExprValue.OfBool(true), world.PlayerId));
+            Assert.Equal(new Id("dialog.node.after_flag"), vm.Story!.NodeId);
         }
 
         [Fact]

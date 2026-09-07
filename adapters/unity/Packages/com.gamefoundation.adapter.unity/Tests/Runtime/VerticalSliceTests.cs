@@ -80,6 +80,43 @@ namespace Adapter.Unity.Tests.Runtime
         {
             yield return LoadShellScene();
             var shell = RequireShellRoot();
+
+            // GP-06 根治后的新增判断记录：EnterInWorld 会为玩家（creature.sample_hero）挂接默认
+            // 动画，data/_sample/display/display.anim_set.sample_hero 声明了 idle/move/attack/
+            // cast/hit/death 六个状态的 resource_ref，但当前占位资产集里这些 anim.sample_hero_*
+            // 序列帧资源确实不存在（见 UnityViewFactory.cs 类型顶部判断记录）——GP-06 修复前
+            // TryGetEffect 未命中就静默登记单帧 fallback，不发起任何加载、也不记日志；修复后会
+            // 老老实实发起一次 LoadAsync，加载失败时记一条 Debug.LogWarning（"继续使用单帧占位
+            // 剪辑（不重试）"）。这是新暴露出的、真实且预期内的诊断（当前占位资源集尚未提供角色
+            // 序列帧动画这一已知限制的自然结果），不是本用例要覆盖的契约违反。
+            // 判断记录（为什么不能像 missingGlyphWarning 那样固定注册 N 次 Expect）：
+            // UnityViewFactory 是 DontDestroyOnLoad 单例，跨 PlayMode 测试装配整个 -runTests 进程
+            // 存活（见 PlayModeIsolation.cs 判断记录"单例继续常驻，供下一条用例复用"）；
+            // _pendingAnimResourceLoads 一旦发起过某个 resourceRef 的加载就永远不再移除（同
+            // VfxPlayer/SfxPlayer 既有惯例"失败不重试"），因此这六条警告在整个测试装配的生命周期里
+            // 至多各出现一次——但"第一次触发"具体落在哪一条用例，取决于本装配内全部用例的执行顺序
+            // （NUnit 不保证、也不该依赖测试类之间的相对顺序），不能硬编码"本用例一定会看到 6 条"。
+            // 改法：用 HasAttemptedAnimResourceLoad 查询本用例执行到这里之前是否已经有别的用例替
+            // 这些资源发起过加载——只有"确实还没发起过"的那些资源，才需要为它注册一条 Expect（否则
+            // Unity Test Framework 会在用例结束时报"Expected log did not appear"，见该判断记录的
+            // 复现）。
+            var animStates = new[] { "idle", "move", "attack", "cast", "hit", "death" };
+            var animLoadFailedWarning = new System.Text.RegularExpressions.Regex(
+                @"\[UnityViewFactory\] 状态 "".*?"" 引用的动画资源 "".*?"" 加载失败");
+            var expectedAnimLoadWarnings = 0;
+            foreach (var state in animStates)
+            {
+                var resourceRef = new Id($"anim.sample_hero_{state}");
+                if (!shell.Framework.ViewFactory.HasAttemptedAnimResourceLoad(resourceRef))
+                {
+                    expectedAnimLoadWarnings++;
+                }
+            }
+            for (var i = 0; i < expectedAnimLoadWarnings; i++)
+            {
+                LogAssert.Expect(UnityEngine.LogType.Warning, animLoadFailedWarning);
+            }
+
             yield return EnterInWorld(shell, "vslice");
 
             var playerId = shell.Framework.PlayerId;
@@ -210,6 +247,10 @@ namespace Adapter.Unity.Tests.Runtime
             var positionBeforeTamper = shell.Framework.World.GetEntity(playerId)!.Position;
             shell.Framework.World.GetEntity(playerId)!.Position = Vec2.Zero;
 
+            // 判断记录：读档会切场景、重新为玩家挂接默认动画，但 UnityViewFactory.
+            // _pendingAnimResourceLoads 对 sample_hero 六个状态的加载尝试早已在上方 EnterInWorld
+            // 阶段各自发起过一次且永不移除（见方法开头判断记录），这里不会重复发起加载、也不会重复
+            // 记警告，不需要再预期一遍。
             var loadResult = shell.Framework.Presentation.Shell.LoadGame(slotId);
             Assert.IsTrue(loadResult.Status == LoadStatus.Loaded || loadResult.Status == LoadStatus.LoadedFromBackup, $"读档应当成功，实际：{loadResult.Status}，{loadResult.Message}");
             var guard = 1000;

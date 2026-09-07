@@ -221,6 +221,71 @@ namespace Tests.Gameplay.Quest
             Assert.Equal(0, h.Inventory.CountOf(Player, new Id("item.flower")));
         }
 
+        /// <summary>GP-08 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        /// 玩家先攒够目标物品，再去接取一条非消耗 collect 任务——旧实现 <c>Accept</c> 把
+        /// <c>ObjectiveCounts</c> 无条件清零，必须再等一次 item.added/item.removed 事件才会被动纠正
+        /// 成当前库存值，接取瞬间任务显示"尚未收集"。修复后：接取时就应按现有库存直接算出进度，
+        /// 数量已经足够时甚至可以立即 ObjectivesComplete。</summary>
+        [Fact]
+        public void Accept_NonConsumeCollect_InitializesProgressFromExistingInventory_CanCompleteImmediately()
+        {
+            var questId = new Id("quest.sample_collect_preexisting");
+            var quest = new QuestDefinition(
+                questId,
+                new[] { new QuestObjective(QuestObjectiveType.Collect, new Id("item.flower"), 3, consumeOnProgress: false) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var h = new Harness(new[] { quest });
+
+            // 接取之前就已经持有 3 个（达标数量）——不经由 item.added 事件，直接调用背包 API 模拟
+            // "早就攒够了、现在才来接任务"的顺序。
+            h.Inventory.AddItem(Player, new Id("item.flower"), 3);
+
+            var accepted = h.Host.Accept(Player, questId);
+
+            Assert.True(accepted);
+            Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questId));
+            Assert.Equal(3, h.Host.GetLog(Player).Single(p => p.QuestId.Equals(questId)).ObjectiveCounts[0]);
+            Assert.Single(h.PublishedOf<QuestCompletedEvent>());
+        }
+
+        /// <summary>同上，但持有量不足以达标——接取后进度应等于当前持有量（不是 0），后续再补齐才完成。</summary>
+        [Fact]
+        public void Accept_NonConsumeCollect_PartialExistingInventory_InitializesPartialProgress()
+        {
+            var questId = new Id("quest.sample_collect_partial_preexisting");
+            var quest = new QuestDefinition(
+                questId,
+                new[] { new QuestObjective(QuestObjectiveType.Collect, new Id("item.flower"), 3, consumeOnProgress: false) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var h = new Harness(new[] { quest });
+            h.Inventory.AddItem(Player, new Id("item.flower"), 2);
+
+            h.Host.Accept(Player, questId);
+
+            Assert.Equal(QuestState.Active, h.Host.GetState(Player, questId));
+            Assert.Equal(2, h.Host.GetLog(Player).Single(p => p.QuestId.Equals(questId)).ObjectiveCounts[0]);
+        }
+
+        /// <summary>消耗型（consumeOnProgress: true）目标不受 GP-08 影响——接取时不应该倒扣已有库存
+        /// （语义是"接取后主动上交/消耗"，不是"统计当前持有量"），确认改动没有误伤这条路径。</summary>
+        [Fact]
+        public void Accept_ConsumeOnProgressCollect_DoesNotInitializeFromExistingInventory()
+        {
+            var questId = new Id("quest.sample_collect_consume_preexisting");
+            var quest = new QuestDefinition(
+                questId,
+                new[] { new QuestObjective(QuestObjectiveType.Collect, new Id("item.herb"), 2, consumeOnProgress: true) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var h = new Harness(new[] { quest });
+            h.Inventory.AddItem(Player, new Id("item.herb"), 2);
+
+            h.Host.Accept(Player, questId);
+
+            Assert.Equal(QuestState.Active, h.Host.GetState(Player, questId));
+            Assert.Equal(0, h.Host.GetLog(Player).Single(p => p.QuestId.Equals(questId)).ObjectiveCounts[0]);
+            Assert.Equal(2, h.Inventory.CountOf(Player, new Id("item.herb"))); // 未被倒扣
+        }
+
         [Fact]
         public void Objective_Collect_NonConsume_RemovingItemsDecreasesProgress()
         {
@@ -259,6 +324,43 @@ namespace Tests.Gameplay.Quest
             // 只消耗到达标为止（目标 2），多余的 3 个保留在背包
             Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questId));
             Assert.Equal(3, h.Inventory.CountOf(Player, new Id("item.herb")));
+        }
+
+        /// <summary>GP-07 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        /// 两条任务都要求消耗同一种物品各 1 个，背包里只有 1 个——旧实现在 <c>RemoveItem</c> 对第二条
+        /// 任务的扣除失败（背包已经被第一条任务的成功扣除清空）时，仍无条件按事件携带的数量把进度
+        /// 记满，导致同一件物品"喂饱"了两条任务。修复后：只有真正扣除成功的那一条任务能推进/完成，
+        /// 另一条应保持 0 进度，背包最终数量为 0（不会因为"扣两次"变成负数——<see cref="FakeInventoryHost.RemoveItem"/>
+        /// 对超额扣除直接返回 false、不改变库存，见 TestSupport 判断记录）。</summary>
+        [Fact]
+        public void Objective_Collect_ConsumeOnProgress_SingleItem_DoesNotDoubleCreditTwoQuests()
+        {
+            var questA = new Id("quest.sample_consume_a");
+            var questB = new Id("quest.sample_consume_b");
+            var itemId = new Id("item.rare_ore");
+            var defA = new QuestDefinition(
+                questA, new[] { new QuestObjective(QuestObjectiveType.Collect, itemId, 1, consumeOnProgress: true) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var defB = new QuestDefinition(
+                questB, new[] { new QuestObjective(QuestObjectiveType.Collect, itemId, 1, consumeOnProgress: true) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var h = new Harness(new[] { defA, defB });
+            h.Host.Accept(Player, questA);
+            h.Host.Accept(Player, questB);
+
+            var instanceId = h.Inventory.AddItemForTest(Player, itemId, 1);
+            h.Bus.PublishImmediate(new ItemAddedEvent(Player, instanceId, itemId, 1));
+
+            var completeCount =
+                (h.Host.GetState(Player, questA) == QuestState.ObjectivesComplete ? 1 : 0) +
+                (h.Host.GetState(Player, questB) == QuestState.ObjectivesComplete ? 1 : 0);
+            Assert.Equal(1, completeCount); // 不能两条都完成——只有 1 个物品
+
+            var countA = h.Host.GetLog(Player).Single(p => p.QuestId.Equals(questA)).ObjectiveCounts[0];
+            var countB = h.Host.GetLog(Player).Single(p => p.QuestId.Equals(questB)).ObjectiveCounts[0];
+            Assert.Equal(1, countA + countB); // 记录的总进度等于实际消耗的物品数量，不多不少
+
+            Assert.Equal(0, h.Inventory.CountOf(Player, itemId));
         }
 
         [Fact]
@@ -431,6 +533,49 @@ namespace Tests.Gameplay.Quest
             h.Host.TurnIn(Player, firstId);
 
             Assert.Equal(QuestState.Available, h.Host.GetState(Player, secondId));
+        }
+
+        /// <summary>GP-05 收边新增（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        /// quest.is_objectives_complete——此前只有 is_active/is_available/is_completed 三档，
+        /// Available -&gt; Active -&gt; ObjectivesComplete -&gt; TurnedIn 状态机唯独 ObjectivesComplete
+        /// 这一档没有对应查询，导致"任务可交付时显示交任务选项"这类内容写法（只能用 is_active）
+        /// 在目标全部达标后反而把选项隐藏（见 data/_sample/dialog/dialog.gossip_menu.json
+        /// "option_turn_in" 勘误、Tests.Gameplay.EndToEndTests 的复现）。</summary>
+        [Fact]
+        public void QuestIsObjectivesComplete_TrueOnlyInObjectivesCompleteState()
+        {
+            var questId = new Id("quest.sample_kill_wolves");
+            var quest = SimpleKillQuest(questId, new Id("creature.wolf"), 1);
+            var h = new Harness(new[] { quest });
+            var provider = new QuestExprGroupProvider(h.Host, () => Player);
+            var args = new[] { ExprValue.OfId(questId) };
+
+            bool IsObjectivesComplete() => provider.Query("is_objectives_complete", args).AsBool;
+
+            Assert.False(IsObjectivesComplete());
+
+            h.Host.Accept(Player, questId);
+            Assert.False(IsObjectivesComplete(), "Active 阶段尚不算 ObjectivesComplete");
+
+            h.Units.SetTemplate(new Id("unit.wolf_1"), new Id("creature.wolf"));
+            h.Bus.PublishImmediate(new UnitDiedEvent(new Id("unit.wolf_1"), Player));
+            Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questId));
+            Assert.True(IsObjectivesComplete());
+
+            h.Host.TurnIn(Player, questId);
+            Assert.False(IsObjectivesComplete(), "TurnedIn 之后不再是 ObjectivesComplete");
+        }
+
+        /// <summary>与 <see cref="QuestIsObjectivesComplete_TrueOnlyInObjectivesCompleteState"/> 同一
+        /// 判断记录：确认新谓词已经登记进 <see cref="QuestExprSchemaEntries.BuildParsingSchema"/>，
+        /// 内容作者能在 <c>visible_if</c>/<c>condition</c>/<c>prerequisite</c> 里直接写这个函数名，
+        /// 不会被 ADR-0015 规则误判成未知引用退化解析。</summary>
+        [Fact]
+        public void QuestIsObjectivesComplete_ParsesUnderQuestExprSchemaEntries()
+        {
+            var expr = ExprParser.Parse("quest.is_objectives_complete(quest.sample_kill_wolves)", Schema);
+
+            Assert.NotNull(expr);
         }
 
         [Fact]

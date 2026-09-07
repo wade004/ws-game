@@ -133,8 +133,18 @@ namespace Presentation.FeedbackBinder.Core
         /// 装配根、调用方一律应改用本属性作为节奏门探针，不要再直接用 <see cref="PlaybackQueue.
         /// PendingCount"/>。
         /// </para>
+        /// <para>
+        /// GP-09 根治补充：早前的实现只看 <see cref="Queue"/>/<see cref="FloatingTextMerger"/> 两处，
+        /// 漏了 <see cref="IFeedbackSink.HasPendingPlayback"/>——<c>play_vfx</c>/<c>play_sfx</c> 首次
+        /// 引用未加载完成的资源时会排队等待（见 <c>Presentation.VfxSfx.Core.VfxPlayer.Spawn</c>/
+        /// <c>SfxPlayer.Play</c> 判断记录），既不会同步产生任何"这一步已经播完"的信号，也不经过本类
+        /// 的 <see cref="Queue"/>（<see cref="IFeedbackSink.PlayVfx"/>/<see cref="IFeedbackSink.
+        /// PlaySfx"/> 调用本身是"发指令"，不是"等播完"，见类型注释"本模块只发指令"）——冷资源的
+        /// vfx/sfx 因此会被误判为"这一步没有待回放内容"而提前放行节奏门，真正的播放效果可能在
+        /// 下一步甚至后续 vfx/sfx 之间乱序才姗姗来迟。现在把 sink 侧的 pending 信号一并纳入。
+        /// </para>
         /// </summary>
-        public bool HasPendingPlayback => _queue.PendingCount > 0 || _merger.HasPendingMerges;
+        public bool HasPendingPlayback => _queue.PendingCount > 0 || _merger.HasPendingMerges || _sink.HasPendingPlayback;
 
         public void Dispose()
         {

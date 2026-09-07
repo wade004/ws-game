@@ -610,12 +610,22 @@ namespace Adapter.Unity.Bootstrap
 
             RunPresentationStep(() => Presentation.Feedback.Update(unscaledDelta));
 
+            // GP-03 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：同
+            // FrameworkResidentHost.OnFrameTick 同款判断记录——VfxPlayer.Update(dt) 此前本类型也
+            // 没有调用，循环特效不按 lifetime 停、首次异步加载超时倒计时不推进。
+            RunPresentationStep(() => Presentation.Vfx.Update(unscaledDelta));
+
             // 拍板 5/DECISIONS 收口：原 H4"零事件步"兜底短路已删除，见
             // FrameworkResidentHost.OnFrameTick 同款判断记录（playback_finished 现只经
             // PlaybackQueue.Finished 正常发出）。根治修复（W5c）：该判断记录里记录的"零事件步骤
             // 永久卡住"已知局限已在 core/gameplay/assembly.GameplayAssembly.SetPendingPlaybackProbe
             // / Core.Foundation.SimLoop.WaitForPlaybackPacingPolicy.HasPendingPlayback 探针 +
             // presentation/assembly.PresentationAssembly 自动接线三处结构性根治，详见该判断记录。
+
+            // GP-10 根治：同 FrameworkResidentHost.OnFrameTick 同款判断记录（拍板 6，八个程序动画
+            // 原语可视化）——本类型此前也漏了这一步，Move/Stagger/Fade/Scale 等排入 sequencer 的
+            // 程序动画在本引导入口下永远不会推进采样。
+            RunPresentationStep(AdvanceCharacterRigs);
 
             RunPresentationStep(() => FloatingText!.Tick((float)unscaledDelta));
             RunPresentationStep(() => Freeze.Tick(unscaledDelta));
@@ -624,6 +634,21 @@ namespace Adapter.Unity.Bootstrap
             if (ExtraPresentationStepForTests != null)
             {
                 RunPresentationStep(() => ExtraPresentationStepForTests?.Invoke(unscaledDelta));
+            }
+        }
+
+        /// <summary>GP-10 根治新增：同 <see cref="Adapter.Unity.Shell.FrameworkResidentHost"/>
+        /// 同名方法——推进每个仍存活的 sprite 型 View 持有的 <c>ICharacterRig.ProceduralAnim</c>
+        /// 时间轴。</summary>
+        private void AdvanceCharacterRigs()
+        {
+            var views = ViewFactory!.CreatedViews;
+            for (var i = 0; i < views.Count; i++)
+            {
+                if (views[i].IsAlive && views[i] is IHasCharacterRig hasRig)
+                {
+                    hasRig.Rig.Update(Time.deltaTime);
+                }
             }
         }
 

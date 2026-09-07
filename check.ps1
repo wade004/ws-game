@@ -240,8 +240,18 @@ function Add-SkippedStep {
 # 把 $ErrorActionPreference 赋值为函数局部变量（不加 $script:/$global: 前缀，PowerShell
 # 变量赋值默认只在当前作用域生效，函数返回后自动失效，不影响脚本其余部分与调用方），让本函数
 # 内的原生命令调用把 stderr 只当成普通输出流，不提升为异常；退出码判定逻辑完全不变，仍然只认
-# $LASTEXITCODE。找不到可执行文件这类"启动失败"仍然会正常抛异常，由 Invoke-CheckStep 的
-# catch 接住，不受这次改动影响。
+# $LASTEXITCODE。
+#
+# TOOL-01 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：本节上一版注释
+# 曾声称"找不到可执行文件这类'启动失败'仍然会正常抛异常，由 Invoke-CheckStep 的 catch 接住"——
+# 这句话是错的，且已被审计以有界复现证伪（见该报告 repro/tool-01-repro.ps1/.txt）：`& $Exe` 在
+# 本函数已经把 $ErrorActionPreference 设为 "Continue" 的作用域内执行，PowerShell 找不到命令时
+# 产生的是 non-terminating 错误——在 Continue 策略下只会打一条错误记录然后继续往下执行，不会
+# 抛出终止性异常，因此根本不会被 Invoke-CheckStep 的 try/catch 接住；同时 `& $Exe` 从未真正
+# 启动进程，$LASTEXITCODE 会原样保留上一条命令遗留的值（很可能恰好是 0），导致
+# `return ($LASTEXITCODE -eq 0)` 把"根本没跑起来的检查"误判为 PASS。改法见下方函数体：调用前
+# 先用 Get-Command 显式校验可执行文件存在，找不到就直接判 FAIL 并说明原因，不再依赖
+# $LASTEXITCODE 的偶然残留值。
 # F1 根治（architecture/落地计划/audit-20260907/delivery-validation.md）：此前 `& $Exe @ArgList`
 # 直接执行，原生命令写到标准输出的每一行都会作为本函数自己的管道输出（PowerShell 函数没有显式
 # `return` 拦截之前的语句同样会被收集进调用方拿到的结果）；调用方 Invoke-CheckStep 用
@@ -261,6 +271,14 @@ function Test-NativeExitCode {
         [string]$Exe,
         [string[]]$ArgList
     )
+    # TOOL-01 根治：调用前先显式确认 $Exe 能被解析为一个真实的可执行文件/外部脚本；找不到就
+    # 直接判 FAIL，不再尝试 `& $Exe`（那样会因 non-terminating 错误 + 陈旧 $LASTEXITCODE
+    # 被误判为 PASS，见上方判断记录）。
+    $resolved = Get-Command -Name $Exe -CommandType Application, ExternalScript -ErrorAction SilentlyContinue
+    if (-not $resolved) {
+        Write-Host "[Test-NativeExitCode] 可执行文件 '$Exe' 未找到（不在 PATH 中，或路径不存在），判定为 FAIL" -ForegroundColor Red
+        return $false
+    }
     $ErrorActionPreference = "Continue"
     & $Exe @ArgList | Out-Host
     return ($LASTEXITCODE -eq 0)
@@ -404,6 +422,19 @@ Invoke-CheckStep "门禁自检：Test-NativeExitCode 对失败/成功原生命�
     $passProbeOk = Test-NativeExitCode "powershell.exe" @("-NoProfile", "-Command", "Write-Output 'F1_SELF_CHECK_PROBE'; exit 0")
     if (-not $passProbeOk) {
         return [PSCustomObject]@{ Ok = $false; Detail = "成功探针（stdout 非空 + exit 0）被误判为失败" }
+    }
+
+    # 探针 3（TOOL-01 复现的确切形状）：先跑一次真实成功命令把 $LASTEXITCODE 钉在 0，
+    # 再调用一个必定不存在的可执行文件名。修复前 `& $Exe` 对不存在的命令只产生
+    # non-terminating 错误、不抛异常，$LASTEXITCODE 原样保留上一条命令留下的 0，
+    # 会被误判为 PASS；修复后必须在调用前就用 Get-Command 判定失败。
+    cmd.exe /c exit 0 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "探针 3 前置条件失败：未能把 `$LASTEXITCODE 钉在 0" }
+    }
+    $missingExeProbeOk = Test-NativeExitCode "__ws_game_check_missing_executable__" @()
+    if ($missingExeProbeOk) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "缺失可执行文件探针被误判为成功——Test-NativeExitCode 对 TOOL-01 回归，见该函数判断记录" }
     }
 
     $true

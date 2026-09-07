@@ -57,6 +57,14 @@ namespace Tests.Gameplay.Assembly
             "\"content_ref\": \"" + TemplateId + "\", \"position\": {\"x\": 1, \"y\": 1}, " +
             "\"respawn_policy\": \"on_map_enter\"}]";
 
+        // GP-04 复现固件：一个 victory/defeat 恒为 false 的遭遇（不依赖任何 expr 分组查询，只用
+        // 字面量），Evaluate 永远不会自行结束——只有靠 LeaveMap 主动终止才会变为不活跃，适合用来
+        // 验证"切图后旧地图的遭遇不再被求值"。
+        private const string EncounterDefId = "encounter.reload_test";
+        private const string EncounterDefRows =
+            "[{\"id\": \"" + EncounterDefId + "\", \"units\": [{\"template_ref\": \"" + TemplateId + "\", " +
+            "\"position\": {\"x\": 0, \"y\": 0}}], \"victory_condition\": \"false\", \"defeat_condition\": \"false\"}]";
+
         private static string Envelope(string table, string rowsJson) =>
             "{\"table\": \"" + table + "\", \"schema_version\": 1, \"rows\": " + rowsJson + "}";
 
@@ -81,7 +89,9 @@ namespace Tests.Gameplay.Assembly
                     "\"start_full\": true}]"))
                 .Add("item.budget_curve", Envelope("item.budget_curve",
                     "[{\"id\": \"item.budget.default\", \"entries\": [{\"item_level\": 1, \"budget\": 10}]}]"))
-                .Add("spawn.table", Envelope("spawn.table", SpawnTableRows));
+                .Add("spawn.table", Envelope("spawn.table", SpawnTableRows))
+                .Add("encounter.def", Envelope("encounter.def", EncounterDefRows))
+                .Add("encounter.level", Envelope("encounter.level", "[]"));
 
             var registry = new DataRegistry(source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
             GameplaySchemaCatalog.RegisterAll(registry);
@@ -140,6 +150,46 @@ namespace Tests.Gameplay.Assembly
             });
 
             Assert.Null(ex);
+        }
+
+        /// <summary>
+        /// GP-04 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：修复前
+        /// <see cref="GameplayAssembly.LeaveMap"/> 只卸载 AreaTrigger/Spawn，从不终止
+        /// <see cref="Core.Gameplay.Encounter.IEncounterHost"/> 侧的运行实例——
+        /// <see cref="Core.Gameplay.Encounter.EncounterTickHandler"/> 每次仍会枚举
+        /// <c>ActiveInstanceIds</c> 全部活跃实例（不按地图过滤），旧地图的遭遇会在玩家已经身处
+        /// 新地图时继续被求值。本用例：在旧地图开始一个恒不结束（victory/defeat 恒 false）的遭遇，
+        /// 切图（<c>ClearAll</c> + <c>LeaveMap</c>）后断言该实例已被终止、不再出现在
+        /// <c>ActiveInstanceIds</c>，且后续 tick 不会再产生任何副作用。
+        /// </summary>
+        [Fact]
+        public void LeaveMap_TerminatesEncounterBoundToOldMap_NoLongerEvaluatedAfterMapSwitch()
+        {
+            var assembly = Build(out var world);
+
+            var instanceId = assembly.Encounter.Start(new Id(EncounterDefId), MapId, PlayerId);
+            Assert.Contains(instanceId, assembly.Encounter.ActiveInstanceIds);
+            Assert.True(assembly.Encounter.GetState(instanceId).IsActive);
+
+            // 若不终止：即使 ClearAll 把参战单位清空，Evaluate 本身不依赖那些单位是否还存活
+            // （victory/defeat 恒为字面量 false），实例会继续"活着"、继续被下一次 tick 求值——
+            // 这正是 GP-04 的复现路径（用新地图上下文求值旧地图的遭遇）。
+            world.ClearAll();
+            assembly.LeaveMap(MapId);
+
+            Assert.False(assembly.Encounter.GetState(instanceId).IsActive);
+            Assert.DoesNotContain(instanceId, assembly.Encounter.ActiveInstanceIds);
+
+            // 进新图、tick 若干次：旧实例已终止，EncounterTickHandler 不会再碰它，全程不抛异常。
+            var ex = Record.Exception(() =>
+            {
+                for (var i = 0; i < 20; i++)
+                {
+                    world.Tick(SimStep.Continuous(0.1));
+                }
+            });
+            Assert.Null(ex);
+            Assert.False(assembly.Encounter.GetState(instanceId).IsActive);
         }
     }
 }

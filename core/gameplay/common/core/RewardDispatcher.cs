@@ -53,7 +53,7 @@ namespace Core.Gameplay.Common
             GrantItems(unitId, bundle);
             GrantXp(unitId, bundle, sourceId);
             GrantCurrency(unitId, bundle, sourceId);
-            GrantSkills(unitId, bundle);
+            GrantSkills(unitId, bundle, sourceId);
             GrantWorldFlags(unitId, bundle, sourceId);
             GrantTalentPoints(unitId, bundle, sourceId);
         }
@@ -114,7 +114,18 @@ namespace Core.Gameplay.Common
             }
         }
 
-        private void GrantSkills(Id unitId, RewardBundle bundle)
+        /// <summary>
+        /// 接线跟进（Y1/Y2 侧 RC-05"装备授予技能缺来源计数"根治，见
+        /// core/carriers/item/contracts/SkillGranter.cs：委托签名从
+        /// <c>(unitId, skillId, learn)</c> 三参改为 <c>(unitId, skillId, sourceId, learn)</c> 四参，
+        /// 供 <c>SkillHost.LearnSkill(Id,Id,Id)</c>/<c>ForgetSkill(Id,Id,Id)</c> 的按来源引用计数）：
+        /// 本方法此前不带 <paramref name="sourceId"/>，改为透传 <see cref="Grant"/> 收到的
+        /// <paramref name="sourceId"/>（例如 quest.def 的 id、encounter.def 的 id）作为技能授予的
+        /// 来源标识，与 <see cref="GrantCurrency"/>/<see cref="GrantWorldFlags"/>/
+        /// <see cref="GrantTalentPoints"/> 同一惯例——奖励发放视为"以此次奖励来源为准的一次授予"，
+        /// 引用计数与装备/永久学习等其它来源各自独立，撤销时只影响这一来源。
+        /// </summary>
+        private void GrantSkills(Id unitId, RewardBundle bundle, Id sourceId)
         {
             if (bundle.Skills.Count == 0)
             {
@@ -130,7 +141,7 @@ namespace Core.Gameplay.Common
 
             foreach (var skillId in bundle.Skills)
             {
-                _skillGranter(unitId, skillId, true);
+                _skillGranter(unitId, skillId, sourceId, true);
             }
         }
 

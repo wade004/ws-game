@@ -18,7 +18,9 @@ from PIL import Image
 
 from .atlas import pack_atlas
 from .common import (
+    check_no_resource_collision,
     find_repo_root,
+    flatten_id_segment,
     log,
     merge_write_row,
     resolve_root,
@@ -69,7 +71,9 @@ def run(args: argparse.Namespace) -> int:
         raise FileNotFoundError(f"源目录不存在: {src_dir}")
 
     validate_id(args.id, "vfx", "--id")
-    name = strip_domain(args.id).replace(".", "_")
+    # 归一化用 flatten_id_segment（先转义下划线再替换点号），避免不同合法 id 归一到同一个
+    # 物理目录名（TOOL-02 判断记录，与 sfx_cmd 同一口径）。
+    name = flatten_id_segment(strip_domain(args.id))
 
     frame_paths = sorted(src_dir.glob("*.png"))
     if not frame_paths:
@@ -130,6 +134,10 @@ def run(args: argparse.Namespace) -> int:
         log(f"计划写出特效帧数据: {frames_json_path}", dry_run=True)
         log(f"计划合并写入 vfx.def 行: {row['id']} -> {vfx_def_path}", dry_run=True)
         return 0
+
+    # 写文件前先做碰撞防护：不同 id 不得共用同一条物理 resource_ref（TOOL-02 判断记录），
+    # 碰撞时报错而不是让后写入的源图集静默覆盖先写入的。
+    check_no_resource_collision(vfx_def_path, args.id, [resource_ref])
 
     out_dir.mkdir(parents=True, exist_ok=True)
     atlas_img.save(atlas_png_path)

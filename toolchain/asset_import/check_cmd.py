@@ -34,6 +34,7 @@ from .common import (
     DIRECTION_SLOT_ID_PREFIX,
     AssetImportError,
     find_repo_root,
+    flatten_id_segment,
     read_json,
     resolve_root,
     strip_domain,
@@ -232,7 +233,9 @@ def _check_sprite_row(row: dict, assets_root: Path, dataset: str, problems: list
 
 def _check_vfx_row(row: dict, assets_root: Path, dataset: str, problems: list[str]) -> None:
     row_id = row.get("id", "?")
-    name = strip_domain(row_id).replace(".", "_") if "." in row_id else row_id
+    # 与 vfx_cmd.py 的归一化口径保持一致（TOOL-02 判断记录），否则 check 会按旧的
+    # .replace(".", "_") 算出与实际落盘目录不同的路径，误报缺失。
+    name = flatten_id_segment(strip_domain(row_id)) if "." in row_id else row_id
     out_dir = assets_root / dataset / "vfx" / name
     if not (out_dir / "atlas.png").is_file():
         problems.append(f"{row_id}: resource_ref 对应图集缺失: {out_dir / 'atlas.png'}")

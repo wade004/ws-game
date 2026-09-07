@@ -685,6 +685,16 @@ namespace Adapter.Unity.Shell
             // 不应卡住 playing_back 节奏门），因此本调用不受 renderTicking 门槛限制。
             RunPresentationStep(() => Presentation.Feedback.Update(unscaledDelta));
 
+            // GP-03 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+            // Presentation.VfxSfx.Core.VfxPlayer.Update(dt) 此前没有任何生产入口调用——循环特效的
+            // 生命周期池（VfxPool）不会随时间停止，首次异步加载迟迟不回调的挂起请求
+            // （_pendingSpawns 超时倒计时，见 VfxOptions.FirstLoadTimeoutSeconds）永久积压，只有
+            // 单元测试直接调用 Update 才会推进。同 Feedback.Update 一样不受下面 renderTicking 门槛
+            // 限制——即便当前不在 InWorld/Pause（例如战斗结算后立刻切到读档画面），已经播放中的循环
+            // 特效也应该继续按自己的 lifetime 正常停止，不应该因为切到别的 AppState 就卡在"永远
+            // 播放"。
+            RunPresentationStep(() => Presentation.Vfx.Update(unscaledDelta));
+
             // 拍板 5/DECISIONS 收口（离散回放门生产实测）：presentation/feedback_binder/README.md
             // 判断记录 9"此前 Unity 引导侧'靠零事件兜底短路'的临时手法已随本次收口废弃"——原 H4 在
             // 此处补的"WaitForPlaybackPacingPolicy 下 PendingCount==0 时主动调用

@@ -111,6 +111,109 @@ namespace Tests.Gameplay.Dialog
         }
 
         // ---------------------------------------------------------------
+        // GP-05：ChooseOption/AdvanceStory 执行前重验 VisibleIf/Condition
+        // ---------------------------------------------------------------
+
+        /// <summary>GP-05 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
+        /// 打开菜单时选项可见（level>=5 成立），点击之前世界状态变化导致条件不再成立——旧实现
+        /// <c>ChooseOption</c> 只按原始 index 执行，不重验，会直接把 Save 动作跑掉；修复后必须拒绝
+        /// 执行、不产生任何副作用。</summary>
+        [Fact]
+        public void ChooseOption_RevalidatesVisibleIf_RejectsAndNoSideEffect_WhenNoLongerVisible()
+        {
+            var visibleIf = ExprParser.Parse("player.level >= 5", Schema);
+            var menu = new GossipMenuDefinition(new Id("dialog.sample_menu"), new[]
+            {
+                new GossipOption(new Id("l10n.opt_high"), visibleIf, new[] { Action(DialogActionKind.Save) }),
+            });
+            var level = 5;
+            var h = new Harness(new[] { menu }, Array.Empty<StoryTreeDefinition>(),
+                playerGroup: (key, args) => key == "level" ? ExprValue.OfInt(level) : ExprValue.OfBool(false));
+
+            var view = h.Host.OpenGossip(Player, Npc, menu.Id);
+            Assert.Single(view.Options); // 打开时可见
+
+            level = 1; // 世界状态变化：条件不再成立
+
+            var result = h.Host.ChooseOption(Player, 0);
+
+            Assert.False(result);
+            Assert.False(h.SaveRequested); // 没有执行 Save 动作
+            Assert.Empty(h.PublishedOf<GossipActionExecutedEvent>());
+        }
+
+        /// <summary>初始就隐藏（level 从未达标）的选项即使被直接按 index 调用也必须拒绝——不依赖
+        /// "曾经显示过"，覆盖"客户端缓存了过期/伪造 index"的场景。</summary>
+        [Fact]
+        public void ChooseOption_InitiallyHiddenOption_RejectsWhenCalledDirectlyByIndex()
+        {
+            var visibleIf = ExprParser.Parse("player.level >= 5", Schema);
+            var menu = new GossipMenuDefinition(new Id("dialog.sample_menu"), new[]
+            {
+                new GossipOption(new Id("l10n.opt_low"), null, new[] { Action(DialogActionKind.Save) }),
+                new GossipOption(new Id("l10n.opt_high"), visibleIf, new[] { Action(DialogActionKind.Save) }),
+            });
+            var h = new Harness(new[] { menu }, Array.Empty<StoryTreeDefinition>(),
+                playerGroup: (key, args) => key == "level" ? ExprValue.OfInt(1) : ExprValue.OfBool(false));
+            h.Host.OpenGossip(Player, Npc, menu.Id);
+
+            var result = h.Host.ChooseOption(Player, 1); // 直接用隐藏选项的原始 index
+
+            Assert.False(result);
+            Assert.False(h.SaveRequested);
+        }
+
+        /// <summary>条件仍然成立时必须正常执行——确认重验不会误伤真正可见的选项。</summary>
+        [Fact]
+        public void ChooseOption_RevalidatesVisibleIf_ExecutesNormally_WhenStillVisible()
+        {
+            var visibleIf = ExprParser.Parse("player.level >= 5", Schema);
+            var menu = new GossipMenuDefinition(new Id("dialog.sample_menu"), new[]
+            {
+                new GossipOption(new Id("l10n.opt_high"), visibleIf, new[] { Action(DialogActionKind.Save) }),
+            });
+            var h = new Harness(new[] { menu }, Array.Empty<StoryTreeDefinition>(),
+                playerGroup: (key, args) => key == "level" ? ExprValue.OfInt(5) : ExprValue.OfBool(false));
+            h.Host.OpenGossip(Player, Npc, menu.Id);
+
+            var result = h.Host.ChooseOption(Player, 0);
+
+            Assert.True(result);
+            Assert.True(h.SaveRequested);
+        }
+
+        /// <summary>AdvanceStory 侧同一件事的复现：进入节点时分支可见，推进之前条件失效——必须拒绝，
+        /// 不切换到下一节点、不发 StoryNodeEnteredEvent。</summary>
+        [Fact]
+        public void AdvanceStory_RevalidatesCondition_RejectsAndDoesNotTransition_WhenNoLongerVisible()
+        {
+            var condition = ExprParser.Parse("player.level >= 5", Schema);
+            var treeId = new Id("dialog.sample_tree");
+            var node2Id = new Id("dialog.node_2");
+            var level = 5;
+            var tree = new StoryTreeDefinition(treeId, new[]
+            {
+                new StoryNodeDefinition(new Id("dialog.node_1"), new Id("l10n.node1"), null, new[]
+                {
+                    new StoryBranchDef(new Id("l10n.branch_gated"), condition, node2Id),
+                }, null),
+                new StoryNodeDefinition(node2Id, new Id("l10n.node2"), null, Array.Empty<StoryBranchDef>(), null),
+            });
+            var h = new Harness(Array.Empty<GossipMenuDefinition>(), new[] { tree },
+                playerGroup: (key, args) => key == "level" ? ExprValue.OfInt(level) : ExprValue.OfBool(false));
+            h.Host.StartStory(Player, treeId);
+            Assert.Single(h.Host.GetStoryView(Player)!.VisibleBranches); // 进入时可见
+
+            level = 1; // 世界状态变化：条件不再成立
+
+            var result = h.Host.AdvanceStory(Player, 0);
+
+            Assert.False(result);
+            Assert.Equal(new Id("dialog.node_1"), h.Host.GetStoryView(Player)!.NodeId); // 未推进
+            Assert.Single(h.PublishedOf<StoryNodeEnteredEvent>()); // 只有 StartStory 那一次
+        }
+
+        // ---------------------------------------------------------------
         // 十种动作
         // ---------------------------------------------------------------
 

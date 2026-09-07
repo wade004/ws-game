@@ -19,6 +19,7 @@ namespace Tests.Presentation.VfxSfx
         public void Stop(SfxHandle handle) { }
         public void SetLayerVolume(string layer, double volume) => LayerVolumes[layer] = volume;
         public void SetLayerMuted(string layer, bool muted) { }
+        public int PendingPlayCount => 0;
     }
 
     /// <summary><see cref="AudioLayerVolumeHost"/>（缺口 12）用例：见任务书"AudioLayerVolumeHost

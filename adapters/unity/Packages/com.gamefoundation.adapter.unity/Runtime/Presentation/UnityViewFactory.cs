@@ -19,6 +19,8 @@ using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
+using Core.Foundation.SimLoop;
+using Core.Rules.Common;
 using Presentation.Common;
 using Presentation.Render;
 using UnityEngine;
@@ -77,6 +79,23 @@ namespace Adapter.Unity.Presentation
         private readonly Dictionary<Id, UnityFrameAnimPlayer> _animPlayersByEntity = new Dictionary<Id, UnityFrameAnimPlayer>();
         private readonly Dictionary<Id, IReadOnlyDictionary<string, Id>> _animClipsByEntity = new Dictionary<Id, IReadOnlyDictionary<string, Id>>();
         private AnimStateMachine? _animStateMachine;
+
+        // GP-06 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：冷启动时
+        // display.anim_set 声明了 resource_ref、但该资源尚未加载进 UnityResourceLoader 缓存
+        // （TryGetEffect 未命中）——此前直接登记单帧 fallback 并永久停在那儿，从不 LoadAsync、
+        // 加载完成后也不重新登记，纸娃娃永久退化成白点。改法见 RequestAnimClipUpgrade：先登记单帧
+        // fallback 保证 Rig.PlayClip 立即可执行，同时发起真正加载，完成后把同一个 clipId 重新登记为
+        // 真实多帧剪辑（RegisterClipFromEffect 对同一 clipId 直接覆盖，见 UnityFrameAnimPlayer.
+        // RegisterClip 判断记录）。
+        // _pendingAnimResourceLoads：已经调用过 LoadAsync 的资源 id 去重集合（同 VfxPlayer.
+        // _pendingResourceLoads/SfxPlayer._pendingResourceLoads 同款惯例），避免多个实体共享同一份
+        // anim_set 时重复发起加载。
+        // _pendingAnimClipWaiters：resourceRef -> 等待这份资源加载完成后需要重新登记的
+        // (player, clipId) 列表——同一份资源可能被多个实体的多个状态引用（例如同一个 anim_set 的
+        // idle 剪辑），加载完成时需要通知全部等待方，不止最早发起加载的那一个。
+        private readonly HashSet<Id> _pendingAnimResourceLoads = new HashSet<Id>();
+        private readonly Dictionary<Id, List<(UnityFrameAnimPlayer Player, Id ClipId)>> _pendingAnimClipWaiters =
+            new Dictionary<Id, List<(UnityFrameAnimPlayer, Id)>>();
         private AnimClipResolver? _animClipResolver;
 
         private static Sprite? _fallbackFrame;
@@ -105,10 +124,52 @@ namespace Adapter.Unity.Presentation
             _resourceLoader = resourceLoader ?? throw new ArgumentNullException(nameof(resourceLoader));
             _bus = bus;
             _dataRegistry = dataRegistry;
+
+            if (_bus != null)
+            {
+                // GP-02 根治：复活/销毁两个事件各自清理默认动画的一部分记账，见两个处理方法各自
+                // 判断记录——二者不能合并成一个处理方法，清理范围不同（销毁清空播放器引用，复活不）。
+                _bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, OnEntityDestroyedForAnim);
+                _bus.Subscribe<UnitRespawnedEvent>(RulesEventKeys.UnitRespawned, OnUnitRespawnedForAnim);
+            }
+        }
+
+        /// <summary>GP-02 根治：实体真正从世界移除——这个 entityId 之后可能被完全不同的新实体复用
+        /// （<c>WorldSim</c> 惯例，见 <c>GameplayAssembly.LeaveMap</c> 一类判断记录"实体 id 不保证不
+        /// 复用"），本工厂给旧实体挂接的 <see cref="UnityFrameAnimPlayer"/> 引用、剪辑表、
+        /// <see cref="AnimStateMachine"/> 记账都必须一并清空——组件本身随 GameObject 销毁自动失效，
+        /// 但字典里持有的引用不会自动消失，留着就是悬空引用（同 <see cref="DestroyAllCreatedViews"/>
+        /// 判断记录），新实体复用同一个 entityId 时会读到已销毁旧组件、或继承旧实体的终态锁。</summary>
+        private void OnEntityDestroyedForAnim(EntityDestroyedEvent evt)
+        {
+            _animStateMachine?.Forget(evt.EntityId);
+            _animPlayersByEntity.Remove(evt.EntityId);
+            _animClipsByEntity.Remove(evt.EntityId);
+        }
+
+        /// <summary>GP-02 根治：复活时同一个 View/播放器组件通常原地复用（不是"销毁重建"），只清空
+        /// <see cref="AnimStateMachine"/> 对该实体的状态记账——死亡是优先级最高的终态锁（见该类型
+        /// 注释），不清空的话复活后仍然停留在 Death，后续任何状态切换（Move/Attack/Cast）都会被
+        /// "终态不接受回落"规则拒绝，复活的角色会卡在死亡姿势且再也动不了。不移除
+        /// <see cref="_animPlayersByEntity"/>/<see cref="_animClipsByEntity"/>：播放器组件与剪辑表
+        /// 依然有效，清空它们反而会让 <see cref="AnimClipResolver"/> 此后找不到播放器，彻底哑掉该
+        /// 实体的动画（同 <see cref="OnEntityDestroyedForAnim"/> 判断记录"清理范围不同"）。</summary>
+        private void OnUnitRespawnedForAnim(UnitRespawnedEvent evt)
+        {
+            _animStateMachine?.Forget(evt.UnitId);
         }
 
         /// <summary>本工厂迄今创建过的全部 View，只读快照（诊断/测试用）。</summary>
         public IReadOnlyList<IView> CreatedViews => _created;
+
+        /// <summary>诊断/测试用：<paramref name="resourceRef"/> 是否已经发起过一次
+        /// <see cref="RequestAnimClipUpgrade"/> 加载尝试（不代表加载结果是成功还是失败，见
+        /// <see cref="_pendingAnimResourceLoads"/> 判断记录"此后永远不再移除"）。供跨用例共享同一个
+        /// <see cref="UnityViewFactory"/> 单例（DontDestroyOnLoad，见 PlayModeIsolation.cs 判断记录）
+        /// 的 PlayMode 测试判断"这次是不是第一次触发某个默认动画资源的冷加载"，从而只在真正会产生
+        /// 新诊断日志的那一次用例里注册 <c>LogAssert.Expect</c>，不需要（也无法）在测试代码里猜测
+        /// 跨用例执行顺序。</summary>
+        public bool HasAttemptedAnimResourceLoad(Id resourceRef) => _pendingAnimResourceLoads.Contains(resourceRef);
 
         public IView CreateView(ViewKind kind, Id displayId, Id entityId)
         {
@@ -188,6 +249,21 @@ namespace Adapter.Unity.Presentation
             _animClipsByEntity[entityId] = clips;
 
             EnsureAnimClipResolver();
+
+            // GP-02 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：此前默认
+            // 工厂只接了 StateChanged -> Play 这一半（见 AnimClipResolver），播放完成后从不回头通知
+            // AnimStateMachine——Hit/Attack/Cast 这类瞬态状态优先级锁只能靠
+            // NotifyTransientStateFinished 解除（见该方法判断记录"只有 finishedState 与当前状态一致
+            // 才生效"），不调用就永久锁死，播放完 Hit 后角色再也进不了 Move/Attack/Cast。这里把
+            // IFrameAnimPlayer.OnComplete（每次非循环剪辑播放结束触发一次，见该接口注释）接回
+            // AnimStateMachine：以"回调触发那一刻状态机记录的当前状态"作为 finishedState——
+            // AttachDefaultAnimation 在 EnsureAnimClipResolver 之后才订阅，_animStateMachine 此时必已
+            // 构造完成，不会是 null。
+            var stateMachine = _animStateMachine!;
+            player.OnComplete(() =>
+            {
+                stateMachine.NotifyTransientStateFinished(entityId, stateMachine.GetState(entityId));
+            });
         }
 
         /// <summary>
@@ -221,15 +297,26 @@ namespace Adapter.Unity.Presentation
             {
                 var stateKey = DefaultAnimStateKeys[i];
                 var clipId = new Id($"anim.default.{info.Id.Value}.{stateKey}");
+                var hasDeclaredResource = animSetClips != null && animSetClips.TryGetValue(stateKey, out var resourceRef);
+                var unityLoader = _resourceLoader as Adapter.Unity.EngineAdapter.UnityResourceLoader;
 
-                if (animSetClips != null && animSetClips.TryGetValue(stateKey, out var resourceRef) &&
-                    _resourceLoader is Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader &&
-                    unityLoader.TryGetEffect(resourceRef, out var effect))
+                if (hasDeclaredResource && unityLoader != null && unityLoader.TryGetEffect(resourceRef, out var effect))
                 {
+                    // 资源已经在缓存里（非首次引用，或恰好是同步加载器）：直接登记真实多帧剪辑。
                     player.RegisterClipFromEffect(clipId, effect);
+                }
+                else if (hasDeclaredResource && unityLoader != null)
+                {
+                    // GP-06 根治：声明了 resource_ref，只是这次是"冷启动"——尚未加载进缓存，不是
+                    // "压根没配"。先登记单帧占位保证立即可用，同时发起真正加载，完成后原地升级成
+                    // 真实多帧剪辑（见 RequestAnimClipUpgrade 判断记录），不再永久停留在单帧退化。
+                    player.RegisterSingleFrameClip(clipId, FallbackFrame);
+                    RequestAnimClipUpgrade(unityLoader, resourceRef, player, clipId, stateKey);
                 }
                 else
                 {
+                    // 真的没有声明这个状态的动画（display.anim_set 查不到该行，或行内该状态字段缺失）
+                    // ——不是"还没加载完"，是数据里压根没配，维持原有单帧退化 + 诊断，不发起加载。
                     if (_warnedAnimDegraded.Add(info.Id.Value + "." + stateKey))
                     {
                         Debug.LogWarning(
@@ -243,6 +330,67 @@ namespace Adapter.Unity.Presentation
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// GP-06 根治：<paramref name="resourceRef"/> 已声明但尚未加载完成时，登记
+        /// (<paramref name="player"/>, <paramref name="clipId"/>) 为该资源的等待方，并按需发起一次
+        /// <see cref="IResourceLoader.LoadAsync"/>（同一资源被多个实体/状态共同引用时只发起一次，见
+        /// <see cref="_pendingAnimResourceLoads"/> 判断记录）。加载完成后把全部等待方一次性升级为
+        /// 真实多帧剪辑；<paramref name="player"/> 若在加载完成前已被销毁（Unity 对象销毁后与
+        /// <c>null</c> 比较为真，见 Unity 官方"伪 null"惯例），跳过它，不抛异常。
+        /// </summary>
+        private void RequestAnimClipUpgrade(
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id resourceRef,
+            UnityFrameAnimPlayer player, Id clipId, string stateKey)
+        {
+            if (!_pendingAnimClipWaiters.TryGetValue(resourceRef, out var waiters))
+            {
+                waiters = new List<(UnityFrameAnimPlayer, Id)>();
+                _pendingAnimClipWaiters[resourceRef] = waiters;
+            }
+            waiters.Add((player, clipId));
+
+            if (!_pendingAnimResourceLoads.Add(resourceRef))
+            {
+                // 已经有别的实体/状态先一步发起了这份资源的加载，本次只需要排进等待列表，不重复
+                // LoadAsync（同一资源重复请求加载没有意义，且部分引擎实现可能因此重复触发磁盘 IO）。
+                return;
+            }
+
+            unityLoader.LoadAsync(resourceRef, ResourceKind.Effect, (loadedResourceId, success) =>
+            {
+                // 判断记录：不从 _pendingAnimResourceLoads 移除——同 VfxPlayer._pendingResourceLoads/
+                // SfxPlayer._pendingResourceLoads 既有惯例"此后永远不再移除，含加载失败的情形，
+                // 失败不重试"（GP-06 验收"后续不重复加载"）。若这里移除，同一个确定加载失败的资源
+                // 会在每次有新实体/新场景重新引用它时又重新发起一次 LoadAsync（重复磁盘 IO + 重复
+                // 警告日志），对一个已确定失败的资源没有任何意义。
+                if (!_pendingAnimClipWaiters.TryGetValue(loadedResourceId, out var pendingWaiters))
+                {
+                    return;
+                }
+                _pendingAnimClipWaiters.Remove(loadedResourceId);
+
+                if (!success || !unityLoader.TryGetEffect(loadedResourceId, out var loadedEffect))
+                {
+                    Debug.LogWarning(
+                        $"[UnityViewFactory] 状态 \"{stateKey}\" 引用的动画资源 \"{loadedResourceId}\" 加载失败，" +
+                        "继续使用单帧占位剪辑（不重试）");
+                    return;
+                }
+
+                for (var i = 0; i < pendingWaiters.Count; i++)
+                {
+                    var (waitingPlayer, waitingClipId) = pendingWaiters[i];
+                    if (waitingPlayer == null)
+                    {
+                        // 加载完成前 View 已被销毁（切图/实体销毁）：Unity 对象销毁后与 null 比较为
+                        // 真，跳过即可，不需要也不应该再对一个已销毁的组件重新登记剪辑。
+                        continue;
+                    }
+                    waitingPlayer.RegisterClipFromEffect(waitingClipId, loadedEffect);
+                }
+            });
         }
 
         private IReadOnlyDictionary<string, Id>? TryResolveAnimSetClips(Id displayMapId)
