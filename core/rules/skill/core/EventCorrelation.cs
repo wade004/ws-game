@@ -50,5 +50,15 @@ namespace Core.Rules.Skill
 
             return false;
         }
+
+        /// <summary>
+        /// RC-01 收边补齐：读回触发本次 Proc 判定的事件所携带的触发链深度（见
+        /// <see cref="ITriggerChainEvent"/>/<see cref="EffectContext.TriggerChainDepth"/> 类型注释）。
+        /// 未实现 <see cref="ITriggerChainEvent"/> 的事件类型（如 <c>unit.died</c>、
+        /// <c>ai.state_changed</c> 等本身不由触发链产生的事件）按 0 处理——把它们当作"根"事件，
+        /// 允许继续作为 Proc 触发源，只是不参与跨事件的深度传播（见 <see cref="ITriggerChainEvent"/>
+        /// 类型注释"修复范围说明"）。
+        /// </summary>
+        public static int GetTriggerChainDepth(IEvent evt) => evt is ITriggerChainEvent chained ? chained.TriggerChainDepth : 0;
     }
 }

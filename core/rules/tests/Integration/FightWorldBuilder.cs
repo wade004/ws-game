@@ -37,6 +37,13 @@ namespace Tests.Rules.Integration
         public static readonly Id SkillBurn = new Id("skill.sample_burn");
         public static readonly Id SkillBite = new Id("skill.sample_bite");
 
+        /// <summary>RC-08 收边补齐（<c>MovementInterruptWiringTests</c> 专用）：唯一声明
+        /// <c>interrupt_flags: ["movement"]</c> 的技能——既有三个技能（strike/burn/bite）均未声明
+        /// movement 中断，无法验证"unit.moved 是否真的接到 CastPipeline.NotifyMoved"这条生产接线
+        /// （见 RulesAssembly 判断记录"RC-08 收边补齐"）。不出现在 <see cref="AiRotationJson"/> 里，
+        /// 不影响 AI 既有行为，只由 <c>MovementInterruptWiringTests</c> 显式 CastSkill。</summary>
+        public static readonly Id SkillChannelMovementInterrupt = new Id("skill.sample_channel_movement_interrupt");
+
         // 判断记录：任务书原句写的光环 id 是 "skill.aura.sample_burn"，本类改用
         // "skill.aura_def.sample_burn"——skill 模块 schema/README.md 与全部既有测试
         // （AuraEffectTests.cs 等）统一约定 aura_def 的 id 前缀是 "skill.aura_def.<name>"（见
@@ -84,6 +91,14 @@ namespace Tests.Rules.Integration
             ]
         }";
 
+        /// <summary>RC-06 收边补齐（<c>PowerMaxRecomputeWiringTests</c> 专用）：唯一一个
+        /// <c>max_source.kind == "stat"</c> 的资源类型——PlayerHealth/Mana 都是 fixed，无法用来验证
+        /// "属性变化后 PowerHost.RecomputeMax 是否被生产接线自动触发"（见 RulesAssembly 判断记录
+        /// "RC-06 收边补齐"）。上限来源即 <see cref="StatArmor"/>（本类已有的属性，零额外数据）。
+        /// 不加入 <see cref="ClassSample"/> 的 <c>power_types</c>，不影响任何既有测试——需要它的
+        /// 单位由 <c>PowerMaxRecomputeWiringTests</c> 自己直接调用 <c>Powers.RegisterUnit</c> 注册。</summary>
+        public static readonly Id PowerShield = new Id("arch.power.test_shield");
+
         private static string PowerTypeJson => @"
         {
             ""table"": ""arch.power_type"",
@@ -95,6 +110,10 @@ namespace Tests.Rules.Integration
                   ""refill_on_leave_combat"": false, ""start_full"": true, ""allow_overflow"": false, ""min"": 0 },
                 { ""id"": """ + PowerMana.Value + @""", ""name_key"": ""l10n.power.mana.name"",
                   ""max_source"": {""kind"": ""fixed"", ""value"": " + MaxMana.ToString(System.Globalization.CultureInfo.InvariantCulture) + @"},
+                  ""regen_in_combat"": 0, ""regen_out_of_combat"": 0, ""decay_out_of_combat"": 0,
+                  ""refill_on_leave_combat"": false, ""start_full"": true, ""allow_overflow"": false, ""min"": 0 },
+                { ""id"": """ + PowerShield.Value + @""", ""name_key"": ""l10n.power.test_shield.name"",
+                  ""max_source"": {""kind"": ""stat"", ""stat"": """ + StatArmor.Value + @"""},
                   ""regen_in_combat"": 0, ""regen_out_of_combat"": 0, ""decay_out_of_combat"": 0,
                   ""refill_on_leave_combat"": false, ""start_full"": true, ""allow_overflow"": false, ""min"": 0 }
             ]
@@ -180,7 +199,7 @@ namespace Tests.Rules.Integration
             ]
         }";
 
-        private const string SkillDefJson = @"
+        private static string SkillDefJson => @"
         {
             ""table"": ""skill.def"",
             ""schema_version"": 1,
@@ -200,7 +219,12 @@ namespace Tests.Rules.Integration
                 { ""id"": ""skill.sample_bite"", ""school"": ""school.physical"", ""kind"": ""active"",
                   ""range"": 3, ""cast_time"": 0, ""respects_gcd"": false,
                   ""target_shape_ref"": ""target.chain.nearest_enemy"",
-                  ""effects"": [ { ""kind"": ""school_damage"", ""params"": { ""base_value"": 15, ""coefficient"": 0 } } ] }
+                  ""effects"": [ { ""kind"": ""school_damage"", ""params"": { ""base_value"": 15, ""coefficient"": 0 } } ] },
+
+                { ""id"": """ + SkillChannelMovementInterrupt.Value + @""", ""school"": ""school.physical"", ""kind"": ""active"",
+                  ""range"": 0, ""cast_time"": 3.0, ""respects_gcd"": false,
+                  ""target_shape_ref"": ""target.chain.nearest_enemy"", ""interrupt_flags"": [""movement""],
+                  ""effects"": [] }
             ]
         }";
 

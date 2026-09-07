@@ -269,5 +269,93 @@ namespace Tests.Rules.Skill
             Assert.False(recast.Success);
             Assert.Equal(CastFailureReason.SchoolLocked, recast.Reason);
         }
+
+        // -----------------------------------------------------------------
+        // RC-07（见外部审计 architecture/落地计划/audit-b3b91ee-20260907/code-review.md RC-07）：
+        // 学派锁定推进（CastPipeline.AdvanceSchoolLocks）此前只挂在 CastPipeline.Update（连续模式
+        // 每 tick 调用）内部——离散模式的生产路径（见 core/rules/skill/core/SkillTickHandler.cs
+        // Execute 判断记录）从不调用 CastPipeline.Update，只调用 SkillHost.AdvanceCastForActor（每
+        // 行动者自己的读条）与 SkillHost.AdvanceRoundTimers（经 sim.round_ended，每轮一次），学派
+        // 锁定因此在离散模式下永远不衰减。本用例只调用 AdvanceRoundTimers（不调用 CastPipeline.
+        // Update），精确复现离散模式的真实调用面。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void SchoolLock_DecaysViaAdvanceRoundTimers_NotViaContinuousUpdate_ForDiscreteMode()
+        {
+            var lockableSkill = J.O(
+                ("id", J.S("skill.sample_channel_lock_decay")),
+                ("school", J.S("skill.school_sample")),
+                ("kind", J.S("active")),
+                ("range", J.N(0)),
+                ("cast_time", J.N(3)),
+                ("respects_gcd", J.B(false)),
+                ("target_shape_ref", J.S("target.chain.sample")),
+                ("effects", J.A()));
+
+            var world = new SkillWorldBuilder().SkillDef(lockableSkill).SkillDef(InstantDamageSkill()).Build();
+            var caster = new Id("unit.caster");
+            var school = new Id("skill.school_sample");
+            world.AddUnit(caster);
+            world.Targets.SetChain(new Id("target.chain.sample"), caster);
+
+            var start = world.Host.CastSkill(caster, new Id("skill.sample_channel_lock_decay"), System.Array.Empty<Id>());
+            Assert.True(start.Success);
+            world.Host.Interrupt(caster, new Id("unit.interrupter"), school, lockDuration: 2.0);
+
+            var stillLocked = world.Host.CastSkill(caster, new Id("skill.sample_bolt"), System.Array.Empty<Id>());
+            Assert.False(stillLocked.Success);
+            Assert.Equal(CastFailureReason.SchoolLocked, stillLocked.Reason);
+
+            // 离散模式真实调用面：只有 AdvanceRoundTimers（经 sim.round_ended，见
+            // SkillTickHandler 构造函数），从不调用 CastPipeline.Update/SkillHost.Update。
+            world.Host.AdvanceRoundTimers(1.0); // 剩余 1.0
+            var stillLockedAfterOneRound = world.Host.CastSkill(caster, new Id("skill.sample_bolt"), System.Array.Empty<Id>());
+            Assert.False(stillLockedAfterOneRound.Success);
+            Assert.Equal(CastFailureReason.SchoolLocked, stillLockedAfterOneRound.Reason);
+
+            world.Host.AdvanceRoundTimers(1.0); // 剩余 0.0 -> 解锁
+
+            // 修复前：AdvanceRoundTimers 完全不推进学派锁定，本次施法仍会被 SchoolLocked 拒绝。
+            var unlocked = world.Host.CastSkill(caster, new Id("skill.sample_bolt"), System.Array.Empty<Id>());
+            Assert.True(unlocked.Success);
+        }
+
+        [Fact]
+        public void SchoolLock_ContinuousMode_StillDecaysViaHostUpdate_NotDoubleCounted()
+        {
+            // 对照组：连续模式（SkillHost.Update，内部转调 CastPipeline.Update + AdvanceRoundTimers）
+            // 行为不变，且不会因为两者都可能触碰学派锁定而产生"同一个 dt 衰减两次"的双倍速度——
+            // 见 CastPipeline.Update/SkillHost.AdvanceRoundTimers 判断记录"不会重复推进"。
+            var lockableSkill = J.O(
+                ("id", J.S("skill.sample_channel_lock_decay")),
+                ("school", J.S("skill.school_sample")),
+                ("kind", J.S("active")),
+                ("range", J.N(0)),
+                ("cast_time", J.N(3)),
+                ("respects_gcd", J.B(false)),
+                ("target_shape_ref", J.S("target.chain.sample")),
+                ("effects", J.A()));
+
+            var world = new SkillWorldBuilder().SkillDef(lockableSkill).SkillDef(InstantDamageSkill()).Build();
+            var caster = new Id("unit.caster");
+            var school = new Id("skill.school_sample");
+            world.AddUnit(caster);
+            world.Targets.SetChain(new Id("target.chain.sample"), caster);
+
+            var start = world.Host.CastSkill(caster, new Id("skill.sample_channel_lock_decay"), System.Array.Empty<Id>());
+            Assert.True(start.Success);
+            world.Host.Interrupt(caster, new Id("unit.interrupter"), school, lockDuration: 2.0);
+
+            // 恰好推进 1.9 秒：若被双重计数会变成 3.8（超过 2.0），错误地提前解锁。
+            world.Host.Update(1.9);
+            var stillLocked = world.Host.CastSkill(caster, new Id("skill.sample_bolt"), System.Array.Empty<Id>());
+            Assert.False(stillLocked.Success);
+            Assert.Equal(CastFailureReason.SchoolLocked, stillLocked.Reason);
+
+            world.Host.Update(0.2); // 累计 2.1，单倍计数应已解锁。
+            var unlocked = world.Host.CastSkill(caster, new Id("skill.sample_bolt"), System.Array.Empty<Id>());
+            Assert.True(unlocked.Success);
+        }
     }
 }

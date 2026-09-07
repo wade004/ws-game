@@ -199,7 +199,36 @@ namespace Core.Carriers.Projectile
             }
 
             var prevPos = entity.Position;
-            var newPos = prevPos + entity.Velocity * dt;
+            var fullStep = entity.Velocity * dt;
+
+            // RC-09 收边补齐：先按"本发剩余射程"截断本 tick 的位移线段，再做墙/单位/终点测试——
+            // 原实现直接用整个 dt 算出的 newPos 做单位命中判定（TryResolveUnitHits 用的线段就是
+            // prevPos→newPos），到达/超过 MaxRange 只在命中判定、撞墙判定都做完之后才检查（见本
+            // 方法下方 "state.DistanceTraveled >= state.MaxRange" 分支）。速度较快或 dt 较大时，
+            // 一个 tick 的整步位移可能整段越过射程上限，越界的那一段本不该存在，却仍然可能在里面
+            // 查到并命中射程外的单位；`impact_on_expiry` 的爆炸中心（<see cref="ResolveExpiry"/>
+            // 用 <c>entity.Position</c> 当查询圆心）也会错误地落在整步终点而不是射程终点（见外部
+            // 审计 RC-09）。现在先把 <c>newPos</c> 本身截到"剩余射程"以内，后续墙检测/单位命中
+            // 查询/"是否到达 MaxRange"判断、以及 <c>impact_on_expiry</c> 的爆炸中心全部统一基于
+            // 这个已经截断的端点，不需要再额外补一次射程校验分支。
+            var remainingRange = state.MaxRange - state.DistanceTraveled;
+            var stepLength = fullStep.Length;
+            Vec2 newPos;
+            if (remainingRange <= 0)
+            {
+                // 防御性兜底：正常情况下 DistanceTraveled 达到 MaxRange 的那次 tick 已经在下方
+                // ResolveExpiry 并销毁，不会再有后续 tick 调用到本方法。
+                newPos = prevPos;
+            }
+            else if (stepLength > remainingRange)
+            {
+                var stepDirection = stepLength > 1e-9 ? fullStep * (1.0 / stepLength) : new Vec2(1, 0);
+                newPos = prevPos + stepDirection * remainingRange;
+            }
+            else
+            {
+                newPos = prevPos + fullStep;
+            }
 
             // 地形遮挡（命中判定的另一半：ISpatialQuery 找单位、INavigation2D.raycast 找地形阻挡，
             // 见 core/carriers/projectile/README.md"命中判定"一节）：先算出本 tick 位移线段是否

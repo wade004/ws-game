@@ -159,6 +159,29 @@ namespace Core.Rules.Combat
             }
         }
 
+        /// <summary>
+        /// RC-02 收边补齐：把 <paramref name="sourceId"/> 从全部单位的仇恨表里作为"来源"整体移除
+        /// （不同于 <see cref="Clear"/>——那只清空 <paramref name="sourceId"/> 自己持有的表，不触碰
+        /// 它作为来源挂在其它单位表上的条目）。供 <see cref="CombatHost"/> 在某单位被销毁
+        /// （<c>entity.destroyed</c>）时做"双向仇恨"清理：其它仍存活单位的仇恨表里不应该继续挂着
+        /// 一条指向已销毁单位的僵尸条目——<see cref="PruneDead"/> 能做到同样的效果，但需要逐个
+        /// <paramref name="unitId"/> 显式调用，销毁事件驱动的清理不应该依赖调用方之后是否记得
+        /// 对每个可能持有该来源条目的单位调用它。
+        /// </summary>
+        public void RemoveSourceEverywhere(Id sourceId)
+        {
+            foreach (var unitId in TrackedUnits)
+            {
+                if (!_tables.TryGetValue(unitId, out var table) || !table.TryGetValue(sourceId, out var oldValue))
+                {
+                    continue;
+                }
+
+                table.Remove(sourceId);
+                _bus.Enqueue(new CombatThreatChangedEvent(unitId, sourceId, oldValue, 0.0));
+            }
+        }
+
         private SortedDictionary<Id, double> GetOrCreateTable(Id unitId)
         {
             if (!_tables.TryGetValue(unitId, out var table))

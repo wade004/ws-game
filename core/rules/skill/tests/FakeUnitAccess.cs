@@ -49,5 +49,16 @@ namespace Tests.Rules.Skill
         public Id? GetTemplateId(Id unitId) => null;
 
         public IReadOnlyList<Id> GetTags(Id unitId) => _tags.TryGetValue(unitId, out var t) ? t : Array.Empty<Id>();
+
+        /// <summary>RC-03 收边补齐：模拟单位被彻底销毁（<c>entity.destroyed</c> 之后
+        /// <see cref="Exists"/> 应当返回 false）——此前本假实现只有 <see cref="Add"/>，没有对应的
+        /// 反操作，无法测试"目标/施法者已被销毁（而不只是死亡）"这条区别于"存在但已死亡"的路径
+        /// （见 <see cref="Core.Rules.Skill.CastPipeline.FilterDestroyedTargets"/>/
+        /// <see cref="Core.Rules.Skill.CastPipeline.IsCasterStillValid"/> 判断记录）。</summary>
+        public FakeUnitAccess Remove(Id id)
+        {
+            _units.Remove(id);
+            return this;
+        }
     }
 }

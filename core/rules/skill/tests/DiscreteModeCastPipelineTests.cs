@@ -174,5 +174,133 @@ namespace Tests.Rules.Skill
             Assert.False(second.Success);
             Assert.Equal(CastFailureReason.GcdActive, second.Reason);
         }
+
+        // -----------------------------------------------------------------
+        // RC-04（见外部审计 architecture/落地计划/audit-b3b91ee-20260907/code-review.md RC-04、
+        // validation-repros.txt R6）：无目标/超距/无视线三种"必然失败"的校验都在步骤 6/7，行动点
+        // 消耗（步骤 5 之后、原步骤 6 之前）此前抢在它们前面执行——技能注定失败仍会真正扣掉行动点。
+        // 修复后行动点消耗挪到全部校验通过之后，三种失败分支都不应触碰行动点账本。
+        // -----------------------------------------------------------------
+
+        private static JsonObject RangedSkillDef(string id, double range, double actionCost) =>
+            J.O(
+                ("id", J.S(id)),
+                ("school", J.S("skill.school_sample")),
+                ("kind", J.S("active")),
+                ("range", J.N(range)),
+                ("cast_time", J.N(0)),
+                ("respects_gcd", J.B(false)),
+                ("action_cost", J.N(actionCost)),
+                ("target_shape_ref", J.S("target.chain.sample")),
+                ("effects", J.A(
+                    J.O(("kind", J.S("school_damage")),
+                        ("params", J.O(("base_value", J.N(10)), ("coefficient", J.N(0))))))));
+
+        /// <summary>只实现 <see cref="ISpatialQuery.HasLineOfSight"/>（本测试唯一用到的成员）、
+        /// 恒返回 false 的最小假实现——<c>Adapters.Stub.StubSpatialQuery</c> 的 <c>HasLineOfSight</c>
+        /// 硬编码恒 true，无法配置为"无视线"，且该桩不在本模块可写范围内，故本文件自建一个。</summary>
+        private sealed class DenyLineOfSightSpatialQuery : Core.Foundation.EngineAdapter.ISpatialQuery
+        {
+            public System.Collections.Generic.IReadOnlyList<Id> QueryRadius(Vec2 center, double radius, Core.Foundation.EngineAdapter.QueryFilter filter) => System.Array.Empty<Id>();
+            public System.Collections.Generic.IReadOnlyList<Id> QueryCone(Vec2 origin, double direction, double angle, double range, Core.Foundation.EngineAdapter.QueryFilter filter) => System.Array.Empty<Id>();
+            public System.Collections.Generic.IReadOnlyList<Id> QueryLine(Vec2 from, Vec2 to, Core.Foundation.EngineAdapter.QueryFilter filter) => System.Array.Empty<Id>();
+            public System.Collections.Generic.IReadOnlyList<Id> QueryRect(Vec2 min, Vec2 max, Core.Foundation.EngineAdapter.QueryFilter filter) => System.Array.Empty<Id>();
+            public System.Collections.Generic.IReadOnlyList<Id> QueryShape(Core.Foundation.EngineAdapter.Shape shape, Core.Foundation.EngineAdapter.QueryFilter filter) => System.Array.Empty<Id>();
+            public Id? Nearest(Vec2 point, Core.Foundation.EngineAdapter.QueryFilter filter) => null;
+            public bool HasLineOfSight(Vec2 from, Vec2 to) => false;
+            public void Register(Id id, Vec2 position, double radius, System.Collections.Generic.IReadOnlyList<string> tags) { }
+            public void UpdatePosition(Id id, Vec2 position) { }
+            public void Unregister(Id id) { }
+            public void Clear() { }
+        }
+
+        [Fact]
+        public void DiscreteStep_NoValidTarget_DoesNotConsumeActionPoints()
+        {
+            var builder = new SkillWorldBuilder();
+            builder.Options.IsDiscreteStep = () => true;
+            var consumeCalls = 0;
+            builder.Options.TryConsumeActionPoints = (unitId, amount) => { consumeCalls++; return true; };
+
+            var world = builder.SkillDef(RangedSkillDef("skill.sample_no_target", range: 5, actionCost: 2)).Build();
+            var caster = new Id("unit.caster");
+            world.AddUnit(caster);
+            // 故意不给 target.chain.sample 设置任何目标——目标链解析为空，步骤 6 NoValidTarget。
+
+            var result = world.Host.CastSkill(caster, new Id("skill.sample_no_target"), System.Array.Empty<Id>());
+
+            Assert.False(result.Success);
+            Assert.Equal(CastFailureReason.NoValidTarget, result.Reason);
+            Assert.Equal(0, consumeCalls);
+        }
+
+        [Fact]
+        public void DiscreteStep_OutOfRange_DoesNotConsumeActionPoints()
+        {
+            var builder = new SkillWorldBuilder();
+            builder.Options.IsDiscreteStep = () => true;
+            var consumeCalls = 0;
+            builder.Options.TryConsumeActionPoints = (unitId, amount) => { consumeCalls++; return true; };
+
+            var world = builder.SkillDef(RangedSkillDef("skill.sample_out_of_range", range: 5, actionCost: 2)).Build();
+            var caster = new Id("unit.caster");
+            var target = new Id("unit.target");
+            world.AddUnit(caster, new Vec2(0, 0));
+            world.AddUnit(target, new Vec2(100, 0));
+            world.Targets.SetChain(new Id("target.chain.sample"), target);
+
+            var result = world.Host.CastSkill(caster, new Id("skill.sample_out_of_range"), System.Array.Empty<Id>());
+
+            // 修复前：R6 复现——超距校验之前行动点已经被消费一次（见外部审计 validation-repros.txt）。
+            Assert.False(result.Success);
+            Assert.Equal(CastFailureReason.OutOfRange, result.Reason);
+            Assert.Equal(0, consumeCalls);
+        }
+
+        [Fact]
+        public void DiscreteStep_NoLineOfSight_DoesNotConsumeActionPoints()
+        {
+            var builder = new SkillWorldBuilder();
+            builder.Options.IsDiscreteStep = () => true;
+            builder.SpatialQuery = new DenyLineOfSightSpatialQuery();
+            var consumeCalls = 0;
+            builder.Options.TryConsumeActionPoints = (unitId, amount) => { consumeCalls++; return true; };
+
+            var world = builder.SkillDef(RangedSkillDef("skill.sample_no_los", range: 5, actionCost: 2)).Build();
+            var caster = new Id("unit.caster");
+            var target = new Id("unit.target");
+            world.AddUnit(caster, new Vec2(0, 0));
+            world.AddUnit(target, new Vec2(1, 0)); // 射程内，但视线被拒绝。
+            world.Targets.SetChain(new Id("target.chain.sample"), target);
+
+            var result = world.Host.CastSkill(caster, new Id("skill.sample_no_los"), System.Array.Empty<Id>());
+
+            Assert.False(result.Success);
+            Assert.Equal(CastFailureReason.LineOfSight, result.Reason);
+            Assert.Equal(0, consumeCalls);
+        }
+
+        [Fact]
+        public void DiscreteStep_AllValidationsPass_ConsumesActionPointsExactlyOnce()
+        {
+            // 对照组：全部校验通过时，行动点仍然会被消费（且只消费一次）——确认本次改动只是
+            // 挪动调用时机，不是移除调用。
+            var builder = new SkillWorldBuilder();
+            builder.Options.IsDiscreteStep = () => true;
+            var consumeCalls = 0;
+            builder.Options.TryConsumeActionPoints = (unitId, amount) => { consumeCalls++; return true; };
+
+            var world = builder.SkillDef(RangedSkillDef("skill.sample_valid_cast", range: 5, actionCost: 2)).Build();
+            var caster = new Id("unit.caster");
+            var target = new Id("unit.target");
+            world.AddUnit(caster, new Vec2(0, 0));
+            world.AddUnit(target, new Vec2(1, 0));
+            world.Targets.SetChain(new Id("target.chain.sample"), target);
+
+            var result = world.Host.CastSkill(caster, new Id("skill.sample_valid_cast"), System.Array.Empty<Id>());
+
+            Assert.True(result.Success);
+            Assert.Equal(1, consumeCalls);
+        }
     }
 }

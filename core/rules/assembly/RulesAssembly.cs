@@ -87,6 +87,14 @@ namespace Core.Rules.Assembly
         /// 非空时已经预先 <c>Bind</c> 过一次，仍可再调 <c>Bind</c> 覆盖。</summary>
         public DeferredEffectExtension EffectExtension { get; }
 
+        /// <summary>RC-11 收边补齐：<see cref="Skill"/> 内部持有的 <see cref="IWeaponDamageQuery"/>
+        /// 延迟绑定代理（见 <see cref="DeferredWeaponDamageQuery"/> 判断记录——真实实现
+        /// <c>core/carriers/item.EquipmentHost</c> 要等 <see cref="Stats"/>/<see cref="Skill"/> 都
+        /// 构造完成后才能装配出来，本属性供调用方（<c>CarriersAssembly</c>）在那之后调
+        /// <see cref="DeferredWeaponDamageQuery.Bind"/> 换上真实实现）。未绑定期间
+        /// <c>weapon_damage_pct</c> 效果按"无武器"处理（返回 0，见该接口方法注释）。</summary>
+        public DeferredWeaponDamageQuery WeaponDamageQuery { get; }
+
         // -----------------------------------------------------------------
         // time：simTimeProvider/combatStartTimeProvider（见 README"时间来源"一节）
         // -----------------------------------------------------------------
@@ -154,6 +162,8 @@ namespace Core.Rules.Assembly
                 EffectExtension.Bind(effectExtension);
             }
 
+            WeaponDamageQuery = new DeferredWeaponDamageQuery();
+
             TrackSimTime();
 
             // -------------------------------------------------------------
@@ -188,6 +198,33 @@ namespace Core.Rules.Assembly
             ProgStatModifierRemover progressionRemover = (unitId, sourceId) => Stats.RemoveModifiersBySource(unitId, sourceId);
             Progression = new ProgressionHost(Registry, Bus, progressionWriter, progressionRemover);
             progression = Progression; // 回填第 1 步的闭包捕获。
+
+            // -------------------------------------------------------------
+            // RC-06 收边补齐：派生上限（PowerHost.RecomputeMax）/评级换算属性缓存（StatHost.
+            // RecomputeRatingStats）此前只在注册时算一次，或要求调用方显式手动调用——升级、装备、
+            // 光环变化后都会读到过期的上限/评级值（见外部审计 RC-06、StatHost.RecomputeRatingStats/
+            // PowerHost.IsRegistered 判断记录）。这里统一订阅两个已有事件：
+            //   1) stat.changed → Powers.RecomputeMax(unitId)：覆盖"属性变化"本身，以及"装备/光环
+            //      变化"——装备（EquipmentHost.ApplyGrants/RevertGrants）与光环（AuraHost 的
+            //      ApplyStatMods/ReapplyStatMods）都经 IStatHost.AddModifier/RemoveModifiersBySource
+            //      写入，真正改变属性值时已经会 Enqueue 一次 stat.changed（见 StatHost.AddModifier/
+            //      RemoveModifiersBySource），本订阅只是把"属性变了"这件事再传播给"依赖这个属性
+            //      的资源上限"，不需要分别订阅装备/光环各自的领域事件。
+            //   2) progression.level_up → Stats.RecomputeRatingStats(unitId)：覆盖"等级"这个不经过
+            //      AddModifier/SetBase/RemoveModifiersBySource 三个写入入口、因此不会自动更新
+            //      GetStat 缓存的特殊维度（见该方法判断记录）；若某个评级属性因此改变，
+            //      RecomputeRatingStats 自己也会 Enqueue stat.changed，继而经上面第 1 条订阅联动
+            //      触发 Powers.RecomputeMax——两个订阅合起来覆盖"属性/等级/装备/光环"全部四个来源，
+            //      不需要更多订阅点。
+            // -------------------------------------------------------------
+            Bus.Subscribe<StatChangedEvent>(StatBlockEventKeys.StatChanged, evt =>
+            {
+                if (Powers.IsRegistered(evt.UnitId))
+                {
+                    Powers.RecomputeMax(evt.UnitId);
+                }
+            });
+            Bus.Subscribe<LevelUpEvent>(ProgressionEventKeys.LevelUp, evt => Stats.RecomputeRatingStats(evt.UnitId));
 
             StatBaseWriter archBaseWriter = (unitId, stat, value) => Stats.SetBase(unitId, stat, value);
             ArchStatModifierWriter archModifierWriter = (unitId, stat, op, value, sourceId) =>
@@ -251,8 +288,34 @@ namespace Core.Rules.Assembly
             Skill = new SkillHost(
                 Registry, Bus, Units, Stats, Powers, Rng, Combat, Targeting, ExprHostFactory, Spatial,
                 resolvedSkillOptions, effectExtension: EffectExtension, diagnostics: null, exprSchema: null,
-                staticImmunity: staticImmunity, projectileSpawner: projectileSpawner);
+                staticImmunity: staticImmunity, projectileSpawner: projectileSpawner,
+                weaponDamageQuery: WeaponDamageQuery);
             skill = Skill; // 回填第 3 步 archAuraApplier 闭包捕获的局部变量。
+
+            // -------------------------------------------------------------
+            // RC-08 收边补齐：movement 施法中断（skill.def.interrupt_flags 含 "movement" 时读条/
+            // 引导应被打断，见 06 第 3.1 节）此前只有 SkillHost.NotifyMoved 这个方法本身，生产装配
+            // 从未有人调用它——真实移动只发 unit.moved 事件（core/carriers/unit.MovementTickHandler），
+            // core/rules/skill 没有订阅（见外部审计 RC-08）。这里订阅 EventKeys.UnitMoved（<see
+            // cref="Core.Foundation.EventBus.EventKeys"/> 由 found.event_catalog 生成的全局事件 key
+            // 常量，不是某个具体强类型事件类），转调 Skill.NotifyMoved——本模块（core/rules）不
+            // 依赖 core/carriers（见 Core.Rules.csproj 只引用 Core.Numbers，架构分层禁止 L2 反向
+            // 依赖 L3），因此不能直接引用 core/carriers/common 定义的强类型 UnitMovedEvent 类，改用
+            // 全部事件都实现的 IExprReadableEvent.TryGetField("unitId", ...) 通用读出字段（同一套
+            // 机制供 Expr 引擎按事件求值，语义与强类型属性完全一致，见 IExprReadableEvent 类型
+            // 注释）。SkillHost.NotifyMoved 内部已经会检查"该单位是否正在读条/引导 且 声明了
+            // InterruptFlags.Movement"，本订阅本身不做任何过滤——移动了但没有读条中的技能、或
+            // 读条的技能没声明 movement 中断，NotifyMoved 都是安全 no-op（见该方法判断记录）。
+            // -------------------------------------------------------------
+            Bus.Subscribe(EventKeys.UnitMoved, evt =>
+            {
+                if (evt is IExprReadableEvent readable &&
+                    readable.TryGetField("unitId", out var unitIdValue) &&
+                    unitIdValue.Kind == ExprValueKind.Id)
+                {
+                    Skill.NotifyMoved(unitIdValue.AsId);
+                }
+            });
 
             // -------------------------------------------------------------
             // 6) IAuraQuery / ISkillHost 回接：combat 此前拿到的 deferredAuras 代理现在指向真实的

@@ -213,7 +213,12 @@ namespace Core.Rules.Ai
                     continue;
                 }
 
-                var targets = state.Target.HasValue
+                // RC-10 收边勘误：只有"敌对单体"类技能才把 AI 当前追踪的敌人强塞给 CastSkill
+                // （见 CompiledRotationEntry.IsHostileSingleTarget/ClassifyIsHostileSingleTarget
+                // 判断记录）——自疗/友疗/AOE 一律传空目标数组，交 CastPipeline 步骤 6 用技能自己的
+                // target_shape_ref 目标链解析（原实现对全部技能无条件强塞 state.Target，见外部审计
+                // RC-10："自疗可作用于敌人，友疗/AOE 过滤失效"）。
+                var targets = entry.IsHostileSingleTarget && state.Target.HasValue
                     ? new[] { state.Target.Value }
                     : Array.Empty<Id>();
 
@@ -724,12 +729,81 @@ namespace Core.Rules.Ai
                     var conditionText = ((JsonString)obj["condition"]).Value;
                     var skillId = new Id(((JsonString)obj["skill_id"]).Value);
                     var node = ExprParser.Parse(conditionText, _exprSchema);
-                    compiled.Add(new CompiledRotationEntry(priority, node, skillId));
+                    var isHostileSingleTarget = ClassifyIsHostileSingleTarget(registry, skillId);
+                    compiled.Add(new CompiledRotationEntry(priority, node, skillId, isHostileSingleTarget));
                 }
 
                 compiled.Sort((a, b) => b.Priority.CompareTo(a.Priority));
                 _rotations[id.Value] = compiled;
             }
+        }
+
+        /// <summary>
+        /// RC-10 收边补齐：判断 <paramref name="skillId"/> 的目标类型是否为"敌对单体"——直接读
+        /// <c>skill.def.target_shape_ref</c> 指向的 <c>target.chain_def</c> 记录本身（<see
+        /// cref="TargetChainDef"/> 强类型构造会做完整校验/可能抛异常，这里只需要只读探测两个字段，
+        /// 用不到那么重，见 <see cref="LoadRotations"/> 调用点），不经过 <c>core/rules/skill</c>/
+        /// <c>core/rules/targeting</c> 任何具体类型——<see cref="AiHost"/> 只持有 <see
+        /// cref="ISkillHost"/> 这个共享 L2 契约，不依赖同层兄弟模块的内部实现类型（见本类型顶部
+        /// 判断记录"L3 不得直接引用 L2 的具体宿主类型"同一原则的同层版本）。
+        /// <para>
+        /// 判定标准：<c>filters</c> 含 <c>"relation:hostile"</c>、不含 <c>"relation:friendly"</c>，
+        /// 且 <c>max_targets</c>（缺省 1，见 <see cref="TargetChainDef.MaxTargets"/> 判断记录）恰为
+        /// 1。技能未登记、<c>target_shape_ref</c> 缺失、链未登记、字段解析异常等任何"读不出"的
+        /// 情况一律保守返回 false（交目标链自行解析，不强塞——比"猜一个可能猜错的目标类型"更安全，
+        /// 见 <see cref="Evaluate"/> 判断记录）。
+        /// </para>
+        /// </summary>
+        private static bool ClassifyIsHostileSingleTarget(IDataRegistryView registry, Id skillId)
+        {
+            var skillRecord = registry.Get("skill.def", skillId);
+            if (skillRecord == null || !skillRecord.TryGetId("target_shape_ref", out var chainId))
+            {
+                return false;
+            }
+
+            var chainRecord = registry.Get("target.chain_def", chainId);
+            if (chainRecord == null)
+            {
+                return false;
+            }
+
+            var maxTargets = 1L;
+            if (chainRecord.TryGetInt("max_targets", out var explicitMaxTargets))
+            {
+                maxTargets = explicitMaxTargets;
+            }
+
+            if (maxTargets != 1)
+            {
+                return false;
+            }
+
+            if (!chainRecord.TryGetArray("filters", out var filters))
+            {
+                return false;
+            }
+
+            var hasHostile = false;
+            for (var i = 0; i < filters.Count; i++)
+            {
+                if (!(filters[i] is JsonString filterStr))
+                {
+                    continue;
+                }
+
+                if (filterStr.Value == "relation:friendly")
+                {
+                    return false;
+                }
+
+                if (filterStr.Value == "relation:hostile")
+                {
+                    hasHostile = true;
+                }
+            }
+
+            return hasHostile;
         }
 
         private void LoadProfiles(IDataRegistryView registry)

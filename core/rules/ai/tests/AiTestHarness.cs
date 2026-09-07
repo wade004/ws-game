@@ -59,10 +59,14 @@ namespace Tests.Rules.Ai
             string patrolsJson = "[]",
             AiOptions? options = null,
             double maxHealth = 100,
-            ulong rngSeed = 12345)
+            ulong rngSeed = 12345,
+            string? skillDefJson = null,
+            string? targetChainDefJson = null)
         {
             var bus = AiTestSupport.CreateBus();
-            var registry = AiTestSupport.MakeRegistry(bus, profilesJson, rotationsJson, patrolsJson);
+            var registry = skillDefJson != null || targetChainDefJson != null
+                ? AiTestSupport.MakeRegistry(bus, profilesJson, rotationsJson, patrolsJson, skillDefJson ?? "[]", targetChainDefJson ?? "[]")
+                : AiTestSupport.MakeRegistry(bus, profilesJson, rotationsJson, patrolsJson);
             var factions = AiTestSupport.MakeFactionMatrix(bus);
             var powers = AiTestSupport.MakePowerHost(bus, maxHealth);
             var units = new FakeUnitAccess();

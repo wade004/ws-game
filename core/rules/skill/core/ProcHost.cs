@@ -19,14 +19,23 @@ namespace Core.Rules.Skill
     public sealed class ProcHost
     {
         /// <summary>供 <see cref="ProcHost"/> 触发释放的回调：由 <see cref="SkillHost"/> 注入，
-        /// 转调 <see cref="CastPipeline.TriggerCast"/>（绕过读条与 GCD、不入队列）。触发链递归
-        /// 深度上限（见 <see cref="SkillOptions.MaxTriggerDepth"/>）完全由 <see cref="CastPipeline"/>
-        /// 内部一个 ambient 计数器维护（每次进入/退出 <c>TriggerCast</c> 自增/自减，见该类型注释），
-        /// 本回调签名不携带 depth 参数——判断记录：这样 Proc 触发（事件驱动）与
-        /// <c>trigger_spell</c> 效果原语触发（直接方法调用）共用同一套深度计数，不需要把 depth
-        /// 编码进 <see cref="EffectContext.Params"/> 这类"不应携带控制流状态"的数据结构里。
+        /// 转调 <see cref="CastPipeline.TriggerCast"/>（绕过读条与 GCD、不入队列）。
+        /// <para>
+        /// RC-01 收边勘误：触发链递归深度上限（见 <see cref="SkillOptions.MaxTriggerDepth"/>）不再
+        /// 由 <see cref="CastPipeline"/> 内部一个 ambient 计数器维护——该计数器只在同一次调用栈的
+        /// 同步嵌套（<c>trigger_spell</c> 效果原语的直接方法调用）里可靠，<see cref="ProcHost"/>
+        /// 由 <c>combat.damage_dealt</c>/<c>combat.heal_done</c> 一类经
+        /// <see cref="Core.Foundation.EventBus.IEventBus.Enqueue"/> 异步入队、下一个
+        /// <see cref="Core.Foundation.EventBus.IEventBus.DispatchPending"/> pass 才派发的事件触发时，
+        /// ambient 计数器早已归零，深度预算对这条路径完全失效（见 <see cref="CastPipeline"/> 类型
+        /// 注释、审计 RC-01）。<paramref name="chainDepth"/> 现在显式携带"触发本次调用的深度"——
+        /// <see cref="OnEvent"/> 从触发事件本身读回（见 <see cref="EventCorrelation.GetTriggerChainDepth"/>
+        /// 与 <see cref="ITriggerChainEvent"/>），<see cref="EffectDispatcher.ApplyTriggerSpell"/>
+        /// 则从当前 <see cref="EffectContext.TriggerChainDepth"/> 读回，两条触发路径（事件驱动 vs.
+        /// 直接方法调用）经由同一个显式参数共用同一套深度预算判定，不再需要 ambient 状态。
+        /// </para>
         /// 返回是否触发成功（深度超限、技能不存在等均返回 false）。</summary>
-        public delegate bool TriggerCastCallback(Id casterId, Id skillId, IReadOnlyList<Id> targets);
+        public delegate bool TriggerCastCallback(Id casterId, Id skillId, IReadOnlyList<Id> targets, int chainDepth);
 
         private sealed class Attachment
         {
@@ -123,10 +132,13 @@ namespace Core.Rules.Skill
                 attachment.IcdRemaining = attachment.Def.InternalCooldown.Value;
             }
 
-            var triggered = _triggerCast(attachment.HolderId, attachment.Def.TriggerSkill, Array.Empty<Id>());
+            // RC-01 收边补齐：depth 读自触发本次判定的事件本身（见 TriggerCastCallback 类型
+            // 注释），不再依赖 CastPipeline 内部已对跨 pass 派发失效的 ambient 计数器。
+            var chainDepth = EventCorrelation.GetTriggerChainDepth(evt);
+            var triggered = _triggerCast(attachment.HolderId, attachment.Def.TriggerSkill, Array.Empty<Id>(), chainDepth);
             if (triggered)
             {
-                _bus.Enqueue(new ProcTriggeredEvent(attachment.HolderId, attachment.Def.Id, attachment.Def.TriggerSkill));
+                _bus.Enqueue(new ProcTriggeredEvent(attachment.HolderId, attachment.Def.Id, attachment.Def.TriggerSkill, chainDepth + 1));
             }
         }
     }

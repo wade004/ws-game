@@ -31,6 +31,7 @@ namespace Core.Rules.Skill
         private readonly SpellModResolver _spellMods;
         private readonly IEffectExtension? _extension;
         private readonly IProjectileSpawner? _projectileSpawner;
+        private readonly IWeaponDamageQuery? _weaponDamageQuery;
         private readonly ISkillDiagnostics _diagnostics;
         private readonly ProcHost.TriggerCastCallback _triggerCast;
         private readonly Action<Id, Id, Id?, double> _interrupt;
@@ -50,7 +51,8 @@ namespace Core.Rules.Skill
             ProcHost.TriggerCastCallback triggerCast,
             Action<Id, Id, Id?, double> interrupt,
             Action<Id, Id> learnSkill,
-            IProjectileSpawner? projectileSpawner = null)
+            IProjectileSpawner? projectileSpawner = null,
+            IWeaponDamageQuery? weaponDamageQuery = null)
         {
             _auraHost = auraHost ?? throw new ArgumentNullException(nameof(auraHost));
             _cooldowns = cooldowns ?? throw new ArgumentNullException(nameof(cooldowns));
@@ -62,6 +64,7 @@ namespace Core.Rules.Skill
             _spellMods = spellMods ?? throw new ArgumentNullException(nameof(spellMods));
             _extension = extension;
             _projectileSpawner = projectileSpawner;
+            _weaponDamageQuery = weaponDamageQuery;
             _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             _triggerCast = triggerCast ?? throw new ArgumentNullException(nameof(triggerCast));
             _interrupt = interrupt ?? throw new ArgumentNullException(nameof(interrupt));
@@ -146,7 +149,14 @@ namespace Core.Rules.Skill
 
             if (context.Kind == EffectKind.WeaponDamagePct)
             {
-                value = ParamsX.GetNumber(context.Params, "pct", context.BaseValue);
+                // RC-11 收边勘误：pct 是"武器基础伤害的百分比"（06 第 3.2 节），原实现把 params.pct
+                // 本身直接当成落地基础值，从未真正读取过武器伤害——换装不改变该技能伤害，等价于
+                // weaponBase 恒为 1（见外部审计 RC-11）。现在经 IWeaponDamageQuery（依赖倒置，见该
+                // 接口判断记录）取施法者当前武器基础伤害（damage_min/damage_max 均值，无武器为 0，
+                // 见该接口方法注释"判断记录"）再乘以 pct。
+                var pct = ParamsX.GetNumber(context.Params, "pct", context.BaseValue);
+                var weaponBase = _weaponDamageQuery?.GetWeaponBaseDamage(context.SourceId) ?? 0.0;
+                value = weaponBase * pct;
             }
             else
             {
@@ -171,7 +181,7 @@ namespace Core.Rules.Skill
             var outbound = new EffectContext(
                 context.SourceId, context.TargetId, context.SkillId, context.Kind, context.School,
                 value, coefficient, mergedParams, context.AuraInstanceId, context.IsPeriodic, context.CanCrit, context.CanMiss,
-                context.Tags);
+                context.Tags, context.TriggerChainDepth);
 
             return _combatHost.ResolveEffect(outbound);
         }
@@ -190,7 +200,7 @@ namespace Core.Rules.Skill
             // W1 收边补齐（A3 审计 #9）：把触发本次 apply_aura 的 EffectContext.Tags（源自
             // skill.def.tags，见 CastPipeline.ExecuteEffectsOnly）转发给 AuraHost，供后续周期效果
             // 结算按标签过滤 SpellMod（此前恒不传，见 AuraHost.FirePeriodic/AuraInstanceState.Tags）。
-            _auraHost.ApplyAura(context.TargetId, auraDefId, context.SourceId, durationOverride, context.Tags);
+            _auraHost.ApplyAura(context.TargetId, auraDefId, context.SourceId, durationOverride, context.Tags, context.TriggerChainDepth);
             return NoOp(context);
         }
 
@@ -217,7 +227,10 @@ namespace Core.Rules.Skill
         private ResolveResult ApplyTriggerSpell(EffectContext context)
         {
             var skillId = ParamsX.GetId(context.Params, "skill_id", default);
-            _triggerCast(context.SourceId, skillId, new[] { context.TargetId });
+            // RC-01 收边补齐：传入当前效果上下文自身的触发链深度（同步嵌套调用，见
+            // ProcHost.TriggerCastCallback 类型注释——trigger_spell 是直接方法调用，深度就是
+            // "正在执行的这一层"，由 CastPipeline.TriggerCast 校验后 +1 向下传播）。
+            _triggerCast(context.SourceId, skillId, new[] { context.TargetId }, context.TriggerChainDepth);
             return NoOp(context);
         }
 

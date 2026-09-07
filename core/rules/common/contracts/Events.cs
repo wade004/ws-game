@@ -189,7 +189,7 @@ namespace Core.Rules.Common
     }
 
     /// <summary>结算管线"落地"步骤，伤害类效果（见 06 第 8 节）。</summary>
-    public sealed class CombatDamageDealtEvent : IEvent, IExprReadableEvent
+    public sealed class CombatDamageDealtEvent : IEvent, IExprReadableEvent, ITriggerChainEvent
     {
         public Id Key => RulesEventKeys.CombatDamageDealt;
 
@@ -205,7 +205,13 @@ namespace Core.Rules.Common
 
         public HitResult HitResult { get; }
 
-        public CombatDamageDealtEvent(Id sourceId, Id targetId, Id school, double amount, bool isCrit, HitResult hitResult)
+        /// <summary>见 <see cref="ITriggerChainEvent"/>/<see cref="EffectContext.TriggerChainDepth"/>
+        /// 类型注释（RC-01）：产生本次伤害结算的 <c>EffectContext.TriggerChainDepth</c> 原样戳到
+        /// 事件上，供 <c>ProcHost</c> 在本事件是某个 <c>skill.proc_def.trigger_event</c> 时读回，
+        /// 作为下一层 <c>TriggerCast</c> 调用的深度预算输入。未显式传入时为 0（根结算）。</summary>
+        public int TriggerChainDepth { get; }
+
+        public CombatDamageDealtEvent(Id sourceId, Id targetId, Id school, double amount, bool isCrit, HitResult hitResult, int triggerChainDepth = 0)
         {
             SourceId = sourceId;
             TargetId = targetId;
@@ -213,6 +219,7 @@ namespace Core.Rules.Common
             Amount = amount;
             IsCrit = isCrit;
             HitResult = hitResult;
+            TriggerChainDepth = triggerChainDepth;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -225,13 +232,14 @@ namespace Core.Rules.Common
                 case "amount": value = ExprValue.OfNumber(Amount); return true;
                 case "isCrit": value = ExprValue.OfBool(IsCrit); return true;
                 case "hitResult": value = ExprValue.OfString(HitResult.ToString()); return true;
+                case "triggerChainDepth": value = ExprValue.OfInt(TriggerChainDepth); return true;
                 default: value = default; return false;
             }
         }
     }
 
     /// <summary>结算管线"落地"步骤，治疗类效果（见 06 第 8 节）。</summary>
-    public sealed class CombatHealDoneEvent : IEvent, IExprReadableEvent
+    public sealed class CombatHealDoneEvent : IEvent, IExprReadableEvent, ITriggerChainEvent
     {
         public Id Key => RulesEventKeys.CombatHealDone;
 
@@ -243,12 +251,19 @@ namespace Core.Rules.Common
 
         public bool IsCrit { get; }
 
-        public CombatHealDoneEvent(Id sourceId, Id targetId, double amount, bool isCrit)
+        /// <summary>见 <see cref="CombatDamageDealtEvent.TriggerChainDepth"/> 判断记录（RC-01），
+        /// 同一套机制的治疗分支——审计报告点名的 <c>heal_done → trigger_skill(heal)</c> 无 ICD
+        /// 自循环正是靠本字段跨 <see cref="Core.Foundation.EventBus.IEventBus.Enqueue"/> 派发 pass
+        /// 传播深度后才被 <see cref="Core.Rules.Skill.SkillOptions.MaxTriggerDepth"/> 正确截断。</summary>
+        public int TriggerChainDepth { get; }
+
+        public CombatHealDoneEvent(Id sourceId, Id targetId, double amount, bool isCrit, int triggerChainDepth = 0)
         {
             SourceId = sourceId;
             TargetId = targetId;
             Amount = amount;
             IsCrit = isCrit;
+            TriggerChainDepth = triggerChainDepth;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -259,13 +274,14 @@ namespace Core.Rules.Common
                 case "targetId": value = ExprValue.OfId(TargetId); return true;
                 case "amount": value = ExprValue.OfNumber(Amount); return true;
                 case "isCrit": value = ExprValue.OfBool(IsCrit); return true;
+                case "triggerChainDepth": value = ExprValue.OfInt(TriggerChainDepth); return true;
                 default: value = default; return false;
             }
         }
     }
 
     /// <summary><c>apply_aura</c> 生效（见 06 第 8 节）。</summary>
-    public sealed class AuraAppliedEvent : IEvent, IExprReadableEvent
+    public sealed class AuraAppliedEvent : IEvent, IExprReadableEvent, ITriggerChainEvent
     {
         public Id Key => RulesEventKeys.AuraApplied;
 
@@ -277,12 +293,19 @@ namespace Core.Rules.Common
 
         public int Stacks { get; }
 
-        public AuraAppliedEvent(Id targetId, Id auraDefId, Id sourceId, int stacks)
+        /// <summary>见 <see cref="CombatDamageDealtEvent.TriggerChainDepth"/> 判断记录（RC-01）。
+        /// 只有经 <c>skill.def.effects</c> 的 <c>apply_aura</c> 原语（<c>EffectDispatcher.
+        /// ApplyAuraEffectPrimitive</c>）施加时才带上产生它的 <see cref="EffectContext.TriggerChainDepth"/>；
+        /// 其余调用点（装备 grants、种族被动等不经过 <see cref="EffectContext"/> 的直接施加）为 0。</summary>
+        public int TriggerChainDepth { get; }
+
+        public AuraAppliedEvent(Id targetId, Id auraDefId, Id sourceId, int stacks, int triggerChainDepth = 0)
         {
             TargetId = targetId;
             AuraDefId = auraDefId;
             SourceId = sourceId;
             Stacks = stacks;
+            TriggerChainDepth = triggerChainDepth;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -293,6 +316,7 @@ namespace Core.Rules.Common
                 case "auraDefId": value = ExprValue.OfId(AuraDefId); return true;
                 case "sourceId": value = ExprValue.OfId(SourceId); return true;
                 case "stacks": value = ExprValue.OfInt(Stacks); return true;
+                case "triggerChainDepth": value = ExprValue.OfInt(TriggerChainDepth); return true;
                 default: value = default; return false;
             }
         }
@@ -364,7 +388,7 @@ namespace Core.Rules.Common
     }
 
     /// <summary>Proc 命中触发条件（见 06 第 8 节；domain 为 skill，见 <see cref="RulesEventKeys"/> 说明）。</summary>
-    public sealed class ProcTriggeredEvent : IEvent, IExprReadableEvent
+    public sealed class ProcTriggeredEvent : IEvent, IExprReadableEvent, ITriggerChainEvent
     {
         public Id Key => RulesEventKeys.ProcTriggered;
 
@@ -374,11 +398,18 @@ namespace Core.Rules.Common
 
         public Id TriggerSkillId { get; }
 
-        public ProcTriggeredEvent(Id unitId, Id procDefId, Id triggerSkillId)
+        /// <summary>见 <see cref="CombatDamageDealtEvent.TriggerChainDepth"/> 判断记录（RC-01）：
+        /// 本次触发实际执行时的深度（即触发它的事件深度 + 1），使"proc 触发 proc"这类以
+        /// <c>proc.triggered</c> 本身作为 <c>trigger_event</c> 的链路也能正确传播预算，不需要
+        /// 单独一套判定逻辑。</summary>
+        public int TriggerChainDepth { get; }
+
+        public ProcTriggeredEvent(Id unitId, Id procDefId, Id triggerSkillId, int triggerChainDepth = 0)
         {
             UnitId = unitId;
             ProcDefId = procDefId;
             TriggerSkillId = triggerSkillId;
+            TriggerChainDepth = triggerChainDepth;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -388,6 +419,7 @@ namespace Core.Rules.Common
                 case "unitId": value = ExprValue.OfId(UnitId); return true;
                 case "procDefId": value = ExprValue.OfId(ProcDefId); return true;
                 case "triggerSkillId": value = ExprValue.OfId(TriggerSkillId); return true;
+                case "triggerChainDepth": value = ExprValue.OfInt(TriggerChainDepth); return true;
                 default: value = default; return false;
             }
         }

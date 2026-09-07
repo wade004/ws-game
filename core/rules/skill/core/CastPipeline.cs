@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
+using Core.Foundation.SimLoop;
 using Core.Numbers.PowerSet;
 using Core.Rules.Common;
 
@@ -14,10 +15,29 @@ namespace Core.Rules.Skill
     /// <see cref="CastState.Queued"/> 槽位（每单位一个槽，见 06 第 3.6 节"法术队列"）。
     /// <para>
     /// 触发链递归深度（<see cref="TriggerCast"/>，供 <see cref="ProcHost"/> 与
-    /// <c>trigger_spell</c> 效果原语共用）用一个 ambient 计数器 <see cref="_triggerDepth"/> 维护：
-    /// 进入 <see cref="TriggerCast"/> 自增、退出自减，超过 <see cref="SkillOptions.MaxTriggerDepth"/>
-    /// 直接拒绝（见落地方案 T2-6 禁止事项"禁止触发链无限递归"）。因为本引擎单线程同步执行，
-    /// ambient 计数器不需要额外的调用上下文对象即可正确工作。
+    /// <c>trigger_spell</c> 效果原语共用）超过 <see cref="SkillOptions.MaxTriggerDepth"/> 直接拒绝
+    /// （见落地方案 T2-6 禁止事项"禁止触发链无限递归"）。
+    /// </para>
+    /// <para>
+    /// RC-01 收边勘误：深度不再用一个 ambient 计数器（进入 <c>TriggerCast</c> 自增、退出自减）
+    /// 维护——原实现的注释曾声称"本引擎单线程同步执行，ambient 计数器不需要额外的调用上下文对象
+    /// 即可正确工作"，但这个假设只对"同一次 <see cref="TriggerCast"/> 调用栈内的同步嵌套"成立：
+    /// <c>trigger_spell</c> 效果原语确实是同步嵌套调用（<see cref="EffectDispatcher.ApplyTriggerSpell"/>
+    /// 在 <see cref="ExecuteEffectsOnly"/> 执行到一半时直接方法调用 <see cref="TriggerCast"/>），但
+    /// <see cref="ProcHost"/> 由 <c>combat.damage_dealt</c>/<c>combat.heal_done</c> 一类事件触发时，
+    /// 这些事件是经 <see cref="IEventBus.Enqueue"/> 入队、在后续某个
+    /// <see cref="IEventBus.DispatchPending"/> pass 才被派发的（见 <c>core/foundation/event_bus</c>
+    /// README"同步派发 + tick 末批处理"）——产生该事件的那次 <see cref="TriggerCast"/> 调用早已
+    /// 返回、ambient 计数器已经归零，深度预算对这条路径完全失效，只能靠与技能触发链语义无关的
+    /// <see cref="EventBusOptions.MaxDispatchPasses"/> 全局熔断兜底（审计 RC-01）。现在深度改为随
+    /// 数据显式传播：<see cref="TriggerCast"/> 的调用方（<see cref="ProcHost"/>/
+    /// <see cref="EffectDispatcher.ApplyTriggerSpell"/>）传入"触发本次调用的深度"
+    /// （分别读自触发事件的 <see cref="EffectContext.TriggerChainDepth"/>／当前
+    /// <see cref="EffectContext"/> 自身的深度），本方法校验后 +1 传给
+    /// <see cref="ExecuteEffectsOnly"/> 构造的 <see cref="EffectContext"/>，效果落地事件
+    /// （<c>combat.damage_dealt</c>/<c>combat.heal_done</c> 等，见 <see cref="ITriggerChainEvent"/>）
+    /// 把这个深度戳到事件上——不管事件是同步 <c>PublishImmediate</c> 还是异步 <c>Enqueue</c>
+    /// 派发，深度都随事件本身传播，不再依赖调用栈是否还"活着"。
     /// </para>
     /// </summary>
     public sealed class CastPipeline
@@ -52,7 +72,6 @@ namespace Core.Rules.Skill
         private readonly Dictionary<(Id Unit, Id School), double> _schoolLocks = new Dictionary<(Id, Id), double>();
 
         private int _castInstanceSeq;
-        private int _triggerDepth;
 
         public CastPipeline(
             SkillDefCache defs,
@@ -83,6 +102,13 @@ namespace Core.Rules.Skill
 
             _bus.Subscribe(RulesEventKeys.AuraApplied, OnAuraApplied);
             _bus.Subscribe(RulesEventKeys.CombatDamageDealt, OnDamageDealt);
+
+            // RC-03 收边补齐：施法者死亡/被销毁取消读条/引导/队列（见 OnCasterDiedOrDestroyed
+            // 判断记录）——此前只处理控制类打断（OnAuraApplied）与受伤打断（OnDamageDealt），完全
+            // 不订阅死亡/销毁，死亡者会继续在 AdvanceOne/FinishCast 里扣资源并结算，销毁后更会因为
+            // 访问已注销的 Powers/Unit 资源而抛异常（审计 RC-03）。
+            _bus.Subscribe<UnitDiedEvent>(RulesEventKeys.UnitDied, evt => OnCasterDiedOrDestroyed(evt.UnitId));
+            _bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, evt => OnCasterDiedOrDestroyed(evt.EntityId));
         }
 
         public bool IsCasting(Id unitId) => _casting.ContainsKey(unitId);
@@ -175,22 +201,14 @@ namespace Core.Rules.Skill
                 return Fail(casterId, skillId, CastFailureReason.GcdActive);
             }
 
-            // 步骤 5：资源
+            // 步骤 5：资源（06 第 3.6 节表格：本步只检查"cost 是否够；离散模式下另检查
+            // action_cost 行动点是否够"——是"是否够"的校验，不是扣除；真正扣除见步骤 9）
             var modifiedCost = ComputeCost(casterId, def);
             foreach (var (powerType, amount) in modifiedCost)
             {
                 if (_powerHost.GetPower(casterId, powerType) < amount)
                 {
                     return Fail(casterId, skillId, CastFailureReason.InsufficientPower);
-                }
-            }
-
-            // 步骤 5b：行动点（离散模式补充，06 第 3.1 节 action_cost；连续模式/未装配委托恒跳过）
-            if (isDiscreteStep && def.ActionCost > 0)
-            {
-                if (_options.TryConsumeActionPoints == null || !_options.TryConsumeActionPoints(casterId, def.ActionCost))
-                {
-                    return Fail(casterId, skillId, CastFailureReason.InsufficientActionPoints);
                 }
             }
 
@@ -222,6 +240,23 @@ namespace Core.Rules.Skill
                             return Fail(casterId, skillId, CastFailureReason.LineOfSight);
                         }
                     }
+                }
+            }
+
+            // RC-04 收边勘误：行动点消耗（离散模式补充，06 第 3.1 节 action_cost）原来插在步骤 5
+            // 与步骤 6 之间——TryConsumeActionPoints 是"检查是否够 + 原子扣除"合一的委托（不同于
+            // 上面的资源检查：Power 类资源在这一步只探测余量，真正扣除延后到步骤 9 的
+            // DeductResources；行动点没有对应的"仅探测"接口，只能整体挪动调用时机），若挪到目标/
+            // 射程/视线检查之前，会出现"目标不存在/超距/无视线导致本次施法必然失败"时行动点已经
+            // 被扣掉的缺陷（见外部审计 RC-04、validation-repros.txt R6：超距仍产生 1 次消费）。
+            // 现在移到全部校验通过、即将进入步骤 8 读条/引导之前——本方法从这里往下不再有会失败
+            // 的校验分支，行动点与后续步骤 9 的资源/冷却扣除一样，只在"确定会真正开始读条/引导"
+            // 时才真正发生。
+            if (isDiscreteStep && def.ActionCost > 0)
+            {
+                if (_options.TryConsumeActionPoints == null || !_options.TryConsumeActionPoints(casterId, def.ActionCost))
+                {
+                    return Fail(casterId, skillId, CastFailureReason.InsufficientActionPoints);
                 }
             }
 
@@ -279,7 +314,10 @@ namespace Core.Rules.Skill
 
         public void Update(double dt)
         {
-            AdvanceSchoolLocks(dt);
+            // RC-07 收边勘误：学派锁定推进已经挪到 SkillHost.AdvanceRoundTimers（见
+            // AdvanceSchoolLocks 判断记录）——本方法（连续模式每 tick 调用）不再在这里重复推进，
+            // 避免 SkillHost.Update 内 "_pipeline.Update(dt) + AdvanceRoundTimers(dt)" 两次调用对
+            // 同一个 dt 各推进一次、变成双倍衰减速度。
 
             var casterIds = new List<Id>(_casting.Keys);
             foreach (var casterId in casterIds)
@@ -307,19 +345,37 @@ namespace Core.Rules.Skill
                 return;
             }
 
+            // RC-03 收边补齐：完成前重验施法者仍然存活/存在——构造函数订阅的死亡/销毁事件是主要
+            // 清理路径（见 OnCasterDiedOrDestroyed），本处是防御性兜底：例如死亡结算与本次推进
+            // 恰好落在同一批 DispatchPending 内、事件尚未先于本次调用被处理的边界情况，或调用方
+            // 绕过事件总线直接推进的场景（见类型注释判断记录）。命中则静默丢弃整个 CastState——
+            // 不推进周期效果、不结算、不进冷却、不发任何事件（死亡/销毁本身没有"这次读条被谁打断"
+            // 这个语义，交给死亡/销毁事件驱动的 Interrupt 路径发 SkillCastInterruptedEvent；这里
+            // 命中纯属兜底，理论上不会在正常事件顺序下触发）。
+            if (!IsCasterStillValid(casterId))
+            {
+                _casting.Remove(casterId);
+                return;
+            }
+
             if (state.IsChannel)
             {
                 state.TickAccumulator += dt;
                 while (state.TickInterval > 0 && state.TickAccumulator >= state.TickInterval && _casting.ContainsKey(casterId))
                 {
                     state.TickAccumulator -= state.TickInterval;
-                    ExecuteEffectsOnly(casterId, state.Def, state.Targets);
+                    var tickTargets = FilterDestroyedTargets(state.Targets);
+                    if (tickTargets.Count > 0)
+                    {
+                        ExecuteEffectsOnly(casterId, state.Def, tickTargets);
+                    }
                 }
             }
 
             if (!_casting.ContainsKey(casterId))
             {
-                // 引导期间的效果触发了自我打断（例如控制类效果）。
+                // 引导期间的效果触发了自我打断（例如控制类效果，或本次周期效果本身导致施法者/
+                // 目标死亡进而经 RC-03 死亡订阅自我打断）。
                 return;
             }
 
@@ -334,11 +390,23 @@ namespace Core.Rules.Skill
         {
             _casting.Remove(casterId);
 
+            // RC-03 收边补齐：同 AdvanceOne 顶部的判断记录——完成前重验施法者仍然有效，命中则
+            // 静默丢弃（不结算、不扣资源、不进冷却、不发成功事件、不启动排队的下一个技能）。
+            if (!IsCasterStillValid(casterId))
+            {
+                return;
+            }
+
+            var targets = FilterDestroyedTargets(state.Targets);
+
             if (!state.IsChannel)
             {
                 DeductResources(casterId, state.Def.Id, state.ModifiedCost);
                 StartCooldownAndGcd(casterId, state.Def);
-                ExecuteEffectsOnly(casterId, state.Def, state.Targets);
+                if (targets.Count > 0)
+                {
+                    ExecuteEffectsOnly(casterId, state.Def, targets);
+                }
             }
 
             _bus.Enqueue(new SkillCastSuccessEvent(casterId, state.SkillId, state.Targets));
@@ -349,6 +417,54 @@ namespace Core.Rules.Skill
                 TryStartCast(casterId, queuedSkill, queuedTargets);
             }
         }
+
+        /// <summary>RC-03 收边补齐：施法者是否仍然存在且存活（见 <see cref="AdvanceOne"/>/
+        /// <see cref="FinishCast"/> 判断记录）。</summary>
+        private bool IsCasterStillValid(Id casterId) => _units.Exists(casterId) && _units.IsAlive(casterId);
+
+        /// <summary>RC-03 收边补齐：从目标列表里剔除已不存在（销毁）的单位——存在但已死亡的目标
+        /// 仍保留在列表中交给下游各效果自行处理（伤害/治疗经 <see cref="Combat.Resolver.Resolve"/>
+        /// 对死亡目标短路为 Miss，见该方法"对已死亡目标再结算"分支；其它效果原语按各自语义处理，
+        /// 06 未要求施法管线本身对"目标已死但仍存在"做统一拦截）。全部目标仍存在时返回原列表，
+        /// 不额外分配。</summary>
+        private IReadOnlyList<Id> FilterDestroyedTargets(IReadOnlyList<Id> targets)
+        {
+            var anyDestroyed = false;
+            for (var i = 0; i < targets.Count; i++)
+            {
+                if (!_units.Exists(targets[i]))
+                {
+                    anyDestroyed = true;
+                    break;
+                }
+            }
+
+            if (!anyDestroyed)
+            {
+                return targets;
+            }
+
+            var result = new List<Id>(targets.Count);
+            foreach (var targetId in targets)
+            {
+                if (_units.Exists(targetId))
+                {
+                    result.Add(targetId);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>RC-03 收边补齐：施法者死亡（<c>unit.died</c>）或被销毁（<c>entity.destroyed</c>）
+        /// 时取消其读条/引导/队列——两个事件都订阅是因为死亡与实体销毁未必同时发生（死亡后可能
+        /// 留一段时间的尸体才真正销毁，见 <see cref="UnitDiedEvent"/>/<see cref="EntityDestroyedEvent"/>
+        /// 判断记录），任一先到达都应立即取消，不等另一个。复用 <see cref="Interrupt"/>（interrupterId
+        /// 传自身，不加学派锁）——与 <see cref="NotifyMoved"/> 的"自我打断"是同一惯例：死亡/销毁没有
+        /// 引入新事件词汇表词条的必要，<c>skill.cast_interrupted</c> 已经能准确表达"这次读条/引导
+        /// 没有正常完成"。<see cref="Interrupt"/> 本身对未在读条/引导中的单位是安全 no-op，本方法
+        /// 因此天然幂等，不需要额外的 <c>_casting.ContainsKey</c> 前置判断。</summary>
+        private void OnCasterDiedOrDestroyed(Id unitId) => Interrupt(unitId, unitId, null, 0);
 
         // -----------------------------------------------------------------
         // 打断
@@ -407,13 +523,20 @@ namespace Core.Rules.Skill
         // 触发链（Proc / trigger_spell 共用，见类型注释）
         // -----------------------------------------------------------------
 
-        internal bool TriggerCast(Id casterId, Id skillId, IReadOnlyList<Id> targets)
+        /// <summary>
+        /// <paramref name="chainDepth"/>：触发本次调用的触发链深度（0 = 由一次未经触发的根结算/
+        /// 根效果发起，见类型注释"RC-01 收边勘误"）——调用方传入的是"触发它的那一层"的深度，
+        /// 本方法校验通过后统一 +1 作为"本次触发实际执行"的深度，向下传播。
+        /// </summary>
+        internal bool TriggerCast(Id casterId, Id skillId, IReadOnlyList<Id> targets, int chainDepth)
         {
-            if (_triggerDepth >= _options.MaxTriggerDepth)
+            if (chainDepth >= _options.MaxTriggerDepth)
             {
                 _diagnostics.Error(
                     $"触发链深度达到上限 {_options.MaxTriggerDepth}（casterId=\"{casterId}\", skillId=\"{skillId}\"），" +
-                    "已拒绝本次触发，防止无限递归（见落地方案 T2-6 禁止事项）");
+                    "已拒绝本次触发，防止无限递归（见落地方案 T2-6 禁止事项；RC-01 收边后深度随事件/" +
+                    "效果上下文显式传播，覆盖跨 EventBus 异步派发 pass 的场景，不再依赖调用栈是否" +
+                    "仍在同一次同步调用中）");
                 return false;
             }
 
@@ -425,16 +548,7 @@ namespace Core.Rules.Skill
 
             var resolvedTargets = targets != null && targets.Count > 0 ? targets : new[] { casterId };
 
-            _triggerDepth++;
-            try
-            {
-                ExecuteEffectsOnly(casterId, def, resolvedTargets);
-            }
-            finally
-            {
-                _triggerDepth--;
-            }
-
+            ExecuteEffectsOnly(casterId, def, resolvedTargets, chainDepth + 1);
             return true;
         }
 
@@ -442,7 +556,11 @@ namespace Core.Rules.Skill
         // 帮助方法
         // -----------------------------------------------------------------
 
-        private void ExecuteEffectsOnly(Id casterId, SkillDef def, IReadOnlyList<Id> targets)
+        /// <summary><paramref name="chainDepth"/>：见类型注释"RC-01 收边勘误"，默认 0（正常施法
+        /// 管线步骤 8/9 完成后的根结算，即 <see cref="EnterCastOrChannel"/>/<see cref="AdvanceOne"/>/
+        /// <see cref="FinishCast"/> 三个调用点，均不显式传参）；<see cref="TriggerCast"/> 是唯一显式
+        /// 传入非零值的调用点。</summary>
+        private void ExecuteEffectsOnly(Id casterId, SkillDef def, IReadOnlyList<Id> targets, int chainDepth = 0)
         {
             foreach (var effect in def.Effects)
             {
@@ -456,7 +574,7 @@ namespace Core.Rules.Skill
                     var context = new EffectContext(
                         casterId, targetId, def.Id, effect.Kind, school, baseValue, coefficient,
                         effect.Params, auraInstanceId: null, isPeriodic: false, canCrit: true, canMiss: canMiss,
-                        tags: def.Tags);
+                        tags: def.Tags, triggerChainDepth: chainDepth);
 
                     _effects.ApplyEffect(context);
                 }
@@ -513,7 +631,18 @@ namespace Core.Rules.Skill
         private double GetSchoolLockRemaining(Id unitId, Id school) =>
             _schoolLocks.TryGetValue((unitId, school), out var v) ? Math.Max(0, v) : 0;
 
-        private void AdvanceSchoolLocks(double dt)
+        /// <summary>
+        /// RC-07 收边勘误：原为 <see cref="Update"/>（连续模式每 tick 调用）内部私有步骤，只在
+        /// 连续模式被推进——离散模式完全不调用 <see cref="Update"/>（见 <c>SkillTickHandler.Execute</c>
+        /// 判断记录："连续步调用 SkillHost.Update；离散步只推进当前行动者自己的读条/引导 +
+        /// 由 sim.round_ended 驱动 SkillHost.AdvanceRoundTimers"），学派锁定因此在离散模式下永远
+        /// 不会衰减（见外部审计 RC-07）。现在改为 internal，由 <see cref="SkillHost.AdvanceRoundTimers"/>
+        /// 统一调用——该方法本身在连续模式下经 <see cref="SkillHost.Update"/> 每 tick 调用一次
+        /// （<c>dt=每 tick 的秒数</c>），在离散模式下经 <c>sim.round_ended</c> 每轮调用一次
+        /// （<c>dt=1.0</c>），两种模式各自只有唯一一条推进路径，不会重复推进（见 <see cref="Update"/>
+        /// 判断记录）。
+        /// </summary>
+        internal void AdvanceSchoolLocks(double dt)
         {
             var keys = new List<(Id, Id)>(_schoolLocks.Keys);
             foreach (var key in keys)

@@ -70,6 +70,20 @@ namespace Core.Carriers.Item
     /// cref="EquipmentHost.Equip"/>——这样属性修正/技能授予/光环施加/套装加成会按穿戴当时的同一套
     /// 逻辑重新跑一遍，不存在"存档里的是旧版本平衡性数值，读档后又没重新算"的双份真相问题。
     /// </para>
+    /// <para>
+    /// FND-10 收边勘误——<see cref="Load"/> 必须是"完整替换"，不是"合并"：原实现只对快照里出现的
+    /// 槽位调用 Inject/Equip，从不清理调用前已经装备着、快照里没有提到的物品——空快照因此完全是
+    /// 空操作（旧装备原样保留），缺槽快照也只会让对应槽位"多"出一件旧物品而不是变空，两种情况都
+    /// 与"读档=回到快照那一刻的状态"矛盾（见外部审计 <c>architecture/落地计划/
+    /// audit-b3b91ee-20260907/code-review.md</c> FND-10、<c>validation-repros.txt</c> R2/R2b）。
+    /// 现在 <see cref="Load"/> 开头先调用 <see cref="EquipmentHost.ClearAllEquippedForLoad"/> 把该
+    /// 单位重置到"无装备"（撤销全部联动，物品不放回背包，见该方法判断记录），再按快照从零重新
+    /// Inject/Equip：空快照清空装备、缺槽快照对应槽位归空、重复 Load 两次幂等、"快照之外新装备的
+    /// 物品"不会在换装时被错误地放回背包污染背包状态（不再依赖 <see cref="EquipmentHost.Equip"/>
+    /// 内部"换装"分支的副作用来处理"旧物品该去哪"这个问题——那个分支是为正常运行时换装设计的，
+    /// 语义是"卸下的旧物品还留在这个世界里，放回背包"，与读档"旧物品本就不属于这份快照代表的历史
+    /// 状态"完全不同）。
+    /// </para>
     /// </summary>
     public sealed class EquipmentPersistable : IPersistable
     {
@@ -105,6 +119,12 @@ namespace Core.Carriers.Item
 
         public void Load(JsonValue data)
         {
+            // FND-10 修复：先把该单位重置到"无装备"（撤销全部联动、不放回背包，见
+            // EquipmentHost.ClearAllEquippedForLoad 判断记录），再按快照原子恢复——保证空快照/
+            // 缺槽快照/JsonNull（本段在这份存档里不存在）都能正确让对应槽位归空，且与调用前的
+            // 装备状态、调用顺序（先/后于 InventoryPersistable.Load）无关。
+            _equipment.ClearAllEquippedForLoad(_unitId);
+
             if (data is JsonNull)
             {
                 return;

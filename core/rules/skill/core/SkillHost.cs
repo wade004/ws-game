@@ -38,6 +38,30 @@ namespace Core.Rules.Skill
 
         private readonly Dictionary<Id, HashSet<Id>> _knownSkills = new Dictionary<Id, HashSet<Id>>();
 
+        /// <summary>
+        /// RC-05 收边补齐：(unitId, skillId) → 当前正在授予它的来源 id 集合——<see cref="_knownSkills"/>
+        /// 只是这个集合"是否非空"的缓存视图（见 <see cref="LearnSkill(Id,Id,Id)"/>/
+        /// <see cref="ForgetSkill(Id,Id,Id)"/> 维护逻辑），只有集合归零才真正从
+        /// <see cref="_knownSkills"/> 移除。判断记录：原实现 <see cref="LearnSkill(Id,Id)"/>/
+        /// <see cref="ForgetSkill(Id,Id)"/> 只是一个不计来源的 HashSet 加/删，装备联动（见
+        /// <c>core/carriers/item.EquipmentHost</c>/<c>SkillGranter</c>）借用这两个方法时，两件都
+        /// 授予同一技能的装备卸下一件会把技能整体遗忘（另一件还穿戴着），永久学习（天赋/任务/
+        /// <see cref="KnownSkillsPersistable"/> 读档）与装备授予也无法区分——卸装备会连永久学到的
+        /// 技能一起遗忘（见外部审计 RC-05）。<see cref="PermanentGrantSource"/> 是无来源调用（原有
+        /// 全部调用方，见 <see cref="LearnSkill(Id,Id)"/> 文档）统一归属的哨兵来源；
+        /// <c>core/carriers/item</c> 装备联动改传各自的装备实例 id 作为来源（见 <see cref="SkillGranter"/>
+        /// 委托签名改动）。
+        /// </summary>
+        private readonly Dictionary<(Id UnitId, Id SkillId), HashSet<Id>> _skillGrantSources =
+            new Dictionary<(Id, Id), HashSet<Id>>();
+
+        /// <summary>无显式来源的 <see cref="LearnSkill(Id,Id)"/>/<see cref="ForgetSkill(Id,Id)"/>
+        /// 调用（天赋/任务奖励/技能书/读档等"永久学习"路径，见 <see cref="_skillGrantSources"/>
+        /// 判断记录）统一归属的哨兵来源 id——不是真实技能 id，只用作字典 key，不会与任何真实
+        /// <c>skill.*</c>/装备实例 id 冲突（后者恒以 <c>item.inst_</c> 前缀命名，见
+        /// <c>core/carriers/item</c> 实例 id 生成惯例）。</summary>
+        private static readonly Id PermanentGrantSource = new Id("skill.grant_source.permanent");
+
         /// <summary>供 <c>combat</c> 调用的效果落地出口（见 06 第 7 节 <c>EffectSink</c>）。</summary>
         public IEffectSink EffectSink => _effectDispatcher;
 
@@ -60,7 +84,8 @@ namespace Core.Rules.Skill
             ISkillDiagnostics? diagnostics = null,
             IExprSchema? exprSchema = null,
             IStaticImmunityProvider? staticImmunity = null,
-            IProjectileSpawner? projectileSpawner = null)
+            IProjectileSpawner? projectileSpawner = null,
+            IWeaponDamageQuery? weaponDamageQuery = null)
         {
             _registry = dataRegistry ?? throw new ArgumentNullException(nameof(dataRegistry));
             _units = unitAccess ?? throw new ArgumentNullException(nameof(unitAccess));
@@ -96,7 +121,7 @@ namespace Core.Rules.Skill
             _effectDispatcher = new EffectDispatcher(
                 _auraHost, _cooldowns, _defs, powerHost, _units, combatHost, statHost, _spellMods,
                 effectExtension, _diagnostics, TriggerCastInternal, InterruptInternal, LearnSkill,
-                projectileSpawner);
+                projectileSpawner, weaponDamageQuery);
             _auraHost.EffectSink = _effectDispatcher;
 
             _pipeline = new CastPipeline(
@@ -143,27 +168,70 @@ namespace Core.Rules.Skill
         // 已知技能 / 技能书
         // -----------------------------------------------------------------
 
-        public void LearnSkill(Id unitId, Id skillId)
+        /// <summary>不带来源的学习——归属 <see cref="PermanentGrantSource"/> 哨兵来源（天赋/任务
+        /// 奖励/技能书/读档等"永久学习"路径全部经由本重载，见 <see cref="_skillGrantSources"/>
+        /// 判断记录）。多次调用幂等（哨兵来源在集合里只占一个位置）。</summary>
+        public void LearnSkill(Id unitId, Id skillId) => LearnSkill(unitId, skillId, PermanentGrantSource);
+
+        /// <summary>
+        /// RC-05 收边补齐：带来源的学习——<paramref name="sourceId"/> 加入 (unitId, skillId) 的授予
+        /// 来源集合（见 <see cref="_skillGrantSources"/> 判断记录）；集合此前为空时才真正把技能
+        /// 加入 <see cref="_knownSkills"/>（"从无到有"才是真正的学会，重复来源/追加来源不重复触发）。
+        /// 装备联动（<c>core/carriers/item.EquipmentHost</c>）经 <see cref="SkillGranter"/> 委托、
+        /// 以各自装备实例 id 作为 <paramref name="sourceId"/> 调用本重载。
+        /// </summary>
+        public void LearnSkill(Id unitId, Id skillId, Id sourceId)
         {
-            if (!_knownSkills.TryGetValue(unitId, out var set))
+            var key = (unitId, skillId);
+            if (!_skillGrantSources.TryGetValue(key, out var sources))
             {
-                set = new HashSet<Id>();
-                _knownSkills[unitId] = set;
+                sources = new HashSet<Id>();
+                _skillGrantSources[key] = sources;
             }
 
-            set.Add(skillId);
+            sources.Add(sourceId);
+
+            if (!_knownSkills.TryGetValue(unitId, out var known))
+            {
+                known = new HashSet<Id>();
+                _knownSkills[unitId] = known;
+            }
+
+            known.Add(skillId);
         }
 
-        /// <summary>阶段 3 整理"事项四"补齐：<see cref="LearnSkill"/> 的对称操作——从已知技能集合
-        /// 移除该技能（见 <c>core/carriers/item.SkillGranter</c>/<c>EquipmentHost</c> 判断记录
-        /// "真实 SkillHost.LearnSkill/Forget 适配成 SkillGranter 委托注入"，该判断记录写下时本方法
-        /// 尚不存在，属于遗留的契约缺口，本次补上）。单位未注册或技能本不在已知集合中均视为
-        /// 幂等成功，不抛异常。</summary>
-        public void ForgetSkill(Id unitId, Id skillId)
+        /// <summary>阶段 3 整理"事项四"补齐：<see cref="LearnSkill(Id,Id)"/> 的对称操作。不带来源——
+        /// 归属 <see cref="PermanentGrantSource"/> 哨兵来源，与 <see cref="LearnSkill(Id,Id)"/> 配对
+        /// （见 <see cref="ForgetSkill(Id,Id,Id)"/> 判断记录"来源引用计数"）。单位未注册或技能本不在
+        /// 已知集合中均视为幂等成功，不抛异常。</summary>
+        public void ForgetSkill(Id unitId, Id skillId) => ForgetSkill(unitId, skillId, PermanentGrantSource);
+
+        /// <summary>
+        /// RC-05 收边补齐：带来源的遗忘——只把 <paramref name="sourceId"/> 从 (unitId, skillId) 的
+        /// 授予来源集合里摘除；只有摘除后集合归零，才真正从 <see cref="_knownSkills"/> 移除（见
+        /// <see cref="_skillGrantSources"/> 判断记录）——卸下一件装备只撤销"这件装备"这一个来源，
+        /// 若同一技能仍有其它来源（另一件装备、永久学习）在授予，技能保持已知。
+        /// <paramref name="sourceId"/> 本不在来源集合中（如对同一 sourceId 重复 Forget、或该技能
+        /// 从未由这个来源授予过）是安全幂等的 no-op，不抛异常。
+        /// </summary>
+        public void ForgetSkill(Id unitId, Id skillId, Id sourceId)
         {
-            if (_knownSkills.TryGetValue(unitId, out var set))
+            var key = (unitId, skillId);
+            if (!_skillGrantSources.TryGetValue(key, out var sources))
             {
-                set.Remove(skillId);
+                return;
+            }
+
+            if (!sources.Remove(sourceId) || sources.Count > 0)
+            {
+                return;
+            }
+
+            _skillGrantSources.Remove(key);
+
+            if (_knownSkills.TryGetValue(unitId, out var known))
+            {
+                known.Remove(skillId);
             }
         }
 
@@ -201,13 +269,21 @@ namespace Core.Rules.Skill
 
         /// <summary>
         /// H4 补齐（离散模式"统一推进"，见 <c>SkillTickHandler</c> 判断记录）：只推进冷却/充能/
-        /// 公共冷却/光环/Proc 内部冷却，<b>不</b>推进读条/引导管线（<see cref="CastPipeline"/>）——
-        /// 后者按"施法者自己的离散步"单独推进（见 <see cref="AdvanceCastForActor"/>），二者混在一起
-        /// 会导致读条在轮结束时被全局统一推进一次、又在施法者自己回合内被推进一次，双重计数。
-        /// 由 <c>SkillTickHandler</c> 构造期订阅 <c>sim.round_ended</c> 时以 <c>dt=1.0</c>（一轮）
-        /// 调用，与 <c>core/rules/combat.CombatTickHandler</c> 的既有惯例一致（见该类型注释）；
+        /// 公共冷却/光环/Proc 内部冷却/学派锁定，<b>不</b>推进读条/引导管线（<see cref="CastPipeline"/>
+        /// 的读条剩余时间）——后者按"施法者自己的离散步"单独推进（见 <see cref="AdvanceCastForActor"/>），
+        /// 二者混在一起会导致读条在轮结束时被全局统一推进一次、又在施法者自己回合内被推进一次，
+        /// 双重计数。由 <c>SkillTickHandler</c> 构造期订阅 <c>sim.round_ended</c> 时以 <c>dt=1.0</c>
+        /// （一轮）调用，与 <c>core/rules/combat.CombatTickHandler</c> 的既有惯例一致（见该类型注释）；
         /// <see cref="Update"/>（连续模式每 tick 调用）内部转调本方法 + <c>_pipeline.Update</c>，
         /// 连续模式行为不变。
+        /// <para>
+        /// RC-07 收边勘误：学派锁定（<see cref="CastPipeline.AdvanceSchoolLocks"/>）原本只在
+        /// <see cref="CastPipeline.Update"/>（连续模式）内部推进——离散模式完全不调用
+        /// <see cref="CastPipeline.Update"/>，学派锁定因此永远不会衰减（见外部审计 RC-07）。现在
+        /// 移到本方法统一推进：<see cref="CastPipeline.Update"/> 不再自己推进（见该方法判断记录），
+        /// 本方法是连续/离散两种模式唯一共同经过的推进点（连续模式经 <see cref="Update"/> 每 tick
+        /// 调用本方法一次，离散模式经 <c>sim.round_ended</c> 每轮调用本方法一次），不会重复推进。
+        /// </para>
         /// </summary>
         public void AdvanceRoundTimers(double dt)
         {
@@ -223,6 +299,7 @@ namespace Core.Rules.Skill
 
             _auraHost.Update(dt);
             _procHost.Update(dt);
+            _pipeline.AdvanceSchoolLocks(dt);
         }
 
         /// <summary>
@@ -239,8 +316,8 @@ namespace Core.Rules.Skill
         // 内部回调（绑定给 EffectDispatcher/ProcHost，见构造函数注释）
         // -----------------------------------------------------------------
 
-        private bool TriggerCastInternal(Id casterId, Id skillId, IReadOnlyList<Id> targets) =>
-            _pipeline.TriggerCast(casterId, skillId, targets);
+        private bool TriggerCastInternal(Id casterId, Id skillId, IReadOnlyList<Id> targets, int chainDepth) =>
+            _pipeline.TriggerCast(casterId, skillId, targets, chainDepth);
 
         private void InterruptInternal(Id targetId, Id interrupterId, Id? lockSchool, double lockDuration) =>
             _pipeline.Interrupt(targetId, interrupterId, lockSchool, lockDuration);

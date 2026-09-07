@@ -115,6 +115,13 @@ namespace Core.Numbers.PowerSet
         // 查询
         // -----------------------------------------------------------------
 
+        /// <summary>RC-06 收边补齐：单位是否已注册（不区分具体资源类型）——供
+        /// <c>RulesAssembly</c> 订阅 <c>stat.changed</c> 转调 <see cref="RecomputeMax"/> 前判断
+        /// "这个改变了属性的单位是否也在本 <see cref="PowerHost"/> 里注册"，避免对未注册单位调用
+        /// <see cref="RecomputeMax"/> 抛异常（<see cref="StatHost"/>/<see cref="PowerHost"/> 的注册
+        /// 单位集合彼此独立，没有强制同步保证，见该组装根判断记录）。</summary>
+        public bool IsRegistered(Id unitId) => _units.ContainsKey(unitId);
+
         public bool HasPower(Id unitId, Id powerType) =>
             _units.TryGetValue(unitId, out var state) && state.Powers.ContainsKey(powerType);
 

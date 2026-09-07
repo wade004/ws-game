@@ -51,7 +51,11 @@ namespace Tests.Carriers.Item
             "{\"id\": \"item.sample_chest_armor\", \"slot\": \"item.slot.chest\", \"quality\": \"item.quality.common\"," +
             " \"item_level\": 1, \"display_ref\": \"display.item.sample_chest_armor\", \"stack_size\": 1," +
             " \"name_key\": \"l10n.item.sample_chest_armor\"," +
-            " \"stats\": [{\"stat\": \"stat.stamina\", \"op\": \"flat\", \"value\": 4}]}," +
+            " \"stats\": [{\"stat\": \"stat.stamina\", \"op\": \"flat\", \"value\": 4}]," +
+            // RC-05 测试专用：与 item.sample_weapon_a 授予完全相同的技能/光环——main_hand 与 chest
+            // 是两个不同槽位，可以同时装备，用来测试"两件装备都授予同一技能/光环，卸下一件不应
+            // 影响另一件仍在授予的同一技能/光环"（见 EquipmentHostTests 对应用例）。
+            " \"grants\": {\"skills\": [\"skill.sample_slash\"], \"auras\": [\"skill.aura.sample_sharpen\"]}}," +
             "{\"id\": \"item.sample_ring\", \"slot\": \"item.slot.ring\", \"quality\": \"item.quality.common\"," +
             " \"item_level\": 1, \"display_ref\": \"display.item.sample_ring\", \"stack_size\": 1," +
             " \"name_key\": \"l10n.item.sample_ring\", \"set_id\": \"item.set.sample_dragon\"," +
@@ -175,6 +179,87 @@ namespace Tests.Carriers.Item
 
             Assert.Contains(f.SkillGranter.Calls, c =>
                 c.UnitId.Equals(Player) && c.SkillId.Equals(new Id("skill.sample_slash")) && !c.Learn);
+        }
+
+        [Fact]
+        public void Equip_GrantsSkill_SkillGranterCallCarriesEquippedInstanceIdAsSource()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var instanceId = GiveAndReturnInstance(f, "item.sample_weapon_a");
+
+            f.Equipment.Equip(Player, instanceId, new Id("item.slot.main_hand"));
+
+            // RC-05 收边补齐：SkillGranter 现在携带来源 id（本例即装备实例 id），供接收端按来源
+            // 做引用计数（见 SkillGranter.cs 判断记录）。
+            Assert.Contains(f.SkillGranter.Calls, c =>
+                c.UnitId.Equals(Player) && c.SkillId.Equals(new Id("skill.sample_slash")) &&
+                c.SourceId.Equals(instanceId) && c.Learn);
+        }
+
+        // -----------------------------------------------------------------
+        // RC-05（见外部审计 architecture/落地计划/audit-b3b91ee-20260907/code-review.md RC-05、
+        // EquipmentHost.cs/SkillGranter.cs 判断记录）：两件装备都授予同一个技能/光环时，卸下
+        // 其中一件不应影响另一件仍在授予的同一技能/光环——原实现不计来源，卸一件就整体撤销。
+        // item.sample_weapon_a（main_hand）与 item.sample_chest_armor（chest）在本测试文件里被
+        // 特意配成授予完全相同的 skill.sample_slash / skill.aura.sample_sharpen（见 TemplateJson
+        // 判断记录），可以同时装备。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Unequip_OneOfTwoItemsGrantingSameSkill_DoesNotForgetSkill_StillGrantedByOther()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var weaponInstance = GiveAndReturnInstance(f, "item.sample_weapon_a");
+            var chestInstance = GiveAndReturnInstance(f, "item.sample_chest_armor");
+
+            f.Equipment.Equip(Player, weaponInstance, new Id("item.slot.main_hand"));
+            f.Equipment.Equip(Player, chestInstance, new Id("item.slot.chest"));
+
+            f.Equipment.Unequip(Player, new Id("item.slot.main_hand"));
+
+            // 修复前：EquipmentHost 卸下武器会无条件调用 SkillGranter(learn:false)，SkillHost 的
+            // HashSet 不计来源，胸甲仍在授予同一技能却也会被一起遗忘。
+            var learnCalls = f.SkillGranter.Calls.FindAll(c => c.SkillId.Equals(new Id("skill.sample_slash")) && c.Learn);
+            var forgetCalls = f.SkillGranter.Calls.FindAll(c => c.SkillId.Equals(new Id("skill.sample_slash")) && !c.Learn);
+            Assert.Equal(2, learnCalls.Count); // 两件装备各学习一次（来源不同）。
+            Assert.Single(forgetCalls); // 只撤销武器这一个来源。
+            Assert.Equal(weaponInstance, forgetCalls[0].SourceId);
+
+            // 卸下最后一件（胸甲）才是真正的第二次遗忘调用——SkillHost 侧是否真的仍"知道"这个
+            // 技能不由 EquipmentHost 直接暴露，SkillHost 自身的引用计数单元测试见
+            // core/rules/skill/tests（本文件只覆盖 EquipmentHost→SkillGranter 这一段接线）。
+            f.Equipment.Unequip(Player, new Id("item.slot.chest"));
+            var forgetCallsAfterBoth = f.SkillGranter.Calls.FindAll(c => c.SkillId.Equals(new Id("skill.sample_slash")) && !c.Learn);
+            Assert.Equal(2, forgetCallsAfterBoth.Count);
+            Assert.Equal(chestInstance, forgetCallsAfterBoth[1].SourceId);
+        }
+
+        [Fact]
+        public void Unequip_OneOfTwoItemsGrantingSameAura_DoesNotRemoveAura_StillGrantedByOther()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var weaponInstance = GiveAndReturnInstance(f, "item.sample_weapon_a");
+            var chestInstance = GiveAndReturnInstance(f, "item.sample_chest_armor");
+
+            f.Equipment.Equip(Player, weaponInstance, new Id("item.slot.main_hand"));
+            f.Equipment.Equip(Player, chestInstance, new Id("item.slot.chest"));
+
+            var appliedForSharpen = f.EffectSink.Applied.FindAll(a => a.AuraDefId.Equals(new Id("skill.aura.sample_sharpen")));
+            Assert.Equal(2, appliedForSharpen.Count); // 两件装备各申请了一次（见 FakeEffectSink 判断记录：每次都返回独立 ref）。
+
+            f.Equipment.Unequip(Player, new Id("item.slot.main_hand"));
+
+            // 修复前：卸下武器会无条件 RemoveAura 它自己那份 ref——本用例改用"是否真的调用了
+            // RemoveAura"来断言引用计数生效（Applied 用假实现天然返回独立 ref，不模拟 AuraHost
+            // 真实的共享槽位叠加行为，但引用计数本身与 ref 是否共享无关，见 EquipmentHost.
+            // _auraGrantRefCount 判断记录）。
+            Assert.Empty(f.EffectSink.Removed); // 胸甲还穿着，不应真正撤销。
+
+            f.Equipment.Unequip(Player, new Id("item.slot.chest"));
+            Assert.Single(f.EffectSink.Removed); // 最后一件卸下才真正撤销。
         }
 
         [Fact]
@@ -406,6 +491,57 @@ namespace Tests.Carriers.Item
             f.Equipment.Unequip(Player, new Id("item.slot.main_hand"));
 
             Assert.Empty(f.Equipment.GetAllEquipped(Player));
+        }
+
+        // -----------------------------------------------------------------
+        // RC-11（见外部审计 architecture/落地计划/audit-b3b91ee-20260907/code-review.md RC-11）：
+        // EquipmentHost.GetWeaponBaseDamage（IWeaponDamageQuery 实现）——weapon_damage_pct 效果
+        // 原语（core/rules/skill.EffectDispatcher）经它取"当前武器基础伤害"。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void GetWeaponBaseDamage_EquippedWeapon_ReturnsAverageOfDamageMinAndMax()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var weaponId = GiveAndReturnInstance(f, "item.sample_weapon_a"); // damage_min=5, damage_max=9
+            f.Equipment.Equip(Player, weaponId, new Id("item.slot.main_hand"));
+
+            Assert.Equal(7.0, f.Equipment.GetWeaponBaseDamage(Player), 6); // (5+9)/2
+        }
+
+        [Fact]
+        public void GetWeaponBaseDamage_NoWeaponEquipped_ReturnsZero()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+
+            Assert.Equal(0.0, f.Equipment.GetWeaponBaseDamage(Player), 6);
+        }
+
+        [Fact]
+        public void GetWeaponBaseDamage_OnlyNonWeaponSlotsEquipped_ReturnsZero()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var chestId = GiveAndReturnInstance(f, "item.sample_chest_armor"); // 非武器槽，无 weapon_profile。
+            f.Equipment.Equip(Player, chestId, new Id("item.slot.chest"));
+
+            Assert.Equal(0.0, f.Equipment.GetWeaponBaseDamage(Player), 6);
+        }
+
+        [Fact]
+        public void GetWeaponBaseDamage_UnequippingWeapon_ReturnsToZero()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var weaponId = GiveAndReturnInstance(f, "item.sample_weapon_a");
+            f.Equipment.Equip(Player, weaponId, new Id("item.slot.main_hand"));
+            Assert.Equal(7.0, f.Equipment.GetWeaponBaseDamage(Player), 6);
+
+            f.Equipment.Unequip(Player, new Id("item.slot.main_hand"));
+
+            Assert.Equal(0.0, f.Equipment.GetWeaponBaseDamage(Player), 6);
         }
     }
 }

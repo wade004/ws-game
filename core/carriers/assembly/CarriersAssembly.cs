@@ -252,20 +252,30 @@ namespace Core.Carriers.Assembly
             //    SkillGranter.cs 判断记录）。
             // ---------------------------------------------------------
             var resolvedItemOptions = itemOptions ?? new ItemOptions();
-            SkillGranter skillGranter = (unitId, skillId, learn) =>
+            // RC-05 收边勘误：接线到带来源的 LearnSkill/ForgetSkill 重载（sourceId 传装备实例 id，
+            // 见 SkillGranter.cs 判断记录）——SkillHost 侧按来源做引用计数，两件装备授予同一技能
+            // 时卸下一件不会影响另一件仍在授予的同一技能，也不会连永久学习（天赋/任务/技能书/
+            // 读档，走不带来源的 LearnSkill(Id,Id) 重载）一并遗忘。
+            SkillGranter skillGranter = (unitId, skillId, sourceId, learn) =>
             {
                 if (learn)
                 {
-                    Rules.Skill.LearnSkill(unitId, skillId);
+                    Rules.Skill.LearnSkill(unitId, skillId, sourceId);
                 }
                 else
                 {
-                    Rules.Skill.ForgetSkill(unitId, skillId);
+                    Rules.Skill.ForgetSkill(unitId, skillId, sourceId);
                 }
             };
             Equipment = new EquipmentHost(
                 registry, bus, Inventory, Rules.Stats, Rules.Skill.EffectSink, skillGranter, Units,
                 resolvedItemOptions);
+
+            // RC-11 收边补齐：EquipmentHost 实现 IWeaponDamageQuery（见该类型 GetWeaponBaseDamage
+            // 判断记录），换上 RulesAssembly 构造期先用的延迟绑定代理（见 DeferredWeaponDamageQuery
+            // 判断记录——真实实现要等 Equipment 在这里构造完成才存在，与 EffectExtension 的循环
+            // 依赖是同一种模式）。
+            Rules.WeaponDamageQuery.Bind(Equipment);
 
             // ---------------------------------------------------------
             // 5) CreatureFactory：AiRegistrar 委托接线到 Rules.Ai.RegisterUnit/SetRotation（见

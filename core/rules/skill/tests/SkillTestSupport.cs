@@ -7,6 +7,7 @@ using Core.Foundation.DataRegistry;
 using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
 using Core.Foundation.Rng;
+using Core.Foundation.SimLoop;
 using Core.Numbers.PowerSet;
 using Core.Numbers.StatBlock;
 using Core.Rules.Common;
@@ -116,6 +117,13 @@ namespace Tests.Rules.Skill
         /// <see cref="NullStaticImmunityProvider"/>（不改变既有行为）。</summary>
         public IStaticImmunityProvider? StaticImmunity { get; set; }
 
+        /// <summary>RC-11 收边补齐：注入 <see cref="IWeaponDamageQuery"/>（<c>weapon_damage_pct</c>
+        /// 效果原语的武器基础伤害来源，见该接口判断记录"依赖倒置"），未设置时 <see cref="SkillHost"/>
+        /// 缺省不注入（<c>weaponBase</c> 恒为 0，见 <c>EffectDispatcher.ApplyDamageOrHeal</c> 判断
+        /// 记录），与生产装配 <see cref="Core.Rules.Assembly.RulesAssembly"/> 在
+        /// <c>CarriersAssembly</c> 绑定真实 <c>EquipmentHost</c> 之前的行为一致。</summary>
+        public IWeaponDamageQuery? WeaponDamageQuery { get; set; }
+
         public ulong RngSeed { get; set; } = 1;
 
         /// <summary>只跑到"注册 schema/校验规则 + LoadAll"这一步，返回校验报告，不构造
@@ -221,7 +229,8 @@ namespace Tests.Rules.Skill
 
             var host = new SkillHost(
                 registry, bus, units, stats, powers, rng, combat, targets, exprs, SpatialQuery,
-                Options, Extension, diagnostics, exprSchema: null, staticImmunity: StaticImmunity);
+                Options, Extension, diagnostics, exprSchema: null, staticImmunity: StaticImmunity,
+                weaponDamageQuery: WeaponDamageQuery);
 
             var world = new SkillWorld
             {
@@ -291,6 +300,9 @@ namespace Tests.Rules.Skill
                 new EventDefinition(RulesEventKeys.UnitDied, "unit", new[] { "unitId", "killerId" }),
                 new EventDefinition(RulesEventKeys.UnitRespawned, "unit", new[] { "unitId", "policy" }),
                 new EventDefinition(RulesEventKeys.AiStateChanged, "ai", new[] { "unitId", "oldState", "newState" }),
+                // RC-03 收边补齐：CastPipeline 订阅 entity.destroyed 取消施法（见该类型构造函数
+                // 判断记录），登记该 key 供测试用 Enqueue(new EntityDestroyedEvent(...)) 模拟销毁。
+                new EventDefinition(SimEventKeys.EntityDestroyed, "entity", new[] { "entityId" }),
             };
 
             return new EventBus(EventCatalog.FromDefinitions(definitions), new EventBusOptions { StrictCatalog = false });
@@ -316,6 +328,7 @@ namespace Tests.Rules.Skill
             Add(RulesEventKeys.UnitDied);
             Add(RulesEventKeys.UnitRespawned);
             Add(RulesEventKeys.AiStateChanged);
+            Add(SimEventKeys.EntityDestroyed);
         }
     }
 }

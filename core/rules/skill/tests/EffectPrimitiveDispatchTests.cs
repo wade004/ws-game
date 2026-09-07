@@ -43,18 +43,71 @@ namespace Tests.Rules.Skill
         // weapon_damage_pct
         // -----------------------------------------------------------------
 
-        [Fact]
-        public void WeaponDamagePct_DispatchesToResolveEffect_WithPctAsBaseValue()
+        /// <summary>RC-11 收边补齐（见外部审计 architecture/落地计划/audit-b3b91ee-20260907/
+        /// code-review.md RC-11）：固定返回 <see cref="BaseDamage"/> 的最小假实现，模拟
+        /// <c>core/carriers/item.EquipmentHost.GetWeaponBaseDamage</c> 的效果——本模块（core/rules）
+        /// 不依赖 core/carriers，不能直接用真实 EquipmentHost，见 IWeaponDamageQuery 判断记录
+        /// "依赖倒置"。</summary>
+        private sealed class FakeWeaponDamageQuery : IWeaponDamageQuery
         {
+            public double BaseDamage { get; set; }
+            public double GetWeaponBaseDamage(Id unitId) => BaseDamage;
+        }
+
+        [Fact]
+        public void WeaponDamagePct_MultipliesPctByInjectedWeaponBaseDamage()
+        {
+            // 修复前：params.pct 本身直接当基础值（call.BaseValue == 0.75，与武器基础伤害无关，
+            // 换装不会改变该技能伤害，见外部审计 RC-11）。修复后必须是 weaponBase × pct。
             var skill = InstantSkill("skill.sample_weapon_hit", "weapon_damage_pct", ("pct", J.N(0.75)));
-            var world = BuildAndTarget(skill, Target);
+            var builder = new SkillWorldBuilder().SkillDef(skill);
+            builder.WeaponDamageQuery = new FakeWeaponDamageQuery { BaseDamage = 100 };
+            var world = builder.Build();
+            world.AddUnit(Caster);
+            world.AddUnit(Target);
+            world.Targets.SetChain(new Id("target.chain.sample"), Target);
 
             var result = world.Host.CastSkill(Caster, new Id("skill.sample_weapon_hit"), System.Array.Empty<Id>());
 
             Assert.True(result.Success);
             var call = Assert.Single(world.Combat.ResolveCalls);
             Assert.Equal(EffectKind.WeaponDamagePct, call.Kind);
-            Assert.Equal(0.75, call.BaseValue, 6);
+            Assert.Equal(75.0, call.BaseValue, 6); // 100 × 0.75
+        }
+
+        [Fact]
+        public void WeaponDamagePct_ScalesWithWeaponBaseDamage_200BaseYields150()
+        {
+            // 验收标准原句"100/200 基数分别得 75/150"的另一半：换一把基础伤害不同的武器，结果
+            // 应线性缩放——证明确实在消费武器基础伤害，不是碰巧算对了一次。
+            var skill = InstantSkill("skill.sample_weapon_hit_200", "weapon_damage_pct", ("pct", J.N(0.75)));
+            var builder = new SkillWorldBuilder().SkillDef(skill);
+            builder.WeaponDamageQuery = new FakeWeaponDamageQuery { BaseDamage = 200 };
+            var world = builder.Build();
+            world.AddUnit(Caster);
+            world.AddUnit(Target);
+            world.Targets.SetChain(new Id("target.chain.sample"), Target);
+
+            var result = world.Host.CastSkill(Caster, new Id("skill.sample_weapon_hit_200"), System.Array.Empty<Id>());
+
+            Assert.True(result.Success);
+            var call = Assert.Single(world.Combat.ResolveCalls);
+            Assert.Equal(150.0, call.BaseValue, 6); // 200 × 0.75
+        }
+
+        [Fact]
+        public void WeaponDamagePct_NoWeaponDamageQueryInjected_TreatsAsUnarmed_ResultsInZero()
+        {
+            // 未装配 IWeaponDamageQuery（生产装配里对应"施法者当前没有武器"，见该接口方法注释
+            // "判断记录"：06/07 未定义徒手基数，本模块按"无武器则无武器伤害贡献"处理）。
+            var skill = InstantSkill("skill.sample_weapon_hit_unarmed", "weapon_damage_pct", ("pct", J.N(0.75)));
+            var world = BuildAndTarget(skill, Target);
+
+            var result = world.Host.CastSkill(Caster, new Id("skill.sample_weapon_hit_unarmed"), System.Array.Empty<Id>());
+
+            Assert.True(result.Success);
+            var call = Assert.Single(world.Combat.ResolveCalls);
+            Assert.Equal(0.0, call.BaseValue, 6);
         }
 
         // -----------------------------------------------------------------

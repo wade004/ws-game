@@ -51,7 +51,7 @@ namespace Core.Carriers.Item
     /// 委托类型顶部注释、任务书"契约缺口用模块内委托绕过并汇报"）。
     /// </para>
     /// </summary>
-    public sealed class EquipmentHost : IEquipmentHost
+    public sealed class EquipmentHost : IEquipmentHost, IWeaponDamageQuery
     {
         private readonly IEventBus _bus;
         private readonly InventoryHost _inventory;
@@ -68,8 +68,27 @@ namespace Core.Carriers.Item
         private readonly Dictionary<Id, Dictionary<Id, ItemInstance>> _equipped =
             new Dictionary<Id, Dictionary<Id, ItemInstance>>();
 
-        private readonly Dictionary<(Id UnitId, Id InstanceId), List<AuraInstanceRef>> _grantedAuras =
-            new Dictionary<(Id, Id), List<AuraInstanceRef>>();
+        /// <summary>RC-05 收边补齐：value 从 <c>List&lt;AuraInstanceRef&gt;</c> 改为
+        /// <c>List&lt;(Id AuraDefId, AuraInstanceRef Ref)&gt;</c>——需要保留每条授予记录对应的
+        /// <c>aura_def</c> id，才能在 <see cref="RevertGrants"/> 里查 <see cref="_auraGrantRefCount"/>
+        /// 判断"这件装备卸下后，是否还有其它已装备物品在授予同一个 aura_def"（见该字段判断记录
+        /// "共享光环"）。</summary>
+        private readonly Dictionary<(Id UnitId, Id InstanceId), List<(Id AuraDefId, AuraInstanceRef Ref)>> _grantedAuras =
+            new Dictionary<(Id, Id), List<(Id, AuraInstanceRef)>>();
+
+        /// <summary>
+        /// RC-05 收边补齐：(unitId, auraDefId) → 当前有多少件已装备物品在授予它——原实现
+        /// <see cref="RevertGrants"/> 卸下任意一件装备就无条件 <see cref="IEffectSink.RemoveAura"/>，
+        /// 而 <see cref="ApplyAura"/> 对同一 <c>(target, aura_def)</c> 的重复施加默认会"叠加"到
+        /// 同一个光环实例上（见 <c>AuraHost.ApplyAura</c>/<c>ItemOptions.AllowMultiSourceTiming</c>
+        /// 判断记录，<c>AllowMultiSourceTiming=false</c> 时不同来源共享同一个槽位）——两件装备都
+        /// 授予同一个 <c>aura_def</c> 时，各自拿到的 <see cref="AuraInstanceRef"/> 其实指向同一个
+        /// 共享实例，卸下其中一件会把这个共享实例整体移除，另一件明明还穿戴着却也丢了这份光环
+        /// （见外部审计 RC-05"移除共享光环"）。本字典按 <c>(unitId, auraDefId)</c> 记录当前还有
+        /// 几件装备在授予它，只有归零（最后一件也卸下）才真正调用 <see cref="IEffectSink.RemoveAura"/>。
+        /// </summary>
+        private readonly Dictionary<(Id UnitId, Id AuraDefId), int> _auraGrantRefCount =
+            new Dictionary<(Id, Id), int>();
 
         private readonly Dictionary<(Id UnitId, Id SetId), Dictionary<int, List<AuraInstanceRef>>> _appliedSetBonuses =
             new Dictionary<(Id, Id), Dictionary<int, List<AuraInstanceRef>>>();
@@ -210,6 +229,49 @@ namespace Core.Carriers.Item
             return instance.ToRef();
         }
 
+        /// <summary>
+        /// FND-10 收边补齐：卸下该单位当前全部已装备物品，撤销全部联动（属性修正/技能授予/光环/
+        /// 套装加成），但物品本身不放回背包——供 <see cref="EquipmentPersistable.Load"/> 在应用
+        /// 快照前，把单位重置到"无装备"的干净状态使用（见该类型判断记录"按快照替换完整装备状态"）。
+        /// <para>
+        /// 判断记录：读档是"完整替换"语义，不是"合并"——快照里不存在的已装备物品不应该凭空出现在
+        /// 读档后的背包里，它们要么会被 <c>InventoryPersistable.Load</c> 从快照自身的背包数据里
+        /// 放回（若确实还在那份历史快照的背包段中），要么本来就不该在这次读档后的世界里存在。
+        /// 因此本方法只做联动撤销与 <see cref="_equipped"/> 内部字典清理，不调用
+        /// <see cref="InventoryHost"/> 的任何写入方法，与调用方是否已经/将要处理背包段的相对顺序
+        /// 无关（不像公开的 <see cref="Unequip"/> 那样把物品放回背包——那是"正常卸装备"的语义，
+        /// 这里是"读档前先清空"的语义，两者刻意不同）。
+        /// </para>
+        /// </summary>
+        internal void ClearAllEquippedForLoad(Id unitId)
+        {
+            if (!_equipped.TryGetValue(unitId, out var slots) || slots.Count == 0)
+            {
+                return;
+            }
+
+            var touchedSetIds = new HashSet<Id>();
+            foreach (var kv in new List<KeyValuePair<Id, ItemInstance>>(slots))
+            {
+                var slot = kv.Key;
+                var instance = kv.Value;
+                var template = RequireTemplate(instance.TemplateId);
+                RevertGrants(unitId, instance, template);
+                slots.Remove(slot);
+                if (TryGetSetId(template, out var setId))
+                {
+                    touchedSetIds.Add(setId);
+                }
+
+                _bus.Enqueue(new ItemUnequippedEvent(unitId, slot, instance.InstanceId));
+            }
+
+            foreach (var setId in touchedSetIds)
+            {
+                RecomputeSetBonuses(unitId, setId);
+            }
+        }
+
         public ItemInstanceRef? GetEquipped(Id unitId, Id slot) =>
             _equipped.TryGetValue(unitId, out var slots) && slots.TryGetValue(slot, out var instance)
                 ? instance.ToRef()
@@ -271,6 +333,44 @@ namespace Core.Carriers.Item
                 GetIdOpt(profile, "weapon_school"));
         }
 
+        /// <summary>
+        /// RC-11 收边补齐：<see cref="IWeaponDamageQuery"/> 实现——<c>weapon_damage_pct</c> 效果原语
+        /// （<c>core/rules/skill.EffectDispatcher</c>，经 <c>Core.Rules.Assembly.
+        /// DeferredWeaponDamageQuery</c> 依赖倒置注入）取"当前武器基础伤害"的唯一入口，见该接口
+        /// 方法注释"判断记录"（<c>damage_min</c>/<c>damage_max</c> 均值；按槽位 id 序数最先命中的
+        /// 武器槽为准；未装备任何武器槽返回 0）。不依赖调用方传入具体槽位——本方法自己按
+        /// <see cref="_slotDefinitions"/> 的 <c>is_weapon</c> 标记（见 <see cref="IsEquipmentSlot"/>
+        /// 同一份数据、ItemSchemas.SlotDefinition.is_weapon 判断记录）从该单位当前已装备的槽位里找
+        /// "武器槽"，不需要框架层硬编码任何具体槽位 id（如 "main_hand"）——槽位命名完全由游戏内容
+        /// 数据决定。
+        /// </summary>
+        public double GetWeaponBaseDamage(Id unitId)
+        {
+            if (!_equipped.TryGetValue(unitId, out var slots) || slots.Count == 0)
+            {
+                return 0.0;
+            }
+
+            var weaponSlotIds = new List<Id>();
+            foreach (var slot in slots.Keys)
+            {
+                if (_slotDefinitions.TryGetValue(slot, out var slotDef) &&
+                    slotDef.TryGetBool("is_weapon", out var isWeapon) && isWeapon)
+                {
+                    weaponSlotIds.Add(slot);
+                }
+            }
+
+            if (weaponSlotIds.Count == 0)
+            {
+                return 0.0;
+            }
+
+            weaponSlotIds.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
+            var profile = GetWeaponProfile(unitId, weaponSlotIds[0]);
+            return profile.HasValue ? (profile.Value.DamageMin + profile.Value.DamageMax) / 2.0 : 0.0;
+        }
+
         // -----------------------------------------------------------------
         // 装备联动：属性 / 技能 / 光环（07 第 1.4 节步骤 1/2）
         // -----------------------------------------------------------------
@@ -304,19 +404,25 @@ namespace Core.Carriers.Item
                 {
                     if (s is JsonString ss && Id.TryParse(ss.Value, out var skillId))
                     {
-                        _skillGranter(unitId, skillId, true);
+                        // RC-05 收边补齐：以本装备实例 id 作为来源传给 SkillGranter（见该委托类型
+                        // 判断记录）——接收端（SkillHost）按来源做引用计数，卸下这件装备只撤销这一
+                        // 个来源，不影响永久学习或其它装备来源仍在授予的同一技能。
+                        _skillGranter(unitId, skillId, instance.InstanceId, true);
                     }
                 }
             }
 
             if (grants.TryGetValue("auras", out var aurasRaw) && aurasRaw is JsonArray aurasArr && aurasArr.Count > 0)
             {
-                var list = new List<AuraInstanceRef>();
+                var list = new List<(Id, AuraInstanceRef)>();
                 foreach (var a in aurasArr)
                 {
                     if (a is JsonString asStr && Id.TryParse(asStr.Value, out var auraDefId))
                     {
-                        list.Add(_effectSink.ApplyAura(unitId, auraDefId, instance.InstanceId));
+                        var refCountKey = (unitId, auraDefId);
+                        _auraGrantRefCount[refCountKey] = _auraGrantRefCount.TryGetValue(refCountKey, out var count) ? count + 1 : 1;
+
+                        list.Add((auraDefId, _effectSink.ApplyAura(unitId, auraDefId, instance.InstanceId)));
                     }
                 }
 
@@ -335,7 +441,8 @@ namespace Core.Carriers.Item
                 {
                     if (s is JsonString ss && Id.TryParse(ss.Value, out var skillId))
                     {
-                        _skillGranter(unitId, skillId, false);
+                        // 只撤销"这件装备"这一个来源（见 ApplyGrants 判断记录）。
+                        _skillGranter(unitId, skillId, instance.InstanceId, false);
                     }
                 }
             }
@@ -343,8 +450,20 @@ namespace Core.Carriers.Item
             var key = (unitId, instance.InstanceId);
             if (_grantedAuras.TryGetValue(key, out var list))
             {
-                foreach (var r in list)
+                foreach (var (auraDefId, r) in list)
                 {
+                    var refCountKey = (unitId, auraDefId);
+                    var remaining = _auraGrantRefCount.TryGetValue(refCountKey, out var count) ? count - 1 : 0;
+
+                    if (remaining > 0)
+                    {
+                        // 仍有其它已装备物品在授予同一个 aura_def（见 _auraGrantRefCount 判断记录
+                        // "共享光环"）——这件装备自己的引用退出，但共享的光环实例继续保留。
+                        _auraGrantRefCount[refCountKey] = remaining;
+                        continue;
+                    }
+
+                    _auraGrantRefCount.Remove(refCountKey);
                     _effectSink.RemoveAura(unitId, r);
                 }
 

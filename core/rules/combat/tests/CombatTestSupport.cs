@@ -4,6 +4,7 @@ using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.Rng;
+using Core.Foundation.SimLoop;
 using Core.Numbers.Faction;
 using Core.Numbers.PowerSet;
 using Core.Numbers.StatBlock;
@@ -304,6 +305,10 @@ namespace Tests.Rules.Combat
                 new EventDefinition(RulesEventKeys.CombatLeft, "combat", new[] { "unitId" }),
                 new EventDefinition(RulesEventKeys.UnitDied, "unit", new[] { "unitId", "killerId" }),
                 new EventDefinition(RulesEventKeys.UnitRespawned, "unit", new[] { "unitId", "policy" }),
+                // RC-02 收边补齐：CombatHost 订阅 entity.destroyed 做战斗状态清理（见该类型构造函数
+                // 判断记录），测试夹具的严格事件目录（StrictCatalog 默认 true）需要登记这个 key，
+                // 测试才能用 fx.Bus.Enqueue(new EntityDestroyedEvent(...)) 模拟单位销毁。
+                new EventDefinition(SimEventKeys.EntityDestroyed, "entity", new[] { "entityId" }),
             });
             return new EventBus(catalog);
         }

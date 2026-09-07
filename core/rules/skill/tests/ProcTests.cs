@@ -141,6 +141,66 @@ namespace Tests.Rules.Skill
         }
 
         [Fact]
+        public void TriggerChain_AcrossEventBusDispatch_IsBoundedByMaxTriggerDepth_NotByGlobalDispatchPasses()
+        {
+            const string healSkillId = "skill.sample_heal_loop";
+            var heal = J.O(
+                ("id", J.S(healSkillId)),
+                ("school", J.S("skill.school_sample")),
+                ("kind", J.S("active")),
+                ("range", J.N(0)),
+                ("cast_time", J.N(0)),
+                ("respects_gcd", J.B(false)),
+                ("target_shape_ref", J.S("target.chain.sample")),
+                ("effects", J.A(J.O(("kind", J.S("heal")), ("params", J.O(("base_value", J.N(1))))))));
+
+            var proc = ProcDef("skill.proc_def.sample_heal_loop", "combat.heal_done", healSkillId, 1.0);
+            var aura = ProcAura("skill.aura_def.sample_heal_loop", "skill.proc_def.sample_heal_loop");
+
+            var builder = new SkillWorldBuilder().SkillDef(heal).ProcDef(proc).AuraDef(aura);
+            builder.Options.MaxTriggerDepth = 3;
+
+            var world = builder.Build();
+            world.AddUnit(new Id("unit.caster"));
+            world.Targets.SetChain(new Id("target.chain.sample"), new Id("unit.caster"));
+            world.Host.EffectSink.ApplyAura(new Id("unit.caster"), new Id("skill.aura_def.sample_heal_loop"), new Id("unit.caster"));
+
+            var healResolveCount = 0;
+            world.Combat.ResolveFunc = context =>
+            {
+                healResolveCount++;
+
+                // 模拟真实 core/rules/combat/core/Resolver.cs 步骤 9 heal 分支：经 _bus.Enqueue
+                // 异步落地 combat.heal_done（不是 PublishImmediate 同步派发），并把当前效果上下文的
+                // TriggerChainDepth 戳到事件上——这正是 RC-01 修复后 Resolver 的真实行为（见该文件
+                // 改动），本假实现在这里复刻它，使这条经 EventBus 真正入队/派发的路径被完整覆盖
+                // （PublishImmediate 是同步调用，不会触发原缺陷，见下方断言注释）。
+                world.Bus.Enqueue(new CombatHealDoneEvent(context.SourceId, context.TargetId, context.BaseValue, false, context.TriggerChainDepth));
+                return new ResolveResult(HitResult.Hit, context.BaseValue, context.BaseValue, 0, immune: false, isHeal: true);
+            };
+
+            var result = world.Host.CastSkill(new Id("unit.caster"), new Id(healSkillId), System.Array.Empty<Id>());
+            Assert.True(result.Success);
+
+            world.Flush();
+
+            // 无 ICD 的 heal_done → trigger_skill(heal) 自循环：正确实现应由 MaxTriggerDepth（=3）
+            // 在数个 EventBus pass 内截断，而不是退化到只靠 EventBusOptions.MaxDispatchPasses
+            // （默认 16）兜底——上界 5（= 1 次根施法 + MaxTriggerDepth 3 层触发 + 1 冗余）远小于
+            // 16，足以区分两种截断来源；修复前本断言会失败（healResolveCount 会一路顶到 16 左右）。
+            Assert.InRange(healResolveCount, 2, 5);
+            Assert.NotEmpty(world.Diagnostics.Errors);
+
+            // 下一 tick 正常：链上限拒绝后事件队列已排空（不给下一次 Flush 留下未处理的残留触发），
+            // 施法管线此后仍可正常施法并再次经由 ProcHost 触发。
+            healResolveCount = 0;
+            var again = world.Host.CastSkill(new Id("unit.caster"), new Id(healSkillId), System.Array.Empty<Id>());
+            Assert.True(again.Success);
+            world.Flush();
+            Assert.True(healResolveCount >= 1);
+        }
+
+        [Fact]
         public void TriggerChain_RecursionIsBoundedByMaxTriggerDepth()
         {
             var skillA = J.O(

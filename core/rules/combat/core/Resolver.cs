@@ -235,12 +235,16 @@ namespace Core.Rules.Combat
                 if (isHeal)
                 {
                     ApplyHealThreat(context.SourceId, context.TargetId, finalAmount, steps);
-                    _bus.Enqueue(new CombatHealDoneEvent(context.SourceId, context.TargetId, finalAmount, isCrit));
+                    // RC-01 收边补齐：把产生本次结算的 EffectContext.TriggerChainDepth 原样戳到
+                    // 落地事件上（见 EffectContext.TriggerChainDepth/ITriggerChainEvent 判断记录），
+                    // 供 ProcHost 在 combat.heal_done 是某个 skill.proc_def.trigger_event 时读回，
+                    // 让触发链深度预算能跨越本次 _bus.Enqueue 到下一个 DispatchPending pass 正确传播。
+                    _bus.Enqueue(new CombatHealDoneEvent(context.SourceId, context.TargetId, finalAmount, isCrit, context.TriggerChainDepth));
                 }
                 else
                 {
                     _threatTable.AddThreat(context.TargetId, context.SourceId, finalAmount);
-                    _bus.Enqueue(new CombatDamageDealtEvent(context.SourceId, context.TargetId, context.School, finalAmount, isCrit, hit));
+                    _bus.Enqueue(new CombatDamageDealtEvent(context.SourceId, context.TargetId, context.School, finalAmount, isCrit, hit, context.TriggerChainDepth));
                 }
             }
 

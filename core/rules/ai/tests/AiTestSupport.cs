@@ -8,6 +8,8 @@ using Core.Numbers.Faction;
 using Core.Numbers.PowerSet;
 using Core.Rules.Ai;
 using Core.Rules.Common;
+using Core.Rules.Skill;
+using Core.Rules.Targeting;
 using Core.Foundation.SimLoop;
 using Xunit;
 
@@ -272,17 +274,33 @@ namespace Tests.Rules.Ai
 
         /// <summary>装配一个已加载 ai.* 三张表的 <see cref="DataRegistry"/>；<paramref name="profilesJson"/>/
         /// <paramref name="rotationsJson"/>/<paramref name="patrolsJson"/> 均为 JSON 数组文本（可以是 "[]"）。</summary>
-        public static DataRegistry MakeRegistry(IEventBus bus, string profilesJson, string rotationsJson, string patrolsJson)
+        public static DataRegistry MakeRegistry(IEventBus bus, string profilesJson, string rotationsJson, string patrolsJson) =>
+            MakeRegistry(bus, profilesJson, rotationsJson, patrolsJson, "[]", "[]");
+
+        /// <summary>
+        /// RC-10 收边补齐（<c>AiRotationTargetingTests</c> 专用）：额外可选装配 <c>skill.def</c>/
+        /// <c>target.chain_def</c> 两张表——<see cref="AiHost.LoadRotations"/> 现在会读它们判定
+        /// <c>ai.rotation.entries[].skill_id</c> 是不是"敌对单体"（见该方法判断记录
+        /// "RC-10 收边补齐"），既有全部 AiHost 测试用例都不需要这两张表（本模块只按 skillId 断言，
+        /// 从不检查 CastSkill 收到的 targets 内容），保留上面那个四参数重载不变，行为完全不变；
+        /// 只有需要验证目标类型分类的新用例才用本重载显式提供这两张表。</summary>
+        public static DataRegistry MakeRegistry(
+            IEventBus bus, string profilesJson, string rotationsJson, string patrolsJson,
+            string skillDefJson, string targetChainDefJson)
         {
             var source = new InMemoryDataSource()
                 .Add(AiSchemas.BehaviorProfile.Name, Envelope(AiSchemas.BehaviorProfile.Name, profilesJson))
                 .Add(AiSchemas.Rotation.Name, Envelope(AiSchemas.Rotation.Name, rotationsJson))
-                .Add(AiSchemas.PatrolPath.Name, Envelope(AiSchemas.PatrolPath.Name, patrolsJson));
+                .Add(AiSchemas.PatrolPath.Name, Envelope(AiSchemas.PatrolPath.Name, patrolsJson))
+                .Add("skill.def", Envelope("skill.def", skillDefJson))
+                .Add("target.chain_def", Envelope("target.chain_def", targetChainDefJson));
 
             var registry = new DataRegistry(source, bus, new DataRegistryOptions());
             registry.RegisterSchema(AiSchemas.BehaviorProfile);
             registry.RegisterSchema(AiSchemas.Rotation);
             registry.RegisterSchema(AiSchemas.PatrolPath);
+            registry.RegisterSchema(SkillSchemas.Def);
+            registry.RegisterSchema(TargetSchemas.ChainDef);
 
             var report = registry.LoadAll();
             Assert.False(report.IsBlocking);

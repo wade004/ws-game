@@ -133,6 +133,72 @@ namespace Tests.Carriers.Projectile
         }
 
         // -----------------------------------------------------------------
+        // RC-09（见外部审计 architecture/落地计划/audit-b3b91ee-20260907/code-review.md RC-09）：
+        // 整步命中判定必须先按剩余射程截断线段，再查单位/终点，不能等整个 tick 的位移都走完、
+        // 命中判定用了越界的那一段之后才检查是否超过 max_range。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void LargeStep_TargetBeyondMaxRangeButWithinRawTickMovement_DoesNotHit()
+        {
+            var w = ProjectileWorldBuilder.Build();
+            w.AddUnit(Source.Value, new Vec2(0, 0));
+            // 目标在 max_range(15) 之外，但在"整个 tick 未截断的原始位移"(speed 100 × dt 1.0 = 100)
+            // 以内——修复前 TryResolveUnitHits 用的线段是 (0,0)→(100,0)，会在这条线段上查到并命中
+            // 这个本不该够到的目标。
+            var farTarget = w.AddUnit(Target.Value, new Vec2(50, 0));
+
+            var context = MakeContext(Source, Target, J.O(
+                ("speed", J.N(100)),
+                ("max_range", J.N(15)),
+                ("on_hit_effects", J.A(J.O(("kind", J.S("school_damage")), ("params", J.O(("base_value", J.N(99)))))))));
+            w.Host.Spawn(context, w.Sink);
+
+            w.Host.Advance(1.0);
+
+            Assert.Empty(w.Sink.Applied); // 修复前会命中 farTarget 并回灌一次 school_damage。
+            Assert.Equal(0, w.Host.ActiveCount);
+        }
+
+        [Fact]
+        public void LargeSingleStep_AndManySmallSteps_ProduceTheSameOutcome()
+        {
+            // "大步与拆步一致"：同一发射程/速度/目标配置，一次 Advance(1.0) 与十次 Advance(0.1)
+            // 应该得到相同结果——修复前小步推进天然每步都会先触达 max_range 再销毁（每步位移小，
+            // 目标位置又在射程外，从不会被单独一小步的线段查到），只有大步一次推进整段位移时才
+            // 会命中，这正是"大步与拆步不一致"的体现（见外部审计 RC-09）。
+            var farTarget = new Vec2(50, 0);
+
+            var wLarge = ProjectileWorldBuilder.Build();
+            wLarge.AddUnit(Source.Value, new Vec2(0, 0));
+            wLarge.AddUnit(Target.Value, farTarget);
+            var largeContext = MakeContext(Source, Target, J.O(
+                ("speed", J.N(100)),
+                ("max_range", J.N(15)),
+                ("on_hit_effects", J.A(J.O(("kind", J.S("school_damage")), ("params", J.O(("base_value", J.N(99)))))))));
+            wLarge.Host.Spawn(largeContext, wLarge.Sink);
+            wLarge.Host.Advance(1.0);
+
+            var wSmall = ProjectileWorldBuilder.Build();
+            wSmall.AddUnit(Source.Value, new Vec2(0, 0));
+            wSmall.AddUnit(Target.Value, farTarget);
+            var smallContext = MakeContext(Source, Target, J.O(
+                ("speed", J.N(100)),
+                ("max_range", J.N(15)),
+                ("on_hit_effects", J.A(J.O(("kind", J.S("school_damage")), ("params", J.O(("base_value", J.N(99)))))))));
+            wSmall.Host.Spawn(smallContext, wSmall.Sink);
+            for (var i = 0; i < 10; i++)
+            {
+                wSmall.Host.Advance(0.1);
+            }
+
+            Assert.Empty(wLarge.Sink.Applied);
+            Assert.Empty(wSmall.Sink.Applied);
+            Assert.Equal(0, wLarge.Host.ActiveCount);
+            Assert.Equal(0, wSmall.Host.ActiveCount);
+        }
+
+        // -----------------------------------------------------------------
         // 4. 穿透
         // -----------------------------------------------------------------
 
@@ -232,6 +298,33 @@ namespace Tests.Carriers.Projectile
             w.Host.Advance(1.0);
 
             Assert.Empty(w.Sink.Applied);
+            Assert.Equal(0, w.Host.ActiveCount);
+        }
+
+        [Fact]
+        public void ImpactOnExpiry_LargeStepOvershootingRawMovement_BlastCenterIsRangeClippedPoint()
+        {
+            // RC-09"过射程爆炸中心为射程终点"：speed(100)×dt(1.0) 的原始整步位移终点在 (100,0)，
+            // 但 max_range 只有 20——爆炸圆心必须是射程终点 (20,0)，不能是未截断的整步终点
+            // (100,0)。unit.p_aoe_at_range 恰好放在射程终点周围（impact_radius 内），若圆心用了
+            // 错误的 (100,0)，两者相距 80，必然查不到，断言据此判定修复前后行为差异。
+            var w = ProjectileWorldBuilder.Build();
+            w.AddUnit(Source.Value, new Vec2(0, 0));
+            w.AddUnit(Target.Value, new Vec2(500, 0)); // 只用于瞄准方向（沿 +X），本身远在爆炸半径外。
+            var atRangeEnd = w.AddUnit("unit.p_aoe_at_range", new Vec2(20.5, 0));
+
+            var context = MakeContext(Source, Target, J.O(
+                ("hit_behavior", J.S("impact_on_expiry")),
+                ("speed", J.N(100)),
+                ("max_range", J.N(20)),
+                ("impact_radius", J.N(2.0)),
+                ("on_hit_effects", J.A(J.O(("kind", J.S("school_damage")), ("params", J.O(("base_value", J.N(8)))))))));
+            w.Host.Spawn(context, w.Sink);
+
+            w.Host.Advance(1.0);
+
+            var hitTargets = w.Sink.Applied.Select(c => c.TargetId).ToList();
+            Assert.Contains(atRangeEnd, hitTargets); // 修复前：圆心在 (100,0)，本断言会失败。
             Assert.Equal(0, w.Host.ActiveCount);
         }
 

@@ -264,6 +264,61 @@ namespace Tests.Numbers.StatBlock
             Assert.Equal(10.0, host.GetStat(unitLevel10, StatD), 10);
         }
 
+        // -----------------------------------------------------------------
+        // RC-06（见外部审计 architecture/落地计划/audit-b3b91ee-20260907/code-review.md RC-06）：
+        // GetStat 的缓存只在 SetBase/AddModifier/RemoveModifiersBySource 写入时更新，等级变化
+        // （LevelLookup 结果改变）不经过这三个入口——RecomputeRatingStats 是补上的显式重算入口，
+        // 供 RulesAssembly 订阅 progression.level_up 后调用（见该组装根判断记录）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void RecomputeRatingStats_AfterLevelLookupChanges_UpdatesCacheAndFiresStatChanged()
+        {
+            var level = 1;
+            LevelLookup lookup = _ => level;
+
+            var (host, captured, bus, _) = BuildHost(enableRatingConversion: true, levelLookup: lookup);
+            var unit = new Id("unit.rating_recompute");
+            host.RegisterUnit(unit);
+            host.SetBase(unit, StatD, 50.0);
+            bus.DispatchPending();
+
+            // 1 级：ppp=10 -> percent=5。
+            Assert.Equal(5.0, host.GetStat(unit, StatD), 10);
+
+            level = 10; // LevelLookup 结果已经变了，但不经过 SetBase/AddModifier/RemoveModifiersBySource。
+            captured.Clear();
+
+            // 修复前唯一入口 GetStat 只读缓存，不会重新调用 LevelLookup——本断言证明"缓存本身确实
+            // 不会自动感知等级变化"，这是既有设计（缓存的意义就在于不每次都重算），不是缺陷本身；
+            // 缺陷是"没有任何显式入口能在等级变化后主动刷新它"。
+            Assert.Equal(5.0, host.GetStat(unit, StatD), 10);
+            Assert.Empty(captured);
+
+            host.RecomputeRatingStats(unit);
+            bus.DispatchPending();
+
+            // 10 级：ppp=5 -> percent=10——RecomputeRatingStats 之后 GetStat 才反映新等级，且期间
+            // 应该正确广播一次 stat.changed（供依赖它的下游，如 RC-06 另一半 PowerHost.RecomputeMax
+            // 联动，见 core/rules/tests/Integration/PowerMaxRecomputeWiringTests.cs）。
+            Assert.Equal(10.0, host.GetStat(unit, StatD), 10);
+            Assert.Single(captured);
+            Assert.Equal(unit, captured[0].UnitId);
+            Assert.Equal(StatD, captured[0].Stat);
+            Assert.Equal(5.0, captured[0].OldValue, 10);
+            Assert.Equal(10.0, captured[0].NewValue, 10);
+        }
+
+        [Fact]
+        public void RecomputeRatingStats_UnregisteredUnit_IsIdempotentNoOp()
+        {
+            var (host, _, _, _) = BuildHost(enableRatingConversion: true);
+
+            var exception = Record.Exception(() => host.RecomputeRatingStats(new Id("unit.never_registered")));
+
+            Assert.Null(exception);
+        }
+
         [Fact]
         public void RatingConversion_MidLevelInterpolatesBetweenEntries()
         {

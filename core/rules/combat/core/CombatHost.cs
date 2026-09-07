@@ -4,6 +4,7 @@ using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.Rng;
+using Core.Foundation.SimLoop;
 using Core.Numbers.Faction;
 using Core.Numbers.PowerSet;
 using Core.Numbers.StatBlock;
@@ -66,6 +67,38 @@ namespace Core.Rules.Combat
             _resolver = new Resolver(
                 stats, powers, units, auras, factions, rng, bus, _options,
                 hitTables, resistCurves, diag, _threatTable, NotifyCombatEvent, staticImmunity);
+
+            // RC-02 收边补齐：订阅 entity.destroyed 做幂等战斗清理（见 OnEntityDestroyed 判断
+            // 记录）——生物销毁（如 CreatureFactory.Despawn）会先同步注销 IPowerHost/IStatHost 的
+            // 单位注册，本模块自己的 _inCombat/_timeSinceLastEvent 状态与 ThreatTable 双向仇恨条目
+            // 此前完全不感知这一事件，只能等下一次 Update 因脱战延迟到期才尝试处理该单位，届时
+            // Powers.SetInCombat 访问已注销的单位直接抛异常（审计 RC-02）。
+            _bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, OnEntityDestroyed);
+        }
+
+        /// <summary>
+        /// RC-02 收边补齐：单位被销毁后幂等清理战斗相关状态——不访问 <see cref="IPowerHost"/>/
+        /// <see cref="IStatHost"/>（销毁时点这两者对该单位的注册通常已经被调用方提前撤销，见类型
+        /// 顶部构造函数订阅处判断记录，访问会抛异常，这正是本次要修复的崩溃路径本身）。
+        /// <para>
+        /// 幂等：<see cref="Dictionary{TKey,TValue}.Remove"/> 对不存在的 key 是安全 no-op，
+        /// <see cref="ThreatTable.Clear"/>/<see cref="ThreatTable.RemoveSourceEverywhere"/> 对空表/
+        /// 不存在的来源同样是安全 no-op——同一个（理论上不会重复派发的）<c>entity.destroyed</c>
+        /// 或对一个从未进过战的单位重复调用本方法都不会抛异常或产生副作用。
+        /// </para>
+        /// </summary>
+        private void OnEntityDestroyed(EntityDestroyedEvent evt)
+        {
+            var unitId = evt.EntityId;
+
+            _inCombat.Remove(unitId);
+            _timeSinceLastEvent.Remove(unitId);
+
+            // 双向仇恨清理：既清空该单位自己持有的仇恨表（谁在打它），也把它从其它仍存活单位的
+            // 仇恨表里作为"来源"整体摘除（它在打谁）——见 ThreatTable.RemoveSourceEverywhere
+            // 判断记录，呼应 HasLivingHostileThreatSource 的双向查询。
+            _threatTable.Clear(unitId);
+            _threatTable.RemoveSourceEverywhere(unitId);
         }
 
         public ResolveResult ResolveEffect(EffectContext context) => _resolver.Resolve(context);

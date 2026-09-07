@@ -145,7 +145,12 @@ namespace Core.Rules.Skill
         // 施加 / 移除 / 驱散
         // -----------------------------------------------------------------
 
-        public AuraInstanceRef ApplyAura(Id targetId, Id defId, Id sourceId, double? durationOverride, IReadOnlyList<Id>? tags = null)
+        /// <summary><paramref name="triggerChainDepth"/>：见 <see cref="ITriggerChainEvent"/>/
+        /// <see cref="EffectContext.TriggerChainDepth"/> 判断记录（RC-01）——只有
+        /// <see cref="EffectDispatcher.ApplyAuraEffectPrimitive"/>（<c>apply_aura</c> 效果原语）
+        /// 会传入非零值；<see cref="IEffectSink.ApplyAura"/>（装备 grants、种族被动等不经过
+        /// <see cref="EffectContext"/> 的直接施加）恒为默认值 0。</summary>
+        public AuraInstanceRef ApplyAura(Id targetId, Id defId, Id sourceId, double? durationOverride, IReadOnlyList<Id>? tags = null, int triggerChainDepth = 0)
         {
             var def = _defs.GetAuraDef(defId);
             var sourceKey = _options.AllowMultiSourceTiming ? (Id?)sourceId : null;
@@ -154,13 +159,13 @@ namespace Core.Rules.Skill
 
             if (_slots.TryGetValue(slotKey, out var existingId) && _instances.TryGetValue(existingId, out var existing))
             {
-                return ReapplyExisting(existing, def, sourceId, durationOverride, safeTags);
+                return ReapplyExisting(existing, def, sourceId, durationOverride, safeTags, triggerChainDepth);
             }
 
-            return CreateInstance(targetId, def, sourceId, durationOverride, safeTags);
+            return CreateInstance(targetId, def, sourceId, durationOverride, safeTags, triggerChainDepth);
         }
 
-        private AuraInstanceRef ReapplyExisting(AuraInstanceState existing, AuraDef def, Id sourceId, double? durationOverride, IReadOnlyList<Id> tags)
+        private AuraInstanceRef ReapplyExisting(AuraInstanceState existing, AuraDef def, Id sourceId, double? durationOverride, IReadOnlyList<Id> tags, int triggerChainDepth = 0)
         {
             var newStacks = existing.Stacks + 1;
             if (newStacks <= def.MaxStacks)
@@ -187,14 +192,14 @@ namespace Core.Rules.Skill
 
                 case StackOverflowPolicy.Replace:
                     RemoveInstanceInternal(existing, "overwritten");
-                    return CreateInstance(existing.TargetId, def, sourceId, durationOverride, tags);
+                    return CreateInstance(existing.TargetId, def, sourceId, durationOverride, tags, triggerChainDepth);
 
                 default:
                     throw new InvalidOperationException($"未知的 StackOverflowPolicy：{_options.StackOverflowPolicy}");
             }
         }
 
-        private AuraInstanceRef CreateInstance(Id targetId, AuraDef def, Id sourceId, double? durationOverride, IReadOnlyList<Id>? tags = null)
+        private AuraInstanceRef CreateInstance(Id targetId, AuraDef def, Id sourceId, double? durationOverride, IReadOnlyList<Id>? tags = null, int triggerChainDepth = 0)
         {
             var instance = new AuraInstanceState
             {
@@ -221,7 +226,7 @@ namespace Core.Rules.Skill
                 ProcHost.Attach(instance.InstanceId, targetId, procDef);
             }
 
-            _bus.Enqueue(new AuraAppliedEvent(targetId, def.Id, sourceId, instance.Stacks));
+            _bus.Enqueue(new AuraAppliedEvent(targetId, def.Id, sourceId, instance.Stacks, triggerChainDepth));
             return new AuraInstanceRef(instance.InstanceId);
         }
 

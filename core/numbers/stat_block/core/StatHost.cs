@@ -281,6 +281,46 @@ namespace Core.Numbers.StatBlock
             return unit.ModifiersByStat.TryGetValue(stat, out var list) ? list.ToArray() : Array.Empty<StatModifier>();
         }
 
+        /// <summary>
+        /// RC-06 收边补齐：单位等级变化后，重算并按需广播全部经评级曲线换算（<see
+        /// cref="StatDefinition.RatingConversionRef"/> 非空，见 <see cref="ConvertRating"/>）的属性。
+        /// <para>
+        /// 判断记录：<see cref="GetStat"/> 的缓存（<see cref="UnitStats.Cache"/>）只在
+        /// <see cref="SetBase"/>/<see cref="AddModifier"/>/<see cref="RemoveModifiersBySource"/> 三个
+        /// 写入入口更新——这三者改变的都是"三段式聚合"的输入（base/modifier），但
+        /// <see cref="ConvertRating"/> 依赖的单位等级（经 <see cref="StatHostOptions.LevelLookup"/>
+        /// 查询）不经过这三个入口，缓存会一直停留在"注册/上次任意一次写入操作时的等级"算出的值上，
+        /// 升级/掉级后不会自动更新（见外部审计 RC-06）。本方法只重算带评级曲线的属性——不带评级
+        /// 曲线的属性与等级无关，不受影响，全量重算徒增开销。供 <c>RulesAssembly</c> 订阅
+        /// <c>progression.level_up</c> 后对该单位调用（见该组装根判断记录）。单位未注册按幂等
+        /// no-op 处理（不抛异常）——事件驱动的调用时机与单位注册时机之间没有强保证的先后顺序。
+        /// </para>
+        /// </summary>
+        public void RecomputeRatingStats(Id unitId)
+        {
+            if (!_units.TryGetValue(unitId, out var unit))
+            {
+                return;
+            }
+
+            foreach (var def in _definitions.Values)
+            {
+                if (!def.RatingConversionRef.HasValue)
+                {
+                    continue;
+                }
+
+                var hasCached = unit.Cache.TryGetValue(def.Id, out var oldValue);
+                var newValue = ComputeFinal(unitId, unit, def);
+                unit.Cache[def.Id] = newValue;
+
+                if (hasCached && newValue != oldValue)
+                {
+                    _bus.Enqueue(new StatChangedEvent(unitId, def.Id, oldValue, newValue));
+                }
+            }
+        }
+
         // -----------------------------------------------------------------
         // 三段式聚合
         // -----------------------------------------------------------------
