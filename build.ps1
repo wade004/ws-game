@@ -44,7 +44,7 @@
     .PARAMETER PublishRegistry）。详见 toolchain/registry/README.md、落地计划 3.5 节"私服通道"。
 
 .PARAMETER Release
-    版本管理方案新增：走一次完整的"发布"流程（校验 -> 更新版本号 -> 全量门禁 -> 打包 -> 提交 ->
+    版本管理方案新增：走一次完整的"发布"流程（校验 -> 更新版本号 -> 全量门禁 -> 提交 -> 打包 ->
     打标签），产出可直接对外发布的版本快照。传入目标版本号（形如 X.Y.Z），流程：
       1. 校验版本号格式，且必须严格大于仓库根 VERSION 文件当前值（语义化版本数值比较，不是字符串
          比较）。
@@ -52,32 +52,42 @@
          干净的提交状态，不能夹带未提交的改动。
       3. 校验仓库根 CHANGELOG.md 已存在形如 `## [X.Y.Z]` 的条目（不含该条目直接报错退出，提示先
          在 CHANGELOG.md 补齐该版本的变更记录）。
-      4. 非 `-DryRun` 时：把该版本号写回仓库根 VERSION 文件与两个 package.json（含
-         `games/_template/package.json` 对适配层包的依赖版本号）——这一步是本次发布"成为新的当前
-         版本"的唯一写入点，`-DryRun` 时跳过，不触碰任何源码文件。
+      4. 非 `-DryRun` 时：把该版本号写回仓库根 VERSION 文件、两个 package.json（含
+         `games/_template/package.json` 对适配层包的依赖版本号）与
+         `adapters/unity/Packages/packages-lock.json`（`com.gamefoundation.game-template` 条目下
+         对适配层包依赖版本号的镜像字段，UPM 打开工程时会自行核对/改写这个字段，写回步骤同步覆盖
+         避免下一步门禁跑出一份未提交的改动）——这一步是本次发布"成为新的当前版本"的唯一写入点，
+         `-DryRun` 时跳过，不触碰任何源码文件。
       5. 跑一遍 `check.ps1`（默认全量，含 Unity 相关步骤与消费方演练；`-ReleaseSkipUnity` 传
          `-SkipUnity` 给 check.ps1，用于没有装 Unity 的机器，但默认要求全量门禁通过才能发布）。
-      6. 打包 `dist/<ver>/`（复用 `-Dist` 打包逻辑）、`dist/ws-game-<ver>.zip`（`Compress-Archive`，
+      6. 非 `-DryRun` 时：门禁通过后立即提交 VERSION/两个 package.json/packages-lock.json/
+         CHANGELOG.md 的改动（提交信息 `发布 <ver>`），并在 `dist/release-notes-<ver>.txt` 落一份
+         CHANGELOG.md 该版本条目正文（供 `gh release create --notes-file` 使用）——先于下一步打包，
+         使打包阶段 `git rev-parse HEAD` 就是这次发布提交本身、工作树干净，`dist/ws-game-<ver>.lock`
+         与 `MANIFEST.txt` 的 `git_commit` 字段因此指向一个真实存在的发布提交而不是带 `-dirty`
+         后缀的占位值（时序判断记录见脚本内该步骤注释）。
+      7. 打包 `dist/<ver>/`（复用 `-Dist` 打包逻辑）、`dist/ws-game-<ver>.zip`（`Compress-Archive`，
          zip 内顶层目录为 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、git_commit、
-         六个核心 DLL 的 sha256，供游戏仓库复制为自己的 `ws-game.lock`）。
-      7. 非 `-DryRun` 时：提交 VERSION/两个 package.json/CHANGELOG.md 的改动（提交信息
-         `发布 <ver>`），打带注释标签 `v<ver>`（标签信息取 CHANGELOG.md 该版本条目正文），并在
-         `dist/release-notes-<ver>.txt` 落一份同样内容供 `gh release create --notes-file` 使用。
+         六个核心 DLL 的 sha256，供游戏仓库复制为自己的 `ws-game.lock`）；非 `-DryRun` 时打包完成
+         后自检 lock/MANIFEST 的 `git_commit` 必须等于上一步的发布提交且不带 `-dirty` 后缀，不满足
+         则报错退出（此时提交已产生但未打标签，按脚本打印的提示 `git reset --soft` 回退后修复重跑）；
+         自检通过后打带注释标签 `v<ver>`（标签信息取 CHANGELOG.md 该版本条目正文）。
       8. 打印后续需要人工/设计层执行的两条命令（`git push origin main --tags` 与
          `gh release create v<ver> ...`）；若版本号的 MAJOR 或 MINOR 段发生了变化（而不仅是
          PATCH 递增），额外打印建议的维护分支创建命令 `git branch release/X.Y.x vX.Y.0`（见仓库根
          README.md"维护分支与 PATCH 发布流程"一节）。
 
 .PARAMETER DryRun
-    仅与 `-Release` 同传有效。跑完上面第 1～3、5、6 步的全部校验与打包（打包目标目录/文件名额外带
-    `-dryrun` 后缀，如 `dist/1.0.0-dryrun/`、`dist/ws-game-1.0.0-dryrun.zip`，避免与真实发布产物
-    混淆或互相覆盖），但跳过第 4、7 步——不改写 VERSION/package.json/CHANGELOG.md、不
-    `git commit`、不 `git tag`。用于在真正发布前验证整条发布流水线是否能跑通。
+    仅与 `-Release` 同传有效。跑完上面第 1～3、5 步的全部校验，以及第 7 步里"打包"这一半（打包
+    目标目录/文件名额外带 `-dryrun` 后缀，如 `dist/1.0.0-dryrun/`、`dist/ws-game-1.0.0-dryrun.zip`，
+    避免与真实发布产物混淆或互相覆盖），但跳过第 4、6 步与第 7 步里"自检 + 打标签"那一半——不改写
+    VERSION/package.json/packages-lock.json/CHANGELOG.md、不 `git commit`、不做打包完成自检、不
+    `git tag`。用于在真正发布前验证整条发布流水线是否能跑通。
 
 .PARAMETER Publish
-    仅与 `-Release`（且未传 `-DryRun`）同传有效。第 7 步打完标签后，自动依次执行第 8 步打印的两条
-    命令（`git push origin main --tags`、`gh release create ...`），不再需要人工另行复制粘贴执行。
-    省略时（默认）只打印这两条命令，不自动执行，由人工/设计层确认后自行运行。
+    仅与 `-Release`（且未传 `-DryRun`）同传有效。第 7 步自检 + 打完标签后，自动依次执行第 8 步
+    打印的两条命令（`git push origin main --tags`、`gh release create ...`），不再需要人工另行
+    复制粘贴执行。省略时（默认）只打印这两条命令，不自动执行，由人工/设计层确认后自行运行。
 
 .PARAMETER ReleaseSkipUnity
     仅与 `-Release` 同传有效。第 5 步跑 `check.ps1` 时额外传 `-SkipUnity`，跳过 Unity 相关四步与
@@ -86,7 +96,7 @@
 
 .PARAMETER Zip
     独立于 `-Release` 使用：与 `-Dist`/`-Dist auto` 同传时，额外打一份 `dist/ws-game-<ver>.zip`
-    与 `dist/ws-game-<ver>.lock`（与 `-Release` 第 6 步同一份打包逻辑），但不做 `-Release`
+    与 `dist/ws-game-<ver>.lock`（与 `-Release` 第 7 步同一份打包逻辑），但不做 `-Release`
     的版本号校验、写回、`check.ps1` 门禁、提交、打标签——只是"把已经存在的 dist/<ver>/ 目录再打成
     zip+lock 两个可上传附件"这一件事。用途：`.github/workflows/release.yml` 在 CI 里对一个已经由
     本机 `-Release`（未传 `-Publish`）提交并打好标签的版本重新打包上传附件，这种场景不需要也不
@@ -96,7 +106,7 @@
 .PARAMETER PublishRegistry
     私服交付通道新增。仅与 `-Release`（且未传 `-DryRun`）同传有效，独立于 `-Publish` 单独控制
     （`-Publish` 只管 `git push`/`gh release create` 这两条命令，与是否发注册表无关；两个开关可以
-    任意组合同传或都不传）。第 7 步提交 + 打标签完成后，对 `dist/<ver>/packages/` 下三个包目录
+    任意组合同传或都不传）。第 7 步自检 + 打标签完成后，对 `dist/<ver>/packages/` 下三个包目录
     依次执行 `npm publish --registry <url> --userconfig toolchain/registry/.npmrc`（该 `.npmrc`
     由 `toolchain/registry/init_publisher.ps1` 无人值守生成，见该脚本头注释）。目标版本号一旦
     发布成功即不可覆盖——`npm publish` 对已存在的版本号本身就会失败，与 `-Release` 的"发布不可变"
@@ -343,6 +353,42 @@ if ($ReleaseRequested) {
 
         Set-SourcePackageJsonVersion -JsonPath (Join-Path $RepoRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json") -Version $Release
         Set-SourcePackageJsonVersion -JsonPath (Join-Path $RepoRoot "games\_template\package.json") -Version $Release
+
+        # 写回遗漏根治（2026-09-07）：adapters/unity/Packages/packages-lock.json 里
+        # "com.gamefoundation.game-template" 条目下 dependencies."com.gamefoundation.adapter.unity"
+        # 是 games/_template/package.json 同名依赖版本号的镜像（Unity Package Manager 读本地文件
+        # 依赖时自动写入的锁定值），此前 -Release 写回没有覆盖它——门禁第 5 步跑 check.ps1 里的
+        # Unity 相关步骤时，UPM 会自己把这个字段改成新版本号，导致发布提交完成后工作树仍然
+        # 不干净（该改动没能进入发布提交，1.0.0 首次发布实测复现，见 CHANGELOG.md [1.0.0] 修复
+        # 记录）。这里在写回两个 package.json 之后同步写回这个字段，使门禁跑完时 UPM 发现文件已经
+        # 是它自己会写的值、不需要再改，工作树保持干净。
+        function Set-PackagesLockGameTemplateDependency {
+            param([string]$JsonPath, [string]$Version)
+            if (-not (Test-Path $JsonPath)) {
+                throw "找不到 $JsonPath，无法回写版本号"
+            }
+            # 判断记录：packages-lock.json 是 UPM 自动生成/维护的大文件（CRLF 换行、无 BOM、2 空格
+            # 缩进，键顺序由 UPM 决定），整体 ConvertFrom-Json/ConvertTo-Json 往返会打乱这些格式
+            # （PowerShell 5.1 的 ConvertTo-Json 缩进/换行符与 UPM 原始输出不一致），导致下次 UPM
+            # 打开工程时产生一大片与本次改动无关的格式 diff。改用最小化正则文本替换，只动
+            # com.gamefoundation.game-template 依赖块下这一个字段的值，文件其余内容与换行风格
+            # 原样保留（与两个 package.json 用完整 JSON 往返的写法不同，是保守写法，同一判断
+            # 也适用于 check.ps1 的版本一致性只读校验——那边同样不整体解析成对象比较）。
+            $raw = [System.IO.File]::ReadAllText($JsonPath)
+            # 全文件唯一一处 `"com.gamefoundation.adapter.unity": "<版本号>"`（键名 + 字符串值这一
+            # 形态；该包自己的顶层条目是 `"com.gamefoundation.adapter.unity": {`，对象值，不会被
+            # 这个正则误命中，已用 Grep 核实全文件只有一处字符串值形态的命中）。
+            $pattern = '("com\.gamefoundation\.adapter\.unity":\s*")\d+\.\d+\.\d+(")'
+            $hitCount = [regex]::Matches($raw, $pattern).Count
+            if ($hitCount -ne 1) {
+                throw "$JsonPath 中 'com.gamefoundation.adapter.unity' 依赖字段命中 $hitCount 处（预期 1 处），格式可能已变化，拒绝盲目替换"
+            }
+            $newRaw = [regex]::Replace($raw, $pattern, ('${1}' + $Version + '${2}'))
+            [System.IO.File]::WriteAllText($JsonPath, $newRaw, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Host "  已写回 $JsonPath -> com.gamefoundation.game-template.dependencies.com.gamefoundation.adapter.unity=$Version"
+        }
+
+        Set-PackagesLockGameTemplateDependency -JsonPath (Join-Path $RepoRoot "adapters\unity\Packages\packages-lock.json") -Version $Release
     }
 
     # 第 5 步：全量门禁（-ReleaseSkipUnity 时传 -SkipUnity 给 check.ps1）。DryRun 同样跑——
@@ -357,6 +403,57 @@ if ($ReleaseRequested) {
         exit $LASTEXITCODE
     }
     Write-Host "  check.ps1 通过"
+
+    # 第 6 步（时序缺陷根治，2026-09-07）：门禁通过后立即提交版本号改动，先于下面的打包步骤。
+    # DryRun 时跳过——这与第 4 步写回是同一个"不碰源码"的边界。
+    #
+    # 判断记录（为什么提交要先于打包，而不是像此前那样打完包再提交）：dist/ws-game-<ver>.lock 与
+    # MANIFEST.txt 里的 git_commit 字段是给游戏仓库锁定"这份产物对应仓库的哪个提交"用的（见
+    # toolchain/get_framework.ps1、games/_template/README.md 接入说明），必须指向一个真实存在、
+    # 可 `git checkout` 的发布提交本身。此前打包发生在提交之前，打包时工作树还带着尚未提交的版本号
+    # 写回改动，`git rev-parse --short HEAD` 拿到的是发布提交的上一个提交、还要再拼 "-dirty" 后缀，
+    # 是一个既不指向发布提交、也不指向任何干净提交的占位值——1.0.0 首次发布（2026-09-07）实测踩中，
+    # 发布后才发现 lock/MANIFEST 记录的 git_commit 与实际发布提交对不上，见 CHANGELOG.md [1.0.0]
+    # 修复记录。改成提交先行后，打包阶段（第 7 步）的 `git rev-parse HEAD` 就是这次发布提交本身。
+    #
+    # 判断记录（为什么打标签仍然留在打包之后，不跟着提交一起挪到这里）：标签是"这个提交对应一个
+    # 完整、验证过的发布产物"的公开承诺；如果提交完成后打包才失败（例如本机没装 node 导致
+    # `npm pack` 失败、zip 压缩中途出错），这时不应该已经存在一个指向"产物不完整"的提交的标签——
+    # 保留提交、不打标签，让操作者能看清"提交已产生但发布未完成"这一中间状态，按下面打印的提示
+    # 用 `git reset --soft` 回退再重跑，而不是留下一个名不副实的标签还需要额外 `git tag -d` 清理。
+    if (-not $DryRun) {
+        Write-Step "-Release 第 6 步：门禁通过，提交版本号改动（先于打包）"
+
+        Push-Location $RepoRoot
+        try {
+            $ReleaseParentCommitHash = (& git rev-parse HEAD).Trim()
+        } finally {
+            Pop-Location
+        }
+
+        New-Item -ItemType Directory -Force -Path (Join-Path $RepoRoot "dist") | Out-Null
+        $releaseNotesPath = Join-Path $RepoRoot ("dist\release-notes-" + $Release + ".txt")
+        [System.IO.File]::WriteAllText($releaseNotesPath, $ReleaseChangelogSection, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "  已生成 $releaseNotesPath（CHANGELOG.md [$Release] 条目正文，供 gh release create --notes-file 使用）"
+
+        Push-Location $RepoRoot
+        try {
+            & git add "VERSION" "adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json" "games/_template/package.json" "adapters/unity/Packages/packages-lock.json" "CHANGELOG.md"
+            if ($LASTEXITCODE -ne 0) { throw "git add 失败，退出码 $LASTEXITCODE" }
+
+            $commitMessage = "发布 $Release"
+            & git commit -m $commitMessage
+            if ($LASTEXITCODE -ne 0) { throw "git commit 失败，退出码 $LASTEXITCODE" }
+
+            $ReleaseCommitHash = (& git rev-parse HEAD).Trim()
+            $ReleaseCommitShort = (& git rev-parse --short HEAD).Trim()
+            Write-Host "  已提交：$commitMessage（$ReleaseCommitHash）"
+        } finally {
+            Pop-Location
+        }
+
+        Write-Host "  提示：若接下来的打包步骤失败，提交 $ReleaseCommitHash 已产生但未打标签；请先修复失败原因，再执行 'git reset --soft $ReleaseParentCommitHash' 回退这次半途的发布提交后重新运行 -Release。" -ForegroundColor Yellow
+    }
 }
 
 # 六个需要发布给 Unity 端的核心 DLL；不拷贝 Adapters.Stub、不拷贝任何测试或 xunit 相关程序集。
@@ -1050,27 +1147,32 @@ if ($DistRequested) {
         Write-Host "  已生成 $lockPath"
 
         # -------------------------------------------------------------------
-        # 5.7 版本管理方案新增：-Release 第 7 步——非 DryRun 时提交 + 打标签；DryRun 到此为止
-        #     （第 6 步的 zip/lock 已经落在 dist/ 下的 -dryrun 后缀路径，dist/ 整体 .gitignore，
-        #     不影响"结束时工作树干净"这条要求）。
+        # 5.7 版本管理方案新增：-Release 第 7 步——非 DryRun 时打包完成自检 + 打标签（提交已经在
+        #     第 6 步、打包之前完成，见该步骤判断记录）；DryRun 到此为止（本步骤生成的 zip/lock
+        #     已经落在 dist/ 下的 -dryrun 后缀路径，dist/ 整体 .gitignore，不影响"结束时工作树
+        #     干净"这条要求）。
         # -------------------------------------------------------------------
         if ($ReleaseRequested -and (-not $DryRun)) {
-            Write-Step "-Release 第 7 步：提交版本号改动 + 打带注释标签 v$Release"
+            Write-Step "-Release：打包完成自检 + 打带注释标签 v$Release"
 
-            $releaseNotesPath = Join-Path $RepoRoot ("dist\release-notes-" + $Release + ".txt")
-            [System.IO.File]::WriteAllText($releaseNotesPath, $ReleaseChangelogSection, (New-Object System.Text.UTF8Encoding($false)))
-            Write-Host "  已生成 $releaseNotesPath（CHANGELOG.md [$Release] 条目正文，供 gh release create --notes-file 使用）"
+            # 自检（时序缺陷根治新增，见上方"第 6 步"判断记录）：提交已经在打包之前完成，这里核对
+            # 5.2 节算出的 $gitCommit 确实就是那次提交、且工作树干净（不带 "-dirty" 后缀）。提交
+            # 与这里之间只有 DLL 同步、内容数据集同步两步，二者都只写 .gitignore 覆盖的路径
+            # （见仓库根 .gitignore "Runtime/Plugins/Core/"、"Assets/StreamingAssets/" 两条），
+            # 正常不会让工作树变脏；一旦触发说明有已入库文件被意外改动（例如字体或工程设置被
+            # 写入了新内容），必须在打标签前挡住——标签一旦打在一个内容与 lock/MANIFEST 记录的
+            # git_commit 对不上的提交上，就是一句关于"这份产物对应哪个提交"的谎言。
+            if ($gitDirty -or ($gitCommitShort -ne $ReleaseCommitShort)) {
+                Write-Host "打包完成自检失败：lock/MANIFEST 记录的 git_commit=$gitCommit，期望的发布提交=$ReleaseCommitShort（干净、不带 -dirty）" -ForegroundColor Red
+                Write-Host "提交 $ReleaseCommitHash（发布 $Release）已产生但未打标签。请先排查是谁改动了已入库文件并修复/清理，然后执行：" -ForegroundColor Red
+                Write-Host "  git reset --soft $ReleaseParentCommitHash" -ForegroundColor Red
+                Write-Host "回退这次半途的发布提交，再重新运行 -Release。" -ForegroundColor Red
+                exit 1
+            }
+            Write-Host "  自检通过：git_commit=$gitCommit 即发布提交 $ReleaseCommitHash，打包时工作树干净"
 
             Push-Location $RepoRoot
             try {
-                & git add "VERSION" "adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json" "games/_template/package.json" "CHANGELOG.md"
-                if ($LASTEXITCODE -ne 0) { throw "git add 失败，退出码 $LASTEXITCODE" }
-
-                $commitMessage = "发布 $Release"
-                & git commit -m $commitMessage
-                if ($LASTEXITCODE -ne 0) { throw "git commit 失败，退出码 $LASTEXITCODE" }
-                Write-Host "  已提交：$commitMessage"
-
                 $tagName = "v$Release"
                 $tagMessageFile = Join-Path $RepoRoot ("dist\tag-message-" + $Release + ".txt")
                 $tagMessageContent = "$tagName`n`n$ReleaseChangelogSection"

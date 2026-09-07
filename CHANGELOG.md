@@ -59,6 +59,9 @@
   `SpawnRequester`、`TeleportResolverDelegate`、`SaveRequesterDelegate`、回合状态显示等），3 条
   设计层判断维持"保留"（非拍板内容或本就只需单点承担的既定设计）。
 - 修复：codex 第三轮深度审核 19 条（详见 audit-68c9bed-20260907/followup-2026-09-07c.md）。
+- 修复：发布流程先提交后打包，lock/MANIFEST 的 `git_commit` 指向发布提交；写回覆盖
+  `packages-lock.json`（`build.ps1 -Release` 首次实跑发现的时序与写回遗漏两处缺陷，根治后
+  `1.0.0` 重新发布，详见根 `README.md`"版本与发布"一节）。
 
 ### 兼容性说明
 

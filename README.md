@@ -68,7 +68,7 @@ python toolchain/validate_data.py
 | `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`/`registry`/`node_modules`/`bin`/`obj`）、`assets/_placeholder`、`data/_framework` 打成一份版本快照 `dist/<version>/`，并生成扩展后的 `MANIFEST.txt`；同时无条件额外组装私服交付通道的三个包到 `dist/<version>/packages/{三个包名}/` 并 `npm pack` 出三个 `.tgz`（见下方"版本与发布"一节"私服通道"） |
 | `powershell -File build.ps1 -Dist auto` | 同上，但版本号不由调用方指定，改为读取仓库根 `VERSION` 文件当前内容 |
 | `powershell -File build.ps1 -Dist <version> -Zip` | 在 `-Dist` 基础上额外打 `dist/ws-game-<version>.zip` + `dist/ws-game-<version>.lock`，不做任何版本号写回/提交/打标签（`.github/workflows/release.yml` 用这条路径） |
-| `powershell -File build.ps1 -Release <version> [-DryRun] [-Publish] [-ReleaseSkipUnity] [-PublishRegistry [-RegistryUrl <url>]]` | 完整发布流程：校验 → 写回版本号 → 全量门禁 → 打包 + zip + lock + 三个 npm 包 → 提交 → 打标签；`-PublishRegistry` 独立于 `-Publish` 控制是否额外 `npm publish` 三个包到私服；见下方"版本与发布"一节 |
+| `powershell -File build.ps1 -Release <version> [-DryRun] [-Publish] [-ReleaseSkipUnity] [-PublishRegistry [-RegistryUrl <url>]]` | 完整发布流程：校验 → 写回版本号 → 全量门禁 → 提交 → 打包 + zip + lock + 三个 npm 包（打包完成自检 `git_commit` 指向发布提交） → 打标签；`-PublishRegistry` 独立于 `-Publish` 控制是否额外 `npm publish` 三个包到私服；见下方"版本与发布"一节 |
 
 同步与打包均按文件哈希比较、只处理变化的文件；`-Dist` 打的快照不入库，可随时由源码重新生成；`-Dist` 传入的版本号必须形如 `X.Y.Z`（三段纯数字），格式非法直接报错退出。
 
@@ -162,10 +162,10 @@ powershell -File build.ps1 -Release 1.0.0 -Publish                          # �
 1. 校验版本号格式，且必须严格大于 `VERSION` 当前值（语义化版本数值比较）。
 2. 校验 `git status` 干净（工作树不能有未提交改动）。
 3. 校验 `CHANGELOG.md` 已存在 `## [X.Y.Z]` 条目（没有则报错，提示先补齐变更记录）。
-4. 把版本号写回 `VERSION` 与两个 `package.json`（`-DryRun` 时跳过这一步，不触碰任何源码文件）。
+4. 把版本号写回 `VERSION`、两个 `package.json` 与 `adapters/unity/Packages/packages-lock.json`（`com.gamefoundation.game-template` 条目下对适配层包依赖版本号的 UPM 镜像字段；`-DryRun` 时跳过这一步，不触碰任何源码文件）。
 5. 跑一遍 `check.ps1`（默认全量，`-ReleaseSkipUnity` 传 `-SkipUnity` 给它）。
-6. 打包 `dist/<ver>/`、`dist/ws-game-<ver>.zip`（zip 内顶层目录 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、`git_commit`、六个核心 DLL 的 sha256）。
-7. 非 `-DryRun` 时：提交 `VERSION`/两个 `package.json`/`CHANGELOG.md`（提交信息 `发布 <ver>`），打带注释标签 `v<ver>`（标签信息取 `CHANGELOG.md` 该版本条目正文），并打印后续需要人工/设计层执行的两条命令：
+6. 非 `-DryRun` 时：门禁通过后立即提交 `VERSION`/两个 `package.json`/`packages-lock.json`/`CHANGELOG.md`（提交信息 `发布 <ver>`）——先于下一步打包，使打包阶段 `git rev-parse HEAD` 就是这次发布提交本身、工作树干净。
+7. 打包 `dist/<ver>/`、`dist/ws-game-<ver>.zip`（zip 内顶层目录 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、`git_commit`、六个核心 DLL 的 sha256）；非 `-DryRun` 时打包完成后自检 `git_commit` 必须等于上一步的发布提交且不带 `-dirty` 后缀，不满足则报错退出（此时提交已产生但未打标签，按打印的提示 `git reset --soft` 回退后修复重跑）；自检通过后打带注释标签 `v<ver>`（标签信息取 `CHANGELOG.md` 该版本条目正文），并打印后续需要人工/设计层执行的两条命令：
 
    ```powershell
    git push origin main --tags
@@ -178,7 +178,7 @@ powershell -File build.ps1 -Release 1.0.0 -Publish                          # �
 
 `MANIFEST.txt` 记录本次快照的可追溯信息（见 [11_工程规范与测试.md](architecture/11_工程规范与测试.md) 第 7 节"版本号必须可追溯到对应的架构文档版本与数据 schema 版本组合"）：
 
-- `version`/`date`/`git_commit`（`git rev-parse --short HEAD`，打包时工作树不干净则追加 `-dirty`）；
+- `version`/`date`/`git_commit`（`git rev-parse --short HEAD`，打包时工作树不干净则追加 `-dirty`；`-Release` 流程里提交先于打包，正常情况下这里就是发布提交本身、不带 `-dirty`，见上方流程第 6/7 步）；
 - 各目录文件数（`[directory_file_counts]`）；
 - `[architecture_docs]`：`architecture/0*.md`、`1*.md` 每篇文档标题里的版本号（如 `01_分层与依赖.md: v3`）——注意 `dist/` 本身不打包 `architecture/` 目录，这一节只是把"打这份快照时架构文档集处于哪个版本组合"记录下来，供事后核对；
 - `[data_schemas]`：`data/_framework` 下每张表的 `table`/`schema_version`（`data/_sample` 不随 `dist` 分发，不列入）；

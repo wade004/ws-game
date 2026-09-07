@@ -626,8 +626,14 @@ Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/�
 #    "## [X.Y.Z]"），或存在 "## [Unreleased]" 段——覆盖两种合法状态：已发布版本（VERSION 与
 #    CHANGELOG 条目一一对应）与开发中版本（VERSION 尚指向上一个已发布版本，变更累积在
 #    [Unreleased] 段，等下一次 build.ps1 -Release 时归档），避免改了代码却忘了写变更记录。
+#    写回遗漏根治（2026-09-07）新增：额外校验 adapters/unity/Packages/packages-lock.json 里
+#    "com.gamefoundation.game-template" 条目下 dependencies."com.gamefoundation.adapter.unity"
+#    这一镜像字段同样等于 VERSION——这个字段是 UPM 自动维护的，此前 build.ps1 -Release 写回没有
+#    覆盖它，门禁跑 Unity 相关步骤时 UPM 会自己改写，导致发布提交完成后工作树仍不干净（1.0.0 首次
+#    发布实测复现，见 CHANGELOG.md [1.0.0] 修复记录）；build.ps1 -Release 写回已同步覆盖，这里
+#    补一道只读校验兜底。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "版本一致性：VERSION、两个 package.json 与 CHANGELOG.md" {
+Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md" {
     $versionPath = Join-Path $RepoRoot "VERSION"
     if (-not (Test-Path $versionPath)) {
         throw "找不到版本文件：$versionPath"
@@ -658,6 +664,31 @@ Invoke-CheckStep "版本一致性：VERSION、两个 package.json 与 CHANGELOG.
         $mismatches += "games/_template/package.json dependencies.com.gamefoundation.adapter.unity=$templateDepVersion != VERSION=$version"
     }
 
+    # 写回遗漏根治（2026-09-07）新增：adapters/unity/Packages/packages-lock.json 里
+    # "com.gamefoundation.game-template" 条目下 dependencies."com.gamefoundation.adapter.unity"
+    # 是 games/_template/package.json 同名依赖版本号的镜像（UPM 读本地文件依赖时自动写入的锁定
+    # 值）。此前 build.ps1 -Release 写回没有覆盖这个字段，门禁跑 Unity 相关步骤时 UPM 会自己把它
+    # 改成当前版本号，导致发布提交完成后工作树仍不干净（1.0.0 首次发布实测复现，见 CHANGELOG.md
+    # [1.0.0] 修复记录）；build.ps1 -Release 写回已同步覆盖这个字段（见该脚本 Set-
+    # PackagesLockGameTemplateDependency 判断记录），这里补一道只读校验，不一致就 FAIL，与上面
+    # 两个 package.json 的校验同一治理方式。只读比较，不改写文件——用正则文本读取（与 build.ps1
+    # 写回同一保守做法，避免整体 JSON 解析/序列化打乱这份 UPM 生成文件的原始格式）。
+    $packagesLockPath = Join-Path $RepoRoot "adapters\unity\Packages\packages-lock.json"
+    if (-not (Test-Path $packagesLockPath)) {
+        $mismatches += "找不到 $packagesLockPath，无法核对 com.gamefoundation.game-template 依赖版本号"
+    } else {
+        $packagesLockRaw = [System.IO.File]::ReadAllText($packagesLockPath)
+        $lockDepMatch = [regex]::Match($packagesLockRaw, '"com\.gamefoundation\.adapter\.unity":\s*"(\d+\.\d+\.\d+)"')
+        if (-not $lockDepMatch.Success) {
+            $mismatches += "$packagesLockPath 中未找到 'com.gamefoundation.adapter.unity' 依赖字段"
+        } else {
+            $lockDepVersion = $lockDepMatch.Groups[1].Value
+            if ($lockDepVersion -ne $version) {
+                $mismatches += "adapters/unity/Packages/packages-lock.json com.gamefoundation.game-template.dependencies.com.gamefoundation.adapter.unity=$lockDepVersion != VERSION=$version"
+            }
+        }
+    }
+
     $changelogPath = Join-Path $RepoRoot "CHANGELOG.md"
     if (-not (Test-Path $changelogPath)) {
         $mismatches += "找不到 CHANGELOG.md（见根 README.md'版本与发布'一节）"
@@ -678,7 +709,7 @@ Invoke-CheckStep "版本一致性：VERSION、两个 package.json 与 CHANGELOG.
     if ($mismatches.Count -gt 0) {
         throw ("版本不一致：`n" + ($mismatches -join "`n"))
     }
-    [PSCustomObject]@{ Ok = $true; Detail = "VERSION=$version，两个 package.json 与 CHANGELOG.md 一致" }
+    [PSCustomObject]@{ Ok = $true; Detail = "VERSION=$version，两个 package.json、packages-lock.json 与 CHANGELOG.md 一致" }
 }
 
 # -----------------------------------------------------------------------------
