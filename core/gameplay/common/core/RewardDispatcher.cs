@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Core.Carriers.Common;
 using Core.Carriers.Item;
 using Core.Foundation.Common;
@@ -43,38 +44,94 @@ namespace Core.Gameplay.Common
             _diagnostics = diagnostics ?? new InMemoryRewardDiagnostics();
         }
 
-        public void Grant(Id unitId, RewardBundle bundle, Id sourceId)
+        public bool Grant(Id unitId, RewardBundle bundle, Id sourceId)
         {
             if (bundle == null)
             {
                 throw new System.ArgumentNullException(nameof(bundle));
             }
 
-            GrantItems(unitId, bundle);
+            // N02 根治：物品奖励最先发放且原子（全部成功才继续，否则回滚已发放部分并整体中止）——
+            // 见 IRewardDispatcher.Grant 判断记录，其余类别没有"容量不足"这类失败模式。
+            if (!GrantItems(unitId, bundle))
+            {
+                return false;
+            }
+
             GrantXp(unitId, bundle, sourceId);
             GrantCurrency(unitId, bundle, sourceId);
             GrantSkills(unitId, bundle, sourceId);
             GrantWorldFlags(unitId, bundle, sourceId);
             GrantTalentPoints(unitId, bundle, sourceId);
+            return true;
         }
 
-        private void GrantItems(Id unitId, RewardBundle bundle)
+        /// <summary>发放 <paramref name="bundle"/> 里的物品奖励，返回是否全部发放成功。<see
+        /// cref="_inventory"/>.<c>AddItem</c> 在 <c>InventoryFullPolicy.Reject</c> 下要么完整加入
+        /// <c>stack.Count</c>、要么完全不产生任何变化（见 <c>InventoryHost.AddItem</c> 判断记录 2"先
+        /// 算容量够不够，再决定是否落地任何变化"），因此某一项失败时，之前已成功的各项一定是"整份
+        /// 加入"的，可以按同一 <c>(templateId, count)</c> 精确回滚（找到对应数量的堆叠移除）。
+        /// <c>InventoryFullPolicy.Partial</c> 下 <c>AddItem</c> 可能吞掉超出部分仍返回 true——这种
+        /// "缩水但不失败"不属于本方法要处理的失败模式，是该策略本身的既有语义。</summary>
+        private bool GrantItems(Id unitId, RewardBundle bundle)
         {
             if (bundle.Items.Count == 0)
             {
-                return;
+                return true;
             }
 
             if (_inventory == null)
             {
                 _diagnostics.Warn(
                     $"RewardDispatcher.Grant({unitId})：未注入 IInventoryHost，跳过 {bundle.Items.Count} 项物品奖励");
-                return;
+                return true;
             }
 
+            var granted = new List<(Id TemplateId, int Count)>();
             foreach (var stack in bundle.Items)
             {
-                _inventory.AddItem(unitId, stack.TemplateId, stack.Count);
+                if (_inventory.AddItem(unitId, stack.TemplateId, stack.Count))
+                {
+                    granted.Add((stack.TemplateId, stack.Count));
+                    continue;
+                }
+
+                // 回滚已发放部分。
+                foreach (var prior in granted)
+                {
+                    RemoveByTemplate(_inventory, unitId, prior.TemplateId, prior.Count);
+                }
+
+                _diagnostics.Warn(
+                    $"RewardDispatcher.Grant({unitId})：背包已满，物品奖励 \"{stack.TemplateId}\" x{stack.Count} " +
+                    "无法发放，整批奖励回滚未生效");
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>按模板 id 移除总计 <paramref name="count"/> 个物品（跨堆叠），供 <see
+        /// cref="GrantItems"/> 回滚使用；惯例同 <c>QuestHost.RemoveCollectedItems</c>。</summary>
+        private static void RemoveByTemplate(IInventoryHost inventory, Id unitId, Id templateId, int count)
+        {
+            var remaining = count;
+            foreach (var item in inventory.ListItems(unitId))
+            {
+                if (remaining <= 0)
+                {
+                    break;
+                }
+                if (!item.TemplateId.Equals(templateId))
+                {
+                    continue;
+                }
+
+                var take = System.Math.Min(remaining, item.Count);
+                if (inventory.RemoveItem(unitId, item.InstanceId, take))
+                {
+                    remaining -= take;
+                }
             }
         }
 

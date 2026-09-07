@@ -141,6 +141,83 @@ namespace Tests.Gameplay.Quest
             Assert.Empty(h.PublishedOf<QuestTurnedInEvent>());
         }
 
+        /// <summary>N02 复现与根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+        /// 满背包（<c>InventoryFullPolicy.Reject</c>，此处用 <see cref="FakeRewardDispatcher.ShouldFail"/>
+        /// 模拟其 <c>AddItem</c> 失败的效果）时奖励发放失败——旧实现忽略失败、任务仍置
+        /// <see cref="QuestState.TurnedIn"/>，玩家永久丢失奖励且不能重试；修复后交付整体失败于
+        /// <see cref="QuestTurnInFailure.InventoryFull"/>，已扣除的 collect 物品回滚放回背包，任务
+        /// 保持 <see cref="QuestState.ObjectivesComplete"/>，不发 <c>quest.turned_in</c>。</summary>
+        [Fact]
+        public void TurnIn_RewardGrantFails_RollsBackConsumedItems_KeepsObjectivesCompleteState()
+        {
+            var questId = new Id("quest.sample_collect_reward_full");
+            var quest = new QuestDefinition(
+                questId,
+                new[] { new QuestObjective(QuestObjectiveType.Collect, new Id("item.flower"), 3, consumeOnProgress: false) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var h = new Harness(new[] { quest });
+            h.Host.Accept(Player, questId);
+            h.Inventory.AddItem(Player, new Id("item.flower"), 3);
+            h.Bus.PublishImmediate(new ItemAddedEvent(Player, new Id("item.instance_flower"), new Id("item.flower"), 3));
+            Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questId));
+
+            h.Rewards.ShouldFail = true; // 模拟背包已满、物品奖励无法发放
+
+            var turnedIn = h.Host.TurnIn(Player, questId, out var failure);
+
+            Assert.False(turnedIn);
+            Assert.Equal(QuestTurnInFailure.InventoryFull, failure);
+            Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questId));
+            Assert.Empty(h.PublishedOf<QuestTurnedInEvent>());
+            // 已上交的 3 朵花全部回滚放回背包，没有丢失。
+            Assert.Equal(3, h.Inventory.CountOf(Player, new Id("item.flower")));
+        }
+
+        /// <summary>N11 复现与根治：两个任务各需要 3 件同种物品，库存只有 3 件；在同一次调用序列里
+        /// 连续对两个任务执行 TurnIn（模拟同一 gossip 执行两个交任务动作、事件派发之间没有间隙）。
+        /// 旧实现的交付流程只看 <c>ObjectiveCounts</c> 缓存进度，不检查 <c>RemoveCollectedItems</c>
+        /// 的实际移除结果——第二个任务在物品已被第一个任务扣光之后仍能"交付成功"。修复后：交付前先
+        /// 按实际库存核验，第二个任务应失败于 <see cref="QuestTurnInFailure.InsufficientItems"/>，
+        /// 总扣除量不超过库存持有量（3），且第二个任务保持 ObjectivesComplete 可等玩家补齐后再交。</summary>
+        [Fact]
+        public void TurnIn_TwoQuestsShareSameItem_SecondTurnInFailsWhenInventoryExhaustedByFirst()
+        {
+            var templateId = new Id("item.shared_ore");
+            var questAId = new Id("quest.sample_deliver_ore_a");
+            var questBId = new Id("quest.sample_deliver_ore_b");
+            var questA = new QuestDefinition(
+                questAId,
+                new[] { new QuestObjective(QuestObjectiveType.Collect, templateId, 3, consumeOnProgress: false) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var questB = new QuestDefinition(
+                questBId,
+                new[] { new QuestObjective(QuestObjectiveType.Collect, templateId, 3, consumeOnProgress: false) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var h = new Harness(new[] { questA, questB });
+            h.Host.Accept(Player, questAId);
+            h.Host.Accept(Player, questBId);
+
+            // 库存只有 3 件（两个任务各需要 3 件，合计需要 6 件，明显不足），但事件派发前两个任务的
+            // ObjectiveCounts 都已经因为"接取时按现有库存直接算出进度"（GP-08）而算作 3/3 达标。
+            h.Inventory.AddItem(Player, templateId, 3);
+            h.Bus.PublishImmediate(new ItemAddedEvent(Player, new Id("item.instance_ore"), templateId, 3));
+            Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questAId));
+            Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questBId));
+
+            Assert.True(h.Host.TurnIn(Player, questAId, out var failureA));
+            Assert.Equal(QuestTurnInFailure.None, failureA);
+            Assert.Equal(QuestState.TurnedIn, h.Host.GetState(Player, questAId));
+            Assert.Equal(0, h.Inventory.CountOf(Player, templateId));
+
+            var turnedInB = h.Host.TurnIn(Player, questBId, out var failureB);
+
+            Assert.False(turnedInB);
+            Assert.Equal(QuestTurnInFailure.InsufficientItems, failureB);
+            Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questBId));
+            Assert.Single(h.Rewards.Calls); // 只有任务 A 发放过奖励，B 从未走到发奖励这一步
+            Assert.Equal(0, h.Inventory.CountOf(Player, templateId)); // 没有变成负数/被重复扣除
+        }
+
         // ---------------------------------------------------------------
         // 四个合法转移的完整链路（accept → progress → objectives_complete → turn_in）
         // ---------------------------------------------------------------
@@ -332,6 +409,44 @@ namespace Tests.Gameplay.Quest
         /// 记满，导致同一件物品"喂饱"了两条任务。修复后：只有真正扣除成功的那一条任务能推进/完成，
         /// 另一条应保持 0 进度，背包最终数量为 0（不会因为"扣两次"变成负数——<see cref="FakeInventoryHost.RemoveItem"/>
         /// 对超额扣除直接返回 false、不改变库存，见 TestSupport 判断记录）。</summary>
+        /// <summary>N12 复现与根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+        /// 真实 <c>InventoryHost.AddItem</c> 跨堆叠合并新增时，<c>ItemAddedEvent</c> 只携带
+        /// <c>touchedInstanceId</c>（最后一个被触碰的实例）与 <c>toAdd</c>（总新增数）——若这次新增
+        /// 的物品分散在多个独立堆叠实例上（例如库存原本已有两个各缺 1 件的同模板堆叠，一次性加 2
+        /// 件各补满 1 件），旧实现只从 <c>touchedInstanceId</c> 单个实例尝试扣除完整数量，该实例
+        /// 未必持有这么多，扣除整体失败，consume 型目标进度永远推进不了。本用例用
+        /// <see cref="FakeInventoryHost.AddSeparateInstanceForTest"/> 直接构造"同模板分布在两个独立
+        /// 实例上"的真实跨堆叠场景，手工发出与之匹配的 <c>ItemAddedEvent</c>（同真实
+        /// <c>InventoryHost.AddItem</c> 的既有报告惯例：<c>ItemInstanceId</c> 只是其中一个实例，
+        /// <c>Count</c> 是两个实例合计的新增总量），断言 consume 目标进度正确推进到 2、两个实例都
+        /// 被扣空。</summary>
+        [Fact]
+        public void Objective_Collect_ConsumeOnProgress_CrossStackAdd_AdvancesProgressAcrossBothInstances()
+        {
+            var questId = new Id("quest.sample_collect_cross_stack");
+            var templateId = new Id("item.shared_ore");
+            var quest = new QuestDefinition(
+                questId,
+                new[] { new QuestObjective(QuestObjectiveType.Collect, templateId, 2, consumeOnProgress: true) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var h = new Harness(new[] { quest });
+            h.Host.Accept(Player, questId);
+
+            // 库存原本已有两个各持有 1 件的独立堆叠实例（同模板）——不是一次 AddItem 自然合并出来的
+            // 单一堆叠，模拟"接取任务前就分散持有"或"两次不同来源各得 1 件"的既有状态。
+            var instanceA = h.Inventory.AddSeparateInstanceForTest(Player, templateId, 1);
+            h.Inventory.AddSeparateInstanceForTest(Player, templateId, 1);
+            Assert.Equal(2, h.Inventory.CountOf(Player, templateId));
+
+            // 真实 InventoryHost.AddItem 对"这次新增"只报告 touchedInstanceId（这里取 instanceA）与
+            // 合计新增数 2（即便这 2 件实际分布在 instanceA/instanceB 两个独立实例上）。
+            h.Bus.PublishImmediate(new ItemAddedEvent(Player, instanceA, templateId, 2));
+
+            Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questId));
+            Assert.Equal(2, h.Host.GetLog(Player).Single(p => p.QuestId.Equals(questId)).ObjectiveCounts[0]);
+            Assert.Equal(0, h.Inventory.CountOf(Player, templateId)); // 两个实例都被扣空，不是只扣了一个。
+        }
+
         [Fact]
         public void Objective_Collect_ConsumeOnProgress_SingleItem_DoesNotDoubleCreditTwoQuests()
         {

@@ -148,6 +148,18 @@ namespace Tests.Presentation.FeedbackBinder
           ]
         }";
 
+        /// <summary>N17 测试专用：只含一个 play_sfx 动作（不带 floating_text，避免 <see
+        /// cref="Presentation.FeedbackBinder.Contracts.FeedbackOptions.MergeWindow"/> 引入的合并窗口
+        /// 干扰"队列清空但 sink 仍 pending"这一场景的断言）。</summary>
+        public const string PlaySfxOnlyRuleRow = @"
+        {
+          ""id"": ""feedback.sfx_only"",
+          ""event"": ""combat.damage_dealt"",
+          ""actions"": [
+            {""kind"": ""play_sfx"", ""params"": {""sfx_id"": ""sfx.sample_cold""}}
+          ]
+        }";
+
         public const string AuraAppliedRuleRow = @"
         {
           ""id"": ""feedback.aura_applied_vfx"",

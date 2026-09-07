@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
@@ -31,5 +32,17 @@ namespace Presentation.VfxSfx.Contracts
         /// <c>FeedbackBinder.HasPendingPlayback</c>）需要靠本属性把"冷资源首次加载"也计入离散步的
         /// 表现完成门，否则该步会在特效真正播出前就被判定为已完成。</summary>
         int PendingSpawnCount { get; }
+
+        /// <summary>N17 根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+        /// <see cref="PendingSpawnCount"/> 可能发生变化时触发（资源加载完成/失败，见
+        /// <c>VfxPlayer.OnResourceLoadCompleted</c>）——<see cref="PendingSpawnCount"/> 是一个纯
+        /// 轮询属性，调用方（<c>CompositeFeedbackSink</c>）此前只能在自己主动查询的那一刻看到最新
+        /// 值，冷资源真正加载完成那一刻没有任何信号可以驱动"重新检查一次是否已经真正播完"，导致
+        /// <c>FeedbackBinder</c> 的 <c>PlaybackFinishedEvent</c> 要么提前发出（<c>PlaybackQueue.
+        /// Finished</c> 触发时只看队列本身，见该类型 N17 判断记录），要么在 Immediate 模式下永远
+        /// 不会补发。本事件只是"提示重新读取 <see cref="PendingSpawnCount"/>"，不保证触发时刻
+        /// 一定已经归零，也不携带具体数值，调用方必须重新读取属性而不是依赖本事件的调用次数/时机。
+        /// </summary>
+        event Action? PendingSpawnCountChanged;
     }
 }

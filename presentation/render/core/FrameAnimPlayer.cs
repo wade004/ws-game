@@ -84,13 +84,38 @@ namespace Presentation.Render
         }
 
         /// <summary>按 <paramref name="dt"/>（秒）推进当前播放中的剪辑；空闲（未 <see cref="Play"/>
-        /// 或已 <see cref="Stop"/>）时是空操作。</summary>
+        /// 或已 <see cref="Stop"/>）时是空操作。
+        /// <para>
+        /// 判断记录（N18 根治，architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+        /// <see cref="_current"/> 此前只在 <see cref="Play"/> 那一刻从 <see cref="_clips"/> 查一次、
+        /// 此后整段播放期间缓存同一个对象引用——若调用方在播放中途用同一个 <c>clipId</c> 重新登记了
+        /// 一份新的 <see cref="FrameAnimClip"/>（<see cref="_clips"/> 是外部共享的可写字典，见构造
+        /// 函数），本类型对此一无所知，仍然按开始播放那一刻的旧帧数/帧率/关键帧继续推进，视觉上
+        /// 表现为"永远停在旧内容"，必须调用方手工再 <see cref="Play"/> 一次才会用上新剪辑。
+        /// 修复：每次 <see cref="Update"/> 开头都按当前 <c>clipId</c> 重新从 <see cref="_clips"/>
+        /// 查一次最新版本——<see cref="_elapsedSeconds"/> 是纯时间累加量，不依赖具体帧数/帧率，
+        /// 天然实现"保留播放进度（已经经过的真实时间），按新剪辑的时长/帧率重新解释这段时间对应
+        /// 第几帧"，不需要额外的比例换算。剪辑对象引用确实发生变化（<c>clipSwapped</c>）时，即便
+        /// 按新剪辑算出来的帧下标恰好与之前相同，也强制重新触发 <see cref="FrameChanged"/>——旧的
+        /// "帧下标不变就跳过通知"优化（<see cref="SetFrame"/> 的 <c>frame == _lastFrame</c> 判断）
+        /// 会让引擎适配层以为"这一帧没变化、不需要重新取贴图"，但实际上同一个帧下标在新剪辑里对应
+        /// 的可能是完全不同的贴图（引擎适配层按 clipId+frame 下标查表取贴图，见
+        /// <c>Adapter.Unity.Presentation.UnityFrameAnimPlayer.OnFrameChanged</c>）。
+        /// </para>
+        /// </summary>
         public void Update(double dt)
         {
             if (_current == null || dt <= 0)
             {
                 return;
             }
+
+            var previousClip = _current;
+            if (_clips.TryGetValue(_current.ClipId, out var latest))
+            {
+                _current = latest;
+            }
+            var clipSwapped = !ReferenceEquals(previousClip, _current);
 
             _elapsedSeconds += dt * _speed;
             var totalFrames = _current.FrameCount;
@@ -104,7 +129,7 @@ namespace Presentation.Render
                 }
                 else
                 {
-                    SetFrame(totalFrames - 1);
+                    SetFrame(totalFrames - 1, clipSwapped);
                     var clip = _current;
                     _current = null;
                     _lastFrame = -1;
@@ -119,12 +144,12 @@ namespace Presentation.Render
             {
                 frame = totalFrames - 1;
             }
-            SetFrame(frame);
+            SetFrame(frame, clipSwapped);
         }
 
-        private void SetFrame(int frame)
+        private void SetFrame(int frame, bool forceNotify = false)
         {
-            if (frame == _lastFrame)
+            if (frame == _lastFrame && !forceNotify)
             {
                 return;
             }

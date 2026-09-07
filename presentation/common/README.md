@@ -91,11 +91,14 @@ common/
   `height` 参数（与 `IRenderer3D.SetPlacement` 对齐），`presentation/render` 的 `SpriteViewBase`
   已改为经这个正式参数传递高度，不再借用 `SetShaderParam` 通道，详见
   `presentation/render/README.md`"契约缺口"一节。
-- **表现层插值 alpha 的产出与消费尚未接通（见判断记录 5）**：`ISimClockHost.Advance` 的返回值即
-  alpha，但 `GameplayAssembly.Advance` 当前丢弃它、不对外暴露 `ISimClockHost` 实例本身；
-  `ViewBinder.SyncAll(alpha)`/`CameraHost.Update(alpha)` 已经就绪、只等调用方传入正确的 alpha——
-  接通方式（`GameplayAssembly` 补一个只读属性 or 由引擎适配层自己另建一份 `IClock.RequestFixedStep`
-  驱动的累积器）不在本轮（W3a）范围，留给 W2（如需改 `GameplayAssembly`）/W3b（引擎侧接线）。
+- **表现层插值 alpha 的产出与消费已接通（W2b/W3b 收边，勘误：以下不再是"尚未接通"）**：
+  `GameplayAssembly` 新增只读属性 `InterpolationAlpha`（连续模式下等于本次 `Advance` 内部调用
+  `ISimClockHost.Advance` 返回的 alpha；离散模式/未装配 `clockHost` 时恒为 `1.0`，见该属性判断
+  记录），`Adapter.Unity.Bootstrap.GameFoundationBootstrap`/`Adapter.Unity.Shell.
+  FrameworkResidentHost` 两处生产帧循环都已读取 `Gameplay.InterpolationAlpha` 传给
+  `ViewBinder.SyncAll(alpha)`/`CameraHost.Update(alpha)`（拍板 9）。`ViewBinder.SyncAll`/
+  `CameraHost.Update` 本身接受 alpha 参数这一部分判断记录 5 描述依然成立，不变的只是"产出方
+  是否暴露给消费方"这一点。
 （原"裸档位名与 `Id` 格式的前缀不一致"契约缺口已由设计层拍板并落地为 14 第 2.1 节 2026-09-05 勘误：
 运行期方向档位 Id 固定为 `"dir.<裸档位名>"`，文件名/标注文件/工具链一律用裸档位名，不再是待核对的
 契约缺口，见 `DirectionSlots` 类型注释"Id 前缀已拍板结论"。）

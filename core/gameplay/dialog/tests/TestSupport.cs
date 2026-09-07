@@ -30,9 +30,12 @@ namespace Tests.Gameplay.Dialog
 
         public bool UpdateProgress(Id unitId, Id questId, int objectiveIndex, int delta) => false;
 
-        public bool TurnIn(Id unitId, Id questId)
+        public bool TurnIn(Id unitId, Id questId) => TurnIn(unitId, questId, out _);
+
+        public bool TurnIn(Id unitId, Id questId, out QuestTurnInFailure failure)
         {
             TurnInCalls.Add((unitId, questId));
+            failure = QuestTurnInFailure.None;
             return true;
         }
 

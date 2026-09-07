@@ -36,7 +36,12 @@ namespace Presentation.Render
     /// 节"attack 与 cast 的具体动作剪辑由武器表现档案决定"未强制区分二者的判据，本类型选取"是否读条"
     /// 这一逻辑层已有字段作为判据）；<c>castTime > 0</c> 判定为 <see cref="AnimState.Cast"/>。三个
     /// 收尾事件 <c>skill.cast_success</c>/<c>skill.cast_failed</c>/<c>skill.cast_interrupted</c>
-    /// （只要 <c>casterId</c> 匹配、当前状态仍是 Attack/Cast）一律驱动回落到当前运动状态。</item>
+    /// 只驱动 <see cref="AnimState.Cast"/> 回落（读条/引导的视觉时长本就等于逻辑层的
+    /// <c>cast_time</c>/<c>channel_time</c>，二者天然同步）；<see cref="AnimState.Attack"/>（瞬发）
+    /// 不在这三个事件里回落——<c>skill.cast_start</c>/<c>skill.cast_success</c> 在瞬发时同一派发
+    /// 批次内背靠背发出，若靠事件收尾会让 Attack 播放形态在同一帧内被切回，动画播不出来（N19 根治，
+    /// architecture/落地计划/audit-68c9bed-20260907/code-review.md），改由 <see
+    /// cref="NotifyTransientStateFinished"/> 独家驱动，见 <see cref="OnSkillCastEnd"/> 判断记录。</item>
     /// <item><b>hit</b>：<c>combat.damage_dealt</c>（<see cref="CombatDamageDealtEvent"/>）的
     /// <c>targetId</c> 匹配本实体时触发；本类型不知道受击动画播多久，回落时机改由消费方在受击动画
     /// 播放完成后调用 <see cref="NotifyTransientStateFinished"/> 显式通知（同 <see cref="AnimState.Jump"/>
@@ -194,10 +199,30 @@ namespace Presentation.Render
         private void OnSkillCastStart(SkillCastStartEvent evt) =>
             TryEnter(evt.CasterId, evt.CastTime <= 0 ? AnimState.Attack : AnimState.Cast);
 
+        /// <summary>
+        /// 判断记录（N19 根治，architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+        /// <c>skill.cast_success</c>/<c>skill.cast_failed</c>/<c>skill.cast_interrupted</c> 三个
+        /// 收尾事件共用本方法。旧实现对 <see cref="AnimState.Attack"/>/<see cref="AnimState.Cast"/>
+        /// 一视同仁，收到即立即回落——但瞬发（<see cref="AnimState.Attack"/>，覆盖普攻与瞬发技能，
+        /// 见类型注释）的 <c>skill.cast_start</c>（进入 Attack）与 <c>skill.cast_success</c>（本方法）
+        /// 在逻辑层同一次派发批次内背靠背发出（步骤 8 立即完成，不经历任何 tick），若这里立即回落，
+        /// Attack 播放形态会在同一帧内又切回 Idle/Move，Attack 动画剪辑根本没有机会真正播出（09
+        /// 表现层"逻辑结算与动画播放时长相互独立"这一原则要求二者不能靠同一个逻辑事件同步收尾）。
+        /// <para>
+        /// 修复：只有 <see cref="AnimState.Cast"/>（真正的读条/引导，视觉时长本就等于
+        /// <c>cast_time</c>/<c>channel_time</c>，与逻辑收尾天然同步，收到收尾事件立即回落是正确的）
+        /// 继续在这里回落；<see cref="AnimState.Attack"/> 一律改由 <see
+        /// cref="NotifyTransientStateFinished"/> 独家负责——由动画播放器的完成回调驱动（见
+        /// <c>Adapter.Unity.Presentation.UnityViewFactory.AttachDefaultAnimation</c> 判断记录
+        /// "GP-02 根治"，<c>IFrameAnimPlayer.OnComplete</c> 已经接回本状态机），保证 Attack 至少
+        /// 完整播放一遍剪辑才回落。<c>SkillCastFailedEvent</c>/<c>SkillCastInterruptedEvent</c> 理论
+        /// 上不会在 Attack 状态期间到达（瞬发在 <c>CastPipeline</c> 内同步完成，没有可被打断的窗口，
+        /// 见该类型"步骤 8 立即完成"分支），即便到达也遵循同一条规则，不特殊处理。
+        /// </para>
+        /// </summary>
         private void OnSkillCastEnd(Id casterId)
         {
-            if (_entities.TryGetValue(casterId, out var entry)
-                && (entry.Current == AnimState.Attack || entry.Current == AnimState.Cast))
+            if (_entities.TryGetValue(casterId, out var entry) && entry.Current == AnimState.Cast)
             {
                 RevertToLocomotion(casterId, entry);
             }

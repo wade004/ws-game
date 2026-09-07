@@ -1,3 +1,4 @@
+using System;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
 
@@ -29,5 +30,11 @@ namespace Presentation.VfxSfx.Contracts
         /// Contracts.IVfxPlayer.PendingSpawnCount"/> 判断记录，冷资源首次加载的音效同样不应该被
         /// 当作"这一步已经播完"。</summary>
         int PendingPlayCount { get; }
+
+        /// <summary>N17 根治：同 <see cref="Presentation.VfxSfx.Contracts.IVfxPlayer.
+        /// PendingSpawnCountChanged"/> 判断记录——<see cref="PendingPlayCount"/> 可能发生变化时
+        /// 触发（资源加载完成/失败，或 <c>SfxPlayer.SweepTimedOutPendingPlays</c> 超时清理），只是
+        /// "提示重新读取"，不携带数值、不保证已经归零。</summary>
+        event Action? PendingPlayCountChanged;
     }
 }

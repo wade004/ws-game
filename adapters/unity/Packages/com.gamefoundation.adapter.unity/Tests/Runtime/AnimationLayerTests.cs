@@ -134,6 +134,51 @@ namespace Adapter.Unity.Tests.Runtime
             Object.DestroyImmediate(go);
         }
 
+        /// <summary>N18 复现与根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+        /// 单帧 loop 播放中，用同一个 clipId 重新 <see cref="UnityFrameAnimPlayer.RegisterClip"/>
+        /// 一份帧数更多、贴图不同的剪辑（同真实场景"冷序列帧资源加载完成后经
+        /// <c>RegisterClipFromEffect</c> 原地升级"，见 <c>UnityViewFactory</c> 判断记录）——旧实现
+        /// <c>Presentation.Render.FrameAnimPlayer</c> 只在 <c>Play</c> 那一刻缓存了剪辑元数据的
+        /// 对象引用，此后永远停在旧内容，<c>SpriteRenderer.sprite</c> 必须调用方手工重新 Play 才会
+        /// 切换到新贴图。修复后：不重新 Play，推进几帧后应当已经看到新剪辑的贴图。</summary>
+        [UnityTest]
+        public IEnumerator FrameAnimPlayer_ReRegisterSameClipIdWhilePlaying_SwitchesToNewSpritesWithoutReplay()
+        {
+            var go = new GameObject("Player");
+            var player = go.AddComponent<UnityFrameAnimPlayer>();
+            var clipId = new Id("anim.hotswap_clip");
+            var oldFrame = MakeSprite(Color.red);
+            player.RegisterClip(clipId, new[] { oldFrame }, frameRate: 1.0); // 单帧、1fps。
+
+            player.Play(clipId, loop: true, speed: 1.0);
+            var renderer = go.GetComponent<SpriteRenderer>();
+            Assert.AreEqual(oldFrame, renderer.sprite);
+
+            // 播放期间热替换：新剪辑 4 帧、20fps，贴图与旧剪辑完全不同。
+            var newFrames = new[] { MakeSprite(Color.green), MakeSprite(Color.blue), MakeSprite(Color.yellow), MakeSprite(Color.cyan) };
+            player.RegisterClip(clipId, newFrames, frameRate: 20.0);
+
+            var sawAnyNewFrame = false;
+            for (var i = 0; i < 30 && !sawAnyNewFrame; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                yield return null;
+                foreach (var f in newFrames)
+                {
+                    if (renderer.sprite == f)
+                    {
+                        sawAnyNewFrame = true;
+                        break;
+                    }
+                }
+            }
+
+            Assert.IsTrue(sawAnyNewFrame, "热替换后应当在不重新 Play 的情况下切换到新剪辑的贴图，不永远停在旧贴图");
+            Assert.AreNotEqual(oldFrame, renderer.sprite, "不应该仍然停在热替换之前的旧贴图");
+
+            Object.DestroyImmediate(go);
+        }
+
         [Test]
         public void SpriteView_PlayClip_ForwardsToAttachedFrameAnimPlayer()
         {

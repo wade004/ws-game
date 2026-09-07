@@ -75,6 +75,62 @@ namespace Core.Gameplay.Assembly
             return null;
         }
 
+        /// <summary>N14 新增：调用方（<c>GameplayAssembly.TeleportUnit</c>）已经拿到拆分好的目标地图
+        /// id 与（可选）具体点位 id（如 <c>AreaTriggerParams.SpawnPoint</c>），不需要 <see
+        /// cref="Resolve"/> 那套"按 '.' 切分猜测段数"的编码规则——本方法按精确 id 匹配
+        /// <paramref name="pointId"/>（不是 <see cref="Resolve"/> 三段式那种"只比较点位 id 最后一段"
+        /// 的模糊匹配，调用方已经有完整点位 id，没有理由退化成模糊匹配）。<paramref name="pointId"/>
+        /// 为空时等价于 <see cref="ResolveMapDefaultSpawn"/>（"未指定点位则用该地图默认出生点"，同
+        /// <c>AreaTriggerParams.SpawnPoint</c> 判断记录）。</summary>
+        public (Id MapId, Vec2 Position)? ResolveExplicit(Id mapId, Id? pointId)
+        {
+            if (!pointId.HasValue)
+            {
+                return ResolveMapDefaultSpawn(mapId);
+            }
+
+            var record = _registry.Get(WorldMapTable, mapId);
+            if (record == null)
+            {
+                Fail($"传送目标地图 \"{mapId}\" 不是任何 world.map 行 id");
+                return null;
+            }
+
+            if (record.TryGetArray(TeleportPointsField, out var teleportPoints)
+                && TryFindById(teleportPoints, pointId.Value, out var teleportPosition))
+            {
+                return (mapId, teleportPosition);
+            }
+
+            if (record.TryGetArray(SpawnPointsField, out var spawnPoints)
+                && TryFindById(spawnPoints, pointId.Value, out var spawnPosition))
+            {
+                return (mapId, spawnPosition);
+            }
+
+            Fail($"传送点位 \"{pointId}\" 在 world.map \"{mapId}\" 的 teleport_points/spawn_points 里都找不到" +
+                 "（按点位 id 精确匹配）");
+            return null;
+        }
+
+        private static bool TryFindById(JsonArray points, Id pointId, out Vec2 position)
+        {
+            for (var i = 0; i < points.Count; i++)
+            {
+                if (points[i] is JsonObject obj
+                    && obj.TryGetValue("id", out var idVal) && idVal is JsonString idStr
+                    && Id.TryParse(idStr.Value, out var candidateId)
+                    && candidateId.Equals(pointId)
+                    && TryReadPosition(obj, out position))
+                {
+                    return true;
+                }
+            }
+
+            position = Vec2.Zero;
+            return false;
+        }
+
         private (Id, Vec2)? ResolveMapDefaultSpawn(Id mapId)
         {
             var record = _registry.Get(WorldMapTable, mapId);

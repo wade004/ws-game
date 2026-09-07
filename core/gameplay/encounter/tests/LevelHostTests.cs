@@ -93,6 +93,38 @@ namespace Tests.Gameplay.Encounter
             Assert.Single(world.SpawnCalls); // 仍停留在第一个遭遇，未被无关事件推进
         }
 
+        /// <summary>N13 复现与根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+        /// 重开关卡（同一玩家中途放弃、再次 StartLevel）此前只清理 Won 订阅，不终止上一次运行正在
+        /// 进行的遭遇实例——旧实例仍然 <see cref="EncounterState.IsActive"/>，与新开的一套并存成
+        /// 两套活跃实例；旧实例之后若被判定胜利仍会发一次 <see cref="EncounterWonEvent"/>、经
+        /// <c>EncounterHost</c> 结算一次奖励（本类型的 Won 订阅虽然已经不再响应它，但
+        /// <c>EncounterHost</c> 自己的奖励结算与旧实例的胜负判定完全独立于 LevelHost，不受影响），
+        /// 等价于"同一份内容被双重奖励"。修复后：重开前一并 Abort 旧实例，任意时刻只有一套活跃
+        /// 实例。</summary>
+        [Fact]
+        public void StartLevel_CalledTwice_AbortsPreviousEncounterInstance_OnlyOneActiveInstance()
+        {
+            var (levelHost, encounterHost, world, _, _) = MakeHosts();
+            levelHost.StartLevel(new Id("encounter.level.sample"), Player);
+            var firstInstanceId = Assert.Single(encounterHost.ActiveInstanceIds);
+            Assert.True(encounterHost.GetState(firstInstanceId).IsActive);
+
+            // 中途放弃，重新开始同一个关卡（同一玩家）。
+            levelHost.StartLevel(new Id("encounter.level.sample"), Player);
+
+            // 旧实例必须被终止（不再活跃），全局只剩新开的这一套。
+            Assert.False(encounterHost.GetState(firstInstanceId).IsActive);
+            var secondInstanceId = Assert.Single(encounterHost.ActiveInstanceIds);
+            Assert.NotEqual(firstInstanceId, secondInstanceId);
+            Assert.True(encounterHost.GetState(secondInstanceId).IsActive);
+
+            // 重开后序列从头开始（SequenceIndex 归零），新实例对应的仍是序列第一个遭遇，第二个
+            // 遭遇尚未被生成过——世界里只出现过两次生成调用，均是 creature.sample_boss（第一次运行
+            // 一次、重开后一次），没有 creature.sample_boss2（不会因为旧实例的状态残留而被误推进）。
+            Assert.Equal(2, world.SpawnCalls.Count);
+            Assert.All(world.SpawnCalls, call => Assert.Equal(new Id("creature.sample_boss"), call.TemplateId));
+        }
+
         [Fact]
         public void StartLevel_UnknownLevel_Throws()
         {

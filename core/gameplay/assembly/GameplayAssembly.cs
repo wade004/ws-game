@@ -205,6 +205,12 @@ namespace Core.Gameplay.Assembly
         /// </summary>
         private ISceneRouter? _sceneRouter;
 
+        /// <summary>N14 根治新增：构造期第 16 步已经构造过一份 <see cref="TeleportTargetResolver"/>
+        /// （供 <c>GobjOptions.TeleportResolver</c>/<c>DeathPolicyOptions.ResolveDefaultSpawn</c>
+        /// 复用），此前只是方法局部变量、<see cref="TeleportUnit"/> 拿不到；提升为字段后
+        /// <see cref="TeleportUnit"/> 才能复用同一份解析逻辑，不必另起一套。</summary>
+        private TeleportTargetResolver _teleportTargetResolver = null!;
+
         /// <summary>W2 收边补齐（SkillOptions.IsDiscreteStep 判断记录）：仅在 <see cref="Advance"/>
         /// 内部处理某一个 Discrete 步（<c>_world.Tick(step.Value)</c> 调用期间）为 true，供
         /// <c>resolvedSkillOptions.IsDiscreteStep</c> 闭包读取——技能施放（含离散意图路由、AI
@@ -720,10 +726,10 @@ namespace Core.Gameplay.Assembly
             // 装配根不重复接一份诊断出口——本类没有统一的诊断汇聚点（各 L4 宿主各自持有独立的
             // I*Diagnostics 接口，见各自类型），onFailure 回调仅供单元测试直接构造
             // TeleportTargetResolver 时使用。
-            var teleportTargetResolver = new TeleportTargetResolver(registry);
+            _teleportTargetResolver = new TeleportTargetResolver(registry);
 
             resolvedGobjOptions.DialogOpener ??= (unitId, dialogRef) => Dialog.OpenGossip(unitId, dialogRef, dialogRef);
-            resolvedGobjOptions.TeleportResolver ??= teleportTargetResolver.Resolve;
+            resolvedGobjOptions.TeleportResolver ??= _teleportTargetResolver.Resolve;
             // 自动存档槽 id/时间戳来源已在构造函数最前面解析为 RequestAutosave（缺口 16），
             // DialogHost.saveRequested 与本处共用同一份，见该处判断记录。
             resolvedGobjOptions.SaveRequester ??= RequestAutosave;
@@ -764,7 +770,7 @@ namespace Core.Gameplay.Assembly
                 resolvedDeathPolicyOptions.ReviveUnit ??= worldUnitAccessForDeath.Revive;
             }
 
-            resolvedDeathPolicyOptions.ResolveDefaultSpawn ??= teleportTargetResolver.Resolve;
+            resolvedDeathPolicyOptions.ResolveDefaultSpawn ??= _teleportTargetResolver.Resolve;
 
             // 外部审核阻塞项 2 收口：reload_save 策略此前只调用 ISaveSystem.Load 本身，既不切场景、
             // 也不管玩家存活状态是否被正确覆盖（见 DeathPolicyHost.OnUnitDied 判断记录、
@@ -1145,6 +1151,39 @@ namespace Core.Gameplay.Assembly
             saveSystem.RegisterPersistable(new RngStreamsPersistable(Rng));
         }
 
+        /// <summary>
+        /// 判断记录（N14 根治，architecture/落地计划/audit-68c9bed-20260907/code-review.md）：旧实现
+        /// 只改 <c>entity.MapId</c> 一个字段，不触碰 <see cref="Spawn"/>/<see cref="AreaTrigger"/>/
+        /// <see cref="Encounter"/>/<see cref="Loot"/> 等按地图分片登记的状态，也不切换场景资源——
+        /// 跨图传送后旧图刷新点/触发器/遭遇仍然"以为自己还装载着"，旧图生成的怪物/物件仍然存在于
+        /// <see cref="IWorldSim"/> 里但玩家已经"离开"（逻辑上不可见/不可交互），新图对应状态从未
+        /// <see cref="EnterMap"/> 因此完全空白。修复：改走与 <see cref="RestoreFromSlot"/> 跨图分支
+        /// 完全一致的统一导航——<see cref="ISceneRouter.LoadScene"/> 内部本就依次触发
+        /// <c>pre_unload</c>（调用方已注册指向 <see cref="LeaveMap"/>，见该方法判断记录）→
+        /// <see cref="IWorldSim.ClearAll"/> → 装载新场景 → <c>post_load</c>（调用方已注册指向
+        /// <see cref="EnterMap"/>）；本方法只需要在发起 <c>LoadScene</c> 之前，把玩家实体要"带"到
+        /// 新地图的状态（<c>MapId</c>/位置）提前落到长期存活的 <see cref="PlayerUnit"/> 对象上——同
+        /// <see cref="RestoreFromSlot"/> 判断记录"目标地图与当前地图相同时……已经把全部已注册段直接
+        /// 写回长期存活的 PlayerUnit/Unit 运行期对象"这一惯例：<c>ClearAll</c> 只是把该对象从
+        /// <see cref="IWorldSim"/> 摘掉又在 <c>post_load</c> 钩子里按"缺失则重新 AddEntity"补回去
+        /// （见 <c>GameBootstrap.HandlePostLoad</c>），对象本身（含刚设置好的 MapId/位置）全程没有
+        /// 被销毁重建。
+        /// <para>
+        /// 目标传送点解析复用同一个 <see cref="_teleportTargetResolver"/>（构造期第 16 步已构造，
+        /// 供 <c>GobjOptions.TeleportResolver</c>/<c>DeathPolicyOptions.ResolveDefaultSpawn</c> 共用）
+        /// ——<paramref name="spawnPoint"/> 为空时按 <paramref name="targetMap"/> 走
+        /// <see cref="TeleportTargetResolver.Resolve"/> 的"整串即地图 id"两段式解析（gossip
+        /// <c>teleport</c> 动作、05/07 文档描述的 <c>teleport_target_ref</c> 就是这个编码规则，
+        /// <see cref="DialogCallbacks.TeleportRequestedCallback"/> 判断记录"传送目标的实际执行属于
+        /// 05/03 文档"同一处指向）；非空时（<c>AreaTrigger</c> 的 <c>map_transition</c> 已经拆分好
+        /// 地图 id 与具体点位 id，不是那种需要猜测段数的组合编码）改用
+        /// <see cref="TeleportTargetResolver.ResolveExplicit"/> 按精确 id 匹配。解析失败（地图/点位
+        /// 不存在）时不产生任何副作用（不改 MapId、不发起 LoadScene）——同 07
+        /// <c>teleporter</c>/<c>GameObjectHost.DoTeleport</c> 解析失败"不产生位移"的既有惯例，只是
+        /// 那边有自己的 <see cref="Core.Carriers.Gobj.IGameObjectDiagnostics"/> 记诊断，本装配根没有
+        /// 统一诊断汇聚点（同第 16 步判断记录），调用方目前不强制要求这条诊断。
+        /// </para>
+        /// </summary>
         private void TeleportUnit(Id unitId, Id targetMap, Id? spawnPoint = null)
         {
             var entity = _world.GetEntity(unitId);
@@ -1153,11 +1192,51 @@ namespace Core.Gameplay.Assembly
                 return;
             }
 
-            entity.MapId = targetMap;
-            // 判断记录：spawn_point 的具体落点解析不在本装配根范围（见 AreaTriggerOptions.MapTransitionRequested
-            // 判断记录"具体传送到哪个出生点，由组装层结合 post_load 钩子完成实际落点"）——本方法只
-            // 落地"切换地图"本身，位置保持不变（若调用方需要精确落点，应在 spawnPoint 非空时另行
-            // 查询 world.map.spawn_points 并调用 Carriers.Units.SetPosition，本类不越权代劳）。
+            var resolved = spawnPoint.HasValue
+                ? _teleportTargetResolver.ResolveExplicit(targetMap, spawnPoint)
+                : _teleportTargetResolver.Resolve(targetMap);
+            if (resolved == null)
+            {
+                return;
+            }
+
+            // 判断记录（必须在改 MapId 之前取"传送前所在地图"，同 RestoreFromSlot 同款判断记录）：
+            // 下面几行会把 entity.MapId 直接改写成目标地图，若在那之后才比较，比较结果永远相等，
+            // "是否需要切场景"分支会被误判为不需要执行而跳过。
+            var mapIdBeforeMove = entity.MapId;
+
+            var (resolvedMapId, position) = resolved.Value;
+            entity.MapId = resolvedMapId;
+            Carriers.Units.SetPosition(unitId, position);
+
+            if (mapIdBeforeMove.Equals(resolvedMapId))
+            {
+                // 同图内传送（只挪点位、不切地图）：不需要、也不应该发起一次整场景重载——ClearAll
+                // 会把全部实体（含正在交互的 NPC/其它玩家单位）一并摧毁再重建，代价与"只是走到同一
+                // 张地图的另一个点位"完全不对称。MapId/位置已经落地，到此为止。
+                return;
+            }
+
+            if (_sceneRouter == null)
+            {
+                // 未装配场景路由（测试/无场景路由的最小装配）：MapId/位置已经落地，没有场景基础
+                // 设施可切，同 RestoreFromSlot 同款判断记录，静默跳过场景切换本身。
+                return;
+            }
+
+            try
+            {
+                _sceneRouter.LoadScene(resolvedMapId);
+            }
+            catch (ArgumentException)
+            {
+                // 地图 id 未知：同 RestoreFromSlot 同款判断记录，位置/MapId 已经落地，场景切换失败
+                // 留给上层诊断/重试。
+            }
+            catch (InvalidOperationException)
+            {
+                // 当前应用状态不允许切到 Loading（例如已经在 Loading 中）：同上。
+            }
         }
 
         private double GetCombatStartTime(Id unitId) =>

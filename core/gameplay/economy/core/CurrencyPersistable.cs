@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.SaveSystem;
@@ -11,14 +12,12 @@ namespace Core.Gameplay.Economy
     /// <c>core/foundation/save_system</c> 登记，本类直接复用，不需要"补录"（对照
     /// <c>DroppedLootPersistable</c>/<c>VendorStockPersistable</c> 两个确实需要补录字面量段 key 的情形）。
     /// <para>
-    /// 判断记录：<see cref="Load"/> 假定调用时该单位在 <see cref="EconomyHost"/> 内尚无任何余额记录
-    /// （游戏启动读档的通常时序：先构造空的 <see cref="EconomyHost"/>，再依次跑各 <see
-    /// cref="IPersistable.Load"/>），因此用 <see cref="EconomyHost.Add"/>（增量）而不是"直接覆写字典"
-    /// 也能达到"设置为存档值"的效果（<c>0 + savedValue = savedValue</c>），不需要 <see
-    /// cref="IEconomyHost"/> 额外暴露一个"Set"方法——惯例同
-    /// <c>core/carriers/item.EquipmentPersistable.Load</c>"读档时重新走一遍真实业务逻辑（含产生
-    /// 事件），不直接摆状态"的既有判断记录。若调用方在非空余额状态下调用 <see cref="Load"/>，效果是
-    /// "叠加"而非"覆盖"，不在本类型的设计目标场景内。
+    /// 判断记录（N01 修复）：<see cref="Load"/> 语义是"替换"不是"叠加"——不能假定调用时该单位在
+    /// <see cref="EconomyHost"/> 内余额为零（跨槽读档、运行中重新读同一存档等场景下当前余额可能已经
+    /// 变化）。<see cref="Save"/> 只写非零余额，缺省视为零；因此 Load 对快照出现的货币用 <see
+    /// cref="EconomyHost.SetBalance"/> 直接替换为快照值，对 <see cref="EconomyHost.CurrencyIds"/>
+    /// 中快照未出现（存档时为零）的货币显式置零，使"当前状态"完全由快照决定，连续多次 Load 同一份
+    /// 快照结果幂等。
     /// </para>
     /// </summary>
     public sealed class CurrencyPersistable : IPersistable
@@ -49,31 +48,45 @@ namespace Core.Gameplay.Economy
             return builder.Build();
         }
 
+        /// <summary>
+        /// 判断记录——读档是"替换"不是"叠加"：<see cref="Save"/> 只写非零余额，缺省当零处理；因此
+        /// Load 先把快照里出现的货币按 <see cref="EconomyHost.SetBalance"/> 直接替换为快照值，再把
+        /// <see cref="EconomyHost.CurrencyIds"/> 中快照未出现（存档时为零）的货币显式置零，保证"当前
+        /// 状态"完全由快照决定而不是与运行期余额相加；连续多次 Load 同一份快照结果幂等。</summary>
         public void Load(JsonValue data)
         {
-            if (data is JsonNull)
-            {
-                return;
-            }
+            var seen = new HashSet<Id>();
 
-            if (!(data is JsonObject obj))
+            if (!(data is JsonNull))
             {
-                throw new FormatException($"{SectionKey} 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
-            }
-
-            foreach (var kv in obj)
-            {
-                if (!Id.TryParse(kv.Key, out var currencyId))
+                if (!(data is JsonObject obj))
                 {
-                    throw new FormatException($"{SectionKey} 段的货币键 \"{kv.Key}\" 不是合法 Id");
+                    throw new FormatException($"{SectionKey} 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
                 }
 
-                if (!(kv.Value is JsonNumber num) || !num.TryGetInt64(out var balance))
+                foreach (var kv in obj)
                 {
-                    throw new FormatException($"{SectionKey} 段的货币 \"{kv.Key}\" 值不是合法整数");
-                }
+                    if (!Id.TryParse(kv.Key, out var currencyId))
+                    {
+                        throw new FormatException($"{SectionKey} 段的货币键 \"{kv.Key}\" 不是合法 Id");
+                    }
 
-                _economy.Add(_unitId, currencyId, balance, sourceId: _unitId);
+                    if (!(kv.Value is JsonNumber num) || !num.TryGetInt64(out var balance))
+                    {
+                        throw new FormatException($"{SectionKey} 段的货币 \"{kv.Key}\" 值不是合法整数");
+                    }
+
+                    _economy.SetBalance(_unitId, currencyId, balance);
+                    seen.Add(currencyId);
+                }
+            }
+
+            foreach (var currencyId in _economy.CurrencyIds)
+            {
+                if (!seen.Contains(currencyId))
+                {
+                    _economy.SetBalance(_unitId, currencyId, 0);
+                }
             }
         }
     }

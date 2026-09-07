@@ -102,6 +102,25 @@
     `Queue.PendingCount > 0 || Merger.HasPendingMerges || Sink.HasPendingPlayback` 三者取或。见
     `IFeedbackSink.cs`/`CompositeFeedbackSink.cs`/`FeedbackBinder.cs`，
     `CompositeFeedbackSinkTests.cs`（新增）。
+12. **N17 收口（外部审核 68c9bed）：`PlaybackFinishedEvent` 的发出条件补上 sink 侧冷资源，且新增
+    第二条驱动路径**——判断记录 10 描述的 `_queue.Finished` 收紧（"仅当 `!_merger.HasPendingMerges`
+    时才发布"）只覆盖了 merger，没有覆盖判断记录 11 补上的 sink 侧 pending：`PlaySfx`/`PlayVfx`
+    命中冷资源时立即返回、不阻塞队列，Sequential 模式下队列因此可能在冷资源仍在加载时就已经清空，
+    `_queue.Finished` 触发时只看 merger、门提前打开；Immediate 模式下动作同步执行、队列永远为空，
+    `_queue.Finished` 从不触发，冷资源真正加载完成那一刻完全没有信号能补发
+    `PlaybackFinishedEvent`（09 表现层"immediate 模式不发"的既有描述只适用于"从未有过冷资源
+    pending"的常见情形，不适用于确实命中过冷资源、节奏门确实被关闭过的这一分支）。现在改为
+    `TryPublishFinished`（队列空 && `!Merger.HasPendingMerges` && `!Sink.HasPendingPlayback` 三者
+    同时成立才发出），同时挂在两条独立路径上：`_queue.Finished`（队列由非空变空那一刻，覆盖
+    Sequential 常见情形）与新增的 `IFeedbackSink.PendingPlaybackChanged`（sink 侧 pending 计数
+    可能变化那一刻，由 `IVfxPlayer.PendingSpawnCountChanged`/`ISfxPlayer.PendingPlayCountChanged`
+    经 `CompositeFeedbackSink` 汇聚转发，见 `presentation/vfx_sfx/README.md` 对应条目——覆盖
+    "队列早已清空、只等冷资源"与 Immediate 模式两种此前的信号缺口）。`TryPublishFinished`
+    本身无状态（每次调用只检查"当下是否三个条件同时满足"），不会因为挂在两条路径上而重复发出——
+    只有真正从"有 pending"变成"全部清空"的那一次调用会通过全部条件。见 `FeedbackBinder.cs`
+    （`TryPublishFinished`）、`FeedbackBinderTests.cs`
+    （`QueueMode_Sequential_ColdSfxPending_DoesNotFirePlaybackFinished_UntilSinkResolves`、
+    `QueueMode_Immediate_ColdSfxPending_FiresPlaybackFinished_WhenSinkResolves`）。
 
 ## 不负责什么
 

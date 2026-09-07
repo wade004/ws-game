@@ -15,16 +15,58 @@ namespace Tests.Gameplay.Common
     internal sealed class FakeInventoryHost : IInventoryHost
     {
         public readonly List<(Id UnitId, Id TemplateId, int Count)> AddCalls = new List<(Id, Id, int)>();
+        public readonly List<(Id UnitId, Id InstanceId, int Count)> RemoveCalls = new List<(Id, Id, int)>();
+
+        // N02 测试用：一份模板 id 一旦落在这个集合里，AddItem 立即返回 false（不产生任何状态变化），
+        // 模拟 InventoryFullPolicy.Reject 下背包放不下该物品——比真实构造一个容量受限的
+        // InventoryHost 更直接，只关心 RewardDispatcher 在"某一项加不进去"时是否原子回滚。
+        public readonly HashSet<Id> RejectTemplates = new HashSet<Id>();
+
+        // 用 templateId 本身当 instanceId，一个单位一种模板只有一个堆叠，足够测试用。
+        private readonly Dictionary<(Id UnitId, Id TemplateId), int> _counts = new Dictionary<(Id, Id), int>();
 
         public bool AddItem(Id unitId, Id templateId, int count)
         {
             AddCalls.Add((unitId, templateId, count));
+            if (RejectTemplates.Contains(templateId))
+            {
+                return false;
+            }
+
+            var key = (unitId, templateId);
+            _counts[key] = (_counts.TryGetValue(key, out var c) ? c : 0) + count;
             return true;
         }
 
-        public bool RemoveItem(Id unitId, Id instanceId, int count) => throw new NotSupportedException();
-        public IReadOnlyList<ItemInstance> ListItems(Id unitId) => Array.Empty<ItemInstance>();
-        public int CountOf(Id unitId, Id templateId) => 0;
+        public bool RemoveItem(Id unitId, Id instanceId, int count)
+        {
+            RemoveCalls.Add((unitId, instanceId, count));
+            var key = (unitId, instanceId); // instanceId == templateId，见上方注释
+            if (!_counts.TryGetValue(key, out var current) || current < count)
+            {
+                return false;
+            }
+
+            _counts[key] = current - count;
+            return true;
+        }
+
+        public IReadOnlyList<ItemInstance> ListItems(Id unitId)
+        {
+            var result = new List<ItemInstance>();
+            foreach (var kv in _counts)
+            {
+                if (kv.Key.UnitId.Equals(unitId) && kv.Value > 0)
+                {
+                    result.Add(new ItemInstance(kv.Key.TemplateId, kv.Key.TemplateId, kv.Value));
+                }
+            }
+            return result;
+        }
+
+        public int CountOf(Id unitId, Id templateId) =>
+            _counts.TryGetValue((unitId, templateId), out var c) ? c : 0;
+
         public ItemInstance? FindInstance(Id unitId, Id instanceId) => null;
     }
 
@@ -81,6 +123,51 @@ namespace Tests.Gameplay.Common
             Assert.Equal(Unit, call.UnitId);
             Assert.Equal(new Id("item.iron_sword"), call.TemplateId);
             Assert.Equal(2, call.Count);
+        }
+
+        /// <summary>N02 复现与根治：背包已满（<c>InventoryFullPolicy.Reject</c>）时物品奖励
+        /// <c>AddItem</c> 返回 false——旧实现忽略这个返回值，物品奖励静默丢失但 <c>Grant</c> 仍视为
+        /// 成功继续发放其它类别。修复后：<c>Grant</c> 返回 false，且不再发放 xp/货币等其它类别。</summary>
+        [Fact]
+        public void Grant_ItemAddFails_ReturnsFalse_AndSkipsOtherRewardCategories()
+        {
+            var inventory = new FakeInventoryHost();
+            inventory.RejectTemplates.Add(new Id("item.iron_sword"));
+            var progression = new FakeProgressionHost();
+            var dispatcher = new Core.Gameplay.Common.RewardDispatcher(inventory: inventory, progression: progression);
+            var bundle = new Core.Gameplay.Common.RewardBundle(
+                items: new[] { new ItemStack(new Id("item.iron_sword"), 1) },
+                xp: 100, currency: Array.Empty<(Id, long)>(), skills: Array.Empty<Id>(),
+                worldFlags: Array.Empty<(Id, ExprValue)>(), talentPoints: 0);
+
+            var granted = dispatcher.Grant(Unit, bundle, Source);
+
+            Assert.False(granted);
+            Assert.Empty(progression.AddXpCalls); // 物品失败后不再继续发放 xp
+        }
+
+        /// <summary>N02 原子性：一份奖励里有两件物品，第一件能加入、第二件因背包已满加不进去——已经
+        /// 加入的第一件应被回滚（从背包移除），不能出现"部分奖励生效、部分丢失"的中间状态。</summary>
+        [Fact]
+        public void Grant_SecondItemFails_RollsBackFirstItemAlreadyGranted()
+        {
+            var inventory = new FakeInventoryHost();
+            inventory.RejectTemplates.Add(new Id("item.iron_sword"));
+            var dispatcher = new Core.Gameplay.Common.RewardDispatcher(inventory: inventory);
+            var bundle = new Core.Gameplay.Common.RewardBundle(
+                items: new[]
+                {
+                    new ItemStack(new Id("item.healing_potion"), 3),
+                    new ItemStack(new Id("item.iron_sword"), 1),
+                },
+                xp: 0, currency: Array.Empty<(Id, long)>(), skills: Array.Empty<Id>(),
+                worldFlags: Array.Empty<(Id, ExprValue)>(), talentPoints: 0);
+
+            var granted = dispatcher.Grant(Unit, bundle, Source);
+
+            Assert.False(granted);
+            // 第一件药水已经被回滚，背包里不应再有它。
+            Assert.Equal(0, inventory.CountOf(Unit, new Id("item.healing_potion")));
         }
 
         [Fact]

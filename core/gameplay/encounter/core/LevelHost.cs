@@ -24,6 +24,11 @@ namespace Core.Gameplay.Encounter
             /// <summary>本次运行所属的关卡定义（GP-04 新增：<see cref="AbortForMap"/> 靠它反查
             /// <c>map_ref</c>，避免额外一次按 id 查表往返）。</summary>
             public EncounterLevelDefinition Def = null!;
+
+            /// <summary>当前序列位置正在进行的遭遇实例 id（N13 新增：<see cref="StartLevel"/> 重开时
+            /// 靠它把旧运行对应的遭遇实例一并 <see cref="IEncounterHost.Abort"/> 掉，不只是删订阅——
+            /// 见 <see cref="StartLevel"/> 判断记录）。</summary>
+            public Id ActiveInstanceId;
         }
 
         private readonly SortedDictionary<string, EncounterLevelDefinition> _levels =
@@ -56,11 +61,18 @@ namespace Core.Gameplay.Encounter
                 return;
             }
 
-            // 判断记录：同一玩家重复调用 StartLevel（如中途放弃重开）时，先清理上一次运行遗留的
-            // Won 订阅，避免旧订阅在新一轮运行期间继续存活、造成事件串扰或订阅泄漏。
+            // 判断记录（N13 根治，architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+            // 同一玩家重复调用 StartLevel（如中途放弃重开）时，此前只清理上一次运行遗留的 Won
+            // 订阅，没有连带终止旧运行正在进行的遭遇实例——旧实例仍然 IsActive，之后仍可能被
+            // EncounterTickHandler.Evaluate 推进到胜利并发一次 EncounterWonEvent；虽然本类型的
+            // Won 订阅已经清了、不会再响应它，但旧实例本身残留成一套"活跃但没人管"的运行，
+            // 与新开的一套并存（两套活跃实例），且旧实例若被其它路径（如内容脚本直接查询
+            // IEncounterHost）观察到会呈现"关卡还在进行"的错误状态。修复：重开前一并
+            // Abort 旧实例，保证同一玩家任意时刻最多只有一套来自本类型的活跃遭遇实例。
             if (_activeRuns.TryGetValue(playerUnitId.Value, out var existing))
             {
                 existing.WonSubscription?.Dispose();
+                _encounterHost.Abort(existing.ActiveInstanceId);
                 _activeRuns.Remove(playerUnitId.Value);
             }
 
@@ -104,6 +116,7 @@ namespace Core.Gameplay.Encounter
         {
             var encounterId = def.EncounterSequence[state.SequenceIndex];
             var instanceId = _encounterHost.Start(encounterId, def.MapRef, state.PlayerUnitId);
+            state.ActiveInstanceId = instanceId;
 
             state.WonSubscription = _bus.Subscribe<EncounterWonEvent>(
                 EncounterEventKeys.Won,

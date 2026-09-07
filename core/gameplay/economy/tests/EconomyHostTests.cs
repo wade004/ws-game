@@ -263,6 +263,54 @@ namespace Tests.Gameplay.Economy
         }
 
         [Fact]
+        public void CurrencyPersistable_Load_ReplacesRatherThanAdds_AndIsIdempotent()
+        {
+            // N01：存 100 → 运行中变 80 → Load 应得 100（替换，不是 180）；再 Load 一次仍为 100（幂等）。
+            var host = NewHost(OneCurrencyRow, "[]", out _, out _);
+            var currencyId = new Id("econ.currency.sample_coin");
+            var unitId = new Id("player.sample_1");
+
+            host.Add(unitId, currencyId, 100, sourceId: unitId);
+            var persistable = new CurrencyPersistable(unitId, host);
+            var saved = persistable.Save();
+
+            host.Add(unitId, currencyId, -20, sourceId: unitId);
+            Assert.Equal(80, host.GetBalance(unitId, currencyId));
+
+            persistable.Load(saved);
+            Assert.Equal(100, host.GetBalance(unitId, currencyId));
+
+            persistable.Load(saved);
+            Assert.Equal(100, host.GetBalance(unitId, currencyId));
+        }
+
+        [Fact]
+        public void CurrencyPersistable_Load_ZeroesCurrenciesNotPresentInSnapshot()
+        {
+            // Save 只写非零余额；Load 应把快照未出现（存档时为零）的货币也显式置零，而不是保留运行期残留。
+            var twoCurrencyRow =
+                "[{\"id\": \"econ.currency.sample_coin\", \"name_key\": \"l10n.currency.sample.name\", " +
+                "\"display_ref\": \"display.sample_coin\"}," +
+                "{\"id\": \"econ.currency.sample_gem\", \"name_key\": \"l10n.currency.gem.name\", " +
+                "\"display_ref\": \"display.sample_gem\"}]";
+            var host = NewHost(twoCurrencyRow, "[]", out _, out _);
+            var unitId = new Id("player.sample_1");
+            var coinId = new Id("econ.currency.sample_coin");
+            var gemId = new Id("econ.currency.sample_gem");
+
+            host.Add(unitId, coinId, 50, sourceId: unitId);
+            var saved = new CurrencyPersistable(unitId, host).Save(); // gem 余额为 0，不写入快照
+
+            host.Add(unitId, gemId, 5, sourceId: unitId); // 运行中拿到 5 个 gem
+            Assert.Equal(5, host.GetBalance(unitId, gemId));
+
+            new CurrencyPersistable(unitId, host).Load(saved);
+
+            Assert.Equal(50, host.GetBalance(unitId, coinId));
+            Assert.Equal(0, host.GetBalance(unitId, gemId));
+        }
+
+        [Fact]
         public void VendorStockPersistable_RoundTripsRemainingStock()
         {
             var host1 = NewHost(OneCurrencyRow, ShopVendorRow, out _, out _);

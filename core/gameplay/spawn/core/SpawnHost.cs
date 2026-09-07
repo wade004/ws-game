@@ -414,38 +414,77 @@ namespace Core.Gameplay.Spawn
             return builder.Build();
         }
 
+        /// <summary>
+        /// 判断记录（N03 根治）：同图读档时，<c>GameplayAssembly.RestoreFromSlot</c> 判定"目标地图与
+        /// 当前地图相同"就不切场景——玩家实体与全部世界实体（含本类之前经 <see cref="SpawnEntity"/>
+        /// 生成的怪物/物件）都从未被销毁或重建，仍然原样存活在 <see cref="Core.Gameplay.WorldState"/>
+        /// 里；<see cref="Load"/> 本身也没有、也不应该有销毁/重新生成实体的能力，它只回滚
+        /// <c>spawn_count</c>/<c>respawn_remaining</c> 这类簿记数字（见类型注释"本段只存 timer 剩余
+        /// 与计数"）。旧实现无条件 <c>_entityToSpawn.Clear()</c>，会让"读档动作本身完全没有触碰"的
+        /// 存活实体凭空失去与刷新点的关联——该实体之后死亡/销毁时 <see cref="NotifyDespawn"/> 查不到
+        /// 映射、直接提前返回，刷新点从此既不知道"自己已经没有实体"也不会重新计时/重生，永久卡死。
+        /// <para>
+        /// 修复：Load 前先记下当前每个刷新点对应的存活实体 id（<c>previouslyAlive</c>），按快照重建
+        /// <c>_records</c> 之后，把这份"仍然存活"的映射重新接回去——快照里的 <c>respawn_remaining</c>
+        /// 对这些刷新点不生效（实体明明还活着，不该有倒计时），<c>spawn_count</c> 取快照值，快照没有
+        /// 提到该刷新点时（存活实体是读档所回滚到的那个时间点"之后"才生成的边界情形）仍然补建一条
+        /// 记录、至少计数为 1，保证映射不丢失——不属于"跨图那样整批销毁重建"的语义（本类没有销毁
+        /// 实体的能力，也不持有 <c>IWorldSim</c> 引用），是"尽量还原簿记、绝不丢失当前存活实体的
+        /// 追踪"这一更保守的选择，见类型顶部 <c>ISpawnHost</c> 判断记录同款风格。
+        /// </para>
+        /// </summary>
         public void Load(JsonValue data)
         {
+            var previouslyAlive = new Dictionary<Id, Id>();
+            foreach (var kv in _records)
+            {
+                if (kv.Value.EntityId.HasValue)
+                {
+                    previouslyAlive[kv.Key] = kv.Value.EntityId.Value;
+                }
+            }
+
             _records.Clear();
             _entityToSpawn.Clear();
 
-            if (data is JsonNull)
+            if (!(data is JsonNull))
             {
-                return;
-            }
-
-            if (!(data is JsonObject obj))
-            {
-                throw new FormatException($"spawn_state 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
-            }
-
-            foreach (var kv in obj)
-            {
-                var runtime = new RuntimeState();
-                if (kv.Value is JsonObject entryObj)
+                if (!(data is JsonObject obj))
                 {
-                    if (entryObj.TryGetValue("spawn_count", out var scv) && scv is JsonNumber scn)
-                    {
-                        runtime.SpawnCount = (int)scn.Value;
-                    }
-
-                    if (entryObj.TryGetValue("respawn_remaining", out var rrv) && rrv is JsonNumber rrn)
-                    {
-                        runtime.RespawnRemaining = rrn.Value;
-                    }
+                    throw new FormatException($"spawn_state 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
                 }
 
-                _records[new Id(kv.Key)] = runtime;
+                foreach (var kv in obj)
+                {
+                    var runtime = new RuntimeState();
+                    if (kv.Value is JsonObject entryObj)
+                    {
+                        if (entryObj.TryGetValue("spawn_count", out var scv) && scv is JsonNumber scn)
+                        {
+                            runtime.SpawnCount = (int)scn.Value;
+                        }
+
+                        if (entryObj.TryGetValue("respawn_remaining", out var rrv) && rrv is JsonNumber rrn)
+                        {
+                            runtime.RespawnRemaining = rrn.Value;
+                        }
+                    }
+
+                    _records[new Id(kv.Key)] = runtime;
+                }
+            }
+
+            foreach (var kv in previouslyAlive)
+            {
+                var runtime = GetOrCreateRuntime(kv.Key);
+                runtime.EntityId = kv.Value;
+                runtime.RespawnRemaining = null; // 存活中，不该有倒计时（快照的旧倒计时已不适用）
+                if (runtime.SpawnCount == 0)
+                {
+                    runtime.SpawnCount = 1;
+                }
+
+                _entityToSpawn[kv.Value] = kv.Key;
             }
         }
 

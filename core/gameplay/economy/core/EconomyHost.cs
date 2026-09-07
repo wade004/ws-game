@@ -144,6 +144,32 @@ namespace Core.Gameplay.Economy
             return true;
         }
 
+        /// <summary>把 <paramref name="unitId"/> 的 <paramref name="currencyId"/> 余额直接替换为
+        /// <paramref name="amount"/>（按 <see cref="CurrencyDef.Cap"/> 夹取到 <c>[0, cap]</c>），不与
+        /// 当前余额相加；供 <see cref="CurrencyPersistable.Load"/> 读档时使用，保证读档语义是"替换"而
+        /// 非"叠加"，连续多次 Load 同一快照结果幂等。实际发生变化时发 <c>economy.currency_changed</c>，
+        /// 与 <see cref="Add"/> 共用同一事件形状便于下游统一消费。</summary>
+        public bool SetBalance(Id unitId, Id currencyId, long amount)
+        {
+            if (!_currencies.TryGetValue(currencyId, out var currency))
+            {
+                throw new ArgumentException($"未知的货币 \"{currencyId}\"", nameof(currencyId));
+            }
+
+            var wallet = EnsureWallet(unitId);
+            var old = wallet.TryGetValue(currencyId, out var current) ? current : 0;
+            var capped = currency.Cap.HasValue ? Math.Min(amount, currency.Cap.Value) : amount;
+            var newValue = Math.Max(0, capped);
+
+            if (newValue != old)
+            {
+                wallet[currencyId] = newValue;
+                _bus.Enqueue(new CurrencyChangedEvent(unitId, currencyId, old, newValue));
+            }
+
+            return true;
+        }
+
         public bool TryPay(Id unitId, Id currencyId, long amount)
         {
             if (amount < 0)

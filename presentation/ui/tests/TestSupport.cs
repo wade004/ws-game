@@ -277,10 +277,13 @@ namespace Tests.PresentationUi
             return true;
         }
 
-        public bool TurnIn(Id unitId, Id questId)
+        public bool TurnIn(Id unitId, Id questId) => TurnIn(unitId, questId, out _);
+
+        public bool TurnIn(Id unitId, Id questId, out QuestTurnInFailure failure)
         {
             _states[questId] = QuestState.TurnedIn;
             TurnedInQuests.Add(questId);
+            failure = QuestTurnInFailure.None;
             return true;
         }
 
@@ -356,6 +359,12 @@ namespace Tests.PresentationUi
         public bool Add(Id unitId, Id currencyId, long amount, Id sourceId)
         {
             _balances[(unitId, currencyId)] = GetBalance(unitId, currencyId) + amount;
+            return true;
+        }
+
+        public bool SetBalance(Id unitId, Id currencyId, long amount)
+        {
+            _balances[(unitId, currencyId)] = amount;
             return true;
         }
 

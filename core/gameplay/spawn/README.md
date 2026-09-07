@@ -108,6 +108,17 @@ spawn/
    错误），`SpawnNow` 仍然记诊断并返回空列表（`ISpawnHost.SpawnNow` 文档注释明确以此与
    `TriggerNever` 对比，该对比继续成立）。
 
+8. **N03 收口（外部审核 68c9bed）：同图读档不会丢失仍然存活实体与刷新点的映射**——
+   `GameplayAssembly.RestoreFromSlot` 在目标地图与当前地图相同时不切场景（该方法判断记录"不需要
+   任何重新进图步骤即可生效"），世界里的实体（含本类此前生成的怪物/物件）全程没有被销毁重建；
+   但 `Load` 原实现无条件 `_entityToSpawn.Clear()`，会让"读档动作本身完全没有触碰"的存活实体凭空
+   丢失与刷新点的关联——该实体之后死亡/销毁时 `NotifyDespawn` 查不到映射、直接提前返回，刷新点
+   从此既不知道"自己已经没有实体"也不会重新计时/重生，永久卡死。现在 `Load` 前先记下当前每个
+   刷新点对应的存活实体 id，按快照重建 `_records` 之后把这份映射接回去（快照的 `respawn_remaining`
+   对这些刷新点不生效——实体明明还活着，不该有倒计时；快照没有提到该刷新点时仍然补建一条记录、
+   至少计数为 1，保证映射不丢失）。见 `SpawnHost.cs`（`Load`）、
+   `SpawnPersistableTests.cs`（`SameHost_SaveThenLoadWhileEntityStillAlive_...`）。
+
 ## 不负责什么
 
 - 不实现难度倍率、遭遇内联生成等与刷新表并列的生成路径——08 第 8 节"Spawn 归属说明"明确

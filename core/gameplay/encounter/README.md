@@ -71,8 +71,16 @@ encounter/
    事件来自哪一次运行。`LevelHost` 需要按实例 id 精确匹配自己刚发起的那次运行才能正确推进
    `encounter_sequence`，因此全部五个事件统一落地为实例 id（`encounter.inst_<n>`）。
 
-5. **`LevelHost.StartLevel` 重复调用先清理上一次运行遗留的 `encounter.won` 订阅**：同一玩家中途
-   放弃重开时，旧订阅若不清理会在新一轮运行期间继续存活，造成事件串扰或订阅泄漏。
+5. **N13 收口（外部审核 68c9bed）：`LevelHost.StartLevel` 重复调用先清理上一次运行遗留的
+   `encounter.won` 订阅，并终止旧运行对应的遭遇实例**：同一玩家中途放弃重开时，旧订阅若不清理
+   会在新一轮运行期间继续存活，造成事件串扰或订阅泄漏——这一半此前已经实现；但原实现只清了
+   订阅，没有连带 `IEncounterHost.Abort` 掉旧实例本身，旧实例仍然 `IsActive`，与新开的一套并存成
+   两套活跃实例，之后若被判定胜利仍会经 `EncounterHost` 自己的奖励结算流程再结一次奖（本类型的
+   `Won` 订阅虽然已经不再响应它，但奖励结算完全独立于本类型）。现在 `LevelRunState` 额外记录
+   `ActiveInstanceId`，重开前一并调用 `_encounterHost.Abort(existing.ActiveInstanceId)`，保证
+   同一玩家任意时刻最多只有一套来自本类型的活跃遭遇实例。见 `LevelHost.cs`（`StartLevel`/
+   `StartNextEncounter`）、`LevelHostTests.cs`
+   （`StartLevel_CalledTwice_AbortsPreviousEncounterInstance_OnlyOneActiveInstance`）。
 
 6. **`combat_mode_override`/`initiative_override` 已接入真实运行时行为**（历史判断记录，保留
    备查）：`GameplayAssembly` 第 12.5 步订阅 `encounter.started`/`won`/`lost`，经

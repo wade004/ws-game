@@ -153,5 +153,64 @@ namespace Tests.PresentationRender
             Assert.False(completed);
             Assert.Equal(0, player.CurrentFrame);
         }
+
+        /// <summary>N18 复现与根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+        /// 单帧 loop 播放中，用同一个 clipId 重新登记一份帧数更多、帧率不同的剪辑（模拟
+        /// <c>UnityFrameAnimPlayer.RegisterClipFromEffect</c> 冷 clip 加载完成后原地升级——见
+        /// <c>UnityViewFactory</c> 判断记录）——旧实现的 <c>_current</c> 只在 <see cref="FrameAnimPlayer.
+        /// Play"/> 那一刻缓存了一次对象引用，此后 <see cref="FrameAnimPlayer.Update"/> 全程使用这份
+        /// 过期快照，永远停在旧内容，必须调用方手工重新 <see cref="FrameAnimPlayer.Play"/> 才会用上
+        /// 新剪辑。修复后：不需要重新 Play，下一次 Update 就应该用上新剪辑的帧数/帧率继续推进。</summary>
+        [Fact]
+        public void Update_ClipReRegisteredWithSameIdWhilePlaying_UsesNewClipWithoutReplay()
+        {
+            var clips = new Dictionary<Id, FrameAnimClip>
+            {
+                [ClipId] = new FrameAnimClip(ClipId, frameCount: 1, frameRate: 1.0, keyframes: null),
+            };
+            var player = new FrameAnimPlayer(clips);
+            var frames = new List<int>();
+
+            player.Play(ClipId, loop: true, speed: 1.0);
+            player.FrameChanged += frames.Add;
+
+            // 播放期间（未调用 Stop/Play）用同一个 clipId 热替换成 8 帧、12fps——同真实场景"冷 vfx/
+            // 序列帧资源加载完成后原地升级"。
+            clips[ClipId] = new FrameAnimClip(ClipId, frameCount: 8, frameRate: 12.0, keyframes: null);
+
+            // 旧的单帧剪辑每帧时长 1 秒，若仍按旧剪辑推进，0.5 秒不会产生任何帧变化（且会一直停在
+            // 第 0 帧）；新剪辑 12fps 下 0.5 秒 = 第 6 帧（0.5 * 12 = 6）。
+            player.Update(0.5);
+
+            Assert.Equal(6, player.CurrentFrame);
+            Assert.Contains(6, frames);
+        }
+
+        /// <summary>N18 补充：帧下标恰好与热替换前相同（都是第 0 帧）时，也必须重新触发
+        /// <see cref="FrameAnimPlayer.FrameChanged"/>——旧实现"帧下标不变就跳过通知"的优化会让
+        /// 引擎适配层以为这一帧没变化、不重新取贴图，但同一个帧下标在新剪辑里对应的可能是完全不同
+        /// 的贴图（<c>UnityFrameAnimPlayer.OnFrameChanged</c> 按 clipId+帧下标现查表，见该方法）。
+        /// </summary>
+        [Fact]
+        public void Update_ClipReRegisteredWithSameIdAndSameFrameIndex_StillForcesFrameChanged()
+        {
+            var clips = new Dictionary<Id, FrameAnimClip>
+            {
+                [ClipId] = new FrameAnimClip(ClipId, frameCount: 4, frameRate: 4.0, keyframes: null),
+            };
+            var player = new FrameAnimPlayer(clips);
+
+            player.Play(ClipId, loop: true, speed: 1.0); // 立即处于第 0 帧。
+
+            var frames = new List<int>();
+            player.FrameChanged += frames.Add;
+
+            // 热替换成另一份剪辑，帧率/帧数不同，但极小的 dt 仍会落在第 0 帧（换算下取整仍是 0）。
+            clips[ClipId] = new FrameAnimClip(ClipId, frameCount: 4, frameRate: 1.0, keyframes: null);
+            player.Update(0.01); // 新剪辑下 0.01 * 1.0 = 0.01 帧，取整仍是第 0 帧。
+
+            // 帧下标数值上确实还是 0，但必须仍然收到一次 FrameChanged 通知（强制刷新贴图）。
+            Assert.Contains(0, frames);
+        }
     }
 }

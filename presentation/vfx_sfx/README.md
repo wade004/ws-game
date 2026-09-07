@@ -76,6 +76,17 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
    调用，与既有的 `Sfx` 惰性扫过期项（判断记录 7）一起构成完整的逐帧生命周期推进。见
    `VfxPlayerTests.cs`。
 
+9. **N17 收口（外部审核 68c9bed）：`IVfxPlayer`/`ISfxPlayer` 新增 `PendingSpawnCountChanged`/
+   `PendingPlayCountChanged` 事件**——判断记录 7 的首次加载排队只提供了 `PendingSpawnCount`/
+   `PendingPlayCount` 两个纯轮询属性，`presentation/feedback_binder.FeedbackBinder` 需要在"资源
+   真正加载完成那一刻"补一次完成检查才能正确发出 `PlaybackFinishedEvent`（见
+   `feedback_binder/README.md` 判断记录 12），纯轮询属性没有任何"变化时机"可以驱动这个检查。
+   `VfxPlayer.OnResourceLoadCompleted`/`SfxPlayer.OnResourceLoadCompleted`（含加载失败分支）与
+   `SfxPlayer.SweepTimedOutPendingPlays`（超时清理）现在都会在对应 pending 集合发生变化时触发
+   各自的事件；事件只是"提示重新读取 `PendingSpawnCount`/`PendingPlayCount`"，不携带具体数值、
+   不保证触发时已经归零，调用方（`CompositeFeedbackSink`）必须自行重新读取判断真实状态。见
+   `IVfxPlayer.cs`/`ISfxPlayer.cs`/`VfxPlayer.cs`/`SfxPlayer.cs`。
+
 ## 不负责什么
 
 - 不接入 `data/_sample/`：本任务不新增示例数据文件，`schema/VfxSfxSchemas` 只声明表结构，测试用

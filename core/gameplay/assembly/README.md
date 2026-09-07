@@ -156,16 +156,26 @@ assembly/
    `quest_object` 交互触发接取任务"权宜接到 `Quest.Accept`。两处都是记录在案的简化，不是最终
    方案，见 `GameplayAssembly.cs` 对应代码注释。
 
-4. **`TeleportResolverDelegate` 已解决（G1）**：`TeleportTargetResolver`（本目录新文件）按
-   `teleport_target_ref` 的 `'.'` 分段规则解析出精确落点（两段引用 `world.map` 取
-   `spawn_points[0]`；三段引用按第三段与该地图 `teleport_points[]`/`spawn_points[]` 逐条比较末段
-   id），不再是"恒把 ref 当目标地图、位置固定 `Vec2.Zero`"的简化实现；`resolvedGobjOptions.
-   TeleportResolver ??= teleportTargetResolver.Resolve` 接线，解析失败（非法引用/地图或点位不存在）
-   时返回 null，`GameObjectHost.DoTeleport` 记一条诊断，不抛异常。
-   `AreaTriggerOptions.MapTransitionRequested`（区域触发型传送，与本条 `teleporter` 型物件传送是
-   两条独立路径）判断记录仍然有效：`AreaTriggerHost` 触发的地图切换只经 `TeleportUnit` 切换
-   `MapId`，精确 `spawn_point` 落位仍由 `EnterMap` 之后的调用方（游戏层）按 `spawnPoint` 查表调用
-   `Carriers.Units.SetPosition` 完成，本类不越权代劳。
+4. **`TeleportResolverDelegate` 已解决（G1）；N14 收口（外部审核 68c9bed）后 `TeleportUnit` 走
+   统一导航**：`TeleportTargetResolver`（本目录新文件）按 `teleport_target_ref` 的 `'.'` 分段规则
+   解析出精确落点（两段引用 `world.map` 取 `spawn_points[0]`；三段引用按第三段与该地图
+   `teleport_points[]`/`spawn_points[]` 逐条比较末段 id），供 `resolvedGobjOptions.
+   TeleportResolver ??= _teleportTargetResolver.Resolve`（`teleporter` 型物件传送）复用；解析
+   失败（非法引用/地图或点位不存在）时返回 null，`GameObjectHost.DoTeleport` 记一条诊断，
+   `TeleportUnit` 不产生任何副作用（不改 `MapId`、不发起场景切换），不抛异常。
+   `AreaTriggerOptions.MapTransitionRequested`（区域触发型传送，与 `teleporter` 型物件传送是两条
+   独立路径，已拆分好地图 id 与具体点位 id）改用 `TeleportTargetResolver.ResolveExplicit` 按精确
+   id 匹配（不是 `Resolve` 那套"猜测段数"的模糊匹配）。**N14 之前**：`TeleportUnit` 只改
+   `entity.MapId` 一个字段，不触碰 `Spawn`/`AreaTrigger`/`Encounter`/`Loot` 等按地图分片登记的
+   状态、不切换场景资源——跨图传送后旧图刷新点/触发器/遭遇仍以为自己还装载着，旧图生成的实体仍
+   存在于 `IWorldSim` 但玩家逻辑上已"离开"，新图对应状态从未 `EnterMap` 因此完全空白。**N14 之后**：
+   `TeleportUnit` 把解析出的 `MapId`/位置先落到玩家实体上（同 `RestoreFromSlot` 判断记录"目标地图
+   与当前地图相同时……已经把状态直接写回长期存活的 PlayerUnit 对象"这一惯例），目标地图与传送前
+   不同时才经 `ISceneRouter.LoadScene` 发起统一导航（内部依次触发调用方已注册的 `pre_unload`→
+   `LeaveMap`→`IWorldSim.ClearAll`→装载新场景→`post_load`→`EnterMap`，与 `RestoreFromSlot` 跨图
+   分支完全一致）；同地图内传送（只挪点位）不发起场景重载。见 `GameplayAssembly.cs`
+   （`TeleportUnit`、`TeleportTargetResolver.ResolveExplicit`）、
+   `core/gameplay/assembly/tests/GameplayAssemblyTeleportTests.cs`。
 
 5. **`economy`/`spawn` 的 `Update(dt)` 没有自带 `ITickPhaseHandler`**：不像 `loot`/
    `area_trigger`/`encounter` 三个模块各自导出了一个 tick 处理器，`IEconomyHost.Update`（

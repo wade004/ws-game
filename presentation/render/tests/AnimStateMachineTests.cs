@@ -57,8 +57,15 @@ namespace Tests.PresentationRender
             Assert.Equal(AnimState.Idle, machine.GetState(Unit));
         }
 
+        /// <summary>N19 复现与根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+        /// 瞬发（<c>castTime == 0</c>，覆盖普攻与瞬发技能）的 <c>skill.cast_start</c>/
+        /// <c>skill.cast_success</c> 在逻辑层同一次派发批次内背靠背发出——旧实现收到
+        /// <c>skill.cast_success</c> 立即把 Attack 回落到 Idle，Attack 播放形态在同一帧内被切回，
+        /// 攻击动画剪辑根本没有机会真正播出。修复后：<c>skill.cast_success</c> 本身不再驱动 Attack
+        /// 回落，只有动画播放器完成回调驱动的 <see cref="AnimStateMachine.NotifyTransientStateFinished"/>
+        /// 才能让 Attack 回落——保证瞬发攻击至少完整展示一遍 Attack 播放形态。</summary>
         [Fact]
-        public void SkillCastStart_ZeroCastTime_EntersAttack_RevertsOnSuccess()
+        public void SkillCastStart_ZeroCastTime_EntersAttack_DoesNotRevertOnSuccess_OnlyOnNotifyTransientStateFinished()
         {
             var bus = CreateBus();
             var machine = new AnimStateMachine(bus);
@@ -68,7 +75,15 @@ namespace Tests.PresentationRender
             bus.PublishImmediate(new SkillCastStartEvent(Unit, new Id("skill.auto_attack"), 0.0));
             Assert.Equal(AnimState.Attack, machine.GetState(Unit));
 
+            // N19 核心断言：skill.cast_success（瞬发的逻辑收尾信号）本身不应该让 Attack 提前回落——
+            // 动画播放器（IFrameAnimPlayer.OnComplete）此刻可能才刚刚开始播放 Attack 剪辑。
             bus.PublishImmediate(new SkillCastSuccessEvent(Unit, new Id("skill.auto_attack"), Array.Empty<Id>()));
+            Assert.Equal(AnimState.Attack, machine.GetState(Unit));
+
+            // 动画播放器（同 Adapter.Unity.Presentation.UnityViewFactory.AttachDefaultAnimation 的
+            // IFrameAnimPlayer.OnComplete 接线）在 Attack 剪辑真正播完后才应该调用本方法，Attack 才
+            // 真正回落。
+            machine.NotifyTransientStateFinished(Unit, AnimState.Attack);
             Assert.Equal(AnimState.Idle, machine.GetState(Unit));
 
             Assert.Contains((AnimState.Idle, AnimState.Attack), transitions);
@@ -189,7 +204,13 @@ namespace Tests.PresentationRender
             bus.PublishImmediate(new UnitStateChangedEvent(Unit, "Idle", "Run"));
             Assert.Equal(AnimState.Attack, machine.GetState(Unit));
 
+            // N19 根治：skill.cast_success 本身不再驱动 Attack 回落（见
+            // SkillCastStart_ZeroCastTime_EntersAttack_DoesNotRevertOnSuccess_OnlyOnNotifyTransientStateFinished），
+            // 真正让 Attack 回落、进而让"推迟的运动态"生效的是动画播放完成回调。
             bus.PublishImmediate(new SkillCastSuccessEvent(Unit, new Id("skill.auto_attack"), Array.Empty<Id>()));
+            Assert.Equal(AnimState.Attack, machine.GetState(Unit));
+
+            machine.NotifyTransientStateFinished(Unit, AnimState.Attack);
             Assert.Equal(AnimState.Move, machine.GetState(Unit));
         }
 

@@ -218,6 +218,8 @@ namespace Presentation.VfxSfx.Core
 
         private void OnResourceLoadCompleted(Id resourceId, bool success)
         {
+            var removedAny = false;
+
             for (var i = _pendingSpawns.Count - 1; i >= 0; i--)
             {
                 var pending = _pendingSpawns[i];
@@ -227,6 +229,7 @@ namespace Presentation.VfxSfx.Core
                 }
 
                 _pendingSpawns.RemoveAt(i);
+                removedAny = true;
 
                 if (!success)
                 {
@@ -238,6 +241,14 @@ namespace Presentation.VfxSfx.Core
                 _handleCategory[handle] = pending.Category;
                 _pool.Track(pending.Category, handle, pending.Lifetime);
                 pending.Handle = handle; // 见 PendingSpawn.Handle 判断记录：供同步加载器场景下 QueuePendingSpawn 取回。
+            }
+
+            // N17 根治：不管加载成功/失败，只要 _pendingSpawns 因本次回调发生了变化就通知外部——
+            // 见 PendingSpawnCountChanged 判断记录，不能只在 success 分支触发（加载失败同样会让
+            // PendingSpawnCount 归零，外部同样需要重新检查一次"是否已经真正播完"）。
+            if (removedAny)
+            {
+                PendingSpawnCountChanged?.Invoke();
             }
         }
 
@@ -296,6 +307,10 @@ namespace Presentation.VfxSfx.Core
         }
 
         public int PendingSpawnCount => _pendingSpawns.Count;
+
+        /// <summary>N17 根治：见 <see cref="IVfxPlayer.PendingSpawnCountChanged"/> 判断记录，在
+        /// <see cref="OnResourceLoadCompleted"/> 里触发。</summary>
+        public event Action? PendingSpawnCountChanged;
 
         public void Update(double dt)
         {

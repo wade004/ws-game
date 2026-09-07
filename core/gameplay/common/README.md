@@ -70,6 +70,19 @@ common/
    成独立工具类，避免 `RewardBundle.WorldFlags` 与 `core/gameplay/dialog` 的 `set_flag` 动作
    `params.value` 各自手抄一遍同样的编解码逻辑（第三处复用点）。
 
+5. **N02 收口（外部审核 68c9bed）：`IRewardDispatcher.Grant` 返回 `bool`，物品奖励原子发放**——
+   原实现无论 `IInventoryHost.AddItem` 是否成功都视为发放完成（`void` 返回），背包已满
+   （`InventoryFullPolicy.Reject`）时物品奖励静默丢失，`QuestHost.TurnIn` 仍照常把任务置为
+   `TurnedIn`，玩家永久拿不到这份奖励也无法重新交付。现在 `GrantItems` 最先执行，某一项 `AddItem`
+   失败时回滚已经成功发放的物品项（按 `(templateId, count)` 找回对应数量的堆叠移除——
+   `InventoryFullPolicy.Reject` 下 `AddItem` 本就"要么整份加入、要么完全不变"，回滚可以精确进行），
+   `Grant` 返回 `false` 且不再继续发放其余类别（xp/货币/技能/世界标志/天赋点没有"容量不足"这类
+   失败模式，物品先行发放、失败即整体中止已经覆盖"全部生效或全部不生效"）。`QuestHost.TurnIn` 据此
+   在 `Grant` 返回 `false` 时把本次交付已经扣除的 collect 物品放回背包、任务保持
+   `ObjectivesComplete`，不误置 `TurnedIn`（见 `core/gameplay/quest/README.md` 对应条目）。
+   见 `IRewardDispatcher.cs`、`RewardDispatcher.cs`（`GrantItems`/`RemoveByTemplate`）、
+   `RewardDispatcherTests.cs`。
+
 ## 不负责什么
 
 - 不实现"组合支付"（`ExtendedCost` 多货币/多物品组合支付）与"多选一奖励"（08 第 2.4 节

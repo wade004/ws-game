@@ -36,6 +36,23 @@ namespace Tests.Gameplay.Quest
             throw new InvalidOperationException("unreachable");
         }
 
+        /// <summary>N12 测试专用：总是创建一个全新的实例（不并入任何既有同模板堆叠），供模拟真实
+        /// <c>InventoryHost.AddItem</c> 跨堆叠场景——本 Fake 的 <see cref="AddItem"/>/<see
+        /// cref="AddItemForTest"/> 总是把同模板物品合并进第一个匹配的既有堆叠，无法用公开 API 表示
+        /// "同一模板分布在多个独立实例上"这一真实场景，因此单独提供本方法直接构造第二个实例。</summary>
+        public Id AddSeparateInstanceForTest(Id unitId, Id templateId, int count)
+        {
+            if (!_items.TryGetValue(unitId, out var list))
+            {
+                list = new List<ItemInstance>();
+                _items[unitId] = list;
+            }
+
+            var instanceId = new Id("item.instance_" + (_seq++));
+            list.Add(new ItemInstance(instanceId, templateId, count));
+            return instanceId;
+        }
+
         public bool AddItem(Id unitId, Id templateId, int count)
         {
             if (!_items.TryGetValue(unitId, out var list))
@@ -124,12 +141,23 @@ namespace Tests.Gameplay.Quest
         public IReadOnlyList<Id> GetTags(Id unitId) => Array.Empty<Id>();
     }
 
-    /// <summary>记录 <see cref="IRewardDispatcher.Grant"/> 调用，供断言"交付时结算奖励"。</summary>
+    /// <summary>记录 <see cref="IRewardDispatcher.Grant"/> 调用，供断言"交付时结算奖励"。<see
+    /// cref="ShouldFail"/> 供 N02 测试模拟"背包已满、奖励物品发放失败"这一场景，不需要真实构造一个
+    /// 容量受限的 <c>InventoryHost</c>——只关心 <c>QuestHost.TurnIn</c> 在 Grant 失败时是否正确回滚/
+    /// 不误置 TurnedIn，真实的物品原子回滚由 <c>RewardDispatcherTests</c> 单独覆盖。</summary>
     internal sealed class FakeRewardDispatcher : IRewardDispatcher
     {
         public readonly List<(Id UnitId, RewardBundle Bundle, Id SourceId)> Calls = new List<(Id, RewardBundle, Id)>();
 
-        public void Grant(Id unitId, RewardBundle bundle, Id sourceId) => Calls.Add((unitId, bundle, sourceId));
+        /// <summary>为 true 时 <see cref="Grant"/> 记录调用但返回 false（模拟物品奖励因背包已满未能
+        /// 完整发放）。</summary>
+        public bool ShouldFail;
+
+        public bool Grant(Id unitId, RewardBundle bundle, Id sourceId)
+        {
+            Calls.Add((unitId, bundle, sourceId));
+            return !ShouldFail;
+        }
     }
 
     /// <summary>最小 <see cref="IExprHost"/>：把 <c>quest</c>/<c>player</c>/<c>world</c> 分组委托给

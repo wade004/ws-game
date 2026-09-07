@@ -300,6 +300,77 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Equal(0, finishedCount);
         }
 
+        /// <summary>N17 复现与根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+        /// Sequential 模式下，队列执行完 <c>play_sfx</c> 后即便命中冷资源（sink 仍 pending），旧实现
+        /// 的 <c>PlaybackQueue.Finished</c> 只看 <c>FloatingTextMerger</c>，队列一清空就立即发
+        /// <c>PlaybackFinishedEvent</c>，节奏门提前打开；后续动作可能在音效真正播出前就抢先播放。
+        /// 修复后：队列清空但 sink 仍 pending 时不发；sink 真正清空（模拟资源加载完成回调）时才发，
+        /// 且恰好一次。</summary>
+        [Fact]
+        public void QueueMode_Sequential_ColdSfxPending_DoesNotFirePlaybackFinished_UntilSinkResolves()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            // 模拟 PlaySfx 命中冷资源：调用当下就把 sink 置为 pending（同真实
+            // CompositeFeedbackSink.PlaySfx 转给 ISfxPlayer.Play 命中未加载完成资源时的效果）。
+            sink.OnPlaySfxCalled = () => sink.HasPendingPlayback = true;
+            var rules = LoadRules(FeedbackBinderTestSupport.PlaySfxOnlyRuleRow);
+
+            var finishedCount = 0;
+            bus.Subscribe(EventKeys.PresentationPlaybackFinished, _ => finishedCount++);
+
+            var options = new FeedbackOptions { QueueMode = QueueMode.Sequential, SequentialStepSeconds = 0.1 };
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink, options: options);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 5.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            binder.Update(0.1); // 队列执行完这唯一的 play_sfx 动作，PlaybackQueue.PendingCount 归零。
+
+            Assert.Single(sink.PlaySfxCalls);
+            Assert.True(sink.HasPendingPlayback, "冷资源仍在加载");
+            Assert.Equal(0, finishedCount); // N17 核心断言：队列空但 sink 仍 pending，门不应打开。
+
+            // 资源加载完成：sink 清 pending，触发信号（同真实 VfxPlayer/SfxPlayer 的加载完成回调）。
+            sink.HasPendingPlayback = false;
+            sink.RaisePendingPlaybackChanged();
+
+            Assert.Equal(1, finishedCount); // 门恰好解开一次。
+        }
+
+        /// <summary>N17 复现与根治（Immediate 模式）：<c>play_sfx</c> 在 Immediate 模式下同步执行，
+        /// 命中冷资源时 sink 立即 pending，但 <c>PlaybackQueue</c> 从未有过任何条目、
+        /// <c>Finished</c> 事件从不触发——旧实现完全没有任何信号能在资源加载完成后补发
+        /// <c>PlaybackFinishedEvent</c>，若调用方（<c>WaitForPlaybackPacingPolicy</c>）恰好在
+        /// pending 期间关闭了节奏门，会永久卡死。修复后：sink 清 pending 时经
+        /// <c>PendingPlaybackChanged</c> 补发一次。</summary>
+        [Fact]
+        public void QueueMode_Immediate_ColdSfxPending_FiresPlaybackFinished_WhenSinkResolves()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            sink.OnPlaySfxCalled = () => sink.HasPendingPlayback = true;
+            var rules = LoadRules(FeedbackBinderTestSupport.PlaySfxOnlyRuleRow);
+
+            var finishedCount = 0;
+            bus.Subscribe(EventKeys.PresentationPlaybackFinished, _ => finishedCount++);
+
+            // 默认 QueueMode.Immediate（见 FeedbackOptions 默认值），不需要显式指定 options。
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 5.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt); // play_sfx 同步执行，sink 立即 pending；Immediate 模式不入队。
+
+            Assert.Single(sink.PlaySfxCalls);
+            Assert.True(sink.HasPendingPlayback);
+            Assert.Equal(0, finishedCount); // Immediate 模式默认不发，此刻更不该发（仍 pending）。
+
+            sink.HasPendingPlayback = false;
+            sink.RaisePendingPlaybackChanged();
+
+            Assert.Equal(1, finishedCount); // 冷资源清空后应补发一次，不是"Immediate 永远不发"。
+        }
+
         [Fact]
         public void Merge_SumsMultipleAmountFloatingTexts_WithinWindow()
         {

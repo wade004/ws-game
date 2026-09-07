@@ -20,6 +20,12 @@ namespace Core.Gameplay.Economy
         /// 不做任何权限校验（惯例同 <c>core/gameplay/world_state.IWorldState.Set</c>"谁能写"）。</summary>
         bool Add(Id unitId, Id currencyId, long amount, Id sourceId);
 
+        /// <summary>把 <paramref name="unitId"/> 的 <paramref name="currencyId"/> 余额直接替换为
+        /// <paramref name="amount"/>（按 <see cref="CurrencyDef.Cap"/> 夹取到 <c>[0, cap]</c>），不与
+        /// 当前余额相加；供读档等"以快照为准"的场景使用。实际发生变化时发
+        /// <c>economy.currency_changed</c>。</summary>
+        bool SetBalance(Id unitId, Id currencyId, long amount);
+
         /// <summary>尝试扣除 <paramref name="amount"/>（要求非负），余额不足则不生效、返回 false。</summary>
         bool TryPay(Id unitId, Id currencyId, long amount);
 

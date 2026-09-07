@@ -164,6 +164,8 @@ namespace Presentation.VfxSfx.Core
 
         private void OnResourceLoadCompleted(Id resourceId, bool success)
         {
+            var removedAny = false;
+
             for (var i = _pendingPlays.Count - 1; i >= 0; i--)
             {
                 var pending = _pendingPlays[i];
@@ -173,6 +175,7 @@ namespace Presentation.VfxSfx.Core
                 }
 
                 _pendingPlays.RemoveAt(i);
+                removedAny = true;
 
                 if (!success)
                 {
@@ -189,6 +192,12 @@ namespace Presentation.VfxSfx.Core
                 _byHandle[handle] = playback;
                 pending.Handle = handle; // 见 PendingPlay.Handle 判断记录：供同步加载器场景下 QueuePendingPlay 取回。
             }
+
+            // N17 根治：见 VfxPlayer.OnResourceLoadCompleted 同款判断记录，失败分支同样要通知。
+            if (removedAny)
+            {
+                PendingPlayCountChanged?.Invoke();
+            }
         }
 
         /// <summary>外部审核阻塞项 4 收口：<see cref="ISfxPlayer"/> 契约没有 <c>Update(dt)</c>
@@ -204,20 +213,35 @@ namespace Presentation.VfxSfx.Core
             }
 
             var now = DateTime.UtcNow;
+            var removedAny = false;
             for (var i = _pendingPlays.Count - 1; i >= 0; i--)
             {
                 var pending = _pendingPlays[i];
                 if (now >= pending.Deadline)
                 {
                     _pendingPlays.RemoveAt(i);
+                    removedAny = true;
                     _diagnostics.Warn(
                         $"sfx \"{pending.SfxId}\" 等待资源 \"{pending.ResourceRef}\" 加载超时" +
                         $"（{_options.FirstLoadTimeoutSeconds}s），丢弃这次排队的播放请求");
                 }
             }
+
+            // N17 根治：超时清理同样会让 PendingPlayCount 变化，必须一并通知（不止资源加载回调这
+            // 一条路径），否则卡死资源永远超时清理却没有信号补一次完成检查，Immediate 模式下
+            // 会永久卡在"曾经关闭过的节奏门"上（见 IFeedbackSink.PendingPlaybackChanged 判断记录）。
+            if (removedAny)
+            {
+                PendingPlayCountChanged?.Invoke();
+            }
         }
 
         public int PendingPlayCount => _pendingPlays.Count;
+
+        /// <summary>N17 根治：见 <see cref="ISfxPlayer.PendingPlayCountChanged"/> 判断记录，在
+        /// <see cref="OnResourceLoadCompleted"/>/<see cref="SweepTimedOutPendingPlays"/> 里触发。
+        /// </summary>
+        public event Action? PendingPlayCountChanged;
 
         public void Stop(SfxHandle handle)
         {

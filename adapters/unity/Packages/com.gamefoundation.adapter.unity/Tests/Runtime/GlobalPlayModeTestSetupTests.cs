@@ -16,6 +16,7 @@
 // 里（Adapter.Unity.Tests.Runtime），不新增额外测试装配。
 using System.IO;
 using NUnit.Framework;
+using UnityEngine;
 
 namespace Adapter.Unity.Tests.Runtime
 {
@@ -87,6 +88,38 @@ namespace Adapter.Unity.Tests.Runtime
 
             Assert.AreEqual(0, removed);
             Assert.IsFalse(Directory.Exists(missingDir), "不存在的目录不应被本方法意外创建出来");
+        }
+
+        /// <summary>N06 复现与根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+        /// 本装置真正清理/重定向的目标必须是真实 <c>Application.persistentDataPath</c> 下的一个
+        /// **专属子目录**，绝不能是该目录本身——否则"清空测试存档"与"清空玩家真实存档"是同一个
+        /// 操作。本用例只做纯字符串层面的校验（不调用 OneTimeSetUp/OneTimeTearDown 本身——那两个
+        /// 方法已经在本次 -runTests 调用里被 NUnit 自动跑过一次、覆盖着当前进程全程有效的
+        /// <c>UnityFileSystem.UserDataRootOverride</c>，本测试方法内不应该改动这个全局状态，避免
+        /// 影响同一次运行里的其它测试夹具），只验证"目标路径长什么样"这一静态事实。</summary>
+        [Test]
+        public void TestUserDataRoot_IsSubdirectoryOfRealPersistentDataPath_NotTheDirectoryItself()
+        {
+            var testRoot = GlobalPlayModeTestSetup.TestUserDataRoot;
+            var realRoot = Application.persistentDataPath;
+
+            Assert.AreNotEqual(realRoot, testRoot, "专属测试目录不能与真实存档根目录相同");
+            StringAssert.StartsWith(realRoot, testRoot, "专属测试目录必须是真实存档根目录下的子目录，不能是无关路径");
+            Assert.AreEqual("_playmode_tests", Path.GetFileName(testRoot));
+        }
+
+        /// <summary>N06 核心回归：本次 -runTests 调用已经跑过一次 <c>GlobalPlayModeTestSetup.
+        /// OneTimeSetUp</c>（NUnit 装配级钩子，早于本方法运行）——到本测试方法执行的这一刻，
+        /// <c>UnityFileSystem.UserDataRootOverride</c> 应该已经被重定向到
+        /// <see cref="GlobalPlayModeTestSetup.TestUserDataRoot"/>，而不是保持默认 <c>null</c>（那样
+        /// 全部 PlayMode 测试期间新建的 <c>UnityFileSystem</c> 实例都会写到真实存档目录）。</summary>
+        [Test]
+        public void UserDataRootOverride_AlreadyRedirectedByAssemblyLevelOneTimeSetUp()
+        {
+            Assert.AreEqual(
+                GlobalPlayModeTestSetup.TestUserDataRoot,
+                Adapter.Unity.EngineAdapter.UnityFileSystem.UserDataRootOverride,
+                "本装配的 [SetUpFixture].OneTimeSetUp 应该已经在任何测试运行前把用户数据根重定向到专属测试目录");
         }
 
         private void WriteDummy(string relativePath)

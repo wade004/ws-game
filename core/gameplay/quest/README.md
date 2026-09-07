@@ -95,11 +95,19 @@ quest/
    任务，空档/旧档读档因此不会清空/回滚任务日志、完成次数、每日记录。现在 `Load` 按快照全量替换
    单位的任务运行期状态（先清空再按快照重建），空快照回到"无任何任务"、快照里没有的任务被移除、
    重复 `Load` 幂等、跨槽读档不残留。见 `QuestPersistable.cs`、`QuestPersistableTests.cs`。
-8. **GP-07 收口（第四方深度审核）：consume 型 collect 目标按实际成功扣除量推进，不按事件携带的
-   请求量推进**——原实现无条件按 `item.removed` 事件携带的 `take` 推进进度，即使
-   `IInventoryHost.RemoveItem` 扣除失败（返回 false，"全有全无"语义）也一样，会让同一件物品同时
-   喂饱多个 consume 型目标。现在只有 `RemoveItem` 真正返回成功时才 `UpdateProgress`，失败本次不
-   计入任何进度。见 `QuestHost.cs`（`HandleItemRemoved` 分支）、`QuestHostTests.cs`。
+8. **GP-07/N12 收口（第四方深度审核，N12 见 architecture/落地计划/audit-68c9bed-20260907/
+   code-review.md）：consume 型 collect 目标按实际成功扣除量推进，不按事件携带的请求量推进；
+   跨堆叠扣除按模板 id 而不是单个实例 id**——勘误：consume 型目标的事件驱动路径是
+   `item.added`/`HandleItemAdded`（不是 `item.removed`/`HandleItemRemoved`，后者只处理非消耗型
+   collect 目标的 `SetObjectiveAbsolute` 重算，见 `HandleItemRemoved`）。原实现无条件按事件携带的
+   `take` 推进进度，即使扣除失败也一样，会让同一件物品同时喂饱多个 consume 型目标（GP-07）；且
+   原实现只对事件携带的单个 `ItemInstanceId` 调用 `IInventoryHost.RemoveItem`——但
+   `InventoryHost.AddItem` 跨堆叠合并新增时，`ItemAddedEvent` 只携带最后一个被触碰的实例 id 与
+   合计新增数，若这次新增分散在多个独立堆叠实例上，单实例扣除会因为该实例数量不足而整体失败，
+   consume 进度永远推进不了（N12）。现在改用与 `TurnIn` 交付时同款的"按模板 id 跨堆叠扣除"
+   （`RemoveCollectedItems`），只有真正扣够完整数量才 `UpdateProgress`，失败（含跨堆叠扣除不足）
+   本次不计入任何进度。见 `QuestHost.cs`（`HandleItemAdded` 的 `ConsumeOnProgress` 分支）、
+   `QuestHostTests.cs`。
 9. **GP-08 收口（第四方深度审核）：非消耗型（`consumeOnProgress == false`）collect 目标接取瞬间
    按当前库存初始化进度**——原实现无条件从 0 起算，只靠后续 `item.added`/`item.removed` 事件被动
    推进；若玩家在接取任务前就已经持有足量目标物品（先攒够材料再接任务是常见玩法顺序），任务会
@@ -107,6 +115,20 @@ quest/
    目标立即调用 `SetObjectiveAbsolute(..., _inventoryHost.CountOf(unitId, targetRef))`，可能直接
    达成 `ObjectivesComplete`；消耗型目标语义是"接取后主动上交"，不倒扣已有库存，不受本条影响。
    见 `QuestHost.cs`（`Accept` 方法）、`QuestHostTests.cs`。
+10. **N01/N02/N11 收口（外部审核 68c9bed）：`TurnIn` 交付三步原子化，新增 `QuestTurnInFailure`
+    失败码**——原实现①货币读档（`CurrencyPersistable.Load`）是叠加不是替换，跨槽/重复读档货币
+    翻倍；②满背包（`InventoryFullPolicy.Reject`）时奖励物品发放失败被忽略、任务仍置 `TurnedIn`，
+    奖励永久丢失；③同一物品被两个 collect 目标同时依赖时，交付只看 `ObjectiveCounts` 缓存进度、
+    不检查实际库存，可能让第二个交付"成功"却没有真实物品可扣。现在 `IQuestHost.TurnIn` 新增
+    `TurnIn(unitId, questId, out QuestTurnInFailure failure)` 重载，交付分三步——按实际库存预检
+    （不足则 `InsufficientItems`）→ 实际移除（核验返回值，失败回滚）→
+    经 `IRewardDispatcher.Grant`（本身也已改为物品奖励原子发放，失败回滚已发放部分并返回
+    `false`，见 `core/gameplay/common/README.md`）发放奖励（失败则 `InventoryFull`，回滚本次已
+    移除的 collect 物品）——任一步失败都不改变任何状态、任务保持 `ObjectivesComplete`，可以在
+    玩家清出背包空间/物品补齐后重试；`CurrencyPersistable.Load` 改为按快照完全替换（含把快照未
+    出现的货币显式置零），连续 `Load` 幂等。见 `QuestHost.cs`（`TurnIn`/`RemoveCollectedItems`）、
+    `QuestEnums.cs`（`QuestTurnInFailure`）、`core/gameplay/economy/core/EconomyHost.cs`
+    （`SetBalance`）、对应测试文件。
 
 ## 不负责什么
 

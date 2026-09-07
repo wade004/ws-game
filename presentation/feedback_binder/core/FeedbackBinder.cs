@@ -77,18 +77,24 @@ namespace Presentation.FeedbackBinder.Core
             _merger = new FloatingTextMerger(_options.MergeWindow, _options.NumberFormat, DispatchFloatingText);
 
             // PlaybackFinishedEvent 的发出条件：队列播空 **且** 没有仍停留在合并窗口内、尚未入队的
-            // 待合并飘字（见 HasPendingPlayback 判断记录）。MergeWindow > 0 时，数值飘字先暂存在
-            // _merger 内部，窗口到期前 PlaybackQueue 可能因为"这一步只有非飘字动作先播完"而先由非空
-            // 变空一次——此时不能认为整个离散步的表现已经播完，否则节奏门会在飘字真正播出前提前解除。
+            // 待合并飘字，**且** sink 侧没有仍在首次加载中的冷 vfx/sfx（见 HasPendingPlayback 判断
+            // 记录、TryPublishFinished 判断记录）。MergeWindow > 0 时，数值飘字先暂存在 _merger
+            // 内部，窗口到期前 PlaybackQueue 可能因为"这一步只有非飘字动作先播完"而先由非空变空
+            // 一次——此时不能认为整个离散步的表现已经播完，否则节奏门会在飘字真正播出前提前解除。
             // 窗口到期后 _merger.Flush 经 DispatchFloatingText 把合并结果送进队列，队列再次由非空变空
             // 时 Finished 会第二次触发，那一次 _merger.HasPendingMerges 已经是 false，才真正发布事件。
-            _queue.Finished += () =>
-            {
-                if (!_merger.HasPendingMerges)
-                {
-                    _bus.PublishImmediate(new PlaybackFinishedEvent());
-                }
-            };
+            //
+            // N17 根治：队列清空这一刻 sink 侧仍可能有冷资源在加载（PlaySfx/PlayVfx 命中未加载完成
+            // 的资源会立即返回、不阻塞队列，见 IFeedbackSink.HasPendingPlayback 判断记录），此前
+            // 只看 _merger 会让节奏门在资源真正播出前就提前打开。现在 TryPublishFinished 一并核验
+            // sink 侧，且额外订阅 _sink.PendingPlaybackChanged——冷资源真正加载完成那一刻（可能发生
+            // 在队列早已清空之后，甚至发生在 Immediate 模式下——Immediate 模式的队列永远为空，
+            // Queue.Finished 从不触发，PendingPlaybackChanged 是那一模式下唯一的完成信号来源）
+            // 补一次完成检查，真正清空时才发出，不会重复发出（TryPublishFinished 是无状态的"当下
+            // 是否全部清空"检查，只有真正从"有 pending"变成"全部清空"的那一次调用会通过全部三个
+            // 条件，见该方法判断记录）。
+            _queue.Finished += TryPublishFinished;
+            _sink.PendingPlaybackChanged += TryPublishFinished;
 
             if (rules == null) throw new ArgumentNullException(nameof(rules));
             foreach (var rule in rules)
@@ -146,8 +152,28 @@ namespace Presentation.FeedbackBinder.Core
         /// </summary>
         public bool HasPendingPlayback => _queue.PendingCount > 0 || _merger.HasPendingMerges || _sink.HasPendingPlayback;
 
+        /// <summary>
+        /// N17 根治：三个"这一步是否已经真正播完"的条件同时满足才发出
+        /// <see cref="PlaybackFinishedEvent"/>——队列已空、没有待合并飘字、sink 侧没有仍在首次
+        /// 加载中的冷 vfx/sfx。本方法是无状态的"当下检查"，由两条独立路径调用：
+        /// <see cref="PlaybackQueue.Finished"/>（队列由非空变空那一刻）与 <see cref="IFeedbackSink.
+        /// PendingPlaybackChanged"/>（sink 侧 pending 计数可能变化那一刻，见该事件判断记录）。
+        /// 只有真正三个条件同时成立的那一次调用会实际发布事件——其余调用（例如队列刚清空但 sink
+        /// 仍在加载、或 sink 某一项加载完成但还有别的资源仍在加载）都会在条件判断处提前返回，因此
+        /// 不会重复发出。
+        /// </summary>
+        private void TryPublishFinished()
+        {
+            if (_queue.PendingCount == 0 && !_merger.HasPendingMerges && !_sink.HasPendingPlayback)
+            {
+                _bus.PublishImmediate(new PlaybackFinishedEvent());
+            }
+        }
+
         public void Dispose()
         {
+            _sink.PendingPlaybackChanged -= TryPublishFinished;
+
             foreach (var sub in _subscriptions)
             {
                 sub.Dispose();

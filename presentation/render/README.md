@@ -193,6 +193,32 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     `LogicDriven`（默认）策略下不触发，命中反馈沿用 `FeedbackBinder` 收到 `combat.damage_dealt`
     立即派发的既有行为，不需要本模块参与。
 
+14. **N18 收口（外部审核 68c9bed）：`FrameAnimPlayer.Update` 每次都重新从 `_clips` 查一次当前
+    clipId，不缓存 `Play` 那一刻的剪辑对象引用**——原实现 `_current` 只在 `Play` 时从共享的可写
+    字典 `_clips` 查一次，此后整段播放期间缓存同一个对象引用；若调用方在播放中途用同一个
+    `clipId` 重新登记了一份新剪辑（`_clips[clipId] = new FrameAnimClip(...)`，典型场景是
+    `Adapter.Unity.Presentation.UnityFrameAnimPlayer.RegisterClipFromEffect` 冷序列帧资源加载
+    完成后原地升级），本类型对此一无所知，仍按开始播放那一刻的旧帧数/帧率/关键帧继续推进，
+    视觉上永远停在旧内容，必须调用方手工重新 `Play` 才会用上新剪辑。现在每次 `Update` 开头都
+    重新查一次最新版本——`_elapsedSeconds` 是纯时间累加量，天然实现"保留播放进度、按新剪辑重新
+    解释这段时间对应第几帧"；剪辑对象引用确实变化时即便算出来的帧下标数值没变，也强制重新触发
+    `FrameChanged`（同一帧下标在新剪辑里可能对应完全不同的贴图）。`UnityFrameAnimPlayer.
+    OnFrameChanged` 本身已经是按 clipId+帧下标现查表，不需要改动即可受益。见 `FrameAnimPlayer.cs`
+    （`Update`/`SetFrame`）、`FrameAnimPlayerTests.cs`。
+
+15. **N19 收口（外部审核 68c9bed）：瞬发（`AnimState.Attack`）的施法收尾事件不再驱动回落，只有
+    `NotifyTransientStateFinished` 能让它回落**——判断记录 10 的事件→状态映射原文写"三个收尾事件
+    （只要 `casterId` 匹配、当前状态仍是 Attack/Cast）一律驱动回落到当前运动状态"，这条描述本身
+    是缺陷：瞬发（覆盖普攻与瞬发技能）的 `skill.cast_start`（进入 Attack）与 `skill.cast_success`
+    在逻辑层同一次派发批次内背靠背发出，若靠事件收尾会让 Attack 播放形态在同一帧内被切回
+    Idle/Move，Attack 动画剪辑根本没有机会真正播出（09 表现层"逻辑结算与动画播放时长相互独立"
+    这一原则要求二者不能靠同一个逻辑事件同步收尾）。现在只有 `AnimState.Cast`（真正的读条/引导，
+    视觉时长本就等于逻辑层的 `cast_time`/`channel_time`，收尾事件到达时天然已经播完）继续在
+    `OnSkillCastEnd` 里回落；`AnimState.Attack` 一律改由 `NotifyTransientStateFinished` 独家负责
+    （`Adapter.Unity.Presentation.UnityViewFactory.AttachDefaultAnimation` 早已把
+    `IFrameAnimPlayer.OnComplete` 接回本状态机，见 `adapters/unity/.../README.md`"瞬态完成通知"，
+    不需要新增接线）。见 `AnimStateMachine.cs`（`OnSkillCastEnd`）、`AnimStateMachineTests.cs`。
+
 ## 契约缺口
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。

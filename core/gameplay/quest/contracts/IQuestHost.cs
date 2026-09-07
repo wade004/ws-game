@@ -38,14 +38,24 @@ namespace Core.Gameplay.Quest
 
         /// <summary>
         /// 交付任务（08 第 2.2 节"objectives_complete → turned_in：按 turn_in_method 交付，结算
-        /// rewards"）。要求当前状态为 <see cref="QuestState.ObjectivesComplete"/>；交付时对
-        /// <c>collect</c> 且 <c>consume_on_progress=false</c> 的目标额外扣除对应数量的物品（见 08
-        /// 第 2.1 节该行 param 要点），随后经 <see cref="Core.Gameplay.Common.IRewardDispatcher"/>
-        /// 结算 <c>rewards</c>；按 <c>repeatable</c> 决定交付后的状态（<c>none</c> 终止于
-        /// TurnedIn；<c>daily</c> 回落 Available 但记录完成日、同日不可再接；<c>unlimited</c> 立即
-        /// 回落 Available）。成功发 <c>quest.turned_in</c>。
+        /// rewards"）。等价于 <c>TurnIn(unitId, questId, out _)</c>，不关心失败原因。
         /// </summary>
         bool TurnIn(Id unitId, Id questId);
+
+        /// <summary>
+        /// 交付任务，同上，额外通过 <paramref name="failure"/> 报告失败原因（N02/N11 根治，见
+        /// <see cref="QuestTurnInFailure"/>）。要求当前状态为 <see
+        /// cref="QuestState.ObjectivesComplete"/>；交付时先按实际库存核验 <c>collect</c> 且
+        /// <c>consume_on_progress=false</c> 的目标能否扣除完整数量（不足则整体失败，见 08 第 2.1 节
+        /// 该行 param 要点），确认可扣除后才实际移除，随后经 <see
+        /// cref="Core.Gameplay.Common.IRewardDispatcher"/> 结算 <c>rewards</c>——奖励发放原子：
+        /// 物品奖励因背包已满无法完整发放时，整批奖励不生效，已扣除的 collect 物品回滚放回背包，
+        /// 交付整体失败、任务保持 <see cref="QuestState.ObjectivesComplete"/>（不丢奖励、不误置
+        /// <see cref="QuestState.TurnedIn"/>）。交付成功时按 <c>repeatable</c> 决定交付后的状态
+        /// （<c>none</c> 终止于 TurnedIn；<c>daily</c> 回落 Available 但记录完成日、同日不可再接；
+        /// <c>unlimited</c> 立即回落 Available），并发 <c>quest.turned_in</c>。
+        /// </summary>
+        bool TurnIn(Id unitId, Id questId, out QuestTurnInFailure failure);
 
         /// <summary>
         /// 判定任务失败（08 第 2.2 节"escort/event 类可能失败，策略配置是否允许失败"）。要求

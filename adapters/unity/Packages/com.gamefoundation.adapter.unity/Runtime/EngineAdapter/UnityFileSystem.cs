@@ -55,19 +55,45 @@ namespace Adapter.Unity.EngineAdapter
 
         private readonly string _contentRoot;
 
+        /// <summary>
+        /// N06 根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：全局可选覆盖
+        /// "用户数据根"（<see cref="GetUserDataDir"/>/写入可写模式下的 <see cref="CurrentRoot"/>），
+        /// 默认为 <c>null</c>（沿用生产行为，即 <see cref="UnityEngine.Application.persistentDataPath"/>，
+        /// 真实玩家存档目录）。
+        /// <para>
+        /// 判断记录：本字段是 <c>static</c>，不是构造参数——生产代码与 PlayMode 测试里散落着大量
+        /// <c>new UnityFileSystem(...)</c> 调用点（<c>SaveSystem</c>、各测试夹具各自装配自己的
+        /// <c>ISaveSystem</c>），要求每一处都改签名去接一个"测试专用根目录"参数、并让每条测试都
+        /// 记得传，代价既大又容易漏传（漏传的那一条测试就会退回污染真实目录）。改为"装配级一次性
+        /// 全局覆盖"：<c>GlobalPlayModeTestSetup</c>（<c>[SetUpFixture]</c>，见该类型）在
+        /// <c>[OneTimeSetUp]</c> 时把本字段设为一个专属测试子目录（
+        /// <c>&lt;persistentDataPath&gt;/_playmode_tests/</c>），覆盖对本 PlayMode 测试装配下
+        /// 之后新建的**全部** <see cref="UnityFileSystem"/> 实例统一生效（不管由谁在哪个测试
+        /// 夹具里 new 出来），<c>[OneTimeTearDown]</c> 时清空该目录并把本字段复位为
+        /// <c>null</c>——生产运行（从未调用 <c>GlobalPlayModeTestSetup</c>）本字段永远是
+        /// <c>null</c>，行为与本次改动前完全一致，真实玩家存档目录永不被本机制触碰。
+        /// </para>
+        /// </summary>
+        public static string? UserDataRootOverride { get; set; }
+
         public UnityFileSystem(bool readOnlyContentMode = false, string? contentRoot = null)
         {
             ReadOnlyContentMode = readOnlyContentMode;
             _contentRoot = contentRoot ?? Path.Combine(Application.streamingAssetsPath, "GameFoundation");
         }
 
-        public string GetUserDataDir() => Application.persistentDataPath;
+        /// <summary>真实用户数据根：<see cref="UserDataRootOverride"/> 未设置（生产运行的唯一状态）
+        /// 时是 <see cref="UnityEngine.Application.persistentDataPath"/>，设置时（仅 PlayMode 测试
+        /// 装配级 setup 会设置，见该字段判断记录）改用覆盖值。</summary>
+        private static string EffectiveUserDataDir => UserDataRootOverride ?? Application.persistentDataPath;
+
+        public string GetUserDataDir() => EffectiveUserDataDir;
 
         /// <summary>只读内容根目录（数据表、静态资产的落盘位置），与 <see cref="GetUserDataDir"/>
         /// 分离（ADR-0016 决策 8）。两种模式下都返回同一个值，见类型顶部判断记录 2。</summary>
         public string GetContentRootDir() => _contentRoot;
 
-        private string CurrentRoot => ReadOnlyContentMode ? _contentRoot : Application.persistentDataPath;
+        private string CurrentRoot => ReadOnlyContentMode ? _contentRoot : EffectiveUserDataDir;
 
         public string? ReadText(string path)
         {

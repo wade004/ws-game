@@ -41,7 +41,14 @@ namespace Presentation.FeedbackBinder.Core
             _onFlash = onFlash ?? throw new ArgumentNullException(nameof(onFlash));
             _entityPositionResolver = entityPositionResolver;
             _diagnostics = diagnostics ?? new Presentation.VfxSfx.Contracts.PresentationDiagnosticsRecorder();
+
+            // N17 根治：把 vfx/sfx 两路"pending 计数可能变化"的信号汇聚成统一的一路，供
+            // FeedbackBinder 订阅——见 IFeedbackSink.PendingPlaybackChanged 判断记录。
+            _vfxPlayer.PendingSpawnCountChanged += RaisePendingPlaybackChanged;
+            _sfxPlayer.PendingPlayCountChanged += RaisePendingPlaybackChanged;
         }
+
+        private void RaisePendingPlaybackChanged() => PendingPlaybackChanged?.Invoke();
 
         public void FloatingText(Id entityId, Id styleId, string text) => _onFloatingText(entityId, styleId, text);
 
@@ -68,6 +75,9 @@ namespace Presentation.FeedbackBinder.Core
         /// <see cref="ISfxPlayer.PendingPlayCount"/>，见 <see cref="IFeedbackSink.HasPendingPlayback"/>
         /// 判断记录。</summary>
         public bool HasPendingPlayback => _vfxPlayer.PendingSpawnCount > 0 || _sfxPlayer.PendingPlayCount > 0;
+
+        /// <summary>N17 根治：见类型构造函数判断记录，直接转发 vfx/sfx 两路信号。</summary>
+        public event Action? PendingPlaybackChanged;
 
         private VfxAttach? ResolveVfxAttach(Id vfxId, FeedbackAttachSpec attach)
         {

@@ -203,24 +203,81 @@ namespace Core.Gameplay.Quest
             return true;
         }
 
-        public bool TurnIn(Id unitId, Id questId)
+        public bool TurnIn(Id unitId, Id questId) => TurnIn(unitId, questId, out _);
+
+        /// <summary>
+        /// 判断记录（N02/N11 根治）：交付分三步，任一步失败都不改变任何状态（不消耗物品、不发放
+        /// 奖励、不置 TurnedIn），保证整个交付是原子操作：
+        /// <list type="number">
+        /// <item>预检——对每个 collect 且 <c>!ConsumeOnProgress</c> 目标，按当前实际库存核验能否扣除
+        /// 完整数量（N11：不依赖 <c>ObjectiveCounts</c> 缓存进度；同一批物品若已被另一次并发交付
+        /// 抢先消耗，这里会如实核出不足）；不足则整体失败于 <see cref="QuestTurnInFailure.InsufficientItems"/>。</item>
+        /// <item>实际移除——预检通过后才真正调用 <see cref="RemoveCollectedItems"/>；仍检查其返回值
+        /// 防御极端并发下的移除失败，一旦失败立即把本次已移除的部分全部放回背包再返回失败（不应该
+        /// 发生，预检已核过量，留作防御性回滚）。</item>
+        /// <item>发放奖励——经 <see cref="IRewardDispatcher.Grant"/>（N02：内部已对物品奖励做原子
+        /// 发放与失败回滚，见其判断记录）；返回 false 时（背包已满装不下奖励物品）把第 2 步移除的
+        /// collect 物品全部放回背包，整体失败于 <see cref="QuestTurnInFailure.InventoryFull"/>，任务
+        /// 保持 <see cref="QuestState.ObjectivesComplete"/>，玩家清出空间后可重新交付。</item>
+        /// </list>
+        /// </summary>
+        public bool TurnIn(Id unitId, Id questId, out QuestTurnInFailure failure)
         {
             var def = RequireDef(questId);
             if (!_progress.TryGetValue((unitId, questId), out var rt) || rt.State != QuestState.ObjectivesComplete)
             {
+                failure = QuestTurnInFailure.NotReady;
                 return false;
             }
 
+            // 步骤 1：预检——不依赖缓存进度，按实际库存核验足量（N11）。
             for (var i = 0; i < def.Objectives.Count; i++)
             {
                 var objective = def.Objectives[i];
-                if (objective.Type == QuestObjectiveType.Collect && !objective.ConsumeOnProgress)
+                if (objective.Type == QuestObjectiveType.Collect && !objective.ConsumeOnProgress &&
+                    _inventoryHost.CountOf(unitId, objective.TargetRef) < objective.Count)
                 {
-                    RemoveCollectedItems(unitId, objective.TargetRef, objective.Count);
+                    failure = QuestTurnInFailure.InsufficientItems;
+                    return false;
                 }
             }
 
-            _rewardDispatcher.Grant(unitId, def.Rewards, questId);
+            // 步骤 2：实际移除，逐个目标核验返回值；任一失败回滚本次已移除的部分。
+            var removed = new List<(Id TemplateId, int Count)>();
+            for (var i = 0; i < def.Objectives.Count; i++)
+            {
+                var objective = def.Objectives[i];
+                if (objective.Type != QuestObjectiveType.Collect || objective.ConsumeOnProgress)
+                {
+                    continue;
+                }
+
+                if (RemoveCollectedItems(unitId, objective.TargetRef, objective.Count))
+                {
+                    removed.Add((objective.TargetRef, objective.Count));
+                    continue;
+                }
+
+                foreach (var prior in removed)
+                {
+                    _inventoryHost.AddItem(unitId, prior.TemplateId, prior.Count);
+                }
+
+                failure = QuestTurnInFailure.InsufficientItems;
+                return false;
+            }
+
+            // 步骤 3：发放奖励；失败则把步骤 2 移除的物品全部放回背包（N02）。
+            if (!_rewardDispatcher.Grant(unitId, def.Rewards, questId))
+            {
+                foreach (var prior in removed)
+                {
+                    _inventoryHost.AddItem(unitId, prior.TemplateId, prior.Count);
+                }
+
+                failure = QuestTurnInFailure.InventoryFull;
+                return false;
+            }
 
             rt.CompletionCount++;
             rt.State = QuestState.TurnedIn;
@@ -231,6 +288,7 @@ namespace Core.Gameplay.Quest
             // Repeatable.Unlimited：不记录 LastCompletedDay，GetState 因此在下一次调用即直接落到
             // prerequisite 实时求值分支，等价于"立即回落 Available"（见 GetState 判断记录）。
 
+            failure = QuestTurnInFailure.None;
             Publish(new QuestTurnedInEvent(unitId, questId));
             return true;
         }
@@ -513,7 +571,10 @@ namespace Core.Gameplay.Quest
 
         private static int Clamp(int value, int min, int max) => value < min ? min : value > max ? max : value;
 
-        private void RemoveCollectedItems(Id unitId, Id templateId, int count)
+        /// <summary>从 <paramref name="unitId"/> 背包移除总计 <paramref name="count"/> 个
+        /// <paramref name="templateId"/> 物品（跨堆叠），返回是否实际移除了完整数量（N11 根治：调用方
+        /// 必须以此返回值为准，不能假定"进度缓存显示已达标"就等于"物品还在背包里"）。</summary>
+        private bool RemoveCollectedItems(Id unitId, Id templateId, int count)
         {
             var remaining = count;
             foreach (var item in _inventoryHost.ListItems(unitId))
@@ -527,9 +588,13 @@ namespace Core.Gameplay.Quest
                     continue;
                 }
                 var take = Math.Min(remaining, item.Count);
-                _inventoryHost.RemoveItem(unitId, item.InstanceId, take);
-                remaining -= take;
+                if (_inventoryHost.RemoveItem(unitId, item.InstanceId, take))
+                {
+                    remaining -= take;
+                }
             }
+
+            return remaining <= 0;
         }
 
         private IEnumerable<(Id UnitId, Id QuestId)> ActiveKeysForUnit(Id unitId)
@@ -642,16 +707,26 @@ namespace Core.Gameplay.Quest
                             continue;
                         }
                         // GP-07 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
-                        // 旧实现无条件按事件携带的数量 take 推进进度，即使 RemoveItem 扣除失败
-                        // （返回 false）也一样——IInventoryHost.RemoveItem 是"要么整取要么不取"的
-                        // 语义（见该接口注释"成功后发出 item.removed"，不支持部分移除返回实际数量），
-                        // 失败时背包里其实一件都没扣，却仍然把 take 记进任务进度，会让同一件物品
-                        // 同时喂饱多个 consume 型目标（例如两条任务都要"消耗 1 个同款材料"，背包只有
-                        // 1 个也都各自记满进度）。改法：只有扣除真正成功时才推进，失败（比如物品已被
-                        // 另一处并发消费掉、或本次事件描述的数量超过当前实际持有量）时本目标本次不
-                        // 计入任何进度——按"实际成功扣除量"推进，这里对齐 RemoveItem 的
-                        // 全有全无语义，成功即整个 take 都算数，失败即 0。
-                        if (_inventoryHost.RemoveItem(evt.UnitId, evt.ItemInstanceId, take))
+                        // 旧实现无条件按事件携带的数量 take 推进进度，即使扣除失败也一样——失败时
+                        // 背包里其实一件都没扣，却仍然把 take 记进任务进度，会让同一件物品同时喂饱
+                        // 多个 consume 型目标（例如两条任务都要"消耗 1 个同款材料"，背包只有 1 个也
+                        // 都各自记满进度）。改法：只有扣除真正成功时才推进，失败时本目标本次不计入
+                        // 任何进度——按"实际成功扣除量"推进，成功即整个 take 都算数，失败即 0。
+                        //
+                        // N12 根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
+                        // 旧实现按 evt.ItemInstanceId 单个实例调用 IInventoryHost.RemoveItem——但
+                        // ItemAddedEvent 在跨堆叠合并新增（同一次 AddItem 把 toAdd 件分散填进多个
+                        // 既有堆叠/新建堆叠）时只携带 touchedInstanceId（最后一个被触碰的实例，见
+                        // InventoryHost.AddItem 判断记录），该实例未必持有完整 take 件——例如两个
+                        // consume 2 的任务各需要同款材料、库存原本各差 1 件，一次 AddItem(2) 把这 2
+                        // 件分别填进两个不同的既有堆叠，touchedInstanceId 只是其中一个、只有 1 件，
+                        // RemoveItem(touchedInstanceId, take=2) 因为该实例数量不足而整体失败（全有
+                        // 全无语义），consume 进度因此永远推进不了（stack1 一次加 2 时 consume2
+                        // 进度为 0 的原始复现）。改用与 RemoveCollectedItems（TurnIn 交付时的既有
+                        // 逻辑，见该方法）同款"按模板 id 跨堆叠扣除"，不依赖事件携带的单一实例 id，
+                        // 也不需要等待 core/carriers 一侧扩展 ItemRemovedEvent 携带按实例分解的
+                        // 移除清单——两条独立路径按各自可用的信息分别根治同一类"跨堆叠丢粒度"问题。
+                        if (RemoveCollectedItems(evt.UnitId, objective.TargetRef, take))
                         {
                             UpdateProgress(evt.UnitId, key.QuestId, i, take);
                         }

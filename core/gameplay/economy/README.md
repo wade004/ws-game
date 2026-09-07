@@ -83,6 +83,16 @@ economy/
    `sourceId` 是 `vendorId`，`Buy` 扣款的 `sourceId` 是 `unitId` 自己），`IEconomyHost.Add` 本身不做
    任何权限检查（惯例同 `core/gameplay/world_state.IWorldState.Set`"谁能写"）。
 
+8. **N01 收口（外部审核 68c9bed）：`CurrencyPersistable.Load` 是替换语义，不是叠加**——原实现
+   假定调用时该单位在 `EconomyHost` 内尚无任何余额记录，用 `Add`（增量）达到"设置为存档值"的效果
+   （`0 + savedValue = savedValue`），但这个假定在跨槽读档/运行中重新读同一存档等场景下不成立
+   （当前余额可能已经不是 0），实际效果变成"叠加"：存 100、运行中变 80、读档得 180，再读一次得
+   280。新增 `IEconomyHost.SetBalance(unitId, currencyId, amount)`（直接替换、按 `Cap` 夹取，不与
+   当前余额相加），`CurrencyPersistable.Load` 对快照出现的货币调用 `SetBalance`，对
+   `EconomyHost.CurrencyIds` 中快照未出现（`Save` 只写非零余额，缺省即为零）的货币显式置零——
+   连续多次 `Load` 同一份快照结果幂等。见 `EconomyHost.cs`（`SetBalance`）、
+   `CurrencyPersistable.cs`、`EconomyHostTests.cs`。
+
 ## 不负责什么
 
 - 不解决判断记录 1 描述的 `self.item_level`/`self.quality` 契约缺口本身。

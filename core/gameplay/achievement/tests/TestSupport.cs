@@ -71,7 +71,11 @@ namespace Tests.Gameplay.Achievement
     {
         public readonly List<(Id UnitId, RewardBundle Bundle, Id SourceId)> Grants = new List<(Id, RewardBundle, Id)>();
 
-        public void Grant(Id unitId, RewardBundle bundle, Id sourceId) => Grants.Add((unitId, bundle, sourceId));
+        public bool Grant(Id unitId, RewardBundle bundle, Id sourceId)
+        {
+            Grants.Add((unitId, bundle, sourceId));
+            return true;
+        }
     }
 
     /// <summary>最小 <see cref="IExprHostFactory"/> 假实现：只支持 <c>event.&lt;field&gt;</c>

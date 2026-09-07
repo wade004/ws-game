@@ -176,7 +176,11 @@ namespace Tests.Gameplay.Encounter
         public readonly List<(Id UnitId, Core.Gameplay.Common.RewardBundle Bundle, Id SourceId)> Grants =
             new List<(Id, Core.Gameplay.Common.RewardBundle, Id)>();
 
-        public void Grant(Id unitId, Core.Gameplay.Common.RewardBundle bundle, Id sourceId) => Grants.Add((unitId, bundle, sourceId));
+        public bool Grant(Id unitId, Core.Gameplay.Common.RewardBundle bundle, Id sourceId)
+        {
+            Grants.Add((unitId, bundle, sourceId));
+            return true;
+        }
     }
 
     /// <summary>可控 <see cref="IExprHostFactory"/> 假实现：<c>group.key</c> -&gt; 固定
