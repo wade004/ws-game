@@ -54,6 +54,23 @@ namespace Presentation.Render
         /// W6-B 引擎适配层，见落地计划"W6-B 接入清单"）。</summary>
         public static readonly Id HitFrameEventId = new Id("anim_event.hit_frame");
 
+        /// <summary>H5b 根治新增（游戏侧复核发现 1"model 路线没有完成回调"）："非循环剪辑自然播放
+        /// 完成"事件 id（同 <see cref="HitFrameEventId"/> 惯例，经 <see cref="IRenderer3D.OnAnimEvent"/>
+        /// 触发）——sprite 型路线经 <see cref="IFrameAnimPlayer.OnComplete"/> 有对等的独立回调通道
+        /// （见 <c>Adapter.Unity.Presentation.UnityViewFactory.AttachDefaultAnimation</c> 判断记录
+        /// "GP-02 根治"，接回 <c>AnimStateMachine.NotifyTransientStateFinished</c>），model 型此前没有
+        /// 对等通道——具体 <see cref="IRenderer3D"/> 实现（如 <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D"/>）
+        /// 现在必须在每次 <c>PlayAnim(loop: false)</c> 播放的剪辑自然播放完成时，经
+        /// <see cref="IRenderer3D.OnAnimEvent"/> 通道发出以本常量为 <c>eventId</c> 的一次事件（循环
+        /// 剪辑不发，见 02/09 勘误"引擎适配层必须在非循环剪辑结束时发出完成事件"）——这是 W6-B 之后
+        /// 追加给"条件必需接口 <see cref="IRenderer3D"/>"的新增契约义务，不是可选能力（未提供该实现
+        /// 的引擎适配层，其 model 型 Attack/Cast/Hit 等瞬态状态将永久卡死，见
+        /// <see cref="Presentation.Render.AnimStateMachine"/> 类型注释"回落"判断记录）。装配层（见
+        /// <c>Adapter.Unity.Presentation.UnityViewFactory.AttachDefaultModelAnimation</c>）负责把
+        /// 本事件接回 <c>AnimStateMachine.NotifyTransientStateFinished</c>，与 sprite 路线同一套接线
+        /// 目标，只是订阅的事件源不同。</summary>
+        public static readonly Id AnimFinishedEventId = new Id("anim_event.finished");
+
         /// <summary><see cref="PlayClip"/> 未提供混合时长参数（<see cref="ICharacterRig.PlayClip"/>
         /// 固定签名只有 clipId/loop/speed，见该接口方法判断记录"解析工作留给调用方"），本类型拍板一个
         /// 保守的默认混合时长，不产生生硬的瞬切；需要按剪辑/状态定制混合时长的调用方应改为直接调用

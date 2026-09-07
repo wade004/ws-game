@@ -237,7 +237,14 @@ namespace Tests.Foundation.EngineAdapter
         public void Renderer3D(string scenarioName)
         {
             var renderer = new StubRenderer3D();
-            Run(Renderer3DScenarios.All, scenarioName, renderer, NewStubContext());
+            var ctx = NewStubContext();
+            // H5b 根治新增：桩侧同步立即判定完成，见 StubRenderer3D.CompleteAnimForTest 判断记录。
+            ctx.CompleteNonLoopAnim = handle =>
+            {
+                renderer.CompleteAnimForTest(handle);
+                return ConformanceContext.EmptyStep();
+            };
+            Run(Renderer3DScenarios.All, scenarioName, renderer, ctx);
         }
 
         public static IEnumerable<object[]> CameraNames() => CameraScenarios.All.Select(s => new object[] { s.Name });

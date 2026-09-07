@@ -25,9 +25,62 @@ namespace Adapters.Conformance
             new ConformanceScenario<IRenderer3D>("放置与动画_按降级标志分别验证", PlacementAndAnim_RespectsSupportFlag),
             new ConformanceScenario<IRenderer3D>("槽位挂点材质阴影_按降级标志分别验证", SlotSocketMaterialShadow_RespectsSupportFlag),
             new ConformanceScenario<IRenderer3D>("OnAnimEvent_按降级标志分别验证", OnAnimEvent_RespectsSupportFlag),
+            new ConformanceScenario<IRenderer3D>("非循环剪辑结束发finished事件_循环剪辑不发_按降级标志分别验证", NonLoopClipFinishes_LoopClipDoesNot_RespectsSupportFlag),
         };
 
         private static readonly Id ModelId = new Id("model.placeholder_biped");
+
+        /// <summary>H5b 根治新增：与 model.placeholder_biped 的 AnimatorController 已声明的两个状态
+        /// 对应（见 Editor/GeneratePlaceholderModelAssets.cs：attack 非循环 0.5 秒，idle 循环
+        /// 1.0 秒）——BareName(clipId) 取末段即状态名，与 ModelId（"model.placeholder_biped"）不同：
+        /// 后者是模型资源 id，不对应任何 Animator 状态名，PlacementAndAnim_RespectsSupportFlag 场景
+        /// 把它当 clipId 传只是验证"调用不抛异常"，不真正驱动 Animator 播放；本场景需要真正驱动到
+        /// 具体状态，因此另取两个精确对应状态名的 clipId。</summary>
+        private static readonly Id AttackClipId = new Id("anim.placeholder.attack");
+        private static readonly Id IdleClipId = new Id("anim.placeholder.idle");
+
+        /// <summary>H5b 根治新增（游戏侧复核发现 1）：IRenderer3D 追加的契约义务——非循环剪辑
+        /// （<c>loop: false</c>）自然播放完成后必须经 OnAnimEvent 发出一次
+        /// "anim_event.finished"（与 Presentation.Render.ModelCharacterRig.AnimFinishedEventId 逐字
+        /// 相等），循环剪辑不发。声明降级路径复用前两条场景（PlacementAndAnim/OnAnimEvent）已经断言
+        /// 过的 NotSupportedException 契约，不在本场景重复断言同一件事。</summary>
+        private static IEnumerator NonLoopClipFinishes_LoopClipDoesNot_RespectsSupportFlag(IRenderer3D renderer, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            if (!ctx.SupportsRenderer3D)
+            {
+                yield break;
+            }
+
+            var handle = renderer.CreateModelInstance(ModelId);
+            var received = new List<Id>();
+            var subscription = renderer.OnAnimEvent(handle, (h, eventId) => received.Add(eventId));
+
+            // 非循环剪辑：自然播放完成后必须收到一次完成事件。
+            renderer.PlayAnim(handle, AttackClipId, loop: false, speed: 1.0, blendSeconds: 0.0);
+            if (ctx.CompleteNonLoopAnim != null)
+            {
+                yield return ctx.CompleteNonLoopAnim(handle);
+            }
+            assert.True(received.Contains(ModelCharacterRigAnimFinishedEventId), "非循环剪辑自然播放完成后应当收到一次 anim_event.finished");
+
+            received.Clear();
+
+            // 循环剪辑：不应该收到完成事件。
+            renderer.PlayAnim(handle, IdleClipId, loop: true, speed: 1.0, blendSeconds: 0.0);
+            if (ctx.CompleteNonLoopAnim != null)
+            {
+                yield return ctx.CompleteNonLoopAnim(handle);
+            }
+            assert.False(received.Contains(ModelCharacterRigAnimFinishedEventId), "循环剪辑不应该触发 anim_event.finished");
+
+            subscription.Dispose();
+            renderer.DestroyModelInstance(handle);
+        }
+
+        /// <summary>H5b 根治新增：与 Presentation.Render.ModelCharacterRig.AnimFinishedEventId 逐字
+        /// 相等的本地常量——adapters/conformance 不引用 presentation/（同类分层惯例见
+        /// adapters/stub/StubRenderer3D.cs 同款判断记录），改本地按同一约定构造一份。</summary>
+        private static readonly Id ModelCharacterRigAnimFinishedEventId = new Id("anim_event.finished");
 
         private static IEnumerator CreateThenDestroy_RespectsSupportFlag(IRenderer3D renderer, IConformanceAssert assert, ConformanceContext ctx)
         {

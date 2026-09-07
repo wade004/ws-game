@@ -115,6 +115,33 @@ namespace Presentation.Render
         /// </summary>
         public event Action<Id, AnimState, AnimState, Id?>? StateChangedWithSkill;
 
+        /// <summary>
+        /// H5b 根治（游戏侧复核发现 2"同状态重入不重播"）：瞬态状态（<see cref="AnimState.Jump"/>/
+        /// <see cref="AnimState.Attack"/>/<see cref="AnimState.Cast"/>/<see cref="AnimState.Hit"/>）
+        /// 的"开始"类事件（<see cref="TryEnter"/> 的全部调用来源——<see cref="OnSkillCastStart"/>/
+        /// <see cref="OnCombatDamageDealt"/>/<see cref="RequestOverride"/>）在目标状态与当前状态相同
+        /// 时，此前直接静默返回（同 <see cref="SetState"/> 的"同一状态不重复触发 <see cref="StateChanged"/>"
+        /// 幂等约定），代价是"连续两次普攻，第二次在第一次动画播完前到达"这类场景下第二次攻击不会
+        /// 重播剪辑（<c>AnimClipResolver</c> 只在 <see cref="StateChangedWithSkill"/> 触发时才调用
+        /// <c>playClip</c>，同一状态不切换就不会再调一次）——对 <see cref="AnimState.Idle"/>/
+        /// <see cref="AnimState.Move"/> 这两个持续态而言"同状态不重播"是正确的幂等行为（移动方向不变
+        /// 不需要每帧重播一遍待机/移动剪辑），但对瞬态态而言，"游戏行为再次发生"（又打了一下、又读了
+        /// 一次条、又挨了一下）理应重播一遍完整的剪辑，不能被"状态数值没变"这一巧合掩盖。本事件因此
+        /// 单独区分"重触发"（同状态重入）与"切换"（<see cref="StateChanged"/>，状态数值真的变了）
+        /// 两种情形，供 <c>AnimClipResolver</c> 一类消费方对两者调用同一套"解析剪辑并播放"逻辑——
+        /// 播放器（<c>IFrameAnimPlayer.Play</c>/<c>IRenderer3D.PlayAnim</c>）本身对"再调用一次 Play"
+        /// 的语义就是"从头重新播放"（见 <see cref="Presentation.Render.FrameAnimPlayer.Play"/> 判断
+        /// 记录"不论是否已在播放同一剪辑，Play 恒重置 <c>_elapsedSeconds</c>/<c>_lastFrame</c>"），
+        /// 本状态机只需要在该重播的时机把这次调用转发出去，不需要自己实现任何"重播"机制。
+        /// <para>
+        /// 只在 <paramref name="state"/>（重入的目标状态）不是 <see cref="AnimState.Idle"/>/
+        /// <see cref="AnimState.Move"/> 时触发（见 <see cref="TryEnter"/> 判断记录）——运动态保持
+        /// 幂等，不受本事件影响；<see cref="AnimState.Death"/> 终态在 <see cref="TryEnter"/> 更早的
+        /// "当前已是 Death"检查里就已经返回，永远不会走到这里，不需要额外排除。
+        /// </para>
+        /// </summary>
+        public event Action<Id, AnimState, Id?>? StateRetriggered;
+
         public AnimStateMachine(IEventBus bus)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
@@ -249,6 +276,18 @@ namespace Presentation.Render
             var entry = GetOrCreate(entityId);
             if (entry.Current == AnimState.Death)
             {
+                return;
+            }
+
+            if (entry.Current == state)
+            {
+                // 见 StateRetriggered 判断记录：同状态重入——运动态保持幂等（不触发），瞬态状态
+                // （本方法当前唯一可能的取值范围，Idle/Move 从不经本方法进入，见 RequestOverride
+                // 判断记录）改为重触发一次，使调用方重播一遍完整剪辑。
+                if (state != AnimState.Idle && state != AnimState.Move)
+                {
+                    StateRetriggered?.Invoke(entityId, state, triggerSkillId);
+                }
                 return;
             }
 

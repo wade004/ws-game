@@ -165,6 +165,28 @@ namespace Adapters.Stub
             }
         }
 
+        /// <summary>H5b 根治新增（游戏侧复核发现 1）：测试用——同步判定"当前这次 PlayAnim 播放的剪辑
+        /// 已经自然播放完成"，只在最近一次 <see cref="PlayAnim"/> 是非循环（<c>loop: false</c>）时才
+        /// 经 <see cref="FireAnimEventForTest"/> 发出一次 <c>"anim_event.finished"</c>（与
+        /// <c>Presentation.Render.ModelCharacterRig.AnimFinishedEventId</c> 逐字相等）；循环剪辑或
+        /// 该句柄尚未播放过任何剪辑时 no-op——桩本身没有真实的时间/播放进度概念，本方法把
+        /// "自然播放完成"简化为"调用方显式声明这次播放已经结束"，供
+        /// <c>adapters/conformance/Renderer3DScenarios</c> 的对应场景经
+        /// <c>ConformanceContext.CompleteNonLoopAnim</c> 钩子统一驱动（Unity 侧改为真的等待若干真实
+        /// 帧，见该字段判断记录）。</summary>
+        public void CompleteAnimForTest(ModelHandle handle)
+        {
+            if (CurrentAnims.TryGetValue(handle.Value, out var anim) && !anim.Loop)
+            {
+                FireAnimEventForTest(handle, FinishedEventId);
+            }
+        }
+
+        /// <summary>H5b 根治新增：与 <see cref="Presentation.Render.ModelCharacterRig.AnimFinishedEventId"/>
+        /// 逐字相等的本地常量——本项目（<c>adapters/stub</c>）不引用 <c>presentation/</c>，不能直接
+        /// 复用该类型的静态字段（避免给桩实现新增一个跨层依赖），改本地按同一约定构造一份。</summary>
+        public static readonly Id FinishedEventId = new Id("anim_event.finished");
+
         private void EnsureAlive(ModelHandle handle)
         {
             if (!_alive.Contains(handle.Value))

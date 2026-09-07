@@ -313,5 +313,111 @@ namespace Tests.PresentationRender
 
             Assert.Contains((AnimState.Idle, AnimState.Cast), transitions);
         }
+
+        // ------------------------------------------------------------------
+        // H5b 根治（游戏侧复核发现 2）：StateRetriggered——同状态重入的瞬态态重播语义。
+        // ------------------------------------------------------------------
+
+        /// <summary>连续两次普攻，第二次在第一次 Attack 动画播完前到达（第一次没有调用
+        /// NotifyTransientStateFinished）：第二次不应静默丢弃，应触发 StateRetriggered，且不触发
+        /// StateChanged/StateChangedWithSkill（状态数值确实没变）。</summary>
+        [Fact]
+        public void SkillCastStart_SameStateReentry_Attack_RaisesStateRetriggered_NotStateChanged()
+        {
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+            var changedCount = 0;
+            var retriggered = new List<(AnimState State, Id? SkillId)>();
+            machine.StateChanged += (_, _, _) => changedCount++;
+            machine.StateRetriggered += (id, state, skillId) => retriggered.Add((state, skillId));
+
+            bus.PublishImmediate(new SkillCastStartEvent(Unit, new Id("skill.auto_attack"), 0.0));
+            Assert.Equal(AnimState.Attack, machine.GetState(Unit));
+            Assert.Equal(1, changedCount);
+            Assert.Empty(retriggered);
+
+            // 第二次普攻在第一次 Attack 动画播完之前到达：状态数值仍是 Attack，不产生 StateChanged，
+            // 但应该重触发一次，携带这次触发的技能 id。
+            bus.PublishImmediate(new SkillCastStartEvent(Unit, new Id("skill.auto_attack"), 0.0));
+            Assert.Equal(AnimState.Attack, machine.GetState(Unit));
+            Assert.Equal(1, changedCount);
+            Assert.Single(retriggered);
+            Assert.Equal((AnimState.Attack, (Id?)new Id("skill.auto_attack")), retriggered[0]);
+        }
+
+        /// <summary>连续两次受击（同一实体在第一次 Hit 动画播完前又挨了一下）同样应该重触发。</summary>
+        [Fact]
+        public void CombatDamageDealt_SameStateReentry_Hit_RaisesStateRetriggered()
+        {
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+            var retriggerCount = 0;
+            machine.StateRetriggered += (_, _, _) => retriggerCount++;
+
+            bus.PublishImmediate(new CombatDamageDealtEvent(
+                new Id("unit.attacker"), Unit, new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit));
+            Assert.Equal(AnimState.Hit, machine.GetState(Unit));
+            Assert.Equal(0, retriggerCount);
+
+            bus.PublishImmediate(new CombatDamageDealtEvent(
+                new Id("unit.attacker"), Unit, new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit));
+            Assert.Equal(AnimState.Hit, machine.GetState(Unit));
+            Assert.Equal(1, retriggerCount);
+        }
+
+        /// <summary>Idle/Move 等持续态保持幂等：同状态重入不应重触发（09 第 4.2 节勘误"持续态保持
+        /// 幂等"）。运动态本就不经 TryEnter（见 RequestOverride 判断记录），本用例断言
+        /// OnUnitStateChanged 路径确实不会意外触发 StateRetriggered。</summary>
+        [Fact]
+        public void UnitStateChanged_SameLocomotionReentry_DoesNotRaiseStateRetriggered()
+        {
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+            var retriggerCount = 0;
+            machine.StateRetriggered += (_, _, _) => retriggerCount++;
+
+            bus.PublishImmediate(new UnitStateChangedEvent(Unit, "Idle", "Walk"));
+            Assert.Equal(AnimState.Move, machine.GetState(Unit));
+
+            bus.PublishImmediate(new UnitStateChangedEvent(Unit, "Walk", "Run"));
+            Assert.Equal(AnimState.Move, machine.GetState(Unit));
+
+            Assert.Equal(0, retriggerCount);
+        }
+
+        /// <summary>Death 终态：TryEnter 更早的"当前已是 Death"检查直接返回，不应触发
+        /// StateRetriggered（终态之后全部事件都应被忽略，含重触发）。</summary>
+        [Fact]
+        public void UnitDied_AlreadyDead_FurtherDeathEvents_DoNotRaiseStateRetriggered()
+        {
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+            var retriggerCount = 0;
+            machine.StateRetriggered += (_, _, _) => retriggerCount++;
+
+            bus.PublishImmediate(new UnitDiedEvent(Unit, new Id("unit.attacker")));
+            Assert.Equal(AnimState.Death, machine.GetState(Unit));
+
+            bus.PublishImmediate(new UnitDiedEvent(Unit, new Id("unit.attacker")));
+            Assert.Equal(AnimState.Death, machine.GetState(Unit));
+            Assert.Equal(0, retriggerCount);
+        }
+
+        [Fact]
+        public void Dispose_UnsubscribesStateRetriggered_SubsequentReentryDoesNotInvokeCallback()
+        {
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+            var retriggerCount = 0;
+            machine.StateRetriggered += (_, _, _) => retriggerCount++;
+
+            bus.PublishImmediate(new SkillCastStartEvent(Unit, new Id("skill.auto_attack"), 0.0));
+            machine.Dispose();
+
+            // Dispose 已退订全部事件订阅，后续发布不应再驱动状态机（同 Dispose_UnsubscribesAll 既有
+            // 用例惯例），自然也不会有 StateRetriggered。
+            bus.PublishImmediate(new SkillCastStartEvent(Unit, new Id("skill.auto_attack"), 0.0));
+            Assert.Equal(0, retriggerCount);
+        }
     }
 }

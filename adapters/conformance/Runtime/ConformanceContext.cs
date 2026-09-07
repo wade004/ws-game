@@ -44,6 +44,17 @@ namespace Adapters.Conformance
         /// 两侧包装层各自设置本标志，场景据此决定断言"正常工作"还是"抛出 NotSupportedException"。</summary>
         public bool SupportsRenderer3D { get; set; } = true;
 
+        /// <summary>H5b 根治新增：驱动"当前这次 <c>IRenderer3D.PlayAnim</c> 播放的剪辑自然播放完成"
+        /// （见 <c>Renderer3DScenarios</c>"非循环剪辑结束发 finished 事件"场景、
+        /// <c>Presentation.Render.ModelCharacterRig.AnimFinishedEventId</c> 判断记录）——桩实现没有
+        /// 真实的时间推进概念，可以同步立即判定完成（见 <c>StubRenderer3D.CompleteAnimForTest</c>）；
+        /// Unity 实现需要真的等待若干真实帧，直到 <c>UnityRenderer3D.Tick</c>（由
+        /// <c>UnityEngineHost.Update</c> 驱动）侦测到 Animator/Animation 的播放进度自然到达终点——两侧
+        /// 包装层各自用闭包捕获具体实现实例后设置本委托（惯例同 <see cref="TriggerWindowClose"/>），
+        /// 返回 <see cref="IEnumerator"/> 供场景 <c>yield return</c>（惯例同 <see cref="AdvanceTime"/>）。
+        /// 未设置时（场景与本能力无关的其它测试路径）默认 null，场景使用前应先判空。</summary>
+        public Func<Core.Foundation.EngineAdapter.ModelHandle, IEnumerator>? CompleteNonLoopAnim { get; set; }
+
         /// <summary>模拟"下一次写入失败但保持旧内容不变"（对应 StubFileSystem.FailNextWrite，
         /// 一个只有桩才能确定性触发的测试专用开关）。Unity 的真实文件系统没有同等确定性的触发
         /// 方式，包装层留空，场景据此调用 <see cref="IConformanceAssert.Skip"/>。</summary>
