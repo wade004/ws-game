@@ -1,0 +1,7 @@
+PLAY_UPDATE elapsed=0.35 frame_rate=10 total_frames=10 current_frame=3
+FRAME_CHANGED_SEQUENCE=0,3
+ANIM_EVENTS= hit_event_count=0
+EXPECTED current_frame=3; hit_frame event would require crossing frame 2, but implementation only fires at exact landed frame
+
+[HARNESS] command=dotnet run --project FrameAnimProbe.csproj -c Release
+[HARNESS] exit_code=0 elapsed_ms=1044

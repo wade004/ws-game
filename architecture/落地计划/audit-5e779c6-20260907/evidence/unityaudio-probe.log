@@ -1,0 +1,9 @@
+MUSIC_AFTER_PLAY incoming=B? clipA=null clipB=music.a playingA=False playingB=True volA=0 volB=0
+MUSIC_AFTER_TICK_0.5 playingA=False playingB=True volA=0.5 volB=0
+MUSIC_AFTER_STOP_0 playingA=False playingB=True
+SFX_AFTER_PLAY handle=1 pool=1 activeSource=True
+SFX_AFTER_NATURAL_END pool=1 activeFlag=True sourcePlaying=False
+SFX_SECOND_PLAY handle=2 pool=2
+
+[HARNESS] command=dotnet run --project UnityAudioProbe.csproj -c Release --no-restore
+[HARNESS] exit_code=0 elapsed_ms=787

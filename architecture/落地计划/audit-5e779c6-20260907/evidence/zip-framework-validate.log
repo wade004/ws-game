@@ -1,0 +1,10 @@
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5e779c6\zip-extract\ws-game-1.1.0\toolchain\validator\DiskFileSystem.cs(37,22): warning CS8632: 只能在 "#nullable" 注释上下文内的代码中使用可为 null 的引用类型的注释。 [C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5e779c6\zip-extract\ws-game-1.1.0\toolchain\validator\Validator.csproj]
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5e779c6\zip-extract\ws-game-1.1.0\toolchain\validator\Program.cs(214,114): warning CS8632: 只能在 "#nullable" 注释上下文内的代码中使用可为 null 的引用类型的注释。 [C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5e779c6\zip-extract\ws-game-1.1.0\toolchain\validator\Validator.csproj]
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5e779c6\zip-extract\ws-game-1.1.0\toolchain\validator\Program.cs(139,35): warning CS8632: 只能在 "#nullable" 注释上下文内的代码中使用可为 null 的引用类型的注释。 [C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5e779c6\zip-extract\ws-game-1.1.0\toolchain\validator\Validator.csproj]
+[warning] arch.power_type/arch.power.health/name_key: text_key_exists: l10n.text 表未加载，跳过文本键存在性检查
+tables 5, records 122, errors 0, warnings 1, overrides 0
+[第一道·骨架检查] checked 5 files across 1 root(s), 0 errors
+[第二道·真实校验] 正在运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: C:\Program Files\dotnet\dotnet.EXE run --project C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5e779c6\zip-extract\ws-game-1.1.0\toolchain\validator -- --data-root C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5e779c6\zip-extract\ws-game-1.1.0\data\_framework
+
+[HARNESS] command=python toolchain/validate_data.py --data-root data/_framework (extracted real zip)
+[HARNESS] exit_code=0 elapsed_ms=1832

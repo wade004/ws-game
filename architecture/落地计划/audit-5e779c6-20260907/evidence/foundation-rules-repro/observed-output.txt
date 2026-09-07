@@ -1,0 +1,15 @@
+ZERO_RECHARGE initial=1
+ZERO_RECHARGE after100s=0,ready=False,cooldown=0
+EXPIRED_PERIODIC calls=1
+RESTORE_RATING before=10
+RESTORE_RATING level=2,cached=10
+RESTORE_RATING recomputed=20
+NESTED_VALIDATION zero_recharge: errors=0,warnings=0,blocking=False
+NESTED_PARSE zero_recharge: ok
+NESTED_VALIDATION missing_kind: errors=0,warnings=0,blocking=False
+NESTED_PARSE missing_kind: KeyNotFoundException: JsonObject 不含键 "kind"
+NESTED_VALIDATION bad_cost: errors=0,warnings=0,blocking=False
+NESTED_PARSE bad_cost: InvalidCastException: Unable to cast object of type 'Core.Foundation.Common.Json.JsonNumber' to type 'Core.Foundation.Common.Json.JsonObject'.
+HYBRID switched=Discrete,simtimer=2,skillcooldown=10
+HYBRID after2rounds skillcooldown=8,auraActive=True
+EXPIRED_PERIODIC_FIXED dt=0.1,duration=0.25,interval=0.3,calls=1

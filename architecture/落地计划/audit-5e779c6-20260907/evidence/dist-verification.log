@@ -1,0 +1,12 @@
+ELAPSED_MS=203
+
+[CLEAN_VERIFY] manifest_hash_count=6 lock_version=1.1.0 lock_commit=5e779c6
+[CLEAN_VERIFY] DLL Core.Carriers.dll manifest_match=True lock_match=True actual=a8e77ded6614274dcd468c3e0ba46d5f0050f61cccf2a4428370fb5a0e4dee07
+[CLEAN_VERIFY] DLL Core.Foundation.dll manifest_match=True lock_match=True actual=b52b9c78850c33563e5c030d3b407fa44240a9b8a52a8e6528f5fe9df80ea17f
+[CLEAN_VERIFY] DLL Core.Gameplay.dll manifest_match=True lock_match=True actual=4dae0bea0c386ec23ffebd8058b17b4764a63feade04b59d671ca55521da1b76
+[CLEAN_VERIFY] DLL Core.Numbers.dll manifest_match=True lock_match=True actual=38275d2dcd78f0fd759983dca7b13e5e6a8b021c5f492254878cd82175178db8
+[CLEAN_VERIFY] DLL Core.Rules.dll manifest_match=True lock_match=True actual=c8bdbb26848604f34318d1013d1aac532d5fbb98036a7de035815b9e4571ff29
+[CLEAN_VERIFY] DLL Presentation.Common.dll manifest_match=True lock_match=True actual=9898cf1f506ccb238c44666f62f52c4e01ef0d54563d844e9bd37573cd6d3147
+[CLEAN_VERIFY] lock_manifest_commit_match=True
+[CLEAN_VERIFY] adapter_package_files source=181 dist=181 hash_diffs=1 differing_paths=package.json
+[CLEAN_VERIFY] zip_exists=True lock_exists=True

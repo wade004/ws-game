@@ -1,0 +1,4 @@
+command=check.ps1 -SkipUnity -ArtifactsPath C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5e779c6\check-artifacts -LogFile C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5e779c6\check.log
+exit_code=0
+elapsed_ms=32440
+log=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5e779c6\check.log
