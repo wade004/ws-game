@@ -76,6 +76,23 @@ dialog/
 6. **`StoryBranchDef.NextNodeId` 的终止语义细化到分支粒度**：详见
    `schema/dialog.story_tree.md`"分支粒度的终止语义"一节。
 
+7. **GP-05 收口（第四方深度审核）：`ChooseOption`/`AdvanceStory` 执行前重验 `VisibleIf`/
+   `Condition`**：原实现只在"构造视图给 UI 显示"（`OpenGossip`/`GetGossipView` 等）那一刻按
+   `VisibleIf`/`Condition` 过滤一次，玩家看到选项到真正点击执行之间世界状态可能已经变化（另一
+   渠道推进了任务、物品被消耗、标志被翻转），执行时完全不管当下是否还成立，客户端若缓存了旧的
+   选项索引就能强行执行一个"显示时已隐藏"的动作/分支。现在 `ChooseOption`/`AdvanceStory` 执行前
+   用当前世界状态重新求值同一个表达式，不成立则拒绝（不执行任何 Action、不改变任何状态、返回
+   false）；调用方（`DialogViewModel`）据此已订阅 quest/item/world 状态变化事件主动 `Refresh`，
+   尽量让玩家在点击前就已经看到最新的可见性。配套在 `core/gameplay/quest`
+   的 `QuestExprGroupProvider` 新增 `is_objectives_complete(questId)` 谓词——此前只有
+   `is_active`/`is_available`/`is_completed` 三档状态查询，`Active → ObjectivesComplete →
+   TurnedIn` 状态机里唯独 `ObjectivesComplete` 这一档没有对应查询，目标全部达标后 `is_active`
+   已变 false，"任务可交付时显示交任务选项"这类内容写法会在真正该显示交任务选项的时候被隐藏
+   （本条重验上线后，这个此前被"从不重验"掩盖的数据缺口才会真正表现为交互失败，`data/_sample/
+   dialog/dialog.gossip_menu.json` 的 `option_turn_in` 一并勘误改用新谓词）。见
+   `DialogHost.cs`、`presentation/ui/core/ViewModels/DialogViewModel.cs`、
+   `DialogHostTests.cs`、`presentation/ui/tests/ViewModelTests.cs`。
+
 ## 不负责什么
 
 - 不实现具体商店界面、传送执行、存档流程、遭遇启动的业务逻辑——四者全部经委托转发给调用方

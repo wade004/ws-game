@@ -82,6 +82,21 @@ encounter/
    影响，`EncounterHost` 本身仍然只负责登记与读取，不直接切换结算逻辑（执行方在
    `TimeModelSwitch`）。
 
+7. **GP-04 收口（第四方深度审核）：`GameplayAssembly.LeaveMap` 现在会终止绑定在该地图上的
+   Encounter/Level 运行**：原实现 `LeaveMap` 只卸载 `AreaTrigger`/`Spawn`，从不触碰
+   `EncounterHost`/`LevelHost`——`EncounterTickHandler.EvaluateAll` 逐 tick 枚举
+   `ActiveInstanceIds` 全部活跃实例、不按地图过滤，A 图的遭遇会在玩家已经身处 B 图时继续被求值
+   （用 B 图的玩家位置判定 A 图遭遇的场地边界/胜负条件），可能误发波次、误判胜负发奖励、或反复
+   触发"离开边界重置"。`IEncounterHost`/`ILevelHost` 新增 `AbortForMap(mapId)`：`EncounterHost`
+   把该地图上仍 `IsActive` 的实例标记为不活跃并从活跃列表移除；`LevelHost` 释放该地图上运行的
+   `WonSubscription` 并清理运行记录（靠运行状态里记的 `Def.MapRef` 反查所属地图，不额外按 id
+   查表）。`GameplayAssembly.LeaveMap` 现按"先终止 Level（断开对外编排）、再终止 Encounter（终止
+   被编排的具体运行）"的顺序调用，并清空 `TimeModelSwitch` 的 pending override（离开地图不是
+   "遭遇结束"，不发 `won`/`lost`，需要显式清空，避免带着上一张图的战斗节奏覆盖进入下一张图）。
+   下次重新进图时 `Encounter.Start`/`Level.StartLevel` 会建立全新实例，不复用旧实例的波次/阶段
+   进度。见 `EncounterHost.cs`/`LevelHost.cs`/`GameplayAssembly.cs`，
+   `EncounterHostTests.cs`/`LevelHostTests.cs`。
+
 ## 不负责什么
 
 - 不实现 `spawn_ref` 参战来源的真实生成（见判断记录 2 的已知契约缺口）。

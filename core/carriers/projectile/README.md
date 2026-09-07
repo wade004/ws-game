@@ -106,6 +106,13 @@ projectile/
 7. **确定性**：飞行推进（速度 × dt）、命中判定（按距离排序取最近候选）均不引入任何非确定性
    随机源；`ProjectileHost.Advance` 按 `Id` 序数遍历全部存活投射物（惯例同
    `Core.Rules.Combat.CombatHost.Update`），保证同种子同输入同结果。
+8. **RC-09 收口（第四方深度审核）：先按剩余射程截段，再做墙/单位/终点测试**——原实现每 tick 先
+   把 `newPos` 按速度 × dt 整步推进（可能一步就跨过剩余的 `max_range`），再拿这个已经越界的
+   `newPos` 去跑 `TryResolveUnitHits`/撞墙判定，导致大步长（高速或低帧率）下能命中本该在射程外
+   的目标，`impact_on_expiry` 的到期判定中心点也因此偏移。现在 `Advance` 先算出本 tick 允许推进
+   的距离（不超过 `max_range - DistanceTraveled`），据此截段出 `newPos` 上限，再对这个截段后的
+   线段做单位/墙体/终点判定——保证"一步走完"与"拆成多个小 tick 走完"命中结果一致，射程外目标
+   不会被命中。见 `ProjectileHost.cs`、`ProjectileHostTests.cs`。
 
 ## 契约缺口 / 未覆盖内容
 

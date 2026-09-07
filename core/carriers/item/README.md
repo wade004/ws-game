@@ -75,6 +75,19 @@ item/
    需求判定使用（运行期使用）；两者虽然生命周期不同（一个是数据校验期，一个是运行期），仍放进
    同一个配置对象，方便宿主一次性配置该游戏的"物品口味"，同 `MovementOptions`/`InventoryOptions`
    等模块"一个配置类装下本模块全部策略配置项"的既有惯例。
+5. **FND-10 收口（第四方深度审核）：`EquipmentPersistable.Load` 是完整替换，不是合并**——原实现
+   只对快照里出现的槽位调用 Inject/Equip，从不清理调用前已经装备着、快照里没提到的旧物品，空档/
+   缺槽档读档因此不会清空/收窄装备。现在 `Load` 开头先调用
+   `EquipmentHost.ClearAllEquippedForLoad`（撤销全部联动、物品不放回背包）把单位重置到"无装备"，
+   再按快照从零重新 Inject/Equip；空快照清空装备、缺槽快照对应槽位归空、重复 `Load` 幂等、跨槽
+   恢复不再依赖 `Equip` 内部"换装放回背包"分支的副作用（那是为正常运行时换装设计的语义，与"读档
+   =回到快照那一刻"不同）。见 `ItemPersistable.cs` 类型顶部判断记录、`ItemPersistableTests.cs`。
+6. **RC-05 收口（第四方深度审核）：`SkillGranter` 按来源分离，不再是一个不分来源的 `HashSet`**——
+   原实现装备 Learn/卸下 Forget 共用一个 `HashSet<Id>`，卸一件装备会连带遗忘"永久学习"的技能，或
+   撤销另一件装备/来源共同授予的同一技能（共享光环/技能被误撤）。`SkillGranter` 现补第四个参数
+   `sourceId`（装备实例/来源标识），`EquipmentHost`/`CarriersAssembly` 按 `(unitId, skillId,
+   sourceId)` 分离追踪，只有最后一个引用该技能的来源被撤销时才真正 Forget；`SkillHost` 侧同理按
+   来源计数。见 `EquipmentHost.cs`/`CarriersAssembly.cs`、`EquipmentHostTests.cs`。
 
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 

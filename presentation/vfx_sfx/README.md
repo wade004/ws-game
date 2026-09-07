@@ -66,6 +66,16 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
    `ISfxPlayer` 契约没有 `Update` 方法（09 原文未定义，不新增契约方法）改为在下一次任意 `Play`
    调用开头惰性扫过期项。
 
+8. **GP-03 收口（第四方深度审核）：三处生产引导现在每帧真正调用 `VfxPlayer.Update`**——
+   `Update(dt)` 承担两件事：对象池 lifetime 到期回收（判断记录 4）与首次异步加载的 pending 超时
+   扫描（判断记录 7），两者都依赖被生产代码逐帧调用才会推进；原实现只有测试直接调用过
+   `Update`，`adapters/unity/.../GameFoundationBootstrap.cs`、
+   `adapters/unity/.../FrameworkResidentHost.cs`、`games/_template/Runtime/GameBootstrap.cs` 三处
+   生产帧循环都从未调用，导致循环特效不按 `lifetime` 停、迟迟不回调的加载请求永久积压（不会
+   触发超时诊断，也不会被清理）。现在三处 Bootstrap 的每帧推进链路里都加入 `Vfx.Update(dt)`
+   调用，与既有的 `Sfx` 惰性扫过期项（判断记录 7）一起构成完整的逐帧生命周期推进。见
+   `VfxPlayerTests.cs`。
+
 ## 不负责什么
 
 - 不接入 `data/_sample/`：本任务不新增示例数据文件，`schema/VfxSfxSchemas` 只声明表结构，测试用

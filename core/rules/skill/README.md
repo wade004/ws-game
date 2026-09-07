@@ -192,6 +192,35 @@ skill/
     免疫），不改变未接入方的既有行为；真实实现（`CreatureImmunityProvider`）在
     `core/carriers/creature`。
 
+22. **RC-01 收口（第四方深度审核）：触发链深度随事件传播，不止覆盖同步调用**：`CastPipeline`
+    原来的 `_triggerDepth` 只在同步方法调用栈内累计，Combat 侧的效果结算经 `IEventBus` 异步
+    `Enqueue`（`combat.heal_done` 等）后深度归零；无 ICD 的 `heal_done → trigger_skill(heal)`
+    可以跨越多个 `EventBus` 派发轮次持续循环，只靠 `EventBus.MaxDispatchPasses` 记诊断并暂停，
+    待处理事件仍会留存。`core/rules/common/contracts/ITriggerChainEvent.cs`（新增契约）让触发链
+    深度随事件本身传播——`ProcHost`/`CastPipeline` 产生的触发事件携带上一层深度 +1，达到
+    `MaxTriggerDepth` 上限即丢弃自循环，不依赖全局 pass 截断，不影响下一 tick 正常事件。见
+    `CastPipeline.cs`、`ProcHost.cs`、`ProcTests.cs`。
+23. **RC-03 收口（第四方深度审核）：`CastPipeline` 订阅死亡/销毁事件取消读条/引导/队列**：原实现
+    只处理控制/受伤中断，不订阅死亡/销毁——死亡者继续扣资源并结算，销毁后 `FinishCast` 访问已
+    注销的 `IPowerHost`/`IUnitAccess` 直接抛异常。现在订阅 `unit.died`/`entity.destroyed`，收到
+    后立即取消该单位当前读条/引导与排队请求、清冷却/锁定；`AdvanceOne`/`FinishCast` 完成前重验
+    施法者与目标仍然存在/存活。见 `CastPipelineDeathDestroyTests.cs`（新增）。
+24. **RC-04 收口（第四方深度审核）：AP 消费点后移到全部检查通过之后**：原实现在目标/射程/视线
+    检查之前就调用 `TryConsumeActionPoints`，AI 连续尝试失败技能会白白耗尽预算。现在扣点挪到
+    步骤 3～7 全部检查通过、真正开始读条/执行之前，无目标/超距/无视线三种失败各自不再消耗 AP。
+    见 `CastPipeline.cs`、`CastPipelineFailureTests.cs`。
+25. **RC-07 收口（第四方深度审核）：离散模式下学派锁也会衰减**：`AdvanceSchoolLocks` 原来只被
+    连续模式的 `CastPipeline.Update` 按秒调用，离散施法与轮末推进都不会调用它，学派锁在离散模式
+    下永久存在。现在离散轮末（`SkillHost` 收到轮结束通知时）同样推进一次，且与连续模式的按秒
+    推进互斥（不会同一场战斗被双重扣减）。见 `CastPipeline.cs`/`SkillHost.cs`、
+    `DiscreteModeCastPipelineTests.cs`（新增）。
+26. **RC-08 收口（第四方深度审核）：移动中断改为生产环境真的会触发，不再只是一个未接线的入口**：
+    `interrupt_flags: movement` 此前只有 `CastPipeline.NotifyMoved` 这个方法定义，没有任何生产
+    代码调用它——真实移动只发布 `unit.moved` 事件，`SkillHost` 并未订阅，声明了 movement
+    interrupt 的读条实际上可以边移动边完成。现在 `SkillHost` 构造期订阅 `unit.moved`，成功位移
+    时同步调用 `NotifyMoved`；被阻挡（未真正发生位移）不触发。见 `SkillHost.cs`、
+    `MovementInterruptWiringTests.cs`（新增）。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全

@@ -108,6 +108,16 @@ combat/
     "school.physical 用护甲"，但架构总则要求框架不绑定具体游戏内容；把它做成可覆盖的默认值，
     游戏层改学派命名时不需要改本模块源码。
 
+13. **RC-02 收口（第四方深度审核）：订阅 `entity.destroyed` 做幂等战斗清理**——原实现只有
+    `Update` 里的脱战延迟到期才处理某单位的进出战状态，生物销毁（如 `CreatureFactory.Despawn`）
+    先同步注销该单位在 `IPowerHost`/`IStatHost` 的注册，`CombatHost` 自己的 `_inCombat`/
+    `_timeSinceLastEvent` 与 `ThreatTable` 双向仇恨条目完全不感知这一事件，等下一次 `Update` 因
+    脱战延迟到期才尝试处理该单位时，`Powers.SetInCombat` 访问已注销单位直接抛异常。现在
+    `CombatHost` 构造期订阅 `entity.destroyed`，收到后立即幂等清理 `_inCombat`/
+    `_timeSinceLastEvent`（`Dictionary.Remove` 对不存在 key 安全）与 `ThreatTable` 里该单位的
+    双向仇恨条目（`Clear`/`RemoveSourceEverywhere` 对空表/不存在来源安全），不触碰任何
+    `IPowerHost`/`IStatHost` API。见 `CombatHost.cs`、`CombatEnterLeaveTests.cs`。
+
 13. **`CombatTickHandler` 只负责脱战计时推进**：结算本身（`ICombatHost.ResolveEffect`）由
     skill 模块在效果原语落地的那一刻同步调用，不经 tick 编排；`CombatTickHandler` 把
     `ICombatHost.Update(dt)`（脱战判定）接到 `TickPhase.CombatResolution`，连续步按

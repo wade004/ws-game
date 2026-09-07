@@ -131,3 +131,12 @@ idle → patrol → chase → combat → return → flee
    处理"的抽象描述不完全一致，任务书对 06 §6.2/6.5 的具体措辞（`CastSkill`+`ai.decision_made`）
    是更具体的拍板，本模块按任务书措辞实现；技能类意图是否也应该改走"提交 `cast` 类型 Intent 交给
    技能管线阶段处理"是集成期可能需要重新核对的点，本模块不擅自决定。
+5. **RC-10 收口（第四方深度审核）：只有"敌对单体"技能才把当前追踪目标强塞给 `CastSkill`**——
+   原实现对 Rotation 里的每一条都无条件把 `state.Target` 当成目标传给 `CastSkill`，`CastPipeline`
+   见到非空 `targets` 就跳过技能自身的目标链解析，导致自疗可能作用到敌人、友疗/AOE 的目标过滤
+   形同虚设。`LoadRotations` 现在按 `skill.def.target_shape_ref` 只读探测（`filters` 含
+   `relation:hostile`、不含 `relation:friendly`、`max_targets` 为 1）把每条 Rotation 条目分类为
+   `CompiledRotationEntry.IsHostileSingleTarget`；只有分类为真时才强塞 `state.Target`，其余一律
+   传空数组，交由技能自己的 `target_shape_ref` 目标链解析（自疗/友疗/AOE 走各自 chain）。技能
+   未登记/字段读取异常等任何"读不出"情形保守判 false（不强塞，比猜错更安全）。见
+   `AiHost.cs`/`CompiledRotationEntry.cs`、`AiRotationTargetingTests.cs`。

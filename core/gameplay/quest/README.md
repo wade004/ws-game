@@ -90,6 +90,23 @@ quest/
    这三个字段是"08 原文未列出，任务书拍板补录"，但当前版本 08 第 2.1 节字段表与 `QuestObjective`
    结构原文实际已经收录它们，二者字段集合本身一致，只是代码注释的说法有点滞后（推测是 08 文档在
    本模块实现后又经历过一轮勘误补充）。
+7. **GP-01 收口（第四方深度审核）：`QuestPersistable.Load` 是完整替换，不是合并**——原实现只对
+   快照里出现的 questId 调用 `RestoreProgress`，从不清理调用前已经 Accept/推进的、快照里没提到的
+   任务，空档/旧档读档因此不会清空/回滚任务日志、完成次数、每日记录。现在 `Load` 按快照全量替换
+   单位的任务运行期状态（先清空再按快照重建），空快照回到"无任何任务"、快照里没有的任务被移除、
+   重复 `Load` 幂等、跨槽读档不残留。见 `QuestPersistable.cs`、`QuestPersistableTests.cs`。
+8. **GP-07 收口（第四方深度审核）：consume 型 collect 目标按实际成功扣除量推进，不按事件携带的
+   请求量推进**——原实现无条件按 `item.removed` 事件携带的 `take` 推进进度，即使
+   `IInventoryHost.RemoveItem` 扣除失败（返回 false，"全有全无"语义）也一样，会让同一件物品同时
+   喂饱多个 consume 型目标。现在只有 `RemoveItem` 真正返回成功时才 `UpdateProgress`，失败本次不
+   计入任何进度。见 `QuestHost.cs`（`HandleItemRemoved` 分支）、`QuestHostTests.cs`。
+9. **GP-08 收口（第四方深度审核）：非消耗型（`consumeOnProgress == false`）collect 目标接取瞬间
+   按当前库存初始化进度**——原实现无条件从 0 起算，只靠后续 `item.added`/`item.removed` 事件被动
+   推进；若玩家在接取任务前就已经持有足量目标物品（先攒够材料再接任务是常见玩法顺序），任务会
+   错误显示"尚未收集"，要再触发一次物品增减事件才被动纠正。`Accept` 现在对每个非消耗型 collect
+   目标立即调用 `SetObjectiveAbsolute(..., _inventoryHost.CountOf(unitId, targetRef))`，可能直接
+   达成 `ObjectivesComplete`；消耗型目标语义是"接取后主动上交"，不倒扣已有库存，不受本条影响。
+   见 `QuestHost.cs`（`Accept` 方法）、`QuestHostTests.cs`。
 
 ## 不负责什么
 
