@@ -443,5 +443,65 @@ namespace Tests.Foundation.SaveSystem
             // 连续步"生效；摘要本身是否等于某个具体值不是本用例关心的点（FixedDamageHandler 对
             // Continuous 步不做任何事，具体数值断言已由上面 JSON 往返/直跑对比两个用例覆盖）。
         }
+
+        // -----------------------------------------------------------------
+        // FND-06 收口回归（外部审核 code-review.md）：同一 ReplayPlayer 实例二次 Load 此前既不清空
+        // 事件审计基线、也不释放旧世界的 EventBus 订阅——见 ReplayPlayer.cs 类型顶部
+        // "_auditBaselineIndex"/"DisposeCurrentWorld" 判断记录。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ReplayPlayer_SecondLoad_DisposesPreviousWorld_AndSecondPlaybackEventLogMatchesDirectRun_NotDoubled()
+        {
+            var capturedWorlds = new List<WorldSim>();
+
+            (IWorldSim World, IRngHost Rng) BuildWorldCapturing(ulong masterSeed, IEventBus bus)
+            {
+                var world = new WorldSim(bus);
+                world.AddEntity(new TestEntity(UnitA, MapId) { Position = new Vec2(AHp, 0) });
+                world.AddEntity(new TestEntity(UnitB, MapId) { Position = new Vec2(BHp, 0) });
+                world.RegisterPhaseHandler(TickPhase.CombatResolution, new FixedDamageHandler());
+                capturedWorlds.Add(world);
+                return (world, new RngHost(masterSeed));
+            }
+
+            var (liveWorld, liveAudit, replay, finalTick) = RecordFight();
+            var liveSnapshot = WorldSnapshot.Capture(finalTick, ToEventLog(liveAudit), liveWorld);
+
+            var (replayBus, replayAudit) = CreateAuditedBus();
+            var player = new ReplayPlayer(BuildWorldCapturing, replayBus, replayAudit);
+
+            player.Load(replay);
+            var firstSnapshot = player.StepTo(finalTick);
+            Assert.Equal(liveSnapshot.EventLog, firstSnapshot.EventLog);
+            Assert.Single(capturedWorlds);
+            Assert.False(capturedWorlds[0].IsDisposed);
+
+            // 复现前置条件（对应 FND-06"触发"描述）：同一实例二次 Load 同一份录像。
+            player.Load(replay);
+
+            // 1) 旧世界应已被释放（不再因构造函数里的 sim.round_ended 订阅被 bus 强引用存活）。
+            Assert.Equal(2, capturedWorlds.Count);
+            Assert.True(capturedWorlds[0].IsDisposed, "旧世界应在第二次 Load 时被释放（FND-06）");
+            Assert.False(capturedWorlds[1].IsDisposed);
+
+            // 2) 第二次播放的 EventLog/Digest 应与直跑完全一致——不夹带第一次播放遗留的事件 key
+            //    （修复前 BuildEventLog 恒从 _audit.Records[0] 开始，第二次的 EventLog 长度会是
+            //    直跑的两倍，且 Digest 必然不等）。
+            var secondSnapshot = player.StepTo(finalTick);
+            Assert.Equal(liveSnapshot.EventLog, secondSnapshot.EventLog);
+            Assert.Equal(liveSnapshot.Digest, secondSnapshot.Digest);
+            Assert.Equal(firstSnapshot.EventLog, secondSnapshot.EventLog);
+            Assert.Equal(firstSnapshot.Digest, secondSnapshot.Digest);
+
+            // Dispose：显式终结点释放当前世界，之后任何调用都拒绝静默继续。
+            player.Dispose();
+            Assert.True(capturedWorlds[1].IsDisposed);
+            Assert.Throws<ObjectDisposedException>(() => player.StepTo(finalTick));
+            Assert.Throws<ObjectDisposedException>(() => player.Load(replay));
+
+            // Dispose 幂等：重复调用不抛异常。
+            player.Dispose();
+        }
     }
 }

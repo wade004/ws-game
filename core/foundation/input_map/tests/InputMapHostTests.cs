@@ -95,6 +95,57 @@ namespace Tests.Foundation.InputMap
             Assert.Equal(2, triggerCount);
         }
 
+        /// <summary>FND-08 收口回归（外部审核 code-review.md，验证复现 validation-boundaries.md
+        /// FND08）：同一批 <c>PollEvents()</c> 内同一个键先 <c>KeyDown</c> 后 <c>KeyUp</c>（点击类
+        /// 交互在一次 <see cref="InputMapHost.Update"/> 调用内就完成按下与释放，例如轮询间隔较大或
+        /// 玩家操作很快时很常见）此前会被"批次末持有集合净效果"判定为"没有变化"，
+        /// <see cref="InputActionTriggeredEvent"/> 完全不触发；本用例验证同帧 down+up 仍会触发
+        /// 恰好一次，随后正确回到未按住状态，且不影响跨帧的正常按下/持续按住/释放行为。</summary>
+        [Fact]
+        public void Update_KeyDownAndUpInSameBatch_StillFiresTriggeredOnce_AndEndsNotActive()
+        {
+            var bus = MakeBus();
+            var host = new InputMapHost(bus);
+            host.DeclareActionSet(new Id("input.set.gameplay"), new[] { Button("input.action.q", "key:q") });
+            var stub = new StubInput();
+            var triggerCount = 0;
+            bus.Subscribe<InputActionTriggeredEvent>(InputMapEventKeys.ActionTriggered, e =>
+            {
+                if (e.ActionName == "input.action.q") triggerCount++;
+            });
+
+            // 同一批：down 紧接着 up，两个事件在同一次 PollEvents() 里一起交给 Update。
+            stub.Press("q");
+            stub.Release("q");
+            host.Update(stub);
+            bus.DispatchPending();
+
+            Assert.Equal(1, triggerCount); // 按下边沿仍应被计入一次，不因同帧内又释放而丢失。
+            Assert.False(host.IsActionActive("input.action.q")); // 批次末净效果是"未按住"，如实反映。
+
+            // 跨帧行为不受影响：下一批没有任何事件，不应凭空再触发一次。
+            host.Update(stub);
+            bus.DispatchPending();
+            Assert.Equal(1, triggerCount);
+
+            // 正常的跨帧 down → held → up 仍然只在真正按下的那一帧触发一次。
+            stub.Press("q");
+            host.Update(stub);
+            bus.DispatchPending();
+            Assert.Equal(2, triggerCount);
+            Assert.True(host.IsActionActive("input.action.q"));
+
+            host.Update(stub); // 持续按住，不应重复触发。
+            bus.DispatchPending();
+            Assert.Equal(2, triggerCount);
+
+            stub.Release("q");
+            host.Update(stub);
+            bus.DispatchPending();
+            Assert.Equal(2, triggerCount);
+            Assert.False(host.IsActionActive("input.action.q"));
+        }
+
         [Fact]
         public void Update_MouseAndPadButtonBindings_ActivateAction()
         {

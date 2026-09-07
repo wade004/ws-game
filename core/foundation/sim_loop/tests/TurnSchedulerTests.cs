@@ -337,6 +337,28 @@ namespace Tests.Foundation.SimLoop
             Assert.Equal(new[] { Foe1, Foe2, Hero }, scheduler.GetOrder());
         }
 
+        /// <summary>FND-05 收口回归（外部审核 code-review.md，验证复现 validation-repros.txt R5）：
+        /// fixed_order 分支此前在 <c>_order.Add(id)</c> 后直接 return，跳过了给中途加入的参与者
+        /// 分配本轮行动点账本这一步（该步骤在 initiative_stat/action_points 两个分支能正常执行，
+        /// 只有 fixed_order 因为提前 return 漏掉了）——中途加入的单位因此
+        /// <see cref="ITurnScheduler.GetActionPointsRemaining"/> 恒为 0，
+        /// <see cref="ITurnScheduler.TryConsumeActionPoints"/>（供移动预算等系统使用，见该方法
+        /// 判断记录"先攻策略只决定顺序，不决定是否记账"）恒返回 false。</summary>
+        [Fact]
+        public void AddParticipant_FixedOrder_GrantsFullActionPointBudget_LikeOtherPolicies()
+        {
+            var (scheduler, _, _, _) = Build();
+            scheduler.Configure(InitiativePolicy.FixedOrder,
+                new Dictionary<string, object> { ["action_points_per_turn"] = 3.0 });
+            scheduler.BeginCombat(new[] { Foe1 });
+
+            scheduler.AddParticipant(Hero);
+
+            Assert.Equal(3.0, scheduler.GetActionPointsRemaining(Hero));
+            Assert.True(scheduler.TryConsumeActionPoints(Hero, 1.0));
+            Assert.Equal(2.0, scheduler.GetActionPointsRemaining(Hero));
+        }
+
         [Fact]
         public void AddParticipant_InitiativeStat_InsertsByValue_AmongFutureActorsOnly_NotAheadOfCurrent()
         {

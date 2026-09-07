@@ -11,7 +11,7 @@ namespace Core.Foundation.SimLoop
     /// 派发本 tick 产生的事件。阶段 7"事件派发"、阶段 8"生命周期清理"由本类自己执行，
     /// 外部不允许为这两个阶段注册处理器（见 <see cref="RegisterPhaseHandler"/>）。
     /// </summary>
-    public sealed class WorldSim : IWorldSim
+    public sealed class WorldSim : IWorldSim, IDisposable
     {
         private static readonly TickPhase[] RegistrablePhaseOrder =
         {
@@ -32,13 +32,18 @@ namespace Core.Foundation.SimLoop
 
         private readonly Dictionary<string, int> _idSequenceByKind = new Dictionary<string, int>();
 
-        // 判断记录（ClearAll 的计时器清空实现）：任务书把本次改动范围限定为"只允许给
-        // IWorldSim/WorldSim 增加 ClearAll()"，不允许连带修改 SimTimers.cs。SimTimers 未
-        // 暴露"清空全部计时器"的公开/内部方法，因此这里不新增该方法，改为把本字段从
-        // readonly 松绑为可重新赋值——ClearAll 直接换上一个全新的 SimTimers 实例，等价于
-        // "清空全部计时器"（旧实例持有的全部 TimerHandle 随之失效，IsAlive 返回 false），
-        // 且不触碰 SimTimers.cs 一个字符。
-        private SimTimers _timers = new SimTimers();
+        // 判断记录（FND-04 收口，代替此前"ClearAll 换新 SimTimers 实例"的做法）：早先的实现把
+        // 本字段从 readonly 松绑为可重新赋值，ClearAll 直接换上一个全新的 SimTimers 实例——
+        // 当时的任务书把改动范围限定为"只允许给 IWorldSim/WorldSim 增加 ClearAll()"，不允许连带
+        // 修改 SimTimers.cs。但换实例有一个严重副作用：新实例的 TimerHandle 编号从 1 重新开始，
+        // 任何跨 ClearAll 边界持有的旧 TimerHandle 值可能与清空后新创建的计时器句柄数值相同——
+        // 由于 WorldSim.Timers 属性此后一直返回同一个（新）实例，调用方对旧句柄调用
+        // ISimTimers.Cancel 会在数值碰撞时意外取消一个语义上完全无关的新计时器（详见外部审核
+        // FND-04：D:/workespace/ws-game-review-b3b91ee 下 audit-b3b91ee-20260907/code-review.md）。
+        // 现改为保持同一个 SimTimers 实例（宿主对象稳定），ClearAll 调用其新增的 Clear()
+        // 原地清空存活计时器——Clear() 不重置编号计数器，句柄值在实例生命周期内单调递增、永不
+        // 复用，彻底消除跨清空边界的数值碰撞（见 SimTimers.Clear 判断记录）。
+        private readonly SimTimers _timers = new SimTimers();
         private readonly List<string> _diagnosticsWarnings = new List<string>();
 
         // H4 补齐（意图路由缺口 1）：可选持有的离散路由依赖，见 AttachDiscreteRouting 判断记录。
@@ -62,6 +67,14 @@ namespace Core.Foundation.SimLoop
 
         private long _tickCounter;
 
+        // FND-06 收口（见 ReplayPlayer.cs 判断记录）：保存构造函数里 _bus.Subscribe 返回的句柄，
+        // 使本实例的 EventBus 订阅可以经 Dispose() 显式释放——此前没有任何途径取消这条订阅，
+        // 一个不再被任何人持有引用的 WorldSim 实例（例如 ReplayPlayer 第二次 Load 时被替换掉的
+        // 旧世界）仍会因为这条订阅继续被 _bus 的订阅者列表强引用，永久存活并对后续事件起反应
+        // （即便只是推进一个已经没有任何读者的 SimTimers，也是不该发生的资源泄漏与阶段串扰）。
+        private readonly SubscriptionHandle _roundEndedSubscription;
+        private bool _disposed;
+
         public WorldSim(IEventBus bus)
         {
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
@@ -76,8 +89,40 @@ namespace Core.Foundation.SimLoop
             // 声明为可选——WorldSim 本来就总是持有一份 IEventBus。sim.round_ended 只在
             // TurnScheduler.BeginCombat 之后才可能触发（见该类型），未使用离散模式的调用方
             // 这条订阅永远不会被触发，对连续模式零副作用。
-            _bus.Subscribe<SimRoundEndedEvent>(SimEventKeys.RoundEnded, _ => _timers.Advance(1.0));
+            _roundEndedSubscription = _bus.Subscribe<SimRoundEndedEvent>(SimEventKeys.RoundEnded, _ => _timers.Advance(1.0));
         }
+
+        /// <summary>
+        /// FND-06 收口新增：释放本实例在构造时对 <see cref="IEventBus"/> 建立的订阅（见上方
+        /// <see cref="_roundEndedSubscription"/> 字段判断记录）。<see cref="SubscriptionHandle.Dispose"/>
+        /// 本身幂等，本方法因此也是幂等的——可安全多次调用。不清空 <see cref="_entities"/> 等内部
+        /// 状态（那不是"释放外部资源"，是"重置内容"，已有 <see cref="ClearAll"/> 承担；两者职责
+        /// 不同：一个实例被 Dispose 之后不再可用，<see cref="ClearAll"/> 之后仍可继续使用）。调用方
+        /// 典型场景：<see cref="Core.Foundation.SaveSystem.ReplayPlayer"/> 在用新一次
+        /// <c>Load</c>/<c>LoadDiscrete</c> 换上一个新世界之前，先对旧世界调用本方法，避免旧世界
+        /// 因为这条挂在共享 <see cref="IEventBus"/> 上的订阅而被永久强引用、继续对新世界产生的事件
+        /// 起反应。<c>IWorldSim</c> 契约本身不要求 Dispose（只有本类型这个具体实现持有需要释放的
+        /// 订阅），因此本类型实现的是标准 <see cref="System.IDisposable"/>，而不是在 <c>IWorldSim</c>
+        /// 接口上新增该要求——那样会波及全部 <c>IWorldSim</c> 的调用方/测试替身，超出本条缺陷的
+        /// 修复范围（见本模块 README 判断记录）。
+        /// </summary>
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _roundEndedSubscription.Dispose();
+        }
+
+        /// <summary>是否已经被 <see cref="Dispose"/> 过（同 <see cref="SubscriptionHandle.IsDisposed"/>
+        /// 惯例）；不是 <see cref="IWorldSim"/> 契约的一部分，只读，供调用方/测试判断本实例是否
+        /// 已经释放了其 <see cref="IEventBus"/> 订阅——不影响 <see cref="Tick"/> 等其它方法在
+        /// Dispose 之后仍可调用（本类型未对已释放实例的继续使用做拦截，只保证订阅被取消；调用方
+        /// 若需要"用后即弃"的强保证应自行不再持有该引用）。</summary>
+        public bool IsDisposed => _disposed;
 
         /// <summary>
         /// H4 补齐（意图路由缺口 1，见 03 §3.2 步骤 3、TurnScheduler 类型顶部"主循环驱动协议"）：
@@ -367,9 +412,9 @@ namespace Core.Foundation.SimLoop
 
             _pendingDestruction.Clear();
 
-            // 见构造函数上方字段注释：换上全新 SimTimers 实例等价于清空全部计时器，
-            // 不需要 SimTimers 暴露专门的"清空"方法。
-            _timers = new SimTimers();
+            // 见构造函数上方字段注释（FND-04 收口）：原地清空同一个 SimTimers 实例，不再换实例，
+            // 避免 TimerHandle 编号重新从 1 计数导致跨清空边界的句柄数值碰撞。
+            _timers.Clear();
         }
 
         private void ExecutePhase(TickPhase phase, SimStep step)

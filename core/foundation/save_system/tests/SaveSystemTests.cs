@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Adapters.Stub;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
@@ -34,8 +35,9 @@ namespace Tests.Foundation.SaveSystem
 
         private static string SlotPath(string slotId, string savesDir = "saves") => $"user://{savesDir}/{slotId}.json";
 
+        // FND-01 收口：备份路径搬进独立子目录 backups/，见 SaveSystem.BackupPath 判断记录。
         private static string BackupPath(string slotId, int index, string savesDir = "saves") =>
-            $"user://{savesDir}/{slotId}.bak{index}.json";
+            $"user://{savesDir}/backups/{slotId}.bak{index}.json";
 
         // ---- 测试用 Persistable ------------------------------------------------
 
@@ -512,6 +514,106 @@ namespace Tests.Foundation.SaveSystem
             Assert.Equal("{ also broken", fs.ReadText(BackupPath("slot.all_corrupted", 1)));
         }
 
+        /// <summary>FND-07 收口回归（外部审核 code-review.md）：正式文件根本不存在（不是"存在但
+        /// 损坏"）、但备份完好时，此前 <c>Load</c> 会在检查 <c>_fs.Exists(formalPath)</c> 那一步
+        /// 就直接返回 <c>NotFound</c>，从不尝试任何备份——本用例验证修复后会正确回退到备份并
+        /// 返回 <c>LoadedFromBackup</c>。</summary>
+        [Fact]
+        public void Load_FormalFileMissing_BackupExists_FallsBackToBackup_ReturnsLoadedFromBackup()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.formal_missing");
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+
+            Assert.True(sut.Save(new SaveRequest(slotId, "t1")).Success);
+            Assert.True(sut.Save(new SaveRequest(slotId, "t2")).Success); // 此时 bak1 = t1 版本内容
+            Assert.True(fs.Exists(BackupPath("slot.formal_missing", 1)));
+
+            // 正式文件被删除（不经 DeleteSlot——只删正式文件，模拟"正式文件丢失但备份还在"）。
+            fs.DeleteFile(SlotPath("slot.formal_missing"));
+            Assert.False(sut.SlotExists(slotId));
+
+            var result = sut.Load(slotId);
+
+            Assert.Equal(LoadStatus.LoadedFromBackup, result.Status);
+            Assert.Equal("t1", result.Meta!.UpdatedAt);
+        }
+
+        /// <summary>FND-07 收口回归：信封校验此前只用 <c>ContainsKey</c> 判断
+        /// <c>save_version</c>/<c>sections</c> 两个字段是否存在，不检查类型——
+        /// <c>{"save_version":1,"sections":null}</c> 这类"字段名齐全、内容是垃圾"的正式文件
+        /// 会被当成合法候选放行，从此不再尝试任何备份，直到 <c>Load</c> 更深处的
+        /// <c>sections</c> 类型检查才失败，但那时已经错过了本该被尝试的有效备份。本用例验证：
+        /// <c>sections:null</c> 的正式文件被信封校验直接拒绝，正确回退到有效备份。</summary>
+        [Fact]
+        public void Load_FormalFileHasNullSections_TreatedAsInvalidEnvelope_FallsBackToBackup()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.null_sections");
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+
+            Assert.True(sut.Save(new SaveRequest(slotId, "t1")).Success);
+            Assert.True(sut.Save(new SaveRequest(slotId, "t2")).Success); // 此时 bak1 = t1 版本内容
+
+            // 人为把正式文件改成"字段名齐全但 sections 是 null"的浅层合法文档。
+            fs.WriteTextAtomic(SlotPath("slot.null_sections"), "{\"save_version\":1,\"sections\":null}");
+
+            var result = sut.Load(slotId);
+
+            Assert.Equal(LoadStatus.LoadedFromBackup, result.Status);
+            Assert.Equal("t1", result.Meta!.UpdatedAt);
+        }
+
+        // ==== 5a. FND-01 收口回归：备份路径与合法槽路径不再可能碰撞 =============
+
+        /// <summary>FND-01 收口回归（外部审核 code-review.md，验证复现 validation-repros.txt R3）：
+        /// 合法槽 `slot.a.bak1` 的正式文件名此前与槽 `slot.a` 的第 1 份备份路径逐字节相同——
+        /// 保存/覆盖 `slot.a` 会连带覆盖 `slot.a.bak1` 的内容，`ListSlots` 还会把 `slot.a.bak1`
+        /// 误判成备份而从结果里隐藏。本用例验证修复后两个槽完全独立：各自的内容互不覆盖，都能
+        /// 被 `ListSlots`/`Load`/`DeleteSlot` 正确处理。</summary>
+        [Fact]
+        public void SlotIdLooksLikeBackupFileName_IsIndependentFromRealBackup_ListedLoadedAndDeletedCorrectly()
+        {
+            var fs = new StubFileSystem();
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+            var lookAlikeSlot = new Id("slot.a.bak1"); // 名字"长得像" slot.a 的第 1 份备份。
+            var realSlot = new Id("slot.a");
+
+            var payload = new RecordingPersistable("custom.payload", new JsonString("X"));
+            sut.RegisterPersistable(payload);
+
+            // 先保存"长得像备份"的合法槽，写出内容 X。
+            payload.Value = new JsonString("X");
+            Assert.True(sut.Save(new SaveRequest(lookAlikeSlot, "t0")).Success);
+
+            // 再保存真正的 slot.a 两次，产生它自己的 bak1（内容应为 A，不应触碰 lookAlikeSlot）。
+            payload.Value = new JsonString("A");
+            Assert.True(sut.Save(new SaveRequest(realSlot, "t1")).Success);
+            payload.Value = new JsonString("B");
+            Assert.True(sut.Save(new SaveRequest(realSlot, "t2")).Success);
+
+            // 1) lookAlikeSlot 自己的正式文件内容不受 slot.a 备份轮转影响，仍是 X。
+            var lookAlikeLoad = sut.Load(lookAlikeSlot);
+            Assert.Equal(LoadStatus.Loaded, lookAlikeLoad.Status);
+            Assert.Equal("X", ((JsonString)payload.Value).Value);
+
+            // 2) slot.a 自己的备份（独立子目录）内容正确，是它自己迁移前的版本 A，不是 X。
+            var slotABackupText = fs.ReadText(BackupPath("slot.a", 1));
+            Assert.NotNull(slotABackupText);
+            Assert.Contains("\"A\"", slotABackupText);
+
+            // 3) ListSlots 同时列出两个槽（此前的按文件名过滤会把 lookAlikeSlot 隐藏）。
+            var slotIds = sut.ListSlots().Select(s => s.SlotId.Value).ToArray();
+            Assert.Contains("slot.a", slotIds);
+            Assert.Contains("slot.a.bak1", slotIds);
+            Assert.Equal(2, slotIds.Length);
+
+            // 4) 删除 lookAlikeSlot 不影响 slot.a 及其备份。
+            Assert.True(sut.DeleteSlot(lookAlikeSlot));
+            Assert.True(sut.SlotExists(realSlot));
+            Assert.True(fs.Exists(BackupPath("slot.a", 1)));
+        }
+
         // ==== 6. 写入失败 ========================================================
 
         [Fact]
@@ -599,6 +701,75 @@ namespace Tests.Foundation.SaveSystem
             var result = sut.Load(slotId);
 
             Assert.Equal(LoadStatus.MigrationFailed, result.Status);
+        }
+
+        /// <summary>FND-09 收口回归（外部审核 code-review.md，验证复现 validation-repros.txt R5
+        /// 对应场景）：登记了一条 <c>1 → 3</c> 的迁移函数，但当前运行时版本只到 2——此前的循环
+        /// 条件只看 <c>version &lt; CurrentSaveVersion</c>，跑完这一步后 version 变成 3（不再
+        /// 小于 2），循环误判"已到达终点"并返回成功，越级迁移到一个从未经过当前版本验证的结构。
+        /// 本用例验证：修复后这种"单步迁移会越过当前运行时版本"的情形被拒绝为
+        /// <c>MigrationFailed</c>，不加载任何段、不覆盖原始文件。</summary>
+        [Fact]
+        public void Load_MigrationStepOvershootsCurrentVersion_ReturnsMigrationFailed_DoesNotLoadSections()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.migrate_overshoot");
+
+            var v1Doc = new JsonObjectBuilder()
+                .Add("save_version", new JsonNumber(1))
+                .Add("sections", new JsonObjectBuilder()
+                    .Add(SaveSections.Meta, BuildMinimalMetaJson(1, "slot.migrate_overshoot"))
+                    .Add("legacy.notes", new JsonString("hello-v1"))
+                    .Build())
+                .Build();
+            fs.WriteTextAtomic(SlotPath("slot.migrate_overshoot"), JsonWriter.Write(v1Doc));
+
+            // 当前运行时版本只到 2，但登记的迁移函数是 1 → 3（越过了当前版本）。
+            var options = new SaveSystemOptions(GameId) { CurrentSaveVersion = 2 };
+            var sut = CreateSut(fs, options);
+            sut.RegisterMigration(new RenameSectionMigration(1, 3, "legacy.notes", "final.notes"));
+
+            var finalPersistable = new RecordingPersistable("final.notes", JsonNull.Instance);
+            sut.RegisterPersistable(finalPersistable);
+
+            var result = sut.Load(slotId);
+
+            Assert.Equal(LoadStatus.MigrationFailed, result.Status);
+            Assert.Equal(JsonNull.Instance, finalPersistable.Value); // 未被调用过 Load，仍是初始值。
+            // 原始文件保持不变（内容仍是迁移前的 v1 文档，未被覆盖/删除）。
+            Assert.Equal(JsonWriter.Write(v1Doc), fs.ReadText(SlotPath("slot.migrate_overshoot")));
+        }
+
+        /// <summary>FND-09 收口对照组：当前运行时版本恰好等于迁移函数的 ToVersion（不是"越过"，
+        /// 是"恰好到达"）时，同一条 <c>1 → 3</c> 迁移函数应当继续正常成功——收口只拒绝越界，不
+        /// 应误伤本来就合法的"终点恰好等于当前版本"场景。</summary>
+        [Fact]
+        public void Load_MigrationStepLandsExactlyOnCurrentVersion_StillSucceeds()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.migrate_exact");
+
+            var v1Doc = new JsonObjectBuilder()
+                .Add("save_version", new JsonNumber(1))
+                .Add("sections", new JsonObjectBuilder()
+                    .Add(SaveSections.Meta, BuildMinimalMetaJson(1, "slot.migrate_exact"))
+                    .Add("legacy.notes", new JsonString("hello-v1"))
+                    .Build())
+                .Build();
+            fs.WriteTextAtomic(SlotPath("slot.migrate_exact"), JsonWriter.Write(v1Doc));
+
+            var options = new SaveSystemOptions(GameId) { CurrentSaveVersion = 3 };
+            var sut = CreateSut(fs, options);
+            sut.RegisterMigration(new RenameSectionMigration(1, 3, "legacy.notes", "final.notes"));
+
+            var finalPersistable = new RecordingPersistable("final.notes", JsonNull.Instance);
+            sut.RegisterPersistable(finalPersistable);
+
+            var result = sut.Load(slotId);
+
+            Assert.Equal(LoadStatus.Loaded, result.Status);
+            Assert.Equal((int?)1, result.MigratedFromVersion);
+            Assert.Equal("hello-v1", ((JsonString)finalPersistable.Value).Value);
         }
 
         [Fact]

@@ -463,7 +463,19 @@ namespace Core.Foundation.SaveSystem
     /// 见本类型 T1-6 阶段的历史注释——占位已按任务书授权在本任务替换为具体类型）。
     /// 实现见 <see cref="ReplayPlayer"/>。
     /// </summary>
-    public interface IReplayPlayer
+    /// <summary>
+    /// FND-06 收口新增 <see cref="IDisposable"/>（外部审核 <c>code-review.md</c>；不是对
+    /// 10_存档与持久化.md 的勘误——该文档没有描述这个 C# 接口本身要不要可释放，属于本模块 API
+    /// 的实现细节补齐，与 <see cref="LoadResult.CurrentMapId"/> 那条判断记录同一惯例）：
+    /// <see cref="ReplayPlayer"/>（本接口目前唯一的实现）每次 <see cref="Load"/>/<see cref="LoadDiscrete"/>
+    /// 都会在装配新世界之前，先对上一次持有的世界尝试释放（若它实现了 <see cref="IDisposable"/>），
+    /// 已经做到"清空并释放"（任务拍板的两个等价选项之一）；本接口上的 <see cref="IDisposable"/>
+    /// 是给调用方一个显式的终结点——明确不会再使用这个播放器实例时调用 <see cref="IDisposable.Dispose"/>，
+    /// 释放它当前仍持有的世界。<b>不是</b>"拒绝二次 Load"：同一个实例可以安全地反复
+    /// <see cref="Load"/>/<see cref="LoadDiscrete"/> 不同录像，见 <see cref="ReplayPlayer.Dispose"/>
+    /// 判断记录。
+    /// </summary>
+    public interface IReplayPlayer : IDisposable
     {
         /// <summary>加载一份回放数据，准备从头播放。</summary>
         void Load(ReplayData data);

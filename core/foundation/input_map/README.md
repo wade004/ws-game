@@ -111,6 +111,19 @@ input_map/
    清除该标记；`ImportBindings` 不做冲突检测——设置文件被视为"此前已通过检测才落盘"的可信
    状态，格式错误（不是数组/元素非字符串/绑定字符串非法/引用未声明动作）仍然抛异常。
 
+10. **FND-08 收口（外部审核 `code-review.md`）：`Button` 动作的"是否触发一次
+    `InputActionTriggeredEvent`"按本批次内是否发生过真正的按下边沿判定，不是按"批次首尾两次
+    持有状态快照的差值"判定。** 此前 `Update` 先把 `PollEvents()` 整批事件全部应用到
+    `_keysDown`/`_mouseDown`/`_padDown` 三个"当前持有"集合，再统一对每个动作算一次
+    `active && !CurrentActive`；同一批次内同一个键先 `KeyDown` 后 `KeyUp`（点击类交互在一次
+    `Update` 调用内就完成按下与释放时很常见，见外部审核 FND-08、`validation-repros.txt`/
+    `validation-boundaries.md` FND08 复现）净效果是"没有变化"，这次真实发生过的按下会被完全
+    丢弃，`InputActionTriggeredEvent` 不触发。现改为逐事件维护三个"本批次按下边沿"集合
+    （`HashSet<string>.Add` 的返回值就是"这次调用是否发生了 0→1 转变"，天然处理了"同批次内
+    先释放后再次按下"应计两次边沿、"同批次内重复 Down 事件（引擎按键连发）"不重复计入两种
+    情形），批次末 `CurrentActive` 仍按持有集合的最终状态计算（"当前是否按住"与"是否应该触发
+    一次事件"是两个独立问题，不能用同一个布尔值回答）。
+
 ## 诊断
 
 `IInputMapDiagnostics`（默认实现 `InMemoryInputMapDiagnostics`）记录：`Rebind` 检测到同组

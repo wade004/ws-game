@@ -186,18 +186,35 @@ namespace Core.Foundation.InputMap
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
 
+            // FND-08 收口：本批次内逐事件维护的"按下边沿"集合（不是 _keysDown 等持有集合的别名，
+            // 只在本次 Update 调用期间存活，方法末尾随局部变量一起自然丢弃——不需要额外显式清空）。
+            // HashSet.Add 的返回值天然就是"这次调用是否真的发生了 0→1 转变"：同一批次内先 Up
+            // 后 Down（held→释放→本批次内重新按下）会先把 key 从 _keysDown 移除、再 Add 一次
+            // 返回 true，正确记一次新的按下边沿；同一批次内重复的 Down 事件（如引擎的按键连发）
+            // 第二次 Add 返回 false，不会被重复计入——语义与"逐事件回放真实时间线上的 0→1 转变"
+            // 完全一致，比"只看批次首尾两个快照"（此前的实现：批次末对 _keysDown 与
+            // CurrentActive 比较）更精确：down 紧接着 up 的按下边沿此前会被批次末的净效果
+            // （净值仍是"未按下"）完全抹掉，导致点击类操作在同一批次内完成时触发事件丢失。
+            var pressEdgeKeys = new HashSet<string>(StringComparer.Ordinal);
+            var pressEdgeMouse = new HashSet<string>(StringComparer.Ordinal);
+            var pressEdgePad = new HashSet<string>(StringComparer.Ordinal);
+
             var events = input.PollEvents();
             for (int i = 0; i < events.Count; i++)
             {
                 var evt = events[i];
                 switch (evt.Kind)
                 {
-                    case InputEventKind.KeyDown: _keysDown.Add(evt.Key); break;
+                    case InputEventKind.KeyDown:
+                        if (_keysDown.Add(evt.Key)) pressEdgeKeys.Add(evt.Key);
+                        break;
                     case InputEventKind.KeyUp: _keysDown.Remove(evt.Key); break;
-                    case InputEventKind.MouseButtonDown: _mouseDown.Add(evt.Key); break;
+                    case InputEventKind.MouseButtonDown:
+                        if (_mouseDown.Add(evt.Key)) pressEdgeMouse.Add(evt.Key);
+                        break;
                     case InputEventKind.MouseButtonUp: _mouseDown.Remove(evt.Key); break;
                     case InputEventKind.GamepadButtonDown:
-                        if (evt.GamepadIndex == _options.GamepadIndex) _padDown.Add(evt.Key);
+                        if (evt.GamepadIndex == _options.GamepadIndex && _padDown.Add(evt.Key)) pressEdgePad.Add(evt.Key);
                         break;
                     case InputEventKind.GamepadButtonUp:
                         if (evt.GamepadIndex == _options.GamepadIndex) _padDown.Remove(evt.Key);
@@ -215,8 +232,14 @@ namespace Core.Foundation.InputMap
                 switch (state.Definition.Kind)
                 {
                     case ActionKind.Button:
+                        // active：批次结束时的最终持有状态（同帧 down+up 净效果是"未持有"，
+                        // CurrentActive/IsActionActive 如实反映——这是正确的"当前是否按住"语义，
+                        // 与下面的"是否应该触发一次 InputActionTriggeredEvent"是两个独立的问题）。
                         var active = EvaluateDigital(state.ParsedBindings);
-                        var rising = active && !state.CurrentActive;
+                        // rising：本批次内是否真的发生过至少一次按下边沿（见上方三个 pressEdge*
+                        // 集合的构造过程），不再依赖"批次末状态相对上一帧状态是否变化"——后者在
+                        // 同帧 down+up 时必然算出"没有变化"，从而永久丢失这次按下。
+                        var rising = EvaluatePressEdge(state.ParsedBindings, pressEdgeKeys, pressEdgeMouse, pressEdgePad);
                         state.CurrentActive = active;
                         state.CachedAxis = Vec2.Zero;
                         if (rising)
@@ -252,6 +275,26 @@ namespace Core.Foundation.InputMap
                 case BindingKind.PadButton: return _padDown.Contains(b.Name!);
                 default: return false;
             }
+        }
+
+        /// <summary>FND-08 收口新增：与 <see cref="EvaluateDigital"/>/<see cref="IsDigitalActive"/>
+        /// 同构，只是查的是本批次的按下边沿集合而不是持有集合——任一绑定本批次内发生过按下边沿即
+        /// 返回 true（OR 语义，与 <see cref="EvaluateDigital"/> 一致：一个动作可能绑定多个按键，
+        /// 本批次内任意一个真正按下都应该触发一次，不要求"恰好一个"）。</summary>
+        private static bool EvaluatePressEdge(
+            List<ParsedBinding> bindings, HashSet<string> pressEdgeKeys, HashSet<string> pressEdgeMouse, HashSet<string> pressEdgePad)
+        {
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                var b = bindings[i];
+                switch (b.Kind)
+                {
+                    case BindingKind.Key: if (pressEdgeKeys.Contains(b.Name!)) return true; break;
+                    case BindingKind.Mouse: if (pressEdgeMouse.Contains(b.Name!)) return true; break;
+                    case BindingKind.PadButton: if (pressEdgePad.Contains(b.Name!)) return true; break;
+                }
+            }
+            return false;
         }
 
         private double EvaluateAxis1D(List<ParsedBinding> bindings, IInput input)

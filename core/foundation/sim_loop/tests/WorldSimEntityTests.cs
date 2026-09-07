@@ -158,6 +158,34 @@ namespace Tests.Foundation.SimLoop
             Assert.Empty(extraDestroyed);
         }
 
+        /// <summary>FND-04 收口回归（外部审核 code-review.md，验证复现 validation-repros.txt R4）：
+        /// ClearAll 之前签发的 <see cref="TimerHandle"/> 不能在 ClearAll 之后与新创建的计时器句柄
+        /// 发生数值碰撞——旧实现每次 ClearAll 都换上一个全新的 SimTimers 实例，新实例的句柄编号
+        /// 从 1 重新计数，旧句柄的数值因此可能与 ClearAll 之后新创建的计时器句柄相同；由于
+        /// <see cref="IWorldSim.Timers"/> 属性此后一直返回同一个（新）实例，对旧句柄调用 Cancel
+        /// 会命中并取消一个语义上完全无关的新计时器。</summary>
+        [Fact]
+        public void ClearAll_StaleTimerHandleFromBeforeClear_DoesNotCollideWithHandleCreatedAfterClear()
+        {
+            var world = new WorldSim(SimLoopTestSupport.CreateBus());
+
+            var oldHandle = world.Timers.Create(10.0);
+            world.ClearAll();
+            var newHandle = world.Timers.Create(10.0);
+
+            // 复现前置条件确认：旧实现下二者数值相同（因为新实例编号从 1 重新开始）；
+            // 修复后编号单调递增，二者不应再相等。
+            Assert.NotEqual(oldHandle, newHandle);
+
+            // 旧句柄在 ClearAll 之后已不存活：Cancel 是对不存在 key 的静默 no-op，
+            // 绝不会误伤 newHandle。
+            Assert.False(world.Timers.IsAlive(oldHandle));
+            world.Timers.Cancel(oldHandle);
+
+            Assert.True(world.Timers.IsAlive(newHandle));
+            Assert.False(world.Timers.IsExpired(newHandle));
+        }
+
         [Fact]
         public void AllocateEntityId_ProducesSequentialDeterministicValidIds_PerKind()
         {

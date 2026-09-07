@@ -302,6 +302,15 @@ namespace Core.Foundation.SimLoop
             if (_policy == InitiativePolicy.FixedOrder)
             {
                 _order.Add(id);
+
+                // FND-05 收口：此前这里在给 fixed_order 新参与者定好插入位置后就直接 return，
+                // 跳过了下面（原本给 initiative_stat/action_points 两个分支共用的）行动点账本
+                // 初始化——本方法类型注释与 TryConsumeActionPoints 判断记录都已经说清楚"移动预算
+                // 账本的存在与否不该由先攻策略决定，无条件为全部参与者维护"，fixed_order 分支
+                // 却因为提前 return 单独漏掉了这一步，导致中途加入的单位本轮 GetActionPointsRemaining
+                // 恒为 0、TryConsumeActionPoints 恒返回 false（见外部审核 FND-05、
+                // validation-repros.txt R5）。三种策略现在都会走到下面这一行。
+                _actionPointsRemaining[id] = _actionPointsPerTurn;
                 return;
             }
 

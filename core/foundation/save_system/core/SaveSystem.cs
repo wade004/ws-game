@@ -12,8 +12,10 @@ namespace Core.Foundation.SaveSystem
     /// <see cref="ISaveSystem"/> 的默认实现（见本模块 README"文档格式与存储位置"一节）。
     /// 存档文档信封固定为 <c>{ "save_version": N, "sections": { "&lt;sectionKey&gt;": ... } }</c>，
     /// 落盘路径为 <c>&lt;GetUserDataDir()&gt;/&lt;SavesDirName&gt;/&lt;slotId.Value&gt;.json</c>，
-    /// 备份路径为同目录下 <c>&lt;slotId.Value&gt;.bakN.json</c>（N 从 1 到
-    /// <see cref="SaveSystemOptions.BackupCount"/>）。全程只经 <see cref="IFileSystem"/> 接触
+    /// 备份路径为独立子目录 <c>&lt;GetUserDataDir()&gt;/&lt;SavesDirName&gt;/backups/&lt;slotId.Value&gt;.bakN.json</c>
+    /// （N 从 1 到 <see cref="SaveSystemOptions.BackupCount"/>；FND-01 收口：备份此前与正式槽文件
+    /// 同目录、同 <c>.json</c> 后缀，与"槽 id 恰好长得像 <c>&lt;slot&gt;.bakN</c>"的合法槽路径可能
+    /// 逐字节相同，见 <see cref="BackupPath"/> 判断记录）。全程只经 <see cref="IFileSystem"/> 接触
     /// 存储，不直接触碰路径/平台 API；写入正式文件只调用一次 <c>WriteTextAtomic</c>，不绕过
     /// 其原子语义做多步写入（落地方案与分阶段计划.md T1-6 禁止事项）。无引擎依赖、不读系统
     /// 时间、无线程、无反射。
@@ -235,14 +237,20 @@ namespace Core.Foundation.SaveSystem
         public LoadResult Load(Id slotId)
         {
             var formalPath = SlotPath(slotId);
-            if (!_fs.Exists(formalPath))
-            {
-                return LoadResult.NotFound();
-            }
 
-            var envelopeResult = ReadValidEnvelope(slotId, formalPath);
+            // FND-07 收口：正式文件与全部备份统一作为候选，不再在正式文件缺失时提前返回
+            // NotFound——此前的提前返回会导致"正式文件被删/丢失，但备份仍然完好"这种本该可以
+            // 恢复的场景被直接判定为槽不存在，永远不会尝试任何备份。只有当正式文件与全部备份都
+            // 不存在（anyCandidateExisted 为 false）时才是真正的 NotFound；存在至少一个候选但
+            // 没有一个能通过完整信封校验，判定为 Corrupted（与此前语义一致）。
+            var envelopeResult = ReadValidEnvelope(slotId, formalPath, out var anyCandidateExisted);
             if (envelopeResult == null)
             {
+                if (!anyCandidateExisted)
+                {
+                    return LoadResult.NotFound();
+                }
+
                 _diagnostics.Error($"存档槽 \"{slotId}\" 正式文件与全部备份均无法解析，判定为损坏，原始文件保持不变", null);
                 return LoadResult.Corrupted("正式文件与全部备份均无法解析为合法存档文档");
             }
@@ -363,20 +371,43 @@ namespace Core.Foundation.SaveSystem
             return null;
         }
 
-        private (JsonObject doc, LoadStatus status)? ReadValidEnvelope(Id slotId, string formalPath)
+        /// <summary>
+        /// FND-07 收口：把正式文件与全部备份统一当作候选，按优先级（正式文件 → bak1 → bak2 →
+        /// … → bak&lt;BackupCount&gt;）依次尝试完整信封校验（<see cref="TryParseEnvelope"/>），
+        /// 返回第一个通过校验的候选。<paramref name="anyCandidateExisted"/>（out）标记"是否至少
+        /// 有一个候选文件在磁盘上存在过"——供调用方 <see cref="Load"/> 区分 <c>NotFound</c>
+        /// （一个候选都不存在）与 <c>Corrupted</c>（存在候选但没有一个通过校验）。
+        /// </summary>
+        private (JsonObject doc, LoadStatus status)? ReadValidEnvelope(Id slotId, string formalPath, out bool anyCandidateExisted)
         {
-            var formalText = _fs.ReadText(formalPath);
-            if (formalText != null && TryParseEnvelope(formalText, out var formalDoc))
-            {
-                return (formalDoc, LoadStatus.Loaded);
-            }
+            anyCandidateExisted = false;
 
-            _diagnostics.Warn($"存档槽 \"{slotId}\" 正式文件无法解析为合法存档文档，尝试回退到备份");
+            var formalText = _fs.ReadText(formalPath);
+            if (formalText != null)
+            {
+                anyCandidateExisted = true;
+                if (TryParseEnvelope(formalText, out var formalDoc))
+                {
+                    return (formalDoc, LoadStatus.Loaded);
+                }
+
+                _diagnostics.Warn($"存档槽 \"{slotId}\" 正式文件无法解析为合法存档文档，尝试回退到备份");
+            }
+            else
+            {
+                _diagnostics.Warn($"存档槽 \"{slotId}\" 正式文件不存在，尝试回退到备份");
+            }
 
             for (var i = 1; i <= _options.BackupCount; i++)
             {
                 var backupText = _fs.ReadText(BackupPath(slotId, i));
-                if (backupText != null && TryParseEnvelope(backupText, out var backupDoc))
+                if (backupText == null)
+                {
+                    continue;
+                }
+
+                anyCandidateExisted = true;
+                if (TryParseEnvelope(backupText, out var backupDoc))
                 {
                     _diagnostics.Warn($"存档槽 \"{slotId}\" 已从备份 bak{i.ToString(CultureInfo.InvariantCulture)} 恢复读取");
                     return (backupDoc, LoadStatus.LoadedFromBackup);
@@ -410,6 +441,24 @@ namespace Core.Foundation.SaveSystem
                     return false;
                 }
 
+                // FND-09 收口：拒绝任何会越过当前运行时版本的迁移步骤——RegisterMigration 只保证
+                // FromVersion < ToVersion（见该方法），不保证 ToVersion 落在 CurrentSaveVersion
+                // 以内；若登记了一条 1→3 的迁移函数、但当前运行时版本只到 2，此前的循环条件只看
+                // "version < CurrentSaveVersion"，跑完这一步后 version 变成 3（不再小于 2），循环
+                // 直接判定"已到达终点"退出成功，实际却把文档越级迁移到了一个当前运行时根本不认识、
+                // 从未经过当前版本校验的结构，且报告的 migratedFrom/save_version 让调用方误以为
+                // 迁移正常完成。10 第 5 节"存档版本高于当前运行时版本 → 不承诺向前兼容"这条拒绝
+                // 语义必须对"迁移链中途产出的越界结果"同样成立，不能只检查文档最初的 save_version。
+                if (migration.ToVersion > _options.CurrentSaveVersion)
+                {
+                    result = doc;
+                    error = $"迁移函数 {migration.FromVersion.ToString(CultureInfo.InvariantCulture)} → " +
+                            $"{migration.ToVersion.ToString(CultureInfo.InvariantCulture)} 会越过当前运行时版本 " +
+                            $"{_options.CurrentSaveVersion.ToString(CultureInfo.InvariantCulture)}（本架构不承诺向前" +
+                            "兼容，迁移链的终点必须恰好落在当前运行时版本上，不能途经或越过它）";
+                    return false;
+                }
+
                 JsonObject migrated;
                 try
                 {
@@ -425,6 +474,18 @@ namespace Core.Foundation.SaveSystem
 
                 current = WithField(migrated, "save_version", new JsonNumber(migration.ToVersion));
                 version = migration.ToVersion;
+            }
+
+            // 双重防御：循环体内已经逐步拒绝任何会越过 CurrentSaveVersion 的单步迁移（见上），
+            // 循环退出时 version 理应恰好等于 CurrentSaveVersion；这里再显式校验一次终点，防止
+            // 未来维护本方法时误改循环条件或调整顺序导致上面的逐步校验被绕过而没有测试及时发现——
+            // 循环终点必须恰好等于当前版本，而不只是"不小于"。
+            if (version != _options.CurrentSaveVersion)
+            {
+                result = doc;
+                error = $"迁移链结束于版本 {version.ToString(CultureInfo.InvariantCulture)}，与当前运行时版本 " +
+                        $"{_options.CurrentSaveVersion.ToString(CultureInfo.InvariantCulture)} 不一致";
+                return false;
             }
 
             result = current;
@@ -447,7 +508,7 @@ namespace Core.Foundation.SaveSystem
                     continue; // 存档槽只存在存档目录的直接层级，忽略任何更深层级的文件。
                 }
 
-                if (!relative.EndsWith(".json", StringComparison.Ordinal) || IsBackupFileName(relative))
+                if (!relative.EndsWith(".json", StringComparison.Ordinal))
                 {
                     continue;
                 }
@@ -511,7 +572,7 @@ namespace Core.Foundation.SaveSystem
                     continue;
                 }
 
-                if (f.EndsWith(".json", StringComparison.Ordinal) && !IsBackupFileName(f))
+                if (f.EndsWith(".json", StringComparison.Ordinal))
                 {
                     count++;
                 }
@@ -706,12 +767,26 @@ namespace Core.Foundation.SaveSystem
 
         // ---- 文档信封辅助 ---------------------------------------------------
 
+        /// <summary>
+        /// FND-07 收口：信封校验从"只看两个顶层 key 是否存在"加深到"顶层字段的类型也必须正确"——
+        /// 此前只用 <c>JsonObject.ContainsKey</c> 判断 <c>save_version</c>/<c>sections</c> 是否
+        /// 存在，不检查它们的值本身是不是"看起来合法"的类型，导致 <c>{"save_version":1,
+        /// "sections":null}</c> 这类"只有字段名、内容却是垃圾"的文档被当成合法候选放行——若这份
+        /// 文档恰好是正式文件，<see cref="ReadValidEnvelope"/> 会在它身上"成功"一次，从此不再尝试
+        /// 任何备份，随后才在 <see cref="Load"/> 更深处的 <c>TryGetObject(doc, "sections", ...)</c>
+        /// 检查里失败——但那时已经错过了本该被尝试的有效备份。现在把"save_version 必须是数字、
+        /// sections 必须是对象"两条最基本的类型检查提前到这里，与后面 <see cref="TryGetInt"/>/
+        /// <see cref="TryGetObject"/> 的检查标准看齐，确保一个候选"通过信封校验"就真的意味着它是
+        /// 可以被继续处理的合法文档，而不是又要再抛一次 Corrupted。
+        /// </summary>
         private static bool TryParseEnvelope(string text, out JsonObject doc)
         {
             try
             {
                 var value = JsonReader.Parse(text);
-                if (value is JsonObject obj && obj.ContainsKey("save_version") && obj.ContainsKey("sections"))
+                if (value is JsonObject obj &&
+                    obj.TryGetValue("save_version", out var saveVersionValue) && saveVersionValue is JsonNumber &&
+                    obj.TryGetValue("sections", out var sectionsValue) && sectionsValue is JsonObject)
                 {
                     doc = obj;
                     return true;
@@ -790,47 +865,32 @@ namespace Core.Foundation.SaveSystem
             return b.Build();
         }
 
-        private static bool IsBackupFileName(string fileName)
-        {
-            // "<slot>.bakN.json" 形态：从后往前找 ".json"，再找紧邻其前的 ".bak<数字>" 段。
-            const string suffix = ".json";
-            if (!fileName.EndsWith(suffix, StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            var withoutJson = fileName.Substring(0, fileName.Length - suffix.Length);
-            var bakIndex = withoutJson.LastIndexOf(".bak", StringComparison.Ordinal);
-            if (bakIndex < 0)
-            {
-                return false;
-            }
-
-            var digits = withoutJson.Substring(bakIndex + ".bak".Length);
-            if (digits.Length == 0)
-            {
-                return false;
-            }
-
-            foreach (var c in digits)
-            {
-                if (c < '0' || c > '9')
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
         // ---- 路径拼装 ------------------------------------------------------
 
         private string SavesDir() => JoinPath(_fs.GetUserDataDir(), _options.SavesDirName);
 
         private string SlotPath(Id slotId) => JoinPath(SavesDir(), slotId.Value + ".json");
 
+        /// <summary>
+        /// FND-01 收口：备份不再落在存档目录的根层级（与合法槽文件同层、同 <c>.json</c> 后缀），
+        /// 改放进独立子目录 <c>&lt;SavesDir&gt;/backups/</c>。此前 <c>&lt;slot&gt;.bakN.json</c>
+        /// 与"槽 id 恰好长得像 <c>&lt;slot&gt;.bakN</c>"的合法槽正式文件同名同目录——例如槽
+        /// <c>slot.a.bak1</c> 的正式文件路径与槽 <c>slot.a</c> 的第 1 份备份路径逐字节相同，
+        /// 保存/删除其中一个会覆盖或删除另一个，<see cref="ListSlots"/>/<see cref="CountSlots"/>
+        /// 还需要一个"这个文件名是不是备份"的启发式过滤（<c>IsBackupFileName</c>）来避免把备份
+        /// 误列成槽，而这个过滤本身又会把"长得像备份"的合法槽误判成备份而从列表中隐藏。放进独立
+        /// 子目录后两个问题一起解决：备份路径与任何合法槽路径不可能重合（一个是目录里的文件、一个
+        /// 是目录本身，`slotId.Value` 不含 <c>/</c>，见 <c>Id</c> 格式约束），<see cref="_fs"/>.
+        /// <c>ListFiles</c>（约定为递归列举、相对路径含 <c>/</c> 分隔层级，见
+        /// <c>engine_adapter/README.md</c>"IFileSystem"一节）天然会把 <c>backups/&lt;...&gt;</c>
+        /// 下的文件都归到"含 <c>/</c> 的更深层级"，<see cref="ListSlots"/>/<see cref="CountSlots"/>
+        /// 现有的"跳过含 <c>/</c> 的相对路径"逻辑不需要改动就能正确排除全部备份，也不再需要、
+        /// 也已移除按文件名猜测的过滤。
+        /// </summary>
+        private string BackupsDir() => JoinPath(SavesDir(), "backups");
+
         private string BackupPath(Id slotId, int index) =>
-            JoinPath(SavesDir(), slotId.Value + ".bak" + index.ToString(CultureInfo.InvariantCulture) + ".json");
+            JoinPath(BackupsDir(), slotId.Value + ".bak" + index.ToString(CultureInfo.InvariantCulture) + ".json");
 
         private static string JoinPath(string baseDir, string segment)
         {

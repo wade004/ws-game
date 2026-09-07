@@ -20,7 +20,7 @@ namespace Core.Foundation.SaveSystem
     /// 不读取任何系统时间、不使用线程/反射，只使用调用方传入的 <see cref="ReplayData"/>
     /// 与 <see cref="WorldFactory"/> 构造出的对象。
     /// </summary>
-    public sealed class ReplayPlayer : IReplayPlayer
+    public sealed class ReplayPlayer : IReplayPlayer, IDisposable
     {
         private readonly WorldFactory _factory;
         private readonly IEventBus _bus;
@@ -30,6 +30,17 @@ namespace Core.Foundation.SaveSystem
         private IWorldSim? _world;
         private long _ticksAdvanced;
         private Dictionary<long, ReplayStepRecord>? _stepsByTick;
+        private bool _disposed;
+
+        // FND-06 收口：_audit 由调用方构造并持有（见构造函数注释"由调用方构造并持有"），生命周期
+        // 独立于本类型任何一次 Load/LoadDiscrete，本类型没有权限、也不应该清空调用方的对象
+        // （调用方可能出于自己的诊断目的继续读取完整历史）。改为记录"本次 Load/LoadDiscrete 发生
+        // 时 _audit.Records 已有多少条"作为基线，BuildEventLog 只截取基线之后的部分——效果等价于
+        // "本次播放开始时清空了事件日志"，但不需要改动 _audit 本身、不需要触碰
+        // core/foundation/event_bus（不在本次任务允许修改的目录范围内）。此前的问题：同一实例
+        // 二次 Load 不重置任何"起点"概念，BuildEventLog 恒从 _audit.Records[0] 开始，第二次播放
+        // 的 EventLog/Digest 会夹带第一次播放遗留的事件 key，见外部审核 FND-06。
+        private int _auditBaselineIndex;
 
         /// <summary>非空表示本次是经 <see cref="LoadDiscrete"/> 加载的离散回放：<see cref="StepTo"/>
         /// 改走"经 TurnScheduler 驱动"的路径（见 <see cref="IReplayPlayer.LoadDiscrete"/> 判断
@@ -52,7 +63,21 @@ namespace Core.Foundation.SaveSystem
 
         public void Load(ReplayData data)
         {
+            EnsureNotDisposed();
             _data = data ?? throw new ArgumentNullException(nameof(data));
+
+            // FND-06 收口：换上新世界之前，先释放上一次 Load/LoadDiscrete 遗留的旧世界（若本实例
+            // 是第一次 Load，_world 为 null，DisposeCurrentWorld 是安全的 no-op）——见类型顶部
+            // "_auditBaselineIndex"字段判断记录与 WorldSim.Dispose 判断记录。
+            DisposeCurrentWorld();
+
+            // 基线必须在调用 _factory 之前拍下：工厂内部构造世界的过程本身可能同步
+            // PublishImmediate 若干事件（例如添加初始实体产生的 entity.created），这些事件属于
+            // "这一次播放会话自己的事件"，理应被后面的 BuildEventLog 看见——直跑侧
+            // （WorldFactory 同一份构造逻辑）的自己那份独立 audit 天然从下标 0 开始就包含它们，
+            // 若基线改成在工厂调用之后才拍（晚一步），会把这些属于本次播放的构造期事件也当成
+            // "上一次播放的历史"一并排除掉，导致两边事件日志错位（比直跑侧少开头几条事件）。
+            _auditBaselineIndex = _audit.Records.Count;
 
             // P1-04 收口：传 data.MasterSeed（录制时的真实主种子）而不是恒定 0UL，见
             // Core.Foundation.SaveSystem.WorldFactory 判断记录——"录制起点之后才第一次被访问的流"
@@ -82,12 +107,21 @@ namespace Core.Foundation.SaveSystem
 
         public void LoadDiscrete(ReplayData data, DiscreteWorldFactory factory)
         {
+            EnsureNotDisposed();
             if (factory == null)
             {
                 throw new ArgumentNullException(nameof(factory));
             }
 
             _data = data ?? throw new ArgumentNullException(nameof(data));
+
+            // FND-06 收口：同 Load 的判断记录，换新世界前先释放旧世界。
+            DisposeCurrentWorld();
+
+            // 基线必须在调用 factory 之前拍下——同 Load 的判断记录：LoadDiscrete 的工厂还会额外
+            // BeginCombat 一个 TurnScheduler（同步 PublishImmediate sim.turn_started），同样属于
+            // "这次播放会话自己的事件"，不能被基线排除在外。
+            _auditBaselineIndex = _audit.Records.Count;
 
             // P1-04 收口：同 Load 的判断记录，传 data.MasterSeed 而不是恒定 0UL。
             var (world, rng, scheduler) = factory(data.MasterSeed, _bus);
@@ -105,6 +139,51 @@ namespace Core.Foundation.SaveSystem
             _ticksAdvanced = 0;
         }
 
+        /// <summary>FND-06 收口：释放当前持有的世界（若它实现了 <see cref="IDisposable"/>，
+        /// 见 <see cref="Core.Foundation.SimLoop.WorldSim.Dispose"/> 判断记录），随后置空引用。
+        /// <see cref="_world"/> 为 <c>null</c>（尚未 Load 过，或已经 Dispose 过）时是安全的
+        /// no-op。<b>不</b>处理 <see cref="_scheduler"/>：<see cref="TurnScheduler"/> 的构造函数
+        /// 不订阅任何 <see cref="IEventBus"/> 事件（只在需要时 <c>PublishImmediate</c>），没有
+        /// 需要释放的订阅——见 <see cref="ReplayPlayer"/> 类型顶部对本条缺陷范围的判断记录。</summary>
+        private void DisposeCurrentWorld()
+        {
+            if (_world is IDisposable disposableWorld)
+            {
+                disposableWorld.Dispose();
+            }
+
+            _world = null;
+        }
+
+        private void EnsureNotDisposed()
+        {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(ReplayPlayer));
+            }
+        }
+
+        /// <summary>释放当前持有的世界（同 <see cref="DisposeCurrentWorld"/>）并将本实例标记为已
+        /// 释放——之后任何 <see cref="Load"/>/<see cref="LoadDiscrete"/>/<see cref="StepTo"/> 调用
+        /// 都会抛 <see cref="ObjectDisposedException"/>。幂等：多次调用只会在第一次真正生效。判断
+        /// 记录（"清空并释放"而不是"拒绝二次 Load"）：外部审核 FND-06 给出两个等价选项，任务拍板
+        /// 选"清空并释放"——<see cref="Load"/>/<see cref="LoadDiscrete"/> 内部已经各自做到位（见
+        /// <see cref="DisposeCurrentWorld"/> 调用点、<see cref="_auditBaselineIndex"/> 重置），
+        /// 同一实例可以安全地反复 Load 不同录像；本方法额外提供的是"调用方明确知道不会再用这个
+        /// 播放器了"的显式终结点（例如测试夹具在 using 块结束时），不是"拒绝二次 Load"的实现——
+        /// 拒绝二次 Load 会让"同一份录像分两次 StepTo 到不同 tick 做断言"这类既有测试写法
+        /// （见 DiscreteReplayTests.cs/DeterminismTests.cs）无法工作。</summary>
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            DisposeCurrentWorld();
+            _disposed = true;
+        }
+
         /// <summary>10 第 8 节"分流随机源初始状态"：把录制时记下的每条流状态原样恢复（P1-04 收口：
         /// 工厂内部用哪个主种子构造 IRngHost 现在很重要——见 WorldFactory 判断记录，
         /// <see cref="Load"/>/<see cref="LoadDiscrete"/> 已改为传入 <see cref="ReplayData.MasterSeed"/>；
@@ -120,6 +199,7 @@ namespace Core.Foundation.SaveSystem
 
         public WorldSnapshot StepTo(long tick, Func<Id, IReadOnlyList<string>>? entityStateProvider = null)
         {
+            EnsureNotDisposed();
             if (_data == null || _world == null)
             {
                 throw new InvalidOperationException("StepTo 之前必须先调用 Load/LoadDiscrete");
@@ -242,12 +322,16 @@ namespace Core.Foundation.SaveSystem
             return WorldSnapshot.Capture(_ticksAdvanced, BuildEventLog(), _world!, entityStateProvider);
         }
 
+        /// <summary>FND-06 收口：从 <see cref="_auditBaselineIndex"/>（本次 Load/LoadDiscrete 发生
+        /// 时 <see cref="_audit"/> 已有的记录数）开始截取，而不是恒从下标 0 开始——见类型顶部该
+        /// 字段判断记录，效果等价于"每次 Load 都清空了事件日志"，但不改动调用方持有的 <see cref="_audit"/>
+        /// 本身。</summary>
         private IReadOnlyList<string> BuildEventLog()
         {
             var records = _audit.Records;
-            var log = new List<string>(records.Count);
+            var log = new List<string>(records.Count - _auditBaselineIndex);
 
-            for (var i = 0; i < records.Count; i++)
+            for (var i = _auditBaselineIndex; i < records.Count; i++)
             {
                 log.Add(records[i].Key.Value);
             }

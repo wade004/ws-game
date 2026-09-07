@@ -54,6 +54,15 @@ namespace Core.Foundation.SceneRouter
         private readonly List<Id> _pendingResourceOrder = new List<Id>();
         private bool _everCompletedOnce;
 
+        /// <summary>导航代际计数器（FND-02 收口）：每次 <see cref="LoadScene"/> 调用递增。
+        /// <see cref="QueueLoad"/> 把发起时的代际值捕获进异步回调闭包，回调触发时与当前代际
+        /// 比对——不一致说明这是上一次（已失败/已被新导航取代的）导航请求的迟到回调，直接丢弃，
+        /// 不写入 <see cref="_pendingResources"/>。修复前的行为：任何回调都无条件按资源 id 写入
+        /// 共享字典，A 请求失败/结束后仍在途的旧回调会把结果写进 B 请求的字典（即便 A/B 的资源 id
+        /// 不同也会新增一个 B 从未排队过的 key），导致 <see cref="AnyResourceFailed"/> 之类只读
+        /// 字典 Value 的判断把 A 的迟到失败误判成 B 的失败。</summary>
+        private int _navigationGeneration;
+
         /// <summary>
         /// <paramref name="spatial"/>/<paramref name="navigation"/> 可选：注入时，卸载旧场景
         /// （<see cref="IWorldSim.ClearAll"/> 之后）额外调用 <see cref="ISpatialQuery.Clear"/> 与
@@ -135,6 +144,11 @@ namespace Core.Foundation.SceneRouter
 
             var descriptor = SceneDescriptor.FromRecord(record);
 
+            // 开新的一代导航请求：递增代际计数器，令上一代所有已排队但尚未回调的加载请求
+            // （即便晚于本次调用才触发回调）在 QueueLoad 闭包里的代际比对失败，被静默丢弃。
+            _navigationGeneration++;
+            var generation = _navigationGeneration;
+
             _pendingSceneId = sceneId;
             _pendingResources.Clear();
             _pendingResourceOrder.Clear();
@@ -142,11 +156,11 @@ namespace Core.Foundation.SceneRouter
 
             // 步骤 3：对描述符里的资源引用逐个发起异步加载（ResourceKind.Scene/NavMesh，见
             // ADR-0016 决策 5）。
-            QueueLoad(Id.Parse(descriptor.SceneRef), ResourceKind.Scene);
+            QueueLoad(generation, Id.Parse(descriptor.SceneRef), ResourceKind.Scene);
 
             if (descriptor.NavRef != null)
             {
-                QueueLoad(Id.Parse(descriptor.NavRef), ResourceKind.NavMesh);
+                QueueLoad(generation, Id.Parse(descriptor.NavRef), ResourceKind.NavMesh);
             }
         }
 
@@ -187,13 +201,21 @@ namespace Core.Foundation.SceneRouter
         // 内部实现
         // ---------------------------------------------------------------
 
-        private void QueueLoad(Id resourceId, ResourceKind kind)
+        private void QueueLoad(int generation, Id resourceId, ResourceKind kind)
         {
             _pendingResources[resourceId] = null;
             _pendingResourceOrder.Add(resourceId);
 
             _loader.LoadAsync(resourceId, kind, (id, success) =>
             {
+                // 代际校验（FND-02）：只有仍属于"当前这次导航"的回调才允许写入
+                // _pendingResources；上一代导航（已失败或已被新的 LoadScene 取代）的迟到回调
+                // 在此原地丢弃，不触碰当前导航的待决字典。
+                if (generation != _navigationGeneration)
+                {
+                    return;
+                }
+
                 _pendingResources[id] = success;
             });
         }
@@ -226,6 +248,11 @@ namespace Core.Foundation.SceneRouter
         private void HandleLoadFailure()
         {
             _diagnostics.Error($"场景 \"{_pendingSceneId}\" 加载失败：一个或多个资源加载失败", null);
+
+            // 终止本次导航请求：代际计数器再递增一次，让这次请求里其余仍在途、尚未回调的
+            // 资源加载（例如本次失败只是多个并发资源之一）即使晚些才触发回调，也会在 QueueLoad
+            // 闭包里的代际比对中被判定为"旧代际"而丢弃，不会污染下一次 LoadScene 的待决字典。
+            _navigationGeneration++;
 
             _pendingResources.Clear();
             _pendingResourceOrder.Clear();

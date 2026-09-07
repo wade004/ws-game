@@ -66,9 +66,18 @@ save_system/
 - 落盘路径：`<IFileSystem.GetUserDataDir()>/<SaveSystemOptions.SavesDirName>/<slotId.Value>.json`
   （默认 `SavesDirName = "saves"`）；`slotId` 满足 `Id` 格式（`^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$`），
   直接作文件名是安全的（不含路径分隔符、不含引擎/平台保留字符）。
-- 备份路径：同目录下 `<slotId.Value>.bakN.json`，`N` 从 1 到 `SaveSystemOptions.BackupCount`
-  （默认 1）。备份用"读旧内容、原子写到备份路径"完成，不使用重命名（`IFileSystem` 未提供
-  该能力，也不应绕过 `writeTextAtomic` 语义多步写入——落地方案与分阶段计划.md T1-6 禁止事项）。
+- 备份路径：独立子目录 `<SavesDir>/backups/<slotId.Value>.bakN.json`，`N` 从 1 到
+  `SaveSystemOptions.BackupCount`（默认 1）。备份用"读旧内容、原子写到备份路径"完成，不使用
+  重命名（`IFileSystem` 未提供该能力，也不应绕过 `writeTextAtomic` 语义多步写入——落地方案与
+  分阶段计划.md T1-6 禁止事项）。**FND-01 收口（外部审核 `code-review.md`）：备份此前落在与
+  正式槽文件相同的目录、相同 `.json` 后缀**——`<slot>.bakN.json` 与"槽 id 恰好长得像
+  `<slot>.bakN`"的合法槽正式文件路径可能逐字节相同（例如槽 `slot.a.bak1` 的正式文件与槽
+  `slot.a` 的第 1 份备份撞名），保存/删除其中一个会覆盖或删除另一个；`ListSlots`/内部槽计数
+  还需要一个按文件名猜测"是不是备份"的启发式过滤，这个过滤本身又会把长得像备份的合法槽误判
+  成备份而从列表隐藏。现改为独立子目录，备份路径与任何合法槽路径不可能重合，`ListSlots`/
+  存档槽计数不再需要、也已移除那条按文件名猜测的过滤——`IFileSystem.ListFiles` 按约定递归
+  列举、相对路径含 `/` 分隔层级（见 `engine_adapter/README.md`"IFileSystem"一节），两处已有的
+  "跳过含 `/` 的相对路径"逻辑天然正确排除 `backups/` 目录下的全部文件，不需要额外改动。
 - 写入正式文件只调用一次 `WriteTextAtomic`；失败时旧正式文件内容保持不变（依赖该接口的
   原子语义），返回 `SaveFailureReason.WriteFailed`，测试 `Save_WriteFails_ReturnsWriteFailed_AndOldSaveStillLoadable`
   用 `StubFileSystem.FailNextWrite()` 验证这一点。
@@ -106,11 +115,25 @@ ADR-0013 离散时间模型，只在装配了离散模式时有内容）→ `rng
   `PersistableThrew`；目标槽不存在且已存在槽数已达 `MaxSlots`（`MaxSlots > 0` 时）→
   `SlotLimitReached`（覆盖已存在的槽不受此限制）；`WriteTextAtomic` 返回 false → `WriteFailed`。
 - `Load`：目标槽正式文件与全部备份均不存在 → `NotFound`；均无法解析为合法信封（缺
-  `save_version`/`sections` 字段，或 JSON 语法错误）→ `Corrupted`，原始文件不被覆盖或删除；
-  文档版本高于当前运行时版本 → `MigrationFailed`（"不承诺向前兼容"，10 第 5 节）；
-  文档版本低于当前版本但迁移链缺少衔接版本、或某个迁移函数抛异常 → `MigrationFailed`；
-  某个已注册段 `Load()` 抛异常 → `PersistableThrew`，此前已成功 `Load` 的段**不回滚**
-  （由调用方决定如何处理这种"部分加载"状态，例如整体回到主菜单重新读档）。
+  `save_version`/`sections` 字段、字段类型不对，或 JSON 语法错误）→ `Corrupted`，原始文件不被
+  覆盖或删除；文档版本高于当前运行时版本 → `MigrationFailed`（"不承诺向前兼容"，10 第 5 节）；
+  文档版本低于当前版本但迁移链缺少衔接版本、某个迁移函数抛异常、或迁移链某一步/终点会越过
+  当前运行时版本（FND-09 收口，见下）→ `MigrationFailed`；某个已注册段 `Load()` 抛异常 →
+  `PersistableThrew`，此前已成功 `Load` 的段**不回滚**（由调用方决定如何处理这种"部分加载"
+  状态，例如整体回到主菜单重新读档）。
+- **FND-07 收口（外部审核 `code-review.md`）：正式文件与全部备份统一作为候选，按优先级
+  （正式文件 → bak1 → bak2 → … → bak`<BackupCount>`）依次做完整信封校验，取第一个通过的。**
+  此前只要正式文件不存在就立即返回 `NotFound`，从不尝试任何备份——"正式文件缺失但备份完好"
+  这种本该可以恢复的场景被直接判定为槽不存在；同时信封校验此前只用 `ContainsKey` 判断
+  `save_version`/`sections` 两个 key 是否存在，不检查值的类型，`{"save_version":1,
+  "sections":null}` 这类"字段名齐全、内容是垃圾"的文档会被当成合法候选放行，若它恰好是正式
+  文件，会在这里"成功"一次、从此不再尝试任何备份，直到 `Load` 更深处的 `sections` 类型检查才
+  失败——但那时已经错过了本该被尝试的有效备份。现在两处一起收口：`TryParseEnvelope` 额外要求
+  `save_version` 是数字、`sections` 是对象；一个候选"通过信封校验"即代表它是可以被继续处理的
+  合法文档。`NotFound` 现在只在正式文件与全部备份**都不存在**（磁盘上一个候选都没有）时返回；
+  存在至少一个候选但没有一个通过校验才是 `Corrupted`。`LoadResult.Status` 沿用既有的
+  `LoadedFromBackup`（不新增枚举值）：正式文件缺失、或正式文件存在但未通过信封校验，只要有
+  某个备份通过校验，都归为 `LoadedFromBackup`。
 
 ## `LoadResult.CurrentMapId` / `CurrentPosition`（缺口 11）
 
@@ -257,11 +280,27 @@ JSON 字符串验证——本条约定同样适用于 `ISettingsStore` 的设置
    `hook_registry.DeclareHookPoint`、`event_bus.EventCatalog.FromDefinitions` 的既有惯例
    （重复 key 直接抛 `InvalidOperationException`），本模块对重复 `SectionKey`/
    `FromVersion` 采用同一策略，不做"后者覆盖前者"的静默处理。
-6. **`ListSlots`/`CountSlots`（`MaxSlots` 判断）对嵌套路径与备份文件的过滤**：`IFileSystem.
+6. **`ListSlots`/`CountSlots`（`MaxSlots` 判断）对嵌套路径的过滤**：`IFileSystem.
    ListFiles` 按 02 文档只约定"递归列举、路径相对 dirPath"，未约定存档目录下是否可能出现
    子目录或非存档文件。本实现保守处理：只认直接位于存档目录下（结果中不含 `/`）、以
-   `.json` 结尾、且文件名不匹配 `<slot>.bakN.json` 备份命名模式的文件为一个存档槽；其余一律
-   忽略，不计入槽数、不出现在 `ListSlots` 结果里。
+   `.json` 结尾的文件为一个存档槽；其余一律忽略，不计入槽数、不出现在 `ListSlots` 结果里。
+   **FND-01 收口后不再额外要求"文件名不匹配 `<slot>.bakN.json` 备份命名模式"**——备份已经
+   搬进独立子目录 `backups/`（见上"文档格式与存储位置"一节），天然落在"结果含 `/`"的更深
+   层级，被上面那条过滤规则排除，不需要再按文件名猜测；这条按文件名猜测的旧过滤本身还有
+   副作用——会把长得像备份命名模式的**合法槽**（例如槽 id 恰好是 `slot.a.bak1`）连同它自己的
+   正式文件一起误判成"备份"而从 `ListSlots`/槽计数里隐藏，移除后不再有这个问题。
+7. **FND-09 收口（外部审核 `code-review.md`）：迁移链拒绝任何会越过当前运行时版本的单步迁移，
+   循环终点必须恰好等于 `CurrentSaveVersion`。** `TryRunMigrationChain` 原循环条件只看
+   `version < CurrentSaveVersion`：若登记了一条如 `1 → 3` 的迁移函数，但当前运行时版本只到
+   2，跑完这一步后 `version` 变成 3（不再小于 2），循环判定"已到达终点"并返回成功——实际却
+   把文档越级迁移到了当前运行时根本不认识、从未经过当前版本任何校验逻辑验证的结构，且
+   `LoadResult.MigratedFromVersion`/落盘的 `save_version` 会让调用方误以为迁移正常完成到了
+   "当前版本"。10 第 5 节"存档版本高于当前运行时版本 → 不承诺向前兼容"这条拒绝语义现在对
+   "迁移链中途产出的越界结果"同样成立，不只检查文档最初的 `save_version`：循环体内每算出一个
+   `migration.ToVersion` 就立即检查是否超过 `CurrentSaveVersion`，超过则判定 `MigrationFailed`；
+   循环正常退出后再显式校验一次"退出时的版本必须恰好等于 `CurrentSaveVersion`"作为双重防御。
+   当前版本恰好等于某条迁移函数的 `ToVersion`（如上例里 `CurrentSaveVersion` 改成 3）时，
+   `1 → 3` 依然合法成功——这条收口只拒绝"越过"，不拒绝"恰好到达"。
 
 ## 基础架构提供 / 游戏层提供
 

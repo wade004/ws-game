@@ -153,6 +153,31 @@ namespace Tests.Foundation.Data
                 new[] { new DataTableSource(_tableName, "memory://" + _tableName, () => Json) };
         }
 
+        /// <summary>FND-03 回归用：一个可持有多张表、且每张表文本可在测试中途独立改写的
+        /// <see cref="IDataSource"/>（<see cref="MutableSingleTableSource"/> 只支持单表，这里的场景
+        /// 需要"一张表始终是坏 JSON，另一张表可被独立修复/重载"）。</summary>
+        private sealed class MutableMultiTableSource : IDataSource
+        {
+            private readonly Dictionary<string, string> _json = new Dictionary<string, string>(StringComparer.Ordinal);
+
+            public MutableMultiTableSource Set(string tableName, string json)
+            {
+                _json[tableName] = json;
+                return this;
+            }
+
+            public IReadOnlyList<DataTableSource> ListTables()
+            {
+                var result = new List<DataTableSource>();
+                foreach (var kv in _json)
+                {
+                    var name = kv.Key;
+                    result.Add(new DataTableSource(name, "memory://" + name, () => _json[name]));
+                }
+                return result;
+            }
+        }
+
         private sealed class AlwaysWarnRule : IValidationRule
         {
             public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
@@ -766,6 +791,52 @@ namespace Tests.Foundation.Data
 
             Assert.Equal(0, report.ErrorCount);
             Assert.Equal("New", registry.Get("test.widget", "test.widget.a")!.GetString("name"));
+        }
+
+        // -----------------------------------------------------------------
+        // 16a. FND-03 收口回归：加载阶段错误按表持久保留，直到该表成功重载
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Validate_AfterBadTableLoad_StaysBlocked_EvenWithoutTouchingBadTable()
+        {
+            var source = new MutableMultiTableSource()
+                .Set("test.widget", "{ not valid json")
+                .Set("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+
+            var initial = registry.LoadAll();
+            Assert.True(initial.IsBlocking);
+            Assert.True(initial.ErrorCount >= 1);
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.widget"));
+
+            // 复现前置条件（对应 FND-03"触发"描述）：坏表首次加载后，无参 Validate() 不应该
+            // 凭空清空这条加载期错误——它此前只活在 LoadAllCore 局部的 issues 列表里，Validate()
+            // 自己起一个全新的空列表，字段级校验循环也天然看不到从未进入 _tables 的坏表。
+            var afterBareValidate = registry.Validate();
+            Assert.True(afterBareValidate.IsBlocking);
+            Assert.True(afterBareValidate.ErrorCount >= 1);
+            Assert.Contains(afterBareValidate.Issues, i => i.Table == "test.widget" && i.Check == "envelope");
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.widget"));
+
+            // 重载一张完全无关的好表（test.owner）：不应该以任何方式解除坏表造成的阻断。
+            var afterUnrelatedReload = registry.Reload("test.owner");
+            Assert.True(afterUnrelatedReload.IsBlocking);
+            Assert.Contains(afterUnrelatedReload.Issues, i => i.Table == "test.widget" && i.Check == "envelope");
+
+            // 只有真正修复并重载坏表本身，阻断才解除；报告里不再出现 test.widget 的加载错误。
+            source.Set("test.widget", Envelope("test.widget", 1, "[{\"id\": \"test.widget.a\", \"name\": \"Fixed\", \"count\": 1}]"));
+            var afterFixReload = registry.Reload("test.widget");
+            Assert.False(afterFixReload.IsBlocking);
+            Assert.DoesNotContain(afterFixReload.Issues, i => i.Table == "test.widget");
+            Assert.Equal("Fixed", registry.Get("test.widget", "test.widget.a")!.GetString("name"));
+
+            // 修复生效后，后续无参 Validate() 应保持不阻断——不残留任何已经修好的历史错误。
+            var afterFinalValidate = registry.Validate();
+            Assert.False(afterFinalValidate.IsBlocking);
+            Assert.DoesNotContain(afterFinalValidate.Issues, i => i.Table == "test.widget");
         }
 
         // -----------------------------------------------------------------

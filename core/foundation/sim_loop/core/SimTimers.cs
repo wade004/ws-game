@@ -96,6 +96,24 @@ namespace Core.Foundation.SimLoop
             }
         }
 
+        /// <summary>
+        /// 清空全部存活计时器（FND-04 收口：<see cref="WorldSim.ClearAll"/> 用本方法原地清空，
+        /// 不再换上一个全新的 <see cref="SimTimers"/> 实例）。判断记录：<b>不重置</b>
+        /// <see cref="_nextHandleValue"/>——句柄编号在本实例的整个生命周期内单调递增、永不复用，
+        /// 这正是修复"旧场景 <see cref="TimerHandle"/> 在清空后与新场景的句柄发生数值碰撞"问题的
+        /// 关键：换实例的旧实现里，新 <see cref="SimTimers"/> 的编号计数器从 1 重新开始，跨场景
+        /// 持有的旧 <see cref="TimerHandle"/> 值可能与清空后新创建的计时器句柄数值相同，进而对
+        /// <see cref="WorldSim.Timers"/>（此后一直指向同一个实例）调用 <see cref="Cancel"/> 时
+        /// 意外命中并取消了一个"看起来无关"的新计时器。保留同一个实例 + 只清空存活集合、计数器
+        /// 继续递增，使得任何在 Clear 之前发出的 <see cref="TimerHandle"/> 在 Clear 之后要么已不在
+        /// <see cref="_remainingByHandle"/> 中（<see cref="IsAlive"/> 返回 false、<see cref="Cancel"/>
+        /// 变成对不存在 key 的静默 no-op），要么绝不会与 Clear 之后新创建的任何句柄数值相等。
+        /// </summary>
+        public void Clear()
+        {
+            _remainingByHandle.Clear();
+        }
+
         private double GetRemainingOrThrow(TimerHandle handle)
         {
             if (_remainingByHandle.TryGetValue(handle, out var remaining))

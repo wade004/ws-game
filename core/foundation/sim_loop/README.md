@@ -193,6 +193,28 @@ sim_loop/
 计时器本身不发事件，由调用方轮询 `IsExpired`。模式切换时刻的时间单位换算见
 `SimTimers.RescaleAll` 与 `TimeModelSwitch`。
 
+**FND-04 收口（外部审核 `code-review.md`）：`WorldSim.ClearAll` 原地清空同一个 `SimTimers`
+实例，不再换新实例。** 此前 `ClearAll` 直接把 `WorldSim` 持有的 `SimTimers` 字段整个换成一个
+全新实例，图省事等价于"清空全部计时器"，但新实例的 `TimerHandle` 编号从 1 重新计数——由于
+`IWorldSim.Timers` 属性此后一直返回同一个（新）实例，跨 `ClearAll` 边界持有的旧 `TimerHandle`
+值可能与清空后新创建的计时器句柄数值相同，对旧句柄调用 `Cancel` 会误伤一个语义上完全无关的
+新计时器。现改为 `SimTimers` 新增的 `Clear()`（不是 `ISimTimers` 契约的一部分，与
+`RescaleAll` 同一惯例）原地清空存活集合、**不重置**编号计数器，`WorldSim` 全程持有同一个
+`SimTimers` 实例——句柄编号在实例生命周期内单调递增、永不复用，彻底消除数值碰撞。
+
+## `WorldSim.Dispose`（FND-06 收口新增）
+
+具体类型 `WorldSim`（不是 `IWorldSim` 契约的一部分，见下）实现标准 `System.IDisposable`：
+`Dispose()` 释放构造函数里对 `IEventBus` 建立的那一条订阅（`sim.round_ended` → 推进
+`SimTimers`）。不加进 `IWorldSim` 接口本身的原因：`IWorldSim` 目前有多个调用方/测试替身
+（如 `presentation/ui/tests/TestSupport.cs`），只有 `WorldSim` 这一个具体实现持有需要释放的
+订阅，把 `Dispose` 定成契约的一部分会强制所有其它实现也跟着实现它，波及范围超出本条缺陷本身。
+典型消费方：`Core.Foundation.SaveSystem.ReplayPlayer` 在同一实例上第二次调用
+`Load`/`LoadDiscrete` 前，会对上一次持有的世界调用 `(_world as IDisposable)?.Dispose()`——不
+这样做的话，旧世界会因为这条订阅被共享 `IEventBus` 的订阅者列表永久强引用，继续对新世界产生
+的事件起反应，见该类型判断记录（外部审核 `code-review.md` FND-06）。`ClearAll` 与 `Dispose`
+职责不同：前者清空内容、实例本身之后仍可继续使用；后者释放外部资源、实例之后不应再被使用。
+
 ## 离散时间模型（ADR-0013）判断记录
 
 1. **`TurnScheduler` 一步一回合 vs 多次行动**：`initiative_stat`/`fixed_order` 两种策略下，
@@ -209,7 +231,11 @@ sim_loop/
    类型的便利成员，惯例同 `NotifyStepConsumed`）新增 `AddParticipant`/`RemoveParticipant` 两个
    方法，由 `TimeModelSwitch` 在离散模式中收到这两个事件时调用，实时同步进当前轮的行动顺序
    （`initiative_stat`/`action_points` 按先攻值插入尚未行动的序列，`fixed_order` 追加末尾；
-   死亡/离场移除，处理"移除的正是当前行动者本人"等边界情形，见该方法判断记录）。`combat.left`
+   死亡/离场移除，处理"移除的正是当前行动者本人"等边界情形，见该方法判断记录）。三种策略下
+   `AddParticipant` 都会给新参与者按 `action_points_per_turn` 分配本轮满额行动点账本（FND-05
+   收口：`fixed_order` 分支此前在追加进 `_order` 后直接 `return`，跳过了这一步，导致战斗中途
+   加入的单位本轮 `GetActionPointsRemaining` 恒为 0、`TryConsumeActionPoints`——供移动预算等
+   系统使用——恒返回 false，见外部审核 `code-review.md` FND-05）。`combat.left`
    （个体脱战，非死亡）不触发移除，是已知限制，见交付报告"做不了的事"。
 3. **全局计时器换算 `SimTimers.RescaleAll` 不是 `ISimTimers` 契约的一部分**：03/09 未给"时间
    单位换算"定义独立接口原语，本方法是承载该文档要求行为（第 3.3 节步骤 2）的具体类型便利

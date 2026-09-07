@@ -86,6 +86,19 @@ namespace Core.Foundation.DataRegistry
         /// 只替换对应表的条目。</summary>
         private readonly List<OverrideDiagnostic> _overrideDiagnostics = new List<OverrideDiagnostic>();
 
+        /// <summary>FND-03 收口：按表持久保留"加载阶段"（envelope/schema_version/primary_key，即
+        /// <see cref="LoadOneTablePartial"/>/<see cref="LoadMergedTable"/> 产出、发生在字段校验与
+        /// <see cref="IValidationRule"/> 之前的那部分）诊断，跨越无参 <see cref="Validate()"/> 调用与
+        /// 不相关表的 <see cref="Reload(string)"/> 持续存在——一张表加载失败（例如坏 JSON）意味着它
+        /// 根本没有进入 <see cref="_tables"/>，字段级校验循环天然看不到它，如果不额外持久化这份诊断，
+        /// 任何后续无参 <see cref="Validate()"/>（哪怕只是想重新跑一遍别的表的规则）都会拿一个全新的
+        /// 空 issues 列表起步，凭空"忘掉"这张坏表曾经报过错，<see cref="_blocked"/> 可能被错误解除。
+        /// <see cref="LoadAllCore"/> 整体重建（覆盖全部表），<see cref="Reload(string)"/> 只替换
+        /// 参数指定的那张表的条目——这正是"按表保留，直到该表成功重载"的语义：其它表的历史诊断不受
+        /// 影响，只有显式重载了的那张表才可能被清空（重载成功、不再报错时）或替换（重载后错误变了）。
+        /// <see cref="Validate()"/> 以这份列表的快照作为起点，而不是从空列表开始。</summary>
+        private readonly List<ValidationIssue> _loadDiagnostics = new List<ValidationIssue>();
+
         /// <summary>最近一次 <see cref="LoadAll()"/>/<see cref="LoadAll(IReadOnlyList{IDataSource})"/>
         /// 使用的完整根集合；<see cref="Reload(string)"/> 据此在全部根里重新定位待重载的表（多根注册表
         /// 下，某张表可能同时来自多个根，<see cref="Reload(string)"/> 按同样的合并规则重新计算该表）。
@@ -225,6 +238,13 @@ namespace Core.Foundation.DataRegistry
 
             _tables = loaded;
 
+            // 快照"加载阶段"诊断（此时 issues 里只有 envelope/schema_version/primary_key 一类
+            // 错误，字段校验与规则尚未运行）——RunValidationAndBuildReport 会继续往同一个 issues
+            // 列表追加字段级诊断，但 List<T> 的 AddRange 是值拷贝，不会让 _loadDiagnostics 跟着后续
+            // 追加联动，因此必须在调用 RunValidationAndBuildReport 之前拍这一份快照。
+            _loadDiagnostics.Clear();
+            _loadDiagnostics.AddRange(issues);
+
             var report = RunValidationAndBuildReport(issues);
 
             _bus.PublishImmediate(new DataLoadCompletedEvent(_tables.Count, recordCount, report.ErrorCount, report.WarningCount));
@@ -236,7 +256,7 @@ namespace Core.Foundation.DataRegistry
             return report;
         }
 
-        public ValidationReport Validate() => RunValidationAndBuildReport(new List<ValidationIssue>());
+        public ValidationReport Validate() => RunValidationAndBuildReport(new List<ValidationIssue>(_loadDiagnostics));
 
         /// <summary>仅限开发期使用的单表热重载：在 <see cref="_sources"/> 全部根中重新定位
         /// <paramref name="table"/>，按与初次加载相同的合并规则重建该表，替换内存态记录，随后
@@ -291,7 +311,21 @@ namespace Core.Foundation.DataRegistry
                 _overrideDiagnostics.AddRange(freshDiagnostics);
             }
 
-            return RunValidationAndBuildReport(localIssues);
+            // FND-03 收口：按表持久化本次重载得到的"加载阶段"诊断（此时 localIssues 只含
+            // envelope/schema_version/primary_key 一类错误，字段校验尚未运行），替换掉
+            // _loadDiagnostics 里属于这张表的旧条目——重载成功（localIssues 为空）则该表的历史
+            // 加载错误随之清空，解除对应阻断；重载仍失败则替换成这一次的错误消息；其它表的诊断
+            // 完全不受影响（呼应上面 _overrideDiagnostics 的替换惯例）。
+            _loadDiagnostics.RemoveAll(d => d.Table == table);
+            _loadDiagnostics.AddRange(localIssues);
+
+            // 关键一步（不是只把 localIssues 传给 RunValidationAndBuildReport）：本次 Reload 返回
+            // 的报告、以及它据此更新的 _blocked 状态，必须看到全部表的持久化加载诊断，不能只看
+            // "这次重载的这一张表"——否则 Reload 一张完全无关的好表也会把 _blocked
+            // 重新算成"不阻断"（用的是只含这张表信息的局部报告），等价于绕过了上面
+            // Validate()/_loadDiagnostics 好不容易做到的"按表持久保留，直到该表成功重载"。
+            var issuesForReport = new List<ValidationIssue>(_loadDiagnostics);
+            return RunValidationAndBuildReport(issuesForReport);
         }
 
         private ValidationReport RunValidationAndBuildReport(List<ValidationIssue> issues)
