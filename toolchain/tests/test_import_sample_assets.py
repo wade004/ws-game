@@ -41,6 +41,11 @@ EXPECTED_DISPLAY_ROWS = {
     "display.map.sample_save_point": ("gobj.sample_save_point", "gobj"),
     "display.map.sample_bolt": ("projectile.sample_bolt", "projectile"),
     "display.map.sample_loot_pile": ("loot.generic_pile", "item"),
+    # W6-B 新增（ADR-0017）：model 型外形示例（无 sprite_set_id，见
+    # test_sprite_set_ids_are_three_segment_and_assets_exist 判断记录"跳过没有 sprite_set_id 的行"）
+    # 与复用 sample_blade 精灵集的武器风格示例。
+    "display.map.sample_model_hero": ("creature.sample_model_hero", "creature"),
+    "display.map.sample_model_sword": ("item.sample_model_sword", "item"),
 }
 
 
@@ -101,7 +106,11 @@ class ImportSampleAssetsTest(unittest.TestCase):
         rows_by_id = {row["id"]: row for row in display_map["rows"]}
         for row_id in EXPECTED_DISPLAY_ROWS:
             row = rows_by_id[row_id]
-            sprite_set_id = row["sprite_set_id"]
+            sprite_set_id = row.get("sprite_set_id")
+            if sprite_set_id is None:
+                # model 型外形（如 display.map.sample_model_hero）没有 sprite_set_id 字段，
+                # 走三维模型资源（model_ref），不属于本用例覆盖的精灵集资产校验范围。
+                continue
             parts = sprite_set_id.split(".")
             self.assertEqual(3, len(parts), msg=f"{row_id}: {sprite_set_id}")
             self.assertEqual("sprite", parts[0], msg=row_id)
