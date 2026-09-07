@@ -112,6 +112,12 @@ $PluginsCoreDir = Join-Path $RepoRoot "adapters\unity\Packages\com.gamefoundatio
 $VersionFilePath = Join-Path $RepoRoot "VERSION"
 $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 
+function Write-Step {
+    param([string]$Message)
+    Write-Host ""
+    Write-Host "==== $Message ====" -ForegroundColor Cyan
+}
+
 # 版本可追溯任务新增：单一版本源读取 + -Dist 参数解析（见上方 .PARAMETER Dist 说明）。
 # 校验在脚本一开始就做（哪怕本次调用根本不带 -Dist），提前暴露 VERSION 文件本身格式错误。
 function Get-FrameworkVersionFromFile {
@@ -325,12 +331,6 @@ $CoreAssemblies = @(
     @{ Name = "Core.Gameplay"; Dir = "core\gameplay" },
     @{ Name = "Presentation.Common"; Dir = "presentation" }
 )
-
-function Write-Step {
-    param([string]$Message)
-    Write-Host ""
-    Write-Host "==== $Message ====" -ForegroundColor Cyan
-}
 
 # 只有目标文件不存在或哈希不同才真正拷贝；返回 $true 表示发生了拷贝，$false 表示跳过。
 # 用哈希而不是时间戳/文件大小比较，避免"内容相同但时间戳不同"（例如同一份产物被重复构建）
