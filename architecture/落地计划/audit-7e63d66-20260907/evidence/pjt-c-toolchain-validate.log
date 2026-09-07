@@ -1,0 +1,5 @@
+TGZ=D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-c-toolchain-1.0.0\package
+COMMAND=python "D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-c-toolchain-1.0.0\package\Tools~\validate_data.py" --data-root "D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-c-zip-1.0.0\ws-game-1.0.0\data\_framework"
+VALIDATE_EXIT_CODE=1
+COMMAND=dotnet build "D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-c-toolchain-1.0.0\package\Tools~\validator"
+BUILD_EXIT_CODE=1

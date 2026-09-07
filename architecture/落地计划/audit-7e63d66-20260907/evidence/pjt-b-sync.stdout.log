@@ -1,0 +1,14 @@
+
+==== 解析包路径：D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-b-unity-20260907-165224\Library\PackageCache\com.gamefoundation.framework-data@* ====
+  已解析：D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-b-unity-20260907-165224\Library\PackageCache\com.gamefoundation.framework-data@1.0.0
+
+==== 同步 Data~/data/_framework -> D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-b-unity-20260907-165224\Assets\StreamingAssets\GameFoundation\data\_framework ====
+  data/_framework：共 1 个文件，拷贝 1，跳过 0，删除 1
+
+==== 同步 Data~/assets/_placeholder -> D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-b-unity-20260907-165224\Assets\StreamingAssets\GameFoundation\assets\_placeholder ====
+  assets/_placeholder：共 1 个文件，拷贝 1，跳过 0，删除 0
+
+==== 同步 Data~/assets/textmesh_pro_essentials -> D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-b-unity-20260907-165224\Assets\TextMesh Pro（不进 StreamingAssets，见判断记录） ====
+  assets/textmesh_pro_essentials：共 1 个文件，拷贝 1，跳过 0，删除 1
+
+==== sync_package_content.ps1 完成 ====

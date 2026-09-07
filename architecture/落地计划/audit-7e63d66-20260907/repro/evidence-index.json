@@ -1,0 +1,8 @@
+{
+  "PJT-A quick raw": "pjt-a-quick-check.log + pjt-a-quick-check.stdout.log",
+  "PJT-A synconly raw": "pjt-a-synconly.stdout.log",
+  "PJT-B raw": "pjt-b-path-guard.log + pjt-b-sync.stdout.log",
+  "PJT-C zip raw": "pjt-c-zip-validate.log + pjt-c-zip-validate.stdout.log",
+  "PJT-C tgz raw": "pjt-c-toolchain-validate.log + pjt-c-toolchain-validate.stdout.log + pjt-c-toolchain-build.stdout.log",
+  "CORE raw": "core-repros-final.log + core-repros-final-build.stdout.log + core-repros-final-run.stdout.log"
+}

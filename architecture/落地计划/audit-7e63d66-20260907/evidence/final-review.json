@@ -1,0 +1,23 @@
+{
+  "baseline": "7e63d6695644644e20f30e006b9efa7e531afa34",
+  "source_link_checks": 163,
+  "invalid_links": [],
+  "findings": {
+    "code": 12,
+    "project": 7,
+    "P1": 10,
+    "P2": 9
+  },
+  "previous_findings": 19,
+  "architecture_chapters": 15,
+  "reproduced_findings": [
+    "C01",
+    "C05",
+    "P01",
+    "P02",
+    "P03"
+  ],
+  "unity_rerun": false,
+  "main_unchanged_and_clean": true,
+  "review": "Primary reviewer verified raw logs, reran CORE-A/CORE-B, checked source chains and corrected draft errors. Independent Astra review of C01/C02/C03/C08/C09/C10 passed."
+}

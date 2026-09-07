@@ -1,0 +1,21 @@
+  正在确定要还原的项目…
+  已还原 D:\workespace\ws-game-review-7e63d66\core\carriers\Core.Carriers.csproj (用时 46 毫秒)。
+  已还原 D:\workespace\ws-game-review-7e63d66\core\gameplay\Core.Gameplay.csproj (用时 46 毫秒)。
+  已还原 D:\workespace\ws-game-review-7e63d66\core\rules\Core.Rules.csproj (用时 46 毫秒)。
+  已还原 D:\workespace\ws-game-review-7e63d66\core\numbers\Core.Numbers.csproj (用时 46 毫秒)。
+  已还原 D:\workespace\ws-game-review-7e63d66\adapters\stub\Adapters.Stub.csproj (用时 46 毫秒)。
+  已还原 D:\workespace\ws-game-review-7e63d66\core\foundation\Core.Foundation.csproj (用时 41 毫秒)。
+  已还原 D:\workespace\ws-game-review-7e63d66\architecture\落地计划\audit-7e63d66-20260907\repro\BoundaryRepros.csproj (用时 46 毫秒)。
+  Core.Foundation -> D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\core-repro-artifacts-v3\bin\Core.Foundation\release\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\core-repro-artifacts-v3\bin\Core.Numbers\release\Core.Numbers.dll
+  Adapters.Stub -> D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\core-repro-artifacts-v3\bin\Adapters.Stub\release\Adapters.Stub.dll
+  Core.Rules -> D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\core-repro-artifacts-v3\bin\Core.Rules\release\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\core-repro-artifacts-v3\bin\Core.Carriers\release\Core.Carriers.dll
+  Core.Gameplay -> D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\core-repro-artifacts-v3\bin\Core.Gameplay\release\Core.Gameplay.dll
+  BoundaryRepros -> D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\core-repro-artifacts-v3\bin\BoundaryRepros\release\BoundaryRepros.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:01.62

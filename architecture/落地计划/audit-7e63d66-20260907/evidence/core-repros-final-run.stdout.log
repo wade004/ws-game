@@ -1,0 +1,10 @@
+BOUNDARY_REPROS HEAD=7e63d6695644644e20f30e006b9efa7e531afa34
+CORE-A expectedCorrectBehavior=NotFound (slot.a has no formal/new backup; slot.a.bak1 is independent formal slot)
+CORE-A setup=Save(slot.a.bak1) success=True formalBytes=366
+CORE-A actual status=LoadedFromBackup metaMarker=look-alike-formal-slot loadedSectionMarker=from-other-slot generatedNewLayoutBackup=True reproduced=True
+CORE-A boundary=legacy top-level fallback path aliases an independent formal slot name
+CORE-B expectedCorrectBehavior=failed reward leaves pre-existing A5 intact; actual partial A add must not be rolled back past the delta
+CORE-B setup=MaxSlots=1 FullPolicy=Partial initial=A5 stack_size=10 reward=[A10,B1]
+CORE-B actual granted=False beforeA=5 afterA=0 afterB=0 items=[] reproduced=True
+CORE-B boundary=RewardDispatcher records requested count 10, while InventoryHost.Partial adds only 5; rollback removes 10 from the now-full A stack
+SUMMARY CORE-A=REPRODUCED CORE-B=REPRODUCED

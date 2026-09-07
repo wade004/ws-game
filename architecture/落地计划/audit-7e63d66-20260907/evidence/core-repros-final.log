@@ -1,0 +1,4 @@
+COMMAND_BUILD=dotnet build "D:\workespace\ws-game-review-7e63d66\architecture\落地计划\audit-7e63d66-20260907\repro\BoundaryRepros.csproj" -c Release --artifacts-path "D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\core-repro-artifacts-v3"
+BUILD_EXIT_CODE=0
+COMMAND_RUN=dotnet "D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\core-repro-artifacts-v3\bin\BoundaryRepros\release\BoundaryRepros.dll"
+RUN_EXIT_CODE=0

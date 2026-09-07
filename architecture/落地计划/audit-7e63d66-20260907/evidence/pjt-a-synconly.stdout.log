@@ -1,0 +1,6 @@
+
+==== 已启用 -SyncOnly：跳过 dotnet build/test ====
+
+==== 同步核心 DLL 到 Runtime/Plugins/Core/（哈希不同才拷贝） ====
+找不到构建产物：D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\release-clean-20260907-165129\core\foundation\bin\Release\netstandard2.1\Core.Foundation.dll
+（-SyncOnly 要求产物已存在，请先不带 -SyncOnly 跑一次完整构建）

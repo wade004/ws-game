@@ -1,0 +1,6 @@
+
+MSBUILD : error MSB1009: 项目文件不存在。
+开关:D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-c-toolchain-1.0.0\package\toolchain\validator
+生成失败。请修复生成错误并重新运行。
+[第一道·骨架检查] checked 5 files across 1 root(s), 0 errors
+[第二道·真实校验] 正在运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: C:\Program Files\dotnet\dotnet.EXE run --project D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-c-toolchain-1.0.0\package\toolchain\validator -- --data-root D:\workespace\ws-game-review-7e63d66\bin\audit-7e63d66\pjt-c-zip-1.0.0\ws-game-1.0.0\data\_framework

@@ -1,0 +1,387 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="54" result="Passed" total="54" passed="54" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:12Z" duration="0.1896929">
+  <test-suite type="TestSuite" id="1000" name="unity" fullname="unity" runstate="Runnable" testcasecount="54" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:12Z" duration="0.189693" total="54" passed="54" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1066" name="Adapter.Unity.Tests.Editor.dll" fullname="D:/workespace/ws-game/adapters/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Editor.dll" runstate="Runnable" testcasecount="54" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:12Z" duration="0.185521" total="54" passed="54" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="47296" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1067" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="54" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:12Z" duration="0.185336" total="54" passed="54" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1068" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="54" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:12Z" duration="0.185277" total="54" passed="54" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1069" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="54" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:12Z" duration="0.185226" total="54" passed="54" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestSuite" id="1070" name="Editor" fullname="Adapter.Unity.Tests.Editor" runstate="Runnable" testcasecount="54" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:12Z" duration="0.185119" total="54" passed="54" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-suite type="TestFixture" id="1001" name="ConformanceUnityEditorTests" fullname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests" classname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests" runstate="Runnable" testcasecount="7" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.065072" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-suite type="ParameterizedMethod" id="1006" name="FileSystem" fullname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests.FileSystem" classname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.033408" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+                  <properties />
+                  <test-case id="1002" name="FileSystem(&quot;WriteTextAtomic_ReadText_往返一致&quot;)" fullname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests.FileSystem(&quot;WriteTextAtomic_ReadText_往返一致&quot;)" methodname="FileSystem" classname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests" runstate="Runnable" seed="1227201161" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.020379" asserts="0">
+                    <properties>
+                      <property name="retryIteration" value="0" />
+                      <property name="repeatIteration" value="0" />
+                    </properties>
+                  </test-case>
+                  <test-case id="1003" name="FileSystem(&quot;DeleteFile_删除后Exists为false_再次删除返回false&quot;)" fullname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests.FileSystem(&quot;DeleteFile_删除后Exists为false_再次删除返回false&quot;)" methodname="FileSystem" classname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests" runstate="Runnable" seed="1204242461" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.001305" asserts="0">
+                    <properties>
+                      <property name="retryIteration" value="0" />
+                      <property name="repeatIteration" value="0" />
+                    </properties>
+                  </test-case>
+                  <test-case id="1004" name="FileSystem(&quot;ListFiles_返回相对路径且按序数排序&quot;)" fullname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests.FileSystem(&quot;ListFiles_返回相对路径且按序数排序&quot;)" methodname="FileSystem" classname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests" runstate="Runnable" seed="719895711" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.005316" asserts="0">
+                    <properties>
+                      <property name="retryIteration" value="0" />
+                      <property name="repeatIteration" value="0" />
+                    </properties>
+                  </test-case>
+                  <test-case id="1005" name="FileSystem(&quot;内容根目录_写入与删除一律返回false&quot;)" fullname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests.FileSystem(&quot;内容根目录_写入与删除一律返回false&quot;)" methodname="FileSystem" classname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests" runstate="Runnable" seed="768002863" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.001055" asserts="0">
+                    <properties>
+                      <property name="retryIteration" value="0" />
+                      <property name="repeatIteration" value="0" />
+                    </properties>
+                  </test-case>
+                </test-suite>
+                <test-suite type="ParameterizedMethod" id="1010" name="Platform" fullname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests.Platform" classname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.029312" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                  <properties />
+                  <test-case id="1007" name="Platform(&quot;GetSystemLanguage_返回非空字符串&quot;)" fullname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests.Platform(&quot;GetSystemLanguage_返回非空字符串&quot;)" methodname="Platform" classname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests" runstate="Runnable" seed="1886710095" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000501" asserts="0">
+                    <properties>
+                      <property name="retryIteration" value="0" />
+                      <property name="repeatIteration" value="0" />
+                    </properties>
+                  </test-case>
+                  <test-case id="1008" name="Platform(&quot;剪贴板_写入后读回一致&quot;)" fullname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests.Platform(&quot;剪贴板_写入后读回一致&quot;)" methodname="Platform" classname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests" runstate="Runnable" seed="584265493" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.002084" asserts="0">
+                    <properties>
+                      <property name="retryIteration" value="0" />
+                      <property name="repeatIteration" value="0" />
+                    </properties>
+                  </test-case>
+                  <test-case id="1009" name="Platform(&quot;ReportCrash_不抛异常&quot;)" fullname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests.Platform(&quot;ReportCrash_不抛异常&quot;)" methodname="Platform" classname="Adapter.Unity.Tests.Editor.ConformanceUnityEditorTests" runstate="Runnable" seed="216167985" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.026218" asserts="0">
+                    <properties>
+                      <property name="retryIteration" value="0" />
+                      <property name="repeatIteration" value="0" />
+                    </properties>
+                  </test-case>
+                </test-suite>
+              </test-suite>
+              <test-suite type="TestFixture" id="1011" name="UnityClockTests" fullname="Adapter.Unity.Tests.Editor.UnityClockTests" classname="Adapter.Unity.Tests.Editor.UnityClockTests" runstate="Runnable" testcasecount="8" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.009434" total="8" passed="8" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1019" name="Dispose_IsIdempotent_DoesNotThrowWhenCalledTwice" fullname="Adapter.Unity.Tests.Editor.UnityClockTests.Dispose_IsIdempotent_DoesNotThrowWhenCalledTwice" methodname="Dispose_IsIdempotent_DoesNotThrowWhenCalledTwice" classname="Adapter.Unity.Tests.Editor.UnityClockTests" runstate="Runnable" seed="1577392695" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.002098" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1016" name="Now_IsMonotonicNonDecreasing" fullname="Adapter.Unity.Tests.Editor.UnityClockTests.Now_IsMonotonicNonDecreasing" methodname="Now_IsMonotonicNonDecreasing" classname="Adapter.Unity.Tests.Editor.UnityClockTests" runstate="Runnable" seed="1420643511" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.002197" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1017" name="OnFrame_DisposeHandle_StopsFutureCallbacks" fullname="Adapter.Unity.Tests.Editor.UnityClockTests.OnFrame_DisposeHandle_StopsFutureCallbacks" methodname="OnFrame_DisposeHandle_StopsFutureCallbacks" classname="Adapter.Unity.Tests.Editor.UnityClockTests" runstate="Runnable" seed="709992670" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000337" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1018" name="RequestFixedStep_DisposeHandle_StopsFutureCallbacks" fullname="Adapter.Unity.Tests.Editor.UnityClockTests.RequestFixedStep_DisposeHandle_StopsFutureCallbacks" methodname="RequestFixedStep_DisposeHandle_StopsFutureCallbacks" classname="Adapter.Unity.Tests.Editor.UnityClockTests" runstate="Runnable" seed="859031035" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000448" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1015" name="RequestFixedStep_NonPositiveStep_Throws" fullname="Adapter.Unity.Tests.Editor.UnityClockTests.RequestFixedStep_NonPositiveStep_Throws" methodname="RequestFixedStep_NonPositiveStep_Throws" classname="Adapter.Unity.Tests.Editor.UnityClockTests" runstate="Runnable" seed="1969003403" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000785" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1013" name="TickFixedStep_FiresExactlyWhenAccumulatorReachesStep" fullname="Adapter.Unity.Tests.Editor.UnityClockTests.TickFixedStep_FiresExactlyWhenAccumulatorReachesStep" methodname="TickFixedStep_FiresExactlyWhenAccumulatorReachesStep" classname="Adapter.Unity.Tests.Editor.UnityClockTests" runstate="Runnable" seed="1761286676" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000193" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1014" name="TickFixedStep_MultipleStepsInOneTick_FiresMultipleTimes" fullname="Adapter.Unity.Tests.Editor.UnityClockTests.TickFixedStep_MultipleStepsInOneTick_FiresMultipleTimes" methodname="TickFixedStep_MultipleStepsInOneTick_FiresMultipleTimes" classname="Adapter.Unity.Tests.Editor.UnityClockTests" runstate="Runnable" seed="1973079336" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000160" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1012" name="TickFrame_InvokesOnFrameCallback_WithGivenDelta" fullname="Adapter.Unity.Tests.Editor.UnityClockTests.TickFrame_InvokesOnFrameCallback_WithGivenDelta" methodname="TickFrame_InvokesOnFrameCallback_WithGivenDelta" classname="Adapter.Unity.Tests.Editor.UnityClockTests" runstate="Runnable" seed="2082160534" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000434" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1020" name="UnityFileSystemTests" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" testcasecount="11" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.035260" total="11" passed="11" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1024" name="DeleteFile_RemovesFile_ReadTextReturnsNull" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests.DeleteFile_RemovesFile_ReadTextReturnsNull" methodname="DeleteFile_RemovesFile_ReadTextReturnsNull" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" seed="1129713586" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.005571" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1026" name="GetContentRootDir_DiffersFromGetUserDataDir_InUserDataMode" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests.GetContentRootDir_DiffersFromGetUserDataDir_InUserDataMode" methodname="GetContentRootDir_DiffersFromGetUserDataDir_InUserDataMode" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" seed="843509010" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000689" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1030" name="GetUserDataDir_WithoutOverride_ReturnsRealPersistentDataPath" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests.GetUserDataDir_WithoutOverride_ReturnsRealPersistentDataPath" methodname="GetUserDataDir_WithoutOverride_ReturnsRealPersistentDataPath" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" seed="1782657031" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000428" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1031" name="GetUserDataDir_WithOverride_RedirectsAwayFromRealPersistentDataPath_ForAllInstances" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests.GetUserDataDir_WithOverride_RedirectsAwayFromRealPersistentDataPath_ForAllInstances" methodname="GetUserDataDir_WithOverride_RedirectsAwayFromRealPersistentDataPath_ForAllInstances" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" seed="546974602" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.002230" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1023" name="ListFiles_ReturnsRelativeSortedPaths" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests.ListFiles_ReturnsRelativeSortedPaths" methodname="ListFiles_ReturnsRelativeSortedPaths" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" seed="223179111" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.004769" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1028" name="ReadOnlyContentMode_DeleteFile_ReturnsFalse_DoesNotThrow" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests.ReadOnlyContentMode_DeleteFile_ReturnsFalse_DoesNotThrow" methodname="ReadOnlyContentMode_DeleteFile_ReturnsFalse_DoesNotThrow" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" seed="1839617601" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000388" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1029" name="ReadOnlyContentMode_ResolvesUnderConfiguredContentRoot" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests.ReadOnlyContentMode_ResolvesUnderConfiguredContentRoot" methodname="ReadOnlyContentMode_ResolvesUnderConfiguredContentRoot" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" seed="344777570" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.001962" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1027" name="ReadOnlyContentMode_WriteTextAtomic_ReturnsFalse_DoesNotThrow" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests.ReadOnlyContentMode_WriteTextAtomic_ReturnsFalse_DoesNotThrow" methodname="ReadOnlyContentMode_WriteTextAtomic_ReturnsFalse_DoesNotThrow" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" seed="1766014198" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000408" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1025" name="ReadText_NonExistentFile_ReturnsNull" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests.ReadText_NonExistentFile_ReturnsNull" methodname="ReadText_NonExistentFile_ReturnsNull" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" seed="1749276284" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000498" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1022" name="WriteTextAtomic_Overwrite_ReplacesContentAtomically" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests.WriteTextAtomic_Overwrite_ReplacesContentAtomically" methodname="WriteTextAtomic_Overwrite_ReplacesContentAtomically" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" seed="1968941414" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.002846" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1021" name="WriteTextAtomic_ThenReadText_ReturnsSameContent" fullname="Adapter.Unity.Tests.Editor.UnityFileSystemTests.WriteTextAtomic_ThenReadText_ReturnsSameContent" methodname="WriteTextAtomic_ThenReadText_ReturnsSameContent" classname="Adapter.Unity.Tests.Editor.UnityFileSystemTests" runstate="Runnable" seed="1170784509" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.007327" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1032" name="UnityNavigation2DTests" fullname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests" classname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests" runstate="Runnable" testcasecount="8" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.013727" total="8" passed="8" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1036" name="Clear_ContractMethod_RemovesAllBlockingForMap" fullname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests.Clear_ContractMethod_RemovesAllBlockingForMap" methodname="Clear_ContractMethod_RemovesAllBlockingForMap" classname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests" runstate="Runnable" seed="1654377329" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.002525" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1038" name="FindPath_GoalFullyEnclosed_ReturnsNull" fullname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests.FindPath_GoalFullyEnclosed_ReturnsNull" methodname="FindPath_GoalFullyEnclosed_ReturnsNull" classname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests" runstate="Runnable" seed="691811179" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.002482" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1037" name="FindPath_NoObstacle_ReturnsPathFromStartToGoal" fullname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests.FindPath_NoObstacle_ReturnsPathFromStartToGoal" methodname="FindPath_NoObstacle_ReturnsPathFromStartToGoal" classname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests" runstate="Runnable" seed="763157617" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.006281" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1033" name="IsWalkable_NoBlockingRects_DefaultsTrue" fullname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests.IsWalkable_NoBlockingRects_DefaultsTrue" methodname="IsWalkable_NoBlockingRects_DefaultsTrue" classname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests" runstate="Runnable" seed="793291419" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000120" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1039" name="Raycast_HitsBlockingRect_ReturnsEntryPoint" fullname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests.Raycast_HitsBlockingRect_ReturnsEntryPoint" methodname="Raycast_HitsBlockingRect_ReturnsEntryPoint" classname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests" runstate="Runnable" seed="1041333266" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000483" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1040" name="Raycast_NoObstacle_ReturnsNull" fullname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests.Raycast_NoObstacle_ReturnsNull" methodname="Raycast_NoObstacle_ReturnsNull" classname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests" runstate="Runnable" seed="1549708250" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000136" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1035" name="SetBlocking_CalledAgain_ReplacesPreviousBatch_DoesNotAccumulate" fullname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests.SetBlocking_CalledAgain_ReplacesPreviousBatch_DoesNotAccumulate" methodname="SetBlocking_CalledAgain_ReplacesPreviousBatch_DoesNotAccumulate" classname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests" runstate="Runnable" seed="2028369824" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000207" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1034" name="SetBlocking_ContractMethod_MakesPointInsideUnwalkable" fullname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests.SetBlocking_ContractMethod_MakesPointInsideUnwalkable" methodname="SetBlocking_ContractMethod_MakesPointInsideUnwalkable" classname="Adapter.Unity.Tests.Editor.UnityNavigation2DTests" runstate="Runnable" seed="1991255121" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000128" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1041" name="UnityPlatformTests" fullname="Adapter.Unity.Tests.Editor.UnityPlatformTests" classname="Adapter.Unity.Tests.Editor.UnityPlatformTests" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.018798" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1044" name="GetPlatformName_ReturnsNonEmptyString" fullname="Adapter.Unity.Tests.Editor.UnityPlatformTests.GetPlatformName_ReturnsNonEmptyString" methodname="GetPlatformName_ReturnsNonEmptyString" classname="Adapter.Unity.Tests.Editor.UnityPlatformTests" runstate="Runnable" seed="276209684" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000367" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1045" name="GetSystemLanguage_ReturnsNonEmptyString" fullname="Adapter.Unity.Tests.Editor.UnityPlatformTests.GetSystemLanguage_ReturnsNonEmptyString" methodname="GetSystemLanguage_ReturnsNonEmptyString" classname="Adapter.Unity.Tests.Editor.UnityPlatformTests" runstate="Runnable" seed="533766180" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000083" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1043" name="ReportCrash_WritesCrashLogFile_Readable" fullname="Adapter.Unity.Tests.Editor.UnityPlatformTests.ReportCrash_WritesCrashLogFile_Readable" methodname="ReportCrash_WritesCrashLogFile_Readable" classname="Adapter.Unity.Tests.Editor.UnityPlatformTests" runstate="Runnable" seed="1324647012" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.016088" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1042" name="SetClipboardText_ThenGetClipboardText_RoundTrips" fullname="Adapter.Unity.Tests.Editor.UnityPlatformTests.SetClipboardText_ThenGetClipboardText_RoundTrips" methodname="SetClipboardText_ThenGetClipboardText_RoundTrips" classname="Adapter.Unity.Tests.Editor.UnityPlatformTests" runstate="Runnable" seed="1223873482" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.001577" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1046" name="UnityRenderer3DTests" fullname="Adapter.Unity.Tests.Editor.UnityRenderer3DTests" classname="Adapter.Unity.Tests.Editor.UnityRenderer3DTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000716" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1047" name="CreateModelInstance_ThrowsNotSupportedException" fullname="Adapter.Unity.Tests.Editor.UnityRenderer3DTests.CreateModelInstance_ThrowsNotSupportedException" methodname="CreateModelInstance_ThrowsNotSupportedException" classname="Adapter.Unity.Tests.Editor.UnityRenderer3DTests" runstate="Runnable" seed="1747607290" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:11Z" duration="0.000289" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1048" name="UnityResourceLoaderFontTests" fullname="Adapter.Unity.Tests.Editor.UnityResourceLoaderFontTests" classname="Adapter.Unity.Tests.Editor.UnityResourceLoaderFontTests" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:12Z" duration="0.012938" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1049" name="LoadAsync_ExistingFontResource_MarksLoadedSynchronouslyAfterTick" fullname="Adapter.Unity.Tests.Editor.UnityResourceLoaderFontTests.LoadAsync_ExistingFontResource_MarksLoadedSynchronouslyAfterTick" methodname="LoadAsync_ExistingFontResource_MarksLoadedSynchronouslyAfterTick" classname="Adapter.Unity.Tests.Editor.UnityResourceLoaderFontTests" runstate="Runnable" seed="552023440" result="Passed" start-time="2026-09-07 07:01:11Z" end-time="2026-09-07 07:01:12Z" duration="0.012244" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1050" name="LoadAsync_UnknownFontResource_InvokesCallbackWithFalse_AndNotLoaded" fullname="Adapter.Unity.Tests.Editor.UnityResourceLoaderFontTests.LoadAsync_UnknownFontResource_InvokesCallbackWithFalse_AndNotLoaded" methodname="LoadAsync_UnknownFontResource_InvokesCallbackWithFalse_AndNotLoaded" classname="Adapter.Unity.Tests.Editor.UnityResourceLoaderFontTests" runstate="Runnable" seed="2141857728" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.000307" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1051" name="UnitySpatialQueryTests" fullname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests" classname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests" runstate="Runnable" testcasecount="9" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.010210" total="9" passed="9" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1060" name="Clear_RemovesAllRegisteredObjects" fullname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests.Clear_RemovesAllRegisteredObjects" methodname="Clear_RemovesAllRegisteredObjects" classname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests" runstate="Runnable" seed="645610367" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.002601" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1057" name="HasLineOfSight_DefaultsTrue_WithoutBlocker" fullname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests.HasLineOfSight_DefaultsTrue_WithoutBlocker" methodname="HasLineOfSight_DefaultsTrue_WithoutBlocker" classname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests" runstate="Runnable" seed="1265156579" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.000147" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1055" name="Nearest_ReturnsClosestObject" fullname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests.Nearest_ReturnsClosestObject" methodname="Nearest_ReturnsClosestObject" classname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests" runstate="Runnable" seed="241616498" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.000692" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1053" name="QueryRadius_RespectsRequiredAndExcludedTags" fullname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests.QueryRadius_RespectsRequiredAndExcludedTags" methodname="QueryRadius_RespectsRequiredAndExcludedTags" classname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests" runstate="Runnable" seed="1143363716" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.002995" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1052" name="QueryRadius_ReturnsMatchingIdsSortedById" fullname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests.QueryRadius_ReturnsMatchingIdsSortedById" methodname="QueryRadius_ReturnsMatchingIdsSortedById" classname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests" runstate="Runnable" seed="2029811569" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.000352" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1054" name="QueryRect_FindsOverlappingObjects" fullname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests.QueryRect_FindsOverlappingObjects" methodname="QueryRect_FindsOverlappingObjects" classname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests" runstate="Runnable" seed="1732665389" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.000900" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1056" name="Unregister_RemovesObjectFromFutureQueries" fullname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests.Unregister_RemovesObjectFromFutureQueries" methodname="Unregister_RemovesObjectFromFutureQueries" classname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests" runstate="Runnable" seed="1235339988" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.000711" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1058" name="UpdatePosition_MovesRegisteredObject_QueryReflectsNewPosition" fullname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests.UpdatePosition_MovesRegisteredObject_QueryReflectsNewPosition" methodname="UpdatePosition_MovesRegisteredObject_QueryReflectsNewPosition" classname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests" runstate="Runnable" seed="1502646878" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.000566" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1059" name="UpdatePosition_UnregisteredId_IsNoOp_DoesNotThrow" fullname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests.UpdatePosition_UnregisteredId_IsNoOp_DoesNotThrow" methodname="UpdatePosition_UnregisteredId_IsNoOp_DoesNotThrow" classname="Adapter.Unity.Tests.Editor.UnitySpatialQueryTests" runstate="Runnable" seed="202392903" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.000153" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1061" name="WavDecoderTests" fullname="Adapter.Unity.Tests.Editor.WavDecoderTests" classname="Adapter.Unity.Tests.Editor.WavDecoderTests" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.017698" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1063" name="TryDecode_AllPlaceholderSfxFiles_AllDecodeSuccessfully" fullname="Adapter.Unity.Tests.Editor.WavDecoderTests.TryDecode_AllPlaceholderSfxFiles_AllDecodeSuccessfully" methodname="TryDecode_AllPlaceholderSfxFiles_AllDecodeSuccessfully" classname="Adapter.Unity.Tests.Editor.WavDecoderTests" runstate="Runnable" seed="166084843" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.002228" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1065" name="TryDecode_NotRiffHeader_ReturnsFalse" fullname="Adapter.Unity.Tests.Editor.WavDecoderTests.TryDecode_NotRiffHeader_ReturnsFalse" methodname="TryDecode_NotRiffHeader_ReturnsFalse" classname="Adapter.Unity.Tests.Editor.WavDecoderTests" runstate="Runnable" seed="643131370" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.000130" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1062" name="TryDecode_PlaceholderHitWav_ReturnsValidChannelsSampleRateAndSamples" fullname="Adapter.Unity.Tests.Editor.WavDecoderTests.TryDecode_PlaceholderHitWav_ReturnsValidChannelsSampleRateAndSamples" methodname="TryDecode_PlaceholderHitWav_ReturnsValidChannelsSampleRateAndSamples" classname="Adapter.Unity.Tests.Editor.WavDecoderTests" runstate="Runnable" seed="863761926" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.014637" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1064" name="TryDecode_TooShortByteArray_ReturnsFalse" fullname="Adapter.Unity.Tests.Editor.WavDecoderTests.TryDecode_TooShortByteArray_ReturnsFalse" methodname="TryDecode_TooShortByteArray_ReturnsFalse" classname="Adapter.Unity.Tests.Editor.WavDecoderTests" runstate="Runnable" seed="395454140" result="Passed" start-time="2026-09-07 07:01:12Z" end-time="2026-09-07 07:01:12Z" duration="0.000172" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

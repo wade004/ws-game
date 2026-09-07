@@ -1,0 +1,29 @@
+READ_ONLY_MAIN=D:\workespace\ws-game
+VERSION_FILE=1.0.0
+MANIFEST_VERSION=1.0.0
+LOCK_VERSION=1.0.0
+ZIP_FILENAME_VERSION=1.0.0
+VERSION_CONSISTENT=True
+MANIFEST_COMMIT=ab52097
+LOCK_COMMIT=ab52097
+CURRENT_MAIN_HEAD=7e63d6695644644e20f30e006b9efa7e531afa34
+RELEASE_COMMIT_OBJECT_EXISTS=True
+COMMIT_FIELDS_CONSISTENT=True
+ZIP_SHA256=E5921C429F9A70503A85F9F1F525FE876FD5544535F1921362EF3C0E56454D33
+ZIP_EXTRACTED_FILE_COUNT=885
+ZIP_MANIFEST_MATCHES_DIST=True
+DLL_HASH_COMPARISON=
+Core.Foundation.dll expected=64df79a897f22905e6a42b282912ae571aef9ae7c22fd28db70359a02d008b00 actual=64df79a897f22905e6a42b282912ae571aef9ae7c22fd28db70359a02d008b00 match=True
+Core.Numbers.dll expected=2d2df50f1022448fffdd9d1fe83fb7d9c6999f28ac6afc8c4961405634a6c49d actual=2d2df50f1022448fffdd9d1fe83fb7d9c6999f28ac6afc8c4961405634a6c49d match=True
+Core.Rules.dll expected=1296d299b2b660798fb3fa07089b893880d0955701f123685e0637f176a2f546 actual=1296d299b2b660798fb3fa07089b893880d0955701f123685e0637f176a2f546 match=True
+Core.Carriers.dll expected=1c57acfe3153f1abac7e8b627d5ccad8bf0e4b13a23202b8687f8ac7f38d7ec5 actual=1c57acfe3153f1abac7e8b627d5ccad8bf0e4b13a23202b8687f8ac7f38d7ec5 match=True
+Core.Gameplay.dll expected=f6e197aaed1fdf1e1a1c734bfe8aa982da1a15d75b69e7a1be695d22b1021085 actual=f6e197aaed1fdf1e1a1c734bfe8aa982da1a15d75b69e7a1be695d22b1021085 match=True
+Presentation.Common.dll expected=6bef43bdad47e5b7925f5d42de5845282b4acbd2da8831d1181c2362cc385043 actual=6bef43bdad47e5b7925f5d42de5845282b4acbd2da8831d1181c2362cc385043 match=True
+PACKAGE_LISTING_DIST=
+com.gamefoundation.adapter.unity-1.0.0.tgz bytes=717864
+com.gamefoundation.framework-data-1.0.0.tgz bytes=15914546
+com.gamefoundation.toolchain-1.0.0.tgz bytes=109914
+PACKAGE_JSON_VERSIONS=
+com.gamefoundation.adapter.unity version=1.0.0
+com.gamefoundation.framework-data version=1.0.0
+com.gamefoundation.toolchain version=1.0.0
