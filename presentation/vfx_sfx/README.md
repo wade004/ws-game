@@ -62,9 +62,10 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
    等待 `LoadAsync` 回调补播放；同步加载器（测试桩/引擎缓存命中）在同一次调用栈内完成时，
    `Spawn`/`Play` 仍能同步返回真实句柄，不退化调用方体验。排队等待有超时（`VfxOptions`/
    `SfxOptions.FirstLoadTimeoutSeconds`，默认 5 秒），超时丢弃并记一条诊断，不是无限期等待——
-   `VfxPlayer` 经 `Update(dt)`（`IVfxPlayer` 契约本就有该方法）累计倒计时，`SfxPlayer` 因
-   `ISfxPlayer` 契约没有 `Update` 方法（09 原文未定义，不新增契约方法）改为在下一次任意 `Play`
-   调用开头惰性扫过期项。
+   `VfxPlayer`/`SfxPlayer` 均经各自的 `Update(dt)` 累计倒计时（`IVfxPlayer` 契约本就有该方法；
+   `ISfxPlayer` 起初没有，本条落地时改为在下一次任意 `Play` 调用开头惰性扫过期项，判断记录 10
+   之后新增了独立的 `Update` 方法，见该条——本条这里不重复描述，避免与判断记录 10 各自维护一份
+   过期或最新的说法）。
 
 8. **GP-03 收口（第四方深度审核）：三处生产引导现在每帧真正调用 `VfxPlayer.Update`**——
    `Update(dt)` 承担两件事：对象池 lifetime 到期回收（判断记录 4）与首次异步加载的 pending 超时

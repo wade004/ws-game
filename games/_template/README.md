@@ -38,14 +38,17 @@ games/_template/
 | 13 §1 步骤 | 本模板对应的文件/字段 | 13 §8 检查表对应项 |
 |---|---|---|
 | 1. 选引擎并实现适配层（L-1） | 已由框架 `adapters/unity` 提供（Unity 实现）+ `adapters/stub`（桩实现）；本模板不重复 | "已完成引擎评估打分并选定引擎"、"L-1 全部接口已有对应实现" |
-| 2. 组装模块与策略配置 | `Runtime/GameBootstrap.cs`（`GameplayAssembly`/`PresentationAssembly` 构造参数）；启用哪些模块 = 传了哪些 `xxxOptions` | "已确定启用哪些 L0~L4 模块" |
+| 2. 组装模块与策略配置 | `Runtime/GameBootstrap.cs`（`GameplayAssembly`/`PresentationAssembly` 构造参数）；一个模块是否真正参与运行取决于 `GameBootstrap.cs` 是否实际调用了对应 Assembly 的组装/装配代码——传了哪个 `xxxOptions` 只是给已装配的模块注入策略配置（口味参数），配置项本身不产生模块启停效果（2026-09-07 改写，见下方"边界说明"，此前"启用哪些模块 = 传了哪些 xxxOptions"的简化提法容易被读成配置项本身能启停模块） | "已确定启用哪些 L0~L4 模块" |
 | 3. 确定口味配置项清单 | `Runtime/GameOptions.cs`（逐字段对应 13 §4 表格每一行，见该文件注释） | "第 4 节口味配置项清单已逐行填写为本游戏基线值" |
 | 4. 定资产规格并接通导入工具 | 本模板未覆盖（属"配表现"第 2 步，见下），参照 [`14_资产规格书模板.md`](../../architecture/14_资产规格书模板.md) | "资产规格书已填"、"导入工具已接通" |
 | 5. 填数据 | `data/game/`（见 `data/README.md`"表清单"一节：框架级已提供 / 游戏必填） | "最小可玩闭环所需数据已填齐并通过校验" |
 | 6. 配表现 | 本模板故意不覆盖（`GameOptions.PlayerTemplateId` 默认无 `display.map` 映射，玩家进图后暂时不可见，见 `data/README.md`"判断记录"）；`Editor/GameSceneBuilder.cs` 只生成 Shell/首张地图两个场景骨架 | "DisplayInfo 映射已配齐"、"UI 框架实例已接入主题" |
 | 7. 跑验收 | `validate.ps1`（数据校验）+ `Tests/Runtime/GameTemplateSmokeTests.cs`（模块/集成测试的最小子集：装配+主菜单）+ `Runtime/TemplateSmokeRunner.cs`（`-gf-smoke-template` 命令行无人值守冒烟：主菜单→新游戏→进图→移动→存档→读档→退出） | 第 7 节七项验收关卡（本模板覆盖第 1 项"数据校验通过"、第 6 项"端到端可玩性验收"的起步部分——本模板无战斗/技能/任务内容，`-gf-smoke-template` 只验证进图/移动/存档读档这一段不阻断） |
 
-> 边界说明（第六方深度审核，2026-09-07）：上表第 2 步"启用哪些模块 = 传了哪些 `xxxOptions`"是简化描述——`GameOptions`/各 `xxxOptions` 本身是口味配置容器，不是模块启停开关；一个模块是否真正参与运行，取决于 `GameBootstrap.cs` 里是否实际调用了对应 Assembly 的组装/装配代码，配置项本身不产生启停效果。另外，本模板默认数据集（`data/game/`）只是能跑通"主菜单→新游戏→进到一张地图"的最小闭环，不含完整游戏内容（战斗/技能/任务/掉落等），复制为新游戏后仍需按 13 §1 七步逐项补齐。详见 `architecture/落地计划/audit-7e63d66-20260907/followup-2026-09-07d.md`。
+> 边界说明（第六方深度审核，2026-09-07）：本模板默认数据集（`data/game/`）只是能跑通"主菜单→
+> 新游戏→进到一张地图"的最小闭环，不含完整游戏内容（战斗/技能/任务/掉落等），复制为新游戏后
+> 仍需按 13 §1 七步逐项补齐；不构成"新游戏接入已验收"的结论。详见
+> `architecture/落地计划/audit-7e63d66-20260907/followup-2026-09-07d.md`。
 
 ## 复制为新游戏：改哪几处
 

@@ -26,8 +26,12 @@
 不负责什么：
 
 - 不读取任何系统/引擎时间源：`SimClockHost.Advance` 的唯一输入是调用方传入的
-  `realDeltaSeconds`（由引擎适配层 `IClock.onFrame` 回调提供），本模块不知道也不关心
-  真实时钟怎么来的。
+  `realDeltaSeconds`，由上层装配代码（`core/gameplay/assembly.GameplayAssembly.Advance`）
+  转发；该装配代码本身挂在引擎适配层 `IClock.RequestFixedStep` 注册的固定步回调上（主循环
+  驱动固定步长模拟的唯一入口，见 02 第 1.2 节、03 第 3.1 节），与只服务表现层插值/UI 动画的
+  `IClock.OnFrame` 逐帧回调是两条不同的驱动线（`OnFrame` 从不驱动这里的累积推进，2026-09-06
+  勘误，见 03 第 3.1 节判断记录）；本模块自身不知道也不关心真实时钟怎么来的，只认调用方传入
+  的 `realDeltaSeconds`。
 - 不实现 `Unit`/`GameObject`/`Projectile`/`AreaTrigger`/`DroppedLoot` 等具体实体子类
   （见 [05_对象模型与世界.md](../../../architecture/05_对象模型与世界.md) 第 1 节继承树），
   这些属于更上层模块（`core/carriers` 等）；本模块只提供公共基类 `Entity` 与集合管理。

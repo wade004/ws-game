@@ -32,6 +32,17 @@ name: Release
 # 先只推 tag、人工确认后再决定是否发布 Release）才走原有的 `-SyncOnly -Dist -Zip` + 上传路径，
 # 作为"tag 一推送就自动出 Release"的兜底。
 #
+# 判断记录（附件存在性检查改为核对完整附件集合，2026-09-07 改写）：外部审核（第五轮）指出原
+# "Check for existing release assets" 步骤只检查 `ws-game-<ver>.zip` 是否存在，命中就整体跳过
+# 打包与上传；但一次发布应有五个附件（zip、lock、三个 `com.gamefoundation.*-<ver>.tgz` 私服包），
+# 只查 zip 会漏判"zip 已传、其余附件缺失"（例如本机 `-Release -Publish` 中途失败、或历史 Release
+# 只手工补传了部分附件）的情况，遗漏的附件永远不会被本工作流补上。改为对五个附件逐一核对：
+# 全部存在 -> 跳过打包与上传；一个都不存在 -> 等价于原有 fallback，全量打包上传；只缺部分 ->
+# 仍然要跑一次 build.ps1 打包（`-SyncOnly -Dist -Zip` 一次性产出全部五个文件，机制上不支持只重建
+# 其中几个），但上传步骤只把缺失的那几个文件路径交给 `files:`，已经存在的附件不会被托管运行器
+# 重建的版本覆盖——"本机已验证产物优先"的原则不变，见上一段判断记录（确定性构建在不同 checkout
+# 路径下产出不同字节）。
+#
 # 判断记录（run: 脚本正文必须是纯 ASCII，2026-09-07 新增）：推送标签 v1.0.0 触发的运行
 # （run 34094116412）在 "Resolve version from tag" 步骤失败，报
 # "The string is missing the terminator: ''" / "Missing closing '}'"。根因：GitHub Actions
@@ -162,29 +173,55 @@ jobs:
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-        # 判断记录：见文件头"Release 附件的产生与上传时机"——本机已验证产物优先，托管运行器不
-        # 覆盖本机 -Publish 已经上传过的 zip。用 gh release view --json assets 查该 tag 对应
-        # Release 的既有附件列表，命中同名 zip 就跳过下面的打包与上传步骤；Release 不存在（gh
-        # 返回非零）或存在但没有该 zip，都视为需要走原有兜底路径。
+        # 判断记录：见文件头"附件存在性检查改为核对完整附件集合"与"Release 附件的产生与上传
+        # 时机"——本机已验证产物优先。用 gh release view --json assets 查该 tag 对应 Release 的
+        # 既有附件列表，与完整附件集合（zip、lock、三个 .tgz）逐一比对：全部存在才跳过打包与
+        # 上传；否则照常打包，但只把缺失的文件路径放进下面上传步骤的 files 列表，已存在的附件
+        # 不会被本工作流的构建结果覆盖。
         run: |
           $ErrorActionPreference = "Continue"
           $tag = "${{ steps.version.outputs.tag }}"
           $version = "${{ steps.version.outputs.version }}"
-          $zipName = "ws-game-$version.zip"
-          $json = gh release view $tag --json assets 2>$null
-          $skip = "false"
-          if ($LASTEXITCODE -eq 0 -and $json) {
-            $assetNames = ($json | ConvertFrom-Json).assets | ForEach-Object { $_.name }
-            if ($assetNames -contains $zipName) {
-              Write-Host "Release $tag already has $zipName (uploaded by local build.ps1 -Release -Publish). Skipping rebuild-and-upload to avoid overwriting a verified artifact with a hosted-runner rebuild (see file header note on deterministic-build path hashes)."
-              $skip = "true"
-            } else {
-              Write-Host "Release $tag exists but has no $zipName yet. Will build and upload as a fallback."
-            }
-          } else {
-            Write-Host "Release $tag not found yet (gh release view exit code $LASTEXITCODE). Will build and upload as a fallback."
+
+          $requiredNames = @(
+            "ws-game-$version.zip",
+            "ws-game-$version.lock",
+            "com.gamefoundation.adapter.unity-$version.tgz",
+            "com.gamefoundation.framework-data-$version.tgz",
+            "com.gamefoundation.toolchain-$version.tgz"
+          )
+          $requiredPaths = @{
+            "ws-game-$version.zip" = "dist/ws-game-$version.zip"
+            "ws-game-$version.lock" = "dist/ws-game-$version.lock"
+            "com.gamefoundation.adapter.unity-$version.tgz" = "dist/$version/packages/com.gamefoundation.adapter.unity-$version.tgz"
+            "com.gamefoundation.framework-data-$version.tgz" = "dist/$version/packages/com.gamefoundation.framework-data-$version.tgz"
+            "com.gamefoundation.toolchain-$version.tgz" = "dist/$version/packages/com.gamefoundation.toolchain-$version.tgz"
           }
-          "skip=$skip" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+          $json = gh release view $tag --json assets 2>$null
+          $existingNames = @()
+          if ($LASTEXITCODE -eq 0 -and $json) {
+            $existingNames = @(($json | ConvertFrom-Json).assets | ForEach-Object { $_.name })
+          } else {
+            Write-Host "Release $tag not found yet (gh release view exit code $LASTEXITCODE). Treating all required assets as missing."
+          }
+
+          $missingNames = @($requiredNames | Where-Object { $existingNames -notcontains $_ })
+
+          if ($missingNames.Count -eq 0) {
+            Write-Host "Release $tag already has all required assets ($($requiredNames -join ', ')). Skipping rebuild-and-upload to avoid overwriting verified artifacts with a hosted-runner rebuild (see file header note on deterministic-build path hashes)."
+            "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } else {
+            Write-Host "Release $tag is missing: $($missingNames -join ', '). Will build (build.ps1 produces all five files together) but only upload the missing ones; existing assets are left untouched."
+            "skip=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+
+          $missingPaths = @($missingNames | ForEach-Object { $requiredPaths[$_] })
+          "missing_files<<GF_EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          foreach ($p in $missingPaths) {
+            $p | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+          "GF_EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: build.ps1 -SkipTests (produce default-location DLLs for packaging)
         # 判断记录（P01 根治，2026-09-07）：check.ps1 -Quick 的 "dotnet build" 步骤固定带
@@ -224,10 +261,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          files: |
-            dist/ws-game-${{ steps.version.outputs.version }}.zip
-            dist/ws-game-${{ steps.version.outputs.version }}.lock
-            dist/${{ steps.version.outputs.version }}/packages/*.tgz
+          # 判断记录（只上传 assets 步骤算出的缺失文件，不再固定列出全部五个）：见上面 "Check for
+          # existing release assets" 步骤——files 现在来自 steps.assets.outputs.missing_files
+          # （每行一个 dist 相对路径），只包含本次核对时缺失的附件；已经存在于 Release 的附件不在
+          # 列表里，softprops/action-gh-release 不会碰它们，也就不会被托管运行器重建的版本覆盖
+          # （"本机已验证产物优先"，见文件头判断记录）。当五个附件全部缺失时，missing_files 等于
+          # 全量清单，效果等同于原来固定列出三行的 fallback 路径。
+          files: ${{ steps.assets.outputs.missing_files }}
           # 判断记录（三个 .tgz 只作为 Release 附件、不在这里发到任何注册表）：私服（Verdaccio）
           # 只服务内网/本机场景，托管运行器既没有、也不应该配置一个可公网访问的私服地址；发布到
           # 注册表是本机 `build.ps1 -Release -Publish -PublishRegistry` 的职责（见该开关说明），
