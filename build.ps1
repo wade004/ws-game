@@ -370,8 +370,9 @@ if ($ReleaseRequested) {
             if (-not (Test-Path $JsonPath)) {
                 throw "找不到 $JsonPath，无法回写版本号"
             }
-            # 判断记录：packages-lock.json 是 UPM 自动生成/维护的大文件（CRLF 换行、无 BOM、2 空格
-            # 缩进，键顺序由 UPM 决定），整体 ConvertFrom-Json/ConvertTo-Json 往返会打乱这些格式
+            # 判断记录：packages-lock.json 是 UPM 自动生成/维护的大文件（行尾见根 .gitattributes
+            # 对应例外条目判断记录：Unity/UPM 实测写出 LF、无 BOM、2 空格缩进，键顺序由 UPM 决定），
+            # 整体 ConvertFrom-Json/ConvertTo-Json 往返会打乱这些格式
             # （PowerShell 5.1 的 ConvertTo-Json 缩进/换行符与 UPM 原始输出不一致），导致下次 UPM
             # 打开工程时产生一大片与本次改动无关的格式 diff。改用最小化正则文本替换，只动
             # com.gamefoundation.game-template 依赖块下这一个字段的值，文件其余内容与换行风格

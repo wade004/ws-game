@@ -52,25 +52,43 @@
 *.ttf binary
 
 # ---------------------------------------------------------------------------
-# 根治门禁噪音：Unity 批处理自行改写的文件固定行尾（2026-09-07 新增）
+# 根治门禁噪音：Unity 批处理自行改写的文件固定行尾（2026-09-07 新增；同日勘误见下）
 # ---------------------------------------------------------------------------
 #
-# 判断记录（根因）：`check.ps1` 的"Unity 编译检查"等四步只读跑 `Unity.exe -batchmode ... -quit`
-# 之类命令，脚本本身不写任何仓库文件；但 Unity 编辑器进程自己会在打开/关闭工程时无条件重写
-# `ProjectSettings/ProjectSettings.asset`（复现：干净工作树上单独跑一次最短的
-# `Unity.exe -batchmode -nographics -quit -projectPath adapters\unity -logFile ...`，
-# 该文件 mtime 立即刷新，同目录其余 20 个 `*.asset` 文件 mtime 不变——不是 check.ps1 改的，
-# 是 Unity 编辑器自身固定行为），以及在解析/写回包清单时改写
-# `Packages/manifest.json`、`Packages/packages-lock.json`。三者 Unity 写出的字节都是 CRLF，
-# 而仓库里提交的内容是 LF（`git ls-files --eol` 显示 `i/lf w/crlf`）。这份内容差异只有
-# 行尾——本机 `core.autocrlf=true` 时 Git 比较前会把工作区 CRLF 自动转回 LF 再比对，
-# `git status` 因而"恰好"干净；但这只是本机配置的巧合，换一台 `core.autocrlf=false`/Linux
-# CI 机器上同样的字节差异会变成整份文件被判定为修改的门禁噪音（此前 `build.ps1 -Release`
-# 自检判定工作树脏、拒绝打标签，正是这个巧合失效的一次实例）。用显式 `eol=crlf` 把这三类路径
-# 的检出行尾钉死成与 Unity 实际写出的一致，不再依赖任何人本机的 `core.autocrlf` 配置——Git
-# 内部仍按 LF 归一化存储（跨平台 diff 保持可读），只是检出到工作目录时统一转成 CRLF，Unity
-# 批处理跑完后工作树始终保持干净。这三条必须写在上面通用规则之后才能生效（同一属性最后一条
-# 匹配规则覆盖前面的）。
-adapters/unity/ProjectSettings/*.asset eol=crlf
-adapters/unity/Packages/manifest.json eol=crlf
-adapters/unity/Packages/packages-lock.json eol=crlf
+# 勘误（2026-09-07 二次实测）：上一版判断记录断言"三者 Unity 写出的字节都是 CRLF"并据此把这三类
+# 路径声明为 `eol=crlf`，结论有误——把"本机 `core.autocrlf=true` 检出时的 CRLF"误当成了
+# "Unity 自己写出的 CRLF"，两者被 `eol=crlf` 声明混在一起后无法用 `git status`/`git diff`
+# 区分（检出即 CRLF，Unity 若也写 CRLF 自然比对干净，误导了上一版结论）。
+#
+# 实测方法与结果：先 `git checkout --` 把 `ProjectSettings.asset` 复原成 `eol=crlf` 检出态
+# （`git ls-files --eol` 确认三者均为 `i/lf w/crlf attr/text eol=crlf`），确认无残留 Unity
+# 进程后，用 PowerShell 按字节扫描文件判断行尾（数 `\n` 前一字节是否为 `\r`），排除"看 git
+# status/diff"这种会被 `eol=` 归一化污染判断的方法：
+#   - 单独跑 `check.ps1`"Unity 编译检查"那一步的命令（`-batchmode -nographics -quit`，不联测试
+#     不构建）：连跑两次，`ProjectSettings.asset` 字节内容与哈希均不变（Unity 只刷新 mtime，
+#     不改内容），字节仍是纯 CRLF——这一步不触发实际内容变化，不能拿来复现问题。
+#   - 跑 `Unity EditMode 测试`（`-runTests -testPlatform EditMode`）：同样字节/哈希不变，纯
+#     CRLF，不复现。
+#   - 跑一次真正的构建（`-buildWindows64Player`，对应"独立版构建 + -gf-smoke 冒烟"那一步）：
+#     `ProjectSettings.asset` 内容真正发生变化（哈希不同、体积从 21320 字节变为 20614 字节，
+#     `git status` 报 `M`，`git ls-files --eol` 变成 `i/lf w/lf`），按字节扫描确认整份文件
+#     706 处换行全部是纯 `\n`（0 处 `\r\n`）——Unity 在真正需要回写内容变化时，写出的是 LF，
+#     不是 CRLF。也就是说触发条件是"内容确有变化"，不是"任意一次编辑器启动/关闭"；一次不改
+#     内容的编译检查或测试跑不出这个现象。
+#   - `Packages/manifest.json`、`Packages/packages-lock.json`：在以上编译检查×2 / EditMode
+#     测试 / 独立版构建这四次实测里全程字节与哈希未变（一直是 CRLF，即检出态本身，不是 Unity
+#     写的）。`build.ps1 -Release` 里另有实测证据（见其"写回遗漏根治"判断记录）：UPM 在
+#     `packages-lock.json` 里的依赖版本号确有不一致时会自己回写该字段——即同样"内容确有变化
+#     才回写"的模式；未见任何证据支持这两个文件被 Unity/UPM 写成 CRLF，維持 `eol=crlf` 例外
+#     缺乏实测依据。
+#
+# 结论：三类路径统一改为 `eol=lf`，与仓库通用的 `*.asset`/`*.json text eol=lf` 规则一致（这三
+# 条例外因此实质上等价于删掉例外、回退到通用规则；保留成独立三条，是为了显式标注"这是 Unity
+# 批处理会自行改写内容的路径，行尾已核实钉死为 LF"，便于后续再有人怀疑行尾问题时直接查到这段
+# 判断记录，不必重新摸索）。`git status` 在 Unity 批处理跑完后保持干净，原理不变——仍是让检出
+# 行尾与 Unity 实际写出的行尾一致，不依赖任何人本机的 `core.autocrlf` 配置；只是"实际写出的
+# 行尾"这一实测结论从 CRLF 改成了 LF。这三条必须写在上面通用规则之后（虽然效果与通用规则相同，
+# 但同一属性以最后一条匹配规则生效，写在后面才不受未来通用规则调整的影响）。
+adapters/unity/ProjectSettings/*.asset eol=lf
+adapters/unity/Packages/manifest.json eol=lf
+adapters/unity/Packages/packages-lock.json eol=lf

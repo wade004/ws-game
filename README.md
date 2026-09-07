@@ -116,7 +116,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipConsumer # �
 
 `-ArtifactsPath <dir>` 可覆盖 `dotnet`/Unity 产物落地目录（默认 `bin\_check_artifacts`，已被 `.gitignore` 的 `bin/` 规则忽略）；`-UnityExe <path>` 可显式指定 Unity 可执行文件路径（默认按 Unity Hub 常见安装位置猜测，找不到则要求显式传参）。
 
-`check.ps1` 自身只读跑校验/测试/构建、不写仓库文件，但 Unity 编辑器进程本身会在打开/关闭工程时无条件重写 `adapters/unity/ProjectSettings/ProjectSettings.asset`，以及在解析包清单时改写 `adapters/unity/Packages/manifest.json`/`packages-lock.json`（Unity 四步一跑就会发生，与本脚本无关）；三者 Unity 写出的行尾都是 CRLF，与仓库提交的 LF 内容只有行尾差异。根 `.gitattributes` 已为这三类路径显式声明 `eol=crlf`（与 Unity 实际写出的一致），使 Unity 批处理跑完后工作树始终保持干净，不再依赖运行机器本地的 `core.autocrlf` 配置。
+`check.ps1` 自身只读跑校验/测试/构建、不写仓库文件，但 Unity 编辑器进程本身会在内容确有变化时重写 `adapters/unity/ProjectSettings/ProjectSettings.asset`，以及在包清单内容确有变化时改写 `adapters/unity/Packages/manifest.json`/`packages-lock.json`（与本脚本无关；触发条件是内容确有变化，不改内容的编译检查/EditMode 测试不会复现，独立版构建这类步骤会）。三者 Unity 写出的行尾实测是 LF（2026-09-07 二次实测勘误，此前误判为 CRLF；实测方法见 `.gitattributes` 对应例外条目上方判断记录）。根 `.gitattributes` 已为这三类路径显式声明 `eol=lf`（与 Unity 实际写出的一致），使 Unity 批处理跑完后工作树始终保持干净，不再依赖运行机器本地的 `core.autocrlf` 配置。
 
 `check.ps1` 另有一步"版本一致性"（不需要 `-Dist`，`-SkipUnity` 下同样会跑）：只读比较仓库根 `VERSION` 文件与两个 `package.json`（`adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json`、`games/_template/package.json`，含后者对适配层包的依赖版本号）是否一致；并校验根 `CHANGELOG.md` 含 `VERSION` 对应版本号的条目（形如 `## [X.Y.Z]`）或存在 `## [Unreleased]` 段，四处任一处漏改都会让这一步失败。
 

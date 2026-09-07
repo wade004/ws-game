@@ -70,15 +70,17 @@
     ProjectSettings 的脚本后端改动只发生在 Unity 子进程内存里，见 Il2CppPlayerBuilder.cs 判断
     记录，不落盘）。
 
-    判断记录（2026-09-07 补充，"只读"的范围边界）：上面"不修改仓库内容"说的是本脚本自身不写
-    任何文件；但 Unity 编辑器进程本身会在打开/关闭工程时无条件重写
-    `adapters/unity/ProjectSettings/ProjectSettings.asset`，以及在解析包清单时改写
-    `adapters/unity/Packages/manifest.json`、`packages-lock.json`——这是 Unity 四步（编译检查/
-    EditMode/PlayMode/独立版构建）跑起来就会发生的编辑器固有行为，与本脚本无关，也不受
-    `-Il2cpp` 影响。三者 Unity 写出的字节都是 CRLF，与仓库提交的 LF 内容只有行尾差异；已经在
-    仓库根 `.gitattributes` 里为这三类路径显式声明 `eol=crlf`（与 Unity 实际写出的行尾一致），
-    使 Unity 批处理跑完后 `git status` 始终保持干净，不再依赖运行机器本地的
-    `core.autocrlf` 配置。
+    判断记录（2026-09-07 补充，"只读"的范围边界；同日二次实测勘误）：上面"不修改仓库内容"说的
+    是本脚本自身不写任何文件；但 Unity 编辑器进程本身会在内容确有变化时重写
+    `adapters/unity/ProjectSettings/ProjectSettings.asset`，以及在包清单内容确有变化时改写
+    `adapters/unity/Packages/manifest.json`、`packages-lock.json`——这是 Unity 编辑器固有行为，
+    与本脚本无关，也不受 `-Il2cpp` 影响；但触发条件是"内容确有变化"，不是任意一次启动/关闭：
+    单独跑一次不改内容的编译检查或 EditMode 测试不会复现，只有像"独立版构建"这种会让 Unity
+    真正回写内容的步骤才会。三者 Unity 写出的字节实测是 LF（此前"三者 Unity 写出的字节都是
+    CRLF"的结论有误，把本机 `core.autocrlf=true` 检出态的 CRLF 误当成了 Unity 写出的字节；
+    实测方法与过程见 `.gitattributes` 对应例外条目上方的判断记录）。仓库根 `.gitattributes`
+    已为这三类路径显式声明 `eol=lf`（与 Unity 实际写出的行尾一致），使 Unity 批处理跑完后
+    `git status` 始终保持干净，不再依赖运行机器本地的 `core.autocrlf` 配置。
 #>
 param(
     [switch]$SkipUnity,
