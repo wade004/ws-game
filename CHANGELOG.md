@@ -11,50 +11,107 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
-## [1.3.1] - 2026-09-08
+## [1.4.0] - 2026-09-08
 
-游戏侧复核 1.3.0 发现三项问题并根治：model 型动画状态机永久卡死、瞬态状态同状态重入不重播、
-框架常驻壳（`FrameworkResidentHost`）未接通 model 型外形。均属表现层/引擎适配层缺陷修复，无数据
-表字段变更，无存档格式变更。
+两轮修复合并发布：① 游戏侧复核 1.3.0 发现并根治三项问题——model 型动画状态机永久卡死、瞬态状态
+同状态重入不重播、框架常驻壳（`FrameworkResidentHost`）未接通 model 型外形（提交 `9f5695d`/
+`360ff5f`）。② 第八方深度审核（codex 第六轮，基线 `5c444f1`）17 项发现（PR130-01～08、
+PJ130-01～04、CR130-01～05）全部核实并根治，逐条核实表、旧 13 项复核对照、文档漂移与链接处理见
+[audit-5c444f1-20260908/followup-2026-09-08b.md](architecture/落地计划/audit-5c444f1-20260908/followup-2026-09-08b.md)。
+均属表现层/引擎适配层/核心规则/交付工具链缺陷修复与能力补齐，无数据表字段删改，无存档格式不兼容
+变更（CR130-02 只改变运行期判定逻辑，`player.known_skills` 段 JSON 形状不变）。
+
+### 新增
+
+- **`Presentation.Render.IHitFrameEmitter`**（可选接口，PJ130-04）：承载 `HitFrameReached: Event<Id>`
+  命中帧到达事件，`SpriteCharacterRig`/`ModelCharacterRig` 均实现；`ICharacterRig` 本身不再强制要求
+  该成员（迁移说明见下）。
+- **`IBatchableInventoryHost` 事务覆盖购买/拾取**（CR130-01）：`EconomyHost.Buy`/`Sell`、
+  `LootHost.PickUpReject` 涉及"先落地再补偿"的路径改用既有 `IBatchableInventoryHost.BeginBatch()`
+  事务，与 `RewardDispatcher.GrantItems`/`QuestHost.TurnIn` 此前已用的惯例统一，失败时连已缓存的
+  `item.added`/`item.removed` 事件一并回滚。
+- **`SkillHost.LearnSkill` 永久来源参数与 `ForgetAllPermanentGrants`**（CR130-02）：新增
+  `LearnSkill(Id unitId, Id skillId, Id sourceId, bool permanent)`；来源分类从"是否等于哨兵"改为
+  逐来源记录是否永久；新增 `ForgetAllPermanentGrants(unitId, skillId)` 一次性撤销某技能全部永久
+  来源，供 C09 存档替换语义正确覆盖奖励来源技能。
+- **`Core.Rules.Skill.ProcHost.RescaleAll(double factor)`**（CR130-03）：混合时间模式切换时同步
+  折算 Proc 的 ICD 存量，与 `CooldownTracker`/`AuraHost`/`CastPipeline` 各自的 `RescaleAll` 判断
+  记录同款。
+- **`Core.Carriers.Common.GobjInteractedEvent.TeleportTargetRef`**（`Id?`，CR130-05）：`on_use` 不
+  可分发时 `GameObjectHost.Interact` 算出的传送目标引用随事件一并携带，`GameplayAssembly` 改为直接
+  消费该引用，不再反查模板独立重新解析。
+- **`Presentation.Assembly.PresentationAssembly` 的 `renderer3D` 参数完整接线**（PR130-06）：该
+  构造参数早已声明为可选，三处生产装配根（`GameFoundationBootstrap`/`FrameworkResidentHost`/
+  `games/_template.GameBootstrap`）此前只转发给 `UnityViewFactory`、未转发给 `PresentationAssembly`
+  的接线遗漏本次补齐。
+- **`Presentation.Render.EquipmentVisualSource`**（PR130-07）：新增默认的"实体 → 装备外观"来源
+  实现，订阅 `item.added`/`item.equipped`/`item.unequipped` 维护"物品实例 id → 装备外观引用"活
+  字典，按 `display.equip_visual.item_id` 索引；`UnityViewFactory` 新增
+  `equipVisualByItemInstanceId` 构造参数，三处装配根已接线；新增示例数据
+  `data/_sample/display/display.equip_visual.json`。
+- **`Core.Foundation.EngineAdapter.UnityRenderer3D.Tick()`/`AnimStateMachine.StateRetriggered`
+  事件/`anim_event.finished` 完成事件**（游戏侧复核收口，见上"② 概述"提交 `9f5695d`/`360ff5f`）：
+  model 路线动画状态机的完成回调与同状态重入重播通道，详见下"修复"与"迁移说明"。
+- **dist 纳入模型占位资源与生成器**（PJ130-02）：`build.ps1` 新增"5.055"节，把
+  `adapters/unity/Assets/Resources/GameFoundation/{models,anim_clips}` 与
+  `Assets/Editor/GeneratePlaceholderModelAssets.cs` 补进 dist 内适配层包副本；`check.ps1` 包清单
+  一致性步骤新增对应必需路径核对。
+- **私服停止身份核验**（PJ130-03）：`toolchain/registry/start_registry.ps1` 新增
+  `Test-VerdaccioProcessIdentity`（可执行文件名/`CommandLine` 锚点/启动时间三项核验），`-Stop`
+  两条路径（PID 文件/端口兜底）均先核验身份，不通过即拒绝停止并非零退出；`-Status` 同步显示核验
+  结果。
+- **文档相对链接检查测试**（`toolchain/tests/test_markdown_relative_links.py`，交付侧文档漂移
+  处理附带产出）：枚举被跟踪 `*.md` 的相对链接并做文件存在性校验，随 `pytest toolchain/tests`
+  一并执行。
 
 ### 修复
 
-- **model 路线动画完成回调缺失**（`presentation/render/**`、`adapters/unity/**`）：sprite 型经
-  `IFrameAnimPlayer.OnComplete` 把非循环剪辑（Attack/Hit 等瞬态状态）自然播完的信号接回动画状态机
-  解除优先级锁，model 型此前没有对等通道，播完后永不回落——第二次普攻停在同一状态、受击后卡死。
-  `IRenderer3D` 追加契约义务：非循环剪辑（`loop=false`）自然播放完成时必须经 `OnAnimEvent` 额外
-  发出一次 `anim_event.finished`（循环剪辑不发）；`Adapter.Unity.EngineAdapter.UnityRenderer3D`
-  新增 `Tick()`（由 `UnityEngineHost.Update` 每帧驱动），逐模型实例检测 Animator/`Animation`
-  组件的播放进度，检测方式见下"迁移说明"。`Presentation.Render.ModelCharacterRig` 新增
-  `AnimFinishedEventId` 常量，装配代码（`Adapter.Unity.Presentation.UnityViewFactory.AttachDefaultModelAnimation`）
-  把该事件接回 `AnimStateMachine.NotifyTransientStateFinished`，与 sprite 路线走同一套回落机制。
-- **同状态重入不重播**（`presentation/render/core/AnimStateMachine.cs`、
-  `Adapter.Unity.Presentation.AnimClipResolver`、`UnityRenderer3D`）：瞬态状态（Attack/Cast/Hit/
-  Jump）同状态重入（如第二次普攻在第一次动画播完前到达）此前被状态机当作"无变化"直接丢弃，第二次
-  攻击不会重播剪辑、命中帧不会再次触发。`AnimStateMachine` 新增 `StateRetriggered` 事件（与真正的
-  状态切换 `StateChangedWithSkill` 分开触发，语义"重播一遍"，Idle/Move 等持续态不受影响、继续保持
-  幂等，Death 终态不受影响）；`AnimClipResolver` 同时订阅两个事件，用同一套"解析剪辑并播放"逻辑
-  处理；`UnityRenderer3D.PlayAnim` 对"目标状态与实例当前正在驱动的状态相同"的情形改用
-  `Animator.Play(stateName, -1, 0f)` 硬切重播（而非 `CrossFadeInFixedTime`，理由见类型判断记录），
-  确保确定性地从头重新播放。
-- **`FrameworkResidentHost` 未接通 model 型外形**（`adapters/unity/**`）：三处引擎侧装配根
-  （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）里，只有
-  `FrameworkResidentHost` 此前没有把 `renderer3D` 传给 `UnityViewFactory`，`kind=model` 的
-  `DisplayInfo` 会被静默退化为不渲染的 `NullView`，与文档"三处装配入口均支持 model"的描述不符。
-  现补齐 `renderer3D`/`weaponStyleSource`（同 `GameFoundationBootstrap` 一致的
-  `EquipmentWeaponStyleSource` 接线，主手槽位 id 常量 `item.slot.sample_main_hand`）两个构造参数，
-  三处装配根现已对等支持 model 型外形（命中帧同步/武器风格/完成回调）。
+17 条逐条判断记录、复现测试、修复位置、验收测试见
+[audit-5c444f1-20260908/followup-2026-09-08b.md](architecture/落地计划/audit-5c444f1-20260908/followup-2026-09-08b.md)
+核实表，概要：
+- **表现/Unity 侧**（PR130-01/03/04/05/06/07/08）：model 放置与相机投影现共用同一 2.5D 平面、
+  影子不随高度抬离地面；武器/技能覆盖剪辑按需登记后再播放，不再因未预注册而无法播放；同一命中帧
+  的多条反馈规则原子合批释放；model 缺资源路径落地占位并异步替换，不再直接抛异常；三处生产装配根
+  一致转发 `renderer3D` 给 `PresentationAssembly`；model 换装卸载按实例反查精确清理槽位/挂点，不
+  再残留挂件。
+- **交付与工具链**（PJ130-01/02/03）：Release 缺附件时优先从已验证 commit 一致的旧 zip 原地补齐
+  lock/tgz，不再整体重建混入新构建批次；dist 补齐模型占位资源与生成器；registry 停止前核验进程
+  身份，不再误杀端口复用的无关进程。
+- **契约版本语义**（PJ130-04）：`ICharacterRig.HitFrameReached` 改由可选接口 `IHitFrameEmitter`
+  承载，恢复 1.3.0 MINOR 发布号与"不新增强制成员"语义一致。
+- **核心规则/玩法**（CR130-01～05）：购买/拾取失败的补偿路径原子化，已派发事件一并回滚；一次性
+  奖励技能按来源正确分类为永久/临时并可正确遗忘；混合时间模式折算补齐充能第二窗口、Proc ICD、
+  施法学派锁三处遗漏；引导结束后的时间余量不再多结算一跳周期效果；自定义传送 resolver 结果不再
+  被内置默认传送或独立重新解析覆盖。
 
-### 迁移说明（引擎适配层新增义务）
+### 迁移说明
 
-- **`IRenderer3D` 实现新增契约义务**（02 第 1.12 节勘误）：`PlayAnim` 播放的非循环剪辑
-  （`loop=false`）自然播放完成时，必须经既有 `OnAnimEvent` 通道额外发出一次约定的"播放完成"事件
-  （循环剪辑不发）；具体事件 id 由消费方（表现层装配代码）约定，本仓库 Unity 实现固定用
-  `anim_event.finished`（与 `Presentation.Render.ModelCharacterRig.AnimFinishedEventId` 逐字相等）。
-  自行实现 `IRenderer3D`（迁移到其它引擎，见 02 第 4 节迁移步骤）的具体游戏，必须在自己的实现里
-  补齐这条完成事件，否则 model 型外形的 Attack/Hit/Cast 等瞬态动画状态会永久卡死，无法回落。
-  `adapters/conformance/Runtime/Renderer3DScenarios.cs`/`adapters/stub/StubRenderer3D.cs` 新增对应
-  契约一致性场景与测试专用完成钩子（`CompleteAnimForTest`），供自实现方按同一套场景验证。
+- **`ICharacterRig.HitFrameReached` 不再是接口本身的强制成员**（PJ130-04，恢复 1.3.0 引入前的
+  兼容性）：任何自定义 `ICharacterRig` 实现无需再实现该事件即可编译；需要命中帧同步的代码改为
+  `(rig as IHitFrameEmitter)?.HitFrameReached`，或改持有具体类型（`SpriteCharacterRig`/
+  `ModelCharacterRig` 仍直接声明该事件）。`CharacterRigHitFrameSource.RegisterRig` 对不支持
+  `IHitFrameEmitter` 的 rig 仍登记成功（`HasRig` 为 true），只是不转发任何事件。
+- **`IRenderer3D` 实现新增契约义务**（02 第 1.12 节勘误，游戏侧复核收口引入）：`PlayAnim` 播放的
+  非循环剪辑（`loop=false`）自然播放完成时，必须经既有 `OnAnimEvent` 通道额外发出一次约定的
+  "播放完成"事件（循环剪辑不发）；具体事件 id 由消费方（表现层装配代码）约定，本仓库 Unity 实现
+  固定用 `anim_event.finished`（与 `Presentation.Render.ModelCharacterRig.AnimFinishedEventId`
+  逐字相等）。自行实现 `IRenderer3D`（迁移到其它引擎，见 02 第 4 节迁移步骤）的具体游戏，必须在
+  自己的实现里补齐这条完成事件，否则 model 型外形的 Attack/Hit/Cast 等瞬态动画状态会永久卡死，
+  无法回落。`adapters/conformance/Runtime/Renderer3DScenarios.cs`/`adapters/stub/StubRenderer3D.cs`
+  新增对应契约一致性场景与测试专用完成钩子（`CompleteAnimForTest`），供自实现方按同一套场景验证。
+- **自定义库存实现建议实现 `IBatchableInventoryHost`**（CR130-01）：未实现该接口的库存宿主，
+  `EconomyHost.Buy`/`Sell`、`LootHost.PickUpReject` 会退回历史行为（逐项补偿，不保证已派发事件的
+  原子回滚）；建议按 `InventoryHost` 既有实现补齐，获得失败路径的完整原子性。
+- **`SkillHost.LearnSkill` 三参调用语义**（CR130-02）：不带 `permanent` 的三参重载
+  `LearnSkill(Id,Id,Id)` 现在等价于 `permanent: true`（对绝大多数既有调用方是无感知的行为收紧）；
+  生产代码中唯一"曾经依赖三参重载被当作临时来源"的调用方（`Core.Carriers.Assembly.CarriersAssembly`
+  装备 `SkillGranter`）已同步改为显式四参调用（`permanent: false`）；自行组装 `SkillHost` 的调用方
+  若依赖三参重载表示临时来源，需要同步改为显式四参调用。
+- **版本判据说明**：本次为 MINOR（`1.3.0` → `1.4.0`），因新增成员（`IHitFrameEmitter`、
+  `ProcHost.RescaleAll`、`GobjInteractedEvent.TeleportTargetRef`、`SkillHost` 新重载/新方法、
+  `EquipmentVisualSource`、`PresentationAssembly`/`UnityViewFactory` 新构造参数）均为可选/附加成员，
+  不破坏既有调用方编译；且 1.3.0 引入的强制成员（`ICharacterRig.HitFrameReached`）已在本版本
+  收窄为可选接口 `IHitFrameEmitter` 承载，属于"放宽约束"而非新增强制义务，不构成 MAJOR。
 - 占位模型资产新增 `hit` 状态与 `anim_clips/hit.anim`（`adapters/unity/Assets/Editor/GeneratePlaceholderModelAssets.cs`
   可重复运行生成）；`data/_sample/display/display.anim_set.json` 的
   `display.anim_set.placeholder_biped` 补 `hit` 剪辑声明，供"受击后继续攻击"端到端验收使用。
