@@ -45,6 +45,8 @@ games/_template/
 | 6. 配表现 | 本模板故意不覆盖（`GameOptions.PlayerTemplateId` 默认无 `display.map` 映射，玩家进图后暂时不可见，见 `data/README.md`"判断记录"）；`Editor/GameSceneBuilder.cs` 只生成 Shell/首张地图两个场景骨架 | "DisplayInfo 映射已配齐"、"UI 框架实例已接入主题" |
 | 7. 跑验收 | `validate.ps1`（数据校验）+ `Tests/Runtime/GameTemplateSmokeTests.cs`（模块/集成测试的最小子集：装配+主菜单）+ `Runtime/TemplateSmokeRunner.cs`（`-gf-smoke-template` 命令行无人值守冒烟：主菜单→新游戏→进图→移动→存档→读档→退出） | 第 7 节七项验收关卡（本模板覆盖第 1 项"数据校验通过"、第 6 项"端到端可玩性验收"的起步部分——本模板无战斗/技能/任务内容，`-gf-smoke-template` 只验证进图/移动/存档读档这一段不阻断） |
 
+> 边界说明（第六方深度审核，2026-09-07）：上表第 2 步"启用哪些模块 = 传了哪些 `xxxOptions`"是简化描述——`GameOptions`/各 `xxxOptions` 本身是口味配置容器，不是模块启停开关；一个模块是否真正参与运行，取决于 `GameBootstrap.cs` 里是否实际调用了对应 Assembly 的组装/装配代码，配置项本身不产生启停效果。另外，本模板默认数据集（`data/game/`）只是能跑通"主菜单→新游戏→进到一张地图"的最小闭环，不含完整游戏内容（战斗/技能/任务/掉落等），复制为新游戏后仍需按 13 §1 七步逐项补齐。详见 `architecture/落地计划/audit-7e63d66-20260907/followup-2026-09-07d.md`。
+
 ## 复制为新游戏：改哪几处
 
 1. **`package.json`**：`name` 改成新游戏专属包名（如 `com.<studio>.game-<name>`），按需改
