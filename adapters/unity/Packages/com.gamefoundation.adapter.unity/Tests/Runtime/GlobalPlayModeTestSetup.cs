@@ -31,13 +31,45 @@
 // 配额本身是存档系统的既定行为（见 core/foundation/save_system/README.md"已存在槽数已达
 // MaxSlots"分支），不是本任务允许改动的契约，也不该改——这是为真实游戏設计的合理上限。真正该
 // 修的是"测试环境卫生"：PlayMode 测试不应该把状态残留进一个跨越多次独立测试运行、会不断累积
-// 的真实操作系统目录里。本类型在整个 Adapter.Unity.Tests.Runtime 装配的所有测试运行之前，清空
-// Application.persistentDataPath 下存档目录里所有 "game.sample." 前缀的槽文件（正式槽 +
-// 备份 .bakN.json），让每次 -runTests 调用都从同一个已知的空存档起点开始，不再受宿主机历史
-// 累积槽位数量的影响，结果可稳定复现（也可稳定通过）。只清"game.sample."前缀，不整个清空
-// saves 目录，避免误删同一台宿主机上其它非本示例数据集的存档。
+// 的真实操作系统目录里。
+//
+// 判断记录 2（第四方深度审核 followup-2026-09-07b，根治"只清 game.sample. 前缀不够"）：本文件
+// 最初的实现只清空 "game.sample." 前缀的槽文件，理由是"避免误删同一台宿主机上其它非本示例数据
+// 集的存档"。但 Application.persistentDataPath 由 companyName+productName 派生（见
+// ProjectSettings.asset），是本 Unity 工程私有、专供 Editor/PlayMode 测试使用的目录——不存在
+// 一个"其它真实游戏"会共用这个目录，那条顾虑不成立；与此同时，本装配（同一条 -runTests 命令
+// 覆盖的全部 Adapter.Unity.Tests.Runtime 夹具）里还有大量测试用完全不同的前缀新建存档槽——
+// 例如 game.template.slot_*（TemplateSmokeRunner/模板相关用例）、裸 slot.*（
+// SmokeRunner/审核复现用例的 slot.audit_blockers_*、slot.smoke*）——一律不在 "game.sample."
+// 前缀之内，原实现完全不会清理它们，导致它们跨越"同一台开发机上历次独立 -runTests 调用"不断
+// 累积（此前判断记录里提到的"历史调试反复尝试留下的 slot_crit_0..slot_crit_8"就是这类残留的
+// 一个例子）。再叠加 FND-01（core/foundation/save_system/core/SaveSystem.cs）把备份文件迁到
+// 独立的 saves/backups/ 子目录、CountSlots 相应移除了按文件名猜测的 IsBackupFileName 过滤——
+// 迁移前遗留在 saves/ 顶层的旧格式 "<slot>.bakN.json" 备份文件不会被本清理找到（既不匹配
+// "game.sample." 前缀，也早于本次迁移写入），现在会被新版 CountSlots 当成一个个真实槽计入配额。
+// 两者叠加，"game.sample." 之外的槽 + 迁移前遗留的旧格式备份，会在同一台开发机上把基线槽数顶到
+// 逼近 SaveSystemOptions.MaxSlots（默认 20）；一次完整 -runTests（165+ 条用例，跨
+// ShellFlowTests/UiSuiteTests/DiscreteCombatTests/审核复现夹具等）本身又会新建数十个不重复的
+// "game.sample.slot_*" 槽——两者相加必然在执行序列中某个固定点越过 20，命中
+// SaveFailureReason.SlotLimitReached，且此后同一次运行里任何"新建槽"都会持续失败（配额只增不减，
+// 除非某条用例自己的 TearDown 恰好删槽）。这正是 VerticalSliceTests 四条用例
+// （Paperdoll_LayerOrder_.../Pause_StopsWorldSimTick_.../Projectile_CastBoltSkill_.../
+// YSorting_TwoEntitiesWithDifferentY_...）"单独跑（-testFilter VerticalSliceTests，7/7 全绿）
+// 必过，混在完整 165+ 条 PlayMode 套件里跑必以同样 4 条、同样 'Expected: InWorld, But was:
+// MainMenu' 失败"的根因——ShellHost.NewGame 在 _saveSystem.Save(...).Success 为 false 时直接
+// return false（源码见该类型），根本不会走到 _sceneRouter.LoadScene，与场景资源加载、
+// SceneRouter 代际隔离、WorldSim.Dispose/SimTimers.Clear 均无关（这三处经本轮复核未发现与本问题
+// 相关的缺陷）。
+//
+// 修法：把清理范围从"只清 game.sample. 前缀的顶层文件"扩大为"整个 saves/ 目录树全清空"
+// （<see cref="ClearAllSaveArtifacts"/>，含 backups/ 子目录与任何历史遗留的旧格式备份文件），
+// 让每次 -runTests 调用都从同一个已知的空存档起点开始，彻底不受宿主机历史累积槽位数量影响。
+// 回归测试：GlobalPlayModeTestSetupTests.ClearAllSaveArtifacts_RemovesFilesAcrossAllPrefixesAndBackupsSubdir
+// （同目录）直接调用本文件导出的 <see cref="ClearAllSaveArtifacts"/>，构造"game.sample./
+// game.template./裸 slot. 前缀 + backups/ 子目录 + 顶层旧格式 .bakN.json"的完整落盘布局，断言
+// 清理后一个不剩——稳定复现"只清一个前缀不够"这一原始缺陷（该测试在本次修复前对着修复前的清理
+// 范围断言会失败）。
 using System.IO;
-using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -49,20 +81,31 @@ namespace Adapter.Unity.Tests.Runtime
     [SetUpFixture]
     public sealed class GlobalPlayModeTestSetup
     {
-        private const string SampleSlotPrefix = "game.sample.";
-
         [OneTimeSetUp]
         public void ClearSampleSaveSlotsBeforeAnyTestRuns()
         {
             var savesDir = Path.Combine(Application.persistentDataPath, "saves");
+            var removed = ClearAllSaveArtifacts(savesDir);
+            Debug.Log($"[GlobalPlayModeTestSetup] 清理存档目录：目录={savesDir}，删除文件数={removed}");
+        }
+
+        /// <summary>递归清空 <paramref name="savesDir"/> 下的全部文件（正式槽 + backups/
+        /// 子目录里的备份，以及任何历史遗留在顶层的旧格式 <c>&lt;slot&gt;.bakN.json</c>），
+        /// 不按文件名前缀筛选——见文件顶部判断记录 2"为什么只清一个前缀不够"。<paramref
+        /// name="savesDir"/> 目录本身不存在时视为"已经是空存档起点"，直接返回 0，不创建目录
+        /// （<see cref="Core.Foundation.EngineAdapter.IFileSystem.WriteTextAtomic"/> 的实现会在
+        /// 真正需要写入时自行创建，见该实现判断记录）。供 <see cref="ClearSampleSaveSlotsBeforeAnyTestRuns"/>
+        /// 与 <c>GlobalPlayModeTestSetupTests</c> 回归测试共用，internal 可见性足够（同一
+        /// Adapter.Unity.Tests.Runtime 程序集内）。</summary>
+        internal static int ClearAllSaveArtifacts(string savesDir)
+        {
             if (!Directory.Exists(savesDir))
             {
-                return;
+                return 0;
             }
 
             var removed = 0;
-            foreach (var file in Directory.GetFiles(savesDir)
-                         .Where(f => Path.GetFileName(f).StartsWith(SampleSlotPrefix)))
+            foreach (var file in Directory.GetFiles(savesDir, "*", SearchOption.AllDirectories))
             {
                 try
                 {
@@ -77,7 +120,7 @@ namespace Adapter.Unity.Tests.Runtime
                 }
             }
 
-            Debug.Log($"[GlobalPlayModeTestSetup] 清理示例存档槽：目录={savesDir}，删除文件数={removed}");
+            return removed;
         }
     }
 }
