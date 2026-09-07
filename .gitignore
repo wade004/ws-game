@@ -46,4 +46,5 @@ toolchain/registry/storage/
 toolchain/registry/htpasswd
 toolchain/registry/.npmrc
 toolchain/registry/verdaccio.pid
+toolchain/registry/verdaccio.pid.meta.json
 toolchain/registry/*.log
