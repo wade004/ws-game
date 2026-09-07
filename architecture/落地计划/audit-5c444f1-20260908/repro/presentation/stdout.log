@@ -1,0 +1,16 @@
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\probes-presentation\Program.cs(216,30): warning CS0067: 从不使用事件“Program.ProbeFeedbackSink.PendingPlaybackChanged” [C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\probes-presentation\PresentationMechanismProbe.csproj]
+presentation-mechanism-probe baseline=5c444f1 version=1.3.0
+runtime=8.0.30 utc=2026-09-07T20:20:01.5010764Z
+BEGIN anim-state-and-resolver
+anim attack_flow expected=Attack,Attack,Attack,Attack actual=Attack,Attack,Attack,Attack initial_play_count=1 repeat_play_delta=0
+anim hit_priority expected=Hit,Hit actual=Hit,Hit
+END anim-state-and-resolver PASS
+BEGIN feedback-binder-hit-frame
+feedback two_rules_same_damage expected=0,1,2 actual=0,1,2 pending=True,True,False sfx=sfx.hit.a,sfx.hit.b
+END feedback-binder-hit-frame PASS
+BEGIN frame-player-and-weapon-override
+frame_player expected=current_frame:3 hit_events:1 actual=current_frame:3 hit_events:1
+resolver weapon_override expected_selected=anim.sample_sword_swing actual_selected=anim.sample_sword_swing expected_exception=ArgumentException actual_exception=ArgumentException
+END frame-player-and-weapon-override PASS
+RESULT=PASS failures=0
+HARNESS_EXIT_CODE=0 ELAPSED_MS=1596

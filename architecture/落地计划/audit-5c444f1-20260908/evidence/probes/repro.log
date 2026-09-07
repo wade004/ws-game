@@ -1,0 +1,102 @@
+AUDIT PROBE RAW AGGREGATE
+
+=== economy.log ===
+  Core.Foundation -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\foundation\bin\Release\netstandard2.1\Core.Foundation.dll
+  Adapters.Stub -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\adapters\stub\bin\Release\netstandard2.1\Adapters.Stub.dll
+  Core.Numbers -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\numbers\bin\Release\netstandard2.1\Core.Numbers.dll
+  Core.Rules -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\rules\bin\Release\netstandard2.1\Core.Rules.dll
+  Core.Carriers -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\carriers\bin\Release\netstandard2.1\Core.Carriers.dll
+  Core.Gameplay -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\gameplay\bin\Release\netstandard2.1\Core.Gameplay.dll
+  Tests.Gameplay -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\gameplay\tests\bin\Release\net8.0\Tests.Gameplay.dll
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\gameplay\tests\bin\Release\net8.0\Tests.Gameplay.dll (.NETCoreApp,Version=v8.0)的测试运行
+VSTest 版本 17.11.1 (x64)
+
+正在启动测试执行，请稍候...
+总共 1 个测试文件与指定模式相匹配。
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.5.3.1+6b60a9e56a (64-bit .NET 8.0.30)
+[xUnit.net 00:00:00.04]   Discovering: Tests.Gameplay
+[xUnit.net 00:00:00.08]   Discovered:  Tests.Gameplay
+[xUnit.net 00:00:00.08]   Starting:    Tests.Gameplay
+buy_success=False reason=InventoryFull before_dispatch=5 dispatched=3 after_dispatch=4 quest_progress=1
+[xUnit.net 00:00:00.13]   Finished:    Tests.Gameplay
+  已通过 Tests.Gameplay.Audit.AuditEconomyProbeTests.Buy_PartialExistingStack_WithConsumeQuest_DrainsPreexistingItemAfterRollback [31 ms]
+
+测试运行成功。
+测试总数: 1
+     通过数: 1
+总时间: 0.6486 秒
+
+=== core_mechanism_final.log ===
+  Core.Foundation -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\foundation\bin\Release\netstandard2.1\Core.Foundation.dll
+  Adapters.Stub -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\adapters\stub\bin\Release\netstandard2.1\Adapters.Stub.dll
+  Core.Numbers -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\numbers\bin\Release\netstandard2.1\Core.Numbers.dll
+  Core.Rules -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\rules\bin\Release\netstandard2.1\Core.Rules.dll
+  Core.Carriers -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\carriers\bin\Release\netstandard2.1\Core.Carriers.dll
+  Core.Gameplay -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\gameplay\bin\Release\netstandard2.1\Core.Gameplay.dll
+  Tests.Rules -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\rules\tests\bin\Release\net8.0\Tests.Rules.dll
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\rules\tests\bin\Release\net8.0\Tests.Rules.dll (.NETCoreApp,Version=v8.0)的测试运行
+VSTest 版本 17.11.1 (x64)
+
+正在启动测试执行，请稍候...
+总共 1 个测试文件与指定模式相匹配。
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.5.3.1+6b60a9e56a (64-bit .NET 8.0.30)
+[xUnit.net 00:00:00.04]   Discovering: Tests.Rules
+[xUnit.net 00:00:00.08]   Discovered:  Tests.Rules
+[xUnit.net 00:00:00.08]   Starting:    Tests.Rules
+reward_source=quest.audit_skill_reward known_before_save=1 permanent_snapshot=0 fresh_host_known_after_load=0
+channel_time=0.5 tick_interval=1 dt=1 resolve_calls=1 casting_after_update=0
+factor=0.2 max=2 recharge_time=10 charges_after_casts=0 t=2 charges=1 ready_remaining=0 consume_returned_charge remaining=10 t=4 charges=0 ready_remaining=8 expected_refill_window=2 actual_refill_window=10
+[xUnit.net 00:00:00.15]   Finished:    Tests.Rules
+  已通过 Tests.Rules.Skill.AuditCoreMechanismProbeTests.RewardDispatcher_QuestSourceSkill_IsNotPersistedAsPermanent [32 ms]
+  已通过 Tests.Rules.Skill.AuditCoreMechanismProbeTests.CastPipeline_ChannelHalfSecond_IntervalOne_UpdateOneHasOneTick [12 ms]
+  已通过 Tests.Rules.Skill.AuditCoreMechanismProbeTests.CooldownTracker_RescaledCharges_UsesUnscaledNextRecharge [2 ms]
+
+测试运行成功。
+测试总数: 3
+     通过数: 3
+总时间: 0.7433 秒
+EXIT_CODE=0
+
+=== package_validator_raw.log ===
+COMMAND=python validate_data.py --data-root valid_target\data\_framework
+[warning] arch.power_type/arch.power.health/name_key: text_key_exists: l10n.text 表未加载，跳过文本键存在性检查
+tables 5, records 124, errors 0, warnings 1, overrides 0
+[第一道·骨架检查] checked 5 files across 1 root(s), 0 errors
+[第二道·真实校验] 正在运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: C:\Program Files\dotnet\dotnet.EXE run --project C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\valid_target\ws-game-1.3.0\toolchain\validator -- --data-root C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\valid_target\ws-game-1.3.0\data\_framework
+PYTHON_EXIT_CODE=0
+[warning] arch.power_type/arch.power.health/name_key: text_key_exists: l10n.text 表未加载，跳过文本键存在性检查
+tables 5, records 124, errors 0, warnings 1, overrides 0
+DOTNET_EXIT_CODE=0
+
+=== release_hash_inventory_raw.log ===
+name=Core.Foundation.dll expected=99862ce20737dc05350aba3463247259dc35e09b8a666295f28c050f211676e8 actual=99862ce20737dc05350aba3463247259dc35e09b8a666295f28c050f211676e8 match=True
+name=Core.Numbers.dll expected=ccb313cc43adcaeb25fea2e77e6a92fabbca7de3cecbe784200e868a0542ff41 actual=ccb313cc43adcaeb25fea2e77e6a92fabbca7de3cecbe784200e868a0542ff41 match=True
+name=Core.Rules.dll expected=fc6aacbf58e4576d3ba6747ee2030e172e1394cca62d8213e2304eddc8a7d4da actual=fc6aacbf58e4576d3ba6747ee2030e172e1394cca62d8213e2304eddc8a7d4da match=True
+name=Core.Carriers.dll expected=ef006685b1885f0b551c6931936000474b40d421ba62bec0c4e068c5a378d5d6 actual=ef006685b1885f0b551c6931936000474b40d421ba62bec0c4e068c5a378d5d6 match=True
+name=Core.Gameplay.dll expected=ed320d7f23d063ce2d1d549090d393f5a15fd39c11854dd5b6fb56d6a6750520 actual=ed320d7f23d063ce2d1d549090d393f5a15fd39c11854dd5b6fb56d6a6750520 match=True
+name=Presentation.Common.dll expected=e7c03d6372128eb5248cb4a0ec05a5fab247502aec36a755b2d5fee0b41d06b8 actual=e7c03d6372128eb5248cb4a0ec05a5fab247502aec36a755b2d5fee0b41d06b8 match=True
+VERSION=1.3.0 GIT_COMMIT=5c444f1 DLL_MATCHES=6/6
+EXIT_CODE=
+EXIT_CODE=0 (PowerShell script completed)
+
+=== valid_target_inventory_raw.log ===
+name=Core.Foundation.dll expected=99862ce20737dc05350aba3463247259dc35e09b8a666295f28c050f211676e8 actual=99862ce20737dc05350aba3463247259dc35e09b8a666295f28c050f211676e8 match=True
+name=Core.Numbers.dll expected=ccb313cc43adcaeb25fea2e77e6a92fabbca7de3cecbe784200e868a0542ff41 actual=ccb313cc43adcaeb25fea2e77e6a92fabbca7de3cecbe784200e868a0542ff41 match=True
+name=Core.Rules.dll expected=fc6aacbf58e4576d3ba6747ee2030e172e1394cca62d8213e2304eddc8a7d4da actual=fc6aacbf58e4576d3ba6747ee2030e172e1394cca62d8213e2304eddc8a7d4da match=True
+name=Core.Carriers.dll expected=ef006685b1885f0b551c6931936000474b40d421ba62bec0c4e068c5a378d5d6 actual=ef006685b1885f0b551c6931936000474b40d421ba62bec0c4e068c5a378d5d6 match=True
+name=Core.Gameplay.dll expected=ed320d7f23d063ce2d1d549090d393f5a15fd39c11854dd5b6fb56d6a6750520 actual=ed320d7f23d063ce2d1d549090d393f5a15fd39c11854dd5b6fb56d6a6750520 match=True
+name=Presentation.Common.dll expected=e7c03d6372128eb5248cb4a0ec05a5fab247502aec36a755b2d5fee0b41d06b8 actual=e7c03d6372128eb5248cb4a0ec05a5fab247502aec36a755b2d5fee0b41d06b8 match=True
+TARGET_FILE_COUNT=939 VERSION=1.3.0 GIT_COMMIT=5c444f1 DLL_MATCHES=6/6
+EXIT_CODE=0 (PowerShell script completed)
+
+=== get_framework_mixed_raw_final.log ===
+Exception: C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\toolchain\get_framework.ps1:362
+Line |
+ 362 |          throw ("DLL 哈希校验失败，未落地到 -Target（内容可能被篡改或下载不完整）：`n  " + ($hash …
+     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | DLL 哈希校验失败，未落地到 -Target（内容可能被篡改或下载不完整）：   Core.Foundation.dll：sha256
+     | 不一致（锁文件=21fbe29bc41b1dc67f470a4002a7d6afa948d1deb949ea0dcf72496bad3538c2，实际=99862ce20737dc05350aba3463247259dc35e09b8a666295f28c050f211676e8）   Core.Numbers.dll：sha256 不一致（锁文件=6ff78cdbd1229ad05ce557952c0cf5beb9af108a445c3d34fdb80113717c705c，实际=ccb313cc43adcaeb25fea2e77e6a92fabbca7de3cecbe784200e868a0542ff41）   Core.Rules.dll：sha256 不一致（锁文件=02fc8c1daa1176beeb52523c84bb6115b10c57f0f5c451198a6a9ecda86016aa，实际=fc6aacbf58e4576d3ba6747ee2030e172e1394cca62d8213e2304eddc8a7d4da）   Core.Carriers.dll：sha256 不一致（锁文件=15b8236e3842da4dc71518540582be122ff98a6444627defbdb53bf3c799b61c，实际=ef006685b1885f0b551c6931936000474b40d421ba62bec0c4e068c5a378d5d6）   Core.Gameplay.dll：sha256 不一致（锁文件=6fef0533d45afab02a4b9e5cfdcc0fb06fdccf3e9475e498a3299bf52da0275d，实际=ed320d7f23d063ce2d1d549090d393f5a15fd39c11854dd5b6fb56d6a6750520）   Presentation.Common.dll：sha256 不一致（锁文件=632b5aa5f13158595b6f83ab3845997797a2792316b32375955371419d98f40d，实际=e7c03d6372128eb5248cb4a0ec05a5fab247502aec36a755b2d5fee0b41d06b8）
+
+EXIT_CODE=1
+TARGET_EXISTS=False
+LOCK_EXISTS=False

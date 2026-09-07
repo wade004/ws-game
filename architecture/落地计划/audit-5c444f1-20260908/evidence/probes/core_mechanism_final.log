@@ -1,0 +1,29 @@
+  Core.Foundation -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\foundation\bin\Release\netstandard2.1\Core.Foundation.dll
+  Adapters.Stub -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\adapters\stub\bin\Release\netstandard2.1\Adapters.Stub.dll
+  Core.Numbers -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\numbers\bin\Release\netstandard2.1\Core.Numbers.dll
+  Core.Rules -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\rules\bin\Release\netstandard2.1\Core.Rules.dll
+  Core.Carriers -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\carriers\bin\Release\netstandard2.1\Core.Carriers.dll
+  Core.Gameplay -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\gameplay\bin\Release\netstandard2.1\Core.Gameplay.dll
+  Tests.Rules -> C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\rules\tests\bin\Release\net8.0\Tests.Rules.dll
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\source_zip_extract\core\rules\tests\bin\Release\net8.0\Tests.Rules.dll (.NETCoreApp,Version=v8.0)的测试运行
+VSTest 版本 17.11.1 (x64)
+
+正在启动测试执行，请稍候...
+总共 1 个测试文件与指定模式相匹配。
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.5.3.1+6b60a9e56a (64-bit .NET 8.0.30)
+[xUnit.net 00:00:00.04]   Discovering: Tests.Rules
+[xUnit.net 00:00:00.08]   Discovered:  Tests.Rules
+[xUnit.net 00:00:00.08]   Starting:    Tests.Rules
+reward_source=quest.audit_skill_reward known_before_save=1 permanent_snapshot=0 fresh_host_known_after_load=0
+channel_time=0.5 tick_interval=1 dt=1 resolve_calls=1 casting_after_update=0
+factor=0.2 max=2 recharge_time=10 charges_after_casts=0 t=2 charges=1 ready_remaining=0 consume_returned_charge remaining=10 t=4 charges=0 ready_remaining=8 expected_refill_window=2 actual_refill_window=10
+[xUnit.net 00:00:00.15]   Finished:    Tests.Rules
+  已通过 Tests.Rules.Skill.AuditCoreMechanismProbeTests.RewardDispatcher_QuestSourceSkill_IsNotPersistedAsPermanent [32 ms]
+  已通过 Tests.Rules.Skill.AuditCoreMechanismProbeTests.CastPipeline_ChannelHalfSecond_IntervalOne_UpdateOneHasOneTick [12 ms]
+  已通过 Tests.Rules.Skill.AuditCoreMechanismProbeTests.CooldownTracker_RescaledCharges_UsesUnscaledNextRecharge [2 ms]
+
+测试运行成功。
+测试总数: 3
+     通过数: 3
+总时间: 0.7433 秒
+EXIT_CODE=0

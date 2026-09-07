@@ -1,0 +1,9 @@
+
+==== 离线来源：-FromLocalDist C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\mixed_dist\ws-game-1.3.0.zip ====
+  zip: C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\mixed_dist\ws-game-1.3.0.zip
+  lock: C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-5c444f1-20260908\mixed_dist\ws-game-1.3.0.lock
+
+==== 读取锁文件并校验 ====
+  锁文件 version=1.3.0，git_commit=5c444f1
+
+==== 解压并校验六个核心 DLL 的 sha256 ====

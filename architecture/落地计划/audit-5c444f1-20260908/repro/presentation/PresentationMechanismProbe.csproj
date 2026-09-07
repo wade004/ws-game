@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>PresentationMechanismProbe</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="source/**/*.cs" />
+    <Compile Include="source/adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/AnimClipResolver.cs" Link="AnimClipResolver.cs" />
+    <ProjectReference Include="../source_zip_extract/presentation/Presentation.Common.csproj" />
+  </ItemGroup>
+</Project>
