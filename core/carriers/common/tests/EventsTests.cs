@@ -38,6 +38,32 @@ namespace Tests.Carriers.Common
             Assert.Equal(ExprValue.OfId(unitId), unitValue);
             Assert.True(evt.TryGetField("count", out var countValue));
             Assert.Equal(2L, countValue.AsInt);
+
+            // N12 收边补齐：4 参构造函数（旧签名）应把 Removals 补成与旧字段等价的单项列表，
+            // 不破坏既有调用方（core/gameplay 测试大量直接用这个旧签名构造，见该字段判断记录）。
+            Assert.Single(evt.Removals);
+            Assert.Equal(instanceId, evt.Removals[0].InstanceId);
+            Assert.Equal(2, evt.Removals[0].Count);
+        }
+
+        /// <summary>N12（外部审计 68c9bed，P2）：5 参构造函数显式传入跨堆叠分摊明细。</summary>
+        [Fact]
+        public void ItemAddedEvent_WithExplicitRemovals_CarriesPerInstanceBreakdown()
+        {
+            var unitId = new Id("unit.hero");
+            var lastInstanceId = new Id("item.inst_2");
+            var templateId = new Id("item.iron_sword");
+            var removals = new[] { (new Id("item.inst_1"), 3), (lastInstanceId, 2) };
+
+            var evt = new ItemAddedEvent(unitId, lastInstanceId, templateId, 5, removals);
+
+            Assert.Equal(5, evt.Count);
+            Assert.Equal(lastInstanceId, evt.ItemInstanceId); // 旧字段仍是"最后触碰的实例"。
+            Assert.Equal(2, evt.Removals.Count);
+            Assert.Equal(new Id("item.inst_1"), evt.Removals[0].InstanceId);
+            Assert.Equal(3, evt.Removals[0].Count);
+            Assert.Equal(lastInstanceId, evt.Removals[1].InstanceId);
+            Assert.Equal(2, evt.Removals[1].Count);
         }
 
         [Fact]

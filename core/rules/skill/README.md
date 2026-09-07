@@ -72,9 +72,13 @@ skill/
    （若接口有）否则跳过"——本模块构造函数把 `ISpatialQuery` 声明为可空参数，为 null 时步骤 7 只做
    距离检查、跳过视线检查，不抛异常。
 
-3. **`ISkillHost.FindUnits` 在未注入 `ISpatialQuery` 时返回空列表**：06 第 7 节该方法本身要求一个
-   空间查询能力，构造期允许不注入（见判断记录 2），此时没有可委托的实现，返回空列表并记一条
-   诊断警告（不是完全静默，也不抛异常，呼应第 5 节"运行时不做静默降级"精神但为可选依赖留出口）。
+3. **`ISkillHost.FindUnits` 当前恒返回空列表**（文档代码一致性审计对齐，外部审计 68c9bed）：06
+   第 7 节该方法本身要求一个空间查询能力，本模块尚未接入真正的空间查询委托实现——不是"仅在未
+   注入 `ISpatialQuery` 时降级为空"，而是当前调用点（`SkillHost.FindUnits`，见 `core/rules/skill/
+   core/SkillHost.cs`）无条件记一条诊断警告并返回空列表，不区分是否注入了 `ISpatialQuery`（该依赖
+   目前只用于射程/视线检查，见判断记录 2，尚未接到 `FindUnits`）。这是一处已知未完成能力，不是
+   降级路径，供技能内部效果按范围查找单位（`origin`+`Shape` 组合用法）的调用方目前一律得到空
+   结果。
 
 4. **法术队列窗口外的再次施法请求**：06 第 3.6 节只描述了"窗口内入队"的行为，未规定窗口外再次
    `CastSkill` 的处理方式。本模块拍板：窗口外一律拒绝（每单位只有一个队列槽，不支持排更多队）。
@@ -83,9 +87,16 @@ skill/
    专门的 `Busy` 原因码（见该枚举注释），本分支现在返回 `Busy`，`OnCooldown` 恢复只表示步骤 3
    冷却/充能未就绪这一单一语义。
 
-5. **公共冷却在读条开始（步骤 8）而非完成（步骤 9）时启动**：多数同类系统里 GCD 从施法瞬间开始
-   计时而不是等技能结算完才开始，本模块按此常见语义实现；`SkillOptions.GcdDuration` 的默认值
-   （1.5）只是一个占位式合理起点，不代表任何产品决策，真实数值应由游戏口味配置清单给出。
+5. **公共冷却/冷却的实际起算时点按技能类型三分，不是统一写在步骤 8**（文档代码一致性审计对齐，
+   外部审计 68c9bed 判断记录）：`CastPipeline.StartCooldownAndGcd` 的调用点——瞬发（`cast_time<=0`
+   且非引导）在步骤 8 立即完成时调用（此时步骤 8/9 实质上同一时刻，见 `EnterCastOrChannel`）；
+   引导（channel）类技能在步骤 8 引导开始时调用（见判断记录 6，与资源扣除同一时点）；**唯独
+   普通读条类技能（`cast_time>0` 且非引导）在步骤 9 读条真正完成时（`FinishCast`）才调用**，不是
+   步骤 8 开始时。三者共用同一个 `SpellModDimension.Cooldown`/`GcdEnabled`/`RespectsGcd` 判定逻辑，
+   只是调用时点不同；多数同类系统里 GCD 从施法瞬间开始计时（本模块瞬发/引导两种确实如此），普通
+   读条类技能这里是"完成时才起算"，是否应当统一为"开始时起算"未在既有拍板中明确定论，本 README
+   如实记录当前实现，不代表已确认为最终产品决策。`SkillOptions.GcdDuration` 的默认值（1.5）只是
+   一个占位式合理起点，不代表任何产品决策，真实数值应由游戏口味配置清单给出。
 
 6. **引导（channel）类技能的资源/冷却在引导开始时一次性扣除**：06 第 3.6 节步骤 9 只描述"读条/
    引导完成后……扣资源、进冷却"这一笼统语句，未单独规定引导类技能的扣减时点，也未规定引导中途
@@ -216,10 +227,16 @@ skill/
     `DiscreteModeCastPipelineTests.cs`（新增）。
 26. **RC-08 收口（第四方深度审核）：移动中断改为生产环境真的会触发，不再只是一个未接线的入口**：
     `interrupt_flags: movement` 此前只有 `CastPipeline.NotifyMoved` 这个方法定义，没有任何生产
-    代码调用它——真实移动只发布 `unit.moved` 事件，`SkillHost` 并未订阅，声明了 movement
-    interrupt 的读条实际上可以边移动边完成。现在 `SkillHost` 构造期订阅 `unit.moved`，成功位移
-    时同步调用 `NotifyMoved`；被阻挡（未真正发生位移）不触发。见 `SkillHost.cs`、
-    `MovementInterruptWiringTests.cs`（新增）。
+    代码调用它——真实移动只发布 `unit.moved` 事件，本模块并未订阅，声明了 movement
+    interrupt 的读条实际上可以边移动边完成。**订阅位置勘误（外部审计 68c9bed 收边，"旧文案纠正"）：
+    实际订阅方是 `core/rules/assembly/RulesAssembly`（见该文件 `Bus.Subscribe(EventKeys.UnitMoved,
+    ...)`，转调 `Skill.NotifyMoved`），不是 `SkillHost` 自身构造期订阅**——`core/rules` 不依赖
+    `core/carriers`（L3），无法直接引用 `core/carriers/common` 定义的强类型 `UnitMovedEvent`，
+    只能由持有跨层依赖的装配根（`RulesAssembly`）用弱类型 `Id` 事件 key 订阅后转调本模块的
+    `NotifyMoved` 公开方法；`SkillHost.NotifyMoved`（见 `SkillHost.cs`）本身只是一个可供外部调用
+    的窄契约方法，不含任何 `Subscribe` 调用。成功位移时同步调用 `NotifyMoved`；被阻挡（未真正
+    发生位移）不触发。见 `RulesAssembly.cs`、`SkillHost.cs`、`MovementInterruptWiringTests.cs`
+    （新增）。
 
 ## 不负责什么
 

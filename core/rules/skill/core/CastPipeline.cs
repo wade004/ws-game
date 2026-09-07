@@ -53,6 +53,13 @@ namespace Core.Rules.Skill
             public double TickAccumulator;
             public IReadOnlyList<(Id PowerType, double Amount)> ModifiedCost = Array.Empty<(Id, double)>();
             public (Id SkillId, IReadOnlyList<Id> Targets)? Queued;
+
+            /// <summary>N19 收边补齐：本次读条/引导开始时的原始时长（引导为 <c>channel_time</c>、
+            /// 读条为 <c>cast_time</c>，均已按当时 SpellMod 修正），与本次施法开始时发布的
+            /// <see cref="SkillCastStartEvent.CastTime"/> 同一个值——<see cref="FinishCast"/> 完成时
+            /// 原样戳到 <see cref="SkillCastSuccessEvent.CastTimeSeconds"/> 上，供表现层区分"这是
+            /// 一次真正花了时间的读条/引导完成"（见 SkillCastSuccessEvent.IsInstant 判断记录）。</summary>
+            public double CastTimeSeconds;
         }
 
         private readonly SkillDefCache _defs;
@@ -213,7 +220,16 @@ namespace Core.Rules.Skill
             }
 
             // 步骤 6：目标合法性
-            var resolvedTargets = targets.Count > 0 ? targets : _targetHost.Resolve(def.TargetShapeRef, casterId);
+            // N10 收边补齐（外部审计 68c9bed，P2）：调用方显式传入 targets 时，此前直接跳过
+            // ITargetHost.Resolve 整条"来源收集 → 过滤 → 排序 → 截断 → 回退"管线，连带把目标链
+            // 声明的 filters（tag/expr 等额外目标条件，见 06 第 5 节）也一并绕过——配置要求
+            // "目标必须是 undead"的技能，显式指定一个非 undead 单体目标仍会成功。显式目标不需要
+            // 来源收集/排序/截断/回退（调用方已经给定具体目标），但额外目标条件必须继续生效，改用
+            // ITargetHost.FilterExplicitTargets 只跑"过滤"这一步（关系类过滤的 AI 侧场景已在
+            // ai 模块单独处理，见该接口方法判断记录，不在本步骤重复）。
+            var resolvedTargets = targets.Count > 0
+                ? _targetHost.FilterExplicitTargets(def.TargetShapeRef, casterId, targets)
+                : _targetHost.Resolve(def.TargetShapeRef, casterId);
             if (resolvedTargets.Count == 0)
             {
                 return Fail(casterId, skillId, CastFailureReason.NoValidTarget);
@@ -279,7 +295,9 @@ namespace Core.Rules.Skill
                 DeductResources(casterId, def.Id, modifiedCost);
                 StartCooldownAndGcd(casterId, def);
                 ExecuteEffectsOnly(casterId, def, targets);
-                _bus.Enqueue(new SkillCastSuccessEvent(casterId, skillId, targets));
+                // N19 收边补齐：瞬发——IsInstant=true，CastTimeSeconds=0（见 SkillCastSuccessEvent
+                // 判断记录）。
+                _bus.Enqueue(new SkillCastSuccessEvent(casterId, skillId, targets, isInstant: true, castTimeSeconds: 0));
                 return CastResult.Ok(castInstanceId);
             }
 
@@ -302,6 +320,9 @@ namespace Core.Rules.Skill
                 Remaining = isChannel ? def.ChannelTime : castTime,
                 TickInterval = isChannel ? ComputeChannelTickInterval(def) : 0,
                 ModifiedCost = modifiedCost,
+                // N19 收边补齐：与本次 SkillCastStartEvent.CastTime 同一个值，见 CastState.CastTimeSeconds
+                // 判断记录。
+                CastTimeSeconds = isChannel ? def.ChannelTime : castTime,
             };
 
             _casting[casterId] = state;
@@ -409,7 +430,9 @@ namespace Core.Rules.Skill
                 }
             }
 
-            _bus.Enqueue(new SkillCastSuccessEvent(casterId, state.SkillId, state.Targets));
+            // N19 收边补齐：非瞬发（真正经历过读条/引导才走到这里）——IsInstant=false，
+            // CastTimeSeconds 取本次开始时记录的原始时长（见 CastState.CastTimeSeconds 判断记录）。
+            _bus.Enqueue(new SkillCastSuccessEvent(casterId, state.SkillId, state.Targets, isInstant: false, castTimeSeconds: state.CastTimeSeconds));
 
             if (state.Queued.HasValue)
             {

@@ -70,24 +70,35 @@ namespace Core.Carriers.Item
 
         /// <summary>RC-05 收边补齐：value 从 <c>List&lt;AuraInstanceRef&gt;</c> 改为
         /// <c>List&lt;(Id AuraDefId, AuraInstanceRef Ref)&gt;</c>——需要保留每条授予记录对应的
-        /// <c>aura_def</c> id，才能在 <see cref="RevertGrants"/> 里查 <see cref="_auraGrantRefCount"/>
-        /// 判断"这件装备卸下后，是否还有其它已装备物品在授予同一个 aura_def"（见该字段判断记录
-        /// "共享光环"）。</summary>
+        /// <c>aura_def</c> id，供诊断/调试与 <see cref="RevertGrants"/> 逐条核对。</summary>
         private readonly Dictionary<(Id UnitId, Id InstanceId), List<(Id AuraDefId, AuraInstanceRef Ref)>> _grantedAuras =
             new Dictionary<(Id, Id), List<(Id, AuraInstanceRef)>>();
 
         /// <summary>
-        /// RC-05 收边补齐：(unitId, auraDefId) → 当前有多少件已装备物品在授予它——原实现
-        /// <see cref="RevertGrants"/> 卸下任意一件装备就无条件 <see cref="IEffectSink.RemoveAura"/>，
-        /// 而 <see cref="ApplyAura"/> 对同一 <c>(target, aura_def)</c> 的重复施加默认会"叠加"到
-        /// 同一个光环实例上（见 <c>AuraHost.ApplyAura</c>/<c>ItemOptions.AllowMultiSourceTiming</c>
-        /// 判断记录，<c>AllowMultiSourceTiming=false</c> 时不同来源共享同一个槽位）——两件装备都
-        /// 授予同一个 <c>aura_def</c> 时，各自拿到的 <see cref="AuraInstanceRef"/> 其实指向同一个
-        /// 共享实例，卸下其中一件会把这个共享实例整体移除，另一件明明还穿戴着却也丢了这份光环
-        /// （见外部审计 RC-05"移除共享光环"）。本字典按 <c>(unitId, auraDefId)</c> 记录当前还有
-        /// 几件装备在授予它，只有归零（最后一件也卸下）才真正调用 <see cref="IEffectSink.RemoveAura"/>。
+        /// N09 收边补齐（外部审计 68c9bed，P2；取代原 RC-05 按 <c>(unitId, auraDefId)</c> 计数的
+        /// <c>_auraGrantRefCount</c>）：改按 <b>(unitId, 实际光环实例句柄 AuraInstanceId)</b> 计数——
+        /// 原实现按 <c>aura_def</c> id 聚合计数，隐含假设"同一 <c>aura_def</c> 被多件装备授予时，
+        /// 它们拿到的 <see cref="AuraInstanceRef"/> 一定指向同一个共享实例"，这只在
+        /// <c>SkillOptions.AllowMultiSourceTiming == false</c>（默认；<c>AuraHost.ApplyAura</c> 对
+        /// 同一 <c>(target, aura_def)</c> 的重复施加合并到同一槽位）时成立；原实现注释误写为
+        /// "<c>ItemOptions.AllowMultiSourceTiming</c>"——该字段实际不存在于 <c>ItemOptions</c>
+        /// （<see cref="EquipmentHost"/> 本身并不持有、也不该持有 <c>core/rules/skill</c> 的
+        /// <c>SkillOptions</c>，两层不应该为了这一个标志位耦合，见文档同步）。
+        /// <para>
+        /// <c>AllowMultiSourceTiming == true</c> 时，<c>AuraHost.ApplyAura</c> 按 sourceId（这里是各自
+        /// 装备实例 id）各自开一份独立实例，两件装备同一个 <c>aura_def</c> 会拿到<b>两个不同</b>的
+        /// <see cref="AuraInstanceRef"/>——原按 <c>auraDefId</c> 聚合的计数会把这两个本该各自独立的
+        /// 实例错记成"同一份、还有 1 个引用"，卸下第一件装备时因为计数未归零而被跳过移除，
+        /// 全部装备卸载后这份临时 aura 仍残留在目标身上（见外部审计 N09）。
+        /// </para>
+        /// <para>
+        /// 改按实例句柄计数后不再需要区分两种模式：<c>AllowMultiSourceTiming=false</c> 时多件装备
+        /// 的 <see cref="AuraInstanceRef"/> 本就相等（同一份实例），计数天然聚合，只有真正的最后一个
+        /// 引用退出才移除，行为与修复前一致；<c>AllowMultiSourceTiming=true</c> 时每件装备的实例句柄
+        /// 互不相同，各自计数恒为 1，卸下时立即精确移除自己的那一份，不再误判"还有其它来源"。
+        /// </para>
         /// </summary>
-        private readonly Dictionary<(Id UnitId, Id AuraDefId), int> _auraGrantRefCount =
+        private readonly Dictionary<(Id UnitId, Id AuraInstanceId), int> _auraHandleRefCount =
             new Dictionary<(Id, Id), int>();
 
         private readonly Dictionary<(Id UnitId, Id SetId), Dictionary<int, List<AuraInstanceRef>>> _appliedSetBonuses =
@@ -419,10 +430,13 @@ namespace Core.Carriers.Item
                 {
                     if (a is JsonString asStr && Id.TryParse(asStr.Value, out var auraDefId))
                     {
-                        var refCountKey = (unitId, auraDefId);
-                        _auraGrantRefCount[refCountKey] = _auraGrantRefCount.TryGetValue(refCountKey, out var count) ? count + 1 : 1;
+                        // N09 收边补齐：先拿到本次施加实际落地的实例句柄，再按句柄（不是 auraDefId）
+                        // 计数——见 _auraHandleRefCount 判断记录。
+                        var granted = _effectSink.ApplyAura(unitId, auraDefId, instance.InstanceId);
+                        var handleKey = (unitId, granted.AuraInstanceId);
+                        _auraHandleRefCount[handleKey] = _auraHandleRefCount.TryGetValue(handleKey, out var count) ? count + 1 : 1;
 
-                        list.Add((auraDefId, _effectSink.ApplyAura(unitId, auraDefId, instance.InstanceId)));
+                        list.Add((auraDefId, granted));
                     }
                 }
 
@@ -450,20 +464,24 @@ namespace Core.Carriers.Item
             var key = (unitId, instance.InstanceId);
             if (_grantedAuras.TryGetValue(key, out var list))
             {
-                foreach (var (auraDefId, r) in list)
+                foreach (var (_, r) in list)
                 {
-                    var refCountKey = (unitId, auraDefId);
-                    var remaining = _auraGrantRefCount.TryGetValue(refCountKey, out var count) ? count - 1 : 0;
+                    // N09 收边补齐：按实例句柄（不是 auraDefId）计数，见 _auraHandleRefCount
+                    // 判断记录——AllowMultiSourceTiming=true 下每件装备的句柄互不相同，计数恒为 1，
+                    // 立即精确移除；=false 下多件装备共享同一句柄，计数聚合，只在最后一个引用退出时
+                    // 才真正移除。
+                    var handleKey = (unitId, r.AuraInstanceId);
+                    var remaining = _auraHandleRefCount.TryGetValue(handleKey, out var count) ? count - 1 : 0;
 
                     if (remaining > 0)
                     {
-                        // 仍有其它已装备物品在授予同一个 aura_def（见 _auraGrantRefCount 判断记录
-                        // "共享光环"）——这件装备自己的引用退出，但共享的光环实例继续保留。
-                        _auraGrantRefCount[refCountKey] = remaining;
+                        // 仍有其它已装备物品持有同一个光环实例句柄（AllowMultiSourceTiming=false 的
+                        // 共享槽位场景）——这件装备自己的引用退出，但共享的光环实例继续保留。
+                        _auraHandleRefCount[handleKey] = remaining;
                         continue;
                     }
 
-                    _auraGrantRefCount.Remove(refCountKey);
+                    _auraHandleRefCount.Remove(handleKey);
                     _effectSink.RemoveAura(unitId, r);
                 }
 

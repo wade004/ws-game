@@ -138,7 +138,7 @@ namespace Core.Foundation.EventBus
         /// <summary>input.rebind_conflict — 字段：actionName, binding。重绑定检测到冲突（见 01 模块表 input_map 行、03 第 7 节）；字段为建议值。</summary>
         public static readonly Id InputRebindConflict = new Id("input.rebind_conflict");
 
-        /// <summary>item.added — 字段：unitId, itemInstanceId, itemTemplateId, count。物品加入背包时触发（见 01 L3 模块表 item 行、07 第 1.3 节 InventoryHost.addItem 契约）；原名 item.acquired，2026-09-05 勘误改名为 item.added（见 07/08 第 9 节契约汇总表），并新增 item.removed 细分事件；字段为建议值。</summary>
+        /// <summary>item.added — 字段：unitId, itemInstanceId, itemTemplateId, count, removals。物品加入背包时触发（见 01 L3 模块表 item 行、07 第 1.3 节 InventoryHost.addItem 契约）；原名 item.acquired，2026-09-05 勘误改名为 item.added（见 07/08 第 9 节契约汇总表），并新增 item.removed 细分事件；字段为建议值。N12 收边补齐（外部审计 68c9bed）：新增 removals 字段——跨堆叠一次加入时按实例逐条列出分摊数量（instanceId+count），itemInstanceId/count 两个旧字段保留（跨堆叠时只描述最后触碰的实例与总量），消费方需要按实例精确处理时改读 removals，见 ItemAddedEvent.Removals 判断记录。</summary>
         public static readonly Id ItemAdded = new Id("item.added");
 
         /// <summary>item.equipped — 字段：unitId, itemInstanceId, slot。装备穿戴生效后触发，供纸娃娃层更新对应槽位（见 07 第 1.4 节原文、01 L3 模块表 item 行）；字段为建议值。</summary>
@@ -237,7 +237,7 @@ namespace Core.Foundation.EventBus
         /// <summary>skill.cast_start — 字段：casterId, skillId, castTime。施法管线步骤 8 开始（见 06 第 8 节）。</summary>
         public static readonly Id SkillCastStart = new Id("skill.cast_start");
 
-        /// <summary>skill.cast_success — 字段：casterId, skillId, targets。施法管线步骤 9 完成（见 06 第 8 节）。</summary>
+        /// <summary>skill.cast_success — 字段：casterId, skillId, targets, isInstant, castTimeSeconds。施法管线步骤 9 完成（见 06 第 8 节）。N19 收边补齐（外部审计 68c9bed）：新增 isInstant/castTimeSeconds 两个字段——瞬发技能的 cast_start 与本事件在同一次事件分发批次内背靠背发出，仅订阅这两个事件的消费方无法单独分辨瞬发与真正读条完成，供表现层区分处理，见 SkillCastSuccessEvent.IsInstant 判断记录。</summary>
         public static readonly Id SkillCastSuccess = new Id("skill.cast_success");
 
         /// <summary>spawn.executed — 字段：spawnId, entityId。SpawnHost.applyForMap 按刷新策略生成实体完成时触发（见 05 第 5.3 节，字段原文给出）。</summary>

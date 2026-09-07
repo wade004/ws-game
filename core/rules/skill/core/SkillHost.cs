@@ -241,6 +241,39 @@ namespace Core.Rules.Skill
         public IReadOnlyList<Id> GetKnownSkills(Id unitId) =>
             _knownSkills.TryGetValue(unitId, out var set) ? set.OrderBy(id => id.Value, StringComparer.Ordinal).ToList() : Array.Empty<Id>();
 
+        /// <summary>
+        /// N07 收边补齐（外部审计 68c9bed，P2）：只返回当前由 <see cref="PermanentGrantSource"/>
+        /// 哨兵来源授予的已知技能——供 <see cref="KnownSkillsPersistable.Save"/> 使用，取代此前的
+        /// <see cref="GetKnownSkills"/>（返回全部来源的并集，不分"永久学习"与"装备/临时授予"）。
+        /// <para>
+        /// 判断记录：装备授予的临时技能（<c>core/carriers/item.EquipmentHost.Equip</c> 经
+        /// <see cref="SkillGranter"/> 以装备实例 id 为来源调用 <see cref="LearnSkill(Id,Id,Id)"/>）
+        /// 此前被 <c>KnownSkillsPersistable.Save</c> 一并写入 <c>player.known_skills</c> 段，
+        /// <c>Load</c> 再经不带来源的 <see cref="LearnSkill(Id,Id)"/> 把它们当成永久学习重新授予——
+        /// 读档后卸下装备只撤销装备来源这一份引用计数，永久来源那一份继续把技能算作已知
+        /// （见外部审计 N07）。修复后存档只快照"确实是永久学习"的技能；装备授予的临时技能改由
+        /// <c>ItemPersistable.Load</c> 恢复装备时经 <see cref="EquipmentHost"/> 重新走一遍
+        /// <see cref="SkillGranter"/> 授予（与初次装备同一条路径，不经本方法/存档快照）。一个技能
+        /// 若同时被永久来源与装备来源授予，仍然计入本方法结果（与 <see cref="Knows"/> 的"任一来源
+        /// 即已知"语义一致，只是把枚举范围限定为"包含永久来源"）。
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<Id> GetPermanentlyKnownSkills(Id unitId)
+        {
+            var result = new List<Id>();
+            foreach (var pair in _skillGrantSources)
+            {
+                if (!pair.Key.UnitId.Equals(unitId)) continue;
+                if (pair.Value.Contains(PermanentGrantSource))
+                {
+                    result.Add(pair.Key.SkillId);
+                }
+            }
+
+            result.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
+            return result;
+        }
+
         /// <summary>按 <c>skill.book</c> 的等级映射学习技能（见 04 第 1.1 节 skill.book 行）：
         /// 学习全部 <c>entries[].level &lt;= level</c> 的技能。</summary>
         public void LearnFromBook(Id unitId, Id bookId, int level)

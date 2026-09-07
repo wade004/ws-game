@@ -208,7 +208,9 @@ namespace Core.Rules.Skill
         {
             var category = ParamsX.GetId(context.Params, "category", default);
             var count = (int)ParamsX.GetNumber(context.Params, "count", 1);
-            _auraHost.Dispel(context.TargetId, category, count);
+            // N04 收边补齐：把本次结算的 TriggerChainDepth 传给 AuraHost.Dispel，使 dispel 产生的
+            // aura.removed 携带正确深度，见 AuraRemovedEvent 类型注释。
+            _auraHost.Dispel(context.TargetId, category, count, context.TriggerChainDepth);
             return NoOp(context);
         }
 

@@ -105,11 +105,33 @@ namespace Core.Rules.Common
 
         public IReadOnlyList<Id> Targets { get; }
 
-        public SkillCastSuccessEvent(Id casterId, Id skillId, IReadOnlyList<Id> targets)
+        /// <summary>
+        /// N19 收边补齐（外部审计 68c9bed，P2）：本次施法是否为瞬发（<c>cast_time == 0</c> 且非
+        /// 引导，见 <see cref="Core.Rules.Skill.CastPipeline.EnterCastOrChannel"/> 判断记录）。瞬发时
+        /// <c>skill.cast_start</c> 与本事件在同一次 <see cref="Core.Foundation.EventBus.IEventBus.Enqueue"/>
+        /// 批次内背靠背发出（步骤 8 立即完成，不经历任何 <see cref="Update"/> tick），逻辑结算本身
+        /// 没有问题（两个事件仍然都发出、顺序仍然是 start 先于 success，语义不变）——但纯粹只订阅
+        /// <c>cast.succeeded</c>/<c>cast.started</c> 事件对来驱动动画状态机的表现层消费方（见
+        /// 09_表现层.md、外部审计 N19）无法单独从这两个事件本身分辨"这是瞬发，来得及播完整个
+        /// Attack 播放形态"还是"这是一次真正读条完成，应该立即回到 Idle"，容易在瞬发时把角色的
+        /// 攻击播放形态在同一帧内又切回 Idle（读条播放形态与逻辑结算独立这一 09 表现层原则不需要
+        /// 靠本字段保证——本字段只是让表现层能做出正确判断的必要信息，具体如何据此驱动状态机仍是
+        /// 表现层职责，不在本次写入范围）。</summary>
+        public bool IsInstant { get; }
+
+        /// <summary>见 <see cref="IsInstant"/> 判断记录：本次施法实际读条/引导花费的秒数——瞬发为 0；
+        /// 引导/读条类为 <see cref="Core.Rules.Common.SkillCastStartEvent.CastTime"/> 在本次施法开始
+        /// 时携带的同一个值（引导为 <c>channel_time</c>，读条为 <c>cast_time</c>，均已按当前
+        /// <c>SpellMod</c> 修正）。</summary>
+        public double CastTimeSeconds { get; }
+
+        public SkillCastSuccessEvent(Id casterId, Id skillId, IReadOnlyList<Id> targets, bool isInstant = false, double castTimeSeconds = 0)
         {
             CasterId = casterId;
             SkillId = skillId;
             Targets = (targets ?? Array.Empty<Id>()).ToArray();
+            IsInstant = isInstant;
+            CastTimeSeconds = castTimeSeconds;
         }
 
         /// <summary><see cref="Targets"/> 是列表，Expr 无列表类型（见
@@ -121,6 +143,8 @@ namespace Core.Rules.Common
             {
                 case "casterId": value = ExprValue.OfId(CasterId); return true;
                 case "skillId": value = ExprValue.OfId(SkillId); return true;
+                case "isInstant": value = ExprValue.OfBool(IsInstant); return true;
+                case "castTimeSeconds": value = ExprValue.OfNumber(CastTimeSeconds); return true;
                 default: value = default; return false;
             }
         }
@@ -323,8 +347,22 @@ namespace Core.Rules.Common
     }
 
     /// <summary>光环到期/驱散/覆盖移除（见 06 第 8 节）。<see cref="Reason"/> 是自由文本分类
-    /// （如 "expired"/"dispelled"/"overwritten"），06 未给出固定枚举，保留字符串。</summary>
-    public sealed class AuraRemovedEvent : IEvent, IExprReadableEvent
+    /// （如 "expired"/"dispelled"/"overwritten"），06 未给出固定枚举，保留字符串。
+    /// <para>
+    /// N04 收边补齐（外部审计 68c9bed）：本事件此前不实现 <see cref="ITriggerChainEvent"/>，
+    /// <see cref="Core.Rules.Skill.EventCorrelation.GetTriggerChainDepth"/> 对其恒取默认值 0——
+    /// 一个订阅 <c>aura.removed</c> 的永久 Proc（<c>procChance=1</c>、无 ICD）在"施法 Apply 临时
+    /// 光环再 Dispel"的循环里，每一层 Dispel 产生的 <c>aura.removed</c> 都被当作"根事件"，
+    /// <see cref="SkillOptions.MaxTriggerDepth"/> 从未生效，循环不会在预算处被拒。现在与
+    /// <see cref="AuraAppliedEvent.TriggerChainDepth"/> 同一套机制：只有经
+    /// <see cref="Core.Rules.Skill.EffectDispatcher"/> 效果结算路径（<c>dispel</c> 效果原语、
+    /// <c>apply_aura</c> 叠加溢出替换）产生的移除才带上产生它的
+    /// <see cref="EffectContext.TriggerChainDepth"/>；<see cref="Core.Rules.Skill.AuraHost.Update"/>
+    /// 到期（<c>reason == "expired"</c>）与 <c>entity.destroyed</c> 联动清理不经过任何
+    /// <see cref="EffectContext"/>，恒为 0（视为新的根事件，与到期前的行为一致，不阻断到期继续作为
+    /// Proc 触发源）。</para>
+    /// </summary>
+    public sealed class AuraRemovedEvent : IEvent, IExprReadableEvent, ITriggerChainEvent
     {
         public Id Key => RulesEventKeys.AuraRemoved;
 
@@ -334,11 +372,16 @@ namespace Core.Rules.Common
 
         public string Reason { get; }
 
-        public AuraRemovedEvent(Id targetId, Id auraDefId, string reason)
+        /// <summary>见本类型注释"N04 收边补齐"、<see cref="CombatDamageDealtEvent.TriggerChainDepth"/>
+        /// 判断记录（RC-01）。</summary>
+        public int TriggerChainDepth { get; }
+
+        public AuraRemovedEvent(Id targetId, Id auraDefId, string reason, int triggerChainDepth = 0)
         {
             TargetId = targetId;
             AuraDefId = auraDefId;
             Reason = reason ?? throw new ArgumentNullException(nameof(reason));
+            TriggerChainDepth = triggerChainDepth;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -348,13 +391,21 @@ namespace Core.Rules.Common
                 case "targetId": value = ExprValue.OfId(TargetId); return true;
                 case "auraDefId": value = ExprValue.OfId(AuraDefId); return true;
                 case "reason": value = ExprValue.OfString(Reason); return true;
+                case "triggerChainDepth": value = ExprValue.OfInt(TriggerChainDepth); return true;
                 default: value = default; return false;
             }
         }
     }
 
-    /// <summary>叠加层数变化（见 06 第 8 节）。</summary>
-    public sealed class AuraStackChangedEvent : IEvent, IExprReadableEvent
+    /// <summary>叠加层数变化（见 06 第 8 节）。
+    /// <para>
+    /// N04 收边补齐（外部审计 68c9bed，审查范围内的同类事件）：与 <see cref="AuraRemovedEvent"/>
+    /// 同一套判断记录——本事件只在 <see cref="Core.Rules.Skill.AuraHost.ReapplyExisting"/>（叠加
+    /// 而非溢出替换分支）产生，该路径经 <c>apply_aura</c> 效果原语调用，同样带有
+    /// <see cref="EffectContext.TriggerChainDepth"/>，现予以透传，避免同一类"事件驱动 Proc 自循环"
+    /// 缺口以另一个事件类型重现。</para>
+    /// </summary>
+    public sealed class AuraStackChangedEvent : IEvent, IExprReadableEvent, ITriggerChainEvent
     {
         public Id Key => RulesEventKeys.AuraStackChanged;
 
@@ -366,12 +417,17 @@ namespace Core.Rules.Common
 
         public int NewStacks { get; }
 
-        public AuraStackChangedEvent(Id targetId, Id auraDefId, int oldStacks, int newStacks)
+        /// <summary>见本类型注释"N04 收边补齐"、<see cref="CombatDamageDealtEvent.TriggerChainDepth"/>
+        /// 判断记录（RC-01）。</summary>
+        public int TriggerChainDepth { get; }
+
+        public AuraStackChangedEvent(Id targetId, Id auraDefId, int oldStacks, int newStacks, int triggerChainDepth = 0)
         {
             TargetId = targetId;
             AuraDefId = auraDefId;
             OldStacks = oldStacks;
             NewStacks = newStacks;
+            TriggerChainDepth = triggerChainDepth;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -382,6 +438,7 @@ namespace Core.Rules.Common
                 case "auraDefId": value = ExprValue.OfId(AuraDefId); return true;
                 case "oldStacks": value = ExprValue.OfInt(OldStacks); return true;
                 case "newStacks": value = ExprValue.OfInt(NewStacks); return true;
+                case "triggerChainDepth": value = ExprValue.OfInt(TriggerChainDepth); return true;
                 default: value = default; return false;
             }
         }

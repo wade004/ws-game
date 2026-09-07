@@ -52,7 +52,11 @@ namespace Core.Rules.Skill
 
             public JsonValue Save()
             {
-                var known = _host.GetKnownSkills(_unitId);
+                // N07 收边补齐（外部审计 68c9bed，P2）：改用 GetPermanentlyKnownSkills（只含永久来源
+                // 授予的技能），不再用 GetKnownSkills（全部来源并集）——避免装备授予的临时技能被当成
+                // 永久技能快照进存档，见 SkillHost.GetPermanentlyKnownSkills 判断记录。装备授予的技能
+                // 改由 Core.Carriers.Item.ItemPersistable.Load 恢复装备时重新走 SkillGranter 授予。
+                var known = _host.GetPermanentlyKnownSkills(_unitId);
                 var items = new List<JsonValue>(known.Count);
                 foreach (var skillId in known)
                 {

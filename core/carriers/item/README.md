@@ -88,6 +88,18 @@ item/
    `sourceId`（装备实例/来源标识），`EquipmentHost`/`CarriersAssembly` 按 `(unitId, skillId,
    sourceId)` 分离追踪，只有最后一个引用该技能的来源被撤销时才真正 Forget；`SkillHost` 侧同理按
    来源计数。见 `EquipmentHost.cs`/`CarriersAssembly.cs`、`EquipmentHostTests.cs`。
+7. **N09 收边补齐（外部审计 68c9bed）：装备授予光环的引用计数改按实例句柄，不再按 `aura_def`
+   id**——RC-05 只解决了"技能"这一半（见上一条），光环那一半（`_grantedAuras`/原
+   `_auraGrantRefCount`）仍按 `(unitId, auraDefId)` 聚合计数，隐含假设"同一 `aura_def` 被多件
+   装备授予时它们拿到的 `AuraInstanceRef` 一定指向同一个共享实例"——这只在
+   `SkillOptions.AllowMultiSourceTiming == false`（默认）时成立；`== true` 时 `AuraHost.ApplyAura`
+   按来源各开一份独立实例，两件装备会拿到两个不同的 `AuraInstanceRef`，旧计数把它们误记成
+   "同一份、还有其它引用"，卸下第一件装备时因为计数未归零而被跳过移除，全部装备卸载后仍残留
+   一份临时 aura。现按实际落地的 `AuraInstanceRef.AuraInstanceId` 计数（改名
+   `_auraHandleRefCount`），两种时序模式下都能精确判断"这份具体实例是否还有其它引用"，不需要
+   区分是哪种模式。见 `EquipmentHost.cs`（`_auraHandleRefCount` 判断记录）、
+   `EquipmentHostTests.cs`（`Unequip_OneOfTwoItemsGrantingSameAura_IndependentInstances_
+   EachRemovedOnItsOwnUnequip`）。
 
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 

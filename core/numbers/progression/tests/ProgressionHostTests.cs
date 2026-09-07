@@ -250,6 +250,56 @@ namespace Tests.Numbers.Progression
         }
 
         // -----------------------------------------------------------------
+        // N08（外部审计 68c9bed，P2）：level_up 发布顺序——先提交等级、再发布事件
+        // -----------------------------------------------------------------
+
+        /// <summary>修复前 <c>PublishImmediate(LevelUpEvent)</c> 早于 <c>unit.Level = newLevel</c>
+        /// 赋值；事件处理器内如果不读事件自带的 <c>NewLevel</c> 字段、而是反查
+        /// <see cref="IProgressionHost.GetLevel"/>（如 <c>RulesAssembly</c> 一类按等级重算派生
+        /// 属性的消费者，见 core/rules/assembly/RulesAssembly.cs:227），会读到升级前的旧等级。</summary>
+        [Fact]
+        public void AddXp_LevelUpHandler_ReadsGetLevel_SeesNewLevelAlready()
+        {
+            var registry = MakeRegistry(GoodCurveRows, out var bus, registerCurveRule: true);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.hero_leveluporder");
+            host.RegisterUnit(unit, new Id("prog.curve.sample"));
+
+            var levelObservedInsideHandler = -1;
+            bus.Subscribe<LevelUpEvent>(ProgressionEventKeys.LevelUp, e => levelObservedInsideHandler = host.GetLevel(unit));
+
+            host.AddXp(unit, new Id("prog.xp.kill_wolf"), 100);
+
+            Assert.Equal(2, host.GetLevel(unit));
+            // 修复前该断言会失败：levelObservedInsideHandler 会是 1（发布事件时 unit.Level 还没提交）。
+            Assert.Equal(2, levelObservedInsideHandler);
+        }
+
+        /// <summary>一次跨两级时，第一次 level_up 事件的处理器内查询到的等级应恰好是第一次跳变后的
+        /// 等级（2），不是最终等级（3）——验证的是"逐级提交再逐级发布"，不是"先跑完循环再统一发布"。</summary>
+        [Fact]
+        public void AddXp_CrossesTwoLevels_EachHandlerInvocation_SeesLevelAtThatPointInTime()
+        {
+            var registry = MakeRegistry(GoodCurveRows, out var bus, registerCurveRule: true);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.hero_leveluporder2");
+            host.RegisterUnit(unit, new Id("prog.curve.sample"));
+
+            var observedLevels = new List<int>();
+            bus.Subscribe<LevelUpEvent>(ProgressionEventKeys.LevelUp, e => observedLevels.Add(host.GetLevel(unit)));
+
+            host.AddXp(unit, new Id("prog.xp.kill_wolf"), 200);
+
+            Assert.Equal(new List<int> { 2, 3 }, observedLevels);
+        }
+
+        // -----------------------------------------------------------------
         // 5. 满级丢弃
         // -----------------------------------------------------------------
 

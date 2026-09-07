@@ -46,6 +46,21 @@ namespace Tests.Rules.Combat
             return this;
         }
 
+        /// <summary>N05 收边补齐（外部审计 68c9bed）：模拟单位从世界模拟中被移除（Despawn），
+        /// 与真实 <c>WorldUnitAccess.Require</c>（<c>_world.GetEntity(unitId) is Unit</c> 为假即抛
+        /// 异常）语义对齐——不是简单删字典项（那样 <see cref="Exists"/> 会退化为"从未 Add 过"，
+        /// 丢失"曾经存在过、现在没了"这一区分），而是保留记录但翻转 <see cref="Rec.Exists"/>，
+        /// <see cref="Require"/> 现在同样检查该标志位。</summary>
+        public FakeUnitAccess Despawn(Id unitId)
+        {
+            if (_units.TryGetValue(unitId, out var r))
+            {
+                r.Exists = false;
+            }
+
+            return this;
+        }
+
         public bool Exists(Id unitId) => _units.TryGetValue(unitId, out var r) && r.Exists;
 
         public IReadOnlyList<Id> AllUnits
@@ -78,9 +93,11 @@ namespace Tests.Rules.Combat
 
         private Rec Require(Id unitId)
         {
-            if (!_units.TryGetValue(unitId, out var r))
+            // N05 收边补齐：与真实 WorldUnitAccess.Require 对齐——Despawn 过的单位（Exists=false）
+            // 同样应当在这里抛异常，不能因为字典里还留着记录就放行。
+            if (!_units.TryGetValue(unitId, out var r) || !r.Exists)
             {
-                throw new InvalidOperationException($"FakeUnitAccess: 单位 \"{unitId}\" 未 Add");
+                throw new InvalidOperationException($"FakeUnitAccess: 单位 \"{unitId}\" 未 Add 或已 Despawn");
             }
             return r;
         }

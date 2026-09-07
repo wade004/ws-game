@@ -216,9 +216,16 @@ namespace Core.Numbers.Progression
                 }
 
                 unit.Xp -= xpToNext;
-                var newLevel = unit.Level + 1;
-                _bus.PublishImmediate(new LevelUpEvent(unitId, unit.Level, newLevel));
+                var oldLevel = unit.Level;
+                var newLevel = oldLevel + 1;
+                // N08 收边补齐（外部审计 68c9bed，P2）：先提交等级、再发布 progression.level_up——
+                // PublishImmediate 是同步派发，修复前 unit.Level 在发布时仍是旧值，事件处理器内如果
+                // 反查 GetLevel(unitId)（而不是只读事件自带的 NewLevel 字段）会读到旧等级，
+                // RulesAssembly 一类按等级重算派生属性的消费者可能因此用旧等级计算，直到下一次别的
+                // 属性写入才被动补救（见外部审计 N08）。事件本身携带的 OldLevel/NewLevel 字段值不变，
+                // 只调整"字段赋值"与"发布事件"两个语句的先后顺序。
                 unit.Level = newLevel;
+                _bus.PublishImmediate(new LevelUpEvent(unitId, oldLevel, newLevel));
                 leveledUp = true;
             }
 

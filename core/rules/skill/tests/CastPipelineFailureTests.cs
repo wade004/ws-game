@@ -240,6 +240,65 @@ namespace Tests.Rules.Skill
             Assert.Equal(CastFailureReason.OutOfRange, result.Reason);
         }
 
+        // -----------------------------------------------------------------
+        // N10（外部审计 68c9bed，P2）：显式 targets 此前绕过目标链的额外 filters（tag/expr），
+        // 见 CastPipeline 步骤 6 判断记录、ITargetHost.FilterExplicitTargets 类型注释。
+        // -----------------------------------------------------------------
+
+        /// <summary>技能配置要求目标带 <c>tag:undead</c>（用 FakeTargetHost.SetFilter 模拟真实
+        /// TargetChainDef.Filters 里的 <c>"tag:xxx"</c> 简写，见 FakeTargetHost 判断记录）；调用方
+        /// 显式指定一个不满足条件的目标，修复前会绕过链的 filters 直接成功命中，修复后应在步骤 6
+        /// 失败（复用 <see cref="CastFailureReason.NoValidTarget"/>，见 ITargetHost.FilterExplicitTargets
+        /// 判断记录"06 未单独为显式目标不满足额外条件定义原因码"）。</summary>
+        [Fact]
+        public void ExplicitTarget_FailingChainFilter_Fails_NotBypassed()
+        {
+            var world = new SkillWorldBuilder().SkillDef(InstantDamageSkill()).Build();
+            world.AddUnit(new Id("unit.caster"));
+            world.AddUnit(new Id("unit.non_undead_target"));
+            // 模拟"要求 tag:undead"：显式目标没有这个标签，谓词返回 false。
+            world.Targets.SetFilter(new Id("target.chain.sample"), id => id.Equals(new Id("unit.undead_target")));
+
+            var result = world.Host.CastSkill(
+                new Id("unit.caster"), new Id("skill.sample_bolt"), new[] { new Id("unit.non_undead_target") });
+
+            // 修复前该断言会失败：显式 targets 非空时直接跳过 ITargetHost 整条解析/过滤管线，
+            // resolvedTargets 就是调用方传入的原始列表，不满足 undead 条件的目标也会施法成功。
+            Assert.False(result.Success);
+            Assert.Equal(CastFailureReason.NoValidTarget, result.Reason);
+        }
+
+        /// <summary>对照组：显式目标满足链的 filters 时应正常施法成功——确认修复没有把"显式目标"
+        /// 这条路径整体堵死，只是补上了原本被绕过的额外条件校验。</summary>
+        [Fact]
+        public void ExplicitTarget_PassingChainFilter_Succeeds()
+        {
+            var world = new SkillWorldBuilder().SkillDef(InstantDamageSkill()).Build();
+            world.AddUnit(new Id("unit.caster"));
+            world.AddUnit(new Id("unit.undead_target"));
+            world.Targets.SetFilter(new Id("target.chain.sample"), id => id.Equals(new Id("unit.undead_target")));
+
+            var result = world.Host.CastSkill(
+                new Id("unit.caster"), new Id("skill.sample_bolt"), new[] { new Id("unit.undead_target") });
+
+            Assert.True(result.Success);
+        }
+
+        /// <summary>链未配置任何 filter（<c>SetFilter</c> 未调用）时，显式目标不应受影响——
+        /// 与真实 <c>TargetChainDef.Filters</c> 为空数组时的语义一致（无额外条件，全部通过）。</summary>
+        [Fact]
+        public void ExplicitTarget_NoChainFilterConfigured_StillSucceeds()
+        {
+            var world = new SkillWorldBuilder().SkillDef(InstantDamageSkill()).Build();
+            world.AddUnit(new Id("unit.caster"));
+            world.AddUnit(new Id("unit.any_target"));
+
+            var result = world.Host.CastSkill(
+                new Id("unit.caster"), new Id("skill.sample_bolt"), new[] { new Id("unit.any_target") });
+
+            Assert.True(result.Success);
+        }
+
         [Fact]
         public void SchoolLocked_BlocksSameSchoolAfterInterrupt()
         {

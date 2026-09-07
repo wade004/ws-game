@@ -54,6 +54,14 @@ progression/
    `StatModifierRemover` + 若干次 `StatModifierWriter`，写入"从 2 级到最终等级"的累计成长
    （1 级无成长，任务书原文）。这样"写入一次"与"每级发一次事件"是两件独立的事情，不会出现
    跨两级却把成长值分两次写、后一次覆盖前一次只剩最后一级增量的错误。
+   **N08 收边补齐（外部审计 68c9bed）：`while` 循环内先提交 `unit.Level = newLevel`，再
+   `PublishImmediate(LevelUpEvent)`**——原实现先发布事件、后赋值，`PublishImmediate` 是同步
+   派发，事件处理器内如果不读事件自带的 `NewLevel` 字段、而是反查 `GetLevel(unitId)`（如按等级
+   重算派生属性的消费者），会读到升级前的旧等级，直到下一次别的属性写入才可能被动补救。事件
+   携带的 `OldLevel`/`NewLevel` 字段值本身不变，只调整"字段赋值"与"发布事件"两个语句的先后
+   顺序。见 `ProgressionHostTests.cs`
+   （`AddXp_LevelUpHandler_ReadsGetLevel_SeesNewLevelAlready`/
+   `AddXp_CrossesTwoLevels_EachHandlerInvocation_SeesLevelAtThatPointInTime`）。
 
 4. **成长写入的来源 id 固定为 `prog.growth`，`RegisterUnit` 不隐式写入成长**：见
    `ProgressionHost` 类文档判断记录——`RegisterUnit` 定位是"全新单位从起始等级开始"，不应

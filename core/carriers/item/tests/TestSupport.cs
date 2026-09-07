@@ -140,7 +140,21 @@ namespace Tests.Carriers.Item
 
     /// <summary><see cref="IEffectSink"/> 的测试假实现：记录 <see cref="ApplyAura"/>/<see
     /// cref="RemoveAura"/> 调用，供 <c>EquipmentHostTests</c> 断言"装备后光环施加/卸下后光环移除"。
-    /// <see cref="ApplyEffect"/> 本模块用不到，返回一个恒定的空结果。</summary>
+    /// <see cref="ApplyEffect"/> 本模块用不到，返回一个恒定的空结果。
+    /// <para>
+    /// N09 收边补齐（外部审计 68c9bed）：<see cref="SharedSlotPerAuraDef"/> 可选开关——真实
+    /// <c>AuraHost.ApplyAura</c> 在 <c>SkillOptions.AllowMultiSourceTiming == false</c>（默认）时，
+    /// 同一 <c>(targetId, auraDefId)</c> 的重复施加会合并到同一个共享实例（不同 sourceId 只是叠加
+    /// 层数，返回同一个 <see cref="AuraInstanceRef"/>）；<c>== true</c> 时每个 sourceId 各开一份
+    /// 独立实例（返回互不相同的 <see cref="AuraInstanceRef"/>）。本假实现默认关闭（每次调用恒返回
+    /// 独立 ref，对应 <c>AllowMultiSourceTiming = true</c> 的场景，也是外部审计 N09 复现所需的
+    /// 行为）；<c>EquipmentHostTests</c> 里验证"默认共享槽位、卸一件不影响另一件"的既有用例
+    /// （RC-05）需要显式打开本开关，才能真实模拟 <c>AllowMultiSourceTiming = false</c> 下多件装备
+    /// 拿到同一个共享句柄这一前提——原假实现恒返回独立 ref，与默认模式的真实行为不符，只是恰好
+    /// 被 <c>EquipmentHost</c> 当时按 <c>auraDefId</c>（而非实例句柄）计数的旧实现掩盖了这个差异
+    /// （见 <c>EquipmentHost._auraHandleRefCount</c> 判断记录）。
+    /// </para>
+    /// </summary>
     internal sealed class FakeEffectSink : IEffectSink
     {
         public readonly struct AppliedAura
@@ -158,6 +172,12 @@ namespace Tests.Carriers.Item
         }
 
         private long _nextInstanceSeq = 1;
+        private readonly Dictionary<(Id TargetId, Id AuraDefId), AuraInstanceRef> _sharedSlots =
+            new Dictionary<(Id, Id), AuraInstanceRef>();
+
+        /// <summary>见类型注释"N09 收边补齐"。默认 false（每次独立 ref，对应
+        /// <c>AllowMultiSourceTiming = true</c>）。</summary>
+        public bool SharedSlotPerAuraDef { get; set; } = false;
 
         public List<AppliedAura> Applied { get; } = new List<AppliedAura>();
 
@@ -169,10 +189,47 @@ namespace Tests.Carriers.Item
         public AuraInstanceRef ApplyAura(Id targetId, Id auraDefId, Id sourceId, double? durationOverride = null)
         {
             Applied.Add(new AppliedAura(targetId, auraDefId, sourceId));
+
+            if (SharedSlotPerAuraDef)
+            {
+                var slotKey = (targetId, auraDefId);
+                if (_sharedSlots.TryGetValue(slotKey, out var existing))
+                {
+                    return existing;
+                }
+
+                var created = new AuraInstanceRef(new Id($"aura.inst_{_nextInstanceSeq++}"));
+                _sharedSlots[slotKey] = created;
+                return created;
+            }
+
             return new AuraInstanceRef(new Id($"aura.inst_{_nextInstanceSeq++}"));
         }
 
-        public void RemoveAura(Id targetId, AuraInstanceRef auraInstanceRef) => Removed.Add(auraInstanceRef);
+        public void RemoveAura(Id targetId, AuraInstanceRef auraInstanceRef)
+        {
+            Removed.Add(auraInstanceRef);
+
+            if (!SharedSlotPerAuraDef)
+            {
+                return;
+            }
+
+            (Id, Id)? keyToRemove = null;
+            foreach (var pair in _sharedSlots)
+            {
+                if (pair.Value.Equals(auraInstanceRef))
+                {
+                    keyToRemove = pair.Key;
+                    break;
+                }
+            }
+
+            if (keyToRemove.HasValue)
+            {
+                _sharedSlots.Remove(keyToRemove.Value);
+            }
+        }
     }
 
     /// <summary>记录型 <see cref="Core.Carriers.Item.SkillGranter"/>：把每次调用记录下来，供测试

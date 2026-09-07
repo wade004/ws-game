@@ -164,6 +164,64 @@ namespace Tests.Carriers.Item
             Assert.Equal(unit, received!.UnitId);
             Assert.Equal(new Id("item.sample_potion"), received.ItemTemplateId);
             Assert.Equal(3, received.Count);
+
+            // N12 收边补齐：未跨堆叠（一次 AddItem 只命中一个既有实例）时，Removals 应恰好一项，
+            // 与旧的 ItemInstanceId/Count 语义等价。
+            Assert.Single(received.Removals);
+            Assert.Equal(received.ItemInstanceId, received.Removals[0].InstanceId);
+            Assert.Equal(received.Count, received.Removals[0].Count);
+        }
+
+        /// <summary>N12（外部审计 68c9bed，P2）：一次 <c>AddItem</c> 跨堆叠（先续填一个已有堆叠的
+        /// 剩余空间，剩下的部分新开一个堆叠）时，<c>ItemAddedEvent.Removals</c> 应按实际落地顺序
+        /// 逐项列出每个实例分到的数量，而不是只报告"最后触碰的那一个实例"+"全部数量"——修复前
+        /// <c>QuestHost.HandleItemAdded</c> 的 <c>ConsumeOnProgress</c> 分支会用旧的单一
+        /// <c>ItemInstanceId</c>+<c>Count</c> 去调用 <c>RemoveItem</c>，当 <c>Count</c> 超过"最后
+        /// 那个实例"实际持有的数量时（比如新开的堆叠只装了 2 个，但 Count 是总数 5）整取失败、
+        /// 进度不推进（外部审计 N12"stack1 一次加 2 时 consume2 进度为 0"）。</summary>
+        [Fact]
+        public void AddItem_CrossStack_RaisesItemAddedEvent_WithPerInstanceRemovalsBreakdown()
+        {
+            var host = BuildHost(out var bus, stackSize: 5);
+            var unit = new Id("player.hero");
+            host.AddItem(unit, new Id("item.sample_potion"), 3); // 先攒一个还差 2 就满的堆叠。
+            var existingInstanceId = host.ListItems(unit)[0].InstanceId;
+
+            ItemAddedEvent? received = null;
+            bus.Subscribe<ItemAddedEvent>(CarriersEventKeys.ItemAdded, evt => received = evt);
+
+            // 再加 4 个：2 个续满已有堆叠（3→5），剩下 2 个新开一个堆叠——跨越两个实例。
+            Assert.True(host.AddItem(unit, new Id("item.sample_potion"), 4));
+            bus.DispatchPending();
+
+            var items = host.ListItems(unit);
+            Assert.Equal(2, items.Count);
+            Assert.Equal(5, items[0].Count);
+            Assert.Equal(2, items[1].Count);
+            var newInstanceId = items[1].InstanceId;
+
+            Assert.NotNull(received);
+            Assert.Equal(4, received!.Count); // 旧字段：总量不变。
+            Assert.Equal(newInstanceId, received.ItemInstanceId); // 旧字段：仍是"最后触碰的实例"。
+
+            // 新字段：逐项分摊明细，覆盖两个实例，且每一项都精确对应各自实际持有量的一部分。
+            Assert.Equal(2, received.Removals.Count);
+            Assert.Equal(existingInstanceId, received.Removals[0].InstanceId);
+            Assert.Equal(2, received.Removals[0].Count); // 续满已有堆叠：3→5，只加了 2。
+            Assert.Equal(newInstanceId, received.Removals[1].InstanceId);
+            Assert.Equal(2, received.Removals[1].Count); // 新堆叠：装了 2。
+            Assert.Equal(received.Count, received.Removals[0].Count + received.Removals[1].Count);
+
+            // 消费方按 Removals 逐项调用 RemoveItem 才能精确取回本次加入的数量（不依赖单一
+            // ItemInstanceId+Count 猜测）；旧组合 RemoveItem(unit, received.ItemInstanceId,
+            // received.Count) 在这个跨堆叠场景下会失败（newInstanceId 那个实例只有 2 个，Count 是 4）。
+            Assert.False(host.RemoveItem(unit, received.ItemInstanceId, received.Count));
+            foreach (var (instanceId, count) in received.Removals)
+            {
+                Assert.True(host.RemoveItem(unit, instanceId, count));
+            }
+
+            Assert.Equal(3, host.CountOf(unit, new Id("item.sample_potion"))); // 原有 3 个（未被本次加入触碰的部分）保留。
         }
 
         [Fact]

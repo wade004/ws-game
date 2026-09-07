@@ -243,5 +243,79 @@ namespace Tests.Rules.Skill
             Assert.InRange(energizeCount, 2, builder.Options.MaxTriggerDepth + 2);
             Assert.NotEmpty(world.Diagnostics.Errors);
         }
+
+        /// <summary>N04（外部审计 68c9bed，P1）：永久 Proc P 订阅 <c>aura.removed</c>，
+        /// <c>procChance=1</c> 且无 ICD；S 施法 Apply 临时光环 A 再 Dispel A（同一个技能的 effects
+        /// 依次执行 <c>apply_aura</c>/<c>dispel</c>），P 恰好是这个临时光环的持有者，于是 P 再次
+        /// 处理这次移除并重新触发同一个技能——修复前 <c>AuraRemovedEvent</c> 不实现
+        /// <see cref="ITriggerChainEvent"/>，<see cref="EventCorrelation.GetTriggerChainDepth"/>
+        /// 恒取 0，<see cref="SkillOptions.MaxTriggerDepth"/> 从未生效，循环只能靠与触发链语义无关的
+        /// <see cref="Core.Foundation.EventBus.EventBusOptions.MaxDispatchPasses"/> 兜底截断
+        /// （energizeCount 会一路顶到远超 MaxTriggerDepth 的值）。修复后应在 MaxTriggerDepth 处被拒，
+        /// 与 <see cref="TriggerChain_RecursionIsBoundedByMaxTriggerDepth"/> 同一断言口径。</summary>
+        [Fact]
+        public void TriggerChain_ViaAuraRemoved_ApplyThenDispelLoop_IsBoundedByMaxTriggerDepth()
+        {
+            const string loopSkillId = "skill.sample_removed_loop";
+            const string tempAuraId = "skill.aura_def.sample_removed_loop_temp";
+            const string holderAuraId = "skill.aura_def.sample_removed_loop_holder";
+            const string dispelCategory = "skill.dispel.sample_removed_loop";
+
+            var tempAura = J.O(
+                ("id", J.S(tempAuraId)),
+                ("duration", J.N(30)),
+                ("dispel_type", J.S(dispelCategory)),
+                ("effects", J.A()));
+
+            // S 施放的技能：先记一次 energize 计数器（复用
+            // TriggerChain_RecursionIsBoundedByMaxTriggerDepth 的计数手法），再 apply_aura 施加临时
+            // 光环 A，最后 dispel 立即移除它——一次施法内 apply → dispel 顺序执行，A 不会跨迭代累积
+            // 层数（RemoveInstanceInternal 同步从 _instances 摘除，只有事件发布经 Enqueue 延迟）。
+            var loopSkill = J.O(
+                ("id", J.S(loopSkillId)),
+                ("school", J.S("skill.school_sample")),
+                ("kind", J.S("active")),
+                ("range", J.N(0)),
+                ("cast_time", J.N(0)),
+                ("respects_gcd", J.B(false)),
+                ("target_shape_ref", J.S("target.chain.sample")),
+                ("effects", J.A(
+                    J.O(("kind", J.S("energize")), ("params", J.O(("power_type", J.S("arch.power.sample_counter")), ("amount", J.N(1))))),
+                    J.O(("kind", J.S("apply_aura")), ("params", J.O(("aura_def", J.S(tempAuraId))))),
+                    J.O(("kind", J.S("dispel")), ("params", J.O(("category", J.S(dispelCategory)), ("count", J.N(1))))))));
+
+            var proc = ProcDef("skill.proc_def.sample_removed_loop", "aura.removed", loopSkillId, 1.0);
+            var holderAura = ProcAura(holderAuraId, "skill.proc_def.sample_removed_loop");
+
+            var builder = new SkillWorldBuilder().SkillDef(loopSkill).ProcDef(proc).AuraDef(tempAura).AuraDef(holderAura)
+                .Power("arch.power.sample_counter", 1_000_000, startFull: false);
+            builder.Options.MaxTriggerDepth = 3;
+
+            var world = builder.Build();
+            world.AddUnit(new Id("unit.caster"));
+            world.Targets.SetChain(new Id("target.chain.sample"), new Id("unit.caster"));
+            world.Host.EffectSink.ApplyAura(new Id("unit.caster"), new Id(holderAuraId), new Id("unit.caster"));
+
+            var result = world.Host.CastSkill(new Id("unit.caster"), new Id(loopSkillId), System.Array.Empty<Id>());
+            Assert.True(result.Success);
+
+            world.Flush();
+
+            var castCount = world.Powers.GetPower(new Id("unit.caster"), new Id("arch.power.sample_counter"));
+            // 修复前该断言会失败：castCount 顶到 EventBusOptions.MaxDispatchPasses 附近（远大于
+            // MaxTriggerDepth + 2），因为 aura.removed 从不携带链深度，Proc 每次都被当成"根事件"处理。
+            Assert.InRange(castCount, 2, builder.Options.MaxTriggerDepth + 2);
+            Assert.NotEmpty(world.Diagnostics.Errors);
+
+            // 循环被拒绝后不应残留临时光环实例（最后一次 dispel 已经把它摘除），也不应有额外的
+            // proc.triggered 悬空——下一次施法仍应正常工作，验证队列已排空。
+            Assert.False(world.Host.AuraQuery.HasAura(new Id("unit.caster"), new Id(tempAuraId)));
+
+            var powerBefore = world.Powers.GetPower(new Id("unit.caster"), new Id("arch.power.sample_counter"));
+            var again = world.Host.CastSkill(new Id("unit.caster"), new Id(loopSkillId), System.Array.Empty<Id>());
+            Assert.True(again.Success);
+            world.Flush();
+            Assert.True(world.Powers.GetPower(new Id("unit.caster"), new Id("arch.power.sample_counter")) > powerBefore);
+        }
     }
 }

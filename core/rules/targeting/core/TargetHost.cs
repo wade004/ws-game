@@ -110,6 +110,19 @@ namespace Core.Rules.Targeting
             return result;
         }
 
+        /// <summary>见 <see cref="ITargetHost.FilterExplicitTargets"/> 判断记录（N10）：只加载链、
+        /// 复用 <see cref="ApplyFilters"/> 这一步，不跑来源收集/排序/截断/回退。</summary>
+        public IReadOnlyList<Id> FilterExplicitTargets(Id chainId, Id casterId, IReadOnlyList<Id> targets)
+        {
+            if (targets.Count == 0)
+            {
+                return targets;
+            }
+
+            var chain = LoadChain(chainId);
+            return ApplyFilters(chain, casterId, targets);
+        }
+
         private IReadOnlyList<Id> ResolveChain(Id chainId, Id casterId, Id? currentTarget, int depth)
         {
             if (depth > _options.MaxFallbackDepth)

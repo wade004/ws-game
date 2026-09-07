@@ -564,6 +564,65 @@ namespace Tests.Foundation.SaveSystem
             Assert.Equal("t1", result.Meta!.UpdatedAt);
         }
 
+        // ==== 5b. N15 收边补齐：信封校验仍浅于 Load 后续实际要求 =================
+        // 外部审计 68c9bed：FND-07 只把校验加深到"两个顶层字段的容器类型正确"，仍浅于 Load
+        // 后续两处实际校验（TryGetInt 要求整数、TryGetSectionsMeta 要求 sections.meta 存在且为
+        // 对象）。以下两个复现分别对应审计 repro 的 N15-A、N15-B。
+
+        /// <summary>N15-A：<c>{"save_version":1,"sections":{}}</c>——sections 本身是合法对象（能
+        /// 通过 FND-07 的"是不是对象"检查），但缺失必填的 <c>meta</c> 子段。修复前会被当成合法
+        /// 候选放行，从此不再尝试备份，直到 Load 更深处的 <c>TryGetSectionsMeta</c> 检查才失败，
+        /// 判 Corrupted；此时已经错过本该被尝试的有效备份。</summary>
+        [Fact]
+        public void Load_FormalFileHasEmptySections_TreatedAsInvalidEnvelope_FallsBackToBackup()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.empty_sections");
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+
+            Assert.True(sut.Save(new SaveRequest(slotId, "t1")).Success);
+            Assert.True(sut.Save(new SaveRequest(slotId, "t2")).Success); // 此时 bak1 = t1 版本内容
+
+            fs.WriteTextAtomic(SlotPath("slot.empty_sections"), "{\"save_version\":1,\"sections\":{}}");
+
+            var result = sut.Load(slotId);
+
+            // 修复前该断言会失败：result.Status 会是 Corrupted，不是 LoadedFromBackup。
+            Assert.Equal(LoadStatus.LoadedFromBackup, result.Status);
+            Assert.Equal("t1", result.Meta!.UpdatedAt);
+        }
+
+        /// <summary>N15-B：顶层 <c>save_version</c> 被破坏成 <c>1.5</c>（非整数，但仍是合法
+        /// <see cref="JsonNumber"/>，能通过 FND-07 的"是不是数字"检查），嵌套的
+        /// <c>sections.meta.save_version</c> 保持完好的 <c>1</c>（与外部审计 repro 的构造方式一致：
+        /// 只破坏顶层版本号，其余内容完整合法）。修复前会被当成合法候选放行，直到 Load 更深处的
+        /// <c>TryGetInt</c> 整数校验才失败，判 Corrupted。</summary>
+        [Fact]
+        public void Load_FormalFileHasNonIntegerTopLevelVersion_TreatedAsInvalidEnvelope_FallsBackToBackup()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.non_integer_version");
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+
+            Assert.True(sut.Save(new SaveRequest(slotId, "t1")).Success);
+            Assert.True(sut.Save(new SaveRequest(slotId, "t2")).Success); // 此时 bak1 = t1 版本内容（完整合法）。
+
+            // 只破坏顶层 save_version（改成非整数 1.5），sections.meta.save_version 原样保留为 1。
+            var corruptedDoc = new JsonObjectBuilder()
+                .Add("save_version", new JsonNumber(1.5))
+                .Add("sections", new JsonObjectBuilder()
+                    .Add(SaveSections.Meta, BuildMinimalMetaJson(1, "slot.non_integer_version"))
+                    .Build())
+                .Build();
+            fs.WriteTextAtomic(SlotPath("slot.non_integer_version"), JsonWriter.Write(corruptedDoc));
+
+            var result = sut.Load(slotId);
+
+            // 修复前该断言会失败：result.Status 会是 Corrupted，不是 LoadedFromBackup。
+            Assert.Equal(LoadStatus.LoadedFromBackup, result.Status);
+            Assert.Equal("t1", result.Meta!.UpdatedAt);
+        }
+
         // ==== 5a. FND-01 收口回归：备份路径与合法槽路径不再可能碰撞 =============
 
         /// <summary>FND-01 收口回归（外部审核 code-review.md，验证复现 validation-repros.txt R3）：
@@ -612,6 +671,86 @@ namespace Tests.Foundation.SaveSystem
             Assert.True(sut.DeleteSlot(lookAlikeSlot));
             Assert.True(sut.SlotExists(realSlot));
             Assert.True(fs.Exists(BackupPath("slot.a", 1)));
+        }
+
+        // ==== 5c. N16 收边补齐：旧顶层备份布局兼容读取 ==========================
+        // 外部审计 68c9bed：FND-01 把备份挪到 backups/ 子目录后，代码只会向新路径读写，升级前
+        // 遗留在顶层的旧布局备份文件（<slotId>.bakN.json，与正式槽同目录）从此既读不到也用不上。
+        // 判断记录见 SaveSystem.TryReadLegacyBackup 类型注释：只按精确路径只读探测、不做目录扫描、
+        // 不删除/不移动旧文件——那种做法会与上面 FND-01 回归测试锁定的"槽 id 允许长得像
+        // <slot>.bakN"这一硬约束冲突（同一个文件名歧义，回归测试已经证明"猜测式过滤/迁移"在这里
+        // 是真实的数据损坏风险），所以本组测试不验证"旧文件被移动/删除"或"不计入 ListSlots 配额"
+        // ——那两点在现有硬约束下无法安全达成，见 WA.md 判断记录。
+
+        /// <summary>N16 核心验收：旧布局主档损坏、且新布局备份也不存在时，仍能从旧顶层布局遗留的
+        /// 备份文件恢复。</summary>
+        [Fact]
+        public void Load_FormalCorrupted_NoNewLayoutBackup_LegacyTopLevelBackupExists_RecoversFromIt()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.legacy_backup");
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+
+            // 模拟"升级前用旧代码产生的备份"：直接在顶层目录（与正式槽同目录，FND-01 之前的布局）
+            // 写一份合法的旧顶层备份文件，不经由本版本的 RotateBackups（那只会写新布局路径）。
+            var legacyDoc = new JsonObjectBuilder()
+                .Add("save_version", new JsonNumber(1))
+                .Add("sections", new JsonObjectBuilder()
+                    .Add(SaveSections.Meta, BuildMinimalMetaJson(1, "slot.legacy_backup"))
+                    .Add("legacy.payload", new JsonString("from-legacy-backup"))
+                    .Build())
+                .Build();
+            fs.WriteTextAtomic("user://saves/slot.legacy_backup.bak1.json", JsonWriter.Write(legacyDoc));
+
+            // 正式文件损坏，新布局备份（backups/slot.legacy_backup.bak1.json）不存在。
+            fs.WriteTextAtomic(SlotPath("slot.legacy_backup"), "{ broken");
+            Assert.False(fs.Exists(BackupPath("slot.legacy_backup", 1)));
+
+            var result = sut.Load(slotId);
+
+            // 修复前该断言会失败：result.Status 会是 Corrupted（旧顶层备份完全不会被尝试）。
+            Assert.Equal(LoadStatus.LoadedFromBackup, result.Status);
+            Assert.Equal("slot.legacy_backup", result.Meta!.SlotId.Value);
+        }
+
+        /// <summary>N16 附加验收：从旧顶层备份恢复后，内容会顺手续存到新布局路径，供之后正常的
+        /// 备份轮转机制接续使用（见 SaveSystem.TryReadLegacyBackup 判断记录"顺手续存"）。</summary>
+        [Fact]
+        public void Load_RecoveredFromLegacyBackup_AlsoPersistsCopyUnderNewLayoutPath()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.legacy_backup_persist");
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+
+            var legacyDoc = new JsonObjectBuilder()
+                .Add("save_version", new JsonNumber(1))
+                .Add("sections", new JsonObjectBuilder()
+                    .Add(SaveSections.Meta, BuildMinimalMetaJson(1, "slot.legacy_backup_persist"))
+                    .Build())
+                .Build();
+            var legacyText = JsonWriter.Write(legacyDoc);
+            fs.WriteTextAtomic("user://saves/slot.legacy_backup_persist.bak1.json", legacyText);
+            fs.WriteTextAtomic(SlotPath("slot.legacy_backup_persist"), "{ broken");
+
+            var result = sut.Load(slotId);
+            Assert.Equal(LoadStatus.LoadedFromBackup, result.Status);
+
+            var newLayoutText = fs.ReadText(BackupPath("slot.legacy_backup_persist", 1));
+            Assert.NotNull(newLayoutText);
+        }
+
+        /// <summary>旧顶层备份不存在（全新槽/从未在旧版本下运行过）时，行为与修复前完全一致——
+        /// 正式文件与新布局备份都缺失即 NotFound，不会因为多探测了一条路径而产生任何副作用。</summary>
+        [Fact]
+        public void Load_NoFormalNoNewBackupNoLegacyBackup_ReturnsNotFound_Unaffected()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.never_existed");
+            var sut = CreateSut(fs, new SaveSystemOptions(GameId) { BackupCount = 1 });
+
+            var result = sut.Load(slotId);
+
+            Assert.Equal(LoadStatus.NotFound, result.Status);
         }
 
         // ==== 6. 写入失败 ========================================================

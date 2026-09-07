@@ -177,7 +177,7 @@ namespace Core.Rules.Skill
                 existing.Stacks = newStacks;
                 ReapplyStatMods(existing, def);
                 existing.AbsorbRemaining += AbsorbPerStack(def, out _);
-                _bus.Enqueue(new AuraStackChangedEvent(existing.TargetId, def.Id, old, existing.Stacks));
+                _bus.Enqueue(new AuraStackChangedEvent(existing.TargetId, def.Id, old, existing.Stacks, triggerChainDepth));
                 return new AuraInstanceRef(existing.InstanceId);
             }
 
@@ -191,7 +191,7 @@ namespace Core.Rules.Skill
                     return new AuraInstanceRef(existing.InstanceId);
 
                 case StackOverflowPolicy.Replace:
-                    RemoveInstanceInternal(existing, "overwritten");
+                    RemoveInstanceInternal(existing, "overwritten", triggerChainDepth: triggerChainDepth);
                     return CreateInstance(existing.TargetId, def, sourceId, durationOverride, tags, triggerChainDepth);
 
                 default:
@@ -230,11 +230,16 @@ namespace Core.Rules.Skill
             return new AuraInstanceRef(instance.InstanceId);
         }
 
-        public void RemoveAura(Id targetId, AuraInstanceRef auraInstanceRef)
+        /// <summary><paramref name="triggerChainDepth"/>：见 <see cref="AuraRemovedEvent"/> 类型
+        /// 注释"N04 收边补齐"。经 <see cref="IEffectSink.RemoveAura"/>（接口签名不带深度参数，见
+        /// 该接口判断记录，本参数不扩大公开契约）调用时恒为默认值 0；
+        /// <see cref="EffectDispatcher"/> 直接持有具体类型 <see cref="AuraHost"/>，可在 dispel 一类
+        /// 内部调用点显式传入。</summary>
+        public void RemoveAura(Id targetId, AuraInstanceRef auraInstanceRef, int triggerChainDepth = 0)
         {
             if (_instances.TryGetValue(auraInstanceRef.AuraInstanceId, out var instance) && instance.TargetId.Equals(targetId))
             {
-                RemoveInstanceInternal(instance, "removed");
+                RemoveInstanceInternal(instance, "removed", triggerChainDepth: triggerChainDepth);
             }
         }
 
@@ -246,8 +251,10 @@ namespace Core.Rules.Skill
         /// <c>IWorldSim</c> 实体生命周期相互独立（没有任何耦合机制保证同步），<c>true</c> 时先查
         /// <see cref="IStatHost.IsRegistered"/> 再决定是否调用
         /// <see cref="IStatHost.RemoveModifiersBySource"/>，避免把"目标已从世界移除"这一件事变成
-        /// 一次新的未注册单位异常。</summary>
-        private void RemoveInstanceInternal(AuraInstanceState instance, string reason, bool targetMayBeUnregistered = false)
+        /// 一次新的未注册单位异常。<paramref name="triggerChainDepth"/> 见 <see cref="AuraRemovedEvent"/>
+        /// 类型注释"N04 收边补齐"：未显式传入（<see cref="Update"/> 到期、<see cref="OnEntityDestroyed"/>、
+        /// <see cref="ConsumeAbsorb"/>）时为 0，视为根事件。</summary>
+        private void RemoveInstanceInternal(AuraInstanceState instance, string reason, bool targetMayBeUnregistered = false, int triggerChainDepth = 0)
         {
             if (!targetMayBeUnregistered || _statHost.IsRegistered(instance.TargetId))
             {
@@ -263,12 +270,16 @@ namespace Core.Rules.Skill
                 ProcHost?.Detach(instance.InstanceId);
             }
 
-            _bus.Enqueue(new AuraRemovedEvent(instance.TargetId, instance.DefId, reason));
+            _bus.Enqueue(new AuraRemovedEvent(instance.TargetId, instance.DefId, reason, triggerChainDepth));
         }
 
         /// <summary><c>dispel</c> 效果原语落地（见 06 第 3.2 节"按类别、数量"）：按创建顺序移除
-        /// 最多 <paramref name="count"/> 条 <c>dispel_type == dispelType</c> 的实例。</summary>
-        public int Dispel(Id targetId, Id dispelType, int count)
+        /// 最多 <paramref name="count"/> 条 <c>dispel_type == dispelType</c> 的实例。
+        /// <paramref name="triggerChainDepth"/> 见 <see cref="AuraRemovedEvent"/> 类型注释
+        /// "N04 收边补齐"——<see cref="EffectDispatcher.ApplyDispel"/> 传入
+        /// <see cref="EffectContext.TriggerChainDepth"/>，使 Proc 循环经由 <c>aura.removed</c>
+        /// 触发时也受 <see cref="SkillOptions.MaxTriggerDepth"/> 约束。</summary>
+        public int Dispel(Id targetId, Id dispelType, int count, int triggerChainDepth = 0)
         {
             var candidates = _instances.Values
                 .Where(i => i.TargetId.Equals(targetId))
@@ -279,7 +290,7 @@ namespace Core.Rules.Skill
 
             foreach (var instance in candidates)
             {
-                RemoveInstanceInternal(instance, "dispelled");
+                RemoveInstanceInternal(instance, "dispelled", triggerChainDepth: triggerChainDepth);
             }
 
             return candidates.Count;

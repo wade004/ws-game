@@ -59,6 +59,39 @@ namespace Tests.Rules.Common
             Assert.Single(evt.Targets);
         }
 
+        /// <summary>N19（外部审计 68c9bed，P2）：默认值（未显式传入 isInstant/castTimeSeconds 的
+        /// 旧 3 参构造）应保持修复前的隐含语义——不假定瞬发。</summary>
+        [Fact]
+        public void SkillCastSuccessEvent_DefaultConstructor_IsNotInstant_ZeroCastTime()
+        {
+            var evt = new SkillCastSuccessEvent(new Id("unit.hero"), new Id("skill.fireball"), System.Array.Empty<Id>());
+
+            Assert.False(evt.IsInstant);
+            Assert.Equal(0.0, evt.CastTimeSeconds);
+        }
+
+        [Fact]
+        public void SkillCastSuccessEvent_CarriesIsInstantAndCastTimeSeconds()
+        {
+            var evt = new SkillCastSuccessEvent(
+                new Id("unit.hero"), new Id("skill.fireball"), System.Array.Empty<Id>(),
+                isInstant: true, castTimeSeconds: 0);
+
+            Assert.True(evt.IsInstant);
+            Assert.Equal(0.0, evt.CastTimeSeconds);
+            Assert.True(evt.TryGetField("isInstant", out var isInstantValue));
+            Assert.True(isInstantValue.AsBool);
+            Assert.True(evt.TryGetField("castTimeSeconds", out var castTimeValue));
+            Assert.Equal(0.0, castTimeValue.AsNumber);
+
+            var timed = new SkillCastSuccessEvent(
+                new Id("unit.hero"), new Id("skill.firebolt"), System.Array.Empty<Id>(),
+                isInstant: false, castTimeSeconds: 2.5);
+
+            Assert.False(timed.IsInstant);
+            Assert.Equal(2.5, timed.CastTimeSeconds);
+        }
+
         [Fact]
         public void RulesEventKeys_MatchEventCatalogNaming()
         {

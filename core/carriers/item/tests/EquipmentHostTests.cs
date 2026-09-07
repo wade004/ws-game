@@ -239,7 +239,13 @@ namespace Tests.Carriers.Item
         [Fact]
         public void Unequip_OneOfTwoItemsGrantingSameAura_DoesNotRemoveAura_StillGrantedByOther()
         {
+            // N09 收边补齐：本用例验证的是默认 AllowMultiSourceTiming=false 下的共享槽位场景——
+            // 两件装备对同一个 aura_def 的施加应合并到同一个实例句柄（真实 AuraHost.ApplyAura 行为，
+            // 见 FakeEffectSink.SharedSlotPerAuraDef 判断记录），显式打开该开关才能正确模拟这一前提；
+            // AllowMultiSourceTiming=true（各自独立实例）场景见
+            // Unequip_OneOfTwoItemsGrantingSameAura_IndependentInstances_EachRemovedOnItsOwnUnequip。
             var f = Build();
+            f.EffectSink.SharedSlotPerAuraDef = true;
             f.StatHost.RegisterUnit(Player);
             var weaponInstance = GiveAndReturnInstance(f, "item.sample_weapon_a");
             var chestInstance = GiveAndReturnInstance(f, "item.sample_chest_armor");
@@ -248,18 +254,51 @@ namespace Tests.Carriers.Item
             f.Equipment.Equip(Player, chestInstance, new Id("item.slot.chest"));
 
             var appliedForSharpen = f.EffectSink.Applied.FindAll(a => a.AuraDefId.Equals(new Id("skill.aura.sample_sharpen")));
-            Assert.Equal(2, appliedForSharpen.Count); // 两件装备各申请了一次（见 FakeEffectSink 判断记录：每次都返回独立 ref）。
+            Assert.Equal(2, appliedForSharpen.Count); // 两件装备各申请了一次（共享槽位下两次申请合并回同一个 ref）。
 
             f.Equipment.Unequip(Player, new Id("item.slot.main_hand"));
 
-            // 修复前：卸下武器会无条件 RemoveAura 它自己那份 ref——本用例改用"是否真的调用了
-            // RemoveAura"来断言引用计数生效（Applied 用假实现天然返回独立 ref，不模拟 AuraHost
-            // 真实的共享槽位叠加行为，但引用计数本身与 ref 是否共享无关，见 EquipmentHost.
-            // _auraGrantRefCount 判断记录）。
+            // 修复前：卸下武器会无条件 RemoveAura 它自己那份 ref——本用例用"是否真的调用了
+            // RemoveAura"来断言引用计数生效（N09 收边补齐后改按实例句柄计数，见 EquipmentHost.
+            // _auraHandleRefCount 判断记录；共享槽位下两件装备的句柄相同，计数聚合，语义与修复前
+            // 这条用例的既有断言一致）。
             Assert.Empty(f.EffectSink.Removed); // 胸甲还穿着，不应真正撤销。
 
             f.Equipment.Unequip(Player, new Id("item.slot.chest"));
             Assert.Single(f.EffectSink.Removed); // 最后一件卸下才真正撤销。
+        }
+
+        /// <summary>N09（外部审计 68c9bed，P2）：<c>AllowMultiSourceTiming = true</c>
+        /// （<c>FakeEffectSink</c> 默认行为——每次 <c>ApplyAura</c> 独立开一份实例，不合并槽位，见该
+        /// 类型判断记录）下，两件装备各自申请了同一个 <c>aura_def</c>，各自拿到<b>不同</b>的
+        /// <see cref="AuraInstanceRef"/>——修复前 <c>EquipmentHost</c> 按 <c>auraDefId</c>（不是实例
+        /// 句柄）聚合计数，会把这两个本该各自独立的实例误判成"共享同一份、还有其它引用"，卸下第一件
+        /// 装备时因为计数未归零而被跳过移除；全部装备卸载后，第一件装备申请的那份临时 aura 实例仍
+        /// 残留在目标身上（<c>Removed</c> 只会记录到第二件装备那一份句柄，永远缺一条）。</summary>
+        [Fact]
+        public void Unequip_OneOfTwoItemsGrantingSameAura_IndependentInstances_EachRemovedOnItsOwnUnequip()
+        {
+            var f = Build();
+            Assert.False(f.EffectSink.SharedSlotPerAuraDef); // 默认即为独立实例模式，见类型注释。
+            f.StatHost.RegisterUnit(Player);
+            var weaponInstance = GiveAndReturnInstance(f, "item.sample_weapon_a");
+            var chestInstance = GiveAndReturnInstance(f, "item.sample_chest_armor");
+
+            f.Equipment.Equip(Player, weaponInstance, new Id("item.slot.main_hand"));
+            f.Equipment.Equip(Player, chestInstance, new Id("item.slot.chest"));
+
+            var appliedForSharpen = f.EffectSink.Applied.FindAll(a => a.AuraDefId.Equals(new Id("skill.aura.sample_sharpen")));
+            Assert.Equal(2, appliedForSharpen.Count);
+
+            f.Equipment.Unequip(Player, new Id("item.slot.main_hand"));
+
+            // 修复前该断言会失败：Removed 为空（武器自己那份实例被误判成"还有其它来源"而跳过移除）。
+            Assert.Single(f.EffectSink.Removed);
+
+            f.Equipment.Unequip(Player, new Id("item.slot.chest"));
+
+            // 全部装备卸载后应有两条 RemoveAura 记录（两个独立实例各自被移除），不残留任何一份。
+            Assert.Equal(2, f.EffectSink.Removed.Count);
         }
 
         [Fact]

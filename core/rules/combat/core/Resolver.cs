@@ -377,10 +377,39 @@ namespace Core.Rules.Combat
                 : new Id(_options.ResistStatPrefix + LastSegment(school));
 
             var statValue = GetStatSafe(targetId, statId);
-            var attackerLevel = _units.GetLevel(sourceId);
+
+            // N05 收边补齐（外部审计 68c9bed，P1）：来源单位可能已经从世界移除（如 DOT 光环的
+            // 施法者 Despawn 后，周期 tick 仍按 AuraInstanceState.SourceId 结算——见
+            // core/rules/skill/core/AuraHost.FirePeriodic），此前无条件 _units.GetLevel(sourceId)
+            // 命中 WorldUnitAccess.Require 直接抛 InvalidOperationException，整条周期效果中断。
+            // 06 未规定"光环来源消失后如何结算"（判断记录：06 第 3.3/3.8 节只定义 periodic_damage/
+            // periodic_heal 的效果形状与 tick 顺序，未提及来源生命周期），本实现选择"降级而不终止"：
+            // 来源不存在时不再查询其等级，改用目标自身等级作为替代 attackerLevel——等价于"假定
+            // 来源与目标同级"这一中性默认值（不引入 06 未定义的等级差惩罚/加成，只保证周期效果
+            // 能继续结算，不因为来源销毁这一与效果数值无关的事实而中断）。目标同样不存在的极端
+            // 情形（罕见：两者都已从世界移除但事件仍在派发）进一步退化为等级 1，不再抛出。
+            var attackerLevel = ResolveAttackerLevelForMitigation(sourceId, targetId, steps);
             var reduction = curve.ComputeReduction(statValue, attackerLevel);
             steps.Add($"mitigation: school={school} stat={statId}={statValue} attackerLevel={attackerLevel} -> reduction={reduction}");
             return reduction;
+        }
+
+        /// <summary>N05 收边补齐：见 <see cref="ComputeMitigation"/> 调用处判断记录。</summary>
+        private int ResolveAttackerLevelForMitigation(Id sourceId, Id targetId, List<string> steps)
+        {
+            if (_units.Exists(sourceId))
+            {
+                return _units.GetLevel(sourceId);
+            }
+
+            steps.Add($"mitigation: 来源 \"{sourceId}\" 已不存在于世界模拟（Despawn 等），按目标自身等级降级，不抛异常");
+
+            if (_units.Exists(targetId))
+            {
+                return _units.GetLevel(targetId);
+            }
+
+            return 1;
         }
 
         private static string LastSegment(Id id)

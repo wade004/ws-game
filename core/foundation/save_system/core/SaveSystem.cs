@@ -414,6 +414,19 @@ namespace Core.Foundation.SaveSystem
                 }
             }
 
+            // N16 收边补齐：新布局正式文件与全部新布局备份都不可用时，最后再按精确路径试一遍旧
+            // 顶层布局遗留的备份（见 TryReadLegacyBackup 判断记录，只读不删、不做目录扫描）。
+            var legacyResult = TryReadLegacyBackup(slotId, out var anyLegacyCandidateExisted);
+            if (anyLegacyCandidateExisted)
+            {
+                anyCandidateExisted = true;
+            }
+
+            if (legacyResult != null)
+            {
+                return legacyResult;
+            }
+
             return null;
         }
 
@@ -774,10 +787,33 @@ namespace Core.Foundation.SaveSystem
         /// "sections":null}</c> 这类"只有字段名、内容却是垃圾"的文档被当成合法候选放行——若这份
         /// 文档恰好是正式文件，<see cref="ReadValidEnvelope"/> 会在它身上"成功"一次，从此不再尝试
         /// 任何备份，随后才在 <see cref="Load"/> 更深处的 <c>TryGetObject(doc, "sections", ...)</c>
-        /// 检查里失败——但那时已经错过了本该被尝试的有效备份。现在把"save_version 必须是数字、
-        /// sections 必须是对象"两条最基本的类型检查提前到这里，与后面 <see cref="TryGetInt"/>/
-        /// <see cref="TryGetObject"/> 的检查标准看齐，确保一个候选"通过信封校验"就真的意味着它是
-        /// 可以被继续处理的合法文档，而不是又要再抛一次 Corrupted。
+        /// 检查里失败——但那时已经错过了本该被尝试的有效备份。
+        /// <para>
+        /// N15 收边补齐（外部审计 68c9bed，P2）：FND-07 的类型检查仍然比 <see cref="Load"/> 后续
+        /// 实际要求的更浅，两个具体缺口（均为"能通过 FND-07 校验，但注定会在 <see cref="Load"/>
+        /// 更深处判 Corrupted"的候选）：
+        /// (1) <c>save_version</c> 只检查"是 <see cref="JsonNumber"/>"，不检查"是整数"——
+        /// <c>1.5</c> 这类非整数版本号能通过本方法，却会在 <see cref="Load"/> 的
+        /// <see cref="TryGetInt(JsonObject, string, out int)"/> 校验处判 Corrupted（该方法额外要求
+        /// <see cref="JsonNumber.TryGetInt64"/> 成功）；
+        /// (2) <c>sections</c> 只检查"是对象"，不检查"<c>sections.meta</c> 存在且也是对象"——
+        /// <c>{"save_version":1,"sections":{}}</c> 这类"sections 本身合法但缺失必填 meta 子段"的
+        /// 文档能通过本方法，却会在 <see cref="Load"/> 的 <see cref="TryGetSectionsMeta"/> 校验处
+        /// 判 Corrupted。
+        /// </para>
+        /// <para>
+        /// 两个缺口的共同后果：若这类"看起来通过信封校验、实际会在更深处判 Corrupted"的文档恰好是
+        /// 正式文件，<see cref="ReadValidEnvelope"/> 仍然会在它身上"成功"一次并停止尝试任何备份——
+        /// 即便存在完好可用的备份，整槽也会被判 <c>Corrupted</c> 而不是
+        /// <see cref="LoadStatus.LoadedFromBackup"/>（外部审计 N15 两个复现场景）。现在直接复用
+        /// <see cref="TryGetInt(JsonObject, string, out int)"/>/<see cref="TryGetSectionsMeta"/>
+        /// 这两个 <see cref="Load"/> 实际使用的校验方法本身作为信封校验标准（不是再手写一份平行的、
+        /// 容易再次悄悄漂移变浅的判断），确保"通过信封校验"与"<see cref="Load"/> 后续两处早期校验
+        /// 一定能通过"这一保证不再依赖两处代码手工保持同步。本方法仍然不校验 <c>meta</c> 内部字段
+        /// （<c>game_id</c> 等，见 <see cref="ParseMeta"/>）——那一层校验可能因迁移链而在不同版本间
+        /// 有不同的必填字段形状，不适合在"选出哪个候选文档"这一步就假定当前版本的字段要求，留给
+        /// <see cref="Load"/> 迁移完成后再校验，语义不变。
+        /// </para>
         /// </summary>
         private static bool TryParseEnvelope(string text, out JsonObject doc)
         {
@@ -785,8 +821,8 @@ namespace Core.Foundation.SaveSystem
             {
                 var value = JsonReader.Parse(text);
                 if (value is JsonObject obj &&
-                    obj.TryGetValue("save_version", out var saveVersionValue) && saveVersionValue is JsonNumber &&
-                    obj.TryGetValue("sections", out var sectionsValue) && sectionsValue is JsonObject)
+                    TryGetInt(obj, "save_version", out _) &&
+                    TryGetSectionsMeta(obj, out _))
                 {
                     doc = obj;
                     return true;
@@ -900,6 +936,76 @@ namespace Core.Foundation.SaveSystem
             }
 
             return baseDir.EndsWith("/", StringComparison.Ordinal) ? baseDir + segment : baseDir + "/" + segment;
+        }
+
+        // ---- N16：旧顶层备份布局兼容 -------------------------------------------
+
+        /// <summary>
+        /// N16 收边补齐（外部审计 68c9bed，P2）：FND-01 把备份从"与正式槽同目录、
+        /// <c>&lt;slot&gt;.bakN.json</c>"迁到独立 <c>backups/</c> 子目录后，新代码只会向新路径
+        /// （<see cref="BackupPath"/>）读写，<see cref="ReadValidEnvelope"/> 主档损坏/缺失时也只在
+        /// 新路径下找备份——旧顶层布局遗留的备份文件（升级前产生、代码升级后从未被清理）从此彻底
+        /// 找不到，即使内容完好也无法用于恢复。
+        /// <para>
+        /// 判断记录（为什么不做"扫描顶层目录、按文件名迁移/删除"）：<see cref="BackupPath"/> 类型
+        /// 注释与 <c>SaveSystemTests.SlotIdLooksLikeBackupFileName_IsIndependentFromRealBackup_
+        /// ListedLoadedAndDeletedCorrectly</c>（FND-01 收口回归测试，属"不放宽断言"范围）已经把
+        /// "顶层目录里任何 <c>&lt;x&gt;.json</c> 文件都可能是一个货真价实、与任何备份无关的正式槽"
+        /// 定为硬约束——槽 id 允许长得和 <c>&lt;slot&gt;.bakN</c> 一模一样。按文件名模式扫描顶层目录
+        /// 并据此移动/删除文件，无法与"这就是一个真实正式槽"的情形区分，本任务早期实现过这种全量
+        /// 扫描迁移，会在该回归测试里把真实槽 <c>slot.a.bak1</c> 的正式文件误判成 <c>slot.a</c> 的
+        /// 旧备份并删除——这是真实的数据损坏风险，不是测试用例过严，因此放弃"迁移"（移动/删除旧
+        /// 顶层文件）路线。
+        /// </para>
+        /// <para>
+        /// 改为按需、只读、精确路径的兜底：只在 <see cref="ReadValidEnvelope"/> 已经确认某个具体
+        /// <paramref name="slotId"/> 的正式文件与全部新布局备份（<see cref="BackupPath"/>）都不可用
+        /// 之后，才去检查这个 slotId 派生出的精确旧路径 <c>&lt;SavesDir&gt;/&lt;slotId&gt;.bakN.json</c>
+        /// （N 从 1 到 <see cref="SaveSystemOptions.BackupCount"/>）——不做任何目录扫描，只探测这
+        /// 几个确定的路径，不可能命中"恰好同名的另一个真实槽"（那个槽会有自己独立的
+        /// <c>slotId.Value</c>，不会与当前正在 Load 的这个 slotId 混淆；唯一的边界情形是这个精确
+        /// 路径本身确实是另一个真实槽的正式文件——概率与 FND-01 已接受的固有命名歧义相同，见上一段，
+        /// 本方法只读取，不删除、不移动，不会造成数据丢失，最坏情况是把内容误当作恢复来源，仍好于
+        /// 直接判 Corrupted）。命中后顺手把内容原样复制一份到新布局路径（仅当新路径尚不存在同编号
+        /// 备份时才写，不覆盖），使这份数据以后也能被正常的新布局备份轮转机制续用；旧顶层文件本身
+        /// 不删除、不移动——<see cref="ListSlots"/>/<see cref="CountSlots"/>/<see cref="DeleteSlot"/>
+        /// 的行为完全不受影响，与 FND-01 建立的既有语义保持一致。
+        /// </para>
+        /// </summary>
+        private (JsonObject doc, LoadStatus status)? TryReadLegacyBackup(Id slotId, out bool anyLegacyCandidateExisted)
+        {
+            anyLegacyCandidateExisted = false;
+
+            for (var i = 1; i <= _options.BackupCount; i++)
+            {
+                var legacyPath = JoinPath(SavesDir(), slotId.Value + ".bak" + i.ToString(CultureInfo.InvariantCulture) + ".json");
+                var legacyText = _fs.ReadText(legacyPath);
+                if (legacyText == null)
+                {
+                    continue;
+                }
+
+                anyLegacyCandidateExisted = true;
+
+                if (!TryParseEnvelope(legacyText, out var legacyDoc))
+                {
+                    continue;
+                }
+
+                _diagnostics.Warn(
+                    $"存档槽 \"{slotId}\" 已从旧顶层布局备份 \"{legacyPath}\" 恢复读取（见 N16 收边补齐判断记录）");
+
+                // 顺手续存到新布局，之后的 Save 备份轮转能接续使用；不覆盖已存在的新布局备份。
+                var newPath = BackupPath(slotId, i);
+                if (!_fs.Exists(newPath))
+                {
+                    _fs.WriteTextAtomic(newPath, legacyText);
+                }
+
+                return (legacyDoc, LoadStatus.LoadedFromBackup);
+            }
+
+            return null;
         }
     }
 }

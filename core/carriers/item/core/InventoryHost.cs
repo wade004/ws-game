@@ -118,6 +118,9 @@ namespace Core.Carriers.Item
 
             var remaining = toAdd;
             Id? touchedInstanceId = null;
+            // N12 收边补齐（外部审计 68c9bed，P2）：逐项记录本次调用实际把多少数量分摊到了哪个
+            // 实例（既有堆叠续填、新开堆叠都算一项）——见 ItemAddedEvent.Removals 判断记录。
+            var removals = new List<(Id InstanceId, int Count)>();
             for (var i = 0; i < bag.Count && remaining > 0; i++)
             {
                 var instance = bag[i];
@@ -131,6 +134,7 @@ namespace Core.Carriers.Item
                 bag[i] = new ItemInstance(instance.InstanceId, instance.TemplateId, instance.Count + fill, instance.Extra);
                 remaining -= fill;
                 touchedInstanceId = instance.InstanceId;
+                removals.Add((instance.InstanceId, fill));
             }
 
             while (remaining > 0)
@@ -140,10 +144,12 @@ namespace Core.Carriers.Item
                 bag.Add(new ItemInstance(instanceId, templateId, take));
                 touchedInstanceId = instanceId;
                 remaining -= take;
+                removals.Add((instanceId, take));
             }
 
-            // toAdd > 0 时必然至少填过一个既有堆叠或新建过一个实例，touchedInstanceId 不为 null。
-            _bus.Enqueue(new ItemAddedEvent(unitId, touchedInstanceId!.Value, templateId, toAdd));
+            // toAdd > 0 时必然至少填过一个既有堆叠或新建过一个实例，touchedInstanceId 不为 null，
+            // removals 至少有一项。
+            _bus.Enqueue(new ItemAddedEvent(unitId, touchedInstanceId!.Value, templateId, toAdd, removals));
             return true;
         }
 

@@ -134,6 +134,31 @@ ADR-0013 离散时间模型，只在装配了离散模式时有内容）→ `rng
   存在至少一个候选但没有一个通过校验才是 `Corrupted`。`LoadResult.Status` 沿用既有的
   `LoadedFromBackup`（不新增枚举值）：正式文件缺失、或正式文件存在但未通过信封校验，只要有
   某个备份通过校验，都归为 `LoadedFromBackup`。
+- **N15 收边补齐（外部审计 68c9bed）：`TryParseEnvelope` 的类型检查进一步加深，直接复用
+  `Load` 后续实际会用到的两个校验方法本身（`TryGetInt`/`TryGetSectionsMeta`），不再手写一份
+  平行的、可能再次悄悄变浅的判断。** FND-07 把校验加深到"`save_version` 是数字、`sections`
+  是对象"后，仍然留了两个具体缺口：(1) `save_version` 只要求"是数字"，`1.5` 这类非整数版本号
+  能通过，却会在 `Load` 的 `TryGetInt` 整数校验处判 `Corrupted`；(2) `sections` 只要求"是对象"，
+  `{"save_version":1,"sections":{}}` 这类"sections 本身合法但缺失必填 `meta` 子段"的文档能
+  通过，却会在 `Load` 的 `TryGetSectionsMeta` 校验处判 `Corrupted`。两种情形若恰好是正式文件，
+  仍然会在 `ReadValidEnvelope` 这里"成功"一次、从此不再尝试任何备份，直到 `Load` 更深处才失败——
+  与 FND-07 要解决的问题同一形状，只是校验深度不够。现在信封校验与 `Load` 后续两处早期校验
+  使用同一套方法，不再依赖两处代码手工保持同步。本方法仍不校验 `meta` 内部字段（`game_id` 等，
+  见 `ParseMeta`）——那一层可能因迁移链而在不同版本间有不同必填字段形状，留给 `Load` 迁移完成
+  后再校验。
+- **N16 收边补齐（外部审计 68c9bed）：`ReadValidEnvelope` 在正式文件与全部新布局备份都
+  不可用后，额外按精确路径只读尝试旧顶层布局遗留的备份（`<SavesDir>/<slotId>.bakN.json`，
+  FND-01 之前的布局，与正式槽同目录）。** 只探测这几个确定的路径，不做任何目录扫描，找到且能
+  通过信封校验时视为 `LoadedFromBackup`，并顺手把内容复制一份到新布局路径（仅当新路径尚无同
+  编号备份时才写，不覆盖）；旧顶层文件本身不删除、不移动。**判断记录：为什么不做"扫描顶层目录、
+  按文件名批量迁移/删除"**——那种做法与 FND-01 已经明确建立、并被回归测试
+  （`SlotIdLooksLikeBackupFileName_IsIndependentFromRealBackup_ListedLoadedAndDeletedCorrectly`）
+  锁定的硬约束冲突："顶层目录里任何 `<x>.json` 都可能是一个货真价实、与任何备份无关的正式槽"——
+  按文件名模式猜测哪些文件是"旧备份"并据此移动/删除，无法与"这就是一个真实正式槽"的情形区分，
+  会造成真实的数据损坏（本任务前一版实现确实在该回归测试上复现了这个问题）。因此本次修复只做
+  只读、按需、精确路径的兜底恢复，不做批量迁移；`ListSlots`/内部槽计数/`DeleteSlot` 的行为完全
+  不受影响，旧布局备份也**不会**因此被排除在配额计数之外——这一点在当前"槽 id 允许长得像备份
+  文件名"的硬约束下无法安全达成，是本次收边的已知局限，不是遗漏。
 
 ## `LoadResult.CurrentMapId` / `CurrentPosition`（缺口 11）
 

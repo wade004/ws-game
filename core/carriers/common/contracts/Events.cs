@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
@@ -40,18 +41,56 @@ namespace Core.Carriers.Common
 
         public Id UnitId { get; }
 
+        /// <summary>本次加入实际落地的最后一个实例 id（跨堆叠时只是"最后触碰的那一个"，见
+        /// <see cref="Removals"/> 类型注释——旧字段原样保留，不破坏既有消费方）。</summary>
         public Id ItemInstanceId { get; }
 
         public Id ItemTemplateId { get; }
 
+        /// <summary>本次调用实际加入的总数量（跨堆叠时是全部实例分摊数量之和，与 <see cref="Removals"/>
+        /// 逐项求和一致）。</summary>
         public int Count { get; }
 
+        /// <summary>
+        /// N12 收边补齐（外部审计 68c9bed，P2）：本次 <c>AddItem</c> 调用实际落地的分摊明细——按
+        /// <see cref="Core.Carriers.Item.InventoryHost.AddItem"/> 实际写入顺序列出每个被填充/新建的
+        /// 实例 id 与它各自分到的数量（先填已有堆叠、再按 stack_size 新开堆叠，逐项求和等于
+        /// <see cref="Count"/>）。
+        /// <para>
+        /// 判断记录：<see cref="ItemInstanceId"/>/<see cref="Count"/> 这对旧字段在跨堆叠（一次
+        /// <c>AddItem</c> 同时填满已有堆叠又新开一个堆叠）时只能描述"最后触碰的那一个实例"+"全部
+        /// 数量"，消费方如果拿着这对旧字段去调用 <c>IInventoryHost.RemoveItem(unitId,
+        /// ItemInstanceId, Count)</c>（<c>core/gameplay/quest.QuestHost.HandleItemAdded</c> 的
+        /// <c>ConsumeOnProgress</c> 分支正是这么做——加入后立即按相同数量整取消费掉，充当"即时上缴"
+        /// 语义）会命中 <c>RemoveItem</c> 的"要么整取要么不取"语义：请求数量超过这一个实例实际持有
+        /// 的数量时整体失败，返回 false，进度不推进（见外部审计 N12"stack1 一次加 2 时 consume2
+        /// 进度为 0"）。本字段按实例逐条列出真实分摊，消费方应改为对每一项分别调用
+        /// <c>RemoveItem(unitId, item.InstanceId, item.Count)</c>，不再依赖单一
+        /// <see cref="ItemInstanceId"/> 猜测跨堆叠场景下的实际持有量。旧字段保留不删，未跨堆叠
+        /// （只命中一个既有实例或只新开一个实例）时 <see cref="Removals"/> 只有一项，与旧字段等价，
+        /// 不改变既有消费方在这一常见场景下的行为。
+        /// </para>
+        /// <para>
+        /// 消费方接线：<c>core/gameplay/quest.QuestHost.HandleItemAdded</c> 侧改动不在本次写入范围
+        /// （见任务分工，L4 玩法层由另一路径负责），本字段已就绪，供该处改为逐项 <c>RemoveItem</c>。
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<(Id InstanceId, int Count)> Removals { get; }
+
         public ItemAddedEvent(Id unitId, Id itemInstanceId, Id itemTemplateId, int count)
+            : this(unitId, itemInstanceId, itemTemplateId, count, new[] { (itemInstanceId, count) })
+        {
+        }
+
+        public ItemAddedEvent(
+            Id unitId, Id itemInstanceId, Id itemTemplateId, int count,
+            IReadOnlyList<(Id InstanceId, int Count)> removals)
         {
             UnitId = unitId;
             ItemInstanceId = itemInstanceId;
             ItemTemplateId = itemTemplateId;
             Count = count;
+            Removals = removals ?? throw new ArgumentNullException(nameof(removals));
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -62,6 +101,8 @@ namespace Core.Carriers.Common
                 case "itemInstanceId": value = ExprValue.OfId(ItemInstanceId); return true;
                 case "itemTemplateId": value = ExprValue.OfId(ItemTemplateId); return true;
                 case "count": value = ExprValue.OfInt(Count); return true;
+                // Removals 是列表，Expr 无列表类型（同 SkillCastSuccessEvent.Targets 判断记录），
+                // 不在本方法覆盖范围内。
                 default: value = default; return false;
             }
         }

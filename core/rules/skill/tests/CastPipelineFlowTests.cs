@@ -58,6 +58,12 @@ namespace Tests.Rules.Skill
             Assert.Equal(new Id("skill.sample_bolt"), success.SkillId);
             Assert.Equal(new[] { new Id("unit.target") }, success.Targets);
 
+            // N19（外部审计 68c9bed，P2）：瞬发——cast_start 与 cast_success 在同一次 Flush 内
+            // 背靠背发出（本用例本身就是这条路径的复现场景），success 事件应携带 IsInstant=true，
+            // 供只订阅这两个事件的表现层消费方区分"这是瞬发"而不是"读条刚好碰巧同帧完成"。
+            Assert.True(success.IsInstant);
+            Assert.Equal(0.0, success.CastTimeSeconds);
+
             Assert.Single(world.Combat.ResolveCalls);
         }
 
@@ -182,6 +188,15 @@ namespace Tests.Rules.Skill
             Assert.Equal(new Id("skill.sample_cast_slow"), successes[0].SkillId);
             Assert.Equal(new Id("skill.sample_bolt"), successes[1].SkillId);
             Assert.False(world.Host.IsCasting(new Id("unit.caster")));
+
+            // N19（外部审计 68c9bed，P2）：非瞬发（真正读条完成，经 FinishCast 收尾）——
+            // IsInstant=false，CastTimeSeconds 等于本次开始时 skill.cast_start 携带的 cast_time
+            // （1.0）；紧接着排队触发的瞬发技能仍然是 IsInstant=true、CastTimeSeconds=0，两者在
+            // 同一次 Flush 里互不干扰。
+            Assert.False(successes[0].IsInstant);
+            Assert.Equal(1.0, successes[0].CastTimeSeconds);
+            Assert.True(successes[1].IsInstant);
+            Assert.Equal(0.0, successes[1].CastTimeSeconds);
         }
 
         [Fact]
