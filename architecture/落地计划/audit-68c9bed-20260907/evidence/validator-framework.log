@@ -1,0 +1,2 @@
+[warning] arch.power_type/arch.power.health/name_key: text_key_exists: l10n.text 表未加载，跳过文本键存在性检查
+tables 5, records 122, errors 0, warnings 1, overrides 0

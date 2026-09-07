@@ -1,0 +1,15 @@
+A SaveSystem formal corruption and backup fallback | expectedCorrectBehavior=two successful saves create bak1; invalid formal envelope and top-level save_version=1.5 with valid sections fall back to bak1 as LoadedFromBackup | actual=save1=True, save2=True, backupExists=True, formalAfterCorruption={"save_version":1,"sections":{}}, invalidFormalLoad=Corrupted, fractionalFormal={
+  "save_version": 1.5,
+  "sections": {
+    "meta": {
+      "save_version": 1,
+      "slot_id": "slot.audit",
+      "created_at": "t1",
+      "updated_at": "t1",
+      "game_id": "game.audit"
+    },
+    "custom.audit": "payload"
+  }
+}, fractionalVersionLoad=Corrupted, defectObserved=True | REPRODUCED
+C FeedbackBinder sequential cold sink | expectedCorrectBehavior=queue drain must not open pacing gate while PlaySfx sink still reports pending playback | actual=before(queue=1, sinkPending=False, gateOpen=False), after(queue=0, sinkPending=True, gateOpen=True) | REPRODUCED
+C FeedbackBinder immediate cold sink | expected=immediate mode with only cold sink pending must eventually emit/forward completion or otherwise release pacing gate | actual=whilePending(queue=0, sinkPending=True, gateOpen=False), afterSinkCompletes(queue=0, sinkPending=False, gateOpen=False) | REPRODUCED

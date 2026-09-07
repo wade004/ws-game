@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../../core/foundation/Core.Foundation.csproj" />
+    <ProjectReference Include="../../../../adapters/stub/Adapters.Stub.csproj" />
+    <ProjectReference Include="../../../../presentation/Presentation.Common.csproj" />
+    <Compile Include="../../../../presentation/feedback_binder/tests/FeedbackBinderTestSupport.cs" Link="Support/FeedbackBinderTestSupport.cs" />
+  </ItemGroup>
+</Project>

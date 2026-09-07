@@ -1,0 +1,3 @@
+覆盖清单（1 条，见 data/README.md"多根加载与合并规则"）：
+  [override] arch.power_type[arch.power.health]: "D:/workespace/ws-game-review-68c9bed/data/_sample/arch/arch.power_type.json" 覆盖 "D:/workespace/ws-game-review-68c9bed/data/_framework/arch/arch.power_type.json"
+tables 59, records 276, errors 0, warnings 0, overrides 1

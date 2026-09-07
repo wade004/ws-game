@@ -1,0 +1,1 @@
+[check] dataset=_sample only=sfx,sprite,vfx,world: 检查 8 条 display.map / 3 条 vfx.def / 3 条 sfx.def / 1 条 world.map，发现 0 个问题
