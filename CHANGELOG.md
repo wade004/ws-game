@@ -11,6 +11,115 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.3.0] - 2026-09-08
+
+W6 表现能力补齐：补齐"能力边界与未默认接入能力索引"表中长期标记"未接入"的三项表现能力——装备
+外观（`model` 型）、武器动画（`auto_attack_anim`/`cast_anim_override`）、关键帧反馈
+（`anim_keyframe_driven`）——的引擎无关部分（`presentation/**`）与引擎适配层真实实现
+（`adapters/unity/**`），并收口三项能力共同依赖的命中帧同步链路最后一段接线缺口，使其在生产装配根
+"默认可接线（开关）"。决策见 [ADR-0017](architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md)
+（模型型外形默认路线补齐与命中帧同步）。另附工具链两项修正。
+
+### 新增能力
+
+- **装备外观（`model` 型外形）**：`ModelCharacterRig`（`presentation/render/core/ModelCharacterRig.cs`）
+  从占位收口为真实实现——`ApplyEquipVisual`/`ClearSlot`/`ClearSocket` 驱动装备外观替换、
+  `SyncPlacement` 落实八原语基准姿态；`Adapter.Unity.EngineAdapter.UnityRenderer3D` 提供
+  `IRenderer3D` 真实实现（模型实例化/骨骼动画播放/动画事件/挂点槽位/材质参数/阴影），资源路径约定
+  `Resources/GameFoundation/models/<资源引用 id 去类别前缀>`；占位模型资产
+  `Assets/Resources/GameFoundation/models/placeholder_biped.*` 与可重复运行的生成脚本
+  `Assets/Editor/GeneratePlaceholderModelAssets.cs` 一并提供。
+- **武器动画（`auto_attack_anim`/`cast_anim_override`）**：新增 `IWeaponStyleSource`/
+  `EquipmentWeaponStyleSource`（`presentation/vfx_sfx/**`，按实体查其当前装备的武器风格引用，复用
+  既有 `item.template.display_ref → display.map.weapon_style_ref` 关联链路，未新增任何数据表字段）；
+  `Adapter.Unity.Presentation.AnimClipResolver` 接入该来源与新增的
+  `AnimStateMachine.StateChangedWithSkill` 事件，Attack 状态用 `AutoAttackAnim`、Cast 状态按触发
+  技能 id 命中 `CastAnimOverride` 时用覆盖剪辑，sprite/model 两条路线共用同一份决策逻辑。
+- **关键帧反馈（`anim_keyframe_driven`）**：命中帧统一为 `ICharacterRig.HitFrameReached`（sprite
+  经序列帧关键帧、model 经 `IRenderer3D.OnAnimEvent` 命中固定事件 id
+  `ModelCharacterRig.HitFrameEventId`）；`feedback.binding` 新增 `sync: "hit_frame"` 字段（默认对
+  `combat.damage_dealt` 开启）；`presentation/feedback_binder` 新增 `IHitFrameSource`/
+  `CharacterRigHitFrameSource`/`HitFrameSyncPolicy`（等待队列，0.5 秒超时兜底，逻辑结算不受影响，
+  只调节呈现时机）。**本次收口**：`PresentationAssembly`/`UnityViewFactory` 均补齐接线参数（见下
+  "接口变更"），三处引擎侧装配根默认可用一个口味配置项一键切换，不再需要游戏层手工绕过
+  `PresentationAssembly` 自行接线。
+
+### 接口变更
+
+- **新增枚举值** `Core.Foundation.EngineAdapter.ResourceKind.Model`。
+- **新增契约成员** `Presentation.Render.ICharacterRig.HitFrameReached`（`event Action<Id>?`，已从
+  `SpriteCharacterRig` 专属成员提升进接口本身）。**迁移（破坏性，需自定义实现方补齐）**：任何自定义
+  `ICharacterRig` 实现（`SpriteCharacterRig`/`ModelCharacterRig` 两个框架内置实现已补齐）必须新增
+  实现本事件成员，否则无法通过编译；不打算支持命中帧同步的实现可以让该事件永不触发（等价于
+  `LogicDriven` 策略下的既有行为）。
+- **新增事件** `Presentation.Render.AnimStateMachine.StateChangedWithSkill`（携带触发技能 id，与既有
+  `StateChanged` 三元组事件并存、`StateChanged` 签名不变）。
+- **新增数据字段** `feedback.binding.sync`（可选枚举，当前仅 `"hit_frame"`；未提供时按 `event` 是否
+  为 `combat.damage_dealt` 决定默认值，见 `FeedbackRule.Sync` 判断记录）。
+- **新增可选构造参数**：
+  - `Presentation.FeedbackBinder.Core.FeedbackBinder` 新增 `IHitFrameSource? hitFrameSource = null`；
+  - `Presentation.Assembly.PresentationAssembly` 新增 `IHitFrameSource? hitFrameSource = null`（原样
+    转发给内部 `FeedbackBinderCore` 同名参数——**本次收口新增**，此前该类型完全没有暴露这个参数）；
+  - `Adapter.Unity.Presentation.UnityViewFactory` 新增 `IRenderer3D? renderer3D`、
+    `IHitFrameSource? hitFrameSource`、`IWeaponStyleSource? weaponStyleSource`、
+    `RenderOptions? renderOptions`（最后一项**本次收口新增**——此前即便别处已把
+    `RenderOptions.HitFrameSync` 切到 `AnimKeyframeDriven`，`UnityViewFactory` 构造
+    `UnitySpriteView`/`UnityModelView` 时仍从不传这份 `RenderOptions`，rig 构造期实际拿到的永远是
+    默认 `LogicDriven`，是比"`PresentationAssembly` 未暴露 `hitFrameSource`"更深一层、本次才发现的
+    接线缺口，一并收口）。
+  以上均为可选参数，不传时行为与改动前完全一致，不影响既有调用方编译或运行期行为。
+- **新增字段** `Presentation.Render.RenderOptions.HitFrameSync`（`HitFrameSyncStrategy`，默认
+  `LogicDriven`）、`Presentation.FeedbackBinder.Contracts.FeedbackOptions.HitFrameSync`/
+  `HitFrameSyncTimeoutSeconds`（默认 `LogicDriven`/0.5 秒）——两者是同一个口味配置项在渲染侧/反馈
+  绑定侧的两个落点，装配层需要保持一致（见下"游戏侧接入步骤"第 6 条）。
+- **诊断/测试专用新增成员（非契约）**：`Adapter.Unity.EngineAdapter.UnityRenderer2D.EmitParticleCallCount`
+  （累计 `EmitParticle` 调用次数，同 `UnityAudio.PlaySfxCallCount` 一类既有诊断计数惯例）。
+
+### 游戏侧接入步骤（新游戏若要使用以上三项能力）
+
+1. **model 型外形**：`display.map` 填一行 `kind: "model"`，`model_ref` 指向三维模型资源引用 id，
+   `anim_set_ref` 指向 `display.anim_set` 表一行（`clips[*]` 声明动画剪辑，`events[*]` 声明关键帧，
+   固定名字 `"hit_frame"` 是框架约定的命中帧标记，见 `AnimSetEventsShapeRule` 校验）；`sockets`/
+   `slots` 数组声明挂点/换装槽位 id。
+2. **模型预制体放置约定路径**：`Resources/GameFoundation/models/<资源引用 id 去类别前缀>`（模型）、
+   `Resources/GameFoundation/anim_clips/<资源引用 id 去类别前缀>`（动画剪辑）；挂点/槽位对象命名须
+   与 `display.map.sockets`/`slots` 逐字一致（含域前缀）。
+3. **武器风格**：`display.weapon_style` 表填一行（`auto_attack_anim`/`cast_anim_override`），经
+   `item.template.display_ref → display.map.logical_id → weapon_style_ref` 关联；装配根构造一个
+   `Presentation.VfxSfx.Core.EquipmentWeaponStyleSource`（需提供
+   `MainHandWeaponTemplateResolver` 委托）传给 `UnityViewFactory` 的 `weaponStyleSource` 参数。
+4. **主手槽位 id**：09/04 未定义全局槽位登记表，本次在三处装配根（灰盒 `GameFoundationBootstrap`
+   的 `_mainHandSlotId`、模板 `GameOptions.MainHandSlotId`）各暴露一个口味配置项承载，具体游戏按
+   自己的装备槽位登记表填入。
+5. **命中帧同步开关**：装配根构造一个 `CharacterRigHitFrameSource`，同一个实例分别传给
+   `UnityViewFactory` 的 `hitFrameSource` 参数与 `PresentationAssembly` 的 `hitFrameSource` 参数；
+   构造**同一个** `RenderOptions` 实例（`HitFrameSync = AnimKeyframeDriven`）分别传给
+   `UnityViewFactory` 的 `renderOptions` 参数与 `PresentationAssemblyOptions.RenderOptions`，并把
+   `PresentationAssemblyOptions.FeedbackOptions.HitFrameSync` 同步切到 `AnimKeyframeDriven`——五处
+   必须两两取同一实例/同一策略值，任一处遗漏或不一致都会让命中帧同步整体或部分失效（完整步骤见
+   `adapters/unity` 包 README"命中帧同步接线步骤"一节）。三处框架自带装配根
+   （`GameFoundationBootstrap`/`Adapter.Unity.Shell.FrameworkResidentHost`/
+   `games/_template.GameBootstrap`）均已按上述步骤接线，各暴露一个布尔口味配置项
+   （`_hitFrameSyncEnabled`/`GameOptions.HitFrameSyncEnabled`）一键切换，默认 `false`
+   （`LogicDriven`，行为与本次收口前完全一致）。
+
+### 工具链修正
+
+- `toolchain/registry/start_registry.ps1`：私服停止逻辑改为以端口监听进程为准（不再依赖可能已经
+  漂移的 pid 文件/进程句柄），新增 `-Status` 查询当前私服运行状态。
+- `toolchain/consumer_smoke.ps1`：消费方演练在启动 Unity 前先等待同名残留进程退出，避免与新启动的
+  实例互相冲突；冒烟结果落盘为 `consumer_smoke.log`。
+
+### 迁移说明
+
+- **自定义 `ICharacterRig` 实现**必须新增实现 `HitFrameReached` 事件成员（破坏性接口变更，详见上
+  "接口变更"）；不需要命中帧同步的实现可以让该事件永不触发。
+- 使用框架自带三处装配根（`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.
+  GameBootstrap`）的游戏无需任何改动即可编译运行，命中帧同步默认关闭（`LogicDriven`），行为与
+  1.2.0 完全一致；需要启用时按上面"游戏侧接入步骤"第 5 条打开对应口味配置项即可。
+- 自行组装 `PresentationAssembly`/`UnityViewFactory` 的游戏（未使用框架自带装配根）：新增参数均为
+  可选、默认 `null`，不传不影响现有行为，可按需选择性升级到新能力。
+
 ## [1.2.0] - 2026-09-08
 
 第七方深度审核（codex 第五轮，基线 `1.1.0`/`5e779c6`，报告见
