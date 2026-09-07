@@ -1,7 +1,7 @@
 # `display.map` / `display.anim_set` / `display.equip_visual` 字段表
 
-对应 [01_分层与依赖.md](../../../architecture/01_分层与依赖.md) L0 模块表 `display_info` 行、
-[04_数据与内容管线.md](../../../architecture/04_数据与内容管线.md) 第 7.1、7.1.1、7.1.2 节。
+对应 [01_分层与依赖.md](../../../../architecture/01_分层与依赖.md) L0 模块表 `display_info` 行、
+[04_数据与内容管线.md](../../../../architecture/04_数据与内容管线.md) 第 7.1、7.1.1、7.1.2 节。
 字段说明摘自 04，具体 `TableSchema` 登记见 `core/DisplaySchemas.cs`。
 
 ## `display.map`

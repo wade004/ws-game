@@ -1,8 +1,8 @@
 # save_slot_meta —— 存档文档 `sections.meta` 段
 
-> 不是 [04_数据与内容管线.md](../../../architecture/04_数据与内容管线.md) 总索引里登记的内容表，
-> 而是存档文档（见 [10_存档与持久化.md](../../../architecture/10_存档与持久化.md) 第 2.1 节）里
-> `sections.meta` 这一段的字段说明（对应 [01_分层与依赖.md](../../../architecture/01_分层与依赖.md)
+> 不是 [04_数据与内容管线.md](../../../../architecture/04_数据与内容管线.md) 总索引里登记的内容表，
+> 而是存档文档（见 [10_存档与持久化.md](../../../../architecture/10_存档与持久化.md) 第 2.1 节）里
+> `sections.meta` 这一段的字段说明（对应 [01_分层与依赖.md](../../../../architecture/01_分层与依赖.md)
 > L0 模块表 `save_system` 行"内容表：`save_slot_meta`（见 10，不属于 04 总索引）"）。
 > 供存档槽 UI 展示摘要，不参与模拟；由 `SaveSystem`（`core/SaveSystem.cs`）自身读写，
 > 不经 `IPersistable`（见 `contracts/SaveSections.cs` 中 `Meta` 常量注释）。
@@ -26,5 +26,5 @@
   `Corrupted`（见 10 第 5 节损坏存档处理）。
 - `display_summary` 的值只接受 JSON 字符串；出现非字符串值也判定为格式非法。
 - 本段不受版本迁移链约束以外的额外处理——它和其余段一样，若某次 schema 变更需要调整
-  本段字段，走 [12_扩展与变更流程.md](../../../architecture/12_扩展与变更流程.md) 登记一个
+  本段字段，走 [12_扩展与变更流程.md](../../../../architecture/12_扩展与变更流程.md) 登记一个
   `ISaveMigration`。

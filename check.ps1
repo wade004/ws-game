@@ -847,12 +847,41 @@ if ($Quick) {
             if ($hitSegments.Count -gt 0) {
                 $problems += ("$pkgName：npm pack --dry-run 文件清单命中排除名单：" + (($hitSegments) -join ", "))
             }
+
+            # PJ130-02 根治新增（审计 architecture/落地计划/audit-5c444f1-20260908/AUDIT_REPORT.md
+            # PJ130-02，见 build.ps1 "5.055" 节判断记录）：com.gamefoundation.adapter.unity 包现在
+            # 应该额外含 model/anim 占位资产（放进 Runtime/Resources/GameFoundation/，Unity 会自动
+            # 导入的非 ~ 目录）与其生成器脚本（放进 Editor/）；这里核对 npm pack --dry-run 的文件
+            # 清单里确实含这些路径，防止将来 Copy-DistDir 调用列表或本节新增的补齐逻辑被回退/漏改后
+            # 又悄悄丢失这批资源却没有任何门禁步骤发现。
+            if ($pkgName -eq "com.gamefoundation.adapter.unity") {
+                $entryPaths = @($fileEntries | ForEach-Object { ($_.path -replace '\\', '/') })
+                $requiredModelAssetSuffixes = @(
+                    "Runtime/Resources/GameFoundation/models/placeholder_biped.prefab",
+                    "Runtime/Resources/GameFoundation/models/placeholder_biped.controller",
+                    "Runtime/Resources/GameFoundation/anim_clips/idle.anim",
+                    "Runtime/Resources/GameFoundation/anim_clips/attack.anim",
+                    "Runtime/Resources/GameFoundation/anim_clips/cast.anim",
+                    "Runtime/Resources/GameFoundation/anim_clips/hit.anim",
+                    "Editor/GeneratePlaceholderModelAssets.cs"
+                )
+                $missingModelAssets = @()
+                foreach ($suffix in $requiredModelAssetSuffixes) {
+                    $hit = @($entryPaths | Where-Object { $_ -like "*$suffix" })
+                    if ($hit.Count -eq 0) {
+                        $missingModelAssets += $suffix
+                    }
+                }
+                if ($missingModelAssets.Count -gt 0) {
+                    $problems += ("$pkgName：npm pack --dry-run 文件清单缺失 model/anim 占位资产或生成器（PJ130-02）：" + ($missingModelAssets -join ", "))
+                }
+            }
         }
 
         if ($problems.Count -gt 0) {
             throw ("包清单一致性校验失败：`n  " + ($problems -join "`n  "))
         }
-        [PSCustomObject]@{ Ok = $true; Detail = "三个包 version=$version 一致，npm pack --dry-run 清单均不含排除项" }
+        [PSCustomObject]@{ Ok = $true; Detail = "三个包 version=$version 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器" }
     }
 }
 

@@ -43,6 +43,25 @@ name: Release
 # 重建的版本覆盖——"本机已验证产物优先"的原则不变，见上一段判断记录（确定性构建在不同 checkout
 # 路径下产出不同字节）。
 #
+# 判断记录（缺附件 fallback 根治为"从已验证 zip 抽取"而不是"新构建混配"，2026-09-08，见
+# architecture/落地计划/audit-5c444f1-20260908/AUDIT_REPORT.md PJ130-01）：上一条判断记录只解决
+# "全部缺失 vs 部分缺失"的上传范围问题，没有解决"部分缺失时怎么补"——原逻辑一律调用
+# `build.ps1 -SkipTests` + `-SyncOnly -Dist -Zip` 在托管运行器上重新构建，即使已有 zip 存在、只是
+# lock 或某个 .tgz 缺失。这与上一条判断记录本身的结论矛盾：托管运行器的 checkout 路径与本机不同，
+# 确定性构建产出的六个 DLL 字节、sha256 都会不同；重新构建出的 lock 记录的哈希对不上已存在 zip 里
+# 的 DLL，等于把新构建批次的 lock 配到旧构建批次的 zip 上，二者不是同一次构建产物却被当作一套发布。
+# 根治：本步骤（"Check for existing release assets"）新增——只要 Release 已有
+# `ws-game-<ver>.zip`，就下载这一份 zip，读取其内 `MANIFEST.txt` 记录的 `git_commit`，与当前
+# checkout（即这个 tag 指向的提交）的 `git rev-parse --short HEAD` 比对；不一致直接 exit 1 阻断，
+# 不允许在一个"声称是这个 tag、实际是另一个提交"的 zip 基础上做任何事。commit 一致时，若还有 lock
+# 或 .tgz 缺失，由新增的 "Repair missing assets from existing zip" 步骤直接从这份已验证 zip 里
+# 提取六个 DLL 重新计算 sha256 生成 lock、或直接把 zip 内 `packages/*.tgz` 三个内嵌包原样抽出
+# 落到 dist/ 对应路径——不调用 build.ps1、不触发任何新构建，补的内容与 zip 里的字节保证同源。
+# 只有 zip 本身也缺失（Release 里连 zip 都没有，说明本机还没有对这个 tag 打过包）才继续走原有的
+# 全量 `build.ps1 -SkipTests` + `-SyncOnly -Dist -Zip` 全量重建路径——此时没有旧 zip 可复用，
+# 五个文件本来就要一起从头产出，不存在"新旧批次混配"的风险。下面两个 build.ps1 步骤的 `if:`
+# 因此从只判断 `skip != 'true'` 收紧为额外要求 `zip_missing == 'true'`。
+#
 # 判断记录（run: 脚本正文必须是纯 ASCII，2026-09-07 新增）：推送标签 v1.0.0 触发的运行
 # （run 34094116412）在 "Resolve version from tag" 步骤失败，报
 # "The string is missing the terminator: ''" / "Missing closing '}'"。根因：GitHub Actions
@@ -173,11 +192,12 @@ jobs:
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-        # 判断记录：见文件头"附件存在性检查改为核对完整附件集合"与"Release 附件的产生与上传
-        # 时机"——本机已验证产物优先。用 gh release view --json assets 查该 tag 对应 Release 的
-        # 既有附件列表，与完整附件集合（zip、lock、三个 .tgz）逐一比对：全部存在才跳过打包与
-        # 上传；否则照常打包，但只把缺失的文件路径放进下面上传步骤的 files 列表，已存在的附件
-        # 不会被本工作流的构建结果覆盖。
+        # 判断记录：见文件头"附件存在性检查改为核对完整附件集合"与"缺附件 fallback 根治为'从已
+        # 验证 zip 抽取'"两条说明。用 gh release view --json assets 查该 tag 对应 Release 的既有
+        # 附件列表，与完整附件集合（zip、lock、三个 .tgz）逐一比对：全部存在才跳过打包与上传；
+        # 否则只把缺失的文件路径放进下面上传步骤的 files 列表，已存在的附件不会被覆盖。若 zip 本身
+        # 已存在（无论是否还缺其它附件），先下载这份 zip 校验其 MANIFEST.txt 里的 git_commit 与
+        # 当前 checkout 的提交一致，不一致直接阻断，避免在错误的基线上补附件。
         run: |
           $ErrorActionPreference = "Continue"
           $tag = "${{ steps.version.outputs.tag }}"
@@ -207,13 +227,60 @@ jobs:
           }
 
           $missingNames = @($requiredNames | Where-Object { $existingNames -notcontains $_ })
+          $zipName = "ws-game-$version.zip"
+          $zipExists = $existingNames -contains $zipName
+
+          if ($zipExists) {
+            $currentCommit = (git rev-parse --short HEAD).Trim()
+            $downloadDir = Join-Path $env:RUNNER_TEMP "gf_existing_zip"
+            New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
+            gh release download $tag -p $zipName -D $downloadDir --clobber
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "Failed to download existing asset $zipName for commit verification (exit $LASTEXITCODE)."
+              exit 1
+            }
+            $existingZipPath = Join-Path $downloadDir $zipName
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zipTopLevelName = "ws-game-$version"
+            $zr = [System.IO.Compression.ZipFile]::OpenRead($existingZipPath)
+            $manifestEntry = $zr.Entries | Where-Object { $_.FullName -eq "$zipTopLevelName\MANIFEST.txt" }
+            if (-not $manifestEntry) {
+              $zr.Dispose()
+              Write-Host "Existing $zipName has no MANIFEST.txt at expected path $zipTopLevelName\MANIFEST.txt; cannot verify git_commit. Blocking."
+              exit 1
+            }
+            $reader = New-Object System.IO.StreamReader($manifestEntry.Open())
+            $manifestText = $reader.ReadToEnd()
+            $reader.Close()
+            $zr.Dispose()
+            $mc = [regex]::Match($manifestText, 'git_commit:\s*(\S+)')
+            if (-not $mc.Success) {
+              Write-Host "Existing $zipName MANIFEST.txt has no git_commit line. Blocking."
+              exit 1
+            }
+            $zipCommit = $mc.Groups[1].Value
+            if ($zipCommit -ne $currentCommit) {
+              Write-Host "Existing $zipName was built from commit $zipCommit, but tag $tag points at $currentCommit. Refusing to reuse or rebuild-mix; investigate manually."
+              exit 1
+            }
+            Write-Host "Existing $zipName commit verified: $zipCommit matches tag $tag."
+            "existing_zip_path=$existingZipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
 
           if ($missingNames.Count -eq 0) {
             Write-Host "Release $tag already has all required assets ($($requiredNames -join ', ')). Skipping rebuild-and-upload to avoid overwriting verified artifacts with a hosted-runner rebuild (see file header note on deterministic-build path hashes)."
             "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            "zip_missing=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           } else {
-            Write-Host "Release $tag is missing: $($missingNames -join ', '). Will build (build.ps1 produces all five files together) but only upload the missing ones; existing assets are left untouched."
+            $zipMissing = $missingNames -contains $zipName
+            Write-Host "Release $tag is missing: $($missingNames -join ', ')."
+            if ($zipMissing) {
+              Write-Host "The zip itself is missing; will do a full rebuild via build.ps1 (no prior zip to reuse, so no mixed-batch risk)."
+            } else {
+              Write-Host "The zip exists and its commit matches the tag; will repair the missing assets by extracting from the existing zip instead of rebuilding on the hosted runner."
+            }
             "skip=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            "zip_missing=$(if ($zipMissing) { 'true' } else { 'false' })" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
 
           $missingPaths = @($missingNames | ForEach-Object { $requiredPaths[$_] })
@@ -222,6 +289,73 @@ jobs:
             $p | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
           "GF_EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Repair missing assets from existing zip
+        # 判断记录：见文件头"缺附件 fallback 根治为'从已验证 zip 抽取'"。只在 zip 存在且 commit 已
+        # 校验通过、但 lock 或某个 .tgz 缺失时运行；直接从上一步下载好的 zip 里抽取字节/重算哈希，
+        # 不调用 build.ps1、不触发任何新构建，因此不存在"新构建批次配旧 zip"的混批风险。
+        if: steps.assets.outputs.skip != 'true' && steps.assets.outputs.zip_missing != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          $version = "${{ steps.version.outputs.version }}"
+          $existingZipPath = "${{ steps.assets.outputs.existing_zip_path }}"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zipTopLevelName = "ws-game-$version"
+          $zr = [System.IO.Compression.ZipFile]::OpenRead($existingZipPath)
+
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          $coreAssemblies = @("Core.Foundation", "Core.Numbers", "Core.Rules", "Core.Carriers", "Core.Gameplay", "Presentation.Common")
+
+          $missingRaw = @"
+          ${{ steps.assets.outputs.missing_files }}
+          "@
+          $missing = $missingRaw -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+
+          foreach ($m in $missing) {
+            if ($m -eq "dist/ws-game-$version.lock") {
+              $shaMap = [ordered]@{}
+              foreach ($asm in $coreAssemblies) {
+                $entryPath = "$zipTopLevelName\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\$asm.dll"
+                $entry = $zr.Entries | Where-Object { $_.FullName -eq $entryPath }
+                if (-not $entry) {
+                  Write-Host "Missing dll entry in zip: $entryPath"
+                  exit 1
+                }
+                $tmpDll = [System.IO.Path]::GetTempFileName()
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $tmpDll, $true)
+                $sha = (Get-FileHash -Path $tmpDll -Algorithm SHA256).Hash.ToLower()
+                Remove-Item $tmpDll -Force
+                $shaMap[$asm + ".dll"] = $sha
+              }
+              $manifestEntry = $zr.Entries | Where-Object { $_.FullName -eq "$zipTopLevelName\MANIFEST.txt" }
+              $reader = New-Object System.IO.StreamReader($manifestEntry.Open())
+              $manifestText = $reader.ReadToEnd()
+              $reader.Close()
+              $gm = [regex]::Match($manifestText, 'git_commit:\s*(\S+)')
+              $gitCommit = $gm.Groups[1].Value
+              $lockObj = [ordered]@{ version = $version; git_commit = $gitCommit; dlls = $shaMap }
+              $lockJson = ($lockObj | ConvertTo-Json -Depth 5)
+              [System.IO.File]::WriteAllText($m, $lockJson, (New-Object System.Text.UTF8Encoding($false)))
+              Write-Host "Regenerated $m from the DLLs inside the existing zip (same bytes, recomputed hash)."
+            } elseif ($m -like "*.tgz") {
+              $tgzName = Split-Path $m -Leaf
+              $entryPath = "$zipTopLevelName\packages\$tgzName"
+              $entry = $zr.Entries | Where-Object { $_.FullName -eq $entryPath }
+              if (-not $entry) {
+                Write-Host "Missing tgz entry in zip: $entryPath"
+                exit 1
+              }
+              $destDir = Split-Path $m -Parent
+              New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+              [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $m, $true)
+              Write-Host "Extracted $m from the existing zip's embedded packages."
+            } else {
+              Write-Host "Unexpected missing file path (not lock or tgz): $m"
+              exit 1
+            }
+          }
+          $zr.Dispose()
 
       - name: build.ps1 -SkipTests (produce default-location DLLs for packaging)
         # 判断记录（P01 根治，2026-09-07）：check.ps1 -Quick 的 "dotnet build" 步骤固定带
@@ -240,8 +374,10 @@ jobs:
         # 源文件。这条路径与 check.ps1 全量模式第 9 步是同一段逻辑、同一个根因修法，只是移到
         # release.yml 里显式补一次，而不是放宽 -Quick 本身的跳过范围（-Quick 仍然只覆盖
         # dotnet/python 校验、不隐含"顺带把 DLL 摆到打包需要的位置"这个语义，避免以后有人在别的
-        # -Quick 调用点意外依赖这个副作用）。
-        if: steps.assets.outputs.skip != 'true'
+        # -Quick 调用点意外依赖这个副作用）。判断记录（2026-09-08 收紧）：见文件头"缺附件 fallback
+        # 根治为'从已验证 zip 抽取'"——只有 zip 本身也缺失才需要这条全量重建路径，zip 存在时改由
+        # 上面 "Repair missing assets from existing zip" 步骤直接从 zip 里抽取，不再触发本步骤。
+        if: steps.assets.outputs.skip != 'true' && steps.assets.outputs.zip_missing == 'true'
         shell: powershell
         run: |
           $ErrorActionPreference = "Continue"
@@ -249,7 +385,9 @@ jobs:
           exit $LASTEXITCODE
 
       - name: build.ps1 -SyncOnly -Dist <version> -Zip
-        if: steps.assets.outputs.skip != 'true'
+        # 判断记录（2026-09-08 收紧）：同上一步骤，仅 zip 缺失才需要重建；zip 存在时的缺件由抽取
+        # 步骤补齐。
+        if: steps.assets.outputs.skip != 'true' && steps.assets.outputs.zip_missing == 'true'
         shell: powershell
         run: |
           $ErrorActionPreference = "Continue"

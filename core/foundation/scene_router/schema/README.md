@@ -1,7 +1,7 @@
 # `world.map` 被本模块读取的字段
 
-对应 [01_分层与依赖.md](../../../architecture/01_分层与依赖.md) L0 模块表 `scene_router` 行、
-[05_对象模型与世界.md](../../../architecture/05_对象模型与世界.md) 第 4.1 节 `world.map` 字段表。
+对应 [01_分层与依赖.md](../../../../architecture/01_分层与依赖.md) L0 模块表 `scene_router` 行、
+[05_对象模型与世界.md](../../../../architecture/05_对象模型与世界.md) 第 4.1 节 `world.map` 字段表。
 
 **归属说明**：`world.map` 整表按 04/05 归属 L4（对象模型与世界），不是本模块（L0
 `scene_router`）拥有的表。本模块只是场景路由流程需要读取其中几个字段，因此暂时在

@@ -6,14 +6,14 @@
 
 `architecture/` 是已定稿的架构文档集，是本仓库唯一的规范来源，入口见 [architecture/README.md](architecture/README.md)；技术选型、工程结构、分工与分阶段落地计划见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md)。
 
-> 落地状态：阶段 0～5（环境骨架、L0 基础层、L1+L2 数值与规则、L3+L4 载体与玩法、Unity 适配层+表现层+UI 套件、美术管线与资产规格）均已完成，详见落地计划文档末节「落地进度记录」。已知能力边界（3D 渲染、编辑器工具、天赋激活与持久化、地面点选、装备外观/武器动画/关键帧反馈的 model 型或未接线部分、采集时钟、回放接入、day_cycle、ATB、孤儿检查、FeedbackRuleValidator 等共 19 项未默认接入能力，逐项给源码锚点）见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md)「能力边界与未默认接入能力索引」一节。
+> 落地状态：阶段 0～5（环境骨架、L0 基础层、L1+L2 数值与规则、L3+L4 载体与玩法、Unity 适配层+表现层+UI 套件、美术管线与资产规格）均已完成，详见落地计划文档末节「落地进度记录」。3D 渲染（model 型外形）、装备外观、武器动画（`auto_attack_anim`/`cast_anim_override`）、关键帧反馈（`anim_keyframe_driven`）四项能力框架侧均**已实现**，**默认接线**由各装配根的口味配置开关控制（决策见 [ADR-0017](architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md)，明细见落地计划「W6 表现能力补齐」小节）；"框架已实现"“默认接线”与"是否已有真实 Unity/消费方运行证据验证"是三件分开记录的事，不能互相替代，证据等级口径见各轮审计报告（`architecture/落地计划/audit-*/AUDIT_REPORT.md`）。除上述四项外，编辑器工具、天赋激活与持久化、地面点选、采集时钟、回放接入、day_cycle、ATB、孤儿检查、`FeedbackRuleValidator` 等仍属"契约已就位、默认不接入"的能力边界，逐项源码锚点与当前完整条目数以 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md)「能力边界与未默认接入能力索引」一节的表格为准（本行不重复维护具体数字，避免与该表更新脱节）。
 
 ## 顶层目录结构
 
 ```
 .github/workflows/      GitHub Actions 持续集成工作流（ci.yml + release.yml，见"持续集成"一节）
 .githooks/              版本化 git 钩子（pre-commit，见"提交前钩子"一节）
-architecture/          架构文档集（已定稿），本仓库唯一的规范来源；00~14 号文档 + adr/（16 条 ADR）+ 落地计划/ + 选型/
+architecture/          架构文档集（已定稿），本仓库唯一的规范来源；00~14 号文档 + adr/（17 条 ADR）+ 落地计划/ + 选型/
 core/                  L0~L4 纯逻辑类库，零引擎依赖，目标框架 .NET Standard 2.1
   foundation/            L0 基础层：event_bus、rng、expr、data_registry、sim_loop、save_system、input_map、l10n、display_info、scene_router、hook_registry、app_lifecycle
   numbers/               L1 数值层：stat_block、power_set、progression、archetype、faction
@@ -225,6 +225,6 @@ powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <你的 Un
 ## 文档入口
 
 - 架构文档集导读（阅读顺序、强制约束、文件清单）：[architecture/README.md](architecture/README.md)
-- ADR 索引（16 条架构决策记录）：[architecture/adr/README.md](architecture/adr/README.md)
+- ADR 索引（17 条架构决策记录）：[architecture/adr/README.md](architecture/adr/README.md)
 - 技术选型、工程结构、分工与分阶段落地计划、落地进度记录：[architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md)
 - 具体技术选型细节（引擎、语言、工具链等，`architecture/00~14` 与 `adr/` 本身不出现这些名字）：`architecture/选型/`

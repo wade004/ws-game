@@ -901,6 +901,73 @@ if ($DistRequested) {
     $tmpEssentialsFileCount = Copy-DistDir -SourceRelative "adapters\unity\Assets\TextMesh Pro" -DestName "assets\textmesh_pro_essentials"
 
     # -------------------------------------------------------------------
+    # 5.055 PJ130-02 根治新增（审计 architecture/落地计划/audit-5c444f1-20260908/AUDIT_REPORT.md
+    #      PJ130-02）：ADR-0017 W6-B 的 model 型外形占位资产（Assets/Resources/GameFoundation/
+    #      {models,anim_clips}，胶囊体 + AnimatorController + 四条 AnimationClip，见
+    #      Editor/GeneratePlaceholderModelAssets.cs 顶部判断记录）此前从未随 dist 分发——上面
+    #      Copy-DistDir 只拷 adapters/unity/Packages/com.gamefoundation.adapter.unity（UPM 包目录
+    #      本身），这批资产连同其生成器都提交在工作台工程的 adapters/unity/Assets/ 下（Packages
+    #      目录之外），与 TMP Essentials 是同一种"提交在 Assets/、从未随包分发"的缺口（同上一节
+    #      判断记录），独立消费方只有发行包时无法拿到这套占位 model/动画，也无法自行重新生成。
+    #
+    #      判断记录（选择"塞进 adapter 包的 Runtime/Resources/"而不是"framework-data 包的
+    #      Data~/"）：UnityResourceLoader 的约定路径固定为 Resources.Load 可解析的
+    #      "Resources/GameFoundation/models(或 anim_clips)/<name>"（见该类型判断记录），这批资产
+    #      本身是已被 Unity 资产管线导入过的原生序列化文件（.prefab/.controller/.anim，带
+    #      .meta 里的 GUID），不是"任意字节数组"，不能像 data/_framework、assets/_placeholder 那样
+    #      放进 framework-data 包的 Data~/（Unity 不扫描 ~ 后缀目录，消费方需要手工整份拷进自己的
+    #      Assets/ 才能被导入——那是给"非 Unity 原生格式"的通用兜底方案，见 framework-data 包
+    #      README）。Unity 会自动扫描并导入任意包（含通过 UPM 依赖引入的包）里名字精确为
+    #      "Resources"（不带 ~ 后缀）的目录，因此把这批资产原样放进
+    #      com.gamefoundation.adapter.unity 包的 Runtime/Resources/GameFoundation/ 下，任何消费方
+    #      工程只要依赖了这个包（games/_template/README.md 接入步骤本来就要求这一步），Unity 打开
+    #      工程时就会自动导入这批资产，Resources.Load 立即可用——不需要额外的"整份拷进自己
+    #      Assets/"手工步骤，比 framework-data/Data~ 或 TMP Essentials 那种手工拷贝更贴合"消费方
+    #      能直接用占位模型"这条验收标准。这里只写入 dist 内的包副本
+    #      （$DistRoot\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\
+    #      ...），不改动 adapters/unity 源码树本身（源码树里这批资产仍在
+    #      Assets/Resources/GameFoundation/ 供工作台工程自身的 EditMode/PlayMode 测试使用，两者是
+    #      两份独立文件，源目录不受影响）；下面 5.15 节组装 com.gamefoundation.adapter.unity 包时
+    #      整份拷贝这个 dist 内的包目录，因此这批资产也会自动进入对应 .tgz。
+    #
+    #      Editor/GeneratePlaceholderModelAssets.cs 同理拷进 dist 内包目录的 Editor/（该目录已有
+    #      Adapter.Unity.Editor.asmdef，引用 Adapter.Unity 且不限制平台内容——脚本用到的
+    #      UnityEditor/UnityEditor.Animations/UnityEngine 均为内置模块，Core.Foundation.Common 由
+    #      Runtime/Plugins/Core/ 下的预编译 DLL 按 Unity 的精简引用平台设置自动提供，不需要在
+    #      asmdef 的 references 里显式列出），消费方装了这个包后可以在自己工程里直接用 Unity
+    #      菜单/脚本重新生成这批占位资产（例如自定义规格调整后）。同一份内容因此既随 dist zip
+    #      分发（下面 MANIFEST/lock 覆盖的 adapters/unity/Packages/... 路径本来就含这两处新增），
+    #      也随 com.gamefoundation.adapter.unity-<ver>.tgz 分发，不需要单独再打一份。
+    # -------------------------------------------------------------------
+    Write-Step "补齐 dist\$DistDirVersion\...\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\{models,anim_clips} 与 Editor 生成器（PJ130-02 根治）"
+    $distAdapterPkgDir = Join-Path $DistRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity"
+    $srcModelResourcesDir = Join-Path $RepoRoot "adapters\unity\Assets\Resources\GameFoundation"
+    $dstModelResourcesDir = Join-Path $distAdapterPkgDir "Runtime\Resources\GameFoundation"
+    if (-not (Test-Path $srcModelResourcesDir)) {
+        Write-Host "打分发包失败：找不到 $srcModelResourcesDir（model 占位资产源目录缺失）" -ForegroundColor Red
+        exit 1
+    }
+    New-Item -ItemType Directory -Force -Path $dstModelResourcesDir | Out-Null
+    Copy-Item -Path (Join-Path $srcModelResourcesDir "models") -Destination (Join-Path $dstModelResourcesDir "models") -Recurse -Force
+    Copy-Item -Path (Join-Path $srcModelResourcesDir "anim_clips") -Destination (Join-Path $dstModelResourcesDir "anim_clips") -Recurse -Force
+
+    $srcModelGeneratorPath = Join-Path $RepoRoot "adapters\unity\Assets\Editor\GeneratePlaceholderModelAssets.cs"
+    $srcModelGeneratorMetaPath = $srcModelGeneratorPath + ".meta"
+    if ((-not (Test-Path $srcModelGeneratorPath)) -or (-not (Test-Path $srcModelGeneratorMetaPath))) {
+        Write-Host "打分发包失败：找不到 $srcModelGeneratorPath 或其 .meta（model 占位资产生成器缺失）" -ForegroundColor Red
+        exit 1
+    }
+    $dstAdapterEditorDir = Join-Path $distAdapterPkgDir "Editor"
+    New-Item -ItemType Directory -Force -Path $dstAdapterEditorDir | Out-Null
+    Copy-Item -Path $srcModelGeneratorPath -Destination (Join-Path $dstAdapterEditorDir "GeneratePlaceholderModelAssets.cs") -Force
+    Copy-Item -Path $srcModelGeneratorMetaPath -Destination (Join-Path $dstAdapterEditorDir "GeneratePlaceholderModelAssets.cs.meta") -Force
+
+    # 上面两次 Copy-Item 发生在 5. 节最前面 Copy-DistDir 调用之后，需要重新统计一次
+    # $adapterFileCount（MANIFEST.txt 的 directory_file_counts 才能反映新增文件）。
+    $adapterFileCount = (Get-ChildItem -Path $distAdapterPkgDir -Recurse -File).Count
+    Write-Host ("  已补齐 model/anim_clips 占位资产 + 生成器 -> dist\{0}\adapters\unity\Packages\com.gamefoundation.adapter.unity\（当前共 {1} files）" -f $DistDirVersion, $adapterFileCount)
+
+    # -------------------------------------------------------------------
     # 5.05 P02 根治新增（审计 architecture/落地计划/audit-7e63d66-20260907/project-review.md
     #      P02）：toolchain/validator/Validator.csproj 在"源码树不存在"（本 dist ZIP、下方 5.15
     #      组装出的 com.gamefoundation.toolchain UPM 包 Tools~/validator/）场景下改用
