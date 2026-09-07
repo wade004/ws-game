@@ -73,6 +73,16 @@ progression/
    `ProgressionPersistable`/`ProgressionHost.RestoreState` 补上了这条路径：读档专用，允许指定
    非零 `xp`，且**会**调用 `ApplyGrowth` 按 1..level 重新聚合成长——与 `RegisterUnit`（全新单位，
    `xp` 恒 0，不重算成长）是两个语义不同的入口，不冲突。
+   **R08 收口（外部审计 5e779c6，P2，成立）**：`RestoreState` 补上成长修正重聚合后仍遗漏一环——
+   它不经过 `AddXp` 的正常升级路径，不发布 `LevelUpEvent`，任何按 `progression.level_up` 才失效
+   重算的下游缓存（当前唯一消费方：`core/numbers/stat_block.StatHost.RecomputeRatingStats`，见
+   06 第 1.1 节评级换算）读档后会一直停留在读档前的等级算出的值（外部审计复现）。现在
+   `RestoreState` 结尾额外发布一条新增的 `ProgressionRestoredEvent`（`progression.state_restored`）
+   ——不复用 `LevelUpEvent`：读档不是"发生了一次升级"，没有真实的"旧等级"，且可能一次性跨越
+   多级，复用会产生一串语义不自洽的虚假升级事件（见 `Events.cs` 判断记录）。
+   `core/rules/assembly.RulesAssembly` 订阅本事件同样调用 `Stats.RecomputeRatingStats`（与订阅
+   `LevelUpEvent` 那一条完全相同的方法，只是多一个触发来源）。见 `ProgressionHost.RestoreState`
+   判断记录、`core/rules/tests/Integration/ProgressionRestoreRatingRecomputeTests.cs`。
 
 5. **满级后 `AddXp` 整笔丢弃、记诊断、不发 `XpGainedEvent`**：任务书"到 max_level
    后经验不再累积（丢弃并记诊断）"。区分两种满级丢弃场景：调用时已在满级（整笔丢弃，不发

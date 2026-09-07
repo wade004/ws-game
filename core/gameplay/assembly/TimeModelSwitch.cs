@@ -427,12 +427,37 @@ namespace Core.Gameplay.Assembly
             }
         }
 
+        /// <summary>
+        /// R05 收边补齐（外部审计 5e779c6，P2）：连续/离散模式切换时的时间单位换算——此前只换算了
+        /// <see cref="_world"/> 的通用具名计时器（<see cref="SimTimers.RescaleAll"/>，respawn/economy
+        /// 补货一类倒计时），完全没有触及技能冷却（<c>core/rules/skill.CooldownTracker</c>）与光环
+        /// 剩余时间（<c>AuraHost</c>）——两者与 <see cref="SimTimers"/> 上的计时器同样"以数据集声明
+        /// 的时间单位计"（连续模式秒、离散模式轮，见 03 第 3.3 节步骤 2、<see cref="SimTimers.
+        /// RescaleAll"/> 类型注释"进入回合制时，正在生效的光环等以秒计的剩余时长按 seconds_per_turn
+        /// 折算为剩余回合数"），切换模式不换算就会被新模式的 tick 单位重新解读，导致切换后冷却/
+        /// 光环剩余时长突然错位（外部审计 R05 复现）。
+        /// <para>
+        /// 判断记录（为什么经 <see cref="Core.Rules.Common.TimeModelRescaledEvent"/> 广播，不直接持有
+        /// <c>SkillHost</c>/<c>AuraHost</c>/<c>CooldownTracker</c> 引用）：本类型属于
+        /// <c>core/gameplay/assembly</c>，<c>core/rules/skill</c> 是更底层的 L2 模块——直接持有其
+        /// 具体类型引用会越过 00 架构总则的分层依赖方向（只能由上层引用下层的公开契约，不能反过来
+        /// 让下层内部实现细节渗透到装配层的构造签名里）。本类型已经持有与
+        /// <c>core/rules/skill.SkillHost</c> 共享的同一个 <see cref="_bus"/> 实例（构造参数注入，
+        /// 见类型判断记录），改用 <see cref="IEventBus.PublishImmediate"/>（不是 <c>Enqueue</c>）
+        /// 同步广播这一条信号——必须在本方法返回前完成换算，不能等到下一次 <c>DispatchPending</c>
+        /// （切换后紧接着可能有代码立即读取冷却/光环剩余值）。见
+        /// <see cref="Core.Rules.Common.TimeModelRescaledEvent"/> 类型判断记录、
+        /// <c>SkillHost.OnTimeModelRescaled</c>。
+        /// </para>
+        /// </summary>
         private void RescaleTimers(double factor)
         {
             if (_world.Timers is SimTimers timers)
             {
                 timers.RescaleAll(factor);
             }
+
+            _bus.PublishImmediate(new TimeModelRescaledEvent(factor));
         }
 
         /// <summary>加固任务（05 §3.6 碰撞层落地）：排除 <see cref="CollisionLayers.TriggerOnly"/>

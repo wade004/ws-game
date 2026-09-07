@@ -51,6 +51,15 @@ namespace Core.Rules.Common
 
         /// <summary>建议行，见本类型上方判断记录。</summary>
         public static readonly Id TargetingResolved = new Id("targeting.resolved");
+
+        /// <summary>R05 收边补齐（外部审计 5e779c6，P2）：<c>core/gameplay/assembly.TimeModelSwitch</c>
+        /// 连续/离散模式切换时发出，通知全部"以数据集声明的时间单位计"的倒计时状态按同一系数换算
+        /// （见 <see cref="TimeModelRescaledEvent"/> 判断记录）。domain 归入 <c>sim</c>——与
+        /// <c>sim.round_ended</c>/<c>sim.turn_started</c> 等既有"时间推进/模式相关的内部信号"同一
+        /// domain，不是 06 第 8 节原文登记的五个 L2 domain 之一的新增细分事件，供
+        /// <c>found.event_catalog</c> 收口登记（见 data/_framework/found/found.event_catalog.json
+        /// 对应行）。</summary>
+        public static readonly Id TimeModelRescaled = new Id("sim.time_model_rescaled");
     }
 
     /// <summary>死亡复活策略（见 06 第 4.6 节表格，三值）。<see cref="UnitRespawnedEvent.Policy"/> 用本
@@ -744,6 +753,63 @@ namespace Core.Rules.Common
             {
                 case "unitId": value = ExprValue.OfId(UnitId); return true;
                 case "chainId": value = ExprValue.OfId(ChainId); return true;
+                default: value = default; return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// R05 收边补齐（外部审计 5e779c6，P2；见 <c>core/gameplay/assembly.TimeModelSwitch.
+    /// SwitchToDiscrete</c>/<c>SwitchToContinuous</c> 判断记录）：连续/离散模式切换时同步发出——
+    /// 技能冷却（<c>CooldownTracker</c>）与光环剩余时间（<c>AuraHost</c>）都是"以数据集声明的时间
+    /// 单位计"的纯倒计时状态（见 <c>CooldownTracker</c> 类型注释、<c>AuraInstanceState.Remaining</c>
+    /// 字段注释），连续模式下单位是秒（<c>SkillHost.Update(dt)</c> 每个连续 tick 以真实经过秒数
+    /// 调用）、离散模式下单位是轮（<c>SkillHost.AdvanceRoundTimers</c> 由
+    /// <c>core/rules/combat.SkillTickHandler</c> 订阅 <c>sim.round_ended</c> 以固定 <c>dt=1.0</c>
+    /// 调用一次）——两种模式下同一个"剩余数值"代表完全不同的物理时长，切换模式时若不把已经存在的
+    /// 剩余数值按 <c>found.time_model.seconds_per_turn</c> 同一换算系数转换，会在切换后被新模式的
+    /// tick 单位重新解读，导致剩余时长突然变短或变长（外部审计 R05 描述的"计时错位"）。
+    /// <para>
+    /// 判断记录（为什么不复用 <see cref="Core.Foundation.SimLoop.SimTimers.RescaleAll"/>）：
+    /// <c>SimTimers</c> 是 <c>core/foundation/sim_loop</c> 的通用具名计时器（<c>TimerHandle</c>），
+    /// <c>TimeModelSwitch.RescaleTimers</c> 已经在覆盖它；但技能冷却/光环剩余时间是
+    /// <c>core/rules/skill</c> 内部私有状态，不经过 <c>ISimTimers</c>，<c>core/gameplay/assembly</c>
+    /// 也不应该直接持有 <c>core/rules/skill</c> 的具体类型引用（跨越 L2/L4+ 的层级边界，见 00 架构
+    /// 总则分层依赖方向）——按本仓库一贯的跨模块解耦手法，改经由已经在两端都持有的同一个
+    /// <see cref="Core.Foundation.EventBus.IEventBus"/> 广播这一条同步信号，<c>SkillHost</c> 构造期
+    /// 订阅本事件、原子换算 <c>CooldownTracker</c>/<c>AuraHost</c> 名下全部倒计时（见两者
+    /// <c>RescaleAll</c> 方法判断记录），不需要 <c>GameplayAssembly</c> 额外接线新的直接引用。
+    /// <see cref="Core.Foundation.EventBus.IEventBus.PublishImmediate"/>（不是 <c>Enqueue</c>）
+    /// 发出——必须在 <c>SwitchToDiscrete</c>/<c>SwitchToContinuous</c> 方法返回前同步完成换算，不能
+    /// 等到下一次 <c>DispatchPending</c>（切换后立即可能有代码读取冷却/光环剩余值，如
+    /// <c>ISkillHost.GetCooldown</c>）。
+    /// </para>
+    /// </summary>
+    public sealed class TimeModelRescaledEvent : IEvent, IExprReadableEvent
+    {
+        public Id Key => RulesEventKeys.TimeModelRescaled;
+
+        /// <summary>换算系数——新单位下的 1 个时间单位对应旧单位下的多少个时间单位，与
+        /// <see cref="Core.Foundation.SimLoop.SimTimers.RescaleAll"/> 的 <c>factor</c> 语义完全一致：
+        /// 连续→离散传入 <c>1.0 / seconds_per_turn</c>（秒数换算成轮数），离散→连续传入
+        /// <c>seconds_per_turn</c>（轮数换算回秒数）。恒为正数。</summary>
+        public double Factor { get; }
+
+        public TimeModelRescaledEvent(double factor)
+        {
+            if (factor <= 0)
+            {
+                throw new ArgumentException("factor 必须为正数", nameof(factor));
+            }
+
+            Factor = factor;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "factor": value = ExprValue.OfNumber(Factor); return true;
                 default: value = default; return false;
             }
         }

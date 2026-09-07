@@ -216,6 +216,12 @@ namespace Core.Rules.Assembly
             //      RecomputeRatingStats 自己也会 Enqueue stat.changed，继而经上面第 1 条订阅联动
             //      触发 Powers.RecomputeMax——两个订阅合起来覆盖"属性/等级/装备/光环"全部四个来源，
             //      不需要更多订阅点。
+            //   3) R08 收边补齐（外部审计 5e779c6，P2）：progression.state_restored →
+            //      Stats.RecomputeRatingStats(unitId)——读档恢复等级（ProgressionHost.RestoreState）
+            //      不经过 AddXp 的正常升级路径，不会发布 progression.level_up（见
+            //      ProgressionRestoredEvent 判断记录"为什么不复用 LevelUpEvent"），第 2 条订阅覆盖
+            //      不到"读档"这个来源，评级换算属性缓存会一直停留在读档前的值（外部审计复现）。
+            //      与第 2 条调的是完全同一个方法，只是多一个触发来源。
             // -------------------------------------------------------------
             Bus.Subscribe<StatChangedEvent>(StatBlockEventKeys.StatChanged, evt =>
             {
@@ -225,6 +231,7 @@ namespace Core.Rules.Assembly
                 }
             });
             Bus.Subscribe<LevelUpEvent>(ProgressionEventKeys.LevelUp, evt => Stats.RecomputeRatingStats(evt.UnitId));
+            Bus.Subscribe<ProgressionRestoredEvent>(ProgressionEventKeys.StateRestored, evt => Stats.RecomputeRatingStats(evt.UnitId));
 
             StatBaseWriter archBaseWriter = (unitId, stat, value) => Stats.SetBase(unitId, stat, value);
             ArchStatModifierWriter archModifierWriter = (unitId, stat, op, value, sourceId) =>

@@ -174,6 +174,9 @@ namespace Core.Foundation.EventBus
         /// <summary>progression.level_up — 字段：unitId, oldLevel, newLevel。等级提升判定完成时触发（见 01 L1 模块表 progression 行）；字段为建议值。</summary>
         public static readonly Id ProgressionLevelUp = new Id("progression.level_up");
 
+        /// <summary>progression.state_restored — 字段：unitId, level。R08 收边补齐（外部审计 5e779c6）：读档恢复 player.progression 段（ProgressionHost.RestoreState）时触发，不经过正常升级路径、不发 progression.level_up；供依赖等级的下游缓存（StatHost.RecomputeRatingStats）失效重算，见 core/numbers/progression/contracts/Events.cs ProgressionRestoredEvent 判断记录。</summary>
+        public static readonly Id ProgressionStateRestored = new Id("progression.state_restored");
+
         /// <summary>progression.xp_gained — 字段：unitId, amount, sourceId。经验获取时触发（见 01 L1 模块表 progression 行）；字段为建议值。</summary>
         public static readonly Id ProgressionXpGained = new Id("progression.xp_gained");
 
@@ -221,6 +224,9 @@ namespace Core.Foundation.EventBus
 
         /// <summary>sim.tick_started — 字段：tickIndex, dt。WorldSim.tick 开始处理本次 SimStep 时触发（见 01 模块表 sim_loop 行、03 第 4.2 节）；sim_loop 实现（SimTickStartedEvent）额外携带 dt（本次 tick 经过秒数），已同步本行。</summary>
         public static readonly Id SimTickStarted = new Id("sim.tick_started");
+
+        /// <summary>sim.time_model_rescaled — 字段：factor。R05 收边补齐（外部审计 5e779c6）：连续/离散模式切换（core/gameplay/assembly.TimeModelSwitch）时同步发出，通知技能冷却（core/rules/skill.CooldownTracker）与光环剩余时间（AuraHost）按 found.time_model.seconds_per_turn 同一系数换算，避免切换后计时单位错位；factor 语义同 SimTimers.RescaleAll。</summary>
+        public static readonly Id SimTimeModelRescaled = new Id("sim.time_model_rescaled");
 
         /// <summary>sim.turn_ended — 字段：actorId。离散模式下某行动者的回合结束时触发（见 06 第 8 节）。</summary>
         public static readonly Id SimTurnEnded = new Id("sim.turn_ended");
@@ -331,6 +337,7 @@ namespace Core.Foundation.EventBus
             PresentationPlaybackFinished,
             ProcTriggered,
             ProgressionLevelUp,
+            ProgressionStateRestored,
             ProgressionXpGained,
             QuestAccepted,
             QuestCompleted,
@@ -347,6 +354,7 @@ namespace Core.Foundation.EventBus
             SimRoundEnded,
             SimTickFinished,
             SimTickStarted,
+            SimTimeModelRescaled,
             SimTurnEnded,
             SimTurnStarted,
             SkillCastFailed,

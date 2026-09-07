@@ -183,6 +183,33 @@ namespace Core.Carriers.Item
                 }
             }
 
+            // R03 收边补齐：套装门槛加成（RecomputeSetBonuses/_appliedSetBonuses）持有的句柄引用
+            // 同样要跟着迁移——理由与上面 _grantedAuras 完全对称：AllowMultiSourceTiming=false 时
+            // 装备 grants.auras 与套装门槛加成对同一个 aura_def 施加会合并成同一份实例，任意一侧先
+            // 达到 max_stacks 触发 Replace 都可能换掉另一侧已经记着的旧句柄；不迁移的话另一侧后续
+            // 释放引用时会拿着一个已经不存在的旧句柄调用 ReleaseAuraHandle，既找不到对应计数，也
+            // 无法让真正持有新句柄的那份计数归零——共享的光环实例最终会永久残留（不会被任何一侧
+            // 正确移除）。
+            foreach (var kv in _appliedSetBonuses)
+            {
+                if (!kv.Key.UnitId.Equals(targetId))
+                {
+                    continue;
+                }
+
+                foreach (var thresholdEntry in kv.Value)
+                {
+                    var list = thresholdEntry.Value;
+                    for (var i = 0; i < list.Count; i++)
+                    {
+                        if (list[i].AuraInstanceId.Equals(oldInstanceId))
+                        {
+                            list[i] = new AuraInstanceRef(newInstanceId);
+                        }
+                    }
+                }
+            }
+
             var oldHandleKey = (targetId, oldInstanceId);
             if (!_auraHandleRefCount.TryGetValue(oldHandleKey, out var migratingCount))
             {
@@ -489,7 +516,20 @@ namespace Core.Carriers.Item
 
             if (grants.TryGetValue("auras", out var aurasRaw) && aurasRaw is JsonArray aurasArr && aurasArr.Count > 0)
             {
+                // R03 收边补齐（外部审计 5e779c6，P2）：list 必须在遍历开始前就登记进
+                // _grantedAuras（不是遍历结束后一次性赋值）——同一件装备的 grants.auras 里重复
+                // 两次同一个 aura_def 时（如测试数据 item.repro.duplicate），第二次 ApplyAura 会因为
+                // maxStacks 溢出触发 StackOverflowPolicy.Replace，同步整发 OnAuraInstanceReplaced。
+                // 该回调按"_grantedAuras 里已登记的条目"做句柄迁移；如果这里的 list 还只是一个未登记
+                // 的局部变量，回调找不到第一次施加留下的那条记录去迁移，list 里就会残留一个已经失效
+                // 的旧句柄引用，且 _auraHandleRefCount 会被 ApplyGrants 自身的计数与回调迁移的计数
+                // 重复累加——Unequip 时因为多算的计数无法归零，光环卸不干净（见外部审计复现日志
+                // ReproEquipmentDuplicate 的 duplicate 分支）。提前登记后，回调能在同一次循环内原地
+                // 更新已有条目，list 与 _auraHandleRefCount 全程保持一致。
+                var key = (unitId, instance.InstanceId);
                 var list = new List<(Id, AuraInstanceRef)>();
+                _grantedAuras[key] = list;
+
                 foreach (var a in aurasArr)
                 {
                     if (a is JsonString asStr && Id.TryParse(asStr.Value, out var auraDefId))
@@ -497,15 +537,48 @@ namespace Core.Carriers.Item
                         // N09 收边补齐：先拿到本次施加实际落地的实例句柄，再按句柄（不是 auraDefId）
                         // 计数——见 _auraHandleRefCount 判断记录。
                         var granted = _effectSink.ApplyAura(unitId, auraDefId, instance.InstanceId);
-                        var handleKey = (unitId, granted.AuraInstanceId);
-                        _auraHandleRefCount[handleKey] = _auraHandleRefCount.TryGetValue(handleKey, out var count) ? count + 1 : 1;
+                        RegisterAuraHandle(unitId, granted.AuraInstanceId);
 
                         list.Add((auraDefId, granted));
                     }
                 }
-
-                _grantedAuras[(unitId, instance.InstanceId)] = list;
             }
+        }
+
+        /// <summary>
+        /// R03 收边补齐：登记"多了一个来源持有这个光环实例句柄"，供 <see cref="ReleaseAuraHandle"/>
+        /// 配对释放。<see cref="ApplyGrants"/>（装备本身的 <c>grants.auras</c>）与
+        /// <see cref="RecomputeSetBonuses"/>（套装门槛加成）此前各自维护互不相通的簿记
+        /// （<see cref="_auraHandleRefCount"/> 只被前者使用，后者直接无条件 ApplyAura/RemoveAura）——
+        /// <c>AllowMultiSourceTiming=false</c>（默认）时两者对同一个 <c>aura_def</c> 施加会在
+        /// <c>AuraHost</c> 内合并成<b>同一个</b>实例句柄（见 <c>AuraHost.ApplyAura</c> 按
+        /// <c>(target, aura_def)</c> 合并槽位），只要其中一处不参与共享计数，另一处卸载/降级时就会
+        /// 无条件调用 <see cref="IEffectSink.RemoveAura"/> 把仍被别处引用的共享实例整个移除——外部
+        /// 审计复现场景正是"卸下普通装备后，仍满足件数门槛的套装光环被一并删除"（见外部审计
+        /// ReproEquipmentDuplicate 的 set 分支）。统一改为两处都经这一对方法登记/释放，只有全部来源
+        /// 都释放完毕（计数归零）才真正调用 <see cref="IEffectSink.RemoveAura"/>。
+        /// </summary>
+        private void RegisterAuraHandle(Id unitId, Id auraInstanceId)
+        {
+            var handleKey = (unitId, auraInstanceId);
+            _auraHandleRefCount[handleKey] = _auraHandleRefCount.TryGetValue(handleKey, out var count) ? count + 1 : 1;
+        }
+
+        /// <summary>见 <see cref="RegisterAuraHandle"/> 判断记录——释放一个来源持有的引用；仍有其它
+        /// 来源持有同一句柄时只递减计数，真正归零时才调用 <see cref="IEffectSink.RemoveAura"/>。</summary>
+        private void ReleaseAuraHandle(Id unitId, AuraInstanceRef auraRef)
+        {
+            var handleKey = (unitId, auraRef.AuraInstanceId);
+            var remaining = _auraHandleRefCount.TryGetValue(handleKey, out var count) ? count - 1 : 0;
+
+            if (remaining > 0)
+            {
+                _auraHandleRefCount[handleKey] = remaining;
+                return;
+            }
+
+            _auraHandleRefCount.Remove(handleKey);
+            _effectSink.RemoveAura(unitId, auraRef);
         }
 
         private void RevertGrants(Id unitId, ItemInstance instance, DataRecord template)
@@ -530,23 +603,12 @@ namespace Core.Carriers.Item
             {
                 foreach (var (_, r) in list)
                 {
-                    // N09 收边补齐：按实例句柄（不是 auraDefId）计数，见 _auraHandleRefCount
-                    // 判断记录——AllowMultiSourceTiming=true 下每件装备的句柄互不相同，计数恒为 1，
-                    // 立即精确移除；=false 下多件装备共享同一句柄，计数聚合，只在最后一个引用退出时
-                    // 才真正移除。
-                    var handleKey = (unitId, r.AuraInstanceId);
-                    var remaining = _auraHandleRefCount.TryGetValue(handleKey, out var count) ? count - 1 : 0;
-
-                    if (remaining > 0)
-                    {
-                        // 仍有其它已装备物品持有同一个光环实例句柄（AllowMultiSourceTiming=false 的
-                        // 共享槽位场景）——这件装备自己的引用退出，但共享的光环实例继续保留。
-                        _auraHandleRefCount[handleKey] = remaining;
-                        continue;
-                    }
-
-                    _auraHandleRefCount.Remove(handleKey);
-                    _effectSink.RemoveAura(unitId, r);
+                    // N09/R03 收边补齐：按实例句柄（不是 auraDefId）计数，见 _auraHandleRefCount /
+                    // RegisterAuraHandle/ReleaseAuraHandle 判断记录——AllowMultiSourceTiming=true 下
+                    // 每件装备的句柄互不相同，计数恒为 1，立即精确移除；=false 下多件装备（含套装门槛
+                    // 加成，见 RecomputeSetBonuses）可能共享同一句柄，计数聚合，只在最后一个引用退出
+                    // 时才真正移除。
+                    ReleaseAuraHandle(unitId, r);
                 }
 
                 _grantedAuras.Remove(key);
@@ -581,13 +643,19 @@ namespace Core.Carriers.Item
                 if (currentCount >= threshold && !isApplied)
                 {
                     var handle = _effectSink.ApplyAura(unitId, auraRef, setId);
+                    // R03 收边补齐：套装门槛加成与装备 grants.auras（见 ApplyGrants/RevertGrants）
+                    // 统一经 RegisterAuraHandle/ReleaseAuraHandle 记账——AllowMultiSourceTiming=false
+                    // 时两者对同一个 aura_def 的施加会在 AuraHost 内合并成同一份实例句柄，这里不再
+                    // 各自为政，才能保证任一侧卸载/降级时都不会误删另一侧仍需要的共享光环（见该方法
+                    // 判断记录）。
+                    RegisterAuraHandle(unitId, handle.AuraInstanceId);
                     applied[threshold] = new List<AuraInstanceRef> { handle };
                 }
                 else if (currentCount < threshold && isApplied)
                 {
                     foreach (var r in applied[threshold])
                     {
-                        _effectSink.RemoveAura(unitId, r);
+                        ReleaseAuraHandle(unitId, r);
                     }
 
                     applied.Remove(threshold);

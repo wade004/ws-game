@@ -44,7 +44,8 @@ expr_host/
 | | `nearest_distance` | 无敌人时返回 `RulesExprHostFactory.NoEnemyDistance`（`1_000_000`，见判断记录） |
 | `time` | `sim_time` | 经构造注入的 `simTimeProvider` |
 | | `since_combat_start` | `simTimeProvider() - combatStartTimeProvider(selfId)` |
-| | `day_cycle`/`turn_index`/`round_index`/`is_my_turn` | 占位（分别对应昼夜循环、离散模式），恒返回 0/false，见判断记录 |
+| | `turn_index`/`round_index`/`is_my_turn` | 离散模式接入后（ADR-0013）由组装根注入的可选委托驱动，取当前轮/回合序号与"是否轮到本单位行动"；未注入委托时（如未启用离散模式）恒返回 `0`/`0`/`false`，见判断记录 |
+| | `day_cycle` | 恒返回 `0`——昼夜循环不在本模块任务范围内，没有任何委托/接线机制，是与前三个键不同的硬边界（不随任何组装配置变化），见判断记录 |
 | `event` | `event.<field>` | 经 `IExprReadableEvent.TryGetField`（见 common 模块该接口）——运行期查询任意字段名都会尝试；解析期 `RulesExprSchema.Base` 不逐字段登记，见下方"严格模式"一节 |
 | `world`/`quest`/`player` | 任意 | 委托给构造注入的 `extraGroups[group]`（`IExprGroupProvider`），未注入按默认值处理并警告一次；解析期同样不在 `RulesExprSchema.Base` 登记，需要经 `Compose` 叠加游戏层自己的登记表 |
 
@@ -79,9 +80,17 @@ expr_host/
    "严格模式"一节），既然无法在缺字段时确定"本应是什么类型"，本类型统一退化为 `Bool(false)`
    （与"未登记精确签名"分支复用同一条 `DefaultFor` 路径）。
 
-5. **`day_cycle`/`turn_index`/`round_index`/`is_my_turn` 是纯占位**：昼夜循环不在本任务范围内；
-   离散（回合制）时间模型本项目暂不启用（ADR-0013），四个键分别恒返回 `0`/`0`/`0`/`false`，
-   供已经在 Rotation/transitions 里写了这些引用的内容先解析通过，不代表任何真实语义。
+5. **`turn_index`/`round_index`/`is_my_turn` 已随离散时间模型接入（ADR-0013）真正接线，`day_cycle`
+   仍是纯占位**（2026-09-07 改写，此前四个键笼统写成"占位……本项目暂不启用"，与离散模式后续已经
+   落地的事实脱节）：`RulesExprHostFactory` 构造函数新增三个可选委托
+   `turnIndexProvider`/`roundIndexProvider`/`currentActorProvider`——`core/gameplay/assembly.GameplayAssembly`
+   在装配了 `Core.Foundation.SimLoop.TurnScheduler` 时会传入真实实现（分别读
+   `scheduler.CurrentTurnIndex`/`scheduler.RoundIndex`/`scheduler.GetCurrentActor()`），此时
+   `time.turn_index`/`time.round_index`/`time.is_my_turn` 反映真实的离散回合状态；未注入这三个
+   委托的组装场景（如未启用离散模式）仍按原占位语义恒返回 `0`/`0`/`false`，不破坏既有调用方。
+   `day_cycle` 不属于这次接线范围——昼夜循环不在本模块任务范围内，没有任何委托/接线机制，恒返回
+   `0`，是一条如实记录的边界，不代表任何真实语义，供已经在 Rotation/transitions 里写了这个引用
+   的内容先解析通过。
 
 6. **`world`/`quest`/`player` 分组缺失的警告"只记一次"，去重粒度是 `RulesExprHostFactory` 实例，
    不是每次 `CreateFor` 或每次 `Query`**：同一个工厂实例产出的全部 `Host`（不同 `selfId`/

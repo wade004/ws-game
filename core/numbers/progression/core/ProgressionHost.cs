@@ -278,6 +278,17 @@ namespace Core.Numbers.Progression
         /// 属性宿主自身的前置校验拒绝（本模块不重复做这层校验，职责边界见类型注释"不依赖具体属性
         /// 宿主实现"）。
         /// </summary>
+        /// <summary>
+        /// R08 收边补齐（外部审计 5e779c6，P2）：结尾发布 <see cref="ProgressionRestoredEvent"/>——
+        /// 恢复等级不经过 <see cref="AddXp"/> 的正常升级路径，不会发布 <see cref="LevelUpEvent"/>
+        /// （见该类型判断记录"为什么不复用 LevelUpEvent"），依赖等级的下游缓存
+        /// （<c>Core.Rules.Assembly.RulesAssembly</c> 订阅本事件调用
+        /// <c>StatHost.RecomputeRatingStats</c>）此前没有任何通知路径能感知"读档换了等级"，评级
+        /// 换算属性的缓存会一直停留在读档前（通常是刚构造、默认等级 1）算出的值，直到该单位下一次
+        /// 因为其它原因（装备变化等）真正触发 stat.changed／恰好再打一次怪连锁到
+        /// progression.level_up 才被动修正（外部审计复现：读档恢复高等级后，评级换算属性仍按等级 1
+        /// 的换算系数计算，直到偶然被其它事件带动重算）。
+        /// </summary>
         public void RestoreState(Id unitId, Id curveId, int level, long xp)
         {
             var curve = GetCurveOrThrow(curveId);
@@ -290,6 +301,7 @@ namespace Core.Numbers.Progression
             var unit = new UnitState { Curve = curve, Level = level, Xp = xp };
             _units[unitId.Value] = unit;
             ApplyGrowth(unitId, unit);
+            _bus.PublishImmediate(new ProgressionRestoredEvent(unitId, level));
         }
 
         public void GrantFromSource(Id unitId, Id xpSourceId, double multiplier = 1)

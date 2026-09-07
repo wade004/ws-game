@@ -127,6 +127,22 @@ namespace Core.Rules.Skill
             _pipeline = new CastPipeline(
                 _defs, _cooldowns, _auraHost, _effectDispatcher, targetHost, _units, spatialQuery,
                 powerHost, _spellMods, eventBus, options1, _diagnostics);
+
+            // R05 收边补齐（外部审计 5e779c6，P2；见 Core.Rules.Common.TimeModelRescaledEvent
+            // 类型判断记录）：本类型是 CooldownTracker/AuraHost 的组合根，在这里订阅一次、原子
+            // 换算两者名下全部倒计时，不需要 core/gameplay/assembly.TimeModelSwitch 直接持有
+            // 二者的具体类型引用（跨层直接引用会越过 00 架构总则的分层依赖方向）。
+            //
+            // 第五轮外部审核相邻缺口根治：CastPipeline（本类型同批组合的第三个持有倒计时状态的
+            // 组件，见其 _currentFactor 判断记录）此前未接入这一广播，同一批一并换算。
+            eventBus.Subscribe<TimeModelRescaledEvent>(RulesEventKeys.TimeModelRescaled, OnTimeModelRescaled);
+        }
+
+        private void OnTimeModelRescaled(TimeModelRescaledEvent evt)
+        {
+            _cooldowns.RescaleAll(evt.Factor);
+            _auraHost.RescaleAll(evt.Factor);
+            _pipeline.RescaleAll(evt.Factor);
         }
 
         // -----------------------------------------------------------------

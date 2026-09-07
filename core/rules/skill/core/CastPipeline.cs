@@ -42,6 +42,29 @@ namespace Core.Rules.Skill
     /// </summary>
     public sealed class CastPipeline
     {
+        /// <summary>
+        /// 第五轮外部审核相邻缺口根治（architecture/落地计划/audit-5e779c6-20260907，同
+        /// <see cref="CooldownTracker._currentFactor"/>/<see cref="AuraHost._currentFactor"/>
+        /// 同批语义、同一套推导——当前模式 1 个计时单位相当于连续模式（数据 authoring 的规范单位）
+        /// 多少秒；初始 1.0，随 <see cref="RescaleAll"/> 每次模式切换累乘更新）：<see
+        /// cref="EnterCastOrChannel"/> 施放当下从 <see cref="SkillDef"/> 读到的原始
+        /// <c>cast_time</c>/<c>channel_time</c>（经 <see cref="ComputeCastTime"/>/<see
+        /// cref="ComputeChannelTickInterval"/>）此前直接原样喂给 <see cref="CastState.Remaining"/>/
+        /// <see cref="CastState.TickInterval"/>，不管施放当下究竟处于连续还是离散模式——技能若是在
+        /// 离散战斗<b>进行中</b>才第一次被读条/引导（不是"连续模式下已有读条、切换时刻被换算"这条
+        /// R05 已解决的路径），按连续模式秒数 authoring 的原始时长会被离散模式按轮推进的 <see
+        /// cref="AdvanceOne"/> 直接当成"轮数"消耗，与 <see cref="CooldownTracker.StartCooldown"/>
+        /// 判断记录描述的是同一类缺口。本类型现持有 <see cref="_currentFactor"/>，<see
+        /// cref="EnterCastOrChannel"/> 在把原始 <c>cast_time</c>/<c>channel_time</c>/引导周期
+        /// <c>tick_interval</c> 写入 <see cref="CastState"/> 前先乘以该系数；<see cref="RescaleAll"/>
+        /// 同时把已经在读条/引导中的既有 <see cref="CastState"/>（<c>Remaining</c>/
+        /// <c>TickInterval</c>/<c>TickAccumulator</c>）按 <paramref name="factor"/> 换算——这是
+        /// <see cref="AuraHost.RescaleAll"/> 同步换算 <c>PeriodicAccumulators</c> 判断记录的直接
+        /// 类比：既有读条/引导若不随切换换算，"已读条时长/总时长""累加器/tick_interval 还差多久触发
+        /// 下一跳"这些比例关系会在切换瞬间被打破。
+        /// </summary>
+        private double _currentFactor = 1.0;
+
         private sealed class CastState
         {
             public Id SkillId;
@@ -284,10 +307,14 @@ namespace Core.Rules.Skill
             Id casterId, Id skillId, SkillDef def, IReadOnlyList<Id> targets, IReadOnlyList<(Id, double)> modifiedCost)
         {
             var castInstanceId = NextCastInstanceId();
-            var castTime = ComputeCastTime(casterId, def);
+            // 判断记录见类型顶部"_currentFactor"：cast_time/channel_time 都是从 SkillDef 原始数据
+            // 读出的一次性初始值，乘 _currentFactor 折算成当前生效模式的计时单位。isChannel 的判定
+            // 用未折算的 def.ChannelTime——_currentFactor 恒为正数，乘法不改变 > 0 判定结果。
+            var castTime = ComputeCastTime(casterId, def) * _currentFactor;
+            var channelTime = def.ChannelTime * _currentFactor;
             var isChannel = def.ChannelTime > 0;
 
-            _bus.Enqueue(new SkillCastStartEvent(casterId, skillId, isChannel ? def.ChannelTime : castTime));
+            _bus.Enqueue(new SkillCastStartEvent(casterId, skillId, isChannel ? channelTime : castTime));
 
             if (!isChannel && castTime <= 0)
             {
@@ -317,12 +344,12 @@ namespace Core.Rules.Skill
                 Def = def,
                 Targets = targets,
                 IsChannel = isChannel,
-                Remaining = isChannel ? def.ChannelTime : castTime,
-                TickInterval = isChannel ? ComputeChannelTickInterval(def) : 0,
+                Remaining = isChannel ? channelTime : castTime,
+                TickInterval = isChannel ? ComputeChannelTickInterval(def) * _currentFactor : 0,
                 ModifiedCost = modifiedCost,
                 // N19 收边补齐：与本次 SkillCastStartEvent.CastTime 同一个值，见 CastState.CastTimeSeconds
                 // 判断记录。
-                CastTimeSeconds = isChannel ? def.ChannelTime : castTime,
+                CastTimeSeconds = isChannel ? channelTime : castTime,
             };
 
             _casting[casterId] = state;
@@ -671,6 +698,31 @@ namespace Core.Rules.Skill
             foreach (var key in keys)
             {
                 _schoolLocks[key] = Math.Max(0, _schoolLocks[key] - dt);
+            }
+        }
+
+        /// <summary>
+        /// 第五轮外部审核相邻缺口根治：见类型顶部 <see cref="_currentFactor"/> 判断记录。由
+        /// <c>SkillHost.OnTimeModelRescaled</c> 与 <see cref="CooldownTracker.RescaleAll"/>/
+        /// <see cref="AuraHost.RescaleAll"/> 同一批调用（同一次模式切换广播的
+        /// <see cref="Core.Rules.Common.TimeModelRescaledEvent"/>）。<paramref name="factor"/>
+        /// 语义同 <see cref="CooldownTracker.RescaleAll"/>：新单位下 1 个单位对应旧单位下
+        /// <paramref name="factor"/> 个单位。
+        /// </summary>
+        public void RescaleAll(double factor)
+        {
+            if (factor <= 0)
+            {
+                throw new ArgumentException("factor 必须为正数", nameof(factor));
+            }
+
+            _currentFactor *= factor;
+
+            foreach (var state in _casting.Values)
+            {
+                state.Remaining *= factor;
+                state.TickInterval *= factor;
+                state.TickAccumulator *= factor;
             }
         }
 

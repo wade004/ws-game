@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Core.Foundation.Common;
+using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 
 namespace Core.Carriers.Item
@@ -230,6 +231,64 @@ namespace Core.Carriers.Item
                         ValidationSeverity.Error, "item.template", CheckEquipmentUnique,
                         $"槽位 \"{slot}\" 是已登记的装备槽，stack_size 必须为 1（实际 {stackSize}）",
                         recordKey: record.Key, field: "stack_size");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 相邻缺口根治（第五轮外部审核 audit-5e779c6-20260907 AUDIT_REPORT.md，WA 报告"需要说明的
+    /// 取舍"第 3 条）：<c>item.template.grants.auras</c> 同一件物品内重复登记同一个 <c>aura_def</c>
+    /// 引用 2 次及以上。<see cref="Core.Carriers.Item.EquipmentHost.ApplyGrants"/> 判断记录（R03
+    /// 收边补齐）已经保证这种数据运行期不会再产生残留句柄/计数不一致（第二次施加触发
+    /// <c>StackOverflowPolicy.Replace</c> 时能正确迁移句柄），但重复引用本身对数据作者而言几乎总是
+    /// 误操作——同一件装备只需要登记一次就能授予同一份光环，重复项不会带来任何额外效果（不是"叠加
+    /// 两次"，见 <c>AuraHost.ApplyAura</c> 同来源合并语义），多半是复制粘贴遗留或误增的冗余数据。
+    /// <para>
+    /// 判断记录（Warning 而非 Error）：不同于 <see cref="ItemWeaponProfileRule"/>/
+    /// <see cref="ItemStackSizeRule"/> 这类"必定是数据错误"的 Error 级规则，重复 <c>aura_def</c>
+    /// 引用运行期已确认安全（不会导致状态残留/引用计数错乱），拦截阻断会让本就合法可加载的数据集
+    /// 突然无法通过校验；提醒级别足以让内容作者注意到这处冗余并自行判断是否要清理，同
+    /// <c>SkillValidationRules.ChargesRechargeTimeZeroWarningRule</c>"可能是误操作、也可能是有意为之，
+    /// 交给作者复核"同一判断记录惯例。
+    /// </para>
+    /// </summary>
+    public sealed class ItemGrantsAurasDuplicateRule : IValidationRule
+    {
+        public const string Check = "item_grants_auras_duplicate";
+
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            foreach (var record in view.GetAll("item.template"))
+            {
+                if (!record.TryGetObject("grants", out var grants))
+                {
+                    continue;
+                }
+
+                if (!grants.TryGetValue("auras", out var aurasRaw) || !(aurasRaw is JsonArray aurasArr))
+                {
+                    continue;
+                }
+
+                var seen = new HashSet<string>();
+                var duplicates = new List<string>();
+                foreach (var a in aurasArr)
+                {
+                    if (a is JsonString s && !seen.Add(s.Value) && !duplicates.Contains(s.Value))
+                    {
+                        duplicates.Add(s.Value);
+                    }
+                }
+
+                foreach (var dup in duplicates)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Warning, "item.template", Check,
+                        $"grants.auras 重复登记了同一个 aura_def \"{dup}\"（同一份光环引用出现 2 次及以上）：" +
+                        "运行期不会因此产生残留状态，但重复项不会带来任何额外效果，多半是数据作者误操作，" +
+                        "建议只保留一份",
+                        recordKey: record.Key, field: "grants.auras");
                 }
             }
         }

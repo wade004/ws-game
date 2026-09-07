@@ -229,7 +229,9 @@ namespace Tests.Foundation.Data
             Assert.False(report.IsBlocking);
 
             Assert.NotNull(registry.Get("stat.definition", new Id("stat.strength")));
-            Assert.Equal(88, registry.GetAll("found.event_catalog").Count);
+            // R05/R08 收边补齐：新增 sim.time_model_rescaled、progression.state_restored 两条登记行
+            // （见 data/_framework/found/found.event_catalog.json 对应行），88 -> 90。
+            Assert.Equal(90, registry.GetAll("found.event_catalog").Count);
             // H4 新增 input.action.end_turn（离散时间模型结束回合意图，见该表判断记录），13 -> 14。
             Assert.Equal(14, registry.GetAll("found.input_action").Count);
 

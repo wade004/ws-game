@@ -173,6 +173,42 @@ namespace Tests.Gameplay.Discrete
         }
 
         /// <summary>
+        /// R05 收口（外部审计 5e779c6，P2；见 <c>TimeModelSwitch.RescaleTimers</c>、
+        /// <see cref="TimeModelRescaledEvent"/> 判断记录）：模式切换不能只换算
+        /// <see cref="Core.Foundation.SimLoop.SimTimers"/> 的通用具名计时器——技能冷却/光环剩余时间
+        /// 是 <c>core/rules/skill</c> 内部状态，本类型改经共享的 <see cref="IEventBus"/> 同步广播一条
+        /// <see cref="TimeModelRescaledEvent"/> 通知接收端（<c>SkillHost</c>）换算，本用例只验证
+        /// "切换那一刻确实同步发出了这条事件、且系数正确"这一层跨模块接线——换算数值本身的正确性
+        /// 由 <c>core/rules/skill/tests/TimeModelRescaleTests.cs</c>（同属本条允许改动范围）覆盖。
+        /// </summary>
+        [Fact]
+        public void SwitchToDiscrete_PublishesTimeModelRescaledEvent_WithReciprocalOfSecondsPerTurn()
+        {
+            var h = Build("discrete");
+            TimeModelRescaledEvent? received = null;
+            h.Bus.Subscribe<TimeModelRescaledEvent>(RulesEventKeys.TimeModelRescaled, evt => received = evt);
+
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero));
+
+            Assert.NotNull(received);
+            Assert.Equal(1.0 / 6.0, received!.Factor, 9);
+        }
+
+        [Fact]
+        public void SwitchBackToContinuous_PublishesTimeModelRescaledEvent_WithSecondsPerTurn()
+        {
+            var h = Build("discrete");
+            h.Bus.PublishImmediate(new CombatEnteredEvent(Hero));
+
+            TimeModelRescaledEvent? received = null;
+            h.Bus.Subscribe<TimeModelRescaledEvent>(RulesEventKeys.TimeModelRescaled, evt => received = evt);
+            h.Bus.PublishImmediate(new CombatLeftEvent(Hero));
+
+            Assert.NotNull(received);
+            Assert.Equal(6.0, received!.Factor, 9);
+        }
+
+        /// <summary>
         /// 根治修复（W5c，PlayMode 门实测暴露的既有缺陷，与本轮"离散回放门零事件步骤"根治任务同批
         /// 发现，见 <c>TimeModelSwitch.PopSubStatesThroughCombat</c> 判断记录）：脱战恰好发生在
         /// <c>CurrentSubState == SubStateId.Combat</c>（未嵌套任何离散节奏子状态，测试直接发布事件、

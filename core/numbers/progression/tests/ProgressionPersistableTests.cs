@@ -32,6 +32,9 @@ namespace Tests.Numbers.Progression
                     new[] { "unitId", "oldLevel", "newLevel" }),
                 new EventDefinition(ProgressionEventKeys.XpGained, "progression",
                     new[] { "unitId", "sourceId", "amount" }),
+                // R08 收边补齐：RestoreState（读档）结尾发布 ProgressionRestoredEvent，见该类型判断记录。
+                new EventDefinition(ProgressionEventKeys.StateRestored, "progression",
+                    new[] { "unitId", "level" }),
             });
             return new EventBus(catalog);
         }

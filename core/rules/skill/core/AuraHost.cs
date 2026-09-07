@@ -78,6 +78,18 @@ namespace Core.Rules.Skill
 
         private int _seq;
 
+        /// <summary>判断记录（"相邻缺口"根治，第五轮外部审核 audit-5e779c6-20260907 WA 报告"需要
+        /// 说明的取舍"第 1/2 条；与 <see cref="CooldownTracker._currentFactor"/> 同批语义、同一套
+        /// 系数含义，见该字段判断记录）：当前模式 1 个计时单位相当于连续模式（<c>aura_def</c> 数据
+        /// authoring 的规范单位）多少秒，初始 1.0（游戏总是从连续模式起步），随
+        /// <see cref="RescaleAll"/> 每次模式切换累乘更新。<see cref="ApplyAura"/> 施放当下把原始
+        /// <c>duration</c> 折算成当前模式单位（R05 只解决了"切换时刻既有实例的剩余时长换算"，未处理
+        /// "施放当下新建实例该按哪个单位解释原始数据"这一层，见任务判断记录）；<see cref="Update"/>
+        /// 同样用它把 <c>periodic_damage</c>/<c>periodic_heal</c> 的原始 <c>interval</c> 折算成当前
+        /// 模式单位（此前每次 <see cref="Update"/> 直接读原始值，不随模式换算，是 R05 判断记录明确
+        /// 记录未处理的"另一个更深的既有缺口"）。</summary>
+        private double _currentFactor = 1.0;
+
         /// <summary>供 <see cref="ProcHost.Attach"/>/<see cref="ProcHost.Detach"/> 挂载/摘除
         /// <c>proc_trigger</c> 光环效果绑定的触发器；由 <see cref="SkillHost"/> 在两者都构造完成后
         /// 设置（打破构造期循环依赖，见模块 README"组合根"一节）。</summary>
@@ -168,12 +180,19 @@ namespace Core.Rules.Skill
             return CreateInstance(targetId, def, sourceId, durationOverride, safeTags, triggerChainDepth);
         }
 
+        /// <summary>判断记录"相邻缺口根治"：把 <c>durationOverride ?? def.Duration</c>（原始/规范
+        /// 单位的持续时间，<c>null</c> 表示永久光环）折算成当前模式的计时单位，供
+        /// <see cref="CreateInstance"/>/<see cref="ReapplyExisting"/> 三处赋值 <c>Remaining</c> 的地方
+        /// 共用同一份逻辑（同 <see cref="CooldownTracker.StartCooldown"/> 判断记录，_currentFactor
+        /// 恒为正数，null 不受影响）。</summary>
+        private double? ScaleDuration(double? raw) => raw.HasValue ? raw.Value * _currentFactor : (double?)null;
+
         private AuraInstanceRef ReapplyExisting(AuraInstanceState existing, AuraDef def, Id sourceId, double? durationOverride, IReadOnlyList<Id> tags, int triggerChainDepth = 0)
         {
             var newStacks = existing.Stacks + 1;
             if (newStacks <= def.MaxStacks)
             {
-                existing.Remaining = durationOverride ?? def.Duration;
+                existing.Remaining = ScaleDuration(durationOverride ?? def.Duration);
                 existing.SourceId = sourceId;
                 existing.Tags = tags;
                 var old = existing.Stacks;
@@ -190,7 +209,7 @@ namespace Core.Rules.Skill
                     return new AuraInstanceRef(existing.InstanceId);
 
                 case StackOverflowPolicy.RefreshOnly:
-                    existing.Remaining = durationOverride ?? def.Duration;
+                    existing.Remaining = ScaleDuration(durationOverride ?? def.Duration);
                     return new AuraInstanceRef(existing.InstanceId);
 
                 case StackOverflowPolicy.Replace:
@@ -228,7 +247,7 @@ namespace Core.Rules.Skill
                 TargetId = targetId,
                 SourceId = sourceId,
                 Stacks = 1,
-                Remaining = durationOverride ?? def.Duration,
+                Remaining = ScaleDuration(durationOverride ?? def.Duration),
                 SeqNo = _seq,
                 Tags = tags ?? Array.Empty<Id>(),
             };
@@ -321,13 +340,28 @@ namespace Core.Rules.Skill
         // -----------------------------------------------------------------
 
         /// <summary>按 <paramref name="dt"/> 推进全部实例的持续时间与周期效果（见 06 第 3.3 节
-        /// <c>periodic_damage</c>/<c>periodic_heal</c>、第 3.8 节"周期 tick 顺序：按实例创建顺序"）。</summary>
+        /// <c>periodic_damage</c>/<c>periodic_heal</c>、第 3.8 节"周期 tick 顺序：按实例创建顺序"）。
+        /// <para>
+        /// R07 收边补齐（外部审计 5e779c6，P2）：一次 <paramref name="dt"/> 大于某实例剩余持续时间时
+        /// （典型场景：主循环追帧/大步长一次 tick 跨越了光环的到期点），周期效果的累加器只用"到期前
+        /// 那一段"（<c>Math.Min(dt, Remaining)</c>）推进，不是整个 <paramref name="dt"/>——修复前把
+        /// 全部 <paramref name="dt"/>（含到期之后、光环本不该再存在的那一段"时间余量"）都计入周期
+        /// 累加器，会多结算出本不该发生的周期次数（外部审计复现：duration=1、interval=0.3 的光环，
+        /// 一次 dt=5 的大步推进错误地按 <c>floor(5/0.3)=16</c> 次结算，而不是到期前应有的
+        /// <c>floor(1/0.3)=3</c> 次）。永久光环（<see cref="AuraInstanceState.Remaining"/> 为
+        /// <c>null</c>）没有到期点，仍用完整 <paramref name="dt"/>，行为不变。
+        /// </para>
+        /// </summary>
         public void Update(double dt)
         {
             var ordered = _instances.Values.OrderBy(i => i.SeqNo).ToList();
 
             foreach (var instance in ordered)
             {
+                // R07：到期前的有效时长——非永久光环夹到 [0, Remaining]，不让本次 tick 里"到期之后"
+                // 的那一段时间余量参与周期效果结算（见本方法判断记录）。
+                var periodicDt = instance.Remaining.HasValue ? Math.Max(0, Math.Min(dt, instance.Remaining.Value)) : dt;
+
                 var def = _defs.GetAuraDef(instance.DefId);
                 for (var i = 0; i < def.Effects.Count; i++)
                 {
@@ -337,14 +371,17 @@ namespace Core.Rules.Skill
                         continue;
                     }
 
-                    var interval = ParamsX.GetNumber(entry.Params, "interval");
+                    // 判断记录"相邻缺口根治"：原始 interval 同样是规范单位的 authoring 数值，乘
+                    // _currentFactor 折算成当前模式的计时单位——_currentFactor 每次 Update 都取最新
+                    // 值，模式切换后立即用新系数解释同一份原始数据，不需要额外缓存。
+                    var interval = ParamsX.GetNumber(entry.Params, "interval") * _currentFactor;
                     if (interval <= 0)
                     {
                         continue;
                     }
 
                     instance.PeriodicAccumulators.TryGetValue(i, out var acc);
-                    acc += dt;
+                    acc += periodicDt;
                     while (acc >= interval)
                     {
                         acc -= interval;
@@ -587,6 +624,55 @@ namespace Core.Rules.Skill
             }
 
             return consumed;
+        }
+
+        /// <summary>
+        /// R05 收边补齐（外部审计 5e779c6，P2；见 <see cref="Core.Rules.Common.TimeModelRescaledEvent"/>
+        /// 类型判断记录）：连续/离散模式切换时把全部光环实例的剩余持续时间按同一系数换算——
+        /// <see cref="AuraInstanceState.Remaining"/> 与 <see cref="CooldownTracker"/> 的倒计时同样
+        /// "以数据集声明的时间单位计"，连续模式是秒、离散模式是轮（见 <see cref="Update"/> 的调用
+        /// 时机判断记录），不换算会在切换后被新模式的 tick 单位重新解读，导致光环剩余时长突然
+        /// 变短或变长。永久光环（<see cref="AuraInstanceState.Remaining"/> 为 <c>null</c>）不受影响
+        /// （没有"剩余时长"可换算）。<paramref name="factor"/> 语义同
+        /// <see cref="Core.Foundation.SimLoop.SimTimers.RescaleAll"/>。
+        /// <para>
+        /// 判断记录（"相邻缺口"根治后改为同时换算 <see cref="AuraInstanceState.PeriodicAccumulators"/>，
+        /// 推翻本判断记录的历史结论——第五轮外部审核 audit-5e779c6-20260907 WA 报告"需要说明的取舍"
+        /// 第 2 条）：原判断记录"不换算累加器，因为 interval 本身也不换算"的前提已经不成立——
+        /// <see cref="Update"/> 现在每次都用 <see cref="_currentFactor"/> 把原始 <c>interval</c>
+        /// 折算成当前模式单位（见该方法判断记录），若累加器仍留在切换前的模式单位不换算，"累加器 /
+        /// interval"这个决定"还差多久触发下一跳"的比例关系会在切换瞬间被打破（新 interval 已经是新
+        /// 单位，旧 acc 还是旧单位，两者不可比）。累加器现与 <see cref="AuraInstanceState.Remaining"/>
+        /// 同样乘 <paramref name="factor"/>，保持该比例关系在切换前后连续。
+        /// </para>
+        /// </summary>
+        public void RescaleAll(double factor)
+        {
+            if (factor <= 0)
+            {
+                throw new ArgumentException("factor 必须为正数", nameof(factor));
+            }
+
+            // 判断记录同 CooldownTracker.RescaleAll：累乘更新，供本次切换之后 ApplyAura 施加的新
+            // 实例、Update 读取的 interval 按当前模式正确折算原始 authoring 数值。
+            _currentFactor *= factor;
+
+            foreach (var instance in _instances.Values)
+            {
+                if (instance.Remaining.HasValue)
+                {
+                    instance.Remaining = instance.Remaining.Value * factor;
+                }
+
+                if (instance.PeriodicAccumulators.Count > 0)
+                {
+                    var keys = new List<int>(instance.PeriodicAccumulators.Keys);
+                    foreach (var key in keys)
+                    {
+                        instance.PeriodicAccumulators[key] = instance.PeriodicAccumulators[key] * factor;
+                    }
+                }
+            }
         }
 
         public IReadOnlyList<Id> GetActiveAuraDefs(Id unitId) =>

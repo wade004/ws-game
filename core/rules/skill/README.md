@@ -293,6 +293,80 @@ skill/
     Load_SameHost_ReplacesCurrentPermanentSkillSet_RemovingSkillsLearnedAfterSnapshot`/
     `Load_SameHost_ReplacePermanentSet_DoesNotBreakIndependentEquipmentGrantLifecycle`。
 
+31. **R05 收口（外部审计 5e779c6，P2，成立，跨模块——本模块负责的一半）：`SkillHost` 订阅
+    `Core.Rules.Common.TimeModelRescaledEvent`，把技能冷却/充能恢复进度/光环剩余时间随连续↔离散
+    模式切换一起换算**：`core/gameplay/assembly.TimeModelSwitch` 切模式时此前只换算了
+    `core/foundation/sim_loop.SimTimers` 的通用具名计时器，完全没有触及本模块内部维护的
+    `CooldownTracker`/`AuraHost` 倒计时状态——两者与 `SimTimers` 上的计时器同样"以数据集声明的
+    时间单位计"（连续模式秒、离散模式轮），切换不换算就会被新模式的 tick 单位重新解读（外部审计
+    复现）。`CooldownTracker.RescaleAll(factor)`/`AuraHost.RescaleAll(factor)` 两个新增公开方法各自
+    按同一系数换算全部倒计时（`AuraHost.RescaleAll` 最初判断记录是"周期效果累加器不换算"，后续
+    相邻缺口根治时已推翻——见下方第 35 条），
+    `SkillHost` 构造期订阅一次、转发给两者——不需要 `TimeModelSwitch` 直接持有本模块任何具体类型
+    引用（跨越 L2/L4+ 层级边界），改经两端共享的同一个 `IEventBus` 广播。见
+    `core/rules/common/contracts/Events.cs`（`TimeModelRescaledEvent` 判断记录）、
+    `CooldownTracker.cs`/`AuraHost.cs`（`RescaleAll` 判断记录）、`SkillHost.cs`
+    （`OnTimeModelRescaled`）、新增测试文件 `core/rules/skill/tests/TimeModelRescaleTests.cs`；
+    跨模块另一半（`TimeModelSwitch.RescaleTimers` 发出事件）见
+    `core/gameplay/assembly/README.md` 同编号条目。
+
+32. **R06 收口（外部审计 5e779c6，P2，成立）：`recharge_time <= 0` 统一按"即时恢复"处理，不再
+    永久卡死**：`CooldownTracker.StartCooldown` 原实现把 `RechargeRemaining` 设成 0（"没有变化"），
+    `AdvanceCharges` 一看到 `RechargeRemaining <= 0` 就直接判定"没有需要推进的恢复"提前返回，
+    `Current` 永远不会被加回去——充能一旦耗尽就永久不可用（外部审计复现）。现在 `StartCooldown`
+    在 `recharge <= 0` 时把消耗的那一点充能当场原地补满，不产生"进入一个恢复窗口却再也不会被
+    推进"的中间状态。新增 `ChargesRechargeTimeZeroWarningRule`（`skill/schema/
+    SkillValidationRules.cs`，Warning 级、不阻断）提醒数据作者复核显式登记 0 是否真的是本意（若想
+    表达"永久不再恢复"，`charges` 不是合适字段）。见 `CooldownTracker.cs`（`StartCooldown` 判断
+    记录）、新增测试文件 `core/rules/skill/tests/ChargesZeroRechargeTests.cs`。
+
+33. **R07 收口（外部审计 5e779c6，P2，成立）：一次 `dt` 跨越光环到期点时，周期效果只按"到期前
+    那一段时长"结算**：`AuraHost.Update` 原实现把完整 `dt`（含到期之后本不该存在的时间余量）都
+    计入周期累加器，一次大步长（如主循环追帧）跨越到期点会多结算出本不该发生的周期次数（外部
+    审计复现：`duration=1`、`interval=0.3` 的光环一次 `dt=5` 的大步推进错误按
+    `floor(5/0.3)=16` 次结算，应为到期前的 `floor(1/0.3)=3` 次）。现在按
+    `Math.Min(dt, Remaining)` 推进周期累加器，`Remaining` 本身仍按完整 `dt` 递减（到期判定不变）；
+    永久光环（`Remaining` 为 `null`）没有到期点，不受影响。见 `AuraHost.cs`（`Update` 判断记录）、
+    新增测试文件 `core/rules/skill/tests/AuraExpiryPeriodicBoundaryTests.cs`。
+
+34. **R09 收口（外部审计 5e779c6，P2，成立）：`effects[]`/`charges`/`cost[]` 嵌套结构补齐加载期
+    校验，不再"能通过校验、施法时才抛异常"**：`SkillDefCache.ParseSkillDef`/`ParseAuraDef`（懒
+    解析，只在这个技能/光环第一次真正被解析——通常就是第一次被施放——时才跑）对这些嵌套结构做的
+    是无防御直接类型转换，原有的 `EffectKindRegisteredRule` 判断条件里 `is JsonObject`/
+    `TryGetValue`/`is JsonString` 任一环短路失败就整体跳过、不产生任何校验问题——`effects[i]`
+    根本不是对象、缺 `kind` 字段、`kind` 不是字符串三种更基础的坏形状因此完全不受校验、只在
+    运行期崩溃（外部审计复现："技能嵌套坏数据通过校验，使用时才抛异常"）。现在
+    `EffectKindRegisteredRule` 改为逐层显式检查，三种坏形状各自产生一条校验问题；新增
+    `ChargesShapeRule`（`charges.max`/`charges.recharge_time` 声明后均为必填）、
+    `CostEntryShapeRule`（`cost[].power_type`/`cost[].amount` 同理）两条规则，覆盖同一类"顶层字段
+    是可选对象/数组、但一旦声明其内部子字段即为必填"的嵌套结构。均为 Error 级（会真的在运行期
+    崩溃，不是可以放行的告警）。见 `schema/SkillValidationRules.cs`、新增测试文件
+    `core/rules/skill/tests/SkillValidationNestedGapTests.cs`（每个"未修复前会怎样"用例都先用
+    `SkillDefCache` 独立证实"这份数据确实会在解析时崩溃"，再证实新规则能在加载阶段拦下）。
+
+35. **相邻缺口根治（第五轮外部审核 audit-5e779c6-20260907，WA 报告"需要说明的取舍"第 1/2 条）：
+    施放/施加<b>当下</b>（不只是第 31 条覆盖的"切换那一刻"）按当前生效模式折算冷却/光环 duration/
+    周期 interval 的原始 authoring 数值**：第 31 条（R05）只解决了"已经存在的倒计时状态在模式切换
+    那一刻跟着换算"；`CooldownTracker.StartCooldown`/`AuraHost.ApplyAura` 此前施放/施加当下直接把
+    `SkillDef`/`AuraDef` 原始数据（authoring 时按连续模式秒数）原样写入倒计时状态，不管当下实际
+    处于哪种模式——若技能是在离散战斗<b>进行中</b>才第一次被释放（不是"连续模式下已有冷却、切换
+    时刻被换算"这条路径），原始秒数会被离散模式按轮推进的 `Update` 直接当成"轮数"消耗，同一份数据
+    因为"碰巧先手动切了一次模式还是没切"产生完全不同倍数的实际冷却/持续时间。现在
+    `CooldownTracker`/`AuraHost` 各自持有一个 `_currentFactor`（"当前模式 1 个计时单位相当于连续
+    模式多少秒"，初始 1.0，随 `RescaleAll` 每次切换累乘更新——与第 31 条既有的换算系数同一个含义、
+    同一个字段承担两件事）：`StartCooldown`（`cooldown_duration`/`charges.recharge_time`）、
+    `ApplyAura`（`duration`）、`Update`（`periodic_damage`/`periodic_heal` 的 `interval`）在消费
+    原始数据前都先乘上该系数；`AuraHost.RescaleAll` 同时改为一并换算
+    `AuraInstanceState.PeriodicAccumulators`（推翻第 31 条"周期累加器不换算"的历史判断——`interval`
+    换算之后，累加器若不跟着换算，"累加器/interval 还差多久触发下一跳"这个比例关系会在切换瞬间被
+    打破）。判断记录（未纳入本次范围）：`CastPipeline` 消费的 `cast_time`/`channel_time`、
+    `modify_cooldown`/`add_charge` 两个效果原语的运行期增量参数同属"未按当前模式折算"的相邻缺口，
+    但不在本次任务书列出的"冷却/光环 duration"范围内，未改动。见 `CooldownTracker.cs`（
+    `_currentFactor`/`StartCooldown`/`RescaleAll` 判断记录）、`AuraHost.cs`（`_currentFactor`/
+    `ScaleDuration`/`Update`/`RescaleAll` 判断记录）、新增测试文件
+    `core/rules/skill/tests/TimeModelCastTimeRescaleTests.cs`（6 条用例，覆盖冷却/充能/光环
+    duration 三条施放路径 + 周期 interval + 累加器换算比例保持）。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全

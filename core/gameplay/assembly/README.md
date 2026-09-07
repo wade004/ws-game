@@ -9,7 +9,8 @@
    九分组组合）→ 构造 `DataRegistry`。
 2. `GameplaySchemaCatalog.RegisterAll(registry)` 一次性注册 L0～L4 全部表/校验规则。
 3. `registry.LoadAll()`。
-4. `new GameplayAssembly(bus, registry, rng, world, spatial, playerUnitProvider, playerFactionId, ...)`
+4. `new GameplayAssembly(bus, registry, rng, world, spatial, saveSystem, playerUnitProvider, playerFactionId, ...)`
+   （`saveSystem: ISaveSystem` 是必填的第 6 个位置参数，此前本行示例遗漏，2026-09-07 勘误补上）
    拿到全部十个 L4 宿主 + `AppState`/`Hooks`/`Reward`/`ExprHostFactory`。
 5. 场景切换完成后调用一次 `GameplayAssembly.EnterMap(mapId, playerUnitId)`；旧场景卸载前
    （场景路由 `pre_unload` 钩子）调用一次 `GameplayAssembly.LeaveMap(mapId)`（ADR-0016 背景一节
@@ -66,7 +67,7 @@ assembly/
 | `TeleportResolverDelegate` | `TeleportTargetResolver.Resolve`（G1 已接线，按 `teleport_target_ref` 解析 `world.map`/`spawn_points`/`teleport_points`，见判断记录 4） | `GobjOptions` → `GameObjectHost` | 已解决 |
 | `SaveRequesterDelegate` | `RequestAutosave`（构造函数最前面的本地函数，先判 `saveSystem.ShouldAutoSave(AutoSaveTrigger.SavePoint)` 再 `saveSystem.Save(autosaveSlotId)`——加固任务补齐门控，`OnSavePoint=false` 时不再写盘；`DialogHost.saveRequested` 共用同一份，见 G1 遗留恢复判断记录） | `GobjOptions` → `GameObjectHost` | 已解决 |
 | `QuestActionDispatcherDelegate` | `Quest.Accept` | `GobjOptions` → `GameObjectHost` | 语义存疑，见判断记录 3 |
-| `TeleportRequestedCallback` | `GameplayAssembly.TeleportUnit`（只切 `MapId`，不落具体坐标） | `DialogHost` | |
+| `TeleportRequestedCallback` | `GameplayAssembly.TeleportUnit`（经 `TeleportTargetResolver` 解析出目标 `MapId`+坐标并两者都落地——`entity.MapId` 与 `Carriers.Units.SetPosition` 一并写入；同图只挪点位不重载场景，跨图才调用 `ISceneRouter.LoadScene`；2026-09-07 勘误：此前"只切 MapId，不落具体坐标"的描述已过时，不是当前实现） | `DialogHost`（gossip `teleport` 动作）；`gobj.interacted` 事件订阅（`HandleGobjTeleporterInteracted`，外部审计 5e779c6 R04 收口，直接交互 `kind=teleporter` 的 gobj 不经 gossip 时补上同一条路径，见判断记录） | |
 | `EncounterStartRequestedCallback` | `Encounter.Start(ref, 当前玩家所在地图, 玩家单位)` | `DialogHost`/`AreaTriggerOptions` | |
 | `TrapTriggerDelegate` | `Carriers.GameObjectInteractions.TriggerTrap` | `AreaTriggerOptions` → `AreaTriggerHost` | |
 | `MapTransitionRequestedDelegate` | `GameplayAssembly.TeleportUnit` | `AreaTriggerOptions` → `AreaTriggerHost` | |
@@ -74,8 +75,10 @@ assembly/
 
 ## tick 阶段挂载表
 
-全部四个新增 tick 处理器统一挂在 `TickPhase.TriggerEvaluation`（`IWorldSim` 对外开放的最后一个
-阶段——`EventDispatch`/`LifecycleCleanup` 由 `WorldSim` 自己执行，不可外部注册），按注册顺序执行：
+全部五个新增 tick 处理器统一挂在 `TickPhase.TriggerEvaluation`（`IWorldSim` 对外开放的最后一个
+阶段——`EventDispatch`/`LifecycleCleanup` 由 `WorldSim` 自己执行，不可外部注册），按注册顺序执行
+（2026-09-07 勘误：此前称"四个"，`Death`/`DeathPolicyHost` 是 W2 收边补齐时作为第 5 个处理器
+一并挂上的，下表本已列出五行，只是这句引子文字没有同步更新）：
 
 | 顺序 | 处理器 | 依赖的"本 tick 已完成"前提 |
 |---|---|---|
@@ -94,8 +97,10 @@ assembly/
 → `CurrencyPersistable`/`VendorStockPersistable` → `QuestPersistable` → `AchievementHost` →
 `SpawnHost` → `DroppedLootPersistable` → `DifficultyHost`（自定义段 `world.difficulty`）→
 `TurnScheduler`（`sim.turn_state`，只在装配了离散模式时注册）→
-`RngStreamsPersistable`（10 §3 步骤 8，全序最末——调用方需要自行额外注册，本方法不持有
-`IRngHost`）。实际读写顺序由 `SaveSections.KnownOrder` 决定（W2 收边补齐已把 7a 世界附属段与
+`RngStreamsPersistable`（10 §3 步骤 8，全序最末——`RegisterPersistables` 内部用构造期传入的同一个
+`IRngHost` 实例（`Rng` 属性）直接 `new RngStreamsPersistable(Rng)` 并注册，2026-09-07 勘误：此前
+"调用方需要自行额外注册，本方法不持有 IRngHost"的描述已过时，P1-03 收口已把这一步收进本方法内部，
+调用方不需要也不应该再自行重复注册一次）。实际读写顺序由 `SaveSections.KnownOrder` 决定（W2 收边补齐已把 7a 世界附属段与
 7b `sim.turn_state` 一并登记进该表，顺序与 10 文档"7a 后 7b"一致，见该表判断记录），与本方法内
 `RegisterPersistable` 调用顺序无关。
 
@@ -189,3 +194,39 @@ assembly/
    RegisterPersistables` 现分别注册两者，玩家等级/经验/职业模板引用可正常跨读档保留，端到端
    回归见 `core/gameplay/tests/EndToEndTests.cs`
    `SaveThenLoad_AfterLevelUp_RestoresProgressionAndArchetype` 一类用例。
+
+7. **R05 收口（外部审计 5e779c6，P2，成立，跨模块——本模块负责的一半）：`TimeModelSwitch.
+   RescaleTimers` 除了换算 `SimTimers`，还同步广播一条 `Core.Rules.Common.TimeModelRescaledEvent`**：
+   模式切换此前只换算了 `core/foundation/sim_loop.SimTimers` 的通用具名计时器，完全没有触及
+   `core/rules/skill`（技能冷却/光环剩余时间）模块内部维护的倒计时状态，切换后计时按新模式的
+   tick 单位重新解读会导致数值错位（外部审计复现）。本模块不能直接持有 `core/rules/skill` 的
+   具体类型引用（跨越 L2/L4+ 层级边界，见 00 架构总则分层依赖方向），改用 `TimeModelSwitch` 已经
+   持有、且与 `core/rules/skill.SkillHost` 构造期共享的同一个 `IEventBus`，
+   `PublishImmediate`（不是 `Enqueue`，必须在方法返回前同步完成）一条 `TimeModelRescaledEvent`，
+   `SkillHost` 订阅后自行换算——不需要本文件"装配顺序"新增任何构造参数或接线步骤。见
+   `TimeModelSwitch.cs`（`RescaleTimers` 判断记录）、`core/rules/common/contracts/Events.cs`
+   （`TimeModelRescaledEvent` 判断记录）；跨模块另一半（`SkillHost` 订阅后换算
+   `CooldownTracker`/`AuraHost`）见 `core/rules/skill/README.md` 同编号条目。测试见
+   `core/gameplay/tests/Discrete/TimeModelSwitchTests.cs`
+   `SwitchToDiscrete_PublishesTimeModelRescaledEvent_WithReciprocalOfSecondsPerTurn`/
+   `SwitchBackToContinuous_PublishesTimeModelRescaledEvent_WithSecondsPerTurn`（验证"确实发出了
+   事件、系数正确"这一层跨模块接线；换算数值本身的正确性见
+   `core/rules/skill/tests/TimeModelRescaleTests.cs`）。
+
+8. **R04 收口（外部审计 5e779c6，P2，成立）：新增 `gobj.interacted` 事件订阅，直接交互
+   `kind=teleporter` 的 gobj（不经 gossip）时补上跨图传送**：`GameObjectHost.DoTeleport`（
+   `core/carriers/gobj`，不在本模块写入范围）对跨地图目标正确解析出结果，但只把它经
+   `InteractResult.DispatchedRef` 原样返回；`InteractIntentTickHandler`（`CarriersAssembly`
+   注册，同样不在本模块写入范围）消费 `"interact"` 意图时只检查 `Success`，从未读取
+   `DispatchedRef`——直接交互一个 `kind=teleporter` 的跨地图 gobj（不经 gossip 的 `teleport`
+   动作）时，玩家地图/位置完全不变（外部审计复现）。gossip 一侧的 `teleport` 动作（`DialogHost`
+   → `teleportRequested` → 上方第 4 条的 `TeleportUnit`）本身没有问题，是不同代码路径。本模块
+   写入范围不含 `core/carriers/gobj`，改为在允许改动的本文件里独立订阅 `gobj.interacted`
+   （`_bus.Subscribe<GobjInteractedEvent>`）：该事件本身不携带 `DispatchedRef`，按
+   `gobjInstanceId` 反查一遍模板，只有 `GobjKind.Teleporter` 才按其 `teleport_target_ref` 重新
+   走一遍与 gossip teleport 完全相同的 `TeleportUnit`——同图时 `TeleportUnit` 内部
+   `mapIdBeforeMove == resolvedMapId` 判定为真直接返回（幂等，`DoTeleport` 已经做过的
+   `SetPosition` 结果一致，不产生第二次场景切换或位置偏移），不需要改动 gobj 模块内部实现。见
+   `GameplayAssembly.cs`（`HandleGobjTeleporterInteracted`）、
+   `core/gameplay/assembly/tests/GameplayAssemblyGobjTeleportInteractionTests.cs`（跨地图/同图
+   两条用例）。

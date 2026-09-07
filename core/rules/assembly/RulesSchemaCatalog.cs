@@ -132,6 +132,9 @@ namespace Core.Rules.Assembly
             registry.RegisterValidationRule(new EffectKindRegisteredRule());
             registry.RegisterValidationRule(new CastTimeChannelTimeExclusiveRule());
             registry.RegisterValidationRule(new PassiveSkillNoCastTimeRule());
+            registry.RegisterValidationRule(new ChargesRechargeTimeZeroWarningRule());
+            registry.RegisterValidationRule(new ChargesShapeRule());
+            registry.RegisterValidationRule(new CostEntryShapeRule());
 
             registry.RegisterValidationRule(new CombatHitTableValidationRule());
             registry.RegisterValidationRule(new CombatResistCurveValidationRule());

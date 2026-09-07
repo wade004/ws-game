@@ -67,6 +67,9 @@ namespace Core.Carriers.Assembly
             registry.RegisterValidationRule(new ItemWeaponProfileRule());
             registry.RegisterValidationRule(new ItemSetMembershipRule());
             registry.RegisterValidationRule(new ItemStackSizeRule());
+            // 相邻缺口根治（第五轮外部审核 audit-5e779c6-20260907，WA 报告"需要说明的取舍"第 3 条）：
+            // grants.auras 同一物品内重复登记同一个 aura_def，见 ItemGrantsAurasDuplicateRule 判断记录。
+            registry.RegisterValidationRule(new ItemGrantsAurasDuplicateRule());
 
             // item.template.slot/quality/set_id 三个字段已在 ItemSchemas.Template 声明为
             // FieldKind.Reference，data_registry 内置 reference_integrity 校验自动生效，不需要本类

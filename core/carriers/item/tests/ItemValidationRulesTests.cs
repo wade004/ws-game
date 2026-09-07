@@ -240,5 +240,69 @@ namespace Tests.Carriers.Item
 
             Assert.Empty(issues);
         }
+
+        // -----------------------------------------------------------------
+        // 相邻缺口根治（第五轮外部审核 audit-5e779c6-20260907，WA 报告"需要说明的取舍"第 3 条）：
+        // ItemGrantsAurasDuplicateRule——grants.auras 同一物品内重复登记同一个 aura_def。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void GrantsAurasDuplicateRule_SameAuraDefListedTwice_ReportsWarning()
+        {
+            var view = BuildView(
+                "[{\"id\": \"item.sample_dup_aura\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
+                " \"item_level\": 1, \"display_ref\": \"display.item.sample_dup_aura\", \"stack_size\": 1," +
+                " \"name_key\": \"l10n.item.sample_dup_aura\"," +
+                " \"grants\": {\"auras\": [\"skill.aura_def.sample_regen\", \"skill.aura_def.sample_regen\"]}}]");
+
+            var issues = new ItemGrantsAurasDuplicateRule().Validate(view).ToList();
+
+            Assert.Single(issues);
+            Assert.Equal(ItemGrantsAurasDuplicateRule.Check, issues[0].Check);
+            Assert.Equal(ValidationSeverity.Warning, issues[0].Severity);
+        }
+
+        [Fact]
+        public void GrantsAurasDuplicateRule_ThreeCopiesOfSameAuraDef_ReportsOnlyOneIssue()
+        {
+            // 重复 3 次也只应报一条问题（按去重后的 aura_def id 报告，不是按"重复出现的次数"报告）。
+            var view = BuildView(
+                "[{\"id\": \"item.sample_dup_aura3\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
+                " \"item_level\": 1, \"display_ref\": \"display.item.sample_dup_aura3\", \"stack_size\": 1," +
+                " \"name_key\": \"l10n.item.sample_dup_aura3\"," +
+                " \"grants\": {\"auras\": [\"skill.aura_def.sample_regen\", \"skill.aura_def.sample_regen\"," +
+                " \"skill.aura_def.sample_regen\"]}}]");
+
+            var issues = new ItemGrantsAurasDuplicateRule().Validate(view).ToList();
+
+            Assert.Single(issues);
+        }
+
+        [Fact]
+        public void GrantsAurasDuplicateRule_DistinctAuraDefs_NoIssue()
+        {
+            var view = BuildView(
+                "[{\"id\": \"item.sample_distinct_auras\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
+                " \"item_level\": 1, \"display_ref\": \"display.item.sample_distinct_auras\", \"stack_size\": 1," +
+                " \"name_key\": \"l10n.item.sample_distinct_auras\"," +
+                " \"grants\": {\"auras\": [\"skill.aura_def.sample_regen\", \"skill.aura_def.sample_ward\"]}}]");
+
+            var issues = new ItemGrantsAurasDuplicateRule().Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        [Fact]
+        public void GrantsAurasDuplicateRule_NoGrantsField_NoIssue()
+        {
+            var view = BuildView(
+                "[{\"id\": \"item.sample_no_grants\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
+                " \"item_level\": 1, \"display_ref\": \"display.item.sample_no_grants\", \"stack_size\": 1," +
+                " \"name_key\": \"l10n.item.sample_no_grants\"}]");
+
+            var issues = new ItemGrantsAurasDuplicateRule().Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
     }
 }

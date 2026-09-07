@@ -126,6 +126,38 @@ item/
    `ReplacePolicy_TwoItemsGrantSameAura_UnequipAFirst_KeepsAuraUntilBothUnequipped`
    （两种卸载顺序都验证"任一件仍装备着，光环就还在，全卸才清空"）。
 
+9. **R03 收口（外部审计 5e779c6，P2，成立）：套装门槛加成与装备 `grants.auras` 统一并入同一份
+   `_auraHandleRefCount` 记账，不再各自为政**——N09/C08（上两条）解决的是"多件装备各自的
+   `grants.auras`授予同一个 `aura_def`"这一半，`RecomputeSetBonuses`（套装门槛加成）此前完全不参与
+   `_auraHandleRefCount`：`AllowMultiSourceTiming=false` 时装备 `grants.auras` 与套装门槛加成对同一个
+   `aura_def` 施加，会在 `AuraHost` 内合并成同一份实例句柄，但只有 `ApplyGrants`/`RevertGrants`
+   一侧登记引用计数，`RecomputeSetBonuses` 一侧直接无条件 `ApplyAura`/`RemoveAura`——卸下普通装备时
+   `RevertGrants` 按自己那一份（未被套装分走）的计数归零，把共享的光环实例整个移除，即便套装仍
+   满足件数门槛（外部审计复现："卸下装备后，仍满足条件的低门槛套装光环被删除"）。现在
+   `RecomputeSetBonuses` 施加/降档套装门槛加成时同样调用 `RegisterAuraHandle`/`ReleaseAuraHandle`
+   （新增的一对私有方法，封装原先散落在 `ApplyGrants`/`RevertGrants` 里的计数逻辑），且
+   `OnAuraInstanceReplaced`（C08 的换句柄迁移回调）同步迁移 `_appliedSetBonuses` 里的句柄引用（此前
+   只迁移 `_grantedAuras`）。另外同一件装备的 `grants.auras` 里重复登记两次同一个 `aura_def`（叠层
+   溢出触发 `StackOverflowPolicy.Replace`，同一件装备内部换句柄）此前会被误判成"多了一个外部来源"
+   重复计数、卸装备后光环反而卸不干净，改为在遍历 `grants.auras` 前就把待建列表登记进
+   `_grantedAuras`（而不是遍历结束后一次性赋值），让 `OnAuraInstanceReplaced` 的迁移逻辑能在同一次
+   循环内原地更新已有条目。见 `EquipmentHost.cs`（`RegisterAuraHandle`/`ReleaseAuraHandle`/
+   `OnAuraInstanceReplaced`/`ApplyGrants` 判断记录）、`core/carriers/item/tests/
+   EquipmentSetBonusSharedAuraTests.cs`（新增测试文件，真实 `CarriersAssembly` 全链路：
+   `DuplicateAuraGrantsOnSameItem_Unequip_RemovesAuraCleanly`/
+   `UnequipOrdinaryItem_WhileSetBonusStillMet_KeepsSharedAura`/
+   `UnequipSetPieceFirst_ThenOrdinaryItem_RemovesAuraOnlyAfterAllSourcesGone`）。
+10. **相邻缺口根治（第五轮外部审核 audit-5e779c6-20260907，WA 报告"需要说明的取舍"第 3 条）：
+    `grants.auras` 同一物品内重复登记同一个 `aura_def` 新增数据校验提醒**——上一条（第 9 条）已经
+    保证这种数据运行期不会再产生残留句柄/计数不一致，但重复引用本身此前完全没有任何数据层校验
+    拦截，纯粹是"运行期凑巧不出错"，对内容作者而言仍是一处容易被忽略的冗余/误操作。新增
+    `ItemGrantsAurasDuplicateRule`（Warning 级，check 名 `item_grants_auras_duplicate`）：同一
+    `item.template.grants.auras` 内出现 2 次及以上同一个 `aura_def` 引用时提醒，不阻断合入（运行期
+    已确认安全，拦截会让本就合法可加载的数据集突然过不了校验）。见
+    `core/carriers/item/core/ItemValidationRules.cs`（`ItemGrantsAurasDuplicateRule`）、
+    `core/carriers/assembly/CarriersSchemaCatalog.cs`（`RegisterItemSchemas` 注册）、
+    `core/carriers/item/tests/ItemValidationRulesTests.cs`（新增 4 条用例）。
+
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.ISkillHost` 没有"学习/遗忘技能"方法（技能书能力目前只存在于
@@ -135,10 +167,13 @@ item/
 - `Core.Rules.Common.IEffectSink` 没有"按来源整体撤销光环"的方法（只有
   `RemoveAura(unitId, AuraInstanceRef)` 按单个实例句柄撤销）：本模块自行维护
   `Dictionary<(unitId, instanceId), List<AuraInstanceRef>>`/`Dictionary<(unitId, setId),
-  Dictionary<threshold, List<AuraInstanceRef>>>` 两份句柄表分别追踪"某件装备授予的光环"与"某个套装
-  某个门槛施加的光环"，卸下/降档时按句柄逐一 `RemoveAura`，不算契约缺口（`IEffectSink` 本就没有
-  "按来源批量撤销光环"这一语义，`StatModifier` 的按来源撤销是 L1 `stat_block` 独有能力，两者不
-  对称是既有设计，不是本次任务遗漏）。
+  Dictionary<threshold, List<AuraInstanceRef>>>` 两份表分别记录"某件装备/某个套装门槛各自持有哪些
+  句柄引用"，但这两份表不再各自独立决定"是否真的调用 `RemoveAura`"（R03 收口前是这样，见上方第 9
+  条判断记录）——两者共同经 `RegisterAuraHandle`/`ReleaseAuraHandle` 把引用计数并入同一份
+  `_auraHandleRefCount`（按实例句柄，不是按来源类型），只有全部来源（不论来自哪份表）都释放完毕、
+  计数真正归零才调用 `RemoveAura`。不算契约缺口（`IEffectSink` 本就没有"按来源批量撤销光环"这一
+  语义，`StatModifier` 的按来源撤销是 L1 `stat_block` 独有能力，两者不对称是既有设计，不是本次任务
+  遗漏）。
 - 07 第 6 节"武器决定普通攻击动作……属于表现层职责"：`EquipmentHost.GetWeaponProfile` 只提供
   `weapon_profile` 的原始数值（伤害区间、攻速、学派），不提供"当前武器外形分类"——外形分类经
   `display_ref` 关联 `display.map` 查询，属于表现层（09，不在本模块范围）的职责，本模块不越权
