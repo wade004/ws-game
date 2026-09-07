@@ -170,11 +170,11 @@ powershell -File build.ps1 -Release 1.0.0 -Publish                          # �
 7. 打包 `dist/<ver>/`、`dist/ws-game-<ver>.zip`（zip 内顶层目录 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、`git_commit`、六个核心 DLL 的 sha256）；非 `-DryRun` 时打包完成后自检 `git_commit` 必须等于上一步的发布提交且不带 `-dirty` 后缀，不满足则报错退出（此时提交已产生但未打标签，按打印的提示 `git reset --soft` 回退后修复重跑）；自检通过后打带注释标签 `v<ver>`（标签信息取 `CHANGELOG.md` 该版本条目正文），并打印后续需要人工/设计层执行的两条命令：
 
    ```powershell
-   git push origin main --tags
+   git push origin <当前分支> refs/tags/v<ver>
    gh release create v<ver> dist/ws-game-<ver>.zip dist/ws-game-<ver>.lock --title v<ver> --notes-file dist/release-notes-<ver>.txt
    ```
 
-   传 `-Publish` 则自动执行这两条命令；省略时只打印，由人工确认后自行运行（`.github/workflows/release.yml` 在标签推送后会检查 Release 是否已有对应 zip 附件，已有则跳过重新打包上传，不覆盖本机已验证的产物；没有才走它自己的兜底打包上传路径，见"持续集成"一节）。若本次版本号的 MAJOR 或 MINOR 段发生变化，额外打印建议的维护分支创建命令。
+   `<当前分支>` 取自 `git rev-parse --abbrev-ref HEAD`（`-Release` 全程不切换分支，就是打标签所在的那个分支：主线发布是 `main`，维护分支 PATCH 发布是 `release/X.Y.x`），只推本次新建的这一个标签（不带 `--tags` 全量推送）——维护分支上跑 `-Release`/`-Publish` 不会把 `main` 隐式往前推、也不会把本机其它未推送的本地标签一并带出去。传 `-Publish` 则自动执行这两条命令；省略时只打印，由人工确认后自行运行（`.github/workflows/release.yml` 在标签推送后会检查 Release 是否已有对应 zip 附件，已有则跳过重新打包上传，不覆盖本机已验证的产物；没有才走它自己的兜底打包上传路径，见"持续集成"一节）。若本次版本号的 MAJOR 或 MINOR 段发生变化，额外打印建议的维护分支创建命令。
 
 `dist/ws-game-<ver>.zip` 内的 `dist/<ver>/` 目录本身与既有 `-Dist` 打快照的产物结构一致（`MANIFEST.txt` 记录内容见下）；单独打 `dist/<ver>/` 而不做发布流程仍用 `build.ps1 -Dist <version>`；只想在已有 `dist/<ver>/` 基础上补一份 zip+lock（不校验/不提交/不打标签）用 `build.ps1 -Dist <version> -Zip`。
 
@@ -194,7 +194,7 @@ powershell -File build.ps1 -Release 1.0.0 -Publish                          # �
 git branch release/1.0.x v1.0.0
 ```
 
-在 `release/1.0.x` 分支上修复缺陷、提交，再在该分支上跑 `build.ps1 -Release 1.0.1`（PATCH 递增，其余步骤与主线发布完全一致），发布完成后把修复本身（不是整条分支历史）回合（cherry-pick 或 PR）到 `main`，避免主线丢失同一处缺陷的修复。
+在 `release/1.0.x` 分支上修复缺陷、提交，再在该分支上跑 `build.ps1 -Release 1.0.1`（PATCH 递增，其余步骤与主线发布完全一致），发布完成后把修复本身（不是整条分支历史）回合（cherry-pick 或 PR）到 `main`，避免主线丢失同一处缺陷的修复。`-Publish`（或人工执行上一节打印的 `git push` 命令）推送的是当前所在的 `release/1.0.x` 分支本身与新打的标签，`main` 不受影响、不会被隐式推进。
 
 ### 游戏侧引用与升级
 

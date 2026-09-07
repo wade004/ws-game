@@ -104,6 +104,20 @@ python toolchain/validate_data.py
 `StubFileSystem` 只有内存实现，本工具需要读真实文件，因此在工具自己的目录下补一个只读磁盘
 实现（不放进 `core/`，也不修改 `adapters/stub` 任何一行）。
 
+判断记录（P02 根治，2026-09-07，审计 `architecture/落地计划/audit-7e63d66-20260907/
+project-review.md` P02）：`Validator.csproj` 对核心程序集（`Core.Foundation`/`Core.Numbers`/
+`Core.Rules`/`Core.Carriers`/`Core.Gameplay`/`Presentation.Common`）的引用按"`presentation/`
+源码树是否存在"二选一——本仓库内（`presentation/Presentation.Common.csproj` 存在）走
+`ProjectReference`，与改动前行为一致；独立发行包内（`dist/ws-game-<ver>.zip` 的
+`toolchain/validator/`、UPM `com.gamefoundation.toolchain` 包内 `Tools~/validator/`，两者都不
+随包分发 `presentation/`/`core/`/`adapters/stub/` 源码）改引用同目录下 `lib/` 子目录的编译产物
+DLL——`lib/` 由 `build.ps1` 打分发包步骤显式补齐（源头是同一次打包已经拷进 dist 的适配层包
+`Runtime/Plugins/Core/` 产物），不提交到 git、也不存在于源码仓库本身。此前无条件引用
+`../../presentation/Presentation.Common.csproj` 与 `../../adapters/stub/Adapters.Stub.csproj`
+（后者是历史遗留死引用，本工具代码从未使用任何 `Adapters.Stub.*` 类型），导致独立包内
+`dotnet build`/`dotnet run --project toolchain/validator` 因引用路径不存在而失败（ZIP、UPM
+两条独立包消费复现均命中，见审计证据）。
+
 直接运行（不经 `validate_data.py`）：
 
 ```

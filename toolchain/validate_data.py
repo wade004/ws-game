@@ -370,7 +370,18 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    validator_project = repo_root / "toolchain" / "validator"
+    # 判断记录（P02 根治，2026-09-07，审计 project-review.md P02）：此前用
+    # `repo_root / "toolchain" / "validator"` 拼路径，`repo_root` = `find_repo_root()` =
+    # 本文件所在目录（toolchain/）的上一级。这在源码仓库内正确（repo_root 就是仓库根，
+    # repo_root/toolchain/validator 就是真实目录），但在 UPM `com.gamefoundation.toolchain`
+    # 包内不成立——本文件随包落在 `Tools~/validate_data.py`，`Tools~` 才是"本文件所在目录"，
+    # 其上一级是包根（不含 `toolchain/` 这一层名字），于是拼出不存在的
+    # `<package>/toolchain/validator`（实际目录是 `<package>/Tools~/validator`），
+    # `dotnet run --project` 直接报找不到项目文件。validator 目录在两种场景下都始终与本文件
+    # 直接同级（仓库内 toolchain/validate_data.py 与 toolchain/validator/；包内
+    # Tools~/validate_data.py 与 Tools~/validator/），改为相对本文件自身目录解析，不再依赖
+    # "repo_root/toolchain" 这一假设仓库布局的拼接方式，两种场景都能正确定位。
+    validator_project = Path(__file__).resolve().parent / "validator"
     cmd = [dotnet_path, "run", "--project", str(validator_project)]
     # 判断记录：本工具（`dotnet run`）与 `dotnet build`/`dotnet test` 一样支持 `--artifacts-path`
     # 统一构建产物落盘目录（见任务书硬性规则 5）；`validate_data.py` 本身不接受命令行参数指定该

@@ -27,6 +27,19 @@
     `.lock` 文件，如 `ws-game-1.0.0.zip` 配 `ws-game-1.0.0.lock`），跳过 `gh release download`，
     用于本机验证发布产物、或没有网络访问 GitHub 权限的场景。
 
+.PARAMETER AllowVersionMismatch
+    判断记录（P04 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+    project-review.md P04）：默认严格模式——锁文件里记录的实际版本号（`ws-game-<Version>.lock`
+    的 `version` 字段，即这份 zip 真正打包的版本）与调用方 `-Version` 请求的版本号不一致时直接
+    报错退出，不落地、不删除/不覆盖任何已有的 `-Target` 子目录（此前只 warning 后继续，会按
+    "请求版本号"命名落地目录并可能先删除该目录，导致例如请求 `-Version 1.0.1` 但本地归档实际是
+    1.0.0 时，1.0.0 的真实内容被落进名为 `ws-game-1.0.1` 的目录、且可能先删除了原本正确的
+    `ws-game-1.0.1` 目录——目录名与实际内容身份不符，是比"覆盖/删除"更根本的问题）。这个开关
+    默认关闭；显式传入后放行版本不一致的请求，但落地目录名与打印的引用示例改用锁文件记录的
+    *实际* 版本号（不是请求的 `-Version`），确保目录名永远与其内容真实身份一致；同时打印源
+    （锁文件 version）与目标（本次请求的 -Version，以及最终落地目录名）两侧身份，避免静默生效。
+    只影响 zip 通道的版本号一致性判定，不影响 DLL 哈希校验（哈希校验始终执行、不受本开关影响）。
+
 .PARAMETER FromRegistry
     私服交付通道新增：与上面"拉 zip 解压到 -Target"是完全不同的另一条通道，不下载/不解压任何
     文件——UPM 私服场景下，"拉包"这件事由 Unity 编辑器自己在打开工程/刷新包管理器时向注册表发
@@ -64,6 +77,7 @@ param(
     [string]$LockPath = "",
     [string]$Repo = "wade004/ws-game",
     [string]$FromLocalDist = "",
+    [switch]$AllowVersionMismatch,
     [switch]$FromRegistry,
     [string]$RegistryUrl = "",
     [string]$ManifestPath = ""
@@ -278,10 +292,10 @@ try {
     }
 
     # -----------------------------------------------------------------------------
-    # 2. 读锁文件，做基本校验（版本号字段应与 -Version 一致；不一致只警告不阻断——锁文件的
-    #    version 字段描述的是"这份 zip 实际打包的版本"，理论上应与文件名/请求的 -Version 一致，
-    #    但如果调用方明知故犯传了不匹配的 -FromLocalDist（例如临时验证用途），不强行阻断，只
-    #    提醒；真正决定"内容是否可信"的是下面的 DLL 哈希比对，而不是这个字段本身）。
+    # 2. 读锁文件，做基本校验（版本号字段应与 -Version 一致）。判断记录（P04 根治，见
+    #    .PARAMETER AllowVersionMismatch 说明）：默认严格模式，不一致直接报错退出、不落地、不
+    #    删除/不覆盖任何已有目标目录；显式 -AllowVersionMismatch 才放行，且放行后落地目录名与
+    #    引用示例一律改用锁文件记录的实际版本号（$EffectiveVersion），不再使用请求的 -Version。
     # -----------------------------------------------------------------------------
     Write-Step "读取锁文件并校验"
     $lockRaw = Get-Content -Path $LockSourcePath -Raw -Encoding UTF8
@@ -289,8 +303,17 @@ try {
     if ($null -eq $lockObj.dlls) {
         throw "锁文件 $LockSourcePath 缺少 dlls 字段（格式不是本工具认识的 ws-game.lock 结构）"
     }
+    $EffectiveVersion = $Version
     if ($lockObj.version -ne $Version) {
-        Write-Host "  警告：锁文件 version=$($lockObj.version) 与请求的 -Version=$Version 不一致" -ForegroundColor Yellow
+        if (-not $AllowVersionMismatch) {
+            throw ("锁文件 version=" + $lockObj.version + " 与请求的 -Version=" + $Version + " 不一致，默认严格模式下拒绝继续" +
+                   "（未落地、未删除/覆盖任何已有目标目录）。若确认要用这份实际版本号不同的归档（例如本机验证/迁移场景），" +
+                   "显式传 -AllowVersionMismatch 放行——放行后落地目录名与引用示例改用锁文件的实际版本号 " + $lockObj.version +
+                   "，不使用请求的 -Version，避免目录名与实际内容身份不符。")
+        }
+        $EffectiveVersion = $lockObj.version
+        Write-Host ("  警告：锁文件 version=" + $lockObj.version + " 与请求的 -Version=" + $Version + " 不一致——已传 -AllowVersionMismatch，放行。") -ForegroundColor Yellow
+        Write-Host ("  源（锁文件实际版本）=" + $lockObj.version + "；目标（本次请求版本）=" + $Version + "；落地目录名与引用示例将使用源版本号 " + $EffectiveVersion) -ForegroundColor Yellow
     }
     Write-Host "  锁文件 version=$($lockObj.version)，git_commit=$($lockObj.git_commit)"
 
@@ -343,7 +366,7 @@ try {
     # -----------------------------------------------------------------------------
     # 4. 校验通过：落地到 <Target>/ws-game-<Version>/（已存在则整体删除重建，视为一次全新拉取）。
     # -----------------------------------------------------------------------------
-    Write-Step "落地到 $Target/ws-game-$Version/"
+    Write-Step "落地到 $Target/ws-game-$EffectiveVersion/"
     $targetRootFull = $Target
     if (-not [System.IO.Path]::IsPathRooted($targetRootFull)) {
         $targetRootFull = Join-Path (Get-Location).Path $Target
@@ -351,7 +374,10 @@ try {
     if (-not (Test-Path $targetRootFull)) {
         New-Item -ItemType Directory -Force -Path $targetRootFull | Out-Null
     }
-    $extractDir = Join-Path $targetRootFull ("ws-game-" + $Version)
+    # 判断记录（P04 根治）：落地目录名固定用 $EffectiveVersion（未触发 -AllowVersionMismatch 时
+    # 等于 $Version，二者相同；触发且放行后等于锁文件实际版本号），保证目录名与实际落地内容的
+    # 身份始终一致，不会出现"请求版本号命名的目录，装着另一个版本的真实内容"。
+    $extractDir = Join-Path $targetRootFull ("ws-game-" + $EffectiveVersion)
     if (Test-Path $extractDir) {
         Write-Host "  目标目录已存在，整体删除重建：$extractDir" -ForegroundColor Yellow
         Remove-Item -Path $extractDir -Recurse -Force -Confirm:$false
@@ -362,7 +388,7 @@ try {
     }
     Write-Host "  已落地：$extractDir"
     Write-Host "  引用示例（游戏工程 Packages/manifest.json，相对路径按实际目录层级调整）："
-    Write-Host "    `"com.gamefoundation.adapter.unity`": `"file:.../$Target/ws-game-$Version/adapters/unity/Packages/com.gamefoundation.adapter.unity`""
+    Write-Host "    `"com.gamefoundation.adapter.unity`": `"file:.../$Target/ws-game-$EffectiveVersion/adapters/unity/Packages/com.gamefoundation.adapter.unity`""
 
     # -----------------------------------------------------------------------------
     # 5. 写入/校验游戏仓库根的 ws-game.lock：内容与本次下载的锁文件一致则跳过（已是最新）；
@@ -403,5 +429,5 @@ try {
 }
 
 Write-Host ""
-Write-Host "get_framework.ps1 完成：version=$Version 已校验并落地到 $Target/ws-game-$Version/" -ForegroundColor Green
+Write-Host "get_framework.ps1 完成：version=$EffectiveVersion 已校验并落地到 $Target/ws-game-$EffectiveVersion/" -ForegroundColor Green
 exit 0

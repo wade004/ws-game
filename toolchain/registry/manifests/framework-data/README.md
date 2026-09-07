@@ -51,6 +51,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\sync_package_conte
 
 - `Data~/data/_framework` → `<工程根>/Assets/StreamingAssets/GameFoundation/data/_framework`
 - `Data~/assets/_placeholder` → `<工程根>/Assets/StreamingAssets/GameFoundation/assets/_placeholder`
+  （整体镜像，保留原始子目录名）
+- `Data~/assets/_placeholder/{sprites,sfx,vfx}` → `<工程根>/Assets/StreamingAssets/
+  GameFoundation/{sprites,audio,vfx}`（P07 根治新增，2026-09-07：额外按 `UnityResourceLoader`
+  实际查找的目标子目录名再同步一份——加载器不读上一条镜像出来的 `assets/_placeholder/<原始子目录
+  名>/...`，只认 `GameFoundation/sprites|audio|vfx/...`，两棵目录树是不同的路径；映射表见
+  `toolchain/resource_layout_map.json`，与框架仓库 `build.ps1` 同步进工作台工程用的是同一份）
 - `Data~/assets/textmesh_pro_essentials` → `<工程根>/Assets/TextMesh Pro`
   （不进 `StreamingAssets`——TMP 运行期资源必须是被 Unity 资产管线正式导入过的 `.asset`/
   `Shader` 等对象，`TMP_Settings` 是靠 Unity 在场景/首次绘制时按固定资源路径

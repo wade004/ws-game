@@ -20,6 +20,11 @@
 .PARAMETER NpmrcPath
     输出的 .npmrc 路径，默认本目录 .npmrc（.gitignore 已忽略，含令牌，不得提交）。
 
+.PARAMETER HtpasswdPath
+    直接写入的 htpasswd 文件路径，默认本目录 htpasswd（与 config.yaml `auth.htpasswd.file: ./htpasswd`
+    一致）。见下方"P06 根治"判断记录——本脚本改为先直接把发布账号的 bcrypt 哈希写进这个文件，
+    再发 HTTP 请求换取令牌，不再依赖 Verdaccio 的自注册端点。
+
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符。
 
@@ -29,17 +34,33 @@
     用户接口：`PUT /-/user/org.couchdb.user:<username>`，请求体 `{name, password}`，服务端建
     （或更新）该用户的 htpasswd 条目并在响应体里直接返回一个可用的认证令牌（`token` 字段）——这正是
     `npm adduser` 内部实际调用的同一个 HTTP 端点，只是 npm CLI 把"发 HTTP 请求"包在了交互式提示
-    后面。本脚本跳过交互提示，直接发这个 PUT 请求拿到令牌，等价于无人值守跑完了 `npm adduser`。
-    令牌写入项目本地 `.npmrc`（`//<host>/:_authToken=<token>`），不写用户全局 `~/.npmrc`——
+    后面。令牌写入项目本地 `.npmrc`（`//<host>/:_authToken=<token>`），不写用户全局 `~/.npmrc`——
     `npm publish --userconfig <本地 .npmrc 路径>` 即可用该令牌完成发布，不污染本机其它 npm 配置、
     不需要任何人工在终端里输入用户名密码。
+
+    判断记录（P06 根治，2026-09-07，htpasswd 预写入，见 config.yaml 同批修改）：`config.yaml`
+    把 `auth.htpasswd.max_users` 改成 `-1`（彻底禁用自注册，堵住"任何访问者自行注册即可获得
+    发布权限"这个 P06 漏洞）之后，原来"直接发 PUT 请求建号"的方式会失败——Verdaccio 未预先以
+    目标用户身份认证的 PUT 请求走 `auth.add_user`，与 `npm adduser`/任意访客自注册走的是同一条
+    受 `max_users` 门槛限制的路径，无法自己豁免自己。改为：发 PUT 请求前，先用本脚本内嵌的一段
+    Node 脚本（复用已随 Verdaccio 一起安装、`toolchain/registry/node_modules/bcryptjs` 提供的
+    bcrypt 实现，rounds=10，与 verdaccio-htpasswd 插件默认哈希算法/轮数一致，见其 `htpasswd.js`
+    构造函数）直接把该账号的哈希写进 `-HtpasswdPath` 指向的文件（若该用户名已有旧条目，先移除
+    再追加新的，天然支持"重跑本脚本=改密码"）。这样发起 PUT 请求时，请求自带的 Basic 认证头已经
+    能通过 htpasswd 文件验证，Verdaccio 的 `user.js` 路由处理器判定"请求已经以目标用户身份认证"
+    （`remoteName === name`），改走"重新登录换新令牌"分支（`auth.authenticate`），完全不经过
+    `auth.add_user`/`sanityCheck`/`max_users` 这条门槛——这是 Verdaccio 自己路由逻辑里本来就有
+    的分支，不是绕开安全检查的后门；效果是"只有知道本脚本、能在本机文件系统写 htpasswd 文件的人
+    才能创建初始发布账号"，普通网络访问者（哪怕是局域网内其它机器）无法再通过 HTTP 自注册拿到
+    任何账号，与 P06 的目标一致。
 #>
 param(
     [string]$RegistryUrl = "",
     [string]$Username = "ws-game-publisher",
     [string]$Password = "ws-game-publisher-local",
     [string]$Email = "ws-game-publisher@local.invalid",
-    [string]$NpmrcPath = ""
+    [string]$NpmrcPath = "",
+    [string]$HtpasswdPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -65,6 +86,63 @@ $RegistryUrl = $RegistryUrl.TrimEnd('/')
 
 if ($NpmrcPath -eq "") {
     $NpmrcPath = Join-Path $ScriptDir ".npmrc"
+}
+if ($HtpasswdPath -eq "") {
+    $HtpasswdPath = Join-Path $ScriptDir "htpasswd"
+}
+
+# -----------------------------------------------------------------------------
+# P06 根治：config.yaml 的 auth.htpasswd.max_users 已改为 -1（彻底禁用自注册），下面第二步的
+# HTTP PUT 建号请求必须先以目标用户身份"已认证"才能走"换令牌"分支而不触发这道门槛（见文件头
+# "P06 根治"判断记录）。这里先用内嵌 Node 脚本直接把该账号的 bcrypt 哈希写进 htpasswd 文件——
+# 复用随 Verdaccio 一起装好的 node_modules/bcryptjs（无需额外安装依赖），rounds=10 与
+# verdaccio-htpasswd 插件默认一致。若该用户名已有旧条目（重跑本脚本/改密码），先移除再追加新的。
+# -----------------------------------------------------------------------------
+Write-Step "直接写入 htpasswd 账号条目（P06 根治：绕开受 max_users 门槛限制的自注册端点）：$HtpasswdPath"
+$nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+if (-not $nodeCmd) {
+    Write-Host "找不到 node（本目录 node_modules/bcryptjs 需要用 node 运行），请先安装 Node.js" -ForegroundColor Red
+    exit 1
+}
+$bcryptjsDir = Join-Path $ScriptDir "node_modules\bcryptjs"
+if (-not (Test-Path $bcryptjsDir)) {
+    Write-Host "找不到 $bcryptjsDir（先跑 npm ci 安装 toolchain/registry 的依赖，见该目录 README.md）" -ForegroundColor Red
+    exit 1
+}
+
+$seedScriptPath = Join-Path $env:TEMP ("ws_game_htpasswd_seed_" + [guid]::NewGuid().ToString("N") + ".js")
+$seedScriptLines = @(
+    "const fs = require('fs');",
+    "const bcrypt = require(process.argv[2]);",
+    "const htpasswdPath = process.argv[3];",
+    "const username = process.argv[4];",
+    "const password = process.argv[5];",
+    "const hash = bcrypt.hashSync(password, 10);",
+    "const comment = 'autocreated ' + new Date().toJSON();",
+    "const newLine = username + ':' + hash + ':' + comment;",
+    "let lines = [];",
+    "if (fs.existsSync(htpasswdPath)) {",
+    "  const raw = fs.readFileSync(htpasswdPath, 'utf8');",
+    "  lines = raw.split(/\r?\n/).filter(function (line) {",
+    "    if (!line.trim()) return false;",
+    "    const existingUser = line.split(':', 1)[0];",
+    "    return existingUser !== username;",
+    "  });",
+    "}",
+    "lines.push(newLine);",
+    "fs.writeFileSync(htpasswdPath, lines.join('\n') + '\n', 'utf8');",
+    "console.log('seeded: ' + username);"
+)
+[System.IO.File]::WriteAllLines($seedScriptPath, $seedScriptLines, (New-Object System.Text.UTF8Encoding($false)))
+try {
+    & node $seedScriptPath $bcryptjsDir $HtpasswdPath $Username $Password
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "写入 htpasswd 账号条目失败，退出码 $LASTEXITCODE" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  已写入 $HtpasswdPath 的账号条目：$Username"
+} finally {
+    Remove-Item -Path $seedScriptPath -Force -ErrorAction SilentlyContinue
 }
 
 Write-Step "确认私服可访问：$RegistryUrl/-/ping"

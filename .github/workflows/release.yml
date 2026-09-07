@@ -186,6 +186,31 @@ jobs:
           }
           "skip=$skip" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
+      - name: build.ps1 -SkipTests (produce default-location DLLs for packaging)
+        # 判断记录（P01 根治，2026-09-07）：check.ps1 -Quick 的 "dotnet build" 步骤固定带
+        # `--artifacts-path`（见 check.ps1 .PARAMETER ArtifactsPath 说明及其对
+        # `dotnet build/test` 的调用），这是 dotnet SDK 的统一产物布局（unified artifacts output），
+        # 产物落在 `<artifacts-path>/bin/<project>/<pivot>/` 下，不是 build.ps1 打包步骤固定读取的
+        # 传统逐工程目录 `core/*/bin/$Configuration/netstandard2.1/*.dll`（见 build.ps1 第 545 行
+        # `$asm.Dir + "\bin\$Configuration\netstandard2.1\..."`）。check.ps1 全量模式第 9 步
+        # （"build.ps1 -SkipTests（同步 DLL）"）本来就是靠再跑一次不带 --artifacts-path 的
+        # `dotnet build` 来补齐这批传统路径产物，但该步骤在 `-Quick` 下被跳过（-Quick 的设计前提
+        # 是"这一步只有 Unity 相关步骤需要"，当时没有考虑到 release.yml 的打包 fallback 同样依赖
+        # 这批传统路径 DLL）。因此这里在 `-SyncOnly -Dist -Zip` 之前显式补跑一次
+        # `build.ps1 -SkipTests`（不带 -SyncOnly，走完整 `dotnet build` 分支，跳过 `dotnet test`——
+        # 测试已经被上面的 check.ps1 -Quick 覆盖过一遍，不重复跑），产出传统路径 DLL 并同步进
+        # Unity 适配层包的 Runtime/Plugins/Core/，下面 `-SyncOnly` 步骤（第 3 步 DLL 同步）才能找到
+        # 源文件。这条路径与 check.ps1 全量模式第 9 步是同一段逻辑、同一个根因修法，只是移到
+        # release.yml 里显式补一次，而不是放宽 -Quick 本身的跳过范围（-Quick 仍然只覆盖
+        # dotnet/python 校验、不隐含"顺带把 DLL 摆到打包需要的位置"这个语义，避免以后有人在别的
+        # -Quick 调用点意外依赖这个副作用）。
+        if: steps.assets.outputs.skip != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -SkipTests
+          exit $LASTEXITCODE
+
       - name: build.ps1 -SyncOnly -Dist <version> -Zip
         if: steps.assets.outputs.skip != 'true'
         shell: powershell

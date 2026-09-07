@@ -88,9 +88,23 @@ download` 或 `-FromLocalDist`）是并列的两条消费通道，不是"私服�
   `com.gamefoundation`、路径下有子级"的包，匹配不到任何真实包名，必须改成按名字前缀匹配的
   `com.gamefoundation.*`。这是任务描述与 npm/Verdaccio 实际语法之间的一处术语误用，本次落地时
   按 Verdaccio 真实语法改写，效果（三个包允许匿名读、发布需登录）与任务描述的意图一致。
-- **无人值守发布账号**：见 `init_publisher.ps1` 头部判断记录——直接调用 Verdaccio 内置 htpasswd
-  插件复用的 `PUT /-/user/org.couchdb.user:<name>` 接口（`npm adduser` 内部实际调用的同一个
-  HTTP 端点），拿到令牌后写进项目本地 `.npmrc`（不碰用户全局 `~/.npmrc`）。
+- **无人值守发布账号**：见 `init_publisher.ps1` 头部判断记录——先直接把账号的 bcrypt 哈希写进
+  htpasswd 文件，再调用 Verdaccio 内置 htpasswd 插件复用的 `PUT /-/user/org.couchdb.user:<name>`
+  接口（`npm adduser` 内部实际调用的同一个 HTTP 端点，此时请求已经能用刚写入的凭据完成 Basic
+  认证，换到的是"重新登录发新令牌"分支而不是受 `max_users` 门槛限制的自注册分支，见下一条），
+  拿到令牌后写进项目本地 `.npmrc`（不碰用户全局 `~/.npmrc`）。
+- **LAN 场景下普通访问者不能自注册获得发布权限（P06 根治，2026-09-07）**：`config.yaml` 的
+  `auth.htpasswd.max_users` 设为 `-1`，彻底禁用 Verdaccio 的自注册端点（任何未预先认证的
+  `PUT /-/user/...`/`npm adduser` 请求一律被拒）；`publish`/`unpublish` 从 `$authenticated`
+  （任何登录成功的账号都算，包括自注册出来的）改为显式指定发布账号用户名 `ws-game-publisher`
+  （与 `init_publisher.ps1 -Username` 默认值一致——htpasswd 插件不提供真正的"用户组"，Verdaccio
+  的包访问规则支持直接写字面用户名，见 `config.yaml` 同批判断记录）。`access`（读）不变，仍是
+  `$all`，`-Listen 0.0.0.0` 暴露到局域网时消费方（`npm install`/UPM 拉包）依旧不需要任何账号。
+  `max_users: -1` 会连带挡住 `init_publisher.ps1` 原来"直接发 PUT 请求建号"的方式（那条路径与
+  普通自注册走同一道 `max_users` 门槛），因此该脚本改为上一条"无人值守发布账号"描述的"先写
+  htpasswd 文件、再走已认证请求换令牌"这条不受该门槛限制的路径——效果是只有能在本机文件系统写
+  `toolchain/registry/htpasswd` 的人（即跑这个脚本的人）才能建到发布账号，局域网内其它机器的
+  访问者即使能连到私服地址，也无法再靠自注册拿到任何账号（更谈不上发布权限）。
 - **发布账号不是对外身份体系**：`init_publisher.ps1` 的默认用户名/密码是本机/局域网内部私服的
   占位凭据，不代表任何真实人员身份，也不用于鉴别"谁能读包"（读包本身匿名开放）——它只是
   "谁有权限往这个私服里推包"这一件事的最小实现，等价于给 CI/构建机发一把只写不读的部署密钥。

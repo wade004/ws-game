@@ -7,14 +7,74 @@
     <RootNamespace>Toolchain.Validator</RootNamespace>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- 阶段 4 收敛 B：改引用 presentation/Presentation.Common.csproj（经其传递引用
-         core/gameplay/Core.Gameplay.csproj → Core.Carriers.csproj → Core.Rules.csproj），调用
-         Presentation.Assembly.PresentationSchemaCatalog.RegisterAll 而不是只到 L4 的
-         Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll，覆盖 L5 表现层全部表的
-         TableSchema/IValidationRule，见 Program.cs 判断记录。 -->
-    <ProjectReference Include="../../presentation/Presentation.Common.csproj" />
-    <ProjectReference Include="../../adapters/stub/Adapters.Stub.csproj" />
+  <!-- 判断记录（P02 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+       project-review.md P02）：本项目此前无条件用 <ProjectReference> 引用
+       ../../presentation/Presentation.Common.csproj（经其传递引用 Core.Gameplay/Core.Carriers/
+       Core.Rules/Core.Numbers/Core.Foundation）与 ../../adapters/stub/Adapters.Stub.csproj。
+       两个独立发行通道（dist/ws-game-<ver>.zip 的 toolchain/validator/、UPM
+       com.gamefoundation.toolchain 包内 Tools~/validator/）都不随包分发 presentation/、core/、
+       adapters/stub/ 源码（见 build.ps1 Copy-DistDir 调用列表，只打包 adapters/unity 适配层包、
+       games/_template、toolchain、assets/_placeholder、data/_framework 几棵目录树），导致这两个
+       独立包内 `dotnet build`/`dotnet run` 以 toolchain/validator 为目标工程时因引用路径不存在
+       而失败（实测复现：ZIP 内报缺 presentation/Presentation.Common.csproj；UPM Tools~ 内
+       find_repo_root 另外还拼出不存在的 <package>/toolchain/validator，见 validate_data.py 同批
+       修复）。（注：本文件是 XML，注释正文不能出现连续两个半角连字符，上面这句改写正是为此。）
+
+       Adapters.Stub 引用本身是历史遗留死引用——本项目代码（Program.cs/DiskFileSystem.cs）没有
+       引用任何 Adapters.Stub.* 类型（见 Program.cs 类型头判断记录"本工具依赖 adapters/stub 提供的
+       StubFileSystem 只有内存实现，无法读取真实磁盘文件，因此本工具自带 DiskFileSystem"——这段
+       判断记录只是说明"为什么不用 StubFileSystem"，不是"仍在引用 Adapters.Stub 项目"），直接删除，
+       不需要替换。
+
+       Presentation.Common 引用改为按"源码树是否存在"二选一，两条路径互斥、条件互补：
+       - 源码仓库内（本文件与 core/、presentation/ 同处一棵 git 工作树，如 Core.sln 直接构建、
+         check.ps1 全量/-Quick 门禁、-Dist/-Release 打包前的 dotnet build）：
+         ../../presentation/Presentation.Common.csproj 存在，用 <ProjectReference>，让 MSBuild
+         按依赖图自动构建整条链（Presentation.Common -> Core.Gameplay -> Core.Carriers ->
+         Core.Rules -> Core.Numbers -> Core.Foundation），产物随 `dotnet build Core.sln` 一次性
+         产生，不依赖任何预先同步的 DLL——这与改动前的构建结果完全一致，check.ps1 第 1 步
+         `dotnet build Core.sln` 不受影响（若改成无条件 <Reference>，会在全新 checkout、尚未跑过
+         任何 build.ps1 同步步骤时，让 Core.sln 的第一次 build 本身就因为 lib/*.dll 不存在而失败，
+         那是更严重的回归，本方案专门避免这一点）。
+       - 独立发行包内（源码树不存在）：改引用编译好的 DLL（<Reference> + HintPath），六个 DLL
+         （Core.Foundation/Core.Numbers/Core.Rules/Core.Carriers/Core.Gameplay/Presentation.Common，
+         与 build.ps1 $CoreAssemblies 完全一致，见该数组判断记录"六个需要发布给 Unity 端的核心
+         DLL；不拷贝 Adapters.Stub"）取自本目录下的 lib/ 子目录。lib/ 由 build.ps1 打分发包步骤
+         （dist ZIP 与下方组装出的 com.gamefoundation.toolchain UPM 包 Tools~/validator/lib/ 共用
+         同一次拷贝，见 build.ps1 "5.05 P02 根治新增"判断记录）显式补齐，源头是同一次打包里已经
+         拷进 dist 的适配层包 Runtime/Plugins/Core/ 产物，不是重新构建；源码仓库根目录本身不维护
+         这份 lib/，只在 dist/版本号/toolchain/validator/lib/ 下生成（dist/ 整体已被仓库根
+         .gitignore 忽略，不需要为 lib/ 单独加规则）——在源码仓库内构建永远走上面的
+         ProjectReference 分支，lib/ 是否存在与其无关。 -->
+  <ItemGroup Condition="Exists('..\..\presentation\Presentation.Common.csproj')">
+    <ProjectReference Include="..\..\presentation\Presentation.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="!Exists('..\..\presentation\Presentation.Common.csproj')">
+    <Reference Include="Core.Foundation">
+      <HintPath>lib\Core.Foundation.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Numbers">
+      <HintPath>lib\Core.Numbers.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Rules">
+      <HintPath>lib\Core.Rules.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Carriers">
+      <HintPath>lib\Core.Carriers.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Gameplay">
+      <HintPath>lib\Core.Gameplay.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Presentation.Common">
+      <HintPath>lib\Presentation.Common.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

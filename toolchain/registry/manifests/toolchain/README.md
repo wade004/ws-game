@@ -17,9 +17,21 @@ Tools~/
   asset_import/                资产导入子模块
   validator/                   .NET 校验器源码（DiskFileSystem.cs、Program.cs、Validator.csproj，
                                 不含 bin/obj 构建产物——首次使用需要 `dotnet build` 一次）
+    lib/                        六个核心 DLL（Core.Foundation/Core.Numbers/Core.Rules/
+                                Core.Carriers/Core.Gameplay/Presentation.Common），随本包一起
+                                打包（见下方"依赖安装"一节判断记录），Validator.csproj 用
+                                <Reference HintPath> 直接引用——本包不随附 presentation/、core/
+                                源码，不能靠 ProjectReference 现场编译
   requirements.txt / requirements-optional.txt
   install_hooks.ps1
   _console.py
+  sync_package_content.ps1     私服交付通道配套工具：把 com.gamefoundation.framework-data/
+                                com.gamefoundation.toolchain 两个包内容同步/定位到消费方 Unity
+                                工程可用的位置（见该脚本头注释、com.gamefoundation.framework-data
+                                包 README.md）
+  resource_layout_map.json     sprites/audio/vfx 目标子目录名映射表（P07 根治，2026-09-07新增）：
+                                sync_package_content.ps1 与框架仓库 build.ps1 共用同一份，避免
+                                两处各自维护导致漂移，见该文件内 "_comment" 判断记录
 package.json
 README.md（本文件）
 ```
@@ -45,13 +57,28 @@ toolchain -ResolveOnly` 打印出来（`-ResolveOnly` 只解析路径、不做�
 `Tools~/requirements.txt`（必需）、`Tools~/requirements-optional.txt`（占位资产生成器等可选功能）；
 `Tools~/validator` 首次使用需要 `dotnet build Tools~/validator/Validator.csproj -c Release`
 一次（不随包分发预编译产物，见上方排除规则），后续 `validate_data.py` 会以子进程方式调用编译好的
-`Validator.dll`。
+`Validator.dll`。本包自带 `Tools~/validator/lib/` 下六个核心 DLL（见上方包内布局一节），
+`dotnet build`/`dotnet run` 直接引用这些 DLL 完成编译，不需要另外拿到本框架仓库的
+`presentation/`、`core/` 源码——这是独立包，只需要按上面"依赖安装"这一节操作即可自包含运行。
 
 ```powershell
 python -m venv <你的虚拟环境目录>
 <你的虚拟环境目录>\Scripts\pip install -r <resolved>\requirements.txt
 dotnet build <resolved>\validator\Validator.csproj -c Release
 ```
+
+判断记录（P02 根治，2026-09-07，审计 `architecture/落地计划/audit-7e63d66-20260907/
+project-review.md` P02）：此前 `Validator.csproj` 无条件用 `ProjectReference` 指向
+`../../presentation/Presentation.Common.csproj`（经其传递引用 `core/` 下四个程序集）与
+`../../adapters/stub/Adapters.Stub.csproj`，两者在本包内都不存在（本包不含 `presentation/`/
+`core/`/`adapters/` 任一层目录），导致 `dotnet build Tools~/validator/Validator.csproj` 直接
+报引用路径不存在；`validate_data.py` 的 `find_repo_root()` 拼出的 `<repo_root>/toolchain/
+validator` 在本包内同样不存在（本包内该文件在 `Tools~/validate_data.py`，`repo_root` 会被
+解析成包根而不是 `toolchain/` 的上一级）。两处均已改为不依赖"随包附带完整仓库布局"这一假设：
+`Validator.csproj` 改引用本目录下 `lib/` 子目录里编译好的 DLL；`validate_data.py` 改为相对
+自身文件所在目录解析 `validator/` 子目录（两种布局下 `validator/` 都与 `validate_data.py`
+直接同级）。详见框架仓库根 `toolchain/README.md`"`toolchain/validator`（.NET 真实校验工具）"
+一节同一判断记录。
 
 其余用法（控制台编码约定、`validate_data.py` 两道校验的分工等）与框架仓库根 `toolchain/README.md`
 完全一致，本包只是同一份内容的按版本号发布形态。

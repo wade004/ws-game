@@ -72,8 +72,10 @@
          后自检 lock/MANIFEST 的 `git_commit` 必须等于上一步的发布提交且不带 `-dirty` 后缀，不满足
          则报错退出（此时提交已产生但未打标签，按脚本打印的提示 `git reset --soft` 回退后修复重跑）；
          自检通过后打带注释标签 `v<ver>`（标签信息取 CHANGELOG.md 该版本条目正文）。
-      8. 打印后续需要人工/设计层执行的两条命令（`git push origin main --tags` 与
-         `gh release create v<ver> ...`）；若版本号的 MAJOR 或 MINOR 段发生了变化（而不仅是
+      8. 打印后续需要人工/设计层执行的两条命令（`git push origin <当前分支> refs/tags/v<ver>`——
+         当前分支取自 `git rev-parse --abbrev-ref HEAD`，本步骤全程不切换分支，因此就是打标签
+         所在的那个分支；只推本次新建的这一个标签，不带 `--tags` 全量推送，见 P05 根治判断记录，
+         与 `gh release create v<ver> ...`）；若版本号的 MAJOR 或 MINOR 段发生了变化（而不仅是
          PATCH 递增），额外打印建议的维护分支创建命令 `git branch release/X.Y.x vX.Y.0`（见仓库根
          README.md"维护分支与 PATCH 发布流程"一节）。
 
@@ -86,8 +88,9 @@
 
 .PARAMETER Publish
     仅与 `-Release`（且未传 `-DryRun`）同传有效。第 7 步自检 + 打完标签后，自动依次执行第 8 步
-    打印的两条命令（`git push origin main --tags`、`gh release create ...`），不再需要人工另行
-    复制粘贴执行。省略时（默认）只打印这两条命令，不自动执行，由人工/设计层确认后自行运行。
+    打印的两条命令（`git push origin <当前分支> refs/tags/v<ver>`、`gh release create ...`），
+    不再需要人工另行复制粘贴执行。省略时（默认）只打印这两条命令，不自动执行，由人工/设计层
+    确认后自行运行。
 
 .PARAMETER ReleaseSkipUnity
     仅与 `-Release` 同传有效。第 5 步跑 `check.ps1` 时额外传 `-SkipUnity`，跳过 Unity 相关四步与
@@ -680,18 +683,24 @@ Write-Host ("  assets/_placeholder -> StreamingAssets/GameFoundation/assets/_pla
 
 # sprites/audio/vfx 三处同时同步 assets/_placeholder/<x>（占位素材）与 assets/_sample/<x>
 # （toolchain/import_sample_assets.py 导入的样例资产）到同一棵目标目录树，见上方 4 节头注释。
-$spritesSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "assets\_placeholder\sprites"), (Join-Path $RepoRoot "assets\_sample\sprites")) -DestDir (Join-Path $StreamingAssetsRoot "sprites")
-Write-Host ("  assets/_placeholder/sprites + assets/_sample/sprites -> StreamingAssets/GameFoundation/sprites（加载器路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $spritesSyncResult.Total, $spritesSyncResult.Copied, $spritesSyncResult.Skipped, $spritesSyncResult.Removed)
-
-$audioSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "assets\_placeholder\sfx"), (Join-Path $RepoRoot "assets\_sample\sfx")) -DestDir (Join-Path $StreamingAssetsRoot "audio")
-Write-Host ("  assets/_placeholder/sfx + assets/_sample/sfx -> StreamingAssets/GameFoundation/audio（加载器路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $audioSyncResult.Total, $audioSyncResult.Copied, $audioSyncResult.Skipped, $audioSyncResult.Removed)
-
-# ADR-0016 决策 5 新增 ResourceKind.Effect：UnityResourceLoader.ResolveEffectDir 按
-# "GameFoundation/vfx/<name>/" 解析（见该方法判断记录），与 assets/_placeholder/vfx/<name>/
-# 同一套相对路径，因此整棵 vfx 目录树同步过去、不改名（不同于 sprites/sfx 需要改名到加载器
-# 期望的扁平子目录，vfx 本身已经是"<kind 子目录>/<name>/"两级结构，直接对应）。
-$vfxSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "assets\_placeholder\vfx"), (Join-Path $RepoRoot "assets\_sample\vfx")) -DestDir (Join-Path $StreamingAssetsRoot "vfx")
-Write-Host ("  assets/_placeholder/vfx + assets/_sample/vfx -> StreamingAssets/GameFoundation/vfx（ResourceKind.Effect 加载器路径规则）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $vfxSyncResult.Total, $vfxSyncResult.Copied, $vfxSyncResult.Skipped, $vfxSyncResult.Removed)
+# 判断记录（P07 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+# project-review.md P07）：source -> target 子目录名映射（sprites->sprites、sfx->audio、
+# vfx->vfx）此前在本文件与 toolchain/sync_package_content.ps1（私服交付通道，同步进消费方 Unity
+# 工程）各自维护一份，后者完全漏掉了这一步（只整体镜像 assets/_placeholder 本身，消费方按原始
+# 子目录名找不到 UnityResourceLoader 实际按目标子目录名查找的资源）。改为两处都从
+# toolchain/resource_layout_map.json 读取同一张表，不再各自硬编码，见该文件判断记录。
+$resourceLayoutMapPath = Join-Path $RepoRoot "toolchain\resource_layout_map.json"
+if (-not (Test-Path $resourceLayoutMapPath)) {
+    Write-Host "找不到 $resourceLayoutMapPath（sprites/audio/vfx 目标目录映射表，P07 根治新增，见 sync_package_content.ps1 同一份判断记录）" -ForegroundColor Red
+    exit 1
+}
+$resourceLayoutMap = (Get-Content -Path $resourceLayoutMapPath -Raw -Encoding UTF8) | ConvertFrom-Json
+foreach ($mapping in $resourceLayoutMap.mappings) {
+    $sourceSubdir = $mapping.source
+    $targetSubdir = $mapping.target
+    $mappingSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir))) -DestDir (Join-Path $StreamingAssetsRoot $targetSubdir)
+    Write-Host ("  assets/_placeholder/{0} + assets/_sample/{0} -> StreamingAssets/GameFoundation/{1}（加载器路径规则，见 toolchain/resource_layout_map.json）：共 {2} 个文件，拷贝 {3}，跳过 {4}，删除 {5}" -f $sourceSubdir, $targetSubdir, $mappingSyncResult.Total, $mappingSyncResult.Copied, $mappingSyncResult.Skipped, $mappingSyncResult.Removed)
+}
 
 $totalContentFiles = (Get-ChildItem -Path $StreamingAssetsRoot -Recurse -File -ErrorAction SilentlyContinue).Count
 Write-Host ("StreamingAssets/GameFoundation/ 下文件总数（含以上五棵树的并集，sprites/audio/vfx 与 assets/_placeholder 下同名文件各自独立计数）：{0}" -f $totalContentFiles)
@@ -889,6 +898,33 @@ if ($DistRequested) {
     # consumer_smoke.ps1 实测复现。现补一份 assets/textmesh_pro_essentials/，新消费方工程按
     # games/_template/README.md 的指引整份拷进自己的 Assets/TextMesh Pro/。
     $tmpEssentialsFileCount = Copy-DistDir -SourceRelative "adapters\unity\Assets\TextMesh Pro" -DestName "assets\textmesh_pro_essentials"
+
+    # -------------------------------------------------------------------
+    # 5.05 P02 根治新增（审计 architecture/落地计划/audit-7e63d66-20260907/project-review.md
+    #      P02）：toolchain/validator/Validator.csproj 在"源码树不存在"（本 dist ZIP、下方 5.15
+    #      组装出的 com.gamefoundation.toolchain UPM 包 Tools~/validator/）场景下改用
+    #      <Reference HintPath="lib\*.dll"> 直接引用编译好的六个核心 DLL（见该 csproj 判断记录），
+    #      不再要求随包分发 presentation/、core/ 源码。这里把六个 DLL 额外拷贝一份到
+    #      dist\<ver>\toolchain\validator\lib\，源头是上面 Copy-DistDir 已经拷进 dist 的适配层包
+    #      Runtime\Plugins\Core\（与源码仓库里 $PluginsCoreDir 同步的那一份内容一致，见"3. 同步
+    #      六个核心 DLL"步骤），不是重新构建，只是同一份文件再放一份到这个新位置——保证 ZIP 内
+    #      toolchain/validator 与下方 UPM 包内 Tools~/validator 都能独立于 adapters/unity 目录
+    #      找到自己需要的 DLL（UPM 的 com.gamefoundation.toolchain 是与 com.gamefoundation.
+    #      adapter.unity 完全分开发布的独立包，不能假设消费者两个包都装了）。
+    # -------------------------------------------------------------------
+    Write-Step "补齐 dist\$DistDirVersion\toolchain\validator\lib\（P02 根治：独立包内 Validator 自包含所需的核心 DLL）"
+    $distValidatorLibDir = Join-Path $DistRoot "toolchain\validator\lib"
+    New-Item -ItemType Directory -Force -Path $distValidatorLibDir | Out-Null
+    $distAdapterPluginsCoreDir = Join-Path $DistRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core"
+    foreach ($asm in $CoreAssemblies) {
+        $srcDllForValidatorLib = Join-Path $distAdapterPluginsCoreDir ($asm.Name + ".dll")
+        if (-not (Test-Path $srcDllForValidatorLib)) {
+            Write-Host "打分发包失败：找不到 $srcDllForValidatorLib（无法为 toolchain/validator/lib 补齐核心 DLL）" -ForegroundColor Red
+            exit 1
+        }
+        Copy-Item -Path $srcDllForValidatorLib -Destination (Join-Path $distValidatorLibDir ($asm.Name + ".dll")) -Force
+    }
+    Write-Host ("  已补齐 {0} 个核心 DLL -> dist\{1}\toolchain\validator\lib\" -f $CoreAssemblies.Count, $DistDirVersion)
 
     # -------------------------------------------------------------------
     # 5.1 版本可追溯任务新增：把解析出的版本号写回 dist 内两个 package.json
@@ -1215,7 +1251,19 @@ if ($DistRequested) {
             }
 
             # 第 8 步：打印后续需要人工/设计层执行的两条命令；-Publish 时自动执行。
-            $pushCmd = "git push origin main --tags"
+            # 判断记录（P05 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+            # project-review.md P05）：此前硬编码 `git push origin main --tags`——无论 -Release
+            # 实际在哪个分支上执行（例如维护分支 release/1.0.x 上打 PATCH 版本），都固定推 main，
+            # 且 `--tags` 会把本地全部标签一起推送，不是"只推本次新建的这一个标签"。改为取当前
+            # 实际检出的分支（`git rev-parse --abbrev-ref HEAD`，-Release 全程不切换分支，此时
+            # 就是打标签所在的那个分支）+ 只推本次创建的这一个标签的完整 ref（`refs/tags/<tag>`，
+            # 避免裸标签名在极端情况下与分支名同名产生的歧义），维护分支场景下 main 不会被隐式
+            # 推进；main 分支上按正常发布，效果与改动前的"推 main"完全一致（当前分支就是 main）。
+            $currentBranchForPush = (& git rev-parse --abbrev-ref HEAD).Trim()
+            if ([string]::IsNullOrEmpty($currentBranchForPush) -or $currentBranchForPush -eq "HEAD") {
+                throw "无法确定当前分支（detached HEAD 或 git rev-parse 失败），-Release/-Publish 要求在一个具名分支（main 或维护分支 release/X.Y.x）上执行"
+            }
+            $pushCmd = "git push origin $currentBranchForPush refs/tags/$tagName"
             $releaseCmd = "gh release create $tagName `"$zipPath`" `"$lockPath`" --title `"$tagName`" --notes-file `"$releaseNotesPath`""
 
             Write-Host ""
@@ -1238,7 +1286,7 @@ if ($DistRequested) {
                 Push-Location $RepoRoot
                 try {
                     Write-Host "  执行：$pushCmd"
-                    & git push origin main --tags
+                    & git push origin $currentBranchForPush "refs/tags/$tagName"
                     if ($LASTEXITCODE -ne 0) { throw "git push 失败，退出码 $LASTEXITCODE" }
 
                     Write-Host "  执行：$releaseCmd"

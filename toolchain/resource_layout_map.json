@@ -1,0 +1,8 @@
+{
+  "_comment": "P07 根治（审计 architecture/落地计划/audit-7e63d66-20260907/project-review.md P07）：assets/_placeholder 下子目录名 -> Unity 侧 StreamingAssets/GameFoundation/ 下 UnityResourceLoader 实际按资源种类查找的目标子目录名，唯一权威映射表。此前 build.ps1（框架仓库自己同步进工作台 adapters/unity/Assets/StreamingAssets/GameFoundation/）与 toolchain/sync_package_content.ps1（私服交付通道，同步进消费方 Unity 工程的 Assets/StreamingAssets/GameFoundation/）各自维护一份映射：build.ps1 里是对的（sprites->sprites、sfx->audio、vfx->vfx），sync_package_content.ps1 完全没有这一步、只整体镜像了 assets/_placeholder 本身（消费方按 GameFoundation/assets/_placeholder/sfx/... 这样的原始子目录名去找，但加载器按 GameFoundation/audio/... 这样的目标子目录名查找，两者不一致，见 adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityResourceLoader.cs 对 sprite/audio/vfx 三种资源种类的路径解析）。现在两个脚本都从这份文件读取同一张表，不再各自维护，杜绝再次漂移。target 与 source 相同的条目（vfx）不代表可以省略这一步——UnityResourceLoader 仍然是按 GameFoundation/<target>/... 解析，不是按 GameFoundation/assets/_placeholder/<source>/... 解析，两棵目录树是不同的路径，即便子目录名恰好相同。",
+  "mappings": [
+    { "source": "sprites", "target": "sprites" },
+    { "source": "sfx", "target": "audio" },
+    { "source": "vfx", "target": "vfx" }
+  ]
+}

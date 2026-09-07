@@ -23,33 +23,67 @@
 
 storage: ./storage
 
-# 判断记录（max_users 不要写 -1）：verdaccio-htpasswd 插件源码
-# （node_modules/verdaccio-htpasswd/build/htpasswd.js）里 `this.maxUsers = config.max_users
-# ? config.max_users : Infinity` —— 只要 max_users 字段存在且是"真值"（-1 在 JS 里是真值），
-# 就会被直接用作上限，而不是"负数表示无限"；结果是任何用户数都 >= -1，导致注册端点直接返回
-# "user registration disabled"（实测复现：init_publisher.ps1 首次调用即失败）。不设置这个字段
-# （或干脆不写 auth.htpasswd.max_users）才会落到 Infinity 分支，达到"不限用户数"的效果。
+# 判断记录（P06 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+# project-review.md P06；推翻并替换此前"max_users 不要写 -1"的判断记录，原记录的结论本身没错但
+# 据此选择"干脆不设置该字段"是错的，见下）：
+#
+# 1. `max_users` 语义实测澄清（`node_modules/verdaccio-htpasswd/build/htpasswd.js` +
+#    `node_modules/verdaccio-htpasswd/build/utils.js`，Verdaccio 6.10.3 / verdaccio-htpasswd
+#    13.1.3）分两处、两条不同规则，此前的判断记录只验证了第一处，与任务描述"当作真值"的说法
+#    刚好对应，但下结论"因此不能用 -1"是过早的：
+#      a) 构造函数：`this.maxUsers = config.max_users ? config.max_users : Infinity` ——
+#         这是 JS 的"假值兜底"写法，`0` 在 JS 里是假值，`config.max_users` 传 `0` 时这一行反而
+#         落到 `Infinity` 分支（不限用户数！）——任务描述建议的 `max_users: 0` 实测*不会*禁用
+#         自注册，是这个插件自身的假值陷阱，不能按字面意思理解成"允许 0 个用户"。真正传入
+#         `sanityCheck` 的 `maxUsers` 只有在配置值本身是"真值"时才会生效。
+#      b) `sanityCheck`（utils.js）：`if (maxUsers < 0) { ...registration is disabled... }`
+#         ——负数是插件专门用来表示"完全禁用自注册"的显式约定（不是"当作真值传下去导致任何用户数
+#         都超限"这种副作用），`-1` 在 JS 里是真值，能正常传下去，命中的正是这条专门的禁用分支，
+#         不依赖"用户数 >= -1 恒真"这种旁路解读。综合 a) + b)：唯一能真正禁用自注册的写法是显式
+#         负数，`-1` 是最直接的选择；不设置该字段（或设 0）都会落到 Infinity（不限用户数），
+#         这正是 P06 复现的漏洞本身——此前判断记录选择"不设置"来规避初始化失败，等于放弃了
+#         "禁用自注册"这个目标，两害相权选了错的一害。
+#
+# 2. `-1` 确实会连带挡住 `init_publisher.ps1` 原来的建号方式——`auth.add_user`（HTTP
+#    `PUT /-/user/...` 在请求未预先以目标用户身份认证时走的建号路径）同样受 `sanityCheck` 的
+#    `maxUsers < 0` 门槛限制，这是此前判断记录发现的真实现象。根治不是放弃禁用自注册，而是让
+#    `init_publisher.ps1` 换一条不经过这个门槛的建号路径：直接把发布账号的 bcrypt 哈希写入
+#    `auth.htpasswd.file` 指向的 htpasswd 文件（见该脚本"直接写 htpasswd 文件"判断记录），
+#    再发 `PUT /-/user/...` 时请求已经带着能通过该文件验证的 Basic 认证头——Verdaccio 的
+#    `user.js` 路由处理器按"请求是否已经以目标用户身份认证"分流（`remoteName === name`），
+#    已认证走"重新登录换新令牌"分支（`auth.authenticate`），完全不经过 `auth.add_user`/
+#    `sanityCheck`/`maxUsers` 这条门槛——这是 Verdaccio 自己的既有分支，不是新开的后门。
+#
+# 3. publish/unpublish 从 `$authenticated`（任何登录成功的账号，即"自注册后即可发布"这一 P06
+#    漏洞本身）改为显式指定发布账号用户名 `ws-game-publisher`（与 `init_publisher.ps1`
+#    `-Username` 默认值一致）——htpasswd 认证插件不提供真正的"用户组"概念（`authenticate` 返回
+#    的 groups 只有 `[user]` 自身，见该插件源码），Verdaccio 的包访问规则本身支持直接写字面用户名
+#    （不止 `$all`/`$anonymous`/`$authenticated` 这几个内置特殊组），因此"仅 publisher 用户"用
+#    字面用户名表达，不依赖分组能力。若改用别的发布账号用户名，需要同步修改这里与
+#    `init_publisher.ps1 -Username` 默认值（或调用时显式保持一致）。access（读）不变，仍是
+#    `$all`（匿名可读，UPM/npm install 消费方不需要账号）。
 auth:
   htpasswd:
     file: ./htpasswd
+    max_users: -1
 
 max_body_size: 200mb
 
 packages:
   'com.gamefoundation.*':
     access: $all
-    publish: $authenticated
-    unpublish: $authenticated
+    publish: ws-game-publisher
+    unpublish: ws-game-publisher
 
   '@*/*':
     access: $all
-    publish: $authenticated
-    unpublish: $authenticated
+    publish: ws-game-publisher
+    unpublish: ws-game-publisher
 
   '**':
     access: $all
-    publish: $authenticated
-    unpublish: $authenticated
+    publish: ws-game-publisher
+    unpublish: ws-game-publisher
 
 # 只服务局域网/本机场景：默认监听地址由 start_registry.ps1 的 -Listen 参数传入
 # （默认 127.0.0.1:4873），不在本文件里写死，便于同一份配置在"仅本机"与"局域网内其它机器可访问"

@@ -132,6 +132,23 @@ function Copy-IfChanged {
     return $true
 }
 
+# 判断记录（P03 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+# project-review.md P03）：此前 Sync-Tree 对目标目录做整树镜像——凡是目标目录里存在、但这一次
+# 源目录里没有同名相对路径的文件，一律删除。这对包专属目录（如 Assets/StreamingAssets/
+# GameFoundation/data/_framework）是对的（该目录树整体由框架内容拥有，理应镜像），但
+# $tmpDest = "Assets\TextMesh Pro" 是 Unity/TextMeshPro 官方约定的公共目录，消费者游戏自己的
+# 字体、材质、.meta 完全可能与框架同步进来的 TMP Essential Resources 共处同一目录树；整树镜像会
+# 把这些消费者自己的文件一并删除（实测复现：预置的 game-owned-sentinel.txt 被删除）。
+#
+# 根治为清单制：每次同步在目标目录写一份 ".gamefoundation-sync-manifest.json"，记录"这一次本脚本
+# 自己往这个目标目录写入的文件相对路径集合"；下一次运行时只对比"上一次清单里有、这一次源目录里
+# 已经没有"的文件（即框架侧确实被移除的 stale 文件）执行删除，从不删除任何从未出现在某一次清单里
+# 的文件——消费者自己的文件永远不会被本脚本写进清单，因此永远不会成为删除候选，无论目标目录是
+# 包专属目录还是像 Assets/TextMesh Pro 这样的公共目录，同一套逻辑都安全。首次运行（尚无清单文件）
+# 保守地不清理任何东西，只做拷贝——避免在采用这个新版本脚本的第一次运行时，把"这次改版之前已经
+# 存在、但从未被清单记录过"的旧框架文件误判为消费者文件而永久遗留（可接受：那批遗留文件下次
+# 框架内容变化、清单开始追踪后即可被正常清理；比起继续用整树镜像、冒删除消费者文件的风险，这个
+# 权衡是有意为之）。
 function Sync-Tree {
     param([string]$SourceDir, [string]$TargetDir, [string]$Label)
     if (-not (Test-Path $SourceDir)) {
@@ -142,6 +159,19 @@ function Sync-Tree {
     $resolvedSource = (Resolve-Path $SourceDir).Path.TrimEnd('\', '/')
     $resolvedTarget = (Resolve-Path $TargetDir).Path.TrimEnd('\', '/')
 
+    $manifestPath = Join-Path $resolvedTarget ".gamefoundation-sync-manifest.json"
+    $previousManaged = New-Object System.Collections.Generic.HashSet[string]
+    if (Test-Path $manifestPath) {
+        try {
+            $manifestJson = Get-Content -Path $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($manifestJson -and $manifestJson.managed_files) {
+                foreach ($p in @($manifestJson.managed_files)) { [void]$previousManaged.Add($p) }
+            }
+        } catch {
+            Write-Host "  警告：解析既有同步清单失败，按空清单处理（本次只拷贝、不清理 stale 文件）：$manifestPath" -ForegroundColor Yellow
+        }
+    }
+
     $keep = New-Object System.Collections.Generic.HashSet[string]
     $copied = 0
     $skipped = 0
@@ -151,17 +181,33 @@ function Sync-Tree {
         $destPath = Join-Path $resolvedTarget $relative
         if (Copy-IfChanged -SourcePath $file.FullName -DestPath $destPath) { $copied++ } else { $skipped++ }
     }
+
     $removed = 0
-    if (Test-Path $resolvedTarget) {
-        foreach ($destFile in (Get-ChildItem -Path $resolvedTarget -Recurse -File)) {
-            $relative = $destFile.FullName.Substring($resolvedTarget.Length).TrimStart('\', '/')
-            if (-not $keep.Contains($relative)) {
-                Remove-Item -Path $destFile.FullName -Force
-                $removed++
-            }
+    foreach ($relative in $previousManaged) {
+        if ($keep.Contains($relative)) { continue }
+        $staleDestPath = Join-Path $resolvedTarget $relative
+        if (Test-Path $staleDestPath) {
+            Remove-Item -Path $staleDestPath -Force
+            $removed++
+            # 一并清理 Unity 为该框架文件自动生成的伴生 .meta（若存在）——.meta 本身不进清单
+            # （清单只记录源目录里的真实文件），但既然同名的框架文件是本脚本上次写入、这次确认
+            # stale 要清理的，这个 .meta 几乎必然是 Unity 针对它自动生成的，一并删除，避免残留
+            # "meta 文件存在但对应资产已消失"的悬空 .meta。
+            $staleMetaPath = $staleDestPath + ".meta"
+            if (Test-Path $staleMetaPath) { Remove-Item -Path $staleMetaPath -Force }
         }
     }
-    Write-Host ("  {0}：共 {1} 个文件，拷贝 {2}，跳过 {3}，删除 {4}" -f $Label, $keep.Count, $copied, $skipped, $removed)
+
+    $manifestObj = [ordered]@{
+        generated_by = "toolchain/sync_package_content.ps1"
+        note          = "本文件记录框架包上一次同步实际写入本目录的文件清单，仅用于下一次同步判定" +
+                         "哪些文件属于框架侧 stale（源目录已经删除，需要清理）——不在此清单内的文件" +
+                         "（含消费者自己的文件）永远不会被本脚本删除，见脚本内 Sync-Tree 判断记录。"
+        managed_files = @($keep | Sort-Object)
+    }
+    ($manifestObj | ConvertTo-Json -Depth 5) | Set-Content -Path $manifestPath -Encoding utf8
+
+    Write-Host ("  {0}：共 {1} 个文件，拷贝 {2}，跳过 {3}，清理 stale {4}" -f $Label, $keep.Count, $copied, $skipped, $removed)
 }
 
 Write-Step "同步 Data~/data/_framework -> $DestDir\data\_framework"
@@ -169,6 +215,36 @@ Sync-Tree -SourceDir (Join-Path $dataDir "data\_framework") -TargetDir (Join-Pat
 
 Write-Step "同步 Data~/assets/_placeholder -> $DestDir\assets\_placeholder"
 Sync-Tree -SourceDir (Join-Path $dataDir "assets\_placeholder") -TargetDir (Join-Path $DestDir "assets\_placeholder") -Label "assets/_placeholder"
+
+# 判断记录（P07 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+# project-review.md P07）：上面这一步只是把 assets/_placeholder 原样整体镜像进
+# $DestDir\assets\_placeholder（即 .../GameFoundation/assets/_placeholder/sfx/ui_click_01.wav
+# 这样的原始子目录名），但 UnityResourceLoader（adapters/unity/Packages/com.gamefoundation.
+# adapter.unity/Runtime/EngineAdapter/UnityResourceLoader.cs）按资源种类查找的是
+# GameFoundation/sprites/...、GameFoundation/audio/...、GameFoundation/vfx/... 这几个"扁平"
+# 目标子目录，不是 GameFoundation/assets/_placeholder/<原始子目录名>/...——两棵目录树不是同一个
+# 路径，新消费方按加载器实际路径规则请求资源会找不到。框架仓库自己的 build.ps1（同步进工作台
+# adapters/unity/Assets/StreamingAssets/GameFoundation/）一直有这一步"改名/扁平化"同步，本脚本
+# （私服交付通道，同步进消费方 Unity 工程）此前完全遗漏。现在两处从同一份
+# toolchain/resource_layout_map.json（随本脚本一起打进 com.gamefoundation.toolchain 包
+# Tools~/，见该文件判断记录）读取 source -> target 子目录名映射，不再只由 build.ps1 单独维护，
+# 避免再次漂移。framework-data 包只随附 assets/_placeholder（不含 assets/_sample——那是框架仓库
+# 自测用的示例资产，不随包分发，见该包 README.md），因此这里只需要单一源目录，不像 build.ps1
+# 那样还要额外合并 assets/_sample。
+$resourceLayoutMapPath = Join-Path $PSScriptRoot "resource_layout_map.json"
+if (-not (Test-Path $resourceLayoutMapPath)) {
+    Write-Host "找不到 $resourceLayoutMapPath（sprites/audio/vfx 目标目录映射表，P07 根治新增）" -ForegroundColor Red
+    exit 1
+}
+$resourceLayoutMap = (Get-Content -Path $resourceLayoutMapPath -Raw -Encoding UTF8) | ConvertFrom-Json
+foreach ($mapping in $resourceLayoutMap.mappings) {
+    $sourceSubdir = $mapping.source
+    $targetSubdir = $mapping.target
+    $mappingSourceDir = Join-Path $dataDir ("assets\_placeholder\" + $sourceSubdir)
+    $mappingTargetDir = Join-Path $DestDir $targetSubdir
+    Write-Step "同步 Data~/assets/_placeholder/$sourceSubdir -> $mappingTargetDir（加载器路径规则，见 toolchain/resource_layout_map.json）"
+    Sync-Tree -SourceDir $mappingSourceDir -TargetDir $mappingTargetDir -Label ("assets/_placeholder/" + $sourceSubdir + " -> " + $targetSubdir)
+}
 
 # 与 games/_template/README.md"复制为新游戏：改哪几处"第 8 步、com.gamefoundation.framework-data
 # 包 README.md 判断记录一致：TMP 运行期资源与占位字体不进 StreamingAssets，是两个例外目标。
