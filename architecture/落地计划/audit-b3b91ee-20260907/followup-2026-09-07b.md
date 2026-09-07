@@ -155,13 +155,11 @@ Unity 3D/model 全 `NotSupported`、编辑器未开始实现、`01_分层与依�
 `presentation/feedback_binder/README.md`（GP-09）、`toolchain/README.md`（TOOL-02，资产导入
 id → 物理文件名编码改为双下划线 + 运行期碰撞兜底）。
 
-仍未同步、如实记录为本轮未完成事项：`adapters/unity/Packages/com.gamefoundation.adapter.unity/
-README.md`（GP-02/06/10，默认动画瞬态完成/复活销毁回收/冷启动加载/CharacterRig 时间轴推进）
-与 TOOL-01（check.ps1 缺可执行文件判定，已在 `check.ps1` 自身"门禁自检"步骤与代码判断记录里
-完整记录，未额外同步到 `README.md`）——前者是一份篇幅很大、覆盖 U3 全套 UI/Shell 流程的包级
-README，稳妥地把三条改动嵌入需要通读全篇找准位置，不是几分钟能安全完成的编辑。这处 README
-的既有文字同样只是"未提及"新行为（不是"断言与新行为矛盾"），不影响本轮验收标准（33 条发现
-全部根治 + 4 条 PlayMode 失败根治 + 全量门禁通过）。
+已同步：`adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md`（GP-02/06/10，
+默认动画瞬态完成/复活销毁回收/冷启动加载/CharacterRig 时间轴推进）新增"默认动画生命周期"一节，
+逐条对应源码判断记录与 `UnityViewFactoryDefaultAnimationTests.cs`/`AnimationLayerTests.cs`。
+TOOL-01（check.ps1 缺可执行文件判定）已在 `check.ps1` 自身"门禁自检"步骤与代码判断记录里完整
+记录，未额外同步到该 README（该缺口与本包无关，不属于本节覆盖范围）。
 
 ## 四、全量门禁
 

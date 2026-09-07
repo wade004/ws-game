@@ -508,6 +508,42 @@ Shell.exe -batchmode -gf-smoke -logFile <out>\smoke_player.log -screen-width 800
 `[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：...`（异步加载完成前的第一帧占位方块，
 既有设计行为，见 `UnityRenderer2D.cs` 判断记录，不影响冒烟结论）。
 
+## 默认动画生命周期
+
+`UnityViewFactory`（`Runtime/Presentation/UnityViewFactory.cs`）对 `CreateView` 命中
+`DisplayCategory.Creature` 分类（玩家/NPC/怪物——唯一会收到 `AnimStateMachine`
+idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `AttachDefaultAnimation`：给
+该 View 的精灵根节点挂一个 `UnityFrameAnimPlayer`（六个状态各注册一条剪辑）+ 全局单例
+`AnimClipResolver`（首次挂接时懒构造，跨全部实体共用同一份），使 `Rig.PlayClip` 不需要
+`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap` 任一方手工
+接线即可用；`item`/`gobj`/`projectile` 等不触发状态切换的分类不挂（构造函数未传入
+`IEventBus`/`IDataRegistryView` 时整体静默跳过，行为等同未接线）。
+
+- **瞬态完成通知**：`player.OnComplete` 回调把"回调触发那一刻状态机记录的当前状态"转发给
+  `AnimStateMachine.NotifyTransientStateFinished`，解除 Hit/Attack/Cast 等瞬态状态的优先级锁；
+  不接这一步会让角色播完 Hit 后永久卡住、再也进不了 Move/Attack/Cast。
+- **复活/销毁回收**：订阅 `entity.destroyed`（`OnEntityDestroyedForAnim`）清空该实体的
+  `AnimStateMachine` 记账、播放器引用、剪辑表三项——实体 id 可能被全新实体复用，字典里残留的
+  引用会读到已销毁旧组件；订阅 `unit.respawned`（`OnUnitRespawnedForAnim`）只 `Forget` 状态机
+  记账，不清播放器/剪辑表（原地复用同一组件，清空反而会让实体此后彻底哑掉），使复活后的角色能
+  从 Idle 重新开始而不是卡在死亡姿势。
+- **冷启动剪辑升级**：`RegisterDefaultClips` 按 `display.anim_set.<displayId 末段>` 查表；
+  声明了 `resource_ref` 但尚未加载进 `UnityResourceLoader` 缓存时（冷启动，非"压根没配"），先
+  `RegisterSingleFrameClip` 登记单帧占位保证 `PlayClip` 立即可执行，同时由
+  `RequestAnimClipUpgrade` 发起 `LoadAsync`（同一资源多方引用只发起一次），加载完成后把全部
+  等待方原地升级为真实多帧剪辑；加载失败只记一条诊断、不重试，与 `VfxPlayer`/`SfxPlayer` 既有
+  惯例一致。真的没有声明该状态动画的情形维持原有单帧退化 + 一次性诊断。
+- **引导帧驱动**：`GameFoundationBootstrap.OnFrameTick`/`FrameworkResidentHost.OnFrameTick`/
+  `games/_template/Runtime/GameBootstrap.cs` 的帧循环现在三处都调用 `AdvanceCharacterRigs`
+  （推进每个存活 sprite View 持有的 `ICharacterRig.ProceduralAnim` 时间轴）与
+  `Presentation.Vfx.Update(dt)`；此前只有组件本身经单测验证过，没有任何生产帧循环真正驱动它们。
+
+对应测试：`Tests/Runtime/UnityViewFactoryDefaultAnimationTests.cs`
+（`CreateView_ForCreatureCategory_MoveCastHit_PlayDistinctDefaultClips`/
+`CreateView_ForNonCreatureCategory_DoesNotAttachAnimPlayer`/
+`UnitRespawned_SamePlayerInstance_CanTransitionToMoveAgain`）、`Tests/Runtime/AnimationLayerTests.cs`
+（`UnityFrameAnimPlayer`/`AnimClipResolver` 组件本身的独立单测）。
+
 ## 游戏模板如何接入本包（数据目录框架/游戏分层任务）
 
 `games/_template/`（`com.gamefoundation.game-template` 包）是"复制即可起步"的新游戏模板，`Runtime/
