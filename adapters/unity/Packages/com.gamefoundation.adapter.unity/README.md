@@ -99,20 +99,27 @@ PlayMode 测试用到真实的渲染/输入子系统，`-nographics` 下可能�
 `WorldSim`/`GameplayAssembly`（`ISpatialQuery`/`INavigation2D` 接 `UnityEngineHost` 的真实实现，
 不是桩实现）→ 玩家单位 → `EnterMap`（自动触发 `spawn.sample_beast_field` 生成一只生物）→ 手动
 生成一个可交互 gobj → `PresentationAssembly`）构造整套世界，任一步骤失败（数据集校验阻断、异常）
-都 `Debug.LogError` 并把 `BootstrapFailed` 置 `true`，不抛异常穿透、不继续跑 `Update`/`FixedUpdate`。
+都 `Debug.LogError` 并把 `BootstrapFailed` 置 `true`，不抛异常穿透、不注册 `OnFixedStep`/`OnFrameTick`
+（见下"固定步长驱动"一节）。
 
 数据集根、示例地图 id、玩家模板 id 等均为 Inspector 可配置字段（`[SerializeField]`），默认值指向
 框架自带的中性示例数据（`data/_sample`、`creature.sample_hero` 等，与 `GameWorldFixture` 同一套
 id）。
 
-固定步长驱动：`FixedUpdate` 里 `IInputMapHost.Update` 轮询本帧输入 → 按当前动作状态提交
-"move"/"cast" 意图或调用 `GameObjectHost.Interact`（见下"输入→意图链路"）→
-`WorldSim.Tick(SimStep.Continuous(Time.fixedDeltaTime))`；`Update` 只做表现（`ViewBinder.SyncAll`/
-`CameraHost.Update` 插值同步、三个反馈接收器的 `Tick`）。判断记录：没有用
-`IClock.RequestFixedStep`（该契约没有取消订阅方法，跨场景重进会让旧回调永久残留在
-`UnityEngineHost` 持有的 `UnityClock` 里），改为直接在本组件自己的 `FixedUpdate`/`Update` 里驱动
-（组件销毁后引擎自动停止调用，不残留任何注册），插值 alpha 用"Update 累加、FixedUpdate 清零"的
-标准写法。
+固定步长驱动（2026-09-07 改写，引擎侧收口任务）：`BuildWorld` 末尾用
+`host.Clock.RequestFixedStep(Time.fixedDeltaTime, OnFixedStep)`/`host.Clock.OnFrame(OnFrameTick)`
+各注册一次固定步/逐帧回调，持有返回的 `SubscriptionHandle`（`_fixedStepHandle`/`_frameHandle`），
+`OnDestroy` 里显式 `Dispose()` 退订。`OnFixedStep` 内 `IInputMapHost.Update` 轮询本帧输入 → 按当前
+动作状态提交 "move"/"cast" 意图或调用 `GameObjectHost.Interact`（见下"输入→意图链路"）→调用
+`GameplayAssembly.Advance(stepSeconds)`（连续模式下等价于原先的
+`WorldSim.Tick(SimStep.Continuous(stepSeconds))`）；`OnFrameTick` 只做表现（`ViewBinder.SyncAll`/
+`CameraHost.Update` 插值同步、三个反馈接收器的 `Tick`）。此前本类型保留 `MonoBehaviour`
+`FixedUpdate`/`Update` 直驱写法，原因是 `IClock` 契约当时只有注册方法、没有取消注册方法；
+ADR-0016 决策 1 给 `RequestFixedStep`/`OnFrame` 补上 `SubscriptionHandle` 返回值后这条限制已解除，
+改为经 `IClock.RequestFixedStep`/`OnFrame` 显式注册 + 退订，与 `core/carriers/unit` 等真正跨场景
+常驻调用方使用同一套契约，不再是两套并存的驱动方式；固定步长直接取 `Time.fixedDeltaTime`（Unity
+自身固定步长本就是恒定配置值），与内部构造的 `SimClockHost.StepSeconds` 取同一个值，两者按相同
+节拍推进，误差为零。
 
 ### 输入→意图链路
 
@@ -146,8 +153,9 @@ id）。
   判断记录。
 - `FloatingTextReceiver`：世界空间 `TextMeshPro` 对象池，颜色按 `FloatingTextStyleDef.ColorRef`
   的字面量做"是否含 crit"启发式区分（框架没有 id → 具体色值的查询能力，见类型注释）。
-- `FreezeFrameReceiver`：只暂停 `Update` 里的 `ViewBinder.SyncAll`/`CameraHost.Update`
-  两步调用，不影响 `FixedUpdate` 里的 `WorldSim.Tick`（09 第 6 节"顿帧"落地，判断记录见类型顶部）。
+- `FreezeFrameReceiver`：只暂停 `OnFrameTick` 里的 `ViewBinder.SyncAll`/`CameraHost.Update`
+  两步调用，不影响 `OnFixedStep`（经 `IClock.RequestFixedStep` 驱动，见上"引导流程"一节）里的
+  `GameplayAssembly.Advance`/`WorldSim.Tick`（09 第 6 节"顿帧"落地，判断记录见类型顶部）。
 - `FlashReceiver`：查 `ViewBinder.TryGetView` 拿到 `UnitySpriteView` 后调用 `SetFlash`/
   `ClearFlash`；`Flash(entityId, profileId)` 没有随行的时长/强度数据（框架未定义
   `flash_profile` 一类的表），固定用 0.15 秒/2 倍过曝，`profileId` 暂不参与具体数值解析。
@@ -276,10 +284,12 @@ GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。`sprites`/`
 - `UnityFileSystem.cs`：`readOnlyContentMode` 构造参数合并原 `StreamingAssetsFileSystem`
   的判断记录 1、`GetContentRootDir` 两种模式下语义一致的判断记录 2（ADR-0016 决策 8）。
 - `EffectSequencePlayer.cs`：`ResourceKind.Effect` 序列帧动画的最小播放组件。
-- `Runtime/Bootstrap/GameFoundationBootstrap.cs`：装配顺序、固定步驱动为什么不用
-  `IClock.RequestFixedStep`（原因已由 ADR-0016 决策 1 部分解决，但保留现有写法）、交互为什么
-  改为提交意图（原判断记录 2，已由 ADR-0016 联动解决）、普攻/技能 1 为什么不读
-  `found.input_action` 表、空间索引登记为什么改由 L3 同步（判断记录见文件顶部与各处内联注释）。
+- `Runtime/Bootstrap/GameFoundationBootstrap.cs`：装配顺序、固定步驱动已改走
+  `IClock.RequestFixedStep`/`OnFrame`（ADR-0016 决策 1 补上 `SubscriptionHandle` 退订能力后，
+  引擎侧收口任务把此前保留的 `FixedUpdate`/`Update` 直驱写法收口为显式注册 + `OnDestroy` 退订，
+  见上"引导流程"一节）、交互为什么改为提交意图（原判断记录 2，已由 ADR-0016 联动解决）、普攻/
+  技能 1 为什么不读 `found.input_action` 表、空间索引登记为什么改由 L3 同步（判断记录见文件
+  顶部与各处内联注释）。
 - `Runtime/Presentation/UnitySpriteView.cs`：资源加载已下沉到 `SpriteViewBase`
   （ADR-0016 决策 6），本类型的重复实现已删除。
 - `Runtime/Presentation/UnityViewFactory.cs`：`DestroyAllCreatedViews` 弥补

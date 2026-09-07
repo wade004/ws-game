@@ -264,6 +264,47 @@ namespace Tests.Gameplay.Common
             Assert.Equal(0, inventory.CountOf(Unit, new Id("item.b")));
         }
 
+        /// <summary>R01 复现与根治（architecture/落地计划/audit-5e779c6-20260907）：背包已有 A×2
+        /// （MaxSlots=1，同模板续填不占新格）；奖励 [A×1, B×1]，A 能续填进已有堆叠（成功、入队一条
+        /// item.added），B 因没有空格子失败（Reject）——整批回滚。用真实 <see cref="EventBus"/>，在
+        /// <c>Grant</c> 调用期间不调用 <see cref="IEventBus.DispatchPending"/>（模拟"发放与事件派发
+        /// 之间还有别的调用方"这一真实时序，见 QuestHost.HandleItemAdded 的 consumeOnProgress 场景）：
+        /// 修复前，回滚只精确移除了数量（<c>CountOf</c> 立即验证也是对的），但总线待处理队列里仍残留
+        /// 一条 item.added + 一条抵消用的 item.removed，随后 DispatchPending 时会把这两条当作两个独立
+        /// 真实事件分别派发给订阅者——下游据此误判"发放成功过"。修复后：Grant 内部走事务，事件在失败
+        /// 时被整批丢弃，从未真正入队，DispatchPending 派发数为 0，任何订阅者都不会被通知。</summary>
+        [Fact]
+        public void Grant_RejectPolicy_SecondItemFails_RollsBackQueuedEventsToo_R01()
+        {
+            var bus = CreateRealBus();
+            var registry = BuildRealItemRegistry(bus);
+            var inventory = new InventoryHost(registry, bus, new InventoryOptions { MaxSlots = 1, FullPolicy = InventoryFullPolicy.Reject });
+            inventory.AddItem(Unit, new Id("item.a"), 2);
+            bus.DispatchPending(); // 清空初始铺底的 item.added，只观察 Grant 调用期间产生的事件。
+
+            var itemAddedCount = 0;
+            var itemRemovedCount = 0;
+            bus.Subscribe(CarriersEventKeys.ItemAdded, _ => itemAddedCount++);
+            bus.Subscribe(CarriersEventKeys.ItemRemoved, _ => itemRemovedCount++);
+
+            var dispatcher = new Core.Gameplay.Common.RewardDispatcher(inventory: inventory);
+            var bundle = new Core.Gameplay.Common.RewardBundle(
+                items: new[] { new ItemStack(new Id("item.a"), 1), new ItemStack(new Id("item.b"), 1) },
+                xp: 0, currency: Array.Empty<(Id, long)>(), skills: Array.Empty<Id>(),
+                worldFlags: Array.Empty<(Id, ExprValue)>(), talentPoints: 0);
+
+            var granted = dispatcher.Grant(Unit, bundle, Source);
+            Assert.False(granted);
+            Assert.Equal(2, inventory.CountOf(Unit, new Id("item.a"))); // 数量已经精确回滚（C05 既有保证）。
+
+            var dispatchedCount = bus.DispatchPending();
+
+            Assert.Equal(0, dispatchedCount); // 事件从未真正入队，不是"入队又被抵消"。
+            Assert.Equal(0, itemAddedCount);
+            Assert.Equal(0, itemRemovedCount);
+            Assert.Equal(2, inventory.CountOf(Unit, new Id("item.a"))); // 派发后数量仍然不变。
+        }
+
         [Fact]
         public void Grant_WithXp_CallsProgressionAddXp()
         {

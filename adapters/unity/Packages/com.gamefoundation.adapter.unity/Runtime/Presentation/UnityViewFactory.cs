@@ -231,27 +231,39 @@ namespace Adapter.Unity.Presentation
                 return;
             }
 
-            // 判断记录：GetSpriteRoot 是 UnityRenderer2D 的具体类型方法，不属于 IRenderer2D 契约本身
-            // （同类还有 UnityResourceLoader.TryGetSprite 一类"引擎实现之间的内部协作方法，不算契约
-            // 违反"，见本文件类型顶部判断记录）；_renderer2D 字段按契约只声明为 IRenderer2D，这里用
-            // is 模式防御性向下转型（同 GameplayAssembly 多处 "Carriers.Units is WorldUnitAccess"
-            // 的一贯写法），生产装配传入的恒为 UnityRenderer2D，不是该具体类型时（测试替身/未来
-            // 实现变化）静默跳过，不抛异常。
+            // 判断记录：GetSpriteRoot/GetLayersRoot 是 UnityRenderer2D 的具体类型方法，不属于
+            // IRenderer2D 契约本身（同类还有 UnityResourceLoader.TryGetSprite 一类"引擎实现之间的
+            // 内部协作方法，不算契约违反"，见本文件类型顶部判断记录）；_renderer2D 字段按契约只声明为
+            // IRenderer2D，这里用 is 模式防御性向下转型（同 GameplayAssembly 多处
+            // "Carriers.Units is WorldUnitAccess" 的一贯写法），生产装配传入的恒为 UnityRenderer2D，
+            // 不是该具体类型时（测试替身/未来实现变化）静默跳过，不抛异常。
             if (!(_renderer2D is Adapter.Unity.EngineAdapter.UnityRenderer2D concreteRenderer))
             {
                 return;
             }
 
-            var root = concreteRenderer.GetSpriteRoot(view.EngineHandle);
-            if (root == null)
+            // U04 根治（第五轮外部审核 audit-5e779c6-20260907/AUDIT_REPORT.md）：此前把
+            // UnityFrameAnimPlayer 直接挂在 GetSpriteRoot 返回的根物体自身上——该组件自带的
+            // SpriteRenderer 因此既不是 LayersRoot 的子物体（不受 SetTransform 的 height 偏移平移），
+            // 也不在 LayerRenderers 集合里（ApplyColor 遍历不到，flash/fade 不生效），只有根物体本身
+            // 的位置/旋转/缩放仍由 SetTransform 正常处理。改为挂在 GetLayersRoot 返回的 LayersRoot
+            // 子物体下，天然随 height 偏移一起平移；并经 RegisterAnimRootRenderer 登记，使其额外参与
+            // 颜色（flash/fade）与 flipX 遍历——与纸娃娃层同一份变换和反馈管线，影子仍按原判断记录
+            // 独立处理。
+            var layersRoot = concreteRenderer.GetLayersRoot(view.EngineHandle);
+            if (layersRoot == null)
             {
                 // 防御性判断：真实 UnityRenderer2D 在 UnitySpriteView 构造完成后必定已经建好精灵根
-                // 节点（见 AnimationLayerTests 一贯做法——构造后立即调用 GetSpriteRoot 不为
-                // null），这里只是防御未来实现变化，不抛异常。
+                // 节点/LayersRoot 子物体（见 AnimationLayerTests 一贯做法——构造后立即调用
+                // GetSpriteRoot 不为 null），这里只是防御未来实现变化，不抛异常。
                 return;
             }
 
-            var player = root.AddComponent<UnityFrameAnimPlayer>();
+            var animRootGo = new GameObject("AnimRoot");
+            animRootGo.transform.SetParent(layersRoot, worldPositionStays: false);
+
+            var player = animRootGo.AddComponent<UnityFrameAnimPlayer>();
+            concreteRenderer.RegisterAnimRootRenderer(view.EngineHandle, player.SpriteRenderer);
             var clips = RegisterDefaultClips(player, info);
             view.AttachFrameAnimPlayer(player);
 

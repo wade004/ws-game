@@ -213,13 +213,30 @@ namespace Core.Gameplay.Quest
         /// 完整数量（N11：不依赖 <c>ObjectiveCounts</c> 缓存进度；同一批物品若已被另一次并发交付
         /// 抢先消耗，这里会如实核出不足）；不足则整体失败于 <see cref="QuestTurnInFailure.InsufficientItems"/>。</item>
         /// <item>实际移除——预检通过后才真正调用 <see cref="RemoveCollectedItems"/>；仍检查其返回值
-        /// 防御极端并发下的移除失败，一旦失败立即把本次已移除的部分全部放回背包再返回失败（不应该
-        /// 发生，预检已核过量，留作防御性回滚）。</item>
+        /// 防御极端并发下的移除失败。</item>
         /// <item>发放奖励——经 <see cref="IRewardDispatcher.Grant"/>（N02：内部已对物品奖励做原子
-        /// 发放与失败回滚，见其判断记录）；返回 false 时（背包已满装不下奖励物品）把第 2 步移除的
-        /// collect 物品全部放回背包，整体失败于 <see cref="QuestTurnInFailure.InventoryFull"/>，任务
-        /// 保持 <see cref="QuestState.ObjectivesComplete"/>，玩家清出空间后可重新交付。</item>
+        /// 发放与失败回滚，见其判断记录）；失败时（背包已满装不下奖励物品）整体失败于
+        /// <see cref="QuestTurnInFailure.InventoryFull"/>，任务保持
+        /// <see cref="QuestState.ObjectivesComplete"/>，玩家清出空间后可重新交付。</item>
         /// </list>
+        /// <para>
+        /// 第五轮外部审核相邻缺口根治（architecture/落地计划/audit-5e779c6-20260907）：步骤 2/3 此前
+        /// 各自失败时都用"把已移除的 collect 物品重新 <c>AddItem</c> 放回背包"来回滚——这一"移除又
+        /// 放回"会产生一条真实的 <c>item.added</c> 事件，可能被玩家对同一物品模板持有的另一个
+        /// <c>consumeOnProgress</c> 目标误当作"新获得"而错误推进进度（该目标其实什么都没有新收到，
+        /// 只是这次失败交付的内部纠正）。改为把步骤 2/3 整体包进一次 <see
+        /// cref="IInventoryTransaction"/>（若 <see cref="_inventoryHost"/> 实现了 <see
+        /// cref="IBatchableInventoryHost"/>，同 <c>RewardDispatcher.GrantItems</c> 判断记录）：事务
+        /// 开启期间移除 collect 物品产生的 <c>item.removed</c> 先缓存、不送入总线；任一步失败时整体
+        /// <see cref="IInventoryTransaction.Dispose"/>（未调用 <see cref="IInventoryTransaction.Commit"/>
+        /// 即回滚），把背包状态与缓存事件一并撤销——不再需要手动调用 <c>AddItem</c> 放回，因此也就
+        /// 不会再产生任何虚假的 <c>item.added</c>。<see cref="IRewardDispatcher.Grant"/>
+        /// 内部若同样需要发放物品也会调用 <see cref="IBatchableInventoryHost.BeginBatch"/>——此时
+        /// 本方法已持有的事务尚未提交，<c>InventoryHost.BeginBatch</c> 检测到已在事务中会返回一个
+        /// 透传句柄（见其判断记录），加入同一个事务而不是另开一层，真正的提交/回滚权限仍归本方法
+        /// 持有的这个最外层事务实例。宿主不支持 <see cref="IBatchableInventoryHost"/> 时（多数测试
+        /// 用的最小 Fake）保留历史的"逐项 AddItem 放回"行为，不强制所有实现跟进。
+        /// </para>
         /// </summary>
         public bool TurnIn(Id unitId, Id questId, out QuestTurnInFailure failure)
         {
@@ -242,41 +259,55 @@ namespace Core.Gameplay.Quest
                 }
             }
 
-            // 步骤 2：实际移除，逐个目标核验返回值；任一失败回滚本次已移除的部分。
-            var removed = new List<(Id TemplateId, int Count)>();
-            for (var i = 0; i < def.Objectives.Count; i++)
+            // 步骤 2/3：见方法顶部判断记录——移除 collect 物品与发放奖励整体包进同一批库存事务。
+            var transaction = _inventoryHost is IBatchableInventoryHost batchable ? batchable.BeginBatch() : null;
+            using (transaction)
             {
-                var objective = def.Objectives[i];
-                if (objective.Type != QuestObjectiveType.Collect || objective.ConsumeOnProgress)
+                // 步骤 2：实际移除，逐个目标核验返回值；任一失败回滚本次已移除的部分。
+                var removed = new List<(Id TemplateId, int Count)>();
+                for (var i = 0; i < def.Objectives.Count; i++)
                 {
-                    continue;
+                    var objective = def.Objectives[i];
+                    if (objective.Type != QuestObjectiveType.Collect || objective.ConsumeOnProgress)
+                    {
+                        continue;
+                    }
+
+                    if (RemoveCollectedItems(unitId, objective.TargetRef, objective.Count))
+                    {
+                        removed.Add((objective.TargetRef, objective.Count));
+                        continue;
+                    }
+
+                    if (transaction == null)
+                    {
+                        foreach (var prior in removed)
+                        {
+                            _inventoryHost.AddItem(unitId, prior.TemplateId, prior.Count);
+                        }
+                    }
+                    // 宿主支持事务时不需要手动放回——using 块结束触发 Dispose 即整体回滚（含事件）。
+
+                    failure = QuestTurnInFailure.InsufficientItems;
+                    return false;
                 }
 
-                if (RemoveCollectedItems(unitId, objective.TargetRef, objective.Count))
+                // 步骤 3：发放奖励；失败则回滚步骤 2 移除的物品（N02）。
+                if (!_rewardDispatcher.Grant(unitId, def.Rewards, questId))
                 {
-                    removed.Add((objective.TargetRef, objective.Count));
-                    continue;
+                    if (transaction == null)
+                    {
+                        foreach (var prior in removed)
+                        {
+                            _inventoryHost.AddItem(unitId, prior.TemplateId, prior.Count);
+                        }
+                    }
+
+                    failure = QuestTurnInFailure.InventoryFull;
+                    return false;
                 }
 
-                foreach (var prior in removed)
-                {
-                    _inventoryHost.AddItem(unitId, prior.TemplateId, prior.Count);
-                }
-
-                failure = QuestTurnInFailure.InsufficientItems;
-                return false;
-            }
-
-            // 步骤 3：发放奖励；失败则把步骤 2 移除的物品全部放回背包（N02）。
-            if (!_rewardDispatcher.Grant(unitId, def.Rewards, questId))
-            {
-                foreach (var prior in removed)
-                {
-                    _inventoryHost.AddItem(unitId, prior.TemplateId, prior.Count);
-                }
-
-                failure = QuestTurnInFailure.InventoryFull;
-                return false;
+                transaction?.Commit();
             }
 
             rt.CompletionCount++;

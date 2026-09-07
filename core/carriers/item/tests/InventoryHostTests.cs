@@ -308,5 +308,61 @@ namespace Tests.Carriers.Item
             Assert.Null(host.FindInstance(other, instanceId));
             Assert.NotNull(host.FindInstance(owner, instanceId));
         }
+
+        // -------------------------------------------------------------
+        // 第五轮外部审核相邻缺口根治（architecture/落地计划/audit-5e779c6-20260907）：
+        // QuestHost.TurnIn 需要把"移除 collect 物品"与"调用可能同样会独立开启事务的
+        // RewardDispatcher.GrantItems"包进同一次原子操作——旧实现在已开启的事务里再次调用
+        // BeginBatch 会抛 InvalidOperationException，两者无法安全组合。改为隐式加入外层事务：
+        // 内层 BeginBatch 返回的句柄只是透传，不拥有真正的提交/回滚权限，权限始终归最外层持有。
+        // -------------------------------------------------------------
+
+        [Fact]
+        public void BeginBatch_WhileAlreadyInTransaction_JoinsOuterTransactionInsteadOfThrowing()
+        {
+            var host = BuildHost(out var bus, stackSize: 5);
+            var unit = new Id("player.hero");
+
+            var outer = ((IBatchableInventoryHost)host).BeginBatch();
+            var inner = ((IBatchableInventoryHost)host).BeginBatch(); // 不应抛异常——加入外层。
+            inner.Commit(); // 内层 Commit 是 no-op，不应提交外层事务。
+            inner.Dispose();
+
+            host.AddItem(unit, new Id("item.sample_potion"), 1);
+
+            outer.Dispose(); // 未调用外层 Commit：整体回滚，含内层"Commit"之后发生的变更。
+
+            Assert.Equal(0, host.CountOf(unit, new Id("item.sample_potion")));
+            Assert.Equal(0, bus.DispatchPending());
+        }
+
+        [Fact]
+        public void BeginBatch_NestedTransactionCommits_EventsOnlyDispatchWhenOuterCommits()
+        {
+            var host = BuildHost(out var bus, stackSize: 5);
+            var unit = new Id("player.hero");
+
+            var itemAddedCount = 0;
+            bus.Subscribe(CarriersEventKeys.ItemAdded, _ => itemAddedCount++);
+
+            using (var outer = ((IBatchableInventoryHost)host).BeginBatch())
+            {
+                host.AddItem(unit, new Id("item.sample_potion"), 1);
+
+                var inner = ((IBatchableInventoryHost)host).BeginBatch();
+                host.AddItem(unit, new Id("item.sample_potion"), 1);
+                inner.Commit(); // no-op，不提前派发。
+                inner.Dispose();
+
+                Assert.Equal(0, bus.DispatchPending()); // 外层尚未提交，两次加入都还缓存着。
+
+                outer.Commit();
+            }
+
+            var dispatchedCount = bus.DispatchPending();
+            Assert.Equal(2, dispatchedCount);
+            Assert.Equal(2, itemAddedCount);
+            Assert.Equal(2, host.CountOf(unit, new Id("item.sample_potion")));
+        }
     }
 }

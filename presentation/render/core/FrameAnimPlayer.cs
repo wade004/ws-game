@@ -11,11 +11,14 @@ namespace Presentation.Render
     /// <see cref="FrameChanged"/>，供引擎适配层订阅后按帧号切换实际显示的贴图，不需要重新实现一遍
     /// 计时推进逻辑。
     /// <para>
-    /// 判断记录（跨帧关键帧不补发）：<see cref="Update"/> 一次跨越多帧时（大 <c>dt</c>/低帧率场景），
-    /// 只对"推进后落在的那一帧"精确匹配的关键帧标记触发一次，中途跳过的帧上的标记不补发——序列帧
-    /// 动画不是逻辑判定的来源（09 第 4.3 节"表现层的关键帧只调节反馈动作播放的呈现时刻，不得回退去
-    /// 改变已经结算的战斗结果"），偶发的大 <c>dt</c> 丢失一次视觉关键帧回调是可接受的已知简化，不需要
-    /// 为此引入"追赶"逻辑增加复杂度。</para>
+    /// 判断记录（跨帧关键帧不补发，R11 根治后废止——见 <see cref="Update"/> 判断记录）：本段此前的
+    /// 结论是"<see cref="Update"/> 一次跨越多帧时……中途跳过的帧上的标记不补发……是可接受的已知
+    /// 简化"。R11（architecture/落地计划/audit-5e779c6-20260907）指出这个简化的代价被低估了：
+    /// 命中帧/事件帧驱动的是打击 VFX/SFX 一类反馈动作的触发时刻本身（不是数值结算，09 第 4.3 节的
+    /// 边界依然成立——本类型仍然不回退改变已经结算的战斗结果），一次卡顿/低帧率跨过命中帧就等于
+    /// 这次攻击的打击特效完全不播，是玩家能直接感知到的可见缺陷，不是无关紧要的"偶发丢失"。改为
+    /// <see cref="Update"/> 按顺序补发被跨过的每一帧（含关键帧判定），循环动画跨越回绕时也一并覆盖，
+    /// 见该方法判断记录（含"补发范围有上限，不会重放整段跨越的每一整圈"这一有意的边界）。</para>
     /// </summary>
     public sealed class FrameAnimPlayer : IFrameAnimPlayer
     {
@@ -102,6 +105,31 @@ namespace Presentation.Render
         /// 的可能是完全不同的贴图（引擎适配层按 clipId+frame 下标查表取贴图，见
         /// <c>Adapter.Unity.Presentation.UnityFrameAnimPlayer.OnFrameChanged</c>）。
         /// </para>
+        /// <para>
+        /// 判断记录（R11 根治，architecture/落地计划/audit-5e779c6-20260907）：剪辑对象引用没有变化
+        /// （<c>clipSwapped == false</c>，同一剪辑继续播放）时，把这次 <paramref name="dt"/> 跨越的
+        /// 每一个帧边界依次 <see cref="SetFrame"/>（从 <c><see cref="_lastFrame"/> + 1</c> 到本次算出
+        /// 的目标帧，含端点），不再只对"落地的最终帧"触发一次——中途被跨过的帧上的 <see
+        /// cref="FrameAnimClip.Keyframes"/> 标记与 <see cref="FrameChanged"/> 都会按顺序补发。循环
+        /// （<see cref="_loop"/>）跨越回绕（本次推进后到达/越过一轮时长）时先补完这一圈剩余的尾部帧
+        /// （<c><see cref="_lastFrame"/> + 1</c> 到 <c>totalFrames - 1</c>），再从帧 0 补到回绕后的
+        /// 目标帧——回绕当次也会重新触发帧 0 上的标记（同 <see cref="Play"/> 立即以第 0 帧触发一次的
+        /// 既有惯例，循环动画每一圈开头本就该重新触发）。非循环自然播完时同样先补完尾部帧再触发
+        /// <see cref="_onComplete"/>，不会跳过临近结尾的关键帧。
+        /// </para>
+        /// <para>
+        /// 补发范围有意设了上限（同"允许一个不受控制的多余实体短暂存在"一类判断记录的克制风格）：
+        /// 即便本次 <paramref name="dt"/> 大到跨越了不止一整圈（长时间挂起后恢复一类极端场景），也
+        /// 只追赶"这一圈剩余尾部 + 回绕后的目标帧"这一份，不会把中途完整跨过的每一整圈都重放一遍
+        /// （那样一次巨大的 <paramref name="dt"/> 可能瞬间触发成百上千次关键帧回调，本身就是另一种
+        /// 不合理的表现），这是"不丢关键帧"与"不引入无界的补发风暴"之间的权衡。
+        /// </para>
+        /// <para>
+        /// 剪辑对象引用发生变化（<c>clipSwapped == true</c>）时不做追赶补发：旧剪辑的帧序列在新剪辑
+        /// 里没有确定的对应关系，强行按新剪辑补发旧区间会产生无意义的关键帧，维持 N18 既有行为——
+        /// 直接跳到按新剪辑重新解释后的目标帧，只强制触发一次 <see cref="FrameChanged"/>（<see
+        /// cref="SetFrame"/> 的 <c>forceNotify</c>）。
+        /// </para>
         /// </summary>
         public void Update(double dt)
         {
@@ -121,31 +149,62 @@ namespace Presentation.Render
             var totalFrames = _current.FrameCount;
             var durationSeconds = totalFrames / _current.FrameRate;
 
+            if (clipSwapped)
+            {
+                if (_elapsedSeconds >= durationSeconds)
+                {
+                    if (_loop)
+                    {
+                        _elapsedSeconds %= durationSeconds;
+                    }
+                    else
+                    {
+                        SetFrame(totalFrames - 1, forceNotify: true);
+                        _current = null;
+                        _lastFrame = -1;
+                        InvokeAll(_onComplete);
+                        return;
+                    }
+                }
+
+                var swappedFrame = ClampFrame((int)(_elapsedSeconds * _current.FrameRate), totalFrames);
+                SetFrame(swappedFrame, forceNotify: true);
+                return;
+            }
+
             if (_elapsedSeconds >= durationSeconds)
             {
+                // 先补完这一圈（或这一段非循环播放）剩余的尾部帧，含端点 totalFrames - 1。
+                for (var f = _lastFrame + 1; f < totalFrames; f++)
+                {
+                    SetFrame(f);
+                }
+
                 if (_loop)
                 {
                     _elapsedSeconds %= durationSeconds;
-                }
-                else
-                {
-                    SetFrame(totalFrames - 1, clipSwapped);
-                    var clip = _current;
-                    _current = null;
-                    _lastFrame = -1;
-                    InvokeAll(_onComplete);
-                    _ = clip; // 仅用于表达"剪辑自然播完"这一事实已被消费，避免未使用变量告警噪音。
+                    var wrappedFrame = ClampFrame((int)(_elapsedSeconds * _current.FrameRate), totalFrames);
+                    for (var f = 0; f <= wrappedFrame; f++)
+                    {
+                        SetFrame(f);
+                    }
                     return;
                 }
+
+                _current = null;
+                _lastFrame = -1;
+                InvokeAll(_onComplete);
+                return;
             }
 
-            var frame = (int)(_elapsedSeconds * _current.FrameRate);
-            if (frame >= totalFrames)
+            var frame = ClampFrame((int)(_elapsedSeconds * _current.FrameRate), totalFrames);
+            for (var f = _lastFrame + 1; f <= frame; f++)
             {
-                frame = totalFrames - 1;
+                SetFrame(f);
             }
-            SetFrame(frame, clipSwapped);
         }
+
+        private static int ClampFrame(int frame, int totalFrames) => frame >= totalFrames ? totalFrames - 1 : frame;
 
         private void SetFrame(int frame, bool forceNotify = false)
         {

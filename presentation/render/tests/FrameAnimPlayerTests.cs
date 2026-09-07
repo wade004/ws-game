@@ -212,5 +212,75 @@ namespace Tests.PresentationRender
             // 帧下标数值上确实还是 0，但必须仍然收到一次 FrameChanged 通知（强制刷新贴图）。
             Assert.Contains(0, frames);
         }
+
+        // -----------------------------------------------------------------
+        // R11 复现与根治（architecture/落地计划/audit-5e779c6-20260907）：一次 Update 的 dt 跨过多帧
+        // 时，旧实现只对"推进后落在的那一帧"精确匹配的关键帧触发一次，中途被跳过的帧上的关键帧/
+        // FrameChanged 通知全部丢失。以下用例分别覆盖：非循环中途跳过、非循环恰好在这次推进内播完、
+        // 循环跨越回绕。
+        // -----------------------------------------------------------------
+
+        /// <summary>非循环、一次 Update 的 dt 跨过 3 帧（0→3）但尚未播完：中途第 1、2 帧都应该依次
+        /// 触发 FrameChanged，不是只有落地的第 3 帧。修复前 frames 只会是 [3]。</summary>
+        [Fact]
+        public void Update_LargeDt_SkipsMultipleFrames_FiresFrameChangedForEachSkippedFrameInOrder()
+        {
+            // 6 帧、10fps → 每帧 0.1 秒，总时长 0.6 秒。
+            var player = CreatePlayer(frameCount: 6, frameRate: 10.0);
+            var frames = new List<int>();
+            player.Play(ClipId, loop: false, speed: 1.0);
+            player.FrameChanged += frames.Add;
+
+            player.Update(0.35); // 0.35 * 10 = 3.5 → 落地第 3 帧，中途跨过第 1、2 帧。
+
+            Assert.Equal(new[] { 1, 2, 3 }, frames);
+            Assert.Equal(3, player.CurrentFrame);
+        }
+
+        /// <summary>非循环、dt 跨过的中途帧上有关键帧标记（不是最后一帧）：修复前该关键帧的
+        /// <see cref="FrameAnimPlayer.OnAnimEvent"/> 永远不会触发——旧实现"跨过就丢"的判断记录明确
+        /// 点名的正是这个场景。</summary>
+        [Fact]
+        public void Update_LargeDt_SkippedMiddleFrameHasKeyframe_StillFiresOnAnimEvent()
+        {
+            var keyframes = new Dictionary<string, int> { [FrameAnimClip.HitFrameMarker] = 1 };
+            var player = CreatePlayer(frameCount: 4, frameRate: 4.0, keyframes: keyframes);
+            var frames = new List<int>();
+            var fired = new List<string>();
+            player.Play(ClipId, loop: false, speed: 1.0);
+            player.FrameChanged += frames.Add;
+            player.OnAnimEvent(fired.Add);
+
+            player.Update(2.0); // 总时长只有 1 秒，一次性跨过全部剩余帧（1、2、3）并自然播完。
+
+            Assert.Equal(new[] { 1, 2, 3 }, frames);
+            Assert.Equal(new[] { FrameAnimClip.HitFrameMarker }, fired); // 关键帧在第 1 帧，不是最后一帧。
+        }
+
+        /// <summary>循环播放、一次 Update 的 dt 跨越了不止一整圈：先补完这一圈剩余的尾部帧
+        /// （1、2、3），回绕后再从第 0 帧补到目标帧（0、1、2）——含端点的第 0 帧关键帧也要重新触发一次
+        /// （循环动画每一圈开头本就该重新触发）。补发范围只追一圈，不逐圈重放。</summary>
+        [Fact]
+        public void Update_Loop_LargeDt_WrapsAcrossBoundary_FiresTailThenWrappedHeadFramesInOrder()
+        {
+            var keyframes = new Dictionary<string, int> { [FrameAnimClip.HitFrameMarker] = 0 };
+            var player = CreatePlayer(frameCount: 4, frameRate: 4.0, keyframes: keyframes); // 每帧 0.25s，一圈 1s。
+            var completed = false;
+            player.OnComplete(() => completed = true);
+
+            player.Play(ClipId, loop: true, speed: 1.0); // 立即处于第 0 帧（这里已经触发过一次关键帧）。
+
+            var frames = new List<int>();
+            var fired = new List<string>();
+            player.FrameChanged += frames.Add;
+            player.OnAnimEvent(fired.Add);
+
+            player.Update(1.5); // 跨过整整一圈还多半圈：尾部 1,2,3 → 回绕 → 头部 0,1,2。
+
+            Assert.Equal(new[] { 1, 2, 3, 0, 1, 2 }, frames);
+            Assert.Equal(new[] { FrameAnimClip.HitFrameMarker }, fired); // 回绕经过第 0 帧，重新触发一次。
+            Assert.Equal(2, player.CurrentFrame);
+            Assert.False(completed); // 循环不应该触发播放完成。
+        }
     }
 }

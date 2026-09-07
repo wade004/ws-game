@@ -454,6 +454,20 @@ namespace Core.Gameplay.Spawn
         /// <c>IWorldSim</c> 实体，不会导致空引用/异常）"与"违背存档语义、丢弃玩家读档想要拿回的
         /// 那份确定状态"之间，选择前者。
         /// </para>
+        /// <para>
+        /// R14 根治（architecture/落地计划/audit-5e779c6-20260907）：上一段"接受孤儿实体短暂存在"的
+        /// 选择低估了后果——该刷新点按快照倒计时结束后会重新生成一个新实体（<see cref="SpawnEntity"/>），
+        /// 而孤儿实体本身从未被销毁，二者同时存活，同一刷新点/同一模板在世界里出现两个实体，且孤儿
+        /// 实体从此彻底脱离任何刷新点追踪，不属于"短暂存在"而是永久重复。既然 <see
+        /// cref="_creatureFactory"/>（生物域）与 <see cref="SpawnOptions.GobjDespawner"/>（gobj 域）
+        /// 都具备移除单个实体的能力，改为在这里主动移除孤儿实体（<see cref="DespawnOrphan"/>，原因
+        /// <c>"restore_reconcile"</c>），而不是放任它留在世界里——移除走 <see
+        /// cref="Core.Foundation.SimLoop.IWorldSim.MarkForDestruction"/>（<c>Despawn</c> 内部调用），
+        /// 是"下个 tick 生命周期清理阶段真正移除"的惯例（同任何其它 Despawn 调用），不是立即同步移除；
+        /// 该孤儿从未被写回 <see cref="_entityToSpawn"/>，随后它的 <c>creature.despawned</c>/等效
+        /// gobj 事件即便被派发，<see cref="NotifyDespawn"/> 也查不到映射、直接提前返回，不会碰这个
+        /// 刷新点刚从快照恢复的 <c>respawn_remaining</c>。
+        /// </para>
         /// </summary>
         public void Load(JsonValue data)
         {
@@ -506,6 +520,10 @@ namespace Core.Gameplay.Spawn
                 // respawn_remaining），这里不需要、也不应该再碰它。
                 if (_records.TryGetValue(spawnId, out var snapshotRuntime) && snapshotRuntime.RespawnRemaining.HasValue)
                 {
+                    // R14 根治：这个刷新点按快照会重新计时、重新生成——kv.Value 这个"存档之后才诞生"
+                    // 的孤儿实体不能留在世界里，否则倒计时结束后会与新生成的实体同模板重复（见本方法
+                    // 判断记录）。
+                    DespawnOrphan(spawnId, kv.Value);
                     continue;
                 }
 
@@ -568,6 +586,46 @@ namespace Core.Gameplay.Spawn
 
             _bus.Enqueue(new SpawnExecutedEvent(def.Id, entityId));
             return entityId;
+        }
+
+        /// <summary>R14 根治：把一个已经脱离刷新点追踪（不在 <see cref="_entityToSpawn"/> 里）的孤儿
+        /// 实体从世界移除，见 <see cref="Load"/> 判断记录。<paramref name="spawnId"/> 对应的
+        /// <c>spawn.table</c> 记录已不存在或解析失败时保守跳过——同 <see cref="NotifyDespawn"/>/<see
+        /// cref="Update"/> 对缺失/非法记录的一贯处理，不抛异常。</summary>
+        private void DespawnOrphan(Id spawnId, Id entityId)
+        {
+            var record = _data.Get(SpawnSchemas.Table.Name, spawnId);
+            if (record == null)
+            {
+                return;
+            }
+
+            SpawnTableDef def;
+            try
+            {
+                def = SpawnTableDef.FromRecord(record);
+            }
+            catch (DataFieldException)
+            {
+                return;
+            }
+
+            var domain = def.ContentRef.Domain;
+            if (domain == EntityKinds.Creature)
+            {
+                _creatureFactory.Despawn(entityId, "restore_reconcile");
+            }
+            else if (domain == EntityKinds.Gobj)
+            {
+                if (_options.GobjDespawner == null)
+                {
+                    _diagnostics.Warn(
+                        $"刷新点 \"{spawnId}\" 的孤儿实体 \"{entityId}\" 因未注入 SpawnOptions.GobjDespawner，读档时未能移除");
+                    return;
+                }
+
+                _options.GobjDespawner(entityId);
+            }
         }
 
         private bool ConditionPasses(SpawnTableDef def)

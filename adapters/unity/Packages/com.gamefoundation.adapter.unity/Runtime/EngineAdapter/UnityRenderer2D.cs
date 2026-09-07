@@ -17,6 +17,17 @@
 // （像素值 / PixelsPerUnit 换算成世界单位），不改变根物体的位置/sortY/sortingOrder、不平移影子
 // （09 第 3.4 节）。SetShaderParam 现在只用于与位置无关的材质参数（闪白/溶解等）。
 //
+// U04 根治（第五轮外部审核 audit-5e779c6-20260907/AUDIT_REPORT.md）：默认序列帧动画
+// （Adapter.Unity.Presentation.UnityFrameAnimPlayer，见 UnityViewFactory.AttachDefaultAnimation）
+// 此前直接挂在 GetSpriteRoot 返回的根物体自身上，落地的 SpriteRenderer 既不是 LayersRoot 的子物体
+// （不受 height 偏移平移）、也不在 LayerRenderers 集合里（ApplyColor 遍历不到，flash/fade 不生效）。
+// 现改为：该 SpriteRenderer 改挂在 LayersRoot 下新建的子物体（GetLayersRoot 供外部定位挂载点），
+// 天然随 LayersRoot 一起平移吃到 height 偏移；同时经 RegisterAnimRootRenderer 登记到
+// SpriteInstance.AnimRootRenderer（与 LayerRenderers 分开维护的单一引用，SetLayers 的增删/复用逻辑
+// 不感知它，不会被纸娃娃层数量变化误销毁/误复用），ApplyColor/SetTransform 的 flipX 遍历/
+// ApplySortingOrders 均额外处理这一个引用——影子（ShadowRenderer）仍按原判断记录独立处理，不参与
+// height/颜色遍历。
+//
 // 资源解析与占位：CreateSpriteInstance/SetLayers 用到的资源 id 一律经 UnityResourceLoader
 // 解析；解析不到（未加载或加载失败）时使用一个运行期生成的纯色方块精灵占位，并
 // Debug.LogWarning 一次（按 id 去重，避免刷屏），不抛异常——保证游戏在资源缺失时仍可运行，
@@ -77,6 +88,17 @@ namespace Adapter.Unity.EngineAdapter
             public SpriteRenderer? ShadowRenderer;
 
             public ShadowMode Shadow = ShadowMode.None;
+
+            /// <summary>U04 根治新增：默认序列帧动画（<see cref="Adapter.Unity.Presentation.UnityFrameAnimPlayer"/>）
+            /// 落地的 Root 级 <see cref="SpriteRenderer"/>，经 <see cref="RegisterAnimRootRenderer"/> 登记。
+            /// 与 <see cref="LayerRenderers"/> 分开维护——<see cref="SetLayers"/> 的增删/复用逻辑按
+            /// <c>layers.Count</c> 索引对齐，不感知这个引用，避免纸娃娃层数量变化时把它误销毁或误当作
+            /// 某个纸娃娃层复用；但仍与 <see cref="LayerRenderers"/> 同样参与 height 偏移（作为
+            /// <see cref="LayersRoot"/> 的子物体，天然随其平移，不需要额外代码）、颜色（<see cref="ApplyColor"/>）
+            /// 与 flipX（<see cref="SetTransform"/>）遍历。null 表示该精灵实例未挂默认动画（如
+            /// item/gobj/projectile 一类不挂，见 <c>UnityViewFactory.AttachDefaultAnimation</c> 调用点
+            /// 判断记录）。</summary>
+            public SpriteRenderer? AnimRootRenderer;
         }
 
         private readonly Transform _root;
@@ -178,6 +200,11 @@ namespace Adapter.Unity.EngineAdapter
             foreach (var renderer in instance.LayerRenderers)
             {
                 renderer.flipX = flipX;
+            }
+
+            if (instance.AnimRootRenderer != null)
+            {
+                instance.AnimRootRenderer.flipX = flipX;
             }
 
             ApplySortingOrders(instance);
@@ -292,6 +319,11 @@ namespace Adapter.Unity.EngineAdapter
             {
                 renderer.color = color;
             }
+
+            if (instance.AnimRootRenderer != null)
+            {
+                instance.AnimRootRenderer.color = color;
+            }
         }
 
         /// <summary>W3b 新增（八个程序动画原语可视化，拍板 6）：供
@@ -305,6 +337,38 @@ namespace Adapter.Unity.EngineAdapter
         /// null，调用方按"跳过本次原语的引擎侧落地，不崩溃"处理。</summary>
         public GameObject? GetSpriteRoot(SpriteHandle handle) =>
             _sprites.TryGetValue(handle.Value, out var instance) ? instance.Root : null;
+
+        /// <summary>U04 根治新增：返回精灵实例的 <c>LayersRoot</c> 子物体——供
+        /// <c>UnityViewFactory.AttachDefaultAnimation</c> 把默认序列帧动画的 <see cref="GameObject"/>
+        /// 挂在这里（而不是 <see cref="GetSpriteRoot"/> 返回的根物体），使其随 height 偏移一起平移
+        /// （见 <see cref="SetTransform"/> 判断记录）。查不到（已销毁/未知句柄）时返回 null，调用方
+        /// 按"跳过本次接线，不崩溃"处理，同 <see cref="GetSpriteRoot"/> 一贯惯例。</summary>
+        public Transform? GetLayersRoot(SpriteHandle handle) =>
+            _sprites.TryGetValue(handle.Value, out var instance) ? instance.LayersRoot : null;
+
+        /// <summary>U04 根治新增：登记一个不受 <see cref="SetLayers"/> 增删/复用逻辑管理的额外
+        /// <see cref="SpriteRenderer"/>（目前唯一调用方是 <c>UnityViewFactory.AttachDefaultAnimation</c>，
+        /// 登记默认序列帧动画落地的 Root 级渲染器），使其此后与 <see cref="LayerRenderers"/> 一样参与
+        /// <see cref="ApplyColor"/>（flash/fade）与 <see cref="SetTransform"/> 的 flipX 遍历、
+        /// <see cref="ApplySortingOrders"/> 排序——height 偏移不需要这里额外处理，只要
+        /// <paramref name="renderer"/> 挂在 <see cref="GetLayersRoot"/> 返回的子树下就随 Unity 变换
+        /// 层级天然继承。登记时立即套用当前已生效的 flipX/颜色/排序，不必等下一次 SetTransform/
+        /// SetShaderParam 才补上。一个精灵实例至多一个（重复登记直接覆盖旧引用，调用方不应重复调用）。
+        /// 句柄不存在（已销毁/未知）时静默跳过，不抛异常，同本类型一贯的防御性惯例。</summary>
+        public void RegisterAnimRootRenderer(SpriteHandle handle, SpriteRenderer renderer)
+        {
+            if (renderer == null) throw new ArgumentNullException(nameof(renderer));
+
+            if (!_sprites.TryGetValue(handle.Value, out var instance))
+            {
+                return;
+            }
+
+            instance.AnimRootRenderer = renderer;
+            renderer.flipX = instance.FlipX;
+            renderer.color = ComputeColor(instance);
+            ApplySortingOrders(instance);
+        }
 
         public void DestroySpriteInstance(SpriteHandle handle)
         {
@@ -399,6 +463,14 @@ namespace Adapter.Unity.EngineAdapter
             for (var i = 0; i < instance.LayerRenderers.Count; i++)
             {
                 instance.LayerRenderers[i].sortingOrder = i;
+            }
+
+            // AnimRootRenderer 排在全部纸娃娃层之上（同一 SortingGroup 内，序号取
+            // LayerRenderers.Count——纸娃娃层为空时即为 0，恒不与影子的 -1 冲突）：默认序列帧动画是
+            // "没有具体游戏参与也要有得看"的兜底表现，不应被纸娃娃层（若同时存在装备覆盖层）盖住。
+            if (instance.AnimRootRenderer != null)
+            {
+                instance.AnimRootRenderer.sortingOrder = instance.LayerRenderers.Count;
             }
         }
 

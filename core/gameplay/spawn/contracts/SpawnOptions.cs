@@ -12,6 +12,15 @@ namespace Core.Gameplay.Spawn
     public delegate Id GobjSpawnerDelegate(Id templateId, Id mapId, Vec2 position, double facing);
 
     /// <summary>
+    /// R14 根治（architecture/落地计划/audit-5e779c6-20260907）：移除一个 <c>gobj.*</c> 域实体（组装层
+    /// 接 <c>Core.Carriers.Gobj.GameObjectFactory.Despawn</c>，见 <see cref="SpawnOptions.GobjDespawner"/>
+    /// 判断记录），供 <c>SpawnHost.Load</c> 在同图读档需要清理"快照倒计时命中、但当前世界仍存活的
+    /// 孤儿实体"时使用——与 <see cref="GobjSpawnerDelegate"/> 同款惯例（委托注入，不直接依赖
+    /// <c>Core.Carriers.Gobj.GameObjectFactory</c>，该类型自身注释明确不对外暴露为 common 契约接口）。
+    /// </summary>
+    public delegate void GobjDespawnerDelegate(Id entityId);
+
+    /// <summary>
     /// <see cref="SpawnHost"/> 的策略配置项 + L4/组装层回调注入点（惯例同
     /// <c>Core.Gameplay.AreaTrigger.AreaTriggerOptions</c>）。
     /// </summary>
@@ -38,5 +47,11 @@ namespace Core.Gameplay.Spawn
         /// <summary>见 <see cref="GobjSpawnerDelegate"/>；<c>content_ref</c> 域名为 <c>gobj</c> 时使用。
         /// 未注入时该行生成被跳过，只记一条诊断。</summary>
         public GobjSpawnerDelegate? GobjSpawner { get; set; }
+
+        /// <summary>见 <see cref="GobjDespawnerDelegate"/>；<c>content_ref</c> 域名为 <c>gobj</c> 时
+        /// 供 <c>SpawnHost.Load</c> 移除孤儿实体使用。未注入时该次移除被跳过，只记一条诊断——与 <see
+        /// cref="GobjSpawner"/> 未注入时"跳过并记诊断"同一惯例，不强制要求接入 gobj 生成能力的调用方
+        /// 也一定要接入移除能力。</summary>
+        public GobjDespawnerDelegate? GobjDespawner { get; set; }
     }
 }

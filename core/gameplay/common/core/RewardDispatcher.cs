@@ -80,6 +80,22 @@ namespace Core.Gameplay.Common
         /// <c>actualCount</c>，回滚按实际量而不是请求量移除，保证失败整批回滚后背包精确回到"这次
         /// <see cref="Grant"/> 调用之前"的状态，不多不少。
         /// </para>
+        /// <para>
+        /// R01 根治（architecture/落地计划/audit-5e779c6-20260907）：上一段的按量回滚只保证了背包
+        /// "数量"精确回到发放前，但没有解决"事件"层面的问题——<c>TryAddItem</c> 成功那一项已经把
+        /// <c>item.added</c> 事件排进了事件总线的待处理队列（<see
+        /// cref="Core.Foundation.EventBus.IEventBus.Enqueue"/> 只入队不立即派发），回滚调用的
+        /// <c>RemoveItem</c> 又补入一条独立的 <c>item.removed</c>；下游订阅者（如
+        /// <c>QuestHost.HandleItemAdded</c> 的 <c>consumeOnProgress</c>）在同一次
+        /// <c>DispatchPending</c> 里先收到"已加入"、当作真实发生的事件立即消费掉玩家已有的同模板
+        /// 物品并推进任务进度，后到的 <c>item.removed</c> 抵消不了这个副作用——整批回滚后背包"数量"
+        /// 对了，但任务系统已经误判、玩家已有物品被多扣了一份。现在若 <paramref name="_inventory"/>
+        /// 实现了 <see cref="IBatchableInventoryHost"/>（<c>InventoryHost</c> 已实现），把整批发放包
+        /// 进一次事务：事务期间产生的通知事件先缓存、不送入总线；失败时 <c>using</c> 块结束触发
+        /// <see cref="IInventoryTransaction.Dispose"/>（未 Commit 即回滚）把背包状态与缓存事件一并
+        /// 撤销，下游完全观察不到这次失败的发放发生过，不需要再逐项调用 <see cref="RemoveByTemplate"/>。
+        /// 宿主不支持事务时（多数测试用的 Fake）退回上一段的历史行为，不强制所有实现跟进。
+        /// </para>
         /// </summary>
         private bool GrantItems(Id unitId, RewardBundle bundle)
         {
@@ -95,31 +111,41 @@ namespace Core.Gameplay.Common
                 return true;
             }
 
-            var granted = new List<(Id TemplateId, int Count)>();
-            foreach (var stack in bundle.Items)
+            var transaction = _inventory is IBatchableInventoryHost batchable ? batchable.BeginBatch() : null;
+            using (transaction)
             {
-                if (_inventory.TryAddItem(unitId, stack.TemplateId, stack.Count, out var actualCount))
+                var granted = new List<(Id TemplateId, int Count)>();
+                foreach (var stack in bundle.Items)
                 {
-                    if (actualCount > 0)
+                    if (_inventory.TryAddItem(unitId, stack.TemplateId, stack.Count, out var actualCount))
                     {
-                        granted.Add((stack.TemplateId, actualCount));
+                        if (actualCount > 0)
+                        {
+                            granted.Add((stack.TemplateId, actualCount));
+                        }
+                        continue;
                     }
-                    continue;
+
+                    if (transaction == null)
+                    {
+                        // 历史行为：宿主不支持事务，按实际落地量（不是请求量）逐项回滚。
+                        foreach (var prior in granted)
+                        {
+                            RemoveByTemplate(_inventory, unitId, prior.TemplateId, prior.Count);
+                        }
+                    }
+                    // 宿主支持事务时，using 块结束触发 Dispose（未调用 Commit）即整体回滚，含事件，
+                    // 不需要在这里手动移除（见本方法判断记录）。
+
+                    _diagnostics.Warn(
+                        $"RewardDispatcher.Grant({unitId})：背包已满，物品奖励 \"{stack.TemplateId}\" x{stack.Count} " +
+                        "无法发放，整批奖励回滚未生效");
+                    return false;
                 }
 
-                // 回滚已发放部分——按实际落地量，不是请求量（见本方法判断记录）。
-                foreach (var prior in granted)
-                {
-                    RemoveByTemplate(_inventory, unitId, prior.TemplateId, prior.Count);
-                }
-
-                _diagnostics.Warn(
-                    $"RewardDispatcher.Grant({unitId})：背包已满，物品奖励 \"{stack.TemplateId}\" x{stack.Count} " +
-                    "无法发放，整批奖励回滚未生效");
-                return false;
+                transaction?.Commit();
+                return true;
             }
-
-            return true;
         }
 
         /// <summary>按模板 id 移除总计 <paramref name="count"/> 个物品（跨堆叠），供 <see

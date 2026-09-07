@@ -65,6 +65,13 @@ namespace Adapter.Unity.Presentation
             }
         }
 
+        /// <summary>U04 根治新增（第五轮外部审核 audit-5e779c6-20260907/AUDIT_REPORT.md）：公开本组件
+        /// 自带的 <see cref="SpriteRenderer"/>，供 <c>UnityViewFactory.AttachDefaultAnimation</c> 经
+        /// <c>Adapter.Unity.EngineAdapter.UnityRenderer2D.RegisterAnimRootRenderer</c> 登记进精灵实例，
+        /// 使这个渲染器与纸娃娃层一样参与 height 偏移、flash/fade 颜色和 flipX——本属性只是
+        /// <see cref="Renderer"/> 私有 get-or-add 访问器的公开转发，不改变其懒创建语义。</summary>
+        public SpriteRenderer SpriteRenderer => Renderer;
+
         private FrameAnimPlayer Inner
         {
             get

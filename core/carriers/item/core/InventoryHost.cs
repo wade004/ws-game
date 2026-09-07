@@ -30,7 +30,7 @@ namespace Core.Carriers.Item
     /// 输入"）。
     /// </para>
     /// </summary>
-    public sealed class InventoryHost : IInventoryHost
+    public sealed class InventoryHost : IInventoryHost, IBatchableInventoryHost
     {
         private readonly IEventBus _bus;
         private readonly InventoryOptions _options;
@@ -38,6 +38,14 @@ namespace Core.Carriers.Item
         private readonly Dictionary<Id, List<ItemInstance>> _bags = new Dictionary<Id, List<ItemInstance>>();
 
         private long _nextInstanceSeq = 1;
+
+        // R01 根治：批量事务状态（见 IInventoryTransaction 判断记录）。事务开启期间，AddItemCore/
+        // RemoveItem 产生的通知事件改走 EnqueueEvent 缓存到 _txEvents，不直接送入 _bus；Commit 时按序
+        // 补发，Rollback 时连同 _bags/_nextInstanceSeq 一起整体恢复到 BeginBatch 之前的快照。
+        private bool _inTransaction;
+        private Dictionary<Id, List<ItemInstance>>? _txSnapshot;
+        private long _txSnapshotSeq;
+        private readonly List<IEvent> _txEvents = new List<IEvent>();
 
         public InventoryHost(IDataRegistryView registry, IEventBus bus, InventoryOptions? options = null)
         {
@@ -160,7 +168,7 @@ namespace Core.Carriers.Item
 
             // toAdd > 0 时必然至少填过一个既有堆叠或新建过一个实例，touchedInstanceId 不为 null，
             // removals 至少有一项。
-            _bus.Enqueue(new ItemAddedEvent(unitId, touchedInstanceId!.Value, templateId, toAdd, removals));
+            EnqueueEvent(new ItemAddedEvent(unitId, touchedInstanceId!.Value, templateId, toAdd, removals));
             actualCount = toAdd;
             return true;
         }
@@ -199,7 +207,7 @@ namespace Core.Carriers.Item
                     bag[i] = new ItemInstance(instance.InstanceId, instance.TemplateId, instance.Count - count, instance.Extra);
                 }
 
-                _bus.Enqueue(new ItemRemovedEvent(unitId, instanceId, count, "removed"));
+                EnqueueEvent(new ItemRemovedEvent(unitId, instanceId, count, "removed"));
                 return true;
             }
 
@@ -353,5 +361,127 @@ namespace Core.Carriers.Item
         }
 
         private Id NextInstanceId() => new Id($"item.inst_{_nextInstanceSeq++}");
+
+        /// <summary>R01 根治：事务开启期间缓存事件、不立即送入总线；未开启事务时行为与此前完全一致
+        /// （立即 <see cref="IEventBus.Enqueue"/>），见 <see cref="IInventoryTransaction"/> 判断记录。</summary>
+        private void EnqueueEvent(IEvent evt)
+        {
+            if (_inTransaction)
+            {
+                _txEvents.Add(evt);
+            }
+            else
+            {
+                _bus.Enqueue(evt);
+            }
+        }
+
+        /// <summary>见 <see cref="IBatchableInventoryHost.BeginBatch"/>。对 <see cref="_bags"/> 做一次
+        /// 浅拷贝快照（每个单位的 <see cref="List{ItemInstance}"/> 另开一份列表，<see cref="ItemInstance"/>
+        /// 本身是不可变值类型，元素不需要再深拷贝）连同 <see cref="_nextInstanceSeq"/> 一并记录，供
+        /// <see cref="RollbackBatch"/> 整体恢复。
+        /// <para>
+        /// 第五轮外部审核相邻缺口根治：已在事务中时不再报错，而是返回一个 <c>isRoot: false</c> 的
+        /// 透传 <see cref="Transaction"/>（见其判断记录）——加入外层事务，不重新拍快照、不清空
+        /// <see cref="_txEvents"/>（外层快照/事件仍是唯一权威版本）。</para>
+        /// </summary>
+        public IInventoryTransaction BeginBatch()
+        {
+            if (_inTransaction)
+            {
+                return new Transaction(this, isRoot: false);
+            }
+
+            _inTransaction = true;
+            _txSnapshot = new Dictionary<Id, List<ItemInstance>>();
+            foreach (var kv in _bags)
+            {
+                _txSnapshot[kv.Key] = new List<ItemInstance>(kv.Value);
+            }
+            _txSnapshotSeq = _nextInstanceSeq;
+            _txEvents.Clear();
+            return new Transaction(this, isRoot: true);
+        }
+
+        private void CommitBatch()
+        {
+            _inTransaction = false;
+            var events = _txEvents.ToList();
+            _txEvents.Clear();
+            _txSnapshot = null;
+            foreach (var evt in events)
+            {
+                _bus.Enqueue(evt);
+            }
+        }
+
+        private void RollbackBatch()
+        {
+            _inTransaction = false;
+            _bags.Clear();
+            if (_txSnapshot != null)
+            {
+                foreach (var kv in _txSnapshot)
+                {
+                    _bags[kv.Key] = kv.Value;
+                }
+            }
+            _nextInstanceSeq = _txSnapshotSeq;
+            _txEvents.Clear();
+            _txSnapshot = null;
+        }
+
+        /// <summary>见 <see cref="IInventoryTransaction"/>。<see cref="Commit"/>/<see
+        /// cref="Dispose"/> 均只生效一次——先 Commit 后 Dispose 时 Dispose 是 no-op（不会把已提交的
+        /// 事务再回滚一次），重复 Commit 同理。
+        /// <para>
+        /// 第五轮外部审核相邻缺口根治：<paramref name="isRoot"/> 为 false 时（见
+        /// <see cref="BeginBatch"/> 判断记录——加入外层已开启的事务），<see cref="Commit"/>/
+        /// <see cref="Dispose"/> 都只标记本地 <see cref="_finished"/>、不调用
+        /// <see cref="InventoryHost.CommitBatch"/>/<see cref="InventoryHost.RollbackBatch"/>：
+        /// 真正的提交/回滚只能由最外层持有的那个 <c>isRoot: true</c> 实例触发，避免内层调用方
+        /// （如 <c>RewardDispatcher.GrantItems</c>）在不知情外层事务存在的情况下提前把外层也一并
+        /// 提交/回滚掉。</para>
+        /// </summary>
+        private sealed class Transaction : IInventoryTransaction
+        {
+            private readonly InventoryHost _host;
+            private readonly bool _isRoot;
+            private bool _finished;
+
+            public Transaction(InventoryHost host, bool isRoot)
+            {
+                _host = host;
+                _isRoot = isRoot;
+            }
+
+            public void Commit()
+            {
+                if (_finished)
+                {
+                    return;
+                }
+
+                _finished = true;
+                if (_isRoot)
+                {
+                    _host.CommitBatch();
+                }
+            }
+
+            public void Dispose()
+            {
+                if (_finished)
+                {
+                    return;
+                }
+
+                _finished = true;
+                if (_isRoot)
+                {
+                    _host.RollbackBatch();
+                }
+            }
+        }
     }
 }

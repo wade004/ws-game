@@ -129,6 +129,16 @@ quest/
     出现的货币显式置零），连续 `Load` 幂等。见 `QuestHost.cs`（`TurnIn`/`RemoveCollectedItems`）、
     `QuestEnums.cs`（`QuestTurnInFailure`）、`core/gameplay/economy/core/EconomyHost.cs`
     （`SetBalance`）、对应测试文件。
+    <br>**事件提交边界补充（2026-09-07，外部审计 5e779c6 R01 收口）**："任一步失败都不改变任何
+    状态"覆盖的是"数据状态"（背包物品实例/堆叠、货币余额），本条本身不新增任何事件层面的保证。
+    步骤 3（`IRewardDispatcher.Grant`）内部现已是事件层面同样原子（见
+    `core/gameplay/common/README.md` N02 收口条目"事件提交边界补充"）；但本方法自己在步骤 2/3
+    失败时执行的回滚（`foreach (var prior in removed) _inventoryHost.AddItem(...)` 把已移除的
+    collect 物品放回背包）是直接调用，不经过同一份批量事务——这次"放回"本身会产生一条新的
+    `item.added` 事件，与步骤 2 原始移除产生的 `item.removed` 事件一起进入同一次
+    `DispatchPending()` 批次，若玩家对同一物品模板还有另一个 `consumeOnProgress` 目标在监听，
+    理论上可能被这条"放回"事件误当作"新获得"而推进进度——这是本次任务书范围之外新发现的一处
+    可能的相邻缺口，未改动，留待后续单独复现/修复。
 11. **C06 收口（外部审核 7e63d66）：`RemoveCollectedItems` 改为"先核验总量、不够就不碰库存"的原子
     操作**——原实现边遍历边改：数量不足以凑满请求总量时，已经扫到的那部分仍然会被真正移除，只是
     最终返回值是 `false`。两条调用路径各自暴露一种净丢失：路径一，`HandleItemAdded` 的

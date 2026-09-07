@@ -91,6 +91,21 @@ common/
    `Grant` 调用中途任何一步的中间态都不可观察——回滚发生在 `Grant` 内部同一次调用返回之前，调用方
    看不到中间态）。见 `RewardDispatcherTests.cs` 里 `Grant_PartialPolicy_...`/`Grant_RejectPolicy_...`
    两条真实 `InventoryHost` 用例。
+   <br>**事件提交边界补充（2026-09-07，外部审计 5e779c6 R01 收口，见变更记录）**：上一段"背包状态
+   与调用前完全相同"此前只覆盖 `IInventoryHost` 的物品实例/堆叠这份"数据状态"，不覆盖
+   `item.added`/`item.removed` 这两个事件本身——`InventoryHost.AddItemCore`/`RemoveItem` 早已把
+   事件 `Enqueue` 进总线待处理队列（`Enqueue` 只入队不立即派发），失败回滚只是按实际落地量再
+   `RemoveItem` 补一条独立的 `item.removed`，两条事件仍在同一次 `DispatchPending()` 里被当作两个
+   真实事件先后派发——`QuestHost.HandleItemAdded`（`consumeOnProgress`）会在先到的 `item.added` 上
+   立即消费玩家已有的同模板物品并推进任务进度，后到的 `item.removed` 抵消不了这个副作用（外部审计
+   GP26-01 复现："失败发奖的已排队 item.added 仍会消耗旧任务物品"）。现在 `InventoryHost` 实现
+   `IBatchableInventoryHost.BeginBatch()`：`GrantItems` 若判定失败则把整批发放期间产生的事件一并
+   丢弃（不只是回滚数据状态），失败时下游不会收到任何 `item.added`/`item.removed`；只有整批成功
+   才会按序补发全部事件。"背包状态与调用前完全相同"现在应理解为"数据状态与已派发事件两者都与调用
+   前完全相同"。见 `core/carriers/common/contracts/IInventoryTransaction.cs`（新增
+   `IInventoryTransaction`/`IBatchableInventoryHost`）、`core/carriers/item/core/InventoryHost.cs`
+   （事务实现）、`RewardDispatcher.cs`（`GrantItems` 经检测能力接口套用事务）、
+   `RewardDispatcherTests.cs`（`Grant_RejectPolicy_SecondItemFails_RollsBackQueuedEventsToo_R01`）。
 
 ## 不负责什么
 

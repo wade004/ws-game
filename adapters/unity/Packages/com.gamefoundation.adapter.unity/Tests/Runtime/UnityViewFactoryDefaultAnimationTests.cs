@@ -121,7 +121,7 @@ namespace Adapter.Unity.Tests.Runtime
 
             var root = _renderer.GetSpriteRoot(spriteView.EngineHandle);
             Assert.IsNotNull(root, "UnitySpriteView 构造完成后应当已经建好精灵根节点");
-            var player = root!.GetComponent<UnityFrameAnimPlayer>();
+            var player = root!.GetComponentInChildren<UnityFrameAnimPlayer>();
             Assert.IsNotNull(player, "CreateView 默认应当给生物分类的 sprite 视图挂上 UnityFrameAnimPlayer 组件（外部审核阻塞项 3）");
 
             // 移动：unit.state_changed（MovementTickHandler 惯例，Idle -> Walk）应解出并播放 move 剪辑。
@@ -171,7 +171,79 @@ namespace Adapter.Unity.Tests.Runtime
 
             var root = _renderer.GetSpriteRoot(spriteView.EngineHandle);
             Assert.IsNotNull(root);
-            Assert.IsNull(root!.GetComponent<UnityFrameAnimPlayer>(), "非生物分类不应该挂接默认动画（item/gobj/projectile 不会收到任何状态切换事件）");
+            Assert.IsNull(root!.GetComponentInChildren<UnityFrameAnimPlayer>(), "非生物分类不应该挂接默认动画（item/gobj/projectile 不会收到任何状态切换事件）");
+        }
+
+        // -----------------------------------------------------------------
+        // U04 根治与回归（第五轮外部审核 audit-5e779c6-20260907/AUDIT_REPORT.md）：默认序列帧动画
+        // 此前直接挂在精灵根物体自身上，其 SpriteRenderer 既不是 LayersRoot 的子物体（不受
+        // SetTransform 的 height 偏移平移）也不在 LayerRenderers 集合里（ApplyColor 遍历不到，
+        // flash/fade 不生效）。断言默认动画渲染器与纸娃娃层一样响应 height/flash/fade 三个原语，
+        // 影子（本用例 DisplayInfo.Shadow=None，不涉及）仍按既有设计独立处理。
+        // -----------------------------------------------------------------
+
+        /// <summary>核心复现/回归：默认序列帧动画（AnimRoot）渲染器应当与纸娃娃层（body 层）同步响应
+        /// height 偏移、flash 过曝、fade 透明度——三者任一失效即为 U04 复发。</summary>
+        [Test]
+        public void CreateView_AnimRootRenderer_RespondsToHeightFlashFade_LikePaperdollLayers()
+        {
+            var (bus, info, entityId, displayInfo) = BuildFixture();
+            var factory = new UnityViewFactory(_renderer, new RenderConventionHost(), displayInfo, _resourceLoader, bus: bus, dataRegistry: null);
+            var view = factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
+            var spriteView = (UnitySpriteView)view;
+            // SyncPose 要求 IsAlive（Bind 之后才为真），见 SpriteViewBase.EnsureAlive、
+            // AnimationLayerTests.CreateView 同款判断记录——CreateView 本身不自动 Bind。
+            spriteView.Bind(entityId);
+
+            // 合成出纸娃娃层（CreateSpriteInfo 声明了 1 层 "body"）——SyncPose 覆写在层集合非空时
+            // 会自动调用基类 SetPaperdollLayers（见 UnitySpriteView.SyncPose 判断记录，同
+            // AnimationLayerTests 一贯做法）。
+            spriteView.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), 0.0);
+
+            var root = _renderer.GetSpriteRoot(spriteView.EngineHandle);
+            Assert.IsNotNull(root);
+            var player = root!.GetComponentInChildren<UnityFrameAnimPlayer>();
+            Assert.IsNotNull(player, "生物分类应当已挂接默认动画");
+            var animRenderer = player!.SpriteRenderer;
+
+            var layersRoot = root.transform.Find("LayersRoot");
+            Assert.IsNotNull(layersRoot, "应当已建好 LayersRoot 子物体");
+            // 按 UnityRenderer2D.SetLayers 的命名约定（"Layer_{i}"）定位，而不是按兄弟顺序索引——
+            // AttachDefaultAnimation 在 CreateView 期间早于本用例显式调用的 SyncPose 就已经把
+            // "AnimRoot" 子物体建在 LayersRoot 下，body 层是随后才追加的兄弟节点，兄弟顺序不等于
+            // 语义顺序。
+            var bodyLayerTransform = layersRoot!.Find("Layer_0");
+            Assert.IsNotNull(bodyLayerTransform, "body 纸娃娃层应当已合成");
+            var bodyLayerRenderer = bodyLayerTransform!.GetComponent<SpriteRenderer>();
+            Assert.IsNotNull(bodyLayerRenderer);
+
+            // U04 核心断言 1：AnimRoot 渲染器应当挂在 LayersRoot 下（不是根物体自己的平级组件），
+            // 这样才能像纸娃娃层一样天然继承 height 偏移，不需要额外代码单独搬运它。
+            Assert.AreEqual(
+                layersRoot, animRenderer.transform.parent,
+                "U04：默认动画渲染器应当挂在 LayersRoot 下才能吃到 height 偏移，不能停留在根物体自身");
+
+            // U04 核心断言 2（height）：SetTransform 只平移 LayersRoot 的本地 Y——两个子渲染器
+            // （body 层、AnimRoot）因此都随 Unity 变换层级一起移动，不需要分别断言世界坐标。
+            _renderer.SetTransform(
+                spriteView.EngineHandle, Vec2.Zero, height: 32.0, sortY: 0.0, layer: 0,
+                rotation: 0.0, scale: 1.0, flipX: false);
+            var expectedWorldOffset = 32.0f / _renderer.PixelsPerUnit;
+            Assert.AreEqual(
+                expectedWorldOffset, layersRoot.localPosition.y, 0.01f,
+                "height 偏移应当平移 LayersRoot（AnimRoot 作为其子物体随之一起移动）");
+
+            // U04 核心断言 3（flash）：SetShaderParam("flash_intensity", ...) 应当同时作用于纸娃娃层
+            // 与 AnimRoot 渲染器，两者取同一份合成颜色。
+            _renderer.SetShaderParam(spriteView.EngineHandle, "flash_intensity", 1.0);
+            Assert.Greater(bodyLayerRenderer.color.r, 1.0f, "纸娃娃层应当过曝");
+            Assert.Greater(animRenderer.color.r, 1.0f, "U04：AnimRoot 渲染器也应当同步过曝，不能不受 flash 影响");
+            Assert.AreEqual(bodyLayerRenderer.color.r, animRenderer.color.r, 0.001f, "两者应当是同一份合成颜色");
+
+            // U04 核心断言 4（fade）：SetShaderParam("fade_alpha", ...) 同理。
+            _renderer.SetShaderParam(spriteView.EngineHandle, "fade_alpha", 0.4);
+            Assert.AreEqual(0.4f, bodyLayerRenderer.color.a, 0.01f, "纸娃娃层应当淡出到目标透明度");
+            Assert.AreEqual(0.4f, animRenderer.color.a, 0.01f, "U04：AnimRoot 渲染器也应当同步淡出，不能不受 fade 影响");
         }
 
         // -----------------------------------------------------------------
@@ -192,7 +264,7 @@ namespace Adapter.Unity.Tests.Runtime
             var view = factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
             var spriteView = (UnitySpriteView)view;
             var root = _renderer.GetSpriteRoot(spriteView.EngineHandle);
-            var player = root!.GetComponent<UnityFrameAnimPlayer>();
+            var player = root!.GetComponentInChildren<UnityFrameAnimPlayer>();
 
             // 单帧剪辑（dataRegistry:null 走单帧退化路径）用 RegisterSingleFrameClip 登记，
             // frameRate 固定 1.0（见该方法判断记录），即单帧播放时长约 1 秒才会触发 OnComplete
@@ -236,7 +308,7 @@ namespace Adapter.Unity.Tests.Runtime
 
             var firstView = factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
             var firstRoot = _renderer.GetSpriteRoot(((UnitySpriteView)firstView).EngineHandle);
-            var firstPlayer = firstRoot!.GetComponent<UnityFrameAnimPlayer>();
+            var firstPlayer = firstRoot!.GetComponentInChildren<UnityFrameAnimPlayer>();
 
             bus.PublishImmediate(new UnitDiedEvent(entityId, killerId: null));
             Assert.IsTrue(firstPlayer.CurrentClipId!.Value.Value.EndsWith(".death", StringComparison.Ordinal));
@@ -248,7 +320,7 @@ namespace Adapter.Unity.Tests.Runtime
             // 生成、entityId 由 WorldSim 复用"）。
             var secondView = factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
             var secondRoot = _renderer.GetSpriteRoot(((UnitySpriteView)secondView).EngineHandle);
-            var secondPlayer = secondRoot!.GetComponent<UnityFrameAnimPlayer>();
+            var secondPlayer = secondRoot!.GetComponentInChildren<UnityFrameAnimPlayer>();
             Assert.AreNotSame(firstPlayer, secondPlayer, "新实体应当挂接一个全新的播放器组件");
 
             bus.PublishImmediate(new Core.Carriers.Common.UnitStateChangedEvent(entityId, "Idle", "Walk"));
@@ -272,7 +344,7 @@ namespace Adapter.Unity.Tests.Runtime
             var factory = new UnityViewFactory(_renderer, new RenderConventionHost(), displayInfo, _resourceLoader, bus: bus, dataRegistry: null);
             var view = factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
             var root = _renderer.GetSpriteRoot(((UnitySpriteView)view).EngineHandle);
-            var player = root!.GetComponent<UnityFrameAnimPlayer>();
+            var player = root!.GetComponentInChildren<UnityFrameAnimPlayer>();
 
             bus.PublishImmediate(new UnitDiedEvent(entityId, killerId: null));
             Assert.IsTrue(player.CurrentClipId!.Value.Value.EndsWith(".death", StringComparison.Ordinal));
@@ -323,7 +395,7 @@ namespace Adapter.Unity.Tests.Runtime
             var view = factory.CreateView(ViewKind.Unit, new Id("creature.sample_hero"), entityId);
             var spriteView = (UnitySpriteView)view;
             var root = host.Renderer2D.GetSpriteRoot(spriteView.EngineHandle);
-            var player = root!.GetComponent<UnityFrameAnimPlayer>();
+            var player = root!.GetComponentInChildren<UnityFrameAnimPlayer>();
 
             // 冷启动立即可用：不抛异常，Idle 状态已经登记了某个 clipId（单帧 fallback 或真实剪辑，
             // 取决于本次运行是否恰好已有缓存），Rig.PlayClip 不会因为资源没加载完就整个哑掉。
