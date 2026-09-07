@@ -1,0 +1,62 @@
+# Verdaccio 配置（私服交付通道）。见本目录 README.md"设计判断记录"一节的完整说明。
+#
+# 判断记录（2026-09-07）：
+# - 不代理任何上游注册表（无 uplinks 段）：本私服只服务框架自己的三个包
+#   （com.gamefoundation.adapter.unity / framework-data / toolchain），不承担"缓存 npm 公网包"
+#   这一职责——Unity 侧的官方包（com.unity.*）走 Unity 自己的默认注册表，不经过本作用域注册表
+#   （Unity Package Manager 只把 scopedRegistries.scopes 命中的包名前缀路由到自定义注册表，其余
+#   包名仍走默认注册表，见 Unity 官方 scoped registry 机制）；本目录 package.json 的 verdaccio
+#   本身用普通 `npm ci`（走 npm 默认公网注册表）安装，与 Verdaccio 服务启动后代理什么完全是两件
+#   事，不需要为了"装 Verdaccio 自己"而在 Verdaccio 配置里声明 npmjs 上游。
+# - 包名规则用 "com.gamefoundation.*"（点号前缀），不是 npm 的 "@scope/*" 语法——Unity UPM 包名
+#   本身就是形如 "com.gamefoundation.adapter.unity" 的点分字符串，不带 "@"，因此不是 npm 意义上的
+#   "作用域包"；Unity 侧 `scopedRegistries.scopes: ["com.gamefoundation"]` 里的"scope"是 Unity
+#   自己的术语（包名前缀路由规则），与 npm registry 配置里 "@scope/*" 的 glob 写法是两个不同的
+#   概念，不能直接套用任务描述里 "com.gamefoundation/*" 这一写法（那是斜杠，会匹配不到任何真实
+#   包名）。保留 "@*/*" 分组是防御性写法（万一将来某个包改用 npm 作用域命名），当前三个包用不到。
+# - 匿名可读、发布需登录（access: $all / publish: $authenticated），对应 Unity 侧消费方不需要
+#   任何账号即可 `npm install`/UPM 拉包，只有 build.ps1 -PublishRegistry 走过 init_publisher.ps1
+#   配置的发布账号令牌才能推包。
+# - max_body_size 放宽到 200mb：默认 10mb 装不下 framework-data 包（data/_framework +
+#   assets/_placeholder + assets/textmesh_pro_essentials 未压缩约 22MB，见 build.ps1 -Dist 判断
+#   记录），实测 npm publish 一份该包因请求体超限被拒后补的配置。
+
+storage: ./storage
+
+# 判断记录（max_users 不要写 -1）：verdaccio-htpasswd 插件源码
+# （node_modules/verdaccio-htpasswd/build/htpasswd.js）里 `this.maxUsers = config.max_users
+# ? config.max_users : Infinity` —— 只要 max_users 字段存在且是"真值"（-1 在 JS 里是真值），
+# 就会被直接用作上限，而不是"负数表示无限"；结果是任何用户数都 >= -1，导致注册端点直接返回
+# "user registration disabled"（实测复现：init_publisher.ps1 首次调用即失败）。不设置这个字段
+# （或干脆不写 auth.htpasswd.max_users）才会落到 Infinity 分支，达到"不限用户数"的效果。
+auth:
+  htpasswd:
+    file: ./htpasswd
+
+max_body_size: 200mb
+
+packages:
+  'com.gamefoundation.*':
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
+
+  '@*/*':
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
+
+  '**':
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
+
+# 只服务局域网/本机场景：默认监听地址由 start_registry.ps1 的 -Listen 参数传入
+# （默认 127.0.0.1:4873），不在本文件里写死，便于同一份配置在"仅本机"与"局域网内其它机器可访问"
+# 两种场景间切换（后者传 -Listen 0.0.0.0:4873）。
+
+middlewares:
+  audit:
+    enabled: true
+
+log: { type: stdout, format: pretty, level: warn }

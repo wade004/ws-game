@@ -38,3 +38,12 @@ adapters/unity/Assets/StreamingAssets.meta
 # Assets/Resources/ 目录此前不存在于仓库中，此次由测试框架自动创建，其 .meta 一并忽略。
 adapters/unity/Assets/Resources/PerformanceTestRun*
 adapters/unity/Assets/Resources.meta
+# 私服交付通道（toolchain/registry/，见该目录 README.md）：node_modules 是 npm ci 安装产物，
+# storage/ 是 Verdaccio 本地包存储（本机运行状态），htpasswd/.npmrc 含账号/令牌凭据，
+# verdaccio.pid/*.log 是 -Detach 后台运行状态，均不提交。
+toolchain/registry/node_modules/
+toolchain/registry/storage/
+toolchain/registry/htpasswd
+toolchain/registry/.npmrc
+toolchain/registry/verdaccio.pid
+toolchain/registry/*.log

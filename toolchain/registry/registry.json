@@ -1,0 +1,9 @@
+{
+  "url": "http://127.0.0.1:4873",
+  "scope": "com.gamefoundation",
+  "packages": [
+    "com.gamefoundation.adapter.unity",
+    "com.gamefoundation.framework-data",
+    "com.gamefoundation.toolchain"
+  ]
+}

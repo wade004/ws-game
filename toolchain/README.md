@@ -339,3 +339,34 @@ zip（同目录需要有同名 `.lock` 文件）。两条路径都会：解压�
 
 版本号格式、锁文件字段、`build.ps1 -Release`/`-Zip` 如何产出这两个文件，见框架仓库根
 `README.md`"版本与发布"一节与 `architecture/落地计划/落地方案与分阶段计划.md` 第 3.5 节。
+
+上面两条是 zip 快照通道；`-FromRegistry` 是并存的第二条通道（私服，见下一节），不下载任何文件，
+只生成/更新游戏工程 `Packages/manifest.json` 与 `ws-game.lock`：
+
+```powershell
+powershell -File toolchain\get_framework.ps1 -Version 1.0.0 -FromRegistry
+powershell -File toolchain\get_framework.ps1 -Version 1.0.0 -FromRegistry -RegistryUrl http://192.168.1.10:4873
+```
+
+## 私服（`toolchain/registry/`）与 `sync_package_content.ps1`
+
+`toolchain/registry/` 是框架仓库自己维护的私服（Verdaccio，npm 兼容协议）运行时——本机或局域网内
+起一个私有包仓库，把框架拆成三个可独立按版本号依赖的包（`com.gamefoundation.adapter.unity`/
+`com.gamefoundation.framework-data`/`com.gamefoundation.toolchain`）供游戏侧的 Unity 工程用作用域
+注册表依赖，是根 README.md"版本与发布"一节"私服通道"描述的落地，与本目录 `get_framework.ps1`
+默认的 zip 快照通道并存、内容一致。快速开始、配置细节、无人值守发布账号原理见
+[toolchain/registry/README.md](registry/README.md)；完整设计见
+`architecture/落地计划/落地方案与分阶段计划.md` 第 3.5.1 节。
+
+`toolchain/sync_package_content.ps1` 是这条通道的配套工具，运行在**游戏仓库**那一侧（与
+`get_framework.ps1` 同侧）：把游戏工程通过 UPM 私服解析到的 `com.gamefoundation.framework-data`
+包内容（`Data~/`，Unity 资产管线不导入）同步到该工程自己的 `Assets/StreamingAssets/GameFoundation/`
+（数据表、占位资产）、`Assets/TextMesh Pro/`（TMP 运行期资源）、`Assets/Framework/Resources/Fonts/`
+（占位字体）——引擎运行时的内容根固定是工程自己的 `Application.streamingAssetsPath`，不可能直接
+指向某个包在 `Library/PackageCache/` 下的解析路径，因此需要这一步同步，原理与 zip 通道下
+`games/_template/README.md`"复制为新游戏：改哪几处"第 8 步同一个根因。
+
+```powershell
+powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <你的 Unity 工程根目录>
+powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <工程根> -PackageName com.gamefoundation.toolchain -ResolveOnly
+```

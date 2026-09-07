@@ -53,6 +53,14 @@ jobs:
           cache: "pip"
           cache-dependency-path: toolchain/requirements.txt
 
+      - name: Setup Node.js 20.x
+        # 私服交付通道新增：build.ps1 -Dist（本工作流下面 -SyncOnly -Dist -Zip 步骤隐含调用）
+        # 现在无论如何都会额外 npm pack 出三个私服包的 .tgz（见 build.ps1 "5.15" 判断记录），
+        # 需要 node/npm；显式 setup-node 固定版本，不依赖托管运行器预装的版本浮动。
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -121,6 +129,13 @@ jobs:
           files: |
             dist/ws-game-${{ steps.version.outputs.version }}.zip
             dist/ws-game-${{ steps.version.outputs.version }}.lock
+            dist/${{ steps.version.outputs.version }}/packages/*.tgz
+          # 判断记录（三个 .tgz 只作为 Release 附件、不在这里发到任何注册表）：私服（Verdaccio）
+          # 只服务内网/本机场景，托管运行器既没有、也不应该配置一个可公网访问的私服地址；发布到
+          # 注册表是本机 `build.ps1 -Release -Publish -PublishRegistry` 的职责（见该开关说明），
+          # 本工作流只把本机同一套打包逻辑重新产出的三个 .tgz 一并作为 GitHub Release 附件上传，
+          # 方便没有私服访问权限的场景也能拿到这三个包（手动 `npm install <tgz 路径>` 或
+          # `npm publish <tgz 路径> --registry <自己的私服>`）。
           # 判断记录：不传 body/generate_release_notes——若 Release 已由本机 `-Release -Publish`
           # 创建（已带标题与 CHANGELOG.md 摘录的说明文本），这里只追加/覆盖附件，不覆盖已有说明；
           # 若 Release 尚不存在，本步骤会新建一个，说明文本留空由后续人工在 GitHub 网页补充，

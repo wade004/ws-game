@@ -1,0 +1,11 @@
+{
+  "name": "com.gamefoundation.framework-data",
+  "version": "0.2.0",
+  "displayName": "Game Foundation Framework Data",
+  "description": "框架级数据表 + 占位资产包 + TextMeshPro 运行期资源，随版本号发布；内容位于包内 Data~/（Unity 资产管线不导入，游戏侧构建脚本按包解析路径读取字节后同步到自己的 Assets/StreamingAssets，见包内 README.md）。本框架仓库不出现任何具体游戏代号。",
+  "unity": "6000.3",
+  "keywords": [
+    "gamefoundation",
+    "data"
+  ]
+}

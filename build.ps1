@@ -37,6 +37,11 @@
     打包时会把最终解析出的版本号写入 dist 内两个 package.json 的 version 字段（含
     games/_template/package.json 对适配层包的依赖版本号），并生成扩展后的 MANIFEST.txt
     （version/date/git_commit/各目录文件数/architecture_docs/data_schemas/core_assemblies）。
+    私服交付通道新增：额外把三个可发布包（com.gamefoundation.adapter.unity/framework-data/
+    toolchain）各自组装出正确版本号的 package.json + 内容到 dist/<ver>/packages/{三个包名}/，
+    并对每个目录跑一遍 `npm pack --pack-destination` 产出三个 .tgz 到同一目录；无论 -Dist 还是
+    -Release 都会执行这一步（-DryRun 时同样打包，只是不会有后续 -PublishRegistry 发布动作，见
+    .PARAMETER PublishRegistry）。详见 toolchain/registry/README.md、落地计划 3.5 节"私服通道"。
 
 .PARAMETER Release
     版本管理方案新增：走一次完整的"发布"流程（校验 -> 更新版本号 -> 全量门禁 -> 打包 -> 提交 ->
@@ -88,6 +93,20 @@
     应该重新走版本号写回/提交/打标签（那些已经在本机完成）。`-Release` 本身已经隐含这份打包
     （不需要再显式传 `-Zip`）。
 
+.PARAMETER PublishRegistry
+    私服交付通道新增。仅与 `-Release`（且未传 `-DryRun`）同传有效，独立于 `-Publish` 单独控制
+    （`-Publish` 只管 `git push`/`gh release create` 这两条命令，与是否发注册表无关；两个开关可以
+    任意组合同传或都不传）。第 7 步提交 + 打标签完成后，对 `dist/<ver>/packages/` 下三个包目录
+    依次执行 `npm publish --registry <url> --userconfig toolchain/registry/.npmrc`（该 `.npmrc`
+    由 `toolchain/registry/init_publisher.ps1` 无人值守生成，见该脚本头注释）。目标版本号一旦
+    发布成功即不可覆盖——`npm publish` 对已存在的版本号本身就会失败，与 `-Release` 的"发布不可变"
+    语义天然一致，不需要额外加校验。要求 `toolchain/registry/.npmrc` 已存在（先跑一遍
+    `init_publisher.ps1`），否则直接报错退出，不会跑到一半失败。
+
+.PARAMETER RegistryUrl
+    配合 `-PublishRegistry` 使用，显式指定私服地址；省略时读取 `toolchain/registry/registry.json`
+    的 `url` 字段（默认 `http://127.0.0.1:4873`）。
+
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符。
 #>
@@ -101,7 +120,9 @@ param(
     [switch]$DryRun,
     [switch]$Publish,
     [switch]$ReleaseSkipUnity,
-    [switch]$Zip
+    [switch]$Zip,
+    [switch]$PublishRegistry,
+    [string]$RegistryUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -134,13 +155,25 @@ function Get-FrameworkVersionFromFile {
 $DistRequested = ($Dist -ne "")
 $ResolvedDistVersion = ""
 $DistDirVersion = ""
+# 私服交付通道新增：允许 -Dist 直接传 "X.Y.Z-dryrun" 这一种形式（不经过完整 -Release -DryRun
+# 流程，那个流程强制要求 git 工作树干净，不适合"仓库里还有其它并行改动、只想单独验证打包/npm
+# pack/npm publish 这一段逻辑"这种场景）。"-dryrun" 后缀本身是合法的语义化版本预发布标识
+# （semver 允许 "X.Y.Z-<prerelease>"），因此这里不像 -Release -DryRun 内部那样剥离后缀
+# 另算一个"干净版本号"——$ResolvedDistVersion 就是这个带后缀的完整字符串，原样写进三个包的
+# package.json version 字段、MANIFEST.txt 等，npm publish 出去的也就是这个明显带"这是一次
+# dryrun 验证、不是真实发布"标记的版本号，天然不会与任何真实版本号的发布产物混淆或互相覆盖，
+# 也不需要额外的目录名后缀区分（$DistDirVersion 与 $ResolvedDistVersion 相同）。
+$DistVersionDryRunPattern = '^\d+\.\d+\.\d+-dryrun$'
 if ($DistRequested) {
     if ($Dist -eq "auto") {
         $ResolvedDistVersion = Get-FrameworkVersionFromFile
         Write-Host "-Dist auto：从 $VersionFilePath 读取版本号 -> $ResolvedDistVersion" -ForegroundColor Cyan
+    } elseif ($Dist -match $DistVersionDryRunPattern) {
+        $ResolvedDistVersion = $Dist
+        Write-Host "-Dist $Dist：'-dryrun' 后缀形式（合法 semver 预发布标识），打包内容与目录名均使用这个完整字符串" -ForegroundColor Cyan
     } else {
         if ($Dist -notmatch $VersionFormatPattern) {
-            Write-Host "-Dist 版本号格式非法：'$Dist'（需形如 X.Y.Z，或传 'auto' 从 VERSION 文件读取）" -ForegroundColor Red
+            Write-Host "-Dist 版本号格式非法：'$Dist'（需形如 X.Y.Z，或 X.Y.Z-dryrun，或传 'auto' 从 VERSION 文件读取）" -ForegroundColor Red
             exit 1
         }
         $ResolvedDistVersion = $Dist
@@ -157,12 +190,16 @@ if ($DistRequested) {
 # -----------------------------------------------------------------------------
 $ReleaseRequested = ($Release -ne "")
 
-if ((-not $ReleaseRequested) -and ($DryRun -or $Publish -or $ReleaseSkipUnity)) {
-    Write-Host "-DryRun/-Publish/-ReleaseSkipUnity 仅在同传 -Release 时有效" -ForegroundColor Red
+if ((-not $ReleaseRequested) -and ($DryRun -or $Publish -or $ReleaseSkipUnity -or $PublishRegistry)) {
+    Write-Host "-DryRun/-Publish/-ReleaseSkipUnity/-PublishRegistry 仅在同传 -Release 时有效" -ForegroundColor Red
     exit 1
 }
 if ($DryRun -and $Publish) {
     Write-Host "-DryRun 与 -Publish 不能同传（-DryRun 语义上不产生任何可发布的提交/标签）" -ForegroundColor Red
+    exit 1
+}
+if ($DryRun -and $PublishRegistry) {
+    Write-Host "-DryRun 下不会真正发布到注册表（只 npm pack 不 publish），-PublishRegistry 无意义，请去掉其中一个" -ForegroundColor Red
     exit 1
 }
 if ($Zip -and (-not $DistRequested) -and (-not $ReleaseRequested)) {
@@ -730,7 +767,11 @@ if ($DistRequested) {
 
     $adapterFileCount = Copy-DistDir -SourceRelative "adapters\unity\Packages\com.gamefoundation.adapter.unity" -DestName "adapters\unity\Packages\com.gamefoundation.adapter.unity"
     $templateFileCount = Copy-DistDir -SourceRelative "games\_template" -DestName "games\_template"
-    $toolchainFileCount = Copy-DistDir -SourceRelative "toolchain" -DestName "toolchain" -ExcludeDirNames @(".venv", "__pycache__")
+    # 私服交付通道新增：额外排除 "registry"（toolchain/registry/ 自身——私服运行时基础设施，不
+    # 随游戏侧分发，见该目录 README.md）、"node_modules"（registry 子目录下 npm ci 安装产物，
+    # 双重保险）、"bin"/"obj"（toolchain/validator/ 的 .NET 构建产物，不预编译随包分发，见
+    # com.gamefoundation.toolchain 包 README.md"依赖安装"一节）。
+    $toolchainFileCount = Copy-DistDir -SourceRelative "toolchain" -DestName "toolchain" -ExcludeDirNames @(".venv", "__pycache__", "registry", "node_modules", "bin", "obj")
     $assetsFileCount = Copy-DistDir -SourceRelative "assets\_placeholder" -DestName "assets\_placeholder"
     # 数据目录框架/游戏分层任务新增：分发包只带框架级数据表（data/_framework），不带
     # data/_sample（那是本仓库自测用的示例数据，不代表任何真实游戏内容，见 data/README.md）。
@@ -784,6 +825,71 @@ if ($DistRequested) {
 
     Set-DistPackageJsonVersion -JsonPath (Join-Path $DistRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json") -Version $ResolvedDistVersion
     Set-DistPackageJsonVersion -JsonPath (Join-Path $DistRoot "games\_template\package.json") -Version $ResolvedDistVersion
+
+    # -------------------------------------------------------------------
+    # 5.15 私服交付通道新增：组装三个可发布包到 dist/<ver>/packages/{包名}/，并 npm pack 出三个
+    #      .tgz 到同一目录（见 .PARAMETER Dist 私服交付通道新增说明、toolchain/registry/
+    #      README.md）。无论本次是 -Dist 还是 -Release、是否 -DryRun 都会执行——打包本身不是
+    #      "发布"这个有副作用的动作，`npm pack` 只在本地生成 tar 包，不联网、不改变任何远端状态；
+    #      真正有副作用的 `npm publish` 由下面 -Release 第 7 步之后的 -PublishRegistry 单独控制。
+    # -------------------------------------------------------------------
+    Write-Step "打三个 npm 包（私服交付通道）：dist\$DistDirVersion\packages\"
+
+    $PackagesRoot = Join-Path $DistRoot "packages"
+    New-Item -ItemType Directory -Force -Path $PackagesRoot | Out-Null
+
+    function Set-PackageJsonVersionInline {
+        param([string]$JsonPath, [string]$Version)
+        $obj = (Get-Content -Path $JsonPath -Raw -Encoding UTF8) | ConvertFrom-Json
+        $obj.version = $Version
+        ($obj | ConvertTo-Json -Depth 10) | Set-Content -Path $JsonPath -Encoding utf8
+    }
+
+    # 包 1：com.gamefoundation.adapter.unity —— 整份拷贝 dist 内已经同步过版本号的适配层包目录
+    # （上面 5.1 节已经把这份 package.json 的 version 字段改成 $ResolvedDistVersion，这里不需要
+    # 重复改写）。
+    $pkgAdapterDir = Join-Path $PackagesRoot "com.gamefoundation.adapter.unity"
+    Copy-Item -Path (Join-Path $DistRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity") -Destination $pkgAdapterDir -Recurse -Force
+    Write-Host "  已组装 $pkgAdapterDir"
+
+    # 包 2：com.gamefoundation.framework-data —— package.json/README.md 取自源码里维护的包清单
+    # toolchain/registry/manifests/framework-data/；内容取自 dist 内已经打包好的 data/_framework、
+    # assets/_placeholder、assets/textmesh_pro_essentials 三棵目录树（见上方 Copy-DistDir 调用
+    # 列表），放进包内 Data~/（Unity 不导入该目录、游戏侧按路径读字节，见该包 README.md 判断
+    # 记录）。
+    $pkgDataDir = Join-Path $PackagesRoot "com.gamefoundation.framework-data"
+    New-Item -ItemType Directory -Force -Path $pkgDataDir | Out-Null
+    $frameworkDataManifestDir = Join-Path $RepoRoot "toolchain\registry\manifests\framework-data"
+    Copy-Item -Path (Join-Path $frameworkDataManifestDir "package.json") -Destination (Join-Path $pkgDataDir "package.json") -Force
+    Copy-Item -Path (Join-Path $frameworkDataManifestDir "README.md") -Destination (Join-Path $pkgDataDir "README.md") -Force
+    Set-PackageJsonVersionInline -JsonPath (Join-Path $pkgDataDir "package.json") -Version $ResolvedDistVersion
+    $pkgDataDataTilde = Join-Path $pkgDataDir "Data~"
+    New-Item -ItemType Directory -Force -Path $pkgDataDataTilde | Out-Null
+    Copy-Item -Path (Join-Path $DistRoot "data\_framework") -Destination (Join-Path $pkgDataDataTilde "data\_framework") -Recurse -Force
+    Copy-Item -Path (Join-Path $DistRoot "assets\_placeholder") -Destination (Join-Path $pkgDataDataTilde "assets\_placeholder") -Recurse -Force
+    Copy-Item -Path (Join-Path $DistRoot "assets\textmesh_pro_essentials") -Destination (Join-Path $pkgDataDataTilde "assets\textmesh_pro_essentials") -Recurse -Force
+    Write-Host "  已组装 $pkgDataDir"
+
+    # 包 3：com.gamefoundation.toolchain —— package.json/README.md 同上取自
+    # toolchain/registry/manifests/toolchain/；内容取自 dist 内已经打包好的 toolchain/（上方
+    # Copy-DistDir 调用已排除 .venv/__pycache__/registry/node_modules/bin/obj），放进包内 Tools~/。
+    $pkgToolDir = Join-Path $PackagesRoot "com.gamefoundation.toolchain"
+    New-Item -ItemType Directory -Force -Path $pkgToolDir | Out-Null
+    $toolchainManifestDir = Join-Path $RepoRoot "toolchain\registry\manifests\toolchain"
+    Copy-Item -Path (Join-Path $toolchainManifestDir "package.json") -Destination (Join-Path $pkgToolDir "package.json") -Force
+    Copy-Item -Path (Join-Path $toolchainManifestDir "README.md") -Destination (Join-Path $pkgToolDir "README.md") -Force
+    Set-PackageJsonVersionInline -JsonPath (Join-Path $pkgToolDir "package.json") -Version $ResolvedDistVersion
+    Copy-Item -Path (Join-Path $DistRoot "toolchain") -Destination (Join-Path $pkgToolDir "Tools~") -Recurse -Force
+    Write-Host "  已组装 $pkgToolDir"
+
+    foreach ($pkgDirForPack in @($pkgAdapterDir, $pkgDataDir, $pkgToolDir)) {
+        & npm pack $pkgDirForPack --pack-destination $PackagesRoot --silent | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm pack 失败：$pkgDirForPack（退出码 $LASTEXITCODE，本机是否已安装 node/npm？）"
+        }
+    }
+    $tgzFiles = @(Get-ChildItem -Path $PackagesRoot -Filter "*.tgz" -File)
+    Write-Host ("  已生成 {0} 个 .tgz：{1}" -f $tgzFiles.Count, (($tgzFiles | ForEach-Object { $_.Name }) -join ", "))
 
     # -------------------------------------------------------------------
     # 5.2 版本可追溯任务新增：git_commit（工作树不干净时加 -dirty 后缀）
@@ -977,6 +1083,35 @@ if ($DistRequested) {
                 Pop-Location
             }
 
+            # -PublishRegistry：私服交付通道新增，独立于 -Publish 单独控制（见 .PARAMETER
+            # PublishRegistry 说明）。npm publish 对已存在的版本号本身会失败，天然满足"发布不
+            # 可变"，不需要本脚本额外加校验。
+            if ($PublishRegistry) {
+                Write-Step "-PublishRegistry：npm publish 三个包到私服"
+
+                $resolvedRegistryUrl = $RegistryUrl
+                if ($resolvedRegistryUrl -eq "") {
+                    $registryJsonPath = Join-Path $RepoRoot "toolchain\registry\registry.json"
+                    if (-not (Test-Path $registryJsonPath)) {
+                        throw "找不到 $registryJsonPath，且未显式传 -RegistryUrl"
+                    }
+                    $resolvedRegistryUrl = ((Get-Content -Path $registryJsonPath -Raw -Encoding UTF8) | ConvertFrom-Json).url
+                }
+                $registryNpmrcPath = Join-Path $RepoRoot "toolchain\registry\.npmrc"
+                if (-not (Test-Path $registryNpmrcPath)) {
+                    throw "找不到 $registryNpmrcPath（先跑 toolchain/registry/init_publisher.ps1 无人值守生成发布账号令牌）"
+                }
+
+                foreach ($pkgDirForPublish in @($pkgAdapterDir, $pkgDataDir, $pkgToolDir)) {
+                    Write-Host "  npm publish $pkgDirForPublish --registry $resolvedRegistryUrl"
+                    & npm publish $pkgDirForPublish --registry $resolvedRegistryUrl --userconfig $registryNpmrcPath
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "npm publish 失败：$pkgDirForPublish（退出码 $LASTEXITCODE；若原因是版本号已存在，说明该版本已经发布过，符合'发布不可变'，请发新版本号而不是覆盖）"
+                    }
+                }
+                Write-Host "  已发布三个包 version=$Release 到 $resolvedRegistryUrl" -ForegroundColor Green
+            }
+
             # 第 8 步：打印后续需要人工/设计层执行的两条命令；-Publish 时自动执行。
             $pushCmd = "git push origin main --tags"
             $releaseCmd = "gh release create $tagName `"$zipPath`" `"$lockPath`" --title `"$tagName`" --notes-file `"$releaseNotesPath`""
@@ -1016,6 +1151,7 @@ if ($DistRequested) {
             Write-Host ""
             Write-Host "==== -DryRun 完成：$Release 的发布流水线全流程校验 + 打包已跑通，未改写任何源码文件、未提交、未打标签 ====" -ForegroundColor Green
             Write-Host "  dist/$DistDirVersion/、$zipPath、$lockPath 均为验证产物（dist/ 已 .gitignore，可随时删除）"
+            Write-Host "  dist/$DistDirVersion/packages/ 下三个包目录 + .tgz 同样已生成（npm pack，本地打包不联网）；-DryRun 不会 npm publish，见 .PARAMETER PublishRegistry"
         } else {
             Write-Host ""
             Write-Host "==== -Zip 完成：$zipPath、$lockPath 已生成，未涉及版本号写回/提交/打标签（-Zip 独立于 -Release 使用） ====" -ForegroundColor Green

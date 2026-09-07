@@ -1,0 +1,11 @@
+{
+  "name": "com.gamefoundation.toolchain",
+  "version": "0.2.0",
+  "displayName": "Game Foundation Toolchain",
+  "description": "跨游戏的数据校验/资产导入 Python 工具链，随版本号发布；脚本位于包内 Tools~/（Unity 资产管线不导入，按 python 调用，见包内 README.md）。本框架仓库不出现任何具体游戏代号。",
+  "unity": "6000.3",
+  "keywords": [
+    "gamefoundation",
+    "toolchain"
+  ]
+}

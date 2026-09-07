@@ -85,6 +85,17 @@ games/_template/
    }
    ```
    （具体相对路径层级、版本号以实际情况为准；见落地计划 3.5 节"新游戏如何消费本框架"。）
+
+   **私服通道（第 5～6 步的替代方案）**：上面第 5～6 步是 zip 快照通道；也可以改用私服（按版本号
+   依赖，不需要手工下载解压校验）——`powershell -File toolchain\get_framework.ps1 -Version <version>
+   -FromRegistry` 会生成/更新本工程 `Packages/manifest.json` 里的作用域注册表条目
+   （`com.gamefoundation`）与三个包依赖（含本模板改名后对应的 `com.gamefoundation.adapter.unity`；
+   `games/_template` 本身不发布为私服包，仍以复制方式接入，见文首"复制本目录即可起步"），并写
+   `ws-game.lock` 记录来源。首次解析完包后，用 `powershell -File toolchain\sync_package_content.ps1
+   -UnityProjectPath <你的 Unity 工程>` 把 `com.gamefoundation.framework-data` 包内容同步到
+   `Assets/StreamingAssets/`（等价于第 8 步描述的 TMP/字体拷贝，私服通道下该脚本一并处理，不需要
+   再手工拷贝）。两条通道内容一致，选哪条不影响后续步骤；完整设计见
+   `architecture/落地计划/落地方案与分阶段计划.md` 第 3.5.1 节、`toolchain/registry/README.md`。
 7. 依赖方向单向：新游戏的程序集引用 `Adapter.Unity`，`Adapter.Unity` 不反向引用任何游戏层程序集；
    `Adapter.Unity` 也不出现任何具体游戏代号——本模板同样遵守这条规则，`Runtime`/`Editor` 两个
    asmdef 都只引用 `Adapter.Unity`，不引用工作台任何专属脚本（见 `Editor/GameSceneBuilder.cs`

@@ -28,7 +28,9 @@ games/_template/        游戏层骨架模板（本地包 com.gamefoundation.gam
 data/_sample/           框架自测/校验器自测用的示例数据表，不代表任何真实游戏内容；真实游戏数据放各自仓库的 data/<game>/
 assets/_placeholder/    灰盒竖切用的通用占位资产包（精灵、特效、音效、音乐、地图分层图、字体等源素材），随版本快照一并交付
 assets/_sample/         由 toolchain/import_sample_assets.py 驱动资产导入工具真实产出并提交入库的样例资产（消费 assets/_placeholder 源素材生成），供 data/_sample 的 display/vfx/sfx/world 四张表引用；改了 assets/_placeholder 源素材或需修复 data/_sample 引用时重跑该脚本幂等重新生成，见 toolchain/README.md"data/_sample 的资产来源"一节
-toolchain/              校验、构建、资产导入等跨游戏 Python 工具链（validate_data.py、import_assets.py 等）；get_framework.ps1 是游戏侧按版本号引用本框架的工具，见"版本与发布"一节
+toolchain/              校验、构建、资产导入等跨游戏 Python 工具链（validate_data.py、import_assets.py 等）；get_framework.ps1 是游戏侧按版本号引用本框架的工具（zip 通道），见"版本与发布"一节
+  registry/              私服（Verdaccio 注册表）交付通道：本机/局域网内起一个私有包仓库，游戏侧按版本号依赖三个可发布包，与 zip 通道并存，见 toolchain/registry/README.md
+  sync_package_content.ps1  私服通道配套：把游戏工程解析到的 com.gamefoundation.framework-data 包内容同步到该工程的 StreamingAssets/TextMesh Pro
 editor/                游戏内容编辑器（Windows 桌面程序）：docs/ 产品文档（markdown + 离线 HTML）；实现尚未开始
 dist/<version>/         build.ps1 -Dist 产出的版本快照（构建产物，.gitignore，不入库，可由源码重建）；-Release/-Zip 额外产出 ws-game-<version>.zip/.lock
 VERSION                 单一版本源（纯文本版本号，如 0.2.0），两个 package.json、CHANGELOG.md、dist 快照均以此为准，见"版本与发布"一节
@@ -63,10 +65,10 @@ python toolchain/validate_data.py
 | `powershell -File build.ps1 -SkipTests` | 同上，跳过 `dotnet test` |
 | `powershell -File build.ps1 -SyncOnly` | 跳过 `dotnet build/test`，只做 DLL 同步 + 内容同步（要求此前至少完整 build 过一次） |
 | `powershell -File build.ps1 -SyncContent` | 只做内容同步（跳过 `dotnet build/test` 与 DLL 同步）；只改了 `data/_sample`/`assets/_placeholder`/`assets/_sample`、没改任何 C# 代码时的快速路径 |
-| `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`）、`assets/_placeholder`、`data/_framework` 打成一份版本快照 `dist/<version>/`，并生成扩展后的 `MANIFEST.txt`（见下方"版本与发布"一节） |
+| `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`/`registry`/`node_modules`/`bin`/`obj`）、`assets/_placeholder`、`data/_framework` 打成一份版本快照 `dist/<version>/`，并生成扩展后的 `MANIFEST.txt`；同时无条件额外组装私服交付通道的三个包到 `dist/<version>/packages/{三个包名}/` 并 `npm pack` 出三个 `.tgz`（见下方"版本与发布"一节"私服通道"） |
 | `powershell -File build.ps1 -Dist auto` | 同上，但版本号不由调用方指定，改为读取仓库根 `VERSION` 文件当前内容 |
 | `powershell -File build.ps1 -Dist <version> -Zip` | 在 `-Dist` 基础上额外打 `dist/ws-game-<version>.zip` + `dist/ws-game-<version>.lock`，不做任何版本号写回/提交/打标签（`.github/workflows/release.yml` 用这条路径） |
-| `powershell -File build.ps1 -Release <version> [-DryRun] [-Publish] [-ReleaseSkipUnity]` | 完整发布流程：校验 → 写回版本号 → 全量门禁 → 打包 + zip + lock → 提交 → 打标签；见下方"版本与发布"一节 |
+| `powershell -File build.ps1 -Release <version> [-DryRun] [-Publish] [-ReleaseSkipUnity] [-PublishRegistry [-RegistryUrl <url>]]` | 完整发布流程：校验 → 写回版本号 → 全量门禁 → 打包 + zip + lock + 三个 npm 包 → 提交 → 打标签；`-PublishRegistry` 独立于 `-Publish` 控制是否额外 `npm publish` 三个包到私服；见下方"版本与发布"一节 |
 
 同步与打包均按文件哈希比较、只处理变化的文件；`-Dist` 打的快照不入库，可随时由源码重新生成；`-Dist` 传入的版本号必须形如 `X.Y.Z`（三段纯数字），格式非法直接报错退出。
 
@@ -103,7 +105,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\consumer_smoke.ps1
 
 ## `check.ps1`（一键门禁，仓库根，见 11_工程规范与测试.md 第 8 节）
 
-依次跑：`.NET` 构建 + 测试（六工程，含性能基线）→ 数据校验（合并根 + `data/_framework` 框架根单独完整校验）→ 事件常量/占位资产生成器一致性检查（`--check`，只读）→ `toolchain` 自身的 Python 测试 → 两道禁用词扫描（全仓库不出现具体游戏代号；`architecture` 正文不出现具体引擎/语言/框架/工具名）→ 版本一致性（`VERSION`、两个 `package.json` 与 `CHANGELOG.md`）→ `build.ps1 -SkipTests` 同步 DLL → Unity 编译检查 → Unity EditMode/PlayMode 测试 → 独立版构建 + 两种无人值守冒烟（`-gf-smoke` 连续模式默认流程、`-gf-smoke-discrete` 离散模式链路）→ 消费方演练（`toolchain/consumer_smoke.ps1`，见下一节）。每步单独计时与判定，最后打印一张汇总表；任一步失败，整体以非 0 退出码结束。
+依次跑：`.NET` 构建 + 测试（六工程，含性能基线）→ 数据校验（合并根 + `data/_framework` 框架根单独完整校验）→ 事件常量/占位资产生成器一致性检查（`--check`，只读）→ `toolchain` 自身的 Python 测试 → 两道禁用词扫描（全仓库不出现具体游戏代号；`architecture` 正文不出现具体引擎/语言/框架/工具名）→ 版本一致性（`VERSION`、两个 `package.json` 与 `CHANGELOG.md`）→ 包清单一致性（私服交付通道三个 npm 包版本号 + `npm pack --dry-run` 排除规则，见"版本与发布"一节"私服通道"）→ `build.ps1 -SkipTests` 同步 DLL → Unity 编译检查 → Unity EditMode/PlayMode 测试 → 独立版构建 + 两种无人值守冒烟（`-gf-smoke` 连续模式默认流程、`-gf-smoke-discrete` 离散模式链路）→ 消费方演练（`toolchain/consumer_smoke.ps1`，见下一节）。每步单独计时与判定，最后打印一张汇总表；任一步失败，整体以非 0 退出码结束。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1              # 全量（含 Unity 相关步骤与消费方演练）
@@ -116,7 +118,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipConsumer # �
 
 `check.ps1` 另有一步"版本一致性"（不需要 `-Dist`，`-SkipUnity` 下同样会跑）：只读比较仓库根 `VERSION` 文件与两个 `package.json`（`adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json`、`games/_template/package.json`，含后者对适配层包的依赖版本号）是否一致；并校验根 `CHANGELOG.md` 含 `VERSION` 对应版本号的条目（形如 `## [X.Y.Z]`）或存在 `## [Unreleased]` 段，四处任一处漏改都会让这一步失败。
 
-`check.ps1 -Quick`（工程收尾 K 新增，供 `.githooks/pre-commit` 调用）：只跑 dotnet build/test、两道数据校验、事件常量一致性检查、禁用词扫描、版本一致性这几步"秒级能跑完"的子集，跳过占位资产生成器检查、`toolchain` 自身 pytest、`build.ps1 -SkipTests` 同步、全部 Unity 相关步骤与消费方演练；与 `-SkipUnity` 可以同传但没有必要（`-Quick` 本身已经不跑 Unity 相关任何一步）。资产导入工具交叉校验（`import_assets.py check --dataset _sample`，全量交叉校验 sprite/vfx/sfx/world 四域，只比对文件是否存在、不读图片，秒级完成，见 [toolchain/README.md](toolchain/README.md)"`data/_sample` 的资产来源"一节）不属于可跳过的慢步骤，`-Quick` 下同样会跑。目标总用时 30 秒左右（视本机是否需要重新编译而定），供提交前钩子做"能拦住的先拦住，剩下的交给 CI/手工全量 `check.ps1`"这一级快速把关，不能替代完整门禁。
+`check.ps1 -Quick`（工程收尾 K 新增，供 `.githooks/pre-commit` 调用）：只跑 dotnet build/test、两道数据校验、事件常量一致性检查、禁用词扫描、版本一致性这几步"秒级能跑完"的子集，跳过占位资产生成器检查、包清单一致性（私服交付通道新增，需要跑一遍 `build.ps1 -SyncOnly -Dist auto` + `npm pack`，与"build.ps1 -SkipTests 同步"同一类耗时构建期动作）、`toolchain` 自身 pytest、`build.ps1 -SkipTests` 同步、全部 Unity 相关步骤与消费方演练；与 `-SkipUnity` 可以同传但没有必要（`-Quick` 本身已经不跑 Unity 相关任何一步）。资产导入工具交叉校验（`import_assets.py check --dataset _sample`，全量交叉校验 sprite/vfx/sfx/world 四域，只比对文件是否存在、不读图片，秒级完成，见 [toolchain/README.md](toolchain/README.md)"`data/_sample` 的资产来源"一节）不属于可跳过的慢步骤，`-Quick` 下同样会跑。目标总用时 30 秒左右（视本机是否需要重新编译而定），供提交前钩子做"能拦住的先拦住，剩下的交给 CI/手工全量 `check.ps1`"这一级快速把关，不能替代完整门禁。
 
 `check.ps1 -Il2cpp`（工程收尾 K 新增，默认不跑，因为耗时数分钟到十几分钟）：额外跑一遍 IL2CPP 脚本后端的独立版构建 + 两种无人值守冒烟（`-gf-smoke`/`-gf-smoke-discrete`），验证核心类库自写的零依赖 JSON 读写器等纯逻辑代码在 AOT 编译（无反射兜底）下的真实可运行性，而不是只靠 Mono 后端的默认独立版构建自证；见 [adapters/unity/README.md](adapters/unity/README.md)"IL2CPP 发布路径验证"一节与 [architecture/选型/01_引擎与语言选型评估.md](architecture/选型/01_引擎与语言选型评估.md) 补充的"发布形态验证"一节（实测数据、与 Mono 的耗时/体积对比）。`-Il2cpp` 与 `-SkipUnity` 互斥（`-SkipUnity` 优先，`-Il2cpp` 不生效）；可与 `-SkipConsumer`/`-SkipSmoke` 同传。
 
@@ -194,7 +196,25 @@ git branch release/1.0.x v1.0.0
 
 ### 游戏侧引用与升级
 
-游戏侧不直接引用框架仓库的开发目录，而是按版本号引用一份发布产物快照：`toolchain/get_framework.ps1 -Version <ver> -Target packages` 从 GitHub Release 拉取 `ws-game-<ver>.zip`/`.lock`，校验六个核心 DLL 的哈希与锁文件一致后解压到 `packages/ws-game-<ver>/`，并在游戏仓库根写入/校验 `ws-game.lock`；`-FromLocalDist <本机 zip 路径>` 可离线来源（校验规则不变）。完整的四条消费通道、五条多游戏共用规则与升级步骤见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md) 第 3.5 节；接入步骤见 [architecture/13_新游戏接入指南.md](architecture/13_新游戏接入指南.md) 第 1 节。
+游戏侧不直接引用框架仓库的开发目录，而是按版本号引用一份发布产物快照：`toolchain/get_framework.ps1 -Version <ver> -Target packages` 从 GitHub Release 拉取 `ws-game-<ver>.zip`/`.lock`，校验六个核心 DLL 的哈希与锁文件一致后解压到 `packages/ws-game-<ver>/`，并在游戏仓库根写入/校验 `ws-game.lock`；`-FromLocalDist <本机 zip 路径>` 可离线来源（校验规则不变）。这是 zip 快照通道；私服（按版本号依赖）是并存的第二条通道，见下一节"私服通道"。完整的四条消费通道、五条多游戏共用规则与升级步骤见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md) 第 3.5 节；接入步骤见 [architecture/13_新游戏接入指南.md](architecture/13_新游戏接入指南.md) 第 1 节。
+
+### 私服通道
+
+除 zip 快照通道外，框架同时提供一条私服（[Verdaccio](https://verdaccio.org/)，npm 兼容协议）通道：把框架拆成三个可独立按版本号依赖的包（`com.gamefoundation.adapter.unity`/`com.gamefoundation.framework-data`/`com.gamefoundation.toolchain`），发布到私有包仓库，游戏侧 Unity 工程用作用域注册表（`scopedRegistries.scopes: ["com.gamefoundation"]`）依赖。两条通道打包内容一致（同一次 `build.ps1 -Dist`/`-Release` 产出），互不排斥，可任选其一或两者都配。完整设计、三个包内容、两条通道取舍见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md) 第 3.5.1 节；快速开始、配置细节见 [toolchain/registry/README.md](toolchain/registry/README.md)。
+
+```powershell
+# 起私服（本机，默认 127.0.0.1:4873）
+powershell -File toolchain\registry\start_registry.ps1 -Detach
+# 无人值守建发布账号 + 令牌
+powershell -File toolchain\registry\init_publisher.ps1
+# 发布（-Release 已隐含打包三个 .tgz，-PublishRegistry 额外发到私服）
+powershell -File build.ps1 -Release <version> -Publish -PublishRegistry
+
+# 游戏侧：生成/更新 Packages/manifest.json 片段 + ws-game.lock
+powershell -File toolchain\get_framework.ps1 -Version <version> -FromRegistry
+# 首次解析完包后，把 framework-data 包内容同步到工程 StreamingAssets/TextMesh Pro
+powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <你的 Unity 工程>
+```
 
 ## 新游戏如何消费本框架
 

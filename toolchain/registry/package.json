@@ -1,0 +1,9 @@
+{
+  "name": "ws-game-registry-tooling",
+  "version": "1.0.0",
+  "private": true,
+  "description": "本地私服（Verdaccio）运行时依赖，供 start_registry.ps1/init_publisher.ps1 在本目录 node_modules 安装使用；不作为任何游戏或框架包的一部分发布，仅仓库内部工具。",
+  "devDependencies": {
+    "verdaccio": "6.10.3"
+  }
+}

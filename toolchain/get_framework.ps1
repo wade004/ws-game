@@ -27,12 +27,35 @@
     `.lock` 文件，如 `ws-game-1.0.0.zip` 配 `ws-game-1.0.0.lock`），跳过 `gh release download`，
     用于本机验证发布产物、或没有网络访问 GitHub 权限的场景。
 
+.PARAMETER FromRegistry
+    私服交付通道新增：与上面"拉 zip 解压到 -Target"是完全不同的另一条通道，不下载/不解压任何
+    文件——UPM 私服场景下，"拉包"这件事由 Unity 编辑器自己在打开工程/刷新包管理器时向注册表发
+    请求完成，本脚本不代劳，只负责两件事：1）生成/更新游戏工程的 `Packages/manifest.json`，写入
+    作用域注册表条目与三个包依赖（版本号 = `-Version`）；2）写 `ws-game.lock`，记录本次引用的
+    来源是私服（注册表地址、作用域、三个包名）与版本号，与 zip 通道写的锁文件同一个文件、不同的
+    `source.channel` 取值（`registry` / `zip`），供后续升级/核对时区分当前用的是哪条通道。传了
+    `-FromRegistry` 后 `-Target`/`-Repo`/`-FromLocalDist` 不生效（忽略，不报错）。
+
+.PARAMETER RegistryUrl
+    配合 `-FromRegistry` 使用：私服地址。省略时按顺序尝试：1）本脚本同目录下 `registry/
+    registry.json` 的 `url` 字段（框架仓库自己的工作树布局，或随 `com.gamefoundation.toolchain`
+    包分发时若该文件恰好在场）；2）都找不到则退化为默认值 `http://127.0.0.1:4873`。
+
+.PARAMETER ManifestPath
+    配合 `-FromRegistry` 使用：要写入/更新的 `Packages/manifest.json` 路径。省略时依次尝试当前
+    目录下的 `Packages/manifest.json`（游戏仓库根调用本脚本时的常见相对位置）；两者都找不到时不
+    报错，只把应该写入的片段打印到控制台，由调用方自行合并进自己的 `manifest.json`（可能路径不
+    是常见位置，或调用方想自己手工检查这一步改动）。
+
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符。
     在线拉取依赖 `gh`（GitHub CLI）已登录且对 `-Repo` 指定的仓库有读权限；离线校验（
-    `-FromLocalDist`）不依赖 `gh`、不需要网络。
+    `-FromLocalDist`）不依赖 `gh`、不需要网络；`-FromRegistry` 依赖私服本身可访问
+    （`-RegistryUrl`/-/ping 返回 200），不依赖 `gh`。
     校验失败（DLL 哈希与锁文件不一致、或版本号不匹配）时不会把任何内容落地到 `-Target`，保持
-    "校验通过才落地"的语义；已存在的旧版本目录只有在本次校验通过后才会被替换。
+    "校验通过才落地"的语义；已存在的旧版本目录只有在本次校验通过后才会被替换。这条"校验后才
+    落地"的语义只适用于 zip 通道——`-FromRegistry` 通道的完整性校验交给 npm/UPM 自己的包传输
+    机制（tarball 校验和），本脚本不重复实现。
 #>
 param(
     [Parameter(Mandatory = $true)]
@@ -40,7 +63,10 @@ param(
     [string]$Target = "packages",
     [string]$LockPath = "",
     [string]$Repo = "wade004/ws-game",
-    [string]$FromLocalDist = ""
+    [string]$FromLocalDist = "",
+    [switch]$FromRegistry,
+    [string]$RegistryUrl = "",
+    [string]$ManifestPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,6 +79,128 @@ if ($Version -notmatch $VersionFormatPattern) {
 
 if ($LockPath -eq "") {
     $LockPath = Join-Path (Get-Location).Path "ws-game.lock"
+}
+
+# -----------------------------------------------------------------------------
+# 私服交付通道新增：-FromRegistry 是独立分支，做完就退出，不进入下面 zip 通道的任何逻辑
+# （下载/解压/DLL 哈希校验对这条通道没有意义，见 .PARAMETER FromRegistry 说明）。
+# -----------------------------------------------------------------------------
+if ($FromRegistry) {
+    function Write-RegistryStep {
+        param([string]$Message)
+        Write-Host ""
+        Write-Host "==== $Message ====" -ForegroundColor Cyan
+    }
+
+    $ThreePackageNames = @(
+        "com.gamefoundation.adapter.unity",
+        "com.gamefoundation.framework-data",
+        "com.gamefoundation.toolchain"
+    )
+    $RegistryScope = "com.gamefoundation"
+
+    if ($RegistryUrl -eq "") {
+        $siblingRegistryJson = Join-Path $PSScriptRoot "registry\registry.json"
+        if (Test-Path $siblingRegistryJson) {
+            $RegistryUrl = ((Get-Content -Path $siblingRegistryJson -Raw -Encoding UTF8) | ConvertFrom-Json).url
+            Write-Host "未传 -RegistryUrl，取本机 $siblingRegistryJson 的 url：$RegistryUrl" -ForegroundColor Cyan
+        } else {
+            $RegistryUrl = "http://127.0.0.1:4873"
+            Write-Host "未传 -RegistryUrl，且找不到 $siblingRegistryJson，退化为默认值：$RegistryUrl" -ForegroundColor Yellow
+        }
+    }
+    $RegistryUrl = $RegistryUrl.TrimEnd('/')
+
+    Write-RegistryStep "生成/更新 manifest.json 片段（作用域注册表 + 三个依赖，version=$Version）"
+
+    $scopedRegistryEntry = [ordered]@{
+        name   = "ws-game private registry"
+        url    = $RegistryUrl
+        scopes = @($RegistryScope)
+    }
+
+    if ($ManifestPath -eq "") {
+        $defaultManifestPath = Join-Path (Get-Location).Path "Packages\manifest.json"
+        if (Test-Path $defaultManifestPath) {
+            $ManifestPath = $defaultManifestPath
+            Write-Host "  未传 -ManifestPath，找到默认位置：$ManifestPath"
+        }
+    }
+
+    if ($ManifestPath -ne "" -and (Test-Path $ManifestPath)) {
+        $manifestRaw = Get-Content -Path $ManifestPath -Raw -Encoding UTF8
+        $manifestObj = $manifestRaw | ConvertFrom-Json
+
+        # scopedRegistries：按 url 去重覆盖（同一个私服地址只保留一条，避免重复调用本脚本时
+        # manifest.json 里堆出多条一样的条目）；不存在则新增数组。
+        $existingScoped = @()
+        if ($manifestObj.PSObject.Properties.Name -contains "scopedRegistries") {
+            $existingScoped = @($manifestObj.scopedRegistries | Where-Object { $_.url -ne $RegistryUrl })
+        }
+        $existingScoped += [PSCustomObject]$scopedRegistryEntry
+        if ($manifestObj.PSObject.Properties.Name -contains "scopedRegistries") {
+            $manifestObj.scopedRegistries = $existingScoped
+        } else {
+            $manifestObj | Add-Member -MemberType NoteProperty -Name "scopedRegistries" -Value $existingScoped
+        }
+
+        # dependencies：三个包依赖写入/覆盖为目标版本号，保留 manifest.json 里已有的其它依赖不变。
+        if (-not ($manifestObj.PSObject.Properties.Name -contains "dependencies")) {
+            $manifestObj | Add-Member -MemberType NoteProperty -Name "dependencies" -Value ([PSCustomObject]@{})
+        }
+        foreach ($pkgName in $ThreePackageNames) {
+            if ($manifestObj.dependencies.PSObject.Properties.Name -contains $pkgName) {
+                $manifestObj.dependencies.$pkgName = $Version
+            } else {
+                $manifestObj.dependencies | Add-Member -MemberType NoteProperty -Name $pkgName -Value $Version
+            }
+        }
+
+        $manifestJson = ($manifestObj | ConvertTo-Json -Depth 10)
+        [System.IO.File]::WriteAllText($ManifestPath, $manifestJson, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "  已写入：$ManifestPath" -ForegroundColor Green
+    } else {
+        Write-Host "  未找到可写入的 manifest.json（未传 -ManifestPath 且当前目录下没有 Packages\manifest.json），改为打印片段，请自行合并：" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host (@{
+            scopedRegistries = @($scopedRegistryEntry)
+            dependencies     = @{
+                "com.gamefoundation.adapter.unity"   = $Version
+                "com.gamefoundation.framework-data"  = $Version
+                "com.gamefoundation.toolchain"       = $Version
+            }
+        } | ConvertTo-Json -Depth 10)
+    }
+
+    Write-RegistryStep "写入/校验 $LockPath"
+    $registryLockObj = [ordered]@{
+        version = $Version
+        source  = [ordered]@{
+            channel      = "registry"
+            registry_url = $RegistryUrl
+            scope        = $RegistryScope
+            packages     = $ThreePackageNames
+        }
+    }
+    $registryLockJson = ($registryLockObj | ConvertTo-Json -Depth 5)
+    $utf8NoBomRegistry = New-Object System.Text.UTF8Encoding($false)
+    if (Test-Path $LockPath) {
+        $existingRegistryLockRaw = Get-Content -Path $LockPath -Raw -Encoding UTF8
+        if ($existingRegistryLockRaw.Trim() -eq $registryLockJson.Trim()) {
+            Write-Host "  $LockPath 内容已一致，无需改写"
+        } else {
+            Write-Host "  $LockPath 已存在，改写为 version=$Version，source.channel=registry" -ForegroundColor Yellow
+            [System.IO.File]::WriteAllText($LockPath, $registryLockJson, $utf8NoBomRegistry)
+            Write-Host "  已改写：$LockPath"
+        }
+    } else {
+        [System.IO.File]::WriteAllText($LockPath, $registryLockJson, $utf8NoBomRegistry)
+        Write-Host "  已新建：$LockPath"
+    }
+
+    Write-Host ""
+    Write-Host "get_framework.ps1 -FromRegistry 完成：version=$Version，registry=$RegistryUrl" -ForegroundColor Green
+    exit 0
 }
 
 # 六个需要发布给 Unity 端的核心 DLL——与框架仓库 build.ps1 的 $CoreAssemblies 同一份清单，
@@ -219,8 +367,16 @@ try {
     # -----------------------------------------------------------------------------
     # 5. 写入/校验游戏仓库根的 ws-game.lock：内容与本次下载的锁文件一致则跳过（已是最新）；
     #    不存在则新建；存在但内容不同则覆盖并打印旧/新版本号对比，方便看出这是一次升级/降级。
+    #    私服交付通道新增：额外记一个 source 字段（channel=zip + 具体来源），与 -FromRegistry
+    #    通道写的锁文件用同一个 source.channel 字段区分，见该分支说明。
     # -----------------------------------------------------------------------------
     Write-Step "写入/校验 $LockPath"
+    if ($FromLocalDist -ne "") {
+        $lockSourceInfo = [ordered]@{ channel = "zip"; local_path = $ZipPath }
+    } else {
+        $lockSourceInfo = [ordered]@{ channel = "zip"; repo = $Repo }
+    }
+    $lockObj | Add-Member -MemberType NoteProperty -Name "source" -Value ([PSCustomObject]$lockSourceInfo) -Force
     $newLockJson = ($lockObj | ConvertTo-Json -Depth 5)
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 

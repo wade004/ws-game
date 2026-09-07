@@ -48,9 +48,11 @@
     工程收尾 K 新增，供 `.githooks/pre-commit` 调用：只跑"秒级能跑完"的子集——dotnet
     build/test、两道数据校验（合并根 + data/_framework 框架根）、事件常量一致性检查、两道禁用词
     扫描、版本一致性；跳过占位资产生成器检查（`gen_placeholder_assets.py --check`，需要 Pillow
-    且逐张比较占位图较慢）、`toolchain` 自身 pytest、`build.ps1 -SkipTests` 同步、全部 Unity
-    相关步骤与消费方演练——本开关本身就意味着不跑任何 Unity 步骤（等价于隐含 -SkipUnity，同传
-    -SkipUnity 不冲突也没有必要）。不能替代完整门禁，只用于提交前快速把关。
+    且逐张比较占位图较慢）、`toolchain` 自身 pytest、包清单一致性（私服交付通道新增，需要跑一遍
+    `build.ps1 -SyncOnly -Dist auto` + `npm pack`，与下面 `build.ps1 -SkipTests` 同步同一类
+    "非 Unity 但耗时的构建期动作"）、`build.ps1 -SkipTests` 同步、全部 Unity 相关步骤与消费方
+    演练——本开关本身就意味着不跑任何 Unity 步骤（等价于隐含 -SkipUnity，同传 -SkipUnity 不冲突
+    也没有必要）。不能替代完整门禁，只用于提交前快速把关。
 
 .PARAMETER Il2cpp
     工程收尾 K 新增，默认不跑（因为耗时数分钟到十几分钟，见 adapters/unity/README.md"IL2CPP
@@ -676,6 +678,80 @@ Invoke-CheckStep "版本一致性：VERSION、两个 package.json 与 CHANGELOG.
         throw ("版本不一致：`n" + ($mismatches -join "`n"))
     }
     [PSCustomObject]@{ Ok = $true; Detail = "VERSION=$version，两个 package.json 与 CHANGELOG.md 一致" }
+}
+
+# -----------------------------------------------------------------------------
+# 8.5 包清单一致性（私服交付通道新增，见 toolchain/registry/README.md、build.ps1 -Dist"私服交付
+#     通道新增"说明）：跑一遍 `build.ps1 -SyncOnly -Dist auto`（不需要 Unity，只是文件同步 +
+#     npm pack，复用同一份 -Quick 判断——见下方 if ($Quick) 分支，与"9. build.ps1 -SkipTests"
+#     那一步同一类"非 Unity 但耗时的构建期同步动作"，-Quick 下同样跳过），核对：
+#       1) 组装出的三个包 package.json 的 version 字段都等于 VERSION（跟"8. 版本一致性"校验的是
+#          两份提交进源码库的 package.json 不同，这里校验的是 build.ps1 打包逻辑本身有没有正确
+#          把解析出的版本号写进新组装的三个包，属于"打包逻辑自检"而不是"源码一致性"）；
+#       2) 对每个包目录跑 `npm pack --dry-run --json`，核对文件清单里不包含
+#          __pycache__/bin/obj/storage（含 registry/ 相关的排除规则真的生效，见 build.ps1
+#          Copy-DistDir 调用列表的 -ExcludeDirNames）。
+# -----------------------------------------------------------------------------
+if ($Quick) {
+    Add-SkippedStep "包清单一致性（三个 npm 包版本号 + npm pack --dry-run 排除规则）" "-Quick"
+} else {
+    Invoke-CheckStep "包清单一致性（三个 npm 包版本号 + npm pack --dry-run 排除规则）" {
+        $versionPath = Join-Path $RepoRoot "VERSION"
+        $version = (Get-Content -Path $versionPath -Raw).Trim()
+
+        $buildScript = Join-Path $RepoRoot "build.ps1"
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SyncOnly -Dist auto | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "build.ps1 -SyncOnly -Dist auto 失败，退出码 $LASTEXITCODE"
+        }
+
+        $packagesRoot = Join-Path $RepoRoot ("dist\" + $version + "\packages")
+        $packageNames = @(
+            "com.gamefoundation.adapter.unity",
+            "com.gamefoundation.framework-data",
+            "com.gamefoundation.toolchain"
+        )
+        $forbiddenSegments = @("__pycache__", "bin", "obj", "storage")
+
+        $problems = @()
+        foreach ($pkgName in $packageNames) {
+            $pkgDir = Join-Path $packagesRoot $pkgName
+            $pkgJsonPath = Join-Path $pkgDir "package.json"
+            if (-not (Test-Path $pkgJsonPath)) {
+                $problems += "$pkgName：找不到 $pkgJsonPath"
+                continue
+            }
+            $pkgObj = (Get-Content -Path $pkgJsonPath -Raw -Encoding UTF8) | ConvertFrom-Json
+            if ($pkgObj.version -ne $version) {
+                $problems += "$pkgName：package.json version=$($pkgObj.version) != VERSION=$version"
+            }
+
+            $dryRunJson = & npm pack $pkgDir --dry-run --json 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                $problems += "$pkgName：npm pack --dry-run 失败（退出码 $LASTEXITCODE）"
+                continue
+            }
+            $dryRunObj = ($dryRunJson -join "`n") | ConvertFrom-Json
+            $fileEntries = $dryRunObj[0].files
+            $hitSegments = New-Object System.Collections.Generic.HashSet[string]
+            foreach ($entry in $fileEntries) {
+                $entryPathSegments = $entry.path -split '[\\/]'
+                foreach ($seg in $forbiddenSegments) {
+                    if ($entryPathSegments -contains $seg) {
+                        [void]$hitSegments.Add($seg)
+                    }
+                }
+            }
+            if ($hitSegments.Count -gt 0) {
+                $problems += ("$pkgName：npm pack --dry-run 文件清单命中排除名单：" + (($hitSegments) -join ", "))
+            }
+        }
+
+        if ($problems.Count -gt 0) {
+            throw ("包清单一致性校验失败：`n  " + ($problems -join "`n  "))
+        }
+        [PSCustomObject]@{ Ok = $true; Detail = "三个包 version=$version 一致，npm pack --dry-run 清单均不含排除项" }
+    }
 }
 
 # -----------------------------------------------------------------------------
