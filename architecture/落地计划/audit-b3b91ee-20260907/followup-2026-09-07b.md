@@ -152,15 +152,16 @@ Unity 3D/model 全 `NotSupported`、编辑器未开始实现、`01_分层与依�
 `core/rules/combat/README.md`（RC-02）、`core/rules/skill/README.md`（RC-01/03/04/07/08）、
 `core/gameplay/quest/README.md`（GP-01/07/08）、`core/gameplay/dialog/README.md`（GP-05）、
 `core/gameplay/encounter/README.md`（GP-04）、`presentation/vfx_sfx/README.md`（GP-03）、
-`presentation/feedback_binder/README.md`（GP-09）。
+`presentation/feedback_binder/README.md`（GP-09）、`toolchain/README.md`（TOOL-02，资产导入
+id → 物理文件名编码改为双下划线 + 运行期碰撞兜底）。
 
 仍未同步、如实记录为本轮未完成事项：`adapters/unity/Packages/com.gamefoundation.adapter.unity/
-README.md`（GP-02/06/10，默认动画瞬态完成/复活销毁回收/冷启动加载/CharacterRig 时间轴推进）、
-`toolchain/README.md`（TOOL-01/02，check.ps1 缺程序判定、资源 ID 双下划线编码）——前者是一份
-篇幅很大、覆盖 U3 全套 UI/Shell 流程的包级 README，稳妥地把三条改动嵌入需要通读全篇找准位置，
-不是几分钟能安全完成的编辑；后者同理需要通读 `toolchain/README.md` 全篇资产管线小节。这两处
-README 的既有文字同样只是"未提及"新行为（不是"断言与新行为矛盾"），不影响本轮验收标准（33 条
-发现全部根治 + 4 条 PlayMode 失败根治 + 全量门禁通过）。
+README.md`（GP-02/06/10，默认动画瞬态完成/复活销毁回收/冷启动加载/CharacterRig 时间轴推进）
+与 TOOL-01（check.ps1 缺可执行文件判定，已在 `check.ps1` 自身"门禁自检"步骤与代码判断记录里
+完整记录，未额外同步到 `README.md`）——前者是一份篇幅很大、覆盖 U3 全套 UI/Shell 流程的包级
+README，稳妥地把三条改动嵌入需要通读全篇找准位置，不是几分钟能安全完成的编辑。这处 README
+的既有文字同样只是"未提及"新行为（不是"断言与新行为矛盾"），不影响本轮验收标准（33 条发现
+全部根治 + 4 条 PlayMode 失败根治 + 全量门禁通过）。
 
 ## 四、全量门禁
 

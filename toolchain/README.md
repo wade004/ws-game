@@ -254,6 +254,18 @@ python toolchain/import_assets.py <子命令> ...
 `world.map.json` 时：已存在同 `id` 的行整体替换，否则新增，其余行原样保留，整份文件按 `id`
 重新排序后整体写出（2 空格缩进、LF、UTF-8 无 BOM，同 `data/README.md` 约定）。
 
+**TOOL-02 收口（第四方深度审核）：id → 物理文件名/资源引用片段的编码改为"点号替换成双下划线"，
+不再是"点号替换成单下划线"**——`sfx`/`vfx` 子命令去掉 domain 前缀后，原实现直接
+`.replace(".", "_")`，会让"点分段"与"本就带下划线"的不同合法 id 归一到同一个物理文件名：例如
+`sfx.fire.hit`（去前缀后 `fire.hit`）与合法的 `sfx.fire_hit`（去前缀后 `fire_hit`）都会得到
+`fire_hit`，第二次导入会静默覆盖第一次写出的音频/图集文件，且两条 `sfx.def`/`vfx.def` 记录
+最终指向同一份物理资源。现在改为点号替换成双下划线、单个下划线原样保留（`toolchain/
+asset_import/common.py` 的 `flatten_id_segment`），与表现层已在用的"结构分隔用双下划线"口径
+一致（14 第 1.2 节纸娃娃扁平文件名模板 `<...>__<direction_slot>__<layer_id>`）；写入
+`sfx.def`/`vfx.def` 前另加运行期兜底 `check_no_resource_collision`——不同 id 的记录若仍共用
+同一条物理 `resource_ref`（含 `variants`），直接报错而不是静默覆盖（同一 id 的重复导入/更新
+不算碰撞）。见 `toolchain/tests/test_import_assets.py` 新增碰撞用例。
+
 写完 `sprite`/`vfx`/`sfx`/`map` 后应跑 `python toolchain/import_assets.py check --dataset <name>`
 确认资产与数据表互相对得上，再跑 `python toolchain/validate_data.py --dataset <name>` 走完整的
 表级校验（04 第 5 节"外形映射存在"等检查项）。
