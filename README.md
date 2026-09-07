@@ -116,6 +116,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipConsumer # �
 
 `-ArtifactsPath <dir>` 可覆盖 `dotnet`/Unity 产物落地目录（默认 `bin\_check_artifacts`，已被 `.gitignore` 的 `bin/` 规则忽略）；`-UnityExe <path>` 可显式指定 Unity 可执行文件路径（默认按 Unity Hub 常见安装位置猜测，找不到则要求显式传参）。
 
+`check.ps1` 自身只读跑校验/测试/构建、不写仓库文件，但 Unity 编辑器进程本身会在打开/关闭工程时无条件重写 `adapters/unity/ProjectSettings/ProjectSettings.asset`，以及在解析包清单时改写 `adapters/unity/Packages/manifest.json`/`packages-lock.json`（Unity 四步一跑就会发生，与本脚本无关）；三者 Unity 写出的行尾都是 CRLF，与仓库提交的 LF 内容只有行尾差异。根 `.gitattributes` 已为这三类路径显式声明 `eol=crlf`（与 Unity 实际写出的一致），使 Unity 批处理跑完后工作树始终保持干净，不再依赖运行机器本地的 `core.autocrlf` 配置。
+
 `check.ps1` 另有一步"版本一致性"（不需要 `-Dist`，`-SkipUnity` 下同样会跑）：只读比较仓库根 `VERSION` 文件与两个 `package.json`（`adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json`、`games/_template/package.json`，含后者对适配层包的依赖版本号）是否一致；并校验根 `CHANGELOG.md` 含 `VERSION` 对应版本号的条目（形如 `## [X.Y.Z]`）或存在 `## [Unreleased]` 段，四处任一处漏改都会让这一步失败。
 
 `check.ps1 -Quick`（工程收尾 K 新增，供 `.githooks/pre-commit` 调用）：只跑 dotnet build/test、两道数据校验、事件常量一致性检查、禁用词扫描、版本一致性这几步"秒级能跑完"的子集，跳过占位资产生成器检查、`toolchain` 自身 pytest、`build.ps1 -SkipTests` 同步、包清单一致性（私服交付通道新增，需要跑一遍 `build.ps1 -SyncOnly -Dist auto` + `npm pack`，与"build.ps1 -SkipTests 同步"同一类耗时构建期动作，且依赖后者先把 DLL 构建到 `bin\` 下，故排在其之后）、全部 Unity 相关步骤与消费方演练；与 `-SkipUnity` 可以同传但没有必要（`-Quick` 本身已经不跑 Unity 相关任何一步）。资产导入工具交叉校验（`import_assets.py check --dataset _sample`，全量交叉校验 sprite/vfx/sfx/world 四域，只比对文件是否存在、不读图片，秒级完成，见 [toolchain/README.md](toolchain/README.md)"`data/_sample` 的资产来源"一节）不属于可跳过的慢步骤，`-Quick` 下同样会跑。目标总用时 30 秒左右（视本机是否需要重新编译而定），供提交前钩子做"能拦住的先拦住，剩下的交给 CI/手工全量 `check.ps1`"这一级快速把关，不能替代完整门禁。

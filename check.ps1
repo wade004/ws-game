@@ -69,6 +69,16 @@
     `gen_placeholder_assets.py` 都用 `--check` 只读校验模式，不落地写文件；`-Il2cpp` 步骤对
     ProjectSettings 的脚本后端改动只发生在 Unity 子进程内存里，见 Il2CppPlayerBuilder.cs 判断
     记录，不落盘）。
+
+    判断记录（2026-09-07 补充，"只读"的范围边界）：上面"不修改仓库内容"说的是本脚本自身不写
+    任何文件；但 Unity 编辑器进程本身会在打开/关闭工程时无条件重写
+    `adapters/unity/ProjectSettings/ProjectSettings.asset`，以及在解析包清单时改写
+    `adapters/unity/Packages/manifest.json`、`packages-lock.json`——这是 Unity 四步（编译检查/
+    EditMode/PlayMode/独立版构建）跑起来就会发生的编辑器固有行为，与本脚本无关，也不受
+    `-Il2cpp` 影响。三者 Unity 写出的字节都是 CRLF，与仓库提交的 LF 内容只有行尾差异；已经在
+    仓库根 `.gitattributes` 里为这三类路径显式声明 `eol=crlf`（与 Unity 实际写出的行尾一致），
+    使 Unity 批处理跑完后 `git status` 始终保持干净，不再依赖运行机器本地的
+    `core.autocrlf` 配置。
 #>
 param(
     [switch]$SkipUnity,

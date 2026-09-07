@@ -9,3 +9,68 @@
 # `.gitattributes` 逐路径规则优先级高于全局 `core.autocrlf`）。范围只限定 `.githooks/`，不影响
 # 仓库其它任何文件的换行策略。
 .githooks/* text eol=lf
+
+# ---------------------------------------------------------------------------
+# 通用文本文件类型换行规范（2026-09-07 新增）
+# ---------------------------------------------------------------------------
+#
+# 仓库既有约定：源码/文档/数据一律 LF 存储与检出（`git ls-files --eol` 显示绝大多数文件已经是
+# `i/lf w/lf`）。这里把常见文本类型显式声明为 `text eol=lf`，二进制资源类型显式声明 `binary`
+# （`-diff -merge -text`），避免依赖 Git 内容嗅探（`*.otf`/`*.ttf` 目前虽已被 Git 自动识别为
+# 二进制，显式声明更可靠、不随内容变化）。下面"Unity 批处理自行改写的文件"一节对其中三类路径
+# （`ProjectSettings/*.asset`、`Packages/manifest.json`、`Packages/packages-lock.json`）声明了
+# `eol=crlf` 例外——Git 的 `.gitattributes` 按"同一属性最后一条匹配规则生效"，那几条例外必须
+# 写在本节之后才能覆盖这里的 `*.asset`/`*.json` 通用规则，不能颠倒顺序。
+*.cs text eol=lf
+*.py text eol=lf
+*.ps1 text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.csproj text eol=lf
+*.sln text eol=lf
+*.props text eol=lf
+*.asmdef text eol=lf
+*.meta text eol=lf
+*.unity text eol=lf
+*.mat text eol=lf
+*.asset text eol=lf
+*.shader text eol=lf
+*.shadergraph text eol=lf
+*.cginc text eol=lf
+*.hlsl text eol=lf
+*.gitattributes text eol=lf
+*.gitignore text eol=lf
+
+*.dll binary
+*.exe binary
+*.png binary
+*.wav binary
+*.otf binary
+*.ttf binary
+
+# ---------------------------------------------------------------------------
+# 根治门禁噪音：Unity 批处理自行改写的文件固定行尾（2026-09-07 新增）
+# ---------------------------------------------------------------------------
+#
+# 判断记录（根因）：`check.ps1` 的"Unity 编译检查"等四步只读跑 `Unity.exe -batchmode ... -quit`
+# 之类命令，脚本本身不写任何仓库文件；但 Unity 编辑器进程自己会在打开/关闭工程时无条件重写
+# `ProjectSettings/ProjectSettings.asset`（复现：干净工作树上单独跑一次最短的
+# `Unity.exe -batchmode -nographics -quit -projectPath adapters\unity -logFile ...`，
+# 该文件 mtime 立即刷新，同目录其余 20 个 `*.asset` 文件 mtime 不变——不是 check.ps1 改的，
+# 是 Unity 编辑器自身固定行为），以及在解析/写回包清单时改写
+# `Packages/manifest.json`、`Packages/packages-lock.json`。三者 Unity 写出的字节都是 CRLF，
+# 而仓库里提交的内容是 LF（`git ls-files --eol` 显示 `i/lf w/crlf`）。这份内容差异只有
+# 行尾——本机 `core.autocrlf=true` 时 Git 比较前会把工作区 CRLF 自动转回 LF 再比对，
+# `git status` 因而"恰好"干净；但这只是本机配置的巧合，换一台 `core.autocrlf=false`/Linux
+# CI 机器上同样的字节差异会变成整份文件被判定为修改的门禁噪音（此前 `build.ps1 -Release`
+# 自检判定工作树脏、拒绝打标签，正是这个巧合失效的一次实例）。用显式 `eol=crlf` 把这三类路径
+# 的检出行尾钉死成与 Unity 实际写出的一致，不再依赖任何人本机的 `core.autocrlf` 配置——Git
+# 内部仍按 LF 归一化存储（跨平台 diff 保持可读），只是检出到工作目录时统一转成 CRLF，Unity
+# 批处理跑完后工作树始终保持干净。这三条必须写在上面通用规则之后才能生效（同一属性最后一条
+# 匹配规则覆盖前面的）。
+adapters/unity/ProjectSettings/*.asset eol=crlf
+adapters/unity/Packages/manifest.json eol=crlf
+adapters/unity/Packages/packages-lock.json eol=crlf
