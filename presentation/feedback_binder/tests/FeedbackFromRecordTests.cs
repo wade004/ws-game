@@ -31,6 +31,49 @@ namespace Tests.Presentation.FeedbackBinder
 
             var shake = Assert.IsType<ShakeCameraAction>(rule.Actions[1]);
             Assert.Equal(new Id("feedback.shake.crit"), shake.ProfileId);
+
+            // ADR-0017 决策 d：未显式提供 sync 字段、event 恰为 combat.damage_dealt 时默认 HitFrame。
+            Assert.Equal(FeedbackSyncMode.HitFrame, rule.Sync);
+        }
+
+        [Fact]
+        public void FeedbackRule_FromRecord_NonDamageEvent_WithoutSyncField_DefaultsToNone()
+        {
+            var (registry, report) = FeedbackBinderTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["feedback.binding"] = "[" + FeedbackBinderTestSupport.AuraAppliedRuleRow + "]",
+            });
+            Assert.False(report.IsBlocking);
+
+            var record = registry.Get("feedback.binding", "feedback.aura_applied_vfx")!;
+            var rule = FeedbackRule.FromRecord(record, RulesExprSchema.Base);
+
+            Assert.Equal(FeedbackSyncMode.None, rule.Sync);
+        }
+
+        [Fact]
+        public void FeedbackRule_FromRecord_ExplicitSyncField_OverridesDefault()
+        {
+            const string row = @"
+            {
+              ""id"": ""feedback.explicit_no_sync"",
+              ""event"": ""combat.damage_dealt"",
+              ""sync"": ""hit_frame"",
+              ""actions"": [
+                {""kind"": ""flash"", ""params"": {""profile_id"": ""feedback.flash.buff"", ""target"": ""target""}}
+              ]
+            }";
+
+            var (registry, report) = FeedbackBinderTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["feedback.binding"] = "[" + row + "]",
+            });
+            Assert.False(report.IsBlocking);
+
+            var record = registry.Get("feedback.binding", "feedback.explicit_no_sync")!;
+            var rule = FeedbackRule.FromRecord(record, RulesExprSchema.Base);
+
+            Assert.Equal(FeedbackSyncMode.HitFrame, rule.Sync);
         }
 
         [Fact]

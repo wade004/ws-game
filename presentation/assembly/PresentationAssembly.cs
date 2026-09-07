@@ -243,6 +243,20 @@ namespace Presentation.Assembly
         /// 调用方（模板/具体游戏）应传入宿主的 <c>IResourceLoader</c>，让播放器保持"首次引用加载"
         /// 语义；不传时行为与此前完全一致（播放器内部按需回退，见 Unity 侧 <c>UnityAudio</c>/
         /// <c>UnityRenderer2D</c> 判断记录）。
+        /// <para>
+        /// W6 收口（ADR-0017 决策 d 遗留缺口收口）：新增 <paramref name="hitFrameSource"/>（可选，
+        /// 默认 <c>null</c>），原样透传给内部 <see cref="FeedbackBinderCore"/> 的同名构造参数——此前
+        /// 本类型没有暴露这一参数，W6-B 装配根（<c>GameFoundationBootstrap</c>/<c>games/_template.
+        /// GameBootstrap</c>）即便构造了 <c>CharacterRigHitFrameSource</c> 传给 <c>UnityViewFactory</c>
+        /// 完成"rig 登记表"这一半机制，也没有路径能把同一个实例接给 <see cref="Feedback"/> 内部
+        /// 真正做命中帧等待判定的 <c>HitFrameSyncPolicy</c>（见 <c>FeedbackBinderCore</c> 构造函数
+        /// 判断记录"只有策略要求 AnimKeyframeDriven 且调用方确实注入了 IHitFrameSource 时才构造命中
+        /// 帧等待队列"）。调用方是否要让命中帧同步真正生效，仍然由
+        /// <see cref="PresentationAssemblyOptions.RenderOptions"/>/<see cref="PresentationAssemblyOptions.FeedbackOptions"/>
+        /// 各自的 <c>HitFrameSync</c> 开关决定（09/ADR-0017"渲染侧/反馈绑定侧是同一个口味配置项的
+        /// 两个落点，装配层负责保持一致"）——本参数只负责"接线"，不单独引入新开关；不传时（默认）
+        /// 行为与改动前完全一致（<c>sync: hit_frame</c> 声明被忽略，全部动作立即派发）。
+        /// </para>
         /// </summary>
         public PresentationAssembly(
             GameplayAssembly gameplay,
@@ -258,7 +272,8 @@ namespace Presentation.Assembly
             ISceneRouter sceneRouter,
             PresentationAssemblyOptions? options = null,
             IRenderer3D? renderer3D = null,
-            IResourceLoader? resourceLoader = null)
+            IResourceLoader? resourceLoader = null,
+            IHitFrameSource? hitFrameSource = null)
         {
             Gameplay = gameplay ?? throw new ArgumentNullException(nameof(gameplay));
             if (world == null) throw new ArgumentNullException(nameof(world));
@@ -379,7 +394,7 @@ namespace Presentation.Assembly
                 bus, gameplay.ExprHostFactory, feedbackRules, feedbackSink,
                 displayInfoResolver: VfxSfxDisplayInfoResolver, entityLogicalIdResolver: null,
                 unitAccess: gameplay.Carriers.Units, options: opts.FeedbackOptions,
-                textResolver: key => L10n.Text(key));
+                textResolver: key => L10n.Text(key), hitFrameSource: hitFrameSource);
 
             // 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：
             // Feedback（播放队列 Queue 随之就绪）已构造完成，把"当前是否存在尚未回放完的表现动作"

@@ -26,6 +26,7 @@ namespace Presentation.FeedbackBinder.Schema
                 new FieldSchema("event", FieldKind.Id, required: true, description: "订阅的事件 key（如 combat.damage_dealt），指向 found.event_catalog，见判断记录（跨 domain 登记表不适合用 FieldKind.Reference，本模块的 FeedbackRuleValidator 另行按 EventKeys.All 校验）"),
                 new FieldSchema("condition", FieldKind.Expr, required: false, description: "Expr 条件文本，见 04 第 6 节；宿主分组含 event（触发事件字段）"),
                 new FieldSchema("actions", FieldKind.Array, required: true, description: "有序 FeedbackAction 列表：[{kind: floating_text|play_vfx|play_sfx|freeze|shake_camera|flash, params: {...}}]，见 09 第 6.1 节"),
+                new FieldSchema("sync", FieldKind.Enum, required: false, enumValues: new[] { "hit_frame" }, description: "ADR-0017 决策 d：命中帧同步声明，未提供时按 event 是否为 combat.damage_dealt 决定默认值（见 FeedbackRule.Sync 判断记录）"),
             },
             migrations: Array.Empty<TableMigration>());
 

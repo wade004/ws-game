@@ -14,10 +14,12 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
 - `contracts/`：`VfxAttachMode`/`VfxAttach`（判别联合）、`VfxDef`/`SfxDef`（09 §5.1/5.2 字段）、
   `IVfxPlayer`/`ISfxPlayer`、`VfxOptions`/`SfxOptions`（池容量/并发上限等策略配置项）、
   `AnchorResolver`/`EntityPositionResolver`（注入的窄契约，见下"契约缺口"）、`WeaponStyleDef`/
-  `IWeaponStyleResolver`（09 §4.4）、`IPresentationDiagnostics`（本模块与 `feedback_binder` 共用的
-  表现层诊断出口，语义同 `Core.Foundation.Expr.IExprDiagnostics`）。
+  `IWeaponStyleResolver`（09 §4.4）、`IWeaponStyleSource`/`MainHandWeaponTemplateResolver`（ADR-0017
+  决策 e，"实体 → 武器风格引用"前置查询，见判断记录 12）、`IPresentationDiagnostics`（本模块与
+  `feedback_binder` 共用的表现层诊断出口，语义同 `Core.Foundation.Expr.IExprDiagnostics`）。
 - `core/`：`VfxPlayer`/`SfxPlayer`（默认实现）、`VfxPool`（对象池）、`DisplayInfoResolver`（09 §5.6）、
-  `WeaponStyleResolver`（09 §4.4 最小实现）。
+  `WeaponStyleResolver`（09 §4.4 最小实现）、`EquipmentWeaponStyleSource`（`IWeaponStyleSource` 默认
+  实现，ADR-0017 决策 e，见判断记录 12）。
 - `schema/`：`VfxSfxSchemas`——`vfx.def`/`sfx.def`/`display.weapon_style` 三张表的 `TableSchema`
   登记（与 `Core.Foundation.DisplayInfo.DisplaySchemas` 同一惯例：只登记 schema，不接入
   `data/_sample/` 真实数据集，见下"不负责什么"）。
@@ -109,6 +111,18 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     （`Update_TimesOut_TriggersPendingSpawnCountChanged_Once`）、`SfxPlayerTests.cs`
     （`Update_TimesOut_TriggersPendingPlayCountChanged_WithoutAnyFurtherPlayCall`）、
     `presentation/feedback_binder/README.md` 判断记录 13（端到端真实链路用例）。
+
+12. **ADR-0017（W6 表现能力补齐 A 部分，2026-09-08）：新增 `IWeaponStyleSource` 补齐"实体 → 武器
+    风格引用"前置查询**——判断记录 6 指出 `IWeaponStyleResolver` 已知 `weaponStyleRef` 之后能查覆盖
+    表，但"给定一个实体，它现在算哪一个 `weaponStyleRef`"这一前置查询此前没有任何实现；新增
+    `contracts/IWeaponStyleSource.cs`（接口 + `MainHandWeaponTemplateResolver` 委托）与
+    `core/EquipmentWeaponStyleSource.cs`（默认实现）：订阅 `item.equipped`/`item.unequipped` 事件
+    失效按实体缓存的结果，取该实体主手武器物品模板 id 后经既有 `display.map.logical_id`（物品模板
+    对应的 `display.map` 行，其 `logical_id` 就是模板 id 本身）查 `IDisplayInfoRegistry.Lookup` 拿
+    `WeaponStyleRef`；"实体现在装备的主手武器物品模板 id"本身按窄契约委托
+    `MainHandWeaponTemplateResolver` 注入，本模块不直接依赖 `core/carriers/item` 的具体装备宿主
+    实现（避免表现层反向耦合到某一种装备存储形状），由装配层按具体游戏使用的装备宿主实现构造并
+    注入。未新增任何数据表字段——`display.map.weapon_style_ref` 已足以承载这条关联。
 
 ## 不负责什么
 

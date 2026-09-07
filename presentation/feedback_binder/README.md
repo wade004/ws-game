@@ -12,13 +12,16 @@
 
 ## 目录
 
-- `contracts/`：`FeedbackAction`（六个 sealed 子类判别联合）、`FeedbackRule`、`TextSource`、
-  `FromDisplaySource`、`FeedbackAttachTarget`/`FeedbackAttachSpec`、`IFeedbackSink`、
-  `FeedbackOptions`、`MergeMode`/`QueueMode`、`FloatingTextStyleDef`、
-  `PlaybackFinishedEvent`（见下"并行协调"）、`EntityLogicalIdResolver`（可选扩展点，见"契约缺口"）。
+- `contracts/`：`FeedbackAction`（六个 sealed 子类判别联合）、`FeedbackRule`（含 `FeedbackSyncMode`/
+  `Sync` 字段，ADR-0017 决策 d）、`TextSource`、`FromDisplaySource`、`FeedbackAttachTarget`/
+  `FeedbackAttachSpec`、`IFeedbackSink`、`FeedbackOptions`（新增 `HitFrameSync`/
+  `HitFrameSyncTimeoutSeconds`）、`MergeMode`/`QueueMode`、`FloatingTextStyleDef`、
+  `PlaybackFinishedEvent`（见下"并行协调"）、`EntityLogicalIdResolver`（可选扩展点，见"契约缺口"）、
+  `IHitFrameSource`（ADR-0017 决策 d，见判断记录 14）。
 - `core/`：`FeedbackBinder`（主体）、`PlaybackQueue`、`FloatingTextMerger`、
   `CompositeFeedbackSink`（默认 `IFeedbackSink` 实现，vfx/sfx 转给 `Presentation.VfxSfx`）、
-  `FeedbackRuleValidator`。
+  `FeedbackRuleValidator`、`HitFrameSyncPolicy`（命中帧等待队列）、`CharacterRigHitFrameSource`
+  （`IHitFrameSource` 默认实现，见判断记录 14）。
 - `schema/`：`FeedbackSchemas`——`feedback.binding`/`feedback.floating_text_style` 的
   `TableSchema` 登记（不接入 `data/_sample/`，同 `vfx_sfx` 模块惯例）。
 - `tests/`：见验收测试列表。
@@ -140,6 +143,26 @@
     ——不用手工 stub 的 `RecordingFeedbackSink` 模拟 pending，而是串联真实 `SfxPlayer`/
     `CompositeFeedbackSink`/`FeedbackBinder`，只靠 `SfxPlayer.Update`（不调用第二次 `Play`）驱动
     超时，验证完整真实链路恰好发布一次完成事件）。
+
+14. **ADR-0017（W6 表现能力补齐 A 部分，2026-09-08）：命中帧同步（`anim_keyframe_driven`）从"没有
+    任何订阅方"收口为真实接线**——`presentation/render/README.md` 判断记录 13/16 提到
+    `ICharacterRig.HitFrameReached` 此前只在 `SpriteCharacterRig` 一侧有实现且全仓无人订阅，
+    `RenderOptions.HitFrameSync` 切到 `AnimKeyframeDriven` 因此没有可观察效果；本模块新增
+    `IHitFrameSource`（按实体注册/注销 rig 的命中帧事件订阅，汇聚成按实体 id 广播的聚合事件，默认
+    实现 `CharacterRigHitFrameSource`）与 `HitFrameSyncPolicy`（等待队列：按时释放、超时兜底默认
+    0.5 秒并记诊断、攻击方无 rig 时立即释放、多次攻击各自入队不串扰）；`FeedbackRule` 新增
+    `Sync: FeedbackSyncMode`（对应 `feedback.binding.sync: "hit_frame"` 字段，未提供时按 `event`
+    是否为 `combat.damage_dealt` 决定默认值）；`FeedbackBinder` 新增可选构造参数
+    `hitFrameSource`，只有 `FeedbackOptions.HitFrameSync == AnimKeyframeDriven` 且确实注入了
+    `IHitFrameSource` 时才构造内部的 `HitFrameSyncPolicy`——两个条件缺一则完全回退为改动前的行为
+    （规则的 `Sync` 字段被忽略，全部动作立即派发），保证未升级的既有调用方/测试不受影响。
+    `HitFrameSyncPolicy.PendingCount` 并入 `HasPendingPlayback`，`PendingChanged` 事件接入既有
+    `TryPublishFinished` 完成信号链（同判断记录 11/13 的既有接线惯例，不新增一条独立的完成信号
+    通路）。**仍是契约缺口的部分（留给 W6-B/具体游戏装配代码）**：默认装配
+    （`presentation/assembly/PresentationAssembly`）当前不会自动把 View 创建期产生的
+    `ICharacterRig` 注册进 `IHitFrameSource`、不会自动构造并注入 `hitFrameSource`、也不会默认把
+    `HitFrameSync` 切到 `AnimKeyframeDriven`——这是"框架提供机制，游戏层按需接线启用"的既有模式
+    （同 `flash_profile`/`FlashProfileResolver` 一类判断记录），不接线时行为等同本条修复之前。
 
 ## 不负责什么
 

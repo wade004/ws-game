@@ -5,7 +5,10 @@
 `sortY` 排序、方向量化到方向槽位的镜像回退解析、纸娃娃层合成顺序、影子锚点、高度像素换算；
 `sprite` 型 `IView` 的引擎无关骨架 `SpriteViewBase`；`CharacterRig`（09 §4.1）、`AnimState` 七态
 状态机（09 §4.2）、命中帧同步（09 §4.3）、序列帧播放器预留接口（09 §4.5）、程序动画八原语
-（09 §4.1）——拍板 6，本轮（W3a）落地 sprite 型全套引擎无关部分，model 型只留接口占位。
+（09 §4.1）——拍板 6（W3a）落地 sprite 型全套引擎无关部分；[ADR-0017](../../architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md)（W6 表现能力补齐 A 部分）把 `model` 型
+`CharacterRig` 从占位收口为真实实现（层/槽位管理、锚点/挂点查询、八原语映射），`HitFrameReached`
+提升进 `ICharacterRig` 契约本身，两种外形类型均已提供；引擎侧真正的三维渲染管线实现（`IRenderer3D`
+真实实现）仍待 W6-B，不在本模块范围内。
 
 依赖：`Presentation.Common.csproj`。
 
@@ -29,16 +32,19 @@ render/
     ShadowSpec.cs                 影子锚点 + ShadowMode 数据侧→引擎侧转换
     RenderConventionHost.cs       IRenderConventionHost 默认实现
     SpriteViewBase.cs             sprite 型 IView 骨架，持有并委托 SpriteCharacterRig
-    SpriteCharacterRig.cs         ICharacterRig 的 sprite 型实现 + model 型占位 ModelCharacterRig
-    AnimStateMachine.cs           AnimState 七态状态机的引擎无关实现（订阅 06 事件词汇表驱动切换）
+    SpriteCharacterRig.cs         ICharacterRig 的 sprite 型实现
+    ModelCharacterRig.cs          ICharacterRig 的 model 型真实实现（ADR-0017 决策 b）：装备外观、挂点查询、
+                                   八原语 → SetPlacement/SetMaterialParam、命中帧事件
+    AnimStateMachine.cs           AnimState 七态状态机的引擎无关实现（订阅 06 事件词汇表驱动切换，
+                                   ADR-0017 决策 f 新增 StateChangedWithSkill 事件）
     ProceduralAnimSequencer.cs    IProceduralAnim 默认实现：纯时间推进 + 曲线求值，不调用任何 L-1 接口
     FrameAnimPlayer.cs            IFrameAnimPlayer 参考实现：帧号推进 + 关键帧/播放完成事件派发
   tests/
     RenderConventionHostTests.cs   12 个用例
     SpriteViewBaseTests.cs         10 个用例
-    AnimStateMachineTests.cs       逐条转移 + 优先级用例
+    AnimStateMachineTests.cs       逐条转移 + 优先级用例 + StateChangedWithSkill 用例
     SpriteCharacterRigTests.cs     层合成/锚点/程序动画/命中帧同步策略用例
-    ModelCharacterRigTests.cs      model 型占位实现的 NotSupportedException 用例
+    ModelCharacterRigTests.cs      真实实现用例：放置合成、装备外观、挂点查询、命中帧事件（用 StubRenderer3D 驱动）
     ProceduralAnimSequencerTests.cs  八原语时序 + 结束回调 + 同类型替换用例
     FrameAnimPlayerTests.cs        帧推进/关键帧/循环/播放完成用例
 ```
@@ -187,11 +193,15 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     闪白是最高频场景，固定接 `IRenderer2D.SetShaderParam` 的 `"flash_intensity"` 参数；其余七个
     原语只转发到 `ProceduralAnimSequencer`，合理默认表现留给调用方（通常是 W3b）在 `onSample` 里
     决定，本模块不代为拍板，见 `SpriteCharacterRig` 类型注释。
-13. **命中帧同步策略切换（`RenderOptions.HitFrameSync`）目前只有 sprite 型接线**：`SpriteCharacterRig`
-    在 `AnimKeyframeDriven` 策略下把 `FrameAnimClip.HitFrameMarker` 对应的 `IFrameAnimPlayer.OnAnimEvent`
-    重新广播为 `HitFrameReached` 事件（携带实体 id），供命中反馈的落地代码延迟到这一刻才播放；
-    `LogicDriven`（默认）策略下不触发，命中反馈沿用 `FeedbackBinder` 收到 `combat.damage_dealt`
-    立即派发的既有行为，不需要本模块参与。
+13. **命中帧同步策略切换（`RenderOptions.HitFrameSync`）现两种外形类型均已接线**（ADR-0017 决策 c，
+    2026-09-08 更新，取代本条原先"目前只有 sprite 型接线"的表述）：`SpriteCharacterRig` 在
+    `AnimKeyframeDriven` 策略下把 `FrameAnimClip.HitFrameMarker` 对应的 `IFrameAnimPlayer.OnAnimEvent`
+    重新广播为 `HitFrameReached` 事件（携带实体 id）；`ModelCharacterRig` 同一策略下把
+    `IRenderer3D.OnAnimEvent` 命中 `ModelCharacterRig.HitFrameEventId` 时同样广播
+    `HitFrameReached`——`HitFrameReached` 已从 `SpriteCharacterRig` 专属成员提升进 `ICharacterRig`
+    契约本身（见判断记录 16），供命中反馈的落地代码（`presentation/feedback_binder` 的
+    `HitFrameSyncPolicy`）延迟到这一刻才播放；`LogicDriven`（默认）策略下两种实现均不触发，命中
+    反馈沿用 `FeedbackBinder` 收到 `combat.damage_dealt` 立即派发的既有行为。
 
 14. **N18 收口（外部审核 68c9bed）：`FrameAnimPlayer.Update` 每次都重新从 `_clips` 查一次当前
     clipId，不缓存 `Play` 那一刻的剪辑对象引用**——原实现 `_current` 只在 `Play` 时从共享的可写
@@ -218,6 +228,28 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     （`Adapter.Unity.Presentation.UnityViewFactory.AttachDefaultAnimation` 早已把
     `IFrameAnimPlayer.OnComplete` 接回本状态机，见 `adapters/unity/.../README.md`"瞬态完成通知"，
     不需要新增接线）。见 `AnimStateMachine.cs`（`OnSkillCastEnd`）、`AnimStateMachineTests.cs`。
+
+16. **ADR-0017（W6 表现能力补齐 A 部分，2026-09-08）：`model` 型 `CharacterRig` 从占位收口为真实
+    实现**：`ModelCharacterRig` 不再对层管理、锚点/挂点查询抛 `NotSupportedException`——
+    `ComposeAndApplyLayers`/`ApplyLayers`（纸娃娃层专属方法，model 型不适用）改为 no-op；新增
+    `ApplyEquipVisual(EquipVisualDef)` 是 model 型真正的装备外观应用入口，按 `mode` 做
+    `IRenderer3D.SetSlotMesh`（槽位换装）或 `CreateModelInstance` + `AttachToSocket`（挂点挂接，
+    自动 `Detach`/`DestroyModelInstance` 旧挂接，见类型判断记录）；`ResolveAnchorLocalOffset` 按
+    `ModelInfo.Sockets` 是否声明该挂点返回声明性结果（存在返回 `Vec2.Zero` 占位、不存在返回
+    null——model 型没有可精确计算的挂点偏移数据，真实世界坐标由具体 `IRenderer3D` 实现的骨骼系统
+    决定，本方法只能回答"是否声明"）；八项程序动画原语中 move/rotate/scale/stagger/topple 五项
+    经 `SyncPlacement` 缓存的基准姿态叠加后调用 `IRenderer3D.SetPlacement`，flash/trail/fade 三项
+    固定调用 `IRenderer3D.SetMaterialParam`（参数名 `flash_intensity`/`trail_intensity`/
+    `fade_alpha`，与 `SpriteCharacterRig.Flash` 接 `flash_intensity` 同一惯例的自然扩展）。
+    `HitFrameReached` 从 `SpriteCharacterRig` 专属成员提升进 `ICharacterRig` 接口本身（`event
+    Action<Id>? HitFrameReached`），两套实现均提供。`AnimStateMachine` 新增 `StateChangedWithSkill`
+    事件（`(entityId, from, to, triggerSkillId: Optional<Id>)`），与既有 `StateChanged` 三元组事件
+    同一次切换背靠背触发，`triggerSkillId` 只在 `skill.cast_start` 驱动的切换（进入
+    `attack`/`cast`）时非空，支持 09 §4.4 `cast_anim_override` 按技能覆盖查表；既有 `StateChanged`
+    事件签名不变，不影响既有订阅方。真正把这些能力接到具体三维渲染引擎（`IRenderer3D` 真实实现）
+    与默认装配（`PresentationAssembly` 自动注册 rig 进 `IHitFrameSource`、自动把
+    `IWeaponStyleSource` 接进 `AnimClipResolver` 等）仍留给 W6-B，见
+    `architecture/落地计划/落地方案与分阶段计划.md`"W6 表现能力补齐"小节。
 
 ## 契约缺口
 

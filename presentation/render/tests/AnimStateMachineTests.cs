@@ -253,5 +253,65 @@ namespace Tests.PresentationRender
 
             Assert.Equal(AnimState.Idle, machine.GetState(Unit));
         }
+
+        // ------------------------------------------------------------------
+        // ADR-0017 决策 c：StateChangedWithSkill
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void SkillCastStart_RaisesStateChangedWithSkill_CarryingSkillId()
+        {
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+            var received = new List<(AnimState From, AnimState To, Id? SkillId)>();
+            machine.StateChangedWithSkill += (id, from, to, skillId) => received.Add((from, to, skillId));
+
+            bus.PublishImmediate(new SkillCastStartEvent(Unit, new Id("skill.fireball"), 1.5));
+
+            Assert.Contains(received, t => t.From == AnimState.Idle && t.To == AnimState.Cast && t.SkillId == new Id("skill.fireball"));
+        }
+
+        [Fact]
+        public void StateChangedWithSkill_FiresAlongsideStateChanged_ForSameTransition()
+        {
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+            var plainCount = 0;
+            var withSkillCount = 0;
+            machine.StateChanged += (_, _, _) => plainCount++;
+            machine.StateChangedWithSkill += (_, _, _, _) => withSkillCount++;
+
+            bus.PublishImmediate(new SkillCastStartEvent(Unit, new Id("skill.auto_attack"), 0.0));
+
+            Assert.Equal(1, plainCount);
+            Assert.Equal(1, withSkillCount);
+        }
+
+        [Fact]
+        public void NonSkillTransitions_StateChangedWithSkill_CarriesNullSkillId()
+        {
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+            Id? receivedSkillId = new Id("sentinel.should_be_overwritten");
+            machine.StateChangedWithSkill += (_, _, _, skillId) => receivedSkillId = skillId;
+
+            bus.PublishImmediate(new UnitStateChangedEvent(Unit, "Idle", "Run"));
+
+            Assert.Null(receivedSkillId);
+        }
+
+        [Fact]
+        public void ExistingStateChangedSubscribers_KeepWorking_UnawareOfNewEvent()
+        {
+            // 兼容性回归：只订阅旧的三元组事件（同 W3b AnimClipResolver 现有接线），不应受影响。
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+            var transitions = new List<(AnimState From, AnimState To)>();
+            machine.StateChanged += (id, from, to) => transitions.Add((from, to));
+
+            bus.PublishImmediate(new SkillCastStartEvent(Unit, new Id("skill.fireball"), 1.5));
+
+            Assert.Contains((AnimState.Idle, AnimState.Cast), transitions);
+        }
     }
 }

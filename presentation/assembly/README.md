@@ -80,6 +80,23 @@ assembly/
 装配，因此按"按各模块宿主实际需要的最小集合注入、未提供时降级"原则设为可选，未传时 `VfxPlayer`
 的 socket 模式保持退化为 world 播放（见 `presentation/vfx_sfx/README.md` 判断记录 1）。
 
+判断记录（`hitFrameSource` 是可选参数，W6 收口新增，ADR-0017 决策 d 遗留缺口收口）：构造函数末尾
+再新增 `IHitFrameSource? hitFrameSource = null`，原样透传给内部 `Feedback`（`FeedbackBinderCore`）
+的同名构造参数——此前本类型完全没有暴露这个参数，即便引擎侧装配根（如
+`adapters/unity/.../GameFoundationBootstrap.cs`）构造了 `CharacterRigHitFrameSource` 传给
+`ViewFactory` 完成"rig 登记表"这一半机制，也没有路径接给 `Feedback` 内部真正做命中帧等待判定的
+`HitFrameSyncPolicy`，命中帧同步因此此前只有机制、没有生产入口。是否真正生效仍由
+`PresentationAssemblyOptions.RenderOptions`/`FeedbackOptions` 各自的 `HitFrameSync` 开关决定（见
+`Presentation.Render.RenderOptions.HitFrameSync`/`Presentation.FeedbackBinder.Contracts.
+FeedbackOptions.HitFrameSync` 判断记录"两个落点，装配层负责保持一致"）——本参数只负责接线；不传时
+（默认）行为与改动前完全一致（`sync: hit_frame` 声明被忽略，全部动作立即派发）。装配方还需要把
+**同一个** `RenderOptions` 实例传给引擎侧 `IViewFactory` 实现用于构造具体 `ICharacterRig`（如
+`Adapter.Unity.Presentation.UnityViewFactory` 新增的 `renderOptions` 构造参数），否则即便这里接好了
+`hitFrameSource`，rig 构造期实际拿到的 `HitFrameSync` 仍是默认 `LogicDriven`，`HitFrameReached` 事件
+永远不会触发（这是比"`PresentationAssembly` 未暴露 `hitFrameSource`"更深一层、W6 收口时才发现的
+缺口，接线步骤完整版见 `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md`"命中帧
+同步接线步骤"一节）。
+
 ### `PresentationAssemblyOptions` 可选知会点（任务书点名"保留注入委托"两项 + 其余游戏内容项）
 
 | 字段 | 默认值 | 说明 |

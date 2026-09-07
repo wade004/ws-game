@@ -29,6 +29,17 @@ namespace Presentation.Render
         /// <see cref="AnimState.Idle"/>。</summary>
         AnimState CurrentAnimState { get; }
 
+        /// <summary>
+        /// ADR-0017 决策 c 提升进本契约：命中帧到达（09 第 4.3 节 <c>anim_keyframe_driven</c> 策略）。
+        /// <c>sprite</c> 型经 <see cref="IFrameAnimPlayer.OnAnimEvent"/> 命中
+        /// <see cref="FrameAnimClip.HitFrameMarker"/> 触发（见 <see cref="SpriteCharacterRig"/> 类型
+        /// 注释），<c>model</c> 型经 <c>IRenderer3D.OnAnimEvent</c> 命中 <see cref="ModelCharacterRig.HitFrameEventId"/>
+        /// 触发（见 <see cref="ModelCharacterRig"/> 类型注释）——二者统一为本事件，供
+        /// <c>Presentation.FeedbackBinder.Contracts.IHitFrameSource</c> 一类按实体订阅的消费方不必
+        /// 关心外形类型。<see cref="RenderOptions.HitFrameSync"/> 为 <see cref="HitFrameSyncStrategy.LogicDriven"/>
+        /// （默认）或未接入序列帧/骨骼动画事件源时恒不触发。</summary>
+        event Action<Id>? HitFrameReached;
+
         /// <summary>程序动画原语入口（09 第 4.1 节"提供……动画能力，供反馈绑定与动画状态机调用"）。</summary>
         IProceduralAnim ProceduralAnim { get; }
 
@@ -46,23 +57,38 @@ namespace Presentation.Render
         /// <summary>查询锚点（sprite 型，09 第 3.3.1 节）/挂点（model 型，09 第 3.3.2 节）相对该角色
         /// 局部原点的偏移（未加上实体世界坐标——世界坐标合成是调用方的职责，见
         /// <c>Presentation.ViewBinding.ViewBinder.GetAnchorWorldPosition</c> 同一套镜像判定的独立
-        /// 实现）。查不到该锚点/挂点时返回 null。model 型外形调用本方法抛
-        /// <see cref="NotSupportedException"/>（挂点查询走 <c>IRenderer3D</c> 的具体实现，不归本接口，
-        /// 见 <see cref="ModelCharacterRig"/> 类型注释）。</summary>
+        /// 实现）。查不到该锚点/挂点时返回 null。
+        /// <para>
+        /// ADR-0017 决策 b 勘误：model 型外形调用本方法不再抛 <see cref="NotSupportedException"/>——
+        /// <see cref="ModelCharacterRig"/> 按 <c>ModelInfo.Sockets</c> 判断该挂点是否声明存在，声明存在
+        /// 时返回 <see cref="Vec2.Zero"/>（已知简化：model 型挂点的真实世界位置由具体
+        /// <c>IRenderer3D</c> 实现的骨骼系统决定，本接口只能确认"该挂点是否声明"，不能给出精确偏移；
+        /// 需要精确挂点世界坐标的调用方应改走该引擎适配层实现（若提供）自己的挂点查询能力），未声明时
+        /// 返回 null，见 <see cref="ModelCharacterRig"/> 类型注释。
+        /// </para>
+        /// </summary>
         Vec2? ResolveAnchorLocalOffset(Id anchorId, Direction facing);
 
         /// <summary>按给定层名顺序与朝向合成纸娃娃层并应用（09 第 3.3.1 节"层内 z 序 = 列表顺序"）；
         /// <paramref name="resolveResourceId"/> 把每条已解析方向档位的层放置信息转换成具体引擎资源
         /// Id（见 <c>SpriteViewBase.ResolveLayerResourceId</c> 判断记录，调用方通常直接传入该虚方法
-        /// 的委托，保留具体游戏重写资源命名规则的扩展点）。model 型外形调用本方法抛
-        /// <see cref="NotSupportedException"/>（层管理走槽位网格，见 <see cref="ModelCharacterRig"/>）。</summary>
+        /// 的委托，保留具体游戏重写资源命名规则的扩展点）。
+        /// <para>
+        /// ADR-0017 决策 b 勘误：model 型外形调用本方法不再抛 <see cref="NotSupportedException"/>，
+        /// 改为 no-op（不做任何事）——纸娃娃层顺序合成不适用于 model 型，真正的装备外观改走
+        /// <see cref="ModelCharacterRig.ApplyEquipVisual"/>（按 <c>display.equip_visual</c> 做
+        /// <c>SetSlotMesh</c>/<c>AttachToSocket</c>），本方法留空只是保证既有"对全部 <see cref="ICharacterRig"/>
+        /// 实现一视同仁调用"的调用方（如误把 model 型 rig 传进 sprite 专属装配代码）不会因此崩溃。
+        /// </para>
+        /// </summary>
         void ComposeAndApplyLayers(
             IReadOnlyList<string> layerNamesInOrder, Direction facing, Func<SpriteLayerPlacement, Id> resolveResourceId);
 
         /// <summary>直接应用一份已经解析好的层资源 Id 列表（供已有更复杂合成逻辑——如
         /// <c>SpriteViewBase.RebuildEquippedLayers</c> 的装备覆盖合并——的调用方复用本类型持有的
         /// <c>SpriteHandle</c>/<c>IRenderer2D</c> 完成最终 <c>SetLayers</c> 调用，不必自己另外持有
-        /// 一份引用）。model 型外形调用本方法抛 <see cref="NotSupportedException"/>。</summary>
+        /// 一份引用）。ADR-0017 决策 b 勘误：model 型外形调用本方法不再抛
+        /// <see cref="NotSupportedException"/>，改为 no-op，理由同 <see cref="ComposeAndApplyLayers"/>。</summary>
         void ApplyLayers(IReadOnlyList<Id> resourceIds);
 
         /// <summary>推进 <see cref="ProceduralAnim"/> 的时间轴（见 <see cref="ProceduralAnimSequencer.Update"/>）。

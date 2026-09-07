@@ -25,6 +25,7 @@ namespace Adapters.Conformance
             new ConformanceScenario<IResourceLoader>("IsLoaded_加载前为false", IsLoaded_FalseBeforeLoad),
             new ConformanceScenario<IResourceLoader>("GetLoadProgress_取值范围在0到1之间", GetLoadProgress_WithinZeroToOne),
             new ConformanceScenario<IResourceLoader>("Unload_未加载或未知id不抛异常", Unload_UnknownId_DoesNotThrow),
+            new ConformanceScenario<IResourceLoader>("Model类别_与其它类别同一套加载语义", ModelKind_BehavesLikeOtherKinds),
         };
 
         private static readonly Id NeverExistsId = new Id("data.conformance_never_exists_probe");
@@ -86,6 +87,33 @@ namespace Adapters.Conformance
             assert.DoesNotThrow(() => loader.Unload(freshId), "对未加载/未知的资源 id 调用 Unload 不应抛异常");
             assert.DoesNotThrow(() => loader.Unload(freshId), "重复 Unload 同一个未加载的资源 id 不应抛异常");
             yield break;
+        }
+
+        /// <summary>ADR-0017 决策 a 新增：<see cref="ResourceKind.Model"/> 未注册时的失败回调路径与
+        /// 其它既有类别（本场景组已覆盖的 <see cref="ResourceKind.DataTable"/> 等）走同一套语义，
+        /// 不需要引擎适配层为 model 型资源另开一条特殊通路。</summary>
+        private static IEnumerator ModelKind_BehavesLikeOtherKinds(IResourceLoader loader, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            var freshId = new Id("data.conformance_model_probe");
+            assert.False(loader.IsLoaded(freshId), "从未 LoadAsync 过的 model 资源 id，IsLoaded 应为 false");
+
+            var callbackFired = false;
+            var callbackSuccess = true;
+            loader.LoadAsync(freshId, ResourceKind.Model, (id, success) =>
+            {
+                callbackFired = true;
+                callbackSuccess = success;
+            });
+
+            var attempts = 0;
+            while (!callbackFired && attempts < MaxPollAttempts)
+            {
+                yield return ctx.AdvanceTime(0.05);
+                attempts++;
+            }
+
+            assert.True(callbackFired, $"model 类别的 LoadAsync 回调应在 {MaxPollAttempts} 次轮询内触发");
+            assert.False(callbackSuccess, "未注册的 model 资源，加载回调的 success 应为 false");
         }
     }
 }

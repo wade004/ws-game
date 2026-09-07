@@ -1,10 +1,14 @@
 #nullable enable
 // Renderer3DScenarios：IRenderer3D 契约一致性场景（见 02_引擎适配层.md 第 1.12 节）。
-// 条件必需接口——桩实现按正常路径工作；Unity 本迭代整体声明降级（UnityRenderer3D 全部方法抛
-// NotSupportedException，见该类型注释）。场景通过 ConformanceContext.SupportsRenderer3D 在两条
-// 路径间切换断言，而不是跳过（任务书："场景允许实现声明降级并跳过"——本组场景选择"声明降级时
-// 断言抛出 NotSupportedException"而不是彻底跳过，因为"全部方法必须抛同一种异常"本身就是一条
-// 可确定性验证的契约条款，比单纯跳过更有把关价值）。
+// 条件必需接口——桩实现与 Unity 实现（W6-B 收口后）均按正常路径工作。场景仍然保留经
+// ConformanceContext.SupportsRenderer3D 在"声明降级"与"真实实现"两条路径间切换断言的能力（不是
+// assert.Skip，见任务书"场景允许实现声明降级并跳过"——本组场景选择"声明降级时断言抛出
+// NotSupportedException"而不是彻底跳过，因为"全部方法必须抛同一种异常"本身就是一条可确定性验证
+// 的契约条款，比单纯跳过更有把关价值）：仍有引擎适配层选择整体声明降级时（02 第 1.12 节"条件
+// 必需"允许），把 ConformanceContext.SupportsRenderer3D 显式设为 false 即可复用同一组场景断言。
+// ModelId 现指向 W6-B 占位模型 model.placeholder_biped（见 adapters/unity/Assets/Editor/
+// GeneratePlaceholderModelAssets.cs）——真实实现路径下 CreateModelInstance 需要一个确实存在的
+// 模型资源；桩实现对任意 Id 都返回可用句柄，不受此约束。
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -23,7 +27,7 @@ namespace Adapters.Conformance
             new ConformanceScenario<IRenderer3D>("OnAnimEvent_按降级标志分别验证", OnAnimEvent_RespectsSupportFlag),
         };
 
-        private static readonly Id ModelId = new Id("model.conformance_placeholder");
+        private static readonly Id ModelId = new Id("model.placeholder_biped");
 
         private static IEnumerator CreateThenDestroy_RespectsSupportFlag(IRenderer3D renderer, IConformanceAssert assert, ConformanceContext ctx)
         {

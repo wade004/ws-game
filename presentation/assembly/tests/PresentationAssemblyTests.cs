@@ -494,6 +494,10 @@ namespace Tests.Presentation.Assembly
             public AnimState CurrentAnimState { get; private set; } = AnimState.Idle;
             public IProceduralAnim ProceduralAnim => Anim;
 
+#pragma warning disable CS0067 // 本假实现只需满足 ICharacterRig 接口形状，测试不需要真正触发命中帧事件。
+            public event System.Action<Id>? HitFrameReached;
+#pragma warning restore CS0067
+
             public RecordingCharacterRig(Id entityId) => EntityId = entityId;
 
             public void SetAnimState(AnimState state) => CurrentAnimState = state;

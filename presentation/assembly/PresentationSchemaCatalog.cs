@@ -109,6 +109,9 @@ namespace Presentation.Assembly
             registry.RegisterSchema(DisplaySchemas.AnimSet);
             registry.RegisterSchema(DisplaySchemas.EquipVisual);
             registry.RegisterValidationRule(new DisplayKindFieldGroupRule());
+            // ADR-0017 决策 c：display.anim_set.clips[*].events 形状校验（无构造依赖，同
+            // DisplayKindFieldGroupRule 一并注册）。
+            registry.RegisterValidationRule(new AnimSetEventsShapeRule());
             // DisplayMapCoverageRule 不在此注册，见类型注释判断记录。
         }
 

@@ -6,6 +6,7 @@ using Core.Foundation.Expr;
 using Core.Rules.Common;
 using Core.Rules.ExprHost;
 using Presentation.FeedbackBinder.Contracts;
+using Presentation.Render;
 using Presentation.VfxSfx.Contracts;
 using Presentation.VfxSfx.Core;
 
@@ -43,6 +44,7 @@ namespace Presentation.FeedbackBinder.Core
 
         private readonly PlaybackQueue _queue;
         private readonly FloatingTextMerger _merger;
+        private readonly HitFrameSyncPolicy? _hitFrameSyncPolicy;
 
         public FeedbackBinder(
             IEventBus bus,
@@ -55,7 +57,8 @@ namespace Presentation.FeedbackBinder.Core
             FeedbackOptions? options = null,
             IExprDiagnostics? exprDiagnostics = null,
             IPresentationDiagnostics? diagnostics = null,
-            Func<Id, string>? textResolver = null)
+            Func<Id, string>? textResolver = null,
+            IHitFrameSource? hitFrameSource = null)
         {
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _exprHosts = exprHosts ?? throw new ArgumentNullException(nameof(exprHosts));
@@ -67,6 +70,15 @@ namespace Presentation.FeedbackBinder.Core
             _exprDiagnostics = exprDiagnostics ?? new ExprDiagnosticsRecorder();
             _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
             _textResolver = textResolver;
+
+            // ADR-0017 决策 d：只有策略要求 AnimKeyframeDriven 且调用方确实注入了 IHitFrameSource 时
+            // 才构造命中帧等待队列——未注入时（多数既有调用方/测试）行为与改动前完全一致，规则的
+            // sync=hit_frame 声明被忽略，全部动作立即派发（见 OnEvent 判断记录）。
+            if (_options.HitFrameSync == HitFrameSyncStrategy.AnimKeyframeDriven && hitFrameSource != null)
+            {
+                _hitFrameSyncPolicy = new HitFrameSyncPolicy(hitFrameSource, _options.HitFrameSyncTimeoutSeconds, _diagnostics);
+                _hitFrameSyncPolicy.PendingChanged += TryPublishFinished;
+            }
 
             _queue = new PlaybackQueue(_options.SequentialStepSeconds) { Mode = _options.QueueMode };
 
@@ -120,6 +132,7 @@ namespace Presentation.FeedbackBinder.Core
         {
             _merger.Update(dt);
             _queue.Update(dt);
+            _hitFrameSyncPolicy?.Update(dt);
         }
 
         /// <summary>供离散模式主循环/测试直接控制播放节奏（09 第 6.4 节"加速与跳过"）。</summary>
@@ -149,22 +162,29 @@ namespace Presentation.FeedbackBinder.Core
         /// vfx/sfx 因此会被误判为"这一步没有待回放内容"而提前放行节奏门，真正的播放效果可能在
         /// 下一步甚至后续 vfx/sfx 之间乱序才姗姗来迟。现在把 sink 侧的 pending 信号一并纳入。
         /// </para>
+        /// <para>
+        /// ADR-0017 决策 d 补充：等待攻击方命中帧释放的动作（<see cref="_hitFrameSyncPolicy"/>）同样
+        /// 计入——这些动作已经确定要播放，只是延后到命中帧才真正入队，未入队期间同样属于"这一步还有
+        /// 待回放内容"。
+        /// </para>
         /// </summary>
-        public bool HasPendingPlayback => _queue.PendingCount > 0 || _merger.HasPendingMerges || _sink.HasPendingPlayback;
+        public bool HasPendingPlayback =>
+            _queue.PendingCount > 0 || _merger.HasPendingMerges || _sink.HasPendingPlayback || (_hitFrameSyncPolicy?.PendingCount ?? 0) > 0;
 
         /// <summary>
         /// N17 根治：三个"这一步是否已经真正播完"的条件同时满足才发出
         /// <see cref="PlaybackFinishedEvent"/>——队列已空、没有待合并飘字、sink 侧没有仍在首次
-        /// 加载中的冷 vfx/sfx。本方法是无状态的"当下检查"，由两条独立路径调用：
-        /// <see cref="PlaybackQueue.Finished"/>（队列由非空变空那一刻）与 <see cref="IFeedbackSink.
-        /// PendingPlaybackChanged"/>（sink 侧 pending 计数可能变化那一刻，见该事件判断记录）。
-        /// 只有真正三个条件同时成立的那一次调用会实际发布事件——其余调用（例如队列刚清空但 sink
-        /// 仍在加载、或 sink 某一项加载完成但还有别的资源仍在加载）都会在条件判断处提前返回，因此
-        /// 不会重复发出。
+        /// 加载中的冷 vfx/sfx。本方法是无状态的"当下检查"，由三条独立路径调用：
+        /// <see cref="PlaybackQueue.Finished"/>（队列由非空变空那一刻）、<see cref="IFeedbackSink.
+        /// PendingPlaybackChanged"/>（sink 侧 pending 计数可能变化那一刻，见该事件判断记录）、
+        /// ADR-0017 决策 d 新增的 <see cref="HitFrameSyncPolicy.PendingChanged"/>（命中帧等待队列
+        /// 计数可能变化那一刻）。只有真正四个条件（含 <see cref="HasPendingPlayback"/> 已并入的命中帧
+        /// 等待项）同时成立的那一次调用会实际发布事件——其余调用都会在条件判断处提前返回，因此不会
+        /// 重复发出。
         /// </summary>
         private void TryPublishFinished()
         {
-            if (_queue.PendingCount == 0 && !_merger.HasPendingMerges && !_sink.HasPendingPlayback)
+            if (_queue.PendingCount == 0 && !_merger.HasPendingMerges && !_sink.HasPendingPlayback && (_hitFrameSyncPolicy?.PendingCount ?? 0) == 0)
             {
                 _bus.PublishImmediate(new PlaybackFinishedEvent());
             }
@@ -173,6 +193,11 @@ namespace Presentation.FeedbackBinder.Core
         public void Dispose()
         {
             _sink.PendingPlaybackChanged -= TryPublishFinished;
+            if (_hitFrameSyncPolicy != null)
+            {
+                _hitFrameSyncPolicy.PendingChanged -= TryPublishFinished;
+                _hitFrameSyncPolicy.Dispose();
+            }
 
             foreach (var sub in _subscriptions)
             {
@@ -196,6 +221,23 @@ namespace Presentation.FeedbackBinder.Core
             {
                 if (rule.Condition != null && !ExprEvaluator.EvaluateBool(rule.Condition, host, _exprDiagnostics))
                 {
+                    continue;
+                }
+
+                // ADR-0017 决策 d：命中帧同步只在策略确实要求（_hitFrameSyncPolicy 非空，见构造函数
+                // 判断记录）且该规则声明 sync=hit_frame 时生效——同一规则的全部动作打包成一次等待，
+                // 保证它们随同一次命中帧一起播放，不按动作各自拆开等待（见 HitFrameSyncPolicy 类型
+                // 注释"多次攻击不串扰"判断记录的姊妹约束：同一次触发的多个动作不应互相错开）。
+                if (_hitFrameSyncPolicy != null && rule.Sync == FeedbackSyncMode.HitFrame)
+                {
+                    var actionsSnapshot = rule.Actions;
+                    _hitFrameSyncPolicy.WaitForHitFrame(selfId, () =>
+                    {
+                        foreach (var action in actionsSnapshot)
+                        {
+                            Dispatch(action, evt, selfId, targetId);
+                        }
+                    });
                     continue;
                 }
 

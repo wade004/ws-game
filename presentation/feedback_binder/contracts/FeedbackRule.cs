@@ -3,9 +3,24 @@ using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.Expr;
+using Core.Rules.Common;
 
 namespace Presentation.FeedbackBinder.Contracts
 {
+    /// <summary>
+    /// 规则级命中帧同步声明（ADR-0017 决策 d，<c>feedback.binding.sync</c> 字段新增，见
+    /// <see cref="Presentation.FeedbackBinder.Schema.FeedbackSchemas.Binding"/>）：
+    /// <see cref="HitFrame"/> 表示该规则的全部动作应延迟到攻击方 rig 的命中帧再一并播放（09 第
+    /// 4.3 节 <c>anim_keyframe_driven</c> 策略），<see cref="None"/> 表示按逻辑事件到达即刻播放（既有
+    /// 默认行为，<see cref="Presentation.Render.HitFrameSyncStrategy.LogicDriven"/> 下恒等同
+    /// <see cref="None"/>）。
+    /// </summary>
+    public enum FeedbackSyncMode
+    {
+        None,
+        HitFrame,
+    }
+
     /// <summary><c>feedback.binding</c> 一条记录的不可变运行期视图（见 09_表现层.md 第 6.1 节
     /// <c>FeedbackRule</c>）。<see cref="Condition"/> 在构造期解析一次（同
     /// <c>Core.Rules.Ai.CompiledRotationEntry</c> 惯例）。</summary>
@@ -22,12 +37,20 @@ namespace Presentation.FeedbackBinder.Contracts
 
         public IReadOnlyList<FeedbackAction> Actions { get; }
 
-        public FeedbackRule(Id id, Id eventKey, ExprNode? condition, IReadOnlyList<FeedbackAction> actions)
+        /// <summary>见 <see cref="FeedbackSyncMode"/>。默认取值（记录未提供 <c>sync</c> 字段时）：
+        /// <see cref="EventKey"/> 等于 <see cref="RulesEventKeys.CombatDamageDealt"/> 时默认
+        /// <see cref="FeedbackSyncMode.HitFrame"/>（ADR-0017 决策 d"默认对 combat.damage_dealt 类命中
+        /// 反馈开启"），其余事件默认 <see cref="FeedbackSyncMode.None"/>。显式提供 <c>sync</c> 字段
+        /// 时以该字段取值为准，不受事件类型影响。</summary>
+        public FeedbackSyncMode Sync { get; }
+
+        public FeedbackRule(Id id, Id eventKey, ExprNode? condition, IReadOnlyList<FeedbackAction> actions, FeedbackSyncMode sync = FeedbackSyncMode.None)
         {
             Id = id;
             EventKey = eventKey;
             Condition = condition;
             Actions = actions ?? throw new System.ArgumentNullException(nameof(actions));
+            Sync = sync;
         }
 
         /// <summary>从一条已加载的 <c>feedback.binding</c> <see cref="DataRecord"/> 构造；
@@ -57,7 +80,25 @@ namespace Presentation.FeedbackBinder.Contracts
                 actions.Add(ParseAction(record, i, actionObj));
             }
 
-            return new FeedbackRule(id, eventKey, condition, actions);
+            var sync = ParseSync(record, eventKey);
+
+            return new FeedbackRule(id, eventKey, condition, actions, sync);
+        }
+
+        /// <summary>见 <see cref="Sync"/> 判断记录：显式 <c>sync</c> 字段优先；未提供时按 <paramref name="eventKey"/>
+        /// 是否为 <see cref="RulesEventKeys.CombatDamageDealt"/> 决定默认值。</summary>
+        private static FeedbackSyncMode ParseSync(DataRecord record, Id eventKey)
+        {
+            if (record.TryGetString("sync", out var syncText))
+            {
+                if (syncText == "hit_frame")
+                {
+                    return FeedbackSyncMode.HitFrame;
+                }
+                throw new DataFieldException(record.Table.Name, record.Key, "sync", $"未知的 sync 取值：\"{syncText}\"");
+            }
+
+            return eventKey == RulesEventKeys.CombatDamageDealt ? FeedbackSyncMode.HitFrame : FeedbackSyncMode.None;
         }
 
         private static FeedbackAction ParseAction(DataRecord record, int index, JsonObject actionObj)

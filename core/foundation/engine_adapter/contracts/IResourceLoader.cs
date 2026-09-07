@@ -3,11 +3,17 @@ using Core.Foundation.Common;
 namespace Core.Foundation.EngineAdapter
 {
     /// <summary>
-    /// 资源种类：图片、音频、字体、数据表、场景、导航网格、特效（见 ADR-0016 决策 5）。
+    /// 资源种类：图片、音频、字体、数据表、场景、导航网格、特效、模型（见 ADR-0016 决策 5、
+    /// ADR-0017 决策 a）。
     /// Scene 对应 world.map 的 scene_ref 字段（05_对象模型与世界.md 第 4.1 节），加载后交给
     /// 场景路由使用；NavMesh 对应 world.map 的 nav_ref 字段（同节），加载后交给 INavigation2D
     /// 使用；Effect 对应 vfx.def 的 resource_ref 字段（09_表现层.md 第 5.1 节），加载后交给
-    /// IRenderer2D/IRenderer3D 使用，使 emitParticle 的 effectId 能解析到具体特效资产。
+    /// IRenderer2D/IRenderer3D 使用，使 emitParticle 的 effectId 能解析到具体特效资产；
+    /// Model 对应 display.map（kind: model）的 model_ref 字段与 display.equip_visual 的
+    /// model_ref 字段（04_数据与内容管线.md 第 7.1、7.1.2 节），加载后交给 IRenderer3D 使用，
+    /// 使 createModelInstance/attachToSocket 的资源引用能解析到具体模型与骨骼动画资产（见
+    /// ADR-0017 决策 a：加载责任仍沿用 ADR-0016 决策 6——谁首次引用该资源 id 谁负责调用
+    /// loadAsync，IRenderer3D 只消费已加载完成的资源）。
     /// </summary>
     public enum ResourceKind
     {
@@ -17,7 +23,8 @@ namespace Core.Foundation.EngineAdapter
         DataTable,
         Scene,
         NavMesh,
-        Effect
+        Effect,
+        Model
     }
 
     /// <summary>加载完成或失败时触发一次，success 为 false 表示加载失败。</summary>

@@ -101,6 +101,20 @@ namespace Presentation.Render
         /// <c>TryEnter</c>/<c>RevertToLocomotion</c> 调用点的相等性检查）。</summary>
         public event Action<Id, AnimState, AnimState>? StateChanged;
 
+        /// <summary>
+        /// ADR-0017 决策 c 新增：与 <see cref="StateChanged"/> 同一次切换背靠背触发，额外携带触发这次
+        /// 切换的技能 id——支持 09 第 4.4 节 <c>cast_anim_override</c>（按技能 id 覆盖施法动作剪辑）：
+        /// <see cref="StateChanged"/> 的既有三元组签名（<c>entityId, from, to</c>）不携带技能 id（见
+        /// 04/W3b 既有判断记录"AnimStateMachine.StateChanged 事件只携带三元组，不携带触发这次切换的
+        /// 技能 id"），本事件是"新增重载"的落地形状——C# 事件委托签名固定，不能给既有委托追加参数，
+        /// 因此另起一个事件而不是改 <see cref="StateChanged"/> 本身，保持既有订阅方（如 W3b
+        /// <c>AnimClipResolver</c>）不必跟着改签名也能继续编译通过。<c>triggerSkillId</c> 只在由
+        /// <see cref="OnSkillCastStart"/>（<c>skill.cast_start</c>）驱动的切换（进入
+        /// <see cref="AnimState.Attack"/>/<see cref="AnimState.Cast"/>）时非空；其余全部切换来源
+        /// （移动、受击、死亡、<see cref="RequestOverride"/>、回落）恒为 null。
+        /// </summary>
+        public event Action<Id, AnimState, AnimState, Id?>? StateChangedWithSkill;
+
         public AnimStateMachine(IEventBus bus)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
@@ -197,7 +211,7 @@ namespace Presentation.Render
         }
 
         private void OnSkillCastStart(SkillCastStartEvent evt) =>
-            TryEnter(evt.CasterId, evt.CastTime <= 0 ? AnimState.Attack : AnimState.Cast);
+            TryEnter(evt.CasterId, evt.CastTime <= 0 ? AnimState.Attack : AnimState.Cast, evt.SkillId);
 
         /// <summary>
         /// 判断记录（N19 根治，architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
@@ -230,7 +244,7 @@ namespace Presentation.Render
 
         private void OnCombatDamageDealt(CombatDamageDealtEvent evt) => TryEnter(evt.TargetId, AnimState.Hit);
 
-        private void TryEnter(Id entityId, AnimState state)
+        private void TryEnter(Id entityId, AnimState state, Id? triggerSkillId = null)
         {
             var entry = GetOrCreate(entityId);
             if (entry.Current == AnimState.Death)
@@ -240,13 +254,13 @@ namespace Presentation.Render
 
             if (Priority[state] >= Priority[entry.Current])
             {
-                SetState(entityId, entry, state);
+                SetState(entityId, entry, state, triggerSkillId);
             }
         }
 
         private void RevertToLocomotion(Id entityId, Entry entry) => SetState(entityId, entry, entry.Locomotion);
 
-        private void SetState(Id entityId, Entry entry, AnimState next)
+        private void SetState(Id entityId, Entry entry, AnimState next, Id? triggerSkillId = null)
         {
             if (entry.Current == next)
             {
@@ -256,6 +270,7 @@ namespace Presentation.Render
             var previous = entry.Current;
             entry.Current = next;
             StateChanged?.Invoke(entityId, previous, next);
+            StateChangedWithSkill?.Invoke(entityId, previous, next, triggerSkillId);
         }
 
         private Entry GetOrCreate(Id entityId)
