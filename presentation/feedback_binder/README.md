@@ -89,6 +89,19 @@
     `PlaybackFinishedEvent`"——飘字还停留在合并窗口内时，队列因"这一步只有非飘字动作"而先播空一次
     不代表本步表现已经结束；窗口到期后合并结果经 `DispatchFloatingText` 入队、再次播空时
     `Finished` 会第二次触发，那一次才真正发布事件，与 `HasPendingPlayback` 的语义保持一致。
+11. **GP-09 收口（第四方深度审核）：`HasPendingPlayback` 补上 `IFeedbackSink` 侧的冷资源 pending
+    信号，不再只看 `Queue`/`FloatingTextMerger` 两处**——`play_vfx`/`play_sfx` 首次引用尚未加载
+    完成的资源时会在 `VfxPlayer`/`SfxPlayer` 内部排队等待（见 `presentation/vfx_sfx/README.md`
+    判断记录 7），`IFeedbackSink.PlayVfx`/`PlaySfx` 调用本身只是"发指令"，不等播完就立即返回，
+    不产生任何"这一步已经播完"的信号；此前 `FeedbackBinder.HasPendingPlayback` 只看
+    `Queue.PendingCount`/`FloatingTextMerger.HasPendingMerges`，冷资源的 vfx/sfx 因此会被误判为
+    "这一步没有待回放内容"而提前放行离散步的表现完成门，真正的播放效果可能在下一步甚至后续
+    vfx/sfx 之间乱序才姗姗来迟。`IFeedbackSink` 新增只读属性 `HasPendingPlayback`
+    （`CompositeFeedbackSink` 直接转发 `IVfxPlayer.PendingSpawnCount`/`ISfxPlayer.
+    PendingPlayCount` 是否大于 0），`FeedbackBinder.HasPendingPlayback` 改为
+    `Queue.PendingCount > 0 || Merger.HasPendingMerges || Sink.HasPendingPlayback` 三者取或。见
+    `IFeedbackSink.cs`/`CompositeFeedbackSink.cs`/`FeedbackBinder.cs`，
+    `CompositeFeedbackSinkTests.cs`（新增）。
 
 ## 不负责什么
 

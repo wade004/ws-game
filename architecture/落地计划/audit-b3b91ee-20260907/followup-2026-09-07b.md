@@ -146,15 +146,21 @@ Unity 3D/model 全 `NotSupported`、编辑器未开始实现、`01_分层与依�
 
 模块 README 层面，Y1 已同步 `save_system/README.md`、`sim_loop/README.md`、
 `input_map/README.md`（备份目录、`Clear()`、迁移终点校验、同帧边沿等改动的直接影响面）。
-`core/carriers/item/README.md`、`core/rules/skill/README.md`、`core/rules/combat/README.md`、
-`core/carriers/projectile/README.md`、`core/rules/ai/README.md`、
-`core/gameplay/quest/README.md`、`core/gameplay/dialog/README.md`、
-`core/gameplay/encounter/README.md`、`presentation/vfx_sfx/README.md`、
-`presentation/feedback_binder/README.md` 这些模块的 README 尚未逐条同步 RC-01～11/GP-01～10
-对应的行为改动描述——判断记录：这些 README 的既有文字大多只是"未提及"新行为（不是"断言与新
-行为矛盾"），本轮验收标准（33 条发现全部根治 + 4 条 PlayMode 失败根治 + 全量门禁通过）不
-因此受阻；同步这些 README 是后续一个独立、篇幅相当的收尾任务，如实记录为本轮未完成事项，不
-在本次提交范围内声称已做。
+本文件初稿曾把下列全部 README 同步记为"未完成事项"；排障与整理期间已补齐其中十份（各自新增
+一条编号判断记录，指向对应源码与回归测试）：`core/carriers/item/README.md`（FND-10、RC-05）、
+`core/carriers/projectile/README.md`（RC-09）、`core/rules/ai/README.md`（RC-10）、
+`core/rules/combat/README.md`（RC-02）、`core/rules/skill/README.md`（RC-01/03/04/07/08）、
+`core/gameplay/quest/README.md`（GP-01/07/08）、`core/gameplay/dialog/README.md`（GP-05）、
+`core/gameplay/encounter/README.md`（GP-04）、`presentation/vfx_sfx/README.md`（GP-03）、
+`presentation/feedback_binder/README.md`（GP-09）。
+
+仍未同步、如实记录为本轮未完成事项：`adapters/unity/Packages/com.gamefoundation.adapter.unity/
+README.md`（GP-02/06/10，默认动画瞬态完成/复活销毁回收/冷启动加载/CharacterRig 时间轴推进）、
+`toolchain/README.md`（TOOL-01/02，check.ps1 缺程序判定、资源 ID 双下划线编码）——前者是一份
+篇幅很大、覆盖 U3 全套 UI/Shell 流程的包级 README，稳妥地把三条改动嵌入需要通读全篇找准位置，
+不是几分钟能安全完成的编辑；后者同理需要通读 `toolchain/README.md` 全篇资产管线小节。这两处
+README 的既有文字同样只是"未提及"新行为（不是"断言与新行为矛盾"），不影响本轮验收标准（33 条
+发现全部根治 + 4 条 PlayMode 失败根治 + 全量门禁通过）。
 
 ## 四、全量门禁
 
