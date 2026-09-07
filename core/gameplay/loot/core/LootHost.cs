@@ -393,29 +393,47 @@ namespace Core.Gameplay.Loot
             var addedPerStack = new List<int>(want.Count);
             var fullySucceeded = true;
 
-            foreach (var stack in want)
+            // CR130-01 根治（外部审计 audit-5c444f1-20260908，与 EconomyHost.Buy 同款缺口）：本方法
+            // 是"全部拿到才算数"的 Reject 策略——某一件放不下时，前面已经成功 AddItem 的堆叠需要按
+            // RollbackAdd 补偿撤销；AddItem 的 item.added 与补偿的 item.removed 是两条独立入队事件，
+            // 不加事务时会在同一次 DispatchPending 里先后派发，下游 consumeOnProgress 一类订阅者会把
+            // 先到的 item.added 当真、立即消费玩家已有的同模板物品，后到的 item.removed 抵消不了这个
+            // 副作用（同 EconomyHost.Buy 判断记录）。_inventory 实现 IBatchableInventoryHost 时把整趟
+            // 拾取尝试包进一次事务，失败时 using 块结束触发 Dispose（未 Commit 即回滚）把背包状态与
+            // 缓存事件一并撤销，不需要再逐项 RollbackAdd；不支持事务的宿主退回历史行为。
+            var transaction = _inventory is IBatchableInventoryHost batchable ? batchable.BeginBatch() : null;
+            using (transaction)
             {
-                var before = _inventory.CountOf(unitId, stack.TemplateId);
-                _inventory.AddItem(unitId, stack.TemplateId, stack.Count);
-                var added = Math.Max(0, _inventory.CountOf(unitId, stack.TemplateId) - before);
-                addedPerStack.Add(added);
-                if (added < stack.Count)
+                foreach (var stack in want)
                 {
-                    fullySucceeded = false;
-                }
-            }
-
-            if (!fullySucceeded)
-            {
-                for (var i = 0; i < want.Count; i++)
-                {
-                    if (addedPerStack[i] > 0)
+                    var before = _inventory.CountOf(unitId, stack.TemplateId);
+                    _inventory.AddItem(unitId, stack.TemplateId, stack.Count);
+                    var added = Math.Max(0, _inventory.CountOf(unitId, stack.TemplateId) - before);
+                    addedPerStack.Add(added);
+                    if (added < stack.Count)
                     {
-                        RollbackAdd(unitId, want[i].TemplateId, addedPerStack[i]);
+                        fullySucceeded = false;
                     }
                 }
 
-                return LootPickupResult.Fail(LootPickupFailureReason.Rejected);
+                if (!fullySucceeded)
+                {
+                    if (transaction == null)
+                    {
+                        for (var i = 0; i < want.Count; i++)
+                        {
+                            if (addedPerStack[i] > 0)
+                            {
+                                RollbackAdd(unitId, want[i].TemplateId, addedPerStack[i]);
+                            }
+                        }
+                    }
+                    // 宿主支持事务时不需要手动回滚——using 块结束触发 Dispose 即整体撤销（含事件）。
+
+                    return LootPickupResult.Fail(LootPickupFailureReason.Rejected);
+                }
+
+                transaction?.Commit();
             }
 
             entity.Items.Clear();

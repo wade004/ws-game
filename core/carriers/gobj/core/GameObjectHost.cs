@@ -104,7 +104,13 @@ namespace Core.Carriers.Gobj
                 result = new InteractResult(true, InteractOutcome.NoAction);
             }
 
-            _bus.Enqueue(new GobjInteractedEvent(unitId, gobjInstanceId));
+            // CR130-05 根治：kindDispatchRef 只在"没有 on_use 可分发"（上面 else if 分支）时才是
+            // GobjInteractedEvent.TeleportTargetRef 判断记录所说的"teleporter 跨地图目标"语义——
+            // 有 on_use 时 result.DispatchedRef 是完全不同的 skill/dialog 分发目标，绝不能当传送目标
+            // 转发给下游监听（那会把一次技能/对话交互误当传送处理）。这里独立算一遍同样的条件，不
+            // 直接复用 result.DispatchedRef，避免两种语义在事件层面被混同。
+            var teleportTargetRef = !template.OnUse.HasValue ? kindDispatchRef : null;
+            _bus.Enqueue(new GobjInteractedEvent(unitId, gobjInstanceId, teleportTargetRef));
             return result;
         }
 

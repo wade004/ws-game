@@ -271,10 +271,32 @@ namespace Core.Carriers.Common
 
         public Id GobjInstanceId { get; }
 
-        public GobjInteractedEvent(Id unitId, Id gobjInstanceId)
+        /// <summary>
+        /// CR130-05 根治（architecture/落地计划/audit-5c444f1-20260908）：本次交互若命中
+        /// <c>kind=teleporter</c> 且 <c>GameObjectHost.DoTeleport</c>（经注入的、可能是调用方自定义的
+        /// <c>GobjOptions.TeleportResolver</c>）判定目标在另一张地图——本模块自身无法完成跨地图的场景
+        /// 切换（见该方法判断记录"由调用方（L4）驱动真正的场景切换"），把原始 <c>teleport_target_ref</c>
+        /// 原样携带在这里，交给唯一权威的下游消费方（<c>GameplayAssembly</c> 的 <c>gobj.interacted</c>
+        /// 监听）接手；<b>为 <c>null</c></b> 涵盖"不是 teleporter"、"resolver 判定为同图并已经在
+        /// <c>DoTeleport</c> 内部原地完成 <c>SetPosition</c>"、"resolver 解析失败/未注入" 三种情形——
+        /// 这三种情形传送这件事本身已经由 <c>DoTeleport</c>（唯一读取 resolver 结果的地方）终局判定
+        /// 完毕，不需要、也不允许任何下游再用另一个 resolver（例如默认的
+        /// <c>TeleportTargetResolver</c>）重新解析同一个 <c>teleport_target_ref</c> 一遍——重新解析
+        /// 会绕开调用方注入的自定义 resolver、用默认结果覆盖已经落地的自定义结果（外部审计
+        /// CR130-05：同图自定义传送结果 <c>(99,88)</c> 被内置 <c>(1,2)</c> 覆盖；resolver 显式返回
+        /// <c>null</c>——判定"这次不该传送"——时也不应该退化成走内置传送）。<c>template.OnUse</c>
+        /// 存在时（分发到 skill/dialog，即使该 gobj 恰好也是 <c>kind=teleporter</c>）本字段固定为
+        /// <c>null</c>——<see cref="Core.Carriers.Gobj.GameObjectHost.Interact"/> 复用同一个
+        /// <c>InteractResult.DispatchedRef</c> 字段表达"skill/dialog 的分发目标 id"这一无关语义，见该
+        /// 类型顶部判断记录，两者不可混同。
+        /// </summary>
+        public Id? TeleportTargetRef { get; }
+
+        public GobjInteractedEvent(Id unitId, Id gobjInstanceId, Id? teleportTargetRef = null)
         {
             UnitId = unitId;
             GobjInstanceId = gobjInstanceId;
+            TeleportTargetRef = teleportTargetRef;
         }
 
         public bool TryGetField(string name, out ExprValue value)

@@ -236,18 +236,36 @@ namespace Core.Gameplay.Economy
                 return PurchaseResult.Fail(PurchaseFailureReason.InsufficientFunds);
             }
 
-            var before = _inventory.CountOf(unitId, itemId);
-            _inventory.AddItem(unitId, itemId, count);
-            var added = Math.Max(0, _inventory.CountOf(unitId, itemId) - before);
-
-            if (added < count)
+            // CR130-01 根治（外部审计 audit-5c444f1-20260908）：AddItem 成功那一刻已经把 item.added
+            // 排入事件总线待发队列（IEventBus.Enqueue 只入队、不立即派发），下面"数量不足则
+            // RollbackAdd"补的是独立一条 item.removed；两条事件在同一次 DispatchPending 里先后派发
+            // 时，下游订阅者（如 QuestHost.HandleItemAdded 的 consumeOnProgress）会把先到的
+            // item.added 当真、立即消费玩家已有的同模板物品推进任务进度，后到的 item.removed 抵消不
+            // 了这个副作用——本次购买"数量"确实回滚了，但任务系统已经误判、多扣了一份玩家原有的物品
+            // （外部审计复现：容量为 1 的 Partial 背包已有 A5，购买失败回滚后变 A4，任务却记了一次
+            // 消费进度）。惯例同 RewardDispatcher.GrantItems/QuestHost.TurnIn：_inventory 实现
+            // IBatchableInventoryHost 时把 AddItem 与其失败补偿一并包进一次事务，失败时 using 块结束
+            // 触发 Dispose（未 Commit 即回滚）把背包状态与缓存事件一并撤销，下游完全观察不到这次失败
+            // 的购买发生过，不需要再调用 RollbackAdd；不支持事务的宿主（多数测试用的 Fake）退回历史
+            // 行为，逐项 RollbackAdd。
+            var transaction = _inventory is IBatchableInventoryHost batchable ? batchable.BeginBatch() : null;
+            using (transaction)
             {
-                if (added > 0)
+                var before = _inventory.CountOf(unitId, itemId);
+                _inventory.AddItem(unitId, itemId, count);
+                var added = Math.Max(0, _inventory.CountOf(unitId, itemId) - before);
+
+                if (added < count)
                 {
-                    RollbackAdd(unitId, itemId, added);
+                    if (transaction == null && added > 0)
+                    {
+                        RollbackAdd(unitId, itemId, added);
+                    }
+
+                    return PurchaseResult.Fail(PurchaseFailureReason.InventoryFull);
                 }
 
-                return PurchaseResult.Fail(PurchaseFailureReason.InventoryFull);
+                transaction?.Commit();
             }
 
             TryPay(unitId, sellItem.PriceCurrencyId, price);
@@ -278,9 +296,20 @@ namespace Core.Gameplay.Economy
             var (perItemPrice, currencyId) = ComputeSellPrice(vendorId, unitId, templateId);
             var total = Math.Max(0L, (long)(perItemPrice * count));
 
-            if (!_inventory.RemoveItem(unitId, itemInstanceId, count))
+            // CR130-01 根治：Sell 目前只有一次 RemoveItem（成功即整份移除、失败不落地任何变化，见
+            // InventoryHost.RemoveItem——不是"部分成功再补偿"的多步操作），本身不存在
+            // Buy/RollbackAdd 那种"先落地再补偿"的事件错位窗口；仍然按 Buy 同款惯例包进事务，是为了
+            // 与"购买/出售/补偿全部走批量事务"这一统一口径保持一致，也让日后若在此处新增任何补偿步骤
+            // 天然获得同样的原子性，不需要再补一次事务改造。
+            var transaction = _inventory is IBatchableInventoryHost batchable ? batchable.BeginBatch() : null;
+            using (transaction)
             {
-                return SellResult.Fail(SellFailureReason.NotOwned);
+                if (!_inventory.RemoveItem(unitId, itemInstanceId, count))
+                {
+                    return SellResult.Fail(SellFailureReason.NotOwned);
+                }
+
+                transaction?.Commit();
             }
 
             Add(unitId, currencyId, total, sourceId: vendorId);

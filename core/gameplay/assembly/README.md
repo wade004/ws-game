@@ -230,3 +230,20 @@ assembly/
    `GameplayAssembly.cs`（`HandleGobjTeleporterInteracted`）、
    `core/gameplay/assembly/tests/GameplayAssemblyGobjTeleportInteractionTests.cs`（跨地图/同图
    两条用例）。
+
+   **CR130-05 根治（外部审计 audit-5c444f1-20260908，P2）：以上机制被推翻，`HandleGobjTeleporterInteracted`
+   方法已删除**——本条描述的"事件本身不携带 `DispatchedRef`，反查模板后独立重新走一遍
+   `TeleportUnit`"这一实现，与 `GameObjectHost.DoTeleport` 已经用（可能是调用方注入的自定义）
+   `GobjOptions.TeleportResolver` 做出的判定，是两次独立解析同一个 `teleport_target_ref`：外部
+   审计发现自定义同图结果会被这里"重新走一遍"用的默认 `_teleportTargetResolver` 覆盖，resolver
+   显式返回 `null`（判定"不该传送"）时这里仍会退化成走默认传送——上一段"同图时……幂等，不产生
+   第二次场景切换或位置偏移"的结论只在"未注入自定义 resolver"时成立，不是普适结论。见
+   `core/carriers/gobj/README.md` 同编号条目：`GobjInteractedEvent` 现新增 `TeleportTargetRef`
+   字段，直接携带 `DoTeleport` 已经做出的唯一权威判定（`null`=不需要/已经同图落地；非空=需要
+   跨地图，值就是原始 `teleport_target_ref`）。本文件的订阅改为：`TeleportTargetRef` 非空才调用
+   `TeleportUnit(evt.UnitId, evt.TeleportTargetRef.Value)`，为空则什么都不做——不再反查模板、不再
+   独立解析，唯一权威消费方回到 `DoTeleport`。验收新增
+   `InteractWithTeleporterGobj_SameMap_CustomResolverResult_IsNotOverwrittenByBuiltinListener`/
+   `InteractWithTeleporterGobj_CustomResolverReturnsNull_DoesNotFallBackToBuiltinTeleport`/
+   `InteractWithTeleporterGobj_CrossMap_NoCustomResolver_StillTeleportsViaListener`（同一测试
+   文件）。

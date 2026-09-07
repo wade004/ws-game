@@ -116,9 +116,17 @@ namespace Core.Rules.Skill
             }
 
             /// <summary>C09 收口：把当前永久技能集合原子替换为 <paramref name="snapshot"/>——先撤销
-            /// "当前有、快照没有"的永久技能（<see cref="SkillHost.ForgetSkill(Id,Id)"/>，只影响永久
-            /// 来源那一份引用），再补上快照里的全部技能（<see cref="SkillHost.LearnSkill(Id,Id)"/>，
-            /// 对"快照有、当前也有"的技能是安全的幂等 no-op）。见类型注释判断记录。</summary>
+            /// "当前有、快照没有"的永久技能，再补上快照里的全部技能（<see cref="SkillHost.LearnSkill(Id,Id)"/>，
+            /// 对"快照有、当前也有"的技能是安全的幂等 no-op）。见类型注释判断记录。
+            /// <para>
+            /// CR130-02 根治（外部审计 audit-5c444f1-20260908）：撤销步骤改用
+            /// <see cref="SkillHost.ForgetAllPermanentGrants"/>，不再是只撤销 <see
+            /// cref="SkillHost.ForgetSkill(Id,Id)"/>（哨兵来源那一份引用）——<see
+            /// cref="SkillHost.GetPermanentlyKnownSkills"/> 收口后"永久"不再只可能是哨兵来源（奖励/
+            /// 任务一类显式来源 id 现在也可能是永久），只撤销哨兵来源对这类技能是 no-op（那个
+            /// sourceId 从未出现在哨兵来源的位置上），C09 替换语义会对它们失效。
+            /// </para>
+            /// </summary>
             private void ReplacePermanentlyKnownSkills(IReadOnlyList<Id> snapshot)
             {
                 var snapshotSet = new HashSet<Id>(snapshot);
@@ -127,7 +135,7 @@ namespace Core.Rules.Skill
                 {
                     if (!snapshotSet.Contains(skillId))
                     {
-                        _host.ForgetSkill(_unitId, skillId);
+                        _host.ForgetAllPermanentGrants(_unitId, skillId);
                     }
                 }
 

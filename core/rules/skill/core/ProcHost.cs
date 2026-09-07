@@ -18,6 +18,21 @@ namespace Core.Rules.Skill
     /// </summary>
     public sealed class ProcHost
     {
+        /// <summary>
+        /// CR130-03 根治（外部审计 audit-5c444f1-20260908）：与
+        /// <see cref="CooldownTracker._currentFactor"/>/<see cref="AuraHost._currentFactor"/>/
+        /// <see cref="CastPipeline._currentFactor"/> 同批语义、同一套推导——当前模式 1 个计时单位相当于
+        /// 连续模式（数据 authoring 的规范单位）多少秒；初始 1.0，随 <see cref="RescaleAll"/> 每次模式
+        /// 切换累乘更新。<see cref="OnEvent"/> 把 <c>ProcDef.InternalCooldown</c>（authoring 规范秒数）
+        /// 写入 <see cref="Attachment.IcdRemaining"/> 前先乘该系数；<see cref="RescaleAll"/> 同时把
+        /// 已经在倒计时的既有 ICD 按 <c>factor</c> 换算——此前本类型完全没有接入 R05/第五轮外部审核那
+        /// 一批时间模式折算（<c>SkillHost.OnTimeModelRescaled</c> 当时只广播给 CooldownTracker/
+        /// AuraHost/CastPipeline 三者，见各自判断记录），Proc 的内部冷却在连续/离散模式切换后会用
+        /// 错误的单位重新解读，与技能自身冷却各用各的时间基准。
+        /// </summary>
+        private double _currentFactor = 1.0;
+
+
         /// <summary>供 <see cref="ProcHost"/> 触发释放的回调：由 <see cref="SkillHost"/> 注入，
         /// 转调 <see cref="CastPipeline.TriggerCast"/>（绕过读条与 GCD、不入队列）。
         /// <para>
@@ -99,6 +114,31 @@ namespace Core.Rules.Skill
             }
         }
 
+        /// <summary>
+        /// CR130-03 根治：连续/离散模式切换时把全部已挂载触发器正在倒计时的内部冷却按同一系数换算
+        /// （同 <see cref="CooldownTracker.RescaleAll"/>/<see cref="AuraHost.RescaleAll"/>/
+        /// <see cref="CastPipeline.RescaleAll"/> 判断记录），由 <c>SkillHost.OnTimeModelRescaled</c>
+        /// 同一批调用。<paramref name="factor"/> 语义同上述三者：新单位下 1 个单位对应旧单位下
+        /// <paramref name="factor"/> 个单位。
+        /// </summary>
+        public void RescaleAll(double factor)
+        {
+            if (factor <= 0)
+            {
+                throw new ArgumentException("factor 必须为正数", nameof(factor));
+            }
+
+            _currentFactor *= factor;
+
+            foreach (var attachment in _attachments.Values)
+            {
+                if (attachment.IcdRemaining > 0)
+                {
+                    attachment.IcdRemaining *= factor;
+                }
+            }
+        }
+
         private void OnEvent(Attachment attachment, IEvent evt)
         {
             if (!EventCorrelation.IsRelatedToHolder(evt, attachment.HolderId))
@@ -129,7 +169,10 @@ namespace Core.Rules.Skill
 
             if (attachment.Def.InternalCooldown.HasValue)
             {
-                attachment.IcdRemaining = attachment.Def.InternalCooldown.Value;
+                // CR130-03 根治：InternalCooldown 是 authoring 规范秒数，写入前折算成当前模式的
+                // 计时单位（同 CooldownTracker.StartCooldown/CastPipeline.EnterCastOrChannel 判断
+                // 记录），否则 Update(dt) 按当前模式的计时单位推进时会用错误的单位解读这段剩余时间。
+                attachment.IcdRemaining = attachment.Def.InternalCooldown.Value * _currentFactor;
             }
 
             // RC-01 收边补齐：depth 读自触发本次判定的事件本身（见 TriggerCastCallback 类型

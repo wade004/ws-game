@@ -84,7 +84,12 @@ namespace Tests.Rules.Skill
             Assert.Throws<System.FormatException>(() => persistable.Load(badData));
         }
 
-        /// <summary>N07（外部审计 68c9bed，P2）：装备授予的临时技能（非 <c>PermanentGrantSource</c>
+        /// <summary>N07（外部审计 68c9bed，P2）；CR130-02（外部审计 audit-5c444f1-20260908）收口：
+        /// 装备授予的临时技能——三参 <c>LearnSkill(Id,Id,Id)</c> 收口后默认按永久处理（见
+        /// <see cref="SkillHost.LearnSkill(Id,Id,Id)"/> 判断记录），本用例改用显式
+        /// <c>permanent: false</c> 的四参重载模拟装备联动（真实链路是
+        /// <c>core/carriers/assembly.CarriersAssembly</c> 的装备 <c>SkillGranter</c>，同样显式传
+        /// <c>permanent: false</c>），不再依赖"非 <c>PermanentGrantSource</c>
         /// 哨兵来源）不应被 <see cref="KnownSkillsPersistable.Save"/> 快照进存档——修复前
         /// <c>Save</c> 用 <c>GetKnownSkills</c>（全部来源并集）读取，装备授予的技能与永久学习的技能
         /// 混在一起写进同一个数组，无法区分。</summary>
@@ -94,7 +99,7 @@ namespace Tests.Rules.Skill
             var world = new SkillWorldBuilder().Build();
             world.AddUnit(UnitId);
             var equipmentSource = new Id("item.inst_sample_equipment");
-            world.Host.LearnSkill(UnitId, SkillFireball, equipmentSource); // 模拟装备授予（非永久）
+            world.Host.LearnSkill(UnitId, SkillFireball, equipmentSource, permanent: false); // 模拟装备授予（非永久）
 
             var saved = KnownSkillsPersistable.For(world.Host, UnitId).Save();
 
@@ -114,7 +119,7 @@ namespace Tests.Rules.Skill
 
             var savingWorld = new SkillWorldBuilder().Build();
             savingWorld.AddUnit(UnitId);
-            savingWorld.Host.LearnSkill(UnitId, SkillFireball, equipmentSource); // 装备授予的临时技能
+            savingWorld.Host.LearnSkill(UnitId, SkillFireball, equipmentSource, permanent: false); // 装备授予的临时技能
             savingWorld.Host.LearnSkill(UnitId, SkillHeal); // 永久学习技能
             Assert.True(savingWorld.Host.Knows(UnitId, SkillFireball));
 
@@ -130,7 +135,7 @@ namespace Tests.Rules.Skill
             Assert.True(loadingWorld.Host.Knows(UnitId, SkillHeal));
 
             // 装备恢复流程重新以装备来源授予（真实链路见类型注释）。
-            loadingWorld.Host.LearnSkill(UnitId, SkillFireball, equipmentSource);
+            loadingWorld.Host.LearnSkill(UnitId, SkillFireball, equipmentSource, permanent: false);
             Assert.True(loadingWorld.Host.Knows(UnitId, SkillFireball));
 
             // 卸装备：只撤销装备来源，技能应变为不再已知（不再被误当永久技能保留）。
@@ -148,7 +153,7 @@ namespace Tests.Rules.Skill
             var world = new SkillWorldBuilder().Build();
             world.AddUnit(UnitId);
             world.Host.LearnSkill(UnitId, SkillFireball); // 永久
-            world.Host.LearnSkill(UnitId, SkillFireball, equipmentSource); // 又被装备授予一次
+            world.Host.LearnSkill(UnitId, SkillFireball, equipmentSource, permanent: false); // 又被装备授予一次
 
             var saved = KnownSkillsPersistable.For(world.Host, UnitId).Save();
             var arr = Assert.IsType<JsonArray>(saved);
@@ -225,14 +230,81 @@ namespace Tests.Rules.Skill
             Assert.True(world.Host.Knows(UnitId, SkillFireball));
             Assert.False(world.Host.Knows(UnitId, SkillHeal));
 
-            // 装备也授予 A（模拟 EquipmentHost 经 SkillGranter 以装备实例 id 为来源调用）。
-            world.Host.LearnSkill(UnitId, SkillFireball, equipmentSource);
+            // 装备也授予 A（模拟 EquipmentHost 经 SkillGranter 以装备实例 id 为来源调用，permanent:
+            // false，见 CarriersAssembly 装备 SkillGranter 接线）。
+            world.Host.LearnSkill(UnitId, SkillFireball, equipmentSource, permanent: false);
             Assert.True(world.Host.Knows(UnitId, SkillFireball));
 
             // 卸下这件装备：只应撤销装备来源，A 的永久来源份额仍在，不应被误清。
             world.Host.ForgetSkill(UnitId, SkillFireball, equipmentSource);
             Assert.True(world.Host.Knows(UnitId, SkillFireball));
             Assert.Contains(SkillFireball, world.Host.GetPermanentlyKnownSkills(UnitId));
+        }
+
+        // ==== CR130-02（外部审计 audit-5c444f1-20260908，P1）：一次性奖励技能的来源须归永久 ====
+
+        /// <summary>核心复现（对应审计探针
+        /// <c>AuditCoreMechanismProbeTests.RewardDispatcher_QuestSourceSkill_IsNotPersistedAsPermanent</c>，
+        /// 在 <see cref="SkillHost"/> 层面直接模拟同一条调用链——真实链路是
+        /// <c>core/gameplay/common.RewardDispatcher.GrantSkills</c> 经
+        /// <c>core/gameplay/assembly.GameplayAssembly</c> 的 <c>SkillGranter</c> 闭包，透传奖励/任务/
+        /// 成就自己的来源 id（不是 <c>PermanentGrantSource</c> 哨兵）调用三参
+        /// <see cref="SkillHost.LearnSkill(Id,Id,Id)"/>，见该重载判断记录）：一次性任务奖励技能应
+        /// 归入永久集合，新宿主读同一份快照应恢复出该技能。修复前三参重载没有"永久"语义，唯一的
+        /// 永久判据是"来源 == 哨兵"，奖励来源 id 显然不是，<see cref="KnownSkillsPersistable.Save"/>
+        /// （只看 <see cref="SkillHost.GetPermanentlyKnownSkills"/>）会把它排除在快照之外——新宿主
+        /// 读档丢失这个本应长期保留的技能。</summary>
+        [Fact]
+        public void RewardSourceSkill_ThreeArgLearnSkill_IsPersistedAsPermanent_RestoredOnFreshHost()
+        {
+            var questSource = new Id("quest.audit_skill_reward");
+
+            var savingWorld = new SkillWorldBuilder().Build();
+            savingWorld.AddUnit(UnitId);
+            // 三参重载：真实 RewardDispatcher/GameplayAssembly.SkillGranter 就是这样调用的，不带
+            // permanent 参数、也不是哨兵来源。
+            savingWorld.Host.LearnSkill(UnitId, SkillFireball, questSource);
+            Assert.True(savingWorld.Host.Knows(UnitId, SkillFireball));
+            Assert.Contains(SkillFireball, savingWorld.Host.GetPermanentlyKnownSkills(UnitId));
+
+            var saved = KnownSkillsPersistable.For(savingWorld.Host, UnitId).Save();
+            var arr = Assert.IsType<JsonArray>(saved);
+            Assert.Single(arr);
+
+            var loadingWorld = new SkillWorldBuilder().Build();
+            loadingWorld.AddUnit(UnitId);
+            KnownSkillsPersistable.For(loadingWorld.Host, UnitId).Load(saved);
+
+            // 修复前该断言会失败：三参重载没有把奖励来源标记为永久，快照是空数组，新宿主读不到这个
+            // 技能。
+            Assert.True(loadingWorld.Host.Knows(UnitId, SkillFireball));
+        }
+
+        /// <summary>同宿主读档口径（C09 替换语义须覆盖奖励来源）：先以奖励来源学会 A（此前已是当前
+        /// 集合的一部分），存一份快照；快照之后又以奖励来源学会 B；读回只有 A 的快照——B 应被撤销，
+        /// A 保留，与永久学习/天赋来源的既有 C09 语义一致。修复前奖励来源的技能从未被
+        /// <see cref="SkillHost.GetPermanentlyKnownSkills"/> 承认过，<see
+        /// cref="KnownSkillsPersistable.Load"/> 的"撤销当前有、快照没有的永久技能"这一步找不到 B（B
+        /// 从未被算作永久），只增不减地原样保留，读一份更早的快照反而不会让技能变少。</summary>
+        [Fact]
+        public void RewardSourceSkill_SameHost_Load_ReplacesPermanentSet()
+        {
+            var questSourceA = new Id("quest.audit_skill_reward_a");
+            var questSourceB = new Id("quest.audit_skill_reward_b");
+
+            var world = new SkillWorldBuilder().Build();
+            world.AddUnit(UnitId);
+
+            world.Host.LearnSkill(UnitId, SkillFireball, questSourceA); // A：奖励来源
+            var snapshotOnlyA = KnownSkillsPersistable.For(world.Host, UnitId).Save();
+
+            world.Host.LearnSkill(UnitId, SkillHeal, questSourceB); // B：快照之后又一次奖励
+            Assert.True(world.Host.Knows(UnitId, SkillHeal));
+
+            KnownSkillsPersistable.For(world.Host, UnitId).Load(snapshotOnlyA);
+
+            Assert.True(world.Host.Knows(UnitId, SkillFireball));
+            Assert.False(world.Host.Knows(UnitId, SkillHeal));
         }
     }
 }

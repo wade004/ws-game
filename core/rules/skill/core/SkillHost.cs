@@ -51,9 +51,21 @@ namespace Core.Rules.Skill
         /// 全部调用方，见 <see cref="LearnSkill(Id,Id)"/> 文档）统一归属的哨兵来源；
         /// <c>core/carriers/item</c> 装备联动改传各自的装备实例 id 作为来源（见 <see cref="SkillGranter"/>
         /// 委托签名改动）。
+        /// <para>
+        /// CR130-02 根治（外部审计 audit-5c444f1-20260908）：value 从 <c>HashSet&lt;Id&gt;</c> 改为
+        /// <c>Dictionary&lt;Id, bool&gt;</c>——记录每个来源各自的"是否永久"分类（见
+        /// <see cref="LearnSkill(Id,Id,Id,bool)"/> 判断记录），不再只靠"是否等于
+        /// <see cref="PermanentGrantSource"/> 这一个哨兵值"判断永久性。根因：一次性任务/成就/遭遇
+        /// 奖励经 <c>RewardDispatcher.GrantSkills</c> 透传自己的奖励来源 id（不是哨兵）调用
+        /// <see cref="LearnSkill(Id,Id,Id)"/>，此前唯一的"永久"判据是"来源 == 哨兵"，这类奖励技能
+        /// 因此被 <see cref="GetPermanentlyKnownSkills"/>/<see cref="KnownSkillsPersistable.Save"/>
+        /// 排除在存档快照之外——新宿主读档会丢失这个本应长期保留的技能，同宿主读档也不会清理它
+        /// （因为它压根没被当作"永久"处理过，见 <see cref="KnownSkillsPersistable"/> 替换语义），
+        /// 结果依宿主生命周期分叉（外部审计复现）。
+        /// </para>
         /// </summary>
-        private readonly Dictionary<(Id UnitId, Id SkillId), HashSet<Id>> _skillGrantSources =
-            new Dictionary<(Id, Id), HashSet<Id>>();
+        private readonly Dictionary<(Id UnitId, Id SkillId), Dictionary<Id, bool>> _skillGrantSources =
+            new Dictionary<(Id, Id), Dictionary<Id, bool>>();
 
         /// <summary>无显式来源的 <see cref="LearnSkill(Id,Id)"/>/<see cref="ForgetSkill(Id,Id)"/>
         /// 调用（天赋/任务奖励/技能书/读档等"永久学习"路径，见 <see cref="_skillGrantSources"/>
@@ -143,6 +155,9 @@ namespace Core.Rules.Skill
             _cooldowns.RescaleAll(evt.Factor);
             _auraHost.RescaleAll(evt.Factor);
             _pipeline.RescaleAll(evt.Factor);
+            // CR130-03 根治（外部审计 audit-5c444f1-20260908）：ProcHost 的内部冷却（ICD）此前未接入
+            // 这一批广播，与冷却/光环/施法管线各用各的时间基准，同批一并换算。
+            _procHost.RescaleAll(evt.Factor);
         }
 
         // -----------------------------------------------------------------
@@ -186,26 +201,43 @@ namespace Core.Rules.Skill
 
         /// <summary>不带来源的学习——归属 <see cref="PermanentGrantSource"/> 哨兵来源（天赋/任务
         /// 奖励/技能书/读档等"永久学习"路径全部经由本重载，见 <see cref="_skillGrantSources"/>
-        /// 判断记录）。多次调用幂等（哨兵来源在集合里只占一个位置）。</summary>
-        public void LearnSkill(Id unitId, Id skillId) => LearnSkill(unitId, skillId, PermanentGrantSource);
+        /// 判断记录）。多次调用幂等（哨兵来源在集合里只占一个位置）。永久（<see
+        /// cref="LearnSkill(Id,Id,Id,bool)"/> 判断记录）。</summary>
+        public void LearnSkill(Id unitId, Id skillId) => LearnSkill(unitId, skillId, PermanentGrantSource, permanent: true);
 
         /// <summary>
-        /// RC-05 收边补齐：带来源的学习——<paramref name="sourceId"/> 加入 (unitId, skillId) 的授予
-        /// 来源集合（见 <see cref="_skillGrantSources"/> 判断记录）；集合此前为空时才真正把技能
-        /// 加入 <see cref="_knownSkills"/>（"从无到有"才是真正的学会，重复来源/追加来源不重复触发）。
-        /// 装备联动（<c>core/carriers/item.EquipmentHost</c>）经 <see cref="SkillGranter"/> 委托、
-        /// 以各自装备实例 id 作为 <paramref name="sourceId"/> 调用本重载。
+        /// RC-05 收边补齐、CR130-02 根治：带来源但未显式声明是否永久的学习——转发到
+        /// <see cref="LearnSkill(Id,Id,Id,bool)"/> 并按 <c>permanent: true</c> 处理（见该重载判断
+        /// 记录"默认按永久语义处理"）。天赋/任务奖励/成就/遭遇一类"一次性、长期保留"的授予路径
+        /// （<c>RewardDispatcher.GrantSkills</c> 经 <c>GameplayAssembly</c> 的 <c>SkillGranter</c>
+        /// 闭包透传各自的奖励来源 id）全部经由本重载，默认永久与直觉一致，不需要每个调用方都显式
+        /// 传 <c>permanent</c>。只有装备/光环一类"跟随宿主生命周期、卸下即失效"的临时授予需要显式
+        /// 调用四参重载传 <c>permanent: false</c>（<c>core/carriers/assembly.CarriersAssembly</c> 的
+        /// 装备 <see cref="SkillGranter"/> 接线已改用四参重载，见其构造处判断记录）。
         /// </summary>
-        public void LearnSkill(Id unitId, Id skillId, Id sourceId)
+        public void LearnSkill(Id unitId, Id skillId, Id sourceId) => LearnSkill(unitId, skillId, sourceId, permanent: true);
+
+        /// <summary>
+        /// CR130-02 根治（外部审计 audit-5c444f1-20260908）：带来源、显式声明是否永久的学习——
+        /// <paramref name="sourceId"/> 连同 <paramref name="permanent"/> 一并记入 (unitId, skillId)
+        /// 的授予来源集合（见 <see cref="_skillGrantSources"/> 判断记录）；集合此前为空时才真正把
+        /// 技能加入 <see cref="_knownSkills"/>（"从无到有"才是真正的学会，重复来源/追加来源不重复
+        /// 触发）。同一来源重复调用按最新一次的 <paramref name="permanent"/> 覆盖（同一 sourceId
+        /// 理论上只应由同一条授予路径使用同一个永久性分类调用，不存在合法的"同一来源时而永久时而
+        /// 临时"场景）。<see cref="GetPermanentlyKnownSkills"/> 只要该 (unit, skill) 的来源集合里
+        /// 存在任意一个 <c>permanent: true</c> 的来源即计入——与 <see cref="Knows"/> 的"任一来源即
+        /// 已知"是同一种"任一"语义，只是把枚举范围限定为"其中至少一个是永久来源"。
+        /// </summary>
+        public void LearnSkill(Id unitId, Id skillId, Id sourceId, bool permanent)
         {
             var key = (unitId, skillId);
             if (!_skillGrantSources.TryGetValue(key, out var sources))
             {
-                sources = new HashSet<Id>();
+                sources = new Dictionary<Id, bool>();
                 _skillGrantSources[key] = sources;
             }
 
-            sources.Add(sourceId);
+            sources[sourceId] = permanent;
 
             if (!_knownSkills.TryGetValue(unitId, out var known))
             {
@@ -251,6 +283,43 @@ namespace Core.Rules.Skill
             }
         }
 
+        /// <summary>
+        /// CR130-02 根治（外部审计 audit-5c444f1-20260908）：一次性撤销 (unitId, skillId) 当前全部
+        /// <c>permanent: true</c> 的来源（含无来源调用归属的 <see cref="PermanentGrantSource"/> 哨兵，
+        /// 也包括奖励/任务/成就一类显式来源 id），不触碰任何 <c>permanent: false</c> 的临时来源
+        /// （装备/光环）。供 <see cref="KnownSkillsPersistable.Load"/> 的替换语义（C09）使用——
+        /// "读档 = 恢复到那个时间点的永久技能状态"要求把当前全部永久来源一次性清空，而不只是清空
+        /// 哨兵来源那一份（旧实现假设"永久"只可能是哨兵来源，<see
+        /// cref="LearnSkill(Id,Id,Id,bool)"/> 收口后这个假设不再成立：<see
+        /// cref="ForgetSkill(Id,Id)"/> 只撤销哨兵来源，对以奖励/任务来源 id 授予的永久技能是
+        /// no-op——那个 sourceId 从未出现在哨兵来源的位置上，会导致 C09 替换语义对这类技能失效，
+        /// 读一份更早的快照反而不会让它们变少）。单位/技能未登记视为幂等成功，不抛异常。
+        /// </summary>
+        public void ForgetAllPermanentGrants(Id unitId, Id skillId)
+        {
+            var key = (unitId, skillId);
+            if (!_skillGrantSources.TryGetValue(key, out var sources))
+            {
+                return;
+            }
+
+            // 先收集一份快照再逐个 ForgetSkill——ForgetSkill 会就地修改/移除 sources 及其所属的
+            // _skillGrantSources[key]，不能在遍历 sources 本身的同时修改它。
+            var permanentSourceIds = new List<Id>();
+            foreach (var pair in sources)
+            {
+                if (pair.Value)
+                {
+                    permanentSourceIds.Add(pair.Key);
+                }
+            }
+
+            foreach (var sourceId in permanentSourceIds)
+            {
+                ForgetSkill(unitId, skillId, sourceId);
+            }
+        }
+
         public bool Knows(Id unitId, Id skillId) =>
             _knownSkills.TryGetValue(unitId, out var set) && set.Contains(skillId);
 
@@ -280,9 +349,16 @@ namespace Core.Rules.Skill
             foreach (var pair in _skillGrantSources)
             {
                 if (!pair.Key.UnitId.Equals(unitId)) continue;
-                if (pair.Value.Contains(PermanentGrantSource))
+                // CR130-02 根治：不再只判"是否存在 PermanentGrantSource 这个哨兵来源"——任何被显式
+                // 标记为 permanent: true 的来源（见 LearnSkill(Id,Id,Id,bool) 判断记录，覆盖不带
+                // 哨兵、直接以奖励/任务/成就来源 id 调用的永久授予）都应计入。
+                foreach (var isPermanent in pair.Value.Values)
                 {
-                    result.Add(pair.Key.SkillId);
+                    if (isPermanent)
+                    {
+                        result.Add(pair.Key.SkillId);
+                        break;
+                    }
                 }
             }
 

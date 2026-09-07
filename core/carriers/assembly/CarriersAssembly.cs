@@ -256,11 +256,16 @@ namespace Core.Carriers.Assembly
             // 见 SkillGranter.cs 判断记录）——SkillHost 侧按来源做引用计数，两件装备授予同一技能
             // 时卸下一件不会影响另一件仍在授予的同一技能，也不会连永久学习（天赋/任务/技能书/
             // 读档，走不带来源的 LearnSkill(Id,Id) 重载）一并遗忘。
+            // CR130-02 根治（外部审计 audit-5c444f1-20260908）：显式传 permanent: false——装备授予
+            // 是本类型判断记录里"临时：装备/光环授予"的分类，跟随宿主生命周期、卸下即失效，不应被
+            // KnownSkillsPersistable.Save 快照进存档（见 SkillHost.LearnSkill(Id,Id,Id,bool) 判断
+            // 记录）。三参重载（不带 permanent）默认按永久处理，是给奖励/任务一类路径用的，装备联动
+            // 必须显式走四参重载，不能依赖默认值。
             SkillGranter skillGranter = (unitId, skillId, sourceId, learn) =>
             {
                 if (learn)
                 {
-                    Rules.Skill.LearnSkill(unitId, skillId, sourceId);
+                    Rules.Skill.LearnSkill(unitId, skillId, sourceId, permanent: false);
                 }
                 else
                 {

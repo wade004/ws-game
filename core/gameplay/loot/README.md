@@ -111,6 +111,24 @@ loot/
    post_load 钩子都会调用它）第一步统一调用 `Loot.ReattachToWorld(mapId)`，不再要求每个宿主各自
    记得接线。
 
+10. **CR130-01 根治（外部审计 audit-5c444f1-20260908，P1）：`PickUpReject`（`FullPolicy=Reject`）
+    的"整体回滚"改走 `IBatchableInventoryHost` 事务，不再是第 7 条描述的"先 `AddItem`、失败再逐项
+    `RemoveItem` 撤销"这一种路径**：`AddItem` 成功那一刻已经把 `item.added` 排入事件总线待发队列
+    （`IEventBus.Enqueue` 只入队不立即派发），第 7 条描述的补偿 `RemoveItem` 产生的是另一条独立的
+    `item.removed` 事件——某一件放不下、需要回滚前面已经成功加入的堆叠时，二者在同一次
+    `DispatchPending` 里先后派发，下游订阅者（如 `core/gameplay/quest.QuestHost.HandleItemAdded` 的
+    `consumeOnProgress`）会把先到的 `item.added` 当真、立即消费玩家已有的同模板物品，后到的
+    `item.removed` 抵消不了这个副作用——与 `core/gameplay/economy.EconomyHost.Buy` 同款缺口（见该
+    模块 README 同编号条目）。`_inventory` 实现 `IBatchableInventoryHost`（`InventoryHost` 已实现）
+    时，`PickUpReject` 把整趟拾取尝试（含可能的回滚）包进一次事务：失败时 `using` 块结束触发
+    `Dispose`（未 `Commit` 即回滚）把库存状态与缓存事件一并撤销，不需要再调用第 7 条描述的逐项
+    `RollbackAdd`；不支持事务的宿主（多数测试用的 Fake，包括本模块自己的 `FakeInventoryHost`——它
+    甚至完全不产生事件，见判断记录）退回历史行为。`PickUpPartial` 本身不做任何回滚（"能放多少放
+    多少"，保留已落地的部分，不存在"先落地再撤销"的窗口），不受影响。见 `LootHost.cs`
+    （`PickUpReject`）、`core/gameplay/loot/tests/CR130_01_PickUpRejectTransactionTests.cs`
+    （用真实 `InventoryHost` + 真实事件总线验证：失败拾取后一条 `item.added`/`item.removed` 都不
+    应该派发）。
+
 ## 不负责什么
 
 - 不实现难度倍率的具体计算——`CreatureDeathLootListener` 的 `Multiplier` 只是一个

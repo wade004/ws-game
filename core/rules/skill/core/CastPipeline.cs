@@ -408,7 +408,14 @@ namespace Core.Rules.Skill
 
             if (state.IsChannel)
             {
-                state.TickAccumulator += dt;
+                // CR130-04 根治（外部审计 audit-5c444f1-20260908）：本次推进的 dt 可能已经超出引导
+                // 剩余时间（引导会在这次 Update/AdvanceOne 内结束）——只把"引导仍然有效"的那一段时间
+                // （Min(dt, Remaining)）计入周期累加器，不能把引导已经结束之后的那段 dt 也当作还在
+                // 引导中继续结算周期效果，否则会多算一跳（复现：channel_time=0.5、tick_interval=1、
+                // Update(1) 期望 0 次实际 1 次）。与 AuraHost R07 对周期效果尾跳的 Min(dt,Remaining)
+                // 处理同一惯例。
+                var channelDt = dt < state.Remaining ? dt : Math.Max(0, state.Remaining);
+                state.TickAccumulator += channelDt;
                 while (state.TickInterval > 0 && state.TickAccumulator >= state.TickInterval && _casting.ContainsKey(casterId))
                 {
                     state.TickAccumulator -= state.TickInterval;
@@ -531,7 +538,13 @@ namespace Core.Rules.Skill
 
             if (lockSchool.HasValue)
             {
-                _schoolLocks[(unitId, lockSchool.Value)] = lockDuration;
+                // CR130-03 根治（外部审计 audit-5c444f1-20260908）：lockDuration 是调用方按 authoring
+                // 规范秒数传入的原始值（与 cast_time/cooldown_duration 同一口径），与
+                // <see cref="EnterCastOrChannel"/> 写入 <c>Remaining</c>/<see
+                // cref="CooldownTracker.StartCooldown"/> 写入冷却同款处理——写入前先乘
+                // <see cref="_currentFactor"/> 折算成当前模式的计时单位，否则连续模式 authoring 的
+                // "3 秒沉默"在离散模式下会被当成"3 轮沉默"。
+                _schoolLocks[(unitId, lockSchool.Value)] = lockDuration * _currentFactor;
             }
 
             _bus.Enqueue(new SkillCastInterruptedEvent(unitId, state.SkillId, interrupterId));
@@ -723,6 +736,15 @@ namespace Core.Rules.Skill
                 state.Remaining *= factor;
                 state.TickInterval *= factor;
                 state.TickAccumulator *= factor;
+            }
+
+            // CR130-03 根治：既有学派锁定倒计时（同 CooldownTracker.RescaleAll 换算既有冷却存量的
+            // 判断记录）此前从未随模式切换换算——切换前后同一份剩余时间被两种模式的
+            // AdvanceSchoolLocks(dt) 用不同单位重新解读，"锁 3 秒"在切换后可能变成"锁 3 轮"或反过来。
+            var schoolLockKeys = new List<(Id, Id)>(_schoolLocks.Keys);
+            foreach (var key in schoolLockKeys)
+            {
+                _schoolLocks[key] *= factor;
             }
         }
 

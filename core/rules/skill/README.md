@@ -367,6 +367,63 @@ skill/
     `core/rules/skill/tests/TimeModelCastTimeRescaleTests.cs`（6 条用例，覆盖冷却/充能/光环
     duration 三条施放路径 + 周期 interval + 累加器换算比例保持）。
 
+36. **CR130-02 根治（外部审计 audit-5c444f1-20260908，P1）：`LearnSkill` 新增显式 `permanent`
+    参数的四参重载，"永久 vs. 临时"改按调用方显式声明分类，不再只靠"来源是否等于
+    `PermanentGrantSource` 哨兵"这一个判据**：`core/gameplay/assembly.GameplayAssembly` 的奖励/
+    任务 `SkillGranter` 经三参 `LearnSkill(unitId, skillId, sourceId)` 透传奖励/任务自己的来源 id
+    （不是哨兵）——修复前这类一次性奖励技能因为"来源≠哨兵"被 `GetPermanentlyKnownSkills`（供
+    `KnownSkillsPersistable.Save` 使用）排除在存档快照之外，新宿主读档会丢失这个本应长期保留的
+    技能；同宿主读旧档时，因为它从未被承认为"永久"，`KnownSkillsPersistable.Load` 的替换语义
+    （第 30 条 C09）也无从撤销它，读一份更早的存档反而不会让它消失（外部审计复现）。现在
+    `_skillGrantSources` 的 value 从 `HashSet<Id>` 改为 `Dictionary<Id, bool>`，记录每个来源各自
+    的永久性：新增 `LearnSkill(Id,Id,Id,bool permanent)`（`sources[sourceId] = permanent`），
+    不带 `permanent` 的三参重载默认 `permanent: true`（奖励/任务/成就一类路径的直觉默认值，不需要
+    每个调用方都显式声明），`core/carriers/assembly.CarriersAssembly` 的装备 `SkillGranter` 改为
+    显式传 `permanent: false`（临时来源，见该模块 README 同编号条目）。`GetPermanentlyKnownSkills`
+    改为"该 (unit, skill) 的来源集合里存在任意一个 `permanent: true` 的来源即计入"，不再要求必须
+    是哨兵。新增 `ForgetAllPermanentGrants(unitId, skillId)`：一次性撤销全部
+    `permanent: true` 来源（含哨兵，也包括奖励/任务来源 id），不触碰任何 `permanent: false` 的
+    临时来源；`KnownSkillsPersistable.ReplacePermanentlyKnownSkills` 的撤销步骤改用这个新方法
+    （原来调用不带来源的 `ForgetSkill(Id,Id)`，只撤销哨兵来源那一份引用，对以奖励来源 id 授予的
+    永久技能是 no-op，C09 替换语义对这类技能会失效——本条修复中途发现的相邻缺口，一并根治）。见
+    `SkillHost.cs`（`_skillGrantSources`/`LearnSkill`/`ForgetAllPermanentGrants`/
+    `GetPermanentlyKnownSkills`）、`KnownSkillsPersistable.cs`（`ReplacePermanentlyKnownSkills`）、
+    `core/rules/skill/tests/KnownSkillsPersistableTests.cs`（`RewardSourceSkill_*` 两条新用例 +
+    既有装备模拟用例改用显式 `permanent: false`）。
+
+37. **CR130-03 根治（外部审计 audit-5c444f1-20260908，P2）：混合时间模式此前只折算了"施放/施加
+    当下"与"模式切换那一刻"两个时间点（第 31/35 条），三处"后续推进/重新写入"未纳入——充能耗尽
+    恢复后紧接着开始的下一个恢复窗口、`ProcHost` 内部冷却（ICD）、`CastPipeline` 施法学派锁**：
+    (1) `CooldownTracker.AdvanceCharges` 在充能归零、`RechargeRemaining` 归零后立即开始下一个
+    恢复窗口时，直接用未折算的原始 `EffectiveRechargeTime`（外部审计复现：`factor=0.2`、
+    `recharge_time=10`，期望折算为 2，实际残留 10）——首个窗口由 `StartCooldown` 正确折算（第 35
+    条），但 `AdvanceCharges` 重新开窗这一步没有跟进同一处理，现补上 `* _currentFactor`。(2)
+    `ProcHost` 完全没有接入 R05 那一批时间模式广播（`SkillHost.OnTimeModelRescaled` 当时只广播给
+    `CooldownTracker`/`AuraHost`/`CastPipeline` 三者）：新增 `ProcHost._currentFactor`/
+    `RescaleAll(factor)`，`OnEvent` 写入 `Attachment.IcdRemaining` 前先乘该系数，
+    `SkillHost.OnTimeModelRescaled` 同批调用 `_procHost.RescaleAll`。(3) `CastPipeline.Interrupt`
+    写入学派锁剩余时间（`_schoolLocks`）时同样未折算，`RescaleAll` 也从未换算既有学派锁存量——
+    现写入前乘 `_currentFactor`，`RescaleAll` 同时按 `factor` 换算全部既有学派锁。三处修复统一
+    效果：连续↔离散往返切换后，技能自身/分类冷却、充能与下一恢复窗口、公共冷却、proc 内部冷却、
+    施法学派锁全部使用同一套折算系数，不再各用各的时间基准。见 `CooldownTracker.cs`
+    （`AdvanceCharges`）、`ProcHost.cs`（`_currentFactor`/`RescaleAll`）、`CastPipeline.cs`
+    （`Interrupt`/`RescaleAll`）、`SkillHost.cs`（`OnTimeModelRescaled`）、
+    `core/rules/skill/tests/CR130_03_TimeModelRescaleGapsTests.cs`（充能第二窗口 1 条 + ICD 写入/
+    既有存量换算各 1 条 + 学派锁写入/既有存量换算各 1 条，共 5 条）；06 第 8 节事件词汇表
+    `sim.time_model_rescaled` 行同步勘误（订阅方枚举补齐 `CastPipeline`/`ProcHost`）。
+
+38. **CR130-04 根治（外部审计 audit-5c444f1-20260908，P2）：引导（channel）周期效果结算不再用
+    完整 `dt`，改用 `Min(dt, Remaining)`，与 `AuraHost` 第 33 条（R07）同款处理对齐**：
+    `CastPipeline.AdvanceOne`（连续模式 `Update`/离散模式 `AdvanceCastForActor` 唯一共同经过的
+    推进点）此前把完整 `dt` 累加进 `state.TickAccumulator`，即便 `dt` 已经超出本次引导的剩余时间
+    （引导会在这次推进内结束）——超出引导之外的那段时间仍被计入周期结算，多算一跳（外部审计复现：
+    `channel_time=0.5`、`tick_interval=1`、单次 `Update(1)` 期望 0 次实际 1 次）。现在
+    `channelDt = dt < state.Remaining ? dt : Math.Max(0, state.Remaining)`，只把"引导仍然有效"
+    的那段时间计入累加器；`state.Remaining -= dt` 本身不变（用完整 `dt` 判定是否结束，只是
+    "计入周期累加器的量"改用截断后的 `channelDt`）。见 `CastPipeline.cs`（`AdvanceOne`）、
+    `core/rules/skill/tests/CR130_04_ChannelBoundaryTests.cs`（单区间越界不多算、跨多个 interval
+    恰好按引导时长计数、被打断不多算、模式切换后越界不多算，共 4 条）。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全

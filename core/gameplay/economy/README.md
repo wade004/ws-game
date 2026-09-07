@@ -93,6 +93,25 @@ economy/
    连续多次 `Load` 同一份快照结果幂等。见 `EconomyHost.cs`（`SetBalance`）、
    `CurrencyPersistable.cs`、`EconomyHostTests.cs`。
 
+9. **CR130-01 根治（外部审计 audit-5c444f1-20260908，P1）：`Buy`/`Sell` 的库存变更改走
+   `IBatchableInventoryHost` 事务，不再是"先 `AddItem`、失败再逐项 `RemoveItem` 补偿"**：`Buy` 在
+   `added < count`（背包放不下）时此前直接调用 `RollbackAdd`（内部逐项 `RemoveItem`）——`AddItem`
+   成功那一刻已经把 `item.added` 排入事件总线待发队列（`IEventBus.Enqueue` 只入队不立即派发），
+   补偿的 `item.removed` 是另一条独立事件，二者在同一次 `DispatchPending` 里先后派发时，下游订阅者
+   （如 `core/gameplay/quest.QuestHost.HandleItemAdded` 的 `consumeOnProgress`）会把先到的
+   `item.added` 当真、立即消费玩家已有的同模板物品，后到的 `item.removed` 抵消不了这个副作用——
+   购买失败后库存"数量"确实回滚了，但任务系统已经误判、多扣了一份玩家原有物品（外部审计复现：
+   容量 1 的 `Partial` 背包已有 A5，购买失败回滚后变 A4，任务却记了一次消费进度）。`_inventory`
+   实现 `IBatchableInventoryHost`（`InventoryHost` 已实现，见 `core/carriers/common/contracts/
+   IInventoryTransaction.cs`、`core/gameplay/common/README.md` 同款判断记录——
+   `RewardDispatcher.GrantItems` 已经用同一惯例）时，`Buy`/`Sell` 把各自的库存操作包进一次事务：
+   失败时 `using` 块结束触发
+   `Dispose`（未 `Commit` 即回滚）把库存状态与缓存事件一并撤销，下游完全观察不到这次失败发生过；
+   不支持事务的宿主（多数测试用的 Fake）退回历史行为。`Sell` 目前只有一次 `RemoveItem`（成功即
+   整份移除、失败不落地任何变化，本身不存在"先落地再补偿"的窗口），仍然包进事务是为了与"购买/
+   出售/补偿全部走批量事务"这一统一口径保持一致。见 `EconomyHost.cs`（`Buy`/`Sell`）、
+   `core/gameplay/economy/tests/CR130_01_BuyFailureTransactionTests.cs`。
+
 ## 不负责什么
 
 - 不解决判断记录 1 描述的 `self.item_level`/`self.quality` 契约缺口本身。

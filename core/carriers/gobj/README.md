@@ -142,6 +142,21 @@ gobj/
    需要跨模块调用的能力（不同于 `Creature` 一侧 `ICreatureFactory` 被 `ISummonHost` 复用的场景），
    故只在本模块内部提供，不新增 common 契约（避免"没有消费者的契约"）。
 
+8. **CR130-05 根治（外部审计 audit-5c444f1-20260908，P2）：`GobjInteractedEvent` 新增
+   `TeleportTargetRef` 字段，携带"本次交互是否命中 teleporter 且需要跨地图"的唯一权威判定结果**：
+   见判断记录 3 描述的双出口（`InteractResult.DispatchedRef`/事件）——`Interact` 此前只把
+   `kindDispatchRef` 塞进 `InteractResult.DispatchedRef`（`InteractIntentTickHandler` 一类只读
+   `Success` 的消费方看不到它），`gobj.interacted` 事件本身完全不带这份信息。外部审计发现更上层
+   （`core/gameplay/assembly.GameplayAssembly`）为了在事件里也能拿到这份判定，自行订阅事件后又
+   用另一个（可能是默认的）resolver 独立重新解析一遍同一个 `teleport_target_ref`——与
+   `DoTeleport` 已经用（可能是调用方注入的自定义）`GobjOptions.TeleportResolver` 做出的判定形成
+   双重消费，自定义同图结果可能被覆盖，resolver 显式拒绝时也可能被绕过重新传送。`Interact` 现在
+   把"没有 `on_use` 可分发"（`InteractResult.DispatchedRef` 承载跨地图目标那唯一一种情形）算出的
+   同一个引用一并放进 `GobjInteractedEvent.TeleportTargetRef`，`template.OnUse` 存在时固定为
+   `null`（不与 skill/dialog 分发目标混同，见判断记录 3）——下游只需要读这一个字段就能知道
+   "是否需要、需要传去哪"，不需要（也不应该）自己反查模板再解析一遍。消费方改动见
+   `core/gameplay/assembly/README.md` 同编号条目。
+
 ## 契约缺口 / 未覆盖内容
 
 - **`type_data.trigger_shape`（`trap`）不做结构校验**：05 第 3.5 节 `Shape` 的具体 JSON 形状由

@@ -80,7 +80,7 @@ namespace Tests.Gameplay.Assembly
             public Core.Foundation.SceneRouter.SceneRouter Router = null!;
         }
 
-        private static Fixture Build()
+        private static Fixture Build(Core.Carriers.Gobj.GobjOptions? gobjOptions = null)
         {
             var bus = new EventBus(EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false });
 
@@ -121,7 +121,8 @@ namespace Tests.Gameplay.Assembly
             var gameplay = new GameplayAssembly(
                 bus, registry, rng, world, spatial, saveSystem,
                 playerUnitProvider: () => PlayerId,
-                playerFactionId: PlayerFactionId);
+                playerFactionId: PlayerFactionId,
+                gobjOptions: gobjOptions);
 
             var player = new PlayerUnit(PlayerId, MapA, PlayerFactionId, ArchetypeSample) { Position = new Vec2(5, 5) };
             world.AddEntity(player);
@@ -215,6 +216,81 @@ namespace Tests.Gameplay.Assembly
             Assert.Equal(new Vec2(1, 2), fx.Player.Position); // 移到了本图默认出生点。
 
             Assert.NotNull(fx.World.GetEntity(OldMapResidentId));
+        }
+
+        // ==== CR130-05（外部审计 audit-5c444f1-20260908，P2）：customTeleportResolver 与本文件 R04
+        // 新增的 gobj.interacted 监听不应双重消费同一次交互 ====
+
+        /// <summary>核心复现：调用方注入自定义 <c>GobjOptions.TeleportResolver</c>，同图判定把玩家挪到
+        /// <c>(99,88)</c>——<c>GameObjectHost.DoTeleport</c> 已经原地 <c>SetPosition</c> 完毕。修复前
+        /// 本文件的 <c>gobj.interacted</c> 监听不管三七二十一，只要 kind 是 teleporter 就无条件再用
+        /// 本装配根自己的默认 <c>_teleportTargetResolver</c> 重新解析一遍同一个 <c>teleport_target_ref</c>
+        /// ——自定义结果 <c>(99,88)</c> 会被内置默认出生点 <c>(1,2)</c> 覆盖。修复后监听只在
+        /// <c>GobjInteractedEvent.TeleportTargetRef</c> 非空（即 <c>DoTeleport</c> 判定"这是一次真正
+        /// 跨地图、需要 L4 补完场景切换"）时才接手；<c>DoTeleport</c> 已经同图落地的情形，事件里这个
+        /// 字段固定为 <c>null</c>，监听不做任何事，自定义结果原样保留。</summary>
+        [Fact]
+        public void InteractWithTeleporterGobj_SameMap_CustomResolverResult_IsNotOverwrittenByBuiltinListener()
+        {
+            var customTarget = new Vec2(99, 88);
+            var gobjOptions = new Core.Carriers.Gobj.GobjOptions
+            {
+                TeleportResolver = _ => (MapA, customTarget),
+            };
+            var fx = Build(gobjOptions);
+            var gobjInstanceId = fx.Gameplay.Carriers.GameObjects.Spawn(SameMapTeleporterTemplateId, MapA, new Vec2(5, 4), 0);
+
+            var result = fx.Gameplay.Carriers.GameObjectInteractions.Interact(PlayerId, gobjInstanceId);
+            Assert.True(result.Success);
+            fx.Bus.DispatchPending();
+            fx.Router.Update();
+
+            Assert.Equal(customTarget, fx.Player.Position);
+            Assert.Equal(MapA, fx.Router.GetCurrentScene());
+            Assert.NotNull(fx.World.GetEntity(OldMapResidentId)); // 同图不应触发任何场景重载。
+        }
+
+        /// <summary>自定义 resolver 显式返回 <c>null</c>（判定"这次不该传送"）：<c>DoTeleport</c> 不
+        /// 产生任何位移，事件的 <c>TeleportTargetRef</c> 也应为 <c>null</c>——修复前监听会退化成走
+        /// 本装配根自己的默认 resolver，把玩家传送去默认出生点，等于无视了调用方显式的拒绝判定。</summary>
+        [Fact]
+        public void InteractWithTeleporterGobj_CustomResolverReturnsNull_DoesNotFallBackToBuiltinTeleport()
+        {
+            var gobjOptions = new Core.Carriers.Gobj.GobjOptions
+            {
+                TeleportResolver = _ => null,
+            };
+            var fx = Build(gobjOptions);
+            var gobjInstanceId = fx.Gameplay.Carriers.GameObjects.Spawn(SameMapTeleporterTemplateId, MapA, new Vec2(5, 4), 0);
+            var originalPosition = fx.Player.Position;
+
+            var result = fx.Gameplay.Carriers.GameObjectInteractions.Interact(PlayerId, gobjInstanceId);
+            Assert.True(result.Success); // Interact 本身仍成功（NoAction），只是没有产生传送副作用。
+            fx.Bus.DispatchPending();
+            fx.Router.Update();
+
+            Assert.Equal(originalPosition, fx.Player.Position);
+            Assert.Equal(MapA, fx.Player.MapId);
+            Assert.Equal(MapA, fx.Router.GetCurrentScene());
+        }
+
+        /// <summary>跨地图仍然是唯一权威路径：不注入自定义 resolver（走本装配根默认的
+        /// <c>_teleportTargetResolver</c>）时，跨地图传送应继续和修复前一样正确生效——本条只是确认
+        /// CR130-05 的收紧没有连带破坏 R04 本来要修的跨地图直接交互路径。</summary>
+        [Fact]
+        public void InteractWithTeleporterGobj_CrossMap_NoCustomResolver_StillTeleportsViaListener()
+        {
+            var fx = Build();
+            var gobjInstanceId = fx.Gameplay.Carriers.GameObjects.Spawn(TeleporterTemplateId, MapA, new Vec2(5, 4), 0);
+
+            var result = fx.Gameplay.Carriers.GameObjectInteractions.Interact(PlayerId, gobjInstanceId);
+            Assert.True(result.Success);
+            fx.Bus.DispatchPending();
+            fx.Router.Update();
+
+            Assert.Equal(MapB, fx.Router.GetCurrentScene());
+            Assert.Equal(MapB, fx.Player.MapId);
+            Assert.Equal(new Vec2(30, 40), fx.Player.Position);
         }
     }
 }

@@ -731,22 +731,38 @@ namespace Core.Gameplay.Assembly
             // TeleportTargetResolver 时使用。
             _teleportTargetResolver = new TeleportTargetResolver(registry);
 
-            // R04 根治（architecture/落地计划/audit-5e779c6-20260907）：core/carriers/gobj.
-            // InteractIntentTickHandler（TickPhase.TriggerEvaluation，由 CarriersAssembly 注册，不在
-            // 本任务允许改动的目录范围内）只检查 InteractResult.Success，从未读取
-            // GameObjectHost.DoTeleport 对跨地图目标返回的 InteractResult.DispatchedRef（见该方法
-            // 判断记录"……由调用方（L4）驱动真正的场景切换"）——直接交互 teleporter 类 gobj（不经
-            // gossip 的 teleport 动作）时，跨地图目标只在 DoTeleport 内部被正确解析出 (MapId,
-            // Position) 又原样丢在返回值里，从没有任何 L4 代码接手，玩家的地图/位置完全不会变化，
-            // 也不会触发 ISceneRouter.LoadScene。gossip 的 teleport 动作已经通过 DialogHost →
-            // teleportRequested → TeleportUnit 正确处理跨地图（见上面第 14 步），本处按同一惯例补上
-            // 直接交互这条路径：订阅 gobj.interacted（不改内置行为本身、不重复调用 Interact，避免
-            // chest/quest_object 等其它 kind 被二次触发副作用），命中 GobjKind.Teleporter 时按它的
-            // teleport_target_ref 再走一遍 TeleportUnit——同图时 TeleportUnit 内部
-            // "mapIdBeforeMove == resolvedMapId" 判定为真直接返回，与 DoTeleport 已经做过的
-            // SetPosition 结果一致（幂等，不会产生第二次场景切换或位置偏移）。
+            // R04 根治（architecture/落地计划/audit-5e779c6-20260907），CR130-05 收口（架构落地计划/
+            // audit-5c444f1-20260908）：core/carriers/gobj.InteractIntentTickHandler
+            // （TickPhase.TriggerEvaluation，由 CarriersAssembly 注册，不在 R04 当时允许改动的目录
+            // 范围内）只检查 InteractResult.Success，从未读取 GameObjectHost.DoTeleport 对跨地图目标
+            // 返回的 InteractResult.DispatchedRef（见该方法判断记录"……由调用方（L4）驱动真正的场景
+            // 切换"）——直接交互 teleporter 类 gobj（不经 gossip 的 teleport 动作）时，跨地图目标只在
+            // DoTeleport 内部被正确解析出 (MapId, Position) 又原样丢在返回值里，从没有任何 L4 代码
+            // 接手。gossip 的 teleport 动作已经通过 DialogHost → teleportRequested → TeleportUnit
+            // 正确处理跨地图（见上面第 14 步），本处按同一惯例补上直接交互这条路径：订阅
+            // gobj.interacted（不改内置行为本身、不重复调用 Interact，避免 chest/quest_object 等其它
+            // kind 被二次触发副作用）。
+            //
+            // CR130-05 根治：原实现命中 GobjKind.Teleporter 就无条件按它的 teleport_target_ref 再走
+            // 一遍 TeleportUnit（内部用本装配根自己的默认 _teleportTargetResolver 重新解析）——这与
+            // GameObjectHost.DoTeleport 已经用（可能是调用方注入的自定义）GobjOptions.TeleportResolver
+            // 做出的判定是两次独立解析，构成双重消费：DoTeleport 若判定同图并已经原地 SetPosition
+            // （或 resolver 显式返回 null、判定"不该传送"），这里仍会用默认 resolver 重新解析一遍
+            // 同一个 ref，把自定义结果覆盖成默认结果，或在 resolver 明确拒绝时仍然把人传送走（外部
+            // 审计复现：同图自定义结果 (99,88) 被内置 (1,2) 覆盖）。现在唯一权威判定者是
+            // DoTeleport——是否传送、传去哪、是否已经是同图立即生效，全部由它（经它读到的 resolver）
+            // 一次性终局判定；本监听只在 GobjInteractedEvent.TeleportTargetRef 非空（即 DoTeleport
+            // 判定"这是一次真正需要跨地图、本模块内部完不成"的传送）时才接手，原样使用事件携带的同一个
+            // ref 触发 TeleportUnit 补完场景切换，不再独立重新解析、不再对同图/被拒绝的情形做任何
+            // 事情——同图时 DoTeleport 内部的 SetPosition 就是唯一一次落地，不会被本监听二次覆盖。
             _bus.Subscribe<GobjInteractedEvent>(CarriersEventKeys.GobjInteracted,
-                evt => HandleGobjTeleporterInteracted(evt.UnitId, evt.GobjInstanceId, registry));
+                evt =>
+                {
+                    if (evt.TeleportTargetRef.HasValue)
+                    {
+                        TeleportUnit(evt.UnitId, evt.TeleportTargetRef.Value);
+                    }
+                });
 
             resolvedGobjOptions.DialogOpener ??= (unitId, dialogRef) => Dialog.OpenGossip(unitId, dialogRef, dialogRef);
             resolvedGobjOptions.TeleportResolver ??= _teleportTargetResolver.Resolve;
@@ -1257,42 +1273,6 @@ namespace Core.Gameplay.Assembly
             {
                 // 当前应用状态不允许切到 Loading（例如已经在 Loading 中）：同上。
             }
-        }
-
-        /// <summary>见 <c>_bus.Subscribe&lt;GobjInteractedEvent&gt;</c> 构造期接线处判断记录（R04
-        /// 根治）：<c>gobj.interacted</c> 事件本身不携带 <c>InteractResult.DispatchedRef</c>，本方法
-        /// 独立按 <paramref name="gobjInstanceId"/> 反查一遍它的模板——只有 <see cref="GobjKind.Teleporter"/>
-        /// 才需要处理，其余 kind（含没有触发交互的普通事件，如实体/记录已不存在等边界情形）静默跳过，
-        /// 不产生任何副作用。</summary>
-        private void HandleGobjTeleporterInteracted(Id unitId, Id gobjInstanceId, IDataRegistryView registry)
-        {
-            if (!(_world.GetEntity(gobjInstanceId) is GameObjectEntity gobj) || !gobj.TemplateId.HasValue)
-            {
-                return;
-            }
-
-            var record = registry.Get(GobjSchemas.Template.Name, gobj.TemplateId.Value);
-            if (record == null)
-            {
-                return;
-            }
-
-            GameObjectTemplate template;
-            try
-            {
-                template = GameObjectTemplate.FromRecord(record);
-            }
-            catch (DataFieldException)
-            {
-                return;
-            }
-
-            if (template.Kind != GobjKind.Teleporter || !template.TypeData.Teleporter.HasValue)
-            {
-                return;
-            }
-
-            TeleportUnit(unitId, template.TypeData.Teleporter.Value.TeleportTargetRef);
         }
 
         private double GetCombatStartTime(Id unitId) =>

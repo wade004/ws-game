@@ -134,3 +134,13 @@ access——外部审计 7e63d66 第四轮明确要求这两条缺陷必须用�
 README.md` 同编号条目）。本类第 4 步构造 `Equipment` 时新增传入 `auraQuery: Rules.Skill.AuraQuery`
 （真实 `AuraHost`，不是 `RulesAssembly.DeferredAuraQuery` 那个延迟绑定代理——`SkillHost.AuraQuery`
 在这里已经构造完成，直接返回真实实例，不存在判断记录 2 那种循环依赖，不需要延迟绑定）。
+
+## CR130-02 收口（外部审计 audit-5c444f1-20260908，P1）：装备 `SkillGranter` 显式传 `permanent: false`
+
+`core/rules/skill.SkillHost.LearnSkill(Id,Id,Id)`（不带 `permanent` 的三参重载）此前是这里"已知的
+契约补齐"一节接线用的唯一带来源重载，语义含糊——既用来接装备联动，也被
+`core/gameplay/assembly.GameplayAssembly` 的奖励/任务 `SkillGranter` 复用，两者对"这份授予是否应该
+被存档快照"的期望截然相反（装备卸下即失效，不应持久化；一次性奖励技能应长期保留）。`SkillHost`
+新增显式 `permanent` 参数的四参重载（见 `core/rules/skill/README.md` 同编号条目）后，本类第 4 步的
+装备 `skillGranter` 接线改为显式调用 `Rules.Skill.LearnSkill(unitId, skillId, sourceId, permanent:
+false)`——不依赖三参重载的默认值，装备授予的临时语义不会因为默认值将来改变而意外漂移成永久。

@@ -308,7 +308,12 @@ namespace Core.Rules.Skill
                     break;
                 }
 
-                state.RechargeRemaining += EffectiveRechargeTime(unitId, def);
+                // CR130-03 根治（外部审计 audit-5c444f1-20260908）：StartCooldown 写入下一个恢复窗口
+                // 时先乘 _currentFactor（见该方法判断记录），这里"这一次充能刚恢复完、紧接着开始下
+                // 一个恢复窗口"必须用同一口径，否则模式切换后只有"第一颗充能消耗时启动的那个窗口"被
+                // 正确折算，后续窗口全部退回未折算的原始 authoring 秒数（外部审计复现：factor=0.2、
+                // recharge_time=10，期望折算为 2，实际残留 10）。
+                state.RechargeRemaining += EffectiveRechargeTime(unitId, def) * _currentFactor;
             }
         }
 
