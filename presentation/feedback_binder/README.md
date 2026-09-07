@@ -122,6 +122,25 @@
     （`QueueMode_Sequential_ColdSfxPending_DoesNotFirePlaybackFinished_UntilSinkResolves`、
     `QueueMode_Immediate_ColdSfxPending_FiresPlaybackFinished_WhenSinkResolves`）。
 
+13. **C07 收口（外部审核 7e63d66）：冷资源超时终止路径此前没有接上判断记录 12 的完成信号链**——
+    判断记录 12 覆盖了"加载成功/失败"两种结局，但 `VfxPlayer`/`SfxPlayer` 各自的首次加载超时清理
+    （`VfxOptions.FirstLoadTimeoutSeconds`/`SfxOptions.FirstLoadTimeoutSeconds` 到期、加载请求迟迟
+    不回调，如 `resource_ref` 拼写错误或资源确实缺失这类真实会发生的情形）没有触发对应的
+    `PendingSpawnCountChanged`/`PendingPlayCountChanged`（`VfxPlayer` 一侧）与"完全没有独立于
+    `Play` 的时钟入口"（`SfxPlayer` 一侧，超时清理此前只能在下一次任意 `Play` 调用开头被惰性扫到，
+    若节奏门已关闭、此后没有新的 `Play` 调用，卡死的加载请求永远不会被扫到）——两处都会让本模块
+    的 `wait_for_playback` 链在真实冷资源永久加载失败场景下永久卡住，`PlaybackFinishedEvent` 永远
+    等不到。根治见 `presentation/vfx_sfx/README.md` 对应条目（`VfxPlayer.Update` 超时分支补发
+    信号、`ISfxPlayer` 新增独立 `Update` 时钟入口）；本模块不需要改动——`CompositeFeedbackSink`
+    早已订阅两者的 `PendingSpawnCountChanged`/`PendingPlayCountChanged` 并转发为
+    `PendingPlaybackChanged`（判断记录 11），`TryPublishFinished` 早已挂在这条路径上（本条判断
+    记录），信号一旦补上就自动接通，只是此前信号从未在超时这一分支发出过。见
+    `FeedbackBinderTests.cs`
+    （`QueueMode_Sequential_RealSfxPlayerColdResourceTimesOut_FiresPlaybackFinishedExactlyOnce_ViaUpdateOnly`
+    ——不用手工 stub 的 `RecordingFeedbackSink` 模拟 pending，而是串联真实 `SfxPlayer`/
+    `CompositeFeedbackSink`/`FeedbackBinder`，只靠 `SfxPlayer.Update`（不调用第二次 `Play`）驱动
+    超时，验证完整真实链路恰好发布一次完成事件）。
+
 ## 不负责什么
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行

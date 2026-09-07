@@ -432,6 +432,28 @@ namespace Core.Gameplay.Spawn
         /// 实体的能力，也不持有 <c>IWorldSim</c> 引用），是"尽量还原簿记、绝不丢失当前存活实体的
         /// 追踪"这一更保守的选择，见类型顶部 <c>ISpawnHost</c> 判断记录同款风格。
         /// </para>
+        /// <para>
+        /// C11 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：上一段"存活中，
+        /// 不该有倒计时"的判断只对"快照本身也认为这个刷新点当前存活（没有记录 <c>respawn_remaining</c>）"
+        /// 的情形成立。同图读档场景下（<c>GameplayAssembly.RestoreFromSlot</c>/<c>ShellHost.LoadGame</c>
+        /// 判定目标地图与当前地图相同、不切场景，见 <c>ShellHost</c> 该方法判断记录）存在另一种可能：
+        /// 存档那一刻这个刷新点其实是"已死亡、倒计时到一半"（快照里 <c>respawn_remaining</c> 有值），
+        /// 但存档之后、读档之前，玩家在当前这局未重载的会话里眼看着它倒计时结束、重新生成了一个新
+        /// 存活实体——此时 <c>previouslyAlive</c> 命中的是这个"存档时间点之后才诞生"的新实体，旧
+        /// 实现无条件按上面的规则重绑并清空倒计时，等于让"当前世界恰好有个存活实体"这一事实覆盖了
+        /// 快照明确记录的"应该是死亡计时中"这一权威状态——判断记录（拍板优先级，见 08 文档同款
+        /// 判断记录）：<b>快照的倒计时优先于当前世界状态</b>，因为存档/读档的语义就是"把状态恢复到
+        /// 保存那一刻"，若允许"读档前会话里发生的事"泄漏进读档后的状态，读档就不再是确定性的时间
+        /// 回退。因此：<paramref name="data"/> 快照对某个刷新点记录了 <c>respawn_remaining</c> 时，
+        /// 直接采用快照值、不重绑 <c>previouslyAlive</c> 里那个实体——本类没有销毁实体的能力（同上
+        /// 一段判断记录），那个实体会变成不再被任何刷新点追踪的孤儿（不在 <c>_entityToSpawn</c>
+        /// 里，它死亡/销毁时 <see cref="NotifyDespawn"/> 找不到映射会直接提前返回，不会误伤这个
+        /// 刷新点接下来按快照倒计时重新生成的新实体）——这是"允许一个不受刷新点管理的多余实体短暂
+        /// 存在于世界里，直到玩家下次离开重进这张地图（<see cref="UnloadMap"/> 不认 <c>EntityId</c>
+        /// 只按 <c>spawn.table</c> 记录清空，不会清理这个孤儿，但该实体本身仍然是一个合法的
+        /// <c>IWorldSim</c> 实体，不会导致空引用/异常）"与"违背存档语义、丢弃玩家读档想要拿回的
+        /// 那份确定状态"之间，选择前者。
+        /// </para>
         /// </summary>
         public void Load(JsonValue data)
         {
@@ -476,7 +498,18 @@ namespace Core.Gameplay.Spawn
 
             foreach (var kv in previouslyAlive)
             {
-                var runtime = GetOrCreateRuntime(kv.Key);
+                var spawnId = kv.Key;
+
+                // C11 根治：快照对这个刷新点记录了倒计时——快照倒计时优先于"当前世界恰好还有个存活
+                // 实体"这一事实（见本方法判断记录），不重绑，让 previouslyAlive 里的这个实体变成
+                // 不受刷新点追踪的孤儿；_records[spawnId] 已经是快照原样写入的值（含
+                // respawn_remaining），这里不需要、也不应该再碰它。
+                if (_records.TryGetValue(spawnId, out var snapshotRuntime) && snapshotRuntime.RespawnRemaining.HasValue)
+                {
+                    continue;
+                }
+
+                var runtime = GetOrCreateRuntime(spawnId);
                 runtime.EntityId = kv.Value;
                 runtime.RespawnRemaining = null; // 存活中，不该有倒计时（快照的旧倒计时已不适用）
                 if (runtime.SpawnCount == 0)
@@ -484,7 +517,7 @@ namespace Core.Gameplay.Spawn
                     runtime.SpawnCount = 1;
                 }
 
-                _entityToSpawn[kv.Value] = kv.Key;
+                _entityToSpawn[kv.Value] = spawnId;
             }
         }
 

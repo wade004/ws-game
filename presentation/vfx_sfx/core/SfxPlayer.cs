@@ -243,6 +243,11 @@ namespace Presentation.VfxSfx.Core
         /// </summary>
         public event Action? PendingPlayCountChanged;
 
+        /// <summary>C07 根治：见 <see cref="ISfxPlayer.Update"/> 判断记录——不依赖下一次 <see
+        /// cref="Play"/> 调用，直接复用既有的 <see cref="SweepTimedOutPendingPlays"/>（内部已经在
+        /// 真正摘除任何一项时触发 <see cref="PendingPlayCountChanged"/>），供引擎侧逐帧驱动。</summary>
+        public void Update(double dt) => SweepTimedOutPendingPlays();
+
         public void Stop(SfxHandle handle)
         {
             if (_byHandle.TryGetValue(handle, out var playback))

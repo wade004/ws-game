@@ -201,6 +201,61 @@ namespace Tests.Gameplay.Death
             Assert.Empty(fx.Diagnostics.Errors); // 未触达 Load，不会因槽缺失而记错误。
         }
 
+        /// <summary>
+        /// C12 复现与根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：
+        /// <c>reload_save</c> 读档成功此前只调用 Load 本身，从未发布 <see cref="UnitRespawnedEvent"/>
+        /// ——表现层的动画状态机没有任何信号能清理"死亡"这一终态锁，玩家会一直卡在死亡姿态。根治后：
+        /// 成功分支恰好发布一次该事件，且是 <c>Enqueue</c>（不是 <c>PublishImmediate</c>）——必须等
+        /// 当前这一批 <c>unit.died</c> 全部订阅方都处理完毕、下一次 <see cref="IEventBus.DispatchPending"/>
+        /// 才真正可见，不能在 <see cref="Bus.PublishImmediate(IEvent)"/> 的同一次调用栈内同步发出
+        /// （否则会被订阅顺序晚于 <see cref="DeathPolicyHost"/> 的下游处理覆盖，见下一条用例）。
+        /// </summary>
+        [Fact]
+        public void ReloadSave_PlayerDies_LoadSucceeds_PublishesUnitRespawnedEvent_DeferredNotImmediate()
+        {
+            var fx = Build(defaultPolicy: RespawnPolicy.ReloadSave);
+            Assert.True(fx.SaveSystem.Save(new SaveRequest(AutosaveSlot, "t1")).Success);
+
+            fx.Died(PlayerId);
+
+            // 核心断言：不是同步立即可见——PublishImmediate(unit.died) 那次调用栈刚返回时，
+            // 复活信号还只是排在队列里，尚未真正派发给订阅方。
+            Assert.Empty(fx.RespawnedEvents);
+
+            fx.Bus.DispatchPending();
+
+            var respawned = Assert.Single(fx.RespawnedEvents);
+            Assert.Equal(PlayerId, respawned.UnitId);
+            Assert.Equal(RespawnPolicy.ReloadSave, respawned.Policy);
+        }
+
+        /// <summary>
+        /// C12 根治的时序保证：用一个订阅顺序晚于 <see cref="DeathPolicyHost"/>（<see cref="Build"/>
+        /// 构造 <c>fx.Host</c> 之后才追加订阅，同真实表现层动画状态机相对
+        /// <c>core/gameplay/death</c> 的装配顺序）的最小"终态锁"模拟——收到 <c>unit.died</c> 就锁定，
+        /// 收到 <c>unit.respawned</c> 才解锁——验证 <see cref="DeathPolicyHost"/> 补发的复活信号确实
+        /// 晚于这个下游处理，不会被它事后覆盖（若改用 <c>PublishImmediate</c> 同步补发，这个用例会
+        /// 失败：复活信号会在终态锁自己的 <c>unit.died</c> 处理器运行之前就已经发出，随后终态锁一
+        /// 处理死亡又重新锁上，永远没有机会解锁）。
+        /// </summary>
+        [Fact]
+        public void ReloadSave_PlayerDies_RespawnedEventArrivesAfterAllUnitDiedSubscribersProcessed_NotOverwrittenByLateDeathHandler()
+        {
+            var fx = Build(defaultPolicy: RespawnPolicy.ReloadSave);
+            Assert.True(fx.SaveSystem.Save(new SaveRequest(AutosaveSlot, "t1")).Success);
+
+            var isDead = false;
+            fx.Bus.Subscribe<UnitDiedEvent>(RulesEventKeys.UnitDied, _ => isDead = true);
+            fx.Bus.Subscribe<UnitRespawnedEvent>(RulesEventKeys.UnitRespawned, _ => isDead = false);
+
+            fx.Died(PlayerId);
+            Assert.True(isDead); // 死亡处理已经在同一次同步派发里跑完。
+
+            fx.Bus.DispatchPending(); // 复活信号在这里才真正派发——严格晚于上面的死亡处理。
+
+            Assert.False(isDead); // 复活信号成功解除终态锁，没有被"迟到的死亡处理"覆盖。
+        }
+
         // ==== permadeath ==========================================================
 
         [Fact]

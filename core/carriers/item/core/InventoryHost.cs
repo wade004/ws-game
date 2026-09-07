@@ -61,8 +61,19 @@ namespace Core.Carriers.Item
 
         public void UnregisterUnit(Id unitId) => _bags.Remove(unitId);
 
-        public bool AddItem(Id unitId, Id templateId, int count)
+        public bool AddItem(Id unitId, Id templateId, int count) => AddItemCore(unitId, templateId, count, out _);
+
+        /// <summary>C05 根治：见 <see cref="IInventoryHost.TryAddItem"/> 判断记录——本类型支持
+        /// <see cref="InventoryFullPolicy.Partial"/> 部分吞没语义，必须覆盖默认实现，如实返回
+        /// <see cref="AddItemCore"/> 算出的实际落地量 <c>toAdd</c>，而不是把请求的 <paramref
+        /// name="count"/> 原样当作实际量。</summary>
+        public bool TryAddItem(Id unitId, Id templateId, int count, out int actualCount) =>
+            AddItemCore(unitId, templateId, count, out actualCount);
+
+        private bool AddItemCore(Id unitId, Id templateId, int count, out int actualCount)
         {
+            actualCount = 0;
+
             if (count <= 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(count), count, "AddItem 的 count 必须为正数");
@@ -150,6 +161,7 @@ namespace Core.Carriers.Item
             // toAdd > 0 时必然至少填过一个既有堆叠或新建过一个实例，touchedInstanceId 不为 null，
             // removals 至少有一项。
             _bus.Enqueue(new ItemAddedEvent(unitId, touchedInstanceId!.Value, templateId, toAdd, removals));
+            actualCount = toAdd;
             return true;
         }
 

@@ -68,6 +68,22 @@ achievement/
    criteria 汇总值**：`found.event_catalog` 该行字段表未明确区分，本模块按"每次某条 criterion
    计数变化各发一次"的最贴近字面理解实现（08 第 6.1 节"成就系统只订阅事件总线，累计计数"）。
 
+6. **C04 收口（外部审核 7e63d66）：解锁改为"发奖成功后再提交 `_unlocked` 终态"，新增可重试待领奖
+   状态**——原实现 `ApplyProgress` 达标时先把 key 写进 `_unlocked`、再调用
+   `IRewardDispatcher.Grant` 却不检查返回值；发奖失败（如背包已满）时成就已经判定解锁、奖励却
+   一件没发，`IsUnlocked` 仍报告 `true`，玩家没有任何补领入口。与 `EncounterHost.Evaluate`（被
+   外部循环反复调用、天然可重试）不同，本模块只在事件驱动 `ApplyProgress` 时才会走到这一步——
+   同一条 criterion 一旦计数打满，后续同类事件会在方法顶部提前 return（`counts[i] >= target`
+   守卫），不会再次落到 Grant 重试这一步，因此不能靠"下次事件自动重来"收敛，需要一份显式、可
+   持久化的 pending 状态。改法：Grant 失败时不写 `_unlocked`、不发 `AchievementUnlockedEvent`，
+   改记入新增的 `_pendingReward` 集合（随 `player.achievement_state` 段一并持久化，新增
+   `pending_reward` 布尔字段）；新增 `IAchievementHost.RetryPendingRewards(unitId)`，供调用方在
+   推断发放前置条件已恢复（如清理背包空间）后主动调用——幂等，一旦某条成就 Grant 成功立即从
+   `_pendingReward` 移出并入 `_unlocked`，不会被重复调用重复发放。见 `AchievementHost.cs`
+   （`ApplyProgress`/`RetryPendingRewards`/`Save`/`Load`）、`IAchievementHost.cs`、
+   `AchievementHostTests.cs`
+   （`Unlock_RewardGrantFails_StaysLocked_RetryPendingRewardsGrantsExactlyOnceAfterRoomFreed`）。
+
 ## 不负责什么
 
 - 不实现"引用对象暂缺"之外的 Expr 求值细节——`filter` 的求值宿主（`self`/`target` 绑定谁）由

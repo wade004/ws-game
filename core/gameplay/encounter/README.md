@@ -104,6 +104,17 @@ encounter/
    下次重新进图时 `Encounter.Start`/`Level.StartLevel` 会建立全新实例，不复用旧实例的波次/阶段
    进度。见 `EncounterHost.cs`/`LevelHost.cs`/`GameplayAssembly.cs`，
    `EncounterHostTests.cs`/`LevelHostTests.cs`。
+8. **C04 收口（外部审核 7e63d66）：胜负判定改为"发奖成功后再提交终态"**——原实现 `Evaluate` 命中
+   `victory_condition` 时先置 `IsActive=false`、发布 `EncounterWonEvent`，再调用
+   `IRewardDispatcher.Grant` 却不检查返回值；背包已满（`InventoryFullPolicy.Reject`）时 `Grant`
+   返回 `false`，物品奖励一件都没发出去，但胜利状态已经终结、事件已经发出，玩家没有任何补领
+   入口，奖励永久丢失。现在只有 `Grant` 成功（或本就没有物品/无奖励）才会置 `IsActive=false`
+   并发布 `EncounterWonEvent`；`Grant` 失败时本次 `Evaluate` 不改变任何状态、不发事件，实例保持
+   `IsActive=true`——不需要额外的持久化"待领奖"状态：`Evaluate` 本就是被外部循环（tick/离散步）
+   反复调用的推进函数，失败只是"这次 `Evaluate` 什么都没发生"，下一次调用胜负条件仍然为真会
+   自动重试，直到玩家清出背包空间那一次才真正终结实例、恰好发放一次奖励。见 `EncounterHost.cs`
+   （`Evaluate` 步骤 4）、`EncounterHostTests.cs`
+   （`Evaluate_VictoryTrue_RewardGrantFails_KeepsActiveAndRetries_GrantsExactlyOnceAfterRoomFreed`）。
 
 ## 不负责什么
 

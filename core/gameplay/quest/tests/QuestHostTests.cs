@@ -218,6 +218,51 @@ namespace Tests.Gameplay.Quest
             Assert.Equal(0, h.Inventory.CountOf(Player, templateId)); // 没有变成负数/被重复扣除
         }
 
+        /// <summary>
+        /// C06 复现与根治，路径二（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：
+        /// 单个任务内两个目标共享同一模板（各需要 3 件，合计需要 6 件），库存只有 4 件——步骤 1 预检
+        /// 按目标逐个核验，两个目标各自单独核验时库存（4）都 &gt;= 单个目标需求（3），预检"看起来"
+        /// 都通过；真正开始移除时，第一个目标顺利扣走 3 件（剩 1），第二个目标只够扣 1 件、不足 3。
+        /// 旧实现的 <c>RemoveCollectedItems</c> 边遍历边改——即使最终返回 false，也已经把这仅剩的
+        /// 1 件真的移出了背包；<c>TurnIn</c> 步骤 2 的失败回滚只按 <c>removed</c> 列表把"已确认完整
+        /// 移除成功"的第一个目标那 3 件放回，第二个目标那 1 件的部分移除从未被记录、也就永远回不来
+        /// ——库存净丢失 1 件，且交付仍然按 <see cref="QuestTurnInFailure.InsufficientItems"/> 整体
+        /// 失败（"失败了却还丢东西"）。根治后 <see cref="Core.Gameplay.Quest.QuestHost.RemoveCollectedItems"/>
+        /// 变成"先核验总量、不够直接不动库存"的原子操作，第二个目标的移除请求会在核验阶段直接失败、
+        /// 不产生任何部分移除，交付失败后库存精确回到交付前的 4 件。
+        /// </summary>
+        [Fact]
+        public void TurnIn_SingleQuestTwoObjectivesShareSameItem_InsufficientTotal_FailsWithoutLosingAnyItem()
+        {
+            var templateId = new Id("item.shared_ore");
+            var questId = new Id("quest.sample_deliver_ore_two_objectives");
+            var quest = new QuestDefinition(
+                questId,
+                new[]
+                {
+                    new QuestObjective(QuestObjectiveType.Collect, templateId, 3, consumeOnProgress: false),
+                    new QuestObjective(QuestObjectiveType.Collect, templateId, 3, consumeOnProgress: false),
+                },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var h = new Harness(new[] { quest });
+            h.Host.Accept(Player, questId);
+
+            // 两个目标各需要 3 件、合计 6 件，库存只有 4 件——明显不足以两个目标都真正满足，但每个
+            // 目标各自核对当前库存（4）时都 >= 单个目标需求（3），会各自被记满 3/3（GP-08 直接按现有
+            // 库存计算进度，不代表两个目标加起来的量真的够）。
+            h.Inventory.AddItem(Player, templateId, 4);
+            h.Bus.PublishImmediate(new ItemAddedEvent(Player, new Id("item.instance_ore"), templateId, 4));
+            Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questId));
+
+            var turnedIn = h.Host.TurnIn(Player, questId, out var failure);
+
+            Assert.False(turnedIn);
+            Assert.Equal(QuestTurnInFailure.InsufficientItems, failure);
+            Assert.Equal(4, h.Inventory.CountOf(Player, templateId)); // C06 根治：一件都不丢，精确回到交付前。
+            Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questId)); // 保持可重试。
+            Assert.Empty(h.Rewards.Calls); // 从未走到发奖励这一步。
+        }
+
         // ---------------------------------------------------------------
         // 四个合法转移的完整链路（accept → progress → objectives_complete → turn_in）
         // ---------------------------------------------------------------
@@ -476,6 +521,44 @@ namespace Tests.Gameplay.Quest
             Assert.Equal(1, countA + countB); // 记录的总进度等于实际消耗的物品数量，不多不少
 
             Assert.Equal(0, h.Inventory.CountOf(Player, itemId));
+        }
+
+        /// <summary>
+        /// C06 复现与根治，路径一（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：
+        /// 两个 consume 型目标分别需要 1 件、2 件同种物品（合计 3 件），一次性只新增 2 件——两个目标
+        /// 不可能都拿满，其中一个必然拿不到足量。旧实现的 <c>RemoveCollectedItems</c> 边遍历边改，
+        /// 即使最终因为凑不满 <c>take</c> 数量返回 false，也已经把库存里实际能找到的那部分真的移出了
+        /// 背包——"扣了但没记进度"，记录的总进度会小于背包实际减少的数量（净丢失）。根治后
+        /// <c>RemoveCollectedItems</c> 先核验总量、不够就不碰库存，两者必然精确相等：记录的总进度
+        /// 恰好等于背包实际减少的数量，不多不少，不论两个目标谁先被处理。
+        /// </summary>
+        [Fact]
+        public void HandleItemAdded_ConsumeOnProgress_TwoQuestsInsufficientForSecond_CreditedProgressMatchesActualConsumption()
+        {
+            var questA = new Id("quest.sample_consume_needs_1");
+            var questB = new Id("quest.sample_consume_needs_2");
+            var itemId = new Id("item.rare_ore");
+            var defA = new QuestDefinition(
+                questA, new[] { new QuestObjective(QuestObjectiveType.Collect, itemId, 1, consumeOnProgress: true) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var defB = new QuestDefinition(
+                questB, new[] { new QuestObjective(QuestObjectiveType.Collect, itemId, 2, consumeOnProgress: true) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var h = new Harness(new[] { defA, defB });
+            h.Host.Accept(Player, questA);
+            h.Host.Accept(Player, questB);
+
+            // 一次新增 2 件——两个 consume 型目标合计需要 1+2=3 件，明显不足，其中一个目标必然拿不到
+            // 完整数量。
+            var instanceId = h.Inventory.AddItemForTest(Player, itemId, 2);
+            h.Bus.PublishImmediate(new ItemAddedEvent(Player, instanceId, itemId, 2));
+
+            var countA = h.Host.GetLog(Player).Single(p => p.QuestId.Equals(questA)).ObjectiveCounts[0];
+            var countB = h.Host.GetLog(Player).Single(p => p.QuestId.Equals(questB)).ObjectiveCounts[0];
+            var actualConsumed = 2 - h.Inventory.CountOf(Player, itemId);
+
+            Assert.True(h.Inventory.CountOf(Player, itemId) >= 0); // 不会扣成负数。
+            Assert.Equal(actualConsumed, countA + countB); // C06 根治核心断言：记的进度==实际扣的量。
         }
 
         [Fact]

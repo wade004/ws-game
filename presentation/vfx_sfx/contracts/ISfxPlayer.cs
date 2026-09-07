@@ -36,5 +36,20 @@ namespace Presentation.VfxSfx.Contracts
         /// 触发（资源加载完成/失败，或 <c>SfxPlayer.SweepTimedOutPendingPlays</c> 超时清理），只是
         /// "提示重新读取"，不携带数值、不保证已经归零。</summary>
         event Action? PendingPlayCountChanged;
+
+        /// <summary>
+        /// C07 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：此前排队等待
+        /// 首次加载完成的播放请求只在下一次 <see cref="Play"/> 调用开头惰性扫一遍超时（见
+        /// <c>SfxPlayer.SweepTimedOutPendingPlays</c> 判断记录）——若节奏门已经关闭且此后没有任何
+        /// 新的 <see cref="Play"/> 调用，永不回调的加载请求就不会被扫到，<see
+        /// cref="PendingPlayCount"/> 永远卡在非零、<see cref="PendingPlayCountChanged"/> 永远不会
+        /// 因超时而触发。本方法补一个不依赖下一次 <see cref="Play"/> 的时钟驱动入口——与 <see
+        /// cref="Presentation.VfxSfx.Contracts.IVfxPlayer.Update"/> 同一惯例，由
+        /// <c>CompositeFeedbackSink</c>/引擎侧逐帧驱动（同 <c>Presentation.VfxSfx.Core.VfxPlayer.
+        /// Update</c> 的既有生产接线，见 <c>FrameworkResidentHost.OnFrameTick</c>）；<paramref
+        /// name="dt"/> 当前实现内部仍按超时截止时间戳判定（不是按 dt 累计倒计时），保留参数只是为了
+        /// 与 <c>IVfxPlayer.Update</c> 签名一致、供统一的逐帧驱动代码调用，不代表已改为 dt 累计语义。
+        /// </summary>
+        void Update(double dt);
     }
 }

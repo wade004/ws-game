@@ -247,8 +247,17 @@ namespace Adapter.Unity.Tests.Runtime
             fx.Gameplay.Carriers.Units.SetAlive(fx.PlayerId, false);
             fx.Bus.PublishImmediate(new UnitDiedEvent(fx.PlayerId, null, new Id(MapAId), fx.Player.Position));
 
+            // C12 复现与根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：
+            // unit.died 已经让表现层的动画状态机进入死亡终态锁（同真实生产接线，AnimStateMachine
+            // 直接订阅 unit.died，见该类型判断记录）。
+            var animStateMachine = fx.ViewFactory.AnimStateMachineForTests;
+            Assert.IsNotNull(animStateMachine, "UnityViewFactory 应当持有全局单例 AnimStateMachine");
+            Assert.IsTrue(animStateMachine!.IsTerminal(fx.PlayerId), "死亡后应当进入终态锁");
+
             // reload_save 可能触发场景切换（RestoreFromSlot），本用例是同地图重载，理应不切场景，
-            // 但仍然驱动几帧让任何待处理的场景/事件收尾。
+            // 但仍然驱动几帧让任何待处理的场景/事件收尾（含 DeathPolicyHost 补发的 unit.respawned
+            // ——见该类型判断记录"Enqueue 而不是 PublishImmediate"，需要一次 DispatchPending 才
+            // 真正可见）。
             for (var i = 0; i < 5; i++)
             {
                 fx.Shell.Update();
@@ -265,6 +274,17 @@ namespace Adapter.Unity.Tests.Runtime
                 fx.Presentation.ViewBinder.TryGetView(fx.PlayerId, out var view),
                 "回档后玩家应当仍有对应的 View（不是空视图/悬空引用）");
             Assert.IsTrue(view!.IsAlive, "玩家 View 应当仍然存活");
+
+            // C12 核心断言：同图读档成功后应当清理死亡终态锁，且后续 Move/Attack 类事件应当照常生效
+            // ——不再被"死亡终态不接受回落"规则拒绝（此前 reload_save 成功分支不发 unit.respawned，
+            // 玩家会一直卡在死亡动画姿态）。
+            Assert.IsFalse(animStateMachine.IsTerminal(fx.PlayerId), "同图读档成功后应当清理死亡终态锁（C12）");
+
+            fx.Bus.PublishImmediate(new Core.Carriers.Common.UnitStateChangedEvent(fx.PlayerId, "Idle", "Walk"));
+            Assert.AreEqual(AnimState.Move, animStateMachine.GetState(fx.PlayerId), "同图读档后应当允许 Move（C12）");
+
+            fx.Bus.PublishImmediate(new SkillCastStartEvent(fx.PlayerId, new Id("skill.sample_basic_attack"), castTime: 0));
+            Assert.AreEqual(AnimState.Attack, animStateMachine.GetState(fx.PlayerId), "同图读档后应当允许 Attack（C12）");
         }
 
         // -----------------------------------------------------------------

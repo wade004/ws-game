@@ -1,5 +1,11 @@
 using System;
+using System.Linq;
+using Core.Carriers.Common;
+using Core.Carriers.Item;
 using Core.Foundation.Common;
+using Core.Foundation.DataRegistry;
+using Core.Foundation.EventBus;
+using Core.Gameplay.Common;
 using Core.Gameplay.Encounter;
 using Xunit;
 
@@ -252,6 +258,92 @@ namespace Tests.Gameplay.Encounter
             Assert.Empty(rewards.Grants);
             Assert.NotNull(captured);
             Assert.False(host.GetState(instanceId).IsActive);
+        }
+
+        /// <summary>
+        /// C04 复现与根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：胜负判定
+        /// 成立但物品奖励因背包已满（<c>InventoryFullPolicy.Reject</c>）而 <c>Grant</c> 返回 false
+        /// ——旧实现仍然先置 <c>IsActive=false</c>、发布 <see cref="EncounterWonEvent"/>，奖励永久
+        /// 丢失、玩家没有补领入口。根治后：Grant 失败时实例保持 <c>IsActive=true</c>、不发布
+        /// <see cref="EncounterWonEvent"/>；下一次 <see cref="EncounterHost.Evaluate"/>（胜负条件
+        /// 不变，仍为真）会自动重试——玩家清出背包空间后，下次 Evaluate 恰好成功发放一次奖励并
+        /// 正式终结实例。用真实 <see cref="Core.Carriers.Item.InventoryHost"/>
+        /// （<c>MaxSlots=1</c>、<c>FullPolicy=Reject</c>，先塞满一个不同模板的物品占掉唯一格子）+
+        /// 真实 <see cref="RewardDispatcher"/>，不用 <see cref="FakeRewardDispatcher"/>（后者恒
+        /// 成功，测不出这个问题）。
+        /// </summary>
+        [Fact]
+        public void Evaluate_VictoryTrue_RewardGrantFails_KeepsActiveAndRetries_GrantsExactlyOnceAfterRoomFreed()
+        {
+            const string RewardEncounterId = "encounter.sample_item_reward";
+            var defRows = "[{\"id\": \"" + RewardEncounterId + "\", " +
+                "\"units\": [{\"template_ref\": \"creature.sample_boss\", \"position\": {\"x\": 0, \"y\": 0}}], " +
+                "\"victory_condition\": \"self.is_alive\", \"defeat_condition\": \"target.is_alive\", " +
+                "\"rewards\": {\"items\": [{\"itemId\": \"item.sample_reward\", \"count\": 1}]}}]";
+
+            var bus = TestSupport.CreateBus();
+            var registry = TestSupport.MakeRegistry(bus, defRows);
+            var world = new FakeWorld();
+            var ai = new FakeAiHost();
+            var hooks = new FakeHookRegistry();
+            var exprFactory = new FakeExprHostFactory();
+
+            var itemBus = new EventBus(EventCatalog.FromDefinitions(new[]
+            {
+                new EventDefinition(CarriersEventKeys.ItemAdded, "item", new[] { "unitId", "itemInstanceId", "itemTemplateId", "count" }),
+                new EventDefinition(CarriersEventKeys.ItemRemoved, "item", new[] { "unitId", "itemInstanceId", "count", "reason" }),
+                new EventDefinition(DataRegistryEventKeys.LoadCompleted, "data", new[] { "tableCount", "recordCount", "errorCount", "warningCount" }),
+                new EventDefinition(DataRegistryEventKeys.ValidationFailed, "data", new[] { "errorCount", "warningCount" }),
+            }));
+            string Table(string name, string rows) => "{\"table\":\"" + name + "\",\"schema_version\":1,\"rows\":" + rows + "}";
+            var itemSource = new InMemoryDataSource()
+                .Add("item.slot_definition", Table("item.slot_definition", "[{\"id\":\"item.slot.consumable\",\"name_key\":\"l10n.slot.consumable\"}]"))
+                .Add("item.quality_definition", Table("item.quality_definition", "[{\"id\":\"item.quality.common\",\"name_key\":\"l10n.quality.common\"}]"))
+                .Add("item.template", Table("item.template", "["
+                    + "{\"id\":\"item.filler\",\"slot\":\"item.slot.consumable\",\"quality\":\"item.quality.common\",\"item_level\":1,\"display_ref\":\"display.item.filler\",\"stack_size\":1,\"name_key\":\"l10n.item.filler\"},"
+                    + "{\"id\":\"item.sample_reward\",\"slot\":\"item.slot.consumable\",\"quality\":\"item.quality.common\",\"item_level\":1,\"display_ref\":\"display.item.sample_reward\",\"stack_size\":1,\"name_key\":\"l10n.item.sample_reward\"}]"));
+            var itemRegistry = new DataRegistry(itemSource, itemBus);
+            itemRegistry.RegisterSchema(ItemSchemas.Template);
+            itemRegistry.RegisterSchema(ItemSchemas.SlotDefinition);
+            itemRegistry.RegisterSchema(ItemSchemas.QualityDefinition);
+            var itemReport = itemRegistry.LoadAll();
+            Assert.False(itemReport.IsBlocking, string.Join(";", itemReport.Issues.Select(i => i.ToString())));
+
+            var inventory = new InventoryHost(itemRegistry, itemBus, new InventoryOptions { MaxSlots = 1, FullPolicy = InventoryFullPolicy.Reject });
+            inventory.AddItem(Player, new Id("item.filler"), 1); // 唯一格子被占满，奖励物品完全放不下。
+            var rewardDispatcher = new RewardDispatcher(inventory: inventory);
+
+            var host = new EncounterHost(registry, bus, world, ai, hooks, exprFactory, rewardDispatcher, world, world.SpawnFromRequester);
+            var instanceId = host.Start(new Id(RewardEncounterId), MapA, Player);
+            var wonCount = 0;
+            bus.Subscribe<EncounterWonEvent>(EncounterEventKeys.Won, _ => wonCount++);
+            exprFactory.Set("self.is_alive", true);
+
+            // 第一次 Evaluate：胜负条件成立，但 Grant 因背包已满失败——实例应保持活跃，不发 Won。
+            host.Evaluate(instanceId);
+            Assert.True(host.GetState(instanceId).IsActive);
+            Assert.Equal(0, wonCount);
+            Assert.Equal(0, inventory.CountOf(Player, new Id("item.sample_reward")));
+
+            // 再来一次（背包状态未变）：仍然失败，仍然保持活跃——不会"半途"终结或重复扣状态。
+            host.Evaluate(instanceId);
+            Assert.True(host.GetState(instanceId).IsActive);
+            Assert.Equal(0, wonCount);
+
+            // 玩家清出空间：移除占位物品。
+            var fillerInstanceId = inventory.ListItems(Player).Single(i => i.TemplateId.Equals(new Id("item.filler"))).InstanceId;
+            inventory.RemoveItem(Player, fillerInstanceId, 1);
+
+            // 下一次 Evaluate：Grant 成功，实例恰好终结一次、恰好发一次 Won、恰好拿到一次奖励物品。
+            host.Evaluate(instanceId);
+            Assert.False(host.GetState(instanceId).IsActive);
+            Assert.Equal(1, wonCount);
+            Assert.Equal(1, inventory.CountOf(Player, new Id("item.sample_reward")));
+
+            // 再评价已结束的实例：不应重复发放/重复发事件（Evaluate 对非活跃实例是空操作）。
+            host.Evaluate(instanceId);
+            Assert.Equal(1, wonCount);
+            Assert.Equal(1, inventory.CountOf(Player, new Id("item.sample_reward")));
         }
 
         [Fact]

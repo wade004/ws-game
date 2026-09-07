@@ -129,6 +129,21 @@ quest/
     出现的货币显式置零），连续 `Load` 幂等。见 `QuestHost.cs`（`TurnIn`/`RemoveCollectedItems`）、
     `QuestEnums.cs`（`QuestTurnInFailure`）、`core/gameplay/economy/core/EconomyHost.cs`
     （`SetBalance`）、对应测试文件。
+11. **C06 收口（外部审核 7e63d66）：`RemoveCollectedItems` 改为"先核验总量、不够就不碰库存"的原子
+    操作**——原实现边遍历边改：数量不足以凑满请求总量时，已经扫到的那部分仍然会被真正移除，只是
+    最终返回值是 `false`。两条调用路径各自暴露一种净丢失：路径一，`HandleItemAdded` 的
+    `ConsumeOnProgress` 分支里两个目标共享同一模板、一次新增的数量不足以两个目标都拿满时，先处理
+    的目标扣满记满，后处理的目标扣到"实际能找到的那部分"却因为凑不满整体失败而不计入任何进度——
+    物品被静默消耗但进度没有对应增加。路径二，`TurnIn` 步骤 2 里单个任务的两个目标共享同一模板、
+    合计需求超出库存时，第一个目标顺利扣除，第二个目标只够扣到部分就因不足而整体失败，`TurnIn`
+    的失败回滚只按 `removed` 列表（"已确认完整移除成功"的目标）放回，第二个目标那部分移除从未被
+    记录、永远回不来——"失败了却还丢东西"。现在 `RemoveCollectedItems` 先用 `CountOf` 核验总量是否
+    足够，不够直接返回 `false`、不触碰背包任何状态；核验通过后再真正移除，单线程调用下背包状态与
+    刚才核验时一致，移除必然能凑满整数量，两条路径都不再出现"部分移除后失败"的中间态——路径一记录
+    的总进度精确等于实际消耗量，路径二失败后精确回滚到交付前状态。见 `QuestHost.cs`
+    （`RemoveCollectedItems`）、`QuestHostTests.cs`
+    （`TurnIn_SingleQuestTwoObjectivesShareSameItem_InsufficientTotal_FailsWithoutLosingAnyItem`、
+    `HandleItemAdded_ConsumeOnProgress_TwoQuestsInsufficientForSecond_CreditedProgressMatchesActualConsumption`）。
 
 ## 不负责什么
 

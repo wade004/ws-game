@@ -74,14 +74,23 @@ common/
    原实现无论 `IInventoryHost.AddItem` 是否成功都视为发放完成（`void` 返回），背包已满
    （`InventoryFullPolicy.Reject`）时物品奖励静默丢失，`QuestHost.TurnIn` 仍照常把任务置为
    `TurnedIn`，玩家永久拿不到这份奖励也无法重新交付。现在 `GrantItems` 最先执行，某一项 `AddItem`
-   失败时回滚已经成功发放的物品项（按 `(templateId, count)` 找回对应数量的堆叠移除——
-   `InventoryFullPolicy.Reject` 下 `AddItem` 本就"要么整份加入、要么完全不变"，回滚可以精确进行），
-   `Grant` 返回 `false` 且不再继续发放其余类别（xp/货币/技能/世界标志/天赋点没有"容量不足"这类
-   失败模式，物品先行发放、失败即整体中止已经覆盖"全部生效或全部不生效"）。`QuestHost.TurnIn` 据此
-   在 `Grant` 返回 `false` 时把本次交付已经扣除的 collect 物品放回背包、任务保持
-   `ObjectivesComplete`，不误置 `TurnedIn`（见 `core/gameplay/quest/README.md` 对应条目）。
-   见 `IRewardDispatcher.cs`、`RewardDispatcher.cs`（`GrantItems`/`RemoveByTemplate`）、
-   `RewardDispatcherTests.cs`。
+   失败时回滚已经成功发放的物品项，`Grant` 返回 `false` 且不再继续发放其余类别（xp/货币/技能/
+   世界标志/天赋点没有"容量不足"这类失败模式，物品先行发放、失败即整体中止已经覆盖"全部生效或
+   全部不生效"）。`QuestHost.TurnIn` 据此在 `Grant` 返回 `false` 时把本次交付已经扣除的 collect
+   物品放回背包、任务保持 `ObjectivesComplete`，不误置 `TurnedIn`（见
+   `core/gameplay/quest/README.md` 对应条目）。见 `IRewardDispatcher.cs`、`RewardDispatcher.cs`
+   （`GrantItems`/`RemoveByTemplate`）、`RewardDispatcherTests.cs`。
+   <br>**C05 收口（外部审核 7e63d66）限定回滚精确性的实际保证范围**——上一段"回滚可以精确进行"
+   此前的表述基于"`AddItem` 本就要么整份加入、要么完全不变"，这只对 `InventoryFullPolicy.Reject`
+   成立；`InventoryFullPolicy.Partial` 下 `AddItem` 可能只加入一部分仍返回成功（该策略本身的既有
+   语义），若回滚仍按"请求量"移除，会越过实际落地量、多删到这批发放之前就已经存在的同模板堆叠
+   （即"发奖失败却把玩家原有物品也删了"）。现改用 `IInventoryHost.TryAddItem`（`out actualCount`，
+   见 `core/carriers/common/contracts/IInventoryHost.cs`）取得每一项的实际落地量，回滚按实际量
+   而不是请求量移除。**实际保证边界**：`Reject` 策略下失败=整批原子不生效（背包状态与调用前完全
+   相同）；`Partial` 策略下失败=整批回滚到"这次 `Grant` 调用之前"的状态（不多不少，但不代表
+   `Grant` 调用中途任何一步的中间态都不可观察——回滚发生在 `Grant` 内部同一次调用返回之前，调用方
+   看不到中间态）。见 `RewardDispatcherTests.cs` 里 `Grant_PartialPolicy_...`/`Grant_RejectPolicy_...`
+   两条真实 `InventoryHost` 用例。
 
 ## 不负责什么
 

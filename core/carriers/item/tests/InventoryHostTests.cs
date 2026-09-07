@@ -101,6 +101,46 @@ namespace Tests.Carriers.Item
             Assert.Equal(5, items[0].Count);
         }
 
+        /// <summary>C05 根治：<see cref="IInventoryHost.TryAddItem"/> 在 <see
+        /// cref="InventoryFullPolicy.Partial"/> 下必须如实返回实际落地量（这里是 5——已有 5、
+        /// stackSize=5、MaxSlots=1，请求 8 只能续填满当前这一个堆叠），不能把请求的 8 原样当作
+        /// 实际量返回给调用方（见 <see cref="Core.Gameplay.Common.RewardDispatcher.GrantItems"/>
+        /// 判断记录——这正是 C05 的根因）。</summary>
+        [Fact]
+        public void TryAddItem_MaxSlotsPartial_ReturnsActualAddedCount_NotRequestedCount()
+        {
+            var options = new InventoryOptions { MaxSlots = 1, FullPolicy = InventoryFullPolicy.Partial };
+            var host = BuildHost(out _, options, stackSize: 5);
+            var unit = new Id("player.hero");
+
+            Assert.True(host.AddItem(unit, new Id("item.sample_potion"), 3));
+
+            Assert.True(host.TryAddItem(unit, new Id("item.sample_potion"), 8, out var actualCount));
+            Assert.Equal(2, actualCount); // 3 -> 5（stackSize），只有 2 个真正落地，不是请求的 8。
+
+            var items = host.ListItems(unit);
+            Assert.Single(items);
+            Assert.Equal(5, items[0].Count);
+        }
+
+        /// <summary>C05 根治：<see cref="InventoryFullPolicy.Reject"/> 下 <see
+        /// cref="IInventoryHost.TryAddItem"/> 的实际量语义与既有 <see cref="IInventoryHost.AddItem"/>
+        /// 保持一致——失败时 actualCount=0（不产生任何变化），成功时 actualCount 恰好等于请求量。</summary>
+        [Fact]
+        public void TryAddItem_MaxSlotsReject_FailureReportsZeroActualCount()
+        {
+            var options = new InventoryOptions { MaxSlots = 1, FullPolicy = InventoryFullPolicy.Reject };
+            var host = BuildHost(out _, options, stackSize: 5);
+            var unit = new Id("player.hero");
+
+            Assert.False(host.TryAddItem(unit, new Id("item.sample_potion"), 8, out var actualCount));
+            Assert.Equal(0, actualCount);
+            Assert.Empty(host.ListItems(unit));
+
+            Assert.True(host.TryAddItem(unit, new Id("item.sample_potion"), 5, out var actualCount2));
+            Assert.Equal(5, actualCount2);
+        }
+
         [Fact]
         public void RemoveItem_PartialReducesCount()
         {

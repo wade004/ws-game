@@ -573,9 +573,25 @@ namespace Core.Gameplay.Quest
 
         /// <summary>从 <paramref name="unitId"/> 背包移除总计 <paramref name="count"/> 个
         /// <paramref name="templateId"/> 物品（跨堆叠），返回是否实际移除了完整数量（N11 根治：调用方
-        /// 必须以此返回值为准，不能假定"进度缓存显示已达标"就等于"物品还在背包里"）。</summary>
+        /// 必须以此返回值为准，不能假定"进度缓存显示已达标"就等于"物品还在背包里"）。
+        /// <para>
+        /// C06 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：此前边遍历边改——
+        /// 数量不足以凑满 <paramref name="count"/> 时，已经扫到的那部分仍然会被真正移除，只是最终
+        /// 返回值是 false；调用方（<see cref="HandleItemAdded"/> 的 <c>ConsumeOnProgress</c> 分支、
+        /// <see cref="TurnIn"/> 步骤 2）都把 false 当作"这次没有发生任何变化"处理——本方法在多个
+        /// 目标共享同一模板、逐个调用时会出现"实际扣了物品但没有记入任何进度、也没有被回滚"的净
+        /// 丢失（见该问题两条复现路径）。改为"先规划再执行"：先用 <see cref="IInventoryHost.CountOf"/>
+        /// 核验总量是否足够，不够直接返回 false、不触碰背包任何状态；核验通过后再真正移除——此时
+        /// 单线程调用下背包状态与刚才核验时一致，移除必然能凑满整数量，不会再出现"部分移除后失败"
+        /// 的中间态。</para>
+        /// </summary>
         private bool RemoveCollectedItems(Id unitId, Id templateId, int count)
         {
+            if (_inventoryHost.CountOf(unitId, templateId) < count)
+            {
+                return false;
+            }
+
             var remaining = count;
             foreach (var item in _inventoryHost.ListItems(unitId))
             {

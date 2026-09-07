@@ -118,6 +118,20 @@ spawn/
    对这些刷新点不生效——实体明明还活着，不该有倒计时；快照没有提到该刷新点时仍然补建一条记录、
    至少计数为 1，保证映射不丢失）。见 `SpawnHost.cs`（`Load`）、
    `SpawnPersistableTests.cs`（`SameHost_SaveThenLoadWhileEntityStillAlive_...`）。
+9. **C11 收口（外部审核 7e63d66），限定判断记录 8"存活中不该有倒计时"的适用范围**——判断记录 8
+   把"快照的 `respawn_remaining` 对存活实体不生效"当成通用规则，但这只对"快照本身也认为该刷新点
+   当前存活（没有记录 `respawn_remaining`）"的情形成立。同图读档场景下还存在另一种可能：存档那一
+   刻这个刷新点其实是"已死亡、倒计时到一半"（快照记录了 `respawn_remaining`），但存档之后、读档
+   之前，玩家在当前这局未重载的会话里眼看着倒计时结束、刷新点重新生成了一个新的存活实体——旧
+   实现无条件按判断记录 8 重绑并清空倒计时，等于让"读档当下世界里恰好有个存活实体"这一事实覆盖了
+   快照明确记录的"应该是死亡计时中"这一权威状态，倒计时被静默丢弃。拍板（同 08 第 8 节补充的判断
+   记录）：**快照的倒计时优先于读档当下的世界状态**——`Load` 现在只在快照没有记录
+   `respawn_remaining` 时才重绑 `previouslyAlive` 里的实体并清空倒计时；快照记录了
+   `respawn_remaining` 时直接采用快照值，不重绑那个实体（它变成不再被任何刷新点追踪的孤儿——
+   本类没有销毁实体的能力，这份存活状态本身不受影响，只是不再被这个刷新点继续追踪，代价见该
+   方法判断记录）。见 `SpawnHost.cs`（`Load`）、
+   `GameplayAssemblySpawnTimerSameMapReloadTests.cs`
+   （`SavedRespawnTimer_SurvivesSameMapReload_EvenWhenCurrentSessionAlreadyRespawnedANewEntity`）。
 
 ## 不负责什么
 

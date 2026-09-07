@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Core.Carriers.Common;
+using Core.Carriers.Item;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
+using Core.Foundation.DataRegistry;
+using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
 using Core.Gameplay.WorldState;
 using Core.Numbers.Progression;
@@ -168,6 +172,96 @@ namespace Tests.Gameplay.Common
             Assert.False(granted);
             // 第一件药水已经被回滚，背包里不应再有它。
             Assert.Equal(0, inventory.CountOf(Unit, new Id("item.healing_potion")));
+        }
+
+        // -------------------------------------------------------------
+        // C05 复现与根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：
+        // Partial 策略下少量加入仍返回成功，此前 GrantItems 按"请求量"而不是"实际落地量"回滚，
+        // 会把这一批发放之前就已存在的同模板堆叠也一并删掉。用真实 Core.Carriers.Item.InventoryHost
+        // （FakeInventoryHost 不支持 Partial 部分吞没语义，覆盖不到这个问题），复现 CORE-B 的确切
+        // 输入：MaxSlots=1、FullPolicy=Partial、已有 A5、堆叠上限 10，奖励 [A10,B1]。
+        // -------------------------------------------------------------
+
+        private static IEventBus CreateRealBus()
+        {
+            var catalog = EventCatalog.FromDefinitions(new[]
+            {
+                new EventDefinition(CarriersEventKeys.ItemAdded, "item", new[] { "unitId", "itemInstanceId", "itemTemplateId", "count" }),
+                new EventDefinition(CarriersEventKeys.ItemRemoved, "item", new[] { "unitId", "itemInstanceId", "count", "reason" }),
+                new EventDefinition(DataRegistryEventKeys.LoadCompleted, "data", new[] { "tableCount", "recordCount", "errorCount", "warningCount" }),
+                new EventDefinition(DataRegistryEventKeys.ValidationFailed, "data", new[] { "errorCount", "warningCount" }),
+            });
+            return new EventBus(catalog);
+        }
+
+        private static DataRegistry BuildRealItemRegistry(IEventBus bus)
+        {
+            string Table(string name, string rows) => "{\"table\":\"" + name + "\",\"schema_version\":1,\"rows\":" + rows + "}";
+
+            var source = new InMemoryDataSource()
+                .Add("item.slot_definition", Table("item.slot_definition",
+                    "[{\"id\":\"item.slot.consumable\",\"name_key\":\"l10n.slot.consumable\"}]"))
+                .Add("item.quality_definition", Table("item.quality_definition",
+                    "[{\"id\":\"item.quality.common\",\"name_key\":\"l10n.quality.common\"}]"))
+                .Add("item.template", Table("item.template", "["
+                    + "{\"id\":\"item.a\",\"slot\":\"item.slot.consumable\",\"quality\":\"item.quality.common\",\"item_level\":1,\"display_ref\":\"display.item.a\",\"stack_size\":10,\"name_key\":\"l10n.item.a\"},"
+                    + "{\"id\":\"item.b\",\"slot\":\"item.slot.consumable\",\"quality\":\"item.quality.common\",\"item_level\":1,\"display_ref\":\"display.item.b\",\"stack_size\":10,\"name_key\":\"l10n.item.b\"}]"));
+
+            var registry = new DataRegistry(source, bus);
+            registry.RegisterSchema(ItemSchemas.Template);
+            registry.RegisterSchema(ItemSchemas.SlotDefinition);
+            registry.RegisterSchema(ItemSchemas.QualityDefinition);
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking, string.Join(";", report.Issues.Select(i => i.ToString())));
+            return registry;
+        }
+
+        /// <summary>C05 复现：Partial 策略下第一项（A）只能续填 5（10 全部落地会超出容量），第二项
+        /// （B）完全放不下、失败——整批因此回滚。修复前：回滚按请求量 10 移除 A，越过实际只加入的 5，
+        /// 把发放前就已存在的 A5 也一并删空（变成 A0）。修复后：回滚只按实际落地量 5 移除，A 精确
+        /// 回到发放前的 A5。</summary>
+        [Fact]
+        public void Grant_PartialPolicy_SecondItemFails_RollsBackOnlyActuallyAddedAmount_NotPreExistingStock()
+        {
+            var bus = CreateRealBus();
+            var registry = BuildRealItemRegistry(bus);
+            var inventory = new InventoryHost(registry, bus, new InventoryOptions { MaxSlots = 1, FullPolicy = InventoryFullPolicy.Partial });
+            inventory.AddItem(Unit, new Id("item.a"), 5);
+            Assert.Equal(5, inventory.CountOf(Unit, new Id("item.a")));
+
+            var dispatcher = new Core.Gameplay.Common.RewardDispatcher(inventory: inventory);
+            var bundle = new Core.Gameplay.Common.RewardBundle(
+                items: new[] { new ItemStack(new Id("item.a"), 10), new ItemStack(new Id("item.b"), 1) },
+                xp: 0, currency: Array.Empty<(Id, long)>(), skills: Array.Empty<Id>(),
+                worldFlags: Array.Empty<(Id, ExprValue)>(), talentPoints: 0);
+
+            var granted = dispatcher.Grant(Unit, bundle, Source);
+
+            Assert.False(granted);
+            Assert.Equal(5, inventory.CountOf(Unit, new Id("item.a"))); // 精确回到发放前，不是 0。
+            Assert.Equal(0, inventory.CountOf(Unit, new Id("item.b")));
+        }
+
+        /// <summary>回归：Reject 策略下（本就是"要么整批全加、要么整批不加"的语义）用真实
+        /// InventoryHost 验证整批原子失败仍然成立——确保 C05 的改动没有破坏 Reject 既有行为。</summary>
+        [Fact]
+        public void Grant_RejectPolicy_SecondItemFails_WholeBatchAtomicallyFails_WithRealInventoryHost()
+        {
+            var bus = CreateRealBus();
+            var registry = BuildRealItemRegistry(bus);
+            var inventory = new InventoryHost(registry, bus, new InventoryOptions { MaxSlots = 1, FullPolicy = InventoryFullPolicy.Reject });
+
+            var dispatcher = new Core.Gameplay.Common.RewardDispatcher(inventory: inventory);
+            var bundle = new Core.Gameplay.Common.RewardBundle(
+                items: new[] { new ItemStack(new Id("item.a"), 5), new ItemStack(new Id("item.b"), 1) },
+                xp: 0, currency: Array.Empty<(Id, long)>(), skills: Array.Empty<Id>(),
+                worldFlags: Array.Empty<(Id, ExprValue)>(), talentPoints: 0);
+
+            var granted = dispatcher.Grant(Unit, bundle, Source);
+
+            Assert.False(granted);
+            Assert.Equal(0, inventory.CountOf(Unit, new Id("item.a")));
+            Assert.Equal(0, inventory.CountOf(Unit, new Id("item.b")));
         }
 
         [Fact]

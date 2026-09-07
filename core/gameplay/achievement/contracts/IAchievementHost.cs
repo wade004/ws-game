@@ -26,5 +26,14 @@ namespace Core.Gameplay.Achievement
 
         /// <summary><paramref name="unitId"/> 是否已解锁 <paramref name="achievementId"/>。</summary>
         bool IsUnlocked(Id unitId, Id achievementId);
+
+        /// <summary>
+        /// C04 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：重试
+        /// <paramref name="unitId"/> 全部处于"达成条件已满足、但发放奖励此前失败（如背包已满）"状态
+        /// 的成就——见 <c>AchievementHost</c> 判断记录。供调用方在推断发放前置条件已恢复后（如清理
+        /// 背包空间）主动调用；幂等，可反复调用。返回本次调用真正转为解锁状态的成就 id 列表（可能
+        /// 为空）。
+        /// </summary>
+        IReadOnlyList<Id> RetryPendingRewards(Id unitId);
     }
 }

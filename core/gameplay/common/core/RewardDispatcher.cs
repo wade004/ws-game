@@ -69,10 +69,18 @@ namespace Core.Gameplay.Common
         /// <summary>发放 <paramref name="bundle"/> 里的物品奖励，返回是否全部发放成功。<see
         /// cref="_inventory"/>.<c>AddItem</c> 在 <c>InventoryFullPolicy.Reject</c> 下要么完整加入
         /// <c>stack.Count</c>、要么完全不产生任何变化（见 <c>InventoryHost.AddItem</c> 判断记录 2"先
-        /// 算容量够不够，再决定是否落地任何变化"），因此某一项失败时，之前已成功的各项一定是"整份
-        /// 加入"的，可以按同一 <c>(templateId, count)</c> 精确回滚（找到对应数量的堆叠移除）。
-        /// <c>InventoryFullPolicy.Partial</c> 下 <c>AddItem</c> 可能吞掉超出部分仍返回 true——这种
-        /// "缩水但不失败"不属于本方法要处理的失败模式，是该策略本身的既有语义。</summary>
+        /// 算容量够不够，再决定是否落地任何变化"）；<c>InventoryFullPolicy.Partial</c> 下可能只加入
+        /// 一部分仍返回成功（该策略本身的既有语义，"缩水但不失败"不属于本方法要处理的失败模式）。
+        /// <para>
+        /// C05 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：此前回滚按"请求
+        /// 数量" <c>stack.Count</c> 精确移除——Reject 策略下请求量恒等于实际落地量，没有问题；但
+        /// Partial 策略下二者可能不等（少量加入仍返回 true），某一项失败触发整批回滚时，会把之前
+        /// Partial 少加的那一项按"请求量"移除，越过实际落地量、多删到该批发放之前就已经存在的同
+        /// 模板堆叠。改用 <see cref="IInventoryHost.TryAddItem"/> 取得每一项的实际落地量
+        /// <c>actualCount</c>，回滚按实际量而不是请求量移除，保证失败整批回滚后背包精确回到"这次
+        /// <see cref="Grant"/> 调用之前"的状态，不多不少。
+        /// </para>
+        /// </summary>
         private bool GrantItems(Id unitId, RewardBundle bundle)
         {
             if (bundle.Items.Count == 0)
@@ -90,13 +98,16 @@ namespace Core.Gameplay.Common
             var granted = new List<(Id TemplateId, int Count)>();
             foreach (var stack in bundle.Items)
             {
-                if (_inventory.AddItem(unitId, stack.TemplateId, stack.Count))
+                if (_inventory.TryAddItem(unitId, stack.TemplateId, stack.Count, out var actualCount))
                 {
-                    granted.Add((stack.TemplateId, stack.Count));
+                    if (actualCount > 0)
+                    {
+                        granted.Add((stack.TemplateId, actualCount));
+                    }
                     continue;
                 }
 
-                // 回滚已发放部分。
+                // 回滚已发放部分——按实际落地量，不是请求量（见本方法判断记录）。
                 foreach (var prior in granted)
                 {
                     RemoveByTemplate(_inventory, unitId, prior.TemplateId, prior.Count);

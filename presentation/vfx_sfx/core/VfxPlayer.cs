@@ -326,6 +326,7 @@ namespace Presentation.VfxSfx.Core
                 return;
             }
 
+            var timedOutAny = false;
             for (var i = _pendingSpawns.Count - 1; i >= 0; i--)
             {
                 var pending = _pendingSpawns[i];
@@ -333,10 +334,24 @@ namespace Presentation.VfxSfx.Core
                 if (pending.TimeoutRemaining <= 0)
                 {
                     _pendingSpawns.RemoveAt(i);
+                    timedOutAny = true;
                     _diagnostics.Warn(
                         $"vfx \"{pending.VfxId}\" 等待资源 \"{pending.ResourceRef}\" 加载超时" +
                         $"（{_options.FirstLoadTimeoutSeconds}s），丢弃这次排队的播放请求");
                 }
+            }
+
+            // C07 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：此前超时分支
+            // 只从 _pendingSpawns 摘除、记诊断，未触发 PendingSpawnCountChanged——同 <see
+            // cref="OnResourceLoadCompleted"/> 的 N17 判断记录同款问题：PendingSpawnCount 由非零变
+            // 零/减少却没有对应信号，CompositeFeedbackSink → FeedbackBinder 的
+            // wait_for_playback/节奏门链路收不到"该重新检查一次是否已经播完"的通知，Sequential 模式
+            // 下节奏门可能永久卡在这一步、Immediate 模式下永远等不到解门信号。改为同 <see
+            // cref="OnResourceLoadCompleted"/> 一致的做法：只要本次调用确实摘除过任何一项，就触发
+            // 一次 <see cref="PendingSpawnCountChanged"/>。
+            if (timedOutAny)
+            {
+                PendingSpawnCountChanged?.Invoke();
             }
         }
 

@@ -695,6 +695,15 @@ namespace Adapter.Unity.Shell
             // 播放"。
             RunPresentationStep(() => Presentation.Vfx.Update(unscaledDelta));
 
+            // C07 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：
+            // Presentation.VfxSfx.Core.SfxPlayer 此前没有任何时钟驱动入口——首次冷音效加载迟迟不
+            // 回调的排队请求只在下一次 Play 调用开头惰性扫一遍（见 SfxPlayer.
+            // SweepTimedOutPendingPlays 判断记录），若节奏门已关闭且此后没有新的 Play 调用，卡死的
+            // 加载请求永远不会被扫到、PendingPlayCountChanged 永远不会因超时而触发。同上面
+            // Presentation.Vfx.Update 一样不受下面 renderTicking 门槛限制——超时清理与是否在
+            // InWorld/Pause 无关。
+            RunPresentationStep(() => Presentation.Sfx.Update(unscaledDelta));
+
             // 拍板 5/DECISIONS 收口（离散回放门生产实测）：presentation/feedback_binder/README.md
             // 判断记录 9"此前 Unity 引导侧'靠零事件兜底短路'的临时手法已随本次收口废弃"——原 H4 在
             // 此处补的"WaitForPlaybackPacingPolicy 下 PendingCount==0 时主动调用

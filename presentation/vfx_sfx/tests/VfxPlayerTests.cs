@@ -398,5 +398,39 @@ namespace Tests.Presentation.VfxSfx
             player.Update(2.5);
             Assert.Equal(0, player.PendingSpawnCount);
         }
+
+        /// <summary>
+        /// C07 复现与根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：此前超时
+        /// 分支只从 <c>_pendingSpawns</c> 摘除、记诊断，从不触发 <see
+        /// cref="IVfxPlayer.PendingSpawnCountChanged"/>——<see cref="PendingSpawnCount_ZeroAfterTimeout"/>
+        /// 只断言计数归零，没有断言事件确实发出过，覆盖不到这个问题。<c>CompositeFeedbackSink</c>
+        /// 把该事件汇聚成 <c>IFeedbackSink.PendingPlaybackChanged</c>，<c>FeedbackBinder</c> 借此在
+        /// 冷资源"真正完成"（含超时丢弃）那一刻补一次完成检查——不触发的话 Sequential 模式下节奏门
+        /// 可能永久卡住、Immediate 模式下永远等不到解门信号（见 <c>FeedbackBinder.
+        /// TryPublishFinished</c> 判断记录）。本用例断言超时恰好触发一次该事件。
+        /// </summary>
+        [Fact]
+        public void Update_TimesOut_TriggersPendingSpawnCountChanged_Once()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var options = new VfxOptions { FirstLoadTimeoutSeconds = 2.0 };
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), options: options, resourceLoader: loader);
+
+            player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+
+            var changedCount = 0;
+            player.PendingSpawnCountChanged += () => changedCount++;
+
+            player.Update(1.0);
+            Assert.Equal(0, changedCount); // 还没到超时，不应该有任何信号。
+
+            player.Update(1.5); // 累计 2.5s，超过超时阈值——恰好触发一次。
+            Assert.Equal(1, changedCount);
+            Assert.Equal(0, player.PendingSpawnCount);
+
+            player.Update(1.0); // 已经没有 pending 项了，后续 Update 不应再触发。
+            Assert.Equal(1, changedCount);
+        }
     }
 }

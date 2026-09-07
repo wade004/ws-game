@@ -23,9 +23,13 @@ namespace Core.Gameplay.Death
     /// <item><c>reload_save</c>：经 <see cref="DeathPolicyOptions.ReloadSave"/>（未装配时退化为直接
     /// 调用 <c>ISaveSystem.Load(AutosaveSlotId)</c>）读档——读档本身会按 10 号文档固定顺序恢复全部
     /// 已注册段（含玩家位置/存活状态/生命值——见 <c>Core.Gameplay.Assembly.PlayerVitalsPersistable</c>、
-    /// 目标地图与当前地图不同时的场景切换——见 <c>Core.Gameplay.Assembly.GameplayAssembly.RestoreFromSlot</c>），
-    /// 不需要本模块额外处理；读档失败（如尚无可用自动存档）时回退到 <c>respawn_point</c> 策略同一
-    /// 套默认复活点逻辑，见 <see cref="OnUnitDied"/> 判断记录。</item>
+    /// 目标地图与当前地图不同时的场景切换——见 <c>Core.Gameplay.Assembly.GameplayAssembly.RestoreFromSlot</c>）。
+    /// C12 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：读档成功后本模块
+    /// 仍需额外发布一次 <see cref="UnitRespawnedEvent"/>（见 <see cref="OnUnitDied"/> 判断记录）——
+    /// 同图读档（不触发场景切换）不会销毁重建任何实体/View，表现层依赖这个事件才能清理"死亡"这一
+    /// 终态锁，否则逻辑层早已恢复存活、表现层却还停在死亡姿态；读档失败（如尚无可用自动存档）时
+    /// 回退到 <c>respawn_point</c> 策略同一套默认复活点逻辑，见 <see cref="OnUnitDied"/> 判断
+    /// 记录。</item>
     /// <item><c>permadeath</c>：删除"当前槽"（<see cref="DeathPolicyOptions.CurrentSlotIdProvider"/>
     /// 未提供时回退 <see cref="DeathPolicyOptions.AutosaveSlotId"/>）后请求
     /// <see cref="IAppStateHost.RequestTransition"/> 切到 <see cref="AppState.MainMenu"/>。</item>
@@ -121,6 +125,30 @@ namespace Core.Gameplay.Death
                             $"DeathPolicyHost（reload_save）：读取存档槽 \"{_options.AutosaveSlotId}\" 失败，状态 {loadResult.Status}，" +
                             "回退到 respawn_point 策略在死亡地图的默认复活点复活");
                         EnqueueRespawn(evt);
+                    }
+                    else
+                    {
+                        // C12 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：
+                        // 读档成功（含 LoadedFromBackup）分支此前只调用 Load 本身——读档确实已经把
+                        // 存活状态/生命值/位置等全部已注册段恢复到位（见 PlayerVitalsPersistable、
+                        // GameplayAssembly.RestoreFromSlot 判断记录"同图不切场景时……直接把全部已
+                        // 注册段写回长期存活的 PlayerUnit/Unit 运行期对象，不需要任何重新进图步骤
+                        // 即可生效"），但从未发布 UnitRespawnedEvent——表现层的动画状态机把
+                        // UnitDiedEvent 当成优先级最高的终态锁，只认明确的复活信号才会解锁（见 08
+                        // 第 10 节本次同款判断记录），没有这个信号，同图读档（不触发场景切换、不
+                        // 销毁重建 View）的玩家会一直卡在死亡动画姿态，即便已经可以正常行动。
+                        // 跨地图读档（触发场景切换）不受影响——ClearAll 销毁重建过程本身就会让旧
+                        // View 连同其动画状态机记账一起被清理，新 View 从默认待机姿态开始。
+                        //
+                        // 判断记录（Enqueue 而不是 PublishImmediate）：本方法正在处理的是
+                        // UnitDiedEvent 自己的订阅回调，仍处于那一次 unit.died PublishImmediate
+                        // 派发的调用栈内——若在这里同步 PublishImmediate 一个 UnitRespawnedEvent，
+                        // 其它同样订阅了 unit.died、但订阅顺序晚于本处理器的下游（如表现层的动画
+                        // 状态机）还没轮到处理这次死亡，随后才会把状态置为死亡，会把这里刚发的复活
+                        // 信号原地覆盖掉。改用 Enqueue：入队等当前这一批 unit.died 全部订阅方都处理
+                        // 完毕之后，由外层下一次 DispatchPending 才真正派发，保证复活信号严格晚于
+                        // 本次死亡结算的全部下游处理，不会被后到的死亡处理覆盖。
+                        _bus.Enqueue(new UnitRespawnedEvent(evt.UnitId, RespawnPolicy.ReloadSave));
                     }
 
                     break;

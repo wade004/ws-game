@@ -243,14 +243,25 @@ namespace Core.Gameplay.Encounter
             }
 
             // 4) 胜负判定。
+            //
+            // C04 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：此前先把
+            // IsActive 置 false、发布 EncounterWonEvent，再调用 Grant 却不检查返回值——满背包
+            // （InventoryFullPolicy.Reject）时 Grant 返回 false，物品奖励一件都没发出去，但胜利
+            // 状态已经终结、事件已经发出，玩家没有任何补领入口，奖励永久丢失。改为"发奖成功后再
+            // 提交终态"：Grant 失败时本次 Evaluate 不改变任何状态、不发布 EncounterWonEvent，实例
+            // 保持 IsActive=true——下一次 Evaluate（战斗/主循环持续调用）胜负条件仍然为真，会重新
+            // 尝试发奖，直到玩家清出背包空间、Grant 成功那一次才真正终结实例、发布事件。不需要额外
+            // 的持久化"待领奖"状态：Evaluate 本就是被外部循环反复调用的推进函数，失败只是"这次
+            // Evaluate 什么都没发生"，天然可重试、天然幂等（IsActive 仍为 true，胜负条件不变，
+            // 下次调用会走到同一个分支重新尝试，不会重复发已经发过的奖励，因为只有 Grant 成功后才
+            // 会推进到"消费"这一步）。
             if (ExprEvaluator.EvaluateBool(def.VictoryCondition, host, _diagnostics))
             {
-                instance.IsActive = false;
-                if (!def.Rewards.IsEmpty)
+                if (def.Rewards.IsEmpty || _rewardDispatcher.Grant(instance.PlayerUnitId, def.Rewards, def.Id))
                 {
-                    _rewardDispatcher.Grant(instance.PlayerUnitId, def.Rewards, def.Id);
+                    instance.IsActive = false;
+                    _bus.PublishImmediate(new EncounterWonEvent(instanceId));
                 }
-                _bus.PublishImmediate(new EncounterWonEvent(instanceId));
                 return;
             }
 

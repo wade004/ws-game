@@ -87,6 +87,28 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
    不保证触发时已经归零，调用方（`CompositeFeedbackSink`）必须自行重新读取判断真实状态。见
    `IVfxPlayer.cs`/`ISfxPlayer.cs`/`VfxPlayer.cs`/`SfxPlayer.cs`。
 
+10. **C07 收口（外部审核 7e63d66）：补上判断记录 9 遗漏的"超时"这一路径，`ISfxPlayer` 新增独立
+    `Update` 时钟入口**——判断记录 9 只覆盖了"加载成功/失败"两种结局触发事件，`VfxPlayer.Update`
+    自己的首次加载超时清理分支（判断记录 7 的 `FirstLoadTimeoutSeconds` 到期，典型场景：
+    `resource_ref` 拼写错误或资源确实缺失，加载请求永远不会回调）只从 `_pendingSpawns` 移除、记
+    诊断，从未触发 `PendingSpawnCountChanged`——`PendingSpawnCount` 由非零变零/减少却没有对应
+    信号，下游（`CompositeFeedbackSink`/`FeedbackBinder`）收不到"该重新检查一次是否已经播完"的
+    通知，`wait_for_playback` 链在这一分支下会永久卡住。`SfxPlayer` 一侧问题更深：判断记录 7 提到
+    的"惰性扫过期项"（`SweepTimedOutPendingPlays` 只在下一次任意 `Play` 调用开头被调用）意味着
+    `ISfxPlayer` 完全没有独立于 `Play` 的时钟入口——若节奏门已经关闭、此后没有任何新的 `Play`
+    调用（这一步唯一的音效就是这条冷资源，没有后续动作），卡死的加载请求永远不会被扫到，
+    `PendingPlayCountChanged` 永远不会因超时而触发。现在：`VfxPlayer.Update` 的超时分支补发一次
+    `PendingSpawnCountChanged`（同 `OnResourceLoadCompleted` 一致的"只要本次调用确实摘除过任何一
+    项就触发一次"）；`ISfxPlayer` 新增 `Update(double dt)`（同 `IVfxPlayer.Update` 签名，供引擎侧
+    统一逐帧驱动——生产接线见 `adapters/unity/.../FrameworkResidentHost.cs` 新增的
+    `Presentation.Sfx.Update(dt)` 调用，与既有的 `Presentation.Vfx.Update(dt)` 各自独立、同一惯例），
+    `SfxPlayer.Update` 直接复用既有 `SweepTimedOutPendingPlays`（内部已经在真正摘除任何一项时触发
+    事件），不依赖下一次 `Play` 调用。见 `IVfxPlayer.cs`（`Update` 判断记录补充）/`ISfxPlayer.cs`
+    （新增 `Update`）/`VfxPlayer.cs`/`SfxPlayer.cs`，`VfxPlayerTests.cs`
+    （`Update_TimesOut_TriggersPendingSpawnCountChanged_Once`）、`SfxPlayerTests.cs`
+    （`Update_TimesOut_TriggersPendingPlayCountChanged_WithoutAnyFurtherPlayCall`）、
+    `presentation/feedback_binder/README.md` 判断记录 13（端到端真实链路用例）。
+
 ## 不负责什么
 
 - 不接入 `data/_sample/`：本任务不新增示例数据文件，`schema/VfxSfxSchemas` 只声明表结构，测试用

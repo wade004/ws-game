@@ -8,6 +8,7 @@ using Presentation.VfxSfx.Contracts;
 using Presentation.VfxSfx.Core;
 using Xunit;
 using FeedbackBinderCore = Presentation.FeedbackBinder.Core.FeedbackBinder;
+using CompositeFeedbackSink = Presentation.FeedbackBinder.Core.CompositeFeedbackSink;
 
 namespace Tests.Presentation.FeedbackBinder
 {
@@ -369,6 +370,71 @@ namespace Tests.Presentation.FeedbackBinder
             sink.RaisePendingPlaybackChanged();
 
             Assert.Equal(1, finishedCount); // 冷资源清空后应补发一次，不是"Immediate 永远不发"。
+        }
+
+        /// <summary>
+        /// C07 复现与根治，端到端真实链路（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：
+        /// 不用 <see cref="RecordingFeedbackSink"/> 手工模拟 pending（那样测不出真实 <c>SfxPlayer</c>
+        /// 超时链路本身是否真的接上了），改用真实 <c>SfxPlayer</c>（<c>StubResourceLoader</c>
+        /// <c>DeferCallbacks=true</c> 且全程不调用 CompletePending/FailPending，模拟资源确实缺失/
+        /// 拼写错误——永不回调）+ 真实 <c>CompositeFeedbackSink</c> + 真实 <c>FeedbackBinder</c> 串联
+        /// 完整链路：<c>play_sfx</c> 命中冷资源 → Sequential 队列执行完但 sink 仍 pending → 节奏门
+        /// 不开 → 只靠 <see cref="ISfxPlayer.Update"/>（不调用第二次 <see cref="ISfxPlayer.Play"/>）
+        /// 推进到超时 → <c>SfxPlayer</c> 内部超时清理 → <c>PendingPlayCountChanged</c> →
+        /// <c>CompositeFeedbackSink.PendingPlaybackChanged</c> → <c>FeedbackBinder.
+        /// TryPublishFinished</c> → 恰好发布一次 <c>PlaybackFinishedEvent</c>。这正是
+        /// wait_for_playback 节奏门在真实冷资源永久加载失败场景下唯一的收敛路径——若 <c>SfxPlayer</c>
+        /// 没有独立于 <c>Play</c> 的时钟入口，这条链路会在没有后续 <c>Play</c> 调用时永久卡死。
+        /// </summary>
+        [Fact]
+        public void QueueMode_Sequential_RealSfxPlayerColdResourceTimesOut_FiresPlaybackFinishedExactlyOnce_ViaUpdateOnly()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sfxLoader = new Adapters.Stub.StubResourceLoader { DeferCallbacks = true };
+            var sfxId = new Id("sfx.sample_cold");
+            var sfxCatalog = new Dictionary<Id, SfxDef>
+            {
+                [sfxId] = new SfxDef(sfxId, "combat", null, null, new Id("res.sample_cold_hit")),
+            };
+            // SfxPlayer 的超时判定按墙钟时间戳（DateTime.UtcNow），不是按 Update 的 dt 累计（见
+            // ISfxPlayer.Update 判断记录），FirstLoadTimeoutSeconds=0 使 Play 那一刻的截止时间就是
+            // "此刻"，任何之后调用的 Update（哪怕只过了几微秒的真实墙钟时间）都会判定已超时——同
+            // SfxPlayerTests 里既有超时用例的惯例。
+            var sfxOptions = new SfxOptions { FirstLoadTimeoutSeconds = 0.0 };
+            var sfx = new SfxPlayer(new Adapters.Stub.StubAudio(), new Core.Foundation.Rng.RngHost(1), sfxCatalog, options: sfxOptions, resourceLoader: sfxLoader);
+            var vfx = new VfxPlayer(new Adapters.Stub.StubRenderer2D(), new Adapters.Stub.StubCamera(), new Dictionary<Id, VfxDef>());
+            var sink = new CompositeFeedbackSink(
+                vfx, sfx,
+                onFloatingText: (_, __, ___) => { },
+                onFreeze: _ => { },
+                onShakeCamera: _ => { },
+                onFlash: (_, __) => { });
+
+            var rules = LoadRules(FeedbackBinderTestSupport.PlaySfxOnlyRuleRow); // sfx_id = sfx.sample_cold
+
+            var finishedCount = 0;
+            bus.Subscribe(EventKeys.PresentationPlaybackFinished, _ => finishedCount++);
+
+            var options = new FeedbackOptions { QueueMode = QueueMode.Sequential, SequentialStepSeconds = 0.01 };
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink, options: options);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 5.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            binder.Update(0.01); // 队列执行完这唯一的 play_sfx 动作——它命中冷资源，SfxPlayer 排队等待。
+            Assert.True(sink.HasPendingPlayback, "冷资源仍在加载，尚未超时");
+            Assert.Equal(0, finishedCount); // 队列已空但 sink 仍 pending，节奏门不应打开。
+
+            // 只推进 SfxPlayer 自己的时钟（同生产 FrameworkResidentHost.OnFrameTick 里
+            // Presentation.Sfx.Update(dt) 与 Presentation.Feedback.Update(dt) 各自独立调用的既有
+            // 接线），全程不再调用任何 Play——超时必须完全靠这一个独立入口被发现。
+            sfx.Update(0.1); // 累计超过 FirstLoadTimeoutSeconds=0.05，触发超时清理。
+
+            Assert.False(sink.HasPendingPlayback, "超时后应视为不再 pending");
+            Assert.Equal(1, finishedCount); // 恰好发布一次，不多不少。
+
+            sfx.Update(0.1); // 已经没有 pending 项了，不应再重复发布。
+            Assert.Equal(1, finishedCount);
         }
 
         [Fact]

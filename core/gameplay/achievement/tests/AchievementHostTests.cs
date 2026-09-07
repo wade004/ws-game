@@ -1,9 +1,14 @@
 using System;
+using System.Linq;
 using Core.Carriers.Common;
+using Core.Carriers.Item;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
+using Core.Foundation.DataRegistry;
+using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
 using Core.Gameplay.Achievement;
+using Core.Gameplay.Common;
 using Core.Rules.Common;
 using Xunit;
 
@@ -269,6 +274,95 @@ namespace Tests.Gameplay.Achievement
             var onceGrants = rewards.Grants.FindAll(g => g.SourceId.Equals(new Id("achv.sample_once")));
             Assert.Single(onceGrants);
             Assert.Equal(1, onceUnlockedCount);
+        }
+
+        /// <summary>
+        /// C04 复现与根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：达成条件
+        /// 满足但物品奖励因背包已满（<c>InventoryFullPolicy.Reject</c>）而 <c>Grant</c> 返回 false
+        /// ——旧实现仍先把 key 写进 <c>_unlocked</c> 再调用 Grant，忽略返回值，奖励永久丢失、
+        /// <c>IsUnlocked</c> 却已经报告"已解锁"。根治后：Grant 失败时不写 <c>_unlocked</c>、不发
+        /// <see cref="AchievementUnlockedEvent"/>，记入待领奖集合；<see
+        /// cref="IAchievementHost.RetryPendingRewards"/> 是本类型（不像 <c>EncounterHost.Evaluate</c>
+        /// 那样有天然的周期性重新求值入口）的显式重试通道——玩家清出背包空间后调用一次，恰好补发
+        /// 一次奖励、正式转为解锁状态；此后再调用不会重复发放（幂等）。用真实 <see
+        /// cref="Core.Carriers.Item.InventoryHost"/>（<c>MaxSlots=1</c>、<c>FullPolicy=Reject</c>，
+        /// 先塞满一个不同模板的物品占掉唯一格子）+ 真实 <see cref="RewardDispatcher"/>，不用
+        /// <see cref="FakeRewardDispatcher"/>（后者恒成功，测不出这个问题）。
+        /// </summary>
+        [Fact]
+        public void Unlock_RewardGrantFails_StaysLocked_RetryPendingRewardsGrantsExactlyOnceAfterRoomFreed()
+        {
+            const string RewardAchievementId = "achv.sample_item_reward";
+            var defRows = "[{\"id\": \"" + RewardAchievementId + "\", \"name_key\": \"l10n.achv.sample_item_reward.name\", " +
+                "\"criteria\": [{\"type\": \"kill_count\", \"observe_event\": \"unit.died\", " +
+                "\"target_ref\": \"creature.sample_monster\", \"count\": 1}], " +
+                "\"rewards\": {\"items\": [{\"itemId\": \"item.sample_reward\", \"count\": 1}]}}]";
+
+            var bus = TestSupport.CreateBus();
+            var registry = TestSupport.MakeRegistry(bus, defRows);
+            var units = new FakeUnitAccess();
+
+            var itemBus = new EventBus(EventCatalog.FromDefinitions(new[]
+            {
+                new EventDefinition(CarriersEventKeys.ItemAdded, "item", new[] { "unitId", "itemInstanceId", "itemTemplateId", "count" }),
+                new EventDefinition(CarriersEventKeys.ItemRemoved, "item", new[] { "unitId", "itemInstanceId", "count", "reason" }),
+                new EventDefinition(DataRegistryEventKeys.LoadCompleted, "data", new[] { "tableCount", "recordCount", "errorCount", "warningCount" }),
+                new EventDefinition(DataRegistryEventKeys.ValidationFailed, "data", new[] { "errorCount", "warningCount" }),
+            }));
+            string Table(string name, string rows) => "{\"table\":\"" + name + "\",\"schema_version\":1,\"rows\":" + rows + "}";
+            var itemSource = new InMemoryDataSource()
+                .Add("item.slot_definition", Table("item.slot_definition", "[{\"id\":\"item.slot.consumable\",\"name_key\":\"l10n.slot.consumable\"}]"))
+                .Add("item.quality_definition", Table("item.quality_definition", "[{\"id\":\"item.quality.common\",\"name_key\":\"l10n.quality.common\"}]"))
+                .Add("item.template", Table("item.template", "["
+                    + "{\"id\":\"item.filler\",\"slot\":\"item.slot.consumable\",\"quality\":\"item.quality.common\",\"item_level\":1,\"display_ref\":\"display.item.filler\",\"stack_size\":1,\"name_key\":\"l10n.item.filler\"},"
+                    + "{\"id\":\"item.sample_reward\",\"slot\":\"item.slot.consumable\",\"quality\":\"item.quality.common\",\"item_level\":1,\"display_ref\":\"display.item.sample_reward\",\"stack_size\":1,\"name_key\":\"l10n.item.sample_reward\"}]"));
+            var itemRegistry = new DataRegistry(itemSource, itemBus);
+            itemRegistry.RegisterSchema(ItemSchemas.Template);
+            itemRegistry.RegisterSchema(ItemSchemas.SlotDefinition);
+            itemRegistry.RegisterSchema(ItemSchemas.QualityDefinition);
+            var itemReport = itemRegistry.LoadAll();
+            Assert.False(itemReport.IsBlocking, string.Join(";", itemReport.Issues.Select(i => i.ToString())));
+
+            var inventory = new InventoryHost(itemRegistry, itemBus, new InventoryOptions { MaxSlots = 1, FullPolicy = InventoryFullPolicy.Reject });
+            inventory.AddItem(Player, new Id("item.filler"), 1); // 唯一格子被占满，奖励物品完全放不下。
+            var rewardDispatcher = new RewardDispatcher(inventory: inventory);
+
+            var host = new AchievementHost(
+                registry, bus, units, new FakeExprHostFactory(), rewardDispatcher, new AchievementOptions(() => Player));
+
+            var unlockedCount = 0;
+            bus.Subscribe<AchievementUnlockedEvent>(AchievementEventKeys.Unlocked, _ => unlockedCount++);
+
+            var monster = new Id("creature.inst_1");
+            units.SetTemplate(monster, MonsterTemplate);
+
+            // 达成条件成立，但 Grant 因背包已满失败——不应判定为已解锁，不应发 Unlocked。
+            host.Evaluate(new UnitDiedEvent(monster, Player));
+            Assert.False(host.IsUnlocked(Player, new Id(RewardAchievementId)));
+            Assert.Equal(0, unlockedCount);
+            Assert.Equal(0, inventory.CountOf(Player, new Id("item.sample_reward")));
+
+            // 背包状态未变时重试：仍然失败，仍然保持未解锁（不产生任何变化，可安全反复调用）。
+            var retried1 = host.RetryPendingRewards(Player);
+            Assert.Empty(retried1);
+            Assert.False(host.IsUnlocked(Player, new Id(RewardAchievementId)));
+
+            // 玩家清出空间：移除占位物品。
+            var fillerInstanceId = inventory.ListItems(Player).Single(i => i.TemplateId.Equals(new Id("item.filler"))).InstanceId;
+            inventory.RemoveItem(Player, fillerInstanceId, 1);
+
+            // 重试：Grant 成功，恰好转为解锁一次、恰好发一次 Unlocked、恰好拿到一次奖励物品。
+            var retried2 = host.RetryPendingRewards(Player);
+            Assert.Equal(new[] { new Id(RewardAchievementId) }, retried2);
+            Assert.True(host.IsUnlocked(Player, new Id(RewardAchievementId)));
+            Assert.Equal(1, unlockedCount);
+            Assert.Equal(1, inventory.CountOf(Player, new Id("item.sample_reward")));
+
+            // 再次重试：已经解锁，幂等，不重复发放。
+            var retried3 = host.RetryPendingRewards(Player);
+            Assert.Empty(retried3);
+            Assert.Equal(1, unlockedCount);
+            Assert.Equal(1, inventory.CountOf(Player, new Id("item.sample_reward")));
         }
 
         [Fact]

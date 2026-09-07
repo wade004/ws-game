@@ -171,6 +171,16 @@ namespace Adapter.Unity.Presentation
         /// 跨用例执行顺序。</summary>
         public bool HasAttemptedAnimResourceLoad(Id resourceRef) => _pendingAnimResourceLoads.Contains(resourceRef);
 
+        /// <summary>C12 测试用（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：本工厂
+        /// 内部持有的全局单例 <see cref="AnimStateMachine"/>，供 PlayMode 测试直接查询某实体是否仍
+        /// 停留在 <see cref="AnimStateMachine.IsTerminal"/>（死亡终态锁）——验证 <c>death.reload_save</c>
+        /// 同图读档成功后确实清理了这个终态锁（<see cref="OnUnitRespawnedForAnim"/> 已经能正确处理
+        /// <see cref="UnitRespawnedEvent"/>，只是此前 <c>DeathPolicyHost</c> 的 <c>reload_save</c>
+        /// 成功分支从不发这个事件，见该问题判断记录）。<c>internal</c>——只供
+        /// <c>Runtime/AssemblyInfo.cs</c> 的 <c>InternalsVisibleTo</c> 对 <c>Tests.Runtime</c>/
+        /// <c>Tests.Editor</c> 可见，不是公开契约的一部分。</summary>
+        internal AnimStateMachine? AnimStateMachineForTests => _animStateMachine;
+
         public IView CreateView(ViewKind kind, Id displayId, Id entityId)
         {
             var info = _displayInfo.Lookup(displayId);

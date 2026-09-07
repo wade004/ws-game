@@ -14,6 +14,32 @@ namespace Core.Carriers.Common
         /// <paramref name="unitId"/> 背包，成功后发出 <c>item.added</c>（见 07 第 1.3 节原文签名）。</summary>
         bool AddItem(Id unitId, Id templateId, int count);
 
+        /// <summary>
+        /// C05 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：同 <see cref="AddItem"/>，
+        /// 额外经 <paramref name="actualCount"/> 返回本次调用实际新增的数量——<see
+        /// cref="InventoryFullPolicy.Partial"/> 下可能小于 <paramref name="count"/>（少量加入仍算
+        /// 成功，见 <c>InventoryHost.AddItem</c> 判断记录 2）；<see cref="InventoryFullPolicy.Reject"/>
+        /// 下失败时为 0，成功时与 <paramref name="count"/> 相等。
+        /// <para>
+        /// 判断记录（默认实现 = 历史行为，只有 <c>InventoryHost</c> 需要覆盖）：<see
+        /// cref="RewardDispatcher.Grant"/> 此前按"请求量"而不是"实际落地量"记账，Partial 下少量
+        /// 加入仍返回 true 时，请求量与实际量的差额会在同批其它奖励失败回滚时被错误地从背包里多扣
+        /// 走（把该批之前就已存在的同模板堆叠也一并删掉，见该问题判断记录）。<see cref="AddItem"/>
+        /// 的既有签名（只有 bool）无法区分"请求量"与"实际量"，因此新增本方法而不是改
+        /// <see cref="AddItem"/> 的返回类型（破坏性变更，需要 12 §5 走 ADR）——本方法用默认接口
+        /// 实现（C# 8 起支持，见 Directory.Build.props <c>LangVersion</c>）把"实际量＝请求量"这一
+        /// 历史行为原样保留给未覆盖本方法的既有实现（各模块测试用的最小 Fake 均不支持 Partial 部分
+        /// 吞没语义，这一默认值对它们而言就是它们本来的行为，不需要逐个改造）；只有真正支持 Partial
+        /// 语义的 <c>InventoryHost</c> 需要覆盖为真实分摊量。
+        /// </para>
+        /// </summary>
+        bool TryAddItem(Id unitId, Id templateId, int count, out int actualCount)
+        {
+            var ok = AddItem(unitId, templateId, count);
+            actualCount = ok ? count : 0;
+            return ok;
+        }
+
         /// <summary>从 <paramref name="unitId"/> 背包移除指定实例 <paramref name="count"/> 个（堆叠类
         /// 物品可部分移除），成功后发出 <c>item.removed</c>（见 07 第 1.3 节原文签名）。</summary>
         bool RemoveItem(Id unitId, Id instanceId, int count);

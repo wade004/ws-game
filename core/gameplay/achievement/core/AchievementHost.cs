@@ -55,6 +55,15 @@ namespace Core.Gameplay.Achievement
         private readonly HashSet<(string UnitId, string AchievementId)> _unlocked =
             new HashSet<(string, string)>();
 
+        /// <summary>C04 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：达成
+        /// 条件已满足（<see cref="IsFullyAchieved"/> 为真）、但 <see cref="_rewardDispatcher"/>.
+        /// <c>Grant</c> 失败（如背包已满，<c>InventoryFullPolicy.Reject</c>）的成就——此前实现先写
+        /// <see cref="_unlocked"/> 再调用 <c>Grant</c> 且不检查返回值，发奖失败时成就已经判定解锁、
+        /// 奖励却一件没发，玩家没有任何补领入口。见 <see cref="ApplyProgress"/>/<see
+        /// cref="RetryPendingRewards"/> 判断记录。</summary>
+        private readonly HashSet<(string UnitId, string AchievementId)> _pendingReward =
+            new HashSet<(string, string)>();
+
         private readonly IEventBus _bus;
         private readonly IUnitAccess _units;
         private readonly IExprHostFactory _exprHostFactory;
@@ -181,6 +190,41 @@ namespace Core.Gameplay.Achievement
         {
             RequireAchievement(achievementId);
             return _unlocked.Contains((unitId.Value, achievementId.Value));
+        }
+
+        /// <summary>
+        /// C04 根治：重试全部处于"达成条件已满足但奖励此前未发放成功"状态（见 <see
+        /// cref="_pendingReward"/>）的成就——供调用方在推断发放前置条件已恢复后（如清理背包空间）
+        /// 主动调用；只对 <paramref name="unitId"/> 生效。幂等：一旦某条成就的 <see
+        /// cref="IRewardDispatcher.Grant"/> 调用成功，立即从 <see cref="_pendingReward"/> 移出、并入
+        /// <see cref="_unlocked"/>（<see cref="IsUnlocked"/> 从此对它返回 true），不会被下一次
+        /// <see cref="RetryPendingRewards"/> 调用重复发放；仍然失败的保持 pending，可反复调用直到
+        /// 成功。返回本次调用真正转为解锁状态的成就 id 列表（可能为空），供调用方按需展示"补领
+        /// 成功"提示，不强制消费。
+        /// </summary>
+        public IReadOnlyList<Id> RetryPendingRewards(Id unitId)
+        {
+            var succeeded = new List<Id>();
+            foreach (var achievement in _achievements.Values)
+            {
+                var key = (unitId.Value, achievement.Id.Value);
+                if (!_pendingReward.Contains(key))
+                {
+                    continue;
+                }
+
+                if (!achievement.Rewards.IsEmpty && !_rewardDispatcher.Grant(unitId, achievement.Rewards, achievement.Id))
+                {
+                    continue;
+                }
+
+                _pendingReward.Remove(key);
+                _unlocked.Add(key);
+                succeeded.Add(achievement.Id);
+                _bus.PublishImmediate(new AchievementUnlockedEvent(achievement.Id, unitId));
+            }
+
+            return succeeded;
         }
 
         // -----------------------------------------------------------------
@@ -336,14 +380,25 @@ namespace Core.Gameplay.Achievement
             counts[criterionIndex] = Math.Min(counts[criterionIndex] + increment, target);
             _bus.PublishImmediate(new AchievementProgressedEvent(achievement.Id, unitId, counts[criterionIndex], target));
 
+            // C04 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：此前先把 key
+            // 写进 _unlocked、再调用 Grant 且不检查返回值——发奖失败（如背包已满）时成就已经判定
+            // 解锁、奖励却一件没发，玩家没有任何补领入口。改为"发奖成功后再提交 _unlocked 终态"：
+            // Grant 失败时不写 _unlocked、不发 AchievementUnlockedEvent，改记入 _pendingReward（见
+            // 该字段判断记录）。与 EncounterHost.Evaluate 的"下次调用自然重试"不同——本类型没有
+            // 天然的周期性重新求值入口（criterion 计数已经打满，同一 criterion 的后续事件会在本方法
+            // 顶部提前 return，不会再次落到这里），因此需要一份可持久化的显式 pending 状态与
+            // RetryPendingRewards 这一显式重试入口，而不是依赖"下次事件自动重来"。
             if (IsFullyAchieved(achievement, counts))
             {
-                _unlocked.Add(key);
-                if (!achievement.Rewards.IsEmpty)
+                if (achievement.Rewards.IsEmpty || _rewardDispatcher.Grant(unitId, achievement.Rewards, achievement.Id))
                 {
-                    _rewardDispatcher.Grant(unitId, achievement.Rewards, achievement.Id);
+                    _unlocked.Add(key);
+                    _bus.PublishImmediate(new AchievementUnlockedEvent(achievement.Id, unitId));
                 }
-                _bus.PublishImmediate(new AchievementUnlockedEvent(achievement.Id, unitId));
+                else
+                {
+                    _pendingReward.Add(key);
+                }
             }
         }
 
@@ -384,7 +439,8 @@ namespace Core.Gameplay.Achievement
                 var key = (player.Value, achievement.Id.Value);
                 var hasProgress = _progress.TryGetValue(key, out var counts);
                 var unlocked = _unlocked.Contains(key);
-                if (!hasProgress && !unlocked)
+                var pendingReward = _pendingReward.Contains(key);
+                if (!hasProgress && !unlocked && !pendingReward)
                 {
                     continue;
                 }
@@ -395,9 +451,14 @@ namespace Core.Gameplay.Achievement
                     currentArray.Add(new JsonNumber(hasProgress ? counts![i] : 0));
                 }
 
+                // C04 根治：pending_reward 字段随存档持久化——见 <see cref="_pendingReward"/>/
+                // <see cref="RetryPendingRewards"/> 判断记录，保证读档后仍能识别出"条件已满足、
+                // 奖励还没领到"的成就，供玩家/调用方之后继续重试补领，而不是这次会话结束就丢失
+                // 这个待领奖标记。
                 var entry = new JsonObjectBuilder()
                     .Add("unlocked", unlocked ? JsonBool.True : JsonBool.False)
                     .Add("current", new JsonArray(currentArray))
+                    .Add("pending_reward", pendingReward ? JsonBool.True : JsonBool.False)
                     .Build();
 
                 builder.Add(achievement.Id.Value, entry);
@@ -417,6 +478,7 @@ namespace Core.Gameplay.Achievement
                 var key = (player.Value, achievement.Id.Value);
                 _progress.Remove(key);
                 _unlocked.Remove(key);
+                _pendingReward.Remove(key);
             }
 
             if (data is JsonNull)
@@ -443,6 +505,7 @@ namespace Core.Gameplay.Achievement
                 }
 
                 var unlocked = entry.TryGetValue("unlocked", out var unlockedVal) && unlockedVal is JsonBool ub && ub.Value;
+                var pendingReward = entry.TryGetValue("pending_reward", out var pendingVal) && pendingVal is JsonBool pb && pb.Value;
 
                 var counts = new int[achievement.Criteria.Count];
                 if (entry.TryGetValue("current", out var currentVal) && currentVal is JsonArray arr)
@@ -461,6 +524,14 @@ namespace Core.Gameplay.Achievement
                 if (unlocked)
                 {
                     _unlocked.Add(key);
+                }
+                else if (pendingReward)
+                {
+                    // C04 根治：unlocked 与 pending_reward 互斥（见 Save 侧写入逻辑——只有 Grant
+                    // 成功那一刻才会同时写 unlocked=true，此时不会再落入 _pendingReward），old 存档
+                    // 若两者都为 true（理论上不应发生，防御性处理）以 unlocked 优先，不重复放进
+                    // pending 集合。
+                    _pendingReward.Add(key);
                 }
             }
 

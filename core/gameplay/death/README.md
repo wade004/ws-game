@@ -78,6 +78,24 @@ death/
    依赖清单未变），场景切换这一步完全在注入的委托实现里完成，同 `ReviveUnit`/`ResolveDefaultSpawn`
    两个既有 L4↔L3/L0 边界委托一贯的接线手法。
 
+5b. **C12 收口（外部审核 7e63d66），限定判断记录 5"不需要额外调用 ReviveUnit 或做任何单位状态
+   改写"的适用范围**——上一条只覆盖"逻辑层状态"（读档本身已经把存活/生命值/位置恢复到位，确实
+   不需要再手工改写），但遗漏了"表现层需要一个明确信号才能清理死亡终态锁"这一点：读档成功
+   （跨地图会触发场景切换，`ClearAll` 销毁重建过程本身会清理旧 View 的动画状态机记账，不受
+   影响；但同图读档不触发场景切换，不会销毁重建任何 View）时，若不发一个复活类事件，表现层的
+   动画状态机会一直停在死亡姿态，即便逻辑层早已恢复存活、可以正常行动。现在 `reload_save`
+   读档成功分支额外发布一次 `UnitRespawnedEvent(unitId, RespawnPolicy.ReloadSave)`（同
+   `respawn_point` 策略延迟复活队列既有的发布惯例，见判断记录 3 附近 `Execute` 实现）——用
+   `IEventBus.Enqueue` 而不是 `PublishImmediate`：本方法正处于 `unit.died` 自己的订阅回调内，
+   仍在那一次 `unit.died` 派发的调用栈中，若同步发出会被订阅顺序晚于本处理器的下游（如表现层
+   的死亡处理）随后原地覆盖回死亡状态；`Enqueue` 保证复活信号严格晚于当前这一批 `unit.died`
+   全部订阅方处理完毕之后才真正派发。见 `DeathPolicyHost.cs`（`OnUnitDied` 的 `ReloadSave`
+   分支）、`DeathPolicyHostTests.cs`
+   （`ReloadSave_PlayerDies_LoadSucceeds_PublishesUnitRespawnedEvent_DeferredNotImmediate`、
+   `ReloadSave_PlayerDies_RespawnedEventArrivesAfterAllUnitDiedSubscribersProcessed_NotOverwrittenByLateDeathHandler`）、
+   Unity 侧 PlayMode 用例 `AuditBlockersPlayModeTests.PlayerDies_ReloadSave_PlayerRevivedAndViewExists`
+   （已扩展断言同图读档后动画终态锁被清理、Move/Attack 恢复正常）。
+
 6. **`EffectivePolicy` 在构造期一次性解析，运行期不重新读取 `CombatOptions.DeathPolicy`**：
    `CombatOptions.DeathPolicy` 是构造期口味配置（同 `SkillOptions`/`CombatOptions` 其余字段），
    本仓库没有任何"运行时热切换战斗口味配置"的先例，`DeathPolicyHost` 与其它 L4 宿主一样，在

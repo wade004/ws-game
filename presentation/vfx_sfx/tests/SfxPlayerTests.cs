@@ -216,9 +216,12 @@ namespace Tests.Presentation.VfxSfx
 
             player.Play(PlainSfx, null);
 
-            // ISfxPlayer 没有 Update(dt)（见 SfxOptions.FirstLoadTimeoutSeconds 判断记录），超时清理
-            // 改在下一次任意 Play 调用开头惰性扫一遍——FirstLoadTimeoutSeconds=0 使第一次排队请求
-            // 立即视为已超时，下一次 Play 调用（哪怕是另一条音效）会在处理自己的请求之前先扫掉它。
+            // C07 根治前的历史行为（本用例仍然覆盖）：超时清理此前只能在下一次任意 Play 调用开头
+            // 惰性扫一遍——FirstLoadTimeoutSeconds=0 使第一次排队请求立即视为已超时，下一次 Play
+            // 调用（哪怕是另一条音效）会在处理自己的请求之前先扫掉它。C07 根治后 <see
+            // cref="ISfxPlayer.Update"/> 提供了不依赖下一次 Play 的独立时钟入口（见
+            // <see cref="Update_TimesOut_TriggersPendingPlayCountChanged_WithoutAnyFurtherPlayCall"/>），
+            // 但 Play 开头的惰性扫描仍然保留（双保险，不冲突）。
             player.Play(VariantSfx, null);
 
             Assert.DoesNotContain(audio.ActiveSfxPlaybacks.Values, p => p.SoundId.Equals(new Id("res.footstep")));
@@ -255,6 +258,44 @@ namespace Tests.Presentation.VfxSfx
 
             loader.CompletePending(new Id("res.footstep"));
             Assert.Equal(0, player.PendingPlayCount);
+        }
+
+        /// <summary>
+        /// C07 复现与根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：此前
+        /// <see cref="ISfxPlayer"/> 没有任何时钟驱动入口，卡死不回调的排队请求只能在"下一次任意
+        /// <see cref="ISfxPlayer.Play"/> 调用"开头被惰性扫到——若节奏门已经关闭、此后没有任何新的
+        /// Play 调用（典型场景：这是这一步唯一的音效，玩家没有触发任何后续动作），超时永远不会被
+        /// 发现、<see cref="ISfxPlayer.PendingPlayCountChanged"/> 永远不会因超时而触发，
+        /// wait_for_playback 节奏门永久卡死。根治后 <see cref="ISfxPlayer.Update"/> 提供独立于
+        /// <see cref="ISfxPlayer.Play"/> 的时钟驱动入口（同 <c>IVfxPlayer.Update</c> 的既有生产
+        /// 接线，由 <c>FrameworkResidentHost.OnFrameTick</c> 逐帧驱动）——本用例全程不调用一次
+        /// <see cref="ISfxPlayer.Play"/>，只靠 <see cref="ISfxPlayer.Update"/> 就能发现超时并恰好
+        /// 触发一次完成信号。
+        /// </summary>
+        [Fact]
+        public void Update_TimesOut_TriggersPendingPlayCountChanged_WithoutAnyFurtherPlayCall()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var options = new SfxOptions { FirstLoadTimeoutSeconds = 0.0 };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), options: options, diagnostics: diagnostics, resourceLoader: loader);
+
+            player.Play(PlainSfx, null); // 唯一一次 Play——之后再也不会有任何 Play 调用。
+            Assert.Equal(1, player.PendingPlayCount);
+
+            var changedCount = 0;
+            player.PendingPlayCountChanged += () => changedCount++;
+
+            // 不调用 Play，只靠 Update（同 IVfxPlayer.Update 的引擎侧逐帧驱动惯例）发现超时。
+            player.Update(0.016);
+
+            Assert.Equal(0, player.PendingPlayCount);
+            Assert.Equal(1, changedCount);
+            Assert.Contains(diagnostics.Warnings, w => w.Contains("res.footstep") && w.Contains("超时"));
+
+            player.Update(0.016); // 已经没有 pending 项了，后续 Update 不应再触发。
+            Assert.Equal(1, changedCount);
         }
     }
 }

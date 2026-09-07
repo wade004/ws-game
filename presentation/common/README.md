@@ -77,8 +77,12 @@ common/
    全文未定义"表现时钟/插值 alpha"这一具体契约名（只泛泛提到"插值仍用于固定步长模拟与渲染帧率
    解耦，见 03"），真正产出 alpha 的 `Core.Foundation.SimLoop.ISimClockHost.Advance` 的返回值目前
    被 `Core.Gameplay.Assembly.GameplayAssembly.Advance` 丢弃、也没有对外暴露的读取点——已删除本
-   契约及其在 `ViewBinder.SyncAll` 文档注释里的引用，`alpha` 参数改由调用方自行传入，真正接通
-   "alpha 从哪来"留给 W2/W3b，见下"契约缺口"。
+   契约及其在 `ViewBinder.SyncAll` 文档注释里的引用，`alpha` 参数改由调用方自行传入。**勘误
+   （文档代码一致性核对）**：本条原表述"真正接通'alpha 从哪来'留给 W2/W3b"是写下这条判断记录
+   当时（契约刚删除、接线尚未开始）的真实状态；W2b/W3b 已经把这条接线补齐并落地——`alpha` 的
+   产出（`GameplayAssembly.InterpolationAlpha`）与消费（两处生产帧循环读取后传给
+   `ViewBinder.SyncAll`/`CameraHost.Update`）均已接通，不再是"留待后续"，见下"契约缺口"一节
+   已经改写为完成时态的对应条目（"表现层插值 alpha 的产出与消费已接通"）。
 
 ## 契约缺口
 

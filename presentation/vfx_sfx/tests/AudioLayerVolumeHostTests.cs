@@ -21,6 +21,7 @@ namespace Tests.Presentation.VfxSfx
         public void SetLayerMuted(string layer, bool muted) { }
         public int PendingPlayCount => 0;
         public event System.Action? PendingPlayCountChanged { add { } remove { } }
+        public void Update(double dt) { }
     }
 
     /// <summary><see cref="AudioLayerVolumeHost"/>（缺口 12）用例：见任务书"AudioLayerVolumeHost
