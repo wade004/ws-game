@@ -128,7 +128,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipConsumer # �
 
 `.github/workflows/ci.yml`：`push` 到 `main` 与任意 `pull_request` 时，在 `windows-latest` 运行器上跑 `check.ps1 -SkipUnity`（安装 .NET 8.0.x SDK 与 Python 3.12 + `toolchain/requirements.txt` 后执行；缓存 NuGet 包与 pip 依赖），并把控制台输出与门禁产物日志上传为 artifact。CI 不跑 Unity 相关四步与消费方演练——托管运行器既没有装 Unity，也无法激活个人版 Unity 授权，这部分职责仍由本机全量 `check.ps1`（含可选的 `-Il2cpp`）承担，见上一节。
 
-`.github/workflows/release.yml`：推送形如 `v*` 的标签时触发，跑一遍快速门禁（`check.ps1 -SkipUnity -Quick`，作为标签指向的提交未被意外改动的交叉验证——完整门禁已经在本机 `build.ps1 -Release` 第 5 步跑过），再用 `build.ps1 -SyncOnly -Dist <标签去掉 v 前缀> -Zip` 重新打包出 `dist/ws-game-<version>.zip`/`.lock`，上传为该标签对应 GitHub Release 的附件（Release 不存在则新建）。
+`.github/workflows/release.yml`：推送形如 `v*` 的标签时触发（也支持 `workflow_dispatch` 手动指定 `tag` 输入重跑，用于对已推送的标签重新验证本工作流本身），跑一遍快速门禁（`check.ps1 -SkipUnity -Quick`，作为标签指向的提交未被意外改动的交叉验证——完整门禁已经在本机 `build.ps1 -Release` 第 5 步跑过）。附件策略是"本机已验证的产物优先"：先用 `gh release view` 查该标签对应 Release 是否已经有 `ws-game-<version>.zip`（即本机 `build.ps1 -Release -Publish` 已经上传过、且已在含 Unity 的完整门禁下验证过）——已有则跳过打包与上传，不覆盖（托管运行器重新构建的 DLL 因确定性构建仍嵌入 checkout 路径而哈希不同，覆盖会让 Release 附件与私服包不一致）；没有（例如只推了 tag、未传 `-Publish`）才用 `build.ps1 -SyncOnly -Dist <标签去掉 v 前缀> -Zip` 重新打包出 `dist/ws-game-<version>.zip`/`.lock` 并上传为该标签对应 GitHub Release 的附件（Release 不存在则新建），作为兜底路径。
 
 ## 提交前钩子（`.githooks/`）
 
@@ -174,7 +174,7 @@ powershell -File build.ps1 -Release 1.0.0 -Publish                          # �
    gh release create v<ver> dist/ws-game-<ver>.zip dist/ws-game-<ver>.lock --title v<ver> --notes-file dist/release-notes-<ver>.txt
    ```
 
-   传 `-Publish` 则自动执行这两条命令；省略时只打印，由人工确认后自行运行（`.github/workflows/release.yml` 也会在标签推送后重新打包上传附件，两条路径幂等，见"持续集成"一节）。若本次版本号的 MAJOR 或 MINOR 段发生变化，额外打印建议的维护分支创建命令。
+   传 `-Publish` 则自动执行这两条命令；省略时只打印，由人工确认后自行运行（`.github/workflows/release.yml` 在标签推送后会检查 Release 是否已有对应 zip 附件，已有则跳过重新打包上传，不覆盖本机已验证的产物；没有才走它自己的兜底打包上传路径，见"持续集成"一节）。若本次版本号的 MAJOR 或 MINOR 段发生变化，额外打印建议的维护分支创建命令。
 
 `dist/ws-game-<ver>.zip` 内的 `dist/<ver>/` 目录本身与既有 `-Dist` 打快照的产物结构一致（`MANIFEST.txt` 记录内容见下）；单独打 `dist/<ver>/` 而不做发布流程仍用 `build.ps1 -Dist <version>`；只想在已有 `dist/<ver>/` 基础上补一份 zip+lock（不校验/不提交/不打标签）用 `build.ps1 -Dist <version> -Zip`。
 

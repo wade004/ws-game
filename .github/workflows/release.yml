@@ -16,16 +16,48 @@ name: Release
 # .PARAMETER Zip 说明）；`-SyncOnly` 跳过 dotnet build/test（前面 check.ps1 -Quick 已经跑过一遍
 # dotnet build/test），只做 DLL 同步 + 内容同步 + 打包，加快本工作流耗时。
 #
-# 判断记录（Release 附件的产生与上传时机）：若本机 `build.ps1 -Release <ver> -Publish` 已经自动
-# 创建了 GitHub Release 并上传了 zip/lock（`-Publish` 开关，见 build.ps1 说明），下面
-# `softprops/action-gh-release` 步骤对同一 tag 重新上传同名附件会直接覆盖（该 action 的既有行为，
-# 不需要本工作流额外判断"Release 是否已存在"）；若本机只打了 tag、未传 `-Publish`（例如设计层要求
-# 先只推 tag，人工确认后再决定是否发布 Release），本工作流是"tag 一推送就自动出 Release"的兜底
-# 路径，两条路径不冲突，幂等收敛到同一份 Release 附件内容。
+# 判断记录（Release 附件的产生与上传时机，2026-09-07 改写）：原判断记录认为"托管运行器重新打包
+# 上传同名附件会直接覆盖，两条路径幂等收敛到同一份内容"——这个结论不成立，已废弃。真正原因：
+# build.ps1 打包时把六个核心 DLL 的 sha256 写进 `dist/ws-game-<ver>.lock`，而 DLL 是确定性构建
+# （见 Core.sln 各工程 Deterministic/ContinuousIntegrationBuild 设置），确定性构建仍然会把源码的
+# 绝对路径编码进调试信息，托管运行器的 checkout 路径（如 `D:\a\ws-game\ws-game`）与本机开发路径
+# 不同，导致同样的源码在两处构建出的 DLL 字节不同、sha256 不同。本机 `build.ps1 -Release` 产出的
+# zip/lock 已经在含 Unity 的完整门禁（EditMode/PlayMode/独立版构建/两种冒烟/消费方演练全过）下
+# 验证过，且若传了 `-Publish -PublishRegistry` 还已经发布到私服、被下游游戏仓库的 `ws-game.lock`
+# 锁定为依赖——此时若本工作流用托管运行器重新构建的 DLL 覆盖同名 Release 附件，会让 GitHub
+# Release 上的 `.lock` 与私服包的哈希不一致，下游用 zip 快照通道拉取时的哈希校验会与私服通道的
+# 结果对不上，制造混淆。因此改为"本机已验证的产物优先"：打包前先用 `gh release view` 检查该 tag
+# 对应的 Release 是否已经有 `ws-game-<ver>.zip`（即本机 `-Publish` 已经上传过）；已有则跳过本工作流
+# 的打包与上传，只打印说明，不覆盖；没有（说明本机只打了 tag、没传 `-Publish`，例如设计层要求
+# 先只推 tag、人工确认后再决定是否发布 Release）才走原有的 `-SyncOnly -Dist -Zip` + 上传路径，
+# 作为"tag 一推送就自动出 Release"的兜底。
+#
+# 判断记录（run: 脚本正文必须是纯 ASCII，2026-09-07 新增）：推送标签 v1.0.0 触发的运行
+# （run 34094116412）在 "Resolve version from tag" 步骤失败，报
+# "The string is missing the terminator: ''" / "Missing closing '}'"。根因：GitHub Actions
+# 把 `shell: powershell` 步骤的 `run:` 正文写成不带 BOM 的 UTF-8 临时 .ps1 文件；托管运行器上的
+# Windows PowerShell 5.1 按系统 ANSI 代码页（英文镜像是 cp1252）读取该文件，中文提示文本的 UTF-8
+# 字节序列里恰好出现 0x93/0x94 等字节，被 cp1252 解释成弯引号“ ”，而 PowerShell 词法分析器把
+# 弯引号也当成字符串定界符，于是脚本正文里的字符串边界被打乱、报语法错误。`ci.yml` 的
+# `shell: powershell` 步骤没有中招，是因为它的 `run:` 正文本来就只有 ASCII 字符（中文说明全写在
+# `run:` 代码块之外的 YAML `#` 注释里，注释不受这个问题影响）。规则：本文件（以及任何
+# `shell: powershell` 步骤）的 `run:` 正文只允许 ASCII 字符；提示文案一律用英文，中文说明写在
+# `run:` 之外的 `#` 注释里。已用
+# `[System.Management.Automation.Language.Parser]::ParseInput` 对每个 run: 正文做过本地语法解析
+# 验证（抽出正文存为无 BOM UTF-8 文件，`powershell -File` 试执行/解析），确认无错。
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    # 判断记录：手动重跑入口，用于对已经推送过的 tag 重新验证本工作流（例如本工作流自身改动后
+    # 想在不重新打 tag 的前提下确认修复有效），不产生新 tag，也不改变"本机已验证产物优先"的
+    # 附件策略——手动跑一样会先查 Release 是否已有对应 zip，已有照样跳过打包上传。
+    inputs:
+      tag:
+        description: "Tag to verify, formatted as vX.Y.Z (e.g. v1.0.0)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -40,6 +72,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # 判断记录：push 触发时 github.event.inputs.tag 为空，取 github.ref_name（即被推送的
+          # tag 本身）；workflow_dispatch 触发时 github.ref_name 是运行工作流所在的分支（如
+          # main），必须显式取输入的 tag，否则会 checkout 到分支 HEAD 而不是要验证的那个 tag。
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
 
       - name: Setup .NET 8.0.x
         uses: actions/setup-dotnet@v4
@@ -75,23 +112,28 @@ jobs:
       - name: Resolve version from tag
         id: version
         shell: powershell
-        # 判断记录：tag 名固定形如 "vX.Y.Z"（on.push.tags 的 "v*" 模式），去掉前导 "v" 就是
-        # build.ps1 -Dist/-Zip 需要的纯版本号；同时校验一遍格式，格式不对（理论上不会发生，
-        # "v*" 模式本身不保证后半截是合法 semver）直接失败，不静默用一个错误版本号继续打包。
+        # 判断记录：tag 名固定形如 "vX.Y.Z"，去掉前导 "v" 就是 build.ps1 -Dist/-Zip 需要的纯
+        # 版本号；同时校验一遍格式，格式不对直接失败，不静默用一个错误版本号继续打包。
+        # workflow_dispatch 手动触发时用输入的 tag，push 触发时用 github.ref_name；见文件头
+        # "run: 脚本正文必须是纯 ASCII" 判断记录，本步骤提示文案改用英文。
         run: |
           $ErrorActionPreference = "Continue"
-          $tagName = "${{ github.ref_name }}"
+          $tagName = "${{ github.event.inputs.tag }}"
+          if ([string]::IsNullOrEmpty($tagName)) {
+            $tagName = "${{ github.ref_name }}"
+          }
           if (-not ($tagName -like "v*")) {
-            Write-Host "非预期的 tag 名：$tagName（应形如 vX.Y.Z）"
+            Write-Host "Unexpected tag name: $tagName (expected vX.Y.Z)"
             exit 1
           }
           $version = $tagName.Substring(1)
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            Write-Host "从 tag 解析出的版本号格式非法：'$version'（需形如 X.Y.Z）"
+            Write-Host "Version parsed from tag is invalid: '$version' (expected X.Y.Z)"
             exit 1
           }
           Write-Host "tag=$tagName -> version=$version"
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "tag=$tagName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Run check.ps1 -SkipUnity -Quick
         shell: powershell
@@ -115,7 +157,37 @@ jobs:
             ${{ runner.temp }}/gf_release_check_artifacts/**/*.binlog
           if-no-files-found: ignore
 
+      - name: Check for existing release assets
+        id: assets
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # 判断记录：见文件头"Release 附件的产生与上传时机"——本机已验证产物优先，托管运行器不
+        # 覆盖本机 -Publish 已经上传过的 zip。用 gh release view --json assets 查该 tag 对应
+        # Release 的既有附件列表，命中同名 zip 就跳过下面的打包与上传步骤；Release 不存在（gh
+        # 返回非零）或存在但没有该 zip，都视为需要走原有兜底路径。
+        run: |
+          $ErrorActionPreference = "Continue"
+          $tag = "${{ steps.version.outputs.tag }}"
+          $version = "${{ steps.version.outputs.version }}"
+          $zipName = "ws-game-$version.zip"
+          $json = gh release view $tag --json assets 2>$null
+          $skip = "false"
+          if ($LASTEXITCODE -eq 0 -and $json) {
+            $assetNames = ($json | ConvertFrom-Json).assets | ForEach-Object { $_.name }
+            if ($assetNames -contains $zipName) {
+              Write-Host "Release $tag already has $zipName (uploaded by local build.ps1 -Release -Publish). Skipping rebuild-and-upload to avoid overwriting a verified artifact with a hosted-runner rebuild (see file header note on deterministic-build path hashes)."
+              $skip = "true"
+            } else {
+              Write-Host "Release $tag exists but has no $zipName yet. Will build and upload as a fallback."
+            }
+          } else {
+            Write-Host "Release $tag not found yet (gh release view exit code $LASTEXITCODE). Will build and upload as a fallback."
+          }
+          "skip=$skip" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: build.ps1 -SyncOnly -Dist <version> -Zip
+        if: steps.assets.outputs.skip != 'true'
         shell: powershell
         run: |
           $ErrorActionPreference = "Continue"
@@ -123,9 +195,10 @@ jobs:
           exit $LASTEXITCODE
 
       - name: Upload Release assets
+        if: steps.assets.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
           files: |
             dist/ws-game-${{ steps.version.outputs.version }}.zip
             dist/ws-game-${{ steps.version.outputs.version }}.lock
