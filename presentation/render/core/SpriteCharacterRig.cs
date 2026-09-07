@@ -33,7 +33,7 @@ namespace Presentation.Render
     /// （通常是 W3b 引擎适配层）在 <c>onSample</c> 参数里自行决定，本类型不代为拍板。
     /// </para>
     /// </summary>
-    public sealed class SpriteCharacterRig : ICharacterRig, IProceduralAnim
+    public sealed class SpriteCharacterRig : ICharacterRig, IHitFrameEmitter, IProceduralAnim
     {
         private readonly IRenderer2D _renderer;
         private readonly SpriteHandle _handle;

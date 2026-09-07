@@ -183,7 +183,7 @@ namespace Adapter.Unity.Tests.Runtime
             PatchSpriteAttackClipWithRealHitFrame(bootstrap, bootstrap.PlayerId);
 
             var hitFrameCount = 0;
-            rig.HitFrameReached += _ => hitFrameCount++;
+            ((IHitFrameEmitter)rig).HitFrameReached += _ => hitFrameCount++;
 
             var bus = RequireInternalBus(bootstrap);
             var attackSkillId = new Id("skill.sample_strike");
@@ -302,7 +302,7 @@ namespace Adapter.Unity.Tests.Runtime
             var stateMachine = bootstrap.ViewFactory!.AnimStateMachineForTests!;
 
             var hitFrameCount = 0;
-            rig.HitFrameReached += _ => hitFrameCount++;
+            ((IHitFrameEmitter)rig).HitFrameReached += _ => hitFrameCount++;
 
             var bus = RequireInternalBus(bootstrap);
             var attackSkillId = new Id("skill.sample_strike");

@@ -108,6 +108,11 @@ namespace Game.Template
         /// <see cref="OnDestroy"/> 里显式 Dispose（退订 item.equipped/item.unequipped）。</summary>
         private global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource? _weaponStyleSource;
 
+        /// <summary>PR130-07 根治新增：默认 factory 的 equipVisual 映射入口（见
+        /// <see cref="global::Presentation.Render.EquipmentVisualSource"/> 类型判断记录），
+        /// <see cref="OnDestroy"/> 里与 <see cref="_weaponStyleSource"/> 一并 Dispose。</summary>
+        private global::Presentation.Render.EquipmentVisualSource? _equipVisualSource;
+
         /// <summary>W6 收口新增：见 <see cref="Bootstrap"/> 构造点判断记录——同一个 <c>RenderOptions</c>
         /// 实例既传给 <see cref="ViewFactory"/> 又传给 <see cref="BuildPresentationOptions"/> 内部的
         /// <c>PresentationAssemblyOptions.RenderOptions</c>，避免两处各自独立构造、取值不一致。</summary>
@@ -249,6 +254,17 @@ namespace Game.Template
                     : (Id?)null;
             _weaponStyleSource = new global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource(_bus, mainHandResolver, viewFactoryDisplayInfo);
 
+            // PR130-07 根治：默认 factory 的 equipVisual 映射入口——按 display.equip_visual 全表
+            // item_id（物品模板 id）建目录，供 EquipmentVisualSource 在 item.equipped 时反查（见该
+            // 类型判断记录），与 _weaponStyleSource 同一批构造、同一批 Dispose。
+            var equipVisualCatalog = new System.Collections.Generic.Dictionary<Id, global::Presentation.Render.EquipVisualDef>();
+            foreach (var record in registry.GetAll("display.equip_visual"))
+            {
+                var def = global::Presentation.Render.EquipVisualDef.FromRecord(record);
+                equipVisualCatalog[def.ItemId] = def;
+            }
+            _equipVisualSource = new global::Presentation.Render.EquipmentVisualSource(_bus, equipVisualCatalog);
+
             // W6 收口（ADR-0017 决策 d 遗留缺口收口）：_renderOptions 只构造一次、同一个实例分别传给
             // 下面的 UnityViewFactory（决定 SpriteCharacterRig/ModelCharacterRig 构造期实际拿到的
             // HitFrameSync 策略，见该工厂 _renderOptions 字段判断记录）与 BuildPresentationOptions()
@@ -267,7 +283,8 @@ namespace Game.Template
                 _host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader,
                 bus: _bus, dataRegistry: registry,
                 renderer3D: _host.Renderer3D, hitFrameSource: HitFrameSource, weaponStyleSource: _weaponStyleSource,
-                renderOptions: _renderOptions);
+                renderOptions: _renderOptions,
+                equipVisualByItemInstanceId: _equipVisualSource.VisualByItemInstanceId);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(_options.Seed ^ 0x9E3779B97F4A7C15UL);
@@ -291,10 +308,16 @@ namespace Game.Template
             // 是否真正生效仍由 presentationOptions.RenderOptions/FeedbackOptions 的 HitFrameSync
             // 开关决定（GameOptions.HitFrameSyncEnabled，见 BuildRenderOptions/BuildFeedbackOptions），
             // 本参数只负责接线，不传时（开关为 false）行为与改动前完全一致。
+            // PR130-06 根治：此前只把 _host.Renderer3D 传给了上面的 viewFactory，PresentationAssembly/
+            // 内部的 VfxPlayer 一直拿到 null 的 modelHandleResolver 支撑（renderer3D 参数本身
+            // PresentationAssembly 早已声明为可选构造参数，见该类型判断记录"缺口 13"，只是三处装配根
+            // 都从未真正传过），socket 特效因此固定降级 world 坐标（见 VfxPlayer.PlaySocket 判断
+            // 记录）。三处装配根现在共享同一个 _host.Renderer3D 实例。
             var presentation = new PresentationAssembly(
                 gameplay, world, registry, _bus, presentationRng,
                 viewFactory, _host.Renderer2D, _host.Camera, _host.Audio, _host.FileSystem, sceneRouter,
-                presentationOptions, resourceLoader: _host.ResourceLoader, hitFrameSource: HitFrameSource);
+                presentationOptions, resourceLoader: _host.ResourceLoader, hitFrameSource: HitFrameSource,
+                renderer3D: _host.Renderer3D);
             Presentation = presentation;
 
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
@@ -520,6 +543,10 @@ namespace Game.Template
             // W6-B 新增：退订 EquipmentWeaponStyleSource 的 item.equipped/item.unequipped 订阅。
             _weaponStyleSource?.Dispose();
             _weaponStyleSource = null;
+
+            // PR130-07 根治：同批退订 EquipmentVisualSource 的 item.added/item.equipped/item.unequipped 订阅。
+            _equipVisualSource?.Dispose();
+            _equipVisualSource = null;
         }
     }
 }

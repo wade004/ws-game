@@ -6,8 +6,9 @@
 `sprite` 型 `IView` 的引擎无关骨架 `SpriteViewBase`；`CharacterRig`（09 §4.1）、`AnimState` 七态
 状态机（09 §4.2）、命中帧同步（09 §4.3）、序列帧播放器预留接口（09 §4.5）、程序动画八原语
 （09 §4.1）——拍板 6（W3a）落地 sprite 型全套引擎无关部分；[ADR-0017](../../architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md)（W6 表现能力补齐 A 部分）把 `model` 型
-`CharacterRig` 从占位收口为真实实现（层/槽位管理、锚点/挂点查询、八原语映射），`HitFrameReached`
-提升进 `ICharacterRig` 契约本身，两种外形类型均已提供；引擎侧真正的三维渲染管线实现（`IRenderer3D`
+`CharacterRig` 从占位收口为真实实现（层/槽位管理、锚点/挂点查询、八原语映射），命中帧统一事件
+`HitFrameReached` 经可选接口 `IHitFrameEmitter` 提供（PJ130-04 勘误：不是 `ICharacterRig` 本身的
+强制成员，见 ADR-0017"修订记录"），两种外形类型均已提供；引擎侧真正的三维渲染管线实现（`IRenderer3D`
 真实实现）仍待 W6-B，不在本模块范围内。
 
 依赖：`Presentation.Common.csproj`。
@@ -198,10 +199,11 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     `AnimKeyframeDriven` 策略下把 `FrameAnimClip.HitFrameMarker` 对应的 `IFrameAnimPlayer.OnAnimEvent`
     重新广播为 `HitFrameReached` 事件（携带实体 id）；`ModelCharacterRig` 同一策略下把
     `IRenderer3D.OnAnimEvent` 命中 `ModelCharacterRig.HitFrameEventId` 时同样广播
-    `HitFrameReached`——`HitFrameReached` 已从 `SpriteCharacterRig` 专属成员提升进 `ICharacterRig`
-    契约本身（见判断记录 16），供命中反馈的落地代码（`presentation/feedback_binder` 的
-    `HitFrameSyncPolicy`）延迟到这一刻才播放；`LogicDriven`（默认）策略下两种实现均不触发，命中
-    反馈沿用 `FeedbackBinder` 收到 `combat.damage_dealt` 立即派发的既有行为。
+    `HitFrameReached`——`HitFrameReached` 经可选接口 `IHitFrameEmitter` 提供（见判断记录 16；
+    PJ130-04 勘误：不是 `ICharacterRig` 本身的强制成员），两套实现均同时实现该接口，供命中反馈的
+    落地代码（`presentation/feedback_binder` 的 `HitFrameSyncPolicy`）延迟到这一刻才播放；
+    `LogicDriven`（默认）策略下两种实现均不触发，命中反馈沿用 `FeedbackBinder` 收到
+    `combat.damage_dealt` 立即派发的既有行为。
 
 14. **N18 收口（外部审核 68c9bed）：`FrameAnimPlayer.Update` 每次都重新从 `_clips` 查一次当前
     clipId，不缓存 `Play` 那一刻的剪辑对象引用**——原实现 `_current` 只在 `Play` 时从共享的可写
@@ -241,8 +243,9 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     经 `SyncPlacement` 缓存的基准姿态叠加后调用 `IRenderer3D.SetPlacement`，flash/trail/fade 三项
     固定调用 `IRenderer3D.SetMaterialParam`（参数名 `flash_intensity`/`trail_intensity`/
     `fade_alpha`，与 `SpriteCharacterRig.Flash` 接 `flash_intensity` 同一惯例的自然扩展）。
-    `HitFrameReached` 从 `SpriteCharacterRig` 专属成员提升进 `ICharacterRig` 接口本身（`event
-    Action<Id>? HitFrameReached`），两套实现均提供。`AnimStateMachine` 新增 `StateChangedWithSkill`
+    `HitFrameReached` 经可选接口 `IHitFrameEmitter` 提供（`event Action<Id>? HitFrameReached`，
+    PJ130-04 勘误：不是 `ICharacterRig` 接口本身的强制成员，见 `presentation/render/contracts/
+    IHitFrameEmitter.cs`），两套实现均同时实现该接口。`AnimStateMachine` 新增 `StateChangedWithSkill`
     事件（`(entityId, from, to, triggerSkillId: Optional<Id>)`），与既有 `StateChanged` 三元组事件
     同一次切换背靠背触发，`triggerSkillId` 只在 `skill.cast_start` 驱动的切换（进入
     `attack`/`cast`）时非空，支持 09 §4.4 `cast_anim_override` 按技能覆盖查表；既有 `StateChanged`
@@ -250,6 +253,30 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     与默认装配（`PresentationAssembly` 自动注册 rig 进 `IHitFrameSource`、自动把
     `IWeaponStyleSource` 接进 `AnimClipResolver` 等）仍留给 W6-B，见
     `architecture/落地计划/落地方案与分阶段计划.md`"W6 表现能力补齐"小节。
+
+17. **PJ130-04 根治（第六轮文档—代码深度审计，`architecture/落地计划/audit-5c444f1-20260908/`）：
+    `HitFrameReached` 从 `ICharacterRig` 强制成员改回可选接口 `IHitFrameEmitter`**——判断记录 16 记录
+    的"提升进 `ICharacterRig` 契约本身"随 1.3.0（次版本号）发布给该接口新增了一个强制事件成员，属于
+    `architecture/11_工程规范与测试.md` 第 156 行定义的 MAJOR 级契约签名变化，与次版本号不应破坏既有
+    编译这一既定语义冲突（继续实现旧版 `ICharacterRig` 形状的外部代码升级到 1.3.0 会直接编译失败）。
+    新增 `Presentation.Render.IHitFrameEmitter`（`event Action<Id>? HitFrameReached`），
+    `SpriteCharacterRig`/`ModelCharacterRig` 同时实现 `ICharacterRig` 与 `IHitFrameEmitter`，事件触发
+    时机/语义完全不变；`Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource.RegisterRig` 按
+    `rig is IHitFrameEmitter` 探测，未实现该接口的 `ICharacterRig`（不参与命中帧同步）仍能正常登记
+    （`HasRig` 仍返回 true），不抛异常。详见 [ADR-0017](../../architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md)"修订记录"。
+
+18. **PR130-07 根治新增：`EquipmentVisualSource`（默认的 装备实例 -&gt; `EquipVisualDef` 供给入口）**
+    ——doc-code-matrix 此前记录的能力边界"`UnityViewFactory` 构造函数没有 `equipVisual` 参数……默认
+    factory 仍缺入口"在本轮补上：新增 `Presentation.Render.EquipmentVisualSource`，订阅
+    `item.added`/`item.equipped`/`item.unequipped`，按 `item.added` 携带的 `ItemTemplateId` 累积
+    "实例 id -&gt; 模板 id"表，`item.equipped` 时反查按 `display.equip_visual.item_id` 建的目录得到
+    对应 `EquipVisualDef`，暴露一个随事件实时增删的 `VisualByItemInstanceId` 只读字典；三处生产装配根
+    （`games/_template.GameBootstrap`/`GameFoundationBootstrap`/`FrameworkResidentHost`）与
+    `EquipmentWeaponStyleSource` 同批构造/`Dispose`，把该字典传给 `UnityViewFactory` 新增的
+    `equipVisualByItemInstanceId` 构造参数（见 `adapters/unity/.../README.md`"equipVisual 接线步骤"）。
+    同批根治 `UnityModelView` 卸装路径按 `ItemInstanceId` 反查实际应用过的 `EquipVisualDef`（见该类型
+    `_appliedEquipVisualsByItemInstanceId` 判断记录），取代此前直接把事件携带的逻辑 `item.slot` 同时
+    当 slot_mesh 槽位 id 与 socket_attach 挂点 id 使用、导致 socket 子模型实例卸装后残留不清理的问题。
 
 ## 契约缺口
 

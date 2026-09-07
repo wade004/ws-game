@@ -39,6 +39,23 @@ namespace Adapter.Unity.Presentation
         /// 事件保持默认空处理。</summary>
         private readonly IReadOnlyDictionary<Id, EquipVisualDef>? _equipVisuals;
 
+        /// <summary>PR130-07 根治新增：本 View 生命周期内实际应用过的 装备实例 id -&gt; 生效时使用的
+        /// <see cref="EquipVisualDef"/> 可逆索引——取代此前卸装路径直接把事件携带的逻辑 <c>slot</c>
+        /// id 同时当 slot_mesh 槽位 id 与 socket_attach 挂点 id 使用的做法（装备按
+        /// <see cref="EquipVisualDef.SocketId"/> 挂接，二者不是同一个 id 域，<c>ClearSocket(unequipped.Slot)</c>
+        /// 几乎总是查不到对应挂接，子模型残留不清理）。<see cref="OnEvent"/> 处理
+        /// <c>item.equipped</c> 时把这次实际应用的 <see cref="EquipVisualDef"/> 记进本索引；处理
+        /// <c>item.unequipped</c> 时按 <see cref="ItemUnequippedEvent.ItemInstanceId"/>（该事件确实
+        /// 携带该字段，见 <c>core/carriers/common/contracts/Events.cs</c>）反查，按其
+        /// <see cref="EquipVisualDef.Mode"/> 精确调用 <see cref="ModelCharacterRig.ClearSlot"/> 或
+        /// <see cref="ModelCharacterRig.ClearSocket"/>，不再两个都盲试。索引独立于外部注入的
+        /// <see cref="_equipVisuals"/> 表（不依赖它在卸装时是否仍持有同一条目——那张表的生命周期由
+        /// 装配层管理，见 <c>UnityViewFactory</c> 判断记录），保证"卸下的正是刚才实际穿上的那一件"。
+        /// 反查不到（存档恢复后的初始装备状态、本索引尚未来得及记账等场景）时退回按逻辑 slot 尝试
+        /// slot_mesh 清理一次——<see cref="ModelCharacterRig.ClearSlot"/> 对未换过装的槽位调用是幂等
+        /// 的（见 <see cref="IRenderer3D.SetSlotMesh"/> 契约语义），不会因此产生错误副作用。</summary>
+        private readonly Dictionary<Id, EquipVisualDef> _appliedEquipVisualsByItemInstanceId = new Dictionary<Id, EquipVisualDef>();
+
         private bool _destroyed;
 
         public Id EntityId { get; private set; }
@@ -106,7 +123,8 @@ namespace Adapter.Unity.Presentation
         /// <c>item.equipped</c>/<c>item.unequipped</c>，按 <see cref="EquipVisualDef"/> 调用
         /// <see cref="ModelCharacterRig.ApplyEquipVisual"/>/<see cref="ModelCharacterRig.ClearSlot"/>/
         /// <see cref="ModelCharacterRig.ClearSocket"/>；<see cref="_equipVisuals"/> 未注入或查不到对应
-        /// 行时保持不变，不抛异常。</summary>
+        /// 行时保持不变，不抛异常。PR130-07 根治：卸装路径改按 <see cref="_appliedEquipVisualsByItemInstanceId"/>
+        /// 反查实际应用过的 <see cref="EquipVisualDef"/>，见该字段判断记录。</summary>
         public void OnEvent(IEvent evt)
         {
             if (_equipVisuals == null)
@@ -120,20 +138,40 @@ namespace Adapter.Unity.Presentation
                     if (_equipVisuals.TryGetValue(equipped.ItemInstanceId, out var def))
                     {
                         _rig.ApplyEquipVisual(def);
+                        _appliedEquipVisualsByItemInstanceId[equipped.ItemInstanceId] = def;
                     }
                     break;
 
                 case ItemUnequippedEvent unequipped when unequipped.UnitId.Equals(EntityId):
-                    // 判断记录：卸下装备时无法从"槽位 id"反查是哪个 EquipVisualDef（该表按物品实例 id
-                    // 索引，装备事件本身也只携带槽位 id 与实例 id，未携带 mode），保守起见按两种模式
-                    // 各自的清理方法都尝试一次——slot_mesh 模式经 ClearSlot 卸下网格是幂等操作（对
-                    // 未换过装的槽位调用也不会出错，见 IRenderer3D.SetSlotMesh 契约语义），
-                    // socket_attach 模式经 ClearSocket 按槽位 id 试探性地当 socket id 用同样是幂等的
-                    // （该挂点当前无挂接时 no-op，见 ModelCharacterRig.ClearSocket 判断记录）——两次
-                    // 尝试互不冲突，是本类型在"装备事件不携带足够信息反查模式"这一已知简化下能给出的
-                    // 最小可用处理。
-                    _rig.ClearSlot(unequipped.Slot);
-                    _rig.ClearSocket(unequipped.Slot);
+                    if (_appliedEquipVisualsByItemInstanceId.TryGetValue(unequipped.ItemInstanceId, out var appliedDef))
+                    {
+                        switch (appliedDef.Mode)
+                        {
+                            case EquipVisualMode.SlotMesh:
+                                if (appliedDef.SlotId.HasValue)
+                                {
+                                    _rig.ClearSlot(appliedDef.SlotId.Value);
+                                }
+                                break;
+
+                            case EquipVisualMode.SocketAttach:
+                                if (appliedDef.SocketId.HasValue)
+                                {
+                                    _rig.ClearSocket(appliedDef.SocketId.Value);
+                                }
+                                break;
+                        }
+                        _appliedEquipVisualsByItemInstanceId.Remove(unequipped.ItemInstanceId);
+                    }
+                    else
+                    {
+                        // 见 _appliedEquipVisualsByItemInstanceId 判断记录：反查不到时（本 View 生命
+                        // 周期内未记录过对应的装备事件，如存档恢复后的初始装备状态）退回按逻辑 slot
+                        // 尝试 slot_mesh 清理一次——ClearSlot 幂等，不会因此产生错误副作用；不盲试
+                        // ClearSocket（socket id 与逻辑 slot id 不是同一个域，见类型顶部判断记录，
+                        // 盲试没有意义）。
+                        _rig.ClearSlot(unequipped.Slot);
+                    }
                     break;
             }
         }

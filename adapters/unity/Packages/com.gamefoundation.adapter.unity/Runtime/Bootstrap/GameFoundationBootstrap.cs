@@ -197,6 +197,10 @@ namespace Adapter.Unity.Bootstrap
         /// 里显式 Dispose（退订 <c>item.equipped</c>/<c>item.unequipped</c>）。</summary>
         private global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource? _weaponStyleSource;
 
+        /// <summary>PR130-07 根治新增：默认 factory 的 equipVisual 映射入口，同批构造/Dispose，见
+        /// <see cref="_weaponStyleSource"/> 同款判断记录。</summary>
+        private global::Presentation.Render.EquipmentVisualSource? _equipVisualSource;
+
         /// <summary>W3b 新增（拍板 12"表现层异常隔离"）：本次 <see cref="OnFrameTick"/> 内某个表现
         /// 步骤抛出的异常次数累计，同 <see cref="Adapter.Unity.Shell.FrameworkResidentHost.PresentationStepExceptionCount"/>
         /// 同款判断记录。</summary>
@@ -381,6 +385,17 @@ namespace Adapter.Unity.Bootstrap
             var weaponStyleSource = new global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource(_bus, mainHandResolver, viewFactoryDisplayInfo);
             _weaponStyleSource = weaponStyleSource;
 
+            // PR130-07 根治：默认 factory 的 equipVisual 映射入口，同批构造/Dispose（见
+            // global::Presentation.Render.EquipmentVisualSource 类型判断记录）。
+            var equipVisualCatalog = new System.Collections.Generic.Dictionary<Id, global::Presentation.Render.EquipVisualDef>();
+            foreach (var record in registry.GetAll("display.equip_visual"))
+            {
+                var def = global::Presentation.Render.EquipVisualDef.FromRecord(record);
+                equipVisualCatalog[def.ItemId] = def;
+            }
+            var equipVisualSource = new global::Presentation.Render.EquipmentVisualSource(_bus, equipVisualCatalog);
+            _equipVisualSource = equipVisualSource;
+
             // W6 收口（ADR-0017 决策 d 遗留缺口收口）：_hitFrameSyncEnabled 同时驱动 RenderOptions/
             // FeedbackOptions 两处 HitFrameSync（09/ADR-0017"同一个口味配置项的两个落点，装配层
             // 负责保持一致"）——同一个 RenderOptions 实例既要传给下面 UnityViewFactory（决定
@@ -405,7 +420,8 @@ namespace Adapter.Unity.Bootstrap
                 _host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader,
                 bus: _bus, dataRegistry: registry,
                 renderer3D: _host.Renderer3D, hitFrameSource: HitFrameSource, weaponStyleSource: weaponStyleSource,
-                renderOptions: renderOptions);
+                renderOptions: renderOptions,
+                equipVisualByItemInstanceId: equipVisualSource.VisualByItemInstanceId);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(_seed ^ 0x9E3779B97F4A7C15UL);
@@ -444,10 +460,14 @@ namespace Adapter.Unity.Bootstrap
             // GP-PRES-04 收口（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
             // 传入 _host.ResourceLoader，让 VfxPlayer/SfxPlayer 具备"首次引用加载"能力（同
             // FrameworkResidentHost/games/_template.GameBootstrap 同名判断记录）。
+            // PR130-06 根治：三处装配根共享同一个 _host.Renderer3D 实例——此前只传给了上面的
+            // viewFactory，PresentationAssembly/内部 VfxPlayer 拿到的 renderer3D 一直是 null，socket
+            // 特效固定降级 world 坐标（见 VfxPlayer.PlaySocket 判断记录）。
             var presentation = new PresentationAssembly(
                 gameplay, world, registry, _bus, presentationRng,
                 viewFactory, _host.Renderer2D, _host.Camera, _host.Audio, _host.FileSystem, sceneRouter,
-                presentationOptions, resourceLoader: _host.ResourceLoader, hitFrameSource: HitFrameSource);
+                presentationOptions, resourceLoader: _host.ResourceLoader, hitFrameSource: HitFrameSource,
+                renderer3D: _host.Renderer3D);
             Presentation = presentation;
 
             // 三个反馈接收器都需要 PresentationAssembly 构造完成后才能建出（FloatingText 需要
@@ -756,6 +776,10 @@ namespace Adapter.Unity.Bootstrap
             // W6-B 新增：退订 EquipmentWeaponStyleSource 的 item.equipped/item.unequipped 订阅。
             _weaponStyleSource?.Dispose();
             _weaponStyleSource = null;
+
+            // PR130-07 根治：同批退订 EquipmentVisualSource 的 item.added/item.equipped/item.unequipped 订阅。
+            _equipVisualSource?.Dispose();
+            _equipVisualSource = null;
         }
     }
 }

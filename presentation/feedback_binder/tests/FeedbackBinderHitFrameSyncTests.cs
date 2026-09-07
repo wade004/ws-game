@@ -131,6 +131,39 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.NotEmpty(sink.FloatingTexts);
         }
 
+        /// <summary>PR130-04 复现/回归用例：两条各自都 <c>sync: hit_frame</c>（<c>combat.damage_dealt</c>
+        /// 未显式声明 <c>sync</c> 时默认即 hit_frame，见 <see cref="Presentation.FeedbackBinder.Contracts.FeedbackRule.Sync"/>
+        /// 判断记录）的规则同时命中同一个事件——根治前每条规则各自入队一个独立等待项，
+        /// <see cref="HitFrameSyncPolicy"/> 每次命中帧只释放同一实体最早入队的那一条，第二条规则的
+        /// 动作要等到超时（0.5s 默认）才播放。根治后二者合并成同一个批次，一次命中帧应当同时释放，不
+        /// 依赖任何超时。</summary>
+        [Fact]
+        public void HitFrameSyncRule_TwoRulesMatchSameEvent_BothReleaseTogetherOnSingleHitFrame_NoTimeoutNeeded()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var source = new FakeHitFrameSource();
+            var attacker = new Id("unit.hero");
+            source.RegisterRig(attacker, null!);
+            var options = new FeedbackOptions { HitFrameSync = HitFrameSyncStrategy.AnimKeyframeDriven };
+            // 两条规则都订阅 combat.damage_dealt、都不声明 condition（对任意一次伤害事件都命中）、
+            // 都不显式声明 sync（默认落到 hit_frame，见类型注释判断记录）——精确复现"两条同命中规则"。
+            var rules = LoadRules(FeedbackBinderTestSupport.PlaySfxOnlyRuleRow, FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink, options: options, hitFrameSource: source);
+
+            bus.PublishImmediate(DamageEvent(attacker));
+            Assert.Empty(sink.PlaySfxCalls);
+            Assert.Empty(sink.FloatingTexts);
+
+            source.Fire(attacker);
+
+            Assert.NotEmpty(sink.PlaySfxCalls);
+            Assert.NotEmpty(sink.FloatingTexts);
+            Assert.False(binder.HasPendingPlayback, "两条规则的动作应当随同一次命中帧一起释放，不应该还有任何一条留在等待队列里");
+        }
+
         [Fact]
         public void RuleWithoutSyncField_UnaffectedByAnimKeyframeDriven()
         {

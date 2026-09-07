@@ -146,7 +146,8 @@
 
 14. **ADR-0017（W6 表现能力补齐 A 部分，2026-09-08）：命中帧同步（`anim_keyframe_driven`）从"没有
     任何订阅方"收口为真实接线**——`presentation/render/README.md` 判断记录 13/16 提到
-    `ICharacterRig.HitFrameReached` 此前只在 `SpriteCharacterRig` 一侧有实现且全仓无人订阅，
+    `HitFrameReached`（经可选接口 `IHitFrameEmitter` 提供，见该 README 判断记录 17"PJ130-04 勘误"）
+    此前只在 `SpriteCharacterRig` 一侧有实现且全仓无人订阅，
     `RenderOptions.HitFrameSync` 切到 `AnimKeyframeDriven` 因此没有可观察效果；本模块新增
     `IHitFrameSource`（按实体注册/注销 rig 的命中帧事件订阅，汇聚成按实体 id 广播的聚合事件，默认
     实现 `CharacterRigHitFrameSource`）与 `HitFrameSyncPolicy`（等待队列：按时释放、超时兜底默认
@@ -163,6 +164,21 @@
     `ICharacterRig` 注册进 `IHitFrameSource`、不会自动构造并注入 `hitFrameSource`、也不会默认把
     `HitFrameSync` 切到 `AnimKeyframeDriven`——这是"框架提供机制，游戏层按需接线启用"的既有模式
     （同 `flash_profile`/`FlashProfileResolver` 一类判断记录），不接线时行为等同本条修复之前。
+
+15. **PR130-04 根治（第六轮文档—代码深度审计，`architecture/落地计划/audit-5c444f1-20260908/`）：
+    同一逻辑事件命中多条 `sync: hit_frame` 规则时，此前每条规则各自调用一次
+    `HitFrameSyncPolicy.WaitForHitFrame`，各自登记成一个独立的等待项**——`HitFrameSyncPolicy` 每次
+    命中帧只释放同一实体最早入队的那一条（`OnHitFrameReached` 的既有 FIFO 单条释放语义，见其类型
+    判断记录"多次攻击不串扰"，本条修复没有改动这一点，仍由
+    `HitFrameSyncPolicyTests.MultipleAttacks_SameEntity_DoNotCrossTalk` 锁定），第二条及之后的规则
+    因此要么错过这一次命中帧、串到下一次攻击的命中帧才播放，要么等到超时兜底（默认 0.5 秒）才播放，
+    与"同一事件的全部动作应当作为一个批次同时释放"的预期不符。改法在调用方（`FeedbackBinder.OnEvent`）
+    一侧：同一次 `OnEvent`（同一个逻辑事件）触发的全部 `sync: hit_frame` 规则的动作先合并进一个
+    列表，循环结束后只调用一次 `WaitForHitFrame`，使它们登记成同一个 `PendingEntry`、随同一次命中帧
+    整体释放；`HitFrameSyncPolicy` 本身的释放逻辑未改动一行——批次的边界完全由调用方划定，策略只需要
+    保证"一次 `WaitForHitFrame` 调用＝一次命中帧时的一次完整 `release()` 调用"这一基本原子性。范围
+    攻击对多个目标各自产生独立的 `combat.damage_dealt` 事件，各自经独立的一次 `OnEvent` 调用登记为
+    各自独立的批次，仍按既有 FIFO 顺序逐批释放，不会被本次改动误合并成一批。
 
 ## 不负责什么
 

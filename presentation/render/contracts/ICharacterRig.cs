@@ -20,6 +20,16 @@ namespace Presentation.Render
     /// <see cref="PlayClip"/>（转发到已解析好的具体剪辑 id，解析工作留给调用方——通常是持有
     /// <c>WeaponStyleResolver</c> 的组装层代码，按 09 第 4.4 节查表得到 clipId 后再调用）。
     /// </para>
+    /// <para>
+    /// PJ130-04 勘误（见 <c>architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md</c>"修订
+    /// 记录"一节）：命中帧到达事件不再是本接口的强制成员——1.3.0 曾把 <c>HitFrameReached</c> 直接
+    /// 加进本接口，属于契约签名的破坏性变更（<c>architecture/11_工程规范与测试.md</c> 第 156 行
+    /// "契约签名变化归 MAJOR"），与仍标记为次版本号的发布不一致。命中帧改由可选接口
+    /// <see cref="IHitFrameEmitter"/> 承载：<see cref="SpriteCharacterRig"/>/<see cref="ModelCharacterRig"/>
+    /// 两个框架自带实现同时实现该接口，行为不变；消费方按 <c>rig is IHitFrameEmitter</c> 探测，未实现
+    /// 该接口的 <see cref="ICharacterRig"/>（含继续实现旧接口形状的外部实现）视为"不参与命中帧同步"，
+    /// 仍可正常编译与运行，不抛异常。
+    /// </para>
     /// </summary>
     public interface ICharacterRig
     {
@@ -28,17 +38,6 @@ namespace Presentation.Render
         /// <summary>当前记录的动画状态（见 <see cref="SetAnimState"/> 判断记录），初始
         /// <see cref="AnimState.Idle"/>。</summary>
         AnimState CurrentAnimState { get; }
-
-        /// <summary>
-        /// ADR-0017 决策 c 提升进本契约：命中帧到达（09 第 4.3 节 <c>anim_keyframe_driven</c> 策略）。
-        /// <c>sprite</c> 型经 <see cref="IFrameAnimPlayer.OnAnimEvent"/> 命中
-        /// <see cref="FrameAnimClip.HitFrameMarker"/> 触发（见 <see cref="SpriteCharacterRig"/> 类型
-        /// 注释），<c>model</c> 型经 <c>IRenderer3D.OnAnimEvent</c> 命中 <see cref="ModelCharacterRig.HitFrameEventId"/>
-        /// 触发（见 <see cref="ModelCharacterRig"/> 类型注释）——二者统一为本事件，供
-        /// <c>Presentation.FeedbackBinder.Contracts.IHitFrameSource</c> 一类按实体订阅的消费方不必
-        /// 关心外形类型。<see cref="RenderOptions.HitFrameSync"/> 为 <see cref="HitFrameSyncStrategy.LogicDriven"/>
-        /// （默认）或未接入序列帧/骨骼动画事件源时恒不触发。</summary>
-        event Action<Id>? HitFrameReached;
 
         /// <summary>程序动画原语入口（09 第 4.1 节"提供……动画能力，供反馈绑定与动画状态机调用"）。</summary>
         IProceduralAnim ProceduralAnim { get; }

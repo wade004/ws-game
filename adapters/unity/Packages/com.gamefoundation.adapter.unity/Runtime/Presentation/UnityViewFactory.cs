@@ -100,6 +100,14 @@ namespace Adapter.Unity.Presentation
         /// 改动前完全一致。</summary>
         private readonly RenderOptions? _renderOptions;
 
+        /// <summary>PR130-07 根治新增：默认 factory 的 equipVisual 映射入口（doc-code-matrix 此前记录
+        /// 的能力边界"UnityViewFactory 构造函数没有 equipVisual 参数……默认 factory 仍缺入口"）——
+        /// 物品实例 id -&gt; <see cref="EquipVisualDef"/>，直接透传给 <see cref="UnityModelView"/> 构造
+        /// 函数的同名参数（见该类型判断记录）。可选，默认 null 时 <see cref="UnityModelView.OnEvent"/>
+        /// 对装备变化事件保持默认空处理，行为与改动前完全一致；装配方通常传入
+        /// <see cref="EquipmentVisualSource.VisualByItemInstanceId"/>（见该类型判断记录）。</summary>
+        private readonly IReadOnlyDictionary<Id, EquipVisualDef>? _equipVisuals;
+
         private readonly List<IView> _created = new List<IView>();
         private readonly HashSet<string> _warnedMissingDisplay = new HashSet<string>();
         private readonly HashSet<string> _warnedAnimDegraded = new HashSet<string>();
@@ -149,6 +157,20 @@ namespace Adapter.Unity.Presentation
             new Dictionary<Id, List<(UnityFrameAnimPlayer, Id, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec>)>>();
         private AnimClipResolver? _animClipResolver;
 
+        // PR130-03 根治：AnimClipResolver 解析出的 clipId 不只来自 RegisterDefaultClips 登记的六个
+        // 默认状态——武器风格覆盖（WeaponStyleDef.AutoAttackAnim/CastAnimOverride，见该类型注释）与
+        // 未来任何"按技能/装备覆盖默认剪辑"的查表结果都可能是一个从未登记进 UnityFrameAnimPlayer 的
+        // 全新 clipId，FrameAnimPlayer.Play 对未登记的 clipId 直接抛 ArgumentException（见其类型
+        // 判断记录），此前 playClip 委托对此毫无防御。改法与 RegisterDefaultClips/RequestAnimClipUpgrade
+        // 同一套"先登记单帧占位保证立即可用，同时发起真正加载，完成后原地升级"机制（见
+        // EnsureSpriteClipRegistered/RequestWeaponClipUpgrade），只是不再局限于六个固定状态键，改为
+        // 任意 clipId——_pendingWeaponClipResourceLoads 去重同一 clipId 只发起一次加载（含"此后永远
+        // 不再移除，加载失败不重试"，同 _pendingAnimResourceLoads 一贯惯例），
+        // _pendingWeaponClipWaiters 登记同一 clipId 被多个实体的播放器共同引用时的全部等待方（同
+        // _pendingAnimClipWaiters 一贯惯例，避免只升级最早发起加载的那一个播放器）。
+        private readonly HashSet<Id> _pendingWeaponClipResourceLoads = new HashSet<Id>();
+        private readonly Dictionary<Id, List<UnityFrameAnimPlayer>> _pendingWeaponClipWaiters = new Dictionary<Id, List<UnityFrameAnimPlayer>>();
+
         private static Sprite? _fallbackFrame;
 
         /// <summary>
@@ -174,7 +196,8 @@ namespace Adapter.Unity.Presentation
             IRenderer3D? renderer3D = null,
             IHitFrameSource? hitFrameSource = null,
             IWeaponStyleSource? weaponStyleSource = null,
-            RenderOptions? renderOptions = null)
+            RenderOptions? renderOptions = null,
+            IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId = null)
         {
             _renderer2D = renderer2D ?? throw new ArgumentNullException(nameof(renderer2D));
             _conventions = conventions ?? throw new ArgumentNullException(nameof(conventions));
@@ -186,6 +209,7 @@ namespace Adapter.Unity.Presentation
             _hitFrameSource = hitFrameSource;
             _weaponStyleSource = weaponStyleSource;
             _renderOptions = renderOptions;
+            _equipVisuals = equipVisualByItemInstanceId;
 
             if (_bus != null)
             {
@@ -260,7 +284,7 @@ namespace Adapter.Unity.Presentation
 
             if (info != null && info.Kind == DisplayKind.Model && _renderer3D != null)
             {
-                var modelView = new UnityModelView(entityId, _renderer3D, _conventions, info, _renderOptions);
+                var modelView = new UnityModelView(entityId, _renderer3D, _conventions, info, _renderOptions, _equipVisuals);
                 view = modelView;
 
                 if (info.Category == DisplayCategory.Creature)
@@ -514,6 +538,92 @@ namespace Adapter.Unity.Presentation
             });
         }
 
+        /// <summary>PR130-03 根治：保证 <paramref name="clipId"/> 在 <paramref name="player"/> 上已经
+        /// 登记，供 <see cref="EnsureAnimClipResolver"/> 的 <c>playClip</c> 委托在调用
+        /// <see cref="UnityFrameAnimPlayer.Play"/> 之前调用——<paramref name="clipId"/> 可能来自
+        /// <see cref="Presentation.VfxSfx.Contracts.WeaponStyleDef.AutoAttackAnim"/>/
+        /// <see cref="Presentation.VfxSfx.Contracts.WeaponStyleDef.CastAnimOverride"/>，从未随
+        /// <see cref="RegisterDefaultClips"/> 的六个默认状态一起登记过。已登记（<see cref="UnityFrameAnimPlayer.HasClip"/>）
+        /// 时直接返回；未登记时按 <see cref="RegisterDefaultClips"/> 同一套优先级尝试解析：资源已在
+        /// <see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader"/> 缓存里（<c>TryGetEffect</c>
+        /// 命中）直接登记真实多帧剪辑；未命中时先登记单帧占位剪辑保证立即可用并记一次诊断，同时发起
+        /// 一次真正的异步加载（<see cref="RequestWeaponClipUpgrade"/>），完成后原地升级——与
+        /// <see cref="RequestAnimClipUpgrade"/> 是同一套机制在"任意 clipId"而不是"六个固定状态键"上
+        /// 的推广，见类型顶部 <see cref="_pendingWeaponClipResourceLoads"/> 判断记录。</summary>
+        private void EnsureSpriteClipRegistered(UnityFrameAnimPlayer player, Id clipId)
+        {
+            if (player.HasClip(clipId))
+            {
+                return;
+            }
+
+            var unityLoader = _resourceLoader as Adapter.Unity.EngineAdapter.UnityResourceLoader;
+            if (unityLoader != null && unityLoader.TryGetEffect(clipId, out var effect))
+            {
+                player.RegisterClipFromEffect(clipId, effect);
+                return;
+            }
+
+            if (_warnedAnimDegraded.Add("weapon_clip." + clipId.Value))
+            {
+                Debug.LogWarning(
+                    $"[UnityViewFactory] 剪辑 \"{clipId}\"（武器风格/技能覆盖解析得到）尚未登记，" +
+                    "退化为单帧剪辑呈现，同时发起异步加载，加载完成后原地升级为真实多帧剪辑（Rig.PlayClip 仍可执行）");
+            }
+            player.RegisterSingleFrameClip(clipId, FallbackFrame);
+
+            if (unityLoader != null)
+            {
+                RequestWeaponClipUpgrade(unityLoader, clipId, player);
+            }
+        }
+
+        /// <summary>见 <see cref="EnsureSpriteClipRegistered"/> 判断记录：按 <paramref name="clipId"/>
+        /// 去重发起一次 <see cref="IResourceLoader.LoadAsync"/>（同一 clipId 被多个实体的播放器共同
+        /// 引用时只发起一次），完成后把全部登记等待方一次性升级为真实多帧剪辑；某个
+        /// <paramref name="player"/> 在加载完成前已被销毁（Unity 对象销毁后与 <c>null</c> 比较为真）
+        /// 时跳过它，不抛异常。</summary>
+        private void RequestWeaponClipUpgrade(Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id clipId, UnityFrameAnimPlayer player)
+        {
+            if (!_pendingWeaponClipWaiters.TryGetValue(clipId, out var waiters))
+            {
+                waiters = new List<UnityFrameAnimPlayer>();
+                _pendingWeaponClipWaiters[clipId] = waiters;
+            }
+            waiters.Add(player);
+
+            if (!_pendingWeaponClipResourceLoads.Add(clipId))
+            {
+                return;
+            }
+
+            unityLoader.LoadAsync(clipId, ResourceKind.Effect, (loadedId, success) =>
+            {
+                if (!_pendingWeaponClipWaiters.TryGetValue(loadedId, out var pendingWaiters))
+                {
+                    return;
+                }
+                _pendingWeaponClipWaiters.Remove(loadedId);
+
+                if (!success || !unityLoader.TryGetEffect(loadedId, out var loadedEffect))
+                {
+                    Debug.LogWarning(
+                        $"[UnityViewFactory] 武器风格/技能覆盖剪辑 \"{loadedId}\" 加载失败，继续使用单帧占位剪辑（不重试）");
+                    return;
+                }
+
+                for (var i = 0; i < pendingWaiters.Count; i++)
+                {
+                    var waitingPlayer = pendingWaiters[i];
+                    if (waitingPlayer == null)
+                    {
+                        continue;
+                    }
+                    waitingPlayer.RegisterClipFromEffect(loadedId, loadedEffect);
+                }
+            });
+        }
+
         /// <summary>ADR-0017 决策 c：把 <c>display.anim_set.clips[*].events</c>（时间轴百分比 + 裸
         /// 事件名）换算成 <see cref="UnityFrameAnimPlayer.RegisterClip"/> 系列方法要求的"事件名 -> 帧
         /// 索引"关键帧表（见 <see cref="Presentation.Render.FrameAnimClip.Keyframes"/>）：
@@ -577,12 +687,19 @@ namespace Adapter.Unity.Presentation
                 {
                     if (_animPlayersByEntity.TryGetValue(entityId, out var player))
                     {
+                        // PR130-03 根治：clipId 可能是武器风格/技能覆盖解析出的、从未登记过的剪辑，
+                        // 见 EnsureSpriteClipRegistered 判断记录——FrameAnimPlayer.Play 对未登记的
+                        // clipId 会抛异常，本调用点必须先保证已登记。
+                        EnsureSpriteClipRegistered(player, clipId);
                         player.Play(clipId, loop, speed);
                         return;
                     }
 
                     // W6-B 新增：model 型实体没有 UnityFrameAnimPlayer，改直接转发到该实体持有的
                     // ModelCharacterRig.PlayClip（经 IRenderer3D.PlayAnim 落地，见该类型判断记录）。
+                    // model 路线不需要类似 EnsureSpriteClipRegistered 的预登记步骤——
+                    // UnityRenderer3D.PlayAnim 按 Animator 状态名现查现用（AnimatorHasState），查不到
+                    // 时静默退回 legacy Animation 兜底或直接 no-op，不会抛异常（见该方法判断记录）。
                     if (_modelViewsByEntity.TryGetValue(entityId, out var modelView))
                     {
                         modelView.Rig.PlayClip(clipId, loop, speed);

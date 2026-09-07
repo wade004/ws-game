@@ -43,7 +43,7 @@ namespace Presentation.Render
     /// 这是已知简化，等价于"View 尚未同步过第一次姿态之前不渲染放置变化"。
     /// </para>
     /// </summary>
-    public sealed class ModelCharacterRig : ICharacterRig, IProceduralAnim, IModelHandleProvider, IDisposable
+    public sealed class ModelCharacterRig : ICharacterRig, IHitFrameEmitter, IProceduralAnim, IModelHandleProvider, IDisposable
     {
         /// <summary>命中帧事件 id（09 第 4.3 节 <c>anim_keyframe_driven</c> 策略 model 型一侧：经
         /// <see cref="IRenderer3D.OnAnimEvent"/> 触发）。<c>display.anim_set.clips[*].events</c>（04

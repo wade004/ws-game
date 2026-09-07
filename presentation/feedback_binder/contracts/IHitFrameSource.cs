@@ -5,9 +5,10 @@ using Presentation.Render;
 namespace Presentation.FeedbackBinder.Contracts
 {
     /// <summary>
-    /// 按实体注册/注销 rig 的命中帧事件（ADR-0017 决策 d）：把
-    /// <c>Presentation.Render.ICharacterRig.HitFrameReached</c>（每个 rig 实例各自的 C# 事件）汇聚成
-    /// 一个按实体 id 广播的统一入口，供 <see cref="Presentation.FeedbackBinder.Core.HitFrameSyncPolicy"/>
+    /// 按实体注册/注销 rig 的命中帧事件（ADR-0017 决策 d；PJ130-04 勘误后事件源改为可选接口
+    /// <c>Presentation.Render.IHitFrameEmitter.HitFrameReached</c>，见其类型注释）：把
+    /// 每个 rig 实例各自的 C# 事件汇聚成一个按实体 id 广播的统一入口，供
+    /// <see cref="Presentation.FeedbackBinder.Core.HitFrameSyncPolicy"/>
     /// 订阅——本模块（<c>feedback_binder</c>）不直接持有任何 rig 引用（rig 的生命周期归 View/
     /// ViewFactory 一侧管理，见 <c>Presentation.Render.SpriteViewBase</c>/<c>ModelCharacterRig</c>
     /// 类型注释），由持有 rig 的一侧（通常是 <c>Presentation.ViewBinding.ViewBinder</c> 或具体游戏的

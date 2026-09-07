@@ -28,7 +28,20 @@ namespace Presentation.FeedbackBinder.Core
     /// <para>
     /// 判断记录（多次攻击不串扰）：<see cref="_pending"/> 是一个有序列表而非"每实体一个槽位"，命中帧
     /// 事件到达时只释放该实体"最早入队"的那一条（FIFO），不同实体的等待项互不影响；同一实体连续多次
-    /// 攻击各自入队一条，各自等待各自的下一次命中帧事件，不会互相抢占或合并。
+    /// 攻击各自入队一条，各自等待各自的下一次命中帧事件，不会互相抢占或合并——本条约束由
+    /// <c>HitFrameSyncPolicyTests.MultipleAttacks_SameEntity_DoNotCrossTalk</c> 锁定，PR130-04
+    /// 根治（见下一条判断记录）刻意保留，没有改动。
+    /// </para>
+    /// <para>
+    /// 判断记录（PR130-04 根治：一次 <see cref="WaitForHitFrame"/> 调用即一个不可拆分的批次）：本类型
+    /// 从不感知"这次调用携带的 <c>release</c> 委托内部打包了几个具体动作"——<see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/>
+    /// 已经改为把同一次 <c>OnEvent</c>（同一个逻辑事件）命中的全部 <c>sync: hit_frame</c> 规则的动作
+    /// 合并进同一个 <c>release</c> 委托、只调用一次本方法（见该类型 <c>OnEvent</c> 判断记录"同一事件的
+    /// 全部动作作为一个批次"），取代此前"每条规则各自调用一次"、被本类型的 FIFO 单条释放机制拆散成
+    /// 多条互相错开的等待项这一问题——批次的边界由调用方（本类型的调用方，不是本类型自己）划定，本
+    /// 类型只需要老实保证"一次 <see cref="WaitForHitFrame"/> 调用 = 一次命中帧时的一次完整
+    /// <c>release()</c> 调用"这一最基本的原子性，不需要（也不应该）自己再猜测多次调用之间是否属于
+    /// "同一次攻击"——那是只有调用方才知道的语义边界。
     /// </para>
     /// </summary>
     public sealed class HitFrameSyncPolicy : IDisposable

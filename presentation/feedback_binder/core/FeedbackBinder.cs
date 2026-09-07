@@ -217,6 +217,24 @@ namespace Presentation.FeedbackBinder.Core
             var targetId = ExtractId(evt, "targetId");
             var host = _exprHosts.CreateFor(selfId, targetId, evt);
 
+            // PR130-04 根治（取代此前"每条规则各自调用一次 WaitForHitFrame"的做法）：本次 OnEvent 命中
+            // 的全部 sync=hit_frame 规则的动作先累积进 hitFrameBatch，循环结束后只调用一次
+            // HitFrameSyncPolicy.WaitForHitFrame——同一个 combat.damage_dealt 一类事件命中多条
+            // sync=hit_frame 规则时（如暴击/普通两条规则各自命中，见任务书复现场景"两条同命中规则"），
+            // 此前每条规则各自入队成一个独立的 HitFrameSyncPolicy.PendingEntry，而该策略每次命中帧只
+            // 释放同一实体最早入队的那一条（见 HitFrameSyncPolicy.OnHitFrameReached 判断记录"多次攻击
+            // 不串扰"——这条策略本身的行为没有变化、仍然保留，用于区分"确实不同的两次攻击"），导致第二
+            // 条规则的动作错过这一次命中帧、要么串到下一次攻击的命中帧、要么等到超时兜底才播放。改为
+            // 同一次 OnEvent（即同一个逻辑事件）触发的全部 sync=hit_frame 规则合并成一个批次、只登记
+            // 一个 PendingEntry，使它们作为一个整体随同一次命中帧同时释放（"同一事件的全部动作作为一个
+            // 批次"）；不是 sync=hit_frame 的规则、以及非命中帧同步的调用路径均不受影响，仍然立即派发。
+            // 范围攻击对多个目标各自产生独立的 combat.damage_dealt 事件（见 CombatDamageDealtEvent
+            // 单源单目标的既有形状），各自经本方法独立的一次 OnEvent 调用登记为各自独立的批次——保留
+            // HitFrameSyncPolicy 既有的"每次命中帧只释放同一实体最早入队的那一批"逐批 FIFO 释放顺序
+            // （"多目标各自保序且不串批次"：目标 1 的整批动作与目标 2 的整批动作不会被拆散交叉，且严格
+            // 按各自入队顺序逐批释放，不会因为合并处理而错乱顺序）。
+            List<FeedbackAction>? hitFrameBatch = null;
+
             foreach (var rule in rules)
             {
                 if (rule.Condition != null && !ExprEvaluator.EvaluateBool(rule.Condition, host, _exprDiagnostics))
@@ -224,20 +242,10 @@ namespace Presentation.FeedbackBinder.Core
                     continue;
                 }
 
-                // ADR-0017 决策 d：命中帧同步只在策略确实要求（_hitFrameSyncPolicy 非空，见构造函数
-                // 判断记录）且该规则声明 sync=hit_frame 时生效——同一规则的全部动作打包成一次等待，
-                // 保证它们随同一次命中帧一起播放，不按动作各自拆开等待（见 HitFrameSyncPolicy 类型
-                // 注释"多次攻击不串扰"判断记录的姊妹约束：同一次触发的多个动作不应互相错开）。
                 if (_hitFrameSyncPolicy != null && rule.Sync == FeedbackSyncMode.HitFrame)
                 {
-                    var actionsSnapshot = rule.Actions;
-                    _hitFrameSyncPolicy.WaitForHitFrame(selfId, () =>
-                    {
-                        foreach (var action in actionsSnapshot)
-                        {
-                            Dispatch(action, evt, selfId, targetId);
-                        }
-                    });
+                    hitFrameBatch ??= new List<FeedbackAction>();
+                    hitFrameBatch.AddRange(rule.Actions);
                     continue;
                 }
 
@@ -245,6 +253,18 @@ namespace Presentation.FeedbackBinder.Core
                 {
                     Dispatch(action, evt, selfId, targetId);
                 }
+            }
+
+            if (hitFrameBatch != null)
+            {
+                var actionsSnapshot = hitFrameBatch;
+                _hitFrameSyncPolicy!.WaitForHitFrame(selfId, () =>
+                {
+                    foreach (var action in actionsSnapshot)
+                    {
+                        Dispatch(action, evt, selfId, targetId);
+                    }
+                });
             }
         }
 

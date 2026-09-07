@@ -80,6 +80,16 @@ assembly/
 装配，因此按"按各模块宿主实际需要的最小集合注入、未提供时降级"原则设为可选，未传时 `VfxPlayer`
 的 socket 模式保持退化为 world 播放（见 `presentation/vfx_sfx/README.md` 判断记录 1）。
 
+判断记录（PR130-06 根治，第六轮文档—代码深度审计，`architecture/落地计划/audit-5c444f1-20260908/`）：
+上一条"未传时退化为 world"是本模块自身对"没有 provider"这一状态的正确宽容处理，但三处生产装配根
+（`games/_template.GameBootstrap`/`Adapter.Unity.Bootstrap.GameFoundationBootstrap`/
+`Adapter.Unity.Shell.FrameworkResidentHost`）此前只把 `_host.Renderer3D` 传给了 `UnityViewFactory`
+（用于创建 model 型 View），构造 `PresentationAssembly` 时却漏传本参数——不是"游戏没有模型渲染"，而
+是三处装配根都确实持有同一个 `IRenderer3D` 实例、只是没有转发给这里，socket 特效因此在选用 model
+型外形的游戏里也固定降级为 world 坐标。三处装配根现已统一把同一个 `_host.Renderer3D` 实例同时传给
+`UnityViewFactory` 与 `PresentationAssembly`，与 `hitFrameSource`/`weaponStyleSource` 同一套"三处
+装配根共享同一份 provider 实例"惯例。
+
 判断记录（`hitFrameSource` 是可选参数，W6 收口新增，ADR-0017 决策 d 遗留缺口收口）：构造函数末尾
 再新增 `IHitFrameSource? hitFrameSource = null`，原样透传给内部 `Feedback`（`FeedbackBinderCore`）
 的同名构造参数——此前本类型完全没有暴露这个参数，即便引擎侧装配根（如

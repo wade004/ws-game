@@ -600,6 +600,41 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   `attack.anim` 在 50% 时间点内嵌一个 `AnimationEvent`（`functionName="OnAnimEvent"`,
   `stringParameter="hit_frame"`）。
 
+### 三维放置坐标换算、资源缺失降级、影子（PR130-01/05/08 根治）
+
+第六轮文档—代码深度审计（`architecture/落地计划/audit-5c444f1-20260908/`）发现 `UnityRenderer3D`
+的坐标换算与 sprite/相机不在同一个 Unity 世界平面上、资源缺失时抛异常而不是按 ADR-0017 决策 1 降级、
+影子随高度一起被抬离地面三项问题，均已根治（见 `UnityRenderer3D.cs` 类型顶部判断记录、
+`Tests/Runtime/UnityRenderer3DTests.cs`）：
+
+- **坐标换算（PR130-01）**：`SetPlacement` 的锚点根（`ModelInstance.Root`）现落在
+  `(planePos.X, planePos.Y, 0)`——与 `UnityRenderer2D.SetTransform`/`UnityCamera` 共用的既有平面约定
+  逐字一致（不再借用 Unity Z 轴表达 `planePos.Y`）；`height` 只平移一个新增的可见内容子物体
+  （`ModelInstance.VisualRoot`，取回方法 `GetModelVisualRoot`，与 `UnityRenderer2D` 的
+  `LayersRoot`/`GetLayersRoot` 同一结构），不改变锚点根位置。同一份 `planePos`/`height`/`facing`
+  下，model 与 sprite 经相机投影得到的屏幕坐标现在严格一致（`scale = 1` 时）。
+- **资源缺失降级（PR130-05）**：`CreateModelInstance` 缓存未命中、同步 `Resources.Load` 也找不到时
+  不再抛 `InvalidOperationException`——记一次诊断（按 `modelId` 去重）后落地一个占位可见内容（优先
+  复用 `model.placeholder_biped`，连它都取不到时兜底一个内建胶囊体），同时发起一次真正的
+  `IResourceLoader.LoadAsync(modelId, ResourceKind.Model, ...)`，加载成功后原地把占位内容替换为
+  真实预制体（同一句柄不变，已登记的槽位网格/材质参数/最近一次播放的剪辑会在替换后重新应用一遍，
+  保持视觉连续）；加载失败则保持占位、记一次诊断、不重试。`IsShowingPlaceholder(handle)` 供测试/
+  诊断查询当前是否仍在展示占位内容。
+- **影子（PR130-08）**：`ModelInstance.BlobShadow` 挂在锚点根（不随 `height` 位移）下，是上一条
+  坐标换算修复的自然结果——height 现在只写入 `VisualRoot` 的局部偏移，不再写进锚点根本身。
+
+### 生产装配根共享同一个 `renderer3D`（PR130-06 根治）
+
+三处生产装配根此前只把 `_host.Renderer3D` 传给了 `UnityViewFactory`（用于创建 model 型 View），构造
+`Presentation.Assembly.PresentationAssembly` 时却漏传该参数——`PresentationAssembly` 内部的
+`VfxPlayer` 因此始终拿到 `renderer3D: null`，`attach_mode: socket` 的特效即便在选用 model 型外形的
+游戏里也固定降级为 world 坐标播放（`modelHandleResolver` 本身不受影响，`PresentationAssembly` 内部
+一直有正确构造，只是没有 `renderer3D` 配合就不会被 `VfxPlayer` 使用，见
+`presentation/assembly/README.md` 判断记录）。三处装配根（`GameFoundationBootstrap`/
+`Adapter.Unity.Shell.FrameworkResidentHost`/`games/_template.GameBootstrap`）现已把同一个
+`_host.Renderer3D` 实例同时传给 `UnityViewFactory` 与 `PresentationAssembly` 的 `renderer3D` 构造
+参数，与 `hitFrameSource`/`weaponStyleSource` 同一套"三处装配根共享同一份 provider 实例"惯例。
+
 ### 命中帧同步接线步骤（ADR-0017 决策 d）
 
 1. 装配根构造一个 `Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource` 实例。
@@ -642,6 +677,46 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
 4. 数据侧关联链路：`item.template.display_ref → display.map.logical_id`（该行本身即物品模板
    id）→ `display.map.weapon_style_ref → display.weapon_style` 行——不需要在 `item.template`
    新增任何字段（见 `EquipmentWeaponStyleSource` 类型判断记录）。
+
+**PR130-03 根治（sprite 一侧剪辑登记）**：武器风格/技能覆盖解析出的 clipId（`WeaponStyleDef.
+AutoAttackAnim`/`CastAnimOverride`）此前从未随 `UnityViewFactory.RegisterDefaultClips` 的六个默认
+状态一起登记进 `UnityFrameAnimPlayer`，`FrameAnimPlayer.Play` 对未登记的 clipId 直接抛
+`ArgumentException`（`model` 一侧不受影响——`IRenderer3D.PlayAnim` 按 Animator 状态名现查现用，不需要
+预注册）。`AnimClipResolver` 决策出的 clipId 现经 `UnityViewFactory.EnsureSpriteClipRegistered`
+在调用 `player.Play` 前保证已登记：已在 `UnityResourceLoader` 缓存里则直接登记真实多帧剪辑；未命中
+则先登记单帧占位剪辑（保证立即可播放）并记一次诊断，同时发起一次真正的
+`IResourceLoader.LoadAsync(clipId, ResourceKind.Effect, ...)`，加载成功后原地升级为真实多帧剪辑（与
+`RequestAnimClipUpgrade` 同一套去重 + 多等待方机制，只是推广到任意 clipId 而不局限于六个默认状态
+键）。对应测试：`Tests/Runtime/WeaponClipRegistrationTests.cs`。
+
+### 装备外观（equip visual）接线步骤（PR130-07 根治）
+
+doc-code-matrix 此前记录的能力边界"`UnityViewFactory` 构造函数没有 `equipVisual` 参数……默认 factory
+仍缺入口"已补上，接线步骤与命中帧同步/武器风格同一套惯例：
+
+1. 装配根按 `display.equip_visual` 全表构造一张"物品模板 id（`item_id` 字段）→ `EquipVisualDef`"
+   目录（`EquipVisualDef.FromRecord` 逐行解析，与 `AnimClipResolver` 的 `weaponStyles` 目录同一套
+   "内容表只读、装配期加载一次"惯例）。
+2. 用该目录构造 `Presentation.Render.EquipmentVisualSource`（还需要 `IEventBus`）——订阅
+   `item.added`/`item.equipped`/`item.unequipped`，按 `item.added` 携带的 `ItemTemplateId` 累积
+   "物品实例 id → 模板 id"表，`item.equipped` 时反查上一步的目录得到对应 `EquipVisualDef`，暴露一个
+   随事件实时增删的 `VisualByItemInstanceId` 只读字典（同一个对象引用，不是每次访问都重新计算的
+   快照）。
+3. 把 `EquipmentVisualSource.VisualByItemInstanceId` 传给 `UnityViewFactory` 构造函数新增的
+   `equipVisualByItemInstanceId` 参数——该工厂据此构造 `UnityModelView` 时透传给其同名构造参数，未
+   提供时 `UnityModelView.OnEvent` 对装备变化事件保持默认空处理（行为与本条修复之前完全一致）。
+4. 三处引擎侧装配根（`GameFoundationBootstrap`/`Adapter.Unity.Shell.FrameworkResidentHost`/
+   `games/_template.GameBootstrap`）均已完成上述 1～3 步的接线，`EquipmentVisualSource` 与
+   `EquipmentWeaponStyleSource` 同批构造/`Dispose`。
+
+同批根治 `UnityModelView` 卸装路径的 socket 残留问题：此前卸装事件处理同时用事件携带的逻辑
+`item.slot` 调用 `ClearSlot`（slot_mesh 槽位 id）与 `ClearSocket`（socket_attach 挂点 id）——但装备
+生效时用的是 `EquipVisualDef.SocketId`，与逻辑 slot 不是同一个 id 域，`ClearSocket(unequipped.Slot)`
+几乎总是查不到对应挂接，子模型实例卸装后残留不清理。`UnityModelView` 现按
+`ItemUnequippedEvent.ItemInstanceId` 反查本 View 生命周期内实际应用过的 `EquipVisualDef`
+（`_appliedEquipVisualsByItemInstanceId` 可逆索引），按其 `Mode` 精确调用 `ClearSlot`/`ClearSocket`
+中的一个，不再两个都盲试；反查不到（存档恢复后的初始装备状态一类场景）时退回按逻辑 slot 尝试
+`ClearSlot` 一次（幂等，安全）。对应测试：`Tests/Runtime/EquipVisualSocketClearTests.cs`。
 
 ### model 型 View（`Runtime/Presentation/UnityModelView.cs`）
 

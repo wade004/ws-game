@@ -1,0 +1,20 @@
+{
+  "table": "display.equip_visual",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.equip_visual.sample_model_sword",
+      "item_id": "item.sample_model_sword",
+      "mode": "socket_attach",
+      "socket_id": "socket.main_hand",
+      "model_ref": "model.placeholder_biped"
+    },
+    {
+      "id": "display.equip_visual.sample_model_helmet",
+      "item_id": "item.sample_model_helmet",
+      "mode": "slot_mesh",
+      "slot_id": "slot.head",
+      "mesh_ref": "model.placeholder_biped"
+    }
+  ]
+}

@@ -97,6 +97,11 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.IsNull(rootAfterDestroy, "销毁后模型实例应当已从渲染器内部表中移除");
         }
 
+        /// <summary>PR130-01 根治后更新：锚点根（<see cref="UnityRenderer3D.GetModelRoot"/>）落在
+        /// (planePos.X, planePos.Y, 0)，不再借用 Z 轴表达深度；height 只平移可见内容子物体
+        /// （<see cref="UnityRenderer3D.GetModelVisualRoot"/>）的局部 Y，与 <see cref="UnityRenderer2D"/>
+        /// 的 Root/LayersRoot 同一套结构，见 UnityRenderer3D.cs 类型顶部"三维放置的坐标换算"判断
+        /// 记录。</summary>
         [Test]
         public void SyncPose_AppliesHeightToModelRoot()
         {
@@ -109,11 +114,16 @@ namespace Adapter.Unity.Tests.Runtime
             view.SyncPose(new Vec2(1, 2), Direction.Continuous(0.0), height: 3.0);
 
             var handle = view.TryGetModelHandle()!.Value;
-            var root = ((UnityRenderer3D)fx.Host.Renderer3D).GetModelRoot(handle);
+            var renderer3D = (UnityRenderer3D)fx.Host.Renderer3D;
+            var root = renderer3D.GetModelRoot(handle);
             Assert.IsNotNull(root);
-            // 见 UnityRenderer3D.SetPlacement 判断记录："三维放置的坐标换算"：世界坐标 =
-            // (planePos.X, height, planePos.Y)。
-            Assert.AreEqual(new Vector3(1f, 3f, 2f), root!.transform.localPosition);
+            Assert.AreEqual(new Vector3(1f, 2f, 0f), root!.transform.localPosition,
+                "锚点根应落在 (planePos.X, planePos.Y, 0)——与 sprite/相机同一套地面平面约定");
+
+            var visualRoot = renderer3D.GetModelVisualRoot(handle);
+            Assert.IsNotNull(visualRoot);
+            Assert.AreEqual(new Vector3(0f, 3f, 0f), visualRoot!.localPosition,
+                "height 只应平移可见内容子物体的局部 Y");
 
             view.Destroy();
         }

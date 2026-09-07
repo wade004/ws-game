@@ -168,6 +168,10 @@ namespace Adapter.Unity.Shell
 
         /// <summary>H5b 根治新增（游戏侧复核发现 3）：见 <see cref="MainHandSlotId"/> 判断记录。</summary>
         private global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource? _weaponStyleSource;
+
+        /// <summary>PR130-07 根治新增：默认 factory 的 equipVisual 映射入口，同批构造/Dispose，见
+        /// <see cref="_weaponStyleSource"/> 同款判断记录。</summary>
+        private global::Presentation.Render.EquipmentVisualSource? _equipVisualSource;
         private readonly System.Collections.Generic.Dictionary<string, bool> _wasActionActive =
             new System.Collections.Generic.Dictionary<string, bool>(StringComparer.Ordinal);
 
@@ -370,11 +374,24 @@ namespace Adapter.Unity.Shell
                     : (Id?)null;
             var weaponStyleSource = new global::Presentation.VfxSfx.Core.EquipmentWeaponStyleSource(_bus, mainHandResolver, viewFactoryDisplayInfo);
             _weaponStyleSource = weaponStyleSource;
+
+            // PR130-07 根治：默认 factory 的 equipVisual 映射入口，同批构造/Dispose（见
+            // global::Presentation.Render.EquipmentVisualSource 类型判断记录）。
+            var equipVisualCatalog = new System.Collections.Generic.Dictionary<Id, global::Presentation.Render.EquipVisualDef>();
+            foreach (var record in registry.GetAll("display.equip_visual"))
+            {
+                var def = global::Presentation.Render.EquipVisualDef.FromRecord(record);
+                equipVisualCatalog[def.ItemId] = def;
+            }
+            var equipVisualSource = new global::Presentation.Render.EquipmentVisualSource(_bus, equipVisualCatalog);
+            _equipVisualSource = equipVisualSource;
+
             var viewFactory = new UnityViewFactory(
                 _host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader,
                 bus: _bus, dataRegistry: registry,
                 renderer3D: _host.Renderer3D, hitFrameSource: HitFrameSource, weaponStyleSource: weaponStyleSource,
-                renderOptions: renderOptions);
+                renderOptions: renderOptions,
+                equipVisualByItemInstanceId: equipVisualSource.VisualByItemInstanceId);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(Seed ^ 0x9E3779B97F4A7C15UL);
@@ -436,10 +453,14 @@ namespace Adapter.Unity.Shell
             // SfxPlayer 配了 PreWarmSfxResources 手工预热（见该方法判断记录，ADR-0016 决策 6 的
             // "统一预热"分支），VFX 完全没有对应机制；两者不冲突（UnityResourceLoader.LoadAsync
             // 内部按资源 id 去重，重复调用无副作用，见 PreWarmSfxResources 判断记录）。
+            // PR130-06 根治：三处装配根共享同一个 _host.Renderer3D 实例——此前只传给了上面的
+            // viewFactory，PresentationAssembly/内部 VfxPlayer 拿到的 renderer3D 一直是 null，socket
+            // 特效固定降级 world 坐标（见 VfxPlayer.PlaySocket 判断记录）。
             var presentation = new PresentationAssembly(
                 gameplay, world, registry, _bus, presentationRng,
                 viewFactory, _host.Renderer2D, _host.Camera, _host.Audio, _host.FileSystem, sceneRouter,
-                presentationOptions, resourceLoader: _host.ResourceLoader, hitFrameSource: HitFrameSource);
+                presentationOptions, resourceLoader: _host.ResourceLoader, hitFrameSource: HitFrameSource,
+                renderer3D: _host.Renderer3D);
             Presentation = presentation;
 
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
@@ -882,6 +903,10 @@ namespace Adapter.Unity.Shell
             // （同 GameFoundationBootstrap.OnDestroy 一致的清理惯例）。
             _weaponStyleSource?.Dispose();
             _weaponStyleSource = null;
+
+            // PR130-07 根治：同批退订 EquipmentVisualSource 的 item.added/item.equipped/item.unequipped 订阅。
+            _equipVisualSource?.Dispose();
+            _equipVisualSource = null;
         }
     }
 }

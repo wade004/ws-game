@@ -3,42 +3,67 @@
 // 占位实现——ADR-0017 决策 b 收紧后，model 型外形的默认路线是框架职责，本引擎适配层现在提供真实
 // 三维渲染实现，见 architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md）。
 //
-// 判断记录（模型实例创建：经 UnityResourceLoader 缓存优先，找不到时回退同步直接
-// Resources.Load）：CreateModelInstance 契约本身是同步的（09/02 均未把它列为异步 API），不能像
-// LoadAsync 那样排队等下一次 Tick；本类型因此优先查 UnityResourceLoader.TryGetModelPrefab（若调用方
-// 已经先经 IResourceLoader.LoadAsync(modelId, ResourceKind.Model, ...) 预热过缓存，见 ADR-0016
-// 决策 6"谁首次引用谁加载"），未命中时直接同步调用 Resources.Load&lt;GameObject&gt;（与
-// UnityResourceLoader.FinishModelLoad 内部调用的是同一个 API、同一条路径约定，只是不经过
-// LoadCallback 那一层排队——Resources.Load 本身在主线程调用总是同步完成，两条路径殊途同归）；
-// 两条路径都找不到（预制体确实不存在于 Resources/GameFoundation/models/ 下）时抛
-// InvalidOperationException，异常消息带上解析出的具体路径——这是本类型与 UnityRenderer2D.ResolveSprite
-// 的刻意差异（后者找不到精灵资源时静默退化为洋红色占位方块并继续运行，见该方法判断记录"资源解析与
-// 占位"）：sprite 型外形允许缺资源仍可运行（09 第 1 节表现层"缺表现资源不阻断游戏"一贯宽容策略），
-// 但 model 型没有对应的"占位模型"这种轻量退化手段（临时拼一个立方体 GameObject 冒充角色模型，
-// 视觉上的误导性远大于一块醒目的洋红色方块，且会让"到底有没有真正接上三维模型"这件事变得难以在
-// 运行期分辨），因此本类型选择"资源缺失就是配置错误，应该尽早暴露"这一更严格的立场，与任务书
-// "找不到资源时抛带路径的明确异常"一致。
+// 判断记录（三维放置的坐标换算，PR130-01 根治，取代此前 (X, height, Y) 的独立约定）：本类型此前
+// 把逻辑 (planePos.X, height, planePos.Y) 直接写成 Unity 世界 (X, height, Z)——把 planePos.Y（"地面
+// 平面"逻辑坐标）映射到 Unity 世界 Z 轴（相机固定沿该轴取景，深度轴上的位移不改变屏幕投影结果，见
+// UnityCamera.cs 类型顶部判断记录"相机保持正交投影、镜头朝向固定沿 Z 轴看向 XY 平面"），height 映射
+// 到 Unity 世界 Y 轴。这与 sprite/相机共用的既有平面约定不是同一套：UnityRenderer2D.SetTransform 把
+// planePos 直接映射到 Unity (X, Y)、height 经 PixelsPerUnit 换算后只平移一个子物体（不改变
+// sortY/根物体位置，见该方法判断记录）；UnityCamera.WorldToScreen 据此以 (planePos.X, planePos.Y +
+// height, 0) 求屏幕投影。旧约定下 model 与 sprite 分别落在两个不同的世界平面：model 沿 planePos.Y
+// 变化的位移落在相机取景轴上（对屏幕投影没有可观察影响），height 变化反而落在屏幕纵轴上（本该由
+// planePos.Y 决定的屏幕位置被 height 顶替）——同一份 planePos/height 数值，sprite 与 model 呈现出的
+// 屏幕位置完全对不上，地图点击反投影（经 UnityCamera.ScreenToWorld，固定与 Z=0 平面求交）命中的也
+// 不是视觉上看到的 model。
 //
-// 判断记录（三维放置的坐标换算：无既有 3D 世界坐标约定可循，本类型拍板一套）：09/14 均只给出
-// sprite 型的像素/排序换算公式（UnityRenderer2D.SetTransform），从未定义 model 型三维放置该如何
-// 把逻辑层的 (Vec2 planePos, height, facing) 换算成 Unity 世界坐标/旋转——这是一处此前从未落地过
-// 的契约缺口，本类型据此拍板并如实记录：
-//   世界坐标 = (planePos.X, height, planePos.Y)——planePos 是"地面平面"坐标，Unity 侧选择用
-//     水平的 X/Z 平面盛放它（Unity 约定"Y 轴朝上"），height 直接作为世界 Y 轴坐标（不像 2D 的
-//     height 需要经 PixelsPerUnit 换算成像素位移——3D 场景本就以"世界单位＝美术资产的建模单位"
-//     为基准，不存在"像素"这个中间量，见 IRenderConventionHost.HeightOffsetToPixels 类型注释
-//     "供高度偏移换算像素纵向偏移"——那是 sprite 型专属换算，本类型不复用）。
-//   Y 轴欧拉角（度）= -facing（弧度）× (180/π)——facing 取 05 第 3.1 节"index 0＝角度 0（+X 轴），
-//     按角度递增方向（逆时针）编号"这一数学惯例（逆时针，从 +X 轴量起）；Unity 的 Transform.eulerAngles.y
-//     是"从上往下看顺时针为正"的左手系惯例，两者手性相反，取负号做一次性换算。这只保证"facing 的
-//     数值变化单调对应模型朝向的旋转方向"，不对"模型美术资产的正前方到底建模在哪个局部轴"做任何
-//     假设——后者是具体游戏美术资产的建模约定，不属于引擎适配层能够替游戏拍板的范围（同
-//     UnityRenderer2D 排序换算"具体数值不在本架构拍板"的一贯立场）。
-//   sortY 不参与任何实际渲染调用——3D 管线原生经深度缓冲区决定遮挡关系，不需要 IRenderer2D 那样
-//     手工换算 sortingOrder；本方法仍然接受该参数（与 IRenderer2D.SetTransform 同一套放置签名，
-//     09 类型注释"sortY 与 IRenderer2D 共享同一排序空间"），只是单纯存下来不使用，保留参数是为了
-//     ModelCharacterRig.SyncPlacement 与 sprite 型调用方一份完全对称的调用形状，不需要为 model 型
-//     另开一套精简签名。
+// 本类型现改为与 UnityRenderer2D/UnityCamera 完全同一套换算（"模型本体在该平面上用旋转/朝向表达"，
+// 不再借用第三根世界坐标轴表达深度）：
+//   锚点 Root（ModelInstance.Root，供 SetPlacement 的 planePos/facing/scale 与影子挂接使用）
+//     世界坐标 = (planePos.X, planePos.Y, 0)——与 UnityRenderer2D.SetTransform 的 Root
+//     localPosition 逐字同一套换算，Z 固定 0（同 UnityCamera"地面平面固定为世界 Z = 0"判断记录）。
+//   朝向：Y 轴欧拉角（度）= -facing（弧度）× (180/π)，换算理由不变（见下方"朝向换算"判断记录）——
+//     facing 绕 Unity Y 轴旋转，Y 轴本身在新约定下正是"屏幕纵轴/深度共用轴"，旋转轴与位移轴重合时
+//     该轴上的坐标分量不受旋转影响（数学上 (0, y, 0) 绕 Y 轴旋转后仍是 (0, y, 0)），因此下面的
+//     height 子物体偏移不会被朝向旋转扰动。
+//   高度 VisualRoot（ModelInstance.VisualRoot，Root 的子物体，承载实际实例化出的可见内容——真实
+//     预制体或占位模型，见"资源缺失降级"判断记录）：localPosition = (0, height, 0)，与
+//     UnityRenderer2D.SetTransform 把 height 只平移 LayersRoot 子物体（不改变 Root 位置/sortY）
+//     同一套结构；Root 的 localScale 统一缩放全部子物体（含本偏移），与 sprite 路线"Root.localScale
+//     一并缩放整个精灵实例，包括影子"同一惯例（见 UnityRenderer2D.SetShadow 判断记录），因此非
+//     单位缩放下 height 的世界位移量随 scale 等比例变化——这与 sprite 路线是同一种已知简化（04/09
+//     均未把 ICamera.WorldToScreen 的 height 参数定义为"随 scale 缩放"，该接口方法本身也不接受
+//     scale 参数，属于两条路线共同持有的既有简化，不是本次改动新引入的差异）。
+//   sortY 不参与任何实际渲染调用，语义不变（见 ModelInstance.LastSortY 字段注释）。
+// 这一改法使 model 与 sprite 对同一份 planePos/height/facing 落在同一个 Unity 世界平面上：
+// ICamera.WorldToScreen(planePos, height) 与该模型实际渲染位置经 Camera.WorldToScreenPoint 得到的
+// 屏幕坐标严格相等（scale = 1 时），地图点击反投影命中的正是视觉上看到的那个 model。
+//
+// 判断记录（PR130-08 根治，随上一条一并解决）：09 第 3.4 节"影子贴地、不随 height 位移"——旧实现
+// 把 BlobShadow 挂在 ModelInstance.Root 下、height 又直接写进 Root 的 Y 轴，二者耦合导致影子随角色
+// 一起被 height 抬离地面。改法本身不需要额外处理：BlobShadow 依旧挂在 Root 下（不是 VisualRoot），
+// 但 height 现在只写入 VisualRoot 的局部偏移，Root 本身只由 planePos 决定——影子因此随 Root 一起
+// 锚定在地面逻辑坐标，天然不随 height 位移，与 UnityRenderer2D.SetShadow 影子挂在 Root（不是
+// LayersRoot）而不受 height 影响同一套结构。
+//
+// 判断记录（PR130-05 根治，资源缺失降级——取代此前"资源缺失就是配置错误，应该尽早暴露"的立场）：
+// ADR-0017 决策 1 明确"首次引用者 loadAsync、renderer 只消费已加载/占位资源、不隐式加载、不抛"。
+// CreateModelInstance 契约本身仍是同步的（09/02 均未把它列为异步 API），无法阻塞等待
+// IResourceLoader.LoadAsync 走完 Tick 排队；本类型因此按以下顺序解析实际要实例化的可见内容
+// （见 TryResolvePrefab/CreatePlaceholderVisualInstance/RequestModelLoadAndSwap）：
+//   1. 经 UnityResourceLoader.TryGetModelPrefab 查已加载缓存（调用方已经先经
+//      IResourceLoader.LoadAsync(modelId, ResourceKind.Model, ...) 预热过，或本类型自己此前已经
+//      发起过加载并完成）；
+//   2. 未命中时退回同步 Resources.Load（与 UnityResourceLoader.FinishModelLoad 内部调用同一个 API、
+//      同一条路径约定，只是不经过 LoadCallback 排队——这一步不算"隐式加载资源系统之外的东西"，只是
+//      直接读取已经存在于 Resources 目录下的资产，Resources.Load 本身在主线程调用总是同步完成）；
+//   3. 两条路径都找不到（预制体确实不存在于 Resources/GameFoundation/models/ 下）时：不再抛异常
+//      中断 View 创建——记一次诊断（按 modelId 去重，不刷屏），落地一个占位可见内容（优先复用内置
+//      占位模型 "model.placeholder_biped"；连它都取不到时兜底一个不依赖任何 Resources 资产的内建
+//      几何体，保证任何环境下都不会中断），同时经 IResourceLoader.LoadAsync 发起一次真正的异步加载
+//      （同一 modelId 被多个实例共同引用时只发起一次，见 _pendingModelLoadRequested 判断记录），
+//      加载成功后把全部等待中的实例原地替换为真实内容（同一句柄不变，见 AttachVisual/
+//      RequestModelLoadAndSwap 判断记录），失败则保持占位、记一次诊断、不重试——与
+//      UnityViewFactory.RequestAnimClipUpgrade/_pendingAnimResourceLoads 同一套既有惯例。
 //
 // 判断记录（PlayAnim：Animator CrossFadeInFixedTime 优先，Animation 组件兜底）：状态名＝clipId 去掉
 // 类别前缀后的末段（与 UnityViewFactory 默认剪辑登记同一套"resource_ref 末段＝可播放的具体名字"
@@ -84,6 +109,11 @@ namespace Adapter.Unity.EngineAdapter
         /// 的旁路。</summary>
         private const string AnimFinishedBareEventName = "finished";
 
+        /// <summary>PR130-05 新增：资源缺失时优先复用的内置占位模型 id（占位内容由
+        /// <c>Editor/GeneratePlaceholderModelAssets.cs</c> 一次性生成并提交，见该脚本与包 README
+        /// "资源路径约定"一节）。</summary>
+        private static readonly Id BuiltinPlaceholderModelId = new Id("model.placeholder_biped");
+
         /// <summary>H5b 根治新增：单个模型实例驱动 <see cref="PlayAnim"/> 的方式——供 <see cref="Tick"/>
         /// 判断该按哪条路径检测"非循环剪辑自然播放完成"（见 <see cref="ModelCharacterRig.AnimFinishedEventId"/>
         /// 判断记录）。</summary>
@@ -96,7 +126,18 @@ namespace Adapter.Unity.EngineAdapter
 
         private sealed class ModelInstance
         {
+            /// <summary>锚点根节点：只承载 <see cref="SetPlacement"/> 的 planePos/facing/scale 与
+            /// <see cref="BlobShadow"/>，不承载 height 偏移——见类型顶部"三维放置的坐标换算"判断
+            /// 记录，与 <see cref="UnityRenderer2D"/> 的 <c>SpriteInstance.Root</c> 同一职责划分。</summary>
             public GameObject Root = null!;
+
+            /// <summary>Root 下的可见内容子物体：承载 height 偏移，实际实例化出来的预制体（真实内容
+            /// 或占位模型，见类型顶部"资源缺失降级"判断记录）挂在这里——与
+            /// <see cref="UnityRenderer2D"/> 的 <c>SpriteInstance.LayersRoot</c> 同一职责划分。资源
+            /// 加载完成后原地替换（<see cref="AttachVisual"/>）时整体销毁重建，<see cref="Root"/> 与
+            /// <see cref="BlobShadow"/> 不受影响。</summary>
+            public Transform VisualRoot = null!;
+
             public Animator? Animator;
             public UnityEngine.Animation? LegacyAnimation;
             public readonly MaterialPropertyBlock PropertyBlock = new MaterialPropertyBlock();
@@ -107,6 +148,10 @@ namespace Adapter.Unity.EngineAdapter
             // 见类型顶部"三维放置的坐标换算"判断记录：sortY 只存不用，保留字段只为诊断/未来扩展。
             public double LastSortY;
 
+            /// <summary>最近一次 <see cref="SetPlacement"/> 写入的 height，供 <see cref="AttachVisual"/>
+            /// 在资源加载完成原地替换时把新视觉内容摆到与替换前一致的高度偏移（PR130-05）。</summary>
+            public double HeightOffset;
+
             // H5b 根治新增（游戏侧复核发现 1）：当前一次 PlayAnim 的驱动方式/目标状态或剪辑名/是否
             // 循环/是否已经通知过完成——供 Tick() 逐实例检测"非循环剪辑自然播放完成"，见该方法判断
             // 记录。FinishNotified 初始为 true（尚未播放过任何剪辑，没有"未完成的播放"需要检测）。
@@ -115,6 +160,24 @@ namespace Adapter.Unity.EngineAdapter
             public string? CurrentClipName;
             public bool CurrentClipLoop = true;
             public bool FinishNotified = true;
+
+            /// <summary>PR130-05 新增：最近一次 <see cref="PlayAnim"/> 的完整调用参数——资源加载完成
+            /// 原地替换视觉内容后，<see cref="AttachVisual"/> 据此对新内容重放同一条命令，保持替换前后
+            /// 视觉连续（不追求逐帧进度对齐，只保证"新内容也在播正确的剪辑"，同 09 第 1 节表现层一贯
+            /// 宽容策略）。null 表示尚未调用过 <see cref="PlayAnim"/>。</summary>
+            public (Id ClipId, bool Loop, double Speed, double BlendSeconds)? LastPlayAnimCall;
+
+            /// <summary>PR130-05 新增：已登记的槽位网格覆盖（<see cref="SetSlotMesh"/>），原地替换视觉
+            /// 内容后据此逐条重放。</summary>
+            public readonly Dictionary<Id, Id?> SlotMeshes = new Dictionary<Id, Id?>();
+
+            /// <summary>PR130-05 新增：已登记的材质参数（<see cref="SetMaterialParam"/>），原地替换
+            /// 视觉内容后据此逐条重放。</summary>
+            public readonly Dictionary<string, double> MaterialParams = new Dictionary<string, double>(StringComparer.Ordinal);
+
+            /// <summary>PR130-05 新增：本实例当前是否正在展示占位内容（尚未被真实资源原地替换）——
+            /// 供测试/诊断查询，不属于 <see cref="IRenderer3D"/> 契约本身。</summary>
+            public bool IsPlaceholder;
         }
 
         private readonly Transform _root;
@@ -126,6 +189,23 @@ namespace Adapter.Unity.EngineAdapter
         /// <see cref="AnimationClip"/>，避免同一剪辑被多个模型实例反复 <c>Resources.Load</c>。</summary>
         private readonly Dictionary<Id, AnimationClip> _legacyClipCache = new Dictionary<Id, AnimationClip>();
 
+        /// <summary>PR130-05 新增：已经记过一次"找不到模型资源"诊断的 modelId 去重集合（按
+        /// <see cref="Id.Value"/> 字符串去重，同 <c>UnityViewFactory._warnedMissingDisplay</c> 一贯
+        /// 惯例），避免同一个缺失资源被多个实例反复引用时刷屏。</summary>
+        private readonly HashSet<string> _missingModelWarned = new HashSet<string>();
+
+        /// <summary>PR130-05 新增：已经发起过一次 <see cref="IResourceLoader.LoadAsync"/> 的缺失
+        /// modelId 去重集合——同一资源被多个实例共同引用时只发起一次加载，同
+        /// <c>UnityViewFactory._pendingAnimResourceLoads</c> 一贯惯例（含"此后永远不再移除，加载
+        /// 失败也不重试"）。</summary>
+        private readonly HashSet<Id> _pendingModelLoadRequested = new HashSet<Id>();
+
+        /// <summary>PR130-05 新增：modelId -&gt; 正在等待该资源加载完成后原地替换的实例句柄值列表；
+        /// 加载完成时对列表中仍存活的实例逐一调用 <see cref="AttachVisual"/> 替换，已销毁的实例
+        /// （<see cref="_instances"/> 已不含该句柄）直接跳过，同
+        /// <c>UnityViewFactory._pendingAnimClipWaiters</c> 一贯惯例。</summary>
+        private readonly Dictionary<Id, List<int>> _pendingModelSwapWaiters = new Dictionary<Id, List<int>>();
+
         public UnityRenderer3D(Transform root, UnityResourceLoader resourceLoader)
         {
             _root = root ?? throw new ArgumentNullException(nameof(root));
@@ -134,43 +214,160 @@ namespace Adapter.Unity.EngineAdapter
 
         public ModelHandle CreateModelInstance(Id modelId)
         {
-            GameObject prefab;
-            if (!_resourceLoader.TryGetModelPrefab(modelId, out prefab!))
+            var handle = _nextHandle++;
+
+            var anchor = new GameObject($"Model_{handle}_{modelId.Value}");
+            anchor.transform.SetParent(_root, worldPositionStays: false);
+
+            var instance = new ModelInstance { Root = anchor };
+            _instances[handle] = instance;
+
+            if (TryResolvePrefab(modelId, out var prefab))
             {
-                // 见类型顶部判断记录：未经 LoadAsync 预热缓存时，回退为同步直接加载，找不到则抛出
-                // 带路径的明确异常。
-                var path = UnityResourceLoader.ResolveModelResourcesPath(modelId);
-                prefab = Resources.Load<GameObject>(path);
-                if (prefab == null)
-                {
-                    throw new InvalidOperationException(
-                        $"[UnityRenderer3D] 找不到模型资源 \"{modelId}\"（约定路径 Resources/{path}）：请确认该预制体已放在" +
-                        " adapters/unity 包的 Assets/Resources/GameFoundation/models/ 目录下。");
-                }
+                AttachVisual(instance, handle, UnityEngine.Object.Instantiate(prefab));
+                return new ModelHandle(handle);
             }
 
-            var handle = _nextHandle++;
-            var instanceRoot = UnityEngine.Object.Instantiate(prefab, _root);
-            instanceRoot.name = $"Model_{handle}_{modelId.Value}";
-
-            var instance = new ModelInstance
+            // 见类型顶部"资源缺失降级"判断记录：不抛异常，落地占位内容并发起真正的异步加载。
+            if (_missingModelWarned.Add(modelId.Value))
             {
-                Root = instanceRoot,
-                Animator = instanceRoot.GetComponentInChildren<Animator>(),
-            };
+                var path = UnityResourceLoader.ResolveModelResourcesPath(modelId);
+                Debug.LogWarning(
+                    $"[UnityRenderer3D] 找不到模型资源 \"{modelId}\"（约定路径 Resources/{path}）：" +
+                    "先使用占位模型呈现并发起异步加载，加载完成后原地替换为真实内容；请确认该预制体已放在" +
+                    " adapters/unity 包的 Assets/Resources/GameFoundation/models/ 目录下。");
+            }
 
-            // AnimationEvent 的 SendMessage 目标是"持有 Animator/Animation 组件的那个 GameObject
-            // 自身"（Unity 既有行为，不搜索父子层级），因此中继组件必须挂在同一个 GameObject 上；
-            // 两种驱动方式（Animator/Animation）都可能存在，各自可能挂在预制体内部不同的子物体上，
-            // 分别按需补挂一份中继（挂两份也不冲突——事件只会从真正在播放的那一套驱动方式触发）。
+            AttachVisual(instance, handle, CreatePlaceholderVisualInstance());
+            instance.IsPlaceholder = true;
+
+            if (!_pendingModelSwapWaiters.TryGetValue(modelId, out var waiters))
+            {
+                waiters = new List<int>();
+                _pendingModelSwapWaiters[modelId] = waiters;
+            }
+            waiters.Add(handle);
+
+            RequestModelLoadAndSwap(modelId);
+
+            return new ModelHandle(handle);
+        }
+
+        /// <summary>见类型顶部"资源缺失降级"判断记录第 1/2 步：先查已加载缓存，未命中时退回同步
+        /// <c>Resources.Load</c>。</summary>
+        private bool TryResolvePrefab(Id modelId, out GameObject prefab)
+        {
+            if (_resourceLoader.TryGetModelPrefab(modelId, out prefab!))
+            {
+                return true;
+            }
+
+            var path = UnityResourceLoader.ResolveModelResourcesPath(modelId);
+            prefab = Resources.Load<GameObject>(path);
+            return prefab != null;
+        }
+
+        /// <summary>见类型顶部"资源缺失降级"判断记录第 3 步：优先复用内置占位模型
+        /// <see cref="BuiltinPlaceholderModelId"/>，连它都取不到（隔离测试工程/尚未同步占位资产的
+        /// 极端场景）时兜底一个不依赖任何 Resources 资产的内建几何体，保证任何环境下都不中断。</summary>
+        private GameObject CreatePlaceholderVisualInstance()
+        {
+            if (TryResolvePrefab(BuiltinPlaceholderModelId, out var placeholderPrefab))
+            {
+                return UnityEngine.Object.Instantiate(placeholderPrefab);
+            }
+
+            var capsule = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            capsule.name = "BuiltinPlaceholderCapsule";
+            return capsule;
+        }
+
+        /// <summary>见类型顶部"资源缺失降级"判断记录第 3 步：按 modelId 去重发起一次
+        /// <see cref="IResourceLoader.LoadAsync"/>，完成后把 <see cref="_pendingModelSwapWaiters"/>
+        /// 里登记的全部仍存活实例原地替换为真实内容；失败则记一次诊断并保持占位，不重试。</summary>
+        private void RequestModelLoadAndSwap(Id modelId)
+        {
+            if (!_pendingModelLoadRequested.Add(modelId))
+            {
+                return;
+            }
+
+            _resourceLoader.LoadAsync(modelId, ResourceKind.Model, (loadedId, success) =>
+            {
+                if (!_pendingModelSwapWaiters.TryGetValue(loadedId, out var waitingHandles))
+                {
+                    return;
+                }
+                _pendingModelSwapWaiters.Remove(loadedId);
+
+                if (!success || !_resourceLoader.TryGetModelPrefab(loadedId, out var realPrefab))
+                {
+                    Debug.LogWarning(
+                        $"[UnityRenderer3D] 模型资源 \"{loadedId}\" 异步加载失败，继续使用占位模型（不重试）。");
+                    return;
+                }
+
+                for (var i = 0; i < waitingHandles.Count; i++)
+                {
+                    if (!_instances.TryGetValue(waitingHandles[i], out var instance))
+                    {
+                        // 加载完成前该实例已被销毁（切图/实体销毁），跳过即可，同
+                        // UnityViewFactory.RequestAnimClipUpgrade 一贯惯例。
+                        continue;
+                    }
+
+                    AttachVisual(instance, waitingHandles[i], UnityEngine.Object.Instantiate(realPrefab));
+                    instance.IsPlaceholder = false;
+                }
+            });
+        }
+
+        /// <summary>把 <paramref name="visualInstance"/>（已经 <c>Instantiate</c>/<c>CreatePrimitive</c>
+        /// 出来的一份实例，不是预制体模板）挂到 <paramref name="instance"/>.<see cref="ModelInstance.Root"/>
+        /// 下成为新的 <see cref="ModelInstance.VisualRoot"/>：首次创建时直接挂接；PR130-05 原地替换时
+        /// 先销毁旧内容，再重新挂接并重放已登记的 <see cref="ModelInstance.SlotMeshes"/>/
+        /// <see cref="ModelInstance.MaterialParams"/>/<see cref="ModelInstance.LastPlayAnimCall"/>，
+        /// 保持替换前后已生效的呈现状态与视觉连续（见类型顶部"资源缺失降级"判断记录）。</summary>
+        private void AttachVisual(ModelInstance instance, int handle, GameObject visualInstance)
+        {
+            if (instance.VisualRoot != null)
+            {
+                UnityEngine.Object.Destroy(instance.VisualRoot.gameObject);
+            }
+
+            visualInstance.name = "Visual";
+            visualInstance.transform.SetParent(instance.Root.transform, worldPositionStays: false);
+            // 见类型顶部"三维放置的坐标换算"判断记录：height 只写在 VisualRoot 的局部 Y。
+            visualInstance.transform.localPosition = new Vector3(0f, (float)instance.HeightOffset, 0f);
+            visualInstance.transform.localRotation = Quaternion.identity;
+            visualInstance.transform.localScale = Vector3.one;
+
+            instance.VisualRoot = visualInstance.transform;
+            instance.Animator = visualInstance.GetComponentInChildren<Animator>();
+            instance.LegacyAnimation = null; // 见 PlayAnim 判断记录：legacy 组件按需懒创建于新内容上。
+
+            // AnimationEvent 的 SendMessage 目标是"持有 Animator 组件的那个 GameObject 自身"（Unity
+            // 既有行为，不搜索父子层级），中继组件必须挂在同一个 GameObject 上，见类型顶部
+            // ModelAnimEventRelay 类型注释。
             if (instance.Animator != null)
             {
                 var relay = instance.Animator.gameObject.AddComponent<ModelAnimEventRelay>();
                 relay.Bind(this, handle);
             }
 
-            _instances[handle] = instance;
-            return new ModelHandle(handle);
+            foreach (var kv in instance.SlotMeshes)
+            {
+                ApplySlotMesh(instance, kv.Key, kv.Value);
+            }
+            foreach (var kv in instance.MaterialParams)
+            {
+                ApplyMaterialParam(instance, kv.Key, kv.Value);
+            }
+            if (instance.LastPlayAnimCall.HasValue)
+            {
+                var call = instance.LastPlayAnimCall.Value;
+                PlayAnimOnInstance(instance, call.ClipId, call.Loop, call.Speed, call.BlendSeconds);
+            }
         }
 
         public void DestroyModelInstance(ModelHandle handle)
@@ -185,10 +382,17 @@ namespace Adapter.Unity.EngineAdapter
             var instance = EnsureAlive(handle);
 
             // 见类型顶部"三维放置的坐标换算"判断记录。
-            instance.Root.transform.localPosition = new Vector3((float)planePos.X, (float)height, (float)planePos.Y);
+            instance.Root.transform.localPosition = new Vector3((float)planePos.X, (float)planePos.Y, 0f);
             instance.Root.transform.localRotation = Quaternion.Euler(0f, (float)(-facing * Mathf.Rad2Deg), 0f);
             instance.Root.transform.localScale = new Vector3((float)scale, (float)scale, (float)scale);
             instance.LastSortY = sortY;
+            instance.HeightOffset = height;
+
+            if (instance.VisualRoot != null)
+            {
+                var local = instance.VisualRoot.localPosition;
+                instance.VisualRoot.localPosition = new Vector3(local.x, (float)height, local.z);
+            }
         }
 
         /// <summary>
@@ -209,6 +413,15 @@ namespace Adapter.Unity.EngineAdapter
         public void PlayAnim(ModelHandle handle, Id clipId, bool loop, double speed, double blendSeconds)
         {
             var instance = EnsureAlive(handle);
+            instance.LastPlayAnimCall = (clipId, loop, speed, blendSeconds); // PR130-05：供原地替换后重放。
+            PlayAnimOnInstance(instance, clipId, loop, speed, blendSeconds);
+        }
+
+        /// <summary>见 <see cref="PlayAnim"/> 判断记录——抽成不更新 <see cref="ModelInstance.LastPlayAnimCall"/>
+        /// 的内部版本，供 <see cref="AttachVisual"/> 在原地替换视觉内容后重放最近一次命令时复用，避免
+        /// 重放本身又把自己重新记成"最近一次命令"（值不变，语义上也不应该算一次新命令）。</summary>
+        private void PlayAnimOnInstance(ModelInstance instance, Id clipId, bool loop, double speed, double blendSeconds)
+        {
             var stateName = BareName(clipId);
 
             if (instance.Animator != null && AnimatorHasState(instance.Animator, stateName))
@@ -246,14 +459,14 @@ namespace Adapter.Unity.EngineAdapter
             var animation = instance.LegacyAnimation;
             if (animation == null)
             {
-                animation = instance.Root.AddComponent<UnityEngine.Animation>();
+                animation = instance.VisualRoot.gameObject.AddComponent<UnityEngine.Animation>();
                 instance.LegacyAnimation = animation;
 
                 var relay = animation.gameObject.GetComponent<ModelAnimEventRelay>();
                 if (relay == null)
                 {
                     relay = animation.gameObject.AddComponent<ModelAnimEventRelay>();
-                    relay.Bind(this, handle.Value);
+                    relay.Bind(this, HandleValueOf(instance));
                 }
             }
 
@@ -421,17 +634,24 @@ namespace Adapter.Unity.EngineAdapter
         /// 契约语义）；查不到 <paramref name="slotId"/> 对应的子对象（占位内容/游戏预制体未按约定命名，
         /// 见包 README"资源路径约定"）时静默跳过，不抛异常——槽位换装属于表现层"缺表现资源不阻断游戏"
         /// 的一贯宽容范围（同 <see cref="UnityRenderer2D"/> 资源缺失时的整体宽容立场，与
-        /// <see cref="CreateModelInstance"/> 找不到"模型本体"时严格抛异常的立场不同——模型本体缺失是
-        /// 无法呈现任何东西的阻断性配置错误，槽位换装缺失只是少画一件装备，二者严重程度不对等）。
-        /// 网格资源经与模型预制体同一套 <see cref="UnityResourceLoader.ResolveModelResourcesPath"/>
-        /// 约定路径 <c>Resources.Load&lt;Mesh&gt;</c> 取用（判断记录：04/09/14 均未给"网格资源"单独
-        /// 定义路径规则，本类型选择复用模型预制体那一套"去类别前缀、点号换下划线"约定与同一个子目录，
-        /// 不额外新增子目录——网格与模型本就是同一大类"三维几何资产"，没有必要用不同目录管理两次同一
-        /// 条命名规则）。</summary>
+        /// <see cref="CreateModelInstance"/> 此前"模型本体缺失时严格抛异常"的立场不同——PR130-05 已把
+        /// 后者也改为宽容降级，二者现在是同一套宽容立场的两个具体落地）。网格资源经与模型预制体同一套
+        /// <see cref="UnityResourceLoader.ResolveModelResourcesPath"/> 约定路径
+        /// <c>Resources.Load&lt;Mesh&gt;</c> 取用（判断记录：04/09/14 均未给"网格资源"单独定义路径
+        /// 规则，本类型选择复用模型预制体那一套"去类别前缀、点号换下划线"约定与同一个子目录，不额外新增
+        /// 子目录——网格与模型本就是同一大类"三维几何资产"，没有必要用不同目录管理两次同一条命名规则）。
+        /// PR130-05：登记进 <see cref="ModelInstance.SlotMeshes"/>，供 <see cref="AttachVisual"/> 在
+        /// 原地替换视觉内容后重放。</summary>
         public void SetSlotMesh(ModelHandle handle, Id slotId, Id? meshId)
         {
             var instance = EnsureAlive(handle);
-            var slotTransform = FindDeep(instance.Root.transform, slotId.Value);
+            instance.SlotMeshes[slotId] = meshId;
+            ApplySlotMesh(instance, slotId, meshId);
+        }
+
+        private static void ApplySlotMesh(ModelInstance instance, Id slotId, Id? meshId)
+        {
+            var slotTransform = FindDeep(instance.VisualRoot, slotId.Value);
             if (slotTransform == null)
             {
                 return;
@@ -460,7 +680,7 @@ namespace Adapter.Unity.EngineAdapter
             var instance = EnsureAlive(handle);
             var childInstance = EnsureAlive(child);
 
-            var socketTransform = FindDeep(instance.Root.transform, socketId.Value);
+            var socketTransform = FindDeep(instance.VisualRoot, socketId.Value);
             if (socketTransform == null)
             {
                 return;
@@ -481,16 +701,27 @@ namespace Adapter.Unity.EngineAdapter
             childInstance.Root.transform.SetParent(_root, worldPositionStays: true);
         }
 
-        /// <summary>W6-B 新增：经 <see cref="MaterialPropertyBlock"/> 把命名参数广播给实例下全部
-        /// <see cref="Renderer"/>（见 <see cref="IRenderer3D.SetMaterialParam"/> 契约注释"参数含义由
-        /// DisplayInfo 映射决定，本接口不解释参数语义"）——与 <see cref="UnityRenderer2D.SetShaderParam"/>
+        /// <summary>W6-B 新增：经 <see cref="MaterialPropertyBlock"/> 把命名参数广播给实例可见内容下
+        /// 全部 <see cref="Renderer"/>（见 <see cref="IRenderer3D.SetMaterialParam"/> 契约注释"参数
+        /// 含义由 DisplayInfo 映射决定，本接口不解释参数语义"）——与 <see cref="UnityRenderer2D.SetShaderParam"/>
         /// 对未知参数名的通用兜底分支同一套机制，保证 <see cref="Presentation.Render.ModelCharacterRig"/>
         /// 固定使用的三个参数名（<c>flash_intensity</c>/<c>trail_intensity</c>/<c>fade_alpha</c>）与
-        /// sprite 型走同一套命名，便于游戏侧编写通用着色器同时支持两种外形类型。</summary>
+        /// sprite 型走同一套命名，便于游戏侧编写通用着色器同时支持两种外形类型。遍历范围限定在
+        /// <see cref="ModelInstance.VisualRoot"/>（不是 <see cref="ModelInstance.Root"/>），避免误把
+        /// <see cref="ModelInstance.BlobShadow"/> 自己的 <see cref="Renderer"/> 也带上材质参数——影子
+        /// 的呈现完全由 <see cref="SetShadow"/> 独立管理。PR130-05：登记进
+        /// <see cref="ModelInstance.MaterialParams"/>，供 <see cref="AttachVisual"/> 原地替换视觉内容
+        /// 后重放。</summary>
         public void SetMaterialParam(ModelHandle handle, string paramName, double value)
         {
             var instance = EnsureAlive(handle);
-            var renderers = instance.Root.GetComponentsInChildren<Renderer>(includeInactive: true);
+            instance.MaterialParams[paramName] = value;
+            ApplyMaterialParam(instance, paramName, value);
+        }
+
+        private static void ApplyMaterialParam(ModelInstance instance, string paramName, double value)
+        {
+            var renderers = instance.VisualRoot.GetComponentsInChildren<Renderer>(includeInactive: true);
             for (var i = 0; i < renderers.Length; i++)
             {
                 renderers[i].GetPropertyBlock(instance.PropertyBlock);
@@ -505,13 +736,23 @@ namespace Adapter.Unity.EngineAdapter
         /// 只是 3D 场景下用一个压扁的 Quad 而不是 SpriteRenderer）；<see cref="ShadowMode.Projected"/>
         /// 打开全部渲染器的真实投影阴影（<see cref="ShadowCastingMode.On"/>）——与 sprite 路线不同，
         /// model 型有真正的三维几何体，可以直接使用 Unity 内建的实时阴影管线，不需要像
-        /// <see cref="UnityRenderer2D.SetShadow"/> 那样把 Projected 降级为 Blob。</summary>
+        /// <see cref="UnityRenderer2D.SetShadow"/> 那样把 Projected 降级为 Blob。
+        /// <para>
+        /// PR130-08 根治：<see cref="ModelInstance.BlobShadow"/> 挂在 <see cref="ModelInstance.Root"/>
+        /// 下（不是 <see cref="ModelInstance.VisualRoot"/>）——height 只写入 VisualRoot 的局部偏移
+        /// （见类型顶部"三维放置的坐标换算"判断记录），影子因此天然锚定在地面逻辑坐标，不随 height
+        /// 位移，与 09 第 3.4 节"影子贴地、不随高度位移"一致，也与
+        /// <see cref="UnityRenderer2D.SetShadow"/> 影子挂在 Root（不是 LayersRoot）同一套结构。真实
+        /// 投影阴影的开关（<c>shadowCastingMode</c>）遍历范围限定在 VisualRoot，理由同
+        /// <see cref="SetMaterialParam"/>——不误把影子自己的 Renderer 也算进"可见内容"。
+        /// </para>
+        /// </summary>
         public void SetShadow(ModelHandle handle, ShadowMode mode)
         {
             var instance = EnsureAlive(handle);
             instance.Shadow = mode;
 
-            var renderers = instance.Root.GetComponentsInChildren<Renderer>(includeInactive: true);
+            var renderers = instance.VisualRoot.GetComponentsInChildren<Renderer>(includeInactive: true);
             var castMode = mode == ShadowMode.Projected ? ShadowCastingMode.On : ShadowCastingMode.Off;
             for (var i = 0; i < renderers.Length; i++)
             {
@@ -548,11 +789,27 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
-        /// <summary>W6-B 新增：供测试/同属引擎适配层的协作代码取回模型实例的根 <see cref="GameObject"/>
-        /// （不属于 <see cref="IRenderer3D"/> 契约本身，同 <see cref="UnityRenderer2D.GetSpriteRoot"/>
-        /// 一贯的"引擎实现之间的内部协作方法"惯例）。查不到（已销毁/未知句柄）时返回 null。</summary>
+        /// <summary>W6-B 新增：供测试/同属引擎适配层的协作代码取回模型实例的锚点根
+        /// <see cref="GameObject"/>（不属于 <see cref="IRenderer3D"/> 契约本身，同
+        /// <see cref="UnityRenderer2D.GetSpriteRoot"/> 一贯的"引擎实现之间的内部协作方法，不算契约
+        /// 违反"惯例）——不含 height 偏移（见类型顶部"三维放置的坐标换算"判断记录），需要含 height
+        /// 的可见内容位置请用 <see cref="GetModelVisualRoot"/>。查不到（已销毁/未知句柄）时返回
+        /// null。</summary>
         public GameObject? GetModelRoot(ModelHandle handle) =>
             _instances.TryGetValue(handle.Value, out var instance) ? instance.Root : null;
+
+        /// <summary>PR130-01 新增：供测试取回模型实例的可见内容子物体（<see cref="ModelInstance.VisualRoot"/>，
+        /// 含 height 偏移），惯例同 <see cref="GetModelRoot"/>——与
+        /// <see cref="UnityRenderer2D.GetLayersRoot"/> 是同一职责的 model 型对应方法。查不到时返回
+        /// null。</summary>
+        public Transform? GetModelVisualRoot(ModelHandle handle) =>
+            _instances.TryGetValue(handle.Value, out var instance) ? instance.VisualRoot : null;
+
+        /// <summary>PR130-05 新增：供测试查询该实例当前是否仍在展示占位内容（尚未被真实资源原地
+        /// 替换），不属于 <see cref="IRenderer3D"/> 契约本身。查不到（已销毁/未知句柄）时返回
+        /// false。</summary>
+        public bool IsShowingPlaceholder(ModelHandle handle) =>
+            _instances.TryGetValue(handle.Value, out var instance) && instance.IsPlaceholder;
 
         /// <summary>W6-B 新增：供测试断言 <see cref="Animator"/> 当前是否正处于名为
         /// <paramref name="stateName"/> 的状态（任一层），不属于 <see cref="IRenderer3D"/> 契约本身，
@@ -613,7 +870,7 @@ namespace Adapter.Unity.EngineAdapter
             return clip;
         }
 
-        private Mesh? ResolveMesh(Id meshId) => Resources.Load<Mesh>(UnityResourceLoader.ResolveModelResourcesPath(meshId));
+        private static Mesh? ResolveMesh(Id meshId) => Resources.Load<Mesh>(UnityResourceLoader.ResolveModelResourcesPath(meshId));
 
         /// <summary>递归按精确名字（含域前缀，如 <c>"socket.main_hand"</c>/<c>"slot.head"</c>）查找子
         /// 物体——占位内容与本模块生成脚本（<see cref="Adapter.Unity.Editor.GeneratePlaceholderModelAssets"/>）
@@ -652,6 +909,21 @@ namespace Adapter.Unity.EngineAdapter
                 throw new InvalidOperationException($"模型句柄 {handle.Value} 已销毁或不存在");
             }
             return instance;
+        }
+
+        /// <summary>反查某个 <see cref="ModelInstance"/> 当前登记的句柄值——只在 legacy Animation 兜底
+        /// 路径首次挂接 <see cref="ModelAnimEventRelay"/> 时用到（该分支没有随手带上 handle 值，见
+        /// <see cref="PlayAnimOnInstance"/>），实例数量通常很小（同屏活跃角色数量级），线性查找足够。</summary>
+        private int HandleValueOf(ModelInstance instance)
+        {
+            foreach (var kv in _instances)
+            {
+                if (ReferenceEquals(kv.Value, instance))
+                {
+                    return kv.Key;
+                }
+            }
+            throw new InvalidOperationException("内部一致性错误：ModelInstance 未登记在 _instances 中");
         }
     }
 
