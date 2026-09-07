@@ -11,6 +11,114 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.2.0] - 2026-09-08
+
+第七方深度审核（codex 第五轮，基线 `1.1.0`/`5e779c6`，报告见
+`architecture/落地计划/audit-5e779c6-20260907/`）13 项主发现（GP26-01～03、FR-01～05、U01～05）+
+2 项验证阶段追加复现（同图读档孤儿实体、`skill.def.charges`/`cost[]` 嵌套形状校验缺口）+ WA 报告
+记录的 3 条相邻缺口（施放当下按当前时间模式折算冷却/充能/光环 duration、周期累加器同步换算、
+`grants.auras` 重复引用数据提醒）+ 本轮补齐的 2 条相邻缺口（`QuestHost.TurnIn` 回滚事务化、
+`CastPipeline` 施放当下折算 `cast_time`/`channel_time`/`modify_cooldown` delta）全部核实并根治，
+20 条核实表、判断记录、文档漂移处理逐条见
+[audit-5e779c6-20260907/followup-2026-09-08.md](architecture/落地计划/audit-5e779c6-20260907/followup-2026-09-08.md)。
+本条目记录变更内容与迁移说明。
+
+### 修复（概要，逐条详见 followup 文档）
+
+- 玩法：奖励发放失败回滚现在连已入队的 `item.added`/`item.removed` 事件一并撤销，不再被其它任务
+  的 `consumeOnProgress` 目标误当新获得而错误推进进度（GP26-01）；`QuestHost.TurnIn` 步骤 2/3 失败
+  的回滚同样改走事务，不再靠"移除又放回"产生虚假 `item.added`（STEP0-1）；直接交互（非 gossip）
+  跨地图 teleporter 类物件现在能正确触发场景切换（GP26-03）；同图读档若命中"快照仍在倒计时、
+  当下已有孤儿实体"会主动清理孤儿实体，不再与倒计时到期新生实体重复（附加-R14）。
+- 规则/技能：套装门槛加成与普通装备 `grants.auras` 现在共享同一份光环来源引用计数，卸装备不再
+  误删仍满足门槛的套装光环（GP26-02）；连续/离散时间模式切换现在同步换算技能冷却、光环剩余时间
+  （FR-01），且施放/施加**当下**（不只是切换那一刻）就会按当前生效模式正确折算 `cooldown_duration`/
+  `charges.recharge_time`/光环 `duration`/周期 `interval`/`cast_time`/`channel_time`/引导
+  `tick_interval`/`modify_cooldown` 的 `delta`（WA-GAP-1/2、STEP0-2；`add_charge` 的 `amount` 是
+  离散计数不受影响）；`charges.recharge_time<=0` 时充能耗尽后不再永久卡死，改为即时恢复（FR-02）；
+  大步长推进不再让光环到期后的时间余量多算周期结算次数（FR-03）；读档恢复等级现在会失效重算评级
+  属性缓存（FR-04）；技能 `effects[]`/`charges`/`cost[]` 的嵌套坏字段现在在数据校验阶段就会被拦下
+  阻断合入，不再拖到首次施法才崩溃（FR-05 + 附加-Shape）；`item.template.grants.auras` 内重复引用
+  同一光环新增数据校验 Warning 提醒（WA-GAP-3）。
+- 表现：修正音乐交叉淡入/停止选错音源导致新旧音源互换（U01）；SFX 自然播放结束现在会回收对象池
+  位，不再无限增长（U02）；序列帧动画大步长跨帧现在按序补发每一个跨过的关键帧，不再丢失中途命中
+  特效（U03）；默认序列帧渲染器（`UnityFrameAnimPlayer` 挂载点）现在正确接入高度偏移/淡出/闪色，
+  与纸娃娃层表现一致（U04，此前 WB 初判"无法复现"，WD 复核推翻，见 followup 文档 U04 行"过程"）。
+- 交付：Release 工作流附件存在性检查现在核对完整五件套（zip/lock/三个 UPM tgz），部分缺失时只
+  补传缺失的文件，不再因为 zip 已存在就整体跳过、遗漏其余附件（U05）。
+- 文档：01/03/04/06/07/08/10/13 共 8 份架构文档按 12 §5 格式勘误（L5 查询/命令边界口径统一、
+  固定步/计时器描述统一、时间字段"施放当下折算"补充说明、`grants.auras` 契约缺口清单更新等）；
+  `core/rules/skill`、`core/carriers/item`、`core/gameplay/{common,quest,assembly}`、
+  `core/numbers/progression`、`core/rules/expr_host`、`core/numbers/archetype/schema`、
+  `presentation/vfx_sfx`、`core/foundation/sim_loop` 等模块 README 判断记录同步更新；"能力边界与
+  未默认接入能力索引"补齐 `day_cycle`/ATB/孤儿检查(`DisplayMapCoverageRule`)/`FeedbackRuleValidator`
+  四项，现收录两份审计报告表格给出的全部条目。
+
+### 接口 / 事件 / 数据变更与迁移说明
+
+- **新增事件** `sim.time_model_rescaled`（`Core.Rules.Common.TimeModelRescaledEvent{double Factor}`，
+  `PublishImmediate`）：连续/离散模式切换时发出，驱动 `CooldownTracker`/`AuraHost`/`CastPipeline`
+  各自的 `RescaleAll`。**迁移**：使用标准 `TimeModelSwitch`/`SkillHost` 装配（`GameplayAssembly`
+  默认路径）的游戏无需任何改动，事件已自动接线。若游戏层自行实现了不经过 `TimeModelSwitch` 的
+  模式切换逻辑，需要自己在切换点 `PublishImmediate` 这个事件才能让技能冷却/光环/读条正确折算。
+- **新增事件** `progression.state_restored`（`Core.Numbers.Progression.ProgressionRestoredEvent
+  {Id UnitId, int Level}`，`PublishImmediate`）：读档恢复等级时发出。**迁移**：标准装配无需改动，
+  `RulesAssembly` 已默认订阅并转发到 `Stats.RecomputeRatingStats`；若游戏层维护了自己的等级相关
+  缓存且未监听 `progression.level_up`，可能需要额外订阅这个新事件。
+- **新增接口** `Core.Carriers.Common.IInventoryTransaction`（`Commit()` + `IDisposable`）、
+  `IBatchableInventoryHost`（`BeginBatch(): IInventoryTransaction`）：`InventoryHost` 已实现。
+  **迁移（需自定义实现方补实现）**：自定义 `IInventoryHost` 实现若不实现 `IBatchableInventoryHost`，
+  `RewardDispatcher.GrantItems`/`QuestHost.TurnIn` 会自动回退到旧的"逐项精确量回滚"历史行为，
+  行为不变、无需改动；若自定义实现选择实现该接口以获得"失败时事件也一并撤销"的完整保证，
+  **必须支持嵌套调用**——`BeginBatch()` 在自身已处于一个未提交/未回滚的事务中时，应返回一个
+  "加入外层事务"的透传句柄（其 `Commit`/`Dispose` 均为 no-op，不影响外层事务状态），而不是抛异常：
+  `QuestHost.TurnIn` 会持有一个未提交的事务再调用 `RewardDispatcher.Grant`，后者若也需要发放物品
+  会再次调用 `BeginBatch()`，两者必须能安全组合，见 `IInventoryTransaction.cs`
+  `IBatchableInventoryHost.BeginBatch` 判断记录、`InventoryHost.BeginBatch`/`Transaction` 实现。
+- **新增委托/配置** `core/gameplay/spawn/contracts/SpawnOptions.cs` 的 `GobjDespawnerDelegate`/
+  `SpawnOptions.GobjDespawner`（可选）：供 `SpawnHost.Load` 在命中"同图读档孤儿实体"场景时移除
+  `gobj` 域的孤儿实体（生物域经已持有的 `ICreatureFactory` 处理，无需额外配置）。**迁移**：使用
+  `GameplayAssembly` 默认装配的游戏无需改动，已默认注入；自行组装 `SpawnHost` 的游戏若希望获得
+  这一修复的完整效果，需要自己注入 `GobjDespawner`，否则保持旧行为（孤儿实体脱离追踪但不移除）
+  并记一条诊断，不强制。
+- **新增校验规则**（均已在 `RulesSchemaCatalog`/`CarriersSchemaCatalog` 的 `RegisterAll` 注册，
+  `toolchain/validator` 自动继承，无需游戏层改动装配代码）：
+  - `ChargesRechargeTimeZeroWarningRule`（Warning，check 名 `charges_recharge_time_zero`）
+  - `ChargesShapeRule`（**Error**，check 名 `charges_max_missing`/`charges_max_invalid`/
+    `charges_recharge_time_missing`/`charges_recharge_time_not_number`）
+  - `CostEntryShapeRule`（**Error**，check 名 `cost_entry_not_object`/`cost_power_type_invalid`/
+    `cost_amount_invalid`）
+  - `ItemGrantsAurasDuplicateRule`（Warning，check 名 `item_grants_auras_duplicate`）
+  - `EffectKindRegisteredRule` 行为变更（非新增）：新增 check 名 `effect_entry_not_object`/
+    `effect_kind_missing`/`effect_kind_not_string`
+  **迁移（需要内容作者关注）**：`ChargesShapeRule`/`CostEntryShapeRule`/`EffectKindRegisteredRule`
+  的新增检查项是 **Error 级**——此前能以 0 error 通过 `DataRegistry.LoadAll()`、只在首次施法才
+  崩溃的坏数据（`effects[]` 缺 `kind`、`charges`/`cost[]` 内部子字段缺失或类型错误），现在会在
+  数据校验阶段直接阻断合入。已存在类似坏数据的内容仓库升级后首次跑 `validate_data.py`/
+  `toolchain/validator` 会新增报错，需要修正数据（这些数据即便不修，本来也会在运行时抛异常，
+  阻断合入是提前暴露问题，不是收紧了原本合法的用法）。
+- **`CooldownTracker.ModifyCooldown` 行为变更**（签名不变）：`delta` 参数现按当前生效时间模式的
+  `_currentFactor` 折算后再应用，与 `cooldown_duration` 同一口径。**迁移**：若游戏内容的
+  `modify_cooldown` 效果原语按"与该技能 `cooldown_duration` 同一份连续秒 authoring"的惯例填写
+  `delta`（本仓库默认假设，多数内容应该已经是这样），无需改动数据，离散模式下的实际效果会比
+  修复前更符合直觉；若有内容特意依赖"离散模式下 `delta` 按当前轮数直接解释、不折算"的旧（有缺陷
+  的）行为，需要重新核对该效果在离散战斗中的数值表现。`add_charge` 的 `amount` **不**受本次改动
+  影响（离散充能计数，不是时间量）。
+- **`CooldownTracker`/`AuraHost`/`CastPipeline` 新增公开方法** `RescaleAll(double factor)`：三者
+  均由 `SkillHost` 构造期统一订阅 `sim.time_model_rescaled` 并转发，标准装配下不需要游戏层直接
+  调用。
+- **`UnityRenderer2D` 新增具体类型方法** `GetLayersRoot(SpriteHandle)`、
+  `RegisterAnimRootRenderer(SpriteHandle, SpriteRenderer)`（均不进入 `IRenderer2D` 契约）；
+  **`UnityFrameAnimPlayer` 新增公开属性** `SpriteRenderer`（只读，转发既有私有访问器）。
+  **迁移**：仅供 `UnityViewFactory.AttachDefaultAnimation` 内部使用，游戏层通常无需直接调用；
+  自定义 `IRenderer2D` 实现若也想让默认序列帧动画正确响应 height/flash/fade，可参考这一实现模式
+  （把序列帧渲染器纳入与纸娃娃层同一套变换/颜色遍历）。
+- **`IInventoryHost`/`IAudio`/`IFrameAnimPlayer` 等既有公开契约签名均未变化**（`UnityAudio` 新增
+  的 `ActiveMusicSource`/`SfxPoolSize` 等均为 `internal` 测试专用访问器，不进入跨模块契约）。
+- **无存档格式变更**：本轮全部修复均不改动任何 `IPersistable.Save()`/`Load()` 段的 JSON 结构。
+- **`.github/workflows/release.yml` 行为变更**（CI 逻辑，非代码契约）：附件存在性判定改为核对
+  完整五件套，游戏侧消费方无需改动，只影响本仓库自己的发布 CI 行为。
+
 ## [1.1.0] - 2026-09-07
 
 第六方深度审核（codex 第四轮，基线 `1.0.0`/`7e63d66`，报告见
