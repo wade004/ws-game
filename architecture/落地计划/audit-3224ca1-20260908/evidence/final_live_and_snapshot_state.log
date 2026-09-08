@@ -1,0 +1,11 @@
+timestamp=2026-09-08T15:25:11.8504962+09:00
+live_final:
+## main...origin/main [ahead 1]
+live_HEAD=8927398714fb516121641f8f9a1f6ce0838a0db8
+8927398 常驻壳命中帧同步开关改为口味配置；反馈端到端测试断言释放原因排除超时兜底
+3224ca1 发布 1.5.0
+snapshot_final:
+## HEAD (no branch)
+ M core/carriers/gobj/tests/GobjPendingLootPersistenceTests.cs
+ M core/gameplay/assembly/tests/CR140_02_EquipmentAuraMapClearTests.cs
+snapshot_HEAD=3224ca1247b119ef656bf928a024a1e0a7701fcc

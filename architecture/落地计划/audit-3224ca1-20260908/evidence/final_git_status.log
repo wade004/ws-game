@@ -1,0 +1,40 @@
+=== FINAL LIVE SOURCE STATE (read-only audit observation) ===
+timestamp=2026-09-08T15:22:00.2076743+09:00
+HEAD=3224ca1247b119ef656bf928a024a1e0a7701fcc
+status:
+## main...origin/main
+ M adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Shell/FrameworkResidentHost.cs
+ M adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/HitFrameSyncEndToEndTests.cs
+ M presentation/feedback_binder/core/FeedbackBinder.cs
+ M presentation/feedback_binder/core/HitFrameSyncPolicy.cs
+ M presentation/feedback_binder/tests/FeedbackBinderHitFrameSyncTests.cs
+ M presentation/feedback_binder/tests/HitFrameSyncPolicyTests.cs
+diff stat:
+warning: in the working copy of 'adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Shell/FrameworkResidentHost.cs', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'presentation/feedback_binder/core/FeedbackBinder.cs', CRLF will be replaced by LF the next time Git touches it
+ .../Runtime/Shell/FrameworkResidentHost.cs         | 32 ++++++--
+ .../Tests/Runtime/HitFrameSyncEndToEndTests.cs     | 86 ++++++++++++++++++++++
+ .../feedback_binder/core/FeedbackBinder.cs         |  8 ++
+ .../feedback_binder/core/HitFrameSyncPolicy.cs     | 32 +++++++-
+ .../tests/FeedbackBinderHitFrameSyncTests.cs       |  9 +++
+ .../tests/HitFrameSyncPolicyTests.cs               | 11 +++
+ 6 files changed, 166 insertions(+), 12 deletions(-)
+diff name-status:
+warning: in the working copy of 'adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Shell/FrameworkResidentHost.cs', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'presentation/feedback_binder/core/FeedbackBinder.cs', CRLF will be replaced by LF the next time Git touches it
+M	adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Shell/FrameworkResidentHost.cs
+M	adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/HitFrameSyncEndToEndTests.cs
+M	presentation/feedback_binder/core/FeedbackBinder.cs
+M	presentation/feedback_binder/core/HitFrameSyncPolicy.cs
+M	presentation/feedback_binder/tests/FeedbackBinderHitFrameSyncTests.cs
+M	presentation/feedback_binder/tests/HitFrameSyncPolicyTests.cs
+=== FINAL FROZEN SNAPSHOT STATE ===
+HEAD=3224ca1247b119ef656bf928a024a1e0a7701fcc
+status:
+## HEAD (no branch)
+ M core/carriers/gobj/tests/GobjPendingLootPersistenceTests.cs
+ M core/gameplay/assembly/tests/CR140_02_EquipmentAuraMapClearTests.cs
+diff stat:
+ .../gobj/tests/GobjPendingLootPersistenceTests.cs  | 52 ++++++++++++++++++++++
+ .../tests/CR140_02_EquipmentAuraMapClearTests.cs   | 43 ++++++++++++++++++
+ 2 files changed, 95 insertions(+)

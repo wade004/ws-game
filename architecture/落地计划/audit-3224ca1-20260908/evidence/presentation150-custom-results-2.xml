@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="3" result="Passed" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.3738025">
+  <test-suite type="TestSuite" id="1284" name="unity" fullname="unity" runstate="Runnable" testcasecount="228" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.373803" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1266" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/07/01a07bfd-c935-7323-9a34-6eae278d83b6/audit-3224ca1-20260908/unity_probe/adapters/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="224" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.368423" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="45608" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1267" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="224" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.367661" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1268" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="224" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.366971" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1269" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="224" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.366270" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1100" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="224" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.365291" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1134" name="PresentationAudit150Tests" fullname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests" classname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.359716" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1137" name="AnimatorAutoExit_RealRendererTick_EmitsFinishedAfterReturningIdle" fullname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests.AnimatorAutoExit_RealRendererTick_EmitsFinishedAfterReturningIdle" methodname="AnimatorAutoExit_RealRendererTick_EmitsFinishedAfterReturningIdle" classname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests" runstate="Runnable" seed="1933097230" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.232005" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+PRESENTATION150 animator_autoexit expected_finished=1 actual_finished=1 ever_entered_target=True current_idle=True
+]]></output>
+                </test-case>
+                <test-case id="1136" name="MissingPlaceholderSocket_CustomSocketAddedByReplacement_IsNotReattached" fullname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests.MissingPlaceholderSocket_CustomSocketAddedByReplacement_IsNotReattached" methodname="MissingPlaceholderSocket_CustomSocketAddedByReplacement_IsNotReattached" classname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests" runstate="Runnable" seed="459641790" result="Passed" start-time="2026-09-08 06:22:58Z" end-time="2026-09-08 06:22:58Z" duration="0.007419" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer3D] 找不到模型资源 "model.audit150_missing_custom_socket"（约定路径 Resources/GameFoundation/models/audit150_missing_custom_socket）：先使用占位模型呈现并发起异步加载，加载完成后原地替换为真实内容；请确认该预制体已放在 adapters/unity 包的 Assets/Resources/GameFoundation/models/ 目录下。
+PRESENTATION150 conditional_socket expected_registered=false expected_reattached=false actual_parent_before=GameFoundation.EngineHost actual_parent_after=GameFoundation.EngineHost replacement_socket_children=0
+[UnityRenderer3D] 模型资源 "model.audit150_missing_custom_socket" 异步加载失败，继续使用占位模型（不重试）。
+]]></output>
+                </test-case>
+                <test-case id="1135" name="SpriteCreateView_ReplayBeforeBind_DropsEquippedEventAndDoesNotRequestHat" fullname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests.SpriteCreateView_ReplayBeforeBind_DropsEquippedEventAndDoesNotRequestHat" methodname="SpriteCreateView_ReplayBeforeBind_DropsEquippedEventAndDoesNotRequestHat" classname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests" runstate="Runnable" seed="1281067454" result="Passed" start-time="2026-09-08 06:22:58Z" end-time="2026-09-08 06:22:58Z" duration="0.114652" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__body
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__hand_main
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__head
+PRESENTATION150 sprite_replay expected_after_create_bind_sync>0 actual=0 entity_id=unit.audit150_sprite_replay mapped=True
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：sprite.item.sample_hero_hat_test
+PRESENTATION150 sprite_replay_control expected_after_bound_event>0 actual=0.5
+[UnityViewFactory] 状态 "idle" 引用的动画资源 "anim.sample_hero_idle" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "move" 引用的动画资源 "anim.sample_hero_move" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "attack" 引用的动画资源 "anim.sample_hero_attack" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "cast" 引用的动画资源 "anim.sample_hero_cast" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "hit" 引用的动画资源 "anim.sample_hero_hit" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "death" 引用的动画资源 "anim.sample_hero_death" 加载失败，继续使用单帧占位剪辑（不重试）
+[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

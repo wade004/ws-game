@@ -1,0 +1,34 @@
+--- corrected six DLL lock comparison ---
+Core.Foundation.dll actual=251ab828e7ce094297a9e549f090f1c940fb0c37d4367b7b727de85ba1205ce2 expected=251ab828e7ce094297a9e549f090f1c940fb0c37d4367b7b727de85ba1205ce2 match=True
+Core.Numbers.dll actual=226de230923c9ddeb42fcec34ad386169c6b1a212a423f70547ff13476b951e1 expected=226de230923c9ddeb42fcec34ad386169c6b1a212a423f70547ff13476b951e1 match=True
+Core.Rules.dll actual=8bef480f91a10e537ad521c9494984d03a45a7c48dc7a48a464f41265b789344 expected=8bef480f91a10e537ad521c9494984d03a45a7c48dc7a48a464f41265b789344 match=True
+Core.Carriers.dll actual=02f213ac8f73a1f6efba1bb14bcdf121062bf22bde94fbd5808f974e2cf36f82 expected=02f213ac8f73a1f6efba1bb14bcdf121062bf22bde94fbd5808f974e2cf36f82 match=True
+Core.Gameplay.dll actual=1318b04d20c2a0899c5918db08175571c03a24da60188236ce44834c55c2024f expected=1318b04d20c2a0899c5918db08175571c03a24da60188236ce44834c55c2024f match=True
+Presentation.Common.dll actual=f6aeb5abad572b55143b8a39536d759b489ea553710a9448a215988653485343 expected=f6aeb5abad572b55143b8a39536d759b489ea553710a9448a215988653485343 match=True
+--- live tgz candidates ---
+
+FullName                                                                                Length SHA256
+--------                                                                                ------ ------
+D:\workespace\ws-game\dist\0.2.0\packages\com.gamefoundation.adapter.unity-0.2.0.tgz    717839 8374920DA71A0E3DF5248F6864B3E7AAB5AAE1E800DBEC28185713B74C4D441A
+D:\workespace\ws-game\dist\0.2.0\packages\com.gamefoundation.framework-data-0.2.0.tgz 15914534 ABAD8D03AA8843DD4792D6B28D827F0E39AC0172FCF1D0586AFD1C22844CDD03
+D:\workespace\ws-game\dist\0.2.0\packages\com.gamefoundation.toolchain-0.2.0.tgz        109916 38AB7BD5EACA1852666795EC5F3B1AC71F7552F4CD0A23D3F025F2B6CA7760A8
+D:\workespace\ws-game\dist\1.0.0\packages\com.gamefoundation.adapter.unity-1.0.0.tgz    720902 84FF04DC47D34D490469519D34C960A65C6FB998754A707B6FEB2E8BE800286D
+D:\workespace\ws-game\dist\1.0.0\packages\com.gamefoundation.framework-data-1.0.0.tgz 15915102 7158A67DFA1C67BDB4CB21C71A0F5012BE71B1CBAAB672965BD717BE4D90CBBB
+D:\workespace\ws-game\dist\1.0.0\packages\com.gamefoundation.toolchain-1.0.0.tgz        580624 4230C4099586BC7CE462602EF6CA5647CE28B9468E2198AABEA7616A32C4EFC2
+D:\workespace\ws-game\dist\1.1.0\packages\com.gamefoundation.adapter.unity-1.1.0.tgz    733638 39DB668A882CCA86E58963081EB1C811E4F384F6973232158C2BCB244A997A07
+D:\workespace\ws-game\dist\1.1.0\packages\com.gamefoundation.framework-data-1.1.0.tgz 15915695 8731F0D3DB8DBDCE658C4DC925862F9C48A4E294D3F430B96127DD7497EBADB3
+D:\workespace\ws-game\dist\1.1.0\packages\com.gamefoundation.toolchain-1.1.0.tgz        587186 04F6F877FA56D25AD28F7D5762D8F20323FAB0FA71FC608406A2EB7B3E057BD9
+D:\workespace\ws-game\dist\1.2.0\packages\com.gamefoundation.adapter.unity-1.2.0.tgz    775535 9F5E346E9FD979F9E17B2BA307D8D669C3CBA211B663F14C0BE24A5FFE9F6751
+D:\workespace\ws-game\dist\1.2.0\packages\com.gamefoundation.framework-data-1.2.0.tgz 15915695 7A28C8DB40D45AB495EE4109EE124CD868F20463487E1C5B85D5F3C370B39B54
+D:\workespace\ws-game\dist\1.2.0\packages\com.gamefoundation.toolchain-1.2.0.tgz        597261 F1A36A87829BC90F380091F0924828FE9C421569C3D2F6B6B9A6F3701A77FC4E
+D:\workespace\ws-game\dist\1.3.0\packages\com.gamefoundation.adapter.unity-1.3.0.tgz    811023 9A38A9413FECC7784F9E80EF94F373DFD06F3F57DC17623D9CCF15459584A5D5
+D:\workespace\ws-game\dist\1.3.0\packages\com.gamefoundation.framework-data-1.3.0.tgz 15915695 AAB13624E70C69D8139D53066B48761B0693E975E98C6C1FF27C7C4B118137D5
+D:\workespace\ws-game\dist\1.3.0\packages\com.gamefoundation.toolchain-1.3.0.tgz        602274 6B15A877B1E80B59D09F59182F216638FCE8BF106EDE72F7B721331F198BAA37
+D:\workespace\ws-game\dist\1.4.0\packages\com.gamefoundation.adapter.unity-1.4.0.tgz    833921 529431A8365EC31314E3D8F27B6F5C58390BBA7B0C32A3ABB23597FA9E7BA08C
+D:\workespace\ws-game\dist\1.4.0\packages\com.gamefoundation.framework-data-1.4.0.tgz 15915695 3D197EFB8FBB5B090A1888FDBD2775E388377AA0B3DB718DD3596696454C2FDB
+D:\workespace\ws-game\dist\1.4.0\packages\com.gamefoundation.toolchain-1.4.0.tgz        606405 FDAC987CC821480F5B2476DF67CCCE3B95746173D4415938B284C0899397ED62
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity-1.5.0.tgz    833918 30F42862FB48E0EECFC92CC590E3C841D6DDAF75DA0DF10EDB4270CDDBF6535C
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.framework-data-1.5.0.tgz 15915695 6A8D1A80AD525393C21AA874F08A3DBF6BF9A6BF0143A9990EAA9C18BFB1801A
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.toolchain-1.5.0.tgz        606389 B226BDCE60705C5F94625EE5522103659B73231EF5A993A08A26C3C2C3F5DC3C
+
+

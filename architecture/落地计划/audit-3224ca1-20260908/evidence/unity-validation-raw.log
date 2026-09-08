@@ -1,0 +1,143 @@
+PRESENTATION_VALIDATION_RAW baseline=3224ca1247b119ef656bf928a024a1e0a7701fcc version=1.5.0
+source=D:\workespace\ws-game (read-only)
+unity_version=6000.3.23f1
+unity_executable=C:\Program Files\Unity\Hub\Editor\6000.3.23f1\Editor\Unity.exe
+
+SOURCE_SNAPSHOT
+snapshot=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\source_snapshot
+snapshot_manifest=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\get_framework_target\ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\..\..\..\..\..\..\MANIFEST.txt
+snapshot_manifest_commit=3224ca1
+
+DLL_SOURCE_AND_SHA256
+Core.Carriers.dll size=154112 sha256=02f213ac8f73a1f6efba1bb14bcdf121062bf22bde94fbd5808f974e2cf36f82
+Core.Foundation.dll size=249344 sha256=251ab828e7ce094297a9e549f090f1c940fb0c37d4367b7b727de85ba1205ce2
+Core.Gameplay.dll size=256512 sha256=1318b04d20c2a0899c5918db08175571c03a24da60188236ce44834c55c2024f
+Core.Numbers.dll size=58880 sha256=226de230923c9ddeb42fcec34ad386169c6b1a212a423f70547ff13476b951e1
+Core.Rules.dll size=208896 sha256=8bef480f91a10e537ad521c9494984d03a45a7c48dc7a48a464f41265b789344
+Presentation.Common.dll size=183808 sha256=f6aeb5abad572b55143b8a39536d759b489ea553710a9448a215988653485343
+
+COMMAND_IMPORT_INITIAL
+Unity.exe -batchmode -nographics -quit -projectPath C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity -logFile C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity\editor-import-3.log
+exit_code=1 reason=probe_missing_UnityEngine.TestTools_using
+
+COMMAND_IMPORT_FINAL
+Unity.exe -batchmode -nographics -quit -projectPath C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity -logFile C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity\editor-import-4.log
+exit_code=0
+
+COMMAND_EXISTING_AUTOEXIT
+Unity.exe -batchmode -nographics -runTests -projectPath C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity -testPlatform PlayMode -testFilter PlayAutoExitClip_AnimatorTransitionsBeforeDetectionFrame_StillRaisesFinishedExactlyOnce -testResults C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity\modelview-autoexit-results.xml -logFile C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity\modelview-autoexit.log
+exit_code=0 elapsed_ms=8741 total=1 passed=1 failed=0 skipped=0
+
+COMMAND_PRESENTATION_AUDIT150_FINAL
+Unity.exe -batchmode -nographics -runTests -projectPath C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity -testPlatform PlayMode -testFilter PresentationAudit150Tests -testResults C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity\presentation150-custom-results-2.xml -logFile C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity\presentation150-custom-2.log
+exit_code=0 elapsed_ms=9555 total=3 passed=3 failed=0 skipped=0
+
+OBSERVED_MARKERS
+PRESENTATION150 animator_autoexit expected_finished=1 actual_finished=1 ever_entered_target=True current_idle=True
+PRESENTATION150 conditional_socket expected_registered=false expected_reattached=false actual_parent_before=GameFoundation.EngineHost actual_parent_after=GameFoundation.EngineHost replacement_socket_children=0
+PRESENTATION150 sprite_replay expected_after_create_bind_sync>0 actual=0 entity_id=unit.audit150_sprite_replay mapped=True
+PRESENTATION150 sprite_replay_control expected_after_bound_event>0 actual=0.5
+
+RESULT_XML
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="3" result="Passed" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.3738025">
+  <test-suite type="TestSuite" id="1284" name="unity" fullname="unity" runstate="Runnable" testcasecount="228" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.373803" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1266" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/07/01a07bfd-c935-7323-9a34-6eae278d83b6/audit-3224ca1-20260908/unity_probe/adapters/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="224" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.368423" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="45608" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1267" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="224" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.367661" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1268" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="224" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.366971" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1269" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="224" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.366270" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1100" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="224" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.365291" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1134" name="PresentationAudit150Tests" fullname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests" classname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.359716" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1137" name="AnimatorAutoExit_RealRendererTick_EmitsFinishedAfterReturningIdle" fullname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests.AnimatorAutoExit_RealRendererTick_EmitsFinishedAfterReturningIdle" methodname="AnimatorAutoExit_RealRendererTick_EmitsFinishedAfterReturningIdle" classname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests" runstate="Runnable" seed="1933097230" result="Passed" start-time="2026-09-08 06:22:57Z" end-time="2026-09-08 06:22:58Z" duration="0.232005" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+PRESENTATION150 animator_autoexit expected_finished=1 actual_finished=1 ever_entered_target=True current_idle=True
+]]></output>
+                </test-case>
+                <test-case id="1136" name="MissingPlaceholderSocket_CustomSocketAddedByReplacement_IsNotReattached" fullname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests.MissingPlaceholderSocket_CustomSocketAddedByReplacement_IsNotReattached" methodname="MissingPlaceholderSocket_CustomSocketAddedByReplacement_IsNotReattached" classname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests" runstate="Runnable" seed="459641790" result="Passed" start-time="2026-09-08 06:22:58Z" end-time="2026-09-08 06:22:58Z" duration="0.007419" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer3D] 找不到模型资源 "model.audit150_missing_custom_socket"（约定路径 Resources/GameFoundation/models/audit150_missing_custom_socket）：先使用占位模型呈现并发起异步加载，加载完成后原地替换为真实内容；请确认该预制体已放在 adapters/unity 包的 Assets/Resources/GameFoundation/models/ 目录下。
+PRESENTATION150 conditional_socket expected_registered=false expected_reattached=false actual_parent_before=GameFoundation.EngineHost actual_parent_after=GameFoundation.EngineHost replacement_socket_children=0
+[UnityRenderer3D] 模型资源 "model.audit150_missing_custom_socket" 异步加载失败，继续使用占位模型（不重试）。
+]]></output>
+                </test-case>
+                <test-case id="1135" name="SpriteCreateView_ReplayBeforeBind_DropsEquippedEventAndDoesNotRequestHat" fullname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests.SpriteCreateView_ReplayBeforeBind_DropsEquippedEventAndDoesNotRequestHat" methodname="SpriteCreateView_ReplayBeforeBind_DropsEquippedEventAndDoesNotRequestHat" classname="Adapter.Unity.Tests.Runtime.PresentationAudit150Tests" runstate="Runnable" seed="1281067454" result="Passed" start-time="2026-09-08 06:22:58Z" end-time="2026-09-08 06:22:58Z" duration="0.114652" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__body
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__hand_main
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__head
+PRESENTATION150 sprite_replay expected_after_create_bind_sync>0 actual=0 entity_id=unit.audit150_sprite_replay mapped=True
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：sprite.item.sample_hero_hat_test
+PRESENTATION150 sprite_replay_control expected_after_bound_event>0 actual=0.5
+[UnityViewFactory] 状态 "idle" 引用的动画资源 "anim.sample_hero_idle" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "move" 引用的动画资源 "anim.sample_hero_move" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "attack" 引用的动画资源 "anim.sample_hero_attack" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "cast" 引用的动画资源 "anim.sample_hero_cast" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "hit" 引用的动画资源 "anim.sample_hero_hit" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "death" 引用的动画资源 "anim.sample_hero_death" 加载失败，继续使用单帧占位剪辑（不重试）
+[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>
+
+LIVE_SOURCE_FINAL_CHECK
+HEAD=3224ca1247b119ef656bf928a024a1e0a7701fcc
+status_lines=7
+M  CHANGELOG.md
+M  adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Shell/FrameworkResidentHost.cs
+M  adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/HitFrameSyncEndToEndTests.cs
+M  presentation/feedback_binder/core/FeedbackBinder.cs
+M  presentation/feedback_binder/core/HitFrameSyncPolicy.cs
+M  presentation/feedback_binder/tests/FeedbackBinderHitFrameSyncTests.cs
+M  presentation/feedback_binder/tests/HitFrameSyncPolicyTests.cs
+unity_processes=0
+
+COMMAND_ANIMATOR_BEFORE_FIRST_RENDERER_TICK
+Unity.exe -batchmode -nographics -runTests -projectPath C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity -testPlatform PlayMode -testFilter PresentationAudit150Tests.AnimatorAutoExit_BeforeFirstRendererTick_RecordsFinishedAfterIdle -testResults C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity\presentation150-animator-before-first-tick-results.xml -logFile C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity\presentation150-animator-before-first-tick.log
+exit_code=0 wall_elapsed_ms=约9000（Unity 日志 Date 06:27:36Z，结束写入 06:27:45Z） test_xml_duration_s=0.0615643 total=1 passed=1 failed=0 skipped=0
+actual_marker=PRESENTATION150 animator_before_first_tick expected_idle=true actual_states=idle->test_autoexit->idle->idle received_before_tick=0 received_after_first_tick=0 received_after_second_tick=0
+interpretation=PASS means reproduction assertion passed: real Animator auto-exited before any renderer.Tick observation, and current renderer.Tick emitted zero finished events.
+raw_log=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity\presentation150-animator-before-first-tick.log
+result_xml=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\unity_probe\adapters\unity\presentation150-animator-before-first-tick-results.xml
+
+LIVE_CHECK_AFTER_PROBE
+baseline_at_snapshot_creation=3224ca1247b119ef656bf928a024a1e0a7701fcc
+live_checkout_final_head=8927398714fb516121641f8f9a1f6ce0838a0db8
+live_checkout_final_status_lines=0
+live_checkout_final_note=shared checkout was advanced by another agent during the audit; no live files were changed by this probe. Evidence remains bound to frozen source_snapshot plus 3224ca1 DLLs.
+audit_unity_processes=0
+

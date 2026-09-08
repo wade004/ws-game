@@ -1,0 +1,9 @@
+Primary reviewer read-only verification of existing dist/1.5.0; no build or publish.
+lock.version=1.5.0
+lock.git_commit=3224ca1
+com.gamefoundation.adapter.unity-1.5.0.tgz: byte-identical to its member inside ws-game-1.5.0.zip; package version=1.5.0
+com.gamefoundation.framework-data-1.5.0.tgz: byte-identical to its member inside ws-game-1.5.0.zip; package version=1.5.0
+com.gamefoundation.toolchain-1.5.0.tgz: byte-identical to its member inside ws-game-1.5.0.zip; package version=1.5.0
+Adapter tarball DLL SHA256 vs external lock: Core.Foundation=True, Core.Numbers=True, Core.Rules=True, Core.Carriers=True, Core.Gameplay=True, Presentation.Common=True
+Verification used Python zipfile/tarfile/json/hashlib against D:/workespace/ws-game/dist.
+Scope: local existing ZIP, lock and tarballs only. Remote release and live UPM installation not verified.

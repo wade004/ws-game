@@ -1,0 +1,591 @@
+=== LIVE PACKAGE INVENTORY ===
+timestamp=2026-09-08T15:21:28.2012549+09:00
+source=D:\workespace\ws-game
+dist=D:\workespace\ws-game\dist\1.5.0
+--- source git ---
+3224ca1247b119ef656bf928a024a1e0a7701fcc
+## main...origin/main
+ M adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Shell/FrameworkResidentHost.cs
+ M adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/HitFrameSyncEndToEndTests.cs
+ M presentation/feedback_binder/core/FeedbackBinder.cs
+ M presentation/feedback_binder/core/HitFrameSyncPolicy.cs
+ M presentation/feedback_binder/tests/FeedbackBinderHitFrameSyncTests.cs
+ M presentation/feedback_binder/tests/HitFrameSyncPolicyTests.cs
+--- live files ---
+
+Name         Length SHA256
+----         ------ ------
+MANIFEST.txt   1640 2239EA6A2953DA40F482FC60CE01F76C8FFE862559D969F3BAAF8EFDC996D402
+
+
+--- lock ---
+lock_sha256=84CEE708BF99253C452666AACC17FBF8CC7E77C4FD471D30475DA6DC022BC1B0
+{
+  "version": "1.5.0",
+  "git_commit": "3224ca1",
+  "dlls": {
+    "Core.Foundation.dll": "251ab828e7ce094297a9e549f090f1c940fb0c37d4367b7b727de85ba1205ce2",
+    "Core.Numbers.dll": "226de230923c9ddeb42fcec34ad386169c6b1a212a423f70547ff13476b951e1",
+    "Core.Rules.dll": "8bef480f91a10e537ad521c9494984d03a45a7c48dc7a48a464f41265b789344",
+    "Core.Carriers.dll": "02f213ac8f73a1f6efba1bb14bcdf121062bf22bde94fbd5808f974e2cf36f82",
+    "Core.Gameplay.dll": "1318b04d20c2a0899c5918db08175571c03a24da60188236ce44834c55c2024f",
+    "Presentation.Common.dll": "f6aeb5abad572b55143b8a39536d759b489ea553710a9448a215988653485343"
+  }
+}
+--- manifest ---
+version: 1.5.0
+date: 2026-09-08 14:41:39
+git_commit: 3224ca1
+
+[directory_file_counts]
+adapters/unity/Packages/com.gamefoundation.adapter.unity: 217 files
+games/_template: 75 files
+toolchain: 33 files
+assets/_placeholder: 97 files
+data/_framework: 5 files
+assets/textmesh_pro_essentials: 81 files
+
+[architecture_docs]
+  00_架构总则.md: v3
+  01_分层与依赖.md: v3
+  02_引擎适配层.md: v3
+  03_运行时骨架.md: v2
+  04_数据与内容管线.md: v5
+  05_对象模型与世界.md: v2
+  06_规则层_属性技能战斗AI.md: v2
+  07_载体层_物品生物物件.md: v1
+  08_玩法层_掉落任务对话关卡.md: v2
+  09_表现层.md: v4
+  10_存档与持久化.md: v1
+  11_工程规范与测试.md: v2
+  12_扩展与变更流程.md: v1
+  13_新游戏接入指南.md: v4
+  14_资产规格书模板.md: v1
+
+[data_schemas]
+  arch.power_type: schema_version=1
+  found.event_catalog: schema_version=1
+  found.game_state: schema_version=1
+  found.hook: schema_version=1
+  found.input_action: schema_version=1
+
+[core_assemblies]
+  Core.Foundation.dll: sha256=251ab828e7ce094297a9e549f090f1c940fb0c37d4367b7b727de85ba1205ce2
+  Core.Numbers.dll: sha256=226de230923c9ddeb42fcec34ad386169c6b1a212a423f70547ff13476b951e1
+  Core.Rules.dll: sha256=8bef480f91a10e537ad521c9494984d03a45a7c48dc7a48a464f41265b789344
+  Core.Carriers.dll: sha256=02f213ac8f73a1f6efba1bb14bcdf121062bf22bde94fbd5808f974e2cf36f82
+  Core.Gameplay.dll: sha256=1318b04d20c2a0899c5918db08175571c03a24da60188236ce44834c55c2024f
+  Presentation.Common.dll: sha256=f6aeb5abad572b55143b8a39536d759b489ea553710a9448a215988653485343
+
+--- six DLL lock comparison ---
+Core.Foundation.dll actual=251ab828e7ce094297a9e549f090f1c940fb0c37d4367b7b727de85ba1205ce2 expected=NOT_IN_LOCK match=False path=D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Foundation.dll
+Core.Numbers.dll actual=226de230923c9ddeb42fcec34ad386169c6b1a212a423f70547ff13476b951e1 expected=NOT_IN_LOCK match=False path=D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Numbers.dll
+Core.Rules.dll actual=8bef480f91a10e537ad521c9494984d03a45a7c48dc7a48a464f41265b789344 expected=NOT_IN_LOCK match=False path=D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Rules.dll
+Core.Carriers.dll actual=02f213ac8f73a1f6efba1bb14bcdf121062bf22bde94fbd5808f974e2cf36f82 expected=NOT_IN_LOCK match=False path=D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Carriers.dll
+Core.Gameplay.dll actual=1318b04d20c2a0899c5918db08175571c03a24da60188236ce44834c55c2024f expected=NOT_IN_LOCK match=False path=D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Gameplay.dll
+Presentation.Common.dll actual=f6aeb5abad572b55143b8a39536d759b489ea553710a9448a215988653485343 expected=NOT_IN_LOCK match=False path=D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Presentation.Common.dll
+--- zip and tgz ---
+
+--- zip entries ---
+zip_entry_count=988
+ws-game-1.5.0\adapters\
+ws-game-1.5.0\assets\
+ws-game-1.5.0\data\
+ws-game-1.5.0\games\
+ws-game-1.5.0\MANIFEST.txt
+ws-game-1.5.0\adapters\unity\
+ws-game-1.5.0\adapters\unity\Packages\
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Editor.meta
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json.meta
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\README.md
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\README.md.meta
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime.meta
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Tests.meta
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Editor\Adapter.Unity.Editor.asmdef
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Editor\Adapter.Unity.Editor.asmdef.meta
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Editor\GeneratePlaceholderModelAssets.cs
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Editor\GeneratePlaceholderModelAssets.cs.meta
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Editor\ProjectSetup.cs
+ws-game-1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Editor\ProjectSetup.cs.meta
+key_entries:
+--- package versions / assets ---
+version_1.5.0=D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json
+version_1.5.0=D:\workespace\ws-game\dist\1.5.0\games\_template\package.json
+version_1.5.0=D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\package.json
+version_1.5.0=D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.framework-data\package.json
+version_1.5.0=D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.toolchain\package.json
+
+FullName                                                                                                                                                            Length
+--------                                                                                                                                                            ------
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\attack.anim                     2461
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\cast.anim                       2295
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\hit.anim                        2290
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\idle.anim                       2276
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\test_autoexit.anim              2304
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.controller        5780
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.controller.meta    188
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.prefab            6921
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.prefab.meta        154
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\attack.anim                                    2461
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\cast.anim                                      2295
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\hit.anim                                       2290
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\idle.anim                                      2276
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\test_autoexit.anim                             2304
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.controller                       5780
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.controller.meta                   188
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.prefab                           6921
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.prefab.meta                       154
+
+
+--- unity packages lock ---
+packages_lock_sha256=27FF5A28AC8574CD62A45BA4DF398B6FEFF06E55C9FF68512244EAD05B996CA5
+{
+  "dependencies": {
+    "com.gamefoundation.adapter.unity": {
+      "version": "file:com.gamefoundation.adapter.unity",
+      "depth": 0,
+      "source": "embedded",
+      "dependencies": {
+        "com.unity.inputsystem": "1.20.0",
+        "com.unity.render-pipelines.universal": "17.0.3",
+        "com.unity.2d.sprite": "1.0.0",
+        "com.unity.ugui": "2.0.0"
+      }
+    },
+    "com.gamefoundation.conformance": {
+      "version": "file:../../../adapters/conformance",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
+    "com.gamefoundation.game-template": {
+      "version": "file:../../../games/_template",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {
+        "com.gamefoundation.adapter.unity": "1.5.0"
+      }
+    },
+    "com.unity.2d.sprite": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.burst": {
+      "version": "1.8.30",
+      "depth": 2,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.mathematics": "1.2.1",
+        "com.unity.modules.jsonserialize": "1.0.0"
+      },
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.collections": {
+      "version": "2.6.8",
+      "depth": 2,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.burst": "1.8.29",
+        "com.unity.mathematics": "1.3.2",
+        "com.unity.test-framework": "1.4.6",
+        "com.unity.nuget.mono-cecil": "1.11.6",
+        "com.unity.test-framework.performance": "3.0.3"
+      },
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.ext.nunit": {
+      "version": "2.0.5",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.ide.visualstudio": {
+      "version": "2.0.22",
+      "depth": 0,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.test-framework": "1.1.9"
+      },
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.inputsystem": {
+      "version": "1.20.0",
+      "depth": 0,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.modules.uielements": "1.0.0"
+      },
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.mathematics": {
+      "version": "1.3.3",
+      "depth": 2,
+      "source": "registry",
+      "dependencies": {},
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.nuget.mono-cecil": {
+      "version": "1.11.6",
+      "depth": 3,
+      "source": "registry",
+      "dependencies": {},
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.render-pipelines.core": {
+      "version": "17.3.0",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.burst": "1.8.14",
+        "com.unity.mathematics": "1.3.2",
+        "com.unity.ugui": "2.0.0",
+        "com.unity.collections": "2.4.3",
+        "com.unity.modules.physics": "1.0.0",
+        "com.unity.modules.terrain": "1.0.0",
+        "com.unity.modules.jsonserialize": "1.0.0"
+      }
+    },
+    "com.unity.render-pipelines.universal": {
+      "version": "17.3.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.render-pipelines.core": "17.3.0",
+        "com.unity.shadergraph": "17.3.0",
+        "com.unity.render-pipelines.universal-config": "17.0.3"
+      }
+    },
+    "com.unity.render-pipelines.universal-config": {
+      "version": "17.0.3",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.render-pipelines.core": "17.0.3"
+      }
+    },
+    "com.unity.searcher": {
+      "version": "4.9.5",
+      "depth": 2,
+      "source": "registry",
+      "dependencies": {},
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.shadergraph": {
+      "version": "17.3.0",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.render-pipelines.core": "17.3.0",
+        "com.unity.searcher": "4.9.3"
+      }
+    },
+    "com.unity.test-framework": {
+      "version": "1.6.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.ext.nunit": "2.0.3",
+        "com.unity.modules.imgui": "1.0.0",
+        "com.unity.modules.jsonserialize": "1.0.0"
+      }
+    },
+    "com.unity.test-framework.performance": {
+      "version": "3.5.0",
+      "depth": 3,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.test-framework": "1.1.33",
+        "com.unity.modules.jsonserialize": "1.0.0"
+      },
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.ugui": {
+      "version": "2.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.ui": "1.0.0",
+        "com.unity.modules.imgui": "1.0.0"
+      }
+    },
+    "com.unity.modules.accessibility": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.adaptiveperformance": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.subsystems": "1.0.0"
+      }
+    },
+    "com.unity.modules.ai": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.androidjni": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.animation": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.assetbundle": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.audio": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.cloth": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.physics": "1.0.0"
+      }
+    },
+    "com.unity.modules.director": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.audio": "1.0.0",
+        "com.unity.modules.animation": "1.0.0"
+      }
+    },
+    "com.unity.modules.hierarchycore": {
+      "version": "1.0.0",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.imageconversion": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.imgui": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.jsonserialize": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.particlesystem": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.physics": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.physics2d": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.screencapture": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.imageconversion": "1.0.0"
+      }
+    },
+    "com.unity.modules.subsystems": {
+      "version": "1.0.0",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.jsonserialize": "1.0.0"
+      }
+    },
+    "com.unity.modules.terrain": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.terrainphysics": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.physics": "1.0.0",
+        "com.unity.modules.terrain": "1.0.0"
+      }
+    },
+    "com.unity.modules.tilemap": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.physics2d": "1.0.0"
+      }
+    },
+    "com.unity.modules.ui": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.uielements": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.ui": "1.0.0",
+        "com.unity.modules.imgui": "1.0.0",
+        "com.unity.modules.jsonserialize": "1.0.0",
+        "com.unity.modules.hierarchycore": "1.0.0",
+        "com.unity.modules.physics": "1.0.0"
+      }
+    },
+    "com.unity.modules.umbra": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.unityanalytics": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.unitywebrequest": "1.0.0",
+        "com.unity.modules.jsonserialize": "1.0.0"
+      }
+    },
+    "com.unity.modules.unitywebrequest": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.unitywebrequestassetbundle": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.assetbundle": "1.0.0",
+        "com.unity.modules.unitywebrequest": "1.0.0"
+      }
+    },
+    "com.unity.modules.unitywebrequestaudio": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.unitywebrequest": "1.0.0",
+        "com.unity.modules.audio": "1.0.0"
+      }
+    },
+    "com.unity.modules.unitywebrequesttexture": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.unitywebrequest": "1.0.0",
+        "com.unity.modules.imageconversion": "1.0.0"
+      }
+    },
+    "com.unity.modules.unitywebrequestwww": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.unitywebrequest": "1.0.0",
+        "com.unity.modules.unitywebrequestassetbundle": "1.0.0",
+        "com.unity.modules.unitywebrequestaudio": "1.0.0",
+        "com.unity.modules.audio": "1.0.0",
+        "com.unity.modules.assetbundle": "1.0.0",
+        "com.unity.modules.imageconversion": "1.0.0"
+      }
+    },
+    "com.unity.modules.vectorgraphics": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.uielements": "1.0.0",
+        "com.unity.modules.imageconversion": "1.0.0",
+        "com.unity.modules.imgui": "1.0.0"
+      }
+    },
+    "com.unity.modules.vehicles": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.physics": "1.0.0"
+      }
+    },
+    "com.unity.modules.video": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.audio": "1.0.0",
+        "com.unity.modules.ui": "1.0.0",
+        "com.unity.modules.unitywebrequest": "1.0.0"
+      }
+    },
+    "com.unity.modules.vr": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.jsonserialize": "1.0.0",
+        "com.unity.modules.physics": "1.0.0",
+        "com.unity.modules.xr": "1.0.0"
+      }
+    },
+    "com.unity.modules.wind": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.xr": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.physics": "1.0.0",
+        "com.unity.modules.jsonserialize": "1.0.0",
+        "com.unity.modules.subsystems": "1.0.0"
+      }
+    }
+  }
+}
+

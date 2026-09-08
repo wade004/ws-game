@@ -1,0 +1,22 @@
+Validation raw-artifact index (2026-09-08)
+
+BASELINE (separate from added probes)
+- check.process.log / check.transcript.log: check.ps1 -SkipUnity, exit=0; 20 steps, 14 PASS, 6 SKIP; .NET=2413 passed, 0 failed; pytest=48 passed; data tables=60 records=285 errors=0 warnings=0 overrides=1; framework-root tables=5 records=124 errors=0 warnings=1 overrides=0.
+- get_framework.stdout.log: offline live 1.5.0 zip + lock to unique get_framework_target, exit=0; six DLL hashes passed; 961 files landed.
+- compat_consumer_15/build.stdout.log: legacy 1.3 source (ViewKind.GameObject; ICharacterRig.HitFrameReached) compiled against actual 1.5 DLLs, exit=0; 2 expected CS0618 warnings, 0 errors. This is source compatibility only; no Unity consumer E2E or old binary claim.
+- live_package_inventory.log and live_package_inventory_corrected.log: live 1.5.0 zip/lock/three tgz/manifest/package versions/placeholders and six DLL hash evidence; corrected comparison all six match.
+
+ADDED CORE PROBES (git_snapshot test-only edits)
+- probe_a_shared_aura.log: exit=1, one real GameplayAssembly test failed. Expected aura=true after first unequip while second shared source remains; actual=False. Final last-unequip assertion was not reached.
+- probe_b_old_save_missing_pending.log: exit=1, one real SaveSystem.Load test failed. Expected missing world.gobj_pending_loot section to clear residual pending to 0; actual=1, beforeLoad=1.
+- probe_c_partial_cross_map.log: exit=0, one observation test passed. oldId=gobj.inst_1, newId=gobj.inst_2, beforeCount=1, afterCount=1, oldEntryStillPresent=True, newEntryPresent=False. This records identity orphaning/absence of reattachment; it does not classify legal EnterMap re-roll as duplicate reward.
+
+P1 PATH PROBE
+- security_path_probe.log + path_probe/path_probe_paths.txt: fixture-only copy of valid 1.5.0 package and lock; lock.version=x/../../outside_sentinel; -AllowVersionMismatch; six hashes passed; exit=0. effective_full resolved to A/path_probe/outside_sentinel, within A probe but outside target A/path_probe/packages. sentinel_before=True, sentinel_after=False; keep.txt was deleted and package landed at the escaped path.
+
+STATE
+- final_git_status.log: source HEAD stayed 3224ca during the initial probe window; initial baseline status was clean; transient final live status observed six external modified files (later inventory observed CHANGELOG.md as a seventh staged/working-tree change before the shared workflow commit). git_snapshot remained detached 3224ca with only the probe test file edits.
+- Unity not run by this bounded validation; gather cooling probe was run separately in probe_gather_full_cooldown.log (exit=0, PASS means current defect reproduced).
+
+- final_live_and_snapshot_state.log (latest): live ended at HEAD 8927398 (ahead 1 from frozen 3224ca) with clean worktree after shared workflow commit; snapshot remains detached 3224ca with the two probe test edits.
+- probe_gather_full_cooldown.log: exit=0, PASS means current defect reproduced (full inventory still commits used_at=100; at t=101 after freeing space no reward, one loot roll), not product-semantic approval.

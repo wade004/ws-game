@@ -1,0 +1,19 @@
+timestamp=2026-09-08T15:24:43.4685363+09:00
+live_HEAD=3224ca1247b119ef656bf928a024a1e0a7701fcc
+live_status:
+## main...origin/main
+M  CHANGELOG.md
+M  adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Shell/FrameworkResidentHost.cs
+M  adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/HitFrameSyncEndToEndTests.cs
+M  presentation/feedback_binder/core/FeedbackBinder.cs
+M  presentation/feedback_binder/core/HitFrameSyncPolicy.cs
+M  presentation/feedback_binder/tests/FeedbackBinderHitFrameSyncTests.cs
+M  presentation/feedback_binder/tests/HitFrameSyncPolicyTests.cs
+live_diff_name_status:
+snapshot_HEAD=3224ca1247b119ef656bf928a024a1e0a7701fcc
+snapshot_status:
+## HEAD (no branch)
+ M core/carriers/gobj/tests/GobjPendingLootPersistenceTests.cs
+ M core/gameplay/assembly/tests/CR140_02_EquipmentAuraMapClearTests.cs
+live_cached_diff_name_status:
+live_cached_diff_stat:
