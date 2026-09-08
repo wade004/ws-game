@@ -31,6 +31,13 @@ namespace Adapter.Unity.Tests.Runtime
         private static readonly Id ModelHeroLogicalId = new Id("creature.sample_model_hero");
         private static readonly Id SwordTemplateId = new Id("item.sample_model_sword");
 
+        // PR150-01 用例专用（sprite 路线，同 SpriteEquipVisualWiringTests.cs 复用的同一份
+        // data/_sample/display 固定测试数据：creature.sample_hero / item.sample_hero_hat /
+        // display.equip_visual.sample_hero_hat）。
+        private static readonly Id SpriteHeroLogicalId = new Id("creature.sample_hero");
+        private static readonly Id HatTemplateId = new Id("item.sample_hero_hat");
+        private static readonly Id HatMeshRef = new Id("sprite.item.sample_hero_hat_test");
+
         private (IEventBus Bus, IDataRegistryView Registry, IDisplayInfoRegistry DisplayInfo, UnityEngineHost Host) BuildFixture()
         {
             var host = UnityEngineHost.Ensure();
@@ -147,6 +154,64 @@ namespace Adapter.Unity.Tests.Runtime
                 ?? FindDeep(renderer3D.GetModelVisualRoot(hostHandle)!, "socket.main_hand");
             Assert.IsNotNull(socketTransform);
             Assert.AreEqual(0, socketTransform!.childCount, "没有装备来源/重放能力时新 View 应当仍是裸模型");
+
+            equipSource.Dispose();
+            view.Destroy();
+        }
+
+        /// <summary>
+        /// PR150-01 复现/根治（<c>architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md</c>
+        /// PR150-01"sprite 初始装备重放早于 Bind，装备事件被过滤"）：sprite 路线的
+        /// <see cref="Presentation.Render.SpriteViewBase.EntityId"/> 要到 <c>Bind</c> 才设置（默认值
+        /// 在此之前一直是 <c>default</c>），<see cref="UnityViewFactory.CreateView"/> 内部按当前已
+        /// 装备物品重放初始外观（本类型上一条用例覆盖的机制）如果发生在 <c>Bind</c> 之前，
+        /// <see cref="Presentation.Render.SpriteViewBase.OnEvent"/> 按
+        /// <c>equipped.UnitId.Equals(EntityId)</c> 过滤会把重放事件误判为"不属于本 View"直接丢弃——
+        /// 帽子覆盖资源永远不会被请求加载。根治后 <c>UnityViewFactory.CreateView</c> 在执行重放前
+        /// 先对本次创建的 view 调用一次 <c>Bind</c>（见该方法判断记录、09 第 2 节新补的"创建/绑定/
+        /// 首次同步"顺序契约），真实调用顺序 <c>CreateView → Bind → SyncPose</c> 后装备覆盖资源应当
+        /// 已经开始加载，与"Bind 后手工发同一装备事件"的既有正对照（见
+        /// <see cref="SpriteEquipVisualWiringTests.UnityViewFactory_SpriteKind_EquipVisualWired_EquippingRequestsOverrideLayerResource"/>）
+        /// 结果一致。
+        /// </summary>
+        [Test]
+        public void CreateView_SpriteKind_EquipmentAlreadyEquippedBeforeViewExisted_ReplaysAfterBind_RequestsOverrideLayerResource()
+        {
+            var fx = BuildFixture();
+            var catalog = BuildCatalogByTemplateId(fx.Registry);
+            Assert.IsTrue(catalog.ContainsKey(HatTemplateId),
+                "测试前置条件：display.equip_visual 应当有一行 item_id=item.sample_hero_hat 的 slot_mesh 记录");
+
+            var entityId = new Id("unit.pr150_01_sprite_replay_test");
+            var itemInstanceId = new Id("item_instance.pr150_01_hat_1");
+            var slotId = new Id("slot.head");
+
+            // 模拟"装备发生在 View 创建之前"（跨图/恢复后重建外观场景，同类型顶部第一条用例）。
+            EquipmentSnapshotResolver resolver = unitId => unitId.Equals(entityId)
+                ? new[] { new EquippedItemRef(slotId, itemInstanceId, HatTemplateId) }
+                : Array.Empty<EquippedItemRef>();
+
+            var equipSource = new EquipmentVisualSource(fx.Bus, catalog, resolver);
+            var factory = new UnityViewFactory(
+                fx.Host.Renderer2D, new RenderConventionHost(), fx.DisplayInfo, fx.Host.ResourceLoader,
+                bus: fx.Bus, dataRegistry: fx.Registry, renderer3D: fx.Host.Renderer3D,
+                equipVisualByItemInstanceId: equipSource.VisualByItemInstanceId,
+                equipmentVisualSource: equipSource);
+
+            // 创建前：覆盖用的资源 id 不应该被请求过（排除"资源恰好因为别的原因也被加载"这种假阳性，
+            // 同 SpriteEquipVisualWiringTests 一贯手法）。
+            Assert.AreEqual(0.0, fx.Host.ResourceLoader.GetLoadProgress(HatMeshRef),
+                "创建前不应该有任何请求加载 display.equip_visual.sample_hero_hat 声明的 mesh_ref");
+
+            // 真实顺序：CreateView（内部触发重放）→ Bind → SyncPose，见方法判断记录。
+            var view = (UnitySpriteView)factory.CreateView(ViewKind.Unit, SpriteHeroLogicalId, entityId);
+            view.Bind(entityId);
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), height: 0.0);
+
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatMeshRef), 0.0,
+                "根治后：CreateView → Bind → SyncPose 这一真实顺序完成后，装备覆盖资源应当已经开始" +
+                "加载——根治前本断言会失败（进度恒为 0），因为重放事件在 Bind 之前发生，被 EntityId" +
+                "过滤丢弃");
 
             equipSource.Dispose();
             view.Destroy();

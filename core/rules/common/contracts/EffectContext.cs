@@ -81,6 +81,26 @@ namespace Core.Rules.Common
         /// </summary>
         public int TriggerChainDepth { get; }
 
+        /// <summary>
+        /// PR140-04 遗留根治（<c>architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md</c>
+        /// "攻击实例 id"）：本次结算所属的施法/攻击实例 id——同一次
+        /// <c>Core.Rules.Skill.CastPipeline.ExecuteEffectsOnly</c> 调用（一次技能效果对其解析目标的
+        /// 一次性应用，含瞬发、引导读条完成、引导周期跳一次、<c>TriggerCast</c> 触发的嵌套施法）内
+        /// 产生的全部效果共享同一个值；不同调用（哪怕是同一施法者的两次独立攻击落在同一未释放的
+        /// 命中帧同步窗口内）各自取不同值。落地事件（<c>combat.damage_dealt</c>/<c>combat.heal_done</c>，
+        /// 见 <see cref="Events.CombatDamageDealtEvent"/>/<see cref="Events.CombatHealDoneEvent"/>）据此
+        /// 原样携带，供 <c>Presentation.FeedbackBinder.Core.HitFrameSyncPolicy</c> 用作命中帧同步的
+        /// 批次键（见该类型判断记录"攻击实例 id"），取代此前"同一攻击者当前是否还有未释放批次"这一
+        /// 时序代理——同一命中帧同步窗口内，不同攻击即便命中同一批目标也不会再被误合批。
+        /// <para>
+        /// 未经 <c>CastPipeline</c> 产生的结算（如光环周期效果——<c>AuraHost.FirePeriodic</c> 自行
+        /// 构造 <see cref="EffectContext"/>、不经过 <c>CastPipeline</c>，纯脚本/测试直接构造等）为
+        /// null——本字段不强制要求全部结算路径都提供；<c>HitFrameSyncPolicy</c>/<c>FeedbackBinder</c>
+        /// 在缺失时退回旧的"同一攻击者未释放窗口"合批兜底并记一次诊断，不阻断命中帧同步本身。
+        /// </para>
+        /// </summary>
+        public Id? AttackInstanceId { get; }
+
         public EffectContext(
             Id sourceId,
             Id targetId,
@@ -95,7 +115,8 @@ namespace Core.Rules.Common
             bool canCrit = true,
             bool canMiss = true,
             IReadOnlyList<Id>? tags = null,
-            int triggerChainDepth = 0)
+            int triggerChainDepth = 0,
+            Id? attackInstanceId = null)
         {
             SourceId = sourceId;
             TargetId = targetId;
@@ -111,6 +132,7 @@ namespace Core.Rules.Common
             CanMiss = canMiss;
             Tags = tags ?? EmptyTags;
             TriggerChainDepth = triggerChainDepth;
+            AttackInstanceId = attackInstanceId;
         }
     }
 }

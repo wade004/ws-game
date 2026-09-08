@@ -4,6 +4,7 @@ using Core.Rules.Common;
 using Presentation.FeedbackBinder.Contracts;
 using Presentation.FeedbackBinder.Core;
 using Presentation.Render;
+using Presentation.VfxSfx.Contracts;
 using Xunit;
 using FeedbackBinderCore = Presentation.FeedbackBinder.Core.FeedbackBinder;
 
@@ -37,6 +38,15 @@ namespace Tests.Presentation.FeedbackBinder
 
         private static CombatDamageDealtEvent DamageEvent(Id sourceId, Id targetId) =>
             new CombatDamageDealtEvent(sourceId, targetId, new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
+
+        /// <summary>PR150-04 用例专用：携带 <c>attackInstanceId</c> 的伤害事件（见
+        /// <see cref="CombatDamageDealtEvent.AttackInstanceId"/> 判断记录）——模拟真实经
+        /// <c>CastPipeline.ExecuteEffectsOnly</c> 产生的结算，与上面两个不带该字段的 <c>DamageEvent</c>
+        /// 重载（模拟未经 CastPipeline 的结算，如光环周期效果）形成对照。</summary>
+        private static CombatDamageDealtEvent DamageEvent(Id sourceId, Id targetId, Id attackInstanceId) =>
+            new CombatDamageDealtEvent(
+                sourceId, targetId, new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit,
+                triggerChainDepth: 0, attackInstanceId: attackInstanceId);
 
         [Fact]
         public void HitFrameSyncRule_WithoutHitFrameSourceInjected_DispatchesImmediately_IgnoringSyncField()
@@ -226,6 +236,122 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Equal(3, sink.FloatingTexts.Count);
             Assert.Equal(targetC, sink.FloatingTexts[2].EntityId);
             Assert.False(binder.HasPendingPlayback);
+        }
+
+        /// <summary>PR150-04 复现/回归用例（攻击实例 id 遗留根治，取代上面
+        /// <see cref="HitFrameSyncRule_AoeMultipleTargets_SameAttackTargetsReleaseTogether_LaterAttackStaysIndependent"/>
+        /// 注释里点名的已知局限）：同一个攻击者在同一个未释放的命中帧同步窗口内发起两次
+        /// <em>确实不同</em>的攻击（各自携带不同的 <c>attackInstanceId</c>，模拟极短 GCD 连续两次技能，
+        /// 第二次在第一次命中帧到达前就已经结算），根治前 <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/>
+        /// 只按"该攻击者是否还有未释放批次"这一时序代理合批，会把两次攻击的目标误合并成一批一起随
+        /// 第一次命中帧释放；根治后二者按各自的 <c>attackInstanceId</c> 独立成批：第一次命中帧只释放
+        /// 第一次攻击的目标，第二次攻击的目标要等到第二次命中帧才释放。</summary>
+        [Fact]
+        public void HitFrameSyncRule_TwoDistinctAttacksSameWindow_EachReleasesOnlyItsOwnBatch()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var source = new FakeHitFrameSource();
+            var attacker = new Id("unit.pr150_04.attacker");
+            source.RegisterRig(attacker, null!);
+            var options = new FeedbackOptions { HitFrameSync = HitFrameSyncStrategy.AnimKeyframeDriven, HitFrameSyncTimeoutSeconds = 0.5 };
+            var rules = LoadRules(FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink, options: options, hitFrameSource: source);
+
+            var target1 = new Id("unit.pr150_04.target1");
+            var target2 = new Id("unit.pr150_04.target2");
+            var instanceA = new Id("skill.cast_inst_pr150_04_a");
+            var instanceB = new Id("skill.cast_inst_pr150_04_b");
+
+            // 两次独立攻击（各自不同 attackInstanceId）都在第一次命中帧到达前完成结算——都落在同一个
+            // "该攻击者尚有未释放批次"的时间窗口内，正是旧的时序代理合批会误判的场景。
+            bus.PublishImmediate(DamageEvent(attacker, target1, instanceA));
+            bus.PublishImmediate(DamageEvent(attacker, target2, instanceB));
+            Assert.Empty(sink.FloatingTexts);
+            Assert.True(binder.HasPendingPlayback);
+
+            // 第一次命中帧：只应该释放攻击 A（target1），攻击 B（target2）必须仍在等待。
+            source.Fire(attacker);
+            Assert.Single(sink.FloatingTexts);
+            Assert.Equal(target1, sink.FloatingTexts[0].EntityId);
+            Assert.True(binder.HasPendingPlayback, "攻击 B 的批次不应该随攻击 A 的命中帧一起被误释放");
+
+            // 第二次命中帧：释放攻击 B（target2）。
+            source.Fire(attacker);
+            Assert.Equal(2, sink.FloatingTexts.Count);
+            Assert.Equal(target2, sink.FloatingTexts[1].EntityId);
+            Assert.False(binder.HasPendingPlayback);
+        }
+
+        /// <summary>PR150-04 回归：同一次攻击命中多个目标（同一个 <c>attackInstanceId</c>）仍然按
+        /// PR140-04 原有要求整批原子释放——攻击实例 id 只是换了一种更精确的方式表达"同一批"，不能
+        /// 反过来破坏"同一次攻击的多个目标必须同时释放"这条既有约束。</summary>
+        [Fact]
+        public void HitFrameSyncRule_SameAttackInstanceIdMultipleTargets_ReleaseTogether()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var source = new FakeHitFrameSource();
+            var attacker = new Id("unit.pr150_04.attacker2");
+            source.RegisterRig(attacker, null!);
+            var options = new FeedbackOptions { HitFrameSync = HitFrameSyncStrategy.AnimKeyframeDriven };
+            var rules = LoadRules(FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink, options: options, hitFrameSource: source);
+
+            var targetA = new Id("unit.pr150_04.aoe_a");
+            var targetB = new Id("unit.pr150_04.aoe_b");
+            var sameInstance = new Id("skill.cast_inst_pr150_04_aoe");
+
+            bus.PublishImmediate(DamageEvent(attacker, targetA, sameInstance));
+            bus.PublishImmediate(DamageEvent(attacker, targetB, sameInstance));
+            Assert.Empty(sink.FloatingTexts);
+
+            source.Fire(attacker);
+
+            Assert.Equal(2, sink.FloatingTexts.Count);
+            Assert.False(binder.HasPendingPlayback);
+        }
+
+        /// <summary>PR150-04 回归：没有 <c>attackInstanceId</c> 的事件（如光环周期效果，未经
+        /// <c>CastPipeline.ExecuteEffectsOnly</c> 产生）仍然退回旧的窗口合批兜底，并记一次诊断——见
+        /// <c>FeedbackBinder.ResolveHitFrameBatchToken</c> 判断记录。诊断只在新分配兜底 token 那一刻
+        /// 触发一次，不随该批次内后续每个命中重复。</summary>
+        [Fact]
+        public void HitFrameSyncRule_EventWithoutAttackInstanceId_FallsBackToWindowBatching_WarnsOnce()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var source = new FakeHitFrameSource();
+            var attacker = new Id("unit.pr150_04.fallback_attacker");
+            source.RegisterRig(attacker, null!);
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var options = new FeedbackOptions { HitFrameSync = HitFrameSyncStrategy.AnimKeyframeDriven };
+            var rules = LoadRules(FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink,
+                options: options, hitFrameSource: source, diagnostics: diagnostics);
+
+            var targetA = new Id("unit.pr150_04.fallback_a");
+            var targetB = new Id("unit.pr150_04.fallback_b");
+
+            // 两个不带 attackInstanceId 的事件（DamageEvent(sourceId, targetId) 两参重载）：退回旧的
+            // "该攻击者是否还有未释放批次"合批兜底，二者应当被合成同一批（与根治前逐字相同的行为）。
+            bus.PublishImmediate(DamageEvent(attacker, targetA));
+            bus.PublishImmediate(DamageEvent(attacker, targetB));
+            Assert.Empty(sink.FloatingTexts);
+
+            source.Fire(attacker);
+
+            Assert.Equal(2, sink.FloatingTexts.Count);
+            Assert.False(binder.HasPendingPlayback);
+            // 两次都落进兜底路径，但只在"新分配 token"那一刻（第一条事件）记一次诊断，第二条复用同一个
+            // 已打开的 token，不重复警告。
+            Assert.Single(diagnostics.Warnings);
         }
 
         [Fact]

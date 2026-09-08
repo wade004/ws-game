@@ -264,6 +264,59 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Single(diagnostics.Warnings);
         }
 
+        /// <summary>PR150-04 复现/回归（攻击实例 id 遗留根治，
+        /// architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md"攻击实例 id"）：批次匹配改用
+        /// 值比较（<see cref="object.Equals(object, object)"/>）后，两个分别装箱、但值相等的
+        /// <see cref="Id"/> 必须被当作同一个 batchToken——不再要求调用方持有同一个引用。这是
+        /// <c>FeedbackBinder.ResolveHitFrameBatchToken</c> 能直接把
+        /// <c>EffectContext.AttackInstanceId</c> 装箱值当 token 使用、不需要额外维护"引用相同"这张表的
+        /// 前提。根治前（<see cref="object.ReferenceEquals"/>）本用例会失败——两个装箱值不同引用，
+        /// releasedB 永远是 false。</summary>
+        [Fact]
+        public void WaitForHitFrame_EqualBoxedIdTokens_DifferentInstances_TreatedAsSameBatch()
+        {
+            var source = new FakeHitFrameSource();
+            source.RegisterRig(Attacker, null!);
+            var policy = new HitFrameSyncPolicy(source);
+            var releasedA = false;
+            var releasedB = false;
+            object tokenA = new Id("skill.attack_instance_1");
+            object tokenB = new Id("skill.attack_instance_1"); // 值相等、不同装箱引用。
+
+            policy.WaitForHitFrame(Attacker, tokenA, () => releasedA = true);
+            policy.WaitForHitFrame(Attacker, tokenB, () => releasedB = true);
+
+            source.Fire(Attacker);
+
+            Assert.True(releasedA);
+            Assert.True(releasedB);
+            Assert.Equal(0, policy.PendingCount);
+        }
+
+        /// <summary>PR150-04 回归：值相等的装箱 Id 合批（上一条用例）不能反过来破坏
+        /// "值不同的两次攻击各自独立释放"这一 PR140-04 既有约束——同 <see cref="WaitForHitFrame_DifferentBatchTokens_SameAttacker_ReleaseIndependently"/>
+        /// 精神一致，只是这里显式用两个不同值的装箱 Id 表达"确实不同的两次攻击各自的攻击实例 id"。</summary>
+        [Fact]
+        public void WaitForHitFrame_DifferentBoxedIdTokens_SameAttacker_ReleaseIndependently()
+        {
+            var source = new FakeHitFrameSource();
+            source.RegisterRig(Attacker, null!);
+            var policy = new HitFrameSyncPolicy(source);
+            var releasedA = false;
+            var releasedB = false;
+            object tokenA = new Id("skill.attack_instance_1");
+            object tokenB = new Id("skill.attack_instance_2");
+
+            policy.WaitForHitFrame(Attacker, tokenA, () => releasedA = true);
+            policy.WaitForHitFrame(Attacker, tokenB, () => releasedB = true);
+
+            source.Fire(Attacker);
+
+            Assert.True(releasedA);
+            Assert.False(releasedB);
+            Assert.Equal(1, policy.PendingCount);
+        }
+
         [Fact]
         public void Dispose_UnsubscribesFromSource_FurtherFireDoesNotRelease()
         {

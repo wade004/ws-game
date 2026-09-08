@@ -169,6 +169,44 @@ namespace Adapter.Unity.EngineAdapter
             /// false（一次新播放，需要重新确认"确实进入过"）。</summary>
             public bool CurrentPlayEnteredState;
 
+            /// <summary>PR150-02 根治新增（<c>architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md</c>
+            /// PR150-02）：本次 <see cref="Drive"/>==<see cref="AnimDriveMode.Animator"/> 播放目标状态的
+            /// <c>shortNameHash</c>/所在层，随 <see cref="PlayAnimOnInstance"/> 每次新播放一并写入——供
+            /// <see cref="AnimStateFinishRelay"/> 的事件回调（<see cref="UnityRenderer3D.OnAnimStateEvent"/>）
+            /// 比对"这次进入/离开的状态是不是我正在追踪的目标状态"，不需要在回调里重新扫描
+            /// <see cref="Animator"/> 各层。<see cref="CurrentStateLayer"/> 查不到时为 -1（同
+            /// <see cref="IsAnimatorStateFinished"/> 判断记录）。</summary>
+            public int CurrentStateHash;
+            public int CurrentStateLayer = -1;
+
+            /// <summary>PR150-02 根治新增：<see cref="AnimStateFinishRelay"/> 经
+            /// <see cref="UnityRenderer3D.OnAnimStateEvent"/> 报告的"本次播放已经在 Animator 自己的
+            /// OnStateEnter 回调里确认进入过目标状态"——由 Unity 动画系统在 <c>Animator.Update</c> 内部
+            /// 同步触发，不依赖 <see cref="UnityRenderer3D.Tick"/> 外部轮询节奏。二次根治判断记录（见
+            /// <see cref="UnityRenderer3D.OnAnimStateEvent"/>"二次根治"一节）：真实 Unity 行为里，"进入
+            /// 目标状态"与"自动过渡离开目标状态"若整个落在同一次 <c>Animator.Update</c> 调用内，Unity
+            /// 只回调 OnStateExit，配对的 OnStateEnter 完全不会到达——本字段因此不再是
+            /// <see cref="EventExitedTarget"/> 判定完成的必要前提，只作为诊断/未来扩展保留。</summary>
+            public bool EventEnteredTarget;
+
+            /// <summary>PR150-02 根治新增，二次根治改写判定标准（见
+            /// <see cref="UnityRenderer3D.OnAnimStateEvent"/>"二次根治"判断记录）：<see cref="AnimStateFinishRelay"/>
+            /// 报告目标状态的 OnStateExit 到达、且到达时的 <c>AnimatorStateInfo.normalizedTime &gt;= 1</c>
+            /// （与 <see cref="IsAnimatorStateFinished"/> 采样路径判定完成的同一条标准）——这两个回调由
+            /// Unity 动画系统在 <c>Animator.Update</c> 内部同步触发，不依赖 <see cref="UnityRenderer3D.Tick"/>
+            /// 外部轮询节奏，因此即使目标状态的进入与自动过渡离开整个发生在两次
+            /// <see cref="UnityRenderer3D.Tick"/> 之间、甚至整个落在同一次 <c>Animator.Update</c> 调用内
+            /// （见 <see cref="IsAnimatorStateFinished"/> 判断记录"漏发窗口"），只要 AnimatorController
+            /// 对该状态预置了 <see cref="AnimStateFinishRelay"/>（占位内容已预置，具体游戏内容按同一
+            /// 惯例自行预置），本字段仍会被正确置位，<see cref="UnityRenderer3D.Tick"/> 据此可以在完全
+            /// 不依赖采样是否恰好命中过目标状态的前提下独立判定"完成"（见 <see cref="Tick"/> 判断
+            /// 记录）。<c>normalizedTime &gt;= 1</c> 这一门槛同时天然过滤掉"同状态重触发
+            /// （<c>PlayAnimOnInstance</c> 的 <c>isRetrigger</c> 分支）打断上一次尚未播完的播放"产生的
+            /// 陈旧 Exit（中断发生时通常 <c>normalizedTime &lt; 1</c>），不需要额外判断是否"重触发"。
+            /// 随每次新播放随 <see cref="FinishNotified"/> 一并重置为 false；未预置该行为的
+            /// AnimatorController 上恒为 false，不影响既有采样兜底路径。</summary>
+            public bool EventExitedTarget;
+
             /// <summary>PR130-05 新增：最近一次 <see cref="PlayAnim"/> 的完整调用参数——资源加载完成
             /// 原地替换视觉内容后，<see cref="AttachVisual"/> 据此对新内容重放同一条命令，保持替换前后
             /// 视觉连续（不追求逐帧进度对齐，只保证"新内容也在播正确的剪辑"，同 09 第 1 节表现层一贯
@@ -214,6 +252,10 @@ namespace Adapter.Unity.EngineAdapter
         /// <see cref="Id.Value"/> 字符串去重，同 <c>UnityViewFactory._warnedMissingDisplay</c> 一贯
         /// 惯例），避免同一个缺失资源被多个实例反复引用时刷屏。</summary>
         private readonly HashSet<string> _missingModelWarned = new HashSet<string>();
+
+        /// <summary>PR150-03 根治新增：已经记过一次"挂点当前不存在"诊断的 (句柄值, 挂点 Id 字符串)
+        /// 去重集合，见 <see cref="AttachToSocket"/> 判断记录。</summary>
+        private readonly HashSet<(int Handle, string SocketId)> _missingSocketWarned = new HashSet<(int, string)>();
 
         /// <summary>PR130-05 新增：已经发起过一次 <see cref="IResourceLoader.LoadAsync"/> 的缺失
         /// modelId 去重集合——同一资源被多个实例共同引用时只发起一次加载，同
@@ -418,6 +460,15 @@ namespace Adapter.Unity.EngineAdapter
             {
                 var relay = instance.Animator.gameObject.AddComponent<ModelAnimEventRelay>();
                 relay.Bind(this, handle);
+
+                // PR150-02 根治：把 AnimatorController 上预置的 AnimStateFinishRelay 克隆逐个绑定回本
+                // 实例（见该类型判断记录"为什么不是 GetBehaviour<T>() 而是 GetBehaviours<T>()"）；未
+                // 预置该行为时返回空数组，纯粹 no-op，不影响既有采样兜底路径。
+                var finishRelays = instance.Animator.GetBehaviours<AnimStateFinishRelay>();
+                for (var i = 0; i < finishRelays.Length; i++)
+                {
+                    finishRelays[i].Bind(this, handle);
+                }
             }
 
             foreach (var kv in instance.SlotMeshes)
@@ -563,6 +614,12 @@ namespace Adapter.Unity.EngineAdapter
                 // PR140-03 根治：每次新播放都要重新确认"是否已经进入过目标状态"，见
                 // IsAnimatorStateFinished 判断记录。
                 instance.CurrentPlayEnteredState = false;
+                // PR150-02 根治：随每次新播放重新计算目标状态的 hash/层，并清空事件驱动的
+                // 进入/离开标志——见 ModelInstance.EventEnteredTarget/EventExitedTarget 判断记录。
+                instance.CurrentStateHash = Animator.StringToHash(stateName);
+                instance.CurrentStateLayer = FindLayerForState(instance.Animator, instance.CurrentStateHash);
+                instance.EventEnteredTarget = false;
+                instance.EventExitedTarget = false;
                 return;
             }
 
@@ -638,8 +695,17 @@ namespace Adapter.Unity.EngineAdapter
                 switch (instance.Drive)
                 {
                     case AnimDriveMode.Animator:
+                        // PR150-02 根治：采样判定（IsAnimatorStateFinished）与事件驱动判定
+                        // （EventExitedTarget，见 ModelInstance 字段判断记录、OnAnimStateEvent
+                        // 判断记录"二次根治"——只按 normalizedTime>=1 采信，不再要求先观察到配对的
+                        // Enter）任一成立即算完成——后者由 AnimStateFinishRelay 在 Animator.Update
+                        // 内部同步触发，不依赖本方法的外部轮询节奏，专门补上"目标状态的进入与自动过渡
+                        // 离开整个落在同一次 Update（含跨两次 Tick 的情形）"这一采样天然覆盖不到的
+                        // 窗口；未预置该行为的 AnimatorController 上 EventExitedTarget 恒为 false，
+                        // 完全退回既有采样判定，不改变既有行为。
                         finished = instance.Animator != null
-                            && IsAnimatorStateFinished(instance.Animator, instance.CurrentStateName, ref instance.CurrentPlayEnteredState);
+                            && (IsAnimatorStateFinished(instance.Animator, instance.CurrentStateName, ref instance.CurrentPlayEnteredState)
+                                || instance.EventExitedTarget);
                         break;
                     case AnimDriveMode.Legacy:
                         finished = instance.LegacyAnimation != null && instance.CurrentClipName != null
@@ -700,16 +766,7 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             var hash = Animator.StringToHash(stateName);
-
-            var targetLayer = -1;
-            for (var layer = 0; layer < animator.layerCount; layer++)
-            {
-                if (animator.HasState(layer, hash))
-                {
-                    targetLayer = layer;
-                    break;
-                }
-            }
+            var targetLayer = FindLayerForState(animator, hash);
             if (targetLayer < 0)
             {
                 // 状态名不存在于任何层——理论上不应该发生（PlayAnimOnInstance 已经用 AnimatorHasState
@@ -736,6 +793,83 @@ namespace Adapter.Unity.EngineAdapter
             // 判定"自动过渡已经完整发生过、目标剪辑必然已经播完"；从未进入过（如目标状态名解析错误或
             // 尚未来得及切入）时不能仅凭"当前不是目标状态"就判定完成，见方法判断记录分支 (b)。
             return everEnteredTarget;
+        }
+
+        /// <summary>按 <see cref="Animator.CrossFadeInFixedTime"/> 不显式传 layer 参数时的既有约定
+        /// （"播放第一个含有该状态名的层"，见 <see cref="IsAnimatorStateFinished"/> 判断记录）定位某个
+        /// 状态 hash 所在的层；查不到时返回 -1。<see cref="PlayAnimOnInstance"/>（PR150-02 新增，缓存
+        /// 目标状态所在层供 <see cref="OnAnimStateEvent"/> 比对）与 <see cref="IsAnimatorStateFinished"/>
+        /// 共用本方法，保持两处"哪一层是目标状态所在层"的判定逐字一致。</summary>
+        private static int FindLayerForState(Animator animator, int stateHash)
+        {
+            for (var layer = 0; layer < animator.layerCount; layer++)
+            {
+                if (animator.HasState(layer, stateHash))
+                {
+                    return layer;
+                }
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// PR150-02 根治新增：<see cref="AnimStateFinishRelay"/> 的 OnStateEnter/OnStateExit 回调统一
+        /// 落点（见该类型判断记录）。只在 <paramref name="stateHash"/>/<paramref name="layerIndex"/> 与
+        /// <paramref name="handleValue"/> 对应实例当前正在追踪的目标状态（<see cref="ModelInstance.CurrentStateHash"/>/
+        /// <see cref="ModelInstance.CurrentStateLayer"/>）逐字相等时才记录——同一个 Animator 实例上可能
+        /// 同时存在其它状态各自的 <see cref="AnimStateFinishRelay"/> 克隆（如 idle），它们的进入/离开
+        /// 与"本次播放是否完成"无关，必须过滤掉，不能只按 handleValue 匹配就无条件采信。实例已销毁
+        /// （<see cref="_instances"/> 查不到）或当前不是 <see cref="AnimDriveMode.Animator"/> 驱动
+        /// （如已经切到 legacy 分支或已被新一次 PlayAnim 覆盖）时静默忽略，不抛异常——回调可能在实例
+        /// 生命周期的任意时刻到达，不能假设调用时机。
+        /// <para>
+        /// 判断记录（二次根治：<see cref="ModelInstance.EventExitedTarget"/> 只按
+        /// <paramref name="normalizedTime"/> &gt;= 1 采信，不再要求"必须先观察到过配对的 Enter"）：
+        /// 首版实现要求先看到本次播放自己的 Enter 才采信随后的 Exit，意图过滤"同状态重触发
+        /// （<c>PlayAnimOnInstance</c> 的 <c>isRetrigger</c> 分支，<c>Animator.Play(stateName, -1, 0f)</c>
+        /// 强制重播）打断上一次播放产生的陈旧 Exit"——但真实 Unity 行为（Editor 隔离验证复现，见
+        /// <c>ModelViewTests.PlayAutoExitClip_TransitionsBetweenManualUpdates_BeforeAnyRendererTick_StillRaisesFinishedExactlyOnce</c>
+        /// 首次运行的失败日志）显示：当"进入目标状态"与"自动过渡离开目标状态"整个落在同一次
+        /// <see cref="Animator.Update(float)"/> 调用内（例如手动推进大步长 dt，或 Tick 轮询节奏本就
+        /// 慢于引擎帧率）时，Unity 只回调这一次 Exit，配对的 Enter 完全不会到达——首版"必须先见过
+        /// Enter"的守卫因此把这一类合法的一次性完成也一并误判成"陈旧退出"过滤掉，是比"重触发误判
+        /// 完成"更常见的新回归（本方法覆盖的默认非重触发单次播放场景反而先坏了）。
+        /// </para>
+        /// <para>
+        /// 改用 <paramref name="normalizedTime"/>（<c>AnimatorStateInfo.normalizedTime</c>，随
+        /// OnStateExit 回调原样带出）判断这次 Exit 是不是"这个状态已经播完一整轮才离开"——与
+        /// <see cref="IsAnimatorStateFinished"/> 采样路径判定完成的同一条标准（<c>normalizedTime &gt;= 1f</c>）
+        /// 完全一致，不依赖是否曾经收到过配对的 Enter 事件：正常单次播放自然过渡离开时
+        /// normalizedTime 必然 &gt;= 1（这正是自动过渡的 <c>exitTime</c> 配置本身的含义）；同状态
+        /// 重触发打断上一次播放产生的陈旧 Exit，中断发生时该次播放通常尚未播满一整轮（
+        /// <c>normalizedTime &lt; 1</c>，同类型判断记录"Model_ConsecutiveAttacks..."回归复现的前置
+        /// 断言"前一次的 Attack 播放形态应当还没有播完"），据此天然被过滤，不需要额外的 Enter 先决
+        /// 条件。<see cref="ModelInstance.EventEnteredTarget"/> 仍然记录（供诊断/未来扩展查看"是否
+        /// 曾经收到过 Enter 回调"），但不再是判定完成的必要条件。
+        /// </para>
+        /// </summary>
+        internal void OnAnimStateEvent(int handleValue, int stateHash, int layerIndex, bool entered, float normalizedTime)
+        {
+            if (!_instances.TryGetValue(handleValue, out var instance) || instance.Drive != AnimDriveMode.Animator)
+            {
+                return;
+            }
+
+            if (stateHash != instance.CurrentStateHash || layerIndex != instance.CurrentStateLayer)
+            {
+                return;
+            }
+
+            if (entered)
+            {
+                instance.EventEnteredTarget = true;
+                return;
+            }
+
+            if (normalizedTime >= 1f)
+            {
+                instance.EventExitedTarget = true;
+            }
         }
 
         public void SetAnimSpeed(ModelHandle handle, double speed)
@@ -835,32 +969,56 @@ namespace Adapter.Unity.EngineAdapter
 
         /// <summary>W6-B 新增：按子对象名查找挂点 <see cref="Transform"/>，把
         /// <paramref name="child"/>（另一个已创建的模型实例）挂接为其子物体（局部位置/旋转清零，
-        /// 对齐挂点原点）。查不到 <paramref name="socketId"/> 对应的子对象时静默跳过，理由同
-        /// <see cref="SetSlotMesh"/>。PR140-02 根治：同时登记进 <paramref name="handle"/> 对应实例的
+        /// 对齐挂点原点）。PR140-02 根治：同时登记进 <paramref name="handle"/> 对应实例的
         /// <see cref="ModelInstance.SocketChildren"/>（与子实例的反向记账
         /// <see cref="ModelInstance.AttachedToParentHandle"/>/<see cref="ModelInstance.AttachedToSocketId"/>），
         /// 供 <see cref="AttachVisual"/> 在父实例原地替换视觉内容时把本次挂接的子实例摘出来暂存、
         /// 换完新内容后按同一份记录重新挂回去，不随旧可见内容一起被销毁。同一个挂点在旧记录仍存在时
         /// 直接覆盖（后一次 AttachToSocket 决定这个挂点当前挂着谁，同 <see cref="SetSlotMesh"/> 一贯
-        /// "后写覆盖"惯例）。</summary>
+        /// "后写覆盖"惯例）。
+        /// <para>
+        /// 判断记录（PR150-02 遗留、本次 PR150-03 根治，<c>architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md</c>
+        /// PR150-03"占位模型无 socket，替换后挂件丢失"）：旧实现查不到 <paramref name="socketId"/> 对应
+        /// 的子对象（最常见于占位模型本身没有该挂点，真实资源换上来才有——如占位胶囊体没有
+        /// <c>socket.main_hand</c>）时直接 <c>return</c>，连 <see cref="ModelInstance.SocketChildren"/>
+        /// 都不登记；<see cref="AttachVisual"/> 原地替换视觉内容时的重放逻辑本身完全有能力按
+        /// <see cref="ModelInstance.SocketChildren"/> 补挂（找不到同名挂点时保持暂存，不销毁不抛
+        /// 异常），问题是旧实现从未产生过一条可供重放的记录——不是重放逻辑缺陷，是挂接意图在源头就被
+        /// 丢弃了。根治：挂接意图（<see cref="ModelInstance.SocketChildren"/>/<see cref="ModelInstance.AttachedToParentHandle"/>/
+        /// <see cref="ModelInstance.AttachedToSocketId"/>）无论挂点当前是否存在都先登记，只有"是否立即
+        /// 执行物理挂接"这一步依 <paramref name="socketId"/> 当前能否解析而分支——挂点暂不可用时子实例
+        /// 保持在调用前的父物体下（通常是 <see cref="_root"/>，同 <see cref="Detach"/> 之后的既有落点），
+        /// 等 <see cref="AttachVisual"/> 换上真正带该挂点的视觉内容时自动补挂，或调用方（
+        /// <c>Presentation.Render.ModelCharacterRig</c>）按诊断重试；不抛异常，同类型顶部"资源缺失
+        /// 降级"整体宽容立场一贯。<see cref="_missingSocketWarned"/> 按 (句柄, 挂点) 去重，避免同一挂点
+        /// 反复缺失时刷屏（同 <see cref="_missingModelWarned"/> 一贯惯例）。
+        /// </para>
+        /// </summary>
         public void AttachToSocket(ModelHandle handle, Id socketId, ModelHandle child)
         {
             var instance = EnsureAlive(handle);
             var childInstance = EnsureAlive(child);
 
+            // 见方法判断记录：无论挂点当前是否存在都先登记挂接意图，物理挂接与否只影响下面这一步。
+            instance.SocketChildren[socketId] = child.Value;
+            childInstance.AttachedToParentHandle = handle.Value;
+            childInstance.AttachedToSocketId = socketId;
+
             var socketTransform = FindDeep(instance.VisualRoot, socketId.Value);
             if (socketTransform == null)
             {
+                if (_missingSocketWarned.Add((handle.Value, socketId.Value)))
+                {
+                    Debug.LogWarning(
+                        $"[UnityRenderer3D] 挂点 \"{socketId}\" 在模型实例 {handle.Value} 当前视觉内容上不存在：" +
+                        "已保留挂接意图，等视觉内容原地替换出该挂点后自动补挂，或由调用方重试。");
+                }
                 return;
             }
 
             childInstance.Root.transform.SetParent(socketTransform, worldPositionStays: false);
             childInstance.Root.transform.localPosition = Vector3.zero;
             childInstance.Root.transform.localRotation = Quaternion.identity;
-
-            instance.SocketChildren[socketId] = child.Value;
-            childInstance.AttachedToParentHandle = handle.Value;
-            childInstance.AttachedToSocketId = socketId;
         }
 
         /// <summary>把子实例摘回本渲染器的根节点下（不销毁，见 <see cref="IRenderer3D.Detach"/>

@@ -46,18 +46,20 @@ namespace Presentation.FeedbackBinder.Core
         private readonly FloatingTextMerger _merger;
         private readonly HitFrameSyncPolicy? _hitFrameSyncPolicy;
 
-        /// <summary>PR140-04 根治新增：攻击者 -&gt; 当前仍打开着的命中帧同步批次 token（见
-        /// <see cref="HitFrameSyncPolicy.WaitForHitFrame(Id, object, Action)"/> 判断记录）。同一个攻击者
-        /// 在这张表还留着条目期间触发的每一次 <c>sync: hit_frame</c> 规则命中，都复用同一个 token 对象
-        /// 合并进同一批（"同一攻击者在同一派发批次内的事件"——范围攻击对多个目标各自派发独立的
-        /// <c>combat.damage_dealt</c> 事件，见 <c>core/rules/common/contracts/Events.cs</c>
-        /// <c>CombatDamageDealtEvent</c> 没有携带施法/攻击实例 id，本类型只能按"该攻击者上一批是否已经
-        /// 释放完毕"这一时序代理判断是否属于同一次攻击）；<see cref="HitFrameSyncPolicy.BatchReleased"/>
-        /// 触发时移除对应条目，下一次同一攻击者命中 <c>sync: hit_frame</c> 规则会分配一个全新 token，
-        /// 开始下一批。已知局限（写清判断，不假装本方案精确等价于真实攻击实例 id）：同一攻击者在上一批
-        /// 尚未释放前就发起第二次独立攻击（如极短 GCD 连续两次技能都命中同一批目标的命中帧到达之前），
-        /// 会被误合并成一批一起释放；核心事件契约补上施法/攻击实例 id 之前，这是唯一可用的批次边界，
-        /// 且严格优于改动前"同一次攻击的多个目标反而被拆散成互相错开的多批"的状态。</summary>
+        /// <summary>PR140-04 根治新增，攻击实例 id 遗留根治后降级为兜底路径（见
+        /// <see cref="ResolveHitFrameBatchToken"/> 判断记录）：攻击者 -&gt; 当前仍打开着的命中帧同步
+        /// 批次 token（见 <see cref="HitFrameSyncPolicy.WaitForHitFrame(Id, object, Action)"/> 判断
+        /// 记录）。只在触发 <c>sync: hit_frame</c> 规则的事件不携带
+        /// <see cref="Core.Rules.Common.EffectContext.AttackInstanceId"/>（如光环周期效果、纯脚本/
+        /// 测试构造的事件，见该字段判断记录）时才会用到——同一个攻击者在这张表还留着条目期间触发的
+        /// 每一次命中，都复用同一个 token 对象合并进同一批，按"该攻击者上一批是否已经释放完毕"这一
+        /// 时序代理判断是否属于同一次攻击；<see cref="HitFrameSyncPolicy.BatchReleased"/> 触发时移除
+        /// 对应条目，下一次同一攻击者命中会分配一个全新 token，开始下一批。已知局限（写清判断，不
+        /// 假装本方案精确等价于真实攻击实例 id）：同一攻击者在上一批尚未释放前就发起第二次独立攻击
+        /// （如极短 GCD 连续两次技能都命中同一批目标的命中帧到达之前），会被误合并成一批一起释放——
+        /// 携带攻击实例 id 的事件（<c>combat.damage_dealt</c>/<c>combat.heal_done</c>，经
+        /// <c>CastPipeline.ExecuteEffectsOnly</c> 产生）不再落进本兜底路径，见
+        /// <see cref="ResolveHitFrameBatchToken"/>。</summary>
         private readonly Dictionary<Id, object> _hitFrameBatchTokenByAttacker = new Dictionary<Id, object>();
 
         public FeedbackBinder(
@@ -262,10 +264,15 @@ namespace Presentation.FeedbackBinder.Core
             // combat.damage_dealt 事件（见 CombatDamageDealtEvent 单源单目标的既有形状），此前各自经
             // 本方法独立的一次 OnEvent 调用登记为各自独立的 HitFrameSyncPolicy 批次，而该策略每次命中
             // 帧只释放同一实体最早入队的那一批——同一次攻击命中的目标 2、3……要么错到下一次命中帧、要么
-            // 只能等超时兜底，不是同一次攻击应有的"同时释放"效果。现在改为按
-            // _hitFrameBatchTokenByAttacker 复用同一个 batchToken：只要该攻击者名下还有一个尚未释放的
-            // 批次 token，本次 OnEvent 新命中的 sync: hit_frame 规则动作追加进同一个 token，一次命中帧
-            // /超时会把该攻击者当前全部待释放目标一并原子释放（见 HitFrameSyncPolicy 判断记录）。
+            // 只能等超时兜底，不是同一次攻击应有的"同时释放"效果。
+            // 攻击实例 id 遗留根治（architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md
+            // "攻击实例 id"）：批次 token 现按 ResolveHitFrameBatchToken 决定——事件携带
+            // EffectContext.AttackInstanceId（经 CastPipeline.ExecuteEffectsOnly 产生的
+            // combat.damage_dealt/combat.heal_done 均携带）时直接用它的装箱值当 token，
+            // HitFrameSyncPolicy 按值比较（见该类型判断记录），同一实例 id 的多个目标天然合批、不同
+            // 实例 id（哪怕落在同一个未释放窗口内）天然不合批，不再需要 _hitFrameBatchTokenByAttacker
+            // 这张"是否还有未释放批次"的时序代理表；只有不携带攻击实例 id 的事件才退回该表兜底（见
+            // ResolveHitFrameBatchToken/_hitFrameBatchTokenByAttacker 判断记录）。
             List<FeedbackAction>? hitFrameBatch = null;
 
             foreach (var rule in rules)
@@ -291,11 +298,7 @@ namespace Presentation.FeedbackBinder.Core
             if (hitFrameBatch != null)
             {
                 var actionsSnapshot = hitFrameBatch;
-                if (!_hitFrameBatchTokenByAttacker.TryGetValue(selfId, out var batchToken))
-                {
-                    batchToken = new object();
-                    _hitFrameBatchTokenByAttacker[selfId] = batchToken;
-                }
+                var batchToken = ResolveHitFrameBatchToken(evt, selfId);
 
                 _hitFrameSyncPolicy!.WaitForHitFrame(selfId, batchToken, () =>
                 {
@@ -305,6 +308,38 @@ namespace Presentation.FeedbackBinder.Core
                     }
                 });
             }
+        }
+
+        /// <summary>攻击实例 id 遗留根治（<c>architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md</c>
+        /// "攻击实例 id"）：<paramref name="evt"/> 携带 <c>attackInstanceId</c> 字段（见
+        /// <see cref="Core.Rules.Common.EffectContext.AttackInstanceId"/>/
+        /// <see cref="Core.Rules.Common.CombatDamageDealtEvent.AttackInstanceId"/> 判断记录）时，直接
+        /// 用它的装箱值作为 <see cref="HitFrameSyncPolicy"/> 的批次 token——该策略现按值比较
+        /// （见其类型判断记录），同一实例 id 的多次调用天然合批，不同实例 id 天然不合批，不需要本类型
+        /// 再维护"该攻击者当前是否还有未释放批次"这张时序代理表。没有该字段（如光环周期效果、纯脚本/
+        /// 测试构造的事件）时退回 <see cref="_hitFrameBatchTokenByAttacker"/> 窗口合批兜底，并在每次
+        /// 新开一批（不是复用既有未释放批次）时记一次诊断——诊断只在"新分配一个兜底 token"这一刻触发
+        /// 一次，不会随同一批次内后续每个命中重复刷屏。</summary>
+        private object ResolveHitFrameBatchToken(IEvent evt, Id selfId)
+        {
+            if (evt is IExprReadableEvent readable
+                && readable.TryGetField("attackInstanceId", out var value)
+                && value.Kind == ExprValueKind.Id)
+            {
+                return value.AsId;
+            }
+
+            if (!_hitFrameBatchTokenByAttacker.TryGetValue(selfId, out var fallbackToken))
+            {
+                fallbackToken = new object();
+                _hitFrameBatchTokenByAttacker[selfId] = fallbackToken;
+                _diagnostics.Warn(
+                    $"命中帧同步：事件 \"{evt.Key}\" 未携带攻击实例 id（attackInstanceId），" +
+                    $"按攻击者 \"{selfId}\" 当前未释放窗口退回合批——同一窗口内如果这个攻击者恰好还有" +
+                    "另一次独立攻击尚未释放，两者会被误合并成一批，见 FeedbackBinder 判断记录。");
+            }
+
+            return fallbackToken;
         }
 
         private void Dispatch(FeedbackAction action, IEvent evt, Id selfId, Id? targetId)

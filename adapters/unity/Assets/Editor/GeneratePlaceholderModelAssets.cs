@@ -178,6 +178,17 @@ namespace Adapter.Unity.EditorTools
             autoExitTransition.hasFixedDuration = true;
             autoExitTransition.duration = 0f;
 
+            // PR150-02 根治新增（architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md
+            // PR150-02"动画在首次检测前已经自动退出时，仍漏发 finished"）：五个状态逐一预置
+            // AnimStateFinishRelay（见该类型判断记录），使 UnityRenderer3D.Tick 的完成检测不再单纯
+            // 依赖外部轮询采样——占位内容因此成为"具体游戏内容应如何接线本机制"的参照样例，同
+            // AnimEventFunctionName/hit_frame 事件那条既有惯例。
+            idleState.AddStateMachineBehaviour<Adapter.Unity.EngineAdapter.AnimStateFinishRelay>();
+            attackState.AddStateMachineBehaviour<Adapter.Unity.EngineAdapter.AnimStateFinishRelay>();
+            castState.AddStateMachineBehaviour<Adapter.Unity.EngineAdapter.AnimStateFinishRelay>();
+            hitState.AddStateMachineBehaviour<Adapter.Unity.EngineAdapter.AnimStateFinishRelay>();
+            testAutoExitState.AddStateMachineBehaviour<Adapter.Unity.EngineAdapter.AnimStateFinishRelay>();
+
             return controller;
         }
 

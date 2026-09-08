@@ -622,9 +622,31 @@ namespace Core.Rules.Skill
         /// <summary><paramref name="chainDepth"/>：见类型注释"RC-01 收边勘误"，默认 0（正常施法
         /// 管线步骤 8/9 完成后的根结算，即 <see cref="EnterCastOrChannel"/>/<see cref="AdvanceOne"/>/
         /// <see cref="FinishCast"/> 三个调用点，均不显式传参）；<see cref="TriggerCast"/> 是唯一显式
-        /// 传入非零值的调用点。</summary>
+        /// 传入非零值的调用点。
+        /// <para>
+        /// 攻击实例 id 遗留根治（<c>architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md</c>
+        /// "攻击实例 id"，取代 PR140-04 遗留的"同一攻击者未释放窗口"时序代理合批）：本方法每次调用
+        /// 固定分配一个全新的 <see cref="Id"/>（<see cref="NextCastInstanceId"/>，与
+        /// <see cref="EnterCastOrChannel"/> 对外返回的 <see cref="CastResult.CastInstanceId"/> 共用
+        /// 同一个序列生成器，含义相同——"这一次结算"），本次调用内 <c>def.Effects</c> × <paramref name="targets"/>
+        /// 的笛卡尔积产生的全部 <see cref="EffectContext"/> 共享这一个值，作为
+        /// <see cref="EffectContext.AttackInstanceId"/>。判断记录（为什么是"每次调用"而不是"每次
+        /// 读条/引导"）：<see cref="EnterCastOrChannel"/> 瞬发分支、<see cref="FinishCast"/> 完成分支、
+        /// <see cref="AdvanceOne"/> 的引导周期跳、<see cref="TriggerCast"/> 各自独立调用一次本方法——
+        /// 任务书原文"施法实例/攻击实例，来自 CastPipeline/CombatHost 的一次结算"里的"一次结算"字面
+        /// 就是本方法的一次调用（一批目标在同一时刻各自应用同一组效果）：引导技能的多次周期跳是同一次
+        /// 引导发起的、但发生在不同时刻的多次独立结算，各自的目标批次理应各自独立释放命中帧同步，不能
+        /// 因为"同属一次引导"就把跨越多个 tick 的批次强行合并成一批（那正是审计要根治的"同一窗口内
+        /// 不同攻击被误合批"的另一种表现形式，只是触发场景从"两次独立技能"换成了"同一引导的两个
+        /// tick"）；反过来，同一次调用内命中的多个目标（如一次范围攻击命中三个目标）理应共享同一个
+        /// 值，使它们的命中帧同步动作原子性地一起释放（PR140-04 原始诉求"AoE 命中批次"）——本设计
+        /// 用同一个粒度天然同时满足这两条互相制约的要求，不需要额外的"同一引导跨 tick 但不同批次"
+        /// 特判。</para>
+        /// </summary>
         private void ExecuteEffectsOnly(Id casterId, SkillDef def, IReadOnlyList<Id> targets, int chainDepth = 0)
         {
+            var attackInstanceId = NextCastInstanceId();
+
             foreach (var effect in def.Effects)
             {
                 foreach (var targetId in targets)
@@ -637,7 +659,7 @@ namespace Core.Rules.Skill
                     var context = new EffectContext(
                         casterId, targetId, def.Id, effect.Kind, school, baseValue, coefficient,
                         effect.Params, auraInstanceId: null, isPeriodic: false, canCrit: true, canMiss: canMiss,
-                        tags: def.Tags, triggerChainDepth: chainDepth);
+                        tags: def.Tags, triggerChainDepth: chainDepth, attackInstanceId: attackInstanceId);
 
                     _effects.ApplyEffect(context);
                 }

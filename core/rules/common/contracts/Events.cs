@@ -244,7 +244,16 @@ namespace Core.Rules.Common
         /// 作为下一层 <c>TriggerCast</c> 调用的深度预算输入。未显式传入时为 0（根结算）。</summary>
         public int TriggerChainDepth { get; }
 
-        public CombatDamageDealtEvent(Id sourceId, Id targetId, Id school, double amount, bool isCrit, HitResult hitResult, int triggerChainDepth = 0)
+        /// <summary>PR140-04 遗留根治（<c>architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md</c>
+        /// "攻击实例 id"）：见 <see cref="Core.Rules.Common.EffectContext.AttackInstanceId"/> 判断
+        /// 记录——原样携带产生本次落地事件的 <see cref="Core.Rules.Common.EffectContext"/> 上的同一个
+        /// 值，供 <c>Presentation.FeedbackBinder.Core.HitFrameSyncPolicy</c> 用作命中帧同步批次键。
+        /// 未经 <c>CastPipeline</c> 产生的结算（如光环周期伤害）为 null。</summary>
+        public Id? AttackInstanceId { get; }
+
+        public CombatDamageDealtEvent(
+            Id sourceId, Id targetId, Id school, double amount, bool isCrit, HitResult hitResult,
+            int triggerChainDepth = 0, Id? attackInstanceId = null)
         {
             SourceId = sourceId;
             TargetId = targetId;
@@ -253,6 +262,7 @@ namespace Core.Rules.Common
             IsCrit = isCrit;
             HitResult = hitResult;
             TriggerChainDepth = triggerChainDepth;
+            AttackInstanceId = attackInstanceId;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -266,6 +276,7 @@ namespace Core.Rules.Common
                 case "isCrit": value = ExprValue.OfBool(IsCrit); return true;
                 case "hitResult": value = ExprValue.OfString(HitResult.ToString()); return true;
                 case "triggerChainDepth": value = ExprValue.OfInt(TriggerChainDepth); return true;
+                case "attackInstanceId" when AttackInstanceId.HasValue: value = ExprValue.OfId(AttackInstanceId.Value); return true;
                 default: value = default; return false;
             }
         }
@@ -290,13 +301,20 @@ namespace Core.Rules.Common
         /// 传播深度后才被 <see cref="Core.Rules.Skill.SkillOptions.MaxTriggerDepth"/> 正确截断。</summary>
         public int TriggerChainDepth { get; }
 
-        public CombatHealDoneEvent(Id sourceId, Id targetId, double amount, bool isCrit, int triggerChainDepth = 0)
+        /// <summary>见 <see cref="CombatDamageDealtEvent.AttackInstanceId"/> 判断记录，同一套机制的
+        /// 治疗分支。</summary>
+        public Id? AttackInstanceId { get; }
+
+        public CombatHealDoneEvent(
+            Id sourceId, Id targetId, double amount, bool isCrit,
+            int triggerChainDepth = 0, Id? attackInstanceId = null)
         {
             SourceId = sourceId;
             TargetId = targetId;
             Amount = amount;
             IsCrit = isCrit;
             TriggerChainDepth = triggerChainDepth;
+            AttackInstanceId = attackInstanceId;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -308,6 +326,7 @@ namespace Core.Rules.Common
                 case "amount": value = ExprValue.OfNumber(Amount); return true;
                 case "isCrit": value = ExprValue.OfBool(IsCrit); return true;
                 case "triggerChainDepth": value = ExprValue.OfInt(TriggerChainDepth); return true;
+                case "attackInstanceId" when AttackInstanceId.HasValue: value = ExprValue.OfId(AttackInstanceId.Value); return true;
                 default: value = default; return false;
             }
         }

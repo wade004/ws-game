@@ -355,6 +355,90 @@ namespace Adapter.Unity.Tests.Runtime
             _renderer.DestroyModelInstance(handle);
         }
 
+        /// <summary>
+        /// PR150-03 复现/根治（<c>architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md</c>
+        /// PR150-03"占位模型无 socket，替换后挂件丢失"）：<paramref name="handle"/>（这里用
+        /// <see cref="PlaceholderModelId"/> 占位内容）没有目标挂点 <c>socket.custom</c>——占位胶囊体
+        /// 只声明 <c>socket.main_hand</c>/<c>slot.head</c>（见
+        /// <c>GeneratePlaceholderModelAssets.CreateOrReplacePrefab</c>）。根治前
+        /// <see cref="UnityRenderer3D.AttachToSocket"/> 查不到挂点直接 <c>return</c>，连
+        /// <c>SocketChildren</c> 都不登记；随后原地替换成一个真的带 <c>socket.custom</c> 挂点的新内容
+        /// 时，<see cref="UnityRenderer3D.AttachVisual"/> 的挂点重放逻辑无从谈起（没有一条记录可供
+        /// 重放），子实例永远停留在原挂接前的父物体下。根治后：挂点暂不可用时仍登记挂接意图，替换出
+        /// 带该挂点的新内容后自动补挂。</summary>
+        [Test]
+        public void AttachToSocket_MissingOnPlaceholder_PreservesIntent_ReattachesAfterSwapToModelWithSocket()
+        {
+            var missingId = new Id("model.does_not_exist_probe_pr150_03");
+            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("\\[UnityRenderer3D\\].*找不到模型资源"));
+            var handle = _renderer.CreateModelInstance(missingId);
+            Assert.IsTrue(_renderer.IsShowingPlaceholder(handle), "先缺资源应当先展示占位内容");
+
+            var childHandle = _renderer.CreateModelInstance(PlaceholderModelId);
+            var customSocketId = new Id("socket.custom");
+
+            // 占位内容没有 socket.custom——根治后本次调用应当只记一次诊断，不抛异常，也不物理挂接。
+            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("\\[UnityRenderer3D\\].*挂点.*不存在"));
+            Assert.DoesNotThrow(() => _renderer.AttachToSocket(handle, customSocketId, childHandle));
+
+            var childRootBeforeSwap = _renderer.GetModelRoot(childHandle);
+            Assert.IsNotNull(childRootBeforeSwap, "挂接意图缺口不应该影响子实例本身的存活");
+            Assert.AreNotEqual(customSocketId.Value, childRootBeforeSwap!.transform.parent != null ? childRootBeforeSwap.transform.parent.name : null,
+                "挂点不存在时不应该发生任何物理挂接");
+
+            // 构造一份带 socket.custom 挂点的"新内容"（同 PR140-02 用例惯例，不依赖真实 Resources
+            // 资产——本用例只关心 AttachVisual 的挂点重放逻辑本身，不关心具体模型资源）。
+            var replacementRoot = new GameObject("ReplacementWithCustomSocket");
+            var socketChild = new GameObject(customSocketId.Value);
+            socketChild.transform.SetParent(replacementRoot.transform, worldPositionStays: false);
+
+            _renderer.CompleteAsyncModelSwapForTest(handle, replacementRoot);
+
+            var childRootAfterSwap = _renderer.GetModelRoot(childHandle);
+            Assert.IsNotNull(childRootAfterSwap, "替换后子实例不应该被销毁");
+            var parentAfterSwap = childRootAfterSwap!.transform.parent;
+            Assert.IsNotNull(parentAfterSwap, "根治后：替换出带 socket.custom 的新内容后，之前保留的挂接意图应当自动补挂");
+            Assert.AreEqual(customSocketId.Value, parentAfterSwap!.name,
+                "根治前：占位模型没有该挂点时挂接意图被直接丢弃，替换后新挂点子节点数仍为 0，子模型停留在" +
+                "原引擎根节点；根治后应当自动重新挂接到新出现的挂点上");
+
+            Assert.DoesNotThrow(() => _renderer.Detach(childHandle));
+            _renderer.DestroyModelInstance(childHandle);
+            _renderer.DestroyModelInstance(handle);
+        }
+
+        /// <summary>PR150-03 回归：挂点始终不可用（替换后的新内容仍然没有该挂点）时，挂接意图应当继续
+        /// 保留（不因为一次替换失败就丢弃），且不抛异常——覆盖类型判断记录"验收覆盖...替换成功/
+        /// 失败"。</summary>
+        [Test]
+        public void AttachToSocket_StillMissingAfterSwap_KeepsIntentWithoutThrowing()
+        {
+            var missingId = new Id("model.does_not_exist_probe_pr150_03b");
+            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("\\[UnityRenderer3D\\].*找不到模型资源"));
+            var handle = _renderer.CreateModelInstance(missingId);
+
+            var childHandle = _renderer.CreateModelInstance(PlaceholderModelId);
+            var customSocketId = new Id("socket.custom");
+
+            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("\\[UnityRenderer3D\\].*挂点.*不存在"));
+            Assert.DoesNotThrow(() => _renderer.AttachToSocket(handle, customSocketId, childHandle));
+
+            // 替换成一份仍然没有 socket.custom 的新内容（同 PlaceholderModelId 占位胶囊体本身）。
+            var realPrefab = Resources.Load<GameObject>("GameFoundation/models/placeholder_biped");
+            Assert.IsNotNull(realPrefab, "测试前置条件：占位预制体资产应当存在");
+            Assert.DoesNotThrow(() => _renderer.CompleteAsyncModelSwapForTest(handle, UnityEngine.Object.Instantiate(realPrefab)));
+
+            var childRootAfterSwap = _renderer.GetModelRoot(childHandle);
+            Assert.IsNotNull(childRootAfterSwap, "替换后子实例仍不应该被销毁");
+            Assert.AreNotEqual(customSocketId.Value,
+                childRootAfterSwap!.transform.parent != null ? childRootAfterSwap.transform.parent.name : null,
+                "挂点仍不存在时不应该凭空冒出一次物理挂接");
+
+            Assert.DoesNotThrow(() => _renderer.Detach(childHandle));
+            _renderer.DestroyModelInstance(childHandle);
+            _renderer.DestroyModelInstance(handle);
+        }
+
         [Test]
         public void CreateModelInstance_MissingThenAvailable_AttachVisual_RestoresShadowModeAfterSwap()
         {

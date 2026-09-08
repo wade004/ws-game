@@ -242,12 +242,16 @@ namespace Core.Rules.Combat
                     // 落地事件上（见 EffectContext.TriggerChainDepth/ITriggerChainEvent 判断记录），
                     // 供 ProcHost 在 combat.heal_done 是某个 skill.proc_def.trigger_event 时读回，
                     // 让触发链深度预算能跨越本次 _bus.Enqueue 到下一个 DispatchPending pass 正确传播。
-                    _bus.Enqueue(new CombatHealDoneEvent(context.SourceId, context.TargetId, finalAmount, isCrit, context.TriggerChainDepth));
+                    // 攻击实例 id 遗留根治（architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md）：
+                    // 同样把 EffectContext.AttackInstanceId 原样戳到落地事件上，见该字段判断记录——
+                    // 未经 CastPipeline 产生的结算（如光环周期效果）为 null，事件上同样为 null，不改变
+                    // 现有语义，只是多携带一份可选的批次身份信息。
+                    _bus.Enqueue(new CombatHealDoneEvent(context.SourceId, context.TargetId, finalAmount, isCrit, context.TriggerChainDepth, context.AttackInstanceId));
                 }
                 else
                 {
                     _threatTable.AddThreat(context.TargetId, context.SourceId, finalAmount);
-                    _bus.Enqueue(new CombatDamageDealtEvent(context.SourceId, context.TargetId, context.School, finalAmount, isCrit, hit, context.TriggerChainDepth));
+                    _bus.Enqueue(new CombatDamageDealtEvent(context.SourceId, context.TargetId, context.School, finalAmount, isCrit, hit, context.TriggerChainDepth, context.AttackInstanceId));
                 }
             }
 

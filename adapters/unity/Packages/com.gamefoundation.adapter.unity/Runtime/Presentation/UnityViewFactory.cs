@@ -341,6 +341,27 @@ namespace Adapter.Unity.Presentation
                 _hitFrameSource?.RegisterRig(entityId, spriteView.Rig);
             }
 
+            // PR150-01 根治（architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md PR150-01
+            // "sprite 初始装备重放早于 Bind，装备事件被过滤"）：09 第 2 节 View 绑定协议约定
+            // "entityRef 供引擎侧实现在创建阶段预知绑定目标；调用方仍需在拿到 View 后显式调用一次
+            // bind"——UnityModelView 据此在构造期已经把 EntityId 设成 entityId（见该类型构造函数），
+            // 但 UnitySpriteView/SpriteViewBase 把这一步推迟到显式 Bind 调用（EntityId 默认值直到
+            // ViewBinder.OnEntityCreated 调用 view.Bind(entityId) 才写入，见该类型 Bind 判断记录）。
+            // 下面的 ReplayEquippedVisuals 经 view.OnEvent 合成 ItemEquippedEvent，而
+            // SpriteViewBase.OnEvent 按 "equipped.UnitId.Equals(EntityId)" 过滤——sprite 路线在
+            // Bind 之前 EntityId 仍是默认值，重放事件的 unitId（entityId 参数）与它不相等，被过滤丢弃，
+            // 帽子/武器一类装备覆盖资源因此从未被请求加载；model 路线因构造期已设置 EntityId 而没有
+            // 暴露同一问题。根治手法：工厂在创建时就先对本次返回的 view 调用一次 Bind(entityId)，再执行
+            // 装备快照重放——不等 ViewBinder 事后再调用——使 sprite/model 两条路线在"重放发生时
+            // EntityId 是否已就绪"这一点上完全一致。ViewBinder.OnEntityCreated 随后仍会按既有协议再调
+            // 一次 view.Bind(entityId)：SpriteViewBase.Bind/SpriteCharacterRig.Bind 只是重新赋同一个
+            // entityId、置 IsAlive=true，UnityModelView.Bind 只做"entityId 与构造期是否一致"的校验后
+            // 置 IsAlive=true，NullView.Bind 同样只是重新赋值——三者对"同一个 entityId 被 Bind
+            // 两次"均是幂等操作，不会抛异常、不会产生副作用，09 第 2 节的绑定协议本身未变（View 仍然是
+            // "创建阶段预知绑定目标、调用方显式 bind"这一契约，本类型只是把"创建阶段"与"显式 bind"
+            // 在这里提前重合了一次，供内部重放使用）。
+            view.Bind(entityId);
+
             // 第九方审核任务书"第 0 步"补齐：新创建的"生物"分类 View 按当前已装备物品重放一次外观
             // （见 ReplayEquippedVisuals 判断记录）——放在 _created.Add 之前/之后均可（不影响
             // DestroyAllCreatedViews 的清理范围），选在这里是为了紧跟在两条分支各自的

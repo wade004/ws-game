@@ -212,10 +212,15 @@ namespace Core.Rules.Skill
             var critBonus = _spellMods.Apply(context.SourceId, SpellModDimension.CritChance, context.SkillId, context.School, context.Tags, 0);
             var mergedParams = critBonus != 0 ? ParamsX.MergeNumber(context.Params, "crit_chance_bonus", critBonus) : context.Params;
 
+            // 攻击实例 id 遗留根治（architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md）：
+            // 本方法重建 outbound 上下文时（应用 SpellMod 后的最终数值），必须与 TriggerChainDepth
+            // 一样原样转发 context.AttackInstanceId，否则 CastPipeline.ExecuteEffectsOnly 构造时
+            // 携带的攻击实例 id 会在这里被静默丢弃，永远到不了 Resolver.Resolve 与落地事件——见
+            // EffectContext.AttackInstanceId 判断记录。
             var outbound = new EffectContext(
                 context.SourceId, context.TargetId, context.SkillId, context.Kind, context.School,
                 value, coefficient, mergedParams, context.AuraInstanceId, context.IsPeriodic, context.CanCrit, context.CanMiss,
-                context.Tags, context.TriggerChainDepth);
+                context.Tags, context.TriggerChainDepth, context.AttackInstanceId);
 
             return _combatHost.ResolveEffect(outbound);
         }

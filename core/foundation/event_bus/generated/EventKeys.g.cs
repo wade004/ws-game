@@ -42,13 +42,13 @@ namespace Core.Foundation.EventBus
         /// <summary>aura.stack_changed — 字段：targetId, auraDefId, oldStacks, newStacks。叠加层数变化（见 06 第 8 节）。</summary>
         public static readonly Id AuraStackChanged = new Id("aura.stack_changed");
 
-        /// <summary>combat.damage_dealt — 字段：sourceId, targetId, school, amount, isCrit, hitResult。结算管线"落地"步骤，伤害类效果（见 06 第 8 节）。</summary>
+        /// <summary>combat.damage_dealt — 字段：sourceId, targetId, school, amount, isCrit, hitResult, attackInstanceId。结算管线"落地"步骤，伤害类效果（见 06 第 8 节）；2026-09-08 勘误补充 attackInstanceId（本次结算所属的施法/攻击实例 id，经 CastPipeline.ExecuteEffectsOnly 产生的结算才携带，供命中帧同步按攻击实例整批释放，见 EffectContext.AttackInstanceId 判断记录；可空——光环周期效果等不经 CastPipeline 的结算为空）。</summary>
         public static readonly Id CombatDamageDealt = new Id("combat.damage_dealt");
 
         /// <summary>combat.entered — 字段：unitId, hostileId。进入战斗（见 06 第 8 节）；2026-09-05 勘误补充 hostileId（首个敌对目标：本次触发进战的交互对方 id，CombatHost.NotifyCombatEvent 在该单位真正首次进战时填充，可空——环境触发的进战未传交互对方时为空）。</summary>
         public static readonly Id CombatEntered = new Id("combat.entered");
 
-        /// <summary>combat.heal_done — 字段：sourceId, targetId, amount, isCrit。结算管线"落地"步骤，治疗类效果（见 06 第 8 节）。</summary>
+        /// <summary>combat.heal_done — 字段：sourceId, targetId, amount, isCrit, attackInstanceId。结算管线"落地"步骤，治疗类效果（见 06 第 8 节）；2026-09-08 勘误补充 attackInstanceId，同 combat.damage_dealt 一致，见该行说明。</summary>
         public static readonly Id CombatHealDone = new Id("combat.heal_done");
 
         /// <summary>combat.left — 字段：unitId。脱离战斗（见 06 第 8 节）。</summary>

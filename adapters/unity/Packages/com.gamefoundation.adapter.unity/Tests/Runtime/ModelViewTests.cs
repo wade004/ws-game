@@ -368,5 +368,108 @@ namespace Adapter.Unity.Tests.Runtime
 
             renderer3D.DestroyModelInstance(handle);
         }
+
+        /// <summary>PR150-02 复现/根治（<c>architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md</c>
+        /// PR150-02"动画在首次检测前已经自动退出时，仍漏发 finished"，同
+        /// <c>architecture/落地计划/audit-3224ca1-20260908/unity-validation.md</c>"Animator 自动退出"
+        /// 一节的隔离探针手法）：不 yield 任何引擎帧、也不调用 <see cref="UnityRenderer3D.Tick"/>，直接
+        /// 对真实 <see cref="Animator"/> 手动推进三次 <c>Update</c>（0、0.25、0.10 秒）——
+        /// <c>test_autoexit</c> 的进入与自动过渡回 idle 完整发生在这三次调用内，期间没有任何一次
+        /// <see cref="UnityRenderer3D.Tick"/> 采样。根治前：完成检测只靠 <c>Tick</c> 采样
+        /// <c>AnimatorStateInfo</c>，从未有机会亲眼看到过渡本身，<c>anim_event.finished</c> 永久漏发。
+        /// 根治后：<c>AnimStateFinishRelay</c>（挂在占位控制器 <c>test_autoexit</c> 状态上）经
+        /// <see cref="Animator"/> 自身的 <c>OnStateEnter</c>/<c>OnStateExit</c> 在 <c>Animator.Update</c>
+        /// 内部同步记录进入/离开，不依赖 <c>Tick</c> 的外部轮询节奏，随后任意一次 <c>Tick</c> 都能正确
+        /// 判定完成。</summary>
+        [Test]
+        public void PlayAutoExitClip_TransitionsBetweenManualUpdates_BeforeAnyRendererTick_StillRaisesFinishedExactlyOnce()
+        {
+            var fx = BuildFixture();
+            var renderer3D = (UnityRenderer3D)fx.Host.Renderer3D;
+            var handle = renderer3D.CreateModelInstance(new Id("model.placeholder_biped"));
+
+            var received = new System.Collections.Generic.List<Id>();
+            renderer3D.OnAnimEvent(handle, (h, id) => received.Add(id));
+
+            renderer3D.PlayAnim(handle, new Id("anim.test_autoexit"), loop: false, speed: 1.0, blendSeconds: 0f);
+
+            var animator = renderer3D.GetModelVisualRoot(handle)!.GetComponentInChildren<Animator>();
+            Assert.IsNotNull(animator, "占位模型应当带有 Animator 组件");
+
+            // 真实 Animator 手动推进，完全绕开引擎自动帧循环——同审计隔离探针手法：进入与自动退出
+            // 目标状态全部发生在这三次 Update 调用内，期间没有任何一次 renderer3D.Tick()。
+            animator!.Update(0f);
+            animator.Update(0.25f);
+            animator.Update(0.10f);
+
+            Assert.IsTrue(renderer3D.IsPlayingState(handle, "idle"),
+                "手动推进后，真实 Animator 应当已经完成 test_autoexit 的自动过渡、回到 idle——这是前置" +
+                "条件，不是本用例真正要验证的行为");
+            Assert.AreEqual(0, received.Count, "调用 renderer3D.Tick() 之前不应该有任何 anim_event.finished 到达");
+
+            renderer3D.Tick();
+            renderer3D.Tick();
+
+            Assert.AreEqual(1, received.Count,
+                "根治前：Animator 进入并自动退出目标状态整个发生在两次 renderer3D.Tick() 之间，采样式" +
+                "检测永远没有机会观察到目标状态本身，anim_event.finished 会被永久漏发（received.Count" +
+                "恒为 0）。根治后事件驱动路径不依赖 Tick 的外部轮询节奏，仍应当恰好收到一次。");
+            Assert.AreEqual(new Id("anim_event.finished"), received[0]);
+
+            renderer3D.DestroyModelInstance(handle);
+        }
+
+        /// <summary>PR150-02 二次根治回归（见 <c>UnityRenderer3D.OnAnimStateEvent</c> 判断记录"同状态
+        /// 重触发"）：同一个状态被重触发（<c>PlayAnimOnInstance</c> 的 <c>isRetrigger</c> 分支，
+        /// <c>Animator.Play(stateName, -1, 0f)</c> 强制重播）时，Unity 会为同一个状态名先后触发"打断
+        /// 上一次播放的 OnStateExit"与"这一次重播的 OnStateEnter"，二者 stateHash 完全相同——首版事件
+        /// 驱动实现（无条件采信 Exit）会把这条陈旧 Exit 误判为"刚重播的这一次也已经播完"，在重触发的
+        /// 同一帧内立即误发一次 finished。本用例用真实 Animator 手动推进复现该窗口：重播后立即推进一
+        /// 小步（不足以让新播放自然完成），确认不会有任何 finished 误发；随后继续推进到新播放真正自然
+        /// 结束，才应当收到那一次真正的 finished。</summary>
+        [Test]
+        public void PlayAutoExitClip_RetriggeredWhileStillPlaying_DoesNotFireSpuriousFinishedOnRetrigger()
+        {
+            var fx = BuildFixture();
+            var renderer3D = (UnityRenderer3D)fx.Host.Renderer3D;
+            var handle = renderer3D.CreateModelInstance(new Id("model.placeholder_biped"));
+
+            var received = new System.Collections.Generic.List<Id>();
+            renderer3D.OnAnimEvent(handle, (h, id) => received.Add(id));
+
+            var animator = renderer3D.GetModelVisualRoot(handle)!.GetComponentInChildren<Animator>();
+            Assert.IsNotNull(animator, "占位模型应当带有 Animator 组件");
+
+            // 第一次播放：推进到确认真正进入 test_autoexit 状态（不足以让它自动过渡完成——
+            // test_autoexit 剪辑 0.2 秒，这里只推进到 0.05 秒）。
+            renderer3D.PlayAnim(handle, new Id("anim.test_autoexit"), loop: false, speed: 1.0, blendSeconds: 0f);
+            animator!.Update(0f);
+            animator.Update(0.05f);
+            Assert.IsTrue(renderer3D.IsPlayingState(handle, "test_autoexit"), "第一次播放应当已经真正进入 test_autoexit 状态");
+            renderer3D.Tick();
+            Assert.AreEqual(0, received.Count, "第一次播放尚未自然播完，不应该有任何 finished");
+
+            // 重触发（同一状态，isRetrigger 分支）：紧接着立刻再播一次，打断第一次播放。
+            renderer3D.PlayAnim(handle, new Id("anim.test_autoexit"), loop: false, speed: 1.0, blendSeconds: 0f);
+            animator.Update(0f); // 触发 Unity 内部"打断上一次播放的 Exit + 本次重播的 Enter"这一对回调。
+
+            renderer3D.Tick();
+            Assert.AreEqual(0, received.Count,
+                "根治前：重触发瞬间会把打断上一次播放产生的陈旧 Exit 误判为本次重播已经完成，立即误发" +
+                "一次 finished；根治后不应该在重触发这一刻发出任何 finished。");
+
+            // 让重播的这一次真正自然播完（0.25 秒足够越过 0.2 秒的剪辑时长并触发自动过渡）。
+            animator.Update(0.25f);
+            animator.Update(0.10f);
+            Assert.IsTrue(renderer3D.IsPlayingState(handle, "idle"), "重播的这一次也应当能正常自动过渡回 idle");
+
+            renderer3D.Tick();
+            renderer3D.Tick();
+
+            Assert.AreEqual(1, received.Count, "重播的这一次真正自然播完后，应当恰好收到一次 finished（不多不少）");
+            Assert.AreEqual(new Id("anim_event.finished"), received[0]);
+
+            renderer3D.DestroyModelInstance(handle);
+        }
     }
 }

@@ -50,17 +50,28 @@ namespace Presentation.FeedbackBinder.Core
     /// <c>CombatDamageDealtEvent</c> 没有携带施法/攻击实例 id（范围攻击对多个目标各自派发独立事件，
     /// 事件本身不知道自己和另一个事件同属哪一次逻辑攻击），本类型因此不能从事件本身推出"批次"边界；
     /// 批次改由调用方（<see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/>）显式传入一个
-    /// <c>batchToken</c>（按引用比较，不解释语义）——同一个 <c>batchToken</c> 的全部
-    /// <see cref="WaitForHitFrame(Id, object, Action)"/> 调用视为同一次攻击的不可拆分批次：命中帧到达
-    /// 或超时兜底时一次性原子释放该 token 名下当前全部等待项（不再是"只释放最早一条"），释放顺序按
-    /// 各自入队顺序；释放完毕后同一 token 不再持有任何等待项，调用方若之后用同一个 token 对象再次调用
-    /// 本方法会开启一批新的等待（本类型不阻止，但那已经不是"批次"这一概念要处理的问题——调用方在
-    /// FeedbackBinder 一侧按"该攻击者当前是否还有未释放的批次"决定要不要复用同一个 token 对象，见
-    /// 该类型 <c>OnEvent</c> 判断记录）。旧的两个无 token 重载（<see cref="WaitForHitFrame(Id, Action)"/>）
-    /// 保留：每次调用各自分配一个全新的、与任何其他调用都不相等的 token 对象，行为与改动前逐字相同
-    /// （每条各自单独一批，互不合并）——<c>HitFrameSyncPolicyTests.MultipleAttacks_SameEntity_DoNotCrossTalk</c>
+    /// <c>batchToken</c>——同一个 <c>batchToken</c> 的全部 <see cref="WaitForHitFrame(Id, object, Action)"/>
+    /// 调用视为同一次攻击的不可拆分批次：命中帧到达或超时兜底时一次性原子释放该 token 名下当前全部
+    /// 等待项（不再是"只释放最早一条"），释放顺序按各自入队顺序；释放完毕后同一 token 不再持有任何
+    /// 等待项，调用方若之后用同一个 token 再次调用本方法会开启一批新的等待（本类型不阻止，但那已经
+    /// 不是"批次"这一概念要处理的问题）。旧的两个无 token 重载（<see cref="WaitForHitFrame(Id, Action)"/>）
+    /// 保留：每次调用各自分配一个全新的 <see cref="object"/> token，行为与改动前逐字相同（每条各自
+    /// 单独一批，互不合并）——<c>HitFrameSyncPolicyTests.MultipleAttacks_SameEntity_DoNotCrossTalk</c>
     /// 验证的正是"两次确实不同的攻击不应该被误合并成一批"这一相反场景，不能删除或放宽，本次改动刻意
-    /// 保持它逐字通过：不传 token 时永远是"各自一批"，只有调用方显式传入同一个 token 才会合批。
+    /// 保持它逐字通过：不传 token 时永远是"各自一批"，只有调用方显式传入相等的 token 才会合批。
+    /// </para>
+    /// <para>
+    /// 判断记录（攻击实例 id 遗留根治，<c>architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md</c>
+    /// "攻击实例 id"，见 <see cref="Core.Rules.Common.EffectContext.AttackInstanceId"/> 判断记录）：
+    /// 批次匹配（<see cref="ReleaseBatch"/>/<see cref="Update"/>）改用 <see cref="object.Equals(object, object)"/>
+    /// （值比较，命中类型自身重写的 <c>Equals</c>）取代原先的 <see cref="object.ReferenceEquals"/>——
+    /// 装箱的 <see cref="Id"/>（值类型，重写了 <c>Equals</c>）现在可以直接当 <c>batchToken</c> 使用：
+    /// 调用方不再需要额外维护"攻击者 -&gt; 当前打开的 token 对象"这张表来判断"是否属于同一批"，只要
+    /// 每次调用传入同一个 <see cref="EffectContext.AttackInstanceId"/> 装箱值，本类型据值相等天然
+    /// 合批（见 <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/> 判断记录）。对纯
+    /// <see cref="object"/> token（旧的两个无 token 重载、其余不提供攻击实例 id 的调用方）而言，
+    /// <see cref="object"/> 未重写 <c>Equals</c>，其默认实现就是引用比较，行为与改动前逐字相同——
+    /// 本次改动是纯粹的泛化，不改变任何既有调用方观察到的结果。
     /// </para>
     /// </summary>
     /// <summary>H5b 根治新增（游戏侧复核发现 2）：某一批等待项最终被释放的原因——命中帧事件真正到达，
@@ -137,7 +148,8 @@ namespace Presentation.FeedbackBinder.Core
         public void WaitForHitFrame(Id attackerEntityId, Action release) =>
             WaitForHitFrame(attackerEntityId, new object(), release);
 
-        /// <summary>PR140-04 新增：带批次 token 的重载——<paramref name="batchToken"/> 相同（按引用比较）
+        /// <summary>PR140-04 新增：带批次 token 的重载——<paramref name="batchToken"/> 相等（按
+        /// <see cref="object.Equals(object, object)"/> 值比较，见类型判断记录"攻击实例 id 遗留根治"）
         /// 的多次调用视为同一次攻击的不可分割批次，命中帧到达或超时时一次性原子释放该 token 名下当前
         /// 全部等待项，见类型判断记录。<paramref name="attackerEntityId"/> 当前未登记 rig 时立即同步
         /// 调用 <paramref name="release"/>，不入队、不占用 token（与无 token 重载同一套宽容策略）。</summary>
@@ -188,7 +200,9 @@ namespace Presentation.FeedbackBinder.Core
                 {
                     for (var j = 0; j < timedOutBatches.Count; j++)
                     {
-                        if (ReferenceEquals(timedOutBatches[j].Token, token))
+                        // 见类型判断记录"攻击实例 id 遗留根治"：值比较（Equals），不是引用比较——
+                        // 装箱的 Id 等值 token 视为同一批，纯 object token 退回默认的引用比较。
+                        if (Equals(timedOutBatches[j].Token, token))
                         {
                             alreadyQueued = true;
                             break;
@@ -248,7 +262,8 @@ namespace Presentation.FeedbackBinder.Core
             List<PendingEntry>? batch = null;
             for (var i = _pending.Count - 1; i >= 0; i--)
             {
-                if (!ReferenceEquals(_pending[i].BatchToken, token))
+                // 见类型判断记录"攻击实例 id 遗留根治"：值比较（Equals），不是引用比较。
+                if (!Equals(_pending[i].BatchToken, token))
                 {
                     continue;
                 }
