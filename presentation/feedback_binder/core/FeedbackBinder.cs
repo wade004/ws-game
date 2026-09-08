@@ -46,6 +46,20 @@ namespace Presentation.FeedbackBinder.Core
         private readonly FloatingTextMerger _merger;
         private readonly HitFrameSyncPolicy? _hitFrameSyncPolicy;
 
+        /// <summary>PR140-04 根治新增：攻击者 -&gt; 当前仍打开着的命中帧同步批次 token（见
+        /// <see cref="HitFrameSyncPolicy.WaitForHitFrame(Id, object, Action)"/> 判断记录）。同一个攻击者
+        /// 在这张表还留着条目期间触发的每一次 <c>sync: hit_frame</c> 规则命中，都复用同一个 token 对象
+        /// 合并进同一批（"同一攻击者在同一派发批次内的事件"——范围攻击对多个目标各自派发独立的
+        /// <c>combat.damage_dealt</c> 事件，见 <c>core/rules/common/contracts/Events.cs</c>
+        /// <c>CombatDamageDealtEvent</c> 没有携带施法/攻击实例 id，本类型只能按"该攻击者上一批是否已经
+        /// 释放完毕"这一时序代理判断是否属于同一次攻击）；<see cref="HitFrameSyncPolicy.BatchReleased"/>
+        /// 触发时移除对应条目，下一次同一攻击者命中 <c>sync: hit_frame</c> 规则会分配一个全新 token，
+        /// 开始下一批。已知局限（写清判断，不假装本方案精确等价于真实攻击实例 id）：同一攻击者在上一批
+        /// 尚未释放前就发起第二次独立攻击（如极短 GCD 连续两次技能都命中同一批目标的命中帧到达之前），
+        /// 会被误合并成一批一起释放；核心事件契约补上施法/攻击实例 id 之前，这是唯一可用的批次边界，
+        /// 且严格优于改动前"同一次攻击的多个目标反而被拆散成互相错开的多批"的状态。</summary>
+        private readonly Dictionary<Id, object> _hitFrameBatchTokenByAttacker = new Dictionary<Id, object>();
+
         public FeedbackBinder(
             IEventBus bus,
             IExprHostFactory exprHosts,
@@ -78,6 +92,10 @@ namespace Presentation.FeedbackBinder.Core
             {
                 _hitFrameSyncPolicy = new HitFrameSyncPolicy(hitFrameSource, _options.HitFrameSyncTimeoutSeconds, _diagnostics);
                 _hitFrameSyncPolicy.PendingChanged += TryPublishFinished;
+                // PR140-04 根治：批次释放后清掉该攻击者当前打开的 token，见 _hitFrameBatchTokenByAttacker
+                // 判断记录——下一次同一攻击者命中 sync: hit_frame 规则会拿到一个全新 token，不会误接到
+                // 已经释放完的上一批。
+                _hitFrameSyncPolicy.BatchReleased += OnHitFrameBatchReleased;
             }
 
             _queue = new PlaybackQueue(_options.SequentialStepSeconds) { Mode = _options.QueueMode };
@@ -190,12 +208,16 @@ namespace Presentation.FeedbackBinder.Core
             }
         }
 
+        /// <summary>PR140-04 根治新增：见 <see cref="_hitFrameBatchTokenByAttacker"/> 判断记录。</summary>
+        private void OnHitFrameBatchReleased(Id attackerEntityId) => _hitFrameBatchTokenByAttacker.Remove(attackerEntityId);
+
         public void Dispose()
         {
             _sink.PendingPlaybackChanged -= TryPublishFinished;
             if (_hitFrameSyncPolicy != null)
             {
                 _hitFrameSyncPolicy.PendingChanged -= TryPublishFinished;
+                _hitFrameSyncPolicy.BatchReleased -= OnHitFrameBatchReleased;
                 _hitFrameSyncPolicy.Dispose();
             }
 
@@ -228,11 +250,14 @@ namespace Presentation.FeedbackBinder.Core
             // 同一次 OnEvent（即同一个逻辑事件）触发的全部 sync=hit_frame 规则合并成一个批次、只登记
             // 一个 PendingEntry，使它们作为一个整体随同一次命中帧同时释放（"同一事件的全部动作作为一个
             // 批次"）；不是 sync=hit_frame 的规则、以及非命中帧同步的调用路径均不受影响，仍然立即派发。
-            // 范围攻击对多个目标各自产生独立的 combat.damage_dealt 事件（见 CombatDamageDealtEvent
-            // 单源单目标的既有形状），各自经本方法独立的一次 OnEvent 调用登记为各自独立的批次——保留
-            // HitFrameSyncPolicy 既有的"每次命中帧只释放同一实体最早入队的那一批"逐批 FIFO 释放顺序
-            // （"多目标各自保序且不串批次"：目标 1 的整批动作与目标 2 的整批动作不会被拆散交叉，且严格
-            // 按各自入队顺序逐批释放，不会因为合并处理而错乱顺序）。
+            // PR140-04 根治（取代上一段注释描述的旧状态）：范围攻击对多个目标各自产生独立的
+            // combat.damage_dealt 事件（见 CombatDamageDealtEvent 单源单目标的既有形状），此前各自经
+            // 本方法独立的一次 OnEvent 调用登记为各自独立的 HitFrameSyncPolicy 批次，而该策略每次命中
+            // 帧只释放同一实体最早入队的那一批——同一次攻击命中的目标 2、3……要么错到下一次命中帧、要么
+            // 只能等超时兜底，不是同一次攻击应有的"同时释放"效果。现在改为按
+            // _hitFrameBatchTokenByAttacker 复用同一个 batchToken：只要该攻击者名下还有一个尚未释放的
+            // 批次 token，本次 OnEvent 新命中的 sync: hit_frame 规则动作追加进同一个 token，一次命中帧
+            // /超时会把该攻击者当前全部待释放目标一并原子释放（见 HitFrameSyncPolicy 判断记录）。
             List<FeedbackAction>? hitFrameBatch = null;
 
             foreach (var rule in rules)
@@ -258,7 +283,13 @@ namespace Presentation.FeedbackBinder.Core
             if (hitFrameBatch != null)
             {
                 var actionsSnapshot = hitFrameBatch;
-                _hitFrameSyncPolicy!.WaitForHitFrame(selfId, () =>
+                if (!_hitFrameBatchTokenByAttacker.TryGetValue(selfId, out var batchToken))
+                {
+                    batchToken = new object();
+                    _hitFrameBatchTokenByAttacker[selfId] = batchToken;
+                }
+
+                _hitFrameSyncPolicy!.WaitForHitFrame(selfId, batchToken, () =>
                 {
                     foreach (var action in actionsSnapshot)
                     {

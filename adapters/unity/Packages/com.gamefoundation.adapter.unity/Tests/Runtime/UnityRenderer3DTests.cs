@@ -301,5 +301,86 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.DoesNotThrow(() => _renderer.SetShadow(handle, ShadowMode.Blob));
             Assert.DoesNotThrow(() => _renderer.DestroyModelInstance(handle));
         }
+
+        // ------------------------------------------------------------------
+        // PR140-02（architecture/落地计划/audit-c86bfa9-20260908/ 第七方审核）：条件异步模型替换
+        // 不恢复挂点子模型与投影阴影状态。CompleteAsyncModelSwapForTest 是本文件新增的测试专用钩子，
+        // 直接触发生产代码 AttachVisual 走一遍"原地替换视觉内容"的真实逻辑（与真实 Resources 异步加载
+        // 成功回调调用的是完全同一份代码），绕开的只是 Resources.Load 本身的时序（见该方法判断记录），
+        // 不影响本组用例对 AttachVisual 状态恢复正确性的验证效力。
+        // ------------------------------------------------------------------
+
+        [Test]
+        public void CreateModelInstance_MissingThenAvailable_AttachVisual_RestoresSocketChildAfterSwap()
+        {
+            var missingId = new Id("model.does_not_exist_probe_pr140_02a");
+            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("\\[UnityRenderer3D\\].*找不到模型资源"));
+
+            var handle = _renderer.CreateModelInstance(missingId);
+            Assert.IsTrue(_renderer.IsShowingPlaceholder(handle), "先缺资源应当先展示占位内容");
+
+            // 挂一个子模型到占位内容自带的 socket.main_hand 挂点上（见 GeneratePlaceholderModelAssets.cs）。
+            var childHandle = _renderer.CreateModelInstance(PlaceholderModelId);
+            _renderer.AttachToSocket(handle, new Id("socket.main_hand"), childHandle);
+            var childRootBeforeSwap = _renderer.GetModelRoot(childHandle);
+            Assert.IsTrue(childRootBeforeSwap != null, "挂接后子实例应当是一个存活的 GameObject");
+
+            // 模拟"后可用→替换"：真实生产路径最终执行的正是 AttachVisual，这里直接实例化真实占位
+            // 预制体作为"新解析到的真实内容"传入，见 CompleteAsyncModelSwapForTest 判断记录。
+            var realPrefab = Resources.Load<GameObject>("GameFoundation/models/placeholder_biped");
+            Assert.IsNotNull(realPrefab, "测试前置条件：占位预制体资产应当存在");
+            _renderer.CompleteAsyncModelSwapForTest(handle, UnityEngine.Object.Instantiate(realPrefab));
+
+            Assert.IsFalse(_renderer.IsShowingPlaceholder(handle), "替换后不应再标记为占位");
+
+            // 根治前：旧 VisualRoot 被整棵销毁时，挂在它下面的子实例一并被 Unity 销毁，_instances 里
+            // 仍然记着这个句柄，但 Root 已经是一个"已销毁"的 Unity 对象（Unity 的 == 运算符会把它当
+            // 作 null），后续任何访问都会像悬空引用一样出问题。
+            var childRootAfterSwap = _renderer.GetModelRoot(childHandle);
+            Assert.IsTrue(childRootAfterSwap != null,
+                "替换后子实例不应该已经被销毁——旧实现会把挂在旧 VisualRoot 下的子实例一并销毁，留下一个悬空句柄");
+
+            // 根治后：子实例应当已经重新挂回新内容同名挂点下，而不是被摘下丢在 _root 底下不管。
+            var parentAfterSwap = childRootAfterSwap!.transform.parent;
+            Assert.IsNotNull(parentAfterSwap, "替换后子实例应当仍然挂在某个挂点下");
+            Assert.AreEqual("socket.main_hand", parentAfterSwap!.name,
+                "替换后子实例应当重新挂回新内容同名挂点下");
+
+            // Detach 不应该因为句柄悬空而抛 MissingReferenceException（根治前的真实观测：
+            // parent_real=True、child_destroyed=True、detach_exception=MissingReferenceException，见
+            // architecture/落地计划/audit-c86bfa9-20260908/evidence/probes-presentation/presentation-validation.md）。
+            Assert.DoesNotThrow(() => _renderer.Detach(childHandle));
+
+            _renderer.DestroyModelInstance(childHandle);
+            _renderer.DestroyModelInstance(handle);
+        }
+
+        [Test]
+        public void CreateModelInstance_MissingThenAvailable_AttachVisual_RestoresShadowModeAfterSwap()
+        {
+            var missingId = new Id("model.does_not_exist_probe_pr140_02b");
+            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("\\[UnityRenderer3D\\].*找不到模型资源"));
+
+            var handle = _renderer.CreateModelInstance(missingId);
+            _renderer.SetShadow(handle, ShadowMode.None);
+
+            var realPrefab = Resources.Load<GameObject>("GameFoundation/models/placeholder_biped");
+            Assert.IsNotNull(realPrefab, "测试前置条件：占位预制体资产应当存在");
+            _renderer.CompleteAsyncModelSwapForTest(handle, UnityEngine.Object.Instantiate(realPrefab));
+
+            var visualRoot = _renderer.GetModelVisualRoot(handle);
+            Assert.IsNotNull(visualRoot, "替换后应当有新的可见内容");
+            var renderers = visualRoot!.GetComponentsInChildren<Renderer>(includeInactive: true);
+            Assert.IsTrue(renderers.Length > 0, "新内容应当至少有一个 Renderer 供验证 shadowCastingMode");
+
+            foreach (var r in renderers)
+            {
+                Assert.AreEqual(UnityEngine.Rendering.ShadowCastingMode.Off, r.shadowCastingMode,
+                    "ShadowMode.None 应当在替换后的新内容上重放，不应该悄悄回到 Unity 新 Renderer 的默认值 On" +
+                    "（根治前的真实观测：new_shadow_on=True，见 presentation-validation.md）");
+            }
+
+            _renderer.DestroyModelInstance(handle);
+        }
     }
 }

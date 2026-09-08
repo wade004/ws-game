@@ -43,6 +43,25 @@ namespace Presentation.FeedbackBinder.Core
     /// <c>release()</c> 调用"这一最基本的原子性，不需要（也不应该）自己再猜测多次调用之间是否属于
     /// "同一次攻击"——那是只有调用方才知道的语义边界。
     /// </para>
+    /// <para>
+    /// 判断记录（PR140-04 根治：同一次攻击多个目标按 <paramref name="batchToken"/>（见
+    /// <see cref="WaitForHitFrame(Id, object, Action)"/>）整批原子释放，取代此前"同一实体的多条等待项
+    /// 永远各自 FIFO 逐条释放"的立场）：<c>core/rules/common/contracts/Events.cs</c> 的
+    /// <c>CombatDamageDealtEvent</c> 没有携带施法/攻击实例 id（范围攻击对多个目标各自派发独立事件，
+    /// 事件本身不知道自己和另一个事件同属哪一次逻辑攻击），本类型因此不能从事件本身推出"批次"边界；
+    /// 批次改由调用方（<see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/>）显式传入一个
+    /// <c>batchToken</c>（按引用比较，不解释语义）——同一个 <c>batchToken</c> 的全部
+    /// <see cref="WaitForHitFrame(Id, object, Action)"/> 调用视为同一次攻击的不可拆分批次：命中帧到达
+    /// 或超时兜底时一次性原子释放该 token 名下当前全部等待项（不再是"只释放最早一条"），释放顺序按
+    /// 各自入队顺序；释放完毕后同一 token 不再持有任何等待项，调用方若之后用同一个 token 对象再次调用
+    /// 本方法会开启一批新的等待（本类型不阻止，但那已经不是"批次"这一概念要处理的问题——调用方在
+    /// FeedbackBinder 一侧按"该攻击者当前是否还有未释放的批次"决定要不要复用同一个 token 对象，见
+    /// 该类型 <c>OnEvent</c> 判断记录）。旧的两个无 token 重载（<see cref="WaitForHitFrame(Id, Action)"/>）
+    /// 保留：每次调用各自分配一个全新的、与任何其他调用都不相等的 token 对象，行为与改动前逐字相同
+    /// （每条各自单独一批，互不合并）——<c>HitFrameSyncPolicyTests.MultipleAttacks_SameEntity_DoNotCrossTalk</c>
+    /// 验证的正是"两次确实不同的攻击不应该被误合并成一批"这一相反场景，不能删除或放宽，本次改动刻意
+    /// 保持它逐字通过：不传 token 时永远是"各自一批"，只有调用方显式传入同一个 token 才会合批。
+    /// </para>
     /// </summary>
     public sealed class HitFrameSyncPolicy : IDisposable
     {
@@ -53,12 +72,14 @@ namespace Presentation.FeedbackBinder.Core
         {
             public readonly Id EntityId;
             public readonly Action Release;
+            public readonly object BatchToken;
             public double RemainingSeconds;
 
-            public PendingEntry(Id entityId, Action release, double remainingSeconds)
+            public PendingEntry(Id entityId, Action release, object batchToken, double remainingSeconds)
             {
                 EntityId = entityId;
                 Release = release;
+                BatchToken = batchToken;
                 RemainingSeconds = remainingSeconds;
             }
         }
@@ -74,6 +95,12 @@ namespace Presentation.FeedbackBinder.Core
         /// <c>TryPublishFinished</c> 判断记录）。</summary>
         public event Action? PendingChanged;
 
+        /// <summary>PR140-04 新增：某个攻击者名下的一整批等待项刚被原子释放（命中帧或超时兜底皆会
+        /// 触发，携带该攻击者 <see cref="Id"/>）——供 <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/>
+        /// 得知"这个攻击者当前打开的批次 token 已经用完"，从而在下一次同一攻击者触发 <c>sync: hit_frame</c>
+        /// 规则时分配一个新 token（不与已经释放的旧批次继续合并），见该类型判断记录。</summary>
+        public event Action<Id>? BatchReleased;
+
         public int PendingCount => _pending.Count;
 
         public HitFrameSyncPolicy(IHitFrameSource source, double timeoutSeconds = DefaultTimeoutSeconds, IPresentationDiagnostics? diagnostics = null)
@@ -87,10 +114,20 @@ namespace Presentation.FeedbackBinder.Core
 
         /// <summary>缓存 <paramref name="release"/>，等待 <paramref name="attackerEntityId"/> 的下一次
         /// 命中帧事件（或超时）后调用；<paramref name="attackerEntityId"/> 当前未登记 rig 时立即同步
-        /// 调用 <paramref name="release"/>（见类型注释判断记录）。</summary>
-        public void WaitForHitFrame(Id attackerEntityId, Action release)
+        /// 调用 <paramref name="release"/>（见类型注释判断记录）。本重载不接受批次 token，等价于每次
+        /// 调用各自分配一个全新、与任何其他调用都不相等的 token（见 <see cref="WaitForHitFrame(Id, object, Action)"/>
+        /// 判断记录"两个无 token 重载"）——多次调用永远各自单独一批，不合并。</summary>
+        public void WaitForHitFrame(Id attackerEntityId, Action release) =>
+            WaitForHitFrame(attackerEntityId, new object(), release);
+
+        /// <summary>PR140-04 新增：带批次 token 的重载——<paramref name="batchToken"/> 相同（按引用比较）
+        /// 的多次调用视为同一次攻击的不可分割批次，命中帧到达或超时时一次性原子释放该 token 名下当前
+        /// 全部等待项，见类型判断记录。<paramref name="attackerEntityId"/> 当前未登记 rig 时立即同步
+        /// 调用 <paramref name="release"/>，不入队、不占用 token（与无 token 重载同一套宽容策略）。</summary>
+        public void WaitForHitFrame(Id attackerEntityId, object batchToken, Action release)
         {
             if (release == null) throw new ArgumentNullException(nameof(release));
+            if (batchToken == null) throw new ArgumentNullException(nameof(batchToken));
 
             if (!_source.HasRig(attackerEntityId))
             {
@@ -98,11 +135,16 @@ namespace Presentation.FeedbackBinder.Core
                 return;
             }
 
-            _pending.Add(new PendingEntry(attackerEntityId, release, _timeoutSeconds));
+            _pending.Add(new PendingEntry(attackerEntityId, release, batchToken, _timeoutSeconds));
             PendingChanged?.Invoke();
         }
 
-        /// <summary>按 <paramref name="dt"/> 推进全部等待项的超时计时；到期项按入队顺序依次超时释放。</summary>
+        /// <summary>按 <paramref name="dt"/> 推进全部等待项的超时计时；到期的批次（按 <see cref="PendingEntry.BatchToken"/>
+        /// 分组，见类型判断记录）逐批原子释放——同一批次的全部等待项入队时刻相同（同一次
+        /// <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder.OnEvent"/> 派发窗口内的多次
+        /// <see cref="WaitForHitFrame(Id, object, Action)"/> 调用共用同一个初始 <c>RemainingSeconds</c>，
+        /// 此后每次 <see cref="Update"/> 按相同 <paramref name="dt"/> 一并递减），天然会在同一次
+        /// <see cref="Update"/> 调用里一起越过 0，不需要额外的时间对齐逻辑。</summary>
         public void Update(double dt)
         {
             if (_pending.Count == 0)
@@ -110,47 +152,106 @@ namespace Presentation.FeedbackBinder.Core
                 return;
             }
 
-            List<PendingEntry>? timedOut = null;
             for (var i = 0; i < _pending.Count; i++)
             {
                 _pending[i].RemainingSeconds -= dt;
-                if (_pending[i].RemainingSeconds <= 0)
+            }
+
+            List<(object Token, Id EntityId)>? timedOutBatches = null;
+            for (var i = 0; i < _pending.Count; i++)
+            {
+                if (_pending[i].RemainingSeconds > 0)
                 {
-                    timedOut ??= new List<PendingEntry>();
-                    timedOut.Add(_pending[i]);
+                    continue;
+                }
+
+                var token = _pending[i].BatchToken;
+                var alreadyQueued = false;
+                if (timedOutBatches != null)
+                {
+                    for (var j = 0; j < timedOutBatches.Count; j++)
+                    {
+                        if (ReferenceEquals(timedOutBatches[j].Token, token))
+                        {
+                            alreadyQueued = true;
+                            break;
+                        }
+                    }
+                }
+                if (!alreadyQueued)
+                {
+                    timedOutBatches ??= new List<(object, Id)>();
+                    timedOutBatches.Add((token, _pending[i].EntityId));
                 }
             }
 
-            if (timedOut == null)
+            if (timedOutBatches == null)
             {
                 return;
             }
 
-            foreach (var entry in timedOut)
+            foreach (var (token, entityId) in timedOutBatches)
             {
-                _pending.Remove(entry);
-                _diagnostics.Warn($"命中帧同步等待超时（{_timeoutSeconds}s）：实体 \"{entry.EntityId}\" 未在超时前收到命中帧事件，按兜底策略立即播放");
-                entry.Release();
+                _diagnostics.Warn($"命中帧同步等待超时（{_timeoutSeconds}s）：实体 \"{entityId}\" 未在超时前收到命中帧事件，按兜底策略立即释放该批次全部等待项");
+                ReleaseBatch(token, entityId);
             }
-
-            PendingChanged?.Invoke();
         }
 
         public void Dispose() => _source.HitFrameReached -= OnHitFrameReached;
 
         private void OnHitFrameReached(Id entityId)
         {
+            object? token = null;
             for (var i = 0; i < _pending.Count; i++)
             {
                 if (_pending[i].EntityId == entityId)
                 {
-                    var entry = _pending[i];
-                    _pending.RemoveAt(i);
-                    entry.Release();
-                    PendingChanged?.Invoke();
-                    return;
+                    token = _pending[i].BatchToken;
+                    break;
                 }
             }
+
+            if (token == null)
+            {
+                return;
+            }
+
+            ReleaseBatch(token, entityId);
+        }
+
+        /// <summary>PR140-04 新增：原子释放 <paramref name="token"/> 名下当前全部等待项（按入队顺序
+        /// 依次调用 <see cref="PendingEntry.Release"/>），供 <see cref="OnHitFrameReached"/> 与
+        /// <see cref="Update"/> 的超时分支共用——两条释放路径都必须保证"同一批次要么全释放、要么全不
+        /// 释放"这一原子性，不允许出现同一批次一部分随命中帧释放、另一部分掉进下一次命中帧或超时的
+        /// 情形（PR140-04 复现的正是这个缺口）。</summary>
+        private void ReleaseBatch(object token, Id entityId)
+        {
+            List<PendingEntry>? batch = null;
+            for (var i = _pending.Count - 1; i >= 0; i--)
+            {
+                if (!ReferenceEquals(_pending[i].BatchToken, token))
+                {
+                    continue;
+                }
+                batch ??= new List<PendingEntry>();
+                batch.Add(_pending[i]);
+                _pending.RemoveAt(i);
+            }
+
+            if (batch == null)
+            {
+                return;
+            }
+
+            // 上面按下标从后往前收集，此处翻转回原始入队顺序，保证批内动作按登记顺序派发。
+            batch.Reverse();
+            foreach (var entry in batch)
+            {
+                entry.Release();
+            }
+
+            BatchReleased?.Invoke(entityId);
+            PendingChanged?.Invoke();
         }
     }
 }

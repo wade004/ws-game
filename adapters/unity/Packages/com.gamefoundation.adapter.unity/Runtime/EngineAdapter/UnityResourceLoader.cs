@@ -130,12 +130,13 @@ namespace Adapter.Unity.EngineAdapter
         }
 
         /// <summary>一次 <see cref="ResourceKind.Model"/> 种类的加载请求，排队等到下一次
-        /// <see cref="Tick"/> 在主线程调用 <c>Resources.Load&lt;GameObject&gt;</c> 完成判定（见类型
-        /// 顶部"W6-B 新增"判断记录，同 <see cref="PendingFontLoad"/> 同一套处理惯例）。</summary>
+        /// <see cref="Tick"/> 在主线程调用 <see cref="TryLoadModelSync"/> 完成判定（见类型
+        /// 顶部"W6-B 新增"判断记录，同 <see cref="PendingFontLoad"/> 同一套处理惯例）。PR140-02
+        /// 文档漂移根治：路径解析统一收到 <see cref="TryLoadModelSync"/>/<see cref="ResolveModelResourcesPath"/>
+        /// 里，本结构不再单独持有一份重复解析出来的路径。</summary>
         private struct PendingModelLoad
         {
             public Id ResourceId;
-            public string ResourcesModelPath;
             public LoadCallback Callback;
         }
 
@@ -211,7 +212,6 @@ namespace Adapter.Unity.EngineAdapter
                 _pendingModelLoads.Enqueue(new PendingModelLoad
                 {
                     ResourceId = resourceId,
-                    ResourcesModelPath = ResolveModelResourcesPath(resourceId),
                     Callback = callback
                 });
                 return;
@@ -360,21 +360,15 @@ namespace Adapter.Unity.EngineAdapter
 
         /// <summary>在主线程完成一次 <see cref="ResourceKind.Model"/> 资源的加载判定：路径存在的
         /// 已导入预制体资产即视为"已加载"并缓存进 <see cref="_modelPrefabs"/>（见类型顶部"W6-B 新增"
-        /// 判断记录），不存在则按"加载失败"回调 false。</summary>
+        /// 判断记录），不存在则按"加载失败"回调 false。PR140-02 文档漂移根治：复用
+        /// <see cref="TryLoadModelSync"/> 完成实际解析与缓存写入，与同步路径共用同一份逻辑，不再各自
+        /// 独立调用 <c>Resources.Load</c>，见该方法判断记录。</summary>
         private void FinishModelLoad(PendingModelLoad pending)
         {
             _loading.Remove(pending.ResourceId);
 
-            var prefab = Resources.Load<GameObject>(pending.ResourcesModelPath);
-            if (prefab == null)
-            {
-                pending.Callback(pending.ResourceId, false);
-                return;
-            }
-
-            _modelPrefabs[pending.ResourceId] = prefab;
-            _loaded.Add(pending.ResourceId);
-            pending.Callback(pending.ResourceId, true);
+            var success = TryLoadModelSync(pending.ResourceId, out _);
+            pending.Callback(pending.ResourceId, success);
         }
 
         private void FinishOnMainThread(PendingCompletion pending)
@@ -552,11 +546,48 @@ namespace Adapter.Unity.EngineAdapter
 
         /// <summary>W6-B 新增：供 <see cref="UnityRenderer3D.CreateModelInstance"/> 按 <c>modelId</c>
         /// 取回已加载的模型预制体（见类型顶部"W6-B 新增"判断记录）。未加载/找不到时返回 false——
-        /// <see cref="UnityRenderer3D.CreateModelInstance"/> 据此回退为同步直接
-        /// <c>Resources.Load&lt;GameObject&gt;</c>（该方法契约本身是同步的，不能等待
-        /// <see cref="LoadAsync"/> 走完 Tick 排队，见其判断记录），两条路径共用同一个
-        /// <see cref="ResolveModelResourcesPath"/> 约定，互不冲突。</summary>
+        /// <see cref="UnityRenderer3D.CreateModelInstance"/> 据此回退为 <see cref="TryLoadModelSync"/>
+        /// （该方法契约本身是同步的，不能等待 <see cref="LoadAsync"/> 走完 Tick 排队，见其判断记录），
+        /// 两条路径共用同一个 <see cref="ResolveModelResourcesPath"/> 约定，互不冲突。</summary>
         public bool TryGetModelPrefab(Id resourceId, out GameObject prefab) => _modelPrefabs.TryGetValue(resourceId, out prefab!);
+
+        /// <summary>
+        /// 判断记录（PR140-02 文档漂移根治，取代此前"<see cref="UnityRenderer3D.CreateModelInstance"/>
+        /// 缓存未命中时自己直接调用 <c>UnityEngine.Resources.Load</c>"的立场——
+        /// <c>architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md</c> 决策 1"renderer 只消费
+        /// <see cref="IResourceLoader"/> 已加载/占位资源，不隐式加载"）：本方法把"按 modelId 同步解析
+        /// 一次 Resources 资产"这件事从 <see cref="UnityRenderer3D"/> 挪进本加载器——<c>CreateModelInstance</c>
+        /// 契约本身是同步的，无法像 <see cref="LoadAsync"/> 那样排队等 <see cref="Tick"/>，仍然需要一条
+        /// 同步解析路径，但"谁来碰 <c>UnityEngine.Resources</c>"应当固定只有本加载器一处，不是"renderer
+        /// 也顺手自己调一次"——这正是决策 1 的字面要求（"renderer 不隐式加载"，不隐式加载不等于"渲染器
+        /// 自己不调用 Resources.Load 就算了、缓存旁路可以"，而是"渲染器只应该经由 <see cref="IResourceLoader"/>
+        /// 拿资源"）。命中缓存（<see cref="_modelPrefabs"/>，<see cref="LoadAsync"/>/本方法此前已经解析
+        /// 成功过的同一个 <paramref name="resourceId"/>）时直接复用，不重复调用 Resources.Load；未命中
+        /// 时同步调用一次并写回缓存——与 <see cref="FinishModelLoad"/>（<see cref="LoadAsync"/> 异步路径
+        /// 排队处理后走到的方法）共用同一份缓存写入逻辑，本方法与
+        /// <see cref="LoadAsync"/>/<see cref="Tick"/> 解析的是完全同一套状态，不是两套互相独立、可能
+        /// 产生不同结果的实现。
+        /// </summary>
+        public bool TryLoadModelSync(Id resourceId, out GameObject prefab)
+        {
+            if (_modelPrefabs.TryGetValue(resourceId, out prefab!))
+            {
+                return true;
+            }
+
+            var path = ResolveModelResourcesPath(resourceId);
+            var loaded = Resources.Load<GameObject>(path);
+            if (loaded == null)
+            {
+                prefab = null!;
+                return false;
+            }
+
+            _modelPrefabs[resourceId] = loaded;
+            _loaded.Add(resourceId);
+            prefab = loaded;
+            return true;
+        }
 
         /// <summary>W6-B 新增：把 <see cref="ResourceKind.Model"/> 种类资源引用 id 解析为
         /// <c>Resources.Load</c> 可消费的相对路径（不含扩展名，见类型顶部"W6-B 新增"判断记录）。</summary>

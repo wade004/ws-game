@@ -15,6 +15,7 @@
 //      实现，经 SpriteViewBase 已有的 SetShaderParam 命名参数通道传递，不发明新的 IRenderer2D
 //      方法）。
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
 using Presentation.Common;
@@ -50,14 +51,22 @@ namespace Adapter.Unity.Presentation
         private double _rotationDelta;
         private double _scaleMultiplier = 1.0;
 
+        /// <summary>PR140 文档漂移根治（<c>architecture/落地计划/audit-c86bfa9-20260908/</c> 第七方
+        /// 审核）：<paramref name="equipVisualByItemInstanceId"/> 此前没有对应的构造参数，即便
+        /// <c>SpriteViewBase</c> 早已完整实现"缺口 10"（<c>display.equip_visual</c> 驱动的纸娃娃层
+        /// 装备外观合成，见该类型判断记录），本类型也无法从 <see cref="Adapter.Unity.Presentation.UnityViewFactory"/>
+        /// 接住这份表——纸娃娃层路线因此始终拿不到装备外观数据，只有 model 路线（<see cref="UnityModelView"/>
+        /// 构造函数）有对应入口。补上同名可选参数并原样转发给基类，与 model 路线同一份
+        /// <c>equipVisualByItemInstanceId</c> 表现在两条外形路线上都能生效。</summary>
         public UnitySpriteView(
             IRenderer2D renderer,
             IRenderConventionHost conventions,
             Core.Foundation.DisplayInfo.DisplayInfo displayInfo,
             IResourceLoader resourceLoader,
             RenderOptions? options = null,
-            IFrameAnimPlayer? frameAnimPlayer = null)
-            : base(renderer, conventions, displayInfo, options, resourceLoader, frameAnimPlayer: frameAnimPlayer)
+            IFrameAnimPlayer? frameAnimPlayer = null,
+            IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId = null)
+            : base(renderer, conventions, displayInfo, options, resourceLoader, equipVisualByItemInstanceId, frameAnimPlayer)
         {
         }
 

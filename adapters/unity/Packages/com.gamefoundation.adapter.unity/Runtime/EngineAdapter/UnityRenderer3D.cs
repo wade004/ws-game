@@ -50,13 +50,14 @@
 // CreateModelInstance 契约本身仍是同步的（09/02 均未把它列为异步 API），无法阻塞等待
 // IResourceLoader.LoadAsync 走完 Tick 排队；本类型因此按以下顺序解析实际要实例化的可见内容
 // （见 TryResolvePrefab/CreatePlaceholderVisualInstance/RequestModelLoadAndSwap）：
-//   1. 经 UnityResourceLoader.TryGetModelPrefab 查已加载缓存（调用方已经先经
-//      IResourceLoader.LoadAsync(modelId, ResourceKind.Model, ...) 预热过，或本类型自己此前已经
-//      发起过加载并完成）；
-//   2. 未命中时退回同步 Resources.Load（与 UnityResourceLoader.FinishModelLoad 内部调用同一个 API、
-//      同一条路径约定，只是不经过 LoadCallback 排队——这一步不算"隐式加载资源系统之外的东西"，只是
-//      直接读取已经存在于 Resources 目录下的资产，Resources.Load 本身在主线程调用总是同步完成）；
-//   3. 两条路径都找不到（预制体确实不存在于 Resources/GameFoundation/models/ 下）时：不再抛异常
+//   1. 经 UnityResourceLoader.TryLoadModelSync 解析（PR140-02 文档漂移根治，取代此前"未命中缓存时
+//      本类型自己直接调用 Resources.Load"的写法，见该方法与 TryResolvePrefab 判断记录）：命中
+//      TryGetModelPrefab 缓存（调用方已经先经 IResourceLoader.LoadAsync(modelId, ResourceKind.Model,
+//      ...) 预热过，或本类型自己此前已经发起过加载并完成）时直接复用；未命中时该方法在加载器内部
+//      同步解析一次并写回同一份缓存——CreateModelInstance 契约本身是同步的，无法等待 LoadAsync 走完
+//      Tick 排队，但"谁来碰 Unity 资源系统"这件事仍然只收口在加载器一处，本类型自身不出现任何
+//      Resources.Load 调用，满足决策 1"renderer 只消费 IResourceLoader 已加载/占位资源"的字面要求；
+//   2. 步骤 1 仍解析不到（预制体确实不存在于 Resources/GameFoundation/models/ 下）时：不再抛异常
 //      中断 View 创建——记一次诊断（按 modelId 去重，不刷屏），落地一个占位可见内容（优先复用内置
 //      占位模型 "model.placeholder_biped"；连它都取不到时兜底一个不依赖任何 Resources 资产的内建
 //      几何体，保证任何环境下都不会中断），同时经 IResourceLoader.LoadAsync 发起一次真正的异步加载
@@ -161,6 +162,13 @@ namespace Adapter.Unity.EngineAdapter
             public bool CurrentClipLoop = true;
             public bool FinishNotified = true;
 
+            /// <summary>PR140-03 根治新增：本次 <see cref="Drive"/>==<see cref="AnimDriveMode.Animator"/>
+            /// 播放是否已经在某一次 <see cref="Tick"/> 里确认 Animator 真的进入过 <see cref="CurrentStateName"/>
+            /// 对应的状态（不含过渡中）——见 <see cref="IsAnimatorStateFinished"/> 判断记录。每次
+            /// <see cref="PlayAnimOnInstance"/> 的 Animator 分支随 <see cref="FinishNotified"/> 一并重置为
+            /// false（一次新播放，需要重新确认"确实进入过"）。</summary>
+            public bool CurrentPlayEnteredState;
+
             /// <summary>PR130-05 新增：最近一次 <see cref="PlayAnim"/> 的完整调用参数——资源加载完成
             /// 原地替换视觉内容后，<see cref="AttachVisual"/> 据此对新内容重放同一条命令，保持替换前后
             /// 视觉连续（不追求逐帧进度对齐，只保证"新内容也在播正确的剪辑"，同 09 第 1 节表现层一贯
@@ -178,6 +186,19 @@ namespace Adapter.Unity.EngineAdapter
             /// <summary>PR130-05 新增：本实例当前是否正在展示占位内容（尚未被真实资源原地替换）——
             /// 供测试/诊断查询，不属于 <see cref="IRenderer3D"/> 契约本身。</summary>
             public bool IsPlaceholder;
+
+            /// <summary>PR140-02 根治新增：当前挂在本实例挂点下的子模型实例——挂点 <see cref="Id"/> -&gt;
+            /// 子实例句柄值（<see cref="AttachToSocket"/> 登记，<see cref="Detach"/> 移除）。
+            /// <see cref="AttachVisual"/> 原地替换视觉内容时据此把子实例从旧 VisualRoot 摘出来暂存
+            /// （不随旧 VisualRoot 一起被销毁），新内容就位后再按同一份挂点 id 逐条重新挂回，见该方法
+            /// 判断记录。</summary>
+            public readonly Dictionary<Id, int> SocketChildren = new Dictionary<Id, int>();
+
+            /// <summary>PR140-02 根治新增：本实例当前作为子模型挂接在哪个父实例的哪个挂点下（未挂接时
+            /// 为 null）——供 <see cref="Detach"/> 反查并清理父实例 <see cref="SocketChildren"/> 里对应
+            /// 的登记，避免父实例的登记表在子实例已经改挂/摘除后仍残留一条指向自己的旧记录。</summary>
+            public int? AttachedToParentHandle;
+            public Id? AttachedToSocketId;
         }
 
         private readonly Transform _root;
@@ -255,17 +276,16 @@ namespace Adapter.Unity.EngineAdapter
 
         /// <summary>见类型顶部"资源缺失降级"判断记录第 1/2 步：先查已加载缓存，未命中时退回同步
         /// <c>Resources.Load</c>。</summary>
-        private bool TryResolvePrefab(Id modelId, out GameObject prefab)
-        {
-            if (_resourceLoader.TryGetModelPrefab(modelId, out prefab!))
-            {
-                return true;
-            }
-
-            var path = UnityResourceLoader.ResolveModelResourcesPath(modelId);
-            prefab = Resources.Load<GameObject>(path);
-            return prefab != null;
-        }
+        /// <summary>PR140-02 文档漂移根治（<c>architecture/落地计划/audit-c86bfa9-20260908/</c>
+        /// 第七方审核）：本方法此前未命中缓存时自己直接调用 <c>UnityEngine.Resources.Load</c>，与
+        /// <c>architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md</c> 决策 1"renderer 只消费
+        /// <see cref="IResourceLoader"/> 已加载/占位资源，不隐式加载"字面冲突——不隐式加载指的是
+        /// "renderer 不应该自己碰 Unity 的资源系统"，不是"只要结果一样、绕开 <see cref="IResourceLoader"/>
+        /// 自己另开一条路径也算数"。改为统一委托 <see cref="UnityResourceLoader.TryLoadModelSync"/>
+        /// （见该方法判断记录）：本类型自身不再出现任何 <c>Resources.Load</c> 调用，"谁来碰
+        /// Unity 资源系统"这件事收口到加载器一处，与 <see cref="LoadAsync"/> 异步路径共用同一份缓存与
+        /// 解析逻辑。</summary>
+        private bool TryResolvePrefab(Id modelId, out GameObject prefab) => _resourceLoader.TryLoadModelSync(modelId, out prefab);
 
         /// <summary>见类型顶部"资源缺失降级"判断记录第 3 步：优先复用内置占位模型
         /// <see cref="BuiltinPlaceholderModelId"/>，连它都取不到（隔离测试工程/尚未同步占位资产的
@@ -327,10 +347,55 @@ namespace Adapter.Unity.EngineAdapter
         /// 下成为新的 <see cref="ModelInstance.VisualRoot"/>：首次创建时直接挂接；PR130-05 原地替换时
         /// 先销毁旧内容，再重新挂接并重放已登记的 <see cref="ModelInstance.SlotMeshes"/>/
         /// <see cref="ModelInstance.MaterialParams"/>/<see cref="ModelInstance.LastPlayAnimCall"/>，
-        /// 保持替换前后已生效的呈现状态与视觉连续（见类型顶部"资源缺失降级"判断记录）。</summary>
+        /// 保持替换前后已生效的呈现状态与视觉连续（见类型顶部"资源缺失降级"判断记录）。
+        /// <para>
+        /// 判断记录（PR140-02 根治，取代此前"原地替换只重放 SlotMeshes/MaterialParams/最后一次动画"
+        /// 这一不完整立场——<c>architecture/落地计划/audit-c86bfa9-20260908/</c> 第七方审核）：旧实现
+        /// 直接 <c>Destroy(instance.VisualRoot.gameObject)</c> 销毁整棵旧可见内容子树；挂在旧
+        /// VisualRoot 下某个挂点里的子模型实例（<see cref="AttachToSocket"/> 的结果——子实例的
+        /// <see cref="ModelInstance.Root"/> 本身被设成了旧 VisualRoot 内某个挂点 <see cref="Transform"/>
+        /// 的子物体）随旧子树一起被 Unity 销毁，但 <see cref="_instances"/> 里对应句柄的
+        /// <see cref="ModelInstance"/> 条目毫不知情继续存在，其 <see cref="ModelInstance.Root"/> 引用
+        /// 变成一个已销毁的 Unity 对象（"句柄残留"）——后续任何访问它 <c>.transform</c> 的调用（如
+        /// <see cref="Detach"/>）都会抛 <c>MissingReferenceException</c>；投影阴影模式
+        /// （<see cref="ModelInstance.Shadow"/>，尤其 <see cref="ShadowMode.None"/>/<see cref="ShadowMode.Blob"/>
+        /// 需要把 <c>shadowCastingMode</c> 关掉）也从未在新内容上重新应用过，新 <see cref="Renderer"/>
+        /// 用 Unity 默认值 <see cref="ShadowCastingMode.On"/>，即便替换前已经显式关闭过投影阴影，替换
+        /// 后又悄悄回到打开状态。
+        /// </para>
+        /// <para>
+        /// 根治手法：把"一份视觉实例状态"当成一份完整可重放的记录对待——销毁旧 VisualRoot 之前，先把
+        /// <see cref="ModelInstance.SocketChildren"/> 登记的全部仍存活子实例从旧子树里摘出来（重新
+        /// 挂到 <see cref="_root"/>，只是"暂存"，不是最终位置），这样 <c>Destroy</c> 旧子树时它们已经
+        /// 不在这棵子树下，不会被一并销毁；新内容就位、挂点 <see cref="Transform"/> 就绪后，按同一份
+        /// <see cref="ModelInstance.SocketChildren"/> 记录逐条重新挂回去（新预制体如果确实按约定命名
+        /// 提供了同名挂点——挂点在新内容上找不到时保持暂存在 <see cref="_root"/> 下，不静默销毁子实例，
+        /// 也不抛异常，同 <see cref="SetSlotMesh"/>/<see cref="AttachToSocket"/> 一贯"查不到就宽容
+        /// 跳过"的立场）；投影阴影状态经 <see cref="ApplyShadowCastingMode"/> 按
+        /// <see cref="ModelInstance.Shadow"/> 重新应用到新内容的全部 <see cref="Renderer"/> 上（只在
+        /// 确实发生过一次替换——即本方法调用前 <see cref="ModelInstance.VisualRoot"/> 已经非空——时才
+        /// 重放，首次创建沿用既有行为：默认 <see cref="ShadowMode.None"/>，由调用方随后显式
+        /// <see cref="SetShadow"/> 决定，不在这里抢先写一遍）。
+        /// </para>
+        /// </summary>
         private void AttachVisual(ModelInstance instance, int handle, GameObject visualInstance)
         {
-            if (instance.VisualRoot != null)
+            var isReplacing = instance.VisualRoot != null;
+
+            // PR140-02 根治：销毁旧 VisualRoot 之前，先把仍挂在它下面的 socket 子实例摘出来暂存，
+            // 避免它们随旧子树一起被 Unity 销毁。
+            if (isReplacing && instance.SocketChildren.Count > 0)
+            {
+                foreach (var kv in instance.SocketChildren)
+                {
+                    if (_instances.TryGetValue(kv.Value, out var childInstance) && childInstance.Root != null)
+                    {
+                        childInstance.Root.transform.SetParent(_root, worldPositionStays: false);
+                    }
+                }
+            }
+
+            if (isReplacing)
             {
                 UnityEngine.Object.Destroy(instance.VisualRoot.gameObject);
             }
@@ -368,11 +433,52 @@ namespace Adapter.Unity.EngineAdapter
                 var call = instance.LastPlayAnimCall.Value;
                 PlayAnimOnInstance(instance, call.ClipId, call.Loop, call.Speed, call.BlendSeconds);
             }
+
+            // PR140-02 根治：新挂点就位后，把暂存的 socket 子实例逐条挂回去；找不到同名挂点时保持
+            // 暂存在 _root 下，不销毁、不抛异常。
+            if (instance.SocketChildren.Count > 0)
+            {
+                foreach (var kv in instance.SocketChildren)
+                {
+                    if (!_instances.TryGetValue(kv.Value, out var childInstance) || childInstance.Root == null)
+                    {
+                        continue;
+                    }
+
+                    var socketTransform = FindDeep(instance.VisualRoot, kv.Key.Value);
+                    if (socketTransform == null)
+                    {
+                        continue;
+                    }
+
+                    childInstance.Root.transform.SetParent(socketTransform, worldPositionStays: false);
+                    childInstance.Root.transform.localPosition = Vector3.zero;
+                    childInstance.Root.transform.localRotation = Quaternion.identity;
+                }
+            }
+
+            // PR140-02 根治：投影阴影状态也要重放——只在确实发生过一次替换时才重放，首次创建保持既有
+            // 行为（默认 None，由调用方随后显式 SetShadow 决定），见方法判断记录。
+            if (isReplacing)
+            {
+                ApplyShadowCastingMode(instance);
+            }
         }
 
         public void DestroyModelInstance(ModelHandle handle)
         {
             var instance = EnsureAlive(handle);
+
+            // PR140-02 根治附带清理：本实例若当前仍作为某个父实例的 socket 子实例挂着，销毁前先从
+            // 父实例的 SocketChildren 登记里摘除，避免父实例下次原地替换视觉内容时把一个已经不存在的
+            // 句柄误当作"仍然挂着"去查（虽然 AttachVisual 对查不到的句柄已经安全跳过，这里主动清理
+            // 只是不让登记表无限期留着一条指向已销毁实例的死记录）。
+            if (instance.AttachedToParentHandle.HasValue && instance.AttachedToSocketId.HasValue
+                && _instances.TryGetValue(instance.AttachedToParentHandle.Value, out var parentInstance))
+            {
+                parentInstance.SocketChildren.Remove(instance.AttachedToSocketId.Value);
+            }
+
             UnityEngine.Object.Destroy(instance.Root);
             _instances.Remove(handle.Value);
         }
@@ -392,6 +498,14 @@ namespace Adapter.Unity.EngineAdapter
             {
                 var local = instance.VisualRoot.localPosition;
                 instance.VisualRoot.localPosition = new Vector3(local.x, (float)height, local.z);
+            }
+
+            // PR140-01 根治：facing 每次都可能变化，Blob 影子必须在每次 SetPlacement 之后重新钉死世界
+            // 旋转/位置，不能只在 SetShadow 创建那一刻摆一次就永远不再管，见 ApplyBlobShadowTransform
+            // 判断记录。
+            if (instance.BlobShadow != null)
+            {
+                ApplyBlobShadowTransform(instance);
             }
         }
 
@@ -446,6 +560,9 @@ namespace Adapter.Unity.EngineAdapter
                 // "已通知"（Tick 因此永不对它检测），非循环剪辑（含本次重播）标记"未通知"，交给 Tick
                 // 检测这一次播放的自然完成。
                 instance.FinishNotified = loop;
+                // PR140-03 根治：每次新播放都要重新确认"是否已经进入过目标状态"，见
+                // IsAnimatorStateFinished 判断记录。
+                instance.CurrentPlayEnteredState = false;
                 return;
             }
 
@@ -522,7 +639,7 @@ namespace Adapter.Unity.EngineAdapter
                 {
                     case AnimDriveMode.Animator:
                         finished = instance.Animator != null
-                            && IsAnimatorStateFinished(instance.Animator, instance.CurrentStateName);
+                            && IsAnimatorStateFinished(instance.Animator, instance.CurrentStateName, ref instance.CurrentPlayEnteredState);
                         break;
                     case AnimDriveMode.Legacy:
                         finished = instance.LegacyAnimation != null && instance.CurrentClipName != null
@@ -543,16 +660,39 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
-        /// <summary>见 <see cref="Tick"/> 判断记录：<paramref name="stateName"/> 对应的层已经不在
-        /// 过渡中（<c>IsInTransition</c> 为假——过渡中的 <c>normalizedTime</c> 含义是过渡本身的进度，
-        /// 不是目标状态剪辑的播放进度，不能用来判定剪辑是否播完）且该层当前状态的
-        /// <c>shortNameHash</c> 精确等于目标状态、<c>normalizedTime &gt;= 1</c>（该状态的
-        /// <c>AnimatorState</c>"Loop Time"应当与传给 <see cref="PlayAnim"/> 的 <c>loop</c> 参数保持
-        /// 一致——占位内容按此约定烘焙，见 <c>Adapter.Unity.Editor.GeneratePlaceholderModelAssets</c>；
-        /// 具体游戏若不遵守这一约定，非循环 <c>loop: false</c> 但 Animator 状态本身"Loop Time"开着的
-        /// 剪辑，<c>normalizedTime</c> 会持续增长永不停留在 1 附近，本方法仍能在恰好越过 1 的那一帧
-        /// 检测到"完成"，之后剪辑继续循环播放不受影响——不是本方法需要规避的错误场景）。</summary>
-        private static bool IsAnimatorStateFinished(Animator animator, string? stateName)
+        /// <summary>
+        /// 判断记录（PR140-03 根治，取代此前"只看当前状态是否恰好等于目标状态"的立场——
+        /// <c>architecture/落地计划/audit-c86bfa9-20260908/</c> 第七方审核）：旧实现只在
+        /// <paramref name="stateName"/> 对应的层不在过渡中（<c>IsInTransition</c> 为假）且当前状态的
+        /// <c>shortNameHash</c> 精确等于目标状态时才判定"完成"；若该状态在 <c>AnimatorController</c> 里
+        /// 自带一条"Has Exit Time"的自动过渡（如 attack 状态配置了 Exit Time=1 直接自动切回 idle），
+        /// 且这条过渡的开始与结束都发生在两次 <see cref="Tick"/> 之间（过渡耗时很短或恰好落在两帧检测
+        /// 之间），旧逻辑会先因为 <c>IsInTransition</c> 为真跳过整个过渡窗口，等到下一次检测时过渡已经
+        /// 结束、当前状态已经变成 idle——<c>shortNameHash</c> 从此永远不再等于目标状态的 hash，
+        /// <see cref="ModelInstance.FinishNotified"/> 永远保持 false 但 <see cref="Tick"/> 也永远判不出
+        /// "完成"，<c>anim_event.finished</c> 事件因此彻底漏发（不是延迟，是永久丢失）。
+        /// <para>
+        /// 根治手法：引入 <paramref name="everEnteredTarget"/>（对应 <see cref="ModelInstance.CurrentPlayEnteredState"/>，
+        /// 每次新播放随 <see cref="ModelInstance.FinishNotified"/> 一并重置为 false）记录"本次播放是否
+        /// 已经在某一帧真正确认过 Animator 处于目标状态（不含过渡中）"。判定完成的条件因此变成两支：
+        /// (a) 仍稳定停留在目标状态且 <c>normalizedTime &gt;= 1</c>（原有条件，覆盖"没有自动过渡、需要
+        /// 外部调用方另发一次 PlayAnim 才会离开"的多数占位/游戏内容场景）；(b) 曾经确认进入过目标状态、
+        /// 现在稳定停留在别的状态（不在过渡中）——这必然意味着自动过渡已经完整发生过，不管这次检测是否
+        /// 曾经亲眼看到 <c>IsInTransition</c> 为真的那个窗口，目标剪辑必然已经播完，直接判定完成。两支
+        /// 条件都不依赖"过渡时长是否长到能被某一帧检测到"，从根上消除了漏发窗口。
+        /// </para>
+        /// <para>
+        /// 判断记录（只看目标状态实际落地的那一层，不再对全部层做 OR 判定）：<see cref="PlayAnimOnInstance"/>
+        /// 调用 <c>Animator.CrossFadeInFixedTime(stateName, ...)</c> 不显式传 layer 参数，等价于文档
+        /// 约定的 <c>layer = -1</c>——"播放第一个含有该状态名的层"；本方法据此先用
+        /// <c>Animator.HasState</c> 定位同一层，只检查这一层，不再像旧实现那样遍历全部层各自独立判断
+        /// （旧实现在单层占位内容下"恰好够用"，但 <paramref name="everEnteredTarget"/> 是本次改动新增
+        /// 的跨层共享状态，若不先定位到单一层，同一帧内某个与目标完全无关的层（如叠加动画层）会在
+        /// "本层字节判定"意义上被误判成"已经离开目标状态"而提前触发完成，是本次改动如果沿用旧的全层
+        /// 遍历结构会新引入的一类多层场景错误——显式定位单一层从根上避免这类跨层串扰）。
+        /// </para>
+        /// </summary>
+        private static bool IsAnimatorStateFinished(Animator animator, string? stateName, ref bool everEnteredTarget)
         {
             if (stateName == null)
             {
@@ -560,20 +700,42 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             var hash = Animator.StringToHash(stateName);
+
+            var targetLayer = -1;
             for (var layer = 0; layer < animator.layerCount; layer++)
             {
-                if (animator.IsInTransition(layer))
+                if (animator.HasState(layer, hash))
                 {
-                    continue;
-                }
-
-                var info = animator.GetCurrentAnimatorStateInfo(layer);
-                if (info.shortNameHash == hash && info.normalizedTime >= 1f)
-                {
-                    return true;
+                    targetLayer = layer;
+                    break;
                 }
             }
-            return false;
+            if (targetLayer < 0)
+            {
+                // 状态名不存在于任何层——理论上不应该发生（PlayAnimOnInstance 已经用 AnimatorHasState
+                // 探测过才会走到这个分支），稳妥起见按"未完成"处理，不抛异常。
+                return false;
+            }
+
+            if (animator.IsInTransition(targetLayer))
+            {
+                // 过渡中：normalizedTime 的含义是过渡自身进度，不是目标剪辑播放进度，两支判定条件都
+                // 不适用，只能等这一次过渡结束后的某次 Tick 再检查（分支 (b) 覆盖"结束时机恰好落在两次
+                // 检测之间"的情形，不依赖亲眼看到过渡本身）。
+                return false;
+            }
+
+            var info = animator.GetCurrentAnimatorStateInfo(targetLayer);
+            if (info.shortNameHash == hash)
+            {
+                everEnteredTarget = true;
+                return info.normalizedTime >= 1f;
+            }
+
+            // 当前稳定停留在别的状态（不在过渡中）：只有在本次播放已经确认真正进入过目标状态时，才能
+            // 判定"自动过渡已经完整发生过、目标剪辑必然已经播完"；从未进入过（如目标状态名解析错误或
+            // 尚未来得及切入）时不能仅凭"当前不是目标状态"就判定完成，见方法判断记录分支 (b)。
+            return everEnteredTarget;
         }
 
         public void SetAnimSpeed(ModelHandle handle, double speed)
@@ -674,7 +836,13 @@ namespace Adapter.Unity.EngineAdapter
         /// <summary>W6-B 新增：按子对象名查找挂点 <see cref="Transform"/>，把
         /// <paramref name="child"/>（另一个已创建的模型实例）挂接为其子物体（局部位置/旋转清零，
         /// 对齐挂点原点）。查不到 <paramref name="socketId"/> 对应的子对象时静默跳过，理由同
-        /// <see cref="SetSlotMesh"/>。</summary>
+        /// <see cref="SetSlotMesh"/>。PR140-02 根治：同时登记进 <paramref name="handle"/> 对应实例的
+        /// <see cref="ModelInstance.SocketChildren"/>（与子实例的反向记账
+        /// <see cref="ModelInstance.AttachedToParentHandle"/>/<see cref="ModelInstance.AttachedToSocketId"/>），
+        /// 供 <see cref="AttachVisual"/> 在父实例原地替换视觉内容时把本次挂接的子实例摘出来暂存、
+        /// 换完新内容后按同一份记录重新挂回去，不随旧可见内容一起被销毁。同一个挂点在旧记录仍存在时
+        /// 直接覆盖（后一次 AttachToSocket 决定这个挂点当前挂着谁，同 <see cref="SetSlotMesh"/> 一贯
+        /// "后写覆盖"惯例）。</summary>
         public void AttachToSocket(ModelHandle handle, Id socketId, ModelHandle child)
         {
             var instance = EnsureAlive(handle);
@@ -689,16 +857,31 @@ namespace Adapter.Unity.EngineAdapter
             childInstance.Root.transform.SetParent(socketTransform, worldPositionStays: false);
             childInstance.Root.transform.localPosition = Vector3.zero;
             childInstance.Root.transform.localRotation = Quaternion.identity;
+
+            instance.SocketChildren[socketId] = child.Value;
+            childInstance.AttachedToParentHandle = handle.Value;
+            childInstance.AttachedToSocketId = socketId;
         }
 
         /// <summary>把子实例摘回本渲染器的根节点下（不销毁，见 <see cref="IRenderer3D.Detach"/>
         /// 契约注释"只摘不销毁"——销毁由调用方另行调用 <see cref="DestroyModelInstance"/>，同
         /// <see cref="Presentation.Render.ModelCharacterRig.ClearSocket"/> 判断记录"Detach 之后
-        /// 紧接着 DestroyModelInstance"）。</summary>
+        /// 紧接着 DestroyModelInstance"）。PR140-02 根治：一并清理父实例
+        /// <see cref="ModelInstance.SocketChildren"/> 里对应的登记（若父实例仍存活——父实例先于子实例
+        /// 被销毁的顺序下，句柄已经不在 <see cref="_instances"/> 里，跳过即可，不是错误），避免父实例
+        /// 下次原地替换视觉内容时把一个已经主动 Detach 掉的子实例误当作"仍然挂着"重新挂回去。</summary>
         public void Detach(ModelHandle child)
         {
             var childInstance = EnsureAlive(child);
             childInstance.Root.transform.SetParent(_root, worldPositionStays: true);
+
+            if (childInstance.AttachedToParentHandle.HasValue && childInstance.AttachedToSocketId.HasValue
+                && _instances.TryGetValue(childInstance.AttachedToParentHandle.Value, out var parentInstance))
+            {
+                parentInstance.SocketChildren.Remove(childInstance.AttachedToSocketId.Value);
+            }
+            childInstance.AttachedToParentHandle = null;
+            childInstance.AttachedToSocketId = null;
         }
 
         /// <summary>W6-B 新增：经 <see cref="MaterialPropertyBlock"/> 把命名参数广播给实例可见内容下
@@ -746,18 +929,18 @@ namespace Adapter.Unity.EngineAdapter
         /// 投影阴影的开关（<c>shadowCastingMode</c>）遍历范围限定在 VisualRoot，理由同
         /// <see cref="SetMaterialParam"/>——不误把影子自己的 Renderer 也算进"可见内容"。
         /// </para>
+        /// <para>
+        /// PR140-01 根治：Blob 的具体朝向/位置改由 <see cref="ApplyBlobShadowTransform"/> 统一计算
+        /// （创建时调一次、此后每次 <see cref="SetPlacement"/> 都重新调一次），不再在这里写死一个固定
+        /// 局部旋转——见该方法判断记录"旧的 Euler(90,0,0) 是废弃的 XZ 地面旧约定"。
+        /// </para>
         /// </summary>
         public void SetShadow(ModelHandle handle, ShadowMode mode)
         {
             var instance = EnsureAlive(handle);
             instance.Shadow = mode;
 
-            var renderers = instance.VisualRoot.GetComponentsInChildren<Renderer>(includeInactive: true);
-            var castMode = mode == ShadowMode.Projected ? ShadowCastingMode.On : ShadowCastingMode.Off;
-            for (var i = 0; i < renderers.Length; i++)
-            {
-                renderers[i].shadowCastingMode = castMode;
-            }
+            ApplyShadowCastingMode(instance);
 
             if (mode != ShadowMode.Blob)
             {
@@ -775,9 +958,6 @@ namespace Adapter.Unity.EngineAdapter
                 UnityEngine.Object.Destroy(blob.GetComponent<Collider>());
                 blob.name = "BlobShadow";
                 blob.transform.SetParent(instance.Root.transform, worldPositionStays: false);
-                blob.transform.localPosition = new Vector3(0f, 0.01f, 0f);
-                blob.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-                blob.transform.localScale = new Vector3(0.8f, 0.8f, 1f);
 
                 var blobRenderer = blob.GetComponent<Renderer>();
                 blobRenderer.shadowCastingMode = ShadowCastingMode.Off;
@@ -787,6 +967,76 @@ namespace Adapter.Unity.EngineAdapter
 
                 instance.BlobShadow = blob;
             }
+
+            ApplyBlobShadowTransform(instance);
+        }
+
+        /// <summary>PR140-01 根治新增：Blob 沿世界 Z 轴的微小偏移量，理由见
+        /// <see cref="ApplyBlobShadowTransform"/> 判断记录"位置"一节。</summary>
+        private const float BlobShadowGroundPlaneZOffset = 0.01f;
+
+        /// <summary>
+        /// 判断记录（PR140-01 根治，取代此前"局部旋转固定 Euler(90,0,0)"的立场——
+        /// <c>architecture/落地计划/audit-c86bfa9-20260908/</c> 第七方审核）：旧实现把 Blob 挂在 Root
+        /// 下时固定 <c>localRotation = Quaternion.Euler(90,0,0)</c>、<c>localPosition = (0, 0.01, 0)</c>
+        /// ——这是"地面 = 世界 XZ 平面、相机从上方俯视"这一已经被 PR130-01 根治废弃的旧约定下，把
+        /// 天生躺在局部 XY 平面的 Quad 图元转成水平贴地（XZ 平面）的写法，同时用局部 Y 偏移把它抬离
+        /// 地面一点点避免 z-fighting。类型顶部"三维放置的坐标换算"判断记录早已改为"地面 = 世界 XY
+        /// 平面、相机正交沿世界 Z 轴固定取景"（与 <see cref="UnityCamera"/> 判断记录、
+        /// <see cref="UnityRenderer2D"/> 同一套约定），但 <see cref="SetShadow"/> 创建 Blob 那处代码
+        /// 没有跟着改——同一个固定欧拉角在新约定下把 Quad 转成了侧立的竖直薄片（法线转到 XZ 平面内，
+        /// 肉眼看只是一条线，不是贴地的圆形阴影），局部 Y 偏移也从"抬离地面一点点"变成了"在地面平面
+        /// 内沿一个有真实逻辑含义的坐标轴平移"——两处判断都要一并改正，不只是转角度。
+        /// <para>
+        /// 根治手法：世界旋转直接钉死为 <see cref="Quaternion.identity"/>——<c>PrimitiveType.Quad</c>
+        /// 图元本身已经天生躺在局部 XY 平面、法线沿局部 -Z，恰好正对相机固定的
+        /// <c>transform.forward=(0,0,1)</c>（相机永不旋转，见 <see cref="UnityCamera"/> 构造函数与
+        /// 判断记录），不需要任何旋转就已经与地面/角色/sprite 同一张世界 (X,Y) 画面平面重合、法线朝向
+        /// 相机。用 <c>Transform.rotation</c>（世界属性，不是 <c>localRotation</c>）直接写死，且本方法
+        /// 在每次 <see cref="SetPlacement"/>（facing 可能已经变化）都重新调用一遍，是因为
+        /// <see cref="ModelInstance.Root"/> 会随 facing 绕世界 Y 轴旋转（见类型顶部"朝向换算"判断
+        /// 记录）——如果像旧实现那样只用 <c>localRotation</c> 挂一次就不再管，Blob 会跟着 Root 一起
+        /// 转出画面平面（人物转身时贴地阴影跟着立起来，是新的错误，不是旧错误的等价物）。一枚贴地圆形
+        /// 阴影不应该因为人物转身就跟着立起来，因此每次 Root 的世界旋转变化后都要把 Blob 的世界旋转
+        /// 重新钉回 <see cref="Quaternion.identity"/>。
+        /// </para>
+        /// <para>
+        /// 位置：仍然只依赖 <see cref="ModelInstance.Root"/> 的世界位置（不含 height，PR130-08
+        /// "影子贴地、不随 height 位移"结论不变，本次改动只改法线朝向与是否随 facing 旋转），额外叠加
+        /// 一个沿世界 Z 轴的微小偏移（<see cref="BlobShadowGroundPlaneZOffset"/>）避免与同样落在 Root
+        /// 平面（世界 Z=0）上的其它几何体 z-fighting——不再像旧实现那样偏移局部 Y：新约定下 Y 是地面
+        /// 平面内有真实逻辑含义的坐标分量（与 planePos.Y 共用，见类型顶部判断记录），偏移它会让阴影在
+        /// 画面上出现肉眼可见的位置漂移；偏移 Z 才是"不代表任何真实逻辑坐标、只影响渲染排序"的那根轴，
+        /// 与 <see cref="UnityCamera"/> 判断记录"z 轴距离只影响透视裁剪与内部计算"同一惯例。
+        /// </para>
+        /// </summary>
+        /// <summary>PR140-02 根治新增：按 <see cref="ModelInstance.Shadow"/> 把
+        /// <c>shadowCastingMode</c> 应用到实例可见内容（<see cref="ModelInstance.VisualRoot"/>）下全部
+        /// <see cref="Renderer"/>——从 <see cref="SetShadow"/> 抽出来的共享逻辑，供
+        /// <see cref="AttachVisual"/> 在原地替换视觉内容后重新调用一遍（新内容的全部 <see cref="Renderer"/>
+        /// 组件是 Unity 默认值 <see cref="ShadowCastingMode.On"/>，不会自动继承替换前的设置，见该方法
+        /// 判断记录）。</summary>
+        private static void ApplyShadowCastingMode(ModelInstance instance)
+        {
+            var renderers = instance.VisualRoot.GetComponentsInChildren<Renderer>(includeInactive: true);
+            var castMode = instance.Shadow == ShadowMode.Projected ? ShadowCastingMode.On : ShadowCastingMode.Off;
+            for (var i = 0; i < renderers.Length; i++)
+            {
+                renderers[i].shadowCastingMode = castMode;
+            }
+        }
+
+        private static void ApplyBlobShadowTransform(ModelInstance instance)
+        {
+            if (instance.BlobShadow == null)
+            {
+                return;
+            }
+
+            var t = instance.BlobShadow.transform;
+            t.rotation = Quaternion.identity;
+            t.position = instance.Root.transform.position + new Vector3(0f, 0f, BlobShadowGroundPlaneZOffset);
+            t.localScale = new Vector3(0.8f, 0.8f, 1f);
         }
 
         /// <summary>W6-B 新增：供测试/同属引擎适配层的协作代码取回模型实例的锚点根
@@ -805,11 +1055,50 @@ namespace Adapter.Unity.EngineAdapter
         public Transform? GetModelVisualRoot(ModelHandle handle) =>
             _instances.TryGetValue(handle.Value, out var instance) ? instance.VisualRoot : null;
 
+        /// <summary>PR140-01 新增：供测试取回 <see cref="ModelInstance.BlobShadow"/> 的
+        /// <see cref="Transform"/>（<see cref="ShadowMode.Blob"/> 未生效或已销毁时为 null），惯例同
+        /// <see cref="GetModelRoot"/>——不属于 <see cref="IRenderer3D"/> 契约本身。</summary>
+        public Transform? GetBlobShadowTransform(ModelHandle handle) =>
+            _instances.TryGetValue(handle.Value, out var instance) && instance.BlobShadow != null
+                ? instance.BlobShadow.transform
+                : null;
+
         /// <summary>PR130-05 新增：供测试查询该实例当前是否仍在展示占位内容（尚未被真实资源原地
         /// 替换），不属于 <see cref="IRenderer3D"/> 契约本身。查不到（已销毁/未知句柄）时返回
         /// false。</summary>
         public bool IsShowingPlaceholder(ModelHandle handle) =>
             _instances.TryGetValue(handle.Value, out var instance) && instance.IsPlaceholder;
+
+        /// <summary>
+        /// PR140-02 测试专用钩子：直接触发一次"资源异步加载完成、原地替换视觉内容"的真实生产代码路径
+        /// ——与 <see cref="RequestModelLoadAndSwap"/> 内部回调命中时执行的完全同一份逻辑
+        /// （<see cref="AttachVisual"/> + <c>instance.IsPlaceholder = false</c>），不是另一套模拟实现。
+        /// <para>
+        /// 判断记录（为什么需要这个钩子，而不是直接驱动真实 <see cref="IResourceLoader.LoadAsync"/>
+        /// 走完"先缺资源→后可用"）：model 种类资源经 <c>UnityResourceLoader.FinishModelLoad</c> 解析，
+        /// 该方法固定调用 <c>Resources.Load&lt;GameObject&gt;</c>——同一个 modelId 在
+        /// <see cref="TryResolvePrefab"/> 的同步兜底分支与异步回调分支解析的是同一条路径，若资源在
+        /// <see cref="CreateModelInstance"/> 调用时刻确实不存在，异步回调触发时（同一次测试执行内，
+        /// 没有真实文件/AssetDatabase 变化）必然仍然解析失败，测试没有可靠手段在纯 Runtime 测试程序集
+        /// （不引用 <c>UnityEditor</c>，见 <c>Adapter.Unity.Tests.Runtime.asmdef</c>）里让一个原本不
+        /// 存在的 Resources 资产在同一会话中途"变得存在"。本钩子让 PR140-02 回归测试可以独立于
+        /// Resources.Load 本身的行为（那是 Unity 引擎职责，不是本仓库代码，不需要也不应该由本仓库的
+        /// 测试重新验证）去验证真正被修复的那部分——<see cref="AttachVisual"/> 原地替换时是否正确
+        /// 恢复 socket 子实例与投影阴影状态。
+        /// </para>
+        /// <c>internal</c>——不是 <see cref="IRenderer3D"/> 契约的一部分，只对
+        /// <c>Adapter.Unity.Tests.Runtime</c>（<c>InternalsVisibleTo</c>）可见。
+        /// </summary>
+        internal void CompleteAsyncModelSwapForTest(ModelHandle handle, GameObject replacementVisualInstance)
+        {
+            if (!_instances.TryGetValue(handle.Value, out var instance))
+            {
+                return;
+            }
+
+            AttachVisual(instance, handle.Value, replacementVisualInstance);
+            instance.IsPlaceholder = false;
+        }
 
         /// <summary>W6-B 新增：供测试断言 <see cref="Animator"/> 当前是否正处于名为
         /// <paramref name="stateName"/> 的状态（任一层），不属于 <see cref="IRenderer3D"/> 契约本身，

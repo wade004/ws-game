@@ -34,6 +34,9 @@ namespace Tests.Presentation.FeedbackBinder
         private static CombatDamageDealtEvent DamageEvent(Id sourceId) =>
             new CombatDamageDealtEvent(sourceId, new Id("unit.target"), new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
 
+        private static CombatDamageDealtEvent DamageEvent(Id sourceId, Id targetId) =>
+            new CombatDamageDealtEvent(sourceId, targetId, new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
+
         [Fact]
         public void HitFrameSyncRule_WithoutHitFrameSourceInjected_DispatchesImmediately_IgnoringSyncField()
         {
@@ -162,6 +165,58 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.NotEmpty(sink.PlaySfxCalls);
             Assert.NotEmpty(sink.FloatingTexts);
             Assert.False(binder.HasPendingPlayback, "两条规则的动作应当随同一次命中帧一起释放，不应该还有任何一条留在等待队列里");
+        }
+
+        /// <summary>PR140-04 复现/回归用例（改造自 <c>architecture/落地计划/audit-c86bfa9-20260908/
+        /// evidence/probes-presentation/Program.cs</c> 的 AoE 探针）：同一个攻击者一次范围攻击对目标
+        /// A/B 各自派发独立的 <c>combat.damage_dealt</c> 事件（<see cref="CombatDamageDealtEvent"/>
+        /// 单源单目标形状，没有施法/攻击实例 id 可用），根治前 <see cref="HitFrameSyncPolicy"/> 每次
+        /// 命中帧只释放同一攻击者最早入队的那一条——A 在第一次命中帧释放，B 要等到第二次命中帧或超时
+        /// 才释放，与"同一次攻击应当同时命中"的直觉不符。根治后 A/B 共用
+        /// <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/> 按攻击者维护的同一个批次
+        /// token，一次命中帧原子释放二者；随后 <see cref="HitFrameSyncPolicy.BatchReleased"/> 清空该
+        /// 攻击者的 token，目标 C 因此落进一批全新的批次，需要下一次命中帧才释放（不是超时——
+        /// 用于和旧探针"C 靠超时兜底释放"的观测区分，证明 C 是被下一次命中帧正常释放，不是退化到兜底
+        /// 路径）。</summary>
+        [Fact]
+        public void HitFrameSyncRule_AoeMultipleTargets_SameAttackTargetsReleaseTogether_LaterAttackStaysIndependent()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var source = new FakeHitFrameSource();
+            var attacker = new Id("unit.aoe.attacker");
+            source.RegisterRig(attacker, null!);
+            var options = new FeedbackOptions { HitFrameSync = HitFrameSyncStrategy.AnimKeyframeDriven, HitFrameSyncTimeoutSeconds = 0.5 };
+            var rules = LoadRules(FeedbackBinderTestSupport.NormalDamageRuleRow);
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink, options: options, hitFrameSource: source);
+
+            var targetA = new Id("unit.target.a");
+            var targetB = new Id("unit.target.b");
+            var targetC = new Id("unit.target.c");
+
+            bus.PublishImmediate(DamageEvent(attacker, targetA));
+            bus.PublishImmediate(DamageEvent(attacker, targetB));
+            Assert.Empty(sink.FloatingTexts);
+            Assert.True(binder.HasPendingPlayback);
+
+            // 一次命中帧应当把 A、B 一并原子释放——不是只释放最早入队的 A。
+            source.Fire(attacker);
+            Assert.Equal(2, sink.FloatingTexts.Count);
+            Assert.Equal(new[] { targetA, targetB }, new[] { sink.FloatingTexts[0].EntityId, sink.FloatingTexts[1].EntityId });
+            Assert.True(binder.HasPendingPlayback == false, "A、B 所在的批次已经随这一次命中帧全部释放，不应该还有残留等待项");
+
+            // C 属于 A/B 批次释放之后的新一批（同一攻击者，但上一批 token 已经因 BatchReleased 被清空），
+            // 因此需要下一次命中帧才会释放，而不是立刻搭上一次已经空的批次。
+            bus.PublishImmediate(DamageEvent(attacker, targetC));
+            Assert.Equal(2, sink.FloatingTexts.Count);
+            Assert.True(binder.HasPendingPlayback);
+
+            source.Fire(attacker);
+            Assert.Equal(3, sink.FloatingTexts.Count);
+            Assert.Equal(targetC, sink.FloatingTexts[2].EntityId);
+            Assert.False(binder.HasPendingPlayback);
         }
 
         [Fact]

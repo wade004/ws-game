@@ -15,6 +15,13 @@
       "mode": "slot_mesh",
       "slot_id": "slot.head",
       "mesh_ref": "model.placeholder_biped"
+    },
+    {
+      "id": "display.equip_visual.sample_hero_hat",
+      "item_id": "item.sample_hero_hat",
+      "mode": "slot_mesh",
+      "slot_id": "slot.head",
+      "mesh_ref": "sprite.item.sample_hero_hat_test"
     }
   ]
 }

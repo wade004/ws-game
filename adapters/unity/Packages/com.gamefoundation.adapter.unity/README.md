@@ -20,7 +20,7 @@ URP 2D Renderer + Input System 1.20"这一件事，不包含任何具体游戏�
 | `ISpatialQuery` | `UnitySpatialQuery` | 自维护登记表 + 均匀网格分桶（非 Physics2D，避免同步 Collider2D 的额外成本与结果顺序不确定性）；结果一律按 `Id` 排序；`Register`/`UpdatePosition`/`Unregister`/`Clear` 均为契约方法（ADR-0016 决策 7，此前是本类自行拍板的协作方法）；`HasLineOfSight` 默认恒真，可用 `SetLineOfSightBlocker` 接入 `UnityNavigation2D.Raycast` 做真实遮挡判定（`UnityEngineHost` 已默认接好）。 |
 | `IUISurface` | `UnityUISurface` | uGUI `Canvas`（Screen Space - Overlay）+ TextMeshPro；`DrawText` 没有契约层面的句柄/去重机制，按调用顺序累加创建文本元素，非契约方法 `ClearSurface` 供逐帧刷新场景复位；`fontId` 目前不区分具体字体资源，统一用包内占位字体运行期 `TMP_FontAsset.CreateFontAsset` 生成，失败时回退 `TMP_Settings.defaultFontAsset`。 |
 | `IPlatform` | `UnityPlatform` | 语言映射 `Application.systemLanguage` → 常见 BCP-47 短代码；剪贴板 = `GUIUtility.systemCopyBuffer`；崩溃日志经 `UnityFileSystem` 原子写入用户目录 `crash_log.txt`，`UnityEngineHost` 额外把 `Application.logMessageReceived` 的 Error/Exception 日志自动转发到 `ReportCrash`。 |
-| `IRenderer3D` | `UnityRenderer3D` | **W6-B 收口，真实实现**（ADR-0017 决策 b）：句柄 = 模型预制体实例根 GameObject；`CreateModelInstance` 经 `UnityResourceLoader` 缓存优先、未命中回退同步 `Resources.Load<GameObject>`（约定路径见下"资源 id → 路径规则"），找不到资源直接抛带路径的 `InvalidOperationException`（与 sprite 型"缺资源用占位方块顶上"的宽容立场刻意不同，见该类型判断记录）；三维放置换算 `世界坐标=(planePos.X, height, planePos.Y)`、`Y 轴欧拉角=-facing×(180/π)`（无既有 3D 坐标约定，本类型拍板并记录，见其判断记录）；`PlayAnim` 优先用 Animator 按状态名（`clipId` 末段）`CrossFadeInFixedTime`（同状态重入改用 `Animator.Play(stateName, -1, 0f)` 硬切重播，见 H5b 判断记录），找不到对应状态时回退 `UnityEngine.Animation` 组件 + 约定路径加载的 `AnimationClip`；命中帧等关键帧事件经 Unity `AnimationEvent`（函数名固定 `OnAnimEvent`，字符串参数＝裸事件名）中继回调；**H5b 根治新增**：`UnityEngineHost.Update` 每帧驱动 `Tick()`，逐实例侦测"非循环剪辑自然播放完成"（Animator 用 `normalizedTime>=1` 判定、Animation 组件兜底路径用 `IsPlaying` 转 false），完成时经 `OnAnimEvent` 通道额外发出一次约定的 `anim_event.finished`（循环剪辑不发）——这是 02 第 1.12 节新增的契约义务，`Presentation.Render.ModelCharacterRig` 一侧的装配代码把它接回动画状态机解除瞬态状态的优先级锁；`SetSlotMesh`/`AttachToSocket` 按子对象精确名字查找（约定子对象名＝挂点/槽位 `Id` 原文，见占位资产生成脚本）；`SetShadow` 的 `Blob` 用贴地占位 Quad、`Projected` 直接用 Unity 内建实时阴影（与 sprite 路线"Projected 降级为 Blob"不同——model 型有真正三维几何体）。 |
+| `IRenderer3D` | `UnityRenderer3D` | **W6-B 收口，真实实现**（ADR-0017 决策 b）：句柄 = 模型预制体实例根 GameObject（`ModelInstance.Root`，只承载 `planePos`/`facing`/`scale`）+ 一个承载 height 偏移的可见内容子物体（`ModelInstance.VisualRoot`）；三维放置换算与 `IRenderer2D`/`ICamera` 同一套 Unity 世界 XY 地面平面约定：`Root` 世界坐标 = `(planePos.X, planePos.Y, 0)`、`Y 轴欧拉角=-facing×(180/π)`、`VisualRoot` 局部坐标 = `(0, height, 0)`（PR130-01 根治，取代此前借用 Z 轴表达 `planePos.Y` 的旧约定，见类型顶部判断记录）；`CreateModelInstance` 统一经 `UnityResourceLoader.TryLoadModelSync` 解析（缓存优先、未命中时由加载器同步解析一次，本类型自身不直接调用 `Resources.Load`，满足 ADR-0017 决策 1"renderer 只消费 `IResourceLoader` 已加载/占位资源、不隐式加载"，见 `TryResolvePrefab`/`TryLoadModelSync` 判断记录），两条路径都解析不到时不抛异常——落地占位内容（优先复用 `model.placeholder_biped`，连它都取不到时兜底内建胶囊体）并发起一次真正的 `IResourceLoader.LoadAsync`，加载成功后原地把占位替换为真实内容（PR130-05 根治，与 sprite 型"缺资源用占位方块顶上"同一套宽容立场）；**PR140-02 根治**：原地替换（`AttachVisual`）除重放槽位网格/材质参数/最近一次播放剪辑外，还会把仍挂在旧可见内容 socket 挂点下的子模型实例摘出来暂存、待新内容就位后按原挂点名重新挂回（找不到同名挂点时保持暂存，不销毁不抛异常），并按 `ModelInstance.Shadow` 重新应用投影阴影开关到新内容的全部 `Renderer`——不再出现"替换后子模型句柄悬空"或"投影阴影悄悄回到 Unity 默认值"。`PlayAnim` 优先用 Animator 按状态名（`clipId` 末段）`CrossFadeInFixedTime`（同状态重入改用 `Animator.Play(stateName, -1, 0f)` 硬切重播，见 H5b 判断记录），找不到对应状态时回退 `UnityEngine.Animation` 组件 + 约定路径加载的 `AnimationClip`；命中帧等关键帧事件经 Unity `AnimationEvent`（函数名固定 `OnAnimEvent`，字符串参数＝裸事件名）中继回调；**H5b 根治新增、PR140-03 再次根治**：`UnityEngineHost.Update` 每帧驱动 `Tick()`，逐实例侦测"非循环剪辑自然播放完成"（Animator 分支不再只看"当前状态是否恰好等于目标状态"——若该状态在 `AnimatorController` 里配置了自动过渡且过渡的开始与结束都发生在两次检测帧之间，改为"曾经确认进入过目标状态、现在稳定停留在别的状态"同样判定完成，避免自动过渡漏发完成事件；Animation 组件兜底路径用 `IsPlaying` 转 false 不变），完成时经 `OnAnimEvent` 通道额外发出一次约定的 `anim_event.finished`（循环剪辑不发）——这是 02 第 1.12 节新增的契约义务，`Presentation.Render.ModelCharacterRig` 一侧的装配代码把它接回动画状态机解除瞬态状态的优先级锁；`SetSlotMesh`/`AttachToSocket` 按子对象精确名字查找（约定子对象名＝挂点/槽位 `Id` 原文，见占位资产生成脚本）；**PR140-01 根治**：`SetShadow` 的 `Blob` 用贴地占位 Quad，世界旋转钉死为 `Quaternion.identity`（Quad 图元局部法线沿 -Z，恰好正对相机固定的 `forward=(0,0,1)`）、位置只依赖锚点根世界位置外加沿世界 Z 轴的微小防 z-fighting 偏移，且每次 `SetPlacement` 都重新计算一遍，不随 `Root` 的 facing 旋转偏出地面画面平面（取代此前"局部旋转固定 `Euler(90,0,0)`"这一套已废弃的 XZ 地面旧约定写法）；`Projected` 直接用 Unity 内建实时阴影（与 sprite 路线"Projected 降级为 Blob"不同——model 型有真正三维几何体）。 |
 | `ICamera` | `UnityCamera` | 正交投影，世界平面固定为 Unity 的 XY 平面（Z=0），与 `IRenderer2D` 精灵摆放平面一致；`pitchDegrees`/`yawDegrees` 只记录配置值，不据此做真实透视投影（URP 2D Renderer 不支持）；`zoom` 直接映射 `orthographicSize`；`SetTransform`/`WorldToScreen` 的 `height` 参数作为世界 Y 附加偏移；`Shake` 的 `frequency` 参数（ADR-0016 决策 4）驱动 Perlin 噪声按 `elapsed*frequency` 采样生成抖动偏移，取代此前逐帧独立采样的 `UnityEngine.Random`。 |
 
 `UnityEngineHost`（`MonoBehaviour`，`DontDestroyOnLoad`）是组合根，持有以上 13 个实例；静态
@@ -306,7 +306,9 @@ GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。`sprites`/`
 - `UnitySpatialQuery.cs`：自维护登记表 vs Physics2D 的取舍理由；`Register`/`UpdatePosition`/
   `Unregister`/`Clear` 现为契约方法（ADR-0016 决策 7）。
 - `UnityUISurface.cs`：`DrawText` 语义解释、占位字体生成方式。
-- `UnityRenderer3D.cs`：声明降级的理由。
+- `UnityRenderer3D.cs`：三维放置坐标换算（与 sprite/相机同一套 Unity 世界 XY 地面平面约定）、资源
+  缺失降级（占位 + 异步替换，不抛异常）、Blob 影子朝向与地面平面对齐（PR140-01）、异步模型替换的
+  实例状态恢复（PR140-02）、Animator 自动过渡完成事件判定（PR140-03）等判断记录。
 - `UnityFileSystem.cs`：`readOnlyContentMode` 构造参数合并原 `StreamingAssetsFileSystem`
   的判断记录 1、`GetContentRootDir` 两种模式下语义一致的判断记录 2（ADR-0016 决策 8）。
 - `EffectSequencePlayer.cs`：`ResourceKind.Effect` 序列帧动画的最小播放组件。
@@ -594,11 +596,15 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   `MeshFilter`/`MeshRenderer`）。**子对象名逐字等于挂点/槽位 `Id` 的 `Value`**（含域前缀，不做
   "去掉前缀"处理）——`UnityRenderer3D.SetSlotMesh`/`AttachToSocket` 按这个精确名字递归查找，具体
   游戏的美术资产接入时子对象命名必须遵循同一约定。
-- `Assets/Resources/GameFoundation/models/placeholder_biped.controller`：`AnimatorController`，三个
-  状态 `idle`（loop）/`attack`/`cast`，默认状态 `idle`。
-- `Assets/Resources/GameFoundation/anim_clips/{idle,attack,cast}.anim`：对应 `AnimationClip`；
-  `attack.anim` 在 50% 时间点内嵌一个 `AnimationEvent`（`functionName="OnAnimEvent"`,
-  `stringParameter="hit_frame"`）。
+- `Assets/Resources/GameFoundation/models/placeholder_biped.controller`：`AnimatorController`，五个
+  状态 `idle`（loop）/`attack`/`cast`/`hit`（H5b 新增，受击回落用）/`test_autoexit`（PR140-03 新增，
+  见下），默认状态 `idle`；`test_autoexit` 自带一条 `hasExitTime=true`、`duration=0`（瞬时切换）的
+  自动过渡直接回 `idle`，与其余四个状态相互独立，专供 `UnityRenderer3D.Tick` 的"Animator 自动过渡时
+  完成事件是否漏发"回归测试直接调用，不经任何 `display.anim_set` 登记，不影响其余状态。
+- `Assets/Resources/GameFoundation/anim_clips/{idle,attack,cast,hit,test_autoexit}.anim`：对应
+  `AnimationClip`；`attack.anim` 在 50% 时间点内嵌一个 `AnimationEvent`（`functionName="OnAnimEvent"`,
+  `stringParameter="hit_frame"`）；`hit.anim` 0.3 秒非循环、不内嵌事件；`test_autoexit.anim` 0.2 秒
+  非循环、不内嵌事件。
 
 ### 三维放置坐标换算、资源缺失降级、影子（PR130-01/05/08 根治）
 
@@ -622,6 +628,35 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   诊断查询当前是否仍在展示占位内容。
 - **影子（PR130-08）**：`ModelInstance.BlobShadow` 挂在锚点根（不随 `height` 位移）下，是上一条
   坐标换算修复的自然结果——height 现在只写入 `VisualRoot` 的局部偏移，不再写进锚点根本身。
+
+### Blob 影子朝向、异步替换状态恢复、Animator 自动过渡完成事件（PR140-01/02/03 根治）
+
+第七方深度审计（`architecture/落地计划/audit-c86bfa9-20260908/`）复核 PR130-01/05/08 落地后确认
+model 与 sprite/相机已经共用同一张 Unity 世界 XY 地面平面（上一节），但发现三项新问题：Blob 影子
+Quad 仍按上一版 XZ 地面旧约定固定旋转、条件异步模型替换不恢复挂点子模型与投影阴影状态、Animator
+自动过渡可能让完成事件永久漏发，均已根治（见 `UnityRenderer3D.cs` 类型顶部与各方法判断记录、
+`Tests/Runtime/UnityRenderer3DTests.cs`、`Tests/Runtime/ModelViewTests.cs`）：
+
+- **Blob 影子朝向（PR140-01）**：`SetShadow`/`SetPlacement` 改经共用的 `ApplyBlobShadowTransform`
+  把 Blob 的世界旋转钉死为 `Quaternion.identity`（Quad 图元局部法线沿 -Z，恰好正对相机固定的
+  `forward=(0,0,1)`，不需要任何旋转），位置只依赖锚点根世界位置外加一个沿世界 Z 轴的微小防
+  z-fighting 偏移，且每次 `SetPlacement`（facing 可能已经变化）都重新计算一遍——取代此前
+  `localRotation` 固定 `Euler(90,0,0)`（XZ 地面旧约定下的写法，在当前 XY 地面约定下把 Quad 转成了
+  侧立的竖直薄片）；额外效果：Blob 不再随角色 facing 旋转偏出地面画面平面（贴地阴影不会因为转身
+  跟着立起来）。
+- **异步替换状态恢复（PR140-02）**：`AttachVisual` 原地替换视觉内容时，除已有的槽位网格/材质参数/
+  最近一次播放剪辑重放外，新增两项：(a) 把仍挂在旧可见内容 socket 挂点下的子模型实例（`AttachToSocket`
+  登记进 `ModelInstance.SocketChildren`）先摘出来暂存，避免随旧内容一起被 `Destroy`，新内容就位后
+  按原挂点名逐条重新挂回（找不到同名挂点时保持暂存，不销毁、不抛异常）；(b) 按 `ModelInstance.Shadow`
+  重新调用 `ApplyShadowCastingMode`，避免新内容的 `Renderer` 悄悄回到 Unity 默认的
+  `ShadowCastingMode.On`。
+- **Animator 自动过渡完成事件（PR140-03）**：`IsAnimatorStateFinished` 新增 `everEnteredTarget`
+  记账（对应 `ModelInstance.CurrentPlayEnteredState`，每次新播放随 `FinishNotified` 一并重置）：
+  除"仍稳定停留在目标状态且 `normalizedTime>=1`"这一原有判定外，新增"曾经确认进入过目标状态、现在
+  稳定停留在别的状态（不在过渡中）"同样判定完成——覆盖"`AnimatorController` 里配置了自动过渡、且
+  过渡的开始与结束都发生在两次检测帧之间"这一此前会永久漏发 `anim_event.finished` 的窗口；判定只看
+  `CrossFadeInFixedTime` 实际落地的那一层（`layer=-1` 语义="第一个含有该状态名的层"），不再对全部层
+  做 OR 判定，避免多层场景下与目标无关的层把判定搅乱。
 
 ### 生产装配根共享同一个 `renderer3D`（PR130-06 根治）
 

@@ -383,7 +383,26 @@ namespace Adapter.Unity.Shell
                 var def = global::Presentation.Render.EquipVisualDef.FromRecord(record);
                 equipVisualCatalog[def.ItemId] = def;
             }
-            var equipVisualSource = new global::Presentation.Render.EquipmentVisualSource(_bus, equipVisualCatalog);
+            // 第九方审核任务书"第 0 步"补齐：同 GameFoundationBootstrap 同名判断记录——把
+            // EquipmentHost.GetAllEquippedInstances 转换成 EquipmentSnapshotResolver，供
+            // EquipmentVisualSource.ReplayEquippedForUnit 在新 View 创建时重放一次外观。
+            global::Presentation.Render.EquipmentSnapshotResolver equipmentSnapshotResolver = unitId =>
+            {
+                var equippedBySlot = gameplay.Carriers.Equipment.GetAllEquippedInstances(unitId);
+                if (equippedBySlot.Count == 0)
+                {
+                    return System.Array.Empty<global::Presentation.Render.EquippedItemRef>();
+                }
+
+                var list = new System.Collections.Generic.List<global::Presentation.Render.EquippedItemRef>(equippedBySlot.Count);
+                foreach (var kv in equippedBySlot)
+                {
+                    list.Add(new global::Presentation.Render.EquippedItemRef(kv.Key, kv.Value.InstanceId, kv.Value.TemplateId));
+                }
+                return list;
+            };
+            var equipVisualSource = new global::Presentation.Render.EquipmentVisualSource(
+                _bus, equipVisualCatalog, equipmentSnapshotResolver);
             _equipVisualSource = equipVisualSource;
 
             var viewFactory = new UnityViewFactory(
@@ -391,7 +410,8 @@ namespace Adapter.Unity.Shell
                 bus: _bus, dataRegistry: registry,
                 renderer3D: _host.Renderer3D, hitFrameSource: HitFrameSource, weaponStyleSource: weaponStyleSource,
                 renderOptions: renderOptions,
-                equipVisualByItemInstanceId: equipVisualSource.VisualByItemInstanceId);
+                equipVisualByItemInstanceId: equipVisualSource.VisualByItemInstanceId,
+                equipmentVisualSource: equipVisualSource);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(Seed ^ 0x9E3779B97F4A7C15UL);

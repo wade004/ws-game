@@ -14,6 +14,7 @@
 // UnityResourceLoader.TryGetSprite 之类"引擎实现之间的内部协作方法，不算契约违反"同一惯例。
 using System;
 using System.Collections.Generic;
+using Core.Carriers.Common;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
@@ -108,6 +109,14 @@ namespace Adapter.Unity.Presentation
         /// <see cref="EquipmentVisualSource.VisualByItemInstanceId"/>（见该类型判断记录）。</summary>
         private readonly IReadOnlyDictionary<Id, EquipVisualDef>? _equipVisuals;
 
+        /// <summary>第九方审核任务书"第 0 步"补齐：可选的装备外观来源本体（而不仅仅是它暴露的
+        /// <see cref="_equipVisuals"/> 只读快照），供 <see cref="CreateView"/> 对新创建的"生物"分类
+        /// View 调用 <see cref="EquipmentVisualSource.ReplayEquippedForUnit"/>
+        /// 重放该实体当前已装备物品的外观（见该方法判断记录"跨图新 View/InjectInstance 路径不重放"
+        /// 缺口的根治）。可选，默认 null 时行为与改动前完全一致——不影响任何未装配这项能力的既有调用点
+        /// （生产装配三处/既有测试均只传 <c>equipVisualByItemInstanceId</c>，不传本参数）。</summary>
+        private readonly EquipmentVisualSource? _equipmentVisualSource;
+
         private readonly List<IView> _created = new List<IView>();
         private readonly HashSet<string> _warnedMissingDisplay = new HashSet<string>();
         private readonly HashSet<string> _warnedAnimDegraded = new HashSet<string>();
@@ -197,7 +206,8 @@ namespace Adapter.Unity.Presentation
             IHitFrameSource? hitFrameSource = null,
             IWeaponStyleSource? weaponStyleSource = null,
             RenderOptions? renderOptions = null,
-            IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId = null)
+            IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId = null,
+            EquipmentVisualSource? equipmentVisualSource = null)
         {
             _renderer2D = renderer2D ?? throw new ArgumentNullException(nameof(renderer2D));
             _conventions = conventions ?? throw new ArgumentNullException(nameof(conventions));
@@ -210,6 +220,7 @@ namespace Adapter.Unity.Presentation
             _weaponStyleSource = weaponStyleSource;
             _renderOptions = renderOptions;
             _equipVisuals = equipVisualByItemInstanceId;
+            _equipmentVisualSource = equipmentVisualSource;
 
             if (_bus != null)
             {
@@ -307,7 +318,11 @@ namespace Adapter.Unity.Presentation
             }
             else
             {
-                var spriteView = new UnitySpriteView(_renderer2D, _conventions, info, _resourceLoader, _renderOptions);
+                // PR140 文档漂移根治：equipVisual 表与 model 路线共用同一份注入（见
+                // UnitySpriteView 构造函数判断记录），纸娃娃层路线此前一直没有接住这份表。
+                var spriteView = new UnitySpriteView(
+                    _renderer2D, _conventions, info, _resourceLoader, _renderOptions,
+                    equipVisualByItemInstanceId: _equipVisuals);
                 view = spriteView;
 
                 // 外部审核阻塞项 3 收口：只给"生物"（玩家/NPC/怪物——唯一会真正经
@@ -326,8 +341,38 @@ namespace Adapter.Unity.Presentation
                 _hitFrameSource?.RegisterRig(entityId, spriteView.Rig);
             }
 
+            // 第九方审核任务书"第 0 步"补齐：新创建的"生物"分类 View 按当前已装备物品重放一次外观
+            // （见 ReplayEquippedVisuals 判断记录）——放在 _created.Add 之前/之后均可（不影响
+            // DestroyAllCreatedViews 的清理范围），选在这里是为了紧跟在两条分支各自的
+            // model/sprite/NullView 创建逻辑之后、统一处理，不需要在每个分支里各插一次。
+            if (info != null && info.Category == DisplayCategory.Creature)
+            {
+                ReplayEquippedVisuals(view, entityId);
+            }
+
             _created.Add(view);
             return view;
+        }
+
+        /// <summary>见 <see cref="_equipmentVisualSource"/> 字段判断记录：<paramref name="view"/>
+        /// 刚创建、尚未收到任何真正的 <c>item.equipped</c> 事件——按 <paramref name="entityId"/>
+        /// 当前已装备物品逐条合成 <see cref="ItemEquippedEvent"/> 调用 <paramref name="view"/>.
+        /// <see cref="IView.OnEvent"/>，复用 <c>UnityModelView</c>/<c>UnitySpriteView</c> 处理真实
+        /// 装备事件的既有逻辑（查 <see cref="_equipVisuals"/> 表并应用），不新增任何 View 侧状态。
+        /// <see cref="_equipmentVisualSource"/> 未装配（默认 null）时静默跳过，行为与改动前完全
+        /// 一致。</summary>
+        private void ReplayEquippedVisuals(IView view, Id entityId)
+        {
+            if (_equipmentVisualSource == null)
+            {
+                return;
+            }
+
+            var equipped = _equipmentVisualSource.ReplayEquippedForUnit(entityId);
+            for (var i = 0; i < equipped.Count; i++)
+            {
+                view.OnEvent(new ItemEquippedEvent(entityId, equipped[i].ItemInstanceId, equipped[i].Slot));
+            }
         }
 
         /// <summary>

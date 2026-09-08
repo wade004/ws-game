@@ -42,6 +42,7 @@ namespace Presentation.Render
         private readonly Dictionary<Id, Id> _templateIdByItemInstanceId = new Dictionary<Id, Id>();
         private readonly Dictionary<Id, EquipVisualDef> _visualByItemInstanceId = new Dictionary<Id, EquipVisualDef>();
         private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
+        private readonly EquipmentSnapshotResolver? _snapshotResolver;
 
         /// <summary>见类型注释"活字典"判断记录：直接传给
         /// <c>UnityViewFactory</c> 的 <c>equipVisualByItemInstanceId</c> 构造参数。</summary>
@@ -52,14 +53,65 @@ namespace Presentation.Render
         /// （物品模板 id）索引的目录——装配方通常经 <c>display.equip_visual</c> 全表逐行
         /// <see cref="EquipVisualDef.FromRecord"/> 后按 <c>ItemId</c> 建表传入（一个模板声明多条行时
         /// 后一条覆盖前一条，同本仓库其余"内容表只读、装配期加载一次"目录一贯的"后写覆盖"简化）。</param>
-        public EquipmentVisualSource(IEventBus bus, IReadOnlyDictionary<Id, EquipVisualDef> catalogByTemplateId)
+        /// <param name="snapshotResolver">第九方审核任务书"第 0 步"补齐：可选的"单位 id -&gt; 当前全部
+        /// 已装备物品"查询，供 <see cref="ReplayEquippedForUnit"/> 使用（见该方法判断记录）。未提供
+        /// （默认 null）时 <see cref="ReplayEquippedForUnit"/> 恒返回空集合，行为与改动前完全一致。</param>
+        public EquipmentVisualSource(
+            IEventBus bus,
+            IReadOnlyDictionary<Id, EquipVisualDef> catalogByTemplateId,
+            EquipmentSnapshotResolver? snapshotResolver = null)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             _catalogByTemplateId = catalogByTemplateId ?? throw new ArgumentNullException(nameof(catalogByTemplateId));
+            _snapshotResolver = snapshotResolver;
 
             _subscriptions.Add(bus.Subscribe<ItemAddedEvent>(CarriersEventKeys.ItemAdded, OnItemAdded));
             _subscriptions.Add(bus.Subscribe<ItemEquippedEvent>(CarriersEventKeys.ItemEquipped, OnItemEquipped));
             _subscriptions.Add(bus.Subscribe<ItemUnequippedEvent>(CarriersEventKeys.ItemUnequipped, OnItemUnequipped));
+        }
+
+        /// <summary>
+        /// 第九方审核任务书"第 0 步"补齐："新 View 初始装备外观重放"缺口的根治入口：查询
+        /// <paramref name="unitId"/> 当前全部已装备物品（经构造期注入的 <see cref="_snapshotResolver"/>，
+        /// 通常底层是 <c>EquipmentHost.GetAllEquippedInstances</c>），逐条把"实例 id -&gt; 模板 id"
+        /// 记进 <see cref="_templateIdByItemInstanceId"/>（同 <see cref="OnItemAdded"/> 的记账方式，
+        /// 保证后续真正的 <c>item.unequipped</c> 事件仍能正常反查）、并按模板 id 查 <see
+        /// cref="_catalogByTemplateId"/> 直接把结果写进 <see cref="_visualByItemInstanceId"/>——不依赖
+        /// <c>item.added</c> 是否曾经为这个实例触发过（<c>InventoryHost.InjectInstance</c> 不发
+        /// <c>item.added</c> 这条已知缺口因此被绕开：本方法直接从查询结果拿模板 id，不经过
+        /// <c>item.added</c> 这一跳）。
+        /// <para>
+        /// 返回值供调用方（<c>UnityViewFactory.CreateView</c>）针对新创建的 View 逐条合成
+        /// <c>ItemEquippedEvent</c> 调用 <c>view.OnEvent</c>——View 自身的 <c>OnEvent</c> 处理逻辑
+        /// 此时能在 <see cref="_visualByItemInstanceId"/> 里查到刚刚写入的条目，从而在 View 刚创建时
+        /// 就应用一次外观，不需要等待下一次真正的装备/卸装事件。<see cref="_snapshotResolver"/> 未注入
+        /// （默认 null）或该单位没有任何已装备物品时返回空集合。
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<EquippedItemRef> ReplayEquippedForUnit(Id unitId)
+        {
+            if (_snapshotResolver == null)
+            {
+                return Array.Empty<EquippedItemRef>();
+            }
+
+            var equipped = _snapshotResolver(unitId);
+            if (equipped == null || equipped.Count == 0)
+            {
+                return Array.Empty<EquippedItemRef>();
+            }
+
+            for (var i = 0; i < equipped.Count; i++)
+            {
+                var item = equipped[i];
+                _templateIdByItemInstanceId[item.ItemInstanceId] = item.TemplateId;
+                if (_catalogByTemplateId.TryGetValue(item.TemplateId, out var def))
+                {
+                    _visualByItemInstanceId[item.ItemInstanceId] = def;
+                }
+            }
+
+            return equipped;
         }
 
         private void OnItemAdded(ItemAddedEvent evt)

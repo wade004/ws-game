@@ -263,7 +263,26 @@ namespace Game.Template
                 var def = global::Presentation.Render.EquipVisualDef.FromRecord(record);
                 equipVisualCatalog[def.ItemId] = def;
             }
-            _equipVisualSource = new global::Presentation.Render.EquipmentVisualSource(_bus, equipVisualCatalog);
+            // 第九方审核任务书"第 0 步"补齐：同 GameFoundationBootstrap/FrameworkResidentHost 同名
+            // 判断记录——把 EquipmentHost.GetAllEquippedInstances 转换成 EquipmentSnapshotResolver，
+            // 供 EquipmentVisualSource.ReplayEquippedForUnit 在新 View 创建时重放一次外观。
+            global::Presentation.Render.EquipmentSnapshotResolver equipmentSnapshotResolver = unitId =>
+            {
+                var equippedBySlot = gameplay.Carriers.Equipment.GetAllEquippedInstances(unitId);
+                if (equippedBySlot.Count == 0)
+                {
+                    return System.Array.Empty<global::Presentation.Render.EquippedItemRef>();
+                }
+
+                var list = new System.Collections.Generic.List<global::Presentation.Render.EquippedItemRef>(equippedBySlot.Count);
+                foreach (var kv in equippedBySlot)
+                {
+                    list.Add(new global::Presentation.Render.EquippedItemRef(kv.Key, kv.Value.InstanceId, kv.Value.TemplateId));
+                }
+                return list;
+            };
+            _equipVisualSource = new global::Presentation.Render.EquipmentVisualSource(
+                _bus, equipVisualCatalog, equipmentSnapshotResolver);
 
             // W6 收口（ADR-0017 决策 d 遗留缺口收口）：_renderOptions 只构造一次、同一个实例分别传给
             // 下面的 UnityViewFactory（决定 SpriteCharacterRig/ModelCharacterRig 构造期实际拿到的
@@ -284,7 +303,8 @@ namespace Game.Template
                 bus: _bus, dataRegistry: registry,
                 renderer3D: _host.Renderer3D, hitFrameSource: HitFrameSource, weaponStyleSource: _weaponStyleSource,
                 renderOptions: _renderOptions,
-                equipVisualByItemInstanceId: _equipVisualSource.VisualByItemInstanceId);
+                equipVisualByItemInstanceId: _equipVisualSource.VisualByItemInstanceId,
+                equipmentVisualSource: _equipVisualSource);
             ViewFactory = viewFactory;
 
             var presentationRng = new RngHost(_options.Seed ^ 0x9E3779B97F4A7C15UL);

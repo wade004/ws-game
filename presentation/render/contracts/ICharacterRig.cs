@@ -33,6 +33,44 @@ namespace Presentation.Render
     /// </summary>
     public interface ICharacterRig
     {
+        /// <summary>
+        /// PJ140-01 兼容层（<c>architecture/落地计划/audit-c86bfa9-20260908/</c> 第七方审核确认
+        /// PJ130-04 的拆分仍不足以保住全部 1.3 源码兼容——继续实现旧版 <see cref="ICharacterRig"/> 形状
+        /// 的 1.3 消费方代码里，把变量声明为 <c>ICharacterRig</c>（不是 <see cref="IHitFrameEmitter"/>）
+        /// 再直接 <c>rig.HitFrameReached += ...</c> 的写法，在 1.4（本接口不再声明该成员）下会产生
+        /// <c>CS1061</c> 编译错误，实测见 <c>consumer14_build_final.log</c>）。
+        /// <para>
+        /// 用 C# 8 默认接口实现原样加回同名事件成员，标 <see cref="ObsoleteAttribute"/> 引导新代码改用
+        /// <see cref="IHitFrameEmitter"/>：add/remove 只做一次 <c>this is IHitFrameEmitter</c> 探测转发，
+        /// 探测不到（该 <see cref="ICharacterRig"/> 实现确实不参与命中帧同步）时静默 no-op——同 09
+        /// 第 1 节表现层一贯宽容策略，不抛异常。<see cref="SpriteCharacterRig"/>/<see cref="ModelCharacterRig"/>
+        /// 两个框架自带实现都同时实现 <see cref="IHitFrameEmitter"/>，探测总能命中，行为与直接使用
+        /// <see cref="IHitFrameEmitter.HitFrameReached"/> 完全等价——本成员纯粹是给"以 <see cref="ICharacterRig"/>
+        /// 类型持有引用"的旧调用点保留可编译性，不引入第二套独立的事件状态（没有自己的委托字段，只是
+        /// 转发通路）。因为是默认接口实现，不要求任何既有/未来 <see cref="ICharacterRig"/> 实现类型
+        /// 新增任何成员（实现方无需改动一行代码即保持可编译，与本接口本身其余成员的强制契约不同）。
+        /// </para>
+        /// </summary>
+        [Obsolete("改用 IHitFrameEmitter.HitFrameReached：本事件是 1.3 源码兼容层，经默认接口实现转发到 " +
+            "(this as IHitFrameEmitter)，不持有独立状态；新代码请直接对 IHitFrameEmitter 编程。")]
+        event Action<Id>? HitFrameReached
+        {
+            add
+            {
+                if (this is IHitFrameEmitter emitter)
+                {
+                    emitter.HitFrameReached += value;
+                }
+            }
+            remove
+            {
+                if (this is IHitFrameEmitter emitter)
+                {
+                    emitter.HitFrameReached -= value;
+                }
+            }
+        }
+
         Id EntityId { get; }
 
         /// <summary>当前记录的动画状态（见 <see cref="SetAnimState"/> 判断记录），初始

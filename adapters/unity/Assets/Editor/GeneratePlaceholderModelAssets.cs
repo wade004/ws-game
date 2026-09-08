@@ -23,6 +23,15 @@
 //     AnimStateMachine 会永久卡在 Hit（下一次攻击优先级不足以覆盖 Hit，见该类型判断记录"优先级
 //     表"）——这是"完成回调"修复要能在生产数据集下端到端验证"受击后继续攻击"必须一并补上的资产
 //     缺口，与 09/02 勘误"引擎适配层必须在非循环剪辑结束时发出完成事件"是同一件事的资产落地半。
+//   test_autoexit.anim / "test_autoexit" 状态（PR140-04B 根治新增，见
+//     architecture/落地计划/audit-c86bfa9-20260908/AUDIT_REPORT.md PR140-03）：0.2 秒非循环剪辑 +
+//     一条 hasExitTime=true、duration=0（瞬时切换）的 test_autoexit -> idle 自动过渡——本状态与其余
+//     四个状态（idle/attack/cast/hit）完全隔离，只供 UnityRenderer3D.Tick 的"Animator 自动过渡时完成
+//     事件是否漏发"回归测试直接调用 PlayAnim(handle, "anim.test_autoexit", ...)（同 H5b 既有
+//     PlayHitClip_NonLoop_ReachesFinished_RaisesFinishedEvent 一贯的"绕过游戏逻辑状态机、直接对
+//     UnityRenderer3D 播放"手法），不经任何 display.anim_set 登记，也不影响 attack/cast/hit 三个既有
+//     状态——刻意不在共享的 attack/hit 状态上加自动过渡，避免影响 AnimReplayAndFinishEndToEndTests
+//     等既有用例对"未播完前仍停留在该状态"的既有断言。
 //
 // 判断记录（为什么胶囊体本体也是 Animator 所在的 GameObject，而不是另建一个空根节点）：
 // UnityRenderer3D.CreateModelInstance 用 GetComponentInChildren<Animator>() 定位 Animator（不要求
@@ -57,6 +66,7 @@ namespace Adapter.Unity.EditorTools
         private const string AttackClipPath = AnimClipsDir + "/attack.anim";
         private const string CastClipPath = AnimClipsDir + "/cast.anim";
         private const string HitClipPath = AnimClipsDir + "/hit.anim";
+        private const string TestAutoExitClipPath = AnimClipsDir + "/test_autoexit.anim";
 
         /// <summary>命中帧事件名（裸名，见 UnityRenderer3D.AnimEventDomainPrefix 判断记录，换算后
         /// 等于 Presentation.Render.ModelCharacterRig.HitFrameEventId 的 "anim_event." 域前缀 +
@@ -73,8 +83,9 @@ namespace Adapter.Unity.EditorTools
             var attackClip = CreateOrReplaceClip(AttackClipPath, "attack", length: 0.5f, loop: false, hitFrameAtPct: 0.5f);
             var castClip = CreateOrReplaceClip(CastClipPath, "cast", length: 0.6f, loop: false, hitFrameAtPct: null);
             var hitClip = CreateOrReplaceClip(HitClipPath, "hit", length: 0.3f, loop: false, hitFrameAtPct: null);
+            var testAutoExitClip = CreateOrReplaceClip(TestAutoExitClipPath, "test_autoexit", length: 0.2f, loop: false, hitFrameAtPct: null);
 
-            var controller = CreateOrReplaceController(ControllerPath, idleClip, attackClip, castClip, hitClip);
+            var controller = CreateOrReplaceController(ControllerPath, idleClip, attackClip, castClip, hitClip, testAutoExitClip);
 
             CreateOrReplacePrefab(PrefabPath, controller);
 
@@ -83,7 +94,7 @@ namespace Adapter.Unity.EditorTools
 
             Debug.Log(
                 $"[GeneratePlaceholderModelAssets] 生成完成：{PrefabPath} / {ControllerPath} / " +
-                $"{IdleClipPath} / {AttackClipPath} / {CastClipPath} / {HitClipPath}");
+                $"{IdleClipPath} / {AttackClipPath} / {CastClipPath} / {HitClipPath} / {TestAutoExitClipPath}");
         }
 
         /// <summary>供 -executeMethod 批处理调用（同 Il2CppPlayerBuilder 一类入口惯例）：生成后立即
@@ -129,7 +140,8 @@ namespace Adapter.Unity.EditorTools
         }
 
         private static AnimatorController CreateOrReplaceController(
-            string path, AnimationClip idleClip, AnimationClip attackClip, AnimationClip castClip, AnimationClip hitClip)
+            string path, AnimationClip idleClip, AnimationClip attackClip, AnimationClip castClip, AnimationClip hitClip,
+            AnimationClip testAutoExitClip)
         {
             if (AssetDatabase.LoadAssetAtPath<AnimatorController>(path) != null)
             {
@@ -154,6 +166,17 @@ namespace Adapter.Unity.EditorTools
             // 受击剪辑。
             var hitState = stateMachine.AddState("hit");
             hitState.motion = hitClip;
+
+            // PR140-04B 根治新增：见文件顶部判断记录——test_autoexit 状态自带一条 hasExitTime=true、
+            // duration=0（瞬时切换）的自动过渡直接回 idle，专供 PR140-03 回归测试复现"Animator 自动
+            // 过渡在检测帧之前已经发生"这一窗口；与其余四个状态相互独立，不影响既有用例。
+            var testAutoExitState = stateMachine.AddState("test_autoexit");
+            testAutoExitState.motion = testAutoExitClip;
+            var autoExitTransition = testAutoExitState.AddTransition(idleState);
+            autoExitTransition.hasExitTime = true;
+            autoExitTransition.exitTime = 1.0f;
+            autoExitTransition.hasFixedDuration = true;
+            autoExitTransition.duration = 0f;
 
             return controller;
         }
