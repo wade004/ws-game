@@ -65,6 +65,13 @@ namespace Core.Carriers.Unit
             _spatial = spatial;
         }
 
+        /// <summary>零长度目标的判定阈值（游戏侧通用能力需求，05 第 6 节勘误"零长度目标：不建路径、
+        /// 不动、不回调"），与 <see cref="Core.Foundation.EngineAdapter.INavigation2D.FindPath"/> 端点
+        /// 契约"<c>|from-to| &lt;= 1e-6</c>"取同一常量，保证 <see cref="BeginPathTo"/> 的短路判断与
+        /// 导航实现自身对零长度目标的判断一致（不会出现"移动系统认为非零长度、但导航实现认为零长度"
+        /// 的边界不一致）。</summary>
+        private const double ZeroLengthEpsilon = 1e-6;
+
         public void Execute(SimStep step, IWorldSim world)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
@@ -76,16 +83,47 @@ namespace Core.Carriers.Unit
             var dt = step.Kind == SimStepKind.Continuous ? step.Dt : _options.DiscreteTurnEquivalentSeconds;
 
             // world.CurrentIntents 在离散步下已经只包含当前行动者的意图（见 WorldSim.Tick 判断
-            // 记录），第一遍循环不需要额外按 step.ActorId 过滤。
+            // 记录），下面几遍循环不需要额外按 step.ActorId 过滤。
             var intents = world.CurrentIntents;
             var processedThisTick = new HashSet<Id>();
 
-            // 第一遍：消费本 tick 的 move 意图（(重新)确立移动状态并立即推进这一 tick 的位移）。
+            // 游戏侧通用能力需求（05 第 6 节勘误"先处理 move_stop 意图 → 再处理 move 意图"）：先算出
+            // 每个单位本 tick 最后一条 move_stop 意图的下标——同一 tick 内该下标之前提交的 move 意图
+            // 被丢弃（视为从未提交过），之后提交的 move 意图照常生效；本类只关心"是否存在、下标"，
+            // 具体停止的落地效果由 ApplyStop 统一处理。
+            var lastStopIndex = new Dictionary<Id, int>();
+            for (var i = 0; i < intents.Count; i++)
+            {
+                if (intents[i].Kind == "move_stop")
+                {
+                    lastStopIndex[intents[i].ActorId] = i;
+                }
+            }
+
+            // 第一遍 A：处理 move_stop 意图（先于 move，同一单位同一 tick 内多条 move_stop 只需按其中
+            // 一条处理一次——落地效果只取决于"处理时的当前状态"，重复处理是幂等的，这里用
+            // processedStop 去重只是避免重复调用 ApplyStop 做多余工作，不影响结果正确性）。
+            var processedStop = new HashSet<Id>();
+            for (var i = 0; i < intents.Count; i++)
+            {
+                var intent = intents[i];
+                if (intent.Kind != "move_stop") continue;
+                if (!(world.GetEntity(intent.ActorId) is Unit unit)) continue;
+                if (!processedStop.Add(unit.EntityId)) continue;
+
+                var discardedMoveIntent = HasPrecedingMoveIntent(intents, unit.EntityId, lastStopIndex[unit.EntityId]);
+                ApplyStop(unit, MoveStopReason.Requested, discardedMoveIntent);
+                processedThisTick.Add(unit.EntityId);
+            }
+
+            // 第一遍 B：消费本 tick 存活的 move 意图（(重新)确立移动状态并立即推进这一 tick 的位移）。
+            // 被同一 tick 内更晚提交的 move_stop 丢弃的 move 意图在这里跳过（见上方 lastStopIndex）。
             for (var i = 0; i < intents.Count; i++)
             {
                 var intent = intents[i];
                 if (intent.Kind != "move") continue;
                 if (!(world.GetEntity(intent.ActorId) is Unit unit)) continue;
+                if (lastStopIndex.TryGetValue(unit.EntityId, out var stopIdx) && stopIdx > i) continue;
 
                 ApplyIntent(unit, intent, dt, step.Kind == SimStepKind.Discrete);
                 processedThisTick.Add(unit.EntityId);
@@ -101,7 +139,9 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            // 第二遍：本 tick 未收到新意图、但仍有未走完路径的单位继续沿路径推进（仅连续模式）。
+            // 第二遍：本 tick 未收到新意图、但仍有未走完路径的单位——先比较该地图的动态阻挡版本，
+            // 按 MovementOptions.BlockingChangePolicy 处理变化，再继续沿路径推进（仅连续模式，见
+            // 05 第 6 节勘误 tick 步骤 4"先处理 move_stop → 再处理 move → 重验阻挡版本 → 才推进"）。
             foreach (var entity in world.QueryEntities(new EntityFilter(predicate: e => e is Unit)))
             {
                 if (processedThisTick.Contains(entity.EntityId)) continue;
@@ -111,7 +151,80 @@ namespace Core.Carriers.Unit
 
                 if (IsLocked(unit)) continue;
 
+                if (!RevalidateBlocking(unit)) continue;
+
                 ContinuePathCore(unit, dt);
+            }
+        }
+
+        /// <summary>本 tick 的意图列表 <paramref name="intents"/> 中，<paramref name="stopIndex"/>
+        /// （某单位最后一条 <c>move_stop</c> 意图的下标）之前是否存在该单位的 <c>move</c> 意图——用于
+        /// <see cref="MovementHost.Stop"/> 的幂等判断："即便该单位当前没有活动路径，只要有一条本会被
+        /// 丢弃的待处理 move 意图，也算'确有东西被取消'，需要触发 <see cref="MovementHost.OnMoveStopped"/>"
+        /// （见 <see cref="MovementHost.Stop"/> 判断记录"幂等：无活动路径且无待处理意图时静默不回调"）。
+        /// </summary>
+        private static bool HasPrecedingMoveIntent(IReadOnlyList<Intent> intents, Id unitId, int stopIndex)
+        {
+            for (var i = 0; i < stopIndex; i++)
+            {
+                if (intents[i].Kind == "move" && intents[i].ActorId.Equals(unitId))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>落地 <see cref="MovementHost.Stop"/> 的效果：存在活动路径时清空路径、状态收回
+        /// <see cref="MoveMode.Idle"/>；<paramref name="hadDiscardedMoveIntent"/> 为 true 时即便没有
+        /// 活动路径也视为"确有东西被取消"（见 <see cref="HasPrecedingMoveIntent"/> 判断记录）。二者
+        /// 皆否时静默返回，不触发 <see cref="MovementHost.OnMoveStopped"/>（幂等）。
+        /// <para>
+        /// 判断记录：本方法不检查 <see cref="IsLocked"/>——停止是"取消"操作而非"产生位移"的操作，
+        /// 被控制效果禁止移动的单位仍然应该能够被停止（例如取消一条位移类控制效果结束后不该继续
+        /// 生效的旧路径），与 <c>ApplyIntent</c>/<c>ContinuePathCore</c> 等真正推进位移的路径不同，
+        /// 不受 <see cref="MovementOptions.MovementBudgetRule"/>/行动点预算约束（停止不消耗预算）。
+        /// </para>
+        /// </summary>
+        private void ApplyStop(Unit unit, MoveStopReason reason, bool hadDiscardedMoveIntent)
+        {
+            var state = unit.MovementState;
+            var hadPath = state.CurrentPath != null;
+
+            if (!hadPath && !hadDiscardedMoveIntent)
+            {
+                return;
+            }
+
+            if (hadPath)
+            {
+                var oldMode = state.Mode;
+                unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
+                RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
+            }
+
+            _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, reason);
+        }
+
+        /// <summary>寻路失败的统一处理（<see cref="BeginPathTo"/> 建路失败、<see cref="ReplanPath"/>
+        /// 重算失败共用）：先同时触发 <see cref="MovementHost.OnMoveFailed"/>（保持原签名，既有订阅方
+        /// 不受影响）与 <see cref="MovementHost.OnMoveFailedDetailed"/>（携带 <paramref name="reason"/>），
+        /// 再按 <see cref="MovementOptions.PathFailurePolicy"/> 决定后续：<c>KeepOldPath</c>（默认）
+        /// 不做任何状态改动，沿用既有路径（若有）继续推进，向后兼容本任务之前的唯一行为；<c>Stop</c>
+        /// 清空路径并触发 <see cref="MovementHost.OnMoveStopped"/>（<see cref="MoveStopReason.PathFailed"/>）。
+        /// 重入安全：本方法每次调用只触发一次失败回调，调用方（游戏层）若在回调内同步调用
+        /// <see cref="MovementHost.Stop"/>/<see cref="MovementHost.Request"/>，二者都只是
+        /// <see cref="Core.Foundation.SimLoop.IWorldSim.SubmitIntent"/>（下一 tick 才生效，见两方法
+        /// 判断记录），不会在本次 <see cref="Execute"/> 内递归触发新的失败回调。</summary>
+        private void HandlePathFailure(Unit unit, Vec2 from, Vec2 to, MoveFailReason reason)
+        {
+            _movementHost.RaiseMoveFailed(unit.EntityId, from, to);
+            _movementHost.RaiseMoveFailedDetailed(unit.EntityId, from, to, reason);
+
+            if (_options.PathFailurePolicy == PathFailurePolicy.Stop)
+            {
+                ApplyStop(unit, MoveStopReason.PathFailed, hadDiscardedMoveIntent: false);
             }
         }
 
@@ -182,19 +295,40 @@ namespace Core.Carriers.Unit
         private void BeginPathTo(Unit unit, Vec2 target, MoveMode mode, double dt)
         {
             var from = unit.Position;
+
+            // 游戏侧通用能力需求（05 第 6 节勘误"零长度目标：不建路径、不动、不回调"）：与
+            // ZeroLengthEpsilon 判断记录同一常量，短路在调用 FindPath 之前——无论是否装配导航，
+            // "已经在目标点"都不构成一次有意义的移动请求。
+            if ((target - from).Length <= ZeroLengthEpsilon)
+            {
+                return;
+            }
+
+            var oldState = unit.MovementState;
             IReadOnlyList<Vec2>? path = _navigation != null
                 ? _navigation.FindPath(unit.MapId, from, target)
                 : new List<Vec2> { from, target };
 
             if (path == null)
             {
-                _movementHost.RaiseMoveFailed(unit.EntityId, from, target);
+                HandlePathFailure(unit, from, target, MoveFailReason.NoPath);
                 return;
             }
 
-            var oldMode = unit.MovementState.Mode;
-            unit.MovementState = new MovementState(path, mode, unit.MovementState.MovementLocked, 0);
+            // 游戏侧通用能力需求（05 第 6 节勘误"替换"）：新路径整体替换仍在进行中的旧路径时，
+            // 触发 OnMoveStopped(Replaced)——仅当旧路径确实存在（寻路失败分支已在上面提前返回，
+            // 不会走到这里，因此这里的"替换"必然是一次成功的重新建路）。
+            var hadPath = oldState.CurrentPath != null;
+            var navVersion = _navigation?.GetBlockingVersion(unit.MapId) ?? 0;
+
+            var oldMode = oldState.Mode;
+            unit.MovementState = new MovementState(path, mode, oldState.MovementLocked, 0, navVersion);
             RaiseStateChangedIfNeeded(unit.EntityId, oldMode, mode);
+
+            if (hadPath)
+            {
+                _movementHost.RaiseMoveStopped(unit.EntityId, from, MoveStopReason.Replaced);
+            }
 
             ContinuePathCore(unit, dt);
         }
@@ -297,8 +431,146 @@ namespace Core.Carriers.Unit
             }
             else
             {
-                unit.MovementState = new MovementState(path, state.Mode, state.MovementLocked, index);
+                unit.MovementState = new MovementState(path, state.Mode, state.MovementLocked, index, state.NavVersion);
             }
+        }
+
+        /// <summary>
+        /// 游戏侧通用能力需求（05 第 6 节勘误 tick 步骤 4）：在继续推进 <paramref name="unit"/> 已有
+        /// 路径之前，比较该地图当前的 <see cref="Core.Foundation.EngineAdapter.INavigation2D.GetBlockingVersion"/>
+        /// 与建路时记录的 <see cref="MovementState.NavVersion"/>，按 <see cref="MovementOptions.BlockingChangePolicy"/>
+        /// 处理变化。返回 <c>false</c> 表示本 tick 不应再调用 <see cref="ContinuePathCore"/>（路径已被
+        /// 清空，见 <see cref="ApplyStop"/>/<see cref="ReplanPath"/>）；返回 <c>true</c> 表示可以（
+        /// 照常）继续推进——涵盖"未装配导航"“导航不支持版本追踪（恒为 0）”“版本未变化”
+        /// “<see cref="Core.Carriers.Unit.BlockingChangePolicy.Ignore"/>”“重验/重算后路径仍然存在”
+        /// 等多种情形，调用方不需要关心具体是哪一种。
+        /// <para>
+        /// 判断记录（调用前提：<c>unit.MovementState.CurrentPath</c> 非 null）：本方法只在
+        /// <see cref="Execute"/> 第二遍循环（continuous 模式下"本 tick 未收到新意图但仍在走旧路径"
+        /// 的单位）前调用，不在 <see cref="BeginPathTo"/> 里对刚建立的新路径调用——新路径的
+        /// <see cref="MovementState.NavVersion"/> 就是建路那一刻读到的当前版本，两者必然相等，调用
+        /// 本方法只会是一次没有任何效果的空判断。
+        /// </para>
+        /// </summary>
+        private bool RevalidateBlocking(Unit unit)
+        {
+            if (_navigation == null)
+            {
+                return true;
+            }
+
+            var state = unit.MovementState;
+            var currentVersion = _navigation.GetBlockingVersion(unit.MapId);
+            if (currentVersion == 0 || currentVersion == state.NavVersion)
+            {
+                // 0：导航实现不支持版本追踪（见 INavigation2D.GetBlockingVersion 判断记录"视为不做
+                // 自动重验"）；相等：建路之后该地图的动态阻挡未发生变化，无需重验。
+                return true;
+            }
+
+            switch (_options.BlockingChangePolicy)
+            {
+                case BlockingChangePolicy.Ignore:
+                    return true;
+
+                case BlockingChangePolicy.Stop:
+                    ApplyStop(unit, MoveStopReason.BlockingChanged, hadDiscardedMoveIntent: false);
+                    return false;
+
+                case BlockingChangePolicy.Revalidate:
+                    return RevalidateRemainingSegments(unit, currentVersion);
+
+                case BlockingChangePolicy.Replan:
+                default:
+                    return ReplanPath(unit, currentVersion);
+            }
+        }
+
+        /// <summary><see cref="Core.Carriers.Unit.BlockingChangePolicy.Revalidate"/>：对
+        /// <paramref name="unit"/> 剩余路段（从当前实际位置到 <see cref="MovementState.PathIndex"/>
+        /// 之后的每个路点依次相连）逐段调用 <see cref="Core.Foundation.EngineAdapter.INavigation2D.Raycast"/>
+        /// ——与 <see cref="Core.Foundation.EngineAdapter.INavigation2D.FindPath"/> 共用同一套阻挡判定
+        /// （见该接口第 1.8 节勘误）。全程无阻挡：只把 <see cref="MovementState.NavVersion"/> 更新为
+        /// <paramref name="currentVersion"/>（标记"已按这个版本验证过"），路径/索引不变——比
+        /// <see cref="Core.Carriers.Unit.BlockingChangePolicy.Replan"/> 更省一次寻路开销。任意一段受阻：
+        /// 委托 <see cref="ReplanPath"/> 对剩余目标重新整体寻路。</summary>
+        private bool RevalidateRemainingSegments(Unit unit, int currentVersion)
+        {
+            var state = unit.MovementState;
+            var path = state.CurrentPath!;
+            var index = state.PathIndex < 0 ? 0 : state.PathIndex;
+
+            var blocked = false;
+            var segStart = unit.Position;
+            for (var i = index; i < path.Count; i++)
+            {
+                if (_navigation!.Raycast(unit.MapId, segStart, path[i]) != null)
+                {
+                    blocked = true;
+                    break;
+                }
+
+                segStart = path[i];
+            }
+
+            if (!blocked)
+            {
+                unit.MovementState = new MovementState(state.CurrentPath, state.Mode, state.MovementLocked, state.PathIndex, currentVersion);
+                return true;
+            }
+
+            return ReplanPath(unit, currentVersion);
+        }
+
+        /// <summary><see cref="Core.Carriers.Unit.BlockingChangePolicy.Replan"/>（默认策略）与
+        /// <see cref="RevalidateRemainingSegments"/> 判定受阻后的共同落点：以 <paramref name="unit"/>
+        /// 当前实际位置为起点、原路径最终目标点为终点，重新整体调用一次
+        /// <see cref="Core.Foundation.EngineAdapter.INavigation2D.FindPath"/>。成功：新路径整体替换
+        /// （<see cref="MovementState.PathIndex"/> 归零、<see cref="MovementState.NavVersion"/> 更新为
+        /// <paramref name="currentVersion"/>），不触发 <see cref="MovementHost.OnMoveStopped"/>（这是
+        /// 系统内部的自动重算，不是 <see cref="MovementHost.Request"/> 意义上的"替换"，见该事件判断
+        /// 记录）。失败：经 <see cref="HandlePathFailure"/> 触发失败回调并按
+        /// <see cref="MovementOptions.PathFailurePolicy"/> 处理。返回值即失败处理之后
+        /// <c>unit.MovementState.CurrentPath</c> 是否仍非 null（据此决定调用方是否还应该继续本 tick
+        /// 的 <see cref="ContinuePathCore"/>），不需要调用方重复判断 <see cref="PathFailurePolicy"/>
+        /// 具体是哪一支。</summary>
+        private bool ReplanPath(Unit unit, int currentVersion)
+        {
+            var state = unit.MovementState;
+            var path = state.CurrentPath!;
+            var target = path[path.Count - 1];
+            var from = unit.Position;
+
+            var newPath = _navigation!.FindPath(unit.MapId, from, target);
+            if (newPath == null)
+            {
+                HandlePathFailure(unit, from, target, MoveFailReason.BlockingChanged);
+
+                // 判断记录（不应重复触发失败回调）：HandlePathFailure 按 PathFailurePolicy 处理——
+                // Stop 分支已经把路径清空（下面 CurrentPath 为 null，本方法调用点循环不会再碰这个
+                // 单位）；KeepOldPath（默认）分支旧路径原样保留，但如果不把 NavVersion 前移到
+                // currentVersion，下一 tick RevalidateBlocking 会发现"仍然是建路时的旧版本 vs 当前
+                // 版本不等"，对同一次阻挡变化重新调用一次 ReplanPath、再次失败、再次触发回调——每
+                // 个后续 tick 都重复一次，破坏"重新请求已被围住的目标应恰好触发一次
+                // OnMoveFailedDetailed"契约（该 bug 已被 PlayMode 用例
+                // ReRequestBlockedTarget_DefaultPolicy_KeepsAdvancingOldPath_FailsOnce 用真实数值
+                // 复现：failCount 从预期 1 涨到 11，与"多跑 10 个 tick"逐 tick 各触发一次完全吻合）。
+                // 把 NavVersion 前移到 currentVersion，标记"已经按这个版本处理过（虽然重算失败）"，
+                // 语义与 RevalidateRemainingSegments 未受阻分支"只更新版本号"一致——下一次真正触发
+                // 重验的前提是版本号再次变化（又一次 SetBlocking/Clear/BuildNavMesh）。
+                var keptState = unit.MovementState;
+                if (keptState.CurrentPath != null)
+                {
+                    unit.MovementState = new MovementState(
+                        keptState.CurrentPath, keptState.Mode, keptState.MovementLocked,
+                        keptState.PathIndex, currentVersion);
+                }
+
+                return unit.MovementState.CurrentPath != null;
+            }
+
+            unit.MovementState = new MovementState(newPath, state.Mode, state.MovementLocked, 0, currentVersion);
+            return true;
         }
 
         /// <summary>

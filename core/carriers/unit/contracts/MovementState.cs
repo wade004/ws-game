@@ -36,12 +36,26 @@ namespace Core.Carriers.Unit
         /// 从起点重新出发）。</summary>
         public int PathIndex { get; }
 
-        public MovementState(IReadOnlyList<Vec2>? currentPath, MoveMode mode, bool movementLocked, int pathIndex)
+        /// <summary>
+        /// 游戏侧通用能力需求（05 第 6 节勘误）：建立 <see cref="CurrentPath"/> 时记录的
+        /// <see cref="Core.Foundation.EngineAdapter.INavigation2D.GetBlockingVersion"/> 快照，供
+        /// <c>MovementTickHandler</c> 在每次推进前比较"该地图的动态阻挡是否在建路之后又变化过"——
+        /// 相等（含都为 0，即未装配导航或导航实现不支持版本追踪）视为"无需重验"，不同则按
+        /// <see cref="MovementOptions.BlockingChangePolicy"/> 处理。默认 0（与
+        /// <see cref="Core.Foundation.EngineAdapter.INavigation2D.GetBlockingVersion"/> 默认实现的
+        /// "不支持版本追踪"取值一致，不建立路径的状态——如 <see cref="MoveMode.Idle"/>/方向移动——
+        /// 这个字段没有意义，取默认值即可）。
+        /// </summary>
+        public int NavVersion { get; }
+
+        public MovementState(
+            IReadOnlyList<Vec2>? currentPath, MoveMode mode, bool movementLocked, int pathIndex, int navVersion = 0)
         {
             CurrentPath = currentPath;
             Mode = mode;
             MovementLocked = movementLocked;
             PathIndex = pathIndex;
+            NavVersion = navVersion;
         }
 
         /// <summary>未在移动、未被锁定的默认状态。</summary>
@@ -51,6 +65,6 @@ namespace Core.Carriers.Unit
         /// 调用方便捷更新（其余字段照抄本实例，不受锁定状态影响，见 05 第 6.2 节"移动系统只读这些
         /// 派生状态"——锁定只影响是否推进,不清空既有路径）。</summary>
         public MovementState WithLocked(bool movementLocked) =>
-            new MovementState(CurrentPath, Mode, movementLocked, PathIndex);
+            new MovementState(CurrentPath, Mode, movementLocked, PathIndex, NavVersion);
     }
 }

@@ -4,6 +4,49 @@ using Core.Foundation.Common;
 namespace Core.Carriers.Unit
 {
     /// <summary>
+    /// <see cref="MovementTickHandler"/> 在一次 <c>BeginPathTo</c> 建路失败、或某单位持有路径时
+    /// <see cref="Core.Foundation.EngineAdapter.INavigation2D.GetBlockingVersion"/> 重算失败后的
+    /// 处理策略（见 05 第 6 节勘误、<see cref="MovementHost.OnMoveFailedDetailed"/> 判断记录）。
+    /// </summary>
+    public enum PathFailurePolicy
+    {
+        /// <summary>保留旧路径继续推进（默认，向后兼容——本任务之前唯一的行为：寻路失败只回调
+        /// <see cref="MovementHost.OnMoveFailed"/>，不改变 <see cref="MovementState"/>）。</summary>
+        KeepOldPath,
+
+        /// <summary>清空路径、把状态收回 <see cref="MoveMode.Idle"/>，并触发
+        /// <see cref="MovementHost.OnMoveStopped"/>（<see cref="MoveStopReason.PathFailed"/>）。</summary>
+        Stop,
+    }
+
+    /// <summary>
+    /// <see cref="MovementTickHandler"/> 在某单位持有路径、且
+    /// <see cref="Core.Foundation.EngineAdapter.INavigation2D.GetBlockingVersion"/> 相对建路时记录的
+    /// <see cref="MovementState.NavVersion"/> 发生变化（且非 0，见该方法判断记录）时采用的处理策略
+    /// （见 05 第 6 节勘误）。
+    /// </summary>
+    public enum BlockingChangePolicy
+    {
+        /// <summary>直接对剩余目标重新调用一次寻路，用新路径整体替换（默认）；重算失败按
+        /// <see cref="PathFailurePolicy"/> 处理。</summary>
+        Replan,
+
+        /// <summary>先对剩余路段逐段做视线判定，判定命中受阻才重算；不受阻只更新已验证的版本号，
+        /// 路径本身不变（比 <see cref="Replan"/> 更省寻路开销）。重算失败按
+        /// <see cref="PathFailurePolicy"/> 处理。</summary>
+        Revalidate,
+
+        /// <summary>直接停止：清空路径、把状态收回 <see cref="MoveMode.Idle"/>，触发
+        /// <see cref="MovementHost.OnMoveStopped"/>（<see cref="MoveStopReason.BlockingChanged"/>），
+        /// 不尝试重算。</summary>
+        Stop,
+
+        /// <summary>忽略版本变化，照常沿既有路径推进（口味调整：游戏层认为不值得为动态阻挡自动
+        /// 重验，例如阻挡矩形只用于视觉表现、不影响该游戏的移动判定）。</summary>
+        Ignore,
+    }
+
+    /// <summary>
     /// <c>MovementTickHandler</c> 的口味配置项（见任务书拍板：速度属性 id 与缺省速度、到达判定
     /// 阈值，均可按具体游戏口味调整，不属于架构层面的固定语义，惯例同 <c>core/rules/ai</c> 的
     /// <c>AiOptions</c>）。
@@ -98,5 +141,23 @@ namespace Core.Carriers.Unit
         /// 具体数值仍是口味配置项，游戏层可按自己的单位密度调整。
         /// </summary>
         public double UnitBlockRadius { get; set; } = 0.5;
+
+        /// <summary>
+        /// 游戏侧通用能力需求（05 第 6 节勘误）：<see cref="MovementTickHandler.BeginPathTo"/> 建路
+        /// 失败（<see cref="Core.Foundation.EngineAdapter.INavigation2D.FindPath"/> 返回 null）或
+        /// 阻挡版本变化后重算失败时的处理策略，默认 <see cref="PathFailurePolicy.KeepOldPath"/>
+        /// （向后兼容——本任务之前唯一的行为）。
+        /// </summary>
+        public PathFailurePolicy PathFailurePolicy { get; set; } = PathFailurePolicy.KeepOldPath;
+
+        /// <summary>
+        /// 游戏侧通用能力需求（05 第 6 节勘误）：某单位持有路径期间
+        /// <see cref="Core.Foundation.EngineAdapter.INavigation2D.GetBlockingVersion"/> 发生变化时的
+        /// 处理策略，默认 <see cref="BlockingChangePolicy.Replan"/>。仅当装配的
+        /// <see cref="Core.Foundation.EngineAdapter.INavigation2D"/> 实现支持版本追踪（
+        /// <c>GetBlockingVersion</c> 返回非 0）时才会被读取——未装配导航或导航实现恒返回 0（默认
+        /// 接口实现）时，本字段不影响任何行为，与本任务之前完全一致。
+        /// </summary>
+        public BlockingChangePolicy BlockingChangePolicy { get; set; } = BlockingChangePolicy.Replan;
     }
 }

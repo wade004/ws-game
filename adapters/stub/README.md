@@ -20,7 +20,7 @@
 | `IInput` | `StubInput` | 可编程输入；`Press`/`Release`/`SetAxis`/`MoveMouse` 供测试驱动 |
 | `IFileSystem` | `StubFileSystem` | 内存文件系统；`FailNextWrite()` 模拟原子写入失败且旧内容不变 |
 | `IResourceLoader` | `StubResourceLoader` | 同步"异步"；`Register(id)` 登记的资源立即加载成功，未登记的立即失败 |
-| `INavigation2D` | `StubNavigation2D` | 直线导航（路径=起点终点两点）；`AddBlockingRect` 登记阻挡矩形 |
+| `INavigation2D` | `StubNavigation2D` | 直线导航（路径=起点终点两点）；`SetBlocking`/`Clear` 登记按地图分组的阻挡矩形；`GetBlockingVersion` 按地图独立计数（`BuildNavMesh`/`SetBlocking`/`Clear` 均递增） |
 | `ISpatialQuery` | `StubSpatialQuery` | 对 `Register(id, position, radius, tags)` 登记的对象做暴力遍历查询，结果按 `Id` 排序 |
 | `IUISurface` | `StubUISurface` | 记录已创建 surface、布局、DrawText 调用、当前焦点元素 |
 | `IPlatform` | `StubPlatform` | 崩溃日志写入内存列表 `CrashLog`；剪贴板为内存字符串；语言可用 `SetLanguage` 设置 |
