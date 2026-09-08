@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     共享的 SHA256 文件哈希计算函数（第九轮审计工具链条目根治，见
     architecture/落地计划/audit-85f1f4f-20260908/）。判断记录：本机 Windows PowerShell 5.1

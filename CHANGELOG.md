@@ -69,6 +69,12 @@
   **`toolchain` pytest 子进程按宿主默认编码解码可能崩溃**、**`get_framework.ps1` 等三处直接依赖
   `Get-FileHash` 无兜底**：10 项均为第十一方深度审核（codex 第九轮）发现，逐条根因、复现测试、
   修复位置、验收结果见上文引用的 followup 文档，不在此重复展开。
+- **`toolchain/_hash.ps1` 缺少 UTF-8 BOM 导致在部分执行宿主上按系统默认代码页误读脚本源码、触发
+  语法解析错误**：发布前 CI 复核发现（本机开发代码页下未复现，另一台系统默认代码页不同的宿主上
+  可稳定复现），已补回 BOM（内容不变）并新增门禁测试
+  `toolchain/tests/test_powershell_scripts_ansi_safe.py`，把"脚本含非 ASCII 字符必须带 BOM"
+  固化为门禁校验项，见 `architecture/11_工程规范与测试.md` 第 8 节对应勘误行与
+  `toolchain/README.md` 判断记录。
 
 ### 迁移说明
 

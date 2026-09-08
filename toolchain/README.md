@@ -33,6 +33,28 @@ skill/combat/target/ai 等各模块的专属校验规则）复用 `core/foundati
 忘了调用它、又在这两个环境变量不生效的场合（例如本机开发者直接双击运行、或未来某个调用方
 清空了环境变量）运行，仍然会在非 UTF-8 控制台上崩溃。
 
+## `.ps1`/`.psm1` 脚本源码编码（UTF-8 BOM）
+
+判断记录（2026-09-08，发布前 CI 复核发现，见 `architecture/11_工程规范与测试.md` 第 8 节
+提交门槛清单对应勘误行）：本机跑完 `build.ps1 -Release 1.7.0 -PublishRegistry` 并本地发布
+三包后、推送前，发现远端 CI 在同一提交上失败——`toolchain/_hash.ps1` 没有 UTF-8 BOM 且含中文
+注释，托管运行器的 Windows PowerShell 5.1 在文件没有 BOM 时按系统 ANSI 代码页（`cp1252`，与
+上面"控制台编码"一节提到的 GitHub Actions `windows-latest` 默认代码页是同一个）读取脚本源码，
+中文注释 UTF-8 字节序列里的 `0x93`/`0x94` 被当成弯引号字符，导致 `_hash.ps1:48` 报
+`TerminatorExpectedAtEndOfString`（字符串终止符缺失）。本机开发环境代码页是 GBK，同样不是
+UTF-8，但字节巧合下没有触发这个具体的解析错误，本机门禁没能暴露这个问题——即"本机代码页 A 下
+能跑通"不能替代"目标运行代码页 B 下也能跑通"的验证，两者都不是脚本实际编码，谁踩坑纯属巧合。
+
+根治：给 `_hash.ps1` 补上 UTF-8 BOM（内容不变，只在文件开头加 3 字节 `EF BB BF`），并把"脚本
+含非 ASCII 字符必须带 BOM"升级为门禁校验——`toolchain/tests/test_powershell_scripts_ansi_safe.py`
+对仓库内跟踪的每个 `.ps1`/`.psm1` 文件（`architecture/落地计划/audit-*/` 下的历史审计证据脚本
+除外）做两件事：(a) 含非 ASCII 字节的文件必须以 BOM 开头；(b) 用 PowerShell 语言分析器
+（`Parser.ParseInput`，只做语法解析、不执行）复核脚本能否被正确解析——没有 BOM 的文件按
+`cp1252` 解码文件字节模拟"目标运行代码页误读"场景，带 BOM 的文件按 PowerShell 自身
+`Get-Content -Raw` 的默认读取（BOM 会被正确识别，不需要额外模拟）。该测试在补 BOM 之前对
+`_hash.ps1` 确认能失败（复现出与 CI 相同的解析错误类别），补 BOM 之后转为通过，确认门禁本身
+有效而非形同虚设。
+
 ## 虚拟环境
 
 ```
