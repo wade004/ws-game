@@ -21,12 +21,46 @@
 先一步释放，让断言恰好也通过"这一假通过可能性。均属表现层/引擎适配层缺陷修复与测试加固，无数据
 表字段删改，无存档格式变更。
 
+第十方深度审核（codex 第八轮，基线 `3224ca1`，即本版本发布前的最新提交）8 项发现（CR150-01～04、
+PR150-01～03、PJ150-01）逐条核实并根治，另根治 1.5.0 遗留的一处已知局限（PR140-04 的"极短 GCD
+内连续独立攻击被误合并为同一命中帧同步批次"，本版本补齐 `AttackInstanceId` 链路后消除）。逐条
+核实表、上轮九项复核对照、文档处理清单见
+[audit-3224ca1-20260908/followup-2026-09-08d.md](architecture/落地计划/audit-3224ca1-20260908/followup-2026-09-08d.md)。
+均属核心规则/表现层/引擎适配层缺陷修复、下载脚本安全加固与文档口径统一，无数据表字段删改；
+存档格式变更见下"迁移说明"。
+
 ### 新增
 
 - **`Presentation.FeedbackBinder.Core.HitFrameSyncReleaseReason`**（枚举，`HitFrame`/`Timeout`）与
   只读诊断属性 `HitFrameSyncPolicy.LastReleaseReason`/`FeedbackBinder.LastHitFrameSyncReleaseReason`：
   命中帧同步等待队列最近一次批次释放究竟是命中帧事件真正到达，还是超时兜底，供测试与诊断直接断言
   区分两条释放路径，不再只能靠"某个副作用计数是否增加"间接判断。
+- **`Core.Carriers.Gobj.GameObjectEntity.OriginKey`**（CR150-02，可空 `Id` 属性）：经
+  `GameObjectFactory.Spawn` 按"地图+位置+模板"自动合成的稳定摆放位置键，跨运行期实体重建
+  （地图卸载/重入分配新实体 id）保持不变；`Spawn` 新增同名可选参数，未显式传入时自动合成，既有
+  调用方无需改动。
+- **`Core.Foundation.SaveSystem.IPersistable.KeepStateWhenSectionMissing`**（CR150-03，默认接口
+  方法，默认返回 `false`）：已注册的存档段在读取的文档里整段缺失时，`SaveSystem.Load` 默认仍会
+  调用一次该段 `Load(JsonNull.Instance)`（清空既有运行期状态）；需要保留旧行为（缺段视为"不动
+  当前状态"）的具体实现可显式覆盖为 `true`。纯加法，既有 `IPersistable` 实现无需改动即可编译。
+- **`Core.Carriers.Gobj.GobjOptions.GatherNodeLootPolicy`**（CR150-04，`GobjLootDeliveryPolicy`
+  枚举，默认 `Partial`）：独立于既有 `ChestLootPolicy` 的口味配置项，控制采集节点满包时的交付
+  协议（`Reject` 整批回滚可立即重试；`Partial` 部分交付+余量记账）。
+- **`Core.Rules.Common.EffectContext.AttackInstanceId`**（可空 `Id`，攻击实例 id 遗留根治）与
+  `CombatDamageDealtEvent`/`CombatHealDoneEvent` 同名新字段：`CastPipeline.ExecuteEffectsOnly`
+  每次调用固定分配一个全新实例 id，经 `Resolver` 转发到落地伤害/治疗事件，供 `FeedbackBinder`
+  按值精确区分同一攻击者的多次独立攻击各自的命中帧同步批次，不再依赖"是否还有未释放批次"这一
+  时序代理。均为新增可空字段/新增可选构造参数，默认 `null`，不改变既有调用点在缺省参数下的
+  观测行为。
+- **`Adapter.Unity.EngineAdapter.AnimStateFinishRelay`**（PR150-02，新增
+  `StateMachineBehaviour` 子类，不属于 `IRenderer3D` 契约）：挂到具体引擎适配层动画状态机的
+  目标状态上后，把动画系统同步触发的进入/退出事件转发回渲染器，作为既有"外部轮询采样"判断动画
+  播放完成的并行判定路径（两者取 OR），修复自动过渡整个落在两次采样之间导致完成事件永久漏发的
+  问题；未挂接时完全不影响既有行为，占位资产已随框架预置到五个内建状态。
+- **`toolchain/get_framework.ps1` 下载脚本落点边界校验**（PJ150-01，安全加固）：新增锁文件
+  `version` 字段格式校验（`-AllowVersionMismatch` 放行分支）与落地目录必须是 `-Target` 严格
+  子目录的校验，恶意/畸形值直接 `throw` 不做任何写入/删除；`Expand-Archive` 改为逐条目手动解压
+  并同样校验每个条目落点（顺带根治 zip slip）。
 
 ### 修复
 
@@ -42,6 +76,42 @@
   兜底确实只在命中帧从未到达时才触发、且诊断如实报告 `Timeout`）。
   `presentation/feedback_binder/tests/HitFrameSyncPolicyTests.cs`/`FeedbackBinderHitFrameSyncTests.cs`
   的等价单元测试同步补上释放原因断言，覆盖同一缺口的单元测试层面。
+- **跨图重放共享光环误删（CR150-01，P2）**、**宝箱/采集节点余量按运行期实体 id 记账跨重建失联
+  （CR150-02，P2）**、**旧档缺失可选段不清空当前台账（CR150-03，P2）**、**满包采集先提交冷却
+  再忽略入包失败（CR150-04，P2）**、**新精灵视图创建早于绑定导致初始装备重放被过滤（PR150-01，
+  P2）**、**动画完成检测依赖外部轮询采样、自动过渡落在两次采样之间会漏发完成事件（PR150-02，
+  P2）**、**挂点缺失时不登记挂接意图、挂点补上后无法重放（PR150-03，P2）**、**下载脚本锁文件
+  `version` 字段未经校验即拼入落地路径、可越界写删（PJ150-01，P0 安全）**：8 项均为第十方深度
+  审核（codex 第八轮）发现，逐条根因、复现测试、修复位置、验收结果见上文引用的 followup 文档，
+  不在此重复展开。
+
+### 迁移说明
+
+- **旧存档缺失可选段时默认清空该段运行期状态**（CR150-03，行为收紧）：`SaveSystem.Load` 此前对
+  "已注册但当次读取的文档里整段缺失"的段直接跳过、不调用 `Load`；本版本改为默认仍调用一次
+  `Load(JsonNull.Instance)`。已审计全部既有 `IPersistable` 实现（16 个），均已在 `Load` 开头
+  显式处理 `JsonNull`（清空重置或无副作用 no-op），当前无一需要调整；自行实现 `IPersistable` 且
+  依赖"旧档缺段时保留当前运行期状态不动"这一（未在架构文档承诺过的）旧行为的具体游戏代码，需要
+  显式覆盖新增的默认接口方法 `KeepStateWhenSectionMissing => true`。该新增成员是默认接口实现，
+  不要求任何既有实现新增代码即可通过编译。
+- **`world.gobj_pending_loot` 段 JSON 字段名与值语义变更**（CR150-02，非公开承诺字段的一次性
+  调整）：数组元素字段名 `gobjInstanceId`（运行期实体 id）改为 `originKey`（稳定摆放位置键）。
+  本段是 1.5.0 新增的可选附加段，此前未在 `architecture/10_存档与持久化.md` 正式登记、未对外
+  承诺过字段级兼容；若某份存档产生于 1.5.0 期间且当时确实存在未交付的宝箱/采集节点掉落余量，
+  升级到本版本后该记录不会被自动识别（JSON 属性名不匹配，读取时等价于该条目不存在），对应余量
+  会在下一次进入该地图时按新逻辑重新判定（不会误报错误，也不会导致存档损坏或其它段受影响），
+  但那份特定的旧余量本身不会被找回——建议对极少数处于这一窗口期的存档，升级前先进入相关地图把
+  余量交互清空一次。
+- **自定义 `IRenderer3D` 实现建议接入动画状态机的状态退出回调**（PR150-02，非强制）：本版本
+  新增的 `AnimStateFinishRelay` 只是既有"外部轮询采样"判断动画完成的一个并行判定路径，不替代
+  也不要求废弃采样路径；具体引擎适配层若已经能通过采样正确判断完成（未撞见"自动过渡整个落在两次
+  采样之间"这一边界），无需任何改动。若自定义实现同样依赖外部轮询采样判断完成，建议参考本版本
+  接入方式补一条由动画系统事件驱动的完成检测路径，避免同一类漏发问题。
+- **版本判据说明**：本次为 MINOR（`1.5.0` → `1.6.0`）。"新增"一节列出的全部成员均为新增
+  类型/新增可选构造参数/新增可空字段/新增默认接口方法，均不改变既有调用点在缺省参数下的观测
+  行为，不删除、不改名任何已有公开签名，不破坏既有调用方编译；`world.gobj_pending_loot` 段的
+  字段改名属于上述"非公开承诺字段"的例外说明，不计入 MAJOR 判据（该段本身从未进入过
+  `SaveSections.KnownOrder`/架构文档正式登记）。
 
 ## [1.5.0] - 2026-09-08
 
