@@ -29,6 +29,16 @@
 // 这正是"通过生产装配根，不是手工构造 FeedbackBinder"要验证的那条链路。isCrit:true 确定性命中
 // data/_sample/feedback/feedback.binding.json 的 feedback.sample_crit_damage 规则（含 play_vfx），
 // 该表唯一一条声明了 play_vfx 的 combat.damage_dealt 规则，不需要额外叠加测试数据。
+//
+// H5b 根治（游戏侧复核发现 2，加固"超时兜底不能掩盖命中帧链路缺口"）：本文件唯一的用例此前只用一个
+// 远大于 HitFrameSyncPolicy 默认超时（0.5s）的 5 秒死线轮询"EmitParticleCallCount 是否终于增加"，
+// 从未排除过"命中帧动画事件其实完全没有触发，只是 0.5 秒超时兜底先一步把动作放出来，恰好也让计数
+// 增加"这一假通过可能性——即便 ModelCharacterRig.HitFrameReached -> CharacterRigHitFrameSource 这条
+// 链路整个断线，旧版用例也会在 0.5 秒后照常通过。现经 HitFrameSyncPolicy.LastReleaseReason/
+// FeedbackBinder.LastHitFrameSyncReleaseReason（见二者判断记录，本次新增的只读诊断）直接断言真实释放
+// 原因，并新增镜像反例 ModelAttacker_HitFrameSync_NeverFires_TimesOutWithTimeoutReason（刻意不播放
+// 攻击动画，验证"超时兜底确实只在命中帧真的没有到达时才触发，且诊断如实报告 Timeout"）——二者合起来
+// 完整覆盖 AnimKeyframeDriven 策略的两条释放路径，不再只用一个共同的"计数增加了没有"来源判断成功与否。
 using System.Collections;
 using System.Reflection;
 using Adapter.Unity.Bootstrap;
@@ -37,6 +47,7 @@ using Core.Foundation.Common;
 using Core.Foundation.EventBus;
 using Core.Rules.Common;
 using NUnit.Framework;
+using Presentation.FeedbackBinder.Core;
 using Presentation.Render;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -149,6 +160,10 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(startEmitCount, renderer2D.EmitParticleCallCount,
                 "AnimKeyframeDriven 策略下，combat.damage_dealt 发布的那一刻不应立即触发 EmitParticle（应等待攻击方真实 Animator 播到命中帧）");
             Assert.IsTrue(bootstrap.Presentation!.Feedback.HasPendingPlayback, "命中帧同步等待期间，FeedbackBinder.HasPendingPlayback 应当为真（仍有待回放内容）");
+            // H5b 根治（游戏侧复核发现 2）：入队但尚未真正释放前，诊断不应报告任何具体原因——防止
+            // 下面的最终断言被"字段从上一条用例遗留了旧值，恰好还是 HitFrame"这种巧合掩盖。
+            Assert.IsNull(bootstrap.Presentation!.Feedback.LastHitFrameSyncReleaseReason,
+                "本次等待项刚入队，尚未发生过任何一次释放，诊断不应报告具体原因");
 
             // 真正播放攻击动画（rig 已在 UnityViewFactory.CreateView 时登记进 HitFrameSource，见文件
             // 顶部判断记录）：占位 attack.anim 50% 处内嵌 hit_frame AnimationEvent（见
@@ -165,8 +180,79 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.Greater(renderer2D.EmitParticleCallCount, startEmitCount,
                 "攻击方真实 Animator 播放到命中帧后，应当经 ModelCharacterRig.HitFrameReached -> " +
                 "CharacterRigHitFrameSource -> FeedbackBinder 释放等待中的 play_vfx 动作（EmitParticle 应被真正调用）");
+            // H5b 根治（游戏侧复核发现 2）：上面这条 Assert.Greater 单独看无法排除"命中帧动画事件其实
+            // 从未真正触发，只是 HitFrameSyncPolicy 默认 0.5 秒超时兜底先一步释放，恰好也让
+            // EmitParticleCallCount 增加，把这条用例本该验证的命中帧链路缺口悄悄掩盖成一次假通过"这一
+            // 可能性——本用例 5 秒死线远大于默认 0.5 秒超时，即便命中帧链路完全断线也会在超时后同样让
+            // 上面的循环退出、Assert.Greater 同样通过。补一条直接断言真实释放原因：本用例已经调用
+            // rig.PlayClip 播放真实攻击动画，若真的经命中帧路径释放，诊断必须报告 HitFrame；报告
+            // Timeout 说明命中帧事件从未真正到达，链路本身有缺口，不应被当作用例通过。
+            Assert.AreEqual(HitFrameSyncReleaseReason.HitFrame, bootstrap.Presentation!.Feedback.LastHitFrameSyncReleaseReason,
+                "释放原因应当是命中帧事件真正到达（HitFrame），而不是默认 0.5 秒超时兜底（Timeout）——" +
+                "否则说明 ModelCharacterRig.HitFrameReached -> CharacterRigHitFrameSource 这条链路本身没有真正打通，" +
+                "只是被超时兜底悄悄掩盖");
             Assert.IsFalse(bootstrap.Presentation!.Feedback.HasPendingPlayback,
                 "命中帧释放待回放动作后，HasPendingPlayback 应当恢复为假（本用例只合成了一次 combat.damage_dealt，不存在其它并行等待项）");
+        }
+
+        /// <summary>H5b 根治新增（游戏侧复核发现 2）：上面
+        /// <see cref="ModelAttacker_HitFrameSync_DelaysPlayVfxUntilRealHitFrame"/> 的镜像反例——本用例
+        /// 刻意不播放攻击动画，攻击方的 <c>anim.attack</c> hit_frame AnimationEvent 因此永远不会到达，
+        /// 待回放的 <c>play_vfx</c> 动作只能经 <c>HitFrameSyncPolicy</c> 默认 0.5 秒超时兜底释放
+        /// （<see cref="HitFrameSyncPolicy.DefaultTimeoutSeconds"/>）。两条用例合起来才完整覆盖
+        /// AnimKeyframeDriven 策略的两条释放路径：前者锁定"命中帧路径确实生效，不是被超时兜底悄悄
+        /// 顶替"，本用例锁定"超时兜底确实只在命中帧真的没有到达时才触发，且诊断如实报告 Timeout，
+        /// 不会被误标成 HitFrame"——防止 <see cref="HitFrameSyncPolicy.LastReleaseReason"/> 这条新增
+        /// 诊断本身写反、或者被某处遗留旧值污染这一相反的假通过风险。</summary>
+        [UnityTest]
+        public IEnumerator ModelAttacker_HitFrameSync_NeverFires_TimesOutWithTimeoutReason()
+        {
+            var bootstrap = BuildInactiveBootstrapWithHitFrameSyncEnabled();
+            Assert.IsFalse(bootstrap.BootstrapFailed, "开启命中帧同步开关 + 切玩家为 model 型外形后，共享引导装配不应失败");
+
+            yield return new WaitForFixedUpdate();
+            yield return new WaitForFixedUpdate();
+            yield return null;
+
+            Assert.IsTrue(bootstrap.BeastEntityId.HasValue, "灰盒场景应当已经通过 spawn.sample_beast_field 生成一只生物");
+            Assert.IsTrue(
+                bootstrap.Presentation!.ViewBinder.TryGetView(bootstrap.PlayerId, out var playerView) && playerView != null,
+                "玩家实体应当已经绑定 View");
+            Assert.IsInstanceOf<IHasCharacterRig>(playerView, "切到 creature.sample_model_hero 后，玩家 View 应当是持有 ICharacterRig 的类型（UnityModelView）");
+            // 判断记录：本用例不需要真正持有/使用 rig（不调用 PlayClip），只需确认 View 已就绪、
+            // 攻击方确实登记了 rig（HasRig 为真，命中帧同步策略才会真正入队等待而不是立即同步释放，
+            // 见 HitFrameSyncPolicy.WaitForHitFrame"攻击方无 rig 时立即播放"判断记录），与上面
+            // ModelAttacker_HitFrameSync_DelaysPlayVfxUntilRealHitFrame 同一前提条件。
+
+            var bus = RequireInternalBus(bootstrap);
+            var renderer2D = UnityEngineHost.Ensure().Renderer2D;
+            var startEmitCount = renderer2D.EmitParticleCallCount;
+
+            bus.PublishImmediate(new CombatDamageDealtEvent(
+                bootstrap.PlayerId, bootstrap.BeastEntityId!.Value, new Id("school.physical"), 5.0,
+                isCrit: true, HitResult.Hit));
+
+            Assert.AreEqual(startEmitCount, renderer2D.EmitParticleCallCount,
+                "入队但攻击动画从未播放时，命中帧同步同样不应立即触发 EmitParticle（超时兜底之前不应提前入队播放）");
+            Assert.IsTrue(bootstrap.Presentation!.Feedback.HasPendingPlayback, "超时兜底触发前，仍应视为有待回放内容");
+            Assert.IsNull(bootstrap.Presentation!.Feedback.LastHitFrameSyncReleaseReason,
+                "本次等待项刚入队，尚未发生过任何一次释放，诊断不应报告具体原因");
+
+            // 刻意不调用 rig.PlayClip：命中帧动画事件永远不会到达，待回放动作只能等
+            // HitFrameSyncPolicy.DefaultTimeoutSeconds（0.5 秒）超时兜底释放。5 秒死线远大于该默认
+            // 超时，留足真实时间余量。
+            var deadline = Time.realtimeSinceStartup + 5f;
+            while (renderer2D.EmitParticleCallCount == startEmitCount && Time.realtimeSinceStartup < deadline)
+            {
+                yield return null;
+            }
+
+            Assert.Greater(renderer2D.EmitParticleCallCount, startEmitCount,
+                "命中帧从未到达时，超时兜底最终也应当释放待播放的 play_vfx 动作，不能无限期悬挂");
+            Assert.AreEqual(HitFrameSyncReleaseReason.Timeout, bootstrap.Presentation!.Feedback.LastHitFrameSyncReleaseReason,
+                "本用例从未播放攻击动画、命中帧事件从未到达，唯一可能的释放路径是超时兜底，诊断应如实报告 Timeout，不应是 HitFrame");
+            Assert.IsFalse(bootstrap.Presentation!.Feedback.HasPendingPlayback,
+                "超时兜底释放待回放动作后，HasPendingPlayback 应当恢复为假");
         }
     }
 }

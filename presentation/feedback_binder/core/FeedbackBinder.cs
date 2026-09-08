@@ -189,6 +189,14 @@ namespace Presentation.FeedbackBinder.Core
         public bool HasPendingPlayback =>
             _queue.PendingCount > 0 || _merger.HasPendingMerges || _sink.HasPendingPlayback || (_hitFrameSyncPolicy?.PendingCount ?? 0) > 0;
 
+        /// <summary>H5b 根治新增（游戏侧复核发现 2）：只读诊断，转发自
+        /// <see cref="HitFrameSyncPolicy.LastReleaseReason"/>——命中帧同步等待队列最近一次批次释放
+        /// 究竟是因为命中帧事件真正到达，还是超时兜底。未启用命中帧同步（<see cref="_hitFrameSyncPolicy"/>
+        /// 未构造，见构造函数判断记录）或尚未发生过任何一次释放时为 <c>null</c>。供测试断言"确实经命中
+        /// 帧路径释放，超时兜底没有偷偷掩盖命中帧链路本身的缺口"（见
+        /// <c>Tests/Runtime/HitFrameSyncEndToEndTests.cs</c>）。</summary>
+        public HitFrameSyncReleaseReason? LastHitFrameSyncReleaseReason => _hitFrameSyncPolicy?.LastReleaseReason;
+
         /// <summary>
         /// N17 根治：三个"这一步是否已经真正播完"的条件同时满足才发出
         /// <see cref="PlaybackFinishedEvent"/>——队列已空、没有待合并飘字、sink 侧没有仍在首次

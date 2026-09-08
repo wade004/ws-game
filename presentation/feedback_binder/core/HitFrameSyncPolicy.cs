@@ -63,10 +63,27 @@ namespace Presentation.FeedbackBinder.Core
     /// 保持它逐字通过：不传 token 时永远是"各自一批"，只有调用方显式传入同一个 token 才会合批。
     /// </para>
     /// </summary>
+    /// <summary>H5b 根治新增（游戏侧复核发现 2）：某一批等待项最终被释放的原因——命中帧事件真正到达，
+    /// 还是超时兜底（见 <see cref="HitFrameSyncPolicy"/> 类型注释"超时兜底默认 0.5 秒"判断记录）。
+    /// 供诊断/测试断言"确实是命中帧路径释放，不是超时兜底路径偶然掩盖了命中帧从未到达这一缺口"——此前
+    /// 端到端测试（<c>Tests/Runtime/HitFrameSyncEndToEndTests.cs</c>）只用一个远大于默认超时的等待
+    /// 死线轮询"VFX 是否终于入队"，命中帧链路即便完全断线，也会在 0.5 秒超时兜底后让同一断言"看似"
+    /// 通过，测试实际上从未真正验证过命中帧本身有没有被触发。</summary>
+    public enum HitFrameSyncReleaseReason
+    {
+        HitFrame,
+        Timeout,
+    }
+
     public sealed class HitFrameSyncPolicy : IDisposable
     {
         /// <summary>默认超时兜底时长（秒），见类型注释判断记录。</summary>
         public const double DefaultTimeoutSeconds = 0.5;
+
+        /// <summary>H5b 根治新增（游戏侧复核发现 2）：最近一次批次释放（<see cref="OnHitFrameReached"/>
+        /// 或 <see cref="Update"/> 超时分支，二者都经 <see cref="ReleaseBatch"/> 统一出口）的原因；
+        /// 尚未发生过任何一次释放时为 <c>null</c>。只读诊断，不影响任何释放行为本身。</summary>
+        public HitFrameSyncReleaseReason? LastReleaseReason { get; private set; }
 
         private sealed class PendingEntry
         {
@@ -193,7 +210,7 @@ namespace Presentation.FeedbackBinder.Core
             foreach (var (token, entityId) in timedOutBatches)
             {
                 _diagnostics.Warn($"命中帧同步等待超时（{_timeoutSeconds}s）：实体 \"{entityId}\" 未在超时前收到命中帧事件，按兜底策略立即释放该批次全部等待项");
-                ReleaseBatch(token, entityId);
+                ReleaseBatch(token, entityId, HitFrameSyncReleaseReason.Timeout);
             }
         }
 
@@ -216,15 +233,17 @@ namespace Presentation.FeedbackBinder.Core
                 return;
             }
 
-            ReleaseBatch(token, entityId);
+            ReleaseBatch(token, entityId, HitFrameSyncReleaseReason.HitFrame);
         }
 
         /// <summary>PR140-04 新增：原子释放 <paramref name="token"/> 名下当前全部等待项（按入队顺序
         /// 依次调用 <see cref="PendingEntry.Release"/>），供 <see cref="OnHitFrameReached"/> 与
         /// <see cref="Update"/> 的超时分支共用——两条释放路径都必须保证"同一批次要么全释放、要么全不
         /// 释放"这一原子性，不允许出现同一批次一部分随命中帧释放、另一部分掉进下一次命中帧或超时的
-        /// 情形（PR140-04 复现的正是这个缺口）。</summary>
-        private void ReleaseBatch(object token, Id entityId)
+        /// 情形（PR140-04 复现的正是这个缺口）。<paramref name="reason"/>：H5b 根治新增（游戏侧复核
+        /// 发现 2），本次释放的原因，两条调用方各自传入自己的真实原因，赋给
+        /// <see cref="LastReleaseReason"/>。</summary>
+        private void ReleaseBatch(object token, Id entityId, HitFrameSyncReleaseReason reason)
         {
             List<PendingEntry>? batch = null;
             for (var i = _pending.Count - 1; i >= 0; i--)
@@ -242,6 +261,11 @@ namespace Presentation.FeedbackBinder.Core
             {
                 return;
             }
+
+            // H5b 根治：在真正调用任何 Release() 之前先记下本次释放原因——即便某个 Release()
+            // 回调内部又同步触发了新的 WaitForHitFrame/Update 调用，LastReleaseReason 在回调执行期间
+            // 读到的也已经是"这一次"的原因，不会读到上一次遗留的旧值。
+            LastReleaseReason = reason;
 
             // 上面按下标从后往前收集，此处翻转回原始入队顺序，保证批内动作按登记顺序派发。
             batch.Reverse();

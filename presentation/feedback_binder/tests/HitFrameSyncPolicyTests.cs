@@ -38,6 +38,9 @@ namespace Tests.Presentation.FeedbackBinder
 
             Assert.False(released);
             Assert.Equal(1, policy.PendingCount);
+            // H5b 根治（游戏侧复核发现 2）：入队但尚未真正发生过任何一次释放时，诊断应如实报告
+            // "还不知道"，不能默认落到某个具体原因（那样会误导"已经释放过一次"）。
+            Assert.Null(policy.LastReleaseReason);
         }
 
         [Fact]
@@ -53,6 +56,9 @@ namespace Tests.Presentation.FeedbackBinder
 
             Assert.True(released);
             Assert.Equal(0, policy.PendingCount);
+            // H5b 根治（游戏侧复核发现 2）：经命中帧事件路径释放，诊断应报告 HitFrame，不是 Timeout——
+            // 这条断言正是端到端测试此前缺失、本次要补齐的那条核心区分。
+            Assert.Equal(HitFrameSyncReleaseReason.HitFrame, policy.LastReleaseReason);
         }
 
         [Fact]
@@ -87,6 +93,10 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.True(released);
             Assert.Equal(0, policy.PendingCount);
             Assert.Single(diagnostics.Warnings);
+            // H5b 根治（游戏侧复核发现 2）：经超时兜底路径释放，诊断应报告 Timeout，不是 HitFrame——
+            // 与上面 HitFrameReached_ReleasesMatchingPendingEntry 互为对照，锁定两条释放路径各自写入
+            // 正确的原因，不会被此前默认值/遗留值混淆。
+            Assert.Equal(HitFrameSyncReleaseReason.Timeout, policy.LastReleaseReason);
         }
 
         [Fact]
@@ -102,6 +112,7 @@ namespace Tests.Presentation.FeedbackBinder
 
             Assert.False(released);
             Assert.Equal(1, policy.PendingCount);
+            Assert.Null(policy.LastReleaseReason);
         }
 
         [Fact]

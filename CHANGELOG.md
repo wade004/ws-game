@@ -11,6 +11,38 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.6.0] - 2026-09-08
+
+游戏侧复核 1.5.0 发现两处边界并根治：① 框架常驻壳（`FrameworkResidentHost`）命中帧同步开关此前是
+私有编译期常量，是三处装配根（另两处 `GameFoundationBootstrap`/`games/_template.GameBootstrap`）
+里唯一不支持"具体游戏配置开启"的一处，与包 README"命中帧同步接线步骤"一节对三处装配根一视同仁
+的既有描述不符；② 命中帧同步端到端测试（`Tests/Runtime/HitFrameSyncEndToEndTests.cs`）只用一个
+远大于默认超时（0.5s）的等待死线判断"VFX 是否终于入队"，未排除"命中帧链路完全断线、只是超时兜底
+先一步释放，让断言恰好也通过"这一假通过可能性。均属表现层/引擎适配层缺陷修复与测试加固，无数据
+表字段删改，无存档格式变更。
+
+### 新增
+
+- **`Presentation.FeedbackBinder.Core.HitFrameSyncReleaseReason`**（枚举，`HitFrame`/`Timeout`）与
+  只读诊断属性 `HitFrameSyncPolicy.LastReleaseReason`/`FeedbackBinder.LastHitFrameSyncReleaseReason`：
+  命中帧同步等待队列最近一次批次释放究竟是命中帧事件真正到达，还是超时兜底，供测试与诊断直接断言
+  区分两条释放路径，不再只能靠"某个副作用计数是否增加"间接判断。
+
+### 修复
+
+- **`Adapter.Unity.Shell.FrameworkResidentHost` 命中帧同步开关改为口味配置**：私有编译期常量
+  `HitFrameSyncEnabled` 改为与 `GameFoundationBootstrap` 同名同型的
+  `[SerializeField] private bool _hitFrameSyncEnabled`——具体游戏可以像摆放 `GameFoundationBootstrap`
+  一样在自己的场景里预先放置一个 `FrameworkResidentHost` 组件并在 Inspector 里开启该字段，
+  `Ensure()` 会优先复用这个已配置好的实例（`FindFirstObjectByType` 既有查找逻辑）而不是另建一个
+  默认值实例；默认仍是 `false`（`LogicDriven`），未预放置时行为与改动前完全一致。
+- **命中帧同步端到端测试加固，排除超时兜底假通过**：`Tests/Runtime/HitFrameSyncEndToEndTests.cs`
+  既有用例新增断言真实释放原因必须是 `HitFrame`；新增镜像反例
+  `ModelAttacker_HitFrameSync_NeverFires_TimesOutWithTimeoutReason`（刻意不播放攻击动画，验证超时
+  兜底确实只在命中帧从未到达时才触发、且诊断如实报告 `Timeout`）。
+  `presentation/feedback_binder/tests/HitFrameSyncPolicyTests.cs`/`FeedbackBinderHitFrameSyncTests.cs`
+  的等价单元测试同步补上释放原因断言，覆盖同一缺口的单元测试层面。
+
 ## [1.5.0] - 2026-09-08
 
 第九方深度审核（codex 第七轮，基线 `c86bfa9`，即 1.4.0 自身）9 项发现（CR140-01～03、

@@ -107,8 +107,22 @@ namespace Adapter.Unity.Shell
         /// 外形，本类型因此实际观感仍是"只画出 sprite"，但装配本身现在与 GameFoundationBootstrap/
         /// games/_template.GameBootstrap 一样完整支持 model 型（见下方 UnityViewFactory 构造调用
         /// 新增的 renderer3D/weaponStyleSource 两个参数），任何具体游戏把示例数据集换成声明
-        /// kind=model 的 display.map 行即可直接生效，不需要再改本类型代码。</summary>
-        private const bool HitFrameSyncEnabled = false;
+        /// kind=model 的 display.map 行即可直接生效，不需要再改本类型代码。
+        /// <para>
+        /// H5b 根治（游戏侧复核发现 1）：此前本字段是私有编译期常量，三处装配根之一（本类型）因此
+        /// 唯一不支持"具体游戏配置开启"，与 README"命中帧同步接线步骤"一节"由各自的口味配置项……
+        /// 一键切换"这句对三处装配根一视同仁的描述不符（该节原文点名 GameFoundationBootstrap/本类型
+        /// 均落在 <c>[SerializeField] private bool _hitFrameSyncEnabled</c>，此前只有前者是真的）。
+        /// 改为与 GameFoundationBootstrap 同名同型的 <c>[SerializeField]</c> 字段——不是新发明的第
+        /// 三种口味配置机制：本类型是 MonoBehaviour，<see cref="Ensure"/> 在新建实例前会先
+        /// <c>FindFirstObjectByType</c> 查找场景里是否已有现成实例（见该方法），具体游戏若想覆盖默认值，
+        /// 可以像摆放 GameFoundationBootstrap 一样在自己的场景里预先放置一个
+        /// <c>FrameworkResidentHost</c> 组件并在 Inspector 里把本字段勾选为 true，<c>Ensure()</c> 会
+        /// 优先复用这个已配置好的实例而不是另建一个默认值实例——与 GameFoundationBootstrap 的
+        /// Inspector 配置方式是同一套机制，只是落点从"场景里唯一的组合根"变成"场景里可选的预放置
+        /// 单例"。默认仍是 false（LogicDriven），未预放置时 <c>Ensure()</c> 新建的实例字段维持默认值，
+        /// 行为与改动前完全一致。</para></summary>
+        [SerializeField] private bool _hitFrameSyncEnabled = false;
 
         // 判断记录（缺口 2 已解决，同 Adapter.Unity.Bootstrap.GameFoundationBootstrap 同名判断
         // 记录）：动作 id 现直接对应 data/_sample/found/found.input_action.json 表里的行
@@ -136,7 +150,7 @@ namespace Adapter.Unity.Shell
         public FlashReceiver Flash { get; private set; } = null!;
         public RespawnFeedbackReceiver Respawn { get; private set; } = null!;
 
-        /// <summary>W6 收口新增：本次装配的命中帧同步注册表（见 <see cref="HitFrameSyncEnabled"/>
+        /// <summary>W6 收口新增：本次装配的命中帧同步注册表（见 <see cref="_hitFrameSyncEnabled"/>
         /// 判断记录、<c>Presentation.FeedbackBinder.Contracts.IHitFrameSource</c> 类型注释、
         /// ADR-0017 决策 d）。<see cref="UnityViewFactory"/> 的两条 View 创建路线（sprite/model）都会
         /// 向已装配的 <c>hitFrameSource</c> 登记 rig。</summary>
@@ -357,7 +371,7 @@ namespace Adapter.Unity.Shell
             // W6 收口：命中帧同步注册表（ADR-0017 决策 d），见 HitFrameSource 属性判断记录。
             // H5b 根治（游戏侧复核发现 3）：补齐 renderer3D/weaponStyleSource 两个参数，与
             // GameFoundationBootstrap/games/_template.GameBootstrap 两处装配根同等支持 model 型外形
-            // （见 HitFrameSyncEnabled/MainHandSlotId 判断记录）——此前本类型是三处装配入口里唯一
+            // （见 _hitFrameSyncEnabled/MainHandSlotId 判断记录）——此前本类型是三处装配入口里唯一
             // 没有传 renderer3D 的一处，kind=model 的 DisplayInfo 会被 UnityViewFactory.CreateView
             // 静默退化为 NullView（不渲染）。
             // _renderOptions 只构造一次、同一个实例分别传给下面的 UnityViewFactory（决定
@@ -588,11 +602,13 @@ namespace Adapter.Unity.Shell
             }
         }
 
-        /// <summary>见 <see cref="HitFrameSyncEnabled"/> 判断记录：本方法只是把编译期常量开关换算成
+        /// <summary>见 <see cref="_hitFrameSyncEnabled"/> 判断记录：本方法只是把口味配置字段换算成
         /// 对应策略枚举，两处 Options 取同一个值（09/ADR-0017"渲染侧/反馈绑定侧是同一个口味配置项的
-        /// 两个落点"）。</summary>
-        private static global::Presentation.Render.HitFrameSyncStrategy ResolveHitFrameSyncStrategy() =>
-            HitFrameSyncEnabled
+        /// 两个落点"）。改为实例方法（此前是 static）：字段已从编译期常量改为可在场景里预放置实例
+        /// 覆盖的 <c>[SerializeField]</c> 实例字段，本方法需要读取 <c>this._hitFrameSyncEnabled</c>。
+        /// </summary>
+        private global::Presentation.Render.HitFrameSyncStrategy ResolveHitFrameSyncStrategy() =>
+            _hitFrameSyncEnabled
                 ? global::Presentation.Render.HitFrameSyncStrategy.AnimKeyframeDriven
                 : global::Presentation.Render.HitFrameSyncStrategy.LogicDriven;
 

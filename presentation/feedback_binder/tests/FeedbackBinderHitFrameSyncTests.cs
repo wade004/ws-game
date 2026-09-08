@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Rules.Common;
 using Presentation.FeedbackBinder.Contracts;
+using Presentation.FeedbackBinder.Core;
 using Presentation.Render;
 using Xunit;
 using FeedbackBinderCore = Presentation.FeedbackBinder.Core.FeedbackBinder;
@@ -88,11 +89,16 @@ namespace Tests.Presentation.FeedbackBinder
             bus.PublishImmediate(DamageEvent(attacker));
             Assert.Empty(sink.FloatingTexts);
             Assert.True(binder.HasPendingPlayback);
+            // H5b 根治（游戏侧复核发现 2）：入队但尚未真正释放前，诊断不应报告任何具体原因。
+            Assert.Null(binder.LastHitFrameSyncReleaseReason);
 
             source.Fire(attacker);
 
             Assert.NotEmpty(sink.FloatingTexts);
             Assert.False(binder.HasPendingPlayback);
+            // 经命中帧事件路径释放，诊断应报告 HitFrame——与下面 HitFrameSyncRule_Timeout_ReleasesAnyway
+            // 互为对照，锁定 FeedbackBinder 对外转发的诊断也随底层 HitFrameSyncPolicy 正确区分两条路径。
+            Assert.Equal(HitFrameSyncReleaseReason.HitFrame, binder.LastHitFrameSyncReleaseReason);
         }
 
         [Fact]
@@ -128,10 +134,13 @@ namespace Tests.Presentation.FeedbackBinder
 
             bus.PublishImmediate(DamageEvent(attacker));
             Assert.Empty(sink.FloatingTexts);
+            Assert.Null(binder.LastHitFrameSyncReleaseReason);
 
             binder.Update(0.3);
 
             Assert.NotEmpty(sink.FloatingTexts);
+            // H5b 根治（游戏侧复核发现 2）：经超时兜底路径释放，诊断应报告 Timeout，不是 HitFrame。
+            Assert.Equal(HitFrameSyncReleaseReason.Timeout, binder.LastHitFrameSyncReleaseReason);
         }
 
         /// <summary>PR130-04 复现/回归用例：两条各自都 <c>sync: hit_frame</c>（<c>combat.damage_dealt</c>
