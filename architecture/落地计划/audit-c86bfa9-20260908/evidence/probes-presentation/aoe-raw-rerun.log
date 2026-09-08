@@ -1,0 +1,9 @@
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\probes-presentation\aoe\Program.cs(77,30): warning CS0067: 从不使用事件“Program.Sink.PendingPlaybackChanged” [C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\probes-presentation\aoe\FeedbackHitFrameAoEProbe.csproj]
+feedback-hit-frame-aoe-probe baseline=c86bfa9 version=1.4.0
+same_attacker_targets expected_before=0 actual_before=0 expected_pending_before=true actual_pending_before=True
+same_attacker_targets expected_after_one_frame=1 actual_after_one_frame=1 expected_pending_after_one=true actual_pending_after_one=True
+new_target_then_second_frame expected_after_second_frame=2 actual_after_second_frame=2 expected_pending_after_second=true actual_pending_after_second=True
+timeout expected_total=3 actual_total=3 expected_pending_final=false actual_pending_final=False
+release_order=unit.target.a,unit.target.b,unit.target.c
+RESULT=PASS reproduction=one_hit_frame_releases_only_first_pending_entry_then_old_second_then_timeout_third
+HARNESS_EXIT_CODE=0 ELAPSED_MS=1116

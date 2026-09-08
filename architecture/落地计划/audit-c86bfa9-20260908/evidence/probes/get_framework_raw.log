@@ -1,0 +1,27 @@
+
+==== 离线来源：-FromLocalDist D:\workespace\ws-game\dist\ws-game-1.4.0.zip ====
+  zip: D:\workespace\ws-game\dist\ws-game-1.4.0.zip
+  lock: D:\workespace\ws-game\dist\ws-game-1.4.0.lock
+
+==== 读取锁文件并校验 ====
+  锁文件 version=1.4.0，git_commit=c86bfa9
+
+==== 解压并校验六个核心 DLL 的 sha256 ====
+  [通过] Core.Foundation.dll sha256=c6b549f2690b1b7af85e173c2fce2929ccf637449847d8eea47b987064e617d5
+  [通过] Core.Numbers.dll sha256=150014e12a49eab504d703c4039fca0b55ece892f51f1a7df791d443a35dda51
+  [通过] Core.Rules.dll sha256=f6ac47517216a7e29bd5fb449f213566112970dc774c79acb36caa7f64171a73
+  [通过] Core.Carriers.dll sha256=56b667ae5e2fc0049c4e7f7e941ceb630f6501ef133948909c4e299fc470ed1f
+  [通过] Core.Gameplay.dll sha256=b0012182def807e39cadb8becdb55ddb7cad0ec0ac7cab17956d0bcc199163fe
+  [通过] Presentation.Common.dll sha256=e2616f1f35d9bd74aff00568fd8c1a0e7fd98ef0bd4aa4b73c614e6a31dbc305
+  六个核心 DLL 哈希全部与锁文件一致
+
+==== 落地到 C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\valid_target_evidence3/ws-game-1.4.0/ ====
+  已落地：C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\valid_target_evidence3\ws-game-1.4.0
+  引用示例（游戏工程 Packages/manifest.json，相对路径按实际目录层级调整）：
+    "com.gamefoundation.adapter.unity": "file:.../C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\valid_target_evidence3/ws-game-1.4.0/adapters/unity/Packages/com.gamefoundation.adapter.unity"
+
+==== 写入/校验 C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\valid_target_evidence3.lock ====
+  已新建：C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\valid_target_evidence3.lock
+
+get_framework.ps1 完成：version=1.4.0 已校验并落地到 C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\valid_target_evidence3/ws-game-1.4.0/
+GET_FRAMEWORK_EXIT_CODE=0

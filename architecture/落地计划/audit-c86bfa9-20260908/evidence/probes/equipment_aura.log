@@ -1,0 +1,8 @@
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\source_snapshot\core\gameplay\loot\core\LootHost.cs(102,128): warning CS8601: 可能的 null 引用赋值。 [C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\probes\equipment_aura\EquipmentAuraProbe.csproj]
+BOUNDARY_REPROS HEAD=c86bfa98475dbf348f129c0fa507d117d238914c
+ReproEquipmentDuplicate expected=single_item_duplicate_aura_unloads_cleanly; set_aura_survives_ordinary_source_unequip_until_set_breaks
+ReproEquipmentDuplicate actual=duplicate:beforeAura:True beforeStat:101 unequip:True afterAura:False afterStat:1 reproduced:True
+ReproEquipmentDuplicate actual=set:beforeAura:True ordinaryUnequip:True afterOrdinaryAura:True afterOrdinaryStat:101 afterSetOneAura:False afterAllAura:False reproduced:False
+ReproEquipmentDuplicate boundary=real CarriersAssembly, AllowMultiSourceTiming=false, maxStacks=1, StackOverflowPolicy.Replace; duplicate grants and set/ordinary shared aura handles are checked independently
+SUMMARY ReproEquipmentDuplicate=REPRODUCED
+EXIT_CODE=0

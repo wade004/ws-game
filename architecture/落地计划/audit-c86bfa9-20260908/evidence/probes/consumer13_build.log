@@ -1,0 +1,10 @@
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\consumer_compile\Program.cs(21,9): error CS8183: 无法推断隐式类型放弃的类型。 [C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\consumer_compile\Consumer13.csproj]
+
+生成失败。
+
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\consumer_compile\Program.cs(21,9): error CS8183: 无法推断隐式类型放弃的类型。 [C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\consumer_compile\Consumer13.csproj]
+    0 个警告
+    1 个错误
+
+已用时间 00:00:00.39
+FINAL_EXIT_CODE=1

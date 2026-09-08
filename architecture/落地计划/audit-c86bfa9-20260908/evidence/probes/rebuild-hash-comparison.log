@@ -1,0 +1,8 @@
+REBUILD_HASH_COMPARISON
+COMMAND=Get-Content D:\workespace\ws-game\dist\ws-game-1.4.0.lock | ConvertFrom-Json; Get-FileHash <git_snapshot_final>\core\foundation\bin\Release\netstandard2.1\Core.Foundation.dll -Algorithm SHA256
+LIVE_DIST_LOCK=Core.Foundation.dll sha256=c6b549f2690b1b7af85e173c2fce2929ccf637449847d8eea47b987064e617d5
+GIT_SNAPSHOT_FINAL_HEAD=c86bfa98475dbf348f129c0fa507d117d238914c
+GIT_SNAPSHOT_FINAL_RELEASE_DLL=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\git_snapshot_final\core\foundation\bin\Release\netstandard2.1\Core.Foundation.dll
+GIT_SNAPSHOT_FINAL_RELEASE_SHA256=210d60ecd4c2fc9f1b8ebefae3db35ccd0241831d725a20e50ce91e99df79204
+MATCH=False
+INTERPRETATION=Same HEAD but different isolated build output bytes; supports PJ140-02 risk when zip is missing and an old lock/tgz remains. This is not a simulation of remote upload and does not establish that the existing normal package is erroneous.
