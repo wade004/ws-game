@@ -95,6 +95,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# 判断记录（第九轮审计工具链条目，本机 Get-FileHash 在部分 Windows PowerShell 5.1 环境下不可用，
+# 原因未查明）：DLL 哈希校验改用 toolchain/_hash.ps1 提供的 Get-Sha256FileHash 共享函数（内置
+# Get-FileHash 可用时优先用，不可用时透明退化到不依赖该 cmdlet 的 .NET SHA256 兜底实现），见该
+# 文件头注释。
+. (Join-Path $PSScriptRoot "_hash.ps1")
+
 $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 if ($Version -notmatch $VersionFormatPattern) {
     Write-Host "-Version 格式非法：'$Version'（需形如 X.Y.Z）" -ForegroundColor Red
@@ -434,7 +440,7 @@ try {
             $hashMismatches += "$dllName：锁文件未记录该 DLL 的 sha256"
             continue
         }
-        $actualSha = (Get-FileHash -Path $dllPath -Algorithm SHA256).Hash.ToLower()
+        $actualSha = Get-Sha256FileHash -Path $dllPath
         if ($actualSha -ne $expectedSha.ToLower()) {
             $hashMismatches += "$dllName：sha256 不一致（锁文件=$expectedSha，实际=$actualSha）"
         } else {

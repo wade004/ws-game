@@ -146,6 +146,11 @@ $PluginsCoreDir = Join-Path $RepoRoot "adapters\unity\Packages\com.gamefoundatio
 $VersionFilePath = Join-Path $RepoRoot "VERSION"
 $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 
+# 判断记录（第九轮审计工具链条目，本机 Get-FileHash 在部分 Windows PowerShell 5.1 环境下不可用，
+# 原因未查明）：全部哈希计算改用 toolchain/_hash.ps1 提供的 Get-Sha256FileHash 共享函数，
+# Get-FileHash 可用时优先用、不可用时透明退化到不依赖该 cmdlet 的 .NET SHA256 兜底实现。
+. (Join-Path $RepoRoot "toolchain\_hash.ps1")
+
 function Write-Step {
     param([string]$Message)
     Write-Host ""
@@ -480,8 +485,8 @@ function Copy-IfChanged {
     )
 
     if (Test-Path $DestPath) {
-        $srcHash = (Get-FileHash -Path $SourcePath -Algorithm SHA256).Hash
-        $dstHash = (Get-FileHash -Path $DestPath -Algorithm SHA256).Hash
+        $srcHash = Get-Sha256FileHash -Path $SourcePath
+        $dstHash = Get-Sha256FileHash -Path $DestPath
         if ($srcHash -eq $dstHash) {
             return $false
         }
@@ -1169,7 +1174,7 @@ if ($DistRequested) {
     foreach ($asm in $CoreAssemblies) {
         $distDllPath = Join-Path $distPluginsCoreDir ($asm.Name + ".dll")
         if (Test-Path $distDllPath) {
-            $sha = (Get-FileHash -Path $distDllPath -Algorithm SHA256).Hash.ToLower()
+            $sha = Get-Sha256FileHash -Path $distDllPath
             $coreAssemblyLines += ("  {0}.dll: sha256={1}" -f $asm.Name, $sha)
             $coreAssemblyShaMap[$asm.Name + ".dll"] = $sha
         } else {

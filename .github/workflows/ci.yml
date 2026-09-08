@@ -68,6 +68,16 @@ jobs:
       # 的 dotnet/python 子进程——环境变量沿子进程继承链原样传递）。这一组变量是
       # PYTHONUTF8（先于本次合入已在 ae3f667 加入的作业级兜底）与 PYTHONIOENCODING 的超集，
       # 两者合并保留，不丢失任何一侧的覆盖面。
+      #
+      # 判断记录（第九轮审计工具链条目，2026-09-08，见
+      # architecture/落地计划/audit-85f1f4f-20260908/）：本机复现过 toolchain/tests 里
+      # subprocess.run(...).stdout/.stderr 解码用的 locale.getpreferredencoding() 是 cp936
+      # （非 UTF-8 控制台代码页），CI 这台 windows-latest 运行器是否会踩同一类问题取决于其系统
+      # 区域设置的默认非 Unicode 程序代码页，未逐一核实——本 job 已经作业级设了 PYTHONUTF8/
+      # PYTHONIOENCODING，理论上不受影响；本地开发机与本仓库 check.ps1 非 -Quick 分支下的
+      # pytest 步骤、.githooks/pre-commit 均已同步导出 PYTHONUTF8=1（见 check.ps1 该步骤与
+      # .githooks/pre-commit 判断记录），本地与 CI 的编码环境要求保持一致，不应出现"CI 通过、
+      # 本机默认编码下失败"的分叉。
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
     steps:

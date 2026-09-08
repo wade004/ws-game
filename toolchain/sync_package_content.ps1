@@ -52,6 +52,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# 判断记录（第九轮审计工具链条目，本机 Get-FileHash 在部分 Windows PowerShell 5.1 环境下不可用，
+# 原因未查明）：哈希比较改用同目录 toolchain/_hash.ps1 提供的 Get-Sha256FileHash 共享函数。这
+# 与上方"独立实现，不依赖框架仓库源码树"的判断记录并不冲突——_hash.ps1 与本脚本同在 toolchain/
+# 目录下，随 build.ps1 -Dist 整体拷贝进 com.gamefoundation.toolchain 包 Tools~/，总是与本脚本
+# 一起分发到消费游戏仓库，不存在"本脚本单独被复制、找不到 _hash.ps1"的场景；真正要避免耦合的是
+# build.ps1（只活在框架仓库自己的工作树里，不随包分发）。
+. (Join-Path $PSScriptRoot "_hash.ps1")
+
 function Write-Step {
     param([string]$Message)
     Write-Host ""
@@ -122,8 +130,8 @@ if ($DestDir -eq "") {
 function Copy-IfChanged {
     param([string]$SourcePath, [string]$DestPath)
     if (Test-Path $DestPath) {
-        $srcHash = (Get-FileHash -Path $SourcePath -Algorithm SHA256).Hash
-        $dstHash = (Get-FileHash -Path $DestPath -Algorithm SHA256).Hash
+        $srcHash = Get-Sha256FileHash -Path $SourcePath
+        $dstHash = Get-Sha256FileHash -Path $DestPath
         if ($srcHash -eq $dstHash) { return $false }
     }
     $destDir = Split-Path -Parent $DestPath

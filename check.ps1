@@ -547,11 +547,22 @@ if ($Quick) {
     Add-SkippedStep "python -m pytest toolchain/tests -q" "-Quick"
 } else {
     Invoke-CheckStep "python -m pytest toolchain/tests -q" {
+        # 判断记录（第九轮审计工具链条目，本机 GBK 控制台下 toolchain/tests 里跑
+        # subprocess.run(...).stdout/.stderr 解码用的 locale.getpreferredencoding() 是 cp936，
+        # 已在 toolchain/tests/test_get_framework_path_boundary.py 改为显式
+        # encoding="utf-8", errors="replace" 根治那一处不再依赖控制台代码页；这里额外给 pytest
+        # 本身的子进程环境同步设置 PYTHONUTF8=1，与 .github/workflows/ci.yml 的作业级 PYTHONUTF8/
+        # PYTHONIOENCODING 兜底、.githooks/pre-commit 的同名设置保持一致（双保险：即便未来哪个
+        # toolchain 测试新增了不带 encoding 的子进程调用，也不至于在本机默认编码下直接报错）。
+        # 用完恢复原值，不污染 check.ps1 调用方后续步骤的环境。
+        $prevPythonUtf8 = $env:PYTHONUTF8
+        $env:PYTHONUTF8 = "1"
         Push-Location $RepoRoot
         try {
             Test-NativeExitCode "python" @("-m", "pytest", "toolchain/tests", "-q")
         } finally {
             Pop-Location
+            $env:PYTHONUTF8 = $prevPythonUtf8
         }
     }
 }

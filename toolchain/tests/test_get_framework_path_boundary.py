@@ -27,8 +27,19 @@ python -m pytest toolchain/tests/test_get_framework_path_boundary.py -q
 ```
 
 或作为 ``toolchain`` 套件的一部分：``python -m pytest toolchain/tests -q``（``check.ps1`` 已在跑，
-不需要改 ``check.ps1``）。Windows-only（依赖 Windows PowerShell 5.1 执行 ``.ps1``），非 Windows
+不需要改 ``check.ps1``）。Windows-only（依赖 Windows PowerShell 执行 ``.ps1``），非 Windows
 环境下全部用例自动跳过。
+
+判断记录（第九轮审计工具链条目，2026-09-08，见
+``architecture/落地计划/audit-85f1f4f-20260908/``）：本文件 ``_run_script`` 此前
+``subprocess.run(..., text=True)`` 未指定 ``encoding``，本机 GBK 控制台下解码子进程输出会直接
+``UnicodeDecodeError``，测试连 ``get_framework.ps1`` 是否正常工作都验证不到；已改为显式
+``encoding="utf-8", errors="replace"``。同一轮还发现 ``get_framework.ps1`` 依赖的内置
+``Get-FileHash`` 在本机部分 Windows PowerShell 5.1 环境下不可用（已改用
+``toolchain/_hash.ps1`` 的 ``Get-Sha256FileHash`` 兜底），本文件的关键用例（正常落地、真实
+dist 产物回归、合法版本不一致、恶意锁文件 version 拒绝、zip slip 拒绝）相应改为经 ``shell``
+fixture 在本机可用的 ``powershell``/``pwsh`` 宿主下各跑一遍（只有其中一个时只跑那一个，两个都
+没有时整体跳过），而不是只信任固定找到的第一个宿主。
 """
 
 from __future__ import annotations
@@ -64,12 +75,46 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _find_powershell() -> str:
-    for candidate in ("powershell", "powershell.exe"):
-        found = shutil.which(candidate)
-        if found:
-            return found
-    pytest.skip("找不到 powershell.exe，跳过 get_framework.ps1 路径边界测试")
+def _find_powershell_executables() -> list[str]:
+    """返回本机可用的 PowerShell 可执行文件列表（去重，按 Windows PowerShell 5.1 优先、pwsh 其次
+    的顺序）。第九轮审计工具链条目：本机曾出现 Windows PowerShell 5.1 下内置 `Get-FileHash`
+    不可用、而 `pwsh`（PowerShell 7）下同一台机器可正常调用的环境差异（原因未查明，疑似
+    PSModulePath 问题）。`get_framework.ps1` 已改为经 `toolchain/_hash.ps1` 的
+    `Get-Sha256FileHash` 在两种宿主下都不依赖该 cmdlet 也能算出正确哈希，但"两种宿主下都实测通过"
+    本身就是这条根治的验收标准之一，因此本文件的关键用例改为两个宿主都在时都跑一遍，而不是只信任
+    其中一个（哪个都没有则整体跳过，行为与此前一致）。
+    """
+    found: list[str] = []
+    seen_resolved: set[str] = set()
+    for candidate in ("powershell.exe", "powershell", "pwsh.exe", "pwsh"):
+        path = shutil.which(candidate)
+        if not path:
+            continue
+        try:
+            resolved = str(Path(path).resolve()).lower()
+        except OSError:
+            resolved = path.lower()
+        if resolved in seen_resolved:
+            continue
+        seen_resolved.add(resolved)
+        found.append(path)
+    return found
+
+
+AVAILABLE_POWERSHELLS: list[str] = (
+    _find_powershell_executables() if sys.platform == "win32" else []
+)
+_SHELL_IDS = [Path(p).stem.lower() for p in AVAILABLE_POWERSHELLS] or ["no-shell-found"]
+
+
+@pytest.fixture(params=(AVAILABLE_POWERSHELLS or [None]), ids=_SHELL_IDS)
+def shell(request) -> str:
+    """关键用例的 PowerShell 宿主 fixture：本机找到几个可用宿主（`powershell`/`pwsh`去重后），
+    这个 fixture 就把对应用例自动参数化跑几遍；一个都找不到时用例整体跳过。
+    """
+    if request.param is None:
+        pytest.skip("找不到 powershell.exe 或 pwsh，跳过 get_framework.ps1 路径边界测试")
+    return request.param
 
 
 def _build_fixture_zip(zip_path: Path, version: str, top_dir_name: str | None = None) -> dict:
@@ -98,8 +143,20 @@ def _write_lock(lock_path: Path, version: str, dll_hashes: dict, git_commit: str
     lock_path.write_text(json.dumps(lock_obj, indent=2), encoding="utf-8")
 
 
-def _run_script(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
-    powershell = _find_powershell()
+def _run_script(args: list[str], cwd: Path, powershell: str | None = None) -> subprocess.CompletedProcess:
+    """根治点（第九轮审计工具链条目）：此前 `text=True` 不带 `encoding` 时，Python 用
+    `locale.getpreferredencoding()` 解码子进程输出——本机 GBK 控制台下该值是 `cp936`，
+    `get_framework.ps1` 打印的中文提示按 UTF-8 生成/console 混合编码时会撞上非法字节序列，
+    `subprocess.run` 内部解码阶段直接抛 `UnicodeDecodeError`（在拿到 `CompletedProcess` 之前
+    发生，调用方连 `result.stdout`/`result.stderr` 都还没到手，测试就整个崩掉，看不出脚本本身
+    是否正常工作）。显式传 `encoding="utf-8", errors="replace"` 后不再依赖控制台代码页，任何
+    非 UTF-8 字节替换成 U+FFFD 而不是让解码整体失败，保证 `result.stdout`/`result.stderr`
+    在断言失败时永远是可用的字符串（不会是 `None`，`f"{a}" + f"{b}"` 形式的拼接不会因为
+    `None + str` 抛 `TypeError` 把子进程真正的 stderr 内容吞掉）。
+    """
+    powershell = powershell or (AVAILABLE_POWERSHELLS[0] if AVAILABLE_POWERSHELLS else None)
+    if not powershell:
+        pytest.skip("找不到 powershell.exe 或 pwsh，跳过 get_framework.ps1 路径边界测试")
     cmd = [
         powershell,
         "-NoProfile",
@@ -113,6 +170,8 @@ def _run_script(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
         cwd=str(cwd),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=120,
     )
 
@@ -129,8 +188,10 @@ def _make_sentinel_layout(tmp_path: Path) -> tuple[Path, Path, Path]:
     return workspace, target, neighbor
 
 
-def test_normal_version_lands_and_hashes_match(tmp_path: Path) -> None:
-    """正常版本：zip/lock 版本号与 -Version 一致，应成功落地且六个 DLL 字节与锁文件哈希一致。"""
+def test_normal_version_lands_and_hashes_match(tmp_path: Path, shell: str) -> None:
+    """正常版本：zip/lock 版本号与 -Version 一致，应成功落地且六个 DLL 字节与锁文件哈希一致。
+    关键用例，本机 powershell/pwsh 都在时两者都跑一遍（见 shell fixture 判断记录）。
+    """
     workspace, target, neighbor = _make_sentinel_layout(tmp_path)
     version = "9.9.9"
     zip_path = tmp_path / f"ws-game-{version}.zip"
@@ -141,6 +202,7 @@ def test_normal_version_lands_and_hashes_match(tmp_path: Path) -> None:
     result = _run_script(
         ["-Version", version, "-Target", str(target), "-FromLocalDist", str(zip_path)],
         cwd=workspace,
+        powershell=shell,
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -155,9 +217,10 @@ def test_normal_version_lands_and_hashes_match(tmp_path: Path) -> None:
     assert (neighbor / "keep.txt").read_text(encoding="utf-8") == "must-survive"
 
 
-def test_real_dist_package_regression(tmp_path: Path) -> None:
+def test_real_dist_package_regression(tmp_path: Path, shell: str) -> None:
     """本地正常路径回归：用仓库 dist/ 下真实发布的 zip/lock 走一遍完整流程（若本机没有对应产物则跳过，
     不把"没有产物"误判为测试失败——CI/干净 checkout 环境可能没有先跑过 build.ps1 -Release）。
+    关键用例，本机 powershell/pwsh 都在时两者都跑一遍（见 shell fixture 判断记录）。
     """
     version_file = REPO_ROOT / "VERSION"
     if not version_file.is_file():
@@ -172,6 +235,7 @@ def test_real_dist_package_regression(tmp_path: Path) -> None:
     result = _run_script(
         ["-Version", version, "-Target", str(target), "-FromLocalDist", str(zip_path)],
         cwd=workspace,
+        powershell=shell,
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -180,9 +244,10 @@ def test_real_dist_package_regression(tmp_path: Path) -> None:
     assert (neighbor / "keep.txt").read_text(encoding="utf-8") == "must-survive"
 
 
-def test_legal_version_mismatch_allowed(tmp_path: Path) -> None:
+def test_legal_version_mismatch_allowed(tmp_path: Path, shell: str) -> None:
     """合法版本不一致：锁文件里的真实版本号与请求的 -Version 都合法但不同，-AllowVersionMismatch
     放行后应落地到以锁文件真实版本号命名的目录，请求版本号对应目录不应被创建。
+    关键用例，本机 powershell/pwsh 都在时两者都跑一遍（见 shell fixture 判断记录）。
     """
     workspace, target, neighbor = _make_sentinel_layout(tmp_path)
     real_version = "2.3.4"
@@ -200,6 +265,7 @@ def test_legal_version_mismatch_allowed(tmp_path: Path) -> None:
             "-AllowVersionMismatch",
         ],
         cwd=workspace,
+        powershell=shell,
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -222,11 +288,12 @@ MALICIOUS_LOCK_VERSIONS = [
 
 @pytest.mark.parametrize("malicious_version", MALICIOUS_LOCK_VERSIONS)
 def test_malicious_lock_version_rejected_before_any_write(
-    tmp_path: Path, malicious_version: str
+    tmp_path: Path, shell: str, malicious_version: str
 ) -> None:
     """PJ150-01 核心复现用例：锁文件 version 字段构造成路径穿越/绝对路径/非法字符，-AllowVersionMismatch
     放行请求后必须在任何写入/删除之前被拒绝——已存在的 -Target 内容与邻居哨兵目录都不能变化，
-    脚本必须以非 0 退出码结束（审计中的缺陷表现是 exit 0）。
+    脚本必须以非 0 退出码结束（审计中的缺陷表现是 exit 0）。关键用例，本机 powershell/pwsh 都在时
+    两者都跑一遍（见 shell fixture 判断记录）。
     """
     workspace, target, neighbor = _make_sentinel_layout(tmp_path)
     # Target 内先放一个"应该保持原样"的既有版本目录，验证恶意请求不会触发对它的删除或覆盖。
@@ -249,6 +316,7 @@ def test_malicious_lock_version_rejected_before_any_write(
             "-AllowVersionMismatch",
         ],
         cwd=workspace,
+        powershell=shell,
     )
 
     assert result.returncode != 0, (
@@ -266,9 +334,10 @@ def test_malicious_lock_version_rejected_before_any_write(
     assert landed_names == {"ws-game-1.0.0"}
 
 
-def test_zip_entry_path_traversal_rejected(tmp_path: Path) -> None:
+def test_zip_entry_path_traversal_rejected(tmp_path: Path, shell: str) -> None:
     """zip slip：zip 内条目路径带 `../`，即便六个 DLL 本身哈希对得上，也必须在落地前被拒绝，
-    不得把任何内容解压到预期目标目录之外。
+    不得把任何内容解压到预期目标目录之外。关键用例，本机 powershell/pwsh 都在时两者都跑一遍
+    （见 shell fixture 判断记录）。
     """
     workspace, target, neighbor = _make_sentinel_layout(tmp_path)
     version = "3.1.4"
@@ -289,6 +358,7 @@ def test_zip_entry_path_traversal_rejected(tmp_path: Path) -> None:
     result = _run_script(
         ["-Version", version, "-Target", str(target), "-FromLocalDist", str(zip_path)],
         cwd=workspace,
+        powershell=shell,
     )
 
     assert result.returncode != 0, (

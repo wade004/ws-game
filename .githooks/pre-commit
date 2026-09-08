@@ -17,7 +17,16 @@
 # 找仓库根：钩子被 git 调用时的当前工作目录就是仓库根（不是 .git/ 或 .githooks/），直接用相对
 # 路径 check.ps1 即可；显式 cd 到 git 报告的顶层目录只是防御性写法，防止未来钩子被从子目录触发
 # 的某些 git 版本/前端在调用约定上有出入。
+#
+# 判断记录（第九轮审计工具链条目，2026-09-08）：-Quick 本身跳过 toolchain 自身 pytest 套件（见
+# check.ps1 .PARAMETER Quick 说明），本钩子当前不会触发那一步；这里仍导出 PYTHONUTF8=1，与
+# .github/workflows/ci.yml 的作业级 PYTHONUTF8/PYTHONIOENCODING、check.ps1 非 -Quick 分支下
+# pytest 步骤自己设置的同名环境变量保持一致——本钩子调用的 check.ps1 内部还会拉起
+# validate_data.py/gen_event_constants.py 等多个 Python 子进程，统一导出可避免未来 -Quick 覆盖
+# 范围调整、或这些脚本任何一处打印非 ASCII 文本时，在本机默认非 UTF-8 控制台代码页下出问题。
 set -e
+
+export PYTHONUTF8=1
 
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
