@@ -11,6 +11,93 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.9.0] - 2026-09-08
+
+第十三方深度审核（codex 第十一轮，基线 `e070e3f`，即 1.8.0 发布提交）3 项确认缺陷
+（CORE-180-01～03）+ 1 项候选转已确认（CORE-180-CAND-01）+ 1 项表现层候选转已确认（PRES-180）逐条
+核实并根治，另处理 5 项文档漂移/工程证据勘误。逐条核实表、文档更新与能力分类处理、验收结果见
+[audit-e070e3f-20260908/followup-2026-09-08g.md](architecture/落地计划/audit-e070e3f-20260908/followup-2026-09-08g.md)。
+均属核心存档/规则层缺陷修复与表现层读档对账补强，无数据表字段删改，无存档格式变更。
+
+### 新增
+
+- **`Core.Foundation.SaveSystem.IDerivedStateRebuilder`**（新增契约，`BeforeLoad()`/
+  `OnSectionLoaded(string sectionKey)`，CORE-180-01 根治）：可选注入到 `SaveSystem` 的回调，完全
+  绕开事件总线（不产生任何可观察事件，不受 `SuppressDispatch` 影响）；`SaveSystem.Load` 在逐段读档
+  前调用一次 `BeforeLoad()`，每段成功 `Load()` 后立即调用一次 `OnSectionLoaded(sectionKey)`，供
+  装配根在读档期间就地重算评级换算属性、资源池上限等派生缓存，不等读档全部完成、不依赖事件重放。
+- **`Core.Foundation.SaveSystem.ISaveSystem.SetDerivedStateRebuilder`**（默认接口方法，默认为
+  no-op，CORE-180-01 根治）：注入上述重建器；自定义 `ISaveSystem` 实现方无需新增任何代码即可编译
+  通过。
+- **`Core.Rules.Assembly.RulesAssembly.ReloadArchetypeAndRace`**（新增公开方法，CORE-180-03 +
+  CORE-180-CAND-01 根治）：同图读档后重新聚合单位的种族属性修正/被动光环与职业基础属性，不重复
+  调用 `PowerHost.RegisterUnit`（避免对已注册单位抛"不能重复注册"异常）；种族切换时精确移除旧种族
+  来源的属性修正、按引用计数递减释放旧种族被动光环，覆盖写入职业基础属性。
+- **`Presentation.Common.ISimSnapshot.GetAllEntityIds`/`GetRawKind`**（新增只读成员，PRES-180
+  根治）：`GetAllEntityIds()` 返回当前存活实体 id 全量列表，`GetRawKind(Id)` 返回映射前的原始
+  `Entity.Kind` 字符串；供 `ViewBinder` 在 `save.loaded` 后与已绑定 View 表做全量对账。**这两个
+  成员不是 C#8 默认接口方法**，唯一生产实现 `WorldSimSnapshot` 已同步实现；自定义 `ISimSnapshot`
+  实现方须自行新增这两个成员才能继续编译通过，详见下"迁移说明"。
+- **`ViewBinder` 读档后视图对账**（PRES-180 根治）：构造函数新增订阅 `save.loaded`
+  （`SaveEventKeys.SaveLoaded`），收到后立即（同步，不等下一次 `sim.tick_finished`）做一次双向全量
+  对账——`ISimSnapshot.Exists` 为假但仍持有绑定的按 `OnEntityDestroyed` 销毁，`GetAllEntityIds()`
+  中存在但未绑定的按 `OnEntityCreated` 补建，补齐"读档期间 `SuppressDispatch` 抑制丢弃
+  `entity.created`/`entity.destroyed`导致 View 与逻辑实体不一致"这一缺口，幂等（重复读档不重复
+  创建/销毁）。
+
+### 修复
+
+- **成功读档后评级换算属性/资源池上限未重算（CORE-180-01，P1）**：`SaveSystem.Load` 整段包在
+  `IEventBus.SuppressDispatch` 抑制作用域内，`stat.changed`/`PowerChanged` 等事件被抑制丢弃，导致
+  依赖这些事件重算的评级换算属性、资源池上限恢复到读档前的旧值，即便等级/装备等原始字段已正确
+  恢复。`player.vitals` 段按"存档值与当前值差额"调用 `ModifyPower` 时若上限仍是旧值，差额被 clamp
+  到旧上限，`RecomputeMax` 只在 `Current > newMax` 时下调、不会在 `newMax` 变大时补回 `Current`，
+  当前值即便后续再重算上限也不会跟着回升。改为经 `IDerivedStateRebuilder.OnSectionLoaded
+  (PlayerEquipment)` 在读到 `player.vitals` 段之前完成一次重算，完全绕开事件总线，不影响既有"读档
+  期间业务事件零泄漏"回归。
+- **后段读档失败时逆序回滚顺序与依赖方向相反（CORE-180-02，P2）**：`RollbackLoadedSections` 此前
+  从后往前遍历，装备重新装备（复用真实 `EquipmentHost.Equip`，内部校验等级需求）先于等级本身被
+  回滚恢复，导致等级需求校验用的是本次失败读档写入的低等级值，装备重新装备失败、物品被迫留在
+  背包。改为与正常读档同一顺序（从前往后）遍历，回滚本质上变成"再做一次读档，只是文档换成读档前
+  的快照"，不需要为回滚单独维护一套依赖顺序规则。
+- **同图读档只切换种族/职业字段，未重新聚合对应的属性修正与光环（CORE-180-03 + CAND-01，P2）**：
+  `GameplayAssembly.RestoreFromSlot` 判定目标地图与当前地图相同时不触发 `EnterMap`，此前读到
+  `player.race_id`/`player.archetype` 段只覆盖字段本身，不会重新聚合旧种族属性修正的移除、新种族
+  属性修正/光环的应用，也不会覆盖写入新职业的基础属性。改为经 `IDerivedStateRebuilder.
+  OnSectionLoaded(PlayerRaceId)` 触发 `RulesAssembly.ReloadArchetypeAndRace`，同图与跨图路径统一
+  覆盖。已知收边范围：新旧职业基础属性键集合不同、或 `power_types` 集合不同时的联动不在本次范围内
+  （详见 `RulesAssembly.ReloadArchetypeAndRace` 源码注释与 followup 文档判断记录）。
+- **同图读档期间被抑制丢弃的 `entity.created`/`entity.destroyed` 导致 View 与逻辑实体不同步
+  （PRES-180，候选转已确认）**：`SaveSystem.Load` 抑制作用域内若某段 `Load`（如
+  `DroppedLootPersistable.Load`）往 `WorldSim` 加实体，产生的 `entity.created` 永久丢失，逻辑实体
+  已恢复但对应 View 未绑定；`ViewBinder` 此前只在构造期订阅事件，没有读档完成后的补扫入口。改为
+  订阅 `save.loaded` 并做全量对账（见上"新增"一节）。
+
+### 迁移说明
+
+- **自定义装配根需注册派生状态重建器**（CORE-180-01/03）：若具体游戏/适配层提供了自定义
+  `ISaveSystem`/装配根替代框架默认的 `GameplayAssembly`，且存在依赖事件重算的派生缓存（评级换算
+  属性、资源池上限、种族/职业属性修正与光环等），需要实现 `IDerivedStateRebuilder` 并调用
+  `ISaveSystem.SetDerivedStateRebuilder` 注册，否则读档后这些派生缓存不会重算，行为等同于本次修复
+  之前的框架默认实现。不注册不影响编译（`SetDerivedStateRebuilder` 是默认接口方法），只影响读档后
+  派生缓存的正确性。
+- **自定义 `ISimSnapshot` 实现须新增两个成员**（PRES-180）：`GetAllEntityIds`/`GetRawKind` **不是**
+  C#8 默认接口方法，与本版本其它新增接口成员（均为默认接口方法）不同——任何自定义 `ISimSnapshot`
+  实现（框架内唯一生产实现 `WorldSimSnapshot` 已同步）必须新增这两个成员才能继续编译通过；
+  `GetAllEntityIds()` 语义为"当前存活实体 id 全量列表"，`GetRawKind(Id)` 语义为"映射前的原始
+  `Entity.Kind` 字符串，实体不存在返回 null"，均为只读查询、不持有 `Entity` 引用本身（铁律 P1）。
+- **自定义 `IViewFactory` 实现须保证创建幂等**（PRES-180）：`ViewBinder` 的读档后对账在
+  `GetAllEntityIds()` 中存在但未绑定的实体上复用既有 `OnEntityCreated` 路径调用
+  `IViewFactory.Create`；若某具体游戏/适配层的 `IViewFactory` 实现对同一实体重复调用 `Create` 会
+  产生副作用（如资源重复分配），需要确认其自身具备"同一实体已存在 View 时安全跳过或替换"的幂等
+  处理——框架侧 `ViewBinder` 已经用绑定表去重、不会对同一实体重复调用 `Create`，此处针对的是
+  `IViewFactory` 实现自身在异常路径下被多次调用时的健壮性。
+- **版本判据说明**：本次为 MINOR（`1.8.0` → `1.9.0`）。"新增"一节列出的成员均为新增（新增
+  类型/默认接口方法/公开方法/接口成员），无删改既有公开签名；`ISimSnapshot` 新增的两个成员不是
+  默认接口方法，对第三方 `ISimSnapshot` 实现方是源码级破坏性变更（需要新增代码才能继续编译），但
+  框架内唯一生产实现已同步，且该接口的公开消费方式（表现层只读查询）决定了外部实现方极少，按
+  MINOR 处理并在上方"迁移说明"显式标注，不视为需要 MAJOR 的公开二进制契约删改。
+
 ## [1.8.0] - 2026-09-08
 
 第十二方深度审核（codex 第十轮，基线 `8160178`，即本版本发布前的最新提交）4 项发现（CORE-170-01～03、
