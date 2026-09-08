@@ -354,6 +354,23 @@ zip（同目录需要有同名 `.lock` 文件）。两条路径都会：解压�
 版本号格式、锁文件字段、`build.ps1 -Release`/`-Zip` 如何产出这两个文件，见框架仓库根
 `README.md`"版本与发布"一节与 `architecture/落地计划/落地方案与分阶段计划.md` 第 3.5 节。
 
+**路径边界判断记录（PJ150-01 根治，2026-09-08，审计
+`architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md` PJ150-01）**：锁文件的 `version`
+字段此前只在与 `-Version` 相等时才被信任；`-AllowVersionMismatch` 放行版本不一致后，脚本会把该
+字段原样拼进落地目录路径并对其执行 `Remove-Item -Recurse -Force`——六个 DLL 的哈希校验不覆盖这个
+元数据字段，把 `version` 构造成形如 `x/../../outside_sentinel` 的值即可让落地路径规范化后逃出
+`-Target`，脚本仍以 exit 0 收尾并删除、覆盖那里已有的内容。根治两层，均已补 pytest 回归
+（`toolchain/tests/test_get_framework_path_boundary.py`，随 `pytest toolchain/tests` 一并跑）：
+1. 锁文件 `version` 字段与 `-Version` 参数同样严格校验语义化版本格式（`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`），
+   不允许出现路径分隔符/`..`/空白等字符；2. 无论格式校验是否通过，落地目录规范化后必须仍是
+   `-Target` 的严格子目录，任何写入/删除前完成校验（脚本内 `Test-IsStrictSubPath` 函数）。同一轮
+   顺带把解压方式从无差别的 `Expand-Archive` 改为逐条目手动解压 + 边界校验，堵住 zip 内条目路径
+   本身携带 `../`（zip slip）的越界口子——即便六个 DLL 的哈希都对得上，zip 里混进的其它恶意条目
+   仍会在解压前被拒绝。`-Target`/`-LockPath` 两个参数本身由调用方（游戏仓库一侧的可信调用者）
+   传入，不是本次攻击面的输入源，本轮未额外校验其格式；真正需要校验的是随 zip/lock 一起搬运、
+   可能被篡改的数据字段（锁文件 `version`、zip 条目路径），落地路径的边界校验以调用方传入的
+   `-Target` 本身作为信任根。
+
 上面两条是 zip 快照通道；`-FromRegistry` 是并存的第二条通道（私服，见下一节），不下载任何文件，
 只生成/更新游戏工程 `Packages/manifest.json` 与 `ws-game.lock`：
 

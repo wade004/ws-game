@@ -69,6 +69,16 @@
     "校验通过才落地"的语义；已存在的旧版本目录只有在本次校验通过后才会被替换。这条"校验后才
     落地"的语义只适用于 zip 通道——`-FromRegistry` 通道的完整性校验交给 npm/UPM 自己的包传输
     机制（tarball 校验和），本脚本不重复实现。
+    判断记录（PJ150-01 根治，2026-09-08，审计 architecture/落地计划/audit-3224ca1-20260908/
+    AUDIT_REPORT.md PJ150-01）：`-AllowVersionMismatch` 放行版本不一致后，锁文件 `version` 字段
+    此前未经格式校验就被用于拼接落地目录路径并触发 `Remove-Item -Recurse -Force`，构造成
+    `x/../../outside_sentinel` 形式可越界删除 `-Target` 之外的目录，六个 DLL 的哈希校验不覆盖
+    这个元数据字段。根治两层缺一不可：1）锁文件 `version` 与 `-Version` 同样严格校验语义化版本
+    格式；2）落地路径规范化后必须仍是 `-Target` 的严格子目录（`Test-IsStrictSubPath` 函数），
+    写入/删除前完成校验。同时把 zip 解压从无差别的 `Expand-Archive` 改为逐条目手动解压 + 同一套
+    边界校验，堵住 zip 内条目路径本身携带 `../`（zip slip）的越界口子。详见 toolchain/README.md
+    "`get_framework.ps1`（游戏侧按版本号引用本框架）"一节"路径边界判断记录"、回归测试
+    `toolchain/tests/test_get_framework_path_boundary.py`。
 #>
 param(
     [Parameter(Mandatory = $true)]
@@ -89,6 +99,37 @@ $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 if ($Version -notmatch $VersionFormatPattern) {
     Write-Host "-Version 格式非法：'$Version'（需形如 X.Y.Z）" -ForegroundColor Red
     exit 1
+}
+
+# 判断记录（P150-01 根治，2026-09-08，审计 architecture/落地计划/audit-3224ca1-20260908/
+# AUDIT_REPORT.md PJ150-01）：锁文件里的 `version` 字段此前只在“等于 -Version”时才被信任；一旦
+# 调用方传了 -AllowVersionMismatch 放行版本不一致，脚本会把锁文件 version 原样赋给
+# $EffectiveVersion 并直接拼进落地目录路径（`<Target>/ws-game-<EffectiveVersion>/`），随后对该
+# 路径执行 `Remove-Item -Recurse -Force`——锁文件是随 zip 一起搬运的数据文件，其 `version`
+# 字段未经任何格式校验，构造成形如 `x/../../outside_sentinel` 的值即可让拼出的路径规范化后落到
+# `-Target` 之外的任意兄弟目录，脚本会先删除那里已有的内容再落地框架文件（哈希校验只覆盖六个
+# DLL 字节，不覆盖这个元数据字段，看不出异常）。根治两层：1）锁文件 version 与 `-Version` 参数
+# 同样严格校验格式（允许可选的语义化版本预发布后缀，供本机验证/迁移场景使用非正式版本号归档，
+# 但不允许出现路径分隔符/`..`/绝对路径等非版本号字符）；2）无论格式校验是否通过，落地目录规范化
+# 后必须仍是 `-Target` 的严格子目录，任何写入/删除前都要经过这道边界检查——两层任一层单独失守
+# 都不足以杜绝越界，必须同时具备。
+$LockVersionFormatPattern = '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$'
+
+# 判断记录（P150-01 根治，同上）：把“规范化落点是否为 -Target 的严格子目录”抽成一个可复用函数，
+# 落地目录计算（zip 通道）与后续任何需要做同类边界校验的地方（例如 zip 内条目路径）共用同一份
+# 判定逻辑，不重复实现、不因为遗漏某处校验而留下另一个越界口子。严格子目录：规范化后的绝对路径，
+# 去掉结尾分隔符后再补一个分隔符作为前缀比较，故意不接受“等于根目录本身”（落地目录理应是根目录
+# 下的一层子目录，不应该出现落地路径与 -Target 本身相同、进而在 Remove-Item 时把 -Target 自己删掉
+# 的情况）。
+function Test-IsStrictSubPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$CandidatePath,
+        [Parameter(Mandatory = $true)][string]$RootPath
+    )
+    $rootFull = [System.IO.Path]::GetFullPath($RootPath)
+    $candidateFull = [System.IO.Path]::GetFullPath($CandidatePath)
+    $rootWithSep = $rootFull.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    return $candidateFull.StartsWith($rootWithSep, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
 if ($LockPath -eq "") {
@@ -311,6 +352,11 @@ try {
                    "显式传 -AllowVersionMismatch 放行——放行后落地目录名与引用示例改用锁文件的实际版本号 " + $lockObj.version +
                    "，不使用请求的 -Version，避免目录名与实际内容身份不符。")
         }
+        if ($lockObj.version -notmatch $LockVersionFormatPattern) {
+            throw ("锁文件 " + $LockSourcePath + " 的 version 字段格式非法：'" + $lockObj.version +
+                   "'（需形如 X.Y.Z 或 X.Y.Z-<预发布标识>，不允许路径分隔符/`..`/空白等字符）。" +
+                   "该字段会被用于拼接落地目录名，格式校验失败前不会做任何写入/删除。")
+        }
         $EffectiveVersion = $lockObj.version
         Write-Host ("  警告：锁文件 version=" + $lockObj.version + " 与请求的 -Version=" + $Version + " 不一致——已传 -AllowVersionMismatch，放行。") -ForegroundColor Yellow
         Write-Host ("  源（锁文件实际版本）=" + $lockObj.version + "；目标（本次请求版本）=" + $Version + "；落地目录名与引用示例将使用源版本号 " + $EffectiveVersion) -ForegroundColor Yellow
@@ -325,7 +371,45 @@ try {
     # -----------------------------------------------------------------------------
     Write-Step "解压并校验六个核心 DLL 的 sha256"
     $extractTempDir = Join-Path $WorkTempRoot "extract"
-    Expand-Archive -Path $ZipPath -DestinationPath $extractTempDir -Force
+    New-Item -ItemType Directory -Force -Path $extractTempDir | Out-Null
+
+    # 判断记录（P150-01 根治，同上，zip slip 部分）：不再直接用 `Expand-Archive` 无差别解压——zip
+    # 条目自身的文件名可以携带 `../`（zip slip），一个被篡改或恶意构造的 zip 即使六个 DLL 哈希都
+    # 对得上（哈希校验只挑六个固定名字的 DLL 比对，不校验其它条目），仍可能借助其它条目的路径把
+    # 内容写到 $extractTempDir 之外。改为用 `System.IO.Compression.ZipFile` 逐条目手动解压，每条
+    # 目标路径规范化后必须仍是 $extractTempDir 的严格子目录，不满足直接拒绝、不解压任何后续条目。
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        foreach ($zipEntry in $zipArchive.Entries) {
+            # 判断记录：本仓库 `build.ps1` 打的 zip 里目录条目的 `FullName` 以 `\`（Windows 分隔符）
+            # 结尾（例如 `ws-game-1.5.0\adapters\`），不是 zip 规范惯例的 `/`；.NET 的
+            # `ZipArchiveEntry.Name` 只按 `/` 切分，遇到这类条目时 `Name` 不为空（等于整个
+            # `FullName`），不能再用"`Name` 是否为空"判断是否为目录条目——改为直接看 `FullName`
+            # 是否以 `/` 或 `\` 结尾，兼容两种分隔符约定的 zip 生产者。
+            $isDirEntry = $zipEntry.FullName.EndsWith("/") -or $zipEntry.FullName.EndsWith("\")
+            if ($isDirEntry) {
+                # 纯目录条目：只确保目录存在，不写文件内容。
+                $entryDirPath = Join-Path $extractTempDir $zipEntry.FullName
+                if (-not (Test-IsStrictSubPath -CandidatePath $entryDirPath -RootPath $extractTempDir)) {
+                    throw "zip 条目路径越界（zip slip），已拒绝解压：'$($zipEntry.FullName)'"
+                }
+                New-Item -ItemType Directory -Force -Path $entryDirPath | Out-Null
+                continue
+            }
+            $entryDestPath = Join-Path $extractTempDir $zipEntry.FullName
+            if (-not (Test-IsStrictSubPath -CandidatePath $entryDestPath -RootPath $extractTempDir)) {
+                throw "zip 条目路径越界（zip slip），已拒绝解压：'$($zipEntry.FullName)'"
+            }
+            $entryDestDir = [System.IO.Path]::GetDirectoryName($entryDestPath)
+            if (-not (Test-Path $entryDestDir)) {
+                New-Item -ItemType Directory -Force -Path $entryDestDir | Out-Null
+            }
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($zipEntry, $entryDestPath, $true)
+        }
+    } finally {
+        $zipArchive.Dispose()
+    }
 
     $topDirs = @(Get-ChildItem -Path $extractTempDir -Directory)
     if ($topDirs.Count -ne 1) {
@@ -378,6 +462,17 @@ try {
     # 等于 $Version，二者相同；触发且放行后等于锁文件实际版本号），保证目录名与实际落地内容的
     # 身份始终一致，不会出现"请求版本号命名的目录，装着另一个版本的真实内容"。
     $extractDir = Join-Path $targetRootFull ("ws-game-" + $EffectiveVersion)
+
+    # 判断记录（P150-01 根治，同上）：无论 $EffectiveVersion 的格式校验是否已经拦下了非法字符，
+    # 落地前再做一次独立的路径边界校验——两层防御互不依赖，任一层单独失效时另一层仍能拦截。这里
+    # 用规范化后的绝对路径比较，而不是只看字符串是否包含 `..`（`GetFullPath` 会把 `a/../../b`
+    # 这类构造实际解析成的越界路径原形毕露，字符串黑名单容易漏判）。校验失败直接 throw，不做任何
+    # `Test-Path`/`Remove-Item`/`New-Item`。
+    if (-not (Test-IsStrictSubPath -CandidatePath $extractDir -RootPath $targetRootFull)) {
+        throw ("拒绝落地：规范化后的目标路径 '" + [System.IO.Path]::GetFullPath($extractDir) +
+               "' 不是 -Target '" + [System.IO.Path]::GetFullPath($targetRootFull) +
+               "' 的严格子目录（可能是锁文件 version 字段包含路径穿越片段）。未对该路径或 -Target 之外的任何目录执行写入/删除。")
+    }
     if (Test-Path $extractDir) {
         Write-Host "  目标目录已存在，整体删除重建：$extractDir" -ForegroundColor Yellow
         Remove-Item -Path $extractDir -Recurse -Force -Confirm:$false

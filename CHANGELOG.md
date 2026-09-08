@@ -50,7 +50,8 @@ PR140-01～04、PJ140-01～02）逐条核实并根治，另补齐审计未覆盖
 持久化、新 View 初始装备外观重放）。逐条核实表、旧 17 项复核对照、文档漂移处理见
 [audit-c86bfa9-20260908/followup-2026-09-08c.md](architecture/落地计划/audit-c86bfa9-20260908/followup-2026-09-08c.md)。
 均属核心规则/表现层/引擎适配层缺陷修复与能力补齐，无数据表字段删改，无存档格式不兼容变更（新增
-`world.gobj_pending_loot` 段是可选附加段，旧存档没有该段按空表处理，不影响既有段的读写）。
+`world.gobj_pending_loot` 段是可选附加段；缺段时的实际读取/清空语义以
+`architecture/10_存档与持久化.md` 当前记载为准，不在本条目重复展开）。
 
 ### 新增
 
@@ -60,8 +61,9 @@ PR140-01～04、PJ140-01～02）逐条核实并根治，另补齐审计未覆盖
   `Partial` 逐堆按实际落地量交付，未交付部分记入进程内台账供下次交互补发。
 - **`Core.Carriers.Gobj.GameObjectHost.PendingChestLootSnapshot`/`RestorePendingChestLoot`**
   + 新增 `GobjPendingLootPersistable`（CR140-01 存读档收口）：`Partial` 策略下未交付的宝箱余量
-  补齐可选存档段 `world.gobj_pending_loot`（字段名 `pending_loot`），旧存档没有该段（`JsonNull`）
-  视为空表；`GameplayAssembly.RegisterPersistables` 已注册。
+  补齐可选存档段 `world.gobj_pending_loot`（字段名 `pending_loot`）；缺段时的实际读取/清空语义
+  以 `architecture/10_存档与持久化.md` 当前记载为准；`GameplayAssembly.RegisterPersistables`
+  已注册。
 - **`Core.Carriers.Item.EquipmentHost.ReapplyGrants(Id unitId)`**（CR140-02）：按当前 `_equipped`
   记录重放每件装备的 `grants.auras` 并重新核实/施加套装门槛加成，幂等经 `IAuraQuery.HasAura`
   核实；`GameplayAssembly.EnterMap`（post-load 统一钩子）已接入调用。

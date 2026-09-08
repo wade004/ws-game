@@ -81,8 +81,11 @@ pre-commit 快速门禁（`-SkipUnity -Quick`）与提交后一次全量门禁�
 前台实跑 `powershell -ExecutionPolicy Bypass -File check.ps1`（不加 `-SkipUnity`/`-Quick`，
 `tasklist` 已确认 Unity 编辑器本体未占用）：commit A/B/C/D 落地前先跑通一次定位并修复命名空间
 编译错误（见上"核实方法说明"），随后四次提交各自的 pre-commit 快速门禁（`-SkipUnity -Quick`，
-20 步全部 PASS/SKIP，0 FAIL）全部通过；提交全部落地后再跑一次全量门禁，**23 步（18 PASS + 5
-SKIP，SKIP 为 3 项 IL2CPP 未传 `-Il2cpp` + 门禁自检本身不计入），0 FAIL**：
+20 步全部 PASS/SKIP，0 FAIL）全部通过；提交全部落地后再跑一次全量门禁，**23 步（20 PASS + 3
+SKIP，SKIP 为 3 项 IL2CPP 未传 `-Il2cpp`），0 FAIL**（与下表逐行计数及末尾汇总一致，按原始
+执行日志更正——此前版本误写为"18 PASS + 5 SKIP"，与下表 20 条 PASS 行、末尾"23 步（20 PASS +
+3 SKIP）"汇总自相矛盾，见 `architecture/落地计划/audit-3224ca1-20260908/doc-evidence.md`
+"历史证据隔离"一节）：
 
 | 步骤 | 结果 | 用时(s) | 详情 |
 |---|---|---|---|
