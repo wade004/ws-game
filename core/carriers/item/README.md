@@ -158,6 +158,28 @@ item/
     `core/carriers/assembly/CarriersSchemaCatalog.cs`（`RegisterItemSchemas` 注册）、
     `core/carriers/item/tests/ItemValidationRulesTests.cs`（新增 4 条用例）。
 
+11. **CR140-02 根治（外部审计 audit-c86bfa9-20260908，P2）：新增公开方法
+    `EquipmentHost.ReapplyGrants(unitId)`，供跨图 `World.ClearAll` 后重放装备/套装授予的
+    Aura**——`ClearAll` 触发 `entity.destroyed`，`AuraHost`（`core/rules/skill`）响应该事件移除
+    目标名下全部运行期 Aura 实例；但本模块的 `_equipped`/`_grantedAuras`/`_appliedSetBonuses` 全部
+    按 `unitId`（不是 `entityId`）记账，与 `IWorldSim` 实体生命周期无关，`ClearAll` 完全不触碰——
+    玩家实体重新登记回 `IWorldSim` 后，`_equipped` 仍然"记得"装备着哪些物品，装备本身的属性加成
+    （`IStatHost.AddModifier`）与技能授予（`SkillGranter`）也完好（`IStatHost`/`core/rules/skill`
+    的技能授予台账同样按 `unitId` 记账，不监听 `entity.destroyed`）——唯独 `_grantedAuras`/
+    `_appliedSetBonuses` 里记录的 `AuraInstanceRef` 句柄全部失效，装备看起来"还穿着"、实际光环全部
+    消失，直到重新装/卸一次才会被动刷新（外部审计探针 `equipment_aura_mapclear.log` 复现：
+    `afterAura=False`、`afterEquipped=True`）。`ReapplyGrants` 按
+    `instance→definition→grants` 重放每件已装备物品的 `grants.auras`（不重放 `stats`/`skills`——
+    那两类从未真正丢失，重放会造成双重叠加），并对涉及到的每个套装重新走一遍
+    `RecomputeSetBonuses`（先按 `IAuraQuery.HasAura` 核实 `_appliedSetBonuses` 里记录的档位是否
+    真的还活着，清掉已经失效的记录——否则 `RecomputeSetBonuses` 只看这份记录判断 `isApplied`，
+    会误以为不需要重新施加）。幂等：C08 收口时已经注入的 `IAuraQuery`（真实装配是 `AuraHost`）
+    额外保留一份引用（新增字段 `_auraQuery`），逐条 `HasAura` 核实——已经生效的 `aura_def`（典型
+    如本方法被意外连续调用两次）沿用已知句柄、不重新 `ApplyAura`（`AllowMultiSourceTiming=true`
+    时重复施加会产生独立新叠层实例，不能靠"反正会合并"蒙混过去）；未注入 `IAuraQuery` 时（多数
+    测试用的最小假实现）退化为"总是全部重新施加"，调用方需自行保证不会在 Aura 仍然存活时重复
+    调用。调用方见 `core/gameplay/assembly/README.md` 同编号条目（`GameplayAssembly.EnterMap`）。
+
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.ISkillHost` 没有"学习/遗忘技能"方法（技能书能力目前只存在于

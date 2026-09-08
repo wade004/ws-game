@@ -247,3 +247,50 @@ assembly/
    `InteractWithTeleporterGobj_CustomResolverReturnsNull_DoesNotFallBackToBuiltinTeleport`/
    `InteractWithTeleporterGobj_CrossMap_NoCustomResolver_StillTeleportsViaListener`（同一测试
    文件）。
+
+   **CR140-03 根治（外部审计 audit-c86bfa9-20260908，P2）：上一段"`TeleportTargetRef` 非空才调用
+   `TeleportUnit`"这一改法仍然不成立**——`TeleportTargetRef` 携带的是原始未解析的
+   `teleport_target_ref`（同 `core/carriers/gobj/README.md` 同编号条目判断记录），把它交回本文件
+   的 `TeleportUnit` 时，`TeleportUnit` 内部固定用本装配根自己的默认 `_teleportTargetResolver`
+   重新解析一遍——这仍然是两次独立解析同一个 ref：`DoTeleport` 那次（可能命中调用方注入的自定义
+   `GobjOptions.TeleportResolver`）的结果被完全丢弃，`TeleportUnit` 默认 resolver 的结果覆盖生效
+   （外部审计复现：跨图自定义解析结果 `(99,88)` 被内置解析的 `(30,40)` 覆盖，同图/`null` 分支此前
+   已修不受影响）。根治：`GobjInteractedEvent` 新增 `ResolvedTeleportTarget` 字段，直接携带
+   `DoTeleport` 已经解析好的 `(MapId, Position)`（同 `core/carriers/gobj/README.md` 同编号条目）；
+   `TeleportUnit` 拆分出 `ApplyResolvedTeleport(unitId, mapId, position)`——只负责把一个已解析的
+   目标落地（改 `MapId`/`SetPosition`/按需 `ISceneRouter.LoadScene`），不做任何解析，`TeleportUnit`
+   自身（服务 gossip `teleport`/`AreaTrigger.map_transition` 这两条"目标尚未解析"的调用方）解析
+   完毕后调用它。本文件的订阅改为：`ResolvedTeleportTarget` 非空才调用
+   `ApplyResolvedTeleport(evt.UnitId, mapId, position)`，不再把原始 ref 交回 `TeleportUnit`——
+   `DoTeleport` 才是唯一读取 `TeleportResolver` 的地方，真正做到一次性终局判定。未注入自定义
+   resolver 时，`DoTeleport` 读到的就是本文件接线的默认 `_teleportTargetResolver.Resolve`（构造期
+   第 16 步 `resolvedGobjOptions.TeleportResolver ??= ...`），效果与"下游内置解析一次"完全等价。
+   验收新增
+   `InteractWithTeleporterGobj_CrossMap_CustomResolverPosition_IsPreserved`（同一测试文件）。
+
+9. **CR140-02 根治（外部审计 audit-c86bfa9-20260908，P2）：`EnterMap` 新增
+   `Carriers.Equipment.ReapplyGrants(playerUnitId)`，重放跨图后丢失的装备/套装光环**：跨图
+   `World.ClearAll` 触发 `entity.destroyed`，`AuraHost`（`core/rules/skill`）响应该事件移除玩家
+   名下全部运行期 Aura 实例（含装备 `grants.auras`/套装门槛加成）；但
+   `Core.Carriers.Item.EquipmentHost._equipped`/`_grantedAuras`/`_appliedSetBonuses` 全部按
+   `unitId`（不是 `entityId`）记账，与 `IWorldSim` 的实体生命周期无关，`ClearAll` 完全不触碰——
+   常驻壳把玩家实体重新登记回 `IWorldSim` 后调用 `EnterMap`，此前只做 `Loot.ReattachToWorld`/
+   `AreaTrigger.LoadForMap`/`Spawn.ApplyForMap`/`Economy.OnMapEnter` 四件事，没有重建装备光环
+   这一步——装备本身"还穿着"（`_equipped` 完好），它带来的光环却已经悄悄消失，直到玩家重新装/
+   卸一次才会被动刷新，中间这段时间光环相关加成（伤害减免、免疫、控制抗性、`mod_stat` 类光环
+   派生的属性等）凭空缺失（外部审计探针 `equipment_aura_mapclear.log` 复现：
+   `afterAura=False`、`afterEquipped=True`）。核对了 `RulesAssembly.RegisterUnit` 挂接的其它
+   "运行期派生状态"（`IStatHost.AddModifier`/技能授予）：二者均按 `unitId` 记账、不监听
+   `entity.destroyed`，跨图不受影响，不需要一并重建；`AiHost` 虽然监听 `entity.destroyed` 清空
+   AI 状态，但那是"重新登记单位时天然重新生成"的瞬态数据，不属于本条范围。根治：
+   `Core.Carriers.Item.EquipmentHost` 新增公开方法 `ReapplyGrants(unitId)`（详见
+   `core/carriers/item/README.md` 同编号条目），按当前 `_equipped` 记录的
+   `instance→definition→grants` 重放每件装备的 `grants.auras`，并对涉及到的每个套装重新走一遍
+   门槛判定；`EnterMap` 在 `Loot.ReattachToWorld(mapId)` 之后调用它——两者都要求相关实体已经
+   重新登记进 `IWorldSim`，顺序不影响正确性。幂等：真实装配注入的 `IAuraQuery`（`Rules.Skill.
+   AuraQuery`）用于逐条核实"这个 aura_def 是否已经生效"，已生效的沿用已知句柄、不重新
+   `ApplyAura`，只补齐确实缺失的部分——`EnterMap` 被意外连续调用两次不会让光环叠加。验收新增
+   `core/gameplay/assembly/tests/CR140_02_EquipmentAuraMapClearTests.cs`：真实
+   `GameplayAssembly.Carriers`（真实 `CreatureFactory`/`AuraHost`/`EquipmentHost`/
+   `InventoryHost`）+ 真实 `WorldSim.ClearAll` + 手工重放"常驻壳把玩家实体加回"+ `EnterMap`，
+   覆盖普通装备与套装门槛加成两条路径，含"`EnterMap` 重复调用不叠加"。

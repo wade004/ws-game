@@ -157,6 +157,20 @@ gobj/
    "是否需要、需要传去哪"，不需要（也不应该）自己反查模板再解析一遍。消费方改动见
    `core/gameplay/assembly/README.md` 同编号条目。
 
+   **CR140-03 根治（外部审计 audit-c86bfa9-20260908，P2）：上一段"下游……不需要（也不应该）自己
+   反查模板再解析一遍"这句判断只对了一半**——`TeleportTargetRef` 携带的始终是原始未解析的
+   `teleport_target_ref` 字符串（"值就是原始 `teleport_target_ref`"，本条上一段原文），下游拿到
+   它之后，若不想重复反查模板，仍然只能拿这个原始 ref 去调用某个 resolver 才能落地到具体地图/
+   位置——而"某个 resolver"实际是消费方自己的默认 resolver，不是 `DoTeleport` 内部真正用到的那
+   个（可能是调用方注入的自定义）`GobjOptions.TeleportResolver`，构成两次独立解析同一个 ref（外部
+   审计复现：跨图自定义解析结果被消费方默认 resolver 的解析结果覆盖）。根治：`GobjInteractedEvent`
+   新增 `ResolvedTeleportTarget` 字段（`(Id MapId, Vec2 Position)?`），由 `DoTeleport`（本模块内
+   唯一读取 `TeleportResolver` 的地方）在判定"确实需要跨地图"时，把已经解析出的具体
+   `(MapId, Position)` 一并带出（经 `ExecuteKindBehavior` 的新增 `out` 参数），`Interact` 与
+   `TeleportTargetRef` 同一个非空条件一起放进事件。下游现在只需要落地这个已解析的结果，不需要
+   （也不应该）拿 `TeleportTargetRef` 反过去自己解析——`TeleportTargetRef` 保留只作为诊断/原始
+   引用用途。消费方改动见 `core/gameplay/assembly/README.md` 同编号条目。
+
 ## 契约缺口 / 未覆盖内容
 
 - **`type_data.trigger_shape`（`trap`）不做结构校验**：05 第 3.5 节 `Shape` 的具体 JSON 形状由

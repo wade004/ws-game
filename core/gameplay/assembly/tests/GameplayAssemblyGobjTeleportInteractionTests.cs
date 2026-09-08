@@ -292,5 +292,38 @@ namespace Tests.Gameplay.Assembly
             Assert.Equal(MapB, fx.Player.MapId);
             Assert.Equal(new Vec2(30, 40), fx.Player.Position);
         }
+
+        // ==== CR140-03（外部审计 audit-c86bfa9-20260908，P2）：跨图自定义 resolver 的结果不应被
+        // gobj.interacted 监听重新解析覆盖 ====
+
+        /// <summary>核心复现（同审计探针 crossmap_custom_resolver.log：expected=(99,88)
+        /// actual=(30,40)）：调用方注入自定义 <c>GobjOptions.TeleportResolver</c>，跨图判定把玩家送到
+        /// B 图的 <c>(99,88)</c>——<c>GameObjectHost.DoTeleport</c> 已经用这个自定义结果判定"需要跨
+        /// 图"，把解析出的 <c>(MapId, Position)</c> 经 <c>GobjInteractedEvent.ResolvedTeleportTarget</c>
+        /// 带出。修复前本文件的 <c>gobj.interacted</c> 监听只拿到原始 <c>teleport_target_ref</c>，转手
+        /// 交给 <c>TeleportUnit</c> 用本装配根自己的默认 <c>_teleportTargetResolver</c> 重新解析一遍——
+        /// 默认结果（B 图 <c>spawn_points[0]</c>，即 <c>(30,40)</c>）覆盖掉自定义结果。修复后监听直接
+        /// 落地事件携带的 <c>ResolvedTeleportTarget</c>，不再重新解析，自定义结果原样保留。</summary>
+        [Fact]
+        public void InteractWithTeleporterGobj_CrossMap_CustomResolverPosition_IsPreserved()
+        {
+            var customTarget = new Vec2(99, 88);
+            var gobjOptions = new Core.Carriers.Gobj.GobjOptions
+            {
+                TeleportResolver = _ => (MapB, customTarget),
+            };
+            var fx = Build(gobjOptions);
+            var gobjInstanceId = fx.Gameplay.Carriers.GameObjects.Spawn(TeleporterTemplateId, MapA, new Vec2(5, 4), 0);
+
+            var result = fx.Gameplay.Carriers.GameObjectInteractions.Interact(PlayerId, gobjInstanceId);
+            Assert.True(result.Success);
+            fx.Bus.DispatchPending();
+            fx.Router.Update();
+
+            Assert.Equal(MapB, fx.Router.GetCurrentScene());
+            Assert.Equal(MapB, fx.Player.MapId);
+            Assert.Equal(customTarget, fx.Player.Position);
+            Assert.Null(fx.World.GetEntity(OldMapResidentId)); // 真正切了场景，不是同图分支的幂等 no-op。
+        }
     }
 }

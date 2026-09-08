@@ -14,6 +14,27 @@ namespace Core.Carriers.Gobj
     /// <summary>请求为 <paramref name="unitId"/> 存档的 L4 回调（见 <see cref="GobjOptions.SaveRequester"/>）。</summary>
     public delegate void SaveRequesterDelegate(Id unitId);
 
+    /// <summary>
+    /// CR140-01 根治（architecture/落地计划/audit-c86bfa9-20260908）：<c>chest</c> 一次性开箱时，掉落
+    /// 表抽出的多个物品堆叠交付进背包，其中某一堆放不下该怎么对待整次开箱——与
+    /// <c>Core.Gameplay.Loot.LootPickupPolicy</c> 是同一层面的两难，本枚举独立定义在 L3（不依赖 L4
+    /// 的 <c>core/gameplay/loot</c>），语义与命名对齐 <c>LootPickupPolicy</c>，供 <see
+    /// cref="GameObjectHost"/> 复用 <c>LootHost.PickUp</c> 同款 batch/Partial 判断记录。
+    /// </summary>
+    public enum GobjLootDeliveryPolicy
+    {
+        /// <summary>只要有任意一个物品堆叠放不下（部分或全部），整次开箱不生效：已经放入背包的堆叠
+        /// 按事务整体撤销（<see cref="Core.Carriers.Common.IBatchableInventoryHost"/> 可用时）或逐项
+        /// 补偿移除，<c>open_state</c> 不标记为已开，允许下次交互重新完整 roll 一遍并重试。</summary>
+        Reject,
+
+        /// <summary>能拿多少拿多少：放不下的部分留在箱子自身的待补发记录里（不落地为地面掉落物——L3
+        /// 不引入 <c>core/gameplay/loot</c> 的 <c>DroppedLootEntity</c> 概念），<c>open_state</c>
+        /// 标记为已开（避免下次交互重新 roll 导致已交付部分之上又叠加一份全新掉落），下次交互只补发
+        /// 剩余部分，不重新抽取。</summary>
+        Partial,
+    }
+
     /// <summary>把 <paramref name="questActionRef"/> 分发给任务系统的 L4 回调（见
     /// <see cref="GobjOptions.QuestActionDispatcher"/>）。</summary>
     public delegate void QuestActionDispatcherDelegate(Id unitId, Id questActionRef);
@@ -72,5 +93,11 @@ namespace Core.Carriers.Gobj
         /// 时表现为"永不刷新"，与"未提供时间源就不应假装时间在流逝"的保守语义一致）。
         /// </summary>
         public Func<double> SimTime { get; set; } = () => 0;
+
+        /// <summary>CR140-01 根治：<c>chest</c> 一次性开箱时背包放不下抽出物品的整体处理策略，见
+        /// <see cref="GobjLootDeliveryPolicy"/>，默认 <see cref="GobjLootDeliveryPolicy.Partial"/>
+        /// （与 <c>LootOptions.FullPolicy</c> 默认值同一取舍：不会因为背包只差一格就让整批已经能
+        /// 装下的部分也作废）。</summary>
+        public GobjLootDeliveryPolicy ChestLootPolicy { get; set; } = GobjLootDeliveryPolicy.Partial;
     }
 }

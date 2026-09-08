@@ -62,6 +62,15 @@ namespace Core.Carriers.Item
         private readonly ItemOptions _options;
         private readonly IItemDiagnostics _diagnostics;
 
+        /// <summary>CR140-02 根治（architecture/落地计划/audit-c86bfa9-20260908，P2）：C08 收口时
+        /// 已经把这个可选依赖注入进来（此前只用于订阅 <see cref="IAuraQuery.InstanceReplaced"/>），
+        /// 现在额外保留一份引用供 <see cref="ReapplyGrants"/> 用 <see cref="IAuraQuery.HasAura"/>
+        /// 判断某个 <c>aura_def</c> 是否仍然生效——跨图 <c>World.ClearAll</c> 后重放装备/套装授予的
+        /// Aura 时，靠这个查询避免对"确实还活着"的光环重复叠加（见该方法判断记录）。未注入时
+        /// （<c>null</c>，多数测试用的最小假实现）<see cref="ReapplyGrants"/> 退化为"总是全部重新
+        /// 施加"，调用方需自行保证不会在 Aura 仍然存活时重复调用。</summary>
+        private readonly IAuraQuery? _auraQuery;
+
         private readonly Dictionary<Id, DataRecord> _slotDefinitions = new Dictionary<Id, DataRecord>();
         private readonly Dictionary<Id, DataRecord> _sets = new Dictionary<Id, DataRecord>();
 
@@ -141,6 +150,7 @@ namespace Core.Carriers.Item
             // 改变既有测试断言。真实生产装配（见 CarriersAssembly）传入 Rules.Skill.AuraQuery（真实
             // AuraHost），使 StackOverflowPolicy.Replace 换句柄后本类记录的授予句柄能同步随之更新，
             // 见 OnAuraInstanceReplaced 判断记录。
+            _auraQuery = auraQuery;
             if (auraQuery != null)
             {
                 auraQuery.InstanceReplaced += OnAuraInstanceReplaced;
@@ -613,6 +623,194 @@ namespace Core.Carriers.Item
 
                 _grantedAuras.Remove(key);
             }
+        }
+
+        /// <summary>
+        /// CR140-02 根治（architecture/落地计划/audit-c86bfa9-20260908，P2）：跨图 <c>World.ClearAll</c>
+        /// 触发 <c>entity.destroyed</c>，<c>AuraHost</c>（<c>core/rules/skill</c>）响应该事件移除目标
+        /// 名下全部运行期 Aura 实例（含装备 <c>grants.auras</c>/套装门槛加成——见 <see
+        /// cref="ApplyGrants"/>/<see cref="RecomputeSetBonuses"/> 施加时用的 <c>IEffectSink.ApplyAura</c>，
+        /// 其反向撤销走同一个"按 <c>entity.destroyed</c> 清空"路径）；但本类的 <see cref="_equipped"/>/
+        /// <see cref="_grantedAuras"/>/<see cref="_appliedSetBonuses"/> 全部按 <c>unitId</c>（不是
+        /// <c>entityId</c>）记账，与 <see cref="IWorldSim"/> 的实体生命周期无关，<c>ClearAll</c> 完全
+        /// 不触碰——玩家实体重新登记回 <see cref="IWorldSim"/> 后，<see cref="_equipped"/> 仍然"记得"
+        /// 装备着哪些物品，装备本身的属性加成（<see cref="IStatHost.AddModifier"/>）与技能授予（<see
+        /// cref="SkillGranter"/>）也完好——<see cref="IStatHost"/>/<c>core/rules/skill</c> 的技能授予
+        /// 台账同样按 <c>unitId</c> 记账，不监听 <c>entity.destroyed</c>——唯独 <see
+        /// cref="_grantedAuras"/>/<see cref="_appliedSetBonuses"/> 里记录的 <see cref="AuraInstanceRef"/>
+        /// 句柄全部失效（<c>AuraHost</c> 那边已经不认得），装备看起来"还穿着"、实际光环全部消失，
+        /// 直到重新装/卸一次才会被动刷新，中间这段时间玩家的光环相关加成（伤害减免、免疫、控制抗性
+        /// 等）凭空缺失。
+        /// <para>
+        /// 调用方（装配根 <c>GameplayAssembly.EnterMap</c>，即 <c>ISceneRouter</c> <c>post_load</c>
+        /// 统一钩子，玩家实体重新登记进 <see cref="IWorldSim"/> 之后）应调用本方法：按
+        /// <c>instance→definition→grants</c> 对 <paramref name="unitId"/> 当前 <see cref="_equipped"/>
+        /// 里每件装备重放 <c>grants.auras</c>（不重放 <c>stats</c>/<c>skills</c>——那两类从未真正丢失，
+        /// 重放会造成双重叠加，见上），并对涉及到的每个套装重新走一遍套装门槛判定。
+        /// </para>
+        /// <para>
+        /// 幂等（<see cref="_auraQuery"/> 可用时，真实装配恒可用，见该字段判断记录）：逐条用
+        /// <see cref="IAuraQuery.HasAura"/> 核实——已经生效的 <c>aura_def</c>（典型如本方法被意外
+        /// 连续调用两次，或压根没有发生过 <c>ClearAll</c>）沿用 <see cref="_grantedAuras"/> 里已经
+        /// 记录的句柄，不重新 <c>ApplyAura</c>（<c>AllowMultiSourceTiming=true</c> 时重复施加会产生
+        /// 独立新叠层实例，不能靠"再施加一次反正会合并"蒙混过去）；只有确认已经不生效的才重新施加。
+        /// </para>
+        /// </summary>
+        public void ReapplyGrants(Id unitId)
+        {
+            if (!_equipped.TryGetValue(unitId, out var slots) || slots.Count == 0)
+            {
+                return;
+            }
+
+            var touchedSetIds = new HashSet<Id>();
+            foreach (var kv in slots)
+            {
+                var instance = kv.Value;
+                var template = RequireTemplate(instance.TemplateId);
+                ReapplyAuraGrants(unitId, instance, template);
+                if (TryGetSetId(template, out var setId))
+                {
+                    touchedSetIds.Add(setId);
+                }
+            }
+
+            foreach (var setId in touchedSetIds)
+            {
+                ReapplySetBonuses(unitId, setId);
+            }
+        }
+
+        /// <summary>见 <see cref="ReapplyGrants"/> 判断记录：对单件装备重放 <c>grants.auras</c>，逐条
+        /// 按 <see cref="_auraQuery"/> 判断是否需要真的重新 <c>ApplyAura</c>。</summary>
+        private void ReapplyAuraGrants(Id unitId, ItemInstance instance, DataRecord template)
+        {
+            if (!template.TryGetObject("grants", out var grants) ||
+                !grants.TryGetValue("auras", out var aurasRaw) || !(aurasRaw is JsonArray aurasArr) || aurasArr.Count == 0)
+            {
+                return;
+            }
+
+            var key = (unitId, instance.InstanceId);
+            _grantedAuras.TryGetValue(key, out var previous);
+
+            var list = new List<(Id, AuraInstanceRef)>();
+
+            foreach (var a in aurasArr)
+            {
+                if (!(a is JsonString asStr) || !Id.TryParse(asStr.Value, out var auraDefId))
+                {
+                    continue;
+                }
+
+                if (_auraQuery != null && _auraQuery.HasAura(unitId, auraDefId))
+                {
+                    // 幂等：这个 aura_def 当前确实生效——沿用此前记录里对应的句柄，不重新
+                    // ApplyAura（见 ReapplyGrants 判断记录"不能靠再施加一次反正会合并蒙混过去"）。
+                    var existing = FindGrantedRef(previous, auraDefId);
+                    if (existing.HasValue)
+                    {
+                        list.Add((auraDefId, existing.Value));
+                        continue;
+                    }
+
+                    // previous 里没有这一条已知句柄，但 HasAura 已确认生效：大概率是套装门槛加成一类
+                    // 别的来源已经把它施加到位（AllowMultiSourceTiming=false 时共享同一实例，见
+                    // _auraHandleRefCount 判断记录），本方法不负责这种情况下的句柄归属，跳过，不
+                    // 在这里凭空登记一份不属于本装备实例的引用计数。
+                    continue;
+                }
+
+                var granted = _effectSink.ApplyAura(unitId, auraDefId, instance.InstanceId);
+                RegisterAuraHandle(unitId, granted.AuraInstanceId);
+                list.Add((auraDefId, granted));
+            }
+
+            if (previous != null)
+            {
+                foreach (var (_, oldRef) in previous)
+                {
+                    if (!ListContainsHandle(list, oldRef.AuraInstanceId))
+                    {
+                        // 这个旧句柄没有被本次重放保留：ClearAll 后 AuraHost 那边已经不存在这个实例，
+                        // 只需要丢弃本类自己的引用计数簿记，不能（也不需要）调用
+                        // ReleaseAuraHandle/IEffectSink.RemoveAura——目标不存在，调用没有意义。
+                        _auraHandleRefCount.Remove((unitId, oldRef.AuraInstanceId));
+                    }
+                }
+            }
+
+            _grantedAuras[key] = list;
+        }
+
+        private static AuraInstanceRef? FindGrantedRef(List<(Id AuraDefId, AuraInstanceRef Ref)>? list, Id auraDefId)
+        {
+            if (list == null)
+            {
+                return null;
+            }
+
+            foreach (var (defId, r) in list)
+            {
+                if (defId.Equals(auraDefId))
+                {
+                    return r;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool ListContainsHandle(List<(Id AuraDefId, AuraInstanceRef Ref)> list, Id auraInstanceId)
+        {
+            foreach (var (_, r) in list)
+            {
+                if (r.AuraInstanceId.Equals(auraInstanceId))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>见 <see cref="ReapplyGrants"/> 判断记录：<see cref="_appliedSetBonuses"/> 记录的
+        /// 是"曾经施加过"，不是"现在还活着"——ClearAll 后其中的 <see cref="AuraInstanceRef"/> 可能已经
+        /// 失效但记录本身还在，<see cref="RecomputeSetBonuses"/> 只看这份记录判断 <c>isApplied</c>，
+        /// 会误以为不需要重新施加。本方法先按 <see cref="_auraQuery"/> 清掉已经失效的档位记录（不
+        /// 调用 <see cref="ReleaseAuraHandle"/>/<see cref="IEffectSink.RemoveAura"/>——那个句柄在光环
+        /// 系统内早已不存在），再交由既有的 <see cref="RecomputeSetBonuses"/> 按当前件数重新判定、
+        /// 按需重新施加——两者组合起来才是"跨图后重新核实一遍套装光环"的完整语义。</summary>
+        private void ReapplySetBonuses(Id unitId, Id setId)
+        {
+            if (_auraQuery != null &&
+                _appliedSetBonuses.TryGetValue((unitId, setId), out var applied) &&
+                _sets.TryGetValue(setId, out var setRecord))
+            {
+                var auraRefByThreshold = new Dictionary<int, Id>();
+                foreach (var (threshold, auraRef) in ParseSetBonuses(setRecord))
+                {
+                    auraRefByThreshold[threshold] = auraRef;
+                }
+
+                foreach (var threshold in new List<int>(applied.Keys))
+                {
+                    if (auraRefByThreshold.TryGetValue(threshold, out var auraDefId) && _auraQuery.HasAura(unitId, auraDefId))
+                    {
+                        // 仍然生效（幂等场景，见 ReapplyGrants 判断记录），保留记录不动。
+                        continue;
+                    }
+
+                    foreach (var staleRef in applied[threshold])
+                    {
+                        _auraHandleRefCount.Remove((unitId, staleRef.AuraInstanceId));
+                    }
+
+                    applied.Remove(threshold);
+                }
+            }
+
+            RecomputeSetBonuses(unitId, setId);
         }
 
         // -----------------------------------------------------------------

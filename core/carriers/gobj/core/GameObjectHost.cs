@@ -35,6 +35,18 @@ namespace Core.Carriers.Gobj
         private readonly GobjOptions _options;
         private readonly IGobjDiagnostics _diagnostics;
 
+        /// <summary>CR140-01 根治：<c>chest</c> 在 <see cref="GobjLootDeliveryPolicy.Partial"/> 策略下
+        /// 未能全部交付的剩余物品堆叠，按 gobj 实例 id 索引，供下次交互补发（见 <see
+        /// cref="OpenChestPartial"/>/<see cref="DeliverPendingChestLoot"/>）。判断记录（第七方审核
+        /// 收口修订）：本字段自身不直接依赖 <c>core/gameplay/loot</c>（L4）的
+        /// <c>DroppedLootEntity</c>/存档持久化概念，进程内存态本身随进程重启即丢失；但存读档场景
+        /// （满包 Partial 开箱 -> Save -> 新宿主 Load -> 腾出空间 -> 再交互）必须恰好补发一次剩余部分
+        /// ，不能因为这份记账只活在内存里而丢失——已补齐可选存档段 <see
+        /// cref="PendingChestLootSnapshot"/>/<see cref="RestorePendingChestLoot"/>（供
+        /// <c>GobjPendingLootPersistable</c> 读写），是否注册该段由装配层决定（同 L4
+        /// <c>DroppedLootPersistable</c> 的接线方式，本模块不强制依赖它）。</summary>
+        private readonly Dictionary<Id, List<ItemStack>> _pendingChestLoot = new Dictionary<Id, List<ItemStack>>();
+
         public GameObjectHost(
             IDataRegistryView registry,
             IWorldSim world,
@@ -62,6 +74,50 @@ namespace Core.Carriers.Gobj
         }
 
         // -----------------------------------------------------------------
+        // 存档段支持（见 <see cref="_pendingChestLoot"/> 判断记录的收口修订：原判断记录"不落地为
+        // 存档段"仅覆盖审计探针实测到的"当次运行内重试"这一不变式，未覆盖"存读档"路径——满包
+        // Partial 开箱后存档、读档到新宿主，_pendingChestLoot 是纯进程内字段会丢失，腾出空间后再
+        // 交互不会补发。以下两个方法供 <c>Core.Carriers.Gobj.GobjPendingLootPersistable</c>（可选
+        // 存档段，装配层决定是否注册，同 <c>Core.Gameplay.Loot.DroppedLootPersistable</c> 的接线
+        // 方式）读写这份台账，不改变 <see cref="OpenChestPartial"/>/<see
+        // cref="DeliverPendingChestLoot"/> 的既有语义。
+        // -----------------------------------------------------------------
+
+        /// <summary>当前 <see cref="_pendingChestLoot"/> 的只读快照，供存档段 <c>Save()</c> 使用。</summary>
+        public IReadOnlyDictionary<Id, IReadOnlyList<ItemStack>> PendingChestLootSnapshot()
+        {
+            var result = new Dictionary<Id, IReadOnlyList<ItemStack>>(_pendingChestLoot.Count);
+            foreach (var kv in _pendingChestLoot)
+            {
+                result[kv.Key] = new List<ItemStack>(kv.Value);
+            }
+
+            return result;
+        }
+
+        /// <summary>用存档段 <c>Load()</c> 解析出的内容整体替换 <see cref="_pendingChestLoot"/>
+        /// （读档 = 归零重建，惯例同 <c>DroppedLootPersistable.Load</c> 判断记录）。旧存档没有这段
+        /// （<c>data is JsonNull</c>）时调用方传入空字典即可，视为"无待补发余量"，不视为错误。</summary>
+        public void RestorePendingChestLoot(IReadOnlyDictionary<Id, IReadOnlyList<ItemStack>> snapshot)
+        {
+            _pendingChestLoot.Clear();
+            if (snapshot == null)
+            {
+                return;
+            }
+
+            foreach (var kv in snapshot)
+            {
+                if (kv.Value == null || kv.Value.Count == 0)
+                {
+                    continue;
+                }
+
+                _pendingChestLoot[kv.Key] = new List<ItemStack>(kv.Value);
+            }
+        }
+
+        // -----------------------------------------------------------------
         // IGameObjectHost
         // -----------------------------------------------------------------
 
@@ -84,7 +140,7 @@ namespace Core.Carriers.Gobj
             }
 
             var template = RequireTemplate(gobj.TemplateId!.Value);
-            var kindDispatchRef = ExecuteKindBehavior(unitId, gobj, template);
+            var kindDispatchRef = ExecuteKindBehavior(unitId, gobj, template, out var resolvedTeleportTarget);
 
             InteractResult result;
             if (template.OnUse.HasValue)
@@ -109,8 +165,14 @@ namespace Core.Carriers.Gobj
             // 有 on_use 时 result.DispatchedRef 是完全不同的 skill/dialog 分发目标，绝不能当传送目标
             // 转发给下游监听（那会把一次技能/对话交互误当传送处理）。这里独立算一遍同样的条件，不
             // 直接复用 result.DispatchedRef，避免两种语义在事件层面被混同。
+            //
+            // CR140-03 根治（architecture/落地计划/audit-c86bfa9-20260908）：同一条件下把
+            // resolvedTeleportTarget（DoTeleport 已经用可能是自定义的 TeleportResolver 解析出的
+            // (MapId, Position)）一并携带进事件——见 GobjInteractedEvent.ResolvedTeleportTarget
+            // 判断记录，下游不再需要（也不允许）自己重新解析同一个 teleportTargetRef。
             var teleportTargetRef = !template.OnUse.HasValue ? kindDispatchRef : null;
-            _bus.Enqueue(new GobjInteractedEvent(unitId, gobjInstanceId, teleportTargetRef));
+            var resolvedForEvent = !template.OnUse.HasValue ? resolvedTeleportTarget : null;
+            _bus.Enqueue(new GobjInteractedEvent(unitId, gobjInstanceId, teleportTargetRef, resolvedForEvent));
             return result;
         }
 
@@ -221,9 +283,16 @@ namespace Core.Carriers.Gobj
 
         /// <summary>返回值非空时表示"本次内置行为需要留一个引用给上层处理"（目前只有 <c>teleporter</c>
         /// 异图传送这一种情形，见该分支注释），供 <see cref="Interact"/> 在没有 <c>on_use</c> 可分发
-        /// 时把它填进 <see cref="InteractResult.DispatchedRef"/>。</summary>
-        private Id? ExecuteKindBehavior(Id unitId, GameObjectEntity gobj, GameObjectTemplate template)
+        /// 时把它填进 <see cref="InteractResult.DispatchedRef"/>。<paramref
+        /// name="resolvedTeleportTarget"/>（CR140-03 根治）在同一种情形下额外带出 <see
+        /// cref="DoTeleport"/> 已经解析好的 <c>(MapId, Position)</c>，其余全部分支恒为 <c>null</c>，
+        /// 供 <see cref="Interact"/> 原样转交 <see cref="GobjInteractedEvent.ResolvedTeleportTarget"/>，
+        /// 不需要下游再重新解析一遍同一个 ref。</summary>
+        private Id? ExecuteKindBehavior(
+            Id unitId, GameObjectEntity gobj, GameObjectTemplate template, out (Id MapId, Vec2 Position)? resolvedTeleportTarget)
         {
+            resolvedTeleportTarget = null;
+
             switch (template.Kind)
             {
                 case GobjKind.Door:
@@ -239,7 +308,8 @@ namespace Core.Carriers.Gobj
                     return null;
 
                 case GobjKind.Teleporter:
-                    return DoTeleport(unitId, gobj, template.TypeData.Teleporter!.Value.TeleportTargetRef);
+                    return DoTeleport(
+                        unitId, gobj, template.TypeData.Teleporter!.Value.TeleportTargetRef, out resolvedTeleportTarget);
 
                 case GobjKind.SavePoint:
                     if (_options.SaveRequester != null)
@@ -293,16 +363,207 @@ namespace Core.Carriers.Gobj
             SetState(gobjInstanceId, "open_state", ExprValue.OfBool(current), ExprValue.OfBool(!current));
         }
 
+        /// <summary>
+        /// CR140-01 根治（architecture/落地计划/audit-c86bfa9-20260908，P1）：修复前先无条件把
+        /// <c>open_state</c> 置为已开，再对每个抽出的物品堆叠直接调用 <see
+        /// cref="IInventoryHost.AddItem"/>，不检查是否真的放得下、不回滚——满包时奖励可能部分/全部
+        /// 丢失，且因为 <c>open_state</c> 已经永久标记为已开，<see cref="Interact"/> 再交互一次会直接
+        /// 因"已开过"短路返回，玩家再也拿不到丢失的那部分（见 <c>OpenChest</c> 修复前实现）。
+        /// <para>
+        /// 根治采用与 <see cref="Core.Gameplay.Loot.LootHost.PickUp"/> 相同的 batch/Partial 协议（经
+        /// <see cref="IBatchableInventoryHost"/>/<see cref="IInventoryTransaction"/>，见 <see
+        /// cref="GobjLootDeliveryPolicy"/> 类型注释）：只有整批交付成功才提交 <c>open_state=true</c>；
+        /// <see cref="GobjLootDeliveryPolicy.Reject"/> 下但凡有一堆放不下就整体回滚、不标记，允许下次
+        /// 交互重新完整 roll 一遍重试；<see cref="GobjLootDeliveryPolicy.Partial"/> 下保留已交付部分，
+        /// 未交付部分记入 <see cref="_pendingChestLoot"/> 供下次交互只补发剩余（不重新 roll，避免在
+        /// 已交付部分之上又叠加一份全新掉落），同时仍然标记 <c>open_state=true</c>（防止两种策略混淆
+        /// 出"未标记但已经拿到过一部分"的状态）。
+        /// </para>
+        /// </summary>
         private void OpenChest(Id unitId, Id gobjInstanceId, Id lootTableRef)
         {
             if (GetStateBool(gobjInstanceId, "open_state"))
             {
-                // 已开过：不重复掉落（见 07 第 9 节测试方式"箱子首次开箱掉落入包、再开不重复"）。
+                // 已开过：Partial 策略下可能仍有未交付完的剩余奖励，尝试补发（不重新 roll）；Reject
+                // 策略或已经补发完的 Partial 走到这里是 no-op（见 07 第 9 节测试方式"箱子首次开箱
+                // 掉落入包、再开不重复"，本方法把该不变式扩展为"……或已补发完剩余部分"）。
+                DeliverPendingChestLoot(unitId, gobjInstanceId);
                 return;
             }
 
+            if (_loot == null)
+            {
+                _diagnostics.Warn($"gobj \"{gobjInstanceId}\" 需要掉落但未注入 ILootRoller");
+                // 没有掉落表可抽，没有奖励会丢失：仍按原有行为标记已开，避免每次交互都重复报同一条
+                // 诊断（判断记录同 GatherNode 分支——这不属于 CR140-01"发奖前被永久标记"的缺口，
+                // 因为压根没有发生过任何发奖尝试）。
+                SetState(gobjInstanceId, "open_state", ExprValue.OfBool(false), ExprValue.OfBool(true));
+                return;
+            }
+
+            var stacks = _loot.Roll(lootTableRef, gobjInstanceId, unitId);
+            if (_options.ChestLootPolicy == GobjLootDeliveryPolicy.Reject)
+            {
+                OpenChestReject(unitId, gobjInstanceId, stacks);
+            }
+            else
+            {
+                OpenChestPartial(unitId, gobjInstanceId, stacks);
+            }
+        }
+
+        /// <summary>见 <see cref="GobjLootDeliveryPolicy.Reject"/>：整批交付成功才提交
+        /// <c>open_state=true</c>，否则整体回滚（同 <see
+        /// cref="Core.Gameplay.Loot.LootHost.PickUpReject"/> 判断记录）。</summary>
+        private void OpenChestReject(Id unitId, Id gobjInstanceId, IReadOnlyList<ItemStack> stacks)
+        {
+            if (stacks.Count == 0)
+            {
+                SetState(gobjInstanceId, "open_state", ExprValue.OfBool(false), ExprValue.OfBool(true));
+                return;
+            }
+
+            var addedPerStack = new List<int>(stacks.Count);
+            var fullySucceeded = true;
+
+            var transaction = _inventory is IBatchableInventoryHost batchable ? batchable.BeginBatch() : null;
+            using (transaction)
+            {
+                foreach (var stack in stacks)
+                {
+                    _inventory.TryAddItem(unitId, stack.TemplateId, stack.Count, out var actualCount);
+                    addedPerStack.Add(actualCount);
+                    if (actualCount < stack.Count)
+                    {
+                        fullySucceeded = false;
+                    }
+                }
+
+                if (!fullySucceeded)
+                {
+                    if (transaction == null)
+                    {
+                        // 宿主不支持事务：按实际落地量（不是请求量）逐项回滚，惯例同
+                        // LootHost.PickUpReject/RewardDispatcher.GrantItems。
+                        for (var i = 0; i < stacks.Count; i++)
+                        {
+                            if (addedPerStack[i] > 0)
+                            {
+                                RollbackAdd(unitId, stacks[i].TemplateId, addedPerStack[i]);
+                            }
+                        }
+                    }
+                    // 宿主支持事务时，using 块结束触发 Dispose（未 Commit）即整体撤销状态与缓存事件，
+                    // 不需要在这里手动回滚。
+
+                    // 不标记 open_state：这次尝试没有任何奖励真正留在玩家背包里，下次交互允许重新
+                    // 完整 roll 一遍并重试（CR140-01 根治"Reject 时不标记、可重试"）。
+                    return;
+                }
+
+                transaction?.Commit();
+            }
+
             SetState(gobjInstanceId, "open_state", ExprValue.OfBool(false), ExprValue.OfBool(true));
-            RollLootInto(unitId, gobjInstanceId, lootTableRef);
+        }
+
+        /// <summary>见 <see cref="GobjLootDeliveryPolicy.Partial"/>：能拿多少拿多少，未交付部分记入
+        /// <see cref="_pendingChestLoot"/>（同 <see
+        /// cref="Core.Gameplay.Loot.LootHost.PickUpPartial"/> 判断记录，不需要事务——每次
+        /// <see cref="IInventoryHost.TryAddItem"/> 调用本身已经是"这一堆放多少算多少"的原子操作，
+        /// 从不需要撤销已经成功落地的部分）。</summary>
+        private void OpenChestPartial(Id unitId, Id gobjInstanceId, IReadOnlyList<ItemStack> stacks)
+        {
+            var remaining = new List<ItemStack>(stacks.Count);
+            var anyDelivered = stacks.Count == 0;
+
+            foreach (var stack in stacks)
+            {
+                _inventory.TryAddItem(unitId, stack.TemplateId, stack.Count, out var actualCount);
+                if (actualCount > 0)
+                {
+                    anyDelivered = true;
+                }
+
+                var leftover = stack.Count - actualCount;
+                if (leftover > 0)
+                {
+                    remaining.Add(new ItemStack(stack.TemplateId, leftover));
+                }
+            }
+
+            if (!anyDelivered)
+            {
+                // 一件都没能交付（如背包已经完全没有任何空间）：没有产生任何背包变化，等价于 Reject
+                // 场景的"完全没拿到"，不标记，允许下次交互重新完整 roll 一遍。
+                return;
+            }
+
+            // 至少交付了一部分：必须标记 open_state，否则下次交互会重新 roll 一遍掉落表，在已经拿到
+            // 的部分之上又叠加一份全新的（CR140-01 根治"整批交付成功才提交 open_state=true"是对
+            // "完全没交付"的另一面——这里"部分/全部交付"都必须标记，用同一个 open_state 字段区分
+            // "还没开过"与"开过（可能仍有 pending 待补发）"）。
+            SetState(gobjInstanceId, "open_state", ExprValue.OfBool(false), ExprValue.OfBool(true));
+
+            if (remaining.Count > 0)
+            {
+                _pendingChestLoot[gobjInstanceId] = remaining;
+            }
+        }
+
+        /// <summary>已开过的箱子再次交互时，尝试补发 <see cref="_pendingChestLoot"/> 里记录的剩余部分
+        /// （不重新 <see cref="ILootRoller.Roll"/>——见 <see cref="OpenChestPartial"/> 判断记录）。</summary>
+        private void DeliverPendingChestLoot(Id unitId, Id gobjInstanceId)
+        {
+            if (!_pendingChestLoot.TryGetValue(gobjInstanceId, out var pending) || pending.Count == 0)
+            {
+                return;
+            }
+
+            var remaining = new List<ItemStack>(pending.Count);
+            foreach (var stack in pending)
+            {
+                _inventory.TryAddItem(unitId, stack.TemplateId, stack.Count, out var actualCount);
+                var leftover = stack.Count - actualCount;
+                if (leftover > 0)
+                {
+                    remaining.Add(new ItemStack(stack.TemplateId, leftover));
+                }
+            }
+
+            if (remaining.Count == 0)
+            {
+                _pendingChestLoot.Remove(gobjInstanceId);
+            }
+            else
+            {
+                _pendingChestLoot[gobjInstanceId] = remaining;
+            }
+        }
+
+        /// <summary>把之前已经成功 <see cref="IInventoryHost.AddItem"/> 的 <paramref name="amount"/>
+        /// 个 <paramref name="templateId"/> 物品移除（宿主不支持 <see cref="IBatchableInventoryHost"/>
+        /// 时 <see cref="OpenChestReject"/> 的手动回滚路径使用），惯例同 <see
+        /// cref="Core.Gameplay.Loot.LootHost.RollbackAdd"/>。</summary>
+        private void RollbackAdd(Id unitId, Id templateId, int amount)
+        {
+            var remaining = amount;
+            foreach (var instance in _inventory.ListItems(unitId))
+            {
+                if (remaining <= 0)
+                {
+                    break;
+                }
+
+                if (!instance.TemplateId.Equals(templateId))
+                {
+                    continue;
+                }
+
+                var take = Math.Min(remaining, instance.Count);
+                _inventory.RemoveItem(unitId, instance.InstanceId, take);
+                remaining -= take;
+            }
         }
 
         private void GatherNode(Id unitId, Id gobjInstanceId, GatherNodeTypeData data)
@@ -346,8 +607,11 @@ namespace Core.Carriers.Gobj
         /// 的方法（场景/地图切换是 03 第 6 节场景路由的职责，属 L4/更上层），本模块只把解析出的
         /// <paramref name="teleportTargetRef"/> 原样返回，交给 <see cref="Interact"/> 填进
         /// <see cref="InteractResult.DispatchedRef"/>，由调用方（L4）驱动真正的场景切换。</summary>
-        private Id? DoTeleport(Id unitId, GameObjectEntity gobj, Id teleportTargetRef)
+        private Id? DoTeleport(
+            Id unitId, GameObjectEntity gobj, Id teleportTargetRef, out (Id MapId, Vec2 Position)? resolvedTeleportTarget)
         {
+            resolvedTeleportTarget = null;
+
             if (_options.TeleportResolver == null)
             {
                 _diagnostics.Warn($"gobj \"{gobj.EntityId}\" 是 teleporter 但未注入 GobjOptions.TeleportResolver");
@@ -367,6 +631,11 @@ namespace Core.Carriers.Gobj
                 return null;
             }
 
+            // CR140-03 根治：本方法（唯一读取 GobjOptions.TeleportResolver 的地方）已经得到终局的
+            // (MapId, Position)，随 teleportTargetRef 一并带出，供 Interact 原样转交
+            // GobjInteractedEvent.ResolvedTeleportTarget——下游不再需要（也不允许）用另一个 resolver
+            // 重新解析同一个 ref（见该事件字段判断记录）。
+            resolvedTeleportTarget = resolved;
             return teleportTargetRef;
         }
 

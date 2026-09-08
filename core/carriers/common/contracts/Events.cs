@@ -292,11 +292,35 @@ namespace Core.Carriers.Common
         /// </summary>
         public Id? TeleportTargetRef { get; }
 
-        public GobjInteractedEvent(Id unitId, Id gobjInstanceId, Id? teleportTargetRef = null)
+        /// <summary>
+        /// CR140-03 根治（architecture/落地计划/audit-c86bfa9-20260908）：<see cref="TeleportTargetRef"/>
+        /// 只携带原始未解析的 <c>teleport_target_ref</c>——本字段额外携带
+        /// <c>GameObjectHost.DoTeleport</c>（经它读到的、可能是调用方自定义的
+        /// <c>GobjOptions.TeleportResolver</c>）已经解析出的具体 <c>(MapId, Position)</c>，与 <see
+        /// cref="TeleportTargetRef"/> 同一个"非空条件"（都只在真正跨地图时非空，见
+        /// <see cref="TeleportTargetRef"/> 判断记录）。问题根因：<see cref="TeleportTargetRef"/> 修复
+        /// 前是下游（<c>GameplayAssembly</c> 的 <c>gobj.interacted</c> 监听）唯一能拿到的信息，监听
+        /// 只能把这个原始 ref 再喂给自己的 <c>TeleportUnit</c>——而 <c>TeleportUnit</c> 内部固定用
+        /// 装配根自己的默认 <c>_teleportTargetResolver</c> 重新解析同一个 ref，等于对同一次交互做了
+        /// 两次独立解析：<c>DoTeleport</c> 那次（可能命中自定义 resolver）的结果被完全丢弃，
+        /// <c>TeleportUnit</c> 内部默认 resolver 的结果覆盖生效（外部审计复现：跨图自定义解析结果
+        /// <c>(99,88)</c> 被内置解析的 <c>(30,40)</c> 覆盖）。现在下游改为直接落地本字段携带的既成
+        /// 结果，不再对 <see cref="TeleportTargetRef"/> 做任何二次解析——<c>DoTeleport</c> 才是唯一
+        /// 读取 resolver 的地方，真正做到"一次性终局判定"（同 <see cref="TeleportTargetRef"/> 判断
+        /// 记录标题）。未注入自定义 <c>GobjOptions.TeleportResolver</c> 时，<c>DoTeleport</c> 读到的
+        /// 就是装配根接线的默认 <c>_teleportTargetResolver.Resolve</c>（见
+        /// <c>GameplayAssembly</c> 第 16 步 <c>resolvedGobjOptions.TeleportResolver ??= ...</c>），
+        /// 效果与"下游内置解析一次"完全等价，不存在"没有自定义 resolver 就传送不了"的退化。
+        /// </summary>
+        public (Id MapId, Vec2 Position)? ResolvedTeleportTarget { get; }
+
+        public GobjInteractedEvent(
+            Id unitId, Id gobjInstanceId, Id? teleportTargetRef = null, (Id MapId, Vec2 Position)? resolvedTeleportTarget = null)
         {
             UnitId = unitId;
             GobjInstanceId = gobjInstanceId;
             TeleportTargetRef = teleportTargetRef;
+            ResolvedTeleportTarget = resolvedTeleportTarget;
         }
 
         public bool TryGetField(string name, out ExprValue value)

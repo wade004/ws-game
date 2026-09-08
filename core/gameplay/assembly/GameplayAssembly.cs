@@ -752,15 +752,24 @@ namespace Core.Gameplay.Assembly
             // 审计复现：同图自定义结果 (99,88) 被内置 (1,2) 覆盖）。现在唯一权威判定者是
             // DoTeleport——是否传送、传去哪、是否已经是同图立即生效，全部由它（经它读到的 resolver）
             // 一次性终局判定；本监听只在 GobjInteractedEvent.TeleportTargetRef 非空（即 DoTeleport
-            // 判定"这是一次真正需要跨地图、本模块内部完不成"的传送）时才接手，原样使用事件携带的同一个
-            // ref 触发 TeleportUnit 补完场景切换，不再独立重新解析、不再对同图/被拒绝的情形做任何
-            // 事情——同图时 DoTeleport 内部的 SetPosition 就是唯一一次落地，不会被本监听二次覆盖。
+            // 判定"这是一次真正需要跨地图、本模块内部完不成"的传送）时才接手。
+            //
+            // CR140-03 根治（architecture/落地计划/audit-c86bfa9-20260908）：上一段的"原样使用事件
+            // 携带的同一个 ref 触发 TeleportUnit"仍然是一次独立重新解析——TeleportUnit 内部固定用
+            // 本装配根自己的默认 _teleportTargetResolver，会把 DoTeleport 那次（可能命中自定义
+            // resolver）已经解析出的结果丢弃、用默认结果覆盖（外部审计复现：跨图自定义解析结果
+            // (99,88) 被内置解析的 (30,40) 覆盖，见 GobjInteractedEvent.ResolvedTeleportTarget 判断
+            // 记录）。改为直接落地事件携带的 ResolvedTeleportTarget（经 ApplyResolvedTeleport，不做
+            // 任何解析），DoTeleport 才是唯一读取 resolver 的地方，真正做到一次性终局判定；不再对
+            // 同图/被拒绝的情形做任何事情——同图时 DoTeleport 内部的 SetPosition 就是唯一一次落地，
+            // 不会被本监听二次覆盖。
             _bus.Subscribe<GobjInteractedEvent>(CarriersEventKeys.GobjInteracted,
                 evt =>
                 {
-                    if (evt.TeleportTargetRef.HasValue)
+                    if (evt.ResolvedTeleportTarget.HasValue)
                     {
-                        TeleportUnit(evt.UnitId, evt.TeleportTargetRef.Value);
+                        var (mapId, position) = evt.ResolvedTeleportTarget.Value;
+                        ApplyResolvedTeleport(evt.UnitId, mapId, position);
                     }
                 });
 
@@ -839,6 +848,16 @@ namespace Core.Gameplay.Assembly
             // 方法判断记录"已经在世界里的会被跳过"），首次进图（从未发生过 ClearAll）时是安全的
             // 空操作，不会因为重复调用产生副作用。
             Loot.ReattachToWorld(mapId);
+
+            // CR140-02 根治（architecture/落地计划/audit-c86bfa9-20260908，P2）：跨图 World.ClearAll
+            // 会让 AuraHost 清空该玩家名下全部运行期 Aura（含装备 grants.auras/套装门槛加成），但
+            // Carriers.Equipment._equipped 台账按 unitId 记账、不受 ClearAll 影响——玩家实体重新登记
+            // 回 IWorldSim 后，装备本身还"穿着"，它带来的光环却已经悄悄消失，直到重新装/卸一次才会
+            // 被动刷新。EquipmentHost.ReapplyGrants 按当前 _equipped 记录重放装备/套装授予的 Aura
+            // （幂等：已经生效的 aura_def 不重复叠加，见该方法判断记录），放在 Loot.ReattachToWorld
+            // 之后——两者都要求玩家实体已经重新在 IWorldSim 里可见，谁先谁后不影响正确性，一并归入
+            // "进图先恢复持久化派生状态"这一惯例。
+            Carriers.Equipment.ReapplyGrants(playerUnitId);
 
             AreaTrigger.LoadForMap(mapId, Carriers.Rules.Registry);
             Spawn.ApplyForMap(mapId);
@@ -1161,6 +1180,10 @@ namespace Core.Gameplay.Assembly
             saveSystem.RegisterPersistable(Achievement);
             saveSystem.RegisterPersistable(Spawn);
             saveSystem.RegisterPersistable(new DroppedLootPersistable(Loot));
+            // 第七方审核 CR140-01 收口：world.gobj_pending_loot（世界附属段，未交付宝箱余量），见
+            // Core.Carriers.Gobj.GobjPendingLootPersistable 类型判断记录——放在
+            // DroppedLootPersistable 之后，同属"世界附属段"分组，未登记进 SaveSections.KnownOrder。
+            saveSystem.RegisterPersistable(new Core.Carriers.Gobj.GobjPendingLootPersistable(Carriers.GameObjectInteractions));
             saveSystem.RegisterPersistable(Difficulty);
             // 外部审核阻塞项 2 收口：player.vitals 段（存活状态 + 生命值当前值），见
             // PlayerVitalsPersistable 类型注释——放在 world.difficulty 之后、TurnScheduler/rng 之前
@@ -1222,16 +1245,36 @@ namespace Core.Gameplay.Assembly
         /// </summary>
         private void TeleportUnit(Id unitId, Id targetMap, Id? spawnPoint = null)
         {
-            var entity = _world.GetEntity(unitId);
-            if (entity == null)
-            {
-                return;
-            }
-
             var resolved = spawnPoint.HasValue
                 ? _teleportTargetResolver.ResolveExplicit(targetMap, spawnPoint)
                 : _teleportTargetResolver.Resolve(targetMap);
             if (resolved == null)
+            {
+                return;
+            }
+
+            ApplyResolvedTeleport(unitId, resolved.Value.MapId, resolved.Value.Position);
+        }
+
+        /// <summary>
+        /// CR140-03 根治（architecture/落地计划/audit-c86bfa9-20260908）：把一个已经解析好的
+        /// <c>(mapId, position)</c> 落地到 <paramref name="unitId"/>（含跨图时驱动 <see
+        /// cref="ISceneRouter.LoadScene"/>），不做任何解析——<see cref="TeleportUnit"/>（原始
+        /// <c>teleport_target_ref</c>/显式 <c>targetMap</c>+<c>spawnPoint</c> 尚未解析，如 gossip
+        /// <c>teleport</c> 动作、<c>AreaTrigger.map_transition</c>）解析完毕后调用本方法落地；<see
+        /// cref="Core.Carriers.Common.GobjInteractedEvent"/> 的 <c>gobj.interacted</c> 监听（下方
+        /// 第 16 步）改为直接使用事件已经携带的 <see
+        /// cref="Core.Carriers.Common.GobjInteractedEvent.ResolvedTeleportTarget"/> 调本方法，不再
+        /// 把原始 ref 交回 <see cref="TeleportUnit"/> 用装配根自己的默认
+        /// <see cref="_teleportTargetResolver"/> 重新解析一遍——修复前的缺口正是这次重新解析会绕开
+        /// <c>GameObjectHost.DoTeleport</c> 已经用到的（可能是调用方自定义的）
+        /// <c>GobjOptions.TeleportResolver</c>，用默认结果覆盖掉自定义结果（外部审计复现：跨图自定义
+        /// 解析结果 <c>(99,88)</c> 被内置解析的 <c>(30,40)</c> 覆盖）。
+        /// </summary>
+        private void ApplyResolvedTeleport(Id unitId, Id mapId, Vec2 position)
+        {
+            var entity = _world.GetEntity(unitId);
+            if (entity == null)
             {
                 return;
             }
@@ -1241,11 +1284,10 @@ namespace Core.Gameplay.Assembly
             // "是否需要切场景"分支会被误判为不需要执行而跳过。
             var mapIdBeforeMove = entity.MapId;
 
-            var (resolvedMapId, position) = resolved.Value;
-            entity.MapId = resolvedMapId;
+            entity.MapId = mapId;
             Carriers.Units.SetPosition(unitId, position);
 
-            if (mapIdBeforeMove.Equals(resolvedMapId))
+            if (mapIdBeforeMove.Equals(mapId))
             {
                 // 同图内传送（只挪点位、不切地图）：不需要、也不应该发起一次整场景重载——ClearAll
                 // 会把全部实体（含正在交互的 NPC/其它玩家单位）一并摧毁再重建，代价与"只是走到同一
@@ -1262,7 +1304,7 @@ namespace Core.Gameplay.Assembly
 
             try
             {
-                _sceneRouter.LoadScene(resolvedMapId);
+                _sceneRouter.LoadScene(mapId);
             }
             catch (ArgumentException)
             {
