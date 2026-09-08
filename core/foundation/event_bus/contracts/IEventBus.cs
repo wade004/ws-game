@@ -53,7 +53,7 @@ namespace Core.Foundation.EventBus
         /// <c>EquipmentPersistable.Load</c> 为了复用真实装备逻辑重新聚合属性/技能/光环（见该类型
         /// 判断记录"读档后重新执行装备联动"），会调用真正的 <c>EquipmentHost.Equip</c>/<c>Unequip</c>，
         /// 这两者本身就会正常派发 <c>ItemEquipped</c>/<c>ItemUnequipped</c>/<c>StatChanged</c> 等
-        /// 领域事件——<c>SaveSystem.Load</c> 逆序回滚失败读档时重放这些调用，会让计数类消费者（如
+        /// 领域事件——<c>SaveSystem.Load</c> 回滚失败读档时重放这些调用，会让计数类消费者（如
         /// <c>AchievementHost</c> 的 <c>custom_event</c> 观察条件）把"读档/回滚期间的重放"误当成
         /// 真实的一次玩家操作再计一次数（真实探针复现：<c>achievement_before_event_dispatch=1</c>
         /// → <c>after_event_dispatch=2</c>，进度被回滚重放的事件错误推高并触发解锁）。

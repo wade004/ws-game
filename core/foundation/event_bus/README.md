@@ -85,7 +85,7 @@ event_bus/
   `PublishImmediate` 提交的事件被直接丢弃（不进队列、不校验目录、不派发给任何订阅者），
   释放（`Dispose`）后恢复正常派发；支持嵌套调用，按引用计数处理，只有最外层作用域释放才
   真正恢复。
-- 动机：`Core.Foundation.SaveSystem.SaveSystem.Load` 逆序回滚失败读档时，会重新调用某些
+- 动机：`Core.Foundation.SaveSystem.SaveSystem.Load` 回滚失败读档时，会重新调用某些
   持久化段真正的运行时逻辑（如装备段为复用真实联动逻辑会调用真正的"装备"/"卸下"操作），
   这些操作本身会正常派发领域事件（`ItemEquipped`/`StatChanged` 等）；成就系统一类按事件
   计数的消费者会把"读档/回滚期间的重放"误当成一次真实玩家操作再计一次数。"读档不是一次
@@ -99,6 +99,17 @@ event_bus/
 - 只应该在"这段代码内产生的事件确实不该被任何人看到"这类场景使用（当前唯一生产用法就是
   `SaveSystem.Load`）——不要把它当成一个通用的"临时静音"开关滥用到其它不相关的流程里，那
   会让"事件被谁、在哪、为什么丢弃了"变得难以追踪。
+- **CORE-180-01 判断记录（第十一轮外部审计，P1，architecture/落地计划/audit-e070e3f-20260908）：
+  抑制作用域内被丢弃的不只是业务事件，规则层依赖同一批事件做内部缓存重算（如
+  `RulesAssembly` 订阅 `stat.changed` 重算资源池上限、订阅 `progression.state_restored` 重算
+  评级换算属性）也会被无差别丢弃，导致读档成功后这些缓存停留在读档前的旧值。** 本模块没有
+  为此新增"内部事件白名单"——`stat.changed` 这个 key 同时被内部重算订阅与外部业务/测试订阅者
+  共享，`DispatchOne` 按 key 无差别派发，无法只放行前者、继续抑制后者（`core/gameplay/assembly/
+  tests/CORE_170_03_SaveRollbackEventSuppressionTests.cs` 已经显式断言排空队列后
+  `StatChanged` 不应出现在外部订阅者手里，开白名单会违反这条既有验收）。根治改在
+  `core/foundation/save_system` 一侧新增完全绕开事件总线的 `IDerivedStateRebuilder` 回调
+  （见该模块 README"CORE-180-01 根治"一节），本模块自身的 `SuppressDispatch` 语义、事件目录、
+  派发规则均不受影响。
 
 ## 不负责什么
 

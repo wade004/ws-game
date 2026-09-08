@@ -34,9 +34,12 @@ namespace Core.Foundation.SaveSystem
         /// <see cref="LoadStatus.PersistableThrew"/>。
         /// <para>
         /// CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：本段以外，此前
-        /// 已成功调用过 <see cref="Load"/> 的其它段，<see cref="ISaveSystem.Load"/> 会按逆序用各自
-        /// 读档前的快照（进入本次读档循环前对全部已注册段各调用一次 <see cref="Save"/> 采集）尽力
-        /// 回滚；<b>抛异常的这一段自身</b>也会被纳入这次回滚（同样用它自己读档前的快照再调用一次
+        /// 已成功调用过 <see cref="Load"/> 的其它段，<see cref="ISaveSystem.Load"/> 会按与正常读档
+        /// 相同的正向顺序（CORE-180-02 根治，architecture/落地计划/audit-e070e3f-20260908，P2，取代
+        /// 此前"按逆序"的实现——正向顺序保证段与段之间真实存在的依赖关系（如装备重新装备依赖等级
+        /// 已经恢复到位）在回滚时同样成立，见 <c>SaveSystem.RollbackLoadedSections</c> 判断记录）
+        /// 用各自读档前的快照（进入本次读档循环前对全部已注册段各调用一次 <see cref="Save"/> 采集）
+        /// 尽力回滚；<b>抛异常的这一段自身</b>也会被纳入这次回滚（同样用它自己读档前的快照再调用一次
         /// <see cref="Load"/>）——这是 best-effort，不是保证：某段的快照采集本身可能失败（没有
         /// 快照可回滚），回滚调用 <see cref="Load"/> 本身也可能再次抛异常（尽力恢复其它段，不因
         /// 一段失败而放弃整体回滚）；调用方仍应把 <see cref="LoadStatus.PersistableThrew"/> 当作

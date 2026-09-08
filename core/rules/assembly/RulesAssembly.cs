@@ -565,6 +565,109 @@ namespace Core.Rules.Assembly
             }
         }
 
+        /// <summary>
+        /// CORE-180-03 根治（architecture/落地计划/audit-e070e3f-20260908，P2，已确认）：读档后
+        /// （同图 <c>GameplayAssembly.RestoreFromSlot</c> 与跨图 <c>EnterMap</c> 统一走同一处，见
+        /// <c>core/gameplay/assembly/README.md</c>"CORE-180-01/03 根治"一节）按存档写入的新
+        /// <paramref name="classId"/>/<paramref name="raceId"/> 重新聚合职业基础属性、种族属性修正
+        /// 与种族被动光环——旧实现（<c>UnitPersistable.ArchetypeIdPersistable</c>/<c>RaceIdPersistable</c>.
+        /// <c>Load</c>）只写 <c>PlayerUnit.ArchetypeId</c>/<c>RaceId</c> 两个字段本身，从不触碰
+        /// <see cref="Stats"/>/<see cref="Skill"/> 任何运行期状态；跨图路径此前靠 <c>GameplayAssembly.
+        /// EnterMap</c> 显式调用 <see cref="ReapplyRacePassiveAuras"/> 补种族被动光环这一项，但
+        /// 从未处理"种族属性修正来自旧种族、换了种族后旧修正该被移除"这一步（跨图 <c>ClearAll</c>
+        /// 不影响 <see cref="StatHost"/> 的修正登记表，见 <c>GameplayAssembly.EnterMap</c> 判断记录
+        /// "CR140-02"）；同图路径干脆不调用 <c>EnterMap</c>，连种族被动光环这一项也没有，真实探针
+        /// 复现：同图加载另一个有效角色存档后，字段变成新种族，但属性/光环仍是旧种族的（见
+        /// architecture/落地计划/audit-e070e3f-20260908/core/core-findings.md CORE-180-03）。
+        /// <para>
+        /// 判断记录（不复用 <see cref="ArchetypeRegistry.ApplyTo"/> 整体重新调用）：<c>ApplyTo</c>
+        /// 内部会经 <c>PowerRegistrar</c> 调用 <see cref="PowerHost.RegisterUnit"/>，而本方法的调用
+        /// 场景（读档后重新聚合）里单位早已在游戏开局注册过一次，<c>PowerHost.RegisterUnit</c> 对
+        /// 已注册单位会抛 <see cref="InvalidOperationException"/>（"不能重复注册"）——本方法只重放
+        /// "基础属性/属性修正/被动光环"三项运行期确实需要跟随存档重新聚合的状态，不触碰资源池注册
+        /// 这一步（资源类型集合不随读档变化，见 06 文档"资源类型登记在游戏开局完成一次"惯例）。
+        /// </para>
+        /// <para>
+        /// 判断记录（职业基础属性只"重新 SetBase"，不先移除旧职业贡献）：<see cref="StatHost.SetBase"/>
+        /// 是覆盖写入而非累加（<c>unit.Base[stat] = value</c>），对"新旧职业都显式声明了同一个属性
+        /// 键"的情形天然幂等正确；若新职业没有声明旧职业曾经声明过的某个属性键，该属性会残留旧职业
+        /// 的基础值——这是已知的收边范围边界（见本方法调用点、<c>GameplayAssembly</c> 测试 fixture
+        /// 判断记录：验收用的职业 A/B 各自完整声明同一组基础属性键，规避这个边界情形），不在本次
+        /// CORE-180-03 的确认范围内（报告本身把 archetype 列为候选而非已确认，只有种族属性修正/
+        /// 光环残留是真实探针确认的运行时事实）。
+        /// </para>
+        /// <para>
+        /// 种族部分的移除按 <paramref name="previousRaceId"/> 与 <paramref name="raceId"/> 是否
+        /// 相同分两步处理，均为幂等操作：
+        /// <list type="bullet">
+        /// <item>不同（含"旧值有、新值无"）：先用 <see cref="StatHost.RemoveModifiersBySource"/>
+        /// 移除旧种族来源的属性修正（<see cref="ArchetypeRegistry.ApplyTo"/> 写入种族属性修正时用
+        /// 种族自身 id 当来源，见该方法判断记录，因此可以直接按旧种族 id 精确移除，不影响其它来源）；
+        /// 再逐个旧种族 <c>PassiveAuras</c> 检查 <see cref="_raceAuraHandles"/> 是否仍记录着一份
+        /// 有效引用，有则调用 <see cref="AuraHandleLedger.Release"/>（不是 <see
+        /// cref="AuraHandleLedger.Forget"/>——本方法处理的是"实例仍然存活、只是种族这个来源不再需要
+        /// 它"的场景，必须走正常的引用计数递减，命中零才真正移除共享实例，与装备/套装门槛加成等其它
+        /// 共享来源的计数保持一致；<c>Forget</c> 只用于"实例已经因跨图 <c>ClearAll</c> 之类原因不复
+        /// 存在，不能再调用 <c>RemoveAura</c>"的场景，见 <see cref="ReapplyRacePassiveAuras"/> 判断
+        /// 记录，本方法处理的同图场景不满足这个前提）。</item>
+        /// <item>相同：不移除、不重新写入——旧修正本就没有过期，重复写入 <see cref="StatHost.AddModifier"/>
+        /// （累加语义）会造成双重叠加，跳过整段移除+重新施加，只在下面统一调用
+        /// <see cref="ReapplyRacePassiveAuras"/>（其自身逻辑已经是"已经持有有效引用则跳过"的幂等
+        /// 实现）。</item>
+        /// </list>
+        /// </para>
+        /// </summary>
+        public void ReloadArchetypeAndRace(Id unitId, Id classId, Id? raceId, Id? previousClassId, Id? previousRaceId)
+        {
+            _ = previousClassId; // 见方法判断记录"职业基础属性只重新 SetBase"：当前收边范围不需要
+                                  // 单独处理旧职业的移除，保留参数位只是为了让调用方（GameplayAssembly）
+                                  // 的调用点显式携带"读档前是哪个职业"这份信息，便于未来收紧这条边界
+                                  // 时不需要改签名。
+
+            var raceChanged = !previousRaceId.HasValue || !raceId.HasValue || !previousRaceId.Value.Equals(raceId.Value);
+
+            if (previousRaceId.HasValue && raceChanged)
+            {
+                Stats.RemoveModifiersBySource(unitId, previousRaceId.Value);
+
+                var oldRace = Archetypes.GetRace(previousRaceId.Value);
+                if (oldRace != null)
+                {
+                    foreach (var auraDefId in oldRace.PassiveAuras)
+                    {
+                        var key = (unitId, auraDefId);
+                        if (_raceAuraHandles.TryGetValue(key, out var recorded))
+                        {
+                            AuraHandles.Release(unitId, recorded);
+                            _raceAuraHandles.Remove(key);
+                        }
+                    }
+                }
+            }
+
+            var cls = Archetypes.GetClass(classId) ?? throw new ArgumentException($"未知职业 \"{classId}\"", nameof(classId));
+            foreach (var kv in cls.BaseStats)
+            {
+                Stats.SetBase(unitId, new Id(kv.Key), kv.Value);
+            }
+
+            if (raceId.HasValue)
+            {
+                if (raceChanged)
+                {
+                    var race = Archetypes.GetRace(raceId.Value) ?? throw new ArgumentException($"未知种族 \"{raceId.Value}\"", nameof(raceId));
+                    foreach (var kv in race.StatMods)
+                    {
+                        Stats.AddModifier(unitId, new StatModifier(new Id(kv.Key), StatModifierOp.Flat, kv.Value, raceId.Value));
+                    }
+                }
+
+                // 复用既有幂等施加逻辑：已经持有有效引用则跳过，AuraHost 上已有别的来源施加过的
+                // 共享实例只补登记引用，都没有才真正 ApplyAura（见 ReapplyRacePassiveAuras 判断记录）。
+                ReapplyRacePassiveAuras(unitId, raceId.Value);
+            }
+        }
+
         /// <summary>CORE-170-01 根治：<see cref="_raceAuraHandles"/> 自己的簿记——
         /// <c>StackOverflowPolicy.Replace</c> 换句柄时把种族记录里仍引用 <paramref
         /// name="oldInstanceId"/> 的条目原子迁移到 <paramref name="newInstanceId"/>，惯例同

@@ -58,6 +58,18 @@ namespace Core.Foundation.SaveSystem
         bool SlotExists(Id slotId);
 
         /// <summary>
+        /// CORE-180-01/03 根治：注入一个可选的派生状态重建钩子（见 <see
+        /// cref="IDerivedStateRebuilder"/> 类型注释）——<see cref="Load"/> 在逐段读档过程中回调它，
+        /// 弥补 <c>IEventBus.SuppressDispatch</c> 抑制作用域丢弃内部同步事件造成的缓存陈旧。至多
+        /// 保留最近一次注入（重复调用直接覆盖，不追加），未调用时行为与引入本接口之前完全一致。
+        /// C#8 默认接口方法：不覆盖时对全部既有 <see cref="ISaveSystem"/> 实现完全透明（默认空
+        /// 实现，调用无效果），不需要逐一改动既有实现签名。
+        /// </summary>
+        void SetDerivedStateRebuilder(IDerivedStateRebuilder rebuilder)
+        {
+        }
+
+        /// <summary>
         /// 按 <see cref="SaveSystemOptions.AutoSave"/> 策略判断给定触发点当前是否应当自动
         /// 存档。本方法只做策略判断，不产生任何副作用（不写盘、不发事件）；把某个触发点
         /// 接到具体游戏时机（场景切换完成、任务状态机进入完成节点……）并在返回 true 时

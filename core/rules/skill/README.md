@@ -62,11 +62,13 @@ skill/
 
 ## 设计要点与判断记录
 
-1. **施法管线步骤 6 的 `target_shape_ref` 语义**：06 第 3.1 节原文"指向 `target.chain_def` 或直接
-   指向 `Shape` 定义"给了两种可能；任务书拍板"为空则 `ITargetHost.Resolve(target_shape_ref 指向的
-   链, caster)`"，本模块据此把 `target_shape_ref` 统一当作 `target.chain_def` 的 id 直接传给
-   `ITargetHost.Resolve`，不支持"直接指向 Shape"这一分支（该分支属于 `ISkillHost.FindUnits` 的
-   `origin`+`Shape` 组合用法，供技能内部效果的范围查找，不是施法管线步骤 6 的目标解析入口）。
+1. **施法管线步骤 6 的 `target_shape_ref` 语义**：06 第 3.1 节已统一为"字段只引用
+   `target.chain_def`，链内 `shape` 字段按需引用 05 的 `Shape` 定义"；任务书拍板"为空则
+   `ITargetHost.Resolve(target_shape_ref 指向的链, caster)`"，本模块据此把 `target_shape_ref`
+   统一当作 `target.chain_def` 的 id 直接传给 `ITargetHost.Resolve`，与文档口径一致（`Shape` 本身
+   只在链内按需被引用，不会被 `target_shape_ref` 直接指向）——`ISkillHost.FindUnits` 的
+   `origin`+`Shape` 组合用法是另一条独立入口，供技能内部效果的范围查找，不经过
+   `target_shape_ref`/施法管线步骤 6。
 
 2. **视线检查依赖注入的 `ISpatialQuery` 可为 null**：任务书"经 `ISpatialQuery.HasLineOfSight`
    （若接口有）否则跳过"——本模块构造函数把 `ISpatialQuery` 声明为可空参数，为 null 时步骤 7 只做

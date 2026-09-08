@@ -95,7 +95,7 @@ achievement/
 `_progress`/`_unlocked`/`_pendingReward` 任何一个），只有整份数据校验通过才清空该玩家既有记录
 并按解析结果一次性提交。
 
-另外，`Core.Foundation.SaveSystem.SaveSystem.Load` 逆序回滚失败读档时，会重新调用某些段真正的
+另外，`Core.Foundation.SaveSystem.SaveSystem.Load` 回滚失败读档时，会重新调用某些段真正的
 运行时逻辑（如装备段为复用真实联动会调用真正的"装备"/"卸下"操作），这类操作本身会正常派发
 领域事件；本类的 `custom_event` 观察条件（如观察 `item.equipped`）此前会把"读档/回滚期间的
 重放"误当成一次真实玩家操作再计一次数（真实探针复现：进度从 1 被回滚重放的事件错误推高到 2

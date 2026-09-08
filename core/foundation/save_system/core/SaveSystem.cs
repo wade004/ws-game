@@ -33,12 +33,22 @@ namespace Core.Foundation.SaveSystem
         private readonly Dictionary<string, IPersistable> _persistables = new Dictionary<string, IPersistable>(StringComparer.Ordinal);
         private readonly Dictionary<int, ISaveMigration> _migrations = new Dictionary<int, ISaveMigration>();
 
+        /// <summary>CORE-180-01/03 根治：见 <see cref="ISaveSystem.SetDerivedStateRebuilder"/>/
+        /// <see cref="IDerivedStateRebuilder"/> 判断记录。可选（默认 null，<see cref="Load"/> 内
+        /// 全部调用点按 null 条件调用短路，行为与引入本字段之前完全一致）。</summary>
+        private IDerivedStateRebuilder? _derivedStateRebuilder;
+
         public SaveSystem(IFileSystem fileSystem, SaveSystemOptions options, IEventBus? bus = null, ISaveDiagnostics? diagnostics = null)
         {
             _fs = fileSystem ?? throw new ArgumentNullException(nameof(fileSystem));
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _bus = bus;
             _diagnostics = diagnostics ?? new InMemorySaveDiagnostics();
+        }
+
+        public void SetDerivedStateRebuilder(IDerivedStateRebuilder rebuilder)
+        {
+            _derivedStateRebuilder = rebuilder ?? throw new ArgumentNullException(nameof(rebuilder));
         }
 
         public int CurrentSaveVersion => _options.CurrentSaveVersion;
@@ -353,6 +363,19 @@ namespace Core.Foundation.SaveSystem
 
             var loadedKeysInOrder = new List<string>(readOrder.Count);
 
+            // CORE-180-01/03 根治：真正开始逐段 Load 之前调用一次 BeforeLoad（见 IDerivedStateRebuilder
+            // 判断记录）——供实现快照"读档前"的字段值（如玩家当前 ArchetypeId/RaceId），供后续
+            // OnSectionLoaded 判断某个字段是否真的发生了变化。允许失败：钩子本身抛异常不应该让"这次
+            // 读档"被误判为某个存档段的 Load() 失败，只记诊断、按未注入处理继续往下走。
+            try
+            {
+                _derivedStateRebuilder?.BeforeLoad();
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.Warn($"派生状态重建钩子 BeforeLoad 抛出异常（{ex.Message}），本次读档继续");
+            }
+
             // CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：整段"逐段 Load +
             // 失败回滚"逻辑（含 RollbackLoadedSections 内部重新调用的 Load）都在 IEventBus.
             // SuppressDispatch 作用域内进行——见该方法判断记录"读档不是业务事件"。EquipmentPersistable.
@@ -385,12 +408,27 @@ namespace Core.Foundation.SaveSystem
                     {
                         persistable.Load(sectionValue);
                         loadedKeysInOrder.Add(key);
+
+                        // CORE-180-01/03 根治：本段成功 Load 之后立即回调一次（见 IDerivedStateRebuilder
+                        // 判断记录）——仍在上面的 SuppressDispatch 作用域内，但钩子实现直接调用目标
+                        // 模块方法、不经事件总线，不受抑制影响。钩子本身抛异常同样只记诊断、不影响
+                        // "这一段 Load 成功了"这一事实，不升级成本段的 PersistableThrew。
+                        try
+                        {
+                            _derivedStateRebuilder?.OnSectionLoaded(key);
+                        }
+                        catch (Exception rebuildEx)
+                        {
+                            _diagnostics.Warn(
+                                $"存档段 \"{key}\" 读档后派生状态重建钩子抛出异常（{rebuildEx.Message}），" +
+                                "可能存在内部缓存未同步，本次读档继续");
+                        }
                     }
                     catch (Exception ex)
                     {
                         _diagnostics.Error(
-                            $"存档段 \"{key}\" 的 Load() 抛出异常，正在按逆序尽力回滚此前已成功加载的段" +
-                            "（含失败段自身，见 RollbackLoadedSections 判断记录）", ex);
+                            $"存档段 \"{key}\" 的 Load() 抛出异常，正在按读档同一顺序尽力回滚此前已成功" +
+                            "加载的段（含失败段自身，见 RollbackLoadedSections 判断记录）", ex);
                         // CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前
                         // 只把 loadedKeysInOrder（Load() 没有抛异常、已经"成功加载"）里的段纳入回滚，
                         // 抛异常的这一段自身从不在这份列表里——如果它的 Load() 实现在校验数据形状之前
@@ -398,12 +436,14 @@ namespace Core.Foundation.SaveSystem
                         // 缺陷类别，见该方法判断记录），SaveSystem 这一层完全没有尝试恢复它，只回滚了
                         // "此前成功的其它段"。preLoadSnapshots 在进入本次读档循环之前已经对全部已注册段
                         // （不止成功段）各做过一次快照（见上方判断记录），因此把 key 自身一并加入回滚
-                        // 列表末尾（回滚按逆序处理，末尾的最先回滚——失败段是"最近一次尝试"，最先尝试
-                        // 恢复它，再逆序回滚更早成功加载的段）成本很低：对已经遵循"先解析校验、再一次性
-                        // 提交"的段（本仓库当前已审查的全部段，见各自 Load 判断记录），失败时 live 状态
-                        // 本就未被触碰，用 preLoadSnapshots[key] 再 Load 一次是安全的幂等 no-op；对任何
-                        // 未来引入、仍不慎踩了"先改状态后校验"这个坑的段，这一层作为额外防线尽力恢复，
-                        // 不依赖每个模块各自完美遵守约定。
+                        // 列表末尾（回滚按与 readOrder 相同的正向顺序处理，见 CORE-180-02 根治、
+                        // RollbackLoadedSections 判断记录——失败段本就是 readOrder 中排在
+                        // loadedKeysInOrder 之后的下一个，直接追加到列表末尾天然仍是正向顺序，不需要
+                        // 额外调整）成本很低：对已经遵循"先解析校验、再一次性提交"的段（本仓库当前已
+                        // 审查的全部段，见各自 Load 判断记录），失败时 live 状态本就未被触碰，用
+                        // preLoadSnapshots[key] 再 Load 一次是安全的幂等 no-op；对任何未来引入、仍不慎
+                        // 踩了"先改状态后校验"这个坑的段，这一层作为额外防线尽力恢复，不依赖每个模块
+                        // 各自完美遵守约定。
                         var rollbackKeysIncludingFailed = new List<string>(loadedKeysInOrder) { key };
                         RollbackLoadedSections(rollbackKeysIncludingFailed, preLoadSnapshots);
                         return LoadResult.PersistableThrew(
@@ -716,11 +756,29 @@ namespace Core.Foundation.SaveSystem
         private List<string> ComputeReadOrder() => ComputeWriteOrder();
 
         /// <summary>
-        /// AUD-01 根治：<see cref="Load"/> 主循环中途某段 <c>Load()</c> 抛异常时调用——按 <paramref
-        /// name="loadedKeysInOrder"/> 的逆序（后加载的先回滚），用 <paramref name="preLoadSnapshots"/>
-        /// 里对应段读档前的快照重新调用一次 <c>Load()</c>，把已经成功加载、但整体读档结果注定失败
-        /// （<see cref="LoadStatus.PersistableThrew"/>）的段尽力恢复回读档前的状态，避免调用方看到
-        /// 一份"部分段已经是新档内容、部分段仍是旧内容、还有一段直接抛了异常"的不一致中间态。
+        /// AUD-01 根治：<see cref="Load"/> 主循环中途某段 <c>Load()</c> 抛异常时调用——用 <paramref
+        /// name="preLoadSnapshots"/> 里对应段读档前的快照重新调用一次 <c>Load()</c>，把已经成功加载、
+        /// 但整体读档结果注定失败（<see cref="LoadStatus.PersistableThrew"/>）的段尽力恢复回读档前的
+        /// 状态，避免调用方看到一份"部分段已经是新档内容、部分段仍是旧内容、还有一段直接抛了异常"
+        /// 的不一致中间态。
+        /// <para>
+        /// CORE-180-02 根治（architecture/落地计划/audit-e070e3f-20260908，P2）：按 <paramref
+        /// name="loadedKeysInOrder"/> 的<b>正向</b>顺序回滚（与 <c>readOrder</c>/正常读档同一顺序），
+        /// 取代此前"按逆序（后加载的先回滚）"的实现。逆序回滚违反了段与段之间真实存在的依赖顺序——
+        /// <see cref="SaveSections.KnownOrder"/> 把 <see cref="SaveSections.PlayerProgression"/> 排在
+        /// <see cref="SaveSections.PlayerEquipment"/> 之前正是因为装备重新装备（<c>EquipmentPersistable.
+        /// Load</c> 复用真实 <c>EquipmentHost.Equip</c>）需要读到已经恢复到位的等级去做需求校验；
+        /// 逆序回滚会先用读档前快照恢复 Equipment（此时等级字段仍是本次失败读档写入的低等级值），
+        /// 装备因等级需求不满足而重新装备失败、物品留在背包，紧接着才轮到 Progression 用快照恢复
+        /// 等级——为时已晚，没有人再重试装备（真实探针 <c>ROLLBACK-EQUIPMENT-BEFORE-PROGRESSION</c>
+        /// 复现：<c>after_level=2</c> 等级已正确回滚，<c>equipped_after=False</c> 装备却没有跟着回来）。
+        /// 改成正向顺序后，回滚本质上等价于"再做一次读档，只是把文档换成读档前的快照"——先恢复
+        /// Progression（等级），再恢复 Equipment（此时能读到正确等级，重新装备按预期成功），与正常
+        /// 读档路径共享同一套已经验证过的依赖顺序，不需要为回滚单独维护一份"应该谁先谁后"的规则。
+        /// 对彼此没有依赖的段（多数自定义段），正向/逆序不影响最终恢复到读档前状态这一结果本身，
+        /// 现有回归测试（<c>SaveSystemTests.Load_LaterSectionThrows_RollsBackEarlierSuccessfullyLoadedSection_ToPreLoadState</c>
+        /// 等）不依赖具体回滚顺序，只依赖"最终恢复到位"，改动后仍然通过。
+        /// </para>
         /// <para>
         /// 判断记录——为什么是"尽力而为"而不是必须成功：(a) 某段可能在快照阶段本身就失败（见 <see
         /// cref="Load"/> 快照循环），没有快照可回滚，只能跳过并记诊断；(b) 回滚调用的
@@ -733,7 +791,7 @@ namespace Core.Foundation.SaveSystem
         /// </summary>
         private void RollbackLoadedSections(List<string> loadedKeysInOrder, Dictionary<string, JsonValue> preLoadSnapshots)
         {
-            for (var i = loadedKeysInOrder.Count - 1; i >= 0; i--)
+            for (var i = 0; i < loadedKeysInOrder.Count; i++)
             {
                 var key = loadedKeysInOrder[i];
                 if (!preLoadSnapshots.TryGetValue(key, out var snapshot))

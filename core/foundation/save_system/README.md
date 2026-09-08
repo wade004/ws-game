@@ -128,8 +128,9 @@ CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：此
   覆盖或删除；文档版本高于当前运行时版本 → `MigrationFailed`（"不承诺向前兼容"，10 第 5 节）；
   文档版本低于当前版本但迁移链缺少衔接版本、某个迁移函数抛异常、或迁移链某一步/终点会越过
   当前运行时版本（FND-09 收口，见下）→ `MigrationFailed`；某个已注册段 `Load()` 抛异常 →
-  `PersistableThrew`，此前已成功 `Load` 的段**会被按逆序回滚到读档前的状态**（AUD-01 根治，见下，
-  取代本段此前"不回滚，由调用方自行处理部分加载状态"的旧表述）。
+  `PersistableThrew`，此前已成功 `Load` 的段**会被按正向顺序（与正常读档同一顺序，CORE-180-02
+  根治，见下）回滚到读档前的状态**（AUD-01 根治，见下，取代本段此前"不回滚，由调用方自行处理
+  部分加载状态"的旧表述）。
 - **FND-07 收口（外部审核 `code-review.md`）：正式文件与全部备份统一作为候选，按优先级
   （正式文件 → bak1 → bak2 → … → bak`<BackupCount>`）依次做完整信封校验，取第一个通过的。**
   此前只要正式文件不存在就立即返回 `NotFound`，从不尝试任何备份——"正式文件缺失但备份完好"
@@ -203,14 +204,16 @@ CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：此
   NoHealthyCandidateAvailable_ReturnsCorrupted`（没有健康候选时仍正确判 `Corrupted`，不误判为
   `NotFound`）。
 - **AUD-01 根治（外部审核第九轮，P1，architecture/落地计划/audit-85f1f4f-20260908）：`Load` 中途某段
-  `Load()` 抛异常时，此前已成功 `Load` 过的段按逆序回滚到读档前状态，取代此前"不回滚"的合同。**
+  `Load()` 抛异常时，此前已成功 `Load` 过的段按正向顺序回滚到读档前状态（CORE-180-02 根治，见下，
+  取代最初实现"按逆序"的做法），取代此前"不回滚"的合同。**
   真实探针复现：`world.gobj_pending_loot` 段读到 1.5 旧格式非空数据时抛异常（见下方
   `GobjPendingLootPersistable` 一节），此时排在它之前的 `player.inventory` 段已经按新档内容覆盖，
   最终 `LoadStatus=PersistableThrew` 但 inventory 停留在本次失败读档写入的中间值，不是读档前的旧
   内容——调用方拿到的是一份"部分是新档、部分是旧档、且整体标记失败"的不一致状态，比"完全不加载"
   更难处理。现在的实现：`Load` 在开始逐段调用 `Load()` 之前，对全部已注册段各调用一次 `Save()`
   取一份"读档前状态"快照（快照本身允许失败，失败的段只记诊断，不中止整个读档流程）；某段 `Load()`
-  抛异常时，对此前按顺序已经成功 `Load()` 过的段按逆序重新调用一次 `Load(快照)`，尽力恢复现场
+  抛异常时，对此前按顺序已经成功 `Load()` 过的段按正向顺序（与它们最初被加载的顺序相同，
+  CORE-180-02 根治，见下）重新调用一次 `Load(快照)`，尽力恢复现场
   （单个段的回滚调用本身再次抛异常也只记诊断、继续尝试其它段的回滚，不让一个段的回滚失败连锁
   阻断其它段）。回滚是"尽力恢复"，不是"把失败伪装成功"——最终 `LoadResult.Status` 仍然是
   `PersistableThrew`，调用方仍然能且应该按失败处理这次读档（例如提示用户、不切换场景）；回滚只是
@@ -235,7 +238,7 @@ CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：此
   自身也加了一层兜底：`Load` 中途某段抛异常时，回滚列表现在把抛异常的这一段自身也纳入（用它自己
   的读档前快照重新调用一次 `Load()`），不再只回滚"此前成功的其它段"——对已经遵循"先校验后提交"
   的段这是安全的幂等 no-op，对任何未来仍然踩了这个坑的段是额外防线。
-- **CORE-170-03 补充（同上）：`SaveSystem.Load` 逆序回滚会重新调用某些段真正的运行时逻辑
+- **CORE-170-03 补充（同上）：`SaveSystem.Load` 回滚会重新调用某些段真正的运行时逻辑
   （如 `EquipmentPersistable.Load` 为复用真实装备联动会调用 `EquipmentHost.Equip`/`Unequip`），这
   会正常派发真实领域事件（`ItemEquipped`/`ItemUnequipped`/`StatChanged`）；`AchievementHost` 一类
   按 `custom_event` 观察条件计数的消费者会把"读档/回滚期间的重放"误当成一次真实玩家操作再计一次
@@ -247,6 +250,67 @@ CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：此
   `Tests.Gameplay.Assembly.CORE_170_03_SaveRollbackEventSuppressionTests`、
   `Tests.Carriers.Item.CORE_170_03_EquipmentPersistableLoadFailureTests`，以及各段自己模块下的
   `CORE_170_03_*`/`Load_BadShape_*` 定向用例。
+
+- **CORE-180-01 根治（第十一轮外部审计，P1，architecture/落地计划/audit-e070e3f-20260908）：成功
+  读档时，`IEventBus.SuppressDispatch` 抑制作用域会连带丢弃规则层依赖的"内部同步事件"
+  （`stat.changed`/`progression.state_restored` 等），导致等级恢复但评级换算属性缓存不恢复、
+  装备恢复但资源池上限/当前值不恢复。** 真实探针复现：进度恢复到等级 10 后，`RulesAssembly`
+  订阅的 `progression.state_restored`→`StatHost.RecomputeRatingStats`/`stat.changed`→
+  `PowerHost.RecomputeMax` 两条内部重算路径在抑制作用域内被同 CORE-170-03 一起丢弃，`DispatchPending`
+  之后 Rating 缓存仍停留在读档前的值、装备驱动的资源池上限仍停留在读档前的值，紧随其后按上限
+  clamp 的 `player.vitals`（见 `PlayerVitalsPersistable`）因此把生命值错误 clamp 到读档前的旧
+  上限。**判断记录（为什么不是"给内部同步事件开白名单，抑制作用域内照常派发"）**：`stat.changed`
+  这个事件 key 同时被 `RulesAssembly` 自己的内部重算订阅、也被外部业务/测试订阅者共享，
+  `EventBus.DispatchOne` 按 key 无差别派发给该 key 下的全部订阅者，无法只放行内部订阅者、外部
+  订阅者继续抑制——`CORE_170_03_SaveRollbackEventSuppressionTests.
+  Load_BadShapeEquipmentSection_RestoresEquipment_AndDoesNotLeakEventsToObservers` 已经显式断言
+  排空事件队列后 `StatChanged` 一个都不应该出现在外部订阅者手里，给该事件类型开白名单会直接
+  违反这条既有验收。改为新增 `IDerivedStateRebuilder` 接口（`contracts/IDerivedStateRebuilder.cs`）：
+  `SaveSystem`（本模块，L0）持有一个可选引用（`SetDerivedStateRebuilder` 注入，默认 null），
+  `Load` 在真正开始逐段读档前调用一次 `BeforeLoad()`，每个已注册段成功 `Load()` 之后立即调用一次
+  `OnSectionLoaded(sectionKey)`——两个回调都完全绕开事件总线，直接由装配根（
+  `Core.Gameplay.Assembly.GameplayAssembly`）的实现直接调用 `StatHost`/`PowerHost` 等目标模块的
+  方法，因此不受 `SuppressDispatch` 影响，也不会被任何事件订阅者观察到（不产生任何新的可观察
+  事件，只是把读档前已经在做的内部重算显式地再做一遍）。回调本身抛异常只记诊断、不影响"这一段
+  `Load` 成功了"这一事实，不会把钩子失败误判成存档段失败。装配细节（触发时机、`ReloadArchetypeAndRace`）
+  见 `core/gameplay/assembly/README.md`"CORE-180-01/03 根治"一节。验收：真实
+  `GameplayAssembly`+`SaveSystem.Load`（含不经过 `GameplayAssembly.RestoreFromSlot`、直接调用
+  `SaveSystem.Load` 的路径）返回 `Loaded` 后等级/评级/资源池上限/当前值与快照一致，
+  `DispatchPending` 不改变结果；`CORE_170_03_*` 系列既有测试（含上面这条显式断言 `StatChanged`
+  零泄漏的用例）继续全绿。测试：
+  `Tests.Foundation.SaveSystem.CORE_180_01_DerivedStateRebuilderTests`（若干真实
+  `RulesAssembly`+`SaveSystem` 组合定向用例）、`Tests.Gameplay.Assembly.
+  CORE_180_01_SuccessfulLoadDerivedStateTests`。
+
+- **CORE-180-02 根治（同上，P2）：失败读档的回滚顺序此前是"逆序"（后加载的段先回滚），违反了
+  段与段之间真实存在的依赖关系。** `SaveSections.KnownOrder` 把 `player.progression` 排在
+  `player.equipment` 之前，是因为装备重新装备（`EquipmentPersistable.Load` 复用真实
+  `EquipmentHost.Equip`）需要读到已经恢复到位的等级去做需求校验；逆序回滚会先用读档前快照恢复
+  Equipment（此时等级字段仍是本次失败读档写入的低等级值），装备因等级需求不满足而重新装备失败、
+  物品被迫留在背包，紧接着才轮到 Progression 恢复等级——为时已晚，没有人再重试装备。真实探针
+  `ROLLBACK-EQUIPMENT-BEFORE-PROGRESSION` 复现：等级正确回滚到 2，但装备没有跟着回来（`equipped_after=False`）。
+  **根治：`SaveSystem.RollbackLoadedSections` 改为按正向顺序（与 `readOrder`/正常读档同一顺序）
+  重放各段的读档前快照**——回滚在本质上变成"再做一次读档，只是把文档换成读档前的快照"，先恢复
+  Progression（等级），再恢复 Equipment（此时能读到正确等级，重新装备按预期成功），与正常读档
+  路径共享同一套已经验证过的依赖顺序，不需要为回滚单独维护一份"应该谁先谁后"的规则。对彼此没有
+  依赖的段（多数自定义段），正向/逆序不影响"最终恢复到读档前状态"这一结果本身，AUD-01/CORE-170-03
+  既有回归测试不依赖具体回滚顺序，只依赖"最终恢复到位"，改动后继续通过。验收：注入后段异常后
+  progression/inventory/equipment/vitals 全部回到 live 状态，高等级装备重新装备且库存无重复。
+  测试：`Tests.Foundation.SaveSystem.SaveSystemTests.
+  CORE_180_02_Rollback_RestoresEquipmentAfterProgression_UsingForwardOrder`（新增，真实
+  `GameplayAssembly` 组合）。
+
+- **CORE-180-03 根治（同上，P2，已确认）：同图 `GameplayAssembly.RestoreFromSlot`（目标地图与当前
+  地图相同、不触发 `EnterMap`）只把 `player.race_id`/`player.archetype` 两个字段本身写回
+  `PlayerUnit`，从未重放种族/职业的属性修正与被动光环——旧种族的属性加成/被动光环残留，新种族
+  的完全没有生效。** 详见 `core/gameplay/assembly/README.md`"CORE-180-01/03 根治"一节
+  （`RulesAssembly.ReloadArchetypeAndRace` 的实现与判断记录）；本模块这一侧只负责在
+  `IDerivedStateRebuilder.OnSectionLoaded(SaveSections.PlayerRaceId)` 触发时机上提供保证——
+  `player.race_id` 段无论文档是否携带该字段都会被处理一次（`RaceIdPersistable` 未声明
+  `KeepStateWhenSectionMissing` 例外，缺段时仍会以 `JsonNull` 调用一次 `Load` 清空为 `null`，
+  `OnSectionLoaded` 因此总会触发，覆盖跨图/同图两条路径，也覆盖"文档没有种族段"的情形），
+  且晚于 `player.archetype`（`SaveSections.KnownOrder` 固定顺序），触发时两个字段都已经是本次
+  读档的最终值。
 
 ## `LoadResult.CurrentMapId` / `CurrentPosition`（缺口 11）
 

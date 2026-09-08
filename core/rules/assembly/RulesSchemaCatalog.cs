@@ -159,9 +159,9 @@ namespace Core.Rules.Assembly
         /// <item><c>arch.class.primary_stat</c> → <c>stat.definition</c>（L1SampleDataTests 已声明
         /// 过的同一条，本类为独立于 L1 测试的正式登记点重复声明一次，无副作用）。</item>
         /// <item><c>skill.def.target_shape_ref</c> → <c>target.chain_def</c>（06 第 3.1 节字段
-        /// 说明"指向 target.chain_def 或直接指向 Shape 定义"两种可能之一，见 skill 模块 README
-        /// "设计要点与判断记录"第 1 条；本类按"指向链"这一更常见用法声明引用完整性检查，
-        /// 直接引用 Shape 定义的技能数据会被本检查误报，届时需要按字段实际语义调整）。</item>
+        /// 已统一为"字段只引用 target.chain_def，链内 shape 字段按需引用 05 的 Shape 定义"，
+        /// 见 skill 模块 README "设计要点与判断记录"第 1 条；本类据此声明引用完整性检查，
+        /// 与代码实际语义一致，无误报风险）。</item>
         /// <item><c>skill.proc_def.trigger_skill</c> → <c>skill.def</c>（06 第 3.4 节
         /// <c>ProcDef.trigger_skill</c> 明确"触发后释放的技能"）。</item>
         /// </list>

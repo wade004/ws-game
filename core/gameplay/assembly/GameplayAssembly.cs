@@ -1252,6 +1252,80 @@ namespace Core.Gameplay.Assembly
             // 懒创建流，掉落/命中/proc 等分流随机序列不再是保存点的后续序列，破坏 10 号文档
             // "确定性/回放"前提。现在用同一个构造期传入的 IRngHost 实例（见 Rng 属性）注册。
             saveSystem.RegisterPersistable(new RngStreamsPersistable(Rng));
+
+            // CORE-180-01/03 根治（architecture/落地计划/audit-e070e3f-20260908，P1/P2）：注入派生
+            // 状态重建钩子，见 DerivedStateRebuilder 类型判断记录、core/foundation/save_system/
+            // README.md"CORE-180-01 根治"一节。放在本方法末尾——此时全部段都已经注册完毕，晚于
+            // 构造函数但早于任何一次真正的 saveSystem.Load 调用（调用方约定顺序：先
+            // RegisterPersistables，再才会有读档发生）。
+            saveSystem.SetDerivedStateRebuilder(new DerivedStateRebuilder(Carriers.Rules, player));
+        }
+
+        /// <summary>
+        /// CORE-180-01/03 根治：<see cref="Core.Foundation.SaveSystem.IDerivedStateRebuilder"/> 的
+        /// 生产实现，见该接口类型注释"为什么绕开事件总线"。捕获 <see cref="RulesAssembly"/> 与本次
+        /// 装配的 <see cref="PlayerUnit"/>——本框架当前只对玩家单位做存档（见 <see
+        /// cref="RegisterPersistables"/> 全部段的注册对象），派生状态重建因此也只需要覆盖这一个
+        /// 单位，不需要接受任意 <c>unitId</c> 参数。
+        /// <para>
+        /// 判断记录（两个触发点的选择）：
+        /// <list type="bullet">
+        /// <item><see cref="SaveSections.PlayerRaceId"/>——CORE-180-03：<c>player.race_id</c> 段
+        /// 排在 <c>player.archetype</c> 之后（<see cref="SaveSections.KnownOrder"/>），触发时两个
+        /// 字段都已经是本次读档的最终值；<c>RaceIdPersistable</c> 未声明 <c>KeepStateWhenSectionMissing</c>
+        /// 例外，文档缺段时仍会以 <c>JsonNull</c> 调用一次 <c>Load</c>（清空为 <c>null</c>），本触发点
+        /// 因此总会命中一次，不需要额外处理"文档没有种族段"的情形。</item>
+        /// <item><see cref="SaveSections.PlayerEquipment"/>——CORE-180-01：装备重新装备（<see
+        /// cref="RulesAssembly.Stats"/> 经 <c>EquipmentHost.Equip</c> 写入的属性修正）是全部会影响
+        /// 评级换算属性/资源池上限的段里排在最后的一段（<see cref="SaveSections.KnownOrder"/>：
+        /// progression → archetype → race_id → inventory → equipment → …→ vitals），此时重新计算
+        /// 一次评级换算属性与资源池上限，能覆盖职业/种族/成长/装备四个来源的全部贡献，且早于随后的
+        /// <see cref="SaveSections.PlayerVitals"/> 段——<c>PlayerVitalsPersistable.Load</c> 按"存档
+        /// 值与当前值的差额"调用 <c>ModifyPower</c>，若资源池上限此时仍是读档前的旧值，差额会被
+        /// clamp 到旧上限，即便后续再把上限改对，当前值也不会跟着回升（<c>PowerHost.RecomputeMax</c>
+        /// 只在 <c>Current &gt; newMax</c> 时才下调，不会在 <c>newMax</c> 变大时把 <c>Current</c>
+        /// 补上去）——必须在 <c>player.vitals</c> 段读到正确的上限之前完成这次重算，见真实探针
+        /// <c>SUCCESSFUL-LOAD-POWER-MAX-INTERNAL-EVENT</c>。</item>
+        /// </list>
+        /// </para>
+        /// </summary>
+        private sealed class DerivedStateRebuilder : Core.Foundation.SaveSystem.IDerivedStateRebuilder
+        {
+            private readonly Core.Rules.Assembly.RulesAssembly _rules;
+            private readonly PlayerUnit _player;
+            private Id? _previousArchetypeId;
+            private Id? _previousRaceId;
+
+            public DerivedStateRebuilder(Core.Rules.Assembly.RulesAssembly rules, PlayerUnit player)
+            {
+                _rules = rules ?? throw new ArgumentNullException(nameof(rules));
+                _player = player ?? throw new ArgumentNullException(nameof(player));
+            }
+
+            public void BeforeLoad()
+            {
+                _previousArchetypeId = _player.ArchetypeId;
+                _previousRaceId = _player.RaceId;
+            }
+
+            public void OnSectionLoaded(string sectionKey)
+            {
+                if (sectionKey == SaveSections.PlayerRaceId)
+                {
+                    _rules.ReloadArchetypeAndRace(
+                        _player.EntityId, _player.ArchetypeId, _player.RaceId, _previousArchetypeId, _previousRaceId);
+                    return;
+                }
+
+                if (sectionKey == SaveSections.PlayerEquipment)
+                {
+                    _rules.Stats.RecomputeRatingStats(_player.EntityId);
+                    if (_rules.Powers.IsRegistered(_player.EntityId))
+                    {
+                        _rules.Powers.RecomputeMax(_player.EntityId);
+                    }
+                }
+            }
         }
 
         /// <summary>

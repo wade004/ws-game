@@ -52,9 +52,13 @@ namespace Core.Carriers.Summon
 
             if (step.Kind != SimStepKind.Continuous)
             {
+                // CORE-180 文档漂移收口（architecture/落地计划/audit-e070e3f-20260908）：ADR-0013
+                // 离散时间模型已接线（见 core/gameplay/assembly.GameplayAssembly），本处理器收到
+                // Discrete 步时按已有约定记诊断并跳过，不是"未启用离散模式"导致的遗留限制——召唤物
+                // 到期销毁/跟随移动等逻辑按设计仍只在连续步推进（07 第 4 节未要求离散步内也推进），
+                // 惯例同 core/gameplay/area_trigger.AreaTriggerTickHandler 的同一处理。
                 _diagnostics.Warn(
-                    "SummonTickHandler 收到 Discrete 步，本项目未启用离散时间模型（见 ADR-0013），" +
-                    "本次 tick 不推进召唤物逻辑");
+                    "SummonTickHandler 收到 Discrete 步，按设计召唤物逻辑只在连续步推进，本次 tick 跳过");
                 return;
             }
 
