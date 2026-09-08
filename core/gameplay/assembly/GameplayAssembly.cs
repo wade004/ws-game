@@ -1221,7 +1221,12 @@ namespace Core.Gameplay.Assembly
             saveSystem.RegisterPersistable(new DroppedLootPersistable(Loot));
             // 第七方审核 CR140-01 收口：world.gobj_pending_loot（世界附属段，未交付宝箱余量），见
             // Core.Carriers.Gobj.GobjPendingLootPersistable 类型判断记录——放在
-            // DroppedLootPersistable 之后，同属"世界附属段"分组，未登记进 SaveSections.KnownOrder。
+            // DroppedLootPersistable 之后，同属"世界附属段"分组。CORE-170-03 顺带根治
+            // （architecture/落地计划/audit-8160178-20260908）：已登记进
+            // SaveSections.KnownOrder.WorldGobjPendingLoot（排在该表 spawn_state 之后、
+            // sim.turn_state 之前，与 10 号文档第 3 节"7a. .../spawn_state/gobj_pending_loot"文字
+            // 顺序一致——注意 KnownOrder 才是实际读写顺序的唯一依据，本行在这里的调用顺序仅供人类
+            // 阅读，与 KnownOrder 的顺序不必相同，见该表判断记录）。
             saveSystem.RegisterPersistable(new Core.Carriers.Gobj.GobjPendingLootPersistable(Carriers.GameObjectInteractions));
             saveSystem.RegisterPersistable(Difficulty);
             // 外部审核阻塞项 2 收口：player.vitals 段（存活状态 + 生命值当前值），见

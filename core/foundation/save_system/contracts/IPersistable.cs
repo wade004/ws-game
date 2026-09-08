@@ -31,8 +31,37 @@ namespace Core.Foundation.SaveSystem
         /// 用存档文档中本段对应的数据恢复模块状态。存档读取时按
         /// <see cref="SaveSections"/> 固定顺序（自定义段在已知段之后按序数排序）依次调用；
         /// 抛出的任何异常都会被 <see cref="ISaveSystem.Load"/> 捕获并转成
-        /// <see cref="LoadStatus.PersistableThrew"/>——此时之前已成功调用 <see cref="Load"/>
-        /// 的其它段不会被回滚，调用方需要自行处理"部分加载"的一致性问题（见本模块 README）。
+        /// <see cref="LoadStatus.PersistableThrew"/>。
+        /// <para>
+        /// CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：本段以外，此前
+        /// 已成功调用过 <see cref="Load"/> 的其它段，<see cref="ISaveSystem.Load"/> 会按逆序用各自
+        /// 读档前的快照（进入本次读档循环前对全部已注册段各调用一次 <see cref="Save"/> 采集）尽力
+        /// 回滚；<b>抛异常的这一段自身</b>也会被纳入这次回滚（同样用它自己读档前的快照再调用一次
+        /// <see cref="Load"/>）——这是 best-effort，不是保证：某段的快照采集本身可能失败（没有
+        /// 快照可回滚），回滚调用 <see cref="Load"/> 本身也可能再次抛异常（尽力恢复其它段，不因
+        /// 一段失败而放弃整体回滚）；调用方仍应把 <see cref="LoadStatus.PersistableThrew"/> 当作
+        /// "本次读档失败"处理，不能假设回滚百分之百成功，只是"多数正确实现的段在多数情况下能被
+        /// 恢复到读档前状态"这一更强的尽力保证，取代了此前"完全不回滚失败段自身"的更弱保证。
+        /// </para>
+        /// <para>
+        /// 实现方自身也必须遵循"先解析校验成临时恢复计划、再一次性提交"——<b>不能</b>把"SaveSystem
+        /// 这一层会尽力回滚"当作可以先改动 live 状态、再校验数据形状的借口：本方法在改动任何状态
+        /// 之前，应当先完整验证 <paramref name="data"/> 的形状（含每一条子条目），校验失败时直接
+        /// 抛异常返回、不触碰任何字段；只有整份数据确认合法后才提交变更。这是两层独立的防线——
+        /// 本层"校验先于提交"避免第一时间产生半新半旧的中间态，上一段"SaveSystem 尽力回滚"是本层
+        /// 万一没做到位时的兜底，二者不能互相替代（见 <c>Core.Carriers.Item.EquipmentPersistable.
+        /// Load</c>/<c>Core.Gameplay.Achievement.AchievementHost.Load</c> 等判断记录，均按本段
+        /// 要求改造——本接口定义于 <c>core/foundation</c>，不能反向依赖它们所在的更高层模块，
+        /// 这里只以纯文本引用，不是可解析的 <c>cref</c>）。
+        /// </para>
+        /// <para>
+        /// 回滚期间（含本段以外其它段的回滚）经由本方法产生的领域事件（如某段的 <c>Load</c> 为
+        /// 复用真实运行时逻辑而调用的具体宿主方法，正常运行时会派发真实事件）会被 <see
+        /// cref="Core.Foundation.EventBus.IEventBus.SuppressDispatch"/> 抑制作用域直接丢弃，不会
+        /// 派发给任何订阅者——"读档不是一次业务事件"是本模块的既定原则（多个既有实现已在各自
+        /// <c>Load</c> 判断记录里声明"不重发业务事件"），本方法的实现不需要（也不应该）自己判断
+        /// "当前是不是在读档/回滚期间"，抑制在更外层统一完成。
+        /// </para>
         /// <para>
         /// CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：本段已注册、但正在
         /// 读取的存档文档里整段缺失（旧存档产生于本段引入之前，或候选文档压根没有这个 key）时，

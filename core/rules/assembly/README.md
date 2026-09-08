@@ -127,10 +127,28 @@ Real.InstanceReplaced += value; remove => Real.InstanceReplaced -= value;` 同�
 GameplayAssembly.EnterMap` 之后，种族属性加成还在，被动光环却已经消失，直到下一次显式换种族
 （重新走一遍 `RegisterUnit`）才会被动补上。`ReapplyRacePassiveAuras` **不是**重新调用完整的
 `ArchetypeRegistry.ApplyTo`（那会重复写基础属性/资源池注册，属性修正本就没丢，重新写一遍会产生
-错误的双重叠加），只重放 `race.PassiveAuras` 这一项确实会丢失的状态：按 `Skill.AuraQuery.HasAura`
-跳过已经生效的（幂等），未知 `raceId`（内容已变更的旧存档）静默跳过、不抛异常。供
+错误的双重叠加），只重放 `race.PassiveAuras` 这一项确实会丢失的状态。供
 `core/gameplay/assembly.GameplayAssembly.EnterMap` 在装备 grants 重放之后一并调用，见
 `core/gameplay/assembly/README.md`/`core/carriers/unit/README.md` 同编号条目。
+
+**CORE-170-01 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）：种族与
+装备共享同一 `aura_def` 时卸装误删种族 aura。** 上面这版实现原本按 `Skill.AuraQuery.HasAura` 判断
+"是否已生效、生效就跳过"——这个判断只问"这个 `aura_def` 在目标身上有没有活实例"，不问"生效的
+这份实例，种族自己有没有登记过一份引用"。真实内容（装备 `grants.auras` 与种族 `passive_auras`
+配置同一个 `aura_def`）复现：`EnterMap` 先重放装备（`EquipmentHost.ReapplyGrants`）创建了共享
+光环实例并在跨来源引用计数账本上登记了一份引用，种族重放看到 `HasAura=true` 直接跳过、从未为
+自己登记引用；随后卸下装备释放这唯一一份引用、计数归零，把种族仍然依赖的共享光环实例整个删除
+（真实探针复现：卸装后预期 `hasAura=true,stacks=1,power=61`，实际 `hasAura=false,stacks=0,power=11`）。
+根治方式：新增 `RulesAssembly.AuraHandles`（`Core.Rules.Common.AuraHandleLedger`，定义在
+`core/rules/common/contracts` 而不是 `core/rules/skill`——只依赖 `IEffectSink`/`IAuraQuery` 两个
+契约，方便跨层共享，见该类型判断记录），供装备/套装门槛加成（经 `CarriersAssembly` 注入
+`EquipmentHost`）与种族被动（本类自己，经私有字典 `_raceAuraHandles` + `OnRaceAuraInstanceReplaced`
+维护自己的句柄簿记）共享同一份跨来源引用计数——任一来源单独卸载只释放自己那一份，只有全部来源
+都释放完毕才真正移除共享实例。`ReapplyRacePassiveAuras` 改为按 `_raceAuraHandles` 判断"种族这个
+来源自己是否已经持有一份仍然有效的引用"，不再用 `HasAura`；需要为已存在的共享实例补登记引用时
+用新增的 `IAuraQuery.TryGetInstanceRef` 取得句柄，不能重新调用 `ApplyAura`（会被 `AuraHost.
+ReapplyExisting` 当作又一次独立施加而叠加层数）。验收：`Tests.Gameplay.Assembly.
+CORE_170_01_RaceEquipmentSharedAuraTests`。
 
 ## 阶段 3 整理："事项一/三/四"新增的可选构造参数与延迟绑定属性
 

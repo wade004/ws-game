@@ -201,10 +201,47 @@ item/
     `InventoryPersistable.Load` 对本段整体缺失（`JsonNull`）的处理，从 no-op（保留读档前的
     运行期库存）改为清空背包**——修复前真实探针复现：先放入 1 件物品，再加载一份没有
     `player.inventory` 段的存档，返回 `Loaded` 但库存仍是 1 件，违反 10 第 3 节"缺失段语义"合同
-    （缺段应清空到默认态）。`EquipmentPersistable.Load` 不受影响——它已经在检查 `JsonNull` 之前
-    无条件调用 `EquipmentHost.ClearAllEquippedForLoad`（见判断记录 5"FND-10 收口"），本就正确
-    覆盖了这一路径。见 `ItemPersistableTests.InventoryPersistable_Load_NullData_
+    （缺段应清空到默认态）。见 `ItemPersistableTests.InventoryPersistable_Load_NullData_
     ClearsPreExistingItems`。
+    > **勘误（CORE-170-03，见下方判断记录 15）：** 上一句话原来还写着"`EquipmentPersistable.Load`
+    > 不受影响——它已经在检查 `JsonNull` 之前无条件调用 `ClearAllEquippedForLoad`，本就正确覆盖了
+    > 这一路径"——这句话只对 `data is JsonNull` 这一个分支成立，对"`data` 既不是 `JsonNull` 也不是
+    > 合法 `JsonObject`"这一分支是错的：无条件清空在校验形状之前执行，坏 shape 会在清空之后才
+    > 抛异常，见判断记录 15。
+14. **CORE-170-01 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）：
+    `_auraHandleRefCount` 从 `EquipmentHost` 私有字段上移为 `Core.Rules.Common.AuraHandleLedger`
+    （定义在 `core/rules/common/contracts`），由 `RulesAssembly` 持有单一实例并经新增构造参数
+    `auraHandleLedger` 注入本类**——上面第 7/8/9 条判断记录描述的引用计数机制（按实例句柄、随
+    `InstanceReplaced` 迁移、装备与套装门槛加成共用）此前只覆盖装备/套装两类来源，种族/职业被动
+    光环完全不参与，导致装备与种族共享同一 `aura_def` 时卸装会把种族仍依赖的共享实例一并删除
+    （详见 `core/rules/assembly/README.md` 同编号判断记录）。本类原有的
+    `RegisterAuraHandle`/`ReleaseAuraHandle` 方法名与调用点全部保留，只是内部改为转发到
+    `_auraHandleLedger`；未注入时（`null`，多数测试用的最小假实现）自建一份私有账本，退化为
+    此前"只在装备/套装两处之间共享计数"的行为，不影响不涉及种族共享 `aura_def` 的既有测试断言。
+    `StackOverflowPolicy.Replace` 换句柄的计数迁移也从本类 `OnAuraInstanceReplaced` 里移出，由
+    `AuraHandleLedger` 自己订阅同一个 `InstanceReplaced` 独立完成——本类该方法此后只保留
+    `_grantedAuras`/`_appliedSetBonuses` 这两份"我自己记着哪个句柄"的簿记迁移。见
+    `Core.Rules.Common.AuraHandleLedger` 类型判断记录、`Tests.Gameplay.Assembly.
+    CORE_170_01_RaceEquipmentSharedAuraTests`。
+15. **CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）：
+    `EquipmentPersistable.Load` 改为"先解析校验成临时恢复计划、再一次性提交"，不再无条件先清空**
+    ——上面第 5 条"FND-10 收口"确立的`ClearAllEquippedForLoad` 前置清空，此前对**任何** `data`（含
+    既不是 `JsonNull` 也不是合法 `JsonObject` 的坏 shape）都无条件执行，随后才校验形状：坏 shape
+    （`data` 本身不是对象、槽位键不是合法 `Id`、或某个槽位的物品实例存档数据格式非法）因此会在
+    清空之后才抛 `FormatException`，此时该玩家读档前的全部装备（含属性修正/技能授予/光环施加/
+    套装加成）已经丢失，且已经向真实事件总线发出 `StatChanged`/`ItemUnequipped`；`SaveSystem`
+    只把"已成功加载"的段加入回滚列表，本段自身从未成功加载过，不会被回滚。真实探针复现：坏
+    shape 抛错前装备存在，抛错后消失，排空事件队列后仍是消失状态。根治后 `Load` 先完整遍历
+    `data` 校验全部槽位键与物品实例形状（`ItemInstanceJson.FromJson` 对坏 shape 抛异常），不触碰
+    `EquipmentHost`/`InventoryHost` 任何运行期状态；只有整份数据校验通过，才调用
+    `ClearAllEquippedForLoad` 并按解析结果一次性恢复——`JsonNull`（本段整体缺失）分支保持不变
+    （不需要先解析，直接清空即是完整语义）。`SaveSystem` 侧另加一层兜底（回滚时把抛异常的段自身
+    也纳入，见 `core/foundation/save_system/README.md` 同编号判断记录）与事件抑制（回滚重放的
+    `ItemEquipped`/`ItemUnequipped` 不应该被 `AchievementHost` 一类计数消费者当作真实操作再计一
+    次数，见 `core/foundation/event_bus/README.md`"SuppressDispatch"一节）——三层合起来才是完整
+    的根治，本类自身的"先校验后提交"是第一层，不能只靠 `SaveSystem`/事件抑制兜底。见
+    `Tests.Carriers.Item.CORE_170_03_EquipmentPersistableLoadFailureTests`、`Tests.Gameplay.
+    Assembly.CORE_170_03_SaveRollbackEventSuppressionTests`。
 
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 

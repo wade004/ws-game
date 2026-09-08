@@ -133,6 +133,16 @@ spawn/
    `GameplayAssemblySpawnTimerSameMapReloadTests.cs`
    （`SavedRespawnTimer_SurvivesSameMapReload_EvenWhenCurrentSessionAlreadyRespawnedANewEntity`）。
 
+## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
+
+`SpawnHost.Load` 修复前开头无条件 `_records.Clear()`/`_entityToSpawn.Clear()`，随后才校验
+`data` 形状——坏 shape（既不是 `JsonNull` 也不是 `JsonObject`）会在清空之后才抛
+`FormatException`，此时全部刷新点的运行期记录（含存活实体绑定）已经丢失，与 `Core.Carriers.
+Item.EquipmentPersistable.Load` 曾经的同一类缺陷成因相同（见 `core/carriers/item/README.md`
+同编号判断记录）。根治后把形状校验前移到任何状态变更之前，本方法其余逻辑（`previouslyAlive`
+快照、清空、按快照重建、孤儿实体处理）原样保留。见
+`SpawnHostTests.Load_BadShape_ThrowsFormatException_AndLeavesExistingSpawnRecordsUntouched`。
+
 ## 不负责什么
 
 - 不实现难度倍率、遭遇内联生成等与刷新表并列的生成路径——08 第 8 节"Spawn 归属说明"明确

@@ -69,6 +69,15 @@ difficulty/
    `Reference` 会让 `reference_integrity` 校验因目标表未加载而恒报错（同
    `core/carriers/creature.CreatureSchemas` 同款判断记录）。
 
+## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
+
+`DifficultyHost.Load` 修复前开头无条件把 `CurrentTier`/`CurrentScope`/`CurrentMapId` 三个字段
+重置为 `null`，随后才校验 `data` 形状——坏 shape（既不是 `JsonNull` 也不是 `JsonObject`）会在
+重置之后才抛 `FormatException`，读档前已经生效的难度层级/范围/地图因此丢失，与 `Core.Carriers.
+Item.EquipmentPersistable.Load` 曾经的同一类缺陷成因相同（见 `core/carriers/item/README.md`
+同编号判断记录）。根治后把形状校验前移到任何状态变更之前。见
+`DifficultyHostTests.Load_BadShape_ThrowsFormatException_AndLeavesCurrentDifficultyUntouched`。
+
 ## 不负责什么
 
 - 不实现词缀池（`affix_pool_ref`）的具体生成规则——本版只登记挂载点，不解析、不应用。

@@ -467,22 +467,39 @@ namespace Core.Gameplay.Achievement
             return builder.Build();
         }
 
+        /// <summary>
+        /// CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前本方法开头
+        /// 无条件清空该玩家既有的进度/解锁/待领奖记录，随后才校验 <paramref name="data"/> 的 JSON
+        /// 形状；坏 shape（<c>data</c> 本身不是 JSON 对象，或某个成就条目 <c>kv.Value</c> 不是 JSON
+        /// 对象）会在清空之后才抛 <see cref="FormatException"/>——此时该玩家的成就状态已经丢失，且
+        /// 逐条目提交也不是原子的：一次 <see cref="Load"/> 调用中排在坏条目之前的成就已经写入了
+        /// "本次读档的新值"，排在坏条目之后的成就完全没处理，形成"半新半旧"的中间态，与
+        /// <c>EquipmentPersistable.Load</c> 曾经的同一类缺陷成因相同（见 <c>ItemPersistable.cs</c>
+        /// <c>EquipmentPersistable.Load</c> 判断记录）。
+        /// <para>
+        /// 根治方式：遵循 <see cref="IPersistable.Load"/> 契约注释确立的"先解析校验成临时恢复计划、
+        /// 再一次性提交"——先完整遍历 <paramref name="data"/> 校验全部条目的形状（不触碰
+        /// <see cref="_progress"/>/<see cref="_unlocked"/>/<see cref="_pendingReward"/> 任何一个），
+        /// 只有整份数据校验通过才清空该玩家既有记录并按解析结果一次性提交；校验期间遇到任何一条
+        /// 坏形状，直接抛异常返回，读档前的运行期状态原样保留，不会出现半新半旧的中间态。
+        /// </para>
+        /// </summary>
         public void Load(JsonValue data)
         {
             var player = _options.PlayerUnitResolver();
 
-            // 只清空该玩家单位既有的进度/解锁记录，不触碰其它单位（见本类型顶部判断记录：运行期
-            // 支持按任意单位维护进度，但存档只落盘玩家自己这一份）。
-            foreach (var achievement in _achievements.Values)
-            {
-                var key = (player.Value, achievement.Id.Value);
-                _progress.Remove(key);
-                _unlocked.Remove(key);
-                _pendingReward.Remove(key);
-            }
-
             if (data is JsonNull)
             {
+                // 整段缺失：清空到"从未记录过"的默认态。这个分支不需要先解析（没有数据可解析），
+                // 直接清空即是完整语义，不存在"清到一半又失败"的风险。
+                foreach (var achievement in _achievements.Values)
+                {
+                    var key = (player.Value, achievement.Id.Value);
+                    _progress.Remove(key);
+                    _unlocked.Remove(key);
+                    _pendingReward.Remove(key);
+                }
+
                 return;
             }
 
@@ -491,6 +508,9 @@ namespace Core.Gameplay.Achievement
                 throw new FormatException($"player.achievement_state 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
             }
 
+            // 第一遍：只解析校验，不提交任何状态——遇到坏形状条目直接抛异常，此时既有运行期状态
+            // 完全未被触碰。
+            var plan = new List<((string UnitId, string AchievementId) Key, int[] Counts, bool Unlocked, bool PendingReward)>();
             foreach (var kv in obj)
             {
                 if (!_achievements.TryGetValue(kv.Key, out var achievement))
@@ -519,19 +539,33 @@ namespace Core.Gameplay.Achievement
                     }
                 }
 
+                plan.Add(((player.Value, achievement.Id.Value), counts, unlocked, pendingReward));
+            }
+
+            // 第二遍：全部条目校验通过，一次性提交——先清空该玩家既有记录（不触碰其它单位，见本
+            // 类型顶部判断记录），再按计划写入。
+            foreach (var achievement in _achievements.Values)
+            {
                 var key = (player.Value, achievement.Id.Value);
-                _progress[key] = counts;
-                if (unlocked)
+                _progress.Remove(key);
+                _unlocked.Remove(key);
+                _pendingReward.Remove(key);
+            }
+
+            foreach (var entry in plan)
+            {
+                _progress[entry.Key] = entry.Counts;
+                if (entry.Unlocked)
                 {
-                    _unlocked.Add(key);
+                    _unlocked.Add(entry.Key);
                 }
-                else if (pendingReward)
+                else if (entry.PendingReward)
                 {
                     // C04 根治：unlocked 与 pending_reward 互斥（见 Save 侧写入逻辑——只有 Grant
                     // 成功那一刻才会同时写 unlocked=true，此时不会再落入 _pendingReward），old 存档
                     // 若两者都为 true（理论上不应发生，防御性处理）以 unlocked 优先，不重复放进
                     // pending 集合。
-                    _pendingReward.Add(key);
+                    _pendingReward.Add(entry.Key);
                 }
             }
 

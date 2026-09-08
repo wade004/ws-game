@@ -58,6 +58,34 @@ namespace Core.Carriers.Unit
 
         public int GetLevel(Id unitId) => Require(unitId).Level;
 
+        /// <summary>
+        /// CORE-170-02 根治（architecture/落地计划/audit-8160178-20260908，P2）：<see
+        /// cref="Core.Numbers.Progression.LevelSync"/> 委托的真正实现——把 <see
+        /// cref="Core.Numbers.Progression.ProgressionHost"/> 内部权威等级写回 <see cref="Unit.Level"/>
+        /// 实体字段，使 <see cref="GetLevel"/> 此后读到的值与 <c>ProgressionHost.GetLevel</c> 恒一致
+        /// （见该委托类型判断记录）。不在 <see cref="IUnitAccess"/> 接口上（同 <see cref="Revive"/>
+        /// 判断记录同一惯例：本方法只供组合根装配期的委托闭包调用，不是 skill/combat/targeting/ai
+        /// 四个模块经 <see cref="IUnitAccess"/> 契约会用到的操作，不必扩大公开契约）。
+        /// <para>
+        /// <paramref name="unitId"/> 在 <see cref="IWorldSim"/> 中不存在（极早期装配阶段的孤立调用，
+        /// 正常生产链路的调用时机——<c>ProgressionHost.RegisterUnit</c>/<c>AddXp</c>/<c>RestoreState</c>
+        /// 全部发生在对应单位实体已经 <see cref="IWorldSim.AddEntity"/> 之后——不会出现这种情况）时
+        /// 安全 no-op，不抛异常，与 <see cref="SetAlive"/>/<see cref="SetPosition"/> 遇到未知单位会
+        /// 抛出的 <see cref="Require"/> 惯例不同——本方法的调用方是 <see
+        /// cref="Core.Numbers.Progression.LevelSync"/> 委托闭包，其调用时机由
+        /// <c>core/numbers/progression</c>（L1）单方面决定，L1 模块本就不知道、也不该被要求先确认
+        /// L3 世界模拟里是否存在这个单位——让委托闭包自己吞掉这种边界情况，比让 L1 承担"调用一个
+        /// 跨层委托可能抛异常"的负担更符合本仓库既有的委托注入分层惯例。
+        /// </para>
+        /// </summary>
+        public void SetLevel(Id unitId, int level)
+        {
+            if (_world.GetEntity(unitId) is Unit unit)
+            {
+                unit.Level = level;
+            }
+        }
+
         public double GetFacing(Id unitId) => Require(unitId).Facing;
 
         public bool IsAlive(Id unitId) => Require(unitId).Alive;

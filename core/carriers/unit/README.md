@@ -147,6 +147,28 @@ unit/
 - 其余用到的 L2 契约（`IUnitAccess`、`IStatHost`、`IAuraQuery`、`ControlFlags`）均按既有签名使用，
   未发现需要新增成员的缺口。
 
+## CORE-170-02 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
+
+新增 `WorldUnitAccess.SetLevel(unitId, level)`——不在 `IUnitAccess` 接口上（惯例同 `Revive`：
+只供组合根装配期的委托闭包调用，不是 skill/combat/targeting/ai 四个模块经 `IUnitAccess` 契约会
+用到的操作）。写 `Unit.Level` 实体字段，单位不存在于 `IWorldSim` 时安全 no-op、不抛异常——调用方
+是 `Core.Numbers.Progression.LevelSync` 委托闭包（`CarriersAssembly` 注入），其调用时机由
+`core/numbers/progression`（L1）单方面决定，本方法把"L1 调用一个跨层委托可能撞上未知单位"这种
+边界情况自己吞掉，而不是让 L1 承担确认 L3 世界模拟状态的负担。根治的是 `GetLevel`（本模块既有
+方法，未改动）读到的实体等级与 `Core.Numbers.Progression.ProgressionHost.GetLevel` 内部权威等级
+不同步的问题（真实探针复现 `rules_progression_level=2;entity_level=1`），详见
+`core/numbers/progression/README.md` 同编号判断记录。
+
+## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
+
+`SkillBindingPersistable.Load` 修复前开头无条件解绑该单位当前全部技能绑定，随后才校验 `data`
+形状——坏 shape（既不是 JSON 对象，也不是每个值都合法的 `Id` 字符串）会在解绑之后才抛
+`FormatException`，读档前的绑定因此丢失且不可恢复，与 `EquipmentPersistable.Load` 曾经的同一类
+缺陷成因相同（见 `core/carriers/item/README.md` 同编号判断记录）。根治后先完整解析校验成临时
+恢复计划（不触碰任何绑定），全部条目校验通过后才一次性解绑现有绑定、按计划重新绑定。见
+`SkillBindingPersistableTests.Load_BadShape_ThrowsFormatException_AndLeavesExistingBindingsUntouched`/
+`Load_NonIdSkillValue_ThrowsFormatException_AndLeavesExistingBindingsUntouched`。
+
 ## 不负责什么
 
 - 不实现 `core/carriers/item`/`creature`/`gobj`/`summon` 四个并行模块的任何逻辑，只提供它们依赖的

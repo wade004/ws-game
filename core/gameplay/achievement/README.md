@@ -84,6 +84,27 @@ achievement/
    `AchievementHostTests.cs`
    （`Unlock_RewardGrantFails_StaysLocked_RetryPendingRewardsGrantsExactlyOnceAfterRoomFreed`）。
 
+## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
+
+`AchievementHost.Load` 修复前开头无条件清空该玩家全部进度/解锁/待领奖记录，随后才校验 `data`
+形状——坏 shape（`data` 本身不是 JSON 对象，或某个成就条目不是 JSON 对象）会在清空之后才抛
+`FormatException`，此时该玩家的成就状态已经丢失；逐条目提交也不是原子的，排在坏条目之前的
+成就已经写入本次读档的新值，排在坏条目之后的成就完全没处理，形成半新半旧的中间态——与
+`Core.Carriers.Item.EquipmentPersistable.Load` 曾经的同一类缺陷成因相同（见
+`core/carriers/item/README.md` 同编号判断记录）。根治后先完整遍历校验全部条目的形状（不触碰
+`_progress`/`_unlocked`/`_pendingReward` 任何一个），只有整份数据校验通过才清空该玩家既有记录
+并按解析结果一次性提交。
+
+另外，`Core.Foundation.SaveSystem.SaveSystem.Load` 逆序回滚失败读档时，会重新调用某些段真正的
+运行时逻辑（如装备段为复用真实联动会调用真正的"装备"/"卸下"操作），这类操作本身会正常派发
+领域事件；本类的 `custom_event` 观察条件（如观察 `item.equipped`）此前会把"读档/回滚期间的
+重放"误当成一次真实玩家操作再计一次数（真实探针复现：进度从 1 被回滚重放的事件错误推高到 2
+并触发解锁）。现在 `SaveSystem.Load` 把整段"逐段 `Load` + 失败回滚"逻辑包在 `IEventBus.
+SuppressDispatch()` 抑制作用域内，回滚重放产生的事件在到达本类之前就已经被丢弃，本类不需要
+（也不应该）自己判断"当前是不是在读档/回滚期间"，见 `core/foundation/event_bus/README.md`
+"SuppressDispatch"一节。见 `Tests.Gameplay.Assembly.
+CORE_170_03_SaveRollbackEventSuppressionTests`。
+
 ## 不负责什么
 
 - 不实现"引用对象暂缺"之外的 Expr 求值细节——`filter` 的求值宿主（`self`/`target` 绑定谁）由

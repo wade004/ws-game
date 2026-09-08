@@ -173,14 +173,19 @@ namespace Core.Gameplay.Difficulty
             return builder.Build();
         }
 
+        /// <summary>CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前
+        /// 三个字段的重置在校验 <paramref name="data"/> 形状之前就已经无条件执行——坏 shape（既不是
+        /// <see cref="JsonNull"/> 也不是 <see cref="JsonObject"/>）会在重置之后才抛 <see
+        /// cref="FormatException"/>，读档前已经生效的难度层级/范围/地图因此丢失。根治方式：把形状
+        /// 校验前移到任何状态变更之前——JsonNull 分支与 JsonObject 分支各自独立触碰这三个字段，
+        /// 不需要再有一次"提前重置"这一步。</summary>
         public void Load(JsonValue data)
         {
-            CurrentTier = null;
-            CurrentScope = null;
-            CurrentMapId = null;
-
             if (data is JsonNull)
             {
+                CurrentTier = null;
+                CurrentScope = null;
+                CurrentMapId = null;
                 return;
             }
 
@@ -188,6 +193,10 @@ namespace Core.Gameplay.Difficulty
             {
                 throw new FormatException($"world.difficulty 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
             }
+
+            CurrentTier = null;
+            CurrentScope = null;
+            CurrentMapId = null;
 
             if (obj.TryGetValue("tierId", out var tierIdValue) && tierIdValue is JsonString tierIdStr)
             {

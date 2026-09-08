@@ -123,16 +123,25 @@ namespace Core.Carriers.Item
             return builder.Build();
         }
 
+        /// <summary>
+        /// CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2，第十轮审计已复现）：
+        /// 修复前本方法开头无条件调用 <see cref="EquipmentHost.ClearAllEquippedForLoad"/>，随后才
+        /// 校验 <paramref name="data"/> 的形状——坏 shape（<paramref name="data"/> 本身不是 JSON
+        /// 对象，槽位键不是合法 Id，或某个槽位的 <see cref="ItemInstance"/> 存档数据格式非法）会在
+        /// 清空之后才抛 <see cref="FormatException"/>，此时该玩家读档前的全部装备（含由此驱动的
+        /// 属性修正/技能授予/光环施加/套装加成，见 <see cref="ClearAllEquippedForLoad"/> 判断记录）
+        /// 已经丢失且已经向真实 <see cref="Core.Foundation.EventBus.IEventBus"/> 发出
+        /// <c>StatChanged</c>/<c>ItemUnequipped</c> 等事件，<see cref="Core.Foundation.SaveSystem.
+        /// SaveSystem"/> 只把"已成功加载"的段加入回滚列表——本段自身从未成功加载过，不在列表内，
+        /// 不会被回滚（真实探针复现：<c>after_dispatch=False</c>，装备再也回不来）。
+        /// </summary>
         public void Load(JsonValue data)
         {
-            // FND-10 修复：先把该单位重置到"无装备"（撤销全部联动、不放回背包，见
-            // EquipmentHost.ClearAllEquippedForLoad 判断记录），再按快照原子恢复——保证空快照/
-            // 缺槽快照/JsonNull（本段在这份存档里不存在）都能正确让对应槽位归空，且与调用前的
-            // 装备状态、调用顺序（先/后于 InventoryPersistable.Load）无关。
-            _equipment.ClearAllEquippedForLoad(_unitId);
-
             if (data is JsonNull)
             {
+                // FND-10 修复：本段整体缺失时必须清空到"无装备"默认态——这个分支不需要先解析
+                // （没有数据可解析），直接清空即是完整语义，不存在"清到一半又失败"的风险。
+                _equipment.ClearAllEquippedForLoad(_unitId);
                 return;
             }
 
@@ -142,6 +151,10 @@ namespace Core.Carriers.Item
                     $"{SectionKey} 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
             }
 
+            // 第一遍：只解析校验槽位键与 ItemInstance 形状（ItemInstanceJson.FromJson 对坏 shape
+            // 抛异常），不触碰 EquipmentHost/InventoryHost 任何运行期状态——遇到任何一条坏形状直接
+            // 抛异常返回，此时读档前的装备完全未被触碰。
+            var plan = new List<(Id Slot, ItemInstance Instance)>();
             foreach (var kv in obj)
             {
                 if (!Id.TryParse(kv.Key, out var slot))
@@ -150,6 +163,18 @@ namespace Core.Carriers.Item
                 }
 
                 var instance = ItemInstanceJson.FromJson(kv.Value);
+                plan.Add((slot, instance));
+            }
+
+            // 第二遍：全部槽位校验通过，才把该单位重置到"无装备"（见 ClearAllEquippedForLoad
+            // 判断记录），再按快照原子恢复——保证空快照/缺槽快照都能正确让对应槽位归空，且与调用前
+            // 的装备状态、调用顺序（先/后于 InventoryPersistable.Load）无关。逐槽 Equip 失败
+            // （result.Success == false，如内容变更导致等级/需求不再满足）不是解析期的形状错误，
+            // 是重新装备这一步本身的正常业务失败，物品留在背包、记诊断，不回滚已经处理过的其它
+            // 槽位——这与"坏 shape 必须在改动任何状态前发现"是两回事，一贯行为不变。
+            _equipment.ClearAllEquippedForLoad(_unitId);
+            foreach (var (slot, instance) in plan)
+            {
                 _inventory.InjectInstance(_unitId, instance);
 
                 var result = _equipment.Equip(_unitId, instance.InstanceId, slot);

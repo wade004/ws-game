@@ -154,3 +154,12 @@ world_state/
 - 该行历史条目已随 ADR-0015 严格化改造作废并移除（见判断记录 9）——`core/rules/expr_host.
   RulesExprSchema` 与本模块之间不再存在已知不兼容，不需要任何绕过方案。
 - 不做任何写权限检查——谁都能写，靠内容评审与 ADR 流程约束（05 第 8.2 节原文，见"谁能写"一节）。
+
+## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
+
+`WorldState.Load` 修复前开头无条件 `_flags.Clear()`，随后才校验 `data` 形状——坏 shape（既不是
+`JsonNull` 也不是 `JsonObject`）会在清空之后才抛 `FormatException`，读档前的全部 flag 因此丢失
+且不可恢复，与 `Core.Carriers.Item.EquipmentPersistable.Load` 曾经的同一类缺陷成因相同（见
+`core/carriers/item/README.md` 同编号判断记录）。根治后先在临时字典里完整解析校验全部字段
+（不触碰 `_flags`），只有整份数据校验通过才清空 `_flags` 并整体替换为解析结果。见
+`WorldStateTests.Load_BadShape_ThrowsFormatException_AndLeavesExistingFlagsUntouched`。

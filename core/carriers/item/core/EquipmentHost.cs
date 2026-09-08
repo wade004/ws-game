@@ -84,31 +84,26 @@ namespace Core.Carriers.Item
             new Dictionary<(Id, Id), List<(Id, AuraInstanceRef)>>();
 
         /// <summary>
-        /// N09 收边补齐（外部审计 68c9bed，P2；取代原 RC-05 按 <c>(unitId, auraDefId)</c> 计数的
-        /// <c>_auraGrantRefCount</c>）：改按 <b>(unitId, 实际光环实例句柄 AuraInstanceId)</b> 计数——
-        /// 原实现按 <c>aura_def</c> id 聚合计数，隐含假设"同一 <c>aura_def</c> 被多件装备授予时，
-        /// 它们拿到的 <see cref="AuraInstanceRef"/> 一定指向同一个共享实例"，这只在
-        /// <c>SkillOptions.AllowMultiSourceTiming == false</c>（默认；<c>AuraHost.ApplyAura</c> 对
-        /// 同一 <c>(target, aura_def)</c> 的重复施加合并到同一槽位）时成立；原实现注释误写为
-        /// "<c>ItemOptions.AllowMultiSourceTiming</c>"——该字段实际不存在于 <c>ItemOptions</c>
-        /// （<see cref="EquipmentHost"/> 本身并不持有、也不该持有 <c>core/rules/skill</c> 的
-        /// <c>SkillOptions</c>，两层不应该为了这一个标志位耦合，见文档同步）。
+        /// N09 收边补齐（外部审计 68c9bed，P2）：装备 <c>grants.auras</c> 与套装门槛加成两处共用的
+        /// 跨来源引用计数账本，按 <b>(unitId, 实际光环实例句柄 AuraInstanceId)</b> 计数（不是按
+        /// <c>auraDefId</c>——原实现按 <c>aura_def</c> id 聚合计数踩过的坑，见
+        /// <see cref="AuraHandleLedger"/> 类型注释历史小节）。
         /// <para>
-        /// <c>AllowMultiSourceTiming == true</c> 时，<c>AuraHost.ApplyAura</c> 按 sourceId（这里是各自
-        /// 装备实例 id）各自开一份独立实例，两件装备同一个 <c>aura_def</c> 会拿到<b>两个不同</b>的
-        /// <see cref="AuraInstanceRef"/>——原按 <c>auraDefId</c> 聚合的计数会把这两个本该各自独立的
-        /// 实例错记成"同一份、还有 1 个引用"，卸下第一件装备时因为计数未归零而被跳过移除，
-        /// 全部装备卸载后这份临时 aura 仍残留在目标身上（见外部审计 N09）。
-        /// </para>
-        /// <para>
-        /// 改按实例句柄计数后不再需要区分两种模式：<c>AllowMultiSourceTiming=false</c> 时多件装备
-        /// 的 <see cref="AuraInstanceRef"/> 本就相等（同一份实例），计数天然聚合，只有真正的最后一个
-        /// 引用退出才移除，行为与修复前一致；<c>AllowMultiSourceTiming=true</c> 时每件装备的实例句柄
-        /// 互不相同，各自计数恒为 1，卸下时立即精确移除自己的那一份，不再误判"还有其它来源"。
+        /// CORE-170-01 根治（architecture/落地计划/audit-8160178-20260908，P2）：这份计数此前是
+        /// 本类私有字段，只有装备 <c>grants.auras</c>/套装门槛加成两处参与；种族/职业被动光环
+        /// （<c>RulesAssembly.ReapplyRacePassiveAuras</c>）完全不参与，导致装备与种族共享同一
+        /// <c>aura_def</c> 时卸装会把种族仍依赖的共享实例一并删除（见该缺陷判断记录）。改为
+        /// <see cref="RulesAssembly"/> 持有的单一 <see cref="AuraHandleLedger"/> 实例，经构造函数
+        /// 注入，使装备、套装门槛加成、种族三类来源共享同一份计数——本字段随之移除，全部原本读写
+        /// <c>_auraHandleRefCount</c> 的地方改为调用 <see cref="_auraHandleLedger"/> 的
+        /// <c>Register</c>/<c>Release</c>/<c>Forget</c>；<c>StackOverflowPolicy.Replace</c> 换句柄的
+        /// 计数迁移也从本类 <see cref="OnAuraInstanceReplaced"/> 里移出，由
+        /// <see cref="AuraHandleLedger"/> 自己订阅 <c>InstanceReplaced</c> 独立完成（见该类型判断
+        /// 记录），本类 <see cref="OnAuraInstanceReplaced"/> 只保留 <see cref="_grantedAuras"/>/
+        /// <see cref="_appliedSetBonuses"/> 这两份"我自己记着哪个句柄"的簿记迁移。
         /// </para>
         /// </summary>
-        private readonly Dictionary<(Id UnitId, Id AuraInstanceId), int> _auraHandleRefCount =
-            new Dictionary<(Id, Id), int>();
+        private readonly AuraHandleLedger _auraHandleLedger;
 
         private readonly Dictionary<(Id UnitId, Id SetId), Dictionary<int, List<AuraInstanceRef>>> _appliedSetBonuses =
             new Dictionary<(Id, Id), Dictionary<int, List<AuraInstanceRef>>>();
@@ -123,7 +118,8 @@ namespace Core.Carriers.Item
             IUnitAccess unitAccess,
             ItemOptions? options = null,
             IItemDiagnostics? diagnostics = null,
-            IAuraQuery? auraQuery = null)
+            IAuraQuery? auraQuery = null,
+            AuraHandleLedger? auraHandleLedger = null)
         {
             if (registry == null) throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
@@ -134,6 +130,11 @@ namespace Core.Carriers.Item
             _unitAccess = unitAccess ?? throw new ArgumentNullException(nameof(unitAccess));
             _options = options ?? new ItemOptions();
             _diagnostics = diagnostics ?? new InMemoryItemDiagnostics();
+            // CORE-170-01 根治：真实装配（CarriersAssembly）传入 RulesAssembly.AuraHandles（与种族
+            // 被动共享的同一账本）。未提供时（null，惯例同本类型其它可选依赖）本类自建一份私有账本
+            // ——退化为修复前"只在装备/套装两处之间共享计数、不与种族来源共享"的行为，不影响不涉及
+            // 种族共享 aura_def 的既有测试断言；多数测试用的最小假实现本就不构造真正的种族光环。
+            _auraHandleLedger = auraHandleLedger ?? new AuraHandleLedger(effectSink, auraQuery);
 
             foreach (var record in registry.GetAll("item.slot_definition"))
             {
@@ -161,17 +162,14 @@ namespace Core.Carriers.Item
         /// C08 收口：<see cref="IAuraQuery.InstanceReplaced"/> 的订阅回调——<paramref name="oldInstanceId"/>
         /// 已经在光环系统内部失效，<paramref name="newInstanceId"/> 是接替它的新句柄。把
         /// <see cref="_grantedAuras"/> 里全部仍引用 <paramref name="oldInstanceId"/> 的授予记录（可能
-        /// 来自任意一件装备，不只是刚发起本次 Replace 调用的那一件）原子迁移到新句柄，并把
-        /// <see cref="_auraHandleRefCount"/> 上旧句柄名下的计数原样搬到新句柄名下（与新句柄自己已有的
-        /// 计数——即刚触发本次 Replace 的那次施加自身贡献的 1——相加，不是覆盖）。
+        /// 来自任意一件装备，不只是刚发起本次 Replace 调用的那一件）原子迁移到新句柄。
         /// <para>
-        /// 判断记录（为什么必须搬计数，不能只搬 <see cref="_grantedAuras"/> 记录）：<see cref="RevertGrants"/>
-        /// 卸装时按 <see cref="_auraHandleRefCount"/> 上"这个句柄还有几个来源"决定是否真的调用
-        /// <see cref="IEffectSink.RemoveAura"/>；如果只迁移 <see cref="_grantedAuras"/> 而不迁移计数，
-        /// 旧句柄名下的计数会变成孤儿（永远不会再被任何 <see cref="RevertGrants"/> 调用递减，因为
-        /// 已经没有任何 <see cref="_grantedAuras"/> 条目还指向它），新句柄的计数又只反映"触发 Replace
-        /// 的这一次施加"，少算了此前其它装备已经持有的份额——任一件先卸下都会把计数错误地减到 0
-        /// 并提前把光环真的移除掉，另一件仍装备着却没有了应有光环（外部审计 C08 复现场景本身）。
+        /// CORE-170-01 根治：跨来源共享的引用计数迁移（原先在本方法内直接搬 <c>_auraHandleRefCount</c>）
+        /// 已经随该字段一并上移到 <see cref="_auraHandleLedger"/>（<see cref="AuraHandleLedger"/>），
+        /// 由它自己订阅同一个 <c>InstanceReplaced</c> 独立完成计数迁移，不需要本方法代劳——本方法此后
+        /// 只保留 <see cref="_grantedAuras"/>/<see cref="_appliedSetBonuses"/> 这两份"我自己记着哪个
+        /// 句柄"的簿记迁移，理由同 <see cref="AuraHandleLedger"/> 类型注释"三类来源各自仍然维护各自
+        /// 私有簿记，本类只负责跨来源共享的计数"。
         /// </para>
         /// </summary>
         private void OnAuraInstanceReplaced(Id targetId, Id defId, Id oldInstanceId, Id newInstanceId)
@@ -219,22 +217,6 @@ namespace Core.Carriers.Item
                     }
                 }
             }
-
-            var oldHandleKey = (targetId, oldInstanceId);
-            if (!_auraHandleRefCount.TryGetValue(oldHandleKey, out var migratingCount))
-            {
-                // 没有任何装备记录持有过这个旧句柄（例如触发 Replace 的这次施加根本不是经
-                // EquipmentHost.ApplyGrants 发起——种族被动光环、法术直接施加同一 aura_def 恰好撞上
-                // 装备槽位等），没有需要迁移的计数，直接返回。
-                return;
-            }
-
-            _auraHandleRefCount.Remove(oldHandleKey);
-            var newHandleKey = (targetId, newInstanceId);
-            _auraHandleRefCount[newHandleKey] =
-                _auraHandleRefCount.TryGetValue(newHandleKey, out var existingCount)
-                    ? existingCount + migratingCount
-                    : migratingCount;
         }
 
         public EquipResult Equip(Id unitId, Id instanceId, Id slot)
@@ -558,38 +540,23 @@ namespace Core.Carriers.Item
         /// <summary>
         /// R03 收边补齐：登记"多了一个来源持有这个光环实例句柄"，供 <see cref="ReleaseAuraHandle"/>
         /// 配对释放。<see cref="ApplyGrants"/>（装备本身的 <c>grants.auras</c>）与
-        /// <see cref="RecomputeSetBonuses"/>（套装门槛加成）此前各自维护互不相通的簿记
-        /// （<see cref="_auraHandleRefCount"/> 只被前者使用，后者直接无条件 ApplyAura/RemoveAura）——
+        /// <see cref="RecomputeSetBonuses"/>（套装门槛加成）此前各自维护互不相通的簿记——
         /// <c>AllowMultiSourceTiming=false</c>（默认）时两者对同一个 <c>aura_def</c> 施加会在
         /// <c>AuraHost</c> 内合并成<b>同一个</b>实例句柄（见 <c>AuraHost.ApplyAura</c> 按
         /// <c>(target, aura_def)</c> 合并槽位），只要其中一处不参与共享计数，另一处卸载/降级时就会
         /// 无条件调用 <see cref="IEffectSink.RemoveAura"/> 把仍被别处引用的共享实例整个移除——外部
         /// 审计复现场景正是"卸下普通装备后，仍满足件数门槛的套装光环被一并删除"（见外部审计
         /// ReproEquipmentDuplicate 的 set 分支）。统一改为两处都经这一对方法登记/释放，只有全部来源
-        /// 都释放完毕（计数归零）才真正调用 <see cref="IEffectSink.RemoveAura"/>。
+        /// 都释放完毕（计数归零）才真正调用 <see cref="IEffectSink.RemoveAura"/>。CORE-170-01 根治：
+        /// 实际计数已上移到 <see cref="_auraHandleLedger"/>（<see cref="AuraHandleLedger"/>），本方法
+        /// 只是转发，保留这一对方法名是为了本类内部全部调用点不必逐一改名，且方法名本身仍然准确
+        /// 描述了"这个来源新持有一份引用"的语义。
         /// </summary>
-        private void RegisterAuraHandle(Id unitId, Id auraInstanceId)
-        {
-            var handleKey = (unitId, auraInstanceId);
-            _auraHandleRefCount[handleKey] = _auraHandleRefCount.TryGetValue(handleKey, out var count) ? count + 1 : 1;
-        }
+        private void RegisterAuraHandle(Id unitId, Id auraInstanceId) => _auraHandleLedger.Register(unitId, auraInstanceId);
 
         /// <summary>见 <see cref="RegisterAuraHandle"/> 判断记录——释放一个来源持有的引用；仍有其它
         /// 来源持有同一句柄时只递减计数，真正归零时才调用 <see cref="IEffectSink.RemoveAura"/>。</summary>
-        private void ReleaseAuraHandle(Id unitId, AuraInstanceRef auraRef)
-        {
-            var handleKey = (unitId, auraRef.AuraInstanceId);
-            var remaining = _auraHandleRefCount.TryGetValue(handleKey, out var count) ? count - 1 : 0;
-
-            if (remaining > 0)
-            {
-                _auraHandleRefCount[handleKey] = remaining;
-                return;
-            }
-
-            _auraHandleRefCount.Remove(handleKey);
-            _effectSink.RemoveAura(unitId, auraRef);
-        }
+        private void ReleaseAuraHandle(Id unitId, AuraInstanceRef auraRef) => _auraHandleLedger.Release(unitId, auraRef);
 
         private void RevertGrants(Id unitId, ItemInstance instance, DataRecord template)
         {
@@ -783,7 +750,7 @@ namespace Core.Carriers.Item
                         // 这个旧句柄没有被本次重放保留：ClearAll 后 AuraHost 那边已经不存在这个实例，
                         // 只需要丢弃本类自己的引用计数簿记，不能（也不需要）调用
                         // ReleaseAuraHandle/IEffectSink.RemoveAura——目标不存在，调用没有意义。
-                        _auraHandleRefCount.Remove((unitId, oldRef.AuraInstanceId));
+                        _auraHandleLedger.Forget(unitId, oldRef.AuraInstanceId);
                     }
                 }
             }
@@ -860,7 +827,7 @@ namespace Core.Carriers.Item
 
                     foreach (var staleRef in applied[threshold])
                     {
-                        _auraHandleRefCount.Remove((unitId, staleRef.AuraInstanceId));
+                        _auraHandleLedger.Forget(unitId, staleRef.AuraInstanceId);
                     }
 
                     applied.Remove(threshold);

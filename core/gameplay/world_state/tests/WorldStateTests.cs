@@ -326,6 +326,30 @@ namespace Tests.Gameplay.WorldState
             Assert.False(onChangedFired);
         }
 
+        /// <summary>
+        /// CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前 <see
+        /// cref="Core.Gameplay.WorldState.WorldState.Load"/> 在校验 <c>data</c> 形状之前就已经
+        /// 无条件 <c>_flags.Clear()</c>——坏 shape（既不是 JsonNull 也不是 JsonObject）会在清空之后
+        /// 才抛 <see cref="FormatException"/>，读档前的全部 flag 因此丢失且不可恢复（与
+        /// <c>EquipmentPersistable.Load</c> 曾经的同一类缺陷成因相同）。根治后先在临时字典里完整
+        /// 解析校验，只有整份数据校验通过才清空并替换，坏 shape 时应保留读档前的全部 flag。</summary>
+        [Fact]
+        public void Load_BadShape_ThrowsFormatException_AndLeavesExistingFlagsUntouched()
+        {
+            var state = new Core.Gameplay.WorldState.WorldState(TestSupport.NewEventBus());
+            state.Set(BridgeFlag, ExprValue.OfBool(true), WriterQuest);
+            state.Set(ChestFlag, ExprValue.OfInt(3), WriterQuest);
+
+            var badShape = new JsonString("wrong-shape");
+            var ex = Record.Exception(() => state.Load(badShape));
+
+            Assert.IsType<FormatException>(ex);
+            Assert.True(state.Has(BridgeFlag), "CORE-170-03 核心断言：坏 shape 读档失败后，既有 flag 不应消失。");
+            Assert.Equal(ExprValue.OfBool(true), state.Get(BridgeFlag));
+            Assert.True(state.Has(ChestFlag));
+            Assert.Equal(ExprValue.OfInt(3), state.Get(ChestFlag));
+        }
+
         [Fact]
         public void SectionKey_MatchesSaveSections_WorldStateFlags()
         {

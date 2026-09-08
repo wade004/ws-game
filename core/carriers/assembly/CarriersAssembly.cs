@@ -229,6 +229,11 @@ namespace Core.Carriers.Assembly
             //    autoRegisterTickHandlers: false——SummonTickHandler 必须先于 AiTickHandler 挂到
             //    TickPhase.AiDecision（任务书拍板），本类在下面第 8 步手动控制注册顺序。
             // ---------------------------------------------------------
+            // CORE-170-02 根治（architecture/落地计划/audit-8160178-20260908，P2）：levelSync 传
+            // Units.SetLevel——Units（WorldUnitAccess，第 1 步）已经构造完成，不像 powers 那样存在
+            // 循环依赖，不需要延迟绑定闭包。ProgressionHost 自此在首次注册/升级/读档恢复三个时机都会
+            // 把权威等级同步写回 Unit.Level，使 WorldUnitAccess.GetLevel 与 Rules.Progression.GetLevel
+            // 恒一致，见 LevelSync 判断记录。
             Rules = new RulesAssembly(
                 bus, registry, rng, Units, spatial, world, navigation,
                 statOptions, combatOptions, skillOptions, targetingOptions, aiOptions,
@@ -236,7 +241,8 @@ namespace Core.Carriers.Assembly
                 autoRegisterTickHandlers: false, projectileSpawner: Projectiles,
                 discreteTurnIndexProvider: discreteTurnIndexProvider,
                 discreteRoundIndexProvider: discreteRoundIndexProvider,
-                discreteCurrentActorProvider: discreteCurrentActorProvider);
+                discreteCurrentActorProvider: discreteCurrentActorProvider,
+                levelSync: Units.SetLevel);
             powers = Rules.Powers; // 回填第 1 步 healthFractionSetter 闭包捕获的局部变量。
 
             // ---------------------------------------------------------
@@ -275,9 +281,12 @@ namespace Core.Carriers.Assembly
             // C08 收口：注入 Rules.Skill.AuraQuery（真实 AuraHost）——StackOverflowPolicy.Replace
             // 换句柄时，EquipmentHost 借此同步更新自己记录的授予句柄，见 EquipmentHost 构造函数
             // 判断记录、IAuraQuery.InstanceReplaced 判断记录。
+            // CORE-170-01 根治（architecture/落地计划/audit-8160178-20260908，P2）：显式传入
+            // Rules.AuraHandles——与 RulesAssembly 自己（种族被动光环来源）共享同一份跨来源引用
+            // 计数账本，见 AuraHandleLedger 类型注释、EquipmentHost 构造函数判断记录。
             Equipment = new EquipmentHost(
                 registry, bus, Inventory, Rules.Stats, Rules.Skill.EffectSink, skillGranter, Units,
-                resolvedItemOptions, auraQuery: Rules.Skill.AuraQuery);
+                resolvedItemOptions, auraQuery: Rules.Skill.AuraQuery, auraHandleLedger: Rules.AuraHandles);
 
             // RC-11 收边补齐：EquipmentHost 实现 IWeaponDamageQuery（见该类型 GetWeaponBaseDamage
             // 判断记录），换上 RulesAssembly 构造期先用的延迟绑定代理（见 DeferredWeaponDamageQuery

@@ -116,6 +116,48 @@ namespace Tests.Carriers.Unit
             Assert.Throws<System.FormatException>(() => persistable.Load(badData));
         }
 
+        /// <summary>
+        /// CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前
+        /// <c>Load</c> 开头无条件解绑当前全部绑定，随后才校验 <c>data</c> 形状——坏 shape（既不是
+        /// JSON 对象，也不是每个值都合法的 Id 字符串）会在解绑之后才抛异常，读档前的绑定因此丢失
+        /// 且不可恢复，与 <c>EquipmentPersistable.Load</c> 曾经的同一类缺陷成因相同。<see
+        /// cref="Load_RejectsNonIdSkillValue"/>/<see cref="SectionKey_MatchesSaveSections"/> 只验证
+        /// "抛异常"，没有验证"抛异常前后既有绑定是否被误清空"——本用例补上这一断言。</summary>
+        [Fact]
+        public void Load_BadShape_ThrowsFormatException_AndLeavesExistingBindingsUntouched()
+        {
+            var host = new SkillBindingHost(NewBus(), (_, __) => true);
+            var player = NewPlayer();
+            host.Bind(player.EntityId, "slot_0", SkillFireball);
+            var persistable = SkillBindingPersistable.For(host, player);
+
+            var ex = Record.Exception(() => persistable.Load(new JsonString("not-an-object")));
+
+            Assert.IsType<System.FormatException>(ex);
+            var bindings = host.GetBindings(player.EntityId);
+            Assert.Single(bindings);
+            Assert.Equal(SkillFireball, bindings["slot_0"]);
+        }
+
+        /// <summary>同上，坏形状换成"槽位值不是合法 Id 字符串"——校验发生在解绑/重绑之前，既有绑定
+        /// 应当原样保留。</summary>
+        [Fact]
+        public void Load_NonIdSkillValue_ThrowsFormatException_AndLeavesExistingBindingsUntouched()
+        {
+            var host = new SkillBindingHost(NewBus(), (_, __) => true);
+            var player = NewPlayer();
+            host.Bind(player.EntityId, "slot_0", SkillFireball);
+            var persistable = SkillBindingPersistable.For(host, player);
+            var badData = new JsonObjectBuilder().Add("slot_1", new JsonString("not an id")).Build();
+
+            var ex = Record.Exception(() => persistable.Load(badData));
+
+            Assert.IsType<System.FormatException>(ex);
+            var bindings = host.GetBindings(player.EntityId);
+            Assert.Single(bindings);
+            Assert.Equal(SkillFireball, bindings["slot_0"]);
+        }
+
         [Fact]
         public void Load_SkillNoLongerKnown_SkipsSlot_DoesNotThrow()
         {

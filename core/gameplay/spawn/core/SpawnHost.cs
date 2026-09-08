@@ -469,8 +469,22 @@ namespace Core.Gameplay.Spawn
         /// 刷新点刚从快照恢复的 <c>respawn_remaining</c>。
         /// </para>
         /// </summary>
+        /// <summary>
+        /// CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前
+        /// <c>_records.Clear()</c>/<c>_entityToSpawn.Clear()</c> 在校验 <paramref name="data"/> 形状
+        /// 之前就已经无条件执行——坏 shape（<paramref name="data"/> 既不是 <see cref="JsonNull"/> 也
+        /// 不是 <see cref="JsonObject"/>）会在清空之后才抛 <see cref="FormatException"/>，此时全部
+        /// 刷新点的运行期记录（含存活实体绑定）已经丢失，与 <c>EquipmentPersistable.Load</c>/
+        /// <c>AchievementHost.Load</c> 曾经的同一类缺陷成因相同。根治方式：把形状校验前移到任何
+        /// 状态变更之前——本方法其余逻辑（<paramref name="previouslyAlive"/> 快照、清空、按快照
+        /// 重建、孤儿实体处理）原样保留，只是现在只有形状确认合法之后才会开始执行。</summary>
         public void Load(JsonValue data)
         {
+            if (!(data is JsonNull) && !(data is JsonObject))
+            {
+                throw new FormatException($"spawn_state 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
+            }
+
             var previouslyAlive = new Dictionary<Id, Id>();
             foreach (var kv in _records)
             {
@@ -483,13 +497,8 @@ namespace Core.Gameplay.Spawn
             _records.Clear();
             _entityToSpawn.Clear();
 
-            if (!(data is JsonNull))
+            if (data is JsonObject obj)
             {
-                if (!(data is JsonObject obj))
-                {
-                    throw new FormatException($"spawn_state 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
-                }
-
                 foreach (var kv in obj)
                 {
                     var runtime = new RuntimeState();

@@ -560,6 +560,13 @@ namespace Core.Rules.Skill
             return found?.Stacks ?? 0;
         }
 
+        /// <summary>CORE-170-01 根治：见 <see cref="IAuraQuery.TryGetInstanceRef"/> 判断记录。</summary>
+        public AuraInstanceRef? TryGetInstanceRef(Id unitId, Id auraDefId)
+        {
+            var found = _instances.Values.FirstOrDefault(i => i.TargetId.Equals(unitId) && i.DefId.Equals(auraDefId));
+            return found != null ? new AuraInstanceRef(found.InstanceId) : (AuraInstanceRef?)null;
+        }
+
         public ControlFlags GetControlFlags(Id unitId)
         {
             var result = ControlFlags.None;

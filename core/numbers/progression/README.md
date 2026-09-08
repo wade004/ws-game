@@ -108,6 +108,30 @@ progression/
    `ProgressionPersistableTests.Load_NullData_ResetsRegisteredUnitToLevelOneAndZeroXp`（已注册
    单位分支）、`Load_NullData_LeavesUnitUnregistered`（未注册单位分支，既有测试）。
 
+## CORE-170-02 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
+
+`ProgressionHost` 是单位等级的唯一权威，但修复前 `AddXp`/`RestoreState` 只更新本模块内部的
+`UnitState.Level`，从不同步任何外部实体字段；生产装配构造玩家实体时也从未写入实体自身的
+`Level` 字段（构造函数默认值 1），只把等级传给 `RulesAssembly.RegisterUnit`。`Core.Carriers.
+Unit.WorldUnitAccess.GetLevel`（`IUnitAccess` 的真实实现，供装备需求判断等运行期消费者调用）
+直接读实体字段，与本模块内部权威等级各自独立、互不同步——真实探针复现 `rules_progression_
+level=2;entity_level=1`，等级 2 的装备需求判断因此读到过期的实体等级 1，返回
+`RequirementNotMet`。
+
+根治：新增具名委托 `LevelSync`（`core/numbers/progression/contracts/ProgressionWriters.cs`，
+惯例同 `StatModifierWriter`——并行开发期不引用具体实体类型，通过具名委托注入），`ProgressionHost`
+新增可选构造参数 `levelSync`，在三个等级会变化/确立的时机（`RegisterUnit` 首次注册、`AddXp`
+升级、`RestoreState` 读档恢复）末尾统一调用；未注入时（`null`，多数测试用的最小假实现）行为与
+本次改动之前完全一致。`RulesAssembly` 新增同名可选构造参数原样转发；`CarriersAssembly` 传入
+`Core.Carriers.Unit.WorldUnitAccess.SetLevel`（新增方法，不在 `IUnitAccess` 接口上，惯例同
+`Revive`——只供组合根装配期的委托闭包调用）——单位存在于 `IWorldSim` 时同步写入实体字段，单位
+尚未注册到世界时安全 no-op。`WorldUnitAccess.GetLevel` 本身不改动，仍然直接读实体字段，只是
+自此这个字段恒与 `ProgressionHost.GetLevel` 一致，不需要反查 `core/numbers/progression`（那会
+要求 `core/carriers/unit` 反向依赖具体实现，且对没有配置进度曲线的单位——多数 NPC/怪物——
+`GetLevel` 该读什么曲线本就无从谈起）。见 `Tests.Gameplay.Assembly.
+CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp`、读档、
+`WorldUnitAccess.GetLevel`、等级需求装备四者一致性）。
+
 ## 不负责什么
 
 - 不实现"经验来源的触发条件"求值（`prog.xp_source.condition` 是 Expr 字段，本模块只登记类型）。

@@ -72,6 +72,37 @@ namespace Core.Rules.Assembly
         public SkillHost Skill { get; }
         public AiHost Ai { get; }
 
+        /// <summary>
+        /// CORE-170-01 根治（architecture/落地计划/audit-8160178-20260908，P2）：跨来源（装备
+        /// <c>grants.auras</c>、套装门槛加成、种族/职业被动）共享的 Aura 实例句柄引用计数账本，
+        /// 见 <see cref="AuraHandleLedger"/> 类型注释。<c>CarriersAssembly</c> 把本实例注入
+        /// <see cref="Core.Carriers.Item.EquipmentHost"/>（替代此前 <c>EquipmentHost</c> 私有维护的
+        /// 那份不与种族共享的计数），本类自己的 <see cref="ReapplyRacePassiveAuras"/>/种族初始注册
+        /// （见 <c>archAuraApplier</c> 判断记录）也经同一实例登记引用，使三类来源共享同一份计数。
+        /// </summary>
+        public AuraHandleLedger AuraHandles { get; }
+
+        /// <summary>
+        /// CORE-170-01 根治：种族被动光环各自的私有簿记——"这个单位的种族被动 <c>aura_def</c> 当前
+        /// 持有哪一个实例句柄"，惯例同 <see cref="Core.Carriers.Item.EquipmentHost"/> 的
+        /// <c>_grantedAuras</c>（该类维护"这件装备实例授予了哪些句柄"，本字典维护"种族这一来源
+        /// 对每个 <c>aura_def</c> 持有哪一个句柄"，key 用 <c>(unitId, auraDefId)</c> 而不是
+        /// <c>(unitId, instanceId)</c>——种族不是"物品实例"，一个单位同时只有一个种族，直接以
+        /// <c>auraDefId</c> 为粒度足够，不需要再套一层"来源实例"分组）。<see
+        /// cref="ReapplyRacePassiveAuras"/> 用它判断"这个 <c>aura_def</c> 我（种族）是否已经登记过
+        /// 一份引用、且那份引用指向的实例是否仍然是 <c>AuraHost</c> 认得的活实例"——不能只用
+        /// <c>HasAura</c>（那只说明"这个 <c>aura_def</c> 在目标身上生效"，不说明生效的是不是种族
+        /// 自己持有的引用；装备与种族共享同一 <c>auraDef</c> 时，装备先重放会让 <c>HasAura</c> 变
+        /// true，但种族从未为自己登记引用，见 CORE-170-01 判断记录）。<see
+        /// cref="OnRaceAuraInstanceReplaced"/> 订阅 <c>InstanceReplaced</c> 保持这份记录与
+        /// <c>StackOverflowPolicy.Replace</c> 换句柄同步；跨图 <c>World.ClearAll</c> 不发这个事件
+        /// （<c>AuraHost</c> 整个清空该目标的全部实例状态），旧记录变成"指向一个已经不存在的实例"，
+        /// 由 <see cref="ReapplyRacePassiveAuras"/> 逐条用 <see cref="IAuraQuery.TryGetInstanceRef"/>
+        /// 核实后自行发现并丢弃。
+        /// </summary>
+        private readonly Dictionary<(Id UnitId, Id AuraDefId), AuraInstanceRef> _raceAuraHandles =
+            new Dictionary<(Id, Id), AuraInstanceRef>();
+
         /// <summary>阶段 3 整理"事项一"：本次装配实际使用的 <see cref="IExprSchema"/>——未传入
         /// <c>extraSchemas</c> 时就是 <see cref="RulesExprSchema.Base"/> 本身，传入时经
         /// <see cref="RulesExprSchema.Compose"/> 与之合并。供调用方（游戏层引导代码）在自己的
@@ -142,7 +173,8 @@ namespace Core.Rules.Assembly
             IProjectileSpawner? projectileSpawner = null,
             Func<int>? discreteTurnIndexProvider = null,
             Func<int>? discreteRoundIndexProvider = null,
-            Func<Id?>? discreteCurrentActorProvider = null)
+            Func<Id?>? discreteCurrentActorProvider = null,
+            LevelSync? levelSync = null)
         {
             Bus = bus ?? throw new ArgumentNullException(nameof(bus));
             Registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -196,7 +228,10 @@ namespace Core.Rules.Assembly
             ProgStatModifierWriter progressionWriter = (unitId, stat, op, value, sourceId) =>
                 Stats.AddModifier(unitId, new StatModifier(stat, ParseOp(op), value, sourceId));
             ProgStatModifierRemover progressionRemover = (unitId, sourceId) => Stats.RemoveModifiersBySource(unitId, sourceId);
-            Progression = new ProgressionHost(Registry, Bus, progressionWriter, progressionRemover);
+            // CORE-170-02 根治：levelSync 原样转发给 ProgressionHost——见 LevelSync 判断记录，
+            // RulesAssembly 本身（L2）同样不知道、也不该知道 Unit/PlayerUnit（L3）这个类型，只是
+            // 沿途转发调用方（CarriersAssembly）传入的真实实现。
+            Progression = new ProgressionHost(Registry, Bus, progressionWriter, progressionRemover, levelSync: levelSync);
             progression = Progression; // 回填第 1 步的闭包捕获。
 
             // -------------------------------------------------------------
@@ -243,8 +278,20 @@ namespace Core.Rules.Assembly
             // 构造时 SkillHost（第 5 步）还不存在，只要真正调用（RegisterUnit/ApplyTo）发生在
             // 构造完成之后（第 5 步之后回填 skill = Skill），提前绑定是安全的。
             SkillHost skill = null!;
+            // CORE-170-01 根治：种族被动光环的初始施加（RegisterUnit → ArchetypeRegistry.ApplyTo，
+            // 单位首次注册、此前从未对这个 aura_def 登记过任何引用，见 _raceAuraHandles 判断记录）
+            // 同样要经 AuraHandles 登记一份引用，并记进 _raceAuraHandles——否则同一玩家第一次
+            // EnterMap（RegisterUnit 之后、还没发生过 ClearAll）时，ReapplyRacePassiveAuras 会因为
+            // _raceAuraHandles 里找不到记录，误判"种族还没登记过"，对着已经存在的实例再登记一份
+            // 引用，把计数错误地记成 2（多算一次，卸装时不会归零，光环反而永久残留）。auraHandles
+            // 同 skill 一样用局部变量提前捕获闭包、构造完成后回填（见上方 skill 判断记录同一惯例）。
+            AuraHandleLedger auraHandles = null!;
             AuraApplier archAuraApplier = (unitId, auraDefId, sourceId) =>
-                skill.EffectSink.ApplyAura(unitId, auraDefId, sourceId);
+            {
+                var granted = skill.EffectSink.ApplyAura(unitId, auraDefId, sourceId);
+                auraHandles.Register(unitId, granted.AuraInstanceId);
+                _raceAuraHandles[(unitId, auraDefId)] = granted;
+            };
             Archetypes = new ArchetypeRegistry(Registry, Bus, archBaseWriter, archModifierWriter, archPowerRegistrar, archAuraApplier);
 
             // -------------------------------------------------------------
@@ -298,6 +345,13 @@ namespace Core.Rules.Assembly
                 staticImmunity: staticImmunity, projectileSpawner: projectileSpawner,
                 weaponDamageQuery: WeaponDamageQuery);
             skill = Skill; // 回填第 3 步 archAuraApplier 闭包捕获的局部变量。
+
+            // CORE-170-01 根治：AuraHandles 需要真实的 IEffectSink（RemoveAura 出口）与
+            // IAuraQuery（订阅 InstanceReplaced 自动迁移换句柄后的计数，见 AuraHandleLedger 判断
+            // 记录）——两者都要求 Skill 已经构造完成，因此放在 skill = Skill 回填之后。
+            AuraHandles = new AuraHandleLedger(Skill.EffectSink, Skill.AuraQuery);
+            auraHandles = AuraHandles; // 回填第 3 步 archAuraApplier 闭包捕获的局部变量。
+            Skill.AuraQuery.InstanceReplaced += OnRaceAuraInstanceReplaced;
 
             // -------------------------------------------------------------
             // RC-08 收边补齐：movement 施法中断（skill.def.interrupt_flags 含 "movement" 时读条/
@@ -430,11 +484,41 @@ namespace Core.Rules.Assembly
         /// cref="Core.Carriers.Item.EquipmentHost.ReapplyGrants"/>，CR140-02 收口）之后一并调用
         /// ——不是重新调用完整的 <see cref="ArchetypeRegistry.ApplyTo"/>（那会重复写基础属性/资源池
         /// 注册，属性修正本就没丢，重新写一遍会产生错误的双重叠加，见 <c>ApplyTo</c> 判断记录），
-        /// 只重放 <c>race.PassiveAuras</c> 这一项运行时确实会丢失的状态；按 <see
-        /// cref="SkillHost.AuraQuery"/>.<c>HasAura</c> 跳过已经生效的（幂等，惯例同
-        /// <c>EquipmentHost.ReapplyGrants</c> 的"调用前快照"判断记录——本方法调用频率低、不存在
-        /// 该方法处理的"循环内多个来源共享同一份快照"场景，直接实时查询即可）。<paramref
-        /// name="raceId"/> 未知（内容已变更的旧存档）时静默跳过，不抛异常。
+        /// 只重放 <c>race.PassiveAuras</c> 这一项运行时确实会丢失的状态。<paramref name="raceId"/>
+        /// 未知（内容已变更的旧存档）时静默跳过，不抛异常。
+        /// </para>
+        /// <para>
+        /// CORE-170-01 根治（architecture/落地计划/audit-8160178-20260908，P2）：此前按 <see
+        /// cref="SkillHost.AuraQuery"/>.<c>HasAura</c> 判断是否已经生效、生效就跳过——这个判断只问
+        /// "这个 <c>aura_def</c> 在目标身上有没有活实例"，不问"生效的这份实例，种族自己有没有登记
+        /// 过一份引用"。装备 <c>grants.auras</c> 与种族 <c>passive_auras</c> 配置同一个 <c>aura_def</c>
+        /// 时，<c>EnterMap</c> 先重放装备（见 <c>EquipmentHost.ReapplyGrants</c>）创建了共享实例、
+        /// 装备自己在 <see cref="AuraHandles"/> 上登记了引用，种族重放看到 <c>HasAura=true</c> 直接
+        /// 跳过、从未为自己登记引用；随后卸下装备释放这唯一一份引用、计数归零，把种族仍然依赖的
+        /// 共享实例一并删除（真实探针复现：<c>after_unequip</c> 从预期的
+        /// <c>hasAura=true,stacks=1,power=61</c> 变成 <c>hasAura=false,stacks=0,power=11</c>）。
+        /// 改为按 <see cref="_raceAuraHandles"/> 判断"种族这个来源自己是否已经持有一份引用、且那份
+        /// 引用指向的实例是否仍然是 <c>AuraHost</c> 认得的活实例"（<see
+        /// cref="IAuraQuery.TryGetInstanceRef"/>，不能用 <c>ApplyAura</c> 换取句柄——见该方法判断
+        /// 记录 stacking 语义）：
+        /// <list type="bullet">
+        /// <item>有记录且记录指向的实例仍然存活——幂等跳过，种族已经持有一份有效引用，不重复登记
+        /// （典型如本方法被意外连续调用两次，或压根没有发生过 <c>ClearAll</c>）。</item>
+        /// <item>有记录但记录指向的实例已经不是 <c>AuraHost</c> 认得的活实例（跨图 <c>ClearAll</c>
+        /// 摘除了全部实例状态，且没有触发 <see cref="IAuraQuery.InstanceReplaced"/>——那只覆盖
+        /// <c>StackOverflowPolicy.Replace</c> 换句柄，不覆盖整个清空）——丢弃这份陈旧簿记（<see
+        /// cref="AuraHandleLedger.Forget"/>，目标已经不存在，不调用 <see
+        /// cref="IEffectSink.RemoveAura"/>），按"没有记录"处理。</item>
+        /// <item>没有记录：如果 <c>AuraHost</c> 上已经存在别的来源（装备/套装门槛加成）施加的活实例
+        /// （典型如本方法在装备重放之后运行），只为种族登记一份新引用（<see
+        /// cref="AuraHandleLedger.Register"/>），不重新 <c>ApplyAura</c>——否则会被
+        /// <c>AuraHost.ReapplyExisting</c> 当作又一次独立施加而叠加层数；如果确实还没有任何来源
+        /// 施加过（本方法在装备重放之前运行，或压根没有装备共享同一 <c>aura_def</c>），才真正调用
+        /// <c>ApplyAura</c> 施加并登记。</item>
+        /// </list>
+        /// 两种触发顺序（装备先/种族先重放）都能落到正确的最终状态：不管谁先跑，种族与装备（及套装
+        /// 门槛加成）三类来源最终都会在 <see cref="AuraHandles"/> 上各自持有恰好一份引用，任一来源
+        /// 单独失效（卸装/换种族）只释放自己那一份，只有全部来源都释放完毕才真正移除共享实例。
         /// </para>
         /// </summary>
         public void ReapplyRacePassiveAuras(Id unitId, Id raceId)
@@ -447,12 +531,54 @@ namespace Core.Rules.Assembly
 
             foreach (var auraDefId in race.PassiveAuras)
             {
-                if (Skill.AuraQuery.HasAura(unitId, auraDefId))
+                var key = (unitId, auraDefId);
+
+                if (_raceAuraHandles.TryGetValue(key, out var recorded))
                 {
+                    var current = Skill.AuraQuery.TryGetInstanceRef(unitId, auraDefId);
+                    if (current.HasValue && current.Value.Equals(recorded))
+                    {
+                        // 种族已经持有一份有效引用，幂等跳过。
+                        continue;
+                    }
+
+                    // 记录指向的实例已经不再是 AuraHost 认得的活实例（典型如跨图 ClearAll）——
+                    // 丢弃这份陈旧簿记，落到下面"没有记录"的分支重新登记/施加。
+                    AuraHandles.Forget(unitId, recorded.AuraInstanceId);
+                    _raceAuraHandles.Remove(key);
+                }
+
+                var existing = Skill.AuraQuery.TryGetInstanceRef(unitId, auraDefId);
+                if (existing.HasValue)
+                {
+                    // 别的来源（装备 grants.auras/套装门槛加成）已经把这个共享实例施加到位，种族
+                    // 只需要为自己登记一份引用，不能重新调用 ApplyAura（见方法判断记录 stacking
+                    // 语义）。
+                    AuraHandles.Register(unitId, existing.Value.AuraInstanceId);
+                    _raceAuraHandles[key] = existing.Value;
                     continue;
                 }
 
-                Skill.EffectSink.ApplyAura(unitId, auraDefId, raceId);
+                var granted = Skill.EffectSink.ApplyAura(unitId, auraDefId, raceId);
+                AuraHandles.Register(unitId, granted.AuraInstanceId);
+                _raceAuraHandles[key] = granted;
+            }
+        }
+
+        /// <summary>CORE-170-01 根治：<see cref="_raceAuraHandles"/> 自己的簿记——
+        /// <c>StackOverflowPolicy.Replace</c> 换句柄时把种族记录里仍引用 <paramref
+        /// name="oldInstanceId"/> 的条目原子迁移到 <paramref name="newInstanceId"/>，惯例同
+        /// <c>EquipmentHost.OnAuraInstanceReplaced</c> 对 <c>_grantedAuras</c> 的迁移（各自维护各自
+        /// 的簿记，互不代劳；<see cref="AuraHandles"/> 自身的计数迁移由它自己订阅同一事件独立完成，
+        /// 见 <see cref="AuraHandleLedger"/> 判断记录）。种族一个来源对同一 <c>auraDefId</c> 至多
+        /// 持有一条记录（key 已经是 <c>(unitId, auraDefId)</c>），比 <c>_grantedAuras</c>
+        /// 简单，不需要遍历全部条目找匹配。</summary>
+        private void OnRaceAuraInstanceReplaced(Id targetId, Id defId, Id oldInstanceId, Id newInstanceId)
+        {
+            var key = (targetId, defId);
+            if (_raceAuraHandles.TryGetValue(key, out var recorded) && recorded.AuraInstanceId.Equals(oldInstanceId))
+            {
+                _raceAuraHandles[key] = new AuraInstanceRef(newInstanceId);
             }
         }
 
@@ -534,6 +660,10 @@ namespace Core.Rules.Assembly
                 add => Real.InstanceReplaced += value;
                 remove => Real.InstanceReplaced -= value;
             }
+
+            // CORE-170-01 根治：同一惯例——必须显式转发，不能依赖 IAuraQuery 默认接口方法的隐式
+            // 空实现，否则一旦 Bind 完成，经本代理调用仍会读到默认值 null，绕开 Real 的真实结果。
+            public AuraInstanceRef? TryGetInstanceRef(Id unitId, Id auraDefId) => Real.TryGetInstanceRef(unitId, auraDefId);
         }
 
         /// <summary>

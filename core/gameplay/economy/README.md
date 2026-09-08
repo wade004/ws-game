@@ -131,6 +131,16 @@ economy/
    出售/补偿全部走批量事务"这一统一口径保持一致。见 `EconomyHost.cs`（`Buy`/`Sell`）、
    `core/gameplay/economy/tests/CR130_01_BuyFailureTransactionTests.cs`。
 
+## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
+
+`CurrencyPersistable.Load`/`VendorStockPersistable.Load` 修复前都是边解析边直接调用
+`EconomyHost.SetBalance`/`SetStock` 修改运行期状态——同一次 `Load` 调用里，排在后面的条目格式
+非法时，排在前面的条目已经把新值写进了真实 `EconomyHost`，抛异常后这些已提交的写入不会回滚，
+形成"部分是新存档值、部分还是读档前旧值"的半新半旧中间态，与 `Core.Carriers.Item.
+EquipmentPersistable.Load` 曾经的同一类缺陷成因相同（见 `core/carriers/item/README.md` 同编号
+判断记录）。根治后两者都先完整解析校验成临时恢复计划，只有整份数据校验通过才一次性提交。见
+`Tests.Gameplay.Economy.CORE_170_03_CurrencyAndVendorStockPersistableLoadFailureTests`。
+
 ## 不负责什么
 
 - 不解决判断记录 1 描述的 `self.item_level`/`self.quality` 契约缺口本身。

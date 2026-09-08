@@ -68,6 +68,12 @@ namespace Core.Numbers.Progression
         private readonly StatModifierRemover _statModifierRemover;
         private readonly IProgressionDiagnostics _diagnostics;
 
+        /// <summary>CORE-170-02 根治：见 <see cref="LevelSync"/> 判断记录——可选（未注入时 <c>null</c>，
+        /// 行为与本次改动之前完全一致，多数测试用的最小假实现不需要提供），非 null 时在
+        /// <see cref="RegisterUnit"/>/<see cref="AddXp"/>/<see cref="RestoreState"/> 三个等级会变化/
+        /// 确立的时机末尾统一调用，同步外部实体等级字段。</summary>
+        private readonly LevelSync? _levelSync;
+
         private readonly Dictionary<string, CurveInfo> _curves = new Dictionary<string, CurveInfo>(StringComparer.Ordinal);
         private readonly Dictionary<string, XpSourceInfo> _xpSources = new Dictionary<string, XpSourceInfo>(StringComparer.Ordinal);
         private readonly Dictionary<string, UnitState> _units = new Dictionary<string, UnitState>(StringComparer.Ordinal);
@@ -77,13 +83,15 @@ namespace Core.Numbers.Progression
             IEventBus bus,
             StatModifierWriter statModifierWriter,
             StatModifierRemover statModifierRemover,
-            IProgressionDiagnostics? diagnostics = null)
+            IProgressionDiagnostics? diagnostics = null,
+            LevelSync? levelSync = null)
         {
             if (registry == null) throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _statModifierWriter = statModifierWriter ?? throw new ArgumentNullException(nameof(statModifierWriter));
             _statModifierRemover = statModifierRemover ?? throw new ArgumentNullException(nameof(statModifierRemover));
             _diagnostics = diagnostics ?? new InMemoryProgressionDiagnostics();
+            _levelSync = levelSync;
 
             foreach (var record in registry.GetAll("prog.level_curve"))
             {
@@ -177,6 +185,11 @@ namespace Core.Numbers.Progression
             }
 
             _units[unitId.Value] = new UnitState { Curve = curve, Level = startLevel, Xp = 0 };
+
+            // CORE-170-02 根治：首次注册即确立本单位的权威等级，同步给外部实体字段——见
+            // LevelSync 判断记录"生产装配构造 PlayerUnit 时从未写入 PlayerUnit.Level，只把等级传给
+            // RulesAssembly.RegisterUnit"这一真实探针复现的根因，本行正是补上这一步同步。
+            _levelSync?.Invoke(unitId, startLevel);
         }
 
         public int GetLevel(Id unitId) => GetUnitOrThrow(unitId).Level;
@@ -240,6 +253,12 @@ namespace Core.Numbers.Progression
             if (leveledUp)
             {
                 ApplyGrowth(unitId, unit);
+                // CORE-170-02 根治：升级后同步外部实体字段——LevelUpEvent 是 PublishImmediate 同步
+                // 派发，本行放在事件已经发布之后，与 unit.Level 赋值先于事件发布（见上方 N08 收边
+                // 补齐同一惯例）不矛盾：LevelSync 的消费者（WorldUnitAccess.SetLevel）只是把最终
+                // 等级写回实体字段，不关心中途经历了几次 LevelUpEvent，写一次最终值即可，不需要在
+                // while 循环内逐级调用。
+                _levelSync?.Invoke(unitId, unit.Level);
             }
         }
 
@@ -302,6 +321,9 @@ namespace Core.Numbers.Progression
             _units[unitId.Value] = unit;
             ApplyGrowth(unitId, unit);
             _bus.PublishImmediate(new ProgressionRestoredEvent(unitId, level));
+            // CORE-170-02 根治：读档恢复同样是一条等级会变化/确立的路径，同步外部实体字段——理由
+            // 与 RegisterUnit/AddXp 完全一致，见 LevelSync 判断记录。
+            _levelSync?.Invoke(unitId, level);
         }
 
         public void GrantFromSource(Id unitId, Id xpSourceId, double multiplier = 1)

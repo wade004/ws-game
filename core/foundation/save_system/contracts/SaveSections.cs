@@ -95,6 +95,19 @@ namespace Core.Foundation.SaveSystem
         /// <see cref="WorldDroppedLoot"/> 判断记录。</summary>
         public const string SpawnState = "spawn_state";
 
+        /// <summary>
+        /// CORE-170-03 顺带根治（architecture/落地计划/audit-8160178-20260908，P2 附带项）：
+        /// world.gobj_pending_loot 段（世界附属段，未交付宝箱余量），见 <c>Core.Carriers.Gobj.
+        /// GobjPendingLootPersistable</c>。此前一直是字面量自定义段、未登记进 <see
+        /// cref="KnownOrder"/>（<c>GameplayAssembly.RegisterPersistables</c> 判断记录明确写着
+        /// "未登记进 SaveSections.KnownOrder"），落入"自定义段"分支按 key 的 <see
+        /// cref="System.StringComparer.Ordinal"/> 序数排序，实际相对顺序与 10 号文档第 3 节"7a.
+        /// world.dropped_loot / world.vendor_stock / world.difficulty / spawn_state /
+        /// gobj_pending_loot"这句文字顺序是否一致纯属偶然（取决于其它自定义段 key 的字母序），
+        /// 不是由本表显式保证的。现按文档原文顺序补登记在 <see cref="SpawnState"/> 之后、<see
+        /// cref="SimTurnState"/>（7b）之前，同属"世界附属段"（7a）分组，消除排序偏差。</summary>
+        public const string WorldGobjPendingLoot = "world.gobj_pending_loot";
+
         /// <summary>sim.turn_state 段（10 第 2.4、3 节步骤 7b，ADR-0013 离散时间模型；只在离散
         /// 模式装配时有内容，连续模式为空段），见
         /// <c>Core.Foundation.SimLoop.TurnScheduler.SectionKeyConst</c>。同
@@ -140,6 +153,7 @@ namespace Core.Foundation.SaveSystem
             WorldVendorStock,
             WorldDifficulty,
             SpawnState,
+            WorldGobjPendingLoot,
             SimTurnState,
             RngStreamStates,
         };

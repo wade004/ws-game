@@ -166,10 +166,16 @@ namespace Core.Gameplay.WorldState
 
         public void Load(JsonValue data)
         {
-            _flags.Clear();
-
+            // CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前
+            // _flags.Clear() 在校验 data 形状之前就已经无条件执行——坏 shape（既不是 JsonNull 也
+            // 不是 JsonObject，或某个字段值不是 FromJson 支持的形状）会在清空（甚至清空后又写入了
+            // 部分字段）之后才抛 FormatException，读档前的全部 flag 因此丢失，且不可恢复（本段没有
+            // "回滚到调用前"的其它机制）——与 EquipmentPersistable.Load 曾经的同一类缺陷成因相同。
+            // 根治方式：先在临时字典里完整解析校验全部字段（不触碰 _flags），只有整份数据校验通过
+            // 才清空 _flags 并整体替换为解析结果。
             if (data is JsonNull)
             {
+                _flags.Clear();
                 return;
             }
 
@@ -179,9 +185,16 @@ namespace Core.Gameplay.WorldState
                     $"world_state_flags 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
             }
 
+            var parsed = new Dictionary<Id, ExprValue>();
             foreach (var kv in obj)
             {
-                _flags[new Id(kv.Key)] = FromJson(kv.Key, kv.Value);
+                parsed[new Id(kv.Key)] = FromJson(kv.Key, kv.Value);
+            }
+
+            _flags.Clear();
+            foreach (var kv in parsed)
+            {
+                _flags[kv.Key] = kv.Value;
             }
 
             // 读档不是世界变化（05 第 8.2 节持久化只是"整体随存档写入"，不是一次业务写入）：

@@ -352,36 +352,64 @@ namespace Core.Foundation.SaveSystem
             }
 
             var loadedKeysInOrder = new List<string>(readOrder.Count);
-            foreach (var key in readOrder)
-            {
-                var persistable = _persistables[key];
-                var sectionPresent = sections.TryGetValue(key, out var sectionValue);
 
-                if (!sectionPresent)
+            // CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：整段"逐段 Load +
+            // 失败回滚"逻辑（含 RollbackLoadedSections 内部重新调用的 Load）都在 IEventBus.
+            // SuppressDispatch 作用域内进行——见该方法判断记录"读档不是业务事件"。EquipmentPersistable.
+            // Load 为复用真实逻辑会调用真正的 Equip/Unequip，产生真实的 ItemEquipped/StatChanged 等
+            // 领域事件；SaveSystem 逆序回滚失败读档时重放这些调用，会让 AchievementHost 一类计数类
+            // 消费者把"读档/回滚期间的重放"误当成真实玩家操作再计一次数（真实探针复现：进度被回滚
+            // 重放的事件从 1 错误推高到 2 并触发解锁）。作用域外（本方法末尾）才正常派发
+            // SaveMigratedEvent/SaveLoadedEvent——"本次读档完成了"这个通知不是重放，理应正常送达；
+            // using 保证无论正常结束还是提前 return（读档失败分支）都会释放作用域。
+            using (_bus?.SuppressDispatch())
+            {
+                foreach (var key in readOrder)
                 {
-                    if (persistable.KeepStateWhenSectionMissing)
+                    var persistable = _persistables[key];
+                    var sectionPresent = sections.TryGetValue(key, out var sectionValue);
+
+                    if (!sectionPresent)
                     {
-                        // 显式声明"缺失即保留"：不调用 Load，当前状态原样不动（见 IPersistable.
-                        // KeepStateWhenSectionMissing 判断记录）。
-                        continue;
+                        if (persistable.KeepStateWhenSectionMissing)
+                        {
+                            // 显式声明"缺失即保留"：不调用 Load，当前状态原样不动（见 IPersistable.
+                            // KeepStateWhenSectionMissing 判断记录）。
+                            continue;
+                        }
+
+                        sectionValue = JsonNull.Instance;
                     }
 
-                    sectionValue = JsonNull.Instance;
-                }
-
-                try
-                {
-                    persistable.Load(sectionValue);
-                    loadedKeysInOrder.Add(key);
-                }
-                catch (Exception ex)
-                {
-                    _diagnostics.Error(
-                        $"存档段 \"{key}\" 的 Load() 抛出异常，正在按逆序尽力回滚此前已成功加载的段", ex);
-                    RollbackLoadedSections(loadedKeysInOrder, preLoadSnapshots);
-                    return LoadResult.PersistableThrew(
-                        meta, migratedFrom, $"存档段 \"{key}\" 的 Load() 抛出异常：{ex.Message}",
-                        currentMapId, currentPosition);
+                    try
+                    {
+                        persistable.Load(sectionValue);
+                        loadedKeysInOrder.Add(key);
+                    }
+                    catch (Exception ex)
+                    {
+                        _diagnostics.Error(
+                            $"存档段 \"{key}\" 的 Load() 抛出异常，正在按逆序尽力回滚此前已成功加载的段" +
+                            "（含失败段自身，见 RollbackLoadedSections 判断记录）", ex);
+                        // CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前
+                        // 只把 loadedKeysInOrder（Load() 没有抛异常、已经"成功加载"）里的段纳入回滚，
+                        // 抛异常的这一段自身从不在这份列表里——如果它的 Load() 实现在校验数据形状之前
+                        // 就已经修改了 live 状态（真实探针 EquipmentPersistable.Load 复现的正是这个
+                        // 缺陷类别，见该方法判断记录），SaveSystem 这一层完全没有尝试恢复它，只回滚了
+                        // "此前成功的其它段"。preLoadSnapshots 在进入本次读档循环之前已经对全部已注册段
+                        // （不止成功段）各做过一次快照（见上方判断记录），因此把 key 自身一并加入回滚
+                        // 列表末尾（回滚按逆序处理，末尾的最先回滚——失败段是"最近一次尝试"，最先尝试
+                        // 恢复它，再逆序回滚更早成功加载的段）成本很低：对已经遵循"先解析校验、再一次性
+                        // 提交"的段（本仓库当前已审查的全部段，见各自 Load 判断记录），失败时 live 状态
+                        // 本就未被触碰，用 preLoadSnapshots[key] 再 Load 一次是安全的幂等 no-op；对任何
+                        // 未来引入、仍不慎踩了"先改状态后校验"这个坑的段，这一层作为额外防线尽力恢复，
+                        // 不依赖每个模块各自完美遵守约定。
+                        var rollbackKeysIncludingFailed = new List<string>(loadedKeysInOrder) { key };
+                        RollbackLoadedSections(rollbackKeysIncludingFailed, preLoadSnapshots);
+                        return LoadResult.PersistableThrew(
+                            meta, migratedFrom, $"存档段 \"{key}\" 的 Load() 抛出异常：{ex.Message}",
+                            currentMapId, currentPosition);
+                    }
                 }
             }
 

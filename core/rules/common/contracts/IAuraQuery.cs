@@ -115,5 +115,20 @@ namespace Core.Rules.Common
             add { }
             remove { }
         }
+
+        /// <summary>
+        /// CORE-170-01 根治（architecture/落地计划/audit-8160178-20260908，P2）：返回该单位当前
+        /// 生效的 <paramref name="auraDefId"/> 光环实例句柄；未生效返回 null。供跨来源引用计数账本
+        /// （<see cref="Core.Rules.Skill.AuraHandleLedger"/>）在"确认这个 <c>aura_def</c> 已经生效、
+        /// 需要为一个新来源登记一份引用"时使用——不能通过重新调用 <see cref="IEffectSink.ApplyAura"/>
+        /// 换取句柄，那会被 <c>AuraHost.ReapplyExisting</c> 当作又一次独立施加而叠加层数（见该方法
+        /// stacking 语义），种族/职业被动一类"只想确认自己也持有一份既有共享实例引用、不想再叠一层"
+        /// 的重放场景必须绕开 <c>ApplyAura</c>。默认返回 null（不支持）：本接口已有多个
+        /// combat/expr_host/carriers 测试假实现（改动范围不允许连带修改它们），默认降级对它们是
+        /// 安全的等价空实现（本来就不参与跨来源账本）。<see cref="Core.Rules.Skill.AuraHost"/> 提供
+        /// 真正实现；<c>RulesAssembly.DeferredAuraQuery</c> 代理同样显式转发（不能依赖默认接口方法的
+        /// 隐式转发，见 <see cref="ConsumeAbsorb(Id, Id, double, int)"/> 同一惯例）。
+        /// </summary>
+        AuraInstanceRef? TryGetInstanceRef(Id unitId, Id auraDefId) => null;
     }
 }

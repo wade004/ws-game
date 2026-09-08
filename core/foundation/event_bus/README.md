@@ -79,6 +79,27 @@ event_bus/
   tests/       EventBusTests.cs EventCatalogTests.cs
 ```
 
+## `SuppressDispatch`（CORE-170-03 根治，第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
+
+- `IEventBus.SuppressDispatch()` 返回一个 `IDisposable`：在这个作用域内，`Enqueue`/
+  `PublishImmediate` 提交的事件被直接丢弃（不进队列、不校验目录、不派发给任何订阅者），
+  释放（`Dispose`）后恢复正常派发；支持嵌套调用，按引用计数处理，只有最外层作用域释放才
+  真正恢复。
+- 动机：`Core.Foundation.SaveSystem.SaveSystem.Load` 逆序回滚失败读档时，会重新调用某些
+  持久化段真正的运行时逻辑（如装备段为复用真实联动逻辑会调用真正的"装备"/"卸下"操作），
+  这些操作本身会正常派发领域事件（`ItemEquipped`/`StatChanged` 等）；成就系统一类按事件
+  计数的消费者会把"读档/回滚期间的重放"误当成一次真实玩家操作再计一次数。"读档不是一次
+  业务事件"是本仓库多个模块已经各自声明过的既定原则（`WorldState.Load`/
+  `DifficultyHost.Load`/`AchievementHost.Load` 等），本方法把这条原则从"每个消费者各自
+  识别是不是重放"下沉成"读档期间产生的事件从一开始就不会到达任何消费者"，不需要给事件
+  额外加一个 `IsReplay` 标记、也不需要每个消费者各自过滤。
+- 默认实现（`IEventBus` 上的 C#8 默认接口方法）返回一个空操作的 `IDisposable`、不做任何
+  抑制：本接口只有 `EventBus` 一个生产实现，其它未来的实现方不因新增本成员而编译失败，
+  只是丧失"读档期间抑制事件"这一项能力（退化为改动之前的行为）。
+- 只应该在"这段代码内产生的事件确实不该被任何人看到"这类场景使用（当前唯一生产用法就是
+  `SaveSystem.Load`）——不要把它当成一个通用的"临时静音"开关滥用到其它不相关的流程里，那
+  会让"事件被谁、在哪、为什么丢弃了"变得难以追踪。
+
 ## 不负责什么
 
 - 不定义任何具体业务事件类型（`combat.damage_dealt` 携带哪些字段、用什么 C# 类表示），

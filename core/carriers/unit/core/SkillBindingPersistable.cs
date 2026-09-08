@@ -54,20 +54,25 @@ namespace Core.Carriers.Unit
                 return builder.Build();
             }
 
+            /// <summary>
+            /// CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前本方法
+            /// 开头无条件解绑该单位当前全部绑定，随后才校验 <paramref name="data"/> 的形状；坏
+            /// shape（<paramref name="data"/> 本身不是 JSON 对象，或某个绑定条目的值不是合法 Id
+            /// 字符串）会在解绑之后才抛 <see cref="FormatException"/>，此时读档前的绑定已经丢失且
+            /// 不可恢复；逐条目边校验边 <c>Bind</c> 也不是原子的——排在坏条目之前的绑定已经按存档
+            /// 新值写入，与 <c>EquipmentPersistable.Load</c> 曾经的同一类缺陷成因相同。
+            /// </summary>
             public void Load(JsonValue data)
             {
-                // AUD-02 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：先把该单位当前
-                // 全部绑定解绑（惯例同 ItemPersistable.EquipmentPersistable.Load 判断记录"先清空、
-                // 再按快照重建"），保证空快照/JsonNull（本段在存档里整体缺失）都能正确让绑定表归空，
-                // 而不是保留读档前的运行期绑定——否则同一宿主先后读两个存档槽，缺本段的旧档不会
-                // 清掉前一个槽留下的绑定。
-                foreach (var kv in new List<KeyValuePair<string, Id>>(_host.GetBindings(_player.EntityId)))
-                {
-                    _host.Unbind(_player.EntityId, kv.Key);
-                }
-
                 if (data is JsonNull)
                 {
+                    // AUD-02 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：本段整体缺失
+                    // 时必须清空到"从未绑定过"的默认态——不能 no-op 保留读档前的运行期绑定。
+                    foreach (var kv in new List<KeyValuePair<string, Id>>(_host.GetBindings(_player.EntityId)))
+                    {
+                        _host.Unbind(_player.EntityId, kv.Key);
+                    }
+
                     return;
                 }
 
@@ -77,6 +82,9 @@ namespace Core.Carriers.Unit
                         $"player.skill_bindings 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
                 }
 
+                // 先完整解析校验成临时恢复计划（不触碰 _host 的任何绑定状态），全部条目校验通过后
+                // 才一次性解绑现有全部绑定、按计划重新绑定。
+                var plan = new List<(string Key, Id SkillId)>();
                 foreach (var kv in obj)
                 {
                     if (!(kv.Value is JsonString text) || !Id.TryParse(text.Value, out var skillId))
@@ -85,7 +93,17 @@ namespace Core.Carriers.Unit
                             $"player.skill_bindings.{kv.Key} 不是合法的 Id 字符串");
                     }
 
-                    _host.Bind(_player.EntityId, kv.Key, skillId);
+                    plan.Add((kv.Key, skillId));
+                }
+
+                foreach (var kv in new List<KeyValuePair<string, Id>>(_host.GetBindings(_player.EntityId)))
+                {
+                    _host.Unbind(_player.EntityId, kv.Key);
+                }
+
+                foreach (var entry in plan)
+                {
+                    _host.Bind(_player.EntityId, entry.Key, entry.SkillId);
                 }
             }
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.SaveSystem;
@@ -110,6 +111,14 @@ namespace Core.Gameplay.Economy
                 throw new FormatException($"{SectionKey} 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
             }
 
+            // CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前本方法
+            // 边解析边调用 _economy.SetStock 直接修改运行期库存——同一次 Load 调用里，排在后面的
+            // 商人/物品条目格式不合法时，排在前面的条目已经把新值写进了真实 EconomyHost，抛异常后
+            // 这些已提交的写入不会回滚，形成"部分商人是新存档的库存、部分商人还是读档前旧库存"的
+            // 半新半旧中间态，与 EquipmentPersistable.Load/AchievementHost.Load 曾经的同一类缺陷
+            // 成因相同。根治方式：先完整遍历、校验全部商人/物品条目并解析成临时恢复计划（不调用
+            // SetStock），只有整份数据校验通过才二次遍历计划一次性提交。
+            var plan = new List<(Id VendorId, Id ItemId, int Remaining, double? TimerRemaining)>();
             foreach (var vendorKv in obj)
             {
                 if (!Id.TryParse(vendorKv.Key, out var vendorId) || !(vendorKv.Value is JsonObject itemsObj))
@@ -128,7 +137,7 @@ namespace Core.Gameplay.Economy
                     {
                         // 旧格式（纯数字）：不携带 timer_remaining，SetStock 按其可选参数语义
                         // 兜底重置为完整周期（若该物品确实是 timer 策略）。
-                        _economy.SetStock(vendorId, itemId, (int)remaining);
+                        plan.Add((vendorId, itemId, (int)remaining, null));
                         continue;
                     }
 
@@ -142,12 +151,17 @@ namespace Core.Gameplay.Economy
                             timerRemaining = timerNum.Value;
                         }
 
-                        _economy.SetStock(vendorId, itemId, (int)remainingLong, timerRemaining);
+                        plan.Add((vendorId, itemId, (int)remainingLong, timerRemaining));
                         continue;
                     }
 
                     throw new FormatException($"{SectionKey} 段的物品条目 \"{itemKv.Key}\" 格式不合法");
                 }
+            }
+
+            foreach (var entry in plan)
+            {
+                _economy.SetStock(entry.VendorId, entry.ItemId, entry.Remaining, entry.TimerRemaining);
             }
         }
 

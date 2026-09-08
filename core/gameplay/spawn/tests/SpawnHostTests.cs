@@ -348,5 +348,31 @@ namespace Tests.Gameplay.Spawn
             Assert.Null(record!.EntityId);
             Assert.Equal(1, record!.SpawnCount);
         }
+
+        /// <summary>
+        /// CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前 <see
+        /// cref="SpawnHost.Load"/> 在校验 <c>data</c> 形状之前就已经无条件 <c>_records.Clear()</c>/
+        /// <c>_entityToSpawn.Clear()</c>——坏 shape（既不是 JsonNull 也不是 JsonObject）会在清空之后
+        /// 才抛 <see cref="System.FormatException"/>，此时全部刷新点的运行期记录（含存活实体绑定）
+        /// 已经丢失，与 <c>EquipmentPersistable.Load</c> 曾经的同一类缺陷成因相同。根治后应把形状
+        /// 校验前移到任何状态变更之前，坏 shape 时既有刷新点记录应保持不变。</summary>
+        [Fact]
+        public void Load_BadShape_ThrowsFormatException_AndLeavesExistingSpawnRecordsUntouched()
+        {
+            var fx = Build(SpawnTestSupport.Row("spawn.sample_wolf", "world.sample_map", "creature.sample_wolf", "on_map_enter"));
+            var generated = fx.Host.ApplyForMap(Map).Single();
+            var beforeRecord = fx.Host.GetSpawnRecord(new Id("spawn.sample_wolf"));
+            Assert.NotNull(beforeRecord);
+            Assert.Equal(generated, beforeRecord!.EntityId);
+
+            var badShape = new Core.Foundation.Common.Json.JsonString("wrong-shape");
+            var ex = Record.Exception(() => fx.Host.Load(badShape));
+
+            Assert.IsType<System.FormatException>(ex);
+            var afterRecord = fx.Host.GetSpawnRecord(new Id("spawn.sample_wolf"));
+            Assert.NotNull(afterRecord);
+            Assert.Equal(generated, afterRecord!.EntityId);
+            Assert.Equal(beforeRecord!.SpawnCount, afterRecord!.SpawnCount);
+        }
     }
 }

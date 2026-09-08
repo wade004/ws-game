@@ -217,6 +217,36 @@ CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：此
   保证"失败时看到的状态尽量接近读档前"，减少半新半旧状态带来的排障成本。验收：
   `SaveSystemTests.Load_LaterSectionThrows_RollsBackEarlierSuccessfullyLoadedSection_ToPreLoadState`、
   `Load_LaterSectionThrows_RollbackDoesNotMaskFailureStatus`。
+- **CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）：AUD-01 的
+  "尽力回滚"只覆盖此前已成功 `Load()` 过的段，抛异常的那一段自身从不在回滚列表里——如果它的
+  `Load()` 实现在校验数据形状之前就已经改动了 live 状态（真实探针复现：
+  `Core.Carriers.Item.EquipmentPersistable.Load` 先无条件清空当前装备、再校验 JSON 形状，坏 shape
+  抛异常后装备已经丢失且已经发出 `StatChanged`/`ItemUnequipped`），SaveSystem 这一层完全没有尝试
+  恢复它。同一类"先改状态、后校验形状"的模式在
+  `Core.Gameplay.Achievement.AchievementHost.Load`（无条件清空该玩家全部成就进度）、
+  `Core.Gameplay.Spawn.SpawnHost.Load`（无条件清空全部刷新点记录）、
+  `Core.Carriers.Unit.SkillBindingPersistable.Load`（无条件解绑全部技能绑定）里各自独立复现过；
+  `Core.Gameplay.WorldState.WorldState.Load`、`Core.Gameplay.Difficulty.DifficultyHost.Load` 也在
+  校验形状之前无条件重置了字段。另有一类不同成因但同一后果的缺陷——边解析边直接调用 live host
+  写方法（不是先清空，而是逐条目边校验边提交），排在后面的条目格式非法时前面已经真正提交，见
+  `Core.Gameplay.Economy.CurrencyPersistable.Load`/`VendorStockPersistable.Load`/
+  `Core.Foundation.SaveSystem.RngStreamsPersistable.Load`。全部按同一原则改造：每个 `Load()` 先
+  完整解析校验成临时恢复计划（不触碰任何字段），只有整份数据校验通过才一次性提交。`SaveSystem`
+  自身也加了一层兜底：`Load` 中途某段抛异常时，回滚列表现在把抛异常的这一段自身也纳入（用它自己
+  的读档前快照重新调用一次 `Load()`），不再只回滚"此前成功的其它段"——对已经遵循"先校验后提交"
+  的段这是安全的幂等 no-op，对任何未来仍然踩了这个坑的段是额外防线。
+- **CORE-170-03 补充（同上）：`SaveSystem.Load` 逆序回滚会重新调用某些段真正的运行时逻辑
+  （如 `EquipmentPersistable.Load` 为复用真实装备联动会调用 `EquipmentHost.Equip`/`Unequip`），这
+  会正常派发真实领域事件（`ItemEquipped`/`ItemUnequipped`/`StatChanged`）；`AchievementHost` 一类
+  按 `custom_event` 观察条件计数的消费者会把"读档/回滚期间的重放"误当成一次真实玩家操作再计一次
+  数（真实探针复现：成就进度从 1 被回滚重放的事件错误推高到 2 并触发解锁）。现在 `SaveSystem.Load`
+  把整段"逐段 `Load` + 失败回滚"逻辑包在 `IEventBus.SuppressDispatch()` 抑制作用域内——见
+  `core/foundation/event_bus/README.md`"SuppressDispatch"一节——作用域内 `Enqueue`/
+  `PublishImmediate` 提交的事件被直接丢弃，不进队列、不派发给任何订阅者；`SaveMigratedEvent`/
+  `SaveLoadedEvent` 仍在作用域外正常派发（"本次读档完成了"这个通知不是重放）。验收：
+  `Tests.Gameplay.Assembly.CORE_170_03_SaveRollbackEventSuppressionTests`、
+  `Tests.Carriers.Item.CORE_170_03_EquipmentPersistableLoadFailureTests`，以及各段自己模块下的
+  `CORE_170_03_*`/`Load_BadShape_*` 定向用例。
 
 ## `LoadResult.CurrentMapId` / `CurrentPosition`（缺口 11）
 

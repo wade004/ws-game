@@ -283,5 +283,28 @@ namespace Tests.Gameplay.Difficulty
 
             Assert.Equal(0, dispatchCount);
         }
+
+        /// <summary>
+        /// CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前 <see
+        /// cref="DifficultyHost.Load"/> 在校验 <c>data</c> 形状之前就已经无条件把
+        /// <see cref="DifficultyHost.CurrentTier"/>/<see cref="DifficultyHost.CurrentScope"/>/
+        /// <see cref="DifficultyHost.CurrentMapId"/> 三个字段重置为 <c>null</c>——坏 shape（既不是
+        /// <see cref="JsonNull"/> 也不是 <see cref="JsonObject"/>）会在重置之后才抛 <see
+        /// cref="FormatException"/>，读档前已经生效的难度层级/范围/地图因此丢失。根治后应把形状
+        /// 校验前移到任何状态变更之前。</summary>
+        [Fact]
+        public void Load_BadShape_ThrowsFormatException_AndLeavesCurrentDifficultyUntouched()
+        {
+            var host = MakeHost(out _, out _, out _, out _);
+            host.Apply(HardTier, DifficultyScope.Map, MapA);
+
+            var badShape = new JsonString("wrong-shape");
+            var ex = Record.Exception(() => host.Load(badShape));
+
+            Assert.IsType<FormatException>(ex);
+            Assert.Equal(HardTier, host.CurrentTier);
+            Assert.Equal(DifficultyScope.Map, host.CurrentScope);
+            Assert.Equal(MapA, host.CurrentMapId);
+        }
     }
 }

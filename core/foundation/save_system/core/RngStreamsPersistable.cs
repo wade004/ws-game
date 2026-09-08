@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
@@ -83,20 +84,26 @@ namespace Core.Foundation.SaveSystem
                     $"rng.stream_states 段的数据不是 JSON 对象（实际种类：{data.Kind}）");
             }
 
+            // CORE-170-03 根治（architecture/落地计划/audit-8160178-20260908，P2）：修复前主种子一
+            // 校验通过就立即 _rng.Reset(masterSeed)，随后逐条流边校验边 _rng.SetStreamState——
+            // 排在后面的流状态文本非法时，Reset 与排在它之前的全部 SetStreamState 都已经真正生效，
+            // 抛异常后不会回滚，读档前的 RNG 状态永久丢失且不完整替换为存档状态，形成半新半旧的
+            // 中间态，与 EquipmentPersistable.Load 曾经的同一类缺陷成因相同。根治方式：先完整校验
+            // 主种子与全部流状态文本（不触碰 _rng），只有整份数据校验通过才提交 Reset + 逐条
+            // SetStreamState。
+            ulong? masterSeed = null;
             if (sections.TryGetValue(MasterSeedKey, out var masterSeedRaw))
             {
                 if (!(masterSeedRaw is JsonString masterSeedText) ||
-                    !ulong.TryParse(masterSeedText.Value, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var masterSeed))
+                    !ulong.TryParse(masterSeedText.Value, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var parsedSeed))
                 {
                     throw new FormatException($"rng.stream_states 段中 \"{MasterSeedKey}\" 的文本非法");
                 }
 
-                // 先清空全部残留流并换回存档时的主种子，再逐条恢复已保存的流状态（见类型注释
-                // P1-04 判断记录）；恢复顺序无关紧要——Reset 之后 SetStreamState 对每条流都是
-                // 独立覆盖，不依赖彼此的懒创建初始状态。
-                _rng.Reset(masterSeed);
+                masterSeed = parsedSeed;
             }
 
+            var plan = new List<(Id StreamId, RngStreamState State)>();
             foreach (var entry in sections)
             {
                 if (entry.Key == MasterSeedKey)
@@ -114,7 +121,20 @@ namespace Core.Foundation.SaveSystem
                     throw new FormatException($"rng.stream_states 段中流 \"{entry.Key}\" 的状态文本非法");
                 }
 
-                _rng.SetStreamState(streamId, state);
+                plan.Add((streamId, state));
+            }
+
+            if (masterSeed.HasValue)
+            {
+                // 先清空全部残留流并换回存档时的主种子，再逐条恢复已保存的流状态（见类型注释
+                // P1-04 判断记录）；恢复顺序无关紧要——Reset 之后 SetStreamState 对每条流都是
+                // 独立覆盖，不依赖彼此的懒创建初始状态。
+                _rng.Reset(masterSeed.Value);
+            }
+
+            foreach (var entry in plan)
+            {
+                _rng.SetStreamState(entry.StreamId, entry.State);
             }
         }
     }

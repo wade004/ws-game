@@ -80,6 +80,13 @@ namespace Core.Foundation.EventBus
                 throw new ArgumentNullException(nameof(evt));
             }
 
+            // CORE-170-03 根治：抑制作用域内直接丢弃，见 IEventBus.SuppressDispatch 判断记录——
+            // 不进队列、不做 catalog 校验，读档/回滚期间的重放事件不产生任何外部可观察效果。
+            if (_suppressDepth > 0)
+            {
+                return;
+            }
+
             CheckCatalog(evt.Key, "Enqueue");
             _pending.Add(evt);
         }
@@ -124,8 +131,48 @@ namespace Core.Foundation.EventBus
                 throw new ArgumentNullException(nameof(evt));
             }
 
+            // CORE-170-03 根治：同 Enqueue 判断记录——抑制作用域内直接丢弃，不派发给任何订阅者。
+            if (_suppressDepth > 0)
+            {
+                return;
+            }
+
             CheckCatalog(evt.Key, "PublishImmediate");
             DispatchOne(evt);
+        }
+
+        private int _suppressDepth;
+
+        /// <summary>见 <see cref="IEventBus.SuppressDispatch"/> 判断记录。按引用计数支持嵌套调用：
+        /// 只有最外层作用域 Dispose 后 <see cref="_suppressDepth"/> 才归零，恢复正常派发。</summary>
+        public IDisposable SuppressDispatch()
+        {
+            _suppressDepth++;
+            return new SuppressScope(this);
+        }
+
+        private void EndSuppress()
+        {
+            if (_suppressDepth > 0)
+            {
+                _suppressDepth--;
+            }
+        }
+
+        private sealed class SuppressScope : IDisposable
+        {
+            private EventBus? _bus;
+
+            public SuppressScope(EventBus bus)
+            {
+                _bus = bus;
+            }
+
+            public void Dispose()
+            {
+                _bus?.EndSuppress();
+                _bus = null;
+            }
         }
 
         private void CheckCatalog(Id key, string caller)
