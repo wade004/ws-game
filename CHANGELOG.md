@@ -11,6 +11,99 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.7.0] - 2026-09-08
+
+第十一方深度审核（codex 第九轮，基线 `85f1f4f`，即本版本发布前的最新提交）10 项发现（AUD-01～05、
+种族被动光环跨图、owner/day/vendor 装配扩展点、动画剪辑事件登记契约差异、工具链两条）逐条核实并
+根治。逐条核实表、文档更新与边界清单处理、验收结果见
+[audit-85f1f4f-20260908/followup-2026-09-08e.md](architecture/落地计划/audit-85f1f4f-20260908/followup-2026-09-08e.md)。
+均属核心存档/规则/玩法层缺陷修复、引擎适配层资源合同修复、工具链健壮性加固与文档口径统一；
+存档格式变更见下"迁移说明"。
+
+### 新增
+
+- **`Core.Foundation.SaveSystem.SaveSystem.Load` 新增按逆序回滚已成功加载段的机制**（AUD-01
+  根治）：某个已注册段 `Load()` 抛异常时，对此前已成功 `Load()` 的段按逆序重新 `Load` 读档前
+  快照，尽力恢复到读档前状态；最终 `LoadStatus` 仍是 `PersistableThrew`，回滚不改变这一结果；
+  回滚自身失败也只记诊断，继续处理其它段。
+- **6 处既有 `IPersistable` 实现补齐缺段清空覆盖面**（AUD-02 根治）：`ItemPersistable.
+  InventoryPersistable`/`SkillBindingPersistable`/`VendorStockPersistable`/`DroppedLootPersistable`/
+  `PlayerVitalsPersistable`/`ProgressionPersistable` 六处此前缺段（`JsonNull`）时直接返回、不清空
+  既有运行期状态，现均已补齐清空逻辑；`UnitPersistable`（`CurrentMapId`/`ArchetypeId`/
+  `CurrentPosition` 三段）与 `RngStreamsPersistable` 显式声明 1.6.0 新增的
+  `IPersistable.KeepStateWhenSectionMissing => true` 例外并写明理由。
+- **`Core.Gameplay.Economy.EconomyHost.SetStock` 新增可选参数 `timerRemaining`；新增
+  `GetStockTimerRemaining`**（AUD-03 根治）：商人补货倒计时剩余时间可持久化，原地读档不再继承
+  旧计时器；`world.vendor_stock` 段内 `timer` 策略物品条目形状扩展为可选对象
+  `{remaining, timer_remaining}`，向后兼容纯数字旧格式。
+- **`Core.Carriers.Gobj.GameObjectHost.PendingChestLootSnapshot`/`RestorePendingChestLoot`
+  过时别名**（AUD-04 根治）：`[Obsolete]` 转发到 1.6.0 改名后的 `PendingLootSnapshot`/
+  `RestorePendingLoot`，1.5.0 风格调用点本版本仍可编译通过（带过时警告），计划下一个 MINOR 版本
+  随该窗口期结束一并移除。
+- **`Core.Carriers.Unit.PlayerUnit.RaceId`/`Core.Carriers.Unit.UnitPersistable.RaceId`**（新增
+  可选存档段 `player.race_id`）与 **`Core.Rules.Assembly.RulesAssembly.ReapplyRacePassiveAuras`**
+  （种族被动光环跨图重放根治）：`GameplayAssembly.EnterMap` 已接入调用，此前 `World.ClearAll`
+  后种族被动光环消失但种族属性修正不受影响，两者生命周期不一致的缺陷已根治。
+- **`Core.Gameplay.Assembly.GameplayAssembly` 构造函数新增 `questOwnerResolver`/
+  `questDayProvider`/`vendorOpenRequested` 三个可选参数**（owner/day/vendor 装配扩展点根治）：
+  直接转发进内部装配的 `QuestHost`/`DialogHost`（此前恒传 `null`）；`games/_template.GameOptions`
+  新增三个同名可选字段、两处引擎适配层随附的示例组合根新增三个同名可选公开属性，均已补齐透传，
+  全部默认仍是 `null`，不改变未显式提供时的既有行为。
+- **`Core.Foundation.EngineAdapter.IResourceLoader.ResourceKind` 新增 `AnimationClip`**（动画剪辑
+  事件登记契约差异根治）：动画剪辑资源经加载器统一登记，`UnityViewFactory.RegisterModelClipEvents`
+  不再整体覆盖美术自带事件，改为合并、并按 `anim_set` 的事件配置签名隔离生效范围。
+- **`UnityResourceLoader.TryGetOrLoadSlotMesh`**（AUD-05 根治）：`display.equip_visual.mesh_ref`
+  资源合同——预制体按槽位子对象/首个网格渲染组件提取网格，独立网格资产可直接使用；缺失/未加载时
+  保留当前槽位网格不清空为不可见。
+- **`toolchain/_hash.ps1`**（工具链健壮性加固）：共用哈希函数 `Get-Sha256FileHash`，
+  `Get-FileHash` 可用时优先用，否则透明退化到 .NET SHA256 流式计算；`get_framework.ps1`/
+  `sync_package_content.ps1`/`build.ps1` 三处哈希校验改用该函数。
+
+### 修复
+
+- **旧格式非空 `world.gobj_pending_loot` 读档抛异常且失败段不回滚（AUD-01，P1）**、**六处
+  `IPersistable` 实现缺段不清空（AUD-02，P2）**、**商人补货计时器原地读档丢失（AUD-03，P2）**、
+  **公开 API 改名无过时别名（AUD-04，P2）**、**样例 model 槽位换装把 prefab 引用当 Mesh 读取、
+  槽位网格被清空（AUD-05，P2）**、**种族被动光环跨图重放丢失**、**owner/day/vendor 装配扩展点
+  三处示例组合根未透传**、**动画剪辑事件登记整体覆盖美术自带事件、未按 anim_set 隔离**、
+  **`toolchain` pytest 子进程按宿主默认编码解码可能崩溃**、**`get_framework.ps1` 等三处直接依赖
+  `Get-FileHash` 无兜底**：10 项均为第十一方深度审核（codex 第九轮）发现，逐条根因、复现测试、
+  修复位置、验收结果见上文引用的 followup 文档，不在此重复展开。
+
+### 迁移说明
+
+- **`world.gobj_pending_loot` 段读档兼容旧字段名**（AUD-01）：1.5.0 期间产生、字段名与当前版本
+  不一致的旧 `pending` 记录，能按值映射的字段会被迁移，无法映射时安全丢弃单条（不影响其它条目或
+  其它段），不再抛异常；`Save()` 输出格式不变，仍写 `originKey`。
+- **`SaveSystem.Load` 段失败改为按逆序回滚已成功加载段**（AUD-01，行为契约变更）：调用方观察到的
+  "部分加载"中间态消失，`LoadStatus` 枚举值不变。
+- **6 处既有 `IPersistable` 实现的缺段行为收紧**（AUD-02）：`ItemPersistable.InventoryPersistable`/
+  `SkillBindingPersistable`/`VendorStockPersistable`/`DroppedLootPersistable`/
+  `PlayerVitalsPersistable`/`ProgressionPersistable` 六处此前缺段时保留运行期状态不动，现改为清空
+  到内容默认态；自行实现 `IPersistable` 且依赖"缺段时保留当前状态不动"这一行为的具体游戏代码，
+  需要显式覆盖 1.6.0 新增的 `KeepStateWhenSectionMissing => true`（该新增接口默认方法本身不要求
+  任何既有实现新增代码即可通过编译，本条只影响上述 6 处框架自身实现的默认行为）。
+- **`world.vendor_stock` 段 timer 物品条目新增可选字段**（AUD-03）：`timer` 策略物品条目形状从
+  纯数字变为可选对象 `{remaining, timer_remaining}`；`Load` 完全向后兼容纯数字旧格式，无需游戏侧
+  改动。
+- **`GameObjectHost.PendingChestLootSnapshot`/`RestorePendingChestLoot` 改名别名（AUD-04）**：本
+  版本已补回旧名的 `[Obsolete]` 转发方法（行为与新名完全一致），1.5.0 风格调用点本版本仍可编译
+  通过（带过时警告），计划下一个 MINOR 版本随该窗口期结束一并移除；升级到下一个 MINOR 版本前请把
+  仍在用的旧名调用点改为新名。
+- **`player.race_id` 新存档段**（种族被动光环跨图重放）：新增可选段，旧档缺失时清空为 `null`，
+  不影响读档；调用方（游戏引导代码）需要在调用 `RulesAssembly.RegisterUnit` 传入非空 `raceId` 时
+  同步写入 `PlayerUnit.RaceId`——框架不自动同步（分层边界，`RulesAssembly`/L2 不知道
+  `PlayerUnit`/L3 类型存在）。
+- **`display.equip_visual.mesh_ref` 资源合同首次明文**（AUD-05）：引用与 `model_ref` 同一条
+  `model` 种类资源；预制体按槽位子对象/首个网格渲染组件提取，独立网格资产可直接使用；缺失/未加载
+  须保留当前槽位网格，不得清空为不可见。字段数据形状（04 第 7.1.2 节字段表）不变。
+- **`display.anim_set.clips[*].events` 的引擎侧登记行为契约首次明文**（动画剪辑事件登记）：必须
+  与剪辑资产原有事件合并、不得整体覆盖；同一 `resource_ref` 被不同事件配置的 `display.anim_set`
+  共同引用时必须按 anim_set 隔离生效范围。字段数据形状不变。
+- **版本判据说明**：本次为 MINOR（`1.6.0` → `1.7.0`）。"新增"一节列出的全部成员均为新增（新增
+  类型/字段/段/可选构造参数/可选公开属性/共用脚本函数），无删改既有公开签名；6 处 `IPersistable`
+  实现的缺段行为收紧、AUD-01 的段失败回滚是行为契约变更但不改变任何公开类型签名，不构成 MAJOR。
+
 ## [1.6.0] - 2026-09-08
 
 游戏侧复核 1.5.0 发现两处边界并根治：① 框架常驻壳（`FrameworkResidentHost`）命中帧同步开关此前是
