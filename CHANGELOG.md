@@ -11,6 +11,90 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.5.0] - 2026-09-08
+
+第九方深度审核（codex 第七轮，基线 `c86bfa9`，即 1.4.0 自身）9 项发现（CR140-01～03、
+PR140-01～04、PJ140-01～02）逐条核实并根治，另补齐审计未覆盖的两处遗留（宝箱 Partial 余量存读档
+持久化、新 View 初始装备外观重放）。逐条核实表、旧 17 项复核对照、文档漂移处理见
+[audit-c86bfa9-20260908/followup-2026-09-08c.md](architecture/落地计划/audit-c86bfa9-20260908/followup-2026-09-08c.md)。
+均属核心规则/表现层/引擎适配层缺陷修复与能力补齐，无数据表字段删改，无存档格式不兼容变更（新增
+`world.gobj_pending_loot` 段是可选附加段，旧存档没有该段按空表处理，不影响既有段的读写）。
+
+### 新增
+
+- **`Core.Carriers.Gobj.GobjLootDeliveryPolicy`**（枚举，`Reject`/`Partial`，CR140-01）：
+  `GobjOptions.ChestLootPolicy`（默认 `Partial`）决定 `chest` 一次性开箱的交付协议——`Reject`
+  经 `IBatchableInventoryHost` 事务整批交付，任一堆放不下即整体回滚，不标记 `open_state`；
+  `Partial` 逐堆按实际落地量交付，未交付部分记入进程内台账供下次交互补发。
+- **`Core.Carriers.Gobj.GameObjectHost.PendingChestLootSnapshot`/`RestorePendingChestLoot`**
+  + 新增 `GobjPendingLootPersistable`（CR140-01 存读档收口）：`Partial` 策略下未交付的宝箱余量
+  补齐可选存档段 `world.gobj_pending_loot`（字段名 `pending_loot`），旧存档没有该段（`JsonNull`）
+  视为空表；`GameplayAssembly.RegisterPersistables` 已注册。
+- **`Core.Carriers.Item.EquipmentHost.ReapplyGrants(Id unitId)`**（CR140-02）：按当前 `_equipped`
+  记录重放每件装备的 `grants.auras` 并重新核实/施加套装门槛加成，幂等经 `IAuraQuery.HasAura`
+  核实；`GameplayAssembly.EnterMap`（post-load 统一钩子）已接入调用。
+- **`Core.Carriers.Common.GobjInteractedEvent.ResolvedTeleportTarget`**（`(Id MapId, Vec2
+  Position)?`，CR140-03）：跨图传送在 `GameObjectHost.DoTeleport` 判定确实需要跨地图时，随原始
+  `TeleportTargetRef` 一并携带已解析结果；`GameplayAssembly` 新增 `ApplyResolvedTeleport` 只负责
+  落地，`gobj.interacted` 订阅不再反查模板独立重新解析。
+- **`Adapter.Unity.EngineAdapter.UnityResourceLoader.TryLoadModelSync`**（ADR-0017 决策 1 收紧）：
+  统一的模型资源缓存优先/未命中同步解析入口，`UnityRenderer3D` 不再直接调用引擎资源读取接口，
+  `FinishModelLoad` 异步路径复用同一方法，渲染器只消费已加载资源、不再自行决定加载责任边界。
+- **`Adapter.Unity.Presentation.UnitySpriteView` 的 `equipVisualByItemInstanceId` 构造参数**
+  （PR140 文档漂移根治）：sprite 外形路线补齐装备外观入口，`UnityViewFactory` sprite 分支已接入
+  同一份表；新增示例数据 `data/_sample/display/display.equip_visual.json` 一行。
+- **`Presentation.Render.EquipmentSnapshotResolver`/`EquippedItemRef`（窄契约委托）+
+  `EquipmentVisualSource.ReplayEquippedForUnit`**（第 0 步补齐，新 View 初始装备外观重放）：按
+  单位 id 查询当前全部已装备物品（生产装配根通常包一层
+  `EquipmentHost.GetAllEquippedInstances`），供跨图新 View / 存档恢复后创建的 View 在 `CreateView`
+  时合成一次 `ItemEquippedEvent` 调用 `OnEvent`，不再要求先等到一次真正的装备/卸装事件才能看见
+  已有装备的外观；三处生产装配根（`GameFoundationBootstrap`/`FrameworkResidentHost`/
+  `games/_template.GameBootstrap`）已接线。
+- **兼容层（源码兼容，`[Obsolete]`，恢复 PJ140-01）**：`Presentation.Render.ICharacterRig.
+  HitFrameReached`（默认接口实现，转发到 `IHitFrameEmitter`，探测不到时静默 no-op）；
+  `Presentation.Common.ViewKind.GameObject`（与 `Gobj` 数值相同的过时别名）。两者均不要求任何
+  既有 `ICharacterRig` 实现/`ViewKind` 消费方改动代码即可继续编译。
+- **`HitFrameSyncPolicy.WaitForHitFrame(Id, object batchToken, Action)` 重载 + `event
+  Action<Id>? BatchReleased`**（PR140-04）：同一 `batchToken` 的多条等待项视为一个不可拆分批次，
+  命中帧或超时都原子释放整批；`FeedbackBinder` 按攻击者维护当前批次 token。
+
+### 修复
+
+9 条逐条判断记录、复现测试、修复位置、验收测试见
+[audit-c86bfa9-20260908/followup-2026-09-08c.md](architecture/落地计划/audit-c86bfa9-20260908/followup-2026-09-08c.md)
+核实表，概要：
+- **核心侧**（CR140-01～03）：宝箱一次性开箱不再在发奖前就永久标记已开、真实满包时不再吞掉/重复
+  发放奖励；跨图 `World.ClearAll` 清场后按装备台账重建光环，不再出现"持久装备集合与运行期光环
+  脱节"；跨图传送携带已解析结果，不再被内置默认 resolver 二次解析覆盖自定义结果。
+- **表现/引擎侧**（PR140-01～04）：Blob 影子固定绕 X 轴转 90° 的旧 XZ 地面约定遗留写法改为随
+  当前 XY 地面平面动态朝向相机；异步模型替换恢复 socket 子实例与投影阴影状态，不再销毁挂点子模型
+  /阴影状态回退到默认值；Animator 自动过渡在两次检测帧之间完成时不再永久漏发完成事件；同一次
+  攻击命中多个目标的命中帧反馈按批次原子释放，不再按 FIFO 逐条错帧/超时。
+- **契约兼容性**（PJ140-01）：恢复 `ICharacterRig.HitFrameReached`/`ViewKind.GameObject` 两处
+  1.4.0 内直接改名/删除造成的 1.3 消费方源码兼容性破坏。
+- **交付流程**（PJ140-02）：Release 附件检测新增 lock 段 `git_commit` 一致性校验，zip 缺失但其余
+  必需附件仍存在时直接阻断（不再全量重建后只上传缺失文件，消除"新 zip + 旧附件"混批且无法证明
+  同源的窗口）。
+
+### 迁移说明
+
+- **1.3 消费方源码现可直接对 1.4.0 之后的 DLL 编译，无需改动**（PJ140-01 兼容层恢复）：见上
+  "新增"一节两处 `[Obsolete]` 兼容成员；两处均计划在下一个 MAJOR 发布中随旧签名一并移除，
+  过时成员按 [11_工程规范与测试.md 第 7 节](architecture/11_工程规范与测试.md) 判据至少保留一个
+  MINOR 发布周期，本版本是该周期的第一个 MINOR。
+- **自定义 `IRenderer3D` 实现的完成事件语义收紧**（PR140-03 收口）：非循环剪辑自然播放完成时必须
+  恰好发出一次完成事件（`anim_event.finished`），即便动画状态机在两次 `Tick` 检测帧之间已经自动
+  过渡离开目标状态——自实现方若只在"当前状态精确等于目标状态"时才判定完成，会漏发这一窗口内的
+  完成事件，导致瞬态状态锁永久残留；`UnityRenderer3D.IsAnimatorStateFinished` 的
+  `everEnteredTarget` 记账机制可作为参考实现。
+- **gobj 存档新增可选段 `world.gobj_pending_loot`**：字段名 `pending_loot`，数组元素
+  `{gobjInstanceId, items:[{templateId, count}]}`；只有使用 `GobjLootDeliveryPolicy.Partial`
+  策略且确实产生过未交付余量时才有内容，未注册该段的既有装配根/未升级读取该段的旧存档均不受
+  影响（读到 `JsonNull` 视为空表）。
+- **版本判据说明**：本次为 MINOR（`1.4.0` → `1.5.0`），"新增"一节列出的全部成员均为新增
+  类型/新增可选构造参数/新增枚举/恢复的过时别名或默认实现，不删除、不改名任何已有公开签名，
+  不破坏既有调用方编译。
+
 ## [1.4.0] - 2026-09-08
 
 两轮修复合并发布：① 游戏侧复核 1.3.0 发现并根治三项问题——model 型动画状态机永久卡死、瞬态状态
