@@ -11,6 +11,91 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.8.0] - 2026-09-08
+
+第十二方深度审核（codex 第十轮，基线 `8160178`，即本版本发布前的最新提交）4 项发现（CORE-170-01～03、
+PRES-170-01）逐条核实并根治，CORE-170-03(a) 审查全仓 `IPersistable` 实现后另发现 8 处同类"先改状态
+后校验/边解析边提交"缺陷一并根治。逐条核实表、文档更新与能力分类处理、验收结果见
+[audit-8160178-20260908/followup-2026-09-08f.md](architecture/落地计划/audit-8160178-20260908/followup-2026-09-08f.md)。
+均属核心规则/存档/玩法层缺陷修复与表现层/引擎适配层缺陷修复，无数据表字段删改，无存档格式变更。
+
+### 新增
+
+- **`Core.Rules.Common.AuraHandleLedger`**（跨来源光环句柄账本，CORE-170-01 根治）：把装备/套装门槛
+  加成原有的"跨来源引用计数账本"上移为独立类型，由 `RulesAssembly` 持有单一实例，`CarriersAssembly`
+  注入给 `EquipmentHost`，`RulesAssembly` 自身（种族被动）也用同一实例，装备/套装/种族三类来源共享
+  同一条账本，互不覆盖对方持有的引用。
+- **`Core.Rules.Common.IAuraQuery.TryGetInstanceRef`**（默认接口方法，默认返回 `null`，CORE-170-01
+  根治）：按单位与光环定义查询该单位当前是否持有一份有效引用；自定义 `IAuraQuery` 实现方无需新增
+  任何代码即可编译通过，默认实现对不参与跨来源账本的测试假实现是安全的等价空实现。
+- **`Core.Numbers.Progression.LevelSync`**（委托类型）与 **`Core.Carriers.Unit.WorldUnitAccess.
+  SetLevel`**（CORE-170-02 根治）：`ProgressionHost` 在 `RegisterUnit`/`AddXp`/`RestoreState` 三个
+  等级确立/变化的时机调用该委托，`CarriersAssembly` 接到 `WorldUnitAccess.SetLevel`（不进
+  `IUnitAccess` 接口，仅供组装期委托闭包使用），确立 Progression 为单位等级唯一权威并同步实体
+  字段与查询结果。
+- **`Core.Foundation.EventBus.IEventBus.SuppressDispatch`**（默认接口方法，默认返回一个 no-op
+  `IDisposable`，CORE-170-03(b) 根治）：调用方在 `using` 作用域内产生的领域事件（`Enqueue`/
+  `PublishImmediate`）直接丢弃，不派发给订阅者；`SaveSystem.Load` 用它把逐段读档 + 失败回滚整体
+  包进抑制作用域，避免回滚期间重放的领域事件被业务消费者（如 `AchievementHost`）误计数。自定义
+  `IEventBus` 实现方无需新增任何代码即可编译通过。
+- **`Core.Foundation.SaveSystem.SaveSections.KnownOrder` 纳入 `world.gobj_pending_loot`**：此前该
+  段未登记进 `KnownOrder`，落入"自定义段"分支按 key 序数排序；现按 10 号文档"7a.
+  .../spawn_state/gobj_pending_loot"既有文字顺序固定登记，只影响读档时的段处理顺序，不改变段的
+  存在性或字段形状。
+
+### 修复
+
+- **跨图重放后卸装误删种族 aura（CORE-170-01，P2）**：装备/套装/种族共享同一 `auraDef` 时，种族
+  被动此前只按 `HasAura` 判断是否需要重放，没有独立的来源账本；卸下装备会连带清除种族来源的同一份
+  光环及其属性修正。改为三类来源各自维护"我持有哪个句柄"的簿记，互不代劳。
+- **Progression 等级与实体等级分叉（CORE-170-02，P2）**：`ProgressionHost.AddXp`/`RestoreState`
+  更新内部等级后未同步 `PlayerUnit.Level`，导致 `WorldUnitAccess.GetLevel` 与规则层查询到的等级
+  不一致，等级需求装备可能因此误判 `RequirementNotMet`。改为写入时同步，Progression 是唯一权威。
+- **存档失败段自身不回滚，且回滚期间产生的领域事件污染业务消费者（CORE-170-03，P2，两个已确认
+  表现）**：(a) `EquipmentPersistable.Load` 及审查全仓 `IPersistable` 实现后另发现的 8 处同类
+  缺陷（`AchievementHost`/`SpawnHost`/`WorldState`/`DifficultyHost`/`CurrencyPersistable`/
+  `VendorStockPersistable`/`RngStreamsPersistable`/`SkillBindingPersistable`）此前均"先改变运行期
+  状态、后校验数据形状"或"边解析边直接调用 live host 写方法"，坏存档会在状态已被部分或全部改动后
+  才抛异常，且 `SaveSystem.Load` 此前只把"此前已成功加载"的段纳入回滚列表，抛异常的段自身不在
+  其中；现全部改为"先解析校验成临时恢复计划、再一次性提交"，`SaveSystem.Load` 额外把失败段自身
+  纳入回滚列表兜底。(b) `SaveSystem.Load` 逆序回滚时会调用 live host 的真实写方法（如
+  `EquipmentPersistable.Load` 复用真实 Equip/Unequip 逻辑），产生的真实领域事件被业务消费者
+  （`AchievementHost`）当成真实玩家操作再次计数，导致成就进度被错误推高甚至误解锁；现读档与回滚
+  期间整体抑制领域事件派发，`SaveMigratedEvent`/`SaveLoadedEvent` 仍在读档完成后正常派发。
+- **共享 `AnimationClip` 被空事件配置和跨 factory 状态污染（PRES-170-01，P2）**：`UnityViewFactory.
+  RegisterModelClipEvents` 此前对空 `events` 配置直接跳过、不建立任何基线或隔离；首个非空配置从
+  当前共享剪辑资产捕获"pristine"快照后把合并结果写回该**共享**资产；承载基线/签名/覆盖状态的三张
+  表此前是 factory 实例字段。三者叠加导致同一 factory 内空配置 anim_set 会看到另一个非空配置写入
+  的数据事件，新建 factory（典型触发：场景重进）会把旧 factory 写入共享资产的事件误当成美术自带
+  基线保留。现改为进程级静态表缓存美术自带基线，任何非空配置都以基线为底合并出一份运行期私有
+  副本，只经 `AnimatorOverrideController` 套用到具体 `ModelHandle` 实例，共享剪辑资产自始至终
+  不被写入。
+
+### 迁移说明
+
+- **单位等级唯一权威改为 `Core.Numbers.Progression.ProgressionHost`**（CORE-170-02）：直接改写
+  `PlayerUnit.Level` 字段而不经 `ProgressionHost.RegisterUnit`/`AddXp`/`RestoreState` 的具体游戏
+  代码，其改动会在下一次上述三个方法被调用时被 `LevelSync` 覆盖同步；需要设置单位等级的具体游戏
+  代码应统一改走 `ProgressionHost` 相应方法，不要再直接写 `PlayerUnit.Level` 字段。
+- **读档与回滚期间领域事件被抑制**（CORE-170-03(b)）：依赖"读档期间正常成功加载某段会让该段产生
+  的事件到达外部订阅者"这一行为的具体游戏代码（例如监听 `ItemEquipped` 来更新 UI）需要改为在
+  `SaveLoadedEvent`（读档完成后正常派发）到达后按当前状态重建一次，不能再假设读档过程中会收到
+  逐段变化事件；`SaveMigratedEvent`/`SaveLoadedEvent` 本身不受影响，仍会正常派发。
+- **自定义 `IPersistable` 实现须遵循"先解析校验，再一次性提交"**（CORE-170-03(a)）：`IPersistable.
+  Load` 契约注释已更新为要求实现方在触碰任何运行期状态之前完整校验数据形状，只有整份数据校验
+  通过才提交；`SaveSystem.Load` 新增的失败段自身回滚只对遵循该约定的实现是安全的幂等 no-op，不
+  遵循该约定的自定义实现在读档失败时仍可能残留部分改动的状态，建议对照框架自身 8 处修复的模式
+  （见上"修复"一节）同步改造。
+- **自定义 `IEventBus`/`IAuraQuery` 实现的新增成员**（CORE-170-03(b)、CORE-170-01）：
+  `IEventBus.SuppressDispatch`/`IAuraQuery.TryGetInstanceRef` 均为 C#8 默认接口方法，自定义实现
+  方不重写这两个成员即自动获得默认行为（分别为 no-op 抑制作用域、返回 `null`），不需要任何代码
+  改动即可继续编译通过；如果自定义 `IEventBus` 实现有自己的事件派发路径且希望"读档抑制"语义生效，
+  需要显式实现 `SuppressDispatch` 并让派发路径检查抑制状态。
+- **版本判据说明**：本次为 MINOR（`1.7.0` → `1.8.0`）。"新增"一节列出的全部成员均为新增（新增
+  类型/默认接口方法/委托/公开方法/`KnownOrder` 登记项），无删改既有公开签名；构造函数新增参数均为
+  可选参数且默认值保持既有行为；`SaveSystem.Load` 失败段自身回滚、读档期间事件抑制、单位等级权威
+  改为 Progression 是行为契约变更但不改变任何公开类型签名，不构成 MAJOR。
+
 ## [1.7.0] - 2026-09-08
 
 第十一方深度审核（codex 第九轮，基线 `85f1f4f`，即本版本发布前的最新提交）10 项发现（AUD-01～05、
