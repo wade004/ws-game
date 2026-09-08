@@ -423,6 +423,54 @@ namespace Tests.PresentationViewBinding
         }
 
         // -----------------------------------------------------------------
+        // PRES-180 版本判据根治（2026-09-09）：ISimSnapshot.GetAllEntityIds/GetRawKind 改为 C#8
+        // 默认接口方法后，只实现旧接口成员集合的自定义快照仍应能编译通过，且 ViewBinder.OnSaveLoaded
+        // 的 save.loaded 全量对账应安全退化（见 ISimSnapshot 类型注释、ViewBinder.OnSaveLoaded 方法
+        // 注释两处"安全退化"判断记录）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void OnSaveLoaded_LegacySimSnapshotOnlyImplementsOldMembers_DegradesSafely()
+        {
+            // 判断记录：这里不复用 BuildBinder/WorldSimSnapshot，而是直接用 LegacySimSnapshot——
+            // 后者故意不覆盖 GetAllEntityIds/GetRawKind 这两个默认接口方法，专门验证"编译通过 +
+            // 对账安全退化"这两件事本身，不是在测 WorldSimSnapshot 的真实实现（那部分已由
+            // PRES180_SaveLoadViewReconciliationTests.cs 覆盖）。
+            var bus = ViewBindingTestSupport.CreateBus();
+            var factory = new FakeViewFactory();
+            var displayInfo = new FakeDisplayInfoRegistry();
+            var snapshot = new LegacySimSnapshot();
+            var binder = new ViewBinder(bus, factory, snapshot, displayInfo);
+
+            var staleId = new Id("unit.legacy_stale_1");
+            var keptId = new Id("unit.legacy_kept_1");
+            var neverBoundId = new Id("unit.legacy_never_bound_1");
+
+            snapshot.SetAlive(staleId, new Vec2(0, 0));
+            snapshot.SetAlive(keptId, new Vec2(1, 1));
+            binder.OnEntityCreated(staleId, "player", staleId);
+            binder.OnEntityCreated(keptId, "player", keptId);
+            Assert.Equal(2, binder.Count);
+
+            // 模拟读档抑制作用域内 staleId 被销毁而 entity.destroyed 被丢弃（快照已经不存在，绑定表
+            // 还没更新）；同时模拟抑制作用域内新增了一个快照能看到、但 entity.created 被丢弃的实体
+            // ——由于 GetAllEntityIds() 走默认实现返回空集合，OnSaveLoaded 的"按存活实体补建 View"
+            // 这一半天然是空操作，neverBoundId 不会被发现、也不会被补建（这正是本用例要验证的安全
+            // 退化行为，而不是缺陷）。
+            snapshot.SetDestroyed(staleId);
+            snapshot.SetAlive(neverBoundId, new Vec2(2, 2));
+
+            var ex = Record.Exception(() =>
+                bus.PublishImmediate(new Core.Foundation.SaveSystem.SaveLoadedEvent(new Id("save.legacy_slot_1"))));
+
+            Assert.Null(ex);
+            Assert.Equal(1, binder.Count);
+            Assert.True(factory.CreatedByEntityId[staleId].Destroyed);
+            Assert.False(factory.CreatedByEntityId[keptId].Destroyed);
+            Assert.False(binder.TryGetView(neverBoundId, out _));
+        }
+
+        // -----------------------------------------------------------------
         // 缺口 6（IAnchorQuery）：占位英雄 hand_main 锚点在 front/side_l 两档位下的世界坐标。
         // -----------------------------------------------------------------
 

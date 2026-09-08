@@ -210,7 +210,27 @@ namespace Presentation.ViewBinding
         /// <summary>PRES-180 根治：<c>save.loaded</c> 触发的全量对账（见类型注释）。分两个独立方向，
         /// 顺序无关紧要（互不依赖对方结果）：先销毁绑定表里指向"已不在 <see cref="ISimSnapshot"/> 里"
         /// 的陈旧 View（覆盖 <c>entity.destroyed</c> 被丢弃的情形），再为"<see cref="ISimSnapshot"/> 里
-        /// 存在、但绑定表里还没有"的实体补建 View（覆盖 <c>entity.created</c> 被丢弃的情形）。</summary>
+        /// 存在、但绑定表里还没有"的实体补建 View（覆盖 <c>entity.created</c> 被丢弃的情形）。
+        /// <para>
+        /// 安全退化判断记录（PRES-180 版本判据根治，2026-09-09）：<see cref="ISimSnapshot.GetAllEntityIds"/>/
+        /// <see cref="ISimSnapshot.GetRawKind"/> 改为默认接口方法后（默认分别返回空集合/<c>null</c>，
+        /// 见该接口类型注释），只实现了 <see cref="ISimSnapshot"/> 旧成员集合（<c>WorldSimSnapshot</c>
+        /// 之外的第三方实现，未覆盖这两个新成员）的自定义快照走到本方法时选择的退化方式是——<b>只做
+        /// "销毁已不存在实体的 View"这一半，跳过"按存活实体补建 View"这一半</b>：下面第一个循环
+        /// （销毁）只依赖 <see cref="ISimSnapshot.Exists"/>，这是本接口自始至终的强制成员，不受本次
+        /// 改动影响，继续正确销毁陈旧 View；第二个循环（补建）遍历 <c>GetAllEntityIds()</c> 的返回值，
+        /// 默认实现返回空集合时该循环天然零次迭代，不需要额外的"是否为默认实现"判断分支，也不会因为
+        /// <c>null</c> 元素或占位值引入误判。未选择"整体跳过并记一次诊断"是因为：本方法无法区分
+        /// "空集合是默认实现的兜底值"还是"世界读档后确实没有存活实体"（两者返回值完全相同），若每次
+        /// 空集合都记诊断，合法的空世界读档也会被误记为异常情形，噪音大于信号；而"只做销毁"这一半
+        /// 不依赖该区分——无论空集合的成因是什么，销毁分支都应该照常执行，补建分支都没有信息可用，
+        /// 二者组合起来是当前信息下能做到的最安全默认行为。回归见
+        /// <c>presentation/view_binding/tests/ViewBinderTests.cs</c>
+        /// <c>OnSaveLoaded_LegacySimSnapshotOnlyImplementsOldMembers_DegradesSafely</c> 用例（自定义
+        /// <see cref="ISimSnapshot"/> 只实现旧接口成员，验证仍可编译、<c>OnSaveLoaded</c> 不抛异常、
+        /// 销毁分支正常生效、补建分支保持空操作）。
+        /// </para>
+        /// </summary>
         private void OnSaveLoaded()
         {
             foreach (var entityId in new List<Id>(_views.Keys))

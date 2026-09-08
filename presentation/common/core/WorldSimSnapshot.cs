@@ -12,6 +12,11 @@ namespace Presentation.Common
     /// 不持有任何可写引用、不缓存任何字段——每次调用都直接查询 <see cref="IWorldSim"/>，保证读到
     /// 的永远是当前最新的逻辑状态（表现层本身不缓存"权威"数据，见 01 第 6 节禁止事项 8）。
     /// </summary>
+    /// <remarks>
+    /// <see cref="GetAllEntityIds"/>/<see cref="GetRawKind"/> 是 <see cref="ISimSnapshot"/> 的默认
+    /// 接口方法（见该接口类型注释判断记录，PRES-180 版本判据根治）；本类型作为框架内唯一生产实现
+    /// 显式覆盖为真实实现，不依赖接口默认的空集合/<c>null</c> 兜底。
+    /// </remarks>
     public sealed class WorldSimSnapshot : ISimSnapshot
     {
         private readonly IWorldSim _world;

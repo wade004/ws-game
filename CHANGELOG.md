@@ -33,11 +33,14 @@
   CORE-180-CAND-01 根治）：同图读档后重新聚合单位的种族属性修正/被动光环与职业基础属性，不重复
   调用 `PowerHost.RegisterUnit`（避免对已注册单位抛"不能重复注册"异常）；种族切换时精确移除旧种族
   来源的属性修正、按引用计数递减释放旧种族被动光环，覆盖写入职业基础属性。
-- **`Presentation.Common.ISimSnapshot.GetAllEntityIds`/`GetRawKind`**（新增只读成员，PRES-180
-  根治）：`GetAllEntityIds()` 返回当前存活实体 id 全量列表，`GetRawKind(Id)` 返回映射前的原始
-  `Entity.Kind` 字符串；供 `ViewBinder` 在 `save.loaded` 后与已绑定 View 表做全量对账。**这两个
-  成员不是 C#8 默认接口方法**，唯一生产实现 `WorldSimSnapshot` 已同步实现；自定义 `ISimSnapshot`
-  实现方须自行新增这两个成员才能继续编译通过，详见下"迁移说明"。
+- **`Presentation.Common.ISimSnapshot.GetAllEntityIds`/`GetRawKind`**（新增只读成员，均为默认接口
+  方法，PRES-180 根治，2026-09-09 版本判据勘误后改写）：`GetAllEntityIds()` 返回当前存活实体 id
+  全量列表（默认返回空集合），`GetRawKind(Id)` 返回映射前的原始 `Entity.Kind` 字符串（默认返回
+  `null`）；供 `ViewBinder` 在 `save.loaded` 后与已绑定 View 表做全量对账。唯一生产实现
+  `WorldSimSnapshot` 已同步覆盖为真实实现；自定义 `ISimSnapshot` 实现方无需新增任何代码即可编译
+  通过——未覆盖这两个成员时 `ViewBinder.OnSaveLoaded` 的对账安全退化为"只销毁已不存在实体的
+  View，跳过按存活实体补建 View"，详见下"迁移说明"与 `ISimSnapshot`/`ViewBinder.OnSaveLoaded`
+  源码判断记录。
 - **`ViewBinder` 读档后视图对账**（PRES-180 根治）：构造函数新增订阅 `save.loaded`
   （`SaveEventKeys.SaveLoaded`），收到后立即（同步，不等下一次 `sim.tick_finished`）做一次双向全量
   对账——`ISimSnapshot.Exists` 为假但仍持有绑定的按 `OnEntityDestroyed` 销毁，`GetAllEntityIds()`
@@ -81,11 +84,16 @@
   `ISaveSystem.SetDerivedStateRebuilder` 注册，否则读档后这些派生缓存不会重算，行为等同于本次修复
   之前的框架默认实现。不注册不影响编译（`SetDerivedStateRebuilder` 是默认接口方法），只影响读档后
   派生缓存的正确性。
-- **自定义 `ISimSnapshot` 实现须新增两个成员**（PRES-180）：`GetAllEntityIds`/`GetRawKind` **不是**
-  C#8 默认接口方法，与本版本其它新增接口成员（均为默认接口方法）不同——任何自定义 `ISimSnapshot`
-  实现（框架内唯一生产实现 `WorldSimSnapshot` 已同步）必须新增这两个成员才能继续编译通过；
+- **自定义 `ISimSnapshot` 实现可选覆盖两个新成员**（PRES-180，2026-09-09 版本判据勘误后改写）：
+  `GetAllEntityIds`/`GetRawKind` 是 C#8 默认接口方法（默认分别返回空集合/`null`），与本版本其它
+  新增接口成员同一惯例——任何自定义 `ISimSnapshot` 实现无需新增任何代码即可继续编译通过。
   `GetAllEntityIds()` 语义为"当前存活实体 id 全量列表"，`GetRawKind(Id)` 语义为"映射前的原始
-  `Entity.Kind` 字符串，实体不存在返回 null"，均为只读查询、不持有 `Entity` 引用本身（铁律 P1）。
+  `Entity.Kind` 字符串，实体不存在返回 null"，均为只读查询、不持有 `Entity` 引用本身（铁律 P1）；
+  框架内唯一生产实现 `WorldSimSnapshot` 已同步覆盖为真实实现。若不覆盖，`ViewBinder` 的
+  `save.loaded` 全量对账会安全退化：销毁"绑定表里指向已不存在实体"的陈旧 View 这一半不受影响
+  （只依赖原有强制成员 `Exists`），"按当前存活实体补建 View"这一半因 `GetAllEntityIds()` 返回
+  空集合而天然是空操作——即读档期间被 `SuppressDispatch` 抑制丢弃的 `entity.created` 不会被这类
+  自定义实现补扫到，需要完整对账能力的自定义 `ISimSnapshot` 实现方应显式覆盖这两个成员。
 - **自定义 `IViewFactory` 实现须保证创建幂等**（PRES-180）：`ViewBinder` 的读档后对账在
   `GetAllEntityIds()` 中存在但未绑定的实体上复用既有 `OnEntityCreated` 路径调用
   `IViewFactory.Create`；若某具体游戏/适配层的 `IViewFactory` 实现对同一实体重复调用 `Create` 会
@@ -93,10 +101,12 @@
   处理——框架侧 `ViewBinder` 已经用绑定表去重、不会对同一实体重复调用 `Create`，此处针对的是
   `IViewFactory` 实现自身在异常路径下被多次调用时的健壮性。
 - **版本判据说明**：本次为 MINOR（`1.8.0` → `1.9.0`）。"新增"一节列出的成员均为新增（新增
-  类型/默认接口方法/公开方法/接口成员），无删改既有公开签名；`ISimSnapshot` 新增的两个成员不是
-  默认接口方法，对第三方 `ISimSnapshot` 实现方是源码级破坏性变更（需要新增代码才能继续编译），但
-  框架内唯一生产实现已同步，且该接口的公开消费方式（表现层只读查询）决定了外部实现方极少，按
-  MINOR 处理并在上方"迁移说明"显式标注，不视为需要 MAJOR 的公开二进制契约删改。
+  类型/默认接口方法/公开方法/接口成员），无删改既有公开签名；`ISimSnapshot` 新增的
+  `GetAllEntityIds`/`GetRawKind` 两个成员（2026-09-09 版本判据勘误后改为）同样是默认接口方法，
+  第三方 `ISimSnapshot` 实现方无需新增代码即可继续编译，不构成源码级破坏，按 MINOR 处理不需要
+  任何例外说明。（此前一版曾把这两个成员定义为普通接口方法并按"源码级破坏但按 MINOR 处理"的
+  例外记录在案，属于版本判据误判——已改为默认接口方法根治，不再需要该例外，具体见上方"新增"/
+  "迁移说明"两处改写内容。）
 
 ## [1.8.0] - 2026-09-08
 
