@@ -171,6 +171,47 @@ gobj/
    （也不应该）拿 `TeleportTargetRef` 反过去自己解析——`TeleportTargetRef` 保留只作为诊断/原始
    引用用途。消费方改动见 `core/gameplay/assembly/README.md` 同编号条目。
 
+9. **CR150-02/04 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：`chest`/`gather_node`
+   的"能拿多少拿多少"（`GobjLootDeliveryPolicy.Partial`）未交付余量台账改按
+   `GameObjectEntity.OriginKey`（稳定摆放位置键）记账，`gather_node` 补齐与 `chest` 同一套
+   Reject/Partial 交付协议**：
+   - **CR150-02（余量按瞬态实例 id 记账，实体重建后失联）**：`_pendingLoot`（原名
+     `_pendingChestLoot`）此前按 `gobjInstanceId`（运行期实体 id）索引；同一刷新点/摆放位置的
+     实体因 `World.ClearAll`/离图重进而重新生成时会分配一个全新的运行期 id（`GameObjectFactory`
+     不复用旧 id），旧账目按旧 id 记的余量因此永久失联——外部审计复现：`oldId` 名下的余量仍在，
+     新实体拿不到。根治：`GameObjectEntity` 新增可写属性 `OriginKey`（`Id?`），
+     `GameObjectFactory.Spawn` 新增可选参数 `originKey`，未显式传入时按
+     `"gobj.origin.<mapId>.<templateId>.<position>"` 自动合成一个"地图 + 位置 + 模板"稳定键
+     （坐标用 `"G17"` 往返精度格式化，避免本地化/多次调用间的格式漂移）——刷新点数据登记的
+     `spawn.table.position` 是固定值，同一刷新点历次重新生成天然拿到相同的合成键，不需要
+     `SpawnHost` 额外传入刷新点 id 才能获得跨重建关联能力。`GameObjectHost` 的 `_pendingLoot`
+     字典键改用 `PendingLootKey(gobj) => gobj.OriginKey ?? gobj.EntityId`（新构造的实体理论上
+     `OriginKey` 恒非空，`?? gobj.EntityId` 只是防御性兜底）；`OpenChest`/`GatherNode` 交互时先按
+     这个稳定键检查是否还欠着上一轮的余量——不管这个具体运行期实体自己的 `open_state`/`used_at`
+     是什么（新实体天然是"未开过"/"未采集过"），只要账没结清就先补发、不重新 `Roll`，同时把这次
+     补发标记为"这个新实体也用过一次"（`open_state=true`；`used_at` 仅在该新实体此前从未记录过
+     冷却时才提交，避免推迟 `respawn_after_use` 应有的计时起点），防止紧接着的下一次交互因为新
+     实体自己的状态从未被设置过而又整批重新发一遍同一份奖励。存档段 `GobjPendingLootPersistable`
+     的方法改名为 `PendingLootSnapshot`/`RestorePendingLoot`，JSON 条目字段从 `gobjInstanceId`
+     改名为 `originKey`（准确反映存的是稳定键，不是瞬态实体 id；本段未在任何已发布版本对外承诺
+     过字段级兼容，不做旧字段名兼容读取）。
+   - **CR150-04（满包采集先提交冷却再忽略入包失败）**：`GatherNode` 修复前无条件先
+     `SetState("used_at", ...)` 提交冷却，再把 `RollLootInto` 抽出的掉落无条件塞进背包、完全不
+     处理 `IInventoryHost.AddItem` 交付结果——满包时奖励整份丢失，且冷却已提交，腾出空间后在同一
+     冷却窗口内重试仍被挡住（外部审计复现：`used_at` 前后恒为同一时间戳、奖励数量恒为 0）。根治：
+     新增 `GobjOptions.GatherNodeLootPolicy`（独立于 `ChestLootPolicy` 的口味配置项，默认同为
+     `Partial`），`GatherNode` 改走与 `OpenChest` 完全同一套 Reject/Partial 协议
+     （`GatherNodeReject`/`GatherNodePartial`）：只有真正交付了至少一部分才提交 `used_at`；
+     `Reject` 下整批回滚且不提交，允许立即重试；`Partial` 下未交付部分记入 `_pendingLoot`（同
+     CR150-02 的稳定键），一件都没能交付时同样不提交，交付了至少一部分才提交并可能同时留有余量。
+   - 见 `core/carriers/gobj/tests/GobjPendingLootPersistenceTests.cs` 新增三条用例：
+     `PartialChest_CrossMapReentry_NewEntityReattachesOldPending_DeliversRemainderExactlyOnce`
+     （CR150-02，真实 `World.ClearAll` + `GameObjectFactory.Spawn` 重建）、
+     `SaveSystemLoad_OldSaveMissingPendingLootSection_ClearsExistingResidual`（CR150-03 组合场景，
+     真实 `SaveSystem.Save`/`Load`，见 `core/foundation/save_system/README.md` 同编号条目）、
+     `GatherNode_FullInventory_RejectDoesNotCommitCooldown_PartialCommitsAndPersistsRemainder`
+     （CR150-04）。
+
 ## 契约缺口 / 未覆盖内容
 
 - **`type_data.trigger_shape`（`trap`）不做结构校验**：05 第 3.5 节 `Shape` 的具体 JSON 形状由

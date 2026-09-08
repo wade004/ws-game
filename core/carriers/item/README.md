@@ -180,6 +180,23 @@ item/
     测试用的最小假实现）退化为"总是全部重新施加"，调用方需自行保证不会在 Aura 仍然存活时重复
     调用。调用方见 `core/gameplay/assembly/README.md` 同编号条目（`GameplayAssembly.EnterMap`）。
 
+12. **CR150-01 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：`ReapplyGrants` 判断
+    "某个 `aura_def` 是否需要重新 `ApplyAura`"改用调用开始前的惰性快照，不再在逐件重放的循环
+    过程中反复实时查询 `IAuraQuery.HasAura`**——两件装备共享同一个 `aura_def`（默认
+    `AllowMultiSourceTiming=false`）时，旧实现会在重放第一件后把该 `aura_def` 的 `HasAura` 从
+    false 变为 true，第二件因此误判"从来没有失效过"，转而复用自己名下那份早已随 `ClearAll` 失效
+    的旧句柄——这份旧句柄既没有被重新计数，也不是 `AuraHost` 真正认得的活句柄，导致共享光环的
+    引用计数只算上了第一件；卸下第一件时第二件仍装备着，光环却已经被误删（外部审计复现：
+    `afterFirstUnequip` 实际 False，预期仍应为 True）。根治后 `ReapplyGrants` 内维护一份"按
+    `aura_def` 惰性缓存、只在第一次被问到时真正查询一次 `IAuraQuery.HasAura`、此后同一次调用内
+    全部复用同一个结果"的快照，逐件装备与逐个套装门槛判定（`ReapplySetBonuses`）都改用这份快照
+    而不是实时查询；两件装备各自是否需要重新 `ApplyAura` 因此都反映"本次 `ReapplyGrants` 调用
+    开始前"的真实状态，与彼此的重放顺序无关——是否合并成同一份实例、还是各自独立（
+    `AllowMultiSourceTiming=true`）完全交给 `IEffectSink.ApplyAura`/`AuraHost` 自身的既有合并
+    策略决定，本方法不在这一层揣测/复用其它来源的句柄。幂等场景（未发生 `ClearAll`，或
+    `ReapplyGrants` 被意外连续调用）下，"调用前快照"与原实时查询的结果相同，不受影响。见
+    `core/gameplay/assembly/tests/CR150_01_EquipmentSharedAuraCrossMapTests.cs`。
+
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.ISkillHost` 没有"学习/遗忘技能"方法（技能书能力目前只存在于

@@ -311,19 +311,40 @@ namespace Core.Foundation.SaveSystem
             var currentMapId = TryGetSectionId(sections, SaveSections.WorldCurrentMapId);
             var currentPosition = TryGetSectionVec2(sections, SaveSections.WorldCurrentPosition);
 
-            var readOrder = ComputeReadOrder(sections);
-            foreach (var key in readOrder)
+            // CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：读取顺序按"全部已
+            // 注册的 IPersistable"（惯例同 ComputeWriteOrder），不再只按"文档里实际存在哪些段"
+            // 计算——后者会让已注册但文档缺失的段整段跳过 Load 调用，见 IPersistable.Load 判断
+            // 记录。文档里存在但没有任何已注册 IPersistable 认领的自定义段（例如更新版本移除了
+            // 某个模块、旧档仍带着它的段）单独警告一次，不影响本次读档流程。
+            foreach (var key in sections.Keys)
             {
-                if (!_persistables.TryGetValue(key, out var persistable))
+                if (key == SaveSections.Meta)
                 {
-                    _diagnostics.Warn($"存档段 \"{key}\" 未注册对应的 IPersistable，读档时已跳过该段");
                     continue;
                 }
 
-                if (!sections.TryGetValue(key, out var sectionValue))
+                if (!_persistables.ContainsKey(key))
                 {
-                    _diagnostics.Warn($"存档段 \"{key}\" 已注册 IPersistable 但文档中缺失该段，读档时已跳过对它的 Load 调用");
-                    continue;
+                    _diagnostics.Warn($"存档段 \"{key}\" 未注册对应的 IPersistable，读档时已跳过该段");
+                }
+            }
+
+            var readOrder = ComputeReadOrder();
+            foreach (var key in readOrder)
+            {
+                var persistable = _persistables[key];
+                var sectionPresent = sections.TryGetValue(key, out var sectionValue);
+
+                if (!sectionPresent)
+                {
+                    if (persistable.KeepStateWhenSectionMissing)
+                    {
+                        // 显式声明"缺失即保留"：不调用 Load，当前状态原样不动（见 IPersistable.
+                        // KeepStateWhenSectionMissing 判断记录）。
+                        continue;
+                    }
+
+                    sectionValue = JsonNull.Instance;
                 }
 
                 try
@@ -629,38 +650,17 @@ namespace Core.Foundation.SaveSystem
             return result;
         }
 
-        private static List<string> ComputeReadOrder(JsonObject sections)
-        {
-            var result = new List<string>();
-            var used = new HashSet<string>(StringComparer.Ordinal) { SaveSections.Meta };
-
-            foreach (var key in SaveSections.KnownOrder)
-            {
-                if (key == SaveSections.Meta)
-                {
-                    continue;
-                }
-
-                if (sections.ContainsKey(key))
-                {
-                    result.Add(key);
-                    used.Add(key);
-                }
-            }
-
-            var customKeys = new List<string>();
-            foreach (var key in sections.Keys)
-            {
-                if (!used.Contains(key))
-                {
-                    customKeys.Add(key);
-                }
-            }
-
-            customKeys.Sort(StringComparer.Ordinal);
-            result.AddRange(customKeys);
-            return result;
-        }
+        /// <summary>
+        /// CR150-03 根治：读取顺序改按"全部已注册的 <see cref="IPersistable"/>"计算（与
+        /// <see cref="ComputeWriteOrder"/> 完全同一套排序规则——已知段按 <see
+        /// cref="SaveSections.KnownOrder"/>，自定义段按 key 的 ordinal 顺序排在已知段之后），
+        /// 不再依赖当前这份存档文档里 <c>sections</c> 实际有哪些 key（那正是 CR150-03 复现的
+        /// 缺陷根源：旧档缺失的段因此整个不出现在读取顺序里，永远不会被 <see cref="Load"/> 调用，
+        /// 见 <see cref="IPersistable.Load"/> 判断记录）。是否真的调用某个段的 <c>Load</c>、以及
+        /// 传入真实段内容还是 <see cref="JsonNull"/>，由 <see cref="Load"/> 主循环按段在文档中
+        /// 是否存在决定，本方法只负责"该按什么顺序处理哪些已注册的段"这一件事。
+        /// </summary>
+        private List<string> ComputeReadOrder() => ComputeWriteOrder();
 
         // ---- meta 段读写 ---------------------------------------------------
 

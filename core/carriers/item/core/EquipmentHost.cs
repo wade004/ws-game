@@ -655,6 +655,31 @@ namespace Core.Carriers.Item
         /// 记录的句柄，不重新 <c>ApplyAura</c>（<c>AllowMultiSourceTiming=true</c> 时重复施加会产生
         /// 独立新叠层实例，不能靠"再施加一次反正会合并"蒙混过去）；只有确认已经不生效的才重新施加。
         /// </para>
+        /// <para>
+        /// CR150-01 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：上面这条幂等判断必须用
+        /// "调用本方法之前，这个 <c>aura_def</c> 是否已经生效"这个<b>在改动任何状态之前就固定下来的
+        /// 快照</b>去驱动，不能在逐件重放的循环<b>过程中</b>反复实时调用 <see cref="IAuraQuery.HasAura"/>。
+        /// 两件装备共享同一 <c>aura_def</c>（默认 <c>AllowMultiSourceTiming=false</c>）时，本方法重放
+        /// 第一件会把该 <c>aura_def</c> 的 <c>HasAura</c> 从 false 变为 true——如果第二件用"循环期间
+        /// 实时查询"的结果来判断，会把这次由第一件重放造成的"刚刚变活"误判成"从来没有失效过"，进而
+        /// 走幂等分支去复用自己（第二件）名下那份早已随 <c>ClearAll</c> 失效的旧句柄：这份旧句柄既没有
+        /// 被重新 <c>RegisterAuraHandle</c>，也不是 <c>AuraHost</c> 真正认得的活句柄，导致共享光环的
+        /// 引用计数只算上了第一件——卸下第一件时第二件仍装备着，计数却已经归零，光环被误删（外部审计
+        /// 复现：<c>afterFirstUnequip</c> 实际 False，预期仍应为 True）。改为下面这个逐 <c>aura_def</c>
+        /// 惰性缓存、只在"这个 def 第一次被问到"时真正查询一次 <see cref="IAuraQuery.HasAura"/>、此后
+        /// 同一次 <see cref="ReapplyGrants"/> 调用内全部复用同一个结果的写法后：第一件、第二件对同一个
+        /// <c>aura_def</c> 拿到的都是"本方法开始执行前"那个真实值——两件都判定为"确实已失效"，各自都
+        /// 会调用 <see cref="IEffectSink.ApplyAura"/>（与最初 <see cref="ApplyGrants"/> 完全同一路径，
+        /// 本类不在这一层揣测/复用其它来源的句柄）并各自 <see cref="RegisterAuraHandle"/>；
+        /// <c>AllowMultiSourceTiming=false</c> 下第二次 <c>ApplyAura</c> 会被 <c>AuraHost</c> 自己按
+        /// <c>(target, aura_def)</c> 合并回第一件刚创建的同一个实例，两次登记自然聚合成计数 2，与两件
+        /// 装备各自正常 <see cref="Equip"/> 时的稳态完全一致；<c>AllowMultiSourceTiming=true</c> 下
+        /// 两次 <c>ApplyAura</c>（不同 sourceId）则各自独立开出两个实例，计数各自恒为 1，同样与该模式
+        /// 下装备的稳态一致——两种模式都不需要本类额外分支处理，全部交给 <c>AuraHost</c> 的既有合并
+        /// 策略决定，本方法只负责"是否要重新调用 ApplyAura"这一个判断。幂等场景（未发生 <c>ClearAll</c>，
+        /// 或本方法被意外连续调用）下，"调用前快照"与"循环期间实时查询"结果相同（因为本来就没有任何
+        /// 状态被改动过），因此这处收紧不影响原有幂等断言。
+        /// </para>
         /// </summary>
         public void ReapplyGrants(Id unitId)
         {
@@ -663,12 +688,31 @@ namespace Core.Carriers.Item
                 return;
             }
 
+            // CR150-01 根治：见上方判断记录——按 aura_def 惰性缓存"本次 ReapplyGrants 调用开始前是否
+            // 已生效"，同一次调用内所有装备/套装门槛共享同一份快照，不随循环内的重放结果实时变化。
+            var aliveBeforeReapplyCache = new Dictionary<Id, bool>();
+            bool WasAliveBeforeReapply(Id auraDefId)
+            {
+                if (_auraQuery == null)
+                {
+                    return false;
+                }
+
+                if (!aliveBeforeReapplyCache.TryGetValue(auraDefId, out var alive))
+                {
+                    alive = _auraQuery.HasAura(unitId, auraDefId);
+                    aliveBeforeReapplyCache[auraDefId] = alive;
+                }
+
+                return alive;
+            }
+
             var touchedSetIds = new HashSet<Id>();
             foreach (var kv in slots)
             {
                 var instance = kv.Value;
                 var template = RequireTemplate(instance.TemplateId);
-                ReapplyAuraGrants(unitId, instance, template);
+                ReapplyAuraGrants(unitId, instance, template, WasAliveBeforeReapply);
                 if (TryGetSetId(template, out var setId))
                 {
                     touchedSetIds.Add(setId);
@@ -677,13 +721,16 @@ namespace Core.Carriers.Item
 
             foreach (var setId in touchedSetIds)
             {
-                ReapplySetBonuses(unitId, setId);
+                ReapplySetBonuses(unitId, setId, WasAliveBeforeReapply);
             }
         }
 
         /// <summary>见 <see cref="ReapplyGrants"/> 判断记录：对单件装备重放 <c>grants.auras</c>，逐条
-        /// 按 <see cref="_auraQuery"/> 判断是否需要真的重新 <c>ApplyAura</c>。</summary>
-        private void ReapplyAuraGrants(Id unitId, ItemInstance instance, DataRecord template)
+        /// 按 <paramref name="wasAliveBeforeReapply"/>（本次 <see cref="ReapplyGrants"/> 调用开始前的
+        /// 惰性快照，不是循环期间的实时查询，见 CR150-01 判断记录）判断是否需要真的重新
+        /// <c>ApplyAura</c>。</summary>
+        private void ReapplyAuraGrants(
+            Id unitId, ItemInstance instance, DataRecord template, Func<Id, bool> wasAliveBeforeReapply)
         {
             if (!template.TryGetObject("grants", out var grants) ||
                 !grants.TryGetValue("auras", out var aurasRaw) || !(aurasRaw is JsonArray aurasArr) || aurasArr.Count == 0)
@@ -703,10 +750,11 @@ namespace Core.Carriers.Item
                     continue;
                 }
 
-                if (_auraQuery != null && _auraQuery.HasAura(unitId, auraDefId))
+                if (wasAliveBeforeReapply(auraDefId))
                 {
-                    // 幂等：这个 aura_def 当前确实生效——沿用此前记录里对应的句柄，不重新
-                    // ApplyAura（见 ReapplyGrants 判断记录"不能靠再施加一次反正会合并蒙混过去"）。
+                    // 幂等：这个 aura_def 在本次 ReapplyGrants 调用开始前就已经生效——沿用此前记录里
+                    // 对应的句柄，不重新 ApplyAura（见 ReapplyGrants 判断记录"不能靠再施加一次反正会
+                    // 合并蒙混过去"；用调用前快照而非循环期间实时查询，见 CR150-01 判断记录）。
                     var existing = FindGrantedRef(previous, auraDefId);
                     if (existing.HasValue)
                     {
@@ -780,11 +828,20 @@ namespace Core.Carriers.Item
         /// 会误以为不需要重新施加。本方法先按 <see cref="_auraQuery"/> 清掉已经失效的档位记录（不
         /// 调用 <see cref="ReleaseAuraHandle"/>/<see cref="IEffectSink.RemoveAura"/>——那个句柄在光环
         /// 系统内早已不存在），再交由既有的 <see cref="RecomputeSetBonuses"/> 按当前件数重新判定、
-        /// 按需重新施加——两者组合起来才是"跨图后重新核实一遍套装光环"的完整语义。</summary>
-        private void ReapplySetBonuses(Id unitId, Id setId)
+        /// 按需重新施加——两者组合起来才是"跨图后重新核实一遍套装光环"的完整语义。
+        /// <para>
+        /// CR150-01 根治：判断"仍然生效"同样必须用 <paramref name="wasAliveBeforeReapply"/>（本次
+        /// <see cref="ReapplyGrants"/> 调用开始前的惰性快照），不能用循环期间的实时 <c>HasAura</c>
+        /// 查询——理由与 <see cref="ReapplyAuraGrants"/> 完全对称：套装门槛加成与某件装备的
+        /// <c>grants.auras</c> 共享同一个 <c>aura_def</c> 时，装备那一侧的重放（本方法在
+        /// <see cref="ReapplyGrants"/> 里恒晚于逐件装备重放执行）可能已经把它变回"生效"，实时查询会
+        /// 误判本方法自己这份记录"从未失效"，导致对着一个早已随 <c>ClearAll</c> 死掉的旧句柄调用
+        /// <see cref="ReleaseAuraHandle"/>/<c>RemoveAura</c> 或干脆整条记录都不被回收。
+        /// </para>
+        /// </summary>
+        private void ReapplySetBonuses(Id unitId, Id setId, Func<Id, bool> wasAliveBeforeReapply)
         {
-            if (_auraQuery != null &&
-                _appliedSetBonuses.TryGetValue((unitId, setId), out var applied) &&
+            if (_appliedSetBonuses.TryGetValue((unitId, setId), out var applied) &&
                 _sets.TryGetValue(setId, out var setRecord))
             {
                 var auraRefByThreshold = new Dictionary<int, Id>();
@@ -795,7 +852,7 @@ namespace Core.Carriers.Item
 
                 foreach (var threshold in new List<int>(applied.Keys))
                 {
-                    if (auraRefByThreshold.TryGetValue(threshold, out var auraDefId) && _auraQuery.HasAura(unitId, auraDefId))
+                    if (auraRefByThreshold.TryGetValue(threshold, out var auraDefId) && wasAliveBeforeReapply(auraDefId))
                     {
                         // 仍然生效（幂等场景，见 ReapplyGrants 判断记录），保留记录不动。
                         continue;

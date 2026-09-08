@@ -99,5 +99,17 @@ namespace Core.Carriers.Gobj
         /// （与 <c>LootOptions.FullPolicy</c> 默认值同一取舍：不会因为背包只差一格就让整批已经能
         /// 装下的部分也作废）。</summary>
         public GobjLootDeliveryPolicy ChestLootPolicy { get; set; } = GobjLootDeliveryPolicy.Partial;
+
+        /// <summary>
+        /// CR150-04 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：<c>gather_node</c>
+        /// 采集时背包放不下抽出物品的整体处理策略，语义与 <see cref="ChestLootPolicy"/> 完全对称
+        /// （同用 <see cref="GobjLootDeliveryPolicy"/>，默认同为 <see
+        /// cref="GobjLootDeliveryPolicy.Partial"/>）。判断记录——不复用 <see cref="ChestLootPolicy"/>
+        /// 同一个字段：两种 <c>GobjKind</c> 的交付策略是各自独立的口味配置，具体游戏可能希望箱子按
+        /// Partial（能拿多少拿多少）、采集物按 Reject（要么整批拿到要么一件都不拿，逼玩家先腾出
+        /// 足够空间）分别配置，合用一个字段会让这种组合无法表达；新增字段是纯加法，不影响
+        /// <see cref="ChestLootPolicy"/> 的既有默认值与既有调用方。
+        /// </summary>
+        public GobjLootDeliveryPolicy GatherNodeLootPolicy { get; set; } = GobjLootDeliveryPolicy.Partial;
     }
 }

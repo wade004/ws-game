@@ -54,6 +54,12 @@ namespace Tests.Foundation.SaveSystem
 
             public bool ThrowOnLoad { get; set; }
 
+            /// <summary>CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）覆盖：默认
+            /// <c>false</c>（继承 <see cref="IPersistable.KeepStateWhenSectionMissing"/> 的默认接口
+            /// 实现语义"缺段调用 Load(JsonNull) 清空"）；测试按需显式设为 <c>true</c> 验证"缺段即
+            /// 保留"这一显式声明路径不会被调用 <see cref="Load"/>。</summary>
+            public bool KeepStateWhenSectionMissing { get; set; }
+
             public RecordingPersistable(string sectionKey, JsonValue initial)
             {
                 SectionKey = sectionKey;
@@ -284,6 +290,84 @@ namespace Tests.Foundation.SaveSystem
 
             Assert.Equal(LoadStatus.Loaded, result.Status);
             Assert.Equal(new[] { SaveSections.WorldStateFlags, SaveSections.RngStreamStates, "custom.notes" }, log);
+        }
+
+        /// <summary>
+        /// CR150-03 核心复现与根治（architecture/落地计划/audit-3224ca1-20260908，P2）：
+        /// <see cref="SaveSystem.ComputeReadOrder"/> 此前只对存档文档里实际存在的段安排调用
+        /// <see cref="IPersistable.Load"/>——已注册但文档中整段缺失（旧存档产生于本段引入之前）的
+        /// 段会被整个跳过，对应模块的运行期状态因此原样保留，不会被清空。真实构造一份合法存档、
+        /// 只人为移除其中一个已注册段（保留信封其它字段与其它段不动，模拟"这份存档产生于该段引入
+        /// 之前"），用一个已经持有非空状态的新宿主 <see cref="SaveSystem.Load"/> 它：修复前
+        /// <c>Value</c> 原样保留、<c>OrderLog</c> 不含该段；修复后必须调用一次 <c>Load</c>、
+        /// 参数为 <see cref="JsonNull"/>，把状态清空。
+        /// </summary>
+        [Fact]
+        public void Load_OldSaveMissingRegisteredSection_StillCallsLoadWithJsonNull_ClearingResidualState()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.missing_section_clears");
+
+            // 存档：只登记 notes 一个段，产出一份"没有 world_state_flags 段"的合法旧档。
+            var sutSave = CreateSut(fs);
+            var notesSave = new RecordingPersistable("custom.notes", new JsonString("n"));
+            sutSave.RegisterPersistable(notesSave);
+            Assert.True(sutSave.Save(new SaveRequest(slotId, "t1")).Success);
+
+            // 读档：这次额外注册了 world_state_flags——文档里压根没有这一段，但读档前这个宿主自己
+            // 已经持有非空的运行期状态（模拟同一宿主先积累了状态，再读到一份还没有这个段的旧档，
+            // 即 CR150-03 复现场景本身）。
+            var log = new List<string>();
+            var flagsLoad = new RecordingPersistable(SaveSections.WorldStateFlags, new JsonObjectBuilder().Add("stale", new JsonString("residual")).Build())
+            {
+                OrderLog = log,
+            };
+            var notesLoad = new RecordingPersistable("custom.notes", JsonNull.Instance) { OrderLog = log };
+
+            var sutLoad = CreateSut(fs);
+            sutLoad.RegisterPersistable(flagsLoad);
+            sutLoad.RegisterPersistable(notesLoad);
+
+            var result = sutLoad.Load(slotId);
+
+            Assert.Equal(LoadStatus.Loaded, result.Status);
+            // 核心断言：已注册但文档缺失的段仍然被调用了一次 Load(JsonNull)——不是被整段跳过。
+            Assert.Contains(SaveSections.WorldStateFlags, log);
+            Assert.Equal(JsonNull.Instance, flagsLoad.Value);
+        }
+
+        /// <summary>见 <see cref="IPersistable.KeepStateWhenSectionMissing"/> 判断记录：显式覆盖为
+        /// <c>true</c> 的段，文档缺失时不应该被调用 <see cref="IPersistable.Load"/>——当前状态原样
+        /// 保留，这是"缺失即保留"这一少数语义的唯一合法表达方式（默认值下不再存在隐式的"缺段即
+        /// 跳过"）。</summary>
+        [Fact]
+        public void Load_SectionMissing_PersistableOptsIntoKeepState_DoesNotCallLoad()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.missing_section_kept");
+
+            var sutSave = CreateSut(fs);
+            sutSave.RegisterPersistable(new RecordingPersistable("custom.notes", new JsonString("n")));
+            Assert.True(sutSave.Save(new SaveRequest(slotId, "t1")).Success);
+
+            var log = new List<string>();
+            var keptValue = new JsonString("kept");
+            var kept = new RecordingPersistable(SaveSections.WorldStateFlags, keptValue)
+            {
+                OrderLog = log,
+                KeepStateWhenSectionMissing = true,
+            };
+            var notesLoad = new RecordingPersistable("custom.notes", JsonNull.Instance) { OrderLog = log };
+
+            var sutLoad = CreateSut(fs);
+            sutLoad.RegisterPersistable(kept);
+            sutLoad.RegisterPersistable(notesLoad);
+
+            var result = sutLoad.Load(slotId);
+
+            Assert.Equal(LoadStatus.Loaded, result.Status);
+            Assert.DoesNotContain(SaveSections.WorldStateFlags, log);
+            Assert.Same(keptValue, kept.Value); // Load 从未被调用，原样保留（同一个引用，不是新赋值）。
         }
 
         [Fact]

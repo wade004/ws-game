@@ -36,16 +36,32 @@ namespace Core.Carriers.Gobj
         private readonly IGobjDiagnostics _diagnostics;
 
         /// <summary>CR140-01 根治：<c>chest</c> 在 <see cref="GobjLootDeliveryPolicy.Partial"/> 策略下
-        /// 未能全部交付的剩余物品堆叠，按 gobj 实例 id 索引，供下次交互补发（见 <see
-        /// cref="OpenChestPartial"/>/<see cref="DeliverPendingChestLoot"/>）。判断记录（第七方审核
-        /// 收口修订）：本字段自身不直接依赖 <c>core/gameplay/loot</c>（L4）的
-        /// <c>DroppedLootEntity</c>/存档持久化概念，进程内存态本身随进程重启即丢失；但存读档场景
-        /// （满包 Partial 开箱 -> Save -> 新宿主 Load -> 腾出空间 -> 再交互）必须恰好补发一次剩余部分
-        /// ，不能因为这份记账只活在内存里而丢失——已补齐可选存档段 <see
-        /// cref="PendingChestLootSnapshot"/>/<see cref="RestorePendingChestLoot"/>（供
+        /// 未能全部交付的剩余物品堆叠，供下次交互补发（见 <see cref="OpenChestPartial"/>/<see
+        /// cref="DeliverPendingLoot"/>）；CR150-04 根治后 <c>gather_node</c> 复用同一份台账与同一套
+        /// 交付协议（见 <see cref="GatherNode"/>）。判断记录（第七方审核收口修订）：本字段自身不直接
+        /// 依赖 <c>core/gameplay/loot</c>（L4）的 <c>DroppedLootEntity</c>/存档持久化概念，进程内存态
+        /// 本身随进程重启即丢失；但存读档场景（满包 Partial 开箱 -&gt; Save -&gt; 新宿主 Load -&gt;
+        /// 腾出空间 -&gt; 再交互）必须恰好补发一次剩余部分，不能因为这份记账只活在内存里而丢失——
+        /// 已补齐可选存档段 <see cref="PendingLootSnapshot"/>/<see cref="RestorePendingLoot"/>（供
         /// <c>GobjPendingLootPersistable</c> 读写），是否注册该段由装配层决定（同 L4
-        /// <c>DroppedLootPersistable</c> 的接线方式，本模块不强制依赖它）。</summary>
-        private readonly Dictionary<Id, List<ItemStack>> _pendingChestLoot = new Dictionary<Id, List<ItemStack>>();
+        /// <c>DroppedLootPersistable</c> 的接线方式，本模块不强制依赖它）。
+        /// <para>
+        /// CR150-02 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：字典键改为按
+        /// <see cref="PendingLootKey"/>（<see cref="GameObjectEntity.OriginKey"/>，稳定身份）索引，
+        /// 不再按瞬态的 <c>gobjInstanceId</c>（运行期实体 id）索引——同一刷新点的实体因
+        /// <c>World.ClearAll</c>/离图重进而重新生成时会分配一个全新的运行期 id，旧台账按旧 id
+        /// 记的账会永久失联（外部审计复现：<c>oldId</c> 名下的余量仍在，新实体
+        /// <c>gobj.inst_2</c> 无法关联上，玩家再也拿不到）；改按稳定身份记账后，同一刷新点历次
+        /// 重新生成的实体都能关联上同一份台账。</para>
+        /// </summary>
+        private readonly Dictionary<Id, List<ItemStack>> _pendingLoot = new Dictionary<Id, List<ItemStack>>();
+
+        /// <summary>见 <see cref="_pendingLoot"/> 判断记录：pending 余量台账的记账键——优先取
+        /// <see cref="GameObjectEntity.OriginKey"/>（<see cref="GameObjectFactory.Spawn"/> 恒会填充，
+        /// 见该方法判断记录），<c>null</c>（绕过工厂直接构造的实体，理论上不会经过本模块的掉落交付
+        /// 路径，纯防御性兜底）时退化为 <see cref="Core.Foundation.SimLoop.Entity.EntityId"/>，与
+        /// 修复前的行为一致。</summary>
+        private static Id PendingLootKey(GameObjectEntity gobj) => gobj.OriginKey ?? gobj.EntityId;
 
         public GameObjectHost(
             IDataRegistryView registry,
@@ -74,20 +90,21 @@ namespace Core.Carriers.Gobj
         }
 
         // -----------------------------------------------------------------
-        // 存档段支持（见 <see cref="_pendingChestLoot"/> 判断记录的收口修订：原判断记录"不落地为
+        // 存档段支持（见 <see cref="_pendingLoot"/> 判断记录的收口修订：原判断记录"不落地为
         // 存档段"仅覆盖审计探针实测到的"当次运行内重试"这一不变式，未覆盖"存读档"路径——满包
-        // Partial 开箱后存档、读档到新宿主，_pendingChestLoot 是纯进程内字段会丢失，腾出空间后再
+        // Partial 开箱后存档、读档到新宿主，_pendingLoot 是纯进程内字段会丢失，腾出空间后再
         // 交互不会补发。以下两个方法供 <c>Core.Carriers.Gobj.GobjPendingLootPersistable</c>（可选
         // 存档段，装配层决定是否注册，同 <c>Core.Gameplay.Loot.DroppedLootPersistable</c> 的接线
         // 方式）读写这份台账，不改变 <see cref="OpenChestPartial"/>/<see
-        // cref="DeliverPendingChestLoot"/> 的既有语义。
+        // cref="DeliverPendingLoot"/> 的既有语义。
         // -----------------------------------------------------------------
 
-        /// <summary>当前 <see cref="_pendingChestLoot"/> 的只读快照，供存档段 <c>Save()</c> 使用。</summary>
-        public IReadOnlyDictionary<Id, IReadOnlyList<ItemStack>> PendingChestLootSnapshot()
+        /// <summary>当前 <see cref="_pendingLoot"/> 的只读快照，供存档段 <c>Save()</c> 使用；键是
+        /// <see cref="PendingLootKey"/>（稳定身份），不是运行期实体 id（见该方法判断记录）。</summary>
+        public IReadOnlyDictionary<Id, IReadOnlyList<ItemStack>> PendingLootSnapshot()
         {
-            var result = new Dictionary<Id, IReadOnlyList<ItemStack>>(_pendingChestLoot.Count);
-            foreach (var kv in _pendingChestLoot)
+            var result = new Dictionary<Id, IReadOnlyList<ItemStack>>(_pendingLoot.Count);
+            foreach (var kv in _pendingLoot)
             {
                 result[kv.Key] = new List<ItemStack>(kv.Value);
             }
@@ -95,12 +112,12 @@ namespace Core.Carriers.Gobj
             return result;
         }
 
-        /// <summary>用存档段 <c>Load()</c> 解析出的内容整体替换 <see cref="_pendingChestLoot"/>
+        /// <summary>用存档段 <c>Load()</c> 解析出的内容整体替换 <see cref="_pendingLoot"/>
         /// （读档 = 归零重建，惯例同 <c>DroppedLootPersistable.Load</c> 判断记录）。旧存档没有这段
         /// （<c>data is JsonNull</c>）时调用方传入空字典即可，视为"无待补发余量"，不视为错误。</summary>
-        public void RestorePendingChestLoot(IReadOnlyDictionary<Id, IReadOnlyList<ItemStack>> snapshot)
+        public void RestorePendingLoot(IReadOnlyDictionary<Id, IReadOnlyList<ItemStack>> snapshot)
         {
-            _pendingChestLoot.Clear();
+            _pendingLoot.Clear();
             if (snapshot == null)
             {
                 return;
@@ -113,7 +130,7 @@ namespace Core.Carriers.Gobj
                     continue;
                 }
 
-                _pendingChestLoot[kv.Key] = new List<ItemStack>(kv.Value);
+                _pendingLoot[kv.Key] = new List<ItemStack>(kv.Value);
             }
         }
 
@@ -300,11 +317,11 @@ namespace Core.Carriers.Gobj
                     return null;
 
                 case GobjKind.Chest:
-                    OpenChest(unitId, gobj.EntityId, template.TypeData.Chest!.Value.LootTableRef);
+                    OpenChest(unitId, gobj, template.TypeData.Chest!.Value.LootTableRef);
                     return null;
 
                 case GobjKind.GatherNode:
-                    GatherNode(unitId, gobj.EntityId, template.TypeData.GatherNode!.Value);
+                    GatherNode(unitId, gobj, template.TypeData.GatherNode!.Value);
                     return null;
 
                 case GobjKind.Teleporter:
@@ -375,19 +392,34 @@ namespace Core.Carriers.Gobj
         /// cref="GobjLootDeliveryPolicy"/> 类型注释）：只有整批交付成功才提交 <c>open_state=true</c>；
         /// <see cref="GobjLootDeliveryPolicy.Reject"/> 下但凡有一堆放不下就整体回滚、不标记，允许下次
         /// 交互重新完整 roll 一遍重试；<see cref="GobjLootDeliveryPolicy.Partial"/> 下保留已交付部分，
-        /// 未交付部分记入 <see cref="_pendingChestLoot"/> 供下次交互只补发剩余（不重新 roll，避免在
+        /// 未交付部分记入 <see cref="_pendingLoot"/> 供下次交互只补发剩余（不重新 roll，避免在
         /// 已交付部分之上又叠加一份全新掉落），同时仍然标记 <c>open_state=true</c>（防止两种策略混淆
         /// 出"未标记但已经拿到过一部分"的状态）。
         /// </para>
         /// </summary>
-        private void OpenChest(Id unitId, Id gobjInstanceId, Id lootTableRef)
+        private void OpenChest(Id unitId, GameObjectEntity gobj, Id lootTableRef)
         {
+            var gobjInstanceId = gobj.EntityId;
+            var pendingKey = PendingLootKey(gobj);
+
+            // CR150-02 根治：先检查这个稳定身份（可能是同一实体，也可能是同一刷新点在
+            // World.ClearAll 后重新生成的另一个实体——见 PendingLootKey 判断记录）是否还欠着未交付
+            // 余量——不管这个具体运行期实体自己的 open_state 是什么（新实体的 open_state 天然是
+            // "未开过"），只要账还没结清就先补发、不重新 roll，避免旧账变成永远够不到的孤儿。顺手
+            // 把这个具体实体标记为已开（即便它是新生成的）：补发这份继承来的旧账本身就等价于
+            // "这次交互用掉了"，防止紧接着的下一次交互因为这个新实体自己的 open_state 从未被设置过
+            // 而又整批重新 roll 一遍（同一份奖励变相拿两次）。
+            if (_pendingLoot.TryGetValue(pendingKey, out var pendingBefore) && pendingBefore.Count > 0)
+            {
+                DeliverPendingLoot(unitId, pendingKey);
+                SetState(gobjInstanceId, "open_state", ExprValue.OfBool(false), ExprValue.OfBool(true));
+                return;
+            }
+
             if (GetStateBool(gobjInstanceId, "open_state"))
             {
-                // 已开过：Partial 策略下可能仍有未交付完的剩余奖励，尝试补发（不重新 roll）；Reject
-                // 策略或已经补发完的 Partial 走到这里是 no-op（见 07 第 9 节测试方式"箱子首次开箱
+                // 这个具体实体已经开过、也没有遗留余量：no-op（07 第 9 节测试方式"箱子首次开箱
                 // 掉落入包、再开不重复"，本方法把该不变式扩展为"……或已补发完剩余部分"）。
-                DeliverPendingChestLoot(unitId, gobjInstanceId);
                 return;
             }
 
@@ -408,7 +440,7 @@ namespace Core.Carriers.Gobj
             }
             else
             {
-                OpenChestPartial(unitId, gobjInstanceId, stacks);
+                OpenChestPartial(unitId, gobj, stacks);
             }
         }
 
@@ -468,12 +500,13 @@ namespace Core.Carriers.Gobj
         }
 
         /// <summary>见 <see cref="GobjLootDeliveryPolicy.Partial"/>：能拿多少拿多少，未交付部分记入
-        /// <see cref="_pendingChestLoot"/>（同 <see
-        /// cref="Core.Gameplay.Loot.LootHost.PickUpPartial"/> 判断记录，不需要事务——每次
-        /// <see cref="IInventoryHost.TryAddItem"/> 调用本身已经是"这一堆放多少算多少"的原子操作，
-        /// 从不需要撤销已经成功落地的部分）。</summary>
-        private void OpenChestPartial(Id unitId, Id gobjInstanceId, IReadOnlyList<ItemStack> stacks)
+        /// <see cref="_pendingLoot"/>（按 <see cref="PendingLootKey"/> 稳定身份索引，见该方法判断
+        /// 记录；同 <see cref="Core.Gameplay.Loot.LootHost.PickUpPartial"/> 判断记录，不需要事务——
+        /// 每次 <see cref="IInventoryHost.TryAddItem"/> 调用本身已经是"这一堆放多少算多少"的原子
+        /// 操作，从不需要撤销已经成功落地的部分）。</summary>
+        private void OpenChestPartial(Id unitId, GameObjectEntity gobj, IReadOnlyList<ItemStack> stacks)
         {
+            var gobjInstanceId = gobj.EntityId;
             var remaining = new List<ItemStack>(stacks.Count);
             var anyDelivered = stacks.Count == 0;
 
@@ -507,15 +540,17 @@ namespace Core.Carriers.Gobj
 
             if (remaining.Count > 0)
             {
-                _pendingChestLoot[gobjInstanceId] = remaining;
+                _pendingLoot[PendingLootKey(gobj)] = remaining;
             }
         }
 
-        /// <summary>已开过的箱子再次交互时，尝试补发 <see cref="_pendingChestLoot"/> 里记录的剩余部分
-        /// （不重新 <see cref="ILootRoller.Roll"/>——见 <see cref="OpenChestPartial"/> 判断记录）。</summary>
-        private void DeliverPendingChestLoot(Id unitId, Id gobjInstanceId)
+        /// <summary>已开过的箱子/已经进入冷却的采集物再次交互时，尝试补发 <see cref="_pendingLoot"/>
+        /// 里记录的剩余部分（不重新 <see cref="ILootRoller.Roll"/>——见 <see cref="OpenChestPartial"/>
+        /// 判断记录）。<paramref name="pendingKey"/> 是 <see cref="PendingLootKey"/> 稳定身份，不是
+        /// 运行期实体 id。</summary>
+        private void DeliverPendingLoot(Id unitId, Id pendingKey)
         {
-            if (!_pendingChestLoot.TryGetValue(gobjInstanceId, out var pending) || pending.Count == 0)
+            if (!_pendingLoot.TryGetValue(pendingKey, out var pending) || pending.Count == 0)
             {
                 return;
             }
@@ -533,11 +568,11 @@ namespace Core.Carriers.Gobj
 
             if (remaining.Count == 0)
             {
-                _pendingChestLoot.Remove(gobjInstanceId);
+                _pendingLoot.Remove(pendingKey);
             }
             else
             {
-                _pendingChestLoot[gobjInstanceId] = remaining;
+                _pendingLoot[pendingKey] = remaining;
             }
         }
 
@@ -566,11 +601,49 @@ namespace Core.Carriers.Gobj
             }
         }
 
-        private void GatherNode(Id unitId, Id gobjInstanceId, GatherNodeTypeData data)
+        /// <summary>
+        /// CR150-04 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：修复前无条件先
+        /// <c>SetState("used_at", ...)</c> 提交冷却，再调用 <see cref="RollLootInto"/> 把抽出的掉落
+        /// 无条件塞进背包、完全不检查/不处理 <see cref="IInventoryHost.AddItem"/> 的交付结果——满包时
+        /// 奖励整份丢失，且冷却已经提交，腾出空间后在同一冷却窗口内重试仍会被挡住，玩家再也拿不到
+        /// 那份本该属于自己的奖励（外部审计复现：<c>used_at</c> 前后恒为同一时间戳、奖励数量恒为
+        /// 0）。根治改用与 <see cref="OpenChest"/> 完全同一套 Reject/Partial 交付协议（见
+        /// <see cref="GobjOptions.GatherNodeLootPolicy"/>）：只有真正交付了至少一部分才提交冷却；
+        /// <see cref="GobjLootDeliveryPolicy.Partial"/> 下未交付部分记入 <see cref="_pendingLoot"/>
+        /// （按 <see cref="PendingLootKey"/> 稳定身份索引，见 CR150-02 判断记录，实体因跨图重建换了
+        /// 运行期 id 也能正确关联）。
+        /// <para>
+        /// 补发优先于新一轮 roll：本方法一开始就检查 <see cref="_pendingLoot"/> 是否有该稳定身份的
+        /// 遗留余量，有则只补发、不受冷却门槛限制——冷却只应该约束"能否开始新一轮采集"，不应该连
+        /// "把上次已经欠下的余量还给玩家"这件事也一并挡住（那会让"腾出背包空间后立刻重试"这个直觉
+        /// 操作在冷却结束前必然落空，见外部审计"部分成功后同一冷却内重试"场景）。
+        /// </para>
+        /// </summary>
+        private void GatherNode(Id unitId, GameObjectEntity gobj, GatherNodeTypeData data)
         {
+            var gobjInstanceId = gobj.EntityId;
+            var pendingKey = PendingLootKey(gobj);
             var key = GobjStateKeys.For(gobjInstanceId, "used_at");
             var now = _options.SimTime();
             var previous = _flags.Get(key);
+
+            if (_pendingLoot.TryGetValue(pendingKey, out var pendingBefore) && pendingBefore.Count > 0)
+            {
+                DeliverPendingLoot(unitId, pendingKey);
+
+                if (!previous.HasValue)
+                {
+                    // 这是一个继承了旧稳定身份未交付余量、但自己从未记录过冷却的新实体（同刷新点
+                    // World.ClearAll 后重新生成）——本次补发本身也应当算"用过一次"，提交冷却，避免
+                    // 紧接着的下一次交互把它当成"从未采集过"而立刻又 roll 一批全新掉落（CR150-02/
+                    // 04 组合判断记录）。若是同一实体在冷却期内重试补发（previous 已有值），冷却
+                    // 时钟不应该因为这次补发而被推迟到 now，维持原值不动——respawn_after_use 应当
+                    // 从最初那次真正采集的时刻算起，不是从玩家腾出背包空间重新来补领的时刻算起。
+                    SetState(gobjInstanceId, "used_at", ExprValue.OfNumber(0), ExprValue.OfNumber(now));
+                }
+
+                return;
+            }
 
             if (previous.HasValue && previous.Value.IsNumeric)
             {
@@ -582,22 +655,118 @@ namespace Core.Carriers.Gobj
                 }
             }
 
-            SetState(gobjInstanceId, "used_at", previous ?? ExprValue.OfNumber(0), ExprValue.OfNumber(now));
-            RollLootInto(unitId, gobjInstanceId, data.LootTableRef);
-        }
-
-        private void RollLootInto(Id unitId, Id gobjInstanceId, Id lootTableRef)
-        {
             if (_loot == null)
             {
                 _diagnostics.Warn($"gobj \"{gobjInstanceId}\" 需要掉落但未注入 ILootRoller");
+                // 没有掉落表可抽，没有奖励会丢失：仍按原有行为标记冷却，避免每次交互都重复报同一条
+                // 诊断（判断记录同 OpenChest 分支——这不属于 CR150-04"发奖前被永久标记"的缺口，因为
+                // 压根没有发生过任何发奖尝试）。
+                SetState(gobjInstanceId, "used_at", previous ?? ExprValue.OfNumber(0), ExprValue.OfNumber(now));
                 return;
             }
 
-            var stacks = _loot.Roll(lootTableRef, gobjInstanceId, unitId);
-            for (var i = 0; i < stacks.Count; i++)
+            var stacks = _loot.Roll(data.LootTableRef, gobjInstanceId, unitId);
+            if (_options.GatherNodeLootPolicy == GobjLootDeliveryPolicy.Reject)
             {
-                _inventory.AddItem(unitId, stacks[i].TemplateId, stacks[i].Count);
+                GatherNodeReject(unitId, gobjInstanceId, previous, now, stacks);
+            }
+            else
+            {
+                GatherNodePartial(unitId, gobj, previous, now, stacks);
+            }
+        }
+
+        /// <summary>见 <see cref="GobjLootDeliveryPolicy.Reject"/>：整批交付成功才提交冷却
+        /// （<c>used_at</c>），否则整体回滚、不提交，允许下次交互不受冷却限制重新完整 roll 一遍重试
+        /// （同 <see cref="OpenChestReject"/> 判断记录）。</summary>
+        private void GatherNodeReject(
+            Id unitId, Id gobjInstanceId, ExprValue? previousUsedAt, double now,
+            IReadOnlyList<ItemStack> stacks)
+        {
+            if (stacks.Count == 0)
+            {
+                SetState(gobjInstanceId, "used_at", previousUsedAt ?? ExprValue.OfNumber(0), ExprValue.OfNumber(now));
+                return;
+            }
+
+            var addedPerStack = new List<int>(stacks.Count);
+            var fullySucceeded = true;
+
+            var transaction = _inventory is IBatchableInventoryHost batchable ? batchable.BeginBatch() : null;
+            using (transaction)
+            {
+                foreach (var stack in stacks)
+                {
+                    _inventory.TryAddItem(unitId, stack.TemplateId, stack.Count, out var actualCount);
+                    addedPerStack.Add(actualCount);
+                    if (actualCount < stack.Count)
+                    {
+                        fullySucceeded = false;
+                    }
+                }
+
+                if (!fullySucceeded)
+                {
+                    if (transaction == null)
+                    {
+                        for (var i = 0; i < stacks.Count; i++)
+                        {
+                            if (addedPerStack[i] > 0)
+                            {
+                                RollbackAdd(unitId, stacks[i].TemplateId, addedPerStack[i]);
+                            }
+                        }
+                    }
+
+                    // 不提交冷却：这次尝试没有任何奖励真正留在玩家背包里，下次交互允许重新完整 roll
+                    // 一遍并重试（CR150-04 根治"Reject 时不提交冷却、可重试"）。
+                    return;
+                }
+
+                transaction?.Commit();
+            }
+
+            SetState(gobjInstanceId, "used_at", previousUsedAt ?? ExprValue.OfNumber(0), ExprValue.OfNumber(now));
+        }
+
+        /// <summary>见 <see cref="GobjLootDeliveryPolicy.Partial"/>：能拿多少拿多少，未交付部分记入
+        /// <see cref="_pendingLoot"/>（按 <see cref="PendingLootKey"/> 稳定身份索引），只要交付了至少
+        /// 一部分就提交冷却；一件都没能交付时不提交冷却，允许下次交互不受冷却限制重新完整 roll 一遍
+        /// （同 <see cref="OpenChestPartial"/> 判断记录）。</summary>
+        private void GatherNodePartial(
+            Id unitId, GameObjectEntity gobj, ExprValue? previousUsedAt, double now,
+            IReadOnlyList<ItemStack> stacks)
+        {
+            var gobjInstanceId = gobj.EntityId;
+            var remaining = new List<ItemStack>(stacks.Count);
+            var anyDelivered = stacks.Count == 0;
+
+            foreach (var stack in stacks)
+            {
+                _inventory.TryAddItem(unitId, stack.TemplateId, stack.Count, out var actualCount);
+                if (actualCount > 0)
+                {
+                    anyDelivered = true;
+                }
+
+                var leftover = stack.Count - actualCount;
+                if (leftover > 0)
+                {
+                    remaining.Add(new ItemStack(stack.TemplateId, leftover));
+                }
+            }
+
+            if (!anyDelivered)
+            {
+                // CR150-04 核心断言：一件都没能交付时不提交冷却，允许下次交互重新完整 roll 一遍重试。
+                return;
+            }
+
+            SetState(gobjInstanceId, "used_at", previousUsedAt ?? ExprValue.OfNumber(0), ExprValue.OfNumber(now));
+
+            if (remaining.Count > 0)
+            {
+                _pendingLoot[PendingLootKey(gobj)] = remaining;
             }
         }
 
