@@ -62,6 +62,24 @@ name: Release
 # 五个文件本来就要一起从头产出，不存在"新旧批次混配"的风险。下面两个 build.ps1 步骤的 `if:`
 # 因此从只判断 `skip != 'true'` 收紧为额外要求 `zip_missing == 'true'`。
 #
+#
+# 判断记录（zip 缺失分支收紧为阻断而非全量重建混批，2026-09-08，见
+# architecture/落地计划/audit-c86bfa9-20260908/AUDIT_REPORT.md PJ140-02）：上一条判断记录
+# （"缺附件 fallback 根治为'从已验证 zip 抽取'"）只覆盖了"zip 存在、其余附件缺失"这一支——
+# 从已验证 zip 里原样抽字节，保证补的内容与 zip 同源。但另一支"zip 本身缺失、lock/tgz 中至少
+# 一个仍在"没有被覆盖：原逻辑一律当作"没有旧包可复用"，直接触发 build.ps1 全量重建；托管运行器
+# 与本机 checkout 路径不同，确定性构建产出的六个 DLL 字节、sha256 都会不同（见上面"本机已验证
+# 产物优先"判断记录），新构建出的 zip 因此与仍然留存的旧 lock/tgz 不是同一批产物——而上传步骤
+# 只上传本次缺失的文件（新 zip），旧 lock/tgz 原样保留，最终 Release 上出现"新 zip + 旧附件"的
+# 混批，且没有任何机制能证明两者同源。根治：本步骤新增判定——zip 缺失时，只要 lock 或任一 .tgz
+# 仍然存在，就无法证明重建出的 zip 与它们属于同一批构建，直接 exit 1 阻断，并打印指引（本机用
+# `build.ps1 -SyncOnly -Dist <ver> -Zip` 针对这个 tag 指向的提交重新打一份 zip 后手动补传，或者
+# 删除该 tag 下的全部既有附件后重新触发本工作流，让它一次性全量重建五件套）；只有五个附件全部
+# 缺失（没有任何旧产物可能与新构建混批）才继续走原有的全量重建路径。另外，只要 lock 已作为既有
+# 附件存在（不论 zip 是否存在），都会下载并解析其 JSON 里的 `git_commit` 字段，与当前 checkout
+# 的提交比对，不一致同样阻断——防止 lock 记录的哈希其实来自另一个提交、却被当作当前 tag 的产物
+# 保留。
+#
 # 判断记录（run: 脚本正文必须是纯 ASCII，2026-09-07 新增）：推送标签 v1.0.0 触发的运行
 # （run 34094116412）在 "Resolve version from tag" 步骤失败，报
 # "The string is missing the terminator: ''" / "Missing closing '}'"。根因：GitHub Actions
@@ -192,12 +210,16 @@ jobs:
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-        # 判断记录：见文件头"附件存在性检查改为核对完整附件集合"与"缺附件 fallback 根治为'从已
-        # 验证 zip 抽取'"两条说明。用 gh release view --json assets 查该 tag 对应 Release 的既有
-        # 附件列表，与完整附件集合（zip、lock、三个 .tgz）逐一比对：全部存在才跳过打包与上传；
-        # 否则只把缺失的文件路径放进下面上传步骤的 files 列表，已存在的附件不会被覆盖。若 zip 本身
-        # 已存在（无论是否还缺其它附件），先下载这份 zip 校验其 MANIFEST.txt 里的 git_commit 与
-        # 当前 checkout 的提交一致，不一致直接阻断，避免在错误的基线上补附件。
+        # 判断记录：见文件头"附件存在性检查改为核对完整附件集合"、"缺附件 fallback 根治为'从已
+        # 验证 zip 抽取'"与"zip 缺失分支收紧为阻断而非全量重建混批"三条说明。用
+        # gh release view --json assets 查该 tag 对应 Release 的既有附件列表，与完整附件集合
+        # （zip、lock、三个 .tgz）逐一比对：全部存在才跳过打包与上传；否则只把缺失的文件路径放进
+        # 下面上传步骤的 files 列表，已存在的附件不会被覆盖。若 zip 本身已存在（无论是否还缺其它
+        # 附件），先下载这份 zip 校验其 MANIFEST.txt 里的 git_commit 与当前 checkout 的提交一致，
+        # 不一致直接阻断。若 lock 已存在（无论 zip 是否存在），同样下载并校验其 JSON 里的
+        # git_commit 字段与当前提交一致，不一致直接阻断。若 zip 缺失但 lock 或任一 .tgz 仍存在，
+        # 无法证明重建出的 zip 与它们同批，直接阻断并打印指引，不再触发全量重建；只有五个附件
+        # 全部缺失才继续走全量重建路径。
         run: |
           $ErrorActionPreference = "Continue"
           $tag = "${{ steps.version.outputs.tag }}"
@@ -228,10 +250,12 @@ jobs:
 
           $missingNames = @($requiredNames | Where-Object { $existingNames -notcontains $_ })
           $zipName = "ws-game-$version.zip"
+          $lockName = "ws-game-$version.lock"
           $zipExists = $existingNames -contains $zipName
+          $lockExists = $existingNames -contains $lockName
+          $currentCommit = (git rev-parse --short HEAD).Trim()
 
           if ($zipExists) {
-            $currentCommit = (git rev-parse --short HEAD).Trim()
             $downloadDir = Join-Path $env:RUNNER_TEMP "gf_existing_zip"
             New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
             gh release download $tag -p $zipName -D $downloadDir --clobber
@@ -267,6 +291,28 @@ jobs:
             "existing_zip_path=$existingZipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
 
+          if ($lockExists) {
+            $downloadDirLock = Join-Path $env:RUNNER_TEMP "gf_existing_lock"
+            New-Item -ItemType Directory -Force -Path $downloadDirLock | Out-Null
+            gh release download $tag -p $lockName -D $downloadDirLock --clobber
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "Failed to download existing asset $lockName for commit verification (exit $LASTEXITCODE)."
+              exit 1
+            }
+            $existingLockPath = Join-Path $downloadDirLock $lockName
+            $lockObjExisting = Get-Content -Raw -Path $existingLockPath | ConvertFrom-Json
+            $lockCommit = $lockObjExisting.git_commit
+            if ([string]::IsNullOrEmpty($lockCommit)) {
+              Write-Host "Existing $lockName has no git_commit field. Blocking."
+              exit 1
+            }
+            if ($lockCommit -ne $currentCommit) {
+              Write-Host "Existing $lockName was built from commit $lockCommit, but tag $tag points at $currentCommit. Refusing to treat it as part of this batch; investigate manually."
+              exit 1
+            }
+            Write-Host "Existing $lockName commit verified: $lockCommit matches tag $tag."
+          }
+
           if ($missingNames.Count -eq 0) {
             Write-Host "Release $tag already has all required assets ($($requiredNames -join ', ')). Skipping rebuild-and-upload to avoid overwriting verified artifacts with a hosted-runner rebuild (see file header note on deterministic-build path hashes)."
             "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -275,7 +321,14 @@ jobs:
             $zipMissing = $missingNames -contains $zipName
             Write-Host "Release $tag is missing: $($missingNames -join ', ')."
             if ($zipMissing) {
-              Write-Host "The zip itself is missing; will do a full rebuild via build.ps1 (no prior zip to reuse, so no mixed-batch risk)."
+              $otherPresent = @($existingNames | Where-Object { $requiredNames -contains $_ -and $_ -ne $zipName })
+              if ($otherPresent.Count -gt 0) {
+                Write-Host "BLOCKED: the zip ($zipName) is missing, but other release assets already exist: $($otherPresent -join ', ')."
+                Write-Host "A hosted-runner rebuild would produce a new zip with different DLL bytes/hashes than a local build (deterministic builds encode the checkout path; see file header note), so there is no way to prove the existing assets belong to the same batch as a freshly rebuilt zip."
+                Write-Host "Guidance: (1) on your own machine, run 'build.ps1 -SyncOnly -Dist $version -Zip' against the exact commit this tag points at, then upload the resulting zip to this release manually alongside the existing assets; OR (2) delete ALL existing assets on release $tag and re-run this workflow so it performs a single full rebuild of all five files together."
+                exit 1
+              }
+              Write-Host "All required assets are missing; will do a full rebuild via build.ps1 (no prior assets exist, so there is no mixed-batch risk)."
             } else {
               Write-Host "The zip exists and its commit matches the tag; will repair the missing assets by extracting from the existing zip instead of rebuilding on the hosted runner."
             }

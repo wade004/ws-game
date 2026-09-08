@@ -16,10 +16,16 @@
 两轮修复合并发布：① 游戏侧复核 1.3.0 发现并根治三项问题——model 型动画状态机永久卡死、瞬态状态
 同状态重入不重播、框架常驻壳（`FrameworkResidentHost`）未接通 model 型外形（提交 `9f5695d`/
 `360ff5f`）。② 第八方深度审核（codex 第六轮，基线 `5c444f1`）17 项发现（PR130-01～08、
-PJ130-01～04、CR130-01～05）全部核实并根治，逐条核实表、旧 13 项复核对照、文档漂移与链接处理见
+PJ130-01～04、CR130-01～05）逐条核实并在当时验证范围内根治，逐条核实表、旧 13 项复核对照、
+文档漂移与链接处理见
 [audit-5c444f1-20260908/followup-2026-09-08b.md](architecture/落地计划/audit-5c444f1-20260908/followup-2026-09-08b.md)。
 均属表现层/引擎适配层/核心规则/交付工具链缺陷修复与能力补齐，无数据表字段删改，无存档格式不兼容
-变更（CR130-02 只改变运行期判定逻辑，`player.known_skills` 段 JSON 形状不变）。
+变更（CR130-02 只改变运行期判定逻辑，`player.known_skills` 段 JSON 形状不变）。**收窄说明**：
+第七轮外部审核（codex，基线 `c86bfa9`，即本版本自身）复核这 17 项时发现其中两项当时的根治
+范围未覆盖全部子路径——CR130-01（购买/拾取事务化）未覆盖一次性宝箱直发路径（新记为
+CR140-01，P1）、CR130-05（跨图传送 resolver）只修了同图/null 分支、跨图分支仍被内置 resolver
+覆盖（新记为 CR140-03）；这两项不因"17 项全部根治"这句话被视为已闭合，实际状态与验收标准见
+[audit-c86bfa9-20260908/AUDIT_REPORT.md](architecture/落地计划/audit-c86bfa9-20260908/AUDIT_REPORT.md)。
 
 ### 新增
 
@@ -107,11 +113,28 @@ PJ130-01～04、CR130-01～05）全部核实并根治，逐条核实表、旧 13
   生产代码中唯一"曾经依赖三参重载被当作临时来源"的调用方（`Core.Carriers.Assembly.CarriersAssembly`
   装备 `SkillGranter`）已同步改为显式四参调用（`permanent: false`）；自行组装 `SkillHost` 的调用方
   若依赖三参重载表示临时来源，需要同步改为显式四参调用。
-- **版本判据说明**：本次为 MINOR（`1.3.0` → `1.4.0`），因新增成员（`IHitFrameEmitter`、
+- **版本判据说明**：本次为 MINOR（`1.3.0` → `1.4.0`），新增成员（`IHitFrameEmitter`、
   `ProcHost.RescaleAll`、`GobjInteractedEvent.TeleportTargetRef`、`SkillHost` 新重载/新方法、
   `EquipmentVisualSource`、`PresentationAssembly`/`UnityViewFactory` 新构造参数）均为可选/附加成员，
-  不破坏既有调用方编译；且 1.3.0 引入的强制成员（`ICharacterRig.HitFrameReached`）已在本版本
-  收窄为可选接口 `IHitFrameEmitter` 承载，属于"放宽约束"而非新增强制义务，不构成 MAJOR。
+  不破坏既有调用方编译。**收窄**：上一句"不破坏既有调用方编译"仅覆盖上述新增成员，不覆盖下面
+  "已知源码兼容性破坏"一条列出的两处改名/删除——那两处已经过独立编译验证证实会破坏未迁移的
+  1.3 消费方源码，不属于本条"新增成员均可选"的范围，不应被本条带过。
+- **已知源码兼容性破坏与本版恢复的兼容层**（PJ140-01，第七轮外部审核，基线 `c86bfa9` 发现）：
+  1.3.0 引入的强制成员 `ICharacterRig.HitFrameReached` 在本版本内被直接从接口移除（迁移到新增的
+  可选接口 `IHitFrameEmitter`），以及 `Presentation.Common.Contracts.ViewKind` 的枚举成员
+  `GameObject` 被直接改名为 `Gobj`（消除与具体引擎核心类型同名造成的技术名模糊误报，见提交
+  `88a0778`）——这两处都不是"新增可选/附加成员"，而是对已发布公开签名的改名/删除，用独立的 1.3
+  消费方工程针对真实 1.4.0 DLL 编译可复现失败：`ViewKind.GameObject` 报 `CS0117`、
+  `ICharacterRig.HitFrameReached` 报 `CS1061`（复现日志见
+  [audit-c86bfa9-20260908/AUDIT_REPORT.md PJ140-01](architecture/落地计划/audit-c86bfa9-20260908/AUDIT_REPORT.md)）。
+  按 [11_工程规范与测试.md 第 7 节](architecture/11_工程规范与测试.md) 的判据，公开枚举成员改名/
+  删除、接口成员删除同属不兼容变更，本应按 MAJOR 处理或至少保留过时别名/默认实现一个 MINOR
+  周期，而不是在同一个 MINOR 发布内直接改名/删除且不留兼容路径。为把当前状态收回到"MINOR 内不
+  破坏既有编译"的既有承诺内，本版本恢复了对应的兼容层：`ViewKind` 补回过时别名
+  `GameObject`（与 `Gobj` 同值，标记为已过时，建议新代码改用 `Gobj`）；`ICharacterRig` 恢复
+  `HitFrameReached` 作为带默认实现的成员（标记为已过时，建议改用 `IHitFrameEmitter`），未覆写该
+  默认实现的既有实现类型无需改动即可继续编译。两处兼容层均计划在下一个 MAJOR 发布中随旧签名一并
+  移除；具体实现类型与提交见后续修订版本记录。
 - 占位模型资产新增 `hit` 状态与 `anim_clips/hit.anim`（`adapters/unity/Assets/Editor/GeneratePlaceholderModelAssets.cs`
   可重复运行生成）；`data/_sample/display/display.anim_set.json` 的
   `display.anim_set.placeholder_biped` 补 `hit` 剪辑声明，供"受击后继续攻击"端到端验收使用。
