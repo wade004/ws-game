@@ -24,6 +24,16 @@ namespace Core.Foundation.SaveSystem
         /// <summary>player.archetype 段（10 第 2.2、3 节步骤 3，对应字段 <c>archetype_id</c>）。</summary>
         public const string PlayerArchetype = "player.archetype";
 
+        /// <summary>
+        /// player.race_id 段（10 第 2.2、3 节步骤 3，勘误新增，见 <c>Core.Carriers.Unit.
+        /// UnitPersistable.RaceId</c>）：种族被动光环跨图丢失根治（architecture/落地计划/
+        /// audit-85f1f4f-20260908）补录——<see cref="PlayerArchetype"/> 只存职业模板引用，本段单独
+        /// 存可选的种族模板引用（<c>Core.Carriers.Unit.PlayerUnit.RaceId</c>），供跨图重放种族被动
+        /// 光环时查询"该用哪个种族"。放在 <see cref="PlayerArchetype"/> 之后——同属职业/种族分组，
+        /// 且不依赖也不被后续任何段依赖。
+        /// </summary>
+        public const string PlayerRaceId = "player.race_id";
+
         /// <summary>player.inventory 段（10 第 2.2、3 节步骤 4）。</summary>
         public const string PlayerInventory = "player.inventory";
 
@@ -115,6 +125,7 @@ namespace Core.Foundation.SaveSystem
             WorldStateFlags,
             PlayerProgression,
             PlayerArchetype,
+            PlayerRaceId,
             PlayerInventory,
             PlayerEquipment,
             PlayerKnownSkills,

@@ -1329,6 +1329,65 @@ namespace Tests.Foundation.SaveSystem
             Assert.NotNull(result.Meta);
         }
 
+        /// <summary>
+        /// AUD-01 根治（architecture/落地计划/audit-85f1f4f-20260908，P1）：某段 <c>Load</c> 抛异常
+        /// 时，此前已经成功 <c>Load</c> 过的段必须按逆序回滚到读档前的状态，不能让调用方看到"部分段
+        /// 已经是新档内容、部分段还是旧内容"的不一致中间态——真实探针复现：<c>player.inventory</c>
+        /// 段已按新档覆盖为快照值，紧随其后的 <c>world.gobj_pending_loot</c> 段抛异常，
+        /// <c>load_status=PersistableThrew</c> 但 <c>after_inventory_count</c> 仍是新档值而不是读档前
+        /// 的旧值。本用例用自定义段复现同一形状（两个自定义段按 key 序数排序，<c>custom.a</c> 在
+        /// <c>custom.b</c> 之前先成功 Load，<c>custom.b</c> 随后抛异常），断言 <c>custom.a</c> 被
+        /// 回滚回读档前（而不是本次读档写入的中间值），最终 <c>LoadStatus</c> 仍是
+        /// <see cref="LoadStatus.PersistableThrew"/>（回滚不等于把失败伪装成功）。
+        /// </summary>
+        [Fact]
+        public void Load_LaterSectionThrows_RollsBackEarlierSuccessfullyLoadedSection_ToPreLoadState()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.rollback");
+            var sutSave = CreateSut(fs);
+            sutSave.RegisterPersistable(new RecordingPersistable("custom.a", new JsonString("doc-value-a")));
+            sutSave.RegisterPersistable(new RecordingPersistable("custom.b", new JsonString("doc-value-b")));
+            Assert.True(sutSave.Save(new SaveRequest(slotId, "t1")).Success);
+
+            var sutLoad = CreateSut(fs);
+            var persistableA = new RecordingPersistable("custom.a", new JsonString("pre-load-value-a"));
+            var persistableB = new RecordingPersistable("custom.b", new JsonString("pre-load-value-b")) { ThrowOnLoad = true };
+            sutLoad.RegisterPersistable(persistableA);
+            sutLoad.RegisterPersistable(persistableB);
+
+            var result = sutLoad.Load(slotId);
+
+            Assert.Equal(LoadStatus.PersistableThrew, result.Status);
+            // custom.a 先于 custom.b（ordinal 序）成功 Load，被覆盖为文档值 "doc-value-a"；
+            // custom.b 随后抛异常。回滚必须把 custom.a 恢复回读档前的 "pre-load-value-a"，不能停留
+            // 在本次失败读档写入的中间值 "doc-value-a"。
+            Assert.Equal("pre-load-value-a", ((JsonString)persistableA.Value).Value);
+        }
+
+        /// <summary>回滚是"尽力恢复现场"，不是把失败伪装成功：验证除了 <see cref="RecordingPersistable.Value"/>
+        /// 状态被正确回滚外，<see cref="LoadResult.Status"/> 与 <see cref="LoadResult.Message"/> 仍然
+        /// 如实反映失败，不因为回滚成功就悄悄改判成功。</summary>
+        [Fact]
+        public void Load_LaterSectionThrows_RollbackDoesNotMaskFailureStatus()
+        {
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.rollback_status");
+            var sutSave = CreateSut(fs);
+            sutSave.RegisterPersistable(new RecordingPersistable("custom.a", new JsonString("doc-value-a")));
+            sutSave.RegisterPersistable(new RecordingPersistable("custom.b", new JsonString("doc-value-b")));
+            Assert.True(sutSave.Save(new SaveRequest(slotId, "t1")).Success);
+
+            var sutLoad = CreateSut(fs);
+            sutLoad.RegisterPersistable(new RecordingPersistable("custom.a", new JsonString("pre-load-value-a")));
+            sutLoad.RegisterPersistable(new RecordingPersistable("custom.b", JsonNull.Instance) { ThrowOnLoad = true });
+
+            var result = sutLoad.Load(slotId);
+
+            Assert.Equal(LoadStatus.PersistableThrew, result.Status);
+            Assert.Contains("custom.b", result.Message);
+        }
+
         // ==== 基础行为 ===========================================================
 
         [Fact]

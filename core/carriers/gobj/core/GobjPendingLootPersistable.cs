@@ -42,10 +42,12 @@ namespace Core.Carriers.Gobj
     public sealed class GobjPendingLootPersistable : IPersistable
     {
         private readonly GameObjectHost _host;
+        private readonly ISaveDiagnostics _diagnostics;
 
-        public GobjPendingLootPersistable(GameObjectHost host)
+        public GobjPendingLootPersistable(GameObjectHost host, ISaveDiagnostics? diagnostics = null)
         {
             _host = host ?? throw new ArgumentNullException(nameof(host));
+            _diagnostics = diagnostics ?? new InMemorySaveDiagnostics();
         }
 
         public string SectionKey => "world.gobj_pending_loot";
@@ -90,17 +92,18 @@ namespace Core.Carriers.Gobj
                 {
                     if (!(entryRaw is JsonObject entryObj))
                     {
-                        throw new FormatException($"{SectionKey} 段的元素不是 JSON 对象");
+                        _diagnostics.Warn($"{SectionKey} 段的一个元素不是 JSON 对象，已安全丢弃该条");
+                        continue;
                     }
 
-                    var originKey = new Id(((JsonString)entryObj["originKey"]).Value);
-                    var items = new List<ItemStack>();
-                    foreach (var itemRaw in (JsonArray)entryObj["items"])
+                    if (!TryResolveOriginKey(entryObj, out var originKey))
                     {
-                        var itemObj = (JsonObject)itemRaw;
-                        var templateId = new Id(((JsonString)itemObj["templateId"]).Value);
-                        var count = (int)((JsonNumber)itemObj["count"]).Value;
-                        items.Add(new ItemStack(templateId, count));
+                        continue;
+                    }
+
+                    if (!TryParseItems(entryObj, originKey, out var items))
+                    {
+                        continue;
                     }
 
                     if (items.Count > 0)
@@ -113,6 +116,76 @@ namespace Core.Carriers.Gobj
             // data is JsonNull（旧存档没有这段）、或段存在但字段缺失/类型不对：result 保持空表，
             // 视为"无待补发余量"，不抛异常（判断记录见类型顶部）。
             _host.RestorePendingLoot(result);
+        }
+
+        /// <summary>
+        /// AUD-01 根治（architecture/落地计划/audit-85f1f4f-20260908，P1）：条目键既接受当前格式
+        /// <c>originKey</c>，也兼容 1.5.0 旧格式 <c>gobjInstanceId</c>（历史 serializer 见
+        /// <c>git show 3224ca1:core/carriers/gobj/core/GobjPendingLootPersistable.cs</c>）。
+        /// <para>
+        /// 判断记录——旧格式为什么只能安全丢弃、不做迁移：<c>gobjInstanceId</c> 存的是 1.5 时代的
+        /// 瞬态运行期实体 id（顺序计数器，见 <see cref="GameObjectHost"/> 判断记录"CR150-02 根治"），
+        /// 不携带地图/模板/摆放位置信息；而 1.6 起的 <c>originKey</c>（<see
+        /// cref="Core.Carriers.Gobj.GameObjectEntity.OriginKey"/>）是由地图+模板+摆放位置派生的稳定键
+        /// （见 <see cref="GameObjectFactory"/> 的 <c>BuildFallbackOriginKey</c> 判断记录），两者之间
+        /// 不存在可逆映射——旧运行期 id 本身无法反推出它当初对应哪个摆放位置。因此这里不尝试任何
+        /// "猜测映射"，只要条目只有旧字段、没有新字段，就按 CHANGELOG 承诺的"无法判定映射时安全丢弃"
+        /// 处理：记一条诊断、跳过这一条，不影响存档中其它段或其它条目的读取（<see cref="SaveSystem"/>
+        /// 的段失败回滚策略也不会因为这里丢弃了个别条目而触发——本方法本身不抛异常）。
+        /// </para>
+        /// </summary>
+        private bool TryResolveOriginKey(JsonObject entryObj, out Id originKey)
+        {
+            if (entryObj.TryGetValue("originKey", out var originKeyRaw)
+                && originKeyRaw is JsonString originKeyText
+                && Id.TryParse(originKeyText.Value, out originKey))
+            {
+                return true;
+            }
+
+            if (entryObj.TryGetValue("gobjInstanceId", out var legacyRaw) && legacyRaw is JsonString legacyText)
+            {
+                _diagnostics.Warn(
+                    $"{SectionKey} 段发现 1.5 旧格式条目（gobjInstanceId=\"{legacyText.Value}\"），" +
+                    "该瞬态运行期 id 无法映射到 1.6 起的稳定摆放键（originKey），已安全丢弃该条待补发余量");
+            }
+            else
+            {
+                _diagnostics.Warn($"{SectionKey} 段的一个元素缺少合法的 originKey/gobjInstanceId，已安全丢弃该条");
+            }
+
+            originKey = default;
+            return false;
+        }
+
+        /// <summary>条目内 <c>items</c> 数组格式不合法时同样安全丢弃整条（不抛异常，不影响其它条目/
+        /// 其它段），呼应 <see cref="TryResolveOriginKey"/> 的"绝不抛"判断记录。</summary>
+        private bool TryParseItems(JsonObject entryObj, Id originKey, out List<ItemStack> items)
+        {
+            items = new List<ItemStack>();
+
+            if (!entryObj.TryGetValue("items", out var itemsRaw) || !(itemsRaw is JsonArray itemsArray))
+            {
+                _diagnostics.Warn($"{SectionKey} 段条目 \"{originKey}\" 缺少合法的 items 数组，已安全丢弃该条");
+                return false;
+            }
+
+            foreach (var itemRaw in itemsArray)
+            {
+                if (!(itemRaw is JsonObject itemObj)
+                    || !itemObj.TryGetValue("templateId", out var templateIdRaw) || !(templateIdRaw is JsonString templateIdText)
+                    || !Id.TryParse(templateIdText.Value, out var templateId)
+                    || !itemObj.TryGetValue("count", out var countRaw) || !(countRaw is JsonNumber countNumber))
+                {
+                    _diagnostics.Warn($"{SectionKey} 段条目 \"{originKey}\" 中有一件物品格式不合法，已安全丢弃该条整条记账");
+                    items.Clear();
+                    return false;
+                }
+
+                items.Add(new ItemStack(templateId, (int)countNumber.Value));
+            }
+
+            return true;
         }
     }
 }

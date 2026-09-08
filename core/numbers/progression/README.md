@@ -95,6 +95,19 @@ progression/
    重复校验（与 `L10nHost.ValidateNoFallbackCycle` 同一惯例：即便调用方忘记注册校验规则，
    `ProgressionHost` 本身也不会把结构非法的曲线数据带入运行时）。
 
+7. **AUD-02 根治（外部审核第九轮，P2，architecture/落地计划/audit-85f1f4f-20260908）：
+   `ProgressionPersistable.Load` 对本段整体缺失（`JsonNull`）的处理，从 no-op（保留读档前的
+   运行期等级/经验）改为重置到默认态（1 级、0 经验）**：修复前真实场景：同一宿主先后加载两个
+   存档槽，缺本段的旧档不会清掉前一个槽留下的等级，违反 10 第 3 节"缺失段语义"合同。曲线 id
+   （`curve_id`）本身不属于"存档数据"，是内容/装配阶段已经经 `RegisterUnit` 确定的职业/单位归属，
+   缺段清空只清等级/经验这两个真正的存档字段，沿用 `Save()` 当前已登记的曲线（复用 `Save()`
+   本身取回，不新增契约方法）。该单位从未经 `RegisterUnit` 注册（例如所属职业没有配置
+   `level_curve_ref`，见判断记录 4 引用的 `RulesAssembly.RegisterUnit` 判断记录）时，`Save()`
+   本身会抛 `ArgumentException`（判断记录见 `Save_UnregisteredUnit_Throws`）——本条根治捕获这一
+   前提缺失的情形，直接保持未注册、不代为注册一个调用方从未选择的曲线，不抛异常。见
+   `ProgressionPersistableTests.Load_NullData_ResetsRegisteredUnitToLevelOneAndZeroXp`（已注册
+   单位分支）、`Load_NullData_LeavesUnitUnregistered`（未注册单位分支，既有测试）。
+
 ## 不负责什么
 
 - 不实现"经验来源的触发条件"求值（`prog.xp_source.condition` 是 Expr 字段，本模块只登记类型）。

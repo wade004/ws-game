@@ -115,6 +115,29 @@ unit/
     构造函数新增的末位可选参数（不插在 `navigation` 之前，避免破坏既有按位置传参的调用点），
     `CarriersAssembly` 用它已持有的 `ISpatialQuery` 实例接线。
 
+12. **AUD-02 根治（外部审核第九轮，P2，architecture/落地计划/audit-85f1f4f-20260908）：
+    `SkillBindingPersistable.Load` 对本段整体缺失（`JsonNull`）的处理，从 no-op（保留读档前的
+    运行期绑定）改为先解绑该单位当前全部绑定、再按快照重建**——惯例同
+    `core/carriers/item.EquipmentPersistable.Load`"先清空、再按快照重建"，修复前真实场景：同一
+    宿主先后加载两个存档槽，缺本段的旧档不会清掉前一个槽留下的绑定，违反 10 第 3 节"缺失段语义"
+    合同。见 `SkillBindingPersistableTests.Load_NullData_ClearsPreExistingBindings`。
+
+13. **种族被动光环跨图丢失根治（外部审核第九轮，architecture/落地计划/audit-85f1f4f-20260908）：
+    `PlayerUnit` 新增可选字段 `RaceId`，配套 `UnitPersistable.RaceId` 存档落点（`player.race_id`
+    段）**——`UnitPersistable.ArchetypeId` 此前的判断记录"05 §1.2 字段表未列出独立种族引用字段，
+    `Core.Numbers.Archetype.ArchetypeRegistry.ApplyTo` 的 `raceId` 参数只在应用当下使用，不会被
+    任何 L3 类型记住"已不再成立：跨图 `World.ClearAll` 后需要重放种族被动光环（`Core.Rules.Assembly.RulesAssembly.
+    ReapplyRacePassiveAuras`，见 `core/rules/assembly/README.md` 同编号条目），框架级的
+    `GameplayAssembly.EnterMap` 需要知道"当前玩家是哪个种族"才能做这件事，不能再把这份信息完全
+    丢给游戏层各自扩展。`RaceId` 可选（`Id?`）：调用方在 `RulesAssembly.RegisterUnit` 传入非空
+    `raceId` 的同时，需要同步写入本字段（框架不自动同步——分层边界：`RulesAssembly`/L2 不知道
+    `PlayerUnit`/L3 这个类型的存在，与 `ArchetypeId` 判断记录同款理由）。`RaceIdPersistable.Load`
+    对本段整体缺失/为空按默认语义清空为 `null`，不像 `CurrentMapIdPersistable`/
+    `ArchetypeIdPersistable`（见 `UnitPersistable.cs` 内两者的 `KeepStateWhenSectionMissing`
+    判断记录——`Id` 没有合法的空值，缺段时保留调用前已确定的值优于覆盖成占位）那样声明"缺段即
+    保留"例外——`Id?` 本身就有明确无歧义的空值，不存在"清空成什么才对"的两难。见
+    `UnitPersistableTests`（`RaceId_*` 系列）、`RacePassiveAuraCrossMapTests`。
+
 ## L2 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.IUnitAccess` 没有 `SetFacing`：`WorldUnitAccess` 未补这个方法（不修改

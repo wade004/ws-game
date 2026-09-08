@@ -72,6 +72,9 @@ assembly/
 | `TrapTriggerDelegate` | `Carriers.GameObjectInteractions.TriggerTrap` | `AreaTriggerOptions` → `AreaTriggerHost` | |
 | `MapTransitionRequestedDelegate` | `GameplayAssembly.TeleportUnit` | `AreaTriggerOptions` → `AreaTriggerHost` | |
 | `ISceneRouter`（可选） | 调用方注入的 `sceneRouter` 构造参数 | `AreaTriggerOptions` → `AreaTriggerHost` | 未注入时 `map_transition` 只记诊断 |
+| `ownerResolver`（击杀归属判定，可选） | 调用方注入的 `questOwnerResolver` 构造参数（判断记录 12） | `QuestHost` | 未注入时非玩家击杀不计入进度 |
+| `dayProvider`（当前天数，可选） | 调用方注入的 `questDayProvider` 构造参数（判断记录 12） | `QuestHost` | 未注入时恒为 0（等价于"从不跨天"） |
+| `vendorOpenRequested`（可选） | 调用方注入的 `vendorOpenRequested` 构造参数（判断记录 12） | `DialogHost`（gossip `vendor` 动作） | 未注入时该动作只记诊断 |
 
 ## tick 阶段挂载表
 
@@ -92,7 +95,8 @@ assembly/
 
 按 10_存档与持久化.md 第 3 节固定顺序：`WorldState`（`world_state_flags`）→
 `ProgressionPersistable.For`（`player.progression`）/`UnitPersistable.ArchetypeId`
-（`player.archetype`，W2 收边补齐，见判断记录 6）→
+（`player.archetype`，W2 收边补齐，见判断记录 6）/`UnitPersistable.RaceId`（`player.race_id`，
+种族被动光环跨图丢失根治新增，见判断记录 8）→
 `UnitPersistable.CurrentMapId`/`CurrentPosition` → `InventoryPersistable`/`EquipmentPersistable`
 → `CurrencyPersistable`/`VendorStockPersistable` → `QuestPersistable` → `AchievementHost` →
 `SpawnHost` → `DroppedLootPersistable` → `DifficultyHost`（自定义段 `world.difficulty`）→
@@ -294,3 +298,51 @@ assembly/
    `GameplayAssembly.Carriers`（真实 `CreatureFactory`/`AuraHost`/`EquipmentHost`/
    `InventoryHost`）+ 真实 `WorldSim.ClearAll` + 手工重放"常驻壳把玩家实体加回"+ `EnterMap`，
    覆盖普通装备与套装门槛加成两条路径，含"`EnterMap` 重复调用不叠加"。
+
+10. **种族被动光环跨图丢失根治（外部审核第九轮，architecture/落地计划/audit-85f1f4f-20260908）：
+    `EnterMap` 新增种族被动光环重放，与上一条（第 9 条，CR140-02）同一形状的根因，同一批"进图先
+    恢复持久化派生状态"**：`RulesAssembly.RegisterUnit(raceId)` 经 `ArchetypeRegistry.ApplyTo`
+    施加的 `race.PassiveAuras` 同样是运行时光环实例，与该步骤一并写入的 `race.StatMods`（属性
+    修正登记表）生命周期不一致——`ClearAll` 只清空前者。`EnterMap` 在 `Carriers.Equipment.
+    ReapplyGrants(playerUnitId)` 之后紧接着调用 `Carriers.Rules.ReapplyRacePassiveAuras(playerUnitId,
+    raceId)`（详见 `core/rules/assembly/README.md` 同编号条目），仅当
+    `_world.GetEntity(playerUnitId) is PlayerUnit` 且其 `RaceId` 字段有值时才调用——`PlayerUnit`
+    新增可选字段 `RaceId`（详见 `core/carriers/unit/README.md` 同编号条目），未设置种族（`null`，
+    含游戏本身不使用种族概念、或读的是引入本字段之前的旧档）时静默跳过，不抛异常。存档段顺序补
+    `UnitPersistable.RaceId`（`player.race_id`，见上文"存档段顺序"一节）。验收新增
+    `core/gameplay/assembly/tests/RacePassiveAuraCrossMapTests.cs`（真实 `arch.race.passive_auras`
+    内容 + 真实 `WorldSim.ClearAll` + `EnterMap`，覆盖种族属性修正不受影响/光环确实丢失/`EnterMap`
+    重放并幂等/未设置种族不抛异常四条路径）。
+
+11. **AUD-02 根治（外部审核第九轮，P2，architecture/落地计划/audit-85f1f4f-20260908）：
+    `PlayerVitalsPersistable.Load` 对本段整体缺失（`JsonNull`）的处理，从 no-op（保留读档前的
+    存活状态/生命值）改为重置到"从未发生过"的默认态——存活、满血**：修复前真实场景：玩家已死亡
+    （`Alive=false`、生命值接近 0），读一份没有 `player.vitals` 段的旧格式存档，`Alive`/生命值
+    原样保留死亡状态，与刚被其它段覆盖的地图/位置/库存互相矛盾。默认态选"存活 + 满血"而非
+    "清零"，理由同本类型 `Save` 上方既有判断记录"新游戏的玩家本就存活"——这正是本段从未被写入过
+    时（新游戏首次 `Save` 之前）的语义。见
+    `PlayerVitalsPersistableAud02Tests.Load_NullData_ResetsToAliveAndFullHealth_
+    EvenIfDeadWithPartialHealth`。
+
+12. **owner/day/vendor 装配扩展点根治（外部审核第九轮，architecture/落地计划/
+    audit-85f1f4f-20260908，见 08 号文档第 9.1 节）：构造函数新增
+    `questOwnerResolver`/`questDayProvider`/`vendorOpenRequested` 三个可选参数，直接转发进内部
+    装配的 `QuestHost`/`DialogHost`**：`QuestHost`/`DialogHost` 本就接受这三个回调（击杀归属判定/
+    每日任务按天数重置的"当前是第几天"来源/gossip `vendor` 动作的"打开商店"请求接收方），但此前
+    本类构造这两个宿主时对三者恒不提供，游戏层无法在不绕开 `GameplayAssembly`、自行重新拼一遍
+    `QuestHost`/`DialogHost` 的前提下接上这三个能力。全部三个默认不提供，不改变未显式传入时的
+    既有行为；具体接线方式仍由游戏层决定。验收新增
+    `core/gameplay/assembly/tests/GameplayAssemblyOwnerDayVendorExtensionPointTests.cs`：真实
+    gossip `vendor` 动作触发回调、真实"宠物击杀记账给主人"任务进度场景（含"不转发则不记账"的对照
+    组）、真实每日任务按转发的天数来源判定可再接三条路径。
+
+    **补录（同日"第 0 步"跟进）**：本类构造函数补齐这三个参数后，具体游戏实际复制起步的三处示例
+    组合根（`games/_template.GameBootstrap`、`Adapter.Unity.Bootstrap.GameFoundationBootstrap`、
+    `Adapter.Unity.Shell.FrameworkResidentHost`）此前均未把这三个参数转发进本类构造调用，等价于
+    同一处缺口只是往外挪了一层——游戏层即便自己实现了 `ownerResolver`/`dayProvider`/
+    `vendorOpenRequested` 也接不进真实装配。现三处组合根均已补齐透传（模板落点是 `GameOptions`
+    新增的三个可选字段，另两处落点是组合根类型自身新增的同名可选公开属性），默认仍不提供。
+    端到端验收（真实 `GameFoundationBootstrap` 组合根本身，不是自建 fixture）新增
+    `adapters/unity/.../Tests/Runtime/GameFoundationBootstrapQuestDayProviderTests.cs`：注入
+    `QuestDayProvider` 后，`Gameplay.Quest` 的每日任务当天不可再接/次日重新可接行为随之改变，证明
+    组合根确实把该属性转发进了内部 `QuestHost`，不是"收下赋值但没接线"。

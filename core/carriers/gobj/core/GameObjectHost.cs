@@ -134,6 +134,23 @@ namespace Core.Carriers.Gobj
             }
         }
 
+        /// <summary>
+        /// AUD-04 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：1.6.0 把
+        /// <c>gather_node</c> 合并进同一份台账时（CR150-04）把本方法改名为 <see
+        /// cref="PendingLootSnapshot"/>，未提供旧名转发，导致任何仍调用旧名 <c>PendingChestLootSnapshot</c>
+        /// 的 1.5 风格消费者在 1.6 上直接编译失败（CS1061），不是"运行期行为变化"这种可以事后兼容的
+        /// 破坏，而是硬编译错误——无法通过存档迁移/防御性判空绕过。补回一个 <see cref="Obsolete"/>
+        /// 转发方法，保留至少一个 MINOR 版本周期，给旧调用点留出改名窗口；行为与新名完全一致，不是
+        /// 语义分叉的两套实现。
+        /// </summary>
+        [Obsolete("1.6.0 起改名为 " + nameof(PendingLootSnapshot) + "；本别名将在下一个 MINOR 版本移除。")]
+        public IReadOnlyDictionary<Id, IReadOnlyList<ItemStack>> PendingChestLootSnapshot() => PendingLootSnapshot();
+
+        /// <summary>见 <see cref="PendingChestLootSnapshot"/> 判断记录，<see
+        /// cref="RestorePendingLoot"/> 的旧名转发。</summary>
+        [Obsolete("1.6.0 起改名为 " + nameof(RestorePendingLoot) + "；本别名将在下一个 MINOR 版本移除。")]
+        public void RestorePendingChestLoot(IReadOnlyDictionary<Id, IReadOnlyList<ItemStack>> snapshot) => RestorePendingLoot(snapshot);
+
         // -----------------------------------------------------------------
         // IGameObjectHost
         // -----------------------------------------------------------------

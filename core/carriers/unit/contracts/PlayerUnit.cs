@@ -28,6 +28,20 @@ namespace Core.Carriers.Unit
         /// <summary>职业模板引用（见 05 第 1.2 节 <c>archetypeId</c>）。</summary>
         public Id ArchetypeId { get; set; }
 
+        /// <summary>
+        /// 种族模板引用（可选）。种族被动光环跨图丢失根治（architecture/落地计划/
+        /// audit-85f1f4f-20260908）补录：<see cref="Core.Rules.Assembly.RulesAssembly.RegisterUnit"/>
+        /// 的 <c>raceId</c> 参数此前只在调用当下用于施加基础属性修正/被动光环，应用完成后不会被
+        /// 任何 L3 类型记住"这个单位是哪个种族"（见类型注释历史判断记录），导致
+        /// <c>World.ClearAll</c>（跨图切换）后想要重放种族被动光环时，没有任何地方能查到"该用哪个
+        /// 种族重放"。本字段补上这个引用，可选（<c>null</c> = 未设置种族，或游戏本身不使用种族
+        /// 概念）——调用方（游戏引导代码）在调用 <c>RegisterUnit</c> 传入非空 <c>raceId</c> 时应
+        /// 同时把它写进本字段，本类型自己不会自动同步（05/L2 分层边界：<c>RulesAssembly</c> 不
+        /// 知道 <see cref="PlayerUnit"/> 这个 L3 类型的存在，见 <see cref="ArchetypeId"/> 判断记录
+        /// 同款分层理由）。存档见 <c>Core.Carriers.Unit.UnitPersistable.RaceId</c>。
+        /// </summary>
+        public Id? RaceId { get; set; }
+
         /// <summary>已选天赋（见 05 第 1.2 节 <c>talents</c>）。</summary>
         public List<Id> Talents { get; } = new List<Id>();
 

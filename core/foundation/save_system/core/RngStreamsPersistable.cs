@@ -41,6 +41,18 @@ namespace Core.Foundation.SaveSystem
 
         public string SectionKey => SaveSections.RngStreamStates;
 
+        /// <summary>
+        /// AUD-02 收边（architecture/落地计划/audit-85f1f4f-20260908，P2）：显式声明"缺段即保留"
+        /// 例外（见 <see cref="IPersistable.KeepStateWhenSectionMissing"/> 判断记录）。理由——RNG
+        /// 分流没有"空"这个合法默认状态：每条流懒创建时都必须有一个主种子可派生，本类型自己不掌握
+        /// "该用哪个种子重置"这一决定权（那是调用方构造 <see cref="IRngHost"/> 时给的，与"存档缺
+        /// 这一段"无关）；把它清空为某个任意种子并不比保留调用前 <see cref="IRngHost"/> 已经在跑的
+        /// 状态更"正确"，只是换一种同样武断的随机序列。这与本类型 <see cref="Load"/> 已有的字段级
+        /// 兼容策略一致——"旧存档没有 <c>master_seed</c> 字段时退化为不 Reset、只逐条恢复流状态"
+        /// 同样是"缺失时保留优于武断清空"的选择，本次只是把同一判断显式提升到整段缺失这一层。
+        /// </summary>
+        public bool KeepStateWhenSectionMissing => true;
+
         public JsonValue Save()
         {
             var builder = new JsonObjectBuilder();

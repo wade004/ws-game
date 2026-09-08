@@ -129,6 +129,17 @@ loot/
     （用真实 `InventoryHost` + 真实事件总线验证：失败拾取后一条 `item.added`/`item.removed` 都不
     应该派发）。
 
+11. **AUD-02 根治（外部审核第九轮，P2，architecture/落地计划/audit-85f1f4f-20260908）：
+    `DroppedLootPersistable.Load` 对本段整体缺失（`JsonNull`，如旧格式存档从未写过
+    `world.dropped_loot` 段）的处理，从 no-op 改为同第 9 条一样调用 `ClearDroppedExcept`**：第 9
+    条的"外部审核阻塞项 1 收口"只覆盖了"本段存在、但数组为空/不含某些 id"这一路径（`Load` 内
+    `data is JsonArray` 分支），`data is JsonNull` 分支此前仍是 `return` 直接跳过，不调用
+    `ClearDroppedExcept`——修复前真实场景：产生一件地面掉落物后，读一份没有 `world.dropped_loot`
+    段的旧格式存档，这件掉落物原样保留，不是"读档=归零重建"应有的行为。现在 `JsonNull` 分支改为
+    `ClearDroppedExcept(Array.Empty<Id>())`（空 keepIds，等价于"这次读档没有任何要保留的掉落物"），
+    复用第 9 条已有的清理逻辑，不另写一份"清空"分支。见
+    `LootDropPickupTests.Load_NullData_ClearsAllTrackedDroppedLoot`。
+
 ## 不负责什么
 
 - 不实现难度倍率的具体计算——`CreatureDeathLootListener` 的 `Multiplier` 只是一个

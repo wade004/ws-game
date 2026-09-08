@@ -197,6 +197,15 @@ item/
     `ReapplyGrants` 被意外连续调用）下，"调用前快照"与原实时查询的结果相同，不受影响。见
     `core/gameplay/assembly/tests/CR150_01_EquipmentSharedAuraCrossMapTests.cs`。
 
+13. **AUD-02 根治（外部审核第九轮，P2，architecture/落地计划/audit-85f1f4f-20260908）：
+    `InventoryPersistable.Load` 对本段整体缺失（`JsonNull`）的处理，从 no-op（保留读档前的
+    运行期库存）改为清空背包**——修复前真实探针复现：先放入 1 件物品，再加载一份没有
+    `player.inventory` 段的存档，返回 `Loaded` 但库存仍是 1 件，违反 10 第 3 节"缺失段语义"合同
+    （缺段应清空到默认态）。`EquipmentPersistable.Load` 不受影响——它已经在检查 `JsonNull` 之前
+    无条件调用 `EquipmentHost.ClearAllEquippedForLoad`（见判断记录 5"FND-10 收口"），本就正确
+    覆盖了这一路径。见 `ItemPersistableTests.InventoryPersistable_Load_NullData_
+    ClearsPreExistingItems`。
+
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.ISkillHost` 没有"学习/遗忘技能"方法（技能书能力目前只存在于

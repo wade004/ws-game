@@ -38,8 +38,14 @@ namespace Core.Carriers.Item
 
         public void Load(JsonValue data)
         {
+            // AUD-02 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：本段已注册但存档
+            // 文档整体缺失时（data is JsonNull）必须清空到"从未发生过"的默认态（空背包），不能
+            // no-op 保留读档前的运行期库存——否则同一宿主先后加载两个存档槽，后一个若是缺本段的
+            // 旧格式档，会把前一个槽的库存原样带过去（见 IPersistable.Load 判断记录、10 第 3 节
+            // "缺失段语义"）。JsonNull 与"空数组快照"因此统一走同一条 ReplaceBag(空列表) 路径。
             if (data is JsonNull)
             {
+                _inventory.ReplaceBag(_unitId, Array.Empty<ItemInstance>());
                 return;
             }
 

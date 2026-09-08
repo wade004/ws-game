@@ -220,6 +220,17 @@ namespace Core.Gameplay.Assembly
         private bool _isProcessingDiscreteStep;
         private readonly Dictionary<Id, double> _combatStartTimes = new Dictionary<Id, double>(EqualityComparer<Id>.Default);
 
+        /// <summary>
+        /// owner/day/vendor 装配扩展点根治（architecture/落地计划/audit-85f1f4f-20260908，见 08 号
+        /// 文档"装配扩展点"一节）：构造参数列表末尾的 <c>questOwnerResolver</c>/<c>questDayProvider</c>/
+        /// <c>vendorOpenRequested</c> 三个可选回调，转发给内部装配的 <see cref="QuestHost"/>/
+        /// <see cref="DialogHost"/>——此前本方法内部对这三处硬编码传 <c>null</c>，游戏层无法在不绕开
+        /// 本装配根、自行重新拼一遍 <c>QuestHost</c>/<c>DialogHost</c> 的前提下接上"击杀归属判定"
+        /// "每日任务按天数重置""gossip 打开商店 UI"这三个能力（08 号文档一直描述这几条接线方式，
+        /// 实际装配却没有暴露对应参数，文档与实现不一致，见 12 第 5 节处理规则——本次判定为实现有
+        /// 缺口，补齐参数而不是改文档退让）。全部三个默认 <c>null</c>，不改变未显式传入时的既有
+        /// 行为。
+        /// </summary>
         public GameplayAssembly(
             IEventBus bus,
             IDataRegistryView registry,
@@ -257,7 +268,10 @@ namespace Core.Gameplay.Assembly
             IPacingPolicy? pacingPolicy = null,
             TimeModelSwitchOptions? timeModelSwitchOptions = null,
             Func<Id, IReadOnlyList<Id>>? combatParticipantsResolver = null,
-            Core.Gameplay.Death.DeathPolicyOptions? deathPolicyOptions = null)
+            Core.Gameplay.Death.DeathPolicyOptions? deathPolicyOptions = null,
+            Func<Id, Id?>? questOwnerResolver = null,
+            Func<long>? questDayProvider = null,
+            VendorOpenRequestedCallback? vendorOpenRequested = null)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
@@ -513,10 +527,17 @@ namespace Core.Gameplay.Assembly
             var questDefinitions = registry.GetAll(Core.Gameplay.Quest.QuestSchemas.Def.Name)
                 .Select(r => QuestDefinition.FromRecord(r, GameplaySchemaCatalog.FullExprSchema))
                 .ToList();
+            // owner/day/vendor 装配扩展点根治（architecture/落地计划/audit-85f1f4f-20260908）：此前
+            // 本方法始终对 QuestHost 的 ownerResolver/dayProvider 传 null——08 号文档描述的"击杀
+            // 归属判定""每日任务按天数重置"这两个能力因此在真实装配下永远不生效（QuestHost 内部对
+            // ownerResolver 为 null 时静默跳过归属判定、dayProvider 为 null 时恒退化为 0，见该类型
+            // 判断记录），任何游戏都无法在不绕开本装配根、自己重新拼一遍 QuestHost 的前提下接上这
+            // 两个回调。改为直接转发调用方经本方法新增的 questOwnerResolver/questDayProvider 可选
+            // 构造参数传入的值——未传时仍是 null，行为与此前完全一致（不破坏默认路径）。
             Quest = new QuestHost(
                 questDefinitions, bus, ExprHostFactory, Reward, Carriers.Inventory, Carriers.Units,
-                questOptions, ownerResolver: null,
-                gobjTemplateResolver: id => world.GetEntity(id)?.TemplateId, dayProvider: null,
+                questOptions, ownerResolver: questOwnerResolver,
+                gobjTemplateResolver: id => world.GetEntity(id)?.TemplateId, dayProvider: questDayProvider,
                 exprDiagnostics: null);
             deferredQuestGroup.Bind(new QuestExprGroupProvider(Quest, PlayerUnitProvider));
 
@@ -689,9 +710,12 @@ namespace Core.Gameplay.Assembly
             // G1 遗留恢复：DialogHost.saveRequested（08 第 3.1 节 gossip Action save）接同一份
             // RequestAutosave（与 GobjOptions.SaveRequester 同一委托逻辑，见构造函数最前面判断记录），
             // 不再传 null（此前"save 动作只记诊断、不真正存档"的缺口到此结束）。
+            // 同上一处判断记录：vendorOpenRequested 此前恒为 null，gossip 菜单里"打开商店"这一 Action
+            // 因此在真实装配下永远只记诊断、不真正打开任何商店 UI（DialogHost 判断记录）。改为转发
+            // 调用方经本方法新增的 vendorOpenRequested 可选构造参数传入的值，未传时行为不变。
             Dialog = new DialogHost(
                 gossipMenus, storyTrees, bus, ExprHostFactory, AppState, Quest, Hooks, WorldState, Carriers.Rules.Skill,
-                vendorOpenRequested: null, teleportRequested: teleportRequested, saveRequested: RequestAutosave,
+                vendorOpenRequested: vendorOpenRequested, teleportRequested: teleportRequested, saveRequested: RequestAutosave,
                 encounterStartRequested: encounterStartRequested, exprDiagnostics: null, diagnostics: null);
 
             // ---------------------------------------------------------
@@ -858,6 +882,18 @@ namespace Core.Gameplay.Assembly
             // 之后——两者都要求玩家实体已经重新在 IWorldSim 里可见，谁先谁后不影响正确性，一并归入
             // "进图先恢复持久化派生状态"这一惯例。
             Carriers.Equipment.ReapplyGrants(playerUnitId);
+
+            // 种族被动光环跨图丢失根治（architecture/落地计划/audit-85f1f4f-20260908）：同一批
+            // "进图先恢复持久化派生状态"，紧跟在装备 grants 重放之后——两者都要求玩家实体已经重新
+            // 在 IWorldSim 里可见，谁先谁后不影响正确性。只有 <see cref="Core.Carriers.Unit.
+            // PlayerUnit.RaceId"/> 有值（游戏层在注册单位时同步写入了该字段，见该字段判断记录）
+            // 才重放；未设置种族（该字段为 null，含游戏本身不使用种族概念、或读的是本字段引入之前
+            // 的旧档）时静默跳过，不是错误。
+            if (_world.GetEntity(playerUnitId) is Core.Carriers.Unit.PlayerUnit playerForRaceReapply
+                && playerForRaceReapply.RaceId.HasValue)
+            {
+                Carriers.Rules.ReapplyRacePassiveAuras(playerUnitId, playerForRaceReapply.RaceId.Value);
+            }
 
             AreaTrigger.LoadForMap(mapId, Carriers.Rules.Registry);
             Spawn.ApplyForMap(mapId);
@@ -1163,6 +1199,9 @@ namespace Core.Gameplay.Assembly
             saveSystem.RegisterPersistable(WorldState);
             saveSystem.RegisterPersistable(ProgressionPersistable.For(Carriers.Rules.Progression, player.EntityId));
             saveSystem.RegisterPersistable(UnitPersistable.ArchetypeId(player));
+            // 种族被动光环跨图丢失根治（architecture/落地计划/audit-85f1f4f-20260908）：
+            // player.race_id（可选），见 UnitPersistable.RaceId 判断记录。
+            saveSystem.RegisterPersistable(UnitPersistable.RaceId(player));
             saveSystem.RegisterPersistable(UnitPersistable.CurrentMapId(player));
             saveSystem.RegisterPersistable(UnitPersistable.CurrentPosition(player));
             saveSystem.RegisterPersistable(new InventoryPersistable(player.EntityId, Carriers.Inventory));

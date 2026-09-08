@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.SaveSystem;
@@ -55,6 +56,16 @@ namespace Core.Carriers.Unit
 
             public void Load(JsonValue data)
             {
+                // AUD-02 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：先把该单位当前
+                // 全部绑定解绑（惯例同 ItemPersistable.EquipmentPersistable.Load 判断记录"先清空、
+                // 再按快照重建"），保证空快照/JsonNull（本段在存档里整体缺失）都能正确让绑定表归空，
+                // 而不是保留读档前的运行期绑定——否则同一宿主先后读两个存档槽，缺本段的旧档不会
+                // 清掉前一个槽留下的绑定。
+                foreach (var kv in new List<KeyValuePair<string, Id>>(_host.GetBindings(_player.EntityId)))
+                {
+                    _host.Unbind(_player.EntityId, kv.Key);
+                }
+
                 if (data is JsonNull)
                 {
                     return;

@@ -193,8 +193,21 @@ gobj/
      冷却时才提交，避免推迟 `respawn_after_use` 应有的计时起点），防止紧接着的下一次交互因为新
      实体自己的状态从未被设置过而又整批重新发一遍同一份奖励。存档段 `GobjPendingLootPersistable`
      的方法改名为 `PendingLootSnapshot`/`RestorePendingLoot`，JSON 条目字段从 `gobjInstanceId`
-     改名为 `originKey`（准确反映存的是稳定键，不是瞬态实体 id；本段未在任何已发布版本对外承诺
-     过字段级兼容，不做旧字段名兼容读取）。
+     改名为 `originKey`（准确反映存的是稳定键，不是瞬态实体 id）。
+     **AUD-01/AUD-04 修订（外部审核第九轮，architecture/落地计划/audit-85f1f4f-20260908）：上一句
+     "本段未在任何已发布版本对外承诺过字段级兼容"的判断记录不成立——`GameObjectHost.
+     PendingChestLootSnapshot`/`RestorePendingChestLoot` 与本段旧字段 `gobjInstanceId` 都是
+     1.5.0（已发布版本）的公开形状，改名/改字段发生在同一次 1.6.0 变更里，不是"从未发布过"。**
+     真实复现两个具体后果：(a) 存档兼容——1.5.0 非空旧格式存档经真实 `SaveSystem.Load` 直接索引
+     `entryObj["originKey"]` 抛 `FormatException`，读档整体判 `PersistableThrew`；(b) API 兼容——
+     仍调用旧方法名的 1.5 风格消费者在 1.6 上编译即 `CS1061`。根治两处：`GobjPendingLootPersistable.
+     Load` 条目键既接受当前 `originKey`，也兼容旧 `gobjInstanceId`——旧运行期 id 本身不携带地图/
+     模板/摆放位置信息，与稳定键之间不存在可逆映射，因此不做"猜测映射"，只安全丢弃该条（记诊断、
+     不抛异常，不影响其它条目/其它段）；`GameObjectHost` 补回 `PendingChestLootSnapshot`/
+     `RestorePendingChestLoot` 两个 `[Obsolete]` 转发方法（保留至少一个 MINOR 版本周期），行为
+     与新名完全一致。验收：`GobjPendingLootPersistenceTests.
+     SaveSystemLoad_Legacy15GobjInstanceIdField_SafelyDropped_NotThrown`、
+     `ObsoletePendingChestLootAliases_StillCompileAndForwardToNewNames`。
    - **CR150-04（满包采集先提交冷却再忽略入包失败）**：`GatherNode` 修复前无条件先
      `SetState("used_at", ...)` 提交冷却，再把 `RollLootInto` 抽出的掉落无条件塞进背包、完全不
      处理 `IInventoryHost.AddItem` 交付结果——满包时奖励整份丢失，且冷却已提交，腾出空间后在同一

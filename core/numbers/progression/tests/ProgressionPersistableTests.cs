@@ -134,6 +134,29 @@ namespace Tests.Numbers.Progression
             Assert.Throws<ArgumentException>(() => ProgressionPersistable.For(host, Unit).Save());
         }
 
+        /// <summary>
+        /// AUD-02 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：修复前
+        /// <c>Load</c> 对 <c>JsonNull</c> 直接 no-op 返回，运行期已有的等级/经验原样保留（同一
+        /// 宿主先后加载两个存档槽时，缺本段的旧档不会清掉前一个槽留下的等级）。本用例覆盖"该单位
+        /// 已注册"这一分支：先升到 2 级，再 <c>Load(JsonNull)</c>，断言重置回 1 级、0 经验——与
+        /// 下面 <see cref="Load_NullData_LeavesUnitUnregistered"/>（该单位从未注册，没有曲线可
+        /// 沿用，保持未注册不抛异常）是两个不同前提的分支。
+        /// </summary>
+        [Fact]
+        public void Load_NullData_ResetsRegisteredUnitToLevelOneAndZeroXp()
+        {
+            var registry = MakeRegistry(out var bus);
+            var host = MakeHost(registry, bus, new RecordingWriters());
+            host.RegisterUnit(Unit, CurveId, startLevel: 1);
+            host.AddXp(Unit, new Id("system.test"), 120); // 升到 2 级，剩余 20 经验。
+            Assert.Equal(2, host.GetLevel(Unit));
+
+            ProgressionPersistable.For(host, Unit).Load(JsonNull.Instance);
+
+            Assert.Equal(1, host.GetLevel(Unit));
+            Assert.Equal(0, host.GetXp(Unit));
+        }
+
         [Fact]
         public void Load_NullData_LeavesUnitUnregistered()
         {

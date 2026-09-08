@@ -42,8 +42,33 @@ namespace Core.Numbers.Progression
 
             public void Load(JsonValue data)
             {
+                // AUD-02 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：本段整体缺失
+                // （data is JsonNull）时必须重置到默认态（1 级、0 经验），不能 no-op 保留读档前的
+                // 运行期等级/经验——否则同一宿主先后加载两个存档槽，缺本段的旧档不会清掉前一个槽
+                // 留下的等级。曲线 id（<c>curve_id</c>）本身不属于"存档数据"，是内容/装配阶段已经
+                // 经 <see cref="ProgressionHost.RegisterUnit"/> 确定的职业/单位归属，缺段清空只清
+                // 等级/经验这两个真正的存档字段，沿用 <see cref="Save"/> 当前已登记的曲线（复用
+                // Save() 本身取回，不新增契约方法）。<paramref name="data"/> 为 JsonNull 但该单位
+                // 从未经 RegisterUnit 注册（例如所属职业没有配置 level_curve_ref，见
+                // <see cref="Core.Rules.Assembly.RulesAssembly.RegisterUnit"/> 判断记录"level_curve_ref
+                // 存在才注册 Progression"）时，本就没有任何"曲线"可沿用，也没有任何状态需要清空
+                // ——保持未注册，不抛异常（既有测试 Save_UnregisteredUnit_Throws 已确立"未注册单位
+                // 查询/保存会抛"的一贯行为，Load 遇到同样前提时选择"无操作"而不是代为注册一个调用方
+                // 从未选择的曲线）。
                 if (data is JsonNull)
                 {
+                    JsonValue currentSnapshot;
+                    try
+                    {
+                        currentSnapshot = _host.SaveUnit(_unitId);
+                    }
+                    catch (ArgumentException)
+                    {
+                        return;
+                    }
+
+                    var currentCurveId = ((JsonString)((JsonObject)currentSnapshot)["curve_id"]).Value;
+                    _host.RestoreState(_unitId, new Id(currentCurveId), 1, 0);
                     return;
                 }
 

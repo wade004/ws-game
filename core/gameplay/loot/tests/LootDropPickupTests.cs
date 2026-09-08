@@ -458,6 +458,28 @@ namespace Tests.Gameplay.Loot
             Assert.False(f.Host.PickUp(unitId, lootB).Success);
         }
 
+        /// <summary>
+        /// AUD-02 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：与上面
+        /// <see cref="SaveEmpty_SpawnB_LoadOld_BGone"/>（存档段本身存在、只是数组为空）互补——本用例
+        /// 覆盖"本段整体缺失"（<c>data is JsonNull</c>，如旧格式存档从未写过 <c>world.dropped_loot</c>
+        /// 段）这一路径：修复前 <c>Load</c> 对 <c>JsonNull</c> 直接 no-op 返回，不调用
+        /// <c>ClearDroppedExcept</c>，运行期已产生的掉落物原样保留。
+        /// </summary>
+        [Fact]
+        public void Load_NullData_ClearsAllTrackedDroppedLoot()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var persistable = new DroppedLootPersistable(f.Host);
+
+            var lootB = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), new[] { new ItemStack(new Id("item.sample_ore"), 1) });
+            Assert.Contains(lootB, f.Host.ActiveLootIds);
+
+            persistable.Load(JsonNull.Instance);
+
+            Assert.Empty(f.Host.ActiveLootIds);
+            Assert.False(f.Host.TryGetDropped(lootB, out _));
+        }
+
         /// <summary>正常场景（存档含掉落物 A → 场景清空 → 读同一份档）不应受"清理陈旧记录"这一根治
         /// 修复影响：A 仍应存在于世界里且可拾取——同 id 的记录既在"要保留的集合"里，也在
         /// <see cref="LootHost.RestoreDropped"/> 的"原地覆写/重新 AddEntity"两个既有分支的覆盖范围

@@ -337,6 +337,120 @@ namespace Tests.Carriers.Gobj
             Assert.Empty(fixture.Host.PendingLootSnapshot());
         }
 
+        /// <summary>
+        /// AUD-01 根治（architecture/落地计划/audit-85f1f4f-20260908，P1，真实复现）：1.5.0 旧格式
+        /// 非空 <c>world.gobj_pending_loot</c>（条目键是瞬态运行期 <c>gobjInstanceId</c>，见历史
+        /// serializer <c>git show 3224ca1:core/carriers/gobj/core/GobjPendingLootPersistable.cs</c>）
+        /// 用真实 <see cref="Core.Foundation.SaveSystem.SaveSystem.Load"/> 读取，此前直接索引
+        /// <c>entryObj["originKey"]</c> 抛 <see cref="FormatException"/>（旧字段是
+        /// <c>gobjInstanceId</c>，不是 <c>originKey</c>，见 AUDIT_REPORT），<c>SaveSystem.Load</c>
+        /// 因此返回 <c>PersistableThrew</c>；本用例复现该真实旧信封形状（含一段排在
+        /// <c>gobj_pending_loot</c> 之前的 <c>player.inventory</c> 段，验证前段确实成功提交，同时
+        /// 验证根治后不再回滚它——因为本段现在改为安全丢弃整条、不再抛异常，压根不会触发
+        /// <see cref="Core.Foundation.SaveSystem.SaveSystem"/> 的回滚路径），断言修复后
+        /// <c>load_status=Loaded</c>、旧段被安全丢弃（pending 仍是空表）、且诊断记了一条警告
+        /// （不是静默吞掉）。
+        /// </summary>
+        [Fact]
+        public void SaveSystemLoad_Legacy15GobjInstanceIdField_SafelyDropped_NotThrown()
+        {
+            var fixture = Build(maxSlots: 2, fullPolicy: InventoryFullPolicy.Partial);
+            fixture.Inventory.AddItem(Unit, ItemFiller, 2);
+            fixture.Bus.DispatchPending();
+
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.gobj_pending_loot_legacy_15");
+            var diagnostics = new InMemorySaveDiagnostics();
+            var save = new Core.Foundation.SaveSystem.SaveSystem(
+                fs, new SaveSystemOptions(new Id("game.gobj_pending_loot")), fixture.Bus, diagnostics);
+            var inventoryPersistable = new InventoryPersistable(Unit, fixture.Inventory);
+            var pendingLootPersistable = new GobjPendingLootPersistable(fixture.Host, diagnostics);
+            save.RegisterPersistable(inventoryPersistable);
+            save.RegisterPersistable(pendingLootPersistable);
+
+            // 手写 1.5.0 真实 on-disk 形状：player.inventory 段排在 world.gobj_pending_loot 之前
+            // （同 10 第 3 节固定顺序"步骤 4 在 7a 之前"），pending_loot 条目键是旧字段
+            // gobjInstanceId，不是 originKey。
+            var legacyInstanceId = new Id("gobj.inst_1");
+            var legacyDocument = new JsonObjectBuilder()
+                .Add("save_version", new JsonNumber(1))
+                .Add("sections", new JsonObjectBuilder()
+                    .Add("meta", new JsonObjectBuilder()
+                        .Add("save_version", new JsonNumber(1))
+                        .Add("slot_id", new JsonString(slotId.Value))
+                        .Add("created_at", new JsonString("legacy"))
+                        .Add("updated_at", new JsonString("legacy"))
+                        .Add("game_id", new JsonString("game.gobj_pending_loot"))
+                        .Build())
+                    .Add(inventoryPersistable.SectionKey, new JsonArray(new JsonValue[]
+                    {
+                        new JsonObjectBuilder()
+                            .Add("instance_id", new JsonString("item.inst_legacy_1"))
+                            .Add("template_id", new JsonString(ItemA.Value))
+                            .Add("count", new JsonNumber(2))
+                            .Add("extra", new JsonObjectBuilder().Build())
+                            .Build(),
+                    }))
+                    .Add(pendingLootPersistable.SectionKey, new JsonObjectBuilder()
+                        .Add("pending_loot", new JsonArray(new JsonValue[]
+                        {
+                            new JsonObjectBuilder()
+                                .Add("gobjInstanceId", new JsonString(legacyInstanceId.Value))
+                                .Add("items", new JsonArray(new JsonValue[]
+                                {
+                                    new JsonObjectBuilder()
+                                        .Add("templateId", new JsonString(ItemB.Value))
+                                        .Add("count", new JsonNumber(3))
+                                        .Build(),
+                                }))
+                                .Build(),
+                        }))
+                        .Build())
+                    .Build())
+                .Build();
+            Assert.True(fs.WriteTextAtomic(SaveSlotPath(slotId), JsonWriter.Write(legacyDocument)));
+
+            var loadResult = save.Load(slotId);
+
+            Assert.Equal(LoadStatus.Loaded, loadResult.Status);
+            Assert.Equal(2, fixture.Inventory.CountOf(Unit, ItemA)); // 前段（inventory）正常恢复。
+            Assert.Empty(fixture.Host.PendingLootSnapshot()); // 旧段被安全丢弃，不是遗留原运行期状态。
+            Assert.Contains(diagnostics.Warnings, w => w.Contains("gobjInstanceId"));
+        }
+
+        /// <summary>
+        /// AUD-04 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：1.6.0 把
+        /// <see cref="GameObjectHost.PendingChestLootSnapshot"/>/<see
+        /// cref="GameObjectHost.RestorePendingChestLoot"/> 改名为 <see
+        /// cref="GameObjectHost.PendingLootSnapshot"/>/<see cref="GameObjectHost.RestorePendingLoot"/>，
+        /// 没有提供旧名转发，任何仍用旧名的 1.5 风格调用点在 1.6 上编译即 CS1061。本用例本身就是
+        /// 一段"1.5 风格调用"，锁定旧名重新可编译、行为与新名完全一致（不是另一套语义）——
+        /// <c>#pragma warning disable CS0618</c> 只是压制"调用了 Obsolete 成员"这一预期内的警告，
+        /// 不代表本用例本身有问题。
+        /// </summary>
+        [Fact]
+        public void ObsoletePendingChestLootAliases_StillCompileAndForwardToNewNames()
+        {
+            var fixture = Build(maxSlots: 2, fullPolicy: InventoryFullPolicy.Partial);
+            fixture.Inventory.AddItem(Unit, ItemFiller, 1);
+            fixture.Bus.DispatchPending();
+            fixture.Loot.Table(LootTableRef, new ItemStack(ItemA, 4), new ItemStack(ItemB, 5));
+            var gobjId = SpawnChest(fixture);
+            fixture.Host.Interact(Unit, gobjId);
+            fixture.Bus.DispatchPending();
+
+#pragma warning disable CS0618 // 故意调用旧名，验证 1.5 风格调用点仍可编译、行为等价于新名。
+            var snapshotViaOldName = fixture.Host.PendingChestLootSnapshot();
+            Assert.NotEmpty(snapshotViaOldName);
+            Assert.Equal(fixture.Host.PendingLootSnapshot(), snapshotViaOldName);
+
+            var newHost = fixture.NewHostAfterReload();
+            newHost.RestorePendingChestLoot(snapshotViaOldName);
+#pragma warning restore CS0618
+
+            Assert.Equal(snapshotViaOldName.Count, newHost.PendingLootSnapshot().Count);
+        }
+
         /// <summary>CR150-04 核心复现与根治：满包采集不应该先提交冷却再忽略入包失败。完全失败（背包
         /// 一件都放不下）不提交冷却，允许立即重试；部分成功提交冷却并把未交付部分记入 pending，腾出
         /// 空间后在同一冷却窗口内重试应当补发剩余，不需要等冷却结束、也不重新 roll 掉落表。</summary>

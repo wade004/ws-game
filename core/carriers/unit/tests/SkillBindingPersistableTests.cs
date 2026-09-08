@@ -77,6 +77,26 @@ namespace Tests.Carriers.Unit
             Assert.Empty(host.GetBindings(player.EntityId));
         }
 
+        /// <summary>
+        /// AUD-02 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：修复前
+        /// <c>Load</c> 对 <c>JsonNull</c> 直接 no-op 返回，运行期已有的绑定原样保留（同一宿主先后
+        /// 加载两个存档槽时，缺本段的旧档不会清掉前一个槽留下的绑定）。与上面
+        /// <see cref="Load_NullData_LeavesEmpty"/>（本就是空的，无法区分"清空"与"no-op"）互补：
+        /// 先绑定一个槽位，再 <c>Load(JsonNull)</c>，断言真正被解绑。
+        /// </summary>
+        [Fact]
+        public void Load_NullData_ClearsPreExistingBindings()
+        {
+            var host = new SkillBindingHost(NewBus(), (_, __) => true);
+            var player = NewPlayer();
+            host.Bind(player.EntityId, "slot_0", SkillFireball);
+            Assert.NotEmpty(host.GetBindings(player.EntityId));
+
+            SkillBindingPersistable.For(host, player).Load(JsonNull.Instance);
+
+            Assert.Empty(host.GetBindings(player.EntityId));
+        }
+
         [Fact]
         public void Load_RejectsWrongShape()
         {

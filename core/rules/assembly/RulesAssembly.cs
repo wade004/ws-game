@@ -414,6 +414,48 @@ namespace Core.Rules.Assembly
             }
         }
 
+        /// <summary>
+        /// 种族被动光环跨图丢失根治（architecture/落地计划/audit-85f1f4f-20260908，静态候选转已
+        /// 确认）：<see cref="RegisterUnit"/> 首次注册单位时经 <see cref="ArchetypeRegistry.ApplyTo"/>
+        /// 施加 <c>race.PassiveAuras</c>，其中属性修正（<c>race.StatMods</c>，经
+        /// <see cref="Stats"/> 的修正登记表）与被动光环（经 <see cref="Skill"/> 的
+        /// <see cref="AuraHost"/> 运行时实例）生命周期并不一致——跨图切换的既有实现
+        /// <c>World.ClearAll</c> 只清空后者（<c>AuraHost</c> 响应 <c>entity.destroyed</c>），属性
+        /// 修正登记表不受影响。真实内容（非空 <c>arch.race.passive_auras</c>）复现：玩家实体
+        /// <c>ClearAll</c> → 重新 <c>AddEntity</c> → <c>GameplayAssembly.EnterMap</c> 之后，种族
+        /// 属性加成还在，被动光环的 buff 状态/触发效果却已经消失，直到下一次显式换种族（重新走
+        /// 一遍 <see cref="RegisterUnit"/>）才会被动补上。
+        /// <para>
+        /// 供 <c>GameplayAssembly.EnterMap</c> 在装备 grants 重放（<see
+        /// cref="Core.Carriers.Item.EquipmentHost.ReapplyGrants"/>，CR140-02 收口）之后一并调用
+        /// ——不是重新调用完整的 <see cref="ArchetypeRegistry.ApplyTo"/>（那会重复写基础属性/资源池
+        /// 注册，属性修正本就没丢，重新写一遍会产生错误的双重叠加，见 <c>ApplyTo</c> 判断记录），
+        /// 只重放 <c>race.PassiveAuras</c> 这一项运行时确实会丢失的状态；按 <see
+        /// cref="SkillHost.AuraQuery"/>.<c>HasAura</c> 跳过已经生效的（幂等，惯例同
+        /// <c>EquipmentHost.ReapplyGrants</c> 的"调用前快照"判断记录——本方法调用频率低、不存在
+        /// 该方法处理的"循环内多个来源共享同一份快照"场景，直接实时查询即可）。<paramref
+        /// name="raceId"/> 未知（内容已变更的旧存档）时静默跳过，不抛异常。
+        /// </para>
+        /// </summary>
+        public void ReapplyRacePassiveAuras(Id unitId, Id raceId)
+        {
+            var race = Archetypes.GetRace(raceId);
+            if (race == null)
+            {
+                return;
+            }
+
+            foreach (var auraDefId in race.PassiveAuras)
+            {
+                if (Skill.AuraQuery.HasAura(unitId, auraDefId))
+                {
+                    continue;
+                }
+
+                Skill.EffectSink.ApplyAura(unitId, auraDefId, raceId);
+            }
+        }
+
         private static StatModifierOp ParseOp(string op)
         {
             switch (op)

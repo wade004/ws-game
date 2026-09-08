@@ -330,6 +330,28 @@ namespace Core.Foundation.SaveSystem
             }
 
             var readOrder = ComputeReadOrder();
+
+            // AUD-01 根治（architecture/落地计划/audit-85f1f4f-20260908，P1）：开始逐段 Load 之前，
+            // 对全部已注册段各调用一次 Save() 做内存快照——不是为了写回磁盘，只是留一份"读档前
+            // 状态"，供随后任一段 Load 失败时尽力回滚已经成功加载的前段（见下方
+            // RollbackLoadedSections 判断记录、IPersistable.Load 判断记录修订、10 第 5 节勘误"段
+            // 失败回滚到读档前状态"合同）。快照本身允许失败（某个段的 Save() 抛异常）——不因此中止
+            // 读档流程，只是那个段之后万一需要回滚时无快照可用，尽力而为。
+            var preLoadSnapshots = new Dictionary<string, JsonValue>(StringComparer.Ordinal);
+            foreach (var key in readOrder)
+            {
+                try
+                {
+                    preLoadSnapshots[key] = _persistables[key].Save() ?? JsonNull.Instance;
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Warn(
+                        $"存档段 \"{key}\" 读档前快照失败（{ex.Message}），若本次读档中途失败，该段将无法回滚");
+                }
+            }
+
+            var loadedKeysInOrder = new List<string>(readOrder.Count);
             foreach (var key in readOrder)
             {
                 var persistable = _persistables[key];
@@ -350,10 +372,13 @@ namespace Core.Foundation.SaveSystem
                 try
                 {
                     persistable.Load(sectionValue);
+                    loadedKeysInOrder.Add(key);
                 }
                 catch (Exception ex)
                 {
-                    _diagnostics.Error($"存档段 \"{key}\" 的 Load() 抛出异常，此前已加载的段不会回滚", ex);
+                    _diagnostics.Error(
+                        $"存档段 \"{key}\" 的 Load() 抛出异常，正在按逆序尽力回滚此前已成功加载的段", ex);
+                    RollbackLoadedSections(loadedKeysInOrder, preLoadSnapshots);
                     return LoadResult.PersistableThrew(
                         meta, migratedFrom, $"存档段 \"{key}\" 的 Load() 抛出异常：{ex.Message}",
                         currentMapId, currentPosition);
@@ -661,6 +686,45 @@ namespace Core.Foundation.SaveSystem
         /// 是否存在决定，本方法只负责"该按什么顺序处理哪些已注册的段"这一件事。
         /// </summary>
         private List<string> ComputeReadOrder() => ComputeWriteOrder();
+
+        /// <summary>
+        /// AUD-01 根治：<see cref="Load"/> 主循环中途某段 <c>Load()</c> 抛异常时调用——按 <paramref
+        /// name="loadedKeysInOrder"/> 的逆序（后加载的先回滚），用 <paramref name="preLoadSnapshots"/>
+        /// 里对应段读档前的快照重新调用一次 <c>Load()</c>，把已经成功加载、但整体读档结果注定失败
+        /// （<see cref="LoadStatus.PersistableThrew"/>）的段尽力恢复回读档前的状态，避免调用方看到
+        /// 一份"部分段已经是新档内容、部分段仍是旧内容、还有一段直接抛了异常"的不一致中间态。
+        /// <para>
+        /// 判断记录——为什么是"尽力而为"而不是必须成功：(a) 某段可能在快照阶段本身就失败（见 <see
+        /// cref="Load"/> 快照循环），没有快照可回滚，只能跳过并记诊断；(b) 回滚调用的
+        /// <c>Load(snapshot)</c> 本身也可能再次抛异常（例如该段的状态已经被后续段的联动改到某种
+        /// 不允许再吃返回快照的中间形态）——此时记诊断并继续尝试回滚其它段，不让一个段的回滚失败
+        /// 连锁阻断其它段的回滚，也不改变本次 <see cref="Load"/> 最终仍返回 <see
+        /// cref="LoadStatus.PersistableThrew"/> 这一结果本身（回滚是尽力恢复现场，不是把失败的读档
+        /// 伪装成功）。
+        /// </para>
+        /// </summary>
+        private void RollbackLoadedSections(List<string> loadedKeysInOrder, Dictionary<string, JsonValue> preLoadSnapshots)
+        {
+            for (var i = loadedKeysInOrder.Count - 1; i >= 0; i--)
+            {
+                var key = loadedKeysInOrder[i];
+                if (!preLoadSnapshots.TryGetValue(key, out var snapshot))
+                {
+                    _diagnostics.Error(
+                        $"存档段 \"{key}\" 没有可用的读档前快照，无法回滚——该段可能仍停留在本次失败读档写入的中间值", null);
+                    continue;
+                }
+
+                try
+                {
+                    _persistables[key].Load(snapshot);
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Error($"存档段 \"{key}\" 回滚时再次抛出异常（尽力而为，不影响其它段的回滚）", ex);
+                }
+            }
+        }
 
         // ---- meta 段读写 ---------------------------------------------------
 

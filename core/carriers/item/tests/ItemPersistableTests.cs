@@ -114,6 +114,28 @@ namespace Tests.Carriers.Item
             Assert.Empty(hosts.Inventory.ListItems(Player));
         }
 
+        /// <summary>
+        /// AUD-02 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：修复前
+        /// <c>InventoryPersistable.Load</c> 对 <c>JsonNull</c>（本段整体缺失，如旧格式存档）直接
+        /// no-op 返回，运行期已有的库存原样保留——真实探针复现：先放入 1 件物品，再加载一份没有
+        /// <c>player.inventory</c> 段的存档，返回 <c>Loaded</c> 但库存仍是 1 件，而不是按"缺段=清空"
+        /// 合同归零。本用例先让背包非空，再直接 <c>Load(JsonNull.Instance)</c>，断言清空——与上面
+        /// <see cref="InventoryPersistable_Load_NullData_LeavesBagEmpty"/>（背包本就是空的，无法
+        /// 区分"清空"与"no-op"）互补，真正锁定"清空"这一行为本身。
+        /// </summary>
+        [Fact]
+        public void InventoryPersistable_Load_NullData_ClearsPreExistingItems()
+        {
+            var registry = BuildRegistry();
+            var hosts = BuildHosts(registry);
+            hosts.Inventory.AddItem(Player, new Id("item.sample_potion"), 3);
+            Assert.NotEmpty(hosts.Inventory.ListItems(Player));
+
+            new InventoryPersistable(Player, hosts.Inventory).Load(Core.Foundation.Common.Json.JsonNull.Instance);
+
+            Assert.Empty(hosts.Inventory.ListItems(Player));
+        }
+
         // -----------------------------------------------------------------
         // FND-10：EquipmentPersistable.Load 必须按快照"完整替换"当前装备状态，不是合并
         // （见 core/carriers/item/core/ItemPersistable.cs EquipmentPersistable 类型判断记录、

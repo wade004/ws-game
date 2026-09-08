@@ -408,6 +408,14 @@ namespace Core.Gameplay.Economy
         public int? GetStock(Id vendorId, Id itemId) =>
             _stock.TryGetValue(vendorId, out var byItem) && byItem.TryGetValue(itemId, out var state) ? state.Remaining : null;
 
+        /// <summary>AUD-03 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：<c>timer</c>
+        /// 补货策略当前剩余倒计时秒数，供 <see cref="VendorStockPersistable.Save"/> 一并持久化（见
+        /// 该类型判断记录修订——不再是"可选、不存"，见 <see cref="SetStock"/> 判断记录同款修订）。
+        /// 未知商人/物品，或该物品不是 <c>timer</c> 策略（<see cref="StockState.TimerRemaining"/>
+        /// 本就为 null），返回 null。</summary>
+        public double? GetStockTimerRemaining(Id vendorId, Id itemId) =>
+            _stock.TryGetValue(vendorId, out var byItem) && byItem.TryGetValue(itemId, out var state) ? state.TimerRemaining : null;
+
         /// <summary>全部已加载商人 id，按 <see cref="Id"/> 序数排列（供 <see
         /// cref="VendorStockPersistable"/> 遍历）。</summary>
         public IReadOnlyList<Id> VendorIds => _vendorOrder;
@@ -417,15 +425,51 @@ namespace Core.Gameplay.Economy
         public VendorDef GetVendorDef(Id vendorId) =>
             _vendors.TryGetValue(vendorId, out var def) ? def : throw new ArgumentException($"未知的商人 \"{vendorId}\"", nameof(vendorId));
 
-        /// <summary>供 <see cref="VendorStockPersistable.Load"/> 直接写入某商人某物品的剩余库存
-        /// （不经 <see cref="DecrementStock"/> 的"只减不加"语义，也不发任何事件——读档恢复状态不是
-        /// 一次"补货"，见 <c>core/gameplay/loot.LootHost.RestoreDropped</c> 同款判断记录"这不是发生了
-        /// 一次新的……只是恢复既有状态"）。未知商人/物品静默忽略（存档可能来自内容已变更的旧版本）。</summary>
-        public void SetStock(Id vendorId, Id itemId, int? remaining)
+        /// <summary>
+        /// 供 <see cref="VendorStockPersistable.Load"/> 直接写入某商人某物品的剩余库存（不经
+        /// <see cref="DecrementStock"/> 的"只减不加"语义，也不发任何事件——读档恢复状态不是一次
+        /// "补货"，见 <c>core/gameplay/loot.LootHost.RestoreDropped</c> 同款判断记录"这不是发生了
+        /// 一次新的……只是恢复既有状态"）。未知商人/物品静默忽略（存档可能来自内容已变更的旧版本）。
+        /// <para>
+        /// AUD-03 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：新增可选参数 <paramref
+        /// name="timerRemaining"/>——此前本方法只写 <see cref="StockState.Remaining"/>，从不触碰
+        /// <see cref="StockState.TimerRemaining"/>，导致同一宿主原地读档（不重新构造 <see
+        /// cref="EconomyHost"/>）时，倒计时仍是读档前那个正在跑的旧值，读档后继续沿用会让补货比
+        /// 快照时刻应有的时间提前触发（真实探针复现：t=2 存档时倒计时剩 8 秒，读档前又跑了 7 秒
+        /// 只剩 1 秒，读档后再过 1 秒立即补货，而不是应有的"剩 8 秒"）。现在的语义——<paramref
+        /// name="timerRemaining"/> 有值时按其显式写入 <see cref="StockState.TimerRemaining"/>
+        /// （对应存档里存了 <c>timer_remaining</c> 字段的条目）；为 <c>null</c>（旧格式存档没有这个
+        /// 可选字段，或该物品并非 <c>timer</c> 补货策略）时，若该物品确实是 <c>timer</c> 策略，
+        /// 重置为该策略定义的完整周期 <see cref="VendorSellItem.RestockTimer"/>（旧档缺失时的兜底
+        /// 语义，呼应 10 第 2.3 节勘误），不是"保持不动"——这正是本次修复前的缺陷根源。
+        /// </para>
+        /// </summary>
+        public void SetStock(Id vendorId, Id itemId, int? remaining, double? timerRemaining = null)
         {
-            if (_stock.TryGetValue(vendorId, out var byItem) && byItem.TryGetValue(itemId, out var state))
+            if (!_stock.TryGetValue(vendorId, out var byItem) || !byItem.TryGetValue(itemId, out var state))
             {
-                state.Remaining = remaining;
+                return;
+            }
+
+            state.Remaining = remaining;
+
+            if (timerRemaining.HasValue)
+            {
+                state.TimerRemaining = timerRemaining;
+                return;
+            }
+
+            if (_vendors.TryGetValue(vendorId, out var vendorDef))
+            {
+                foreach (var sellItem in vendorDef.SellItems)
+                {
+                    if (sellItem.ItemId.Equals(itemId) && sellItem.RestockPolicy == VendorRestockPolicy.Timer
+                        && sellItem.RestockTimer.HasValue)
+                    {
+                        state.TimerRemaining = sellItem.RestockTimer;
+                        break;
+                    }
+                }
             }
         }
 

@@ -50,8 +50,13 @@ namespace Core.Gameplay.Loot
 
         public void Load(JsonValue data)
         {
+            // AUD-02 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：本段整体缺失
+            // （data is JsonNull）时必须清空当前跟踪的全部地面掉落，不能 no-op 保留读档前的残留
+            // 实体——惯例同下方"外部审核阻塞项 1 收口"判断记录，用空 keepIds 调用 ClearDroppedExcept
+            // 即可复用同一套清理逻辑，不需要另写一份"清空"分支。
             if (data is JsonNull)
             {
+                _lootHost.ClearDroppedExcept(Array.Empty<Id>());
                 return;
             }
 

@@ -119,6 +119,19 @@ Real.InstanceReplaced += value; remove => Real.InstanceReplaced -= value;` 同�
 `RegisterUnit` 参数文档）。保留这个参数位置是为了不破坏任务书给出的签名形状，但如实标注"当前
 不生效"，不假装做了契约不支持的事情。
 
+**种族被动光环跨图丢失根治（外部审核第九轮，architecture/落地计划/audit-85f1f4f-20260908）：新增
+`ReapplyRacePassiveAuras(unitId, raceId)`。** `RegisterUnit` 经 `ArchetypeRegistry.ApplyTo` 施加
+的 `race.PassiveAuras` 是运行时光环实例，与同一步写入的 `race.StatMods`（属性修正登记表）生命周期
+不一致——跨图切换的既有实现 `World.ClearAll` 只清空前者（光环由 `AuraHost` 响应
+`entity.destroyed` 清理），后者不受影响。真实内容复现：玩家实体 `ClearAll → 重新 AddEntity →
+GameplayAssembly.EnterMap` 之后，种族属性加成还在，被动光环却已经消失，直到下一次显式换种族
+（重新走一遍 `RegisterUnit`）才会被动补上。`ReapplyRacePassiveAuras` **不是**重新调用完整的
+`ArchetypeRegistry.ApplyTo`（那会重复写基础属性/资源池注册，属性修正本就没丢，重新写一遍会产生
+错误的双重叠加），只重放 `race.PassiveAuras` 这一项确实会丢失的状态：按 `Skill.AuraQuery.HasAura`
+跳过已经生效的（幂等），未知 `raceId`（内容已变更的旧存档）静默跳过、不抛异常。供
+`core/gameplay/assembly.GameplayAssembly.EnterMap` 在装备 grants 重放之后一并调用，见
+`core/gameplay/assembly/README.md`/`core/carriers/unit/README.md` 同编号条目。
+
 ## 阶段 3 整理："事项一/三/四"新增的可选构造参数与延迟绑定属性
 
 `RulesAssembly` 构造函数新增五个可选参数（均缺省保持原有行为不变）：

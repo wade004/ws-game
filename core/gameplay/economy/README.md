@@ -73,10 +73,29 @@ economy/
    `world.vendor_stock`（补录，任务书标注"可选"）未登记，`VendorStockPersistable` 直接用字面量段 key，
    同 `core/gameplay/loot.DroppedLootPersistable` 判断记录，不触碰 `SaveSections`。
 
-6. **`VendorStockPersistable` 只持久化限量库存的剩余数（`Remaining`），不持久化
-   `restock_policy=timer` 的倒计时**：任务书标注本段"可选"，倒计时读档后从 `restock_timer` 满值重新
-   起算是可接受的简化（最坏情况只是下一次补货比"未读档"场景稍晚触发），避免为一个可选段引入额外的
-   存储/兼容负担。
+6. **AUD-03 修订（外部审核第九轮，P2，architecture/落地计划/audit-85f1f4f-20260908）：
+   `VendorStockPersistable` 现按需持久化 `restock_policy=timer` 的倒计时，取代此前"不持久化"的
+   判断记录。** 旧判断记录"倒计时读档后从满值重新起算是可接受的简化"只在"读档同时重新构造全新
+   `EconomyHost`"场景下成立——那种场景下倒计时反正会在构造函数里按 `restock_timer` 满值初始化，
+   读档不读它确实等价于满值起算。但真实探针复现了另一种同样合法的调用方式："原地读档"——同一个
+   已经在运行、倒计时已经跑了一段时间的 `EconomyHost` 实例被要求 `Load` 回某个更早的存档点，此时
+   `SetStock` 只写 `Remaining`、从不触碰 `TimerRemaining`，读档后倒计时仍是读档前那个正在跑的旧值，
+   会让补货比存档快照那一刻应有的时间提前触发（探针：t=2 存档，倒计时剩 8 秒；原地推进 7 秒，剩
+   1 秒；读档；再过 1 秒立即补货，而不是应有的"剩 7 秒、不补货"）。现在的实现：`timer` 策略物品
+   可选携带 `timer_remaining` 字段（`VendorSellItem.RestockPolicy == Timer` 时才写，其余物品继续
+   只写纯数字，不改变旧格式已在用的形状）；`EconomyHost.SetStock` 新增可选参数
+   `timerRemaining`——有值时按其写入，为空（旧格式存档没有该字段，或该物品并非 `timer` 策略）时若
+   该物品确实是 `timer` 策略，兜底重置为完整周期（`RestockTimer`），不是"保持不动"。见
+   `EconomyHost.cs`（`SetStock`/`GetStockTimerRemaining`）、`VendorStockPersistable.cs`、
+   `EconomyHostTests.VendorStockPersistable_RoundTrip_RestoresTimerRemaining_OnSameHostReload_
+   NotStaleValue`。
+
+6a. **AUD-02 根治（同上轮，P2）：`VendorStockPersistable.Load` 对本段整体缺失（`JsonNull`，如
+   只含 meta 的旧格式存档）的处理，从 no-op（保留读档前的运行期库存）改为按内容定义重置为满库存
+   （限量物品的 `StockLimit`），`timer` 策略倒计时一并重置为完整周期**——修复前真实探针复现：
+   先把库存从 5 改到 2，再加载一份只含 meta 的存档，返回 `Loaded` 但库存仍是 2，违反 10 第 3 节
+   "缺失段语义"合同（缺段应清空到默认态，不是保留读档前的残留状态）。见
+   `EconomyHostTests.VendorStockPersistable_Load_NullData_ResetsStockToContentDefinedFull`。
 
 7. **`Add`/`TryPay` 的 `sourceId`**：`TryPay` 内部调用 `Add(unitId, currencyId, -amount, sourceId:
    unitId)`——"谁扣的款"就是单位自己（购买/出售场景由 `Buy`/`Sell` 分别决定，`Sell` 收入的

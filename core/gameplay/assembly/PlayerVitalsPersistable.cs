@@ -98,8 +98,21 @@ namespace Core.Gameplay.Assembly
 
         public void Load(JsonValue data)
         {
+            // AUD-02 根治（architecture/落地计划/audit-85f1f4f-20260908，P2）：本段整体缺失
+            // （data is JsonNull）时必须重置到"从未发生过"的默认态——存活、满血——而不是 no-op
+            // 保留读档前的运行期状态（例如刚死亡还没重新存档、这份旧档又恰好没有本段）。默认态
+            // 选"存活 + 满血"而非"清零"，理由同 <see cref="Save"/> 上方类型注释判断记录"新游戏
+            // 的玩家本就存活"——这正是本段从未被写入过时（新游戏首次 Save 之前）的语义。
             if (data is JsonNull)
             {
+                _player.Alive = true;
+                if (_powers.HasPower(_player.EntityId, WellKnownPowers.Health))
+                {
+                    var current = _powers.GetPower(_player.EntityId, WellKnownPowers.Health);
+                    var max = _powers.GetPowerMax(_player.EntityId, WellKnownPowers.Health);
+                    _powers.ModifyPower(_player.EntityId, WellKnownPowers.Health, max - current, ReloadSource);
+                }
+
                 return;
             }
 

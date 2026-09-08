@@ -128,8 +128,8 @@ CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：此
   覆盖或删除；文档版本高于当前运行时版本 → `MigrationFailed`（"不承诺向前兼容"，10 第 5 节）；
   文档版本低于当前版本但迁移链缺少衔接版本、某个迁移函数抛异常、或迁移链某一步/终点会越过
   当前运行时版本（FND-09 收口，见下）→ `MigrationFailed`；某个已注册段 `Load()` 抛异常 →
-  `PersistableThrew`，此前已成功 `Load` 的段**不回滚**（由调用方决定如何处理这种"部分加载"
-  状态，例如整体回到主菜单重新读档）。
+  `PersistableThrew`，此前已成功 `Load` 的段**会被按逆序回滚到读档前的状态**（AUD-01 根治，见下，
+  取代本段此前"不回滚，由调用方自行处理部分加载状态"的旧表述）。
 - **FND-07 收口（外部审核 `code-review.md`）：正式文件与全部备份统一作为候选，按优先级
   （正式文件 → bak1 → bak2 → … → bak`<BackupCount>`）依次做完整信封校验，取第一个通过的。**
   此前只要正式文件不存在就立即返回 `NotFound`，从不尝试任何备份——"正式文件缺失但备份完好"
@@ -202,6 +202,21 @@ CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：此
   FallsBackToHealthyBackup`（回退到健康备份）、`Load_FormalMetaSemanticGap_
   NoHealthyCandidateAvailable_ReturnsCorrupted`（没有健康候选时仍正确判 `Corrupted`，不误判为
   `NotFound`）。
+- **AUD-01 根治（外部审核第九轮，P1，architecture/落地计划/audit-85f1f4f-20260908）：`Load` 中途某段
+  `Load()` 抛异常时，此前已成功 `Load` 过的段按逆序回滚到读档前状态，取代此前"不回滚"的合同。**
+  真实探针复现：`world.gobj_pending_loot` 段读到 1.5 旧格式非空数据时抛异常（见下方
+  `GobjPendingLootPersistable` 一节），此时排在它之前的 `player.inventory` 段已经按新档内容覆盖，
+  最终 `LoadStatus=PersistableThrew` 但 inventory 停留在本次失败读档写入的中间值，不是读档前的旧
+  内容——调用方拿到的是一份"部分是新档、部分是旧档、且整体标记失败"的不一致状态，比"完全不加载"
+  更难处理。现在的实现：`Load` 在开始逐段调用 `Load()` 之前，对全部已注册段各调用一次 `Save()`
+  取一份"读档前状态"快照（快照本身允许失败，失败的段只记诊断，不中止整个读档流程）；某段 `Load()`
+  抛异常时，对此前按顺序已经成功 `Load()` 过的段按逆序重新调用一次 `Load(快照)`，尽力恢复现场
+  （单个段的回滚调用本身再次抛异常也只记诊断、继续尝试其它段的回滚，不让一个段的回滚失败连锁
+  阻断其它段）。回滚是"尽力恢复"，不是"把失败伪装成功"——最终 `LoadResult.Status` 仍然是
+  `PersistableThrew`，调用方仍然能且应该按失败处理这次读档（例如提示用户、不切换场景）；回滚只是
+  保证"失败时看到的状态尽量接近读档前"，减少半新半旧状态带来的排障成本。验收：
+  `SaveSystemTests.Load_LaterSectionThrows_RollsBackEarlierSuccessfullyLoadedSection_ToPreLoadState`、
+  `Load_LaterSectionThrows_RollbackDoesNotMaskFailureStatus`。
 
 ## `LoadResult.CurrentMapId` / `CurrentPosition`（缺口 11）
 
@@ -226,6 +241,14 @@ CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：此
 遍历 `IRngHost.Streams`（已按 `Id` 序数排列）写出每条流的 `RngStreamState.ToString()` 文本；
 `Load()` 逐条 `Id.TryParse` + `RngStreamState.TryParse` 后调用 `IRngHost.SetStreamState`——
 目标流按 `IRngHost` 的懒创建语义按需创建，不要求流在读档前已存在。
+
+**AUD-02 收边（外部审核第九轮，P2）：本段显式声明 `KeepStateWhenSectionMissing=true`，是"缺段清空"
+默认合同的显式例外。** 理由：RNG 分流没有合法的"空"默认状态——每条流懒创建时都必须有一个主种子
+可派生，本类型自己不掌握"该用哪个种子重置"这一决定权（那是调用方构造 `IRngHost` 时给的，与"存档
+缺这一段"无关），把它清空成某个任意种子并不比保留调用前 `IRngHost` 已经在跑的状态更"正确"，只是
+换一种同样武断的随机序列。这与本类型既有的字段级兼容策略（"旧存档没有 `master_seed` 字段时退化为
+不 `Reset`、只逐条恢复流状态"）是同一种"缺失时保留优于武断清空"的选择，只是把同一判断显式提升到
+整段缺失这一层。
 
 ## 自动存档触发点
 
