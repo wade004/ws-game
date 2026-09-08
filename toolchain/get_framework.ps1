@@ -7,6 +7,11 @@
     本框架"）。本脚本运行在游戏仓库那一侧，不属于框架仓库自身的构建/门禁链路，只是框架随发布产物
     一并提供、供游戏侧调用的工具。
 
+    依赖提示：本脚本用哈希校验依赖同目录 `_hash.ps1`（`Get-Sha256FileHash` 共享函数，见下方哈希
+    校验小节），两个文件是一对，不能只复制本脚本单独使用——游戏仓库侧引用时请把 `toolchain`
+    整个目录一起复制/引用，或至少同时携带 `_hash.ps1`；缺失时脚本会给出明确报错并退出，不会
+    静默失败或退化。
+
 .PARAMETER Version
     要拉取的框架版本号，形如 X.Y.Z（必填）。
 
@@ -98,8 +103,14 @@ $ErrorActionPreference = "Stop"
 # 判断记录（第九轮审计工具链条目，本机 Get-FileHash 在部分 Windows PowerShell 5.1 环境下不可用，
 # 原因未查明）：DLL 哈希校验改用 toolchain/_hash.ps1 提供的 Get-Sha256FileHash 共享函数（内置
 # Get-FileHash 可用时优先用，不可用时透明退化到不依赖该 cmdlet 的 .NET SHA256 兜底实现），见该
-# 文件头注释。
-. (Join-Path $PSScriptRoot "_hash.ps1")
+# 文件头注释。本脚本单独复制到游戏仓库时若漏带 _hash.ps1，两个文件不在同一目录会导致本脚本无法
+# 工作；先显式检查存在性、给出明确报错，避免直接暴露点源不存在时的默认 PowerShell 报错。
+$hashScriptPath = Join-Path $PSScriptRoot "_hash.ps1"
+if (-not (Test-Path -LiteralPath $hashScriptPath)) {
+    Write-Host "缺少同目录 _hash.ps1：'$hashScriptPath' 不存在。get_framework.ps1 依赖它提供的 Get-Sha256FileHash 共享函数，不能单独复制本脚本使用——请把 toolchain 整个目录一起复制/引用到游戏仓库，或至少同时携带 _hash.ps1。" -ForegroundColor Red
+    exit 1
+}
+. $hashScriptPath
 
 $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 if ($Version -notmatch $VersionFormatPattern) {

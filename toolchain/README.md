@@ -358,7 +358,12 @@ python toolchain/import_sample_assets.py
 
 与本目录其余脚本不同，`get_framework.ps1` 运行在**游戏仓库**那一侧（游戏仓库把它复制/引用过去
 用），不属于本框架仓库自身的构建/门禁链路——它是框架随每次发布产物一并提供、供游戏侧调用的工具，
-职责是"按版本号取得一份可信的框架发布产物"：
+职责是"按版本号取得一份可信的框架发布产物"。
+
+**依赖边界**：`get_framework.ps1` 的 DLL 哈希校验依赖同目录的 `toolchain/_hash.ps1`
+（`Get-Sha256FileHash` 共享函数），两个文件是一对，不能只把 `get_framework.ps1` 单独复制到游戏
+仓库使用。游戏侧引用时请把 `toolchain` 整个目录一起复制/引用；确实只想拿这一个脚本时，至少要
+同时携带同目录的 `_hash.ps1`。缺失 `_hash.ps1` 时脚本会显式检查并报错退出，不会静默失败。
 
 ```powershell
 powershell -File toolchain\get_framework.ps1 -Version 1.0.0 -Target packages

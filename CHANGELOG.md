@@ -81,8 +81,12 @@
 - **`world.gobj_pending_loot` 段读档兼容旧字段名**（AUD-01）：1.5.0 期间产生、字段名与当前版本
   不一致的旧 `pending` 记录，能按值映射的字段会被迁移，无法映射时安全丢弃单条（不影响其它条目或
   其它段），不再抛异常；`Save()` 输出格式不变，仍写 `originKey`。
-- **`SaveSystem.Load` 段失败改为按逆序回滚已成功加载段**（AUD-01，行为契约变更）：调用方观察到的
-  "部分加载"中间态消失，`LoadStatus` 枚举值不变。
+- **`SaveSystem.Load` 段失败时对此前已成功加载的段按逆序尽力（best-effort）回滚**（AUD-01，行为
+  契约变更）：`Load` 开始逐段读取前先对全部已注册段各取一份读档前状态快照；某段 `load()` 抛异常
+  后，只对已经取得成功快照的此前成功段按逆序重新 `load(快照)`，尝试恢复到读档前状态；快照缺失、
+  回滚自身再次失败、或段间存在联动时仍可能残留部分状态，不保证消除"部分加载"中间态；最终
+  `LoadStatus` 枚举值不变，仍是 `PersistableThrew`。回滚不覆盖失败段自身，也不改变
+  `PersistableThrew` 这一最终结果。准确合同以 `architecture/10_存档与持久化.md` 当前正文为准。
 - **6 处既有 `IPersistable` 实现的缺段行为收紧**（AUD-02）：`ItemPersistable.InventoryPersistable`/
   `SkillBindingPersistable`/`VendorStockPersistable`/`DroppedLootPersistable`/
   `PlayerVitalsPersistable`/`ProgressionPersistable` 六处此前缺段时保留运行期状态不动，现改为清空
