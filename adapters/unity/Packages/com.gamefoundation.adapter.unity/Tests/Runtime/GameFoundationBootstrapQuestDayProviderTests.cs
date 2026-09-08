@@ -14,10 +14,20 @@
 // 判断记录（构造方式：同 SharedBootstrapDiscreteTests.cs 既有测试惯例）：GameFoundationBootstrap
 // 没有 Ensure() 单例守卫，标准做法是新建一个未激活 GameObject、AddComponent 后立即赋值测试用的
 // QuestDayProvider（Unity 惯例：未激活物体上新增组件时 Awake 会推迟到 SetActive(true) 才触发），
-// 再激活触发真正的 Awake/BuildWorld。测试数据用独立的 Tests/Runtime/TestData/QuestDayProviderOverlay/
-// 子目录（只含一张 quest.def 表，一条 repeatable=daily 的示例任务），经反射注入 _extraDatasetRoot
-// 私有字段叠加为第三数据根——不复用 SharedBootstrapDiscreteTests 使用的共享 TestData/ 根目录
-// （那份根目录还含 found.time_model.json 的 combat=discrete 覆盖行），避免两类测试互相耦合。
+// 再激活触发真正的 Awake/BuildWorld。测试数据用独立的 Tests/Runtime/TestDataQuestDayProvider/
+// 目录（一张 quest.def 表，一条 repeatable=daily 的示例任务；一张 l10n.text 表，补齐该任务
+// title_key 对应的文本，避免触发 text_key_exists 校验错误），经反射注入 _extraDatasetRoot 私有
+// 字段叠加为第三数据根。
+//
+// 判断记录（为什么不放在 Tests/Runtime/TestData/ 下面新建子目录，而是另建一个完全独立的兄弟
+// 目录）：首次实现时曾把测试数据放在 `TestData/QuestDayProviderOverlay/` 子目录下，实测发现
+// `FileSystemDataSource` 按整个数据根递归扫描 `<domain>/<table>.json`，不会把子目录当成互相隔离
+// 的命名空间——`DiscreteCombatTests.cs`/`SharedBootstrapDiscreteTests.cs` 直接把
+// `Tests/Runtime/TestData` 整个目录当数据根使用，会把嵌套在其下任意子目录里的表文件一并加载，
+// 导致本文件新增的 `quest.def`/`l10n.text` 表被那两份测试意外加载，进而被 `text_key_exists`
+// 等内容校验规则牵连报错、拖累无关用例。改为与 `TestData/` 完全平级的独立目录
+// （`TestDataQuestDayProvider/`），只有本文件自己的 `_extraDatasetRoot` 会指向它，不与任何既有
+// 测试共享数据根，避免同类耦合。
 using System;
 using System.Collections;
 using System.IO;
@@ -60,7 +70,7 @@ namespace Adapter.Unity.Tests.Runtime
             return Path.Combine(
                 repoRoot,
                 "adapters", "unity", "Packages", "com.gamefoundation.adapter.unity",
-                "Tests", "Runtime", "TestData", "QuestDayProviderOverlay");
+                "Tests", "Runtime", "TestDataQuestDayProvider");
         }
 
         /// <summary>见 SharedBootstrapDiscreteTests.CleanupStaleSharedCompositionRoots 同款判断

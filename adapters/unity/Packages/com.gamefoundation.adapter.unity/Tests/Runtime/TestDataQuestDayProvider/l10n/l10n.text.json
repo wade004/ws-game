@@ -1,0 +1,7 @@
+{
+  "table": "l10n.text",
+  "schema_version": 1,
+  "rows": [
+    { "key": "l10n.quest.g11_qdp_daily_sample.title", "locale": "l10n.locale.zh_cn", "text": "第十一方审核每日任务样例" }
+  ]
+}
