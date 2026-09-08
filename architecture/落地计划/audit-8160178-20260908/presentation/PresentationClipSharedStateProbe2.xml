@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="3" result="Passed" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 12:03:41Z" end-time="2026-09-08 12:03:41Z" duration="0.072758">
+  <test-suite type="TestSuite" id="1303" name="unity" fullname="unity" runstate="Runnable" testcasecount="244" result="Passed" start-time="2026-09-08 12:03:41Z" end-time="2026-09-08 12:03:41Z" duration="0.072758" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1285" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-8160178-20260908/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:03:41Z" end-time="2026-09-08 12:03:41Z" duration="0.066552" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="13128" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1286" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:03:41Z" end-time="2026-09-08 12:03:41Z" duration="0.065038" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1287" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:03:41Z" end-time="2026-09-08 12:03:41Z" duration="0.063970" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1288" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:03:41Z" end-time="2026-09-08 12:03:41Z" duration="0.062917" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1103" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:03:41Z" end-time="2026-09-08 12:03:41Z" duration="0.061493" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1144" name="PresentationClipSharedStateProbe" fullname="Adapter.Unity.Tests.Runtime.PresentationClipSharedStateProbe" classname="Adapter.Unity.Tests.Runtime.PresentationClipSharedStateProbe" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-08 12:03:41Z" end-time="2026-09-08 12:03:41Z" duration="0.054753" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1147" name="DifferentUnityViewFactory_CapturesPreviousFactoryDataAsAuthoredBaseline" fullname="Adapter.Unity.Tests.Runtime.PresentationClipSharedStateProbe.DifferentUnityViewFactory_CapturesPreviousFactoryDataAsAuthoredBaseline" methodname="DifferentUnityViewFactory_CapturesPreviousFactoryDataAsAuthoredBaseline" classname="Adapter.Unity.Tests.Runtime.PresentationClipSharedStateProbe" runstate="Runnable" seed="1983865961" result="Passed" start-time="2026-09-08 12:03:41Z" end-time="2026-09-08 12:03:41Z" duration="0.047168" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[PRESENTATION17 CLIP_CROSS_FACTORY expected_factoryB_probe_a=false actual_shared_probe_a=True actual_shared_probe_b=True b_override=False
+]]></output>
+                </test-case>
+                <test-case id="1145" name="EmptyAnimSetAfterConfiguredAnimSet_InheritsEarlierDataEventFromSharedClip" fullname="Adapter.Unity.Tests.Runtime.PresentationClipSharedStateProbe.EmptyAnimSetAfterConfiguredAnimSet_InheritsEarlierDataEventFromSharedClip" methodname="EmptyAnimSetAfterConfiguredAnimSet_InheritsEarlierDataEventFromSharedClip" classname="Adapter.Unity.Tests.Runtime.PresentationClipSharedStateProbe" runstate="Runnable" seed="799201531" result="Passed" start-time="2026-09-08 12:03:41Z" end-time="2026-09-08 12:03:41Z" duration="0.001025" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[PRESENTATION17 CLIP_EMPTY_AFTER_A expected_B_probe_a=false actual_shared_probe_a=True b_override=False
+]]></output>
+                </test-case>
+                <test-case id="1146" name="EmptyAnimSetBeforeConfiguredAnimSet_IsLaterPollutedBySharedClipWrite" fullname="Adapter.Unity.Tests.Runtime.PresentationClipSharedStateProbe.EmptyAnimSetBeforeConfiguredAnimSet_IsLaterPollutedBySharedClipWrite" methodname="EmptyAnimSetBeforeConfiguredAnimSet_IsLaterPollutedBySharedClipWrite" classname="Adapter.Unity.Tests.Runtime.PresentationClipSharedStateProbe" runstate="Runnable" seed="1898198237" result="Passed" start-time="2026-09-08 12:03:41Z" end-time="2026-09-08 12:03:41Z" duration="0.000915" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[PRESENTATION17 CLIP_EMPTY_BEFORE_A expected_B_probe_a=false actual_shared_probe_a=True b_override=False
+[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

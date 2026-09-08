@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net8.0</TargetFramework><OutputType>Library</OutputType><ImplicitUsings>disable</ImplicitUsings><Nullable>enable</Nullable><EnableDefaultCompileItems>false</EnableDefaultCompileItems><TreatWarningsAsErrors>false</TreatWarningsAsErrors></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\ApiCompatProbe.cs" />
+    <Reference Include="Core.Foundation"><HintPath>D:\workespace\ws-game-review-8160178\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17zip\Core.Foundation.dll</HintPath></Reference>
+    <Reference Include="Core.Numbers"><HintPath>D:\workespace\ws-game-review-8160178\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17zip\Core.Numbers.dll</HintPath></Reference>
+    <Reference Include="Core.Rules"><HintPath>D:\workespace\ws-game-review-8160178\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17zip\Core.Rules.dll</HintPath></Reference>
+    <Reference Include="Core.Carriers"><HintPath>D:\workespace\ws-game-review-8160178\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17zip\Core.Carriers.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

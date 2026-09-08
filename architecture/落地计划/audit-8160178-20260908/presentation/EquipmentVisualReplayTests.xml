@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="3" result="Passed" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 12:05:49Z" end-time="2026-09-08 12:05:49Z" duration="0.2134779">
+  <test-suite type="TestSuite" id="1303" name="unity" fullname="unity" runstate="Runnable" testcasecount="244" result="Passed" start-time="2026-09-08 12:05:49Z" end-time="2026-09-08 12:05:49Z" duration="0.213478" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1285" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-8160178-20260908/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:49Z" end-time="2026-09-08 12:05:49Z" duration="0.207196" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="664" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1286" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:49Z" end-time="2026-09-08 12:05:49Z" duration="0.205961" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1287" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:49Z" end-time="2026-09-08 12:05:49Z" duration="0.205197" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1288" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:49Z" end-time="2026-09-08 12:05:49Z" duration="0.204440" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1103" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:49Z" end-time="2026-09-08 12:05:49Z" duration="0.203327" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1097" name="EquipmentVisualReplayTests" fullname="Adapter.Unity.Tests.Runtime.EquipmentVisualReplayTests" classname="Adapter.Unity.Tests.Runtime.EquipmentVisualReplayTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-08 12:05:49Z" end-time="2026-09-08 12:05:49Z" duration="0.196292" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1098" name="CreateView_EquipmentAlreadyEquippedBeforeViewExisted_ReplaysVisualWithoutAnyEquipEvent" fullname="Adapter.Unity.Tests.Runtime.EquipmentVisualReplayTests.CreateView_EquipmentAlreadyEquippedBeforeViewExisted_ReplaysVisualWithoutAnyEquipEvent" methodname="CreateView_EquipmentAlreadyEquippedBeforeViewExisted_ReplaysVisualWithoutAnyEquipEvent" classname="Adapter.Unity.Tests.Runtime.EquipmentVisualReplayTests" runstate="Runnable" seed="1810887743" result="Passed" start-time="2026-09-08 12:05:49Z" end-time="2026-09-08 12:05:49Z" duration="0.146635" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1099" name="CreateView_NoEquipmentSnapshotResolver_BehavesExactlyAsBefore_NoReplayNoThrow" fullname="Adapter.Unity.Tests.Runtime.EquipmentVisualReplayTests.CreateView_NoEquipmentSnapshotResolver_BehavesExactlyAsBefore_NoReplayNoThrow" methodname="CreateView_NoEquipmentSnapshotResolver_BehavesExactlyAsBefore_NoReplayNoThrow" classname="Adapter.Unity.Tests.Runtime.EquipmentVisualReplayTests" runstate="Runnable" seed="1761799462" result="Passed" start-time="2026-09-08 12:05:49Z" end-time="2026-09-08 12:05:49Z" duration="0.009717" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1100" name="CreateView_SpriteKind_EquipmentAlreadyEquippedBeforeViewExisted_ReplaysAfterBind_RequestsOverrideLayerResource" fullname="Adapter.Unity.Tests.Runtime.EquipmentVisualReplayTests.CreateView_SpriteKind_EquipmentAlreadyEquippedBeforeViewExisted_ReplaysAfterBind_RequestsOverrideLayerResource" methodname="CreateView_SpriteKind_EquipmentAlreadyEquippedBeforeViewExisted_ReplaysAfterBind_RequestsOverrideLayerResource" classname="Adapter.Unity.Tests.Runtime.EquipmentVisualReplayTests" runstate="Runnable" seed="1968890534" result="Passed" start-time="2026-09-08 12:05:49Z" end-time="2026-09-08 12:05:49Z" duration="0.034142" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__body
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__hand_main
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：sprite.item.sample_hero_hat_test
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__head
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+[UnityViewFactory] 状态 "attack" 引用的动画资源 "anim.sample_hero_attack" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "idle" 引用的动画资源 "anim.sample_hero_idle" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "move" 引用的动画资源 "anim.sample_hero_move" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "cast" 引用的动画资源 "anim.sample_hero_cast" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "death" 引用的动画资源 "anim.sample_hero_death" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "hit" 引用的动画资源 "anim.sample_hero_hit" 加载失败，继续使用单帧占位剪辑（不重试）
+[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

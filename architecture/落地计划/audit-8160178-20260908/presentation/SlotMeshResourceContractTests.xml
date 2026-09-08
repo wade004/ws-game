@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="6" result="Passed" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.0759305">
+  <test-suite type="TestSuite" id="1303" name="unity" fullname="unity" runstate="Runnable" testcasecount="244" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.075931" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1285" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-8160178-20260908/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.069693" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="41508" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1286" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.068320" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1287" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.067182" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1288" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.066106" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1103" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.064602" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1160" name="SlotMeshResourceContractTests" fullname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests" classname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests" runstate="Runnable" testcasecount="6" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.057230" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1161" name="AUD05_ApplyEquipVisual_SlotMesh_PrefabModelRef_ResolvesRealMesh_NotNull" fullname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests.AUD05_ApplyEquipVisual_SlotMesh_PrefabModelRef_ResolvesRealMesh_NotNull" methodname="AUD05_ApplyEquipVisual_SlotMesh_PrefabModelRef_ResolvesRealMesh_NotNull" classname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests" runstate="Runnable" seed="654194235" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.044239" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1166" name="SetSlotMesh_AfterDestroyAndRecreateInstance_StillAppliesExtractedMeshOnNewHandle" fullname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests.SetSlotMesh_AfterDestroyAndRecreateInstance_StillAppliesExtractedMeshOnNewHandle" methodname="SetSlotMesh_AfterDestroyAndRecreateInstance_StillAppliesExtractedMeshOnNewHandle" classname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests" runstate="Runnable" seed="1625646341" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.001357" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1165" name="SetSlotMesh_ExplicitNullAfterMesh_ClearsSlot_RepeatedNullIsIdempotent" fullname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests.SetSlotMesh_ExplicitNullAfterMesh_ClearsSlot_RepeatedNullIsIdempotent" methodname="SetSlotMesh_ExplicitNullAfterMesh_ClearsSlot_RepeatedNullIsIdempotent" classname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests" runstate="Runnable" seed="1440492480" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.000597" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1164" name="SetSlotMesh_MissingMeshRef_IssuesRealLoadAsyncRequestThroughLoader" fullname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests.SetSlotMesh_MissingMeshRef_IssuesRealLoadAsyncRequestThroughLoader" methodname="SetSlotMesh_MissingMeshRef_IssuesRealLoadAsyncRequestThroughLoader" classname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests" runstate="Runnable" seed="323298820" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.003546" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer3D] 槽位 "slot.head" 引用的网格资源 "model.aud05_pending_probe"（mesh_ref）尚未加载或无法解析出网格（约定路径 Resources/GameFoundation/models/aud05_pending_probe，见 mesh_ref 资源合同：ResourceKind.Model资源，模型预制体按同名槽位子对象/首个网格渲染组件提取，或独立网格资产直接使用）：保留当前槽位网格并发起异步加载，加载完成后原地替换。
+[UnityRenderer3D] 网格资源 "model.aud05_pending_probe" 异步加载失败或无法提取网格，槽位 "slot.head" 保持当前网格（不重试）。
+]]></output>
+                </test-case>
+                <test-case id="1163" name="SetSlotMesh_MissingMeshRef_KeepsCurrentSlotMesh_DoesNotThrow" fullname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests.SetSlotMesh_MissingMeshRef_KeepsCurrentSlotMesh_DoesNotThrow" methodname="SetSlotMesh_MissingMeshRef_KeepsCurrentSlotMesh_DoesNotThrow" classname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests" runstate="Runnable" seed="1359909446" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.000870" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer3D] 槽位 "slot.head" 引用的网格资源 "model.aud05_missing_mesh_probe"（mesh_ref）尚未加载或无法解析出网格（约定路径 Resources/GameFoundation/models/aud05_missing_mesh_probe，见 mesh_ref 资源合同：ResourceKind.Model资源，模型预制体按同名槽位子对象/首个网格渲染组件提取，或独立网格资产直接使用）：保留当前槽位网格并发起异步加载，加载完成后原地替换。
+]]></output>
+                </test-case>
+                <test-case id="1162" name="SetSlotMesh_PrefabMeshRefAlreadyCached_ReplacesWithExtractedSlotMesh" fullname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests.SetSlotMesh_PrefabMeshRefAlreadyCached_ReplacesWithExtractedSlotMesh" methodname="SetSlotMesh_PrefabMeshRefAlreadyCached_ReplacesWithExtractedSlotMesh" classname="Adapter.Unity.Tests.Runtime.SlotMeshResourceContractTests" runstate="Runnable" seed="610609232" result="Passed" start-time="2026-09-08 12:04:08Z" end-time="2026-09-08 12:04:08Z" duration="0.000460" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

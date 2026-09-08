@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="13" result="Passed" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:38Z" duration="1.2572618">
+  <test-suite type="TestSuite" id="1303" name="unity" fullname="unity" runstate="Runnable" testcasecount="244" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:38Z" duration="1.257262" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1285" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-8160178-20260908/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:38Z" duration="1.251246" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="31872" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1286" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:38Z" duration="1.250082" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1287" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:38Z" duration="1.249099" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1288" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:38Z" duration="1.248153" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1103" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:38Z" duration="1.246848" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1130" name="ModelViewTests" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" testcasecount="13" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:38Z" duration="1.239857" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1138" name="AttachToSocket_MainHand_ThenDetach_DoesNotThrow" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.AttachToSocket_MainHand_ThenDetach_DoesNotThrow" methodname="AttachToSocket_MainHand_ThenDetach_DoesNotThrow" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="1298987375" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:37Z" duration="0.389319" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1131" name="CreateView_ModelKindDisplayInfo_CreatesUnityModelView_NotNullView" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.CreateView_ModelKindDisplayInfo_CreatesUnityModelView_NotNullView" methodname="CreateView_ModelKindDisplayInfo_CreatesUnityModelView_NotNullView" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="2063910581" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:37Z" duration="0.009315" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1132" name="CreateView_TwiceThenDestroy_UnderlyingModelInstanceRemoved" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.CreateView_TwiceThenDestroy_UnderlyingModelInstanceRemoved" methodname="CreateView_TwiceThenDestroy_UnderlyingModelInstanceRemoved" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="1260285046" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:37Z" duration="0.009597" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1139" name="PlayAttackClip_ReachesHitFrame_RaisesHitFrameReachedOnRig" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.PlayAttackClip_ReachesHitFrame_RaisesHitFrameReachedOnRig" methodname="PlayAttackClip_ReachesHitFrame_RaisesHitFrameReachedOnRig" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="735381918" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:37Z" duration="0.258654" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+]]></output>
+                </test-case>
+                <test-case id="1141" name="PlayAutoExitClip_AnimatorTransitionsBeforeDetectionFrame_StillRaisesFinishedExactlyOnce" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.PlayAutoExitClip_AnimatorTransitionsBeforeDetectionFrame_StillRaisesFinishedExactlyOnce" methodname="PlayAutoExitClip_AnimatorTransitionsBeforeDetectionFrame_StillRaisesFinishedExactlyOnce" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="162155559" result="Passed" start-time="2026-09-08 12:05:37Z" end-time="2026-09-08 12:05:38Z" duration="0.200792" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1143" name="PlayAutoExitClip_RetriggeredWhileStillPlaying_DoesNotFireSpuriousFinishedOnRetrigger" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.PlayAutoExitClip_RetriggeredWhileStillPlaying_DoesNotFireSpuriousFinishedOnRetrigger" methodname="PlayAutoExitClip_RetriggeredWhileStillPlaying_DoesNotFireSpuriousFinishedOnRetrigger" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="94110794" result="Passed" start-time="2026-09-08 12:05:38Z" end-time="2026-09-08 12:05:38Z" duration="0.009344" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1142" name="PlayAutoExitClip_TransitionsBetweenManualUpdates_BeforeAnyRendererTick_StillRaisesFinishedExactlyOnce" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.PlayAutoExitClip_TransitionsBetweenManualUpdates_BeforeAnyRendererTick_StillRaisesFinishedExactlyOnce" methodname="PlayAutoExitClip_TransitionsBetweenManualUpdates_BeforeAnyRendererTick_StillRaisesFinishedExactlyOnce" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="2114969314" result="Passed" start-time="2026-09-08 12:05:38Z" end-time="2026-09-08 12:05:38Z" duration="0.008419" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1140" name="PlayHitClip_NonLoop_ReachesFinished_RaisesFinishedEvent" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.PlayHitClip_NonLoop_ReachesFinished_RaisesFinishedEvent" methodname="PlayHitClip_NonLoop_ReachesFinished_RaisesFinishedEvent" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="185070176" result="Passed" start-time="2026-09-08 12:05:38Z" end-time="2026-09-08 12:05:38Z" duration="0.301165" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1136" name="ResolveAnchorLocalOffset_DeclaredSocket_ReturnsZero_UndeclaredReturnsNull" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.ResolveAnchorLocalOffset_DeclaredSocket_ReturnsZero_UndeclaredReturnsNull" methodname="ResolveAnchorLocalOffset_DeclaredSocket_ReturnsZero_UndeclaredReturnsNull" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="1045212967" result="Passed" start-time="2026-09-08 12:05:38Z" end-time="2026-09-08 12:05:38Z" duration="0.009053" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1135" name="SetMaterialParam_FlashAndFade_DoNotThrow_AndApplyToAllRenderers" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.SetMaterialParam_FlashAndFade_DoNotThrow_AndApplyToAllRenderers" methodname="SetMaterialParam_FlashAndFade_DoNotThrow_AndApplyToAllRenderers" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="1201855055" result="Passed" start-time="2026-09-08 12:05:38Z" end-time="2026-09-08 12:05:38Z" duration="0.009183" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1134" name="SetShadow_Blob_FacesCameraOnGroundPlane_PositionUnaffectedByHeight" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.SetShadow_Blob_FacesCameraOnGroundPlane_PositionUnaffectedByHeight" methodname="SetShadow_Blob_FacesCameraOnGroundPlane_PositionUnaffectedByHeight" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="123706473" result="Passed" start-time="2026-09-08 12:05:38Z" end-time="2026-09-08 12:05:38Z" duration="0.010093" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1137" name="SetSlotMesh_OnDeclaredHeadSlot_DoesNotThrow" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.SetSlotMesh_OnDeclaredHeadSlot_DoesNotThrow" methodname="SetSlotMesh_OnDeclaredHeadSlot_DoesNotThrow" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="1853734707" result="Passed" start-time="2026-09-08 12:05:38Z" end-time="2026-09-08 12:05:38Z" duration="0.009144" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1133" name="SyncPose_AppliesHeightToModelRoot" fullname="Adapter.Unity.Tests.Runtime.ModelViewTests.SyncPose_AppliesHeightToModelRoot" methodname="SyncPose_AppliesHeightToModelRoot" classname="Adapter.Unity.Tests.Runtime.ModelViewTests" runstate="Runnable" seed="1677958688" result="Passed" start-time="2026-09-08 12:05:38Z" end-time="2026-09-08 12:05:38Z" duration="0.008656" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

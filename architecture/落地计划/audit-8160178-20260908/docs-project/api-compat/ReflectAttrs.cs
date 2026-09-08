@@ -1,0 +1,2 @@
+using System; using System.Linq; using System.Reflection;
+public static class P { public static void Main(string[] a){var t=Assembly.LoadFrom(a[0]).GetType("Core.Carriers.Gobj.GameObjectHost")!; foreach(var m in t.GetMethods(BindingFlags.Public|BindingFlags.Instance).Where(x=>x.Name.Contains("Pending"))) { Console.WriteLine(m); foreach(var z in m.GetCustomAttributesData()) Console.WriteLine("  "+z.AttributeType+" "+z); }}}

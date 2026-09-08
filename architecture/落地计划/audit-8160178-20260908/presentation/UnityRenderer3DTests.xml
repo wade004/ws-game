@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="19" result="Passed" total="19" passed="19" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:26Z" duration="0.105738">
+  <test-suite type="TestSuite" id="1303" name="unity" fullname="unity" runstate="Runnable" testcasecount="244" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:26Z" duration="0.105738" total="19" passed="19" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1285" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-8160178-20260908/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:26Z" duration="0.099409" total="19" passed="19" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="46136" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1286" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:26Z" duration="0.097746" total="19" passed="19" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1287" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:26Z" duration="0.096281" total="19" passed="19" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1288" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:26Z" duration="0.094820" total="19" passed="19" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1103" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="240" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:26Z" duration="0.092876" total="19" passed="19" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1221" name="UnityRenderer3DTests" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" testcasecount="19" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:26Z" duration="0.085573" total="19" passed="19" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1238" name="AttachToSocket_MissingOnPlaceholder_PreservesIntent_ReattachesAfterSwapToModelWithSocket" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.AttachToSocket_MissingOnPlaceholder_PreservesIntent_ReattachesAfterSwapToModelWithSocket" methodname="AttachToSocket_MissingOnPlaceholder_PreservesIntent_ReattachesAfterSwapToModelWithSocket" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="1320149871" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.045702" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer3D] 找不到模型资源 "model.does_not_exist_probe_pr150_03"（约定路径 Resources/GameFoundation/models/does_not_exist_probe_pr150_03）：先使用占位模型呈现并发起异步加载，加载完成后原地替换为真实内容；请确认该预制体已放在 adapters/unity 包的 Assets/Resources/GameFoundation/models/ 目录下。
+[UnityRenderer3D] 挂点 "socket.custom" 在模型实例 1 当前视觉内容上不存在：已保留挂接意图，等视觉内容原地替换出该挂点后自动补挂，或由调用方重试。
+]]></output>
+                </test-case>
+                <test-case id="1239" name="AttachToSocket_StillMissingAfterSwap_KeepsIntentWithoutThrowing" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.AttachToSocket_StillMissingAfterSwap_KeepsIntentWithoutThrowing" methodname="AttachToSocket_StillMissingAfterSwap_KeepsIntentWithoutThrowing" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="1965167871" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.001777" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer3D] 找不到模型资源 "model.does_not_exist_probe_pr150_03b"（约定路径 Resources/GameFoundation/models/does_not_exist_probe_pr150_03b）：先使用占位模型呈现并发起异步加载，加载完成后原地替换为真实内容；请确认该预制体已放在 adapters/unity 包的 Assets/Resources/GameFoundation/models/ 目录下。
+[UnityRenderer3D] 挂点 "socket.custom" 在模型实例 1 当前视觉内容上不存在：已保留挂接意图，等视觉内容原地替换出该挂点后自动补挂，或由调用方重试。
+]]></output>
+                </test-case>
+                <test-case id="1230" name="AttachToSocket_ThenDetach_DoesNotThrow" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.AttachToSocket_ThenDetach_DoesNotThrow" methodname="AttachToSocket_ThenDetach_DoesNotThrow" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="1054848273" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.000599" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1240" name="CreateModelInstance_MissingThenAvailable_AttachVisual_RestoresShadowModeAfterSwap" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.CreateModelInstance_MissingThenAvailable_AttachVisual_RestoresShadowModeAfterSwap" methodname="CreateModelInstance_MissingThenAvailable_AttachVisual_RestoresShadowModeAfterSwap" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="860043427" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.001782" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer3D] 找不到模型资源 "model.does_not_exist_probe_pr140_02b"（约定路径 Resources/GameFoundation/models/does_not_exist_probe_pr140_02b）：先使用占位模型呈现并发起异步加载，加载完成后原地替换为真实内容；请确认该预制体已放在 adapters/unity 包的 Assets/Resources/GameFoundation/models/ 目录下。
+]]></output>
+                </test-case>
+                <test-case id="1237" name="CreateModelInstance_MissingThenAvailable_AttachVisual_RestoresSocketChildAfterSwap" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.CreateModelInstance_MissingThenAvailable_AttachVisual_RestoresSocketChildAfterSwap" methodname="CreateModelInstance_MissingThenAvailable_AttachVisual_RestoresSocketChildAfterSwap" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="296738708" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.001268" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer3D] 找不到模型资源 "model.does_not_exist_probe_pr140_02a"（约定路径 Resources/GameFoundation/models/does_not_exist_probe_pr140_02a）：先使用占位模型呈现并发起异步加载，加载完成后原地替换为真实内容；请确认该预制体已放在 adapters/unity 包的 Assets/Resources/GameFoundation/models/ 目录下。
+]]></output>
+                </test-case>
+                <test-case id="1222" name="CreateModelInstance_PlaceholderBiped_InstantiatesUnderRoot" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.CreateModelInstance_PlaceholderBiped_InstantiatesUnderRoot" methodname="CreateModelInstance_PlaceholderBiped_InstantiatesUnderRoot" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="566927619" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.000496" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1235" name="CreateModelInstance_UnknownModelId_DoesNotThrow_CreatesPlaceholderAndLogsDiagnosticOnce" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.CreateModelInstance_UnknownModelId_DoesNotThrow_CreatesPlaceholderAndLogsDiagnosticOnce" methodname="CreateModelInstance_UnknownModelId_DoesNotThrow_CreatesPlaceholderAndLogsDiagnosticOnce" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="218556152" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.000832" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer3D] 找不到模型资源 "model.does_not_exist_probe_pr130_05"（约定路径 Resources/GameFoundation/models/does_not_exist_probe_pr130_05）：先使用占位模型呈现并发起异步加载，加载完成后原地替换为真实内容；请确认该预制体已放在 adapters/unity 包的 Assets/Resources/GameFoundation/models/ 目录下。
+]]></output>
+                </test-case>
+                <test-case id="1236" name="CreateModelInstance_UnknownModelId_PlaceholderCanBePlacedAndDestroyed_LikeAnyOtherInstance" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.CreateModelInstance_UnknownModelId_PlaceholderCanBePlacedAndDestroyed_LikeAnyOtherInstance" methodname="CreateModelInstance_UnknownModelId_PlaceholderCanBePlacedAndDestroyed_LikeAnyOtherInstance" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="1485090686" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.005272" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityRenderer3D] 找不到模型资源 "model.does_not_exist_probe_pr130_05b"（约定路径 Resources/GameFoundation/models/does_not_exist_probe_pr130_05b）：先使用占位模型呈现并发起异步加载，加载完成后原地替换为真实内容；请确认该预制体已放在 adapters/unity 包的 Assets/Resources/GameFoundation/models/ 目录下。
+]]></output>
+                </test-case>
+                <test-case id="1223" name="DestroyModelInstance_TwiceOnSameHandle_ThrowsInvalidOperationException" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.DestroyModelInstance_TwiceOnSameHandle_ThrowsInvalidOperationException" methodname="DestroyModelInstance_TwiceOnSameHandle_ThrowsInvalidOperationException" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="1161529127" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.000940" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1234" name="OnAnimEvent_ReturnsDisposableSubscription" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.OnAnimEvent_ReturnsDisposableSubscription" methodname="OnAnimEvent_ReturnsDisposableSubscription" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="1194275721" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.000853" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1231" name="SetMaterialParam_DoesNotThrow" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.SetMaterialParam_DoesNotThrow" methodname="SetMaterialParam_DoesNotThrow" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="513173359" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.001264" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1225" name="SetPlacement_AppliesPositionRotationScale_HeightOnlyOnVisualRoot" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.SetPlacement_AppliesPositionRotationScale_HeightOnlyOnVisualRoot" methodname="SetPlacement_AppliesPositionRotationScale_HeightOnlyOnVisualRoot" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="731862510" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:25Z" duration="0.001024" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1227" name="SetPlacement_ModelAndSpriteVisualPosition_ProjectToSameScreenPoint" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.SetPlacement_ModelAndSpriteVisualPosition_ProjectToSameScreenPoint" methodname="SetPlacement_ModelAndSpriteVisualPosition_ProjectToSameScreenPoint" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="1580059104" result="Passed" start-time="2026-09-08 12:05:25Z" end-time="2026-09-08 12:05:26Z" duration="0.011179" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+]]></output>
+                </test-case>
+                <test-case id="1226" name="SetPlacement_ModelWorldPosition_MatchesCameraWorldToScreen_ForVariousHeightsAndFacings" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.SetPlacement_ModelWorldPosition_MatchesCameraWorldToScreen_ForVariousHeightsAndFacings" methodname="SetPlacement_ModelWorldPosition_MatchesCameraWorldToScreen_ForVariousHeightsAndFacings" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="1924707090" result="Passed" start-time="2026-09-08 12:05:26Z" end-time="2026-09-08 12:05:26Z" duration="0.001730" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1224" name="SetPlacement_OnDestroyedHandle_ThrowsInvalidOperationException" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.SetPlacement_OnDestroyedHandle_ThrowsInvalidOperationException" methodname="SetPlacement_OnDestroyedHandle_ThrowsInvalidOperationException" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="1094724306" result="Passed" start-time="2026-09-08 12:05:26Z" end-time="2026-09-08 12:05:26Z" duration="0.000526" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1232" name="SetShadow_AllModes_DoNotThrow" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.SetShadow_AllModes_DoNotThrow" methodname="SetShadow_AllModes_DoNotThrow" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="724554850" result="Passed" start-time="2026-09-08 12:05:26Z" end-time="2026-09-08 12:05:26Z" duration="0.000560" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1233" name="SetShadow_Blob_WorldPosition_DoesNotMoveWithHeight" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.SetShadow_Blob_WorldPosition_DoesNotMoveWithHeight" methodname="SetShadow_Blob_WorldPosition_DoesNotMoveWithHeight" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="165415225" result="Passed" start-time="2026-09-08 12:05:26Z" end-time="2026-09-08 12:05:26Z" duration="0.000911" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1229" name="SetSlotMesh_DeclaredHeadSlot_ClearsMeshWithoutThrow" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.SetSlotMesh_DeclaredHeadSlot_ClearsMeshWithoutThrow" methodname="SetSlotMesh_DeclaredHeadSlot_ClearsMeshWithoutThrow" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="872316646" result="Passed" start-time="2026-09-08 12:05:26Z" end-time="2026-09-08 12:05:26Z" duration="0.001223" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1228" name="SetSlotMesh_UnknownSlot_DoesNotThrow" fullname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests.SetSlotMesh_UnknownSlot_DoesNotThrow" methodname="SetSlotMesh_UnknownSlot_DoesNotThrow" classname="Adapter.Unity.Tests.Runtime.UnityRenderer3DTests" runstate="Runnable" seed="1690148639" result="Passed" start-time="2026-09-08 12:05:26Z" end-time="2026-09-08 12:05:26Z" duration="0.000420" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>
