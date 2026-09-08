@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="8" result="Passed" total="8" passed="8" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:28Z" duration="27.1458419">
+  <test-suite type="TestSuite" id="1305" name="unity" fullname="unity" runstate="Runnable" testcasecount="246" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:28Z" duration="27.145842" total="8" passed="8" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1287" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-e070e3f-20260908/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="242" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:28Z" duration="27.139739" total="8" passed="8" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="14368" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1288" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="242" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:28Z" duration="27.138521" total="8" passed="8" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1289" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="242" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:28Z" duration="27.137133" total="8" passed="8" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1290" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="242" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:28Z" duration="27.136211" total="8" passed="8" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1103" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="242" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:28Z" duration="27.134631" total="8" passed="8" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1122" name="ModelClipEventIsolationTests" fullname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests" classname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:01Z" duration="0.103302" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1125" name="RegisterModelClipEvents_SameSignatureTwice_ReusesSameOverrideClipInstance_SharedClipUntouched" fullname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests.RegisterModelClipEvents_SameSignatureTwice_ReusesSameOverrideClipInstance_SharedClipUntouched" methodname="RegisterModelClipEvents_SameSignatureTwice_ReusesSameOverrideClipInstance_SharedClipUntouched" classname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests" runstate="Runnable" seed="656133213" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:01Z" duration="0.093535" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1123" name="RegisterModelClipEvents_SingleAnimSet_MergesWithAuthoredEvents_ViaOverride_DoesNotTouchSharedClip" fullname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests.RegisterModelClipEvents_SingleAnimSet_MergesWithAuthoredEvents_ViaOverride_DoesNotTouchSharedClip" methodname="RegisterModelClipEvents_SingleAnimSet_MergesWithAuthoredEvents_ViaOverride_DoesNotTouchSharedClip" classname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests" runstate="Runnable" seed="482383331" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:01Z" duration="0.001761" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1124" name="RegisterModelClipEvents_TwoDifferentSignatures_BothIsolatedViaOverride_SharedClipUntouched" fullname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests.RegisterModelClipEvents_TwoDifferentSignatures_BothIsolatedViaOverride_SharedClipUntouched" methodname="RegisterModelClipEvents_TwoDifferentSignatures_BothIsolatedViaOverride_SharedClipUntouched" classname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests" runstate="Runnable" seed="131539833" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:01Z" duration="0.001286" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1144" name="Pres170_01SharedClipEventIsolationTests" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:28Z" duration="27.021695" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+]]></output>
+                <test-case id="1149" name="EntityDestroyAndRecreate_PreservesIsolationAndReusesOverrideCache" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests.EntityDestroyAndRecreate_PreservesIsolationAndReusesOverrideCache" methodname="EntityDestroyAndRecreate_PreservesIsolationAndReusesOverrideCache" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" seed="1386960777" result="Passed" start-time="2026-09-08 14:14:01Z" end-time="2026-09-08 14:14:07Z" duration="6.008432" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1145" name="Order1_NonEmptyThenEmpty_SameFactory_EmptyStaysAuthoredOnly" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests.Order1_NonEmptyThenEmpty_SameFactory_EmptyStaysAuthoredOnly" methodname="Order1_NonEmptyThenEmpty_SameFactory_EmptyStaysAuthoredOnly" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" seed="576418321" result="Passed" start-time="2026-09-08 14:14:07Z" end-time="2026-09-08 14:14:13Z" duration="6.002059" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1146" name="Order2_EmptyThenNonEmpty_SameFactory_EmptyStaysAuthoredOnly" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests.Order2_EmptyThenNonEmpty_SameFactory_EmptyStaysAuthoredOnly" methodname="Order2_EmptyThenNonEmpty_SameFactory_EmptyStaysAuthoredOnly" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" seed="1968409396" result="Passed" start-time="2026-09-08 14:14:13Z" end-time="2026-09-08 14:14:19Z" duration="6.001827" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1147" name="Order3_DifferentFactory_CrossFactoryAuthoredBaselineNotPolluted" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests.Order3_DifferentFactory_CrossFactoryAuthoredBaselineNotPolluted" methodname="Order3_DifferentFactory_CrossFactoryAuthoredBaselineNotPolluted" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" seed="1328181391" result="Passed" start-time="2026-09-08 14:14:19Z" end-time="2026-09-08 14:14:25Z" duration="6.001993" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1148" name="SceneRebuild_OldFactoryAndEntitiesDestroyed_NewFactoryStaysIsolated" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests.SceneRebuild_OldFactoryAndEntitiesDestroyed_NewFactoryStaysIsolated" methodname="SceneRebuild_OldFactoryAndEntitiesDestroyed_NewFactoryStaysIsolated" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" seed="516858137" result="Passed" start-time="2026-09-08 14:14:25Z" end-time="2026-09-08 14:14:28Z" duration="3.001568" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

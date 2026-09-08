@@ -1,0 +1,12 @@
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  ApiCompatLibrary -> D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-e070e3f-20260908\docs-project\api-compat-oldapi-bin\ApiCompatLibrary.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:00.37
+restore_exit=0
+build_exit=0
+framework_root=D:\workespace\ws-game-review-e070e3f\dist\1.8.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core

@@ -1,0 +1,6 @@
+探针源码：SaveLootViewBindingProbe.cs；工程：SaveLootViewBindingProbe.csproj
+命令：dotnet run --project architecture\落地计划\audit-e070e3f-20260908\presentation\SaveLootViewBindingProbe.csproj
+路径：真实 SaveSystem + DroppedLootPersistable + LootHost + WorldSim + ViewBinder，IViewFactory 为最小 Stub。
+步骤：Drop 并排空 entity.created 建立 View；Save；调用 LootHost.ClearDroppedExcept(empty) 后 WorldSim.Tick，模拟同图恢复前实体已从 WorldSim 清除；Load；再 WorldSim.Tick 排空。
+结果：RESULT=PASS status=Loaded entity_present=True binder_views=0 created_views=1 loot_id=loot.inst_1
+含义：SaveSystem.Load 的 SuppressDispatch 作用域内，DroppedLootPersistable.Load → LootHost.RestoreDropped → WorldSim.AddEntity 会恢复逻辑实体，但 EntityCreatedEvent 不进入 ViewBinder；Load 后再 Tick 也没有 View。该证据限定为模型 View 绑定层候选，不宣称 Unity 屏幕实际不可见。

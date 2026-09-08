@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="8" result="Failed(Child)" total="8" passed="3" failed="5" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:34Z" duration="6.0928855">
+  <test-suite type="TestSuite" id="1309" name="unity" fullname="unity" runstate="Runnable" testcasecount="249" result="Failed" site="Child" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:34Z" duration="6.092886" total="8" passed="3" failed="5" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1291" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-e070e3f-20260908/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="245" result="Failed" site="Child" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:34Z" duration="6.087255" total="8" passed="3" failed="5" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="36472" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1292" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="245" result="Failed" site="Child" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:34Z" duration="6.086251" total="8" passed="3" failed="5" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1293" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="245" result="Failed" site="Child" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:34Z" duration="6.085420" total="8" passed="3" failed="5" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestSuite" id="1294" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="245" result="Failed" site="Child" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:34Z" duration="6.084572" total="8" passed="3" failed="5" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-suite type="SetUpFixture" id="1103" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="245" result="Failed" site="Child" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:34Z" duration="6.083346" total="8" passed="3" failed="5" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <failure>
+                <message><![CDATA[One or more child tests had errors]]></message>
+              </failure>
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1122" name="ModelClipEventIsolationTests" fullname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests" classname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:28Z" duration="0.056842" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1123" name="RegisterModelClipEvents_FirstAnimSet_MergesWithAuthoredEvents_DoesNotOverwrite" fullname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests.RegisterModelClipEvents_FirstAnimSet_MergesWithAuthoredEvents_DoesNotOverwrite" methodname="RegisterModelClipEvents_FirstAnimSet_MergesWithAuthoredEvents_DoesNotOverwrite" classname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests" runstate="Runnable" seed="176976146" result="Passed" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:28Z" duration="0.046028" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1125" name="RegisterModelClipEvents_SameSignatureTwice_ReusesSharedClip_NoOverrideCreated" fullname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests.RegisterModelClipEvents_SameSignatureTwice_ReusesSharedClip_NoOverrideCreated" methodname="RegisterModelClipEvents_SameSignatureTwice_ReusesSharedClip_NoOverrideCreated" classname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests" runstate="Runnable" seed="238079630" result="Passed" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:28Z" duration="0.000761" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1124" name="RegisterModelClipEvents_SecondAnimSet_DifferentSignature_IsolatedViaOverride_DoesNotAffectFirst" fullname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests.RegisterModelClipEvents_SecondAnimSet_DifferentSignature_IsolatedViaOverride_DoesNotAffectFirst" methodname="RegisterModelClipEvents_SecondAnimSet_DifferentSignature_IsolatedViaOverride_DoesNotAffectFirst" classname="Adapter.Unity.Tests.Runtime.ModelClipEventIsolationTests" runstate="Runnable" seed="365299094" result="Passed" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:28Z" duration="0.004529" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1144" name="Pres170_01SharedClipEventIsolationTests" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" testcasecount="5" result="Failed" site="Child" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:34Z" duration="6.019692" total="5" passed="0" failed="5" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <failure>
+                  <message><![CDATA[One or more child tests had errors]]></message>
+                </failure>
+                <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+]]></output>
+                <test-case id="1149" name="EntityDestroyAndRecreate_PreservesIsolationAndReusesOverrideCache" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests.EntityDestroyAndRecreate_PreservesIsolationAndReusesOverrideCache" methodname="EntityDestroyAndRecreate_PreservesIsolationAndReusesOverrideCache" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" seed="1086082461" result="Failed" start-time="2026-09-08 14:21:28Z" end-time="2026-09-08 14:21:31Z" duration="3.008958" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <failure>
+                    <message><![CDATA[  PRES-170-01 核心断言：已销毁实体 A 的数据事件不应该出现在重建后的空配置实体 B 上
+  Expected: False
+  But was:  True
+]]></message>
+                    <stack-trace><![CDATA[at Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests+<EntityDestroyAndRecreate_PreservesIsolationAndReusesOverrideCache>d__15.MoveNext () [0x00112] in .\Packages\com.gamefoundation.adapter.unity\Tests\Runtime\Pres170_01SharedClipEventIsolationTests.cs:281
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\Library\PackageCache\com.unity.test-framework@bd7f943e9647\UnityEngine.TestRunner\NUnitExtensions\Attributes\TestEnumerator.cs:44
+]]></stack-trace>
+                  </failure>
+                </test-case>
+                <test-case id="1145" name="Order1_NonEmptyThenEmpty_SameFactory_EmptyStaysAuthoredOnly" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests.Order1_NonEmptyThenEmpty_SameFactory_EmptyStaysAuthoredOnly" methodname="Order1_NonEmptyThenEmpty_SameFactory_EmptyStaysAuthoredOnly" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" seed="1726272561" result="Failed" start-time="2026-09-08 14:21:31Z" end-time="2026-09-08 14:21:31Z" duration="0.001445" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <failure>
+                    <message><![CDATA[  非空配置 A 应当经运行期克隆剪辑隔离，不应该再写共享资产
+  Expected: True
+  But was:  False
+]]></message>
+                    <stack-trace><![CDATA[at Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests+<Order1_NonEmptyThenEmpty_SameFactory_EmptyStaysAuthoredOnly>d__11.MoveNext () [0x000a8] in .\Packages\com.gamefoundation.adapter.unity\Tests\Runtime\Pres170_01SharedClipEventIsolationTests.cs:139
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\Library\PackageCache\com.unity.test-framework@bd7f943e9647\UnityEngine.TestRunner\NUnitExtensions\Attributes\TestEnumerator.cs:44
+]]></stack-trace>
+                  </failure>
+                </test-case>
+                <test-case id="1146" name="Order2_EmptyThenNonEmpty_SameFactory_EmptyStaysAuthoredOnly" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests.Order2_EmptyThenNonEmpty_SameFactory_EmptyStaysAuthoredOnly" methodname="Order2_EmptyThenNonEmpty_SameFactory_EmptyStaysAuthoredOnly" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" seed="1812211557" result="Failed" start-time="2026-09-08 14:21:31Z" end-time="2026-09-08 14:21:31Z" duration="0.001215" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <failure>
+                    <message><![CDATA[  A（非空配置）应当经运行期克隆剪辑隔离
+  Expected: True
+  But was:  False
+]]></message>
+                    <stack-trace><![CDATA[at Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests+<Order2_EmptyThenNonEmpty_SameFactory_EmptyStaysAuthoredOnly>d__12.MoveNext () [0x000c5] in .\Packages\com.gamefoundation.adapter.unity\Tests\Runtime\Pres170_01SharedClipEventIsolationTests.cs:172
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\Library\PackageCache\com.unity.test-framework@bd7f943e9647\UnityEngine.TestRunner\NUnitExtensions\Attributes\TestEnumerator.cs:44
+]]></stack-trace>
+                  </failure>
+                </test-case>
+                <test-case id="1147" name="Order3_DifferentFactory_CrossFactoryAuthoredBaselineNotPolluted" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests.Order3_DifferentFactory_CrossFactoryAuthoredBaselineNotPolluted" methodname="Order3_DifferentFactory_CrossFactoryAuthoredBaselineNotPolluted" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" seed="1286086025" result="Failed" start-time="2026-09-08 14:21:31Z" end-time="2026-09-08 14:21:31Z" duration="0.001235" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <failure>
+                    <message><![CDATA[  Expected: True
+  But was:  False
+]]></message>
+                    <stack-trace><![CDATA[at Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests+<Order3_DifferentFactory_CrossFactoryAuthoredBaselineNotPolluted>d__13.MoveNext () [0x000cb] in .\Packages\com.gamefoundation.adapter.unity\Tests\Runtime\Pres170_01SharedClipEventIsolationTests.cs:210
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\Library\PackageCache\com.unity.test-framework@bd7f943e9647\UnityEngine.TestRunner\NUnitExtensions\Attributes\TestEnumerator.cs:44
+]]></stack-trace>
+                  </failure>
+                </test-case>
+                <test-case id="1148" name="SceneRebuild_OldFactoryAndEntitiesDestroyed_NewFactoryStaysIsolated" fullname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests.SceneRebuild_OldFactoryAndEntitiesDestroyed_NewFactoryStaysIsolated" methodname="SceneRebuild_OldFactoryAndEntitiesDestroyed_NewFactoryStaysIsolated" classname="Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests" runstate="Runnable" seed="1897285753" result="Failed" start-time="2026-09-08 14:21:31Z" end-time="2026-09-08 14:21:34Z" duration="3.001353" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <failure>
+                    <message><![CDATA[  PRES-170-01 核心断言：旧场景（factory A + 其实体）已经整体销毁，新场景新实体仍不应该看到旧场景的数据事件
+  Expected: False
+  But was:  True
+]]></message>
+                    <stack-trace><![CDATA[at Adapter.Unity.Tests.Runtime.Pres170_01SharedClipEventIsolationTests+<SceneRebuild_OldFactoryAndEntitiesDestroyed_NewFactoryStaysIsolated>d__14.MoveNext () [0x00101] in .\Packages\com.gamefoundation.adapter.unity\Tests\Runtime\Pres170_01SharedClipEventIsolationTests.cs:253
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\Library\PackageCache\com.unity.test-framework@bd7f943e9647\UnityEngine.TestRunner\NUnitExtensions\Attributes\TestEnumerator.cs:44
+]]></stack-trace>
+                  </failure>
+                  <output><![CDATA[[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

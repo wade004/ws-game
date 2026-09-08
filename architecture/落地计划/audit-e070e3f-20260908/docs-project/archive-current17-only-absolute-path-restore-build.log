@@ -1,0 +1,25 @@
+C:\Program Files\dotnet\sdk\8.0.424\Microsoft.Common.CurrentVersion.targets(2412,5): warning MSB3245: 未能解析此引用。未能找到程序集“Core.Foundation”。请检查磁盘上是否存在该程序集。 如果您的代码需要此引用，则可能出现编译错误。 [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+C:\Program Files\dotnet\sdk\8.0.424\Microsoft.Common.CurrentVersion.targets(2412,5): warning MSB3245: 未能解析此引用。未能找到程序集“Core.Numbers”。请检查磁盘上是否存在该程序集。 如果您的代码需要此引用，则可能出现编译错误。 [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+C:\Program Files\dotnet\sdk\8.0.424\Microsoft.Common.CurrentVersion.targets(2412,5): warning MSB3245: 未能解析此引用。未能找到程序集“Core.Rules”。请检查磁盘上是否存在该程序集。 如果您的代码需要此引用，则可能出现编译错误。 [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+C:\Program Files\dotnet\sdk\8.0.424\Microsoft.Common.CurrentVersion.targets(2412,5): warning MSB3245: 未能解析此引用。未能找到程序集“Core.Carriers”。请检查磁盘上是否存在该程序集。 如果您的代码需要此引用，则可能出现编译错误。 [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatProbe.cs(1,7): error CS0246: 未能找到类型或命名空间名“Core”(是否缺少 using 指令或程序集引用?) [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatProbe.cs(5,40): error CS0246: 未能找到类型或命名空间名“GameObjectHost”(是否缺少 using 指令或程序集引用?) [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+
+生成失败。
+
+C:\Program Files\dotnet\sdk\8.0.424\Microsoft.Common.CurrentVersion.targets(2412,5): warning MSB3245: 未能解析此引用。未能找到程序集“Core.Foundation”。请检查磁盘上是否存在该程序集。 如果您的代码需要此引用，则可能出现编译错误。 [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+C:\Program Files\dotnet\sdk\8.0.424\Microsoft.Common.CurrentVersion.targets(2412,5): warning MSB3245: 未能解析此引用。未能找到程序集“Core.Numbers”。请检查磁盘上是否存在该程序集。 如果您的代码需要此引用，则可能出现编译错误。 [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+C:\Program Files\dotnet\sdk\8.0.424\Microsoft.Common.CurrentVersion.targets(2412,5): warning MSB3245: 未能解析此引用。未能找到程序集“Core.Rules”。请检查磁盘上是否存在该程序集。 如果您的代码需要此引用，则可能出现编译错误。 [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+C:\Program Files\dotnet\sdk\8.0.424\Microsoft.Common.CurrentVersion.targets(2412,5): warning MSB3245: 未能解析此引用。未能找到程序集“Core.Carriers”。请检查磁盘上是否存在该程序集。 如果您的代码需要此引用，则可能出现编译错误。 [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatProbe.cs(1,7): error CS0246: 未能找到类型或命名空间名“Core”(是否缺少 using 指令或程序集引用?) [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatProbe.cs(5,40): error CS0246: 未能找到类型或命名空间名“GameObjectHost”(是否缺少 using 指令或程序集引用?) [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+    4 个警告
+    2 个错误
+
+已用时间 00:00:01.10
+
+RESTORE_EXIT=0
+BUILD_EXIT=1
+PROJECT=D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj
+BASE_INTERMEDIATE=D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-e070e3f-20260908\docs-project\archive-current17-only-obj\
+OUTPUT=D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-e070e3f-20260908\docs-project\archive-current17-only-bin\

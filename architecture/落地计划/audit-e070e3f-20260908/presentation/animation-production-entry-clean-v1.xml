@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="7" result="Passed" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 14:27:23Z" end-time="2026-09-08 14:27:25Z" duration="1.4220556">
+  <test-suite type="TestSuite" id="1305" name="unity" fullname="unity" runstate="Runnable" testcasecount="246" result="Passed" start-time="2026-09-08 14:27:23Z" end-time="2026-09-08 14:27:25Z" duration="1.422056" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1287" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-e070e3f-20260908/unity_probe_2/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="242" result="Passed" start-time="2026-09-08 14:27:23Z" end-time="2026-09-08 14:27:25Z" duration="1.415652" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="12932" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1288" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="242" result="Passed" start-time="2026-09-08 14:27:23Z" end-time="2026-09-08 14:27:25Z" duration="1.414205" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1289" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="242" result="Passed" start-time="2026-09-08 14:27:23Z" end-time="2026-09-08 14:27:25Z" duration="1.412970" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1290" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="242" result="Passed" start-time="2026-09-08 14:27:23Z" end-time="2026-09-08 14:27:25Z" duration="1.411743" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1103" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="242" result="Passed" start-time="2026-09-08 14:27:23Z" end-time="2026-09-08 14:27:25Z" duration="1.410192" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1264" name="UnityViewFactoryDefaultAnimationTests" fullname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests" classname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests" runstate="Runnable" testcasecount="7" result="Passed" start-time="2026-09-08 14:27:23Z" end-time="2026-09-08 14:27:25Z" duration="1.403943" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1268" name="CreateView_AfterHitClipCompletes_CanTransitionToMove" fullname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests.CreateView_AfterHitClipCompletes_CanTransitionToMove" methodname="CreateView_AfterHitClipCompletes_CanTransitionToMove" classname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests" runstate="Runnable" seed="713598771" result="Passed" start-time="2026-09-08 14:27:23Z" end-time="2026-09-08 14:27:24Z" duration="1.041766" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+]]></output>
+                </test-case>
+                <test-case id="1267" name="CreateView_AnimRootRenderer_RespondsToHeightFlashFade_LikePaperdollLayers" fullname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests.CreateView_AnimRootRenderer_RespondsToHeightFlashFade_LikePaperdollLayers" methodname="CreateView_AnimRootRenderer_RespondsToHeightFlashFade_LikePaperdollLayers" classname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests" runstate="Runnable" seed="1916800261" result="Passed" start-time="2026-09-08 14:27:24Z" end-time="2026-09-08 14:27:24Z" duration="0.010800" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.test_anim_layer__side_r__body
+]]></output>
+                </test-case>
+                <test-case id="1271" name="CreateView_ColdAnimSetResource_ImmediatelyUsable_AndTriggersRealLoadRequest" fullname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests.CreateView_ColdAnimSetResource_ImmediatelyUsable_AndTriggersRealLoadRequest" methodname="CreateView_ColdAnimSetResource_ImmediatelyUsable_AndTriggersRealLoadRequest" classname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests" runstate="Runnable" seed="1509379007" result="Passed" start-time="2026-09-08 14:27:24Z" end-time="2026-09-08 14:27:25Z" duration="0.335379" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityViewFactory] 状态 "attack" 引用的动画资源 "anim.sample_hero_attack" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "idle" 引用的动画资源 "anim.sample_hero_idle" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "cast" 引用的动画资源 "anim.sample_hero_cast" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "hit" 引用的动画资源 "anim.sample_hero_hit" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "move" 引用的动画资源 "anim.sample_hero_move" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "death" 引用的动画资源 "anim.sample_hero_death" 加载失败，继续使用单帧占位剪辑（不重试）
+]]></output>
+                </test-case>
+                <test-case id="1265" name="CreateView_ForCreatureCategory_MoveCastHit_PlayDistinctDefaultClips" fullname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests.CreateView_ForCreatureCategory_MoveCastHit_PlayDistinctDefaultClips" methodname="CreateView_ForCreatureCategory_MoveCastHit_PlayDistinctDefaultClips" classname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests" runstate="Runnable" seed="1799265977" result="Passed" start-time="2026-09-08 14:27:25Z" end-time="2026-09-08 14:27:25Z" duration="0.003615" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+]]></output>
+                </test-case>
+                <test-case id="1266" name="CreateView_ForNonCreatureCategory_DoesNotAttachAnimPlayer" fullname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests.CreateView_ForNonCreatureCategory_DoesNotAttachAnimPlayer" methodname="CreateView_ForNonCreatureCategory_DoesNotAttachAnimPlayer" classname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests" runstate="Runnable" seed="1677526569" result="Passed" start-time="2026-09-08 14:27:25Z" end-time="2026-09-08 14:27:25Z" duration="0.000525" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1269" name="EntityDestroyed_SameIdReused_NewViewStartsFromIdle_NotStuckOnOldDeathLock" fullname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests.EntityDestroyed_SameIdReused_NewViewStartsFromIdle_NotStuckOnOldDeathLock" methodname="EntityDestroyed_SameIdReused_NewViewStartsFromIdle_NotStuckOnOldDeathLock" classname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests" runstate="Runnable" seed="1015545958" result="Passed" start-time="2026-09-08 14:27:25Z" end-time="2026-09-08 14:27:25Z" duration="0.003127" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+]]></output>
+                </test-case>
+                <test-case id="1270" name="UnitRespawned_SamePlayerInstance_CanTransitionToMoveAgain" fullname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests.UnitRespawned_SamePlayerInstance_CanTransitionToMoveAgain" methodname="UnitRespawned_SamePlayerInstance_CanTransitionToMoveAgain" classname="Adapter.Unity.Tests.Runtime.UnityViewFactoryDefaultAnimationTests" runstate="Runnable" seed="2121202628" result="Passed" start-time="2026-09-08 14:27:25Z" end-time="2026-09-08 14:27:25Z" duration="0.002214" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.test_anim_layer" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

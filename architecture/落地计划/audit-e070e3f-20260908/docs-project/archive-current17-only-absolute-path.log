@@ -1,0 +1,14 @@
+C:\Program Files\dotnet\sdk\8.0.424\Sdks\Microsoft.NET.Sdk\targets\Microsoft.PackageDependencyResolution.targets(266,5): error NETSDK1004: 找不到资产文件“D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-e070e3f-20260908\docs-project\archive-current17-only-obj\project.assets.json”。运行 NuGet 包还原以生成此文件。 [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+
+生成失败。
+
+C:\Program Files\dotnet\sdk\8.0.424\Sdks\Microsoft.NET.Sdk\targets\Microsoft.PackageDependencyResolution.targets(266,5): error NETSDK1004: 找不到资产文件“D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-e070e3f-20260908\docs-project\archive-current17-only-obj\project.assets.json”。运行 NuGet 包还原以生成此文件。 [D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj]
+    0 个警告
+    1 个错误
+
+已用时间 00:00:00.25
+
+EXIT=1
+PROJECT=D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\current17-only\ApiCompatCurrent17Only.csproj
+BASE_INTERMEDIATE=D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-e070e3f-20260908\docs-project\archive-current17-only-obj\
+OUTPUT=D:\workespace\ws-game-review-e070e3f\architecture\落地计划\audit-e070e3f-20260908\docs-project\archive-current17-only-bin\
