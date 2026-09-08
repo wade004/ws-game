@@ -61,6 +61,16 @@ common/
    类型不可空，选择"不存在则抛异常"（调用前应先 `Exists`）；`GetDisplayId`/`GetKind` 返回值本就是
    `Optional`，选择"不存在则返回 null"，与"实体不存在"和"实体存在但映射不出结果"两种情形统一为
    同一个 null（`GetKind` 在 `Entity.Kind` 无法映射时也返回 null，见 `EntityKindMapping`）。
+4a. **PRES-180 新增 `ISimSnapshot.GetAllEntityIds`/`GetRawKind`**（见
+   architecture/落地计划/audit-e070e3f-20260908/presentation/presentation-findings.md"存档抑制与
+   掉落物 View 候选"、`presentation/view_binding/README.md`"判断记录 5"）：`view_binding` 的
+   `ViewBinder` 订阅 `save.loaded` 后需要对 `IWorldSim` 当前实体做一次全量对账（补上读档期间被
+   `IEventBus.SuppressDispatch` 抑制、从未送达的 `entity.created`/`entity.destroyed`），本模块只
+   收窄给它两个只读成员——`GetAllEntityIds()` 直接转发 `IWorldSim.QueryEntities(default)`（三个过滤
+   条件均为 null，不做任何过滤）取回的 `EntityId` 列表，不持有 `Entity` 引用本身（铁律 P1）；
+   `GetRawKind(Id)` 返回映射前的原始 `Entity.Kind` 字符串（`GetKind` 返回的是映射后的
+   `ViewKind?`，丢失了原始字符串，无法复用 `ViewBinder.OnEntityCreated` 既有的"跳过 AreaTrigger、
+   记录未映射分类"诊断逻辑，故新增一个专门返回原始值的成员，不是 `GetKind` 的重复）。
 4. **`DirectionSlots` 集中"量化索引 → 档位 id"与"档位 id → 默认镜像来源"两条规则**（P4-2 新增，取代
    `presentation/render` P4-1 自造的罗盘命名）：档位族命名本身取自 14 第 2.1 节固定表，但"量化索引
    0 对应哪个具体档位"仍是本类型的判断记录（游戏镜头朝向问题，架构文档不预先拍板）——依据 05 第

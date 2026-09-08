@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.SimLoop;
@@ -48,6 +49,23 @@ namespace Presentation.Common
             }
 
             return EntityKindMapping.TryMap(entity.Kind, out var kind) ? kind : (ViewKind?)null;
+        }
+
+        public string? GetRawKind(Id entityId) => _world.GetEntity(entityId)?.Kind;
+
+        /// <summary>直接转发 <see cref="IWorldSim.QueryEntities"/>（<c>default(EntityFilter)</c> 三个
+        /// 条件均为 null，不做任何过滤），只取回 <c>EntityId</c> 列表——调用方（<c>ViewBinder</c> 的
+        /// <c>save.loaded</c> 对账）不需要持有 <c>Entity</c> 引用本身（铁律 P1）。</summary>
+        public IReadOnlyList<Id> GetAllEntityIds()
+        {
+            var entities = _world.QueryEntities(default);
+            var ids = new Id[entities.Count];
+            for (var i = 0; i < entities.Count; i++)
+            {
+                ids[i] = entities[i].EntityId;
+            }
+
+            return ids;
         }
 
         /// <summary>不存在时抛异常而非返回默认值——调用方（<c>ViewBinder</c> 等）总是先经

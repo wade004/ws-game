@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Core.Foundation.Common;
 
 namespace Presentation.Common
@@ -31,5 +32,18 @@ namespace Presentation.Common
         /// <summary>实体对应的 <see cref="ViewKind"/>；无法从实体的 <c>Kind</c> 字符串映射出已知
         /// 分类，或实体不存在时返回 null（见 <see cref="EntityKindMapping"/> 契约缺口说明）。</summary>
         ViewKind? GetKind(Id entityId);
+
+        /// <summary>实体的原始 <c>Entity.Kind</c> 字符串（映射前，供 <see cref="ViewKind"/> 之外的
+        /// 调用方——如 <c>ViewBinder</c> 的 <c>OnEntityCreated</c>——复用与"经 <c>entity.created</c>
+        /// 事件正常创建"完全一致的映射/跳过/诊断逻辑）；实体不存在返回 null。见 PRES-180 存档读档
+        /// 对账判断记录（<c>ViewBinder</c> 类型注释）。</summary>
+        string? GetRawKind(Id entityId);
+
+        /// <summary>当前存活（未销毁）的全部实体 id，按 <c>EntityId</c> 序数排序（惯例同
+        /// <c>IWorldSim.QueryEntities</c>）。供 <c>ViewBinder</c> 在 <c>save.loaded</c> 后按
+        /// "WorldSim 当前实体"与已绑定 View 表做一次全量对账（见 PRES-180 判断记录：
+        /// <c>SuppressDispatch</c> 作用域丢弃读档期间的 <c>entity.created</c>/<c>entity.destroyed</c>，
+        /// 本方法是唯一的补扫入口，其余场景不应依赖它）。</summary>
+        IReadOnlyList<Id> GetAllEntityIds();
     }
 }

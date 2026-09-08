@@ -275,6 +275,133 @@ namespace Adapter.Unity.Tests.Runtime
             LogAssert.NoUnexpectedReceived();
         }
 
+        // PRES-180 根治验收（architecture/落地计划/audit-e070e3f-20260908/presentation/
+        // presentation-findings.md"存档抑制与掉落物 View 候选"）：同图（不切场景）读档路径下，
+        // Core.Foundation.SaveSystem.SaveSystem.Load 把逐段 Load 包在 IEventBus.SuppressDispatch
+        // 作用域内，作用域内经 Enqueue/PublishImmediate 提交的事件被直接丢弃——若读档前掉落物已经
+        // 从 WorldSim/ViewBinder 消失（本用例用真实 LootHost.ClearDroppedExcept(空集合) 复现，与
+        // architecture/落地计划/audit-e070e3f-20260908/presentation/SaveLootViewBindingProbe.cs
+        // 同一手法），DroppedLootPersistable.Load 期间经 LootHost.RestoreDropped → IWorldSim.
+        // AddEntity 把掉落物恢复到 WorldSim 时产生的 entity.created 会被丢弃、永不补发。本用例用
+        // 真实 FrameworkResidentHost/GameFoundationBootstrap 整套装配跑一遍：验证根治后
+        // Presentation.ViewBinding.ViewBinder 订阅 save.loaded 做的全量对账，能让掉落物读档后立即
+        // 拥有一个真实 View（不是本套件其它用例用到的 PresentationCommon 单测 stub 工厂，这里走
+        // UnityViewFactory 真实产出 UnitySpriteView/NullView）。
+        [UnityTest]
+        public IEnumerator PRES180_SameMapLoad_DroppedLootView_ReconciledAfterSuppressedEntityCreated()
+        {
+            yield return LoadShellScene();
+            var shell = RequireShellRoot();
+
+            // 同 FullVerticalSlice_..._Save_Load_... 判断记录：状态动画加载失败警告在整个测试装配
+            // 生命周期内针对每个 resource_ref 只会首次触发一次，按 HasAttemptedAnimResourceLoad
+            // 探测本用例执行到这里之前是否已经有别的用例替它们发起过加载，只为"确实还没发起过"的
+            // 那些注册 Expect。
+            var animStates = new[] { "idle", "move", "attack", "cast", "hit", "death" };
+            var animLoadFailedWarning = new System.Text.RegularExpressions.Regex(
+                @"\[UnityViewFactory\] 状态 "".*?"" 引用的动画资源 "".*?"" 加载失败");
+            var expectedAnimLoadWarnings = 0;
+            foreach (var state in animStates)
+            {
+                var resourceRef = new Id($"anim.sample_hero_{state}");
+                if (!shell.Framework.ViewFactory.HasAttemptedAnimResourceLoad(resourceRef))
+                {
+                    expectedAnimLoadWarnings++;
+                }
+            }
+            for (var i = 0; i < expectedAnimLoadWarnings; i++)
+            {
+                LogAssert.Expect(UnityEngine.LogType.Warning, animLoadFailedWarning);
+            }
+
+            yield return EnterInWorld(shell, "pres180");
+
+            Assert.IsTrue(shell.Framework.BeastEntityId.HasValue, "应当已经生成示例生物");
+            var beastId = shell.Framework.BeastEntityId!.Value;
+
+            // 同 FullVerticalSlice_..._Save_Load_... 判断记录：占位字体不含 CJK 字形，死亡飘字
+            // "阵亡"两个字各记一条 TMP 缺字形警告。
+            var missingGlyphWarning = new System.Text.RegularExpressions.Regex(
+                @"was not found in the \[LiberationSans SDF\] font asset");
+            LogAssert.Expect(UnityEngine.LogType.Warning, missingGlyphWarning);
+            LogAssert.Expect(UnityEngine.LogType.Warning, missingGlyphWarning);
+
+            var died = false;
+            for (var attempt = 0; attempt < 400 && !died; attempt++)
+            {
+                Cast(shell, AttackSkillId);
+                yield return new WaitForFixedUpdate();
+                yield return null;
+                var beastEntity = shell.Framework.World.GetEntity(beastId);
+                died = beastEntity == null || !shell.Framework.Gameplay.Carriers.Units.IsAlive(beastId);
+            }
+            Assert.IsTrue(died, "持续普攻后示例生物应当死亡");
+
+            // 确定性轮询掉落物实体与 View 都已就绪（同 FullVerticalSlice_... 判断记录）。
+            var lootGuard = 300;
+            Id? lootEntityId = null;
+            while (lootGuard-- > 0)
+            {
+                var lootEntities = shell.Framework.World.QueryEntities(new EntityFilter(kind: EntityKinds.Loot));
+                if (lootEntities.Count > 0)
+                {
+                    lootEntityId = lootEntities[0].EntityId;
+                    if (shell.Framework.Presentation.ViewBinder.TryGetView(lootEntityId.Value, out _))
+                    {
+                        break;
+                    }
+                }
+
+                yield return new WaitForFixedUpdate();
+                yield return null;
+            }
+            Assert.IsTrue(lootEntityId.HasValue, "示例生物死亡后应当结算出至少一件掉落物");
+            var lootId = lootEntityId!.Value;
+            Assert.IsTrue(shell.Framework.Presentation.ViewBinder.TryGetView(lootId, out _), "掉落后、存档前应当已经绑定 View");
+
+            // 存档：这份存档记录的是"掉落物仍在地上"这一刻的状态。
+            var slotId = new Id("game.sample.slot_pres180");
+            var saveResult = shell.Framework.Presentation.Shell.OverwriteSlot(slotId, playTimeSeconds: null, displaySummary: null);
+            Assert.IsTrue(saveResult.Success, "存档应当成功");
+
+            // 复现 PRES-180 前提（同 SaveLootViewBindingProbe.cs 判断记录"Simulate an already-cleared
+            // same-map world"）：调用真实 LootHost.ClearDroppedExcept(空集合) 让掉落物从
+            // LootHost/WorldSim 的跟踪表消失（真实业务方法，不经 SuppressDispatch，entity.destroyed
+            // 正常派发，ViewBinder 正常销毁 View——这一步本身不是缺陷，只是复现前提）。
+            shell.Framework.Gameplay.Loot.ClearDroppedExcept(System.Array.Empty<Id>());
+            var clearGuard = 60;
+            while (shell.Framework.World.GetEntity(lootId) != null && clearGuard-- > 0)
+            {
+                yield return new WaitForFixedUpdate();
+                yield return null;
+            }
+            Assert.IsNull(shell.Framework.World.GetEntity(lootId), "复现前提：读档前掉落物实体应当已从 WorldSim 移除");
+            Assert.IsFalse(shell.Framework.Presentation.ViewBinder.TryGetView(lootId, out _), "复现前提：读档前 View 应当已被销毁");
+
+            // 读档：目标地图与当前地图相同（不切场景），DroppedLootPersistable.Load 会经
+            // LootHost.RestoreDropped 把这件掉落物重新 AddEntity 回 WorldSim——PRES-180 根治前，
+            // 由此产生的 entity.created 被 SaveSystem.Load 的 SuppressDispatch 作用域丢弃，
+            // ViewBinder 永远收不到通知，逻辑实体存在但没有 View；根治后 ViewBinder 订阅
+            // save.loaded 做一次全量对账，Load() 返回时 View 已经补建完毕，不依赖任何额外 tick。
+            var loadResult = shell.Framework.Presentation.Shell.LoadGame(slotId);
+            Assert.IsTrue(
+                loadResult.Status == LoadStatus.Loaded || loadResult.Status == LoadStatus.LoadedFromBackup,
+                $"读档应当成功，实际：{loadResult.Status}，{loadResult.Message}");
+            var guard = 1000;
+            while (shell.Framework.Presentation.Shell.Page != ShellPage.InWorld && guard-- > 0) yield return null;
+            Assert.AreEqual(ShellPage.InWorld, shell.Framework.Presentation.Shell.Page);
+            yield return new WaitForFixedUpdate();
+
+            Assert.IsNotNull(shell.Framework.World.GetEntity(lootId), "同图读档后掉落物逻辑实体应当恢复到 WorldSim");
+            Assert.IsTrue(
+                shell.Framework.Presentation.ViewBinder.TryGetView(lootId, out var reconciledView),
+                "PRES-180 根治点：同图读档完成的这一刻，掉落物应当已经拥有一个真实 View（ViewBinder 订阅 " +
+                "save.loaded 做的全量对账补建），不需要任何额外操作或等待");
+            Assert.IsNotNull(reconciledView, "补建的 View 不应为 null");
+
+            LogAssert.NoUnexpectedReceived();
+        }
+
         [UnityTest]
         public IEnumerator Feedback_CritDamage_TriggersFreeze()
         {

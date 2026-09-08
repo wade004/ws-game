@@ -3,7 +3,9 @@
 职责：落地 [01_分层与依赖.md](../../architecture/01_分层与依赖.md) L5 模块表 `view_binding` 行
 （契约接口名 `ViewBinder`）、[03_运行时骨架.md](../../architecture/03_运行时骨架.md) 第 5、9 节、
 [09_表现层.md](../../architecture/09_表现层.md) 第 2 节：订阅 `entity.created`/`entity.destroyed`
-创建/销毁 View、维护"实体 id → View"绑定表、驱动位置插值、把相关事件转发给对应 View。
+创建/销毁 View、维护"实体 id → View"绑定表、驱动位置插值、把相关事件转发给对应 View；额外订阅
+`save.loaded`（PRES-180 根治），在读档完成后按 `ISimSnapshot` 当前状态做一次全量对账，补上读档期间
+被 `IEventBus.SuppressDispatch` 抑制、从未送达的 `entity.created`/`entity.destroyed`（见判断记录 5）。
 
 依赖：`Presentation.Common.csproj`（同解决方案下引用 `Core.Gameplay` 传递链）。
 
@@ -20,6 +22,7 @@ view_binding/
   tests/
     ViewBindingTestSupport.cs  FakeView/FakeViewFactory/FakeDisplayInfoRegistry/TestEntity
     ViewBinderTests.cs         18 个用例
+    PRES180_SaveLoadViewReconciliationTests.cs  4 个用例（save.loaded 对账回归，见判断记录 5）
 ```
 
 ## `ViewBinder.SyncAll`
@@ -72,6 +75,24 @@ public void SyncAll(double alpha)
    `IExprReadableEvent.TryGetField` 统一尝试，命中即转发；同一事件可以命中多个候选字段并转发给
    多个不同 View（如 `combat.damage_dealt` 的 `sourceId`/`targetId`），同一 View 不会重复收到同一
    事件两次。
+5. **PRES-180 根治：`save.loaded` 触发全量对账，不是"再订阅一遍 `entity.created`/`entity.destroyed`"**
+   （见 architecture/落地计划/audit-e070e3f-20260908/presentation/presentation-findings.md"存档
+   抑制与掉落物 View 候选"）：`SaveSystem.Load` 把逐段 `Load` 包在 `IEventBus.SuppressDispatch`
+   作用域内，作用域内经 `Enqueue`/`PublishImmediate` 提交的事件被直接丢弃、不会补发——本模块原本
+   只在构造期订阅两个事件的做法，遇到某段 `Load` 期间往 `IWorldSim` 加/删实体（如同图读档恢复地面
+   掉落物，见 `Core.Gameplay.Loot.DroppedLootPersistable.Load`/`LootHost.RestoreDropped`）就会漏掉
+   这批变化。`SaveSystem.Load` 在该抑制作用域<b>外</b>正常派发 `SaveLoadedEvent`
+   （`Core.Foundation.SaveSystem.SaveEventKeys.SaveLoaded`），本模块订阅它后做一次以
+   `ISimSnapshot.GetAllEntityIds`/`Exists` 为准的对账：缺 View 的按与 `OnEntityCreated` 完全一致的
+   规则补建（复用同一方法，跳过 `AreaTrigger`、记录未映射分类、幂等去重同一套逻辑），已绑定但对应
+   实体已不存在的按 `OnEntityDestroyed` 补销毁——两个方向合起来同时覆盖"`entity.created` 被丢弃"与
+   "`entity.destroyed` 被丢弃"两类残留，同步完成，不依赖任何一次后续 `sim.tick_finished` 补发。
+   为此在 `ISimSnapshot` 新增两个只读成员：`GetAllEntityIds()`（当前存活实体 id 列表）与
+   `GetRawKind(Id)`（映射前的原始 `Entity.Kind` 字符串，供复用 `OnEntityCreated` 的映射/跳过/诊断
+   规则），`presentation/common/core/WorldSimSnapshot.cs` 按 `IWorldSim.QueryEntities(default)`
+   实现，不引入除现有 `IWorldSim` 之外的新依赖。回归见 `tests/PRES180_SaveLoadViewReconciliationTests.cs`
+   （真实 `SaveSystem`/`DroppedLootPersistable`/`LootHost`/`WorldSim`/`ViewBinder`，`IViewFactory`
+   用记录型 stub），含跨图读档不回归的用例（真实 `GameplayAssembly` + `SceneRouter`）。
 
 ## 契约缺口
 

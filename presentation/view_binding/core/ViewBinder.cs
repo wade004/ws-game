@@ -4,6 +4,7 @@ using Core.Foundation.Common;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
+using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 using Presentation.Common;
@@ -17,6 +18,27 @@ namespace Presentation.ViewBinding
     /// 09 第 2 节）：订阅 <c>entity.created</c>/<c>entity.destroyed</c> 创建/销毁 View、维护
     /// "实体 id → View" 绑定表、在 <c>sim.tick_finished</c> 捕获位置快照供插值、把选定事件转发给
     /// 相关 View 的 <see cref="IView.OnEvent"/>。
+    /// <para>
+    /// PRES-180 根治（architecture/落地计划/audit-e070e3f-20260908/presentation/
+    /// presentation-findings.md"存档抑制与掉落物 View 候选"）：<c>SaveSystem.Load</c> 把"逐段 Load +
+    /// 失败回滚"整段包在 <c>IEventBus.SuppressDispatch</c> 作用域内（该方法判断记录"读档不是业务
+    /// 事件"），作用域内经 <c>Enqueue</c>/<c>PublishImmediate</c> 提交的事件被直接丢弃，不会补发——
+    /// 若某个 <c>IPersistable.Load</c> 在此期间调用 <c>IWorldSim.AddEntity</c>（如地面掉落物同图读档
+    /// 恢复，见 <c>DroppedLootPersistable.Load</c>/<c>LootHost.RestoreDropped</c>）或立即从
+    /// <c>IWorldSim</c> 移除实体，本类原本"只在构造期订阅 <c>entity.created</c>/<c>entity.destroyed</c>"
+    /// 的做法就会漏掉这批变化：逻辑实体已经在 <c>WorldSim</c> 里创建/移除，但 View 绑定表没有同步
+    /// （"有逻辑实体、无绑定 View"或反过来"View 残留、逻辑实体已不存在"）。<c>SaveSystem.Load</c> 在
+    /// 该抑制作用域<b>外</b>正常派发 <c>SaveLoadedEvent</c>（<c>save.loaded</c>，"本次读档完成了"不是
+    /// 重放，理应正常送达），本类型额外订阅它并调用 <see cref="OnSaveLoaded"/> 做一次以
+    /// <see cref="ISimSnapshot"/>（<see cref="ISimSnapshot.GetAllEntityIds"/>/
+    /// <see cref="ISimSnapshot.Exists"/>）当前状态为准的全量对账：缺 View 的按与
+    /// <see cref="OnEntityCreated"/> 完全一致的规则补建（复用同一方法，跳过 AreaTrigger、记录未映射
+    /// 分类、幂等去重同一套逻辑），已绑定但对应实体已不存在的按 <see cref="OnEntityDestroyed"/> 补销毁
+    /// ——两个方向合起来同时覆盖"entity.created 被丢弃"与"entity.destroyed 被丢弃"两类残留，不需要
+    /// 区分具体是哪个持久化段触发的。对账在收到 <c>save.loaded</c> 时同步执行一次即完成，不依赖后续
+    /// 任何一次 <c>sim.tick_finished</c> 补发；两个循环内部都先查 <c>_views</c> 再决定是否创建/销毁，
+    /// 重复收到 <c>save.loaded</c>（如迁移紧接读档两次派发相关事件）不会重复建 View。
+    /// </para>
     /// <para>
     /// 插值：<see cref="SyncAll"/>/<see cref="GetInterpolatedPosition"/> 用
     /// <c>pos = prev + (curr - prev) × alpha</c>（见 03 第 3.1 节）；<c>prev</c>/<c>curr</c> 两份
@@ -100,6 +122,7 @@ namespace Presentation.ViewBinding
             _subscriptions.Add(bus.Subscribe<EntityCreatedEvent>(SimEventKeys.EntityCreated, e => OnEntityCreated(e.EntityId, e.Kind, e.DisplayId)));
             _subscriptions.Add(bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, e => OnEntityDestroyed(e.EntityId)));
             _subscriptions.Add(bus.Subscribe<SimTickFinishedEvent>(SimEventKeys.TickFinished, _ => OnTickFinished()));
+            _subscriptions.Add(bus.Subscribe(SaveEventKeys.SaveLoaded, _ => OnSaveLoaded()));
 
             for (var i = 0; i < _options.ForwardedEventKeys.Count; i++)
             {
@@ -182,6 +205,45 @@ namespace Presentation.ViewBinding
             _displayIds.Remove(entityId);
             _prevPositions.Remove(entityId);
             _currPositions.Remove(entityId);
+        }
+
+        /// <summary>PRES-180 根治：<c>save.loaded</c> 触发的全量对账（见类型注释）。分两个独立方向，
+        /// 顺序无关紧要（互不依赖对方结果）：先销毁绑定表里指向"已不在 <see cref="ISimSnapshot"/> 里"
+        /// 的陈旧 View（覆盖 <c>entity.destroyed</c> 被丢弃的情形），再为"<see cref="ISimSnapshot"/> 里
+        /// 存在、但绑定表里还没有"的实体补建 View（覆盖 <c>entity.created</c> 被丢弃的情形）。</summary>
+        private void OnSaveLoaded()
+        {
+            foreach (var entityId in new List<Id>(_views.Keys))
+            {
+                if (!_snapshot.Exists(entityId))
+                {
+                    OnEntityDestroyed(entityId);
+                }
+            }
+
+            var liveIds = _snapshot.GetAllEntityIds();
+            for (var i = 0; i < liveIds.Count; i++)
+            {
+                var entityId = liveIds[i];
+                if (_views.ContainsKey(entityId))
+                {
+                    continue;
+                }
+
+                // 见 OnEntityCreated 判断记录：kind/displayId 复用同一份原始字符串/Id，与
+                // entity.created 正常路径完全一致的映射、AreaTrigger 跳过、未映射诊断规则。
+                var rawKind = _snapshot.GetRawKind(entityId);
+                var displayId = _snapshot.GetDisplayId(entityId);
+                if (rawKind == null || displayId == null)
+                {
+                    // 防御性分支：GetAllEntityIds 与随后两次按 id 查询之间实体被移除（本类型当前
+                    // 没有任何路径会在同一次 OnSaveLoaded 内部触发这种移除，纯属未来演进的安全网，
+                    // 不代表已知可复现场景）。
+                    continue;
+                }
+
+                OnEntityCreated(entityId, rawKind, displayId.Value);
+            }
         }
 
         public Vec2 GetInterpolatedPosition(Id entityId, double alpha)
