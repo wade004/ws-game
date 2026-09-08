@@ -76,9 +76,32 @@
 // 对 model 型剪辑指向一个已导入的 <see cref="UnityEngine.AnimationClip"/> 资产，路径固定为
 // "Resources/GameFoundation/anim_clips/<name>"，与 <see cref="AnimClipResolver"/>/
 // <see cref="Adapter.Unity.Presentation.UnityViewFactory"/> 把 <c>events</c> 数据驱动写回该资产的
-// <c>AnimationClip.events</c>（关键帧事件）配合使用，见两者判断记录——本类型不直接消费这条约定
-// （不需要 LoadAsync/IsLoaded 语义，Resources.Load<AnimationClip> 由调用方直接同步调用），只提供
-// 路径解析这一静态辅助方法，避免调用方各自重复实现"去类别前缀、点号换下划线"这条既有规则。
+// <c>AnimationClip.events</c>（关键帧事件）配合使用，见两者判断记录。
+//
+// 12 §5 勘误判断记录（取代此前"本类型不直接消费这条约定，Resources.Load<AnimationClip> 由调用方
+// 直接同步调用"的立场——architecture/落地计划/audit-85f1f4f-20260908/ 第九方审核"动画剪辑事件登记
+// 契约差异"）：ADR-0017 决策 1"renderer/消费方只经 IResourceLoader 取资源，不直接碰
+// UnityEngine.Resources"同样适用于 AnimationClip 种类，不应该只对 Model/Font 生效。新增
+// ResourceKind.AnimationClip，处理方式与 Model/Font 同一套"主线程专用队列，Resources.Load 只能在
+// 主线程调用"惯例（见 <see cref="_pendingAnimClipLoads"/>/<see cref="FinishAnimClipLoad"/>）；
+// <see cref="UnityRenderer3D.ResolveLegacyClip"/>（legacy Animation 兜底播放路径）与
+// <see cref="Adapter.Unity.Presentation.UnityViewFactory.RegisterModelClipEvents"/>（关键帧事件登记）
+// 均改为经 <see cref="TryLoadAnimationClipSync"/>/<see cref="TryGetAnimationClip"/> 取用，本类型自身
+// 是唯一调用 <c>Resources.Load&lt;AnimationClip&gt;</c> 的地方。
+//
+// W6-CLIP 新增（同一判断记录的姊妹条款——mesh_ref 资源合同，AUD-05 根治）：
+// <c>display.equip_visual.mesh_ref</c>（04 第 7.1.2 节）引用一个 <see cref="ResourceKind.Model"/>
+// 种类资源（与 <c>model_ref</c> 同一命名空间与同一条 <see cref="ResolveModelResourcesPath"/> 路径
+// 约定，不单独新增资源种类——mesh_ref 与 model_ref 都指向"三维几何资产"，只是消费方（分别是
+// SetSlotMesh 与 CreateModelInstance）对同一份已加载资源的用法不同）：若该资源解析为模型预制体
+// （<see cref="_modelPrefabs"/> 命中或 <see cref="TryLoadModelSync"/> 成功），从中提取网格——优先取
+// 与 slotId 同名的子对象（约定同 <see cref="UnityRenderer3D"/> 的 FindDeep"子对象名逐字等于槽位 Id
+// 的 Value"）上的 <see cref="SkinnedMeshRenderer"/>/<see cref="MeshFilter"/> 网格，找不到该子对象或
+// 该子对象不挂网格渲染组件时退回预制体上首个挂网格渲染组件的子对象（<c>GetComponentInChildren</c>，
+// 深度优先，含根节点自身）；若该资源本身就是一个独立网格资产（同一约定路径下没有 GameObject 但有
+// 一个 Mesh，理论上的"资源不是预制体"分支，见 <see cref="TryGetOrLoadSlotMesh"/> 判断记录），直接
+// 使用该网格。提取结果缓存进 <see cref="_extractedSlotMeshes"/>，避免同一 (resourceId, slotId) 组合
+// 反复遍历层级。
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -140,6 +163,15 @@ namespace Adapter.Unity.EngineAdapter
             public LoadCallback Callback;
         }
 
+        /// <summary>一次 <see cref="ResourceKind.AnimationClip"/> 种类的加载请求，排队等到下一次
+        /// <see cref="Tick"/> 在主线程调用 <see cref="TryLoadAnimationClipSync"/> 完成判定（12 §5
+        /// 勘误新增，同 <see cref="PendingModelLoad"/> 同一套处理惯例）。</summary>
+        private struct PendingAnimClipLoad
+        {
+            public Id ResourceId;
+            public LoadCallback Callback;
+        }
+
         private struct PendingCompletion
         {
             public Id ResourceId;
@@ -164,6 +196,10 @@ namespace Adapter.Unity.EngineAdapter
         /// <see cref="_pendingFontLoads"/> 同一套惯例（见类型顶部"W6-B 新增"判断记录）。</summary>
         private readonly Queue<PendingModelLoad> _pendingModelLoads = new Queue<PendingModelLoad>();
 
+        /// <summary>仅 <see cref="ResourceKind.AnimationClip"/> 使用：主线程专用队列，同
+        /// <see cref="_pendingModelLoads"/> 同一套惯例（12 §5 勘误新增）。</summary>
+        private readonly Queue<PendingAnimClipLoad> _pendingAnimClipLoads = new Queue<PendingAnimClipLoad>();
+
         private readonly HashSet<Id> _loading = new HashSet<Id>();
         private readonly HashSet<Id> _loaded = new HashSet<Id>();
         private readonly ConcurrentQueue<PendingCompletion> _completions = new ConcurrentQueue<PendingCompletion>();
@@ -179,6 +215,20 @@ namespace Adapter.Unity.EngineAdapter
         /// <summary>W6-B 新增：<see cref="ResourceKind.Model"/> 已加载的预制体资产缓存，供
         /// <see cref="TryGetModelPrefab"/>/<see cref="UnityRenderer3D.CreateModelInstance"/> 取用。</summary>
         private readonly Dictionary<Id, GameObject> _modelPrefabs = new Dictionary<Id, GameObject>();
+
+        /// <summary>12 §5 勘误新增：<see cref="ResourceKind.AnimationClip"/> 已加载的剪辑资产缓存，
+        /// 供 <see cref="TryGetAnimationClip"/> 取用（见类型顶部"12 §5 勘误判断记录"）。</summary>
+        private readonly Dictionary<Id, AnimationClip> _animationClips = new Dictionary<Id, AnimationClip>();
+
+        /// <summary>W6-CLIP 新增（AUD-05 根治）：<c>mesh_ref</c> 资源本身就是一个独立网格资产（不是
+        /// 模型预制体）时的已加载缓存，见类型顶部"W6-CLIP 新增"判断记录第 4 步。</summary>
+        private readonly Dictionary<Id, Mesh> _standaloneMeshes = new Dictionary<Id, Mesh>();
+
+        /// <summary>W6-CLIP 新增（AUD-05 根治）：从模型预制体按 (resourceId, slotId 裸 Value 或
+        /// 空字符串表示"未指定槽位，直接退回首个网格") 提取出的网格缓存，避免同一组合反复遍历层级；
+        /// slotId 未指定时用空字符串作为该维度的键。</summary>
+        private readonly Dictionary<(Id ResourceId, string SlotKey), Mesh> _extractedSlotMeshes =
+            new Dictionary<(Id, string), Mesh>();
 
         /// <summary>本加载器使用的像素-单位换算比，供 Sprite.Create 使用；与
         /// architecture/14_资产规格书模板.md 第 2.2 节"pixels_per_unit"游戏填写项对应，
@@ -210,6 +260,18 @@ namespace Adapter.Unity.EngineAdapter
                 // Resources.Load 只能在主线程调用，不走后台 Task.Run 字节读取路径，见类型顶部
                 // "W6-B 新增"判断记录，同 Font 种类同一套处理。
                 _pendingModelLoads.Enqueue(new PendingModelLoad
+                {
+                    ResourceId = resourceId,
+                    Callback = callback
+                });
+                return;
+            }
+
+            if (kind == ResourceKind.AnimationClip)
+            {
+                // Resources.Load 只能在主线程调用，不走后台 Task.Run 字节读取路径，见类型顶部
+                // "12 §5 勘误判断记录"，同 Model/Font 种类同一套处理。
+                _pendingAnimClipLoads.Enqueue(new PendingAnimClipLoad
                 {
                     ResourceId = resourceId,
                     Callback = callback
@@ -318,6 +380,32 @@ namespace Adapter.Unity.EngineAdapter
             _navMeshText.Remove(resourceId);
             _effects.Remove(resourceId);
             _modelPrefabs.Remove(resourceId);
+            _animationClips.Remove(resourceId);
+            _standaloneMeshes.Remove(resourceId);
+            RemoveExtractedSlotMeshesFor(resourceId);
+        }
+
+        /// <summary>见 <see cref="Unload"/>：<see cref="_extractedSlotMeshes"/> 用组合键
+        /// (ResourceId, SlotKey)，无法直接 <c>Dictionary.Remove(resourceId)</c>，逐一筛出属于
+        /// <paramref name="resourceId"/> 的条目再移除。</summary>
+        private void RemoveExtractedSlotMeshesFor(Id resourceId)
+        {
+            List<(Id, string)>? toRemove = null;
+            foreach (var key in _extractedSlotMeshes.Keys)
+            {
+                if (key.ResourceId == resourceId)
+                {
+                    (toRemove ??= new List<(Id, string)>()).Add(key);
+                }
+            }
+            if (toRemove == null)
+            {
+                return;
+            }
+            for (var i = 0; i < toRemove.Count; i++)
+            {
+                _extractedSlotMeshes.Remove(toRemove[i]);
+            }
         }
 
         /// <summary>由 UnityEngineHost.Update 每帧调用：把后台线程读完的文件字节在主线程完成
@@ -332,6 +420,11 @@ namespace Adapter.Unity.EngineAdapter
             while (_pendingModelLoads.Count > 0)
             {
                 FinishModelLoad(_pendingModelLoads.Dequeue());
+            }
+
+            while (_pendingAnimClipLoads.Count > 0)
+            {
+                FinishAnimClipLoad(_pendingAnimClipLoads.Dequeue());
             }
 
             while (_completions.TryDequeue(out var pending))
@@ -368,6 +461,17 @@ namespace Adapter.Unity.EngineAdapter
             _loading.Remove(pending.ResourceId);
 
             var success = TryLoadModelSync(pending.ResourceId, out _);
+            pending.Callback(pending.ResourceId, success);
+        }
+
+        /// <summary>在主线程完成一次 <see cref="ResourceKind.AnimationClip"/> 资源的加载判定，同
+        /// <see cref="FinishModelLoad"/> 惯例（12 §5 勘误新增）：复用 <see cref="TryLoadAnimationClipSync"/>
+        /// 完成实际解析与缓存写入。</summary>
+        private void FinishAnimClipLoad(PendingAnimClipLoad pending)
+        {
+            _loading.Remove(pending.ResourceId);
+
+            var success = TryLoadAnimationClipSync(pending.ResourceId, out _);
             pending.Callback(pending.ResourceId, success);
         }
 
@@ -550,6 +654,183 @@ namespace Adapter.Unity.EngineAdapter
         /// （该方法契约本身是同步的，不能等待 <see cref="LoadAsync"/> 走完 Tick 排队，见其判断记录），
         /// 两条路径共用同一个 <see cref="ResolveModelResourcesPath"/> 约定，互不冲突。</summary>
         public bool TryGetModelPrefab(Id resourceId, out GameObject prefab) => _modelPrefabs.TryGetValue(resourceId, out prefab!);
+
+        /// <summary>12 §5 勘误新增：供 <see cref="UnityRenderer3D.ResolveLegacyClip"/>/
+        /// <see cref="Adapter.Unity.Presentation.UnityViewFactory.RegisterModelClipEvents"/> 按
+        /// <c>resourceId</c> 取回已加载的动画剪辑（见类型顶部"12 §5 勘误判断记录"）。未加载/找不到时
+        /// 返回 false。</summary>
+        public bool TryGetAnimationClip(Id resourceId, out AnimationClip clip) => _animationClips.TryGetValue(resourceId, out clip!);
+
+        /// <summary>
+        /// 12 §5 勘误新增，与 <see cref="TryLoadModelSync"/> 同一套判断记录（"谁来碰
+        /// <c>UnityEngine.Resources</c> 应当固定只有本加载器一处"）：<see cref="UnityRenderer3D.ResolveLegacyClip"/>/
+        /// <see cref="Adapter.Unity.Presentation.UnityViewFactory.RegisterModelClipEvents"/> 的调用点
+        /// 本身都是同步的（legacy 播放路径与事件登记都不适合等 <see cref="LoadAsync"/> 走完 Tick
+        /// 排队），仍然需要一条同步解析路径；命中缓存直接复用，未命中时同步调用一次并写回缓存，与
+        /// <see cref="FinishAnimClipLoad"/>（<see cref="LoadAsync"/> 异步路径排队处理后走到的方法）
+        /// 共用同一份缓存写入逻辑。
+        /// </summary>
+        public bool TryLoadAnimationClipSync(Id resourceId, out AnimationClip clip)
+        {
+            if (_animationClips.TryGetValue(resourceId, out clip!))
+            {
+                return true;
+            }
+
+            var path = ResolveAnimClipResourcesPath(resourceId);
+            var loaded = Resources.Load<AnimationClip>(path);
+            if (loaded == null)
+            {
+                clip = null!;
+                return false;
+            }
+
+            _animationClips[resourceId] = loaded;
+            _loaded.Add(resourceId);
+            clip = loaded;
+            return true;
+        }
+
+        /// <summary>
+        /// W6-CLIP 新增（AUD-05 根治，取代 <see cref="UnityRenderer3D"/> 此前"把 <c>mesh_ref</c> 当独立
+        /// <c>Mesh</c> 直接 <c>Resources.Load&lt;Mesh&gt;</c>"的立场——见类型顶部"W6-CLIP 新增"判断
+        /// 记录）：按 <paramref name="resourceId"/>（<c>display.equip_visual.mesh_ref</c>，与
+        /// <c>model_ref</c> 同一条 <see cref="ResourceKind.Model"/> 资源合同）与可选的
+        /// <paramref name="slotId"/>（提取时优先命中的同名子对象）解析出一个可用于槽位换装的
+        /// <see cref="Mesh"/>：
+        /// <list type="number">
+        /// <item>已加载的模型预制体缓存命中：从预制体层级提取（见 <see cref="TryExtractMeshFromPrefab"/>）。</item>
+        /// <item>已提取/已加载的独立网格资源缓存命中：直接复用。</item>
+        /// <item>尚未加载：同步尝试解析为模型预制体（<see cref="TryLoadModelSync"/>，与
+        /// <see cref="UnityRenderer3D.CreateModelInstance"/> 同步兜底同一惯例）并提取。</item>
+        /// <item>预制体解析失败（同一约定路径下没有 GameObject）：尝试直接同步加载为独立
+        /// <see cref="Mesh"/> 资产（"若是独立网格资源也可直接使用"）。</item>
+        /// </list>
+        /// 全部失败时返回 false，调用方（<see cref="UnityRenderer3D.ApplySlotMesh"/>）据此保留当前槽位
+        /// 网格并发起异步加载，不在这里记诊断日志/发起加载——本方法只负责"能否解析"，是否降级、要不要
+        /// 发起异步加载、加载完成后如何原地替换是调用方职责。
+        /// </summary>
+        public bool TryGetOrLoadSlotMesh(Id resourceId, Id? slotId, out Mesh mesh)
+        {
+            var slotKey = slotId?.Value ?? string.Empty;
+            var cacheKey = (resourceId, slotKey);
+            if (_extractedSlotMeshes.TryGetValue(cacheKey, out mesh!))
+            {
+                return true;
+            }
+
+            if (_modelPrefabs.TryGetValue(resourceId, out var cachedPrefab) &&
+                TryExtractMeshFromPrefab(cachedPrefab, slotId, out mesh))
+            {
+                _extractedSlotMeshes[cacheKey] = mesh;
+                return true;
+            }
+
+            if (_standaloneMeshes.TryGetValue(resourceId, out mesh!))
+            {
+                _extractedSlotMeshes[cacheKey] = mesh;
+                return true;
+            }
+
+            if (TryLoadModelSync(resourceId, out var loadedPrefab))
+            {
+                if (TryExtractMeshFromPrefab(loadedPrefab, slotId, out mesh))
+                {
+                    _extractedSlotMeshes[cacheKey] = mesh;
+                    return true;
+                }
+                mesh = null!;
+                return false;
+            }
+
+            // 见类型顶部"W6-CLIP 新增"判断记录第 4 步：同一约定路径下没有 GameObject，尝试直接当作
+            // 独立网格资产解析。
+            var path = ResolveModelResourcesPath(resourceId);
+            var loadedMesh = Resources.Load<Mesh>(path);
+            if (loadedMesh == null)
+            {
+                mesh = null!;
+                return false;
+            }
+
+            _standaloneMeshes[resourceId] = loadedMesh;
+            _loaded.Add(resourceId);
+            _extractedSlotMeshes[cacheKey] = loadedMesh;
+            mesh = loadedMesh;
+            return true;
+        }
+
+        /// <summary>见 <see cref="TryGetOrLoadSlotMesh"/> 判断记录：优先取 <paramref name="slotId"/>
+        /// 同名子对象上的网格渲染组件；未指定 <paramref name="slotId"/>、子对象找不到，或子对象不挂
+        /// 网格渲染组件时，退回预制体上首个挂网格渲染组件的子对象（深度优先，含根节点自身）。</summary>
+        private static bool TryExtractMeshFromPrefab(GameObject prefab, Id? slotId, out Mesh mesh)
+        {
+            if (slotId.HasValue)
+            {
+                var slotTransform = FindDeep(prefab.transform, slotId.Value.Value);
+                if (slotTransform != null && TryGetRendererMesh(slotTransform, out mesh))
+                {
+                    return true;
+                }
+            }
+
+            var skinnedAny = prefab.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (skinnedAny != null && skinnedAny.sharedMesh != null)
+            {
+                mesh = skinnedAny.sharedMesh;
+                return true;
+            }
+
+            var filterAny = prefab.GetComponentInChildren<MeshFilter>(true);
+            if (filterAny != null && filterAny.sharedMesh != null)
+            {
+                mesh = filterAny.sharedMesh;
+                return true;
+            }
+
+            mesh = null!;
+            return false;
+        }
+
+        private static bool TryGetRendererMesh(Transform transform, out Mesh mesh)
+        {
+            var skinned = transform.GetComponent<SkinnedMeshRenderer>();
+            if (skinned != null && skinned.sharedMesh != null)
+            {
+                mesh = skinned.sharedMesh;
+                return true;
+            }
+
+            var filter = transform.GetComponent<MeshFilter>();
+            if (filter != null && filter.sharedMesh != null)
+            {
+                mesh = filter.sharedMesh;
+                return true;
+            }
+
+            mesh = null!;
+            return false;
+        }
+
+        /// <summary>递归按精确名字查找子物体，惯例同 <see cref="UnityRenderer3D"/> 同名私有方法（本类型
+        /// 需要在预制体模板——尚未 Instantiate——上查找，不能复用该实例方法，见
+        /// <see cref="TryExtractMeshFromPrefab"/>）。</summary>
+        private static Transform? FindDeep(Transform root, string name)
+        {
+            if (root.name == name)
+            {
+                return root;
+            }
+            for (var i = 0; i < root.childCount; i++)
+            {
+                var found = FindDeep(root.GetChild(i), name);
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+            return null;
+        }
 
         /// <summary>
         /// 判断记录（PR140-02 文档漂移根治，取代此前"<see cref="UnityRenderer3D.CreateModelInstance"/>

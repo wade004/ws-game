@@ -71,8 +71,8 @@
 // 惯例，见该类型判断记录）；先查 Animator（若预制体带 Animator 组件）在任一层是否存在同名状态
 // （Animator.HasState 逐层探测，找不到时不调用 CrossFadeInFixedTime——该方法对不存在的状态名只是
 // 静默不生效并不总保证不产生 Console 警告，本类型选择显式探测后再决定要不要调）；不存在时兜底走
-// UnityEngine.Animation（legacy）组件——经 UnityResourceLoader.ResolveAnimClipResourcesPath 约定
-// 路径 Resources.Load&lt;AnimationClip&gt; 取剪辑，AddClip+Play。选择"Animator 优先、Animation
+// UnityEngine.Animation（legacy）组件——经 UnityResourceLoader.TryLoadAnimationClipSync（12 §5 勘误，
+// ResourceKind.AnimationClip，见 ResolveLegacyClip 判断记录）取剪辑，AddClip+Play。选择"Animator 优先、Animation
 // 兜底"而不是反过来：本迭代的占位模型统一走 Animator（Editor/GeneratePlaceholderModelAssets.cs
 // 生成的 AnimatorController，见该脚本），兜底路径只覆盖"游戏层提供了没有对应 Animator 状态的模型
 // /剪辑"这一更少见的场景，不要求每个模型都必须挂 AnimatorController。
@@ -268,6 +268,25 @@ namespace Adapter.Unity.EngineAdapter
         /// （<see cref="_instances"/> 已不含该句柄）直接跳过，同
         /// <c>UnityViewFactory._pendingAnimClipWaiters</c> 一贯惯例。</summary>
         private readonly Dictionary<Id, List<int>> _pendingModelSwapWaiters = new Dictionary<Id, List<int>>();
+
+        /// <summary>AUD-05 根治新增：已经记过一次"槽位网格资源尚未加载/无法提取"诊断的
+        /// (meshId 字符串, slotId 字符串) 去重集合，同 <see cref="_missingSocketWarned"/> 一贯惯例。</summary>
+        private readonly HashSet<(string MeshId, string SlotId)> _missingSlotMeshWarned = new HashSet<(string, string)>();
+
+        /// <summary>AUD-05 根治新增：已经发起过一次 <see cref="IResourceLoader.LoadAsync"/>
+        /// （<see cref="ResourceKind.Model"/> 种类）的缺失 meshId 去重集合，同
+        /// <see cref="_pendingModelLoadRequested"/> 一贯惯例——与后者是两个独立的去重集合（一个为
+        /// "整份模型实例"发起加载，一个为"槽位网格提取"发起加载），不共用同一个 HashSet，避免两条
+        /// 独立请求语义互相干扰（例如某个 id 只作为 mesh_ref 引用过，从未作为 model_ref 创建过模型
+        /// 实例，本集合与 <see cref="_pendingModelLoadRequested"/> 各自独立去重不影响对方）。</summary>
+        private readonly HashSet<Id> _pendingSlotMeshLoadRequested = new HashSet<Id>();
+
+        /// <summary>AUD-05 根治新增：meshId -&gt; 正在等待该资源加载完成后原地替换槽位网格的
+        /// (句柄值, 槽位 Id) 列表；加载完成时对列表中仍存活、且该槽位当前登记的 meshId 仍等于本次
+        /// 加载 id（未被更晚一次 <see cref="SetSlotMesh"/>/<see cref="ApplyEquipVisual"/> 覆盖）的
+        /// 槽位逐一原地替换，同 <see cref="_pendingModelSwapWaiters"/> 一贯惯例。</summary>
+        private readonly Dictionary<Id, List<(int Handle, Id SlotId)>> _pendingSlotMeshWaiters =
+            new Dictionary<Id, List<(int, Id)>>();
 
         public UnityRenderer3D(Transform root, UnityResourceLoader resourceLoader)
         {
@@ -473,7 +492,7 @@ namespace Adapter.Unity.EngineAdapter
 
             foreach (var kv in instance.SlotMeshes)
             {
-                ApplySlotMesh(instance, kv.Key, kv.Value);
+                ApplySlotMesh(instance, handle, kv.Key, kv.Value);
             }
             foreach (var kv in instance.MaterialParams)
             {
@@ -931,21 +950,31 @@ namespace Adapter.Unity.EngineAdapter
         /// 见包 README"资源路径约定"）时静默跳过，不抛异常——槽位换装属于表现层"缺表现资源不阻断游戏"
         /// 的一贯宽容范围（同 <see cref="UnityRenderer2D"/> 资源缺失时的整体宽容立场，与
         /// <see cref="CreateModelInstance"/> 此前"模型本体缺失时严格抛异常"的立场不同——PR130-05 已把
-        /// 后者也改为宽容降级，二者现在是同一套宽容立场的两个具体落地）。网格资源经与模型预制体同一套
-        /// <see cref="UnityResourceLoader.ResolveModelResourcesPath"/> 约定路径
-        /// <c>Resources.Load&lt;Mesh&gt;</c> 取用（判断记录：04/09/14 均未给"网格资源"单独定义路径
-        /// 规则，本类型选择复用模型预制体那一套"去类别前缀、点号换下划线"约定与同一个子目录，不额外新增
-        /// 子目录——网格与模型本就是同一大类"三维几何资产"，没有必要用不同目录管理两次同一条命名规则）。
+        /// 后者也改为宽容降级，二者现在是同一套宽容立场的两个具体落地）。
+        /// <para>
+        /// AUD-05 根治判断记录（取代此前"<c>meshId</c> 一律当独立 <c>Mesh</c> 直接
+        /// <c>Resources.Load&lt;Mesh&gt;</c>"的立场——architecture/落地计划/audit-85f1f4f-20260908/
+        /// 第九方审核"样例 model 装备换装把 prefab 引用当 Mesh 读取，槽位网格被清空"）：<c>mesh_ref</c>
+        /// 的资源合同改为"引用 <see cref="ResourceKind.Model"/> 资源，若是模型预制体则从中提取网格，
+        /// 若是独立网格资源也可直接使用"（见 02 第 1.7 节勘误、<see cref="UnityResourceLoader.TryGetOrLoadSlotMesh"/>
+        /// 判断记录），本方法只从 <see cref="_resourceLoader"/> 取已加载/可提取的网格，不再自行调用
+        /// <c>Resources.Load</c>。命中时直接替换；未命中（首次引用、尚未加载完成，或资源确实缺失）
+        /// 时保留槽位当前网格不清空（不是"缺表现资源就清空成不可见"，是"暂时展示旧内容/占位，加载完成
+        /// 后原地替换"，同 <see cref="CreateModelInstance"/>"资源缺失降级"一贯策略），记一次诊断并经
+        /// <see cref="RequestSlotMeshLoadAndSwap"/> 发起一次真正的异步加载，完成后对仍存活、且该槽位
+        /// 登记未被更晚一次调用覆盖的实例原地替换。<c>meshId: null</c>（显式卸下）不受本降级影响，
+        /// 直接写 null，与既有契约语义一致。
+        /// </para>
         /// PR130-05：登记进 <see cref="ModelInstance.SlotMeshes"/>，供 <see cref="AttachVisual"/> 在
         /// 原地替换视觉内容后重放。</summary>
         public void SetSlotMesh(ModelHandle handle, Id slotId, Id? meshId)
         {
             var instance = EnsureAlive(handle);
             instance.SlotMeshes[slotId] = meshId;
-            ApplySlotMesh(instance, slotId, meshId);
+            ApplySlotMesh(instance, handle.Value, slotId, meshId);
         }
 
-        private static void ApplySlotMesh(ModelInstance instance, Id slotId, Id? meshId)
+        private void ApplySlotMesh(ModelInstance instance, int handleValue, Id slotId, Id? meshId)
         {
             var slotTransform = FindDeep(instance.VisualRoot, slotId.Value);
             if (slotTransform == null)
@@ -953,18 +982,104 @@ namespace Adapter.Unity.EngineAdapter
                 return;
             }
 
+            if (!meshId.HasValue)
+            {
+                SetSlotRendererMesh(slotTransform, null);
+                return;
+            }
+
+            if (_resourceLoader.TryGetOrLoadSlotMesh(meshId.Value, slotId, out var mesh))
+            {
+                SetSlotRendererMesh(slotTransform, mesh);
+                return;
+            }
+
+            // 见方法判断记录"AUD-05 根治"：保留当前槽位网格，不清空；记一次诊断并发起异步加载。
+            if (_missingSlotMeshWarned.Add((meshId.Value.Value, slotId.Value)))
+            {
+                var path = UnityResourceLoader.ResolveModelResourcesPath(meshId.Value);
+                Debug.LogWarning(
+                    $"[UnityRenderer3D] 槽位 \"{slotId}\" 引用的网格资源 \"{meshId.Value}\"（mesh_ref）尚未加载" +
+                    $"或无法解析出网格（约定路径 Resources/{path}，见 mesh_ref 资源合同：ResourceKind.Model" +
+                    "资源，模型预制体按同名槽位子对象/首个网格渲染组件提取，或独立网格资产直接使用）：" +
+                    "保留当前槽位网格并发起异步加载，加载完成后原地替换。");
+            }
+            RequestSlotMeshLoadAndSwap(meshId.Value, handleValue, slotId);
+        }
+
+        private static void SetSlotRendererMesh(Transform slotTransform, Mesh? mesh)
+        {
             var skinned = slotTransform.GetComponent<SkinnedMeshRenderer>();
             if (skinned != null)
             {
-                skinned.sharedMesh = meshId.HasValue ? ResolveMesh(meshId.Value) : null;
+                skinned.sharedMesh = mesh;
                 return;
             }
 
             var filter = slotTransform.GetComponent<MeshFilter>();
             if (filter != null)
             {
-                filter.sharedMesh = meshId.HasValue ? ResolveMesh(meshId.Value) : null;
+                filter.sharedMesh = mesh;
             }
+        }
+
+        /// <summary>AUD-05 根治新增：按 meshId 去重发起一次 <see cref="IResourceLoader.LoadAsync"/>
+        /// （<see cref="ResourceKind.Model"/> 种类，与 <c>model_ref</c> 同一条资源合同），完成后把
+        /// <see cref="_pendingSlotMeshWaiters"/> 里登记的全部 (仍存活实例, 槽位) 原地替换为真实网格；
+        /// 加载失败/提取失败则记一次诊断并保持当前槽位网格，不重试——同
+        /// <see cref="RequestModelLoadAndSwap"/> 一贯惯例。</summary>
+        private void RequestSlotMeshLoadAndSwap(Id meshId, int handleValue, Id slotId)
+        {
+            if (!_pendingSlotMeshWaiters.TryGetValue(meshId, out var waiters))
+            {
+                waiters = new List<(int, Id)>();
+                _pendingSlotMeshWaiters[meshId] = waiters;
+            }
+            waiters.Add((handleValue, slotId));
+
+            if (!_pendingSlotMeshLoadRequested.Add(meshId))
+            {
+                return;
+            }
+
+            _resourceLoader.LoadAsync(meshId, ResourceKind.Model, (loadedId, success) =>
+            {
+                if (!_pendingSlotMeshWaiters.TryGetValue(loadedId, out var waitingSlots))
+                {
+                    return;
+                }
+                _pendingSlotMeshWaiters.Remove(loadedId);
+
+                for (var i = 0; i < waitingSlots.Count; i++)
+                {
+                    var (waitHandle, waitSlotId) = waitingSlots[i];
+                    if (!_instances.TryGetValue(waitHandle, out var waitInstance))
+                    {
+                        // 加载完成前该实例已被销毁（切图/实体销毁），跳过即可。
+                        continue;
+                    }
+                    if (!waitInstance.SlotMeshes.TryGetValue(waitSlotId, out var currentMeshId) ||
+                        currentMeshId != loadedId)
+                    {
+                        // 等待期间该槽位已经被更晚一次 SetSlotMesh/ApplyEquipVisual 覆盖，不再回填这次
+                        // 已经过期的请求结果。
+                        continue;
+                    }
+
+                    if (!success || !_resourceLoader.TryGetOrLoadSlotMesh(loadedId, waitSlotId, out var mesh))
+                    {
+                        Debug.LogWarning(
+                            $"[UnityRenderer3D] 网格资源 \"{loadedId}\" 异步加载失败或无法提取网格，槽位 \"{waitSlotId}\" 保持当前网格（不重试）。");
+                        continue;
+                    }
+
+                    var slotTransform = FindDeep(waitInstance.VisualRoot, waitSlotId.Value);
+                    if (slotTransform != null)
+                    {
+                        SetSlotRendererMesh(slotTransform, mesh);
+                    }
+                }
+            });
         }
 
         /// <summary>W6-B 新增：按子对象名查找挂点 <see cref="Transform"/>，把
@@ -1258,6 +1373,44 @@ namespace Adapter.Unity.EngineAdapter
             instance.IsPlaceholder = false;
         }
 
+        /// <summary>
+        /// 12 §5 勘误新增（动画剪辑事件登记契约差异根治——architecture/落地计划/audit-85f1f4f-20260908/
+        /// 第九方审核"静态契约差异"）：把 <paramref name="handle"/> 对应实例 Animator 的
+        /// <see cref="RuntimeAnimatorController"/> 替换/追加为一个 <see cref="AnimatorOverrideController"/>，
+        /// 使该实例播放 <paramref name="originalClip"/> 时实际播放 <paramref name="overrideClip"/>
+        /// （不触碰共享 <paramref name="originalClip"/> 资产本身），供
+        /// <see cref="Adapter.Unity.Presentation.UnityViewFactory.RegisterModelClipEvents"/> 在检测到
+        /// 同一 <c>resource_ref</c> 被不同 <c>display.anim_set</c> 以不同事件配置引用时，为"非首个"
+        /// anim_set 的具体实例套一层运行期覆盖，实现按 anim_set 隔离而不污染其它实例/anim_set 共用的
+        /// 原始剪辑资产（首个 anim_set 仍直接合并写在共享资产上，不经过本方法，见调用方判断记录）。
+        /// 同一实例多次调用（覆盖多个不同 clip）时复用同一个已经装配好的覆盖控制器，只追加/更新这一条
+        /// 映射，不重复包一层。<c>internal</c>——不属于 <see cref="IRenderer3D"/> 契约本身，只对同一
+        /// <c>Adapter.Unity</c> 程序集内的调用方可见，惯例同 <see cref="CompleteAsyncModelSwapForTest"/>。
+        /// 找不到实例/该实例没有 Animator/Animator 尚未挂 <see cref="RuntimeAnimatorController"/> 时
+        /// 静默跳过（宽容策略同本类型其它槽位/挂点方法）。
+        /// </summary>
+        internal void ApplyAnimClipOverride(ModelHandle handle, AnimationClip originalClip, AnimationClip overrideClip)
+        {
+            if (!_instances.TryGetValue(handle.Value, out var instance) || instance.Animator == null)
+            {
+                return;
+            }
+
+            var current = instance.Animator.runtimeAnimatorController;
+            if (current == null)
+            {
+                return;
+            }
+
+            if (!(current is AnimatorOverrideController overrideController))
+            {
+                overrideController = new AnimatorOverrideController(current);
+                instance.Animator.runtimeAnimatorController = overrideController;
+            }
+
+            overrideController[originalClip] = overrideClip;
+        }
+
         /// <summary>W6-B 新增：供测试断言 <see cref="Animator"/> 当前是否正处于名为
         /// <paramref name="stateName"/> 的状态（任一层），不属于 <see cref="IRenderer3D"/> 契约本身，
         /// 惯例同 <see cref="GetModelRoot"/>。</summary>
@@ -1302,6 +1455,13 @@ namespace Adapter.Unity.EngineAdapter
             return false;
         }
 
+        /// <summary>判断记录（12 §5 勘误，取代此前直接 <c>Resources.Load&lt;AnimationClip&gt;</c> 的
+        /// 写法——architecture/落地计划/audit-85f1f4f-20260908/ 第九方审核"动画剪辑事件登记契约差异"）：
+        /// 改为经 <see cref="_resourceLoader"/>.<see cref="UnityResourceLoader.TryLoadAnimationClipSync"/>
+        /// 取用，与 <see cref="TryResolvePrefab"/> 同一套"谁来碰 Unity 资源系统收口到加载器一处"立场，
+        /// 本类型自身不再出现任何 <c>Resources.Load</c> 调用。缓存惯例不变：<see cref="_legacyClipCache"/>
+        /// 仍由本类型持有一份按 <c>clipId</c> 索引的引用，避免每次 <see cref="PlayAnimOnInstance"/>
+        /// 都重新查一次加载器缓存字典。</summary>
         private AnimationClip? ResolveLegacyClip(Id clipId)
         {
             if (_legacyClipCache.TryGetValue(clipId, out var cached))
@@ -1309,15 +1469,14 @@ namespace Adapter.Unity.EngineAdapter
                 return cached;
             }
 
-            var clip = Resources.Load<AnimationClip>(UnityResourceLoader.ResolveAnimClipResourcesPath(clipId));
-            if (clip != null)
+            if (!_resourceLoader.TryLoadAnimationClipSync(clipId, out var clip))
             {
-                _legacyClipCache[clipId] = clip;
+                return null;
             }
+
+            _legacyClipCache[clipId] = clip;
             return clip;
         }
-
-        private static Mesh? ResolveMesh(Id meshId) => Resources.Load<Mesh>(UnityResourceLoader.ResolveModelResourcesPath(meshId));
 
         /// <summary>递归按精确名字（含域前缀，如 <c>"socket.main_hand"</c>/<c>"slot.head"</c>）查找子
         /// 物体——占位内容与本模块生成脚本（<see cref="Adapter.Unity.Editor.GeneratePlaceholderModelAssets"/>）

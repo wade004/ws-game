@@ -225,7 +225,15 @@ namespace Game.Template
                 movementOptions: _options.BuildMovementOptions(),
                 lootOptions: _options.BuildLootOptions(),
                 clockHost: clockHost,
-                pacingPolicy: _options.PacingWaitForPlayback ? new WaitForPlaybackPacingPolicy() : new ImmediatePacingPolicy());
+                pacingPolicy: _options.PacingWaitForPlayback ? new WaitForPlaybackPacingPolicy() : new ImmediatePacingPolicy(),
+                // 第十一方深度审核修复"第 0 步"补齐（architecture/落地计划/audit-85f1f4f-20260908，
+                // 08 号文档"装配扩展点"一节）：此前本处未转发 GameplayAssembly 已经支持的
+                // questOwnerResolver/questDayProvider/vendorOpenRequested 三个可选参数，等价于恒传
+                // null——本模板现改为透传 GameOptions 对应字段（见该类型判断记录），默认仍是 null，
+                // 不改变未显式赋值时的既有行为。
+                questOwnerResolver: _options.QuestOwnerResolver,
+                questDayProvider: _options.QuestDayProvider,
+                vendorOpenRequested: _options.VendorOpenRequested);
             Gameplay = gameplay;
 
             _player = new PlayerUnit(PlayerId, new Id(_options.StartMapId), factionId, _classId)

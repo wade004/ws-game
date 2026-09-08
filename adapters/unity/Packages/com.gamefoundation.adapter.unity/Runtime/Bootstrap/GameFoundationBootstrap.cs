@@ -184,6 +184,26 @@ namespace Adapter.Unity.Bootstrap
         /// 端到端验证（见 <c>Tests/Runtime/HitFrameSyncEndToEndTests.cs</c>）。</summary>
         public global::Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource? HitFrameSource { get; private set; }
 
+        /// <summary>第十一方深度审核修复新增（architecture/落地计划/audit-85f1f4f-20260908，08 号
+        /// 文档"装配扩展点"一节）：<see cref="GameplayAssembly"/> 构造函数已支持的
+        /// <c>questOwnerResolver</c>/<c>questDayProvider</c>/<c>vendorOpenRequested</c> 三个可选
+        /// 回调在本类型的落点——此前 <see cref="BuildWorld"/> 内部构造 <see cref="GameplayAssembly"/>
+        /// 时恒不转发，等价于恒传 <c>null</c>。三者都是公开可写属性而不是 <c>[SerializeField]</c>
+        /// 字段：委托类型不是 Unity 可序列化类型，只能由调用方在 <see cref="Awake"/> 真正读取之前
+        /// 赋值——本类型没有 <c>Ensure()</c> 单例守卫（与 <c>games/_template.GameBootstrap</c>/
+        /// <c>Adapter.Unity.Shell.FrameworkResidentHost</c> 不同），标准做法是新建一个未激活
+        /// GameObject、<c>AddComponent&lt;GameFoundationBootstrap&gt;()</c> 后立即赋值这三个属性，
+        /// 再 <c>SetActive(true)</c> 触发 <see cref="Awake"/>（同 <see cref="_extraDatasetRoot"/>
+        /// 判断记录、<c>Tests/Runtime/SharedBootstrapDiscreteTests.cs</c> 既有测试惯例）。默认
+        /// <c>null</c>，不改变未显式赋值时的既有行为。</summary>
+        public Func<Id, Id?>? QuestOwnerResolver { get; set; }
+
+        /// <summary>见 <see cref="QuestOwnerResolver"/> 判断记录。</summary>
+        public Func<long>? QuestDayProvider { get; set; }
+
+        /// <summary>见 <see cref="QuestOwnerResolver"/> 判断记录。</summary>
+        public global::Core.Gameplay.Dialog.VendorOpenRequestedCallback? VendorOpenRequested { get; set; }
+
         /// <summary>数据集加载/世界装配阶段出现阻断性错误时为真（见 <see cref="BuildWorld"/>）；
         /// 为真时不注册 <see cref="OnFixedStep"/>/<see cref="OnFrameTick"/>，已经
         /// <c>Debug.LogError</c> 过具体原因。</summary>
@@ -313,7 +333,12 @@ namespace Adapter.Unity.Bootstrap
                 playerFactionId: factionId,
                 navigation: _host.Navigation2D,
                 clockHost: clockHost,
-                pacingPolicy: pacingPolicy);
+                pacingPolicy: pacingPolicy,
+                // 第十一方深度审核修复：透传 QuestOwnerResolver/QuestDayProvider/VendorOpenRequested
+                // 三个公开属性（见各自判断记录），默认 null，不改变既有行为。
+                questOwnerResolver: QuestOwnerResolver,
+                questDayProvider: QuestDayProvider,
+                vendorOpenRequested: VendorOpenRequested);
             Gameplay = gameplay;
 
             var player = new PlayerUnit(PlayerId, mapId, factionId, classId)

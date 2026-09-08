@@ -20,7 +20,7 @@ URP 2D Renderer + Input System 1.20"这一件事，不包含任何具体游戏�
 | `ISpatialQuery` | `UnitySpatialQuery` | 自维护登记表 + 均匀网格分桶（非 Physics2D，避免同步 Collider2D 的额外成本与结果顺序不确定性）；结果一律按 `Id` 排序；`Register`/`UpdatePosition`/`Unregister`/`Clear` 均为契约方法（ADR-0016 决策 7，此前是本类自行拍板的协作方法）；`HasLineOfSight` 默认恒真，可用 `SetLineOfSightBlocker` 接入 `UnityNavigation2D.Raycast` 做真实遮挡判定（`UnityEngineHost` 已默认接好）。 |
 | `IUISurface` | `UnityUISurface` | uGUI `Canvas`（Screen Space - Overlay）+ TextMeshPro；`DrawText` 没有契约层面的句柄/去重机制，按调用顺序累加创建文本元素，非契约方法 `ClearSurface` 供逐帧刷新场景复位；`fontId` 目前不区分具体字体资源，统一用包内占位字体运行期 `TMP_FontAsset.CreateFontAsset` 生成，失败时回退 `TMP_Settings.defaultFontAsset`。 |
 | `IPlatform` | `UnityPlatform` | 语言映射 `Application.systemLanguage` → 常见 BCP-47 短代码；剪贴板 = `GUIUtility.systemCopyBuffer`；崩溃日志经 `UnityFileSystem` 原子写入用户目录 `crash_log.txt`，`UnityEngineHost` 额外把 `Application.logMessageReceived` 的 Error/Exception 日志自动转发到 `ReportCrash`。 |
-| `IRenderer3D` | `UnityRenderer3D` | **W6-B 收口，真实实现**（ADR-0017 决策 b）：句柄 = 模型预制体实例根 GameObject（`ModelInstance.Root`，只承载 `planePos`/`facing`/`scale`）+ 一个承载 height 偏移的可见内容子物体（`ModelInstance.VisualRoot`）；三维放置换算与 `IRenderer2D`/`ICamera` 同一套 Unity 世界 XY 地面平面约定：`Root` 世界坐标 = `(planePos.X, planePos.Y, 0)`、`Y 轴欧拉角=-facing×(180/π)`、`VisualRoot` 局部坐标 = `(0, height, 0)`（PR130-01 根治，取代此前借用 Z 轴表达 `planePos.Y` 的旧约定，见类型顶部判断记录）；`CreateModelInstance` 统一经 `UnityResourceLoader.TryLoadModelSync` 解析（缓存优先、未命中时由加载器同步解析一次，本类型自身不直接调用 `Resources.Load`；ADR-0017 决策 1 禁止的是 renderer 实现绕过 `IResourceLoader` 直接读取资源，首次引用某资源 id 时由 `IResourceLoader` 的实现同步或异步完成该资源的加载均属允许，本类型只经 `IResourceLoader` 取用资源，符合该决策，见 `TryResolvePrefab`/`TryLoadModelSync` 判断记录、`architecture/02_引擎适配层.md` 第 1.7 节勘误，2026-09-08），两条路径都解析不到时不抛异常——落地占位内容（优先复用 `model.placeholder_biped`，连它都取不到时兜底内建胶囊体）并发起一次真正的 `IResourceLoader.LoadAsync`，加载成功后原地把占位替换为真实内容（PR130-05 根治，与 sprite 型"缺资源用占位方块顶上"同一套宽容立场）；**PR140-02 根治**：原地替换（`AttachVisual`）除重放槽位网格/材质参数/最近一次播放剪辑外，还会把仍挂在旧可见内容 socket 挂点下的子模型实例摘出来暂存、待新内容就位后按原挂点名重新挂回（找不到同名挂点时保持暂存，不销毁不抛异常），并按 `ModelInstance.Shadow` 重新应用投影阴影开关到新内容的全部 `Renderer`——不再出现"替换后子模型句柄悬空"或"投影阴影悄悄回到 Unity 默认值"。`PlayAnim` 优先用 Animator 按状态名（`clipId` 末段）`CrossFadeInFixedTime`（同状态重入改用 `Animator.Play(stateName, -1, 0f)` 硬切重播，见 H5b 判断记录），找不到对应状态时回退 `UnityEngine.Animation` 组件 + 约定路径加载的 `AnimationClip`；命中帧等关键帧事件经 Unity `AnimationEvent`（函数名固定 `OnAnimEvent`，字符串参数＝裸事件名）中继回调；**H5b 根治新增、PR140-03 再次根治**：`UnityEngineHost.Update` 每帧驱动 `Tick()`，逐实例侦测"非循环剪辑自然播放完成"（Animator 分支不再只看"当前状态是否恰好等于目标状态"——若该状态在 `AnimatorController` 里配置了自动过渡且过渡的开始与结束都发生在两次检测帧之间，改为"曾经确认进入过目标状态、现在稳定停留在别的状态"同样判定完成，避免自动过渡漏发完成事件；Animation 组件兜底路径用 `IsPlaying` 转 false 不变），完成时经 `OnAnimEvent` 通道额外发出一次约定的 `anim_event.finished`（循环剪辑不发）——这是 02 第 1.12 节新增的契约义务，`Presentation.Render.ModelCharacterRig` 一侧的装配代码把它接回动画状态机解除瞬态状态的优先级锁；`SetSlotMesh`/`AttachToSocket` 按子对象精确名字查找（约定子对象名＝挂点/槽位 `Id` 原文，见占位资产生成脚本）；**PR140-01 根治**：`SetShadow` 的 `Blob` 用贴地占位 Quad，世界旋转钉死为 `Quaternion.identity`（Quad 图元局部法线沿 -Z，恰好正对相机固定的 `forward=(0,0,1)`）、位置只依赖锚点根世界位置外加沿世界 Z 轴的微小防 z-fighting 偏移，且每次 `SetPlacement` 都重新计算一遍，不随 `Root` 的 facing 旋转偏出地面画面平面（取代此前"局部旋转固定 `Euler(90,0,0)`"这一套已废弃的 XZ 地面旧约定写法）；`Projected` 直接用 Unity 内建实时阴影（与 sprite 路线"Projected 降级为 Blob"不同——model 型有真正三维几何体）。 |
+| `IRenderer3D` | `UnityRenderer3D` | **W6-B 收口，真实实现**（ADR-0017 决策 b）：句柄 = 模型预制体实例根 GameObject（`ModelInstance.Root`，只承载 `planePos`/`facing`/`scale`）+ 一个承载 height 偏移的可见内容子物体（`ModelInstance.VisualRoot`）；三维放置换算与 `IRenderer2D`/`ICamera` 同一套 Unity 世界 XY 地面平面约定：`Root` 世界坐标 = `(planePos.X, planePos.Y, 0)`、`Y 轴欧拉角=-facing×(180/π)`、`VisualRoot` 局部坐标 = `(0, height, 0)`（PR130-01 根治，取代此前借用 Z 轴表达 `planePos.Y` 的旧约定，见类型顶部判断记录）；`CreateModelInstance` 统一经 `UnityResourceLoader.TryLoadModelSync` 解析（缓存优先、未命中时由加载器同步解析一次，本类型自身不直接调用 `Resources.Load`；ADR-0017 决策 1 禁止的是 renderer 实现绕过 `IResourceLoader` 直接读取资源，首次引用某资源 id 时由 `IResourceLoader` 的实现同步或异步完成该资源的加载均属允许，本类型只经 `IResourceLoader` 取用资源，符合该决策，见 `TryResolvePrefab`/`TryLoadModelSync` 判断记录、`architecture/02_引擎适配层.md` 第 1.7 节勘误，2026-09-08），两条路径都解析不到时不抛异常——落地占位内容（优先复用 `model.placeholder_biped`，连它都取不到时兜底内建胶囊体）并发起一次真正的 `IResourceLoader.LoadAsync`，加载成功后原地把占位替换为真实内容（PR130-05 根治，与 sprite 型"缺资源用占位方块顶上"同一套宽容立场）；**PR140-02 根治**：原地替换（`AttachVisual`）除重放槽位网格/材质参数/最近一次播放剪辑外，还会把仍挂在旧可见内容 socket 挂点下的子模型实例摘出来暂存、待新内容就位后按原挂点名重新挂回（找不到同名挂点时保持暂存，不销毁不抛异常），并按 `ModelInstance.Shadow` 重新应用投影阴影开关到新内容的全部 `Renderer`——不再出现"替换后子模型句柄悬空"或"投影阴影悄悄回到 Unity 默认值"。`PlayAnim` 优先用 Animator 按状态名（`clipId` 末段）`CrossFadeInFixedTime`（同状态重入改用 `Animator.Play(stateName, -1, 0f)` 硬切重播，见 H5b 判断记录），找不到对应状态时回退 `UnityEngine.Animation` 组件 + 约定路径加载的 `AnimationClip`；命中帧等关键帧事件经 Unity `AnimationEvent`（函数名固定 `OnAnimEvent`，字符串参数＝裸事件名）中继回调；**H5b 根治新增、PR140-03 再次根治**：`UnityEngineHost.Update` 每帧驱动 `Tick()`，逐实例侦测"非循环剪辑自然播放完成"（Animator 分支不再只看"当前状态是否恰好等于目标状态"——若该状态在 `AnimatorController` 里配置了自动过渡且过渡的开始与结束都发生在两次检测帧之间，改为"曾经确认进入过目标状态、现在稳定停留在别的状态"同样判定完成，避免自动过渡漏发完成事件；Animation 组件兜底路径用 `IsPlaying` 转 false 不变），完成时经 `OnAnimEvent` 通道额外发出一次约定的 `anim_event.finished`（循环剪辑不发）——这是 02 第 1.12 节新增的契约义务，`Presentation.Render.ModelCharacterRig` 一侧的装配代码把它接回动画状态机解除瞬态状态的优先级锁；`SetSlotMesh`/`AttachToSocket` 按子对象精确名字查找（约定子对象名＝挂点/槽位 `Id` 原文，见占位资产生成脚本）；`SetSlotMesh` 的 `meshId`（`mesh_ref`）经 `UnityResourceLoader.TryGetOrLoadSlotMesh` 解析（AUD-05 根治，不再直接 `Resources.Load<Mesh>`，详见上"资源 id → 路径规则"一节判断记录），未加载/无法提取时保留槽位当前网格并发起真正的异步加载，不静默清空为不可见；**PR140-01 根治**：`SetShadow` 的 `Blob` 用贴地占位 Quad，世界旋转钉死为 `Quaternion.identity`（Quad 图元局部法线沿 -Z，恰好正对相机固定的 `forward=(0,0,1)`）、位置只依赖锚点根世界位置外加沿世界 Z 轴的微小防 z-fighting 偏移，且每次 `SetPlacement` 都重新计算一遍，不随 `Root` 的 facing 旋转偏出地面画面平面（取代此前"局部旋转固定 `Euler(90,0,0)`"这一套已废弃的 XZ 地面旧约定写法）；`Projected` 直接用 Unity 内建实时阴影（与 sprite 路线"Projected 降级为 Blob"不同——model 型有真正三维几何体）。 |
 | `ICamera` | `UnityCamera` | 正交投影，世界平面固定为 Unity 的 XY 平面（Z=0），与 `IRenderer2D` 精灵摆放平面一致；`pitchDegrees`/`yawDegrees` 只记录配置值，不据此做真实透视投影（URP 2D Renderer 不支持）；`zoom` 直接映射 `orthographicSize`；`SetTransform`/`WorldToScreen` 的 `height` 参数作为世界 Y 附加偏移；`Shake` 的 `frequency` 参数（ADR-0016 决策 4）驱动 Perlin 噪声按 `elapsed*frequency` 采样生成抖动偏移，取代此前逐帧独立采样的 `UnityEngine.Random`。 |
 
 `UnityEngineHost`（`MonoBehaviour`，`DontDestroyOnLoad`）是组合根，持有以上 13 个实例；静态
@@ -60,15 +60,16 @@ Resources/Fonts/<资源引用id去掉 "font." 前缀，点号换下划线>（不
 `presentation/render/core/SpriteViewBase.ResolveLayerResourceId` 的"去掉类别前缀、点号换下划线"
 规则保持同一套口径。
 
-Model/AnimClip 两个种类（W6-B 新增，ADR-0017 决策 a/c）同样不走 StreamingAssets——运行期没有公开
-API 能把裸字节数组反序列化成可用的 GameObject 层级/骨骼/Animator 绑定或 AnimationClip 资产，只能
-消费已经被 Unity 资产管线预先导入好的资源（与 Font 种类同一处境）：
+Model/AnimationClip 两个种类（W6-B 新增，ADR-0017 决策 a/c；`AnimationClip` 种类 12 §5 勘误新增，
+见下文判断记录）同样不走 StreamingAssets——运行期没有公开 API 能把裸字节数组反序列化成可用的
+GameObject 层级/骨骼/Animator 绑定或 AnimationClip 资产，只能消费已经被 Unity 资产管线预先导入好
+的资源（与 Font 种类同一处境）：
 
 ```
 Resources/GameFoundation/models/<资源引用id去掉类别前缀，点号换下划线>（不带扩展名）
   例：model.placeholder_biped -> Resources/GameFoundation/models/placeholder_biped
       （对应 Assets/Resources/GameFoundation/models/placeholder_biped.prefab，见下"model 型外形
-      占位资产"一节）；SetSlotMesh 的网格资源引用复用同一套约定与子目录（Resources.Load<Mesh>）。
+      占位资产"一节）。
 
 Resources/GameFoundation/anim_clips/<资源引用id去掉类别前缀，点号换下划线>（不带扩展名）
   例：anim.attack -> Resources/GameFoundation/anim_clips/attack
@@ -81,10 +82,33 @@ Resources/GameFoundation/anim_clips/<资源引用id去掉类别前缀，点号�
       规则，只要求"同一 resource_ref 只对应一份 Animator 状态名 + 一份剪辑资产"。
 ```
 
-`UnityResourceLoader.LoadAsync(kind=Model)` 同 Font 一样排队到下一次 `Tick()` 于主线程完成判定
-（结果缓存供 `UnityRenderer3D.CreateModelInstance` 优先复用，避免重复 `Resources.Load`）；
-`AnimClip` 种类不经 `IResourceLoader`（`Resources.Load<AnimationClip>` 由 `AnimClipResolver`/
-`UnityViewFactory`/`UnityRenderer3D` 各自直接同步调用，见下文判断记录）。
+`UnityResourceLoader.LoadAsync(kind=Model)`/`LoadAsync(kind=AnimationClip)` 同 Font 一样排队到
+下一次 `Tick()` 于主线程完成判定（结果分别缓存进 `_modelPrefabs`/`_animationClips`，供
+`UnityRenderer3D.CreateModelInstance`/`ResolveLegacyClip` 与 `UnityViewFactory.RegisterModelClipEvents`
+优先复用，避免重复 `Resources.Load`）；两条同步兜底路径分别是
+`UnityResourceLoader.TryLoadModelSync`/`TryLoadAnimationClipSync`（消费方调用点本身是同步的，无法
+等 `LoadAsync` 走完 `Tick` 排队，但仍与异步路径共用同一份缓存与解析逻辑，`Resources.Load` 调用只
+收口在 `UnityResourceLoader` 一处）。
+
+判断记录（`AnimationClip` 种类改为经 `IResourceLoader`，取代此前"`AnimClip` 种类不经
+`IResourceLoader`，`Resources.Load<AnimationClip>` 由 `AnimClipResolver`/`UnityViewFactory`/
+`UnityRenderer3D` 各自直接同步调用"的立场——`architecture/落地计划/audit-85f1f4f-20260908/` 第九方
+审核"动画剪辑事件登记契约差异"）：`ResourceKind` 新增 `AnimationClip`，`UnityRenderer3D.ResolveLegacyClip`
+（Animation 组件兜底播放路径）与 `UnityViewFactory.RegisterModelClipEvents`（关键帧事件登记）均改为
+经 `UnityResourceLoader.TryLoadAnimationClipSync` 取用，本类型自身不再出现任何 `Resources.Load`
+调用，与 `architecture/02_引擎适配层.md` 第 1.7 节勘误口径一致。
+
+判断记录（`SetSlotMesh`/`mesh_ref` 资源合同，AUD-05 根治，取代此前"`mesh_ref` 复用 Model 种类同一套
+约定与子目录，直接 `Resources.Load<Mesh>`"的立场——同一份审核 PRES-85-01"样例 model 槽位换装把
+prefab 引用按 Mesh 读取，槽位网格被清空"）：`mesh_ref` 仍然复用 `ResourceKind.Model` 同一套资源
+种类与磁盘路径约定（不新增资源种类，与 `model_ref` 同一命名空间），但不再直接把解析结果当独立
+`Mesh` 资产读取——`UnityResourceLoader.TryGetOrLoadSlotMesh(resourceId, slotId)` 按顺序解析：命中
+已加载的模型预制体缓存/已提取网格缓存时直接复用并提取（优先取与 `slotId` 同名子对象上的网格渲染
+组件，找不到时退回预制体上首个网格渲染组件的子对象）；未命中时先尝试 `TryLoadModelSync` 同步解析
+为预制体再提取；预制体解析失败时退回尝试直接 `Resources.Load<Mesh>`（"若是独立网格资源也可直接
+使用"）。`UnityRenderer3D.ApplySlotMesh` 只从该方法取网格，解析失败时保留槽位当前网格（不清空为
+`null`）并记一条诊断，经 `LoadAsync(meshId, ResourceKind.Model, ...)` 发起一次真正的异步加载，完成
+后对仍存活、且该槽位登记未被更晚一次调用覆盖的实例原地替换。
 
 ## 命令行跑测试
 
@@ -763,17 +787,35 @@ doc-code-matrix 此前记录的能力边界"`UnityViewFactory` 构造函数没�
 `NullView`（同"没有可用 sprite 型 DisplayInfo"一致的宽容处理，不阻断装配）。`AttachDefaultModelAnimation`
 （`DisplayCategory.Creature` 专属）解析 `DisplayInfo.Model.AnimSetRef` 指向的 `display.anim_set`
 行——与 sprite 路线"按 `display.map` 行 id 最后一段猜测约定 id"不同，model 型 `anim_set_ref` 是
-显式字段，直接可用；同时把每条剪辑的 `events`（ADR-0017 决策 c）数据驱动写回对应
-`Resources.Load<AnimationClip>` 取到的资产（`AnimationClip.events` 运行期可写属性，不是
-`UnityEditor.AnimationUtility` 编辑器专属 API），命中帧固定映射到
+显式字段，直接可用；同时把每条剪辑的 `events`（ADR-0017 决策 c）数据驱动登记进对应
+`UnityResourceLoader.TryLoadAnimationClipSync` 取到的资产（`AnimationClip.events` 运行期可写属性，
+不是 `UnityEditor.AnimationUtility` 编辑器专属 API），命中帧固定映射到
 `ModelCharacterRig.HitFrameEventId`。
+
+判断记录（`RegisterModelClipEvents` 合并 + 按 anim_set 隔离，12 §5 勘误，取代此前"直接
+`Resources.Load<AnimationClip>` + 整体覆盖 `events` + 按 `resource_ref` 一次性去重"的立场——
+`architecture/落地计划/audit-85f1f4f-20260908/` 第九方审核"动画剪辑事件登记契约差异"）：登记改为
+"合并"——以该剪辑资产在本类型第一次触碰它之前的原始（美术自带）`events` 为基线，数据驱动定义中
+出现的事件名替换掉基线里的同名旧定义，其余美术自带事件原样保留（`_modelClipPristineEvents` 按
+`resource_ref` 缓存这份基线快照）。按 anim_set 隔离：`_modelClipEventSignatures` 记录每个
+`resource_ref` 当前直接生效在共享资产上的那一套事件配置签名（`ComputeEventsSignature`，按
+`name@time_pct` 拼接，与顺序无关）——首次遇到某个 `resource_ref` 时直接合并写在共享资产上；后续
+同一 `resource_ref`、同一签名的引用直接复用；同一 `resource_ref` 被另一套不同签名的
+`display.anim_set` 引用时，不再覆盖共享资产（会反过来污染已经在用第一套配置的其它实体），改为
+运行期 `Object.Instantiate` 克隆一份私有覆盖剪辑（`_modelClipOverrides` 按 `(resource_ref, 签名)`
+缓存复用），只经 `UnityRenderer3D.ApplyAnimClipOverride`（新增 `internal` 方法，把该实例 Animator
+的 `runtimeAnimatorController` 包一层 `AnimatorOverrideController`，`[原始剪辑] = 覆盖剪辑`）套用到
+这一个 `ModelHandle` 对应的实例上，不触碰共享资产。
 
 对应测试：`Tests/Runtime/ModelViewTests.cs`（创建/销毁、`PlayAnim(attack)` 经真实 Animator 播放到
 50% 触发命中帧、挂点/槽位、height/flash/fade）、`Tests/Runtime/AnimClipResolverTests.cs`
 （Attack/Cast 武器风格决策逻辑）、`Tests/Runtime/ModelIntegrationTests.cs`（武器风格端到端播放到
 真实 Animator 状态、命中帧同步端到端延迟/超时兜底）、`Tests/Runtime/UnityRenderer3DTests.cs`、
 `Tests/Runtime/ConformanceUnityTests.cs`（`Renderer3D`/`ResourceLoader` 场景组，`SupportsRenderer3D`
-现为 `true`）。
+现为 `true`）、`Tests/Runtime/SlotMeshResourceContractTests.cs`（AUD-05 复现与根治：`mesh_ref` 解析出
+真实网格、缺失时保留当前网格并经 `IResourceLoader.LoadAsync` 发起真正的请求、显式卸下/销毁重建的
+幂等性）、`Tests/Runtime/ModelClipEventIsolationTests.cs`（同一 `resource_ref` 被两个签名不同的
+anim_set 引用时事件互不影响、美术自带事件保留、相同签名直接复用共享资产不产生多余覆盖）。
 
 ## 游戏模板如何接入本包（数据目录框架/游戏分层任务）
 

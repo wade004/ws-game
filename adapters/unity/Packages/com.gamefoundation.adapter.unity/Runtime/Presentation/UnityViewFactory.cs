@@ -121,10 +121,27 @@ namespace Adapter.Unity.Presentation
         private readonly HashSet<string> _warnedMissingDisplay = new HashSet<string>();
         private readonly HashSet<string> _warnedAnimDegraded = new HashSet<string>();
 
-        /// <summary>W6-B 新增：已经处理过关键帧事件注册的 model 型剪辑资源引用去重集合（见
-        /// <see cref="RegisterModelClipEvents"/> 判断记录），避免同一份 <c>AnimationClip</c> 资产被
-        /// 多个共享同一 <c>display.anim_set</c> 的实体重复设置 <c>events</c>。</summary>
-        private readonly HashSet<Id> _registeredModelClipEvents = new HashSet<Id>();
+        /// <summary>
+        /// 12 §5 勘误（取代此前"<c>HashSet&lt;Id&gt;</c> 按 <c>resource_ref</c> 去重、第一次设置后
+        /// 永久跳过"的立场——architecture/落地计划/audit-85f1f4f-20260908/ 第九方审核"动画剪辑事件
+        /// 登记契约差异"）：<c>resource_ref</c> -&gt; 当前已经直接合并写在共享 <c>AnimationClip</c>
+        /// 资产上的那一份事件配置的签名（<see cref="ComputeEventsSignature"/>），供
+        /// <see cref="RegisterModelClipEvents"/> 判定"这次是不是同一份剪辑资源第一次被设置事件"以及
+        /// "这次的事件配置是否与已经生效的共享资产状态一致"。
+        /// </summary>
+        private readonly Dictionary<Id, string> _modelClipEventSignatures = new Dictionary<Id, string>();
+
+        /// <summary>12 §5 勘误新增：<c>resource_ref</c> -&gt; 该剪辑资产在本类型第一次触碰它之前的
+        /// 原始（美术自带）<see cref="AnimationEvent"/> 数组快照，供 <see cref="RegisterModelClipEvents"/>
+        /// 合并事件时用作基线——不能用"已经被某个 anim_set 改写过"的状态当基线，否则第二个 anim_set
+        /// 的合并结果会把第一个 anim_set 的数据驱动事件也当成"美术自带事件"保留下来。</summary>
+        private readonly Dictionary<Id, AnimationEvent[]> _modelClipPristineEvents = new Dictionary<Id, AnimationEvent[]>();
+
+        /// <summary>12 §5 勘误新增：(resource_ref, 事件配置签名) -&gt; 运行期克隆出的私有覆盖剪辑，
+        /// 供 <see cref="RegisterModelClipEvents"/> 在"同一 resource_ref 被另一套不同事件配置的
+        /// anim_set 引用"时复用同一份已经克隆好的覆盖剪辑，不必每个实体各自重复 <c>Instantiate</c>。</summary>
+        private readonly Dictionary<(Id ResourceRef, string Signature), AnimationClip> _modelClipOverrides =
+            new Dictionary<(Id, string), AnimationClip>();
 
         // 外部审核阻塞项 3 收口（见 architecture/落地计划/audit-20260907/followup-2026-09-07.md
         // "外部审核阻塞项处理"一节）：默认动画接线状态——entityId -> 已挂接的播放器/该实体的剪辑表，
@@ -891,7 +908,7 @@ namespace Adapter.Unity.Presentation
                 return;
             }
 
-            var clips = RegisterDefaultModelClips(info);
+            var clips = RegisterDefaultModelClips(info, view.EngineHandle);
             _modelViewsByEntity[entityId] = view;
             _animClipsByEntity[entityId] = clips;
 
@@ -919,7 +936,7 @@ namespace Adapter.Unity.Presentation
         /// <see cref="RegisterModelClipEvents"/>）。数据集没有该 <c>_dataRegistry</c>、查不到该行，或
         /// 该行没有声明 <c>clips</c> 字段时返回空表——不抛异常，同表现层一贯宽容策略；查不到某个具体
         /// 状态时 <see cref="AnimClipResolver"/> 自然跳过那一次状态切换的播放，不特殊处理。</summary>
-        private IReadOnlyDictionary<string, Id> RegisterDefaultModelClips(Core.Foundation.DisplayInfo.DisplayInfo info)
+        private IReadOnlyDictionary<string, Id> RegisterDefaultModelClips(Core.Foundation.DisplayInfo.DisplayInfo info, ModelHandle handle)
         {
             var result = new Dictionary<string, Id>(StringComparer.Ordinal);
             if (_dataRegistry == null || info.Model == null)
@@ -937,13 +954,23 @@ namespace Adapter.Unity.Presentation
             foreach (var kv in animSet.Clips)
             {
                 result[kv.Key] = kv.Value.ResourceRef;
-                RegisterModelClipEvents(kv.Value);
+                RegisterModelClipEvents(kv.Value, handle);
             }
             return result;
         }
 
+        /// <summary>测试专用：直接调用 <see cref="RegisterModelClipEvents"/>，不必经完整
+        /// <see cref="CreateView"/>/<see cref="AttachDefaultModelAnimation"/>/<c>display.anim_set</c>
+        /// 数据集装配，供 CLIP 隔离回归独立验证"合并 + 按 anim_set 隔离"这一段逻辑本身（同一
+        /// <c>resource_ref</c> 被两次不同签名调用时是否正确隔离，不需要真的构造两条
+        /// <c>display.anim_set</c> 记录）。<c>internal</c>——只对同一 <c>Adapter.Unity</c> 程序集与
+        /// <c>Adapter.Unity.Tests.Runtime</c>（<c>InternalsVisibleTo</c>）可见，惯例同
+        /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.CompleteAsyncModelSwapForTest"/>。</summary>
+        internal void RegisterModelClipEventsForTest(Core.Foundation.DisplayInfo.AnimClipDef clipDef, ModelHandle handle) =>
+            RegisterModelClipEvents(clipDef, handle);
+
         /// <summary>ADR-0017 决策 c 落地（model 型一侧）：把 <paramref name="clipDef"/>.<c>Events</c>
-        /// （<c>display.anim_set.clips[*].events</c> 数据）数据驱动地写回该剪辑对应的 Unity
+        /// （<c>display.anim_set.clips[*].events</c> 数据）数据驱动地合并进该剪辑对应的 Unity
         /// <see cref="AnimationClip"/> 资产的 <see cref="AnimationClip.events"/>（运行期可写属性，不是
         /// <c>UnityEditor.AnimationUtility</c> 编辑器专属 API），命中帧一律用
         /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.AnimEventFunctionName"/> 函数名 +
@@ -951,43 +978,153 @@ namespace Adapter.Unity.Presentation
         /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.RaiseAnimEvent"/> 换算后与
         /// <see cref="Presentation.Render.ModelCharacterRig.HitFrameEventId"/> 逐字相等）。
         /// <para>
-        /// 判断记录（为什么直接改资产对象的运行期内存状态就能让 Animator 生效）：
-        /// <see cref="Resources.Load{T}(string)"/> 对同一路径返回的是 Unity 内部资产缓存的同一个对象
-        /// 实例——本方法与 <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D"/> 播放该剪辑时
-        /// Animator 内部引用的是同一个 <see cref="AnimationClip"/> 对象，因此这里设置的 <c>events</c>
-        /// 会在下一次该状态被播放时生效，不需要额外的"通知 Animator 重新加载"步骤；本类型因此只需要在
-        /// 该剪辑第一次被某个实体引用时设置一次（<see cref="_registeredModelClipEvents"/> 去重），
-        /// 之后同一份资产被其它实体复用时事件已经生效，不需要重复设置。占位内容（见
-        /// Editor/GeneratePlaceholderModelAssets.cs）额外在美术资产里预先烘焙了同一个事件作为
-        /// 双重覆盖，即便某个具体游戏后续替换掉这条数据驱动注册路径，占位内容仍然自带可用的命中帧
-        /// 事件（见该脚本判断记录）。
+        /// 12 §5 勘误判断记录（取代此前"直接 <c>Resources.Load&lt;AnimationClip&gt;</c> + 整体覆盖
+        /// <c>clip.events</c> + 按 resource_ref 一次性去重"的立场——architecture/落地计划/
+        /// audit-85f1f4f-20260908/ 第九方审核"动画剪辑事件登记契约差异"，共三处根治）：
+        /// </para>
+        /// <para>
+        /// 一，改经 <see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.TryLoadAnimationClipSync"/>
+        /// （<see cref="ResourceKind.AnimationClip"/>）取用剪辑，不再直接调用
+        /// <c>UnityEngine.Resources.Load</c>（同 <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.ResolveLegacyClip"/>
+        /// 一贯"消费方只经 IResourceLoader 取资源"立场，见该方法判断记录）。
+        /// </para>
+        /// <para>
+        /// 二，改"合并"不"整体覆盖"：<see cref="MergeEvents"/> 以该剪辑第一次被本类型触碰之前捕获的
+        /// 美术自带 <c>events</c> 快照（<see cref="_modelClipPristineEvents"/>）为基线，保留其中的
+        /// 全部事件，只在数据驱动的 <c>clipDef.Events</c> 与某条美术自带事件同名（含 <c>hit_frame</c>/
+        /// <c>finished</c> 这两个框架保留名）时用数据驱动定义替换那一条美术自带事件——避免同一事件名在
+        /// 相近时间点被 <c>SendMessage</c> 触发两次，同时不再无条件丢弃美术自带的其它事件。
+        /// </para>
+        /// <para>
+        /// 三，按 anim_set 隔离：<see cref="_modelClipEventSignatures"/> 记录每个 <c>resource_ref</c>
+        /// 当前直接生效在共享资产上的那一套事件配置签名（<see cref="ComputeEventsSignature"/>）——首次
+        /// 遇到某个 <c>resource_ref</c> 时直接合并写在共享 <see cref="AnimationClip"/> 上（
+        /// <see cref="Resources.Load{T}(string)"/>/<see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.TryLoadAnimationClipSync"/>
+        /// 对同一路径返回的是引擎内部资产缓存的同一个对象实例，本方法与
+        /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D"/> 播放该剪辑时 Animator 内部引用的
+        /// 是同一个对象，这里设置的 <c>events</c> 会在下一次该状态被播放时生效，不需要额外的"通知
+        /// Animator 重新加载"步骤）；后续同一 <c>resource_ref</c>、同一套签名的引用直接复用，不重复
+        /// 处理；但同一 <c>resource_ref</c> 被另一套不同签名（不同 <c>display.anim_set</c>）引用时，
+        /// 不能再次覆盖共享资产（会反过来污染已经在用第一套配置的其它实体，也就是审核指出的"首个
+        /// anim_set 决定他人"），改为运行期克隆一份私有覆盖剪辑（<see cref="_modelClipOverrides"/>
+        /// 按 (resource_ref, 签名) 缓存复用，同一套非首签名被多个实体共享时只克隆一次），只经
+        /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.ApplyAnimClipOverride"/> 套用到"这一个"
+        /// <paramref name="handle"/> 对应实例的 Animator 上（<c>AnimatorOverrideController</c>），不
+        /// 触碰共享 <c>baseClip</c> 本身——两个 anim_set 因此各自只看到自己配置的事件，互不影响。
         /// </para>
         /// </summary>
-        private void RegisterModelClipEvents(Core.Foundation.DisplayInfo.AnimClipDef clipDef)
+        private void RegisterModelClipEvents(Core.Foundation.DisplayInfo.AnimClipDef clipDef, ModelHandle handle)
         {
-            if (clipDef.Events.Count == 0 || !_registeredModelClipEvents.Add(clipDef.ResourceRef))
+            if (clipDef.Events.Count == 0)
             {
                 return;
             }
 
-            var clip = Resources.Load<AnimationClip>(
-                Adapter.Unity.EngineAdapter.UnityResourceLoader.ResolveAnimClipResourcesPath(clipDef.ResourceRef));
-            if (clip == null)
+            var unityLoader = _resourceLoader as Adapter.Unity.EngineAdapter.UnityResourceLoader;
+            if (unityLoader == null || !unityLoader.TryLoadAnimationClipSync(clipDef.ResourceRef, out var baseClip))
             {
                 return;
             }
 
-            var events = new AnimationEvent[clipDef.Events.Count];
-            for (var i = 0; i < clipDef.Events.Count; i++)
+            if (!_modelClipPristineEvents.TryGetValue(clipDef.ResourceRef, out var pristine))
             {
-                events[i] = new AnimationEvent
+                // 第一次触碰这份剪辑资源：在写入任何东西之前先捕获当前（美术自带）events 作为基线
+                // 快照，供本次与后续任意签名的合并复用——不能用"已经被某个 anim_set 改写过"的状态当
+                // 基线，否则第二个 anim_set 的合并结果会把第一个 anim_set 的数据驱动事件也当成"美术
+                // 自带事件"保留下来。
+                pristine = baseClip.events;
+                _modelClipPristineEvents[clipDef.ResourceRef] = pristine;
+            }
+
+            var signature = ComputeEventsSignature(clipDef.Events);
+            var clipLength = baseClip.length;
+
+            if (!_modelClipEventSignatures.TryGetValue(clipDef.ResourceRef, out var installedSignature))
+            {
+                // 这份剪辑资源第一次被设置事件：直接合并写到共享资产上，后续引用同一
+                // (resource_ref, 相同签名) 的实体直接复用，不需要任何隔离。
+                baseClip.events = MergeEvents(pristine, clipDef.Events, clipLength);
+                _modelClipEventSignatures[clipDef.ResourceRef] = signature;
+                return;
+            }
+
+            if (installedSignature == signature)
+            {
+                // 同一 resource_ref、同一套事件配置：与已经生效的共享资产状态一致，不需要任何处理。
+                return;
+            }
+
+            // 同一 resource_ref 被另一套不同的事件配置引用（不同 anim_set）：改为运行期克隆一份私有
+            // 覆盖剪辑，只应用到这一个实例上，见方法判断记录"三"。
+            var overrideKey = (clipDef.ResourceRef, signature);
+            if (!_modelClipOverrides.TryGetValue(overrideKey, out var overrideClip))
+            {
+                overrideClip = UnityEngine.Object.Instantiate(baseClip);
+                overrideClip.name = baseClip.name + "__anim_set_override_" + _modelClipOverrides.Count;
+                overrideClip.events = MergeEvents(pristine, clipDef.Events, clipLength);
+                _modelClipOverrides[overrideKey] = overrideClip;
+            }
+
+            (_renderer3D as Adapter.Unity.EngineAdapter.UnityRenderer3D)?.ApplyAnimClipOverride(handle, baseClip, overrideClip);
+        }
+
+        /// <summary>见 <see cref="RegisterModelClipEvents"/> 判断记录"二"：以 <paramref name="pristineEvents"/>
+        /// （美术自带事件基线）为底，按裸事件名去重叠加 <paramref name="dataEvents"/>（数据驱动事件，
+        /// <c>TimePct</c> 按 <paramref name="clipLength"/> 换算成秒）——数据驱动定义中出现的事件名，
+        /// 若基线里已有同名事件，替换掉那一条，不重复保留。</summary>
+        private static AnimationEvent[] MergeEvents(
+            AnimationEvent[] pristineEvents,
+            IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> dataEvents,
+            float clipLength)
+        {
+            var dataNames = new HashSet<string>(StringComparer.Ordinal);
+            for (var i = 0; i < dataEvents.Count; i++)
+            {
+                dataNames.Add(dataEvents[i].Name);
+            }
+
+            var merged = new List<AnimationEvent>(pristineEvents.Length + dataEvents.Count);
+            for (var i = 0; i < pristineEvents.Length; i++)
+            {
+                var ev = pristineEvents[i];
+                if (ev.functionName == Adapter.Unity.EngineAdapter.UnityRenderer3D.AnimEventFunctionName &&
+                    dataNames.Contains(ev.stringParameter))
                 {
-                    time = (float)(clipDef.Events[i].TimePct * clip.length),
-                    functionName = Adapter.Unity.EngineAdapter.UnityRenderer3D.AnimEventFunctionName,
-                    stringParameter = clipDef.Events[i].Name,
-                };
+                    // 数据驱动定义会覆盖这一条同名事件，跳过美术资产里的旧定义，避免重复触发。
+                    continue;
+                }
+                merged.Add(ev);
             }
-            clip.events = events;
+
+            for (var i = 0; i < dataEvents.Count; i++)
+            {
+                merged.Add(new AnimationEvent
+                {
+                    time = (float)(dataEvents[i].TimePct * clipLength),
+                    functionName = Adapter.Unity.EngineAdapter.UnityRenderer3D.AnimEventFunctionName,
+                    stringParameter = dataEvents[i].Name,
+                });
+            }
+
+            return merged.ToArray();
+        }
+
+        /// <summary>见 <see cref="RegisterModelClipEvents"/> 判断记录"三"：把 <paramref name="events"/>
+        /// （<c>display.anim_set.clips[*].events</c> 的一份数据）换算成一个与顺序无关、与浮点表示
+        /// 精确对应的字符串签名，供判定"两个 anim_set 对同一 resource_ref 声明的事件配置是否逐字相同"。
+        /// 用 <c>"R"</c>（round-trip）格式化 <c>TimePct</c>，保证同一个 <c>double</c> 值总产生同一段
+        /// 文本，不受语言环境影响（<see cref="System.Globalization.CultureInfo.InvariantCulture"/>）。</summary>
+        private static string ComputeEventsSignature(IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (var i = 0; i < events.Count; i++)
+            {
+                sb.Append(events[i].Name)
+                    .Append('@')
+                    .Append(events[i].TimePct.ToString("R", System.Globalization.CultureInfo.InvariantCulture))
+                    .Append(';');
+            }
+            return sb.ToString();
         }
     }
 }

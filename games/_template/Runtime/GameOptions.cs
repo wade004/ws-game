@@ -1,3 +1,11 @@
+#nullable enable
+// 第十一方深度审核修复"第 0 步"新增本文件顶部 #nullable enable（同 GameBootstrap.cs/
+// GameFoundationBootstrap.cs/FrameworkResidentHost.cs 既有惯例）：本次新增的
+// QuestOwnerResolver/QuestDayProvider/VendorOpenRequested 三个字段是可空委托类型
+// （`Func<Id, Id?>?` 等），未声明可空上下文时 `Func<...>?` 语法本身仍能编译，但会触发
+// CS8632（"可为空引用类型的注释只能在启用了 '#nullable' 注释上下文的代码中使用"）警告；
+// 本文件其余全部字段此前已按各自默认值初始化，开启本指令不会新增 CS8618 一类"非可空字段
+// 未初始化"警告。
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
@@ -183,6 +191,25 @@ namespace Game.Template
         // Core.Foundation.SimLoop.ImmediatePacingPolicy 或 WaitForPlaybackPacingPolicy 二选一；
         // true = wait_for_playback，false（默认）= immediate。
         public bool PacingWaitForPlayback = false;
+
+        // -----------------------------------------------------------------
+        // 第十一方深度审核修复（architecture/落地计划/audit-85f1f4f-20260908，08 号文档"装配扩展点"
+        // 一节）：GameplayAssembly 构造函数已支持的 questOwnerResolver/questDayProvider/
+        // vendorOpenRequested 三个可选回调，此前三处装配根（含本模板）内部构造 GameplayAssembly 时
+        // 都没有转发（恒等价于不传，见 GameBootstrap.Bootstrap() 对应判断记录），游戏层无法在不
+        // 绕开本装配根、自行重新拼一遍 GameplayAssembly 的前提下接上"击杀归属判定""每日任务按天数
+        // 重置""gossip 打开商店 UI"这三个能力。委托类型不是 Unity 可序列化类型，不会出现在
+        // Inspector 里，只能由具体游戏代码在 GameBootstrap.Awake（进而 Bootstrap()）真正读取之前
+        // 赋值——典型做法是先把承载本组件的 GameObject 建成未激活状态（<c>SetActive(false)</c>）、
+        // <c>AddComponent&lt;GameBootstrap&gt;()</c>（Unity 惯例：未激活物体上新增组件时 Awake 会
+        // 推迟到 <c>SetActive(true)</c> 才触发），此刻赋值 <c>Options.QuestDayProvider</c> 等字段，
+        // 再激活触发真正的 Awake/Bootstrap()（同 adapters/unity 包
+        // SharedBootstrapDiscreteTests.BuildInactiveBootstrapWithDiscreteOverlay 同款测试惯例）。
+        // 默认 null，不改变现有行为——GameplayAssembly 对应三个参数的默认值同样是 null。
+        // -----------------------------------------------------------------
+        public Func<Id, Id?>? QuestOwnerResolver;
+        public Func<long>? QuestDayProvider;
+        public Core.Gameplay.Dialog.VendorOpenRequestedCallback? VendorOpenRequested;
 
         /// <summary>见字段注释：把 <see cref="HitTableConfigId"/> 转成 <see cref="CombatOptions"/>。</summary>
         internal CombatOptions BuildCombatOptions() => new CombatOptions

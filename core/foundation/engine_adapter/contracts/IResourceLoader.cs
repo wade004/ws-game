@@ -9,11 +9,18 @@ namespace Core.Foundation.EngineAdapter
     /// 场景路由使用；NavMesh 对应 world.map 的 nav_ref 字段（同节），加载后交给 INavigation2D
     /// 使用；Effect 对应 vfx.def 的 resource_ref 字段（09_表现层.md 第 5.1 节），加载后交给
     /// IRenderer2D/IRenderer3D 使用，使 emitParticle 的 effectId 能解析到具体特效资产；
-    /// Model 对应 display.map（kind: model）的 model_ref 字段与 display.equip_visual 的
-    /// model_ref 字段（04_数据与内容管线.md 第 7.1、7.1.2 节），加载后交给 IRenderer3D 使用，
-    /// 使 createModelInstance/attachToSocket 的资源引用能解析到具体模型与骨骼动画资产（见
-    /// ADR-0017 决策 a：加载责任仍沿用 ADR-0016 决策 6——谁首次引用该资源 id 谁负责调用
-    /// loadAsync，IRenderer3D 只消费已加载完成的资源）。
+    /// Model 对应 display.map（kind: model）的 model_ref 字段、display.equip_visual 的
+    /// model_ref 字段，以及（12 §5 勘误，见 02 第 1.7/1.12 节与 ADR-0017 修订记录）
+    /// display.equip_visual 的 mesh_ref 字段（04_数据与内容管线.md 第 7.1、7.1.2 节），加载后
+    /// 交给 IRenderer3D 使用，使 createModelInstance/attachToSocket/setSlotMesh 的资源引用能
+    /// 解析到具体模型、骨骼动画资产或可提取的槽位网格（见 ADR-0017 决策 a：加载责任仍沿用
+    /// ADR-0016 决策 6——谁首次引用该资源 id 谁负责调用 loadAsync，IRenderer3D 只消费已加载
+    /// 完成的资源；mesh_ref 的具体资产形态与提取规则见 02 第 1.7 节"mesh_ref 资源合同"）。
+    /// AnimationClip（12 §5 勘误新增，见 ADR-0017 修订记录）对应 display.anim_set.clips[*].
+    /// resource_ref（04 第 7.1.1 节）：model 型剪辑资产本身，加载后交给 IRenderer3D 播放，
+    /// 或交给消费方读取/合并剪辑内建的关键帧事件（见 09 表现层 model 动画关键帧登记条款）——
+    /// 与 Model 种类同一处境（运行期没有公开 API 能把裸字节反序列化成可用的动画资产，只能消费
+    /// 已被引擎资产管线预先导入好的资源），具体解析路径由引擎适配层实现决定。
     /// </summary>
     public enum ResourceKind
     {
@@ -24,7 +31,8 @@ namespace Core.Foundation.EngineAdapter
         Scene,
         NavMesh,
         Effect,
-        Model
+        Model,
+        AnimationClip
     }
 
     /// <summary>加载完成或失败时触发一次，success 为 false 表示加载失败。</summary>

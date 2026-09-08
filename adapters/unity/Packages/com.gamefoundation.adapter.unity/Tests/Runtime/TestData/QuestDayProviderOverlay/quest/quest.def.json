@@ -1,0 +1,16 @@
+{
+  "table": "quest.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "quest.g11_qdp_daily_sample",
+      "title_key": "l10n.quest.g11_qdp_daily_sample.title",
+      "objectives": [
+        { "type": "escort", "target_ref": "creature.g11_qdp_escort_target", "count": 1 }
+      ],
+      "start_method": "npc_gossip",
+      "turn_in_method": "npc_gossip",
+      "repeatable": "daily"
+    }
+  ]
+}

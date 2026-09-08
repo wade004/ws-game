@@ -156,6 +156,24 @@ namespace Adapter.Unity.Shell
         /// 向已装配的 <c>hitFrameSource</c> 登记 rig。</summary>
         public global::Presentation.FeedbackBinder.Core.CharacterRigHitFrameSource? HitFrameSource { get; private set; }
 
+        /// <summary>第十一方深度审核修复新增（architecture/落地计划/audit-85f1f4f-20260908，08 号
+        /// 文档"装配扩展点"一节，同 <c>Adapter.Unity.Bootstrap.GameFoundationBootstrap</c> 同名
+        /// 属性判断记录）：<see cref="GameplayAssembly"/> 构造函数已支持的
+        /// <c>questOwnerResolver</c>/<c>questDayProvider</c>/<c>vendorOpenRequested</c> 三个可选
+        /// 回调在本类型的落点——此前 <see cref="Bootstrap"/> 内部构造 <see cref="GameplayAssembly"/>
+        /// 时恒不转发。本类型有 <see cref="Ensure"/> 单例守卫，需要像预放置
+        /// <see cref="_hitFrameSyncEnabled"/> 那样、在 <see cref="Ensure"/> 第一次被调用之前把这三个
+        /// 属性设到场景里预先摆放好的实例上（或同 <c>GameFoundationBootstrap</c> 一样另建一个未激活
+        /// GameObject、<c>AddComponent</c> 后立即赋值再激活）。默认 <c>null</c>，不改变未显式赋值时
+        /// 的既有行为。</summary>
+        public Func<Id, Id?>? QuestOwnerResolver { get; set; }
+
+        /// <summary>见 <see cref="QuestOwnerResolver"/> 判断记录。</summary>
+        public Func<long>? QuestDayProvider { get; set; }
+
+        /// <summary>见 <see cref="QuestOwnerResolver"/> 判断记录。</summary>
+        public global::Core.Gameplay.Dialog.VendorOpenRequestedCallback? VendorOpenRequested { get; set; }
+
         public bool BootstrapFailed { get; private set; }
 
         /// <summary>W3b 新增：本次 <see cref="OnFrameTick"/> 内某个表现步骤抛出的异常次数累计
@@ -322,7 +340,12 @@ namespace Adapter.Unity.Shell
                 playerFactionId: factionId,
                 navigation: _host.Navigation2D,
                 clockHost: clockHost,
-                pacingPolicy: pacingPolicy);
+                pacingPolicy: pacingPolicy,
+                // 第十一方深度审核修复：透传 QuestOwnerResolver/QuestDayProvider/VendorOpenRequested
+                // 三个公开属性（见各自判断记录），默认 null，不改变既有行为。
+                questOwnerResolver: QuestOwnerResolver,
+                questDayProvider: QuestDayProvider,
+                vendorOpenRequested: VendorOpenRequested);
             Gameplay = gameplay;
 
             _player = new PlayerUnit(PlayerId, new Id(SampleMapId), factionId, _classId)
