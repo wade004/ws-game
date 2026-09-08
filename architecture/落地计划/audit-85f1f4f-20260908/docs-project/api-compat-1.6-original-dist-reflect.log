@@ -1,0 +1,2 @@
+System.Collections.Generic.IReadOnlyDictionary`2[Core.Foundation.Common.Id,System.Collections.Generic.IReadOnlyList`1[Core.Carriers.Common.ItemStack]] PendingLootSnapshot()
+Void RestorePendingLoot(System.Collections.Generic.IReadOnlyDictionary`2[Core.Foundation.Common.Id,System.Collections.Generic.IReadOnlyList`1[Core.Carriers.Common.ItemStack]])

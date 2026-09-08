@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 08:31:49Z" end-time="2026-09-08 08:31:49Z" duration="0.0636533">
+  <test-suite type="TestSuite" id="1288" name="unity" fullname="unity" runstate="Runnable" testcasecount="232" result="Passed" start-time="2026-09-08 08:31:49Z" end-time="2026-09-08 08:31:49Z" duration="0.063653" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1270" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-85f1f4f-20260908/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="228" result="Passed" start-time="2026-09-08 08:31:49Z" end-time="2026-09-08 08:31:49Z" duration="0.058026" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="30772" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1271" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="228" result="Passed" start-time="2026-09-08 08:31:49Z" end-time="2026-09-08 08:31:49Z" duration="0.057061" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1272" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="228" result="Passed" start-time="2026-09-08 08:31:49Z" end-time="2026-09-08 08:31:49Z" duration="0.056249" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1273" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="228" result="Passed" start-time="2026-09-08 08:31:49Z" end-time="2026-09-08 08:31:49Z" duration="0.055419" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1101" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="228" result="Passed" start-time="2026-09-08 08:31:49Z" end-time="2026-09-08 08:31:49Z" duration="0.054265" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1138" name="PresentationAudit85Tests" fullname="Adapter.Unity.Tests.Runtime.PresentationAudit85Tests" classname="Adapter.Unity.Tests.Runtime.PresentationAudit85Tests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-08 08:31:49Z" end-time="2026-09-08 08:31:49Z" duration="0.048318" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1139" name="ModelSlotMesh_ModelResourceLoadedThroughLoader_StillResolvesNullBecauseRendererLoadsMeshDirectly" fullname="Adapter.Unity.Tests.Runtime.PresentationAudit85Tests.ModelSlotMesh_ModelResourceLoadedThroughLoader_StillResolvesNullBecauseRendererLoadsMeshDirectly" methodname="ModelSlotMesh_ModelResourceLoadedThroughLoader_StillResolvesNullBecauseRendererLoadsMeshDirectly" classname="Adapter.Unity.Tests.Runtime.PresentationAudit85Tests" runstate="Runnable" seed="1290500906" result="Passed" start-time="2026-09-08 08:31:49Z" end-time="2026-09-08 08:31:49Z" duration="0.043007" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[PRESENTATION85 slot_mesh rig_apply=true loader_loaded=True loader_prefab=true expected_mesh_ref_applied=true actual_mesh_null=True
+[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

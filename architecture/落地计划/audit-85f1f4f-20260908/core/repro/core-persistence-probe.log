@@ -1,0 +1,21 @@
+CORE-PERSISTENCE-PROBE baseline=85f1f4fbaff7aa3f01292f1b4b469a6a48bcc570 version=1.6.0
+LEGACY-GOBJ-PENDING
+on_disk_entry_key=gobjInstanceId
+registered_reader=originKey
+before_pending_entries=1
+load_status=PersistableThrew
+load_message=存档段 "world.gobj_pending_loot" 的 Load() 抛出异常：JsonObject 不含键 "originKey"
+after_pending_entries=1
+MISSING-INVENTORY-SECTION
+registry_blocking=False
+persistable_keep_state_default=False
+before_inventory_count=1
+load_status=Loaded
+after_inventory_count=1
+vendor_registry_issues=[Warning] text_key_exists econ.currency[econ.currency.core_probe_gold].name_key: l10n.text 表未加载，跳过文本键存在性检查 || [Warning] text_key_exists econ.vendor[econ.vendor.core_probe].name_key: l10n.text 表未加载，跳过文本键存在性检查
+MISSING-VENDOR-SECTION
+registry_blocking=False
+persistable_keep_state_default=False
+before_vendor_remaining=2
+load_status=Loaded
+after_vendor_remaining=2

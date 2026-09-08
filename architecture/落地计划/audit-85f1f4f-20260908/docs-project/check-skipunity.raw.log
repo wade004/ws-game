@@ -1,0 +1,142 @@
+
+==== 门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定 ====
+[Test-NativeExitCode] 可执行文件 '__ws_game_check_missing_executable__' 未找到（不在 PATH 中，或路径不存在），判定为 FAIL
+[门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定] 通过，用时 0.3s
+
+==== dotnet build Core.sln -c Release ====
+[dotnet build Core.sln -c Release] 通过，用时 5.4s
+
+==== dotnet test Core.sln -c Release --no-build（六工程，含 Perf 类别） ====
+[dotnet test Core.sln -c Release --no-build（六工程，含 Perf 类别）] 通过，用时 5.7s
+
+==== python toolchain/validate_data.py（合并根） ====
+[python toolchain/validate_data.py（合并根）] 通过，用时 3.7s
+
+==== python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验） ====
+[python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验）] 通过，用时 1.5s
+
+==== python toolchain/gen_event_constants.py --check ====
+[python toolchain/gen_event_constants.py --check] 通过，用时 0.1s
+
+==== python toolchain/gen_placeholder_assets.py --check ====
+[python toolchain/gen_placeholder_assets.py --check] 通过，用时 0.4s
+
+==== python toolchain/import_assets.py check --dataset _sample ====
+[python toolchain/import_assets.py check --dataset _sample] 通过，用时 0.2s
+
+==== python -m pytest toolchain/tests -q ====
+[python -m pytest toolchain/tests -q] 失败，用时 4.8s
+
+==== 禁用词扫描：全仓库不出现具体游戏代号 ====
+[禁用词扫描：全仓库不出现具体游戏代号] 通过，用时 4.7s
+
+==== 禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外） ====
+[禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）] 通过，用时 0s
+
+==== 版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md ====
+[版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md] 通过，用时 0s
+
+==== build.ps1 -SkipTests（同步 DLL） ====
+[build.ps1 -SkipTests（同步 DLL）] 通过，用时 3.3s
+
+==== 包清单一致性（三个 npm 包版本号 + npm pack --dry-run 排除规则） ====
+-Dist auto：从 D:\workespace\ws-game-review-85f1f4f\VERSION 读取版本号 -> 1.6.0
+
+==== 已启用 -SyncOnly：跳过 dotnet build/test ====
+
+==== 同步核心 DLL 到 Runtime/Plugins/Core/（哈希不同才拷贝） ====
+  [跳过] Core.Foundation.dll  (248832 bytes，内容未变化）
+  [跳过] Core.Numbers.dll  (58880 bytes，内容未变化）
+  [跳过] Core.Rules.dll  (209408 bytes，内容未变化）
+  [跳过] Core.Carriers.dll  (156160 bytes，内容未变化）
+  [跳过] Core.Gameplay.dll  (256512 bytes，内容未变化）
+  [跳过] Presentation.Common.dll  (184832 bytes，内容未变化）
+已同步 0 个 / 跳过 6 个
+Runtime/Plugins/Core/ 下 DLL 数量核对通过：6
+
+==== 同步内容数据集到 StreamingAssets/GameFoundation/（哈希不同才拷贝，镜像删除源目录已不存在的文件） ====
+  data/_framework -> StreamingAssets/GameFoundation/data/_framework：共 5 个文件，拷贝 0，跳过 5，删除 0
+  data/_sample -> StreamingAssets/GameFoundation/data/_sample：共 57 个文件，拷贝 0，跳过 57，删除 0
+  games/_template/data/game -> StreamingAssets/GameFoundation/data/game（模板自带最小数据集，供模板 PlayMode 测试使用）：共 37 个文件，拷贝 0，跳过 37，删除 0
+  assets/_placeholder -> StreamingAssets/GameFoundation/assets/_placeholder（整体镜像）：共 97 个文件，拷贝 0，跳过 97，删除 0
+  assets/_placeholder/sprites + assets/_sample/sprites -> StreamingAssets/GameFoundation/sprites（加载器路径规则，见 toolchain/resource_layout_map.json）：共 95 个文件，拷贝 0，跳过 95，删除 0
+  assets/_placeholder/sfx + assets/_sample/sfx -> StreamingAssets/GameFoundation/audio（加载器路径规则，见 toolchain/resource_layout_map.json）：共 13 个文件，拷贝 0，跳过 13，删除 0
+  assets/_placeholder/vfx + assets/_sample/vfx -> StreamingAssets/GameFoundation/vfx（加载器路径规则，见 toolchain/resource_layout_map.json）：共 36 个文件，拷贝 0，跳过 36，删除 0
+StreamingAssets/GameFoundation/ 下文件总数（含以上五棵树的并集，sprites/audio/vfx 与 assets/_placeholder 下同名文件各自独立计数）：344
+  assets/_placeholder/fonts/*.otf|*.ttf -> Assets/Framework/Resources/Fonts（字体资源 id -> 路径规则）：共 1 个文件，拷贝 0，跳过 1，删除 0
+  已生成占位场景资源：D:\workespace\ws-game-review-85f1f4f\adapters\unity\Assets\StreamingAssets\GameFoundation\scene\sample_field.json（scene.sample_field）
+  已生成占位导航资源：D:\workespace\ws-game-review-85f1f4f\adapters\unity\Assets\StreamingAssets\GameFoundation\nav_mesh\sample_field.json（nav.sample_field）
+  已生成占位场景资源：D:\workespace\ws-game-review-85f1f4f\adapters\unity\Assets\StreamingAssets\GameFoundation\scene\template_field.json（scene.template_field，供 games/_template 测试用）
+  已生成占位导航资源：D:\workespace\ws-game-review-85f1f4f\adapters\unity\Assets\StreamingAssets\GameFoundation\nav_mesh\template_field.json（nav.template_field，供 games/_template 测试用）
+
+==== 打分发包 dist/1.6.0/ ====
+  adapters\unity\Packages\com.gamefoundation.adapter.unity -> dist\1.6.0\adapters\unity\Packages\com.gamefoundation.adapter.unity  (197 files)
+  games\_template -> dist\1.6.0\games\_template  (75 files)
+  toolchain -> dist\1.6.0\toolchain  (34 files)
+  assets\_placeholder -> dist\1.6.0\assets\_placeholder  (97 files)
+  data\_framework -> dist\1.6.0\data\_framework  (5 files)
+  adapters\unity\Assets\TextMesh Pro -> dist\1.6.0\assets\textmesh_pro_essentials  (81 files)
+
+==== 补齐 dist\1.6.0\...\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\{models,anim_clips} 与 Editor 生成器（PJ130-02 根治） ====
+  已补齐 model/anim_clips 占位资产 + 生成器 -> dist\1.6.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\（当前共 213 files）
+
+==== 补齐 dist\1.6.0\toolchain\validator\lib\（P02 根治：独立包内 Validator 自包含所需的核心 DLL） ====
+  已补齐 6 个核心 DLL -> dist\1.6.0\toolchain\validator\lib\
+  已回写版本号 1.6.0 -> D:\workespace\ws-game-review-85f1f4f\dist\1.6.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json
+  已回写版本号 1.6.0 -> D:\workespace\ws-game-review-85f1f4f\dist\1.6.0\games\_template\package.json
+
+==== 打三个 npm 包（私服交付通道）：dist\1.6.0\packages\ ====
+  已组装 D:\workespace\ws-game-review-85f1f4f\dist\1.6.0\packages\com.gamefoundation.adapter.unity
+  已组装 D:\workespace\ws-game-review-85f1f4f\dist\1.6.0\packages\com.gamefoundation.framework-data
+  已组装 D:\workespace\ws-game-review-85f1f4f\dist\1.6.0\packages\com.gamefoundation.toolchain
+  已生成 3 个 .tgz：com.gamefoundation.adapter.unity-1.6.0.tgz, com.gamefoundation.framework-data-1.6.0.tgz, com.gamefoundation.toolchain-1.6.0.tgz
+已生成 D:\workespace\ws-game-review-85f1f4f\dist\1.6.0\MANIFEST.txt
+
+build.ps1 完成。
+[包清单一致性（三个 npm 包版本号 + npm pack --dry-run 排除规则）] 通过，用时 8.1s
+
+==== Unity 编译检查 ====
+已跳过：-SkipUnity
+
+==== Unity EditMode 测试 ====
+已跳过：-SkipUnity
+
+==== Unity PlayMode 测试 ====
+已跳过：-SkipUnity
+
+==== 独立版构建 + -gf-smoke 冒烟（连续模式默认流程） ====
+已跳过：-SkipUnity
+
+==== 独立版 -gf-smoke-discrete 冒烟（离散模式链路） ====
+已跳过：-SkipUnity
+
+==== 消费方演练 ====
+已跳过：-SkipUnity
+
+==== 汇总 ====
+
+Step                                                                                Result Seconds Detail
+----                                                                                ------ ------- ------
+门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定                           PASS      0.30 
+dotnet build Core.sln -c Release                                                    PASS      5.40 
+dotnet test Core.sln -c Release --no-build（六工程，含 Perf 类别）                  PASS      5.70 
+python toolchain/validate_data.py（合并根）                                         PASS      3.70 
+python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验） PASS      1.50 
+python toolchain/gen_event_constants.py --check                                     PASS      0.10 
+python toolchain/gen_placeholder_assets.py --check                                  PASS      0.40 
+python toolchain/import_assets.py check --dataset _sample                           PASS      0.20 
+python -m pytest toolchain/tests -q                                                 FAIL      4.80 
+禁用词扫描：全仓库不出现具体游戏代号                                                PASS      4.70 
+禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）           PASS      0.00 
+版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md          PASS      0.00 VERSION=1.6.0，两个 package.json、packages-lock.json 与 CHANGELOG.md 一致
+build.ps1 -SkipTests（同步 DLL）                                                    PASS      3.30 
+包清单一致性（三个 npm 包版本号 + npm pack --dry-run 排除规则）                     PASS      8.10 三个包 version=1.6.0 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器
+Unity 编译检查                                                                      SKIP         0 -SkipUnity
+Unity EditMode 测试                                                                 SKIP         0 -SkipUnity
+Unity PlayMode 测试                                                                 SKIP         0 -SkipUnity
+独立版构建 + -gf-smoke 冒烟（连续模式默认流程）                                     SKIP         0 -SkipUnity
+独立版 -gf-smoke-discrete 冒烟（离散模式链路）                                      SKIP         0 -SkipUnity
+消费方演练                                                                          SKIP         0 -SkipUnity
+
+
+门禁失败：1 步未通过（共 20 步，总用时 38.2s）。

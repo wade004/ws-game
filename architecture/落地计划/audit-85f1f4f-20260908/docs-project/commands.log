@@ -1,0 +1,15 @@
+# commands used (frozen audit worktree)
+git rev-parse HEAD
+git status --short
+& .\check.ps1 -SkipUnity *> docs-project/check-skipunity.raw.log
+python -m pytest toolchain/tests/test_get_framework_path_boundary.py -q
+$env:PYTHONUTF8=1; python -m pytest toolchain/tests/test_get_framework_path_boundary.py -q
+dotnet test Core.sln -c Release --no-build --logger trx
+dotnet test each Core.sln tests project -c Release --no-build --logger unique trx
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\toolchain\get_framework.ps1 -Version 1.6.0 -Target audit-scope -FromLocalDist D:\workespace\ws-game\dist\ws-game-1.6.0.zip -LockPath audit-scope.lock
+python zipfile extraction + SHA256 comparison of original 1.5 zip against lock
+dotnet build ApiCompatLibrary.csproj -c Release --no-restore with FrameworkRoot=1.5 zip validator/lib
+dotnet build ApiCompatLibrary.csproj -c Release --no-restore with FrameworkRoot=original 1.6 validator/lib
+dotnet run ReflectOnly.csproj against 1.5 and original 1.6 Core.Carriers.dll
+
+No command published, started registry, ran Release, or modified the original workspace.

@@ -1,0 +1,94 @@
+FsF.........                                                             [100%]
+================================== FAILURES ===================================
+_________________ test_normal_version_lands_and_hashes_match __________________
+
+tmp_path = WindowsPath('C:/Users/1/AppData/Local/Temp/pytest-of-ONCE/pytest-1296/test_normal_version_lands_and_0')
+
+    def test_normal_version_lands_and_hashes_match(tmp_path: Path) -> None:
+        """正常版本：zip/lock 版本号与 -Version 一致，应成功落地且六个 DLL 字节与锁文件哈希一致。"""
+        workspace, target, neighbor = _make_sentinel_layout(tmp_path)
+        version = "9.9.9"
+        zip_path = tmp_path / f"ws-game-{version}.zip"
+        lock_path = tmp_path / f"ws-game-{version}.lock"
+        dll_hashes = _build_fixture_zip(zip_path, version)
+        _write_lock(lock_path, version, dll_hashes)
+    
+        result = _run_script(
+            ["-Version", version, "-Target", str(target), "-FromLocalDist", str(zip_path)],
+            cwd=workspace,
+        )
+    
+>       assert result.returncode == 0, result.stdout + result.stderr
+E       AssertionError: 
+E         ==== 离线来源：-FromLocalDist C:\Users\1\AppData\Local\Temp\pytest-of-ONCE\pytest-1296\test_normal_version_lands_and_0\ws-game-9.9.9.zip ====
+E           zip: C:\Users\1\AppData\Local\Temp\pytest-of-ONCE\pytest-1296\test_normal_version_lands_and_0\ws-game-9.9.9.zip
+E           lock: C:\Users\1\AppData\Local\Temp\pytest-of-ONCE\pytest-1296\test_normal_version_lands_and_0\ws-game-9.9.9.lock
+E         
+E         ==== 读取锁文件并校验 ====
+E           锁文件 version=9.9.9，git_commit=deadbeef
+E         
+E         ==== 解压并校验六个核心 DLL 的 sha256 ====
+E         D:\workespace\ws-game-review-85f1f4f\toolchain\get_framework.ps1 : The term 'Get-FileHash' is not recognized as the nam
+E         e of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, v
+E         erify that the path is correct and try again.
+E             + CategoryInfo          : ObjectNotFound: (Get-FileHash:String) [get_framework.ps1], CommandNotFoundException
+E             + FullyQualifiedErrorId : CommandNotFoundException,get_framework.ps1
+E          
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.EXE', '-NoProfile', '-ExecutionPoli...amework.ps1], CommandNotFoundException\n    + FullyQualifiedErrorId : CommandNotFoundException,get_framework.ps1\n \n").returncode
+
+toolchain\tests\test_get_framework_path_boundary.py:146: AssertionError
+_____________________ test_legal_version_mismatch_allowed _____________________
+
+tmp_path = WindowsPath('C:/Users/1/AppData/Local/Temp/pytest-of-ONCE/pytest-1296/test_legal_version_mismatch_al0')
+
+    def test_legal_version_mismatch_allowed(tmp_path: Path) -> None:
+        """合法版本不一致：锁文件里的真实版本号与请求的 -Version 都合法但不同，-AllowVersionMismatch
+        放行后应落地到以锁文件真实版本号命名的目录，请求版本号对应目录不应被创建。
+        """
+        workspace, target, neighbor = _make_sentinel_layout(tmp_path)
+        real_version = "2.3.4"
+        requested_version = "2.3.5"
+        zip_path = tmp_path / f"ws-game-{requested_version}.zip"
+        lock_path = tmp_path / f"ws-game-{requested_version}.lock"
+        dll_hashes = _build_fixture_zip(zip_path, real_version, top_dir_name=f"ws-game-{real_version}")
+        _write_lock(lock_path, real_version, dll_hashes)
+    
+        result = _run_script(
+            [
+                "-Version", requested_version,
+                "-Target", str(target),
+                "-FromLocalDist", str(zip_path),
+                "-AllowVersionMismatch",
+            ],
+            cwd=workspace,
+        )
+    
+>       assert result.returncode == 0, result.stdout + result.stderr
+E       AssertionError: 
+E         ==== 离线来源：-FromLocalDist C:\Users\1\AppData\Local\Temp\pytest-of-ONCE\pytest-1296\test_legal_version_mismatch_al0\ws-game-2.3.5.zip ====
+E           zip: C:\Users\1\AppData\Local\Temp\pytest-of-ONCE\pytest-1296\test_legal_version_mismatch_al0\ws-game-2.3.5.zip
+E           lock: C:\Users\1\AppData\Local\Temp\pytest-of-ONCE\pytest-1296\test_legal_version_mismatch_al0\ws-game-2.3.5.lock
+E         
+E         ==== 读取锁文件并校验 ====
+E           警告：锁文件 version=2.3.4 与请求的 -Version=2.3.5 不一致——已传 -AllowVersionMismatch，放行。
+E           源（锁文件实际版本）=2.3.4；目标（本次请求版本）=2.3.5；落地目录名与引用示例将使用源版本号 2.3.4
+E           锁文件 version=2.3.4，git_commit=deadbeef
+E         
+E         ==== 解压并校验六个核心 DLL 的 sha256 ====
+E         D:\workespace\ws-game-review-85f1f4f\toolchain\get_framework.ps1 : The term 'Get-FileHash' is not recognized as the nam
+E         e of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, v
+E         erify that the path is correct and try again.
+E             + CategoryInfo          : ObjectNotFound: (Get-FileHash:String) [get_framework.ps1], CommandNotFoundException
+E             + FullyQualifiedErrorId : CommandNotFoundException,get_framework.ps1
+E          
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.EXE', '-NoProfile', '-ExecutionPoli...amework.ps1], CommandNotFoundException\n    + FullyQualifiedErrorId : CommandNotFoundException,get_framework.ps1\n \n").returncode
+
+toolchain\tests\test_get_framework_path_boundary.py:205: AssertionError
+=========================== short test summary info ===========================
+FAILED toolchain/tests/test_get_framework_path_boundary.py::test_normal_version_lands_and_hashes_match
+FAILED toolchain/tests/test_get_framework_path_boundary.py::test_legal_version_mismatch_allowed
+2 failed, 9 passed, 1 skipped in 2.77s

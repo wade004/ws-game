@@ -1,0 +1,15 @@
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+CSC : error CS5001: 程序不包含适合于入口点的静态 "Main" 方法 [D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\api-compat\ApiCompatProbe.csproj]
+D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\api-compat\ApiCompatProbe.cs(7,18): error CS1061: “GameObjectHost”未包含“PendingChestLootSnapshot”的定义，并且找不到可接受第一个“GameObjectHost”类型参数的可访问扩展方法“PendingChestLootSnapshot”(是否缺少 using 指令或程序集引用?) [D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\api-compat\ApiCompatProbe.csproj]
+D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\api-compat\ApiCompatProbe.cs(8,14): error CS1061: “GameObjectHost”未包含“RestorePendingChestLoot”的定义，并且找不到可接受第一个“GameObjectHost”类型参数的可访问扩展方法“RestorePendingChestLoot”(是否缺少 using 指令或程序集引用?) [D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\api-compat\ApiCompatProbe.csproj]
+
+生成失败。
+
+CSC : error CS5001: 程序不包含适合于入口点的静态 "Main" 方法 [D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\api-compat\ApiCompatProbe.csproj]
+D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\api-compat\ApiCompatProbe.cs(7,18): error CS1061: “GameObjectHost”未包含“PendingChestLootSnapshot”的定义，并且找不到可接受第一个“GameObjectHost”类型参数的可访问扩展方法“PendingChestLootSnapshot”(是否缺少 using 指令或程序集引用?) [D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\api-compat\ApiCompatProbe.csproj]
+D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\api-compat\ApiCompatProbe.cs(8,14): error CS1061: “GameObjectHost”未包含“RestorePendingChestLoot”的定义，并且找不到可接受第一个“GameObjectHost”类型参数的可访问扩展方法“RestorePendingChestLoot”(是否缺少 using 指令或程序集引用?) [D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\api-compat\ApiCompatProbe.csproj]
+    0 个警告
+    3 个错误
+
+已用时间 00:00:00.53

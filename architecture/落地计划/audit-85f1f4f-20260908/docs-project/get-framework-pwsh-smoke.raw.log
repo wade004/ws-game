@@ -1,0 +1,26 @@
+
+==== 离线来源：-FromLocalDist D:\workespace\ws-game\dist\ws-game-1.6.0.zip ====
+  zip: D:\workespace\ws-game\dist\ws-game-1.6.0.zip
+  lock: D:\workespace\ws-game\dist\ws-game-1.6.0.lock
+
+==== 读取锁文件并校验 ====
+  锁文件 version=1.6.0，git_commit=85f1f4f
+
+==== 解压并校验六个核心 DLL 的 sha256 ====
+  [通过] Core.Foundation.dll sha256=60bcc7539e6f26143e0725e09388676bc70d4a7955c3353fb75d1213ada7a01e
+  [通过] Core.Numbers.dll sha256=b01b91363d7864c2351b33b208bd81c5b1d4eafab9bd00a43dc9b57a199cc10a
+  [通过] Core.Rules.dll sha256=15fb59d9dee3b80ed4ea5934cb9e67a16e249819bbf35a8be9944cf33c6173ed
+  [通过] Core.Carriers.dll sha256=3288e6f1c88a5d1ab88a84bff5b57d0cd17393429fa44185097e74ff2e56e184
+  [通过] Core.Gameplay.dll sha256=201920e60392cff788a3a9858ae9019b227703a19652895f8fdd788c349beb1a
+  [通过] Presentation.Common.dll sha256=c1be6a00a3dc5c514853db58d5d2b0842c78b8a9bc35621b6244a2e36a3aeffb
+  六个核心 DLL 哈希全部与锁文件一致
+
+==== 落地到 D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\get-framework-pwsh-smoke-target/ws-game-1.6.0/ ====
+  已落地：D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\get-framework-pwsh-smoke-target\ws-game-1.6.0
+  引用示例（游戏工程 Packages/manifest.json，相对路径按实际目录层级调整）：
+    "com.gamefoundation.adapter.unity": "file:.../D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\get-framework-pwsh-smoke-target/ws-game-1.6.0/adapters/unity/Packages/com.gamefoundation.adapter.unity"
+
+==== 写入/校验 D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\get-framework-pwsh-smoke.lock ====
+  已新建：D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\get-framework-pwsh-smoke.lock
+
+get_framework.ps1 完成：version=1.6.0 已校验并落地到 D:\workespace\ws-game-review-85f1f4f\architecture\落地计划\audit-85f1f4f-20260908\docs-project\get-framework-pwsh-smoke-target/ws-game-1.6.0/

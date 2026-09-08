@@ -1,0 +1,1 @@
+using System;using System.Linq;using System.Reflection;class P{static void Main(string[] a){var x=Assembly.LoadFrom(a[0]).GetType("Core.Carriers.Gobj.GameObjectHost");foreach(var m in x!.GetMethods(BindingFlags.Public|BindingFlags.Instance).Where(m=>m.Name.Contains("Pending")))Console.WriteLine(m);}}

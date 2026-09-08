@@ -1,0 +1,36 @@
+CORE-PERSISTENCE-PROBE baseline=85f1f4fbaff7aa3f01292f1b4b469a6a48bcc570 version=1.6.0
+LEGACY-GOBJ-PENDING
+on_disk_entry_key=gobjInstanceId
+registered_reader=originKey
+before_pending_entries=1
+load_status=PersistableThrew
+load_message=存档段 "world.gobj_pending_loot" 的 Load() 抛出异常：JsonObject 不含键 "originKey"
+after_pending_entries=1
+after_inventory_count=2
+EXPECTED=load_status=Loaded;after_inventory_count=2;pending restored
+ACTUAL=load_status=PersistableThrew;after_inventory_count=2;pending_entries=1
+MISSING-INVENTORY-SECTION
+registry_blocking=False
+persistable_keep_state_default=False
+before_inventory_count=1
+load_status=Loaded
+after_inventory_count=1
+EXPECTED=load_status=Loaded;after_inventory_count=0
+ACTUAL=load_status=Loaded;after_inventory_count=1
+vendor_registry_issues=[Warning] text_key_exists econ.currency[econ.currency.core_probe_gold].name_key: l10n.text 表未加载，跳过文本键存在性检查 || [Warning] text_key_exists econ.vendor[econ.vendor.core_probe].name_key: l10n.text 表未加载，跳过文本键存在性检查
+MISSING-VENDOR-SECTION
+registry_blocking=False
+persistable_keep_state_default=False
+before_vendor_remaining=2
+load_status=Loaded
+after_vendor_remaining=2
+EXPECTED=load_status=Loaded;after_vendor_remaining=5
+ACTUAL=load_status=Loaded;after_vendor_remaining=2
+VENDOR-TIMER-SAME-HOST-LOAD
+save_status=True
+snapshot_timer_remaining=8 (not serialized)
+load_status=Loaded
+after_load_remaining=2
+after_one_second_remaining=5
+EXPECTED=after_one_second_remaining=2 (timer restored or reset to full)
+ACTUAL=after_one_second_remaining=5 (stale pre-load timer restocked immediately)

@@ -1,0 +1,10 @@
+11:    /// 第七方审核 CR140-01 收口补齐：<c>world.gobj_pending_loot</c> 段，持久化 <see
+17:    /// <c>"world.gobj_pending_loot"</c> 作为段 key，不写入 <c>core/foundation/save_system.
+25:    /// 判断记录——字段名与旧存档兼容：<see cref="Save"/> 输出 <c>{ "pending_loot": [...] }</c>
+28:    /// 与"存在但 <c>pending_loot</c> 键缺失/类型不对"两种情况都当作空表处理，不抛异常——旧版本
+41:        public string SectionKey => "world.gobj_pending_loot";
+63:                    .Add("gobjInstanceId", new JsonString(kv.Key.Value))
+68:            return new JsonObjectBuilder().Add("pending_loot", new JsonArray(array)).Build();
+76:                && obj.TryGetValue("pending_loot", out var raw)
+86:                    var gobjInstanceId = new Id(((JsonString)entryObj["gobjInstanceId"]).Value);
+98:                        result[gobjInstanceId] = items;
