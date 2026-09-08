@@ -16,7 +16,7 @@ URP 2D Renderer + Input System 1.20"这一件事，不包含任何具体游戏�
 | `IInput` | `UnityInput` | 运行时用代码搭建 `InputActionMap`（不依赖 `.inputactions` 资产）；键盘离散事件靠 `<Keyboard>/anyKey` 触发后扫描 `wasPressedThisFrame/wasReleasedThisFrame` 精确定位具体按键（避免 `anyKey` 聚合控件"拿不到具体是哪个键"的限制）；鼠标左/右/中键各自独立绑定；手柄连接/断开走 `InputSystem.onDeviceChange`；手柄按钮离散事件目前没有专用绑定，测试/上层可用 `SimulateGamepadButtonForTest` 驱动；文本输入用 `Keyboard.current.onTextInput` 累积字符。 |
 | `IFileSystem` | `UnityFileSystem` | 用户目录 = `Application.persistentDataPath`；内容根目录（`GetContentRootDir`，ADR-0016 决策 8）= `Application.streamingAssetsPath/GameFoundation`；原子写入 = 写临时文件 + `File.Replace`（目标已存在）/ `File.Move`（目标不存在），失败时清理临时文件、旧内容保持不变；构造参数 `readOnlyContentMode` 切换"用户数据可写"/"内容根只读"两种角色（原独立的 `StreamingAssetsFileSystem` 已合并进本类，见其判断记录 1），只读模式下 `WriteTextAtomic`/`DeleteFile` 恒返回 `false`。 |
 | `IResourceLoader` | `UnityResourceLoader` | 后台 `Task` 读取文件字节（纯 `System.IO`，不碰任何 UnityEngine API），解码与回调统一在 `Tick()`（由宿主 `Update` 每帧调用）里于主线程完成，满足"回调总在主线程排队执行"的线程约定；音频只支持标准 PCM16 WAV（内置 `WavDecoder`，不依赖 UnityWebRequest/协程）；`Font` 种类只能读原始字节，不能产出可用的 TMP 字体资产（见下）；`Scene`/`NavMesh`（ADR-0016 决策 5）按"只校验存在性"读文本处理，`Effect` 额外读取 `atlas.png`+`frames.json` 组成 `EffectAsset`（序列帧）。 |
-| `INavigation2D` | `UnityNavigation2D` | 网格 A*（不引入第三方寻路包，也不用 Unity 内置三维 NavMesh）；契约方法 `SetBlocking`/`Clear`（ADR-0016 决策 7，`SetBlocking` 整批替换）为主，另保留非契约便捷方法 `RegisterBlockingRect`/`RegisterBlockingFromTilemap`（增量追加，供地图加载代码按格子/瓦片逐个登记）；网格尺寸自适应（默认格子 0.25 世界单位，超过 192×192 格时放大格子），起止点落在已登记范围外时退化为直线可达性检查。 |
+| `INavigation2D` | `UnityNavigation2D` | 网格 A*（不引入第三方寻路包，也不用 Unity 内置三维 NavMesh）；契约方法 `SetBlocking`/`Clear`（ADR-0016 决策 7，`SetBlocking` 整批替换）为主，另保留非契约便捷方法 `RegisterBlockingFromTilemap`（从 Tilemap 实心格子批量算出矩形，整批经 `SetBlocking` 替换；此前还有一个逐格追加的 `RegisterBlockingRect`，已删除，增量语义改由调用方自行收集矩形列表后一次性调 `SetBlocking` 承担）；网格尺寸自适应（默认格子 0.25 世界单位，超过 192×192 格时放大格子），起止点落在已登记范围外时退化为直线可达性检查。游戏侧 1.8.0 PlayMode 验收后新增契约精确化（见 `UnityNavigation2D.cs` 类型顶部判断记录）：`GetBlockingVersion` 按地图独立计数，`SetBlocking`/`Clear`/`BuildNavMesh` 各自递增；`FindPath` 返回路径的首尾逐比特精确等于请求的起止点（不是网格量化后的格子中心，中间沿用格子中心序列、首尾接一段精确端点连接段）；线段只有穿过阻挡矩形内部（开区间）才算受阻，仅贴边/擦角不算，`Raycast` 与 `FindPath` 每一段共用同一份阻挡判定；网格对角移动只有两个正交邻居格都可行走时才允许（不许切角）。 |
 | `ISpatialQuery` | `UnitySpatialQuery` | 自维护登记表 + 均匀网格分桶（非 Physics2D，避免同步 Collider2D 的额外成本与结果顺序不确定性）；结果一律按 `Id` 排序；`Register`/`UpdatePosition`/`Unregister`/`Clear` 均为契约方法（ADR-0016 决策 7，此前是本类自行拍板的协作方法）；`HasLineOfSight` 默认恒真，可用 `SetLineOfSightBlocker` 接入 `UnityNavigation2D.Raycast` 做真实遮挡判定（`UnityEngineHost` 已默认接好）。 |
 | `IUISurface` | `UnityUISurface` | uGUI `Canvas`（Screen Space - Overlay）+ TextMeshPro；`DrawText` 没有契约层面的句柄/去重机制，按调用顺序累加创建文本元素，非契约方法 `ClearSurface` 供逐帧刷新场景复位；`fontId` 目前不区分具体字体资源，统一用包内占位字体运行期 `TMP_FontAsset.CreateFontAsset` 生成，失败时回退 `TMP_Settings.defaultFontAsset`。 |
 | `IPlatform` | `UnityPlatform` | 语言映射 `Application.systemLanguage` → 常见 BCP-47 短代码；剪贴板 = `GUIUtility.systemCopyBuffer`；崩溃日志经 `UnityFileSystem` 原子写入用户目录 `crash_log.txt`，`UnityEngineHost` 额外把 `Application.logMessageReceived` 的 Error/Exception 日志自动转发到 `ReportCrash`。 |
@@ -283,8 +283,8 @@ GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。`sprites`/`
    `ISpatialQuery.Register`/`UpdatePosition`/`Unregister`/`Clear`、
    `INavigation2D.SetBlocking`/`Clear`；`UnitySpatialQuery` 的 `Register`/`UpdatePosition`/
    `Unregister`/`Clear` 现直接就是契约实现，`UnityNavigation2D` 新增契约方法 `SetBlocking`/
-   `Clear`（整批替换），另保留非契约便捷方法 `RegisterBlockingRect`/`RegisterBlockingFromTilemap`
-   （增量追加）供地图加载代码使用。空间索引的登记/注销时机现由
+   `Clear`（整批替换），另保留非契约便捷方法 `RegisterBlockingFromTilemap`（从 Tilemap 批量算出
+   矩形后同样整批经 `SetBlocking` 替换）供地图加载代码使用。空间索引的登记/注销时机现由
    `core/carriers/assembly.EntitySpatialSyncHost`（创建/销毁）与
    `Core.Carriers.Unit.WorldUnitAccess.SetPosition`（移动）统一驱动，引擎侧/游戏侧不再需要手工
    调用 `Register`/`Unregister`。
@@ -326,7 +326,10 @@ GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。`sprites`/`
 - `UnityResourceLoader.cs`：资源 id→路径映射、后台线程 + 主线程完成队列的线程模型、音频/字体
   解码能力边界、`Scene`/`NavMesh`/`Effect` 三个新种类的加载路径（ADR-0016 决策 5）。
 - `UnityNavigation2D.cs`：网格 A* 选型理由、网格自适应策略、`SetBlocking`（契约方法，整批替换）
-  与 `RegisterBlockingRect`（非契约便捷方法，增量追加）的分工（ADR-0016 决策 7）。
+  与 `RegisterBlockingFromTilemap`（非契约便捷方法，从 Tilemap 批量算出矩形后同样整批替换）的分工
+  （ADR-0016 决策 7）；`GetBlockingVersion` 按地图计数、`FindPath` 端点精确接合、`Raycast`/路径
+  分段共用同一份"仅内部相交才算受阻"判定、网格对角移动禁止切角（游戏侧 1.8.0 PlayMode 验收后
+  契约精确化，见该文件类型顶部判断记录 1/2/3）。
 - `UnitySpatialQuery.cs`：自维护登记表 vs Physics2D 的取舍理由；`Register`/`UpdatePosition`/
   `Unregister`/`Clear` 现为契约方法（ADR-0016 决策 7）。
 - `UnityUISurface.cs`：`DrawText` 语义解释、占位字体生成方式。
