@@ -181,3 +181,8 @@ Unity.exe -batchmode -nographics -quit -projectPath <你的 Unity 工程>
   UI（`ShellHost`/`SaveSystem`/`IDifficultyHost` 等底层能力都已装配好，只是本模板没有把它们全部
   接出 UI）；需要更完整菜单可参照 `adapters/unity/Packages/com.gamefoundation.adapter.unity/
   Runtime/Shell/ShellRoot.cs` 的实现扩展。
+- `GameOptions.BuildMovementOptions()` 未暴露 `MovementOptions.PathFailurePolicy`/
+  `BlockingChangePolicy`（W9 导航与移动公共接口补齐新增的两个策略，见 `CHANGELOG.md`
+  `[1.10.0]`）为口味配置项——两个策略经 `MovementOptions` 在装配根（`GameBootstrap.cs`）直接
+  配置，默认值即框架推荐值（`KeepOldPath`/`Replan`），游戏层如需覆盖自行在装配根按需传入，不是
+  缺失能力。

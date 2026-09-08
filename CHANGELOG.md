@@ -11,6 +11,137 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.10.0] - 2026-09-09
+
+导航与移动公共接口补齐（W9，响应游戏侧 5 项需求：停止/取消接口、端点契约与精确接合、寻路与
+Raycast 拐角判定统一、寻路失败公共处理契约、动态阻挡后现有路径处理），逐项落地见下"新增"/
+"生命周期与事件顺序"/"迁移说明"三节；核心侧与引擎侧改动、`core` 六工程 2533/2533 与 Unity
+EditMode 60/60、PlayMode 263/263 验收过程中另发现并根治两处真实缺陷（非本次新增功能，见"修复"
+一节）。均属核心载体层/引擎适配层能力补齐，无数据表字段删改，无存档格式变更。
+
+### 新增
+
+- **`Core.Carriers.Unit.MovementHost.Stop(Id unitId)`**（需求 1 落地）：经 `IWorldSim.SubmitIntent`
+  提交一条 `Kind == "move_stop"` 的意图，下一次移动与导航阶段生效；不检查 `MovementLocked`/
+  `NoMove`（停止不受控制效果限制）；同一 tick 内幂等（重复 `Stop` 只触发一次 `OnMoveStopped`）。
+- **`Core.Carriers.Unit.MovementHost.OnMoveStopped`**（需求 1 落地）：
+  `delegate void MoveStoppedHandler(Id unitId, Vec2 position, MoveStopReason reason);`，
+  `enum MoveStopReason { Requested, PathFailed, BlockingChanged, Replaced }`——分别对应主动
+  `Stop`、按 `PathFailurePolicy.Stop` 因寻路/重算失败停止、按 `BlockingChangePolicy.Stop` 因阻挡
+  变化停止、新 `Request` 替换仍存在的旧路径。
+- **`Core.Carriers.Unit.MovementHost.OnMoveFailedDetailed`**（需求 4 落地）：
+  `delegate void MoveFailedDetailedHandler(Id unitId, Vec2 from, Vec2 to, MoveFailReason reason);`，
+  `enum MoveFailReason { NoPath, BlockingChanged }`；与既有 `OnMoveFailed`（签名/触发时机不变）在
+  同一失败点同时触发，是补充而非替代。
+- **`Core.Carriers.Unit.MovementOptions.PathFailurePolicy`**（需求 4 落地，新增顶层枚举
+  `{ KeepOldPath（默认）, Stop }` + 同名属性）：寻路失败或阻挡重算失败时的公共处理策略。
+- **`Core.Carriers.Unit.MovementOptions.BlockingChangePolicy`**（需求 5 落地，新增顶层枚举
+  `{ Replan（默认）, Revalidate, Stop, Ignore }` + 同名属性）：导航阻挡发生变化后，对单位已持有
+  的现存路径的处理策略。
+- **`Core.Carriers.Unit.MovementState.NavVersion`**（需求 5 落地，`int`，构造函数追加末位可选
+  参数 `navVersion = 0`，源码兼容）：记录该单位当前路径建立时所依据的导航阻挡版本号，供阻挡重验
+  比对。
+- **`Core.Foundation.EngineAdapter.INavigation2D.GetBlockingVersion(Id mapId) => 0`**（需求 5
+  落地，默认接口成员）：每次 `SetBlocking`/`Clear`/`BuildNavMesh` 使某地图可行走判定结果变化时
+  递增（各 `mapId` 独立计数）；返回 0 表示不支持版本追踪，调用方对 0 视为"不做自动重验"——未
+  重写本成员的既有实现（含未来新增的引擎适配层实现）源码/二进制兼容，行为等价于"不支持版本
+  追踪"。`Adapters.Stub.StubNavigation2D`、Unity `UnityNavigation2D` 均已实现真实的按地图计数。
+- **`INavigation2D.FindPath` 端点契约精确化**（需求 2 落地，契约文档 + `StubNavigation2D`/
+  `UnityNavigation2D` 网格实现同步）：`from`/`to` 任一不可行走返回 `null`（优先于零长度判断）；
+  `|from-to| <= 1e-6` 返回单元素路径 `[from]`；成功路径 `path[0]` 精确等于 `from`、
+  `path[^1]` 精确等于 `to`（网格路径与精确端点的"接合段"复用与 `Raycast` 相同的判定，接合失败
+  退化到相邻可行走格或返回 `null`）。
+- **`Raycast`/`FindPath` 统一可通行规则**（需求 3 落地，契约文档 + `StubNavigation2D`/
+  `UnityNavigation2D` 同步）：线段与阻挡区域**内部**相交才受阻，仅边界/角点相切不算受阻；
+  `FindPath` 返回路径的每一段 `Raycast` 必为 `null`；网格实现对角相邻格仅当两个正交邻居都可
+  行走时才允许联通（禁止切角）。
+- **`adapters/conformance` 一致性场景**：`Navigation2DScenarios` 新增 5 个场景（端点精确接合、
+  零长度路径、不可行走端点返回 null、双矩形拐角每段 `Raycast` 不受阻、`GetBlockingVersion`
+  随三类变更操作递增——该场景对返回恒为 0 的实现走 `assert.Skip`，视为合法退化），
+  `INavigation2D` 场景数由 4 增至 9，跨桩实现与 Unity 实现同源驱动。
+
+### 生命周期与事件顺序
+
+`Core.Carriers.Unit.MovementTickHandler.Execute` 按固定四步推进（原三步基础上插入阻挡重验一
+步，未改变既有推进逻辑本身）：
+
+1. **停止**：处理本 tick 全部 `move_stop` 意图——清空 `CurrentPath`、状态收回 `Idle`，丢弃同一
+   tick 内在它之前提交的该单位 `move` 意图（之后提交的照常生效）；确有路径或被丢弃的意图时触发
+   `OnMoveStopped(Requested)` 一次，否则静默（幂等）。
+2. **移动**：处理存活的 `move` 意图——零长度目标不建路径、不动、不回调；寻路失败触发
+   `OnMoveFailed` + `OnMoveFailedDetailed(NoPath)`，按 `PathFailurePolicy` 处理；新路径替换仍
+   存在的旧路径时触发 `OnMoveStopped(Replaced)`，随后立即推进本 tick 位移。
+3. **阻挡重验**（仅未被前两步处理、仍持有路径的单位）：比较 `GetBlockingVersion` 与
+   `MovementState.NavVersion`，不同则按 `BlockingChangePolicy` 处理（`Replan` 直接重算；
+   `Revalidate` 先逐段 `Raycast`、受阻再委托重算；`Stop` 直接清空并触发
+   `OnMoveStopped(BlockingChanged)`；`Ignore` 不处理）；重算/重验失败触发
+   `OnMoveFailed` + `OnMoveFailedDetailed(BlockingChanged)`，再按 `PathFailurePolicy`（`Stop`
+   分支触发 `OnMoveStopped(PathFailed)`，与"直接因阻挡变化而停止"的 `BlockingChanged` 原因区分
+   开）。
+4. **推进**：`ContinuePathCore`（逻辑不变）。
+
+重入安全：`Stop`/`Request` 都只是 `SubmitIntent`（下一 tick 生效），回调内同步调用二者不会在本次
+`Execute` 内递归触发新的失败/停止回调。
+
+### 修复
+
+- **`ReplanPath` 重算失败时未推进 `NavVersion`，导致同一次阻挡变化在后续每个 tick 都重复触发一
+  次 `OnMoveFailedDetailed`**：默认 `PathFailurePolicy.KeepOldPath`（旧路径原样保留）分支下，
+  `ReplanPath` 重算失败只触发了失败回调，没有把 `MovementState.NavVersion` 前移到本次读到的
+  `currentVersion`，下一个 tick 阻挡重验比较仍判定"版本已变化"，对同一次阻挡变化重新调用一次
+  `ReplanPath`——再次失败、再次回调，此后每个 tick 都重复，直到阻挡状况本身改变。改为该分支下
+  显式把 `NavVersion` 前移到 `currentVersion`（语义与"未受阻分支只更新版本号"一致，标记"已经按
+  这个版本处理过，虽然重算失败"）；`Stop` 分支路径已被清空，不受影响。新增回归测试
+  `MovementTickHandlerTests.BlockingChangePolicy_ReplanFails_DefaultKeepOldPathPolicy_
+  DoesNotRepeatFailureEachTick`（默认策略下重算失败后再跑 10 个 tick，失败计数仍为 1，修复前会
+  变成 11）。
+- **Unity PlayMode 新增测试夹具耗尽跨批次共享的存档槽配额，连带导致同一批次里无关用例静默失败**：
+  `SaveSystemOptions.MaxSlots`（默认 20）跨整个 `-runTests` 单次批处理进程共享、只增不减；新增的
+  `MovementStopAndBlockingPlayModeTests` 最初每条用例各建一个独一无二的新槽，把既有用例累计已接近
+  上限的运行推过 20，导致按夹具名排在更后面的 `VerticalSliceTests` 5 条用例在尝试新建槽时命中
+  `SaveFailureReason.SlotLimitReached`，`ShellHost.NewGame` 因 `_saveSystem.Save(...).Success` 为
+  `false` 直接 `return false`，不会走到 `_sceneRouter.LoadScene`（单独跑各夹具都各自全绿，只有混
+  在完整套件里跑才复现，与仓库既有 `GlobalPlayModeTestSetup.cs` 描述的历史根因同一模式）。改为
+  本套件全体用例改用同一个共享存档槽 id——第一次调用消耗 1 份新建配额，此后每条用例的 `NewGame`
+  对同一个已存在的槽只是覆盖重写，不再消耗新配额；`PlayModeIsolation.TearDownAfterTest` 已在每条
+  用例结束时 `World.ClearAll`，复用同一槽 id 不影响各用例世界状态隔离。
+
+### 迁移说明
+
+- **默认口味下行为逐位一致**：`PathFailurePolicy.KeepOldPath` + `BlockingChangePolicy.Replan`
+  是默认值，且未显式实现 `GetBlockingVersion` 的导航实现恒返回 0（阻挡重验整体不生效）——升级
+  前后在默认配置下行为逐位一致，回归测试覆盖全部既有用例（`core` 六工程与 Unity EditMode/
+  PlayMode 既有用例原样通过，未修改任何既有断言）。
+- **既有 `OnMoveFailed` 保留，不是替代关系**：签名与触发时机均不变，新增的 `OnMoveFailedDetailed`
+  在同一失败点额外触发，只订阅旧事件的调用方无需任何改动。
+- **自定义 `INavigation2D` 实现若要启用自动阻挡重验，需要显式实现 `GetBlockingVersion`**：该成员
+  是默认接口方法，不实现不影响编译，但也不会得到自动重验能力（等价于"未支持"，不是"选择
+  `BlockingChangePolicy.Ignore`"）——需要在自身的 `SetBlocking`/`Clear`/`BuildNavMesh` 落地方法
+  内对相应 `mapId` 递增一个私有版本号计数器并在本方法中返回。
+- **`FindPath` 端点精确化对依赖"格子中心"输出的调用方有影响**：升级前部分网格实现可能返回贴近
+  网格中心而非精确等于传入 `from`/`to` 的路径端点；升级后 `path[0]`/`path[^1]` 精确等于调用方
+  传入的浮点坐标。若调用方此前对首/末点做过"对齐到格子中心"之类的后处理补偿，该后处理现在是
+  多余的（不会再有偏差需要补），可以安全移除，不移除也不会出错（幂等对齐同一点）。
+- **`Raycast`/`FindPath` 边界相切语义修正（`StubNavigation2D.ClipAxis` 由闭区间改为开区间）**：
+  升级前贴边/擦角（线段与阻挡矩形边界或角点相切、不进入内部）会被判定为"受阻"；升级后改为"内部
+  相交才受阻，边界/角点相切不算受阻"，与"网格路径的每一段 `Raycast` 必为 `null`"这一契约保持
+  一致（此前贴边场景下二者可能矛盾）。依赖旧行为（把贴边当受阻）的调用方需要重新评估——
+  `IsWalkable`（点包含判定）未改动，仍是闭区间，本次统一可通行规则的范围限定于线段判定
+  （`Raycast`/`FindPath`），不涉及单点判定。
+- **`games/_template`/`architecture/13` 未新增对应口味配置项**：`GameOptions.BuildMovementOptions()`
+  目前只接了 `DiscreteTurnEquivalentSeconds`/`UnitBlocking` 两项，未暴露
+  `PathFailurePolicy`/`BlockingChangePolicy` 作为口味配置项；两个策略经 `MovementOptions` 在
+  装配根（`GameBootstrap`/组合根构造 `MovementOptions` 处）直接配置，默认值即为框架推荐值，游戏
+  层如需覆盖自行在装配根按需传入，不是缺失能力。
+
+### 版本判据说明
+
+- MINOR：`MovementHost.Stop`/`OnMoveStopped`/`OnMoveFailedDetailed` 均为新增公开成员；
+  `MovementOptions`/`MovementState` 均只新增属性/带默认值的可选构造参数；
+  `INavigation2D.GetBlockingVersion` 是默认接口方法；`FindPath`/`Raycast` 的契约精确化与边界
+  语义修正均不改变方法签名，且默认口味 + `GetBlockingVersion` 恒为 0 时行为与升级前逐位一致。
+  无删改既有公开签名，无存档格式变更。
+
 ## [1.9.0] - 2026-09-09
 
 第十三方深度审核（codex 第十一轮，基线 `e070e3f`，即 1.8.0 发布提交）3 项确认缺陷
