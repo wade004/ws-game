@@ -792,20 +792,26 @@ doc-code-matrix 此前记录的能力边界"`UnityViewFactory` 构造函数没�
 不是 `UnityEditor.AnimationUtility` 编辑器专属 API），命中帧固定映射到
 `ModelCharacterRig.HitFrameEventId`。
 
-判断记录（`RegisterModelClipEvents` 合并 + 按 anim_set 隔离，12 §5 勘误，取代此前"直接
-`Resources.Load<AnimationClip>` + 整体覆盖 `events` + 按 `resource_ref` 一次性去重"的立场——
-`architecture/落地计划/audit-85f1f4f-20260908/` 第九方审核"动画剪辑事件登记契约差异"）：登记改为
-"合并"——以该剪辑资产在本类型第一次触碰它之前的原始（美术自带）`events` 为基线，数据驱动定义中
-出现的事件名替换掉基线里的同名旧定义，其余美术自带事件原样保留（`_modelClipPristineEvents` 按
-`resource_ref` 缓存这份基线快照）。按 anim_set 隔离：`_modelClipEventSignatures` 记录每个
-`resource_ref` 当前直接生效在共享资产上的那一套事件配置签名（`ComputeEventsSignature`，按
-`name@time_pct` 拼接，与顺序无关）——首次遇到某个 `resource_ref` 时直接合并写在共享资产上；后续
-同一 `resource_ref`、同一签名的引用直接复用；同一 `resource_ref` 被另一套不同签名的
-`display.anim_set` 引用时，不再覆盖共享资产（会反过来污染已经在用第一套配置的其它实体），改为
-运行期 `Object.Instantiate` 克隆一份私有覆盖剪辑（`_modelClipOverrides` 按 `(resource_ref, 签名)`
-缓存复用），只经 `UnityRenderer3D.ApplyAnimClipOverride`（新增 `internal` 方法，把该实例 Animator
-的 `runtimeAnimatorController` 包一层 `AnimatorOverrideController`，`[原始剪辑] = 覆盖剪辑`）套用到
-这一个 `ModelHandle` 对应的实例上，不触碰共享资产。
+判断记录（`RegisterModelClipEvents` 合并 + 按 anim_set 隔离，12 §5 二次勘误，取代上一轮"首个
+`resource_ref` 直接合并写在共享资产上、后续不同签名才克隆隔离"的立场——第十轮审核
+`architecture/落地计划/audit-8160178-20260908/presentation/presentation-findings.md`「PRES-17-01」，
+汇总编号 PRES-170-01：空 `events` 配置提前 `return`、不建立任何基线/隔离，首个非空配置仍然合并写回
+共享资产，且基线/签名/覆盖三张表都是 `UnityViewFactory` 实例字段，跨 factory 生命周期不稳定——三者
+叠加导致"空配置事后被污染""场景重进后把上一份数据事件当成美术自带基线"两类真实复现）：登记改为
+**绝不写回共享 `AnimationClip.events`**。`s_authoredClipEvents`（进程级静态表，键为 `resource_ref`
+这一资源身份，与 `UnityViewFactory` 实例生命周期无关）在本进程内第一次触碰某份剪辑资产时捕获它的
+原始（美术自带）`events` 作为基线快照并永久缓存；因为此后再也没有任何写入路径，这份快照与共享资产
+状态永远一致。空配置（`clipDef.Events.Count == 0`）不再是"提前 return、什么都不做"的特例，而是
+"直接播放共享 `baseClip`"——因为共享资产从不被写入，它天生等于 authored 基线，不需要任何覆盖即可
+获得正确结果。非空配置一律以基线为底合并 `clipDef.Events`（数据驱动定义中出现的事件名替换掉基线里
+的同名旧定义，其余美术自带事件原样保留），结果只写进 `s_modelClipOverrides`（同样是进程级静态表，
+键为 `(resource_ref, 事件配置签名)`）缓存的一份运行期 `Object.Instantiate` 克隆剪辑，只经
+`UnityRenderer3D.ApplyAnimClipOverride`（`internal` 方法，把该实例 Animator 的
+`runtimeAnimatorController` 包一层 `AnimatorOverrideController`，`[原始剪辑] = 覆盖剪辑`）套用到
+这一个 `ModelHandle` 对应的实例上——不区分"第一个 vs 后续"签名，任意顺序、任意 factory
+生命周期（场景重进、实体销毁重建）下配置同一 `resource_ref` 的多个 anim_set 因此各自只看到自己
+配置的事件，互不影响；相同签名的多个实例（含跨 factory）复用同一份缓存的克隆剪辑，不重复
+`Instantiate`。
 
 对应测试：`Tests/Runtime/ModelViewTests.cs`（创建/销毁、`PlayAnim(attack)` 经真实 Animator 播放到
 50% 触发命中帧、挂点/槽位、height/flash/fade）、`Tests/Runtime/AnimClipResolverTests.cs`
@@ -814,8 +820,11 @@ doc-code-matrix 此前记录的能力边界"`UnityViewFactory` 构造函数没�
 `Tests/Runtime/ConformanceUnityTests.cs`（`Renderer3D`/`ResourceLoader` 场景组，`SupportsRenderer3D`
 现为 `true`）、`Tests/Runtime/SlotMeshResourceContractTests.cs`（AUD-05 复现与根治：`mesh_ref` 解析出
 真实网格、缺失时保留当前网格并经 `IResourceLoader.LoadAsync` 发起真正的请求、显式卸下/销毁重建的
-幂等性）、`Tests/Runtime/ModelClipEventIsolationTests.cs`（同一 `resource_ref` 被两个签名不同的
-anim_set 引用时事件互不影响、美术自带事件保留、相同签名直接复用共享资产不产生多余覆盖）。
+幂等性）、`Tests/Runtime/ModelClipEventIsolationTests.cs`（同一 `resource_ref` 被一个或多个签名不同
+的 anim_set 引用时事件互不影响、美术自带事件保留、共享资产全程不被写入、相同签名复用同一份运行期
+克隆剪辑对象）、`Tests/Runtime/Pres170_01SharedClipEventIsolationTests.cs`（PRES-170-01 专项：非空后
+空/空后非空/跨 factory 三种触发顺序 + 场景重建 + 实体销毁重建共五组，均以真实 `PlayAnim` 播放期间
+经 `IRenderer3D.OnAnimEvent` 实际触发的事件裸名集合为最终断言，取代审核归档探针的"故障现状"断言）。
 
 ## 游戏模板如何接入本包（数据目录框架/游戏分层任务）
 

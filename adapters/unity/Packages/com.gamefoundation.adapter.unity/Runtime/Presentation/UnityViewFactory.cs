@@ -122,26 +122,49 @@ namespace Adapter.Unity.Presentation
         private readonly HashSet<string> _warnedAnimDegraded = new HashSet<string>();
 
         /// <summary>
-        /// 12 §5 勘误（取代此前"<c>HashSet&lt;Id&gt;</c> 按 <c>resource_ref</c> 去重、第一次设置后
-        /// 永久跳过"的立场——architecture/落地计划/audit-85f1f4f-20260908/ 第九方审核"动画剪辑事件
-        /// 登记契约差异"）：<c>resource_ref</c> -&gt; 当前已经直接合并写在共享 <c>AnimationClip</c>
-        /// 资产上的那一份事件配置的签名（<see cref="ComputeEventsSignature"/>），供
-        /// <see cref="RegisterModelClipEvents"/> 判定"这次是不是同一份剪辑资源第一次被设置事件"以及
-        /// "这次的事件配置是否与已经生效的共享资产状态一致"。
+        /// 12 §5 二次勘误（取代上一轮"合并写回共享 <c>AnimationClip.events</c>，仅对'第二个及后续
+        /// 不同签名的 anim_set'做运行期克隆隔离"的立场——architecture/落地计划/
+        /// audit-8160178-20260908/presentation/presentation-findings.md「PRES-17-01」（AUDIT_REPORT.md
+        /// 汇总编号 PRES-170-01）：空 <c>events</c>
+        /// 配置直接 <c>return</c>、不建立基线也不隔离；首个非空配置仍然把数据事件合并写回共享资产；
+        /// <c>_modelClipPristineEvents</c>/<c>_modelClipEventSignatures</c>/<c>_modelClipOverrides</c>
+        /// 是 <see cref="UnityViewFactory"/> 的实例字段，新建的 factory 会把上一个 factory 已经写进共享
+        /// 资产的数据事件当成"美术自带基线"）。本轮改为 <b>绝不写回共享 <c>AnimationClip.events</c></b>：
         /// </summary>
-        private readonly Dictionary<Id, string> _modelClipEventSignatures = new Dictionary<Id, string>();
+        /// <remarks>
+        /// <para>
+        /// 一，<see cref="s_authoredClipEvents"/> 是进程级静态注册表（键为 <c>resource_ref</c> 这一
+        /// "资源身份"，不挂在任何 <see cref="UnityViewFactory"/> 实例上）——第一次在本进程内触碰某份
+        /// 剪辑资产时才捕获它当时的 <see cref="AnimationClip.events"/> 作为 authored 基线快照并永久
+        /// 缓存；因为本类型改为绝不写回共享资产，这份快照此后与共享资产状态永远一致，不随 factory
+        /// 生命周期（场景重进、实体销毁重建）失效或被污染，天然满足"与 factory 生命周期无关"。
+        /// </para>
+        /// <para>
+        /// 二，<c>clipDef.Events.Count == 0</c>（空配置）不再是"提前 return、什么都不做"的特例，而是
+        /// "直接播放共享 <c>baseClip</c>"——因为共享资产从不被写入，它天生就等于 authored 基线，空配置
+        /// 的 anim_set 不需要任何克隆/覆盖就能获得只含美术自带事件的正确结果，同时保证与其它 anim_set
+        /// 互不干扰（谁都不会改共享资产）。
+        /// </para>
+        /// <para>
+        /// 三，非空配置一律经 <see cref="s_modelClipOverrides"/>（同样是进程级静态表，键为
+        /// <c>(resource_ref, 事件配置签名)</c>）克隆一份运行期私有剪辑并只经
+        /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.ApplyAnimClipOverride"/> 套用到"这一个"
+        /// 实例的 Animator 上（<c>AnimatorOverrideController</c>）——不区分"第一个 vs 后续"签名，因为
+        /// 一旦允许任何一个签名直接写共享资产，就会重新出现"先来后到决定所有人"的污染。相同签名的
+        /// 多个实例（含跨 factory）复用同一份已克隆的覆盖剪辑，不重复 <c>Instantiate</c>。
+        /// </para>
+        /// </remarks>
+        private static readonly Dictionary<Id, AnimationEvent[]> s_authoredClipEvents =
+            new Dictionary<Id, AnimationEvent[]>();
 
-        /// <summary>12 §5 勘误新增：<c>resource_ref</c> -&gt; 该剪辑资产在本类型第一次触碰它之前的
-        /// 原始（美术自带）<see cref="AnimationEvent"/> 数组快照，供 <see cref="RegisterModelClipEvents"/>
-        /// 合并事件时用作基线——不能用"已经被某个 anim_set 改写过"的状态当基线，否则第二个 anim_set
-        /// 的合并结果会把第一个 anim_set 的数据驱动事件也当成"美术自带事件"保留下来。</summary>
-        private readonly Dictionary<Id, AnimationEvent[]> _modelClipPristineEvents = new Dictionary<Id, AnimationEvent[]>();
-
-        /// <summary>12 §5 勘误新增：(resource_ref, 事件配置签名) -&gt; 运行期克隆出的私有覆盖剪辑，
-        /// 供 <see cref="RegisterModelClipEvents"/> 在"同一 resource_ref 被另一套不同事件配置的
-        /// anim_set 引用"时复用同一份已经克隆好的覆盖剪辑，不必每个实体各自重复 <c>Instantiate</c>。</summary>
-        private readonly Dictionary<(Id ResourceRef, string Signature), AnimationClip> _modelClipOverrides =
+        /// <summary>见 <see cref="s_authoredClipEvents"/> 判断记录"三"：进程级静态覆盖剪辑缓存，键为
+        /// <c>(resource_ref, 事件配置签名)</c>。</summary>
+        private static readonly Dictionary<(Id ResourceRef, string Signature), AnimationClip> s_modelClipOverrides =
             new Dictionary<(Id, string), AnimationClip>();
+
+        /// <summary>见 <see cref="s_modelClipOverrides"/>：仅用于给克隆出的覆盖剪辑生成可读、跨调用
+        /// 单调递增的资产名后缀，不参与任何查找/隔离逻辑本身。</summary>
+        private static int s_modelClipOverrideNameCounter;
 
         // 外部审核阻塞项 3 收口（见 architecture/落地计划/audit-20260907/followup-2026-09-07.md
         // "外部审核阻塞项处理"一节）：默认动画接线状态——entityId -> 已挂接的播放器/该实体的剪辑表，
@@ -970,99 +993,78 @@ namespace Adapter.Unity.Presentation
             RegisterModelClipEvents(clipDef, handle);
 
         /// <summary>ADR-0017 决策 c 落地（model 型一侧）：把 <paramref name="clipDef"/>.<c>Events</c>
-        /// （<c>display.anim_set.clips[*].events</c> 数据）数据驱动地合并进该剪辑对应的 Unity
-        /// <see cref="AnimationClip"/> 资产的 <see cref="AnimationClip.events"/>（运行期可写属性，不是
-        /// <c>UnityEditor.AnimationUtility</c> 编辑器专属 API），命中帧一律用
+        /// （<c>display.anim_set.clips[*].events</c> 数据）数据驱动地叠加进该剪辑对应的
+        /// <see cref="AnimationClip"/>，命中帧一律用
         /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.AnimEventFunctionName"/> 函数名 +
         /// 裸事件名 String Parameter（见该类型判断记录，<c>"hit_frame"</c> 经
         /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.RaiseAnimEvent"/> 换算后与
         /// <see cref="Presentation.Render.ModelCharacterRig.HitFrameEventId"/> 逐字相等）。
         /// <para>
-        /// 12 §5 勘误判断记录（取代此前"直接 <c>Resources.Load&lt;AnimationClip&gt;</c> + 整体覆盖
-        /// <c>clip.events</c> + 按 resource_ref 一次性去重"的立场——architecture/落地计划/
-        /// audit-85f1f4f-20260908/ 第九方审核"动画剪辑事件登记契约差异"，共三处根治）：
+        /// 12 §5 二次勘误判断记录（取代上一轮"空配置提前 return、首个非空配置合并写回共享资产"的
+        /// 立场——architecture/落地计划/audit-8160178-20260908/presentation/presentation-findings.md
+        /// 「PRES-17-01」（AUDIT_REPORT.md 汇总编号 PRES-170-01），见
+        /// <see cref="s_authoredClipEvents"/> 类型级判断记录三段完整说明）：
         /// </para>
         /// <para>
-        /// 一，改经 <see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.TryLoadAnimationClipSync"/>
-        /// （<see cref="ResourceKind.AnimationClip"/>）取用剪辑，不再直接调用
+        /// 一，经 <see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.TryLoadAnimationClipSync"/>
+        /// （<see cref="ResourceKind.AnimationClip"/>）取用剪辑，不直接调用
         /// <c>UnityEngine.Resources.Load</c>（同 <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.ResolveLegacyClip"/>
-        /// 一贯"消费方只经 IResourceLoader 取资源"立场，见该方法判断记录）。
+        /// 一贯"消费方只经 IResourceLoader 取资源"立场，见该方法判断记录）。共享 <paramref name="clipDef"/>.
+        /// <c>ResourceRef</c> 对应的 <c>baseClip</c> 本方法自此绝不写入——不论空配置还是非空配置。
         /// </para>
         /// <para>
-        /// 二，改"合并"不"整体覆盖"：<see cref="MergeEvents"/> 以该剪辑第一次被本类型触碰之前捕获的
-        /// 美术自带 <c>events</c> 快照（<see cref="_modelClipPristineEvents"/>）为基线，保留其中的
-        /// 全部事件，只在数据驱动的 <c>clipDef.Events</c> 与某条美术自带事件同名（含 <c>hit_frame</c>/
-        /// <c>finished</c> 这两个框架保留名）时用数据驱动定义替换那一条美术自带事件——避免同一事件名在
-        /// 相近时间点被 <c>SendMessage</c> 触发两次，同时不再无条件丢弃美术自带的其它事件。
+        /// 二，空配置（<c>clipDef.Events.Count == 0</c>）：不做任何事。<c>baseClip</c> 永远只含
+        /// authored 事件（本方法不再写它），Animator 播放这个状态时看到的就是美术自带事件，天然与
+        /// 任何其它 anim_set 隔离——不需要 <c>return</c> 之外的特殊处理，也不需要单独建立 override。
         /// </para>
         /// <para>
-        /// 三，按 anim_set 隔离：<see cref="_modelClipEventSignatures"/> 记录每个 <c>resource_ref</c>
-        /// 当前直接生效在共享资产上的那一套事件配置签名（<see cref="ComputeEventsSignature"/>）——首次
-        /// 遇到某个 <c>resource_ref</c> 时直接合并写在共享 <see cref="AnimationClip"/> 上（
-        /// <see cref="Resources.Load{T}(string)"/>/<see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.TryLoadAnimationClipSync"/>
-        /// 对同一路径返回的是引擎内部资产缓存的同一个对象实例，本方法与
-        /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D"/> 播放该剪辑时 Animator 内部引用的
-        /// 是同一个对象，这里设置的 <c>events</c> 会在下一次该状态被播放时生效，不需要额外的"通知
-        /// Animator 重新加载"步骤）；后续同一 <c>resource_ref</c>、同一套签名的引用直接复用，不重复
-        /// 处理；但同一 <c>resource_ref</c> 被另一套不同签名（不同 <c>display.anim_set</c>）引用时，
-        /// 不能再次覆盖共享资产（会反过来污染已经在用第一套配置的其它实体，也就是审核指出的"首个
-        /// anim_set 决定他人"），改为运行期克隆一份私有覆盖剪辑（<see cref="_modelClipOverrides"/>
-        /// 按 (resource_ref, 签名) 缓存复用，同一套非首签名被多个实体共享时只克隆一次），只经
-        /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.ApplyAnimClipOverride"/> 套用到"这一个"
+        /// 三，非空配置：以 <see cref="s_authoredClipEvents"/>（进程级、按 <c>resource_ref</c> 缓存的
+        /// authored 基线快照）为底，<see cref="MergeEvents"/> 叠加 <paramref name="clipDef"/>.<c>Events</c>
+        /// 得到该 anim_set 应该播放的完整事件集合；结果只写进
+        /// <see cref="s_modelClipOverrides"/> 缓存的一份运行期克隆剪辑（<c>Instantiate</c>），再经
+        /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.ApplyAnimClipOverride"/> 只套用到"这一个"
         /// <paramref name="handle"/> 对应实例的 Animator 上（<c>AnimatorOverrideController</c>），不
-        /// 触碰共享 <c>baseClip</c> 本身——两个 anim_set 因此各自只看到自己配置的事件，互不影响。
+        /// 触碰共享 <c>baseClip</c>——任意顺序、任意 factory 生命周期下配置同一 <c>resource_ref</c> 的
+        /// 多个 anim_set 因此各自只看到自己配置的事件，互不影响；相同签名复用同一份缓存的克隆剪辑，不
+        /// 重复 <c>Instantiate</c>。
         /// </para>
         /// </summary>
         private void RegisterModelClipEvents(Core.Foundation.DisplayInfo.AnimClipDef clipDef, ModelHandle handle)
         {
-            if (clipDef.Events.Count == 0)
-            {
-                return;
-            }
-
             var unityLoader = _resourceLoader as Adapter.Unity.EngineAdapter.UnityResourceLoader;
             if (unityLoader == null || !unityLoader.TryLoadAnimationClipSync(clipDef.ResourceRef, out var baseClip))
             {
                 return;
             }
 
-            if (!_modelClipPristineEvents.TryGetValue(clipDef.ResourceRef, out var pristine))
+            if (clipDef.Events.Count == 0)
             {
-                // 第一次触碰这份剪辑资源：在写入任何东西之前先捕获当前（美术自带）events 作为基线
-                // 快照，供本次与后续任意签名的合并复用——不能用"已经被某个 anim_set 改写过"的状态当
-                // 基线，否则第二个 anim_set 的合并结果会把第一个 anim_set 的数据驱动事件也当成"美术
-                // 自带事件"保留下来。
+                // 空配置：baseClip 从不被本方法写入，天生等于 authored 基线，直接播放即可，见方法
+                // 判断记录"二"。
+                return;
+            }
+
+            if (!s_authoredClipEvents.TryGetValue(clipDef.ResourceRef, out var pristine))
+            {
+                // 本进程内第一次触碰这份剪辑资源：在（本方法自此永不发生的）任何写入之前捕获当前
+                // events 作为 authored 基线快照，进程级缓存、与 factory 生命周期无关，见类型级判断
+                // 记录"一"。
                 pristine = baseClip.events;
-                _modelClipPristineEvents[clipDef.ResourceRef] = pristine;
+                s_authoredClipEvents[clipDef.ResourceRef] = pristine;
             }
 
             var signature = ComputeEventsSignature(clipDef.Events);
-            var clipLength = baseClip.length;
-
-            if (!_modelClipEventSignatures.TryGetValue(clipDef.ResourceRef, out var installedSignature))
-            {
-                // 这份剪辑资源第一次被设置事件：直接合并写到共享资产上，后续引用同一
-                // (resource_ref, 相同签名) 的实体直接复用，不需要任何隔离。
-                baseClip.events = MergeEvents(pristine, clipDef.Events, clipLength);
-                _modelClipEventSignatures[clipDef.ResourceRef] = signature;
-                return;
-            }
-
-            if (installedSignature == signature)
-            {
-                // 同一 resource_ref、同一套事件配置：与已经生效的共享资产状态一致，不需要任何处理。
-                return;
-            }
-
-            // 同一 resource_ref 被另一套不同的事件配置引用（不同 anim_set）：改为运行期克隆一份私有
-            // 覆盖剪辑，只应用到这一个实例上，见方法判断记录"三"。
             var overrideKey = (clipDef.ResourceRef, signature);
-            if (!_modelClipOverrides.TryGetValue(overrideKey, out var overrideClip))
+            if (!s_modelClipOverrides.TryGetValue(overrideKey, out var overrideClip) || overrideClip == null)
             {
+                // overrideClip == null 同时覆盖"缓存里从未有过"与"缓存里的 Unity 对象已被销毁"
+                // （Unity 对象重载了 == null 判定"fake null"，例如未开启 Domain Reload 的连续 Play
+                // Mode 会话之间，上一轮 Instantiate 出的剪辑随场景卸载被销毁）两种情况，都需要重新
+                // Instantiate，不能假设缓存条目一直有效。
                 overrideClip = UnityEngine.Object.Instantiate(baseClip);
-                overrideClip.name = baseClip.name + "__anim_set_override_" + _modelClipOverrides.Count;
-                overrideClip.events = MergeEvents(pristine, clipDef.Events, clipLength);
-                _modelClipOverrides[overrideKey] = overrideClip;
+                overrideClip.name = baseClip.name + "__anim_set_override_" + (++s_modelClipOverrideNameCounter);
+                overrideClip.events = MergeEvents(pristine, clipDef.Events, baseClip.length);
+                s_modelClipOverrides[overrideKey] = overrideClip;
             }
 
             (_renderer3D as Adapter.Unity.EngineAdapter.UnityRenderer3D)?.ApplyAnimClipOverride(handle, baseClip, overrideClip);

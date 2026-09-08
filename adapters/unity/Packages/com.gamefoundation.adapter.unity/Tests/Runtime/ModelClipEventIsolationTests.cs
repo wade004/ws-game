@@ -2,11 +2,18 @@
 // ModelClipEventIsolationTests：动画剪辑事件登记契约差异根治验收（architecture/落地计划/
 // audit-85f1f4f-20260908/presentation/presentation-findings.md"静态契约差异"，第九方审核）。
 //
-// 覆盖三处根治（见 UnityViewFactory.RegisterModelClipEvents 判断记录"12 §5 勘误判断记录"）：
-//   一、经 IResourceLoader（ResourceKind.AnimationClip）取剪辑，不再直接 Resources.Load；
-//   二、合并（不整体覆盖）美术自带 events；
-//   三、同一 resource_ref 被不同 anim_set（不同事件配置）引用时按 anim_set 隔离，不让首个 anim_set
-//      决定其它 anim_set 看到的事件。
+// 12 §5 二次勘误（本文件断言随实现一起更新——architecture/落地计划/audit-8160178-20260908/
+// presentation/presentation-findings.md「PRES-17-01」，AUDIT_REPORT.md 汇总编号 PRES-170-01）：
+// 上一轮"首个 anim_set 直接合并写在共享 AnimationClip.events 上、不需要任何覆盖控制器"的立场被
+// 第十轮审核指出是污染源本身——任何写共享资产的分支，不论是不是"第一个"，都会让后来新建的
+// UnityViewFactory（典型触发：场景重进）把这份写入误当成"美术自带基线"（见
+// Pres170_01SharedClipEventIsolationTests.cs 完整复现 + 根治验收）。本文件覆盖的三处根治结论调整为：
+//   一、经 IResourceLoader（ResourceKind.AnimationClip）取剪辑，不再直接 Resources.Load——不变；
+//   二、合并（不整体覆盖）美术自带 events——不变，只是合并结果写进运行期克隆剪辑，不再写共享资产；
+//   三、同一 resource_ref 被不同 anim_set（不同事件配置）引用时按 anim_set 隔离——不变的是"互不
+//      影响"，变化的是隔离手段：现在不分"第一个 vs 后续"，任何非空配置一律经运行期克隆
+//      （AnimatorOverrideController）隔离，共享的 baseClip.events 永远保持 authored 原样，
+//      不会被本类型写入。
 //
 // 判断记录（用 RegisterModelClipEventsForTest 内部测试钩子，不经完整 display.anim_set 数据集装配）：
 // RegisterModelClipEvents 是 UnityViewFactory 私有方法，真正装配需要两条引用同一 resource_ref、但
@@ -35,13 +42,10 @@ namespace Adapter.Unity.Tests.Runtime
         private UnityViewFactory _factory = null!;
 
         /// <summary>判断记录（隔离全局共享资产）：<c>anim.attack.anim</c> 经 <see cref="UnityEngineHost.Ensure"/>
-        /// 在整个 Unity 测试会话内只加载一次、跨全部 PlayMode 测试类共享同一个对象实例（同
-        /// <see cref="RegisterModelClipEvents"/> 判断记录"Resources.Load 对同一路径返回同一个对象"）；
-        /// 本文件的用例会真的往这个共享资产上写 <c>events</c>（这正是被测行为本身，不能改用替身规避）。
-        /// 为了不让本文件的写入残留到同一会话内跑在它之后的其它测试类（如 ModelViewTests 对
-        /// hit_frame 计数的精确断言），<see cref="SetUp"/> 记下调用任何注册逻辑之前的原始 <c>events</c>
-        /// 快照，<see cref="TearDown"/> 无条件复原——即便某个用例中途失败也会执行（NUnit
-        /// <c>[TearDown]</c> 惯例）。</summary>
+        /// 在整个 Unity 测试会话内只加载一次、跨全部 PlayMode 测试类共享同一个对象实例。二次勘误后
+        /// <see cref="RegisterModelClipEvents"/> 本身不再写这份共享资产（见文件顶部判断记录），本
+        /// 快照/复原只作为"万一某条用例的断言前置条件写错、真的动了共享资产"的最后一道防线，不再是
+        /// 被测行为要求的必需清理。</summary>
         private AnimationEvent[] _originalAttackClipEvents = null!;
 
         [SetUp]
@@ -122,11 +126,12 @@ namespace Adapter.Unity.Tests.Runtime
             return snapshot;
         }
 
-        /// <summary>根治一（经 IResourceLoader）+ 根治二（合并、不覆盖）验收：第一个引用 anim.attack 的
-        /// anim_set 声明一个与美术自带事件不同名的新事件（footstep）——合并后共享资产上应当同时保留
-        /// 美术自带的 hit_frame@0.5（未被触碰）与数据驱动新增的 footstep。</summary>
+        /// <summary>根治一（经 IResourceLoader）+ 根治二（合并、不覆盖）验收：唯一引用 anim.attack 的
+        /// anim_set 声明一个与美术自带事件不同名的新事件（footstep）。二次勘误后：合并结果只写进运行期
+        /// 克隆出的覆盖剪辑，共享 baseClip 必须保持 authored 原样（不出现 footstep，hit_frame 时间点
+        /// 不变）；覆盖剪辑上应当同时看到未被触碰的 hit_frame@0.5 与新增的 footstep。</summary>
         [Test]
-        public void RegisterModelClipEvents_FirstAnimSet_MergesWithAuthoredEvents_DoesNotOverwrite()
+        public void RegisterModelClipEvents_SingleAnimSet_MergesWithAuthoredEvents_ViaOverride_DoesNotTouchSharedClip()
         {
             var baseClip = LoadedBaseClip();
             var authoredHitFrame = FindEvent(baseClip, "hit_frame");
@@ -138,78 +143,99 @@ namespace Adapter.Unity.Tests.Runtime
 
             _factory.RegisterModelClipEventsForTest(clipDef, handle);
 
-            var afterHitFrame = FindEvent(baseClip, "hit_frame");
-            var afterFootstep = FindEvent(baseClip, "footstep");
-            Assert.IsNotNull(afterHitFrame, "美术自带的 hit_frame 事件应当被保留，不应该被数据驱动整体覆盖丢弃");
-            Assert.AreEqual(authoredTime, afterHitFrame!.time, 0.0001f,
-                "这次数据没有重新定义 hit_frame，美术自带的时间点不应该被改动");
-            Assert.IsNotNull(afterFootstep, "数据驱动新增的 footstep 事件应当被合并进共享剪辑资产");
-            Assert.AreEqual(0.2 * baseClip.length, afterFootstep!.time, 0.0001f);
+            // 二次勘误核心断言：共享资产必须逐字不变——本类型自此不再写它。
+            Assert.IsNull(FindEvent(baseClip, "footstep"),
+                "PRES-170-01 根治验收：数据驱动新增的 footstep 不应该出现在共享资产上，只应该出现在运行期覆盖剪辑上");
+            var sharedHitFrame = FindEvent(baseClip, "hit_frame");
+            Assert.IsNotNull(sharedHitFrame);
+            Assert.AreEqual(authoredTime, sharedHitFrame!.time, 0.0001f,
+                "共享资产上美术自带的 hit_frame 时间点不应该被本类型的任何写入改动");
 
-            // 第一个 anim_set 不需要任何运行期覆盖——Animator 应当仍然直接使用共享的原始 RuntimeAnimatorController。
-            Assert.IsNull(animator.runtimeAnimatorController as AnimatorOverrideController,
-                "首个 anim_set 应当直接合并写在共享资产上，不需要 AnimatorOverrideController 这层间接");
+            var overrideController = animator.runtimeAnimatorController as AnimatorOverrideController;
+            Assert.IsNotNull(overrideController,
+                "任何非空 anim_set（含唯一一个）都应当经 AnimatorOverrideController 拿到运行期克隆剪辑，不再有\"第一个可以直接写共享资产\"的特例");
+            var overrideClip = overrideController![baseClip];
+            Assert.IsNotNull(overrideClip);
+            Assert.AreNotSame(baseClip, overrideClip, "覆盖剪辑必须是运行期克隆出的私有副本，不能就是共享资产本身");
+
+            var overrideHitFrame = FindEvent(overrideClip!, "hit_frame");
+            Assert.IsNotNull(overrideHitFrame, "美术自带的 hit_frame 事件应当被保留，不应该被数据驱动整体覆盖丢弃");
+            Assert.AreEqual(authoredTime, overrideHitFrame!.time, 0.0001f,
+                "这次数据没有重新定义 hit_frame，美术自带的时间点不应该被改动");
+            var overrideFootstep = FindEvent(overrideClip, "footstep");
+            Assert.IsNotNull(overrideFootstep, "数据驱动新增的 footstep 事件应当被合并进运行期覆盖剪辑");
+            Assert.AreEqual(0.2 * overrideClip!.length, overrideFootstep!.time, 0.0001f);
 
             _host.Renderer3D.DestroyModelInstance(handle);
         }
 
-        /// <summary>根治三（按 anim_set 隔离）验收核心：同一 resource_ref（anim.attack）被第二个 anim_set
-        /// 以不同签名（重新定义 hit_frame 的时间点）引用时，不能覆盖共享资产——必须运行期克隆出一份私有
-        /// 覆盖剪辑只应用到第二个实例的 Animator 上；第一个 anim_set 的实例与共享资产必须完全不受影响。</summary>
+        /// <summary>根治三（按 anim_set 隔离）验收核心：同一 resource_ref（anim.attack）被两个不同签名
+        /// （A 新增 footstep；B 重新定义 hit_frame 的时间点）引用——二者都必须经运行期克隆隔离，共享
+        /// 资产全程保持 authored 原样，互不影响。</summary>
         [Test]
-        public void RegisterModelClipEvents_SecondAnimSet_DifferentSignature_IsolatedViaOverride_DoesNotAffectFirst()
+        public void RegisterModelClipEvents_TwoDifferentSignatures_BothIsolatedViaOverride_SharedClipUntouched()
         {
             var baseClip = LoadedBaseClip();
+            var sharedSnapshotBefore = Snapshot(baseClip);
 
             var (handleA, animatorA) = CreateInstance();
             var clipDefA = new AnimClipDef(AttackClipRef, new[] { new AnimClipEventSpec("footstep", 0.2) });
             _factory.RegisterModelClipEventsForTest(clipDefA, handleA);
 
-            var baseClipEventsAfterA = Snapshot(baseClip);
+            CollectionAssert.AreEqual(sharedSnapshotBefore, Snapshot(baseClip),
+                "PRES-170-01 根治验收：A（哪怕是第一个被注册的非空 anim_set）也不应该写共享资产");
 
             var (handleB, animatorB) = CreateInstance();
             // 第二个 anim_set：同一 resource_ref，但重新定义 hit_frame 的时间点（0.9，不同于美术自带的
-            // 0.5，也不同于 A 完全没有触碰 hit_frame 这件事本身）——签名与 A 不同，触发隔离分支。
+            // 0.5，也不同于 A 完全没有触碰 hit_frame 这件事本身）——签名与 A 不同，各自独立隔离。
             var clipDefB = new AnimClipDef(AttackClipRef, new[] { new AnimClipEventSpec("hit_frame", 0.9) });
             _factory.RegisterModelClipEventsForTest(clipDefB, handleB);
 
-            // 一，A 的实例与共享资产必须完全不受 B 这次注册影响（不多任何 hit_frame@0.9，也不多 B 没有
-            // 声明的任何东西；集合本身也不应该变化）。
-            Assert.IsNull(animatorA.runtimeAnimatorController as AnimatorOverrideController,
-                "A（首个 anim_set）不应该因为 B 之后才发生的注册而被套上任何覆盖控制器");
-            CollectionAssert.AreEqual(baseClipEventsAfterA, Snapshot(baseClip),
-                "共享资产上的事件集合在 B 注册前后必须完全一致——B 不能污染共享资产，A 也不能被 B 影响");
+            // 一，共享资产在 B 注册前后必须完全一致——两个 anim_set 都不写它。
+            CollectionAssert.AreEqual(sharedSnapshotBefore, Snapshot(baseClip),
+                "共享资产上的事件集合在 A、B 均注册之后必须与最初 authored 状态完全一致");
             var sharedHitFrame = FindEvent(baseClip, "hit_frame");
             Assert.IsNotNull(sharedHitFrame);
             Assert.AreEqual(0.5 * baseClip.length, sharedHitFrame!.time, 0.0001f,
                 "共享资产上的 hit_frame 应当仍是美术自带的 0.5，不应该被 B 的 0.9 覆盖");
 
-            // 二，B 必须经 AnimatorOverrideController 拿到一份私有克隆，克隆上只看到 B 自己声明的
-            // hit_frame@0.9（不覆盖，因为这次 B 的数据里就是 hit_frame 本身，替换的是美术自带的那一条），
-            // 且不应该出现 A 专属的 footstep（A、B 互不影响的另一半）。
-            var overrideController = animatorB.runtimeAnimatorController as AnimatorOverrideController;
-            Assert.IsNotNull(overrideController, "B（第二个、不同签名的 anim_set）应当被套上一层 AnimatorOverrideController 实现隔离");
-            var overrideClip = overrideController![baseClip];
-            Assert.IsNotNull(overrideClip, "覆盖控制器应当为 baseClip 登记一条覆盖映射");
-            Assert.AreNotSame(baseClip, overrideClip, "覆盖剪辑必须是运行期克隆出的私有副本，不能就是共享资产本身");
+            // 二，A、B 都必须经各自的 AnimatorOverrideController 拿到私有克隆，互不影响。
+            var overrideControllerA = animatorA.runtimeAnimatorController as AnimatorOverrideController;
+            Assert.IsNotNull(overrideControllerA, "A 也应当经运行期克隆剪辑隔离，不再有\"第一个直接写共享资产\"的特例");
+            var overrideClipA = overrideControllerA![baseClip];
+            Assert.IsNotNull(overrideClipA);
+            Assert.IsNotNull(FindEvent(overrideClipA!, "footstep"), "A 的覆盖剪辑应当看到自己声明的 footstep");
+            var overrideHitFrameA = FindEvent(overrideClipA!, "hit_frame");
+            Assert.IsNotNull(overrideHitFrameA, "A 未重新定义 hit_frame，覆盖剪辑上仍应保留美术自带的 hit_frame");
+            Assert.AreEqual(0.5 * overrideClipA!.length, overrideHitFrameA!.time, 0.0001f,
+                "A 未重新定义 hit_frame，覆盖剪辑上的 hit_frame 不应该变成 B 的 0.9");
 
-            var overrideHitFrame = FindEvent(overrideClip!, "hit_frame");
-            Assert.IsNotNull(overrideHitFrame);
-            Assert.AreEqual(0.9 * overrideClip!.length, overrideHitFrame!.time, 0.0001f,
+            var overrideControllerB = animatorB.runtimeAnimatorController as AnimatorOverrideController;
+            Assert.IsNotNull(overrideControllerB, "B（第二个、不同签名的 anim_set）应当被套上一层 AnimatorOverrideController 实现隔离");
+            var overrideClipB = overrideControllerB![baseClip];
+            Assert.IsNotNull(overrideClipB, "覆盖控制器应当为 baseClip 登记一条覆盖映射");
+            Assert.AreNotSame(baseClip, overrideClipB, "覆盖剪辑必须是运行期克隆出的私有副本，不能就是共享资产本身");
+            Assert.AreNotSame(overrideClipA, overrideClipB, "A、B 签名不同，必须是两份独立的运行期克隆，不能共用一份");
+
+            var overrideHitFrameB = FindEvent(overrideClipB!, "hit_frame");
+            Assert.IsNotNull(overrideHitFrameB);
+            Assert.AreEqual(0.9 * overrideClipB!.length, overrideHitFrameB!.time, 0.0001f,
                 "B 的私有覆盖剪辑上，hit_frame 应当是 B 自己声明的 0.9，不受共享资产/A 的配置影响");
-            Assert.IsNull(FindEvent(overrideClip, "footstep"), "B 的私有覆盖剪辑不应该出现 A 专属声明的 footstep 事件");
+            Assert.IsNull(FindEvent(overrideClipB, "footstep"), "B 的私有覆盖剪辑不应该出现 A 专属声明的 footstep 事件");
 
             _host.Renderer3D.DestroyModelInstance(handleA);
             _host.Renderer3D.DestroyModelInstance(handleB);
         }
 
         /// <summary>同一 resource_ref、同一套事件配置（相同签名）被两个不同实体共同引用（最常见场景，
-        /// 例如两个共享同一 display.anim_set 的实体）：应当直接复用共享资产，完全不需要任何覆盖控制器，
-        /// 不产生不必要的运行期克隆。</summary>
+        /// 例如两个共享同一 display.anim_set 的实体）：两个实体都应当经 AnimatorOverrideController 拿到
+        /// 覆盖剪辑（不再有"无覆盖直接播共享资产"的特例），但必须复用同一份运行期克隆（同一个
+        /// AnimationClip 对象引用），不应该为同一签名重复 Instantiate；共享资产全程不受影响。</summary>
         [Test]
-        public void RegisterModelClipEvents_SameSignatureTwice_ReusesSharedClip_NoOverrideCreated()
+        public void RegisterModelClipEvents_SameSignatureTwice_ReusesSameOverrideClipInstance_SharedClipUntouched()
         {
             var baseClip = LoadedBaseClip();
+            var sharedSnapshotBefore = Snapshot(baseClip);
 
             var (handleA, animatorA) = CreateInstance();
             var (handleB, animatorB) = CreateInstance();
@@ -218,9 +244,21 @@ namespace Adapter.Unity.Tests.Runtime
             _factory.RegisterModelClipEventsForTest(new AnimClipDef(AttackClipRef, events), handleA);
             _factory.RegisterModelClipEventsForTest(new AnimClipDef(AttackClipRef, events), handleB);
 
-            Assert.IsNull(animatorA.runtimeAnimatorController as AnimatorOverrideController);
-            Assert.IsNull(animatorB.runtimeAnimatorController as AnimatorOverrideController);
-            Assert.IsNotNull(FindEvent(baseClip, "footstep"));
+            CollectionAssert.AreEqual(sharedSnapshotBefore, Snapshot(baseClip),
+                "PRES-170-01 根治验收：相同签名重复引用同样不应该写共享资产");
+            Assert.IsNull(FindEvent(baseClip, "footstep"));
+
+            var overrideControllerA = animatorA.runtimeAnimatorController as AnimatorOverrideController;
+            var overrideControllerB = animatorB.runtimeAnimatorController as AnimatorOverrideController;
+            Assert.IsNotNull(overrideControllerA);
+            Assert.IsNotNull(overrideControllerB);
+
+            var overrideClipA = overrideControllerA![baseClip];
+            var overrideClipB = overrideControllerB![baseClip];
+            Assert.IsNotNull(overrideClipA);
+            Assert.AreSame(overrideClipA, overrideClipB,
+                "相同签名应当复用同一份运行期克隆剪辑对象，不应该为每个实体各自重复 Instantiate");
+            Assert.IsNotNull(FindEvent(overrideClipA!, "footstep"));
 
             _host.Renderer3D.DestroyModelInstance(handleA);
             _host.Renderer3D.DestroyModelInstance(handleB);
