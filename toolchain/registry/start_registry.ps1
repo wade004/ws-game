@@ -77,6 +77,31 @@
     verdaccio 与本目录 verdaccio 安装路径，不核对配置路径与启动时间——仍然能挡住"完全不相关的
     进程"（如占用同端口的另一个 HTTP 服务），只是对"另一个目录下的 Verdaccio 实例复用了同一
     PID"这类边界情况覆盖弱一些，好于完全不核验。
+
+    判断记录四（2026-09-10 根治，-Stop 误拒真实进程）：判断记录三新增的条件 (c) 曾有一处实现漏洞
+    ——"双保险"重写 -PidFile 分支（判断记录二：就绪后按端口核实到的 PID 与 Start-Process 记录的
+    PID 不一致时以端口查到的为准重写）曾在重写时重新取一次 `[datetime]::UtcNow` 作为新的
+    `pid_file_written_at_utc`（记为 T2），而不是用真正监听端口的那个进程自己的启动时间。已实测
+    复现：先 `-Detach` 起一个真正监听端口的实例（PID A，真实启动时刻 S，此时未触发重写），不停止
+    它、再次 `-Detach`——新 `Start-Process` 起的进程因端口已被占用而随即退出，但 `/-/ping` 命中的
+    仍是仍在监听的 PID A，触发重写分支，把元数据里的 PID 重写为 A、`pid_file_written_at_utc` 重写
+    为 T2（重写发生的当下时刻）；由于 PID A 早在 S（远早于 T2，两次调用间隔较长时可达数分钟）就已
+    经启动并持续监听，之后任意一次 `-Status`/`-Stop` 核验条件 (c) 时必然发现 `S < T2`（超出 2 秒
+    容差），把这个仍在正常提供服务、货真价实由本脚本管理的 Verdaccio 进程误判成"PID 被系统复用给
+    了另一个更早启动的无关进程"而拒绝停止——这与"正常情况下不会发生"的原判断相反：只要 -Detach
+    在端口已被占用（含前一次 -Detach 未停止就再次调用）的情况下调用一次，重写分支必然触发，条件
+    (c) 必然误判（除非两次调用间隔小于 2 秒，现实中不能保证）。
+
+    第一版修复曾改为重写分支沿用本次调用最初写 PID 文件时记录的 `$pidWrittenAtUtc`（T1，本次
+    `Start-Process` 之后取的当下时刻），比重新取 T2 更接近真相，但用自动化回归测试实测仍不够：
+    当真正监听端口的 PID A 是"另一次更早调用"启动的（本例即是），T1 是"本次调用"的当下时刻，
+    依然可能晚于 A 的真实启动时刻 S 超过 2 秒（两次 `-Detach` 调用之间只要穿插了一次 -Detach
+    就绪轮询或一次 Get-Process 诊断调用，实测间隔即可达 2 秒以上）——T1 与 T2 本质上是同一类
+    "取本次调用当下时刻"的代理值，只是取的时间点更早、误判概率更低，不是从根上排除误判。真正
+    唯一保证不早于 PID A 真实启动时刻的值只有它自己的 `(Get-Process -Id A).StartTime`——最终改为
+    重写分支直接查询真正监听端口的那个进程自身的启动时间（转 UTC）作为 `pid_file_written_at_utc`
+    写入，不使用任何"本次调用内部产生的时间代理值"；查询失败（进程在极短窗口内退出的罕见竞态）
+    时退化为 `$pidWrittenAtUtc`（T1）兜底，好于完全不写。
 #>
 param(
     [string]$ConfigPath = "",
@@ -452,15 +477,28 @@ if ($Detach) {
     Write-Host "  就绪：$pingUrl 返回 200" -ForegroundColor Green
 
     # 双保险（见脚本头判断记录二）：就绪后按端口再核实一次真正监听的 PID，与 Start-Process 记录
-    # 的不一致时（正常情况下不会发生——本脚本已经是直接起 node、不经过 npx 包装进程，这里只是
-    # 防御未来环境/版本漂移导致的偏差）以端口查到的为准重写 -PidFile，保证 -Stop/-Status 读到的
-    # 始终是真正监听端口的那个 PID。
+    # 的不一致时（例如端口已被占用导致本次 Start-Process 的新进程随即退出、而 /-/ping 命中的是
+    # 早先已在监听的旧进程——见脚本头判断记录四实测复现）以端口查到的为准重写 -PidFile。判断记录
+    # 四根治点：重写时刻的元数据必须记成"端口查到的那个真实进程自己的启动时间"，不能是任何形式的
+    # "当下时刻"代理值——曾先后试过两种"当下时刻"代理都不可靠：(1) 重写发生当下重新取 UtcNow（记
+    # 为 T2），必然晚于真正监听端口的那个进程的启动时间；(2) 沿用本次调用最初写 PID 文件时记录的
+    # $pidWrittenAtUtc（记为 T1，本次调用自己的 Start-Process 之后），当真正监听端口的是"另一次
+    # 更早调用"启动的进程时，T1 仍然可能晚于那个更早进程的真实启动时间（两次调用间隔一旦超过 2
+    # 秒容差就会误判——实测两次连续调用间隔可达 2 秒以上，例如中间穿插了一次 -Detach 就绪轮询或
+    # 一次 Get-Process 诊断调用）。唯一必然不早于该进程真实启动时间的值就是它自己的
+    # `(Get-Process -Id <realPid>).StartTime`——直接查出来当作写入的时间戳，不使用任何本次调用
+    # 内部产生的时间代理值；查询失败（进程在极短窗口内退出等罕见竞态）时退化为 $pidWrittenAtUtc
+    # （T1）兜底，好于完全不写。
     $realPids = Get-ListenOwningProcessIds -Port (Get-ListenPort -ListenValue $Listen)
     if ($realPids.Count -gt 0 -and ($realPids -notcontains $proc.Id)) {
         Write-Host "  提示：Start-Process 记录的 PID $($proc.Id) 与真正监听端口的 PID($($realPids -join ', '))不一致，已按端口监听结果重写 PID 文件" -ForegroundColor Yellow
-        $pidWrittenAtUtc = [datetime]::UtcNow
         [System.IO.File]::WriteAllText($PidFile, [string]$realPids[0], (New-Object System.Text.UTF8Encoding($false)))
-        Write-VerdaccioIdentityMeta -MetaPath $PidMetaFile -ProcessId $realPids[0] -ConfigPathValue $ConfigPath -VerdaccioBinValue $verdaccioBin -ListenValue $Listen -WrittenAtUtc $pidWrittenAtUtc
+        $realProcForRewrite = Get-Process -Id $realPids[0] -ErrorAction SilentlyContinue
+        $rewriteWrittenAtUtc = $pidWrittenAtUtc
+        if ($null -ne $realProcForRewrite) {
+            try { $rewriteWrittenAtUtc = $realProcForRewrite.StartTime.ToUniversalTime() } catch { $rewriteWrittenAtUtc = $pidWrittenAtUtc }
+        }
+        Write-VerdaccioIdentityMeta -MetaPath $PidMetaFile -ProcessId $realPids[0] -ConfigPathValue $ConfigPath -VerdaccioBinValue $verdaccioBin -ListenValue $Listen -WrittenAtUtc $rewriteWrittenAtUtc
     }
     Write-Host "  停止：powershell -File $($MyInvocation.MyCommand.Path) -Stop"
     Write-Host "  状态：powershell -File $($MyInvocation.MyCommand.Path) -Status"

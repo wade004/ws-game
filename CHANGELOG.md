@@ -34,6 +34,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+- 根治 `toolchain/registry/start_registry.ps1` 的 `-Stop` 误拒缺陷：`-Detach` 就绪后按端口核实
+  发现真正监听端口的 PID 与 `Start-Process` 记录的不一致而重写 `-PidFile`/`.meta.json` 时，改为
+  写入真正监听端口的那个进程自身的启动时间（`Get-Process` 查得），不再使用任何"本次调用当下
+  时刻"的代理值——此前会导致该进程仍在正常服务却被身份核验条件 (c) 误判为"PID 被系统复用给了
+  另一个更早启动的无关进程"而拒绝停止。新增 `toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py`
+  静态 + 行为级回归。
+
 ## [1.14.0] - 2026-09-10
 
 第十四轮（修订版）审核修复（codex，基线 `c9ff301`/v1.13.0，
