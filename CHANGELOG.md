@@ -34,6 +34,55 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+### 第十四轮（修订版）审核修复（基线 `c9ff301`，2026-09-10；随下一次发布归档为 `[1.14.0]` 正式
+条目，届时补齐提交 hash）
+
+外部审核（`architecture/落地计划/audit-c9ff301-20260909/`）6 项 P2 + 2 项静态差距 + P3/文档均已
+核实并修复，详见该目录 `followup-2026-09-10.md` 核实表。
+
+- **ABI/API 兼容性收口**：恢复上方"已知问题"小节记录的全部六个已删除公开规则类型
+  （`Core.Foundation.DataRegistry.FieldSchema` 七参数构造函数、`Core.Carriers.Gobj.
+  GobjOnUseKindRule`/`GobjLockRequirementFieldGroupRule`、`Core.Rules.Skill.
+  EffectKindRegisteredRule`/`CostEntryShapeRule`/`ChargesShapeRule`、`Core.Gameplay.AreaTrigger.
+  AreaTriggerShapeKindRule`）与两处构造签名收窄（`Core.Gameplay.Economy.
+  EconomyContentValidationRule`/`Core.Gameplay.Loot.LootContentValidationRule` 的
+  `(IExprSchema? conditionSchema = null)`），均标注 `[Obsolete]`、内部委托给现有实现，行为与 1.12
+  完全一致——旧编译 consumer 换正式新 DLL 不重新编译即可继续运行，不再出现
+  `MissingMethodException`；新增独立 ABI 探针 `toolchain/abi_probe.ps1` 纳入 `check.ps1` 全量步骤，
+  避免再次出现"声明 MINOR 兼容、实际二进制不兼容"的偏差。
+- **内容校验补齐**：Gobj `world_flag.expected` 未在 report 阶段拒绝（新增
+  `GobjLockWorldFlagExpectedRule`）；Quest `rewards.world_flags[].value`/Dialog
+  `set_flag.params.value` 的 `ExprValueJson` 联合形状漏校验（新增 `ExprValueJson.IsValid` 统一校验
+  器）；周期效果 `scaling_stat` 元数据登记漂移（`SkillSchemas.PeriodicParamsCase` 补
+  `Reference(stat.definition)`）；`WorldMap` 出生点/传送点元素语义边界澄清（新增
+  `WorldMapSpawnPointsValidationRule`，`architecture/05` 勘误）。
+- **热重载后定义缓存刷新**：`SkillDefCache`/`InventoryHost`/`EquipmentHost`/`QuestHost`/
+  `DialogHost`/`ArchetypeRegistry` 六处 + 本轮追加同类根治的 `StatHost`/`LootHost`/`EconomyHost`/
+  `PowerHost` 四处，共十处"构造期一次性读 registry 建索引、之后只读"缓存均已订阅
+  `DataLoadCompletedEvent`（`PowerHost` 因不持有 registry，改走新增 `Reload` 方法 + 组装根
+  `RulesAssembly` 转发，惯例同 `QuestHost.Reload`/`DialogHost.Reload`），reload 后 resident host
+  下一次访问即可见新定义；均不触碰任何运行期状态（已应用的属性/光环、背包物品、任务进度、对话
+  会话、已消耗的限量库存、已注册单位的当前资源值），`EconomyHost` 的限量库存额外做了"已存在
+  (vendorId, itemId) 组合保留原状态、只对新出现的组合按新定义初始化"处理，不会把玩家已购买消耗的
+  库存重置回满库存。
+- `ISkillHost.FindUnits` 静态差距（此前恒返回空列表）：委托 `ISpatialQuery.QueryShape` 与
+  `UnitFilter` 全维度过滤，补齐真实实现。
+- 装备表现 SaveLoaded 对账、开发期数据热重载删除覆盖回落、VFX 锚点持续跟随、ADR-0019 门禁载体文案
+  勘误：见 `architecture/09`/`13`/`adr/0019-*.md` 对应小节。
+- 能力索引（`架构/落地计划/落地方案与分阶段计划.md`）按"框架/游戏责任"重新分类，天赋点数管理、
+  位移轨迹碰撞、新局完整重置等原"未实现"条目改归**游戏责任**（框架不强加契约）；导航跨帧预算、
+  空间查询完整索引化改归**明确非目标**。
+
+**迁移说明**：旧编译 consumer 换正式 1.14 DLL 无需重新编译即可继续运行；使用上述 `[Obsolete]`
+façade 的源码在重新编译时会收到警告，提示改用对应的声明式 schema 登记（`VariantSchema`/`Fields`）
+或无参构造函数，façade 至少保留一个 MINOR 周期后才可能移除；显式使用兼容重载可能与内建结构校验/
+新增业务规则对同一处坏数据重复报告（check 名不同，不掩盖问题，只是冗余）。热重载缓存刷新对调用方
+透明，无需改动既有调用点。VFX 跟随对自定义 `IRenderer2D` 实现是可选接口（`IParticleRepositioner`），
+未实现时行为与改动前一致。
+
+本节内容已实际落地（详见对应模块 README 与 `followup-2026-09-10.md`），随下一次
+`build.ps1 -Release` 归档为 `[1.14.0]` 正式条目并补齐提交 hash，不需要重写事实内容。
+
 ## [1.13.0] - 2026-09-09
 
 ADR-0018（编辑器随游戏走：基础套件按版本消费框架，无头适配层与校验装配入口列为框架交付物）、
@@ -416,6 +465,33 @@ L0/L5 登记，首批登记范围收口（`e50339a`）；ADR-0018 决策 3 F2 �
   `TemplateSmokeRunner` 公开而非 internal 的既有判断一致；`Update()` 内部改为调用同一个公开方法，
   行为未变。若游戏层曾直接调用 `ProcessPendingChangesForTests`，改调 `ProcessPendingChanges`。
 
+### 已知问题：ABI/API 兼容性（第十四轮修订版审核，2026-09-09，基线 `c9ff301`；已在 1.14.0 收口）
+
+外部审核（`architecture/落地计划/audit-c9ff301-20260909/`，独立 consumer probe，见
+`docs-project/api-compat/api-compat.log`）核实：本版本对已编译旧 consumer **不是**二进制兼容——
+`FieldSchema` 的 1.12 七参数公开构造函数
+`FieldSchema(string, FieldKind, bool, IReadOnlyList<string>, string, string, string)` 在 1.13
+正式 `Core.Foundation.dll` 中已不存在，旧编译产物只替换正式 DLL、不重新编译，运行期抛
+`System.MissingMethodException`；`core/carriers/gobj/schema/GobjValidationRules.cs`/
+`core/rules/skill/schema/SkillValidationRules.cs` 一并整条删除的
+`GobjOnUseKindRule`/`GobjLockRequirementFieldGroupRule`/`EffectKindRegisteredRule`/
+`CostEntryShapeRule`/`ChargesShapeRule` 五个公开规则类型同属已删除的公开签名（源码重编译可绕开
+`FieldSchema` 新增的可选参数、但不能让旧签名重新出现，也不能恢复已删除的公开类型）。上一条
+"版本判据说明"曾表述为"无任何公开签名删改"，与上述探针结果不一致，此处更正为准确口径：**本版本
+按 SemVer 声明为 MINOR，但对已编译的旧 1.12 consumer 存在已知二进制不兼容**，源码级消费方按上方
+"行为变更与迁移说明"逐条改造仍可正常编译通过。
+
+**核实补充（第十四轮修订版审核收口，2026-09-10）**：核心侧全仓复查（`git diff v1.12.0 v1.13.0 --
+'*.cs'` 扫公开签名）另发现审计报告未点名的两处：（1）`core/gameplay/area_trigger/schema/
+AreaTriggerValidationRules.cs` 的 `AreaTriggerShapeKindRule` 同一批 ADR-0019 退役、同属整条删除的
+公开规则类型（第六个，五个之外的遗漏）；（2）`core/gameplay/economy/core/
+EconomyContentValidationRule.cs`/`core/gameplay/loot/core/LootContentValidationRule.cs` 的 1.12
+构造签名 `(IExprSchema? conditionSchema = null)` 均被收窄为隐式无参构造——不是整条类型删除，但同样
+属于物理签名不兼容（可选参数默认值在旧调用点编译期内联进 IL，换 DLL 不重编译同样
+`MissingMethodException`）。以上"六个已删除类型 + 两处构造签名收窄"已在 **1.14.0** 全部恢复为
+`[Obsolete]` 兼容 façade，详见下方 `[1.14.0]` 正式条目；本小节保留作为 1.13.0 版本本身的已知状态
+记录，不因后续版本修复而删除。
+
 ### 版本判据说明
 
 新增能力与向后兼容的契约扩展——`FieldSchema` 新增可选子结构登记（`Fields`/`Item`/`Variants`，
@@ -427,8 +503,12 @@ L0/L5 登记，首批登记范围收口（`e50339a`）；ADR-0018 决策 3 F2 �
 `games/_template` 新增模板热重载标准实现（`DataHotReload.cs`，仅编辑期/开发构建生效，发布构建
 零开销空壳）。退役的手写结构校验规则（`GobjOnUseKindRule`/`EffectKindRegisteredRule` 等，见上
 "行为变更与迁移说明"）改由登记层递归校验完全覆盖同等检查，属检查名集合变化，不影响校验结论；
-无任何数据表字段删改，无任何存档格式变更，无任何公开签名删改（`PlayerVitalsPersistable` 构造函数
-收窄发生在 1.12.0，本版未涉及）。按 SemVer 判定为 MINOR。
+无任何数据表字段删改，无任何存档格式变更。**"无任何公开签名删改"一句已按上方"已知问题：ABI/API
+兼容性"小节更正**——`PlayerVitalsPersistable` 构造函数收窄发生在 1.12.0、本版未涉及是准确的，但
+`FieldSchema` 七参数构造函数、六个手写规则类型（含核实补充发现的 `AreaTriggerShapeKindRule`）与
+两处构造签名收窄（`EconomyContentValidationRule`/`LootContentValidationRule`）确在本版本删除/改签，
+属已知的二进制不兼容，不属于"公开签名零删改"。按 SemVer 判定为 MINOR（新增能力占多数；已知的二进制
+兼容缺口已在 1.14.0 通过恢复 façade 收口，见上方小节与 `[1.14.0]` 正式条目）。
 
 ## [1.12.0] - 2026-09-09
 

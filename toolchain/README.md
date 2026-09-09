@@ -491,3 +491,22 @@ powershell -File toolchain\get_framework.ps1 -Version 1.0.0 -FromRegistry -Regis
 powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <你的 Unity 工程根目录>
 powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <工程根> -PackageName com.gamefoundation.toolchain -ResolveOnly
 ```
+
+## ABI 探针（`abi_probe.ps1`，第十六方深度审核跟进）
+
+`toolchain/abi_probe.ps1`：发布前二进制兼容性门禁（见根 `architecture/11_工程规范与测试.md` 第 7
+节"发布说明不得宣称未经验证的二进制兼容"）。原理：编译一份只见过基线版本公开签名的最小消费方
+（`toolchain/abi_probe/`，四个核心程序集各一条调用路径），换上当前工作树刚构建出的正式 DLL、**不
+重新编译**运行——`System.MissingMethodException` 等即说明存在未声明的二进制破坏性变更，此时脚本以
+非零退出码收尾。基线版本号读取同目录 `abi_probe_baseline.txt`（默认 `1.12.0`，人工维护的"最后一个
+已知二进制兼容"锚点，日常 MINOR/PATCH 发布不应推进它，见该脚本 `.PARAMETER BaselineVersion` 判断
+记录）。基线发行包（`dist/ws-game-<基线版本>.zip`）是本机构建缓存，`.gitignore` 排除、未必存在于
+每台机器——找不到时脚本默认打印警告后以 PASS 收尾（不阻塞门禁），可用
+`-SkipIfBaselineMissing:$false` 改为强制要求。
+
+已纳入 `check.ps1` 全量步骤（`-Quick` 跳过，见该脚本"2b. ABI 探针"步骤）。独立运行：
+
+```powershell
+powershell -File toolchain\abi_probe.ps1
+powershell -File toolchain\abi_probe.ps1 -BaselineVersion 1.12.0 -SkipIfBaselineMissing:$false
+```

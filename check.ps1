@@ -470,6 +470,33 @@ Invoke-CheckStep "dotnet test Core.sln -c $Configuration --no-build（六工程�
 }
 
 # -----------------------------------------------------------------------------
+# 2b. ABI 探针（toolchain/abi_probe.ps1，第十六方深度审核跟进，见 architecture/11_工程规范与测试.md
+#     第 7 节"发布说明不得宣称未经验证的二进制兼容"）：旧编译 consumer（针对
+#     toolchain/abi_probe_baseline.txt 记录的基线版本）换上本次步骤 1 刚构建出的正式 DLL、不重新
+#     编译，验证是否仍能正常运行——不满足则说明存在未声明的二进制破坏性变更（1.13.0 的真实教训，
+#     见 CHANGELOG.md"已知问题：ABI/API 兼容性"）。-Quick 跳过：需要额外解压/编译一个独立 consumer
+#     工程，不是秒级步骤；本机没有基线版本 dist zip（.gitignore 排除的本机构建缓存）时脚本自身会
+#     打印警告并以 PASS 收尾，不阻塞门禁，见该脚本 .PARAMETER SkipIfBaselineMissing 说明。另起一个
+#     powershell 子进程跑（脚本内部用 exit 语句表达结果，惯例同下方"消费方演练"步骤，避免子脚本的
+#     exit 连带终止本脚本）。
+# -----------------------------------------------------------------------------
+if ($Quick) {
+    Add-SkippedStep "ABI 探针（toolchain/abi_probe.ps1）" "-Quick"
+} else {
+    Invoke-CheckStep "ABI 探针（toolchain/abi_probe.ps1）" {
+        $abiProbeScript = Join-Path $RepoRoot "toolchain\abi_probe.ps1"
+        $abiProbeArgs = @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $abiProbeScript,
+            "-ArtifactsPath", $ArtifactsPath, "-Configuration", $Configuration
+        )
+        # 判断记录（同"消费方演练"步骤同一处误判修复）：`| Out-Null` 把子进程 stdout 在管道里吃掉，
+        # 不让它混进 Invoke-CheckStep 的 `& $Action` 返回值数组，只靠 $LASTEXITCODE 判定结果。
+        & powershell @abiProbeArgs | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    }
+}
+
+# -----------------------------------------------------------------------------
 # 3. 数据校验（合并根：data/_framework + data/_sample）
 # -----------------------------------------------------------------------------
 Invoke-CheckStep "python toolchain/validate_data.py（合并根）" {

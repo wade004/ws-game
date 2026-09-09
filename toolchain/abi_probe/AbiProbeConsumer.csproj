@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    ABI 探针最小消费方工程（见 toolchain/abi_probe.ps1 头注释、architecture/11_工程规范与测试.md
+    第 7 节"发布说明不得宣称未经验证的二进制兼容"）。改造自
+    architecture/落地计划/audit-c9ff301-20260909/docs-project/api-compat/FieldSchemaConsumer.csproj
+    （第十四轮修订版审核 codex 探针原型），扩展为覆盖本轮恢复的全部 6 个已删除公开规则类型 + 2 处
+    构造签名收窄，四个程序集（Core.Foundation/Carriers/Rules/Gameplay）各自的一条最小调用路径。
+
+    判断记录（为什么不用 <ProjectReference> 直接引用本仓库源码工程）：本工程刻意只用
+    <Reference HintPath="lib\*.dll">——ABI 探针要验证的是"编译期只见过旧签名的已编译产物，运行期
+    换一份新 DLL 不重新编译还能不能跑"，若改用 ProjectReference 会导致每次都跟着源码重新编译，
+    验证的是源码兼容而不是二进制兼容，偏离本探针的目的（同 docs-project/api-compat/Program.cs 原
+    判断记录"2-arg form is not compilable against old 1.12 public constructor"）。lib\ 目录由
+    toolchain/abi_probe.ps1 在运行期从旧发行包 zip 解出，不提交进仓库。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>AbiProbeConsumer</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- 探针只关心"能不能找到方法"，故意不当 CS0618（Obsolete）为错误——本探针本就是要调用
+         已标 [Obsolete] 的兼容 façade。 -->
+    <NoWarn>CS0618</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Core.Foundation">
+      <HintPath>lib\Core.Foundation.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Carriers">
+      <HintPath>lib\Core.Carriers.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Rules">
+      <HintPath>lib\Core.Rules.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Gameplay">
+      <HintPath>lib\Core.Gameplay.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
