@@ -13,7 +13,7 @@
 ```
 .github/workflows/      GitHub Actions 持续集成工作流（ci.yml + release.yml，见"持续集成"一节）
 .githooks/              版本化 git 钩子（pre-commit，见"提交前钩子"一节）
-architecture/          架构文档集（已定稿），本仓库唯一的规范来源；00~14 号文档 + adr/（17 条 ADR）+ 落地计划/ + 选型/
+architecture/          架构文档集（已定稿），本仓库唯一的规范来源；00~14 号文档 + adr/（19 条 ADR）+ 落地计划/ + 选型/
 core/                  L0~L4 纯逻辑类库，零引擎依赖，目标框架 .NET Standard 2.1
   foundation/            L0 基础层：event_bus、rng、expr、data_registry、sim_loop、save_system、input_map、l10n、display_info、scene_router、hook_registry、app_lifecycle
   numbers/               L1 数值层：stat_block、power_set、progression、archetype、faction
@@ -31,7 +31,7 @@ assets/_sample/         由 toolchain/import_sample_assets.py 驱动资产导入
 toolchain/              校验、构建、资产导入等跨游戏 Python 工具链（validate_data.py、import_assets.py 等）；get_framework.ps1 是游戏侧按版本号引用本框架的工具（zip 通道），见"版本与发布"一节
   registry/              私服（Verdaccio 注册表）交付通道：本机/局域网内起一个私有包仓库，游戏侧按版本号依赖三个可发布包，与 zip 通道并存，见 toolchain/registry/README.md
   sync_package_content.ps1  私服通道配套：把游戏工程解析到的 com.gamefoundation.framework-data 包内容同步到该工程的 StreamingAssets/TextMesh Pro
-editor/                游戏内容编辑器（Windows 桌面程序）：docs/ 产品文档（markdown + 离线 HTML）已完成；实现按用户拍板暂缓（2026-09-09），见 editor/README.md
+editor/                内容编辑器产品文档（markdown + 离线 HTML）；编辑器代码不在本仓库：基础套件与模板在独立的编辑器项目，编辑器实例随各游戏仓库走，见 editor/README.md
 dist/<version>/         build.ps1 -Dist 产出的版本快照（构建产物，.gitignore，不入库，可由源码重建）；-Release/-Zip 额外产出 ws-game-<version>.zip/.lock
 VERSION                 单一版本源（纯文本版本号，如 0.2.0），两个 package.json、CHANGELOG.md、dist 快照均以此为准，见"版本与发布"一节
 CHANGELOG.md             变更日志（Keep a Changelog 风格），发布时随 VERSION 一并更新
