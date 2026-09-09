@@ -14,18 +14,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 变更，单独标注、汇总索引在此小节，供编辑器项目维护者只看这一类条目即可判断新版本是否需要跟改
 （不需要通读全部版本条目）——每条给出条目所在的版本区间与简述，详情见对应版本正文。
 
-- **F1（`[Unreleased]`，随下一版归档）**：`FieldSchema` 新增可选子结构登记
+- **F1（1.13.0）**：`FieldSchema` 新增可选子结构登记
   （`Fields`/`Item`/`Variants`，`Object`/`Array` 两种字段种类）与 `VariantSchema` 契约类型；
   `DataRegistry` 按登记递归校验，新增检查名 `variant_discriminator`/`substructure_depth`/
   `unknown_subfield`；`toolchain/validator --json` 输出新增
   `disabled_optional_rules`/`enabled_optional_rules` 字段。
-- **F2（`[Unreleased]`，随下一版归档）**：新增核心库校验装配入口
+- **F2（1.13.0）**：新增核心库校验装配入口
   `Presentation.Assembly.ContentValidationAssembly.Run`/`CreateRegistry`（`toolchain/validator`
   与编辑器基础套件共用同一份装配代码）；新增第四个私服包 `com.gamefoundation.adapter.headless`
   （无头适配层，随构建产物分发，供内容编辑器等无头宿主使用）。
-- **F3（`[Unreleased]`，随下一版归档）**：新增元数据门禁
+- **F3（1.13.0）**：新增元数据门禁
   `Presentation.Assembly.SchemaAudit`/`toolchain/validator --schema-audit`（六项检查，见下方
-  `[Unreleased]` 正文"F3"小节）；`DataRegistry` 新增只读属性 `RegisteredSchemas`；开发期数据
+  `[1.13.0]` 正文"F3"小节）；`DataRegistry` 新增只读属性 `RegisteredSchemas`；开发期数据
   热重载标准实现 `games/_template/Runtime/DataHotReload.cs`（`Reload` 成功/失败经事件总线补发
   `data.load_completed`/`data.validation_failed`）；`.github/workflows/release.yml` 四包修正
   （编辑器项目若参照本仓库发布工作流的必需附件集合，需同步补齐第四个 `.tgz`）。
@@ -33,6 +33,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 ## [Unreleased]
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
+
+## [1.13.0] - 2026-09-09
+
+ADR-0018（编辑器随游戏走：基础套件按版本消费框架，无头适配层与校验装配入口列为框架交付物）、
+ADR-0019（复合字段子结构登记为机器可读 schema，含按 kind 分派的变体）拍板落库（`88f31f8`）；
+ADR-0019 F1 复合字段子结构登记与递归校验分三段收口——F1a 技能域首批登记与 `FieldSchema`/
+`DataRegistry` 契约扩展（`e2fc928`）、F1b L4 玩法层九个模块登记（`cba913b`）、F1c L3/L1/L2 其余/
+L0/L5 登记，首批登记范围收口（`e50339a`）；ADR-0018 决策 3 F2 无头适配层交付与核心库校验装配入口
+`ContentValidationAssembly`（`7ddbeac`）；F3 元数据门禁 `SchemaAudit`、开发期数据热重载标准实现、
+`.github/workflows/release.yml` 四包修正（`3456e94`）。均属向后兼容的新增能力与契约扩展，无数据表
+字段删改、无存档格式变更（判据见下"版本判据说明"）。
 
 ### 文档
 
@@ -393,6 +404,20 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   经 `--allowlist <path>` 指定）新增一条 `{"table", "field", "reason"}`，`reason` 必填、必须
   写清楚为什么这个字段暂时/永久不适合登记子结构，白名单条目不再对应任何真实命中时
   `allowlist_entry_unused`（Warning，不阻断）会提醒清理。
+
+### 版本判据说明
+
+新增能力与向后兼容的契约扩展——`FieldSchema` 新增可选子结构登记（`Fields`/`Item`/`Variants`，
+仅对既有 `Object`/`Array` 字段种类新增可选行为，未登记的字段不受影响）、新增
+`ContentValidationAssembly`/`SchemaAudit` 两个核心库公开入口、新增第四个私服包
+`com.gamefoundation.adapter.headless`、`ws-game.lock` 新增可选字段
+`headless_dlls`/`source.optional_packages`、`DataRegistry` 新增只读属性
+`RegisteredSchemas`（具体类新增成员，不改 `IDataRegistry`/`IDataRegistryView` 接口签名）、
+`games/_template` 新增模板热重载标准实现（`DataHotReload.cs`，仅编辑期/开发构建生效，发布构建
+零开销空壳）。退役的手写结构校验规则（`GobjOnUseKindRule`/`EffectKindRegisteredRule` 等，见上
+"行为变更与迁移说明"）改由登记层递归校验完全覆盖同等检查，属检查名集合变化，不影响校验结论；
+无任何数据表字段删改，无任何存档格式变更，无任何公开签名删改（`PlayerVitalsPersistable` 构造函数
+收窄发生在 1.12.0，本版未涉及）。按 SemVer 判定为 MINOR。
 
 ## [1.12.0] - 2026-09-09
 
