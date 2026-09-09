@@ -4,10 +4,11 @@
 // 独立的临时磁盘数据根 + 独立 DataRegistry + 独立 DataHotReload 实例，不经过 GameBootstrap/Shell
 // 场景，纯粹验证本组件自身的行为，可在 EditMode 下跑（不需要进入 Play Mode）。
 //
-// 判断记录（为什么调用 ProcessPendingChangesForTests 而不是等 Unity 调度 Update()）：EditMode 测试
+// 判断记录（为什么调用公开方法 ProcessPendingChanges 而不是等 Unity 调度 Update()）：EditMode 测试
 // 环境（`-testPlatform EditMode`，未进入 Play Mode）下 Unity 不会自动调用 MonoBehaviour.Update()，
-// 见 Runtime/DataHotReload.cs 该方法的判断记录；本测试直接驱动同一份处理逻辑，与 Update() 调用的是
-// 完全相同的私有实现，行为等价。
+// 见 Runtime/DataHotReload.cs 该方法的判断记录；本测试直接驱动同一个公开方法，与 Update() 调用的是
+// 完全相同的实现，行为等价。该方法公开而非 internal + InternalsVisibleTo，是因为模板改名后程序集名
+// 会变化，硬编码旧程序集名的 InternalsVisibleTo 会失效（同判断记录）。
 using System;
 using System.IO;
 using System.Threading;
@@ -77,12 +78,12 @@ namespace Game.Template.EditorTests
                 WriteStatTable(tempRoot, ("stat.a", "l10n.stat.a.name"), ("stat.b", "l10n.stat.b.name"));
 
                 // 真实 FileSystemWatcher 事件是异步投递的（不保证立即到达），加上 300ms 去抖窗口——
-                // 轮询驱动 ProcessPendingChangesForTests，给足够的时间但不无限期等待（5s 保底）。
+                // 轮询驱动 ProcessPendingChanges，给足够的时间但不无限期等待（5s 保底）。
                 var deadline = DateTime.UtcNow.AddSeconds(5);
                 while (DateTime.UtcNow < deadline && registry.GetAll("stat.definition").Count != 2)
                 {
                     Thread.Sleep(50);
-                    hotReload.ProcessPendingChangesForTests();
+                    hotReload.ProcessPendingChanges();
                 }
 
                 Assert.AreEqual(2, registry.GetAll("stat.definition").Count,

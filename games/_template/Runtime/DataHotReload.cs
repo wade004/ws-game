@@ -37,22 +37,12 @@
 // LoadAll 阻断态下的既有约定一致。
 using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using UnityEngine;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
 using System.IO;
 #endif
-
-// 判断记录（InternalsVisibleTo，仅供 EditMode 测试）：DataHotReload.ProcessPendingChangesForTests
-// 是 internal（见该方法注释），只暴露给本包的 EditMode 测试程序集 Game.Template.EditorTests
-// （Tests/Editor/，`includePlatforms: ["Editor"]`——EditMode 测试必须放在 Editor-only 的独立
-// asmdef 下才会被 `-testPlatform EditMode` 发现，放在 Tests/Runtime/ 既有的 PlayMode 向
-// Game.Template.Tests 程序集下不会被 EditMode 运行捡到，见该测试文件判断记录）。用 internal +
-// InternalsVisibleTo 而不是 public，是因为这个入口纯粹是测试驱动手段，不是游戏层/其它消费方应该
-// 调用的公开 API 面。
-[assembly: InternalsVisibleTo("Game.Template.EditorTests")]
 
 namespace Game.Template
 {
@@ -148,17 +138,21 @@ namespace Game.Template
             }
         }
 
-        /// <summary>测试专用入口（同 <c>internal</c> 惯例，仅供本包 EditMode 测试调用，见
-        /// <c>Tests/Editor/DataHotReloadEditModeTests.cs</c>）：手动触发一次"检查去抖到期→Reload"
-        /// 的处理，不依赖 Unity 的 <c>Update()</c> 帧回调调度——EditMode 测试环境（未进入 Play
-        /// Mode）下 Unity 不会自动调用 MonoBehaviour 的 <c>Update()</c>，测试需要直接驱动同一份
-        /// 处理逻辑。生产路径仍然是 <c>Update()</c> 每帧调用 <see cref="ProcessPendingChanges"/>，
-        /// 本方法只是把该私有方法多暴露一个测试可达的入口，不改变任何行为、不新增状态。</summary>
-        internal void ProcessPendingChangesForTests() => ProcessPendingChanges();
-
         private void Update() => ProcessPendingChanges();
 
-        private void ProcessPendingChanges()
+        /// <summary>手动触发一次"检查去抖到期→Reload"的处理，供测试与编辑器/无头宿主在不依赖
+        /// Unity 帧回调（<c>Update()</c>）的场合手动驱动一轮去抖处理——例如
+        /// <c>Tests/Editor/DataHotReloadEditModeTests.cs</c> 所在的 EditMode 测试环境（未进入 Play
+        /// Mode）下 Unity 不会自动调用 MonoBehaviour 的 <c>Update()</c>，需要直接驱动本方法。生产
+        /// 路径下 <see cref="Update"/> 每帧调用的正是同一个方法，两条路径共享同一份实现、不重复
+        /// 状态。
+        /// <para>判断记录（为何公开而非 <c>InternalsVisibleTo</c>）：模板改名后程序集名会变化
+        /// （见 <c>games/_template/README.md</c>"复制为新游戏：改哪几处"），届时
+        /// <c>[assembly: InternalsVisibleTo("Game.Template.EditorTests")]</c> 这类硬编码旧程序集名的
+        /// 声明会失效；与 <see cref="TemplateSmokeRunner.IsFinished"/> 公开而非 internal 的既有判断
+        /// 一致，改为公开方法即可在改名后继续被测试/编辑器/无头宿主调用，不依赖需要同步维护的
+        /// 程序集名白名单。</para></summary>
+        public void ProcessPendingChanges()
         {
             if (_registry == null)
             {

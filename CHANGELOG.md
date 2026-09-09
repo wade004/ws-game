@@ -404,6 +404,17 @@ L0/L5 登记，首批登记范围收口（`e50339a`）；ADR-0018 决策 3 F2 �
   经 `--allowlist <path>` 指定）新增一条 `{"table", "field", "reason"}`，`reason` 必填、必须
   写清楚为什么这个字段暂时/永久不适合登记子结构，白名单条目不再对应任何真实命中时
   `allowlist_entry_unused`（Warning，不阻断）会提醒清理。
+- `games/_template/`"复制为新游戏：改哪几处"新增第四个 asmdef
+  `Tests/Editor/Game.Template.EditorTests.asmdef`（F3 随 `DataHotReloadEditModeTests.cs` 一并新增，
+  此前遗漏在改名清单外）：复制模板改名时需一并处理该文件的文件名、`"name"` 与 `references` 数组，
+  否则改名后的消费方工程编译报 `DataHotReload` 找不到（`toolchain/consumer_smoke.ps1` 同步补齐，
+  见该脚本 `$asmdefRenames`）；`games/_template/README.md` 目录清单与改名步骤已同步更新。
+- `DataHotReload.ProcessPendingChangesForTests`（原 `internal` + 程序集级
+  `InternalsVisibleTo("Game.Template.EditorTests")`）改为公开方法
+  `DataHotReload.ProcessPendingChanges()`：模板改名后程序集名变化会让硬编码旧程序集名的
+  `InternalsVisibleTo` 失效，改为公开方法即可在改名后继续被测试/编辑器/无头宿主调用，与
+  `TemplateSmokeRunner` 公开而非 internal 的既有判断一致；`Update()` 内部改为调用同一个公开方法，
+  行为未变。若游戏层曾直接调用 `ProcessPendingChangesForTests`，改调 `ProcessPendingChanges`。
 
 ### 版本判据说明
 

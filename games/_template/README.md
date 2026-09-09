@@ -27,6 +27,9 @@ games/_template/
     Game.Template.Tests.asmdef        PlayMode 测试程序集（改名见下）
     GameTemplateSmokeTests.cs         最小验收：默认 GameOptions 启动 → 数据零阻断错误 → 主菜单可见；
                                       编辑器内验证 "-gf-smoke-template" 冒烟序列可跑通（不退出进程）
+  Tests/Editor/
+    Game.Template.EditorTests.asmdef  EditMode 测试程序集（改名见下）
+    DataHotReloadEditModeTests.cs     验证 DataHotReload.cs"文件变更 -> 去抖 -> Reload"全链路
   data/game/                          最小可玩闭环数据集（改名见下），见 data/README.md
   validate.ps1                        校验 data/game/ + 框架级数据表（data/_framework）合并 0 错误
 ```
@@ -55,12 +58,16 @@ games/_template/
 
 1. **`package.json`**：`name` 改成新游戏专属包名（如 `com.<studio>.game-<name>`），按需改
    `displayName`/`description`。
-2. **三个 asmdef**（`Runtime/Game.Template.asmdef`、`Editor/Game.Template.Editor.asmdef`、
-   `Tests/Runtime/Game.Template.Tests.asmdef`）：
-   - 文件名与 JSON 里的 `"name"` 都从 `Game.Template`/`Game.Template.Editor`/`Game.Template.Tests`
-     改成 `Game.<Game>`/`Game.<Game>.Editor`/`Game.<Game>.Tests`（`<Game>` 替换为新游戏代号）。
-   - `Editor`/`Tests` 两个 asmdef 的 `references` 数组里对 `"Game.Template"` 的引用要同步改成新
-     名字（`"Game.<Game>"`），否则编辑器/测试程序集会引用不到运行期程序集。
+2. **四个 asmdef**（`Runtime/Game.Template.asmdef`、`Editor/Game.Template.Editor.asmdef`、
+   `Tests/Runtime/Game.Template.Tests.asmdef`、`Tests/Editor/Game.Template.EditorTests.asmdef`）：
+   - 文件名与 JSON 里的 `"name"` 都从
+     `Game.Template`/`Game.Template.Editor`/`Game.Template.Tests`/`Game.Template.EditorTests`
+     改成 `Game.<Game>`/`Game.<Game>.Editor`/`Game.<Game>.Tests`/`Game.<Game>.EditorTests`
+     （`<Game>` 替换为新游戏代号）。
+   - `Editor`/`Tests`/`Tests/Editor` 三个 asmdef 的 `references` 数组里对 `"Game.Template"` 的引用
+     都要同步改成新名字（`"Game.<Game>"`），否则编辑器/测试程序集会引用不到运行期程序集——
+     `Tests/Editor/Game.Template.EditorTests.asmdef` 的 `references` 同样引用了
+     `"Game.Template"`，这一处最容易漏改。
    - `rootNamespace` 建议同步改成 `Game.<Game>`（并同步改全部 `.cs` 文件的 `namespace Game.Template`
      为 `namespace Game.<Game>`）；`references` 里对 `"Adapter.Unity"` 的引用保留不变。
 3. **`GameOptions` 默认 id**（`Runtime/GameOptions.cs` "起始状态"一组字段）：`PlayerUnitId`/

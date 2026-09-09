@@ -321,7 +321,7 @@ Invoke-Step "准备全新工作目录" {
 # -----------------------------------------------------------------------------
 # 3) 复制并按 README 改名 games/_template -> com.sample.game-consumer（见
 #    games/_template/README.md"复制为新游戏：改哪几处"1、2 两步——本脚本只做包名 +
-#    三个 asmdef 的 name/引用两处改名，不改 C# 命名空间声明（任务书明确"命名空间不改"：
+#    四个 asmdef 的 name/引用两处改名，不改 C# 命名空间声明（任务书明确"命名空间不改"：
 #    验证的是"两根合并加载 + Unity 包解析引用名"这条链路本身，不是把模板真的当一个新游戏来接）。
 # -----------------------------------------------------------------------------
 Invoke-Step "复制并改名 games/_template -> com.sample.game-consumer" {
@@ -333,15 +333,16 @@ Invoke-Step "复制并改名 games/_template -> com.sample.game-consumer" {
     $pkgJson.name = "com.sample.game-consumer"
     Set-Utf8NoBom -Path $pkgJsonPath -Content ($pkgJson | ConvertTo-Json -Depth 10)
 
-    # 三个 asmdef：文件名 + JSON "name" 字段从 Game.Template(.Editor/.Tests) 改成
-    # Game.Consumer(.Editor/.Tests)；Editor/Tests 两个 asmdef 的 references 数组里对
-    # "Game.Template" 的引用同步改成 "Game.Consumer"（否则编辑器/测试程序集引用不到运行期程序集，
-    # 见该 README 判断记录）。rootNamespace 与全部 .cs 文件的 namespace 声明均不改（"命名空间
-    # 不改"，见本步骤顶部注释）。
+    # 四个 asmdef：文件名 + JSON "name" 字段从 Game.Template(.Editor/.Tests/.EditorTests) 改成
+    # Game.Consumer(.Editor/.Tests/.EditorTests)；Editor/Tests/Tests\Editor 三个 asmdef 的
+    # references 数组里对 "Game.Template" 的引用同步改成 "Game.Consumer"（否则编辑器/测试程序集
+    # 引用不到运行期程序集，见该 README 判断记录）。rootNamespace 与全部 .cs 文件的 namespace
+    # 声明均不改（"命名空间不改"，见本步骤顶部注释）。
     $asmdefRenames = @(
         @{ Dir = "Runtime"; Old = "Game.Template.asmdef"; New = "Game.Consumer.asmdef" },
         @{ Dir = "Editor"; Old = "Game.Template.Editor.asmdef"; New = "Game.Consumer.Editor.asmdef" },
-        @{ Dir = "Tests\Runtime"; Old = "Game.Template.Tests.asmdef"; New = "Game.Consumer.Tests.asmdef" }
+        @{ Dir = "Tests\Runtime"; Old = "Game.Template.Tests.asmdef"; New = "Game.Consumer.Tests.asmdef" },
+        @{ Dir = "Tests\Editor"; Old = "Game.Template.EditorTests.asmdef"; New = "Game.Consumer.EditorTests.asmdef" }
     )
     foreach ($rename in $asmdefRenames) {
         $oldPath = Join-Path $ConsumerPackageStagingDir ($rename.Dir + "\" + $rename.Old)
