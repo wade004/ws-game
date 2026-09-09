@@ -1,0 +1,56 @@
+# audit-6739f50-20260909 baseline and post-test hashes
+repo=D:\workespace\ws-game-review-6739f50
+head=6739f50e44ba39a023c6209af2673aaf6a1c1fdc
+version=1.11.0
+unity_version=6000.3.23f1
+copy_root=C:\Users\1\.codex\visualizations\2026\09\08\01a0801a-5646-78c2-a68c-99bbc742bed9\audit-6739f50-20260909
+unity_project=C:\Users\1\.codex\visualizations\2026\09\08\01a0801a-5646-78c2-a68c-99bbc742bed9\audit-6739f50-20260909\unity_probe_1\unity
+
+[pre-test source hashes: frozen repo]
+UnityNavigation2D.cs AC75B7FB279DBA365E366A292001908477110A4A0695A1D2CD61AAFB22AA97E4
+UnityNavigation2DTests.cs 9FBC122F974ADE86A259E619B7F97EBE204A6A18C8C35B95D00CBF5A14B5F72E
+UnitySpatialQuery.cs 03A58988BE5984449F9DC2AE99AD22C994D0FADAF8D6A95A1B1F9B4BC58B4C72
+EquipmentVisualSource.cs BA18AB88DD5F0F33507663C5016A0EB15071F2C60A829433A514FB6CDA7E3D44
+ViewBinder.cs 475844F303E15251C1216B6CFD0860C59750D7C224D6766A7B76099B09A9A87A
+SpriteViewBase.cs 3447A60FEF24E7E3CF08BE1D3BA0CFC93817F2E150D22651B1D6505F63182118
+UnityViewFactory.cs A96260DD9069BBEA6FA7B5796E342008639F410DD92172493C1CF07B4656357B
+
+[adapter source comparison]
+tracked_adapters_unity_cs=90
+independent_copy_matching_frozen=90
+independent_copy_diff_or_missing=0
+
+[DLL source and hashes]
+source=D:\workespace\ws-game-review-6739f50\bin\_check_artifacts\bin\<assembly>\release\<assembly>.dll
+note=independent Unity copy used these six DLLs; they match the corresponding current check artifact, not the frozen adapters/unity plugin path and not a formal ZIP.
+Core.Carriers.dll 3C0C70A8C0E2C9BC7A24C921BBB0F059D5476CB4E089ED5F65FE6765517D948E
+Core.Foundation.dll 6E38735B5B9592A3D0257B10FB548245E57BB5A58E349BD56A527D2405999ADB
+Core.Gameplay.dll 46026C69A048622BF7F13068ED9DE2742ECD4D911B6BFBDADB7ABE39322CF6CA
+Core.Numbers.dll 3A37B6D91B4EEDCC2CDF375FBC2533549A46EC3CB751C28272A3E1EC175BAE15
+Core.Rules.dll 525F522EE8EBF517F41039D3E0341E9F7E7709E25921773C475E16B989880AF0
+Presentation.Common.dll 240C7134945392B7427FC591E4E443BFEA92952C66811999EACD4C8F35AAF339
+
+[independent audit probes]
+Audit6739f50NavigationProbes.cs E7C6E040E5C08528A2E4E52703A2DDB918DAC1B4AD412904A705A83F6D34BD1D
+Audit6739f50SpatialQueryProbes.cs 936E6A5A9AD8ED235E3317CEEF0B80EE7B1D36CF7025E2123C569969AC8F607C
+
+[content fixture hashes after sync]
+Assets/StreamingAssets/GameFoundation/data/_sample/stat/stat.definition.json 11A472B8E8C181C25BACFFC8E626F1BFE828EFC87E7937A40B318C2C1828BD89
+Assets/StreamingAssets/GameFoundation/data/_sample/display/display.anim_set.json 72333AB394CD49F9EDBD90A6272F61E84C67F3AC7EBEFF770353DC713C07D347
+Assets/StreamingAssets/GameFoundation/scene/sample_field.json 0C339EE4FAA348735E0F99AF4EFA751BC7463F1FAFF9452F26C31F00F0D3DBA8
+Assets/StreamingAssets/GameFoundation/nav_mesh/sample_field.json 0C339EE4FAA348735E0F99AF4EFA751BC7463F1FAFF9452F26C31F00F0D3DBA8
+TestData* copied to copyRoot/adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/TestData*
+
+[tests]
+navigation-probes.xml=3 passed, 1 failed (NAV110_03 intended reachability assertion reproduces NAV-111-01)
+spatial-probe-v2.xml=0 passed, 1 failed (SPATIAL-111-01 intended inclusion assertion reproduces bucket edge defect; spatial-probe.xml invalid Id setup excluded)
+editmode-full.xml=65 passed, 2 failed (only new audit assertions: NAV110_03 and SPATIAL probe)
+playmode-full.xml=197 passed, 68 failed (initial content setup failure: missing StreamingAssets and generated scene/nav resources)
+playmode-full-v2.xml=227 passed, 38 failed (after content data sync, before generated scene/nav resources)
+playmode-template.xml=4 passed, 0 failed (after scene/nav resources)
+playmode-full-final.xml=265 passed, 0 failed (after complete content sync)
+
+[commands]
+all final test commands used -runTests without -quit.
+PlayMode commands omitted -nographics; EditMode commands used -nographics.
+

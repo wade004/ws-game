@@ -1,0 +1,16 @@
+# Final baseline and read-only status
+Captured: 2026-09-09T11:43:07+09:00
+
+Frozen repository: D:\workespace\ws-game-review-6739f50
+HEAD: 6739f50e44ba39a023c6209af2673aaf6a1c1fdc
+Tracked product diff: clean
+Working-tree status: audit directory is intentionally untracked (architecture/落地计划/audit-6739f50-20260909/)
+Ignored build outputs may exist under the frozen checkout; the independent Unity copy is outside the checkout.
+
+Original repository (read-only): D:\workespace\ws-game
+HEAD: 6739f50e44ba39a023c6209af2673aaf6a1c1fdc
+Tracked product diff: M "editor/docs/\347\274\226\350\276\221\345\231\250\344\272\247\345\223\201\346\226\207\346\241\243.html" |  M "editor/docs/\347\274\226\350\276\221\345\231\250\344\272\247\345\223\201\346\226\207\346\241\243.md"
+Working-tree status: M "editor/docs/\347\274\226\350\276\221\345\231\250\344\272\247\345\223\201\346\226\207\346\241\243.html" |  M "editor/docs/\347\274\226\350\276\221\345\231\250\344\272\247\345\223\201\346\226\207\346\241\243.md"
+The original repository was not written by this audit; listed changes are external/concurrent and excluded from evidence.
+
+Unity process count at capture: 0

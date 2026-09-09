@@ -1,0 +1,5 @@
+TELEPORT-GOSSIP-CONSECUTIVE-WHILE-LOADING
+initial_scene=world.teleport_loading_a;first_chosen=True;state_after_first=Loading;scene_after_first=world.teleport_loading_a;map_after_first=world.teleport_loading_b;first_pending_B=True
+second_chosen=True;state_after_second=Loading;map_after_second=world.teleport_loading_a;position_after_second=1,2;final_scene=world.teleport_loading_b;final_map=world.teleport_loading_a;final_position=1,2;world_player_present=True;world_player_map=world.teleport_loading_a;world_player_position=1,2
+ORACLE-CURRENT=scene/player map and position must remain consistent; second request may reject, queue, or replace while preserving that invariant
+INTERPRETATION-CURRENT=The public Dialog OpenGossip/ChooseOption path accepted the second request while the first scene load was still Loading. ApplyResolvedTeleport updated the player to A before swallowing SceneRouter's Loading rejection; completion of the first B load left the router on B but did not correct the player fields, producing a final scene/player divergence.

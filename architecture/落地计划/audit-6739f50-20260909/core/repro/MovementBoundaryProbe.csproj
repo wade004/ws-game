@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>10.0</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="MovementBoundaryProbe.cs" />
+    <ProjectReference Include="../../../../../core/foundation/Core.Foundation.csproj" />
+    <ProjectReference Include="../../../../../core/numbers/Core.Numbers.csproj" />
+    <ProjectReference Include="../../../../../core/carriers/Core.Carriers.csproj" />
+    <ProjectReference Include="../../../../../adapters/stub/Adapters.Stub.csproj" />
+  </ItemGroup>
+</Project>

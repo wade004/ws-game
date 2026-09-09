@@ -1,0 +1,19 @@
+read_only_original=D:\workespace\ws-game
+zip=D:\workespace\ws-game\dist\ws-game-1.11.0.zip
+zip_sha256=523D39853AFD27F3A9F891176633DCBC89B8311DABCE60CB9E4F1F6B6DB43C65
+lock=D:\workespace\ws-game\dist\ws-game-1.11.0.lock
+lock_sha256=082AB1F7DC30CC9DCA620F501B676174040C86B8101780BE957BEBFE647D796C
+lock_version=1.11.0 lock_git_commit=6739f50
+entry=ws-game-1.11.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Foundation.dll sha256=3a8ca82084d4b5c24973f2122ff55e0337dd2d7ed3cf50e31a022a7f71770f77 lock=3a8ca82084d4b5c24973f2122ff55e0337dd2d7ed3cf50e31a022a7f71770f77 match=True
+entry=ws-game-1.11.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Numbers.dll sha256=47d8314902bde9ff0483b60231dc798e96eed3f85e8345566dfd0529b8ffde78 lock=47d8314902bde9ff0483b60231dc798e96eed3f85e8345566dfd0529b8ffde78 match=True
+entry=ws-game-1.11.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Rules.dll sha256=35bc69a9119dc068617182e7387f478e2e6f6f67aaeb25914981d2b557088a1b lock=35bc69a9119dc068617182e7387f478e2e6f6f67aaeb25914981d2b557088a1b match=True
+entry=ws-game-1.11.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Carriers.dll sha256=d0ed168d5d2e586b685e0c395ead38d8fd01acd1910ad735d8faf6ba9863a1ce lock=d0ed168d5d2e586b685e0c395ead38d8fd01acd1910ad735d8faf6ba9863a1ce match=True
+entry=ws-game-1.11.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Gameplay.dll sha256=8580a27d50d709a0962dd06501b851459ff1292eab476411ea5b70a64e3a0bfd lock=8580a27d50d709a0962dd06501b851459ff1292eab476411ea5b70a64e3a0bfd match=True
+entry=ws-game-1.11.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Presentation.Common.dll sha256=3fc5f28b4379ece38905df69bc9dd9dfd6a6625fa007cf3510ad77a1749b1436 lock=3fc5f28b4379ece38905df69bc9dd9dfd6a6625fa007cf3510ad77a1749b1436 match=True
+entry=ws-game-1.11.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Foundation.dll sha256=3a8ca82084d4b5c24973f2122ff55e0337dd2d7ed3cf50e31a022a7f71770f77 lock=3a8ca82084d4b5c24973f2122ff55e0337dd2d7ed3cf50e31a022a7f71770f77 match=True
+entry=ws-game-1.11.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Numbers.dll sha256=47d8314902bde9ff0483b60231dc798e96eed3f85e8345566dfd0529b8ffde78 lock=47d8314902bde9ff0483b60231dc798e96eed3f85e8345566dfd0529b8ffde78 match=True
+entry=ws-game-1.11.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Rules.dll sha256=35bc69a9119dc068617182e7387f478e2e6f6f67aaeb25914981d2b557088a1b lock=35bc69a9119dc068617182e7387f478e2e6f6f67aaeb25914981d2b557088a1b match=True
+entry=ws-game-1.11.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Carriers.dll sha256=d0ed168d5d2e586b685e0c395ead38d8fd01acd1910ad735d8faf6ba9863a1ce lock=d0ed168d5d2e586b685e0c395ead38d8fd01acd1910ad735d8faf6ba9863a1ce match=True
+entry=ws-game-1.11.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Gameplay.dll sha256=8580a27d50d709a0962dd06501b851459ff1292eab476411ea5b70a64e3a0bfd lock=8580a27d50d709a0962dd06501b851459ff1292eab476411ea5b70a64e3a0bfd match=True
+entry=ws-game-1.11.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Presentation.Common.dll sha256=3fc5f28b4379ece38905df69bc9dd9dfd6a6625fa007cf3510ad77a1749b1436 lock=3fc5f28b4379ece38905df69bc9dd9dfd6a6625fa007cf3510ad77a1749b1436 match=True
+all_six_dlls_both_plugin_paths_match=True

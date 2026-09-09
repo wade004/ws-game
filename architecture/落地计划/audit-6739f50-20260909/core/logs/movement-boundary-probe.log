@@ -1,0 +1,6 @@
+MOVEMENT-BOUNDARY-PROBE baseline=6739f50 version=1.11.0
+REPEATED-MOVE count=1;speed=10;dt=0.1;actual_x=1;path_active=True
+REPEATED-MOVE count=2;speed=10;dt=0.1;actual_x=1;path_active=True
+REPEATED-MOVE count=3;speed=10;dt=0.1;actual_x=1;path_active=True
+STOP-AFTER-TWO-MOVES actual_x=0;stopped_callbacks=1;path_active=False;mode=Idle
+TWO-MOVES-AFTER-STOP actual_x=1;stopped_callbacks=0;stop_reason=;path_active=True;mode=Run

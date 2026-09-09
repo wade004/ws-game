@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Failed(Child)" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-09 02:26:04Z" end-time="2026-09-09 02:26:04Z" duration="0.0300979">
+  <test-suite type="TestSuite" id="1000" name="unity" fullname="unity" runstate="Runnable" testcasecount="67" result="Failed" site="Child" start-time="2026-09-09 02:26:04Z" end-time="2026-09-09 02:26:04Z" duration="0.030098" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1080" name="Adapter.Unity.Tests.Editor.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-6739f50-20260909/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Editor.dll" runstate="Runnable" testcasecount="67" result="Failed" site="Child" start-time="2026-09-09 02:26:04Z" end-time="2026-09-09 02:26:04Z" duration="0.026039" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="46920" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1081" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="67" result="Failed" site="Child" start-time="2026-09-09 02:26:04Z" end-time="2026-09-09 02:26:04Z" duration="0.025771" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1082" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="67" result="Failed" site="Child" start-time="2026-09-09 02:26:04Z" end-time="2026-09-09 02:26:04Z" duration="0.025626" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestSuite" id="1083" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="67" result="Failed" site="Child" start-time="2026-09-09 02:26:04Z" end-time="2026-09-09 02:26:04Z" duration="0.025488" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-suite type="TestSuite" id="1084" name="Editor" fullname="Adapter.Unity.Tests.Editor" runstate="Runnable" testcasecount="67" result="Failed" site="Child" start-time="2026-09-09 02:26:04Z" end-time="2026-09-09 02:26:04Z" duration="0.025330" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <failure>
+                <message><![CDATA[One or more child tests had errors]]></message>
+              </failure>
+              <test-suite type="TestFixture" id="1006" name="Audit6739f50SpatialQueryProbes" fullname="Adapter.Unity.Tests.Editor.Audit6739f50SpatialQueryProbes" classname="Adapter.Unity.Tests.Editor.Audit6739f50SpatialQueryProbes" runstate="Runnable" testcasecount="1" result="Failed" site="Child" start-time="2026-09-09 02:26:04Z" end-time="2026-09-09 02:26:04Z" duration="0.023953" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <failure>
+                  <message><![CDATA[One or more child tests had errors]]></message>
+                </failure>
+                <test-case id="1007" name="QueryRadius_CrossesBucketEdge_UsesEntryRadiusInCandidateSelection" fullname="Adapter.Unity.Tests.Editor.Audit6739f50SpatialQueryProbes.QueryRadius_CrossesBucketEdge_UsesEntryRadiusInCandidateSelection" methodname="QueryRadius_CrossesBucketEdge_UsesEntryRadiusInCandidateSelection" classname="Adapter.Unity.Tests.Editor.Audit6739f50SpatialQueryProbes" runstate="Runnable" seed="1469941168" result="Failed" start-time="2026-09-09 02:26:04Z" end-time="2026-09-09 02:26:04Z" duration="0.017370" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <failure>
+                    <message><![CDATA[  radius query must include an entry whose own radius reaches the query center
+  Expected: collection containing audit.6739f50.spatial.bucket_edge
+  But was:  <empty>
+]]></message>
+                    <stack-trace><![CDATA[at Adapter.Unity.Tests.Editor.Audit6739f50SpatialQueryProbes.QueryRadius_CrossesBucketEdge_UsesEntryRadiusInCandidateSelection () [0x0016f] in .\Packages\com.gamefoundation.adapter.unity\Tests\Editor\Audit6739f50SpatialQueryProbes.cs:26
+]]></stack-trace>
+                  </failure>
+                  <output><![CDATA[Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

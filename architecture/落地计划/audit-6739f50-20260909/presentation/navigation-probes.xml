@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="4" result="Failed(Child)" total="4" passed="3" failed="1" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.0384634">
+  <test-suite type="TestSuite" id="1000" name="unity" fullname="unity" runstate="Runnable" testcasecount="66" result="Failed" site="Child" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.038463" total="4" passed="3" failed="1" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1078" name="Adapter.Unity.Tests.Editor.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-6739f50-20260909/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Editor.dll" runstate="Runnable" testcasecount="66" result="Failed" site="Child" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.034249" total="4" passed="3" failed="1" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="14252" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1079" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="66" result="Failed" site="Child" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.033966" total="4" passed="3" failed="1" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1080" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="66" result="Failed" site="Child" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.033831" total="4" passed="3" failed="1" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestSuite" id="1081" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="66" result="Failed" site="Child" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.033713" total="4" passed="3" failed="1" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-suite type="TestSuite" id="1082" name="Editor" fullname="Adapter.Unity.Tests.Editor" runstate="Runnable" testcasecount="66" result="Failed" site="Child" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.033577" total="4" passed="3" failed="1" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <failure>
+                <message><![CDATA[One or more child tests had errors]]></message>
+              </failure>
+              <test-suite type="TestFixture" id="1001" name="Audit6739f50NavigationProbes" fullname="Adapter.Unity.Tests.Editor.Audit6739f50NavigationProbes" classname="Adapter.Unity.Tests.Editor.Audit6739f50NavigationProbes" runstate="Runnable" testcasecount="4" result="Failed" site="Child" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.032183" total="4" passed="3" failed="1" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <failure>
+                  <message><![CDATA[One or more child tests had errors]]></message>
+                </failure>
+                <test-case id="1002" name="NAV110_01_EndpointCellCenterBlocked_ExactEndpointAndDirectRaycastClear_ReturnsNonNullPath" fullname="Adapter.Unity.Tests.Editor.Audit6739f50NavigationProbes.NAV110_01_EndpointCellCenterBlocked_ExactEndpointAndDirectRaycastClear_ReturnsNonNullPath" methodname="NAV110_01_EndpointCellCenterBlocked_ExactEndpointAndDirectRaycastClear_ReturnsNonNullPath" classname="Adapter.Unity.Tests.Editor.Audit6739f50NavigationProbes" runstate="Runnable" seed="346155416" result="Passed" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.020968" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1003" name="NAV110_02_ThinWallNarrowerThanGrid_DetourExists_ReturnsNonNullPath" fullname="Adapter.Unity.Tests.Editor.Audit6739f50NavigationProbes.NAV110_02_ThinWallNarrowerThanGrid_DetourExists_ReturnsNonNullPath" methodname="NAV110_02_ThinWallNarrowerThanGrid_DetourExists_ReturnsNonNullPath" classname="Adapter.Unity.Tests.Editor.Audit6739f50NavigationProbes" runstate="Runnable" seed="365905742" result="Passed" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.001737" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1004" name="NAV110_03_NarrowCorridor_ExactPointsAndDirectRaycastClear_ShouldRemainReachable" fullname="Adapter.Unity.Tests.Editor.Audit6739f50NavigationProbes.NAV110_03_NarrowCorridor_ExactPointsAndDirectRaycastClear_ShouldRemainReachable" methodname="NAV110_03_NarrowCorridor_ExactPointsAndDirectRaycastClear_ShouldRemainReachable" classname="Adapter.Unity.Tests.Editor.Audit6739f50NavigationProbes" runstate="Runnable" seed="1446535333" result="Failed" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.001909" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <failure>
+                    <message><![CDATA[  a point-navigation contract has a clear 0.1-wide corridor
+  Expected: not null
+  But was:  null
+]]></message>
+                    <stack-trace><![CDATA[at Adapter.Unity.Tests.Editor.Audit6739f50NavigationProbes.NAV110_03_NarrowCorridor_ExactPointsAndDirectRaycastClear_ShouldRemainReachable () [0x0017f] in .\Packages\com.gamefoundation.adapter.unity\Tests\Editor\Audit6739f50NavigationProbes.cs:83
+]]></stack-trace>
+                  </failure>
+                </test-case>
+                <test-case id="1005" name="NAV110_04_FineGrid_WiderSubCellWall_DetourRemainsClear" fullname="Adapter.Unity.Tests.Editor.Audit6739f50NavigationProbes.NAV110_04_FineGrid_WiderSubCellWall_DetourRemainsClear" methodname="NAV110_04_FineGrid_WiderSubCellWall_DetourRemainsClear" classname="Adapter.Unity.Tests.Editor.Audit6739f50NavigationProbes" runstate="Runnable" seed="861984452" result="Passed" start-time="2026-09-09 02:24:10Z" end-time="2026-09-09 02:24:10Z" duration="0.000388" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

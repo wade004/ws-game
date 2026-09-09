@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="4" result="Passed" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-09 02:33:06Z" end-time="2026-09-09 02:33:08Z" duration="1.8498063">
+  <test-suite type="TestSuite" id="1325" name="unity" fullname="unity" runstate="Runnable" testcasecount="265" result="Passed" start-time="2026-09-09 02:33:06Z" end-time="2026-09-09 02:33:08Z" duration="1.849806" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1318" name="Game.Template.Tests.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-6739f50-20260909/unity_probe_1/unity/Library/ScriptAssemblies/Game.Template.Tests.dll" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-09 02:33:06Z" end-time="2026-09-09 02:33:08Z" duration="1.842799" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="27340" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1319" name="Game" fullname="Game" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-09 02:33:06Z" end-time="2026-09-09 02:33:08Z" duration="1.842389" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1320" name="Template" fullname="Game.Template" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-09 02:33:06Z" end-time="2026-09-09 02:33:08Z" duration="1.842168" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="SetUpFixture" id="1312" name="Tests" fullname="Game.Template.Tests.GlobalTemplateTestSetup" classname="Game.Template.Tests.GlobalTemplateTestSetup" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-09 02:33:06Z" end-time="2026-09-09 02:33:08Z" duration="1.841656" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestFixture" id="1313" name="GameTemplateSmokeTests" fullname="Game.Template.Tests.GameTemplateSmokeTests" classname="Game.Template.Tests.GameTemplateSmokeTests" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-09 02:33:06Z" end-time="2026-09-09 02:33:08Z" duration="1.838027" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1314" name="GameBootstrap_DefaultGameOptions_LoadsWithZeroBlockingErrors" fullname="Game.Template.Tests.GameTemplateSmokeTests.GameBootstrap_DefaultGameOptions_LoadsWithZeroBlockingErrors" methodname="GameBootstrap_DefaultGameOptions_LoadsWithZeroBlockingErrors" classname="Game.Template.Tests.GameTemplateSmokeTests" runstate="Runnable" seed="1898925737" result="Passed" start-time="2026-09-09 02:33:06Z" end-time="2026-09-09 02:33:06Z" duration="0.400706" asserts="0">
+                <properties>
+                  <property name="_JOINTYPE" value="UnityCombinatorial" />
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1315" name="TemplateShellUi_AfterLoad_MainMenuIsVisible" fullname="Game.Template.Tests.GameTemplateSmokeTests.TemplateShellUi_AfterLoad_MainMenuIsVisible" methodname="TemplateShellUi_AfterLoad_MainMenuIsVisible" classname="Game.Template.Tests.GameTemplateSmokeTests" runstate="Runnable" seed="1492719446" result="Passed" start-time="2026-09-09 02:33:06Z" end-time="2026-09-09 02:33:07Z" duration="0.121838" asserts="0">
+                <properties>
+                  <property name="_JOINTYPE" value="UnityCombinatorial" />
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1316" name="TemplateShellUi_MainMenuTexts_ComeFromL10n_NotHardcoded" fullname="Game.Template.Tests.GameTemplateSmokeTests.TemplateShellUi_MainMenuTexts_ComeFromL10n_NotHardcoded" methodname="TemplateShellUi_MainMenuTexts_ComeFromL10n_NotHardcoded" classname="Game.Template.Tests.GameTemplateSmokeTests" runstate="Runnable" seed="1281632313" result="Passed" start-time="2026-09-09 02:33:07Z" end-time="2026-09-09 02:33:07Z" duration="0.123586" asserts="0">
+                <properties>
+                  <property name="_JOINTYPE" value="UnityCombinatorial" />
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1317" name="TemplateSmokeRunner_InEditor_CompletesSequenceSuccessfully" fullname="Game.Template.Tests.GameTemplateSmokeTests.TemplateSmokeRunner_InEditor_CompletesSequenceSuccessfully" methodname="TemplateSmokeRunner_InEditor_CompletesSequenceSuccessfully" classname="Game.Template.Tests.GameTemplateSmokeTests" runstate="Runnable" seed="1601276267" result="Passed" start-time="2026-09-09 02:33:07Z" end-time="2026-09-09 02:33:08Z" duration="1.185971" asserts="0">
+                <properties>
+                  <property name="_JOINTYPE" value="UnityCombinatorial" />
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[[GF-SMOKE] step=data_zero_blocking ok
+[GF-SMOKE] step=main_menu ok
+[UnityViewFactory] displayId "creature.template_hero" 没有 kind=sprite 的 DisplayInfo，退化为空视图（不渲染）：kind=Unit
+[GF-SMOKE] step=new_game_enter_world ok
+[GF-SMOKE] step=move_right_1s ok
+[GF-SMOKE] step=save_slot_smoke ok
+[GF-SMOKE] step=load_slot_smoke ok
+[GF-SMOKE] RESULT=OK
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>
