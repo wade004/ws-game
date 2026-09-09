@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="2" result="Passed" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 18:38:48Z" end-time="2026-09-08 18:38:48Z" duration="0.0325876">
+  <test-suite type="TestSuite" id="1000" name="unity" fullname="unity" runstate="Runnable" testcasecount="62" result="Passed" start-time="2026-09-08 18:38:48Z" end-time="2026-09-08 18:38:48Z" duration="0.032588" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1074" name="Adapter.Unity.Tests.Editor.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-ac3b622-20260909/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Editor.dll" runstate="Runnable" testcasecount="62" result="Passed" start-time="2026-09-08 18:38:48Z" end-time="2026-09-08 18:38:48Z" duration="0.028704" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="46628" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1075" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="62" result="Passed" start-time="2026-09-08 18:38:48Z" end-time="2026-09-08 18:38:48Z" duration="0.028452" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1076" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="62" result="Passed" start-time="2026-09-08 18:38:48Z" end-time="2026-09-08 18:38:48Z" duration="0.028334" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1077" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="62" result="Passed" start-time="2026-09-08 18:38:48Z" end-time="2026-09-08 18:38:48Z" duration="0.028229" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestSuite" id="1078" name="Editor" fullname="Adapter.Unity.Tests.Editor" runstate="Runnable" testcasecount="62" result="Passed" start-time="2026-09-08 18:38:48Z" end-time="2026-09-08 18:38:48Z" duration="0.028108" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-suite type="TestFixture" id="1001" name="AuditAc3b622NavigationProbes" fullname="Adapter.Unity.Tests.Editor.AuditAc3b622NavigationProbes" classname="Adapter.Unity.Tests.Editor.AuditAc3b622NavigationProbes" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-09-08 18:38:48Z" end-time="2026-09-08 18:38:48Z" duration="0.026836" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1002" name="CandidateA_EndpointCellCenterBlockedDespiteExactEndpointAndDirectRaycastClear" fullname="Adapter.Unity.Tests.Editor.AuditAc3b622NavigationProbes.CandidateA_EndpointCellCenterBlockedDespiteExactEndpointAndDirectRaycastClear" methodname="CandidateA_EndpointCellCenterBlockedDespiteExactEndpointAndDirectRaycastClear" classname="Adapter.Unity.Tests.Editor.AuditAc3b622NavigationProbes" runstate="Runnable" seed="1992699808" result="Passed" start-time="2026-09-08 18:38:48Z" end-time="2026-09-08 18:38:48Z" duration="0.012322" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1003" name="CandidateB_ThinWallReturnsNullWhileManualDetourEverySegmentIsClear" fullname="Adapter.Unity.Tests.Editor.AuditAc3b622NavigationProbes.CandidateB_ThinWallReturnsNullWhileManualDetourEverySegmentIsClear" methodname="CandidateB_ThinWallReturnsNullWhileManualDetourEverySegmentIsClear" classname="Adapter.Unity.Tests.Editor.AuditAc3b622NavigationProbes" runstate="Runnable" seed="542841459" result="Passed" start-time="2026-09-08 18:38:48Z" end-time="2026-09-08 18:38:48Z" duration="0.007688" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

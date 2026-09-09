@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="3" result="Failed(Child)" total="3" passed="0" failed="3" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 18:43:05Z" end-time="2026-09-08 18:43:06Z" duration="0.5168982">
+  <test-suite type="TestSuite" id="1323" name="unity" fullname="unity" runstate="Runnable" testcasecount="263" result="Failed" site="Child" start-time="2026-09-08 18:43:05Z" end-time="2026-09-08 18:43:06Z" duration="0.516898" total="3" passed="0" failed="3" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1305" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-ac3b622-20260909/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="259" result="Failed" site="Child" start-time="2026-09-08 18:43:05Z" end-time="2026-09-08 18:43:06Z" duration="0.511486" total="3" passed="0" failed="3" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="22088" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1306" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="259" result="Failed" site="Child" start-time="2026-09-08 18:43:05Z" end-time="2026-09-08 18:43:06Z" duration="0.510305" total="3" passed="0" failed="3" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1307" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="259" result="Failed" site="Child" start-time="2026-09-08 18:43:05Z" end-time="2026-09-08 18:43:06Z" duration="0.509550" total="3" passed="0" failed="3" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestSuite" id="1308" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="259" result="Failed" site="Child" start-time="2026-09-08 18:43:05Z" end-time="2026-09-08 18:43:06Z" duration="0.508774" total="3" passed="0" failed="3" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-suite type="SetUpFixture" id="1108" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="259" result="Failed" site="Child" start-time="2026-09-08 18:43:05Z" end-time="2026-09-08 18:43:06Z" duration="0.507699" total="3" passed="0" failed="3" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <failure>
+                <message><![CDATA[One or more child tests had errors]]></message>
+              </failure>
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1095" name="DiscreteCombatTests" fullname="Adapter.Unity.Tests.Runtime.DiscreteCombatTests" classname="Adapter.Unity.Tests.Runtime.DiscreteCombatTests" runstate="Runnable" testcasecount="3" result="Failed" site="Child" start-time="2026-09-08 18:43:05Z" end-time="2026-09-08 18:43:06Z" duration="0.501167" total="3" passed="0" failed="3" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <failure>
+                  <message><![CDATA[One or more child tests had errors]]></message>
+                </failure>
+                <test-case id="1098" name="DiscreteStep_SequentialPlayback_DrainsQueue_ThenReleasesPlaybackGate" fullname="Adapter.Unity.Tests.Runtime.DiscreteCombatTests.DiscreteStep_SequentialPlayback_DrainsQueue_ThenReleasesPlaybackGate" methodname="DiscreteStep_SequentialPlayback_DrainsQueue_ThenReleasesPlaybackGate" classname="Adapter.Unity.Tests.Runtime.DiscreteCombatTests" runstate="Runnable" seed="2123333272" result="Failed" start-time="2026-09-08 18:43:05Z" end-time="2026-09-08 18:43:06Z" duration="0.288320" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <failure>
+                    <message><![CDATA[  Expected: Discrete
+  But was:  Continuous
+]]></message>
+                    <stack-trace><![CDATA[at Adapter.Unity.Tests.Runtime.DiscreteCombatTests+<DriveToPlayerAwaitingInput>d__14.MoveNext () [0x000b8] in .\Packages\com.gamefoundation.adapter.unity\Tests\Runtime\DiscreteCombatTests.cs:370
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\Library\PackageCache\com.unity.test-framework@bd7f943e9647\UnityEngine.TestRunner\NUnitExtensions\Attributes\TestEnumerator.cs:44
+]]></stack-trace>
+                  </failure>
+                  <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+]]></output>
+                </test-case>
+                <test-case id="1097" name="DiscreteStep_WithFeedbackAction_QueuesAction_AndKeepsPlaybackGateClosed" fullname="Adapter.Unity.Tests.Runtime.DiscreteCombatTests.DiscreteStep_WithFeedbackAction_QueuesAction_AndKeepsPlaybackGateClosed" methodname="DiscreteStep_WithFeedbackAction_QueuesAction_AndKeepsPlaybackGateClosed" classname="Adapter.Unity.Tests.Runtime.DiscreteCombatTests" runstate="Runnable" seed="1756405018" result="Failed" start-time="2026-09-08 18:43:06Z" end-time="2026-09-08 18:43:06Z" duration="0.043897" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <failure>
+                    <message><![CDATA[  Expected: Discrete
+  But was:  Continuous
+]]></message>
+                    <stack-trace><![CDATA[at Adapter.Unity.Tests.Runtime.DiscreteCombatTests+<DriveToPlayerAwaitingInput>d__14.MoveNext () [0x000b8] in .\Packages\com.gamefoundation.adapter.unity\Tests\Runtime\DiscreteCombatTests.cs:370
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\Library\PackageCache\com.unity.test-framework@bd7f943e9647\UnityEngine.TestRunner\NUnitExtensions\Attributes\TestEnumerator.cs:44
+]]></stack-trace>
+                  </failure>
+                </test-case>
+                <test-case id="1096" name="EnterDiscreteCombat_AwaitingInput_EndTurn_AiActs_RoundAdvances_ExitsBackToContinuous" fullname="Adapter.Unity.Tests.Runtime.DiscreteCombatTests.EnterDiscreteCombat_AwaitingInput_EndTurn_AiActs_RoundAdvances_ExitsBackToContinuous" methodname="EnterDiscreteCombat_AwaitingInput_EndTurn_AiActs_RoundAdvances_ExitsBackToContinuous" classname="Adapter.Unity.Tests.Runtime.DiscreteCombatTests" runstate="Runnable" seed="1348375893" result="Failed" start-time="2026-09-08 18:43:06Z" end-time="2026-09-08 18:43:06Z" duration="0.163227" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <failure>
+                    <message><![CDATA[  合成 combat.entered 后战斗时间模型应切到离散模式（found.time_model 的 combat 行 mode=discrete）
+  Expected: Discrete
+  But was:  Continuous
+]]></message>
+                    <stack-trace><![CDATA[at Adapter.Unity.Tests.Runtime.DiscreteCombatTests+<EnterDiscreteCombat_AwaitingInput_EndTurn_AiActs_RoundAdvances_ExitsBackToContinuous>d__13.MoveNext () [0x0020f] in .\Packages\com.gamefoundation.adapter.unity\Tests\Runtime\DiscreteCombatTests.cs:300
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\Library\PackageCache\com.unity.test-framework@bd7f943e9647\UnityEngine.TestRunner\NUnitExtensions\Attributes\TestEnumerator.cs:44
+]]></stack-trace>
+                  </failure>
+                  <output><![CDATA[[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

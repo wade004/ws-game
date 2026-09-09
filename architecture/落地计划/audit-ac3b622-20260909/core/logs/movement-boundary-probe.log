@@ -1,0 +1,6 @@
+MOVEMENT-BOUNDARY-PROBE baseline=ac3b622 version=1.10.0
+REPEATED-MOVE count=1;speed=10;dt=0.1;actual_x=1;path_active=True
+REPEATED-MOVE count=2;speed=10;dt=0.1;actual_x=2;path_active=True
+REPEATED-MOVE count=3;speed=10;dt=0.1;actual_x=3;path_active=True
+STOP-AFTER-TWO-MOVES actual_x=0;stopped_callbacks=1;path_active=False;mode=Idle
+TWO-MOVES-AFTER-STOP actual_x=2;stopped_callbacks=1;stop_reason=Replaced;path_active=True;mode=Run

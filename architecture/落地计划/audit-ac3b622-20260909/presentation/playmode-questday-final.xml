@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-08 18:48:21Z" end-time="2026-09-08 18:48:22Z" duration="0.3048401">
+  <test-suite type="TestSuite" id="1323" name="unity" fullname="unity" runstate="Runnable" testcasecount="263" result="Passed" start-time="2026-09-08 18:48:21Z" end-time="2026-09-08 18:48:22Z" duration="0.304840" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1305" name="Adapter.Unity.Tests.Runtime.dll" fullname="C:/Users/1/.codex/visualizations/2026/09/08/01a0801a-5646-78c2-a68c-99bbc742bed9/audit-ac3b622-20260909/unity_probe_1/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="259" result="Passed" start-time="2026-09-08 18:48:21Z" end-time="2026-09-08 18:48:22Z" duration="0.299277" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="4040" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1306" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="259" result="Passed" start-time="2026-09-08 18:48:21Z" end-time="2026-09-08 18:48:22Z" duration="0.297975" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1307" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="259" result="Passed" start-time="2026-09-08 18:48:21Z" end-time="2026-09-08 18:48:22Z" duration="0.297120" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1308" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="259" result="Passed" start-time="2026-09-08 18:48:21Z" end-time="2026-09-08 18:48:22Z" duration="0.296223" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1108" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="259" result="Passed" start-time="2026-09-08 18:48:21Z" end-time="2026-09-08 18:48:22Z" duration="0.295055" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1106" name="GameFoundationBootstrapQuestDayProviderTests" fullname="Adapter.Unity.Tests.Runtime.GameFoundationBootstrapQuestDayProviderTests" classname="Adapter.Unity.Tests.Runtime.GameFoundationBootstrapQuestDayProviderTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-08 18:48:21Z" end-time="2026-09-08 18:48:22Z" duration="0.288441" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1107" name="QuestDayProvider_Forwarded_ControlsDailyRepeatableAvailability_OnRealCompositionRoot" fullname="Adapter.Unity.Tests.Runtime.GameFoundationBootstrapQuestDayProviderTests.QuestDayProvider_Forwarded_ControlsDailyRepeatableAvailability_OnRealCompositionRoot" methodname="QuestDayProvider_Forwarded_ControlsDailyRepeatableAvailability_OnRealCompositionRoot" classname="Adapter.Unity.Tests.Runtime.GameFoundationBootstrapQuestDayProviderTests" runstate="Runnable" seed="548480289" result="Passed" start-time="2026-09-08 18:48:21Z" end-time="2026-09-08 18:48:22Z" duration="0.283198" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__body
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__hand_main
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__head
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_beast__back_side_r__body
+[UnityViewFactory] 状态 "idle" 引用的动画资源 "anim.sample_hero_idle" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "move" 引用的动画资源 "anim.sample_hero_move" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "attack" 引用的动画资源 "anim.sample_hero_attack" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "cast" 引用的动画资源 "anim.sample_hero_cast" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "hit" 引用的动画资源 "anim.sample_hero_hit" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "death" 引用的动画资源 "anim.sample_hero_death" 加载失败，继续使用单帧占位剪辑（不重试）
+[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

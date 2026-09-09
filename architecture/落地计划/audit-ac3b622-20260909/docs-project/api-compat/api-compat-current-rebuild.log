@@ -1,0 +1,13 @@
+D:\workespace\ws-game-review-ac3b622\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatProbe.cs(7,13): warning CS0618: “GameObjectHost.PendingChestLootSnapshot()”已过时:“1.6.0 起改名为 PendingLootSnapshot；本别名将在下一个 MINOR 版本移除。” [D:\workespace\ws-game-review-ac3b622\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatLibrary.csproj]
+D:\workespace\ws-game-review-ac3b622\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatProbe.cs(8,9): warning CS0618: “GameObjectHost.RestorePendingChestLoot(IReadOnlyDictionary<Id, IReadOnlyList<ItemStack>>)”已过时:“1.6.0 起改名为 RestorePendingLoot；本别名将在下一个 MINOR 版本移除。” [D:\workespace\ws-game-review-ac3b622\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatLibrary.csproj]
+  ApiCompatLibrary -> D:\workespace\ws-game-review-ac3b622\architecture\落地计划\audit-ac3b622-20260909\docs-project\api-compat\bin-library\ApiCompatLibrary.dll
+
+已成功生成。
+
+D:\workespace\ws-game-review-ac3b622\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatProbe.cs(7,13): warning CS0618: “GameObjectHost.PendingChestLootSnapshot()”已过时:“1.6.0 起改名为 PendingLootSnapshot；本别名将在下一个 MINOR 版本移除。” [D:\workespace\ws-game-review-ac3b622\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatLibrary.csproj]
+D:\workespace\ws-game-review-ac3b622\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatProbe.cs(8,9): warning CS0618: “GameObjectHost.RestorePendingChestLoot(IReadOnlyDictionary<Id, IReadOnlyList<ItemStack>>)”已过时:“1.6.0 起改名为 RestorePendingLoot；本别名将在下一个 MINOR 版本移除。” [D:\workespace\ws-game-review-ac3b622\architecture\落地计划\audit-8160178-20260908\docs-project\api-compat\ApiCompatLibrary.csproj]
+    2 个警告
+    0 个错误
+
+已用时间 00:00:01.24
+restore_exit=0 build_exit=0

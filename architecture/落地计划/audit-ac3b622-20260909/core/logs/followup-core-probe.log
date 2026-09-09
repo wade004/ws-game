@@ -1,0 +1,49 @@
+FOLLOWUP-CORE-PROBE baseline=ac3b622 version=1.10.0
+SUCCESSFUL-LOAD-INTERNAL-EVENTS
+save_success=True;load_status=Loaded
+before_save_level=10;rating_at_10=10
+mutated_level=1;rating_at_1=5
+after_load_level=10;entity_level=10;rating_after_load_before_dispatch=10;rating_after_dispatch=10
+EXPECTED=load_status=Loaded;after_load_level=10;rating_after_load=10
+INTERPRETATION-CURRENT=SaveSystem suppression remains active, but v1.10 DerivedStateRebuilder directly recomputes after the relevant section; rating follows the restored level.
+SUCCESSFUL-LOAD-POWER-MAX-INTERNAL-EVENT
+equip_success=True;save_success=True;load_status=Loaded
+saved_max=200;saved_health=200;mutated_max=100
+after_load_before_dispatch_max=200;after_load_before_dispatch_health=200
+after_load_max=200;after_load_health=200;equipped_after=True
+EXPECTED=load_status=Loaded;after_load_max=200;after_load_health=200;equipped_after=true
+INTERPRETATION-CURRENT=The v1.10 section hook recomputes Power max before PlayerVitals.Load, so saved health is applied against max 200 despite event suppression.
+ROLLBACK-EQUIPMENT-BEFORE-PROGRESSION
+initial_equip=True;baseline_inventory_count=0;save_success=True;load_status=PersistableThrew
+after_level=2;entity_level=2;equipped_after=True;inventory_count_after=0
+EXPECTED=load_status=PersistableThrew;after_level=2;entity_level=2;equipped_after=true;inventory_count_after=0
+INTERPRETATION-CURRENT=Positive rollback restores Progression before Equipment, so the level-2 item is re-equipped after the level is restored.
+SAME-MAP-RACE-SAVE-LOAD
+save_a_valid=True;save_b_valid=True;race_b_oracle_stat=91;load_status=Loaded;map=world.followup_core
+before_load_race=arch.race.followup_a;stat=61;auraA=True;auraB=False
+after_load_race=arch.race.followup_b;stat=91;auraA=False;auraB=True
+EXPECTED=save_a_valid=True;save_b_valid=True;race_b_oracle_stat=91;load_status=Loaded;after_load_race=arch.race.followup_b;stat=91;auraA=False;auraB=True
+INTERPRETATION-CURRENT=Two separately built valid role saves were used. Same-map RestoreFromSlot on A loads B and rebuilds B stat_mods/aura while clearing A state.
+DERIVED-HOOK-EXCEPTION-BOUNDARY
+save_success=True;load_status=Loaded;before_calls=1;section_calls=20;warning_count=21;rating_after=5
+EXPECTED=save_success=True;load_status=Loaded;before_calls=1;section_calls>0;warning_count>0
+INTERPRETATION=SaveSystem contains BeforeLoad and OnSectionLoaded exceptions, returns Loaded, and records warnings; replacing the production rebuilder intentionally leaves derived state at the stale value.
+ROLLBACK-DERIVED-STATE-RACE
+save_a_initial=True;save_a_with_failure=True;save_b_valid=True;load_status=PersistableThrew;after_race=arch.race.followup_a;stat=91;auraA=False;auraB=True
+EXPECTED=load_status=PersistableThrew;after_race=arch.race.followup_a;stat=61;auraA=True;auraB=False
+INTERPRETATION=Forward load applies B and its rebuild hook, then the missing custom section throws. Positive rollback restores A fields but invokes no derived-state hook, leaving B stat/aura in the A live state.
+ROLLBACK-DERIVED-STATE-KNOWN-SKILLS-BEFORE-VITALS
+fault_section=player.known_skills;equip_success=True;saved_max=200;saved_health=200;save_a_valid=True;save_b_valid=True;load_status=PersistableThrew;after_level=2;equipped_after=True;max_after=100;health_after=100
+EXPECTED=load_status=PersistableThrew;after_level=2;equipped_after=True;max_after=200;health_after=200
+INTERPRETATION=The B save is valid before fault injection; malformed player.known_skills fails after equipment and before player.vitals. Positive rollback restores equipment but has no derived hook, so max/health remain clamped at the low-equipment state and vitals is never reloaded.
+SAME-MAP-CLASS-SAVE-LOAD
+save_a_valid=True;save_b_valid=True;a_stat=10;a_legacy=5;a_mana=True;b_oracle_stat=20;b_oracle_legacy=0;b_oracle_mana=False;load_status=Loaded;after_class=arch.class.followup_b;after_stat=20;after_legacy=5;after_mana=True
+EXPECTED=save_a_valid=True;save_b_valid=True;b_oracle_stat=20;b_oracle_legacy=0;b_oracle_mana=False;load_status=Loaded;after_class=arch.class.followup_b;after_stat=20;after_legacy=0;after_mana=False
+INTERPRETATION=Class B omits A's legacy base-stat key and mana power type. ReloadArchetypeAndRace updates B fields but does not remove an old base key or unregister A's power type.
+WEAPON-STYLE-CACHE-SAME-MAP-LOAD
+equip_a_success=True;equip_b_success=True;save_a_valid=True;save_b_valid=True;load_status=Loaded
+equipped_template_before=item.weapon.followup_a;style_before=display.weapon_style.followup_a
+equipped_template_after_before_dispatch=item.weapon.followup_b;style_after_before_dispatch=display.weapon_style.followup_a
+equipped_template_after=item.weapon.followup_b;style_after=display.weapon_style.followup_a;oracle_b_template=item.weapon.followup_b;oracle_b_style=display.weapon_style.followup_b
+EXPECTED=load_status=Loaded;style_before=display.weapon_style.followup_a;style_after_before_dispatch=display.weapon_style.followup_a;style_after=display.weapon_style.followup_b;oracle_b_style=display.weapon_style.followup_b
+INTERPRETATION=Same-map load changes the real EquipmentHost template from A to B, but SaveSystem keeps item events suppressed; after EventBus drain the source cache still returns A instead of the independently primed B source oracle.
