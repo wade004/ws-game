@@ -20,11 +20,72 @@
 ```
 assembly/
   README.md
-  PresentationSchemaCatalog.cs   L0～L5 全部 TableSchema/IValidationRule 的统一注册清单
-  PresentationAssembly.cs        L5 组装根 + PresentationAssemblyOptions（可选知会点集合）
+  PresentationSchemaCatalog.cs      L0～L5 全部 TableSchema/IValidationRule 的统一注册清单
+  PresentationAssembly.cs           L5 组装根 + PresentationAssemblyOptions（可选知会点集合）
+  ContentValidationAssembly.cs      校验装配入口（ADR-0018 决策 3，见下"校验装配入口"一节）
   tests/
-    PresentationAssemblyTests.cs 烟雾测试（见"验收测试"）
+    PresentationAssemblyTests.cs        烟雾测试（见"验收测试"）
+    ContentValidationAssemblyTests.cs   校验装配入口验收测试
 ```
+
+## 校验装配入口（`ContentValidationAssembly`，ADR-0018 决策 3）
+
+[ADR-0018](../../architecture/adr/0018-编辑器随游戏走与框架为此提供的交付物.md) 决策第 3 条
+要求把此前只内联在 `toolchain/validator/Program.cs` 里的"调用 `PresentationSchemaCatalog` 汇总
+注册目录 + `SpawnSummonOnlyCreatureRule`/`DisplayMapCoverageRule` 两个可选规则的接线参数 +
+`DataRegistryOptions` 装配选项"这段逻辑抽为核心库内的单一公开入口，供 `toolchain/validator` 与
+编辑器基础套件（ADR-0018 决策 1/2 定义的独立消费方项目，随游戏走、不在本仓库）共同调用——两个
+消费方用同一份装配代码，天然不会出现两边分叉的注册顺序/选项默认值，这是"编辑器里看到的红线 =
+门禁会报的错"这一验收标准的落地方式。
+
+```csharp
+public sealed class ContentValidationOptions {
+    DataRegistryStrictness Strictness = WarningsAllowed;
+    bool FailOnUnknownTable = true;
+    Id? ItemBudgetCurveId;
+    ICreatureTemplateQuery? CreatureTemplateQuery;        // 未提供 -> SpawnSummonOnlyCreatureRule 不注册
+    IReadOnlyList<(string table, string idField)>? DisplayMapCoverageSources; // 未提供 -> DisplayMapCoverageRule 不注册
+    IEventBus? Bus;                                       // 未提供 -> 内部建一个 StrictCatalog=false 的总线
+}
+public sealed class ContentValidationRun {
+    ValidationReport Report; IDataRegistryView Registry; IReadOnlyList<OverrideDiagnostic> Overrides;
+    int TableCount; int RecordCount;
+    IReadOnlyList<string> DisabledOptionalRules;   // 本次因未提供接线参数而未启用的可选规则名
+    IReadOnlyList<string> EnabledOptionalRules;
+}
+public static class ContentValidationAssembly {
+    public static IReadOnlyList<string> OptionalRuleNames { get; }  // 固定清单，见下
+    public static ContentValidationRun Run(IReadOnlyList<IDataSource> sources, ContentValidationOptions? options = null);
+    public static IDataRegistry CreateRegistry(IDataSource primary, ContentValidationOptions options, out IReadOnlyList<string> disabledOptionalRules);
+}
+```
+
+`Run` 内部装配顺序：`PresentationSchemaCatalog.CreateOptions()` 起步 + `options` 覆盖
+`FailOnUnknownTable`/`Strictness` → `new DataRegistry(sources[0], bus, registryOptions)` →
+`PresentationSchemaCatalog.RegisterAll(registry, options.ItemBudgetCurveId,
+options.CreatureTemplateQuery)`（`SpawnSummonOnlyCreatureRule` 是否注册由该调用内部按
+`creatureTemplateQuery` 是否为空决定，见该方法判断记录）→ 若 `options.DisplayMapCoverageSources
+!= null` 额外注册 `DisplayMapCoverageRule` → `registry.LoadAll(sources)` → 汇总
+`ValidationReport`/`Overrides`/`TableCount`/`RecordCount`/两个可选规则清单为
+`ContentValidationRun`。`CreateRegistry` 只做到"注册完成、不加载"这一步，供需要先持有 registry、
+再自行决定何时/用哪些数据源加载的宿主使用（如编辑器需要在用户操作间隙重复
+`IDataRegistry.Reload` 单表）。
+
+判断记录（两个可选规则的"未启用"语义）：`OptionalRuleNames` 是固定的两项——
+`"SpawnSummonOnlyCreatureRule"`、`"DisplayMapCoverageRule"`——`DisabledOptionalRules`/
+`EnabledOptionalRules` 互补（并集恒等于 `OptionalRuleNames`）。判定条件分别是
+`options.CreatureTemplateQuery == null`、`options.DisplayMapCoverageSources == null`；本类型不
+改变底层两个 `RegisterAll` 各自的注册行为，只是把"这次到底注册没注册"这件事从"调用方自己看代码
+才知道"变成"结构化返回值"。
+
+`RecordCount` 取值惯例同 `toolchain/validator/Program.cs` 此前的写法——订阅 `DataRegistry.LoadAll`
+内部发出的 `data.load_completed` 事件读 `RecordCount` 字段（阻断态下事件仍会照常发出），不是事后
+逐表 `GetAll(..).Count` 求和（`IDataRegistryView.GetAll` 契约：未通过校验时抛异常，阻断态下无法
+这样求和）。
+
+`toolchain/validator` 的接线方式（新增 `--display-map-sources` 命令行参数，`--json` 输出新增
+`disabled_optional_rules`/`enabled_optional_rules` 字段，文本输出末尾追加一行）见
+`toolchain/README.md`"`toolchain/validator`"一节。
 
 ## `PresentationSchemaCatalog` 登记的表清单
 
@@ -230,3 +291,13 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
 `Progression` 三处注册的单位当"玩家"（见测试文件 `AddMinimalGameplayTables` 类型注释）——
 `HudViewModel`/`PlayerPathProvider` 等在构造期就会真的查询这些宿主，不能像
 `GameplayAssemblyTests` 那样用一个从未真正注册过的裸 `Id` 应付过去。
+
+## 验收测试（`tests/ContentValidationAssemblyTests.cs`）
+
+| 用例 | 覆盖点 |
+|---|---|
+| `OptionalRuleNames_IsFixedTwoEntryList` | 固定清单恰好两项，顺序稳定 |
+| `Run_DefaultOptions_BothOptionalRulesDisabled_NoneEnabled` | 默认选项下两条可选规则均在 `DisabledOptionalRules`，`EnabledOptionalRules` 为空 |
+| `Run_WithBothOptionalRuleDependencies_BothEnabled_AndDisplayMapCoverageRuleActuallyFires` | 提供两个接线参数后均出现在 `EnabledOptionalRules`；`DisplayMapCoverageRule` 真实生效（构造一条未被 `display.map` 覆盖的 `creature.template` 行，断言产出 `display_map_coverage` 错误） |
+| `Run_WarningsBlockStrictness_WarningOnlyReport_IsBlocking` | 同一份只含 Warning（`text_key_exists`，`l10n.text` 未加载）的数据集：`WarningsAllowed` 不阻断，`WarningsBlock` 阻断 |
+| `Run_ProducesSameIssueSet_AsDirectPresentationSchemaCatalogRegisterAll` | 同一份数据分别经 `ContentValidationAssembly.Run` 与手工 `PresentationSchemaCatalog.RegisterAll` + `LoadAll` 两条路径，问题集合（格式化字符串排序后逐条比较）与 `IsBlocking` 完全一致 |

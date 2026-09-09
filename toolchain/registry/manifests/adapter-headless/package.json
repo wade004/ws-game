@@ -1,0 +1,12 @@
+{
+  "name": "com.gamefoundation.adapter.headless",
+  "version": "0.2.0",
+  "displayName": "Game Foundation Headless Adapter",
+  "description": "引擎适配层（L-1）的桩实现（\"无头适配层\"，ADR-0018 决策第 3 条列为框架正式交付物），确定性、无渲染、无输入，随版本号发布；内容位于包内 Lib~/（Unity 不导入该目录，宿主按路径引用编译产物，见包内 README.md）。本包不是 Unity 依赖，供不接真实引擎的无头宿主（测试/CI、内容编辑器数值沙盘等）按需 npm install，不写入游戏工程 Packages/manifest.json 的 dependencies。本框架仓库不出现任何具体游戏代号。",
+  "unity": "6000.3",
+  "keywords": [
+    "gamefoundation",
+    "adapter",
+    "headless"
+  ]
+}

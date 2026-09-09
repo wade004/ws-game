@@ -1,8 +1,9 @@
 # Verdaccio 配置（私服交付通道）。见本目录 README.md"设计判断记录"一节的完整说明。
 #
 # 判断记录（2026-09-07）：
-# - 不代理任何上游注册表（无 uplinks 段）：本私服只服务框架自己的三个包
-#   （com.gamefoundation.adapter.unity / framework-data / toolchain），不承担"缓存 npm 公网包"
+# - 不代理任何上游注册表（无 uplinks 段）：本私服只服务框架自己的四个包
+#   （com.gamefoundation.adapter.unity / framework-data / toolchain / adapter.headless——第四个包
+#   ADR-0018 决策 3 新增），不承担"缓存 npm 公网包"
 #   这一职责——Unity 侧的官方包（com.unity.*）走 Unity 自己的默认注册表，不经过本作用域注册表
 #   （Unity Package Manager 只把 scopedRegistries.scopes 命中的包名前缀路由到自定义注册表，其余
 #   包名仍走默认注册表，见 Unity 官方 scoped registry 机制）；本目录 package.json 的 verdaccio
@@ -13,7 +14,7 @@
 #   "作用域包"；Unity 侧 `scopedRegistries.scopes: ["com.gamefoundation"]` 里的"scope"是 Unity
 #   自己的术语（包名前缀路由规则），与 npm registry 配置里 "@scope/*" 的 glob 写法是两个不同的
 #   概念，不能直接套用任务描述里 "com.gamefoundation/*" 这一写法（那是斜杠，会匹配不到任何真实
-#   包名）。保留 "@*/*" 分组是防御性写法（万一将来某个包改用 npm 作用域命名），当前三个包用不到。
+#   包名）。保留 "@*/*" 分组是防御性写法（万一将来某个包改用 npm 作用域命名），当前四个包用不到。
 # - 匿名可读、发布需登录（access: $all / publish: $authenticated），对应 Unity 侧消费方不需要
 #   任何账号即可 `npm install`/UPM 拉包，只有 build.ps1 -PublishRegistry 走过 init_publisher.ps1
 #   配置的发布账号令牌才能推包。

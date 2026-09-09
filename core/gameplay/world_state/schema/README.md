@@ -2,7 +2,7 @@
 
 对应 [`WorldStateSchemas.cs`](WorldStateSchemas.cs) 的 `TableSchema` 声明；字段语义详见
 [04_数据与内容管线.md](../../../../architecture/04_数据与内容管线.md) 第 1.1 节表清单、
-[05_玩法层_角色单位技能系统.md](../../../../architecture/05_玩法层_角色单位技能系统.md) 第 8 节。
+[05_对象模型与世界.md](../../../../architecture/05_对象模型与世界.md) 第 8 节。
 本表**不参与运行期加载**（本模块不实现任何 `IValidationRule`，见 `../README.md` 判断记录"该表只
 文档化"），只声明结构供内容作者按命名空间登记标志含义。
 

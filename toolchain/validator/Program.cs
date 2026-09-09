@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Core.Foundation.DataRegistry;
-using Core.Foundation.EventBus;
 using Presentation.Assembly;
 
 namespace Toolchain.Validator
@@ -33,6 +32,13 @@ namespace Toolchain.Validator
     /// 判断记录：本工具依赖 <c>adapters/stub</c> 提供的 <c>StubFileSystem</c> 只有内存实现，无法
     /// 读取真实磁盘文件，因此本工具自带 <see cref="DiskFileSystem"/>（只读，见其文件头判断记录），
     /// 不修改 <c>core/</c> 下任何已有类型。
+    /// </para>
+    /// <para>
+    /// 判断记录（ADR-0018 决策 3，校验装配入口）：本类不再自行内联"建 EventBus + 建 DataRegistry +
+    /// <see cref="PresentationSchemaCatalog.RegisterAll(IDataRegistry, Core.Foundation.Common.Id?, Core.Carriers.Creature.ICreatureTemplateQuery?)"/>
+    /// + <c>LoadAll</c> + 汇总"这一整段装配逻辑——改为调用 <see cref="ContentValidationAssembly.Run"/>
+    /// （核心库内单一公开入口），保证本工具与编辑器基础套件（ADR-0018 决策 1/2 的独立消费方项目）
+    /// 使用同一份注册顺序与选项默认值，即"编辑器里看到的红线 = 门禁会报的错"。
     /// </para>
     /// </summary>
     internal static class Program
@@ -62,6 +68,7 @@ namespace Toolchain.Validator
             var strict = false;
             var jsonOutput = false;
             var listTables = false;
+            IReadOnlyList<(string table, string idField)>? displayMapSources = null;
 
             for (var i = 0; i < args.Length; i++)
             {
@@ -88,6 +95,19 @@ namespace Toolchain.Validator
                         listTables = true;
                         break;
 
+                    case "--display-map-sources":
+                        if (i + 1 >= args.Length)
+                        {
+                            Console.Error.WriteLine("参数错误：--display-map-sources 需要一个参数，形如 \"table1:idField1,table2:idField2\"");
+                            return 2;
+                        }
+                        if (!TryParseDisplayMapSources(args[++i], out displayMapSources, out var parseError))
+                        {
+                            Console.Error.WriteLine($"参数错误：--display-map-sources 格式非法：{parseError}");
+                            return 2;
+                        }
+                        break;
+
                     default:
                         Console.Error.WriteLine($"参数错误：未知参数 \"{args[i]}\"");
                         return 2;
@@ -98,7 +118,7 @@ namespace Toolchain.Validator
             {
                 Console.Error.WriteLine(
                     "参数错误：缺少必填参数 --data-root <dir>（可重复传入以合并多个数据根）\n" +
-                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables]");
+                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>]");
                 return 2;
             }
 
@@ -123,50 +143,42 @@ namespace Toolchain.Validator
                 sources.Add(new FileSystemDataSource(fs, dataRoot));
             }
 
-            // 非严格 EventBus：本工具是一次性命令行进程，不关心 data.load_completed/
-            // data.validation_failed 之外的任何事件登记，未登记的事件 key 只记警告、不抛异常
-            // （见 EventBusOptions.StrictCatalog 文档）。仍然登记这两个 key 本身，避免产生多余的
-            // 诊断噪音。
-            var catalog = EventCatalog.FromDefinitions(new[]
+            // ADR-0018 决策 3（校验装配入口）：本工具不再自行内联"建 EventBus + 建 DataRegistry +
+            // PresentationSchemaCatalog.RegisterAll + LoadAll + 汇总"这一整段装配逻辑——改为调用
+            // Presentation.Assembly.ContentValidationAssembly.Run（核心库内的单一公开入口，供本工具
+            // 与编辑器基础套件共用同一份装配代码，见该类型注释判断记录）。--display-map-sources 是
+            // 本工具唯一新增的可选规则接线参数（DisplayMapCoverageRule）；SpawnSummonOnlyCreatureRule
+            // 仍不接线——本工具运行时机（一次性命令行进程）没有真正的 ICreatureTemplateQuery 实现
+            // 可用（同 ContentValidationAssembly.CreateRegistry 判断记录），与改动前行为一致。
+            var validationOptions = new ContentValidationOptions
             {
-                new EventDefinition(DataRegistryEventKeys.LoadCompleted, "data",
-                    new[] { "tableCount", "recordCount", "errorCount", "warningCount" }),
-                new EventDefinition(DataRegistryEventKeys.ValidationFailed, "data",
-                    new[] { "errorCount", "warningCount" }),
-            });
-            var bus = new EventBus(catalog, new EventBusOptions { StrictCatalog = false });
+                FailOnUnknownTable = true,
+                Strictness = strict ? DataRegistryStrictness.WarningsBlock : DataRegistryStrictness.WarningsAllowed,
+                DisplayMapCoverageSources = displayMapSources,
+            };
 
-            DataLoadCompletedEvent? loadCompleted = null;
-            bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, e => loadCompleted = e);
-
-            var options = PresentationSchemaCatalog.CreateOptions();
-            options.FailOnUnknownTable = true;
-            options.Strictness = strict ? DataRegistryStrictness.WarningsBlock : DataRegistryStrictness.WarningsAllowed;
-
-            var registry = new DataRegistry(sources[0], bus, options);
-            PresentationSchemaCatalog.RegisterAll(registry);
-
-            var report = registry.LoadAll(sources);
-            var tableCount = registry.Tables.Count;
-            var recordCount = loadCompleted?.RecordCount ?? 0;
+            var run = ContentValidationAssembly.Run(sources, validationOptions);
+            var report = run.Report;
+            var tableCount = run.TableCount;
+            var recordCount = run.RecordCount;
 
             // 判断记录（数据行覆盖语义任务）：覆盖诊断（见 DataRegistry 类型级判断记录"覆盖语义"、
             // OverrideDiagnostic）不是 ValidationIssue（既非 Warning 也非 Error），report.Issues 里
-            // 看不到；单独从 registry.GetOverrideDiagnostics() 取出打印，供人工核对"这次加载真的
-            // 按预期覆盖了哪些行"（如 arch.power.health 是否确实被 _sample 覆盖）。
-            var overrides = registry.GetOverrideDiagnostics();
+            // 看不到；单独从 run.Overrides 取出打印，供人工核对"这次加载真的按预期覆盖了哪些行"
+            // （如 arch.power.health 是否确实被 _sample 覆盖）。
+            var overrides = run.Overrides;
 
             if (jsonOutput)
             {
-                PrintJson(report, tableCount, recordCount, listTables ? registry : null, overrides);
+                PrintJson(report, tableCount, recordCount, listTables ? run.Registry : null, overrides, run.DisabledOptionalRules, run.EnabledOptionalRules);
             }
             else
             {
                 if (listTables)
                 {
-                    foreach (var table in registry.Tables.OrderBy(t => t, StringComparer.Ordinal))
+                    foreach (var table in run.Registry.Tables.OrderBy(t => t, StringComparer.Ordinal))
                     {
-                        var count = report.IsBlocking ? -1 : registry.GetAll(table).Count;
+                        var count = report.IsBlocking ? -1 : run.Registry.GetAll(table).Count;
                         Console.WriteLine(count < 0 ? $"table: {table} (? 条记录，数据未通过校验)" : $"table: {table} ({count} 条记录)");
                     }
                 }
@@ -186,9 +198,56 @@ namespace Toolchain.Validator
                 }
 
                 Console.WriteLine($"tables {tableCount}, records {recordCount}, errors {report.ErrorCount}, warnings {report.WarningCount}, overrides {overrides.Count}");
+
+                // ADR-0018 决策 3 新增：把 ContentValidationAssembly.Run 如实汇报的"本次未启用的
+                // 可选规则清单"追加为最后一行，不静默跳过（见 ContentValidationOptions 两个可选
+                // 接线参数的判断记录）；均已启用时打印 "none"。追加在既有末尾汇总行之后，不改动
+                // 既有任何一行的内容，保持此前行为逐字节兼容。
+                var disabledSummary = run.DisabledOptionalRules.Count == 0
+                    ? "none"
+                    : string.Join(", ", run.DisabledOptionalRules);
+                Console.WriteLine($"optional rules disabled: {disabledSummary}");
             }
 
             return report.IsBlocking ? 1 : 0;
+        }
+
+        /// <summary>解析 <c>--display-map-sources</c> 的值：形如 <c>"table1:idField1,table2:idField2"</c>
+        /// （逗号分隔多组，每组用一个冒号分隔表名与字段名，两侧均不能为空）。</summary>
+        private static bool TryParseDisplayMapSources(
+            string raw, out IReadOnlyList<(string table, string idField)>? sources, out string error)
+        {
+            var result = new List<(string table, string idField)>();
+            var entries = raw.Split(',');
+            foreach (var entry in entries)
+            {
+                var trimmedEntry = entry.Trim();
+                if (trimmedEntry.Length == 0)
+                {
+                    continue;
+                }
+
+                var parts = trimmedEntry.Split(':');
+                if (parts.Length != 2 || parts[0].Trim().Length == 0 || parts[1].Trim().Length == 0)
+                {
+                    sources = null;
+                    error = $"条目 \"{trimmedEntry}\" 不是 \"table:idField\" 形式";
+                    return false;
+                }
+
+                result.Add((parts[0].Trim(), parts[1].Trim()));
+            }
+
+            if (result.Count == 0)
+            {
+                sources = null;
+                error = "至少需要一组 \"table:idField\"";
+                return false;
+            }
+
+            sources = result;
+            error = "";
+            return true;
         }
 
         private static string FormatIssue(ValidationIssue issue)
@@ -211,7 +270,10 @@ namespace Toolchain.Validator
             return $"[{severity}] {loc}: {issue.Check}: {issue.Message}";
         }
 
-        private static void PrintJson(ValidationReport report, int tableCount, int recordCount, IDataRegistryView? tablesForListing, IReadOnlyList<OverrideDiagnostic> overrides)
+        private static void PrintJson(
+            ValidationReport report, int tableCount, int recordCount, IDataRegistryView? tablesForListing,
+            IReadOnlyList<OverrideDiagnostic> overrides,
+            IReadOnlyList<string> disabledOptionalRules, IReadOnlyList<string> enabledOptionalRules)
         {
             var sb = new StringBuilder();
             sb.Append('{');
@@ -248,6 +310,26 @@ namespace Toolchain.Validator
             {
                 if (i > 0) sb.Append(',');
                 AppendOverrideJson(sb, overrides[i]);
+            }
+            sb.Append("],");
+
+            // ADR-0018 决策 3 新增：如实汇报 ContentValidationAssembly.Run 返回的可选规则接线状态
+            // （不静默跳过，见 ContentValidationOptions 两个可选接线参数的判断记录）。追加在既有
+            // "overrides" 字段之后、闭合大括号之前，不改动任何既有字段，保持此前 --json 输出逐字节
+            // 兼容。
+            sb.Append("\"disabled_optional_rules\":[");
+            for (var i = 0; i < disabledOptionalRules.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append('"').Append(JsonEscape(disabledOptionalRules[i])).Append('"');
+            }
+            sb.Append("],");
+
+            sb.Append("\"enabled_optional_rules\":[");
+            for (var i = 0; i < enabledOptionalRules.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append('"').Append(JsonEscape(enabledOptionalRules[i])).Append('"');
             }
             sb.Append(']');
 

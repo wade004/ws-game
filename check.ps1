@@ -757,9 +757,10 @@ if ($Quick) {
 # 9.5 包清单一致性（私服交付通道新增，见 toolchain/registry/README.md、build.ps1 -Dist"私服交付
 #     通道新增"说明）：跑一遍 `build.ps1 -SyncOnly -Dist auto`（不需要 Unity，只是文件同步 +
 #     npm pack，复用同一份 -Quick 判断——见下方 if ($Quick) 分支，-Quick 下同样跳过），核对：
-#       1) 组装出的三个包 package.json 的 version 字段都等于 VERSION（跟"8. 版本一致性"校验的是
-#          两份提交进源码库的 package.json 不同，这里校验的是 build.ps1 打包逻辑本身有没有正确
-#          把解析出的版本号写进新组装的三个包，属于"打包逻辑自检"而不是"源码一致性"）；
+#       1) 组装出的四个包（ADR-0018 决策 3 新增 com.gamefoundation.adapter.headless）package.json
+#          的 version 字段都等于 VERSION（跟"8. 版本一致性"校验的是两份提交进源码库的 package.json
+#          不同，这里校验的是 build.ps1 打包逻辑本身有没有正确把解析出的版本号写进新组装的四个包，
+#          属于"打包逻辑自检"而不是"源码一致性"）；
 #       2) 对每个包目录跑 `npm pack --dry-run --json`，核对文件清单里不包含
 #          __pycache__/bin/obj/storage（含 registry/ 相关的排除规则真的生效，见 build.ps1
 #          Copy-DistDir 调用列表的 -ExcludeDirNames）。
@@ -789,9 +790,9 @@ if ($Quick) {
 #     步骤各自职责不变（9 管"构建产物落地"，9.5 管"打包清单是否正确"），不引入任何隐式的重复构建。
 # -----------------------------------------------------------------------------
 if ($Quick) {
-    Add-SkippedStep "包清单一致性（三个 npm 包版本号 + npm pack --dry-run 排除规则）" "-Quick"
+    Add-SkippedStep "包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）" "-Quick"
 } else {
-    Invoke-CheckStep "包清单一致性（三个 npm 包版本号 + npm pack --dry-run 排除规则）" {
+    Invoke-CheckStep "包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）" {
         $versionPath = Join-Path $RepoRoot "VERSION"
         $version = (Get-Content -Path $versionPath -Raw).Trim()
 
@@ -819,10 +820,15 @@ if ($Quick) {
         }
 
         $packagesRoot = Join-Path $RepoRoot ("dist\" + $version + "\packages")
+        # ADR-0018 决策 3 新增第四个包 com.gamefoundation.adapter.headless（无头适配层交付）；
+        # 见 build.ps1 5.15 节、toolchain/registry/registry.json、toolchain/get_framework.ps1
+        # $ThreePackageNames（zip/私服两条通道各自维护一份包名清单，四处一致性由
+        # toolchain/tests/test_package_name_consistency.py 断言，见该测试文件判断记录）。
         $packageNames = @(
             "com.gamefoundation.adapter.unity",
             "com.gamefoundation.framework-data",
-            "com.gamefoundation.toolchain"
+            "com.gamefoundation.toolchain",
+            "com.gamefoundation.adapter.headless"
         )
         $forbiddenSegments = @("__pycache__", "bin", "obj", "storage")
 
@@ -892,7 +898,7 @@ if ($Quick) {
         if ($problems.Count -gt 0) {
             throw ("包清单一致性校验失败：`n  " + ($problems -join "`n  "))
         }
-        [PSCustomObject]@{ Ok = $true; Detail = "三个包 version=$version 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器" }
+        [PSCustomObject]@{ Ok = $true; Detail = "四个包 version=$version 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器" }
     }
 }
 

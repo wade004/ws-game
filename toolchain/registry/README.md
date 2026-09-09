@@ -1,10 +1,13 @@
 # 私服（Verdaccio 注册表）
 
-本目录是框架三个可发布包（`com.gamefoundation.adapter.unity`/`com.gamefoundation.framework-data`/
-`com.gamefoundation.toolchain`）的私有 npm 兼容注册表运行时，供内网/本机搭一个不依赖任何外部公网
-服务的包仓库；游戏侧 Unity 工程用作用域注册表（`scopedRegistries.scopes: ["com.gamefoundation"]`）
-按版本号依赖这三个包，是 `toolchain/get_framework.ps1`（拉发布产物 zip）之外的第二条消费通道，两条
-通道并存、互不排斥（见根 README.md"版本与发布"一节、落地计划 3.5 节"私服通道"）。
+本目录是框架四个可发布包（`com.gamefoundation.adapter.unity`/`com.gamefoundation.framework-data`/
+`com.gamefoundation.toolchain`/`com.gamefoundation.adapter.headless`——第四个包 ADR-0018 决策 3
+新增，见下）的私有 npm 兼容注册表运行时，供内网/本机搭一个不依赖任何外部公网服务的包仓库；游戏侧
+Unity 工程用作用域注册表（`scopedRegistries.scopes: ["com.gamefoundation"]`）按版本号依赖前三个包
+（第四个包不是 Unity 依赖，不写入 `Packages/manifest.json`，供内容编辑器等无头宿主按需
+`npm install`，见 `manifests/adapter-headless/README.md` 判断记录），是 `toolchain/get_framework.ps1`
+（拉发布产物 zip）之外的第二条消费通道，两条通道并存、互不排斥（见根 README.md"版本与发布"一节、
+落地计划 3.5 节"私服通道"）。
 
 ## 快速开始
 
@@ -20,13 +23,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\registry\start_reg
 # 2. 无人值守建发布账号 + 令牌（写入本目录 .npmrc，不动全局 ~/.npmrc）
 powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\registry\init_publisher.ps1
 
-# 3. 打包 + 发布三个包（见仓库根 build.ps1 -PublishRegistry）
+# 3. 打包 + 发布四个包（见仓库根 build.ps1 -PublishRegistry）
 powershell -File build.ps1 -Dist auto
 powershell -File build.ps1 -Release <version> -Publish -PublishRegistry
 # 或单独只发注册表、不走完整 -Release 流程（已有 dist/<ver>/packages/ 时）：
-npm publish dist\<ver>\packages\com.gamefoundation.adapter.unity  --registry http://127.0.0.1:4873 --userconfig toolchain\registry\.npmrc
-npm publish dist\<ver>\packages\com.gamefoundation.framework-data --registry http://127.0.0.1:4873 --userconfig toolchain\registry\.npmrc
-npm publish dist\<ver>\packages\com.gamefoundation.toolchain      --registry http://127.0.0.1:4873 --userconfig toolchain\registry\.npmrc
+npm publish dist\<ver>\packages\com.gamefoundation.adapter.unity   --registry http://127.0.0.1:4873 --userconfig toolchain\registry\.npmrc
+npm publish dist\<ver>\packages\com.gamefoundation.framework-data  --registry http://127.0.0.1:4873 --userconfig toolchain\registry\.npmrc
+npm publish dist\<ver>\packages\com.gamefoundation.toolchain       --registry http://127.0.0.1:4873 --userconfig toolchain\registry\.npmrc
+npm publish dist\<ver>\packages\com.gamefoundation.adapter.headless --registry http://127.0.0.1:4873 --userconfig toolchain\registry\.npmrc
 ```
 
 `curl http://127.0.0.1:4873/-/ping` 返回 200 即服务已就绪。
@@ -54,6 +58,13 @@ npm publish dist\<ver>\packages\com.gamefoundation.toolchain      --registry htt
 监听所有网卡）；`toolchain/get_framework.ps1 -FromRegistry` 可以帮忙生成/更新这段 `manifest.json`
 片段并打印说明，见该脚本头注释。
 
+第四个包 `com.gamefoundation.adapter.headless`（ADR-0018 决策 3，无头适配层）不是 Unity 依赖，
+不属于上面 `dependencies` 片段——内容编辑器等无头宿主按需自行 `npm install
+com.gamefoundation.adapter.headless@<version> --registry <私服地址>` 获取，见
+`manifests/adapter-headless/README.md`。`get_framework.ps1 -FromRegistry` 会把它登记进
+`ws-game.lock` 的 `source.optional_packages` 字段（可选包清单），并在命令行输出中提示这条
+`npm install` 命令，不会静默略过。
+
 ## 升级 / 回退
 
 - **升级**：改 `manifest.json` 里三个依赖的版本号为目标版本，重新解析包（Unity 编辑器自动，或命令行
@@ -75,12 +86,13 @@ download` 或 `-FromLocalDist`）是并列的两条消费通道，不是"私服�
   适合没有内网私服、或需要把某个版本号的产物长期归档保存的场景。
 - 两条通道打包的内容一致（同一份 `dist/<ver>/`，只是私服通道额外把 `adapters/unity/Packages/
   com.gamefoundation.adapter.unity`、`data/_framework` + `assets/_placeholder` + `assets/
-  textmesh_pro_essentials`、`toolchain/`（不含本目录）三部分各自独立打成 npm 包，供 UPM 按包名
-  单独解析、而不是整个 zip 一次性拿全部内容），选哪条通道不影响该版本号对应的实际内容。
+  textmesh_pro_essentials`、`toolchain/`（不含本目录）、`adapters/headless/`（ADR-0018 决策 3
+  新增）四部分各自独立打成 npm 包，供 UPM 按包名单独解析、而不是整个 zip 一次性拿全部内容），选
+  哪条通道不影响该版本号对应的实际内容。
 
 ## 设计判断记录
 
-- **为什么不代理任何上游注册表**：见 `config.yaml` 头部注释——本私服只服务框架自己的三个包，
+- **为什么不代理任何上游注册表**：见 `config.yaml` 头部注释——本私服只服务框架自己的四个包，
   Unity 官方包（`com.unity.*`）走 Unity 自己的默认注册表，不需要经过这个作用域注册表；`npm ci`
   安装 Verdaccio 本身用的是 npm 默认公网注册表，与 Verdaccio 服务启动后代理什么是两回事。
 - **为什么包名规则写 `com.gamefoundation.*` 而不是任务描述里字面的 `com.gamefoundation/*`**：
@@ -88,7 +100,7 @@ download` 或 `-FromLocalDist`）是并列的两条消费通道，不是"私服�
   意义上的"作用域包"（`@scope/pkg`）；`com.gamefoundation/*` 这个 glob 会匹配"名字正好是
   `com.gamefoundation`、路径下有子级"的包，匹配不到任何真实包名，必须改成按名字前缀匹配的
   `com.gamefoundation.*`。这是任务描述与 npm/Verdaccio 实际语法之间的一处术语误用，本次落地时
-  按 Verdaccio 真实语法改写，效果（三个包允许匿名读、发布需登录）与任务描述的意图一致。
+  按 Verdaccio 真实语法改写，效果（四个包允许匿名读、发布需登录）与任务描述的意图一致。
 - **无人值守发布账号**：见 `init_publisher.ps1` 头部判断记录——先直接把账号的 bcrypt 哈希写进
   htpasswd 文件，再调用 Verdaccio 内置 htpasswd 插件复用的 `PUT /-/user/org.couchdb.user:<name>`
   接口（`npm adduser` 内部实际调用的同一个 HTTP 端点，此时请求已经能用刚写入的凭据完成 Basic

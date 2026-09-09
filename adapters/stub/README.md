@@ -1,7 +1,9 @@
-# Adapters.Stub 桩适配层
+# Adapters.Stub 桩适配层（无头适配层）
 
-说明：本项目是专供各层测试项目使用的引擎适配层（L-1）桩实现，不对外发布（见
-`11_工程规范与测试.md` 第 6 节"桩适配层作为 `adapters/stub/` 长期维护，专供测试与 CI 使用"）。
+说明：本项目原为"专供各层测试项目使用、不对外发布"的引擎适配层（L-1）桩实现；[ADR-0018](../../architecture/adr/0018-编辑器随游戏走与框架为此提供的交付物.md) 决策第 3 条起，本程序集同时列为框架正式交付物之一——对外以"无头适配层"称呼，随 `build.ps1 -Dist`/`-Release` 进入 zip 快照（`dist/<ver>/adapters/headless/Adapters.Stub.dll`）与私服第四个包 `com.gamefoundation.adapter.headless`，供测试/CI 与内容编辑器等无头宿主（不接引擎、不需要渲染/输入）使用。
+
+判断记录（程序集名不改）：对外称呼改为"无头适配层"，但程序集名仍是 `Adapters.Stub`（改名会牵动全部依赖它的测试工程 `ProjectReference`），代码内类型名与本目录路径均不变；`11_工程规范与测试.md` 第 6 节措辞同步勘误为"同时是框架交付物（ADR-0018）"，不再是"专供测试与 CI"。
+
 本阶段实现了 `core/foundation/engine_adapter/contracts` 定义的全部 13 个接口的最小可用桩：
 确定性、无引擎依赖、无线程、不读取任何系统挂钟时间、不调用任何系统伪随机数生成器、
 不使用任何基于线程池的异步任务库。

@@ -31,6 +31,17 @@
   `{kind, params: {...}}` 形状，补充 `CommonFields`、惰性递归中立记法、递归深度上限与"分层边界"
   说明；第 5 节两行说明补齐三个新增检查名（`variant_discriminator`/`substructure_depth`/
   `unknown_subfield`）。
+- ADR-0018 决策 3 落地（F2）文档同步：`architecture/04_数据与内容管线.md` 勘误（版本号不变）——
+  5.1 节"校验覆盖矩阵" `SpawnSummonOnlyCreatureRule`/`DisplayMapCoverageRule` 两行补充"经校验
+  装配入口显式声明"；`architecture/11_工程规范与测试.md` 勘误（版本号不变）——目录树
+  `adapters/stub/` 一行、第 6 节"桩适配层专供测试与 CI"一句均改为"同时是框架交付物（ADR-0018）"；
+  `architecture/落地计划/落地方案与分阶段计划.md` 3.5.1 节"三个包"改"四个包"，补第四行，去掉
+  F1 时补的"归属未决"说明改为已决定新增包。`adapters/stub/README.md` 首段改写为框架交付物说明；
+  新增 `adapters/headless/README.md`（zip 通道说明文档源文件）。根 `README.md`、
+  `toolchain/README.md`（validator 一节）、`data/README.md`（"与校验器的关系"一节）、
+  `toolchain/registry/README.md`、`presentation/assembly/README.md`（新增"校验装配入口"一节）
+  同步更新。`editor/docs/编辑器产品文档.md` 第 4.3 节状态改"已落地（1.13.0 起）"、第 4.4 节状态
+  改"已落地"（仅改状态句，html 版本本轮未重生成，待下次文档转换一并同步）。
 
 ### 新增
 
@@ -154,6 +165,40 @@
     既有 `AiContentValidationRuleTests.cs` 补齐 `skill.def` 假数据依赖，覆盖变体键集合一致性、
     子结构命中/坏形状、退役规则不双报的回归。
 
+- ADR-0018 决策 3（编辑器随游戏走：框架侧交付物）——无头适配层交付：`Adapters.Stub`（对外称
+  "无头适配层"）由此前"仅测试用、不对外发布"转正为框架正式交付物：
+  - zip 通道：`build.ps1 -Dist`/`-Release` 新增拷贝 `Adapters.Stub.dll` + 说明文档到
+    `dist/<ver>/adapters/headless/{Adapters.Stub.dll, README.md}`；`MANIFEST.txt` 新增
+    `[headless_assemblies]` 段（sha256）；`dist/ws-game-<ver>.lock` 新增 `headless_dlls`
+    字段（`{"Adapters.Stub.dll": <sha256>}`）。`toolchain/get_framework.ps1` 校验该字段存在
+    时的哈希（老锁文件没有该字段时跳过并提示，向后兼容）。
+  - 私服通道：新增第四个可发布包 `com.gamefoundation.adapter.headless`
+    （`toolchain/registry/manifests/adapter-headless/`），内容放包内 `Lib~/`；
+    `toolchain/registry/registry.json`/`build.ps1` 5.15 节/`check.ps1`"包清单一致性"步骤同步
+    为四个包；该包不是 Unity 依赖，`get_framework.ps1 -FromRegistry` 不写入游戏工程
+    `Packages/manifest.json`，只登记进 `ws-game.lock` 的 `source.optional_packages` 字段并
+    在输出中提示对应 `npm install` 命令。
+  - `toolchain/tests/test_package_name_consistency.py`（新增）：断言四个包名在
+    `registry.json`/`build.ps1`/`check.ps1`/`get_framework.ps1` 四处一致。
+- ADR-0018 决策 3——校验装配入口：核心库 `presentation/assembly` 新增单一公开入口
+  `ContentValidationAssembly`（`ContentValidationOptions`/`ContentValidationRun`），把此前只
+  内联在 `toolchain/validator/Program.cs` 里的"汇总注册目录 + 可选规则接线参数 + 装配选项"
+  逻辑抽出，供 `toolchain/validator` 与编辑器基础套件（独立消费方项目）共用同一份装配代码：
+  - `ContentValidationAssembly.Run(sources, options?)`：一次性完成建 registry、注册全部
+    L0～L5 `TableSchema`/`IValidationRule`（含可选规则 `SpawnSummonOnlyCreatureRule`/
+    `DisplayMapCoverageRule` 按 `options` 是否提供接线参数决定是否注册）、`LoadAll`、汇总结果
+    （含 `DisabledOptionalRules`/`EnabledOptionalRules` 如实汇报未启用的可选规则，不静默跳过）。
+  - `ContentValidationAssembly.CreateRegistry(primary, options, out disabledOptionalRules)`：
+    只做到"注册完成、不加载"，供需要先持有 registry 的宿主（如编辑器）使用。
+  - `toolchain/validator` 改为只做参数解析 + 调用该入口 + 打印；新增可选参数
+    `--display-map-sources <table:idField,...>`；`--json` 输出新增 `disabled_optional_rules`/
+    `enabled_optional_rules` 数组，文本输出末尾追加一行 `optional rules disabled: ...`
+    （既有输出的其余部分逐字节兼容）。
+  - 新增测试 `presentation/assembly/tests/ContentValidationAssemblyTests.cs`（5 条）：固定
+    可选规则清单、默认选项下两条均未启用、接线后均启用且真实生效（`DisplayMapCoverageRule`
+    构造真实触发场景）、`WarningsBlock` 下警告置 `IsBlocking`、与直接调用
+    `PresentationSchemaCatalog.RegisterAll` 得到的问题集合一致。
+
 ### 行为变更与迁移说明
 
 - ADR-0019 F1c：以下手写结构校验按登记覆盖情况退役/收窄（检查名集合变化，均属 MINOR 级，无数据
@@ -272,6 +317,20 @@
 - `encounter.def.units[].template_ref` 升级为 `Reference(creature.template)`；
   `units[].spawn_ref`、`waves[].spawn_refs[]`、`phases[].on_enter_hook` 保持 `Id`（前二者刻意
   经 `SpawnRequester` 与 `core/gameplay/spawn` 决耦，后者 `found.hook` 无实现级 schema）。
+- ADR-0018 决策 3：`ws-game.lock`（zip 通道）新增可选字段 `headless_dlls`（老锁文件没有该字段
+  时 `toolchain/get_framework.ps1` 跳过对应哈希校验并提示，不报错、不阻断，向后兼容）；
+  `-FromRegistry` 通道写入的 `ws-game.lock` 新增 `source.optional_packages` 字段（可选包清单，
+  当前只含 `com.gamefoundation.adapter.headless`），不影响既有 `source.packages` 字段语义
+  （仍是写入游戏工程 `Packages/manifest.json` 的三个 Unity 依赖）。
+- `toolchain/validator --json` 输出新增 `disabled_optional_rules`/`enabled_optional_rules`
+  两个数组字段（追加在既有字段之后）；文本输出末尾新增一行
+  `optional rules disabled: <逗号分隔的规则名，或 none>`；新增可选命令行参数
+  `--display-map-sources <table:idField,...>`。既有字段/行的内容与含义不变。
+- `check.ps1`"包清单一致性"步骤核对的包数量由三个改为四个（新增
+  `com.gamefoundation.adapter.headless`），`build.ps1 -Dist`/`-Release` 组装出的 `packages/`
+  目录与 `.tgz` 数量同步由三个改为四个。`.github/workflows/release.yml` 涉及三个 `.tgz` 的
+  多处硬编码本轮未同步（见落地计划 3.5.1 节改动记录），已知限制，留待后续单独跟进——本仓库内
+  `build.ps1`/`check.ps1`/`get_framework.ps1` 三个入口已完整支持四个包，不影响本仓库内验收。
 
 ## [1.12.0] - 2026-09-09
 

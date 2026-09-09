@@ -36,11 +36,15 @@
       - 不传（默认空字符串）：跳过打包步骤，行为与此前一致。
     打包时会把最终解析出的版本号写入 dist 内两个 package.json 的 version 字段（含
     games/_template/package.json 对适配层包的依赖版本号），并生成扩展后的 MANIFEST.txt
-    （version/date/git_commit/各目录文件数/architecture_docs/data_schemas/core_assemblies）。
-    私服交付通道新增：额外把三个可发布包（com.gamefoundation.adapter.unity/framework-data/
-    toolchain）各自组装出正确版本号的 package.json + 内容到 dist/<ver>/packages/{三个包名}/，
-    并对每个目录跑一遍 `npm pack --pack-destination` 产出三个 .tgz 到同一目录；无论 -Dist 还是
-    -Release 都会执行这一步（-DryRun 时同样打包，只是不会有后续 -PublishRegistry 发布动作，见
+    （version/date/git_commit/各目录文件数/architecture_docs/data_schemas/core_assemblies/
+    headless_assemblies——最后一项 ADR-0018 决策 3 新增，见下）。ADR-0018 决策 3 新增：无头适配层
+    （`Adapters.Stub`，对外称"无头适配层"，此前仅测试用不对外发布）额外拷贝进
+    dist/<ver>/adapters/headless/Adapters.Stub.dll + README.md。
+    私服交付通道新增：额外把四个可发布包（com.gamefoundation.adapter.unity/framework-data/
+    toolchain/adapter.headless——第四个包同为 ADR-0018 决策 3 新增）各自组装出正确版本号的
+    package.json + 内容到 dist/<ver>/packages/{四个包名}/，并对每个目录跑一遍
+    `npm pack --pack-destination` 产出四个 .tgz 到同一目录；无论 -Dist 还是 -Release 都会执行这
+    一步（-DryRun 时同样打包，只是不会有后续 -PublishRegistry 发布动作，见
     .PARAMETER PublishRegistry）。详见 toolchain/registry/README.md、落地计划 3.5 节"私服通道"。
 
 .PARAMETER Release
@@ -109,8 +113,9 @@
 .PARAMETER PublishRegistry
     私服交付通道新增。仅与 `-Release`（且未传 `-DryRun`）同传有效，独立于 `-Publish` 单独控制
     （`-Publish` 只管 `git push`/`gh release create` 这两条命令，与是否发注册表无关；两个开关可以
-    任意组合同传或都不传）。第 7 步自检 + 打标签完成后，对 `dist/<ver>/packages/` 下三个包目录
-    依次执行 `npm publish --registry <url> --userconfig toolchain/registry/.npmrc`（该 `.npmrc`
+    任意组合同传或都不传）。第 7 步自检 + 打标签完成后，对 `dist/<ver>/packages/` 下四个包目录
+    （ADR-0018 决策 3 起，第四个包 com.gamefoundation.adapter.headless 一并纳入）依次执行
+    `npm publish --registry <url> --userconfig toolchain/registry/.npmrc`（该 `.npmrc`
     由 `toolchain/registry/init_publisher.ps1` 无人值守生成，见该脚本头注释）。目标版本号一旦
     发布成功即不可覆盖——`npm publish` 对已存在的版本号本身就会失败，与 `-Release` 的"发布不可变"
     语义天然一致，不需要额外加校验。要求 `toolchain/registry/.npmrc` 已存在（先跑一遍
@@ -177,7 +182,7 @@ $DistDirVersion = ""
 # 流程，那个流程强制要求 git 工作树干净，不适合"仓库里还有其它并行改动、只想单独验证打包/npm
 # pack/npm publish 这一段逻辑"这种场景）。"-dryrun" 后缀本身是合法的语义化版本预发布标识
 # （semver 允许 "X.Y.Z-<prerelease>"），因此这里不像 -Release -DryRun 内部那样剥离后缀
-# 另算一个"干净版本号"——$ResolvedDistVersion 就是这个带后缀的完整字符串，原样写进三个包的
+# 另算一个"干净版本号"——$ResolvedDistVersion 就是这个带后缀的完整字符串，原样写进四个包的
 # package.json version 字段、MANIFEST.txt 等，npm publish 出去的也就是这个明显带"这是一次
 # dryrun 验证、不是真实发布"标记的版本号，天然不会与任何真实版本号的发布产物混淆或互相覆盖，
 # 也不需要额外的目录名后缀区分（$DistDirVersion 与 $ResolvedDistVersion 相同）。
@@ -1000,6 +1005,35 @@ if ($DistRequested) {
     Write-Host ("  已补齐 {0} 个核心 DLL -> dist\{1}\toolchain\validator\lib\" -f $CoreAssemblies.Count, $DistDirVersion)
 
     # -------------------------------------------------------------------
+    # 5.056 ADR-0018 决策 3 新增（无头适配层交付）：Adapters.Stub（对外称"无头适配层"，桩清单/
+    #      判断记录见 adapters/stub/README.md）由此前"仅测试用、不对外发布"转正为框架交付物，
+    #      拷贝进 dist\<ver>\adapters\headless\Adapters.Stub.dll，并附一份从源码仓库
+    #      adapters\headless\README.md 派生的精简说明（是什么、依赖哪个核心 DLL、怎么
+    #      new StubEngine()）。源 DLL 取自 adapters\stub\bin\$Configuration\netstandard2.1\
+    #      （Adapters.Stub 是 Core.sln 的一个直接项目，见该 csproj；-SyncOnly 场景下与六个核心
+    #      DLL 同一前提——要求之前至少完整构建过一次，找不到时给出同款报错并退出，不静默跳过）。
+    # -------------------------------------------------------------------
+    Write-Step "补齐 dist\$DistDirVersion\adapters\headless\Adapters.Stub.dll（ADR-0018 决策 3：无头适配层交付）"
+    $srcHeadlessDllPath = Join-Path $RepoRoot ("adapters\stub\bin\$Configuration\netstandard2.1\Adapters.Stub.dll")
+    if (-not (Test-Path $srcHeadlessDllPath)) {
+        Write-Host "打分发包失败：找不到 $srcHeadlessDllPath（-SyncOnly 要求产物已存在，请先不带 -SyncOnly 跑一次完整构建）" -ForegroundColor Red
+        exit 1
+    }
+    $distHeadlessDir = Join-Path $DistRoot "adapters\headless"
+    New-Item -ItemType Directory -Force -Path $distHeadlessDir | Out-Null
+    Copy-Item -Path $srcHeadlessDllPath -Destination (Join-Path $distHeadlessDir "Adapters.Stub.dll") -Force
+    $srcHeadlessReadmePath = Join-Path $RepoRoot "adapters\headless\README.md"
+    if (-not (Test-Path $srcHeadlessReadmePath)) {
+        Write-Host "打分发包失败：找不到 $srcHeadlessReadmePath（无头适配层说明文档源文件缺失）" -ForegroundColor Red
+        exit 1
+    }
+    Copy-Item -Path $srcHeadlessReadmePath -Destination (Join-Path $distHeadlessDir "README.md") -Force
+    $headlessAssemblyShaMap = [ordered]@{
+        "Adapters.Stub.dll" = (Get-Sha256FileHash -Path (Join-Path $distHeadlessDir "Adapters.Stub.dll"))
+    }
+    Write-Host ("  已补齐 -> dist\{0}\adapters\headless\Adapters.Stub.dll + README.md（sha256={1}）" -f $DistDirVersion, $headlessAssemblyShaMap["Adapters.Stub.dll"])
+
+    # -------------------------------------------------------------------
     # 5.1 版本可追溯任务新增：把解析出的版本号写回 dist 内两个 package.json
     #     （含 games/_template 对适配层包的依赖版本号），保持"单一版本源"——
     #     源码仓库里的两个 package.json 已经在提交时同步改成当前 VERSION，这里
@@ -1033,13 +1067,14 @@ if ($DistRequested) {
     Set-DistPackageJsonVersion -JsonPath (Join-Path $DistRoot "games\_template\package.json") -Version $ResolvedDistVersion
 
     # -------------------------------------------------------------------
-    # 5.15 私服交付通道新增：组装三个可发布包到 dist/<ver>/packages/{包名}/，并 npm pack 出三个
-    #      .tgz 到同一目录（见 .PARAMETER Dist 私服交付通道新增说明、toolchain/registry/
+    # 5.15 私服交付通道新增：组装四个可发布包（ADR-0018 决策 3 新增第四个包
+    #      com.gamefoundation.adapter.headless，见下）到 dist/<ver>/packages/{包名}/，并 npm pack
+    #      出四个 .tgz 到同一目录（见 .PARAMETER Dist 私服交付通道新增说明、toolchain/registry/
     #      README.md）。无论本次是 -Dist 还是 -Release、是否 -DryRun 都会执行——打包本身不是
     #      "发布"这个有副作用的动作，`npm pack` 只在本地生成 tar 包，不联网、不改变任何远端状态；
     #      真正有副作用的 `npm publish` 由下面 -Release 第 7 步之后的 -PublishRegistry 单独控制。
     # -------------------------------------------------------------------
-    Write-Step "打三个 npm 包（私服交付通道）：dist\$DistDirVersion\packages\"
+    Write-Step "打四个 npm 包（私服交付通道）：dist\$DistDirVersion\packages\"
 
     $PackagesRoot = Join-Path $DistRoot "packages"
     New-Item -ItemType Directory -Force -Path $PackagesRoot | Out-Null
@@ -1088,7 +1123,23 @@ if ($DistRequested) {
     Copy-Item -Path (Join-Path $DistRoot "toolchain") -Destination (Join-Path $pkgToolDir "Tools~") -Recurse -Force
     Write-Host "  已组装 $pkgToolDir"
 
-    foreach ($pkgDirForPack in @($pkgAdapterDir, $pkgDataDir, $pkgToolDir)) {
+    # 包 4：com.gamefoundation.adapter.headless（ADR-0018 决策 3 新增，无头适配层交付）——
+    # package.json/README.md 同上取自 toolchain/registry/manifests/adapter-headless/；内容取自
+    # 上面 5.056 节已经拷进 dist 的 adapters\headless\Adapters.Stub.dll，放进包内 Lib~/（Unity 不
+    # 导入该目录；本包本身也不是 Unity 依赖，见该包 README.md 判断记录"为什么本包不写入
+    # Packages/manifest.json"）。
+    $pkgHeadlessDir = Join-Path $PackagesRoot "com.gamefoundation.adapter.headless"
+    New-Item -ItemType Directory -Force -Path $pkgHeadlessDir | Out-Null
+    $adapterHeadlessManifestDir = Join-Path $RepoRoot "toolchain\registry\manifests\adapter-headless"
+    Copy-Item -Path (Join-Path $adapterHeadlessManifestDir "package.json") -Destination (Join-Path $pkgHeadlessDir "package.json") -Force
+    Copy-Item -Path (Join-Path $adapterHeadlessManifestDir "README.md") -Destination (Join-Path $pkgHeadlessDir "README.md") -Force
+    Set-PackageJsonVersionInline -JsonPath (Join-Path $pkgHeadlessDir "package.json") -Version $ResolvedDistVersion
+    $pkgHeadlessLibTilde = Join-Path $pkgHeadlessDir "Lib~"
+    New-Item -ItemType Directory -Force -Path $pkgHeadlessLibTilde | Out-Null
+    Copy-Item -Path (Join-Path $DistRoot "adapters\headless\Adapters.Stub.dll") -Destination (Join-Path $pkgHeadlessLibTilde "Adapters.Stub.dll") -Force
+    Write-Host "  已组装 $pkgHeadlessDir"
+
+    foreach ($pkgDirForPack in @($pkgAdapterDir, $pkgDataDir, $pkgToolDir, $pkgHeadlessDir)) {
         & npm pack $pkgDirForPack --pack-destination $PackagesRoot --silent | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "npm pack 失败：$pkgDirForPack（退出码 $LASTEXITCODE，本机是否已安装 node/npm？）"
@@ -1204,7 +1255,11 @@ if ($DistRequested) {
     ) + $dataSchemaLines + @(
         "",
         "[core_assemblies]"
-    ) + $coreAssemblyLines
+    ) + $coreAssemblyLines + @(
+        "",
+        "[headless_assemblies]",
+        ("  Adapters.Stub.dll: sha256=" + $headlessAssemblyShaMap["Adapters.Stub.dll"])
+    )
 
     Set-Content -Path $manifestPath -Value $manifestLines -Encoding utf8
     Write-Host "已生成 $manifestPath"
@@ -1241,15 +1296,19 @@ if ($DistRequested) {
         Write-Host ("  已生成 {0}（{1} MB，zip 内顶层目录 {2}/）" -f $zipPath, $zipSizeMb, $zipTopLevelName)
 
         # ws-game.lock 示例锁文件：版本号、git_commit、六个核心 DLL 的 sha256（复用上面 5.5 节已经
-        # 算好的 $coreAssemblyShaMap，不重复计算）。字段内容一律用干净版本号 $ResolvedDistVersion
-        # （不带 -dryrun 后缀）——DryRun 只是产物文件名带后缀以避免覆盖真实发布产物，锁文件内容
-        # 描述的仍然是"这是版本 X.Y.Z 的锁定信息"这一事实本身。游戏仓库拿到这份文件后原样复制为
-        # 自己的 ws-game.lock（见 toolchain/get_framework.ps1）。
+        # 算好的 $coreAssemblyShaMap，不重复计算）、无头适配层 DLL 的 sha256（ADR-0018 决策 3 新增
+        # `headless_dlls` 字段，复用上面 5.056 节已经算好的 $headlessAssemblyShaMap）。字段内容一律
+        # 用干净版本号 $ResolvedDistVersion（不带 -dryrun 后缀）——DryRun 只是产物文件名带后缀以
+        # 避免覆盖真实发布产物，锁文件内容描述的仍然是"这是版本 X.Y.Z 的锁定信息"这一事实本身。
+        # 游戏仓库拿到这份文件后原样复制为自己的 ws-game.lock（见 toolchain/get_framework.ps1）；
+        # `headless_dlls` 是可选字段，老版本锁文件没有该字段时 get_framework.ps1 跳过对应校验并
+        # 提示，保持向后兼容（见该脚本判断记录）。
         $lockPath = Join-Path $RepoRoot ("dist\ws-game-" + $DistDirVersion + ".lock")
         $lockObj = [ordered]@{
-            version    = $ResolvedDistVersion
-            git_commit = $gitCommit
-            dlls       = $coreAssemblyShaMap
+            version      = $ResolvedDistVersion
+            git_commit   = $gitCommit
+            dlls         = $coreAssemblyShaMap
+            headless_dlls = $headlessAssemblyShaMap
         }
         $lockJson = ($lockObj | ConvertTo-Json -Depth 5)
         [System.IO.File]::WriteAllText($lockPath, $lockJson, (New-Object System.Text.UTF8Encoding($false)))
@@ -1298,7 +1357,7 @@ if ($DistRequested) {
             # PublishRegistry 说明）。npm publish 对已存在的版本号本身会失败，天然满足"发布不
             # 可变"，不需要本脚本额外加校验。
             if ($PublishRegistry) {
-                Write-Step "-PublishRegistry：npm publish 三个包到私服"
+                Write-Step "-PublishRegistry：npm publish 四个包到私服"
 
                 $resolvedRegistryUrl = $RegistryUrl
                 if ($resolvedRegistryUrl -eq "") {
@@ -1313,14 +1372,14 @@ if ($DistRequested) {
                     throw "找不到 $registryNpmrcPath（先跑 toolchain/registry/init_publisher.ps1 无人值守生成发布账号令牌）"
                 }
 
-                foreach ($pkgDirForPublish in @($pkgAdapterDir, $pkgDataDir, $pkgToolDir)) {
+                foreach ($pkgDirForPublish in @($pkgAdapterDir, $pkgDataDir, $pkgToolDir, $pkgHeadlessDir)) {
                     Write-Host "  npm publish $pkgDirForPublish --registry $resolvedRegistryUrl"
                     & npm publish $pkgDirForPublish --registry $resolvedRegistryUrl --userconfig $registryNpmrcPath
                     if ($LASTEXITCODE -ne 0) {
                         throw "npm publish 失败：$pkgDirForPublish（退出码 $LASTEXITCODE；若原因是版本号已存在，说明该版本已经发布过，符合'发布不可变'，请发新版本号而不是覆盖）"
                     }
                 }
-                Write-Host "  已发布三个包 version=$Release 到 $resolvedRegistryUrl" -ForegroundColor Green
+                Write-Host "  已发布四个包 version=$Release 到 $resolvedRegistryUrl" -ForegroundColor Green
             }
 
             # 第 8 步：打印后续需要人工/设计层执行的两条命令；-Publish 时自动执行。
@@ -1374,7 +1433,7 @@ if ($DistRequested) {
             Write-Host ""
             Write-Host "==== -DryRun 完成：$Release 的发布流水线全流程校验 + 打包已跑通，未改写任何源码文件、未提交、未打标签 ====" -ForegroundColor Green
             Write-Host "  dist/$DistDirVersion/、$zipPath、$lockPath 均为验证产物（dist/ 已 .gitignore，可随时删除）"
-            Write-Host "  dist/$DistDirVersion/packages/ 下三个包目录 + .tgz 同样已生成（npm pack，本地打包不联网）；-DryRun 不会 npm publish，见 .PARAMETER PublishRegistry"
+            Write-Host "  dist/$DistDirVersion/packages/ 下四个包目录 + .tgz 同样已生成（npm pack，本地打包不联网）；-DryRun 不会 npm publish，见 .PARAMETER PublishRegistry"
         } else {
             Write-Host ""
             Write-Host "==== -Zip 完成：$zipPath、$lockPath 已生成，未涉及版本号写回/提交/打标签（-Zip 独立于 -Release 使用） ====" -ForegroundColor Green

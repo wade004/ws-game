@@ -1,8 +1,9 @@
 ﻿<#
 .SYNOPSIS
     游戏仓库用的框架引用工具：按版本号拉取本框架（ws-game）的发布产物（`ws-game-<ver>.zip` +
-    `ws-game-<ver>.lock`），校验六个核心 DLL 的 sha256 与锁文件一致后解压到
-    `<Target>/ws-game-<ver>/`，并在游戏仓库根写入/校验 `ws-game.lock`（见仓库根 README.md
+    `ws-game-<ver>.lock`），校验六个核心 DLL 的 sha256（锁文件存在 `headless_dlls` 字段时一并
+    校验无头适配层 DLL，见 ADR-0018 决策 3；老锁文件没有该字段时跳过并提示，向后兼容）与锁文件
+    一致后解压到 `<Target>/ws-game-<ver>/`，并在游戏仓库根写入/校验 `ws-game.lock`（见仓库根 README.md
     "版本与发布"一节、`architecture/落地计划/落地方案与分阶段计划.md` 第 3.5 节"新游戏如何消费
     本框架"）。本脚本运行在游戏仓库那一侧，不属于框架仓库自身的构建/门禁链路，只是框架随发布产物
     一并提供、供游戏侧调用的工具。
@@ -169,6 +170,14 @@ if ($FromRegistry) {
         "com.gamefoundation.framework-data",
         "com.gamefoundation.toolchain"
     )
+    # ADR-0018 决策 3 新增：第四个私服包 com.gamefoundation.adapter.headless（无头适配层）不是
+    # Unity 依赖（不供游戏工程的包解析器使用），因此不写入 Packages/manifest.json 的
+    # dependencies——只在下面 ws-game.lock 的 source.optional_packages 里登记为"本次引用的框架
+    # 版本额外提供、按需自取"的可选包，见 toolchain/registry/manifests/adapter-headless/README.md
+    # 判断记录"为什么本包不写入 Packages/manifest.json"。
+    $OptionalPackageNames = @(
+        "com.gamefoundation.adapter.headless"
+    )
     $RegistryScope = "com.gamefoundation"
 
     if ($RegistryUrl -eq "") {
@@ -248,10 +257,11 @@ if ($FromRegistry) {
     $registryLockObj = [ordered]@{
         version = $Version
         source  = [ordered]@{
-            channel      = "registry"
-            registry_url = $RegistryUrl
-            scope        = $RegistryScope
-            packages     = $ThreePackageNames
+            channel            = "registry"
+            registry_url       = $RegistryUrl
+            scope              = $RegistryScope
+            packages           = $ThreePackageNames
+            optional_packages  = $OptionalPackageNames
         }
     }
     $registryLockJson = ($registryLockObj | ConvertTo-Json -Depth 5)
@@ -269,6 +279,12 @@ if ($FromRegistry) {
         [System.IO.File]::WriteAllText($LockPath, $registryLockJson, $utf8NoBomRegistry)
         Write-Host "  已新建：$LockPath"
     }
+
+    # ADR-0018 决策 3 新增提示：可选包不写入 manifest.json 的 dependencies，如实告知调用方按需自取
+    # （不是 Unity 依赖，见 $OptionalPackageNames 判断记录）。
+    Write-Host ""
+    Write-Host ("  可选包（不写入 manifest.json 的 dependencies，编辑器/无头宿主按需 npm install）：" + ($OptionalPackageNames -join ", ")) -ForegroundColor Cyan
+    Write-Host ("    npm install " + $OptionalPackageNames[0] + "@" + $Version + " --registry " + $RegistryUrl)
 
     Write-Host ""
     Write-Host "get_framework.ps1 -FromRegistry 完成：version=$Version，registry=$RegistryUrl" -ForegroundColor Green
@@ -463,6 +479,40 @@ try {
         throw ("DLL 哈希校验失败，未落地到 -Target（内容可能被篡改或下载不完整）：`n  " + ($hashMismatches -join "`n  "))
     }
     Write-Host "  六个核心 DLL 哈希全部与锁文件一致"
+
+    # 判断记录（ADR-0018 决策 3，向后兼容）：锁文件里若存在 `headless_dlls` 字段（build.ps1 新增，
+    # 见其 5.6 节判断记录）则一并校验无头适配层 DLL 的哈希；老版本锁文件（框架 < 无头适配层交付
+    # 落地的版本）没有这个字段时，`$lockObj.headless_dlls` 是 $null，跳过这项校验并打印提示，不
+    # 报错、不阻断——旧锁文件描述的那个版本本来就没有这份交付物，"缺字段"不代表"内容被篡改"。
+    if ($null -ne $lockObj.headless_dlls) {
+        $headlessDir = Join-Path $innerRoot "adapters\headless"
+        $headlessHashMismatches = @()
+        foreach ($headlessDllProp in $lockObj.headless_dlls.PSObject.Properties) {
+            $headlessDllName = $headlessDllProp.Name
+            $expectedHeadlessSha = $headlessDllProp.Value
+            $headlessDllPath = Join-Path $headlessDir $headlessDllName
+            if (-not (Test-Path $headlessDllPath)) {
+                $headlessHashMismatches += "$headlessDllName：解压产物中不存在（$headlessDllPath）"
+                continue
+            }
+            if ([string]::IsNullOrEmpty($expectedHeadlessSha)) {
+                $headlessHashMismatches += "$headlessDllName：锁文件未记录该 DLL 的 sha256"
+                continue
+            }
+            $actualHeadlessSha = Get-Sha256FileHash -Path $headlessDllPath
+            if ($actualHeadlessSha -ne $expectedHeadlessSha.ToLower()) {
+                $headlessHashMismatches += "$headlessDllName：sha256 不一致（锁文件=$expectedHeadlessSha，实际=$actualHeadlessSha）"
+            } else {
+                Write-Host "  [通过] $headlessDllName sha256=$actualHeadlessSha（无头适配层，ADR-0018 决策 3）"
+            }
+        }
+        if ($headlessHashMismatches.Count -gt 0) {
+            throw ("无头适配层 DLL 哈希校验失败，未落地到 -Target（内容可能被篡改或下载不完整）：`n  " + ($headlessHashMismatches -join "`n  "))
+        }
+        Write-Host "  无头适配层 DLL 哈希全部与锁文件一致"
+    } else {
+        Write-Host "  锁文件无 headless_dlls 字段（该版本早于无头适配层交付落地，或来自尚未升级的旧构建），跳过该项校验" -ForegroundColor Yellow
+    }
 
     # -----------------------------------------------------------------------------
     # 4. 校验通过：落地到 <Target>/ws-game-<Version>/（已存在则整体删除重建，视为一次全新拉取）。

@@ -4,6 +4,7 @@
   "packages": [
     "com.gamefoundation.adapter.unity",
     "com.gamefoundation.framework-data",
-    "com.gamefoundation.toolchain"
+    "com.gamefoundation.toolchain",
+    "com.gamefoundation.adapter.headless"
   ]
 }

@@ -140,10 +140,18 @@ DLL——`lib/` 由 `build.ps1` 打分发包步骤显式补齐（源头是同一
 `dotnet build`/`dotnet run --project toolchain/validator` 因引用路径不存在而失败（ZIP、UPM
 两条独立包消费复现均命中，见审计证据）。
 
+判断记录（ADR-0018 决策 3，校验装配入口，2026-09-09）：`Program.cs` 不再自行内联"建 EventBus +
+建 `DataRegistry` + `PresentationSchemaCatalog.RegisterAll` + `LoadAll` + 汇总"这一整段装配逻辑——
+改为调用核心库 `presentation/assembly/ContentValidationAssembly.cs` 提供的单一公开入口
+`Presentation.Assembly.ContentValidationAssembly.Run`。本工具现在只做"命令行参数解析 → 调用该
+入口 → 打印"三件事，与编辑器基础套件（ADR-0018 决策 1/2 定义的独立消费方项目，随游戏走）共用
+同一份注册顺序与选项默认值，见 `data/README.md`"与校验器的关系"一节、
+`presentation/assembly/README.md`。
+
 直接运行（不经 `validate_data.py`）：
 
 ```
-dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json] [--list-tables]
+dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>]
 ```
 
 参数：
@@ -151,16 +159,22 @@ dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json
 - `--data-root <dir>`：必填，数据根目录；相对路径按当前工作目录解析（从仓库根运行时等价于
   "相对仓库根"），绝对路径原样使用。
 - `--strict`：Warning 也阻断（`DataRegistryStrictness.WarningsBlock`）。
-- `--json`：输出机器可读的单行 JSON（`{tables, records, errors, warnings, blocking, issues[]}`），
-  不输出人类可读文本行。
+- `--json`：输出机器可读的单行 JSON（`{tables, records, errors, warnings, blocking, issues[],
+  overrides[], disabled_optional_rules[], enabled_optional_rules[]}`），不输出人类可读文本行。
 - `--list-tables`：额外列出本次加载到的全部表名与记录数（文本模式下逐行打印，JSON 模式下并入
   `tables_list` 字段）。
+- `--display-map-sources <table:idField,...>`（ADR-0018 决策 3 新增，可选）：接线
+  `ContentValidationOptions.DisplayMapCoverageSources`，声明哪些内容表参与"外形映射存在"检查
+  （`DisplayMapCoverageRule`，见 04 第 5 节检查项清单）——逗号分隔多组 `table:idField`。未传时该
+  可选规则不启用（与改动前行为一致）。`SpawnSummonOnlyCreatureRule` 仍不接线（本工具是一次性命令
+  行进程，没有真正的 `ICreatureTemplateQuery` 实现可用，见 `ContentValidationAssembly` 判断记录）。
 
 问题逐条打印为 `[severity] table/key/field: check: message`（`key`/`field` 缺失时对应段落省略），
 `severity` 取 `error`/`warning`，`check` 是 04 第 5 节固定的检查项名或各模块 `IValidationRule`
-自行命名的检查项名；末尾汇总一行 `tables N, records M, errors E, warnings W`。返回码：`0`
-未阻断；`1` 阻断（存在 Error，或 `--strict` 下存在 Warning）；`2` 命令行参数错误（缺
-`--data-root`、目录不存在）。
+自行命名的检查项名；末尾汇总一行 `tables N, records M, errors E, warnings W, overrides O`，再追加
+一行 `optional rules disabled: <规则名逗号分隔，或 none>`（ADR-0018 决策 3 新增，如实汇报本次未
+接线的可选规则，不静默跳过）。返回码：`0` 未阻断；`1` 阻断（存在 Error，或 `--strict` 下存在
+Warning）；`2` 命令行参数错误（缺 `--data-root`、目录不存在、`--display-map-sources` 格式非法）。
 
 ## 生成事件常量（gen_event_constants.py）
 
