@@ -11,15 +11,33 @@ namespace Core.Gameplay.Encounter
     /// <c>encounter.def</c> 专属的内容校验规则（见 <see cref="IValidationRule"/>"模块专属校验规则的
     /// 扩展点"，惯例同 <c>core/carriers/creature</c> 的 <c>CreatureContentValidationRule</c>）：
     /// <list type="bullet">
-    /// <item><c>units[]</c> 的 <c>spawn_ref</c>/<c>template_ref</c> 必须二选一（08 第 4.1 节）。</item>
+    /// <item><c>units[]</c> 的 <c>spawn_ref</c>/<c>template_ref</c> 必须二选一（08 第 4.1 节；跨字段
+    /// 约束，<see cref="FieldSchema.Fields"/> 无法表达"二选一"，见 <see cref="EncounterSchemas.UnitItemSchema"/>
+    /// 判断记录，本规则继续承担）。</item>
     /// <item><c>units[].spawn_ref</c>/<c>waves[].spawn_refs[]</c> 的 domain 必须是 <c>spawn</c>
-    /// （08 第 8 节"spawnRefs 域名 spawn"）。</item>
-    /// <item><c>waves[].trigger_condition</c>/<c>phases[].enter_condition</c> 必须能用
-    /// <see cref="ExprParser.Parse"/> 解析（08 校验要求"Expr 可解析"——这两个字段嵌套在
-    /// <see cref="FieldKind.Array"/> 内，DataRegistry 内置的 <c>expr_parsable</c> 校验项只覆盖
-    /// 顶层 <see cref="FieldKind.Expr"/> 字段，见 <see cref="EncounterSchemas"/> 判断记录，本规则
-    /// 补上嵌套部分）。</item>
+    /// （08 第 8 节"spawnRefs 域名 spawn"；判断记录：本模块与 <c>core/gameplay/spawn</c> 刻意只经
+    /// <see cref="SpawnRequester"/> 委托解耦，两处均退回 <see cref="FieldKind.Id"/> 而非
+    /// <see cref="FieldKind.Reference"/>(ReferenceDomain)，domain 校验因此继续留在本规则）。</item>
     /// </list>
+    /// <para>
+    /// 判断记录（ADR-0019 / F1b 退役：<c>waves[].trigger_condition</c>/<c>phases[].enter_condition</c>
+    /// 的 Expr 可解析检查）：本规则此前对这两个字段手写了一份 <see cref="ExprParser.Parse"/> 尝试
+    /// （见旧版 <c>TryParseExpr</c>），因为它们嵌套在 <see cref="FieldKind.Array"/> 内、DataRegistry
+    /// 内置的 <c>expr_parsable</c> 校验项此前只覆盖顶层 <see cref="FieldKind.Expr"/> 字段。ADR-0019
+    /// 起 <see cref="EncounterSchemas.WaveItemSchema"/>/<see cref="EncounterSchemas.PhaseItemSchema"/>
+    /// 把这两处显式登记为 <see cref="FieldKind.Expr"/> 子字段，<c>DataRegistry.ValidateExprField</c>
+    /// 递归覆盖到子结构后已完整取代（且比旧版更严格：旧版只 <c>ExprParser.Parse</c>，新版额外跑
+    /// <c>ExprValidator.Validate</c> 静态校验，见 <c>DataRegistry.ValidateExprField</c>）——两处手写
+    /// 检查已整条删除，测试迁移到 <c>SubstructureValidationTests</c> 风格的
+    /// <c>EncounterSchemaCoverageTests</c>（用 <c>expr_parsable</c> + 嵌套字段路径断言，见该文件）。
+    /// <c>GameplaySchemaCatalog.RegisterEncounterSchemas</c> 里
+    /// <c>new EncounterContentValidationRule(exprSchema)</c> 这一行不需要改动——构造签名未变，仍接受
+    /// 一个非空 <see cref="IExprSchema"/>（保持调用方不动）；但 <paramref name="exprSchema"/> 不再被
+    /// 存成字段——两处 Expr 检查删除后，本规则内部已没有任何地方需要读取它，若继续存成私有字段会因
+    /// 本仓库 <c>TreatWarningsAsErrors</c>（见 Directory.Build.props）触发 CS0414（"字段已赋值但从未
+    /// 使用"）编译错误；改为只在构造期做一次非空校验、不保留引用，构造签名与"exprSchema 为 null 时
+    /// 抛 <see cref="ArgumentNullException"/>"这一行为契约都与改动前完全一致。
+    /// </para>
     /// 判断记录：本规则不由 <c>data_registry</c> 自动注册，调用方需要显式
     /// <c>registry.RegisterValidationRule(new EncounterContentValidationRule(schema))</c>。
     /// </summary>
@@ -28,11 +46,9 @@ namespace Core.Gameplay.Encounter
         private const string Check = "encounter_content";
         private const string SpawnDomain = "spawn";
 
-        private readonly IExprSchema _exprSchema;
-
         public EncounterContentValidationRule(IExprSchema exprSchema)
         {
-            _exprSchema = exprSchema ?? throw new ArgumentNullException(nameof(exprSchema));
+            if (exprSchema == null) throw new ArgumentNullException(nameof(exprSchema));
         }
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
@@ -86,54 +102,16 @@ namespace Core.Gameplay.Encounter
                             }
                         }
 
-                        if (waveJson.TryGetValue("trigger_condition", out var triggerRaw) && triggerRaw is JsonString triggerStr)
-                        {
-                            var issue = TryParseExpr(record, $"waves[{i}].trigger_condition", triggerStr.Value);
-                            if (issue.HasValue)
-                            {
-                                yield return issue.Value;
-                            }
-                        }
+                        // 判断记录（ADR-0019 / F1b 退役）：trigger_condition 的 Expr 可解析检查已删除，
+                        // 由 EncounterSchemas.WaveItemSchema 登记的 FieldKind.Expr 子字段经 DataRegistry
+                        // 递归校验覆盖（见本类型顶部判断记录）。
                     }
                 }
 
-                if (record.TryGetArray("phases", out var phasesArray))
-                {
-                    for (var i = 0; i < phasesArray.Count; i++)
-                    {
-                        if (!(phasesArray[i] is JsonObject phaseJson))
-                        {
-                            continue;
-                        }
-
-                        if (phaseJson.TryGetValue("enter_condition", out var enterRaw) && enterRaw is JsonString enterStr)
-                        {
-                            var issue = TryParseExpr(record, $"phases[{i}].enter_condition", enterStr.Value);
-                            if (issue.HasValue)
-                            {
-                                yield return issue.Value;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        /// <summary>把 <c>ExprParser.Parse</c> 的解析尝试收敛成一个可能为空的 <see cref="ValidationIssue"/>，
-        /// 不在 <c>catch</c> 子句体内直接 <c>yield return</c>（C# 不允许在 <c>catch</c> 内 yield，
-        /// 见 <see cref="Validate"/> 调用处改为先收集结果再在 try/catch 之外 yield 的写法）。</summary>
-        private ValidationIssue? TryParseExpr(DataRecord record, string field, string exprText)
-        {
-            try
-            {
-                ExprParser.Parse(exprText, _exprSchema);
-                return null;
-            }
-            catch (ExprParseException ex)
-            {
-                return new ValidationIssue(
-                    ValidationSeverity.Error, EncounterSchemas.Def.Name, Check,
-                    $"{field} 无法解析：{ex.Message}", recordKey: record.Key, field: field);
+                // 判断记录（ADR-0019 / F1b 退役）：phases[].enter_condition 的 Expr 可解析检查已整段
+                // 删除，由 EncounterSchemas.PhaseItemSchema 登记的 FieldKind.Expr 子字段经 DataRegistry
+                // 递归校验覆盖（见本类型顶部判断记录）。phases[] 目前没有其它需要手写校验的部分，
+                // 不再需要单独遍历。
             }
         }
     }

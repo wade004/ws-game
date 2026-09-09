@@ -28,8 +28,8 @@ loot/
     Events.cs                    LootEventKeys + LootRolledEvent/LootPickedUpEvent
     LootExprSchemaEntries.cs     空登记表（本模块不新增 Expr 分组/键，见类型注释）
   core/
-    LootTableParser.cs           DataRecord -> LootTableDef（运行期与校验期共用）
-    LootContentValidationRule.cs 结构/范围校验 + 嵌套引用成环 DFS 检测
+    LootTableParser.cs           DataRecord -> LootTableDef（运行期解析，ADR-0019/F1b 起校验期不再共用，见判断记录 13）
+    LootContentValidationRule.cs groups 内登记表达不了的业务判断 + 嵌套引用成环 DFS 检测（ADR-0019/F1b 收窄，见判断记录 13）
     DroppedLootEntity.cs         Entity 子类，Kind="loot"
     LootHost.cs                  ILootHost + ILootRoller 唯一实现（抽取核心 + Drop/PickUp/过期/存档重建）
     LootExpiryTickHandler.cs     挂 TickPhase.TriggerEvaluation，驱动 LootHost.PurgeExpired
@@ -148,6 +148,51 @@ loot/
     跳过的只是 `LootHost.PurgeExpired` 这一次调用本身，用于判断"是否过期"的绝对模拟时钟
     （`_simTimeProvider`，见 `RulesAssembly.TrackSimTime` 订阅 `sim.tick_started` 累加）在离散步下
     照常累加，不受这一步跳过影响。注释已改正为真实局部语义，不再泛化成"离散时间模型整体不启用"。
+
+13. **ADR-0019 / F1b：`groups[]` 的加载期校验改由 `LootSchemas` 的子结构登记承担，
+    `LootContentValidationRule` 相应收窄/退役**：`LootSchemas.Table` 现把 `groups` 登记为 `Item`
+    带 `Fields` 的 `FieldSchema`（`roll_mode`/`pick_count`/`entries[]`，`entries[]` 元素再登记
+    `ref`/`weight_or_chance`/`condition`/`count_range`，见"子结构登记表"一节），`DataRegistry` 的
+    递归结构校验（`required_field`/`field_type`/`expr_parsable`）覆盖了此前经 `LootContentValidationRule`
+    委托 `LootTableParser.Parse` 间接报出的全部结构性坏形状——分组/条目不是对象、字段缺失、类型
+    不对、`roll_mode` 非法取值、`condition` 解析失败。`LootContentValidationRule` 不再调用
+    `LootTableParser.Parse`（运行期 `LootHost` 仍需要它对任意来源做完整解析，不受影响），改为直接
+    读取原始 JSON 只保留登记表达不了的五类业务判断：(1) `ref` 领域段必须是 `item`/`loot` 且目标
+    记录存在（跨域引用退回 `Id`，见"子结构登记表"一节；存在性检查仿照
+    `core/gameplay/spawn.SpawnContentRefRule`"目标表已加载才检查"的宽松惯例，保证只装配 `loot.table`
+    单表的既有测试不会因为 `item.template` 未加载而误报——这是本次**新增**的存在性判断，此前
+    `ref` 字段既未登记为 `Reference` 也未被任何代码显式核对是否存在，只做过领域段检查，见
+    `LootContentValidationRule.cs` 判断记录）；(2) `weight_or_chance` 的合法区间随同一分组的
+    `roll_mode` 变化；(3) `count_range.min>=1` 且 `max>=min`；(4) `pick_count>=1`；(5)
+    `guaranteed_min>=0`。嵌套 `loot.*` 引用成环检测（DFS）不变，只是改为直接从原始 JSON 容错构建
+    `loot->loot` 邻接表（不再依赖 `LootTableDef`）。详见 `LootSchemas.cs`/
+    `LootContentValidationRule.cs` 判断记录、`tests/LootSchemaCoverageTests.cs`。
+
+## 子结构登记表（ADR-0019 / F1b）
+
+`loot.table.groups` 元素结构（对照 `LootTableParser.ParseGroup`/`ParseEntry` 运行时解析代码）：
+
+**`groups[]`（LootGroup）**
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `roll_mode` | Enum(`chance_each`\|`weighted_pick_one`) | 是 | 对应 `LootRollMode` |
+| `pick_count` | Int | 否 | `weighted_pick_one` 下可选多次抽取；`>=1` 是登记表达不了的数值范围约束，保留为业务判断 |
+| `entries` | Array\<Object\> | 是 | 见下 |
+
+**`entries[]`（LootEntry）**
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `ref` | Id | 是 | `item.<template>` 或 `loot.<table>`；判断记录（退回 `Id`）：目标表随 `Id.Domain` 动态变化（`item` 域→`item.template`，`loot` 域→同一张 `loot.table` 自引用），`FieldSchema.Reference` 只能声明单一目标表/域，表达不了"按值切换目标表"，域名 + 存在性校验保留为 `LootContentValidationRule` 业务判断（惯例同 `core/gameplay/spawn.SpawnContentRefRule`） |
+| `weight_or_chance` | Number | 是 | `chance_each`: [0,1]；`weighted_pick_one`: `>=0`——区间随父级 `roll_mode` 变化，登记表达不了，保留为业务判断 |
+| `condition` | Expr | 否 | 缺省/未提供表示恒真；判断记录：present 但为空字符串 `""` 时 `LootTableParser` 视同"未提供"（不解析），但登记后 `DataRegistry` 的 `expr_parsable` 校验会对空字符串尝试解析并报错（`ExprParser.Parse("")` 失败）——现有样例数据与测试均未使用空字符串 `condition`，本次不改 `LootTableParser` 迁就这一边缘用法，视为收紧（空字符串本就不是有意义的条件），如后续需要放宽再另行处理 |
+| `count_range` | Object | 是 | `{min: Int 必填, max: Int 必填}`；`1<=min<=max` 是登记表达不了的数值范围约束，保留为业务判断 |
+
+`guaranteed_min`（顶层，已有）：`>=0` 同属数值范围约束，保留为业务判断。
+
+本模块目前没有需要 `Variants` 的判别字段（`roll_mode` 是分组自身的普通 `Enum`，不分派子字段结构），
+也没有 Map 型（键为任意字符串、值同构）字段。
 
 ## 不负责什么
 

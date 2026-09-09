@@ -25,13 +25,17 @@ achievement/
     Events.cs                      AchievementEventKeys + Progressed/Unlocked 两个事件
     IAchievementHost.cs            契约接口
   core/
-    AchievementContentValidationRule.cs  type 合法 + observe_event 已登记
+    AchievementContentValidationRule.cs  criteria 最小长度/count 数值范围/observe_event 目录成员
+                                     资格 + rewards 数值范围（ADR-0019/F1b 收窄，type 合法性/
+                                     observe_event 缺失格式已移交 AchievementSchemas 子结构登记）
     AchievementHost.cs             IAchievementHost + IPersistable 唯一实现
   schema/
-    AchievementSchemas.cs          achv.def 的 TableSchema
+    AchievementSchemas.cs          achv.def 的 TableSchema + 子结构登记（Fields/Item/Variants）
+    README.md                      ADR-0019/F1b 子结构登记表 + 判断记录
   tests/
     TestSupport.cs
     AchievementHostTests.cs        六种类型/filter/解锁一次性/持久化用例
+    AchievementSchemaCoverageTests.cs  ADR-0019/F1b：变体键集合一致性 + 子结构命中/坏形状
 ```
 
 ## 判断记录
@@ -83,6 +87,17 @@ achievement/
    （`ApplyProgress`/`RetryPendingRewards`/`Save`/`Load`）、`IAchievementHost.cs`、
    `AchievementHostTests.cs`
    （`Unlock_RewardGrantFails_StaysLocked_RetryPendingRewardsGrantsExactlyOnceAfterRoomFreed`）。
+
+7. **ADR-0019 / F1b：`criteria`/`rewards` 登记为机器可读子结构**——`AchievementSchemas.cs` 新增
+   `CriterionItemSchema`（按 `type` 分派六种类型，`observe_event`/`count`/`filter` 三个共有字段登记
+   为 `Fields`，`target_ref` 因既有测试用最小 `DataRegistry` 驱动而退回 `Id`，见
+   `schema/README.md` 判断记录 5）；`rewards` 直接复用 `Core.Gameplay.Quest.QuestSchemas.RewardsFields`
+   （同一个静态只读实例，见 `schema/README.md` 判断记录 4）。`AchievementContentValidationRule`
+   相应收窄（`type` 合法性/`observe_event`、`count` 缺失格式检查移交子结构登记）并新增此前完全未被
+   任何校验覆盖的两项检查（`criteria` 最小长度 `achv_criteria_min_count`、`count >= 1`
+   `achv_criterion_count_positive`——此前只在 `AchievementHost`/`AchievementCriterion` 构造期才会
+   抛异常崩溃，不是"退役旧检查"而是新增覆盖，见 `schema/README.md` 判断记录 1/3）。详见
+   `schema/README.md`"子结构登记表（ADR-0019 / F1b）"一节。
 
 ## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
 

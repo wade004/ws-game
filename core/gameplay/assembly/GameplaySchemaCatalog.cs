@@ -164,7 +164,10 @@ namespace Core.Gameplay.Assembly
         private static void RegisterAreaTriggerSchemas(IDataRegistry registry)
         {
             registry.RegisterSchema(AreaTriggerSchemas.TriggerDef);
-            registry.RegisterValidationRule(new AreaTriggerShapeKindRule());
+            // ADR-0019 / F1b：AreaTriggerShapeKindRule（shape.kind 合法性检查）整条退役，由
+            // AreaTriggerSchemas.ShapeSchema 登记的 Variants 经 DataRegistry 的
+            // variant_discriminator 检查完全覆盖（见 core/gameplay/area_trigger/schema/README.md
+            // "退役规则"一节）。
             registry.RegisterValidationRule(new AreaTriggerParamsFieldGroupRule());
         }
 

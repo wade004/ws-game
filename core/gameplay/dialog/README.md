@@ -36,12 +36,15 @@ dialog/
     StoryTreeDefinition.cs       dialog.story_tree 一条记录的内存态表示 + FromRecord 解析 +
                                   HasCycle 成环检测（DFS）
   core/
-    DialogContentValidationRule.cs  两张表的内容校验规则（悬空 next_node_id 引用 + 成环检测）
+    DialogContentValidationRule.cs  story_tree 图结构业务判断（节点 id 重复/最小长度/悬空
+                                     next_node_id/成环；gossip_menu 侧纯结构检查 ADR-0019/F1b 起
+                                     全部移交 DialogSchemas 的子结构登记，见判断记录）
     DialogHost.cs                   IDialogHost 唯一实现
-    DialogSchemas.cs                两张表的 TableSchema
+    DialogSchemas.cs                两张表的 TableSchema + 子结构登记（Fields/Item/Variants）
     InMemoryDialogDiagnostics.cs   IDialogDiagnostics 默认实现
   tests/
     DialogHostTests.cs
+    DialogSchemaCoverageTests.cs   ADR-0019/F1b：变体键集合一致性 + 子结构命中/坏形状 + 图结构判断
     TestSupport.cs
 ```
 
@@ -92,6 +95,18 @@ dialog/
    dialog/dialog.gossip_menu.json` 的 `option_turn_in` 一并勘误改用新谓词）。见
    `DialogHost.cs`、`presentation/ui/core/ViewModels/DialogViewModel.cs`、
    `DialogHostTests.cs`、`presentation/ui/tests/ViewModelTests.cs`。
+
+8. **ADR-0019 / F1b：`options`/`actions`/`nodes`/`branches` 四层嵌套结构登记为机器可读子结构**——
+   `DialogSchemas.cs` 新增 `GossipOptionItemSchema`/`GossipActionItemSchema`（按 `kind` 分派十种
+   动作，`ref` 必填性按 `DialogActionKinds.RequiresRef` 逐 case 登记，`quest_accept`/
+   `quest_turn_in`/`start_encounter`/`cast_skill`/`start_story` 五处升级为 `Reference`）/
+   `StoryNodeItemSchema`/`StoryBranchItemSchema`；`DialogContentValidationRule` 相应收窄——
+   `gossip_menu` 侧此前整条委托 `GossipMenuDefinition.FromRecord` 解析异常兜底的检查全部被上述
+   登记覆盖，规则不再需要为该表做任何专属检查；`story_tree` 侧只保留登记表达不了的图结构业务判断
+   （节点 id 重复、`nodes` 最小长度、`next_node_id` 悬空引用、成环），检查名从笼统的 `dialog_content`
+   拆分为 `story_tree_min_nodes`/`story_tree_duplicate_node_id`/`story_tree_dangling_next_node`/
+   `story_tree_cycle` 四个更具体的名字。详见 `schema/dialog.gossip_menu.md`/
+   `schema/dialog.story_tree.md` 各自"子结构登记表（ADR-0019 / F1b）"一节。
 
 ## 不负责什么
 

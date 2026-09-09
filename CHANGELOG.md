@@ -50,6 +50,53 @@
   必填/类型、Variants 判别、子层 Reference/Expr、自引用递归与深度上限、`unknown_subfield`、
   路径格式、构造期非法组合）、`core/rules/skill/tests/SkillSchemaCoverageTests.cs`（锁定变体键
   集合与 `EffectKindNames`/`AuraEffectKindNames` 全集一致）。
+- ADR-0019 F1b：L4 玩法层（`core/gameplay/`）九个模块的复合字段子结构登记（延续 F1a 的技能域，
+  收口"首批登记"范围）：
+  - `loot.table.groups` 登记为 `Item`（`roll_mode: Enum(chance_each|weighted_pick_one)`、
+    `pick_count: Int?`、`entries: [{ref: Id, weight_or_chance: Number, condition: Expr?,
+    count_range: {min: Int, max: Int}}]`，`ref` 跨类型指向 `item.template`/`loot.table` 退回
+    `Id`）；`econ.vendor.sell_items` 登记为 `Item`（`item_id: Id`、
+    `price_currency_id: Reference(econ.currency)`、`price_amount: Int`、`stock_limit: Int?`、
+    `restock_policy: Enum(on_map_enter|timer)?`、`restock_timer: Number?`）；
+    `world.flag_schema.allowed_values` 因元素类型随同记录 `kind` 字段动态变化（判别字段与被
+    判别数组不同层，`Item`/`Variants` 均无法表达）且无运行时解析代码可作依据，本轮不登记。
+  - `quest.def.objectives` 按 `type` 登记为 `Variants`（kill/collect/interact/explore/escort/
+    event/cast/talk 八种目标类型，`collect`/`interact`/`explore`/`cast` 四处 `target_ref` 升级
+    为 `Reference`）；新增公开可复用结构 `Core.Gameplay.Quest.QuestSchemas.RewardsFields`
+    （`items`/`xp`/`currency`/`skills`/`world_flags`/`talent_points`），`quest.def.rewards`
+    改为直接带 `Fields` 登记。
+  - `dialog.gossip_menu.options`（`{text_key: TextKey, visible_if: Expr?, actions: Array?}`）、
+    `options[].actions` 按 `kind` 登记为 `Variants`（十种动作，`quest_accept`/`quest_turn_in`/
+    `start_encounter`/`cast_skill`/`start_story` 五处升级为 `Reference`）、
+    `dialog.story_tree.nodes`/`nodes[].branches` 均登记子结构；`achv.def.criteria` 按 `type`
+    登记为 `Variants`（六种条件类型），`achv.def.rewards` 直接复用
+    `QuestSchemas.RewardsFields`（同一静态实例）。
+  - `encounter.def.units`/`waves`/`phases`/`arena_rules`/`initiative_override` 登记子结构——
+    `arena_rules.bounds_shape` 按 `kind` 登记为 `Variants`（circle/cone/line/rect 四种形状）；
+    `units[].template_ref` 升级为 `Reference(creature.template)`，
+    `initiative_override.params.initiative_stat` 升级为 `Reference(stat.definition)`。
+  - `area.trigger_def.shape` 按 `kind` 登记为 `Variants`（circle/cone/line/rect）；`params`
+    因判别字段 `trigger_type` 与 `params` 不同层（`Variants` 机制表达不了），改登记为 `Fields`
+    （`target_map`/`spawn_point`/`encounter_ref`/`hook_id`，均退回 `Id`）。`spawn.table` 勘察
+    确认全部字段为标量，无可登记的复合字段（`respawn_policy`/`respawn_timer` 同属判别字段与被
+    判别字段不同层，`SpawnRespawnPolicyFieldGroupRule` 保留不退役）。
+  - 上述九个模块共九个子结构登记表文档：`core/gameplay/loot/README.md`、
+    `core/gameplay/economy/README.md`、`core/gameplay/world_state/schema/README.md`、
+    `core/gameplay/quest/schema/quest.def.md`、
+    `core/gameplay/dialog/schema/dialog.gossip_menu.md`/`dialog.story_tree.md`、
+    `core/gameplay/achievement/schema/README.md`、`core/gameplay/encounter/schema/README.md`、
+    `core/gameplay/spawn/schema/README.md`、`core/gameplay/area_trigger/schema/README.md`。
+- ADR-0019 F1b 新增测试：`core/gameplay/loot/tests/LootSchemaCoverageTests.cs`（10 条）、
+  `core/gameplay/economy/tests/EconomySchemaCoverageTests.cs`（8 条）、
+  `core/gameplay/world_state/tests/WorldStateSchemaCoverageTests.cs`（2 条）、
+  `core/gameplay/quest/tests/QuestSchemaCoverageTests.cs`（19 条）、
+  `core/gameplay/dialog/tests/DialogSchemaCoverageTests.cs`（17 条）、
+  `core/gameplay/achievement/tests/AchievementSchemaCoverageTests.cs`（15 条）、
+  `core/gameplay/encounter/tests/EncounterSchemaCoverageTests.cs`（13 条）、
+  `core/gameplay/spawn/tests/SpawnSchemaCoverageTests.cs`（2 条）、
+  `core/gameplay/area_trigger/tests/AreaTriggerSchemaCoverageTests.cs`（12 条，含 2 条从
+  `AreaTriggerValidationRuleTests.cs` 迁移），覆盖变体键集合与运行时枚举/注册集合一致性、子
+  结构命中/坏形状、退役规则不双报的回归。
 
 ### 行为变更与迁移说明
 
@@ -72,6 +119,60 @@
   对应判断记录）：`trigger_spell`/`modify_cooldown`/`add_charge`/`learn_skill` 的 `skill_id`
   按 `Id` 登记（不做跨表存在性校验）；`summon.creature_template`/`create_item.item_template`/
   `set_world_flag.flag_key`/`script.hook_id` 按 `Id` 登记且非必填。
+- ADR-0019 F1b：以下手写结构校验按登记覆盖情况退役/收窄（检查名集合变化，均属 MINOR 级，无数据
+  表字段删改）：
+  - `core/gameplay/loot/core/LootContentValidationRule.cs`：不再委托 `LootTableParser.Parse`
+    报告结构性坏形状，收窄为五类登记表达不了的业务判断（`ref` 领域+存在性、`weight_or_chance`
+    区间、`count_range` 区间、`pick_count`、`guaranteed_min`）+ 嵌套引用成环检查。
+  - `core/gameplay/economy/core/EconomyContentValidationRule.cs`：不再委托
+    `EconomyDataParser` 报告结构性坏形状；`sell_items[].price_currency_id` 手写的货币存在性
+    核对整条退役，改由 `reference_integrity` 覆盖；收窄为三类业务判断（`price_amount`/
+    `stock_limit` 非负、`restock_policy=timer` 时 `restock_timer` 必填且为正）。
+  - `core/gameplay/quest/core/QuestContentValidationRule.cs`：不再整条委托
+    `QuestDefinition.FromRecord` 把任意解析异常打包报告，收窄为七类业务判断（`objectives`
+    数量/`count` 约束、kill/escort 的 `target_ref` domain 弱校验、`rewards` 数值范围/存在性）；
+    structural 类问题改由 `DataRegistry` 独立报告。
+  - `core/gameplay/dialog/core/DialogContentValidationRule.cs`：gossip_menu 侧整条委托解析异常
+    的检查退役；story_tree 侧检查名从笼统的 `dialog_content` 拆分为
+    `story_tree_min_nodes`/`story_tree_duplicate_node_id`/`story_tree_dangling_next_node`/
+    `story_tree_cycle` 四个更具体的检查名（图结构业务判断保留，未退役）。
+  - `core/gameplay/achievement/core/AchievementContentValidationRule.cs`：`criteria[].type`
+    合法性、`observe_event`/`count` 缺失/格式检查退役（改由结构登记覆盖）；新增两项此前完全无
+    校验覆盖、只在运行期构造时才崩溃的检查 `achv_criteria_min_count`/
+    `achv_criterion_count_positive`；`observe_event` 成员资格检查收窄为
+    `achv_observe_event_unregistered`。
+  - `core/gameplay/encounter/core/EncounterContentValidationRule.cs`：`waves[].trigger_condition`/
+    `phases[].enter_condition` 两处手写 Expr 可解析检查整条删除，改由结构登记的
+    `FieldKind.Expr` 子字段经 `DataRegistry` 递归校验覆盖（且更严格，额外跑
+    `ExprValidator.Validate` 静态校验）；`units[]` 二选一、`spawn_ref`/`spawn_refs[]` 的
+    domain 校验（跨字段/跨表业务判断）保留。
+  - `core/gameplay/area_trigger/schema/AreaTriggerValidationRules.cs`：`AreaTriggerShapeKindRule`
+    （`shape.kind` 合法性检查，检查名 `area_trigger_shape_kind`）整条退役，由 `Variants` 内置的
+    `variant_discriminator` 检查完全覆盖；`AreaTriggerParamsFieldGroupRule`（按 `trigger_type`
+    决定 `params` 哪些字段必填的业务判断，判别字段与被判别对象不同层、登记层无法覆盖）保留。
+    `core/gameplay/assembly/GameplaySchemaCatalog.cs` 的 `RegisterAreaTriggerSchemas` 同步删除
+    对应注册行。
+  - `core/gameplay/spawn`：勘察确认 `spawn.table` 全部字段为标量（判别字段
+    `respawn_policy`/`respawn_timer` 与其它模块的 shape/params 同构、不同层），
+    `SpawnRespawnPolicyFieldGroupRule`/`SpawnContentRefRule`/`SpawnSummonOnlyCreatureRule` 均
+    因结构上无法登记覆盖或属跨表业务判断而原样保留，本轮不退役任何规则。
+  - 已通过既有内容数据（`data/_sample`、`data/_framework`、`games/_template/data`）0 错误验证，
+    未修改任何样例数据文件。
+- 曾依赖旧的单一检查名（`loot_content`/`economy_content`/`quest_content`/`dialog_content`/
+  `achievement_content`/`encounter_content`/`area_trigger_shape_kind`）做过滤/展示的下游工具，
+  改为识别上述新检查名，以及结构层既有检查名
+  `required_field`/`field_type`/`variant_discriminator`/`reference_integrity`/`expr_parsable`。
+- `quest.def.objectives[].target_ref`：`kill`/`escort` 两处按判断记录退回 `Id`（不做跨表存在性
+  检查——既有测试用不落 `creature.template` 内容表的 id 驱动 kill 目标）；
+  `collect`/`interact`/`explore`/`cast` 四处升级为 `Reference`，分别指向
+  `item.template`/`gobj.template`/`area.trigger_def`/`skill.def`。
+- `dialog.gossip_menu.options[].actions[]`：`vendor`/`teleport`/`set_flag`/`script` 四处 `ref`
+  退回 `Id`（分别因无登记表/非 DataRegistry 表/`world.flag_schema` 非运行态/`found.hook` 无实现
+  级 schema）；`achv.def.criteria[].observe_event`/`target_ref` 均未登记为 `Reference`（既有测试
+  用最小 registry 驱动大量用例，登记会误报 `reference_integrity`）。
+- `encounter.def.units[].template_ref` 升级为 `Reference(creature.template)`；
+  `units[].spawn_ref`、`waves[].spawn_refs[]`、`phases[].on_enter_hook` 保持 `Id`（前二者刻意
+  经 `SpawnRequester` 与 `core/gameplay/spawn` 决耦，后者 `found.hook` 无实现级 schema）。
 
 ## [1.12.0] - 2026-09-09
 

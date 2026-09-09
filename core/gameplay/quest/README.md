@@ -44,12 +44,14 @@ quest/
     QuestProgress.cs              单位对单条任务的持久化进度快照
   core/
     PlayerExprGroupProvider.cs    player 分组的 IExprGroupProvider 实现（level/has_item/item_count）
-    QuestContentValidationRule.cs quest.def 内容校验规则（捕获 FromRecord 解析异常）
+    QuestContentValidationRule.cs quest.def 内容校验规则（ADR-0019/F1b 起收窄为登记表达不了的
+                                  纯业务判断，见判断记录 12）
     QuestExprGroupProvider.cs     quest 分组的 IExprGroupProvider 实现（is_active/is_completed/
                                   is_available/objective_progress）
     QuestHost.cs                   IQuestHost 唯一实现：状态机 + 固定订阅事件驱动进度
     QuestPersistable.cs           player.quest_state 段
-    QuestSchemas.cs                quest.def 的 TableSchema
+    QuestSchemas.cs                quest.def 的 TableSchema（ADR-0019/F1b 起 objectives/rewards
+                                  登记子结构，见 schema/quest.def.md）
   schema/
     quest.def.md                  quest.def 字段表（本次新增，见"与 08 原文的差异"一节）
   tests/
@@ -154,6 +156,20 @@ quest/
     （`RemoveCollectedItems`）、`QuestHostTests.cs`
     （`TurnIn_SingleQuestTwoObjectivesShareSameItem_InsufficientTotal_FailsWithoutLosingAnyItem`、
     `HandleItemAdded_ConsumeOnProgress_TwoQuestsInsufficientForSecond_CreditedProgressMatchesActualConsumption`）。
+12. **ADR-0019 / F1b：`objectives`/`rewards` 复合字段登记为机器可读子结构**（`QuestSchemas.
+    ObjectiveItemSchema`/`RewardsFields`，详见 `schema/quest.def.md`"子结构登记表"一节）——
+    `objectives[]` 按判别字段 `type` 登记为 `VariantSchema`（八种目标类型各自的 `target_ref`/
+    `param` 形状，变体键集合与 `QuestObjectiveTypes.EnumValues` 一致，测试锁死于
+    `QuestSchemaCoverageTests`）；`rewards` 登记为带 `Fields` 的 `FieldSchema`（`items`/`xp`/
+    `currency`/`skills`/`world_flags`/`talent_points`，`world_flags[].value` 因联合类型未登记）。
+    `kill`/`escort` 的 `target_ref` 判断记录：概念上可登记为 `Reference("creature.template")`
+    （分层允许），但会与既有测试 `GameplayAssemblyOwnerDayVendorExtensionPointTests`（用一个不
+    落 `creature.template` 内容表的 id 驱动 kill 目标）冲突，退回 `Id`，domain 弱校验改由
+    `QuestContentValidationRule` 手写兜底。`QuestContentValidationRule` 同步收窄：不再整条委托
+    `QuestDefinition.FromRecord` 把任意解析异常打包成一条泛化消息（会与 `DataRegistry` 新增的结构
+    校验对同一缺陷双报），改为只保留登记表达不了的纯业务判断（`count` 数值范围/等值约束、
+    `kill`/`escort` domain 弱校验、`rewards` 数值范围、`world_flags[].value` 必填），构造签名不变
+    （`GameplaySchemaCatalog.RegisterQuestSchemas` 调用点不需要改动）。
 
 ## 不负责什么
 

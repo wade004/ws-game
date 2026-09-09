@@ -21,12 +21,34 @@ namespace Tests.Gameplay.Encounter
         public static IEventBus CreateBus() =>
             new EventBus(EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false });
 
+        /// <summary>ADR-0019 / F1b：<c>encounter.def.units[].template_ref</c> 登记为
+        /// <c>Reference(creature.template)</c> 后（见 <c>EncounterSchemas.UnitItemSchema</c> 判断记录），
+        /// 本模块自己的测试也需要提供一份可通过引用完整性校验的最小 <c>creature.template</c>/
+        /// <c>creature.tier_definition</c> 数据（惯例同 <c>CreatureTestSupport.MakeRegistry</c>）——
+        /// 覆盖全部测试文件里实际用到的 template_ref 取值（<c>creature.sample_boss</c>/
+        /// <c>creature.sample_boss2</c>）。</summary>
+        private const string TierDefinitionRows =
+            "[{\"id\": \"creature.tier.sample\", \"name_key\": \"l10n.creature.tier.sample.name\"}]";
+
+        private const string CreatureTemplateRows = "[" +
+            "{\"id\": \"creature.sample_boss\", \"name_key\": \"l10n.creature.sample_boss.name\", " +
+            "\"level\": 1, \"tier\": \"creature.tier.sample\", \"base_stats\": {}, " +
+            "\"faction_id\": \"fac.sample_monster\", \"display_ref\": \"display.sample_boss\"}," +
+            "{\"id\": \"creature.sample_boss2\", \"name_key\": \"l10n.creature.sample_boss2.name\", " +
+            "\"level\": 1, \"tier\": \"creature.tier.sample\", \"base_stats\": {}, " +
+            "\"faction_id\": \"fac.sample_monster\", \"display_ref\": \"display.sample_boss2\"}" +
+            "]";
+
         public static Core.Foundation.DataRegistry.DataRegistry MakeRegistry(
             IEventBus bus, string defRowsJson, string? levelRowsJson = null)
         {
             var source = new InMemoryDataSource()
                 .Add(Core.Gameplay.Encounter.EncounterSchemas.Def.Name,
-                    Envelope(Core.Gameplay.Encounter.EncounterSchemas.Def.Name, defRowsJson));
+                    Envelope(Core.Gameplay.Encounter.EncounterSchemas.Def.Name, defRowsJson))
+                .Add(Core.Carriers.Creature.CreatureSchemas.TierDefinition.Name,
+                    Envelope(Core.Carriers.Creature.CreatureSchemas.TierDefinition.Name, TierDefinitionRows))
+                .Add(Core.Carriers.Creature.CreatureSchemas.Template.Name,
+                    Envelope(Core.Carriers.Creature.CreatureSchemas.Template.Name, CreatureTemplateRows));
             if (levelRowsJson != null)
             {
                 source.Add(Core.Gameplay.Encounter.EncounterSchemas.Level.Name,
@@ -36,9 +58,11 @@ namespace Tests.Gameplay.Encounter
             var registry = new Core.Foundation.DataRegistry.DataRegistry(source, bus, new DataRegistryOptions());
             registry.RegisterSchema(Core.Gameplay.Encounter.EncounterSchemas.Def);
             registry.RegisterSchema(Core.Gameplay.Encounter.EncounterSchemas.Level);
+            registry.RegisterSchema(Core.Carriers.Creature.CreatureSchemas.TierDefinition);
+            registry.RegisterSchema(Core.Carriers.Creature.CreatureSchemas.Template);
 
             var report = registry.LoadAll();
-            Assert.False(report.IsBlocking);
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
             return registry;
         }
     }

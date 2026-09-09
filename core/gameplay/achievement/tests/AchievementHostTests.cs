@@ -299,7 +299,7 @@ namespace Tests.Gameplay.Achievement
                 "\"rewards\": {\"items\": [{\"itemId\": \"item.sample_reward\", \"count\": 1}]}}]";
 
             var bus = TestSupport.CreateBus();
-            var registry = TestSupport.MakeRegistry(bus, defRows);
+            var registry = TestSupport.MakeRegistry(bus, defRows, "item.sample_reward");
             var units = new FakeUnitAccess();
 
             var itemBus = new EventBus(EventCatalog.FromDefinitions(new[]

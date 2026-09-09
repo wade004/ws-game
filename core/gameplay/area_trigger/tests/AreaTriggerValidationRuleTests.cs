@@ -11,32 +11,15 @@ namespace Tests.Gameplay.AreaTrigger
         {
             var bus = AreaTriggerTestSupport.NewEventBus();
             var registry = AreaTriggerTestSupport.BuildRegistry(bus, row);
-            registry.RegisterValidationRule(new AreaTriggerShapeKindRule());
             registry.RegisterValidationRule(new AreaTriggerParamsFieldGroupRule());
             return registry.LoadAll();
         }
 
-        [Fact]
-        public void ShapeKindRule_IllegalKind_ReportsError()
-        {
-            var row = AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map");
-            var builder = new JsonObjectBuilder();
-            foreach (var kv in row)
-            {
-                builder.Add(kv.Key, kv.Key == "shape" ? J.O(("kind", J.S("triangle"))) : kv.Value);
-            }
-
-            var report = Validate(builder.Build());
-            Assert.Contains(report.Issues, i => i.Check == "area_trigger_shape_kind" && i.Severity == Core.Foundation.DataRegistry.ValidationSeverity.Error);
-        }
-
-        [Fact]
-        public void ShapeKindRule_LegalKind_NoIssue()
-        {
-            var row = AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map");
-            var report = Validate(row);
-            Assert.DoesNotContain(report.Issues, i => i.Check == "area_trigger_shape_kind");
-        }
+        // ShapeKindRule_IllegalKind_ReportsError / ShapeKindRule_LegalKind_NoIssue 已迁移至
+        // AreaTriggerSchemaCoverageTests（ADR-0019 / F1b：AreaTriggerShapeKindRule 整条退役，
+        // shape.kind 合法性改由 AreaTriggerSchemas.ShapeSchema 的 VariantSchema 内置
+        // variant_discriminator 检查覆盖，不再需要注册独立的 IValidationRule；见
+        // AreaTriggerValidationRules.cs 顶部退役记录）。
 
         [Fact]
         public void ParamsFieldGroupRule_MapTransitionMissingTargetMap_ReportsError()

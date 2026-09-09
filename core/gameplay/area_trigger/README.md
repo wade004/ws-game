@@ -5,7 +5,9 @@
 `condition` 附加条件求值、`one_shot` 已触发状态（经 `WorldState` 记录）；`RegisterTrap` 额外支持
 `core/carriers/gobj` 陷阱物件动态登记的进入检测（见 07 第 3.1 节 `trap`）。对应 01 第 L4 模块表
 `area_trigger` 行（契约 `AreaTriggerHost.register(def)`/`unregister(triggerId)`/`evaluate(unitId,
-position)`、数据表 `area.trigger_def`、事件 `area.trigger_entered`/`area.trigger_left`）。
+position)`、数据表 `area.trigger_def`、事件 `area.trigger_entered`/`area.trigger_left`）。ADR-0019 /
+F1b（复合字段子结构登记）的子结构登记表、变体参数表、退役规则与判断记录见
+[schema/README.md](schema/README.md)。
 
 依赖：L0（`data_registry`/`event_bus`/`expr`/`hook_registry`/`scene_router`/`sim_loop`）、L4
 `core/gameplay/world_state`（`IWorldState`，`one_shot` 标志）、L2 `core/rules/expr_host`
@@ -36,14 +38,18 @@ area_trigger/
     AreaTriggerTickHandler.cs        挂 TickPhase.TriggerEvaluation，驱动 Evaluate
     InMemoryAreaTriggerDiagnostics.cs 默认诊断实现
   schema/
-    AreaTriggerValidationRules.cs   shape/params 字段组完整性非阻断式校验
+    README.md                       ADR-0019 / F1b 子结构登记表 + 变体参数表 + 退役规则 + 判断记录
+    AreaTriggerValidationRules.cs   params 字段组完整性非阻断式校验（shape.kind 检查已退役，见
+                                     schema/README.md"退役规则"一节）
   tests/
     TestSupport.cs                  DataRegistry/EventBus/Fake 装配帮助
     AreaTriggerHostTests.cs          Register/Unregister/Evaluate/LoadForMap/UnloadMap/RegisterTrap 用例
     AreaTriggerDefTests.cs           AreaTriggerDef.FromRecord 解析用例
+    AreaTriggerSchemaCoverageTests.cs ADR-0019 / F1b：shape/params 子结构命中/坏形状 + 变体键集合一致性
     AreaTriggerShapeGeometryTests.cs Contains 几何判定用例
     AreaTriggerTickHandlerTests.cs   tick 挂载/位置变化检测用例
-    AreaTriggerValidationRuleTests.cs 校验规则用例
+    AreaTriggerValidationRuleTests.cs 校验规则用例（params 字段组；shape.kind 用例已迁移到
+                                       AreaTriggerSchemaCoverageTests）
 ```
 
 ## 判断记录

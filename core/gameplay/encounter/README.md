@@ -38,10 +38,12 @@ encounter/
     LevelHost.cs                   ILevelHost 唯一实现（线性推进 encounter_sequence）
   schema/
     EncounterSchemas.cs            encounter.def/encounter.level 的 TableSchema
+    README.md                      字段表 + 子结构登记表 + 校验规则表 + 退役规则（ADR-0019）
   tests/
     TestSupport.cs
     EncounterHostTests.cs          Start/Evaluate/胜负/波次/阶段用例
     LevelHostTests.cs              StartLevel 线性推进用例
+    EncounterSchemaCoverageTests.cs 子结构命中/坏形状/变体覆盖一致性用例（ADR-0019 / F1b）
 ```
 
 ## 判断记录
@@ -115,6 +117,22 @@ encounter/
    自动重试，直到玩家清出背包空间那一次才真正终结实例、恰好发放一次奖励。见 `EncounterHost.cs`
    （`Evaluate` 步骤 4）、`EncounterHostTests.cs`
    （`Evaluate_VictoryTrue_RewardGrantFails_KeepsActiveAndRetries_GrantsExactlyOnceAfterRoomFreed`）。
+9. **ADR-0019 / F1b：`units`/`waves`/`phases`/`arena_rules`/`initiative_override` 五个复合字段
+   登记为机器可读子结构，`EncounterContentValidationRule` 里对应的手写纯结构检查退役**：
+   `EncounterSchemas.cs` 新增 `UnitItemSchema`/`WaveItemSchema`/`PhaseItemSchema`/
+   `BoundsShapeSchema`（按 `kind` 分派的 `Variants`，四种形状）/`InitiativeOverrideSchema`，完整
+   字段表、变体参数表、判断记录见 [`schema/README.md`](schema/README.md)。要点：
+   `waves[].trigger_condition`/`phases[].enter_condition` 两处嵌套 Expr 可解析检查已由 `DataRegistry`
+   对子结构的递归校验完整取代，`EncounterContentValidationRule` 里原本手写的对应部分已整条删除
+   （`phases[].enter_condition` 专项结论：已退役，见 schema/README.md 对应小节）；`units[]`
+   二选一、`spawn_ref`/`spawn_refs[]` 的 `spawn` domain 校验属登记表达不了的跨字段/跨表业务判断，
+   继续保留在该规则里。`units[].template_ref` 升级为 `Reference(creature.template)`（L3，层级
+   合法），`spawn_ref`/`waves[].spawn_refs[]` 因本模块与 `core/gameplay/spawn` 的既有决耦意图
+   （判断记录 2）保留 `Id`。`phases[].ai_rotation_override`（Map 型对象）本轮不登记子结构，待
+   `FieldKind` 未来支持动态键 Map 后再补（ADR-0019 首批范围外）。`GameplaySchemaCatalog.
+   RegisterEncounterSchemas` 无需改动（`EncounterContentValidationRule` 构造签名不变）。见
+   `EncounterSchemas.cs`、`EncounterContentValidationRule.cs`、
+   `EncounterSchemaCoverageTests.cs`。
 
 ## 不负责什么
 

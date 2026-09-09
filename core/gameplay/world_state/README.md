@@ -32,10 +32,12 @@ world_state/
     InMemoryWorldStateDiagnostics.cs
   schema/
     WorldStateSchemas.cs       world.flag_schema 的 TableSchema（仅文档化，不参与运行期加载）
+    README.md                  字段表 + 子结构登记表（ADR-0019 / F1b，见该文件）
   tests/
     TestSupport.cs             EventBus 构造帮助 + WorldOnlyExprHost
     WorldStateTests.cs          WorldState 读写/事件/OnChanged/校验/持久化用例
     WorldExprGroupProviderTests.cs  world.get/has/get_int 经真实 ExprParser/ExprEvaluator 求值
+    WorldStateSchemaCoverageTests.cs  world.flag_schema.allowed_values 子结构登记判断记录用例（ADR-0019 / F1b）
 ```
 
 ## 谁能写、谁能读
@@ -144,6 +146,13 @@ world_state/
     实际类型既不是 `Int` 也不是 `Number`，同样按 `Int(0)` 处理并记一条诊断警告（任务书未规定这一
     分支，按"类型不符 = 视同缺失"的最保守取舍处理，不抛异常——`Query` 内部异常会被
     `ExprEvaluator` 收敛为整个表达式判 `false`，代价比返回一个警告过的默认值更大）。
+
+11. **ADR-0019 / F1b：`world.flag_schema.allowed_values` 本轮不登记 `Item` 子结构**——判断记录与
+    理由见 `schema/README.md`"子结构登记表"一节：元素类型随同记录 `kind` 字段动态变化，判别字段
+    在数组的父级同层而不在元素内部，`FieldSchema.Item`/`FieldSchema.Variants` 均表达不了这种依赖；
+    且本表不参与运行期加载、`WorldState` 也从未读取本字段，没有运行时解析代码可作登记依据。保持
+    登记前行为不变（只检查"存在且是数组"），见 `tests/WorldStateSchemaCoverageTests.cs`。本模块
+    没有其它需要登记子结构的复合字段（`world.flag_schema` 其余字段均为标量），也没有 Map 型字段。
 
 ## 不负责什么
 

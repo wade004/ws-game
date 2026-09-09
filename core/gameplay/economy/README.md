@@ -27,8 +27,8 @@ economy/
     EconomyExprSchemaEntries.cs    player.currency(currencyId): Int 登记
     ChainedExprGroupProvider.cs    player 分组"链式包装"合并帮助类型
   core/
-    EconomyDataParser.cs           DataRecord -> CurrencyDef/VendorDef（运行期与校验期共用）
-    EconomyContentValidationRule.cs 结构校验 + sell_items.price_currency_id 引用核对
+    EconomyDataParser.cs           DataRecord -> CurrencyDef/VendorDef（运行期解析，ADR-0019/F1b 起校验期不再共用，见判断记录 10）
+    EconomyContentValidationRule.cs sell_items 内登记表达不了的业务判断（ADR-0019/F1b 收窄，见判断记录 10）
     EconomyHost.cs                  IEconomyHost 唯一实现
     PlayerCurrencyExprGroupProvider.cs  player.currency 的 IExprGroupProvider 实现
     CurrencyPersistable.cs          player.currencies 段
@@ -130,6 +130,50 @@ economy/
    整份移除、失败不落地任何变化，本身不存在"先落地再补偿"的窗口），仍然包进事务是为了与"购买/
    出售/补偿全部走批量事务"这一统一口径保持一致。见 `EconomyHost.cs`（`Buy`/`Sell`）、
    `core/gameplay/economy/tests/CR130_01_BuyFailureTransactionTests.cs`。
+
+10. **ADR-0019 / F1b：`sell_items[]` 的加载期校验改由 `EconomySchemas` 的子结构登记承担，
+    `EconomyContentValidationRule` 相应收窄/退役**：`EconomySchemas.Vendor` 现把 `sell_items`
+    登记为 `Item` 带 `Fields` 的 `FieldSchema`（`item_id`/`price_currency_id`/`price_amount`/
+    `stock_limit`/`restock_policy`/`restock_timer`，见"子结构登记表"一节），`DataRegistry` 的递归
+    结构校验（`required_field`/`field_type`/`reference_integrity`）覆盖了此前经
+    `EconomyContentValidationRule` 委托 `EconomyDataParser.ParseVendor`/`ParseCurrency` 间接报出
+    的全部结构性坏形状——这两个解析方法此前报出的问题其实早就与 `econ.currency`/`econ.vendor`
+    顶层字段（`id`/`name_key`/`cap`/`display_ref`/`buy_price_rule`/`map_id`，F1b 之前就已登记）
+    的结构校验重复，是本次一并收口的既存缺口，不是 F1b 新引入的问题。`price_currency_id` 改登记为
+    `Reference(econ.currency)`（判断记录见 `EconomySchemas` 类型注释：`EconomyTestSupport.MakeRegistry`
+    与生产装配都总是把两张表登记进同一个 `DataRegistry` 实例一起加载，`reference_integrity` 能可靠
+    工作）后，此前手写的"核对 `price_currency_id` 是否命中已加载的 `econ.currency` 记录"业务判断
+    随之整条退役。`EconomyContentValidationRule` 不再调用 `EconomyDataParser`，改为直接读取原始
+    JSON 只保留登记表达不了的三类业务判断：`price_amount>=0`、`stock_limit>=0`（提供时）、
+    `restock_policy=timer` 时 `restock_timer` 必须提供且 `>0`（条件必填 + 数值范围的复合约束，
+    `VariantSchema` 要求判别字段必填而 `restock_policy` 本身可选、缺省即 `VendorRestockPolicy.None`，
+    不适用）。`item_id` 保持 `Id`（未新增存在性校验，见"子结构登记表"一节判断记录）。详见
+    `EconomySchemas.cs`/`EconomyContentValidationRule.cs` 判断记录、
+    `tests/EconomySchemaCoverageTests.cs`。
+
+## 子结构登记表（ADR-0019 / F1b）
+
+`econ.vendor.sell_items` 元素结构（对照 `EconomyDataParser.ParseSellItem` 运行时解析代码）：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `item_id` | Id | 是 | `item.<template>`；判断记录：层次上 `item.template`（L3）在 `econ.vendor`（L4）之下、可以 `Reference`，但本模块自身测试装配（`EconomyTestSupport.MakeRegistry`、`CR130_01_BuyFailureTransactionTests`）历来把 `item.template` 登记进另一个独立 `DataRegistry` 实例、与 `econ.vendor` 不在同一份加载结果里，登记为 `Reference` 会因"目标表在本 registry 里从未加载"对现有全部测试数据误报，因此退回 `Id`；此前也从未校验过其存在性，本次未新增（与 loot `ref` 的处理不同，是刻意保持行为不变，不是遗漏） |
+| `price_currency_id` | Reference(`econ.currency`) | 是 | 同模块同层，两张表总是一起加载，交给 `reference_integrity` 检查项 |
+| `price_amount` | Int | 是 | `>=0` 是登记表达不了的数值范围约束，保留为 `EconomyContentValidationRule` 业务判断 |
+| `stock_limit` | Int | 否 | 缺省不限量；`>=0`（提供时）同上保留为业务判断 |
+| `restock_policy` | Enum(`on_map_enter`\|`timer`) | 否 | 缺省 `VendorRestockPolicy.None`（无自动补货），对应运行时三态枚举中除 `None` 外的两个字符串字面量 |
+| `restock_timer` | Number | 否 | `restock_policy=timer` 时必须提供且 `>0`——条件必填 + 数值范围的复合约束，登记表达不了，保留为业务判断 |
+
+判断记录：`item_id` 存在性未登记为新的业务检查（见上表），与 `core/gameplay/loot` 对 `ref` 新增
+"目标表已加载才检查"的宽松存在性判断不同——这不是遗漏，而是"运行时解析代码为唯一依据"（04 第
+3.2 节）的直接结果：`EconomyDataParser`/`EconomyHost` 从未检查过 `item_id` 是否存在，任务书对
+economy 模块也未像 loot 那样明确要求补上这一判断，因此本次不新增超出既有行为的校验，避免范围
+蔓延。若后续需要，可参照 loot `ref` 存在性检查的写法（"目标表已加载才判定存在性，未加载视为
+无法判定、不报告"）原样添加。
+
+本模块目前没有需要 `Variants` 的判别字段（`restock_policy` 是普通可选 `Enum`，不是子对象判别
+字段），也没有 Map 型（键为任意字符串、值同构）字段——`sell_items` 是定长键的固定结构 Object 数组，
+不适用 ADR-0019 首批范围外的 Map 型契约扩展条款。
 
 ## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
 

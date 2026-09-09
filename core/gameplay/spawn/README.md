@@ -5,8 +5,9 @@
 `content_ref` 指向 `creature.template`（经 `ICreatureFactory`）或 `gobj.template`（经
 `SpawnOptions.GobjSpawner` 委托）。对应 01 第 L4 模块表"刷新"行（契约 `SpawnHost`、数据表
 `spawn.table`、事件 `spawn.executed`、策略配置项"刷新策略（进图刷新/条件刷新）"）。字段表已在
-05 第 5.1 节完整定义（08 第 8 节"Spawn 归属说明"明确"刷新表的字段与重生策略已在 05 中完整定义"），
-本模块不额外拆分 `schema/*.md` 文档分片。
+05 第 5.1 节完整定义（08 第 8 节"Spawn 归属说明"明确"刷新表的字段与重生策略已在 05 中完整定义"）。
+ADR-0019 / F1b（复合字段子结构登记）核实结论与判断记录见 [schema/README.md](schema/README.md)——
+`spawn.table` 全部字段均为标量，没有可登记 `Fields`/`Item`/`Variants` 的复合字段。
 
 依赖（按实际 `using` 语句核实）：
 
@@ -45,12 +46,14 @@ spawn/
     SpawnHost.cs                   ISpawnHost + IPersistable 唯一实现
     SpawnTableDef.cs               DataRecord -> SpawnTableDef 强类型视图（运行期与校验期共用）
   schema/
+    README.md                     ADR-0019 / F1b 子结构登记表 + 判断记录（本模块无可登记复合字段）
     SpawnValidationRules.cs      三条内容校验规则（respawn_timer 字段组一致性、content_ref
-                                  域名与目标存在性、summon_only 生物排除）——校验规则代码，
-                                  不属于本次新增文档范围
+                                  域名与目标存在性、summon_only 生物排除），F1b 核实后均未退役，
+                                  见 schema/README.md"退役规则"一节
   tests/
     SpawnHostTests.cs
     SpawnPersistableTests.cs
+    SpawnSchemaCoverageTests.cs   ADR-0019 / F1b：respawn_policy wire 值一致性 + "无复合字段"锁定
     SpawnTableDefTests.cs
     SpawnValidationRuleTests.cs
     TestSupport.cs

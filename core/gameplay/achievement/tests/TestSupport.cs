@@ -20,19 +20,45 @@ namespace Tests.Gameplay.Achievement
         public static IEventBus CreateBus() =>
             new EventBus(EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false });
 
-        public static Core.Foundation.DataRegistry.DataRegistry MakeRegistry(IEventBus bus, string defRowsJson)
+        /// <summary>
+        /// 装配一个已注册 <c>achv.def</c> 与最小 <c>item.*</c> 三表的 <see cref="Core.Foundation.DataRegistry.DataRegistry"/>。
+        /// ADR-0019 / F1b 判断记录：<c>achv.def.rewards</c> 直接复用
+        /// <c>Core.Gameplay.Quest.QuestSchemas.RewardsFields</c>（见 <c>AchievementSchemas.Def</c>
+        /// 类型注释），<c>rewards.items[].itemId</c> 因此是 <c>Reference("item.template")</c>——
+        /// <paramref name="extraItemIds"/> 供含 <c>rewards.items</c> 的用例（如
+        /// <c>AchievementHostTests.Unlock_RewardGrantFails_...</c>）把引用到的 item id 一并登记进
+        /// <c>item.template</c>，避免因目标表未加载而报 <c>reference_integrity</c>（做法同
+        /// <c>Tests.Gameplay.Quest.QuestSchemaCoverageTests.Load</c> 的 <c>extraItemIds</c> 参数）；
+        /// 不含 <c>rewards.items</c> 的既有调用点无需改动（<paramref name="extraItemIds"/> 缺省空，
+        /// <c>item.template</c> 登记但不加载任何记录，不影响这些用例）。
+        /// </summary>
+        public static Core.Foundation.DataRegistry.DataRegistry MakeRegistry(IEventBus bus, string defRowsJson, params string[] extraItemIds)
         {
+            var itemRows = "[" + string.Join(",", Array.ConvertAll(extraItemIds, ItemTemplateRow)) + "]";
             var source = new InMemoryDataSource()
                 .Add(Core.Gameplay.Achievement.AchievementSchemas.Def.Name,
-                    Envelope(Core.Gameplay.Achievement.AchievementSchemas.Def.Name, defRowsJson));
+                    Envelope(Core.Gameplay.Achievement.AchievementSchemas.Def.Name, defRowsJson))
+                .Add("item.template", Envelope("item.template", itemRows))
+                .Add("item.slot_definition", Envelope("item.slot_definition",
+                    "[{\"id\": \"item.slot.consumable\", \"name_key\": \"l10n.slot.consumable\"}]"))
+                .Add("item.quality_definition", Envelope("item.quality_definition",
+                    "[{\"id\": \"item.quality.common\", \"name_key\": \"l10n.quality.common\"}]"));
 
             var registry = new Core.Foundation.DataRegistry.DataRegistry(source, bus, new DataRegistryOptions());
             registry.RegisterSchema(Core.Gameplay.Achievement.AchievementSchemas.Def);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Template);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);
 
             var report = registry.LoadAll();
-            Assert.False(report.IsBlocking);
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
             return registry;
         }
+
+        private static string ItemTemplateRow(string id) =>
+            "{\"id\": \"" + id + "\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\", " +
+            "\"item_level\": 1, \"display_ref\": \"display.item.placeholder\", \"stack_size\": 1, " +
+            "\"name_key\": \"l10n." + id + "\"}";
     }
 
     /// <summary>最小 <see cref="IUnitAccess"/> 假实现：只覆盖 achievement 模块用到的
