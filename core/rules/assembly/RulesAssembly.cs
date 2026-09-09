@@ -222,6 +222,23 @@ namespace Core.Rules.Assembly
             StatLookup statLookup = (unitId, stat) => Stats.GetStat(unitId, stat);
             Powers = new PowerHost(powerTypes, Bus, statLookup);
 
+            // P2-05 同类缓存收口（外部审计 audit-c9ff301-20260909 followup-2026-09-10，见
+            // Core.Numbers.PowerSet.PowerHost.Reload 判断记录）：PowerHost 本身是 L1，刻意不持有
+            // registry，构造签名只接收预解析的 powerTypes 列表——与 GameplayAssembly 对
+            // QuestHost.Reload/DialogHost.Reload 的接线同一惯例，本装配根持有 Registry 与已构造好
+            // 的 Powers 引用，订阅一次 DataLoadCompletedEvent，重新解析 arch.power_type 表后整体
+            // 替换定义（不触碰任何单位已注册的当前/上限值，见 PowerHost.Reload 判断记录）。
+            Bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, _ =>
+            {
+                var reloadedPowerTypes = new List<PowerTypeDefinition>();
+                foreach (var record in Registry.GetAll("arch.power_type"))
+                {
+                    reloadedPowerTypes.Add(new PowerTypeDefinition(record));
+                }
+
+                Powers.Reload(reloadedPowerTypes);
+            });
+
             // -------------------------------------------------------------
             // 3) ProgressionHost / ArchetypeRegistry（writers 接 Stat/Power）。
             // -------------------------------------------------------------
@@ -343,7 +360,7 @@ namespace Core.Rules.Assembly
                 Registry, Bus, Units, Stats, Powers, Rng, Combat, Targeting, ExprHostFactory, Spatial,
                 resolvedSkillOptions, effectExtension: EffectExtension, diagnostics: null, exprSchema: null,
                 staticImmunity: staticImmunity, projectileSpawner: projectileSpawner,
-                weaponDamageQuery: WeaponDamageQuery);
+                weaponDamageQuery: WeaponDamageQuery, factions: Factions);
             skill = Skill; // 回填第 3 步 archAuraApplier 闭包捕获的局部变量。
 
             // CORE-170-01 根治：AuraHandles 需要真实的 IEffectSink（RemoveAura 出口）与

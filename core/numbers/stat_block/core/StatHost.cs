@@ -48,16 +48,36 @@ namespace Core.Numbers.StatBlock
         /// <c>IEventDiagnostics</c> 设计取舍：不强制调用方先备好引擎适配层实现）。</summary>
         public IReadOnlyList<string> Warnings => _warnings;
 
+        private readonly IDataRegistryView _registry;
+
         public StatHost(IDataRegistryView registry, IEventBus bus, StatHostOptions? options = null)
         {
-            if (registry == null) throw new ArgumentNullException(nameof(registry));
+            _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _options = options ?? new StatHostOptions();
 
-            LoadDefinitions(registry);
+            ReloadFromRegistry();
+
+            // P2-05 同类缓存收口（外部审计 audit-c9ff301-20260909 followup-2026-09-10）：
+            // _definitions/_ratingConversions 此前只在构造期从 registry 读取一次、永久常驻，
+            // 与 SkillDefCache/ArchetypeRegistry 同一类"构造期一次性读 registry 建索引、之后
+            // 只读"模式。本类型本就持有 registry 引用（原先只作为局部参数传给 Load* 方法，
+            // 现改存字段），直接内部订阅、自行重新查询——_units（每单位属性运行期状态、缓存
+            // 最终值）不受影响，reload 只刷新定义表本身，不倒退已经算过的属性缓存（同
+            // ArchetypeRegistry.ReloadFromRegistry 判断记录："reload 只刷新定义表本身，不倒退
+            // 已应用的效果"）。
+            _bus.Subscribe<Core.Foundation.DataRegistry.DataLoadCompletedEvent>(
+                Core.Foundation.DataRegistry.DataRegistryEventKeys.LoadCompleted, _ => ReloadFromRegistry());
+        }
+
+        private void ReloadFromRegistry()
+        {
+            _definitions.Clear();
+            _ratingConversions.Clear();
+            LoadDefinitions(_registry);
             if (_options.EnableRatingConversion)
             {
-                LoadRatingConversions(registry);
+                LoadRatingConversions(_registry);
             }
         }
 

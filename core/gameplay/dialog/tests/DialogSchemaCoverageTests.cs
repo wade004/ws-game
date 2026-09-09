@@ -321,5 +321,49 @@ namespace Tests.Gameplay.Dialog
 
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }
+
+        // -----------------------------------------------------------------
+        // P2-06 关联根治：set_flag.params.value 是 ExprValueJson.Parse 联合类型之外的形状时，此前
+        // 完全未登记/未校验，非法形状只在 DialogHost.ExecuteAction 才抛 FormatException（同一类缺口，
+        // 见 QuestContentValidationRule.reward_world_flag_value_shape 判断记录）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void GossipMenu_SetFlagValueIsArray_ReportsGossipActionSetFlagValueShape()
+        {
+            var rows = "[{\"id\": \"dialog.cov_menu\", \"options\": [{\"text_key\": \"l10n.cov.opt\", " +
+                "\"actions\": [{\"kind\": \"set_flag\", \"ref\": \"world.cov_flag\", \"params\": {\"value\": []}}]}]}]";
+
+            var report = Load(gossipRowsJson: rows);
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i =>
+                i.Check == "gossip_action_set_flag_value_shape" && i.Field == "options[0].actions[0].params.value");
+        }
+
+        [Fact]
+        public void GossipMenu_SetFlagValueMissing_Passes()
+        {
+            // params.value 可选，缺省时 DialogHost.ExecuteAction 取 Bool(true)，不要求必填。
+            var rows = "[{\"id\": \"dialog.cov_menu\", \"options\": [{\"text_key\": \"l10n.cov.opt\", " +
+                "\"actions\": [{\"kind\": \"set_flag\", \"ref\": \"world.cov_flag\"}]}]}]";
+
+            var report = Load(gossipRowsJson: rows);
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        [Fact]
+        public void GossipMenu_SetFlagValue_Bool_Number_String_Id_AllPass()
+        {
+            foreach (var value in new[] { "true", "1", "1.5", "\"some_text\"", "{\"$id\": \"world.cov_other\"}" })
+            {
+                var rows = "[{\"id\": \"dialog.cov_menu\", \"options\": [{\"text_key\": \"l10n.cov.opt\", " +
+                    "\"actions\": [{\"kind\": \"set_flag\", \"ref\": \"world.cov_flag\", \"params\": {\"value\": " + value + "}}]}]}]";
+
+                var report = Load(gossipRowsJson: rows);
+                Assert.False(report.IsBlocking, value + " => " + string.Join("; ", report.Issues));
+            }
+        }
     }
 }

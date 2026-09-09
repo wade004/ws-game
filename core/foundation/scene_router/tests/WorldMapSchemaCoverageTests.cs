@@ -53,5 +53,64 @@ namespace Tests.Foundation.SceneRouter
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i => i.Check == "required_field" && i.Field == "spawn_points[0].position.y");
         }
+
+        // -----------------------------------------------------------------
+        // P3-07 根治：WorldMapSpawnPointsValidationRule（外部审计 audit-c9ff301-20260909）
+        // -----------------------------------------------------------------
+
+        private static DataRegistry BuildRegistryWithSpawnPointsRule(string rows)
+        {
+            var source = new InMemoryDataSource().Add(
+                Core.Foundation.SceneRouter.WorldMapSchema.Table.Name,
+                Envelope(Core.Foundation.SceneRouter.WorldMapSchema.Table.Name, rows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Foundation.SceneRouter.WorldMapSchema.Table);
+            registry.RegisterValidationRule(new Core.Foundation.SceneRouter.WorldMapSpawnPointsValidationRule());
+            return registry;
+        }
+
+        [Fact]
+        public void P3_07_SpawnPoints_Empty_ReportsWorldMapSpawnPointsFirstPosition()
+        {
+            var rows = "[{\"id\":\"world.p3_07_empty\",\"scene_ref\":\"scene.p3_07\",\"nav_ref\":\"nav.p3_07\"," +
+                "\"spawn_points\":[]}]";
+
+            var report = BuildRegistryWithSpawnPointsRule(rows).LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "world_map_spawn_points_first_position" && i.Field == "spawn_points");
+        }
+
+        [Fact]
+        public void P3_07_SpawnPoints_FirstElementMissingPosition_ReportsWorldMapSpawnPointsFirstPosition()
+        {
+            // 第 0 个元素只有 id（命名点，语义上合法——但作为"第 0 个默认出生点"缺少坐标就是无法
+            // 确定默认出生点，见 SceneDescriptor.FromRecord 判断记录）；第 1 个元素同样只有 id 是
+            // 合法的命名点，不应报错——本规则只管第 0 个元素。
+            var rows = "[{\"id\":\"world.p3_07_no_pos\",\"scene_ref\":\"scene.p3_07\",\"nav_ref\":\"nav.p3_07\"," +
+                "\"spawn_points\":[{\"id\":\"spawn.named_only\"},{\"id\":\"spawn.named_only_2\"}]}]";
+
+            var report = BuildRegistryWithSpawnPointsRule(rows).LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "world_map_spawn_points_first_position" && i.Field == "spawn_points");
+        }
+
+        [Fact]
+        public void P3_07_SpawnPoints_FirstElementHasPosition_Passes()
+        {
+            var rows = "[{\"id\":\"world.p3_07_ok\",\"scene_ref\":\"scene.p3_07\",\"nav_ref\":\"nav.p3_07\"," +
+                "\"spawn_points\":[{\"position\":{\"x\":1,\"y\":2}},{\"id\":\"spawn.named_only\"}]}]";
+
+            var registry = BuildRegistryWithSpawnPointsRule(rows);
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+
+            var record = registry.Get(Core.Foundation.SceneRouter.WorldMapSchema.Table.Name, "world.p3_07_ok")
+                ?? throw new System.InvalidOperationException("record not loaded");
+            var descriptor = Core.Foundation.SceneRouter.SceneDescriptor.FromRecord(record);
+            Assert.Equal(1, descriptor.DefaultSpawnPosition.X);
+            Assert.Equal(2, descriptor.DefaultSpawnPosition.Y);
+        }
     }
 }

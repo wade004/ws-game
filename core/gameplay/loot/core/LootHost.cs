@@ -51,6 +51,9 @@ namespace Core.Gameplay.Loot
         private readonly LootOptions _options;
         private readonly IExprDiagnostics _diagnostics;
 
+        private readonly IDataRegistryView _registry;
+        private readonly IExprSchema? _conditionSchema;
+
         private readonly Dictionary<Id, LootTableDef> _tables = new Dictionary<Id, LootTableDef>();
         private readonly Dictionary<Id, DroppedLootEntity> _dropped = new Dictionary<Id, DroppedLootEntity>();
         private readonly List<Id> _order = new List<Id>();
@@ -72,7 +75,7 @@ namespace Core.Gameplay.Loot
             IExprDiagnostics? diagnostics = null,
             IExprSchema? conditionSchema = null)
         {
-            if (registry == null) throw new ArgumentNullException(nameof(registry));
+            _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _rng = rng ?? throw new ArgumentNullException(nameof(rng));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _world = world ?? throw new ArgumentNullException(nameof(world));
@@ -82,13 +85,29 @@ namespace Core.Gameplay.Loot
             _simTimeProvider = simTimeProvider ?? throw new ArgumentNullException(nameof(simTimeProvider));
             _options = options ?? new LootOptions();
             _diagnostics = diagnostics ?? new ExprDiagnosticsRecorder();
+            _conditionSchema = conditionSchema;
 
             // 判断记录：conditionSchema 未显式提供时默认 RulesExprSchema.Base（见
             // LootTableParser 判断记录"不硬编码 Base，只作默认值"）——组装层需要 loot 条件引用
             // world/quest/player 分组时应显式传入 RulesExprSchema.Compose(...) 的结果。
-            foreach (var record in registry.GetAll(LootSchemas.Table.Name))
+            ReloadTables();
+
+            // P2-05 同类缓存收口（外部审计 audit-c9ff301-20260909 followup-2026-09-10）：_tables
+            // 此前只在构造期从 registry 读取一次、永久常驻，与 SkillDefCache/ArchetypeRegistry/
+            // StatHost 同一类模式。_dropped/_order/_missStreaks 是运行期状态（活跃地面掉落物、
+            // 伪随机连续未中计数），不派生自 _tables 内容本身，reload 不清空/不重算，只替换掉落表
+            // 定义本身——已存在的地面掉落物实体不受影响（同 QuestHost.Reload 判断记录"不清空运行期
+            // 状态"）。
+            _bus.Subscribe<Core.Foundation.DataRegistry.DataLoadCompletedEvent>(
+                Core.Foundation.DataRegistry.DataRegistryEventKeys.LoadCompleted, _ => ReloadTables());
+        }
+
+        private void ReloadTables()
+        {
+            _tables.Clear();
+            foreach (var record in _registry.GetAll(LootSchemas.Table.Name))
             {
-                var def = LootTableParser.Parse(record, conditionSchema);
+                var def = LootTableParser.Parse(record, _conditionSchema);
                 _tables[def.Id] = def;
             }
         }

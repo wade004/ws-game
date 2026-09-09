@@ -35,6 +35,23 @@ namespace Core.Rules.Skill
             _exprSchema = exprSchema ?? RulesExprSchema.Base;
         }
 
+        /// <summary>
+        /// P2-05 根治：清空全部五张表的已解析缓存，下一次 <c>TryGet*</c>/<c>Get*</c> 重新从
+        /// <see cref="_registry"/> 读取并解析（registry 侧本身在 <see cref="IDataRegistry.Reload"/>
+        /// 之后已经是新数据，见该方法判断记录）。供 <see cref="SkillHost"/> 订阅
+        /// <see cref="Core.Foundation.DataRegistry.DataLoadCompletedEvent"/> 后调用——本类型不直接
+        /// 持有 <c>IEventBus</c>（构造签名保持不变，不强加事件总线依赖），由持有它的
+        /// <see cref="SkillHost"/> 决定何时失效，本方法只负责"清空"这一件事，不关心触发时机。
+        /// </summary>
+        public void InvalidateAll()
+        {
+            _skills.Clear();
+            _auras.Clear();
+            _procs.Clear();
+            _spellMods.Clear();
+            _books.Clear();
+        }
+
         public bool TryGetSkillDef(Id id, out SkillDef def)
         {
             if (_skills.TryGetValue(id, out def!))

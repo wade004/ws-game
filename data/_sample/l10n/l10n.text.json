@@ -20,6 +20,7 @@
     { "key": "l10n.item.quality.sample_common.name", "locale": "l10n.locale.zh_cn", "text": "普通" },
     { "key": "l10n.item.quality.sample_rare.name", "locale": "l10n.locale.zh_cn", "text": "稀有" },
     { "key": "l10n.item.sample_blade.name", "locale": "l10n.locale.zh_cn", "text": "示例利刃" },
+    { "key": "l10n.item.sample_model_sword.name", "locale": "l10n.locale.zh_cn", "text": "示例模型佩剑" },
     { "key": "l10n.item.sample_tonic.name", "locale": "l10n.locale.zh_cn", "text": "示例药水" },
     { "key": "l10n.item.sample_token.name", "locale": "l10n.locale.zh_cn", "text": "示例信物" },
     { "key": "l10n.creature.tier.sample_normal.name", "locale": "l10n.locale.zh_cn", "text": "普通" },

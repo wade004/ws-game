@@ -327,5 +327,78 @@ namespace Tests.Gameplay.Quest
 
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }
+
+        // -----------------------------------------------------------------
+        // P2-06 根治：rewards.world_flags[].value 是数组一类 ExprValueJson.Parse 联合类型之外的
+        // 形状时，此前只检查"存在"，0 error 直到 RewardBundle 解析才抛 FormatException（外部
+        // 审计）。下面覆盖非法形状 blocking + 合法形状（Bool/Number/String/{$id}）通过 + 端到端不
+        // 再流到 QuestDefinition.FromRecord 才失败。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Rewards_WorldFlagValueIsArray_ReportsRewardWorldFlagValueShape()
+        {
+            var rows = "[{" + MinimalQuestHeader + ", \"objectives\": [" +
+                "{\"type\": \"kill\", \"target_ref\": \"creature.cov_wolf\", \"count\": 1}], " +
+                "\"rewards\": {\"world_flags\": [{\"flagKey\": \"world.cov_flag\", \"value\": []}]}}]";
+
+            var report = Load(rows);
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "reward_world_flag_value_shape" && i.Field == "rewards.world_flags[0].value");
+
+            // 端到端：正式装配已经 blocking，不能让缺陷流到 QuestDefinition.FromRecord 才抛异常
+            // （改造自审计探针 QuestWorldFlagValueBoundaryProbe）——这里额外确认真的会抛，证明
+            // 校验补齐前这条数据是"看似合法、实则致命"的。
+            var source = new InMemoryDataSource().Add("quest.def", Envelope("quest.def", rows));
+            var registry = new DataRegistry(source, MakeBus(), new DataRegistryOptions
+            {
+                FailOnUnknownTable = true,
+                ExprSchema = QuestExprSchemaEntries.BuildParsingSchema(),
+            });
+            registry.RegisterSchema(QuestSchemas.Def);
+            registry.LoadAll();
+            Assert.Throws<FormatException>(() =>
+                QuestDefinition.FromRecord(registry.Get("quest.def", "quest.cov_a")!, QuestExprSchemaEntries.BuildParsingSchema()));
+        }
+
+        [Fact]
+        public void Rewards_WorldFlagValueIsPlainObjectWithoutId_ReportsRewardWorldFlagValueShape()
+        {
+            var rows = "[{" + MinimalQuestHeader + ", \"objectives\": [" +
+                "{\"type\": \"kill\", \"target_ref\": \"creature.cov_wolf\", \"count\": 1}], " +
+                "\"rewards\": {\"world_flags\": [{\"flagKey\": \"world.cov_flag\", \"value\": {\"foo\": 1}}]}}]";
+
+            var report = Load(rows);
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "reward_world_flag_value_shape" && i.Field == "rewards.world_flags[0].value");
+        }
+
+        [Fact]
+        public void Rewards_WorldFlagValue_Number_String_Id_AllPassAndParse()
+        {
+            foreach (var value in new[] { "1", "1.5", "\"some_text\"", "{\"$id\": \"world.cov_other\"}" })
+            {
+                var rows = "[{" + MinimalQuestHeader + ", \"objectives\": [" +
+                    "{\"type\": \"kill\", \"target_ref\": \"creature.cov_wolf\", \"count\": 1}], " +
+                    "\"rewards\": {\"world_flags\": [{\"flagKey\": \"world.cov_flag\", \"value\": " + value + "}]}}]";
+
+                var report = Load(rows);
+                Assert.False(report.IsBlocking, value + " => " + string.Join("; ", report.Issues));
+
+                var source = new InMemoryDataSource().Add("quest.def", Envelope("quest.def", rows));
+                var registry = new DataRegistry(source, MakeBus(), new DataRegistryOptions
+                {
+                    FailOnUnknownTable = true,
+                    ExprSchema = QuestExprSchemaEntries.BuildParsingSchema(),
+                });
+                registry.RegisterSchema(QuestSchemas.Def);
+                registry.LoadAll();
+                var parsed = QuestDefinition.FromRecord(
+                    registry.Get("quest.def", "quest.cov_a")!, QuestExprSchemaEntries.BuildParsingSchema());
+                Assert.Single(parsed.Rewards.WorldFlags);
+            }
+        }
     }
 }

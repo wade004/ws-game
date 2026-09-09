@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Core.Foundation.DataRegistry;
 using Core.Rules.Common;
 using Core.Rules.Skill;
 using Xunit;
@@ -62,6 +63,28 @@ namespace Tests.Rules.Skill
                 .Single(f => f.Name == "on_hit_effects");
 
             Assert.Same(SkillSchemas.EffectsItemSchema, projectileParams.Item);
+        }
+
+        /// <summary>P3-04 根治：<c>periodic_damage</c>/<c>periodic_heal</c> 的 <c>params.scaling_stat</c>
+        /// 登记为 <c>Reference(stat.definition)</c>、非必填——与非周期的 <c>school_damage</c>/
+        /// <c>heal</c>（<c>SkillSchemas.cs</c> 里的 <c>DamageOrHealParams</c>）保持一致，两者共用
+        /// 同一条 <c>EffectDispatcher.ApplyDamageOrHeal</c> 结算路径（见 <see
+        /// cref="Tests.Rules.Skill.AuraEffectTests.PeriodicDamage_WithScalingStat_ScalesBySourceStat"/>
+        /// 端到端验证运行期确实消费这个字段）。</summary>
+        [Theory]
+        [InlineData("periodic_damage")]
+        [InlineData("periodic_heal")]
+        public void PeriodicEffectParams_DeclareOptionalScalingStatReference(string kind)
+        {
+            var effectsField = SkillSchemas.AuraDef.GetField("effects");
+            var paramsFields = effectsField!.Item!.Variants!.Cases[kind].Single(f => f.Name == "params").Fields!;
+
+            var scalingStat = paramsFields.SingleOrDefault(f => f.Name == "scaling_stat");
+
+            Assert.NotNull(scalingStat);
+            Assert.False(scalingStat!.Required);
+            Assert.Equal(FieldKind.Reference, scalingStat.Kind);
+            Assert.Equal("stat.definition", scalingStat.ReferenceTable);
         }
 
         [Fact]

@@ -158,10 +158,13 @@ namespace Core.Gameplay.Quest
         /// <c>RewardSchemaFields.Rewards()</c>，让三张表都直接带上 <c>Fields</c>，避免各自重复登记
         /// （见最终报告"RewardSchemaFields 完整路径与字段清单"一节）。
         /// <para>
-        /// <c>world_flags[].value</c> 判断记录：值类型是 Bool｜Number｜Id 联合类型（05 第 8.2 节
-        /// WorldState 取值类型），<see cref="FieldKind"/> 无法表达联合类型，故不登记该子字段（同
-        /// <c>SkillSchemas</c> <c>set_world_flag.flag_key</c> 判断记录先例）；"value 必须存在"这条
-        /// 纯粹的必填判断改由 <see cref="QuestContentValidationRule"/> 手写兜底。
+        /// <c>world_flags[].value</c> 判断记录：值类型是 Bool｜Number｜String｜Id 联合类型（经
+        /// <see cref="Core.Gameplay.Common.ExprValueJson.Parse"/> 解析），<see cref="FieldKind"/>
+        /// 无法表达联合类型，故不登记该子字段（同 <c>SkillSchemas</c>
+        /// <c>set_world_flag.flag_key</c> 判断记录先例）；"value 必须存在"与"value 形状必须落在
+        /// <see cref="Core.Gameplay.Common.ExprValueJson.IsValid"/> 接受的集合内"两条判断改由
+        /// <see cref="QuestContentValidationRule"/> 手写兜底（P2-06 根治：此前只检查存在性，
+        /// <c>[]</c> 一类非法形状 0 error，直到 <c>RewardBundle</c> 解析才抛异常）。
         /// </para>
         /// </summary>
         public static readonly IReadOnlyList<FieldSchema> RewardsFields = new[]
@@ -199,8 +202,8 @@ namespace Core.Gameplay.Quest
                 {
                     new FieldSchema("flagKey", FieldKind.Id, required: true,
                         description: "见 world.flag_schema；判断记录同 SkillSchemas.set_world_flag.flag_key，未登记为 Reference"),
-                }, description: "{flagKey: Id, value: Bool|Number|Id}"),
-                description: "[{flagKey: Id, value: Bool|Number|Id}, ...]；value 未登记子结构（联合类型，见类型顶部判断记录），必填判断由 QuestContentValidationRule 手写兜底"),
+                }, description: "{flagKey: Id, value: Bool|Number|String|Id}"),
+                description: "[{flagKey: Id, value: Bool|Number|String|Id}, ...]；value 未登记子结构（联合类型，见类型顶部判断记录），必填/形状判断由 QuestContentValidationRule 手写兜底（P2-06 根治）"),
 
             new FieldSchema("talent_points", FieldKind.Int, required: false,
                 description: "缺省 0；不能为负数（RewardBundle 构造期硬约束，业务判断见 QuestContentValidationRule）"),

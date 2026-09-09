@@ -20,10 +20,8 @@ namespace Core.Gameplay.Dialog
     /// <c>DataRegistry</c> 加载期已经独立、逐字段地报出
     /// <c>required_field</c>/<c>field_type</c>/<c>variant_discriminator</c>/<c>reference_integrity</c>/
     /// <c>expr_parsable</c>——若本规则继续整条委托 <c>FromRecord</c>，会对同一处缺陷重复报告一次
-    /// （任务书"同一缺陷不得双报"）。本规则因此收窄为只做登记表达不了的纯业务判断（<c>gossip_menu</c>
-    /// 侧在收窄后不再需要任何专属检查——<see cref="GossipMenuDefinition.FromRecord"/> 能抛出的全部
-    /// 错误路径都已经被上述子结构登记逐一覆盖，见 <c>schema/dialog.gossip_menu.md</c>"子结构登记表"
-    /// 一节判断记录；<c>story_tree</c> 侧保留全部四项登记表达不了的图结构判断）：
+    /// （任务书"同一缺陷不得双报"）。本规则因此收窄为只做登记表达不了的纯业务判断（<c>story_tree</c>
+    /// 侧保留全部四项登记表达不了的图结构判断）：
     /// </para>
     /// <list type="bullet">
     /// <item><c>nodes</c> 数组至少一个元素（<c>StoryTreeDefinition</c> 构造期硬约束，
@@ -35,6 +33,17 @@ namespace Core.Gameplay.Dialog
     /// <item>树不得成环（<c>StoryTreeDefinition.HasCycle</c> 三色标记 DFS 同款算法，改在原始 JSON
     /// 上直接跑，不依赖 <c>FromRecord</c> 成功解析）——<c>story_tree_cycle</c>。</item>
     /// </list>
+    /// <para>
+    /// P2-06 关联根治（同一份联合类型缺口，见 <c>QuestContentValidationRule</c>
+    /// <c>reward_world_flag_value_shape</c> 判断记录）：<c>gossip_menu</c> 侧新增一项——
+    /// <c>options[].actions[].kind == "set_flag"</c> 时 <c>params.value</c>（若提供）经
+    /// <see cref="Core.Gameplay.Common.ExprValueJson.Parse"/> 解析（<c>DialogHost.ExecuteAction</c>），
+    /// <see cref="DialogSchemas.GossipActionItemSchema"/> 的 <c>set_flag</c> 变体未登记
+    /// <c>params.value</c> 子结构（联合类型，<see cref="FieldKind"/> 无法表达，见该处判断记录），
+    /// 此前缺失校验，非法形状会在 <c>DialogHost.ExecuteAction</c> 才抛 <see cref="System.FormatException"/>
+    /// ——<c>gossip_action_set_flag_value_shape</c>。<c>value</c> 缺省时按 <c>DialogHost</c> 语义
+    /// 取 <c>Bool(true)</c>，不要求必填，本项只在 <c>value</c> 存在时校验其形状。
+    /// </para>
     /// <para>
     /// 判断记录：出现节点 id 重复时图结构不可靠，<c>next_node_id</c> 悬空引用/成环两项检查对该记录
     /// 跳过（避免在错误的图上继续误报，延续 <c>StoryTreeDefinition</c> 构造函数"重复 id 直接抛异常，
@@ -65,6 +74,17 @@ namespace Core.Gameplay.Dialog
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
+            if (view.Tables.Contains(DialogSchemas.GossipMenu.Name))
+            {
+                foreach (var record in view.GetAll(DialogSchemas.GossipMenu.Name))
+                {
+                    foreach (var issue in ValidateGossipMenuSetFlagValues(record))
+                    {
+                        yield return issue;
+                    }
+                }
+            }
+
             if (!view.Tables.Contains(DialogSchemas.StoryTree.Name))
             {
                 yield break;
@@ -75,6 +95,64 @@ namespace Core.Gameplay.Dialog
                 foreach (var issue in ValidateStoryTree(record))
                 {
                     yield return issue;
+                }
+            }
+        }
+
+        /// <summary>见类型顶部判断记录（P2-06 关联根治）：<c>options[].actions[].kind == "set_flag"</c>
+        /// 时若提供了 <c>params.value</c>，其形状必须落在
+        /// <see cref="Core.Gameplay.Common.ExprValueJson.IsValid"/> 接受的集合内。</summary>
+        private static IEnumerable<ValidationIssue> ValidateGossipMenuSetFlagValues(DataRecord record)
+        {
+            if (!record.TryGetArray("options", out var optionsRaw))
+            {
+                yield break; // 缺失/类型不符已由 required_field/field_type 报告。
+            }
+
+            for (var i = 0; i < optionsRaw.Count; i++)
+            {
+                if (!(optionsRaw[i] is JsonObject option))
+                {
+                    continue;
+                }
+
+                if (!option.TryGetValue("actions", out var actionsRaw) || !(actionsRaw is JsonArray actions))
+                {
+                    continue;
+                }
+
+                for (var j = 0; j < actions.Count; j++)
+                {
+                    if (!(actions[j] is JsonObject action))
+                    {
+                        continue;
+                    }
+
+                    if (!action.TryGetValue("kind", out var kindVal) || !(kindVal is JsonString kindStr) ||
+                        kindStr.Value != DialogActionKinds.ToWireString(DialogActionKind.SetFlag))
+                    {
+                        continue;
+                    }
+
+                    if (!action.TryGetValue("params", out var paramsRaw) || !(paramsRaw is JsonObject paramsObj))
+                    {
+                        continue; // params 本身可选，缺失时 DialogHost.ExecuteAction 取 Bool(true)。
+                    }
+
+                    if (!paramsObj.TryGetValue("value", out var valueRaw))
+                    {
+                        continue; // value 可选，同上缺省语义。
+                    }
+
+                    if (!Core.Gameplay.Common.ExprValueJson.IsValid(valueRaw))
+                    {
+                        yield return new ValidationIssue(
+                            ValidationSeverity.Error, DialogSchemas.GossipMenu.Name,
+                            "gossip_action_set_flag_value_shape",
+                            $"options[{i}].actions[{j}].params.value 不是合法的 ExprValue 形状" +
+                                $"（Bool|Number|String|{{\"$id\":...}}），实际类型：{valueRaw.Kind}",
+                            recordKey: record.Key, field: $"options[{i}].actions[{j}].params.value");
+                    }
                 }
             }
         }

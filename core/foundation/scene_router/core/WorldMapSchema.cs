@@ -19,17 +19,40 @@ namespace Core.Foundation.SceneRouter
     /// <see cref="TableSchema"/> 校验（代码待补）。现按 05 原文类型/必填性逐一补登记（均为可选
     /// 字段，05 原文"必填"列均为"否"）：<c>regions</c>（<c>List&lt;Id&gt;</c>，供 Expr 中
     /// <c>world</c> 分组按区域读取标志，用 <see cref="FieldKind.IdList"/>）、<c>teleport_points</c>
-    /// （<c>List&lt;{id, position}&gt;</c> 嵌套对象数组，与既有 <c>spawn_points</c> 同构，同样只做
-    /// <see cref="FieldKind.Array"/> 类型校验，不展开逐条元素形状——<c>Core.Gameplay.Assembly.
-    /// TeleportTargetResolver</c> 已按此形状真实消费该字段，见该类型 <c>TeleportPointsField</c>
-    /// 判断记录）、<c>music_ref</c>（<c>String</c>）、<c>allowed_difficulties</c>（<c>List&lt;Id&gt;</c>，
+    /// （<c>List&lt;{id, position}&gt;</c> 嵌套对象数组，与既有 <c>spawn_points</c> 同构）、
+    /// <c>music_ref</c>（<c>String</c>）、<c>allowed_difficulties</c>（<c>List&lt;Id&gt;</c>，
     /// 见 08 难度档位，用 <see cref="FieldKind.IdList"/>）。四个字段均不声明
     /// <see cref="FieldSchema.ReferenceTable"/>/<see cref="FieldSchema.ReferenceDomain"/>——
     /// <c>regions</c> 引用的子区域划分与 <c>allowed_difficulties</c> 引用的难度档位当前均无独立
     /// 登记表可供引用完整性校验（08 难度档位只在运行期以 <see cref="Id"/> 标识，未登记进
-    /// <c>IDataRegistry</c>），登记完整性校验属于后续独立收口项，本次只补齐类型校验，与既有
-    /// <c>spawn_points</c>/<c>scene_ref</c>/<c>nav_ref</c> 同样"只做类型校验、不做引用完整性"的
-    /// 处理口径一致。
+    /// <c>IDataRegistry</c>），登记完整性校验属于后续独立收口项。
+    /// </para>
+    /// <para>
+    /// P3-07 勘误（外部审计 audit-c9ff301-20260909）：本节此前留下一句过期描述——
+    /// "<c>teleport_points</c>……同样只做 <see cref="FieldKind.Array"/> 类型校验，不展开逐条元素
+    /// 形状"，与下面 <see cref="PointItemSchema"/> 实际登记（<c>item: PointItemSchema</c>，展开到
+    /// <c>id</c>/<c>position</c> 两个子字段）已经不一致——ADR-0019 之后的登记升级没有同步更新这句
+    /// 注释，是纯文档漂移，不是运行期行为差异。<c>spawn_points</c>/<c>teleport_points</c> 两个点
+    /// 数组共用同一个 <c>PointItemSchema</c>，但两者的实际"必填"语义按用途各不相同、不强迫所有点
+    /// 统一字段（见该类型判断记录）：
+    /// <list type="bullet">
+    /// <item><c>spawn_points</c> 数组本身（<see cref="FieldKind.Array"/>）不表达最小长度/首元素
+    /// 必填 <c>position</c> 这类跨元素约束，<see cref="SceneDescriptor.FromRecord"/> 只读第 0 个
+    /// 元素的 <c>position</c> 作为默认出生点，缺失时构造期直接抛
+    /// <see cref="Core.Foundation.DataRegistry.DataFieldException"/>——这是登记层表达不了的业务
+    /// 约束，见下方 <see cref="WorldMapSpawnPointsValidationRule"/> 在 report 阶段补齐。数组内第
+    /// 0 个之外的其余出生点、以及 <c>teleport_points</c> 的全部点，本身既可以是匿名点（只有
+    /// <c>position</c>、供直接坐标引用）也可以是命名点（只有 <c>id</c>、被 <c>teleport_target_ref</c>
+    /// 一类外部引用按 id 查找，实际坐标随后由被引用方决定或压根不需要），因此 <c>id</c>/
+    /// <c>position</c> 均保持可选，不强制两者都填。</item>
+    /// <item>"命名引用目标"（<c>teleport_points</c> 里带 <c>id</c> 的点，供
+    /// <c>Core.Gameplay.Assembly.TeleportTargetResolver</c> 按 <c>id</c> 查找）与"匿名坐标点"
+    /// （只有 <c>position</c>）是同一个 <see cref="PointItemSchema"/> 结构下两种不同的使用方式，
+    /// 不是两种不同的 schema——<c>TeleportTargetResolver.TryReadPosition</c> 对缺失字段温和降级为
+    /// "找不到"而非抛异常（见该方法判断记录），因此这里不新增引用完整性校验；跨地图/跨表按 id
+    /// 引用这些命名点是否存在，属于内容管线的更高层职责（04/05 尚未给出具体规则），本次不越权
+    /// 替 04/05 拍板。
+    /// </list>
     /// </para>
     /// </summary>
     public static class WorldMapSchema
@@ -73,5 +96,56 @@ namespace Core.Foundation.SceneRouter
                 new FieldSchema("allowed_difficulties", FieldKind.IdList, required: false, description: "该地图允许应用的难度档位（见 08）"),
             },
             migrations: Array.Empty<TableMigration>());
+    }
+
+    /// <summary>
+    /// P3-07 根治（外部审计 audit-c9ff301-20260909）："<c>spawn_points</c> 至少一条、且第 0 条必须
+    /// 携带合法 <c>position</c>"这条业务约束，<see cref="FieldSchema"/> 的
+    /// <see cref="FieldKind.Array"/>/<see cref="WorldMapSchema.PointItemSchema"/>（<c>id</c>/
+    /// <c>position</c> 均可选，见该字段判断记录）登记层表达不了，此前完全没有校验——违反的记录能
+    /// 完整通过 <c>DataRegistry.LoadAll()</c>（0 error），只在真正切场景经
+    /// <see cref="SceneDescriptor.FromRecord"/> 解析时才抛
+    /// <see cref="Core.Foundation.DataRegistry.DataFieldException"/>。本规则在 report 阶段补齐同一
+    /// 条判定（与 <see cref="SceneDescriptor.FromRecord"/> 的两个异常分支一一对应），使用真实
+    /// <c>world.map</c> 数据的消费方在加载期而不是切场景那一刻发现内容缺陷。
+    /// </summary>
+    public sealed class WorldMapSpawnPointsValidationRule : IValidationRule
+    {
+        private const string CheckName = "world_map_spawn_points_first_position";
+
+        public System.Collections.Generic.IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            foreach (var record in view.GetAll(WorldMapSchema.Table.Name))
+            {
+                if (!record.TryGetArray("spawn_points", out var spawnPoints))
+                {
+                    // 缺失/类型不符属于 required_field/field_type 职责，本规则不重复报错。
+                    continue;
+                }
+
+                if (spawnPoints.Count == 0)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, WorldMapSchema.Table.Name, CheckName,
+                        "spawn_points 至少需要一个出生点才能确定默认出生点", recordKey: record.Key, field: "spawn_points");
+                    continue;
+                }
+
+                if (!HasValidPosition(spawnPoints[0]))
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, WorldMapSchema.Table.Name, CheckName,
+                        "spawn_points 第 0 个出生点缺少合法 position（{\"x\": Number, \"y\": Number}）",
+                        recordKey: record.Key, field: "spawn_points");
+                }
+            }
+        }
+
+        private static bool HasValidPosition(Core.Foundation.Common.Json.JsonValue firstPoint) =>
+            firstPoint is Core.Foundation.Common.Json.JsonObject first
+            && first.TryGetValue("position", out var posVal)
+            && posVal is Core.Foundation.Common.Json.JsonObject posObj
+            && posObj.TryGetValue("x", out var xv) && xv is Core.Foundation.Common.Json.JsonNumber
+            && posObj.TryGetValue("y", out var yv) && yv is Core.Foundation.Common.Json.JsonNumber;
     }
 }

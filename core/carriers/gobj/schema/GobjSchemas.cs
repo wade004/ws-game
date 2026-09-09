@@ -128,9 +128,11 @@ namespace Core.Carriers.Gobj
         /// <c>requirement</c> 对象内，Variants 适用。原 <c>GobjLockRequirementFieldGroupRule</c> 的
         /// 全部检查（kind 存在且合法字符串/取值在三选一集合内/各变体专属字段必填）已被
         /// <c>variant_discriminator</c>/<c>required_field</c> 内建校验完全覆盖，整条退役删除。
-        /// <c>world_flag.expected</c> 取值为 <c>Bool｜Int</c>（<c>LockDef.RequireExprValue</c>），
-        /// <see cref="FieldKind"/> 无法表达联合类型，本次不登记其类型（同 <c>SkillSchemas</c>
-        /// <c>set_world_flag.value</c> 判断记录，未登记子字段默认不报错，不影响内容作者填写）。</summary>
+        /// <c>world_flag.expected</c> 取值为 <c>Bool｜Number</c>（<c>LockDef.RequireExprValue</c>），
+        /// <see cref="FieldKind"/> 无法表达联合类型，本次不在这里登记其类型（同 <c>SkillSchemas</c>
+        /// <c>set_world_flag.value</c> 判断记录）；P2-03 根治：必填与形状改由独立的
+        /// <see cref="GobjLockWorldFlagExpectedRule"/> 在 report 阶段兜底，不再是"未登记子字段
+        /// 默认不报错"——缺失或类型不是 Bool/Number 会被判为 blocking error，见该规则判断记录。</summary>
         public static readonly FieldSchema RequirementSchema = new FieldSchema(
             "requirement", FieldKind.Object, required: true, variants: BuildRequirementVariants(),
             description: "{kind: item_key|world_flag|skill_check, ...}");
@@ -148,7 +150,8 @@ namespace Core.Carriers.Gobj
                 ["world_flag"] = new[]
                 {
                     // world.flag_schema 属 L4（core/gameplay/world_state），本模块（L3）不可
-                    // Reference（依赖方向），退回 Id；expected 判断记录见本字段顶部注释，不登记。
+                    // Reference（依赖方向），退回 Id；expected 判断记录见本字段顶部注释——不在这里
+                    // 登记，改由 GobjLockWorldFlagExpectedRule 校验。
                     new FieldSchema("flag_key", FieldKind.Id, required: true,
                         description: "指向 world.flag_schema 的世界标志键，退回 Id 登记（跨层不做引用完整性校验）"),
                 },

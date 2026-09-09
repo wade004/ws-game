@@ -87,8 +87,9 @@ gobj/
 | 规则 | 检查项名 | 说明 |
 |---|---|---|
 | `GobjTypeDataFieldGroupRule` | `gobj_type_data_field_group` | `kind` 决定 `type_data` 内哪些字段必填（十种 kind 各一分支，见 07 第 3.1 节）。**不退役**：判别字段 `kind` 与 `type_data` 不同级，`Variants` 不适用（见判断记录 10），条件必填仍需独立规则表达 |
+| `GobjLockWorldFlagExpectedRule` | `gobj_lock_world_flag_expected` | P2-03 根治（外部审计 audit-c9ff301-20260909）：`requirement.kind == "world_flag"` 时 `expected` 必填且类型必须是 Bool 或 Number（`LockDef.RequireExprValue` 实际接受集合）。`RequirementSchema` 的 `world_flag` 变体只登记了 `flag_key`（`expected` 是联合类型，`FieldKind` 无法表达），退役 `GobjLockRequirementFieldGroupRule` 时遗漏了这一条，此前缺失/错型 0 error、只在 `LockDef.FromRecord` 才抛异常 |
 
-以上规则通过 `IDataRegistry.RegisterValidationRule` 注册。
+以上规则通过 `IDataRegistry.RegisterValidationRule` 注册（`CarriersSchemaCatalog.RegisterAll` 已默认注册全部三条）。
 
 ### ADR-0019 F1c 退役规则
 
@@ -108,6 +109,10 @@ JsonObject（同 `core/gameplay/area_trigger` 的 `ParamsSchema`/`trigger_type` 
 而定"这条条件必填业务判断继续留在 `GobjTypeDataFieldGroupRule`。本轮新增的是此前完全没有的
 "存在时类型必须合法"校验（`skill_id` 的 `reference_integrity`、`text_key` 的 `text_key_exists`
 等），与 `GobjTypeDataFieldGroupRule` 的必填性检查互不重叠，不会对同一缺陷双报。
+
+### P2-01 ABI/API 兼容 façade（外部审计 audit-c9ff301-20260909）
+
+`GobjOnUseKindRule`/`GobjLockRequirementFieldGroupRule` 两个 1.12 public 类型已按 [12_扩展与变更流程](../../../architecture/12_扩展与变更流程.md) 的兼容承诺补回（标 `[Obsolete]`，逻辑与 1.12 完全一致），供未重新编译的旧调用方/旧编译产物继续构造、注册、运行，不再 `MissingMethodException`。新代码应改用上一节的 `VariantSchema`/`GobjLockWorldFlagExpectedRule` 声明式登记；显式注册这两个 façade 会与内建结构校验（以及 `GobjLockWorldFlagExpectedRule`）对同一坏形状重复报告，是已知的、可接受的兼容代价，不是新缺陷。
 
 ## 设计要点与判断记录
 

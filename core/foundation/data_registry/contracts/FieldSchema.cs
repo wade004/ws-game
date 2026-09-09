@@ -148,5 +148,37 @@ namespace Core.Foundation.DataRegistry
             _variantsFactory = variantsFactory;
             _variantsResolved = variantsFactory == null;
         }
+
+        /// <summary>
+        /// ABI/API 兼容 façade（P2-01 根治，外部审计 audit-c9ff301-20260909）：1.12 的物理构造签名
+        /// 恰好是七个参数、没有 <c>fields</c>/<c>item</c>/<c>variants</c>/<c>itemFactory</c>/
+        /// <c>variantsFactory</c> 五个 ADR-0019 新增参数。C# 的可选参数是编译期特性——上面主构造函数
+        /// 虽然后五个参数都带默认值，但物理 IL 签名仍然是完整的十二个参数；1.12 编译产物里对七参数
+        /// 构造函数的调用，在只替换 DLL、不重新编译的情况下，找不到匹配的物理方法而
+        /// <c>MissingMethodException</c>（见 project-findings.md P2-01 "Actual"：正式 1.12 DLL 编译/
+        /// 运行 exit 0；只替换 1.13 <c>Core.Foundation.dll</c> 不重编译，运行 <c>MissingMethodException</c>）。
+        /// 本重载补回这个物理七参数签名，转发到主构造函数、后五个新参数一律传 null——旧调用方不会
+        /// 得到 ADR-0019 子结构登记（<c>Fields</c>/<c>Item</c>/<c>Variants</c> 全部为 null），只保证
+        /// 不再 <c>MissingMethodException</c>，行为与 1.12 完全一致。
+        /// <para>
+        /// 判断记录（不是可选参数）：本重载的七个参数全部不带默认值——若也写成可选参数，会与主
+        /// 构造函数在"只传 3～6 个参数"的调用点产生重载二义性（两者都可以匹配、都需要为末尾参数
+        /// 代入默认值）。全部必填后，C# 重载决议规则（"不需要为可选参数代入默认值的候选更优"）保证
+        /// 恰好传 7 个位置参数时优先匹配本重载，其余任何参数个数的调用都落到主构造函数，不产生歧义。
+        /// </para>
+        /// </summary>
+        [Obsolete("1.12 的七参数构造签名，仅为源码/二进制兼容保留；新代码请使用带 Fields/Item/Variants 的构造函数。")]
+        public FieldSchema(
+            string name,
+            FieldKind kind,
+            bool required,
+            IReadOnlyList<string>? enumValues,
+            string? referenceTable,
+            string? referenceDomain,
+            string? description)
+            : this(name, kind, required, enumValues, referenceTable, referenceDomain, description,
+                fields: null, item: null, variants: null, itemFactory: null, variantsFactory: null)
+        {
+        }
     }
 }

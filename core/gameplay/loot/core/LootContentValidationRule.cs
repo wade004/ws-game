@@ -1,7 +1,9 @@
+using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
+using Core.Foundation.Expr;
 
 namespace Core.Gameplay.Loot
 {
@@ -49,6 +51,23 @@ namespace Core.Gameplay.Loot
         private const string Check = "loot_content";
 
         private const string ItemTemplateTable = "item.template";
+
+        public LootContentValidationRule()
+        {
+        }
+
+        /// <summary>
+        /// ABI/API 兼容 façade（P2-01 根治，外部审计 audit-c9ff301-20260909）：同
+        /// <c>Core.Gameplay.Economy.EconomyContentValidationRule</c> 判断记录——1.12 的构造签名是
+        /// <c>LootContentValidationRule(IExprSchema? conditionSchema = null)</c>，ADR-0019/F1b 收窄
+        /// 后不再需要它，1.13 换成隐式无参构造，老编译产物只换 DLL 会 <see
+        /// cref="System.MissingMethodException"/>。本重载补回该物理签名，忽略
+        /// <paramref name="conditionSchema"/>。
+        /// </summary>
+        [Obsolete("conditionSchema 自 ADR-0019/F1b 起不再被使用；仅为 1.12 源码/二进制兼容保留，请改用无参构造函数。")]
+        public LootContentValidationRule(IExprSchema? conditionSchema)
+        {
+        }
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {

@@ -10,7 +10,9 @@ namespace Core.Numbers.Archetype
     /// <summary>
     /// <see cref="IArchetypeRegistry"/> 的默认实现（见本模块 README）。构造期从
     /// <see cref="IDataRegistryView"/> 一次性读取 <c>arch.class</c>/<c>arch.race</c>/
-    /// <c>arch.talent_tree</c> 建索引；之后只读，不重新查询 registry。
+    /// <c>arch.talent_tree</c> 建索引；P2-05 关联根治（外部审计 audit-c9ff301-20260909）之前"之后
+    /// 只读，不重新查询 registry"——现订阅 <see cref="Core.Foundation.DataRegistry.DataLoadCompletedEvent"/>
+    /// 后重新查询并整体替换三张索引，见 <see cref="ReloadFromRegistry"/> 判断记录。
     /// <para>
     /// 判断记录（种族修正的 <c>sourceId</c>）：任务书只说"StatModifierWriter 写种族修正"，未
     /// 指定来源 id 取值；本模块选用种族自身的 id（即 <paramref name="raceId"/> 参数本身）作为
@@ -27,6 +29,7 @@ namespace Core.Numbers.Archetype
     /// </summary>
     public sealed class ArchetypeRegistry : IArchetypeRegistry
     {
+        private readonly IDataRegistryView _registry;
         private readonly IEventBus _bus;
         private readonly StatBaseWriter _statBaseWriter;
         private readonly StatModifierWriter _statModifierWriter;
@@ -54,26 +57,43 @@ namespace Core.Numbers.Archetype
             PowerRegistrar powerRegistrar,
             AuraApplier? auraApplier = null)
         {
-            if (registry == null) throw new ArgumentNullException(nameof(registry));
+            _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _statBaseWriter = statBaseWriter ?? throw new ArgumentNullException(nameof(statBaseWriter));
             _statModifierWriter = statModifierWriter ?? throw new ArgumentNullException(nameof(statModifierWriter));
             _powerRegistrar = powerRegistrar ?? throw new ArgumentNullException(nameof(powerRegistrar));
             _auraApplier = auraApplier;
 
-            foreach (var record in registry.GetAll("arch.race"))
+            ReloadFromRegistry();
+
+            // P2-05 关联根治（外部审计 audit-c9ff301-20260909，见 Core.Rules.Skill.SkillHost/
+            // SkillDefCache.InvalidateAll、Core.Carriers.Item.InventoryHost 同一类判断记录）：
+            // _races/_talentTrees/_classes/_classOrder 此前只在构造期从 registry 读取一次、永久
+            // 常驻（类型顶部判断记录原文"之后只读，不重新查询 registry"）。本类型本就持有 registry
+            // 引用，直接内部订阅、自行重新查询，不影响已经调用过 ApplyTo 的既有单位（属性/资源/光环
+            // 是运行期状态，reload 只刷新定义表本身，不倒退已应用的效果）。
+            _bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, _ => ReloadFromRegistry());
+        }
+
+        private void ReloadFromRegistry()
+        {
+            _races.Clear();
+            foreach (var record in _registry.GetAll("arch.race"))
             {
                 var race = ParseRace(record);
                 _races[race.Id.Value] = race;
             }
 
-            foreach (var record in registry.GetAll("arch.talent_tree"))
+            _talentTrees.Clear();
+            foreach (var record in _registry.GetAll("arch.talent_tree"))
             {
                 var tree = ParseTalentTree(record);
                 _talentTrees[tree.Id.Value] = tree;
             }
 
-            foreach (var record in registry.GetAll("arch.class"))
+            _classes.Clear();
+            _classOrder.Clear();
+            foreach (var record in _registry.GetAll("arch.class"))
             {
                 var cls = ParseClass(record);
                 _classes[cls.Id.Value] = cls;

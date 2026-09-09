@@ -36,13 +36,38 @@ namespace Core.Numbers.PowerSet
 
         public PowerHost(IEnumerable<PowerTypeDefinition> powerTypes, IEventBus bus, StatLookup? statLookup = null)
         {
+            _bus = bus ?? throw new ArgumentNullException(nameof(bus));
+            _statLookup = statLookup;
+
+            LoadDefinitions(powerTypes);
+        }
+
+        /// <summary>
+        /// P2-05 同类缓存收口（外部审计 audit-c9ff301-20260909 followup-2026-09-10）：<see
+        /// cref="_definitions"/> 此前只在构造期从注入的 <see cref="IEnumerable{T}"/> 一次性建索引、
+        /// 没有任何刷新入口——与 <c>QuestHost</c>/<c>DialogHost</c> 同一类"构造签名只接收预解析
+        /// 集合、不持有 registry 本身"的模式（本类型是 L1，刻意不依赖 <c>Core.Foundation.
+        /// DataRegistry</c>，见类型顶部"全部状态保存在内存，不接触任何文件/引擎符号"），因此采用
+        /// 与 Quest/Dialog 相同的处理方式：新增公开 <see cref="Reload"/>，由持有 registry 的组装根
+        /// （<c>core/rules/assembly.RulesAssembly</c>）订阅 <c>DataLoadCompletedEvent</c> 后重新
+        /// 解析 <c>arch.power_type</c> 表并调用。<see cref="_units"/>（每单位当前值/上限，运行期
+        /// 状态）不受影响——reload 只替换资源类型定义表本身，不重算/不清空已注册单位的资源值，
+        /// 与本类型既有的"上限变化经 <see cref="RecomputeMax"/> 显式重算，不隐式在定义变化时
+        /// 联动"惯例一致（调用方若需要新定义的上限立即生效，仍应显式对受影响单位调用
+        /// <see cref="RecomputeMax"/>，本方法不越权自动遍历全部已注册单位）。
+        /// </summary>
+        public void Reload(IEnumerable<PowerTypeDefinition> powerTypes)
+        {
+            _definitions.Clear();
+            LoadDefinitions(powerTypes);
+        }
+
+        private void LoadDefinitions(IEnumerable<PowerTypeDefinition> powerTypes)
+        {
             if (powerTypes == null)
             {
                 throw new ArgumentNullException(nameof(powerTypes));
             }
-
-            _bus = bus ?? throw new ArgumentNullException(nameof(bus));
-            _statLookup = statLookup;
 
             foreach (var definition in powerTypes)
             {

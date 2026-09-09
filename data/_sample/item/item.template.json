@@ -16,6 +16,19 @@
       "name_key": "l10n.item.sample_blade.name"
     },
     {
+      "id": "item.sample_model_sword",
+      "slot": "item.slot.sample_main_hand",
+      "quality": "item.quality.sample_common",
+      "item_level": 1,
+      "stats": [
+        { "stat": "stat.strength", "op": "flat", "value": 2 }
+      ],
+      "weapon_profile": { "damage_min": 3, "damage_max": 6, "speed": 1.5, "weapon_school": "school.physical" },
+      "display_ref": "display.map.sample_model_sword",
+      "stack_size": 1,
+      "name_key": "l10n.item.sample_model_sword.name"
+    },
+    {
       "id": "item.sample_tonic",
       "slot": "item.slot.sample_bag",
       "quality": "item.quality.sample_common",

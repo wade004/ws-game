@@ -140,9 +140,14 @@ scene_router/
    `{id?:String, position?:{x:Number, y:Number}}`（`id`/`position` 均登记为非必填——
    `Core.Gameplay.Assembly.TeleportTargetResolver` 缺失时温和降级为"找不到"而非抛异常；
    `position` 一旦提供则 `x`/`y` 均必填）。判断记录：文档提到的 `facing` 子字段全仓库搜索
-   找不到任何运行时读取代码，按通用规则 1 不登记；`spawn_points` 第 0 个元素缺失 `position`
-   时 `SceneDescriptor.FromRecord` 构造期直接抛异常，属运行期硬失败而非 `IValidationRule`
-   校验项，登记层不重复表达。
+   找不到任何运行时读取代码，按通用规则 1 不登记。P2-07 根治（外部审计
+   audit-c9ff301-20260909）：`spawn_points` 第 0 个元素缺失 `position` 这条约束此前只在
+   `SceneDescriptor.FromRecord` 构造期抛异常、report 阶段 0 error——`FieldSchema` 登记层表达不了
+   "第 0 个元素必须……"这类跨元素/按下标的约束，现补 `WorldMapSpawnPointsValidationRule`
+   （检查名 `world_map_spawn_points_first_position`，`core/rules/assembly/RulesSchemaCatalog.cs`
+   默认注册）在 report 阶段拒绝同一缺陷，不必等到切场景才失败；`spawn_points`/`teleport_points`
+   除第 0 个出生点外的其余点位仍然可以是只带 `id` 的命名点或只带 `position` 的匿名点，本规则
+   不强制它们都填，见该规则判断记录与 05 第 4.1 节勘误（2026-09-10）。
 
 ## 基础架构提供 / 游戏层提供
 

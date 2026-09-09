@@ -73,7 +73,14 @@ common/
 2. **`ISkillHost.FindUnits` 比 06 第 7 节原始签名多一个 `origin` 参数**：05 第 3.5 节的 `Shape`
    本身已带绝对坐标，但 `skill.def.target_shape_ref` 指向的是可被多个技能/多个施法者复用的形状
    模板，模板本身不预先绑定坐标；`origin` 是调用方（通常是当前施法者位置）用来锚定模板的补充参数，
-   语义上仍是 06 §7 `findUnits(shape, filter)` 的展开，见 `ISkillHost.cs` 内注释。
+   语义上仍是 06 §7 `findUnits(shape, filter)` 的展开，见 `ISkillHost.cs` 内注释。P2-01 根治
+   （外部审计 audit-c9ff301-20260909）：`SkillHost.FindUnits` 此前恒返回空列表，现委托注入的
+   `ISpatialQuery.QueryShape` 做形状判定（`shape.WithOrigin(origin)` 只平移锚点，不重算朝向）、
+   过滤存活/`Exclude`/标签，`Relation`（Hostile/Friendly/Neutral/Self/NotSelf）以
+   `UnitFilter.Exclude` 兼任判定参照单位（签名本身没有 casterId 参数），需要额外注入
+   `Core.Numbers.Faction.IFactionMatrix`（可选，未注入时 Hostile/Friendly/Neutral 判不通过）；
+   未注入 `ISpatialQuery` 时行为不变（记诊断、返回空），见 `SkillHost.FindUnits`/`PassesRelation`
+   判断记录。
 
 3. **`SkillFilter.Matches` 三维度取 OR 而非 AND**：06 第 3.5 节只给出三个过滤维度是什么，没有给出
    跨维度的布尔组合方式；本模块按"影响范围是并集式声明"的常见 SpellMod 用法取 OR，判断记录见

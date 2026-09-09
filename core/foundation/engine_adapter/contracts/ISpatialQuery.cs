@@ -101,6 +101,33 @@ namespace Core.Foundation.EngineAdapter
 
         public static Shape Rect(Vec2 origin, Vec2 halfExtents, double rotation) =>
             new Shape(ShapeKind.Rect, origin, 0, 0, 0, 0, 0, halfExtents, rotation);
+
+        /// <summary>
+        /// 返回一个只把 <see cref="Origin"/> 换成 <paramref name="origin"/>、其余字段原样保留的新
+        /// <see cref="Shape"/>（惯例同 <see cref="Vec2"/> 的纯值运算方法，见该类型 <c>Distance</c>/
+        /// <c>Dot</c> 判断记录——只操作本类型自身与 <see cref="Vec2"/>，不引入任何 L0 以上依赖）。
+        /// 供"形状模板 + 锚点"两段式调用（见 <c>Core.Rules.Common.ISkillHost.FindUnits</c> 判断
+        /// 记录）把不预先绑定坐标的模板重新锚定到一个具体点，本方法只做位置平移，不改变
+        /// <see cref="Direction"/>/<see cref="Angle"/>/<see cref="Rotation"/> 等朝向字段——如需同时
+        /// 按施法者当前朝向重新计算方向（如 <c>Core.Rules.Targeting.TargetHost</c> 的目标链形状），
+        /// 调用方仍需自行构造对应朝向的 Shape，本方法不代为猜测。
+        /// </summary>
+        public Shape WithOrigin(Vec2 origin)
+        {
+            switch (Kind)
+            {
+                case ShapeKind.Circle:
+                    return Circle(origin, Radius);
+                case ShapeKind.Cone:
+                    return Cone(origin, Direction, Angle, Radius);
+                case ShapeKind.Line:
+                    return Line(origin, Direction, Length, Width);
+                case ShapeKind.Rect:
+                    return Rect(origin, HalfExtents, Rotation);
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "未知 Shape 种类");
+            }
+        }
     }
 
     /// <summary>

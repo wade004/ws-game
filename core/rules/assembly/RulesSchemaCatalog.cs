@@ -77,6 +77,10 @@ namespace Core.Rules.Assembly
             registry.RegisterSchema(DisplaySchemas.AnimSet);
             registry.RegisterSchema(DisplaySchemas.EquipVisual);
             registry.RegisterSchema(WorldMapSchema.Table);
+            // P3-07 根治（外部审计 audit-c9ff301-20260909）：spawn_points 至少一条、第 0 条必须携带
+            // 合法 position——登记层表达不了的业务约束，见 WorldMapSpawnPointsValidationRule 判断
+            // 记录。
+            registry.RegisterValidationRule(new WorldMapSpawnPointsValidationRule());
 
             // ADR-0013 落地：found.time_model（见 core/foundation/sim_loop/schema/TimeModelSchema.cs）。
             registry.RegisterSchema(TimeModelSchema.Table);

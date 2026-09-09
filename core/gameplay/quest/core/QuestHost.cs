@@ -42,6 +42,10 @@ namespace Core.Gameplay.Quest
         private readonly Dictionary<(Id UnitId, Id QuestId), QuestRuntimeState> _progress =
             new Dictionary<(Id UnitId, Id QuestId), QuestRuntimeState>();
 
+        /// <summary>已订阅过的 <c>event</c> 类目标 <c>target_ref</c> 集合，供 <see cref="Reload"/>
+        /// 判断哪些是新出现的 key、避免重复订阅同一个 key（见该方法判断记录）。</summary>
+        private readonly HashSet<Id> _subscribedEventObjectiveKeys = new HashSet<Id>();
+
         private readonly IEventBus _eventBus;
         private readonly IExprHostFactory _exprHostFactory;
         private readonly IRewardDispatcher _rewardDispatcher;
@@ -92,21 +96,52 @@ namespace Core.Gameplay.Quest
             _eventBus.Subscribe<GossipOpenedEvent>(DialogEventKeys.GossipOpened, HandleGossipOpened);
             _eventBus.Subscribe<StoryNodeEnteredEvent>(DialogEventKeys.StoryNodeEntered, HandleStoryNodeEntered);
 
-            var eventObjectiveKeys = new HashSet<Id>();
-            foreach (var def in _definitions.Values)
+            SubscribeEventObjectiveKeys(_definitions.Values);
+        }
+
+        /// <summary>见 <see cref="_subscribedEventObjectiveKeys"/> 判断记录：只对本次调用新出现的
+        /// <c>event</c> 类目标 <c>target_ref</c> 订阅一次，已订阅过的 key 跳过——<see cref="Reload"/>
+        /// 可能被反复调用，同一个 key 重复 <see cref="IEventBus.Subscribe(Id, EventHandler)"/> 会
+        /// 让 <see cref="HandleGenericQuestEvent"/> 对同一次事件触发多次。</summary>
+        private void SubscribeEventObjectiveKeys(IEnumerable<QuestDefinition> definitions)
+        {
+            foreach (var def in definitions)
             {
                 foreach (var objective in def.Objectives)
                 {
-                    if (objective.Type == QuestObjectiveType.Event)
+                    if (objective.Type == QuestObjectiveType.Event && _subscribedEventObjectiveKeys.Add(objective.TargetRef))
                     {
-                        eventObjectiveKeys.Add(objective.TargetRef);
+                        _eventBus.Subscribe(objective.TargetRef, HandleGenericQuestEvent);
                     }
                 }
             }
-            foreach (var key in eventObjectiveKeys)
+        }
+
+        /// <summary>
+        /// P2-05 关联根治（外部审计 audit-c9ff301-20260909，见 <see cref="SkillDefCache.InvalidateAll"/>
+        /// 同一类判断记录）：<see cref="_definitions"/> 构造期从注入的 <see cref="IEnumerable{T}"/>
+        /// 一次性建索引、此前没有任何刷新入口——开发期 DataHotReload 对 <c>quest.def</c> 表 reload
+        /// 后，resident <see cref="QuestHost"/> 会继续用旧任务定义（目标数量、奖励、
+        /// prerequisite/eventFilter 等），直到进程重建全新 host 才会看到新定义。装配根（见
+        /// <c>GameplayAssembly</c> 判断记录）订阅
+        /// <see cref="Core.Foundation.DataRegistry.DataLoadCompletedEvent"/> 后用最新
+        /// <c>registry.GetAll("quest.def")</c> 重新 <see cref="QuestDefinition.FromRecord"/> 一遍，
+        /// 调用本方法整体替换 <see cref="_definitions"/>；新出现的 <c>event</c> 类目标 target_ref
+        /// 会补订阅，已存在的不重复订阅（见 <see cref="SubscribeEventObjectiveKeys"/>）。不清空
+        /// <see cref="_progress"/>——玩家当前的任务进度/状态不因为定义表 reload 而重置，这是运行期
+        /// 状态而不是定义缓存。
+        /// </summary>
+        public void Reload(IEnumerable<QuestDefinition> definitions)
+        {
+            if (definitions == null) throw new ArgumentNullException(nameof(definitions));
+
+            _definitions.Clear();
+            foreach (var def in definitions)
             {
-                _eventBus.Subscribe(key, HandleGenericQuestEvent);
+                _definitions[def.Id] = def;
             }
+
+            SubscribeEventObjectiveKeys(_definitions.Values);
         }
 
         // -------------------------------------------------------------

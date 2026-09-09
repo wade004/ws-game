@@ -43,11 +43,13 @@ namespace Core.Gameplay.Economy
             public double? TimerRemaining;
         }
 
+        private readonly IDataRegistryView _registry;
         private readonly IEventBus _bus;
         private readonly IInventoryHost _inventory;
         private readonly IExprHostFactory _exprHostFactory;
         private readonly EconomyOptions _options;
         private readonly IExprDiagnostics _diagnostics;
+        private readonly IExprSchema? _conditionSchema;
 
         private readonly Dictionary<Id, CurrencyDef> _currencies = new Dictionary<Id, CurrencyDef>();
         private readonly Dictionary<Id, VendorDef> _vendors = new Dictionary<Id, VendorDef>();
@@ -65,14 +67,44 @@ namespace Core.Gameplay.Economy
             IExprDiagnostics? diagnostics = null,
             IExprSchema? conditionSchema = null)
         {
-            if (registry == null) throw new ArgumentNullException(nameof(registry));
+            _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
             _exprHostFactory = exprHostFactory ?? throw new ArgumentNullException(nameof(exprHostFactory));
             _options = options ?? new EconomyOptions();
             _diagnostics = diagnostics ?? new ExprDiagnosticsRecorder();
+            _conditionSchema = conditionSchema;
 
-            foreach (var record in registry.GetAll(EconomySchemas.Currency.Name))
+            ReloadFromRegistry();
+
+            // P2-05 同类缓存收口（外部审计 audit-c9ff301-20260909 followup-2026-09-10）：
+            // _currencies/_vendors/_currencyOrder/_vendorOrder 此前只在构造期从 registry 读取
+            // 一次、永久常驻，与 SkillDefCache/ArchetypeRegistry/StatHost/LootHost 同一类模式。
+            // _balances（单位持有的货币余额）是纯运行期状态，与 _currencies 定义表无耦合，reload
+            // 不触碰。_stock（限量商品剩余/补货计时）派生自 _vendors 的 sell_items 配置，是本类型
+            // 与 Quest/Dialog/Loot 场景不同的地方——见 <see cref="ReloadFromRegistry"/> 判断记录。
+            _bus.Subscribe<Core.Foundation.DataRegistry.DataLoadCompletedEvent>(
+                Core.Foundation.DataRegistry.DataRegistryEventKeys.LoadCompleted, _ => ReloadFromRegistry());
+        }
+
+        /// <summary>
+        /// 判断记录（<see cref="_stock"/> 的选择性保留）：_currencies/_vendors/两个 order 列表整体
+        /// 清空重建（同 ArchetypeRegistry.ReloadFromRegistry），但 _stock 是"已存在商人的限量商品
+        /// 剩余库存/补货倒计时"这一运行期状态，若整体清空重建会把玩家已经买剩的库存/补货进度全部
+        /// 重置回满库存——同 QuestHost.Reload 判断记录"不清空运行期状态"的同一条原则，只是这里的
+        /// 运行期状态（_stock）在构造期是从 def 派生初始化的，不能像 Quest 进度那样完全独立于
+        /// reload 逻辑之外。处理方式：已存在的 (vendorId, itemId) 组合保留原 StockState 不动；
+        /// 新出现的 vendorId 或已有商人新增的 sell_item（此前不存在于 _stock[vendorId]）按 def
+        /// 初始化为满库存——与"首次构造/首次遇到这个商品"语义一致。已下架但仍留在 _stock 里的旧
+        /// itemId 条目不主动清理（不影响任何查询路径：<see cref="GetStock"/>/<see
+        /// cref="TryConsumeStock"/>/<see cref="Update"/> 均按当前 <c>_vendors[vendorId].SellItems</c>
+        /// 反向驱动访问 _stock，不会遍历到这些孤儿 key）。
+        /// </summary>
+        private void ReloadFromRegistry()
+        {
+            _currencies.Clear();
+            _currencyOrder.Clear();
+            foreach (var record in _registry.GetAll(EconomySchemas.Currency.Name))
             {
                 var def = EconomyDataParser.ParseCurrency(record);
                 _currencies[def.Id] = def;
@@ -81,23 +113,33 @@ namespace Core.Gameplay.Economy
 
             _currencyOrder.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
 
-            foreach (var record in registry.GetAll(EconomySchemas.Vendor.Name))
+            _vendors.Clear();
+            _vendorOrder.Clear();
+            foreach (var record in _registry.GetAll(EconomySchemas.Vendor.Name))
             {
-                var def = EconomyDataParser.ParseVendor(record, conditionSchema);
+                var def = EconomyDataParser.ParseVendor(record, _conditionSchema);
                 _vendors[def.Id] = def;
                 _vendorOrder.Add(def.Id);
 
-                var stockByItem = new Dictionary<Id, StockState>();
+                if (!_stock.TryGetValue(def.Id, out var stockByItem))
+                {
+                    stockByItem = new Dictionary<Id, StockState>();
+                    _stock[def.Id] = stockByItem;
+                }
+
                 foreach (var sellItem in def.SellItems)
                 {
+                    if (stockByItem.ContainsKey(sellItem.ItemId))
+                    {
+                        continue;
+                    }
+
                     stockByItem[sellItem.ItemId] = new StockState
                     {
                         Remaining = sellItem.StockLimit,
                         TimerRemaining = sellItem.RestockPolicy == VendorRestockPolicy.Timer ? sellItem.RestockTimer : null,
                     };
                 }
-
-                _stock[def.Id] = stockByItem;
             }
 
             _vendorOrder.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));

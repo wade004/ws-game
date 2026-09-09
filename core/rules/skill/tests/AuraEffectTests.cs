@@ -36,6 +36,43 @@ namespace Tests.Rules.Skill
             Assert.All(world.Combat.ResolveCalls, ctx => Assert.True(ctx.IsPeriodic));
         }
 
+        /// <summary>
+        /// P3-04 根治（外部审计 audit-c9ff301-20260909）：<c>periodic_damage</c>/<c>periodic_heal</c>
+        /// 的 <c>params.scaling_stat</c> 运行期确实被 <see cref="Core.Rules.Skill.EffectDispatcher.ApplyEffect"/>
+        /// 消费（<c>periodic_damage</c> 与非周期 <c>school_damage</c> 共用同一条
+        /// <c>ApplyDamageOrHeal</c> 结算路径），此前只在 <c>SkillSchemas.PeriodicParamsCase</c> 漏登记
+        /// 这个字段（<c>DamageOrHealParams</c> 那份非周期登记里一直都有）。本测试端到端验证：来源
+        /// 单位的属性值确实参与了周期效果的缩放计算，不只是 schema 登记本身。
+        /// </summary>
+        [Fact]
+        public void PeriodicDamage_WithScalingStat_ScalesBySourceStat()
+        {
+            var aura = J.O(
+                ("id", J.S("skill.aura_def.sample_dot_scaled")),
+                ("duration", J.N(2)),
+                ("effects", J.A(
+                    J.O(("kind", J.S("periodic_damage")),
+                        ("params", J.O(
+                            ("interval", J.N(2)),
+                            ("base_value", J.N(3)),
+                            ("coefficient", J.N(2)),
+                            ("school", J.S("skill.school_sample")),
+                            ("scaling_stat", J.S("stat.p3_04_power"))))))));
+
+            var world = new SkillWorldBuilder().Stat("stat.p3_04_power", defaultBase: 5).AuraDef(aura).Build();
+            var source = new Id("unit.p3_04_source");
+            var target = new Id("unit.p3_04_target");
+            world.AddUnit(source);
+            world.AddUnit(target);
+
+            world.Host.EffectSink.ApplyAura(target, new Id("skill.aura_def.sample_dot_scaled"), source);
+            world.Host.Update(2.0);
+
+            // base_value(3) + coefficient(2) * 来源 stat.p3_04_power(5) = 13。
+            Assert.Single(world.Combat.ResolveCalls);
+            Assert.Equal(13, world.Combat.ResolveCalls[0].BaseValue);
+        }
+
         // 收边任务补齐（AuraHost 自愈，见该类型 OnEntityDestroyed 判断记录）：目标单位被销毁
         // （entity.destroyed）时应立即移除其名下光环实例，此后即便继续 Update 推进，也不应再对该
         // 目标结算周期效果——此前 AuraHost 不订阅任何事件，唯一能感知"目标已消失"的时机是下一次

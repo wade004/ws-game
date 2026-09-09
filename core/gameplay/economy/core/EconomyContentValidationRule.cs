@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
+using Core.Foundation.Expr;
 
 namespace Core.Gameplay.Economy
 {
@@ -41,6 +43,28 @@ namespace Core.Gameplay.Economy
     public sealed class EconomyContentValidationRule : IValidationRule
     {
         private const string Check = "economy_content";
+
+        public EconomyContentValidationRule()
+        {
+        }
+
+        /// <summary>
+        /// ABI/API 兼容 façade（P2-01 根治，外部审计 audit-c9ff301-20260909）：1.12 的构造签名是
+        /// <c>EconomyContentValidationRule(IExprSchema? conditionSchema = null)</c>——本类当时整条
+        /// 委托 <see cref="EconomyDataParser"/> 解析 <c>condition</c> 表达式，需要这份 schema；
+        /// ADR-0019/F1b 收窄后不再调用 <see cref="EconomyDataParser"/>（见类型顶部退役说明），
+        /// <c>conditionSchema</c> 因此失去用途，1.13 把构造函数整个换成隐式无参构造——老编译产物里
+        /// <c>new EconomyContentValidationRule(mySchema)</c>（甚至显式 <c>new
+        /// EconomyContentValidationRule()</c>，因为 1.12 那个带默认值的可选参数构造函数在旧调用点
+        /// 编译期就把默认值 <c>null</c> 内联进 IL 的物理参数列表）在只换 DLL、不重编译时都会
+        /// <see cref="System.MissingMethodException"/>。本重载补回该物理签名，忽略传入的
+        /// <paramref name="conditionSchema"/>（无处可转发——当前实现根本不解析 Expr），只保证不再
+        /// 抛异常，效果与显式调用无参构造函数完全一致。
+        /// </summary>
+        [Obsolete("conditionSchema 自 ADR-0019/F1b 起不再被使用（本类不再调用 EconomyDataParser）；仅为 1.12 源码/二进制兼容保留，请改用无参构造函数。")]
+        public EconomyContentValidationRule(IExprSchema? conditionSchema)
+        {
+        }
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {

@@ -29,6 +29,15 @@ namespace Core.Rules.Skill
         private readonly SkillDefCache _defs;
         private readonly ISkillDiagnostics _diagnostics;
 
+        /// <summary>见 <see cref="FindUnits"/> 判断记录：本模块构造未强制要求注入
+        /// <see cref="ISpatialQuery"/>，为 null 时 <see cref="FindUnits"/> 记一条诊断并返回空列表。</summary>
+        private readonly ISpatialQuery? _spatialQuery;
+
+        /// <summary>见 <see cref="FindUnits"/> 判断记录：<see cref="UnitFilter.Relation"/> 为
+        /// Hostile/Friendly/Neutral 时需要按阵营矩阵判定，可选注入（同 <see cref="_spatialQuery"/>
+        /// 惯例，未注入时这三种 relation 一律判不通过，见该方法判断记录），不强加新的必填依赖。</summary>
+        private readonly Core.Numbers.Faction.IFactionMatrix? _factions;
+
         private readonly CooldownTracker _cooldowns;
         private readonly AuraHost _auraHost;
         private readonly ProcHost _procHost;
@@ -97,11 +106,14 @@ namespace Core.Rules.Skill
             IExprSchema? exprSchema = null,
             IStaticImmunityProvider? staticImmunity = null,
             IProjectileSpawner? projectileSpawner = null,
-            IWeaponDamageQuery? weaponDamageQuery = null)
+            IWeaponDamageQuery? weaponDamageQuery = null,
+            Core.Numbers.Faction.IFactionMatrix? factions = null)
         {
             _registry = dataRegistry ?? throw new ArgumentNullException(nameof(dataRegistry));
             _units = unitAccess ?? throw new ArgumentNullException(nameof(unitAccess));
             _statHost = statHost ?? throw new ArgumentNullException(nameof(statHost));
+            _spatialQuery = spatialQuery;
+            _factions = factions;
             if (eventBus == null) throw new ArgumentNullException(nameof(eventBus));
             if (powerHost == null) throw new ArgumentNullException(nameof(powerHost));
             if (rngHost == null) throw new ArgumentNullException(nameof(rngHost));
@@ -148,7 +160,20 @@ namespace Core.Rules.Skill
             // 第五轮外部审核相邻缺口根治：CastPipeline（本类型同批组合的第三个持有倒计时状态的
             // 组件，见其 _currentFactor 判断记录）此前未接入这一广播，同一批一并换算。
             eventBus.Subscribe<TimeModelRescaledEvent>(RulesEventKeys.TimeModelRescaled, OnTimeModelRescaled);
+
+            // P2-05 根治（外部审计 audit-c9ff301-20260909）：开发期 DataHotReload 契约要求"成功
+            // reload 通知后，既有 resident host 的下一次 cast 能看到新定义"（见 games/_template
+            // README 热重载一节、SkillDefCache.InvalidateAll 判断记录）。此前 SkillDefCache 只懒解析
+            // 一次、永久常驻，从不订阅 DataLoadCompletedEvent，resident host 因此在 reload 之后继续
+            // 使用旧的 base_value/cooldown_duration 等字段，直到进程重建全新 host 才会看到新值。这里
+            // 订阅一次，任何一次数据加载完成（含非 skill.* 表的加载，见该事件不携带表名判断记录）都
+            // 整体清空五张 skill.* 缓存表——过度失效（下一次访问重新解析）比"选择性失效但漏判某张表"
+            // 更安全，且本模块只在懒解析路径（TryGet*/Get*）重新读 registry，不做任何异步/预取，
+            // 清空本身是零成本的。
+            eventBus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, OnDataLoadCompleted);
         }
+
+        private void OnDataLoadCompleted(DataLoadCompletedEvent evt) => _defs.InvalidateAll();
 
         private void OnTimeModelRescaled(TimeModelRescaledEvent evt)
         {
@@ -166,14 +191,129 @@ namespace Core.Rules.Skill
 
         public Vec2 GetPosition(Id unitId) => _units.GetPosition(unitId);
 
+        /// <summary>
+        /// 静态差距根治（外部审计 audit-c9ff301-20260909）：此前恒返回空列表。实现按 06 第 7 节
+        /// <c>findUnits(shape, filter)</c> 契约，委托注入的 <see cref="ISpatialQuery.QueryShape"/>
+        /// 做真正的形状判定（复用引擎适配层既有的圆/扇形/线段/矩形判定算法，不在本模块重新实现一遍
+        /// 几何计算——同 <see cref="Core.Rules.Targeting.BuiltinTargetStrategies"/> 的既有惯例）：
+        /// <list type="bullet">
+        /// <item><paramref name="shape"/> 只用 <see cref="Shape.WithOrigin"/> 把锚点换成
+        /// <paramref name="origin"/>，其余字段（<c>Direction</c>/<c>Angle</c>/<c>Radius</c> 等）原样
+        /// 保留——与 <see cref="Core.Rules.Targeting.TargetHost"/> 的 <c>RebaseShape</c> 不同（那里
+        /// 额外用施法者当前朝向覆盖模板的 <c>Direction</c>），本方法签名没有朝向参数，调用方若需要
+        /// 按朝向重建 cone/line/rect，应在传入前自行构造好 <paramref name="shape"/> 的方向字段。</item>
+        /// <item>登记进空间索引的触发体（<c>trigger_only</c> 标签，见
+        /// <see cref="Core.Foundation.EngineAdapter.CollisionLayers.TriggerOnly"/> 判断记录）一律
+        /// 排除，避免下游把触发体 id 当单位 id 处理时崩溃（同 <c>BuiltinTargetStrategies</c> 的
+        /// <c>ExcludeTriggerOnly</c> 判断记录，这里复用同一个标签常量，不是独立发明的过滤规则）。</item>
+        /// <item><see cref="UnitFilter.AliveOnly"/>/<see cref="UnitFilter.Exclude"/>/
+        /// <see cref="UnitFilter.RequiredTags"/>/<see cref="UnitFilter.ExcludedTags"/> 按字面语义
+        /// 过滤。</item>
+        /// <item><see cref="UnitFilter.Relation"/>：签名没有 casterId 参数，<see cref="UnitFilter.Exclude"/>
+        /// 兼任"关系判定的参照单位"——该字段文档"通常是施法者自身"，<c>Self</c>/<c>NotSelf</c> 直接
+        /// 按候选是否等于该参照单位判断；<c>Hostile</c>/<c>Friendly</c>/<c>Neutral</c> 用
+        /// <see cref="_factions"/>（可选注入）查参照单位与候选单位阵营的反应。<c>Exclude</c> 未提供
+        /// 或 <see cref="_factions"/> 未注入时，这三种 relation 判不通过（宁可漏收，不误纳——没有
+        /// 参照单位/阵营矩阵时无法做出正确判定，不应该悄悄退化为"不过滤"而把不相关单位纳入结果）。</item>
+        /// </list>
+        /// 结果按 Id 序数升序排序，保证确定性（同 <c>BuiltinTargetStrategies.AllInShapeStrategy</c>
+        /// 惯例）。
+        /// </summary>
         public IReadOnlyList<Id> FindUnits(Shape shape, Vec2 origin, UnitFilter filter)
         {
             // 判断记录：本模块构造未强制要求注入 ISpatialQuery（射程/视线检查允许在无空间索引
             // 时跳过，见 CastPipeline 步骤 7 注释），FindUnits 若在未注入 ISpatialQuery 的场景下
             // 被调用，没有可委托的空间查询实现，返回空列表并记一条诊断（不抛异常，呼应"运行时
             // 不做静默降级"以外——这里明确记警告，不是完全静默）。
-            _diagnostics.Warn("ISkillHost.FindUnits 被调用，但本实例未注入 ISpatialQuery，返回空列表");
-            return Array.Empty<Id>();
+            if (_spatialQuery == null)
+            {
+                _diagnostics.Warn("ISkillHost.FindUnits 被调用，但本实例未注入 ISpatialQuery，返回空列表");
+                return Array.Empty<Id>();
+            }
+
+            var anchored = shape.WithOrigin(origin);
+            var excludedTags = new List<string>(filter.ExcludedTags.Count + 1);
+            foreach (var tag in filter.ExcludedTags)
+            {
+                excludedTags.Add(tag.Value);
+            }
+            excludedTags.Add(Core.Foundation.EngineAdapter.CollisionLayers.TriggerOnly);
+
+            var requiredTags = filter.RequiredTags.Count == 0
+                ? null
+                : filter.RequiredTags.Select(id => id.Value).ToList();
+
+            var queryFilter = new QueryFilter(requiredTags: requiredTags, excludedTags: excludedTags);
+            var raw = _spatialQuery.QueryShape(anchored, queryFilter);
+
+            var result = new List<Id>(raw.Count);
+            foreach (var candidateId in raw)
+            {
+                if (filter.AliveOnly && !_units.IsAlive(candidateId))
+                {
+                    continue;
+                }
+
+                // 判断记录：Exclude 兼任"关系判定的参照单位"（见本方法类型文档）。Relation.Self
+                // 的语义恰恰是"只保留等于参照单位的候选"，与"无条件排除 Exclude"直接矛盾——因此
+                // 无条件排除只在非 Self 时生效；其余 relation（含 Any/NotSelf/Hostile/Friendly/
+                // Neutral）继续无条件排除参照单位自己（对 Hostile/Friendly/Neutral 而言，
+                // IFactionMatrix.GetReaction(reference, reference) 恒为 Friendly，参照单位若落在
+                // 查询范围内会通过 Friendly 判定，这里排除它是"目标查询不应该把施法者自己算进去"
+                // 这一常见期望）。
+                if (filter.Relation != RelationFilter.Self &&
+                    filter.Exclude.HasValue && candidateId == filter.Exclude.Value)
+                {
+                    continue;
+                }
+
+                if (!PassesRelation(filter.Relation, filter.Exclude, candidateId))
+                {
+                    continue;
+                }
+
+                result.Add(candidateId);
+            }
+
+            result.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
+            return result;
+        }
+
+        private bool PassesRelation(RelationFilter relation, Id? reference, Id candidateId)
+        {
+            switch (relation)
+            {
+                case RelationFilter.Any:
+                    return true;
+
+                case RelationFilter.Self:
+                    return reference.HasValue && candidateId == reference.Value;
+
+                case RelationFilter.NotSelf:
+                    return !reference.HasValue || candidateId != reference.Value;
+
+                case RelationFilter.Hostile:
+                case RelationFilter.Friendly:
+                case RelationFilter.Neutral:
+                    // 判断记录：见本方法调用处 FindUnits 类型文档"Exclude 未提供或 _factions 未注入
+                    // 时判不通过"——没有参照单位/阵营矩阵时无法正确判定，不悄悄退化成"全部放行"。
+                    if (!reference.HasValue || _factions == null)
+                    {
+                        return false;
+                    }
+
+                    var reaction = _factions.GetReaction(_units.GetFaction(reference.Value), _units.GetFaction(candidateId));
+                    return relation switch
+                    {
+                        RelationFilter.Hostile => reaction == Core.Numbers.Faction.Reaction.Hostile,
+                        RelationFilter.Friendly => reaction == Core.Numbers.Faction.Reaction.Friendly,
+                        RelationFilter.Neutral => reaction == Core.Numbers.Faction.Reaction.Neutral,
+                        _ => false,
+                    };
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(relation), relation, "未知的 RelationFilter");
+            }
         }
 
         public void ApplyStatMod(Id sourceId, Id unitId, Id stat, StatModifierOp op, double value) =>

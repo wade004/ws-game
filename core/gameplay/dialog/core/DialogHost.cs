@@ -80,6 +80,37 @@ namespace Core.Gameplay.Dialog
             _diagnostics = diagnostics ?? new InMemoryDialogDiagnostics();
         }
 
+        /// <summary>
+        /// P2-05 关联根治（外部审计 audit-c9ff301-20260909，见 <c>Core.Rules.Skill.SkillDefCache.InvalidateAll</c>
+        /// 同一类判断记录）：<see cref="_gossipMenus"/>/<see cref="_storyTrees"/> 构造期从注入的
+        /// <see cref="IEnumerable{T}"/> 一次性建索引，此前没有任何刷新入口——开发期 DataHotReload 对
+        /// <c>dialog.gossip_menu</c>/<c>dialog.story_tree</c> 表 reload 后，resident
+        /// <see cref="DialogHost"/> 会继续用旧的菜单/剧情树定义，直到进程重建全新 host 才会看到新
+        /// 定义。装配根（见 <c>GameplayAssembly</c> 判断记录）订阅
+        /// <see cref="Core.Foundation.DataRegistry.DataLoadCompletedEvent"/> 后用最新
+        /// <c>registry.GetAll</c> 重新 <c>GossipMenuDefinition.FromRecord</c>/
+        /// <c>StoryTreeDefinition.FromRecord</c> 一遍，调用本方法整体替换两张表。不清空
+        /// <see cref="_sessions"/>——玩家当前打开的对话会话是运行期状态，不因为定义表 reload 而
+        /// 中断（下一次 <see cref="OpenGossip"/>/<see cref="StartStory"/> 等操作才会读到新定义）。
+        /// </summary>
+        public void Reload(IEnumerable<GossipMenuDefinition> gossipMenus, IEnumerable<StoryTreeDefinition> storyTrees)
+        {
+            if (gossipMenus == null) throw new ArgumentNullException(nameof(gossipMenus));
+            if (storyTrees == null) throw new ArgumentNullException(nameof(storyTrees));
+
+            _gossipMenus.Clear();
+            foreach (var menu in gossipMenus)
+            {
+                _gossipMenus[menu.Id] = menu;
+            }
+
+            _storyTrees.Clear();
+            foreach (var tree in storyTrees)
+            {
+                _storyTrees[tree.Id] = tree;
+            }
+        }
+
         public GossipView OpenGossip(Id unitId, Id npcId, Id menuId)
         {
             var menu = RequireMenu(menuId);

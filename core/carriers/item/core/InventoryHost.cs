@@ -33,6 +33,7 @@ namespace Core.Carriers.Item
     public sealed class InventoryHost : IInventoryHost, IBatchableInventoryHost
     {
         private readonly IEventBus _bus;
+        private readonly IDataRegistryView _registry;
         private readonly InventoryOptions _options;
         private readonly Dictionary<Id, DataRecord> _templates = new Dictionary<Id, DataRecord>();
         private readonly Dictionary<Id, List<ItemInstance>> _bags = new Dictionary<Id, List<ItemInstance>>();
@@ -49,11 +50,25 @@ namespace Core.Carriers.Item
 
         public InventoryHost(IDataRegistryView registry, IEventBus bus, InventoryOptions? options = null)
         {
-            if (registry == null) throw new ArgumentNullException(nameof(registry));
+            _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _options = options ?? new InventoryOptions();
 
-            foreach (var record in registry.GetAll("item.template"))
+            ReloadTemplates();
+
+            // P2-05 关联根治（外部审计 audit-c9ff301-20260909，见 Core.Rules.Skill.SkillHost/
+            // SkillDefCache.InvalidateAll 同一类判断记录）：_templates 此前只在构造期从 registry
+            // 读取一次、永久常驻，开发期 DataHotReload 对 item.template 表 reload 后本类会继续用旧
+            // 模板（stats/grants/weapon_profile 等），直到进程重建全新 host 才会看到新值。本类型
+            // 本就持有 registry 引用（不像 QuestHost/DialogHost 那样只拿到预解析的 IEnumerable），
+            // 可以直接内部订阅、自行重新查询，不需要装配根代劳。
+            _bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, _ => ReloadTemplates());
+        }
+
+        private void ReloadTemplates()
+        {
+            _templates.Clear();
+            foreach (var record in _registry.GetAll("item.template"))
             {
                 _templates[record.GetId("id")] = record;
             }

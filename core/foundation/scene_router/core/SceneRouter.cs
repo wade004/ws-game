@@ -24,14 +24,15 @@ namespace Core.Foundation.SceneRouter
     /// <see cref="State"/> 回落 Idle、尝试 <c>app.RequestTransition(AppState.MainMenu)</c>，
     /// 不发任何事件。该 <c>RequestTransition</c> 是否真的成功依赖调用方传入的
     /// <see cref="IAppStateHost"/> 用的 <c>AppStateMachineConfig</c> 是否登记了
-    /// <c>Loading→MainMenu</c> 这条转移——<c>AppStateMachineConfig.Default()</c>（
-    /// app_lifecycle 模块默认配置）目前没有登记这条转移（只有 Boot→MainMenu、MainMenu→Loading、
-    /// Loading→InWorld、InWorld→{Pause,MainMenu,Loading}、Pause→{InWorld,MainMenu}），本模块
-    /// 不代为修改那份默认配置（超出本任务允许改动的文件范围），只是如实调用
-    /// <c>RequestTransition</c>；调用方若需要"加载失败后真的能回到主菜单"，需要自行在装配期
-    /// 对传入的 <c>AppStateMachineConfig</c> 追加 <c>AllowTransition(Loading, MainMenu)</c>
-    /// （已在本模块 README、测试里注明）。<c>RequestTransition</c> 返回 false 时本模块不重复
-    /// 报错——<c>AppStateHost</c> 自身已经记一条诊断警告。
+    /// <c>Loading→MainMenu</c> 这条转移——勘误（外部审计 audit-c9ff301-20260909，P3；此前本节
+    /// 断言 <c>AppStateMachineConfig.Default()</c> 未登记这条转移、需要调用方自行追加，与现状不
+    /// 符）：<c>AppStateMachineConfig.Default()</c>（app_lifecycle 模块默认配置）现已登记
+    /// <c>Loading→MainMenu</c>（连同 Boot→MainMenu、MainMenu→Loading、Loading→InWorld、
+    /// InWorld→{Pause,MainMenu,Loading}、Pause→{InWorld,MainMenu}），调用方使用默认配置时本方法
+    /// 的 <c>RequestTransition</c> 按预期成功，不需要额外追加。<c>RequestTransition</c> 返回
+    /// false 时本模块不重复报错——<c>AppStateHost</c> 自身已经记一条诊断警告；调用方若传入自定义
+    /// （非 <c>Default()</c>）且未包含这条转移的 <see cref="AppStateMachineConfig"/>，仍会遇到
+    /// 加载失败无法回落主菜单的情形，属于该自定义配置自身的责任，不是本模块的缺陷。
     /// </para>
     /// </summary>
     public sealed class SceneRouter : ISceneRouter

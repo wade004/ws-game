@@ -101,6 +101,9 @@ namespace Core.Carriers.Assembly
             // required_field/field_type 内建校验）完全覆盖，整条删除，见 gobj/schema/README.md
             // "退役规则"一节。GobjTypeDataFieldGroupRule 不退役——type_data 判别字段 kind 与
             // type_data 本身不同级，Variants 不适用，见 GobjSchemas.TypeDataSchema 判断记录。
+            // P2-03 根治：退役时遗漏 world_flag.expected 的必填/形状校验（Variants 登记表达不了
+            // 联合类型），补一条窄职责规则，见 GobjLockWorldFlagExpectedRule 判断记录。
+            registry.RegisterValidationRule(new GobjLockWorldFlagExpectedRule());
         }
     }
 }

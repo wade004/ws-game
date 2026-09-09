@@ -330,6 +330,15 @@ namespace Core.Rules.Skill
             new FieldSchema("base_value", FieldKind.Number, required: false, description: "缺省 0"),
             new FieldSchema("coefficient", FieldKind.Number, required: false, description: "缺省 0"),
             new FieldSchema("school", FieldKind.Id, required: true, description: "无缺省（见判断记录）"),
+            // P3-04 根治（外部审计 audit-c9ff301-20260909）：AuraHost.FirePeriodic 组装的
+            // EffectContext 与 school_damage/heal 走的是同一条 EffectDispatcher.ApplyDamageOrHeal
+            // 结算路径（见该方法 scaling_stat = ParamsX.GetIdOpt(context.Params, "scaling_stat")
+            // 判断记录），运行期确实会读取并消费 params.scaling_stat 对周期效果的缩放贡献——此前只
+            // 在非周期的 DamageOrHealParams（本文件 :67）登记了这个字段，periodic 变体漏登记，导致
+            // 内容作者/编辑器看不到这个受支持的可选参数（schema 漏项，不是运行期行为缺陷：未登记
+            // 字段不报错，不影响已经这样填写的数据）。
+            new FieldSchema("scaling_stat", FieldKind.Reference, required: false, referenceTable: "stat.definition",
+                description: "缩放属性，缺省不缩放（同 DamageOrHealParams.scaling_stat，两条效果路径共用同一份 EffectDispatcher.ApplyDamageOrHeal 结算逻辑）"),
         }, description);
 
         private static IReadOnlyList<FieldSchema> ParamsCase(bool required, IReadOnlyList<FieldSchema> paramFields, string description) => new[]

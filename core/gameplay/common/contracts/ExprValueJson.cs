@@ -32,6 +32,30 @@ namespace Core.Gameplay.Common
             }
         }
 
+        /// <summary>
+        /// 校验 <paramref name="value"/> 是否是 <see cref="Parse"/> 能接受的形状（P2-06 根治）：不
+        /// 构造 <see cref="ExprValue"/>、不抛异常，供内容校验阶段（<c>quest.def</c>
+        /// <c>rewards.world_flags[].value</c>、<c>dialog.gossip_menu</c>
+        /// <c>options[].actions[].params.value</c>（<c>set_flag</c> 动作）等）在 report 阶段就地
+        /// 拒绝 <see cref="Parse"/> 无法处理的形状，不再要求消费方等到运行期
+        /// <see cref="Parse"/> 抛 <see cref="FormatException"/> 才发现内容缺陷。刻意直接调用
+        /// <see cref="Parse"/> 并吞掉其异常，而不是重新实现一份平行的判别 switch——两处独立维护同一
+        /// 判别逻辑迟早会漂移（校验通过了但解析失败，或反之），本方法与 <see cref="Parse"/> 永远
+        /// 接受同一个形状集合。
+        /// </summary>
+        public static bool IsValid(JsonValue value)
+        {
+            try
+            {
+                Parse(value);
+                return true;
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
+        }
+
         public static JsonValue ToJson(ExprValue value)
         {
             switch (value.Kind)

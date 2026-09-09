@@ -718,6 +718,31 @@ namespace Core.Gameplay.Assembly
                 vendorOpenRequested: vendorOpenRequested, teleportRequested: teleportRequested, saveRequested: RequestAutosave,
                 encounterStartRequested: encounterStartRequested, exprDiagnostics: null, diagnostics: null);
 
+            // P2-05 关联根治（外部审计 audit-c9ff301-20260909，见 Core.Rules.Skill.SkillHost 同一类
+            // 订阅、SkillDefCache.InvalidateAll/QuestHost.Reload/DialogHost.Reload 判断记录）：
+            // QuestHost/DialogHost 的定义缓存只在构造期从一次性传入的 IEnumerable<T> 建索引，两者都
+            // 不持有 IDataRegistryView，无法像 SkillDefCache 那样自行重新查询——本装配根是唯一同时
+            // 持有 registry 与已构造好的 Quest/Dialog 引用的位置，订阅一次 DataLoadCompletedEvent，
+            // 每次数据加载完成（含非 quest/dialog 表的加载，同 SkillHost 判断记录"过度失效比选择性
+            // 失效漏判更安全"）都重新解析这三张表、整体替换两个 host 的定义缓存。不影响玩家已有的
+            // 任务进度/对话会话（运行期状态，见 QuestHost.Reload/DialogHost.Reload 判断记录"不清空
+            // _progress/_sessions"）。
+            bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, _ =>
+            {
+                var reloadedQuestDefinitions = registry.GetAll(Core.Gameplay.Quest.QuestSchemas.Def.Name)
+                    .Select(r => QuestDefinition.FromRecord(r, GameplaySchemaCatalog.FullExprSchema))
+                    .ToList();
+                Quest.Reload(reloadedQuestDefinitions);
+
+                var reloadedGossipMenus = registry.GetAll(DialogSchemas.GossipMenu.Name)
+                    .Select(r => GossipMenuDefinition.FromRecord(r, GameplaySchemaCatalog.FullExprSchema))
+                    .ToList();
+                var reloadedStoryTrees = registry.GetAll(DialogSchemas.StoryTree.Name)
+                    .Select(r => StoryTreeDefinition.FromRecord(r, GameplaySchemaCatalog.FullExprSchema))
+                    .ToList();
+                Dialog.Reload(reloadedGossipMenus, reloadedStoryTrees);
+            });
+
             // ---------------------------------------------------------
             // 15) AreaTriggerHost：TrapTrigger 接 GameObjectHost.TriggerTrap；EncounterStartRequested
             //     复用第 14 步同一段逻辑；SceneRouter 若注入直接接线（05 第 7 节"经场景路由"）；

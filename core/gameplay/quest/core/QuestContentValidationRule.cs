@@ -201,6 +201,20 @@ namespace Core.Gameplay.Quest
                         yield return new ValidationIssue(
                             ValidationSeverity.Error, QuestSchemas.Def.Name, "reward_world_flag_value_required",
                             "rewards.world_flags[].value 缺失", recordKey: record.Key, field: $"rewards.world_flags[{i}].value");
+                        continue;
+                    }
+
+                    // P2-06 根治：此前只检查"存在"，value=[] 一类不属于 ExprValueJson.Parse 联合
+                    // 类型（Bool|Number|String|{"$id":...}）的形状在这里 0 error，直到
+                    // RewardBundle.ParseWorldFlags → ExprValueJson.Parse 才抛 FormatException（外部
+                    // 审计）。ExprValueJson.IsValid 直接复用 Parse 本身的判别逻辑，不重复维护第二份，
+                    // 保证本处校验接受的形状集合与运行期解析永远一致。
+                    if (!Core.Gameplay.Common.ExprValueJson.IsValid(valueRaw))
+                    {
+                        yield return new ValidationIssue(
+                            ValidationSeverity.Error, QuestSchemas.Def.Name, "reward_world_flag_value_shape",
+                            $"rewards.world_flags[].value 不是合法的 ExprValue 形状（Bool|Number|String|{{\"$id\":...}}），实际类型：{valueRaw.Kind}",
+                            recordKey: record.Key, field: $"rewards.world_flags[{i}].value");
                     }
                 }
             }

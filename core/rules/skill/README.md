@@ -25,7 +25,10 @@ skill/
     SkillValidationRules.cs IValidationRule 实现
   core/
     Defs.cs                 解析后的强类型定义（SkillDef/AuraDef/ProcDef/SpellModDefRecord/SkillBookDef）
-    SkillDefCache.cs        DataRecord → 强类型定义，懒解析 + 缓存
+    SkillDefCache.cs        DataRecord → 强类型定义，懒解析 + 缓存；P2-05 根治（外部审计
+                             audit-c9ff301-20260909）：补 InvalidateAll()，SkillHost 订阅
+                             DataLoadCompletedEvent 后调用，开发期 DataHotReload 场景下
+                             resident host 下一次 cast 能看到 reload 后的新定义
     ParamsX.cs               EffectRef/AuraEffect Params 读取帮助方法
     （阶段 3 整理：本模块原自带的临时 PermissiveExprSchema 已删除，默认改用
      core/rules/expr_host.RulesExprSchema.Base，见 SkillDefCache 构造函数注释）

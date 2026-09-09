@@ -71,6 +71,7 @@ namespace Core.Carriers.Item
         /// 施加"，调用方需自行保证不会在 Aura 仍然存活时重复调用。</summary>
         private readonly IAuraQuery? _auraQuery;
 
+        private readonly IDataRegistryView _registry;
         private readonly Dictionary<Id, DataRecord> _slotDefinitions = new Dictionary<Id, DataRecord>();
         private readonly Dictionary<Id, DataRecord> _sets = new Dictionary<Id, DataRecord>();
 
@@ -121,7 +122,7 @@ namespace Core.Carriers.Item
             IAuraQuery? auraQuery = null,
             AuraHandleLedger? auraHandleLedger = null)
         {
-            if (registry == null) throw new ArgumentNullException(nameof(registry));
+            _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
             _statHost = statHost ?? throw new ArgumentNullException(nameof(statHost));
@@ -136,15 +137,12 @@ namespace Core.Carriers.Item
             // 种族共享 aura_def 的既有测试断言；多数测试用的最小假实现本就不构造真正的种族光环。
             _auraHandleLedger = auraHandleLedger ?? new AuraHandleLedger(effectSink, auraQuery);
 
-            foreach (var record in registry.GetAll("item.slot_definition"))
-            {
-                _slotDefinitions[record.GetId("id")] = record;
-            }
+            ReloadSlotDefinitionsAndSets();
 
-            foreach (var record in registry.GetAll("item.set"))
-            {
-                _sets[record.GetId("id")] = record;
-            }
+            // P2-05 关联根治（外部审计 audit-c9ff301-20260909，见 InventoryHost 同一类判断记录）：
+            // _slotDefinitions/_sets 此前只在构造期从 registry 读取一次、永久常驻。本类型本就持有
+            // registry 引用，直接内部订阅、自行重新查询。
+            _bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, _ => ReloadSlotDefinitionsAndSets());
 
             // C08 收口（外部审计 7e63d66 第四轮）：可选注入，未提供时（null，惯例同本类型其它可选
             // 依赖）行为与本次改动之前完全一致——只是重新暴露了 C08 描述的那个缺口，不会抛异常或
@@ -155,6 +153,21 @@ namespace Core.Carriers.Item
             if (auraQuery != null)
             {
                 auraQuery.InstanceReplaced += OnAuraInstanceReplaced;
+            }
+        }
+
+        private void ReloadSlotDefinitionsAndSets()
+        {
+            _slotDefinitions.Clear();
+            foreach (var record in _registry.GetAll("item.slot_definition"))
+            {
+                _slotDefinitions[record.GetId("id")] = record;
+            }
+
+            _sets.Clear();
+            foreach (var record in _registry.GetAll("item.set"))
+            {
+                _sets[record.GetId("id")] = record;
             }
         }
 
