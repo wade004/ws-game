@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><LangVersion>10.0</LangVersion><EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../../../../audit-c9ff301-corebuild/presentation/ui/contracts/UiPath.cs" />
+    <Compile Include="../../../../../../audit-c9ff301-corebuild/presentation/ui/contracts/IUiDiagnostics.cs" />
+    <Compile Include="IUiDataSourceCompat.cs" />
+    <Compile Include="PresentationProbeGlobals.cs" />
+    <Compile Include="../../../../../../audit-c9ff301-corebuild/presentation/ui/contracts/ISkillBookQuery.cs" />
+    <Compile Include="../../../../../../audit-c9ff301-corebuild/presentation/ui/core/UiDataSource.cs" />
+    <Compile Include="../../../../../../audit-c9ff301-corebuild/presentation/ui/core/SkillHostSkillBookQuery.cs" />
+    <Compile Include="../../../../../../audit-c9ff301-corebuild/presentation/ui/core/ViewModels/InventoryViewModel.cs" />
+    <Compile Include="../../../../../../audit-c9ff301-corebuild/presentation/ui/core/PathProviders/PlayerPathProvider.cs" />
+    <Compile Include="../../../../../../audit-c9ff301-corebuild/presentation/ui/core/PathProviders/UnitSubQueries.cs" />
+    <Compile Include="../../../../../../audit-c9ff301-corebuild/presentation/ui/core/PathProviders/UnitPathProvider.cs" />
+    <ProjectReference Include="../../../../../../audit-c9ff301-corebuild/core/foundation/Core.Foundation.csproj" />
+    <ProjectReference Include="../../../../../../audit-c9ff301-corebuild/core/numbers/Core.Numbers.csproj" />
+    <ProjectReference Include="../../../../../../audit-c9ff301-corebuild/core/rules/Core.Rules.csproj" />
+    <ProjectReference Include="../../../../../../audit-c9ff301-corebuild/core/carriers/Core.Carriers.csproj" />
+    <ProjectReference Include="../../../../../../audit-c9ff301-corebuild/core/gameplay/Core.Gameplay.csproj" />
+    <ProjectReference Include="../../../../../../audit-c9ff301-corebuild/adapters/stub/Adapters.Stub.csproj" />
+  </ItemGroup>
+</Project>

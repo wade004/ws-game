@@ -1,0 +1,22 @@
+﻿release_repo=D:\workespace\ws-game
+old_zip=D:\workespace\ws-game\dist\ws-game-1.12.0.zip
+new_zip=D:\workespace\ws-game\dist\ws-game-1.13.0.zip
+old_entry=ws-game-1.12.0/adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/Core.Foundation.dll sha256=76e852f5cdc6bc27385c4f1c03384f85fba2f480588b5ec5934a43a3e6c7671f
+build_exit=0
+run_old_exit=0
+run_old_output=FieldSchema name=id kind=Id required=False
+new_entry=ws-game-1.13.0/adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/Core.Foundation.dll sha256=d769e570ea5d1cf1056cae21db16d45fdaa18b5fb074132b729d70453f37566c
+run_replaced_1.13_exit=-532462766
+run_replaced_1.13_output=dotnet.exe : Unhandled exception. System.MissingMethodException: Method not found: 'Void Core.Foundation.DataRegistry.F
+ieldSchema..ctor(System.String, Core.Foundation.DataRegistry.FieldKind, Boolean, System.Collections.Generic.IReadOnlyLi
+st`1<System.String>, System.String, System.String, System.String)'.
+At D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\docs-project\api-comp
+at\run-api-compat.ps1:38 char:9
++         & $exe @arguments *> $log
++         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Unhandled excep...ystem.String)'.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   at Program.Main()
+expected_missing_method_observed=True
+result=PASS_EXPECTED_ABI_BREAK

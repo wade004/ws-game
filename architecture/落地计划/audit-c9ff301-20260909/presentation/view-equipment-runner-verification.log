@@ -1,0 +1,1 @@
+runner=OK;unity_exit=2;cases=1;result=Failed;expected_socket_after=0;actual_socket_after=1;view_same=True;socket_same=True

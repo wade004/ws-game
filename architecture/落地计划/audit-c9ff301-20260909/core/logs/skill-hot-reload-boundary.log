@@ -1,0 +1,20 @@
+  正在确定要还原的项目…
+  已还原 D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\repro\SkillHotReloadBoundaryProbe.csproj (用时 63 毫秒)。
+  5 个项目(共 6 个)是最新的，无法还原。
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\skill-hot-reload-boundary\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\skill-hot-reload-boundary\Core.Numbers.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\skill-hot-reload-boundary\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\skill-hot-reload-boundary\Core.Carriers.dll
+  Core.Gameplay -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\skill-hot-reload-boundary\Core.Gameplay.dll
+  SkillHotReloadBoundaryProbe -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\skill-hot-reload-boundary\SkillHotReloadBoundaryProbe.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:01.91
+initial_registry_cooldown=0;host_cooldown_before=0;first_cast_success=True;damage_before=7
+reload_blocking=False;reload_error_count=0;registry_cooldown_after=5;registry_damage_after=99;host_cooldown_before_second_cast=0;second_cast_success=True;damage_after=7;host_cooldown_after_second_cast=0
+fresh_host_expected_cast_success=True;fresh_host_expected_damage=99;fresh_host_expected_cooldown_after_cast=5
+ORACLE-CURRENT=after a successful reload and DataLoadCompleted, an existing SkillHost must either invalidate its SkillDefCache or explicitly document stale behavior; same action compared with a fresh host is the independent oracle. Existing host should use damage=99 and cooldown=5, matching the fresh host.
+INTERPRETATION-CURRENT=registry exposes the new cooldown=5 and damage=99, while the already constructed host sends the old EffectContext.BaseValue=7 to FakeCombatHost and leaves cooldown=0 after the second cast (the damage labels are BaseValue observations, not HP application). A fresh real SkillHost uses damage=99 and cooldown=5. This is a cache invalidation boundary; process exit 0 is not semantic proof.

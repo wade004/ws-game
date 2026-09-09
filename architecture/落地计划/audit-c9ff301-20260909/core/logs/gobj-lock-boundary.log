@@ -1,0 +1,22 @@
+  正在确定要还原的项目…
+  已还原 D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\repro\GobjLockBoundaryProbe.csproj (用时 74 毫秒)。
+  6 个项目(共 7 个)是最新的，无法还原。
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\gobj-lock-boundary\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\gobj-lock-boundary\Core.Numbers.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\gobj-lock-boundary\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\gobj-lock-boundary\Core.Carriers.dll
+  Core.Gameplay -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\gobj-lock-boundary\Core.Gameplay.dll
+  Presentation.Common -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\gobj-lock-boundary\Presentation.Common.dll
+  GobjLockBoundaryProbe -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\gobj-lock-boundary\GobjLockBoundaryProbe.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:02.17
+formal_blocking=False;formal_issue_count=0;formal_error_count=0;formal_warning_count=0;issues=
+carriers_blocking=False;carriers_issue_count=0;carriers_error_count=0;carriers_warning_count=0
+lockdef_parse=throws;type=DataFieldException;message=表 "gobj.lock" 记录 "gobj.lock.audit" 字段 "requirement"：缺少字段 "expected"
+positive_expected_formal_blocking=False;positive_expected_error_count=0;positive_carriers_error_count=0;positive_lockdef_kind=WorldFlag
+ORACLE-CURRENT=world_flag requirement requires flag_key and expected; missing expected should be rejected by formal validation before runtime parse, while expected=true is valid.
+INTERPRETATION-CURRENT=Current 1.13 schema validation reports no issue for the missing expected variant, but LockDef.FromRecord throws DataFieldException. The successful process exit is not semantic proof; the positive fixture confirms the parser path with expected=true.

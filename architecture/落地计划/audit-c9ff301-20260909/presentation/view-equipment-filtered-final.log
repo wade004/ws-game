@@ -1,0 +1,1437 @@
+[Licensing::Module] Trying to connect to existing licensing client channel...
+Built from '6000.3/staging' branch; Version is '6000.3.23f1 (09d2ecc7fb28) revision 643820'; Using compiler version '194234433'; Build Type 'Release'
+[Licensing::IpcConnector] Channel LicenseClient-ONCE doesn't exist
+OS: 'Windows 11  (10.0.26200) Enterprise' Language: 'zh' Physical Memory: 65323 MB
+BatchMode: 1, IsHumanControllingUs: 0, StartBugReporterOnCrash: 0, Is64bit: 1
+System  architecture: x64
+Process architecture: x64
+Date: 2026-09-09T13:31:32Z
+[Licensing::Module] Successfully launched the LicensingClient (PId: 46860)
+
+COMMAND LINE ARGUMENTS:
+C:\Program Files\Unity\Hub\Editor\6000.3.23f1\Editor\Unity.exe
+-batchmode
+-nographics
+-projectPath
+D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity
+-runTests
+-testPlatform
+PlayMode
+-testFilter
+Game.Template.Tests.ExistingViewEquipmentSaveLoadAuditTests.ExistingModelView_RealEquipmentSaveA_SaveB_LoadB_StaysStale
+-testResults
+D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\presentation\view-equipment-filtered-final.xml
+-logFile
+D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\presentation\view-equipment-filtered-final.log
+Successfully changed project path to: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity
+D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/adapters/unity
+[UnityMemory] Configuration Parameters - Can be set up in boot.config
+    "memorysetup-temp-allocator-size-nav-mesh-worker=65536"
+    "memorysetup-temp-allocator-size-audio-worker=65536"
+    "memorysetup-temp-allocator-size-gfx=262144"
+    "memorysetup-allocator-temp-initial-block-size-main=262144"
+    "memorysetup-allocator-temp-initial-block-size-worker=262144"
+    "memorysetup-temp-allocator-size-background-worker=32768"
+    "memorysetup-temp-allocator-size-job-worker=262144"
+    "memorysetup-temp-allocator-size-preload-manager=33554432"
+    "memorysetup-remapper-allocator-initial-capacity=32768"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-bucket-allocator-granularity=16"
+    "memorysetup-bucket-allocator-bucket-count=8"
+    "memorysetup-bucket-allocator-block-size=33554432"
+    "memorysetup-bucket-allocator-block-count=8"
+    "memorysetup-main-allocator-block-size=16777216"
+    "memorysetup-thread-allocator-block-size=16777216"
+    "memorysetup-gfx-main-allocator-block-size=16777216"
+    "memorysetup-gfx-thread-allocator-block-size=16777216"
+    "memorysetup-cache-allocator-block-size=4194304"
+    "memorysetup-typetree-allocator-block-size=2097152"
+    "memorysetup-profiler-bucket-allocator-granularity=16"
+    "memorysetup-profiler-bucket-allocator-bucket-count=8"
+    "memorysetup-profiler-bucket-allocator-block-size=33554432"
+    "memorysetup-profiler-bucket-allocator-block-count=8"
+    "memorysetup-profiler-allocator-block-size=16777216"
+    "memorysetup-profiler-editor-allocator-block-size=1048576"
+    "memorysetup-temp-allocator-size-main=16777216"
+    "memorysetup-job-temp-allocator-block-size=2097152"
+    "memorysetup-job-temp-allocator-block-size-background=1048576"
+    "memorysetup-job-temp-allocator-reduction-small-platforms=262144"
+    "memorysetup-temp-allocator-size-cloud-worker=32768"
+Player connection [21888]  Target information:
+
+Player connection [21888]  * "[IP] 192.168.213.1 [Port] 55504 [Flags] 2 [Guid] 3064900328 [EditorId] 3064900328 [Version] 1048832 [Id] WindowsEditor(7,ONCE20240717) [Debug] 1 [PackageName] WindowsEditor [ProjectName] Editor" 
+
+Player connection [21888]  * "[IP] 192.168.177.1 [Port] 55504 [Flags] 2 [Guid] 3064900328 [EditorId] 3064900328 [Version] 1048832 [Id] WindowsEditor(7,ONCE20240717) [Debug] 1 [PackageName] WindowsEditor [ProjectName] Editor" 
+
+Player connection [21888]  * "[IP] 192.168.0.108 [Port] 55504 [Flags] 2 [Guid] 3064900328 [EditorId] 3064900328 [Version] 1048832 [Id] WindowsEditor(7,ONCE20240717) [Debug] 1 [PackageName] WindowsEditor [ProjectName] Editor" 
+
+Player connection [21888] Host joined multi-casting on [225.0.0.222:54997]...
+Player connection [21888] Host joined alternative multi-casting on [225.0.0.222:34997]...
+[Licensing::IpcConnector] Successfully connected to: "LicenseClient-ONCE" at "2026-09-09T13:31:33.0315723Z"
+Input System module state changed to: Initialized.
+[Physics::Module] Initialized fallback backend.
+[Physics::Module] Id: 0xdecafbad
+[Licensing::Client] Code 10 while verifying Licensing Client signature (process Id: 46860, path: "C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client.exe")
+[Licensing::Module] LicensingClient has failed validation; ignoring
+[Licensing::Client] Handshaking with LicensingClient:
+  Version:                 1.18.3+d7ffd15
+  Session Id:              216fbb771f214fbb8a0e08753d25e9d0
+  Correlation Id:          a76b290dbc4ed52644a102a24a0b016d
+  External correlation Id: 6895581874653302277
+  Machine Id:              pQ8GbSGPDRbB5TuKiq5VeAXcv3M=
+[Licensing::Module] Successfully connected to LicensingClient on channel: "LicenseClient-ONCE" (connect: 0.24s, validation: 0.08s, handshake: 0.04s)
+[Licensing::IpcConnector] Successfully connected to: "LicenseClient-ONCE-notifications" at "2026-09-09T13:31:33.1470073Z"
+[Licensing::Module] Connected to LicensingClient (PId: 46860, launch time: 0.01, total connection time: 0.36s)
+[Licensing::Module] Error: Access token is unavailable; failed to update
+[Licensing::Client] Successfully resolved entitlement details
+[Licensing::Module] License group:
+  Id: F4-RBAU-NDFH-NT7X-YNCU-XXXX
+  Product: Unity Personal
+  Type: ULF
+  Expiration: Unlimited
+[Licensing::Client] Successfully updated license, isAsync: True, time: 0.01
+[Licensing::Module] Licensing Background thread has ended after 0.39s
+[Package Manager] Connected to IPC stream "Upm-26380" after 0.2 seconds.
+[Licensing::Client] Successfully resolved entitlement details
+Library Redirect Path: Library/
+[Physics::Module] Selected backend.
+[Physics::Module] Name: PhysX
+[Physics::Module] Id: 0xf2b8ea05
+[Physics::Module] SDK Version: 4.1.2
+[Physics::Module] Integration Version: 1.0.0
+[Physics::Module] Threading Mode: Multi-Threaded
+Refreshing native plugins compatible for Editor in 0.05 ms, found 0 plugins.
+Preloading 0 native plugins for Editor in 0.00 ms.
+Initialize engine version: 6000.3.23f1 (09d2ecc7fb28)
+[Subsystems] Discovering subsystems at path C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/Resources/UnitySubsystems
+[Subsystems] Discovering subsystems at path D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/adapters/unity/Assets
+Forcing GfxDevice: Null
+GfxDevice: creating device client; kGfxThreadingModeNonThreaded
+NullGfxDevice:
+    Version:  NULL 1.0 [1.0]
+    Renderer: Null Device
+    Vendor:   Unity Technologies
+Initialize mono
+Mono path[0] = 'C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/Managed'
+Mono path[1] = 'C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/MonoBleedingEdge/lib/mono/unityjit-win32'
+Mono config path = 'C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/MonoBleedingEdge/etc'
+Using monoOptions --debugger-agent=transport=dt_socket,embedding=1,server=y,suspend=n,address=127.0.0.1:56380
+Using cacheserver namespaces - metadata:defaultmetadata, artifacts:defaultartifacts
+Using cacheserver namespaces - metadata:defaultmetadata, artifacts:defaultartifacts
+ImportWorker Server TCP listen port: 0
+AcceleratorClientConnectionCallback - disconnected - :0
+Begin MonoManager ReloadAssembly
+Registering precompiled unity dll's ...
+Register platform support module: C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/PlaybackEngines/WindowsStandaloneSupport/UnityEditor.WindowsStandalone.Extensions.dll
+Registered in 0.000882 seconds.
+- Loaded All Assemblies, in  0.265 seconds
+Native extension for WindowsStandalone target not found
+Package Manager log level set to [2]
+ScheduleIndexationOnStartup MainProcess:False IndexOnStartup:False
+Mono: successfully reloaded assembly
+- Finished resetting the current domain, in  0.245 seconds
+Domain Reload Profiling: 509ms
+	BeginReloadAssembly (86ms)
+		ExecutionOrderSort (0ms)
+		DisableScriptedObjects (0ms)
+		BackupInstance (0ms)
+		ReleaseScriptingObjects (0ms)
+		CreateAndSetChildDomain (2ms)
+	RebuildCommonClasses (26ms)
+	RebuildNativeTypeToScriptingClass (8ms)
+	initialDomainReloadingComplete (32ms)
+	LoadAllAssembliesAndSetupDomain (112ms)
+		LoadAssemblies (83ms)
+		RebuildTransferFunctionScriptingTraits (0ms)
+		AnalyzeDomain (110ms)
+			TypeCache.Refresh (109ms)
+				TypeCache.ScanAssembly (100ms)
+			BuildScriptInfoCaches (0ms)
+			ResolveRequiredComponents (0ms)
+	FinalizeReload (245ms)
+		ReleaseScriptCaches (0ms)
+		RebuildScriptCaches (0ms)
+		SetupLoadedEditorAssemblies (222ms)
+			LogAssemblyErrors (0ms)
+			InitializePlatformSupportModulesInManaged (28ms)
+			SetLoadedEditorAssemblies (2ms)
+			BeforeProcessingInitializeOnLoad (54ms)
+			ProcessInitializeOnLoadAttributes (87ms)
+			ProcessInitializeOnLoadMethodAttributes (51ms)
+			AfterProcessingInitializeOnLoad (0ms)
+			EditorAssembliesLoaded (0ms)
+		ExecutionOrderSort2 (0ms)
+		AwakeInstancesAfterBackupRestoration (0ms)
+[Licensing::Client] Successfully resolved entitlement details
+Application.AssetDatabase Initial Refresh Start
+[Package Manager] Restoring resolved packages state from cache
+[Licensing::Client] Successfully resolved entitlement details
+[Package Manager] Registered 55 packages:
+  Packages from [https://packages.unity.com]:
+    com.unity.ide.visualstudio@2.0.22 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.ide.visualstudio@8140e851d83e)
+    com.unity.inputsystem@1.20.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.inputsystem@7a4e1a2a8194)
+    com.unity.searcher@4.9.5 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.searcher@a463122f2c00)
+    com.unity.burst@1.8.30 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.burst@2f3d916873ea)
+    com.unity.mathematics@1.3.3 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.mathematics@19a9377c4ffa)
+    com.unity.collections@2.6.8 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.collections@84e8eb3fc12e)
+    com.unity.nuget.mono-cecil@1.11.6 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.nuget.mono-cecil@ecb9724e46ff)
+    com.unity.test-framework.performance@3.5.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.test-framework.performance@8b56083ec0f0)
+  Built-in packages:
+    com.unity.2d.sprite@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.2d.sprite@5b922524bd83)
+    com.unity.render-pipelines.universal@17.3.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.render-pipelines.universal@7865b6b91f8a)
+    com.unity.test-framework@1.6.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.test-framework@bd7f943e9647)
+    com.unity.ugui@2.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.ugui@27635d171b1a)
+    com.unity.modules.accessibility@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.accessibility)
+    com.unity.modules.adaptiveperformance@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.adaptiveperformance)
+    com.unity.modules.ai@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.ai)
+    com.unity.modules.androidjni@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.androidjni)
+    com.unity.modules.animation@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.animation)
+    com.unity.modules.assetbundle@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.assetbundle)
+    com.unity.modules.audio@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.audio)
+    com.unity.modules.cloth@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.cloth)
+    com.unity.modules.director@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.director)
+    com.unity.modules.imageconversion@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.imageconversion)
+    com.unity.modules.imgui@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.imgui)
+    com.unity.modules.jsonserialize@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.jsonserialize)
+    com.unity.modules.particlesystem@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.particlesystem)
+    com.unity.modules.physics@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.physics)
+    com.unity.modules.physics2d@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.physics2d)
+    com.unity.modules.screencapture@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.screencapture)
+    com.unity.modules.terrain@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.terrain)
+    com.unity.modules.terrainphysics@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.terrainphysics)
+    com.unity.modules.tilemap@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.tilemap)
+    com.unity.modules.ui@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.ui)
+    com.unity.modules.uielements@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.uielements)
+    com.unity.modules.umbra@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.umbra)
+    com.unity.modules.unityanalytics@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unityanalytics)
+    com.unity.modules.unitywebrequest@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unitywebrequest)
+    com.unity.modules.unitywebrequestassetbundle@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unitywebrequestassetbundle)
+    com.unity.modules.unitywebrequestaudio@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unitywebrequestaudio)
+    com.unity.modules.unitywebrequesttexture@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unitywebrequesttexture)
+    com.unity.modules.unitywebrequestwww@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unitywebrequestwww)
+    com.unity.modules.vectorgraphics@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.vectorgraphics)
+    com.unity.modules.vehicles@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.vehicles)
+    com.unity.modules.video@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.video)
+    com.unity.modules.vr@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.vr)
+    com.unity.modules.wind@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.wind)
+    com.unity.modules.xr@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.xr)
+    com.unity.modules.subsystems@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.subsystems)
+    com.unity.modules.hierarchycore@1.0.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.hierarchycore)
+    com.unity.ext.nunit@2.0.5 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.ext.nunit@d8c07649098d)
+    com.unity.render-pipelines.core@17.3.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.render-pipelines.core@0bb36005e9ba)
+    com.unity.shadergraph@17.3.0 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.shadergraph@b4b75cc00891)
+    com.unity.render-pipelines.universal-config@17.0.3 (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Library\PackageCache\com.unity.render-pipelines.universal-config@8dc1aab4af1d)
+  Embedded packages:
+    com.gamefoundation.adapter.unity@file:D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Packages\com.gamefoundation.adapter.unity (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Packages\com.gamefoundation.adapter.unity)
+  Local packages:
+    com.gamefoundation.conformance@file:D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\conformance (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\conformance)
+    com.gamefoundation.game-template@file:D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\games\_template (location: D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\games\_template)
+[Subsystems] No new subsystems found in resolved package list.
+[Package Manager] Done registering packages in 0.01 seconds
+Directory monitor buffer overflow for 'Assets'Next Refresh will do full enumeration.Directory monitor buffer overflow for 'Assets'Next Refresh will do full enumeration.[ScriptCompilation] Requested script compilation because: Assetdatabase observed changes in script compilation related files
+Starting: C:\Program Files\Unity\Hub\Editor\6000.3.23f1\Editor\Data\Tools\BuildPipeline\bee_backend.exe --ipc --defer-dag-verification --dagfile="Library/Bee/1900b0aE.dag" --continue-on-failure --profile="Library/Bee/backend1.traceevents" ScriptAssemblies
+WorkingDir: D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/adapters/unity
+DisplayProgressbar: Compiling Scripts
+ExitCode: 0 Duration: 0s371ms
+[564/716    0s] ILPP-Configuration Library/ilpp-configuration.nevergeneratedoutput
+[712/716    0s] Csc Library/Bee/artifacts/1900b0aE.dag/Game.Template.Tests.dll (+2 others)
+[           0s] Csc Library/Bee/artifacts/1900b0aE.dag/Game.Template.Tests.dll (+2 others) [CacheWrite 00000000000000000000000000000005]
+[713/716    0s] ILPostProcess Library/Bee/artifacts/1900b0aE.dag/post-processed/Game.Template.Tests.dll (+pdb)
+Processing assembly Library/Bee/artifacts/1900b0aE.dag/Game.Template.Tests.dll, with 139 defines and 270 references
+
+processors: Unity.Jobs.CodeGen.JobsILPostProcessor, zzzUnity.Burst.CodeGen.BurstILPostProcessor
+
+running Unity.Jobs.CodeGen.JobsILPostProcessor
+
+running zzzUnity.Burst.CodeGen.BurstILPostProcessor
+[714/716    0s] CopyFiles Library/ScriptAssemblies/Game.Template.Tests.pdb
+[715/716    0s] CopyFiles Library/ScriptAssemblies/Game.Template.Tests.dll
+*** Tundra build success (0.34 seconds), 5 items updated, 716 evaluated
+AssetDatabase: script compilation time: 0.679224s
+Begin MonoManager ReloadAssembly
+- Loaded All Assemblies, in  0.564 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero using Guid(701454279736d684f93a639789bc8060) (DefaultImporter) -> (artifact id: 'e383f28cdf754cf79cbfec19826a15fa') in 0.0108756 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_chest using Guid(11a29e861d42523498016e40ecede074) (DefaultImporter) -> (artifact id: '552f30196add04dc9e89f4d7c9bd5c0c') in 0.0017789 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/burn using Guid(c1ea01f8ae253884b86e86d14d6e0443) (DefaultImporter) -> (artifact id: 'b146ca1f684bfb639d8e337989f9e558') in 0.0019311 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast using Guid(12dcf8da996cdaa44a2f0f811e64eafd) (DefaultImporter) -> (artifact id: 'af50263e4623a8f28f51bf0b6c6a847b') in 0.0015681 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast using Guid(a24bc8ef33b511347aa8ac1716252ac3) (DefaultImporter) -> (artifact id: '560fad3e3f22f1a7e99366972b390496') in 0.0015038 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/sample_cast_circle using Guid(0390fb4b33b2ed9419f7fcec8f231804) (DefaultImporter) -> (artifact id: '623272d7098d8bbfd1d6ee34afae7cbe') in 0.0017949 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero using Guid(75cdb782333a29a44865a936a61b17a3) (DefaultImporter) -> (artifact id: '7415e08b21314bffe23c64ae9ae11144') in 0.0080918 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_door using Guid(0608040ff5f8ce94da2ed38d128a6073) (DefaultImporter) -> (artifact id: '531a5736ab595fbba06916ad9def217f') in 0.0018518 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_chest using Guid(c6b86089c2d06f045bd50c6ba67b4261) (DefaultImporter) -> (artifact id: 'a66fcba9ecd52b0531ec57ad5195db9e') in 0.0014123 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/sample_burn using Guid(e7ebae4d934632d42bd7e2864a78df76) (DefaultImporter) -> (artifact id: '0c7df3eaa854acbc99b51c392deb2103') in 0.0055897 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/sample_hit_spark using Guid(681cf0b1d5194e544b1cef78c14722b8) (DefaultImporter) -> (artifact id: '915edf57beb8a6a838acab51a86f61f5') in 0.0063782 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_save_point using Guid(e815108f977b9fe40a29d1a430949dd6) (DefaultImporter) -> (artifact id: '15cc3e70d63aa4939acc5da0c5516f1a') in 0.0018156 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/item_sample_blade using Guid(e80882294b93a234693943207388ee1a) (DefaultImporter) -> (artifact id: '49c82abe46e19610b22f1414d12cc356') in 0.008006 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/cast_circle using Guid(6a3aaea333d52a84891a2305e6d3967a) (DefaultImporter) -> (artifact id: '9c93f12e07b2e909ef332c79f0f99850') in 0.0015947 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/hit_spark using Guid(4b8f0f67120ead144b88d13f28e3e10e) (DefaultImporter) -> (artifact id: '6852525bbc508a0a9fba8aabdf7cae78') in 0.0015359 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_door using Guid(8d144bf286893a14a852c9b383419ad6) (DefaultImporter) -> (artifact id: 'f14c1b241434c54d86835d8f2b0d873b') in 0.0013008 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/ui using Guid(d0f18b29ab07e854fb56afdf09d99aa8) (DefaultImporter) -> (artifact id: 'e05c261e748a7744615ce0e7301d9c86') in 0.0058848 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/back_side_l using Guid(91496d50ecc8f974cb8b7008e1b01cf4) (DefaultImporter) -> (artifact id: '2e574badffe92b1de89389ee22a3b5df') in 0.0015207 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/front using Guid(a1745d22fadda4c4088c65faaf629da0) (DefaultImporter) -> (artifact id: 'e7d5e669f3b1149b15b8e7a5ef14196f') in 0.0015233 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/side_r using Guid(a1ca1169756371e46b08f3730c523787) (DefaultImporter) -> (artifact id: '265a090f4fab2dc4505010dd8f66abbe') in 0.0020111 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/dialog using Guid(d15407307b217e244a2b9e2de3e8ed34) (DefaultImporter) -> (artifact id: '1c2ced5de8ac183ff17763e795f4e94f') in 0.0021552 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/econ using Guid(d1c7cef3e50b38b48b724b31e9d2acab) (DefaultImporter) -> (artifact id: 'dc3c9cceafd1429ed8111004bbfc1412') in 0.0017589 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/back_side_r using Guid(f186a52b0e494834f807e66df7a9993e) (DefaultImporter) -> (artifact id: 'acd5221b0e297e498fecf2720c2dd8dd') in 0.0016165 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/front using Guid(42f8d49acef57b94fa3ad69059b053ed) (DefaultImporter) -> (artifact id: '9bb241f691253b66130c17889df02deb') in 0.0041896 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back using Guid(620cdd9b2af73ce4da028239bc91a8c7) (DefaultImporter) -> (artifact id: '7e126e906f41ac3f7216662decab3a1d') in 0.0072827 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/skill using Guid(a2b1640a07d5e6042bea1c6a22c06b26) (DefaultImporter) -> (artifact id: '9fc1f7426d19de584e37d8782b3aa15a') in 0.0050571 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/side_r using Guid(c2cac88501fd7dd48a15851027c50574) (DefaultImporter) -> (artifact id: '6e9d3a88b6ee0512d1d806d42be3053f') in 0.0013209 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front_side_r using Guid(0380df504e31d4a45b9d15aac65d7ef9) (DefaultImporter) -> (artifact id: '2b31fbaa074e5bd1d8c51968ebf3e54a') in 0.0012969 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/ui using Guid(134af6ff531e03f4a94b14f9b2244457) (DefaultImporter) -> (artifact id: '5577a6e521f8bf090cb83e7bf03407f3') in 0.0011476 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/stat using Guid(939ee6eadb5ab1746822319a8c992716) (DefaultImporter) -> (artifact id: '84533b1390234e3adc58568256b62508') in 0.0017348 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/maps using Guid(14270f6ac8e13ee4890e4febd1a61517) (DefaultImporter) -> (artifact id: 'cc34bb3d1732aa21ba5108a00631f44b') in 0.0013665 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/target using Guid(646c354be97e2a44082b80b0692f8d7c) (DefaultImporter) -> (artifact id: '21c77dcc5387b9581550320ce7b8f559') in 0.0012692 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/area using Guid(a41198768fbebc949bc01414fe67a4f6) (DefaultImporter) -> (artifact id: '3791ca77a01536d4d1cdb199031ab1ff') in 0.0057395 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/side_r using Guid(d496442e753c11045904d6d2b8bccaca) (DefaultImporter) -> (artifact id: '37778c88dc918ee9a706495efd490ae0') in 0.0015227 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/side_l using Guid(f4d32980244c0a7459cf2376cf4f161e) (DefaultImporter) -> (artifact id: '9897f6ee7755d92c6a24e2eaefdf80b2') in 0.0055624 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/combat using Guid(f4e7a817ec2ba204e84d3648e1bd5d85) (DefaultImporter) -> (artifact id: '24cbb3f384140f81421b30c8e23dd985') in 0.0016283 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/side_l using Guid(f439d81e73410274daa45321d076b5bf) (DefaultImporter) -> (artifact id: '87b67dd90f7c11a71e39a2e8d1212152') in 0.0055599 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/fonts using Guid(251350d40dad24245917f0fb6fea7c37) (DefaultImporter) -> (artifact id: '7a794129a2dd8b23a2bbbf01557322f8') in 0.0051157 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx using Guid(45ad479ad8cba1343baa901cb160e8ff) (DefaultImporter) -> (artifact id: 'b7e30cac01e3d8042796b8c05844cff4') in 0.0058005 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/fac using Guid(468156e9b91413542ad38b2f05973fa3) (DefaultImporter) -> (artifact id: 'de2a09477f36a399445ebe45fab14674') in 0.0014461 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/back_side_l using Guid(b6131fe471eb4554ba8af848069e62a9) (DefaultImporter) -> (artifact id: '2dacb92f0be91ac9f4fee92f8f71a6fc') in 0.0052152 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/front_side_l using Guid(e62527944f21bdb4bb289c5b2db14cc6) (DefaultImporter) -> (artifact id: '685ade7599bcddad34ab0e4131482d09') in 0.0058558 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/back using Guid(f63ad58de0faece4f9a336ed1068a42f) (DefaultImporter) -> (artifact id: 'eba83d1915138652b9d63164e08e6bfc') in 0.0058717 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/sfx using Guid(08d8da2303c23794f8fd0b247fc97494) (DefaultImporter) -> (artifact id: '8346d35f41e1eb9a026be7fe8b654877') in 0.0018129 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/front_side_r using Guid(78486e17dd3c2374d869f55d1faf0470) (DefaultImporter) -> (artifact id: '2c4be452bc50b9a7fb2d3e06b7c8da72') in 0.0022684 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back_side_r using Guid(986c0d1609c6fc24aac2864e7ce61e4c) (DefaultImporter) -> (artifact id: 'd51e9219e541326d179be4e67d6158f2') in 0.0025497 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/spawn using Guid(d884f4efe990a5e47947dc6013dc08a5) (DefaultImporter) -> (artifact id: '7e826c801385d0137a7f3cec581f3762') in 0.0023741 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/front_side_l using Guid(d86e91fd31d7ace4385549d87bffb560) (DefaultImporter) -> (artifact id: '3871821c4b4e874e7b74b68eaac41a74') in 0.0017609 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/music using Guid(f884e5611f8a3b54fa9ec869435711cf) (DefaultImporter) -> (artifact id: 'a24a02a4a6f446b9ab920cd40c135bb1') in 0.0019369 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/feedback using Guid(19f40fabe129f684db76960fa4029a5f) (DefaultImporter) -> (artifact id: '1cfbd3e0980294e107806a60c045ab7a') in 0.002023 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/loot using Guid(6934e55ae9c11644b8e3e88a659d7ba4) (DefaultImporter) -> (artifact id: '4888b5e3a2d01c8ba7d24fdc2194e074') in 0.0013959 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/ai using Guid(695aacec2b4adf1488156c8aaca66964) (DefaultImporter) -> (artifact id: '6deacdc277b76887f2b84ecb2f199da6') in 0.0062745 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front_side_l using Guid(79c803d0389064a4f90ac1750207667b) (DefaultImporter) -> (artifact id: 'e2b1d4b7dd192e86bc2711170c578bfd') in 0.0062851 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front using Guid(795e7afa86f22c94da7d4c4751b37527) (DefaultImporter) -> (artifact id: 'fc8750626d9e8f5c4e3856a61afcc065') in 0.0057299 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_framework/found using Guid(d91a564223b03f94786dfec41f31b22a) (DefaultImporter) -> (artifact id: 'bf5672c1d14a3fc3100a60eb06766fcf') in 0.0020131 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/prog using Guid(e9348e41ad595a84a84f33aacd05d1a7) (DefaultImporter) -> (artifact id: '67342c135cadf9aed7d049667bb4c01c') in 0.0053138 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/found using Guid(e9ccf78b2ee0cf54ab8cf08e339f2567) (DefaultImporter) -> (artifact id: '0dab4193cdf5080a8b6d3acfe9c68da5') in 0.0014448 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/front_side_r using Guid(0aad4048b40ae2f4e83d3f479730f76b) (DefaultImporter) -> (artifact id: 'fb1b64da099de0923cbf58a9ca7ceeef') in 0.0013307 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back_side_l using Guid(1a44d88f28812f042852a4e1e251fd8f) (DefaultImporter) -> (artifact id: '75f543171e28c5e33df874171328121c') in 0.0012089 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/icons using Guid(2a0cdec1cfe22ea4398f721294cdadbc) (DefaultImporter) -> (artifact id: '82a311a5e0e534e4882ec9de01f864c4') in 0.0011867 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/creature using Guid(4af7f796f40220344ae2bb1de7340efa) (DefaultImporter) -> (artifact id: '88e9d02b4a96352d8541bf808c29a725') in 0.0068052 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/vfx using Guid(8a116e6f7b833144cb3dab81363d18c2) (DefaultImporter) -> (artifact id: '0138f1de1292edf31247ba2b36834c53') in 0.0014886 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/side_l using Guid(9a9212f2ff6cac84c9b414848bce7517) (DefaultImporter) -> (artifact id: '11853074b635945aa241c9f0a59c1db7') in 0.0013968 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/diff using Guid(fa5fd83af5044d646af14235bde77af3) (DefaultImporter) -> (artifact id: '38b03add96f244a396b45db1844b53cf') in 0.0012759 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/world using Guid(6b9ba967221536a46a3490e8514c2e03) (DefaultImporter) -> (artifact id: 'c9e36d18d0643ec8025cf35120dd9280') in 0.0012981 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sfx using Guid(db085574463030a4cbb77f08c074640f) (DefaultImporter) -> (artifact id: 'b768218cd48958cec6c07a863f5bb654') in 0.0010918 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/front using Guid(7c7e557d9b9d4f74ba667d4bd660f3d6) (DefaultImporter) -> (artifact id: 'b3bf69df3ed3b31bce8d0a82fa1d3498') in 0.0011358 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/shell using Guid(8cf1330b33c988149835406f9ee4cdb3) (DefaultImporter) -> (artifact id: 'fa5df201587bf5f152acf97132ff4fc6') in 0.0057605 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/encounter using Guid(8cd61fab639660844b7af4dc262cd3a4) (DefaultImporter) -> (artifact id: '9545dea778a589d525691f7e6786eb30') in 0.0014858 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/smoke using Guid(9ccd7012c8310e541b211bd30dbfa44d) (DefaultImporter) -> (artifact id: 'ee6f71d23c1a33ba2ed33c3de3efcda9') in 0.0064163 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/quest using Guid(0d104af101bfe434e9a08c04c93fcba4) (DefaultImporter) -> (artifact id: '1c604b2ca5c100eda33e2505d13b17b0') in 0.0013958 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/gobj using Guid(1dd124bc3f2330a4a899de2b61c3790a) (DefaultImporter) -> (artifact id: '0649925d431f06b34b18c3165615afde') in 0.0012041 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/back_side_r using Guid(6d2473f5565a78048a812d0758d4659d) (DefaultImporter) -> (artifact id: '99315b1b66469e50316a84b5497935bf') in 0.0017002 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/back using Guid(7d54d5c6dd4c2764cbbd9104db31a63e) (DefaultImporter) -> (artifact id: '854994dc5f9f223f6793b2607cfe8cd1') in 0.0053081 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites using Guid(9db06bdfdcc548945b760d4c239de555) (DefaultImporter) -> (artifact id: 'f1e08cd9edb6f7047f9f6bccc7430f5f') in 0.006552 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/back using Guid(9dfb509bb31d41942b994e81af16170f) (DefaultImporter) -> (artifact id: '66cb653e78e45e55cc3c42f5f3faf291') in 0.0014465 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/achv using Guid(fdde9d060d4bfdb4ab4fd74bf0c9494c) (DefaultImporter) -> (artifact id: '42865c9f106c953a91017b98cd205419') in 0.005387 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/arch using Guid(7ed3b2345c46e0341afc4c7783617a07) (DefaultImporter) -> (artifact id: '14e0c886609455cb2b7126706336df08') in 0.0014773 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/display using Guid(bec173cd455c6594fa88261e0e5a6b09) (DefaultImporter) -> (artifact id: '88094362100944713c9dd0e2fd53d578') in 0.0012442 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/back_side_r using Guid(de61df9a30b26a74e99ef11981598c74) (DefaultImporter) -> (artifact id: '2e41ce79d91d518e479de1fe701510ef') in 0.0011803 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/front_side_r using Guid(4fa4aa42f11ea2e45a4c5b7bab9d2313) (DefaultImporter) -> (artifact id: 'caaadb49694f5fe371cea304bf3be28f') in 0.0058372 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/l10n using Guid(5f9ab340462852949ae390d6b1b23a89) (DefaultImporter) -> (artifact id: '0728320b96c7213c2192ff82c71c3475') in 0.0019392 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/side_r using Guid(9f75d4134ccac944d8fb9683eaa4da65) (DefaultImporter) -> (artifact id: 'e2663dcb5924c5cd623d91bdc76c0188') in 0.0066681 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/camera using Guid(bf832fc6216fdad4bac529cb6d712184) (DefaultImporter) -> (artifact id: '5debe49afb97806aff0c3b732b7d8fe7') in 0.0055351 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_framework/arch using Guid(bf34fec73ef3ab2418d8c9aca30b158b) (DefaultImporter) -> (artifact id: 'c344ddbe2c270fa4aec90a0f661df1d8') in 0.001628 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/item using Guid(cfb4a979b1491ab42a80b3893b271146) (DefaultImporter) -> (artifact id: '17d4bd5cabd901de99b439cb3b4a98e7') in 0.0014414 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/cast_circle using Guid(20685d72d2ee93e40b29c7d7c1347486) (DefaultImporter) -> (artifact id: '57b3085ceada8d2b5f8c2e27fbd1ca3a') in 0.0011585 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_chest using Guid(33e21d38e3310924c90de04c52897efc) (DefaultImporter) -> (artifact id: '8504e4ff071ed635641f4fd70be8cb19') in 0.0051896 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/maps/placeholder_field using Guid(a4f9037630997834e8aa9038f010d990) (DefaultImporter) -> (artifact id: 'b67540c271f6b53d0101f737e0cdb805') in 0.0013069 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/burn using Guid(25bb77c73cb2e2740b53545f43111e3b) (DefaultImporter) -> (artifact id: '8a900972b3a5368c6d4a2eb64ebc947b') in 0.0011317 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero using Guid(6a189c36e89f68f4787c1670fee7d73e) (DefaultImporter) -> (artifact id: 'c2c41a51fd9501cae2c73d9c96b87400') in 0.0062332 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/hit_spark using Guid(dc84d5de5997418488664f3ed46f497a) (DefaultImporter) -> (artifact id: '9334411f3315ca36895fa6ed5fa181a8') in 0.0014496 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_door using Guid(fd7e69a0906ac7d4da526b406517d951) (DefaultImporter) -> (artifact id: '94dfc5331542371119bcc9465ae52626') in 0.0011901 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast using Guid(5fd002de4ca7f0346ae73b541c6d1122) (DefaultImporter) -> (artifact id: '0762ba689e87d08b3739537c7b9de372') in 0.0011099 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/back using Guid(43c058aa76490f54e8a1ad13d16f86cf) (DefaultImporter) -> (artifact id: 'aa116893b8b84f3fce55e5338b65c067') in 0.0010832 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/front using Guid(63eb02271aeb4d54792b7ffb8d610c7c) (DefaultImporter) -> (artifact id: 'aa780058e4cf64ae6a1bba4f8c75f7af') in 0.004808 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/front_side_r using Guid(7459ca6511b103d42b555797c2f6c8de) (DefaultImporter) -> (artifact id: 'c16358f5228ac191c6790c0f525a910e') in 0.0062317 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/side_r using Guid(b45f46b7c4a90aa47b3d1798f93648ca) (DefaultImporter) -> (artifact id: 'ed0fa867a50a43f32896e974ca9f314f') in 0.0014034 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/back_side_l using Guid(3533721366f1bf5408de782bac9fe72f) (DefaultImporter) -> (artifact id: '2560e8097a213fb6376ed64c1e3e2dbd') in 0.001618 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/front_side_r using Guid(f6040cc61ed85094d87007d5b9cbb9a8) (DefaultImporter) -> (artifact id: '5a83c35f0595727a1e7e6c9c9b0f4377') in 0.0011424 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/back_side_r using Guid(177dfce130a4e1640b1f94522427e4b7) (DefaultImporter) -> (artifact id: '164c7ae73953bb7a91268a939f066bd9') in 0.0010882 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/front using Guid(c99495d7b415ce44e9cfce8272717ab9) (DefaultImporter) -> (artifact id: 'cbfab6ddb47068bbee1b0472b9421bd5') in 0.0010995 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/side_r using Guid(7a37b5dcccdde6e4b9d8c59c62f601a8) (DefaultImporter) -> (artifact id: 'a7a3c9c2c809a570e70fab14224946c1') in 0.0010525 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/side_l using Guid(eabcacff432da6e47b89dc7abdc89fae) (DefaultImporter) -> (artifact id: 'b190b8833b18d3a674d3b34d72de2b0a') in 0.0010988 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/back using Guid(0b41990d75b10ef4e90e6435d4bfc44a) (DefaultImporter) -> (artifact id: '16e63ba8dbdbd90291ea79bbebaf540d') in 0.0010903 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/back_side_r using Guid(dbe1b3a6a2cc5f740ad1246dc771adb7) (DefaultImporter) -> (artifact id: '65bd0a115dd2193d2a596f5861309332') in 0.0068715 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/front_side_l using Guid(3d08a26089c8d07418c2c23ec6ea3365) (DefaultImporter) -> (artifact id: 'd60d75115803dcab3303514bf646dfee') in 0.001497 seconds
+Refreshing native plugins compatible for Editor in 0.20 ms, found 0 plugins.
+Native extension for WindowsStandalone target not found
+ScheduleIndexationOnStartup MainProcess:True IndexOnStartup:False
+Mono: successfully reloaded assembly
+- Finished resetting the current domain, in  1.605 seconds
+Domain Reload Profiling: 2168ms
+	BeginReloadAssembly (243ms)
+		ExecutionOrderSort (0ms)
+		DisableScriptedObjects (17ms)
+		BackupInstance (0ms)
+		ReleaseScriptingObjects (0ms)
+		CreateAndSetChildDomain (128ms)
+	RebuildCommonClasses (24ms)
+	RebuildNativeTypeToScriptingClass (9ms)
+	initialDomainReloadingComplete (16ms)
+	LoadAllAssembliesAndSetupDomain (271ms)
+		LoadAssemblies (235ms)
+		RebuildTransferFunctionScriptingTraits (0ms)
+		AnalyzeDomain (108ms)
+			TypeCache.Refresh (69ms)
+				TypeCache.ScanAssembly (62ms)
+			BuildScriptInfoCaches (28ms)
+			ResolveRequiredComponents (8ms)
+	FinalizeReload (1605ms)
+		ReleaseScriptCaches (0ms)
+		RebuildScriptCaches (0ms)
+		SetupLoadedEditorAssemblies (1483ms)
+			LogAssemblyErrors (0ms)
+			InitializePlatformSupportModulesInManaged (11ms)
+			SetLoadedEditorAssemblies (3ms)
+			BeforeProcessingInitializeOnLoad (90ms)
+			ProcessInitializeOnLoadAttributes (1261ms)
+			ProcessInitializeOnLoadMethodAttributes (116ms)
+			AfterProcessingInitializeOnLoad (2ms)
+			EditorAssembliesLoaded (0ms)
+		ExecutionOrderSort2 (0ms)
+		AwakeInstancesAfterBackupRestoration (25ms)
+Start importing Assets/StreamingAssets/GameFoundation/audio/hit_01.wav using Guid(90ac4dffc06a0674baad27666f72294e) (DefaultImporter) -> (artifact id: '3758e29ae899b92e5c5c18111a4fe73d') in 0.0241796 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/death_01.wav using Guid(81a3cbd0777b4044a8ceeb0eeb80faa4) (DefaultImporter) -> (artifact id: 'e08a4c24da8454f0a987a496114f0dc4') in 0.0015402 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/pickup_01.wav using Guid(f12119a0db7f08d4a876336c66e64be7) (DefaultImporter) -> (artifact id: 'c9b53b43cace64d9a0ece87e81334dfc') in 0.0014574 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/sample_hit_v1.wav using Guid(f104d73a792f649479979567065e769c) (DefaultImporter) -> (artifact id: '55ff292135dc6e218a3e40056d3b31d2') in 0.0013816 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/level_up_01.wav using Guid(229603f169a302046bc48e415f0d0d5e) (DefaultImporter) -> (artifact id: '41239a2683a932b51e18999d0fc9a2b6') in 0.0011597 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/ui_click_01.wav using Guid(d49834d039458d147ad791037c537c94) (DefaultImporter) -> (artifact id: '3cd0dd6b685e3e093f1d8e5501b272bb') in 0.0011547 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/sample_ui_click_v0.wav using Guid(2530497bc7d7f384084ef427120ad55e) (DefaultImporter) -> (artifact id: '1fb3de59d0d6a498b677f28d01c58156') in 0.0086556 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/swing_01.wav using Guid(a87a78ba9cc88364280d937e79fe3581) (DefaultImporter) -> (artifact id: '767be5e02338ed01b3806cd659c4f93c') in 0.0015457 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/hit_02.wav using Guid(d82290c82296cde4bbca95143bcefc3a) (DefaultImporter) -> (artifact id: 'a4acd4f504e7bbe04eb2494e545e08e4') in 0.0049304 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/cast_01.wav using Guid(2cd70987a88e71b4d8858296d01cbc89) (DefaultImporter) -> (artifact id: '99454829cf7db5e9e467d093001b7533') in 0.0018793 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/sample_hit_v0.wav using Guid(7e0d65bec78c2a84db80a715cfcd9c82) (DefaultImporter) -> (artifact id: '48a439f8404ce39bffbfe88e09e60856') in 0.004546 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/sample_cast_v0.wav using Guid(bfc71e3b0efe9cd44b007d01b66c64fe) (DefaultImporter) -> (artifact id: 'd8b070efeddbc133ed236c463f517952') in 0.0016948 seconds
+Start importing Assets/StreamingAssets/GameFoundation/audio/ui_open_01.wav using Guid(ff3b92846b3ec804ea62e991fc1bc8a3) (DefaultImporter) -> (artifact id: 'db66416a2fa98cec867771aedbeddc7a') in 0.0028838 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/hit_spark/frame_06.png using Guid(a0e7825ecb717404c9675012d59bcf35) (DefaultImporter) -> (artifact id: '57a48a2410e756de5d84872478b106cf') in 0.0032191 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/item_sample_blade/atlas.json using Guid(a08f3bcd892d07e42a80361cdde603be) (DefaultImporter) -> (artifact id: 'a119243325e8bd358076fba3d4f48821') in 0.012282 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/anchors.json using Guid(d056016e4f99d73429d1488cb56b8590) (DefaultImporter) -> (artifact id: '636061dc9c74bd5666f9b92b1860afa5') in 0.0021155 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_door/atlas.json using Guid(e04fd0247bcd18147bdfc23718e419dd) (DefaultImporter) -> (artifact id: '748f997c9f50d7514e606b276f217bf1') in 0.0015597 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/cast_circle/frame_03.png using Guid(01f37f378bdbddb409850b339022b699) (DefaultImporter) -> (artifact id: '420cde8b7fadceba4f41a73237dcbd45') in 0.001361 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_door/side_l.png using Guid(213977d80c4f7c743ba9c3fa8be54e9c) (DefaultImporter) -> (artifact id: 'a30ba75f2c3d17f496cc3d550975f29f') in 0.0015274 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/README.md using Guid(3140ae7a6d77b6b49b42fe096720aa7d) (DefaultImporter) -> (artifact id: 'd370966b0470b39b739aedaccfc9533f') in 0.0031848 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/sample_cast_circle/frames.json using Guid(41461ea9b194fc14990518579596544e) (DefaultImporter) -> (artifact id: 'a1d584e644e809430d3a0eec8cdb08a7') in 0.0054059 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/sample_cast_circle/atlas.png using Guid(416cdc228905d7646934a921dc1f31b1) (DefaultImporter) -> (artifact id: '83b7e6131a728c07b2dfb2a1290c7738') in 0.007026 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_chest/atlas.png using Guid(71cd7a66c6031ba43955563131d13b2a) (DefaultImporter) -> (artifact id: '07354281c43e28a6ee291ee252693ffe') in 0.0014385 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_door/open.png using Guid(810c1cef5d8d74d4e8dbb3d4e309eddb) (DefaultImporter) -> (artifact id: '4a5ff7d8a13b1257979860d8a765deee') in 0.0044319 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/item_sample_blade/side_r.png using Guid(b1f051eaee8a3b74fb10d46b2b2e0f32) (DefaultImporter) -> (artifact id: 'db7ccbc37103f2490c558b14132f08fb') in 0.0012589 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/hit_spark/frame_05.png using Guid(c1bb7e7a4f1f2bc449493195f4cdda26) (DefaultImporter) -> (artifact id: '15204d2e423543dd8d8944a1d841e1ac') in 0.0051389 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/hit_spark/frame_03.png using Guid(d11b5c218925f3543b03f9fa0616b1b9) (DefaultImporter) -> (artifact id: '3e37f33b0f55c3b0dbb182b0bf9bbc0e') in 0.0014628 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_save_point/anchors.json using Guid(22b5c269900f5cb44848dad15f75ded4) (DefaultImporter) -> (artifact id: '88a2509b88a80b9059c5d6cadbbd2af5') in 0.0057195 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_save_point/side_r.png using Guid(721532f7ce6f8a34eb8a924bcf75264d) (DefaultImporter) -> (artifact id: '939f60005bb0fad07c1b62239c420d30') in 0.0049399 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/cast_circle/frame_01.png using Guid(9263efd7bd363f04cb531d5b4b52d8f2) (DefaultImporter) -> (artifact id: '113ff9e69e0a0733b5d277b0d3f2c258') in 0.0052926 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_chest/side_l.png using Guid(b23bc216f79eb5740b313a065c6b35b0) (DefaultImporter) -> (artifact id: '072b728659a05b1373fc0ab3d9399c02') in 0.0055137 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/hit_spark/frame_02.png using Guid(036c147ec2a7d1948aff4717083e4bd9) (DefaultImporter) -> (artifact id: '904aead65d686d09f013711f8fa5b9bd') in 0.0013011 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_chest/closed.png using Guid(43241b0426fe29644a4985ba5e833f80) (DefaultImporter) -> (artifact id: 'df0fbb0dea48a62b4cc372b2720d5b71') in 0.0014801 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_chest/atlas.json using Guid(e3e8578bb2ec1d04489d626af11748b6) (DefaultImporter) -> (artifact id: 'fed666dc036909d5fd34b0e46b934664') in 0.0010832 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/cast_circle/atlas.png using Guid(24a6aae6dfbc1264dbac38b81c611eaa) (DefaultImporter) -> (artifact id: 'bb8a702f9f1fa73459621709788be573') in 0.0015283 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/cast_circle/frame_04.png using Guid(34e9f77d47df12a4c9af1e31428e9abb) (DefaultImporter) -> (artifact id: 'aaa8c3d89e0d6a14e5113acc561ed1e4') in 0.0014993 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/item_sample_blade/side_l.png using Guid(f452a719b6d2f5540829acbff6001961) (DefaultImporter) -> (artifact id: 'feccd50a67f782432fd3bed60acb083a') in 0.0013852 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/item_sample_blade/atlas.png using Guid(35b59d47917d6c1409d69a861d336505) (DefaultImporter) -> (artifact id: '483bcd64df5721ba53e5c89853d6fd02') in 0.0012676 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/atlas.png using Guid(759a855b014d9d945ad8e91420612969) (DefaultImporter) -> (artifact id: '24b279c033bb9431231229de390a64c3') in 0.001183 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/item_sample_blade/front.png using Guid(b5d1ed3ea8889fc4f946c24e358df6b5) (DefaultImporter) -> (artifact id: '31ca7ebec499e1530c6d2a74915b4668') in 0.00124 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/burn/atlas.png using Guid(d57e16494b7eddd47be36d2deda63a34) (DefaultImporter) -> (artifact id: 'eab4d53760f26b45b071ccb64acc1a40') in 0.0051212 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/atlas.json using Guid(06750ada5e8176c4fb97953e57d1aac3) (DefaultImporter) -> (artifact id: 'f1dfe2430f07587839537b1139bcf35f') in 0.0014437 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/hit_spark/frames.json using Guid(16719ec361a489545bc6caa5b47d37df) (DefaultImporter) -> (artifact id: '2f5a94ce1b6f07b800a321faff07d981') in 0.0016116 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/item_sample_blade/back.png using Guid(666df5b19a9a4d9498cdc965f3143e14) (DefaultImporter) -> (artifact id: 'd8bb98d9889d14a1a71e658f98f3aa6b') in 0.0013966 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/hit_spark/frame_01.png using Guid(e6523bcab846367458fe24f02fe65469) (DefaultImporter) -> (artifact id: '19a2c2808c0dd141fad56c8f3fcbe10e') in 0.0012113 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_chest/back.png using Guid(07e6e19f90913424c967e302d4332c55) (DefaultImporter) -> (artifact id: '970104a08289bf463ab77e8b8890d578') in 0.0011972 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/cast_circle/frame_00.png using Guid(47cd72bbf2f854f4e84c232d8440e770) (DefaultImporter) -> (artifact id: 'cddb3b447eb2a322a9da48ef876b11ea') in 0.0011257 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/hit_spark/frame_07.png using Guid(67b4a9d0657dc724686c4793c03a3dfb) (DefaultImporter) -> (artifact id: '3eef403c7b684e24699cd4c3597257b5') in 0.0058129 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/sample_burn/atlas.png using Guid(77743e738d68e5244a237f1c5e288e58) (DefaultImporter) -> (artifact id: 'ef9bd6067002e7712b819b7491d4ed5b') in 0.0047552 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_chest/front.png using Guid(978eb18c63926cb41a87951df0913b95) (DefaultImporter) -> (artifact id: '3f658e5e802f886c67971c6e96af4f03') in 0.0014463 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_door/atlas.png using Guid(a78d13e62a0ab0846884bda7420e933b) (DefaultImporter) -> (artifact id: 'b13534fcafd7129c98ce1f35a3fc7e3a') in 0.005555 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/hit_spark/atlas.png using Guid(f7f176a5db6782941a9b039c86062915) (DefaultImporter) -> (artifact id: 'f2192b3dc4884b146d5ed85080f60953') in 0.0014713 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/cast_circle/frame_06.png using Guid(38e23912ec2568b479378197e37b30bf) (DefaultImporter) -> (artifact id: '0e8611cc3a579ec10799b9876998c884') in 0.0012961 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_save_point/side_l.png using Guid(b8326c762fc62e843abcfac2d241b611) (DefaultImporter) -> (artifact id: '4ac1697e508a2653524b3ee1f77baaa2') in 0.0011409 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_door/front.png using Guid(c869dcaeec64c394a86f28252130a92a) (DefaultImporter) -> (artifact id: '0506fca7cb8353b05ea0601ecb75834d') in 0.0012089 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/burn/frame_01.png using Guid(3937ce0a1fa5bdf44931a3f60efcb1f0) (DefaultImporter) -> (artifact id: 'a459b09d6f59e8d46680b998f10f851f') in 0.0011765 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/cast_circle/frame_05.png using Guid(49682fefca49fa248aaf0d83257fda7c) (DefaultImporter) -> (artifact id: '7ac7547124d111ddcaf8dbd79811a890') in 0.0063077 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_save_point/front.png using Guid(a93cb55cf50fe3a4abd3a0347796545d) (DefaultImporter) -> (artifact id: 'b2ec34ad051b27a9e76450ec11569698') in 0.0016703 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/item_sample_blade/anchors.json using Guid(d9397ba55f8611e4aa9610a387c9e0e9) (DefaultImporter) -> (artifact id: '10048589ef357c5f9ad6ac70987c789c') in 0.0012426 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/sample_hit_spark/atlas.png using Guid(e9381f54972f4ca49bfafbaf7f566a2c) (DefaultImporter) -> (artifact id: '7a8adee2ee3db197e06a8e7017e5a70f') in 0.0011055 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/atlas.png using Guid(0a0d95112b05b4c4085d4ad1199cf2e2) (DefaultImporter) -> (artifact id: '034a248f87350f078be56a9ce2b3ce19') in 0.0059782 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/cast_circle/frames.json using Guid(2aa7a7812922e984fbe0691260409832) (DefaultImporter) -> (artifact id: 'ff98fedf5ce61900c91aea11fb519594') in 0.0053733 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/burn/frame_06.png using Guid(6ae25dbf7a6d4a64a8a8e33621399ff9) (DefaultImporter) -> (artifact id: '731e46a59780de76cb46733b2171703f') in 0.0013828 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/anchors.json using Guid(cad0b1a1bc562b740b114600e8d48f20) (DefaultImporter) -> (artifact id: '8207cf78ab80e406a02632192dffdd2f') in 0.006862 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_save_point/back.png using Guid(da8f03519fa82564996ee84108ff5585) (DefaultImporter) -> (artifact id: 'aa25b4d90b3a64f03dd1f0df317fcd9d') in 0.0092364 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_door/anchors.json using Guid(1bb26b7713806b948810c5be8956b3a9) (DefaultImporter) -> (artifact id: 'e5ef68e8393388d0bf96b18ee7e0b72b') in 0.0021015 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/burn/frame_02.png using Guid(3b4c69bba33baec4ab59bb6bbec62792) (DefaultImporter) -> (artifact id: '15c16bf0b4efb366ad0bd7d960391b2b') in 0.0016071 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_door/closed.png using Guid(5b757e4d031b20942a1a636550e64683) (DefaultImporter) -> (artifact id: 'd1c176f724153d4344f4352e1b329a02') in 0.0015104 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_chest/anchors.json using Guid(6bc9a61ba6017da4a90a4b2785cb638d) (DefaultImporter) -> (artifact id: 'e52be36e637b81bae904c927e841ff5c') in 0.0137058 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/anchors.json using Guid(9bbbbfc56fb26964197e02cdceb50fb6) (DefaultImporter) -> (artifact id: '8c26ffe619cf20c6691783d62aa6529a') in 0.0064605 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/atlas.json using Guid(0c22bbbbf81d1974e807fef35d76212d) (DefaultImporter) -> (artifact id: '3410468f17014e090e7440d2155ca09d') in 0.0019657 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_door/back.png using Guid(1c2c7d50499341d4cafce6459318658f) (DefaultImporter) -> (artifact id: '642891a253b413a7233c64685ad5957d') in 0.0072126 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/anchors.json using Guid(3c10438c23ff4514a8a23c47cab70132) (DefaultImporter) -> (artifact id: '362925379bfc24855231cfd6caee0ddc') in 0.0018302 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/cast_circle/frame_07.png using Guid(7ca5add9ff8b60942b038725e529b77c) (DefaultImporter) -> (artifact id: 'fa9287a68bf670e04d3e2d9a10d56ef9') in 0.0016164 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/burn/frames.json using Guid(8cf4211ad57985042b6147c0c3c85bc8) (DefaultImporter) -> (artifact id: 'bd61246b427aed5984b9820777b97d89') in 0.0014962 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_chest/open.png using Guid(9c8aa978e0854ab449613c954e05f5fc) (DefaultImporter) -> (artifact id: '0189092f493188576633df8532bc93c4') in 0.0013671 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_save_point/atlas.png using Guid(bc6b28b1dd5eb52418cfb2fed24b1a12) (DefaultImporter) -> (artifact id: 'c6ffdf97bd964220e491b5cf8c3be717') in 0.0015435 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/hit_spark/frame_00.png using Guid(ecdef9ea2358ecd458603c5ca3a2f5aa) (DefaultImporter) -> (artifact id: '6aa70e6598a3e75b849ed0147295ea7b') in 0.0014158 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/burn/frame_03.png using Guid(fc33f80c5ea5e0f4caa891b2c140287b) (DefaultImporter) -> (artifact id: 'c815f5fc3c279918b0847106db3e5ca0') in 0.0062854 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/burn/frame_07.png using Guid(3dca5cdb8eed7504a9ffa84d6867762f) (DefaultImporter) -> (artifact id: 'aedb2e24977117dc8b23de1493ff9c38') in 0.0016906 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_save_point/atlas.json using Guid(4de37850269104947b5daa7040ee8228) (DefaultImporter) -> (artifact id: 'a28265ef36e75d23623aa9b63235c076') in 0.0014185 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/MANIFEST.json using Guid(5d29be8e1cd09264c9b42256c1decb52) (DefaultImporter) -> (artifact id: '17e13c9006e9379ff4d07a83c7efe5df') in 0.0060312 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_door/side_r.png using Guid(9d557874120b9024c8ad3ec4791f7cf9) (DefaultImporter) -> (artifact id: '4131fa78e2fd94b24609c5d8753848f6') in 0.0061182 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/cast_circle/frame_02.png using Guid(ad6a6609f9d003741911797c0e78a1bd) (DefaultImporter) -> (artifact id: '72926d954ae74e8f49f51ad23ae1f116') in 0.0015722 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/burn/frame_00.png using Guid(6e6c9cff903e9794ebe22ae2bbc80f5e) (DefaultImporter) -> (artifact id: 'ff4839d20ab29a4253e10cefc52afc75') in 0.0055726 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/sample_burn/frames.json using Guid(ae963c9a5f15b50439e6d6990d7afa2e) (DefaultImporter) -> (artifact id: '1a1f67b83d1c4abed3a028e92e1ef4d7') in 0.0017157 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/hit_spark/frame_04.png using Guid(be3b43af75ddde14f9cdef91589f6767) (DefaultImporter) -> (artifact id: '9cbca67d5eeea82270c2b206fdc1aa0f') in 0.0057833 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/burn/frame_04.png using Guid(1fc6c860cb72d3a4ba4adc54bd124dee) (DefaultImporter) -> (artifact id: '71e4d15806041e8cfc0bc1c288d6cd58') in 0.0014289 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/sample_hit_spark/frames.json using Guid(1fdf931e5cb1d2d42981d727b8898d55) (DefaultImporter) -> (artifact id: '413bce14d3e1d04c82b651bbe4bf7d08') in 0.0014231 seconds
+Start importing Assets/StreamingAssets/GameFoundation/vfx/burn/frame_05.png using Guid(8f4820ac1c53d944bbee8d90272a7611) (DefaultImporter) -> (artifact id: '947fa84294f76b9de2c083ee7ad910f1') in 0.0056913 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/gobj_sample_chest/side_r.png using Guid(bf2bcf17769452d48ac2fd7c500f6889) (DefaultImporter) -> (artifact id: '03b9d5fb8eb05a09d0766091193e8743') in 0.0063746 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/README.md using Guid(cf34d48296efc89479d04af0de62dd2c) (DefaultImporter) -> (artifact id: 'd0e1b84ba984ef8a4284989336901adf') in 0.0055909 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/ai/ai.patrol_path.json using Guid(30634c7c758e59c43a357c0649dbb43a) (DefaultImporter) -> (artifact id: 'ded2ae0a97d80c59100ce46773c4293f') in 0.0015606 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back_side_r/head.png using Guid(308b9105fd7d3e04cb1f80a47f164237) (DefaultImporter) -> (artifact id: '27835d01517e99cc6fa5fed06c692512') in 0.0013601 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front/hand_main.png using Guid(50afd9b5ae4e6fa468f75b6f3a442a89) (DefaultImporter) -> (artifact id: 'ce8e233a1ddba7cd21bdf085ddae5b0d') in 0.0075884 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/side_r/head.png using Guid(7063ae217319e974c873eb4dcc8eaf3c) (DefaultImporter) -> (artifact id: 'c826b717dd724abf33585a9133ed16e1') in 0.0121836 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front_side_r/body.png using Guid(7073d195402035a449918db3fed1c823) (DefaultImporter) -> (artifact id: '5bf78f427b45ee1f66e3bb3fcc9d086b') in 0.0065326 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/display/display.map.json using Guid(80b7d6ae63696ee49a9d05a96189bacf) (DefaultImporter) -> (artifact id: 'd627bca82eb741664d71507e88c3e8e1') in 0.0016648 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/stat/stat.definition.json using Guid(90b54f465a60d8748ac4d1a04e3ec21d) (DefaultImporter) -> (artifact id: '9f5919077a771f4657742a98d6125679') in 0.0046662 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/smoke/README.md using Guid(b005948e151b4f74db45dcc27f3a1bfe) (DefaultImporter) -> (artifact id: '3373be5958c4dca1a15786e977cf1f48') in 0.0022863 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/back_side_l/body.png using Guid(d05327cc609f4614985906b5f1406466) (DefaultImporter) -> (artifact id: '539d227aea0373c4c2b319e9301a777c') in 0.0018229 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back_side_l/head.png using Guid(1101f2c90531dfc4c9d6a2216864504c) (DefaultImporter) -> (artifact id: 'bc5100fa6c1aa304105f52617e568c73') in 0.001626 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/back/body.png using Guid(2176249f0711490409262ddf2a352867) (DefaultImporter) -> (artifact id: '0f7758babab981bbff33370a180632f0') in 0.0063631 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/gobj/gobj.template.json using Guid(212a56d45e528504e8107a255f87c581) (DefaultImporter) -> (artifact id: '90e31c45e0b3801998ade1ccd646f78c') in 0.0012586 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back_side_l/hand_main.png using Guid(317ca2e2497dfdc44b6f54ed0e958f2f) (DefaultImporter) -> (artifact id: '41767890f4784d46e96140805e0aad58') in 0.0011649 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/arch/arch.power_type.json using Guid(61950f1f0f1b31449bb6a517cabdcb86) (DefaultImporter) -> (artifact id: '76eab339546dcccc944b884e0eb815c0') in 0.0050497 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sfx/death_01.wav using Guid(61c5adbb86e78594388463f51955cf83) (DefaultImporter) -> (artifact id: '1656c0f435f032efaea0ed51374f16a7') in 0.0017151 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/econ/econ.currency.json using Guid(8134312c497595b428ca342dc8272e0f) (DefaultImporter) -> (artifact id: 'f546dd1dbdd2c75168c0601ea43c6237') in 0.0013214 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sfx/hit_01.wav using Guid(817df73340611dc4a8a7268935820f73) (DefaultImporter) -> (artifact id: 'ae819b0683991fecb416a35e00a86da1') in 0.001267 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/side_r/body.png using Guid(a17c4ce9133fffd4abf263ac639d1e93) (DefaultImporter) -> (artifact id: 'aaaad4638cef9cecaf203c9bd074a63c') in 0.0011359 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/arch/arch.race.json using Guid(b101ac8bbcfc211438281ff02e673a74) (DefaultImporter) -> (artifact id: '929c3b8797aa9b756135310ae8b7e766') in 0.0042024 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/icons/icon_placeholder_token_rare.png using Guid(b12a59dac5ea58c4e8fc4b42f8640c30) (DefaultImporter) -> (artifact id: '442cc276b7a80568b1207f2c85a655a2') in 0.0014698 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/side_l/body.png using Guid(e1428b73015df6440b6d255e631df97d) (DefaultImporter) -> (artifact id: 'd1374a0a1a168fb6b79b4400504b68bf') in 0.0013037 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/icons/icon_placeholder_blade.png using Guid(12a321b8b640c01498b02daf7bb2b889) (DefaultImporter) -> (artifact id: 'bcb12d0b03b0d3a749a38ed9e7aff1f2') in 0.0044094 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/display/display.weapon_style.json using Guid(323ae1da92522f044a84aa4f60d6f61d) (DefaultImporter) -> (artifact id: 'eefa5351d9a4fd9b16c744efe3637d74') in 0.0044195 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_framework/found/found.input_action.json using Guid(525af049736307549a4e36006e9f153c) (DefaultImporter) -> (artifact id: '4a6696345fec08fc9371ed50e2cbe4f6') in 0.0068922 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/ui/bar_bg.png using Guid(82602e8c860e90242894613c8395d99b) (DefaultImporter) -> (artifact id: '3e4d0ee3df10a41500ea6337ddbd2894') in 0.0063379 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/creature/creature.tier_definition.json using Guid(82d31b10f5bd5e94ebae4cf72e263ab5) (DefaultImporter) -> (artifact id: '4995c08d6995d6b05a88409e37da2019') in 0.006892 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/ui/button_normal.png using Guid(82ffd7fd926a8dc4ab67ad4f22252534) (DefaultImporter) -> (artifact id: 'f4ce7513a167afc3a2a6a5418dd439b2') in 0.0014901 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/item/item.budget_curve.json using Guid(e2b66ec87767b15458cfc91ae52b3871) (DefaultImporter) -> (artifact id: '14d6cb39f8ad47220e84c1ea924db958') in 0.001438 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/front_side_l/body.png using Guid(f2d86bcec4a29f64f8d55c7b2e604f13) (DefaultImporter) -> (artifact id: 'b0e88d86b7b54c49a4163029957d4ee5') in 0.001658 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/sfx/sfx.def.json using Guid(23b3c67ead69a4d4081b2715a577d9ff) (DefaultImporter) -> (artifact id: '01a39c82a23e71b6e4ce6d072e94c616') in 0.0052938 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/back_side_r/body.png using Guid(234a7640d00bb484ebf5108c95582031) (DefaultImporter) -> (artifact id: 'd128139441e434d186f628fdb626c7c2') in 0.0061759 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front_side_l/hand_main.png using Guid(338496ce852248044b107a32d6d7abd7) (DefaultImporter) -> (artifact id: '996fed14417ae0346f3578c349b40c58') in 0.0078873 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/feedback/feedback.floating_text_style.json using Guid(6387f4c1eb1d6db47ab975adb33d5e96) (DefaultImporter) -> (artifact id: 'faae362898e4a2ffe9b56ba2b21a83f2') in 0.0020311 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/vfx/vfx.def.json using Guid(73d07f4cb54e96c4798753e9ee8ce9b6) (DefaultImporter) -> (artifact id: '4dec2bf0cde69d1943b45286fc8eec07') in 0.0018654 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/front_side_r/body.png using Guid(e378726be6d8d934a9a1996e5b8fdfd5) (DefaultImporter) -> (artifact id: '335938d6f3ef4a13607cab21ced7b2c4') in 0.0062235 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front/head.png using Guid(f30b602191ed7774eba94fc7db8e5845) (DefaultImporter) -> (artifact id: '61ae1521372fcd89d8e906e826b1e08a') in 0.001995 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/diff/diff.tier.json using Guid(04d7a3fb224eb284194c828c316120e7) (DefaultImporter) -> (artifact id: 'b6206095a55b90e00a13632fe4565b2c') in 0.001364 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/icons/icon_placeholder_blade_rare.png using Guid(14286ef100030f944b69bf8797fac7fc) (DefaultImporter) -> (artifact id: '1c9d1a2c0de6286fca58339b17100ee0') in 0.006726 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/item/item.quality_definition.json using Guid(24c3ec59e99e37148ad56eb55889f0b5) (DefaultImporter) -> (artifact id: '206212fcaf6fa9e27d415c089dfe81e8') in 0.0016375 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front/body.png using Guid(24a8a20773195e0458e387b3b97191df) (DefaultImporter) -> (artifact id: '9922f12c9528a046a43856928c82a8ac') in 0.0015684 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/ai/ai.rotation.json using Guid(749108b0029ee2044bb45e004bdf16ac) (DefaultImporter) -> (artifact id: '527cc9c505fb1e14c3d505219b0eb635') in 0.0013085 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/arch/arch.talent_tree.json using Guid(74a43f77f4151eb4992d8381bf6646fc) (DefaultImporter) -> (artifact id: 'a32c06ab7f4d66af9dbdb55695d69aed') in 0.0054855 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/ui/panel_9slice.png using Guid(8467bceb3e6024146842a43480e462d9) (DefaultImporter) -> (artifact id: 'd1eb4f7ae83b5579bc2790fdd766d9db') in 0.0074997 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/display/display.anim_set.json using Guid(b43ee7354514d474fa5e5aa6a88a7fee) (DefaultImporter) -> (artifact id: '2b2c84027184d4152cb9c3a68b2894de') in 0.0016956 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/back/head.png using Guid(c40c6a07c68f6ef43b14f2c83ee54976) (DefaultImporter) -> (artifact id: 'd622a519bd93bbf41c2f50288a2dbb3f') in 0.0013639 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/dialog/dialog.gossip_menu.json using Guid(d4a5f1aad1d252e4fb746ad204363156) (DefaultImporter) -> (artifact id: 'a982564c467920e950eeb08bffbc1fe9') in 0.0017757 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/prog/prog.xp_source.json using Guid(d42760ac884c76a479703484f988bd44) (DefaultImporter) -> (artifact id: 'b80ea84f1789fa23eb99a2db69f1bdf1') in 0.0077168 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/back_side_r/body.png using Guid(d42c19b48c9b5f24d8725c91530b93ff) (DefaultImporter) -> (artifact id: '1004b7c5899c99edf36749932cf220de') in 0.0074637 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/icons/icon_placeholder_token.png using Guid(e4b3fbc01209a3644b02b6f0ef50d2d0) (DefaultImporter) -> (artifact id: '07bd59e7ce63252abb3f9b3e552e70ad') in 0.0022438 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_framework/arch/arch.power_type.json using Guid(f426a3f082203964e84fbb9d76584b3e) (DefaultImporter) -> (artifact id: 'd4c5f6cf18f2a939867a4af686ceeaee') in 0.0065632 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sfx/ui_click_01.wav using Guid(f4df0b05d59c7964992f3d5155a1ffd3) (DefaultImporter) -> (artifact id: 'ff3ba7311a5812254d4c74f48eda34f3') in 0.005491 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/side_l/body.png using Guid(358a71fb93583e4409ae3f78c273c298) (DefaultImporter) -> (artifact id: '8c0ea1a422b332e2d94c1d952e173254') in 0.0070524 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/music/loop_01.wav using Guid(75961364a8934344db70dcf966c797a3) (DefaultImporter) -> (artifact id: '57c710b2d872c32c1c4ff083e516181d') in 0.0045259 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/creature/creature.template.json using Guid(85f28df485d82b846a239465c2ed7139) (DefaultImporter) -> (artifact id: '094dde42f1dd779cd03c873183a22292') in 0.0015339 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back_side_r/hand_main.png using Guid(955cb6463f305e044889d951b5976a4b) (DefaultImporter) -> (artifact id: '091830856cfde3788c19fcfaab30b035') in 0.0014111 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/side_r/body.png using Guid(a5a0da77494995843b68a488fec015c0) (DefaultImporter) -> (artifact id: 'e3e40821d10cfefe5c4cb7f750fae264') in 0.0011836 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/icons/icon_placeholder_skill_strike.png using Guid(a539ad290c9b7154bb97c6f507904c22) (DefaultImporter) -> (artifact id: 'b555f21b3b8841719d4952339a0419b4') in 0.0015124 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/front/hand_main.png using Guid(a5f91a35df54ecf49a080d5078263332) (DefaultImporter) -> (artifact id: '65d56a5e413a82e3ef2ce0e135ffc04a') in 0.0064343 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/achv/achv.def.json using Guid(a52babecf160b94408e7650284e8c48e) (DefaultImporter) -> (artifact id: '7e59125c74dff5ad622da9f690e76d05') in 0.0067628 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sfx/ui_open_01.wav using Guid(c587e0018ac77714984242b581a8edae) (DefaultImporter) -> (artifact id: '65b7486560a73c842e330c835b0f0984') in 0.0061457 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back/body.png using Guid(c5e74025dbb33e349b78b79a4e491cfd) (DefaultImporter) -> (artifact id: '2b012ce3c6bc69a362e70228d5682317') in 0.0020811 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/back/body.png using Guid(e5adee2b69198b445af4641a756b8825) (DefaultImporter) -> (artifact id: 'e09f1307202022a7afeb3523ea698df8') in 0.0017655 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/front_side_l/body.png using Guid(f52ad47e1f7174443a9b8c056688c51c) (DefaultImporter) -> (artifact id: '45f0dfba2b4debac845a55c4d8857687') in 0.0020187 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/front_side_r/head.png using Guid(06ed348ede282564f8ee51d871b805b8) (DefaultImporter) -> (artifact id: '7fb0ef115e3aea6854f9d140efc5fed3') in 0.0045837 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/prog/prog.level_curve.json using Guid(063f503f5c3274442bf4e410a730773c) (DefaultImporter) -> (artifact id: '42c10c78aec629133cd8ebe3c08f5f4c') in 0.0042378 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/fac/fac.faction.json using Guid(16143ee3fc0b49747a6abec2d6aa87c3) (DefaultImporter) -> (artifact id: '5e2aa5d7bbde89a46dd14547f909b6db') in 0.0059895 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/side_r/hand_main.png using Guid(16a4ff4ae9ba44645aea78a5b1560e44) (DefaultImporter) -> (artifact id: '3904442cdb228d0941d765405f2fb448') in 0.0052146 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/side_l/body.png using Guid(369b3328c3f6c364fa999f88323b0183) (DefaultImporter) -> (artifact id: 'b48ab01b12987d54b21ea59a7b8e0d16') in 0.0020234 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_framework/found/found.event_catalog.json using Guid(c6d0673d75e9d244080ab082a4482b6c) (DefaultImporter) -> (artifact id: 'abc7d90c41a8ac7b95b495b197efce03') in 0.0073228 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front_side_r/head.png using Guid(e60a25df98e239346a9b065e3e5f37bd) (DefaultImporter) -> (artifact id: '9b67509d7cf5d82f9d1a9027d5eb8492') in 0.0023456 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/feedback/feedback.binding.json using Guid(f672b55942e866b4681b0b57977a3f7c) (DefaultImporter) -> (artifact id: '3cb79948974d5d541990d14d65ddb999') in 0.0019641 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front_side_l/body.png using Guid(273066e46b253684e918df57ccfb6f9d) (DefaultImporter) -> (artifact id: 'e17e5b6b8d436fc69f470bf07ac3f623') in 0.0059353 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/back/body.png using Guid(27d4a862d9bf9504eb7df631d12a51b8) (DefaultImporter) -> (artifact id: 'a07da0fc0e2f9c080a912a53ac7162b7') in 0.0015778 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/side_r/head.png using Guid(27d88bbb0146c5541aa5cfb63adc985a) (DefaultImporter) -> (artifact id: '9d9a42bd3c7aafe9676ecd0d8d103251') in 0.0014401 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/econ/econ.vendor.json using Guid(576a8745161b2b648abe963730ac92e4) (DefaultImporter) -> (artifact id: '45daebb0076fc25b83a218b58796399e') in 0.0044852 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/item/item.template.json using Guid(67765862302357340bf51d9cb4f7f963) (DefaultImporter) -> (artifact id: 'c99e65a10e1ddc2094bc92262177c00a') in 0.0039844 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/spawn/spawn.table.json using Guid(c75681a9018a9ff498579d5e14df1b43) (DefaultImporter) -> (artifact id: '7e491c519b3cb38d39887b67fcaf31fd') in 0.0014605 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/front/body.png using Guid(d74138fc0fe1f0a47bd8b005c18436ab) (DefaultImporter) -> (artifact id: '05b9e7ed2a2faa193791b380720781a2') in 0.0015211 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/camera/camera_profile.json using Guid(e733290fa8e62ae4098036e9bac7bba4) (DefaultImporter) -> (artifact id: '9eab0e9ebe6a570aed34b118b1cc7f9f') in 0.0049595 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sfx/level_up_01.wav using Guid(08250bb635dec2043be811000d0c2633) (DefaultImporter) -> (artifact id: '7963c352edc59627e843d5174ef1bce9') in 0.0042778 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/smoke/smoke_workflow_api.json using Guid(48d3a5656391c74429d6a2a7c1380b47) (DefaultImporter) -> (artifact id: 'ed995159bed9dd9995772eeca8abb231') in 0.005065 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/encounter/encounter.def.json using Guid(5885b4fd2b3fa874683c74b1afed7ac8) (DefaultImporter) -> (artifact id: '864c6a6099e8f6f13db1b5f9b37689ee') in 0.0043897 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sfx/cast_01.wav using Guid(5819ebab80e6c2249af0d65d69404a53) (DefaultImporter) -> (artifact id: 'e7bac9d4c97c81934cc74b354b3d916c') in 0.0014659 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/icons/icon_placeholder_skill_burn_rare.png using Guid(78198334ec4c4e840a9e678d3ac636d7) (DefaultImporter) -> (artifact id: '6c470adcd26b2ed17e51ade978b3bfd6') in 0.0013093 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/icons/icon_placeholder_tonic_rare.png using Guid(788db8b6405863f4db66cdefd4a366ed) (DefaultImporter) -> (artifact id: '87406a4ffa0792aab97ef82485dffb2e') in 0.0045538 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/back/hand_main.png using Guid(8834c5dfa63599a44bf573dcf4a9cf71) (DefaultImporter) -> (artifact id: 'e906b39f4b43a8396cf759c88d909bd7') in 0.0013194 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/l10n/l10n.text.json using Guid(c85d6a33ec7693a4eb79f42fbf2850d5) (DefaultImporter) -> (artifact id: 'f897acae7f8f90d36d146825cf080378') in 0.0047692 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/stat/stat.rating_conversion.json using Guid(09136d2164caacb449076063329a3318) (DefaultImporter) -> (artifact id: '7260b1ffd182ecbfae20c3c0235c0890') in 0.0017927 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/back_side_l/body.png using Guid(6947f0a24fe99e24b83d7e1851780d01) (DefaultImporter) -> (artifact id: 'c7cd727ba1da7f99df32b2001a80e35f') in 0.0016042 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back_side_r/body.png using Guid(693dfad85cd7a1e47a6c3ec9ef265d7b) (DefaultImporter) -> (artifact id: 'b0c95def2752d76da3214e960039063d') in 0.0013508 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/icons/icon_placeholder_skill_strike_rare.png using Guid(79c17c5418084b948813789395836d10) (DefaultImporter) -> (artifact id: 'bf5fb7c53fc3fcd758ac195b2eb39d97') in 0.0013843 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/skill/skill.book.json using Guid(898c10db2402aca4b998347164304206) (DefaultImporter) -> (artifact id: '20c822c3e10d0701c74854d340ca2722') in 0.0014551 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/smoke/smoke_2026-09-04.png using Guid(890ec136d6a172b4cadbca0dea9d3d28) (DefaultImporter) -> (artifact id: 'bb42f4877af1f42a818f224b7c619e1d') in 0.0013906 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/combat/combat.resist_curve.json using Guid(a98fb8931c2ce5a469e069c21b4e19a8) (DefaultImporter) -> (artifact id: '435efa543a5794df81bf4673baa56e12') in 0.0016603 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sfx/swing_01.wav using Guid(e9adab00bba84004299d7d6a45082166) (DefaultImporter) -> (artifact id: '9a379b0f05ee144d1689706baaaa1beb') in 0.0018438 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back/hand_main.png using Guid(1a16d0c0426d0d942897f59c714c6581) (DefaultImporter) -> (artifact id: '534622368501eb8e108eefe7076c4f97') in 0.0014694 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/ui/button_hover.png using Guid(2af51b4e168aaa2469ac4248b0846e1c) (DefaultImporter) -> (artifact id: '4bb27a9e4ef83eb10795498fa6396b10') in 0.0068102 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/fac/fac.reaction_matrix.json using Guid(2a0976c5e86076f4989fd8125304703a) (DefaultImporter) -> (artifact id: '559a19fa1f195a65b6c010397d62c1d8') in 0.0013931 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/fonts/LICENSE-OFL.txt using Guid(4ab586d2e7bab4441abbabe534a341b4) (DefaultImporter) -> (artifact id: '0f5221c426c28947fe2add90d81256e1') in 0.0099937 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sfx/pickup_01.wav using Guid(5ac2a8bc6f8e1804d98c763606ae0780) (DefaultImporter) -> (artifact id: 'fc797c8d9b468b8c8f09dbcac6202ca0') in 0.0016588 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/target/target.chain_def.json using Guid(6a9885f8d226ebc488540e27e9292a45) (DefaultImporter) -> (artifact id: '12e39598f9443e32f92a43eaeb4ffba8') in 0.0018319 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front_side_r/hand_main.png using Guid(9af26b9f423139a40b83b917be9c6f03) (DefaultImporter) -> (artifact id: 'cf456a7798df3d041099283636629c90') in 0.001539 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back_side_l/body.png using Guid(aa393efd7ce3bfb4e9d9df8183b8c0f9) (DefaultImporter) -> (artifact id: 'de05225d656ca3732e7a2080a28577eb') in 0.0017231 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/area/area.trigger_def.json using Guid(ba417966bafc72747a07baa3e2ae379a) (DefaultImporter) -> (artifact id: '3be22767b24676c72a1e5f491c0fcd43') in 0.0062429 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/shell/shell_menu_definition.json using Guid(cac3c5192f6d8964e8826e5c4c982adc) (DefaultImporter) -> (artifact id: '6e9dc12cbd25ca28779b504352717905') in 0.0074406 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/world/world.map.json using Guid(fa7a4c8dfd46d2e4199c814d11c193d3) (DefaultImporter) -> (artifact id: '5a3d151fe2aa0700e2e94e3665eacd48') in 0.0018059 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_framework/found/found.game_state.json using Guid(2ba6417508789df43a135aee8e8f3abf) (DefaultImporter) -> (artifact id: '51ec405ded299372bff0257e2b35c027') in 0.0012175 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/ui/slot.png using Guid(3b315727cbdd7ef42941a2e6c0e2b6ea) (DefaultImporter) -> (artifact id: 'f3755ee71f0953d29b55ebc8bd2fdba0') in 0.0056945 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/side_r/hand_main.png using Guid(4b411c351f968d141b68a91686ab588f) (DefaultImporter) -> (artifact id: 'dc9d5bc3fb72bcc87d7dfb3fbe688536') in 0.0058378 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/ui/button_pressed.png using Guid(4b4659ca3c2ec604bbf46bc1975d90b6) (DefaultImporter) -> (artifact id: 'f5c930944b8eb496f6d325997c4a6553') in 0.0016593 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/quest/quest.def.json using Guid(4b4f82c6ee9bbf2439787f249154cd92) (DefaultImporter) -> (artifact id: '56c5222984dec73a460a15c7e5b10a8a') in 0.00153 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/l10n/l10n.locale.json using Guid(6b39f40f84a91294aadf60b737c24f54) (DefaultImporter) -> (artifact id: '253aad34e2de75e55ba51b2c147f73a3') in 0.0013557 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/found/found.time_model.json using Guid(6b6a892372e6fe74bbe9cac07daaa4a4) (DefaultImporter) -> (artifact id: 'c4dfbd6f5bf14b23c06c74c55a5cf37a') in 0.0011762 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/icons/icon_placeholder_tonic.png using Guid(8b97d11c0df4de44ca94cc1f7caddf5d) (DefaultImporter) -> (artifact id: 'c5d0c2627610491a3346a1412c05aae8') in 0.0012163 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/encounter/encounter.level.json using Guid(8b3e25ec887d66f4d90a2357c534a540) (DefaultImporter) -> (artifact id: '5bc01a651400a6f061d35659d10574f7') in 0.0011409 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/loot/loot.table.json using Guid(9b3b2c579ea0a9845af4faf8484c5206) (DefaultImporter) -> (artifact id: 'fe2deac0fc3fac2252f5b979743af939') in 0.0011897 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_framework/found/found.hook.json using Guid(bb8a431f0edbfcb44b07de6270b8fd69) (DefaultImporter) -> (artifact id: '702446ba594e4c7e3951eb4eda0df373') in 0.001153 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/gobj/gobj.lock.json using Guid(bb4d9bed32bcf514fbb29b576ad9c8df) (DefaultImporter) -> (artifact id: '8888543f664bb62954faa75434424c26') in 0.0058046 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/skill/skill.proc_def.json using Guid(bbfe5c9fe5cde9e4da2599524716d676) (DefaultImporter) -> (artifact id: '30046f338dc29df8abf176311c321bee') in 0.00481 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/side_l/head.png using Guid(cb615af1b8185b54882eb3dbd51f005e) (DefaultImporter) -> (artifact id: '82d426a395d7afed84374a67c2404075') in 0.0043705 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/skill/skill.aura_def.json using Guid(cb321ae8031719542b2ee913268fddf4) (DefaultImporter) -> (artifact id: 'a5baaa9e1755761c837e7435d766b237') in 0.0068154 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/back_side_r/body.png using Guid(cbb5caac6e03cf14cb6c249edf0e06cb) (DefaultImporter) -> (artifact id: '311aea2decd036adcf705306ae815d88') in 0.0016619 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/back_side_r/hand_main.png using Guid(2cad97d33b3946f4888984ba21d56e17) (DefaultImporter) -> (artifact id: 'f64724293096e9103ae2723c474c4518') in 0.00586 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/front_side_r/body.png using Guid(3c520576cafa6984e924830eba28c74f) (DefaultImporter) -> (artifact id: 'c89ccf6a2f2a7de7e609433e222116f5') in 0.0022632 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/front/head.png using Guid(3ccb9f4f921b36e428f49fc408df4a29) (DefaultImporter) -> (artifact id: '1f4246440eb9ccb3bf7238e099cdeab0') in 0.0014413 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/side_l/hand_main.png using Guid(7c520d80a52391646a593174fa0749c0) (DefaultImporter) -> (artifact id: '16193b376fc01d6bdd032354c8ce6bb1') in 0.0013667 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/ai/ai.behavior_profile.json using Guid(7c58886b6a426b94a90030f102c6339b) (DefaultImporter) -> (artifact id: '74153fafd0a68db1479e8d71dcf76846') in 0.0012483 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/side_r/body.png using Guid(7c2a2be473dc18345964e8afc2f48905) (DefaultImporter) -> (artifact id: '888494519dadffa08558b7309b3a6017') in 0.0011022 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/item/item.slot_definition.json using Guid(ac87c2c9ed8c6ea428a6f1974bea9e70) (DefaultImporter) -> (artifact id: '41bb56db5b47df1d538153eff9791300') in 0.0061941 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/front_side_l/head.png using Guid(dc396ba586c9c4644b6ba8df98fac7e1) (DefaultImporter) -> (artifact id: 'd31a6f08412f4efc80766df9b364acfe') in 0.0014353 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_beast/front/body.png using Guid(dc3b86f50d6a1e444b25212236935929) (DefaultImporter) -> (artifact id: '9deb653f242023fc7e40558721ad4b39') in 0.0015335 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/display/display.equip_visual.json using Guid(dcdc077d5a189fe499b87a10d71b5285) (DefaultImporter) -> (artifact id: 'f51a52cad084d789d286dbd119e2b101') in 0.0013716 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/fonts/README.md using Guid(fc5db7184b0fcfa4b825d4dc07f306d4) (DefaultImporter) -> (artifact id: 'c6b6333ba684b563e4e58a7e1277f1d9') in 0.0012516 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/front/body.png using Guid(1d40a72a61b089f4aaa0417d69810ada) (DefaultImporter) -> (artifact id: '05c51d4ee6df5a2263477334a870aebd') in 0.0012081 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_hero/back/head.png using Guid(3d96ab2d496fd5a4a998d134a72cfef9) (DefaultImporter) -> (artifact id: '55e6921452a0ff8e662cfb324b20c12f') in 0.0048951 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/combat/combat.hit_table_config.json using Guid(cd237eb73d2b27b4ea595b4814ee400f) (DefaultImporter) -> (artifact id: '0f50d574770f3b59517c3d0ea68bc159') in 0.004533 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/ui/ui_layout_definition.json using Guid(ed53b734f0d9c1d4191b33170769219d) (DefaultImporter) -> (artifact id: '0716a4bd2daa283077a5a83834954818') in 0.0012567 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sfx/hit_02.wav using Guid(1e16006e01f4412439c06fdded157bd7) (DefaultImporter) -> (artifact id: 'f23024b3a1dda5581f58f440d003a2cc') in 0.0052845 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/arch/arch.class.json using Guid(1e382d22aedc5be409c1d0cda887a592) (DefaultImporter) -> (artifact id: 'fa3717edb07db3a1ae619970d5307ae1') in 0.0043684 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/creature_sample_beast/side_r/body.png using Guid(3e87f6731af9cc546aff36d397d40d41) (DefaultImporter) -> (artifact id: 'e5902ce471f316618c6b78ad98a424db') in 0.004761 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/front_side_r/hand_main.png using Guid(aea843db8be6c7646b75a6b0fd6da6e6) (DefaultImporter) -> (artifact id: '7d715d2f3a79bae02ca0e63fa143708b') in 0.0013366 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/dialog/dialog.story_tree.json using Guid(fed9f355fb4c31741ba1d9c476c951a1) (DefaultImporter) -> (artifact id: 'ad86a08c7b424cdc3f59a3ad27524d28') in 0.0012877 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/icons/icon_placeholder_skill_burn.png using Guid(2fa6eac58633e8e4fafc8012d30f16a2) (DefaultImporter) -> (artifact id: 'e1bfc44a89a241af70233ca3ee4f17c6') in 0.0013277 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/skill/skill.spell_mod_def.json using Guid(4fdb8965887a7ae4eb177453b0c3963e) (DefaultImporter) -> (artifact id: '302747f4aefec9f14753b793f2bdd4b8') in 0.0012012 seconds
+Start importing Assets/StreamingAssets/GameFoundation/data/_sample/skill/skill.def.json using Guid(6f02b13cacd6f394b84a1324c35f8ba4) (DefaultImporter) -> (artifact id: 'cfeb1cf57f7075cfcced4d68aed7666f') in 0.0011058 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/back_side_r/head.png using Guid(6f3b3a0b955db47408322a356917310c) (DefaultImporter) -> (artifact id: 'bda8af2a63d8fde511a1c1c4ccbc3885') in 0.001255 seconds
+Start importing Assets/StreamingAssets/GameFoundation/sprites/placeholder_hero/front_side_r/body.png using Guid(8f216e0b6c80fe14eb831d44c3d981a8) (DefaultImporter) -> (artifact id: '1bfd36af0131094c097c428f751266d8') in 0.0050664 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/ui/bar_fill.png using Guid(8f3b06192cdbd67489e169b026ccfa60) (DefaultImporter) -> (artifact id: '0aa9774f1d020313b01c67390d65902e') in 0.0015648 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/fonts/noto_sans_cjk_sc.otf using Guid(cf3c471f192bfbf47bfb67a11fdf5f5a) (DefaultImporter) -> (artifact id: 'ec09a2d87f2d1cedbc6326030d5c6a89') in 0.0078981 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/hit_spark/frame_01.png using Guid(1012f4390c858684ba944c49fe2553d3) (DefaultImporter) -> (artifact id: '2ae973b9f2f37a4a228181e946b5214d') in 0.001474 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/hit_spark/frame_00.png using Guid(10c37f004fc158f4895fca4301ce19e5) (DefaultImporter) -> (artifact id: 'f2f573b7e2b684f496049e75cd1266e6') in 0.0046672 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/burn/atlas.png using Guid(80441e7e8bcd23141936bc2335fd0d2b) (DefaultImporter) -> (artifact id: '0edbf417df55d49e354c2c2c581a33df') in 0.0011546 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/hit_spark/atlas.png using Guid(a0961bb6b69a0c9438fcb180865f5bf6) (DefaultImporter) -> (artifact id: '2afee34aed7cb2c7ffc9fbc0d3e6a491') in 0.0013581 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/maps/placeholder_field/overlay.png using Guid(a17b187c894a39c45ab70240c38f0613) (DefaultImporter) -> (artifact id: 'f3eea4634fb4593a97494caba0bc4071') in 0.0011212 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_door/open.png using Guid(3243dd6af18e45445adb84d053c4b428) (DefaultImporter) -> (artifact id: 'cff80205e9f84052303ca7a87b4baa60') in 0.0050398 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/burn/frame_07.png using Guid(32578c1914f3134428cfed43bda990b8) (DefaultImporter) -> (artifact id: '8e0a2cf27095978911cfa275f27933b9') in 0.0013932 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/burn/frame_04.png using Guid(92f48fe857755964fbd3cec2a6fb852d) (DefaultImporter) -> (artifact id: '34a36aca496a95aa793f30323e705011') in 0.0011651 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/cast_circle/atlas.png using Guid(b348f21ae0c97ff4d818e8381a5d2bd2) (DefaultImporter) -> (artifact id: 'a8366e24b8451c87e56424f641f641b2') in 0.0048814 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/hit_spark/frame_02.png using Guid(04f4b28bacf4a6b4ab2e674131338c03) (DefaultImporter) -> (artifact id: 'd27e1200203a9b956155157e8f4ac4f9') in 0.0013122 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/burn/frame_02.png using Guid(04596f3adffe8e141a0cdf545ffe61c9) (DefaultImporter) -> (artifact id: '0bc18c7cab2052b1f95af17a49d0dbe9') in 0.0011136 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/cast_circle/frame_03.png using Guid(2416a50a651319c49ada5e49e08ebc0b) (DefaultImporter) -> (artifact id: '86a1fd049fba43731e0ca31ea70c5ba0') in 0.0011768 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/hit_spark/frame_03.png using Guid(44941540326434645a9c392e0501774d) (DefaultImporter) -> (artifact id: 'd1e1b342d7e53ea1fdefb901a7e5bfc7') in 0.0064308 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/burn/frame_06.png using Guid(e4f383e8c3a863049a1de4c23aaac8cb) (DefaultImporter) -> (artifact id: '328f0579d7aea5de9911b2e0ae2528b8') in 0.0015353 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/burn/frame_03.png using Guid(856f42999f4404d488016f70832e7c44) (DefaultImporter) -> (artifact id: '7a5ee702772fd406a97ea255a64cf95d') in 0.0012792 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/cast_circle/frames.json using Guid(278e749d8badc394d867f4964b7d9983) (DefaultImporter) -> (artifact id: 'bef119c3ff3ac581a62d9a6f11c9f3eb') in 0.001208 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_chest/open.png using Guid(d70ac58208974924dbbd4249f6d76d31) (DefaultImporter) -> (artifact id: '00b30cacdb1a8555f5504fbf68c52dee') in 0.0011724 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/hit_spark/frame_05.png using Guid(e7ed44775213c3d4696df4b1ab245fd5) (DefaultImporter) -> (artifact id: '20cb69261d3b8dc32a083eee3123e4c4') in 0.0049753 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/anchors.json using Guid(5963474b2d49985438b79fa65fd8501a) (DefaultImporter) -> (artifact id: 'd5c40c7c546db25e694c6ab0b0f3c399') in 0.0013557 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/cast_circle/frame_05.png using Guid(69431c0b3ce5aa2479c2b3b78b27dc26) (DefaultImporter) -> (artifact id: '07df0693b111ff6b5275d15fda136da4') in 0.0011381 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/cast_circle/frame_00.png using Guid(89f05a0cece0f4f498e17527b927d3c0) (DefaultImporter) -> (artifact id: 'accd8ae73e5a54a239d866c7f66d36b3') in 0.0050797 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/cast_circle/frame_04.png using Guid(99f17f02486f13741852ec39e5ccc21a) (DefaultImporter) -> (artifact id: '76b6b569cbc5fb6040862f0736965983') in 0.0012431 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/burn/frame_00.png using Guid(d9c9ea6a0e89dac41b6c0107d3c3d21a) (DefaultImporter) -> (artifact id: '30ca08d25adefe96522a3cb84d871146') in 0.0012419 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/hit_spark/frame_06.png using Guid(bae14eba7b5e5e94d9951dfc5803d8db) (DefaultImporter) -> (artifact id: '492db7d63fa4c407ca2dcce2e05b9092') in 0.0011366 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_door/closed.png using Guid(8b64fbc646b3cdc4eb473c2bcb27468c) (DefaultImporter) -> (artifact id: 'c8259074a2de552a0882b85a520541a4') in 0.0066433 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/cast_circle/frame_07.png using Guid(9bc0cf4d10df2424a8d8df363da17003) (DefaultImporter) -> (artifact id: '0be1ee857a8febc1cb0615e8b8af7eb0') in 0.0015714 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/cast_circle/frame_01.png using Guid(dbdec00053ae5664a82052ce5f621d8f) (DefaultImporter) -> (artifact id: '5a5118e573bc2696a566ebc65610f9cc') in 0.0012234 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/burn/frame_01.png using Guid(3c092e29328927b42b25564b57323b4a) (DefaultImporter) -> (artifact id: 'c33a76fccdbd9a95eab0e8b3d8479727') in 0.0011403 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/maps/placeholder_field/ground.png using Guid(7c1cb36ad6dad5447b907306dea0b325) (DefaultImporter) -> (artifact id: '300d37f7b32eb2f5295b06663a1805b6') in 0.004735 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/maps/placeholder_field/nav_hint.png using Guid(9c49922d601b9aa47a41e86e9cb6fb6d) (DefaultImporter) -> (artifact id: '3d364666d6c4f911bcdcda751030386c') in 0.0070489 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/hit_spark/frame_04.png using Guid(0d2b70b62aab1174ca16e92aad8a0707) (DefaultImporter) -> (artifact id: '41b11ded6e9672dbcb13f94671abc32a') in 0.0048082 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/hit_spark/frame_07.png using Guid(1d529a7314c3a0c4aa8984ff0605eb14) (DefaultImporter) -> (artifact id: 'efdece1c303b4de6042e0146fa692df4') in 0.004527 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/burn/frame_05.png using Guid(edf02130eb0412c46b40c2bf91d0e9fc) (DefaultImporter) -> (artifact id: '75a0d698043a0a18b373c0ed108f19a0') in 0.0059037 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_chest/closed.png using Guid(fde2888f29e4e1e41998daa71f70dad5) (DefaultImporter) -> (artifact id: 'f48cdcfad06cc0163a34fdadeb992e5d') in 0.0016479 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/anchors.json using Guid(4e00ca710c534c043a1a520ec0edad6e) (DefaultImporter) -> (artifact id: '0b390106d6b2c78cf1cfef4f0914bef7') in 0.0013664 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/cast_circle/frame_02.png using Guid(4e003c4660469d14780521547b6e58cc) (DefaultImporter) -> (artifact id: '8490d01e92905b8ce403988b973cf2b9') in 0.0011185 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/burn/frames.json using Guid(6e876742534e1c745a5b3dde2d5f0db0) (DefaultImporter) -> (artifact id: '63fcd259910df8d8fdf85e45acc272f5') in 0.0050613 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/cast_circle/frame_06.png using Guid(ce687081989a74c498e0e0a05ff7c131) (DefaultImporter) -> (artifact id: '582616cdf216ce6b7a30019b1f99e357') in 0.0047079 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/vfx/hit_spark/frames.json using Guid(bf5512ce199a0de4e80e723b1e23bffd) (DefaultImporter) -> (artifact id: '2da4bdcf01be0eb24abada573d2d7027') in 0.0060112 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/front/body.png using Guid(501396969568fb24e8eff969ed29e3ef) (DefaultImporter) -> (artifact id: 'cf43efcb0e6f4c1959b346cd5bb26948') in 0.0014927 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/back/hand_main.png using Guid(0145c238435665c4e9fe1ad27b3be6f3) (DefaultImporter) -> (artifact id: 'aa45c37f9ece6dd51a9a0ee979955bc2') in 0.0013425 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/side_r/body.png using Guid(91ab6406704561a4b8c3adff8378de03) (DefaultImporter) -> (artifact id: 'a1dd186549c690d22674ca7af4a76bac') in 0.0011256 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/front/body.png using Guid(125028d03c8d297439c37ca9d87d5289) (DefaultImporter) -> (artifact id: 'cc071f93cd8f77df0b4d4f999c651bc7') in 0.0011483 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/back/body.png using Guid(725d19effdbeb1a498dc18a64d569f22) (DefaultImporter) -> (artifact id: '89c963db5a9ad4daddf3b40736f63dc1') in 0.0057847 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/back/body.png using Guid(828e1d4b638ff3d4e8f27f7471232feb) (DefaultImporter) -> (artifact id: '14c20e4520b7fdc8f8041e9b54ce5437') in 0.0072737 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/side_r/hand_main.png using Guid(03f3424001b8d4c44b6ce815c2da9d47) (DefaultImporter) -> (artifact id: 'f08078a92947cdf02e994cbbb66a8212') in 0.0017211 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/side_l/body.png using Guid(53950bb819586ea4cbee195438abc662) (DefaultImporter) -> (artifact id: '11f53edd43804c8bd0d2630d6bf6acec') in 0.001515 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/back/head.png using Guid(e37023ffe7452ac43be7d5d7058d0ed7) (DefaultImporter) -> (artifact id: 'eba1312d0a8623364b40d199a6465ecc') in 0.0012438 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/back_side_r/body.png using Guid(14144330ad22e854f97af68e2af825ad) (DefaultImporter) -> (artifact id: '8950a703642dcf24c9beaa3eea657970') in 0.0018084 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/front_side_r/head.png using Guid(446e39722e48aa442b60ed73bc3dbd81) (DefaultImporter) -> (artifact id: 'b71e43942f67adde27b16c4072aee8b3') in 0.0057603 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/back_side_r/hand_main.png using Guid(f4c0cf441714b56428802a4feddefa3d) (DefaultImporter) -> (artifact id: 'ff20cc9931f2685aa77bb61ca1592e61') in 0.0015051 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/back_side_r/body.png using Guid(47befa1e1da31354b9c7d8a949ee2b25) (DefaultImporter) -> (artifact id: '015e7860d79f57caf334ade11034a539') in 0.0045287 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/side_r/head.png using Guid(a7fbcfcc7ceefc645b874eed10877244) (DefaultImporter) -> (artifact id: '63c6b4baad9701aa6b9f5b7822270452') in 0.0011604 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/front_side_l/body.png using Guid(f76436bfe6f6d76428124058e36c9a58) (DefaultImporter) -> (artifact id: '7748c26c20d2918434e00aa043d97f92') in 0.0012042 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/front_side_r/hand_main.png using Guid(2898d849a5233be469364dfcf475ffbf) (DefaultImporter) -> (artifact id: '9d286d0b4ffa8416c3bf5a2f65cd387b') in 0.0065939 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/front/head.png using Guid(199ad1f4f5158c54ea03faf48f299a63) (DefaultImporter) -> (artifact id: 'f403854c045764add3b3ae9ffb90745d') in 0.0054224 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/side_r/body.png using Guid(69c05bf09bfa11541ab2dde531609860) (DefaultImporter) -> (artifact id: 'b3e2e5d4c3fa674d8fc81fe687b0832b') in 0.0015907 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/back_side_l/body.png using Guid(b9a331ac70715dd4ab29698f954e7720) (DefaultImporter) -> (artifact id: 'c751a39f14e151799b7ec12f2f3dbfc9') in 0.0011882 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/front_side_r/body.png using Guid(3a61527f559043c48b3b66fc12e5a2e6) (DefaultImporter) -> (artifact id: '0c925e2b10ec37f3bda42ef0b71cc921') in 0.0011598 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_beast/front_side_r/body.png using Guid(5ad739e552cdc304b87a87b8815aab3b) (DefaultImporter) -> (artifact id: '713227c4801c55198692f42081c43ff5') in 0.0012985 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/front/hand_main.png using Guid(9b0a12d3bcdb8284cbf88315a2b69f4b) (DefaultImporter) -> (artifact id: '0b2be8946f38d846058089ecb531464e') in 0.0012249 seconds
+Start importing Assets/StreamingAssets/GameFoundation/assets/_placeholder/sprites/placeholder_hero/back_side_r/head.png using Guid(4df74e65af4f36f4aa753f75149c7d43) (DefaultImporter) -> (artifact id: '55cad99d1bf527d2b575a0816496b52b') in 0.001426 seconds
+Refreshing native plugins compatible for Editor in 0.26 ms, found 0 plugins.
+Preloading 0 native plugins for Editor in 0.00 ms.
+Asset Pipeline Refresh (id=ac2c4f88ebe039a4a99f09d6062c002c): Total: 4.902 seconds - Initiated by InitialRefreshV2(ForceSynchronousImport)
+	Summary:
+		Imports: total=410 (actual=410, local cache=0, cache server=0)
+		Asset DB Process Time: managed=26 ms, native=3481 ms
+		Asset DB Callback time: managed=109 ms, native=18 ms
+		Scripting: domain reloads=1, domain reload time=564 ms, compile time=680 ms, other=20 ms
+		Project Asset Count: scripts=1063, non-scripts=2102
+		Asset File Changes: new=0, changed=411, moved=0, deleted=0
+		Scan Filter Count: 0
+	InvokeCustomDependenciesCallbacks: 0.001ms
+	InvokePackagesCallback: 16.221ms
+	ApplyChangesToAssetFolders: 0.793ms
+	Scan: 353.799ms
+	OnSourceAssetsModified: 0.971ms
+	CategorizeAssetsWithTransientArtifact: 13.400ms
+	ProcessAssetsWithTransientArtifactChanges: 34.069ms
+	CategorizeAssets: 29.693ms
+	ImportOutOfDateAssets: 3001.087ms (927.377ms without children)
+		ImportManagerImport: 1392.213ms (11.389ms without children)
+			ImportInProcess: 1379.663ms
+			UpdateCategorizedAssets: 1.161ms
+		CompileScripts: 680.280ms
+		ReloadNativeAssets: 0.017ms
+		UnloadImportedAssets: 0.507ms
+		ReloadImportedAssets: 0.024ms
+		EnsureUptoDateAssetsAreRegisteredWithGuidPM: 0.282ms
+		InitializingProgressBar: 0.006ms
+		PostProcessAllAssetNotificationsAddChangedAssets: 0.001ms
+		OnDemandSchedulerStart: 0.381ms
+	PostProcessAllAssets: 110.900ms
+	Hotreload: 1.608ms
+	GatherAllCurrentPrimaryArtifactRevisions: 0.002ms
+	UnloadStreamsBegin: 1.825ms
+	PersistCurrentRevisions: 0.076ms
+	UnloadStreamsEnd: 0.000ms
+	GenerateScriptTypeHashes: 1.601ms
+	Untracked: 1337.771ms
+
+Application.AssetDatabase Initial Refresh End
+Scanning for USB devices : 4.694ms
+Initializing Unity extensions:
+[MODES] ModeService[none].Initialize
+[MODES] ModeService[none].LoadModes
+[MODES] Loading mode Default (0) for mode-current-id-unity
+Unloading 19 Unused Serialized files (Serialized files now loaded: 0)
+Unloading 3821 unused Assets / (2.7 MB). Loaded Objects now: 4685.
+Memory consumption went from 183.4 MB to 180.7 MB.
+Total: 5.147100 ms (FindLiveObjects: 0.261400 ms CreateObjectMapping: 0.115800 ms MarkObjects: 3.868500 ms  DeleteObjects: 0.900700 ms)
+
+Unity is not designed to run with Administrator privileges.
+
+With elevated access, scripts in your project can modify system files, registry settings, or protected areas, even accidentally.
+This could make your system unstable or unbootable.
+
+Restart as a standard user for the safest experience.
+Microsoft Media Foundation video decoding to texture disabled: graphics device is Null, only Direct3D 11 and Direct3D 12 (only on desktop) are supported for hardware-accelerated video decoding.
+[Project] Loading completed in 6.306 seconds
+	Project init time: 				5.984 seconds
+		Template init time: 		0.000 seconds
+		Package Manager init time: 		0.232 seconds
+		Asset Database init time: 		0.120 seconds
+		Global illumination init time: 	0.003 seconds
+		Assemblies load time: 			0.520 seconds
+		Unity extensions init time: 	0.003 seconds
+		Asset Database refresh time: 	4.902 seconds
+	Scene opening time: 			0.065 seconds
+##utp:{"type":"ProjectInfo","version":2,"phase":"Immediate","time":1788960699070,"processId":26380,"projectLoad":6.3057428,"projectInit":5.9842186,"templateInit":0.0,"packageManagerInit":0.2317729,"assetDatabaseInit":0.1196721,"globalIlluminationInit":0.0030658,"assembliesLoad":0.5197251,"unityExtensionsInit":0.0030727,"assetDatabaseRefresh":4.9023124,"sceneOpening":0.0652505}
+##utp:{"type":"EditorInfo","version":2,"phase":"Immediate","time":1788960699070,"processId":26380,"editorVersion":"6000.3.23f1 (09d2ecc7fb28)","branch":"6000.3/staging","buildType":"Release","platform":"Windows"}
+[Licensing::Client] Successfully resolved entitlement details
+Running tests for ExecutionSettings with details:
+targetPlatform = 
+playerHeartbeatTimeout = 600
+filters[0] = 
+   Filter with settings:
+   testMode = PlayMode
+   targetPlatform = 
+   testNames = null
+   groupNames = Game.Template.Tests.ExistingViewEquipmentSaveLoadAuditTests.ExistingModelView_RealEquipmentSaveA_SaveB_LoadB_StaysStale
+   categoryNames = null
+   assemblyNames = null
+ignoreTests = {}
+featureFlags = null
+
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:Log (object)
+UnityEditor.TestTools.TestRunner.CommandLineTest.Executer:InitializeAndExecuteRun (string[]) (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/CommandLineTest/Executer.cs:53)
+UnityEditor.TestTools.TestRunner.CommandLineTest.TestStarter:InitializeAndExecuteRun () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/CommandLineTest/TestStarter.cs:64)
+UnityEditor.EditorApplication:Internal_CallUpdateFunctions ()
+
+(Filename: ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/CommandLineTest/Executer.cs Line: 53)
+
+DisplayProgressbar: Material Upgrader re-import
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/Decal.mat using Guid(31d0dcc6f2dd4e4408d18036a2c93862) (NativeFormatImporter) -> (artifact id: '8f3d32c29394a79b41f28a25b53defe8') in 0.0017851 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/Lit.mat using Guid(31321ba15b8f8eb4c954353edc038b1d) (NativeFormatImporter) -> (artifact id: '960643f9fe6857c5d72b0d2fd2085c0e') in 0.0009764 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/Mesh2D-Unlit-Default.mat using Guid(71942363c5608a64bb62421349d39c9c) (NativeFormatImporter) -> (artifact id: 'ef7311a66811940111367c78fa0cdd5d') in 0.0009331 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/SceneTemplates/Materials/Emissive.mat using Guid(92f845725428c954b878da352f657fe5) (NativeFormatImporter) -> (artifact id: 'b1f26f5eeb8ffbff6a8f6611506c4115') in 0.0008958 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/SceneTemplates/Materials/Gold.mat using Guid(c2e40fa84d53ccd428f640eac126b1fb) (NativeFormatImporter) -> (artifact id: '9f9661d44e363023702c87ca4956e3f6') in 0.0008428 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/SceneTemplates/Materials/Metal_Black.mat using Guid(b34b07a45ba63ce47896c9e674f3a7a7) (NativeFormatImporter) -> (artifact id: '2e543c70b0a48798291a154a0176c0e2') in 0.0007745 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/Mesh2D-Lit-Default.mat using Guid(9452ae1262a74094f8a68013fbcd1834) (NativeFormatImporter) -> (artifact id: 'a9f6a1c64081483a70fbc1be53f18baa') in 0.0007605 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/SpriteMask-Default.mat using Guid(15d0c3709176029428a0da2f8cecf0b5) (NativeFormatImporter) -> (artifact id: '9b9123c1145efbdb38e316f85cad951e') in 0.0007095 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/SpatialMappingOcclusion.mat using Guid(b51db210fe78df745a372851b3db949e) (NativeFormatImporter) -> (artifact id: 'e725b235a682e6bf286c10ab07552b74') in 0.0008326 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/SceneTemplates/Materials/Ground.mat using Guid(761d8e1f988ed2345a28312145c79c6e) (NativeFormatImporter) -> (artifact id: '27ce923cbd5bcc4047b0e855e6fb0af9') in 0.0008306 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/RenderAs2D-Flattening.mat using Guid(b697f6a938056384e968ccf6527dac83) (NativeFormatImporter) -> (artifact id: '5ecfe90ca8080262222ed764ee85060b') in 0.0007611 seconds
+Start importing Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF - Drop Shadow.mat using Guid(e73a58f6e2794ae7b1b7e50b7fb811b0) (NativeFormatImporter) -> (artifact id: '53cd7411e8ddcc0d67023915d3374914') in 0.0008569 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/FullscreenInvertColors.mat using Guid(78a08787ca30045abb69f6f7dd878e09) (NativeFormatImporter) -> (artifact id: 'ee24d1240c4d3093a35a8ce9cd6a6123') in 0.0011359 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/SpatialMappingWireframe.mat using Guid(9875a245ac49007498213638a307faa1) (NativeFormatImporter) -> (artifact id: '40a3a03ad30c23572795ee7951b74454') in 0.0007645 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/ParticlesUnlit.mat using Guid(e823cd5b5d27c0f4b8256e7c12ee3e6d) (NativeFormatImporter) -> (artifact id: 'aa862bff269d59d834f13819255630e6') in 0.0007349 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/TerrainLit.mat using Guid(594ea882c5a793440b60ff72d896021e) (NativeFormatImporter) -> (artifact id: '32c0756065a4c99773d8b19abfdb7370') in 0.0007289 seconds
+Start importing Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF - Outline.mat using Guid(79459efec17a4d00a321bdcc27bbc385) (NativeFormatImporter) -> (artifact id: 'b4a32ea08af8e5f658044d3fd454ceeb') in 0.0008684 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/Sprite-Lit-Default.mat using Guid(a97c105638bdf8b4a8650670310a4cd3) (NativeFormatImporter) -> (artifact id: '6b65b378b739cf40c13c1e455b16dff7') in 0.0008789 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/SceneTemplates/Materials/White.mat using Guid(f96821bbefeea864b9b418af4b8615ac) (NativeFormatImporter) -> (artifact id: 'b0a10ce88eba78cadb227317064359ad') in 0.0009344 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/SimpleLit.mat using Guid(6a1143ee683302f4aa628c052723efc1) (NativeFormatImporter) -> (artifact id: '4e947c4ad6c49ec8c3dbccd89f2ba9c5') in 0.0008934 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/RendererFeatures/SurfaceCacheGI/FallbackMaterial.mat using Guid(8a239b3da89050c4e89ac06b168fc684) (NativeFormatImporter) -> (artifact id: '365f287f19db505f8da5f5a7aa1bdbca') in 0.0009526 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/Sprite-Unlit-Default.mat using Guid(9dfc825aed78fcd4ba02077103263b40) (NativeFormatImporter) -> (artifact id: '3535407266e63a704ebed07394e8e29d') in 0.0007886 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/SceneTemplates/Materials/Black.mat using Guid(4f1ef37ae953c484bbc5d5e4049147e5) (NativeFormatImporter) -> (artifact id: 'c073248664ba5268b69bc9cf80293393') in 0.0008934 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-Black.ttf using Guid(1062c701058745940ae5dca6219c64c8) (TrueTypeFontImporter) -> (artifact id: 'fcfd246391a0ea71ca2a779a06bcb3ac') in 0.0025994 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-Regular.ttf using Guid(30dc370b164eefc43b95744fc796dad0) (TrueTypeFontImporter) -> (artifact id: 'e88265dec696838b96bfa89259eca3ee') in 0.0010838 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-ThinItalic.ttf using Guid(b2ea3b3f1765e544b9eb5bd1a93a91ce) (TrueTypeFontImporter) -> (artifact id: 'ebed3587f31469b7ed1f215111200e64') in 0.0010737 seconds
+Start importing Assets/TextMesh Pro/Fonts/LiberationSans.ttf using Guid(e3265ab4bf004d28a9537516768c1c75) (TrueTypeFontImporter) -> (artifact id: 'f6eeb5eb2da53984d52eb47713930cc6') in 0.2440776 seconds
+Start importing Packages/com.unity.render-pipelines.core/Runtime/Debugging/Prefabs/Fonts/PerfectDOSVGA437.ttf using Guid(74a5091d8707f334b9a5c31ef71a64ba) (TrueTypeFontImporter) -> (artifact id: '17baae82c87969a57920915e78c06aca') in 0.0012946 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-Medium.ttf using Guid(a51a3aebb43ac044989270407476b208) (TrueTypeFontImporter) -> (artifact id: 'c7ced244834c79c4d9a56b36e5ad331e') in 0.0012214 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-Bold.ttf using Guid(3750c318f40cab44a97d3a81beaefeb3) (TrueTypeFontImporter) -> (artifact id: '77cfd2f7ac0b12233821a3de72324c7e') in 0.001092 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-Italic.ttf using Guid(c839255fc8f6b4b4d90bf8c1af9f9bd1) (TrueTypeFontImporter) -> (artifact id: '34aea38e6f5ad75c669903fb2eec0ef8') in 0.0010829 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-Thin.ttf using Guid(19a9abb883540be48b75b951a927ae03) (TrueTypeFontImporter) -> (artifact id: 'e8d19da7ff636d3206784d80f5127fa1') in 0.001013 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-MediumItalic.ttf using Guid(d93c1bc57fdf1ac4dad1bf04fac05464) (TrueTypeFontImporter) -> (artifact id: 'ab2288725cdc36cc9451e88898f02f8a') in 0.0010968 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-BlackItalic.ttf using Guid(f95147a9bab9fe649b8070170fa7ebd2) (TrueTypeFontImporter) -> (artifact id: '9c0c207a65eaebb5461a5bd9b6761002') in 0.001082 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-Light.ttf using Guid(2a29e27936eb547458f646f71125b264) (TrueTypeFontImporter) -> (artifact id: '8f695168e63791c8e295a36a555f03a5') in 0.0010453 seconds
+Start importing Assets/Framework/Resources/Fonts/noto_sans_cjk_sc.otf using Guid(db21497e60977de40bde9f2b5101b334) (TrueTypeFontImporter) -> (artifact id: '159a17a70e60302b5647a99e0760f3e9') in 0.0208178 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-LightItalic.ttf using Guid(5e63515167650a541b309ba3bfd4db3d) (TrueTypeFontImporter) -> (artifact id: '06e9040f082a33cb064bc66f23766c41') in 0.0014384 seconds
+Start importing Packages/com.unity.searcher/Editor/Resources/FlatSkin/Font/Roboto-BoldItalic.ttf using Guid(dfb97a9307a577a41bcacba34b9a7e32) (TrueTypeFontImporter) -> (artifact id: 'd506485d512ee8ab5f45626384ac7773') in 0.0011295 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/BuiltIn/BuiltIn Lit Basic.shadergraph using Guid(2019d78ad3d1c5c4a8d309a857ca449f) (ScriptedImporter)Launched and connected shader compiler UnityShaderCompiler.exe after 0.01 seconds
+ -> (artifact id: 'f9c1be7082f2beb3559fa852b5bf16dc') in 0.2254797 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/ArnoldStandardSurface/ArnoldStandardSurfaceTransparent.shadergraph using Guid(30fa68ce467463643a86b839ca0eb195) (ScriptedImporter) -> (artifact id: 'b4103a586a19897dbc93017517d837b3') in 0.0972362 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Shaders/AutodeskInteractive/AutodeskInteractiveMasked.shadergraph using Guid(80aa867ac363ac043847b06ad71604cd) (ScriptedImporter) -> (artifact id: '8e9560b36dd7b3ddf2c280f3137fe60c') in 0.0930811 seconds
+Start importing Assets/TextMesh Pro/Shaders/TMP_SDF-URP Unlit.shadergraph using Guid(124c112a6e8f1a54e8b0870e881b56d8) (ScriptedImporter) -> (artifact id: '107ec4dcc91fa6de55966f244e716fa5') in 0.0866329 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/Cross Pipeline/0_Lit Basic.shadergraph using Guid(a2407126e3372f64cacb75ed466a5621) (ScriptedImporter) -> (artifact id: '6f8a8f78de5e12a68c01967fe2e5e672') in 0.0683534 seconds
+Start importing Assets/TextMesh Pro/Shaders/TMP_SDF-URP Lit.shadergraph using Guid(a3d800b099a06e0478fb790c5e79057a) (ScriptedImporter) -> (artifact id: '702f17de2fa650612983d402a91ab0d0') in 0.0855868 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/Cross Pipeline/Unlit Simple.shadergraph using Guid(2476a2d151e824143af40dce1fc93a12) (ScriptedImporter) -> (artifact id: '3cf26812789f3a636735c727ec1d4392') in 0.0547787 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Shaders/2D/VFXSpriteLit.shadergraph using Guid(24a73dccd7b6fad4798be282f96a21f4) (ScriptedImporter) -> (artifact id: '8a2bb1e07208bac04e155befe99ff722') in 0.0496617 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/PhysicalMaterial3DsMax/PhysicalMaterial3DsMax.shadergraph using Guid(44245ab89240f51459a5077d7145c452) (ScriptedImporter) -> (artifact id: 'afa362d825ea462d51e627a255f58ce6') in 0.0738803 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/ShaderGraph/GraphTemplates/2D/1_2D Sprite Unlit.shadergraph using Guid(25a0ebb4827f3cc47a1af2c79005f65b) (ScriptedImporter) -> (artifact id: '2367b3ebed6db92ebd9141c9a834c53d') in 0.05306 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/BuiltIn/BuiltIn Unlit Basic.shadergraph using Guid(9618d41bb71f74048bb6cace8785b93d) (ScriptedImporter) -> (artifact id: 'b31bfd44ff15e990a7083285858ac5e2') in 0.041443 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/Cross Pipeline/2_Particle Lit.shadergraph using Guid(a680d9a9f8b66514abbfd3ae1c8f77f7) (ScriptedImporter) -> (artifact id: 'e1a234c41a76f0a8b72c9189a0289cfb') in 0.0809398 seconds
+Start importing Assets/TextMesh Pro/Shaders/TMP_SDF-HDRP UNLIT.shadergraph using Guid(f63d574838ccfb44f84acc05fed0af48) (ScriptedImporter) -> (artifact id: '1752d3e688d7873a86f10213e0838fee') in 0.0302902 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/ShaderGraph/GraphTemplates/UITKBasicTemplate.shadergraph using Guid(0738648e2f2f84b489a2f0076b69e30a) (ScriptedImporter) -> (artifact id: '1e1bcc1b4e917a92cac3e778164845e2') in 0.0342137 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/Cross Pipeline/1_Decal Material Volume.shadergraph using Guid(1716ff8c1e51af14280cc97fbcba3b11) (ScriptedImporter) -> (artifact id: 'a6a9c754a133f641b809dcad17520162') in 0.0733949 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/ArnoldStandardSurface/ArnoldStandardSurface.shadergraph using Guid(3739e562a03fc0b4982d8aa66cc50865) (ScriptedImporter) -> (artifact id: '732d7dfd941d9727c022147b0a595bdf') in 0.0713773 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Shaders/2D/VFXSpriteUnlit.shadergraph using Guid(d7288f66e4fb0634c9afef98c31b722a) (ScriptedImporter) -> (artifact id: '7cad7483ec60a25c6444a2237077d9dd') in 0.041508 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/Cross Pipeline/0_Decal Simple.shadergraph using Guid(39144937a5efe954dac51acbbe54157e) (ScriptedImporter) -> (artifact id: 'cfd1c20a9264a33977f631000a46d604') in 0.0575112 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Shaders/Nature/SpeedTree8_PBRLit.shadergraph using Guid(9920c1f1781549a46ba081a2a15a16ec) (ScriptedImporter) -> (artifact id: 'dfb74f1a06163b40a908933ab68f47db') in 0.1626261 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Runtime/Materials/PhysicalMaterial3DsMax/PhysicalMaterial3DsMaxTransparent.shadergraph using Guid(1a207e3bee00db44b940e6f362a8e148) (ScriptedImporter) -> (artifact id: 'f33a4fb1d399782df7daa5e537828ed1') in 0.0734153 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/Cross Pipeline/UGUI Canvas Basic.shadergraph using Guid(5a4a765e921b8554eb959f7cf697b3be) (ScriptedImporter) -> (artifact id: '121dbd91af37347cab32ffde890b9591') in 0.0464634 seconds
+Start importing Assets/TextMesh Pro/Shaders/TMP_SDF-HDRP LIT.shadergraph using Guid(ca2ed216f98028c4dae6c5224a952b3c) (ScriptedImporter) -> (artifact id: 'b113aac12bfd436117790d8e9dcd8504') in 0.018157 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Shaders/Decal.shadergraph using Guid(9b4e681081e2b4c469111bb649e2f7ee) (ScriptedImporter) -> (artifact id: 'a7606a859af868e1472f722a313d3939') in 0.054132 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Shaders/Nature/SpeedTree9_URP.shadergraph using Guid(cbd3e1cc4ae141c42a30e33b4d666a61) (ScriptedImporter) -> (artifact id: '2711708c30ffa585ce2ae6de0f331cab') in 0.1191606 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Shaders/FullscreenInvertColors.shadergraph using Guid(fb6390f650ca44a5ba3246d8dda47927) (ScriptedImporter) -> (artifact id: 'c7b1ddeb1bfc9eb6c6000c4efa09a150') in 0.0354979 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Shaders/AutodeskInteractive/AutodeskInteractiveTransparent.shadergraph using Guid(5c81372d981403744adbdda4433c9c11) (ScriptedImporter) -> (artifact id: '7614ee40ab1b43bb5f7058694cb1e8ac') in 0.0672873 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/ShaderGraph/GraphTemplates/Terrain Standard 4 Layers URP.shadergraph using Guid(bc3def193b270c649b041063a70a1a1f) (ScriptedImporter)Shader 'Hidden/Terrain/Terrain Standard 4 Layers URP': dependency 'AddPassShader' shader 'Hidden/Hidden/Terrain/Terrain Standard 4 Layers URP_AddPass' not found
+Shader 'Hidden/Terrain/Terrain Standard 4 Layers URP': dependency 'BaseMapGenShader' shader 'Hidden/Hidden/Terrain/Terrain Standard 4 Layers URP_BaseMapGen' not found
+Shader 'Hidden/Terrain/Terrain Standard 4 Layers URP': dependency 'AddPassShader' shader 'Hidden/Hidden/Terrain/Terrain Standard 4 Layers URP_AddPass' not found
+Shader 'Hidden/Terrain/Terrain Standard 4 Layers URP': dependency 'BaseMapGenShader' shader 'Hidden/Hidden/Terrain/Terrain Standard 4 Layers URP_BaseMapGen' not found
+ -> (artifact id: '734f343ab2e7f69f892bd17ff15ec6d7') in 0.2112589 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/Cross Pipeline/UGUI Canvas Meter.shadergraph using Guid(9d4e8ca8c5046914c87ca6ccef140dac) (ScriptedImporter) -> (artifact id: 'c1af70415521a5d6d71088e1f213f4a2') in 0.0423064 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/ShaderGraph/GraphTemplates/2D/0_2D Sprite Lit.shadergraph using Guid(bde135b320597544b9ac325092409f8b) (ScriptedImporter) -> (artifact id: 'a6807364465b8915d570dad98e454703') in 0.0466719 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Shaders/AutodeskInteractive/AutodeskInteractive.shadergraph using Guid(0e9d5a909a1f7e84882a534d0d11e49f) (ScriptedImporter) -> (artifact id: '9d418e49fd2174f57b1baf7c12242bb2') in 0.0697443 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/ShaderGraph/GraphTemplates/UITKFullTemplate.shadergraph using Guid(3e01bbae25716b24ea9da11102b44902) (ScriptedImporter) -> (artifact id: 'b19d9205b6a4d7124465a60ce13ecf68') in 0.0309395 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/Custom Render Texture.shadergraph using Guid(7ef2cf71ad164fe479662ae612dff99e) (ScriptedImporter) -> (artifact id: '1bec025da4b8c728cce6f11cb32c0017') in 0.0130799 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/Cross Pipeline/1_Lit Full.shadergraph using Guid(aee84ce0dab81b049bb88017d78a63cd) (ScriptedImporter) -> (artifact id: '3f72c7507fb25c3a9d27ce361e7588cc') in 0.1209744 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/Cross Pipeline/Terrain Simple.shadergraph using Guid(def488a52add6574d9f295a507032cb8) (ScriptedImporter)Shader 'Hidden/Terrain/Terrain Simple': dependency 'AddPassShader' shader 'Hidden/Hidden/Terrain/Terrain Simple_AddPass' not found
+Shader 'Hidden/Terrain/Terrain Simple': dependency 'BaseMapGenShader' shader 'Hidden/Hidden/Terrain/Terrain Simple_BaseMapGen' not found
+Shader 'Hidden/Terrain/Terrain Simple': dependency 'AddPassShader' shader 'Hidden/Hidden/Terrain/Terrain Simple_AddPass' not found
+Shader 'Hidden/Terrain/Terrain Simple': dependency 'BaseMapGenShader' shader 'Hidden/Hidden/Terrain/Terrain Simple_BaseMapGen' not found
+ -> (artifact id: '8eee88e23c0f2a92a61a7c3ca7b8e13d') in 0.1476243 seconds
+Start importing Packages/com.unity.shadergraph/GraphTemplates/Cross Pipeline/0_Particle Unlit.shadergraph using Guid(af66091e0eca0c04a9c3584ae867418a) (ScriptedImporter) -> (artifact id: '82f79024b396af2c9c9252521351f8dc') in 0.0541608 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/ShaderGraph/GraphTemplates/2D/2_2D Sprite Custom Lit.shadergraph using Guid(bfad0aba0faa90547b68abd10bb6be86) (ScriptedImporter) -> (artifact id: '7020184c1c4e72f5ec09dba96f983765') in 0.051395 seconds
+Start importing Packages/com.unity.render-pipelines.universal/Editor/ShaderGraph/GraphTemplates/Fullscreen Basic URP.shadergraph using Guid(df41eefe8c13d444ca890dddbbc61f8d) (ScriptedImporter) -> (artifact id: 'd53dfa04293dbdecc4537cb6338a4478') in 0.0308675 seconds
+Start importing Packages/com.unity.render-pipelines.core/Runtime/RenderPipelineResources/Mesh/SamplesFixture.fbx using Guid(b28fa67a0ff82c5478f27368dc627683) (FBXImporter) -> (artifact id: 'a0f2bfb54cf8f81ebb1826b1b3f553b5') in 0.0268065 seconds
+Start importing Packages/com.unity.render-pipelines.core/Runtime/RenderPipelineResources/Mesh/SamplesFloorSpotlight.fbx using Guid(1dbf28c1bb322474d981b2dc555e28b0) (FBXImporter) -> (artifact id: '45478e9e8914bf97dcf51a84c34e895f') in 0.0103232 seconds
+Start importing Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF - Fallback.asset using Guid(2e498d1c8094910479dc3e1b768306a4) (NativeFormatImporter) -> (artifact id: '904ebae6ee4474c266c74cd8e9f372b7') in 0.0036398 seconds
+Start importing Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF.asset using Guid(8f586378b4e144a9851e7b34d9b748ee) (NativeFormatImporter) -> (artifact id: '7055972fc60a7912ea5976ba5c66435a') in 0.0039837 seconds
+Refreshing native plugins compatible for Editor in 0.19 ms, found 0 plugins.
+Preloading 0 native plugins for Editor in 0.00 ms.
+Asset Pipeline Refresh (id=b5de81c9f2c22b14bbd90df32674dea5): Total: 3.284 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
+	Summary:
+		Imports: total=79 (actual=79, local cache=0, cache server=0)
+		Asset DB Process Time: managed=17 ms, native=3144 ms
+		Asset DB Callback time: managed=27 ms, native=95 ms
+		Scripting: domain reloads=0, domain reload time=0 ms, compile time=0 ms, other=0 ms
+		Project Asset Count: scripts=1063, non-scripts=2102
+		Asset File Changes: new=0, changed=0, moved=0, deleted=0
+		Scan Filter Count: 121
+	InvokeCustomDependenciesCallbacks: 0.001ms
+	InvokePackagesCallback: 0.000ms
+	ApplyChangesToAssetFolders: 0.090ms
+	Scan: 10.063ms
+	OnSourceAssetsModified: 0.001ms
+	CategorizeAssetsWithTransientArtifact: 0.085ms
+	ProcessAssetsWithTransientArtifactChanges: 0.061ms
+	CategorizeAssets: 12.520ms
+	ImportOutOfDateAssets: 3133.778ms (-4.440ms without children)
+		ImportManagerImport: 3132.353ms (53.806ms without children)
+			ImportInProcess: 3074.988ms
+			UpdateCategorizedAssets: 3.559ms
+		ReloadNativeAssets: 0.020ms
+		UnloadImportedAssets: 0.722ms
+		ReloadImportedAssets: 4.620ms
+		EnsureUptoDateAssetsAreRegisteredWithGuidPM: 0.276ms
+		InitializingProgressBar: 0.005ms
+		PostProcessAllAssetNotificationsAddChangedAssets: 0.001ms
+		OnDemandSchedulerStart: 0.221ms
+	PostProcessAllAssets: 122.300ms
+	Hotreload: 0.355ms
+	GatherAllCurrentPrimaryArtifactRevisions: 0.102ms
+	UnloadStreamsBegin: 0.049ms
+	PersistCurrentRevisions: 0.076ms
+	UnloadStreamsEnd: 0.055ms
+	Untracked: 4.584ms
+
+[UnityConnectServicesConfig] config is NOT valid, switching to default
+Created GICache directory at C:/Users/1/AppData/LocalLow/Unity/Caches/GiCache. Took: 0.010s, timestamps: [6.308 - 6.317]
+Unloading 102 Unused Serialized files (Serialized files now loaded: 0)
+Unloading 174 unused Assets / (12.5 MB). Loaded Objects now: 4712.
+Memory consumption went from 250.8 MB to 238.3 MB.
+Total: 10.905300 ms (FindLiveObjects: 0.145200 ms CreateObjectMapping: 0.044600 ms MarkObjects: 8.455700 ms  DeleteObjects: 2.257900 ms)
+
+Start importing Assets/InitTestScene36ccc55c-04be-48b4-bbdb-a4920e4f168d.unity using Guid(1df9a422b61286d4186fdb3076afb32a) (DefaultImporter) -> (artifact id: '714172f75cc37467893c08490292548e') in 0.0007452 seconds
+Refreshing native plugins compatible for Editor in 0.16 ms, found 0 plugins.
+Preloading 0 native plugins for Editor in 0.00 ms.
+Asset Pipeline Refresh (id=b2a174b49a8540547b49c41c3b643a40): Total: 0.022 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
+Executing IPrebuildSetup for: Unity.PerformanceTesting.Editor.TestRunBuilder.
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:Log (object)
+UnityEditor.TestTools.TestRunner.TestRun.Tasks.BuildActionTaskBase`1/<ExecuteMethods>d__8<UnityEngine.TestTools.IPrebuildSetup>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/TestRun/Tasks/BuildActionTaskBase.cs:48)
+UnityEditor.TestTools.TestRunner.TestRun.Tasks.BuildActionTaskBase`1/<Execute>d__7<UnityEngine.TestTools.IPrebuildSetup>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/TestRun/Tasks/BuildActionTaskBase.cs:34)
+UnityEditor.TestTools.TestRunner.TestRun.TestJobRunner:ExecuteStep () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/TestRun/TestJobRunner.cs:173)
+UnityEditor.TestTools.TestRunner.TestRun.TestJobRunner:ExecuteCallback () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/TestRun/TestJobRunner.cs:108)
+UnityEditor.EditorApplication:Internal_CallUpdateFunctions ()
+
+(Filename: ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/TestRun/Tasks/BuildActionTaskBase.cs Line: 48)
+
+Reloading assemblies for play mode.
+Reloading assemblies after forced synchronous recompile.
+Begin MonoManager ReloadAssembly
+- Loaded All Assemblies, in  0.401 seconds
+Refreshing native plugins compatible for Editor in 0.21 ms, found 0 plugins.
+Native extension for WindowsStandalone target not found
+ScheduleIndexationOnStartup MainProcess:True IndexOnStartup:False
+Mono: successfully reloaded assembly
+- Finished resetting the current domain, in  0.482 seconds
+Domain Reload Profiling: 883ms
+	BeginReloadAssembly (255ms)
+		ExecutionOrderSort (0ms)
+		DisableScriptedObjects (14ms)
+		BackupInstance (0ms)
+		ReleaseScriptingObjects (0ms)
+		CreateAndSetChildDomain (161ms)
+	RebuildCommonClasses (22ms)
+	RebuildNativeTypeToScriptingClass (8ms)
+	initialDomainReloadingComplete (15ms)
+	LoadAllAssembliesAndSetupDomain (101ms)
+		LoadAssemblies (78ms)
+		RebuildTransferFunctionScriptingTraits (0ms)
+		AnalyzeDomain (81ms)
+			TypeCache.Refresh (4ms)
+				TypeCache.ScanAssembly (0ms)
+			BuildScriptInfoCaches (60ms)
+			ResolveRequiredComponents (16ms)
+	FinalizeReload (482ms)
+		ReleaseScriptCaches (0ms)
+		RebuildScriptCaches (0ms)
+		SetupLoadedEditorAssemblies (324ms)
+			LogAssemblyErrors (0ms)
+			InitializePlatformSupportModulesInManaged (11ms)
+			SetLoadedEditorAssemblies (2ms)
+			BeforeProcessingInitializeOnLoad (82ms)
+			ProcessInitializeOnLoadAttributes (130ms)
+			ProcessInitializeOnLoadMethodAttributes (97ms)
+			AfterProcessingInitializeOnLoad (2ms)
+			EditorAssembliesLoaded (0ms)
+		ExecutionOrderSort2 (0ms)
+		AwakeInstancesAfterBackupRestoration (17ms)
+Asset Pipeline Refresh (id=d623bb95833daf7419bc6c239e06d4f7): Total: 0.954 seconds - Initiated by StopAssetImportingV2(ForceSynchronousImport | ForceDomainReload)
+	Summary:
+		Imports: total=0 (actual=0, local cache=0, cache server=0)
+		Asset DB Process Time: managed=0 ms, native=529 ms
+		Asset DB Callback time: managed=15 ms, native=0 ms
+		Scripting: domain reloads=1, domain reload time=407 ms, compile time=1 ms, other=0 ms
+		Project Asset Count: scripts=1063, non-scripts=2103
+		Asset File Changes: new=0, changed=0, moved=0, deleted=0
+		Scan Filter Count: 0
+	InvokeCustomDependenciesCallbacks: 0.001ms
+	InvokePackagesCallback: 1.345ms
+	ApplyChangesToAssetFolders: 0.212ms
+	Scan: 0.000ms
+	OnSourceAssetsModified: 0.001ms
+	CategorizeAssetsWithTransientArtifact: 0.002ms
+	ProcessAssetsWithTransientArtifactChanges: 1.461ms
+	CategorizeAssets: 26.362ms
+	ImportOutOfDateAssets: 484.929ms (481.788ms without children)
+		CompileScripts: 0.852ms
+		CollectScriptTypesHashes: 1.091ms
+		ReloadNativeAssets: 0.664ms
+		UnloadImportedAssets: 0.053ms
+		EnsureUptoDateAssetsAreRegisteredWithGuidPM: 0.294ms
+		InitializingProgressBar: 0.000ms
+		PostProcessAllAssetNotificationsAddChangedAssets: 0.000ms
+		OnDemandSchedulerStart: 0.187ms
+	PostProcessAllAssets: 15.305ms
+	GatherAllCurrentPrimaryArtifactRevisions: 0.107ms
+	UnloadStreamsBegin: 0.111ms
+	PersistCurrentRevisions: 0.078ms
+	UnloadStreamsEnd: 0.001ms
+	GenerateScriptTypeHashes: 2.982ms
+	Untracked: 423.845ms
+
+Loaded scene 'Temp/__Backupscenes/0.backup'
+	Deserialize:            0.569 ms
+	Integration:            117.303 ms
+	Integration of assets:  0.001 ms
+	Thread Wait Time:       0.010 ms
+	Total Operation Time:   117.883 ms
+[MODES] ModeService[none].Initialize
+[MODES] ModeService[none].LoadModes
+[Licensing::Client] Successfully resolved entitlement details
+Unloading 1 Unused Serialized files (Serialized files now loaded: 0)
+UnloadTime: 0.138800 ms
+Loaded scene 'Assets/Framework/Scenes/GameTemplateShell.unity'
+	Deserialize:            3.628 ms
+	Integration:            313.970 ms
+	Integration of assets:  0.116 ms
+	Thread Wait Time:       -0.008 ms
+	Total Operation Time:   317.706 ms
+Unloading 151 unused Assets / (3.8 MB). Loaded Objects now: 4826.
+Memory consumption went from 220.5 MB to 216.7 MB.
+Total: 5.232500 ms (FindLiveObjects: 0.195500 ms CreateObjectMapping: 0.053000 ms MarkObjects: 4.839500 ms  DeleteObjects: 0.144000 ms)
+
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:LogWarning (object)
+Adapter.Unity.Presentation.UnityViewFactory:RegisterDefaultClips (Adapter.Unity.Presentation.UnityFrameAnimPlayer,Core.Foundation.DisplayInfo.DisplayInfo) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:577)
+Adapter.Unity.Presentation.UnityViewFactory:AttachDefaultAnimation (Adapter.Unity.Presentation.UnitySpriteView,Core.Foundation.DisplayInfo.DisplayInfo,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:495)
+Adapter.Unity.Presentation.UnityViewFactory:CreateView (Presentation.Common.ViewKind,Core.Foundation.Common.Id,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:380)
+Presentation.ViewBinding.ViewBinder:OnEntityCreated (Core.Foundation.Common.Id,string,Core.Foundation.Common.Id)
+Presentation.ViewBinding.ViewBinder:<.ctor>b__16_0 (Core.Foundation.SimLoop.EntityCreatedEvent)
+Core.Foundation.EventBus.EventBus/<>c__DisplayClass9_0`1<Core.Foundation.SimLoop.EntityCreatedEvent>:<Subscribe>b__0 (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus/SubscriberEntry:Invoke (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchOne (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchPending ()
+Game.Template.GameBootstrap:HandlePostLoad (Core.Foundation.Common.Id) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:481)
+Core.Foundation.SceneRouter.SceneRouter/<>c__DisplayClass25_0:<RegisterPostLoadHook>b__0 (Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.HookRegistry.HookRegistry:Invoke (Core.Foundation.Common.Id,Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.SceneRouter.SceneRouter:FinishLoading ()
+Core.Foundation.SceneRouter.SceneRouter:Update ()
+Presentation.Shell.ShellHost:Update ()
+Game.Template.GameBootstrap:OnFrameTick (double) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:525)
+Adapter.Unity.EngineAdapter.UnityClock:TickFrame (double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityClock.cs:94)
+Adapter.Unity.EngineAdapter.UnityEngineHost:Update () (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityEngineHost.cs:146)
+
+(Filename: ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs Line: 577)
+
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:LogWarning (object)
+Adapter.Unity.Presentation.UnityViewFactory:RegisterDefaultClips (Adapter.Unity.Presentation.UnityFrameAnimPlayer,Core.Foundation.DisplayInfo.DisplayInfo) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:577)
+Adapter.Unity.Presentation.UnityViewFactory:AttachDefaultAnimation (Adapter.Unity.Presentation.UnitySpriteView,Core.Foundation.DisplayInfo.DisplayInfo,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:495)
+Adapter.Unity.Presentation.UnityViewFactory:CreateView (Presentation.Common.ViewKind,Core.Foundation.Common.Id,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:380)
+Presentation.ViewBinding.ViewBinder:OnEntityCreated (Core.Foundation.Common.Id,string,Core.Foundation.Common.Id)
+Presentation.ViewBinding.ViewBinder:<.ctor>b__16_0 (Core.Foundation.SimLoop.EntityCreatedEvent)
+Core.Foundation.EventBus.EventBus/<>c__DisplayClass9_0`1<Core.Foundation.SimLoop.EntityCreatedEvent>:<Subscribe>b__0 (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus/SubscriberEntry:Invoke (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchOne (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchPending ()
+Game.Template.GameBootstrap:HandlePostLoad (Core.Foundation.Common.Id) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:481)
+Core.Foundation.SceneRouter.SceneRouter/<>c__DisplayClass25_0:<RegisterPostLoadHook>b__0 (Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.HookRegistry.HookRegistry:Invoke (Core.Foundation.Common.Id,Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.SceneRouter.SceneRouter:FinishLoading ()
+Core.Foundation.SceneRouter.SceneRouter:Update ()
+Presentation.Shell.ShellHost:Update ()
+Game.Template.GameBootstrap:OnFrameTick (double) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:525)
+Adapter.Unity.EngineAdapter.UnityClock:TickFrame (double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityClock.cs:94)
+Adapter.Unity.EngineAdapter.UnityEngineHost:Update () (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityEngineHost.cs:146)
+
+(Filename: ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs Line: 577)
+
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:LogWarning (object)
+Adapter.Unity.Presentation.UnityViewFactory:RegisterDefaultClips (Adapter.Unity.Presentation.UnityFrameAnimPlayer,Core.Foundation.DisplayInfo.DisplayInfo) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:577)
+Adapter.Unity.Presentation.UnityViewFactory:AttachDefaultAnimation (Adapter.Unity.Presentation.UnitySpriteView,Core.Foundation.DisplayInfo.DisplayInfo,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:495)
+Adapter.Unity.Presentation.UnityViewFactory:CreateView (Presentation.Common.ViewKind,Core.Foundation.Common.Id,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:380)
+Presentation.ViewBinding.ViewBinder:OnEntityCreated (Core.Foundation.Common.Id,string,Core.Foundation.Common.Id)
+Presentation.ViewBinding.ViewBinder:<.ctor>b__16_0 (Core.Foundation.SimLoop.EntityCreatedEvent)
+Core.Foundation.EventBus.EventBus/<>c__DisplayClass9_0`1<Core.Foundation.SimLoop.EntityCreatedEvent>:<Subscribe>b__0 (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus/SubscriberEntry:Invoke (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchOne (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchPending ()
+Game.Template.GameBootstrap:HandlePostLoad (Core.Foundation.Common.Id) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:481)
+Core.Foundation.SceneRouter.SceneRouter/<>c__DisplayClass25_0:<RegisterPostLoadHook>b__0 (Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.HookRegistry.HookRegistry:Invoke (Core.Foundation.Common.Id,Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.SceneRouter.SceneRouter:FinishLoading ()
+Core.Foundation.SceneRouter.SceneRouter:Update ()
+Presentation.Shell.ShellHost:Update ()
+Game.Template.GameBootstrap:OnFrameTick (double) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:525)
+Adapter.Unity.EngineAdapter.UnityClock:TickFrame (double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityClock.cs:94)
+Adapter.Unity.EngineAdapter.UnityEngineHost:Update () (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityEngineHost.cs:146)
+
+(Filename: ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs Line: 577)
+
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:LogWarning (object)
+Adapter.Unity.Presentation.UnityViewFactory:RegisterDefaultClips (Adapter.Unity.Presentation.UnityFrameAnimPlayer,Core.Foundation.DisplayInfo.DisplayInfo) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:577)
+Adapter.Unity.Presentation.UnityViewFactory:AttachDefaultAnimation (Adapter.Unity.Presentation.UnitySpriteView,Core.Foundation.DisplayInfo.DisplayInfo,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:495)
+Adapter.Unity.Presentation.UnityViewFactory:CreateView (Presentation.Common.ViewKind,Core.Foundation.Common.Id,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:380)
+Presentation.ViewBinding.ViewBinder:OnEntityCreated (Core.Foundation.Common.Id,string,Core.Foundation.Common.Id)
+Presentation.ViewBinding.ViewBinder:<.ctor>b__16_0 (Core.Foundation.SimLoop.EntityCreatedEvent)
+Core.Foundation.EventBus.EventBus/<>c__DisplayClass9_0`1<Core.Foundation.SimLoop.EntityCreatedEvent>:<Subscribe>b__0 (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus/SubscriberEntry:Invoke (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchOne (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchPending ()
+Game.Template.GameBootstrap:HandlePostLoad (Core.Foundation.Common.Id) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:481)
+Core.Foundation.SceneRouter.SceneRouter/<>c__DisplayClass25_0:<RegisterPostLoadHook>b__0 (Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.HookRegistry.HookRegistry:Invoke (Core.Foundation.Common.Id,Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.SceneRouter.SceneRouter:FinishLoading ()
+Core.Foundation.SceneRouter.SceneRouter:Update ()
+Presentation.Shell.ShellHost:Update ()
+Game.Template.GameBootstrap:OnFrameTick (double) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:525)
+Adapter.Unity.EngineAdapter.UnityClock:TickFrame (double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityClock.cs:94)
+Adapter.Unity.EngineAdapter.UnityEngineHost:Update () (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityEngineHost.cs:146)
+
+(Filename: ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs Line: 577)
+
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:LogWarning (object)
+Adapter.Unity.Presentation.UnityViewFactory:RegisterDefaultClips (Adapter.Unity.Presentation.UnityFrameAnimPlayer,Core.Foundation.DisplayInfo.DisplayInfo) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:577)
+Adapter.Unity.Presentation.UnityViewFactory:AttachDefaultAnimation (Adapter.Unity.Presentation.UnitySpriteView,Core.Foundation.DisplayInfo.DisplayInfo,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:495)
+Adapter.Unity.Presentation.UnityViewFactory:CreateView (Presentation.Common.ViewKind,Core.Foundation.Common.Id,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:380)
+Presentation.ViewBinding.ViewBinder:OnEntityCreated (Core.Foundation.Common.Id,string,Core.Foundation.Common.Id)
+Presentation.ViewBinding.ViewBinder:<.ctor>b__16_0 (Core.Foundation.SimLoop.EntityCreatedEvent)
+Core.Foundation.EventBus.EventBus/<>c__DisplayClass9_0`1<Core.Foundation.SimLoop.EntityCreatedEvent>:<Subscribe>b__0 (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus/SubscriberEntry:Invoke (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchOne (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchPending ()
+Game.Template.GameBootstrap:HandlePostLoad (Core.Foundation.Common.Id) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:481)
+Core.Foundation.SceneRouter.SceneRouter/<>c__DisplayClass25_0:<RegisterPostLoadHook>b__0 (Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.HookRegistry.HookRegistry:Invoke (Core.Foundation.Common.Id,Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.SceneRouter.SceneRouter:FinishLoading ()
+Core.Foundation.SceneRouter.SceneRouter:Update ()
+Presentation.Shell.ShellHost:Update ()
+Game.Template.GameBootstrap:OnFrameTick (double) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:525)
+Adapter.Unity.EngineAdapter.UnityClock:TickFrame (double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityClock.cs:94)
+Adapter.Unity.EngineAdapter.UnityEngineHost:Update () (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityEngineHost.cs:146)
+
+(Filename: ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs Line: 577)
+
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:LogWarning (object)
+Adapter.Unity.Presentation.UnityViewFactory:RegisterDefaultClips (Adapter.Unity.Presentation.UnityFrameAnimPlayer,Core.Foundation.DisplayInfo.DisplayInfo) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:577)
+Adapter.Unity.Presentation.UnityViewFactory:AttachDefaultAnimation (Adapter.Unity.Presentation.UnitySpriteView,Core.Foundation.DisplayInfo.DisplayInfo,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:495)
+Adapter.Unity.Presentation.UnityViewFactory:CreateView (Presentation.Common.ViewKind,Core.Foundation.Common.Id,Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs:380)
+Presentation.ViewBinding.ViewBinder:OnEntityCreated (Core.Foundation.Common.Id,string,Core.Foundation.Common.Id)
+Presentation.ViewBinding.ViewBinder:<.ctor>b__16_0 (Core.Foundation.SimLoop.EntityCreatedEvent)
+Core.Foundation.EventBus.EventBus/<>c__DisplayClass9_0`1<Core.Foundation.SimLoop.EntityCreatedEvent>:<Subscribe>b__0 (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus/SubscriberEntry:Invoke (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchOne (Core.Foundation.EventBus.IEvent)
+Core.Foundation.EventBus.EventBus:DispatchPending ()
+Game.Template.GameBootstrap:HandlePostLoad (Core.Foundation.Common.Id) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:481)
+Core.Foundation.SceneRouter.SceneRouter/<>c__DisplayClass25_0:<RegisterPostLoadHook>b__0 (Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.HookRegistry.HookRegistry:Invoke (Core.Foundation.Common.Id,Core.Foundation.HookRegistry.HookArgs)
+Core.Foundation.SceneRouter.SceneRouter:FinishLoading ()
+Core.Foundation.SceneRouter.SceneRouter:Update ()
+Presentation.Shell.ShellHost:Update ()
+Game.Template.GameBootstrap:OnFrameTick (double) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:525)
+Adapter.Unity.EngineAdapter.UnityClock:TickFrame (double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityClock.cs:94)
+Adapter.Unity.EngineAdapter.UnityEngineHost:Update () (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityEngineHost.cs:146)
+
+(Filename: ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnityViewFactory.cs Line: 577)
+
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_beast__side_r__body
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:LogWarning (object)
+Adapter.Unity.EngineAdapter.UnityRenderer2D:ResolveSprite (Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityRenderer2D.cs:493)
+Adapter.Unity.EngineAdapter.UnityRenderer2D:SetLayers (Core.Foundation.EngineAdapter.SpriteHandle,System.Collections.Generic.IReadOnlyList`1<Core.Foundation.Common.Id>) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityRenderer2D.cs:174)
+Presentation.Render.SpriteCharacterRig:ApplyLayers (System.Collections.Generic.IReadOnlyList`1<Core.Foundation.Common.Id>)
+Presentation.Render.SpriteCharacterRig:ComposeAndApplyLayers (System.Collections.Generic.IReadOnlyList`1<string>,Presentation.Common.Direction,System.Func`2<Presentation.Render.SpriteLayerPlacement, Core.Foundation.Common.Id>)
+Presentation.Render.SpriteViewBase:SetPaperdollLayers (System.Collections.Generic.IReadOnlyList`1<string>,Presentation.Common.Direction)
+Adapter.Unity.Presentation.UnitySpriteView:SyncPose (Core.Foundation.Common.Vec2,Presentation.Common.Direction,double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnitySpriteView.cs:109)
+Presentation.ViewBinding.ViewBinder:SyncAll (double)
+Game.Template.GameBootstrap:OnFrameTick (double) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:551)
+Adapter.Unity.EngineAdapter.UnityClock:TickFrame (double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityClock.cs:94)
+Adapter.Unity.EngineAdapter.UnityEngineHost:Update () (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityEngineHost.cs:146)
+
+(Filename: ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityRenderer2D.cs Line: 493)
+
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_beast__front_side_r__body
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:LogWarning (object)
+Adapter.Unity.EngineAdapter.UnityRenderer2D:ResolveSprite (Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityRenderer2D.cs:493)
+Adapter.Unity.EngineAdapter.UnityRenderer2D:SetLayers (Core.Foundation.EngineAdapter.SpriteHandle,System.Collections.Generic.IReadOnlyList`1<Core.Foundation.Common.Id>) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityRenderer2D.cs:174)
+Presentation.Render.SpriteCharacterRig:ApplyLayers (System.Collections.Generic.IReadOnlyList`1<Core.Foundation.Common.Id>)
+Presentation.Render.SpriteCharacterRig:ComposeAndApplyLayers (System.Collections.Generic.IReadOnlyList`1<string>,Presentation.Common.Direction,System.Func`2<Presentation.Render.SpriteLayerPlacement, Core.Foundation.Common.Id>)
+Presentation.Render.SpriteViewBase:SetPaperdollLayers (System.Collections.Generic.IReadOnlyList`1<string>,Presentation.Common.Direction)
+Adapter.Unity.Presentation.UnitySpriteView:SyncPose (Core.Foundation.Common.Vec2,Presentation.Common.Direction,double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnitySpriteView.cs:109)
+Presentation.ViewBinding.ViewBinder:SyncAll (double)
+Game.Template.GameBootstrap:OnFrameTick (double) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:551)
+Adapter.Unity.EngineAdapter.UnityClock:TickFrame (double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityClock.cs:94)
+Adapter.Unity.EngineAdapter.UnityEngineHost:Update () (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityEngineHost.cs:146)
+
+(Filename: ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityRenderer2D.cs Line: 493)
+
+[ExistingViewEquipmentSaveLoadAudit] socket_wait expected=1;actual=1
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:Log (object)
+Game.Template.Tests.ExistingViewEquipmentSaveLoadAuditTests/<WaitForSocketCount>d__8:MoveNext () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Runtime/ExistingViewEquipmentSaveLoadAuditTests.cs:58)
+UnityEngine.TestTools.TestEnumerator/<Execute>d__7:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Attributes/TestEnumerator.cs:44)
+UnityEngine.TestTools.EnumerableTestMethodCommand/<ExecuteEnumerableAndRecordExceptions>d__4:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/EnumerableTestMethodCommand.cs:79)
+UnityEngine.SetupCoroutine:InvokeMoveNext (System.Collections.IEnumerator,intptr)
+
+(Filename: D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Runtime/ExistingViewEquipmentSaveLoadAuditTests.cs Line: 58)
+
+[ExistingViewEquipmentSaveLoadAudit] after_equip instance=item.inst_1;equipment=1;socket=1
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:Log (object)
+Game.Template.Tests.ExistingViewEquipmentSaveLoadAuditTests/<ExistingModelView_RealEquipmentSaveA_SaveB_LoadB_StaysStale>d__11:MoveNext () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Runtime/ExistingViewEquipmentSaveLoadAuditTests.cs:164)
+UnityEngine.TestTools.TestEnumerator/<Execute>d__7:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Attributes/TestEnumerator.cs:44)
+UnityEngine.TestTools.EnumerableTestMethodCommand/<ExecuteEnumerableAndRecordExceptions>d__4:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/EnumerableTestMethodCommand.cs:79)
+UnityEngine.TestTools.EnumerableTestMethodCommand:AdvanceEnumerator (System.Collections.IEnumerator) (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/EnumerableTestMethodCommand.cs:64)
+UnityEngine.TestTools.EnumerableTestMethodCommand/<ExecuteEnumerable>d__2:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/EnumerableTestMethodCommand.cs:47)
+UnityEngine.TestRunner.NUnitExtensions.Runner.UnityLogCheckDelegatingCommand/<ExecuteEnumerable>d__3:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Runner/UnityLogCheckDelegatingCommand.cs:48)
+UnityEngine.TestTools.BeforeAfterTestCommandBase`1/<ExecuteEnumerable>d__16<NUnit.Framework.ITestAction>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/BeforeAfterTestCommandBase.cs:212)
+UnityEngine.TestTools.BeforeAfterTestCommandBase`1/<ExecuteEnumerable>d__16<System.Reflection.MethodInfo>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/BeforeAfterTestCommandBase.cs:212)
+UnityEngine.TestTools.BeforeAfterTestCommandBase`1/<ExecuteEnumerable>d__16<System.Reflection.MethodInfo>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/BeforeAfterTestCommandBase.cs:212)
+UnityEngine.TestTools.BeforeAfterTestCommandBase`1/<ExecuteEnumerable>d__16<UnityEngine.TestTools.IOuterUnityTestAction>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/BeforeAfterTestCommandBase.cs:212)
+UnityEngine.TestTools.RetryCommand/<ExecuteEnumerable>d__2:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/RetryCommand.cs:37)
+UnityEngine.TestTools.RepeatCommand/<ExecuteEnumerable>d__2:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/RepeatCommand.cs:36)
+UnityEngine.TestTools.IgnoreTestCommand/<ExecuteEnumerable>d__3:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/IgnoreTestCommand.cs:42)
+UnityEngine.TestTools.StrictCheckCommand/<ExecuteEnumerable>d__2:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/StrictCheckCommand.cs:29)
+UnityEngine.TestTools.Utils.CoroutineRunner/<WrapEnumeratorForChecks>d__8:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/Utils/CoroutineRunner.cs:58)
+UnityEngine.SetupCoroutine:InvokeMoveNext (System.Collections.IEnumerator,intptr)
+
+(Filename: D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Runtime/ExistingViewEquipmentSaveLoadAuditTests.cs Line: 164)
+
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_beast__back_side_r__body
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:LogWarning (object)
+Adapter.Unity.EngineAdapter.UnityRenderer2D:ResolveSprite (Core.Foundation.Common.Id) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityRenderer2D.cs:493)
+Adapter.Unity.EngineAdapter.UnityRenderer2D:SetLayers (Core.Foundation.EngineAdapter.SpriteHandle,System.Collections.Generic.IReadOnlyList`1<Core.Foundation.Common.Id>) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityRenderer2D.cs:174)
+Presentation.Render.SpriteCharacterRig:ApplyLayers (System.Collections.Generic.IReadOnlyList`1<Core.Foundation.Common.Id>)
+Presentation.Render.SpriteCharacterRig:ComposeAndApplyLayers (System.Collections.Generic.IReadOnlyList`1<string>,Presentation.Common.Direction,System.Func`2<Presentation.Render.SpriteLayerPlacement, Core.Foundation.Common.Id>)
+Presentation.Render.SpriteViewBase:SetPaperdollLayers (System.Collections.Generic.IReadOnlyList`1<string>,Presentation.Common.Direction)
+Adapter.Unity.Presentation.UnitySpriteView:SyncPose (Core.Foundation.Common.Vec2,Presentation.Common.Direction,double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/UnitySpriteView.cs:109)
+Presentation.ViewBinding.ViewBinder:SyncAll (double)
+Game.Template.GameBootstrap:OnFrameTick (double) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:551)
+Adapter.Unity.EngineAdapter.UnityClock:TickFrame (double) (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityClock.cs:94)
+Adapter.Unity.EngineAdapter.UnityEngineHost:Update () (at ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityEngineHost.cs:146)
+
+(Filename: ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityRenderer2D.cs Line: 493)
+
+[ExistingViewEquipmentSaveLoadAudit] socket_wait expected=0;actual=1
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:Log (object)
+Game.Template.Tests.ExistingViewEquipmentSaveLoadAuditTests/<WaitForSocketCount>d__8:MoveNext () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Runtime/ExistingViewEquipmentSaveLoadAuditTests.cs:58)
+UnityEngine.TestTools.TestEnumerator/<Execute>d__7:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Attributes/TestEnumerator.cs:44)
+UnityEngine.TestTools.EnumerableTestMethodCommand/<ExecuteEnumerableAndRecordExceptions>d__4:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/EnumerableTestMethodCommand.cs:79)
+UnityEngine.SetupCoroutine:InvokeMoveNext (System.Collections.IEnumerator,intptr)
+
+(Filename: D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Runtime/ExistingViewEquipmentSaveLoadAuditTests.cs Line: 58)
+
+[ExistingViewEquipmentSaveLoadAudit] saveA=True;saveB=True;loadB=Loaded;equipment_after_load=0;socket_childCount_before=1;socket_childCount_after=1;view_same=True;socket_same=True
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:Log (object)
+Game.Template.Tests.ExistingViewEquipmentSaveLoadAuditTests/<ExistingModelView_RealEquipmentSaveA_SaveB_LoadB_StaysStale>d__11:MoveNext () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Runtime/ExistingViewEquipmentSaveLoadAuditTests.cs:190)
+UnityEngine.TestTools.TestEnumerator/<Execute>d__7:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Attributes/TestEnumerator.cs:44)
+UnityEngine.TestTools.EnumerableTestMethodCommand/<ExecuteEnumerableAndRecordExceptions>d__4:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/EnumerableTestMethodCommand.cs:79)
+UnityEngine.TestTools.EnumerableTestMethodCommand:AdvanceEnumerator (System.Collections.IEnumerator) (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/EnumerableTestMethodCommand.cs:64)
+UnityEngine.TestTools.EnumerableTestMethodCommand/<ExecuteEnumerable>d__2:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/EnumerableTestMethodCommand.cs:47)
+UnityEngine.TestRunner.NUnitExtensions.Runner.UnityLogCheckDelegatingCommand/<ExecuteEnumerable>d__3:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Runner/UnityLogCheckDelegatingCommand.cs:48)
+UnityEngine.TestTools.BeforeAfterTestCommandBase`1/<ExecuteEnumerable>d__16<NUnit.Framework.ITestAction>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/BeforeAfterTestCommandBase.cs:212)
+UnityEngine.TestTools.BeforeAfterTestCommandBase`1/<ExecuteEnumerable>d__16<System.Reflection.MethodInfo>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/BeforeAfterTestCommandBase.cs:212)
+UnityEngine.TestTools.BeforeAfterTestCommandBase`1/<ExecuteEnumerable>d__16<System.Reflection.MethodInfo>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/BeforeAfterTestCommandBase.cs:212)
+UnityEngine.TestTools.BeforeAfterTestCommandBase`1/<ExecuteEnumerable>d__16<UnityEngine.TestTools.IOuterUnityTestAction>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/BeforeAfterTestCommandBase.cs:212)
+UnityEngine.TestTools.RetryCommand/<ExecuteEnumerable>d__2:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/RetryCommand.cs:37)
+UnityEngine.TestTools.RepeatCommand/<ExecuteEnumerable>d__2:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/RepeatCommand.cs:36)
+UnityEngine.TestTools.IgnoreTestCommand/<ExecuteEnumerable>d__3:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/IgnoreTestCommand.cs:42)
+UnityEngine.TestTools.StrictCheckCommand/<ExecuteEnumerable>d__2:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/NUnitExtensions/Commands/StrictCheckCommand.cs:29)
+UnityEngine.TestTools.Utils.CoroutineRunner/<WrapEnumeratorForChecks>d__8:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEngine.TestRunner/Utils/CoroutineRunner.cs:58)
+UnityEngine.SetupCoroutine:InvokeMoveNext (System.Collections.IEnumerator,intptr)
+
+(Filename: D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Runtime/ExistingViewEquipmentSaveLoadAuditTests.cs Line: 190)
+
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+Saving results to: D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\presentation\view-equipment-filtered-final.xml
+MissingReferenceException: The object of type 'UnityEngine.GameObject' has been destroyed but you are still trying to access it.
+Your script should either check if it is null or you should not destroy the object.
+  at UnityEngine.Object+MarshalledUnityObject.TryThrowEditorNullExceptionObject (UnityEngine.Object unityObj, System.String parameterName) [0x0006a] in <4188a0f79dff4b4191dbeaff03bfe462>:0 
+  at UnityEngine.Bindings.ThrowHelper.ThrowNullReferenceException (System.Object obj) [0x00010] in <4188a0f79dff4b4191dbeaff03bfe462>:0 
+  at UnityEngine.GameObject.get_transform () [0x00006] in <4188a0f79dff4b4191dbeaff03bfe462>:0 
+  at Adapter.Unity.EngineAdapter.UnityRenderer3D.Detach (Core.Foundation.EngineAdapter.ModelHandle child) [0x00008] in .\Packages\com.gamefoundation.adapter.unity\Runtime\EngineAdapter\UnityRenderer3D.cs:1149 
+  at Presentation.Render.ModelCharacterRig.Dispose () [0x0002c] in <c2009312964a424599336f63569d1658>:0 
+  at Adapter.Unity.Presentation.UnityModelView.Destroy () [0x00009] in .\Packages\com.gamefoundation.adapter.unity\Runtime\Presentation\UnityModelView.cs:193 
+  at Adapter.Unity.Presentation.UnityViewFactory.DestroyAllCreatedViews () [0x00017] in .\Packages\com.gamefoundation.adapter.unity\Runtime\Presentation\UnityViewFactory.cs:887 
+  at Game.Template.GameBootstrap.OnDestroy () [0x00054] in D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\games\_template\Runtime\GameBootstrap.cs:591 
+
+(Filename: ./Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityRenderer3D.cs Line: 1149)
+
+Unloading 17 Unused Serialized files (Serialized files now loaded: 0)
+Loaded scene 'Temp/__Backupscenes/0.backup'
+	Deserialize:            0.327 ms
+	Integration:            96.988 ms
+	Integration of assets:  0.001 ms
+	Thread Wait Time:       0.009 ms
+	Total Operation Time:   97.325 ms
+Unloading 20 unused Assets / (1.6 KB). Loaded Objects now: 4762.
+Memory consumption went from 211.0 MB to 211.0 MB.
+Total: 5.239800 ms (FindLiveObjects: 0.158500 ms CreateObjectMapping: 0.044500 ms MarkObjects: 4.685100 ms  DeleteObjects: 0.350900 ms)
+
+Executing IPostBuildCleanup for: Unity.PerformanceTesting.Editor.TestRunBuilder.
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:Log (object)
+UnityEditor.TestTools.TestRunner.TestRun.Tasks.BuildActionTaskBase`1/<ExecuteMethods>d__8<UnityEngine.TestTools.IPostBuildCleanup>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/TestRun/Tasks/BuildActionTaskBase.cs:48)
+UnityEditor.TestTools.TestRunner.TestRun.Tasks.BuildActionTaskBase`1/<Execute>d__7<UnityEngine.TestTools.IPostBuildCleanup>:MoveNext () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/TestRun/Tasks/BuildActionTaskBase.cs:34)
+UnityEditor.TestTools.TestRunner.TestRun.TestJobRunner:ExecuteStep () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/TestRun/TestJobRunner.cs:173)
+UnityEditor.TestTools.TestRunner.TestRun.TestJobRunner:ExecuteCallback () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/TestRun/TestJobRunner.cs:108)
+UnityEditor.EditorApplication:Internal_CallUpdateFunctions ()
+
+(Filename: ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/TestRun/Tasks/BuildActionTaskBase.cs Line: 48)
+
+Unloading 0 Unused Serialized files (Serialized files now loaded: 0)
+Unloading 0 unused Assets / (0 B). Loaded Objects now: 4767.
+Memory consumption went from 210.1 MB to 210.1 MB.
+Total: 4.819900 ms (FindLiveObjects: 0.127600 ms CreateObjectMapping: 0.043900 ms MarkObjects: 4.643000 ms  DeleteObjects: 0.004800 ms)
+
+Refreshing native plugins compatible for Editor in 0.23 ms, found 0 plugins.
+Preloading 0 native plugins for Editor in 0.00 ms.
+Asset Pipeline Refresh (id=d21eb6a028f3bd04e9f7f7a6163fb72d): Total: 0.052 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
+DisplayProgressbar: Undo
+Test run completed. Exiting with code 2 (Failed). One or more tests failed.
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace ()
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[])
+UnityEngine.Logger:Log (UnityEngine.LogType,object)
+UnityEngine.Debug:Log (object)
+UnityEditor.TestTools.TestRunner.CommandLineTest.Executer:ExitApplication (UnityEditor.TestTools.TestRunner.CommandLineTest.Executer/ReturnCodes,string) (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/CommandLineTest/Executer.cs:81)
+UnityEditor.TestTools.TestRunner.CommandLineTest.Executer:ExitIfRunIsCompleted () (at ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/CommandLineTest/Executer.cs:74)
+UnityEditor.EditorApplication:Internal_CallUpdateFunctions ()
+
+(Filename: ./Library/PackageCache/com.unity.test-framework@bd7f943e9647/UnityEditor.TestRunner/CommandLineTest/Executer.cs Line: 81)
+
+Start importing ProjectSettings/ProjectSettings.asset using Guid(00000000000000004000000000000000) (LibraryAssetImporter) -> (artifact id: 'b48967e07bae4a45f91725b938b602c5') in 0.0039496 seconds
+Refreshing native plugins compatible for Editor in 0.22 ms, found 0 plugins.
+Preloading 0 native plugins for Editor in 0.00 ms.
+Asset Pipeline Refresh (id=b49f1e64419b34b4ebc2c8741e53b275): Total: 0.012 seconds - Initiated by StopAssetImportingV2(NoUpdateAssetOptions)
+[Physics::Module] Cleanup current backend.
+[Physics::Module] Id: 0xf2b8ea05
+Input System module state changed to: ShutdownInProgress.
+Input System polling thread exited.
+Input System module state changed to: Shutdown.
+[Licensing::IpcConnector] LicenseClient-ONCE-notifications channel disconnected successfully.
+[Licensing::IpcConnector] LicenseClient-ONCE channel disconnected successfully.
+AcceleratorClientConnectionCallback - disconnected - :0
+Cleanup mono
+Checking for leaked weakptr:
+  Found no leaked weakptrs.
+[Package Manager] Server process was shutdown
+##utp:{"type":"MemoryLeaks","version":2,"phase":"Immediate","time":1788960713608,"processId":26380,"allocatedMemory":33828771,"memoryLabels":[{"Default":14409},{"Permanent":15236},{"NewDelete":70227},{"Thread":4230344},{"Manager":51957},{"VertexData":8},{"Geometry":816},{"Texture":296},{"Shader":79381},{"Material":24},{"GfxDevice":55872},{"Animation":392},{"Audio":2664},{"Font":18570228},{"FreeType":815502},{"FontEngine":736},{"Physics":2146},{"Physics2D":16},{"Serialization":656},{"Input":14984},{"JobScheduler":33024},{"TextLib":280},{"Mono":32},{"MonoCode":64},{"ScriptingNativeRuntime":155060},{"BaseObject":1623920},{"Resource":1336},{"Renderer":3000},{"Transform":4685},{"File":12712},{"WebCam":616},{"Culling":32},{"Terrain":11394},{"Wind":24},{"STL":40},{"String":14369},{"DynamicArray":100953},{"HashMap":83660},{"Utility":2662998},{"Curl":2478},{"PoolAlloc":2152},{"AI":80},{"TypeTree":11341},{"ScriptManager":512},{"RuntimeInitializeOnLoadManager":64},{"SpriteAtlas":112},{"GI":7792},{"Director":8240},{"CloudService":432},{"WebRequest":552},{"VR":47994},{"SceneManager":504},{"Video":64},{"LazyScriptCache":32},{"Camera":17},{"Secure":2377},{"SerializationCache":1576},{"APIUpdating":10320},{"Subsystems":336},{"VirtualTexturing":57888},{"StaticSafetyDebugInfo":278528},{"Analytics":336},{"Hierarchy":608},{"CoreStats":13112},{"Identifiers":6480},{"Gui":96},{"EditorUtility":138265},{"VersionControl":4},{"Undo":947},{"AssetDatabase":4555431},{"EditorGi":328},{"UnityConnect":29232},{"Upm":1896},{"AssetCompliance":64},{"DrivenProperties":72},{"LocalIPC":210},{"ProfilerEditor":9746},{"CoreBusinessMetrics":3236},{"Licensing":1264},{"AssetReference":32},{"IPCStream":32}]}

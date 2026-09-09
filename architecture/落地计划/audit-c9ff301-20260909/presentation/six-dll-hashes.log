@@ -1,0 +1,8 @@
+source_root=D:\workespace\ws-game-review-c9ff301\architecture\落地计划\audit-c9ff301-20260909\docs-project\check-artifacts\bin (source path recorded before review worktree cleanup)
+copy_root=D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core
+Core.Carriers.dll source=bin\Core.Carriers\release\Core.Carriers.dll target_sha256=f8622ea29c4d124225905c5cbdd9030909592b95be0355484fb5c598aa509480
+Core.Foundation.dll source=bin\Adapters.Stub\release\Core.Foundation.dll target_sha256=a80c7406f8c025b0af41429776e5ad08c9690b94bb4229a3df673c2d45980ff1
+Core.Gameplay.dll source=bin\Core.Gameplay\release\Core.Gameplay.dll target_sha256=65ae851a30280b493354ca05582e16026e1d3ae1f836ebf099ad212ca97c2758
+Core.Numbers.dll source=bin\Core.Carriers\release\Core.Numbers.dll target_sha256=74f962544a16a91aea3c444b6c38b4ce16c4d0f4ec93c374b868b35b2b0efefb
+Core.Rules.dll source=bin\Core.Carriers\release\Core.Rules.dll target_sha256=f0ebd4d6c2526af487afad62fa1829fce932bdb15f31ea10bf562b7d8011b5c0
+Presentation.Common.dll source=bin\Presentation.Common\release\Presentation.Common.dll target_sha256=45512bdf6fa8e255980e410224d56977bd740af25448722453b09f140f6043d9

@@ -1,0 +1,21 @@
+  正在确定要还原的项目…
+  已还原 D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\repro\TeleportLoadingBoundaryProbe.csproj (用时 61 毫秒)。
+  6 个项目(共 7 个)是最新的，无法还原。
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\teleport-loading-current\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\teleport-loading-current\Core.Numbers.dll
+  Adapters.Stub -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\teleport-loading-current\Adapters.Stub.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\teleport-loading-current\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\teleport-loading-current\Core.Carriers.dll
+  Core.Gameplay -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\teleport-loading-current\Core.Gameplay.dll
+  TeleportLoadingBoundaryProbe -> D:\workespace\ws-game-artifacts\audit-c9ff301-resumed\architecture\落地计划\audit-c9ff301-20260909\core\logs\build\teleport-loading-current\TeleportLoadingBoundaryProbe.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:02.00
+TELEPORT-GOSSIP-CONSECUTIVE-WHILE-LOADING
+initial_scene=world.teleport_loading_a;first_chosen=True;state_after_first=Loading;scene_after_first=world.teleport_loading_a;map_after_first=world.teleport_loading_b;first_pending_B=True
+second_chosen=True;state_after_second=Loading;map_after_second=world.teleport_loading_b;position_after_second=30,40;final_scene=world.teleport_loading_b;final_map=world.teleport_loading_b;final_position=30,40;world_player_present=True;world_player_map=world.teleport_loading_b;world_player_position=30,40
+ORACLE-CURRENT=scene/player map and position must remain consistent; second request may reject, queue, or replace while preserving that invariant
+INTERPRETATION-CURRENT=The public Dialog OpenGossip/ChooseOption path accepted the second request while the first scene load was still Loading. Current ApplyResolvedTeleport commits player/map fields only after SceneRouter accepts the destination; completion leaves router, player, and WorldSim on B at 30,40 with no divergence.

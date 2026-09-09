@@ -1,0 +1,21 @@
+probe=compile minimal consumer against old 1.12.0 DLL, run, replace only output runtime DLL with formal 1.13.0 DLL, run without rebuild
+source=Program.cs: new FieldSchema("id", FieldKind.Id, false) (2-arg form is not compilable against old 1.12 public constructor: required has no default)
+old_zip_dll=
+D:\workespace\ws-game-review-c9ff301\architecture\落地计划\audit-c9ff301-20260909\docs-project\api-compat\oldzip\ws-game-1.12.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Foundation.dll
+old_zip_sha256=
+76E852F5CDC6BC27385C4F1C03384F85FBA2F480588B5EC5934A43A3E6C7671F
+old_lock=dist/ws-game-1.12.0.lock Core.Foundation.dll=76e852f5cdc6bc27385c4f1c03384f85fba2f480588b5ec5934a43a3e6c7671f
+build_against_old_exit=0
+run_against_old_exit=
+0
+run_against_old_output=
+FieldSchema name=id kind=Id required=False
+new_formal_dll=
+D:\workespace\ws-game\dist\1.13.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Foundation.dll
+new_formal_sha256=
+D769E570EA5D1CF1056CAE21DB16D45FDAA18B5FB074132B729D70453F37566C
+new_lock=dist/ws-game-1.13.0.lock Core.Foundation.dll=d769e570ea5d1cf1056cae21db16d45fdaa18b5fb074132b729d70453f37566c
+run_against_new_without_rebuild_exit=
+-532462766
+run_against_new_output=
+Unhandled exception. System.MissingMethodException: Method not found: 'Void Core.Foundation.DataRegistry.FieldSchema..ctor(System.String, Core.Foundation.DataRegistry.FieldKind, Boolean, System.Collections.Generic.IReadOnlyList`1<System.String>, System.String, System.String, System.String)'.    at Program.Main()

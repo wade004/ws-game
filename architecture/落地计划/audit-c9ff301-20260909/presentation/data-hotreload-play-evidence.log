@@ -1,0 +1,13 @@
+	Hotreload: 0.456ms
+[DataHotReload] 热重载 "stat.definition" 成功（2 条记录）
+Game.Template.DataHotReload:ReloadTable (string) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/DataHotReload.cs:231)
+Game.Template.DataHotReload:ProcessPendingChanges () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/DataHotReload.cs:196)
+Game.Template.DataHotReload:Update () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/DataHotReload.cs:141)
+(Filename: D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/DataHotReload.cs Line: 231)
+[DataHotReload] 热重载 "stat.definition" 成功（2 条记录）
+Game.Template.DataHotReload:ReloadTable (string) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/DataHotReload.cs:231)
+Game.Template.DataHotReload:ProcessPendingChanges () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/DataHotReload.cs:196)
+Game.Template.DataHotReload:Update () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/DataHotReload.cs:141)
+(Filename: D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/DataHotReload.cs Line: 231)
+Game.Template.GameBootstrap:HandlePostLoad (Core.Foundation.Common.Id) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:459)
+Game.Template.GameBootstrap:OnFrameTick (double) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/GameBootstrap.cs:525)

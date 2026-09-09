@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><LangVersion>10.0</LangVersion><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
+<ItemGroup><Compile Include="GobjLockBoundaryProbe.cs" />
+<ProjectReference Include="$(FrameworkRoot)/core/foundation/Core.Foundation.csproj" />
+<ProjectReference Include="$(FrameworkRoot)/core/numbers/Core.Numbers.csproj" />
+<ProjectReference Include="$(FrameworkRoot)/core/rules/Core.Rules.csproj" />
+<ProjectReference Include="$(FrameworkRoot)/core/carriers/Core.Carriers.csproj" />
+<ProjectReference Include="$(FrameworkRoot)/core/gameplay/Core.Gameplay.csproj" />
+<ProjectReference Include="$(FrameworkRoot)/presentation/Presentation.Common.csproj" />
+</ItemGroup></Project>

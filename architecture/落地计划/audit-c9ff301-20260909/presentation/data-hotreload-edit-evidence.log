@@ -1,0 +1,11 @@
+[DataHotReloadDeletedOverlayAudit] before=2;after_delete=2
+Game.Template.EditorTests.DataHotReloadDeletedOverlayAuditTests:DeletedGameOverride_IsNotObservedByCurrentWatcher_ButManualReloadFallsBack () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Editor/DataHotReloadDeletedOverlayAuditTests.cs:72)
+(Filename: D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Editor/DataHotReloadDeletedOverlayAuditTests.cs Line: 72)
+[DataHotReloadDeletedOverlayAudit] manual_reload_fallback=1
+Game.Template.EditorTests.DataHotReloadDeletedOverlayAuditTests:DeletedGameOverride_IsNotObservedByCurrentWatcher_ButManualReloadFallsBack () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Editor/DataHotReloadDeletedOverlayAuditTests.cs:79)
+(Filename: D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Editor/DataHotReloadDeletedOverlayAuditTests.cs Line: 79)
+[DataHotReload] 热重载 "stat.definition" 成功（2 条记录）
+Game.Template.DataHotReload:ReloadTable (string) (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/DataHotReload.cs:231)
+Game.Template.DataHotReload:ProcessPendingChanges () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/DataHotReload.cs:196)
+Game.Template.EditorTests.DataHotReloadEditModeTests:FileChange_AfterDebounceWindow_ReloadsTableAndUpdatesRegistry () (at D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Tests/Editor/DataHotReloadEditModeTests.cs:86)
+(Filename: D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/games/_template/Runtime/DataHotReload.cs Line: 231)

@@ -1,0 +1,15 @@
+  正在确定要还原的项目…
+  已还原 D:\workespace\ws-game-artifacts\audit-c9ff301-corebuild\presentation\Presentation.Common.csproj (用时 39 毫秒)。
+  5 个项目(共 6 个)是最新的，无法还原。
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-c9ff301-corebuild\core\foundation\bin\Debug\netstandard2.1\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-c9ff301-corebuild\core\numbers\bin\Debug\netstandard2.1\Core.Numbers.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-c9ff301-corebuild\core\rules\bin\Debug\netstandard2.1\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-c9ff301-corebuild\core\carriers\bin\Debug\netstandard2.1\Core.Carriers.dll
+  Core.Gameplay -> D:\workespace\ws-game-artifacts\audit-c9ff301-corebuild\core\gameplay\bin\Debug\netstandard2.1\Core.Gameplay.dll
+  Presentation.Common -> D:\workespace\ws-game-artifacts\audit-c9ff301-corebuild\presentation\bin\Debug\netstandard2.1\Presentation.Common.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:02.03

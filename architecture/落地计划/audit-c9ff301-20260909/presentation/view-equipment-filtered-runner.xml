@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Failed(Child)" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-09 13:48:24Z" end-time="2026-09-09 13:48:33Z" duration="8.7497552">
+  <test-suite type="TestSuite" id="1333" name="unity" fullname="unity" runstate="Runnable" testcasecount="271" result="Failed" site="Child" start-time="2026-09-09 13:48:24Z" end-time="2026-09-09 13:48:33Z" duration="8.749755" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1326" name="Game.Template.Tests.dll" fullname="D:/workespace/ws-game-unity-audit-c9ff301/copyRoot/adapters/unity/Library/ScriptAssemblies/Game.Template.Tests.dll" runstate="Runnable" testcasecount="6" result="Failed" site="Child" start-time="2026-09-09 13:48:24Z" end-time="2026-09-09 13:48:33Z" duration="8.743498" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="30900" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1327" name="Game" fullname="Game" runstate="Runnable" testcasecount="6" result="Failed" site="Child" start-time="2026-09-09 13:48:24Z" end-time="2026-09-09 13:48:33Z" duration="8.742863" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1328" name="Template" fullname="Game.Template" runstate="Runnable" testcasecount="6" result="Failed" site="Child" start-time="2026-09-09 13:48:24Z" end-time="2026-09-09 13:48:33Z" duration="8.742691" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="SetUpFixture" id="1320" name="Tests" fullname="Game.Template.Tests.GlobalTemplateTestSetup" classname="Game.Template.Tests.GlobalTemplateTestSetup" runstate="Runnable" testcasecount="6" result="Failed" site="Child" start-time="2026-09-09 13:48:24Z" end-time="2026-09-09 13:48:33Z" duration="8.742210" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-suite type="TestFixture" id="1318" name="ExistingViewEquipmentSaveLoadAuditTests" fullname="Game.Template.Tests.ExistingViewEquipmentSaveLoadAuditTests" classname="Game.Template.Tests.ExistingViewEquipmentSaveLoadAuditTests" runstate="Runnable" testcasecount="1" result="Failed" site="Child" start-time="2026-09-09 13:48:24Z" end-time="2026-09-09 13:48:33Z" duration="8.739321" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <failure>
+                <message><![CDATA[One or more child tests had errors]]></message>
+              </failure>
+              <test-case id="1319" name="ExistingModelView_RealEquipmentSaveA_SaveB_LoadB_StaysStale" fullname="Game.Template.Tests.ExistingViewEquipmentSaveLoadAuditTests.ExistingModelView_RealEquipmentSaveA_SaveB_LoadB_StaysStale" methodname="ExistingModelView_RealEquipmentSaveA_SaveB_LoadB_StaysStale" classname="Game.Template.Tests.ExistingViewEquipmentSaveLoadAuditTests" runstate="Runnable" seed="1159549619" result="Failed" start-time="2026-09-09 13:48:24Z" end-time="2026-09-09 13:48:33Z" duration="8.734215" asserts="0">
+                <properties>
+                  <property name="_JOINTYPE" value="UnityCombinatorial" />
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <failure>
+                  <message><![CDATA[  正确 oracle：Load B 后既有 View 的主手外观应清除；若仍为 1 即确认同图读档外观缺陷
+  Expected: 0
+  But was:  1
+]]></message>
+                  <stack-trace><![CDATA[at Game.Template.Tests.ExistingViewEquipmentSaveLoadAuditTests+<ExistingModelView_RealEquipmentSaveA_SaveB_LoadB_StaysStale>d__11.MoveNext () [0x006a2] in D:\workespace\ws-game-unity-audit-c9ff301\copyRoot\games\_template\Tests\Runtime\ExistingViewEquipmentSaveLoadAuditTests.cs:195
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\Library\PackageCache\com.unity.test-framework@bd7f943e9647\UnityEngine.TestRunner\NUnitExtensions\Attributes\TestEnumerator.cs:44
+]]></stack-trace>
+                </failure>
+                <output><![CDATA[[UnityViewFactory] displayId "display.map.sample_beast" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_beast__side_r__body
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_beast__front_side_r__body
+[ExistingViewEquipmentSaveLoadAudit] socket_wait expected=1;actual=1
+[ExistingViewEquipmentSaveLoadAudit] after_equip instance=item.inst_1;equipment=1;socket=1
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_beast__back_side_r__body
+[ExistingViewEquipmentSaveLoadAudit] socket_wait expected=0;actual=1
+[ExistingViewEquipmentSaveLoadAudit] saveA=True;saveB=True;loadB=Loaded;equipment_after_load=0;socket_childCount_before=1;socket_childCount_after=1;view_same=True;socket_same=True
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

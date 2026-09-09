@@ -1,0 +1,14 @@
+source_repo=D:\workespace\ws-game
+version=1.13.0
+disk_file=D:\workespace\ws-game\dist\ws-game-1.13.0.zip length=53075472 sha256=cbe6261b35c1a6f4b418c28a4809dc45f283f25021f92df64a86cc5fb4f3469f
+disk_file=D:\workespace\ws-game\dist\ws-game-1.13.0.lock length=912 sha256=82381043d3c8644ca1f4fbf5128b3e11362d36ed35e853281f89682d58c69ddb
+lock_version=1.13.0 lock_git_commit=609cec4
+zip_entry_count=1053
+zip_dll=Adapters.Stub.dll entry=ws-game-1.13.0/adapters/headless/Adapters.Stub.dll length=36352 sha256=fec0512ad8346db232773b0e9360429973b0863cbd75267851c2991b547b6717 lock=fec0512ad8346db232773b0e9360429973b0863cbd75267851c2991b547b6717 match=True
+zip_dll=Core.Foundation.dll entry=ws-game-1.13.0/adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/Core.Foundation.dll length=261120 sha256=d769e570ea5d1cf1056cae21db16d45fdaa18b5fb074132b729d70453f37566c lock=d769e570ea5d1cf1056cae21db16d45fdaa18b5fb074132b729d70453f37566c match=True
+zip_dll=Core.Numbers.dll entry=ws-game-1.13.0/adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/Core.Numbers.dll length=62464 sha256=8d1cdf18ccf74c8187f06a062ed10e4ec25c5c58f2e0c752a09901501aa6ea5e lock=8d1cdf18ccf74c8187f06a062ed10e4ec25c5c58f2e0c752a09901501aa6ea5e match=True
+zip_dll=Core.Rules.dll entry=ws-game-1.13.0/adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/Core.Rules.dll length=221184 sha256=64295232bfb350ba73cb912ad7f6f3c377a6ca27ed0f2fc0fed574d4ca107f78 lock=64295232bfb350ba73cb912ad7f6f3c377a6ca27ed0f2fc0fed574d4ca107f78 match=True
+zip_dll=Core.Carriers.dll entry=ws-game-1.13.0/adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/Core.Carriers.dll length=165888 sha256=726d217e614826573fd66d0afba18118f852693694f463061efaacd7a0f4c076 lock=726d217e614826573fd66d0afba18118f852693694f463061efaacd7a0f4c076 match=True
+zip_dll=Core.Gameplay.dll entry=ws-game-1.13.0/adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/Core.Gameplay.dll length=297984 sha256=dbd752d34360d2b1820918df5e6d4c6b34492206f2257cd0ef05d3c0550bb8a6 lock=dbd752d34360d2b1820918df5e6d4c6b34492206f2257cd0ef05d3c0550bb8a6 match=True
+zip_dll=Presentation.Common.dll entry=ws-game-1.13.0/adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/Presentation.Common.dll length=203264 sha256=887dc5739b649ad189869f83225e6e614a6ca071a1a4727890f1d12d9187cc5c lock=887dc5739b649ad189869f83225e6e614a6ca071a1a4727890f1d12d9187cc5c match=True
+disk_directory_hashes=verified separately; rebuilt check-artifacts are excluded from formal ZIP proof
