@@ -37,8 +37,10 @@ namespace Core.Numbers.Archetype
             currentSchemaVersion: 1,
             fields: new[]
             {
-                new FieldSchema("id", FieldKind.Id, required: true),
-                new FieldSchema("name_key", FieldKind.TextKey, required: true),
+                new FieldSchema("id", FieldKind.Id, required: true,
+                    description: "职业模板 id，格式 arch.class.<name>"),
+                new FieldSchema("name_key", FieldKind.TextKey, required: true,
+                    description: "显示名文本键"),
                 new FieldSchema("primary_stat", FieldKind.Id, required: true,
                     description: "引用 stat.*；stat_block 模块尚未登记 schema，暂不声明为 Reference"),
                 new FieldSchema("base_stats", FieldKind.Object, required: true,
@@ -47,8 +49,10 @@ namespace Core.Numbers.Archetype
                     description: "引用 arch.power.*；power_set 模块尚未登记 schema，暂不声明为 Reference"),
                 new FieldSchema("skill_book_ref", FieldKind.Id, required: false,
                     description: "引用 skill.book.*；skill 模块已实现，本字段仍不声明为 Reference——分层边界选择（L1 不静态耦合 L2 表结构），不是对方模块不存在，见类型判断记录"),
-                new FieldSchema("talent_tree_ref", FieldKind.Reference, required: false, referenceTable: "arch.talent_tree"),
-                new FieldSchema("level_curve_ref", FieldKind.Reference, required: false, referenceTable: "prog.level_curve"),
+                new FieldSchema("talent_tree_ref", FieldKind.Reference, required: false, referenceTable: "arch.talent_tree",
+                    description: "引用 arch.talent_tree 的天赋树，可为空"),
+                new FieldSchema("level_curve_ref", FieldKind.Reference, required: false, referenceTable: "prog.level_curve",
+                    description: "引用 prog.level_curve 的等级曲线，可为空"),
             });
 
         public static readonly TableSchema Race = new TableSchema(
@@ -57,8 +61,10 @@ namespace Core.Numbers.Archetype
             currentSchemaVersion: 1,
             fields: new[]
             {
-                new FieldSchema("id", FieldKind.Id, required: true),
-                new FieldSchema("name_key", FieldKind.TextKey, required: true),
+                new FieldSchema("id", FieldKind.Id, required: true,
+                    description: "种族模板 id，格式 arch.race.<name>"),
+                new FieldSchema("name_key", FieldKind.TextKey, required: true,
+                    description: "显示名文本键"),
                 new FieldSchema("stat_mods", FieldKind.Object, required: true,
                     description: "Object<stat_id, Number>，ApplyTo 经 StatModifierWriter 以 flat 写入，来源为种族 id"),
                 new FieldSchema("passive_auras", FieldKind.IdList, required: false,
@@ -71,15 +77,18 @@ namespace Core.Numbers.Archetype
             currentSchemaVersion: 1,
             fields: new[]
             {
-                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("id", FieldKind.Id, required: true,
+                    description: "天赋树 id，格式 arch.talent_tree.<name>"),
                 new FieldSchema("nodes", FieldKind.Array, required: true,
                     item: new FieldSchema("<talent_node>", FieldKind.Object, required: true, fields: new[]
                     {
                         // ArchetypeRegistry.ParseTalentTree：id 缺失/非字符串直接抛异常，必填；
                         // 只检查 JsonString，不做 Id 格式校验，登记为 String 而非 Id（以运行时为准）。
-                        new FieldSchema("id", FieldKind.String, required: true),
+                        new FieldSchema("id", FieldKind.String, required: true,
+                            description: "节点 id，同一棵树内以字符串比较，非全局 Id"),
                         new FieldSchema("prerequisites", FieldKind.Array, required: false,
-                            item: new FieldSchema("<prereq_id>", FieldKind.String, required: true),
+                            item: new FieldSchema("<prereq_id>", FieldKind.String, required: true,
+                                description: "前置节点 id"),
                             description: "缺省 []；前置节点 id（同一棵树内，运行时按字符串比较，不是" +
                                 "全局 Id）；存在性与无环由 ArchTalentTreeCycleValidationRule 校验"),
                         new FieldSchema("cost", FieldKind.Int, required: false, description: "缺省 0"),
@@ -88,7 +97,7 @@ namespace Core.Numbers.Archetype
                         // 规则 1），保持"存在且是对象"。
                         new FieldSchema("grants", FieldKind.Object, required: false,
                             description: "缺省 {}；未被本模块进一步解析，不登记子结构"),
-                    }),
+                    }, description: "天赋树节点"),
                     description: "Array<{id:String, prerequisites:[String], cost:Int, grants:Object}>；" +
                         "前置存在性与无环由 ArchTalentTreeCycleValidationRule 校验"),
             });

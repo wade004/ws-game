@@ -496,6 +496,24 @@ Invoke-CheckStep "python toolchain/validate_data.py --data-root data/_framework�
 }
 
 # -----------------------------------------------------------------------------
+# 3c. 元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4，F3 新增）——审计全部
+#     已登记 TableSchema/FieldSchema 的结构声明本身（不加载任何数据，秒级），-Quick 下也跑（见
+#     Presentation.Assembly.SchemaAudit 类型注释）。白名单固定读仓库根
+#     toolchain/schema_audit_allowlist.json。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4）" {
+    Push-Location $RepoRoot
+    try {
+        # 惯例同 toolchain/validate_data.py 调用 toolchain/validator 的写法（dotnet run --project
+        # <path> -- <args>，不显式传 -c/--artifacts-path——首次运行自动编译，用 dotnet 默认输出
+        # 目录，不与本脚本步骤 1/2 的 --artifacts-path 构建产物混淆）。
+        Test-NativeExitCode "dotnet" @("run", "--project", "toolchain/validator", "--", "--schema-audit", "--allowlist", "toolchain/schema_audit_allowlist.json")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
 # 4. 事件常量生成器一致性检查
 # -----------------------------------------------------------------------------
 Invoke-CheckStep "python toolchain/gen_event_constants.py --check" {

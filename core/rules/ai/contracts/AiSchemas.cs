@@ -61,12 +61,14 @@ namespace Core.Rules.Ai
                         // AiHost.LoadRotations 对三个字段均直接强转（JsonNumber/JsonString 索引器），
                         // 缺失或类型不符会抛异常，三者均必填（判断记录：偏离方案"priority?"示例，以
                         // 运行时为准）。
-                        new FieldSchema("priority", FieldKind.Int, required: true),
+                        new FieldSchema("priority", FieldKind.Int, required: true,
+                            description: "优先级数值，越小越优先；同表内不得重复，见 AiContentValidationRule"),
                         new FieldSchema("condition", FieldKind.Expr, required: true,
                             description: "Expr 文本，self/target/combat/enemies 分组，见 06 第 6.2 节"),
                         new FieldSchema("skill_id", FieldKind.Reference, required: true, referenceTable: "skill.def",
                             description: "core/rules/ai 与 core/rules/skill 同属 Core.Rules 程序集（同层），登记为 Reference"),
-                    }),
+                    },
+                        description: "RotationEntry：一条候选技能规则 {priority, condition, skill_id}"),
                     description: "有序 RotationEntry 列表：[{priority: Int, condition: Expr, skill_id: Reference(skill.def)}]；priority 在同一张表内不得重复，见 AiContentValidationRule"),
             });
 
@@ -80,7 +82,8 @@ namespace Core.Rules.Ai
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "ai.path.<name>"),
                 new FieldSchema("points", FieldKind.Array, required: true,
-                    item: new FieldSchema("<point>", FieldKind.Vec2, required: true),
+                    item: new FieldSchema("<point>", FieldKind.Vec2, required: true,
+                        description: "路径点坐标 {x, y}"),
                     description: "有序路径点列表：[{x: Number, y: Number}, ...]，至少 2 个点，见 AiContentValidationRule"),
                 new FieldSchema("mode", FieldKind.Enum, required: true, enumValues: PatrolModeValues,
                     description: "loop：到终点跳回起点；pingpong：到端点折返方向"),

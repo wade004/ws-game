@@ -36,7 +36,8 @@ namespace Core.Foundation.AppLifecycle
                     description: "转移终点状态名，取值规则同 from"),
                 new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: Kinds,
                     description: "区分本行是主状态转移（main）还是 InWorld 子状态转移（sub）"),
-                new FieldSchema("description", FieldKind.String, required: false),
+                new FieldSchema("description", FieldKind.String, required: false,
+                    description: "该状态转移的说明文本，供编辑器/文档展示，可为空"),
             },
             migrations: Array.Empty<TableMigration>());
 

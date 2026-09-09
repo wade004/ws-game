@@ -24,11 +24,13 @@ namespace Core.Carriers.Item
         public static readonly FieldSchema StatsItemSchema = new FieldSchema(
             "<stat_mod>", FieldKind.Object, required: true, fields: new[]
             {
-                new FieldSchema("stat", FieldKind.Reference, required: true, referenceTable: "stat.definition"),
+                new FieldSchema("stat", FieldKind.Reference, required: true, referenceTable: "stat.definition",
+                    description: "指向 stat.definition 的属性类型"),
                 new FieldSchema("op", FieldKind.Enum, required: false, enumValues: StatOpValues,
                     description: "缺省 flat"),
                 new FieldSchema("value", FieldKind.Number, required: false, description: "缺省 0"),
-            });
+            },
+            description: "{stat:Reference(stat.definition), op?:flat|pct|mult, value?:Number}，单条属性调整词条");
 
         /// <summary><c>item.template.grants</c> 结构（<c>EquipmentHost.ApplyGrants</c> 第二段）。
         /// <c>skills</c>/<c>auras</c> 登记为 <c>Reference(skill.def)</c>/<c>Reference(skill.aura_def)</c>
@@ -37,10 +39,12 @@ namespace Core.Carriers.Item
             "grants", FieldKind.Object, required: false, fields: new[]
             {
                 new FieldSchema("skills", FieldKind.Array, required: false,
-                    item: new FieldSchema("<skill_id>", FieldKind.Reference, required: true, referenceTable: "skill.def"),
+                    item: new FieldSchema("<skill_id>", FieldKind.Reference, required: true, referenceTable: "skill.def",
+                        description: "指向 skill.def 的技能 id"),
                     description: "缺省 []，装备后授予的主动技能（来源计数按装备实例 id，见 EquipmentHost.ApplyGrants）"),
                 new FieldSchema("auras", FieldKind.Array, required: false,
-                    item: new FieldSchema("<aura_id>", FieldKind.Reference, required: true, referenceTable: "skill.aura_def"),
+                    item: new FieldSchema("<aura_id>", FieldKind.Reference, required: true, referenceTable: "skill.aura_def",
+                        description: "指向 skill.aura_def 的光环 id"),
                     description: "缺省 []，装备后授予的被动光环；重复引用见 ItemGrantsAurasDuplicateRule（Warning）"),
             },
             description: "{skills:[Reference(skill.def)], auras:[Reference(skill.aura_def)]}");
@@ -132,7 +136,8 @@ namespace Core.Carriers.Item
             {
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "item.slot.<name>"),
-                new FieldSchema("name_key", FieldKind.TextKey, required: true),
+                new FieldSchema("name_key", FieldKind.TextKey, required: true,
+                    description: "槽位显示名文本键"),
                 new FieldSchema("sort_weight", FieldKind.Int, required: false,
                     description: "排序权重，缺省 0"),
                 new FieldSchema("is_weapon", FieldKind.Bool, required: false,
@@ -158,7 +163,8 @@ namespace Core.Carriers.Item
             {
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "item.quality.<name>"),
-                new FieldSchema("name_key", FieldKind.TextKey, required: true),
+                new FieldSchema("name_key", FieldKind.TextKey, required: true,
+                    description: "品质显示名文本键"),
                 new FieldSchema("sort_weight", FieldKind.Int, required: false,
                     description: "排序权重，缺省 0"),
                 new FieldSchema("budget_multiplier", FieldKind.Number, required: false,
@@ -179,9 +185,12 @@ namespace Core.Carriers.Item
                 new FieldSchema("entries", FieldKind.Array, required: true,
                     item: new FieldSchema("<budget_entry>", FieldKind.Object, required: true, fields: new[]
                     {
-                        new FieldSchema("item_level", FieldKind.Int, required: true),
-                        new FieldSchema("budget", FieldKind.Number, required: true),
-                    }),
+                        new FieldSchema("item_level", FieldKind.Int, required: true,
+                            description: "采样点对应的物品等级"),
+                        new FieldSchema("budget", FieldKind.Number, required: true,
+                            description: "该物品等级对应的属性预算上限"),
+                    },
+                    description: "{item_level, budget}，物品等级到属性预算上限曲线的一个采样点"),
                     description: "Array<{item_level:Int, budget:Number}>，按 item_level 线性插值" +
                         "（ItemBudgetCurve.ParseEntries 对缺失 item_level/budget 抛异常，故两者均必填）"),
             });
@@ -195,7 +204,8 @@ namespace Core.Carriers.Item
             {
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "item.set.<name>"),
-                new FieldSchema("name_key", FieldKind.TextKey, required: true),
+                new FieldSchema("name_key", FieldKind.TextKey, required: true,
+                    description: "套装显示名文本键"),
                 new FieldSchema("pieces", FieldKind.IdList, required: true,
                     description: "所属物品模板 id 列表（指向 item.template）；反向一致性见 " +
                         "ItemSetMembershipRule"),
@@ -203,8 +213,10 @@ namespace Core.Carriers.Item
                     item: new FieldSchema("<bonus_entry>", FieldKind.Object, required: true, fields: new[]
                     {
                         new FieldSchema("count", FieldKind.Int, required: false, description: "缺省 0"),
-                        new FieldSchema("aura_ref", FieldKind.Reference, required: true, referenceTable: "skill.aura_def"),
-                    }),
+                        new FieldSchema("aura_ref", FieldKind.Reference, required: true, referenceTable: "skill.aura_def",
+                            description: "达到门槛件数后授予的光环，指向 skill.aura_def"),
+                    },
+                    description: "{count?, aura_ref}，件数门槛到套装光环的一条映射"),
                     description: "Array<{count:Int, aura_ref:Reference(skill.aura_def)}>，件数门槛到" +
                         "套装光环的映射（EquipmentHost.ParseSetBonuses；aura_ref 登记为 Reference：" +
                         "skill.aura_def 属 L2，本模块 L3 依赖方向合法）"),
@@ -220,7 +232,8 @@ namespace Core.Carriers.Item
             {
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "item.affix.<name>"),
-                new FieldSchema("name_key", FieldKind.TextKey, required: true),
+                new FieldSchema("name_key", FieldKind.TextKey, required: true,
+                    description: "词缀显示名文本键"),
                 new FieldSchema("effects", FieldKind.Array, required: false,
                     description: "扩展位占位字段，本版不解析、不实现"),
             });

@@ -52,12 +52,14 @@ namespace Core.Gameplay.Dialog
 
                 [DialogActionKinds.ToWireString(DialogActionKind.QuestAccept)] = new[]
                 {
-                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "quest.def"),
+                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "quest.def",
+                        description: "待接取的任务，Reference(quest.def)"),
                 },
 
                 [DialogActionKinds.ToWireString(DialogActionKind.QuestTurnIn)] = new[]
                 {
-                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "quest.def"),
+                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "quest.def",
+                        description: "待交付的任务，Reference(quest.def)"),
                 },
 
                 // teleport：ref 经 GameplayAssembly 注入的 TeleportTargetResolver 解析成
@@ -88,20 +90,23 @@ namespace Core.Gameplay.Dialog
                 // encounter.def/dialog.gossip_menu 两张表，登记为 Reference 不违反分层边界。
                 [DialogActionKinds.ToWireString(DialogActionKind.StartEncounter)] = new[]
                 {
-                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "encounter.def"),
+                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "encounter.def",
+                        description: "待发起的遭遇，Reference(encounter.def)"),
                 },
 
                 // cast_skill：ref 指向 skill.def（L2，低于本模块 L4，允许 Reference）。
                 [DialogActionKinds.ToWireString(DialogActionKind.CastSkill)] = new[]
                 {
-                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "skill.def"),
+                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "skill.def",
+                        description: "待施放的技能，Reference(skill.def)"),
                 },
 
                 // start_story：ref 指向本模块自己的另一张表 dialog.story_tree（DialogHost.StartStory
                 // 直接按 id 索引 _storyTrees）。
                 [DialogActionKinds.ToWireString(DialogActionKind.StartStory)] = new[]
                 {
-                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "dialog.story_tree"),
+                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "dialog.story_tree",
+                        description: "待开始的剧情树，Reference(dialog.story_tree)"),
                 },
 
                 // script：ref 指向 found.hook 钩子 id。判断记录（同 SkillSchemas.script）：found.hook

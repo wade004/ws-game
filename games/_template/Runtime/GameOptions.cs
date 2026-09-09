@@ -192,6 +192,13 @@ namespace Game.Template
         // true = wait_for_playback，false（默认）= immediate。
         public bool PacingWaitForPlayback = false;
 
+        // F3 新增口味配置项：开发期数据热重载（见 Runtime/DataHotReload.cs、
+        // architecture/13_新游戏接入指南.md 第 4 节新增行）。默认 true——GameBootstrap 在数据加载
+        // 完成后按本开关决定是否挂载 DataHotReload 组件；该组件本身只在 UNITY_EDITOR ||
+        // DEVELOPMENT_BUILD 下编译为有效实现（其余情况为空壳，见该文件判断记录"编译条件"），发布
+        // 构建下本开关不生效——不需要游戏层在发布构建前额外记得关掉它。
+        public bool EnableDataHotReload = true;
+
         // -----------------------------------------------------------------
         // 第十一方深度审核修复（architecture/落地计划/audit-85f1f4f-20260908，08 号文档"装配扩展点"
         // 一节）：GameplayAssembly 构造函数已支持的 questOwnerResolver/questDayProvider/

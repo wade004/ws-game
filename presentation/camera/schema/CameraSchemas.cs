@@ -30,18 +30,18 @@ namespace Presentation.Camera.Schema
                 new FieldSchema("follow_lerp", FieldKind.Number, required: true, description: "跟随平滑系数，传给 ICamera.Follow(planePos, smoothing)"),
                 new FieldSchema("bounds", FieldKind.Object, required: false, fields: new[]
                 {
-                    new FieldSchema("min", FieldKind.Vec2, required: true),
-                    new FieldSchema("max", FieldKind.Vec2, required: true),
+                    new FieldSchema("min", FieldKind.Vec2, required: true, description: "跟随边界左下角世界坐标 {x,y}"),
+                    new FieldSchema("max", FieldKind.Vec2, required: true, description: "跟随边界右上角世界坐标 {x,y}"),
                 },
                     description: "跟随边界 {min: {x,y}, max: {x,y}}（CameraProfile.FromRecord 对 min/max 缺失即抛异常，均必填）"),
                 new FieldSchema("shake_presets", FieldKind.Array, required: false,
                     item: new FieldSchema("<shake_preset>", FieldKind.Object, required: true, fields: new[]
                     {
-                        new FieldSchema("id", FieldKind.Id, required: true),
-                        new FieldSchema("amplitude", FieldKind.Number, required: true),
-                        new FieldSchema("duration", FieldKind.Number, required: true),
+                        new FieldSchema("id", FieldKind.Id, required: true, description: "震屏档位 id，供 feedback.binding 的 shake_camera 动作按 profile_id 引用后按此 id 定位具体档位"),
+                        new FieldSchema("amplitude", FieldKind.Number, required: true, description: "震屏振幅"),
+                        new FieldSchema("duration", FieldKind.Number, required: true, description: "震屏持续时长，单位秒"),
                         new FieldSchema("frequency", FieldKind.Number, required: false, description: "缺省 0"),
-                    }),
+                    }, description: "单条震屏档位：{id, amplitude, duration, frequency?}"),
                     description: "震屏档位清单 List<{id, amplitude, duration, frequency?}>"),
             },
             migrations: Array.Empty<TableMigration>());

@@ -19,6 +19,7 @@ games/_template/
     TemplateShellUi.cs                最小主菜单（数据驱动，读 shell_menu_definition 表）
     TemplateAutoStart.cs              跳过主菜单直接开局，供"首张地图"场景快速验证
     TemplateSmokeRunner.cs            无人值守冒烟入口（"-gf-smoke-template"，见下"无人值守冒烟"一节）
+    DataHotReload.cs                  开发期数据热重载标准实现（F3 新增，见下"开发期数据热重载"一节）
   Editor/
     Game.Template.Editor.asmdef       编辑器程序集（改名见下）
     GameSceneBuilder.cs               一键生成 Shell + 首张地图两个场景并加入 Build Settings
@@ -145,6 +146,27 @@ Unity.exe -batchmode -nographics -quit -projectPath <你的 Unity 工程>
 默认合并本目录 `data/game/` 与框架分发包的 `data/_framework/`（脚本会按几种常见相对位置自动猜测
 框架仓库/分发包的位置，找不到时提示显式传 `-FrameworkRoot`/`-ValidateDataScript`），见
 `data/README.md`"校验"一节。
+
+## 开发期数据热重载
+
+`GameOptions.EnableDataHotReload`（默认 `true`）打开时，`GameBootstrap` 在数据加载成功后会挂载
+`Runtime/DataHotReload.cs`：监视 `data/_framework`/`data/game`（或改名后的游戏数据目录）下全部
+`*.json` 表文件的变更，去抖 300ms 后调用 `DataRegistry.Reload(<表名>)` 把改动重新读进内存——编辑
+数据表、保存文件，编辑器/独立版正在运行的进程里立刻能看到效果，不需要重新进入地图或重启进程。
+
+- **编译条件**：`DataHotReload` 只在 `UNITY_EDITOR || DEVELOPMENT_BUILD` 下是真实实现，其余情况
+  （不勾选 Development Build 的发布/上架构建）是一具空壳——不创建文件监视、不占用任何每帧回调，
+  零开销。`GameBootstrap` 无条件持有并调用这个类型，不需要游戏层在打包发布版前额外记得关掉
+  `EnableDataHotReload`，双重保险。
+- **去抖**：同一张表 300ms 内的多次写入事件（例如编辑器/文本工具"截断再写入"两阶段保存）只触发
+  一次 `Reload`。
+- **失败语义（已知限制，务必了解）**：`Reload` 成功时会打印 `[DataHotReload] 热重载 <表名> 成功
+  （N 条记录）` 并经事件总线补发一次 `data.load_completed`（形状同首次 `LoadAll` 发出的事件，供
+  表现层/编辑器联调监听）；失败（该表信封级错误如 JSON 解析失败/主键重复，或字段级校验错误）时
+  打印完整问题清单并补发 `data.validation_failed`，**但 `DataRegistry` 的只读查询是全局阻断
+  语义**——一张表改坏了会让**整个数据集**（不只是这一张表）在下一次成功的重载/加载之前都无法
+  `Get`/`GetAll`/`Query`，不是"只冻结出问题的那一张表，其它表照常"。开发时改坏一张表会导致
+  全局报错，这是预期行为（与生产环境"不做静默降级"的既有原则一致），改对后保存即可自动恢复。
 
 ## 无人值守冒烟
 

@@ -19,19 +19,22 @@ namespace Core.Numbers.Progression
             currentSchemaVersion: 1,
             fields: new[]
             {
-                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("id", FieldKind.Id, required: true,
+                    description: "等级曲线 id，格式 prog.curve.<name>"),
                 new FieldSchema("max_level", FieldKind.Int, required: true,
                     description: "曲线的最大等级，必须等于 entries 的元素个数"),
                 new FieldSchema("entries", FieldKind.Array, required: true,
                     item: new FieldSchema("<level_entry>", FieldKind.Object, required: true, fields: new[]
                     {
-                        new FieldSchema("level", FieldKind.Int, required: true),
-                        new FieldSchema("xp_to_next", FieldKind.Int, required: true),
+                        new FieldSchema("level", FieldKind.Int, required: true,
+                            description: "等级，从 1 连续到 max_level"),
+                        new FieldSchema("xp_to_next", FieldKind.Int, required: true,
+                            description: "升到下一级所需经验值"),
                         // growth 是 Map<stat_id, Number>（键为 stat.definition 的 id，动态键）：
                         // ADR-0019 通用规则 5，Map 型对象不登记子结构，保持"存在且是对象"。
                         new FieldSchema("growth", FieldKind.Object, required: false,
                             description: "Map<stat_id, Number>，见 ADR-0019 通用规则 5，不登记子结构"),
-                    }),
+                    }, description: "单级成长条目"),
                     description: "Array<{level:Int, xp_to_next:Int, growth:Object<stat_id,Number>}>，" +
                         "level 从 1 连续到 max_level（连续性/数量一致性业务判断留在 " +
                         "ProgLevelCurveValidationRule，登记层只表达无条件必填/类型）"),
@@ -43,8 +46,10 @@ namespace Core.Numbers.Progression
             currentSchemaVersion: 1,
             fields: new[]
             {
-                new FieldSchema("id", FieldKind.Id, required: true),
-                new FieldSchema("base_xp", FieldKind.Int, required: true),
+                new FieldSchema("id", FieldKind.Id, required: true,
+                    description: "经验来源 id，格式 prog.xp.<name>"),
+                new FieldSchema("base_xp", FieldKind.Int, required: true,
+                    description: "该来源单次授予的基础经验值"),
                 new FieldSchema("weight", FieldKind.Number, required: false,
                     description: "省略时按 1 处理（见 IProgressionHost.GrantFromSource）"),
                 new FieldSchema("condition", FieldKind.Expr, required: false,

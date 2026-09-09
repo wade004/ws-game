@@ -135,12 +135,13 @@ namespace Presentation.Shell
         public static readonly FieldSchema EntriesItemSchema = new FieldSchema(
             "<menu_entry>", FieldKind.Object, required: true, fields: new[]
             {
-                new FieldSchema("id", FieldKind.Id, required: true),
-                new FieldSchema("text_key", FieldKind.TextKey, required: true),
-                new FieldSchema("action", FieldKind.Enum, required: true, enumValues: ShellMenuActionWireNames.EnumValues),
+                new FieldSchema("id", FieldKind.Id, required: true, description: "菜单项逻辑 id"),
+                new FieldSchema("text_key", FieldKind.TextKey, required: true, description: "菜单项显示文案的文本键，指向 l10n.text"),
+                new FieldSchema("action", FieldKind.Enum, required: true, enumValues: ShellMenuActionWireNames.EnumValues,
+                    description: "菜单项触发的动作（new_game/load_game/settings/quit/resume/back）"),
                 new FieldSchema("target_panel", FieldKind.Reference, required: false, referenceTable: "ui_layout_definition",
                     description: "供 settings/back 一类需要跳到某个具体面板的动作使用，其余动作通常省略"),
-            });
+            }, description: "一条菜单项：{id, text_key, action, target_panel?}");
 
         public static readonly TableSchema ShellMenuDefinitionTable = new TableSchema(
             name: "shell_menu_definition",

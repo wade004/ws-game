@@ -48,12 +48,12 @@ namespace Core.Foundation.SceneRouter
                     description: "按 id 查找的命名传送/出生点键；缺失时 TeleportTargetResolver 温和降级为找不到"),
                 new FieldSchema("position", FieldKind.Object, required: false, fields: new[]
                 {
-                    new FieldSchema("x", FieldKind.Number, required: true),
-                    new FieldSchema("y", FieldKind.Number, required: true),
+                    new FieldSchema("x", FieldKind.Number, required: true, description: "世界坐标 x，与 scene_ref 场景资源的坐标系一致"),
+                    new FieldSchema("y", FieldKind.Number, required: true, description: "世界坐标 y，与 scene_ref 场景资源的坐标系一致"),
                 },
                     description: "提供时 x/y 均必填；spawn_points 第 0 个元素若缺失 position，" +
                         "SceneDescriptor.FromRecord 构造期直接抛异常（非登记层校验，登记层不重复表达）"),
-            });
+            }, description: "出生点/传送点共用条目结构：{id?, position?}，供 spawn_points/teleport_points 复用");
 
         public static readonly TableSchema Table = new TableSchema(
             name: "world.map",

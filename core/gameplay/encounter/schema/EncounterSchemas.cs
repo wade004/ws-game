@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Core.Foundation.DataRegistry;
-using Core.Gameplay.Common;
+using Core.Gameplay.Quest;
 
 namespace Core.Gameplay.Encounter
 {
@@ -84,7 +84,8 @@ namespace Core.Gameplay.Encounter
                     description: "波次触发条件；ADR-0019 起随 Array.Item 递归被内置 expr_parsable 校验项覆盖，" +
                         "EncounterContentValidationRule 原手写的同名检查已退役（见该类型判断记录）。"),
                 new FieldSchema("spawn_refs", FieldKind.Array, required: false,
-                    item: new FieldSchema("<spawn_ref>", FieldKind.Id, required: true),
+                    item: new FieldSchema("<spawn_ref>", FieldKind.Id, required: true,
+                        description: "spawn.table 条目引用；退回 Id，domain 校验保留在 EncounterContentValidationRule，判断记录同 units[].spawn_ref"),
                     description: "spawn.table 条目引用列表；判断记录同 units[].spawn_ref——退回 Id，" +
                         "domain 校验保留在 EncounterContentValidationRule。"),
             },
@@ -123,27 +124,36 @@ namespace Core.Gameplay.Encounter
                 ["circle"] = new[]
                 {
                     origin,
-                    new FieldSchema("radius", FieldKind.Number, required: true),
+                    new FieldSchema("radius", FieldKind.Number, required: true,
+                        description: "圆形场地半径"),
                 },
                 ["cone"] = new[]
                 {
                     origin,
-                    new FieldSchema("direction", FieldKind.Number, required: true),
-                    new FieldSchema("angle", FieldKind.Number, required: true),
-                    new FieldSchema("radius", FieldKind.Number, required: true),
+                    new FieldSchema("direction", FieldKind.Number, required: true,
+                        description: "扇形朝向角，弧度制（EncounterShapeMath 角度统一按弧度制处理）"),
+                    new FieldSchema("angle", FieldKind.Number, required: true,
+                        description: "扇形张角，弧度制"),
+                    new FieldSchema("radius", FieldKind.Number, required: true,
+                        description: "扇形半径"),
                 },
                 ["line"] = new[]
                 {
                     origin,
-                    new FieldSchema("direction", FieldKind.Number, required: true),
-                    new FieldSchema("length", FieldKind.Number, required: true),
-                    new FieldSchema("width", FieldKind.Number, required: true),
+                    new FieldSchema("direction", FieldKind.Number, required: true,
+                        description: "条形朝向角，弧度制（EncounterShapeMath 角度统一按弧度制处理）"),
+                    new FieldSchema("length", FieldKind.Number, required: true,
+                        description: "条形沿朝向方向的长度"),
+                    new FieldSchema("width", FieldKind.Number, required: true,
+                        description: "条形垂直于朝向方向的宽度"),
                 },
                 ["rect"] = new[]
                 {
                     origin,
-                    new FieldSchema("half_extents", FieldKind.Vec2, required: true),
-                    new FieldSchema("rotation", FieldKind.Number, required: true),
+                    new FieldSchema("half_extents", FieldKind.Vec2, required: true,
+                        description: "矩形场地半宽半高（各轴方向从中心到边界的距离）"),
+                    new FieldSchema("rotation", FieldKind.Number, required: true,
+                        description: "矩形绕 origin 的旋转角，弧度制"),
                 },
             };
 
@@ -201,9 +211,21 @@ namespace Core.Gameplay.Encounter
                         new FieldSchema("reset_if_leave", FieldKind.Bool, required: false, description: "缺省 false"),
                     },
                     description: "{bounds_shape, reset_if_leave: Bool}，见 EncounterShapeJson"),
-                new FieldSchema("victory_condition", FieldKind.Expr, required: true),
-                new FieldSchema("defeat_condition", FieldKind.Expr, required: true),
-                RewardSchemaFields.Rewards(),
+                new FieldSchema("victory_condition", FieldKind.Expr, required: true,
+                    description: "胜利判定表达式，求值为真即判定本次遭遇胜利"),
+                new FieldSchema("defeat_condition", FieldKind.Expr, required: true,
+                    description: "失败判定表达式，求值为真即判定本次遭遇失败"),
+                // F3 元数据门禁收口：此前直接用 RewardSchemaFields.Rewards()（裸 Object，不带
+                // Fields 子结构），与 quest.def/achv.def 的 rewards 字段（同一份 RewardBundle 形状，
+                // 见 Core.Gameplay.Common.RewardSchemaFields 类型注释"三张表都有一个结构相同、语义
+                // 相同的 rewards 字段"）不一致，被 SchemaAudit 判为 composite_without_substructure——
+                // RewardBundle.FromRecord 对 items/xp/currency/skills/world_flags/talent_points
+                // 有明确的固定子键解析逻辑（格式错误抛 FormatException，不是自由形状），改为与
+                // achv.def 同款做法，直接复用 QuestSchemas.RewardsFields（见 QuestSchemas.cs
+                // "上游可以考虑后续把本字段搬进 RewardSchemaFields.Rewards()"一句判断记录——三张表
+                // 现在全部收敛到同一份 Fields 声明，不再有第三种写法）。
+                new FieldSchema("rewards", FieldKind.Object, required: false, fields: QuestSchemas.RewardsFields,
+                    description: "{items, xp, currency, skills, world_flags, talent_points}，见 Core.Gameplay.Common.RewardBundle；F3 收口复用 QuestSchemas.RewardsFields（与 quest.def/achv.def 同一份子结构声明）"),
                 new FieldSchema("combat_mode_override", FieldKind.Enum, required: false, enumValues: CombatModeValues,
                     description: "覆盖场景默认 combat_time_model，仅本遭遇生效；由 GameplayAssembly/TimeModelSwitch 在离散模式下真实执行"),
                 InitiativeOverrideSchema,

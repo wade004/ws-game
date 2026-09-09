@@ -48,14 +48,16 @@ namespace Core.Rules.Targeting
             currentSchemaVersion: 1,
             fields: new[]
             {
-                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("id", FieldKind.Id, required: true,
+                    description: "target.chain.<name>"),
                 new FieldSchema("source", FieldKind.String, required: true,
                     description: "目标来源策略名，须已在 TargetStrategyRegistry 登记；内置六种见 " +
                         "BuiltinTargetStrategies，游戏层可注册更多（见 00 第 4 节原则 10、01 第 8 节第 3 种" +
                         "合法调用方式）。本模块不把 source 声明为 Enum——枚举取值固定、无法被游戏层扩展。"),
                 ShapeSchema,
                 new FieldSchema("filters", FieldKind.Array, required: false,
-                    item: new FieldSchema("<filter>", FieldKind.String, required: true),
+                    item: new FieldSchema("<filter>", FieldKind.String, required: true,
+                        description: "单条过滤条件：Expr 文本或内置简写，见外层数组说明"),
                     description: "Expr 文本或内置简写（relation:hostile|friendly|neutral|not_self、alive、" +
                         "tag:<id>）组成的数组；全部条件按 AND 组合（见 schema/README.md 判断记录）。" +
                         "判断记录：不登记为 FieldKind.Expr——内置简写（如 relation:hostile）不是合法 Expr " +
@@ -63,7 +65,8 @@ namespace Core.Rules.Targeting
                         "ChainDefValidationRule 负责（该规则已知晓 shorthand 前缀，不与本登记双报）。"),
                 new FieldSchema("sort_by", FieldKind.Object, required: false, fields: new[]
                 {
-                    new FieldSchema("key", FieldKind.Enum, required: true, enumValues: SortKeyValues),
+                    new FieldSchema("key", FieldKind.Enum, required: true, enumValues: SortKeyValues,
+                        description: "排序依据：distance 距离；hp_pct 血量百分比；threat 威胁值；level 等级"),
                     new FieldSchema("direction", FieldKind.Enum, required: false, enumValues: SortDirectionValues,
                         description: "缺省 asc"),
                 },

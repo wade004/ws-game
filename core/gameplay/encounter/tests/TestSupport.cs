@@ -39,6 +39,24 @@ namespace Tests.Gameplay.Encounter
             "\"faction_id\": \"fac.sample_monster\", \"display_ref\": \"display.sample_boss2\"}" +
             "]";
 
+        // F3 元数据门禁收口新增：encounter.def.rewards 改为复用 QuestSchemas.RewardsFields（见
+        // EncounterSchemas.cs 判断记录），rewards.items[].itemId 从此登记为
+        // Reference(item.template)，本模块测试若在 rewards.items 里引用了具体物品 id，该 id 必须能
+        // 在已加载的 item.template 表里找到，否则报 reference_integrity 错误——最小补齐一张
+        // item.template（含 EncounterHostTests 用到的 item.sample_reward）+ 其引用的
+        // item.slot_definition/item.quality_definition 两张支撑表，均为 InMemoryDataSource 内联
+        // 最小数据，不影响任何未使用 rewards.items 的既有用例（只是登记了表，不引用不校验）。
+        private const string ItemSlotDefinitionRows =
+            "[{\"id\": \"item.slot.sample\", \"name_key\": \"l10n.item.slot.sample.name\"}]";
+
+        private const string ItemQualityDefinitionRows =
+            "[{\"id\": \"item.quality.sample\", \"name_key\": \"l10n.item.quality.sample.name\"}]";
+
+        private const string ItemTemplateRows =
+            "[{\"id\": \"item.sample_reward\", \"slot\": \"item.slot.sample\", \"quality\": \"item.quality.sample\", " +
+            "\"item_level\": 1, \"display_ref\": \"display.item.sample_reward\", \"stack_size\": 1, " +
+            "\"name_key\": \"l10n.item.sample_reward.name\"}]";
+
         public static Core.Foundation.DataRegistry.DataRegistry MakeRegistry(
             IEventBus bus, string defRowsJson, string? levelRowsJson = null)
         {
@@ -48,7 +66,13 @@ namespace Tests.Gameplay.Encounter
                 .Add(Core.Carriers.Creature.CreatureSchemas.TierDefinition.Name,
                     Envelope(Core.Carriers.Creature.CreatureSchemas.TierDefinition.Name, TierDefinitionRows))
                 .Add(Core.Carriers.Creature.CreatureSchemas.Template.Name,
-                    Envelope(Core.Carriers.Creature.CreatureSchemas.Template.Name, CreatureTemplateRows));
+                    Envelope(Core.Carriers.Creature.CreatureSchemas.Template.Name, CreatureTemplateRows))
+                .Add(Core.Carriers.Item.ItemSchemas.SlotDefinition.Name,
+                    Envelope(Core.Carriers.Item.ItemSchemas.SlotDefinition.Name, ItemSlotDefinitionRows))
+                .Add(Core.Carriers.Item.ItemSchemas.QualityDefinition.Name,
+                    Envelope(Core.Carriers.Item.ItemSchemas.QualityDefinition.Name, ItemQualityDefinitionRows))
+                .Add(Core.Carriers.Item.ItemSchemas.Template.Name,
+                    Envelope(Core.Carriers.Item.ItemSchemas.Template.Name, ItemTemplateRows));
             if (levelRowsJson != null)
             {
                 source.Add(Core.Gameplay.Encounter.EncounterSchemas.Level.Name,
@@ -60,6 +84,9 @@ namespace Tests.Gameplay.Encounter
             registry.RegisterSchema(Core.Gameplay.Encounter.EncounterSchemas.Level);
             registry.RegisterSchema(Core.Carriers.Creature.CreatureSchemas.TierDefinition);
             registry.RegisterSchema(Core.Carriers.Creature.CreatureSchemas.Template);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Template);
 
             var report = registry.LoadAll();
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));

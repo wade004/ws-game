@@ -35,8 +35,8 @@ namespace Core.Gameplay.Loot
             description: "{min: Int, max: Int}；1<=min<=max 是登记表达不了的数值范围约束，见 LootContentValidationRule",
             fields: new[]
             {
-                new FieldSchema("min", FieldKind.Int, required: true),
-                new FieldSchema("max", FieldKind.Int, required: true),
+                new FieldSchema("min", FieldKind.Int, required: true, description: "掉落数量下限"),
+                new FieldSchema("max", FieldKind.Int, required: true, description: "掉落数量上限"),
             });
 
         private static readonly FieldSchema EntryItem = new FieldSchema(
@@ -59,10 +59,12 @@ namespace Core.Gameplay.Loot
             fields: new[]
             {
                 new FieldSchema("roll_mode", FieldKind.Enum, required: true,
-                    enumValues: new[] { "chance_each", "weighted_pick_one" }),
+                    enumValues: new[] { "chance_each", "weighted_pick_one" },
+                    description: "chance_each：每条按自身概率独立判定；weighted_pick_one：按权重从条目中抽取"),
                 new FieldSchema("pick_count", FieldKind.Int, required: false,
                     description: "weighted_pick_one 下可选多次抽取；>=1 是登记表达不了的数值范围约束，见 LootContentValidationRule"),
-                new FieldSchema("entries", FieldKind.Array, required: true, item: EntryItem),
+                new FieldSchema("entries", FieldKind.Array, required: true, item: EntryItem,
+                    description: "本组候选掉落条目列表，见 LootEntry"),
             });
 
         public static readonly TableSchema Table = new TableSchema(

@@ -146,3 +146,45 @@ def test_registry_manifests_directory_has_four_entries() -> None:
         f"toolchain/registry/manifests/ 子目录与预期不一致：多余={subdirs - expected_subdirs}，"
         f"缺失={expected_subdirs - subdirs}"
     )
+
+
+# F3 新增：release.yml 四包修正（见该文件头判断记录"附件存在性检查改为核对完整附件集合"一节）——
+# F2 落地时该工作流仍按"三个 .tgz/五个附件"编写（已知限制），本文件第五处静态解析核对
+# release.yml 的 $requiredNames/$requiredPaths 是否已同步四个包名，与另外四处（registry.json/
+# build.ps1/check.ps1/get_framework.ps1）保持一致，防止发布工作流单独漏改。
+
+_TGZ_LITERAL_RE = re.compile(r'"(com\.gamefoundation\.[a-z][a-z0-9_.-]*)-\$version\.tgz"')
+
+
+def test_release_yml_required_assets_match_expected_four_packages() -> None:
+    text = _read_text(".github/workflows/release.yml")
+
+    names_match = re.search(r"\$requiredNames\s*=\s*@\(([^)]*)\)", text, re.DOTALL)
+    assert names_match is not None, "release.yml 找不到 $requiredNames 数组（\"Check for existing release assets\" 步骤）"
+
+    tgz_package_names = set(_TGZ_LITERAL_RE.findall(names_match.group(1)))
+    assert tgz_package_names == EXPECTED_PACKAGE_NAMES, (
+        f"release.yml 的 $requiredNames 里 *.tgz 对应的包名与预期四个包名不一致："
+        f"多余={tgz_package_names - EXPECTED_PACKAGE_NAMES}，缺失={EXPECTED_PACKAGE_NAMES - tgz_package_names}"
+    )
+
+    # $requiredNames 应恰好六项：zip、lock、四个 .tgz（"四包修正"——F2 遗留的"三个 .tgz/五个附件"
+    # 已收口）。逐条数引号字符串字面量，防止漏加/多加条目却恰好包名集合仍然相等的边界情况（如
+    # 重复了某个包名，集合去重后仍然是四个，但列表本身条目数不对）。
+    entry_literals = re.findall(r'"\$?[^"]*\$version\.[a-z]+"', names_match.group(1))
+    assert len(entry_literals) == 6, (
+        f"release.yml 的 $requiredNames 应恰好六项（zip、lock、四个 .tgz），实际={len(entry_literals)}：{entry_literals}"
+    )
+
+    paths_match = re.search(r"\$requiredPaths\s*=\s*@\{([^}]*)\}", text, re.DOTALL)
+    assert paths_match is not None, "release.yml 找不到 $requiredPaths 哈希表"
+    paths_tgz_names = set(_TGZ_LITERAL_RE.findall(paths_match.group(1)))
+    assert paths_tgz_names == EXPECTED_PACKAGE_NAMES, (
+        f"release.yml 的 $requiredPaths 里 *.tgz 对应的包名与预期四个包名不一致："
+        f"多余={paths_tgz_names - EXPECTED_PACKAGE_NAMES}，缺失={EXPECTED_PACKAGE_NAMES - paths_tgz_names}"
+    )
+
+    # 判断记录（不再断言正文不出现"三个 .tgz/五个附件"字样）：文件头判断记录段落如实保留了
+    # "本工作流此前按'三个 .tgz/五个附件'编写"这句历史描述（说明改动缘由），不是当前生效的代码，
+    # 断言其完全消失反而会强迫删除有价值的判断记录；本测试改为只断言真正生效的
+    # $requiredNames/$requiredPaths 两处代码结构已经是四包/六项，这才是"没有漏改"的真正证据。

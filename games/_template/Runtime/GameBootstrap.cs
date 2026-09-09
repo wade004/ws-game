@@ -199,6 +199,28 @@ namespace Game.Template
                 return;
             }
 
+            // F3 新增：开发期数据热重载（见 Runtime/DataHotReload.cs 类型头判断记录）——数据加载
+            // 成功后按 GameOptions.EnableDataHotReload 挂载。DataHotReload 组件本身在
+            // UNITY_EDITOR || DEVELOPMENT_BUILD 之外是空壳（不占用任何运行时资源），这里无条件调用
+            // AddComponent+Initialize（不用 #if 包一层），两种编译形态的公开方法签名完全一致。
+            // 判断记录（watchRoots 的绝对路径怎么算）：_frameworkDatasetRoot/_gameDatasetRoot 是相对
+            // UnityFileSystem(readOnlyContentMode: true) 内容根（Application.streamingAssetsPath/
+            // GameFoundation，见该类型 GetContentRootDir/ResolveFullPath）解析的相对路径——与
+            // frameworkSource/gameSource 两个 FileSystemDataSource 实际读取数据用的是同一套解析
+            // 规则，保证"热重载监视的目录"与"数据实际来自的目录"完全一致，不需要在这里重新发明一套
+            // 路径拼接逻辑。
+            if (_options.EnableDataHotReload)
+            {
+                var contentRoot = contentFs.GetContentRootDir();
+                var watchRoots = new[]
+                {
+                    System.IO.Path.Combine(contentRoot, _frameworkDatasetRoot),
+                    System.IO.Path.Combine(contentRoot, _gameDatasetRoot),
+                };
+                var hotReload = gameObject.AddComponent<DataHotReload>();
+                hotReload.Initialize(registry, _bus, watchRoots);
+            }
+
             var rng = new RngHost(_options.Seed);
             var world = new WorldSim(_bus);
             World = world;

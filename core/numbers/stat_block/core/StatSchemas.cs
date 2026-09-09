@@ -39,7 +39,8 @@ namespace Core.Numbers.StatBlock
                 new FieldSchema("rating_conversion_ref", FieldKind.Reference, required: false,
                     referenceTable: "stat.rating_conversion",
                     description: "指向 stat.rating_conversion 的曲线引用，仅 is_rating=true 时有意义"),
-                new FieldSchema("description", FieldKind.String, required: false),
+                new FieldSchema("description", FieldKind.String, required: false,
+                    description: "属性说明文本，供编辑器/文档展示，可为空"),
             });
 
         public static TableSchema RatingConversion { get; } = new TableSchema(
@@ -53,9 +54,11 @@ namespace Core.Numbers.StatBlock
                 new FieldSchema("entries", FieldKind.Array, required: true,
                     item: new FieldSchema("<rating_entry>", FieldKind.Object, required: true, fields: new[]
                     {
-                        new FieldSchema("level", FieldKind.Int, required: true),
-                        new FieldSchema("points_per_percent", FieldKind.Number, required: true),
-                    }),
+                        new FieldSchema("level", FieldKind.Int, required: true,
+                            description: "等级"),
+                        new FieldSchema("points_per_percent", FieldKind.Number, required: true,
+                            description: "该等级下每 1% 效果所需的评级点数"),
+                    }, description: "单级评级换算条目"),
                     description: "[{level: Int, points_per_percent: Number}, ...]，按 level 升序" +
                         "（StatHost.LoadRatingConversions 对缺失 level/points_per_percent 抛异常，两者均必填）"),
             });

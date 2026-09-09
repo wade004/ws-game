@@ -81,34 +81,37 @@ namespace Core.Rules.Skill
         {
             var cases = new Dictionary<string, IReadOnlyList<FieldSchema>>(StringComparer.Ordinal)
             {
-                [EffectKindNames.ToText(EffectKind.SchoolDamage)] = ParamsCase(required: true, DamageOrHealParams),
-                [EffectKindNames.ToText(EffectKind.Heal)] = ParamsCase(required: true, DamageOrHealParams),
+                [EffectKindNames.ToText(EffectKind.SchoolDamage)] = ParamsCase(required: true, DamageOrHealParams,
+                    "对目标造成一次学派伤害，数值由 base_value/coefficient/scaling_stat 组装后交由战斗结算"),
+                [EffectKindNames.ToText(EffectKind.Heal)] = ParamsCase(required: true, DamageOrHealParams,
+                    "对目标造成一次治疗，数值由 base_value/coefficient/scaling_stat 组装后交由战斗结算"),
 
                 // RC-11：pct 缺省退回 EffectContext.BaseValue（即 params.base_value，若也未提供则 0），
                 // 见 EffectDispatcher.ApplyDamageOrHeal 判断记录；本登记只列权威参数名 pct。
                 [EffectKindNames.ToText(EffectKind.WeaponDamagePct)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("pct", FieldKind.Number, required: false, description: "武器基础伤害的百分比，缺省 0"),
-                }),
+                }, "按施法者当前武器基础伤害的百分比造成伤害，见 pct 子字段"),
 
                 [EffectKindNames.ToText(EffectKind.ApplyAura)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("aura_def", FieldKind.Reference, required: true, referenceTable: "skill.aura_def"),
+                    new FieldSchema("aura_def", FieldKind.Reference, required: true, referenceTable: "skill.aura_def",
+                        description: "要施加的光环定义引用"),
                     new FieldSchema("duration_override", FieldKind.Number, required: false, description: "覆盖 aura_def.duration"),
-                }),
+                }, "对目标施加一个光环实例，见 aura_def/duration_override 子字段"),
 
                 [EffectKindNames.ToText(EffectKind.Dispel)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("category", FieldKind.Id, required: false, description: "对应 skill.aura_def.dispel_type"),
                     new FieldSchema("count", FieldKind.Int, required: false, description: "缺省 1"),
-                }),
+                }, "按 category/count 驱散目标身上匹配的光环"),
 
                 [EffectKindNames.ToText(EffectKind.Energize)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("power_type", FieldKind.Id, required: true,
                         description: "判断记录：power_type 无独立可跨层引用的登记表口径（同 04 §5.1 arch.class.power_types 判断记录），按 Id 登记"),
                     new FieldSchema("amount", FieldKind.Number, required: false, description: "缺省 0"),
-                }),
+                }, "为目标恢复/扣减指定资源类型的数值，见 power_type/amount 子字段"),
 
                 // 判断记录（偏离方案第 36 行"skill_id→skill.def"示例，收窄为 Id）：trigger_spell/
                 // modify_cooldown/add_charge 三处的 skill_id 若登记为 Reference，会与既有测试套件
@@ -122,22 +125,22 @@ namespace Core.Rules.Skill
                 // 不存在的 aura_def 没有同等的温和降级）。三处按 Id 登记，不做跨表存在性检查。
                 [EffectKindNames.ToText(EffectKind.TriggerSpell)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("skill_id", FieldKind.Id, required: true),
-                }),
+                    new FieldSchema("skill_id", FieldKind.Id, required: true, description: "要触发施放的技能引用"),
+                }, "以当前效果的触发链深度同步触发一次技能施放，见 skill_id 子字段"),
 
                 [EffectKindNames.ToText(EffectKind.ModifyCooldown)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("skill_id", FieldKind.Id, required: false,
                         description: "skill_id/category 至少填一个（业务判断，登记层不表达“二选一必填”）"),
-                    new FieldSchema("category", FieldKind.Id, required: false),
+                    new FieldSchema("category", FieldKind.Id, required: false, description: "冷却分类引用，与 skill_id 至少填一个"),
                     new FieldSchema("delta", FieldKind.Number, required: false, description: "缺省 0"),
-                }),
+                }, "按 skill_id 或 category 调整目标技能/分类的冷却，delta 为增量（正数延长、负数缩短）"),
 
                 [EffectKindNames.ToText(EffectKind.AddCharge)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("skill_id", FieldKind.Id, required: true),
+                    new FieldSchema("skill_id", FieldKind.Id, required: true, description: "要增加充能的技能引用"),
                     new FieldSchema("amount", FieldKind.Int, required: false, description: "缺省 1"),
-                }),
+                }, "为目标指定技能增加充能次数，见 skill_id/amount 子字段"),
 
                 [EffectKindNames.ToText(EffectKind.Projectile)] = ParamsCase(required: true, new[]
                 {
@@ -154,7 +157,7 @@ namespace Core.Rules.Skill
                         description: "判断记录（分层边界）：display.map 属 L3/L5，本模块（L2）不可 Reference（04 §5.1 口径），退回 Id"),
                     new FieldSchema("on_hit_effects", FieldKind.Array, required: false, itemFactory: () => EffectsItemSchema,
                         description: "命中后触发的效果列表，元素结构复用本 variants 自身（同一原语注册表，见 04 第 3.2 节记法示例“登记一次、多处复用”）"),
-                }),
+                }, "生成一枚投射物并按落体轨迹结算命中，具体参数见各子字段"),
 
                 // 判断记录：move 的四个子字段按 mode（charge|leap|knockback）分别只使用其中一部分
                 // （EffectDispatcher.ApplyMove），本次登记不再按 mode 拆一层嵌套 Variants——四个字段
@@ -166,7 +169,7 @@ namespace Core.Rules.Skill
                     new FieldSchema("point", FieldKind.Vec2, required: false, description: "leap 目标点"),
                     new FieldSchema("distance", FieldKind.Number, required: false, description: "knockback 距离，缺省 5"),
                     new FieldSchema("stop_distance", FieldKind.Number, required: false, description: "charge 停止距离，缺省 1.0"),
-                }),
+                }, "按 mode（charge|leap|knockback）位移施法者或目标，只写最终逻辑位置，不做寻路/碰撞"),
 
                 [EffectKindNames.ToText(EffectKind.Summon)] = ParamsCase(required: true, new[]
                 {
@@ -176,18 +179,18 @@ namespace Core.Rules.Skill
                         "EffectPrimitiveDispatchTests 的扩展点分派测试按 kind 探测分派、不关心 params 内容，与既有测试套件的调用惯例保持一致"),
                     new FieldSchema("duration", FieldKind.Number, required: false, description: "缺省永久"),
                     new FieldSchema("position", FieldKind.Vec2, required: false, description: "缺省沿施法者朝向偏移一段距离"),
-                }),
+                }, "召唤一个生物实体，具体落地由 IEffectExtension 扩展点实现（本模块不落地）"),
 
                 [EffectKindNames.ToText(EffectKind.Interrupt)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("lock_school", FieldKind.Id, required: false, description: "缺省不锁学派"),
                     new FieldSchema("lock_duration", FieldKind.Number, required: false, description: "缺省 0"),
-                }),
+                }, "打断目标当前的读条/引导，可选按 lock_school 锁定该学派施法一段时间"),
 
                 [EffectKindNames.ToText(EffectKind.Teleport)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("point", FieldKind.Vec2, required: false, description: "缺省目标当前位置（等价 no-op）"),
-                }),
+                }, "将目标瞬移到指定点"),
 
                 // open_lock：06 第 3.2 节"参数要点：无"，params 本身可省略（见任务书判断记录）。
                 [EffectKindNames.ToText(EffectKind.OpenLock)] = new[]
@@ -201,7 +204,7 @@ namespace Core.Rules.Skill
                     new FieldSchema("item_template", FieldKind.Id, required: false,
                         description: "判断记录（分层边界+既有测试，同 summon.creature_template）：item.template 属 L3，本模块（L2）不可 Reference（04 §5.1 口径），退回 Id；required 收窄为 false"),
                     new FieldSchema("count", FieldKind.Int, required: false, description: "缺省 1"),
-                }),
+                }, "为目标创建物品，具体落地由 IEffectExtension 扩展点实现（本模块不落地）"),
 
                 // 判断记录（偏离方案第 36 行示例，同 trigger_spell/modify_cooldown/add_charge）：
                 // EffectDispatcher.ApplyLearnSkill 对 skillId 无任何存在性检查，直接转调
@@ -210,8 +213,8 @@ namespace Core.Rules.Skill
                 // 既有测试明确以一个不在 skill.def 表中的 id 驱动，按 Id 登记。
                 [EffectKindNames.ToText(EffectKind.LearnSkill)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("skill_id", FieldKind.Id, required: true),
-                }),
+                    new FieldSchema("skill_id", FieldKind.Id, required: true, description: "要学会的技能引用"),
+                }, "使目标学会指定技能，见 skill_id 子字段"),
 
                 // set_world_flag：06 第 3.2 节"flagKey、值"，本模块尚无落地的 IEffectExtension 实现
                 // （见 IEffectExtension 顶部注释，五类扩展效果之一，实现由持有 L4 WorldState 类型的
@@ -223,7 +226,7 @@ namespace Core.Rules.Skill
                 {
                     new FieldSchema("flag_key", FieldKind.Id, required: false,
                         description: "世界标志键，见 world.flag_schema；required 收窄为 false（同 summon.creature_template 判断记录，本模块无落地实现）"),
-                }),
+                }, "写入一个世界标志，具体落地由持有 WorldState 的宿主实现（本模块不落地）"),
 
                 // script：06 第 3.2 节"钩子 id"，对应 found.hook。判断记录（分层边界）：found.hook
                 // 当前无实现级 schema 登记（见 04 变更记录 2026-09-05 行"仍无对应实现级 schema 登记"），
@@ -233,7 +236,7 @@ namespace Core.Rules.Skill
                 {
                     new FieldSchema("hook_id", FieldKind.Id, required: false,
                         description: "found.hook 钩子 id，退回 Id 见判断记录；required 收窄为 false（同 summon.creature_template 判断记录，本模块无落地实现）"),
-                }),
+                }, "调用一个脚本钩子，见 hook_id 子字段（本模块不落地）"),
             };
 
             return new VariantSchema("kind", cases);
@@ -251,10 +254,11 @@ namespace Core.Rules.Skill
             {
                 [AuraEffectKindNames.ToText(AuraEffectKind.ModStat)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("stat", FieldKind.Reference, required: true, referenceTable: "stat.definition"),
+                    new FieldSchema("stat", FieldKind.Reference, required: true, referenceTable: "stat.definition",
+                        description: "被修正的属性引用"),
                     new FieldSchema("op", FieldKind.Enum, required: false, enumValues: ModStatOpValues, description: "缺省 flat"),
                     new FieldSchema("value", FieldKind.Number, required: false, description: "缺省 0"),
-                }),
+                }, "对目标施加一条持续属性修正，见 stat/op/value 子字段"),
 
                 // periodic_damage/periodic_heal：AuraHost.FirePeriodic 对 school 用
                 // ParamsX.GetId(entry.Params, "school", default) 读取，fallback 是零值 Id（不同于
@@ -263,45 +267,51 @@ namespace Core.Rules.Skill
                 // 类会产生无效 Id 的缺失，而不是放任其通过校验、运行期才暴露。interval 同理：缺失时
                 // AuraHost.Update 读到 0，`interval <= 0` 分支直接 continue（周期效果整体不生效，
                 // 与"登记了却完全不生效"的作者意图不符），标为必填。
-                [AuraEffectKindNames.ToText(AuraEffectKind.PeriodicDamage)] = PeriodicParamsCase(),
-                [AuraEffectKindNames.ToText(AuraEffectKind.PeriodicHeal)] = PeriodicParamsCase(),
+                [AuraEffectKindNames.ToText(AuraEffectKind.PeriodicDamage)] = PeriodicParamsCase("按 interval 周期对目标造成一次学派伤害，见子字段"),
+                [AuraEffectKindNames.ToText(AuraEffectKind.PeriodicHeal)] = PeriodicParamsCase("按 interval 周期对目标造成一次治疗，见子字段"),
 
                 [AuraEffectKindNames.ToText(AuraEffectKind.Absorb)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("amount", FieldKind.Number, required: true, description: "吸收总量"),
                     new FieldSchema("school", FieldKind.Id, required: false, description: "缺省吸收全部学派"),
-                }),
+                }, "为目标提供一层可吸收伤害的护盾，见 amount/school 子字段"),
 
                 [AuraEffectKindNames.ToText(AuraEffectKind.Immunity)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("schools", FieldKind.IdList, required: false, description: "免疫的学派集合，缺省不限学派"),
                     new FieldSchema("effect_kinds", FieldKind.Array, required: false,
-                        item: new FieldSchema("<effect_kind>", FieldKind.Enum, required: true, enumValues: AllEffectKindValues),
+                        item: new FieldSchema("<effect_kind>", FieldKind.Enum, required: true, enumValues: AllEffectKindValues,
+                            description: "免疫的效果原语取值，见 EffectKindNames 全集"),
                         description: "免疫的效果原语集合，缺省不限原语"),
-                }),
+                }, "使目标免疫指定学派/效果原语，见 schools/effect_kinds 子字段"),
 
                 [AuraEffectKindNames.ToText(AuraEffectKind.ProcTrigger)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("proc_ref", FieldKind.Reference, required: true, referenceTable: "skill.proc_def"),
-                }),
+                    new FieldSchema("proc_ref", FieldKind.Reference, required: true, referenceTable: "skill.proc_def",
+                        description: "触发规则定义引用"),
+                }, "为目标登记一个触发器，命中触发事件后按 proc_ref 引用的规则触发技能"),
 
                 [AuraEffectKindNames.ToText(AuraEffectKind.SpellMod)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("spell_mod_ref", FieldKind.Reference, required: true, referenceTable: "skill.spell_mod_def"),
-                }),
+                    new FieldSchema("spell_mod_ref", FieldKind.Reference, required: true, referenceTable: "skill.spell_mod_def",
+                        description: "法术修正定义引用"),
+                }, "为目标施加一条法术修正，具体作用维度/运算/数值见 spell_mod_ref 引用的定义"),
 
                 [AuraEffectKindNames.ToText(AuraEffectKind.OverrideSkill)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("from", FieldKind.Reference, required: true, referenceTable: "skill.def"),
-                    new FieldSchema("to", FieldKind.Reference, required: true, referenceTable: "skill.def"),
-                }),
+                    new FieldSchema("from", FieldKind.Reference, required: true, referenceTable: "skill.def",
+                        description: "被替换的原技能引用"),
+                    new FieldSchema("to", FieldKind.Reference, required: true, referenceTable: "skill.def",
+                        description: "替换后实际释放的技能引用"),
+                }, "施加期间将目标释放的某个技能替换为另一个技能，见 from/to 子字段"),
 
                 [AuraEffectKindNames.ToText(AuraEffectKind.Control)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("flags", FieldKind.Array, required: false,
-                        item: new FieldSchema("<flag>", FieldKind.Enum, required: true, enumValues: ControlFlagValues),
+                        item: new FieldSchema("<flag>", FieldKind.Enum, required: true, enumValues: ControlFlagValues,
+                            description: "控制标志位取值，见 ControlFlagValues（no_move|no_cast|no_attack|no_interact）"),
                         description: "控制标志位集合，缺省不施加任何控制"),
-                }),
+                }, "对目标施加控制标志位，见 flags 子字段"),
 
                 // flag：06 第 3.3 节"单纯的标志位光环……不产生其它效果"，params 可省略。
                 [AuraEffectKindNames.ToText(AuraEffectKind.Flag)] = new[]
@@ -314,17 +324,17 @@ namespace Core.Rules.Skill
             return new VariantSchema("kind", cases);
         }
 
-        private static IReadOnlyList<FieldSchema> PeriodicParamsCase() => ParamsCase(required: true, new[]
+        private static IReadOnlyList<FieldSchema> PeriodicParamsCase(string description) => ParamsCase(required: true, new[]
         {
             new FieldSchema("interval", FieldKind.Number, required: true, description: "周期间隔，以时间单位计（见判断记录）"),
             new FieldSchema("base_value", FieldKind.Number, required: false, description: "缺省 0"),
             new FieldSchema("coefficient", FieldKind.Number, required: false, description: "缺省 0"),
             new FieldSchema("school", FieldKind.Id, required: true, description: "无缺省（见判断记录）"),
-        });
+        }, description);
 
-        private static IReadOnlyList<FieldSchema> ParamsCase(bool required, IReadOnlyList<FieldSchema> paramFields) => new[]
+        private static IReadOnlyList<FieldSchema> ParamsCase(bool required, IReadOnlyList<FieldSchema> paramFields, string description) => new[]
         {
-            new FieldSchema("params", FieldKind.Object, required: required, fields: paramFields),
+            new FieldSchema("params", FieldKind.Object, required: required, fields: paramFields, description: description),
         };
 
         public static TableSchema Def { get; } = new TableSchema(
@@ -344,17 +354,17 @@ namespace Core.Rules.Skill
                 new FieldSchema("cost", FieldKind.Array, required: false,
                     item: new FieldSchema("<cost_entry>", FieldKind.Object, required: true, fields: new[]
                     {
-                        new FieldSchema("power_type", FieldKind.Id, required: true),
-                        new FieldSchema("amount", FieldKind.Number, required: true),
-                    }),
+                        new FieldSchema("power_type", FieldKind.Id, required: true, description: "消耗的资源类型引用"),
+                        new FieldSchema("amount", FieldKind.Number, required: true, description: "消耗数量"),
+                    }, description: "{power_type: Id, amount: Number}，单条消耗资源条目"),
                     description: "[{power_type: Id, amount: Number}, ...]"),
                 new FieldSchema("cooldown_category", FieldKind.Id, required: false, description: "冷却分类引用"),
                 new FieldSchema("cooldown_duration", FieldKind.Number, required: false, description: "冷却时长，缺省 0"),
                 new FieldSchema("charges", FieldKind.Object, required: false,
                     fields: new[]
                     {
-                        new FieldSchema("max", FieldKind.Int, required: true),
-                        new FieldSchema("recharge_time", FieldKind.Number, required: true),
+                        new FieldSchema("max", FieldKind.Int, required: true, description: "最大充能次数"),
+                        new FieldSchema("recharge_time", FieldKind.Number, required: true, description: "单次充能所需时间"),
                     },
                     description: "{max: Int, recharge_time: Number}"),
                 new FieldSchema("action_cost", FieldKind.Number, required: false, description: "离散模式行动点消耗"),
@@ -364,7 +374,8 @@ namespace Core.Rules.Skill
                 new FieldSchema("effects", FieldKind.Array, required: true, item: EffectsItemSchema,
                     description: "[{kind: String, params: Object}, ...]，kind 取值见 EffectKindNames"),
                 new FieldSchema("interrupt_flags", FieldKind.Array, required: false,
-                    item: new FieldSchema("<flag>", FieldKind.Enum, required: true, enumValues: InterruptFlagValues),
+                    item: new FieldSchema("<flag>", FieldKind.Enum, required: true, enumValues: InterruptFlagValues,
+                        description: "打断当前读条/引导的触发条件，取值 movement|damage_taken|control 之一"),
                     description: "[movement|damage_taken|control, ...]"),
             });
 
@@ -409,15 +420,17 @@ namespace Core.Rules.Skill
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "skill.spell_mod_def.<name>"),
-                new FieldSchema("target_dimension", FieldKind.Enum, required: true, enumValues: SpellModDimensionValues),
-                new FieldSchema("op", FieldKind.Enum, required: true, enumValues: SpellModOpValues),
-                new FieldSchema("value", FieldKind.Number, required: true),
+                new FieldSchema("target_dimension", FieldKind.Enum, required: true, enumValues: SpellModDimensionValues,
+                    description: "修正作用的维度，取值见 SpellModDimensionValues"),
+                new FieldSchema("op", FieldKind.Enum, required: true, enumValues: SpellModOpValues,
+                    description: "运算方式，flat 为加法、pct 为百分比"),
+                new FieldSchema("value", FieldKind.Number, required: true, description: "修正数值"),
                 new FieldSchema("affects", FieldKind.Object, required: false,
                     fields: new[]
                     {
-                        new FieldSchema("schools", FieldKind.IdList, required: false),
-                        new FieldSchema("tags", FieldKind.IdList, required: false),
-                        new FieldSchema("skill_ids", FieldKind.IdList, required: false),
+                        new FieldSchema("schools", FieldKind.IdList, required: false, description: "限定生效的学派集合，缺省不限学派"),
+                        new FieldSchema("tags", FieldKind.IdList, required: false, description: "限定生效的技能标签集合，缺省不限标签"),
+                        new FieldSchema("skill_ids", FieldKind.IdList, required: false, description: "限定生效的技能集合，缺省不限技能"),
                     },
                     description: "{schools: [Id], tags: [Id], skill_ids: [Id]}"),
             });
@@ -432,9 +445,10 @@ namespace Core.Rules.Skill
                 new FieldSchema("entries", FieldKind.Array, required: true,
                     item: new FieldSchema("<entry>", FieldKind.Object, required: true, fields: new[]
                     {
-                        new FieldSchema("level", FieldKind.Int, required: true),
-                        new FieldSchema("skill_id", FieldKind.Reference, required: true, referenceTable: "skill.def"),
-                    }),
+                        new FieldSchema("level", FieldKind.Int, required: true, description: "习得该技能所需的等级"),
+                        new FieldSchema("skill_id", FieldKind.Reference, required: true, referenceTable: "skill.def",
+                            description: "习得的技能引用"),
+                    }, description: "{level: Int, skill_id: Reference(skill.def)}，单条技能书条目"),
                     description: "[{level: Int, skill_id: Reference(skill.def)}, ...]"),
             });
     }

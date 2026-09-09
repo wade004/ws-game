@@ -93,7 +93,8 @@ namespace Core.Carriers.Gobj
             {
                 ["skill"] = new[]
                 {
-                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "skill.def"),
+                    new FieldSchema("ref", FieldKind.Reference, required: true, referenceTable: "skill.def",
+                        description: "指向 skill.def 的待触发技能"),
                 },
                 ["dialog"] = new[]
                 {
@@ -141,19 +142,22 @@ namespace Core.Carriers.Gobj
                 ["item_key"] = new[]
                 {
                     // item.template 与本模块同属 Core.Carriers 程序集（同层），登记为 Reference。
-                    new FieldSchema("item_id", FieldKind.Reference, required: true, referenceTable: "item.template"),
+                    new FieldSchema("item_id", FieldKind.Reference, required: true, referenceTable: "item.template",
+                        description: "指向 item.template 的钥匙物品"),
                 },
                 ["world_flag"] = new[]
                 {
                     // world.flag_schema 属 L4（core/gameplay/world_state），本模块（L3）不可
                     // Reference（依赖方向），退回 Id；expected 判断记录见本字段顶部注释，不登记。
-                    new FieldSchema("flag_key", FieldKind.Id, required: true),
+                    new FieldSchema("flag_key", FieldKind.Id, required: true,
+                        description: "指向 world.flag_schema 的世界标志键，退回 Id 登记（跨层不做引用完整性校验）"),
                 },
                 ["skill_check"] = new[]
                 {
                     new FieldSchema("skill_tag", FieldKind.Id, required: true,
                         description: "标签而非表引用，按 Id 登记"),
-                    new FieldSchema("min_value", FieldKind.Number, required: true),
+                    new FieldSchema("min_value", FieldKind.Number, required: true,
+                        description: "技能检定需要达到的最小值"),
                 },
             };
             return new VariantSchema("kind", cases);

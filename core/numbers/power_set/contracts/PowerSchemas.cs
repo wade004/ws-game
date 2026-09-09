@@ -27,11 +27,13 @@ namespace Core.Numbers.PowerSet
             {
                 ["fixed"] = new[]
                 {
-                    new FieldSchema("value", FieldKind.Number, required: true),
+                    new FieldSchema("value", FieldKind.Number, required: true,
+                        description: "kind=fixed 时的固定资源上限值"),
                 },
                 ["stat"] = new[]
                 {
-                    new FieldSchema("stat", FieldKind.Reference, required: true, referenceTable: "stat.definition"),
+                    new FieldSchema("stat", FieldKind.Reference, required: true, referenceTable: "stat.definition",
+                        description: "kind=stat 时引用 stat.definition，资源上限取该属性当前值"),
                 },
             };
             return new VariantSchema("kind", cases);

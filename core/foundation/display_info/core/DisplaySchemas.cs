@@ -37,11 +37,11 @@ namespace Core.Foundation.DisplayInfo
             currentSchemaVersion: 1,
             fields: new[]
             {
-                new FieldSchema("id", FieldKind.Id, required: true),
-                new FieldSchema("category", FieldKind.Enum, required: true, enumValues: Categories),
+                new FieldSchema("id", FieldKind.Id, required: true, description: "display.map.<name>"),
+                new FieldSchema("category", FieldKind.Enum, required: true, enumValues: Categories, description: "所属类别（skill/aura/item/creature/gobj/projectile），决定 logical_id 指向哪张表，见判断记录"),
                 new FieldSchema("logical_id", FieldKind.Id, required: true, description: "指向的逻辑记录 id（技能/光环/物品/生物/物件），具体目标表由 category 决定，见判断记录"),
-                new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: Kinds),
-                new FieldSchema("icon_id", FieldKind.String, required: false),
+                new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: Kinds, description: "显示类型（sprite/model），决定下方哪组专属字段生效，见 DisplayKindFieldGroupRule"),
+                new FieldSchema("icon_id", FieldKind.String, required: false, description: "UI 图标资源引用"),
                 new FieldSchema("vfx_id", FieldKind.Id, required: false, description: "指向 vfx.def，见判断记录"),
                 new FieldSchema("sfx_id", FieldKind.Id, required: false, description: "指向 sfx.def，见判断记录"),
                 new FieldSchema("scale", FieldKind.Number, required: false, description: "默认缩放，缺省 1.0"),
@@ -50,27 +50,28 @@ namespace Core.Foundation.DisplayInfo
                 new FieldSchema("weapon_style_ref", FieldKind.Id, required: false, description: "指向 display.weapon_style（本任务未定义该表），见判断记录"),
 
                 // sprite 型专属字段（schema 层非必填，见类型注释）
-                new FieldSchema("sprite_set_id", FieldKind.String, required: false),
+                new FieldSchema("sprite_set_id", FieldKind.String, required: false, description: "精灵集资源引用（不含路径），sprite 型必填"),
                 new FieldSchema("direction_count", FieldKind.Int, required: false, description: "取值 4/8/16"),
                 new FieldSchema("mirror_pairs", FieldKind.Array, required: false,
                     item: new FieldSchema("<mirror_pair>", FieldKind.Object, required: true, fields: new[]
                     {
-                        new FieldSchema("direction_slot", FieldKind.Id, required: true),
-                        new FieldSchema("mirror_of", FieldKind.Id, required: true),
+                        new FieldSchema("direction_slot", FieldKind.Id, required: true, description: "该镜像规则对应的方向槽位 id"),
+                        new FieldSchema("mirror_of", FieldKind.Id, required: true, description: "美术资源实际复用的源方向槽位 id，渲染 direction_slot 时按 flip_x 翻转该方向的素材"),
                         new FieldSchema("flip_x", FieldKind.Bool, required: false, description: "缺省 false"),
-                    }),
+                    }, description: "单条方向镜像规则：{direction_slot, mirror_of, flip_x?}"),
                     description: "[{direction_slot:Id, mirror_of:Id, flip_x:Bool}]（DisplayInfo.ParseSpriteInfo 对 " +
                         "direction_slot/mirror_of 缺失即抛异常，均必填）"),
                 new FieldSchema("paperdoll_layers", FieldKind.Array, required: false,
-                    item: new FieldSchema("<layer>", FieldKind.String, required: true)),
+                    item: new FieldSchema("<layer>", FieldKind.String, required: true, description: "纸娃娃分层引用名"),
+                    description: "纸娃娃分层引用列表，仅 item/creature 使用"),
                 new FieldSchema("anchor_points", FieldKind.Object, required: false,
                     description: "Map<anchor_name, AnchorDef>，键为锚点名（动态），ADR-0019 通用规则 5 不登记子结构"),
 
                 // model 型专属字段（schema 层非必填，见类型注释）
-                new FieldSchema("model_ref", FieldKind.Id, required: false),
-                new FieldSchema("anim_set_ref", FieldKind.Reference, required: false, referenceTable: "display.anim_set"),
-                new FieldSchema("sockets", FieldKind.IdList, required: false),
-                new FieldSchema("slots", FieldKind.IdList, required: false),
+                new FieldSchema("model_ref", FieldKind.Id, required: false, description: "model 型专属，模型资源的间接引用，由引擎适配层解析加载"),
+                new FieldSchema("anim_set_ref", FieldKind.Reference, required: false, referenceTable: "display.anim_set", description: "model 型专属，指向本模块的 display.anim_set 动画剪辑集合"),
+                new FieldSchema("sockets", FieldKind.IdList, required: false, description: "model 型专属，该模型声明的挂点 id 列表，供 display.equip_visual 的 socket_attach 模式引用"),
+                new FieldSchema("slots", FieldKind.IdList, required: false, description: "model 型专属，该模型声明的可换装槽位 id 列表，供 display.equip_visual 的 slot_mesh 模式引用"),
                 new FieldSchema("default_slot_meshes", FieldKind.Object, required: false,
                     description: "Map<slot_id, mesh_ref:Id>，动态键，ADR-0019 通用规则 5 不登记子结构"),
                 new FieldSchema("material_params", FieldKind.Object, required: false,
@@ -85,7 +86,7 @@ namespace Core.Foundation.DisplayInfo
             currentSchemaVersion: 1,
             fields: new[]
             {
-                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("id", FieldKind.Id, required: true, description: "display.anim_set.<name>"),
                 new FieldSchema("clips", FieldKind.Object, required: true, description: "剪辑 id 到 {resource_ref, events} 的映射，见 04 第 7.1.1 节"),
             },
             migrations: Array.Empty<TableMigration>());
@@ -102,9 +103,9 @@ namespace Core.Foundation.DisplayInfo
             currentSchemaVersion: 1,
             fields: new[]
             {
-                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("id", FieldKind.Id, required: true, description: "display.equip_visual.<name>"),
                 new FieldSchema("item_id", FieldKind.Id, required: true, description: "指向 item.template（本任务未定义该表），见判断记录"),
-                new FieldSchema("mode", FieldKind.Enum, required: true, enumValues: EquipVisualModes),
+                new FieldSchema("mode", FieldKind.Enum, required: true, enumValues: EquipVisualModes, description: "呈现模式（slot_mesh/socket_attach），决定 slot_id+mesh_ref 与 socket_id+model_ref 哪组必填"),
                 new FieldSchema("slot_id", FieldKind.Id, required: false, description: "mode: slot_mesh 时必填，对应 display.map 的 slots"),
                 new FieldSchema("mesh_ref", FieldKind.Id, required: false, description: "mode: slot_mesh 时必填"),
                 new FieldSchema("socket_id", FieldKind.Id, required: false, description: "mode: socket_attach 时必填，对应 display.map 的 sockets"),

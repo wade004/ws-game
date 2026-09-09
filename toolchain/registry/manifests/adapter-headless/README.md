@@ -3,7 +3,7 @@
 引擎适配层（L-1）的桩实现（"无头适配层"），随版本号发布，与 `com.gamefoundation.adapter.unity`
 （引擎适配层 + 六个核心 DLL）、`com.gamefoundation.framework-data`（框架级数据表 + 占位资产包）、
 `com.gamefoundation.toolchain`（Python 工具链）并列为私服发布的四个包之一（见根
-`toolchain/registry/README.md`）。[ADR-0018](../../../architecture/adr/0018-编辑器随游戏走与框架为此提供的交付物.md)
+`toolchain/registry/README.md`）。[ADR-0018](../../../../architecture/adr/0018-编辑器随游戏走与框架为此提供的交付物.md)
 决策第 3 条起，本程序集由"仅测试用"转正为框架正式交付物：确定性、无渲染、无输入，供不接真实
 引擎的无头宿主（自动化测试、CI、内容编辑器的数值沙盘等）使用，与框架自身测试用的是同一份实现，
 结果一致性由此保证。

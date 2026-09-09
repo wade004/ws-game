@@ -68,6 +68,8 @@ namespace Toolchain.Validator
             var strict = false;
             var jsonOutput = false;
             var listTables = false;
+            var schemaAudit = false;
+            string? allowlistPath = null;
             IReadOnlyList<(string table, string idField)>? displayMapSources = null;
 
             for (var i = 0; i < args.Length; i++)
@@ -95,6 +97,23 @@ namespace Toolchain.Validator
                         listTables = true;
                         break;
 
+                    // 判断记录（F3 元数据门禁）：--schema-audit 是一种完全不同的运行模式——不需要
+                    // --data-root（不加载任何实际数据，只审计代码里已登记的 TableSchema 结构本身，
+                    // 见 Presentation.Assembly.SchemaAudit 类型注释），因此下面 dataRootArgs.Count==0
+                    // 的必填校验对这一模式不生效，见本方法后续分支判断。
+                    case "--schema-audit":
+                        schemaAudit = true;
+                        break;
+
+                    case "--allowlist":
+                        if (i + 1 >= args.Length)
+                        {
+                            Console.Error.WriteLine("参数错误：--allowlist 需要一个文件路径参数");
+                            return 2;
+                        }
+                        allowlistPath = args[++i];
+                        break;
+
                     case "--display-map-sources":
                         if (i + 1 >= args.Length)
                         {
@@ -114,11 +133,17 @@ namespace Toolchain.Validator
                 }
             }
 
+            if (schemaAudit)
+            {
+                return RunSchemaAudit(allowlistPath, jsonOutput);
+            }
+
             if (dataRootArgs.Count == 0)
             {
                 Console.Error.WriteLine(
                     "参数错误：缺少必填参数 --data-root <dir>（可重复传入以合并多个数据根）\n" +
-                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>]");
+                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>]\n" +
+                    "或元数据门禁：dotnet run --project toolchain/validator -- --schema-audit [--allowlist <path>] [--json]");
                 return 2;
             }
 
@@ -210,6 +235,91 @@ namespace Toolchain.Validator
             }
 
             return report.IsBlocking ? 1 : 0;
+        }
+
+        /// <summary>
+        /// F3 元数据门禁（ADR-0018 决策 3、ADR-0019 决策 4）：--schema-audit 模式的完整流程——
+        /// 用 <see cref="SchemaAudit.EnumerateRegisteredSchemas"/> 建一个只登记 schema、不加载任何
+        /// 数据的 registry（复用 <see cref="ContentValidationAssembly"/> 同一份装配顺序），读出全部
+        /// <see cref="TableSchema"/>，交给 <see cref="SchemaAudit.Run"/> 审计。<paramref name="allowlistPath"/>
+        /// 省略时使用空白名单（不豁免任何 composite_without_substructure）。
+        /// </summary>
+        private static int RunSchemaAudit(string? allowlistPath, bool jsonOutput)
+        {
+            SchemaAuditAllowlist allowlist;
+            if (allowlistPath == null)
+            {
+                allowlist = SchemaAuditAllowlist.Empty;
+            }
+            else
+            {
+                string allowlistText;
+                try
+                {
+                    allowlistText = File.ReadAllText(allowlistPath, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    Console.Error.WriteLine($"参数错误：读取白名单文件失败：{allowlistPath}：{ex.Message}");
+                    return 2;
+                }
+
+                try
+                {
+                    allowlist = SchemaAuditAllowlist.Parse(allowlistText);
+                }
+                catch (FormatException ex)
+                {
+                    Console.Error.WriteLine($"参数错误：白名单文件格式非法：{allowlistPath}：{ex.Message}");
+                    return 2;
+                }
+            }
+
+            var schemas = SchemaAudit.EnumerateRegisteredSchemas();
+            var report = SchemaAudit.Run(schemas, allowlist);
+
+            if (jsonOutput)
+            {
+                PrintSchemaAuditJson(report);
+            }
+            else
+            {
+                foreach (var issue in report.Issues)
+                {
+                    var loc = issue.FieldPath.Length == 0 ? issue.Table : $"{issue.Table}/{issue.FieldPath}";
+                    Console.WriteLine($"[{issue.Severity}] {loc}: {issue.Check}: {issue.Message}");
+                }
+                Console.WriteLine($"tables {report.TableCount}, fields {report.FieldCount}, errors {report.ErrorCount}, warnings {report.WarningCount}");
+            }
+
+            return report.IsBlocking ? 1 : 0;
+        }
+
+        private static void PrintSchemaAuditJson(SchemaAuditReport report)
+        {
+            var sb = new StringBuilder();
+            sb.Append('{');
+            sb.Append("\"tables\":").Append(report.TableCount).Append(',');
+            sb.Append("\"fields\":").Append(report.FieldCount).Append(',');
+            sb.Append("\"errors\":").Append(report.ErrorCount).Append(',');
+            sb.Append("\"warnings\":").Append(report.WarningCount).Append(',');
+            sb.Append("\"blocking\":").Append(report.IsBlocking ? "true" : "false").Append(',');
+            sb.Append("\"issues\":[");
+            for (var i = 0; i < report.Issues.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                var issue = report.Issues[i];
+                sb.Append('{');
+                sb.Append("\"severity\":\"").Append(JsonEscape(issue.Severity)).Append("\",");
+                sb.Append("\"table\":\"").Append(JsonEscape(issue.Table)).Append("\",");
+                sb.Append("\"field_path\":\"").Append(JsonEscape(issue.FieldPath)).Append("\",");
+                sb.Append("\"check\":\"").Append(JsonEscape(issue.Check)).Append("\",");
+                sb.Append("\"message\":\"").Append(JsonEscape(issue.Message)).Append('"');
+                sb.Append('}');
+            }
+            sb.Append(']');
+            sb.Append('}');
+            Console.WriteLine(sb.ToString());
         }
 
         /// <summary>解析 <c>--display-map-sources</c> 的值：形如 <c>"table1:idField1,table2:idField2"</c>

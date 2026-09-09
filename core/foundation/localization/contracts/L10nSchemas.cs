@@ -26,9 +26,10 @@ namespace Core.Foundation.Localization
             currentSchemaVersion: 1,
             fields: new[]
             {
-                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("id", FieldKind.Id, required: true, description: "语言 id，如 l10n.locale.zh_cn"),
                 new FieldSchema("fallback", FieldKind.Id, required: false, description: "回退语言 id，可为空"),
-                new FieldSchema("is_default", FieldKind.Bool, required: true),
+                new FieldSchema("is_default", FieldKind.Bool, required: true,
+                    description: "是否为默认语言；全表必须恰好一条为 true"),
             },
             migrations: Array.Empty<TableMigration>());
 
@@ -42,8 +43,9 @@ namespace Core.Foundation.Localization
             fields: new[]
             {
                 new FieldSchema("key", FieldKind.String, required: true, description: "文本键，格式 l10n.<来源域>.<来源记录name>.<字段名>"),
-                new FieldSchema("locale", FieldKind.Reference, required: true, referenceTable: "l10n.locale"),
-                new FieldSchema("text", FieldKind.String, required: true),
+                new FieldSchema("locale", FieldKind.Reference, required: true, referenceTable: "l10n.locale",
+                    description: "引用 l10n.locale，本条文本所属语言"),
+                new FieldSchema("text", FieldKind.String, required: true, description: "本地化文本内容"),
             },
             migrations: Array.Empty<TableMigration>(),
             isRegistryTable: true,

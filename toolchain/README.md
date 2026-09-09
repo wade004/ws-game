@@ -176,6 +176,40 @@ dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json
 接线的可选规则，不静默跳过）。返回码：`0` 未阻断；`1` 阻断（存在 Error，或 `--strict` 下存在
 Warning）；`2` 命令行参数错误（缺 `--data-root`、目录不存在、`--display-map-sources` 格式非法）。
 
+### 元数据门禁（--schema-audit，F3 新增）
+
+与上面"数据校验"是两种不同的运行模式：不需要 `--data-root`、不加载任何实际数据，只审计**代码里
+已登记的 `TableSchema`/`FieldSchema` 结构声明本身**是否完整、自洽（ADR-0018 决策 3、ADR-0019 决策
+4）——核心审计逻辑在 `presentation/assembly/SchemaAudit.cs`（`Presentation.Assembly.SchemaAudit`），
+与"数据校验"共用同一份 `ContentValidationAssembly` 装配顺序，保证"编辑器里看到的红线 = 门禁会报
+的错"这一 ADR-0018 一以贯之的验收标准。
+
+```
+dotnet run --project toolchain/validator -- --schema-audit [--allowlist <path>] [--json]
+```
+
+- `--allowlist <path>`：白名单文件路径（本仓库固定用 `toolchain/schema_audit_allowlist.json`，见
+  该文件头注释），省略时视为空白名单（不豁免任何 `composite_without_substructure` 命中）。
+- `--json`：输出单行 JSON（`{tables, fields, errors, warnings, blocking, issues[]}`）。
+
+检查项（递归进入 `Fields`/`Item`/`Variants.CommonFields`/`Variants.Cases[*]`，字段路径记法同
+`SchemaAuditIssue.FieldPath`——`effects[].params.base_value`、`shape{kind=circle}.radius`）：
+
+| Check | 级别 | 规则 |
+|---|---|---|
+| `missing_description` | error | 任一层级 `FieldSchema.Description` 为空/空白 |
+| `composite_without_substructure` | error | `Object` 无 `Fields`/`Variants`，或 `Array` 无 `Item`，且未在白名单里豁免 |
+| `allowlist_entry_unused` | warning | 白名单条目在当前登记里找不到对应的 `composite_without_substructure` 命中 |
+| `reference_target_unknown` | error | `Reference` 字段的 `ReferenceTable` 不在已登记表清单；`ReferenceDomain` 不在 04 第 2.2 节域名清单 |
+| `variant_shape` | error | `Variants.Cases` 键为空、某 case 字段与 `CommonFields`/判别字段同名 |
+| `unschematized_table` | warning | `TableSchema.IsUnschematized` 的表 |
+
+白名单只允许豁免 `composite_without_substructure`，不允许豁免 `missing_description`——描述缺失
+必须真正补齐，不能靠白名单绕过（见 `toolchain/schema_audit_allowlist.json` 头注释、条目清单与
+逐条 reason）。文本模式末尾汇总一行 `tables N, fields M, errors E, warnings W`。返回码：`0` 未
+阻断（`errors == 0`）；`1` 阻断；`2` 命令行参数错误（白名单文件不存在/格式非法）。`check.ps1`
+"元数据门禁"步骤即上面这条命令，`-Quick` 下也跑（秒级，不需要 Unity/构建产物）。
+
 ## 生成事件常量（gen_event_constants.py）
 
 读取事件词汇登记表 `data/_sample/found/found.event_catalog.json`，为每一行生成一个

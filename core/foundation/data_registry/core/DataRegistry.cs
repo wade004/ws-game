@@ -412,6 +412,23 @@ namespace Core.Foundation.DataRegistry
 
         public TableSchema? GetSchema(string table) => _schemas.TryGetValue(table, out var s) ? s : null;
 
+        /// <summary>只读诊断（F3 元数据门禁新增，见 <see cref="Presentation.Assembly.SchemaAudit"/>）：
+        /// 本次已 <see cref="RegisterSchema"/> 登记的全部 <see cref="TableSchema"/>（不要求已
+        /// <see cref="LoadAll()"/>——只反映"代码里声明了哪些表结构"，与是否已加载任何实际数据行
+        /// 无关）。<see cref="IDataRegistry"/> 接口本身不暴露这份列表（不改接口签名，见任务书约束），
+        /// 只加在具体类上；调用方（<c>SchemaAudit.EnumerateRegisteredSchemas</c>）需要持有具体的
+        /// <see cref="DataRegistry"/> 实例才能读取。返回一份快照数组，不随后续 <see cref="RegisterSchema"/>
+        /// 调用联动。</summary>
+        public IReadOnlyList<TableSchema> RegisteredSchemas
+        {
+            get
+            {
+                var result = new TableSchema[_schemas.Count];
+                _schemas.Values.CopyTo(result, 0);
+                return result;
+            }
+        }
+
         /// <summary>只读诊断：<paramref name="table"/> 本次加载实际来自哪些根（<see cref="DataTableSource.Location"/>
         /// 列表，单根加载时只有一条）；表未加载时返回空列表。不参与任何校验判定，纯粹供上层
         /// （如 Unity 适配层引导日志、构建产物核对）观察"这张表到底是从哪个数据根读上来的"。</summary>

@@ -38,9 +38,9 @@ namespace Core.Gameplay.Economy
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "econ.currency.<name>"),
-                new FieldSchema("name_key", FieldKind.TextKey, required: true),
+                new FieldSchema("name_key", FieldKind.TextKey, required: true, description: "货币显示名的本地化文本键"),
                 new FieldSchema("cap", FieldKind.Int, required: false, description: "上限，空表示无上限"),
-                new FieldSchema("display_ref", FieldKind.Id, required: true),
+                new FieldSchema("display_ref", FieldKind.Id, required: true, description: "货币图标/展示资源引用 id"),
             });
 
         private static readonly FieldSchema SellItem = new FieldSchema(
@@ -51,13 +51,14 @@ namespace Core.Gameplay.Economy
                 new FieldSchema("item_id", FieldKind.Id, required: true,
                     description: "item.<template>；存在性核对见 EconomyContentValidationRule（跨 registry 装配判断记录见类型注释）"),
                 new FieldSchema("price_currency_id", FieldKind.Reference, required: true,
-                    referenceTable: "econ.currency"),
+                    referenceTable: "econ.currency", description: "计价所用的货币"),
                 new FieldSchema("price_amount", FieldKind.Int, required: true,
                     description: ">=0 是登记表达不了的数值范围约束，见 EconomyContentValidationRule"),
                 new FieldSchema("stock_limit", FieldKind.Int, required: false,
                     description: "限量；缺省不限量；>=0 是登记表达不了的数值范围约束，见 EconomyContentValidationRule"),
                 new FieldSchema("restock_policy", FieldKind.Enum, required: false,
-                    enumValues: new[] { "on_map_enter", "timer" }),
+                    enumValues: new[] { "on_map_enter", "timer" },
+                    description: "补货时机：on_map_enter 进图时补货；timer 按 restock_timer 定时补货；缺省不补货"),
                 new FieldSchema("restock_timer", FieldKind.Number, required: false,
                     description: "restock_policy=timer 时必填且必须 >0，是登记表达不了的条件必填/范围约束，见 EconomyContentValidationRule"),
             });
@@ -69,7 +70,7 @@ namespace Core.Gameplay.Economy
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "econ.vendor.<name>"),
-                new FieldSchema("name_key", FieldKind.TextKey, required: true),
+                new FieldSchema("name_key", FieldKind.TextKey, required: true, description: "商人显示名的本地化文本键"),
                 new FieldSchema("sell_items", FieldKind.Array, required: true, item: SellItem,
                     description: "List<VendorSellItem>，子结构登记见本类型注释"),
                 new FieldSchema("buy_price_rule", FieldKind.Expr, required: false,

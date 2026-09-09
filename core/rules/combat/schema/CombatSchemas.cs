@@ -51,11 +51,16 @@ namespace Core.Rules.Combat
                     description: "combat.hit_table.<name>"),
                 new FieldSchema("miss", FieldKind.Object, required: true, fields: HitTableBranchFieldList(),
                     description: "{enabled, stat?, base}，见 06 第 4.2 节"),
-                new FieldSchema("dodge", FieldKind.Object, required: true, fields: HitTableBranchFieldList()),
-                new FieldSchema("parry", FieldKind.Object, required: true, fields: HitTableBranchFieldList()),
-                new FieldSchema("glancing_blow", FieldKind.Object, required: true, fields: HitTableBranchFieldList()),
-                new FieldSchema("block", FieldKind.Object, required: true, fields: HitTableBranchFieldList()),
-                new FieldSchema("crit", FieldKind.Object, required: true, fields: HitTableBranchFieldList()),
+                new FieldSchema("dodge", FieldKind.Object, required: true, fields: HitTableBranchFieldList(),
+                    description: "{enabled, stat?, base}，闪避判定分支，见 06 第 4.2 节"),
+                new FieldSchema("parry", FieldKind.Object, required: true, fields: HitTableBranchFieldList(),
+                    description: "{enabled, stat?, base}，招架判定分支，见 06 第 4.2 节"),
+                new FieldSchema("glancing_blow", FieldKind.Object, required: true, fields: HitTableBranchFieldList(),
+                    description: "{enabled, stat?, base}，偏斜命中（部分减伤）判定分支，见 06 第 4.2 节"),
+                new FieldSchema("block", FieldKind.Object, required: true, fields: HitTableBranchFieldList(),
+                    description: "{enabled, stat?, base}，格挡判定分支，见 06 第 4.2 节"),
+                new FieldSchema("crit", FieldKind.Object, required: true, fields: HitTableBranchFieldList(),
+                    description: "{enabled, stat?, base}，暴击判定分支，见 06 第 4.2 节"),
                 new FieldSchema("crit_multiplier_stat", FieldKind.Id, required: false,
                     description: "暴击倍率来源属性，未提供时用 crit_multiplier_base"),
                 new FieldSchema("crit_multiplier_base", FieldKind.Number, required: false,
@@ -88,9 +93,12 @@ namespace Core.Rules.Combat
                 new FieldSchema("entries", FieldKind.Array, required: false,
                     item: new FieldSchema("<resist_entry>", FieldKind.Object, required: true, fields: new[]
                     {
-                        new FieldSchema("value", FieldKind.Number, required: true),
-                        new FieldSchema("reduction", FieldKind.Number, required: true),
-                    }),
+                        new FieldSchema("value", FieldKind.Number, required: true,
+                            description: "护甲/抗性输入值，分段插值的横坐标"),
+                        new FieldSchema("reduction", FieldKind.Number, required: true,
+                            description: "对应的减免百分比（0~1），分段插值的纵坐标"),
+                    },
+                    description: "分段线性插值的一个采样点 {value, reduction}"),
                     description: "kind=table 时 [{value, reduction}, ...]，按 value 升序（非空/单调性" +
                         "业务判断留在 CombatResistCurveValidationRule；kind 与 entries/k 是表顶层平级" +
                         "字段，Variants 不适用——同 GobjSchemas.TypeDataSchema 判断记录，条件必填继续" +

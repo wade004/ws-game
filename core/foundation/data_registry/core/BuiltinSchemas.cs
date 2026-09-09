@@ -34,7 +34,8 @@ namespace Core.Foundation.DataRegistry
                 new FieldSchema("key", FieldKind.String, required: true, description: "事件 key，须为合法 Id 格式（^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$）"),
                 new FieldSchema("domain", FieldKind.String, required: true, description: "事件所属 domain，不保证等于 key 的第一段"),
                 new FieldSchema("fields", FieldKind.Array, required: true, description: "事件携带的字段名列表，只登记名字不登记类型"),
-                new FieldSchema("description", FieldKind.String, required: false),
+                new FieldSchema("description", FieldKind.String, required: false,
+                    description: "该事件的说明文本，供编辑器/文档展示，可为空"),
             },
             migrations: Array.Empty<TableMigration>(),
             isRegistryTable: true);

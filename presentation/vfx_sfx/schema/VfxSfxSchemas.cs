@@ -24,7 +24,7 @@ namespace Presentation.VfxSfx.Schema
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "vfx.<name>"),
                 new FieldSchema("category", FieldKind.String, required: true, description: "分类（施法/命中/环境/UI 等），供对象池分组与音画分层参考"),
-                new FieldSchema("attach_mode", FieldKind.Enum, required: true, enumValues: AttachModes),
+                new FieldSchema("attach_mode", FieldKind.Enum, required: true, enumValues: AttachModes, description: "挂载方式（world/anchor/socket/screen），决定特效跟随谁播放"),
                 new FieldSchema("lifetime", FieldKind.Number, required: false, description: "预期存活时长，用于对象池回收兜底"),
                 new FieldSchema("resource_ref", FieldKind.Id, required: true, description: "指向具体引擎资源的间接引用，由适配层解释"),
             },

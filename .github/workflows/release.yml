@@ -34,11 +34,11 @@ name: Release
 #
 # 判断记录（附件存在性检查改为核对完整附件集合，2026-09-07 改写）：外部审核（第五轮）指出原
 # "Check for existing release assets" 步骤只检查 `ws-game-<ver>.zip` 是否存在，命中就整体跳过
-# 打包与上传；但一次发布应有五个附件（zip、lock、三个 `com.gamefoundation.*-<ver>.tgz` 私服包），
+# 打包与上传；但一次发布应有六个附件（zip、lock、四个 `com.gamefoundation.*-<ver>.tgz` 私服包），
 # 只查 zip 会漏判"zip 已传、其余附件缺失"（例如本机 `-Release -Publish` 中途失败、或历史 Release
-# 只手工补传了部分附件）的情况，遗漏的附件永远不会被本工作流补上。改为对五个附件逐一核对：
+# 只手工补传了部分附件）的情况，遗漏的附件永远不会被本工作流补上。改为对六个附件逐一核对：
 # 全部存在 -> 跳过打包与上传；一个都不存在 -> 等价于原有 fallback，全量打包上传；只缺部分 ->
-# 仍然要跑一次 build.ps1 打包（`-SyncOnly -Dist -Zip` 一次性产出全部五个文件，机制上不支持只重建
+# 仍然要跑一次 build.ps1 打包（`-SyncOnly -Dist -Zip` 一次性产出全部六个文件，机制上不支持只重建
 # 其中几个），但上传步骤只把缺失的那几个文件路径交给 `files:`，已经存在的附件不会被托管运行器
 # 重建的版本覆盖——"本机已验证产物优先"的原则不变，见上一段判断记录（确定性构建在不同 checkout
 # 路径下产出不同字节）。
@@ -55,11 +55,11 @@ name: Release
 # checkout（即这个 tag 指向的提交）的 `git rev-parse --short HEAD` 比对；不一致直接 exit 1 阻断，
 # 不允许在一个"声称是这个 tag、实际是另一个提交"的 zip 基础上做任何事。commit 一致时，若还有 lock
 # 或 .tgz 缺失，由新增的 "Repair missing assets from existing zip" 步骤直接从这份已验证 zip 里
-# 提取六个 DLL 重新计算 sha256 生成 lock、或直接把 zip 内 `packages/*.tgz` 三个内嵌包原样抽出
+# 提取六个 DLL 重新计算 sha256 生成 lock、或直接把 zip 内 `packages/*.tgz` 四个内嵌包原样抽出
 # 落到 dist/ 对应路径——不调用 build.ps1、不触发任何新构建，补的内容与 zip 里的字节保证同源。
 # 只有 zip 本身也缺失（Release 里连 zip 都没有，说明本机还没有对这个 tag 打过包）才继续走原有的
 # 全量 `build.ps1 -SkipTests` + `-SyncOnly -Dist -Zip` 全量重建路径——此时没有旧 zip 可复用，
-# 五个文件本来就要一起从头产出，不存在"新旧批次混配"的风险。下面两个 build.ps1 步骤的 `if:`
+# 六个文件本来就要一起从头产出，不存在"新旧批次混配"的风险。下面两个 build.ps1 步骤的 `if:`
 # 因此从只判断 `skip != 'true'` 收紧为额外要求 `zip_missing == 'true'`。
 #
 #
@@ -74,11 +74,11 @@ name: Release
 # 混批，且没有任何机制能证明两者同源。根治：本步骤新增判定——zip 缺失时，只要 lock 或任一 .tgz
 # 仍然存在，就无法证明重建出的 zip 与它们属于同一批构建，直接 exit 1 阻断，并打印指引（本机用
 # `build.ps1 -SyncOnly -Dist <ver> -Zip` 针对这个 tag 指向的提交重新打一份 zip 后手动补传，或者
-# 删除该 tag 下的全部既有附件后重新触发本工作流，让它一次性全量重建五件套）——但“同一个 tag 指向
+# 删除该 tag 下的全部既有附件后重新触发本工作流，让它一次性全量重建六件套）——但“同一个 tag 指向
 # 的提交 + 跑了 SyncOnly”本身不能当作“与既有附件同批”的证明：确定性构建的产物字节随本机 checkout
-# 路径变化（见上面“本机已验证产物优先”判断记录），手动补传前必须核对新产出的 zip/lock/三个 .tgz
+# 路径变化（见上面“本机已验证产物优先”判断记录），手动补传前必须核对新产出的 zip/lock/四个 .tgz
 # 与仍保留的既有附件之间整套字节/哈希互相一致（例如新 lock 记录的六个 DLL sha256 是否与新 zip 里
-# 的 DLL 字节一致、是否与仍保留的旧 .tgz 内容一致），核对不一致就不得混用；只有五个附件全部
+# 的 DLL 字节一致、是否与仍保留的旧 .tgz 内容一致），核对不一致就不得混用；只有六个附件全部
 # 缺失（没有任何旧产物可能与新构建混批）才继续走原有的全量重建路径。另外，只要 lock 已作为既有
 # 附件存在（不论 zip 是否存在），都会下载并解析其 JSON 里的 `git_commit` 字段，与当前 checkout
 # 的提交比对，不一致同样阻断——防止 lock 记录的哈希其实来自另一个提交、却被当作当前 tag 的产物
@@ -144,7 +144,7 @@ jobs:
 
       - name: Setup Node.js 20.x
         # 私服交付通道新增：build.ps1 -Dist（本工作流下面 -SyncOnly -Dist -Zip 步骤隐含调用）
-        # 现在无论如何都会额外 npm pack 出三个私服包的 .tgz（见 build.ps1 "5.15" 判断记录），
+        # 现在无论如何都会额外 npm pack 出四个私服包的 .tgz（见 build.ps1 "5.15" 判断记录），
         # 需要 node/npm；显式 setup-node 固定版本，不依赖托管运行器预装的版本浮动。
         uses: actions/setup-node@v4
         with:
@@ -217,24 +217,32 @@ jobs:
         # 判断记录：见文件头"附件存在性检查改为核对完整附件集合"、"缺附件 fallback 根治为'从已
         # 验证 zip 抽取'"与"zip 缺失分支收紧为阻断而非全量重建混批"三条说明。用
         # gh release view --json assets 查该 tag 对应 Release 的既有附件列表，与完整附件集合
-        # （zip、lock、三个 .tgz）逐一比对：全部存在才跳过打包与上传；否则只把缺失的文件路径放进
+        # （zip、lock、四个 .tgz）逐一比对：全部存在才跳过打包与上传；否则只把缺失的文件路径放进
         # 下面上传步骤的 files 列表，已存在的附件不会被覆盖。若 zip 本身已存在（无论是否还缺其它
         # 附件），先下载这份 zip 校验其 MANIFEST.txt 里的 git_commit 与当前 checkout 的提交一致，
         # 不一致直接阻断。若 lock 已存在（无论 zip 是否存在），同样下载并校验其 JSON 里的
         # git_commit 字段与当前提交一致，不一致直接阻断。若 zip 缺失但 lock 或任一 .tgz 仍存在，
-        # 无法证明重建出的 zip 与它们同批，直接阻断并打印指引，不再触发全量重建；只有五个附件
+        # 无法证明重建出的 zip 与它们同批，直接阻断并打印指引，不再触发全量重建；只有六个附件
         # 全部缺失才继续走全量重建路径。
         run: |
           $ErrorActionPreference = "Continue"
           $tag = "${{ steps.version.outputs.tag }}"
           $version = "${{ steps.version.outputs.version }}"
 
+          # 判断记录（四包修正，F3）：ADR-0018 决策 3 新增第四个私服包
+          # com.gamefoundation.adapter.headless（无头适配层交付，见 build.ps1 "5.15" 节、
+          # toolchain/registry/registry.json、check.ps1"包清单一致性"步骤 $packageNames 四项）。
+          # 本工作流此前按"三个 .tgz/五个附件"编写，是 F2 落地时的已知限制（见 ADR-0018 F2
+          # 提交历史）；现补齐为四个 .tgz/六个附件（zip、lock、四个 tgz），下面"从已验证 zip 抽附件"
+          # 逻辑（Repair missing assets from existing zip 步骤）按 tgz 文件名通配处理，不需要为
+          # 第四个包单独加分支，新增本包后自动覆盖。
           $requiredNames = @(
             "ws-game-$version.zip",
             "ws-game-$version.lock",
             "com.gamefoundation.adapter.unity-$version.tgz",
             "com.gamefoundation.framework-data-$version.tgz",
-            "com.gamefoundation.toolchain-$version.tgz"
+            "com.gamefoundation.toolchain-$version.tgz",
+            "com.gamefoundation.adapter.headless-$version.tgz"
           )
           $requiredPaths = @{
             "ws-game-$version.zip" = "dist/ws-game-$version.zip"
@@ -242,6 +250,7 @@ jobs:
             "com.gamefoundation.adapter.unity-$version.tgz" = "dist/$version/packages/com.gamefoundation.adapter.unity-$version.tgz"
             "com.gamefoundation.framework-data-$version.tgz" = "dist/$version/packages/com.gamefoundation.framework-data-$version.tgz"
             "com.gamefoundation.toolchain-$version.tgz" = "dist/$version/packages/com.gamefoundation.toolchain-$version.tgz"
+            "com.gamefoundation.adapter.headless-$version.tgz" = "dist/$version/packages/com.gamefoundation.adapter.headless-$version.tgz"
           }
 
           $json = gh release view $tag --json assets 2>$null
@@ -456,18 +465,18 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          # 判断记录（只上传 assets 步骤算出的缺失文件，不再固定列出全部五个）：见上面 "Check for
+          # 判断记录（只上传 assets 步骤算出的缺失文件，不再固定列出全部六个）：见上面 "Check for
           # existing release assets" 步骤——files 现在来自 steps.assets.outputs.missing_files
           # （每行一个 dist 相对路径），只包含本次核对时缺失的附件；已经存在于 Release 的附件不在
           # 列表里，softprops/action-gh-release 不会碰它们，也就不会被托管运行器重建的版本覆盖
-          # （"本机已验证产物优先"，见文件头判断记录）。当五个附件全部缺失时，missing_files 等于
+          # （"本机已验证产物优先"，见文件头判断记录）。当六个附件全部缺失时，missing_files 等于
           # 全量清单，效果等同于原来固定列出三行的 fallback 路径。
           files: ${{ steps.assets.outputs.missing_files }}
-          # 判断记录（三个 .tgz 只作为 Release 附件、不在这里发到任何注册表）：私服（Verdaccio）
+          # 判断记录（四个 .tgz 只作为 Release 附件、不在这里发到任何注册表）：私服（Verdaccio）
           # 只服务内网/本机场景，托管运行器既没有、也不应该配置一个可公网访问的私服地址；发布到
           # 注册表是本机 `build.ps1 -Release -Publish -PublishRegistry` 的职责（见该开关说明），
-          # 本工作流只把本机同一套打包逻辑重新产出的三个 .tgz 一并作为 GitHub Release 附件上传，
-          # 方便没有私服访问权限的场景也能拿到这三个包（手动 `npm install <tgz 路径>` 或
+          # 本工作流只把本机同一套打包逻辑重新产出的四个 .tgz 一并作为 GitHub Release 附件上传，
+          # 方便没有私服访问权限的场景也能拿到这四个包（手动 `npm install <tgz 路径>` 或
           # `npm publish <tgz 路径> --registry <自己的私服>`）。
           # 判断记录：不传 body/generate_release_notes——若 Release 已由本机 `-Release -Publish`
           # 创建（已带标题与 CHANGELOG.md 摘录的说明文本），这里只追加/覆盖附件，不覆盖已有说明；

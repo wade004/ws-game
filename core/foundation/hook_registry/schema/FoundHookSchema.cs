@@ -30,7 +30,8 @@ namespace Core.Foundation.HookRegistry
                     description: "参数签名说明文本，供校验与文档化，不做机器可读的强类型声明"),
                 new FieldSchema("allow_multiple", FieldKind.Bool, required: false,
                     description: "本挂载点是否允许注册多个回调，缺省 true"),
-                new FieldSchema("description", FieldKind.String, required: false),
+                new FieldSchema("description", FieldKind.String, required: false,
+                    description: "该挂载点的说明文本，供编辑器/文档展示，可为空"),
             },
             migrations: Array.Empty<TableMigration>());
 

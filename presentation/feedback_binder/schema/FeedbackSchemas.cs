@@ -40,47 +40,51 @@ namespace Presentation.FeedbackBinder.Schema
             {
                 ["floating_text"] = ParamsCase(new[]
                 {
-                    new FieldSchema("style_id", FieldKind.Reference, required: true, referenceTable: "feedback.floating_text_style"),
+                    new FieldSchema("style_id", FieldKind.Reference, required: true, referenceTable: "feedback.floating_text_style",
+                        description: "指向 feedback.floating_text_style，决定飘字颜色/字号/运动曲线"),
                     new FieldSchema("text_source", FieldKind.String, required: true,
                         description: "field:<name>|literal:<text_key>|amount，见 TextSource.Parse"),
-                }),
+                }, description: "floating_text 动作参数：{style_id, text_source}"),
                 ["play_vfx"] = ParamsCase(new[]
                 {
                     new FieldSchema("vfx_id", FieldKind.Id, required: false,
                         description: "与 from_display 二选一，至少一个非空（构造期校验）；vfx.def 本任务未定义，退回 Id"),
-                    new FieldSchema("from_display", FieldKind.Enum, required: false, enumValues: FromDisplaySourceValues),
-                    new FieldSchema("attach", FieldKind.Enum, required: true, enumValues: FeedbackAttachTargetValues),
+                    new FieldSchema("from_display", FieldKind.Enum, required: false, enumValues: FromDisplaySourceValues,
+                        description: "与 vfx_id 二选一，取 source/target/skill 显示信息里配置的特效"),
+                    new FieldSchema("attach", FieldKind.Enum, required: true, enumValues: FeedbackAttachTargetValues,
+                        description: "特效挂载目标（source/target/world）"),
                     new FieldSchema("anchor_id", FieldKind.Id, required: false, description: "缺省退化为世界位置播放"),
-                }),
+                }, description: "play_vfx 动作参数：{vfx_id?, from_display?, attach, anchor_id?}"),
                 ["play_sfx"] = ParamsCase(new[]
                 {
                     new FieldSchema("sfx_id", FieldKind.Id, required: false,
                         description: "与 from_display 二选一，至少一个非空（构造期校验）；sfx.def 本任务未定义，退回 Id"),
-                    new FieldSchema("from_display", FieldKind.Enum, required: false, enumValues: FromDisplaySourceValues),
-                }),
+                    new FieldSchema("from_display", FieldKind.Enum, required: false, enumValues: FromDisplaySourceValues,
+                        description: "与 sfx_id 二选一，取 source/target/skill 显示信息里配置的音效"),
+                }, description: "play_sfx 动作参数：{sfx_id?, from_display?}"),
                 ["freeze"] = ParamsCase(new[]
                 {
                     new FieldSchema("duration_ms", FieldKind.Number, required: true, description: "须 >= 0，见 FreezeAction 构造函数"),
-                }),
+                }, description: "freeze 动作参数：{duration_ms}，单位毫秒"),
                 ["shake_camera"] = ParamsCase(new[]
                 {
                     // camera_profile 与本模块同属 L5，但分属两个不同的 Presentation 子目录；判断记录
                     // 同 vfx_id/sfx_id：本模块不预设跨子模块表已加载，退回 Id（不做引用完整性检查）。
                     new FieldSchema("profile_id", FieldKind.Id, required: true, description: "指向 camera_profile"),
-                }),
+                }, description: "shake_camera 动作参数：{profile_id}"),
                 ["flash"] = ParamsCase(new[]
                 {
-                    new FieldSchema("profile_id", FieldKind.Id, required: true),
+                    new FieldSchema("profile_id", FieldKind.Id, required: true, description: "指向 camera_profile 中的震屏/闪光档位"),
                     new FieldSchema("target", FieldKind.Enum, required: true, enumValues: FeedbackAttachTargetValues,
                         description: "只能是 source|target，不得为 world（FlashAction 构造函数校验，登记层不表达取值子集）"),
-                }),
+                }, description: "flash 动作参数：{profile_id, target}"),
             };
             return new VariantSchema("kind", cases);
         }
 
-        private static IReadOnlyList<FieldSchema> ParamsCase(IReadOnlyList<FieldSchema> paramFields) => new[]
+        private static IReadOnlyList<FieldSchema> ParamsCase(IReadOnlyList<FieldSchema> paramFields, string description) => new[]
         {
-            new FieldSchema("params", FieldKind.Object, required: true, fields: paramFields),
+            new FieldSchema("params", FieldKind.Object, required: true, fields: paramFields, description: description),
         };
 
         /// <summary><c>feedback.binding</c>（09 第 6.1 节）。<c>actions</c> 的嵌套结构见

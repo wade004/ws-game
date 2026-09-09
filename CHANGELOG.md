@@ -7,6 +7,29 @@
 修复与文档勘误。单一版本源见仓库根 `VERSION` 文件；版本号与发布流程见根 `README.md`"版本与发布"
 一节。
 
+### 编辑器相关契约
+
+ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具体游戏走，见
+[ADR-0018](architecture/adr/0018-编辑器随游戏走与框架为此提供的交付物.md)）依赖的契约面"发生的
+变更，单独标注、汇总索引在此小节，供编辑器项目维护者只看这一类条目即可判断新版本是否需要跟改
+（不需要通读全部版本条目）——每条给出条目所在的版本区间与简述，详情见对应版本正文。
+
+- **F1（`[Unreleased]`，随下一版归档）**：`FieldSchema` 新增可选子结构登记
+  （`Fields`/`Item`/`Variants`，`Object`/`Array` 两种字段种类）与 `VariantSchema` 契约类型；
+  `DataRegistry` 按登记递归校验，新增检查名 `variant_discriminator`/`substructure_depth`/
+  `unknown_subfield`；`toolchain/validator --json` 输出新增
+  `disabled_optional_rules`/`enabled_optional_rules` 字段。
+- **F2（`[Unreleased]`，随下一版归档）**：新增核心库校验装配入口
+  `Presentation.Assembly.ContentValidationAssembly.Run`/`CreateRegistry`（`toolchain/validator`
+  与编辑器基础套件共用同一份装配代码）；新增第四个私服包 `com.gamefoundation.adapter.headless`
+  （无头适配层，随构建产物分发，供内容编辑器等无头宿主使用）。
+- **F3（`[Unreleased]`，随下一版归档）**：新增元数据门禁
+  `Presentation.Assembly.SchemaAudit`/`toolchain/validator --schema-audit`（六项检查，见下方
+  `[Unreleased]` 正文"F3"小节）；`DataRegistry` 新增只读属性 `RegisteredSchemas`；开发期数据
+  热重载标准实现 `games/_template/Runtime/DataHotReload.cs`（`Reload` 成功/失败经事件总线补发
+  `data.load_completed`/`data.validation_failed`）；`.github/workflows/release.yml` 四包修正
+  （编辑器项目若参照本仓库发布工作流的必需附件集合，需同步补齐第四个 `.tgz`）。
+
 ## [Unreleased]
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
@@ -329,8 +352,47 @@
 - `check.ps1`"包清单一致性"步骤核对的包数量由三个改为四个（新增
   `com.gamefoundation.adapter.headless`），`build.ps1 -Dist`/`-Release` 组装出的 `packages/`
   目录与 `.tgz` 数量同步由三个改为四个。`.github/workflows/release.yml` 涉及三个 `.tgz` 的
-  多处硬编码本轮未同步（见落地计划 3.5.1 节改动记录），已知限制，留待后续单独跟进——本仓库内
-  `build.ps1`/`check.ps1`/`get_framework.ps1` 三个入口已完整支持四个包，不影响本仓库内验收。
+  多处硬编码已于 F3 补齐（见下"F3：元数据门禁、开发期数据热重载、release.yml 四包修正"小节），
+  此前"已知限制，留待后续单独跟进"的说明不再适用。
+- F3（ADR-0018 决策 3/5、ADR-0019 决策 4）：
+  - **元数据门禁**：新增 `presentation/assembly/SchemaAudit.cs`（`Presentation.Assembly.SchemaAudit`），
+    对全部已登记 `TableSchema`/`FieldSchema` 结构声明本身做静态审计（不加载任何数据），六项检查
+    ——`missing_description`/`composite_without_substructure`/`allowlist_entry_unused`/
+    `reference_target_unknown`/`variant_shape`/`unschematized_table`；`DataRegistry` 新增
+    只读属性 `RegisteredSchemas`（具体类，不改 `IDataRegistry`/`IDataRegistryView` 接口签名）。
+    `toolchain/validator` 新增 `--schema-audit [--allowlist <path>] [--json]` 命令行模式；
+    `check.ps1` 新增步骤"元数据门禁：validator --schema-audit"，`-Quick` 下也跑。新增白名单文件
+    `toolchain/schema_audit_allowlist.json`（20 条，均为动态键 Map 型对象或模块显式声明"暂不
+    解析"的扩展位，逐条写明 reason）；首次审计跑出的全部 `missing_description`（452 处原始命中，
+    经修复"自引用 schema 环检测"缺陷后去重为 227 处真实字段）已在对应 `*Schemas.cs` 文件里真正
+    补齐中文描述，不是加白名单绕过。`encounter.def.rewards` 改为复用 `quest.def`/`achv.def` 已有
+    的 `QuestSchemas.RewardsFields`（此前是裸 `Object`，无 `Fields` 子结构）。
+  - **开发期数据热重载标准实现**：新增 `games/_template/Runtime/DataHotReload.cs`（仅
+    `UNITY_EDITOR || DEVELOPMENT_BUILD` 下编译为有效实现，其余情况是空壳，发布构建零开销）；
+    `GameOptions` 新增口味开关 `EnableDataHotReload`（默认 `true`）；`GameBootstrap` 在数据加载
+    成功后按该开关挂载，监视框架数据根与游戏数据根下 `*.json`，去抖 300ms 后调用
+    `DataRegistry.Reload`，成功/失败分别补发 `data.load_completed`/`data.validation_failed`
+    （`Reload` 本身不发这两个事件，只有 `LoadAll` 会发）。
+  - **`.github/workflows/release.yml` 四包修正**：`Check for existing release assets`/
+    `Repair missing assets from existing zip` 两步的必需附件集合由"三个 `.tgz`/五个附件"补齐为
+    "四个 `.tgz`/六个附件"（新增 `com.gamefoundation.adapter.headless-<ver>.tgz`）。
+    `toolchain/tests/test_package_name_consistency.py` 新增一条测试，把 `release.yml` 的
+    `$requiredNames`/`$requiredPaths` 纳入四处一致性核对（此前只核对
+    `registry.json`/`build.ps1`/`check.ps1`/`get_framework.ps1` 四处，`release.yml` 曾是漏网
+    的第五处）。
+- **迁移说明（元数据门禁，F3）**：`check.ps1` 新增的"元数据门禁"步骤从此会阻断提交——任一已登记
+  `FieldSchema` 缺描述（`missing_description`）、或 `Object`/`Array` 字段未登记子结构且未在白
+  名单声明（`composite_without_substructure`）都会让该步骤以非零退出码失败，`-Quick` 子集同样
+  跑这一步（秒级，不需要 Unity/构建产物）。游戏侧若有自定义 `TableSchema` 经
+  `IDataRegistry.RegisterSchema` 登记进与框架共用的同一个 `registry`（例如
+  `PresentationSchemaCatalog.RegisterAll` 之后再补注册游戏专属表），这些自定义表同样会被本仓库
+  的 `SchemaAudit`/`check.ps1` 步骤审计到（若游戏侧直接复用本仓库的 `check.ps1`）——升级后首次
+  遇到阻断，按检查名分两种处理：`missing_description` 必须给对应 `FieldSchema` 补一句中文描述，
+  不能靠白名单绕过；`composite_without_substructure` 若确认是动态键 Map 型对象/暂不支持结构化
+  登记的字段，在 `toolchain/schema_audit_allowlist.json`（或游戏侧自己维护的等价白名单文件，
+  经 `--allowlist <path>` 指定）新增一条 `{"table", "field", "reason"}`，`reason` 必填、必须
+  写清楚为什么这个字段暂时/永久不适合登记子结构，白名单条目不再对应任何真实命中时
+  `allowlist_entry_unused`（Warning，不阻断）会提醒清理。
 
 ## [1.12.0] - 2026-09-09
 
