@@ -52,3 +52,6 @@ toolchain/registry/.npmrc
 toolchain/registry/verdaccio.pid
 toolchain/registry/verdaccio.pid.meta.json
 toolchain/registry/*.log
+# 审计归档目录里由 dotnet build 产生的 obj-*/ 中间目录（如 audit-8160178 的 api-compat 复现工程曾误提交
+# obj-current17zip/ 等），编译器自动生成的 AssemblyInfo.cs / AssemblyAttributes.cs 不是证据，不提交。
+architecture/落地计划/audit-*/**/obj-*/
