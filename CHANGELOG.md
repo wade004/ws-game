@@ -11,6 +11,109 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.12.0] - 2026-09-09
+
+第十五方深度审核（codex 第十三轮，基线 `6739f50`，即 1.11.0 发布提交）2 项核心侧确认缺陷
+（CORE-111-01、TP-111-01）+ 3 项表现/引擎侧确认缺陷（UI-111-01、NAV-111-01、SPATIAL-111-01）
+逐条核实并根治，另处理若干核心侧文档/注释勘误、02/09 性能约定改写为准确边界、能力索引新增
+"暂不落地（用户拍板）"分类并归入编辑器工具、补齐此前遗漏的能力索引行。逐条核实表、判断记录、
+验收结果见
+[audit-6739f50-20260909/followup-2026-09-09b.md](architecture/落地计划/audit-6739f50-20260909/followup-2026-09-09b.md)。
+均属核心存档/传送缺陷修复、表现层缓存缺陷修复、引擎适配层寻路/空间查询缺陷修复与文档口径修正，
+无数据表字段删改；存档格式有向后兼容的新增字段（见下"行为变更与迁移说明"）。
+
+### 新增
+
+- **`Core.Numbers.PowerSet.PowerHost.GetRegisteredPowerTypes(Id unitId)`/`IsInCombat(Id unitId)`**
+  （新增公开方法，CORE-111-01 根治）：枚举某单位已注册的全部资源类型 id、查询当前进出战斗运行态；
+  均只加在具体类 `PowerHost` 上，不进 `IPowerHost` 契约，不影响本仓库其它独立实现该接口的测试假
+  类型。
+- **`player.vitals` 存档段新增 `in_combat`（`Bool`）/`powers`（`Map<Id, Number>`）两个字段**
+  （CORE-111-01 根治）：覆盖该单位读档前那一刻已注册的全部资源池当前值与进出战斗运行态，不再只
+  挑生命值一种资源；旧字段 `health` 继续保留写入（供仍直接读取旧字段名的外部工具过渡使用）。
+- **`Core.Gameplay.Assembly.PlayerVitalsPersistable(PlayerUnit, IPowerHost)`**（源码兼容重载，
+  标记 `[Obsolete]`）：CORE-111-01 把生产构造函数第二参数类型从 `IPowerHost` 收窄为具体
+  `PowerHost` 后，为保持本仓库之外可能存在的消费方源码兼容而补回的旧签名重载，仅做类型收窄转发
+  （传入的 `IPowerHost` 若实际不是 `PowerHost` 实例则抛出明确的 `ArgumentException`）；框架自身
+  生产装配点已经改用具体类型重载，不受影响。
+- **"能力边界与未默认接入能力索引"表新增第四类分类"暂不落地（用户拍板）"**：区别于"未实现"
+  （框架当前无对应运行期逻辑）与"明确非目标"（已有决策记录判定本版不展开）——本类特指"框架侧
+  机制/产品方案已就绪或不构成技术障碍，但用户已明确拍板本阶段不安排落地"；编辑器工具（GF 内容
+  编辑器）一行由"未实现"改列此类（产品文档已完成，实现按用户 2026-09-09 拍板暂缓）。索引表另
+  按第十三轮审计报告补齐此前遗漏的五行——`ISkillHost.FindUnits`、位移轨迹碰撞、VFX 锚点持续
+  跟随、nested teleport 元素/引用完整性校验、导航跨帧请求预算、空间查询完整索引化（均"未实现"）、
+  `SpawnSummonOnlyCreatureRule` 查询接入（"已实现未默认接线"）。
+
+### 修复
+
+- **失败/成功读档回滚快照未覆盖 Health 之外的资源池当前值与进出战斗运行态（CORE-111-01，P2）**：
+  见上"新增"两项。`PlayerVitalsPersistable.Save`/`Load` 泛化为覆盖全部已注册资源池当前值与
+  `in_combat`，正向读档与失败回滚重放路径共用同一份 `Load` 实现；旧存档只有 `health` 字段时仍可
+  正常读取（其余资源池按各自 `start_full`/默认规则初始化，不受影响）。
+- **跨图传送先改写玩家字段再调用场景路由，路由拒绝（含 Loading 期间收到的第二个跨图请求）时异常
+  被吞掉、字段已提交、场景与玩家 map/位置永久分叉（TP-111-01，P2）**：
+  `GameplayAssembly.ApplyResolvedTeleport` 改为先尝试 `ISceneRouter.LoadScene`，只有路由未抛异常
+  （确实接受本次导航请求）之后才提交 `entity.MapId`/位置；对"未知地图"与"当前不允许转入
+  Loading"（含 Loading 中的第二次跨图请求）两类路由拒绝，采用默认"拒绝"策略——不排队、不重试，
+  本次传送不产生任何字段副作用，交由上层按自己的重试/提示策略处理。同图内传送（不切地图）与未
+  装配场景路由的场景不受影响。
+- **视图模型读档后不重建缓存，需等待下一次手动 `Refresh` 才与宿主数据一致（UI-111-01，P2）**：
+  `InventoryViewModel`/`ActionBarViewModel`/`CharacterStatsViewModel`/`DialogViewModel`/
+  `HudViewModel`/`QuestLogViewModel`/`ShopViewModel`/`SkillBookViewModel` 八个视图模型的构造函数
+  新增订阅 `SaveEventKeys.SaveLoaded`；`SaveSlotsViewModel` 本就已订阅；`PauseMenuViewModel`/
+  `SettingsViewModel` 核对后确认与存档数据无关，不需要订阅。
+- **Unity 导航窄通道：通道宽度窄于两级采样网格但直线本身畅通时 `FindPath` 仍返回 `null`
+  （NAV-111-01，P2）**：`UnityNavigation2D.FindPath` 拆出私有 `FindPathViaGrid`（原逻辑不变），
+  网格寻路彻底失败后新增"直线直达"兜底（新增私有 `SegmentHasClearContact`，要求线段与全部阻挡
+  矩形完全无接触，比既有 `SegmentBlocked` 更严格，不越权覆盖 A* 已有的"禁止切角"结论）。
+- **Unity 空间范围/锥形查询：候选桶范围未按被查询实体自身半径扩张，跨桶边界的大半径实体被漏选
+  （SPATIAL-111-01，P2）**：`UnitySpatialQuery.QueryRadius`/`QueryCone` 的候选桶范围改为"查询
+  半径/范围 + `MaxRadiusHint()`"（索引内最大实体半径）；`QueryRect`/`QueryShape`/`Nearest` 本就
+  不经分桶（全量线性扫描），不受影响。
+- **`architecture/02` §1.8 `findPath`/§1.9 `ISpatialQuery` 的"性能约定"过度承诺**："运行时应
+  支持跨帧分摊、不得要求单帧内同步返回"与"查询应基于空间索引而非线性扫描"均与已知参考实现不符
+  （跨帧预算未实现；`QueryRect`/`Nearest`/桩实现均为线性扫描），改写为准确的"边界"表述，不改变
+  契约签名，版本号不变。
+- **`architecture/09` §7.2 补充读档场景的视图模型缓存重建规则**：与 §4.4
+  `IWeaponStyleSource` 缓存失效时机同一判断记录，版本号不变。
+- 若干核心侧文档/注释现状化，均不改变任何运行期行为：`ArchSchemas.cs`/archetype `README.md`
+  的 `passive_auras`/`skill_book_ref` 说明（`stat_block`/`power_set`/L2 `skill` 均早已实现，
+  "不声明 Reference"的真正理由是分层边界与接口能力边界，不是对方模块尚未实现）；
+  `PowerTickHandler.cs`/`IPowerDiagnostics.cs` 的过期判断记录（"本项目暂不启用离散时间模型"
+  改判为"ADR-0013/sim_loop 已有基础离散调度，这只是本资源处理器自己的连续-only 边界"）；
+  `UnityViewFactory.cs`/`GameFoundationBootstrap.cs` 的过期判断记录（"ViewBinder/CameraHost
+  不支持退订"，`ViewBinder` 现已实现 `IDisposable`）。
+
+### 行为变更与迁移说明
+
+- **`player.vitals` 存档段格式扩展（向后兼容）**：新增 `in_combat`/`powers` 字段；读档时优先用
+  `powers` 字段（存在即覆盖同一集合，缺失的当前值项静默跳过），只有 `powers` 字段完全缺失（旧
+  格式存档）才退回旧的仅 `health` 路径。无需离线迁移脚本，读档即完成透明升级；旧档写回后自动
+  变为新格式（不会自动降级回旧格式）。
+- **`PlayerVitalsPersistable` 构造函数收窄**：生产构造函数第二参数类型从 `IPowerHost` 收窄为
+  具体 `PowerHost`。本仓库之外若有消费方直接以旧签名 `new PlayerVitalsPersistable(player,
+  someIPowerHost)` 构造，源码仍可编译（改走新增的 `[Obsolete]` 兼容重载），但要求传入的实例实际
+  是 `PowerHost`（`IPowerHost` 目前唯一的生产实现）；传入其它实现会在构造期抛出
+  `ArgumentException`（此前能编译通过，但也无法正常调用 CORE-111-01 新增的
+  `GetRegisteredPowerTypes`/`IsInCombat`）。
+- **跨图传送加载期间不再"静默接受第二次请求并覆盖玩家字段"**：升级前 Loading 中收到第二个跨图
+  传送请求会让玩家 `MapId`/位置被改写成第二个请求的目标，即便该请求本身被路由拒绝、场景最终仍
+  停在第一个请求的目标地图（字段与场景永久分叉）；升级后第二个请求整体不产生任何字段副作用。
+  **依赖旧行为（Loading 期间发起的传送请求仍会生效于玩家字段）的调用方需要重新评估**——正确用法
+  是等待首个请求完成（或失败）后再发起下一次传送。
+- **自定义 `ISpatialQuery` 实现**：若游戏层提供了自己的 `ISpatialQuery` 实现（而非使用
+  `UnitySpatialQuery`/`StubSpatialQuery`），且该实现也做了按桶（网格分区）加速的候选筛选，建议
+  对照 SPATIAL-111-01 的根治手法核对候选桶范围是否已按被查询实体自身半径扩张，避免同一漏选问题。
+- **`architecture/02`/`09` 两处"性能约定"改写为"边界"表述**：不改变任何契约签名或运行期行为，
+  仅文档措辞更准确地反映当前参考实现的真实能力边界（跨帧分摊寻路预算、空间索引完整覆盖仍是
+  "未实现"能力索引项，见上"新增"能力索引表更新）。
+
+### 版本判据说明
+
+新增公开成员（`PowerHost.GetRegisteredPowerTypes`/`IsInCombat`、`PlayerVitalsPersistable` 源码
+兼容重载）与存档段向后兼容的新增字段（`player.vitals` 的 `in_combat`/`powers`），以及已记录在案
+的行为修正（传送提交时机、视图模型缓存重建、导航/空间查询候选筛选）——按 SemVer 判定为 MINOR。
+
 ## [1.11.0] - 2026-09-09
 
 第十四方深度审核（codex 第十二轮，基线 `ac3b622`，即 1.10.0 发布提交）3 项核心侧确认缺陷
