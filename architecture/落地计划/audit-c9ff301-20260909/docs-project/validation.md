@@ -52,7 +52,7 @@
 - `dist/ws-game-1.13.0.lock`：912 bytes，SHA-256 `82381043d3c8644ca1f4fbf5128b3e11362d36ed35e853281f89682d58c69ddb`，`git_commit=609cec4`。
 - ZIP 有 1053 entries；七个 Core/Presentation/Stub DLL 以精确 entry 流 hash 与 lock 全部匹配；四个 package manifest 精确版本均为 1.13.0。
 
-[verify_release_zip.py](verify_release_zip.py) 的恢复版只读取 `--repo` 指定的正式 ZIP，缺 entry/hash/version 会非零退出。磁盘解包目录 hash 是另一层历史核验；check-artifacts 重建 DLL 只证明冻结源码可构建，不能当正式 ZIP 运行证明。
+`verify_release_zip.py`（原件未随本次归档提交到本仓库——只在审计执行时的 review worktree 内使用，见 `toolchain/tests/.linkcheck-ignore` 说明）的恢复版只读取 `--repo` 指定的正式 ZIP，缺 entry/hash/version 会非零退出。磁盘解包目录 hash 是另一层历史核验；check-artifacts 重建 DLL 只证明冻结源码可构建，不能当正式 ZIP 运行证明。
 
 ## ABI 证据
 

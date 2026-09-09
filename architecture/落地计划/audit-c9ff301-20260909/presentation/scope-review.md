@@ -42,4 +42,4 @@ SPATIAL 的证据只覆盖 `ISpatialQuery.QueryRadius` / `QueryCone` 及当前 b
 
 ## 证据计数口径
 
-[editmode-full-final.xml](editmode-full-final.xml) 的 70/70 与 [playmode-full-final.xml](playmode-full-final.xml) 的 270/270 是归档的最终基线证据，本次责任 review 未重新运行。Deleted overlay 用例的 1/1 是缺陷签名断言通过；View Save/Load 用例按正确 oracle 失败。fixture 只为通用机制测试提供合法 `_sample` 输入，不引入 `ws-game-wow` 依赖；原始 XML/log/probe/hash 文件本轮未改。两类结果、生产 Changed 成功、NAV/SPATIAL 回归分别记录，不能合并成“全链路表现已通过”。
+[editmode-full-final.xml](editmode-full-final.xml) 的 70/70 与 `playmode-full-final.xml`（原件未随本次归档提交到本仓库，见 `toolchain/tests/.linkcheck-ignore` 说明）的 270/270 是归档的最终基线证据，本次责任 review 未重新运行。Deleted overlay 用例的 1/1 是缺陷签名断言通过；View Save/Load 用例按正确 oracle 失败。fixture 只为通用机制测试提供合法 `_sample` 输入，不引入 `ws-game-wow` 依赖；原始 XML/log/probe/hash 文件本轮未改。两类结果、生产 Changed 成功、NAV/SPATIAL 回归分别记录，不能合并成“全链路表现已通过”。

@@ -22,7 +22,7 @@ EditMode 命令：
 
 [editmode-full-final.xml](editmode-full-final.xml) 为 `Passed`, 70/70（69 个基线测试 + 1 个 Deleted overlay 诊断测试）。[editmode-full-final.log](editmode-full-final.log) 是对应 Unity log。
 
-PlayMode 命令同样使用 `-testPlatform PlayMode`，结果输出为 [playmode-full-final.xml](playmode-full-final.xml) 和 [playmode-full-final.log](playmode-full-final.log)：`Passed`, 270/270，0 failed、0 skipped，duration 66.6525 秒。全量基线运行时 View probe 已临时以 `.cs.audit-disabled` 隔离，避免其行为正确性失败污染基线；其最终源码和单独 XML/log 仍保存在本目录。
+PlayMode 命令同样使用 `-testPlatform PlayMode`，结果输出为 `playmode-full-final.xml` 和 `playmode-full-final.log`（原件未随本次归档提交到本仓库，见 `toolchain/tests/.linkcheck-ignore` 说明）：`Passed`, 270/270，0 failed、0 skipped，duration 66.6525 秒。全量基线运行时 View probe 已临时以 `.cs.audit-disabled` 隔离，避免其行为正确性失败污染基线；其最终源码和单独 XML/log 仍保存在本目录。
 
 ## NAV / SPATIAL 修复复核
 

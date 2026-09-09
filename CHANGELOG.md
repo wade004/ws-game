@@ -34,54 +34,90 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
-### 第十四轮（修订版）审核修复（基线 `c9ff301`，2026-09-10；随下一次发布归档为 `[1.14.0]` 正式
-条目，届时补齐提交 hash）
+## [1.14.0] - 2026-09-10
 
-外部审核（`architecture/落地计划/audit-c9ff301-20260909/`）6 项 P2 + 2 项静态差距 + P3/文档均已
-核实并修复，详见该目录 `followup-2026-09-10.md` 核实表。
+第十四轮（修订版）审核修复（codex，基线 `c9ff301`/v1.13.0，
+`architecture/落地计划/audit-c9ff301-20260909/`）：6 项 P2 + 2 项静态差距（`ISkillHost.FindUnits`、
+VFX 锚点持续跟随）+ 3 项 P3 + 文档/能力索引均已核实并修复，核实结论见该目录
+`followup-2026-09-10.md`。核心侧修复提交 `c65258e`，表现/模板侧修复提交 `775de54`，文档与门禁提交
+`4a60ca2`，审计归档提交 `acbdf99`。
 
-- **ABI/API 兼容性收口**：恢复上方"已知问题"小节记录的全部六个已删除公开规则类型
-  （`Core.Foundation.DataRegistry.FieldSchema` 七参数构造函数、`Core.Carriers.Gobj.
-  GobjOnUseKindRule`/`GobjLockRequirementFieldGroupRule`、`Core.Rules.Skill.
+### 新增/恢复
+
+- **ABI 兼容 façade**（`[Obsolete]`，内部委托给现有实现，行为与 1.12 完全一致）：
+  `Core.Foundation.DataRegistry.FieldSchema` 七参数构造函数；六个已删除公开规则类型
+  `Core.Carriers.Gobj.GobjOnUseKindRule`/`GobjLockRequirementFieldGroupRule`、`Core.Rules.Skill.
   EffectKindRegisteredRule`/`CostEntryShapeRule`/`ChargesShapeRule`、`Core.Gameplay.AreaTrigger.
-  AreaTriggerShapeKindRule`）与两处构造签名收窄（`Core.Gameplay.Economy.
-  EconomyContentValidationRule`/`Core.Gameplay.Loot.LootContentValidationRule` 的
-  `(IExprSchema? conditionSchema = null)`），均标注 `[Obsolete]`、内部委托给现有实现，行为与 1.12
-  完全一致——旧编译 consumer 换正式新 DLL 不重新编译即可继续运行，不再出现
-  `MissingMethodException`；新增独立 ABI 探针 `toolchain/abi_probe.ps1` 纳入 `check.ps1` 全量步骤，
-  避免再次出现"声明 MINOR 兼容、实际二进制不兼容"的偏差。
-- **内容校验补齐**：Gobj `world_flag.expected` 未在 report 阶段拒绝（新增
-  `GobjLockWorldFlagExpectedRule`）；Quest `rewards.world_flags[].value`/Dialog
-  `set_flag.params.value` 的 `ExprValueJson` 联合形状漏校验（新增 `ExprValueJson.IsValid` 统一校验
-  器）；周期效果 `scaling_stat` 元数据登记漂移（`SkillSchemas.PeriodicParamsCase` 补
-  `Reference(stat.definition)`）；`WorldMap` 出生点/传送点元素语义边界澄清（新增
-  `WorldMapSpawnPointsValidationRule`，`architecture/05` 勘误）。
-- **热重载后定义缓存刷新**：`SkillDefCache`/`InventoryHost`/`EquipmentHost`/`QuestHost`/
-  `DialogHost`/`ArchetypeRegistry` 六处 + 本轮追加同类根治的 `StatHost`/`LootHost`/`EconomyHost`/
-  `PowerHost` 四处，共十处"构造期一次性读 registry 建索引、之后只读"缓存均已订阅
-  `DataLoadCompletedEvent`（`PowerHost` 因不持有 registry，改走新增 `Reload` 方法 + 组装根
-  `RulesAssembly` 转发，惯例同 `QuestHost.Reload`/`DialogHost.Reload`），reload 后 resident host
-  下一次访问即可见新定义；均不触碰任何运行期状态（已应用的属性/光环、背包物品、任务进度、对话
-  会话、已消耗的限量库存、已注册单位的当前资源值），`EconomyHost` 的限量库存额外做了"已存在
-  (vendorId, itemId) 组合保留原状态、只对新出现的组合按新定义初始化"处理，不会把玩家已购买消耗的
-  库存重置回满库存。
-- `ISkillHost.FindUnits` 静态差距（此前恒返回空列表）：委托 `ISpatialQuery.QueryShape` 与
-  `UnitFilter` 全维度过滤，补齐真实实现。
-- 装备表现 SaveLoaded 对账、开发期数据热重载删除覆盖回落、VFX 锚点持续跟随、ADR-0019 门禁载体文案
-  勘误：见 `architecture/09`/`13`/`adr/0019-*.md` 对应小节。
-- 能力索引（`架构/落地计划/落地方案与分阶段计划.md`）按"框架/游戏责任"重新分类，天赋点数管理、
-  位移轨迹碰撞、新局完整重置等原"未实现"条目改归**游戏责任**（框架不强加契约）；导航跨帧预算、
-  空间查询完整索引化改归**明确非目标**。
+  AreaTriggerShapeKindRule`；两处构造签名收窄的兼容重载 `Core.Gameplay.Economy.
+  EconomyContentValidationRule(IExprSchema?)`/`Core.Gameplay.Loot.LootContentValidationRule
+  (IExprSchema?)`。
+- `Presentation.Render.IEquipmentVisualResettable`（新接口，`SpriteViewBase`/
+  `Adapter.Unity.Presentation.UnityModelView` 实现）：装备表现 SaveLoaded 读档对账先清旧外观再
+  应用快照。
+- `Presentation.VfxSfx.Contracts.IParticleRepositioner`（新可选能力接口，`Adapter.Unity.
+  EngineAdapter.UnityRenderer2D` 实现）：VFX anchor/socket 降级场景的锚点持续跟随；`VfxPlayer.
+  Update` 默认调用，未实现该接口的引擎适配层行为与改动前一致。
+- `ISkillHost.FindUnits` 真实现（此前恒返回空列表）：委托 `ISpatialQuery.QueryShape` + 新增
+  `Shape.WithOrigin`，按 `UnitFilter` 全维度过滤，生产装配 `RulesAssembly` 默认注入 `Spatial`/
+  `Factions`。
+- 定义缓存热重载失效（十处，"构造期一次性读 registry 建索引、之后只读"模式统一订阅
+  `DataLoadCompletedEvent`）：`SkillDefCache`（新增 `InvalidateAll`）、`InventoryHost`/
+  `EquipmentHost`、`QuestHost`/`DialogHost`（均新增 `Reload` 方法 + `GameplayAssembly` 转发）、
+  `ArchetypeRegistry`、`StatHost`、`LootHost`、`EconomyHost`（新增 `Reload` 方法 +
+  `RulesAssembly` 转发）；均不触碰运行期状态，`EconomyHost` 的限量库存额外保留已消耗进度不重置。
+- schema 新增字段：`GobjLockWorldFlagExpectedRule`（`world_flag.expected` 缺失/错型 report 阶段
+  拒绝）、`ExprValueJson.IsValid`（Quest `rewards.world_flags[].value`/Dialog
+  `set_flag.params.value` 联合形状校验）、`SkillSchemas.PeriodicParamsCase` 补
+  `scaling_stat: Reference(stat.definition)`、`WorldMapSpawnPointsValidationRule`（出生点/传送点
+  元素语义边界）、`games/_template/Runtime/DataHotReload.cs` 新增订阅 `Deleted` 文件事件（删除
+  override 自动回落）。
+- `toolchain/abi_probe.ps1` + `toolchain/abi_probe/`（消费方探针工程）+
+  `toolchain/abi_probe_baseline.txt`：发布前 ABI 探针，纳入 `check.ps1` 全量步骤（`-Quick` 跳过）。
 
-**迁移说明**：旧编译 consumer 换正式 1.14 DLL 无需重新编译即可继续运行；使用上述 `[Obsolete]`
-façade 的源码在重新编译时会收到警告，提示改用对应的声明式 schema 登记（`VariantSchema`/`Fields`）
-或无参构造函数，façade 至少保留一个 MINOR 周期后才可能移除；显式使用兼容重载可能与内建结构校验/
-新增业务规则对同一处坏数据重复报告（check 名不同，不掩盖问题，只是冗余）。热重载缓存刷新对调用方
-透明，无需改动既有调用点。VFX 跟随对自定义 `IRenderer2D` 实现是可选接口（`IParticleRepositioner`），
-未实现时行为与改动前一致。
+### 修复
 
-本节内容已实际落地（详见对应模块 README 与 `followup-2026-09-10.md`），随下一次
-`build.ps1 -Release` 归档为 `[1.14.0]` 正式条目并补齐提交 hash，不需要重写事实内容。
+第十四轮（修订版）审核 6 项 P2（ABI/API 兼容性、Gobj `world_flag.expected`、SkillHost 热重载缓存、
+Quest world flag reward 联合校验、装备表现 SaveLoaded、开发期热重载删除覆盖回落）+ 2 项静态差距
+（`ISkillHost.FindUnits`、VFX 锚点持续跟随）+ 3 项 P3（ADR-0019 门禁载体文案、周期效果
+`scaling_stat` metadata、WorldMap 点元素语义边界）+ 额外发现（第六个退役类型、两处构造签名收窄、
+四处同类缓存候选）——逐条判断、复现、修复位置、验收结果见
+`architecture/落地计划/audit-c9ff301-20260909/followup-2026-09-10.md` 核实表，不在本条目重复展开。
+
+### 文档
+
+- 能力索引（`architecture/落地计划/落地方案与分阶段计划.md`"能力边界与未默认接入能力索引"一节）
+  分类口径由四类扩到六类，新增**游戏责任**；天赋点数管理、位移轨迹碰撞、新局完整重置、escort
+  自动路线等条目按责任重分类；导航跨帧预算、空间查询完整索引化改归**明确非目标**；
+  `ISkillHost.FindUnits`、VFX 锚点持续跟随两行随本版本实现完成，从索引表本体移出、归档进"已修复
+  历史项"小节；根 `README.md` 能力边界段同步。
+- `architecture/05_对象模型与世界.md`（WorldMap 点元素语义勘误）、`architecture/09_表现层.md`
+  （装备外观对账、VFX 跟随实现现状）、`architecture/13_新游戏接入指南.md`（热重载删除语义）、
+  `architecture/adr/0019-复合字段子结构登记为机器可读schema.md`（追加修订记录）、
+  `architecture/11_工程规范与测试.md`（ABI 探针现状更正为已实现）均按 12 §5"细节勘误直接修订、
+  版本号不变"处理。
+
+### 迁移说明
+
+- 旧编译的 1.12 consumer 换正式 1.14 DLL、**不重新编译**即可继续运行，不再出现
+  `MissingMethodException`（已随 `toolchain/abi_probe.ps1` 纳入发布前检查，基线 1.12.0 本机实跑
+  通过）。
+- 使用上方"新增/恢复"小节列出的退役类型/兼容重载的**源码**在重新编译时会收到 `[Obsolete]` 编译期
+  警告，提示改用对应的声明式 schema 登记（`VariantSchema`/`Fields`）或无参构造函数；这些 façade
+  至少保留一个 MINOR 发布周期，下一个 MINOR 周期后可能移除（届时另行走
+  [12_扩展与变更流程.md](architecture/12_扩展与变更流程.md) 走 MAJOR 流程）。显式使用兼容重载可能
+  与内建结构校验/新增业务规则对同一处坏数据重复报告（check 名不同，不掩盖问题，只是冗余）。
+- 定义缓存热重载失效对调用方透明，无需改动任何既有调用点；`DataLoadCompletedEvent` 触发后
+  resident host 下一次访问即可见新定义，运行期状态（背包物品、任务进度、对话会话、已应用光环/
+  属性、已注册单位的当前资源值、`EconomyHost` 未变化商品的限量库存剩余）不受影响。
+- VFX 跟随对自定义 `IRenderer2D` 引擎适配层是**可选**接口（`IParticleRepositioner`）：未实现该
+  接口的引擎适配层行为与改动前完全一致，不需要任何改动即可继续编译运行；需要跟随效果的引擎适配层
+  实现方可自行实现该接口接入。
+
+### 版本判据说明
+
+新增能力（ABI 探针、两个新接口、`FindUnits` 真实现、十处热重载缓存刷新、四个 schema 新字段）与
+恢复向后兼容（ABI façade 恢复对已编译 1.12 consumer 的二进制兼容）——均不改变任何现有公开签名、
+不删改任何数据表字段、不改变存档格式，按 SemVer 判定为 MINOR。
 
 ## [1.13.0] - 2026-09-09
 
