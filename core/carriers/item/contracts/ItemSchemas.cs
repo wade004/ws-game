@@ -11,6 +11,66 @@ namespace Core.Carriers.Item
     /// </summary>
     public static class ItemSchemas
     {
+        /// <summary><c>stats[].op</c> 合法取值（<c>EquipmentHost.ParseOp</c> 权威解析，
+        /// <c>flat|pct|mult</c> 三种，非 07 原文示例的 <c>flat|pct</c> 两种——以运行时代码为准，
+        /// 见 ADR-0019 通用规则 1）。</summary>
+        public static readonly string[] StatOpValues = { "flat", "pct", "mult" };
+
+        /// <summary><c>item.template.stats</c> 元素结构（<c>EquipmentHost.ApplyGrants</c>
+        /// 第一段：<c>RequireId(obj,"stat")</c>/<c>ParseOp(GetString(obj,"op","flat"))</c>/
+        /// <c>GetNumber(obj,"value",0)</c>）。<c>stat</c> 登记为 <c>Reference(stat.definition)</c>：
+        /// stat.definition 属 L1，本模块（L3）依赖方向合法（同 <c>SkillSchemas.AuraEffectsItemSchema</c>
+        /// 的 <c>mod_stat.stat</c> 判断记录）。</summary>
+        public static readonly FieldSchema StatsItemSchema = new FieldSchema(
+            "<stat_mod>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("stat", FieldKind.Reference, required: true, referenceTable: "stat.definition"),
+                new FieldSchema("op", FieldKind.Enum, required: false, enumValues: StatOpValues,
+                    description: "缺省 flat"),
+                new FieldSchema("value", FieldKind.Number, required: false, description: "缺省 0"),
+            });
+
+        /// <summary><c>item.template.grants</c> 结构（<c>EquipmentHost.ApplyGrants</c> 第二段）。
+        /// <c>skills</c>/<c>auras</c> 登记为 <c>Reference(skill.def)</c>/<c>Reference(skill.aura_def)</c>
+        /// （任务书额外要求 1：L3 引用 L2 程序集合法）。</summary>
+        public static readonly FieldSchema GrantsSchema = new FieldSchema(
+            "grants", FieldKind.Object, required: false, fields: new[]
+            {
+                new FieldSchema("skills", FieldKind.Array, required: false,
+                    item: new FieldSchema("<skill_id>", FieldKind.Reference, required: true, referenceTable: "skill.def"),
+                    description: "缺省 []，装备后授予的主动技能（来源计数按装备实例 id，见 EquipmentHost.ApplyGrants）"),
+                new FieldSchema("auras", FieldKind.Array, required: false,
+                    item: new FieldSchema("<aura_id>", FieldKind.Reference, required: true, referenceTable: "skill.aura_def"),
+                    description: "缺省 []，装备后授予的被动光环；重复引用见 ItemGrantsAurasDuplicateRule（Warning）"),
+            },
+            description: "{skills:[Reference(skill.def)], auras:[Reference(skill.aura_def)]}");
+
+        /// <summary><c>item.template.weapon_profile</c> 结构（<c>EquipmentHost.GetWeaponProfile</c>：
+        /// <c>GetNumber(profile,"damage_min",0)</c>/<c>"damage_max"</c>/<c>"speed"</c>/
+        /// <c>GetIdOpt(profile,"weapon_school")</c>）。</summary>
+        public static readonly FieldSchema WeaponProfileSchema = new FieldSchema(
+            "weapon_profile", FieldKind.Object, required: false, fields: new[]
+            {
+                new FieldSchema("damage_min", FieldKind.Number, required: false, description: "缺省 0"),
+                new FieldSchema("damage_max", FieldKind.Number, required: false, description: "缺省 0"),
+                new FieldSchema("speed", FieldKind.Number, required: false, description: "缺省 0"),
+                new FieldSchema("weapon_school", FieldKind.Id, required: false,
+                    description: "缺省无（WeaponProfile.WeaponSchool 为 null）；判断记录：无独立跨层" +
+                        "可引用的学派登记表（同 skill.def.school 惯例），按 Id 登记"),
+            },
+            description: "{damage_min,damage_max,speed:Number, weapon_school:Id?}；当且仅当 " +
+                "slot_definition.is_weapon 为 true 时必须存在（ItemWeaponProfileRule）");
+
+        /// <summary><c>item.template.requirements</c> 结构（<c>EquipmentHost.TryGetRequiredLevel</c>：
+        /// 仅读取 <c>level</c>，非 <c>JsonNumber</c> 或缺失按"无等级限制"处理）。</summary>
+        public static readonly FieldSchema RequirementsSchema = new FieldSchema(
+            "requirements", FieldKind.Object, required: false, fields: new[]
+            {
+                new FieldSchema("level", FieldKind.Int, required: false, description: "缺省不限等级"),
+            },
+            description: "{level:Int?}");
+
+
         /// <summary><c>item.template</c>：物品模板（07 第 1.1 节全部字段 + 第 1.6 节扩展位留位 +
         /// 本模块实现期补录字段，见 schema/README.md）。</summary>
         public static readonly TableSchema Template = new TableSchema(
@@ -29,20 +89,16 @@ namespace Core.Carriers.Item
                     description: "品质分档，指向 item.quality_definition"),
                 new FieldSchema("item_level", FieldKind.Int, required: true,
                     description: "物品等级，用于预算公式与掉落/商店等级匹配"),
-                new FieldSchema("stats", FieldKind.Array, required: false,
-                    description: "Array<{stat:Id, op:flat|pct|mult, value:Number}>，装备后提供的" +
-                        "固定/百分比属性；结构由本模块自行解析（field_type 对 Array 只做\"是数组\"检查）"),
-                new FieldSchema("grants", FieldKind.Object, required: false,
-                    description: "{skills:List<Id>, auras:List<Id>}，装备后授予的主动技能与被动光环"),
+                new FieldSchema("stats", FieldKind.Array, required: false, item: StatsItemSchema,
+                    description: "Array<{stat:Reference(stat.definition), op:flat|pct|mult, value:Number}>，" +
+                        "装备后提供的固定/百分比属性"),
+                GrantsSchema,
                 new FieldSchema("affixes", FieldKind.IdList, required: false,
                     description: "词缀引用（指向 item.affix，扩展位，本版不实现具体效果）"),
                 new FieldSchema("set_id", FieldKind.Reference, required: false,
                     referenceTable: "item.set",
                     description: "所属套装"),
-                new FieldSchema("weapon_profile", FieldKind.Object, required: false,
-                    description: "{damage_min:Number, damage_max:Number, speed:Number, weapon_school:Id}，" +
-                        "当且仅当 slot 指向的 slot_definition.is_weapon 为 true 时必须存在" +
-                        "（见 ItemWeaponProfileRule）"),
+                WeaponProfileSchema,
                 new FieldSchema("display_ref", FieldKind.Id, required: true,
                     description: "指向 display.map；本模块不引用 display_info 模块类型，不做引用完整性检查"),
                 new FieldSchema("stack_size", FieldKind.Int, required: true,
@@ -50,9 +106,7 @@ namespace Core.Carriers.Item
                         "（见 ItemStackSizeRule 判断记录）"),
                 new FieldSchema("name_key", FieldKind.TextKey, required: true,
                     description: "显示名文本键（04 未展开，本模块实现期补录）"),
-                new FieldSchema("requirements", FieldKind.Object, required: false,
-                    description: "{level:Int?}，可空；本模块实现期补录，供 EquipmentHost.Equip 的" +
-                        "RequirementNotMet 判定使用"),
+                RequirementsSchema,
                 new FieldSchema("enchant_slot", FieldKind.Id, required: false,
                     description: "07 第 1.6 节扩展位：指向未来 item.enchant 表，本版不展开"),
                 new FieldSchema("socket_count", FieldKind.Int, required: false,
@@ -123,8 +177,13 @@ namespace Core.Carriers.Item
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "item.budget.<name>"),
                 new FieldSchema("entries", FieldKind.Array, required: true,
-                    description: "Array<{item_level:Int, budget:Number}>，按 item_level 线性插值；" +
-                        "结构由本模块自行解析"),
+                    item: new FieldSchema("<budget_entry>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("item_level", FieldKind.Int, required: true),
+                        new FieldSchema("budget", FieldKind.Number, required: true),
+                    }),
+                    description: "Array<{item_level:Int, budget:Number}>，按 item_level 线性插值" +
+                        "（ItemBudgetCurve.ParseEntries 对缺失 item_level/budget 抛异常，故两者均必填）"),
             });
 
         /// <summary><c>item.set</c>：套装定义（07 第 1.1/1.5 节，件数门槛 → apply_aura）。</summary>
@@ -141,8 +200,14 @@ namespace Core.Carriers.Item
                     description: "所属物品模板 id 列表（指向 item.template）；反向一致性见 " +
                         "ItemSetMembershipRule"),
                 new FieldSchema("bonuses", FieldKind.Array, required: true,
-                    description: "Array<{count:Int, aura_ref:Id}>，件数门槛到套装光环的映射；结构" +
-                        "由本模块自行解析"),
+                    item: new FieldSchema("<bonus_entry>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("count", FieldKind.Int, required: false, description: "缺省 0"),
+                        new FieldSchema("aura_ref", FieldKind.Reference, required: true, referenceTable: "skill.aura_def"),
+                    }),
+                    description: "Array<{count:Int, aura_ref:Reference(skill.aura_def)}>，件数门槛到" +
+                        "套装光环的映射（EquipmentHost.ParseSetBonuses；aura_ref 登记为 Reference：" +
+                        "skill.aura_def 属 L2，本模块 L3 依赖方向合法）"),
             });
 
         /// <summary><c>item.affix</c>：词缀（07 第 1.6 节扩展位，只登记 schema，不实现具体效果，

@@ -63,13 +63,13 @@ namespace Core.Rules.Targeting
 
                 if (record.TryGetArray("filters", out var filters))
                 {
+                    // ADR-0019 F1c 收窄：filters 现登记 Item（FieldKind.String），元素非字符串已由
+                    // field_type 报告，本规则不再重复报"target_filter_type"（见 TargetSchemas.ChainDef
+                    // 判断记录）；本处只处理"是字符串"之后的内容级校验（简写识别 + Expr 解析）。
                     for (int i = 0; i < filters.Count; i++)
                     {
                         if (!(filters[i] is JsonString filterStr))
                         {
-                            yield return new ValidationIssue(
-                                ValidationSeverity.Error, table, "target_filter_type",
-                                $"filters 第 {i} 个元素不是字符串", recordKey: record.Key, field: "filters");
                             continue;
                         }
 

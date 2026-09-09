@@ -69,6 +69,19 @@ namespace Tests.Carriers.Item
             " \"name_key\": \"l10n.item.sample_potion\"}" +
             "]";
 
+        // ADR-0019 F1c：grants.skills/auras、item.set.bonuses[].aura_ref 现登记为
+        // Reference(skill.def)/Reference(skill.aura_def)，补一份最小合法的 skill.def/skill.aura_def
+        // 行满足引用完整性——本模块测试只关心 EquipmentHost 是否把这两个 id 原样转给
+        // SkillGranter/IEffectSink，不依赖 core/rules/skill 的真实解析行为。
+        private const string SkillDefJson =
+            "[{\"id\": \"skill.sample_slash\", \"school\": \"skill.school.physical\", \"kind\": \"active\"," +
+            " \"range\": 0, \"cast_time\": 0, \"respects_gcd\": true," +
+            " \"target_shape_ref\": \"target.sample\", \"effects\": []}]";
+
+        private const string AuraDefJson =
+            "[{\"id\": \"skill.aura.sample_sharpen\", \"effects\": []}," +
+            "{\"id\": \"skill.aura.sample_dragon_2pc\", \"effects\": []}]";
+
         private sealed class Fixture
         {
             public IDataRegistryView Registry = null!;
@@ -93,6 +106,10 @@ namespace Tests.Carriers.Item
                 source.Add("item.set", TestSupport.Table("item.set", SetJson));
                 source.Add("item.template", TestSupport.Table("item.template", TemplateJson));
                 source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
+                // ADR-0019 F1c：grants.skills/auras、item.set.bonuses[].aura_ref 现登记为
+                // Reference(skill.def)/Reference(skill.aura_def)，补齐本夹具用到的三个假 id。
+                source.Add("skill.def", TestSupport.Table("skill.def", SkillDefJson));
+                source.Add("skill.aura_def", TestSupport.Table("skill.aura_def", AuraDefJson));
             });
 
             var bus = TestSupport.CreateBus();

@@ -79,6 +79,11 @@ unit.<id>.stat.<statId>
 落地并经 `ISettingsStore` 持久化），`SettingsViewModel`/`UiIntents` 已改用它，删除此前的
 `Func<string, double>`/`Action<string, double>` 注入回调。
 
+（ADR-0019 F1c 判断记录）`ui_layout_definition.fields` 不登记子结构：不是简单的 Map（键为
+`stat_id`/锚点名一类同构键值），而是"具体布局参数，结构由引擎适配层/具体游戏约定"的完全不透明
+JSON blob（见 `UiLayoutDefinition.Fields` 类型注释"本模块只透传"）——本模块自己唯一会读的逻辑
+相关项是顶层 `slots`（已登记为 `FieldKind.Int`），`fields` 保持"存在且是对象"。
+
 （P4-2 已修补，不再是契约缺口）`IDialogHost` 原先没有对称于 `GetStoryView` 的 `GetGossipView` 只读
 查询，`DialogViewModel` 的 gossip 视图需要打开菜单的调用方手动灌入；`IDialogHost.GetGossipView`
 现已补上，`DialogViewModel.Refresh` 与 `Story` 同一惯例直接查询，`SetGossipView` 仅保留供尚未升级

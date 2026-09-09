@@ -24,6 +24,16 @@ namespace Tests.Carriers.Item
             "[{\"id\": \"item.budget.default\", \"entries\": [" +
             "{\"item_level\": 1, \"budget\": 20}, {\"item_level\": 10, \"budget\": 200}]}]";
 
+        // ADR-0019 F1c：stats[].stat/grants.auras 现登记为 Reference(stat.definition)/
+        // Reference(skill.aura_def)，本文件全部用例共用同一批假 id，补一份最小合法数据满足引用
+        // 完整性（各用例只关心特定规则的 Validate 输出，不关心这两张表的具体内容）。
+        private const string StatDefJson =
+            "[{\"id\": \"stat.strength\", \"name_key\": \"l10n.stat.strength\", \"group\": \"primary\"}]";
+
+        private const string AuraDefJson =
+            "[{\"id\": \"skill.aura_def.sample_regen\", \"effects\": []}," +
+            "{\"id\": \"skill.aura_def.sample_ward\", \"effects\": []}]";
+
         private static IDataRegistryView BuildView(string templateJson, string? setJson = null)
         {
             return TestSupport.BuildRegistry(source =>
@@ -32,6 +42,8 @@ namespace Tests.Carriers.Item
                 source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", QualityJson));
                 source.Add("item.budget_curve", TestSupport.Table("item.budget_curve", BudgetCurveJson));
                 source.Add("item.template", TestSupport.Table("item.template", templateJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
+                source.Add("skill.aura_def", TestSupport.Table("skill.aura_def", AuraDefJson));
                 if (setJson != null)
                 {
                     source.Add("item.set", TestSupport.Table("item.set", setJson));
@@ -117,6 +129,7 @@ namespace Tests.Carriers.Item
                     " \"item_level\": 1, \"display_ref\": \"display.item.sample_no_curve\", \"stack_size\": 5," +
                     " \"name_key\": \"l10n.item.sample_no_curve\"," +
                     " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 5}]}]"));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
             });
 
             var issues = new ItemBudgetValidationRule(new Id("item.budget.default")).Validate(view).ToList();

@@ -18,7 +18,8 @@ gobj/
   README.md
   schema/
     GobjSchemas.cs             gobj.template / gobj.lock 的 TableSchema 声明
-    GobjValidationRules.cs     type_data 字段组 / on_use 二选一 / lock.requirement 字段组三条规则
+    GobjValidationRules.cs     type_data 字段组条件必填规则（on_use/lock.requirement 两条纯结构
+                                 规则已被 Variants 登记退役，ADR-0019 F1c）
   contracts/
     GameObjectTemplate.cs      GobjKind 枚举 + 十种类型数据结构体 + GameObjectTemplate.FromRecord
     LockDef.cs                  gobj.lock 解析结果，requirement 复用 common 的 LockRequirement
@@ -44,9 +45,9 @@ gobj/
 | `id` | Id | 是 | `gobj.<name>` |
 | `name_key` | TextKey | 是 | 显示名文本键 |
 | `kind` | Enum(10 值) | 是 | 见下"类型数据"表 |
-| `type_data` | Object | 是 | 按 `kind` 解释，字段组完整性见 `GobjTypeDataFieldGroupRule` |
+| `type_data` | Object | 是 | 按 `kind` 解释，字段并集登记（`GobjSchemas.TypeDataSchema`），字段组完整性见 `GobjTypeDataFieldGroupRule` |
 | `lock_id` | Id（Reference→`gobj.lock`） | 否 | 模板默认锁，运行期实际生效值是 `GameObjectEntity.LockId` |
-| `on_use` | Object | 否 | `{kind: skill\|dialog, ref: Id}`，二选一，见 `GobjOnUseKindRule` |
+| `on_use` | Object | 否 | `{kind: skill\|dialog, ref}`，二选一，ADR-0019 F1c 登记为 Variants（`GobjSchemas.OnUseSchema`） |
 | `display_ref` | Id | 是 | 指向 `display.map` |
 | `tags` | List\<Id\> | 否 | 标签集合 |
 
@@ -70,26 +71,43 @@ gobj/
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `gobj.lock.<name>` |
-| `requirement` | Object | 是 | `{kind: item_key\|world_flag\|skill_check, ...}`，见 `GobjLockRequirementFieldGroupRule` |
+| `requirement` | Object | 是 | `{kind: item_key\|world_flag\|skill_check, ...}`，ADR-0019 F1c 登记为 Variants（`GobjSchemas.RequirementSchema`） |
 | `consume_key` | Bool | 否 | `item_key` 时是否消耗钥匙，缺省 false |
 
 `requirement` 按 `kind` 解释：
 
 | `kind` | 专属字段 |
 |---|---|
-| `item_key` | `item_id: Id` |
-| `world_flag` | `flag_key: Id`, `expected: Bool\|Int` |
+| `item_key` | `item_id: Reference(item.template)`（同层 `Core.Carriers` 程序集，登记为 Reference） |
+| `world_flag` | `flag_key: Id`（`world.flag_schema` 属 L4，退回 Id）, `expected: Bool\|Int`（联合类型，不登记，见判断记录 11） |
 | `skill_check` | `skill_tag: Id`, `min_value: Number` |
 
 ## 校验规则（`GobjValidationRules.cs`）
 
 | 规则 | 检查项名 | 说明 |
 |---|---|---|
-| `GobjTypeDataFieldGroupRule` | `gobj_type_data_field_group` | `kind` 决定 `type_data` 内哪些字段必填（十种 kind 各一分支，见 07 第 3.1 节） |
-| `GobjOnUseKindRule` | `gobj_on_use_kind` | `on_use.kind` 合法（`skill\|dialog`）且 `ref` 是合法 Id（见 07 第 3.3 节"二者二选一"） |
-| `GobjLockRequirementFieldGroupRule` | `gobj_lock_requirement_field_group` | `requirement.kind` 合法（三选一）且专属字段齐全（见 07 第 3.2 节） |
+| `GobjTypeDataFieldGroupRule` | `gobj_type_data_field_group` | `kind` 决定 `type_data` 内哪些字段必填（十种 kind 各一分支，见 07 第 3.1 节）。**不退役**：判别字段 `kind` 与 `type_data` 不同级，`Variants` 不适用（见判断记录 10），条件必填仍需独立规则表达 |
 
 以上规则通过 `IDataRegistry.RegisterValidationRule` 注册。
+
+### ADR-0019 F1c 退役规则
+
+`GobjOnUseKindRule`（检查名 `gobj_on_use_kind`）与 `GobjLockRequirementFieldGroupRule`（检查名
+`gobj_lock_requirement_field_group`）两条规则**整条删除**：判别字段 `kind` 分别与 `on_use`/
+`requirement` 本身同处一个 JsonObject 内，改用 `VariantSchema` 登记（`GobjSchemas.OnUseSchema`/
+`RequirementSchema`）后，原两条规则的全部检查项——判别字段存在且是字符串、取值在合法集合内、
+各分支专属字段必填——已被 `data_registry` 内置的 `variant_discriminator`/`required_field`/
+`field_type` 三个检查项完全覆盖，不再需要手写规则；`gobj_on_use_kind`/`gobj_lock_requirement_field_group`
+两个检查名从此消失，同一坏形状改由 `variant_discriminator`/`required_field` 报告（不双报，见
+`GobjSchemaCoverageTests`）。测试从 `GobjValidationRuleTests` 迁移至 `GobjSchemaCoverageTests`。
+
+`GobjTypeDataFieldGroupRule` 不退役（判断记录 10）：`type_data` 的判别字段是外层 `gobj.template.kind`，
+不在 `type_data` 对象内部，`VariantSchema.Discriminator` 要求判别字段与被判别对象同处一个
+JsonObject（同 `core/gameplay/area_trigger` 的 `ParamsSchema`/`trigger_type` 判断记录），因此
+`type_data` 改用 `Fields` 登记十种 `kind` 分别用到的字段并集（全部非必填），"哪些字段必填视 `kind`
+而定"这条条件必填业务判断继续留在 `GobjTypeDataFieldGroupRule`。本轮新增的是此前完全没有的
+"存在时类型必须合法"校验（`skill_id` 的 `reference_integrity`、`text_key` 的 `text_key_exists`
+等），与 `GobjTypeDataFieldGroupRule` 的必填性检查互不重叠，不会对同一缺陷双报。
 
 ## 设计要点与判断记录
 
@@ -225,19 +243,43 @@ gobj/
      `GatherNode_FullInventory_RejectDoesNotCommitCooldown_PartialCommitsAndPersistsRemainder`
      （CR150-04）。
 
+10. **ADR-0019 F1c：`type_data` 判别字段与被判别对象不同级，改用 `Fields` 并集登记，不用
+    `Variants`**：`VariantSchema.Discriminator` 要求判别字段与被判别的子字段处在同一个
+    JsonObject 内（`DataRegistry.ValidateVariantObject` 在 `type_data` 自身的 JsonObject 里找
+    `kind`），但 `kind` 是 `gobj.template` 行内与 `type_data` 平级的字段，`type_data` 对象内部
+    永远不会有这个键，若登记为 Variants 会恒报 `variant_discriminator` 缺失（同
+    `core/gameplay/area_trigger` 的 `AreaTriggerSchemas.ParamsSchema`/`trigger_type` 判断记录，
+    同一类结构边界）。改用 `Fields` 登记十种 `kind` 分别用到的字段并集、全部非必填，`kind` 决定
+    哪些字段真正必填这条业务判断继续留在 `GobjTypeDataFieldGroupRule`（不退役）。`on_use`/
+    `requirement` 的判别字段与专属字段同处一个对象内，Variants 适用，对应两条纯结构规则整条退役
+    （见"校验规则"一节）。
+
+11. **`requirement.world_flag.expected` 不登记类型**：`LockDef.RequireExprValue` 接受
+    `JsonBool` 或 `JsonNumber`（`ExprValue` 的 `Bool｜Int` 联合，见 10 第 2.3 节
+    `world_state_flags`），`FieldKind` 无法表达联合类型，登记任一具体类型都会把合法的另一种拒之
+    门外。未登记子字段默认不报错（`DataRegistry.ReportUnknownSubfields` 只在
+    `DataRegistryOptions.UnknownSubfieldSeverity == Warning` 时才提示，默认不开），不影响内容
+    作者按 07 原文填写——同 `core/rules/skill` `SkillSchemas` 里 `set_world_flag.value` 的判断
+    记录同一惯例。
+
 ## 契约缺口 / 未覆盖内容
 
 - **`type_data.trigger_shape`（`trap`）不做结构校验**：05 第 3.5 节 `Shape` 的具体 JSON 形状由
   形状/目标相关模块定义（本模块未见其 JSON schema），本模块的 `GobjTypeDataFieldGroupRule`/
   `GameObjectTemplate.FromRecord` 只检查该字段"存在且是对象"，原样透传为 `JsonObject`，交给 L4
   区域触发装配时自行解释。
-- **`type_data.sign.text_key` 不做文本键存在性校验**：`DataRecord`/`DataRegistry` 内建的
-  `text_key_exists` 校验项只覆盖 `TableSchema.Fields` 声明的顶层字段，无法探进 `type_data` 这个
-  `Object` 内部的 `text_key` 子字段；`GobjTypeDataFieldGroupRule` 只检查它"存在"，不检查
-  `l10n.text` 里是否真的有这个键。
-- **`type_data` 内的 `loot_table_ref`/`skill_id`/`quest_action_ref`/`teleport_target_ref` 等引用型
-  子字段不做跨表引用完整性校验**：同上，`FieldKind.Reference` 只能声明在顶层 `FieldSchema` 上，
-  本模块只检查这些子字段"是合法 Id 字符串"，不检查目标表中是否真的存在对应记录。
+- ~~`type_data.sign.text_key` 不做文本键存在性校验~~（**ADR-0019 F1c 已关闭**）：`DataRegistry`
+  的递归子结构校验（`Fields`/`Item`/`Variants`）与顶层字段共用同一份 `ValidateTextKeyField`/
+  `ValidateReferenceField`/`ValidateExprField` 实现，`type_data.text_key` 登记为
+  `FieldKind.TextKey` 后，嵌套字段的文本键存在性校验与顶层同等生效。
+- **`type_data.trigger_shape`（`trap`）仍不做结构校验**（契约缺口未关闭）：05 第 3.5 节 `Shape`
+  的具体 JSON 形状由形状/目标相关模块定义（本模块未见其 JSON schema），只检查该字段"存在且是
+  对象"，原样透传为 `JsonObject`，交给 L4 区域触发装配时自行解释。
+- **`type_data.loot_table_ref`/`quest_action_ref`/`teleport_target_ref` 仍不做跨表引用完整性
+  校验**（契约缺口未关闭，依赖方向限制）：分别指向 `loot.table`/`quest.*`/运行期
+  `TeleportResolver` 解析目标，均属 L4 或非静态数据表，本模块（L3）依赖方向不可 `Reference`，
+  登记为 `Id` 只检查格式；`type_data.skill_id` **已关闭**——`skill.def` 属 L2，登记为
+  `Reference(skill.def)`，本轮起有真实的跨表引用完整性校验。
 - **未提供 `gobj.spawned`/`gobj.despawned` 事件**：07 第 9 节契约汇总表 GameObject 行只登记
   `gobj.interacted`/`gobj.state_changed` 两个事件（不同于 `creature.spawned`/`creature.despawned`），
   `GameObjectFactory.Spawn`/`Despawn` 因此不发任何专属事件，只依赖 `IWorldSim` 自身的

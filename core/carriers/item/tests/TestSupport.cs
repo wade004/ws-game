@@ -61,6 +61,13 @@ namespace Tests.Carriers.Item
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Set);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Affix);
             registry.RegisterSchema(StatDefinitionSchema());
+            // ADR-0019 F1c：grants.skills/auras、item.set.bonuses[].aura_ref 登记为
+            // Reference(skill.def)/Reference(skill.aura_def)（L3 引用 L2 程序集合法），
+            // reference_integrity 内建校验因此需要这两张表已加载——本模块测试用到的 skill/aura id
+            // 均为测试假数据，不代表真实 core/rules/skill 语义，各测试在自己的 configure 里按需
+            // 补充对应的 skill.def/skill.aura_def 行。
+            registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.Def);
+            registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.AuraDef);
 
             if (rules != null)
             {

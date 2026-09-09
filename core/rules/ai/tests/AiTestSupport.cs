@@ -288,11 +288,19 @@ namespace Tests.Rules.Ai
             IEventBus bus, string profilesJson, string rotationsJson, string patrolsJson,
             string skillDefJson, string targetChainDefJson)
         {
+            // ADR-0019 F1c：ai.rotation.entries[].skill_id 现登记为 Reference(skill.def)，本模块
+            // 数十个既有测试用例各自在 rotationsJson 里内联了任意假 skill_id（"skill.a"/"skill.never"/
+            // ...），逐个测试文件手动补 skill.def 行成本过高且容易遗漏。改为集中在这里从
+            // rotationsJson 正则提取全部 skill_id 值，自动合成最小合法 skill.def 行（显式传入的
+            // skillDefJson——如 AiRotationTargetingTests 需要真实 target_shape_ref 分类——里已有的
+            // id 不重复合成，以显式传入为准）。
+            var syntheticSkillDefJson = SynthesizeMissingSkillDefs(rotationsJson, skillDefJson);
+
             var source = new InMemoryDataSource()
                 .Add(AiSchemas.BehaviorProfile.Name, Envelope(AiSchemas.BehaviorProfile.Name, profilesJson))
                 .Add(AiSchemas.Rotation.Name, Envelope(AiSchemas.Rotation.Name, rotationsJson))
                 .Add(AiSchemas.PatrolPath.Name, Envelope(AiSchemas.PatrolPath.Name, patrolsJson))
-                .Add("skill.def", Envelope("skill.def", skillDefJson))
+                .Add("skill.def", Envelope("skill.def", syntheticSkillDefJson))
                 .Add("target.chain_def", Envelope("target.chain_def", targetChainDefJson));
 
             var registry = new DataRegistry(source, bus, new DataRegistryOptions());
@@ -303,8 +311,52 @@ namespace Tests.Rules.Ai
             registry.RegisterSchema(TargetSchemas.ChainDef);
 
             var report = registry.LoadAll();
-            Assert.False(report.IsBlocking);
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
             return registry;
+        }
+
+        /// <summary>从 <paramref name="rotationsJson"/> 正则提取全部 <c>"skill_id": "..."</c> 值，
+        /// 为其中未出现在 <paramref name="explicitSkillDefJson"/>（按 <c>"id": "..."</c> 提取）里的
+        /// id 各合成一条最小合法 <c>skill.def</c> 行（本模块测试只按 skillId 断言 <see
+        /// cref="FakeSkillHost"/> 的调用记录，从不依赖这些技能的真实效果/学派语义），与显式提供的
+        /// 行拼接成最终的 <c>skill.def</c> 表 JSON。</summary>
+        private static string SynthesizeMissingSkillDefs(string rotationsJson, string explicitSkillDefJson)
+        {
+            var explicitIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
+                explicitSkillDefJson, "\"id\"\\s*:\\s*\"([^\"]+)\""))
+            {
+                explicitIds.Add(m.Groups[1].Value);
+            }
+
+            var synthesized = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
+                rotationsJson, "\"skill_id\"\\s*:\\s*\"([^\"]+)\""))
+            {
+                var id = m.Groups[1].Value;
+                if (explicitIds.Contains(id) || !seen.Add(id))
+                {
+                    continue;
+                }
+
+                synthesized.Add(
+                    "{\"id\": \"" + id + "\", \"school\": \"skill.school.ai_test\", \"kind\": \"active\"," +
+                    " \"range\": 0, \"cast_time\": 0, \"respects_gcd\": true," +
+                    " \"target_shape_ref\": \"target.ai_test\", \"effects\": []}");
+            }
+
+            var explicitRows = explicitSkillDefJson.Trim();
+            var explicitBody = explicitRows.Length >= 2 ? explicitRows.Substring(1, explicitRows.Length - 2).Trim() : "";
+
+            var allRows = new List<string>();
+            if (explicitBody.Length > 0)
+            {
+                allRows.Add(explicitBody);
+            }
+            allRows.AddRange(synthesized);
+
+            return "[" + string.Join(",", allRows) + "]";
         }
 
         /// <summary>装配 fac.test_monster 敌对 fac.test_player 的最小 FactionMatrix。</summary>

@@ -304,6 +304,10 @@ namespace Tests.Carriers.Gobj
         private readonly List<JsonObject> _templates = new List<JsonObject>();
         private readonly List<JsonObject> _locks = new List<JsonObject>();
         private readonly List<JsonObject> _statDefs = new List<JsonObject>();
+        private readonly List<JsonObject> _itemDefs = new List<JsonObject>();
+        private readonly List<JsonObject> _itemSlotDefs = new List<JsonObject>();
+        private readonly List<JsonObject> _itemQualityDefs = new List<JsonObject>();
+        private readonly List<JsonObject> _skillDefs = new List<JsonObject>();
         private readonly List<IValidationRule> _extraRules = new List<IValidationRule>();
 
         public GobjOptions Options { get; } = new GobjOptions();
@@ -323,6 +327,38 @@ namespace Tests.Carriers.Gobj
         }
 
         public GobjWorldBuilder ValidationRule(IValidationRule rule) { _extraRules.Add(rule); return this; }
+
+        /// <summary>ADR-0019 F1c：登记一条最小合法 <c>item.template</c>（含其 <c>slot</c>/
+        /// <c>quality</c> 依赖），供 <c>gobj.lock.requirement.item_key.item_id</c> 现登记为
+        /// <c>Reference(item.template)</c> 后满足引用完整性——本模块测试只关心 <c>item_id</c> 是否
+        /// 原样传给 <c>IInventoryHost</c>，不依赖 <c>core/carriers/item</c> 的真实解析行为。</summary>
+        public GobjWorldBuilder Item(string id)
+        {
+            var slot = "item.slot.gobj_cov_" + LastSegment(id);
+            var quality = "item.quality.gobj_cov";
+            _itemSlotDefs.Add(J.O(("id", J.S(slot)), ("name_key", J.S("l10n." + slot.Replace('.', '_')))));
+            if (_itemQualityDefs.Count == 0)
+            {
+                _itemQualityDefs.Add(J.O(("id", J.S(quality)), ("name_key", J.S("l10n." + quality.Replace('.', '_')))));
+            }
+            _itemDefs.Add(J.O(
+                ("id", J.S(id)), ("slot", J.S(slot)), ("quality", J.S(quality)), ("item_level", J.N(1)),
+                ("display_ref", J.S("display." + LastSegment(id))), ("stack_size", J.N(1)),
+                ("name_key", J.S("l10n." + id.Replace('.', '_')))));
+            return this;
+        }
+
+        /// <summary>ADR-0019 F1c：登记一条最小合法 <c>skill.def</c>，供 <c>type_data.skill_id</c>
+        /// （<c>trap</c>）/<c>on_use.ref</c>（<c>skill</c>）现登记为 <c>Reference(skill.def)</c>
+        /// 后满足引用完整性。</summary>
+        public GobjWorldBuilder Skill(string id)
+        {
+            _skillDefs.Add(J.O(
+                ("id", J.S(id)), ("school", J.S("skill.school.gobj_cov")), ("kind", J.S("active")),
+                ("range", J.N(0)), ("cast_time", J.N(0)), ("respects_gcd", J.B(true)),
+                ("target_shape_ref", J.S("target.gobj_cov")), ("effects", J.A())));
+            return this;
+        }
 
         /// <summary>只跑到"注册 schema/校验规则 + LoadAll"这一步，返回校验报告，不构造
         /// <see cref="GameObjectHost"/> 及其余真实宿主（惯例同 <c>core/rules/skill/tests</c> 的
@@ -383,12 +419,23 @@ namespace Tests.Carriers.Gobj
             _source.Add("gobj.template", TableJson("gobj.template", _templates));
             _source.Add("gobj.lock", TableJson("gobj.lock", _locks));
             _source.Add("stat.definition", TableJson("stat.definition", _statDefs));
+            // ADR-0019 F1c：gobj.lock.requirement.item_key.item_id / type_data.skill_id /
+            // on_use.ref（skill 分支）现登记为 Reference(item.template)/Reference(skill.def)，
+            // 无条件加载这三张表（即使为空）满足引用完整性，见 Item()/Skill() 判断记录。
+            _source.Add("item.template", TableJson("item.template", _itemDefs));
+            _source.Add("item.slot_definition", TableJson("item.slot_definition", _itemSlotDefs));
+            _source.Add("item.quality_definition", TableJson("item.quality_definition", _itemQualityDefs));
+            _source.Add("skill.def", TableJson("skill.def", _skillDefs));
 
             var bus = CreateBus();
             var registry = new DataRegistry(_source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
             registry.RegisterSchema(GobjSchemas.Template);
             registry.RegisterSchema(GobjSchemas.Lock);
             registry.RegisterSchema(StatSchemas.Definition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Template);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);
+            registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.Def);
 
             foreach (var rule in _extraRules)
             {

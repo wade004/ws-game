@@ -273,6 +273,13 @@ sim_loop/
    在装配好 `FeedbackBinder` 之后调用它接上 `() => Feedback.HasPendingPlayback`；Unity 引导
    （`adapters/unity` 的 `GameFoundationBootstrap`/`FrameworkResidentHost`）不需要任何轮询兜底。
 
+7. **ADR-0019 F1c 判断记录（`grid_snap` 不登记子结构）**：任务方案给出的建议登记
+   `{cell_size: Number}` 与 04 文档字段表描述一致，但全仓库搜索 `grid_snap`/`cell_size` 只有
+   `TimeModelSchema.cs` 自身的字段声明与注释，没有任何运行时代码读取过这两个字段（格子吸附本身
+   尚未落地）。按 ADR-0019 通用规则 1"以运行时解析代码为唯一依据……找不到运行时读取的字段不
+   登记"，本轮不登记子结构，待该字段有实际解析实现后再补（同 `core/carriers/item` 的
+   `item.affix.effects` 判断记录同一处理口径）。
+
 ## 基础架构提供 / 游戏层提供
 
 | 能力 | 基础架构提供 | 游戏层提供 |

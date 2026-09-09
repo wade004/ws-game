@@ -54,6 +54,17 @@ namespace Core.Rules.Ai
             }
         }
 
+        /// <summary>
+        /// ADR-0019 F1c 收窄：<c>AiSchemas.Rotation.entries</c> 现登记子结构（<c>priority:Int</c>/
+        /// <c>condition:Expr</c>/<c>skill_id:Reference(skill.def)</c> 均必填），以下检查已被
+        /// <c>data_registry</c> 内建校验完全覆盖、整段删除：元素是否为对象（<c>field_type</c>）、
+        /// <c>priority</c>/<c>condition</c>/<c>skill_id</c> 是否缺失或类型不符
+        /// （<c>required_field</c>/<c>field_type</c>）、<c>condition</c> 能否解析
+        /// （<c>expr_parsable</c>，登记为 <see cref="FieldKind.Expr"/> 后与顶层字段共用同一份
+        /// <c>ValidateExprField</c> 实现，见 <c>DataRegistry.ValidateFieldValue</c> 递归校验）、
+        /// <c>skill_id</c> 引用是否存在（<c>reference_integrity</c>，此前完全没有这项检查）。仅保留
+        /// <c>priority</c> 同表内不重复这条纯业务判断（登记层无法表达"数组内多个元素互相比较"）。
+        /// </summary>
         private IEnumerable<ValidationIssue> ValidateRotations(IDataRegistryView view)
         {
             foreach (var record in view.GetAll(AiSchemas.Rotation.Name))
@@ -67,46 +78,18 @@ namespace Core.Rules.Ai
 
                 foreach (var item in entries)
                 {
-                    if (!(item is JsonObject entry))
+                    if (!(item is JsonObject entry) ||
+                        !entry.TryGetValue("priority", out var priorityValue) || !(priorityValue is JsonNumber priorityNumber))
                     {
-                        yield return new ValidationIssue(ValidationSeverity.Error, AiSchemas.Rotation.Name, Check,
-                            "entries 数组元素必须是对象（{priority, condition, skill_id}）", recordKey: record.Key, field: "entries");
+                        // 元素非对象/priority 缺失或类型不符：已由 field_type/required_field 报告。
                         continue;
                     }
 
-                    if (entry.TryGetValue("priority", out var priorityValue) && priorityValue is JsonNumber priorityNumber)
-                    {
-                        var priority = (long)priorityNumber.Value;
-                        if (!seenPriorities.Add(priority))
-                        {
-                            yield return new ValidationIssue(ValidationSeverity.Error, AiSchemas.Rotation.Name, Check,
-                                $"priority {priority} 在同一张 ai.rotation 表内重复", recordKey: record.Key, field: "entries");
-                        }
-                    }
-                    else
+                    var priority = (long)priorityNumber.Value;
+                    if (!seenPriorities.Add(priority))
                     {
                         yield return new ValidationIssue(ValidationSeverity.Error, AiSchemas.Rotation.Name, Check,
-                            "entries 元素缺少数值型 priority 字段", recordKey: record.Key, field: "entries");
-                    }
-
-                    if (entry.TryGetValue("condition", out var conditionValue) && conditionValue is JsonString conditionText)
-                    {
-                        foreach (var exprIssue in TryParseExpr(conditionText.Value))
-                        {
-                            yield return new ValidationIssue(ValidationSeverity.Error, AiSchemas.Rotation.Name, "expr_parsable",
-                                $"entries.condition 解析失败：{exprIssue}", recordKey: record.Key, field: "entries");
-                        }
-                    }
-                    else
-                    {
-                        yield return new ValidationIssue(ValidationSeverity.Error, AiSchemas.Rotation.Name, Check,
-                            "entries 元素缺少字符串型 condition 字段", recordKey: record.Key, field: "entries");
-                    }
-
-                    if (!entry.TryGetValue("skill_id", out var skillIdValue) || !(skillIdValue is JsonString))
-                    {
-                        yield return new ValidationIssue(ValidationSeverity.Error, AiSchemas.Rotation.Name, Check,
-                            "entries 元素缺少字符串型 skill_id 字段", recordKey: record.Key, field: "entries");
+                            $"priority {priority} 在同一张 ai.rotation 表内重复", recordKey: record.Key, field: "entries");
                     }
                 }
             }

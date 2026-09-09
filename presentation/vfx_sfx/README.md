@@ -156,6 +156,11 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     `EquipmentVisualSource` 存在同源风险但未展开 Unity 端到端证据，因此不在本轮改动，留给后续以该
     模块自己的复现证据立项（不是遗漏，是刻意维持审核范围边界）。
 
+14. **ADR-0019 F1c 判断记录（`display.weapon_style.cast_anim_override`/`impact_vfx_override`
+    不登记子结构）**：两者均为 `Id → Id` 动态键映射（按技能 id 覆盖动作剪辑/命中特效），是真正的
+    Map（键为任意 `skillId`，值同构），按 ADR-0019 通用规则 5 保持"存在且是对象"，不为此扩展
+    契约到新的 `FieldKind`。
+
 ## 不负责什么
 
 - 不接入 `data/_sample/`：本任务不新增示例数据文件，`schema/VfxSfxSchemas` 只声明表结构，测试用

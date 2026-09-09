@@ -136,6 +136,14 @@ scene_router/
    `FinishLoading` 在 `ClearAll` 之后、`PublishImmediate(SceneUnloadedEvent)` 之前插入一次
    `_bus.DispatchPending()`，保证 `entity.destroyed` 确实先于 `scene.unloaded` 送达订阅者。
 
+8. **ADR-0019 F1c 子结构登记**：`spawn_points`/`teleport_points` 共用同一份元素结构
+   `{id?:String, position?:{x:Number, y:Number}}`（`id`/`position` 均登记为非必填——
+   `Core.Gameplay.Assembly.TeleportTargetResolver` 缺失时温和降级为"找不到"而非抛异常；
+   `position` 一旦提供则 `x`/`y` 均必填）。判断记录：文档提到的 `facing` 子字段全仓库搜索
+   找不到任何运行时读取代码，按通用规则 1 不登记；`spawn_points` 第 0 个元素缺失 `position`
+   时 `SceneDescriptor.FromRecord` 构造期直接抛异常，属运行期硬失败而非 `IValidationRule`
+   校验项，登记层不重复表达。
+
 ## 基础架构提供 / 游戏层提供
 
 | 能力 | 基础架构提供 | 游戏层提供 |

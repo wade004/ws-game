@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Core.Foundation.DataRegistry;
 
 namespace Core.Rules.Combat
@@ -28,6 +29,18 @@ namespace Core.Rules.Combat
             "miss", "dodge", "parry", "glancing_blow", "block", "crit",
         };
 
+        /// <summary>六个命中表分支共用的子字段清单（<see cref="HitTableBranch.Parse"/> 权威解析：
+        /// 三者均容错缺失/类型不符，非必填）。<c>stat</c> 登记为 <c>Reference(stat.definition)</c>：
+        /// stat_block 属 L1，本模块（L2）依赖方向合法。概率 <c>base</c> 落在 [0,1] 这条业务判断
+        /// 登记层无法表达，继续留在 <see cref="CombatHitTableValidationRule"/>。</summary>
+        private static IReadOnlyList<FieldSchema> HitTableBranchFieldList() => new[]
+        {
+            new FieldSchema("enabled", FieldKind.Bool, required: false, description: "缺省 false"),
+            new FieldSchema("stat", FieldKind.Reference, required: false, referenceTable: "stat.definition",
+                description: "提供时概率取该属性当前值，缺省用 base 常量"),
+            new FieldSchema("base", FieldKind.Number, required: false, description: "缺省 0；须落在 [0,1]，见 CombatHitTableValidationRule"),
+        };
+
         public static TableSchema HitTableConfig { get; } = new TableSchema(
             name: "combat.hit_table_config",
             primaryKey: "id",
@@ -36,13 +49,13 @@ namespace Core.Rules.Combat
             {
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "combat.hit_table.<name>"),
-                new FieldSchema("miss", FieldKind.Object, required: true,
+                new FieldSchema("miss", FieldKind.Object, required: true, fields: HitTableBranchFieldList(),
                     description: "{enabled, stat?, base}，见 06 第 4.2 节"),
-                new FieldSchema("dodge", FieldKind.Object, required: true),
-                new FieldSchema("parry", FieldKind.Object, required: true),
-                new FieldSchema("glancing_blow", FieldKind.Object, required: true),
-                new FieldSchema("block", FieldKind.Object, required: true),
-                new FieldSchema("crit", FieldKind.Object, required: true),
+                new FieldSchema("dodge", FieldKind.Object, required: true, fields: HitTableBranchFieldList()),
+                new FieldSchema("parry", FieldKind.Object, required: true, fields: HitTableBranchFieldList()),
+                new FieldSchema("glancing_blow", FieldKind.Object, required: true, fields: HitTableBranchFieldList()),
+                new FieldSchema("block", FieldKind.Object, required: true, fields: HitTableBranchFieldList()),
+                new FieldSchema("crit", FieldKind.Object, required: true, fields: HitTableBranchFieldList()),
                 new FieldSchema("crit_multiplier_stat", FieldKind.Id, required: false,
                     description: "暴击倍率来源属性，未提供时用 crit_multiplier_base"),
                 new FieldSchema("crit_multiplier_base", FieldKind.Number, required: false,
@@ -73,7 +86,15 @@ namespace Core.Rules.Combat
                 new FieldSchema("k", FieldKind.Number, required: false,
                     description: "kind=saturation 时的饱和系数：reduction = value / (value + k × attackerLevel)"),
                 new FieldSchema("entries", FieldKind.Array, required: false,
-                    description: "kind=table 时 [{value, reduction}, ...]，按 value 升序"),
+                    item: new FieldSchema("<resist_entry>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("value", FieldKind.Number, required: true),
+                        new FieldSchema("reduction", FieldKind.Number, required: true),
+                    }),
+                    description: "kind=table 时 [{value, reduction}, ...]，按 value 升序（非空/单调性" +
+                        "业务判断留在 CombatResistCurveValidationRule；kind 与 entries/k 是表顶层平级" +
+                        "字段，Variants 不适用——同 GobjSchemas.TypeDataSchema 判断记录，条件必填继续" +
+                        "由该规则表达）"),
                 new FieldSchema("max_reduction", FieldKind.Number, required: false,
                     description: "减免上限，缺省 0.75"),
             });

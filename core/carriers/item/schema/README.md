@@ -29,10 +29,28 @@
 | `bind_type` | Enum(`none\|on_pickup\|on_equip`) | 否 | — | 07 第 1.6 节扩展位：绑定方式，单机默认不产生实际限制 |
 | `stat_roll_ref` | Id | 否 | — | 07 第 1.6 节扩展位：指向未来随机属性生成规则表，本版不展开 |
 
-判断记录：`stats`/`grants`/`weapon_profile`/`requirements` 四个字段的内部结构（子字段）不由
-`data_registry` 的 `field_type` 校验展开检查（`Object`/`Array` 类型只做"是对象/是数组"检查），由
-`ItemBudgetCurve`/`EquipmentHost` 自行解析并防御性处理缺失/类型不符的子字段（缺失按默认值处理，
-不抛异常中断整条记录）。
+### ADR-0019 F1c 子结构登记
+
+| 字段 | 子字段 | 类型 | 必填 | 默认 | 引用/说明 |
+|---|---|---|---|---|---|
+| `stats[]` | `stat` | Reference→`stat.definition` | 是 | — | `stat.definition` 属 L1，本模块（L3）依赖方向合法 |
+| | `op` | Enum(`flat\|pct\|mult`) | 否 | `flat` | 以 `EquipmentHost.ParseOp` 为准，非 07 原文 `flat\|pct` 两种 |
+| | `value` | Number | 否 | `0` | |
+| `grants` | `skills[]` | Reference→`skill.def` | — | `[]` | 任务书额外要求：L3 引用 L2 程序集合法 |
+| | `auras[]` | Reference→`skill.aura_def` | — | `[]` | 重复引用见 `ItemGrantsAurasDuplicateRule`（Warning） |
+| `weapon_profile` | `damage_min`/`damage_max`/`speed` | Number | 否 | `0` | |
+| | `weapon_school` | Id | 否 | — | 无独立跨层可引用表，按 Id 登记 |
+| `requirements` | `level` | Int | 否 | 不限等级 | |
+
+`item.set.bonuses[]`：`{count:Int(缺省0), aura_ref:Reference(skill.aura_def)}`（`aura_ref` 同 `grants.auras`
+判断记录，L3 引用 L2 合法）。`item.budget_curve.entries[]`：`{item_level:Int, budget:Number}`（均必填，
+`ItemBudgetCurve.ParseEntries` 缺失即抛异常）。
+
+判断记录（`item.affix.effects` 不登记子结构）：任务书额外要求 1 提到"若要复用技能域的
+`EffectsItemSchema`"，但 ADR-0019 通用规则 1"以运行时解析代码为唯一依据……找不到运行时读取的字段
+不登记"——全仓库搜索 `item.affix` 只有 `ItemSchemas.cs` 自身的 schema 声明，没有任何运行时解析代码
+读取过 `effects`（07 第 1.6 节"附魔……单机初版不做……留空位待需要时再设计"，属纯占位扩展位）。本轮
+不登记，待该字段有实际运行时解析实现后再补充结构（含变体或 `EffectsItemSchema` 复用）。
 
 ## `item.slot_definition`
 

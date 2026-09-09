@@ -67,6 +67,19 @@ namespace Tests.Gameplay.Assembly
             "{ \"priority\": 1, \"condition\": \"false\", \"skill_id\": \"skill.never\" }" +
             "] }]";
 
+        // ADR-0019 F1c：ai.rotation.entries[].skill_id 现登记为 Reference(skill.def)，补一份最小
+        // 合法数据满足引用完整性（本夹具的 condition 恒为 false，从不会真的施放这个技能）。
+        private const string SkillDefRows =
+            "[{\"id\": \"skill.never\", \"school\": \"skill.school.reload_test\", \"kind\": \"active\"," +
+            " \"range\": 0, \"cast_time\": 0, \"respects_gcd\": true," +
+            " \"target_shape_ref\": \"target.reload_test\", \"effects\": []}]";
+
+        // skill.def.target_shape_ref 已由 RulesSchemaCatalog.DeclareKnownReferences 声明为指向
+        // target.chain_def 的引用（既有约束，与本轮改动无关）；本夹具此前从未加载 skill.def，这条
+        // 约束一直没有机会生效，现补齐 skill.def 后一并补上匹配的 target.chain_def 行。
+        private const string TargetChainDefRows =
+            "[{\"id\": \"target.reload_test\", \"source\": \"self\"}]";
+
         private const string ProfileId = "ai.behavior.spawn_timer_reload_test";
         private const string ProfileRows =
             "[{ \"id\": \"" + ProfileId + "\", \"perception_radius\": 5, \"leash_range\": 10, " +
@@ -102,6 +115,8 @@ namespace Tests.Gameplay.Assembly
                 .Add("creature.template", Envelope("creature.template", CreatureTemplateRows))
                 .Add("ai.behavior_profile", Envelope("ai.behavior_profile", ProfileRows))
                 .Add("ai.rotation", Envelope("ai.rotation", RotationRows))
+                .Add("skill.def", Envelope("skill.def", SkillDefRows))
+                .Add("target.chain_def", Envelope("target.chain_def", TargetChainDefRows))
                 .Add("ai.patrol_path", Envelope("ai.patrol_path", "[]"))
                 .Add("combat.hit_table_config", Envelope("combat.hit_table_config", "[]"))
                 .Add("combat.resist_curve", Envelope("combat.resist_curve", "[]"))
@@ -210,6 +225,8 @@ namespace Tests.Gameplay.Assembly
                 .Add("creature.template", Envelope("creature.template", CreatureTemplateRows))
                 .Add("ai.behavior_profile", Envelope("ai.behavior_profile", ProfileRows))
                 .Add("ai.rotation", Envelope("ai.rotation", RotationRows))
+                .Add("skill.def", Envelope("skill.def", SkillDefRows))
+                .Add("target.chain_def", Envelope("target.chain_def", TargetChainDefRows))
                 .Add("ai.patrol_path", Envelope("ai.patrol_path", "[]"))
                 .Add("combat.hit_table_config", Envelope("combat.hit_table_config", "[]"))
                 .Add("combat.resist_curve", Envelope("combat.resist_curve", "[]"))

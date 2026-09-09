@@ -53,6 +53,10 @@ camera/
    `EncounterPhaseChangedEvent.NewPhase` 类型是 `int`（见 `core/gameplay/encounter` 判断记录：06
    未给阶段命名 id），`CameraHostOptions.PhaseProfileSwitch` 随之用 `IReadOnlyDictionary<int, Id>`。
 
+5. **ADR-0019 F1c 子结构登记**：`bounds`（`{min:Vec2, max:Vec2}`，均必填）、`shake_presets`
+   （`[{id:Id, amplitude:Number, duration:Number, frequency:Number?}]`，`frequency` 缺省 0）按
+   `CameraProfile.FromRecord` 权威解析登记为 `Fields`/`Item`。
+
 ## 契约缺口
 
 - （已由 ADR-0016 解决）`ShakePreset.Frequency` 此前无对应的 `ICamera` 参数可传递（见判断记录 3

@@ -43,6 +43,10 @@ creature/
 `loot.table`/`display.map`——不在本任务数据集范围内，声明为 `Reference` 会让 `reference_integrity`
 校验恒报错，见 `CreatureSchemas` 判断记录）。
 
+ADR-0019 F1c 判断记录（`base_stats` 不登记子结构）：`base_stats` 是 `Map<StatKey, Number>`（键为
+`stat.definition` 的 id，动态键、值同构）——ADR-0019 通用规则 5"Map 型对象一律不登记，不为此扩展
+契约到新的 `FieldKind`"，本轮保持"存在且是对象"，待后续契约扩展 Map 型 `FieldKind` 后再登记。
+
 ### `creature.tier_definition`（补录）
 
 07 第 2.1 节 `tier` 字段只描述"强度分档，由数据定义具体分档集合"，未给出该表字段结构；本模块

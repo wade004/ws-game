@@ -34,6 +34,27 @@ namespace Core.Foundation.SceneRouter
     /// </summary>
     public static class WorldMapSchema
     {
+        /// <summary><c>spawn_points</c>/<c>teleport_points</c> 元素共用结构：以运行时实际读取为准
+        /// （<c>SceneDescriptor.FromRecord</c> 只读 <c>position</c>；
+        /// <c>Core.Gameplay.Assembly.TeleportTargetResolver.TryReadPosition</c> 对
+        /// <c>spawn_points</c>/<c>teleport_points</c> 两个字段共用同一套 <c>id</c>/<c>position</c>
+        /// 读取逻辑，缺失时温和降级为"找不到"而非抛异常，故 <c>id</c>/<c>position</c> 均登记为
+        /// 非必填）。判断记录：本类型注释文档提到的 <c>facing</c> 子字段全仓库搜索找不到任何运行时
+        /// 读取代码（<c>spawn.table.facing</c> 是另一张不同的表），按 ADR-0019 通用规则 1 不登记。</summary>
+        private static readonly FieldSchema PointItemSchema = new FieldSchema(
+            "<point>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("id", FieldKind.String, required: false,
+                    description: "按 id 查找的命名传送/出生点键；缺失时 TeleportTargetResolver 温和降级为找不到"),
+                new FieldSchema("position", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("x", FieldKind.Number, required: true),
+                    new FieldSchema("y", FieldKind.Number, required: true),
+                },
+                    description: "提供时 x/y 均必填；spawn_points 第 0 个元素若缺失 position，" +
+                        "SceneDescriptor.FromRecord 构造期直接抛异常（非登记层校验，登记层不重复表达）"),
+            });
+
         public static readonly TableSchema Table = new TableSchema(
             name: "world.map",
             primaryKey: "id",
@@ -44,8 +65,10 @@ namespace Core.Foundation.SceneRouter
                 new FieldSchema("scene_ref", FieldKind.String, required: true, description: "场景资源引用（不含路径），由引擎适配层解析加载"),
                 new FieldSchema("regions", FieldKind.IdList, required: false, description: "该地图内的子区域划分，供 Expr 中 world 分组按区域读取标志"),
                 new FieldSchema("nav_ref", FieldKind.String, required: true, description: "导航资源引用（可行走区域、遮挡层数据），由引擎适配层加载后经 INavigation2D 暴露"),
-                new FieldSchema("spawn_points", FieldKind.Array, required: true, description: "玩家出生点/复活点清单，List<{id, position, facing}>；本模块只读取第 0 个元素的 position 作为默认出生点"),
-                new FieldSchema("teleport_points", FieldKind.Array, required: false, description: "供传送类效果/AreaTrigger 引用的命名传送目标，List<{id, position}>"),
+                new FieldSchema("spawn_points", FieldKind.Array, required: true, item: PointItemSchema,
+                    description: "玩家出生点/复活点清单，List<{id?, position?}>；本模块只读取第 0 个元素的 position 作为默认出生点"),
+                new FieldSchema("teleport_points", FieldKind.Array, required: false, item: PointItemSchema,
+                    description: "供传送类效果/AreaTrigger 引用的命名传送目标，List<{id?, position?}>"),
                 new FieldSchema("music_ref", FieldKind.String, required: false, description: "背景音乐资源引用"),
                 new FieldSchema("allowed_difficulties", FieldKind.IdList, required: false, description: "该地图允许应用的难度档位（见 08）"),
             },

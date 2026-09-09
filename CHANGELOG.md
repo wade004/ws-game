@@ -98,8 +98,107 @@
   `AreaTriggerValidationRuleTests.cs` 迁移），覆盖变体键集合与运行时枚举/注册集合一致性、子
   结构命中/坏形状、退役规则不双报的回归。
 
+- ADR-0019 F1c：L3 载体层（`core/carriers/`）、L1 数值层（`core/numbers/`）、L2 其余模块
+  （`core/rules/ai|targeting|combat`）、L0（`core/foundation/display_info|input_map|
+  scene_router`）、L5 表现层（`presentation/`）复合字段子结构登记，收口 ADR-0019 首批登记范围：
+  - L3：`item.template.stats`（`{stat: Reference(stat.definition), op: Enum(flat|pct|mult),
+    value: Number}`，`op` 枚举以 `EquipmentHost.ParseOp` 为准，与 07 原文示例 `flat|pct` 不同）、
+    `grants`（`skills`/`auras` 分别登记为 `Reference(skill.def)`/`Reference(skill.aura_def)`，
+    L3 引用 L2 程序集合法）、`weapon_profile`、`requirements`；`item.set.bonuses`（`aura_ref`
+    升级为 `Reference(skill.aura_def)`）、`item.budget_curve.entries`；`gobj.template.type_data`
+    因判别字段 `kind` 与被判别对象不同层，登记为 `Fields`（十种 kind 字段并集，`GobjTypeData
+    FieldGroupRule` 不退役）而非 `Variants`；`on_use`/`gobj.lock.requirement` 判别字段与被判别
+    对象同层，登记为 `Variants`（`item_id` 升级为同层 `Reference(item.template)`）；
+    `creature.template.base_stats` 为 `Map<stat_id, Number>`，按通用规则不登记。
+  - L1：`stat.rating_conversion.entries`、`prog.level_curve.entries`（`growth` 为 Map 不登记）、
+    `arch.talent_tree.nodes`（`grants` 未被任何运行时代码进一步解析，不登记子结构）、
+    `arch.power_type.max_source` 登记为 `Variants`（`fixed`/`stat`，`stat` 升级为同程序集
+    `Reference(stat.definition)`）；`arch.class.base_stats`/`arch.race.stat_mods` 为 Map，不登记。
+  - L2：`ai.rotation.entries`（`priority`/`condition`/`skill_id` 均按运行时直接强转判断记录为
+    必填，偏离方案"priority?"示例；`skill_id` 升级为 `Reference(skill.def)`）、
+    `ai.patrol_path.points`（`FieldKind.Vec2` 元素）、`ai.behavior_profile.transitions` 为
+    Map，不登记；`target.chain_def.shape` 登记为 `Variants`（circle/cone/line/rect）、`filters`
+    登记 `Item`（`FieldKind.String`，不登记为 `Expr`——内置简写如 `relation:hostile` 不是合法
+    Expr 语法）、`sort_by` 登记 `Fields`；`combat.hit_table_config` 六个分支登记共用 `Fields`
+    （`stat` 升级为 `Reference(stat.definition)`）、`combat.resist_curve.entries`。
+  - L0：`display.map.mirror_pairs`/`paperdoll_layers` 登记 `Item`（`anchor_points`/
+    `default_slot_meshes`/`material_params` 为 Map，不登记）；`found.input_action.
+    default_bindings` 登记 `Item`；`world.map.spawn_points`/`teleport_points` 共用同一份
+    `{id?:String, position?:{x,y}}` 元素结构（`facing` 全仓库无运行时读取代码，不登记）；
+    `found.time_model.grid_snap` 全仓库无运行时读取代码，本轮不登记（偏离方案建议）。
+  - L5：`camera_profile.bounds`/`shake_presets` 登记 `Fields`/`Item`；
+    `feedback.binding.actions` 登记为 `Variants`（六种动作，`style_id` 升级为同表
+    `Reference(feedback.floating_text_style)`；`vfx_id`/`sfx_id`/`profile_id` 退回 `Id`）；
+    `shell_menu_definition.entries` 登记 `Item`（`target_panel` 升级为同层
+    `Reference(ui_layout_definition)`，`text_key` 升级为 `FieldKind.TextKey`）；
+    `ui_layout_definition.fields`（非同构 Map，是引擎适配层解释的不透明 blob）、
+    `display.weapon_style.cast_anim_override`/`impact_vfx_override`（`Id→Id` Map）按通用规则
+    均不登记。
+  - `item.affix.effects`（全仓库搜索无任何运行时解析代码，07 原文标注"本版不实现具体效果"）本轮
+    不登记，偏离任务书"若要复用 `EffectsItemSchema`"的示例（该示例以"字段已被实际解析"为前提，
+    与运行时现状不符）。
+  - 新增测试：`core/carriers/gobj/tests/GobjSchemaCoverageTests.cs`（11 条）、
+    `core/carriers/item/tests/ItemSchemaCoverageTests.cs`（13 条）、
+    `core/numbers/stat_block/tests/StatSchemaCoverageTests.cs`（2 条）、
+    `core/numbers/progression/tests/ProgSchemaCoverageTests.cs`（2 条）、
+    `core/numbers/archetype/tests/ArchSchemaCoverageTests.cs`（2 条）、
+    `core/numbers/power_set/tests/PowerSchemaCoverageTests.cs`（4 条）、
+    `core/rules/targeting/tests/TargetSchemaCoverageTests.cs`（5 条）、
+    `core/rules/combat/tests/CombatSchemaCoverageTests.cs`（5 条）、
+    `core/foundation/display_info/tests/DisplaySchemaCoverageTests.cs`（3 条）、
+    `core/foundation/input_map/tests/InputActionSchemaCoverageTests.cs`（2 条）、
+    `core/foundation/scene_router/tests/WorldMapSchemaCoverageTests.cs`（2 条）、
+    `presentation/camera/tests/CameraSchemaCoverageTests.cs`（3 条）、
+    `presentation/feedback_binder/tests/FeedbackActionsSchemaCoverageTests.cs`（4 条）、
+    `presentation/shell/tests/ShellMenuSchemaCoverageTests.cs`（3 条），另有 `core/rules/ai`
+    既有 `AiContentValidationRuleTests.cs` 补齐 `skill.def` 假数据依赖，覆盖变体键集合一致性、
+    子结构命中/坏形状、退役规则不双报的回归。
+
 ### 行为变更与迁移说明
 
+- ADR-0019 F1c：以下手写结构校验按登记覆盖情况退役/收窄（检查名集合变化，均属 MINOR 级，无数据
+  表字段删改）：
+  - `core/carriers/gobj/schema/GobjValidationRules.cs`：`GobjOnUseKindRule`（检查名
+    `gobj_on_use_kind`）/`GobjLockRequirementFieldGroupRule`（检查名
+    `gobj_lock_requirement_field_group`）两条纯结构规则整条删除，改由 `on_use`/`requirement`
+    的 `Variants` 登记（`variant_discriminator`/`required_field`/`field_type`）完全覆盖；
+    `GobjTypeDataFieldGroupRule`（判别字段 `kind` 与 `type_data` 不同层）不退役。
+  - `core/rules/ai/core/AiContentValidationRule.cs`：`ValidateRotations` 的元素非对象/
+    `priority`/`condition`/`skill_id` 缺失或类型不符四类结构检查、`condition` 的 Expr 解析
+    （检查名 `expr_parsable`）整段删除——`condition` 登记为 `FieldKind.Expr` 后与顶层字段共用
+    同一份 `DataRegistry.ValidateExprField` 实现，继续跑自定义域 Schema 解析会与内置校验对同一
+    条坏数据双报；仅保留 `priority` 同表内不重复这条纯业务判断（数组内多元素互相比较，登记层
+    表达不了）。`ValidateBehaviorProfiles`（`transitions` 是 Map，未登记子结构）/
+    `ValidatePatrolPaths`（`points` 数量 `>= 2`）未改动。
+  - `core/rules/targeting/core/ChainDefValidationRule.cs`：`filters` 元素非字符串的检查
+    （检查名 `target_filter_type`）整条删除，改由 `filters` 的 `Item`（`field_type`）覆盖；
+    内置简写识别 + Expr 解析（`target_filter_expr_parsable`）、`source` 已注册、`fallback`
+    成环三项业务判断未改动。
+  - `core/rules/combat/schema/CombatValidationRules.cs`：`CombatResistCurveValidationRule` 的
+    `entries[]` 元素非对象/`value`/`reduction` 缺失或类型不符检查（检查名
+    `resist_curve_entries_shape`）整条删除，改由 `entries` 的 `Item`
+    （`required_field`/`field_type`）覆盖；单调性、`kind=table` 时非空、`kind=saturation` 时
+    `k` 必填且为正、`max_reduction` 区间四项业务判断（判别字段 `kind` 与 `entries`/`k` 是表
+    顶层平级字段，`Variants` 不适用）未改动。`CombatHitTableValidationRule` 未改动（六个分支
+    此前无对应结构检查，本轮子结构登记是纯新增覆盖）。
+  - 已通过既有内容数据（`data/_sample`、`data/_framework`）0 错误验证，`data/_sample/stat/
+    stat.definition.json`/`stat.rating_conversion.json`/`l10n/l10n.text.json` 补充此前缺失的
+    `stat.dodge_rating`（连同其 `stat.rating.dodge` 评级曲线与 `l10n.stat.dodge_rating.name`
+    文本键）——`combat.hit_table_config.dodge.stat` 一直引用这个未登记过的属性 id，此前因
+    `stat` 字段未登记子结构、这条引用完整性检查从未真正跑过，本轮修复样例数据而非放宽登记。
+  - 大量既有单元测试夹具（`core/carriers/item|gobj`、`core/rules/ai`、
+    `core/gameplay/assembly` 等）内联的假 `skill_id`/`item_id`/`stat`/`style_id` 等 id 此前
+    不受跨表引用完整性约束，本轮子结构登记升级为 `Reference` 后需要夹具补充匹配的最小合法数据
+    （`skill.def`/`item.template`/`stat.definition`/`feedback.floating_text_style`/
+    `target.chain_def` 等），测试断言的业务行为本身未变化。
+- 嵌套 `Expr` 字段现经登记递归校验（`DataRegistry.ValidateFieldValue` 对子层 `FieldKind.Expr`
+  与顶层共用同一份 `ValidateExprField` 实现，见 F1a），ADR-0015"疑似引用拼写错误"警告会在嵌套
+  表达式上出现：`data/_sample` 的 `dialog.gossip_menu` 现报 3 条此类警告（`dialog.sample_hunter`
+  的 `options[].visible_if` 对 `"quest.sample_hunt"` 的引用），均为对 `quest.*` 内容 id 的合法
+  引用，属规范内的警告级噪音，不阻断（`toolchain/validate_data.py`/`check.ps1 -Quick` 均已确认
+  0 错误通过）；`games/_template/validate.ps1 -Strict` 或 `validate_data.py --strict` 下警告会
+  阻断，游戏侧启用严格模式前需核对并按需给 `quest.sample_hunt` 补一条真实引用或调整措辞消除
+  误报。
 - `core/rules/skill/schema/SkillValidationRules.cs`：`EffectKindRegisteredRule`/
   `CostEntryShapeRule` 两条手写结构校验规则整条退役，`ChargesShapeRule` 的结构部分退役、唯一
   业务判断（`charges.max >= 1`）收窄保留为新规则 `ChargesMaxAtLeastOneRule`——三者要检查的坏

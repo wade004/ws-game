@@ -111,6 +111,10 @@ namespace Core.Rules.Combat
                         continue;
                     }
 
+                    // ADR-0019 F1c 收窄：entries 现登记 Item（{value:Number, reduction:Number} 均
+                    // 必填），元素非对象/缺失字段/类型不符已由 field_type/required_field 报告，本规则
+                    // 不再重复报"resist_curve_entries_shape"（见 CombatSchemas.ResistCurve 判断记录），
+                    // 只保留单调性这条登记层表达不了的业务判断。
                     double? prevValue = null;
                     double? prevReduction = null;
                     for (int i = 0; i < entries.Count; i++)
@@ -119,9 +123,6 @@ namespace Core.Rules.Combat
                             || !entry.TryGetValue("value", out var valueVal) || !(valueVal is JsonNumber valueNum)
                             || !entry.TryGetValue("reduction", out var reductionVal) || !(reductionVal is JsonNumber reductionNum))
                         {
-                            issues.Add(new ValidationIssue(
-                                ValidationSeverity.Error, Table, "resist_curve_entries_shape",
-                                $"entries[{i}] 必须是 {{value: Number, reduction: Number}}", record.Key, "entries"));
                             continue;
                         }
 

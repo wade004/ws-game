@@ -93,12 +93,28 @@ namespace Tests.Presentation.FeedbackBinder
             }
         }
 
+        /// <summary>ADR-0019 F1c：<c>actions[].params.style_id</c> 现登记为
+        /// <c>Reference(feedback.floating_text_style)</c>，本文件规则行常量固定引用
+        /// <c>feedback.style.crit</c>/<c>feedback.style.normal</c> 两个假 id；调用方未显式提供
+        /// <c>feedback.floating_text_style</c> 表数据时，这里补一份覆盖两者的默认数据满足引用
+        /// 完整性（显式提供时——如 <see cref="Tests.Presentation.FeedbackBinder.FeedbackFromRecordTests"/>
+        /// 需要断言解析结果——以调用方提供的为准，不覆盖）。</summary>
+        private const string DefaultFloatingTextStyleRows = "[" +
+            "{\"id\":\"feedback.style.crit\",\"color_ref\":\"color.crit_yellow\"}," +
+            "{\"id\":\"feedback.style.normal\",\"color_ref\":\"color.normal_white\"}," +
+            "{\"id\":\"feedback.style.buff\",\"color_ref\":\"color.buff_green\"}]";
+
         public static (IDataRegistry Registry, ValidationReport Report) BuildRegistry(IReadOnlyDictionary<string, string> tables)
         {
             var source = new InMemoryDataSource();
             foreach (var kv in tables)
             {
                 source.Add(kv.Key, Envelope(kv.Key, kv.Value));
+            }
+
+            if (!tables.ContainsKey("feedback.floating_text_style"))
+            {
+                source.Add("feedback.floating_text_style", Envelope("feedback.floating_text_style", DefaultFloatingTextStyleRows));
             }
 
             var registry = new Core.Foundation.DataRegistry.DataRegistry(

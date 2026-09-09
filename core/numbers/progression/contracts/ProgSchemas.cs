@@ -23,9 +23,18 @@ namespace Core.Numbers.Progression
                 new FieldSchema("max_level", FieldKind.Int, required: true,
                     description: "曲线的最大等级，必须等于 entries 的元素个数"),
                 new FieldSchema("entries", FieldKind.Array, required: true,
+                    item: new FieldSchema("<level_entry>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("level", FieldKind.Int, required: true),
+                        new FieldSchema("xp_to_next", FieldKind.Int, required: true),
+                        // growth 是 Map<stat_id, Number>（键为 stat.definition 的 id，动态键）：
+                        // ADR-0019 通用规则 5，Map 型对象不登记子结构，保持"存在且是对象"。
+                        new FieldSchema("growth", FieldKind.Object, required: false,
+                            description: "Map<stat_id, Number>，见 ADR-0019 通用规则 5，不登记子结构"),
+                    }),
                     description: "Array<{level:Int, xp_to_next:Int, growth:Object<stat_id,Number>}>，" +
-                        "level 从 1 连续到 max_level；结构由本模块自行解析（04 第 5 节 field_type 对 " +
-                        "Array 只做\"存在且是数组\"检查），连续性由 ProgLevelCurveValidationRule 校验"),
+                        "level 从 1 连续到 max_level（连续性/数量一致性业务判断留在 " +
+                        "ProgLevelCurveValidationRule，登记层只表达无条件必填/类型）"),
             });
 
         public static readonly TableSchema XpSource = new TableSchema(

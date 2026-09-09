@@ -8,18 +8,39 @@ namespace Tests.Rules.Ai
     /// points ≥ 2"（任务书 T2-10）。</summary>
     public class AiContentValidationRuleTests
     {
+        // ADR-0019 F1c：ai.rotation.entries[].skill_id 现登记为 Reference(skill.def)，本文件全部
+        // 用例共用 skill.a/skill.b 两个假 id，补一份最小合法 skill.def 数据满足引用完整性。
+        private const string SkillDefJson =
+            "[{\"id\": \"skill.a\", \"school\": \"skill.school.ai_cov\", \"kind\": \"active\"," +
+            " \"range\": 0, \"cast_time\": 0, \"respects_gcd\": true," +
+            " \"target_shape_ref\": \"target.ai_cov\", \"effects\": []}," +
+            "{\"id\": \"skill.b\", \"school\": \"skill.school.ai_cov\", \"kind\": \"active\"," +
+            " \"range\": 0, \"cast_time\": 0, \"respects_gcd\": true," +
+            " \"target_shape_ref\": \"target.ai_cov\", \"effects\": []}]";
+
         private static ValidationReport Validate(string profilesJson, string rotationsJson, string patrolsJson)
         {
             var bus = AiTestSupport.CreateBus();
             var source = new InMemoryDataSource()
                 .Add(AiSchemas.BehaviorProfile.Name, AiTestSupport.Envelope(AiSchemas.BehaviorProfile.Name, profilesJson))
                 .Add(AiSchemas.Rotation.Name, AiTestSupport.Envelope(AiSchemas.Rotation.Name, rotationsJson))
-                .Add(AiSchemas.PatrolPath.Name, AiTestSupport.Envelope(AiSchemas.PatrolPath.Name, patrolsJson));
+                .Add(AiSchemas.PatrolPath.Name, AiTestSupport.Envelope(AiSchemas.PatrolPath.Name, patrolsJson))
+                .Add(Core.Rules.Skill.SkillSchemas.Def.Name, AiTestSupport.Envelope(Core.Rules.Skill.SkillSchemas.Def.Name, SkillDefJson));
 
-            var registry = new DataRegistry(source, bus, new DataRegistryOptions());
+            // ADR-0019 F1c：condition 现登记为 FieldKind.Expr，内建 expr_parsable 校验需要
+            // ExprSchema 才会真正解析（未配置时只降级为 Warning，见 DataRegistryOptions.ExprSchema
+            // 判断记录）——本文件的 UnparsableConditionExpr_IsReportedAsExprParsableError 依赖这条
+            // 内建校验（原 AiContentValidationRule 自带的 condition 解析已退役，见该规则判断记录），
+            // 配上与运行期同一份 Core.Rules.ExprHost.RulesExprSchema.Base。
+            var registry = new DataRegistry(source, bus, new DataRegistryOptions
+            {
+                FailOnUnknownTable = false,
+                ExprSchema = Core.Rules.ExprHost.RulesExprSchema.Base,
+            });
             registry.RegisterSchema(AiSchemas.BehaviorProfile);
             registry.RegisterSchema(AiSchemas.Rotation);
             registry.RegisterSchema(AiSchemas.PatrolPath);
+            registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.Def);
             registry.RegisterValidationRule(new AiContentValidationRule());
 
             return registry.LoadAll();

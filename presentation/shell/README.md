@@ -37,6 +37,14 @@
 - `NewGameStarter` 委托同理承担"创建初始玩家状态"这一游戏层专属步骤，返回起始地图 id 后由
   `ShellHost` 统一调用 `LoadScene`，见该委托类型注释判断记录。
 
+## ADR-0019 F1c 子结构登记
+
+`shell_menu_definition.entries[]`（`ShellSchemas.EntriesItemSchema`）：`{id:Id, text_key:TextKey,
+action:Enum(6值), target_panel:Reference(ui_layout_definition)?}`，按 `ShellMenuEntry.ParseEntry`
+权威解析登记。`target_panel` 登记为 Reference——`Presentation.Shell`/`Presentation.Ui` 同属
+`Presentation.Common` 程序集（同层）。`text_key` 补齐文本键存在性校验（原运行时只做 `Id.TryParse`
+格式检查）。
+
 ## 验收
 
 - `grep -rniE "\.SetPosition\(|\.SetAlive\(|\.AddModifier\(|\.ModifyPower\(|\.SetBase\(|WorldState\.Set\(" presentation/shell`

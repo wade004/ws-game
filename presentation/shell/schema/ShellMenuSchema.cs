@@ -125,6 +125,23 @@ namespace Presentation.Shell
     /// <summary><c>shell_menu_definition</c> 的静态结构声明。内容表，主键 <c>id</c>。</summary>
     public static class ShellSchemas
     {
+        /// <summary><c>entries[]</c>：<c>ShellMenuEntry.ParseEntry</c> 权威解析，id/text_key/action
+        /// 缺失或类型不符均抛异常，三者必填；<c>target_panel</c> 缺省 null。<c>target_panel</c>
+        /// 登记为 <c>Reference(ui_layout_definition)</c>：<c>Presentation.Shell</c>/
+        /// <c>Presentation.Ui</c> 同属 <c>Presentation.Common</c> 程序集（同层），登记为 Reference
+        /// 不违反分层。<c>text_key</c> 登记为 <see cref="FieldKind.TextKey"/>（本次补齐文本键存在性
+        /// 校验，原运行时只做 <c>Id.TryParse</c> 格式检查，不检查 <c>l10n.text</c> 是否真的有这个
+        /// 键——同 <c>gobj.template.type_data.sign.text_key</c> 判断记录）。</summary>
+        public static readonly FieldSchema EntriesItemSchema = new FieldSchema(
+            "<menu_entry>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("text_key", FieldKind.TextKey, required: true),
+                new FieldSchema("action", FieldKind.Enum, required: true, enumValues: ShellMenuActionWireNames.EnumValues),
+                new FieldSchema("target_panel", FieldKind.Reference, required: false, referenceTable: "ui_layout_definition",
+                    description: "供 settings/back 一类需要跳到某个具体面板的动作使用，其余动作通常省略"),
+            });
+
         public static readonly TableSchema ShellMenuDefinitionTable = new TableSchema(
             name: "shell_menu_definition",
             primaryKey: "id",
@@ -132,7 +149,8 @@ namespace Presentation.Shell
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "菜单逻辑 id"),
-                new FieldSchema("entries", FieldKind.Array, required: true, description: "菜单项列表，见 ShellMenuEntry"),
+                new FieldSchema("entries", FieldKind.Array, required: true, item: EntriesItemSchema,
+                    description: "菜单项列表，见 ShellMenuEntry"),
             });
     }
 }

@@ -31,7 +31,9 @@ namespace Core.Foundation.InputMap
                 new FieldSchema("kind", FieldKind.Enum, required: true,
                     enumValues: new[] { "button", "axis1d", "axis2d" }),
                 new FieldSchema("default_bindings", FieldKind.Array, required: true,
-                    description: "默认绑定字符串数组，语法见 core/foundation/input_map/README.md"),
+                    item: new FieldSchema("<binding>", FieldKind.String, required: true),
+                    description: "默认绑定字符串数组（ActionDefinition.FromRecord 对非字符串元素抛异常），" +
+                        "语法见 core/foundation/input_map/README.md；至少一项这条业务判断留在 ActionDefinition 构造函数（登记层不表达非空数组）"),
                 new FieldSchema("rebind_group", FieldKind.String, required: false,
                     description: "重绑分组，缺省视为 \"default\""),
                 new FieldSchema("description", FieldKind.String, required: false),

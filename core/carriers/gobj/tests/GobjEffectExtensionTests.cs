@@ -30,6 +30,7 @@ namespace Tests.Carriers.Gobj
             const string lockId = "gobj.lock.sample_effect_ok";
             var itemId = new Id("item.sample_effect_key");
             var world = new GobjWorldBuilder()
+                .Item(itemId.Value)
                 .Lock(J.O(("id", J.S(lockId)), ("requirement", J.O(("kind", J.S("item_key")), ("item_id", J.S(itemId.Value))))))
                 .Template(Door("gobj.sample_effect_door_a", lockId))
                 .Build();
@@ -53,6 +54,7 @@ namespace Tests.Carriers.Gobj
             const string lockId = "gobj.lock.sample_effect_bad";
             var itemId = new Id("item.sample_effect_key2");
             var world = new GobjWorldBuilder()
+                .Item(itemId.Value)
                 .Lock(J.O(("id", J.S(lockId)), ("requirement", J.O(("kind", J.S("item_key")), ("item_id", J.S(itemId.Value))))))
                 .Template(Door("gobj.sample_effect_door_b", lockId))
                 .Build();

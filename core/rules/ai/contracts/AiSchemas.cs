@@ -42,7 +42,8 @@ namespace Core.Rules.Ai
                 new FieldSchema("decision_interval", FieldKind.Number, required: false,
                     description: "combat 态求值优先级表的节奏（模拟时间单位），缺省 0.5"),
                 new FieldSchema("transitions", FieldKind.Object, required: false,
-                    description: "覆盖默认转移条件：键为转移名（如 idle_to_chase），值为 Expr 文本；未列出的转移名沿用代码内置默认判定，见本模块 README 对照表"),
+                    description: "Map<转移名, Expr 文本>（键动态，ADR-0019 通用规则 5 不登记子结构）：" +
+                        "覆盖默认转移条件（如 idle_to_chase）；未列出的转移名沿用代码内置默认判定，见本模块 README 对照表"),
             });
 
         /// <summary>优先级表：条件到候选技能的有序列表（见 06 第 6.2 节 <c>RotationEntry</c>）。</summary>
@@ -55,7 +56,18 @@ namespace Core.Rules.Ai
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "ai.rotation.<name>"),
                 new FieldSchema("entries", FieldKind.Array, required: true,
-                    description: "有序 RotationEntry 列表：[{priority: Int, condition: String(Expr, self/target/combat/enemies 分组), skill_id: Id}]；priority 在同一张表内不得重复，见 AiContentValidationRule"),
+                    item: new FieldSchema("<rotation_entry>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        // AiHost.LoadRotations 对三个字段均直接强转（JsonNumber/JsonString 索引器），
+                        // 缺失或类型不符会抛异常，三者均必填（判断记录：偏离方案"priority?"示例，以
+                        // 运行时为准）。
+                        new FieldSchema("priority", FieldKind.Int, required: true),
+                        new FieldSchema("condition", FieldKind.Expr, required: true,
+                            description: "Expr 文本，self/target/combat/enemies 分组，见 06 第 6.2 节"),
+                        new FieldSchema("skill_id", FieldKind.Reference, required: true, referenceTable: "skill.def",
+                            description: "core/rules/ai 与 core/rules/skill 同属 Core.Rules 程序集（同层），登记为 Reference"),
+                    }),
+                    description: "有序 RotationEntry 列表：[{priority: Int, condition: Expr, skill_id: Reference(skill.def)}]；priority 在同一张表内不得重复，见 AiContentValidationRule"),
             });
 
         /// <summary>巡逻路径：有序 Vec2 列表 + <c>loop</c>|<c>pingpong</c> 模式（见 06 第 6.3 节）。</summary>
@@ -68,6 +80,7 @@ namespace Core.Rules.Ai
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "ai.path.<name>"),
                 new FieldSchema("points", FieldKind.Array, required: true,
+                    item: new FieldSchema("<point>", FieldKind.Vec2, required: true),
                     description: "有序路径点列表：[{x: Number, y: Number}, ...]，至少 2 个点，见 AiContentValidationRule"),
                 new FieldSchema("mode", FieldKind.Enum, required: true, enumValues: PatrolModeValues,
                     description: "loop：到终点跳回起点；pingpong：到端点折返方向"),

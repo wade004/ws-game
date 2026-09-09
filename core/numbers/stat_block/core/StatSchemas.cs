@@ -51,7 +51,13 @@ namespace Core.Numbers.StatBlock
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "stat.rating.<name>"),
                 new FieldSchema("entries", FieldKind.Array, required: true,
-                    description: "[{level: Int, points_per_percent: Number}, ...]，按 level 升序"),
+                    item: new FieldSchema("<rating_entry>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("level", FieldKind.Int, required: true),
+                        new FieldSchema("points_per_percent", FieldKind.Number, required: true),
+                    }),
+                    description: "[{level: Int, points_per_percent: Number}, ...]，按 level 升序" +
+                        "（StatHost.LoadRatingConversions 对缺失 level/points_per_percent 抛异常，两者均必填）"),
             });
     }
 }

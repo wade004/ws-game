@@ -28,8 +28,21 @@ namespace Presentation.Camera.Schema
                 new FieldSchema("zoom_max", FieldKind.Number, required: true, description: "允许缩放范围上限"),
                 new FieldSchema("zoom_default", FieldKind.Number, required: true, description: "Configure 时应用的初始缩放，须落在 [zoom_min, zoom_max]"),
                 new FieldSchema("follow_lerp", FieldKind.Number, required: true, description: "跟随平滑系数，传给 ICamera.Follow(planePos, smoothing)"),
-                new FieldSchema("bounds", FieldKind.Object, required: false, description: "跟随边界 {min: {x,y}, max: {x,y}}"),
-                new FieldSchema("shake_presets", FieldKind.Array, required: false, description: "震屏档位清单 List<{id, amplitude, duration, frequency}>"),
+                new FieldSchema("bounds", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("min", FieldKind.Vec2, required: true),
+                    new FieldSchema("max", FieldKind.Vec2, required: true),
+                },
+                    description: "跟随边界 {min: {x,y}, max: {x,y}}（CameraProfile.FromRecord 对 min/max 缺失即抛异常，均必填）"),
+                new FieldSchema("shake_presets", FieldKind.Array, required: false,
+                    item: new FieldSchema("<shake_preset>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("id", FieldKind.Id, required: true),
+                        new FieldSchema("amplitude", FieldKind.Number, required: true),
+                        new FieldSchema("duration", FieldKind.Number, required: true),
+                        new FieldSchema("frequency", FieldKind.Number, required: false, description: "缺省 0"),
+                    }),
+                    description: "震屏档位清单 List<{id, amplitude, duration, frequency?}>"),
             },
             migrations: Array.Empty<TableMigration>());
 

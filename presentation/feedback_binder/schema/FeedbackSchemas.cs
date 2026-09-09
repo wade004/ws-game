@@ -12,10 +12,79 @@ namespace Presentation.FeedbackBinder.Schema
     /// </summary>
     public static class FeedbackSchemas
     {
-        /// <summary><c>feedback.binding</c>（09 第 6.1 节）。<c>actions</c> 的嵌套结构（每项
-        /// <c>{kind, params}</c>）由 <see cref="Presentation.FeedbackBinder.Contracts.FeedbackRule.FromRecord"/>
-        /// 自行解析，schema 层只声明为 <see cref="FieldKind.Array"/>（结构未知/上层解释，同
-        /// <c>Core.Rules.Ai.AiSchemas.Rotation.entries</c> 惯例）。</summary>
+        public static readonly string[] ActionKindValues =
+        {
+            "floating_text", "play_vfx", "play_sfx", "freeze", "shake_camera", "flash",
+        };
+
+        public static readonly string[] FeedbackAttachTargetValues = { "source", "target", "world" };
+        public static readonly string[] FromDisplaySourceValues = { "source", "target", "skill" };
+
+        /// <summary><c>feedback.binding.actions[]</c>：判别字段 <c>kind</c> 与 <c>params</c> 同处一个
+        /// 对象内，Variants 适用（惯例同 <c>SkillSchemas.EffectsItemSchema</c> 的
+        /// "kind + params"记法）。参数表以 <see cref="Presentation.FeedbackBinder.Contracts.FeedbackRule.ParseAction"/>
+        /// 为唯一依据。<c>play_vfx</c> 的 <c>vfx_id</c>/<c>from_display</c> 二选一、<c>play_sfx</c>
+        /// 同理、<c>flash.target</c> 不得为 <c>world</c>——这些"二选一"/"取值子集"业务判断登记层
+        /// 表达不了（<see cref="FieldSchema"/> 没有"至少一个""排除某个枚举取值"的记法），继续由
+        /// 各 <see cref="Presentation.FeedbackBinder.Contracts.FeedbackAction"/> 子类构造函数（抛
+        /// 异常）承担——不同于 <c>DataRegistry.LoadAll</c> 的优雅收集，<c>FeedbackRule.FromRecord</c>
+        /// 本身在遇到非法数据时构造期直接抛异常，本次登记是在它之前新增一道更早、更友好的
+        /// <c>ValidationIssue</c> 报告（必填/类型/枚举/引用），不影响也不重复它的行为。</summary>
+        public static readonly FieldSchema ActionsItemSchema = new FieldSchema(
+            "<action>", FieldKind.Object, required: true, variants: BuildActionVariants(),
+            description: "{kind, params}，见 09 第 6.1 节六种动作");
+
+        private static VariantSchema BuildActionVariants()
+        {
+            var cases = new Dictionary<string, IReadOnlyList<FieldSchema>>(StringComparer.Ordinal)
+            {
+                ["floating_text"] = ParamsCase(new[]
+                {
+                    new FieldSchema("style_id", FieldKind.Reference, required: true, referenceTable: "feedback.floating_text_style"),
+                    new FieldSchema("text_source", FieldKind.String, required: true,
+                        description: "field:<name>|literal:<text_key>|amount，见 TextSource.Parse"),
+                }),
+                ["play_vfx"] = ParamsCase(new[]
+                {
+                    new FieldSchema("vfx_id", FieldKind.Id, required: false,
+                        description: "与 from_display 二选一，至少一个非空（构造期校验）；vfx.def 本任务未定义，退回 Id"),
+                    new FieldSchema("from_display", FieldKind.Enum, required: false, enumValues: FromDisplaySourceValues),
+                    new FieldSchema("attach", FieldKind.Enum, required: true, enumValues: FeedbackAttachTargetValues),
+                    new FieldSchema("anchor_id", FieldKind.Id, required: false, description: "缺省退化为世界位置播放"),
+                }),
+                ["play_sfx"] = ParamsCase(new[]
+                {
+                    new FieldSchema("sfx_id", FieldKind.Id, required: false,
+                        description: "与 from_display 二选一，至少一个非空（构造期校验）；sfx.def 本任务未定义，退回 Id"),
+                    new FieldSchema("from_display", FieldKind.Enum, required: false, enumValues: FromDisplaySourceValues),
+                }),
+                ["freeze"] = ParamsCase(new[]
+                {
+                    new FieldSchema("duration_ms", FieldKind.Number, required: true, description: "须 >= 0，见 FreezeAction 构造函数"),
+                }),
+                ["shake_camera"] = ParamsCase(new[]
+                {
+                    // camera_profile 与本模块同属 L5，但分属两个不同的 Presentation 子目录；判断记录
+                    // 同 vfx_id/sfx_id：本模块不预设跨子模块表已加载，退回 Id（不做引用完整性检查）。
+                    new FieldSchema("profile_id", FieldKind.Id, required: true, description: "指向 camera_profile"),
+                }),
+                ["flash"] = ParamsCase(new[]
+                {
+                    new FieldSchema("profile_id", FieldKind.Id, required: true),
+                    new FieldSchema("target", FieldKind.Enum, required: true, enumValues: FeedbackAttachTargetValues,
+                        description: "只能是 source|target，不得为 world（FlashAction 构造函数校验，登记层不表达取值子集）"),
+                }),
+            };
+            return new VariantSchema("kind", cases);
+        }
+
+        private static IReadOnlyList<FieldSchema> ParamsCase(IReadOnlyList<FieldSchema> paramFields) => new[]
+        {
+            new FieldSchema("params", FieldKind.Object, required: true, fields: paramFields),
+        };
+
+        /// <summary><c>feedback.binding</c>（09 第 6.1 节）。<c>actions</c> 的嵌套结构见
+        /// <see cref="ActionsItemSchema"/>。</summary>
         public static readonly TableSchema Binding = new TableSchema(
             name: "feedback.binding",
             primaryKey: "id",
@@ -25,7 +94,8 @@ namespace Presentation.FeedbackBinder.Schema
                 new FieldSchema("id", FieldKind.Id, required: true, description: "feedback.<name>"),
                 new FieldSchema("event", FieldKind.Id, required: true, description: "订阅的事件 key（如 combat.damage_dealt），指向 found.event_catalog，见判断记录（跨 domain 登记表不适合用 FieldKind.Reference，本模块的 FeedbackRuleValidator 另行按 EventKeys.All 校验）"),
                 new FieldSchema("condition", FieldKind.Expr, required: false, description: "Expr 条件文本，见 04 第 6 节；宿主分组含 event（触发事件字段）"),
-                new FieldSchema("actions", FieldKind.Array, required: true, description: "有序 FeedbackAction 列表：[{kind: floating_text|play_vfx|play_sfx|freeze|shake_camera|flash, params: {...}}]，见 09 第 6.1 节"),
+                new FieldSchema("actions", FieldKind.Array, required: true, item: ActionsItemSchema,
+                    description: "有序 FeedbackAction 列表：[{kind: floating_text|play_vfx|play_sfx|freeze|shake_camera|flash, params: {...}}]，见 09 第 6.1 节"),
                 new FieldSchema("sync", FieldKind.Enum, required: false, enumValues: new[] { "hit_frame" }, description: "ADR-0017 决策 d：命中帧同步声明，未提供时按 event 是否为 combat.damage_dealt 决定默认值（见 FeedbackRule.Sync 判断记录）"),
             },
             migrations: Array.Empty<TableMigration>());

@@ -8,6 +8,13 @@
         { "level": 1, "points_per_percent": 50 },
         { "level": 3, "points_per_percent": 20 }
       ]
+    },
+    {
+      "id": "stat.rating.dodge",
+      "entries": [
+        { "level": 1, "points_per_percent": 50 },
+        { "level": 3, "points_per_percent": 20 }
+      ]
     }
   ]
 }

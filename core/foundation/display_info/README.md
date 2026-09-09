@@ -92,6 +92,12 @@ display_info/
    抛 `InvalidOperationException`（与 `hook_registry.Register` 对"接线错误尽快暴露"同一
    惯例），不是静默取后一条覆盖前一条。
 
+5. **ADR-0019 F1c 子结构登记**：`mirror_pairs`（`[{direction_slot:Id, mirror_of:Id, flip_x:Bool}]`，
+   前两者必填、`flip_x` 缺省 `false`）、`paperdoll_layers`（`[String]`）按 `DisplayInfo.
+   ParseSpriteInfo` 权威解析登记为 `Item`。`anchor_points`/`default_slot_meshes`/
+   `material_params` 三个字段是 `Map<动态键, ...>`（分别为锚点名/槽位 id/参数名），按 ADR-0019
+   通用规则 5 不登记子结构，保持"存在且是对象"。
+
 ## 基础架构提供 / 游戏层提供
 
 | 能力 | 基础架构提供 | 游戏层提供 |

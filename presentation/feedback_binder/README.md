@@ -180,6 +180,15 @@
     攻击对多个目标各自产生独立的 `combat.damage_dealt` 事件，各自经独立的一次 `OnEvent` 调用登记为
     各自独立的批次，仍按既有 FIFO 顺序逐批释放，不会被本次改动误合并成一批。
 
+16. **ADR-0019 F1c：`actions[]` 按判别字段 `kind` 登记为 `Variants`**（`FeedbackSchemas.
+    ActionsItemSchema`），六种动作各自的 `params` 参数表以 `FeedbackRule.ParseAction` 为唯一依据。
+    `style_id` 登记为 `Reference(feedback.floating_text_style)`（同表，同层）；`vfx_id`/`sfx_id`/
+    `profile_id`（`shake_camera`/`flash`）退回 `Id`——分别指向本任务未定义的 `vfx.def`/`sfx.def`
+    与另一个未预设已加载的 `Presentation.Camera` 子模块表，避免虚假引用完整性错误。`play_vfx`/
+    `play_sfx` 的 `vfx_id|from_display`/`sfx_id|from_display` 二选一、`flash.target` 不得为
+    `world` 三条业务判断登记层表达不了，继续由 `FeedbackAction` 各子类构造函数（抛异常）承担——
+    与 `DataRegistry.LoadAll` 的优雅收集是两套独立的失败通道，互不重复。
+
 ## 不负责什么
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行

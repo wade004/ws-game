@@ -73,6 +73,22 @@ namespace Core.Numbers.Archetype
             {
                 new FieldSchema("id", FieldKind.Id, required: true),
                 new FieldSchema("nodes", FieldKind.Array, required: true,
+                    item: new FieldSchema("<talent_node>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        // ArchetypeRegistry.ParseTalentTree：id 缺失/非字符串直接抛异常，必填；
+                        // 只检查 JsonString，不做 Id 格式校验，登记为 String 而非 Id（以运行时为准）。
+                        new FieldSchema("id", FieldKind.String, required: true),
+                        new FieldSchema("prerequisites", FieldKind.Array, required: false,
+                            item: new FieldSchema("<prereq_id>", FieldKind.String, required: true),
+                            description: "缺省 []；前置节点 id（同一棵树内，运行时按字符串比较，不是" +
+                                "全局 Id）；存在性与无环由 ArchTalentTreeCycleValidationRule 校验"),
+                        new FieldSchema("cost", FieldKind.Int, required: false, description: "缺省 0"),
+                        // grants 结构未在本模块任何位置被进一步解析/消费（ArchetypeRegistry 只原样
+                        // 存成 JsonObject），找不到运行时读取的子字段，不登记子结构（ADR-0019 通用
+                        // 规则 1），保持"存在且是对象"。
+                        new FieldSchema("grants", FieldKind.Object, required: false,
+                            description: "缺省 {}；未被本模块进一步解析，不登记子结构"),
+                    }),
                     description: "Array<{id:String, prerequisites:[String], cost:Int, grants:Object}>；" +
                         "前置存在性与无环由 ArchTalentTreeCycleValidationRule 校验"),
             });

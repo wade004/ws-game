@@ -52,17 +52,29 @@ namespace Core.Foundation.DisplayInfo
                 // sprite 型专属字段（schema 层非必填，见类型注释）
                 new FieldSchema("sprite_set_id", FieldKind.String, required: false),
                 new FieldSchema("direction_count", FieldKind.Int, required: false, description: "取值 4/8/16"),
-                new FieldSchema("mirror_pairs", FieldKind.Array, required: false),
-                new FieldSchema("paperdoll_layers", FieldKind.Array, required: false),
-                new FieldSchema("anchor_points", FieldKind.Object, required: false),
+                new FieldSchema("mirror_pairs", FieldKind.Array, required: false,
+                    item: new FieldSchema("<mirror_pair>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("direction_slot", FieldKind.Id, required: true),
+                        new FieldSchema("mirror_of", FieldKind.Id, required: true),
+                        new FieldSchema("flip_x", FieldKind.Bool, required: false, description: "缺省 false"),
+                    }),
+                    description: "[{direction_slot:Id, mirror_of:Id, flip_x:Bool}]（DisplayInfo.ParseSpriteInfo 对 " +
+                        "direction_slot/mirror_of 缺失即抛异常，均必填）"),
+                new FieldSchema("paperdoll_layers", FieldKind.Array, required: false,
+                    item: new FieldSchema("<layer>", FieldKind.String, required: true)),
+                new FieldSchema("anchor_points", FieldKind.Object, required: false,
+                    description: "Map<anchor_name, AnchorDef>，键为锚点名（动态），ADR-0019 通用规则 5 不登记子结构"),
 
                 // model 型专属字段（schema 层非必填，见类型注释）
                 new FieldSchema("model_ref", FieldKind.Id, required: false),
                 new FieldSchema("anim_set_ref", FieldKind.Reference, required: false, referenceTable: "display.anim_set"),
                 new FieldSchema("sockets", FieldKind.IdList, required: false),
                 new FieldSchema("slots", FieldKind.IdList, required: false),
-                new FieldSchema("default_slot_meshes", FieldKind.Object, required: false),
-                new FieldSchema("material_params", FieldKind.Object, required: false),
+                new FieldSchema("default_slot_meshes", FieldKind.Object, required: false,
+                    description: "Map<slot_id, mesh_ref:Id>，动态键，ADR-0019 通用规则 5 不登记子结构"),
+                new FieldSchema("material_params", FieldKind.Object, required: false,
+                    description: "Map<param_name, Number>，动态键，ADR-0019 通用规则 5 不登记子结构"),
             },
             migrations: Array.Empty<TableMigration>());
 

@@ -56,6 +56,7 @@ namespace Tests.Carriers.Gobj
             const string lockId = "gobj.lock.sample_item";
             var itemId = new Id("item.sample_key");
             var world = new GobjWorldBuilder()
+                .Item(itemId.Value)
                 .Lock(LockRow(lockId, J.O(("kind", J.S("item_key")), ("item_id", J.S(itemId.Value)))))
                 .Template(Template("gobj.sample_door_a", "door", J.O(), lockId))
                 .Build();
@@ -114,6 +115,7 @@ namespace Tests.Carriers.Gobj
             const string lockId = "gobj.lock.sample_consume";
             var itemId = new Id("item.sample_key2");
             var world = new GobjWorldBuilder()
+                .Item(itemId.Value)
                 .Lock(LockRow(lockId, J.O(("kind", J.S("item_key")), ("item_id", J.S(itemId.Value))), consumeKey: true))
                 .Template(Template("gobj.sample_door_d", "door", J.O(), lockId))
                 .Build();
@@ -132,6 +134,7 @@ namespace Tests.Carriers.Gobj
             const string lockId = "gobj.lock.sample_once";
             var itemId = new Id("item.sample_key3");
             var world = new GobjWorldBuilder()
+                .Item(itemId.Value)
                 .Lock(LockRow(lockId, J.O(("kind", J.S("item_key")), ("item_id", J.S(itemId.Value)))))
                 .Template(Template("gobj.sample_door_e", "door", J.O(), lockId))
                 .Build();
@@ -364,6 +367,7 @@ namespace Tests.Carriers.Gobj
         {
             var skillId = new Id("skill.sample_trap_effect");
             var world = new GobjWorldBuilder()
+                .Skill(skillId.Value)
                 .Template(Template("gobj.sample_trap_a", "trap",
                     J.O(("skill_id", J.S(skillId.Value)), ("trigger_shape", J.O(("kind", J.S("circle")), ("radius", J.N(2)))))))
                 .Build();
@@ -386,6 +390,7 @@ namespace Tests.Carriers.Gobj
             var skillId = new Id("skill.sample_trap_effect2");
             var casterId = new Id("gobj.sample_trap_setter");
             var world = new GobjWorldBuilder()
+                .Skill(skillId.Value)
                 .Template(Template("gobj.sample_trap_b", "trap",
                     J.O(("skill_id", J.S(skillId.Value)), ("trigger_shape", J.O(("kind", J.S("circle")), ("radius", J.N(1)))))))
                 .Build();
@@ -410,6 +415,7 @@ namespace Tests.Carriers.Gobj
         {
             var skillId = new Id("skill.sample_onuse");
             var world = new GobjWorldBuilder()
+                .Skill(skillId.Value)
                 .Template(Template("gobj.sample_sign_b", "sign", J.O(("text_key", J.S("l10n.sample_sign2.text"))),
                     onUse: J.O(("kind", J.S("skill")), ("ref", J.S(skillId.Value)))))
                 .Build();
@@ -460,6 +466,7 @@ namespace Tests.Carriers.Gobj
             const string lockId = "gobj.lock.sample_locked";
             var itemId = new Id("item.sample_key_locked");
             var world = new GobjWorldBuilder()
+                .Item(itemId.Value)
                 .Lock(LockRow(lockId, J.O(("kind", J.S("item_key")), ("item_id", J.S(itemId.Value)))))
                 .Template(Template("gobj.sample_door_i", "door", J.O(), lockId))
                 .Build();

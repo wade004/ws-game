@@ -96,8 +96,11 @@ namespace Core.Carriers.Assembly
             registry.RegisterSchema(GobjSchemas.Lock);
 
             registry.RegisterValidationRule(new GobjTypeDataFieldGroupRule());
-            registry.RegisterValidationRule(new GobjOnUseKindRule());
-            registry.RegisterValidationRule(new GobjLockRequirementFieldGroupRule());
+            // ADR-0019 F1c 退役：GobjOnUseKindRule/GobjLockRequirementFieldGroupRule 的全部检查项
+            // 已被 GobjSchemas.OnUseSchema/RequirementSchema 的 Variants 登记（variant_discriminator/
+            // required_field/field_type 内建校验）完全覆盖，整条删除，见 gobj/schema/README.md
+            // "退役规则"一节。GobjTypeDataFieldGroupRule 不退役——type_data 判别字段 kind 与
+            // type_data 本身不同级，Variants 不适用，见 GobjSchemas.TypeDataSchema 判断记录。
         }
     }
 }

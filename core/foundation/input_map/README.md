@@ -124,6 +124,10 @@ input_map/
     情形），批次末 `CurrentActive` 仍按持有集合的最终状态计算（"当前是否按住"与"是否应该触发
     一次事件"是两个独立问题，不能用同一个布尔值回答）。
 
+11. **ADR-0019 F1c 子结构登记**：`default_bindings` 按 `ActionDefinition.FromRecord` 权威解析
+    登记为 `Item`（`FieldKind.String`，元素非字符串抛异常）；"数组至少一项"这条业务判断登记层
+    表达不了，继续留在 `ActionDefinition` 构造函数（构造期直接抛异常，不经 `IValidationRule`）。
+
 ## 诊断
 
 `IInputMapDiagnostics`（默认实现 `InMemoryInputMapDiagnostics`）记录：`Rebind` 检测到同组
