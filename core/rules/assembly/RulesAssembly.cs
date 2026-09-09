@@ -617,13 +617,53 @@ namespace Core.Rules.Assembly
         /// </list>
         /// </para>
         /// </summary>
+        /// <summary>
+        /// CORE-110-02 根治（architecture/落地计划/audit-ac3b622-20260909，P2，已确认）：本方法此前
+        /// 完全忽略 <paramref name="previousClassId"/>（见旧判断记录"职业基础属性只重新
+        /// SetBase，不先移除旧职业贡献"），换职业时只对新旧职业**共同**声明的基础属性键做覆盖写入
+        /// ——旧职业独有的基础属性键从未被任何调用触碰，永久残留旧职业的基础值；<see
+        /// cref="PowerHost"/> 的资源类型集合同样从未随职业切换重新对账，旧职业独有的资源类型（如
+        /// 法力）在新职业不再声明它之后仍可查询。真实探针复现：A 职业声明
+        /// <c>StatClassLegacy=5</c>/<c>Mana</c>，B 职业只声明共同键 <c>StatClassPower</c>；同图从 A
+        /// 读到 B 后，<c>StatClassPower</c> 正确变成 B 的值，但 <c>StatClassLegacy</c> 仍是 5、
+        /// <c>Mana</c> 仍可查询（应分别为 0/不可查询），见 core-findings.md CORE-110-02。
+        /// <para>
+        /// 判断记录（清理顺序：先旧种族修正 → 旧职业独有基础键 → 新职业完整基础键 → 新种族修正/
+        /// 光环 → 资源类型对账，与 <see cref="ArchetypeRegistry.ApplyTo"/> 首次施加时"基础属性 →
+        /// 种族修正/光环 → 资源池注册"的既有顺序保持一致，只是多了"先清理旧值"这一步）：资源类型
+        /// 对账必须放在**最后**——<see cref="PowerHost.RegisterUnit"/> 按注册那一刻的 <see
+        /// cref="StatHost.GetStat"/> 聚合值初始化资源池上限（<c>max_source.kind == "stat"</c> 时），
+        /// 若先重新注册资源池、再应用新职业基础属性/新种族修正，初始上限会用到"还没换完"的中间态
+        /// 属性值，产生错误的过渡上限；因此本方法把新增的资源类型对账放在原有全部属性/光环逻辑
+        /// 之后（10 文档"依赖顺序"惯例：读档成功后装配根重建顺序是"进度→评级→属性→资源池上限→
+        /// 当前值 clamp→种族/职业被动"，资源池永远晚于驱动它上限的属性）。
+        /// </para>
+        /// <para>
+        /// 判断记录（旧职业独有基础键"移除"用 <see cref="StatHost.ResetBase"/> 而非 <c>SetBase</c>
+        /// 成某个猜测值）：<see cref="StatHost"/> 没有为"这个键当前的值来自哪个职业"单独记账（不像
+        /// 属性修正区分 <c>sourceId</c>），基础值语义上就是"当前生效的唯一一份"；<see
+        /// cref="StatHost.ResetBase"/> 把它退回"从未显式设置过"（即 <c>stat.definition.default_base</c>），
+        /// 是唯一不需要额外查表就能拿到正确"清理后应该是什么值"的操作。只清理旧职业声明、新职业
+        /// **未**声明的键——两边都声明的键之后会被下方"应用新职业完整基础键"覆盖写入，不需要也不
+        /// 应该先清理再写入（清理会先触发一次值变化事件，写入再触发第二次，多一次无意义的抖动）。
+        /// </para>
+        /// <para>
+        /// 判断记录（资源类型集合对账用 Unregister+Register 整体替换，不是逐个增删）：<see
+        /// cref="IPowerHost"/> 契约（06 原文只给 <c>getPower</c>/<c>getPowerMax</c>/<c>modifyPower</c>
+        /// 三个方法，本类型的扩展成员见该接口注释）没有"给已注册单位追加/摘除单个资源类型"的原语，
+        /// 只有整体 <see cref="PowerHost.RegisterUnit"/>/<see cref="PowerHost.UnregisterUnit"/>；本方法
+        /// 只在新旧职业声明的资源类型集合（忽略顺序，按集合比较）确实不同时才整体替换，集合相同
+        /// （含职业未变）时完全跳过，不重置任何资源池的当前值/上限（幂等，避免同职业重复调用本方法
+        /// 时把当前生命值之类的运行期状态清零重置）。集合确实不同时，替换会把该单位全部资源池的
+        /// 当前值重置为各自资源类型的初始值（<c>start_full</c>），这是可以接受的过渡态——本方法只在
+        /// <c>SaveSystem.Load</c> 逐段回放（成功路径的 <c>player.race_id</c> 段，或本次一并根治的
+        /// 回滚路径，见 <c>IDerivedStateRebuilder</c>/<c>SaveSystem</c> 判断记录）中被调用，随后
+        /// <c>player.equipment</c> 段会重算上限、<c>player.vitals</c> 段会用存档里的真实当前值覆盖
+        /// 这份初始值，最终结果不受这个过渡态影响。
+        /// </para>
+        /// </summary>
         public void ReloadArchetypeAndRace(Id unitId, Id classId, Id? raceId, Id? previousClassId, Id? previousRaceId)
         {
-            _ = previousClassId; // 见方法判断记录"职业基础属性只重新 SetBase"：当前收边范围不需要
-                                  // 单独处理旧职业的移除，保留参数位只是为了让调用方（GameplayAssembly）
-                                  // 的调用点显式携带"读档前是哪个职业"这份信息，便于未来收紧这条边界
-                                  // 时不需要改签名。
-
             var raceChanged = !previousRaceId.HasValue || !raceId.HasValue || !previousRaceId.Value.Equals(raceId.Value);
 
             if (previousRaceId.HasValue && raceChanged)
@@ -645,7 +685,22 @@ namespace Core.Rules.Assembly
                 }
             }
 
+            var classChanged = !previousClassId.HasValue || !previousClassId.Value.Equals(classId);
+            var oldClass = previousClassId.HasValue ? Archetypes.GetClass(previousClassId.Value) : null;
             var cls = Archetypes.GetClass(classId) ?? throw new ArgumentException($"未知职业 \"{classId}\"", nameof(classId));
+
+            if (classChanged && oldClass != null)
+            {
+                var newKeys = new HashSet<string>(cls.BaseStats.Select(kv => kv.Key), StringComparer.Ordinal);
+                foreach (var kv in oldClass.BaseStats)
+                {
+                    if (!newKeys.Contains(kv.Key))
+                    {
+                        Stats.ResetBase(unitId, new Id(kv.Key));
+                    }
+                }
+            }
+
             foreach (var kv in cls.BaseStats)
             {
                 Stats.SetBase(unitId, new Id(kv.Key), kv.Value);
@@ -666,6 +721,22 @@ namespace Core.Rules.Assembly
                 // 共享实例只补登记引用，都没有才真正 ApplyAura（见 ReapplyRacePassiveAuras 判断记录）。
                 ReapplyRacePassiveAuras(unitId, raceId.Value);
             }
+
+            if (classChanged && oldClass != null && Powers.IsRegistered(unitId) &&
+                !SamePowerTypeSet(oldClass.PowerTypes, cls.PowerTypes))
+            {
+                Powers.UnregisterUnit(unitId);
+                Powers.RegisterUnit(unitId, cls.PowerTypes);
+            }
+        }
+
+        /// <summary>集合比较（忽略顺序、忽略重复）——供 <see cref="ReloadArchetypeAndRace"/> 判断新旧
+        /// 职业声明的资源类型集合是否需要整体替换，见该方法判断记录。</summary>
+        private static bool SamePowerTypeSet(IReadOnlyList<Id> a, IReadOnlyList<Id> b)
+        {
+            var setA = new HashSet<Id>(a);
+            var setB = new HashSet<Id>(b);
+            return setA.SetEquals(setB);
         }
 
         /// <summary>CORE-170-01 根治：<see cref="_raceAuraHandles"/> 自己的簿记——

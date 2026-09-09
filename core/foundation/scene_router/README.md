@@ -23,10 +23,12 @@
   构建新场景初始状态"）——这属于 `spawn_system`/L4 世界模块的职责；本模块在
   `scene.load_finished` 发出、`post_load` 钩子触发之后即完成自己的职责，具体的刷新执行由
   `post_load` 回调（游戏层或 `spawn_system` 注册）承担。
-- 不做 `world.map` 完整字段的 schema 登记与校验——只登记场景路由需要读取的
-  `id`/`scene_ref`/`nav_ref`/`spawn_points` 四个字段（见 `core/WorldMapSchema.cs` 判断记录），
-  `regions`/`teleport_points`/`music_ref`/`allowed_difficulties` 等字段留给 `world.map` 真正
-  的归属模块（L4 对象模型与世界）登记。
+- 不消费 `regions`/`teleport_points`/`music_ref`/`allowed_difficulties` 四个字段——本模块
+  （`SceneDescriptor`/`SceneRouter`）只读取 `id`/`scene_ref`/`nav_ref`/`spawn_points`，这四个
+  字段的运行期消费属于各自的归属模块（`Core.Gameplay.Assembly.TeleportTargetResolver` 等，见
+  `core/WorldMapSchema.cs` 判断记录）。DATA-DOC-01 收口（架构落地计划/audit-ac3b622-20260909）
+  后，`core/WorldMapSchema.cs` 登记的 `TableSchema` 已按 05 第 4.1 节类型/必填性把这四个字段
+  一并纳入类型校验（不做引用完整性校验），但这只是校验能力的补齐，不代表本模块开始消费它们。
 - 不实现加载画面的具体呈现——`LoadProgress` 只是一个数值，加载画面的界面、动画、文案
   由游戏层经 `presentation/shell` 提供（见 01 模块表 `scene_router` 行"配置项：加载画面呈现
   方式，游戏层可替换"）。
@@ -72,12 +74,17 @@ scene_router/
    只有非空时才发起该资源的加载。已在 `SceneDescriptor.cs` 类型注释记录，供设计层复核
    两处文档口径是否需要统一。
 
-2. **`world.map` 只登记场景路由读取的四个字段，不登记完整 05 第 4.1 节字段表**：任务书给了
-   两种处理方式供选择。经查当前 `DataRegistry.RunFieldValidation` 实现，字段校验只遍历
-   `TableSchema.Fields` 里登记的字段，从不检查记录中是否存在未登记的额外字段——也就是说
-   两种处理方式在当前实现下效果等价（`regions`/`teleport_points`/`music_ref`/
-   `allowed_difficulties` 等未登记字段的存在都不会触发任何校验错误）。选择更简单的"只登记
-   本模块读取的字段"，减少本模块对 05 归属字段的重复维护，详见 `core/WorldMapSchema.cs`
+2. **`world.map` 登记完整 05 第 4.1 节字段表（DATA-DOC-01 收口，第十二轮外部审核，
+   architecture/落地计划/audit-ac3b622-20260909，取代旧判断记录"只登记场景路由读取的四个
+   字段"）**：`regions`/`teleport_points`/`music_ref`/`allowed_difficulties` 四字段此前只有
+   05 文字层面的结构声明，`TableSchema` 从未登记，字段校验因此从不检查它们（`DataRegistry.
+   RunFieldValidation` 只遍历已登记字段，未登记字段的存在/形状都不受校验约束）。现按 05 原文
+   类型/必填性补登记：`regions`/`allowed_difficulties` 为 `FieldKind.IdList`，`teleport_points`
+   为 `FieldKind.Array`（与既有 `spawn_points` 同构，不展开逐条元素形状），`music_ref` 为
+   `FieldKind.String`；均为可选字段，均不声明引用完整性校验（子区域/难度档位当前无独立登记表
+   可供校验）。本模块自身（`SceneDescriptor`/`SceneRouter`）仍然只读取原来的四个字段，这次
+   补登记只是把 `world.map` 的类型校验能力补齐，不代表本模块开始消费这四个字段——`world.map`
+   整表的归属仍是 L4（对象模型与世界），本 schema 登记仍是"暂存处"，详见 `core/WorldMapSchema.cs`
    类型注释。
 
 3. **加载失败路径：不新增事件，记诊断 + 状态回落 Idle + 尝试 `RequestTransition(MainMenu)`**：

@@ -312,6 +312,37 @@ CR150-03 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：此
   且晚于 `player.archetype`（`SaveSections.KnownOrder` 固定顺序），触发时两个字段都已经是本次
   读档的最终值。
 
+- **CORE-110-01 根治（第十二轮外部审核，P2，已确认，architecture/落地计划/audit-ac3b622-20260909）：
+  失败读档触发的回滚（`RollbackLoadedSections`）此前只重放各段自己的字段（`IPersistable.Load(快照)`），
+  从不调用 `IDerivedStateRebuilder.OnSectionLoaded`——依据是旧判断记录"回滚路径的正确性由
+  CORE-180-02（回滚改判为正向顺序）本身保证，不依赖本钩子"。真实探针证明这条判断只对字段类状态
+  成立，对派生类状态（评级换算属性、种族/职业被动光环、资源池上限/当前值——都不是任何一个段自己
+  的字段，是若干字段的函数）不成立：字段已经回滚到 A，但函数从未重新算过，结果仍停留在读档失败
+  前短暂生效过的 B。** 两个真实子场景：(a) 种族段回滚后，字段回 A，但评级/光环仍是 B；(b) 装备段
+  成功回滚（`equipped_after=True`），但 `player.known_skills` 段失败前那次 `OnSectionLoaded
+  (PlayerEquipment)`（见上方 CORE-180-01 一条）已经把 Power 上限下调 clamp 到 B 的值，回滚只恢复了
+  装备字段，上限/当前值没有跟着重算，停留在 100（应为 200）。**根治：`RollbackLoadedSections` 对
+  每个成功回滚（`Load(快照)` 未抛异常）的段，紧接着按与正常读档主循环完全相同的方式回调一次
+  `IDerivedStateRebuilder.OnSectionLoaded(sectionKey)`**（仍在 `SuppressDispatch` 作用域内，抛异常
+  同样只记诊断）——回滚循环天然按 CORE-180-02 已经改判的正向顺序处理，因此这一步等价于"用读档前
+  快照重新走一遍正常读档的派生重建依赖顺序"，不需要为回滚单独定义一套规则。装配根侧
+  （`GameplayAssembly.DerivedStateRebuilder`）配合改为"滚动更新"`_previousArchetypeId`/
+  `_previousRaceId`（每次 `OnSectionLoaded(PlayerRaceId)` 调用后更新为刚生效的新值，而不是只在
+  `BeforeLoad` 快照一次固定不变）——同一个 `OnSectionLoaded` 实现因此对正向阶段（旧=A、新=B）与
+  回滚阶段（旧=B、新=A）都能推导出正确的"旧/新"参数传给 `RulesAssembly.ReloadArchetypeAndRace`，
+  不需要为回滚单独写一份"反向"逻辑，详见 `core/gameplay/assembly/README.md`"CORE-110-01/02 根治"
+  一节。子场景 (b) 的资源池当前值另有一条独立收口：`player.vitals` 是资源池当前值唯一的权威段
+  （见 `PlayerVitalsPersistable` 类型判断记录），但它可能根本没有机会在这次失败读档里被触碰到
+  （失败发生在它之前）——`Load` 的失败分支现在总是尝试把 `player.vitals`（若已注册且有读档前快照）
+  一并纳入回滚集合（即便它本不在这次失败读档实际触碰过的段列表里），确保它总能在
+  `player.equipment`/`player.race_id` 的派生重算之后拿到"最后一句话"的机会，用真实的读档前快照
+  值把可能被派生重算副作用（`PowerHost.RecomputeMax` 的下调 clamp）改动过的当前值纠正回来。
+  接口判断记录同步修订，见 `contracts/IDerivedStateRebuilder.cs`。验收：真实 A/B 存档 fixture 下，
+  失败回滚后字段、评级/光环、资源池上限/当前值全部回到 A，`SuppressDispatch` 作用域内不向外部
+  订阅者泄漏任何业务事件（同 CORE-170-03 既有惯例）。测试：`Tests.Gameplay.Assembly.
+  CORE_110_01_RaceSubCase_RollbackRestoresFieldAndDerivedStatAndAura`、`Tests.Gameplay.Assembly.
+  CORE_110_01_EquipmentSubCase_RollbackRestoresPowerMaxAndHealth`。
+
 ## `LoadResult.CurrentMapId` / `CurrentPosition`（缺口 11）
 
 - 10_存档与持久化.md 只定义了存档文档 `world.current_map_id`/`world.current_position` 两个段

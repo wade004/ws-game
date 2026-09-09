@@ -36,9 +36,20 @@ namespace Core.Carriers.Unit
         /// <summary>寻路失败且 <see cref="MovementOptions.PathFailurePolicy"/> 为 <c>Stop</c>。</summary>
         PathFailed,
 
-        /// <summary>地图动态阻挡发生变化且 <see cref="MovementOptions.BlockingChangePolicy"/> 为
-        /// <c>Stop</c>，或重算/重验失败后 <see cref="MovementOptions.PathFailurePolicy"/> 为
-        /// <c>Stop</c>。</summary>
+        /// <summary>
+        /// 地图动态阻挡发生变化且 <see cref="MovementOptions.BlockingChangePolicy"/> 为 <c>Stop</c>
+        /// 时触发（见 <c>MovementTickHandler.RevalidateBlocking</c>）。
+        /// <para>
+        /// 文档勘误（architecture/落地计划/audit-ac3b622-20260909，NAV-DOC-01，文档更新）：本行此前
+        /// 还写着"或重算/重验失败后 <see cref="MovementOptions.PathFailurePolicy"/> 为
+        /// <c>Stop</c>"，与实现不符——阻挡变化触发的重算/重验（<c>BlockingChangePolicy.Replan</c>/
+        /// <c>Revalidate</c>）若失败，走的是 <c>MovementTickHandler.ReplanPath</c>→
+        /// <c>HandlePathFailure</c>，按 <see cref="PathFailurePolicy"/> 为 <c>Stop</c> 触发的是
+        /// <see cref="PathFailed"/>（见 <c>HandlePathFailure</c> 判断记录），不是本枚举值；CHANGELOG
+        /// 与 <c>core/carriers/unit/README.md</c> 已经按实际实现写成 <see cref="PathFailed"/>，本处
+        /// XML 注释现改正为与实现/其它文档一致。
+        /// </para>
+        /// </summary>
         BlockingChanged,
 
         /// <summary>一次新的 <see cref="MovementHost.Request"/>（目标类）整体替换了仍在进行中的旧

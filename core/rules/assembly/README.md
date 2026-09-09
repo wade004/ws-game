@@ -181,3 +181,38 @@ CORE_170_01_RaceEquipmentSharedAuraTests`。
 （`IWorldSim`本身不暴露"当前累计模拟秒数"）：`RulesAssembly` 订阅 `sim.tick_started`（`dt` 字段
 累加）与 `combat.entered`（记录每个单位"最近一次进战"时刻的累计秒数）两个事件自行维护，详见
 `RulesAssembly.TrackSimTime`/`TrackCombatStartTimes`。
+
+## CORE-110-02 根治（第十二轮外部审核，P2，已确认，architecture/落地计划/audit-ac3b622-20260909）
+
+`ReloadArchetypeAndRace(unitId, classId, raceId, previousClassId, previousRaceId)`（供
+`Core.Gameplay.Assembly.GameplayAssembly.DerivedStateRebuilder` 在读档后重新聚合职业/种族派生
+状态时调用，见该类型判断记录）此前完全忽略 `previousClassId` 参数，只对新旧职业**共同**声明的
+基础属性键调用 `StatHost.SetBase`（覆盖写入）——旧职业独有的基础属性键从未被任何调用触碰，永久
+残留旧职业的基础值；`arch.class.power_types` 声明的资源类型集合同样从未随职业切换重新对账，旧
+职业独有的资源类型（如法力）在新职业不再声明它之后仍可查询。真实探针复现：A 职业声明
+`StatClassLegacy=5`/`Mana`，B 职业只声明共同键 `StatClassPower`；同图从 A 读到 B 后，
+`StatClassPower` 正确变成 B 的值，但 `StatClassLegacy` 仍是 5、`Mana` 仍可查询（应分别为 0/不可
+查询）。
+
+根治：`ReloadArchetypeAndRace` 按"先旧种族修正（不变）→ 旧职业独有基础键 → 新职业完整基础键 →
+新种族修正/光环（不变）→ 资源类型对账"的固定顺序处理：
+
+- **旧职业独有基础键**：仅当职业确实变化（`previousClassId != classId`）且能查到旧职业定义时，
+  对旧职业声明、新职业**未**声明的每个基础属性键调用新增的 `Core.Numbers.StatBlock.StatHost.
+  ResetBase`（清除该单位这个属性的显式 `SetBase` 值，退回"从未显式设置过"，即
+  `stat.definition.default_base`）；两边都声明的键仍只走后续"应用新职业完整基础键"的覆盖写入
+  （不先清理再写入，避免多一次无意义的值变化事件）。
+- **资源类型对账**：仅当职业确实变化、且新旧职业声明的资源类型集合（忽略顺序）确实不同时，才
+  整体 `PowerHost.UnregisterUnit` + `RegisterUnit(cls.PowerTypes)` 替换——集合相同（含职业未变）
+  时完全跳过，不重置任何资源池的当前值/上限（幂等）。放在方法最后一步，晚于全部基础属性/种族
+  修正/光环重新聚合完毕之后：`PowerHost.RegisterUnit` 按注册那一刻的属性聚合值初始化资源池上限
+  （`max_source.kind == "stat"` 时），若提前重新注册，初始上限会用到"还没换完"的中间态属性值。
+  资源类型替换会把该单位全部资源池的当前值重置为各自的初始值（`start_full`），这是可接受的过渡
+  态——本方法只在 `SaveSystem.Load` 逐段回放中被调用，随后 `player.equipment` 段会重算上限、
+  `player.vitals` 段会用存档里的真实当前值覆盖这份初始值（含失败回滚路径，见
+  `core/foundation/save_system/README.md`"CORE-110-01 根治"一节），最终结果不受这个过渡态影响。
+
+验收：真实 A/B 职业 fixture 下，同图切换职业后共同基础键与 B oracle 一致、旧职业独有基础键归零、
+旧职业独有资源类型不可再查询，重复读档不叠加/不报错。测试：
+`core/gameplay/assembly/tests/CORE_110_FollowupAuditTests.cs`
+`CORE_110_02_SameMapClassSwitch_ClearsLegacyBaseKeyAndPowerType`。

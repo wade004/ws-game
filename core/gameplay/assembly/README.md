@@ -346,3 +346,31 @@ assembly/
     `adapters/unity/.../Tests/Runtime/GameFoundationBootstrapQuestDayProviderTests.cs`：注入
     `QuestDayProvider` 后，`Gameplay.Quest` 的每日任务当天不可再接/次日重新可接行为随之改变，证明
     组合根确实把该属性转发进了内部 `QuestHost`，不是"收下赋值但没接线"。
+
+13. **CORE-110-01/02 根治（第十二轮外部审核，P2，已确认，architecture/落地计划/
+    audit-ac3b622-20260909）**：本条是 `core/foundation/save_system/README.md`"CORE-110-01 根治"
+    一节引用的落点，两个改动都在本类内部 `DerivedStateRebuilder`（`IDerivedStateRebuilder` 的
+    生产实现）与 `RulesAssembly.ReloadArchetypeAndRace` 上：
+    - **CORE-110-01（失败读档回滚后派生状态不恢复）**：`DerivedStateRebuilder.OnSectionLoaded`
+      现在既在正常读档主循环里被调用，也在失败回滚（`SaveSystem.RollbackLoadedSections`）里对
+      每个成功回滚的段重新调用一次（见 `IDerivedStateRebuilder` 契约修订）。`OnSectionLoaded`
+      内部处理 `SaveSections.PlayerRaceId` 的分支因此改为"滚动更新"`_previousArchetypeId`/
+      `_previousRaceId`——每次调用完 `RulesAssembly.ReloadArchetypeAndRace` 之后，把这两个字段
+      更新为刚生效的新值（不再只在 `BeforeLoad` 快照一次、之后固定不变）：正向阶段调用一次
+      （旧=A、新=B），若随后触发回滚、`player.race_id` 段被再次 `Load(快照)` 回 A，回滚循环再
+      调用一次本方法（此时"新"已经是刚回滚出来的 A，"旧"取滚动更新后的 B）——`ReloadArchetypeAndRace`
+      因此会移除 B 的贡献、重新施加 A 的，与正向阶段"移除旧的、施加新的"是完全同一段逻辑，不需要
+      为回滚单独写一份"反向"实现；`player.race_id` 段从未被这次失败读档触碰到时，本方法也不会被
+      再次调用，天然正确。
+    - **CORE-110-02（同图跨职业读档残留旧职业状态）**：`RulesAssembly.ReloadArchetypeAndRace`
+      此前完全忽略 `previousClassId` 参数，只对新旧职业共同声明的基础属性键做覆盖 `SetBase`，
+      旧职业独有的键（新职业未声明）永久残留；资源类型集合（`arch.class.power_types`）也从未
+      随职业切换重新对账。现按"先旧种族修正 → 旧职业独有基础键（用新增的 `StatHost.ResetBase`
+      清除，退回 `stat.definition.default_base`）→ 新职业完整基础键 → 新种族修正/光环 → 资源
+      类型对账（仅当新旧职业声明的资源类型集合确实不同才 `PowerHost.UnregisterUnit`+`RegisterUnit`
+      整体替换，同集合时完全跳过、不重置任何资源池当前值）"顺序处理，资源类型对账放在最后是因为
+      `PowerHost.RegisterUnit` 按注册那一刻的属性聚合值初始化资源池上限，必须晚于属性/光环全部
+      重新聚合完毕。
+    验收：真实 A/B fixture 下，失败回滚后字段/评级/光环/资源池上限与当前值全部回到 A；同图切换
+    职业后旧职业独有基础键归零、旧职业独有资源类型不可再查询，共同键与 B oracle 一致，重复读档
+    不叠加。测试：`core/gameplay/assembly/tests/CORE_110_FollowupAuditTests.cs`。

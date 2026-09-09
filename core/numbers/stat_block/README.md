@@ -56,6 +56,15 @@ statHost.RemoveModifiersBySource(unitId, sourceId);
 `EventBusOptions.StrictCatalog`——本模块不依赖 `event_bus/generated/EventKeys.g.cs`
 是否已生成该常量（该文件由 `found.event_catalog.json` 驱动，登记时序不在本模块控制范围内）。
 
+**`ResetBase`（CORE-110-02 根治，第十二轮外部审核，P2，architecture/落地计划/
+audit-ac3b622-20260909）**：`StatHost.ResetBase(unitId, stat)` 清除某单位某属性此前显式
+`SetBase` 过的值，恢复成"从未显式设置过"的状态——之后 `GetBase`/`GetStat` 重新退回
+`stat.definition.default_base`。本就没有被显式 `SetBase` 过时是安全的幂等 no-op（不发
+`StatChanged`）。供 `Core.Rules.Assembly.RulesAssembly.ReloadArchetypeAndRace` 在同图换职业时
+清理"旧职业声明过、新职业未声明"的基础属性键，见该方法所在模块 README"CORE-110-02 根治"一节。
+未加入 `IStatHost` 契约接口（`RulesAssembly.Stats` 持有的是 `StatHost` 具体类型，不是接口），
+不影响任何既有 `IStatHost` 实现的源码兼容性。
+
 ## 三段式聚合与浮点确定性
 
 - `flat`：按 `AddModifier` 调用顺序（`List<StatModifier>` 插入顺序）逐项累加。

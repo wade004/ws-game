@@ -201,6 +201,46 @@ namespace Core.Numbers.StatBlock
             return unit.Base.TryGetValue(stat, out var value) ? value : def.DefaultBase;
         }
 
+        /// <summary>
+        /// CORE-110-02 根治（architecture/落地计划/audit-ac3b622-20260909，P2，已确认）：清除某单位
+        /// 某属性此前显式 <see cref="SetBase"/> 过的值，恢复成"从未显式设置过"的状态——恢复后
+        /// <see cref="GetBase"/>/<see cref="GetStat"/> 重新退回 <c>stat.definition.default_base</c>。
+        /// 供 <c>Core.Rules.Assembly.RulesAssembly.ReloadArchetypeAndRace</c> 在同图换职业时清理
+        /// "旧职业声明过、新职业未声明"的基础属性键——真实探针复现：换职业只对新旧职业共同声明的
+        /// 键调用 <see cref="SetBase"/>（覆盖写入），旧职业独有的键从未被任何调用触碰，永久残留旧
+        /// 职业的基础值（见该方法判断记录）。
+        /// <para>
+        /// 判断记录（用"移除显式值"而不是"SetBase 成 default_base"）：<see cref="StatHost"/> 没有区分
+        /// "显式设成 default_base"与"从未显式设置过"两种状态的必要——二者对 <see cref="GetBase"/>/
+        /// <see cref="GetStat"/> 的返回值完全等价——但移除字典条目比重新查一遍 default_base 再写回更
+        /// 直接，语义上也更贴合"这个键的显式来源（旧职业）已经不再存在"，与 <see
+        /// cref="RemoveModifiersBySource"/>"按来源整体撤销"的既有惯例一致（只是 base 值只有唯一
+        /// 一份、没有多来源叠加，撤销即直接移除）。
+        /// </para>
+        /// </summary>
+        public void ResetBase(Id unitId, Id stat)
+        {
+            var unit = RequireUnit(unitId);
+            var def = RequireDefinition(stat);
+
+            if (!unit.Base.ContainsKey(stat))
+            {
+                // 幂等 no-op：该属性本就没有被显式 SetBase 过（已经等于 default_base），不需要
+                // 移除任何东西，也不应该因为"重算一次"就发出一条值未变化的 StatChanged。
+                return;
+            }
+
+            var oldValue = ComputeFinal(unitId, unit, def);
+            unit.Base.Remove(stat);
+            var newValue = ComputeFinal(unitId, unit, def);
+            unit.Cache[stat] = newValue;
+
+            if (newValue != oldValue)
+            {
+                _bus.Enqueue(new StatChangedEvent(unitId, stat, oldValue, newValue));
+            }
+        }
+
         public double GetStat(Id unitId, Id stat)
         {
             var unit = RequireUnit(unitId);

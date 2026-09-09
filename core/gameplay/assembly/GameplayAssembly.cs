@@ -1308,12 +1308,39 @@ namespace Core.Gameplay.Assembly
                 _previousRaceId = _player.RaceId;
             }
 
+            /// <summary>
+            /// CORE-110-01 根治（architecture/落地计划/audit-ac3b622-20260909，P2，已确认）：本方法
+            /// 现在既在 <c>SaveSystem.Load</c> 成功路径的主循环里被调用（每段成功 <c>Load</c> 后一次，
+            /// 见 <see cref="Core.Foundation.SaveSystem.IDerivedStateRebuilder.OnSectionLoaded"/> 判断
+            /// 记录修订），也在失败回滚（<c>RollbackLoadedSections</c>）里对每个成功回滚的段重新调用
+            /// 一次——两条路径完全复用同一段逻辑，见该接口类型判断记录"回滚路径同样需要显式重建"。
+            /// <para>
+            /// 判断记录（<c>_previousArchetypeId</c>/<c>_previousRaceId</c> 从"只在 BeforeLoad 快照
+            /// 一次的固定值"改成"每次调用后滚动更新为刚生效的新值"）：<see cref="RulesAssembly.
+            /// ReloadArchetypeAndRace"/> 需要"旧值"（用于移除旧种族修正/光环、旧职业独有基础键/
+            /// 资源类型）与"新值"（当前 <see cref="PlayerUnit.ArchetypeId"/>/<see
+            /// cref="PlayerUnit.RaceId"/> 字段）两组参数。成功路径下本方法对 <c>player.race_id</c>
+            /// 段只会被调用一次，"旧值=BeforeLoad 快照的 A、新值=刚 Load 出来的 B"，调用后把
+            /// 两个字段滚动更新为 B——若失败回滚随后把 <c>player.race_id</c> 段的 <c>Load</c> 重新
+            /// 调用一次（用读档前快照把字段改回 A），回滚循环会对同一个 <c>PlayerRaceId</c> key 再
+            /// 调用一次本方法：此时"新值"已经是刚回滚出来的 A（字段已改回），"旧值"取滚动更新后的
+            /// B——<see cref="RulesAssembly.ReloadArchetypeAndRace"/> 因此会移除 B 的属性修正/光环/
+            /// 独有基础键/资源类型、重新施加 A 的，与成功读档时"移除旧的、施加新的"是完全同一段
+            /// 逻辑，不需要为回滚单独写一套"反向"实现。段从未被这次失败读档触碰到（<c>player.race_id</c>
+            /// 不在本次回滚列表里）时，本方法也不会被再次调用，"旧值"/"新值"都还停留在 BeforeLoad
+            /// 快照的 A，与本次失败读档无关，天然正确。
+            /// </para>
+            /// </summary>
             public void OnSectionLoaded(string sectionKey)
             {
                 if (sectionKey == SaveSections.PlayerRaceId)
                 {
+                    var previousArchetypeId = _previousArchetypeId;
+                    var previousRaceId = _previousRaceId;
                     _rules.ReloadArchetypeAndRace(
-                        _player.EntityId, _player.ArchetypeId, _player.RaceId, _previousArchetypeId, _previousRaceId);
+                        _player.EntityId, _player.ArchetypeId, _player.RaceId, previousArchetypeId, previousRaceId);
+                    _previousArchetypeId = _player.ArchetypeId;
+                    _previousRaceId = _player.RaceId;
                     return;
                 }
 

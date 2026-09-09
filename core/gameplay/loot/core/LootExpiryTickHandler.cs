@@ -33,8 +33,16 @@ namespace Core.Gameplay.Loot
 
             if (step.Kind != SimStepKind.Continuous)
             {
-                // 离散时间模型本项目暂不启用（ADR-0013），同 core/carriers/summon.SummonTickHandler
-                // 的既有惯例：收到 Discrete 步直接跳过，不推进过期判定。
+                // 文档勘误（architecture/落地计划/audit-ac3b622-20260909，DATA-DOC-02，文档更新）：
+                // ADR-0013 离散时间模型已接线（见 core/gameplay/assembly.GameplayAssembly、
+                // Core.Foundation.SimLoop.TurnScheduler），本处旧注释"离散时间模型本项目暂不启用"
+                // 是过期文案，不是当前的真实局部语义——过期销毁/跟随移动一类逻辑按设计只在连续步
+                // 推进（07 第 4 节未要求离散步内也推进），本处理器收到 Discrete 步时按已有约定跳过
+                // 本次清理调用，惯例同 core/carriers/summon.SummonTickHandler 的同一处理。用于判断
+                // "是否过期"的绝对模拟时钟（_simTimeProvider，见 Core.Rules.Assembly.RulesAssembly.
+                // TrackSimTime 订阅 sim.tick_started 累加）不受这一步跳过影响，在离散步下仍照常
+                // 累加——只是本 handler 这一 tick 不去调用 PurgeExpired，不能把这一处局部收窄表述成
+                // "离散时间模型整体不启用"。
                 return;
             }
 

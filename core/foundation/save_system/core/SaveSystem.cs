@@ -445,6 +445,31 @@ namespace Core.Foundation.SaveSystem
                         // 踩了"先改状态后校验"这个坑的段，这一层作为额外防线尽力恢复，不依赖每个模块
                         // 各自完美遵守约定。
                         var rollbackKeysIncludingFailed = new List<string>(loadedKeysInOrder) { key };
+
+                        // CORE-110-01 根治（architecture/落地计划/audit-ac3b622-20260909，P2，已确认，
+                        // 子场景 B）：player.vitals 段（资源池当前值的唯一权威，见 SaveSections.
+                        // PlayerVitals 判断记录"放在 player.* 分组末尾"）此前只有在它自己的 Load() 于
+                        // 本次失败读档的正向阶段真的被成功调用过（即已经在 loadedKeysInOrder 里）才会
+                        // 被回滚——但 player.equipment/player.race_id 段的 OnSectionLoaded 派生重建
+                        // （见下方 RollbackLoadedSections 判断记录）会把资源池上限/当前值当作*副作用*
+                        // 一并改写（如 PowerHost.RecomputeMax 在上限下降时连带 clamp 当前值），若失败
+                        // 恰好发生在 player.vitals 段自身被读到之前（它在 SaveSections.KnownOrder 里
+                        // 排在 player.equipment/player.known_skills 之后），这份副作用改写过的当前值
+                        // 永远没有机会被 player.vitals 段自己的 Load() 用真实存档值纠正回来——真实探针
+                        // 复现：装备段成功回滚、上限正确回到 200，但当前值仍停留在故障注入前那次
+                        // RecomputeMax 下调 clamp 到的 100（应为 200）。player.vitals 是框架已知、
+                        // 唯一对资源池当前值有最终解释权的段（见其类型判断记录"当前值不是能重新聚合
+                        // 的派生结果"），本层因此始终尝试把它一并纳入回滚（如果确实已注册且存在读档前
+                        // 快照）——已经在列表里（本就属于这次失败读档触碰过的段）则不重复追加；未注册
+                        // 该段的宿主（不装配 GameplayAssembly 的最小场景）本就没有 player.vitals 这个
+                        // key，短路为 no-op，行为与本次改动之前完全一致。
+                        if (_persistables.ContainsKey(SaveSections.PlayerVitals) &&
+                            preLoadSnapshots.ContainsKey(SaveSections.PlayerVitals) &&
+                            !rollbackKeysIncludingFailed.Contains(SaveSections.PlayerVitals))
+                        {
+                            rollbackKeysIncludingFailed.Add(SaveSections.PlayerVitals);
+                        }
+
                         RollbackLoadedSections(rollbackKeysIncludingFailed, preLoadSnapshots);
                         return LoadResult.PersistableThrew(
                             meta, migratedFrom, $"存档段 \"{key}\" 的 Load() 抛出异常：{ex.Message}",
@@ -788,6 +813,25 @@ namespace Core.Foundation.SaveSystem
         /// cref="LoadStatus.PersistableThrew"/> 这一结果本身（回滚是尽力恢复现场，不是把失败的读档
         /// 伪装成功）。
         /// </para>
+        /// <para>
+        /// CORE-110-01 根治（architecture/落地计划/audit-ac3b622-20260909，P2，已确认）：某段的
+        /// <c>Load(snapshot)</c> 回滚成功后，紧接着按与正常读档主循环完全相同的方式回调一次
+        /// <see cref="IDerivedStateRebuilder.OnSectionLoaded"/>（仍在调用方 <see cref="Load"/> 的
+        /// <see cref="Core.Foundation.EventBus.IEventBus.SuppressDispatch"/> 作用域内，抛异常同样只
+        /// 记诊断、不影响"这一段已经回滚成功"这一事实）——此前只有正常读档主循环会调用这个钩子，
+        /// 回滚完全不调用，依据是接口旧判断记录"回滚路径的正确性由 CORE-180-02（回滚顺序改判为
+        /// 与正常读档同一正向顺序）本身保证，不依赖本钩子"；真实探针证明这个判断只对"字段类"状态
+        /// 成立（<c>IPersistable.Load(snapshot)</c> 直接覆盖的字段确实会正确回滚），对"派生类"状态
+        /// 不成立——评级换算属性、种族/职业被动光环、资源池上限都不是任何一个存档段自己的字段，
+        /// 是若干个字段的一个函数，只把字段改回去、不重新算这个函数，函数结果永远停留在读档失败前
+        /// 的陈旧值（例如种族字段已经回到 A，但评级/光环仍是 B，见 core-findings.md CORE-110-01
+        /// 两个子场景）。本次回滚循环天然按与 <see cref="Load"/> 正常主循环相同的正向顺序处理
+        /// <paramref name="loadedKeysInOrder"/>（CORE-180-02 既有结论），因此对每个成功回滚的段重放
+        /// 同一个 <see cref="IDerivedStateRebuilder.OnSectionLoaded"/> 调用，等价于"用读档前快照
+        /// 重新走一遍正常读档的派生重建依赖顺序"，不需要为回滚单独定义一套派生重建规则；<see
+        /// cref="GameplayAssembly.DerivedStateRebuilder"/> 判断记录说明了这次复用为什么不需要区分
+        /// "这次调用是正常读档还是回滚"。
+        /// </para>
         /// </summary>
         private void RollbackLoadedSections(List<string> loadedKeysInOrder, Dictionary<string, JsonValue> preLoadSnapshots)
         {
@@ -808,6 +852,18 @@ namespace Core.Foundation.SaveSystem
                 catch (Exception ex)
                 {
                     _diagnostics.Error($"存档段 \"{key}\" 回滚时再次抛出异常（尽力而为，不影响其它段的回滚）", ex);
+                    continue;
+                }
+
+                try
+                {
+                    _derivedStateRebuilder?.OnSectionLoaded(key);
+                }
+                catch (Exception rebuildEx)
+                {
+                    _diagnostics.Warn(
+                        $"存档段 \"{key}\" 回滚后派生状态重建钩子抛出异常（{rebuildEx.Message}），" +
+                        "可能存在内部缓存未同步，继续回滚其它段");
                 }
             }
         }

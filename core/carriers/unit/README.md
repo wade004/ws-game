@@ -190,11 +190,24 @@ unit/
    `Requested`）；二者皆否时静默（幂等，见 `MovementHost.Stop` 判断记录）。不检查
    `MovementState.MovementLocked`/`ControlFlags.NoMove`——停止是取消操作，被控制效果禁止移动的
    单位仍然可以被停止。
-2. 再处理本 tick 存活（未被步骤 1 丢弃）的 `move` 意图：目标类走 `BeginPathTo`（零长度目标——
-   `|target - from| <= 1e-6`，与 `INavigation2D.FindPath` 端点契约同一常量——不建路径、不动、不
-   回调；寻路失败触发 `OnMoveFailed` + `OnMoveFailedDetailed(NoPath)`，按
-   `MovementOptions.PathFailurePolicy` 处理；寻路成功且旧路径确实存在时触发 `OnMoveStopped`
-   （原因 `Replaced`)，随后立即推进本 tick 的位移）；方向类走既有 `ApplyDirectionalMove`（不变）。
+2. 再处理本 tick 存活（未被步骤 1 丢弃）的 `move` 意图——**CORE-110-03 根治（第十二轮外部审核，
+   P2，已确认，architecture/落地计划/audit-ac3b622-20260909）后**：同一单位本 tick 若存活多条
+   `move` 意图，只取下标最大的**最后一条**处理，更早的视为被替换（不逐条执行），单位因此在本
+   tick 至多进入一次下面的推进逻辑，固定的 `dt` 只积分一次（此前实现对每条存活意图都各自调用一
+   次，导致同一单位同一 tick 提交 N 条意图会把 `speed × dt` 重复消费 N 次，真实探针复现：
+   speed=10、dt=0.1 时 1/2/3 条相同目标意图分别得到 x=1/2/3，均应等于一条意图的结果 x=1）。目标类
+   走 `BeginPathTo`（零长度目标——`|target - from| <= 1e-6`，与 `INavigation2D.FindPath` 端点契约
+   同一常量——不建路径、不动、不回调；寻路失败触发 `OnMoveFailed` + `OnMoveFailedDetailed(NoPath)`，
+   按 `MovementOptions.PathFailurePolicy` 处理；寻路成功且**进入本 tick 处理之前**（即上一 tick
+   结束时）旧路径确实存在时触发 `OnMoveStopped`（原因 `Replaced`，本 tick 至多触发一次，因为本
+   单位至多调用一次 `BeginPathTo`），随后立即推进本 tick 的位移）；方向类走 `ApplyDirectionalMove`
+   ——**NAV-DOC-02 根治（方向移动导航阻挡契约，拍板已定，同一轮审核）后**：不再只查同帧其它单位
+   阻挡就直接位移，改为对本 tick 算出的候选终点先调用一次 `INavigation2D.Raycast(mapId, from, to)`
+   ——受阻则把位移截断到入射点前（按 `MovementOptions.ArrivalEpsilon` 往回收缩一小段，不直接落在
+   入射点本身——`Raycast` 返回的入射点在 `IsWalkable` 的点包含判定下通常已经算"在阻挡区域内"）；
+   截断后（或未受阻的原候选终点）若仍不可行走（`INavigation2D.IsWalkable` 为 false）则本次完全
+   不位移；未装配导航时两项检查均跳过，与本任务之前完全一致。方向类与目标类由此遵守同一套可通行
+   统一规则（02 第 1.8 节），不再只有目标类真正查询导航。
 3. 再对本 tick 未被前两步处理、仍持有 `CurrentPath` 的单位（连续模式的"继续走旧路径"分支）：比较
    `INavigation2D.GetBlockingVersion(mapId)` 与建路时记录的 `MovementState.NavVersion`——相等
    （含都为 0）跳过；不同则按 `MovementOptions.BlockingChangePolicy` 处理（`Replan`：直接对当前

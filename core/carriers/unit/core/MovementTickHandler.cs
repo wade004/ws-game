@@ -116,14 +116,46 @@ namespace Core.Carriers.Unit
                 processedThisTick.Add(unit.EntityId);
             }
 
-            // 第一遍 B：消费本 tick 存活的 move 意图（(重新)确立移动状态并立即推进这一 tick 的位移）。
+            // 第一遍 B：消费本 tick 存活的 move 意图（(重新)确立移动状态并推进这一 tick 的位移）。
             // 被同一 tick 内更晚提交的 move_stop 丢弃的 move 意图在这里跳过（见上方 lastStopIndex）。
+            //
+            // CORE-110-03 根治（architecture/落地计划/audit-ac3b622-20260909，P2，已确认）：公共
+            // 语义——每个单位每个 tick 只积分一次固定的 dt，同一 tick 内该单位存活的多条 move
+            // 意图里只有**最后一条**生效（更早的视为被替换，不逐条执行、不逐条消费 dt）。此前实现
+            // 对本 tick 存活的每一条 move 意图都各自调用一次 ApplyIntent，目标类
+            // （BeginPathTo→ContinuePathCore(dt)）与方向类（ApplyDirectionalMove）都会在
+            // ApplyIntent 内部立即按 dt 推进一次位移；同一单位同一 tick 提交 N 条 move 意图因此会把
+            // 固定的 dt 重复消费 N 次（真实探针复现：speed=10、dt=0.1 时 1/2/3 条意图分别得到
+            // x=1/2/3，Stop 后再提交两条得到 x=2，均应等于一条意图的结果 x=1）。修复：先扫描出每个
+            // 单位本 tick 存活 move 意图里下标最大的那一条（"最后一条生效"），只对这一条调用
+            // ApplyIntent——单位由此在本 tick 至多进入 ApplyIntent/BeginPathTo/ApplyDirectionalMove
+            // 一次，dt 天然只消费一次。"OnMoveStopped(Replaced) 至多一次"这一契约不需要额外簿记：
+            // BeginPathTo 内部的 hadPath 判断读的是**进入本 tick 处理之前**（即上一 tick 结束时）的
+            // MovementState.CurrentPath，只要本 tick 内对每个单位至多调用一次 BeginPathTo，
+            // Replaced 就至多触发一次，触发与否完全取决于"上一 tick 是否已有路径"，与本 tick 内
+            // 曾经提交过几条（已被丢弃的）move 意图无关。
+            // 判断记录（用两趟遍历 intents、不用 Dictionary 迭代顺序）：本仓库多处强调确定性（04 第
+            // 3 节、11 第 5 节），Dictionary<TKey,TValue> 的迭代顺序不是契约保证的一部分；先扫描出
+            // 每个单位"最后一条存活 move 意图"的下标，再按 intents 原有顺序第二趟遍历、只在命中
+            // "这正是该单位那条获胜意图"的下标时才调用一次 ApplyIntent——单位互相之间的处理顺序与
+            // 修复之前完全一致（获胜意图在 intents 里出现的相对顺序），只是同一单位更早的、已经
+            // 确定会被替换的意图不再各自触发一次 ApplyIntent。
+            var lastMoveIndex = new Dictionary<Id, int>();
             for (var i = 0; i < intents.Count; i++)
             {
                 var intent = intents[i];
                 if (intent.Kind != "move") continue;
+                if (lastStopIndex.TryGetValue(intent.ActorId, out var stopIdx) && stopIdx > i) continue;
+
+                lastMoveIndex[intent.ActorId] = i;
+            }
+
+            for (var i = 0; i < intents.Count; i++)
+            {
+                var intent = intents[i];
+                if (intent.Kind != "move") continue;
+                if (!lastMoveIndex.TryGetValue(intent.ActorId, out var winningIndex) || winningIndex != i) continue;
                 if (!(world.GetEntity(intent.ActorId) is Unit unit)) continue;
-                if (lastStopIndex.TryGetValue(unit.EntityId, out var stopIdx) && stopIdx > i) continue;
 
                 ApplyIntent(unit, intent, dt, step.Kind == SimStepKind.Discrete);
                 processedThisTick.Add(unit.EntityId);
@@ -333,6 +365,29 @@ namespace Core.Carriers.Unit
             ContinuePathCore(unit, dt);
         }
 
+        /// <summary>
+        /// 方向类位移（见 05 第 6 节"方向：只在收到意图的这一 tick 内按方向直接位移"）。
+        /// <para>
+        /// NAV-DOC-02 根治（architecture/落地计划/audit-ac3b622-20260909，方向移动导航阻挡契约，
+        /// 拍板已定）：此前本方法只查同帧其它单位阻挡（<see cref="IsBlockedByUnit"/>）就直接
+        /// <c>SetPosition</c>，从未调用 <see cref="INavigation2D.IsWalkable"/>/<see
+        /// cref="INavigation2D.Raycast"/>——05 第 6.1 节"移动前的单点/直线可达性判断调用
+        /// isWalkable(mapId, point)"是对全部移动（不分目标类/方向类）的一般表述，但目标类
+        /// （<see cref="BeginPathTo"/> 经 <see cref="INavigation2D.FindPath"/>）与方向类实际执行的
+        /// 检查此前并不对称。拍板：方向移动必须遵守与目标移动相同的可通行统一规则（02 第 1.8 节
+        /// "线段与阻挡区域内部相交才算受阻"）——对本 tick 算出的候选终点调用一次
+        /// <see cref="INavigation2D.Raycast"/>：受阻则把本次位移截断到入射点**前**（不是恰好落在
+        /// 入射点上——<see cref="INavigation2D.Raycast"/> 返回的入射点本身在 <see
+        /// cref="INavigation2D.IsWalkable"/> 的点包含判定下通常已经算"在阻挡区域内"，即便按线段
+        /// 相交规则"边界相切不算受阻"，两个查询各自独立判定、没有互相对齐边界语义的契约保证，直接
+        /// 落在入射点上因此可能被随后的 <see cref="INavigation2D.IsWalkable"/> 判为不可行走——按
+        /// <see cref="MovementOptions.ArrivalEpsilon"/>（既有"足够接近视为到达"容差，惯例同 <see
+        /// cref="ContinuePathCore"/>）往回收缩一小段，取代直接使用入射点本身）；截断后（或未受阻
+        /// 时的原候选终点）若仍不可行走（<see cref="INavigation2D.IsWalkable"/> 为 false），则本次
+        /// 完全不位移。未装配 <see cref="_navigation"/> 时两项检查全部跳过，行为与本次改动之前完全
+        /// 一致（同 <see cref="BeginPathTo"/> 判断记录"undefined navigation 退化为直线兜底"）。
+        /// </para>
+        /// </summary>
         private void ApplyDirectionalMove(Unit unit, Vec2 direction, MoveMode mode, double dt)
         {
             var length = direction.Length;
@@ -343,7 +398,31 @@ namespace Core.Carriers.Unit
 
             var normalized = new Vec2(direction.X / length, direction.Y / length);
             var speed = ResolveSpeed(unit.EntityId);
-            var newPos = unit.Position + normalized * (speed * dt);
+            var from = unit.Position;
+            var newPos = from + normalized * (speed * dt);
+
+            if (_navigation != null)
+            {
+                var hit = _navigation.Raycast(unit.MapId, from, newPos);
+                if (hit.HasValue)
+                {
+                    var hitDistance = (hit.Value - from).Length;
+                    var pullBack = Math.Min(hitDistance, _options.ArrivalEpsilon);
+                    newPos = from + normalized * (hitDistance - pullBack);
+                }
+
+                if ((newPos - from).Length <= ZeroLengthEpsilon)
+                {
+                    // 已经紧贴阻挡边界（或候选终点与起点重合）：不产生位移，不改朝向/状态、不发
+                    // 事件（同 BeginPathTo 零长度目标判断记录，避免发一条位移量为零的 unit.moved）。
+                    return;
+                }
+
+                if (!_navigation.IsWalkable(unit.MapId, newPos))
+                {
+                    return; // 判断记录见方法注释：截断后仍不可行走，本次完全不位移。
+                }
+            }
 
             if (IsBlockedByUnit(unit.EntityId, newPos))
             {

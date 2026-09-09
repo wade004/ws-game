@@ -140,6 +140,15 @@ loot/
     复用第 9 条已有的清理逻辑，不另写一份"清空"分支。见
     `LootDropPickupTests.Load_NullData_ClearsAllTrackedDroppedLoot`。
 
+12. **DATA-DOC-02 文档勘误（第十二轮外部审核，architecture/落地计划/audit-ac3b622-20260909）：
+    `LootExpiryTickHandler.Execute` 收到 `SimStepKind.Discrete` 步时跳过本次清理调用的旧注释
+    "离散时间模型本项目暂不启用（ADR-0013）"是过期文案，不是当前的真实局部语义**：ADR-0013 离散
+    时间模型早已接线（`GameplayAssembly`、`TurnScheduler`）；本处理器只是按设计把"过期销毁"这一
+    具体动作收窄到只在连续步推进（惯例同 `core/carriers/summon.SummonTickHandler`），离散步下
+    跳过的只是 `LootHost.PurgeExpired` 这一次调用本身，用于判断"是否过期"的绝对模拟时钟
+    （`_simTimeProvider`，见 `RulesAssembly.TrackSimTime` 订阅 `sim.tick_started` 累加）在离散步下
+    照常累加，不受这一步跳过影响。注释已改正为真实局部语义，不再泛化成"离散时间模型整体不启用"。
+
 ## 不负责什么
 
 - 不实现难度倍率的具体计算——`CreatureDeathLootListener` 的 `Multiplier` 只是一个

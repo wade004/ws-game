@@ -985,5 +985,151 @@ namespace Tests.Carriers.Unit
             Assert.Equal(1, failedCount); // 不应随后续 tick 重复触发（本测试要根治的缺陷）。
             Assert.True(fixture.Units.GetPosition(HeroId).X > 1.0, "默认策略下旧路径应继续沿用、单位应继续推进，而不是停在原地");
         }
+
+        // -------------------------------------------------------------
+        // CORE-110-03（architecture/落地计划/audit-ac3b622-20260909，P2，已确认）：同一 tick 内同一
+        // 单位存活的多条 move 意图必须只积分一次固定 dt，最后一条生效，更早的视为被替换。
+        // -------------------------------------------------------------
+
+        [Fact]
+        public void CORE_110_03_TargetMove_MultipleSameTickIntents_AdvancesOnlyOnce_RegardlessOfCount()
+        {
+            // 真实探针 REPEATED-MOVE 同款构造（movement-boundary-probe.log）：speed=10、dt=0.1，
+            // 同一 tick 提交 1/2/3 条相同目标的 move 意图，修复前 actual_x 分别是 1/2/3（按条数
+            // 重复消费 dt），根治后三者都应等于一条意图的结果。
+            double PositionAfter(int intentCount)
+            {
+                var fixture = Build(moveSpeed: 10.0);
+                for (var i = 0; i < intentCount; i++)
+                {
+                    fixture.World.SubmitIntent(new Intent(HeroId, "move", TargetArgs(100, 0)));
+                }
+
+                fixture.World.Tick(SimStep.Continuous(0.1));
+                return fixture.Units.GetPosition(HeroId).X;
+            }
+
+            var x1 = PositionAfter(1);
+            var x2 = PositionAfter(2);
+            var x3 = PositionAfter(3);
+
+            Assert.Equal(1.0, x1, 9);
+            Assert.Equal(x1, x2);
+            Assert.Equal(x1, x3);
+        }
+
+        [Fact]
+        public void CORE_110_03_DirectionMove_MultipleSameTickIntents_AdvancesOnlyOnce()
+        {
+            var fixture = Build(moveSpeed: 10.0);
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+
+            fixture.World.Tick(SimStep.Continuous(0.1));
+
+            Assert.Equal(1.0, fixture.Units.GetPosition(HeroId).X, 9);
+        }
+
+        [Fact]
+        public void CORE_110_03_TargetMove_StopThenTwoMovesInSameTick_AdvancesOnlyOnce_LikeOneMove()
+        {
+            // 真实探针 TWO-MOVES-AFTER-STOP 同款构造：Stop 与两条 move 在同一 tick、Stop 在最前
+            // （不丢弃它之后提交的 move，见 05 第 6.4 节步骤 1），根治前 actual_x=2（两条 move 各自
+            // 推进一次），根治后应等于一条 move 的结果 x=1——"Stop 之后再提交的 move 生效但仍只
+            // 积分一次"。
+            var fixtureOneMove = Build(moveSpeed: 10.0);
+            fixtureOneMove.World.SubmitIntent(new Intent(HeroId, "move", TargetArgs(100, 0)));
+            fixtureOneMove.World.Tick(SimStep.Continuous(0.1));
+            var xOneMove = fixtureOneMove.Units.GetPosition(HeroId).X;
+
+            var fixture = Build(moveSpeed: 10.0);
+            fixture.Host.Stop(HeroId);
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", TargetArgs(100, 0)));
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", TargetArgs(100, 0)));
+
+            fixture.World.Tick(SimStep.Continuous(0.1));
+
+            Assert.Equal(xOneMove, fixture.Units.GetPosition(HeroId).X);
+        }
+
+        [Fact]
+        public void CORE_110_03_TargetMove_ReplacingPriorTickPath_FiresOnMoveStopped_Replaced_AtMostOnce()
+        {
+            // 上一 tick 已经建立一条路径（真实存在、跨 tick 生效），本 tick 内同一单位再提交两条
+            // 新目标的 move 意图——"最后一条生效，触发 OnMoveStopped(Replaced) 至多一次"：本 tick
+            // 只应对该单位调用一次 BeginPathTo，Replaced 不应因为本 tick 内部曾经存在过"被丢弃的
+            // 更早意图"而触发多次。
+            var fixture = Build(moveSpeed: 10.0);
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", TargetArgs(100, 0)));
+            fixture.World.Tick(SimStep.Continuous(0.1)); // 建立跨 tick 路径。
+            Assert.NotNull(fixture.Player.MovementState.CurrentPath);
+
+            var replacedCount = 0;
+            fixture.Host.OnMoveStopped += (_, _, reason) =>
+            {
+                if (reason == MoveStopReason.Replaced) replacedCount++;
+            };
+
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", TargetArgs(50, 50)));
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", TargetArgs(60, 60)));
+            fixture.World.Tick(SimStep.Continuous(0.1));
+
+            Assert.Equal(1, replacedCount);
+        }
+
+        // -------------------------------------------------------------
+        // NAV-DOC-02（architecture/落地计划/audit-ac3b622-20260909，方向移动导航阻挡契约，拍板
+        // 已定）：方向类位移必须遵守与目标类移动相同的导航阻挡规则。
+        // -------------------------------------------------------------
+
+        [Fact]
+        public void DirectionMove_BlockedByNavigation_TruncatesToJustBeforeIncidencePoint()
+        {
+            var nav = new StubNavigation2D();
+            nav.SetBlocking(MapId, new[] { new Rect(new Vec2(2, -1), new Vec2(10, 1)) });
+            var fixture = Build(moveSpeed: 10.0, navigation: nav);
+
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            fixture.World.Tick(SimStep.Continuous(1.0)); // 候选终点 (10,0)，阻挡区域从 x=2 开始。
+
+            // 截断到入射点 (2,0) 前 ArrivalEpsilon（默认 0.01），不是恰好落在入射点上（见
+            // ApplyDirectionalMove 判断记录：入射点本身在 IsWalkable 的点包含判定下通常已经算
+            // "在阻挡区域内"）。
+            var pos = fixture.Units.GetPosition(HeroId);
+            Assert.Equal(1.99, pos.X, 9);
+            Assert.Equal(0.0, pos.Y, 9);
+        }
+
+        [Fact]
+        public void DirectionMove_TargetNotWalkable_DoesNotMove()
+        {
+            var nav = new StubNavigation2D();
+            // 阻挡矩形恰好从候选终点 (10,0) 开始：线段只与矩形边界相切（贴着走），按"内部相交才算
+            // 受阻"的统一规则不触发 Raycast（不截断），但候选终点本身落在 IsWalkable 的点包含判定
+            // 边界（闭区间）上——两个查询的边界语义本就不必对齐（见 ApplyDirectionalMove 判断
+            // 记录），此处专门验证"Raycast 未截断、IsWalkable 单独判定不可行走"这一分支：本次应
+            // 完全不位移。
+            nav.SetBlocking(MapId, new[] { new Rect(new Vec2(10, -1), new Vec2(20, 1)) });
+            var fixture = Build(moveSpeed: 10.0, navigation: nav);
+
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            fixture.World.Tick(SimStep.Continuous(1.0)); // 候选终点恰为 (10,0)。
+
+            Assert.Equal(Vec2.Zero, fixture.Units.GetPosition(HeroId));
+        }
+
+        [Fact]
+        public void DirectionMove_Unblocked_StillAdvancesNormally()
+        {
+            var nav = new StubNavigation2D();
+            nav.SetBlocking(MapId, new[] { new Rect(new Vec2(50, -1), new Vec2(51, 1)) }); // 远离本次位移范围。
+            var fixture = Build(moveSpeed: 10.0, navigation: nav);
+
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            fixture.World.Tick(SimStep.Continuous(1.0));
+
+            Assert.Equal(new Vec2(10, 0), fixture.Units.GetPosition(HeroId));
+        }
     }
 }
