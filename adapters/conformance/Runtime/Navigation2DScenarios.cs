@@ -22,6 +22,8 @@ namespace Adapters.Conformance
             new ConformanceScenario<INavigation2D>("FindPath_终点落在阻挡矩形内部时返回null", FindPath_UnwalkableEndpoint_ReturnsNull),
             new ConformanceScenario<INavigation2D>("FindPath_双矩形拐角工况_每段Raycast均不受阻", FindPath_DoubleRectCorner_EverySegmentRaycastNull),
             new ConformanceScenario<INavigation2D>("GetBlockingVersion_SetBlocking与BuildNavMesh与Clear均递增", GetBlockingVersion_IncrementsOnChanges),
+            new ConformanceScenario<INavigation2D>("FindPath_端点格中心受阻但端点与直线均可通行_每段Raycast均不受阻", FindPath_EndpointCellCenterBlocked_EverySegmentRaycastNull),
+            new ConformanceScenario<INavigation2D>("FindPath_薄墙窄于采样间距存在绕路_每段Raycast均不受阻", FindPath_ThinWallNarrowerThanSampling_EverySegmentRaycastNull),
         };
 
         private static readonly Id MapId = new Id("map.conformance_probe");
@@ -152,6 +154,83 @@ namespace Adapters.Conformance
             if (path == null)
             {
                 assert.Skip("当前实现不支持绕障路径规划（直线被拐角阻挡、找不到路径属预期行为，见 StubNavigation2D 类型顶部判断记录）");
+                nav.Clear(map);
+                yield break;
+            }
+
+            assert.True(path.Count >= 2, "非空路径至少应包含两个点");
+            for (var i = 0; i < path.Count - 1; i++)
+            {
+                var hit = nav.Raycast(map, path[i], path[i + 1]);
+                assert.IsNull(hit, $"路径第 {i} 段不应被 Raycast 判定为受阻（Raycast 与 FindPath 必须共用同一阻挡判定）");
+            }
+
+            nav.Clear(map);
+            yield break;
+        }
+
+        /// <summary>NAV-110-01 契约精确化新增（architecture/落地计划/audit-ac3b622-20260909/
+        /// presentation/presentation-findings.md）：阻挡矩形恰好使某个端点所在的采样格中心落在
+        /// 矩形内部，但端点自身按 <see cref="INavigation2D.IsWalkable"/> 逐点判定可行走、两端点间
+        /// 直线 <see cref="INavigation2D.Raycast"/> 也不受阻——这种情形下 FindPath 不应把"采样格中心
+        /// 受阻"误当成"端点不可行走"而返回 null。判断记录：桩实现（<c>StubNavigation2D</c>）本就是
+        /// 直线导航、不做任何网格采样，天然不会复现这一类缺陷（它的 FindPath 直接用端点本身的
+        /// IsWalkable + 直线 SegmentBlocked 判定），因此本场景对桩、Unity 两侧实现均要求返回非空
+        /// 路径，不做跳过——与"双矩形拐角"场景（要求真绕障能力，桩天然做不到）性质不同。</summary>
+        private static IEnumerator FindPath_EndpointCellCenterBlocked_EverySegmentRaycastNull(INavigation2D nav, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            var map = new Id("map.conformance_endpoint_cell_center_blocked");
+            nav.SetBlocking(map, new[] { new Rect(new Vec2(0, 0), new Vec2(1.2, 1)) });
+            nav.BuildNavMesh(map);
+
+            var from = new Vec2(1.21, 0.5);
+            var to = new Vec2(1.8, 0.5);
+
+            assert.True(nav.IsWalkable(map, from), "起点自身按逐点判定应可行走");
+            assert.True(nav.IsWalkable(map, to), "终点自身按逐点判定应可行走");
+            assert.IsNull(nav.Raycast(map, from, to), "两端点间的直线不应被判定为受阻");
+
+            var path = nav.FindPath(map, from, to);
+            assert.NotNull(path, "端点格中心受阻不等于端点不可行走：存在真实可行的接合方式时不应返回 null");
+            if (path != null)
+            {
+                for (var i = 0; i < path.Count - 1; i++)
+                {
+                    var hit = nav.Raycast(map, path[i], path[i + 1]);
+                    assert.IsNull(hit, $"路径第 {i} 段不应被 Raycast 判定为受阻（Raycast 与 FindPath 必须共用同一阻挡判定）");
+                }
+            }
+
+            nav.Clear(map);
+            yield break;
+        }
+
+        /// <summary>NAV-110-02 契约精确化新增：阻挡矩形宽度窄于导航实现的默认采样间距，但存在一条
+        /// 手工绕路 oracle（三段 <see cref="INavigation2D.Raycast"/> 均不受阻）——真实存在合法绕路时
+        /// FindPath 不应把"采样网格对薄墙视而不见导致的误判"当成"无路可走"。判断记录：桩实现是纯
+        /// 直线导航、不具备绕障能力，直线穿过该薄墙必然被判定受阻而返回 null——这是桩的预期行为
+        /// （同"双矩形拐角"场景），本场景对"找不到路径"的实现直接跳过，只对"确实返回了一条路径"的
+        /// 实现校验其每一段都经得起 Raycast 复核。</summary>
+        private static IEnumerator FindPath_ThinWallNarrowerThanSampling_EverySegmentRaycastNull(INavigation2D nav, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            var map = new Id("map.conformance_thin_wall_narrower_than_sampling");
+            nav.SetBlocking(map, new[] { new Rect(new Vec2(0.1, -0.5), new Vec2(0.15, 0.5)) });
+            nav.BuildNavMesh(map);
+
+            var from = new Vec2(-1, 0);
+            var to = new Vec2(1, 0);
+
+            var oracle = new[] { from, new Vec2(-0.2, -0.6), new Vec2(0.2, -0.6), to };
+            for (var i = 0; i < oracle.Length - 1; i++)
+            {
+                var oracleHit = nav.Raycast(map, oracle[i], oracle[i + 1]);
+                assert.IsNull(oracleHit, $"oracle 绕路第 {i} 段应为可通行（用于证明真实存在合法绕路）");
+            }
+
+            var path = nav.FindPath(map, from, to);
+            if (path == null)
+            {
+                assert.Skip("当前实现不支持绕障路径规划（直线被薄墙阻挡、找不到路径属预期行为，见 StubNavigation2D 类型顶部判断记录）");
                 nav.Clear(map);
                 yield break;
             }

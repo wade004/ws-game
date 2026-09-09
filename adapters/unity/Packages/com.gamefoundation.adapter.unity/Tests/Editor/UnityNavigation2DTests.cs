@@ -204,6 +204,77 @@ namespace Adapter.Unity.Tests.Editor
             Assert.IsNull(hit, "仅贴着阻挡矩形边界走、不进入内部，不应判定为受阻");
         }
 
+        // 以下两条为审计 architecture/落地计划/audit-ac3b622-20260909/presentation/
+        // presentation-findings.md NAV-110-01/NAV-110-02 的复现测试改写为正确性断言（此前审计副本
+        // AuditAc3b622NavigationProbes.cs 的 CandidateA/CandidateB 用 Assert.IsNull(path) 记录"观察到
+        // 的候选缺陷现象"；这里改为断言根治后的正确行为：路径非空，且路径每一段都经得起
+        // Raycast 复核，与 FindPath_DoubleRectCorner_ReturnsPathWhereEverySegmentPassesRaycast 同一
+        // 验收惯例）。
+
+        [Test]
+        public void NAV110_01_EndpointCellCenterBlocked_ExactEndpointAndDirectRaycastClear_ReturnsNonNullPath()
+        {
+            // 对应审计 CandidateA：阻挡矩形 [(0,0),(1.2,1)]，from=(1.21,0.5) 精确落在矩形右侧紧邻处，
+            // to=(1.8,0.5)；两端点按 IsWalkable 逐点判定都可行走、直线 Raycast 也不受阻，但 from 所在
+            // 采样格中心 (1.125,0.625) 恰好落在矩形内部——根治前 FindPath 会被这一采样格提前拒绝。
+            var map = new Id("map.test_nav110_01_endpoint_cell_center_blocked");
+            _nav.SetBlocking(map, new[] { new Rect(new Vec2(0, 0), new Vec2(1.2, 1)) });
+            var from = new Vec2(1.21, 0.5);
+            var to = new Vec2(1.8, 0.5);
+            _nav.BuildNavMesh(map);
+
+            Assert.IsTrue(_nav.IsWalkable(map, from), "端点自身按逐点判定应可行走");
+            Assert.IsTrue(_nav.IsWalkable(map, to), "端点自身按逐点判定应可行走");
+            Assert.IsNull(_nav.Raycast(map, from, to), "两端点间的直线不应被判定为受阻");
+
+            var path = _nav.FindPath(map, from, to);
+
+            Assert.IsNotNull(path, "端点格中心受阻不等于端点不可行走：存在真实可行的接合方式时不应返回 null");
+            Assert.AreEqual(from.X, path![0].X, 0.0, "路径首点应精确等于请求的起点");
+            Assert.AreEqual(from.Y, path[0].Y, 0.0, "路径首点应精确等于请求的起点");
+            Assert.AreEqual(to.X, path[path.Count - 1].X, 0.0, "路径末点应精确等于请求的终点");
+            Assert.AreEqual(to.Y, path[path.Count - 1].Y, 0.0, "路径末点应精确等于请求的终点");
+            for (var i = 0; i < path.Count - 1; i++)
+            {
+                Assert.IsNull(_nav.Raycast(map, path[i], path[i + 1]),
+                    $"路径第 {i} 段不应被 Raycast 判定为受阻（Raycast 与 FindPath 必须共用同一阻挡判定）");
+            }
+        }
+
+        [Test]
+        public void NAV110_02_ThinWallNarrowerThanGrid_DetourExists_ReturnsNonNullPath()
+        {
+            // 对应审计 CandidateB：薄阻挡矩形 [(0.1,-0.5),(0.15,0.5)] 宽度仅 0.05，小于主网格默认格子
+            // 尺寸 0.25——根治前中心采样网格对薄墙"视而不见"，A* 找到一条直穿候选，被收尾防线拒绝后
+            // 直接返回 null，不再尝试绕路。手工绕路 oracle（(-1,0) -> (-0.2,-0.6) -> (0.2,-0.6) ->
+            // (1,0)）三段 Raycast 均为 null，证明存在合法绕路。
+            var map = new Id("map.test_nav110_02_thin_wall_narrower_than_grid");
+            _nav.SetBlocking(map, new[] { new Rect(new Vec2(0.1, -0.5), new Vec2(0.15, 0.5)) });
+            var from = new Vec2(-1, 0);
+            var to = new Vec2(1, 0);
+            _nav.BuildNavMesh(map);
+
+            var oracle = new[] { from, new Vec2(-0.2, -0.6), new Vec2(0.2, -0.6), to };
+            for (var i = 0; i < oracle.Length - 1; i++)
+            {
+                Assert.IsNull(_nav.Raycast(map, oracle[i], oracle[i + 1]),
+                    $"oracle 绕路第 {i} 段应为可通行（用于证明真实存在合法绕路）");
+            }
+
+            var path = _nav.FindPath(map, from, to);
+
+            Assert.IsNotNull(path, "薄墙存在绕路时不应被误判为无路可走");
+            Assert.AreEqual(from.X, path![0].X, 0.0, "路径首点应精确等于请求的起点");
+            Assert.AreEqual(from.Y, path[0].Y, 0.0, "路径首点应精确等于请求的起点");
+            Assert.AreEqual(to.X, path[path.Count - 1].X, 0.0, "路径末点应精确等于请求的终点");
+            Assert.AreEqual(to.Y, path[path.Count - 1].Y, 0.0, "路径末点应精确等于请求的终点");
+            for (var i = 0; i < path.Count - 1; i++)
+            {
+                Assert.IsNull(_nav.Raycast(map, path[i], path[i + 1]),
+                    $"路径第 {i} 段不应被 Raycast 判定为受阻（Raycast 与 FindPath 必须共用同一阻挡判定）");
+            }
+        }
+
         [Test]
         public void GetBlockingVersion_IncrementsOnSetBlockingClearAndBuildNavMesh()
         {

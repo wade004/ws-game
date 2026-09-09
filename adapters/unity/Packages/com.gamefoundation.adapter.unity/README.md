@@ -329,7 +329,11 @@ GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。`sprites`/`
   与 `RegisterBlockingFromTilemap`（非契约便捷方法，从 Tilemap 批量算出矩形后同样整批替换）的分工
   （ADR-0016 决策 7）；`GetBlockingVersion` 按地图计数、`FindPath` 端点精确接合、`Raycast`/路径
   分段共用同一份"仅内部相交才算受阻"判定、网格对角移动禁止切角（游戏侧 1.8.0 PlayMode 验收后
-  契约精确化，见该文件类型顶部判断记录 1/2/3）。
+  契约精确化，见该文件类型顶部判断记录 1/2/3）。第十二轮审核 ac3b622 NAV-110-01/NAV-110-02 根治
+  （2026-09-09，见下方独立小节）：端点采样格中心受阻时改按精确端点向可行走邻格接合
+  （`ResolveEntryCell`），主网格判定薄障碍失手（收尾防线复核失败）时改用更细、按"格子内部与阻挡
+  矩形内部相交"判定的兜底网格重新寻路一次（`BuildGridWithCellSize`/`IsCellInteriorBlockedByRects`/
+  `FindPathWithFineGrid`）。
 - `UnitySpatialQuery.cs`：自维护登记表 vs Physics2D 的取舍理由；`Register`/`UpdatePosition`/
   `Unregister`/`Clear` 现为契约方法（ADR-0016 决策 7）。
 - `UnityUISurface.cs`：`DrawText` 语义解释、占位字体生成方式。
@@ -828,6 +832,54 @@ doc-code-matrix 此前记录的能力边界"`UnityViewFactory` 构造函数没�
 克隆剪辑对象）、`Tests/Runtime/Pres170_01SharedClipEventIsolationTests.cs`（PRES-170-01 专项：非空后
 空/空后非空/跨 factory 三种触发顺序 + 场景重建 + 实体销毁重建共五组，均以真实 `PlayAnim` 播放期间
 经 `IRenderer3D.OnAnimEvent` 实际触发的事件裸名集合为最终断言，取代审核归档探针的"故障现状"断言）。
+
+### NAV-110-01/NAV-110-02 根治（第十二轮审核 ac3b622，2026-09-09）
+
+审核报告：`architecture/落地计划/audit-ac3b622-20260909/presentation/presentation-findings.md`
+"2.10 导航定向验证"。两条都是 `UnityNavigation2D.FindPath` 的网格采样精度问题，均不改变
+`INavigation2D` 契约面（签名不变），只改内部寻路策略。
+
+**NAV-110-01（端点所在采样格中心被阻挡，直线本身可通行时返回 `null`）**：`FindPath` 此前把精确
+端点 `from`/`to` 量化到所在格子后直接交给 `AStar`，`AStar` 入口检查 `grid.Walkable[start]`/
+`[goal]` 为 `false`（该格中心恰好落在阻挡矩形内部，即便端点自身按 `IsWalkable` 逐点判定可行走、
+两端点间直线 `Raycast` 也不受阻）时直接返回 `null`——`BuildWorldPath` 原有的邻格接合兜底完全没有
+机会执行。根治：新增 `ResolveEntryCell`（格子可行走时原样使用，受阻时在其 8 邻居里找一个可行走、
+且与精确端点直连不受阻——与 `Raycast` 同源的 `SegmentBlocked` 判定——的格子作为 A* 实际入口/
+出口，找不到任何候选才判定该端点确实无法进入网格），在 `AStar` 之前调用，不改变
+`IsWalkable(mapId, point)` 这个按点判定的既有语义。
+
+**NAV-110-02（薄墙比默认采样间距 `DefaultCellSize`=0.25 更窄，导致合法绕路被错误判定为无路可走）**：
+默认网格只在格子中心采样阻挡（`IsBlockedByRects`），一个宽度小于格子尺寸的阻挡矩形可能使其两侧
+相邻格子的中心都落在矩形外部——两个格子都被判定为可行走，`AStar` 因此在网格层面对薄墙"视而不见"，
+在两侧格子间建立一条正交/对角邻接边；这条边对应的世界坐标线段却真实穿过了薄墙内部，会在 `FindPath`
+收尾防线（逐段 `SegmentBlocked` 复核）被命中——此前命中即直接返回 `null`，不再尝试绕路，即便真实
+存在合法绕路（薄墙本身没有把任何方向堵死，只是窄于采样间距）。根治：把收尾防线的失败分支从直接
+返回 `null` 改为调用新增的 `FindPathWithFineGrid`——用更细的格子尺寸
+（`ThinObstacleFallbackCellSize` = `DefaultCellSize`/2）、且把占用判定从"格子中心是否落在矩形内部"
+换成"格子内部与矩形内部是否有非零面积相交"（`IsCellInteriorBlockedByRects`，`BuildGridWithCellSize`
+的 `useAccurateInterior` 分支）的独立网格重新执行一次完整寻路（入口接合、A*、世界路径拼装、收尾
+复核，逐字复用主网格同一套 `ResolveEntryCell`/`BuildWorldPath` 流程），该网格不再依赖"格子尺寸必须
+小于阻挡宽度"这个假设即可正确感知薄墙；这次兜底仍未找到通过收尾防线的路径才是真正的"无路可走"，
+返回 `null`（只兜底一层，不递归加细，避免极端场景下无限重试）。判断记录（为什么不直接把主网格
+永久换成细网格 + 精确占用判定）：那样会改变全部现有场景（含既有 496+ 条用例、`Navigation2DScenarios`
+既有场景）的网格分辨率与占用判定语义，风险面远大于收益；本根治只在"主网格算出的路径未通过收尾防线"
+这一具体失败分支触发兜底，正常路径（绝大多数场景）的性能与既有行为完全不变。
+
+两条根治新增/改动的方法：`ResolveEntryCell`、`FindPathWithFineGrid`、
+`BuildGridWithCellSize`（`BuildGrid` 改为委托给它）、`IsCellInteriorBlockedByRects`，均为
+`UnityNavigation2D` 内部私有实现，不改变类型对外的公开成员集合。
+
+对应测试：`Tests/Editor/UnityNavigation2DTests.cs`
+（`NAV110_01_EndpointCellCenterBlocked_ExactEndpointAndDirectRaycastClear_ReturnsNonNullPath`、
+`NAV110_02_ThinWallNarrowerThanGrid_DetourExists_ReturnsNonNullPath`，把审核归档
+`AuditAc3b622NavigationProbes.cs` 记录"观察到的候选缺陷现象"的两条探针改写为根治后的正确性断言：
+路径非空、首尾精确等于请求端点、每一段都经得起 `Raycast` 复核）；`adapters/conformance/Runtime/
+Navigation2DScenarios.cs` 新增两条同名场景（"端点格中心受阻但端点与直线均可通行"、"薄墙窄于采样
+间距存在绕路"），经 `Tests/Runtime/ConformanceUnityTests.cs` 对 `UnityNavigation2D` 与
+`core/foundation/engine_adapter/tests/ConformanceStubTests.cs` 对 `StubNavigation2D` 各跑一遍——
+`StubNavigation2D` 是纯直线导航、不做任何网格采样，NAV-110-01 场景对它天然成立（不跳过），
+NAV-110-02 场景因薄墙直接挡住唯一的直线路径、桩不具备绕障能力而按既有"双矩形拐角"场景的同一惯例
+跳过（`assert.Skip`），不强行要求桩实现绕障。
 
 ## 游戏模板如何接入本包（数据目录框架/游戏分层任务）
 

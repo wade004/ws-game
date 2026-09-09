@@ -124,6 +124,38 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     实现（避免表现层反向耦合到某一种装备存储形状），由装配层按具体游戏使用的装备宿主实现构造并
     注入。未新增任何数据表字段——`display.map.weapon_style_ref` 已足以承载这条关联。
 
+13. **PRES-110-01 根治（第十二轮审核 ac3b622，2026-09-09）：`EquipmentWeaponStyleSource` 新增订阅
+    `save.loaded`，读档后整表清空缓存**——判断记录 12 的缓存只按 `item.equipped`/`item.unequipped`
+    两个事件失效，但 `Core.Foundation.SaveSystem.SaveSystem.Load` 把"逐段 Load + 失败回滚"整段包在
+    `IEventBus.SuppressDispatch` 抑制作用域内（读档不是业务事件），`EquipmentPersistable.Load` 在此
+    作用域内调用真实 `EquipmentHost.Equip`/`Unequip` 重放装备联动时正常派发的这两个事件被直接丢弃，
+    本类型两个失效订阅永远收不到——同图读档（同一批实体 id 延续、不经过 View 重建）后缓存仍保留
+    读档前的旧值，与已经真实变化的 `EquipmentHost` 装备状态不一致（真实探针：
+    `architecture/落地计划/audit-ac3b622-20260909/core/repro/FollowupCoreProbe.cs`
+    `RunWeaponStyleCacheAfterLoad`／`followup-core-probe.log`
+    `WEAPON-STYLE-CACHE-SAME-MAP-LOAD`）。`SaveSystem.Load` 在该抑制作用域<b>外</b>正常派发的
+    `SaveLoadedEvent`（`save.loaded`）不受影响——对照 `presentation/view_binding/core/ViewBinder.cs`
+    的 `OnSaveLoaded` 做法，本类型额外订阅 `save.loaded` 并整表清空缓存（不按实体逐个失效：读档时
+    哪些实体的装备发生了变化对本类型不可见，清空后下一次 `GetWeaponStyleRef` 对该实体重新经
+    `MainHandWeaponTemplateResolver` 查一次真实状态即可）。见
+    `core/EquipmentWeaponStyleSource.cs`、`tests/EquipmentWeaponStyleSourceTests.cs`
+    （`PRES110_01_SaveLoadedEvent_ClearsCache_NextQueryReResolvesRealState`/
+    `PRES110_01_RepeatedSaveLoadedEvents_NeverReuseStaleValueAcrossReloads`）。
+    <br/>判断记录（`presentation/render/core/EquipmentVisualSource.cs` 未同批处理，不算"同类"一并
+    根治）：审核任务书要求核对本模块外"其它按装备事件缓存的来源"是否同类——`EquipmentVisualSource`
+    同样按 `item.added`/`item.equipped`/`item.unequipped` 三个事件维护
+    `_visualByItemInstanceId`，在同一次 `save.loaded` 抑制作用域问题下也会失去更新，但它与
+    `EquipmentWeaponStyleSource` 不是同一种缺陷形状：后者是一个纯粹的"无状态查询结果缓存"（下一次
+    调用只要重新查一遍真实状态即可自愈，`GetWeaponStyleRef` 本身不产生任何外部可观察副作用），清空
+    缓存就是完整根治；前者是一份已经"应用"到具体 `IView` 实例（经 `view.OnEvent(ItemEquippedEvent)`
+    调用把外观贴到 Mesh/Sprite 插槽上）的状态日志——真正的根治需要让已绑定的 View 重新走一次
+    `EquipmentVisualSource.ReplayEquippedForUnit` + `view.OnEvent` 才能让 Unity 侧的挂点/外观贴图
+    与新装备状态对齐，这属于视图重放（Mesh 冷加载/挂点外观），本审核任务书边界条款（本报告"结论与
+    边界"一节）明确排除在 PRES-110-01 范围外——"该结论只覆盖风格缓存与真实装备状态不一致，不外推为
+    Mesh 冷加载、HUD 刷新或 Unity 屏幕外观缺陷；这些链路仍需各自端到端证据"。本轮已核对
+    `EquipmentVisualSource` 存在同源风险但未展开 Unity 端到端证据，因此不在本轮改动，留给后续以该
+    模块自己的复现证据立项（不是遗漏，是刻意维持审核范围边界）。
+
 ## 不负责什么
 
 - 不接入 `data/_sample/`：本任务不新增示例数据文件，`schema/VfxSfxSchemas` 只声明表结构，测试用

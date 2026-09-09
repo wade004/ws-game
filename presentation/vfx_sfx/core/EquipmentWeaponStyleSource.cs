@@ -4,6 +4,7 @@ using Core.Carriers.Common;
 using Core.Foundation.Common;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
+using Core.Foundation.SaveSystem;
 using Presentation.VfxSfx.Contracts;
 
 namespace Presentation.VfxSfx.Core
@@ -34,6 +35,26 @@ namespace Presentation.VfxSfx.Core
     /// <c>item.equipped</c>/<c>item.unequipped</c> 事件失效是更省成本的取舍，同 09 第 6 节
     /// <c>FeedbackBinder</c>/本模块既有解析器一贯"只订阅事件、不轮询"的铁律 P2。
     /// </para>
+    /// <para>
+    /// PRES-110-01 根治（architecture/落地计划/audit-ac3b622-20260909/presentation/
+    /// presentation-findings.md"EquipmentWeaponStyleSource 的真实读档复核"）：<c>SaveSystem.Load</c>
+    /// 把整段"逐段 Load + 失败回滚"包在 <see cref="IEventBus.SuppressDispatch"/> 抑制作用域内（见该
+    /// 方法判断记录"读档不是业务事件"），但 <c>EquipmentPersistable.Load</c> 会调用真正的
+    /// <c>EquipmentHost.Equip</c>/<c>Unequip</c> 重放装备联动——这两者本身正常派发的
+    /// <c>ItemEquipped</c>/<c>ItemUnequipped</c> 事件在抑制作用域内被直接丢弃，本类型仅有的两个失效
+    /// 订阅永远收不到它们。因此同图读档（同一批实体 id 延续，不经过 <c>OnEntityCreated</c> 重建
+    /// View）之后，<see cref="_cache"/> 仍保留读档前的旧值，与已经真实变化的
+    /// <c>EquipmentHost</c> 装备状态不一致（真实探针：<c>followup-core-probe.log</c>
+    /// <c>WEAPON-STYLE-CACHE-SAME-MAP-LOAD</c>，读档后 EventBus drain 完毕仍返回旧图 A 的风格而非
+    /// 新图 B）。<c>SaveSystem.Load</c> 在该抑制作用域<b>外</b>正常派发的 <c>SaveLoadedEvent</c>
+    /// （<c>save.loaded</c>，"本次读档完成了"不是重放，理应正常送达）不受抑制影响——本类型对照
+    /// <c>Presentation.ViewBinding.Core.ViewBinder</c> 的 <c>OnSaveLoaded</c> 做法，额外订阅
+    /// <c>save.loaded</c> 并整表清空 <see cref="_cache"/>（不是按实体逐个失效：读档时哪些实体的装备
+    /// 发生了变化对本类型不可见，唯一安全的做法是让下一次 <see cref="GetWeaponStyleRef"/> 对
+    /// <b>全部</b>实体都重新经 <see cref="_mainHandTemplateResolver"/> 查一次真实 <c>EquipmentHost</c>
+    /// 状态；清空后下一次查询自然按当前值重新写入缓存，代价是读档后第一次查询各实体各多付一次真实
+    /// 解析，同"清空缓存"本身的语义一致，不额外增加长期开销）。
+    /// </para>
     /// </summary>
     public sealed class EquipmentWeaponStyleSource : IWeaponStyleSource, IDisposable
     {
@@ -53,6 +74,8 @@ namespace Presentation.VfxSfx.Core
 
             _subscriptions.Add(bus.Subscribe<ItemEquippedEvent>(CarriersEventKeys.ItemEquipped, evt => Invalidate(evt.UnitId)));
             _subscriptions.Add(bus.Subscribe<ItemUnequippedEvent>(CarriersEventKeys.ItemUnequipped, evt => Invalidate(evt.UnitId)));
+            // PRES-110-01 根治：见类型注释——save.loaded 在抑制作用域外正常派发，收到后整表对账清空。
+            _subscriptions.Add(bus.Subscribe(SaveEventKeys.SaveLoaded, _ => _cache.Clear()));
         }
 
         public Id? GetWeaponStyleRef(Id entityId)

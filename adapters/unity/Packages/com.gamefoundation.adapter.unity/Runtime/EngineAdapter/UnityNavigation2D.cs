@@ -48,6 +48,11 @@ namespace Adapter.Unity.EngineAdapter
         private const int MaxGridDimension = 192;
         private const double BoundsMargin = 2.0;
 
+        /// <summary>NAV-110-02 根治用兜底网格格子尺寸（见 <see cref="FindPathWithFineGrid"/>
+        /// 判断记录）：比默认格子尺寸 <see cref="DefaultCellSize"/> 更细，只在主网格算出的路径未能
+        /// 通过收尾防线（<see cref="SegmentBlocked"/> 复核）时才启用，不影响主网格的既有性能与行为。</summary>
+        private const double ThinObstacleFallbackCellSize = DefaultCellSize / 2.0;
+
         /// <summary>判定"线段是否穿过矩形内部"时使用的容差：用来把"恰好落在边界/角点上"与"确实
         /// 越过边界进入了内部"区分开（见类型顶部判断记录 3）。取一个远小于 <see cref="DefaultCellSize"/>
         /// 的量级，避免正常网格判定被浮点误差污染，同时不会把真正贴边的情形误判为进入内部。</summary>
@@ -147,13 +152,31 @@ namespace Adapter.Unity.EngineAdapter
                 return SegmentBlocked(mapId, from, to) ? null : new List<Vec2> { from, to };
             }
 
-            var cellPath = AStar(grid, startCell, goalCell);
+            // NAV-110-01 根治（architecture/落地计划/audit-ac3b622-20260909/presentation/
+            // presentation-findings.md）：端点所在的采样格中心受阻，不等于端点本身（按 IsWalkable
+            // 逐点判定，已在本方法开头确认可行走）不可行走——一个精确端点可能落在某格边缘，恰好使该
+            // 格的中心采样点位于阻挡内部，即便端点自身与直线方向都完全通畅。此前直接把 startCell/
+            // goalCell 交给 AStar，其入口检查（AStar 内 grid.Walkable[start]/[goal]）在格中心受阻时
+            // 直接返回 null，BuildWorldPath 的邻格接合兜底完全没有机会执行。这里改为：格中心可行走时
+            // 原样使用该格（不引入任何行为变化，覆盖既有全部路径场景）；格中心受阻时，参照
+            // BuildWorldPath/FindAdjacentReconnect 同一套"向 8 邻居里找可行走、且与精确端点直连不受阻
+            // （与 Raycast 同源的 SegmentBlocked 判定）的格子"逻辑，改用该邻格作为 A* 的实际入口/出口；
+            // 找不到任何这样的邻格才判定该端点确实无法进入网格，返回 null（不是"看起来能走但实际穿墙"
+            // 的假路径，也不是把一个真实可行的精确端点请求提前拒绝）。
+            var effectiveStartCell = ResolveEntryCell(grid, mapId, startCell, from);
+            var effectiveGoalCell = ResolveEntryCell(grid, mapId, goalCell, to);
+            if (effectiveStartCell == null || effectiveGoalCell == null)
+            {
+                return null;
+            }
+
+            var cellPath = AStar(grid, effectiveStartCell.Value, effectiveGoalCell.Value);
             if (cellPath == null)
             {
                 return null;
             }
 
-            var worldPath = BuildWorldPath(mapId, grid, from, to, startCell, goalCell, cellPath);
+            var worldPath = BuildWorldPath(mapId, grid, from, to, effectiveStartCell.Value, effectiveGoalCell.Value, cellPath);
             if (worldPath == null)
             {
                 return null;
@@ -161,7 +184,67 @@ namespace Adapter.Unity.EngineAdapter
 
             // 收尾防线（类型顶部判断记录 2/3）：绝不返回一条含有受阻分段的"假路径"——正常情况下
             // 不该走到这里（BuildWorldPath 已经逐段校验过接合段，网格内部相邻格中心之间的直线因
-            // "不许切角"的八邻居展开规则天然不受阻），只作为极端浮点边界情形下的最后防线。
+            // "不许切角"的八邻居展开规则天然不受阻）。
+            //
+            // NAV-110-02 根治：这里不再是纯粹的"极端浮点边界情形最后防线"——比主网格格子
+            // （DefaultCellSize）更细的阻挡矩形（薄墙）可能使矩形两侧的格子中心都落在阻挡外部、
+            // 因而都被判定为可行走，此时 grid.Walkable 对薄墙"视而不见"：AStar 会在这两个格子间
+            // 直接建立一条正交/对角邻接边（网格意义上"合法"），但这条边对应的世界坐标线段确实穿过了
+            // 薄墙内部，会在这里被 SegmentBlocked 命中。这种情形下真实世界仍可能存在合法绕路（薄墙
+            // 本身没有把任何方向堵死，只是比采样间距更窄），直接返回 null 会把一个真实可行的绕路请求
+            // 误判为无路可走——因此改为用更细、且用"格子内部与矩形内部相交才判定受阻"（而不是仅采样
+            // 格子中心）的兜底网格重新寻路一次（见 FindPathWithFineGrid），兜底仍失败才真正返回 null。
+            for (var i = 0; i < worldPath.Count - 1; i++)
+            {
+                if (SegmentBlocked(mapId, worldPath[i], worldPath[i + 1]))
+                {
+                    return FindPathWithFineGrid(mapId, from, to);
+                }
+            }
+
+            return worldPath;
+        }
+
+        /// <summary>NAV-110-02 根治：主网格（<see cref="DefaultCellSize"/>、仅采样格子中心判定阻挡）
+        /// 找到的路径未能通过收尾防线时的兜底——用 <see cref="ThinObstacleFallbackCellSize"/>
+        /// （更细）且改用"格子内部与阻挡矩形内部相交即判定受阻"（<see cref="IsCellInteriorBlockedByRects"/>，
+        /// 而不是仅采样格子中心）的独立网格重新执行一次完整寻路（入口接合、A*、世界路径拼装、收尾
+        /// 复核，与主网格流程一致，逐字复用同一套 <see cref="ResolveEntryCell"/>/<see cref="BuildWorldPath"/>
+        /// 逻辑，只是换了网格）。该网格更细、且判定方式改为"矩形是否与格子内部相交"而不是"矩形是否
+        /// 包含格子中心"，因此不会再对比采样间距更窄的薄障碍视而不见；即便如此仍未能找到一条通过
+        /// <see cref="SegmentBlocked"/> 复核的路径，才是真正的"无路可走"，返回 <c>null</c>
+        /// （不额外递归兜底、不无限加细，避免极端场景下无限重试）。</summary>
+        private List<Vec2>? FindPathWithFineGrid(Id mapId, Vec2 from, Vec2 to)
+        {
+            var grid = BuildGridWithCellSize(mapId, ThinObstacleFallbackCellSize, useAccurateInterior: true);
+
+            if (!TryWorldToCell(grid, from, out var startCell) || !TryWorldToCell(grid, to, out var goalCell))
+            {
+                // 精细兜底网格的覆盖范围与主网格同源（同一份阻挡矩形 + 同一个 BoundsMargin），主网格
+                // 已经能把 from/to 落在网格范围内，这里理应同样成立；退化到"找不到路径"而不是再做一次
+                // 直线检查——直线检查已经在主网格路径里做过一次，仍未通过才会走到这里。
+                return null;
+            }
+
+            var effectiveStartCell = ResolveEntryCell(grid, mapId, startCell, from);
+            var effectiveGoalCell = ResolveEntryCell(grid, mapId, goalCell, to);
+            if (effectiveStartCell == null || effectiveGoalCell == null)
+            {
+                return null;
+            }
+
+            var cellPath = AStar(grid, effectiveStartCell.Value, effectiveGoalCell.Value);
+            if (cellPath == null)
+            {
+                return null;
+            }
+
+            var worldPath = BuildWorldPath(mapId, grid, from, to, effectiveStartCell.Value, effectiveGoalCell.Value, cellPath);
+            if (worldPath == null)
+            {
+                return null;
+            }
+
             for (var i = 0; i < worldPath.Count - 1; i++)
             {
                 if (SegmentBlocked(mapId, worldPath[i], worldPath[i + 1]))
@@ -251,7 +334,16 @@ namespace Adapter.Unity.EngineAdapter
             SetBlocking(mapId, rects);
         }
 
-        private NavGrid BuildGrid(Id mapId)
+        private NavGrid BuildGrid(Id mapId) => BuildGridWithCellSize(mapId, DefaultCellSize, useAccurateInterior: false);
+
+        /// <summary>NAV-110-02 根治新增：<see cref="BuildGrid"/> 的参数化版本，供
+        /// <see cref="FindPathWithFineGrid"/> 复用同一套网格构建流程（边界计算、
+        /// <see cref="MaxGridDimension"/> 自适应放大）而只替换格子尺寸与占用判定方式。
+        /// <paramref name="useAccurateInterior"/> 为 <c>false</c> 时行为与改动前的 <c>BuildGrid</c>
+        /// 完全一致（仅采样格子中心，见 <see cref="IsBlockedByRects"/>）；为 <c>true</c> 时改用
+        /// "格子内部与阻挡矩形内部是否相交"判定（<see cref="IsCellInteriorBlockedByRects"/>），
+        /// 不会再对比格子尺寸更窄的薄障碍视而不见。</summary>
+        private NavGrid BuildGridWithCellSize(Id mapId, double baseCellSize, bool useAccurateInterior)
         {
             Vec2 min = new Vec2(-8, -8);
             Vec2 max = new Vec2(8, 8);
@@ -270,9 +362,9 @@ namespace Adapter.Unity.EngineAdapter
             min = new Vec2(min.X - BoundsMargin, min.Y - BoundsMargin);
             max = new Vec2(max.X + BoundsMargin, max.Y + BoundsMargin);
 
-            var spanX = Math.Max(max.X - min.X, DefaultCellSize);
-            var spanY = Math.Max(max.Y - min.Y, DefaultCellSize);
-            var cellSize = DefaultCellSize;
+            var spanX = Math.Max(max.X - min.X, baseCellSize);
+            var spanY = Math.Max(max.Y - min.Y, baseCellSize);
+            var cellSize = baseCellSize;
 
             var width = (int)Math.Ceiling(spanX / cellSize);
             var height = (int)Math.Ceiling(spanY / cellSize);
@@ -297,8 +389,17 @@ namespace Adapter.Unity.EngineAdapter
             {
                 for (var gy = 0; gy < grid.Height; gy++)
                 {
-                    var world = CellToWorld(grid, (gx, gy));
-                    grid.Walkable[gx, gy] = !IsBlockedByRects(mapId, world);
+                    if (useAccurateInterior)
+                    {
+                        var cellMin = new Vec2(grid.Origin.X + gx * grid.CellSize, grid.Origin.Y + gy * grid.CellSize);
+                        var cellMax = new Vec2(cellMin.X + grid.CellSize, cellMin.Y + grid.CellSize);
+                        grid.Walkable[gx, gy] = !IsCellInteriorBlockedByRects(mapId, cellMin, cellMax);
+                    }
+                    else
+                    {
+                        var world = CellToWorld(grid, (gx, gy));
+                        grid.Walkable[gx, gy] = !IsBlockedByRects(mapId, world);
+                    }
                 }
             }
 
@@ -311,6 +412,28 @@ namespace Adapter.Unity.EngineAdapter
             foreach (var rect in rects)
             {
                 if (rect.Contains(point)) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>NAV-110-02 根治新增：格子（开区间内部 <c>(cellMin,cellMax)</c>）是否与任意一个
+        /// 阻挡矩形的内部相交——标准 AABB 开区间重叠判定，与 <see cref="BlockingRect.Contains"/>
+        /// （闭区间、单点包含）刻意不同：这里判定的是"矩形是否与格子有任何非零面积的交集"，只要薄墙
+        /// 的宽度大于零、且与该格子的范围有重叠，不论薄墙是否窄于格子尺寸，都会被判定为占用——
+        /// 因此不依赖格子尺寸必须小于阻挡宽度，只要求判定方式本身是"区间相交"而不是"点包含"。
+        /// 仅贴边（区间恰好相切、无正面积重叠）不算相交，同 <see cref="TrySegmentRectInteriorEntry"/>
+        /// 一贯的"仅贴边不算受阻"惯例。</summary>
+        private bool IsCellInteriorBlockedByRects(Id mapId, Vec2 cellMin, Vec2 cellMax)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var rects)) return false;
+            foreach (var rect in rects)
+            {
+                if (cellMin.X < rect.Max.X && cellMax.X > rect.Min.X &&
+                    cellMin.Y < rect.Max.Y && cellMax.Y > rect.Min.Y)
+                {
+                    return true;
+                }
             }
 
             return false;
@@ -397,6 +520,51 @@ namespace Adapter.Unity.EngineAdapter
         }
 
         private bool TryLink(Id mapId, Vec2 a, Vec2 b) => !SegmentBlocked(mapId, a, b);
+
+        /// <summary>NAV-110-01 根治：把一个精确端点 <paramref name="point"/> 量化得到的格子
+        /// <paramref name="cell"/> 解析为供 A* 使用的实际入口/出口格。<paramref name="cell"/>
+        /// 本身可行走时直接原样返回（不改变既有行为）；<paramref name="cell"/> 受阻时（端点格中心
+        /// 恰好落在阻挡内部，但端点自身按 <see cref="IsWalkable"/> 逐点判定可行走——调用方已经确认过
+        /// 这一点），在其 8 个邻居里找一个可行走、且与 <paramref name="point"/> 直连不受阻（与
+        /// <see cref="Raycast"/> 完全同源的 <see cref="SegmentBlocked"/> 判定）的格子，按到
+        /// <paramref name="point"/> 的距离取最近的一个；找不到任何候选（端点被完全围死）时返回
+        /// <c>null</c>，由调用方判定该端点确实无法进入网格。</summary>
+        private (int x, int y)? ResolveEntryCell(NavGrid grid, Id mapId, (int x, int y) cell, Vec2 point)
+        {
+            if (grid.Walkable[cell.x, cell.y])
+            {
+                return cell;
+            }
+
+            (int dx, int dy)[] dirs =
+            {
+                (1, 0), (-1, 0), (0, 1), (0, -1),
+                (1, 1), (1, -1), (-1, 1), (-1, -1)
+            };
+
+            (int x, int y)? best = null;
+            var bestDistSqr = double.MaxValue;
+
+            foreach (var (dx, dy) in dirs)
+            {
+                var nx = cell.x + dx;
+                var ny = cell.y + dy;
+                if (nx < 0 || nx >= grid.Width || ny < 0 || ny >= grid.Height) continue;
+                if (!grid.Walkable[nx, ny]) continue;
+
+                var center = CellToWorld(grid, (nx, ny));
+                if (SegmentBlocked(mapId, point, center)) continue;
+
+                var distSqr = (center - point).SqrLength;
+                if (distSqr < bestDistSqr)
+                {
+                    bestDistSqr = distSqr;
+                    best = (nx, ny);
+                }
+            }
+
+            return best;
+        }
 
         /// <summary>接合失败时的兜底：在 <paramref name="originCell"/> 的 8 个邻居里找一个可行走、
         /// 且同时能与 <paramref name="endpoint"/> 和 <paramref name="nextPoint"/> 都直连（不受阻）的

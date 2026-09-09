@@ -3,6 +3,7 @@ using Core.Carriers.Common;
 using Core.Foundation.Common;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
+using Core.Foundation.SaveSystem;
 using Presentation.VfxSfx.Core;
 using Xunit;
 
@@ -146,6 +147,53 @@ namespace Tests.Presentation.VfxSfx
             source.GetWeaponStyleRef(Unit);
 
             Assert.Equal(1, callCount);
+        }
+
+        [Fact]
+        public void PRES110_01_SaveLoadedEvent_ClearsCache_NextQueryReResolvesRealState()
+        {
+            // PRES-110-01 复现与根治验证：EquipmentPersistable.Load 在 SaveSystem.Load 的
+            // SuppressDispatch 抑制作用域内调用真实 EquipmentHost.Equip/Unequip，其正常派发的
+            // ItemEquipped/ItemUnequipped 在作用域内被丢弃——本用例不经过抑制作用域，直接模拟"缓存已
+            // 命中旧值，随后底层解析结果已经真实变化，但没有任何 item.equipped/unequipped 事件到达"
+            // 这一后果，验证 save.loaded（在抑制作用域外正常派发）能让下一次查询绕过陈旧缓存。
+            var bus = CreateBus();
+            var displayInfoRegistry = BuildDisplayInfoRegistry(SwordDisplayRow);
+            Id? currentTemplate = SwordTemplateId;
+            var source = new EquipmentWeaponStyleSource(bus, _ => currentTemplate, displayInfoRegistry);
+
+            Assert.Equal(new Id("display.weapon_style.greatsword"), source.GetWeaponStyleRef(Unit));
+
+            // 底层真实状态已经变化（同图读档后 EquipmentHost 的装备已是另一件），但装备事件被
+            // SaveSystem.Load 的抑制作用域丢弃，没有任何 item.equipped/unequipped 到达本类型。
+            currentTemplate = null;
+
+            // 抑制作用域内的事件被丢弃：不发 ItemEquippedEvent/ItemUnequippedEvent，只在抑制作用域
+            // 外正常派发 save.loaded（同 SaveSystem.Load 判断记录）。
+            bus.PublishImmediate(new SaveLoadedEvent(new Id("slot.pres110_01")));
+
+            Assert.Null(source.GetWeaponStyleRef(Unit));
+        }
+
+        [Fact]
+        public void PRES110_01_RepeatedSaveLoadedEvents_NeverReuseStaleValueAcrossReloads()
+        {
+            // 验收口径"重复读档不复用 A"：连续两次 save.loaded（对应连续两次同图读档）之间，缓存都必须
+            // 让下一次查询重新解析真实状态，不允许第二次读档复用第一次读档后缓存的值。
+            var bus = CreateBus();
+            var displayInfoRegistry = BuildDisplayInfoRegistry(SwordDisplayRow);
+            Id? currentTemplate = SwordTemplateId; // A
+            var source = new EquipmentWeaponStyleSource(bus, _ => currentTemplate, displayInfoRegistry);
+
+            Assert.Equal(new Id("display.weapon_style.greatsword"), source.GetWeaponStyleRef(Unit)); // A 缓存命中
+
+            currentTemplate = null; // B（此处用"无风格"模板代表另一件武器，B 状态）
+            bus.PublishImmediate(new SaveLoadedEvent(new Id("slot.pres110_01_b")));
+            Assert.Null(source.GetWeaponStyleRef(Unit)); // 读档 1 后应为 B，不应是缓存的 A
+
+            currentTemplate = SwordTemplateId; // 读档 2 恢复回 A
+            bus.PublishImmediate(new SaveLoadedEvent(new Id("slot.pres110_01_a_again")));
+            Assert.Equal(new Id("display.weapon_style.greatsword"), source.GetWeaponStyleRef(Unit)); // 读档 2 后应为 A，不应复用读档 1 缓存的 B
         }
 
         [Fact]
