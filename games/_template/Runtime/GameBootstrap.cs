@@ -431,6 +431,11 @@ namespace Game.Template
             RenderOptions = _renderOptions,
             FeedbackOptions = _options.BuildFeedbackOptions(),
             NewGameStarter = new SampleNewGameStarter(this).Start,
+            // P2-08 根治：同一个 _equipVisualSource 实例既传给上面 ViewFactory 的
+            // equipmentVisualSource 参数（新 View 创建时重放外观），也传给这里（ViewBinder.OnSaveLoaded
+            // 对既有 View 做装备外观对账），两处必须是同一个实例——对账依赖它内部"实例 id -> 外观
+            // 定义"表与新建 View 时用的是同一份、同步刷新。
+            EquipmentVisualSource = _equipVisualSource,
         };
 
         /// <summary>发起一局新游戏（<see cref="Presentation.Shell.ShellHost.NewGame"/> 的薄封装，

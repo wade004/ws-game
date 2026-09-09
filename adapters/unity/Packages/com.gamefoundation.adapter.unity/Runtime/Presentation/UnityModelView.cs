@@ -26,7 +26,7 @@ using Presentation.Render;
 
 namespace Adapter.Unity.Presentation
 {
-    public sealed class UnityModelView : IView, IHasCharacterRig, IModelHandleProvider
+    public sealed class UnityModelView : IView, IHasCharacterRig, IModelHandleProvider, IEquipmentVisualResettable
     {
         private readonly IRenderer3D _renderer;
         private readonly IRenderConventionHost _conventions;
@@ -173,6 +173,53 @@ namespace Adapter.Unity.Presentation
                         _rig.ClearSlot(unequipped.Slot);
                     }
                     break;
+            }
+        }
+
+        /// <summary>见 <see cref="IEquipmentVisualResettable"/> 接口注释（P2-08 根治）：不依赖
+        /// <see cref="ItemUnequippedEvent"/> 反查——直接遍历本 View 自己记账的
+        /// <see cref="_appliedEquipVisualsByItemInstanceId"/>（不管其 key 在读档后是否还对应任何真实
+        /// 物品实例）逐条按 <see cref="EquipVisualDef.Mode"/> 清理，再清空该索引；随后按
+        /// <paramref name="equipped"/> 与 <see cref="_equipVisuals"/>（装配方已在调用本方法之前刷新过，
+        /// 见 <c>EquipmentVisualSource.ReplayEquippedForUnit</c> 判断记录）重新应用，与
+        /// <c>UnityViewFactory.ReplayEquippedVisuals</c> 对新 View 的处理同一套查表/应用逻辑。</summary>
+        public void ResetEquipmentVisuals(IReadOnlyList<EquippedItemRef> equipped)
+        {
+            foreach (var kv in _appliedEquipVisualsByItemInstanceId)
+            {
+                var appliedDef = kv.Value;
+                switch (appliedDef.Mode)
+                {
+                    case EquipVisualMode.SlotMesh:
+                        if (appliedDef.SlotId.HasValue)
+                        {
+                            _rig.ClearSlot(appliedDef.SlotId.Value);
+                        }
+                        break;
+
+                    case EquipVisualMode.SocketAttach:
+                        if (appliedDef.SocketId.HasValue)
+                        {
+                            _rig.ClearSocket(appliedDef.SocketId.Value);
+                        }
+                        break;
+                }
+            }
+            _appliedEquipVisualsByItemInstanceId.Clear();
+
+            if (_equipVisuals == null || equipped == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < equipped.Count; i++)
+            {
+                var item = equipped[i];
+                if (_equipVisuals.TryGetValue(item.ItemInstanceId, out var def))
+                {
+                    _rig.ApplyEquipVisual(def);
+                    _appliedEquipVisualsByItemInstanceId[item.ItemInstanceId] = def;
+                }
             }
         }
 

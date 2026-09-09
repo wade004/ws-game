@@ -109,7 +109,8 @@ namespace Game.Template
 
                 watcher.Changed += OnFileEvent;
                 watcher.Created += OnFileEvent;
-                watcher.Renamed += OnFileEvent;
+                watcher.Deleted += OnFileEvent;
+                watcher.Renamed += OnRenamedEvent;
                 watcher.EnableRaisingEvents = true;
                 _watchers.Add(watcher);
             }
@@ -123,10 +124,34 @@ namespace Game.Template
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         /// <summary>FileSystemWatcher 回调，线程池线程上触发——只登记"哪张表、什么时候"，不在这里
-        /// 直接触碰 <see cref="DataRegistry"/>（见文件头判断记录）。</summary>
+        /// 直接触碰 <see cref="DataRegistry"/>（见文件头判断记录）。覆盖 Changed/Created/Deleted 三种
+        /// 事件（P2-09 根治新增 Deleted，见 <see cref="OnRenamedEvent"/> 判断记录"为何 Renamed 单独处理
+        /// 而不是也接到本方法"）：三者共享同一套"登记表名 -&gt; 去抖 -&gt; Reload"处理，Deleted 触发的
+        /// Reload 与 Changed/Created 走的是 <see cref="DataRegistry.Reload(string)"/> 同一个方法——该
+        /// 方法内部按当前仍存在的全部数据根重新定位并合并该表（见 <see cref="ReloadTable"/> 判断记录），
+        /// 文件已被删除时自然定位不到这一根的记录，合并结果回落到仍存在的其它根（通常是 framework
+        /// 根），不需要任何"是否是删除事件"的特殊分支。</summary>
         private void OnFileEvent(object sender, FileSystemEventArgs e)
         {
-            var tableName = Path.GetFileNameWithoutExtension(e.Name);
+            MarkPending(Path.GetFileNameWithoutExtension(e.Name));
+        }
+
+        /// <summary>P2-09 根治新增：<see cref="FileSystemWatcher.Renamed"/> 专用回调——不能只用
+        /// <see cref="OnFileEvent"/>（其签名只接受 <see cref="FileSystemEventArgs"/> 的 <c>Name</c>，
+        /// 对 Rename 只会看到新文件名一侧）：一次改名可能把某张表的 override 文件改到本监视目录之外
+        /// （如临时改后缀名/移出 data 根），这在效果上等价于该 override "被删除"——旧表名（
+        /// <see cref="RenamedEventArgs.OldName"/>）对应的表同样需要重新定位、回落到仍存在的根；也可能
+        /// 是把一个原本不叫这个名字的文件改名成合法的 <c>*.json</c> 表文件（等价于新增），新表名（
+        /// <see cref="RenamedEventArgs.Name"/>）同样需要登记。两侧各自登记各自的表名（多数情况下同名，
+        /// 此时两次登记合并成同一条去抖记录，不产生重复 Reload）。</summary>
+        private void OnRenamedEvent(object sender, RenamedEventArgs e)
+        {
+            MarkPending(Path.GetFileNameWithoutExtension(e.OldName));
+            MarkPending(Path.GetFileNameWithoutExtension(e.Name));
+        }
+
+        private void MarkPending(string? tableName)
+        {
             if (string.IsNullOrEmpty(tableName))
             {
                 return;
@@ -134,7 +159,7 @@ namespace Game.Template
 
             lock (_lock)
             {
-                _pendingChanges[tableName] = DateTime.UtcNow;
+                _pendingChanges[tableName!] = DateTime.UtcNow;
             }
         }
 
@@ -238,7 +263,8 @@ namespace Game.Template
                 _watchers[i].EnableRaisingEvents = false;
                 _watchers[i].Changed -= OnFileEvent;
                 _watchers[i].Created -= OnFileEvent;
-                _watchers[i].Renamed -= OnFileEvent;
+                _watchers[i].Deleted -= OnFileEvent;
+                _watchers[i].Renamed -= OnRenamedEvent;
                 _watchers[i].Dispose();
             }
             _watchers.Clear();

@@ -184,6 +184,7 @@ FeedbackOptions.HitFrameSync` 判断记录"两个落点，装配层负责保持�
 | `FeedbackQueueMode` | `null`（跟随 `gameplay.TimeModelSwitch.CurrentMode` 自动切换：离散 `Sequential`、连续 `Immediate`；显式提供时一次性设定且不再自动跟随） | 拍板 5（09 §6.4 离散回放门），见判断记录 8 |
 | `NewGameStarter` | 真正被调用时抛 `NotSupportedException`（构造期不调用，不影响"构造成功"） | 如何创建一局新游戏的起始状态是具体游戏的事，框架没有默认实现 |
 | `ViewBinderOptions`/`VfxOptions`/`SfxOptions`/`CameraHostOptions`/`FeedbackOptions` | 透传各模块自己的默认值（`null`） | 各模块既有策略配置项，见各自 README |
+| `EquipmentVisualSource` | `null`（`ViewBinder.OnSaveLoaded` 不做装备外观对账，行为与改动前完全一致） | P2-08 根治（第十四轮审核 c9ff301）新增：透传给 `ViewBinder` 构造参数同名字段，供同图内继续存活的既有 View 按读档后的真实装备快照对账；装配方需传入与传给 `UnityViewFactory` 的 `equipmentVisualSource` 参数同一个 `EquipmentVisualSource` 实例，见 `presentation/view_binding/README.md` 判断记录 6、`render/README.md` 判断记录 19 |
 
 （已解决，从本表删除）`ActionBarSlotBindingResolver`/`SaveGameId` 两项此前的"既有契约缺口"均已
 解决：动作条槽位绑定改经 `gameplay.Carriers.SkillBindings`（`Core.Carriers.Unit.ISkillBindingHost`，

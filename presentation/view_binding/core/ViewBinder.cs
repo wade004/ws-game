@@ -82,6 +82,12 @@ namespace Presentation.ViewBinding
         private readonly IRenderConventionHost _renderConvention;
         private readonly IPresentationDiagnostics _diagnostics;
 
+        /// <summary>P2-08 根治新增：可选的装备外观来源，供 <see cref="OnSaveLoaded"/> 对"同图内继续
+        /// 存活的既有 View"做装备外观对账（见该方法判断记录）。默认 null——未装配时
+        /// <see cref="OnSaveLoaded"/> 的对账行为与改动前完全一致，只做 View 创建/销毁两件事，不触碰
+        /// 任何装备外观。</summary>
+        private readonly EquipmentVisualSource? _equipmentVisualSource;
+
         private readonly Dictionary<Id, IView> _views = new Dictionary<Id, IView>();
         private readonly Dictionary<Id, Id> _displayIds = new Dictionary<Id, Id>();
         private readonly Dictionary<Id, Vec2> _prevPositions = new Dictionary<Id, Vec2>();
@@ -105,7 +111,8 @@ namespace Presentation.ViewBinding
             IDisplayInfoRegistry displayInfo,
             ViewBinderOptions? options = null,
             IRenderConventionHost? renderConvention = null,
-            IPresentationDiagnostics? diagnostics = null)
+            IPresentationDiagnostics? diagnostics = null,
+            EquipmentVisualSource? equipmentVisualSource = null)
         {
             if (bus == null)
             {
@@ -118,6 +125,7 @@ namespace Presentation.ViewBinding
             _options = options ?? new ViewBinderOptions();
             _renderConvention = renderConvention ?? new RenderConventionHost();
             _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
+            _equipmentVisualSource = equipmentVisualSource;
 
             _subscriptions.Add(bus.Subscribe<EntityCreatedEvent>(SimEventKeys.EntityCreated, e => OnEntityCreated(e.EntityId, e.Kind, e.DisplayId)));
             _subscriptions.Add(bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, e => OnEntityDestroyed(e.EntityId)));
@@ -230,9 +238,33 @@ namespace Presentation.ViewBinding
         /// <see cref="ISimSnapshot"/> 只实现旧接口成员，验证仍可编译、<c>OnSaveLoaded</c> 不抛异常、
         /// 销毁分支正常生效、补建分支保持空操作）。
         /// </para>
+        /// <para>
+        /// P2-08 根治（第十四轮审核"同图已有 View 读档外观"）：前两个循环只处理"View 有没有"（销毁/
+        /// 补建），完全不覆盖"同一个实体读档前后 View 身份不变、但装备内容变了"这第三种情形——例如
+        /// 同图从有装备存档 A 读到空装备存档 B，实体仍在、View 仍是同一个对象，第一个循环
+        /// （<see cref="ISimSnapshot.Exists"/> 为真）不会销毁它，第二个循环
+        /// （<c>_views.ContainsKey</c> 为真）直接 <c>continue</c> 跳过——旧外观因此原地残留，见
+        /// <see cref="IEquipmentVisualResettable"/> 类型注释。第三段循环补上这个缺口：<c>existingIds</c>
+        /// 在最前面（两个循环开始之前）捕获"本次 <c>save.loaded</c> 触发之前已绑定的实体 id 集合"，
+        /// 处理完前两个循环后，仍留在 <c>existingIds</c>∩<c>_views</c> 里的就是"身份未变、被完整
+        /// 保留"的那部分 View（被第一个循环销毁的已经从 <c>_views</c> 里移除，天然被排除；第二个循环
+        /// 新建的从未进入过 <c>existingIds</c>，同样天然被排除——它们已经在
+        /// <c>IViewFactory.CreateView</c>/<c>UnityViewFactory.ReplayEquippedVisuals</c> 里按当前装备
+        /// 重放过一次，不需要在这里重复处理）。<see cref="_equipmentVisualSource"/> 未装配（默认
+        /// null）时整段跳过，行为与改动前完全一致；已装配时对每个保留下来的 View 做类型测试
+        /// （<c>is IEquipmentVisualResettable</c>），未实现该接口的 View（无装备外观概念，如
+        /// gobj/掉落物）静默跳过。<c>EquipmentVisualSource.ReplayEquippedForUnit</c>
+        /// 既刷新该类型内部"实例 id -&gt; 外观定义"表，又直接返回本次真实装备快照，二者用同一次调用
+        /// 拿到，保证 <see cref="IEquipmentVisualResettable.ResetEquipmentVisuals"/> 查表时表内容已是
+        /// 最新——全过程只调用 View 自身方法，不经过 <see cref="IEventBus"/>，不合成/补发任何
+        /// <c>item.equipped</c>/<c>item.unequipped</c> 全局业务事件，重复收到 <c>save.loaded</c>
+        /// （同类型注释"幂等去重"）用同一份快照重复对账，结果不变。
+        /// </para>
         /// </summary>
         private void OnSaveLoaded()
         {
+            var existingIds = _equipmentVisualSource != null ? new List<Id>(_views.Keys) : null;
+
             foreach (var entityId in new List<Id>(_views.Keys))
             {
                 if (!_snapshot.Exists(entityId))
@@ -263,6 +295,23 @@ namespace Presentation.ViewBinding
                 }
 
                 OnEntityCreated(entityId, rawKind, displayId.Value);
+            }
+
+            if (existingIds == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < existingIds.Count; i++)
+            {
+                var entityId = existingIds[i];
+                if (!_views.TryGetValue(entityId, out var view) || !(view is IEquipmentVisualResettable resettable))
+                {
+                    continue;
+                }
+
+                var equipped = _equipmentVisualSource!.ReplayEquippedForUnit(entityId);
+                resettable.ResetEquipmentVisuals(equipped);
             }
         }
 

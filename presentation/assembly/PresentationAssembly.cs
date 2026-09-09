@@ -119,6 +119,12 @@ namespace Presentation.Assembly
 
         public ViewBinderOptions? ViewBinderOptions { get; set; }
 
+        /// <summary>P2-08 根治新增：可选的装备外观来源，透传给 <see cref="Presentation.ViewBinding.ViewBinder"/>
+        /// 构造参数同名字段，供其 <c>OnSaveLoaded</c> 对同图内继续存活的既有 View 做装备外观对账（见
+        /// 该方法判断记录）。默认 null——未装配任何可选装备表现能力（未使用
+        /// <see cref="Presentation.Render.EquipmentVisualSource"/>）的游戏保持改动前行为，不受影响。</summary>
+        public EquipmentVisualSource? EquipmentVisualSource { get; set; }
+
         /// <summary>缺口 8（方向索引重映射策略）：见 <see cref="Presentation.Render.RenderOptions.DirectionIndexRemap"/>
         /// 字段注释；默认 null（<c>RenderConventionHost</c> 用 <c>RenderOptions</c> 默认值构造，恒等映射）。</summary>
         public Presentation.Render.RenderOptions? RenderOptions { get; set; }
@@ -303,7 +309,7 @@ namespace Presentation.Assembly
             // ViewBinder 的 IAnchorQuery 镜像判定与本装配根对外暴露的 Render 属性用同一份
             // DirectionIndexRemap 配置，不会出现"锚点镜像"与"纸娃娃层镜像"各自看到不同重映射表。
             Render = new RenderConventionHost(opts.RenderOptions);
-            ViewBinder = new ViewBinder(bus, viewFactory, snapshot, DisplayInfo, opts.ViewBinderOptions, renderConvention: Render);
+            ViewBinder = new ViewBinder(bus, viewFactory, snapshot, DisplayInfo, opts.ViewBinderOptions, renderConvention: Render, equipmentVisualSource: opts.EquipmentVisualSource);
 
             var followTarget = new SimSnapshotFollowTarget(snapshot);
             Camera = new CameraHost(camera, followTarget, bus, opts.CameraHostOptions);

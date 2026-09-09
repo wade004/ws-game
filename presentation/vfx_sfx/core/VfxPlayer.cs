@@ -41,6 +41,14 @@ namespace Presentation.VfxSfx.Core
             public IReadOnlyDictionary<string, double> Parameters = EmptyParams;
             public double TimeoutRemaining;
 
+            /// <summary>VFX 持续跟随根治新增：本次排队播放请求对应的跟随目标（见 <see cref="FollowTarget"/>），
+            /// 由 <see cref="Spawn"/> 在入队前算好一并携带——真正 <c>EmitParticle</c> 发生在
+            /// <see cref="OnResourceLoadCompleted"/>（可能是未来某一帧），只有在那时才拿得到真实
+            /// <see cref="ParticleHandle"/>，需要用同一份 <see cref="FollowTarget"/> 登记跟随，不能在
+            /// 入队时就登记（那时还没有句柄）。null 表示这次播放不需要跟随（world/screen 模式，或
+            /// <see cref="_particleRepositioner"/> 未装配）。</summary>
+            public FollowTarget? Follow;
+
             /// <summary>判断记录（同步加载器场景，如测试用 <c>StubResourceLoader</c>——
             /// <c>DeferCallbacks=false</c> 时 <c>LoadAsync</c> 在调用当下就同步触发回调，或真实引擎
             /// 对已缓存资源的同步命中路径）：<see cref="QueuePendingSpawn"/> 调用
@@ -80,6 +88,49 @@ namespace Presentation.VfxSfx.Core
         /// 供 <see cref="StopInternal"/> 区分"该 Stop 调用要拆的是一次真挂接还是一次 2D 粒子"。</summary>
         private readonly Dictionary<ParticleHandle, ModelHandle> _socketModelHandles = new Dictionary<ParticleHandle, ModelHandle>();
 
+        /// <summary>VFX 持续跟随根治新增：<see cref="_renderer2D"/> 探测出的可选重定位能力（见
+        /// <see cref="IParticleRepositioner"/> 类型注释），未装配时为 null——<see cref="Update"/>
+        /// 的跟随刷新整段跳过，<see cref="RegisterFollow"/> 也不会记账，改动前既有行为（生成后静止）
+        /// 完全不变。</summary>
+        private readonly IParticleRepositioner? _particleRepositioner;
+
+        private enum FollowKind
+        {
+            /// <summary><see cref="VfxAttachMode.Anchor"/>：每帧经 <see cref="_anchorResolver"/> 重新
+            /// 查询锚点世界坐标（查不到时退回 <see cref="_entityPositionResolver"/>，与 <see cref="ResolveAnchor"/>
+            /// 首次解析同一套优先级）。</summary>
+            Anchor,
+
+            /// <summary><see cref="VfxAttachMode.Socket"/> 降级为 world 的情形（见
+            /// <see cref="ResolveSocketDowngradedToWorld"/>）：没有真实挂点可跟，退而求其次每帧改跟随
+            /// 宿主实体本身的位置——比"生成后静止在实体当时所在的一点"更接近"跟随"这个词面意思。真正
+            /// 挂接成功的 socket（<see cref="TrySpawnAttachedToSocket"/> 命中）经
+            /// <see cref="IRenderer3D.AttachToSocket"/> 做的是真实引擎侧父子挂接（子物体的
+            /// Transform 随父挂点持续变化），天然持续跟随，不需要、也不会被登记进本机制。</summary>
+            EntityPosition,
+        }
+
+        /// <summary>见 <see cref="FollowKind"/> 注释：<see cref="PointId"/> 只在 <see cref="Kind"/> 为
+        /// <see cref="FollowKind.Anchor"/> 时有意义，<see cref="FollowKind.EntityPosition"/> 不使用。</summary>
+        private readonly struct FollowTarget
+        {
+            public readonly FollowKind Kind;
+            public readonly Id EntityId;
+            public readonly Id PointId;
+
+            public FollowTarget(FollowKind kind, Id entityId, Id pointId)
+            {
+                Kind = kind;
+                EntityId = entityId;
+                PointId = pointId;
+            }
+        }
+
+        /// <summary>当前登记跟随的活动粒子实例：句柄 → 跟随目标。只在 <see cref="_particleRepositioner"/>
+        /// 已装配时才会有条目（见 <see cref="RegisterFollow"/>），随 <see cref="StopInternal"/>
+        /// （句柄自然播完/被 <see cref="Stop"/>）一并摘除，不会残留悬空条目。</summary>
+        private readonly Dictionary<ParticleHandle, FollowTarget> _followTargets = new Dictionary<ParticleHandle, FollowTarget>();
+
         /// <summary><paramref name="resourceLoader"/> 可选：未注入时不主动触发任何资源加载
         /// （沿用注入前的行为，供不接 <see cref="IResourceLoader"/> 的最小测试/集成场景使用）。
         /// <paramref name="renderer3D"/>/<paramref name="modelHandleResolver"/> 可选（缺口 13，见
@@ -108,6 +159,7 @@ namespace Presentation.VfxSfx.Core
             _resourceLoader = resourceLoader;
             _renderer3D = renderer3D;
             _modelHandleResolver = modelHandleResolver;
+            _particleRepositioner = renderer2D as IParticleRepositioner;
         }
 
         public ParticleHandle? Spawn(Id vfxId, VfxAttach at, IReadOnlyDictionary<string, double>? parameters)
@@ -153,6 +205,20 @@ namespace Presentation.VfxSfx.Core
                 return null;
             }
 
+            // VFX 持续跟随根治新增：与 worldPos 同一批算好本次播放的跟随目标（见 FollowTarget/
+            // FollowKind 判断记录）——World/Screen 两种模式本身就是"固定坐标"语义，不跟随；
+            // Socket 模式走到这里说明 TrySpawnAttachedToSocket 未命中（真挂接已在上面直接 return），
+            // 按 FollowKind.EntityPosition 退而求其次跟随宿主实体本身。_particleRepositioner 未装配
+            // 时恒为 null，不产生任何记账（见 RegisterFollow）。
+            FollowTarget? follow = _particleRepositioner == null
+                ? (FollowTarget?)null
+                : def.AttachMode switch
+                {
+                    VfxAttachMode.Anchor => new FollowTarget(FollowKind.Anchor, at.EntityId!.Value, at.PointId!.Value),
+                    VfxAttachMode.Socket => new FollowTarget(FollowKind.EntityPosition, at.EntityId!.Value, default),
+                    _ => (FollowTarget?)null,
+                };
+
             // 外部审核阻塞项 4 收口（首次特效加载边界，见 architecture/落地计划/audit-20260907/
             // followup-2026-09-07.md"外部审核阻塞项处理"一节）：此前本方法只调用
             // ResourceReferenceTracker.EnsureLoading（fire-and-forget，见该类型注释"不关心加载
@@ -173,7 +239,7 @@ namespace Presentation.VfxSfx.Core
                 // OnResourceLoadCompleted 才发生，见该方法判断记录；同步加载器（测试桩/引擎缓存
                 // 命中）则可能已经在 QueuePendingSpawn 内部就完成了整个"加载 -> 补播放"，此时直接
                 // 返回那次同步产生的真实句柄，不退化调用方体验。
-                return QueuePendingSpawn(vfxId, def, worldPos.Value, emitParams);
+                return QueuePendingSpawn(vfxId, def, worldPos.Value, emitParams, follow);
             }
 
             // 判断记录（不再调用 _resourceTracker?.EnsureLoading）：走到这里说明
@@ -188,10 +254,11 @@ namespace Presentation.VfxSfx.Core
             var handle = _renderer2D.EmitParticle(def.ResourceRef, worldPos.Value, emitParams);
             _handleCategory[handle] = def.Category;
             _pool.Track(def.Category, handle, def.Lifetime);
+            RegisterFollow(handle, follow);
             return handle;
         }
 
-        private ParticleHandle? QueuePendingSpawn(Id vfxId, VfxDef def, Vec2 worldPos, IReadOnlyDictionary<string, double> parameters)
+        private ParticleHandle? QueuePendingSpawn(Id vfxId, VfxDef def, Vec2 worldPos, IReadOnlyDictionary<string, double> parameters, FollowTarget? follow)
         {
             var pending = new PendingSpawn
             {
@@ -202,6 +269,7 @@ namespace Presentation.VfxSfx.Core
                 WorldPos = worldPos,
                 Parameters = parameters,
                 TimeoutRemaining = _options.FirstLoadTimeoutSeconds,
+                Follow = follow,
             };
             _pendingSpawns.Add(pending);
 
@@ -240,6 +308,7 @@ namespace Presentation.VfxSfx.Core
                 var handle = _renderer2D.EmitParticle(pending.ResourceRef, pending.WorldPos, pending.Parameters);
                 _handleCategory[handle] = pending.Category;
                 _pool.Track(pending.Category, handle, pending.Lifetime);
+                RegisterFollow(handle, pending.Follow);
                 pending.Handle = handle; // 见 PendingSpawn.Handle 判断记录：供同步加载器场景下 QueuePendingSpawn 取回。
             }
 
@@ -316,6 +385,14 @@ namespace Presentation.VfxSfx.Core
         {
             _pool.Update(dt);
 
+            // VFX 持续跟随根治新增：见 UpdateFollowTargets 判断记录。放在 _pool.Update 之后、pending
+            // 超时推进之前均可（互不依赖对方结果，三段各自独立遍历各自的集合）；选在这里是紧跟
+            // "推进已在播实例状态"这一组，pending 超时属于"尚未真正播放的请求"，语义上是不同的一组。
+            if (_followTargets.Count > 0)
+            {
+                UpdateFollowTargets();
+            }
+
             // 外部审核阻塞项 4 收口：推进排队等待首次加载完成的播放请求的超时倒计时（见
             // VfxOptions.FirstLoadTimeoutSeconds、QueuePendingSpawn 判断记录）——正常情况下
             // OnResourceLoadCompleted 会先一步把对应项从 _pendingSpawns 里摘除，本方法只在资源
@@ -355,9 +432,70 @@ namespace Presentation.VfxSfx.Core
             }
         }
 
+        /// <summary>VFX 持续跟随根治新增：对 <see cref="_followTargets"/> 里当前登记的每个活动实例
+        /// 重新解析一次位置并经 <see cref="_particleRepositioner"/> 移动过去——本方法只在
+        /// <see cref="_particleRepositioner"/> 已装配时才会被调用（<see cref="_followTargets"/>
+        /// 未装配时恒为空，见 <see cref="RegisterFollow"/>），不需要在这里再判一次 null。
+        /// <para>
+        /// 判断记录（<see cref="FollowKind.Anchor"/> 的解析顺序与 <see cref="ResolveAnchor"/> 首次
+        /// 解析保持一致，但不重复记诊断）：<see cref="_anchorResolver"/> 查不到时退回
+        /// <see cref="_entityPositionResolver"/>，两者都查不到（通常是实体已经销毁/离开当前地图）时
+        /// 视为"再也跟不到了"——不逐帧刷 warning（那会在实体销毁后的每一帧都刷屏），改成结束这个粒子
+        /// 实例（"策略：实体销毁时特效结束"，同 <see cref="Stop"/> 之后 <see cref="StopInternal"/>
+        /// 一并清理 <see cref="_followTargets"/> 里对应条目——不会残留一个再也不会被处理、也再也不会
+        /// 移动的悬空条目）。<see cref="FollowKind.EntityPosition"/>（socket 降级为 world）同一套
+        /// "查不到就结束"处理，只是解析只经 <see cref="_entityPositionResolver"/> 这一条路径。
+        /// </para>
+        /// </summary>
+        private void UpdateFollowTargets()
+        {
+            List<ParticleHandle>? lost = null;
+
+            foreach (var kv in _followTargets)
+            {
+                var handle = kv.Key;
+                var target = kv.Value;
+
+                Vec2? pos = target.Kind == FollowKind.Anchor
+                    ? _anchorResolver?.Invoke(target.EntityId, target.PointId) ?? _entityPositionResolver?.Invoke(target.EntityId)
+                    : _entityPositionResolver?.Invoke(target.EntityId);
+
+                if (pos.HasValue)
+                {
+                    _particleRepositioner!.SetParticlePosition(handle, pos.Value);
+                }
+                else
+                {
+                    (lost ??= new List<ParticleHandle>()).Add(handle);
+                }
+            }
+
+            if (lost == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < lost.Count; i++)
+            {
+                Stop(lost[i]);
+            }
+        }
+
+        /// <summary>见 <see cref="_followTargets"/> 判断记录：<paramref name="follow"/> 为 null（
+        /// world/screen 模式，或 <see cref="_particleRepositioner"/> 未装配）时不记账，
+        /// <see cref="Update"/> 的跟随刷新自然不会处理这个句柄。</summary>
+        private void RegisterFollow(ParticleHandle handle, FollowTarget? follow)
+        {
+            if (follow.HasValue)
+            {
+                _followTargets[handle] = follow.Value;
+            }
+        }
+
         private void StopInternal(ParticleHandle handle)
         {
             _handleCategory.Remove(handle);
+            _followTargets.Remove(handle);
 
             if (_socketModelHandles.TryGetValue(handle, out var modelHandle))
             {

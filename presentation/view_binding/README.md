@@ -93,6 +93,20 @@ public void SyncAll(double alpha)
    实现，不引入除现有 `IWorldSim` 之外的新依赖。回归见 `tests/PRES180_SaveLoadViewReconciliationTests.cs`
    （真实 `SaveSystem`/`DroppedLootPersistable`/`LootHost`/`WorldSim`/`ViewBinder`，`IViewFactory`
    用记录型 stub），含跨图读档不回归的用例（真实 `GameplayAssembly` + `SceneRouter`）。
+6. **P2-08 根治（第十四轮审核 c9ff301，2026-09-10）：`OnSaveLoaded` 补第三段"装备外观对账"**——
+   判断记录 5 的两个方向只解决"View 有没有"，同一个实体读档前后 View 身份不变、只是装备内容变了
+   （含读到空装备存档）这第三种情形不受覆盖：第二个循环遇到 `_views.ContainsKey` 为真直接
+   `continue`，旧外观原样保留。新增可选构造参数 `equipmentVisualSource: EquipmentVisualSource?`
+   （默认 `null`，未装配时行为与改动前完全一致）；已装配时，`OnSaveLoaded` 额外记录"本次触发前已
+   绑定的实体 id 集合"，两个既有循环跑完后，对其中仍然保留在 `_views` 里（未被销毁）的每一个，
+   做一次类型测试 `is Presentation.Render.IEquipmentVisualResettable`，命中则调用
+   `EquipmentVisualSource.ReplayEquippedForUnit(entityId)`（刷新装备目录并返回真实快照）后传给
+   `ResetEquipmentVisuals`。新创建的 View（第二个循环补建）已经在创建阶段按当前装备重放过一次，
+   不落入这第三段，避免重复处理。全程只调用 View 自身方法，不经过 `IEventBus`，不合成/补发任何
+   `item.equipped`/`item.unequipped` 全局业务事件。回归见
+   `games/_template/Tests/Runtime/ExistingViewEquipmentSaveLoadTests.cs`（真实
+   `GameBootstrap`/`SaveSystem`/`EquipmentHost`/`UnityModelView`：同图 A（已装备）→B（空装备）
+   读档后既有 View 的 `socket.main_hand` 子物体数应归零）。
 
 ## 契约缺口
 

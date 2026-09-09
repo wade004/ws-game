@@ -784,6 +784,33 @@ doc-code-matrix 此前记录的能力边界"`UnityViewFactory` 构造函数没�
 中的一个，不再两个都盲试；反查不到（存档恢复后的初始装备状态一类场景）时退回按逻辑 slot 尝试
 `ClearSlot` 一次（幂等，安全）。对应测试：`Tests/Runtime/EquipVisualSocketClearTests.cs`。
 
+### 装备外观 SaveLoaded 对账（第十四轮审核 c9ff301 P2-08 根治，2026-09-10）
+
+上一节接线补齐的是"新创建的 View 按当前装备重放一次外观"这条路径；本轮根治的是另一条此前完全
+没有覆盖的路径——**同图内继续存活、身份未变的既有 View**，读档后如果装备内容变了（含读到空
+装备存档），外观不会自动跟着刷新：`ViewBinder.OnSaveLoaded` 的全量对账此前只处理"该有 View 的
+有、不该有的没有"两件事，遇到"View 还在、只是装备变了"这第三种情形会直接跳过。
+
+- 新增可选能力接口 `Presentation.Render.IEquipmentVisualResettable`（`presentation/render/contracts/`）：
+  `ResetEquipmentVisuals(IReadOnlyList<EquippedItemRef> equipped)`——清空当前已应用的全部装备外观，
+  再按传入的真实快照重新应用；`UnityModelView` 与 `Presentation.Render.SpriteViewBase`（因此
+  `UnitySpriteView` 一并获得）均已实现。`UnityModelView` 的实现直接遍历自己的
+  `_appliedEquipVisualsByItemInstanceId` 逐条按 `Mode` 精确 `ClearSlot`/`ClearSocket`，不依赖
+  `ItemUnequippedEvent` 反查（读档后实例 id 集合可能与读档前完全不同）。
+- `ViewBinder` 构造函数新增可选参数 `equipmentVisualSource: EquipmentVisualSource?`（默认 `null`，
+  未装配时 `OnSaveLoaded` 行为与改动前完全一致）；`PresentationAssemblyOptions` 同步新增
+  `EquipmentVisualSource` 属性，`PresentationAssembly` 内部把它透传给 `ViewBinder`。
+  `games/_template.GameBootstrap.BuildPresentationOptions()` 已接线（与传给 `UnityViewFactory` 的
+  `equipmentVisualSource` 参数是同一个实例）。
+- `OnSaveLoaded` 新增第三段处理：对本次 `save.loaded` 之前已绑定、且未被前两段销毁/未被跳过重建
+  （即"身份不变、被完整保留"）的 View，逐个类型测试 `is IEquipmentVisualResettable`，命中则调用
+  `EquipmentVisualSource.ReplayEquippedForUnit(entityId)`（刷新装备目录并返回真实快照）后传给
+  `ResetEquipmentVisuals`。全程只调用 View 自身方法，不经过 `IEventBus`，不合成/补发任何
+  `item.equipped`/`item.unequipped` 全局业务事件。对应测试：
+  `games/_template/Tests/Runtime/ExistingViewEquipmentSaveLoadTests.cs`（PlayMode，真实
+  `GameBootstrap`/`SaveSystem`/`EquipmentHost` 链路：同图 A（已装备）→B（空装备）读档后既有 View 的
+  `socket.main_hand` 子物体数应归零）。
+
 ### model 型 View（`Runtime/Presentation/UnityModelView.cs`）
 
 `UnityViewFactory.CreateView` 解析到 `kind=model` 的 `DisplayInfo` 且装配方提供了
@@ -940,6 +967,31 @@ LargeSelfRadius_IsIncluded` 把审核归档 `Audit6739f50SpatialQueryProbes.cs` 
 覆盖同一根因的 `QueryCone`；`SPATIAL111_01_QueryRadius_AfterUpdatePositionAcrossBucket_StillFound`/
 `SPATIAL111_01_QueryRadius_AfterUnregister_ExcludedEvenThoughWithinExpandedRange` 分别覆盖移动到跨
 桶边界、注销后不应死灰复燃两个边界场景）。
+
+### VFX anchor/socket 持续跟随（第十四轮审核 c9ff301 根治，2026-09-10）
+
+**现象**：`Presentation.VfxSfx.Core.VfxPlayer.Spawn` 对 `attach_mode: anchor` 只在生成那一刻解析
+一次挂接目标的世界坐标就 `EmitParticle`，此后 `Update` 只推进对象池与首次加载超时，不会随挂接
+目标（通常是移动中的角色手部锚点）继续移动而重新定位——特效播出来是"钉"在生成时那一点，不是
+"跟随"。`attach_mode: socket` 真挂接成功时（提供了 `IRenderer3D`/`ModelHandleResolver`）不受影响，
+因为 `TrySpawnAttachedToSocket` 走的是 `IRenderer3D.AttachToSocket` 真实引擎侧父子挂接（子实例的
+`Transform` 随父挂点持续变化，天然持续跟随）；但没有可用模型句柄、降级为 world 的 `socket` 与
+`anchor` 一样，只播放时定位一次。
+
+**根治**：`core/foundation/engine_adapter` 的 `IRenderer2D`（L-1 契约，02 号文档）没有"移动一个
+已发射粒子实例"的原语，改契约超出本次任务边界（且会牵动全部 `IRenderer2D` 实现）——改为新增一个
+表现层（L5）按需探测的**可选扩展能力** `Presentation.VfxSfx.Contracts.IParticleRepositioner`
+（`SetParticlePosition(ParticleHandle, Vec2)`），惯例同 `IModelHandleProvider`/`IAnchorQuery`：
+`VfxPlayer` 构造期以 `(_renderer2D as IParticleRepositioner)` 探测，未实现时保持改动前"生成后
+静止"的行为，不抛异常。`UnityRenderer2D` 已实现本接口——它的粒子实例本就是真实 Unity
+`Transform`（序列帧播放器或 `ParticleSystem` 各自的 GameObject），直接改 `transform.position`
+即可。`VfxPlayer.Update` 新增 `UpdateFollowTargets`：对每个仍在播放、登记了跟随目标的实例，
+`attach_mode: anchor` 每帧重新经 `AnchorResolver` 解析（查不到退回 `EntityPositionResolver`，
+与首次解析同一套优先级）；`socket` 降级为 world 的情形改为跟随宿主实体本身的位置
+（`EntityPositionResolver`）。挂接目标（通常是实体已销毁）查不到时结束该特效（`Stop`），不留一个
+再也不会移动的悬空实例。对应单测：`presentation/vfx_sfx/tests/VfxPlayerFollowTests.cs`（`dotnet
+test`，用测试专用 `FollowCapableStubRenderer2D` 验证跟随、降级、销毁结束三类场景）；PlayMode 用例
+见 `Tests/Runtime/VfxAnchorFollowTests.cs`（真实 `UnityRenderer2D`，实体移动后特效随锚点位置跟随）。
 
 ## 游戏模板如何接入本包（数据目录框架/游戏分层任务）
 

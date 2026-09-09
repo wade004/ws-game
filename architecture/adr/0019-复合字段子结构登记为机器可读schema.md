@@ -44,3 +44,7 @@
 ## 魔兽世界的对应做法
 
 魔兽世界的 `spell` 表用固定列（`Effect1..3`、`EffectBasePoints`、`EffectMiscValue` 等）表达效果参数，每种效果类型对各列的解释由客户端与服务端代码约定，工具与文档（如社区维护的 spell effect 说明）各自维护一份解释——正是本决策要避免的"结构真相分散在代码与外部文档"的状态。本架构选择把每种效果类型的参数结构登记进表定义本身，对应关系是"同一份效果类型注册表既驱动运行时解析也驱动工具与校验"。
+
+## 修订记录
+
+- 2026-09-10（第十四轮审核 P3-02 澄清，不改变本 ADR 正文任何决策）：决策 3"变体表键集合与运行时注册的原语集合一致"这一校验项，实际载体是各模块自己的 coverage tests（如 `core/rules/skill/tests/SkillSchemaCoverageTests.cs`、`core/carriers/gobj/tests/GobjSchemaCoverageTests.cs`），比较的是 `FieldSchema` 变体登记表与该模块运行时实际注册的原语/kind 集合是否一致，属于该模块自动化测试套件的覆盖范围。`presentation/assembly/SchemaAudit.cs`（`check.ps1`"元数据门禁：validator --schema-audit"步骤，ADR-0018 决策 3）是另一件不重叠的事——只审计已登记 `TableSchema`/`FieldSchema` 结构声明本身是否自洽（空键、`common`/`discriminator` 冲突、递归结构等），不加载任何数据，也不比较任何运行时注册表。此前"元数据门禁"一类文案在个别位置容易把两者读成同一个机制；本条只澄清叫法边界，两套机制各自的实现与职责范围均不变。

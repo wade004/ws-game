@@ -160,6 +160,22 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     不登记子结构）**：两者均为 `Id → Id` 动态键映射（按技能 id 覆盖动作剪辑/命中特效），是真正的
     Map（键为任意 `skillId`，值同构），按 ADR-0019 通用规则 5 保持"存在且是对象"，不为此扩展
     契约到新的 `FieldKind`。
+15. **VFX anchor/socket 持续跟随根治（第十四轮审核 c9ff301，2026-09-10）**：此前 `Spawn` 对
+    `attach_mode: anchor` 只在生成那一刻解析一次挂接目标的世界坐标就 `EmitParticle`，`Update`
+    只推进对象池与首次加载超时，不会随挂接目标继续移动而重新定位——本模块契约面（`IVfxPlayer`）
+    不变，改为新增一个引擎适配层按需实现的可选能力 `IParticleRepositioner`
+    （`SetParticlePosition(ParticleHandle, Vec2)`，见 `contracts/IParticleRepositioner.cs`），
+    `VfxPlayer` 构造期以 `(_renderer2D as IParticleRepositioner)` 探测，未实现时保持改动前"生成后
+    静止"的行为。`Update` 新增 `UpdateFollowTargets`：对 `attach_mode: anchor` 与
+    `attach_mode: socket` 因缺可用模型句柄而降级为 world 的两类活动实例，每帧重新解析一次位置
+    （前者经 `AnchorResolver`，查不到退回 `EntityPositionResolver`；后者直接经
+    `EntityPositionResolver` 跟随宿主实体本身）并经 `IParticleRepositioner` 移动过去；两个解析器都
+    查不到（通常是实体已销毁）时结束该特效（`Stop`），不留悬空静止实例。**真正挂接成功的
+    `socket`**（判断记录 1，提供了 `renderer3D`/`modelHandleResolver` 且该实体查到句柄）不受影响
+    也不需要接入本机制——`IRenderer3D.AttachToSocket` 做的是引擎侧真实父子挂接，子实例的变换随
+    父挂点持续变化，天然持续跟随。对应单测：`tests/VfxPlayerFollowTests.cs`
+    （`FollowCapableStubRenderer2D` 验证跟随/降级路径/实体销毁三类场景）；真实引擎实现见
+    `adapters/unity` 包 README"VFX anchor/socket 持续跟随"一节。
 
 ## 不负责什么
 

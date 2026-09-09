@@ -157,16 +157,30 @@ Unity.exe -batchmode -nographics -quit -projectPath <你的 Unity 工程>
 ## 开发期数据热重载
 
 `GameOptions.EnableDataHotReload`（默认 `true`）打开时，`GameBootstrap` 在数据加载成功后会挂载
-`Runtime/DataHotReload.cs`：监视 `data/_framework`/`data/game`（或改名后的游戏数据目录）下全部
-`*.json` 表文件的变更，去抖 300ms 后调用 `DataRegistry.Reload(<表名>)` 把改动重新读进内存——编辑
+`Runtime/DataHotReload.cs`：监视框架/游戏两个数据根下全部 `*.json` 表文件的改动（改、增、删，见下
+"覆盖的文件事件"），去抖 300ms 后调用 `DataRegistry.Reload(<表名>)` 把改动重新读进内存——编辑
 数据表、保存文件，编辑器/独立版正在运行的进程里立刻能看到效果，不需要重新进入地图或重启进程。
 
+- **实际监视的是哪两个目录（务必了解，容易搞混）**：不是仓库根 `data/_framework`/`data/game`
+  这两个源目录本身，而是它们各自部署到 Unity `Application.streamingAssetsPath` 之后的副本——
+  工作台里就是 `adapters/unity/Assets/StreamingAssets/GameFoundation/data/_framework` 与
+  `.../data/<游戏数据目录名，模板默认 "game">`（`GameBootstrap.Initialize` 按
+  `UnityFileSystem.GetContentRootDir()` 拼出的绝对路径，与 `DataRegistry` 实际读数据用的是同一套
+  解析规则，见该方法判断记录）。具体游戏的内容通常就直接放在这个游戏数据目录里编辑，改了就是改了，
+  能被直接监视到；框架侧的 `data/_framework`（或联调用的 `data/_sample`）是从框架仓库同步过来的
+  副本（见 `build.ps1 -SyncContent`），**直接编辑框架仓库根目录下的 `data/_framework/*.json` 源
+  文件不会触发热重载**——那份改动要先经 `-SyncContent` 同步到上述 StreamingAssets 副本，才会被
+  watcher 看到。
+- **覆盖的文件事件**：改（`Changed`）、增（`Created`）、删（`Deleted`）、改名（`Renamed`，改名前后
+  两个表名各自登记一次去抖）均会触发对应表的自动重载；某个数据根下的表文件被删除后，`Reload` 会
+  按当前仍存在的全部数据根重新定位并合并该表——若该表在另一个仍存在的数据根（通常是框架根）也有
+  记录，会自动回落到那一份记录，不需要手工再触发一次重载。
 - **编译条件**：`DataHotReload` 只在 `UNITY_EDITOR || DEVELOPMENT_BUILD` 下是真实实现，其余情况
   （不勾选 Development Build 的发布/上架构建）是一具空壳——不创建文件监视、不占用任何每帧回调，
   零开销。`GameBootstrap` 无条件持有并调用这个类型，不需要游戏层在打包发布版前额外记得关掉
   `EnableDataHotReload`，双重保险。
-- **去抖**：同一张表 300ms 内的多次写入事件（例如编辑器/文本工具"截断再写入"两阶段保存）只触发
-  一次 `Reload`。
+- **去抖**：同一张表 300ms 内的多次事件（例如编辑器/文本工具"截断再写入"两阶段保存，或改名前后
+  两次登记恰好同名）只触发一次 `Reload`。
 - **失败语义（已知限制，务必了解）**：`Reload` 成功时会打印 `[DataHotReload] 热重载 <表名> 成功
   （N 条记录）` 并经事件总线补发一次 `data.load_completed`（形状同首次 `LoadAll` 发出的事件，供
   表现层/编辑器联调监听）；失败（该表信封级错误如 JSON 解析失败/主键重复，或字段级校验错误）时

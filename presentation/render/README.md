@@ -278,6 +278,20 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     `_appliedEquipVisualsByItemInstanceId` 判断记录），取代此前直接把事件携带的逻辑 `item.slot` 同时
     当 slot_mesh 槽位 id 与 socket_attach 挂点 id 使用、导致 socket 子模型实例卸装后残留不清理的问题。
 
+19. **P2-08 根治新增：`IEquipmentVisualResettable`（同图已有 View 的 SaveLoaded 装备外观对账）**——
+    判断记录 18 只解决了 View 创建/装备变化事件两条路径的外观应用，同图内继续存活的既有 View 在
+    读档后没有任何机制刷新外观（读档期间 `item.equipped`/`item.unequipped` 本就被存档系统的抑制
+    作用域丢弃，见 `presentation/view_binding/README.md` 判断记录 6）。新增
+    `presentation/render/contracts/IEquipmentVisualResettable.cs`：
+    `ResetEquipmentVisuals(IReadOnlyList<EquippedItemRef> equipped)`——清空当前已应用的全部装备
+    外观，再按真实快照重新应用，幂等。`SpriteViewBase` 实现为清空并重建
+    `_equipOverridesBySlot`（按槽位索引，天然不受"读档后实例 id 是否还对应同一物品"影响）；
+    model 型实现见 `adapters/unity` 包 `UnityModelView`（直接遍历自己的
+    `_appliedEquipVisualsByItemInstanceId` 逐条精确清理，不依赖 `ItemUnequippedEvent` 反查）。
+    `ViewBinder`（`view_binding` 模块）持有可选的 `EquipmentVisualSource` 引用并驱动这一步，见
+    `presentation/view_binding/README.md` 判断记录 6——本模块（`render`）只提供"如何清空/重建自己
+    的外观状态"这一具体能力，不知道、也不需要知道自己何时被谁调用。
+
 ## 契约缺口
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。

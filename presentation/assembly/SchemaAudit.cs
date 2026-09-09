@@ -10,6 +10,15 @@ namespace Presentation.Assembly
     /// 做静态审计——不加载任何数据，只检查"结构声明本身"是否完整、自洽，供 <c>toolchain/validator
     /// --schema-audit</c> 与编辑器基础套件共用同一份审计逻辑（同 <see cref="ContentValidationAssembly"/>
     /// 的判断记录："编辑器里看到的红线 = 门禁会报的错"）。
+    /// <para>
+    /// 判断记录（P3-02 澄清，ADR-0019"修订记录"一节同步）：本类型与"变体表键集合与运行时注册的
+    /// 原语集合一致"（ADR-0019 决策 3）不是同一件事，不要混同——本类型（<see cref="WalkVariant"/>
+    /// 为入口之一）只查空键、<c>common</c>/<c>discriminator</c> 冲突、递归结构等"登记本身是否
+    /// 自洽"，不加载任何数据、不比较任何运行时注册表；真正比较"登记的变体键集合"与"运行时实际注册的
+    /// 原语/kind 集合"是否一致的，是各模块自己的 coverage tests（如 <c>SkillSchemaCoverageTests</c>/
+    /// <c>GobjSchemaCoverageTests</c>），走 <c>dotnet test</c>，不属于本类型或 <c>--schema-audit</c>
+    /// 这条命令行门禁。
+    /// </para>
     /// </summary>
     public sealed class SchemaAuditIssue
     {

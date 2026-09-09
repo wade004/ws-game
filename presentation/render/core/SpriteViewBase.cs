@@ -34,7 +34,7 @@ namespace Presentation.Render
     /// <see cref="ResolveLayerResourceId"/> 的判断记录。
     /// </para>
     /// </summary>
-    public abstract class SpriteViewBase : IView, IHasCharacterRig
+    public abstract class SpriteViewBase : IView, IHasCharacterRig, IEquipmentVisualResettable
     {
         protected IRenderer2D Renderer { get; }
 
@@ -212,6 +212,31 @@ namespace Presentation.Render
             {
                 RebuildEquippedLayers();
             }
+        }
+
+        /// <summary>见 <see cref="IEquipmentVisualResettable"/> 接口注释（P2-08 根治）：清空
+        /// <see cref="_equipOverridesBySlot"/> 全表（不依赖逐槽位反查是否命中），再按
+        /// <paramref name="equipped"/> 逐条重建——与 <see cref="HandleItemEquipped"/> 同一套
+        /// "查不到对应行/非 slot_mesh 模式时保持不变（跳过该条）"规则，只是批量执行；最后统一调用
+        /// 一次 <see cref="RebuildEquippedLayers"/>，不为每条已装备物品各重建一次层列表。</summary>
+        public void ResetEquipmentVisuals(IReadOnlyList<EquippedItemRef> equipped)
+        {
+            _equipOverridesBySlot.Clear();
+
+            if (_equipVisuals != null && equipped != null)
+            {
+                for (var i = 0; i < equipped.Count; i++)
+                {
+                    var item = equipped[i];
+                    if (_equipVisuals.TryGetValue(item.ItemInstanceId, out var def)
+                        && def.Mode == EquipVisualMode.SlotMesh && def.SlotId != null && def.MeshRef != null)
+                    {
+                        _equipOverridesBySlot[item.Slot] = (LayerNameFromSlotId(def.SlotId.Value), def.MeshRef.Value);
+                    }
+                }
+            }
+
+            RebuildEquippedLayers();
         }
 
         private static string LayerNameFromSlotId(Id slotId)

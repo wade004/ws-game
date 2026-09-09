@@ -47,7 +47,7 @@ using UnityEngine.Rendering;
 
 namespace Adapter.Unity.EngineAdapter
 {
-    public sealed class UnityRenderer2D : IRenderer2D
+    public sealed class UnityRenderer2D : IRenderer2D, global::Presentation.VfxSfx.Contracts.IParticleRepositioner
     {
         // 判断记录（数值范围）：Unity 的 SpriteRenderer/SortingGroup.sortingOrder 虽然公开签名是
         // int，但实测其可用取值范围被限制在 short 区间（-32768..32767，超出会按 16 位回绕，
@@ -459,6 +459,29 @@ namespace Adapter.Unity.EngineAdapter
             ps.gameObject.SetActive(false);
             _particles.Remove(handle.Value);
             _particlePool.Add(ps);
+        }
+
+        /// <summary>VFX 持续跟随根治新增：<see cref="Presentation.VfxSfx.Contracts.IParticleRepositioner"/>
+        /// 实现（见该接口类型注释）——本类型的粒子实例始终是真实 Unity <see cref="Transform"/>
+        /// （序列帧播放器或 <see cref="ParticleSystem"/> 各自所在的 GameObject，见
+        /// <see cref="EmitParticle"/>），直接改 <c>transform.position</c> 即可，不需要额外状态。
+        /// <paramref name="handle"/> 已经因 <see cref="StopParticle"/>/自然播完而不在
+        /// <see cref="_sequencePlayers"/>/<see cref="_particles"/> 里时静默忽略（同
+        /// <see cref="IParticleRepositioner.SetParticlePosition"/> 契约注释"防御性要求"，正常调用方
+        /// <c>Presentation.VfxSfx.Core.VfxPlayer</c> 会在 <see cref="StopParticle"/> 之后同步摘除
+        /// 跟随记账，不会再传入已停止的句柄——这里不抛异常是给该防御性场景兜底，不是预期路径）。</summary>
+        public void SetParticlePosition(ParticleHandle handle, Vec2 position)
+        {
+            if (_sequencePlayers.TryGetValue(handle.Value, out var player))
+            {
+                player.transform.position = new Vector3((float)position.X, (float)position.Y, 0f);
+                return;
+            }
+
+            if (_particles.TryGetValue(handle.Value, out var ps))
+            {
+                ps.transform.position = new Vector3((float)position.X, (float)position.Y, 0f);
+            }
         }
 
         private void ApplySortingOrders(SpriteInstance instance)
