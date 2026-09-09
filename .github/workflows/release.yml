@@ -224,18 +224,18 @@ jobs:
         # git_commit 字段与当前提交一致，不一致直接阻断。若 zip 缺失但 lock 或任一 .tgz 仍存在，
         # 无法证明重建出的 zip 与它们同批，直接阻断并打印指引，不再触发全量重建；只有六个附件
         # 全部缺失才继续走全量重建路径。
+        # 判断记录（四包修正，F3）：ADR-0018 决策 3 新增第四个私服包
+        # com.gamefoundation.adapter.headless（无头适配层交付，见 build.ps1 "5.15" 节、
+        # toolchain/registry/registry.json、check.ps1"包清单一致性"步骤 $packageNames 四项）。
+        # 本工作流此前按"三个 .tgz/五个附件"编写，是 F2 落地时的已知限制（见 ADR-0018 F2
+        # 提交历史）；现补齐为四个 .tgz/六个附件（zip、lock、四个 tgz），下面"从已验证 zip 抽附件"
+        # 逻辑（Repair missing assets from existing zip 步骤）按 tgz 文件名通配处理，不需要为
+        # 第四个包单独加分支，新增本包后自动覆盖。
         run: |
           $ErrorActionPreference = "Continue"
           $tag = "${{ steps.version.outputs.tag }}"
           $version = "${{ steps.version.outputs.version }}"
 
-          # 判断记录（四包修正，F3）：ADR-0018 决策 3 新增第四个私服包
-          # com.gamefoundation.adapter.headless（无头适配层交付，见 build.ps1 "5.15" 节、
-          # toolchain/registry/registry.json、check.ps1"包清单一致性"步骤 $packageNames 四项）。
-          # 本工作流此前按"三个 .tgz/五个附件"编写，是 F2 落地时的已知限制（见 ADR-0018 F2
-          # 提交历史）；现补齐为四个 .tgz/六个附件（zip、lock、四个 tgz），下面"从已验证 zip 抽附件"
-          # 逻辑（Repair missing assets from existing zip 步骤）按 tgz 文件名通配处理，不需要为
-          # 第四个包单独加分支，新增本包后自动覆盖。
           $requiredNames = @(
             "ws-game-$version.zip",
             "ws-game-$version.lock",
@@ -338,7 +338,7 @@ jobs:
               if ($otherPresent.Count -gt 0) {
                 Write-Host "BLOCKED: the zip ($zipName) is missing, but other release assets already exist: $($otherPresent -join ', ')."
                 Write-Host "A hosted-runner rebuild would produce a new zip with different DLL bytes/hashes than a local build (deterministic builds encode the checkout path; see file header note), so there is no way to prove the existing assets belong to the same batch as a freshly rebuilt zip."
-                Write-Host "Guidance: (1) on your own machine, run 'build.ps1 -SyncOnly -Dist $version -Zip' against the exact commit this tag points at, then upload the resulting zip to this release manually alongside the existing assets; OR (2) delete ALL existing assets on release $tag and re-run this workflow so it performs a single full rebuild of all five files together."
+                Write-Host "Guidance: (1) on your own machine, run 'build.ps1 -SyncOnly -Dist $version -Zip' against the exact commit this tag points at, then upload the resulting zip to this release manually alongside the existing assets; OR (2) delete ALL existing assets on release $tag and re-run this workflow so it performs a single full rebuild of all six files together."
                 exit 1
               }
               Write-Host "All required assets are missing; will do a full rebuild via build.ps1 (no prior assets exist, so there is no mixed-batch risk)."
