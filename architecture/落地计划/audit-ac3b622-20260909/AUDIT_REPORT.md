@@ -79,13 +79,13 @@ CORE-110-01 的共同根因是 `IDerivedStateRebuilder` 只在成功 Load 段回
 
 EditMode clean XML [editmode-full-v2.xml](presentation/editmode-full-v2.xml) 为 62/62，包含 60 条既有测试和 2 条导航复现；[navigation-probes-final.xml](presentation/navigation-probes-final.xml) 的 2/2 是复现缺陷行为的测试通过，不能解释为导航产品行为已通过。全量 Unity 门禁仍由 `-SkipUnity` 跳过。
 
-PlayMode 的 [playmode-full-final.xml](presentation/playmode-full-final.xml) 为完整批次 **262 通过、1 失败**，失败已定位为隔离副本缺少 `TestDataQuestDayProvider`；[playmode-questday-final.xml](presentation/playmode-questday-final.xml) 的独立 1/1 复测已通过，因此按分批口径记录 262+1 通过，不宣称单轮 263 全绿。EditMode v2 与导航最终探针使用初始 adapter 插件 DLL，PlayMode v2/final 使用冻结仓 `bin/_check_artifacts` 检查重建 DLL；此前 256 到 262 的变化来自 TestData 补齐，与 DLL 替换无关。带 `-quit` 且无有效 XML 的最初导航运行不纳入证据。PRES-110-01 的 style 缓存问题已由真实 A/B Save+RestoreFromSlot fixture 确认；修复应清理或显式 reconcile 缓存并回归既有单位，但不外推实际模型 mesh/HUD 画面。完整 Gameplay RestoreFromSlot、Presentation 与 Unity 画面链仍是未验证边界，本报告不预写通过。
+PlayMode 的 [playmode-full-final.xml](presentation/playmode-full-final.xml)（原件未归档，归档时遗漏、候选产出目录已搜索确认找不回，结论以本节引用的 262/263+1/1 数值为准）为完整批次 **262 通过、1 失败**，失败已定位为隔离副本缺少 `TestDataQuestDayProvider`；[playmode-questday-final.xml](presentation/playmode-questday-final.xml) 的独立 1/1 复测已通过，因此按分批口径记录 262+1 通过，不宣称单轮 263 全绿。EditMode v2 与导航最终探针使用初始 adapter 插件 DLL，PlayMode v2/final 使用冻结仓 `bin/_check_artifacts` 检查重建 DLL；此前 256 到 262 的变化来自 TestData 补齐，与 DLL 替换无关。带 `-quit` 且无有效 XML 的最初导航运行不纳入证据。PRES-110-01 的 style 缓存问题已由真实 A/B Save+RestoreFromSlot fixture 确认；修复应清理或显式 reconcile 缓存并回归既有单位，但不外推实际模型 mesh/HUD 画面。完整 Gameplay RestoreFromSlot、Presentation 与 Unity 画面链仍是未验证边界，本报告不预写通过。
 
 ## 9. 证据索引与限制
 
 本报告的文档结论见 [doc-code-matrix.md](docs-project/doc-code-matrix.md) 和 [project-findings.md](docs-project/project-findings.md)；门禁、环境、ZIP/lock、兼容探针和旧归档存在性见 [validation.md](docs-project/validation.md)。Unity 分批证据与 DLL 来源见 [presentation-findings.md](presentation/presentation-findings.md)。所有链接以冻结审计目录内实际留存文件为准。
 
-冻结仓的 ignored `bin*`/`obj*` 与 `dist/1.10.0` 只服务复现和构建，不代表正式发布产物；正式发布证据只采用原仓只读 ZIP/lock 及其六 DLL hash。交付文件清单见 [evidence-manifest.txt](evidence-manifest.txt)，审计证据包见 [audit-ac3b622-20260909-evidence.zip](../audit-ac3b622-20260909-evidence.zip)；清单排除了所有路径段以 `bin` 或 `obj` 开头的构建输出，且不对清单自身计算条目。
+冻结仓的 ignored `bin*`/`obj*` 与 `dist/1.10.0` 只服务复现和构建，不代表正式发布产物；正式发布证据只采用原仓只读 ZIP/lock 及其六 DLL hash。交付文件清单见 [evidence-manifest.txt](evidence-manifest.txt)，审计证据包见 [audit-ac3b622-20260909-evidence.zip](../audit-ac3b622-20260909-evidence.zip)（原件未归档，打包步骤未落地、候选产出目录已搜索确认找不回，交付以本目录内实际留存文件与 `evidence-manifest.txt` 记录的 SHA256 为准）；清单排除了所有路径段以 `bin` 或 `obj` 开头的构建输出，且不对清单自身计算条目。
 
 本报告保留完整批次与独立补测的真实口径；PRES-110-01 已确认但仅覆盖 style 缓存。完整 Gameplay RestoreFromSlot、Presentation 与实际游戏画面链仍未执行，不能以本报告替代这些验收；本报告不改变产品源码、既有测试、原仓或 registry。
 

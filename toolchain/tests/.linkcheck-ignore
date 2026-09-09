@@ -18,3 +18,16 @@ architecture/落地计划/audit-e070e3f-20260908/presentation/presentation-findi
 # audit-3224ca1-20260908/validation.md 引用的全量源码冻结快照（约 33MB zip，找到原件但体积超出
 # 文档归档合理范围，正文已标注 SHA256 与"原件未归档"说明，不入库）。
 architecture/落地计划/audit-3224ca1-20260908/validation.md::source_snapshot.zip
+
+# 2026-09-09 1.11.0 发布门禁复核：audit-ac3b622-20260909 归档的 PlayMode 完整批次证据
+# playmode-full-final.{xml,log} 与审计证据包 audit-ac3b622-20260909-evidence.zip，虽在
+# evidence-manifest.txt 中登记了 SHA256（说明生成时确实存在过），但归档提交（ac3b622 之后、
+# eaf7d8f 归档提交）未把这三个文件实际写入仓库；在候选 codex 产出目录
+# （C:\Users\1\.codex\visualizations\2026\09\08\01a0801a-5646-78c2-a68c-99bbc742bed9\
+# audit-ac3b622-20260909\ 及全量 .codex 目录）与本仓库 bin/obj 全部搜索后确认找不回原件。
+# AUDIT_REPORT.md 与 presentation-findings.md 正文已在对应链接旁标注"原件未归档"及原因，
+# 结论以正文引用的 262/263 + 1/1 通过数值为准。
+architecture/落地计划/audit-ac3b622-20260909/AUDIT_REPORT.md::presentation/playmode-full-final.xml
+architecture/落地计划/audit-ac3b622-20260909/AUDIT_REPORT.md::../audit-ac3b622-20260909-evidence.zip
+architecture/落地计划/audit-ac3b622-20260909/presentation/presentation-findings.md::playmode-full-final.xml
+architecture/落地计划/audit-ac3b622-20260909/presentation/presentation-findings.md::playmode-full-final.log

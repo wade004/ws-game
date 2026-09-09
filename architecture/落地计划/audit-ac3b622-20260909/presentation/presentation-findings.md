@@ -138,7 +138,7 @@ PlayMode 首轮为 `256/263`，失败 7 条集中在离散战斗、共享离散�
 因此本轮 PlayMode 证据口径是完整批次 `262/263` 加唯一失败类补测 `1/1`，
 不把分批结果伪写为一次单进程 `263/263`。
 
-完整批次：[playmode-full-final.xml](playmode-full-final.xml)，日志：[playmode-full-final.log](playmode-full-final.log)。
+完整批次：[playmode-full-final.xml](playmode-full-final.xml)（原件未归档，归档时遗漏、候选产出目录已搜索确认找不回，结论以本节引用的 262/263 数值为准），日志：[playmode-full-final.log](playmode-full-final.log)（原件未归档，同上）。
 
 补测：[playmode-questday-final.xml](playmode-questday-final.xml)，日志：[playmode-questday-final.log](playmode-questday-final.log)。
 
