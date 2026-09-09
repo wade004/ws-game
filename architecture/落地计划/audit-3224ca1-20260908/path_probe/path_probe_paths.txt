@@ -1,0 +1,14 @@
+probe=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\path_probe
+target=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\path_probe\packages
+effective_join=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\path_probe\packages\ws-game-x\..\..\outside_sentinel
+effective_full=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\path_probe\outside_sentinel
+outside_sentinel=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\path_probe\outside_sentinel
+output_lock=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\path_probe\output.lock
+effective_within_probe=True
+effective_within_target=False
+sentinel_before=True
+exit=0
+sentinel_after=False
+outside_exists=True
+effective_full=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\path_probe\outside_sentinel
+target_full=C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-3224ca1-20260908\path_probe\packages

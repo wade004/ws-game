@@ -4,8 +4,8 @@
 
 - 基线：冻结仓 `D:\workespace\ws-game-review-e070e3f`，HEAD `e070e3f`，版本 `1.8.0`；对照变更范围 `8160178..HEAD`，并读取 `followup-2026-09-08f` 与新增回归测试。
 - 本次只写入 `architecture\落地计划\audit-e070e3f-20260908\core`，未修改原仓 `D:\workespace\ws-game`、产品源码、既有测试或提交。
-- 证据来自真实 `GameplayAssembly`、`WorldSim`、`SaveSystem`、`EventBus` 组装后的独立探针，日志见 [followup-core-probe.log](logs/followup-core-probe.log) 与种族 A/B 复跑 [followup-core-probe-race-final.log](logs/followup-core-probe-race-final.log)。仅执行必要定向构建与运行，未重复全量 check。
-- 旧探针当前基线复跑日志见 [old-probe-current3.log](logs/old-probe-current3.log)。旧探针中的 `INTERPRETATION` 是历史硬编码文字，本报告只采用其 `EXPECTED`/`ACTUAL`，不把旧解释当作当前证据。
+- 证据来自真实 `GameplayAssembly`、`WorldSim`、`SaveSystem`、`EventBus` 组装后的独立探针，日志见 [followup-core-probe.log](evidence-logs/followup-core-probe.log) 与种族 A/B 复跑 [followup-core-probe-race-final.log](evidence-logs/followup-core-probe-race-final.log)。仅执行必要定向构建与运行，未重复全量 check。
+- 旧探针当前基线复跑日志见 [old-probe-current3.log](evidence-logs/old-probe-current3.log)。旧探针中的 `INTERPRETATION` 是历史硬编码文字，本报告只采用其 `EXPECTED`/`ACTUAL`，不把旧解释当作当前证据。
 
 ## 结论总览
 
@@ -97,8 +97,8 @@ EXPECTED=save_a_valid=True;save_b_valid=True;race_b_oracle_stat=91;load_status=L
 
 - 独立探针工程：[FollowupCoreProbe.csproj](repro/FollowupCoreProbe.csproj)
 - 独立探针源码：[FollowupCoreProbe.cs](repro/FollowupCoreProbe.cs)
-- 运行日志：[followup-core-probe.log](logs/followup-core-probe.log)
-- 运行退出码：[followup-core-probe.exit.txt](logs/followup-core-probe.exit.txt)
-- 上轮探针当前基线复跑：[old-probe-current3.log](logs/old-probe-current3.log)
-- 种族 A/B 真实复跑：[followup-core-probe-race-final.log](logs/followup-core-probe-race-final.log)
-- 种族 A/B 复跑退出码：[followup-core-probe-race-final.exit.txt](logs/followup-core-probe-race-final.exit.txt)
+- 运行日志：[followup-core-probe.log](evidence-logs/followup-core-probe.log)
+- 运行退出码：[followup-core-probe.exit.txt](evidence-logs/followup-core-probe.exit.txt)
+- 上轮探针当前基线复跑：[old-probe-current3.log](evidence-logs/old-probe-current3.log)
+- 种族 A/B 真实复跑：[followup-core-probe-race-final.log](evidence-logs/followup-core-probe-race-final.log)
+- 种族 A/B 复跑退出码：[followup-core-probe-race-final.exit.txt](evidence-logs/followup-core-probe-race-final.exit.txt)

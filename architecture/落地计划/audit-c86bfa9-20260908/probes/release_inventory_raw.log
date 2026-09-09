@@ -1,0 +1,22 @@
+version: 1.4.0
+date: 2026-09-08 07:34:27
+git_commit: c86bfa9
+
+[directory_file_counts]
+ZIP_ENTRY_COUNT=976
+name=Core.Foundation.dll expected=c6b549f2690b1b7af85e173c2fce2929ccf637449847d8eea47b987064e617d5 actual=c6b549f2690b1b7af85e173c2fce2929ccf637449847d8eea47b987064e617d5 match=True
+name=Core.Numbers.dll expected=150014e12a49eab504d703c4039fca0b55ece892f51f1a7df791d443a35dda51 actual=150014e12a49eab504d703c4039fca0b55ece892f51f1a7df791d443a35dda51 match=True
+name=Core.Rules.dll expected=f6ac47517216a7e29bd5fb449f213566112970dc774c79acb36caa7f64171a73 actual=f6ac47517216a7e29bd5fb449f213566112970dc774c79acb36caa7f64171a73 match=True
+name=Core.Carriers.dll expected=56b667ae5e2fc0049c4e7f7e941ceb630f6501ef133948909c4e299fc470ed1f actual=56b667ae5e2fc0049c4e7f7e941ceb630f6501ef133948909c4e299fc470ed1f match=True
+name=Core.Gameplay.dll expected=b0012182def807e39cadb8becdb55ddb7cad0ec0ac7cab17956d0bcc199163fe actual=b0012182def807e39cadb8becdb55ddb7cad0ec0ac7cab17956d0bcc199163fe match=True
+name=Presentation.Common.dll expected=e2616f1f35d9bd74aff00568fd8c1a0e7fd98ef0bd4aa4b73c614e6a31dbc305 actual=e2616f1f35d9bd74aff00568fd8c1a0e7fd98ef0bd4aa4b73c614e6a31dbc305 match=True
+VERSION=1.4.0 GIT_COMMIT=c86bfa9 DLL_MATCHES=6/6
+ZIP_MATCH[GeneratePlaceholderModelAssets.cs]=4
+ZIP_MATCH[Resources/GameFoundation]=26
+ZIP_MATCH[\.prefab$]=2
+ZIP_MATCH[\.controller$]=2
+ZIP_MATCH[\.anim$]=8
+TGZ=com.gamefoundation.adapter.unity-1.4.0.tgz ENTRY_COUNT=211 MODEL_GENERATOR_MATCHES=14 VALIDATOR_LIB_DLLS=0
+TGZ=com.gamefoundation.framework-data-1.4.0.tgz ENTRY_COUNT=185 MODEL_GENERATOR_MATCHES=0 VALIDATOR_LIB_DLLS=0
+TGZ=com.gamefoundation.toolchain-1.4.0.tgz ENTRY_COUNT=41 MODEL_GENERATOR_MATCHES=0 VALIDATOR_LIB_DLLS=6
+EXIT_CODE=0

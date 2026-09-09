@@ -13,7 +13,7 @@
 
 1. **CORE-180-01，P1：成功 Load 的内部同步事件被抑制丢弃。** 实际 `load_status=Loaded`，等级/实体等级恢复到 10，但 Rating 保持 5（预期 10）；装备恢复为 true，但 Power max/health 保持 100（预期 200）。显式 `DispatchPending` 后仍未重算。
 2. **CORE-180-02，P2：后段持久化失败时逆序回滚先恢复 Equipment、后恢复 Progression。** 低等级有效 progression 与空 equipment 文档触发后段失败后，等级恢复到 2，但原先高级装备未重新装备，库存仍为 0。
-3. **CORE-180-03，P2：同图 `RestoreFromSlot` 只切换种族字段，未清理 A 的修正或应用 B 的修正。** 两个独立有效存档验证：B 基准 stat=91；A 加载 B 后 `RaceId=B`，但 stat 仍为 61，`auraA=true`、`auraB=false`。证据为 `core/logs/followup-core-probe-race-final.log`；不扩大到 Archetype/职业字段。
+3. **CORE-180-03，P2：同图 `RestoreFromSlot` 只切换种族字段，未清理 A 的修正或应用 B 的修正。** 两个独立有效存档验证：B 基准 stat=91；A 加载 B 后 `RaceId=B`，但 stat 仍为 61，`auraA=true`、`auraB=false`。证据为 `core/evidence-logs/followup-core-probe-race-final.log`；不扩大到 Archetype/职业字段。
 
 职业/Archetype 字段切换及其修正是否跨存档残留仍是静态候选，尚无真实 fixture，不定级。
 
@@ -91,8 +91,8 @@
 - 门禁日志：[docs-project/check-skipunity.log](docs-project/check-skipunity.log)，唯一全量 `check.ps1 -SkipUnity` transcript。
 - 门禁明细：[docs-project/validation.md](docs-project/validation.md)，含 .NET/Python 分项、环境、原 ZIP/lock hash 核对与验证边界。
 - Core 复现总证据：[core/core-findings.md](core/core-findings.md)。
-- Core 成功 Load 及回滚日志：[core/logs/followup-core-probe.log](core/logs/followup-core-probe.log)。
-- CORE-180-03 种族重建日志：[core/logs/followup-core-probe-race-final.log](core/logs/followup-core-probe-race-final.log)。
+- Core 成功 Load 及回滚日志：[core/evidence-logs/followup-core-probe.log](core/evidence-logs/followup-core-probe.log)。
+- CORE-180-03 种族重建日志：[core/evidence-logs/followup-core-probe-race-final.log](core/evidence-logs/followup-core-probe-race-final.log)。
 - 表现层当前复核：[presentation/presentation-findings.md](presentation/presentation-findings.md)；副本混版导致旧 v2/v3 结论暂不引用。
 
 ## 责任分界

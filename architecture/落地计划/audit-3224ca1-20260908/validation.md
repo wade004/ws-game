@@ -7,7 +7,7 @@
 | 项目 | 证据 |
 |---|---|
 | 原仓库起始状态 | `D:\workespace\ws-game` 起始 HEAD=`3224ca1247b119ef656bf928a024a1e0a7701fcc`，工作树 clean；起始状态由主审首次 Git 检查确认；中途包盘点（此时已有外部修改）见 [live_package_inventory_authoritative.log](live_package_inventory_authoritative.log)。 |
-| 源码冻结 | [source_snapshot.zip](source_snapshot.zip)，SHA256=`22a8dfaa24a51056241ab0a1b0648f04762a3a9f8e614a55f286c59b0b1c3250`；展开目录为 `source_snapshot`。 |
+| 源码冻结 | [source_snapshot.zip](source_snapshot.zip)（原件未归档：约 33MB 全量源码快照，体积超出文档归档合理范围，未随本目录一起提交；原件仍在生成该报告的 codex 产出目录内，结论以本表 SHA256 为准），SHA256=`22a8dfaa24a51056241ab0a1b0648f04762a3a9f8e614a55f286c59b0b1c3250`；展开目录为 `source_snapshot`。 |
 | 执行快照 | `git_snapshot` 为 `git clone --no-hardlinks --no-checkout` 后 detach 到固定 HEAD；最终仅有两份测试探针修改。 |
 | live 最终状态 | [final_live_and_snapshot_state.log](final_live_and_snapshot_state.log)：live 已到 `8927398714fb516121641f8f9a1f6ce0838a0db8`（相对冻结 `3224ca...` ahead 1），工作树 clean；冻结 snapshot 仍为 `3224ca...`。本轮未追随该提交重跑全量门禁。 |
 | Unity | 本文件只汇总核心/交付验证；本轮另有真实 Unity 定向测试，见 [unity-validation.md](C:/Users/1/.codex/visualizations/2026/09/07/01a07bfd-c935-7323-9a34-6eae278d83b6/audit-3224ca1-20260908/unity-validation.md)，不计入下表。 |

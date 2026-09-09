@@ -1,0 +1,26 @@
+FOLLOWUP-CORE-PROBE baseline=e070e3f version=1.8.0
+SUCCESSFUL-LOAD-INTERNAL-EVENTS
+save_success=True;load_status=Loaded
+before_save_level=10;rating_at_10=10
+mutated_level=1;rating_at_1=5
+after_load_level=10;entity_level=10;rating_after_load_before_dispatch=5;rating_after_dispatch=5
+EXPECTED=load_status=Loaded;after_load_level=10;rating_after_load=10
+INTERPRETATION=ProgressionPersistable.Load calls RestoreState, whose ProgressionRestoredEvent is consumed by RulesAssembly to recompute rating; if SaveSystem suppression drops it, level restores but cached rating remains 5.
+SUCCESSFUL-LOAD-POWER-MAX-INTERNAL-EVENT
+equip_success=True;save_success=True;load_status=Loaded
+saved_max=200;saved_health=200;mutated_max=100
+after_load_before_dispatch_max=100;after_load_before_dispatch_health=100
+after_load_max=100;after_load_health=100;equipped_after=True
+EXPECTED=load_status=Loaded;after_load_max=200;after_load_health=200;equipped_after=true
+INTERPRETATION=Equipment.Load publishes StatChanged while SaveSystem suppression is active; RulesAssembly.StatChanged subscription is the production path that recomputes PowerHost max. PlayerVitals.Load then applies saved health against that max, so dropped StatChanged leaves derived max/health stale.
+ROLLBACK-EQUIPMENT-BEFORE-PROGRESSION
+initial_equip=True;baseline_inventory_count=0;save_success=True;load_status=PersistableThrew
+after_level=2;entity_level=2;equipped_after=False;inventory_count_after=0
+EXPECTED=load_status=PersistableThrew;after_level=2;entity_level=2;equipped_after=true;inventory_count_after=0
+INTERPRETATION=rollback order restores Equipment before Progression; at level 1 the level-2 item cannot be re-equipped, so the pre-load equipped state may be lost even though Progression later restores level 2.
+SAME-MAP-RACE-SAVE-LOAD
+save_a_valid=True;save_b_valid=True;race_b_oracle_stat=91;load_status=Loaded;map=world.followup_core
+before_load_race=arch.race.followup_a;stat=61;auraA=True;auraB=False
+after_load_race=arch.race.followup_b;stat=61;auraA=True;auraB=False
+EXPECTED=save_a_valid=True;save_b_valid=True;race_b_oracle_stat=91;load_status=Loaded;after_load_race=arch.race.followup_b;stat=91;auraA=False;auraB=True
+INTERPRETATION=Two separately built valid role saves were used. Same-map RestoreFromSlot on A loads B's race field but does not reapply B stat_mods/aura or clear A state.

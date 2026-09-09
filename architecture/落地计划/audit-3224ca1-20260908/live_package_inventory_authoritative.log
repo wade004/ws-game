@@ -1,0 +1,105 @@
+=== AUTHORITATIVE LIVE 1.5.0 PACKAGE INVENTORY ===
+timestamp=2026-09-08T15:24:34.8062182+09:00
+HEAD=3224ca1247b119ef656bf928a024a1e0a7701fcc
+--- status ---
+## main...origin/main
+M  CHANGELOG.md
+M  adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Shell/FrameworkResidentHost.cs
+M  adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/HitFrameSyncEndToEndTests.cs
+M  presentation/feedback_binder/core/FeedbackBinder.cs
+M  presentation/feedback_binder/core/HitFrameSyncPolicy.cs
+M  presentation/feedback_binder/tests/FeedbackBinderHitFrameSyncTests.cs
+M  presentation/feedback_binder/tests/HitFrameSyncPolicyTests.cs
+--- manifest ---
+version: 1.5.0
+date: 2026-09-08 14:41:39
+git_commit: 3224ca1
+
+[directory_file_counts]
+adapters/unity/Packages/com.gamefoundation.adapter.unity: 217 files
+games/_template: 75 files
+toolchain: 33 files
+assets/_placeholder: 97 files
+data/_framework: 5 files
+assets/textmesh_pro_essentials: 81 files
+
+[architecture_docs]
+  00_架构总则.md: v3
+  01_分层与依赖.md: v3
+  02_引擎适配层.md: v3
+  03_运行时骨架.md: v2
+  04_数据与内容管线.md: v5
+  05_对象模型与世界.md: v2
+  06_规则层_属性技能战斗AI.md: v2
+  07_载体层_物品生物物件.md: v1
+  08_玩法层_掉落任务对话关卡.md: v2
+  09_表现层.md: v4
+  10_存档与持久化.md: v1
+  11_工程规范与测试.md: v2
+  12_扩展与变更流程.md: v1
+  13_新游戏接入指南.md: v4
+  14_资产规格书模板.md: v1
+
+[data_schemas]
+  arch.power_type: schema_version=1
+  found.event_catalog: schema_version=1
+  found.game_state: schema_version=1
+  found.hook: schema_version=1
+  found.input_action: schema_version=1
+
+[core_assemblies]
+  Core.Foundation.dll: sha256=251ab828e7ce094297a9e549f090f1c940fb0c37d4367b7b727de85ba1205ce2
+  Core.Numbers.dll: sha256=226de230923c9ddeb42fcec34ad386169c6b1a212a423f70547ff13476b951e1
+  Core.Rules.dll: sha256=8bef480f91a10e537ad521c9494984d03a45a7c48dc7a48a464f41265b789344
+  Core.Carriers.dll: sha256=02f213ac8f73a1f6efba1bb14bcdf121062bf22bde94fbd5808f974e2cf36f82
+  Core.Gameplay.dll: sha256=1318b04d20c2a0899c5918db08175571c03a24da60188236ce44834c55c2024f
+  Presentation.Common.dll: sha256=f6aeb5abad572b55143b8a39536d759b489ea553710a9448a215988653485343
+
+lock=D:\workespace\ws-game\dist\ws-game-1.5.0.lock
+lock_sha256=84cee708bf99253c452666aacc17fbf8cc7e77c4fd471d30475da6dc022bc1b0
+lock_version=1.5.0 lock_git_commit=3224ca1
+--- six DLL hashes ---
+Core.Foundation.dll actual=251ab828e7ce094297a9e549f090f1c940fb0c37d4367b7b727de85ba1205ce2 expected=251ab828e7ce094297a9e549f090f1c940fb0c37d4367b7b727de85ba1205ce2 match=True
+Core.Numbers.dll actual=226de230923c9ddeb42fcec34ad386169c6b1a212a423f70547ff13476b951e1 expected=226de230923c9ddeb42fcec34ad386169c6b1a212a423f70547ff13476b951e1 match=True
+Core.Rules.dll actual=8bef480f91a10e537ad521c9494984d03a45a7c48dc7a48a464f41265b789344 expected=8bef480f91a10e537ad521c9494984d03a45a7c48dc7a48a464f41265b789344 match=True
+Core.Carriers.dll actual=02f213ac8f73a1f6efba1bb14bcdf121062bf22bde94fbd5808f974e2cf36f82 expected=02f213ac8f73a1f6efba1bb14bcdf121062bf22bde94fbd5808f974e2cf36f82 match=True
+Core.Gameplay.dll actual=1318b04d20c2a0899c5918db08175571c03a24da60188236ce44834c55c2024f expected=1318b04d20c2a0899c5918db08175571c03a24da60188236ce44834c55c2024f match=True
+Presentation.Common.dll actual=f6aeb5abad572b55143b8a39536d759b489ea553710a9448a215988653485343 expected=f6aeb5abad572b55143b8a39536d759b489ea553710a9448a215988653485343 match=True
+--- zip ---
+zip=D:\workespace\ws-game\dist\ws-game-1.5.0.zip size=52436782 sha256=4c596d4a93c802c2fd065eb3adc0f4abc113b3b2687cc4f901ffa5b3c7e8c76b
+zip_entry_count=988
+--- 1.5 tgz ---
+com.gamefoundation.adapter.unity-1.5.0.tgz size=833918 sha256=30f42862fb48e0eecfc92cc590e3c841d6ddaf75da0df10edb4270cddbf6535c
+com.gamefoundation.framework-data-1.5.0.tgz size=15915695 sha256=6a8d1a80ad525393c21aa874f08a3dbf6bf9a6bf0143a9990eaa9c18bfb1801a
+com.gamefoundation.toolchain-1.5.0.tgz size=606389 sha256=b226bdce60705c5f94625ee5522103659b73231ef5a993a08a26c3c2c3f5dc3c
+--- package versions ---
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json version=1.5.0
+D:\workespace\ws-game\dist\1.5.0\games\_template\package.json version=1.5.0
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\package.json version=1.5.0
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.framework-data\package.json version=1.5.0
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.toolchain\package.json version=1.5.0
+--- model/animation assets ---
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\attack.anim size=2461
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\cast.anim size=2295
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\hit.anim size=2290
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\idle.anim size=2276
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\test_autoexit.anim size=2304
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.controller size=5780
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.controller.meta size=188
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.prefab size=6921
+D:\workespace\ws-game\dist\1.5.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.prefab.meta size=154
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\attack.anim size=2461
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\cast.anim size=2295
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\hit.anim size=2290
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\idle.anim size=2276
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\anim_clips\test_autoexit.anim size=2304
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.controller size=5780
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.controller.meta size=188
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.prefab size=6921
+D:\workespace\ws-game\dist\1.5.0\packages\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\models\placeholder_biped.prefab.meta size=154
+--- unity packages-lock references ---
+packages_lock_sha256=27ff5a28ac8574cd62a45ba4df398b6feff06e55c9ff68512244ead05b996ca5
+3:    "com.gamefoundation.adapter.unity": {
+4:      "version": "file:com.gamefoundation.adapter.unity",
+6:      "source": "embedded",
+25:        "com.gamefoundation.adapter.unity": "1.5.0"

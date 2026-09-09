@@ -309,6 +309,21 @@ asset_import/common.py` 的 `flatten_id_segment`），与表现层已在用的"�
 单元测试：`python -m unittest toolchain.tests.test_import_assets -v`（标准库 `unittest`；测试数据
 写在系统临时目录，不接触仓库内 `assets/`/`data/`），也可用 `python -m pytest toolchain/tests -q`。
 
+## Markdown 相对链接校验（`test_markdown_relative_links.py`）
+
+`toolchain/tests/test_markdown_relative_links.py` 扫描所有由 `git ls-files` 跟踪的 `*.md`
+文件（含 `architecture/落地计划/audit-*/` 各轮审计归档，2026-09-09 起不再整段排除审计目录，
+理由与判断记录见该测试文件顶部 docstring），校验其中的相对文件链接确实指向存在的文件；同时识别
+两类合法的"非字面路径"写法后再判定：`path.cs:123`/`path.cs:123-145` 这种源码行号引用记法（剥掉
+行号后缀再判存在性），以及仍落在 `.gitignore` 覆盖范围内的一次性构建产物/日志（按设计不入库，
+不算文档缺陷）。
+
+个别审计归档引用的证据原件确认已经找不回（例如生成该轮审计的 codex 产出目录已被清理），且对应
+Markdown 正文已经在链接旁标注"原件未归档"及原因时，把该链接登记进
+`toolchain/tests/.linkcheck-ignore`（每行 `<md 文件仓库相对路径>::<链接原始 target 文本>`，
+`#` 开头或空行忽略）显式豁免，不要用来掩盖真正的路径层级错误。随 `python -m pytest
+toolchain/tests -q` 一并跑。
+
 ## `data/_sample` 的资产来源（`import_sample_assets.py`）
 
 `data/_sample/display/display.map.json`/`vfx/vfx.def.json`/`sfx/sfx.def.json`/`world/world.map.json`

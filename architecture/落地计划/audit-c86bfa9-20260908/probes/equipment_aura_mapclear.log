@@ -1,0 +1,7 @@
+C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\source_snapshot\core\gameplay\loot\core\LootHost.cs(102,128): warning CS8601: 可能的 null 引用赋值。 [C:\Users\1\.codex\visualizations\2026\09\07\01a07bfd-c935-7323-9a34-6eae278d83b6\audit-c86bfa9-20260908\probes\equipment_aura\EquipmentAuraProbe.csproj]
+BOUNDARY_REPROS HEAD=c86bfa98475dbf348f129c0fa507d117d238914c
+ReproEquipmentMapClear expected=permanent_equipment_and_aura_survive_cross_map_world_clear
+ReproEquipmentMapClear actual=beforeAura:True beforeEquipped:True afterAura:False afterEquipped:True reproduced:True
+ReproEquipmentMapClear boundary=real CarriersAssembly/AuraHost/EquipmentHost; ClearAll+entity.destroyed removes aura while EquipmentHost ledger remains
+SUMMARY ReproEquipmentMapClear=REPRODUCED
+EXIT_CODE=0

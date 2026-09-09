@@ -1,0 +1,39 @@
+CORE-PERSISTENCE-PROBE baseline=8160178b76fb51ae704a8f14b428decf228cc33e version=1.7.0
+RACE-EQUIPMENT-SHARED-AURA
+equip_success=True
+initial=hasAura=true,stacks=1,power=61
+after_clearall=hasAura=false,stacks=0,power=11
+after_enter_map=hasAura=true,stacks=1,power=61
+unequip_success=True
+after_unequip=hasAura=true,stacks=1,power=61
+EXPECTED=after_enter_map=hasAura=true,stacks=1,power=61;after_unequip=hasAura=true,stacks=1,power=61
+ACTUAL=after_enter_map=hasAura=true,stacks=1,power=61;after_unequip=hasAura=true,stacks=1,power=61
+INTERPRETATION=if after_unequip hasAura=false, race source was lost because EnterMap equipment replay ran before race replay and ReapplyRacePassiveAuras skipped on HasAura
+FAILED-EQUIPMENT-SEGMENT
+equip_success=True
+before=True
+load_status=PersistableThrew
+after_load_before_dispatch=True
+queued_event_count_before_dispatch=0
+after_dispatch=True
+EXPECTED=load_status=PersistableThrew;after_load_before_dispatch=true;after_dispatch=true
+ACTUAL=load_status=PersistableThrew;after_load_before_dispatch=True;after_dispatch=True;events=
+INTERPRETATION=EquipmentPersistable clears live equipment before validating the JSON shape; because the failing section is never added to SaveSystem.loadedKeysInOrder, rollback does not restore it
+SAVE-ROLLBACK-DERIVED-STATE
+before=equipped:True,health:200,max:200
+achievement_before=1
+load_status=PersistableThrew
+before_event_dispatch=equipped:True,health:200,max:200
+achievement_before_event_dispatch=1,unlocked:False
+queued_event_count_before_dispatch=3
+after_event_dispatch=equipped:True,health:200,max:200
+achievement_after_event_dispatch=1,unlocked:False
+EXPECTED=load_status=PersistableThrew;after_event_dispatch=equipped:true,health:200,max:200;achievement remains progress=1 and locked
+ACTUAL=load_status=PersistableThrew;after_event_dispatch=equipped:True,health:200,max:200;achievement=1,unlocked:False;queued_event_count=3;events=StatChanged,ItemEquipped,PowerChanged
+INTERPRETATION=state values are restored, but rollback emits ItemUnequipped then ItemEquipped after Achievement state was rolled back; the real AchievementHost counts the replay and unlocks at count 2
+UNIT-PROGRESSION-LEVEL-DIVERGENCE
+rules_progression_level=2;entity_level=2
+equip_result=True;equip_reason=None
+EXPECTED=rules_progression_level=2;entity_level=2;equip_result=True for the configured level-2 requirement
+ACTUAL=rules_progression_level=2;entity_level=2;equip_result=True;equip_reason=None
+INTERPRETATION=production bootstraps pass PlayerLevel only to Rules.RegisterUnit; PlayerUnit.Level remains its constructor default, so requirements.level and any IUnitAccess consumer read stale level

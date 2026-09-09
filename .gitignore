@@ -11,7 +11,11 @@ obj/
 # Unity 工程的本地缓存目录
 **/[Ll]ibrary/
 **/[Tt]emp/
-**/[Ll]ogs/
+# Logs 只限定在 adapters/unity/ 下（Unity 工程自身生成的日志缓存），不能用不加前缀的
+# **/[Ll]ogs/ —— 那会连带忽略仓库其它位置里任何literal 叫 "logs" 的目录，包括
+# architecture/落地计划/audit-*/**/logs/ 这类审计归档要长期留存的证据目录，导致归档时看似
+# "文件缺失"（2026-09-09 codex 第十二轮 P3 归档项复核发现，见该轮 WC.md）。
+adapters/unity/**/[Ll]ogs/
 **/[Uu]serSettings/
 **/[Oo]bj/
 **/*.csproj.user

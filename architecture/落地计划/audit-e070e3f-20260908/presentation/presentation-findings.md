@@ -88,7 +88,7 @@ model View 创建后调用 `RegisterDefaultModelClips`（[UnityViewFactory.cs](.
 
 ## 去重验证与排除项
 
-干净副本的 8 条隔离 XML、7 条生产入口 XML 和合并回归 XML 均在 presentation 目录留档；合并过滤器的 58 个唯一 testcase 全部通过，结果见 [animation-presentation-regression-clean-v1.xml](animation-presentation-regression-clean-v1.xml) 与 [animation-presentation-regression-clean-v1.log](animation-presentation-regression-clean-v1.log)。
+干净副本的 8 条隔离 XML、7 条生产入口 XML 和合并回归 XML 均在 presentation 目录留档；合并过滤器的 58 个唯一 testcase 全部通过，结果见 [animation-presentation-regression-clean-v1.xml](animation-presentation-regression-clean-v1.xml)（原件未归档，codex 产出目录已不存在，结论以本节引用的 58/58 数值为准）与 [animation-presentation-regression-clean-v1.log](animation-presentation-regression-clean-v1.log)（原件未归档，codex 产出目录已不存在，结论以本节引用的 58/58 数值为准）。
 
 合并过滤器覆盖 `UnityRenderer3DTests`、`ModelViewTests`、`EquipmentVisualReplayTests`、`HitFrameSyncEndToEndTests`、`AnimReplayAndFinishEndToEndTests`、两组共享 clip 测试和 `UnityViewFactoryDefaultAnimationTests`；8 条隔离用例与 7 条生产入口用例包含在合并结果内，去重后仍为 58。
 

@@ -1,0 +1,20 @@
+# test_markdown_relative_links.py 白名单：显式豁免"证据原件确认找不回、正文已标注原因"的相对
+# 链接。格式：每行一条 `<md 文件仓库相对路径>::<链接原始 target 文本>`（与 markdown 源文件中
+# `[text](target)` 的 target 逐字符一致，anchor/title 已剥离前的路径部分）。`#` 开头或空行忽略。
+#
+# 不得用来掩盖真正的路径层级错误——新增条目前先确认：(1) 已经在 codex 产出目录等候选位置搜索过
+# 原件且确认找不到；(2) 对应 md 正文已在链接旁标注"原件未归档"及原因。
+#
+# 2026-09-09 codex 第十二轮 P3 归档项：audit-e070e3f-20260908/presentation/
+# presentation-findings.md 引用的合并回归证据（XML 汇总 + 日志）在归档时被剪掉，且 .gitignore
+# 忽略了 core/logs/ 导致的另外 7 处已改为指向 core/evidence-logs/ 找回原件，这两处
+# animation-presentation-regression-clean-v1.{xml,log} 在候选 codex 产出目录
+# （C:\Users\1\.codex\visualizations\2026\09\08\01a0801a-5646-78c2-a68c-99bbc742bed9\
+# audit-e070e3f-20260908\ 及全量 .codex 目录）搜索后确认不存在，原件已随 codex 会话清理丢失，
+# 结论以 presentation-findings.md 正文引用的 58/58 通过数值为准。
+architecture/落地计划/audit-e070e3f-20260908/presentation/presentation-findings.md::animation-presentation-regression-clean-v1.xml
+architecture/落地计划/audit-e070e3f-20260908/presentation/presentation-findings.md::animation-presentation-regression-clean-v1.log
+
+# audit-3224ca1-20260908/validation.md 引用的全量源码冻结快照（约 33MB zip，找到原件但体积超出
+# 文档归档合理范围，正文已标注 SHA256 与"原件未归档"说明，不入库）。
+architecture/落地计划/audit-3224ca1-20260908/validation.md::source_snapshot.zip
