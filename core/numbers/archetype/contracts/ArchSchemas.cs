@@ -12,14 +12,21 @@ namespace Core.Numbers.Archetype
     /// <para>
     /// 判断记录：04 未给出这三张表的完整字段表，字段为实现期按任务书 T2-3 给出的最小字段集
     /// 补录，取舍见 <c>schema/README.md</c>——尤其是"哪些跨模块引用字段暂不声明为
-    /// <see cref="FieldKind.Reference"/>"一节：<c>stat_block</c>（<c>stat.definition</c>）、
-    /// <c>power_set</c>（资源类型定义）、L2 <c>skill</c>（<c>skill.book</c>/<c>skill.aura.*</c>）
-    /// 均与本任务并行开发或尚未实现，本模块不静态耦合它们的表结构，只把字段声明为普通
-    /// <see cref="FieldKind.Id"/>/<see cref="FieldKind.IdList"/>；待对应模块登记 schema 后，
-    /// 集成方可用 <see cref="IDataRegistry.DeclareReference"/> 动态补上引用完整性检查，不需要
-    /// 改动本模块的 <see cref="TableSchema"/>。<c>talent_tree_ref</c>/<c>level_curve_ref</c>
+    /// <see cref="FieldKind.Reference"/>"一节。<c>talent_tree_ref</c>/<c>level_curve_ref</c>
     /// 引用的表（<c>arch.talent_tree</c>、<c>prog.level_curve</c>）都在本任务范围内，直接声明为
     /// <see cref="FieldKind.Reference"/>。
+    /// </para>
+    /// <para>
+    /// 判断记录（DOC-111-02 根治，architecture/落地计划/audit-6739f50-20260909，P3——取代上方
+    /// 已废止的旧判断记录"<c>stat_block</c>/<c>power_set</c>/L2 <c>skill</c> 均与本任务并行开发或
+    /// 尚未实现"）：<c>stat_block</c>（<c>stat.definition</c>）、<c>power_set</c>（<c>arch.power_type</c>
+    /// 资源类型定义）、L2 <c>skill</c>（<c>skill.book</c>/<c>skill.aura.*</c>）当前都早已实现，
+    /// <c>primary_stat</c>/<c>power_types</c>/<c>skill_book_ref</c> 三个字段不在本模块内部声明为
+    /// <see cref="FieldKind.Reference"/> 的真正理由是分层边界——本模块（L1）刻意不静态耦合 L2/L3
+    /// 具体模块的表结构，不是对方模块还没写出来（同 <c>schema/README.md</c>"判断记录"第 1 条，
+    /// 详细跨表注册/校验策略见该文件）；<c>power_types</c>/<c>passive_auras</c> 另外还受
+    /// <see cref="IDataRegistry.DeclareReference"/> 契约本身的能力边界限制（只支持标量 Id 字段，
+    /// 不支持 <see cref="FieldKind.IdList"/> 这种数组字段）。
     /// </para>
     /// </summary>
     public static class ArchSchemas
@@ -39,7 +46,7 @@ namespace Core.Numbers.Archetype
                 new FieldSchema("power_types", FieldKind.IdList, required: true,
                     description: "引用 arch.power.*；power_set 模块尚未登记 schema，暂不声明为 Reference"),
                 new FieldSchema("skill_book_ref", FieldKind.Id, required: false,
-                    description: "引用 skill.book.*；L2 skill 模块尚未实现，暂不声明为 Reference"),
+                    description: "引用 skill.book.*；skill 模块已实现，本字段仍不声明为 Reference——分层边界选择（L1 不静态耦合 L2 表结构），不是对方模块不存在，见类型判断记录"),
                 new FieldSchema("talent_tree_ref", FieldKind.Reference, required: false, referenceTable: "arch.talent_tree"),
                 new FieldSchema("level_curve_ref", FieldKind.Reference, required: false, referenceTable: "prog.level_curve"),
             });
@@ -55,7 +62,7 @@ namespace Core.Numbers.Archetype
                 new FieldSchema("stat_mods", FieldKind.Object, required: true,
                     description: "Object<stat_id, Number>，ApplyTo 经 StatModifierWriter 以 flat 写入，来源为种族 id"),
                 new FieldSchema("passive_auras", FieldKind.IdList, required: false,
-                    description: "引用 skill.aura.*；L2 skill 模块尚未实现，暂不声明为 Reference；本模块只保存不应用"),
+                    description: "引用 skill.aura.*；暂不声明为 Reference（IdList 字段，见类型判断记录 DeclareReference 能力边界）；ArchetypeRegistry.ApplyTo 会施加这些被动光环（注入 aura applier 为 null 时兼容退化为不施加，不是本模块本身只保存不应用）"),
             });
 
         public static readonly TableSchema TalentTree = new TableSchema(

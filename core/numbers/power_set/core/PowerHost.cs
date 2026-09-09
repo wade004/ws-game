@@ -122,6 +122,38 @@ namespace Core.Numbers.PowerSet
         /// 单位集合彼此独立，没有强制同步保证，见该组装根判断记录）。</summary>
         public bool IsRegistered(Id unitId) => _units.ContainsKey(unitId);
 
+        /// <summary>
+        /// CORE-111-01 根治（architecture/落地计划/audit-6739f50-20260909，P2，主审已确认）：按注册
+        /// 顺序返回该单位当前持有的全部资源类型 id——供 <c>player.vitals</c> 段把"当前值持久化"从
+        /// 只覆盖 <see cref="Core.Rules.Common.WellKnownPowers.Health"/> 泛化为覆盖全部已注册资源池
+        /// （见 <see cref="Core.Gameplay.Assembly.PlayerVitalsPersistable"/> 类型判断记录），此前
+        /// <see cref="IPowerHost"/> 没有任何"枚举某单位已注册资源类型"的查询，调用方只能对单个已知
+        /// 类型逐一 <see cref="HasPower"/> 试探。单位未注册时抛 <see cref="InvalidOperationException"/>
+        /// （与 <see cref="GetPower"/> 同一约定，调用方应先用 <see cref="IsRegistered"/> 判断）。
+        /// <para>
+        /// 判断记录（新增到 <see cref="PowerHost"/> 具体类型，不进 <see cref="IPowerHost"/> 契约）：
+        /// 06 原文只给出 <c>getPower</c>/<c>getPowerMax</c>/<c>modifyPower</c> 三个方法，本仓库既有
+        /// 惯例（<see cref="IsRegistered"/> 的 RC-06 判断记录）是"运行期状态管理方法"按需展开进契约；
+        /// 本次不这样做的理由是 <see cref="RulesAssembly.Powers"/> 对外公开的字段类型本就是具体
+        /// <see cref="PowerHost"/>（不是 <see cref="IPowerHost"/>），唯一的生产消费方
+        /// <see cref="Core.Gameplay.Assembly.PlayerVitalsPersistable"/> 已经改为直接持有具体类型（见
+        /// 该类型构造函数判断记录），加进契约只会强迫本仓库另外三处与 <c>player.vitals</c> 完全无关的
+        /// 独立测试假实现（<c>presentation/ui/tests/TestSupport.cs</c> 等）同步补一个它们永远用不到
+        /// 的方法，不新增契约方法更贴合"必要展开"的既有尺度。
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<Id> GetRegisteredPowerTypes(Id unitId) => RequireUnit(unitId).PowerTypeOrder;
+
+        /// <summary>
+        /// CORE-111-01 根治：查询该单位当前的进出战斗状态——<see cref="SetInCombat"/> 此前只有写
+        /// 没有对应的读方法，<c>player.vitals</c> 段要把"读档前运行期快照"存下来（见
+        /// <see cref="Core.Gameplay.Assembly.PlayerVitalsPersistable"/> 类型判断记录）必须能先读到
+        /// 这个值。单位未注册时抛 <see cref="InvalidOperationException"/>（与 <see cref="GetPower"/>
+        /// 同一约定）。不进 <see cref="IPowerHost"/> 契约的理由同 <see cref="GetRegisteredPowerTypes"/>
+        /// 判断记录。
+        /// </summary>
+        public bool IsInCombat(Id unitId) => RequireUnit(unitId).InCombat;
+
         public bool HasPower(Id unitId, Id powerType) =>
             _units.TryGetValue(unitId, out var state) && state.Powers.ContainsKey(powerType);
 

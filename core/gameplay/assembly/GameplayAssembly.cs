@@ -1229,9 +1229,10 @@ namespace Core.Gameplay.Assembly
             // 阅读，与 KnownOrder 的顺序不必相同，见该表判断记录）。
             saveSystem.RegisterPersistable(new Core.Carriers.Gobj.GobjPendingLootPersistable(Carriers.GameObjectInteractions));
             saveSystem.RegisterPersistable(Difficulty);
-            // 外部审核阻塞项 2 收口：player.vitals 段（存活状态 + 生命值当前值），见
-            // PlayerVitalsPersistable 类型注释——放在 world.difficulty 之后、TurnScheduler/rng 之前
-            // （10 号文档固定段序此前未列出本段，本次一并补录，见该文档"2026-09-07 勘误"）。
+            // 外部审核阻塞项 2 收口：player.vitals 段（存活状态 + 全部已注册资源池当前值 + 进出
+            // 战斗运行态，CORE-111-01 根治后不再只覆盖生命值一种资源，见 PlayerVitalsPersistable
+            // 类型注释）——放在 world.difficulty 之后、TurnScheduler/rng 之前（10 号文档固定段序
+            // 此前未列出本段，本次一并补录，见该文档"2026-09-07 勘误"）。
             saveSystem.RegisterPersistable(new PlayerVitalsPersistable(player, Carriers.Rules.Powers));
 
             // ADR-0013：TurnScheduler 全部状态可存档（见任务书"全部状态可存档"），只在装配了离散
@@ -1415,6 +1416,32 @@ namespace Core.Gameplay.Assembly
         /// <c>GameObjectHost.DoTeleport</c> 已经用到的（可能是调用方自定义的）
         /// <c>GobjOptions.TeleportResolver</c>，用默认结果覆盖掉自定义结果（外部审计复现：跨图自定义
         /// 解析结果 <c>(99,88)</c> 被内置解析的 <c>(30,40)</c> 覆盖）。
+        /// <para>
+        /// 判断记录（TP-111-01 根治，architecture/落地计划/audit-6739f50-20260909，P2，主审已确认，
+        /// 取代上方两条 <c>catch</c> 分支已废止的旧判断记录"位置/MapId 已经落地，场景切换失败留给
+        /// 上层诊断/重试"）：真实探针复现——公共 Gossip 入口在首个跨图传送请求进入
+        /// <see cref="SceneRouterState.Loading"/>、资源尚未加载完成时，可以立刻发起第二个跨图传送
+        /// 请求；修复前的实现顺序是"先把 <c>entity.MapId</c>/位置改写成第二个请求的目标，再调用
+        /// <see cref="ISceneRouter.LoadScene"/>"——<see cref="SceneRouter.LoadScene"/> 按合同（03 第
+        /// 6 节步骤 1）拒绝 Loading 中的第二次调用（抛 <see cref="InvalidOperationException"/>），
+        /// 但这个异常被下面的 <c>catch</c> 分支吞掉，此时字段已经改写完毕——首个请求随后正常完成，
+        /// 最终 <c>Router.CurrentScene</c> 停在首个请求的目标地图，<see cref="IWorldSim"/> 里的玩家
+        /// 实体 <c>MapId</c>/位置却是被拒绝的第二个请求的目标，两者永久分叉，不满足"场景与玩家
+        /// map/位置保持一致"这一基本不变量。根治：改为"先尝试 <see cref="ISceneRouter.LoadScene"/>，
+        /// 只在它没有抛异常（即路由确实接受了本次导航请求）之后才提交 <c>entity.MapId</c>/位置"——
+        /// 对"未知地图"（<see cref="ArgumentException"/>）与"当前不允许转入 Loading——含 Loading
+        /// 中收到的第二个跨图请求"（<see cref="InvalidOperationException"/>）两类路由拒绝，整体
+        /// 采用默认"拒绝"策略（不排队、不重试，见方法级判断记录"默认拒绝"），本次传送不产生任何
+        /// 副作用（同 <see cref="TeleportUnit"/> 类型注释"解析失败时不产生任何副作用"的既有惯例，
+        /// 现在把"路由拒绝"也纳入同一类"整体失败、原子回退"的处理），交由上层（通常是发起传送的
+        /// 具体交互，如 Gossip 选项）按自己的重试/提示策略处理；首个仍在 Loading 中的请求不受影响，
+        /// 完成后玩家字段与 <c>Router.CurrentScene</c> 天然保持同源（因为字段本就只会被"确实被接受
+        /// 的那一次"调用提交）。跨图请求被路由接受、但资源随后才在 <see cref="ISceneRouter.Update"/>
+        /// 里异步失败（<c>HandleLoadFailure</c>）的情形不属于本次修复范围——那种情形下字段已经按
+        /// "路由已接受"提交，与 03 号文档"加载失败……State 回落 Idle"的既有合同一致（场景没有真的
+        /// 切走，但本方法在"是否接受"这一刻做出的判断是对的，属于 <see cref="SceneRouter"/> 自己
+        /// 的失败恢复合同，不是本方法要重复处理的又一层）。
+        /// </para>
         /// </summary>
         private void ApplyResolvedTeleport(Id unitId, Id mapId, Vec2 position)
         {
@@ -1424,42 +1451,46 @@ namespace Core.Gameplay.Assembly
                 return;
             }
 
-            // 判断记录（必须在改 MapId 之前取"传送前所在地图"，同 RestoreFromSlot 同款判断记录）：
-            // 下面几行会把 entity.MapId 直接改写成目标地图，若在那之后才比较，比较结果永远相等，
-            // "是否需要切场景"分支会被误判为不需要执行而跳过。
             var mapIdBeforeMove = entity.MapId;
-
-            entity.MapId = mapId;
-            Carriers.Units.SetPosition(unitId, position);
 
             if (mapIdBeforeMove.Equals(mapId))
             {
                 // 同图内传送（只挪点位、不切地图）：不需要、也不应该发起一次整场景重载——ClearAll
                 // 会把全部实体（含正在交互的 NPC/其它玩家单位）一并摧毁再重建，代价与"只是走到同一
-                // 张地图的另一个点位"完全不对称。MapId/位置已经落地，到此为止。
+                // 张地图的另一个点位"完全不对称。没有场景路由参与，字段直接落地，到此为止。
+                entity.MapId = mapId;
+                Carriers.Units.SetPosition(unitId, position);
                 return;
             }
 
             if (_sceneRouter == null)
             {
-                // 未装配场景路由（测试/无场景路由的最小装配）：MapId/位置已经落地，没有场景基础
-                // 设施可切，同 RestoreFromSlot 同款判断记录，静默跳过场景切换本身。
+                // 未装配场景路由（测试/无场景路由的最小装配）：没有场景基础设施可切，字段直接落地，
+                // 同 RestoreFromSlot 同款判断记录，静默跳过场景切换本身。
+                entity.MapId = mapId;
+                Carriers.Units.SetPosition(unitId, position);
                 return;
             }
 
+            // TP-111-01 根治：先尝试路由，路由拒绝（未知地图/当前不允许转入 Loading，含 Loading 中
+            // 的第二次跨图请求）时直接返回、不提交任何字段——见上方类型判断记录。
             try
             {
                 _sceneRouter.LoadScene(mapId);
             }
             catch (ArgumentException)
             {
-                // 地图 id 未知：同 RestoreFromSlot 同款判断记录，位置/MapId 已经落地，场景切换失败
-                // 留给上层诊断/重试。
+                return;
             }
             catch (InvalidOperationException)
             {
-                // 当前应用状态不允许切到 Loading（例如已经在 Loading 中）：同上。
+                return;
             }
+
+            // 路由已经接受本次导航请求（转入 Loading）：现在才提交玩家字段，与场景路由最终会切到
+            // 的目标地图同源，不会再出现"字段已改但请求被拒绝"的分叉中间态。
+            entity.MapId = mapId;
+            Carriers.Units.SetPosition(unitId, position);
         }
 
         private double GetCombatStartTime(Id unitId) =>

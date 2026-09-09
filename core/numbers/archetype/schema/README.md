@@ -26,7 +26,7 @@
 | `id` | Id | 是 | `arch.race.<name>` |
 | `name_key` | TextKey | 是 | 显示名文本键 |
 | `stat_mods` | Object\<stat_id, Number\> | 是 | 基础属性修正，`ApplyTo` 经 `StatModifierWriter` 以 `"flat"` 写入，来源为种族 id 本身 |
-| `passive_auras` | Optional\<List\<Id\>\> | 否 | 引用 `skill.aura.*`；本模块只保存不应用（任务书原文），暂不声明为 `Reference` |
+| `passive_auras` | Optional\<List\<Id\>\> | 否 | 引用 `skill.aura.*`；暂不声明为 `Reference`（判断记录 1）。**DOC-111-02 勘误（2026-09-09）**：`ApplyTo` 会施加这些被动光环（`_auraApplier` 注入为 `null` 时才兼容退化为不施加），不再是"只保存不应用"——那是任务书原文早期的前提，`skill` 模块实现后已经过期 |
 
 ## `arch.talent_tree`
 
