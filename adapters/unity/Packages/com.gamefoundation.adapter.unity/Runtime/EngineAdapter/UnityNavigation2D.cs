@@ -139,6 +139,41 @@ namespace Adapter.Unity.EngineAdapter
                 return new List<Vec2> { from };
             }
 
+            var gridPath = FindPathViaGrid(mapId, from, to);
+            if (gridPath != null)
+            {
+                return gridPath;
+            }
+
+            // NAV-111-01 根治（architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md，见
+            // navigation-probes.xml/.log NAV110_03 窄通道场景）：网格寻路（含 ResolveEntryCell 端点
+            // 接合、A*、FindPathWithFineGrid 细网格兜底）已经是这里之前的全部手段，但网格采样间距
+            // （主网格 DefaultCellSize、细网格 ThinObstacleFallbackCellSize）终归有下限——一条比两种
+            // 网格格子尺寸都窄的通道（如 0.1 宽），无论主网格还是细网格都找不到一整行/列完全落在
+            // 通道内部的格子，ResolveEntryCell 甚至会因为端点周围 8 邻格全部受阻而直接判定"无法进入
+            // 网格"，即便端点自身逐点可行走、直线 Raycast 也清晰可见对面。根治：网格寻路彻底失败后，
+            // 最后再检查一次"直线直达"——若线段与全部已登记阻挡矩形完全没有接触（不是 SegmentBlocked
+            // 那种"只禁止穿入内部、贴边擦角放行"的宽松判定，而是 SegmentHasClearContact 要求的
+            // "连贴边擦角都不允许"，见该方法判断记录），直接返回 [from,to]，与 Raycast 同一份阻挡
+            // 判定实现（TrySegmentRectInteriorEntry 复用的 ClipAxis）同源，不产生"路径说能走、
+            // Raycast 说不能走"的不一致。要求"完全无接触"而不是复用 SegmentBlocked 的"仅内部不算
+            // 贴边"判定，是刻意收紧：FindPath_DiagonalMove_DisallowedWhenBothOrthogonalNeighborsBlocked
+            // 这类"两个正交邻居格都被封死、只能贴着共享墙角走对角线"的场景里，直线 Raycast 恰好也是
+            // 清晰的（线段只在数学意义上的单点擦过墙角，SegmentBlocked 判定为不受阻）——但这属于
+            // A* 八邻居展开逻辑本该继续禁止的"切角"，不该被这里的直线兜底越权放行；那种场景下线段
+            // 与相邻阻挡矩形之间仍存在一个（哪怕退化为单点的）接触窗口，SegmentHasClearContact 会
+            // 据此拒绝直线兜底，网格寻路本身的结果（null）保持不变。
+            return SegmentHasClearContact(mapId, from, to) ? new List<Vec2> { from, to } : null;
+        }
+
+        /// <summary>NAV-111-01 根治新增：原 <see cref="FindPath"/> 主体（起止点可行走性/零长度两个
+        /// 前置判定已被调用方 <see cref="FindPath"/> 挪走，本方法只负责"网格寻路能不能找到一条路径"，
+        /// 不涉及"网格彻底找不到时要不要退化成直线"——那是调用方叠加的 NAV-111-01 兜底职责），逐字
+        /// 保留改动前的既有网格寻路流程（端点所在网格判定、NAV-110-01 的 ResolveEntryCell 端点接合、
+        /// A*、BuildWorldPath 世界路径拼装、收尾防线与 NAV-110-02 的 FindPathWithFineGrid 细网格兜底），
+        /// 不引入任何行为变化。</summary>
+        private List<Vec2>? FindPathViaGrid(Id mapId, Vec2 from, Vec2 to)
+        {
             if (!_grids.TryGetValue(mapId, out var grid))
             {
                 grid = BuildGrid(mapId);
@@ -705,6 +740,39 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             return false;
+        }
+
+        /// <summary>NAV-111-01 根治新增：供 <see cref="FindPath"/> 网格寻路彻底失败后的"直线直达"
+        /// 兜底使用，比 <see cref="SegmentBlocked"/> 更严格——<see cref="SegmentBlocked"/> 只判定线段
+        /// 是否穿入矩形内部（贴边/擦角放行，供 A*/接合环节的常规通行判定复用，见类型顶部判断记录 3），
+        /// 本方法额外要求线段与每一个阻挡矩形都完全没有接触，连"贴边/擦角"这种退化为单点的接触窗口
+        /// 也不放行。复用与 <see cref="TrySegmentRectInteriorEntry"/> 相同的 slab 裁剪（<see cref="ClipAxis"/>）
+        /// 算出线段与矩形包围盒的参数化重叠区间：区间存在（哪怕退化为一个点）就判定"有接触"，只有
+        /// 全部阻挡矩形都完全没有重叠区间时才判定"完全无接触"。这一收紧是必要的：一段线段可能只在
+        /// 数学意义上的单点擦过两个阻挡矩形的共享墙角（<see cref="SegmentBlocked"/> 判定为不受阻），
+        /// 但这类"贴着墙角走对角线"场景正是 A* 八邻居展开逻辑"禁止切角"规则要继续拒绝的（见
+        /// <c>FindPath_DiagonalMove_DisallowedWhenBothOrthogonalNeighborsBlocked</c>）——若直线兜底
+        /// 复用 <see cref="SegmentBlocked"/> 的宽松判定，会越权放行这类场景，让"禁止切角"名存实亡。
+        /// 真正的窄通道场景（如 NAV110_03，两侧墙体在通道方向上完全没有重叠窗口）不受此收紧影响，
+        /// 因为通道内的直线本就与两侧阻挡矩形毫无接触，不只是"贴边不算受阻"这种边界情形。</summary>
+        private bool SegmentHasClearContact(Id mapId, Vec2 from, Vec2 to)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var rects)) return true;
+
+            var dx = to.X - from.X;
+            var dy = to.Y - from.Y;
+            foreach (var rect in rects)
+            {
+                double tMin = 0.0;
+                double tMax = 1.0;
+                if (ClipAxis(from.X, dx, rect.Min.X, rect.Max.X, ref tMin, ref tMax) &&
+                    ClipAxis(from.Y, dy, rect.Min.Y, rect.Max.Y, ref tMin, ref tMax))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>

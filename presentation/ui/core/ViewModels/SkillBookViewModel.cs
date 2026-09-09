@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
+using Core.Foundation.SaveSystem;
 using Core.Rules.Common;
 
 namespace Presentation.Ui
@@ -45,6 +46,10 @@ namespace Presentation.Ui
             _subscriptions.Add(_dataSource.Subscribe(RulesEventKeys.SkillCastStart, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(RulesEventKeys.SkillCastSuccess, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(RulesEventKeys.SkillCastFailed, OnRelevantEvent));
+            // UI-111-01 根治同惯例（见 InventoryViewModel 类型注释）：同图读档的抑制作用域会连带
+            // 压住施法事件本身，只有在该作用域外正常派发的 save.loaded 能保证读档后已知技能/冷却
+            // 整体重建。
+            _subscriptions.Add(_dataSource.Subscribe(SaveEventKeys.SaveLoaded, OnRelevantEvent));
 
             Refresh();
         }

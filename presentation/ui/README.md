@@ -9,7 +9,12 @@
 - **P1 只读逻辑状态**：全部数据经 `IUiDataSource.Query`（路径小语法，见下）或直接持有某个只读
   宿主接口（如 `IQuestHost.GetLog`）读取，视图模型不持有任何可写字段回写给逻辑层。
 - **P2 只订阅事件**：视图模型构造期经 `IUiDataSource.Subscribe`/`IEventBus.Subscribe` 订阅相关
-  事件触发 `Refresh()`，不轮询内部结构。
+  事件触发 `Refresh()`，不轮询内部结构。维护派生展示状态（订阅事件增量更新，不是每次都重新
+  `Query`）的视图模型，还必须额外订阅 `SaveEventKeys.SaveLoaded`（`save.loaded`）——存档系统
+  "读档不是业务事件"的抑制作用域会连带丢弃读档期间业务事件本身的派发，只按业务事件订阅刷新的
+  视图模型在同图读档场景下会因此收不到任何刷新信号（见下 UI-111-01 根治记录，与
+  `presentation/view_binding/core/ViewBinder.cs` 的 `OnSaveLoaded`、
+  `presentation/vfx_sfx/core/EquipmentWeaponStyleSource.cs` 同一惯例）。
 - **P3 不写回**：一切用户输入经 `UiIntents` 转成 `IWorldSim.SubmitIntent` 或窄契约调用
   （`IEquipmentHost`/`IQuestHost`/`IDialogHost`/`IEconomyHost`/`IInputMapHost`/`IL10nHost`/
   `IAppStateHost`），本模块不直接修改任何逻辑数据。
@@ -90,3 +95,27 @@ schema/示例行同步扩枚举；09 第 7.1 节勘误已补 changelog 说明技
 迁入 `HudViewModel`（可选注入 `Core.Foundation.SimLoop.TurnScheduler`/`IAppStateHost`/等待输入
 子态，见该类型判断记录），引擎侧 `HudPanel` 只做渲染与键盘轮询，`TurnStatusPanel` 已删除；
 01 L5 `ui` 行与 09 第 7.1 节的例外注记已同步撤销；台账见落地计划"已知未解决缺口"第 17 条。
+
+**UI-111-01 根治（第十三轮审核 6739f50，2026-09-09）**：
+`architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md`，复现见
+`core/logs/followup-core-probe.log` `INVENTORY-VM-SAME-MAP-LOAD` 小节。此前 `InventoryViewModel`
+只订阅 `item.added`/`item.removed`/`item.equipped`/`item.unequipped` 四个背包/装备业务事件，
+同图 `RestoreFromSlot` 读档时这四个业务事件本身的派发被 `SaveSystem.Load` 的抑制作用域连带压住，
+`InventoryViewModel` 因此错过刷新时机，`Slots`/`EquippedSlots` 停留在读档前的 A 快照，与已经是 B
+的 `IUiDataSource` 实时查询结果不一致（手动调用 `Refresh()` 才会恢复正确）。根治：逐个核对全部
+十一个视图模型，凡是维护"经事件订阅增量更新的派生展示状态"（不是每次都重新 `Query`/查询宿主）
+的，一律额外订阅 `SaveEventKeys.SaveLoaded` 并整体重建——`InventoryViewModel`、
+`ActionBarViewModel`、`CharacterStatsViewModel`、`DialogViewModel`、`HudViewModel`、
+`QuestLogViewModel`、`ShopViewModel`、`SkillBookViewModel` 八个补齐了这个订阅；`SaveSlotsViewModel`
+此前已经订阅（本就依赖 `ISaveSystem.ListSlots()` 反映存档槽变化）；`PauseMenuViewModel`（状态源自
+`IAppStateHost`，与存档数据无关）、`SettingsViewModel`（本地化/按键绑定/音频分层音量是设备级用户
+偏好，不随存档槽切换，见 `core/foundation` 对应模块——均未提供 `IPersistable` 实现）两个确认与存档
+数据无关，不需要订阅，逐个核对后排除。重复收到 `save.loaded`（如迁移紧接读档两次派发）只是多刷新
+一次，幂等无副作用，构造函数只调用一次 `Subscribe`，不重复订阅。
+
+对应测试：`presentation/ui/tests/ViewModelTests.cs` 新增 `UI111_01_*` 系列（`InventoryViewModel`
+两条：同图读档后无需手动 `Refresh` 即与宿主当前状态一致、连续两次 `save.loaded` 均正确刷新且
+`Dispose` 后不再响应；`ActionBarViewModel`/`CharacterStatsViewModel`/`DialogViewModel`/
+`HudViewModel`/`QuestLogViewModel`/`SkillBookViewModel` 各一条），`presentation/assembly/tests/
+PresentationAssemblyTests.cs` 新增 `Shop_SaveLoadedEvent_RefreshesOpenShelf_NoManualRefresh`
+（`ShopViewModel` 走真实 `EconomyHost`，需要装配根环境，故放在该测试文件而非本模块）。

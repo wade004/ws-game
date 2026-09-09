@@ -448,6 +448,24 @@ namespace Tests.Presentation.Assembly
             Assert.Equal(new Id("item.sample_potion"), item.ItemId);
         }
 
+        /// <summary>UI-111-01 回归（architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md，见
+        /// InventoryViewModel 同名用例判断记录）：同图读档的抑制作用域会连带压住
+        /// economy.currency_changed/economy.vendor_restocked 等业务事件本身，只有在该作用域外正常
+        /// 派发的 save.loaded 才能保证已打开的货架整体重建，不依赖恰好赶上业务事件。</summary>
+        [Fact]
+        public void Shop_SaveLoadedEvent_RefreshesOpenShelf_NoManualRefresh()
+        {
+            var presentation = Build(out _, out _, out _, out var bus);
+            presentation.Shop.OpenVendor(new Id("econ.vendor.sample_general"));
+            Assert.Single(presentation.Shop.SellItems);
+
+            bus.PublishImmediate(new Core.Foundation.SaveSystem.SaveLoadedEvent(new Id("save.ui111_01")));
+
+            Assert.Equal(new Id("econ.vendor.sample_general"), presentation.Shop.CurrentVendorId);
+            var item = Assert.Single(presentation.Shop.SellItems);
+            Assert.Equal(new Id("item.sample_potion"), item.ItemId);
+        }
+
         [Fact]
         public void FloatingTextStyles_ContainsSampleStyle_WithColorRef()
         {

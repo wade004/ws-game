@@ -46,6 +46,28 @@ namespace Tests.PresentationUi
             Assert.Equal(20, vm.TargetPowerBars[Health].Current);
         }
 
+        /// <summary>UI-111-01 回归（见 InventoryViewModel 同名用例判断记录）：save.loaded 应在不手动
+        /// 调用 Refresh 的情况下让等级/资源条快照跟上宿主最新值。</summary>
+        [Fact]
+        public void UI111_01_HudViewModel_RefreshesOnSaveLoaded_WithoutManualRefresh()
+        {
+            var world = new UiWorldFixture();
+            world.PowerHost.RegisterUnit(world.PlayerId, new[] { Health });
+            world.PowerHost.SetForTest(world.PlayerId, Health, 55, 100);
+            world.Progression.SetForTest(world.PlayerId, 3, 10, 200);
+
+            using var vm = new HudViewModel(world.DataSource, world.PlayerId, new[] { Health });
+            Assert.Equal(3, vm.Level);
+            Assert.Equal(55, vm.PowerBars[Health].Current);
+
+            world.Progression.SetForTest(world.PlayerId, 7, 0, 500);
+            world.PowerHost.SetForTest(world.PlayerId, Health, 80, 100);
+            world.EventBus.PublishImmediate(new FoundationSaveSystem.SaveLoadedEvent(new Id("save.ui111_01")));
+
+            Assert.Equal(7, vm.Level);
+            Assert.Equal(80, vm.PowerBars[Health].Current);
+        }
+
         /// <summary>技术债 17 收口：未传入 <c>turnScheduler</c>（既有调用方的既有用法）时，回合相关
         /// 四个新属性应保持"未启用回合制"的退化默认值——覆盖既有调用方/既有测试行为完全不变这条
         /// 判断记录。</summary>
@@ -204,6 +226,26 @@ namespace Tests.PresentationUi
             Assert.False(vm.Slots[1].Available);
         }
 
+        /// <summary>UI-111-01 回归（见 InventoryViewModel 同名用例判断记录）：save.loaded 应在不手动
+        /// 调用 Refresh 的情况下让冷却快照跟上宿主最新值。</summary>
+        [Fact]
+        public void UI111_01_ActionBarViewModel_RefreshesOnSaveLoaded_WithoutManualRefresh()
+        {
+            var world = new UiWorldFixture();
+            var fireball = new Id("skill.fireball");
+            world.SkillBindings.Bind(world.PlayerId, "slot_0", fireball);
+            world.SkillBook.SetCooldownForTest(world.PlayerId, fireball, 5.0);
+
+            using var vm = new ActionBarViewModel(world.DataSource, world.PlayerId, 1, world.SkillBindings);
+            Assert.Equal(5.0, vm.Slots[0].Cooldown);
+
+            world.SkillBook.SetCooldownForTest(world.PlayerId, fireball, 0.0);
+            world.EventBus.PublishImmediate(new FoundationSaveSystem.SaveLoadedEvent(new Id("save.ui111_01")));
+
+            Assert.Equal(0.0, vm.Slots[0].Cooldown);
+            Assert.True(vm.Slots[0].Available);
+        }
+
         [Fact]
         public void InventoryViewModel_reads_slots_and_equipped_items()
         {
@@ -220,6 +262,70 @@ namespace Tests.PresentationUi
             Assert.Equal(instanceId, vm.EquippedSlots[slot]);
         }
 
+        /// <summary>UI-111-01 复现与根治回归
+        /// （architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md、
+        /// core/logs/followup-core-probe.log INVENTORY-VM-SAME-MAP-LOAD 小节）：同图读档场景下，
+        /// SaveSystem.Load 的抑制作用域会连带压住 item.added/item.removed/item.equipped/
+        /// item.unequipped 四个业务事件本身的派发（这正是本用例只直接改写 Fake 宿主、不发那四个
+        /// 事件来模拟的"读档期间"），只有在该作用域外正常派发的 save.loaded 才能让视图模型感知到
+        /// 存档已经切到 B。断言"不手动调用 Refresh，VM 的 Slots/EquippedSlots 也应等于 B"——修复前
+        /// VM 会永久停留在 A 快照（bug 签名同源日志 BUG-SIGNATURE-CURRENT 小节）。</summary>
+        [Fact]
+        public void UI111_01_InventoryViewModel_RefreshesOnSaveLoaded_WithoutManualRefresh()
+        {
+            var world = new UiWorldFixture();
+            var templateA = new Id("item.followup_a");
+            var instanceA = world.Inventory.AddItemForTest(world.PlayerId, templateA, 1);
+            var slot = new Id("equip.main_hand");
+            world.Equipment.Equip(world.PlayerId, instanceA, slot);
+
+            using var vm = new InventoryViewModel(world.DataSource, new[] { slot });
+            Assert.Single(vm.Slots);
+            Assert.Equal(templateA, vm.Slots[0].TemplateId);
+            Assert.Equal(instanceA, vm.EquippedSlots[slot]);
+
+            // 模拟"同图 RestoreFromSlot(B)"：直接改写背包/装备宿主到 B 状态（Fake 宿主本身不发事件，
+            // 等价于 SaveSystem.Load 在抑制作用域内恢复段——不经过四个业务事件），只发 save.loaded。
+            var templateB1 = new Id("item.followup_level2");
+            var templateB2 = new Id("item.followup_level2_alt");
+            var instanceB1 = world.Inventory.AddItemForTest(world.PlayerId, templateB1, 1);
+            var instanceB2 = world.Inventory.AddItemForTest(world.PlayerId, templateB2, 1);
+            world.Equipment.Equip(world.PlayerId, instanceB2, slot);
+
+            world.EventBus.PublishImmediate(new FoundationSaveSystem.SaveLoadedEvent(new Id("save.ui111_01_b")));
+
+            Assert.Equal(3, vm.Slots.Count); // A 的 1 条 + B 新增的 2 条（本 Fake 宿主不做"清空重灌"，
+                                              // 只验证订阅确实触发了 Refresh、读到了宿主当前全集）。
+            Assert.Contains(vm.Slots, s => s.TemplateId.Equals(templateB1));
+            Assert.Contains(vm.Slots, s => s.TemplateId.Equals(templateB2));
+            Assert.Equal(instanceB2, vm.EquippedSlots[slot]); // 装备已切到 B 的最新装备实例。
+        }
+
+        /// <summary>UI-111-01 回归：重复收到 save.loaded（如迁移紧接读档两次派发相关事件）不应重复
+        /// 订阅——构造函数只调用一次 Subscribe，这里断言连续两次 save.loaded 都能正确触发 Refresh
+        /// （而不是第二次开始失效或抛异常），且 Dispose 只需释放一次即可完全取消订阅。</summary>
+        [Fact]
+        public void UI111_01_InventoryViewModel_RepeatedSaveLoaded_RefreshesEachTime_NoDuplicateSubscription()
+        {
+            var world = new UiWorldFixture();
+            var slot = new Id("equip.main_hand");
+            using var vm = new InventoryViewModel(world.DataSource, new[] { slot });
+            Assert.Empty(vm.Slots);
+
+            world.Inventory.AddItemForTest(world.PlayerId, new Id("item.first"), 1);
+            world.EventBus.PublishImmediate(new FoundationSaveSystem.SaveLoadedEvent(new Id("save.slot_1")));
+            Assert.Single(vm.Slots);
+
+            world.Inventory.AddItemForTest(world.PlayerId, new Id("item.second"), 1);
+            world.EventBus.PublishImmediate(new FoundationSaveSystem.SaveLoadedEvent(new Id("save.slot_2")));
+            Assert.Equal(2, vm.Slots.Count);
+
+            vm.Dispose();
+            world.Inventory.AddItemForTest(world.PlayerId, new Id("item.third"), 1);
+            world.EventBus.PublishImmediate(new FoundationSaveSystem.SaveLoadedEvent(new Id("save.slot_3")));
+            Assert.Equal(2, vm.Slots.Count); // Dispose 之后不再订阅，停留在最后一次 Refresh 的快照。
+        }
+
         [Fact]
         public void QuestLogViewModel_reads_log_from_quest_host()
         {
@@ -228,6 +334,22 @@ namespace Tests.PresentationUi
             world.Quest.SeedQuestForTest(questId, QuestState.Active, new[] { 1 });
 
             using var vm = new QuestLogViewModel(world.DataSource, world.Quest, world.PlayerId);
+
+            Assert.Contains(vm.Log, p => p.QuestId.Equals(questId) && p.State == QuestState.Active);
+        }
+
+        /// <summary>UI-111-01 回归（见 InventoryViewModel 同名用例判断记录）：save.loaded 应在不手动
+        /// 调用 Refresh 的情况下让任务日志跟上宿主最新状态。</summary>
+        [Fact]
+        public void UI111_01_QuestLogViewModel_RefreshesOnSaveLoaded_WithoutManualRefresh()
+        {
+            var world = new UiWorldFixture();
+            var questId = new Id("quest.ui111_01");
+            using var vm = new QuestLogViewModel(world.DataSource, world.Quest, world.PlayerId);
+            Assert.Empty(vm.Log);
+
+            world.Quest.SeedQuestForTest(questId, QuestState.Active, new[] { 1 });
+            world.EventBus.PublishImmediate(new FoundationSaveSystem.SaveLoadedEvent(new Id("save.ui111_01")));
 
             Assert.Contains(vm.Log, p => p.QuestId.Equals(questId) && p.State == QuestState.Active);
         }
@@ -247,6 +369,29 @@ namespace Tests.PresentationUi
 
             Assert.True(vm.IsOpen);
             Assert.Equal(new Id("dialog.tree.intro"), vm.Story!.TreeId);
+        }
+
+        /// <summary>UI-111-01 回归（见 InventoryViewModel 同名用例判断记录）：save.loaded 应在不手动
+        /// 调用 Refresh、也不依赖对话框自身三个事件的情况下让 Story/Gossip 视图跟上宿主最新值。</summary>
+        [Fact]
+        public void UI111_01_DialogViewModel_RefreshesOnSaveLoaded_WithoutManualRefresh()
+        {
+            var world = new UiWorldFixture();
+            var dialog = new FakeDialogHost
+            {
+                StoryViewToReturn = new StoryView(
+                    new Id("dialog.tree.intro"), new Id("dialog.node.start"), new Id("l10n.a"), null,
+                    new List<(int, Id)>())
+            };
+            using var vm = new DialogViewModel(world.DataSource, dialog, world.PlayerId);
+            Assert.Equal(new Id("dialog.node.start"), vm.Story!.NodeId);
+
+            dialog.StoryViewToReturn = new StoryView(
+                new Id("dialog.tree.intro"), new Id("dialog.node.after_load"), new Id("l10n.b"), null,
+                new List<(int, Id)>());
+            world.EventBus.PublishImmediate(new FoundationSaveSystem.SaveLoadedEvent(new Id("save.ui111_01")));
+
+            Assert.Equal(new Id("dialog.node.after_load"), vm.Story!.NodeId);
         }
 
         /// <summary>GP-05 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
@@ -299,6 +444,22 @@ namespace Tests.PresentationUi
             Assert.True(entry.Ready);
         }
 
+        /// <summary>UI-111-01 回归（见 InventoryViewModel 同名用例判断记录）：save.loaded 应在不手动
+        /// 调用 Refresh 的情况下让已知技能清单跟上宿主最新值。</summary>
+        [Fact]
+        public void UI111_01_SkillBookViewModel_RefreshesOnSaveLoaded_WithoutManualRefresh()
+        {
+            var world = new UiWorldFixture();
+            using var vm = new SkillBookViewModel(world.DataSource, world.SkillBook, world.PlayerId);
+            Assert.Empty(vm.Entries);
+
+            var iceLance = new Id("skill.ice_lance");
+            world.SkillBook.LearnForTest(world.PlayerId, iceLance);
+            world.EventBus.PublishImmediate(new FoundationSaveSystem.SaveLoadedEvent(new Id("save.ui111_01")));
+
+            Assert.Contains(vm.Entries, e => e.SkillId.Equals(iceLance));
+        }
+
         [Fact]
         public void CharacterStatsViewModel_reads_stat_values_and_localized_names()
         {
@@ -313,6 +474,26 @@ namespace Tests.PresentationUi
             var entry = Assert.Single(vm.Entries);
             Assert.Equal(15, entry.Value);
             Assert.Equal("Strength", entry.DisplayName);
+        }
+
+        /// <summary>UI-111-01 回归（见 InventoryViewModel 同名用例判断记录）：save.loaded 应在不手动
+        /// 调用 Refresh 的情况下让属性快照跟上宿主最新值。</summary>
+        [Fact]
+        public void UI111_01_CharacterStatsViewModel_RefreshesOnSaveLoaded_WithoutManualRefresh()
+        {
+            var world = new UiWorldFixture();
+            world.StatHost.SetBase(world.PlayerId, Strength, 15);
+            var l10n = new FakeL10nHost(new Id("l10n.en_us"), new[] { new Id("l10n.en_us") });
+            var nameKey = new Id("l10n.stat.strength.name");
+            l10n.SetTextForTest(nameKey, "Strength");
+
+            using var vm = new CharacterStatsViewModel(world.DataSource, l10n, world.PlayerId, new[] { (Strength, nameKey) });
+            Assert.Equal(15, vm.Entries[0].Value);
+
+            world.StatHost.SetBase(world.PlayerId, Strength, 42);
+            world.EventBus.PublishImmediate(new FoundationSaveSystem.SaveLoadedEvent(new Id("save.ui111_01")));
+
+            Assert.Equal(42, vm.Entries[0].Value);
         }
 
         [Fact]

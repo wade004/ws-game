@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Foundation.AppLifecycle;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
+using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Numbers.PowerSet;
 using Core.Numbers.Progression;
@@ -151,6 +152,10 @@ namespace Presentation.Ui
             _subscriptions.Add(_dataSource.Subscribe(PowerEventKeys.Changed, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(PowerEventKeys.Depleted, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(ProgressionEventKeys.LevelUp, OnRelevantEvent));
+            // UI-111-01 根治同惯例（见 InventoryViewModel 类型注释）：同图读档的抑制作用域会连带
+            // 压住 power.changed/progression.level_up 本身，只有在该作用域外正常派发的 save.loaded
+            // 能保证读档后整体重建（等级、资源条、目标框）。
+            _subscriptions.Add(_dataSource.Subscribe(SaveEventKeys.SaveLoaded, OnRelevantEvent));
 
             if (_turnScheduler != null)
             {

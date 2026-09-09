@@ -881,6 +881,66 @@ Navigation2DScenarios.cs` 新增两条同名场景（"端点格中心受阻但�
 NAV-110-02 场景因薄墙直接挡住唯一的直线路径、桩不具备绕障能力而按既有"双矩形拐角"场景的同一惯例
 跳过（`assert.Skip`），不强行要求桩实现绕障。
 
+### NAV-111-01 根治（第十三轮审核 6739f50，2026-09-09）
+
+审核报告：`architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md`，复现见
+`presentation/navigation-probes.xml`/`.log`。不改变 `INavigation2D` 契约面（签名不变），只改
+`UnityNavigation2D.FindPath` 内部寻路策略。
+
+**现象**：一条比主网格格子尺寸（`DefaultCellSize`=0.25）与 NAV-110-02 细网格兜底格子尺寸
+（`ThinObstacleFallbackCellSize`=0.125）都窄的合法通道（如宽度 0.1），两端点自身按 `IsWalkable`
+逐点判定都可行走、两端点间直线 `Raycast` 也完全清晰，但 `FindPath` 返回 `null`——网格采样间距终归
+有下限，无论主网格还是细网格都不存在一整行/列格子（哪怕格中心，哪怕"格子内部与阻挡矩形相交"判定）
+完全落在这条窄通道内部，`ResolveEntryCell` 甚至会因为端点周围 8 邻格全部受阻直接判定"无法进入
+网格"。
+
+**根治**：`FindPath` 把此前的网格寻路整体流程抽成私有方法 `FindPathViaGrid`（起止点可行走性/零长度
+两个前置判定留在 `FindPath` 本身，行为不变）；`FindPathViaGrid` 返回 `null`（网格寻路彻底失败）时，
+`FindPath` 最后再检查一次"直线直达"——新增 `SegmentHasClearContact`，复用 `TrySegmentRectInteriorEntry`
+同一份 `ClipAxis` slab 裁剪算出线段与每个阻挡矩形包围盒的参数化重叠区间，只要存在一个哪怕退化为
+单点的重叠区间就判定"有接触"；只有线段与全部阻挡矩形都完全没有接触时才放行，直接返回 `[from,to]`。
+这一判定刻意比 `SegmentBlocked`（`Raycast`/网格寻路共用的常规通行判定，贴边/擦角放行）更严格：
+`FindPath_DiagonalMove_DisallowedWhenBothOrthogonalNeighborsBlocked` 这类"两个正交邻居格都被封死、
+只能贴着共享墙角走对角线"的场景，直线 `Raycast` 恰好也是清晰的（线段只在数学意义上的单点擦过墙
+角），但这属于 A* 八邻居展开逻辑"禁止切角"规则应当继续拒绝的——`SegmentHasClearContact` 会因为
+线段与相邻阻挡矩形之间仍存在一个（哪怕退化为单点的）接触窗口而拒绝直线兜底，不越权覆盖既有的
+"禁止切角"结论；真正的窄通道场景（两侧墙体在通道方向上完全没有重叠窗口）不受此收紧影响。
+
+对应测试：`Tests/Editor/UnityNavigation2DTests.cs`
+（`NAV111_01_NarrowCorridorThinnerThanBothGrids_ExactPointsAndDirectRaycastClear_ReturnsNonNullPath`
+把审核归档 `Audit6739f50NavigationProbes.cs` 记录"观察到的候选缺陷现象"改写为根治后的正确性断言；
+`NAV111_01_StraightLineFallback_DoesNotOverrideDiagonalCornerCuttingBan` 是收紧判定的专项回归，逐字
+复用既有"禁止切角"用例的阻挡矩形与端点，断言直线兜底不越权放行）。
+
+### SPATIAL-111-01 根治（第十三轮审核 6739f50，2026-09-09）
+
+审核报告：`architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md`，复现见
+`presentation/spatial-probe-v2.log`。不改变 `ISpatialQuery` 契约面（签名不变），只改
+`UnitySpatialQuery.QueryRadius`/`QueryCone` 内部候选桶选取范围。
+
+**现象**：`QueryRadius`/`QueryCone` 最终判定用的是"圆心距 <= 查询半径/范围 + 实体自身半径"，但候选
+分桶（`CandidatesNear`，按 `BucketSize`=4.0 的均匀网格分桶）此前只按查询半径/范围本身扩张，没有把
+"实体自身也有半径"这件事一并算进候选筛选阶段——一个自身半径较大的实体，即便圆心距满足最终判定
+条件，也可能因为自己的圆心恰好落在按纯查询半径扩张出的候选桶范围之外而被提前漏选（复现：查询中心
+`(3.5,0)` 半径 `0.1`，实体中心 `(4.1,0)` 自身半径 `0.7`，圆心距 `0.6` 满足 `0.1+0.7=0.8` 的判定
+阈值，但候选桶只按半径 `0.1` 扩张，实体所在的桶完全没被枚举到，`QueryRadius` 漏掉它；`QueryRect`
+不分桶、逐个遍历全部登记对象，同一场景下正确返回该实体，两者结果不一致）。
+
+**根治**：`QueryRadius`/`QueryCone` 调用 `CandidatesNear` 前，候选桶范围改为"查询半径/范围 +
+索引内最大实体半径"（`MaxRadiusHint()`，与 `QueryLine` 早已使用的同款扩张同一惯例），与最终判定
+用的同一份阈值口径一致；桶枚举本身按 `(bx,by)` 网格坐标去重（每个实体只登记在唯一一个桶里，见
+`BucketOf`/`UpdatePosition`），扩张不会产生重复候选，最终判定仍按逐实体真实半径精确裁剪，扩张只
+影响候选集合的召回范围。`QueryRect`/`QueryShape`/`Nearest` 本就不经分桶（对 `_entries.Values` 全量
+线性扫描），不受本次改动影响，也不存在同一漏选问题；`adapters/stub/StubSpatialQuery` 同样是全量
+线性扫描、无分桶结构，核对后确认不需要改动（已与 `UnitySpatialQuery` 对齐）。
+
+对应测试：`Tests/Editor/UnitySpatialQueryTests.cs`（`SPATIAL111_01_QueryRadius_EntityAcrossBucketEdge_
+LargeSelfRadius_IsIncluded` 把审核归档 `Audit6739f50SpatialQueryProbes.cs` 记录的候选缺陷现象改写为
+根治后的正确性断言，并与 `QueryRect` oracle 交叉核对一致；`SPATIAL111_01_QueryCone_...`
+覆盖同一根因的 `QueryCone`；`SPATIAL111_01_QueryRadius_AfterUpdatePositionAcrossBucket_StillFound`/
+`SPATIAL111_01_QueryRadius_AfterUnregister_ExcludedEvenThoughWithinExpandedRange` 分别覆盖移动到跨
+桶边界、注销后不应死灰复燃两个边界场景）。
+
 ## 游戏模板如何接入本包（数据目录框架/游戏分层任务）
 
 `games/_template/`（`com.gamefoundation.game-template` 包）是"复制即可起步"的新游戏模板，`Runtime/

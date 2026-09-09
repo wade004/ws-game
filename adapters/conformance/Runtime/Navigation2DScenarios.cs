@@ -24,6 +24,7 @@ namespace Adapters.Conformance
             new ConformanceScenario<INavigation2D>("GetBlockingVersion_SetBlocking与BuildNavMesh与Clear均递增", GetBlockingVersion_IncrementsOnChanges),
             new ConformanceScenario<INavigation2D>("FindPath_端点格中心受阻但端点与直线均可通行_每段Raycast均不受阻", FindPath_EndpointCellCenterBlocked_EverySegmentRaycastNull),
             new ConformanceScenario<INavigation2D>("FindPath_薄墙窄于采样间距存在绕路_每段Raycast均不受阻", FindPath_ThinWallNarrowerThanSampling_EverySegmentRaycastNull),
+            new ConformanceScenario<INavigation2D>("FindPath_通道窄于两级采样格但直线畅通_每段Raycast均不受阻", FindPath_NarrowCorridorThinnerThanGrids_EverySegmentRaycastNull),
         };
 
         private static readonly Id MapId = new Id("map.conformance_probe");
@@ -240,6 +241,47 @@ namespace Adapters.Conformance
             {
                 var hit = nav.Raycast(map, path[i], path[i + 1]);
                 assert.IsNull(hit, $"路径第 {i} 段不应被 Raycast 判定为受阻（Raycast 与 FindPath 必须共用同一阻挡判定）");
+            }
+
+            nav.Clear(map);
+            yield break;
+        }
+
+        /// <summary>NAV-111-01 契约精确化新增（architecture/落地计划/audit-6739f50-20260909/
+        /// AUDIT_REPORT.md）：一条比网格类实现的采样间距（主网格、细网格兜底）都窄的合法通道，
+        /// 两端点自身按 <see cref="INavigation2D.IsWalkable"/> 逐点判定都可行走、两端点间直线
+        /// <see cref="INavigation2D.Raycast"/> 也完全清晰——网格类实现不应因为采样间距下限而把
+        /// 这种真实可行的直线通道误判为无路可走。判断记录：桩实现（<c>StubNavigation2D</c>）本就
+        /// 是直线导航、不做任何网格采样，FindPath 直接用端点本身的 IsWalkable + 直线 SegmentBlocked
+        /// 判定，天然不会复现这一类"网格分辨率不足"缺陷；本场景对桩、Unity 两侧实现均要求返回非空
+        /// 路径，不做跳过——与"双矩形拐角"/"薄墙"两个要求真绕障能力的场景（桩天然做不到）性质不同，
+        /// 与"端点格中心受阻"场景（同样两侧都应通过）同一惯例。</summary>
+        private static IEnumerator FindPath_NarrowCorridorThinnerThanGrids_EverySegmentRaycastNull(INavigation2D nav, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            var map = new Id("map.conformance_narrow_corridor_thinner_than_grids");
+            nav.SetBlocking(map, new[]
+            {
+                new Rect(new Vec2(-1, -1), new Vec2(1, 0)),
+                new Rect(new Vec2(-1, 0.1), new Vec2(1, 1)),
+            });
+            nav.BuildNavMesh(map);
+
+            var from = new Vec2(-0.5, 0.05);
+            var to = new Vec2(0.5, 0.05);
+
+            assert.True(nav.IsWalkable(map, from), "起点自身按逐点判定应可行走");
+            assert.True(nav.IsWalkable(map, to), "终点自身按逐点判定应可行走");
+            assert.IsNull(nav.Raycast(map, from, to), "两端点间的直线不应被判定为受阻");
+
+            var path = nav.FindPath(map, from, to);
+            assert.NotNull(path, "比两种网格采样间距都窄的合法通道不应被误判为无路可走");
+            if (path != null)
+            {
+                for (var i = 0; i < path.Count - 1; i++)
+                {
+                    var hit = nav.Raycast(map, path[i], path[i + 1]);
+                    assert.IsNull(hit, $"路径第 {i} 段不应被 Raycast 判定为受阻（Raycast 与 FindPath 必须共用同一阻挡判定）");
+                }
             }
 
             nav.Clear(map);

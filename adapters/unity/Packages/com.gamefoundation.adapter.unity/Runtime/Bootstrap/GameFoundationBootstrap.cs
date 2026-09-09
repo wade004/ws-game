@@ -813,10 +813,11 @@ namespace Adapter.Unity.Bootstrap
             _frameHandle?.Dispose();
             _frameHandle = null;
 
-            // 见 Adapter.Unity.Presentation.UnityViewFactory 顶部判断记录：ViewBinder/CameraHost
-            // 不支持退订是 presentation/ 的已知缺口，本方法在引擎侧尽力而为地清理——退订能退订的
-            // 部分（Presentation.Dispose()），再销毁全部本次场景创建过的 View（避免其 Sprite 实例
-            // 挂在 DontDestroyOnLoad 的渲染根下跨场景重进泄漏）。
+            // 见 Adapter.Unity.Presentation.UnityViewFactory 顶部判断记录（2026-09-09 已更新，见
+            // DOC-111-04）：ViewBinder 现已实现 IDisposable、支持退订，本方法先调用
+            // Presentation.Dispose() 完成退订；退订与销毁已创建的 View 是两个独立职责——退订之后
+            // 再调用 DestroyAllCreatedViews 销毁全部本次场景创建过的 View（避免其 Sprite 实例挂在
+            // DontDestroyOnLoad 的渲染根下跨场景重进泄漏），不是"代为兜底一个尚不支持退订的模块"。
             Presentation?.Dispose();
             ViewFactory?.DestroyAllCreatedViews();
 

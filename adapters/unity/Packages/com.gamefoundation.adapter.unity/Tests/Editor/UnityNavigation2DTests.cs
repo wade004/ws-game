@@ -275,6 +275,77 @@ namespace Adapter.Unity.Tests.Editor
             }
         }
 
+        // 审计 architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md NAV-111-01 的复现测试
+        // （见 presentation/navigation-probes.xml/.log 同名场景）：审计副本
+        // Audit6739f50NavigationProbes.NAV110_03_NarrowCorridor_ExactPointsAndDirectRaycastClear_ShouldRemainReachable
+        // 记录了这条"观察到的候选缺陷现象"，这里按既有惯例（NAV110_01/NAV110_02）改写为断言根治后
+        // 正确行为的正式回归用例，纳入本模块基线。
+
+        [Test]
+        public void NAV111_01_NarrowCorridorThinnerThanBothGrids_ExactPointsAndDirectRaycastClear_ReturnsNonNullPath()
+        {
+            // 通道宽度 0.1，严格小于主网格格子尺寸 0.25 与细网格兜底格子尺寸 0.125：无论主网格还是
+            // 细网格，都不存在一整行格子（哪怕格中心，哪怕"格子内部与阻挡矩形相交"判定）完全落在
+            // 通道内部——ResolveEntryCell 甚至会因为端点周围 8 邻格全部受阻直接判定"无法进入网格"。
+            // 但两端点自身按 IsWalkable 逐点判定都可行走，直线 Raycast 也完全清晰（通道内直线与两侧
+            // 阻挡矩形毫无接触，不是贴边擦角）——根治前 FindPath 会在网格寻路彻底失败后直接返回 null，
+            // 根治后应落到 NAV-111-01 的"直线直达"兜底，返回 [from,to]。
+            var map = new Id("map.test_nav111_01_narrow_corridor");
+            _nav.SetBlocking(map, new[]
+            {
+                new Rect(new Vec2(-1, -1), new Vec2(1, 0)),
+                new Rect(new Vec2(-1, 0.1), new Vec2(1, 1)),
+            });
+            var from = new Vec2(-0.5, 0.05);
+            var to = new Vec2(0.5, 0.05);
+            _nav.BuildNavMesh(map);
+
+            Assert.IsTrue(_nav.IsWalkable(map, from), "端点自身按逐点判定应可行走");
+            Assert.IsTrue(_nav.IsWalkable(map, to), "端点自身按逐点判定应可行走");
+            Assert.IsNull(_nav.Raycast(map, from, to), "两端点间的直线不应被判定为受阻");
+
+            var path = _nav.FindPath(map, from, to);
+
+            Assert.IsNotNull(path, "比两种网格格子尺寸都窄的合法通道不应被误判为无路可走");
+            Assert.AreEqual(from.X, path![0].X, 0.0, "路径首点应精确等于请求的起点");
+            Assert.AreEqual(from.Y, path[0].Y, 0.0, "路径首点应精确等于请求的起点");
+            Assert.AreEqual(to.X, path[path.Count - 1].X, 0.0, "路径末点应精确等于请求的终点");
+            Assert.AreEqual(to.Y, path[path.Count - 1].Y, 0.0, "路径末点应精确等于请求的终点");
+            for (var i = 0; i < path.Count - 1; i++)
+            {
+                Assert.IsNull(_nav.Raycast(map, path[i], path[i + 1]),
+                    $"路径第 {i} 段不应被 Raycast 判定为受阻（Raycast 与 FindPath 必须共用同一阻挡判定）");
+            }
+        }
+
+        [Test]
+        public void NAV111_01_StraightLineFallback_DoesNotOverrideDiagonalCornerCuttingBan()
+        {
+            // 回归防线：NAV-111-01 新增的"直线直达"兜底必须不越权放行 FindPath_DiagonalMove_
+            // DisallowedWhenBothOrthogonalNeighborsBlocked 场景——这条对角线的直线 Raycast 恰好也是
+            // 清晰的（只在数学意义上的单点擦过两个阻挡矩形的共享墙角），但两个正交邻居格都被封死时
+            // 仍应继续禁止"贴墙角切对角线抄近路"，FindPath 必须仍然返回 null（同基线用例断言，逐字
+            // 复用其阻挡矩形与两端点，见 SegmentHasClearContact 判断记录）。
+            var map = new Id("map.test_nav111_01_no_corner_cut_override");
+            _nav.SetBlocking(map, new[]
+            {
+                new Rect(new Vec2(0.25, 0), new Vec2(0.5, 0.25)),
+                new Rect(new Vec2(-0.25, 0), new Vec2(0, 0.25)),
+                new Rect(new Vec2(0, 0.25), new Vec2(0.25, 0.5)),
+                new Rect(new Vec2(0, -0.25), new Vec2(0.25, 0)),
+            });
+            var from = new Vec2(0.125, 0.125);
+            var to = new Vec2(0.375, 0.375);
+            _nav.BuildNavMesh(map);
+
+            Assert.IsNull(_nav.Raycast(map, from, to),
+                "前置条件：直线 Raycast 应恰好只擦过共享墙角单点，不判定为受阻（否则本用例没有覆盖到直线兜底分支）");
+
+            var path = _nav.FindPath(map, from, to);
+
+            Assert.IsNull(path, "直线兜底不应越权放行禁止切角的对角墙角场景");
+        }
+
         [Test]
         public void GetBlockingVersion_IncrementsOnSetBlockingClearAndBuildNavMesh()
         {

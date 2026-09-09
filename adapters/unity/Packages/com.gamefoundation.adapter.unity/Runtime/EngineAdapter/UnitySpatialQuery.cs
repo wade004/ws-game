@@ -6,8 +6,13 @@
 // 这是一份不小的额外同步成本，且 Physics2D 的查询结果顺序不保证稳定（依赖内部空间划分与
 // 浮点比较），与契约"结果按 Id 排序、确定性"的要求需要额外排序兜底；自维护登记表能一次性把
 // "确定性 + 与逻辑层解耦"都满足，且与 adapters/stub/StubSpatialQuery 的几何算法保持一致口径，
-// 便于跨适配层实现做行为对拍。内部用简单的均匀网格分桶加速（而非线性扫描全部对象），
-// 满足 02 第 1.9 节"查询应基于空间索引而非线性扫描"的性能约定。
+// 便于跨适配层实现做行为对拍。QueryRadius/QueryCone/QueryLine 内部用简单的均匀网格分桶加速
+// （候选桶范围按查询半径/范围 + 索引内最大实体半径扩张，见 SPATIAL-111-01 根治判断记录，
+// architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md）；QueryRect/QueryShape/Nearest
+// 未接入分桶索引，仍是对 _entries.Values 的线性扫描——这是本文件当前的真实边界，不是"全部查询
+// 都已索引化"，判断记录 2026-09-09 之前的措辞（"满足 02 第 1.9 节……的性能约定"）与这一实际情况
+// 不符，过度宣称，已随 02 第 1.9 节同日勘误一并改写；02 第 1.9 节现文的边界表述（是否索引化由
+// 实现自行决定，桩实现可退化为线性扫描）与本文件当前实现相符，不再需要额外补充勘误记录。
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -79,7 +84,21 @@ namespace Adapter.Unity.EngineAdapter
 
         public IReadOnlyList<Id> QueryRadius(Vec2 center, double radius, QueryFilter filter)
         {
-            return CandidatesNear(center, radius)
+            // SPATIAL-111-01 根治（architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md，见
+            // spatial-probe-v2.log 同名场景）：候选桶范围此前只按查询半径 radius 扩张，没有把"实体
+            // 自身也有半径、判定条件是圆心距 <= radius + e.Radius"这件事一并算进候选筛选阶段——一个
+            // 自身半径较大的实体，即便圆心距满足最终判定条件，也可能因为自己的圆心恰好落在按纯
+            // radius 扩张出的候选桶范围之外而被提前漏选（复现：查询中心 (3.5,0) 半径 0.1，实体中心
+            // (4.1,0) 自身半径 0.7，圆心距 0.6 满足 0.1+0.7=0.8 的判定阈值，但候选桶只按半径 0.1
+            // 扩张，实体所在的桶完全没被枚举到）。根治：候选桶按"查询半径 + 索引内最大实体半径"
+            // （<see cref="MaxRadiusHint"/>，与 <see cref="QueryLine"/> 已有的同款扩张同一惯例）扩张，
+            // 与下面 <c>Where</c> 子句最终判定用的同一份 <c>radius + e.Radius</c> 阈值口径一致，
+            // 不会再漏选跨桶边界的大半径实体；最终判定仍按逐实体真实半径做精确裁剪，扩张只影响候选
+            // 集合的召回范围，不影响结果的精确性。桶枚举本身按 (bx,by) 网格坐标去重（每个实体只登记
+            // 在唯一一个桶里，见 <see cref="BucketOf"/>/<see cref="UpdatePosition"/>），不会因为扩张
+            // 而产生重复候选。
+            var candidateRange = radius + MaxRadiusHint();
+            return CandidatesNear(center, candidateRange)
                 .Where(e => Vec2.Distance(center, e.Position) <= radius + e.Radius)
                 .Where(e => MatchesFilter(e, filter))
                 .Select(e => e.Id)
@@ -89,7 +108,11 @@ namespace Adapter.Unity.EngineAdapter
 
         public IReadOnlyList<Id> QueryCone(Vec2 origin, double direction, double angle, double range, QueryFilter filter)
         {
-            return CandidatesNear(origin, range)
+            // SPATIAL-111-01 根治同惯例（见 QueryRadius 判断记录）：IsInCone 的距离判定同样是
+            // "distance <= range + entry.Radius"，候选桶范围需要同步按索引内最大实体半径扩张，否则
+            // 自身半径较大、圆心恰好落在候选桶范围外的实体会被提前漏选，与 QueryRadius 同一个根因。
+            var candidateRange = range + MaxRadiusHint();
+            return CandidatesNear(origin, candidateRange)
                 .Where(e => IsInCone(origin, direction, angle, range, e))
                 .Where(e => MatchesFilter(e, filter))
                 .Select(e => e.Id)

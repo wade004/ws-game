@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
+using Core.Foundation.SaveSystem;
 using Core.Gameplay.Economy;
 
 namespace Presentation.Ui
@@ -70,6 +71,10 @@ namespace Presentation.Ui
             _subscriptions.Add(_dataSource.Subscribe(EconomyEventKeys.VendorRestocked, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(EconomyEventKeys.ItemPurchased, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(EconomyEventKeys.ItemSold, OnRelevantEvent));
+            // UI-111-01 根治同惯例（见 InventoryViewModel 类型注释）：同图读档的抑制作用域会连带
+            // 压住货币/库存变化事件本身，只有在该作用域外正常派发的 save.loaded 能保证读档后货架与
+            // 余额整体重建（Refresh 对 CurrentVendorId 为 null 时是幂等空操作，不强行打开商店）。
+            _subscriptions.Add(_dataSource.Subscribe(SaveEventKeys.SaveLoaded, OnRelevantEvent));
         }
 
         /// <summary>打开一个商人的货架（见 09 第 7.1 节"商店"面板，具体交互——点击 NPC 触发对话/进店

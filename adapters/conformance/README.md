@@ -17,7 +17,8 @@
   `InputScenarios.cs` / `FileSystemScenarios.cs` / `ResourceLoaderScenarios.cs` /
   `Navigation2DScenarios.cs` / `SpatialQueryScenarios.cs` / `UISurfaceScenarios.cs` /
   `PlatformScenarios.cs` / `Renderer3DScenarios.cs` / `CameraScenarios.cs`：按接口拆分的场景列表，
-  每个文件一个静态 `All` 数组。合计 46 个场景（≥ 40，见任务验收要求）。
+  每个文件一个静态 `All` 数组。合计 63 个场景（≥ 40，见任务验收要求；2026-09-09 第十三轮审核
+  NAV-111-01/SPATIAL-111-01 根治各自新增 1/3 条场景，见文件末尾判断记录）。
 
 本目录本身不引用任何测试框架（xUnit/NUnit）也不引用 `UnityEngine`——它只依赖
 `core/foundation/common`（`Vec2`/`Id`/`Rect`/`SubscriptionHandle`）与
@@ -119,3 +120,11 @@
    "引擎适配层契约是否被满足"要验证的范围。本组场景只覆盖两侧都能不依赖真实资源文件确定性触发
    的契约条款（未注册资源的失败路径、`IsLoaded`/`GetLoadProgress` 取值范围、`Unload` 的宽松
    语义）。
+
+8. **NAV-111-01/SPATIAL-111-01（第十三轮审核 6739f50，2026-09-09，
+   `architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md`）新增的 4 条场景两侧都不
+   `Skip`。** 与判断记录 4"端点格中心受阻""薄墙"两条场景不同——`StubNavigation2D`/`StubSpatialQuery`
+   分别是纯直线导航（不做网格采样）与全量线性扫描（不做候选分桶），这两类"网格分辨率下限"
+   "候选筛选提前漏选"缺陷的根因（采样间距/分桶粒度）在桩实现里天生不存在，因此两侧实现都应当
+   直接返回正确结果，不需要为桩侧声明降级路径；具体场景与坐标见 `Navigation2DScenarios.cs`/
+   `SpatialQueryScenarios.cs` 对应场景体的类型注释。

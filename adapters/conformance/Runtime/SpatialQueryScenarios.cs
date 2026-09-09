@@ -18,6 +18,9 @@ namespace Adapters.Conformance
             new ConformanceScenario<ISpatialQuery>("Nearest返回最近对象_Clear后为空", Nearest_FindsClosest_ClearEmptiesIndex),
             new ConformanceScenario<ISpatialQuery>("QueryCone_扇形范围内命中范围外不命中", QueryCone_FindsWithinArc_ExcludesOutside),
             new ConformanceScenario<ISpatialQuery>("QueryLine_线段附近命中远处不命中", QueryLine_FindsNearSegment_ExcludesFar),
+            new ConformanceScenario<ISpatialQuery>("QueryRadius_跨候选边界的大自身半径实体仍应命中", QueryRadius_LargeSelfRadiusEntityAcrossCandidateBoundary_IsIncluded),
+            new ConformanceScenario<ISpatialQuery>("QueryRadius_UpdatePosition移动到跨边界位置后仍应命中", QueryRadius_AfterUpdatePositionAcrossBoundary_StillFound),
+            new ConformanceScenario<ISpatialQuery>("QueryRadius_Unregister后不应因候选扩张而死灰复燃", QueryRadius_AfterUnregister_ExcludedDespiteExpandedCandidates),
         };
 
         private static IEnumerator Register_ThenQueryRadius_FindsSelf(ISpatialQuery query, IConformanceAssert assert, ConformanceContext ctx)
@@ -131,6 +134,69 @@ namespace Adapters.Conformance
 
             query.Unregister(nearId);
             query.Unregister(farId);
+            yield break;
+        }
+
+        // 以下三条为 SPATIAL-111-01 契约精确化新增（architecture/落地计划/audit-6739f50-20260909/
+        // AUDIT_REPORT.md，复现见 presentation/spatial-probe-v2.log）：QueryRadius 的最终判定用的是
+        // "圆心距 <= 查询半径 + 实体自身半径"，索引加速实现若只按查询半径本身划分候选（不把实体自身
+        // 半径一并算进候选筛选阶段），会漏掉自身半径较大、圆心恰好落在候选边界之外的实体。判断记录：
+        // 坐标取值（查询中心 3.5、实体中心 4.1）源自审计报告的原始复现参数，对应 Unity 实现内部按
+        // 4.0 世界单位分桶时查询中心与实体分属相邻两个桶——桩实现（StubSpatialQuery）不做任何分桶，
+        // 对全部登记对象线性扫描，天然不会复现这一类"候选筛选提前漏选"缺陷，本场景对桩、Unity 两侧
+        // 实现均要求返回正确结果，不做跳过。
+
+        private static IEnumerator QueryRadius_LargeSelfRadiusEntityAcrossCandidateBoundary_IsIncluded(ISpatialQuery query, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            var id = new Id("obj.conformance_spatial111_01_boundary");
+            query.Register(id, new Vec2(4.1, 0), radius: 0.7, tags: System.Array.Empty<string>());
+            var center = new Vec2(3.5, 0);
+            var radius = 0.1;
+
+            var results = query.QueryRadius(center, radius, QueryFilter.None);
+            assert.True(Contains(results, id),
+                "圆心距 0.6 满足 查询半径 0.1 + 实体自身半径 0.7 = 0.8 的判定阈值，候选筛选不应提前漏选");
+
+            query.Unregister(id);
+            yield break;
+        }
+
+        private static IEnumerator QueryRadius_AfterUpdatePositionAcrossBoundary_StillFound(ISpatialQuery query, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            var id = new Id("obj.conformance_spatial111_01_moved");
+            var center = new Vec2(3.5, 0);
+            var radius = 0.1;
+            query.Register(id, center, radius: 0.7, tags: System.Array.Empty<string>());
+            assert.True(Contains(query.QueryRadius(center, radius, QueryFilter.None), id),
+                "登记时与查询中心同位置，应当命中");
+
+            query.UpdatePosition(id, new Vec2(4.1, 0));
+
+            assert.True(Contains(query.QueryRadius(center, radius, QueryFilter.None), id),
+                "UpdatePosition 把实体移到候选边界之外后，候选筛选仍应覆盖到它");
+
+            query.Unregister(id);
+            yield break;
+        }
+
+        private static IEnumerator QueryRadius_AfterUnregister_ExcludedDespiteExpandedCandidates(ISpatialQuery query, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            var stillRegistered = new Id("obj.conformance_spatial111_01_still_registered");
+            var unregistered = new Id("obj.conformance_spatial111_01_unregistered");
+            var center = new Vec2(3.5, 0);
+            var radius = 0.1;
+            query.Register(stillRegistered, new Vec2(4.1, 0), radius: 0.7, tags: System.Array.Empty<string>());
+            query.Register(unregistered, new Vec2(4.1, 0.2), radius: 0.7, tags: System.Array.Empty<string>());
+            assert.True(Contains(query.QueryRadius(center, radius, QueryFilter.None), unregistered),
+                "前置条件：注销前应能命中");
+
+            query.Unregister(unregistered);
+            var results = query.QueryRadius(center, radius, QueryFilter.None);
+
+            assert.True(Contains(results, stillRegistered), "仍在场、跨候选边界的大半径实体应继续被查到");
+            assert.False(Contains(results, unregistered), "已注销的对象不应因为候选范围扩张而死灰复燃");
+
+            query.Unregister(stillRegistered);
             yield break;
         }
 

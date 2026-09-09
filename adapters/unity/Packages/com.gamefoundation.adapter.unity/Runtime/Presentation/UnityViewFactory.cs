@@ -2,16 +2,21 @@
 // UnityViewFactory：Presentation.Common.IViewFactory 的 Unity 引擎实现，presentation/view_binding
 // 的 ViewBinder 是唯一调用方（见该接口注释）。
 //
-// 判断记录（View 生命周期跟踪，弥补 ViewBinder/CameraHost 不支持退订的已知缺口）：
-// presentation/assembly/README.md"判断记录 4"如实记录了 ViewBinder 构造期直接 bus.Subscribe，
-// 没有对外暴露退订句柄，PresentationAssembly.Dispose() 因此无法代为退订/销毁 ViewBinder 已创建的
-// 全部 View。若不处理，场景重进（新建一整套 World/GameplayAssembly/PresentationAssembly）会让
-// 上一次的 View（其 Sprite 实例挂在 DontDestroyOnLoad 的 UnityEngineHost.Renderer2D 根下，不会
-// 随场景卸载自动销毁）持续累积。本类型不改 presentation/（该模块补退订属于契约变更，需要走 12
-// 第 5 节流程），改为在"引擎侧"补一个不属于 IViewFactory 契约本身的协作方法
-// DestroyAllCreatedViews——本工厂记住自己创建过的每一个 View，供
-// GameFoundationBootstrap.OnDestroy 主动逐一调用 IView.Destroy() 清理，与
-// UnityResourceLoader.TryGetSprite 之类"引擎实现之间的内部协作方法，不算契约违反"同一惯例。
+// 判断记录（View 生命周期跟踪，DestroyAllCreatedViews 的由来与现状——2026-09-09 按第十三轮审核
+// DOC-111-04 更新：此前本记录声称"ViewBinder/CameraHost 不支持退订"，已过期，见下）：
+// presentation/view_binding/core/ViewBinder.cs 现已实现 IDisposable（构造期保存全部订阅句柄，
+// Dispose 时统一退订，见该类型判断记录），GameFoundationBootstrap.OnDestroy 也会先调用
+// Presentation.Dispose() 完成退订；"ViewBinder 不支持退订"已不是 presentation/ 的已知缺口，
+// 这部分不再需要引擎侧代为兜底。DestroyAllCreatedViews 仍然保留，因为它解决的是另一件事——
+// 事件退订（停止继续响应）与销毁已创建的 View 实体（回收其占用的引擎资源）是两个独立职责：
+// ViewBinder.Dispose 退订后，此前已经创建好的 View（其 Sprite 实例挂在 DontDestroyOnLoad 的
+// UnityEngineHost.Renderer2D 根下，不会随场景卸载自动销毁）仍然存活在场景里，若不显式销毁，
+// 场景重进（新建一整套 World/GameplayAssembly/PresentationAssembly）会让上一批 View 持续累积。
+// 本类型仍不改 presentation/ 契约本身（View 的销毁时机属于宿主装配职责，不是 IViewFactory 契约
+// 缺口），继续在"引擎侧"提供这个不属于 IViewFactory 契约本身的协作方法 DestroyAllCreatedViews——
+// 本工厂记住自己创建过的每一个 View，供 GameFoundationBootstrap.OnDestroy 在 Presentation.Dispose()
+// 退订之后主动逐一调用 IView.Destroy() 清理，与 UnityResourceLoader.TryGetSprite 之类"引擎实现
+// 之间的内部协作方法，不算契约违反"同一惯例。
 using System;
 using System.Collections.Generic;
 using Core.Carriers.Common;
