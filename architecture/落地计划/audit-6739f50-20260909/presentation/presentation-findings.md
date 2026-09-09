@@ -86,8 +86,9 @@ Unity 插件 DLL 来自本轮冻结仓 `bin/_check_artifacts/bin/<assembly>/rele
 
 这是修复 NAV-110-01 后仍未覆盖的可达性边界，确认为 `NAV-111-01` P2。证据见
 [navigation-probes.xml](navigation-probes.xml)、[navigation-probes.log](navigation-probes.log)
-和 [Audit6739f50NavigationProbes.cs](Audit6739f50NavigationProbes.cs)。该审计探针一组为
-3 通过、1 失败；失败是预期可达断言失败，不是测试资产错误。
+（原件未归档，归档时遗漏、候选产出目录已搜索确认找不回，结论以本节引用的 3 通过/1 失败数值及
+随附的 XML 为准）和 [Audit6739f50NavigationProbes.cs](Audit6739f50NavigationProbes.cs)。该审计
+探针一组为 3 通过、1 失败；失败是预期可达断言失败，不是测试资产错误。
 
 ### NAV-110-04：细网格较宽子格墙
 
@@ -149,8 +150,10 @@ HUD 或屏幕外观。该链路仍需独立真实读档和 View 层证据。
 PlayMode 首次完整批次为 `197/265`，原因是副本尚未有 StreamingAssets 内容；补齐数据后
 `playmode-full-v2.xml` 为 `227/265`，剩余 38 条依赖 build 生成的 scene/nav 资源。模板启动
 补测 `playmode-template.xml` 为 `4/4`，确认补齐路径可进入场景；随后完整最终批次
-[playmode-full-final.xml](playmode-full-final.xml) 为 `265/265`，日志见
-[playmode-full-final.log](playmode-full-final.log)。前两次批次保留作副本准备诊断，不计产品缺陷。
+[playmode-full-final.xml](playmode-full-final.xml)（原件未归档，归档时遗漏、候选产出目录已搜索
+确认找不回，结论以本节引用的 `265/265` 数值为准）为 `265/265`，日志见
+[playmode-full-final.log](playmode-full-final.log)（原件未归档，同上）。前两次批次保留作副本
+准备诊断，不计产品缺陷。
 
 ## 结论与限制
 

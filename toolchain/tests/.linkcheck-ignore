@@ -31,3 +31,17 @@ architecture/落地计划/audit-ac3b622-20260909/AUDIT_REPORT.md::presentation/p
 architecture/落地计划/audit-ac3b622-20260909/AUDIT_REPORT.md::../audit-ac3b622-20260909-evidence.zip
 architecture/落地计划/audit-ac3b622-20260909/presentation/presentation-findings.md::playmode-full-final.xml
 architecture/落地计划/audit-ac3b622-20260909/presentation/presentation-findings.md::playmode-full-final.log
+
+# 2026-09-09 第十五方深度审核归档：audit-6739f50-20260909 引用的 navigation-probes.log、
+# playmode-full-final.{xml,log} 与审计证据包 audit-6739f50-20260909-evidence.zip，同样只在
+# evidence-manifest.txt 中登记了 SHA256（说明生成时确实存在过），归档时未把这些文件实际写入
+# 仓库；在候选 codex 产出目录（C:\Users\1\.codex\visualizations\2026\09\08\
+# 01a0801a-5646-78c2-a68c-99bbc742bed9\audit-6739f50-20260909\ 及全量 .codex 目录）与本仓库
+# 搜索后确认找不回原件。AUDIT_REPORT.md 与 presentation-findings.md 正文已在对应链接旁标注
+# "原件未归档"及原因，结论以正文引用的 3/1、265/265 通过数值为准。
+architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md::presentation/navigation-probes.log
+architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md::../audit-6739f50-20260909-evidence.zip
+architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md::presentation/playmode-full-final.xml
+architecture/落地计划/audit-6739f50-20260909/presentation/presentation-findings.md::navigation-probes.log
+architecture/落地计划/audit-6739f50-20260909/presentation/presentation-findings.md::playmode-full-final.xml
+architecture/落地计划/audit-6739f50-20260909/presentation/presentation-findings.md::playmode-full-final.log
