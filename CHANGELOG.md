@@ -11,6 +11,109 @@
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.11.0] - 2026-09-09
+
+第十四方深度审核（codex 第十二轮，基线 `ac3b622`，即 1.10.0 发布提交）3 项核心侧确认缺陷
+（CORE-110-01～03）+ 2 项引擎侧确认缺陷（NAV-110-01/02）+ 1 项表现侧确认缺陷（PRES-110-01）逐条
+核实并根治，另拍板落地方向移动导航阻挡契约、补齐 WorldMap 四字段 schema 登记、找回被
+`.gitignore` 误伤的审计证据并收紧相对链接检查覆盖范围。逐条核实表、判断记录、验收结果见
+[audit-ac3b622-20260909/followup-2026-09-09.md](architecture/落地计划/audit-ac3b622-20260909/followup-2026-09-09.md)。
+均属核心存档/规则/载体层缺陷修复、引擎适配层寻路缺陷修复与工具链/归档完整性补强，无数据表字段
+删改，无存档格式变更。
+
+### 新增
+
+- **`Core.Numbers.StatBlock.StatHost.ResetBase(Id unitId, Id stat)`**（新增公开方法，CORE-110-02
+  根治）：清除某单位某属性此前显式 `SetBase` 过的值，恢复成"从未显式设置过"（即
+  `stat.definition.default_base`）；不是 `IStatHost` 接口成员，不影响任何既有 `IStatHost` 假实现。
+- **`WorldMapSchema`（`world.map`）四字段补齐类型校验**：`regions`（`IdList`）、
+  `teleport_points`（`Array`）、`music_ref`（`String`）、`allowed_difficulties`（`IdList`），均为
+  可选字段，按 `05_对象模型与世界.md` 第 4.1 节原文类型/必填性登记，只做类型校验、不做引用完整性
+  校验（无独立登记表可查）；`data/_sample`/`data/_framework` 现有 `world.map` 记录均未使用这四个
+  字段，登记不影响既有数据。
+- **`UnityNavigation2D` 端点接合/薄障碍兜底**：`FindPath` 起止格量化后若格中心恰好落在阻挡区域
+  内部，新增私有 `ResolveEntryCell` 在其 8 邻居里找一个可行走且与精确端点直连不受阻的格子接合
+  （NAV-110-01 根治）；`FindPath` 收尾复核（逐段 `Raycast`）未通过时，新增私有
+  `FindPathWithFineGrid` 用半格尺寸 + 精确占用判定的独立细网格重新完整寻路一次作为兜底，仍不通过
+  才是真正无路可走（NAV-110-02 根治）——均为类型内部私有实现细节，`INavigation2D` 契约签名不变。
+- **`EquipmentWeaponStyleSource` 订阅 `save.loaded`**（PRES-110-01 根治）：构造函数新增订阅，收到
+  后整表清空内部风格缓存，下一次查询对全部实体重新解析真实 `EquipmentHost` 状态。
+- **方向移动导航阻挡契约拍板落地（NAV-DOC-02）**：`MovementTickHandler.ApplyDirectionalMove` 新增
+  对候选终点的 `Raycast`/`IsWalkable` 检查，与目标类移动共用同一套统一可通行规则（受阻按
+  `MovementOptions.ArrivalEpsilon` 截断到入射点前，截断后仍不可行走则不动）；`architecture/05` 第
+  6.1 节同步勘误。
+
+### 修复
+
+- **失败读档回滚后派生状态（评级换算属性/光环/资源池上限-当前值）不恢复（CORE-110-01，P2）**：
+  `SaveSystem.RollbackLoadedSections` 此前只覆盖字段本身（`IPersistable.Load(快照)`），不重新调用
+  `IDerivedStateRebuilder.OnSectionLoaded`——回滚只恢复字段不等于恢复由字段推导出的派生状态。改为
+  对每个成功回滚的段按与正常读档相同的正向顺序重放一次 `OnSectionLoaded`；失败分支的回滚集合额外
+  总是尝试把 `player.vitals`（资源池当前值唯一权威段）纳入，即便它本不在这次失败读档实际触碰过的
+  段列表里。
+- **同图跨职业读档只覆盖新旧共同基础属性键，旧职业独有键与资源类型集合未清理（CORE-110-02，P2）**：
+  `RulesAssembly.ReloadArchetypeAndRace` 此前完全忽略 `previousClassId` 参数。改为按"旧种族修正 →
+  旧职业独有基础键（`StatHost.ResetBase`）→ 新职业完整基础键 → 新种族修正/光环 → 资源类型对账"
+  顺序根治（资源类型对账必须放最后，因为 `PowerHost.RegisterUnit` 按注册时刻的属性聚合值初始化
+  上限）。
+- **同一 tick 内多条 move 意图逐条重复推进位移（CORE-110-03，P2）**：`MovementTickHandler.Execute`
+  此前对本 tick 存活的每一条 move 意图各自调用一次 `ApplyIntent`，同一单位同一 tick 提交 N 条意图
+  会把固定的 dt 重复消费 N 次。落地公共语义"每单位每 tick 只积分一次，同 tick 多条 move 意图最后
+  一条生效"：先扫描每单位本 tick 最后一条存活意图的下标，第二趟遍历只在命中该下标时调用一次
+  `ApplyIntent`（用两趟遍历、不依赖 `Dictionary` 迭代顺序，保证单位间处理顺序与修复前一致）。
+- **Unity 导航端点所在采样格中心被阻挡时 `FindPath` 拒绝可达路径（NAV-110-01，P2）**：见上"新增"
+  `ResolveEntryCell`。
+- **Unity 网格 A* 对窄于采样间距的薄墙视而不见，收尾防线命中即直接返回 `null`、不尝试绕路
+  （NAV-110-02，P2）**：见上"新增"`FindPathWithFineGrid`。
+- **读档后 `EquipmentWeaponStyleSource` 缓存未随 `SaveSystem.Load` 抑制作用域内重放的装备事件失效
+  （PRES-110-01，P2）**：见上"新增"`save.loaded` 订阅。核对同类缓存来源
+  `presentation/render/core/EquipmentVisualSource.cs`：理论上受同一抑制作用域问题影响，但不是同一
+  种缺陷形状（无状态查询缓存 vs. 已应用到具体 View 实例的状态日志），不外推入本次修复范围，留待
+  该模块自己的复现证据立项。
+- **归档证据被 `.gitignore` `**/[Ll]ogs/` 规则误伤**：该规则未加路径前缀，连带忽略了
+  `architecture/落地计划/audit-*/**/logs/` 这类要长期留存的审计证据目录；收窄为
+  `adapters/unity/**/[Ll]ogs/`（只限定 Unity 工程自身日志缓存）。找回 e070e3f/3224ca1/8160178/
+  c86bfa9 四个既往归档目录下共 30 处因此漏收录的证据文件；2 处原件已随会话清理彻底丢失（presentation
+  动画回归证据）的链接如实标注"原件未归档"并登记进新增的 `toolchain/tests/.linkcheck-ignore` 白
+  名单。
+- **相对链接检查此前对 `audit-*` 目录整段排除，从未扫描审计报告内的证据链接**：
+  `toolchain/tests/test_markdown_relative_links.py` 取消该排除，改为逐条判断（`.gitignore` 覆盖
+  路径照旧跳过；新增识别 `path.cs:123` 源码行号引用记法并剥离后缀再判存在性；显式豁免走新增的
+  `.linkcheck-ignore` 白名单）。
+- **`MoveStopReason.BlockingChanged` XML 注释错误地把 `PathFailurePolicy.Stop` 失败归为该原因**（
+  实际触发 `PathFailed`）、`LootExpiryTickHandler.cs:35` 旧注释与当前真实局部语义不符：均已改正，
+  不改变任何运行期行为。
+
+### 行为变更与迁移说明
+
+- **同 tick 多条 move 意图的位移语义变更**：升级前同一单位同一 tick 提交 N 条 move 意图会把固定
+  dt 重复消费 N 次（等价于"叠加位移"）；升级后固定为"最后一条生效，dt 只消费一次"。**依赖旧行为
+  （连续提交多条 move 意图来叠加本 tick 位移量）的调用方需要改为一次性提交携带最终目标/方向的单条
+  意图**——这不是框架推荐或文档化过的用法，是此前实现的副作用；`OnMoveStopped(Replaced)` 触发
+  语义不变（至多一次，取决于上一 tick 是否已有路径，与本 tick 内提交过几条被丢弃的意图无关）。
+- **方向移动现在遵守导航阻挡**：升级前 `ApplyDirectionalMove` 只检查同帧其它单位阻挡，从不查询
+  `INavigation2D.IsWalkable`/`Raycast`，可以穿过地形阻挡；升级后与目标类移动共用统一可通行规则，
+  受阻会被截断或完全不位移。**依赖旧行为（方向移动可以穿越导航阻挡区域）的调用方需要重新评估**——
+  未装配 `INavigation2D` 的场景（`_navigation == null`）两项检查全部跳过，行为与升级前完全一致。
+- **失败读档回滚后派生状态重建**：升级前失败读档回滚只恢复字段本身，评级换算属性/光环/资源池
+  上限可能停留在读档失败前的陈旧值；升级后回滚会重放 `IDerivedStateRebuilder.OnSectionLoaded`。
+  自定义 `IDerivedStateRebuilder` 实现需保证该回调幂等/可重入（此前只在成功路径被调用，现在也会
+  在失败回滚路径被调用）。
+- **跨职业读档清理旧职业基础键与资源类型**：升级前同图切换职业只覆盖新旧共同基础属性键，旧职业
+  独有的基础属性键与资源类型（如法力）残留；升级后会清理干净。依赖"残留旧职业独有属性/资源类型"
+  这一此前未文档化行为的调用方需要重新评估。
+- **`.gitignore` `**/[Ll]ogs/` 规则收窄为 `adapters/unity/**/[Ll]ogs/`**：仓库根或
+  `architecture/`/`core/` 等位置下字面叫 `logs` 的目录不再被自动忽略；若本机有依赖旧忽略范围
+  存放临时文件的习惯，需要自行清理或改用其它已忽略目录（如 `bin/`）。
+
+### 版本判据说明
+
+- MINOR：`StatHost.ResetBase` 是新增公开方法（非接口成员）；`WorldMapSchema` 四字段均为可选字段
+  的类型校验补齐，不影响既有数据；`UnityNavigation2D`/`EquipmentWeaponStyleSource` 新增成员均为
+  类型内部实现细节，契约接口签名不变；三处"行为变更"均是缺陷修复（此前行为未被文档化为预期契约、
+  且与既有文档/契约表述矛盾），按仓库既有版本判据惯例（见 1.9.0/1.10.0 条目）计入 MINOR 而非
+  MAJOR。无删改既有公开签名，无存档格式变更，无数据表字段删改。
+
 ## [1.10.0] - 2026-09-09
 
 导航与移动公共接口补齐（W9，响应游戏侧 5 项需求：停止/取消接口、端点契约与精确接合、寻路与
