@@ -27,7 +27,51 @@
   验装配入口"一行，3.5.1 节补一句"三个包"归属未决说明。
 - `editor/docs/编辑器产品文档.md` 升级 v2 → v2.1：全文 ADR-0018/0019 引用由"草案，待拍板"改为
   正式链接，附录 F 等处措辞同步改为已拍板。
-- 本轮改动均为文档，无代码/数据表/存档变更。
+- `architecture/04_数据与内容管线.md` 勘误（F1a 落地对齐，版本号不变）：3.2 节示例改正为真实
+  `{kind, params: {...}}` 形状，补充 `CommonFields`、惰性递归中立记法、递归深度上限与"分层边界"
+  说明；第 5 节两行说明补齐三个新增检查名（`variant_discriminator`/`substructure_depth`/
+  `unknown_subfield`）。
+
+### 新增
+
+- ADR-0019 F1a：`FieldSchema` 新增可选子结构登记（`Fields`/`Item`/`Variants`，仅对
+  `Object`/`Array` 两种字段种类生效），新增 `VariantSchema` 契约类型（按判别字段分派的变体：
+  `Discriminator`+`Cases`+可选 `CommonFields`）；`DataRegistry` 按登记递归校验必填/类型/枚举/
+  引用/表达式可解析，新增三个检查名 `variant_discriminator`/`substructure_depth`/
+  `unknown_subfield`（后者默认关闭，`DataRegistryOptions.UnknownSubfieldSeverity` 可开启为
+  Warning）；`FieldSchema` 支持 `itemFactory`/`variantsFactory` 惰性求值，支撑
+  `projectile.params.on_hit_effects` 一类自引用结构。
+- 技能域（`skill.*`）首批登记：`skill.def.effects`（19 种效果原语）、`skill.aura_def.effects`
+  （10 种光环效果类型）均登记为按 `kind` 分派的 `Variants`，逐个原语的 `params` 结构对照运行时
+  解析代码核对（`EffectDispatcher`/`ProjectileHost`/`AuraHost`/三个 `IEffectExtension` 实现）；
+  `skill.def.cost`/`charges`、`skill.spell_mod_def.affects`、`skill.book.entries` 均登记子结构。
+  详见 `core/rules/skill/schema/README.md`"效果原语参数表"/"光环效果参数表"。
+- `core/foundation/data_registry/tests/SubstructureValidationTests.cs`（32 条新测试，覆盖递归
+  必填/类型、Variants 判别、子层 Reference/Expr、自引用递归与深度上限、`unknown_subfield`、
+  路径格式、构造期非法组合）、`core/rules/skill/tests/SkillSchemaCoverageTests.cs`（锁定变体键
+  集合与 `EffectKindNames`/`AuraEffectKindNames` 全集一致）。
+
+### 行为变更与迁移说明
+
+- `core/rules/skill/schema/SkillValidationRules.cs`：`EffectKindRegisteredRule`/
+  `CostEntryShapeRule` 两条手写结构校验规则整条退役，`ChargesShapeRule` 的结构部分退役、唯一
+  业务判断（`charges.max >= 1`）收窄保留为新规则 `ChargesMaxAtLeastOneRule`——三者要检查的坏
+  形状全部由 `SkillSchemas.Def`/`AuraDef` 的子结构登记 + `DataRegistry` 递归校验覆盖，不再需要
+  单独注册（`core/rules/assembly/RulesSchemaCatalog.cs` 同步调整注册列表）。已通过既有内容数据
+  （`data/_sample`、`data/_framework`）0 错误 0 警告验证，无需修改任何样例数据行。
+- 若游戏层曾自行 `RegisterValidationRule(new EffectKindRegisteredRule())` 等注册上述已删除的
+  规则类型，需要移除对应调用（改由 `SkillSchemas` 的登记自动覆盖同等检查）；曾依赖
+  `unknown_effect_kind`/`effect_kind_missing`/`effect_entry_not_object`/
+  `cost_entry_not_object`/`cost_power_type_invalid`/`cost_amount_invalid`/`charges_max_missing`/
+  `charges_recharge_time_missing`/`charges_recharge_time_not_number` 这些检查名做过滤/展示的
+  下游工具（如内容编辑器/CI 报告），改为识别 `required_field`/`field_type`/
+  `variant_discriminator` 三个检查名（属 MINOR 级：新增能力、既有检查名未删改，但检查名集合
+  的组成发生了变化）。
+- `skill.def.effects[].params` 内以下字段的引用严格度按判断记录做了收窄（未按 04 §3.2 示例
+  登记为强 `Reference`/必填，理由见 `core/rules/skill/schema/SkillSchemas.cs`/`README.md`
+  对应判断记录）：`trigger_spell`/`modify_cooldown`/`add_charge`/`learn_skill` 的 `skill_id`
+  按 `Id` 登记（不做跨表存在性校验）；`summon.creature_template`/`create_item.item_template`/
+  `set_world_flag.flag_key`/`script.hook_id` 按 `Id` 登记且非必填。
 
 ## [1.12.0] - 2026-09-09
 

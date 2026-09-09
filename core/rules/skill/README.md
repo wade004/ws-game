@@ -426,6 +426,26 @@ skill/
     `core/rules/skill/tests/CR130_04_ChannelBoundaryTests.cs`（单区间越界不多算、跨多个 interval
     恰好按引导时长计数、被打断不多算、模式切换后越界不多算，共 4 条）。
 
+39. **ADR-0019 / F1a：`effects[]`/`charges`/`cost[]` 的加载期校验改由 `SkillSchemas` 的子结构
+    登记承担，条目 34（R09）新增的三条手写规则相应收窄/退役**：`SkillSchemas.Def`/`AuraDef` 现把
+    `effects` 登记为按 `kind` 分派的 `FieldSchema.Variants`（19 种效果原语、10 种光环效果各自的
+    `params` 形状，见 `schema/README.md`"效果原语参数表"）、`charges`/`cost[]` 登记为带 `Fields`
+    的 `FieldSchema`，`DataRegistry` 的递归结构校验（`required_field`/`field_type`/
+    `variant_discriminator`）覆盖了条目 34 描述的全部坏形状（条目不是对象/缺 `kind`/`kind` 非
+    字符串/未登记的 `kind`/`charges`|`cost[]` 子字段缺失或类型错）——`EffectKindRegisteredRule`/
+    `CostEntryShapeRule` 整条退役，`ChargesShapeRule` 收窄为只保留登记表达不了的业务判断
+    （`charges.max` 必须 &gt;= 1，改名 `ChargesMaxAtLeastOneRule`），条目 34 的历史叙述保持不动
+    （记录的是当时的问题与修复），本条只说明后续状态。判断记录（偏离方案第 36 行"skill_id→
+    skill.def"示例，收窄为 `Id`）：`trigger_spell`/`modify_cooldown`/`add_charge`/`learn_skill`
+    四处 `skill_id` 与 `summon.creature_template`/`create_item.item_template`/
+    `set_world_flag.flag_key`/`script.hook_id` 未登记为强 `Reference`/未标记必填——`EffectDispatcher`
+    对目标缺失分别有专门的 Warn 降级路径（不像 `apply_aura.aura_def` 那样缺目标即崩溃），且既有
+    测试套件（`EffectPrimitiveDispatchTests`/`SkillBookTests` 等）已经在多处exercise"引用一个当前
+    未加载的技能/无落地扩展实现"这类场景，强校验会与既有测试语义冲突；`display_ref`/
+    `creature_template`/`item_template` 因跨层引用限制（04 §5.1 口径）退回 `Id`。详见
+    `schema/SkillSchemas.cs`/`schema/SkillValidationRules.cs` 判断记录、
+    `tests/SkillValidationNestedGapTests.cs`/`tests/SkillSchemaCoverageTests.cs`。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全

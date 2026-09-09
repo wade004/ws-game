@@ -46,6 +46,23 @@
   忽略未知的新字段结构）。
 - 迁移函数只做结构转换（见 `MigrateDelegate`/`TableMigration` 类型注释），不做业务判断。
 
+## 复合字段子结构登记（ADR-0019，判断记录）
+
+`FieldSchema.Fields`/`Item`/`Variants`（见 `../README.md`"复合字段子结构递归校验"一节的完整
+判断记录列表）同样不落地为独立数据文件——理由与上面"`schema_registry` 不落地为数据文件"一节
+完全一致：子结构登记本身就是 `TableSchema.Fields` 里某个 `FieldSchema` 的一部分，与该字段所属
+的表 schema 同一份代码来源，没有必要为"子结构"另开一份平行的元数据文件。补充两条只属于子结构
+登记本身的判断记录：
+
+- **子结构暂不进入 Query 宿主**：`RecordExprSchema.For(schema)` 只把表的顶层字段登记为
+  `self.<field>` 的零参引用，不递归展开已登记的 `Fields`/`Item`/`Variants`——`Query` 目前的
+  谓词场景（按字段筛选内容表）没有真实的"按嵌套子字段筛选"需求，本批不做（详见 `../README.md`
+  同名判断记录）。
+- **变体键集合一致性靠测试锁死，不靠运行期规则**：04 第 5 节"变体表与原语注册集合一致"这一项，
+  在 `skill.*` 首批登记里的落地形式是一条测试断言（`SkillSchemaCoverageTests`），不是一条
+  `IValidationRule`——变体的 `Cases` 键集合与运行时原语枚举（如 `EffectKind`）都在同一份代码里，
+  两者不一致是编译期/测试期就能发现的静态问题，不需要每次加载数据都重新比对一遍。
+
 ## Vec2 的 JSON 表示（判断记录）
 
 04 未规定 `Vec2` 字段在 JSON 数据文件里的具体形状（只在接口记法层面提到 `Vec2` 类型）。

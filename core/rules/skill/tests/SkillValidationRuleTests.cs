@@ -66,22 +66,27 @@ namespace Tests.Rules.Skill
             Assert.Contains(report.Issues, i => i.Check == "stack_category_conflict");
         }
 
+        /// <summary>ADR-0019 / F1a：<c>EffectKindRegisteredRule</c> 已退役（见
+        /// <c>SkillValidationRules.cs</c> 顶部判断记录）——<c>effects[].kind</c> 是否已登记现由
+        /// <c>SkillSchemas.Def</c> 把 <c>effects</c> 登记为按 <c>kind</c> 分派的
+        /// <c>VariantSchema</c> 覆盖，不需要额外注册规则，检查名也从 <c>unknown_effect_kind</c>
+        /// 改为共用的 <c>variant_discriminator</c>（本方法不再调用 <c>.ValidationRule(...)</c>）。</summary>
         [Fact]
         public void EffectKindRegistered_PassesForKnownKind_FailsForUnknown()
         {
             var known = J.O(("id", J.S("skill.sample_known")), ("school", J.S("skill.school_sample")), ("kind", J.S("active")),
                 ("range", J.N(0)), ("cast_time", J.N(0)), ("respects_gcd", J.B(false)), ("target_shape_ref", J.S("target.chain.sample")),
                 ("effects", J.A(J.O(("kind", J.S("heal")), ("params", J.O(("base_value", J.N(1)), ("coefficient", J.N(0))))))));
-            var ok = new SkillWorldBuilder().SkillDef(known).ValidationRule(new EffectKindRegisteredRule());
+            var ok = new SkillWorldBuilder().SkillDef(known);
             Assert.False(ok.Validate().IsBlocking);
 
             var unknown = J.O(("id", J.S("skill.sample_unknown_kind")), ("school", J.S("skill.school_sample")), ("kind", J.S("active")),
                 ("range", J.N(0)), ("cast_time", J.N(0)), ("respects_gcd", J.B(false)), ("target_shape_ref", J.S("target.chain.sample")),
                 ("effects", J.A(J.O(("kind", J.S("not_a_real_effect")), ("params", J.O())))));
-            var bad = new SkillWorldBuilder().SkillDef(unknown).ValidationRule(new EffectKindRegisteredRule());
+            var bad = new SkillWorldBuilder().SkillDef(unknown);
             var report = bad.Validate();
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "unknown_effect_kind");
+            Assert.Contains(report.Issues, i => i.Check == "variant_discriminator");
         }
 
         [Fact]

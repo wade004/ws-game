@@ -2,32 +2,32 @@ using System;
 using System.Linq;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
-using Core.Rules.Common;
 using Core.Rules.Skill;
 using Xunit;
 
 namespace Tests.Rules.Skill
 {
     /// <summary>
-    /// R09 收口（外部审计 5e779c6，P2）：<c>SkillValidationRules.cs</c> 对 <c>skill.def</c>/
-    /// <c>skill.aura_def</c> 的嵌套结构（<c>effects[]</c>/<c>charges</c>/<c>cost[]</c>）校验此前
-    /// 存在缺口——能通过 <c>DataRegistry.LoadAll()</c>（0 error），但
-    /// <c>SkillDefCache.ParseSkillDef</c>/<c>ParseAuraDef</c>（懒解析，只在这个技能/光环第一次真正
-    /// 被解析——通常就是第一次被施放——时才跑）对这些嵌套结构做的是无防御直接类型转换，会抛
-    /// <see cref="InvalidCastException"/>/<see cref="System.Collections.Generic.KeyNotFoundException"/>。
-    /// 本文件的每个"未修复前会怎样"用例都先用 <see cref="SkillDefCache"/> 独立证实"这份数据确实会
-    /// 在解析时崩溃"（不依赖假设，真实复现该异常），再证实修复后的校验规则能在加载阶段就拦下同一份
-    /// 数据。
+    /// ADR-0019 / F1a 收口：本文件此前覆盖的是 R09 遗留缺口（<c>effects[]</c>/<c>charges</c>/
+    /// <c>cost[]</c> 嵌套结构此前只能靠额外注册 <c>EffectKindRegisteredRule</c>/
+    /// <c>ChargesShapeRule</c>/<c>CostEntryShapeRule</c> 三条手写规则拦下，未注册时能通过
+    /// <c>DataRegistry.LoadAll()</c>（0 error）、只在 <c>SkillDefCache</c> 懒解析（通常是这个
+    /// 技能/光环第一次被施放）时才因无防御的直接类型转换崩溃）。三条规则的结构性检查已退役
+    /// （见 <c>SkillValidationRules.cs</c> 顶部判断记录）——<c>SkillSchemas.Def</c>/<c>AuraDef</c>
+    /// 现把这些嵌套结构登记为 <see cref="Core.Foundation.DataRegistry.FieldSchema.Fields"/>/
+    /// <see cref="Core.Foundation.DataRegistry.FieldSchema.Variants"/>，同一批坏数据现在<b>只靠
+    /// schema 本身</b>（<c>SkillWorldBuilder.Validate()</c> 默认注册的 <c>RegisterSchema</c>，不再
+    /// 额外注册任何 <c>IValidationRule</c>）即可在加载阶段就被拦下，不需要调用方记得另外注册规则；
+    /// 本文件因此从"证明缺口存在 + 证明手写规则能补上"改写为"证明缺口已经被登记本身关闭"。
     /// </summary>
     public sealed class SkillValidationNestedGapTests
     {
         private static readonly Id SkillId = new Id("skill.svng_sample");
 
         // -----------------------------------------------------------------
-        // 主复现：effects[] 条目缺少 "kind" 字段（EffectKindRegisteredRule 此前的判断条件
-        // `effects[i] is JsonObject obj && obj.TryGetValue("kind", ...) && kindVal is JsonString`
-        // 只要有一环不成立就整体短路为 false，不产生任何校验问题——缺 "kind" 正是这样一种"三环都
-        // 不满足"的坏形状）。
+        // effects[] 条目缺少 "kind" / 条目不是对象 / kind 不是字符串 —— 全部改由
+        // SkillSchemas.Def.effects 的 VariantSchema 递归校验拦下（variant_discriminator/field_type），
+        // 不再需要注册任何额外规则。
         // -----------------------------------------------------------------
 
         private static JsonObject SkillWithEffectMissingKind() => J.O(
@@ -42,39 +42,30 @@ namespace Tests.Rules.Skill
             ("effects", J.A(J.O(("params", J.O(("base_value", J.N(5))))))));
 
         [Fact]
-        public void EffectMissingKind_ParsesSuccessfully_UnvalidatedRegistry_ButThrowsAtSkillDefCacheResolution()
+        public void EffectMissingKind_CaughtBySchemaAlone_NoExtraRuleNeeded()
         {
-            // 不经过 RulesSchemaCatalog 的完整规则集——只走 SkillWorldBuilder.Validate() 默认注册的
-            // schema 本身（无本条新增规则），证实这份数据确实能通过"只做 schema 层校验"这一关。
             var report = new SkillWorldBuilder().SkillDef(SkillWithEffectMissingKind()).Validate();
-            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
-            Assert.DoesNotContain(report.Issues, i => i.Severity == Core.Foundation.DataRegistry.ValidationSeverity.Error);
-
-            // 真实复现：SkillDefCache 第一次解析这个技能（对应"第一次被施放"）时崩溃，不是假设。
-            var world = new SkillWorldBuilder().SkillDef(SkillWithEffectMissingKind()).Build();
-            world.AddUnit(new Id("unit.svng_caster"));
-            world.Targets.SetChain(new Id("target.chain.svng_sample"), new Id("unit.svng_caster"));
-
-            Assert.ThrowsAny<Exception>(() => world.Host.CastSkill(
-                new Id("unit.svng_caster"), SkillId, Array.Empty<Id>()));
-        }
-
-        [Fact]
-        public void EffectMissingKind_CaughtByValidationRule_WhenEffectKindRegisteredRuleRegistered()
-        {
-            var report = new SkillWorldBuilder()
-                .SkillDef(SkillWithEffectMissingKind())
-                .ValidationRule(new EffectKindRegisteredRule())
-                .Validate();
 
             Assert.True(report.IsBlocking);
-            var issue = report.Issues.Single(i => i.Check == "effect_kind_missing");
-            Assert.Equal(Core.Foundation.DataRegistry.ValidationSeverity.Error, issue.Severity);
+            var issue = report.Issues.Single(i => i.Check == "variant_discriminator");
             Assert.Equal("skill.def", issue.Table);
         }
 
+        /// <summary>与本文件改写前的核心区别：这份坏数据此前能完整通过
+        /// <c>DataRegistry.LoadAll()</c>（0 error），只在第一次真正施放这个技能时才在
+        /// <c>SkillDefCache</c> 懒解析里崩溃；登记本身关闭这个缺口后，<c>SkillWorldBuilder.Build()</c>
+        /// （校验不通过即抛异常，见该方法实现）在构造阶段就会拒绝这份数据，<c>CastSkill</c> 从此
+        /// 永远不会看到这份坏形状。</summary>
         [Fact]
-        public void EffectEntryNotObject_CaughtByValidationRule()
+        public void EffectMissingKind_NowRejectedAtBuildTime_NeverReachesCastSkill()
+        {
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => new SkillWorldBuilder().SkillDef(SkillWithEffectMissingKind()).Build());
+            Assert.Contains("variant_discriminator", ex.Message);
+        }
+
+        [Fact]
+        public void EffectEntryNotObject_CaughtBySchemaAlone()
         {
             var skill = J.O(
                 ("id", J.S(SkillId.Value)),
@@ -84,20 +75,17 @@ namespace Tests.Rules.Skill
                 ("cast_time", J.N(0)),
                 ("respects_gcd", J.B(false)),
                 ("target_shape_ref", J.S("target.chain.svng_sample")),
-                // 一个裸数字混进了 effects 数组——同样是"is JsonObject"就短路失败的坏形状。
+                // 一个裸数字混进了 effects 数组——Array.Item 递归校验按 field_type 拦下。
                 ("effects", J.A(J.N(123))));
 
-            var report = new SkillWorldBuilder()
-                .SkillDef(skill)
-                .ValidationRule(new EffectKindRegisteredRule())
-                .Validate();
+            var report = new SkillWorldBuilder().SkillDef(skill).Validate();
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "effect_entry_not_object");
+            Assert.Contains(report.Issues, i => i.Check == "field_type" && i.Table == "skill.def");
         }
 
         [Fact]
-        public void EffectKindNotString_CaughtByValidationRule()
+        public void EffectKindNotString_CaughtBySchemaAlone()
         {
             var skill = J.O(
                 ("id", J.S(SkillId.Value)),
@@ -109,30 +97,24 @@ namespace Tests.Rules.Skill
                 ("target_shape_ref", J.S("target.chain.svng_sample")),
                 ("effects", J.A(J.O(("kind", J.N(1))))));
 
-            var report = new SkillWorldBuilder()
-                .SkillDef(skill)
-                .ValidationRule(new EffectKindRegisteredRule())
-                .Validate();
+            var report = new SkillWorldBuilder().SkillDef(skill).Validate();
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "effect_kind_not_string");
+            Assert.Contains(report.Issues, i => i.Check == "variant_discriminator");
         }
 
         [Fact]
-        public void AuraEffectMissingKind_CaughtByValidationRule()
+        public void AuraEffectMissingKind_CaughtBySchemaAlone()
         {
             var aura = J.O(
                 ("id", J.S("skill.aura_def.svng_sample")),
                 ("duration", J.N(6)),
                 ("effects", J.A(J.O(("params", J.O(("base_value", J.N(3))))))));
 
-            var report = new SkillWorldBuilder()
-                .AuraDef(aura)
-                .ValidationRule(new EffectKindRegisteredRule())
-                .Validate();
+            var report = new SkillWorldBuilder().AuraDef(aura).Validate();
 
             Assert.True(report.IsBlocking);
-            var issue = report.Issues.Single(i => i.Check == "effect_kind_missing");
+            var issue = report.Issues.Single(i => i.Check == "variant_discriminator");
             Assert.Equal("skill.aura_def", issue.Table);
         }
 
@@ -151,16 +133,15 @@ namespace Tests.Rules.Skill
                     J.O(("kind", J.S("school_damage")),
                         ("params", J.O(("base_value", J.N(5)), ("coefficient", J.N(0))))))));
 
-            var report = new SkillWorldBuilder()
-                .SkillDef(skill)
-                .ValidationRule(new EffectKindRegisteredRule())
-                .Validate();
+            var report = new SkillWorldBuilder().SkillDef(skill).Validate();
 
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }
 
         // -----------------------------------------------------------------
-        // charges 子字段缺失/类型错误（见 ChargesShapeRule 判断记录）。
+        // charges 子字段缺失/类型错误 —— 结构部分（缺字段/类型错）改由
+        // SkillSchemas.Def.charges 的 Fields 递归校验拦下（required_field）；唯一保留的业务判断
+        // （charges.max 必须 >= 1）仍需显式注册 ChargesMaxAtLeastOneRule（见该类型判断记录）。
         // -----------------------------------------------------------------
 
         private static JsonObject SkillWithChargesMissingRechargeTime() => J.O(
@@ -175,33 +156,24 @@ namespace Tests.Rules.Skill
             ("effects", J.A()));
 
         [Fact]
-        public void ChargesMissingRechargeTime_PassesSchemaOnly_ButThrowsAtSkillDefCacheResolution()
+        public void ChargesMissingRechargeTime_CaughtBySchemaAlone()
         {
             var report = new SkillWorldBuilder().SkillDef(SkillWithChargesMissingRechargeTime()).Validate();
-            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
-
-            var world = new SkillWorldBuilder().SkillDef(SkillWithChargesMissingRechargeTime()).Build();
-            world.AddUnit(new Id("unit.svng_caster2"));
-            world.Targets.SetChain(new Id("target.chain.svng_sample"), new Id("unit.svng_caster2"));
-
-            Assert.ThrowsAny<Exception>(() => world.Host.CastSkill(
-                new Id("unit.svng_caster2"), SkillId, Array.Empty<Id>()));
-        }
-
-        [Fact]
-        public void ChargesMissingRechargeTime_CaughtByChargesShapeRule()
-        {
-            var report = new SkillWorldBuilder()
-                .SkillDef(SkillWithChargesMissingRechargeTime())
-                .ValidationRule(new ChargesShapeRule())
-                .Validate();
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "charges_recharge_time_missing");
+            Assert.Contains(report.Issues, i => i.Check == "required_field" && i.Field == "charges.recharge_time");
         }
 
         [Fact]
-        public void ChargesMaxZero_CaughtByChargesShapeRule()
+        public void ChargesMissingRechargeTime_NowRejectedAtBuildTime_NeverReachesCastSkill()
+        {
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => new SkillWorldBuilder().SkillDef(SkillWithChargesMissingRechargeTime()).Build());
+            Assert.Contains("required_field", ex.Message);
+        }
+
+        [Fact]
+        public void ChargesMaxZero_CaughtByChargesMaxAtLeastOneRule()
         {
             var skill = J.O(
                 ("id", J.S(SkillId.Value)),
@@ -214,9 +186,14 @@ namespace Tests.Rules.Skill
                 ("target_shape_ref", J.S("target.chain.svng_sample")),
                 ("effects", J.A()));
 
+            // charges.max == 0 结构上仍是合法 Int（0/负数不违反 field_type），schema 本身不会报错——
+            // 这条数值范围约束是登记表达不了的业务判断，须显式注册 ChargesMaxAtLeastOneRule。
+            var schemaOnly = new SkillWorldBuilder().SkillDef(skill).Validate();
+            Assert.False(schemaOnly.IsBlocking, string.Join("; ", schemaOnly.Issues));
+
             var report = new SkillWorldBuilder()
                 .SkillDef(skill)
-                .ValidationRule(new ChargesShapeRule())
+                .ValidationRule(new ChargesMaxAtLeastOneRule())
                 .Validate();
 
             Assert.True(report.IsBlocking);
@@ -239,14 +216,15 @@ namespace Tests.Rules.Skill
 
             var report = new SkillWorldBuilder()
                 .SkillDef(skill)
-                .ValidationRule(new ChargesShapeRule())
+                .ValidationRule(new ChargesMaxAtLeastOneRule())
                 .Validate();
 
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }
 
         // -----------------------------------------------------------------
-        // cost[] 条目缺失/类型错误（见 CostEntryShapeRule 判断记录）。
+        // cost[] 条目缺失/类型错误 —— 全部结构性，改由 SkillSchemas.Def.cost 的 Fields 递归校验
+        // 拦下，CostEntryShapeRule 已整条退役，不再需要注册任何规则。
         // -----------------------------------------------------------------
 
         private static JsonObject SkillWithCostMissingAmount() => J.O(
@@ -261,29 +239,20 @@ namespace Tests.Rules.Skill
             ("effects", J.A()));
 
         [Fact]
-        public void CostMissingAmount_PassesSchemaOnly_ButThrowsAtSkillDefCacheResolution()
+        public void CostMissingAmount_CaughtBySchemaAlone()
         {
             var report = new SkillWorldBuilder().SkillDef(SkillWithCostMissingAmount()).Validate();
-            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
 
-            var world = new SkillWorldBuilder().SkillDef(SkillWithCostMissingAmount()).Build();
-            world.AddUnit(new Id("unit.svng_caster3"));
-            world.Targets.SetChain(new Id("target.chain.svng_sample"), new Id("unit.svng_caster3"));
-
-            Assert.ThrowsAny<Exception>(() => world.Host.CastSkill(
-                new Id("unit.svng_caster3"), SkillId, Array.Empty<Id>()));
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "required_field" && i.Field == "cost[0].amount");
         }
 
         [Fact]
-        public void CostMissingAmount_CaughtByCostEntryShapeRule()
+        public void CostMissingAmount_NowRejectedAtBuildTime_NeverReachesCastSkill()
         {
-            var report = new SkillWorldBuilder()
-                .SkillDef(SkillWithCostMissingAmount())
-                .ValidationRule(new CostEntryShapeRule())
-                .Validate();
-
-            Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "cost_amount_invalid");
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => new SkillWorldBuilder().SkillDef(SkillWithCostMissingAmount()).Build());
+            Assert.Contains("required_field", ex.Message);
         }
 
         [Fact]
@@ -300,10 +269,7 @@ namespace Tests.Rules.Skill
                 ("target_shape_ref", J.S("target.chain.svng_sample")),
                 ("effects", J.A()));
 
-            var report = new SkillWorldBuilder()
-                .SkillDef(skill)
-                .ValidationRule(new CostEntryShapeRule())
-                .Validate();
+            var report = new SkillWorldBuilder().SkillDef(skill).Validate();
 
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }

@@ -129,12 +129,16 @@ namespace Core.Rules.Assembly
             // 仍会生效，两条规则同时跑不冲突，只是多余）。
             registry.RegisterValidationRule(new MaxEffectsPerSkillRule(8));
             registry.RegisterValidationRule(new StackCategoryConflictRule());
-            registry.RegisterValidationRule(new EffectKindRegisteredRule());
             registry.RegisterValidationRule(new CastTimeChannelTimeExclusiveRule());
             registry.RegisterValidationRule(new PassiveSkillNoCastTimeRule());
             registry.RegisterValidationRule(new ChargesRechargeTimeZeroWarningRule());
-            registry.RegisterValidationRule(new ChargesShapeRule());
-            registry.RegisterValidationRule(new CostEntryShapeRule());
+            registry.RegisterValidationRule(new ChargesMaxAtLeastOneRule());
+
+            // ADR-0019 / F1a 判断记录：EffectKindRegisteredRule/CostEntryShapeRule 两条纯结构手写
+            // 规则、ChargesShapeRule 的结构部分已退役——SkillSchemas.Def/AuraDef 现把
+            // effects/charges/cost[] 登记为带 Fields/Variants 的子结构，DataRegistry 的递归校验已
+            // 覆盖这些规则要检查的结构性坏形状；ChargesShapeRule 唯一的业务判断（charges.max >= 1）
+            // 收窄保留为上面的 ChargesMaxAtLeastOneRule（见 SkillValidationRules.cs 顶部判断记录）。
 
             registry.RegisterValidationRule(new CombatHitTableValidationRule());
             registry.RegisterValidationRule(new CombatResistCurveValidationRule());

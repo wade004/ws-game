@@ -17,14 +17,14 @@ schema 版本迁移、做第 5 节列出的引用完整性等校验、提供只�
 ```
 data_registry/
   README.md
-  contracts/   FieldKind.cs FieldSchema.cs TableSchema.cs（含 TableMigration/MigrateDelegate）
+  contracts/   FieldKind.cs FieldSchema.cs VariantSchema.cs TableSchema.cs（含 TableMigration/MigrateDelegate）
                IDataSource.cs（DataTableSource/TextProvider）DataRecord.cs DataFieldException.cs
                ValidationReport.cs（ValidationSeverity/ValidationIssue）IValidationRule.cs
                IDataRegistry.cs（IDataRegistryView/IDataRegistry）DataRegistryOptions.cs Events.cs
   core/        DataRegistry.cs BuiltinSchemas.cs InMemoryDataSource.cs FileSystemDataSource.cs
                RecordExprHost.cs RecordExprSchema.cs
   schema/      README.md（schema_registry 元表说明、信封/主键规则、判断记录）
-  tests/       DataRegistryTests.cs
+  tests/       DataRegistryTests.cs SubstructureValidationTests.cs（ADR-0019 子结构递归校验）
 ```
 
 ## 加载流程（`LoadAll`）
@@ -65,10 +65,43 @@ data_registry/
 | `reference_integrity` | `Reference` 字段（含 `ReferenceTable`/`ReferenceDomain`）与 `DeclareReference` 动态声明的引用，目标不存在 |
 | `text_key_exists` | `TextKey` 字段的值在 `l10n.text` 表按 `DefaultLocale` 查不到；`l10n.text` 表未加载时降级为 Warning |
 | `expr_parsable` | `Expr` 字段解析失败（Error）、`ExprValidator` 报出的 Error/Warning 级问题原样映射；`ExprSchema` 未配置时整体降级为一条 Warning，不解析 |
+| `variant_discriminator` | ADR-0019：`Object` 字段登记了 `Variants` 时，判别字段缺失、非字符串、或取值不在 `Cases` 键集合内 |
+| `substructure_depth` | ADR-0019：子结构递归深度超过 `MaxSubstructureDepth`（32），已停止对该子树继续校验（防御登记错误导致的无限递归，如把 `itemFactory` 误指向自身之外仍会成环的结构） |
+| `unknown_subfield` | ADR-0019：已登记 `Fields`（或 `Variants` 命中分支的字段清单）之外出现的多余子字段；默认关闭（`DataRegistryOptions.UnknownSubfieldSeverity = None`），开启后为 Warning |
 
 其余检查项（效果数上限、预算超标、叠加类别冲突、外形映射存在、外形类型字段组完整、循环引用
 检测、孤儿记录检测、时间字段与时间模型一致）由各内容模块以 `IValidationRule` 注册，本模块
 不实现任何具体业务规则。
+
+## 复合字段子结构递归校验（ADR-0019）
+
+`FieldSchema` 对 `Object`/`Array` 两种字段种类新增可选的 `Fields`/`Item`/`Variants`（见
+`FieldSchema.cs`、`VariantSchema.cs`；04 第 3.2 节）；`DataRegistry.ValidateFieldValue` 按登记
+递归展开，子层的 `required_field`/`field_type`/`reference_integrity`/`text_key_exists`/
+`expr_parsable` 与顶层字段共用同一份实现（`fieldPath` 换成完整路径如
+`effects[2].params.base_value`，不新增平行的检查名/实现）。
+
+判断记录：
+
+1. **惰性求值支持自引用**：`FieldSchema` 构造函数额外接受 `itemFactory: Func<FieldSchema>`/
+   `variantsFactory: Func<VariantSchema>`，首次访问 `Item`/`Variants` 属性时求值并缓存——用于
+   `skill.def.effects` 的 `projectile.params.on_hit_effects` 这类"元素结构复用自身"的自引用
+   场景（构造某个静态只读字段的初始化表达式内部不能直接读取该字段自身，此时仍是默认值/未赋值，
+   必须延迟到真正使用时才读取，见 `SkillSchemas.EffectsItemSchema` 判断记录）。
+2. **递归深度上限**：`MaxSubstructureDepth = 32`，超过报 `substructure_depth` 并停止对该子树
+   继续递归（其余字段/记录不受影响），纯粹是防御登记错误导致的无限递归，不是对正常内容深度的
+   限制（正常内容的嵌套深度由数据本身决定，远达不到这个上限）。
+3. **未登记子结构行为不变**：`Object` 字段不设 `Fields`/`Variants`、`Array` 字段不设 `Item` 时，
+   只检查"存在且类型匹配"，与登记子结构之前完全一致（向后兼容，属 MINOR 变更）。
+4. **`unknown_subfield` 默认关闭**：首批登记（F1a）未必覆盖某个复合字段的全部实际用到的子
+   字段，默认不报多余子字段，避免登记不全时产生噪音；游戏层也因此可以在已登记的复合字段上
+   自由扩展字段而不触发校验，与"新增内容不改代码"的既有立场一致。需要更严格审查时可将
+   `DataRegistryOptions.UnknownSubfieldSeverity` 设为 `Warning`。
+5. **子结构暂不进入 Query 宿主**：`RecordExprSchema`/`RecordExprHost`（`Query(table,
+   predicateText)` 用到的 Expr 宿主）只暴露记录的顶层字段为 `self.<field>`，不递归展开已登记的
+   子结构——`Query` 的谓词场景（按字段筛选内容表）目前没有"按嵌套子字段筛选"的实际需求，贸然
+   展开会显著扩大 `RecordExprSchema.For` 的实现复杂度（嵌套路径怎么表达成 Expr 引用语法、数组
+   元素怎么索引），本批不做，待有真实场景再评估。
 
 ## 主键规则
 

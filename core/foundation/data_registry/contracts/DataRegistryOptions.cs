@@ -14,6 +14,16 @@ namespace Core.Foundation.DataRegistry
         WarningsBlock,
     }
 
+    /// <summary>未登记的复合字段子结构多余子字段（见 <see cref="DataRegistryOptions.UnknownSubfieldSeverity"/>、
+    /// ADR-0019、04 第 3.2 节）如何处理：<see cref="None"/>（默认）完全不报，向前兼容游戏层扩展
+    /// 字段；<see cref="Warning"/> 报一条 <c>unknown_subfield</c> 警告，供内容审查阶段主动发现
+    /// 拼写错误的字段名（不阻断，是否阻断仍取决于 <see cref="DataRegistryStrictness"/>）。</summary>
+    public enum UnknownSubfieldPolicy
+    {
+        None,
+        Warning,
+    }
+
     /// <summary>
     /// <see cref="DataRegistry"/> 的构造期策略配置（见 04 第 4～7 节涉及的可配置项：严格级别、
     /// 默认语言、Expr 校验用 schema、未知表处理策略）。
@@ -44,5 +54,13 @@ namespace Core.Foundation.DataRegistry
         /// 跨根同主键重复一律按原规则（改动前行为）判定为阻断错误——供需要禁用覆盖机制、
         /// 强制"同名必须显式改名"的项目/测试选用。</summary>
         public bool AllowOverride { get; set; } = true;
+
+        /// <summary>ADR-0019 / 04 第 3.2 节：已登记 <see cref="FieldSchema.Fields"/>（或
+        /// <see cref="FieldSchema.Variants"/> 命中分支的字段清单）之外、数据里实际出现的多余子
+        /// 字段如何处理。默认 <see cref="UnknownSubfieldPolicy.None"/>（不报），避免首批登记不全时
+        /// 产生噪音，也允许游戏层在已登记的复合字段上自由扩展子字段；设为
+        /// <see cref="UnknownSubfieldPolicy.Warning"/> 时对每个多余子字段报一条 <c>unknown_subfield</c>
+        /// 警告（是否阻断仍取决于 <see cref="Strictness"/>）。</summary>
+        public UnknownSubfieldPolicy UnknownSubfieldSeverity { get; set; } = UnknownSubfieldPolicy.None;
     }
 }

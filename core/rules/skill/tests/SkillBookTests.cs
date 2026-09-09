@@ -7,6 +7,20 @@ namespace Tests.Rules.Skill
     /// 验收"skill.book 学习"）。</summary>
     public sealed class SkillBookTests
     {
+        /// <summary>ADR-0019 / F1a：<c>skill.book.entries[].skill_id</c> 登记为
+        /// <c>Reference(skill.def)</c>（见方案第 38 行），三个技能 id 现在必须能在 <c>skill.def</c>
+        /// 表里找到对应记录——补上三条最小合法的 <c>skill.def</c> 行（本测试只关心"按等级学到哪些
+        /// 技能"，效果列表留空即可）。</summary>
+        private static Core.Foundation.Common.Json.JsonObject MinimalSkillDef(string id) => J.O(
+            ("id", J.S(id)),
+            ("school", J.S("skill.school_sample")),
+            ("kind", J.S("active")),
+            ("range", J.N(0)),
+            ("cast_time", J.N(0)),
+            ("respects_gcd", J.B(false)),
+            ("target_shape_ref", J.S("target.chain.sample")),
+            ("effects", J.A()));
+
         [Fact]
         public void LearnFromBook_LearnsAllEntriesAtOrBelowLevel()
         {
@@ -17,7 +31,12 @@ namespace Tests.Rules.Skill
                     J.O(("level", J.N(5)), ("skill_id", J.S("skill.sample_cleave"))),
                     J.O(("level", J.N(10)), ("skill_id", J.S("skill.sample_execute"))))));
 
-            var world = new SkillWorldBuilder().Book(book).Build();
+            var world = new SkillWorldBuilder()
+                .Book(book)
+                .SkillDef(MinimalSkillDef("skill.sample_slash"))
+                .SkillDef(MinimalSkillDef("skill.sample_cleave"))
+                .SkillDef(MinimalSkillDef("skill.sample_execute"))
+                .Build();
             world.AddUnit(new Id("unit.hero"));
 
             world.Host.LearnFromBook(new Id("unit.hero"), new Id("skill.book.sample_warrior"), level: 5);

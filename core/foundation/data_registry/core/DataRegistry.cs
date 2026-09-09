@@ -819,9 +819,23 @@ namespace Core.Foundation.DataRegistry
 
         // ---------------------------------------------------------------
         // 字段级校验（04 第 5 节：required_field / field_type / reference_integrity /
-        // text_key_exists / expr_parsable；envelope / schema_version / primary_key 已在
-        // LoadOneTablePartial 中检查）
+        // text_key_exists / expr_parsable，以及 ADR-0019 复合字段子结构校验新增的
+        // variant_discriminator / substructure_depth / unknown_subfield；envelope /
+        // schema_version / primary_key 已在 LoadOneTablePartial 中检查）
+        //
+        // 判断记录（ADR-0019 落地，子结构递归）：Object.Fields/Variants、Array.Item 的递归校验与
+        // 顶层字段共用同一套 required_field/field_type/reference_integrity/text_key_exists/
+        // expr_parsable 检查名与实现——所有既有校验方法（ValidateIdList/ValidateReferenceField/
+        // ValidateTextKeyField/ValidateExprField/ValidateEnumField）改成接受
+        // (table, recordKey, fieldPath, ...) 而不是 DataRecord，field.Name 换成完整路径
+        // fieldPath（如 "effects[2].params.base_value"），不新增平行的检查名/实现（见任务书
+        // "子层 Reference/TextKey/Expr 的校验逻辑必须与顶层共用同一份实现"）。递归深度上限
+        // MaxSubstructureDepth，防御登记错误（如误将 itemFactory 指向自身导致的无限递归）。
         // ---------------------------------------------------------------
+
+        /// <summary>子结构递归校验的最大深度（见 04 第 3.2 节、ADR-0019）：超过判定为
+        /// <c>substructure_depth</c> 错误并停止对该子树继续递归，其余字段/记录不受影响。</summary>
+        private const int MaxSubstructureDepth = 32;
 
         private void RunFieldValidation(List<ValidationIssue> issues)
         {
@@ -873,79 +887,240 @@ namespace Core.Foundation.DataRegistry
                 return;
             }
 
-            var raw = record.Raw[field.Name];
+            ValidateFieldValue(record.Table.Name, record.Key, field.Name, field, record.Raw[field.Name], issues, depth: 0);
+        }
 
+        /// <summary>校验一个已确认存在的字段值：<paramref name="fieldPath"/> 是完整路径（顶层调用时
+        /// 等于字段名，递归调用时形如 <c>"effects[2].params.base_value"</c>），<paramref name="depth"/>
+        /// 是当前递归深度（顶层为 0，每进入一层 Object.Fields/Variants 子字段或 Array.Item 元素 +1，
+        /// 见 <see cref="MaxSubstructureDepth"/>）。</summary>
+        private void ValidateFieldValue(string table, string recordKey, string fieldPath, FieldSchema field, JsonValue raw, List<ValidationIssue> issues, int depth)
+        {
             switch (field.Kind)
             {
                 case FieldKind.Bool:
-                    if (!(raw is JsonBool)) AddFieldTypeError(issues, record, field, raw, "Bool");
+                    if (!(raw is JsonBool)) AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Bool");
                     break;
 
                 case FieldKind.Int:
-                    if (!(raw is JsonNumber ni && ni.TryGetInt64(out _))) AddFieldTypeError(issues, record, field, raw, "Int");
+                    if (!(raw is JsonNumber ni && ni.TryGetInt64(out _))) AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Int");
                     break;
 
                 case FieldKind.Number:
-                    if (!(raw is JsonNumber)) AddFieldTypeError(issues, record, field, raw, "Number");
+                    if (!(raw is JsonNumber)) AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Number");
                     break;
 
                 case FieldKind.String:
-                    if (!(raw is JsonString)) AddFieldTypeError(issues, record, field, raw, "String");
+                    if (!(raw is JsonString)) AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "String");
                     break;
 
                 case FieldKind.Id:
-                    if (!(raw is JsonString sid && CommonId.IsValidFormat(sid.Value))) AddFieldTypeError(issues, record, field, raw, "Id");
+                    if (!(raw is JsonString sid && CommonId.IsValidFormat(sid.Value))) AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Id");
                     break;
 
                 case FieldKind.IdList:
-                    ValidateIdList(record, field, raw, issues);
+                    ValidateIdList(table, recordKey, fieldPath, raw, issues);
                     break;
 
                 case FieldKind.Reference:
-                    ValidateReferenceField(record, field, raw, issues);
+                    ValidateReferenceField(table, recordKey, fieldPath, field, raw, issues);
                     break;
 
                 case FieldKind.TextKey:
-                    ValidateTextKeyField(record, field, raw, issues);
+                    ValidateTextKeyField(table, recordKey, fieldPath, raw, issues);
                     break;
 
                 case FieldKind.Expr:
-                    ValidateExprField(record, field, raw, issues);
+                    ValidateExprField(table, recordKey, fieldPath, raw, issues);
                     break;
 
                 case FieldKind.Enum:
-                    ValidateEnumField(record, field, raw, issues);
+                    ValidateEnumField(table, recordKey, fieldPath, field, raw, issues);
                     break;
 
                 case FieldKind.Vec2:
                     if (!(raw is JsonObject vo && vo.TryGetValue("x", out var xv) && xv is JsonNumber
                                               && vo.TryGetValue("y", out var yv) && yv is JsonNumber))
                     {
-                        AddFieldTypeError(issues, record, field, raw, "Vec2 ({\"x\": Number, \"y\": Number})");
+                        AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Vec2 ({\"x\": Number, \"y\": Number})");
                     }
                     break;
 
                 case FieldKind.Object:
-                    if (!(raw is JsonObject)) AddFieldTypeError(issues, record, field, raw, "Object");
+                    ValidateObjectField(table, recordKey, fieldPath, field, raw, issues, depth);
                     break;
 
                 case FieldKind.Array:
-                    if (!(raw is JsonArray)) AddFieldTypeError(issues, record, field, raw, "Array");
+                    ValidateArrayField(table, recordKey, fieldPath, field, raw, issues, depth);
                     break;
             }
         }
 
-        private static void AddFieldTypeError(List<ValidationIssue> issues, DataRecord record, FieldSchema field, JsonValue raw, string expected)
+        // -----------------------------------------------------------------
+        // ADR-0019：Object.Fields / Object.Variants / Array.Item 递归
+        // -----------------------------------------------------------------
+
+        private void ValidateObjectField(string table, string recordKey, string fieldPath, FieldSchema field, JsonValue raw, List<ValidationIssue> issues, int depth)
         {
-            issues.Add(new ValidationIssue(ValidationSeverity.Error, record.Table.Name, "field_type",
-                $"字段 \"{field.Name}\" 期望 {expected}，实际 JSON 类型 {raw.Kind}", recordKey: record.Key, field: field.Name));
+            if (!(raw is JsonObject obj))
+            {
+                AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Object");
+                return;
+            }
+
+            var variants = field.Variants;
+            var fields = field.Fields;
+            if (variants == null && fields == null)
+            {
+                return; // 未登记子结构：维持"存在且是对象"（向后兼容）。
+            }
+
+            if (depth >= MaxSubstructureDepth)
+            {
+                AddSubstructureDepthError(issues, table, recordKey, fieldPath);
+                return;
+            }
+
+            if (variants != null)
+            {
+                ValidateVariantObject(table, recordKey, fieldPath, variants, obj, issues, depth);
+            }
+            else
+            {
+                var known = new HashSet<string>(StringComparer.Ordinal);
+                ValidateFieldList(table, recordKey, fieldPath, fields, obj, issues, depth, known);
+                ReportUnknownSubfields(table, recordKey, fieldPath, obj, known, issues);
+            }
         }
 
-        private static void ValidateIdList(DataRecord record, FieldSchema field, JsonValue raw, List<ValidationIssue> issues)
+        private void ValidateVariantObject(string table, string recordKey, string fieldPath, VariantSchema variants, JsonObject obj, List<ValidationIssue> issues, int depth)
+        {
+            if (!TryGetPresent(obj, variants.Discriminator, out var discRaw))
+            {
+                issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "variant_discriminator",
+                    $"字段 \"{fieldPath}\" 缺少判别字段 \"{variants.Discriminator}\"",
+                    recordKey: recordKey, field: fieldPath + "." + variants.Discriminator));
+                return;
+            }
+
+            if (!(discRaw is JsonString discStr) || !variants.Cases.TryGetValue(discStr.Value, out var caseFields))
+            {
+                var legalValues = new List<string>(variants.Cases.Keys);
+                legalValues.Sort(StringComparer.Ordinal);
+                issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "variant_discriminator",
+                    $"字段 \"{fieldPath}\" 的判别字段 \"{variants.Discriminator}\" 取值非法，合法取值：{string.Join("|", legalValues)}",
+                    recordKey: recordKey, field: fieldPath + "." + variants.Discriminator));
+                return;
+            }
+
+            var known = new HashSet<string>(StringComparer.Ordinal) { variants.Discriminator };
+            ValidateFieldList(table, recordKey, fieldPath, variants.CommonFields, obj, issues, depth, known);
+            ValidateFieldList(table, recordKey, fieldPath, caseFields, obj, issues, depth, known);
+            ReportUnknownSubfields(table, recordKey, fieldPath, obj, known, issues);
+        }
+
+        /// <summary>对一份子字段清单逐个做"必填检查 + 递归校验"，并把子字段名收进
+        /// <paramref name="known"/>（供 <see cref="ReportUnknownSubfields"/> 判断多余子字段）。
+        /// <paramref name="fields"/> 为 null 时空操作（<see cref="VariantSchema.CommonFields"/> 可选）。</summary>
+        private void ValidateFieldList(string table, string recordKey, string parentPath, IReadOnlyList<FieldSchema>? fields, JsonObject obj, List<ValidationIssue> issues, int depth, HashSet<string> known)
+        {
+            if (fields == null) return;
+
+            for (int i = 0; i < fields.Count; i++)
+            {
+                var sub = fields[i];
+                known.Add(sub.Name);
+                var childPath = parentPath + "." + sub.Name;
+
+                if (!TryGetPresent(obj, sub.Name, out var subRaw))
+                {
+                    if (sub.Required)
+                    {
+                        issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "required_field",
+                            $"必填字段 \"{sub.Name}\" 缺失", recordKey: recordKey, field: childPath));
+                    }
+                    continue;
+                }
+
+                ValidateFieldValue(table, recordKey, childPath, sub, subRaw, issues, depth + 1);
+            }
+        }
+
+        private void ReportUnknownSubfields(string table, string recordKey, string fieldPath, JsonObject obj, HashSet<string> known, List<ValidationIssue> issues)
+        {
+            if (_options.UnknownSubfieldSeverity != UnknownSubfieldPolicy.Warning) return;
+
+            foreach (var entry in obj)
+            {
+                if (known.Contains(entry.Key)) continue;
+
+                issues.Add(new ValidationIssue(ValidationSeverity.Warning, table, "unknown_subfield",
+                    $"字段 \"{fieldPath}\" 出现未登记的子字段 \"{entry.Key}\"（未登记子结构默认允许扩展，不影响加载）",
+                    recordKey: recordKey, field: fieldPath + "." + entry.Key));
+            }
+        }
+
+        private void ValidateArrayField(string table, string recordKey, string fieldPath, FieldSchema field, JsonValue raw, List<ValidationIssue> issues, int depth)
         {
             if (!(raw is JsonArray arr))
             {
-                AddFieldTypeError(issues, record, field, raw, "IdList");
+                AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Array");
+                return;
+            }
+
+            var item = field.Item;
+            if (item == null)
+            {
+                return; // 未登记元素结构：维持"存在且是数组"（向后兼容）。
+            }
+
+            if (depth >= MaxSubstructureDepth)
+            {
+                AddSubstructureDepthError(issues, table, recordKey, fieldPath);
+                return;
+            }
+
+            for (int i = 0; i < arr.Count; i++)
+            {
+                ValidateFieldValue(table, recordKey, $"{fieldPath}[{i}]", item, arr[i], issues, depth + 1);
+            }
+        }
+
+        private static void AddSubstructureDepthError(List<ValidationIssue> issues, string table, string recordKey, string fieldPath)
+        {
+            issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "substructure_depth",
+                $"字段 \"{fieldPath}\" 的子结构递归深度超过上限 {MaxSubstructureDepth}，已停止对该子树继续校验" +
+                "（防御登记错误导致的无限递归，见 FieldSchema.Item/Variants 惰性求值判断记录）",
+                recordKey: recordKey, field: fieldPath));
+        }
+
+        private static bool TryGetPresent(JsonObject obj, string key, out JsonValue raw)
+        {
+            if (obj.TryGetValue(key, out var v) && v.Kind != JsonKind.Null)
+            {
+                raw = v;
+                return true;
+            }
+
+            raw = null!;
+            return false;
+        }
+
+        // -----------------------------------------------------------------
+        // 标量/引用/文本键/表达式/枚举校验（顶层字段与 ADR-0019 子结构递归共用）
+        // -----------------------------------------------------------------
+
+        private static void AddFieldTypeError(List<ValidationIssue> issues, string table, string recordKey, string fieldPath, JsonValue raw, string expected)
+        {
+            issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_type",
+                $"字段 \"{fieldPath}\" 期望 {expected}，实际 JSON 类型 {raw.Kind}", recordKey: recordKey, field: fieldPath));
+        }
+
+        private static void ValidateIdList(string table, string recordKey, string fieldPath, JsonValue raw, List<ValidationIssue> issues)
+        {
+            if (!(raw is JsonArray arr))
+            {
+                AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "IdList");
                 return;
             }
 
@@ -953,17 +1128,17 @@ namespace Core.Foundation.DataRegistry
             {
                 if (!(arr[i] is JsonString s) || !CommonId.IsValidFormat(s.Value))
                 {
-                    issues.Add(new ValidationIssue(ValidationSeverity.Error, record.Table.Name, "field_type",
-                        $"字段 \"{field.Name}\" 第 {i} 个元素不是合法 Id", recordKey: record.Key, field: field.Name));
+                    issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_type",
+                        $"字段 \"{fieldPath}\" 第 {i} 个元素不是合法 Id", recordKey: recordKey, field: fieldPath));
                 }
             }
         }
 
-        private void ValidateReferenceField(DataRecord record, FieldSchema field, JsonValue raw, List<ValidationIssue> issues)
+        private void ValidateReferenceField(string table, string recordKey, string fieldPath, FieldSchema field, JsonValue raw, List<ValidationIssue> issues)
         {
             if (!(raw is JsonString s) || !CommonId.IsValidFormat(s.Value))
             {
-                AddFieldTypeError(issues, record, field, raw, "Reference(Id)");
+                AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Reference(Id)");
                 return;
             }
 
@@ -973,31 +1148,31 @@ namespace Core.Foundation.DataRegistry
             {
                 if (!ReferenceExists(field.ReferenceTable, value))
                 {
-                    issues.Add(new ValidationIssue(ValidationSeverity.Error, record.Table.Name, "reference_integrity",
-                        $"字段 \"{field.Name}\" 的值 \"{value}\" 在表 \"{field.ReferenceTable}\" 中不存在", recordKey: record.Key, field: field.Name));
+                    issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "reference_integrity",
+                        $"字段 \"{fieldPath}\" 的值 \"{value}\" 在表 \"{field.ReferenceTable}\" 中不存在", recordKey: recordKey, field: fieldPath));
                 }
             }
             else if (field.ReferenceDomain != null)
             {
                 if (!CommonId.TryParse(value, out var idVal) || !string.Equals(idVal.Domain, field.ReferenceDomain, StringComparison.Ordinal))
                 {
-                    issues.Add(new ValidationIssue(ValidationSeverity.Error, record.Table.Name, "reference_integrity",
-                        $"字段 \"{field.Name}\" 的值 \"{value}\" 的 domain 应为 \"{field.ReferenceDomain}\"", recordKey: record.Key, field: field.Name));
+                    issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "reference_integrity",
+                        $"字段 \"{fieldPath}\" 的值 \"{value}\" 的 domain 应为 \"{field.ReferenceDomain}\"", recordKey: recordKey, field: fieldPath));
                 }
                 else if (!ReferenceExistsInDomain(field.ReferenceDomain, value))
                 {
-                    issues.Add(new ValidationIssue(ValidationSeverity.Error, record.Table.Name, "reference_integrity",
-                        $"字段 \"{field.Name}\" 的值 \"{value}\" 在 domain \"{field.ReferenceDomain}\" 下的任何已加载表中都不存在",
-                        recordKey: record.Key, field: field.Name));
+                    issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "reference_integrity",
+                        $"字段 \"{fieldPath}\" 的值 \"{value}\" 在 domain \"{field.ReferenceDomain}\" 下的任何已加载表中都不存在",
+                        recordKey: recordKey, field: fieldPath));
                 }
             }
         }
 
-        private void ValidateTextKeyField(DataRecord record, FieldSchema field, JsonValue raw, List<ValidationIssue> issues)
+        private void ValidateTextKeyField(string table, string recordKey, string fieldPath, JsonValue raw, List<ValidationIssue> issues)
         {
             if (!(raw is JsonString s) || !CommonId.IsValidFormat(s.Value))
             {
-                AddFieldTypeError(issues, record, field, raw, "TextKey(Id)");
+                AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "TextKey(Id)");
                 return;
             }
 
@@ -1005,8 +1180,8 @@ namespace Core.Foundation.DataRegistry
 
             if (!_tables.TryGetValue("l10n.text", out var l10nText))
             {
-                issues.Add(new ValidationIssue(ValidationSeverity.Warning, record.Table.Name, "text_key_exists",
-                    "l10n.text 表未加载，跳过文本键存在性检查", recordKey: record.Key, field: field.Name));
+                issues.Add(new ValidationIssue(ValidationSeverity.Warning, table, "text_key_exists",
+                    "l10n.text 表未加载，跳过文本键存在性检查", recordKey: recordKey, field: fieldPath));
                 return;
             }
 
@@ -1014,23 +1189,23 @@ namespace Core.Foundation.DataRegistry
             var composite = textKey + "@" + defaultLocale;
             if (!l10nText.ByKey.ContainsKey(composite))
             {
-                issues.Add(new ValidationIssue(ValidationSeverity.Error, record.Table.Name, "text_key_exists",
-                    $"文本键 \"{textKey}\" 在语言 \"{defaultLocale}\" 下不存在", recordKey: record.Key, field: field.Name));
+                issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "text_key_exists",
+                    $"文本键 \"{textKey}\" 在语言 \"{defaultLocale}\" 下不存在", recordKey: recordKey, field: fieldPath));
             }
         }
 
-        private void ValidateExprField(DataRecord record, FieldSchema field, JsonValue raw, List<ValidationIssue> issues)
+        private void ValidateExprField(string table, string recordKey, string fieldPath, JsonValue raw, List<ValidationIssue> issues)
         {
             if (!(raw is JsonString s))
             {
-                AddFieldTypeError(issues, record, field, raw, "Expr(String)");
+                AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Expr(String)");
                 return;
             }
 
             if (_options.ExprSchema == null)
             {
-                issues.Add(new ValidationIssue(ValidationSeverity.Warning, record.Table.Name, "expr_parsable",
-                    "ExprSchema 未配置，跳过表达式解析与静态校验", recordKey: record.Key, field: field.Name));
+                issues.Add(new ValidationIssue(ValidationSeverity.Warning, table, "expr_parsable",
+                    "ExprSchema 未配置，跳过表达式解析与静态校验", recordKey: recordKey, field: fieldPath));
                 return;
             }
 
@@ -1041,8 +1216,8 @@ namespace Core.Foundation.DataRegistry
             }
             catch (ExprParseException ex)
             {
-                issues.Add(new ValidationIssue(ValidationSeverity.Error, record.Table.Name, "expr_parsable",
-                    $"表达式解析失败：{ex.Message}", recordKey: record.Key, field: field.Name));
+                issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "expr_parsable",
+                    $"表达式解析失败：{ex.Message}", recordKey: recordKey, field: fieldPath));
                 return;
             }
 
@@ -1051,16 +1226,16 @@ namespace Core.Foundation.DataRegistry
             {
                 var exprIssue = exprIssues[i];
                 var severity = exprIssue.Severity == ExprIssueSeverity.Error ? ValidationSeverity.Error : ValidationSeverity.Warning;
-                issues.Add(new ValidationIssue(severity, record.Table.Name, "expr_parsable", exprIssue.Message,
-                    recordKey: record.Key, field: field.Name));
+                issues.Add(new ValidationIssue(severity, table, "expr_parsable", exprIssue.Message,
+                    recordKey: recordKey, field: fieldPath));
             }
         }
 
-        private static void ValidateEnumField(DataRecord record, FieldSchema field, JsonValue raw, List<ValidationIssue> issues)
+        private static void ValidateEnumField(string table, string recordKey, string fieldPath, FieldSchema field, JsonValue raw, List<ValidationIssue> issues)
         {
             if (!(raw is JsonString s))
             {
-                AddFieldTypeError(issues, record, field, raw, "Enum(String)");
+                AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Enum(String)");
                 return;
             }
 
@@ -1076,8 +1251,8 @@ namespace Core.Foundation.DataRegistry
 
             if (!found)
             {
-                issues.Add(new ValidationIssue(ValidationSeverity.Error, record.Table.Name, "field_type",
-                    $"字段 \"{field.Name}\" 取值 \"{s.Value}\" 不在枚举合法集合内", recordKey: record.Key, field: field.Name));
+                issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_type",
+                    $"字段 \"{fieldPath}\" 取值 \"{s.Value}\" 不在枚举合法集合内", recordKey: recordKey, field: fieldPath));
             }
         }
 
