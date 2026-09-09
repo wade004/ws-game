@@ -231,22 +231,22 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
     <div class="spacer"></div>
     <details class="topnav-toc">
       <summary>目录</summary>
-      <div class="menu"><ul class="toc-list"><li><a href="#s1" data-toc-id="s1">1. 概述</a><ul class="toc-sub"><li><a href="#s1-1" data-toc-id="s1-1">1.1 目的</a></li><li><a href="#s1-2" data-toc-id="s1-2">1.2 定位</a></li><li><a href="#s1-3" data-toc-id="s1-3">1.3 面向用户</a></li><li><a href="#s1-4" data-toc-id="s1-4">1.4 典型用户故事</a></li><li><a href="#s1-5" data-toc-id="s1-5">1.5 与现有工具链的关系（先给结论，细节见第 3 章）</a></li></ul></li><li><a href="#s2" data-toc-id="s2">2. 术语与范围</a><ul class="toc-sub"><li><a href="#s2-1" data-toc-id="s2-1">2.1 术语表（详版见附录 E）</a></li><li><a href="#s2-2" data-toc-id="s2-2">2.2 范围内</a></li><li><a href="#s2-3" data-toc-id="s2-3">2.3 范围外（明确不做）</a></li></ul></li><li><a href="#s3" data-toc-id="s3">3. 总体方案</a><ul class="toc-sub"><li><a href="#s3-1" data-toc-id="s3-1">3.1 架构图</a></li><li><a href="#s3-2" data-toc-id="s3-2">3.2 数据流</a></li><li><a href="#s3-3" data-toc-id="s3-3">3.3 核心技术主张（编辑器实现层面的选型建议，非架构结论）</a></li><li><a href="#s3-4" data-toc-id="s3-4">3.4 与既有工具链的复用关系一览</a></li></ul></li><li><a href="#s4" data-toc-id="s4">4. 工程与工作区</a><ul class="toc-sub"><li><a href="#s4-1" data-toc-id="s4-1">4.1 新建/打开工程向导</a></li><li><a href="#s4-2" data-toc-id="s4-2">4.2 最近工程</a></li><li><a href="#s4-3" data-toc-id="s4-3">4.3 工程文件 .gfeditor/workspace.json</a></li></ul></li><li><a href="#s5" data-toc-id="s5">5. 主界面布局</a><ul class="toc-sub"><li><a href="#s5-1" data-toc-id="s5-1">5.1 整体线框图</a></li><li><a href="#s5-2" data-toc-id="s5-2">5.2 顶部：菜单栏 / 工具栏 / 全局搜索</a></li><li><a href="#s5-3" data-toc-id="s5-3">5.3 左侧：导航区</a></li><li><a href="#s5-4" data-toc-id="s5-4">5.4 中央：文档区</a></li><li><a href="#s5-5" data-toc-id="s5-5">5.5 右侧：检视区</a></li><li><a href="#s5-6" data-toc-id="s5-6">5.6 底部：面板区</a></li><li><a href="#s5-7" data-toc-id="s5-7">5.7 状态栏</a></li><li><a href="#s5-8" data-toc-id="s5-8">5.8 主题、DPI、窗口与布局</a></li></ul></li><li><a href="#s6" data-toc-id="s6">6. 通用表编辑器（Schema 驱动）</a><ul class="toc-sub"><li><a href="#s6-1" data-toc-id="s6-1">6.1 三视图同步</a></li><li><a href="#s6-2" data-toc-id="s6-2">6.2 字段类型 → 控件映射表</a></li><li><a href="#s6-3" data-toc-id="s6-3">6.3 记录操作</a></li><li><a href="#s6-4" data-toc-id="s6-4">6.4 撤销/重做</a></li><li><a href="#s6-5" data-toc-id="s6-5">6.5 保存</a></li></ul></li><li><a href="#s7" data-toc-id="s7">7. 专项编辑器</a><ul class="toc-sub"><li><a href="#s7-1" data-toc-id="s7-1">7.1 人物与生物编辑器</a></li><li><a href="#s7-2" data-toc-id="s7-2">7.2 技能/状态/触发编辑器</a></li><li><a href="#s7-3" data-toc-id="s7-3">7.3 物品编辑器</a></li><li><a href="#s7-4" data-toc-id="s7-4">7.4 掉落与爆率编辑器</a></li><li><a href="#s7-5" data-toc-id="s7-5">7.5 经验与成长编辑器</a></li><li><a href="#s7-6" data-toc-id="s7-6">7.6 任务与对话编辑器</a></li><li><a href="#s7-7" data-toc-id="s7-7">7.7 世界/遭遇/刷新/区域编辑器</a></li><li><a href="#s7-8" data-toc-id="s7-8">7.8 本地化编辑器</a></li><li><a href="#s7-9" data-toc-id="s7-9">7.9 外形与表现编辑器</a></li><li><a href="#s7-10" data-toc-id="s7-10">7.10 其余表：通用编辑器 + 小增强</a></li><li><a href="#s7-11" data-toc-id="s7-11">7.11 表 → 归属编辑器总表</a></li></ul></li><li><a href="#s8" data-toc-id="s8">8. 新增内容向导</a></li><li><a href="#s9" data-toc-id="s9">9. 校验、诊断与引用分析</a><ul class="toc-sub"><li><a href="#s9-1" data-toc-id="s9-1">9.1 三个校验时机</a></li><li><a href="#s9-2" data-toc-id="s9-2">9.2 问题面板设计</a></li><li><a href="#s9-3" data-toc-id="s9-3">9.3 覆盖诊断</a></li><li><a href="#s9-4" data-toc-id="s9-4">9.4 引用图（引用了谁 / 被谁引用）</a></li><li><a href="#s9-5" data-toc-id="s9-5">9.5 schema 迁移</a></li></ul></li><li><a href="#s10" data-toc-id="s10">10. 数值沙盘（预览与模拟）</a></li><li><a href="#s11" data-toc-id="s11">11. 批量与导入导出</a></li><li><a href="#s12" data-toc-id="s12">12. 版本控制与协作</a><ul class="toc-sub"><li><a href="#s12-1" data-toc-id="s12-1">12.1 git 状态显示</a></li><li><a href="#s12-2" data-toc-id="s12-2">12.2 变更文件列表与 diff 预览</a></li><li><a href="#s12-3" data-toc-id="s12-3">12.3 提交前自动校验</a></li><li><a href="#s12-4" data-toc-id="s12-4">12.4 冲突时的记录级合并辅助</a></li></ul></li><li><a href="#s13" data-toc-id="s13">13. 运行联调</a><ul class="toc-sub"><li><a href="#s13-1" data-toc-id="s13-1">13.1 配置游戏可执行文件/Unity 工程路径</a></li><li><a href="#s13-2" data-toc-id="s13-2">13.2 一键运行</a></li><li><a href="#s13-3" data-toc-id="s13-3">13.3 保存触发热重载</a></li><li><a href="#s13-4" data-toc-id="s13-4">13.4 从游戏日志反查编辑器记录</a></li></ul></li><li><a href="#s14" data-toc-id="s14">14. 设置与扩展</a><ul class="toc-sub"><li><a href="#s14-1" data-toc-id="s14-1">14.1 设置项清单</a></li><li><a href="#s14-2" data-toc-id="s14-2">14.2 插件机制</a></li><li><a href="#s14-3" data-toc-id="s14-3">14.3 schema 变化自动适配的原则</a></li></ul></li><li><a href="#s15" data-toc-id="s15">15. 非功能需求</a><ul class="toc-sub"><li><a href="#s15-1" data-toc-id="s15-1">15.1 性能指标</a></li><li><a href="#s15-2" data-toc-id="s15-2">15.2 可靠性</a></li><li><a href="#s15-3" data-toc-id="s15-3">15.3 可用性</a></li><li><a href="#s15-4" data-toc-id="s15-4">15.4 兼容性</a></li><li><a href="#s15-5" data-toc-id="s15-5">15.5 安全</a></li></ul></li><li><a href="#s16" data-toc-id="s16">16. 技术选型建议</a><ul class="toc-sub"><li><a href="#s16-1" data-toc-id="s16-1">16.1 桌面壳：WPF 与 Avalonia 对比</a></li><li><a href="#s16-2" data-toc-id="s16-2">16.2 理由与备选（Web 壳 + 本地服务）对比</a></li><li><a href="#s16-3" data-toc-id="s16-3">16.3 图表、代码编辑控件、文件监视、git 调用方式（默认方案，可调整）</a></li><li><a href="#s16-4" data-toc-id="s16-4">16.4 与 toolchain/validator 共享注册逻辑的方式</a></li></ul></li><li><a href="#s17" data-toc-id="s17">17. 里程碑与验收标准</a></li><li><a href="#s18" data-toc-id="s18">18. 附录</a><ul class="toc-sub"><li><a href="#apx-a" data-toc-id="apx-a">附录 A：快捷键表</a></li><li><a href="#apx-b" data-toc-id="apx-b">附录 B：字段类型→控件映射（详见第 6.2 节）</a></li><li><a href="#apx-c" data-toc-id="apx-c">附录 C：校验项→编辑器反馈方式映射（对应 04 第 5 节 14 项）</a></li><li><a href="#apx-d" data-toc-id="apx-d">附录 D：表 → 编辑器总表</a></li><li><a href="#apx-e" data-toc-id="apx-e">附录 E：术语表（详版）</a></li><li><a href="#apx-f" data-toc-id="apx-f">附录 F：与架构文档的对应关系</a></li></ul></li></ul></div>
+      <div class="menu"><ul class="toc-list"><li><a href="#s1" data-toc-id="s1">1. 概述</a><ul class="toc-sub"><li><a href="#s1-1" data-toc-id="s1-1">1.1 目的</a></li><li><a href="#s1-2" data-toc-id="s1-2">1.2 定位</a></li><li><a href="#s1-3" data-toc-id="s1-3">1.3 面向用户</a></li><li><a href="#s1-4" data-toc-id="s1-4">1.4 典型用户故事</a></li><li><a href="#s1-5" data-toc-id="s1-5">1.5 与现有工具链的关系（先给结论，细节见第 3 章）</a></li></ul></li><li><a href="#s2" data-toc-id="s2">2. 术语与范围</a><ul class="toc-sub"><li><a href="#s2-1" data-toc-id="s2-1">2.1 术语表（详版见附录 E）</a></li><li><a href="#s2-2" data-toc-id="s2-2">2.2 范围内</a></li><li><a href="#s2-3" data-toc-id="s2-3">2.3 范围外（明确不做）</a></li></ul></li><li><a href="#s3" data-toc-id="s3">3. 总体方案</a><ul class="toc-sub"><li><a href="#s3-1" data-toc-id="s3-1">3.1 架构图</a></li><li><a href="#s3-2" data-toc-id="s3-2">3.2 数据流</a></li><li><a href="#s3-3" data-toc-id="s3-3">3.3 核心技术主张（编辑器实现层面的选型建议，非架构结论）</a></li><li><a href="#s3-4" data-toc-id="s3-4">3.4 与既有工具链的复用关系一览</a></li></ul></li><li><a href="#s4" data-toc-id="s4">4. 工程与工作区</a><ul class="toc-sub"><li><a href="#s4-1" data-toc-id="s4-1">4.1 新建/打开工程向导</a></li><li><a href="#s4-2" data-toc-id="s4-2">4.2 最近工程</a></li><li><a href="#s4-3" data-toc-id="s4-3">4.3 工程文件 .gfeditor/workspace.json</a></li></ul></li><li><a href="#s5" data-toc-id="s5">5. 主界面布局</a><ul class="toc-sub"><li><a href="#s5-1" data-toc-id="s5-1">5.1 整体线框图</a></li><li><a href="#s5-2" data-toc-id="s5-2">5.2 顶部：菜单栏 / 工具栏 / 全局搜索</a></li><li><a href="#s5-3" data-toc-id="s5-3">5.3 左侧：导航区</a></li><li><a href="#s5-4" data-toc-id="s5-4">5.4 中央：文档区</a></li><li><a href="#s5-5" data-toc-id="s5-5">5.5 右侧：检视区</a></li><li><a href="#s5-6" data-toc-id="s5-6">5.6 底部：面板区</a></li><li><a href="#s5-7" data-toc-id="s5-7">5.7 状态栏</a></li><li><a href="#s5-8" data-toc-id="s5-8">5.8 主题、DPI、窗口与布局</a></li></ul></li><li><a href="#s6" data-toc-id="s6">6. 通用表编辑器（Schema 驱动）</a><ul class="toc-sub"><li><a href="#s6-1" data-toc-id="s6-1">6.1 三视图同步</a></li><li><a href="#s6-2" data-toc-id="s6-2">6.2 字段类型 → 控件映射表</a></li><li><a href="#s6-3" data-toc-id="s6-3">6.3 记录操作</a></li><li><a href="#s6-4" data-toc-id="s6-4">6.4 撤销/重做</a></li><li><a href="#s6-5" data-toc-id="s6-5">6.5 保存</a></li></ul></li><li><a href="#s7" data-toc-id="s7">7. 专项编辑器</a><ul class="toc-sub"><li><a href="#s7-1" data-toc-id="s7-1">7.1 人物与生物编辑器</a></li><li><a href="#s7-2" data-toc-id="s7-2">7.2 技能/状态/触发编辑器</a></li><li><a href="#s7-3" data-toc-id="s7-3">7.3 物品编辑器</a></li><li><a href="#s7-4" data-toc-id="s7-4">7.4 掉落与爆率编辑器</a></li><li><a href="#s7-5" data-toc-id="s7-5">7.5 经验与成长编辑器</a></li><li><a href="#s7-6" data-toc-id="s7-6">7.6 任务与对话编辑器</a></li><li><a href="#s7-7" data-toc-id="s7-7">7.7 世界/遭遇/刷新/区域编辑器</a></li><li><a href="#s7-8" data-toc-id="s7-8">7.8 本地化编辑器</a></li><li><a href="#s7-9" data-toc-id="s7-9">7.9 外形与表现编辑器</a></li><li><a href="#s7-10" data-toc-id="s7-10">7.10 其余表：通用编辑器 + 小增强</a></li><li><a href="#s7-11" data-toc-id="s7-11">7.11 表 → 归属编辑器总表</a></li></ul></li><li><a href="#s8" data-toc-id="s8">8. 新增内容向导</a></li><li><a href="#s9" data-toc-id="s9">9. 校验、诊断与引用分析</a><ul class="toc-sub"><li><a href="#s9-1" data-toc-id="s9-1">9.1 三个校验时机</a></li><li><a href="#s9-2" data-toc-id="s9-2">9.2 问题面板设计</a></li><li><a href="#s9-3" data-toc-id="s9-3">9.3 覆盖诊断</a></li><li><a href="#s9-4" data-toc-id="s9-4">9.4 引用图（引用了谁 / 被谁引用）</a></li><li><a href="#s9-5" data-toc-id="s9-5">9.5 schema 迁移</a></li><li><a href="#s9-6" data-toc-id="s9-6">9.6 校验覆盖矩阵与可选规则装配</a></li></ul></li><li><a href="#s10" data-toc-id="s10">10. 数值沙盘（预览与模拟）</a></li><li><a href="#s11" data-toc-id="s11">11. 批量与导入导出</a></li><li><a href="#s12" data-toc-id="s12">12. 版本控制与协作</a><ul class="toc-sub"><li><a href="#s12-1" data-toc-id="s12-1">12.1 git 状态显示</a></li><li><a href="#s12-2" data-toc-id="s12-2">12.2 变更文件列表与 diff 预览</a></li><li><a href="#s12-3" data-toc-id="s12-3">12.3 提交前自动校验</a></li><li><a href="#s12-4" data-toc-id="s12-4">12.4 冲突时的记录级合并辅助</a></li></ul></li><li><a href="#s13" data-toc-id="s13">13. 运行联调</a><ul class="toc-sub"><li><a href="#s13-1" data-toc-id="s13-1">13.1 配置游戏可执行文件/Unity 工程路径</a></li><li><a href="#s13-2" data-toc-id="s13-2">13.2 一键运行</a></li><li><a href="#s13-3" data-toc-id="s13-3">13.3 保存触发热重载</a></li><li><a href="#s13-4" data-toc-id="s13-4">13.4 从游戏日志反查编辑器记录</a></li><li><a href="#s13-5" data-toc-id="s13-5">13.5 外部工具调用的编码约定</a></li></ul></li><li><a href="#s14" data-toc-id="s14">14. 设置与扩展</a><ul class="toc-sub"><li><a href="#s14-1" data-toc-id="s14-1">14.1 设置项清单</a></li><li><a href="#s14-2" data-toc-id="s14-2">14.2 插件机制</a></li><li><a href="#s14-3" data-toc-id="s14-3">14.3 schema 变化自动适配的原则</a></li><li><a href="#s14-4" data-toc-id="s14-4">14.4 编辑器自身发布形态（默认方案，可调整）</a></li></ul></li><li><a href="#s15" data-toc-id="s15">15. 非功能需求</a><ul class="toc-sub"><li><a href="#s15-1" data-toc-id="s15-1">15.1 性能指标</a></li><li><a href="#s15-2" data-toc-id="s15-2">15.2 可靠性</a></li><li><a href="#s15-3" data-toc-id="s15-3">15.3 可用性</a></li><li><a href="#s15-4" data-toc-id="s15-4">15.4 兼容性</a></li><li><a href="#s15-5" data-toc-id="s15-5">15.5 安全</a></li><li><a href="#s15-6" data-toc-id="s15-6">15.6 子进程编码健壮性</a></li></ul></li><li><a href="#s16" data-toc-id="s16">16. 技术选型建议</a><ul class="toc-sub"><li><a href="#s16-1" data-toc-id="s16-1">16.1 桌面壳：WPF 与 Avalonia 对比</a></li><li><a href="#s16-2" data-toc-id="s16-2">16.2 理由与备选（Web 壳 + 本地服务）对比</a></li><li><a href="#s16-3" data-toc-id="s16-3">16.3 图表、代码编辑控件、文件监视、git 调用方式（默认方案，可调整）</a></li><li><a href="#s16-4" data-toc-id="s16-4">16.4 与 toolchain/validator 共享注册逻辑的方式</a></li><li><a href="#s16-5" data-toc-id="s16-5">16.5 打包与私服发布方式（配合第 14.4 节，默认方案，可调整）</a></li></ul></li><li><a href="#s17" data-toc-id="s17">17. 里程碑与验收标准</a></li><li><a href="#s18" data-toc-id="s18">18. 附录</a><ul class="toc-sub"><li><a href="#apx-a" data-toc-id="apx-a">附录 A：快捷键表</a></li><li><a href="#apx-b" data-toc-id="apx-b">附录 B：字段类型→控件映射（详见第 6.2 节）</a></li><li><a href="#apx-c" data-toc-id="apx-c">附录 C：校验项→编辑器反馈方式映射（对应 04 第 5 节 14 项）</a></li><li><a href="#apx-d" data-toc-id="apx-d">附录 D：表 → 编辑器总表</a></li><li><a href="#apx-e" data-toc-id="apx-e">附录 E：术语表（详版）</a></li><li><a href="#apx-f" data-toc-id="apx-f">附录 F：与架构文档的对应关系</a></li></ul></li></ul></div>
     </details>
     <button class="theme-toggle" type="button" onclick="__cycleTheme()">主题</button>
   </div>
 </div>
 
 <div class="layout">
-  <aside class="sidebar"><ul class="toc-list"><li><a href="#s1" data-toc-id="s1">1. 概述</a><ul class="toc-sub"><li><a href="#s1-1" data-toc-id="s1-1">1.1 目的</a></li><li><a href="#s1-2" data-toc-id="s1-2">1.2 定位</a></li><li><a href="#s1-3" data-toc-id="s1-3">1.3 面向用户</a></li><li><a href="#s1-4" data-toc-id="s1-4">1.4 典型用户故事</a></li><li><a href="#s1-5" data-toc-id="s1-5">1.5 与现有工具链的关系（先给结论，细节见第 3 章）</a></li></ul></li><li><a href="#s2" data-toc-id="s2">2. 术语与范围</a><ul class="toc-sub"><li><a href="#s2-1" data-toc-id="s2-1">2.1 术语表（详版见附录 E）</a></li><li><a href="#s2-2" data-toc-id="s2-2">2.2 范围内</a></li><li><a href="#s2-3" data-toc-id="s2-3">2.3 范围外（明确不做）</a></li></ul></li><li><a href="#s3" data-toc-id="s3">3. 总体方案</a><ul class="toc-sub"><li><a href="#s3-1" data-toc-id="s3-1">3.1 架构图</a></li><li><a href="#s3-2" data-toc-id="s3-2">3.2 数据流</a></li><li><a href="#s3-3" data-toc-id="s3-3">3.3 核心技术主张（编辑器实现层面的选型建议，非架构结论）</a></li><li><a href="#s3-4" data-toc-id="s3-4">3.4 与既有工具链的复用关系一览</a></li></ul></li><li><a href="#s4" data-toc-id="s4">4. 工程与工作区</a><ul class="toc-sub"><li><a href="#s4-1" data-toc-id="s4-1">4.1 新建/打开工程向导</a></li><li><a href="#s4-2" data-toc-id="s4-2">4.2 最近工程</a></li><li><a href="#s4-3" data-toc-id="s4-3">4.3 工程文件 .gfeditor/workspace.json</a></li></ul></li><li><a href="#s5" data-toc-id="s5">5. 主界面布局</a><ul class="toc-sub"><li><a href="#s5-1" data-toc-id="s5-1">5.1 整体线框图</a></li><li><a href="#s5-2" data-toc-id="s5-2">5.2 顶部：菜单栏 / 工具栏 / 全局搜索</a></li><li><a href="#s5-3" data-toc-id="s5-3">5.3 左侧：导航区</a></li><li><a href="#s5-4" data-toc-id="s5-4">5.4 中央：文档区</a></li><li><a href="#s5-5" data-toc-id="s5-5">5.5 右侧：检视区</a></li><li><a href="#s5-6" data-toc-id="s5-6">5.6 底部：面板区</a></li><li><a href="#s5-7" data-toc-id="s5-7">5.7 状态栏</a></li><li><a href="#s5-8" data-toc-id="s5-8">5.8 主题、DPI、窗口与布局</a></li></ul></li><li><a href="#s6" data-toc-id="s6">6. 通用表编辑器（Schema 驱动）</a><ul class="toc-sub"><li><a href="#s6-1" data-toc-id="s6-1">6.1 三视图同步</a></li><li><a href="#s6-2" data-toc-id="s6-2">6.2 字段类型 → 控件映射表</a></li><li><a href="#s6-3" data-toc-id="s6-3">6.3 记录操作</a></li><li><a href="#s6-4" data-toc-id="s6-4">6.4 撤销/重做</a></li><li><a href="#s6-5" data-toc-id="s6-5">6.5 保存</a></li></ul></li><li><a href="#s7" data-toc-id="s7">7. 专项编辑器</a><ul class="toc-sub"><li><a href="#s7-1" data-toc-id="s7-1">7.1 人物与生物编辑器</a></li><li><a href="#s7-2" data-toc-id="s7-2">7.2 技能/状态/触发编辑器</a></li><li><a href="#s7-3" data-toc-id="s7-3">7.3 物品编辑器</a></li><li><a href="#s7-4" data-toc-id="s7-4">7.4 掉落与爆率编辑器</a></li><li><a href="#s7-5" data-toc-id="s7-5">7.5 经验与成长编辑器</a></li><li><a href="#s7-6" data-toc-id="s7-6">7.6 任务与对话编辑器</a></li><li><a href="#s7-7" data-toc-id="s7-7">7.7 世界/遭遇/刷新/区域编辑器</a></li><li><a href="#s7-8" data-toc-id="s7-8">7.8 本地化编辑器</a></li><li><a href="#s7-9" data-toc-id="s7-9">7.9 外形与表现编辑器</a></li><li><a href="#s7-10" data-toc-id="s7-10">7.10 其余表：通用编辑器 + 小增强</a></li><li><a href="#s7-11" data-toc-id="s7-11">7.11 表 → 归属编辑器总表</a></li></ul></li><li><a href="#s8" data-toc-id="s8">8. 新增内容向导</a></li><li><a href="#s9" data-toc-id="s9">9. 校验、诊断与引用分析</a><ul class="toc-sub"><li><a href="#s9-1" data-toc-id="s9-1">9.1 三个校验时机</a></li><li><a href="#s9-2" data-toc-id="s9-2">9.2 问题面板设计</a></li><li><a href="#s9-3" data-toc-id="s9-3">9.3 覆盖诊断</a></li><li><a href="#s9-4" data-toc-id="s9-4">9.4 引用图（引用了谁 / 被谁引用）</a></li><li><a href="#s9-5" data-toc-id="s9-5">9.5 schema 迁移</a></li></ul></li><li><a href="#s10" data-toc-id="s10">10. 数值沙盘（预览与模拟）</a></li><li><a href="#s11" data-toc-id="s11">11. 批量与导入导出</a></li><li><a href="#s12" data-toc-id="s12">12. 版本控制与协作</a><ul class="toc-sub"><li><a href="#s12-1" data-toc-id="s12-1">12.1 git 状态显示</a></li><li><a href="#s12-2" data-toc-id="s12-2">12.2 变更文件列表与 diff 预览</a></li><li><a href="#s12-3" data-toc-id="s12-3">12.3 提交前自动校验</a></li><li><a href="#s12-4" data-toc-id="s12-4">12.4 冲突时的记录级合并辅助</a></li></ul></li><li><a href="#s13" data-toc-id="s13">13. 运行联调</a><ul class="toc-sub"><li><a href="#s13-1" data-toc-id="s13-1">13.1 配置游戏可执行文件/Unity 工程路径</a></li><li><a href="#s13-2" data-toc-id="s13-2">13.2 一键运行</a></li><li><a href="#s13-3" data-toc-id="s13-3">13.3 保存触发热重载</a></li><li><a href="#s13-4" data-toc-id="s13-4">13.4 从游戏日志反查编辑器记录</a></li></ul></li><li><a href="#s14" data-toc-id="s14">14. 设置与扩展</a><ul class="toc-sub"><li><a href="#s14-1" data-toc-id="s14-1">14.1 设置项清单</a></li><li><a href="#s14-2" data-toc-id="s14-2">14.2 插件机制</a></li><li><a href="#s14-3" data-toc-id="s14-3">14.3 schema 变化自动适配的原则</a></li></ul></li><li><a href="#s15" data-toc-id="s15">15. 非功能需求</a><ul class="toc-sub"><li><a href="#s15-1" data-toc-id="s15-1">15.1 性能指标</a></li><li><a href="#s15-2" data-toc-id="s15-2">15.2 可靠性</a></li><li><a href="#s15-3" data-toc-id="s15-3">15.3 可用性</a></li><li><a href="#s15-4" data-toc-id="s15-4">15.4 兼容性</a></li><li><a href="#s15-5" data-toc-id="s15-5">15.5 安全</a></li></ul></li><li><a href="#s16" data-toc-id="s16">16. 技术选型建议</a><ul class="toc-sub"><li><a href="#s16-1" data-toc-id="s16-1">16.1 桌面壳：WPF 与 Avalonia 对比</a></li><li><a href="#s16-2" data-toc-id="s16-2">16.2 理由与备选（Web 壳 + 本地服务）对比</a></li><li><a href="#s16-3" data-toc-id="s16-3">16.3 图表、代码编辑控件、文件监视、git 调用方式（默认方案，可调整）</a></li><li><a href="#s16-4" data-toc-id="s16-4">16.4 与 toolchain/validator 共享注册逻辑的方式</a></li></ul></li><li><a href="#s17" data-toc-id="s17">17. 里程碑与验收标准</a></li><li><a href="#s18" data-toc-id="s18">18. 附录</a><ul class="toc-sub"><li><a href="#apx-a" data-toc-id="apx-a">附录 A：快捷键表</a></li><li><a href="#apx-b" data-toc-id="apx-b">附录 B：字段类型→控件映射（详见第 6.2 节）</a></li><li><a href="#apx-c" data-toc-id="apx-c">附录 C：校验项→编辑器反馈方式映射（对应 04 第 5 节 14 项）</a></li><li><a href="#apx-d" data-toc-id="apx-d">附录 D：表 → 编辑器总表</a></li><li><a href="#apx-e" data-toc-id="apx-e">附录 E：术语表（详版）</a></li><li><a href="#apx-f" data-toc-id="apx-f">附录 F：与架构文档的对应关系</a></li></ul></li></ul></aside>
+  <aside class="sidebar"><ul class="toc-list"><li><a href="#s1" data-toc-id="s1">1. 概述</a><ul class="toc-sub"><li><a href="#s1-1" data-toc-id="s1-1">1.1 目的</a></li><li><a href="#s1-2" data-toc-id="s1-2">1.2 定位</a></li><li><a href="#s1-3" data-toc-id="s1-3">1.3 面向用户</a></li><li><a href="#s1-4" data-toc-id="s1-4">1.4 典型用户故事</a></li><li><a href="#s1-5" data-toc-id="s1-5">1.5 与现有工具链的关系（先给结论，细节见第 3 章）</a></li></ul></li><li><a href="#s2" data-toc-id="s2">2. 术语与范围</a><ul class="toc-sub"><li><a href="#s2-1" data-toc-id="s2-1">2.1 术语表（详版见附录 E）</a></li><li><a href="#s2-2" data-toc-id="s2-2">2.2 范围内</a></li><li><a href="#s2-3" data-toc-id="s2-3">2.3 范围外（明确不做）</a></li></ul></li><li><a href="#s3" data-toc-id="s3">3. 总体方案</a><ul class="toc-sub"><li><a href="#s3-1" data-toc-id="s3-1">3.1 架构图</a></li><li><a href="#s3-2" data-toc-id="s3-2">3.2 数据流</a></li><li><a href="#s3-3" data-toc-id="s3-3">3.3 核心技术主张（编辑器实现层面的选型建议，非架构结论）</a></li><li><a href="#s3-4" data-toc-id="s3-4">3.4 与既有工具链的复用关系一览</a></li></ul></li><li><a href="#s4" data-toc-id="s4">4. 工程与工作区</a><ul class="toc-sub"><li><a href="#s4-1" data-toc-id="s4-1">4.1 新建/打开工程向导</a></li><li><a href="#s4-2" data-toc-id="s4-2">4.2 最近工程</a></li><li><a href="#s4-3" data-toc-id="s4-3">4.3 工程文件 .gfeditor/workspace.json</a></li></ul></li><li><a href="#s5" data-toc-id="s5">5. 主界面布局</a><ul class="toc-sub"><li><a href="#s5-1" data-toc-id="s5-1">5.1 整体线框图</a></li><li><a href="#s5-2" data-toc-id="s5-2">5.2 顶部：菜单栏 / 工具栏 / 全局搜索</a></li><li><a href="#s5-3" data-toc-id="s5-3">5.3 左侧：导航区</a></li><li><a href="#s5-4" data-toc-id="s5-4">5.4 中央：文档区</a></li><li><a href="#s5-5" data-toc-id="s5-5">5.5 右侧：检视区</a></li><li><a href="#s5-6" data-toc-id="s5-6">5.6 底部：面板区</a></li><li><a href="#s5-7" data-toc-id="s5-7">5.7 状态栏</a></li><li><a href="#s5-8" data-toc-id="s5-8">5.8 主题、DPI、窗口与布局</a></li></ul></li><li><a href="#s6" data-toc-id="s6">6. 通用表编辑器（Schema 驱动）</a><ul class="toc-sub"><li><a href="#s6-1" data-toc-id="s6-1">6.1 三视图同步</a></li><li><a href="#s6-2" data-toc-id="s6-2">6.2 字段类型 → 控件映射表</a></li><li><a href="#s6-3" data-toc-id="s6-3">6.3 记录操作</a></li><li><a href="#s6-4" data-toc-id="s6-4">6.4 撤销/重做</a></li><li><a href="#s6-5" data-toc-id="s6-5">6.5 保存</a></li></ul></li><li><a href="#s7" data-toc-id="s7">7. 专项编辑器</a><ul class="toc-sub"><li><a href="#s7-1" data-toc-id="s7-1">7.1 人物与生物编辑器</a></li><li><a href="#s7-2" data-toc-id="s7-2">7.2 技能/状态/触发编辑器</a></li><li><a href="#s7-3" data-toc-id="s7-3">7.3 物品编辑器</a></li><li><a href="#s7-4" data-toc-id="s7-4">7.4 掉落与爆率编辑器</a></li><li><a href="#s7-5" data-toc-id="s7-5">7.5 经验与成长编辑器</a></li><li><a href="#s7-6" data-toc-id="s7-6">7.6 任务与对话编辑器</a></li><li><a href="#s7-7" data-toc-id="s7-7">7.7 世界/遭遇/刷新/区域编辑器</a></li><li><a href="#s7-8" data-toc-id="s7-8">7.8 本地化编辑器</a></li><li><a href="#s7-9" data-toc-id="s7-9">7.9 外形与表现编辑器</a></li><li><a href="#s7-10" data-toc-id="s7-10">7.10 其余表：通用编辑器 + 小增强</a></li><li><a href="#s7-11" data-toc-id="s7-11">7.11 表 → 归属编辑器总表</a></li></ul></li><li><a href="#s8" data-toc-id="s8">8. 新增内容向导</a></li><li><a href="#s9" data-toc-id="s9">9. 校验、诊断与引用分析</a><ul class="toc-sub"><li><a href="#s9-1" data-toc-id="s9-1">9.1 三个校验时机</a></li><li><a href="#s9-2" data-toc-id="s9-2">9.2 问题面板设计</a></li><li><a href="#s9-3" data-toc-id="s9-3">9.3 覆盖诊断</a></li><li><a href="#s9-4" data-toc-id="s9-4">9.4 引用图（引用了谁 / 被谁引用）</a></li><li><a href="#s9-5" data-toc-id="s9-5">9.5 schema 迁移</a></li><li><a href="#s9-6" data-toc-id="s9-6">9.6 校验覆盖矩阵与可选规则装配</a></li></ul></li><li><a href="#s10" data-toc-id="s10">10. 数值沙盘（预览与模拟）</a></li><li><a href="#s11" data-toc-id="s11">11. 批量与导入导出</a></li><li><a href="#s12" data-toc-id="s12">12. 版本控制与协作</a><ul class="toc-sub"><li><a href="#s12-1" data-toc-id="s12-1">12.1 git 状态显示</a></li><li><a href="#s12-2" data-toc-id="s12-2">12.2 变更文件列表与 diff 预览</a></li><li><a href="#s12-3" data-toc-id="s12-3">12.3 提交前自动校验</a></li><li><a href="#s12-4" data-toc-id="s12-4">12.4 冲突时的记录级合并辅助</a></li></ul></li><li><a href="#s13" data-toc-id="s13">13. 运行联调</a><ul class="toc-sub"><li><a href="#s13-1" data-toc-id="s13-1">13.1 配置游戏可执行文件/Unity 工程路径</a></li><li><a href="#s13-2" data-toc-id="s13-2">13.2 一键运行</a></li><li><a href="#s13-3" data-toc-id="s13-3">13.3 保存触发热重载</a></li><li><a href="#s13-4" data-toc-id="s13-4">13.4 从游戏日志反查编辑器记录</a></li><li><a href="#s13-5" data-toc-id="s13-5">13.5 外部工具调用的编码约定</a></li></ul></li><li><a href="#s14" data-toc-id="s14">14. 设置与扩展</a><ul class="toc-sub"><li><a href="#s14-1" data-toc-id="s14-1">14.1 设置项清单</a></li><li><a href="#s14-2" data-toc-id="s14-2">14.2 插件机制</a></li><li><a href="#s14-3" data-toc-id="s14-3">14.3 schema 变化自动适配的原则</a></li><li><a href="#s14-4" data-toc-id="s14-4">14.4 编辑器自身发布形态（默认方案，可调整）</a></li></ul></li><li><a href="#s15" data-toc-id="s15">15. 非功能需求</a><ul class="toc-sub"><li><a href="#s15-1" data-toc-id="s15-1">15.1 性能指标</a></li><li><a href="#s15-2" data-toc-id="s15-2">15.2 可靠性</a></li><li><a href="#s15-3" data-toc-id="s15-3">15.3 可用性</a></li><li><a href="#s15-4" data-toc-id="s15-4">15.4 兼容性</a></li><li><a href="#s15-5" data-toc-id="s15-5">15.5 安全</a></li><li><a href="#s15-6" data-toc-id="s15-6">15.6 子进程编码健壮性</a></li></ul></li><li><a href="#s16" data-toc-id="s16">16. 技术选型建议</a><ul class="toc-sub"><li><a href="#s16-1" data-toc-id="s16-1">16.1 桌面壳：WPF 与 Avalonia 对比</a></li><li><a href="#s16-2" data-toc-id="s16-2">16.2 理由与备选（Web 壳 + 本地服务）对比</a></li><li><a href="#s16-3" data-toc-id="s16-3">16.3 图表、代码编辑控件、文件监视、git 调用方式（默认方案，可调整）</a></li><li><a href="#s16-4" data-toc-id="s16-4">16.4 与 toolchain/validator 共享注册逻辑的方式</a></li><li><a href="#s16-5" data-toc-id="s16-5">16.5 打包与私服发布方式（配合第 14.4 节，默认方案，可调整）</a></li></ul></li><li><a href="#s17" data-toc-id="s17">17. 里程碑与验收标准</a></li><li><a href="#s18" data-toc-id="s18">18. 附录</a><ul class="toc-sub"><li><a href="#apx-a" data-toc-id="apx-a">附录 A：快捷键表</a></li><li><a href="#apx-b" data-toc-id="apx-b">附录 B：字段类型→控件映射（详见第 6.2 节）</a></li><li><a href="#apx-c" data-toc-id="apx-c">附录 C：校验项→编辑器反馈方式映射（对应 04 第 5 节 14 项）</a></li><li><a href="#apx-d" data-toc-id="apx-d">附录 D：表 → 编辑器总表</a></li><li><a href="#apx-e" data-toc-id="apx-e">附录 E：术语表（详版）</a></li><li><a href="#apx-f" data-toc-id="apx-f">附录 F：与架构文档的对应关系</a></li></ul></li></ul></aside>
   <div class="content-wrap">
     <div class="page" id="top">
 <h1>GF 内容编辑器 产品文档</h1>
 <ul>
-<li>版本：v1</li>
-<li>日期：2026-09-06</li>
+<li>版本：v1.1</li>
+<li>日期：2026-09-09</li>
 <li>状态：草案（待用户确认）</li>
-<li>上游文档：<a href="../../architecture/README.md">architecture/README.md</a> · <a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线.md</a> · <a href="../../architecture/06_规则层_属性技能战斗AI.md">06_规则层_属性技能战斗AI.md</a> · <a href="../../architecture/07_载体层_物品生物物件.md">07_载体层_物品生物物件.md</a> · <a href="../../architecture/08_玩法层_掉落任务对话关卡.md">08_玩法层_掉落任务对话关卡.md</a> · <a href="../../data/README.md">data/README.md</a> · <a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划.md</a></li>
+<li>上游文档：<a href="../../architecture/README.md">architecture/README.md</a> · <a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线.md</a> · <a href="../../architecture/06_规则层_属性技能战斗AI.md">06_规则层_属性技能战斗AI.md</a> · <a href="../../architecture/07_载体层_物品生物物件.md">07_载体层_物品生物物件.md</a> · <a href="../../architecture/08_玩法层_掉落任务对话关卡.md">08_玩法层_掉落任务对话关卡.md</a> · <a href="../../data/README.md">data/README.md</a> · <a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划.md</a> · <a href="../../CHANGELOG.md">CHANGELOG.md</a> · <a href="../../toolchain/README.md">toolchain/README.md</a></li>
 </ul>
 <h2 id="changelog">变更记录</h2>
 <div class="tbl-wrap"><table>
@@ -262,6 +262,11 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <td>2026-09-06</td>
 <td>v1</td>
 <td>首版草案：完整 18 章产品方案，待用户确认后进入 HTML 版转换与实现立项</td>
+</tr>
+<tr>
+<td>2026-09-09</td>
+<td>v1.1</td>
+<td>对齐框架 1.11.0：消费通道改为 ws-game.lock + zip/私服两通道、语义化版本兼容口径、编辑器发布形态、资源检查复用 import_assets.py check、校验覆盖矩阵、Expr 错误分级、子进程 UTF-8 约定、验收资产根 assets/_sample</td>
 </tr>
 </tbody>
 </table></div>
@@ -345,10 +350,10 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 关卡策划在"掉落与爆率编辑器"给 <code>loot.sample_beast</code> 加一个 <code>weighted_pick_one</code> 分组，塞入三件候选物品，各自设权重；右侧"模拟面板"输入次数 10000、种子 <code>12345</code>，点"运行模拟"，几秒内输出每件物品的出现次数、实际概率（与权重归一化后的理论概率对比）、平均获得数量、按物品预算估算的期望价值，策划据此判断"稀有件出现频率是否符合设计目标"。</p>
 <p><strong>故事 4：文案补齐缺失文本键。</strong>
 文案打开"本地化编辑器"，矩阵视图按"缺失单元格"排序，看到 <code>l10n.quest.deliver_letter.description</code> 在 <code>zh-CN</code> 有正文但 <code>en-US</code> 缺失（高亮黄色）；文案双击该单元格直接填入译文，保存后该行的缺失标记消失，问题面板里对应的一条"文本键存在"警告随之清除。</p>
-<p><strong>故事 5：程序升级框架版本后跑迁移与全量校验。</strong>
-程序把工程的框架快照路径从 <code>dist/0.2.0/</code> 改指到 <code>dist/0.3.0/</code>，重新打开工程时状态栏提示"框架版本 0.3.0，检测到 2 张表 <code>schema_version</code> 落后"；程序在"校验、诊断与引用分析"面板点"执行迁移"，预览迁移前后字段差异（如新增字段的默认值）后确认执行，迁移完成后触发一次全量校验，报告 0 错误后程序提交这批因迁移产生的文件改动。</p>
+<p><strong>故事 5：程序升级框架版本后按 CHANGELOG 迁移说明跑迁移与全量校验。</strong>
+程序在游戏仓库根跑 <code>toolchain/get_framework.ps1 -Version 1.11.0 -Target packages</code>（或私服通道 <code>-FromRegistry</code>）把框架从 <code>1.10.0</code> 升级到 <code>1.11.0</code>，<code>ws-game.lock</code> 随之更新；重新打开工程时编辑器读取新的 <code>ws-game.lock</code>，因 MAJOR 段未变（均为 <code>1</code>）判定兼容，仅在状态栏与问题面板提示"框架版本 <code>1.10.0 → 1.11.0</code>（MINOR 升级），检测到 2 张表 <code>schema_version</code> 落后，建议查阅框架 <code>CHANGELOG.md</code> 对应区间的迁移说明"；程序在"校验、诊断与引用分析"面板点"执行迁移"，编辑器先展示该版本区间 <code>CHANGELOG.md</code> 条目中标注的迁移说明摘要（若有），再预览迁移前后字段差异（如新增字段的默认值），确认执行后触发一次全量校验，报告 0 错误后程序提交这批因迁移产生的文件改动。若升级跨越 MAJOR 段（例如 <code>1.x</code> → <code>2.0.0</code>），编辑器直接拒绝打开工程并提示"框架 MAJOR 版本不兼容，请先升级编辑器"，不进入迁移流程（见第 3.3 节"版本对齐"、第 4.1 节向导第 4 步）。</p>
 <p><strong>故事 6：美术核对外形映射资源是否存在。</strong>
-美术打开"外形与表现编辑器"，筛选"资源缺失"，看到 <code>display.map.sample_new_monster</code> 一行的 <code>sprite_set_id</code> 在工程 <code>assets/</code> 目录下找不到对应文件，黄色感叹号标注；美术确认是资源还没导出，先在编辑器里记下待办，等 ComfyUI 出图与 <code>import_assets.py</code> 跑完后重新扫描，该行的黄标自动消失。</p>
+美术打开"外形与表现编辑器"，筛选"资源缺失"；黄标数据源不是编辑器自建的目录扫描，而是编辑器调用 <code>toolchain/import_assets.py check --dataset &lt;game&gt;</code>（验收数据集场景下为 <code>--dataset _sample</code>，见第 17 章）子进程解析回来的问题清单——看到 <code>display.map.sample_new_monster</code> 一行的 <code>sprite_set_id</code> 被 <code>check</code> 判定为对应目录缺失，黄色感叹号标注；美术确认是资源还没导出，先在编辑器里记下待办，等 ComfyUI 出图、<code>import_assets.py sprite</code> 一类子命令跑完写入精灵资源与 <code>display.map</code> 行后，在编辑器里点"重新扫描"（本质是再跑一次 <code>import_assets.py check</code>），该行的黄标自动消失。</p>
 <h3 id="s1-5">1.5 与现有工具链的关系（先给结论，细节见第 3 章）</h3>
 <p>编辑器不是另起一套数据规范或校验规则，而是仓库既有工具链（<code>data/README.md</code>、<code>toolchain/validate_data.py</code>、<code>toolchain/validator</code>、<code>toolchain/import_assets.py</code>）之上的图形化前端：数据文件组织、信封、主键规则、多根合并、字段级/引用级校验规则、外形映射生成方式，编辑器全部复用，不重复定义、不产生第二套语义。第 3 章"总体方案"给出编辑器如何在实现层面直接复用这些既有能力。</p>
 <hr>
@@ -364,7 +369,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <tbody>
 <tr>
 <td>工程</td>
-<td>编辑器打开的一个游戏数据编辑单元，对应某个 <code>&lt;game&gt;</code> 仓库的 <code>data/&lt;game&gt;/</code> 数据根 + 其锁定的框架快照 <code>dist/&lt;version&gt;/</code></td>
+<td>编辑器打开的一个游戏数据编辑单元，对应某个 <code>&lt;game&gt;</code> 仓库的 <code>data/&lt;game&gt;/</code> 数据根 + 其锁定的框架版本（记录在游戏仓库根 <code>ws-game.lock</code>；按锁文件 <code>source.channel</code> 分两种取得方式：zip 快照通道解压到 <code>packages/ws-game-&lt;ver&gt;/</code>，私服通道由 Unity 解析到 <code>Library/PackageCache/</code> 下的三个包，见第 4.1 节）</td>
 </tr>
 <tr>
 <td>工作区</td>
@@ -376,7 +381,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </tr>
 <tr>
 <td>层（框架层/游戏层）</td>
-<td>数据根的归属：框架层数据（随 <code>dist/&lt;version&gt;/data/_framework/</code> 交付）默认只读，游戏层数据（<code>data/&lt;game&gt;/</code>）可编辑；框架层记录可通过"覆盖到游戏层"生成可编辑副本（见第 6.4 节）</td>
+<td>数据根的归属：框架层数据（zip 通道随 <code>packages/ws-game-&lt;ver&gt;/data/_framework/</code> 交付，私服通道随 <code>com.gamefoundation.framework-data</code> 包内 <code>Data~/</code> 交付）默认只读，游戏层数据（<code>data/&lt;game&gt;/</code>）可编辑；框架层记录可通过"覆盖到游戏层"生成可编辑副本（见第 6.4 节）</td>
 </tr>
 <tr>
 <td>表 / 域 / 记录 / 字段</td>
@@ -506,7 +511,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <li><strong>表结构零重复</strong>：核心库的 <code>TableSchema</code>/<code>FieldSchema</code>（<code>core/foundation/data_registry/contracts/</code>）已经登记了每张表的字段名、<code>FieldKind</code>（<code>Bool</code>/<code>Int</code>/<code>Number</code>/<code>String</code>/<code>Id</code>/<code>IdList</code>/<code>Reference</code>/<code>TextKey</code>/<code>Expr</code>/<code>Enum</code>/<code>Vec2</code>/<code>Object</code>/<code>Array</code>，见 <code>FieldKind.cs</code>）、<code>Required</code>、<code>EnumValues</code>、<code>ReferenceTable</code>/<code>ReferenceDomain</code>、<code>Description</code>（见 <code>FieldSchema.cs</code>）、当前 <code>CurrentSchemaVersion</code> 与 <code>Migrations</code> 迁移链（见 <code>TableSchema.cs</code>）。编辑器读取这些声明<strong>自动生成</strong>网格列与表单控件（见第 6.2 节控件映射表），新表/新字段只要在核心库登记，编辑器零改动即可编辑——不需要为每张新表单独写一份 UI 代码。</li>
 <li><strong>校验规则零重复</strong>：编辑器直接调用 <code>DataRegistry.LoadAll</code>/<code>Validate</code>/<code>Reload</code> 与全部已注册的 <code>IValidationRule</code>，做到"编辑器里看到的红线 = 运行时/门禁会报的错"这一硬承诺；不存在"编辑器说没问题，但 <code>validate_data.py</code> 报错"的割裂体验。</li>
 <li><strong>数值预览与模拟零重复</strong>：确定性固定步长模拟（拍板决策 3）本身可以脱离引擎运行，编辑器借桩适配层（<code>Adapters.Stub</code>）跑结算管线（06 第 4.1 节）、掉落抽取（08 第 1 节）、经验曲线换算等"数值沙盘"（第 10 章），预览结果与游戏内真实运行结果保证一致，因为走的是同一份规则层代码。</li>
-<li><strong>版本对齐</strong>：编辑器随框架 <code>dist/&lt;version&gt;/</code> 同版本发布，或自身声明兼容的框架版本范围；打开工程时核对游戏工程 <code>Packages/manifest.json</code> 里 <code>file:</code> 锁定的框架快照版本，版本不匹配时提示但不阻断打开（只读模式下仍可查看）。</li>
+<li><strong>版本对齐</strong>：编辑器自身版本号来自仓库根 <code>VERSION</code>，与框架同号发布（见第 14.4 节"编辑器自身发布形态"）；编辑器声明"兼容框架 MAJOR 相同的全部版本"。打开工程时按第 4.1 节流程读取游戏仓库根 <code>ws-game.lock</code> 判定当前锁定的框架版本与来源通道（zip 快照通道落地的 <code>packages/ws-game-&lt;ver&gt;/</code>，或私服通道由 Unity 解析到 <code>Library/PackageCache/</code> 下的三个包），MAJOR 段不同直接拒绝打开并提示升级编辑器，MINOR 段不同不阻断，仅提示查阅框架 <code>CHANGELOG.md</code> 对应版本区间的迁移说明（见第 9.5 节"schema 迁移"与用户故事 5）。</li>
 </ol>
 <h3 id="s3-4">3.4 与既有工具链的复用关系一览</h3>
 <div class="tbl-wrap"><table>
@@ -527,11 +532,11 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </tr>
 <tr>
 <td><code>toolchain/validator</code>（.NET）</td>
-<td>编辑器进程内直接引用同一套 <code>DataRegistry</code> + <code>IValidationRule</code> 实现（而非再拉起子进程），字段级/表级校验走同一套代码路径；全量校验可选择"进程内跑"或"拉起子进程跑，日志汇入输出面板"两种模式（后者用于跟门禁行为完全对齐地复核）</td>
+<td>编辑器进程内直接引用同一套 <code>DataRegistry</code> + <code>IValidationRule</code> 实现（而非再拉起子进程），字段级/表级校验走同一套代码路径；全量校验可选择"进程内跑"或"拉起子进程跑，日志汇入输出面板"两种模式（后者用于跟门禁行为完全对齐地复核）；编辑器装配校验器时必须与 <code>toolchain/validator</code> 传入相同的可选来源与选项（<code>FailOnUnknownTable</code>/<code>Strictness</code>，以及 <code>SpawnSummonOnlyCreatureRule</code>/<code>DisplayMapCoverageRule</code> 等需装配层显式接线的规则来源），避免"编辑器全绿但门禁报错"的割裂，见第 9.6 节"校验覆盖矩阵与可选规则装配"、04 第 5.1 节</td>
 </tr>
 <tr>
 <td><code>toolchain/import_assets.py</code></td>
-<td>编辑器"外形与表现编辑器"提供调用入口（见第 7.9 节），把出图产物生成 <code>display.map</code>/<code>display.equip_visual</code> 行，编辑器本身不重复实现资产扫描逻辑</td>
+<td>编辑器"外形与表现编辑器"按六个子命令（<code>sprite</code>/<code>icon</code>/<code>vfx</code>/<code>sfx</code>/<code>map</code>/<code>check</code>）分别提供调用入口（见第 7.9 节）：前五个把出图产物/地图分层图合并写入 <code>display.map</code>/<code>vfx.def</code>/<code>sfx.def</code>/<code>world.map</code>（同主键整行替换，其余行保留），<code>check</code> 交叉校验 <code>assets/&lt;dataset&gt;/</code> 与这四张表的引用是否存在；资源存在性黄标全部来自解析 <code>check</code> 的输出，编辑器不自建路径推导逻辑，资源路径规则统一由 <code>toolchain/resource_layout_map.json</code> 定义</td>
 </tr>
 <tr>
 <td>04 第 4 节多根加载与合并规则</td>
@@ -550,8 +555,8 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <ol>
 <li><strong>选游戏仓库根</strong>：文件选择器选中某个 <code>&lt;game&gt;</code> 仓库的根目录（例如用户本地的游戏仓库路径）。</li>
 <li><strong>自动探测数据根</strong>：编辑器在所选根目录下查找 <code>data/&lt;game&gt;/</code>（<code>&lt;game&gt;</code> 段名由该仓库自己决定，编辑器不关心具体拼写），探测到即列为"游戏层数据根";若找不到，提示用户手动指定路径或改为"仅浏览框架层"的只读模式。</li>
-<li><strong>自动探测框架快照</strong>：读取该仓库 Unity 工程 <code>Packages/manifest.json</code> 里 <code>com.gamefoundation.adapter.unity</code>/<code>com.gamefoundation.game-template</code> 的 <code>file:</code> 依赖路径，解析出所指向的 <code>dist/&lt;version&gt;/</code> 目录，从中读取 <code>dist/&lt;version&gt;/data/_framework/</code> 作为框架层数据根、读取内嵌的核心 DLL 供编辑器加载；若 <code>manifest.json</code> 不存在或依赖路径解析失败，弹出手动选择框架快照目录的对话框。</li>
-<li><strong>显示框架版本与编辑器兼容性</strong>：向导最后一步展示"检测到框架版本 <code>0.3.0</code>，本编辑器兼容 <code>0.2.x ~ 0.3.x</code>"一类结论；版本超出兼容范围时给出黄色警告但允许继续（只读优先，写操作前二次确认）。</li>
+<li><strong>自动探测框架来源</strong>：读取所选仓库根的 <code>ws-game.lock</code>（若存在），据其 <code>version</code> 与 <code>source.channel</code> 字段判断消费通道：<code>channel: "zip"</code> 时按 <code>packages/ws-game-&lt;version&gt;/</code> 定位框架层数据根（<code>packages/ws-game-&lt;version&gt;/data/_framework/</code>）、核心 DLL（<code>packages/ws-game-&lt;version&gt;/adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/</code>）与工具链（<code>packages/ws-game-&lt;version&gt;/toolchain/</code>）；<code>channel: "registry"</code> 时框架内容已由 Unity 解析到该工程 <code>Library/PackageCache/</code> 下的三个包目录（<code>com.gamefoundation.framework-data</code> 包内 <code>Data~/</code> 为框架层数据根、<code>com.gamefoundation.adapter.unity</code> 包内 <code>Runtime/Plugins/Core/</code> 为核心 DLL、<code>com.gamefoundation.toolchain</code> 包内 <code>Tools~/</code> 为工具链），编辑器按包名在 <code>Library/PackageCache/&lt;包名&gt;@&lt;版本&gt;/</code> 下查找。找不到 <code>ws-game.lock</code>（尚未接入任何通道，或锁文件缺失）时，退回弹出对话框让用户手选一个 <code>packages/ws-game-&lt;ver&gt;/</code> 目录，或本机 <code>dist/&lt;ver&gt;/</code> 目录（本机对某个标签跑过 <code>build.ps1 -Dist</code> 的产出，供离线场景不经锁文件直接指向验证用）。</li>
+<li><strong>显示框架版本与编辑器兼容性</strong>：向导最后一步展示"检测到框架版本 <code>1.11.0</code>（来源：zip 通道 / 私服通道 / 本机 <code>dist</code> 目录），本编辑器兼容框架 MAJOR = 1 的全部版本"一类结论；兼容判定按语义化版本 MAJOR 段：MAJOR 相同即视为兼容，MINOR 不同只在本步骤提示"建议查阅框架 <code>CHANGELOG.md</code> 对应区间的迁移说明"（不阻断，见第 9.5 节）；MAJOR 不同则拒绝打开工程并提示"框架 MAJOR 版本不兼容，请先升级编辑器"（不提供只读例外，因编辑器自身随框架同 MAJOR 发布，见第 3.3 节"版本对齐"）。</li>
 <li>确认后进入主界面，状态栏立即显示工程名与框架版本（见第 5.7 节）。</li>
 </ol>
 <h3 id="s4-2">4.2 最近工程</h3>
@@ -571,8 +576,16 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <td>已探测/手动指定的数据根路径列表（框架层 + 游戏层）</td>
 </tr>
 <tr>
-<td><code>frameworkSnapshotPath</code></td>
-<td>当前锁定的 <code>dist/&lt;version&gt;/</code> 路径</td>
+<td><code>frameworkRoot</code></td>
+<td>当前锁定的框架内容根路径：zip 通道为 <code>packages/ws-game-&lt;ver&gt;/</code>，私服通道为 Unity 解析到的 <code>Library/PackageCache/</code> 下对应包目录，本机 <code>dist</code> 退回场景为用户手选的 <code>dist/&lt;ver&gt;/</code></td>
+</tr>
+<tr>
+<td><code>frameworkChannel</code></td>
+<td>框架来源通道：<code>zip</code>|<code>registry</code>|<code>local_dist</code></td>
+</tr>
+<tr>
+<td><code>frameworkVersion</code></td>
+<td>当前锁定的框架版本号（来自 <code>ws-game.lock</code> 的 <code>version</code> 字段；退回手选 <code>dist/&lt;ver&gt;/</code> 时按目录名解析）</td>
 </tr>
 <tr>
 <td><code>defaultLocale</code></td>
@@ -588,7 +601,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </tr>
 </tbody>
 </table></div>
-<p><strong>是否入库的建议（默认方案，可调整）</strong>：<code>workspace.json</code> 里 <code>dataRoots</code>/<code>frameworkSnapshotPath</code>/<code>defaultLocale</code> 属于"团队共享的工程配置"，建议入库（多人打开工程时行为一致）；<code>preferences</code>（布局、最近标签等纯个人偏好）与自动保存草稿目录（见第 15.2 节 <code>.gfeditor/autosave/</code>）不建议入库，建议在游戏仓库 <code>.gitignore</code> 里为 <code>.gfeditor/autosave/</code> 与 <code>.gfeditor/*.local.json</code> 加忽略规则；编辑器首次写入 <code>workspace.json</code> 时如检测到仓库尚无对应 <code>.gitignore</code> 规则，弹出一次性提示询问是否代为写入。</p>
+<p><strong>是否入库的建议（默认方案，可调整）</strong>：<code>workspace.json</code> 里 <code>dataRoots</code>/<code>frameworkRoot</code>/<code>frameworkChannel</code>/<code>frameworkVersion</code>/<code>defaultLocale</code> 属于"团队共享的工程配置"，建议入库（多人打开工程时行为一致）；<code>preferences</code>（布局、最近标签等纯个人偏好）与自动保存草稿目录（见第 15.2 节 <code>.gfeditor/autosave/</code>）不建议入库，建议在游戏仓库 <code>.gitignore</code> 里为 <code>.gfeditor/autosave/</code> 与 <code>.gfeditor/*.local.json</code> 加忽略规则；编辑器首次写入 <code>workspace.json</code> 时如检测到仓库尚无对应 <code>.gitignore</code> 规则，弹出一次性提示询问是否代为写入。</p>
 <hr>
 <h2 id="s5">5. 主界面布局</h2>
 <p>主界面是编辑器最高频的操作现场，本章给出整体线框图、各区域的默认尺寸/折叠规则，以及尺寸调整、主题、DPI 的行为约定。</p>
@@ -640,7 +653,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
     <div class="wf-issue">⚠ item.template.item_y：预算超标（消耗 42 / 上限 38） <span class="wf-link">[跳转]</span></div>
   </div>
   <div class="wf-statusbar">
-    <span>工程: &lt;game&gt;-dev</span><span>框架 0.3.0</span><span>数据根 2 层</span><span>未保存 3 张表</span><span>错误 1 警告 4</span><span>战斗:离散(回合)</span><span>git main 3 处改动</span><span>zh-CN</span>
+    <span>工程: &lt;game&gt;-dev</span><span>框架 1.11.0(zip)</span><span>数据根 2 层</span><span>未保存 3 张表</span><span>错误 1 警告 4</span><span>战斗:离散(回合)</span><span>git main 3 处改动</span><span>zh-CN</span>
   </div>
 </div>
 </div>
@@ -670,7 +683,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 | ✕ skill.def.skill_x: 引用完整性 target_shape_ref 未找到 target.chain.xxx    [跳转]                     |
 | ⚠ item.template.item_y: 预算超标 (消耗 42 / 上限 38)                       [跳转]                     |
 +--------------------------------------------------------------------------------------------------+
-| 工程: &lt;game&gt;-dev · 框架 0.3.0 · 数据根 2 层 · 未保存 3 张表 · 错误 1 警告 4 · 战斗:离散(回合) · git main 3 处改动 · zh-CN |
+| 工程: &lt;game&gt;-dev · 框架 1.11.0(zip) · 数据根 2 层 · 未保存 3 张表 · 错误 1 警告 4 · 战斗:离散(回合) · git main 3 处改动 · zh-CN |
 +--------------------------------------------------------------------------------------------------+
 </code></pre>
 </details>
@@ -775,7 +788,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </tbody>
 </table></div>
 <h3 id="s5-7">5.7 状态栏</h3>
-<p>固定单行，自左至右依次展示：<code>工程名</code> · <code>框架版本</code> · <code>数据根层数</code>（如"2 层"表示框架层+游戏层） · <code>未保存表数</code> · <code>错误/警告数</code>（红/黄两色数字） · <code>探索/战斗时间模型</code>（分别显示，例如"探索:连续 战斗:离散(回合)"，决定编辑器里时间字段单位显示"秒"还是"回合"，见第 6.2 节） · <code>git 分支与脏文件数</code> · <code>当前 locale</code>。任一项点击可跳转到对应详情面板（例如点错误数跳到问题面板）。</p>
+<p>固定单行，自左至右依次展示：<code>工程名</code> · <code>框架版本</code>（附来源通道简写，如"1.11.0(zip)"/"1.11.0(registry)"，对应 <code>workspace.json</code> 的 <code>frameworkVersion</code>/<code>frameworkChannel</code>，见第 4.3 节） · <code>数据根层数</code>（如"2 层"表示框架层+游戏层） · <code>未保存表数</code> · <code>错误/警告数</code>（红/黄两色数字） · <code>探索/战斗时间模型</code>（分别显示，例如"探索:连续 战斗:离散(回合)"，决定编辑器里时间字段单位显示"秒"还是"回合"，见第 6.2 节） · <code>git 分支与脏文件数</code> · <code>当前 locale</code>。任一项点击可跳转到对应详情面板（例如点错误数跳到问题面板）。</p>
 <h3 id="s5-8">5.8 主题、DPI、窗口与布局</h3>
 <ul>
 <li>主题：浅色 / 深色 / 跟随系统三选一，设置项见第 14.1 节；切换即时生效不需重启。</li>
@@ -869,7 +882,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <tr>
 <td><code>Expr</code></td>
 <td>表达式编辑器</td>
-<td>语法高亮（关键字/分组名/字符串/数字/括号配色）；输入 <code>group.</code> 后弹出该分组下已知 <code>key</code> 的自动补全列表（九个分组：<code>self</code>/<code>target</code>/<code>event</code>/<code>world</code>/<code>quest</code>/<code>player</code>/<code>combat</code>/<code>enemies</code>/<code>time</code>，见 04 第 6.2 节）；括号自动匹配高亮；失焦时按 04 第 6.1 节 BNF 做实时解析，语法错误处标红下划线并在状态提示条给出错误位置；点分标识符若域名段与九个分组同名但未登记为 <code>group.key</code>，标黄"疑似引用拼写错误"警告（对应 04 第 5 节该项校验）；识别为合法内容 id 字面量的片段可点击跳转到目标记录</td>
+<td>语法高亮（关键字/分组名/字符串/数字/括号配色）；输入 <code>group.</code> 后弹出该分组下已知 <code>key</code> 的自动补全列表（九个分组：<code>self</code>/<code>target</code>/<code>event</code>/<code>world</code>/<code>quest</code>/<code>player</code>/<code>combat</code>/<code>enemies</code>/<code>time</code>，见 04 第 6.2 节），补全项分两档颜色：已登记的 <code>group.key</code> 正常展示，悬停显示其类型；未登记的组合悬停显示回退结果说明（见下）；括号自动匹配高亮；失焦时按 04 第 6.1 节 BNF 做实时解析，<strong>语法错误、类型不匹配</strong>标红下划线并阻断保存（04 第 6.4 节解析期红线，两者不区分显示，统一按"错误"级处理）；点分标识符按 04 第 6.3/6.4 节分级处理未登记的 <code>group.key</code>：域名段属于八个普通分组（<code>self</code>/<code>target</code>/<code>world</code>/<code>quest</code>/<code>player</code>/<code>combat</code>/<code>enemies</code>/<code>time</code>）之一但未登记，回退为 id 字面量，标黄"疑似引用拼写错误"警告（不阻断）；域名段是 <code>event</code> 分组，回退为签名未知的引用，不标红不标黄（04 第 6.3 节"<code>event</code> 分组例外"，运行期按分组默认值求值）；识别为合法内容 id 字面量的片段可点击跳转到目标记录</td>
 </tr>
 <tr>
 <td><code>Vec2</code></td>
@@ -1427,7 +1440,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </ol>
 <p><strong>专属校验/预览</strong>：缺失矩阵高亮、孤儿 key 提示、占位符一致性检查。</p>
 <h3 id="s7-9">7.9 外形与表现编辑器</h3>
-<p><strong>目的</strong>：管理逻辑 id 到外形资源的映射，核对资源是否真实存在，串联 <code>import_assets.py</code> 出图产物。</p>
+<p><strong>目的</strong>：管理逻辑 id 到外形资源的映射，核对资源是否真实存在，串联 <code>import_assets.py</code> 出图产物。编辑器不自建资源路径推导逻辑：资源缺失黄标、六个子命令入口的参数表单、资源路径规则本身全部复用 <code>toolchain/import_assets.py</code>（六个子命令 <code>sprite</code>/<code>icon</code>/<code>vfx</code>/<code>sfx</code>/<code>map</code>/<code>check</code>）与 <code>toolchain/resource_layout_map.json</code>，见下方交互流程第 3、6 点。</p>
 <p><strong>覆盖的表</strong>：<code>display.map</code>、<code>display.anim_set</code>、<code>display.equip_visual</code>、<code>display.weapon_style</code>、<code>vfx.def</code>、<code>sfx.def</code>、<code>feedback.binding</code>、<code>feedback.floating_text_style</code>、<code>camera_profile</code>、<code>ui_layout_definition</code>、<code>shell_menu_definition</code>。</p>
 <p><strong>界面布局线框</strong>：</p>
 <pre><code>+----------------------------------------------------------------------------------------+
@@ -1447,15 +1460,15 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </code></pre>
 <p><strong>交互流程</strong>：</p>
 <ol>
-<li>列表按 <code>category</code>（<code>skill</code>|<code>aura</code>|<code>item</code>|<code>creature</code>|<code>gobj</code>|<code>projectile</code>）与"资源缺失"筛选；缺失（工程 <code>assets/</code> 目录下找不到 <code>sprite_set_id</code>/<code>icon_id</code>/<code>model_ref</code> 等对应文件）的行前缀黄色感叹号。</li>
+<li>列表按 <code>category</code>（<code>skill</code>|<code>aura</code>|<code>item</code>|<code>creature</code>|<code>gobj</code>|<code>projectile</code>）与"资源缺失"筛选；缺失（由 <code>import_assets.py check</code> 判定 <code>sprite_set_id</code>/<code>icon_id</code>/<code>model_ref</code>/<code>resource_ref</code> 等对应目录或文件不存在，见下方第 3 点）的行前缀黄色感叹号。</li>
 <li><code>kind</code> 单选切换 <code>sprite</code>/<code>model</code> 两组专属字段（07 表现层 7.1 节字段表），未选中的一组整体灰化只读，对应 04 第 5 节"外形类型字段组完整"校验项在此以界面禁用的方式提前预防，而不是等保存后报错。</li>
-<li><strong>资源引用存在性检查</strong>：编辑器在打开工程时扫描一次工程 <code>assets/</code> 目录建立文件名索引，每个引用字段（<code>sprite_set_id</code>/<code>icon_id</code>/<code>model_ref</code>/<code>sfx_id</code> 等）失焦时对照索引查找，找不到则该字段标黄，右侧检视区预览面板显示"资源缺失"占位图。</li>
+<li><strong>资源引用存在性检查</strong>：编辑器不自建目录扫描/路径推导，而是作为子进程调用 <code>python toolchain/import_assets.py check --dataset &lt;dataset&gt; [--assets-root ...] [--data-root ...] [--only sprite,vfx,sfx,world]</code>，解析其问题清单（资产/目录缺失、<code>mirror_pairs</code> 完整性、声明锚点缺失、精灵集跨方向档位尺寸不一致等，见 <code>toolchain/README.md</code>"资产导入工具"一节 <code>check</code> 子命令说明）回填到对应记录/字段的黄标；资源路径规则统一由 <code>toolchain/resource_layout_map.json</code> 定义，编辑器读取该文件解析预览缩略图的实际路径，不重复实现路径推导。打开工程时与用户手动点"重新扫描"时各触发一次调用。</li>
 <li>预览：精灵/图标类字段显示缩略图（读取匹配到的实际图片文件）；<code>sfx_id</code> 提供"试听"按钮（本地播放对应音频文件，无音频输出设备时按钮置灰并提示）。</li>
 <li><strong>"外形映射存在"反查</strong>（对应 04 第 5 节同名校验项）：扫描全部表中标记为需要外形映射的逻辑 id 集合（技能/光环/物品/生物/物件），列出"还没有 <code>display.map</code> 行"的清单，提供"一键补建"批量生成占位行（<code>kind</code> 留待用户选择，其余字段留空）。</li>
-<li><strong>调用 <code>import_assets.py</code></strong>：面板提供"选择出图产物目录"按钮，点击后作为子进程调用 <code>toolchain/import_assets.py</code>，标准输出/错误实时汇入本面板下方日志区（同时也汇入主界面"输出"面板，见第 5.6 节），执行完成后自动刷新一次资源存在性索引与相关 <code>display.map</code>/<code>display.equip_visual</code> 记录（对应 ADR-0014"外形表行由工具生成而非手填"）。</li>
+<li><strong>调用 <code>import_assets.py</code></strong>：面板按六个子命令（<code>sprite</code>/<code>icon</code>/<code>vfx</code>/<code>sfx</code>/<code>map</code>/<code>check</code>）分别提供参数表单——<code>sprite</code> 对应源目录选择 + <code>--mirror</code>/<code>--anchors</code>/<code>--anchor-default</code>/<code>--trim</code>/<code>--scale</code>/<code>--shadow</code>/<code>--pixels-per-unit</code>；<code>icon</code> 对应一批源图选择；<code>vfx</code> 对应序列帧目录 + <code>--attach-mode</code>/<code>--fps</code>/<code>--loop</code>/<code>--lifetime</code>；<code>sfx</code> 对应多文件（同 id 随机变体）选择；<code>map</code> 对应地图分层图目录 + <code>--spawn</code>；<code>check</code> 对应 <code>--dataset</code>/<code>--only</code> 选择（即第 3 点复用的同一入口）。选定参数后作为子进程调用对应 <code>toolchain/import_assets.py &lt;子命令&gt;</code>，标准输出/错误实时汇入本面板下方日志区（同时也汇入主界面"输出"面板，见第 5.6 节），执行完成后自动重跑一次 <code>check</code> 刷新资源存在性黄标与相关 <code>display.map</code>/<code>vfx.def</code>/<code>sfx.def</code>/<code>world.map</code> 记录（新写入的行按主键整行替换，其余行原样保留，对应 ADR-0014"外形表行由工具生成而非手填"）。</li>
 <li>其余表（<code>display.anim_set</code>/<code>display.equip_visual</code>/<code>display.weapon_style</code>/<code>vfx.def</code>/<code>sfx.def</code>/<code>feedback.binding</code>/<code>feedback.floating_text_style</code>/<code>camera_profile</code>/<code>ui_layout_definition</code>/<code>shell_menu_definition</code>）在本编辑器内以标签页形式提供紧凑表单，字段渲染沿用第 6.2 节映射表，不单独定制画布。</li>
 </ol>
-<p><strong>专属校验/预览</strong>：资源存在性检查、外形映射存在反查、外形类型字段组完整的界面级预防、<code>import_assets.py</code> 调用与日志。</p>
+<p><strong>专属校验/预览</strong>：资源存在性检查（复用 <code>import_assets.py check</code>）、外形映射存在反查、外形类型字段组完整的界面级预防、<code>import_assets.py</code> 六个子命令调用与日志。</p>
 <h3 id="s7-10">7.10 其余表：通用编辑器 + 小增强</h3>
 <p>未被 7.1~7.9 覆盖的表（<code>diff.tier</code>、<code>achv.def</code>、<code>econ.currency</code>、<code>econ.vendor</code>、<code>ai.rotation</code>、<code>ai.behavior_profile</code>、<code>gobj.template</code>、<code>gobj.lock</code>、<code>found.game_state</code>、<code>found.input_action</code>、<code>found.hook</code>、<code>found.event_catalog</code>、<code>found.time_model</code>、<code>stat.rating_conversion</code> 等）直接使用第 6 章通用表编辑器打开，叠加以下小增强：</p>
 <div class="tbl-wrap"><table>
@@ -1987,7 +2000,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </tbody>
 </table></div>
 <h3 id="s9-2">9.2 问题面板设计</h3>
-<p>问题面板（第 5.6 节底部面板区）列表每行结构：<code>[级别图标] 所属表.记录id: 检查项名称 — 说明文本 [跳转]</code>；支持按"所属表"/"问题类型"（对应 04 第 5 节 14 项检查项名称）/"来源"（字段级/表级/全量）三维筛选与组合排序；双击任意一行跳转到对应记录的对应字段并高亮闪烁一次。</p>
+<p>问题面板（第 5.6 节底部面板区）列表每行结构：<code>[级别图标] 所属表.记录id: 检查项名称 — 说明文本 [跳转]</code>；支持按"所属表"/"问题类型"（对应 04 第 5 节 14 项检查项名称）/"来源"（字段级/表级/全量）三维筛选与组合排序；双击任意一行跳转到对应记录的对应字段并高亮闪烁一次。Expr 相关问题按第 6.2 节的分级出现：语法错误/类型不匹配为错误级；未登记的普通分组 <code>group.key</code> 回退为 id 字面量时为警告级"疑似引用拼写错误"；未登记的 <code>event</code> 分组回退为签名未知的引用，不产生问题条目。由需装配层显式接线的可选规则（<code>SpawnSummonOnlyCreatureRule</code>/<code>DisplayMapCoverageRule</code> 等，见第 9.6 节）产出的问题额外标注"本条来自可选规则"。</p>
 <h3 id="s9-3">9.3 覆盖诊断</h3>
 <p>多根合并产生的 <code>override: true</code>/<code>final: true</code> 行为（见 04 第 4 节 2026-09-06 修订）不是错误，而是一类<strong>信息级诊断</strong>，单独列在问题面板的"覆盖诊断"分类下：</p>
 <ul>
@@ -2003,6 +2016,40 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </ul>
 <h3 id="s9-5">9.5 schema 迁移</h3>
 <p>打开工程时若检测到某表记录的 <code>schema_version</code> 低于核心库 <code>TableSchema.CurrentSchemaVersion</code>，状态栏与问题面板同时提示"N 张表待迁移"；用户在"校验"菜单点"执行迁移"，弹出预览对话框逐表展示迁移前后的字段差异（新增字段的默认值、被拆分/合并的字段），确认后按 <code>TableSchema.Migrations</code> 声明的迁移链顺序执行（04 第 3 节"迁移链只增不减"），执行完成后记录的 <code>schema_version</code> 写为当前版本、<code>migrated_from</code> 记为原始版本号，随后自动触发一次全量校验确认迁移未引入新问题。</p>
+<h3 id="s9-6">9.6 校验覆盖矩阵与可选规则装配</h3>
+<p>对应 04 第 5.1 节"校验覆盖矩阵"：不是所有声明为引用语义的字段/规则都随 <code>PresentationSchemaCatalog.RegisterAll</code> 一次性自动注册，部分需要装配层显式接线才生效；编辑器装配校验器时必须与 <code>toolchain/validator</code> 走相同的接线方式，避免"编辑器全绿但门禁报错"的割裂：</p>
+<div class="tbl-wrap"><table>
+<thead>
+<tr>
+<th>规则/字段</th>
+<th>默认注册情况</th>
+<th>编辑器行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>常规按模块自动注册的规则（<code>LootContentValidationRule</code>/<code>EconomyContentValidationRule</code>/<code>QuestContentValidationRule</code> 等，见 04 §5.1）</td>
+<td>随 <code>PresentationSchemaCatalog.RegisterAll</code> 一次性注册齐 L0～L5</td>
+<td>编辑器进程内引用同一套注册目录，随之自动生效，无需额外配置</td>
+</tr>
+<tr>
+<td><code>SpawnSummonOnlyCreatureRule</code>（校验 <code>spawn.table.content_ref</code> 指向的生物模板不是"仅供召唤"）</td>
+<td>默认不注册（<code>GameplaySchemaCatalog.RegisterAll</code> 的 <code>creatureTemplateQuery</code> 参数默认为 <code>null</code>）</td>
+<td>编辑器需按与 <code>toolchain/validator</code> 相同的接线方式显式传入 <code>ICreatureTemplateQuery</code> 才启用；未接线时"校验设置"面板将该规则显示为"未启用"，而不是静默跳过</td>
+</tr>
+<tr>
+<td><code>DisplayMapCoverageRule</code>（校验 <code>display</code> 域引用集合中的逻辑 id 必须在 <code>display.map</code> 有对应行）</td>
+<td>默认不注册（构造函数要求显式传入 <code>sources</code>）</td>
+<td>编辑器需游戏侧在"校验设置"里显式声明"哪些内容表参与外形域覆盖检查"，与 <code>toolchain/validator</code> 的调用方接线来源保持一致；未声明时同样显示"未启用"</td>
+</tr>
+<tr>
+<td><code>arch.class.power_types</code>/<code>skill_book_ref</code>、<code>arch.race.passive_auras</code></td>
+<td>仅做 id 格式校验（<code>FieldKind.IdList</code>/<code>FieldKind.Id</code>），不做跨表存在性检查</td>
+<td>问题面板不会为这三个字段产出"引用完整性"类问题（格式合法即通过），相关字段的引用选择器悬停提示标注"本字段仅做格式校验，不做存在性检查（04 §5.1）"</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>FailOnUnknownTable</code>/<code>Strictness</code> 等装配选项，编辑器"校验设置"面板必须与 <code>toolchain/validator</code> 保持同一份默认值来源；由以上可选规则产出的问题在问题面板额外标注"本条来自可选规则"（见第 9.2 节）。</p>
 <hr>
 <h2 id="s10">10. 数值沙盘（预览与模拟）</h2>
 <p>数值沙盘全部基于框架核心库 + 桩适配层（<code>Adapters.Stub</code>）运行，不依赖引擎、不依赖网络；种子可复现（同种子同输入必然同输出，对应确定性拍板决策 3），是编辑器区别于"纯表格编辑工具"的核心差异化能力。沙盘以独立标签页形式在文档区打开（"工具"菜单"数值沙盘"或各专项编辑器内的快捷入口）。</p>
@@ -2107,6 +2154,13 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </ul>
 <h3 id="s13-4">13.4 从游戏日志反查编辑器记录</h3>
 <p>联调运行时，编辑器订阅目标进程输出的日志流（若目标提供，默认约定读取标准输出/标准错误或指定日志文件路径，具体接入方式属实现细节）；日志文本中出现符合 id 格式（<code>^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$</code>）的片段时，"输出"面板对该片段做超链接高亮，点击直接在编辑器内跳转打开对应记录，便于"游戏里报了个奇怪的 <code>skill.xxx</code> 找不到"这类问题的快速定位。</p>
+<h3 id="s13-5">13.5 外部工具调用的编码约定</h3>
+<p>编辑器调用 <code>toolchain/</code> 下 Python 脚本（<code>validate_data.py</code>/<code>import_assets.py</code> 等，见第 9.1、7.9 节）与 <code>get_framework.ps1</code> 一类 PowerShell 脚本（游戏侧升级框架，见用户故事 5）时统一遵守以下约定，保证中文输出/中文路径在 Windows 非 UTF-8 默认代码页的控制台环境下不崩溃、不乱码（见 <code>toolchain/README.md</code>"控制台编码"/"<code>.ps1</code> 脚本源码编码"两节）：</p>
+<ul>
+<li><strong>Python 子进程</strong>：以 UTF-8 解码 stdout/stderr；额外设置环境变量 <code>PYTHONUTF8=1</code>/<code>PYTHONIOENCODING=utf-8</code> 作为双保险——脚本自身已在 <code>main()</code> 里调用 <code>toolchain/_console.py</code> 的 <code>ensure_utf8_stdio()</code>，编辑器侧的环境变量是第二层兜底，不依赖"脚本没有漏调用这一前提"。</li>
+<li><strong>PowerShell 子进程</strong>：用 <code>powershell -NoProfile -ExecutionPolicy Bypass -File &lt;script&gt;</code> 调用，不依赖用户本机的全局执行策略设置；被调用的 <code>.ps1</code> 脚本源码本身须带 UTF-8 BOM（无 BOM 时 Windows PowerShell 5.1 在非 UTF-8 控制台代码页下会把中文注释误读为其它字符导致解析错误，见 <code>toolchain/README.md</code> 判断记录），随框架分发的脚本副本已保证这一点，编辑器不需要额外处理。</li>
+</ul>
+<p>外部工具调用日志（"输出"面板，见第 5.6 节）与本节约定处理后的输出内容保证一致，不因编码问题丢字符或整段乱码。</p>
 <hr>
 <h2 id="s14">14. 设置与扩展</h2>
 <h3 id="s14-1">14.1 设置项清单</h3>
@@ -2197,6 +2251,19 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <p>插件目录：<code>&lt;编辑器安装目录&gt;/plugins/&lt;插件名&gt;/</code>，每个插件是独立目录，含清单文件（声明插件类型、兼容的编辑器版本范围、入口）与实现文件；编辑器启动时扫描该目录加载。<strong>不允许绕过核心库校验</strong>是插件机制的硬约束（对应第 1.2 节"编辑器只编辑内容，不新增原语"的产品定位，插件也不例外）。</p>
 <h3 id="s14-3">14.3 schema 变化自动适配的原则</h3>
 <p>核心库新增一张表或给已有表新增字段时，编辑器不需要跟着改代码即可继续工作：新表自动出现在导航区"按层/域/表"树中（归入通用表编辑器）；已有表新增字段自动出现在表单视图的对应分组末尾与网格视图的新增列（默认显示，用户可手动隐藏）。只有当某张表需要<strong>专属</strong>的可视化（画布、卡片、图表）时才需要更新对应专项编辑器或走插件机制补一个专项编辑器插件；这是"零改动可编辑新表"（第 3.3 节主张 1）与"专项体验需要额外投入"之间的边界。</p>
+<h3 id="s14-4">14.4 编辑器自身发布形态（默认方案，可调整）</h3>
+<p>编辑器不单独维护版本号与发布流程，而是随框架同号发布：版本号同样来自仓库根 <code>VERSION</code>，随 <code>build.ps1 -Release</code> 一次性产出（见第 3.3 节"版本对齐"）。交付形态：</p>
+<ul>
+<li>作为 <code>ws-game-&lt;ver&gt;.zip</code>（<code>dist/&lt;ver&gt;/</code> 打包压缩）内的 <code>editor/</code> 子目录，与核心 DLL、<code>games/_template</code>、<code>toolchain</code> 等一并交付（zip 快照通道天然带上编辑器，游戏侧无需额外下载）。</li>
+<li>额外产出一份独立的 GitHub Release 附件 <code>gf-editor-&lt;ver&gt;.zip</code>（编辑器自身的可执行文件 + 依赖），供只想要编辑器、不想下载整份框架 zip 的场景单独下载。</li>
+<li>可选作为第四个私服包 <code>com.gamefoundation.editor</code> 发布（与既有三个包并列，见 <a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划</a> 第 3.5.1 节"三个包"），供已在用私服通道的团队按版本号依赖到编辑器安装包；是否落地这第四个包留待实现阶段按团队实际分发习惯决定。</li>
+</ul>
+<p>纳入仓库根 <code>check.ps1</code> 一键门禁的两步（与既有"版本一致性"/"包清单一致性"两步并列，见根 <code>README.md</code>"版本与发布"一节）：</p>
+<ul>
+<li><strong>版本一致性</strong>：编辑器自身声明的版本号（如安装包的产品版本字段）必须等于 <code>VERSION</code>。</li>
+<li><strong>包清单一致性</strong>：<code>ws-game-&lt;ver&gt;.zip</code> 内 <code>editor/</code> 子目录、独立附件 <code>gf-editor-&lt;ver&gt;.zip</code>、（若启用）<code>com.gamefoundation.editor</code> 包三处版本号必须与 <code>VERSION</code> 一致，缺一处即门禁失败。</li>
+</ul>
+<p>以上交付形态与门禁接线属于实现层面的默认方案，不是架构结论，可在实现立项时调整（例如是否需要独立 <code>gf-editor-&lt;ver&gt;.zip</code> 附件，或第四个私服包是否值得现在就做）；打包与私服发布的具体方式见第 16.5 节，验收条目见第 17 章 M5。</p>
 <hr>
 <h2 id="s15">15. 非功能需求</h2>
 <h3 id="s15-1">15.1 性能指标</h3>
@@ -2246,6 +2313,8 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </ul>
 <h3 id="s15-5">15.5 安全</h3>
 <p>编辑器<strong>不联网、不上传</strong>任何数据（不含遥测、不含自动检查更新的默认开启项——若未来加入检查更新功能，须默认关闭并需用户显式开启）；全部数据读写限定在用户显式打开的工程目录、<code>.gfeditor/</code> 子目录与用户显式指定的导入导出路径内。</p>
+<h3 id="s15-6">15.6 子进程编码健壮性</h3>
+<p>编辑器调用外部工具子进程（<code>toolchain/</code> 下 Python 脚本、<code>get_framework.ps1</code> 一类 PowerShell 脚本）时统一按第 13.5 节"外部工具调用的编码约定"处理，保证在非 UTF-8 默认代码页的 Windows 控制台环境下不因中文输出/中文路径崩溃或产生乱码；这是"输出面板/问题面板展示的外部工具日志与执行结果始终可读、可信"这一可靠性底线的前提，纳入非功能需求而非仅作为实现细节，因为一旦编码处理缺失，第 9 章"全量校验"、第 7.9 节"调用 <code>import_assets.py</code>"等依赖子进程回显的功能会直接不可用。</p>
 <hr>
 <h2 id="s16">16. 技术选型建议</h2>
 <blockquote>
@@ -2355,13 +2424,19 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <td>git 调用方式</td>
 <td>拉起本机已安装的 <code>git</code> 命令行工具（子进程），解析其文本输出得到状态/diff；不内嵌完整 git 实现库，保持与用户本机 git 配置（凭据、hooks）行为一致</td>
 </tr>
+<tr>
+<td>子进程调用编码</td>
+<td>Python 子进程以 UTF-8 解码 stdout/stderr，并设置 <code>PYTHONUTF8=1</code>/<code>PYTHONIOENCODING=utf-8</code> 环境变量作为双保险；PowerShell 子进程用 <code>-NoProfile -ExecutionPolicy Bypass -File</code> 调用，脚本源码保持 UTF-8 BOM（详见第 13.5 节"外部工具调用的编码约定"）</td>
+</tr>
 </tbody>
 </table></div>
 <h3 id="s16-4">16.4 与 <code>toolchain/validator</code> 共享注册逻辑的方式</h3>
-<p><code>toolchain/validator</code>（.NET）的 <code>Program.cs</code> 并不自己枚举各层的表与规则，而是直接调用核心库已经存在的级联注册目录：<code>core/rules/assembly/RulesSchemaCatalog</code>（注册 L0 内置 + L1 五模块 + L2 四模块的 <code>TableSchema</code>/<code>IValidationRule</code>）→ <code>core/carriers/assembly/CarriersSchemaCatalog</code>（级联 <code>RulesSchemaCatalog</code> 后再补 L3）→ <code>core/gameplay/assembly/GameplaySchemaCatalog</code>（级联后再补 L4）→ <code>presentation/assembly/PresentationSchemaCatalog</code>（级联后再补 L5）；<code>toolchain/validator/Program.cs</code> 实际调用的正是最外层的 <code>PresentationSchemaCatalog.RegisterAll</code>，一次性注册齐全部 L0～L5 模块。编辑器建议直接引用与 <code>toolchain/validator</code> 相同的注册入口——<code>core/rules/assembly/RulesSchemaCatalog</code> 等各层 assembly 注册目录（编辑器按需覆盖到哪一层，就引用哪一层级联到底的目录，通常是最外层的 <code>PresentationSchemaCatalog</code>）——从而保证"编辑器已知的表清单与校验规则"与"门禁用的校验器已知的表清单与校验规则"永远是同一份代码产出的同一份注册结果，不需要人工保持两处同步。若后续把 <code>toolchain/validator</code> <code>Program.cs</code> 里"调用汇总注册入口 + 设置 <code>FailOnUnknownTable</code>/<code>Strictness</code> 等选项"这一小段本身也抽成一个核心库内、专供 <code>toolchain/validator</code> 与编辑器两个消费方共用的更薄的汇总入口更佳（默认方案，可调整：是否需要再抽这一层、抽到哪个程序集，留待实现阶段与 <code>toolchain/validator</code> 的实际代码结构对齐决定），本节结论不影响 <code>architecture/</code> 的任何既有拍板。</p>
+<p><code>toolchain/validator</code>（.NET）的 <code>Program.cs</code> 并不自己枚举各层的表与规则，而是直接调用核心库已经存在的级联注册目录：<code>core/rules/assembly/RulesSchemaCatalog</code>（注册 L0 内置 + L1 五模块 + L2 四模块的 <code>TableSchema</code>/<code>IValidationRule</code>）→ <code>core/carriers/assembly/CarriersSchemaCatalog</code>（级联 <code>RulesSchemaCatalog</code> 后再补 L3）→ <code>core/gameplay/assembly/GameplaySchemaCatalog</code>（级联后再补 L4）→ <code>presentation/assembly/PresentationSchemaCatalog</code>（级联后再补 L5）；<code>toolchain/validator/Program.cs</code> 实际调用的正是最外层的 <code>PresentationSchemaCatalog.RegisterAll</code>，一次性注册齐全部 L0～L5 模块，但其中 <code>SpawnSummonOnlyCreatureRule</code>/<code>DisplayMapCoverageRule</code> 仍需装配层显式接线才真正生效（见第 9.6 节"校验覆盖矩阵与可选规则装配"、04 第 5.1 节）。编辑器建议直接引用与 <code>toolchain/validator</code> 相同的注册入口——<code>core/rules/assembly/RulesSchemaCatalog</code> 等各层 assembly 注册目录（编辑器按需覆盖到哪一层，就引用哪一层级联到底的目录，通常是最外层的 <code>PresentationSchemaCatalog</code>）——从而保证"编辑器已知的表清单与校验规则"与"门禁用的校验器已知的表清单与校验规则"永远是同一份代码产出的同一份注册结果，不需要人工保持两处同步；对需要显式接线的可选规则，编辑器同样需要与 <code>toolchain/validator</code> 传入相同的来源/选项才能达成这一保证（第 9.6 节）。若后续把 <code>toolchain/validator</code> <code>Program.cs</code> 里"调用汇总注册入口 + 设置 <code>FailOnUnknownTable</code>/<code>Strictness</code> 等选项"这一小段本身也抽成一个核心库内、专供 <code>toolchain/validator</code> 与编辑器两个消费方共用的更薄的汇总入口更佳（默认方案，可调整：是否需要再抽这一层、抽到哪个程序集，留待实现阶段与 <code>toolchain/validator</code> 的实际代码结构对齐决定），本节结论不影响 <code>architecture/</code> 的任何既有拍板。</p>
+<h3 id="s16-5">16.5 打包与私服发布方式（配合第 14.4 节，默认方案，可调整）</h3>
+<p>编辑器随 <code>build.ps1 -Dist</code>/<code>-Release</code> 一并打包，不另起一套构建脚本：<code>editor/</code> 子目录纳入现有 <code>dist/&lt;ver&gt;/</code> 组装流程；独立附件 <code>gf-editor-&lt;ver&gt;.zip</code> 与（若启用）<code>com.gamefoundation.editor</code> 私服包的 <code>npm pack</code>/<code>npm publish</code> 复用 <code>-Dist</code>/<code>-PublishRegistry</code> 已有的三包打包/发布代码路径，只新增第四个包定义，不新增另一套打包机制。是否落地第四个私服包、<code>gf-editor-&lt;ver&gt;.zip</code> 的具体内容边界，留待实现阶段按第 14.4 节结论对齐。</p>
 <hr>
 <h2 id="s17">17. 里程碑与验收标准</h2>
-<p>验收统一使用仓库自带的 <code>data/_sample/</code> 作为验收数据集（框架仓库自测用示例数据，不代表任何真实游戏内容，见 <code>data/README.md</code>）；每条验收条目要求"用编辑器完成动作后，跑 <code>python toolchain/validate_data.py</code> 或编辑器内等价的全量校验，得到预期结果"，保证验收标准是可机器判定的，不是主观描述。</p>
+<p>验收统一使用仓库自带的 <code>data/_sample/</code> 作为验收数据集（框架仓库自测用示例数据，不代表任何真实游戏内容，见 <code>data/README.md</code>）；对应的占位资产统一使用 <code>assets/_sample/</code>（由 <code>toolchain/import_sample_assets.py</code> 消费 <code>assets/_placeholder/</code> 源素材生成、已入库，见 <code>toolchain/README.md</code>"<code>data/_sample</code> 的资产来源"一节）；涉及资源预览、外形核对、<code>import_assets.py check</code> 的验收条目均以 <code>assets/_sample</code> 为资产根、<code>--dataset _sample</code>。每条验收条目要求"用编辑器完成动作后，跑 <code>python toolchain/validate_data.py</code> 或编辑器内等价的全量校验，得到预期结果"，保证验收标准是可机器判定的，不是主观描述。</p>
 <div class="tbl-wrap"><table>
 <thead>
 <tr>
@@ -2374,12 +2449,12 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <tr>
 <td>M1</td>
 <td>工程与工作区（第 4 章）+ 通用表编辑器（第 6 章）+ 校验（第 9 章前两个时机）</td>
-<td>1. 打开 <code>data/_sample</code> 工程成功加载全部表且行数与源文件一致；2. 用编辑器新增一条 <code>stat.definition</code> 记录并保存，<code>validate_data.py --data-root data/_sample</code> 结果为 0 错误；3. 手工改坏一个 <code>Reference</code> 字段指向不存在的 id，字段级校验能在不保存的情况下即时标红</td>
+<td>1. 打开 <code>data/_sample</code> 工程成功加载全部表且行数与源文件一致，且状态栏正确显示按 <code>ws-game.lock</code> 解析出的框架版本与来源通道（第 4.1、4.3 节）；2. 用编辑器新增一条 <code>stat.definition</code> 记录并保存，<code>validate_data.py --data-root data/_sample</code> 结果为 0 错误；3. 手工改坏一个 <code>Reference</code> 字段指向不存在的 id，字段级校验能在不保存的情况下即时标红</td>
 </tr>
 <tr>
 <td>M2</td>
 <td>技能/物品/生物/掉落/经验五个专项编辑器（第 7.1～7.5 节）</td>
-<td>1. 用"物品编辑器"新增物品向导新增一件装备（含外形与文本自动生成），保存后全量校验 0 错误；2. 用"掉落与爆率编辑器"对 <code>loot.sample_beast</code> 跑 10000 次模拟并得到与权重归一化理论概率误差在合理统计范围内的结果；3. 用"技能/状态/触发编辑器"改 <code>skill.sample_strike</code> 的 <code>coefficient</code> 后结算预览面板数值随之变化</td>
+<td>1. 用"物品编辑器"新增物品向导在 <code>data/_sample</code>（资产根 <code>assets/_sample</code>，<code>--dataset _sample</code>）新增一件装备（含外形与文本自动生成，外形步骤对资源存在性的核对基于 <code>assets/_sample</code> 现有占位素材与 <code>import_assets.py check</code> 的判定结果），保存后全量校验 0 错误；2. 用"掉落与爆率编辑器"对 <code>loot.sample_beast</code> 跑 10000 次模拟并得到与权重归一化理论概率误差在合理统计范围内的结果；3. 用"技能/状态/触发编辑器"改 <code>skill.sample_strike</code> 的 <code>coefficient</code> 后结算预览面板数值随之变化</td>
 </tr>
 <tr>
 <td>M3</td>
@@ -2389,12 +2464,12 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <tr>
 <td>M4</td>
 <td>数值沙盘（第 10 章）+ 任务/对话画布、世界/遭遇画布（第 7.6、7.7 节）+ 热重载（第 13.3 节）</td>
-<td>1. 战斗回放沙盘对同一对模板、同一种子跑两次得到完全一致的战斗日志；2. 剧情树画布能正确检出人为造出的一个环并阻止保存；3. 联调面板检测到开发期构建运行时，保存一条技能数值改动后游戏侧在数秒内可观察到新数值生效（不需重启进程）</td>
+<td>1. 战斗回放沙盘对同一对模板、同一种子跑两次得到完全一致的战斗日志；2. 剧情树画布能正确检出人为造出的一个环并阻止保存；3. 联调面板检测到开发期构建运行时，保存一条技能数值改动后游戏侧在数秒内可观察到新数值生效（不需重启进程）；4. 世界/遭遇/刷新/区域编辑器对 <code>world.map.sample_field</code>（资产根 <code>assets/_sample</code>）在画布上正确叠加刷新点/区域触发/巡逻路径，且 <code>python toolchain/import_assets.py check --dataset _sample</code> 对该地图分层图判定通过</td>
 </tr>
 <tr>
 <td>M5</td>
 <td>插件机制（第 14.2 节）+ 打磨 + 性能（第 15.1 节）</td>
-<td>1. 按插件清单接口实现一个最小示例字段控件插件，编辑器能正确加载并渲染；2. 5 万行 <code>l10n.text</code> 网格滚动帧率不低于 30fps 的性能指标现场实测通过；3. 全部第 15 章非功能需求逐项现场核对通过</td>
+<td>1. 按插件清单接口实现一个最小示例字段控件插件，编辑器能正确加载并渲染；2. 5 万行 <code>l10n.text</code> 网格滚动帧率不低于 30fps 的性能指标现场实测通过；3. 全部第 15 章非功能需求逐项现场核对通过；4. 编辑器随 <code>build.ps1 -Release</code> 打包产出的 <code>editor/</code> 子目录与独立附件 <code>gf-editor-&lt;ver&gt;.zip</code> 版本号均与 <code>VERSION</code> 一致，<code>check.ps1</code>"版本一致性"/"包清单一致性"两步对编辑器产物校验通过（见第 14.4 节）</td>
 </tr>
 </tbody>
 </table></div>
@@ -2496,7 +2571,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </tr>
 <tr>
 <td>表达式可解析</td>
-<td><code>Expr</code> 编辑器失焦实时解析标红下划线；"疑似引用拼写错误"标黄警告</td>
+<td><code>Expr</code> 编辑器失焦实时解析：语法错误/类型不匹配标红下划线并阻断保存（04 第 6.4 节解析期红线）；普通分组未登记 <code>group.key</code> 回退为 id 字面量，标黄"疑似引用拼写错误"警告（不阻断）；<code>event</code> 分组未登记 <code>group.key</code> 回退为签名未知的引用，不标色（04 第 6.3 节"event 分组例外"），见第 6.2、9.2 节</td>
 </tr>
 <tr>
 <td>效果数上限</td>
@@ -2512,7 +2587,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </tr>
 <tr>
 <td>外形映射存在</td>
-<td>外形与表现编辑器"一键补建"反查清单；相关记录引用字段缺失外形时黄标</td>
+<td>外形与表现编辑器"一键补建"反查清单；相关记录引用字段缺失外形时黄标（黄标数据源为 <code>import_assets.py check</code>，见第 7.9 节）</td>
 </tr>
 <tr>
 <td>外形类型字段组完整</td>
@@ -2540,6 +2615,7 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 </tr>
 </tbody>
 </table></div>
+<p><strong>可选规则标注</strong>：<code>SpawnSummonOnlyCreatureRule</code>/<code>DisplayMapCoverageRule</code> 等需装配层显式接线才生效的规则（不在上表 04 第 5 节 14 项固定清单内，见第 9.6 节"校验覆盖矩阵与可选规则装配"、04 第 5.1 节），未接线时校验设置面板显示"未启用"而非静默跳过；已接线生效时产出的问题在问题面板额外标注"本条来自可选规则"。</p>
 <h3 id="apx-d">附录 D：表 → 编辑器总表</h3>
 <p>引用第 7.11 节"表 → 归属编辑器总表"为唯一权威版本，本附录不重复列出。</p>
 <h3 id="apx-e">附录 E：术语表（详版）</h3>
@@ -2607,8 +2683,8 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <td><a href="../../architecture/00_架构总则.md">00_架构总则</a>、<a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a>（"数据即内容"ADR-0004）</td>
 </tr>
 <tr>
-<td>第 3、4 章 总体方案、工程与工作区</td>
-<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 4 节、<a href="../../data/README.md">data/README.md</a>、<a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划</a> 第 3 节</td>
+<td>第 3、4 章 总体方案、工程与工作区（框架消费通道、版本对齐、<code>ws-game.lock</code>）</td>
+<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 4 节、<a href="../../data/README.md">data/README.md</a>、<a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划</a> 第 3、3.5、3.5.1 节、根 <a href="../../README.md">README.md</a>"版本与发布"一节、<a href="../../CHANGELOG.md">CHANGELOG.md</a>、<a href="../../toolchain/README.md">toolchain/README.md</a>"<code>get_framework.ps1</code>"/"私服"两节</td>
 </tr>
 <tr>
 <td>第 6 章 通用表编辑器</td>
@@ -2647,28 +2723,36 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 7.2 节</td>
 </tr>
 <tr>
-<td>第 7.9 节 外形与表现编辑器</td>
-<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 7.1 节</td>
+<td>第 7.9 节 外形与表现编辑器（资源存在性检查复用 <code>import_assets.py check</code>）</td>
+<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 7.1 节、<a href="../../toolchain/README.md">toolchain/README.md</a>"资产导入工具（import_assets.py）"一节</td>
 </tr>
 <tr>
 <td>第 8 章 新增内容向导</td>
 <td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 8 节</td>
 </tr>
 <tr>
-<td>第 9 章 校验、诊断与引用分析</td>
-<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 5 节、第 4 节多根合并规则</td>
+<td>第 9 章 校验、诊断与引用分析（含 9.6 校验覆盖矩阵、Expr 错误分级）</td>
+<td><a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线</a> 第 5、5.1、6.3、6.4 节、第 4 节多根合并规则</td>
 </tr>
 <tr>
 <td>第 10 章 数值沙盘</td>
 <td><a href="../../architecture/06_规则层_属性技能战斗AI.md">06_规则层_属性技能战斗AI</a> 第 4.1 节结算管线、<a href="../../architecture/08_玩法层_掉落任务对话关卡.md">08_玩法层_掉落任务对话关卡</a> 第 1 节</td>
 </tr>
 <tr>
-<td>第 13 章 运行联调</td>
-<td><a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划</a> 第 4.3 节数据加载/热重载</td>
+<td>第 13 章 运行联调（含 13.5 子进程编码约定）</td>
+<td><a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划</a> 第 4.3 节数据加载/热重载、<a href="../../toolchain/README.md">toolchain/README.md</a>"控制台编码"/"<code>.ps1</code>/<code>.psm1</code> 脚本源码编码"两节</td>
+</tr>
+<tr>
+<td>第 14.4、16.5 节 编辑器自身发布形态</td>
+<td>根 <a href="../../README.md">README.md</a>"版本与发布"一节、<a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划</a> 第 3.5.1 节"三个包"、<a href="../../CHANGELOG.md">CHANGELOG.md</a></td>
 </tr>
 <tr>
 <td>第 16 章 技术选型建议</td>
 <td><a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划</a> 第 3 节工程结构（仅参考其分层原则，选型结论为本文档独立给出，非架构结论）</td>
+</tr>
+<tr>
+<td>第 17 章 里程碑与验收标准（验收资产根 <code>assets/_sample</code>）</td>
+<td><a href="../../toolchain/README.md">toolchain/README.md</a>"<code>data/_sample</code> 的资产来源（import_sample_assets.py）"一节、<a href="../../data/README.md">data/README.md</a></td>
 </tr>
 </tbody>
 </table></div>

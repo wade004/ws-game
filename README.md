@@ -6,7 +6,7 @@
 
 `architecture/` 是已定稿的架构文档集，是本仓库唯一的规范来源，入口见 [architecture/README.md](architecture/README.md)；技术选型、工程结构、分工与分阶段落地计划见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md)。
 
-> 落地状态：阶段 0～5（环境骨架、L0 基础层、L1+L2 数值与规则、L3+L4 载体与玩法、Unity 适配层+表现层+UI 套件、美术管线与资产规格）均已完成，详见落地计划文档末节「落地进度记录」。3D 渲染（model 型外形）、装备外观、武器动画（`auto_attack_anim`/`cast_anim_override`）、关键帧反馈（`anim_keyframe_driven`）四项能力框架侧均**已实现**，**默认接线**由各装配根的口味配置开关控制（决策见 [ADR-0017](architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md)，明细见落地计划「W6 表现能力补齐」小节）；"框架已实现"“默认接线”与"是否已有真实 Unity/消费方运行证据验证"是三件分开记录的事，不能互相替代，证据等级口径见各轮审计报告（`architecture/落地计划/audit-*/AUDIT_REPORT.md`）。除上述四项外，其余能力边界按该节表格的四类分类口径分属三种当前仍开放的状态——**未实现**（如编辑器工具、天赋激活与持久化、孤儿检查）、**已实现未默认接线**（如采集时钟、回放接入、`FeedbackRuleValidator`）、**明确非目标**（如 `day_cycle`、ATB，已有决策记录明确本版不展开，不是待接的缺口）；框架提供 `TargetPoint` 字段（施法请求可携带的可空落点），地面点选到具体目标的解析/消费由上层 AI 或玩家辅助施法负责，不属于框架未实现项；已核实"至少一处生产装配根默认接入调用链"的第四类**已实现且默认接线**能力（如上述四项、`target.chain` 形状范围目标查询）不再列入"能力边界"表格本体，归档在该节"已修复历史项"小节。逐项源码锚点与当前完整条目数以 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md)「能力边界与未默认接入能力索引」一节的表格为准（本行不重复维护具体数字，避免与该表更新脱节）。
+> 落地状态：阶段 0～5（环境骨架、L0 基础层、L1+L2 数值与规则、L3+L4 载体与玩法、Unity 适配层+表现层+UI 套件、美术管线与资产规格）均已完成，详见落地计划文档末节「落地进度记录」。3D 渲染（model 型外形）、装备外观、武器动画（`auto_attack_anim`/`cast_anim_override`）、关键帧反馈（`anim_keyframe_driven`）四项能力框架侧均**已实现**，**默认接线**由各装配根的口味配置开关控制（决策见 [ADR-0017](architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md)，明细见落地计划「W6 表现能力补齐」小节）；"框架已实现"“默认接线”与"是否已有真实 Unity/消费方运行证据验证"是三件分开记录的事，不能互相替代，证据等级口径见各轮审计报告（`architecture/落地计划/audit-*/AUDIT_REPORT.md`）。除上述四项外，其余能力边界按该节表格的分类口径分属当前仍开放的状态——**未实现**（如天赋激活与持久化、孤儿检查、`ISkillHost.FindUnits`、位移轨迹碰撞、VFX 锚点持续跟随、nested teleport 元素/引用完整性校验、导航跨帧预算、空间查询完整索引化）、**已实现未默认接线**（如采集时钟、回放接入、`FeedbackRuleValidator`、`SpawnSummonOnlyCreatureRule` 的查询接入）、**明确非目标**（如 `day_cycle`、ATB，已有决策记录明确本版不展开，不是待接的缺口）、**暂不落地（用户拍板，2026-09-09）**（编辑器工具：产品文档已完成，实现按用户拍板暂缓，见 [editor/README.md](editor/README.md)）；框架提供 `TargetPoint` 字段（施法请求可携带的可空落点），地面点选到具体目标的解析/消费由上层 AI 或玩家辅助施法负责，不属于框架未实现项；已核实"至少一处生产装配根默认接入调用链"的**已实现且默认接线**能力（如上述四项、`target.chain` 形状范围目标查询）不再列入"能力边界"表格本体，归档在该节"已修复历史项"小节。逐项源码锚点与当前完整条目数以 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md)「能力边界与未默认接入能力索引」一节的表格为准（本行不重复维护具体数字，避免与该表更新脱节）。
 
 ## 顶层目录结构
 
@@ -31,7 +31,7 @@ assets/_sample/         由 toolchain/import_sample_assets.py 驱动资产导入
 toolchain/              校验、构建、资产导入等跨游戏 Python 工具链（validate_data.py、import_assets.py 等）；get_framework.ps1 是游戏侧按版本号引用本框架的工具（zip 通道），见"版本与发布"一节
   registry/              私服（Verdaccio 注册表）交付通道：本机/局域网内起一个私有包仓库，游戏侧按版本号依赖三个可发布包，与 zip 通道并存，见 toolchain/registry/README.md
   sync_package_content.ps1  私服通道配套：把游戏工程解析到的 com.gamefoundation.framework-data 包内容同步到该工程的 StreamingAssets/TextMesh Pro
-editor/                游戏内容编辑器（Windows 桌面程序）：docs/ 产品文档（markdown + 离线 HTML）；实现尚未开始
+editor/                游戏内容编辑器（Windows 桌面程序）：docs/ 产品文档（markdown + 离线 HTML）已完成；实现按用户拍板暂缓（2026-09-09），见 editor/README.md
 dist/<version>/         build.ps1 -Dist 产出的版本快照（构建产物，.gitignore，不入库，可由源码重建）；-Release/-Zip 额外产出 ws-game-<version>.zip/.lock
 VERSION                 单一版本源（纯文本版本号，如 0.2.0），两个 package.json、CHANGELOG.md、dist 快照均以此为准，见"版本与发布"一节
 CHANGELOG.md             变更日志（Keep a Changelog 风格），发布时随 VERSION 一并更新
