@@ -524,6 +524,75 @@ skill/
     对照不受影响、内部冷却各自独立计时、`RemoveAura`/到期/叠加溢出替换三条移除路径均完整注销、
     重复 `proc_ref` 加载期拒绝且定位到字段、正例对照）。
 
+43. **读条完成当帧新创建的冷却被同一 `dt` 二次扣减（消费方 2026-09-10 反馈"读条完成当帧新冷却
+    被提前推进问题"，见
+    `architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md`）**：消费方复现
+    `cast_time=0.5`、`cooldown_duration=1` 的技能，恰好在读条完成的那次 `Update(dt)` 调用内，
+    新开启的冷却剩余没有显示满额 `1`，而是按当次推进被拆成几段而不同（单步 `Update(0.5)` 剩
+    `0.5`；两步 `[0.25,0.25]` 剩 `0.75`；三步 `[0.25,0.125,0.125]` 剩 `0.875`；瞬发同次调用
+    对照——调用后未推进时间——为 `1`，正常）。根因：`SkillHost.Update(dt)` 此前先调
+    `_pipeline.Update(dt)`（读条在本次 `dt` 内完成时，内部经 `CastPipeline.FinishCast` 开启
+    冷却/公共冷却/充能恢复窗口），再调 `AdvanceRoundTimers(dt)`（推进冷却/公共冷却/充能/光环/
+    Proc 内部冷却），后者把刚创建的计时状态又用同一个 `dt` 扣了一遍——新状态从"不存在"到
+    "存在"的那个瞬间被当成已经存在了整个 `dt`。修法（选择方案 a：调换调用顺序，而非给每个
+    计时器额外记"创建于本 tick"标记）：`Update(dt)` 改为先调 `AdvanceRoundTimers(dt)`（只推进
+    "进入本次 `dt` 之前就已存在"的状态）、再调 `_pipeline.Update(dt)`（读条/引导完成时新创建的
+    状态自然不会被"已经执行完毕"的 `AdvanceRoundTimers` 碰到，要等下一次 `Update` 调用才第一次
+    被推进，此时它已经真正存在了一整个 tick，用那次调用的 `dt` 扣减是正确的）。判断记录"为什么
+    调换顺序是安全的"：`AdvanceRoundTimers` 只读写既有冷却/GCD/充能/光环/Proc 内部冷却/学派锁定
+    状态，不读取 `_pipeline` 内部字段；唯一需要核实的边界是读条完成时若有排队的下一个施法
+    （`FinishCast` 的 `Queued` 分支），`TryStartCast` 检查 GCD/冷却是否就绪时读到的现在是"已经
+    按本次 `dt` 推进过"的最新值而不是调换前"尚未被本次 tick 推进"的旧值——这让排队技能的就绪
+    判定更及时（少算一次滞后），不存在把原本不就绪判成就绪的错误方向；学派锁定推进
+    （`AdvanceSchoolLocks`）与读条/引导完成之间没有数据依赖（写入学派锁定的两条路径只在事件总线
+    批处理派发时触发，不在 `Update` 内部同步发生），调换顺序不影响它。相邻计时状态排查结论：
+
+    | 计时状态 | 创建点是否与读条/引导完成同一调用 | 是否同类缺陷 | 处理 |
+    |---|---|---|---|
+    | 技能自身/分类冷却 | 是（`FinishCast`→`StartCooldownAndGcd`→`CooldownTracker.StartCooldown`） | 是 | 随本次改动根治 |
+    | GCD（公共冷却） | 是（同一调用点 `StartCooldownAndGcd`→`CooldownTracker.StartGcd`） | 是 | 随本次改动根治 |
+    | 充能恢复窗口 | 是（充能耗尽的那一刻，同一调用点写入 `RechargeRemaining`） | 是 | 随本次改动根治 |
+    | 光环持续时间/周期累加器 | 是（`ExecuteEffectsOnly` 里的 `apply_aura` 效果落地新实例） | 是 | 随本次改动根治 |
+    | Proc 内部冷却（ICD） | 否——只在 `ProcHost.OnEvent`（经事件总线 `DispatchPending` 批处理才派发）里写入，不在 `SkillHost.Update` 内部同步发生 | 否 | 保留对照测试钉住"不受影响" |
+    | 离散模式（[ADR-0013](../../../architecture/adr/0013-时间模型可替换即时与回合制同一规则层.md)）冷却/GCD/充能/光环 | `AdvanceCastForActor`（行动者自己的步）与 `AdvanceRoundTimers`（round-end）dt 恒为 1.0（不可再分） | 不适用——没有"同一完成时刻不同分段结果不一致"这一可观测条件 | 现状行为（mid-round 新建冷却在同一 round-end 立即扣减 1 轮）保留、新增对照测试钉住；是否应改为"下一轮才开始扣减"是需要新 ADR 拍板的离散冷却起算语义问题，不在本次范围 |
+
+    验收测试见 `tests/CastCompletionTimerBoundaryTests.cs`（原始三种分段+瞬发对照+既有冷却
+    正常推进对照、GCD、充能、光环持续时间、光环周期累加器边界、Proc 内冷对照、离散模式对照，
+    共 11 例，其中 7 例在修复前会失败，已核实）。公开 API 无变化（`SkillHost.Update(double)`
+    签名不变，只是内部调整了两个私有/内部方法的调用顺序）。
+
+44. **施法生命周期事件补充实例关联标识（消费方 2026-09-10 反馈"施法生命周期事件缺少实例关联
+    标识建议"，见同一份反馈文档）**：`CastResult.CastInstanceId` 早已公开，但
+    `SkillCastStartEvent`/`SkillCastSuccessEvent`/`SkillCastFailedEvent`/`SkillCastInterruptedEvent`
+    此前没有对应字段，消费方无法单靠事件确认"哪一次请求"的开始/成功/失败/打断属于同一次施法。
+    四个事件类各自新增只读属性 `CastInstanceId`（`Id?`，与 `CastResult.CastInstanceId` 同一枚
+    id）与一个带该参数的新构造重载（新重载的全部参数均不带默认值，避免与旧构造在"只传前 N 个
+    参数"的调用点产生重载二义性，同 `SkillHost` 十七/十八参数构造重载判断记录同一套推导）；旧
+    构造原样保留，物理签名不变，`CastInstanceId` 恒为 `null`。身份规则（完整措辞见 06 第 3.6
+    节勘误段）：`CastPipeline.TryStartCast`/`EnterCastOrChannel` 在校验通过、真正进入步骤 8 或
+    进入法术队列时分配 id（`NextCastInstanceId`），步骤 1～7 任一步校验失败不分配（对应
+    `Fail(...)` 不携带 id，`SkillCastFailedEvent.CastInstanceId` 为 `null`，`CastResult.Reason`
+    仍可辨明原因）；`CastState` 新增字段 `CastInstanceId`（本次读条/引导开始时分配的 id，一路
+    带到 `FinishCast`/`Interrupt` 各自发出的成功/打断事件）；`CastState.Queued` 元组新增第三个
+    分量 `CastInstanceId`（排队接受时分配，随 `CastResult` 返回），`FinishCast` 续跑排队请求时
+    改用 `TryStartCast(..., presetCastInstanceId: 排队时的 id)`——排队请求的整个生命周期只有一个
+    id，不因为"排队接受"与"真正开始"是两次不同的方法调用就分配两个不同的 id。原实现对"排队
+    请求被覆盖/被打断清空"完全静默（调用方拿着排队时返回的 id，却永远等不到任何结果通知）——
+    新增 `CastFailureReason.QueueCleared`：`CastSkill` 覆盖已排队的旧请求前，先为旧请求发一条
+    携带它自己 id 的 `SkillCastFailedEvent(QueueCleared)`；`Interrupt` 打断当前读条/引导时，若
+    还排着下一个技能，同样为被清空的排队请求发一条携带它自己 id 的 `SkillCastFailedEvent`
+    （与被打断的当前施法各自携带各自的 id，互不混用）。`trigger_spell`/Proc 直接执行效果
+    （`CastPipeline.TriggerCast`）核实现状：不经过步骤 1～9 施法管线、不发本节四个事件——保持
+    "不伪造主动施法事件"，其效果结算仍然各自分配 `EffectContext.AttackInstanceId`（每次
+    `ExecuteEffectsOnly` 调用一个全新值），与施法实例 id 是两个不同层面、互不冒用的标识，见该
+    字段既有判断记录（"为什么是每次调用而不是每次读条/引导"）。验收测试见
+    `tests/CastInstanceIdTests.cs`（瞬发/读条 start-success-CastResult 三方一致、连续两次施放
+    各自独立关联、校验失败不分配、排队执行/排队被覆盖/施法中断清队列三种排队身份场景、旧构造
+    仍可用、Proc 触发不冒充生命周期事件，共 9 例）。公开 API 只新增：四个事件类各一个构造重载 +
+    一个只读属性；`CastFailureReason` 新增一个枚举成员 `QueueCleared`（枚举新增成员是纯新增，不
+    改变既有成员的底层数值，不影响 ABI）。ABI 探针（`toolchain/abi_probe.ps1`，基线 1.12.0）
+    breaks=0。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全

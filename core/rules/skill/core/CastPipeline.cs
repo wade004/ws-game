@@ -75,7 +75,14 @@ namespace Core.Rules.Skill
             public double TickInterval;
             public double TickAccumulator;
             public IReadOnlyList<(Id PowerType, double Amount)> ModifiedCost = Array.Empty<(Id, double)>();
-            public (Id SkillId, IReadOnlyList<Id> Targets)? Queued;
+
+            /// <summary>消费方反馈 2026-09-10（施法生命周期事件缺少实例关联标识建议）根治：排队槽位
+            /// 现同时携带排队时分配的实例 id（见 <see cref="CastInstanceId"/>/<c>CastPipeline.CastSkill</c>
+            /// 判断记录"身份规则"）——排队接受本身就是一次"分配 id 并随 CastResult 返回"的时刻，
+            /// 这个 id 要一路带到排队请求真正开始（<see cref="FinishCast"/> 的 Queued 分支）或者
+            /// 中途被覆盖/清空（<c>CastSkill</c>/<see cref="Interrupt"/>）产生的
+            /// <see cref="SkillCastFailedEvent"/>。</summary>
+            public (Id SkillId, IReadOnlyList<Id> Targets, Id CastInstanceId)? Queued;
 
             /// <summary>N19 收边补齐：本次读条/引导开始时的原始时长（引导为 <c>channel_time</c>、
             /// 读条为 <c>cast_time</c>，均已按当时 SpellMod 修正），与本次施法开始时发布的
@@ -83,6 +90,13 @@ namespace Core.Rules.Skill
             /// 原样戳到 <see cref="SkillCastSuccessEvent.CastTimeSeconds"/> 上，供表现层区分"这是
             /// 一次真正花了时间的读条/引导完成"（见 SkillCastSuccessEvent.IsInstant 判断记录）。</summary>
             public double CastTimeSeconds;
+
+            /// <summary>消费方反馈 2026-09-10 根治：本次读条/引导开始（<see cref="EnterCastOrChannel"/>）
+            /// 时分配的施法实例 id，与本次 <see cref="SkillCastStartEvent"/> 携带的同一个值——
+            /// <see cref="FinishCast"/>/<see cref="Interrupt"/> 原样戳到各自发出的
+            /// <see cref="SkillCastSuccessEvent"/>/<see cref="SkillCastInterruptedEvent"/> 上，供消费方
+            /// 关联"这一次请求"从开始到最终结果的完整生命周期。</summary>
+            public Id CastInstanceId;
         }
 
         private readonly SkillDefCache _defs;
@@ -155,8 +169,22 @@ namespace Core.Rules.Skill
             {
                 if (activeState.Remaining <= _options.QueueWindow)
                 {
-                    activeState.Queued = (skillId, safeTargets);
-                    return CastResult.Ok(NextCastInstanceId());
+                    // 消费方反馈 2026-09-10（施法生命周期事件缺少实例关联标识建议）根治：排队接受
+                    // 本身就是"校验通过、进入排队"的时刻（见 CastState.Queued 判断记录"身份规则"），
+                    // 在这里分配 id 并随 CastResult 返回——若该队列槽位此前已经排了另一个尚未执行的
+                    // 请求，本次调用会直接覆盖它（原实现对此完全静默，旧排队请求既不会执行也不会
+                    // 收到任何通知），现在改为先给被覆盖的旧请求发一条 QueueCleared 的
+                    // SkillCastFailedEvent（携带它自己的实例 id），再覆盖。
+                    var queuedInstanceId = NextCastInstanceId();
+                    if (activeState.Queued.HasValue)
+                    {
+                        var overwritten = activeState.Queued.Value;
+                        _bus.Enqueue(new SkillCastFailedEvent(
+                            casterId, overwritten.SkillId, CastFailureReason.QueueCleared, overwritten.CastInstanceId));
+                    }
+
+                    activeState.Queued = (skillId, safeTargets, queuedInstanceId);
+                    return CastResult.Ok(queuedInstanceId);
                 }
 
                 // 判断记录：06 第 3.6 节只描述了"窗口内入队"的行为，未规定窗口外再次施法请求的
@@ -164,18 +192,26 @@ namespace Core.Rules.Skill
                 // 契约缺口已补齐：原实现这里复用 OnCooldown 作为最接近的失败语义，集成任务已给
                 // CastFailureReason 补上专门的 Busy（施法者当前"不可用"，原因是仍在读条/引导而非
                 // 真正的冷却），见该原因码注释；本处改用 Busy，OnCooldown 恢复只表示步骤 3 冷却/
-                // 充能未就绪。
+                // 充能未就绪。窗口外的拒绝本身未曾分配 id（见 Fail 判断记录"校验阶段失败不分配"）。
                 return Fail(casterId, skillId, CastFailureReason.Busy);
             }
 
             return TryStartCast(casterId, skillId, safeTargets);
         }
 
-        private CastResult TryStartCast(Id casterId, Id skillId, IReadOnlyList<Id> targets)
+        /// <summary>见 <see cref="CastState.Queued"/>/<see cref="CastSkill"/> 判断记录"身份规则"：
+        /// <paramref name="presetCastInstanceId"/> 非空时表示本次调用是 <see cref="FinishCast"/> 续跑
+        /// 排队请求（排队接受时已经分配过 id，见 <see cref="CastSkill"/>），本方法内全部失败分支与
+        /// 最终 <see cref="EnterCastOrChannel"/> 都改用这个既有的 id，不再重新分配；为 <c>null</c>
+        /// （默认，顶层 <see cref="CastSkill"/> 直接调用）时保持原有语义——校验阶段任何一步失败都不
+        /// 分配 id（<see cref="Fail(Id,Id,CastFailureReason,Id?)"/> 收到 <c>null</c> 原样发出不带
+        /// 实例 id 的 <see cref="SkillCastFailedEvent"/>），只有真正走到步骤 8
+        /// <see cref="EnterCastOrChannel"/> 才第一次分配。</summary>
+        private CastResult TryStartCast(Id casterId, Id skillId, IReadOnlyList<Id> targets, Id? presetCastInstanceId = null)
         {
             if (!_defs.TryGetSkillDef(skillId, out var def))
             {
-                return Fail(casterId, skillId, CastFailureReason.UnknownSkill);
+                return Fail(casterId, skillId, CastFailureReason.UnknownSkill, presetCastInstanceId);
             }
 
             var overridden = _auraHost.ResolveSkillOverride(casterId, skillId);
@@ -187,31 +223,31 @@ namespace Core.Rules.Skill
 
             if (def.IsPassive)
             {
-                return Fail(casterId, skillId, CastFailureReason.PassiveSkill);
+                return Fail(casterId, skillId, CastFailureReason.PassiveSkill, presetCastInstanceId);
             }
 
             // 步骤 1：存活与状态
             if (!_units.IsAlive(casterId))
             {
-                return Fail(casterId, skillId, CastFailureReason.Dead);
+                return Fail(casterId, skillId, CastFailureReason.Dead, presetCastInstanceId);
             }
 
             var control = _auraHost.GetControlFlags(casterId);
             const ControlFlags fullyIncapacitated = ControlFlags.NoCast | ControlFlags.NoMove | ControlFlags.NoAttack;
             if ((control & fullyIncapacitated) == fullyIncapacitated)
             {
-                return Fail(casterId, skillId, CastFailureReason.Stunned);
+                return Fail(casterId, skillId, CastFailureReason.Stunned, presetCastInstanceId);
             }
 
             if ((control & ControlFlags.NoCast) != 0)
             {
-                return Fail(casterId, skillId, CastFailureReason.Silenced);
+                return Fail(casterId, skillId, CastFailureReason.Silenced, presetCastInstanceId);
             }
 
             // 步骤 2：学派锁定
             if (GetSchoolLockRemaining(casterId, def.School) > 0)
             {
-                return Fail(casterId, skillId, CastFailureReason.SchoolLocked);
+                return Fail(casterId, skillId, CastFailureReason.SchoolLocked, presetCastInstanceId);
             }
 
             // 步骤 3：冷却/充能
@@ -220,7 +256,7 @@ namespace Core.Rules.Skill
                 var reason = def.HasCharges && _cooldowns.GetCharges(casterId, def) <= 0
                     ? CastFailureReason.NoCharges
                     : CastFailureReason.OnCooldown;
-                return Fail(casterId, skillId, reason);
+                return Fail(casterId, skillId, reason, presetCastInstanceId);
             }
 
             // 步骤 4：公共冷却（离散步内恒通过，见 06 第 3.6 节"离散模式下的解释"、
@@ -228,7 +264,7 @@ namespace Core.Rules.Skill
             var isDiscreteStep = _options.IsDiscreteStep?.Invoke() ?? false;
             if (_options.GcdEnabled && def.RespectsGcd && !isDiscreteStep && !_cooldowns.IsGcdReady(casterId))
             {
-                return Fail(casterId, skillId, CastFailureReason.GcdActive);
+                return Fail(casterId, skillId, CastFailureReason.GcdActive, presetCastInstanceId);
             }
 
             // 步骤 5：资源（06 第 3.6 节表格：本步只检查"cost 是否够；离散模式下另检查
@@ -238,7 +274,7 @@ namespace Core.Rules.Skill
             {
                 if (_powerHost.GetPower(casterId, powerType) < amount)
                 {
-                    return Fail(casterId, skillId, CastFailureReason.InsufficientPower);
+                    return Fail(casterId, skillId, CastFailureReason.InsufficientPower, presetCastInstanceId);
                 }
             }
 
@@ -255,7 +291,7 @@ namespace Core.Rules.Skill
                 : _targetHost.Resolve(def.TargetShapeRef, casterId);
             if (resolvedTargets.Count == 0)
             {
-                return Fail(casterId, skillId, CastFailureReason.NoValidTarget);
+                return Fail(casterId, skillId, CastFailureReason.NoValidTarget, presetCastInstanceId);
             }
 
             // 步骤 7：距离与视线（Range == 0 表示无限制/作用于自身，见 06 第 3.1 节）
@@ -266,7 +302,7 @@ namespace Core.Rules.Skill
                 {
                     if (Vec2.Distance(casterPos, _units.GetPosition(targetId)) > def.Range)
                     {
-                        return Fail(casterId, skillId, CastFailureReason.OutOfRange);
+                        return Fail(casterId, skillId, CastFailureReason.OutOfRange, presetCastInstanceId);
                     }
                 }
 
@@ -276,7 +312,7 @@ namespace Core.Rules.Skill
                     {
                         if (!_spatialQuery.HasLineOfSight(casterPos, _units.GetPosition(targetId)))
                         {
-                            return Fail(casterId, skillId, CastFailureReason.LineOfSight);
+                            return Fail(casterId, skillId, CastFailureReason.LineOfSight, presetCastInstanceId);
                         }
                     }
                 }
@@ -295,18 +331,21 @@ namespace Core.Rules.Skill
             {
                 if (_options.TryConsumeActionPoints == null || !_options.TryConsumeActionPoints(casterId, def.ActionCost))
                 {
-                    return Fail(casterId, skillId, CastFailureReason.InsufficientActionPoints);
+                    return Fail(casterId, skillId, CastFailureReason.InsufficientActionPoints, presetCastInstanceId);
                 }
             }
 
             // 步骤 8：读条/引导
-            return EnterCastOrChannel(casterId, skillId, def, resolvedTargets, modifiedCost);
+            return EnterCastOrChannel(casterId, skillId, def, resolvedTargets, modifiedCost, presetCastInstanceId);
         }
 
         private CastResult EnterCastOrChannel(
-            Id casterId, Id skillId, SkillDef def, IReadOnlyList<Id> targets, IReadOnlyList<(Id, double)> modifiedCost)
+            Id casterId, Id skillId, SkillDef def, IReadOnlyList<Id> targets, IReadOnlyList<(Id, double)> modifiedCost,
+            Id? presetCastInstanceId = null)
         {
-            var castInstanceId = NextCastInstanceId();
+            // 见 TryStartCast 判断记录：非空表示续跑排队请求，复用排队接受时已经分配的 id，不重新
+            // 分配（同一次请求从排队到真正开始只有一个 id）。
+            var castInstanceId = presetCastInstanceId ?? NextCastInstanceId();
             // 判断记录见类型顶部"_currentFactor"：cast_time/channel_time 都是从 SkillDef 原始数据
             // 读出的一次性初始值，乘 _currentFactor 折算成当前生效模式的计时单位。isChannel 的判定
             // 用未折算的 def.ChannelTime——_currentFactor 恒为正数，乘法不改变 > 0 判定结果。
@@ -314,7 +353,7 @@ namespace Core.Rules.Skill
             var channelTime = def.ChannelTime * _currentFactor;
             var isChannel = def.ChannelTime > 0;
 
-            _bus.Enqueue(new SkillCastStartEvent(casterId, skillId, isChannel ? channelTime : castTime));
+            _bus.Enqueue(new SkillCastStartEvent(casterId, skillId, isChannel ? channelTime : castTime, castInstanceId));
 
             if (!isChannel && castTime <= 0)
             {
@@ -323,8 +362,8 @@ namespace Core.Rules.Skill
                 StartCooldownAndGcd(casterId, def);
                 ExecuteEffectsOnly(casterId, def, targets);
                 // N19 收边补齐：瞬发——IsInstant=true，CastTimeSeconds=0（见 SkillCastSuccessEvent
-                // 判断记录）。
-                _bus.Enqueue(new SkillCastSuccessEvent(casterId, skillId, targets, isInstant: true, castTimeSeconds: 0));
+                // 判断记录）。消费方反馈 2026-09-10：携带与本次 SkillCastStartEvent 同一个 castInstanceId。
+                _bus.Enqueue(new SkillCastSuccessEvent(casterId, skillId, targets, isInstant: true, castTimeSeconds: 0, castInstanceId: castInstanceId));
                 return CastResult.Ok(castInstanceId);
             }
 
@@ -350,6 +389,9 @@ namespace Core.Rules.Skill
                 // N19 收边补齐：与本次 SkillCastStartEvent.CastTime 同一个值，见 CastState.CastTimeSeconds
                 // 判断记录。
                 CastTimeSeconds = isChannel ? channelTime : castTime,
+                // 消费方反馈 2026-09-10：与本次 SkillCastStartEvent.CastInstanceId 同一个值，见
+                // CastState.CastInstanceId 判断记录。
+                CastInstanceId = castInstanceId,
             };
 
             _casting[casterId] = state;
@@ -466,12 +508,17 @@ namespace Core.Rules.Skill
 
             // N19 收边补齐：非瞬发（真正经历过读条/引导才走到这里）——IsInstant=false，
             // CastTimeSeconds 取本次开始时记录的原始时长（见 CastState.CastTimeSeconds 判断记录）。
-            _bus.Enqueue(new SkillCastSuccessEvent(casterId, state.SkillId, state.Targets, isInstant: false, castTimeSeconds: state.CastTimeSeconds));
+            // 消费方反馈 2026-09-10：携带与本次 SkillCastStartEvent 同一个 state.CastInstanceId。
+            _bus.Enqueue(new SkillCastSuccessEvent(
+                casterId, state.SkillId, state.Targets, isInstant: false, castTimeSeconds: state.CastTimeSeconds,
+                castInstanceId: state.CastInstanceId));
 
             if (state.Queued.HasValue)
             {
-                var (queuedSkill, queuedTargets) = state.Queued.Value;
-                TryStartCast(casterId, queuedSkill, queuedTargets);
+                // 消费方反馈 2026-09-10：排队请求续跑——传入它排队时已经分配的 CastInstanceId
+                // （见 CastState.Queued/TryStartCast 判断记录），不重新分配。
+                var (queuedSkill, queuedTargets, queuedInstanceId) = state.Queued.Value;
+                TryStartCast(casterId, queuedSkill, queuedTargets, queuedInstanceId);
             }
         }
 
@@ -547,7 +594,20 @@ namespace Core.Rules.Skill
                 _schoolLocks[(unitId, lockSchool.Value)] = lockDuration * _currentFactor;
             }
 
-            _bus.Enqueue(new SkillCastInterruptedEvent(unitId, state.SkillId, interrupterId));
+            // 消费方反馈 2026-09-10：携带被打断的这次施法自己的 CastInstanceId（见
+            // CastState.CastInstanceId 判断记录）。
+            _bus.Enqueue(new SkillCastInterruptedEvent(unitId, state.SkillId, interrupterId, state.CastInstanceId));
+
+            if (state.Queued.HasValue)
+            {
+                // 消费方反馈 2026-09-10（施法生命周期事件缺少实例关联标识建议）根治："施法中打断
+                // 并清队列"——被打断的这次施法若还排着下一个技能，队列随打断一起清空、永远不会
+                // 执行。原实现对此完全静默；现在补发一条携带被清空的排队请求自己 CastInstanceId
+                // 的 QueueCleared SkillCastFailedEvent（与被打断的当前施法各自携带自己的 id，
+                // 两个事件不共用同一个值）。
+                var queued = state.Queued.Value;
+                _bus.Enqueue(new SkillCastFailedEvent(unitId, queued.SkillId, CastFailureReason.QueueCleared, queued.CastInstanceId));
+            }
         }
 
         /// <summary>供调用方（移动系统）在单位位移时通知（见 06 第 3.1 节 <c>interrupt_flags</c>
@@ -772,9 +832,23 @@ namespace Core.Rules.Skill
 
         private Id NextCastInstanceId() => new Id($"skill.cast_inst_{++_castInstanceSeq}");
 
-        private CastResult Fail(Id casterId, Id skillId, CastFailureReason reason)
+        /// <summary>顶层 <see cref="CastSkill"/> 直接调用的校验失败——从未排过队、从未分配过实例 id，
+        /// 见 <see cref="SkillCastFailedEvent.CastInstanceId"/> 判断记录"校验阶段失败不分配"。</summary>
+        private CastResult Fail(Id casterId, Id skillId, CastFailureReason reason) =>
+            Fail(casterId, skillId, reason, castInstanceId: null);
+
+        /// <summary>
+        /// 消费方反馈 2026-09-10（施法生命周期事件缺少实例关联标识建议）根治：<paramref name="castInstanceId"/>
+        /// 非空时（<see cref="TryStartCast"/> 续跑排队请求失败）原样戳到
+        /// <see cref="SkillCastFailedEvent.CastInstanceId"/> 上——这次失败针对的是一个已经在排队时
+        /// 拿到过 id、被调用方持有的请求，让消费方能用那个 id 关联到"最终失败"这个结果；为空
+        /// （顶层直接调用）时事件不带实例 id，与之前完全一致。<see cref="CastResult"/> 本身的
+        /// <c>CastInstanceId</c> 契约不变——失败结果恒为 <c>null</c>（见该类型既有文档），只有事件
+        /// 补充了这个字段，不改变 <see cref="CastResult"/> 已发布的既有行为。
+        /// </summary>
+        private CastResult Fail(Id casterId, Id skillId, CastFailureReason reason, Id? castInstanceId)
         {
-            _bus.Enqueue(new SkillCastFailedEvent(casterId, skillId, reason));
+            _bus.Enqueue(new SkillCastFailedEvent(casterId, skillId, reason, castInstanceId));
             return CastResult.Fail(reason);
         }
     }

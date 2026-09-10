@@ -84,11 +84,33 @@ namespace Core.Rules.Common
 
         public double CastTime { get; }
 
+        /// <summary>
+        /// 消费方反馈 2026-09-10（施法生命周期事件缺少实例关联标识建议，证据 c08-cast-event-contract，
+        /// 见 architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md）根治：本次施法请求的
+        /// 稳定实例 id，与 <see cref="Core.Rules.Common.CastResult.CastInstanceId"/> 是同一个值（见
+        /// <c>CastPipeline.NextCastInstanceId</c> 判断记录"身份规则"）——校验通过、进入排队或立即
+        /// 开始时分配，本事件与随后的 <see cref="SkillCastSuccessEvent"/>/<see cref="SkillCastInterruptedEvent"/>
+        /// （若有）携带同一个值，供消费方跨事件关联"这一次请求"的完整生命周期。旧构造（不带本参数）
+        /// 恒为 <c>null</c>，供源码/二进制兼容保留。
+        /// </summary>
+        public Id? CastInstanceId { get; }
+
+        /// <summary>ABI 兼容 façade：不带 <see cref="CastInstanceId"/> 的旧构造签名，物理 IL 签名与
+        /// 补充实例标识之前完全一致，供旧编译产物不重新编译即可继续加载。<see cref="CastInstanceId"/>
+        /// 恒为 <c>null</c>。</summary>
         public SkillCastStartEvent(Id casterId, Id skillId, double castTime)
+            : this(casterId, skillId, castTime, castInstanceId: null)
+        {
+        }
+
+        /// <summary>见 <see cref="CastInstanceId"/> 判断记录：新增重载，纯新增物理签名，不影响
+        /// 上面的三参数旧构造。</summary>
+        public SkillCastStartEvent(Id casterId, Id skillId, double castTime, Id? castInstanceId)
         {
             CasterId = casterId;
             SkillId = skillId;
             CastTime = castTime;
+            CastInstanceId = castInstanceId;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -98,6 +120,7 @@ namespace Core.Rules.Common
                 case "casterId": value = ExprValue.OfId(CasterId); return true;
                 case "skillId": value = ExprValue.OfId(SkillId); return true;
                 case "castTime": value = ExprValue.OfNumber(CastTime); return true;
+                case "castInstanceId" when CastInstanceId.HasValue: value = ExprValue.OfId(CastInstanceId.Value); return true;
                 default: value = default; return false;
             }
         }
@@ -134,13 +157,29 @@ namespace Core.Rules.Common
         /// <c>SpellMod</c> 修正）。</summary>
         public double CastTimeSeconds { get; }
 
+        /// <summary>见 <see cref="SkillCastStartEvent.CastInstanceId"/> 判断记录：与本次施法
+        /// <see cref="SkillCastStartEvent"/>（若经历过读条/引导）及 <see cref="Core.Rules.Common.CastResult.CastInstanceId"/>
+        /// 同一个值。旧构造（不带本参数）恒为 <c>null</c>。</summary>
+        public Id? CastInstanceId { get; }
+
+        /// <summary>ABI 兼容 façade：不带 <see cref="CastInstanceId"/> 的旧构造签名，物理签名不变。</summary>
         public SkillCastSuccessEvent(Id casterId, Id skillId, IReadOnlyList<Id> targets, bool isInstant = false, double castTimeSeconds = 0)
+            : this(casterId, skillId, targets, isInstant, castTimeSeconds, castInstanceId: null)
+        {
+        }
+
+        /// <summary>见 <see cref="CastInstanceId"/> 判断记录：新增重载（六个参数均不带默认值，避免
+        /// 与上面五参数旧构造在"只传 3～5 个参数"的调用点产生重载二义性，同 <c>SkillHost</c> 十七/
+        /// 十八参数构造重载判断记录同一套推导）。</summary>
+        public SkillCastSuccessEvent(
+            Id casterId, Id skillId, IReadOnlyList<Id> targets, bool isInstant, double castTimeSeconds, Id? castInstanceId)
         {
             CasterId = casterId;
             SkillId = skillId;
             Targets = (targets ?? Array.Empty<Id>()).ToArray();
             IsInstant = isInstant;
             CastTimeSeconds = castTimeSeconds;
+            CastInstanceId = castInstanceId;
         }
 
         /// <summary><see cref="Targets"/> 是列表，Expr 无列表类型（见
@@ -154,6 +193,7 @@ namespace Core.Rules.Common
                 case "skillId": value = ExprValue.OfId(SkillId); return true;
                 case "isInstant": value = ExprValue.OfBool(IsInstant); return true;
                 case "castTimeSeconds": value = ExprValue.OfNumber(CastTimeSeconds); return true;
+                case "castInstanceId" when CastInstanceId.HasValue: value = ExprValue.OfId(CastInstanceId.Value); return true;
                 default: value = default; return false;
             }
         }
@@ -170,11 +210,31 @@ namespace Core.Rules.Common
 
         public CastFailureReason ReasonCode { get; }
 
+        /// <summary>
+        /// 见 <see cref="SkillCastStartEvent.CastInstanceId"/> 判断记录。身份规则（见
+        /// <c>CastPipeline</c> 判断记录"身份规则"）：校验阶段失败（<c>TryStartCast</c> 步骤 1～7,
+        /// 未曾入队/未曾开始读条的直接调用）不分配实例 id，本字段为 <c>null</c>——失败原因本身已经
+        /// 由 <see cref="ReasonCode"/> 可辨，不需要伪造一个从未存在过的实例。已经拿到过 id 的请求
+        /// 后续失败则携带该同一个 id：排队接受后被更新的排队请求覆盖（<see cref="CastFailureReason.QueueCleared"/>）、
+        /// 排队接受后轮到自己开始时校验失败（同样携带排队时分配的 id）。旧构造（不带本参数）恒为
+        /// <c>null</c>。
+        /// </summary>
+        public Id? CastInstanceId { get; }
+
+        /// <summary>ABI 兼容 façade：不带 <see cref="CastInstanceId"/> 的旧构造签名，物理签名不变。</summary>
         public SkillCastFailedEvent(Id casterId, Id skillId, CastFailureReason reasonCode)
+            : this(casterId, skillId, reasonCode, castInstanceId: null)
+        {
+        }
+
+        /// <summary>见 <see cref="CastInstanceId"/> 判断记录：新增重载，四个参数均不带默认值，避免
+        /// 与上面三参数旧构造产生重载二义性。</summary>
+        public SkillCastFailedEvent(Id casterId, Id skillId, CastFailureReason reasonCode, Id? castInstanceId)
         {
             CasterId = casterId;
             SkillId = skillId;
             ReasonCode = reasonCode;
+            CastInstanceId = castInstanceId;
         }
 
         /// <summary>枚举字段按 <c>ToString()</c> 落地为 String（见 <see cref="IExprReadableEvent"/>
@@ -186,6 +246,7 @@ namespace Core.Rules.Common
                 case "casterId": value = ExprValue.OfId(CasterId); return true;
                 case "skillId": value = ExprValue.OfId(SkillId); return true;
                 case "reasonCode": value = ExprValue.OfString(ReasonCode.ToString()); return true;
+                case "castInstanceId" when CastInstanceId.HasValue: value = ExprValue.OfId(CastInstanceId.Value); return true;
                 default: value = default; return false;
             }
         }
@@ -202,11 +263,25 @@ namespace Core.Rules.Common
 
         public Id InterrupterId { get; }
 
+        /// <summary>见 <see cref="SkillCastStartEvent.CastInstanceId"/> 判断记录：与打断发生时正在
+        /// 读条/引导的那次施法的 <see cref="SkillCastStartEvent"/>/<see cref="Core.Rules.Common.CastResult.CastInstanceId"/>
+        /// 同一个值。旧构造（不带本参数）恒为 <c>null</c>。</summary>
+        public Id? CastInstanceId { get; }
+
+        /// <summary>ABI 兼容 façade：不带 <see cref="CastInstanceId"/> 的旧构造签名，物理签名不变。</summary>
         public SkillCastInterruptedEvent(Id casterId, Id skillId, Id interrupterId)
+            : this(casterId, skillId, interrupterId, castInstanceId: null)
+        {
+        }
+
+        /// <summary>见 <see cref="CastInstanceId"/> 判断记录：新增重载，四个参数均不带默认值，避免
+        /// 与上面三参数旧构造产生重载二义性。</summary>
+        public SkillCastInterruptedEvent(Id casterId, Id skillId, Id interrupterId, Id? castInstanceId)
         {
             CasterId = casterId;
             SkillId = skillId;
             InterrupterId = interrupterId;
+            CastInstanceId = castInstanceId;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -216,6 +291,7 @@ namespace Core.Rules.Common
                 case "casterId": value = ExprValue.OfId(CasterId); return true;
                 case "skillId": value = ExprValue.OfId(SkillId); return true;
                 case "interrupterId": value = ExprValue.OfId(InterrupterId); return true;
+                case "castInstanceId" when CastInstanceId.HasValue: value = ExprValue.OfId(CastInstanceId.Value); return true;
                 default: value = default; return false;
             }
         }
