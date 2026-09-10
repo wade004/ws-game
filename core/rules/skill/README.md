@@ -449,6 +449,27 @@ skill/
     `schema/SkillSchemas.cs`/`schema/SkillValidationRules.cs` 判断记录、
     `tests/SkillValidationNestedGapTests.cs`/`tests/SkillSchemaCoverageTests.cs`。
 
+40. **效果免疫统一门（消费方 2026-09-10 反馈，M-C06 前置核验复现"打断免疫"缺口）：
+    `EffectDispatcher.ApplyEffect` 在分发入口统一查询 `AuraHost.IsImmune(TargetId, School, Kind)`
+    并短路，取代此前只有 `ApplyDamageOrHeal` 一处查询免疫的旧实现**：06 第 3.3 节 `immunity` 与 07
+    `CreatureUnit.Immunities` 的 `effect.<kind>` 写法均按 (学派, 效果原语类型) 泛化定义（见 06 第
+    3.3 节勘误，2026-09-10），此前 `interrupt`/`dispel`/`energize`/`teleport`/`move` 等分支从未
+    查询过免疫，导致打断免疫等标记对这些效果原语完全不生效（外部消费方复现，详见
+    `architecture/落地计划/消费方反馈-2026-09-10-打断免疫.md`）。免疫命中时直接返回
+    `immune: true` 的 `ResolveResult`（沿用伤害/治疗分支既有的返回形状），不进入具体分支、不产生
+    该效果的任何事件/状态变化——含 `interrupt` 命中免疫时不触发学派锁定（锁定是"成功打断"的连带
+    后果，免疫拦截下这次打断本身没有发生）。例外：`EffectKind.ApplyAura` 不纳入本统一判定，`AuraHost.ApplyAura`
+    内部对 `control` 类子效果的静态控制免疫判定（`GetControlImmunity`）保留不变、不重复判定——
+    对"施加光环实例"这一操作本身的免疫是另一层语义，06/07 未就此拍板，若按 `AuraHost.IsImmune`
+    "`effect_kinds` 为空则不挑 kind、只看学派"的既有规则一并拦截，会让任何只声明 `schools` 的
+    免疫光环（如"火免疫"）意外连带挡住该学派下全部增益光环的施加（含友方治疗类光环），超出本次
+    缺口修复范围。免疫拦截时施法本身仍算成功（消耗、冷却照旧，与伤害免疫同一惯例）；施法者自身
+    内部取消（`CastPipeline.NotifyMoved`/`OnCasterDiedOrDestroyed`/`OnAuraApplied`/`OnDamageDealt`
+    直接调用 `CastPipeline.Interrupt`）不经过 `EffectDispatcher`，不受本次改动影响。测试见
+    `core/carriers/creature/tests/EffectImmunityGateTests.cs`（真实 `RulesAssembly` +
+    `CreatureImmunityProvider` 装配，覆盖动态/静态打断免疫、控制免疫不等同打断免疫、驱散/位移/
+    能量免疫、免疫时施法仍消耗资源与进冷却、`ResolveResult.Immune` 可观察、自身内部取消不受影响）。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全
