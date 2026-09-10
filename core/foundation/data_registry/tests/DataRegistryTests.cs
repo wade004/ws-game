@@ -1212,6 +1212,200 @@ namespace Tests.Foundation.Data
             Assert.Empty(registry.GetOverrideDiagnostics());
         }
 
+        // -----------------------------------------------------------------
+        // 19. RecordCount / TryGetRecordCount（消费方反馈第 17 条根治，2026-09-10，见
+        //     architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）
+        // -----------------------------------------------------------------
+
+        /// <summary>只实现 <see cref="IDataRegistryView"/>（不实现完整 <see cref="IDataRegistry"/>）的
+        /// 最小测试替身，模拟"第三方/编辑器测试替身只持有只读查询面"的场景（同
+        /// core/carriers/creature/tests/CreatureTestSupport.cs 里 UnknownTierRegistryView 的定位）：
+        /// <paramref name="blocked"/> 为 true 时 <see cref="GetAll"/> 抛出与
+        /// <c>DataRegistry.EnsureReadable</c> 逐字节相同的异常（类型 + 消息），用于验证
+        /// <see cref="IDataRegistryView.TryGetRecordCount"/> 默认实现精确捕获该类型、不误吞其它异常。</summary>
+        private sealed class ThrowingRecordCountView : IDataRegistryView
+        {
+            private readonly bool _blocked;
+
+            public ThrowingRecordCountView(bool blocked) => _blocked = blocked;
+
+            public IReadOnlyList<string> Tables { get; } = new[] { "test.widget" };
+
+            public DataRecord? Get(string table, string key) => throw new NotSupportedException("测试替身不支持 Get");
+
+            public DataRecord? Get(string table, Id id) => throw new NotSupportedException("测试替身不支持 Get");
+
+            public IReadOnlyList<DataRecord> GetAll(string table)
+            {
+                if (_blocked) throw new InvalidOperationException("数据校验未通过，禁止读取");
+                return Array.Empty<DataRecord>();
+            }
+
+            public IReadOnlyList<DataRecord> Query(string table, ExprNode predicate) => throw new NotSupportedException("测试替身不支持 Query");
+
+            public IReadOnlyList<DataRecord> Query(string table, string predicateText) => throw new NotSupportedException("测试替身不支持 Query");
+
+            public TableSchema? GetSchema(string table) => null;
+        }
+
+        [Fact]
+        public void RecordCount_NeverLoaded_ReturnsZero()
+        {
+            var registry = new DataRegistry(new InMemoryDataSource(), MakeBus());
+
+            Assert.Equal(0, registry.RecordCount);
+            Assert.True(registry.TryGetRecordCount(out var count));
+            Assert.Equal(0, count);
+        }
+
+        [Fact]
+        public void RecordCount_LoadAllBlockingReport_ReturnsMergedCountInsteadOfThrowing()
+        {
+            // 复现消费方反馈第 17 条：test.widget 是坏 JSON（envelope 级错误，本次加载根本不会
+            // 进入 _tables），test.owner 是一条能正常解析的好记录——整体报告阻断（GetAll("test.widget")
+            // 会抛异常），但 test.owner 已成功加载的这条记录应该仍能被计数，不因为“别的表”阻断而
+            // 连累抛异常（同 Validate_AfterBadTableLoad_StaysBlocked_EvenWithoutTouchingBadTable 的
+            // 坏表/好表夹具，验证同一份数据下 RecordCount 修复前后的行为差异）。
+            var source = new MutableMultiTableSource()
+                .Set("test.widget", "{ not valid json")
+                .Set("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.widget"));
+
+            // 正确性断言（修复前会抛 InvalidOperationException："数据校验未通过，禁止读取"，
+            // 因为 IDataRegistryView.RecordCount 默认实现内部仍会调 GetAll("test.widget")）：
+            // 阻断态下也应直接返回已加载表的合并记录数，不抛异常。
+            var recordCount = registry.RecordCount;
+            Assert.Equal(1, recordCount);
+
+            Assert.True(registry.TryGetRecordCount(out var tryCount));
+            Assert.Equal(1, tryCount);
+        }
+
+        [Fact]
+        public void RecordCount_MultipleLoadAllCalls_OverwritesRatherThanAccumulates()
+        {
+            var rows = "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]";
+            var source = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1, rows));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+
+            registry.LoadAll();
+            Assert.Equal(1, registry.RecordCount);
+
+            // 同一宿主对同一份数据重复 LoadAll：_tables 整体重建（覆盖），不是在旧计数上累加。
+            registry.LoadAll();
+            Assert.Equal(1, registry.RecordCount);
+
+            registry.LoadAll();
+            Assert.Equal(1, registry.RecordCount);
+        }
+
+        [Fact]
+        public void RecordCount_AfterReload_UpdatesToNewRowCount()
+        {
+            var source = new MutableSingleTableSource("test.widget",
+                Envelope("test.widget", 1, "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+
+            registry.LoadAll();
+            Assert.Equal(1, registry.RecordCount);
+
+            source.Json = Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}," +
+                "{\"id\": \"test.widget.b\", \"name\": \"B\", \"count\": 2}]");
+            var report = registry.Reload("test.widget");
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+            Assert.Equal(2, registry.RecordCount);
+        }
+
+        [Fact]
+        public void RecordCount_MultiRootOverride_CountsMergedDedupedRows_NotSumOfRawRows()
+        {
+            // 覆盖层合并去重口径：两个根各提供一行、同主键、rootB 声明 override——合并后只应有
+            // 1 条记录（覆盖是整行替换，不是追加），RecordCount 不能是 1 + 1 = 2。
+            var rootA = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Framework\", \"count\": 1}]"), location: "data/_framework/test.widget.json");
+            var rootB = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Game\", \"count\": 9, \"override\": true}]"), location: "data/_sample/test.widget.json");
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            var report = registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            Assert.False(report.IsBlocking);
+            Assert.Equal(1, registry.RecordCount);
+        }
+
+        [Fact]
+        public void RecordCount_EqualsDataLoadCompletedEventRecordCount_EvenWhenBlocking()
+        {
+            var source = new MutableMultiTableSource()
+                .Set("test.widget", "{ not valid json")
+                .Set("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var bus = MakeBus();
+            DataLoadCompletedEvent? received = null;
+            bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, e => received = e);
+            var registry = new DataRegistry(source, bus);
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.NotNull(received);
+            Assert.Equal(received!.RecordCount, registry.RecordCount);
+        }
+
+        [Fact]
+        public void TryGetRecordCount_OnViewOnlyStub_BlockingLikeException_ReturnsFalseWithoutThrowing()
+        {
+            IDataRegistryView view = new ThrowingRecordCountView(blocked: true);
+
+            var ok = view.TryGetRecordCount(out var count);
+
+            Assert.False(ok);
+            Assert.Equal(0, count);
+        }
+
+        [Fact]
+        public void TryGetRecordCount_OnViewOnlyStub_NotBlocking_ReturnsTrueWithSum()
+        {
+            IDataRegistryView view = new ThrowingRecordCountView(blocked: false);
+
+            var ok = view.TryGetRecordCount(out var count);
+
+            Assert.True(ok);
+            Assert.Equal(0, count); // GetAll 对唯一表返回空集合。
+        }
+
+        [Fact]
+        public void TryGetRecordCount_OnDataRegistry_BlockingState_ReturnsTrueWithMergedCount()
+        {
+            // DataRegistry 显式覆盖的 TryGetRecordCount 永不抛出，与其显式覆盖的 RecordCount
+            // （见该类型判断记录）保持一致，阻断态下也返回 true + 已加载表的合并计数。
+            var source = new MutableMultiTableSource()
+                .Set("test.widget", "{ not valid json")
+                .Set("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.True(registry.TryGetRecordCount(out var count));
+            Assert.Equal(1, count);
+        }
+
         // W2 收边补齐（A1 审计第 7 节，测试完备性缺口）：GetSchema 此前只有生产代码内部调用点
         // （DataRegistry 自身解析谓词文本、CombatValidationRules），没有一处测试把它作为断言主语
         // 直接调用。

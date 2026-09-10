@@ -139,40 +139,21 @@ namespace Presentation.Assembly
             if (sources.Count == 0) throw new ArgumentException("sources 不能为空：至少需要一个数据根", nameof(sources));
 
             var opts = options ?? new ContentValidationOptions();
-            var registry = CreateRegistryCore(sources[0], opts, out var disabledOptionalRules, out var bus);
+            var registry = CreateRegistryCore(sources[0], opts, out var disabledOptionalRules, out _);
 
-            // 判断记录：recordCount 取值惯例同 toolchain/validator/Program.cs 此前的写法——订阅
-            // DataRegistry.LoadAll 内部发出的 data.load_completed 事件读 RecordCount 字段，而不是
-            // 事后自己遍历 registry.Tables 逐表 GetAll(..).Count 求和：DataRegistry.LoadAll 内部对
-            // 每张表的 recordCount 是在解析阶段边解析边累加的，与 report.IsBlocking 无关（阻断态下
-            // 事件仍会照常发出，见 DataRegistry.LoadAll 判断记录），逐表 GetAll 累加则要求数据已经
-            // 通过校验（IDataRegistryView.GetAll 契约：未通过校验时抛异常，见该接口类型注释），
-            // 阻断态下无法这样求和，两条路径的语义与可用性都不同，必须复用同一条事件路径才能保证
-            // 与此前 validator 输出的 recordCount 逐字节一致。
-            DataLoadCompletedEvent? loadCompleted = null;
-            var subscription = bus.Subscribe<DataLoadCompletedEvent>(
-                DataRegistryEventKeys.LoadCompleted, e => loadCompleted = e);
-            ValidationReport report;
-            try
-            {
-                report = registry.LoadAll(sources);
-            }
-            finally
-            {
-                subscription.Dispose();
-            }
+            var report = registry.LoadAll(sources);
 
-            // 判断记录（消费方反馈 E10 根治，2026-09-10）：非阻断态下改为直接读
-            // IDataRegistryView.RecordCount（新增的默认接口成员，按 Tables/GetAll 求和，见该成员
-            // 判断记录）而不是继续依赖事件订阅值——两者在非阻断态下数值上必然相等（事件里的
-            // recordCount 就是同一次 LoadAll 解析出的记录数，GetAll 求和读的是同一份已加载结果），
-            // 让 CreateRegistry 场景（调用方自行 LoadAll/Reload 后读 RecordCount）与 Run 场景用
-            // 同一个计算口径，不是两套互相独立、只是"恰好数值相同"的实现。阻断态下 GetAll 会抛
-            // 异常（IDataRegistryView.GetAll 契约，见类型注释），只能继续依赖事件值——这是
-            // Run 相对 CreateRegistry 场景的本质优势（Run 自己控制 LoadAll 调用时机，能在
-            // LoadAll 返回前订阅到事件；CreateRegistry 的调用方要自己承担这部分职责，未来若也
-            // 想要阻断态下的记录数，需要自行订阅同一个事件，不是本次改动范围）。
-            var recordCount = report.IsBlocking ? (loadCompleted?.RecordCount ?? 0) : registry.RecordCount;
+            // 判断记录（消费方反馈第 17 条根治，2026-09-10，取代原 E10 处理方式；见
+            // architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：此前阻断态下
+            // IDataRegistryView.RecordCount 默认实现仍按 Tables/GetAll 求和，GetAll 阻断态会抛异常
+            // （IDataRegistryView.GetAll 契约），Run 只能另开一条订阅 data.load_completed 事件的旁路
+            // 规避。DataRegistry.RecordCount 现在显式覆盖为直接读内部按表合并去重后的记录快照
+            // （不经 EnsureReadable，阻断态也不抛，见 DataRegistry.RecordCount 判断记录），
+            // CreateRegistryCore 内部构造的就是具体的 DataRegistry 实例（见该方法实现），故这里的
+            // registry.RecordCount 读到的正是那份覆盖实现——不再需要事件订阅这条旁路：Run 与
+            // CreateRegistry+Reload（调用方自行持有 registry 时）两条路径统一改用同一个
+            // registry.RecordCount 读数，不再是"两套独立实现、只是恰好数值相同"。
+            var recordCount = registry.RecordCount;
             var enabledOptionalRules = OptionalRuleNames.Except(disabledOptionalRules).ToList();
 
             return new ContentValidationRun(

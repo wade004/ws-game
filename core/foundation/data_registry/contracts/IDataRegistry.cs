@@ -47,8 +47,49 @@ namespace Core.Foundation.DataRegistry
         /// <see cref="Get(string, string)"/> 同样的前提：数据未通过校验时调用方需自行处理
         /// <see cref="GetAll"/> 可能抛出的异常（本成员不做额外的静默降级，见 11 第 4 节"运行时不做
         /// 静默降级"）。
+        /// <para>
+        /// 判断记录（消费方反馈第 17 条根治，2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：本默认实现按
+        /// <see cref="Tables"/>/<see cref="GetAll"/> 求和这一点保持不变（上一段判断记录仍然成立，
+        /// 是"未持有具体 <c>DataRegistry</c> 实现、只有本接口"的第三方/测试替身唯一通用的兜底算法），
+        /// 因此阻断态下仍可能抛出 <see cref="GetAll"/> 抛出的异常——调用方明确知道自己拿到的是具体
+        /// <see cref="Core.Foundation.DataRegistry.DataRegistry"/> 实例时，改用该类型显式覆盖的
+        /// <c>RecordCount</c>（阻断态不抛，直接读内部按表合并去重后的记录快照，见该类型同名成员
+        /// 判断记录）；只持有 <see cref="IDataRegistryView"/>/<see cref="IDataRegistry"/> 接口、
+        /// 不确定当前是否阻断时，改用 <see cref="TryGetRecordCount"/>（阻断态返回 <c>false</c> 而不
+        /// 抛异常）。
+        /// </para>
         /// </summary>
         int RecordCount => Tables.Sum(table => GetAll(table).Count);
+
+        /// <summary>
+        /// 判断记录（消费方反馈第 17 条根治，2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：尝试获取
+        /// <see cref="RecordCount"/>，阻断态（或任何导致 <see cref="RecordCount"/> 默认实现内部
+        /// <see cref="GetAll"/> 抛出"数据校验未通过，禁止读取"的场景）返回 <c>false</c> 而不抛异常，
+        /// <paramref name="count"/> 置 0；成功时返回 <c>true</c>，<paramref name="count"/> 为实际
+        /// 记录总数。默认实现按"try <see cref="RecordCount"/>，只捕获
+        /// <see cref="System.InvalidOperationException"/>（<c>DataRegistry.EnsureReadable</c> 阻断态
+        /// 精确抛出的类型，见该方法实现）"给出——不用 <c>catch (Exception)</c> 掩盖其它意外异常，
+        /// 呼应 11 第 4 节"运行时不做静默降级"：这里的"降级"仅限于把已知的、契约明确的阻断异常
+        /// 转换成 <c>false</c>，其它类型异常仍会照常向外抛出。带默认实现的接口成员新增，同样不构成
+        /// "公开 API 表面"意义上的破坏性变更（见 <see cref="RecordCount"/> 同一处判断记录）。
+        /// <see cref="Core.Foundation.DataRegistry.DataRegistry"/> 显式覆盖为永不抛出的直接实现
+        /// （见该类型同名成员判断记录），不经过这里的 try/catch。
+        /// </summary>
+        bool TryGetRecordCount(out int count)
+        {
+            try
+            {
+                count = RecordCount;
+                return true;
+            }
+            catch (System.InvalidOperationException)
+            {
+                count = 0;
+                return false;
+            }
+        }
     }
 
     /// <summary>

@@ -439,6 +439,65 @@ namespace Core.Foundation.DataRegistry
         /// "覆盖语义"。返回一份快照（调用方后续 <see cref="Reload(string)"/> 不会影响已返回的列表）。</summary>
         public IReadOnlyList<OverrideDiagnostic> GetOverrideDiagnostics() => _overrideDiagnostics.ToArray();
 
+        /// <summary>
+        /// 判断记录（消费方反馈第 17 条根治，2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：显式声明为类
+        /// 公开成员（同签名的公开属性，不是 <c>IDataRegistryView.RecordCount =></c> 形式的显式接口
+        /// 实现）——按 C# 8+ 默认接口成员规则，实现类提供的同签名公开成员会覆盖接口默认实现，
+        /// 无论调用方以 <see cref="DataRegistry"/> 具体类型还是以 <see cref="IDataRegistryView"/>/
+        /// <see cref="IDataRegistry"/> 接口类型持有本实例，读到的都是这里的实现，不会退回接口默认的
+        /// <c>Tables.Sum(table => GetAll(table).Count)</c>。
+        /// <para>
+        /// 直接对 <see cref="_tables"/>（本类内部"已成功解析、参与合并"的表快照）逐表累加
+        /// <c>LoadedTable.Records.Count</c>，不经过 <see cref="EnsureReadable"/>、不调用
+        /// <see cref="GetAll"/>——阻断态（<see cref="_blocked"/> 为 <c>true</c>）下也能读取，不抛异常。
+        /// 这不是对 <see cref="GetAll"/> 阻断契约的绕过：<see cref="GetAll"/> 的阻断限制是"防止调用方
+        /// 把未通过校验的数据当成权威数据在业务逻辑里使用"（11 第 4 节"运行时不做静默降级"），而记录
+        /// 计数纯粹是诊断信息，不代表数据本身可信，与消费方反馈第 10 条为
+        /// <see cref="Presentation.Assembly.ContentValidationAssembly.Run"/> 内部此前选用"读事件"
+        /// 而不是"读 GetAll 求和"是同一个理由（该事件同样在阻断态照常发出，见
+        /// <see cref="LoadAllCore"/>）。
+        /// </para>
+        /// <para>
+        /// 与 <see cref="DataLoadCompletedEvent.RecordCount"/> 口径逐字节一致（同一份计数语义）：
+        /// <see cref="LoadAllCore"/> 内部的局部变量 <c>recordCount</c> 与最终写入
+        /// <c>loaded[tableName].Records</c>（即这里读取的 <see cref="_tables"/>）的记录集合，两者
+        /// 对每张表的计数规则相同——单根表按 <c>partial.RecordsInOrder.Count</c> 计，跨根合并表按
+        /// 合并去重后追加进 <c>mergedRecords</c> 的次数计（覆盖行是替换、不追加，不重复计数；见
+        /// <see cref="LoadMergedTable"/> 判断记录"覆盖语义"），因此本属性等价于对同一份
+        /// <c>recordCount</c> 的快照读取，不是另一套可能分叉的独立算法。
+        /// </para>
+        /// <para>
+        /// 更新时机：<see cref="LoadAllCore"/> 整体重建 <see cref="_tables"/>（同一宿主重复
+        /// <see cref="LoadAll()"/>/<see cref="LoadAll(IReadOnlyList{IDataSource})"/> 是覆盖，不是
+        /// 累加——旧的 <see cref="_tables"/> 字典直接被新字典替换）；<see cref="Reload(string)"/>
+        /// 只替换 <paramref name="table"/> 一张表在 <see cref="_tables"/> 里的条目，其余表不受影响，
+        /// 本属性随之自动反映最新状态，不需要额外的"累计字段 +=/-="维护逻辑（也就没有相应的一致性
+        /// 风险）。构造后从未 <see cref="LoadAll()"/> 过时 <see cref="_tables"/> 是构造函数初始化的
+        /// 空字典，返回 0。
+        /// </para>
+        /// </summary>
+        public int RecordCount
+        {
+            get
+            {
+                var total = 0;
+                foreach (var kv in _tables) total += kv.Value.Records.Count;
+                return total;
+            }
+        }
+
+        /// <summary>
+        /// 判断记录（消费方反馈第 17 条根治，2026-09-10）：显式覆盖接口默认实现（同
+        /// <see cref="RecordCount"/> 一处判断记录，公开同签名成员即覆盖，非显式接口实现语法）。
+        /// <see cref="RecordCount"/> 本身已经永不抛出（见其判断记录），因此这里不需要
+        /// try/catch——直接返回 <c>true</c> 与读到的计数。</summary>
+        public bool TryGetRecordCount(out int count)
+        {
+            count = RecordCount;
+            return true;
+        }
+
         private void EnsureReadable()
         {
             if (_blocked)

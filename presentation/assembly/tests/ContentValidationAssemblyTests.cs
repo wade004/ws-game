@@ -212,6 +212,97 @@ namespace Tests.Presentation.Assembly
             Assert.Equal(2, registry.RecordCount);
         }
 
+        // ---------- 消费方反馈 第 17 条根治：阻断态下 RecordCount 不抛异常 ----------
+
+        private sealed class MutableTableSource : IDataSource
+        {
+            private readonly string _tableName;
+
+            public string Json;
+
+            public MutableTableSource(string tableName, string json)
+            {
+                _tableName = tableName;
+                Json = json;
+            }
+
+            public IReadOnlyList<DataTableSource> ListTables() =>
+                new[] { new DataTableSource(_tableName, "memory://" + _tableName, () => Json) };
+        }
+
+        [Fact]
+        public void Run_BlockingReport_RecordCountDoesNotThrow_MatchesRegistryRecordCount_AndDataLoadCompletedEvent()
+        {
+            // stat.definition.name_key 引用一个 l10n.text 未加载的文本键 -> 一条 text_key_exists
+            // Warning（同 Run_WarningsBlockStrictness_WarningOnlyReport_IsBlocking 用例），
+            // WarningsBlock 严格级别下报告阻断，但该表本身已成功加载（1 条记录）——这正是消费方
+            // 反馈第 17 条描述的场景："数据集有阻断级问题、注册中心处于阻断态，但编辑器仍需要显示
+            // 记录数"。
+            var source = new InMemoryDataSource();
+            source.Add("stat.definition",
+                "{\"table\": \"stat.definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"stat.max_health\", \"name_key\": \"l10n.stat.sample_max_health.name\", \"group\": \"primary\", \"default_base\": 0}" +
+                "]}");
+
+            var catalog = Core.Foundation.EventBus.EventCatalog.FromDefinitions(new[]
+            {
+                new Core.Foundation.EventBus.EventDefinition(DataRegistryEventKeys.LoadCompleted, "data",
+                    new[] { "tableCount", "recordCount", "errorCount", "warningCount" }),
+                new Core.Foundation.EventBus.EventDefinition(DataRegistryEventKeys.ValidationFailed, "data",
+                    new[] { "errorCount", "warningCount" }),
+            });
+            var bus = new Core.Foundation.EventBus.EventBus(catalog, new Core.Foundation.EventBus.EventBusOptions { StrictCatalog = false });
+            DataLoadCompletedEvent? received = null;
+            bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, e => received = e);
+
+            var options = new ContentValidationOptions
+            {
+                FailOnUnknownTable = false,
+                Strictness = DataRegistryStrictness.WarningsBlock,
+                Bus = bus,
+            };
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
+
+            Assert.True(run.Report.IsBlocking);
+            Assert.Equal(1, run.RecordCount);
+            Assert.Equal(run.RecordCount, run.Registry.RecordCount);
+            Assert.NotNull(received);
+            Assert.Equal(received!.RecordCount, run.RecordCount);
+        }
+
+        [Fact]
+        public void CreateRegistry_ReloadAfterInitialLoad_RecordCount_UpdatesAndMatchesRunOnSameData()
+        {
+            // 消费方反馈第 17 条：CreateRegistry+Reload 场景（调用方自行持有 registry、自行决定
+            // 加载时机）与 Run 场景必须落在同一个计数口径上；重载后计数应随之更新。
+            var source = new MutableTableSource("stat.definition",
+                "{\"table\": \"stat.definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"stat.max_health\", \"name_key\": \"l10n.stat.sample_max_health.name\", \"group\": \"primary\", \"default_base\": 0}" +
+                "]}");
+            var options = new ContentValidationOptions { FailOnUnknownTable = false };
+
+            var registry = ContentValidationAssembly.CreateRegistry(source, options, out _);
+            var firstReport = registry.LoadAll();
+            Assert.False(firstReport.IsBlocking, string.Join("; ", firstReport.Issues));
+            Assert.Equal(1, registry.RecordCount);
+
+            source.Json =
+                "{\"table\": \"stat.definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"stat.max_health\", \"name_key\": \"l10n.stat.sample_max_health.name\", \"group\": \"primary\", \"default_base\": 0}," +
+                "{\"id\": \"stat.max_mana\", \"name_key\": \"l10n.stat.sample_max_mana.name\", \"group\": \"primary\", \"default_base\": 0}" +
+                "]}";
+            var reloadReport = registry.Reload("stat.definition");
+            Assert.False(reloadReport.IsBlocking, string.Join("; ", reloadReport.Issues));
+            Assert.Equal(2, registry.RecordCount);
+
+            // 同一份两行数据改走 Run 入口，口径应与 CreateRegistry+Reload 一致。
+            var runSource = new InMemoryDataSource().Add("stat.definition", source.Json);
+            var run = ContentValidationAssembly.Run(new IDataSource[] { runSource }, options);
+            Assert.False(run.Report.IsBlocking, string.Join("; ", run.Report.Issues));
+            Assert.Equal(registry.RecordCount, run.RecordCount);
+        }
+
         [Fact]
         public void RecordCount_DefaultImplementation_SumsAcrossMultipleTables()
         {
