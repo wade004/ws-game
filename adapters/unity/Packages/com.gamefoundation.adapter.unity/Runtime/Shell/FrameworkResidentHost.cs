@@ -53,6 +53,7 @@
 // EndTurn、AI 回合、presentation.playback_finished 回放门已独立落地并验证，见
 // Tests/Runtime/DiscreteCombatTests.cs 与 Tests/Runtime/SharedBootstrapDiscreteTests.cs）。
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Adapter.Unity.EngineAdapter;
 using Adapter.Unity.Presentation;
@@ -226,6 +227,15 @@ namespace Adapter.Unity.Shell
         /// <c>ShellRoot.Awake</c> 间接触发的 <see cref="Ensure"/>）设置本标志。</summary>
         public static bool ForceDiscreteCombatForSmoke;
 
+        /// <summary>PRES-118-SFX 契约测试专用（见 <see cref="Presentation.Assembly.PresentationAssembly.UpdatePlaybackMaintenance"/>
+        /// 判断记录）：为真时叠加一条内存 <c>sfx.def</c> 数据源，登记一个 <c>resource_ref</c> 不对应
+        /// 任何真实音频资产的探针条目——供 PlayMode 契约测试确定性复现"连续两次播放同一个缺失音效
+        /// 资源，第二次没有未来回调可等，只能靠逐帧维护清理"这一场景，不依赖磁盘上是否恰好缺某个
+        /// 资源文件（那种依赖会随美术资产增删而漂移，不稳定）。同 <see cref="ForceDiscreteCombatForSmoke"/>
+        /// 判断记录：必须在 <see cref="Ensure"/> 第一次被调用之前设置；默认 false，对任何既有场景/
+        /// 冒烟流程零行为影响（纯新增一条不会被任何生产代码引用的探针 id）。</summary>
+        public static bool ForceSfxMissingResourceOverlayForTest;
+
         public static FrameworkResidentHost Ensure()
         {
             if (_instance != null)
@@ -296,10 +306,19 @@ namespace Adapter.Unity.Shell
             // 内存数据源，只补一条 found.time_model 的 combat=discrete 行——与
             // Core.Gameplay.Assembly.TimeModelSwitch.LoadModel"后声明覆盖先声明"的判断记录配合，
             // 排在 source（data/_sample，已声明 combat=continuous）之后加载即可生效。
-            var sources = ForceDiscreteCombatForSmoke
-                ? new IDataSource[] { frameworkSource, source, BuildDiscreteOverlaySource() }
-                : new IDataSource[] { frameworkSource, source };
-            var report = registry.LoadAll(sources);
+            // PRES-118-SFX 契约测试专用（见 ForceSfxMissingResourceOverlayForTest 判断记录）：两个
+            // 测试专用叠加互不依赖，都为 false 时下面列表恰好等于改动前的 { frameworkSource, source }
+            // 两元素数组，零行为变化。
+            var sourceList = new List<IDataSource> { frameworkSource, source };
+            if (ForceDiscreteCombatForSmoke)
+            {
+                sourceList.Add(BuildDiscreteOverlaySource());
+            }
+            if (ForceSfxMissingResourceOverlayForTest)
+            {
+                sourceList.Add(BuildSfxMissingResourceOverlaySource());
+            }
+            var report = registry.LoadAll(sourceList);
             if (report.IsBlocking)
             {
                 BootstrapFailed = true;
@@ -592,6 +611,25 @@ namespace Adapter.Unity.Shell
             return new InMemoryDataSource().Add("found.time_model", json);
         }
 
+        /// <summary>见 <see cref="ForceSfxMissingResourceOverlayForTest"/> 判断记录：内存数据源，
+        /// 只登记一条 <c>sfx.def</c> 探针行——<c>resource_ref</c>（<c>"sfx.pres118_never_exists_on_disk"</c>）
+        /// 是一个刻意不对应任何真实音频资产的 id，<c>id</c> 本身（<c>"sfx.pres118_missing_resource_probe"</c>）
+        /// 不与 <c>data/_sample/sfx/sfx.def.json</c> 任何既有行冲突（DataRegistry 按主键并集合并同名
+        /// 表，见该行为判断记录）。</summary>
+        private static IDataSource BuildSfxMissingResourceOverlaySource()
+        {
+            const string json = @"
+            {
+                ""table"": ""sfx.def"",
+                ""schema_version"": 1,
+                ""rows"": [
+                    { ""id"": ""sfx.pres118_missing_resource_probe"", ""layer"": ""combat"", ""priority"": 0,
+                      ""resource_ref"": ""sfx.pres118_never_exists_on_disk"" }
+                ]
+            }";
+            return new InMemoryDataSource().Add("sfx.def", json);
+        }
+
         /// <summary>
         /// 判断记录（引擎侧收口任务，恢复 VerticalSliceTests.FullVerticalSlice 的
         /// LogAssert.NoUnexpectedReceived() 收尾检查前必须解决的资源加载竞态）：
@@ -829,8 +867,7 @@ namespace Adapter.Unity.Shell
             // 节），与 ViewBinder/相机插值不同——即便当前不在 InWorld/Pause（renderTicking 为假）
             // 也应继续推进（例如战斗结算后立刻切到读档画面，队列里仍有排队的表现动作应当照常清空，
             // 不应卡住 playing_back 节奏门），因此本调用不受 renderTicking 门槛限制。
-            RunPresentationStep(() => Presentation.Feedback.Update(unscaledDelta));
-
+            //
             // GP-03 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
             // Presentation.VfxSfx.Core.VfxPlayer.Update(dt) 此前没有任何生产入口调用——循环特效的
             // 生命周期池（VfxPool）不会随时间停止，首次异步加载迟迟不回调的挂起请求
@@ -839,8 +876,7 @@ namespace Adapter.Unity.Shell
             // 限制——即便当前不在 InWorld/Pause（例如战斗结算后立刻切到读档画面），已经播放中的循环
             // 特效也应该继续按自己的 lifetime 正常停止，不应该因为切到别的 AppState 就卡在"永远
             // 播放"。
-            RunPresentationStep(() => Presentation.Vfx.Update(unscaledDelta));
-
+            //
             // C07 根治（architecture/落地计划/audit-7e63d66-20260907/code-review.md）：
             // Presentation.VfxSfx.Core.SfxPlayer 此前没有任何时钟驱动入口——首次冷音效加载迟迟不
             // 回调的排队请求只在下一次 Play 调用开头惰性扫一遍（见 SfxPlayer.
@@ -848,7 +884,15 @@ namespace Adapter.Unity.Shell
             // 加载请求永远不会被扫到、PendingPlayCountChanged 永远不会因超时而触发。同上面
             // Presentation.Vfx.Update 一样不受下面 renderTicking 门槛限制——超时清理与是否在
             // InWorld/Pause 无关。
-            RunPresentationStep(() => Presentation.Sfx.Update(unscaledDelta));
+            //
+            // PRES-118-SFX 根治（第十八轮审核）：Feedback/Vfx/Sfx 三步"逐帧维护"清单此前在本入口、
+            // GameFoundationBootstrap、模板 GameBootstrap 三处各自手工罗列，GameFoundationBootstrap
+            // 与模板两处都漏抄了 Sfx.Update，导致第二次播放同一个缺失音效资源时永久卡在 pending（见
+            // Presentation.Assembly.PresentationAssembly.UpdatePlaybackMaintenance 判断记录）。三处
+            // 收口为统一调用该方法，此处传入 RunPresentationStep 保留"拍板 12"逐步异常隔离粒度——
+            // Feedback/Vfx/Sfx 三步仍然分别独立 try/catch，不会因为集中到一次调用就合并成一次
+            // try/catch、一步异常波及另外两步。
+            Presentation.UpdatePlaybackMaintenance(unscaledDelta, RunPresentationStep);
 
             // 拍板 5/DECISIONS 收口（离散回放门生产实测）：presentation/feedback_binder/README.md
             // 判断记录 9"此前 Unity 引导侧'靠零事件兜底短路'的临时手法已随本次收口废弃"——原 H4 在

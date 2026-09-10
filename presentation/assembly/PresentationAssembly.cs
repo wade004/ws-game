@@ -578,6 +578,37 @@ namespace Presentation.Assembly
             new SettingsStore(fileSystem);
 
         /// <summary>
+        /// PRES-118-SFX 根治（第十八轮审核）：三个生产装配入口（<c>FrameworkResidentHost</c>/
+        /// <c>GameFoundationBootstrap</c>/<c>games/_template</c> <c>GameBootstrap</c>）各自在
+        /// <c>OnFrameTick</c> 里手工罗列 <see cref="Feedback"/>/<see cref="Vfx"/>/<see cref="Sfx"/>
+        /// 三个"不受 InWorld/Pause 状态门槛限制、必须逐帧维护"的表现步骤（09 第 6.4 节：等待首次
+        /// 资源加载完成后解除 <c>presentation.playback_finished</c> 节奏门；<c>SfxPlayer.Update</c>
+        /// 自身承担超时回收挂起播放请求的职责，见其类型注释），此前两个入口（GameFoundationBootstrap、
+        /// 模板 GameBootstrap）各自独立维护这份清单，都漏抄了 <see cref="Sfx"/> 这一项——第二次播放
+        /// 同一个缺失音效资源时，<c>SfxPlayer</c> 内部 <c>_pendingResourceLoads</c> 已记录过该资源 id
+        /// 不会再次 <c>LoadAsync</c>，这次请求没有任何未来回调可等，只能靠 <c>Update</c> 内部的超时
+        /// 扫描清理——没有任何生产入口驱动它时，该请求永久卡在 pending，离散模式
+        /// <c>wait_for_playback</c> 可能永久等待。
+        /// <para>
+        /// 收口为本方法这一处唯一实现，三个入口统一改为调用它，不再各自罗列——避免未来新增第四个
+        /// 入口或改动播放器清单时重蹈"抄漏一项"的覆辙。<paramref name="stepRunner"/> 是可选的单步
+        /// 异常隔离壳（<c>FrameworkResidentHost</c>/<c>GameFoundationBootstrap</c> 均有"拍板 12
+        /// 表现层异常隔离"的 <c>RunPresentationStep</c>，一步抛异常不阻塞同一帧内其余步骤，见两者
+        /// 源码判断记录）——两个入口传入各自的 <c>RunPresentationStep</c> 方法组即可保留原有隔离粒度
+        /// （Feedback/Vfx/Sfx 三步仍然分别独立 try/catch，不因为集中到本方法就合并成一次 try/catch）；
+        /// 未传（模板 GameBootstrap 当前没有这层隔离机制）时默认直接调用，与改动前该入口的行为一致。
+        /// </para>
+        /// </summary>
+        public void UpdatePlaybackMaintenance(double unscaledDeltaSeconds, Action<Action>? stepRunner = null)
+        {
+            var run = stepRunner ?? (step => step());
+
+            run(() => Feedback.Update(unscaledDeltaSeconds));
+            run(() => Vfx.Update(unscaledDeltaSeconds));
+            run(() => Sfx.Update(unscaledDeltaSeconds));
+        }
+
+        /// <summary>
         /// 退订全部本装配根构造期建立的事件订阅（<see cref="FeedbackBinderCore"/>、<see cref="ShellHost"/>、
         /// <see cref="ViewBinder"/>、<see cref="Camera"/>（缺口 5：两者现均实现
         /// <see cref="IDisposable"/>）与十个 UI 视图模型 + <see cref="ShellViewModel"/>，均在

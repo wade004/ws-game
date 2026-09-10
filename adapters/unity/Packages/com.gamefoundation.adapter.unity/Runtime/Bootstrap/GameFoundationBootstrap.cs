@@ -745,12 +745,17 @@ namespace Adapter.Unity.Bootstrap
                 RunPresentationStep(() => Presentation.Camera.Update(alpha));
             }
 
-            RunPresentationStep(() => Presentation.Feedback.Update(unscaledDelta));
-
             // GP-03 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：同
             // FrameworkResidentHost.OnFrameTick 同款判断记录——VfxPlayer.Update(dt) 此前本类型也
             // 没有调用，循环特效不按 lifetime 停、首次异步加载超时倒计时不推进。
-            RunPresentationStep(() => Presentation.Vfx.Update(unscaledDelta));
+            //
+            // PRES-118-SFX 根治（第十八轮审核）：本类型此前只手工罗列了 Feedback.Update/Vfx.Update
+            // 两步，漏抄了 Sfx.Update（对照 FrameworkResidentHost.OnFrameTick 有调用）——第二次播放
+            // 同一个缺失音效资源时，SfxPlayer 内部记录过的资源 id 不会再次 LoadAsync，这次请求没有
+            // 任何未来回调可等，只能靠 Sfx.Update 内部的超时扫描清理，没有生产入口驱动时永久卡在
+            // pending。改为统一调用 PresentationAssembly.UpdatePlaybackMaintenance（见该方法判断
+            // 记录），传入 RunPresentationStep 保留"拍板 12"逐步异常隔离粒度，避免未来再次漏抄。
+            Presentation.UpdatePlaybackMaintenance(unscaledDelta, RunPresentationStep);
 
             // 拍板 5/DECISIONS 收口：原 H4"零事件步"兜底短路已删除，见
             // FrameworkResidentHost.OnFrameTick 同款判断记录（playback_finished 现只经

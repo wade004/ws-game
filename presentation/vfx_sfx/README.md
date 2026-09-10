@@ -179,6 +179,19 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     （`FollowCapableStubRenderer2D` 验证跟随/降级路径/实体销毁三类场景）；真实引擎实现见
     `adapters/unity` 包 README"VFX anchor/socket 持续跟随"一节。
 
+16. **PRES-118-SFX 勘误（第十八轮审核）：判断记录 10 提到的"生产接线"此前只在 `FrameworkResidentHost`
+    一处真正落地，`GameFoundationBootstrap`/`games/_template` `GameBootstrap` 两处的 `OnFrameTick`
+    从未调用过 `Presentation.Sfx.Update(dt)`**——判断记录 10 的原文只举了
+    `FrameworkResidentHost.cs` 一个例子作为"生产接线"的代表，未逐一核对全部三个生产装配入口，
+    实际上另外两处始终缺失这一步：连续两次播放同一个缺失音效资源时，第二次请求没有任何未来回调可
+    等（`SfxPlayer._pendingResourceLoads` 已记录过该资源 id，不会再次触发加载），只能靠
+    `ISfxPlayer.Update` 的超时扫描清理，两处入口没有任何代码驱动它时，该请求永久卡在 pending。
+    根治不改本模块任何契约/实现，改为在 `presentation/assembly` 新增
+    `PresentationAssembly.UpdatePlaybackMaintenance` 统一逐帧维护入口（`Feedback.Update`/
+    `Vfx.Update`/`Sfx.Update` 三步收敛为一处），三个生产装配入口现全部改为调用该方法，不再各自
+    罗列这份清单，避免未来再次出现"举一个例子当作全部已接线"的文档漂移。详见
+    `presentation/assembly/README.md` 判断记录"PRES-118-SFX 根治"。
+
 ## 不负责什么
 
 - 不接入 `data/_sample/`：本任务不新增示例数据文件，`schema/VfxSfxSchemas` 只声明表结构，测试用

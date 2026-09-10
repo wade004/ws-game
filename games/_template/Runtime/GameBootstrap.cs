@@ -123,6 +123,30 @@ namespace Game.Template
         private Core.Foundation.Common.SubscriptionHandle? _fixedStepHandle;
         private Core.Foundation.Common.SubscriptionHandle? _frameHandle;
 
+        /// <summary>PRES-118-SFX 契约测试专用（见 <see cref="global::Presentation.Assembly.PresentationAssembly.UpdatePlaybackMaintenance"/>
+        /// 判断记录）：为真时叠加一条内存 <c>sfx.def</c> 数据源，登记一个 <c>resource_ref</c> 不对应
+        /// 任何真实音频资产的探针条目——供 PlayMode 契约测试确定性复现"连续两次播放同一个缺失音效
+        /// 资源，第二次没有未来回调可等，只能靠逐帧维护清理"这一场景，同
+        /// <c>Adapter.Unity.Shell.FrameworkResidentHost.ForceSfxMissingResourceOverlayForTest</c>
+        /// 同一套判断记录、同一个探针 id——两处相互独立，不能共享同一个静态字段（不同类型），但探针
+        /// 数据内容刻意保持一致，避免测试代码需要记两个不同 id。本标志必须在 <see cref="Ensure"/>
+        /// 第一次被调用之前设置；默认 false，对模板既有场景/冒烟流程零行为影响。</summary>
+        public static bool ForceSfxMissingResourceOverlayForTest;
+
+        private static Core.Foundation.DataRegistry.IDataSource BuildSfxMissingResourceOverlaySource()
+        {
+            const string json = @"
+            {
+                ""table"": ""sfx.def"",
+                ""schema_version"": 1,
+                ""rows"": [
+                    { ""id"": ""sfx.pres118_missing_resource_probe"", ""layer"": ""combat"", ""priority"": 0,
+                      ""resource_ref"": ""sfx.pres118_never_exists_on_disk"" }
+                ]
+            }";
+            return new Core.Foundation.DataRegistry.InMemoryDataSource().Add("sfx.def", json);
+        }
+
         public static GameBootstrap Ensure()
         {
             if (_instance != null)
@@ -190,7 +214,15 @@ namespace Game.Template
             var registry = new DataRegistry(gameSource, _bus, options);
             _registry = registry;
             PresentationSchemaCatalog.RegisterAll(registry);
-            var report = registry.LoadAll(new IDataSource[] { frameworkSource, gameSource });
+            // PRES-118-SFX 契约测试专用（见 ForceSfxMissingResourceOverlayForTest 判断记录）：默认
+            // false 时下面列表恰好等于改动前的 { frameworkSource, gameSource } 两元素数组，零行为
+            // 变化。
+            var sourceList = new System.Collections.Generic.List<IDataSource> { frameworkSource, gameSource };
+            if (ForceSfxMissingResourceOverlayForTest)
+            {
+                sourceList.Add(BuildSfxMissingResourceOverlaySource());
+            }
+            var report = registry.LoadAll(sourceList);
             LoadReport = report;
             if (report.IsBlocking)
             {
@@ -543,13 +575,20 @@ namespace Game.Template
 
             // 见 Adapter.Unity.Shell.FrameworkResidentHost.OnFrameTick 同款判断记录：播放队列的
             // 推进不受 renderTicking 门槛限制。
-            Presentation.Feedback.Update(unscaledDelta);
-
+            //
             // GP-03 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：同上，
             // VfxPlayer.Update(dt) 也不受 renderTicking 门槛限制——已在播放的循环特效应当继续按
             // lifetime 正常停止、首次异步加载的超时倒计时应当继续推进，不因为当前不在 InWorld/
             // Pause 就卡住（同 FrameworkResidentHost.OnFrameTick 同款判断记录）。
-            Presentation.Vfx.Update(unscaledDelta);
+            //
+            // PRES-118-SFX 根治（第十八轮审核）：本类型此前只手工罗列了 Feedback.Update/Vfx.Update
+            // 两步，漏抄了 Sfx.Update（对照 FrameworkResidentHost.OnFrameTick 有调用）——第二次播放
+            // 同一个缺失音效资源时，SfxPlayer 内部记录过的资源 id 不会再次 LoadAsync，这次请求没有
+            // 任何未来回调可等，只能靠 Sfx.Update 内部的超时扫描清理，没有生产入口驱动时永久卡在
+            // pending。改为统一调用 PresentationAssembly.UpdatePlaybackMaintenance（见该方法判断
+            // 记录）——本模板没有 RunPresentationStep 那层单步异常隔离机制，不传 stepRunner，行为与
+            // 改动前对 Feedback/Vfx 两步完全一致（直接调用，不额外包 try/catch）。
+            Presentation.UpdatePlaybackMaintenance(unscaledDelta);
 
             if (!renderTicking)
             {

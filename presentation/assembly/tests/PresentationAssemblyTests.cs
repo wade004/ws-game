@@ -11,6 +11,7 @@ using Core.Gameplay.Assembly;
 using Core.Rules.Common;
 using Core.Foundation.EngineAdapter;
 using Presentation.Assembly;
+using Presentation.Camera;
 using Presentation.Common;
 using Presentation.FeedbackBinder.Contracts;
 using Presentation.Render;
@@ -1059,6 +1060,136 @@ namespace Tests.Presentation.Assembly
             var handle = presentation.Vfx.Spawn(new Id("vfx.sample_hit"), VfxAttach.World(Vec2.Zero), null);
 
             Assert.NotNull(handle);
+        }
+
+        // -----------------------------------------------------------------
+        // PRES-118-CAMERA 回归（第十八轮审核 presentation-review.md"PRES118-01"）：
+        // AutoConfigureCameraFromFirstProfile（默认 true）打开时，装配根构造期立即
+        // Configure+Follow(玩家单位)；此前 scene.load_finished 到达时 CameraHost 默认
+        // ResetFollowOnSceneLoadFinished=true 会清空跟随目标，三个生产装配入口都没有在切图完成后
+        // 重新 Follow，镜头从此静止不再跟随。下面三个用例分别验证：默认装配根重新建立目标、调用方
+        // 自定义 FollowTargetResolverOnReset 被完整尊重（不被默认逻辑覆盖）、resetFollowOnSceneLoadFinished
+        // =false 时跟随目标从未被清空——"是否跟随谁/是否重置"仍然是可替换策略，不是被写死的默认行为。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Construct_AutoConfigureCamera_SceneLoadFinished_RefollowsSamePlayer()
+        {
+            var presentation = Build(out var gameplay, out _, out _, out var bus);
+            var playerId = gameplay.PlayerUnitProvider();
+
+            Assert.Equal(playerId, presentation.Camera.FollowEntityId);
+
+            // 模拟场景切换完成：CameraHost 收到 scene.load_finished 会先清空跟随目标（其默认选项
+            // ResetFollowOnSceneLoadFinished=true），根治点是 PresentationAssembly 在
+            // AutoConfigureCameraFromFirstProfile 打开、调用方未显式接管 FollowTargetResolverOnReset
+            // 时默认提供的解析函数立即重新指定为同一玩家单位——同一次 CameraHost.OnSceneLoadFinished
+            // 处理内完成，不依赖调用方在 SceneRouter PostLoad 钩子与本事件之间抢时序（见
+            // PresentationAssembly 构造函数判断记录"PRES-118-CAMERA 根治"）。
+            bus.PublishImmediate(new SceneLoadFinishedEvent(new Id("world.pres118_next_map")));
+
+            Assert.Equal(playerId, presentation.Camera.FollowEntityId);
+        }
+
+        [Fact]
+        public void Construct_CameraHostOptionsWithCustomResolver_IsRespected_NotOverriddenByDefault()
+        {
+            var customTarget = new Id("unit.pres118_custom_follow");
+            var options = new PresentationAssemblyOptions
+            {
+                CameraHostOptions = new CameraHostOptions(
+                    resetFollowOnSceneLoadFinished: true,
+                    phaseProfileSwitch: null,
+                    followTargetResolverOnReset: () => customTarget),
+            };
+            var presentation = Build(out _, out _, out _, out var bus, options: options);
+
+            bus.PublishImmediate(new SceneLoadFinishedEvent(new Id("world.pres118_next_map")));
+
+            // 调用方已经自己装配了 FollowTargetResolverOnReset：装配根不覆盖其选择，不强行改回玩家
+            // 单位——"跟随谁"仍是调用方可替换的策略。
+            Assert.Equal(customTarget, presentation.Camera.FollowEntityId);
+        }
+
+        [Fact]
+        public void Construct_CameraHostOptionsResetDisabled_FollowPersistsAcrossSceneLoad()
+        {
+            var options = new PresentationAssemblyOptions
+            {
+                CameraHostOptions = new CameraHostOptions(resetFollowOnSceneLoadFinished: false),
+            };
+            var presentation = Build(out var gameplay, out _, out _, out var bus, options: options);
+            var playerId = gameplay.PlayerUnitProvider();
+
+            bus.PublishImmediate(new SceneLoadFinishedEvent(new Id("world.pres118_next_map")));
+
+            // resetFollowOnSceneLoadFinished=false：跟随目标从未被清空过，不需要任何重新指定就已经
+            // 正确——"是否重置"同样是调用方可替换的策略。
+            Assert.Equal(playerId, presentation.Camera.FollowEntityId);
+        }
+
+        // -----------------------------------------------------------------
+        // PRES-118-SFX 回归（第十八轮审核 presentation-review.md"PRES118-02"）：连续两次播放同一个
+        // 缺失音效资源，第二次请求没有任何未来回调可等（SfxPlayer._pendingResourceLoads 已记录过该
+        // 资源 id，不会再次 LoadAsync），只能靠 ISfxPlayer.Update 的超时扫描清理——验证新增的统一
+        // 逐帧维护入口 PresentationAssembly.UpdatePlaybackMaintenance 会驱动 Sfx.Update。
+        // FirstLoadTimeoutSeconds=0 让截止时间恒为"已过期"，避免测试依赖真实挂钟等待。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void UpdatePlaybackMaintenance_SecondMissingSfxPlay_PendingClearedAfterMaintenance()
+        {
+            var options = new PresentationAssemblyOptions
+            {
+                SfxOptions = new SfxOptions { FirstLoadTimeoutSeconds = 0 },
+            };
+            var presentation = Build(out _, out _, out var engine, out _, options: options, withResourceLoader: true);
+            var missingSfxId = new Id("sfx.sample_hit"); // 故意不 engine.ResourceLoader.Register，模拟资源缺失。
+
+            var first = presentation.Sfx.Play(missingSfxId, Vec2.Zero);
+            Assert.Null(first); // 第一次：LoadAsync 同步失败回调，请求被丢弃。
+            Assert.Equal(0, presentation.Sfx.PendingPlayCount);
+
+            var second = presentation.Sfx.Play(missingSfxId, Vec2.Zero);
+            Assert.Null(second); // 第二次：资源 id 已记录过，不再次 LoadAsync，停留在 pending。
+            Assert.Equal(1, presentation.Sfx.PendingPlayCount);
+
+            // 根治点：统一逐帧维护入口驱动 Sfx.Update，即便没有任何后续 Play 调用，pending 也会归零。
+            presentation.UpdatePlaybackMaintenance(0.016);
+
+            Assert.Equal(0, presentation.Sfx.PendingPlayCount);
+        }
+
+        [Fact]
+        public void UpdatePlaybackMaintenance_WithStepRunner_InvokesEachStepThroughRunner_AndIsolatesExceptions()
+        {
+            // 见 PresentationAssembly.UpdatePlaybackMaintenance 判断记录：可选 stepRunner 供
+            // FrameworkResidentHost/GameFoundationBootstrap 传入各自的 RunPresentationStep 保留
+            // "拍板 12 表现层异常隔离"粒度——Feedback/Vfx/Sfx 三步各自独立包一层，一步抛异常不阻塞
+            // 其余两步。用一个记录调用次数、且始终 catch 异常的假 runner 验证：三步都经过 runner，
+            // 其中一步抛异常不影响另外两步被调用。
+            var presentation = Build(out _, out _, out _, out _);
+            var callCount = 0;
+            var caughtCount = 0;
+
+            void FakeRunner(System.Action step)
+            {
+                callCount++;
+                try
+                {
+                    step();
+                }
+                catch
+                {
+                    caughtCount++;
+                }
+            }
+
+            var ex = Record.Exception(() => presentation.UpdatePlaybackMaintenance(0.016, FakeRunner));
+
+            Assert.Null(ex); // 顶层不抛出：三步都经过 runner 的 try/catch。
+            Assert.Equal(3, callCount); // Feedback/Vfx/Sfx 三步都经过了 runner。
+            Assert.Equal(0, caughtCount); // 正常路径下三步都不抛异常。
         }
     }
 }
