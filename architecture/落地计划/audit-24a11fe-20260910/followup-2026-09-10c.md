@@ -15,12 +15,14 @@ P2 框架表达式合同（F-03）、一项已确认 P2 ABI 工具门禁（ABI-1
 
 提交哈希表：
 
+实际整合时未按下表原计划拆成三个 WL 提交——ABI-116-01、五项文档更新、归档三部分内容有交叉引用
+（如归档 `README.md`"原件未归档"表与 `followup-2026-09-10c.md` 本身），整合 agent 按任务书要求
+合并为一个 WL 提交；下表据此更新为实际的两笔提交：
+
 | 提交 | 标题 | 范围 |
 |---|---|---|
-| `<提交待填>` | 根治 ABI-116-01：abi_surface dump/compare 补记可见性等覆盖项 | `toolchain/abi_surface/SurfaceDumper.cs`、`toolchain/abi_surface/SurfaceCompare.cs`、`toolchain/abi_surface/Program.cs`、`toolchain/tests/test_abi_surface_compare.py`、`toolchain/README.md` |
-| `<提交待填>` | 五项文档更新：ADR 索引/Skill README/DataRegistry README/ADR-0022 措辞/check.ps1 副作用说明 | `architecture/README.md`、`README.md`、`core/rules/skill/README.md`、`core/foundation/data_registry/README.md`、`architecture/adr/0022-登记表补充导航与编辑元数据.md` |
-| `<提交待填>` | 归档 audit-24a11fe-20260910 + 落地方案新增小节 + CHANGELOG | `architecture/落地计划/audit-24a11fe-20260910/`（新增）、`architecture/落地计划/落地方案与分阶段计划.md`、`CHANGELOG.md` |
-| `<提交待填>` | F-01/F-02/F-03（另一位 agent） | `core/**`、`architecture/04_数据与内容管线.md` |
+| `af22b4b` | 第十八方深度审核修复(核心侧): 非有限数字与超范围整数在加载期阻断、FieldRange 有限端点不变量、表达式校验器异常转阻断项、校验期异常强制阻断态（F-01/F-02/F-03） | `core/foundation/common/json/{JsonReader,JsonWriter}.cs`、`core/foundation/common/tests/{JsonReaderTests,JsonWriterTests}.cs`、`core/foundation/data_registry/contracts/FieldRange.cs`、`core/foundation/data_registry/core/DataRegistry.cs`、`core/foundation/data_registry/tests/{DataRegistryTests,FieldRangeValidationTests}.cs`、`core/foundation/expr/core/ExprLexer.cs`、`core/foundation/expr/tests/{ExprLexerTests,ExprParserTests}.cs`、`architecture/04_数据与内容管线.md`（另一位并行 agent 负责，整合 agent 核实并提交） |
+| `a6702c0` | 第十八方深度审核(工具链与文档): ABI 表面差异覆盖可见性/约束/常量、FindUnits 与检查项说明更正、ADR 索引计数、归档与跟进核实 | ABI-116-01（`toolchain/abi_surface/{SurfaceDumper,SurfaceCompare,Program}.cs`、`toolchain/tests/test_abi_surface_compare.py`、`toolchain/README.md`）+ 五项文档更新（`architecture/README.md`、`README.md`、`core/rules/skill/README.md`、`core/foundation/data_registry/README.md`、`architecture/adr/0022-登记表补充导航与编辑元数据.md`）+ 归档精简与回填（`architecture/落地计划/audit-24a11fe-20260910/`、`architecture/落地计划/落地方案与分阶段计划.md`、`CHANGELOG.md`），本 agent（WL）负责范围合并为一个提交 |
 
 ## 核实表
 
@@ -81,3 +83,48 @@ P2 框架表达式合同（F-03）、一项已确认 P2 ABI 工具门禁（ABI-1
   对账的唯一数字是 `toolchain/tests/test_abi_surface_compare.py` 一个文件：改动前 10 个测试函数、
   改动后 25 个（新增 15 个，见上表"复现"列列举的用例名），该文件单独 `pytest -q` 结果
   25 passed、0 failed、0 skipped，改动前后无回归。
+
+## 整合 agent 全量门禁验收（2026-09-10，`check.ps1` 全量，不加 `-SkipUnity`/`-Quick`）
+
+提交 `af22b4b`（WK）与 `a6702c0`（WL）落地后，整合 agent 在 `af22b4b`^ 与 `a6702c0` 之间未再改动
+`core/**`；`a6702c0` 之后另跑 `python -m pytest toolchain/tests -q`（168 passed，含归档目录纳入
+`git ls-files` 后 markdown 相对链接检查器对本目录的实际覆盖）与 `powershell -File
+toolchain/abi_probe.ps1 -ArtifactsPath <scratchpad>/build_wm -Configuration Release`
+（`breaks=0 allowed=0 additions=221 RESULT=OK`）两项快速验证，均通过后执行全量
+`check.ps1 -ArtifactsPath <scratchpad>/build_wm_check -LogFile <scratchpad>/check_full_wm.log`
+（不加 `-SkipUnity`/`-Quick`，含 Unity 编译/EditMode/PlayMode、独立版构建+`-gf-smoke`/
+`-gf-smoke-discrete` 冒烟连续与离散两种模式、消费方演练）：
+
+| 步骤 | 结果 | 用时(s) | 备注 |
+|---|---|---|---|
+| 门禁自检：`Test-NativeExitCode` 对失败/成功原生命令正确判定 | PASS | 1.3 | |
+| `dotnet build Core.sln -c Release` | PASS | 2.7 | |
+| `dotnet test Core.sln -c Release --no-build`（六工程，含 Perf 类别） | PASS | 4.9 | |
+| ABI 探针（`toolchain/abi_probe.ps1`） | PASS | 4.1 | |
+| `python toolchain/validate_data.py --strict`（合并根） | PASS | 3.3 | |
+| `python toolchain/validate_data.py --data-root data/_framework`（框架根单独完整校验） | PASS | 1.4 | |
+| 元数据门禁：`validator --schema-audit`（ADR-0018 决策 3/ADR-0019 决策 4） | PASS | 1.2 | |
+| `python toolchain/gen_event_constants.py --check` | PASS | 0.1 | |
+| `python toolchain/gen_placeholder_assets.py --check` | PASS | 0.1 | |
+| `python toolchain/import_assets.py check --dataset _sample` | PASS | 0.1 | |
+| `python toolchain/format_data.py --schema-order --check`（消费方反馈 E11） | PASS | 1.3 | |
+| `python -m pytest toolchain/tests -q` | PASS | 61.1 | |
+| 禁用词扫描：全仓库不出现具体游戏代号 | PASS | 14.4 | 含归档目录 |
+| 禁用词扫描：`architecture` 正文不出现引擎/语言/框架/工具名（immunity 例外） | PASS | 0 | |
+| 工作树文本文件无 CR（`.gitattributes` 声明 `eol=lf` 的路径，消费方反馈 E7） | PASS | 0.5 | 归档目录 100+2 个文件已在 `a6702c0` 转 LF |
+| 版本一致性：`VERSION`、两个 `package.json`、`packages-lock.json` 与 `CHANGELOG.md` | PASS | 0.1 | `VERSION=1.16.1` |
+| `build.ps1 -SkipTests`（同步 DLL） | PASS | 5.0 | |
+| 包清单一致性（四个 npm 包版本号 + `npm pack --dry-run` 排除规则） | PASS | 9.8 | |
+| Unity 编译检查 | PASS | 23.2 | Unity 退出码 0 |
+| Unity EditMode 测试 | PASS | 14.0 | total=70 passed=70 failed=0 |
+| Unity PlayMode 测试 | PASS | 79.3 | total=272 passed=272 failed=0 |
+| 独立版构建 + `-gf-smoke` 冒烟（连续模式默认流程） | PASS | 32.5 | |
+| 独立版 `-gf-smoke-discrete` 冒烟（离散模式链路） | PASS | 3.3 | |
+| IL2CPP 独立版构建 | SKIP | 0 | 未传 `-Il2cpp`，符合预期 |
+| IL2CPP 独立版 `-gf-smoke` 冒烟 | SKIP | 0 | 未传 `-Il2cpp`，符合预期 |
+| IL2CPP 独立版 `-gf-smoke-discrete` 冒烟 | SKIP | 0 | 未传 `-Il2cpp`，符合预期 |
+| 消费方演练（`toolchain/consumer_smoke.ps1`） | PASS | 129.3 | |
+
+门禁通过：全部 27 步（24 PASS + 3 SKIP，均为预期的 IL2CPP 分支），总用时 393s。执行前
+`tasklist | findstr Unity.exe` 确认无残留 Unity 进程；执行后 `git status --short` 为空，
+`check.ps1` 自身未改写任何已跟踪文件。
