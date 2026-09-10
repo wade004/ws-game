@@ -308,8 +308,10 @@ if ($Status) {
         $identity = Test-VerdaccioProcessIdentity -ProcessId $p -ExpectedConfigPath $statusAnchors.ConfigPath -ExpectedVerdaccioBin $VerdaccioBinForIdentity -NotBeforeUtc $statusAnchors.NotBeforeUtc
         if ($identity.Ok) {
             Write-Host "    真实监听进程 PID $p（$name），身份核验：本脚本管理的 Verdaccio" -ForegroundColor Green
+            Write-Host "[registry] STATUS_IDENTITY_OK pid=$p"
         } else {
             Write-Host "    真实监听进程 PID $p（$name），身份核验未通过（$($identity.Reason)）——不是本脚本管理的 Verdaccio，-Stop 不会碰它" -ForegroundColor Yellow
+            Write-Host "[registry] STATUS_IDENTITY_FAILED pid=$p"
         }
     }
     exit 0
@@ -379,6 +381,7 @@ if ($Stop) {
 
     if ($identityBlocked) {
         Write-Host "  存在身份核验未通过、被拒绝停止的进程（详见上方 Red 提示）；这是保护无关进程的预期结果，不代表脚本执行失败，但也不能确认 Verdaccio 已经停止，退出码非零，请人工核实" -ForegroundColor Red
+        Write-Host "[registry] STOP_IDENTITY_BLOCKED"
         exit 1
     }
 
@@ -397,6 +400,7 @@ if ($Stop) {
 
     if ($stoppedAny) {
         Write-Host "  已停止，端口 $port 已释放" -ForegroundColor Green
+        Write-Host "[registry] STOP_OK port=$port"
     } else {
         Write-Host "  未发现在跑的 Verdaccio 进程（PID 文件与端口均未命中），端口 $port 本来就是释放状态，无需操作" -ForegroundColor Yellow
     }
@@ -452,6 +456,7 @@ if ($Detach) {
     $pidWrittenAtUtc = [datetime]::UtcNow
     [System.IO.File]::WriteAllText($PidFile, [string]$proc.Id, (New-Object System.Text.UTF8Encoding($false)))
     Write-VerdaccioIdentityMeta -MetaPath $PidMetaFile -ProcessId $proc.Id -ConfigPathValue $ConfigPath -VerdaccioBinValue $verdaccioBin -ListenValue $Listen -WrittenAtUtc $pidWrittenAtUtc
+    Write-Host "[registry] PID_FILE_WRITTEN pid=$($proc.Id)"
     Write-Host "  已拉起 PID $($proc.Id)，日志：$stdoutLog / $stderrLog"
 
     $pingUrl = "http://" + $Listen + "/-/ping"
@@ -492,6 +497,7 @@ if ($Detach) {
     $realPids = Get-ListenOwningProcessIds -Port (Get-ListenPort -ListenValue $Listen)
     if ($realPids.Count -gt 0 -and ($realPids -notcontains $proc.Id)) {
         Write-Host "  提示：Start-Process 记录的 PID $($proc.Id) 与真正监听端口的 PID($($realPids -join ', '))不一致，已按端口监听结果重写 PID 文件" -ForegroundColor Yellow
+        Write-Host "[registry] PID_FILE_REWRITTEN old=$($proc.Id) new=$($realPids[0])"
         [System.IO.File]::WriteAllText($PidFile, [string]$realPids[0], (New-Object System.Text.UTF8Encoding($false)))
         $realProcForRewrite = Get-Process -Id $realPids[0] -ErrorAction SilentlyContinue
         $rewriteWrittenAtUtc = $pidWrittenAtUtc

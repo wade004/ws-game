@@ -47,7 +47,7 @@ python -m pytest toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py
 
 from __future__ import annotations
 
-import locale
+import json
 import re
 import shutil
 import socket
@@ -66,6 +66,17 @@ VERDACCIO_BIN = REGISTRY_DIR / "node_modules" / "verdaccio" / "bin" / "verdaccio
 REWRITE_MARKER = "已按端口监听结果重写 PID 文件"
 META_WRITE_CALL = "Write-VerdaccioIdentityMeta"
 UTCNOW_TOKEN = "[datetime]::UtcNow"
+
+# 纯 ASCII 机器可读标记：ASCII 字节在任何单字节/多字节代码页（cp936/GBK、UTF-8 等）下解码结果都
+# 一致，不会像中文提示文案那样因控制台/子进程代码页不对齐而解码成乱码。行为级回归测试
+# （test_detach_twice_then_stop_succeeds）断言这些标记，而不是断言人类可读的中文文案，从设计上
+# 根治对控制台代码页的依赖。对应的 Write-Host 调用见 start_registry.ps1。
+PID_FILE_WRITTEN_MARKER = "[registry] PID_FILE_WRITTEN"
+PID_FILE_REWRITTEN_MARKER = "[registry] PID_FILE_REWRITTEN"
+STATUS_IDENTITY_OK_MARKER = "[registry] STATUS_IDENTITY_OK"
+STATUS_IDENTITY_FAILED_MARKER = "[registry] STATUS_IDENTITY_FAILED"
+STOP_OK_MARKER = "[registry] STOP_OK"
+STOP_IDENTITY_BLOCKED_MARKER = "[registry] STOP_IDENTITY_BLOCKED"
 
 
 def _script_text() -> str:
@@ -138,6 +149,12 @@ def _free_tcp_port() -> int:
         return s.getsockname()[1]
 
 
+def _ps_quote(value: str) -> str:
+    """PowerShell 单引号字符串字面量转义：内嵌的单引号翻倍即可（PowerShell 单引号字符串不做
+    任何插值/转义，翻倍是唯一需要处理的特殊字符）。"""
+    return "'" + value.replace("'", "''") + "'"
+
+
 def _run(args: list[str], powershell: str, timeout: int, tmp_path: Path, tag: str) -> subprocess.CompletedProcess:
     """判断记录：-Detach 启动的 verdaccio 是长驻的孙进程，Windows 下 `Start-Process` 若没有显式
     限制句柄继承，孙进程可能继承 Python 用来捕获 powershell.exe（本次调用的直接子进程）stdout/
@@ -146,15 +163,50 @@ def _run(args: list[str], powershell: str, timeout: int, tmp_path: Path, tag: st
     挂起，直到那个长驻进程自己退出为止（实测复现：第一次 -Detach 之后调用直接卡死，几分钟不返回，
     此时唯一还活着的相关进程只有 verdaccio 自己）。改为把 stdout/stderr 重定向到临时文件而不是
     管道——避免这条继承链，调用完成后再读文件内容还原成字符串，行为对断言透明。
+
+    判断记录（2026-09-10，本轮整合复现追加根治顺序依赖 flaky，两轮尝试）：
+    第一轮尝试——不显式指定 `creationflags` 时子进程默认继承/附着到本 Python 进程当前所在的同一个
+    控制台，若同一个 pytest 会话里更早跑过的另一个用例（如 test_abi_surface_compare.py）用
+    subprocess 调用过 `dotnet build`，会把这个共享控制台的输出代码页改成 UTF-8 且不会自行复原，
+    之后本函数启动的 powershell.exe 若继承同一个控制台，就会按 UTF-8 而不是系统 ANSI 代码页写中文
+    提示文案，而解码那时仍固定按 `locale.getpreferredencoding()`（反映系统区域设置，不随控制台
+    代码页运行期改动而变）解析，两者不一致导致中文文案解码乱码，按中文子串（如 REWRITE_MARKER）的
+    断言假性失败。当时改为 `creationflags=CREATE_NEW_CONSOLE` 切断继承链，紧跟
+    `test_abi_surface_compare.py` 之后单独复现验证有效——但把同一等价调用链套进 `check.ps1`
+    自身的 `Start-Transcript`（且之前已经跑过 `dotnet build`/`dotnet test`/`abi_probe.ps1` 等更长
+    一串子进程）后，同一个中文子串断言又假性失败了一次，说明"新控制台默认代码页等于系统区域设置"
+    这个假设本身在更深的嵌套/更长的前置子进程链下不总是成立（具体是哪一层改的未继续深挖，逐层复现
+    成本很高——每次都要接近跑一遍 `check.ps1` 前半段）。
+
+    第二轮改为不依赖"新开的控制台默认代码页是什么"这个假设：显式在被调用的 PowerShell 会话最开始
+    把 `[Console]::OutputEncoding` 设成已知的 UTF-8（无 BOM），Python 侧解码固定用 `"utf-8"`，不再
+    猜测系统 ANSI 代码页是什么。实测核实过这条设置确实控制了 Write-Host 重定向到文件时实际写出的
+    字节（不是巧合巧好一致）：刻意把 `OutputEncoding` 设成与解码编码不同的组合会让中文文案解码
+    失败/乱码，设成一致的组合（本函数最终采用的写法）则稳定正确，且在"先跑一遍 dotnet build 再套
+    一层 Start-Transcript"的复现场景下不再失败。改用 `-Command`（而不是原来的 `-File`）是因为
+    `-File` 场景下脚本还没开始执行就没有机会先设置 `OutputEncoding`；`& '<script>' <args>` 里参数
+    名（以 `-` 开头的裸 token，如 `-Detach`/`-ConfigPath`）不能加引号，否则 PowerShell 把它当字面量
+    字符串处理、不再按参数名绑定，只给紧跟其后的取值加引号（`_ps_quote`）。同时仍保留
+    `creationflags=CREATE_NEW_CONSOLE`（第一轮的修复，无副作用、双保险，不单独依赖它生效）。
     """
+    quoted_args: list[str] = []
+    for value in args:
+        if value.startswith("-"):
+            quoted_args.append(value)
+        else:
+            quoted_args.append(_ps_quote(value))
+    ps_command = (
+        "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; "
+        "& " + _ps_quote(str(SCRIPT_PATH)) + " " + " ".join(quoted_args)
+    )
     cmd = [
         powershell,
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
-        "-File",
-        str(SCRIPT_PATH),
-    ] + args
+        "-Command",
+        ps_command,
+    ]
     stdout_path = tmp_path / f"_run_{tag}.stdout.log"
     stderr_path = tmp_path / f"_run_{tag}.stderr.log"
     with open(stdout_path, "wb") as stdout_f, open(stderr_path, "wb") as stderr_f:
@@ -163,32 +215,10 @@ def _run(args: list[str], powershell: str, timeout: int, tmp_path: Path, tag: st
             stdout=stdout_f,
             stderr=stderr_f,
             timeout=timeout,
-            # 判断记录（2026-09-10，本轮整合复现的顺序依赖 flaky 根治）：不显式指定
-            # creationflags 时，子进程默认继承/附着到本 Python 进程当前所在的同一个控制台——
-            # 如果同一个 pytest 会话里更早跑过的另一个用例（如 test_abi_surface_compare.py）
-            # 也用 subprocess 调用过 `dotnet build`，dotnet/CLR 在那次调用里会把这个共享控制台
-            # 的输出代码页改成 UTF-8（`SetConsoleOutputCP`），且这个改动在该控制台的生命周期内
-            # 持续生效，不会随那次 `dotnet build` 子进程退出而复原。本函数随后启动的
-            # powershell.exe 若继承同一个已被改过的控制台，会按 UTF-8 而不是系统 ANSI 代码页
-            # 写中文提示文案；但下面仍按 `locale.getpreferredencoding()`（反映的是系统区域设置，
-            # 不随控制台代码页运行期改动而变）解码，两者不一致时中文文案解码成乱码，导致按中文
-            # 子串（如 REWRITE_MARKER）的断言随 pytest 执行顺序假性失败——不是
-            # start_registry.ps1 本身的行为随执行顺序变化，纯属测试进程与同一 pytest 会话内其它
-            # 用例共享控制台代码页状态导致的编码假象（实测：单独跑本文件必过，紧跟在
-            # test_abi_surface_compare.py 之后跑必然按此模式失败，跟 `dotnet build` 是否发生在
-            # 本文件之前强相关，与真实 -Detach 行为无关，见 followup-2026-09-10b.md 的定性记录）。
-            # 显式要求一个全新控制台（`CREATE_NEW_CONSOLE`）切断这条继承链，让每次调用都从系统
-            # 默认代码页起步，与下面的解码假设重新对齐，不依赖调用方之前跑过什么。
             creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
         )
-    # 判断记录：直接把 stdout/stderr 重定向到文件句柄（而不是走 capture_output 的管道 +
-    # text=True/encoding="utf-8"）时，Windows PowerShell 5.1 实测按系统 ANSI 代码页
-    # （本机 GBK/cp936）写字节，不是 UTF-8——固定用 "utf-8" 解码会把中文提示文案（例如重写分支
-    # 的提示）解码成替换字符，导致按中文子串断言必然落空。改用 `locale.getpreferredencoding()`
-    # （反映的正是同一个系统 ANSI 代码页）解码，errors="replace" 兜底任何解不出的字节。
-    console_encoding = locale.getpreferredencoding(False)
-    stdout_text = stdout_path.read_text(encoding=console_encoding, errors="replace")
-    stderr_text = stderr_path.read_text(encoding=console_encoding, errors="replace")
+    stdout_text = stdout_path.read_text(encoding="utf-8", errors="replace")
+    stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace")
     return subprocess.CompletedProcess(cmd, completed.returncode, stdout_text, stderr_text)
 
 
@@ -285,6 +315,14 @@ def test_detach_twice_then_stop_succeeds(tmp_path: Path) -> None:
         assert pid_file.is_file(), "第一次 -Detach 后 PID 文件未生成"
         first_pid = pid_file.read_text(encoding="utf-8-sig").strip()
         assert _process_alive(first_pid, powershell), f"第一次 -Detach 拉起的 PID {first_pid} 未存活"
+        # 决定性断言：ASCII 标记不受控制台/子进程代码页影响，任何解码方案下都不会被解成乱码而
+        # 误判——不依赖上面中文文案断言是否解码正确。
+        assert PID_FILE_WRITTEN_MARKER in result1.stdout, (
+            "第一次 -Detach 应当写过一次 PID 文件（结构性正向证据）：\n" + result1.stdout
+        )
+        assert PID_FILE_REWRITTEN_MARKER not in result1.stdout, (
+            "第一次 -Detach 不应触发重写分支：\n" + result1.stdout
+        )
 
         # 第二次 -Detach：端口已被第一次的进程占用，新进程绑定失败随即退出，/-/ping 命中旧进程，
         # 触发重写分支——这正是原缺陷的真实触发路径。
@@ -294,11 +332,22 @@ def test_detach_twice_then_stop_succeeds(tmp_path: Path) -> None:
             "第二次 -Detach（端口已被占用）预期触发重写分支，但没有观察到提示文案，"
             "复现路径可能已经失效，需要重新核实触发条件：\n" + result2.stdout
         )
+        # 决定性断言：以 ASCII 标记为准，不依赖中文文案解码是否精确还原。
+        assert PID_FILE_REWRITTEN_MARKER in result2.stdout, (
+            "第二次 -Detach（端口已被占用）预期触发重写分支，但没有观察到 ASCII 标记，"
+            "复现路径可能已经失效，需要重新核实触发条件：\n" + result2.stdout
+        )
         assert meta_file.is_file(), "重写分支后元数据文件应当存在"
         rewritten_pid = pid_file.read_text(encoding="utf-8-sig").strip()
         assert rewritten_pid == first_pid, (
             f"重写后 PID 文件应仍记录第一次真正监听端口的 PID {first_pid}，"
             f"实际为 {rewritten_pid}"
+        )
+        # 结构性证据：元数据文件（JSON）里的 pid 字段也应指向第一次真正监听端口的 PID。
+        meta_obj = json.loads(meta_file.read_text(encoding="utf-8-sig"))
+        assert str(meta_obj.get("pid")) == str(first_pid), (
+            f"重写后元数据文件 pid 字段应为 {first_pid}，实际为 {meta_obj.get('pid')!r}：\n"
+            f"{meta_obj}"
         )
 
         # 拉开一点时间差，让"若误判"的场景更明显（原缺陷即便间隔很短也可能因为超过 2 秒容差而误判，
@@ -311,6 +360,11 @@ def test_detach_twice_then_stop_succeeds(tmp_path: Path) -> None:
             "-Status 不应把仍在监听的真实进程误判为身份核验未通过：\n" + status_result.stdout
         )
         assert "本脚本管理的 Verdaccio" in status_result.stdout, status_result.stdout
+        # 决定性断言：以 ASCII 标记为准。
+        assert STATUS_IDENTITY_FAILED_MARKER not in status_result.stdout, (
+            "-Status 不应把仍在监听的真实进程误判为身份核验未通过：\n" + status_result.stdout
+        )
+        assert STATUS_IDENTITY_OK_MARKER in status_result.stdout, status_result.stdout
 
         stop_result = _run(["-Stop", "-Listen", listen, "-PidFile", str(pid_file)], powershell, timeout=30, tmp_path=tmp_path, tag="stop")
         assert stop_result.returncode == 0, (
@@ -319,6 +373,9 @@ def test_detach_twice_then_stop_succeeds(tmp_path: Path) -> None:
         )
         assert "身份核验未通过" not in stop_result.stdout, stop_result.stdout
         assert "已停止" in stop_result.stdout, stop_result.stdout
+        # 决定性断言：以 ASCII 标记为准。
+        assert STOP_IDENTITY_BLOCKED_MARKER not in stop_result.stdout, stop_result.stdout
+        assert STOP_OK_MARKER in stop_result.stdout, stop_result.stdout
 
         assert not pid_file.exists(), "-Stop 成功后 PID 文件应被清理"
         assert not meta_file.exists(), "-Stop 成功后元数据文件应被清理"
