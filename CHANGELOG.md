@@ -68,12 +68,37 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.16.1] - 2026-09-10
+
+消费方（内容编辑器项目）反馈第二批第 17 条根治，另含 ADR-0022 文档事实勘误；核实与逐条回复见
+`architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md` 第 17 条。提交 `0364cce`（代码与
+测试）、`2de351d`（文档与变更记录）、`0ee0bbe`（ADR-0022 勘误）。
+
 ### 修复
 
-- `DataRegistry.RecordCount`（阻断态不再抛异常）与新增 `IDataRegistryView.TryGetRecordCount`
-  （消费方反馈处理，
+- `DataRegistry.RecordCount` 阻断态不再抛异常（直接读内部按表合并去重后的记录快照，不经
+  `EnsureReadable`）；`IDataRegistryView` 新增默认成员 `TryGetRecordCount(out int count)`
+  （阻断态返回 `false` 而不抛异常）；`ContentValidationAssembly.Run` 去掉靠事件订阅拿计数的旁路，
+  统一改用 `registry.RecordCount`，与 `CreateRegistry`+`Reload` 路径口径一致（消费方反馈处理，
   [消费方反馈-2026-09-10-编辑器-第二批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md)
-  第 17 条，提交 `0364cce`）：【编辑器相关契约】见上方索引"第 17 条修复（1.16.1）"一行。
+  第 17 条，提交 `0364cce`/`2de351d`）：【编辑器相关契约】见上方索引"第 17 条修复（1.16.1）"一行。
+
+### 文档
+
+- [ADR-0022](architecture/adr/0022-登记表补充导航与编辑元数据.md) 事实勘误：第 5 节把
+  `validate_data.py --json` 是否透传给 `validator` 的表述由"消费方反馈第一批第 08 条待办，不在本次
+  ADR 范围内"更正为陈述已随 1.15.0 落地的事实（提交 `0ee0bbe`）。
+
+### 迁移说明
+
+- 编辑器等消费方可用 `DataRegistry.RecordCount`/`IDataRegistryView.TryGetRecordCount` 替换自行
+  遍历求和的记录计数逻辑；口径与 `DataLoadCompletedEvent.RecordCount` 一致。
+
+### 兼容声明
+
+本版本对 1.12.0～1.16.0 旧编译消费方保持二进制兼容：依据是 `toolchain/abi_probe.ps1` 严格模式下的
+验证——1.12.0 基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑通过，且独立的公开 API
+表面差异比对输出 `breaks=0`。
 
 ## [1.16.0] - 2026-09-10
 
