@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Expr;
 
 namespace Core.Gameplay.Quest
@@ -108,6 +109,28 @@ namespace Core.Gameplay.Quest
                 signature = default;
                 return false;
             }
+
+            /// <summary>
+            /// 消费方反馈（编辑器）第 27 条根治（2026-09-11，见
+            /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md）：<c>event</c> 分组
+            /// 恒放行、不存在"已登记 key 集合"（见 <see cref="TryGetSignature"/> 与
+            /// <see cref="BuildParsingSchema"/> 判断记录——事件字段由内容自由定义，本类型从不登记
+            /// 任何具体 <c>event.*</c> 签名，因此没有"该分组下已知 key 有哪些"这个问题的答案，
+            /// 恒返回空集合，不是遗漏，是"恒放行"语义本身决定的——不像其它分组"未登记 = 回退为字面量"，
+            /// 这里是"任何 key 都合法、也没有一份清单"），其它分组转发给 <see cref="_inner"/>。
+            /// </summary>
+            public IReadOnlyCollection<string> KnownKeys(string group) =>
+                group == ExprGroups.Event ? Array.Empty<string>() : _inner.KnownKeys(group);
+
+            /// <summary>
+            /// 直接转发给 <see cref="_inner"/>，不额外把 <see cref="ExprGroups.Event"/> 塞进结果——
+            /// <see cref="IExprSchema.KnownGroups"/> 的契约是"已出现过至少一个已登记 key 的全部分组"
+            /// （见接口成员注释、<see cref="ExprSchema.KnownGroups"/> 同一份判断记录），本类型的
+            /// <c>event</c> 分组从不登记任何具体 key（见 <see cref="TryGetSignature"/>/
+            /// <see cref="KnownKeys"/> 判断记录"恒放行、无登记集合"），按该契约字面语义就不应出现
+            /// 在这里——"恒放行"是"未登记 key 也算合法引用"的特殊匹配规则，不等价于"已登记过 key"。
+            /// </summary>
+            public IReadOnlyCollection<string> KnownGroups => _inner.KnownGroups;
         }
     }
 }

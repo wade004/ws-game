@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Expr;
 
 namespace Core.Rules.ExprHost
@@ -39,6 +40,46 @@ namespace Core.Rules.ExprHost
             }
             signature = default;
             return false;
+        }
+
+        /// <summary>
+        /// 消费方反馈（编辑器）第 27 条根治（2026-09-11，见
+        /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md）：按 <see cref="_schemas"/>
+        /// 传入顺序依次并集各成员 schema 的 <see cref="IExprSchema.KnownKeys"/>，去重后按序号
+        /// （Ordinal）排序返回——不是"第一个命中即返回"（<see cref="TryGetSignature"/> 的语义），
+        /// 因为已知 key 清单需要的是"全部成员 schema 各自贡献的 key 并集"，任何一个成员登记过该 key
+        /// 就应该出现在结果里，与 <see cref="ExprSchema.KnownKeys"/> 同一份"有序、确定性"判断记录
+        /// （顺序不依赖 <see cref="_schemas"/> 数组书写顺序，排序后结果稳定可重现）。
+        /// </summary>
+        public IReadOnlyCollection<string> KnownKeys(string group)
+        {
+            var union = new SortedSet<string>(StringComparer.Ordinal);
+            for (var i = 0; i < _schemas.Length; i++)
+            {
+                foreach (var key in _schemas[i].KnownKeys(group))
+                {
+                    union.Add(key);
+                }
+            }
+            return union.Count == 0 ? Array.Empty<string>() : (IReadOnlyCollection<string>)union;
+        }
+
+        /// <summary>同上一份判断记录：<see cref="KnownGroups"/> 是全部成员 schema 各自
+        /// <see cref="IExprSchema.KnownGroups"/> 的并集，去重、按序号排序。</summary>
+        public IReadOnlyCollection<string> KnownGroups
+        {
+            get
+            {
+                var union = new SortedSet<string>(StringComparer.Ordinal);
+                for (var i = 0; i < _schemas.Length; i++)
+                {
+                    foreach (var group in _schemas[i].KnownGroups)
+                    {
+                        union.Add(group);
+                    }
+                }
+                return union.Count == 0 ? Array.Empty<string>() : (IReadOnlyCollection<string>)union;
+            }
         }
     }
 }
