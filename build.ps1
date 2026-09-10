@@ -155,6 +155,7 @@ $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 # 原因未查明）：全部哈希计算改用 toolchain/_hash.ps1 提供的 Get-Sha256FileHash 共享函数，
 # Get-FileHash 可用时优先用、不可用时透明退化到不依赖该 cmdlet 的 .NET SHA256 兜底实现。
 . (Join-Path $RepoRoot "toolchain\_hash.ps1")
+. (Join-Path $RepoRoot "toolchain\_version_writeback.ps1")
 
 function Write-Step {
     param([string]$Message)
@@ -339,70 +340,25 @@ if ($ReleaseRequested) {
     if (-not $DryRun) {
         Write-Step "写回版本号 $Release -> VERSION、两个 package.json"
 
-        # 判断记录：VERSION 文件是不带 BOM、不带尾随换行的纯 ASCII 文本（既有约定，见仓库根
-        # VERSION 文件实际内容）；两个 package.json 是不带 BOM 的 UTF-8（含中文 description 字段）。
-        # PowerShell 5.1 的 `Set-Content -Encoding utf8` 固定带 BOM，因此这里改用
-        # [System.IO.File]::WriteAllText + 显式 UTF8Encoding($false) 避免污染已提交的源码文件
-        # （与本文件下方 Set-DistPackageJsonVersion 只作用于 dist/ 构建产物、允许带 BOM 不同——
-        # 那些是不入库的构建产物，这里是要提交进仓库的源码文件）。
-        [System.IO.File]::WriteAllText($VersionFilePath, $Release, (New-Object System.Text.UTF8Encoding($false)))
+        # 判断记录：写回逻辑（含 2026-09-10 CRLF 根治）已抽成 toolchain/_version_writeback.ps1
+        # 独立函数（与本文件顶部 toolchain/_hash.ps1 同一 dot-source 模式），供本步骤与
+        # toolchain/tests/test_build_version_writeback_lf.py 共用，见该文件内各函数判断记录。
+        Set-VersionFileContent -Path $VersionFilePath -Version $Release
         Write-Host "  已写回 $VersionFilePath -> $Release"
 
-        function Set-SourcePackageJsonVersion {
-            param([string]$JsonPath, [string]$Version)
-            if (-not (Test-Path $JsonPath)) {
-                throw "找不到 $JsonPath，无法回写版本号"
-            }
-            $obj = (Get-Content -Path $JsonPath -Raw -Encoding UTF8) | ConvertFrom-Json
-            $obj.version = $Version
-            if (($obj.PSObject.Properties.Name -contains "dependencies") -and
-                ($obj.dependencies.PSObject.Properties.Name -contains "com.gamefoundation.adapter.unity")) {
-                $obj.dependencies."com.gamefoundation.adapter.unity" = $Version
-            }
-            $jsonText = ($obj | ConvertTo-Json -Depth 10)
-            [System.IO.File]::WriteAllText($JsonPath, $jsonText, (New-Object System.Text.UTF8Encoding($false)))
-            Write-Host "  已写回 $JsonPath -> $Version"
-        }
-
         Set-SourcePackageJsonVersion -JsonPath (Join-Path $RepoRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json") -Version $Release
+        Write-Host "  已写回 adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json -> $Release"
         Set-SourcePackageJsonVersion -JsonPath (Join-Path $RepoRoot "games\_template\package.json") -Version $Release
+        Write-Host "  已写回 games\_template\package.json -> $Release"
 
         # 写回遗漏根治（2026-09-07）：adapters/unity/Packages/packages-lock.json 里
         # "com.gamefoundation.game-template" 条目下 dependencies."com.gamefoundation.adapter.unity"
-        # 是 games/_template/package.json 同名依赖版本号的镜像（Unity Package Manager 读本地文件
-        # 依赖时自动写入的锁定值），此前 -Release 写回没有覆盖它——门禁第 5 步跑 check.ps1 里的
-        # Unity 相关步骤时，UPM 会自己把这个字段改成新版本号，导致发布提交完成后工作树仍然
-        # 不干净（该改动没能进入发布提交，1.0.0 首次发布实测复现，见 CHANGELOG.md [1.0.0] 修复
-        # 记录）。这里在写回两个 package.json 之后同步写回这个字段，使门禁跑完时 UPM 发现文件已经
-        # 是它自己会写的值、不需要再改，工作树保持干净。
-        function Set-PackagesLockGameTemplateDependency {
-            param([string]$JsonPath, [string]$Version)
-            if (-not (Test-Path $JsonPath)) {
-                throw "找不到 $JsonPath，无法回写版本号"
-            }
-            # 判断记录：packages-lock.json 是 UPM 自动生成/维护的大文件（行尾见根 .gitattributes
-            # 对应例外条目判断记录：Unity/UPM 实测写出 LF、无 BOM、2 空格缩进，键顺序由 UPM 决定），
-            # 整体 ConvertFrom-Json/ConvertTo-Json 往返会打乱这些格式
-            # （PowerShell 5.1 的 ConvertTo-Json 缩进/换行符与 UPM 原始输出不一致），导致下次 UPM
-            # 打开工程时产生一大片与本次改动无关的格式 diff。改用最小化正则文本替换，只动
-            # com.gamefoundation.game-template 依赖块下这一个字段的值，文件其余内容与换行风格
-            # 原样保留（与两个 package.json 用完整 JSON 往返的写法不同，是保守写法，同一判断
-            # 也适用于 check.ps1 的版本一致性只读校验——那边同样不整体解析成对象比较）。
-            $raw = [System.IO.File]::ReadAllText($JsonPath)
-            # 全文件唯一一处 `"com.gamefoundation.adapter.unity": "<版本号>"`（键名 + 字符串值这一
-            # 形态；该包自己的顶层条目是 `"com.gamefoundation.adapter.unity": {`，对象值，不会被
-            # 这个正则误命中，已用 Grep 核实全文件只有一处字符串值形态的命中）。
-            $pattern = '("com\.gamefoundation\.adapter\.unity":\s*")\d+\.\d+\.\d+(")'
-            $hitCount = [regex]::Matches($raw, $pattern).Count
-            if ($hitCount -ne 1) {
-                throw "$JsonPath 中 'com.gamefoundation.adapter.unity' 依赖字段命中 $hitCount 处（预期 1 处），格式可能已变化，拒绝盲目替换"
-            }
-            $newRaw = [regex]::Replace($raw, $pattern, ('${1}' + $Version + '${2}'))
-            [System.IO.File]::WriteAllText($JsonPath, $newRaw, (New-Object System.Text.UTF8Encoding($false)))
-            Write-Host "  已写回 $JsonPath -> com.gamefoundation.game-template.dependencies.com.gamefoundation.adapter.unity=$Version"
-        }
-
+        # 是 games/_template/package.json 同名依赖版本号的镜像（UPM 自动写入的锁定值），此前
+        # -Release 写回没有覆盖它——门禁跑 check.ps1 的 Unity 相关步骤时 UPM 会自己改写这个字段，
+        # 导致发布提交完成后工作树仍不干净（见 CHANGELOG.md [1.0.0] 修复记录）。同步写回使门禁跑完
+        # 时 UPM 发现字段已是它自己会写的值，工作树保持干净。
         Set-PackagesLockGameTemplateDependency -JsonPath (Join-Path $RepoRoot "adapters\unity\Packages\packages-lock.json") -Version $Release
+        Write-Host "  已写回 adapters\unity\Packages\packages-lock.json -> com.gamefoundation.game-template.dependencies.com.gamefoundation.adapter.unity=$Release"
     }
 
     # 第 5 步：全量门禁（-ReleaseSkipUnity 时传 -SkipUnity 给 check.ps1）。DryRun 同样跑——
