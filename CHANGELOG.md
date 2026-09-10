@@ -98,10 +98,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-消费方反馈第 28/29 条（编辑器内容校验，见
-[消费方反馈-2026-09-11-编辑器-第28-29条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第28-29条.md)）：
+## [1.20.0] - 2026-09-11
 
-### Added
+MINOR 版本：消费方反馈第 28/29 条（编辑器内容校验）落地——`FieldSchema` 新增固定取值集合登记
+（`AllowedValues`/`WithAllowedValues`）与软引用元数据（`SoftReferenceTable`/`SoftReferenceDomain`/
+`WithSoftReference`），`NpcFlagIds` 新增 `All`；07/06/04 文档同步 + 06 事件表字段语义勘误。核实与
+逐条回复见
+[消费方反馈-2026-09-11-编辑器-第28-29条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第28-29条.md)。
+提交链：`92228d1`（`FieldSchema` 固定取值登记与软引用元数据）、`f940e47`（文档同步第 28/29 条）、
+`689d0e6`/`efafa91`（06 事件表字段语义勘误分支与 `--no-ff` 合入 `main`）、`4975e40`（变更记录）。
+
+### 新增
 
 - `Core.Foundation.DataRegistry.FieldSchema` 新增可选 `AllowedValues`（`IReadOnlyList<Id>`）+
   `WithAllowedValues(...)`：`IdList`/`Id` 两种字段种类的固定合法取值集合登记，`DataRegistry.LoadAll`
@@ -115,9 +122,6 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `soft_reference_kind`。
 - `toolchain/validator --list-tables --json` 的 `field_meta` 数组新增 `allowed_values`/
   `soft_reference_table`/`soft_reference_domain` 三个字段，与既有键并列，不改动既有输出。
-
-### Changed
-
 - `Core.Carriers.Creature.NpcFlagIds` 新增 `All`（六个合法职能标志 Id 的有序集合）；
   `CreatureSchemas.Template` 的 `npc_flags` 字段改用 `WithAllowedValues(NpcFlagIds.All)` 登记，
   取代 `CreatureContentValidationRule` 此前手写的重复校验（该规则收口为空实现，保留类型与
@@ -130,16 +134,39 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `quest.def`/`achv.def`/`arch.class` 等模块）按已确认目标表补登软引用，完整清单见回复文档。
   `creature.template.on_hit_reaction_ref`/`on_death_reaction_ref` 核实为预留字段（全仓无消费方、
   无目标表），标注 `Description` 并说明，不登记软引用。
-- 07 文档 `npc_flags` 改写为正式 `npc_flag.<name>` 写法（此前裸词如 `vendor`），补充运行期额外
-  映射为单位标签 `tag.npc.<name>` 的消费方说明（`CreatureFactory.Spawn` → `unit.Tags`）；
-  `on_hit_reaction_ref`/`on_death_reaction_ref` 标注预留。04 文档 3.4/5 节同步补充两项新登记与
-  两个新检查名。`editor/docs/编辑器产品文档.md`（v2.6）契约面清单同步补充。
 
 ### 文档
 
+- 07 文档 `npc_flags` 改写为正式 `npc_flag.<name>` 写法（此前裸词如 `vendor`），补充运行期额外
+  映射为单位标签 `tag.npc.<name>` 的消费方说明（`CreatureFactory.Spawn` → `unit.Tags`）；
+  `on_hit_reaction_ref`/`on_death_reaction_ref` 标注预留。
+- 04 文档 3.4/5 节同步补充两项新登记（`AllowedValues`/软引用）与三个新检查名
+  （`field_allowed_value`/`idlist_allowed_values_conflict`/`soft_reference_kind`）。
 - 06 事件表 `combat.damage_dealt` 行补充字段语义说明——`triggerChainDepth`（产生本次结算的
   `EffectContext.triggerChainDepth` 原样戳入）、`attackInstanceId`（同一次结算批次共用的攻击
   实例 id）两字段的含义解释，不改变已登记的字段列表与事件契约（`689d0e6`）。
+- `editor/docs/编辑器产品文档.md`（v2.6）契约面清单同步补充。
+
+### 迁移说明
+
+- `npc_flags` 字段非法值现由登记表（`NpcFlagIds.All` 经 `WithAllowedValues` 登记）在加载期阻断
+  （`field_allowed_value` 检查项）；此前该字段仅由 `CreatureContentValidationRule` 运行期校验，
+  现由统一的登记表校验路径接管，报告口径可能与旧实现存在措辞差异，校验覆盖范围不变。
+- 软引用元数据（`SoftReferenceTable`/`SoftReferenceDomain`）仅供内容工具读取使用（自动补全/
+  跳转提示），**不参与**任何加载期引用完整性校验；已登记软引用的字段若填写了目标表中不存在的
+  id，加载期不会报错（与登记前行为一致）。
+- `creature.template.on_hit_reaction_ref`/`on_death_reaction_ref` 核实为预留字段（当前全仓无
+  消费方、无目标表），本版本仅补充 `Description` 说明，不登记软引用、不引入任何新校验；消费方
+  若已自行填充这两个字段的值，行为不受影响。
+
+### 兼容声明
+
+本版本对 1.12.0～1.19.0 期间编译的旧消费方二进制保持兼容：依据是 `toolchain/abi_probe.ps1`
+严格模式下的验证——历史基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑通过，独立的
+公开 API 表面差异比对（`toolchain/abi_surface`）输出 `breaks=0`，未发现任何破坏性变更；本版本
+新增的公开契约面（`FieldSchema.AllowedValues`/`WithAllowedValues`/`SoftReferenceTable`/
+`SoftReferenceDomain`/`WithSoftReference`/`NpcFlagIds.All` 等）均为新增类型、新增成员或新增
+链式登记方法，不删改任何既有公开签名。
 
 ## [1.19.0] - 2026-09-11
 
