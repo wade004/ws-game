@@ -290,6 +290,53 @@ namespace Tests.Presentation.Assembly
             Assert.False(report.IsBlocking, string.Join("; ", MessagesOf(report)));
         }
 
+        // -----------------------------------------------------------------
+        // ADR-0021（04 第 4 节勘误"范围约束"）：field_range_kind 自洽检查
+        // -----------------------------------------------------------------
+
+        /// <summary>Range 登记在非 Number/Int 字段上——FieldSchema.WithRange 本身不检查 Kind（见
+        /// FieldRange 类型顶部判断记录），必须靠本审计项在这里拦下。</summary>
+        [Fact]
+        public void FieldRangeKind_RangeOnStringField_ReportsError()
+        {
+            var table = SingleFieldTable("test.range_on_string",
+                new FieldSchema("value", FieldKind.String, required: false, description: "非数值字段")
+                    .WithRange(FieldRange.Range(min: 0)));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "field_range_kind" &&
+                i.Table == "test.range_on_string" && i.FieldPath == "value");
+            Assert.True(report.IsBlocking);
+        }
+
+        [Fact]
+        public void FieldRangeKind_RangeOnNumberField_NoIssue()
+        {
+            var table = SingleFieldTable("test.range_on_number",
+                new FieldSchema("value", FieldKind.Number, required: false, description: "数值字段")
+                    .WithRange(FieldRange.Range(min: 0, max: 1)));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "field_range_kind");
+            Assert.False(report.IsBlocking, string.Join("; ", MessagesOf(report)));
+        }
+
+        [Fact]
+        public void FieldRangeKind_RangeOnIntField_NoIssue()
+        {
+            var table = SingleFieldTable("test.range_on_int",
+                new FieldSchema("value", FieldKind.Int, required: false, description: "整数字段")
+                    .WithRange(FieldRange.Range(min: 1)));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "field_range_kind");
+            Assert.False(report.IsBlocking, string.Join("; ", MessagesOf(report)));
+        }
+
         /// <summary>回归测试（2026-09-09 修复）：<see cref="FieldSchema.Item"/> 允许惰性 factory 让
         /// 数组元素结构复用自身（如 <c>skill.def.effects[].params.on_hit_effects</c> 复用
         /// <c>effects</c> 自身元素结构，见该类型注释）。本用例构造一个真正自引用的 <see cref="FieldSchema"/>

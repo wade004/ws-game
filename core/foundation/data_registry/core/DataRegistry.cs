@@ -837,8 +837,8 @@ namespace Core.Foundation.DataRegistry
         // ---------------------------------------------------------------
         // 字段级校验（04 第 5 节：required_field / field_type / reference_integrity /
         // text_key_exists / expr_parsable，以及 ADR-0019 复合字段子结构校验新增的
-        // variant_discriminator / substructure_depth / unknown_subfield；envelope /
-        // schema_version / primary_key 已在 LoadOneTablePartial 中检查）
+        // variant_discriminator / substructure_depth / unknown_subfield，ADR-0021 范围约束新增的
+        // field_range；envelope / schema_version / primary_key 已在 LoadOneTablePartial 中检查）
         //
         // 判断记录（ADR-0019 落地，子结构递归）：Object.Fields/Variants、Array.Item 的递归校验与
         // 顶层字段共用同一套 required_field/field_type/reference_integrity/text_key_exists/
@@ -920,11 +920,25 @@ namespace Core.Foundation.DataRegistry
                     break;
 
                 case FieldKind.Int:
-                    if (!(raw is JsonNumber ni && ni.TryGetInt64(out _))) AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Int");
+                    if (!(raw is JsonNumber ni && ni.TryGetInt64(out var intValue)))
+                    {
+                        AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Int");
+                    }
+                    else
+                    {
+                        ValidateFieldRange(table, recordKey, fieldPath, field, intValue, issues);
+                    }
                     break;
 
                 case FieldKind.Number:
-                    if (!(raw is JsonNumber)) AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Number");
+                    if (!(raw is JsonNumber nn))
+                    {
+                        AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Number");
+                    }
+                    else
+                    {
+                        ValidateFieldRange(table, recordKey, fieldPath, field, nn.Value, issues);
+                    }
                     break;
 
                 case FieldKind.String:
@@ -1131,6 +1145,22 @@ namespace Core.Foundation.DataRegistry
         {
             issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_type",
                 $"字段 \"{fieldPath}\" 期望 {expected}，实际 JSON 类型 {raw.Kind}", recordKey: recordKey, field: fieldPath));
+        }
+
+        /// <summary>ADR-0021（04 第 4 节勘误"范围约束"）：<see cref="FieldSchema.Range"/> 已登记时，
+        /// 在类型检查（<c>field_type</c>，见调用方 <see cref="ValidateFieldValue"/> 的 Int/Number
+        /// 分支）通过之后再检查数值是否落在范围内——类型错误优先于范围错误报告，一条记录同一字段
+        /// 至多命中其中一种。<see cref="FieldSchema.Range"/> 为 null（未登记范围）时是纯粹的空操作，
+        /// 行为与登记范围前完全一致（向后兼容，同 ADR-0019 子结构未登记时的惯例）。</summary>
+        private static void ValidateFieldRange(string table, string recordKey, string fieldPath, FieldSchema field, double value, List<ValidationIssue> issues)
+        {
+            var range = field.Range;
+            if (range == null) return;
+            if (range.Contains(value)) return;
+
+            issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_range",
+                $"字段 \"{fieldPath}\" 取值 {value.ToString(System.Globalization.CultureInfo.InvariantCulture)} 超出范围 {range.Describe()}",
+                recordKey: recordKey, field: fieldPath));
         }
 
         private static void ValidateIdList(string table, string recordKey, string fieldPath, JsonValue raw, List<ValidationIssue> issues)
