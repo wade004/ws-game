@@ -67,7 +67,8 @@ namespace Tests.Gameplay.Discrete
         private const double NpcHp = 1000; // 足够高，全程不会被打死，避免战斗提前结束干扰观测。
         private const int MaxSteps = 40;
 
-        private static InMemoryDataSource BuildDataSource(int actionPointsPerTurn, string initiativePolicy = "fixed_order") => new InMemoryDataSource()
+        private static InMemoryDataSource BuildDataSource(
+            int actionPointsPerTurn, string initiativePolicy = "fixed_order", double? gridSnapCellSize = null) => new InMemoryDataSource()
             .Add("stat.definition", @"
             { ""table"": ""stat.definition"", ""schema_version"": 1, ""rows"": [
                 { ""id"": """ + StatStrength.Value + @""", ""name_key"": ""l10n.stat.w2d_strength.name"", ""group"": ""primary"" }
@@ -146,7 +147,8 @@ namespace Tests.Gameplay.Discrete
                 { ""id"": ""found.time_model.w2d_exploration"", ""scope"": ""exploration"", ""mode"": ""continuous"" },
                 { ""id"": ""found.time_model.w2d_combat"", ""scope"": ""combat"", ""mode"": ""discrete"",
                   ""seconds_per_turn"": 6, ""initiative_policy"": """ + initiativePolicy + @""",
-                  ""movement_budget_rule"": ""distance"", ""action_points_per_turn"": " + actionPointsPerTurn + @" }
+                  ""movement_budget_rule"": ""distance"", ""action_points_per_turn"": " + actionPointsPerTurn +
+                  (gridSnapCellSize.HasValue ? @", ""grid_snap"": { ""cell_size"": " + gridSnapCellSize.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + @" }" : "") + @" }
             ] }");
 
         private sealed class Fixture
@@ -180,7 +182,8 @@ namespace Tests.Gameplay.Discrete
         }
 
         private static Fixture Build(
-            int actionPointsPerTurn, string initiativePolicy = "fixed_order", IPacingPolicy? pacingPolicy = null)
+            int actionPointsPerTurn, string initiativePolicy = "fixed_order", IPacingPolicy? pacingPolicy = null,
+            double? gridSnapCellSize = null)
         {
             var definitions = EventKeys.All.Select(k => new EventDefinition(k, k.Domain, Array.Empty<string>())).ToList();
             var catalog = EventCatalog.FromDefinitions(definitions);
@@ -192,7 +195,7 @@ namespace Tests.Gameplay.Discrete
             }
 
             var options = Core.Gameplay.Assembly.GameplaySchemaCatalog.CreateOptions();
-            var registry = new DataRegistry(BuildDataSource(actionPointsPerTurn, initiativePolicy), bus, options);
+            var registry = new DataRegistry(BuildDataSource(actionPointsPerTurn, initiativePolicy, gridSnapCellSize), bus, options);
             Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll(registry);
             var report = registry.LoadAll();
             if (report.IsBlocking)
@@ -566,6 +569,37 @@ namespace Tests.Gameplay.Discrete
             fx.SubmitPlayerCast(SkillCheap);
             fx.Gameplay.Advance(0);
             Assert.True(pacing.IsPlaybackFinished, "第三步（零反馈）之后节奏门应再次保持开启");
+        }
+
+        // -----------------------------------------------------------------
+        // 格子吸附（ADR-0013 决策 6、04 第 3.1 节 grid_snap，codex 第十八轮）：端到端验证
+        // found.time_model.combat 声明的 grid_snap.cell_size 经真实的 GameplayAssembly 构造 →
+        // TimeModelSwitch → 本类型第 10.5 步回填，最终到达 Carriers.MovementOptions.GridSnapCellSize
+        // ——不是本文件其余用例那样单独构造 MovementOptions/SkillOptions/TargetingOptions 手工传值，
+        // 而是通过真实数据驱动整条装配链路。MovementTickHandler 层面"离散步位移吸附到格子中心"的
+        // 行为本身已在 core/carriers/unit/tests/MovementTickHandlerTests.cs 用更细粒度的用例覆盖，
+        // 本用例只补"接线是否真的接通"这一层。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void DiscreteTurn_GridSnapDeclared_WiresIntoCarriersMovementOptions()
+        {
+            var fx = Build(actionPointsPerTurn: 1, gridSnapCellSize: 4.0);
+
+            Assert.Equal(TimeModelMode.Discrete, fx.Gameplay.TimeModelSwitch!.CurrentMode);
+            Assert.Equal(4.0, fx.Gameplay.Carriers.MovementOptions.GridSnapCellSize);
+        }
+
+        [Fact]
+        public void DiscreteTurn_GridSnapNotDeclared_MovementOptionsGridSnapCellSizeStaysNull()
+        {
+            // 对照组：found.time_model.combat 未声明 grid_snap 时（本文件其余全部用例的默认数据），
+            // MovementOptions.GridSnapCellSize 必须保持默认 null——证明上一条用例的非 null 结果确由
+            // 数据声明驱动，不是装配根的固定行为。
+            var fx = Build(actionPointsPerTurn: 1);
+
+            Assert.Equal(TimeModelMode.Discrete, fx.Gameplay.TimeModelSwitch!.CurrentMode);
+            Assert.Null(fx.Gameplay.Carriers.MovementOptions.GridSnapCellSize);
         }
     }
 }

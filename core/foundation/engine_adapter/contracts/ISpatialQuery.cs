@@ -128,6 +128,60 @@ namespace Core.Foundation.EngineAdapter
                     throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "未知 Shape 种类");
             }
         }
+
+        /// <summary>
+        /// 按 <paramref name="margin"/> 外扩本形状，返回一个覆盖范围更大的新 <see cref="Shape"/>（同
+        /// <see cref="WithOrigin"/> 惯例：纯值运算，只操作本类型自身与 <see cref="Vec2"/>，不引入任何
+        /// L0 以上依赖）。供格子吸附的"广相位"查询使用（见 <c>GridSnapShapeQuery.QueryShapeAtCellCenters</c>
+        /// 判断记录）：候选对象的原始坐标可能落在精确形状之外、但它所属格子的中心点落在形状内（或
+        /// 反过来），先用外扩后的形状换一批"宁可多、不可少"的候选集合，再对每个候选的格子中心点用
+        /// <see cref="ShapeGeometry.Contains"/> 做精确判定，缺一不可——只外扩不精确重判会把候选原始
+        /// 坐标误当格子中心点计入；只精确重判不外扩会漏掉原始坐标恰好卡在形状边界外、格子中心点却
+        /// 落在形状内的候选。
+        /// <para>
+        /// 判断记录（<c>Cone</c> 的角度外扩是近似值）：<c>Circle</c>/<c>Rect</c>（半径/半宽高直接加
+        /// <paramref name="margin"/>）与 <c>Line</c>（长度、宽度各加 <c>2 × margin</c>，起点沿反方向
+        /// 回退 <paramref name="margin"/>，覆盖"原始坐标卡在起点之前一点点"的情形）都能精确外扩；
+        /// <c>Cone</c> 的角度维度不能像半径那样直接相加——本方法用小角度近似
+        /// <c>2 × asin(min(1, margin / max(radius, 1e-6)))</c> 估出一个保守的角度外扩量，半径同样
+        /// 加 <paramref name="margin"/>。近似值可能在极端参数下（如半径远小于 <paramref name="margin"/>）
+        /// 外扩到 360 度（本方法按 <see cref="Math.Min"/> 钳到 2π，退化为整圆查询，仍然"宁可多、不可
+        /// 少"，不影响随后精确重判的正确性，只是broad-phase 查询范围偏大）。
+        /// </para>
+        /// </summary>
+        public Shape Expand(double margin)
+        {
+            if (margin < 0 || !double.IsFinite(margin))
+            {
+                throw new ArgumentOutOfRangeException(nameof(margin), margin, "margin 不能为负数或非有限值");
+            }
+
+            switch (Kind)
+            {
+                case ShapeKind.Circle:
+                    return Circle(Origin, Radius + margin);
+
+                case ShapeKind.Cone:
+                {
+                    var safeRadius = Math.Max(Radius, 1e-6);
+                    var angleMargin = 2.0 * Math.Asin(Math.Min(1.0, margin / safeRadius));
+                    var expandedAngle = Math.Min(Angle + angleMargin, 2.0 * Math.PI);
+                    return Cone(Origin, Direction, expandedAngle, Radius + margin);
+                }
+
+                case ShapeKind.Line:
+                {
+                    var back = new Vec2(Math.Cos(Direction), Math.Sin(Direction)) * -margin;
+                    return Line(Origin + back, Direction, Length + margin * 2.0, Width + margin * 2.0);
+                }
+
+                case ShapeKind.Rect:
+                    return Rect(Origin, new Vec2(HalfExtents.X + margin, HalfExtents.Y + margin), Rotation);
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "未知 Shape 种类");
+            }
+        }
     }
 
     /// <summary>

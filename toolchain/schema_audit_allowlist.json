@@ -1,15 +1,10 @@
 {
-  "_comment": "F3 元数据门禁（ADR-0018 决策 3、ADR-0019 决策 4）composite_without_substructure 白名单。见 Presentation.Assembly.SchemaAudit 类型注释——只允许豁免 composite_without_substructure，不允许豁免 missing_description。table/field 定位一个字段，field 用 SchemaAuditIssue.FieldPath 同款记法（Object.Fields/Variants.CommonFields 追加 \".子字段名\"，Array.Item 追加 \"[]\"，Object.Map 追加 \"[*]\"，Variants.Cases[case] 追加 \"{判别字段=case}\"）。每条必须写 reason，来源与逐条核实见 architecture/落地计划 F3 交付说明；toolchain/tests/SchemaAuditTests.cs 断言真实登记跑出的 composite_without_substructure 命中恰好等于本文件条目集合。ADR-0024（04 第 3.3 节\"映射登记\"）落地后，原 18 条动态键 Map 型条目中的 13 条已改用 MapSchema 登记（见架构落地计划 2026-09-10 编辑器第三批回复文档第 21 条最终清单），本文件收敛到剩余 7 条——这些字段确属无消费固定子键的解析代码（原样透传/占位扩展位）或现有登记 DSL 仍表达不了的联合类型，理由逐条见下。",
+  "_comment": "F3 元数据门禁（ADR-0018 决策 3、ADR-0019 决策 4）composite_without_substructure 白名单。见 Presentation.Assembly.SchemaAudit 类型注释——只允许豁免 composite_without_substructure，不允许豁免 missing_description。table/field 定位一个字段，field 用 SchemaAuditIssue.FieldPath 同款记法（Object.Fields/Variants.CommonFields 追加 \".子字段名\"，Array.Item 追加 \"[]\"，Object.Map 追加 \"[*]\"，Variants.Cases[case] 追加 \"{判别字段=case}\"）。每条必须写 reason，来源与逐条核实见 architecture/落地计划 F3 交付说明；toolchain/tests/SchemaAuditTests.cs 断言真实登记跑出的 composite_without_substructure 命中恰好等于本文件条目集合。ADR-0024（04 第 3.3 节\"映射登记\"）落地后，原 18 条动态键 Map 型条目中的 13 条已改用 MapSchema 登记（见架构落地计划 2026-09-10 编辑器第三批回复文档第 21 条最终清单），本文件收敛到 7 条；格子吸附落地（架构落地计划 codex 第十八轮）后 found.time_model/grid_snap 已改用 Fields 登记（cell_size 数值范围约束），从本文件移除，现剩余 6 条——这些字段确属无消费固定子键的解析代码（原样透传/占位扩展位）或现有登记 DSL 仍表达不了的联合类型，理由逐条见下。",
   "entries": [
     {
       "table": "arch.talent_tree",
       "field": "nodes[].grants",
       "reason": "ArchSchemas.cs 判断记录明确：grants 结构未在本模块任何位置被进一步解析/消费（ArchetypeRegistry 只原样存成 JsonObject），当前无运行时解析代码可作登记依据（ADR-0024 复核未变：全仓搜索仍未发现任何消费方对其做固定子键或动态键解析）"
-    },
-    {
-      "table": "found.time_model",
-      "field": "grid_snap",
-      "reason": "{cell_size: Number} 为文档承诺的结构，但全仓搜索未发现任何运行时代码读取 grid_snap/cell_size（Unity 适配层格子导航用的是硬编码常量，与本字段无关），当前没有解析代码可作登记依据（ADR-0024 复核未变：既非固定键结构也无动态键 Map 消费代码）"
     },
     {
       "table": "item.affix",

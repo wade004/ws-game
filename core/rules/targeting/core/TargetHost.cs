@@ -40,6 +40,32 @@ namespace Core.Rules.Targeting
         /// <see cref="ChainDefValidationRule"/>；本项是运行期的独立防线，见任务书"回退环……运行期
         /// 深度保护"）。</summary>
         public int MaxFallbackDepth { get; set; } = 8;
+
+        /// <summary>
+        /// ADR-0013 决策 6、04 第 3.1 节 <c>grid_snap</c> 落地：当前这次 <see cref="TargetHost.Resolve(Id, Id, Id?)"/>
+        /// 调用是否发生在一个离散步内——同 <c>Core.Rules.Skill.SkillOptions.IsDiscreteStep</c> 判断
+        /// 记录"真正处于离散模式且当前正在 Advance() 内处理某一个 Discrete 步两者都为真才返回
+        /// true"。为 <c>null</c>（未装配）时视为恒为连续模式，<see cref="TargetHost"/> 不会调用
+        /// <see cref="GridSnapPolicy"/>/<see cref="GridSnapCellSize"/>，行为与格子吸附落地之前完全
+        /// 一致。调用方（<c>Core.Gameplay.Assembly.GameplayAssembly</c>）在 <c>TimeModelSwitch</c>
+        /// 造好之后回填，与 <c>SkillOptions.IsDiscreteStep</c> 共用同一份判断逻辑（两个委托各自独立
+        /// 持有，不是同一个对象引用，但求值口径一致）。
+        /// </summary>
+        public Func<bool>? IsDiscreteStep { get; set; }
+
+        /// <summary>
+        /// <see cref="IsDiscreteStep"/> 返回 <c>true</c> 且本字段非 <c>null</c> 时，
+        /// <c>nearest_in_shape</c>/<c>all_in_shape</c> 两个内置来源改用格子中心采样（见
+        /// <see cref="TargetContext.GridSnapPolicy"/> 判断记录）。默认
+        /// <see cref="Core.Foundation.Common.GridSnapPolicy"/>。
+        /// </summary>
+        public IGridSnapPolicy GridSnapPolicy { get; set; } = new Core.Foundation.Common.GridSnapPolicy();
+
+        /// <summary><c>found.time_model.grid_snap.cell_size</c>；<c>null</c>（默认）表示未声明
+        /// <c>grid_snap</c>，<see cref="GridSnapPolicy"/> 不会被调用。由
+        /// <c>Core.Gameplay.Assembly.GameplayAssembly</c> 按战斗时间模型回填（惯例同
+        /// <c>Core.Carriers.Unit.MovementOptions.GridSnapCellSize</c> 判断记录）。</summary>
+        public double? GridSnapCellSize { get; set; }
     }
 
     /// <summary>
@@ -139,7 +165,15 @@ namespace Core.Rules.Targeting
             var template = chain.Shape ?? EngineShape.Circle(Vec2.Zero, _options.DefaultRadius);
             var shape = RebaseShape(template, origin, facing);
 
-            var ctx = new TargetContext(casterId, currentTarget, shape, origin, _units, _spatial, _factions, _powers, _threat);
+            // ADR-0013 决策 6、04 第 3.1 节 grid_snap 落地：只在"当前确实处于离散步"且声明了
+            // GridSnapCellSize 时才把两者一起传给 TargetContext——两个条件缺一，effectiveCellSize
+            // 保持 null，BuiltinTargetStrategies 据此回退到未吸附的既有查询路径（见
+            // TargetingOptions.IsDiscreteStep/GridSnapCellSize 判断记录）。
+            var effectiveCellSize = (_options.IsDiscreteStep?.Invoke() ?? false) ? _options.GridSnapCellSize : null;
+            var ctx = new TargetContext(
+                casterId, currentTarget, shape, origin, _units, _spatial, _factions, _powers, _threat,
+                gridSnapPolicy: effectiveCellSize.HasValue ? _options.GridSnapPolicy : null,
+                gridSnapCellSize: effectiveCellSize);
 
             IReadOnlyList<Id> candidates = strategy.Collect(ctx) ?? Array.Empty<Id>();
             candidates = ApplyFilters(chain, casterId, candidates);

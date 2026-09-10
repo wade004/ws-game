@@ -159,5 +159,36 @@ namespace Core.Carriers.Unit
         /// 接口实现）时，本字段不影响任何行为，与本任务之前完全一致。
         /// </summary>
         public BlockingChangePolicy BlockingChangePolicy { get; set; } = BlockingChangePolicy.Replan;
+
+        /// <summary>
+        /// ADR-0013 决策 6、04 第 3.1 节 <c>found.time_model.grid_snap</c> 落地：离散步（
+        /// <see cref="Core.Foundation.SimLoop.SimStepKind.Discrete"/>）下，若 <see cref="GridSnapCellSize"/>
+        /// 非 <c>null</c>，<see cref="MovementTickHandler"/> 在本次位移推进计算出最终坐标后、写回
+        /// <c>Core.Rules.Common.IUnitAccess.SetPosition</c> 之前，用本策略把坐标吸附到所属
+        /// 格子的中心点（见 <see cref="GridSnapCellSize"/> 判断记录"何时生效"）。默认
+        /// <see cref="Core.Foundation.Common.GridSnapPolicy"/>（以原点为基准的正方形网格），游戏层
+        /// 可替换成自己需要的网格几何（见该接口类型判断记录）。本字段始终非空（不像
+        /// <see cref="GridSnapCellSize"/> 用 <c>null</c> 表达"未启用"）——是否吸附完全由
+        /// <see cref="GridSnapCellSize"/> 是否为 <c>null</c> 决定，本字段只提供"启用时具体怎么吸附"
+        /// 的算法，调用方不需要在两处分别判空。
+        /// </summary>
+        public Core.Foundation.Common.IGridSnapPolicy GridSnapPolicy { get; set; } = new Core.Foundation.Common.GridSnapPolicy();
+
+        /// <summary>
+        /// <c>found.time_model.grid_snap.cell_size</c>（见 <see cref="GridSnapPolicy"/> 判断
+        /// 记录）。<c>null</c>（默认）表示未启用格子吸附，<see cref="MovementTickHandler"/> 的行为与
+        /// 格子吸附落地之前逐字节一致——即便 <see cref="GridSnapPolicy"/> 已经装配也不会被调用。
+        /// <para>
+        /// 判断记录（构造后回填，且只在离散步生效）：本字段与 <see cref="MovementBudgetRule"/> 同一
+        /// 惯例——<c>Core.Gameplay.Assembly.GameplayAssembly</c> 在 <c>TimeModelSwitch</c> 造好之后
+        /// 按 <c>TimeModelSwitch.CombatModel.GridSnapCellSize</c> 回填（<c>CombatModel</c> 为 null
+        /// 时保持默认 <c>null</c>，不回填）。是否真正吸附额外要求"当前这一步是离散步"（
+        /// <c>step.Kind == SimStepKind.Discrete</c>，<see cref="MovementTickHandler.Execute"/> 已持有
+        /// 该信息，不需要在本类型重复判断"当前是否处于离散模式"）——连续模式下即便本字段非空也绝不
+        /// 吸附，保证"探索期间偶尔切回连续模式时，历史遗留的战斗期声明不会意外影响探索移动"这条边界
+        /// （呼应任务书"连续模式与 grid_snap=false 时行为与现在逐字节一致"）。
+        /// </para>
+        /// </summary>
+        public double? GridSnapCellSize { get; set; }
     }
 }

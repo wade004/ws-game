@@ -38,6 +38,13 @@ namespace Core.Rules.Skill
         /// 惯例，未注入时这三种 relation 一律判不通过，见该方法判断记录），不强加新的必填依赖。</summary>
         private readonly Core.Numbers.Faction.IFactionMatrix? _factions;
 
+        /// <summary>见 <see cref="FindUnits"/> 判断记录（格子吸附落地新增字段）：构造期传入
+        /// <see cref="AuraHost"/>/<see cref="ProcHost"/>/<see cref="CastPipeline"/> 的同一份
+        /// <see cref="SkillOptions"/> 实例，本类型此前没有为自己保留一份引用——<see cref="FindUnits"/>
+        /// 需要读取 <see cref="SkillOptions.IsDiscreteStep"/>/<see cref="SkillOptions.GridSnapCellSize"/>/
+        /// <see cref="SkillOptions.GridSnapPolicy"/> 判定是否启用格子中心采样，因此补上本字段。</summary>
+        private readonly SkillOptions _options;
+
         private readonly CooldownTracker _cooldowns;
         private readonly AuraHost _auraHost;
         private readonly ProcHost _procHost;
@@ -122,6 +129,7 @@ namespace Core.Rules.Skill
             if (exprHostFactory == null) throw new ArgumentNullException(nameof(exprHostFactory));
 
             var options1 = options ?? new SkillOptions();
+            _options = options1;
             _diagnostics = diagnostics ?? new InMemorySkillDiagnostics();
             _defs = new SkillDefCache(_registry, exprSchema);
             _cooldowns = new CooldownTracker();
@@ -296,7 +304,16 @@ namespace Core.Rules.Skill
                 : filter.RequiredTags.Select(id => id.Value).ToList();
 
             var queryFilter = new QueryFilter(requiredTags: requiredTags, excludedTags: excludedTags);
-            var raw = _spatialQuery.QueryShape(anchored, queryFilter);
+
+            // ADR-0013 决策 6、04 第 3.1 节 grid_snap 落地：离散步内声明了格子吸附时，候选按其所属
+            // 格子中心点判定是否落在 anchored 形状内，而不是按候选的原始坐标（见 SkillOptions.
+            // GridSnapCellSize 判断记录）；未装配/连续模式下行为与格子吸附落地之前逐字节一致。
+            var isGridSnapActive = (_options.IsDiscreteStep?.Invoke() ?? false) && _options.GridSnapCellSize.HasValue;
+            var raw = isGridSnapActive
+                ? Core.Foundation.EngineAdapter.GridSnapShapeQuery.QueryShapeAtCellCenters(
+                    _spatialQuery, anchored, queryFilter, _units.GetPosition,
+                    _options.GridSnapPolicy, _options.GridSnapCellSize!.Value)
+                : _spatialQuery.QueryShape(anchored, queryFilter);
 
             var result = new List<Id>(raw.Count);
             foreach (var candidateId in raw)

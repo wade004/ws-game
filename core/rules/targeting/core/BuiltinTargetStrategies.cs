@@ -87,6 +87,26 @@ namespace Core.Rules.Targeting
         private static readonly QueryFilter ExcludeTriggerOnly =
             new QueryFilter(excludedTags: new[] { CollisionLayers.TriggerOnly });
 
+        /// <summary>
+        /// ADR-0013 决策 6、04 第 3.1 节 <c>grid_snap</c> 落地：<paramref name="ctx"/>.
+        /// <see cref="TargetContext.GridSnapCellSize"/> 非 <c>null</c> 时（当前处于离散步且声明了
+        /// 格子吸附，见该属性判断记录），改用
+        /// <see cref="Core.Foundation.EngineAdapter.GridSnapShapeQuery.QueryShapeAtCellCenters"/>——
+        /// 候选按其所属格子中心点是否落在 <paramref name="shape"/> 内判定；否则回退到未吸附的
+        /// <see cref="ISpatialQuery.QueryShape"/>，与格子吸附落地之前逐字节一致。
+        /// <see cref="NearestInShapeStrategy"/>/<see cref="AllInShapeStrategy"/> 共用本方法。
+        /// </summary>
+        private static IReadOnlyList<Id> QueryShape(TargetContext ctx, Shape shape, QueryFilter filter)
+        {
+            if (!ctx.GridSnapCellSize.HasValue)
+            {
+                return ctx.Spatial.QueryShape(shape, filter);
+            }
+
+            return GridSnapShapeQuery.QueryShapeAtCellCenters(
+                ctx.Spatial, shape, filter, ctx.Units.GetPosition, ctx.GridSnapPolicy!, ctx.GridSnapCellSize.Value);
+        }
+
         private sealed class NearestInShapeStrategy : ITargetSourceStrategy
         {
             public string Name => BuiltinTargetStrategies.NearestInShape;
@@ -99,7 +119,7 @@ namespace Core.Rules.Targeting
                 // 允许链再叠加 relation:hostile 一类过滤而不必对本策略做特殊处理（见
                 // targeting/README.md 判断记录）。ExcludeTriggerOnly 见本文件顶部判断记录。
                 var shape = ctx.Shape!.Value;
-                var raw = ctx.Spatial.QueryShape(shape, ExcludeTriggerOnly);
+                var raw = QueryShape(ctx, shape, ExcludeTriggerOnly);
                 return raw
                     .Select(id => (Id: id, Dist: Vec2.Distance(ctx.Origin, ctx.Units.GetPosition(id))))
                     .OrderBy(x => x.Dist)
@@ -119,7 +139,7 @@ namespace Core.Rules.Targeting
                 // GetPosition，返回的候选集合会直接流出到调用方（技能释放目标列表等），下游同样可能
                 // 把触发体 id 当作单位 id 处理。
                 var shape = ctx.Shape!.Value;
-                return ctx.Spatial.QueryShape(shape, ExcludeTriggerOnly)
+                return QueryShape(ctx, shape, ExcludeTriggerOnly)
                     .OrderBy(id => id)
                     .ToList();
             }

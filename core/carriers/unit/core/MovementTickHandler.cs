@@ -185,7 +185,9 @@ namespace Core.Carriers.Unit
 
                 if (!RevalidateBlocking(unit)) continue;
 
-                ContinuePathCore(unit, dt);
+                // isDiscrete: false——本循环只在连续模式下执行（离散步已在上面提前 return，见本方法
+                // 判断记录"离散步下只处理当前行动者"），格子吸附因此恒不生效，与该判断记录一致。
+                ContinuePathCore(unit, dt, isDiscrete: false);
             }
         }
 
@@ -275,14 +277,14 @@ namespace Core.Carriers.Unit
             if (TryReadTarget(intent.Args, out var target))
             {
                 var mode = ReadMode(intent.Args, MoveMode.Run);
-                BeginPathTo(unit, target, mode, dt);
+                BeginPathTo(unit, target, mode, dt, isDiscrete);
                 return;
             }
 
             if (TryReadDirection(intent.Args, out var direction))
             {
                 var mode = ReadMode(intent.Args, MoveMode.Walk);
-                ApplyDirectionalMove(unit, direction, mode, dt);
+                ApplyDirectionalMove(unit, direction, mode, dt, isDiscrete);
                 return;
             }
 
@@ -324,7 +326,7 @@ namespace Core.Carriers.Unit
             return false;
         }
 
-        private void BeginPathTo(Unit unit, Vec2 target, MoveMode mode, double dt)
+        private void BeginPathTo(Unit unit, Vec2 target, MoveMode mode, double dt, bool isDiscrete)
         {
             var from = unit.Position;
 
@@ -362,7 +364,7 @@ namespace Core.Carriers.Unit
                 _movementHost.RaiseMoveStopped(unit.EntityId, from, MoveStopReason.Replaced);
             }
 
-            ContinuePathCore(unit, dt);
+            ContinuePathCore(unit, dt, isDiscrete);
         }
 
         /// <summary>
@@ -388,7 +390,7 @@ namespace Core.Carriers.Unit
         /// 一致（同 <see cref="BeginPathTo"/> 判断记录"undefined navigation 退化为直线兜底"）。
         /// </para>
         /// </summary>
-        private void ApplyDirectionalMove(Unit unit, Vec2 direction, MoveMode mode, double dt)
+        private void ApplyDirectionalMove(Unit unit, Vec2 direction, MoveMode mode, double dt, bool isDiscrete)
         {
             var length = direction.Length;
             if (length <= double.Epsilon)
@@ -429,6 +431,15 @@ namespace Core.Carriers.Unit
                 return; // 判断记录见 IsBlockedByUnit：本次不位移，不改朝向/状态，原地不动。
             }
 
+            // 格子吸附判断记录（同 ContinuePathCore）：导航/阻挡检查（Raycast/IsWalkable/
+            // IsBlockedByUnit）一律针对本 tick 实际算出的连续候选终点，吸附放在全部检查通过之后、
+            // 写回位置之前的最后一步——不吸附候选终点本身再去做导航/阻挡判定，因为吸附后的格子中心
+            // 相对候选终点可能已经偏出这次 Raycast 验证过的可行走路径，重新用吸附后的点再做一遍
+            // 导航判定会引入"格子中心恰好落在一小块不可行走区域"这类新的失败模式，不是本任务"落地
+            // 格子吸附"要解决的问题；本次只保证"最终写回的逻辑坐标是格子中心"，不保证"到格子中心的
+            // 路径本身也被导航验证过"。
+            newPos = ApplyGridSnapIfNeeded(newPos, isDiscrete);
+
             _units.SetPosition(unit.EntityId, newPos);
             unit.Facing = Math.Atan2(normalized.Y, normalized.X);
             EnqueueMoved(unit.EntityId, newPos);
@@ -442,7 +453,7 @@ namespace Core.Carriers.Unit
         /// <see cref="BeginPathTo"/> 建立的新路径，也可能是延续上一 tick 的
         /// <see cref="MovementState.PathIndex"/>）。到达最终路点时把状态收回 <see cref="MoveMode.Idle"/>
         /// 并清空路径（见 05 第 6.2 节"寻路失败处理"之外的正常到达分支）。</summary>
-        private void ContinuePathCore(Unit unit, double dt)
+        private void ContinuePathCore(Unit unit, double dt, bool isDiscrete)
         {
             var state = unit.MovementState;
             var path = state.CurrentPath;
@@ -496,6 +507,13 @@ namespace Core.Carriers.Unit
                     // MovementOptions.UnitBlocking 判断记录"后续可扩展为滑动/绕行"）。
                     return;
                 }
+
+                // 格子吸附（同 ApplyDirectionalMove 判断记录）：阻挡检查针对本 tick 算出的连续候选
+                // 终点，吸附放在检查通过之后、写回位置之前的最后一步。下一 tick 会从
+                // unit.Position（此刻写回的吸附后坐标）继续按路径推进，等价于"每个模拟步结束时
+                // 吸附到格子中心"——不需要额外簿记：路径推进只依赖 PathIndex/剩余路点，不依赖
+                // "上一 tick 精确停在哪个连续坐标"。
+                pos = ApplyGridSnapIfNeeded(pos, isDiscrete);
 
                 _units.SetPosition(unit.EntityId, pos);
                 unit.Facing = lastFacing;
@@ -688,6 +706,24 @@ namespace Core.Carriers.Unit
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// ADR-0013 决策 6、04 第 3.1 节 <c>grid_snap</c> 落地：<paramref name="isDiscrete"/> 为
+        /// <c>true</c> 且 <see cref="MovementOptions.GridSnapCellSize"/> 非 <c>null</c> 时，把
+        /// <paramref name="position"/> 吸附到所属格子的中心点（<see cref="MovementOptions.GridSnapPolicy"/>）；
+        /// 否则原样返回——覆盖"连续模式恒不吸附"（即便 <see cref="MovementOptions.GridSnapCellSize"/>
+        /// 已配置）与"未声明 grid_snap 时离散模式也不吸附"两种"行为与之前逐字节一致"的边界（见
+        /// <see cref="MovementOptions.GridSnapCellSize"/> 判断记录）。
+        /// </summary>
+        private Vec2 ApplyGridSnapIfNeeded(Vec2 position, bool isDiscrete)
+        {
+            if (!isDiscrete || !_options.GridSnapCellSize.HasValue)
+            {
+                return position;
+            }
+
+            return _options.GridSnapPolicy.SnapToCellCenter(position, _options.GridSnapCellSize.Value);
         }
 
         /// <summary>控制效果影响（见 05 第 6.2 节"控制效果影响...移动系统只读这些派生状态，不知道

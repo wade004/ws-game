@@ -52,6 +52,21 @@ namespace Core.Rules.Targeting
         /// 按"无候选"处理（见 <see cref="Core.Rules.Targeting.TargetingOptions"/>）。</summary>
         public IThreatTable? Threat { get; }
 
+        /// <summary>
+        /// ADR-0013 决策 6、04 第 3.1 节 <c>grid_snap</c> 落地：非 <c>null</c> 时，依赖形状查询的
+        /// 内置策略（<c>nearest_in_shape</c>/<c>all_in_shape</c>，见
+        /// <c>Core.Rules.Targeting.BuiltinTargetStrategies</c>）改用
+        /// <see cref="Core.Foundation.EngineAdapter.GridSnapShapeQuery.QueryShapeAtCellCenters"/>——
+        /// 候选是否落在范围内，按其所属格子中心点判定，而不是按候选的原始坐标——而不是直接调用
+        /// <see cref="Spatial"/> 的 <c>QueryShape</c>。<c>null</c>（<see cref="TargetHost"/> 未装配
+        /// 离散步/未声明 <c>grid_snap</c> 时的默认值，见 <see cref="Core.Rules.Targeting.TargetingOptions"/>
+        /// 判断记录）表示不启用，行为与格子吸附落地之前逐字节一致。</summary>
+        public IGridSnapPolicy? GridSnapPolicy { get; }
+
+        /// <summary><see cref="GridSnapPolicy"/> 非 null 时对应的格子尺寸（<c>found.time_model.
+        /// grid_snap.cell_size</c>）；<see cref="GridSnapPolicy"/> 为 null 时本字段无意义。</summary>
+        public double? GridSnapCellSize { get; }
+
         public TargetContext(
             Id casterId,
             Id? currentTarget,
@@ -62,6 +77,28 @@ namespace Core.Rules.Targeting
             IFactionMatrix factions,
             IPowerHost powers,
             IThreatTable? threat)
+            : this(casterId, currentTarget, shape, origin, units, spatial, factions, powers, threat,
+                gridSnapPolicy: null, gridSnapCellSize: null)
+        {
+        }
+
+        /// <summary>
+        /// ADR-0013 决策 6 补齐（格子吸附）新增的重载——不修改上面那个既有公开构造函数的物理参数
+        /// 列表（同 <c>Core.Foundation.DataRegistry.FieldSchema</c> 类型判断记录"新能力一律用新增
+        /// 成员/新构造重载承载，不再改动既有构造函数的参数列表"，ABI 兼容惯例）。
+        /// </summary>
+        public TargetContext(
+            Id casterId,
+            Id? currentTarget,
+            EngineShape? shape,
+            Vec2 origin,
+            IUnitAccess units,
+            ISpatialQuery spatial,
+            IFactionMatrix factions,
+            IPowerHost powers,
+            IThreatTable? threat,
+            IGridSnapPolicy? gridSnapPolicy,
+            double? gridSnapCellSize)
         {
             CasterId = casterId;
             CurrentTarget = currentTarget;
@@ -72,6 +109,8 @@ namespace Core.Rules.Targeting
             Factions = factions ?? throw new ArgumentNullException(nameof(factions));
             Powers = powers ?? throw new ArgumentNullException(nameof(powers));
             Threat = threat;
+            GridSnapPolicy = gridSnapPolicy;
+            GridSnapCellSize = gridSnapCellSize;
         }
     }
 

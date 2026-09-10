@@ -1131,5 +1131,76 @@ namespace Tests.Carriers.Unit
 
             Assert.Equal(new Vec2(10, 0), fixture.Units.GetPosition(HeroId));
         }
+
+        // -----------------------------------------------------------------
+        // 格子吸附（ADR-0013 决策 6、04 第 3.1 节 grid_snap，codex 第十八轮）：离散步下若
+        // MovementOptions.GridSnapCellSize 非 null，位移结束坐标吸附到所属格子中心；连续模式或
+        // 未声明 grid_snap 时行为逐字节不变。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void DiscreteStep_GridSnapEnabled_DirectionMove_SnapsFinalPositionToCellCenter()
+        {
+            // 速度 7、每回合等效秒数默认 1.0 → 本步候选终点 (7, 0)；cellSize=4 时，x 所属格子
+            // [4,8) 中心 6，y 所属格子 [0,4) 中心 2——两轴独立换算，y 从 0 变成 2 恰好证明这是
+            // "吸附到格子中心"而不是"四舍五入到格子边界"或其它近似。
+            var options = new MovementOptions { GridSnapCellSize = 4.0 };
+            var fixture = Build(moveSpeed: 7.0, options: options);
+
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            fixture.World.Tick(SimStep.Discrete(HeroId, StepPhase.Act));
+
+            var pos = fixture.Units.GetPosition(HeroId);
+            Assert.Equal(6.0, pos.X, 6);
+            Assert.Equal(2.0, pos.Y, 6);
+        }
+
+        [Fact]
+        public void DiscreteStep_GridSnapEnabled_TargetMove_SnapsFinalPositionToCellCenter()
+        {
+            // 目标类移动（BeginPathTo → ContinuePathCore）同样要吸附：目标 (7,0)，与上一条方向类
+            // 用例同样的 cellSize=4，预期吸附结果相同（6, 2），证明两条位移路径共用同一处吸附逻辑。
+            var options = new MovementOptions { GridSnapCellSize = 4.0 };
+            var fixture = Build(moveSpeed: 7.0, options: options);
+
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", TargetArgs(7, 0)));
+            fixture.World.Tick(SimStep.Discrete(HeroId, StepPhase.Act));
+
+            var pos = fixture.Units.GetPosition(HeroId);
+            Assert.Equal(6.0, pos.X, 6);
+            Assert.Equal(2.0, pos.Y, 6);
+        }
+
+        [Fact]
+        public void ContinuousStep_GridSnapCellSizeConfigured_DoesNotSnap()
+        {
+            // 任务书拍板"连续模式与 grid_snap=false 时行为与现在逐字节一致"：即便 MovementOptions
+            // 已经配置了 GridSnapCellSize（如探索/战斗共用同一个 MovementOptions 实例、只是当前
+            // 这一步是连续步），也必须原样保留连续积分的结果，不吸附。
+            var options = new MovementOptions { GridSnapCellSize = 4.0 };
+            var fixture = Build(moveSpeed: 7.0, options: options);
+
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            fixture.World.Tick(SimStep.Continuous(1.0));
+
+            var pos = fixture.Units.GetPosition(HeroId);
+            Assert.Equal(7.0, pos.X, 6);
+            Assert.Equal(0.0, pos.Y, 6);
+        }
+
+        [Fact]
+        public void DiscreteStep_GridSnapNotConfigured_DoesNotSnap()
+        {
+            // GridSnapCellSize 默认 null（未声明 found.time_model.grid_snap）：即便这一步是离散步，
+            // 行为也必须与格子吸附落地之前逐字节一致。
+            var fixture = Build(moveSpeed: 7.0); // 未传 options，GridSnapCellSize 保持默认 null。
+
+            fixture.World.SubmitIntent(new Intent(HeroId, "move", DirectionArgs(1, 0)));
+            fixture.World.Tick(SimStep.Discrete(HeroId, StepPhase.Act));
+
+            var pos = fixture.Units.GetPosition(HeroId);
+            Assert.Equal(7.0, pos.X, 6);
+            Assert.Equal(0.0, pos.Y, 6);
+        }
     }
 }
