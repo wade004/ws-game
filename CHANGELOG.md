@@ -78,15 +78,65 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   多根合并覆盖诊断新增"根序号 + 相对路径"，`toolchain/validator` 文本/JSON 输出同步，绝对路径
   字段保留。**第 21 条（ADR-0019 子结构登记第二批，18 个字段）本轮未完成，单独立项**，见该文档
   第 21 条"如实说明"。
+- **消费方反馈第 27 条（Unreleased）**：具体游戏/工具实际使用的正式装配入口是多个模块
+  `IExprSchema` 登记表组合/包装出的门面（如 `PresentationSchemaCatalog.FullExprSchema`），
+  其 `KnownKeys`/`KnownGroups` 此前逐级落回接口默认实现（返回空集合），九个分组全部返回空——
+  已在四处组合/包装实现补齐显式转发（并集聚合全部成员登记表的结果，不再只反映某一个成员登记
+  表），新增反射门禁 `InterfaceDefaultMemberForwardingTests` 防止同类遗漏再次发生。详见
+  [消费方反馈-2026-09-11-编辑器-第27条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md)。
 
 ## [Unreleased]
 
-第二十方深度审核修复（codex 第十八轮，基线 `d6fda65`）本 agent 负责范围：TOOL-118-ABI/
-TOOL-118-LOCK 两项 P2 工具链缺陷 + 九类文档更新中除 `grid_snap` 外的全部行。归档与核实表见
+第二十方深度审核修复（codex 第十八轮，基线 `d6fda65`）五个并行分支整合：`wy/tool18`
+（TOOL-118-ABI/TOOL-118-LOCK 两项 P2 工具链缺陷 + 九类文档更新中除 `grid_snap` 外的全部行）、
+`ww/core18`（CORE-118-QUEST/CORE-118-CAST 两项 P2 运行时缺陷）、`wx/pres18`
+（PRES-118-CAMERA/SFX/VIEW 三项 P2 表现层缺陷）、`wz/gridsnap`（`grid_snap` 通用能力实现）、
+`w27/expr-forward`（消费方反馈第 27 条，接口默认成员转发门禁）。归档与核实表见
 [audit-d6fda65-20260911/](architecture/落地计划/audit-d6fda65-20260911/)、
 [followup-2026-09-11.md](architecture/落地计划/audit-d6fda65-20260911/followup-2026-09-11.md)。
 
+### 新增
+
+- **格子吸附（`grid_snap`）通用能力落地**：`Core.Foundation.Common.IGridSnapPolicy` + 默认实现
+  `GridSnapPolicy`（连续坐标换算成所属格子中心点，可替换策略）；`Core.Foundation.EngineAdapter.
+  ShapeGeometry.Contains`（形状几何包含判定，从 `core/gameplay/encounter` 私有实现提升为 L1
+  可复用）、`Shape.Expand`（外扩边距）、`GridSnapShapeQuery.QueryShapeAtCellCenters`（两阶段
+  查询：外扩广相位 + 候选格子中心点精确重判）；`TimeModelDefinition.GridSnapCellSize` +
+  `found.time_model.grid_snap` 子结构登记（`cell_size: Number`，`> 0`）。运行时接线：离散模式
+  下移动在每个模拟步结束吸附到格子中心（`core/carriers/unit.MovementTickHandler`）；
+  `nearest_in_shape`/`all_in_shape`/`ISkillHost.FindUnits` 三处范围形状查询按候选所属格子中心
+  点判定；连续模式或未声明 `grid_snap` 时行为逐字节不变。此前该字段只有登记、无运行时消费，
+  `toolchain/schema_audit_allowlist.json` 对应豁免条目随之移除。
+- **接口默认成员转发门禁**：新增反射测试 `InterfaceDefaultMemberForwardingTests`（`presentation/
+  assembly/tests/`），自动扫描组合/包装某个接口的实现类型，校验其是否显式转发了该接口全部带
+  默认实现的成员（未转发即回落到"什么都不做"的默认实现，属常见疏漏模式，第 27 条即一例）；
+  当前 18 处经审查确认"有意不转发"的实现登记豁免并附理由。
+
 ### 修复
+
+- **CORE-118-QUEST**：任务定义热重载删除该定义后，`GetActiveObjectives(unit)` 等单位级枚举/
+  事件消费路径直接按 `questId` 索引已删除的定义，抛 `KeyNotFoundException`；随后以不同目标数
+  恢复同一 `questId` 时 `UpdateProgress` 抛 `IndexOutOfRangeException`（迁移锚点依赖 `Reload`
+  临时快照，中间隔一次整体删除就找不到旧形状）。改用新增 `TryGetDefinition`（定义缺失时该条
+  进度本次跳过，不抛异常、进度保留）与常驻于 `QuestRuntimeState` 的 `LastKnownObjectives` 作为
+  迁移锚点（不再依赖 `Reload` 临时快照），不受中间隔了多少次删除/恢复影响。新增 9 个回归测试。
+- **CORE-118-CAST**：施法者死亡/销毁已生效、但对应 `unit.died`/`entity.destroyed` 事件延后到
+  本次推进调用结束后才派发时，`CastPipeline` 的防御性重验分支此前只摘除施法状态、不发任何
+  终结事件，当前读条与排队请求收不到 `Interrupted`/`QueueCleared` 通知。新增私有方法
+  `TerminateCast` 把全部会摘除施法状态的路径（正常打断、施法者死亡/销毁防御性重验）收敛到同一
+  条终结路径，摘除操作天然幂等，不重复发送终结事件。新增 7 个回归测试。
+- **PRES-118-CAMERA**：三个生产装配入口未在场景加载完成后重新 `Follow`，进图/切图/读档重进后
+  镜头静止不再跟随。`CameraHostOptions` 新增 `FollowTargetResolverOnReset`（新增构造重载，不
+  改已发布双参构造签名），`PresentationAssembly` 默认补"继续跟随同一玩家单位"的解析函数，三个
+  生产入口全部自动获得该接线。
+- **PRES-118-SFX**：两个生产装配入口的逐帧维护漏调用 `Sfx.Update`，连续两次播放同一个缺失音效
+  资源时第二次请求永久卡在 pending（没有回调可等、也没有 `Update` 驱动超时清理）。新增
+  `PresentationAssembly.UpdatePlaybackMaintenance` 把 `Feedback`/`Vfx`/`Sfx` 三步逐帧维护收敛
+  为一处，三个生产装配入口统一改为调用该方法，不再各自罗列播放器清单。
+- **PRES-118-VIEW**：同图直接读档（不经场景卸载重建）时，继续存活的既有角色 View 的插值快照
+  不会刷新，`GetInterpolatedPosition` 会继续插值出读档前的旧坐标直到下一次无关 tick 才"顺带"
+  刷新，画面与刚恢复的逻辑位置不同步。`ViewBinder.OnSaveLoaded` 补充对存活 View 直接用恢复后
+  位置重设插值起点（`prev=curr`），不发起任何模拟 tick、不改变任何逻辑结算。
 
 - **TOOL-118-ABI**：`toolchain/abi_surface/SurfaceDumper.cs` 的属性/索引器/事件行此前不编码
   访问器的 `static`/`virtual`/`abstract`/`sealed-override`——public 实例属性改成同名同类型
@@ -128,6 +178,18 @@ TOOL-118-LOCK 两项 P2 工具链缺陷 + 九类文档更新中除 `grid_snap` �
   由消费方策略决定，不改算法本身；`core/rules/combat/tests/{CombatTestSupport,ResolverHitTableTests}.cs`
   新增两条回归测试钉住该行为。
 - `toolchain/README.md` 新增"`abi_surface` dump/compare 覆盖范围补齐（TOOL-118-ABI 根治）"一节。
+- `architecture/04_数据与内容管线.md`、`architecture/13_新游戏接入指南.md` 变更记录补充
+  `grid_snap` 已落地运行时消费；`core/foundation/sim_loop/README.md` 第 7 条从"F1c 判断记录
+  （不登记子结构）"改写为"已落地"。
+- `core/gameplay/quest/README.md`、`core/rules/skill/README.md` 判断记录同步更新，纠正
+  CORE-118-QUEST/CORE-118-CAST 两处已被复现推翻的过期假设；`architecture/06_规则层_属性技能
+  战斗AI.md` 第 3.6 节补充"施法终结事件保证"勘误段。
+- `presentation/camera`、`presentation/assembly`、`presentation/vfx_sfx`、`presentation/
+  view_binding` 四份 README 补 PRES-118-CAMERA/SFX/VIEW 三项修复的判断记录；`architecture/09_
+  表现层.md`、`architecture/13_新游戏接入指南.md` 补对应勘误行。
+- `architecture/04_数据与内容管线.md` 第 6.2 节补充"按分组枚举已登记 key/枚举全部已登记分组"
+  的组合登记表并集口径说明（消费方反馈第 27 条）；`architecture/11_工程规范与测试.md` 第 7/8
+  节新增接口默认成员转发门禁的说明与豁免登记口径。
 
 ## [1.18.0] - 2026-09-11
 
