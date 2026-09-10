@@ -203,6 +203,27 @@ namespace Core.Foundation.DataRegistry
             }
         }
 
+        private MapSchema? _map;
+
+        /// <summary>ADR-0024（04 第 3.3 节"映射登记"）：仅 <see cref="FieldKind.Object"/> 可设，且与
+        /// <see cref="Fields"/>/<see cref="Variants"/> 互斥（登记在其它 <see cref="Kind"/> 上，或与
+        /// <see cref="Fields"/>/<see cref="Variants"/> 同时登记，均由 <c>SchemaAudit</c> 的
+        /// <c>field_map_kind</c>/<c>field_map_conflict</c> 检查项事后报告——刻意不在 <see cref="WithMap"/>
+        /// 挂载时检查，同 <see cref="WithRange"/> 判断记录"让登记在错误种类字段上的错误停留在可枚举的
+        /// 软失败"这条既有风格）：动态键映射子结构（键为某表/某 domain 引用或自由字符串 + 每个值的
+        /// 登记，见 <see cref="MapSchema"/>）。</summary>
+        public MapSchema? Map => _map;
+
+        /// <summary>登记 <see cref="Map"/>；只能设置一次（重复设置抛异常，同 <see cref="WithRange"/>/
+        /// <see cref="WithGroup"/>/<see cref="WithUnit"/> 惯例）。返回 <c>this</c> 便于链式调用。</summary>
+        public FieldSchema WithMap(MapSchema map)
+        {
+            if (map == null) throw new ArgumentNullException(nameof(map));
+            if (_map != null) throw new InvalidOperationException($"字段 \"{Name}\"：Map 已设置，不可重复设置");
+            _map = map;
+            return this;
+        }
+
         public FieldSchema(
             string name,
             FieldKind kind,

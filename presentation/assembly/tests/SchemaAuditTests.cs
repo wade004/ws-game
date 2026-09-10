@@ -373,6 +373,170 @@ namespace Tests.Presentation.Assembly
         }
 
         // -----------------------------------------------------------------
+        // ADR-0024（04 第 3.3 节"映射登记"）：field_map_kind / field_map_conflict 自洽检查 +
+        // 映射值递归展开（复用 missing_description 等既有检查项）+ 映射键引用目标检查
+        // -----------------------------------------------------------------
+
+        /// <summary>Map 登记在非 Object 字段上——FieldSchema.WithMap 本身不检查 Kind（同 WithRange
+        /// 判断记录），必须靠本审计项在这里拦下。</summary>
+        [Fact]
+        public void FieldMapKind_MapOnArrayField_ReportsError()
+        {
+            var table = SingleFieldTable("test.map_on_array",
+                new FieldSchema("value", FieldKind.Array, required: false, description: "非 Object 字段")
+                    .WithMap(MapSchema.FreeKeyed("理由", new FieldSchema("v", FieldKind.Number, required: true, description: "值"))));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "field_map_kind" &&
+                i.Table == "test.map_on_array" && i.FieldPath == "value");
+            Assert.True(report.IsBlocking);
+        }
+
+        [Fact]
+        public void FieldMapKind_MapOnObjectField_NoIssue()
+        {
+            var table = SingleFieldTable("test.map_on_object",
+                new FieldSchema("base_stats", FieldKind.Object, required: false, description: "属性映射")
+                    .WithMap(MapSchema.FreeKeyed("理由", new FieldSchema("v", FieldKind.Number, required: true, description: "值"))));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "field_map_kind");
+            Assert.False(report.IsBlocking, string.Join("; ", MessagesOf(report)));
+        }
+
+        /// <summary>Map 与 Fields 同时登记——两者本不可能经同一次构造函数调用产生（Fields 是构造期
+        /// 参数、Map 是事后 WithMap 挂载），但物理上可以先构造带 Fields 的字段再 WithMap，本审计项
+        /// 必须能拦下这种组合。</summary>
+        [Fact]
+        public void FieldMapConflict_MapAndFieldsBothSet_ReportsError()
+        {
+            var field = new FieldSchema("payload", FieldKind.Object, required: false, fields: new[]
+            {
+                new FieldSchema("known", FieldKind.String, required: false, description: "固定键"),
+            }, description: "冲突登记").WithMap(MapSchema.FreeKeyed("理由", new FieldSchema("v", FieldKind.Number, required: true, description: "值")));
+            var table = SingleFieldTable("test.map_fields_conflict", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "field_map_conflict" &&
+                i.Table == "test.map_fields_conflict" && i.FieldPath == "payload");
+            Assert.True(report.IsBlocking);
+        }
+
+        [Fact]
+        public void FieldMapConflict_MapAndVariantsBothSet_ReportsError()
+        {
+            var cases = new Dictionary<string, IReadOnlyList<FieldSchema>>(StringComparer.Ordinal)
+            {
+                ["a"] = Array.Empty<FieldSchema>(),
+            };
+            var field = new FieldSchema("payload", FieldKind.Object, required: false,
+                variants: new VariantSchema("kind", cases), description: "冲突登记")
+                .WithMap(MapSchema.FreeKeyed("理由", new FieldSchema("v", FieldKind.Number, required: true, description: "值")));
+            var table = SingleFieldTable("test.map_variants_conflict", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "field_map_conflict" &&
+                i.Table == "test.map_variants_conflict" && i.FieldPath == "payload");
+            Assert.True(report.IsBlocking);
+        }
+
+        /// <summary>Map 登记后不再命中 composite_without_substructure（该检查项只在 Fields/Variants/
+        /// Map 三者均未登记时报告）。</summary>
+        [Fact]
+        public void MapRegistered_DoesNotReportCompositeWithoutSubstructure()
+        {
+            var table = SingleFieldTable("test.map_no_bare_object",
+                new FieldSchema("base_stats", FieldKind.Object, required: false, description: "属性映射")
+                    .WithMap(MapSchema.FreeKeyed("理由", new FieldSchema("v", FieldKind.Number, required: true, description: "值"))));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "composite_without_substructure");
+            Assert.False(report.IsBlocking, string.Join("; ", MessagesOf(report)));
+        }
+
+        /// <summary>映射值递归展开：ValueSchema 缺描述时按既有 missing_description 检查项报告，路径
+        /// 用 "[*]" 表示"任意键"（同 <c>DataRegistry.ValidateMapObject</c>/
+        /// <c>SchemaFieldRangeExport</c> 的 "[key]"/"[*]" 记法惯例，静态审计没有具体数据键可用）。</summary>
+        [Fact]
+        public void MapValue_MissingDescription_ReportsErrorWithBracketStarPath()
+        {
+            var table = SingleFieldTable("test.map_value_missing_desc",
+                new FieldSchema("base_stats", FieldKind.Object, required: false, description: "属性映射")
+                    .WithMap(MapSchema.FreeKeyed("理由", new FieldSchema("v", FieldKind.Number, required: true))));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "missing_description" &&
+                i.Table == "test.map_value_missing_desc" && i.FieldPath == "base_stats[*]");
+        }
+
+        [Fact]
+        public void MapKeyReferenceTable_UnknownTable_ReportsReferenceTargetUnknown()
+        {
+            var table = SingleFieldTable("test.map_key_ref_unknown",
+                new FieldSchema("base_stats", FieldKind.Object, required: false, description: "属性映射")
+                    .WithMap(MapSchema.ReferenceKeyTable("no.such.table", new FieldSchema("v", FieldKind.Number, required: true, description: "值"))));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "reference_target_unknown" &&
+                i.Table == "test.map_key_ref_unknown" && i.FieldPath == "base_stats");
+            Assert.True(report.IsBlocking);
+        }
+
+        [Fact]
+        public void MapKeyReferenceTable_KnownTable_NoIssue()
+        {
+            var targetTable = new TableSchema("test.map_key_ref_target", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+            }).WithOwnership(SchemaLayer.Foundation, "test");
+            var sourceTable = SingleFieldTable("test.map_key_ref_known",
+                new FieldSchema("base_stats", FieldKind.Object, required: false, description: "属性映射")
+                    .WithMap(MapSchema.ReferenceKeyTable("test.map_key_ref_target", new FieldSchema("v", FieldKind.Number, required: true, description: "值"))));
+
+            var report = SchemaAudit.Run(new[] { targetTable, sourceTable }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "reference_target_unknown");
+        }
+
+        [Fact]
+        public void MapKeyReferenceDomain_UnknownDomain_ReportsReferenceTargetUnknown()
+        {
+            var table = SingleFieldTable("test.map_key_domain_unknown",
+                new FieldSchema("growth", FieldKind.Object, required: false, description: "成长映射")
+                    .WithMap(MapSchema.ReferenceKeyDomain("no_such_domain", new FieldSchema("v", FieldKind.Number, required: true, description: "值"))));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "reference_target_unknown" &&
+                i.Table == "test.map_key_domain_unknown" && i.FieldPath == "growth");
+        }
+
+        [Fact]
+        public void MapKeyReferenceDomain_KnownDomain_NoIssue()
+        {
+            var table = SingleFieldTable("test.map_key_domain_known",
+                new FieldSchema("growth", FieldKind.Object, required: false, description: "成长映射")
+                    .WithMap(MapSchema.ReferenceKeyDomain("stat", new FieldSchema("v", FieldKind.Number, required: true, description: "值"))));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "reference_target_unknown");
+        }
+
+        // -----------------------------------------------------------------
         // ADR-0022：table_ownership / field_group（计算默认值）/ time_scope_declared /
         // idlist_reference_target / time_unit_missing 五项新增自洽检查
         // -----------------------------------------------------------------
