@@ -112,9 +112,11 @@ namespace Tests.Gameplay.Encounter
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }
 
-        /// <summary><c>ai_rotation_override</c> 是 Map 型对象（判断记录：ADR-0019 首批范围外，见
-        /// <c>EncounterSchemas.PhaseItemSchema</c>），任意键都不应报 <c>unknown_subfield</c>（未登记
-        /// <c>Fields</c> 时维持"存在且是对象"的向后兼容行为）。</summary>
+        /// <summary><c>ai_rotation_override</c> 现登记为 <c>MapSchema.FreeKeyed</c>（ADR-0024 第二批
+        /// 登记，见 <c>EncounterSchemas.PhaseItemSchema</c>）：键（参战单位/模板 id）不做任何校验，
+        /// 任意键都不应报 <c>unknown_subfield</c>（Map 型对象本就没有"已知键清单"，
+        /// <c>DataRegistry.ValidateMapObject</c> 不调用 <c>ReportUnknownSubfields</c>）；值仍须是合法
+        /// Id 格式（<c>FieldKind.Id</c>，本用例两个值均合法）。</summary>
         [Fact]
         public void AiRotationOverride_ArbitraryKeys_NoUnknownSubfieldReported()
         {
@@ -127,6 +129,23 @@ namespace Tests.Gameplay.Encounter
 
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
             Assert.DoesNotContain(report.Issues, i => i.Check == "unknown_subfield");
+        }
+
+        /// <summary>ADR-0024 第二批登记新增覆盖：值不是合法 Id 格式时报 <c>field_type</c>（同顶层
+        /// <c>FieldKind.Id</c> 字段的既有行为，子层递归复用同一份实现）。</summary>
+        [Fact]
+        public void AiRotationOverride_ValueNotValidId_ReportsFieldType()
+        {
+            var rows = "[{\"id\": \"encounter.sample_map_bad_value\", \"units\": " + MinimalUnits + ", " +
+                "\"phases\": [{\"enter_condition\": \"combat.in_combat\", " +
+                "\"ai_rotation_override\": {\"creature.whatever_key\": \"not a valid id\"}}], " +
+                "\"victory_condition\": \"self.is_alive\", \"defeat_condition\": \"self.is_alive\"}]";
+
+            var report = LoadDefRows(rows);
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i =>
+                i.Check == "field_type" && i.Field == "phases[0].ai_rotation_override[creature.whatever_key]");
         }
 
         [Fact]

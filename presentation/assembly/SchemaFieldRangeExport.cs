@@ -85,8 +85,16 @@ namespace Presentation.Assembly
                 {
                     var variants = field.Variants;
                     var subFields = field.Fields;
+                    var map = field.Map;
 
-                    if (variants != null)
+                    if (map != null)
+                    {
+                        // ADR-0024（04 第 3.3 节"映射登记"）：映射值按 MapSchema.ValueSchema 递归，
+                        // 路径记法与 DataRegistry.ValidateMapObject 一致用 "[*]" 表示"任意键"（本类型
+                        // 走的是静态 schema 图，没有具体数据键可用，同 Array.Item 用 "[]" 的既有惯例）。
+                        Walk(map.ValueSchema, path + "[*]", depth + 1, result, ancestors);
+                    }
+                    else if (variants != null)
                     {
                         var commonFields = variants.CommonFields;
                         foreach (var kv in variants.Cases)

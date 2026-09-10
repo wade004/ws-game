@@ -56,7 +56,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `enter_condition` | Expr | 是 | 阶段进入条件；无缺省 |
-| `ai_rotation_override` | Object（Map，未登记 `Fields`） | 否 | `Map<Id, Id>`，键为具体参战单位 id 或模板 id（见 `EncounterHost.ApplyPhase` 判断记录）。**判断记录（Map 型待后续契约扩展，ADR-0019 首批范围外）**：现有 `FieldSchema.Fields` 只表达固定键清单，无法表达任意键的 Map；本轮不为此扩展 `FieldKind`，本字段维持"存在且是对象"的向后兼容校验（`AiRotationOverride_ArbitraryKeys_NoUnknownSubfieldReported` 锁定这一行为） |
+| `ai_rotation_override` | Object（`MapSchema.FreeKeyed`） | 否 | `Map<Id, Id>`，键为具体参战单位 id 或模板 id（见 `EncounterHost.ApplyPhase` 判断记录），值为 `ai.rotation` 引用。**ADR-0024 第二批登记**：键不做任何校验（`FreeKeyed`，理由是运行期动态判定"单位 id 还是模板 id"，加载期无法静态区分），值登记为 `FieldKind.Id`（格式校验，不做引用完整性检查，理由同 `on_enter_hook`）——`AiRotationOverride_ArbitraryKeys_NoUnknownSubfieldReported`/`AiRotationOverride_ValueNotValidId_ReportsFieldType` 覆盖 |
 | `on_enter_hook` | Id | 否 | `found.hook` 钩子 id。判断记录（分层边界，同 `skill.script.hook_id`）：`found.hook` 当前无实现级 schema 登记，`Reference` 到未加载表恒判定引用失效，暂退回 `Id`，待补齐登记后再升级 |
 
 ### `arena_rules`（`Fields`：`bounds_shape` + `reset_if_leave`）
@@ -126,13 +126,12 @@ ReportsExactlyOneExprParsableIssue`/`PhaseEnterCondition_Unparsable_ReportsExact
 `expr_parsable`），语义完全覆盖旧版手写检查，且额外跑 `ExprValidator.Validate` 静态校验更严格；
 `EncounterContentValidationRule.Validate` 里原来的 `phases` 遍历分支已整段删除。
 
-## Map 型待后续契约扩展一览（ADR-0019 首批范围外）
+## Map 型契约扩展（ADR-0024 第二批登记，取代下方已废止的"ADR-0019 首批范围外"记录）
 
-本轮（F1b）内发现的、因"动态键 Map"而未登记 `Fields` 的字段：
-
-| 字段 | 说明 |
-|---|---|
-| `encounter.def.phases[].ai_rotation_override` | `Map<Id, Id>`，键为参战单位 id 或模板 id，值为 `ai.rotation` 引用；维持"存在且是对象"校验 |
+本轮（F1b）内发现的、当时因"动态键 Map"而未登记 `Fields` 的字段——`encounter.def.phases[].
+ai_rotation_override`（`Map<Id, Id>`，键为参战单位 id 或模板 id，值为 `ai.rotation` 引用）——已随
+ADR-0024（04 第 3.3 节"映射登记"）改用 `MapSchema.FreeKeyed` 登记，见上方
+`phases[]`（`PhaseItemSchema`）字段表对应行。
 
 ## 判断记录
 

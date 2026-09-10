@@ -31,9 +31,13 @@ namespace Core.Numbers.Progression
                         new FieldSchema("xp_to_next", FieldKind.Int, required: true,
                             description: "升到下一级所需经验值"),
                         // growth 是 Map<stat_id, Number>（键为 stat.definition 的 id，动态键）：
-                        // ADR-0019 通用规则 5，Map 型对象不登记子结构，保持"存在且是对象"。
+                        // ADR-0024 第二批登记（04 第 3.3 节"映射登记"），与 ProgressionHost.ApplyGrowth
+                        // 逐键 JsonNumber 解析的形状核对一致。
                         new FieldSchema("growth", FieldKind.Object, required: false,
-                            description: "Map<stat_id, Number>，见 ADR-0019 通用规则 5，不登记子结构"),
+                            description: "Map<stat_id, Number>，ProgressionHost.ApplyGrowth 逐键读取")
+                            .WithMap(MapSchema.ReferenceKeyTable("stat.definition",
+                                new FieldSchema("value", FieldKind.Number, required: true,
+                                    description: "该等级该属性的成长增量"))),
                     }, description: "单级成长条目"),
                     description: "Array<{level:Int, xp_to_next:Int, growth:Object<stat_id,Number>}>，" +
                         "level 从 1 连续到 max_level（连续性/数量一致性业务判断留在 " +

@@ -591,7 +591,47 @@ namespace Toolchain.Validator
             sb.Append("\"unit\":\"").Append(JsonEscape(field.Unit.ToString())).Append("\",");
             sb.Append("\"reference_table\":").Append(field.ReferenceTable == null ? "null" : "\"" + JsonEscape(field.ReferenceTable) + "\"").Append(',');
             sb.Append("\"reference_domain\":").Append(field.ReferenceDomain == null ? "null" : "\"" + JsonEscape(field.ReferenceDomain) + "\"").Append(',');
-            sb.Append("\"free_ids\":").Append(field.FreeIds ? "true" : "false");
+            sb.Append("\"free_ids\":").Append(field.FreeIds ? "true" : "false").Append(',');
+
+            // ADR-0024 决策 5："导出给内容工具"：顶层字段登记了 Map（04 第 3.3 节"映射登记"）时，
+            // 随其它字段元信息一并导出键约束（map_key）与值种类（map_value）——与 field_ranges 一样，
+            // 只覆盖顶层字段，不递归导出映射值内部的子结构（那部分留给编辑器按需再查
+            // --list-tables 的 field_ranges/未来扩展；本版只保证映射本身"键怎么补全/值大致是什么
+            // 种类"这两条最有编辑器价值的信息）。未登记 Map 的字段两者均为 null，保持既有输出对不
+            // 消费这两个新键的调用方逐字节兼容（新增字段追加在已有字段之后）。
+            sb.Append("\"map_key\":");
+            AppendMapKeyJson(sb, field.Map);
+            sb.Append(',');
+            sb.Append("\"map_value\":");
+            AppendMapValueJson(sb, field.Map);
+            sb.Append('}');
+        }
+
+        private static void AppendMapKeyJson(StringBuilder sb, MapSchema? map)
+        {
+            if (map == null)
+            {
+                sb.Append("null");
+                return;
+            }
+
+            sb.Append('{');
+            sb.Append("\"reference_table\":").Append(map.KeyReferenceTable == null ? "null" : "\"" + JsonEscape(map.KeyReferenceTable) + "\"").Append(',');
+            sb.Append("\"reference_domain\":").Append(map.KeyReferenceDomain == null ? "null" : "\"" + JsonEscape(map.KeyReferenceDomain) + "\"").Append(',');
+            sb.Append("\"free_keys\":").Append(map.FreeKeys ? "true" : "false");
+            sb.Append('}');
+        }
+
+        private static void AppendMapValueJson(StringBuilder sb, MapSchema? map)
+        {
+            if (map == null)
+            {
+                sb.Append("null");
+                return;
+            }
+
+            sb.Append('{');
+            sb.Append("\"kind\":\"").Append(JsonEscape(map.ValueSchema.Kind.ToString())).Append('"');
             sb.Append('}');
         }
 

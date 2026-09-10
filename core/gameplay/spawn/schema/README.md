@@ -79,10 +79,10 @@
    本轮未改动一行——`spawn.table` 的 8 个字段本来就全是标量，没有登记空间。`SpawnSchemaCoverageTests.
    SpawnTable_HasNoObjectOrArrayFields_NoSubstructureToRegister` 用测试锁定这一结论：若后续任务给
    `spawn.table` 新增了 `Object`/`Array` 字段，本测试会失败，提醒作者重新评估是否需要补登记子结构。
-3. **Map 型对象**：不适用——`spawn.table` 没有任何 `Object` 字段（含"键值对不固定"的 Map 型），本节
-   无内容可列，与 `area_trigger`/`encounter` 等模块的同名一览表形成对照（那些模块确有 `Object` 字段
-   但因动态键而未登记 `Fields`，见各自 README 的"Map 型待后续契约扩展一览"一节）。
+3. **Map 型对象**：不适用——`spawn.table` 没有任何 `Object` 字段（含 ADR-0024"映射登记"覆盖的动态键
+   Map 型），本节无内容可列，与 `encounter` 等模块的同名一览表形成对照（那些模块确有 `Object` 字段，
+   已改用 `MapSchema` 登记，见各自 README 的"Map 型契约扩展"一节）。
 
-## Map 型待后续契约扩展一览（ADR-0019 首批范围外）
+## Map 型契约扩展（ADR-0024）
 
 不适用（见"判断记录 3"）——`spawn.table` 没有任何 `Object` 字段。

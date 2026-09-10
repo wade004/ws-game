@@ -6,8 +6,10 @@ namespace Tests.Numbers.Progression
 {
     /// <summary>
     /// ADR-0019 / F1c：<see cref="Core.Numbers.Progression.ProgSchemas.LevelCurve"/> 的
-    /// <c>entries</c> 子结构登记（<c>Item</c>，<c>growth</c> 为 Map 不登记），覆盖范围：子结构
-    /// 命中/坏形状各一例，<c>ProgLevelCurveValidationRule</c>（连续性业务判断）不因本次登记双报。
+    /// <c>entries</c> 子结构登记（<c>Item</c>；<c>growth</c> 自 ADR-0024 第二批登记起为
+    /// <c>MapSchema.ReferenceKeyTable("stat.definition", ...)</c>，见下方用例同时装配
+    /// <c>stat.definition</c> 表），覆盖范围：子结构命中/坏形状各一例，
+    /// <c>ProgLevelCurveValidationRule</c>（连续性业务判断）不因本次登记双报。
     /// </summary>
     public sealed class ProgSchemaCoverageTests
     {
@@ -24,11 +26,15 @@ namespace Tests.Numbers.Progression
             var rows = "[{\"id\":\"prog.level_curve.cov_sample\",\"max_level\":2,\"entries\":[" +
                 "{\"level\":1,\"xp_to_next\":100,\"growth\":{\"stat.cov_sample\":1}}," +
                 "{\"level\":2,\"xp_to_next\":200}]}]";
+            var statRows = "[{\"id\":\"stat.cov_sample\",\"name_key\":\"l10n.stat.cov_sample.name\",\"group\":\"primary\"}]";
 
-            var source = new InMemoryDataSource().Add(
-                Core.Numbers.Progression.ProgSchemas.LevelCurve.Name,
-                Envelope(Core.Numbers.Progression.ProgSchemas.LevelCurve.Name, rows));
+            var source = new InMemoryDataSource()
+                .Add(Core.Numbers.StatBlock.StatSchemas.Definition.Name,
+                    Envelope(Core.Numbers.StatBlock.StatSchemas.Definition.Name, statRows))
+                .Add(Core.Numbers.Progression.ProgSchemas.LevelCurve.Name,
+                    Envelope(Core.Numbers.Progression.ProgSchemas.LevelCurve.Name, rows));
             var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
             registry.RegisterSchema(Core.Numbers.Progression.ProgSchemas.LevelCurve);
             registry.RegisterValidationRule(new Core.Numbers.Progression.ProgLevelCurveValidationRule());
 

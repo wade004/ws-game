@@ -128,8 +128,9 @@ encounter/
    二选一、`spawn_ref`/`spawn_refs[]` 的 `spawn` domain 校验属登记表达不了的跨字段/跨表业务判断，
    继续保留在该规则里。`units[].template_ref` 升级为 `Reference(creature.template)`（L3，层级
    合法），`spawn_ref`/`waves[].spawn_refs[]` 因本模块与 `core/gameplay/spawn` 的既有决耦意图
-   （判断记录 2）保留 `Id`。`phases[].ai_rotation_override`（Map 型对象）本轮不登记子结构，待
-   `FieldKind` 未来支持动态键 Map 后再补（ADR-0019 首批范围外）。`GameplaySchemaCatalog.
+   （判断记录 2）保留 `Id`。`phases[].ai_rotation_override`（Map 型对象）已随 ADR-0024（04 第 3.3
+   节"映射登记"）登记为 `MapSchema.FreeKeyed`（键不做校验，值为 `FieldKind.Id`），见
+   `schema/README.md`"Map 型契约扩展"一节。`GameplaySchemaCatalog.
    RegisterEncounterSchemas` 无需改动（`EncounterContentValidationRule` 构造签名不变）。见
    `EncounterSchemas.cs`、`EncounterContentValidationRule.cs`、
    `EncounterSchemaCoverageTests.cs`。

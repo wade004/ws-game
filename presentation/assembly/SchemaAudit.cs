@@ -36,7 +36,8 @@ namespace Presentation.Assembly
 
         /// <summary>检查项名：<c>missing_description</c>/<c>composite_without_substructure</c>/
         /// <c>allowlist_entry_unused</c>/<c>reference_target_unknown</c>/<c>variant_shape</c>/
-        /// <c>unschematized_table</c>/<c>field_range_kind</c>（ADR-0021）。</summary>
+        /// <c>unschematized_table</c>/<c>field_range_kind</c>（ADR-0021）/<c>field_map_kind</c>/
+        /// <c>field_map_conflict</c>（ADR-0024）。</summary>
         public string Check { get; }
 
         public string Message { get; }
@@ -433,6 +434,16 @@ namespace Presentation.Assembly
                     $"字段 \"{path}\" 登记了 Range，但 Kind 为 {field.Kind}——Range 仅 Number/Int 字段可设"));
             }
 
+            // ADR-0024（04 第 3.3 节"映射登记"）自洽检查：Map 只能登记在 Object 字段上，刻意不在
+            // FieldSchema.WithMap 挂载时检查（同 field_range_kind 一致的既有风格，见 FieldSchema.Map
+            // 判断记录）。与 Fields/Variants 的冲突检查见下方 Object 分支（field_map_conflict 需要
+            // 先确认 Kind == Object 才有意义比较三者，故放在那里而不是这里）。
+            if (field.Map != null && field.Kind != FieldKind.Object)
+            {
+                issues.Add(new SchemaAuditIssue("error", tableName, path, "field_map_kind",
+                    $"字段 \"{path}\" 登记了 Map，但 Kind 为 {field.Kind}——Map 仅 Object 字段可设"));
+            }
+
             if (field.Kind == FieldKind.Reference)
             {
                 if (field.ReferenceTable != null && !allTableNames.Contains(field.ReferenceTable))
@@ -505,6 +516,24 @@ namespace Presentation.Assembly
                 {
                     var variants = field.Variants;
                     var subFields = field.Fields;
+                    var map = field.Map;
+
+                    // ADR-0024：Map 与 Fields/Variants 互斥——三者哪怕并非全部为 null 也不代表登记
+                    // 合法，报告冲突后不再继续展开（见 field_map_conflict，同 field_map_kind 一样是
+                    // 静态门禁检查项，不依赖运行期数据）。
+                    if (map != null && (variants != null || subFields != null))
+                    {
+                        issues.Add(new SchemaAuditIssue("error", tableName, path, "field_map_conflict",
+                            $"字段 \"{path}\" 同时登记了 Map 与 Fields/Variants，三者互斥（ADR-0024 决策 1）"));
+                        return;
+                    }
+
+                    if (map != null)
+                    {
+                        CheckMapKeyReference(tableName, path, map, issues, allTableNames);
+                        WalkField(tableName, timeScope, map.ValueSchema, path + "[*]", depth + 1, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
+                        return;
+                    }
 
                     if (variants == null && subFields == null)
                     {
@@ -554,7 +583,26 @@ namespace Presentation.Assembly
             }
 
             issues.Add(new SchemaAuditIssue("error", tableName, path, "composite_without_substructure",
-                $"字段 \"{path}\" 是 {kindLabel} 但未登记子结构（{(kindLabel == "Object" ? "Fields/Variants" : "Item")}），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason"));
+                $"字段 \"{path}\" 是 {kindLabel} 但未登记子结构（{(kindLabel == "Object" ? "Fields/Variants/Map" : "Item")}），若确认暂不支持结构化登记（如自由不透明扩展位），须加入 toolchain/schema_audit_allowlist.json 并写明 reason"));
+        }
+
+        /// <summary>ADR-0024（04 第 3.3 节"映射登记"）：<see cref="MapSchema.KeyReferenceTable"/>/
+        /// <see cref="MapSchema.KeyReferenceDomain"/> 的目标存在性检查，与 <see cref="FieldKind.Reference"/>/
+        /// <see cref="FieldKind.IdList"/> 分支的同名 <c>reference_target_unknown</c> 检查项同一套判定
+        /// 逻辑，只是主体从"字段自身的引用目标"换成"映射键的引用目标"。<see cref="MapSchema.FreeKeys"/>
+        /// 时两者均为 null，无需检查（<see cref="MapSchema"/> 构造期已保证三选一，见该类型判断记录）。</summary>
+        private static void CheckMapKeyReference(string tableName, string path, MapSchema map, List<SchemaAuditIssue> issues, HashSet<string> allTableNames)
+        {
+            if (map.KeyReferenceTable != null && !allTableNames.Contains(map.KeyReferenceTable))
+            {
+                issues.Add(new SchemaAuditIssue("error", tableName, path, "reference_target_unknown",
+                    $"字段 \"{path}\" 的 Map.KeyReferenceTable \"{map.KeyReferenceTable}\" 不在已登记表清单内"));
+            }
+            if (map.KeyReferenceDomain != null && !KnownDomains.Contains(map.KeyReferenceDomain))
+            {
+                issues.Add(new SchemaAuditIssue("error", tableName, path, "reference_target_unknown",
+                    $"字段 \"{path}\" 的 Map.KeyReferenceDomain \"{map.KeyReferenceDomain}\" 不在 04 第 2.2 节域名清单内（architecture/04_数据与内容管线.md）"));
+            }
         }
 
         private static void WalkVariant(

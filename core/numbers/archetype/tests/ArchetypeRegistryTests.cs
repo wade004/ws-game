@@ -70,12 +70,23 @@ namespace Tests.Numbers.Archetype
             }
         ]";
 
+        /// <summary>ADR-0024 第二批登记：<c>arch.class.base_stats</c>/<c>arch.race.stat_mods</c> 现
+        /// 登记 <c>MapSchema.ReferenceKeyTable("stat.definition", ...)</c>，本夹具用到的
+        /// stat.strength/stat.vitality/stat.agility 三个键必须能在 stat.definition 表里查到，否则加载期
+        /// 报 reference_integrity（见 <see cref="StatSchemas.Definition"/>）。</summary>
+        private const string StatDefinitionRows = @"[
+            { ""id"": ""stat.strength"", ""name_key"": ""l10n.stat.strength.name"", ""group"": ""primary"" },
+            { ""id"": ""stat.vitality"", ""name_key"": ""l10n.stat.vitality.name"", ""group"": ""primary"" },
+            { ""id"": ""stat.agility"", ""name_key"": ""l10n.stat.agility.name"", ""group"": ""primary"" }
+        ]";
+
         private static DataRegistry MakeRegistry(
             string classRows, string raceRows, string talentTreeRows,
             out IEventBus bus, bool includeLevelCurve = true, bool registerTalentRule = true)
         {
             bus = MakeBus();
             var source = new InMemoryDataSource()
+                .Add("stat.definition", Envelope("stat.definition", StatDefinitionRows))
                 .Add("arch.class", Envelope("arch.class", classRows))
                 .Add("arch.race", Envelope("arch.race", raceRows))
                 .Add("arch.talent_tree", Envelope("arch.talent_tree", talentTreeRows));
@@ -86,6 +97,7 @@ namespace Tests.Numbers.Archetype
             }
 
             var registry = new DataRegistry(source, bus, new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
             registry.RegisterSchema(ArchSchemas.Class);
             registry.RegisterSchema(ArchSchemas.Race);
             registry.RegisterSchema(ArchSchemas.TalentTree);

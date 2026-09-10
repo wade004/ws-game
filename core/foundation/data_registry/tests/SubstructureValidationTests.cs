@@ -654,5 +654,42 @@ namespace Tests.Foundation.Data
             Assert.Null(field.Item);
             Assert.Null(field.Variants);
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0024 第二批登记（04 第 3.3 节勘误"映射登记"复核）：found.event_catalog.fields 复核后
+        // 确认与"动态键映射"无关——真实形状是"数组元素类型固定为字符串"，直接用既有 Array.Item
+        // 登记（不需要 Map），见 BuiltinSchemas.cs 判断记录。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void FoundEventCatalogFields_StringElements_LoadsWithoutErrors()
+        {
+            var rows = "[{\"key\":\"test.cov_event\",\"domain\":\"test\",\"fields\":[\"unitId\",\"amount\"]}]";
+            var source = new InMemoryDataSource().Add(
+                Core.Foundation.DataRegistry.BuiltinSchemas.FoundEventCatalog.Name,
+                Envelope(Core.Foundation.DataRegistry.BuiltinSchemas.FoundEventCatalog.Name, 1, rows));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(Core.Foundation.DataRegistry.BuiltinSchemas.FoundEventCatalog);
+
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        [Fact]
+        public void FoundEventCatalogFields_NonStringElement_ReportsFieldType()
+        {
+            var rows = "[{\"key\":\"test.cov_bad_event\",\"domain\":\"test\",\"fields\":[123]}]";
+            var source = new InMemoryDataSource().Add(
+                Core.Foundation.DataRegistry.BuiltinSchemas.FoundEventCatalog.Name,
+                Envelope(Core.Foundation.DataRegistry.BuiltinSchemas.FoundEventCatalog.Name, 1, rows));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(Core.Foundation.DataRegistry.BuiltinSchemas.FoundEventCatalog);
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_type" && i.Field == "fields[0]");
+        }
     }
 }

@@ -48,8 +48,14 @@ namespace Presentation.VfxSfx.Schema
 
         /// <summary><c>display.weapon_style</c>（09 第 4.4 节）：判断记录同
         /// <c>Core.Foundation.DisplayInfo.DisplaySchemas</c>——<c>cast_anim_override</c>/
-        /// <c>impact_vfx_override</c> 是 "Id → Id" 映射，schema 层只声明为 <see cref="FieldKind.Object"/>
-        /// （结构由上层模块自行解释，见 <see cref="FieldKind.Object"/> 类型注释），不做逐键引用校验。</summary>
+        /// <c>impact_vfx_override</c> 是 "Id → Id" 映射。ADR-0024 第二批登记：键（技能 id）与值
+        /// （动作剪辑/特效引用 id）均登记为 <see cref="MapSchema.FreeKeyed"/> + <see cref="FieldKind.Id"/>
+        /// ——只做格式校验，不做逐键引用完整性校验，理由与本表 <c>auto_attack_anim</c>/
+        /// <c>swing_vfx</c> 两个同类字段维持 <see cref="FieldKind.Id"/>（不升级为 Reference）完全一致
+        /// （本模块不静态耦合 skill.def/vfx.def 的表结构，见类型注释与 <c>WeaponStyleDef.ParseIdMap</c>
+        /// 判断记录），只是把"存在且是对象"升级为"键值均是合法 Id 格式"，与
+        /// <c>WeaponStyleDef.ParseIdMap</c> 对键值均 <c>Id.TryParse</c>、非法即抛
+        /// <c>DataFieldException</c> 的解析代码逐字段核对一致。</summary>
         public static readonly TableSchema WeaponStyle = new TableSchema(
             name: "display.weapon_style",
             primaryKey: "id",
@@ -58,9 +64,15 @@ namespace Presentation.VfxSfx.Schema
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "display.weapon_style.<name>"),
                 new FieldSchema("auto_attack_anim", FieldKind.Id, required: true, description: "普攻动作剪辑引用"),
-                new FieldSchema("cast_anim_override", FieldKind.Object, required: false, description: "按技能 id 覆盖施法动作剪辑：{skillId: animClipId}"),
+                new FieldSchema("cast_anim_override", FieldKind.Object, required: false, description: "按技能 id 覆盖施法动作剪辑：{skillId: animClipId}")
+                    .WithMap(MapSchema.FreeKeyed(
+                        "键为技能 id，本模块不静态耦合 skill.def 表结构（同类型注释判断记录）；值为动作剪辑引用，由引擎适配层解析，均只做格式校验",
+                        new FieldSchema("<anim_clip_id>", FieldKind.Id, required: true, description: "覆盖的施法动作剪辑引用"))),
                 new FieldSchema("swing_vfx", FieldKind.Id, required: false, description: "挥舞轨迹特效，指向 vfx.def"),
-                new FieldSchema("impact_vfx_override", FieldKind.Object, required: false, description: "按技能 id 覆盖命中特效：{skillId: vfxId}"),
+                new FieldSchema("impact_vfx_override", FieldKind.Object, required: false, description: "按技能 id 覆盖命中特效：{skillId: vfxId}")
+                    .WithMap(MapSchema.FreeKeyed(
+                        "键为技能 id，本模块不静态耦合 skill.def 表结构（同类型注释判断记录）；值为 vfx.def 引用，同 swing_vfx 字段不做引用完整性检查，只做格式校验",
+                        new FieldSchema("<vfx_id>", FieldKind.Id, required: true, description: "覆盖的命中特效引用，指向 vfx.def，不做引用完整性检查"))),
             },
             migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "display");
 

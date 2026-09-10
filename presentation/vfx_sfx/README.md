@@ -156,10 +156,12 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     `EquipmentVisualSource` 存在同源风险但未展开 Unity 端到端证据，因此不在本轮改动，留给后续以该
     模块自己的复现证据立项（不是遗漏，是刻意维持审核范围边界）。
 
-14. **ADR-0019 F1c 判断记录（`display.weapon_style.cast_anim_override`/`impact_vfx_override`
-    不登记子结构）**：两者均为 `Id → Id` 动态键映射（按技能 id 覆盖动作剪辑/命中特效），是真正的
-    Map（键为任意 `skillId`，值同构），按 ADR-0019 通用规则 5 保持"存在且是对象"，不为此扩展
-    契约到新的 `FieldKind`。
+14. **ADR-0024 第二批登记（`display.weapon_style.cast_anim_override`/`impact_vfx_override`，取代
+    下方已废止的 ADR-0019 F1c 判断记录）**：两者均为 `Id → Id` 动态键映射（按技能 id 覆盖动作剪辑/
+    命中特效），现登记为 `MapSchema.FreeKeyed`（键为技能 id，本模块不静态耦合 `skill.def` 表结构；
+    值为 `FieldKind.Id`，与本表 `auto_attack_anim`/`swing_vfx` 两个同类字段一致，只做格式校验，不做
+    引用完整性检查），与 `WeaponStyleDef.ParseIdMap` 对键值均 `Id.TryParse`、非法即抛
+    `DataFieldException` 的解析代码逐字段核对一致。
 15. **VFX anchor/socket 持续跟随根治（第十四轮审核 c9ff301，2026-09-10）**：此前 `Spawn` 对
     `attach_mode: anchor` 只在生成那一刻解析一次挂接目标的世界坐标就 `EmitParticle`，`Update`
     只推进对象池与首次加载超时，不会随挂接目标继续移动而重新定位——本模块契约面（`IVfxPlayer`）

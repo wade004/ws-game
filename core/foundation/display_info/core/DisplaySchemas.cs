@@ -65,7 +65,24 @@ namespace Core.Foundation.DisplayInfo
                     item: new FieldSchema("<layer>", FieldKind.String, required: true, description: "纸娃娃分层引用名"),
                     description: "纸娃娃分层引用列表，仅 item/creature 使用"),
                 new FieldSchema("anchor_points", FieldKind.Object, required: false,
-                    description: "Map<anchor_name, AnchorDef>，键为锚点名（动态），ADR-0019 通用规则 5 不登记子结构"),
+                    description: "Map<anchor_name, AnchorDef>，键为锚点名（动态，内容作者自行声明，不指向任何已登记表）")
+                    .WithMap(MapSchema.FreeKeyed(
+                        "锚点名是内容作者在本条记录内自行声明的局部名字，供渲染层按字符串键回查，不指向任何已登记表的既有记录（同 sockets/slots 字段的 FreeIds 判断记录）",
+                        new FieldSchema("<anchor_def>", FieldKind.Object, required: true, fields: new[]
+                        {
+                            // DisplayInfo.ParseAnchorDef：parent_layer/offset 均必填，非法即抛
+                            // DataFieldException；parent_layer 引用 paperdoll_layers 列表元素（本身是
+                            // 裸字符串，见 AnchorDef.ParentLayer 判断记录），不收紧为 Id 格式。
+                            new FieldSchema("parent_layer", FieldKind.String, required: true,
+                                description: "所属纸娃娃层名，引用 paperdoll_layers 的一个元素（裸字符串，不要求 Id 格式）"),
+                            new FieldSchema("offset", FieldKind.Vec2, required: true,
+                                description: "相对父层原点的默认偏移"),
+                            new FieldSchema("offset_by_direction", FieldKind.Object, required: false,
+                                description: "按方向档位覆盖偏移，缺省用 offset；键为方向槽位 id（与 mirror_pairs.direction_slot 同一套局部 id 空间，不指向已登记表）")
+                                .WithMap(MapSchema.FreeKeyed(
+                                    "方向槽位 id 是 IRenderConventionHost.ResolveDirectionSlot 返回的局部约定值，与 mirror_pairs.direction_slot 同一套 id 空间，不指向任何已登记表",
+                                    new FieldSchema("<offset>", FieldKind.Vec2, required: true, description: "该方向槽位覆盖的偏移"))),
+                        }, description: "{parent_layer: String, offset: Vec2, offset_by_direction?: Map<Id,Vec2>}，见 DisplayInfo.ParseAnchorDef"))),
 
                 // model 型专属字段（schema 层非必填，见类型注释）
                 new FieldSchema("model_ref", FieldKind.Id, required: false, description: "model 型专属，模型资源的间接引用，由引擎适配层解析加载"),
@@ -75,9 +92,17 @@ namespace Core.Foundation.DisplayInfo
                 new FieldSchema("slots", FieldKind.IdList, required: false, description: "model 型专属，该模型声明的可换装槽位 id 列表，供 display.equip_visual 的 slot_mesh 模式引用")
                     .WithFreeIds("槽位 id 由本条记录自行声明的局部名字，不指向任何已登记表的既有记录；display.equip_visual.slot_id 按字符串比较，不在本字段做引用完整性检查"),
                 new FieldSchema("default_slot_meshes", FieldKind.Object, required: false,
-                    description: "Map<slot_id, mesh_ref:Id>，动态键，ADR-0019 通用规则 5 不登记子结构"),
+                    description: "Map<slot_id, mesh_ref:Id>，键为 slots 字段自行声明的局部槽位 id（不指向已登记表），值是引擎适配层解析的网格资源引用（同 model_ref，不做引用完整性检查）")
+                    .WithMap(MapSchema.FreeKeyed(
+                        "槽位 id 由本条记录自行声明的局部名字（slots 字段），不指向任何已登记表的既有记录，同 slots/sockets 字段的 FreeIds 判断记录",
+                        new FieldSchema("<mesh_ref>", FieldKind.Id, required: true,
+                            description: "该槽位默认换装的网格资源引用，由引擎适配层解析加载，不做引用完整性检查"))),
                 new FieldSchema("material_params", FieldKind.Object, required: false,
-                    description: "Map<param_name, Number>，动态键，ADR-0019 通用规则 5 不登记子结构"),
+                    description: "Map<param_name, Number>，键为材质参数名（自由字符串，非 Id 格式）")
+                    .WithMap(MapSchema.FreeKeyed(
+                        "材质参数名是引擎材质系统的参数名，自由字符串（不要求 Id 格式），不指向任何已登记表",
+                        new FieldSchema("<param_value>", FieldKind.Number, required: true,
+                            description: "该材质参数的取值"))),
             },
             migrations: Array.Empty<TableMigration>())
             .WithOwnership(SchemaLayer.Foundation, "display");
@@ -90,7 +115,30 @@ namespace Core.Foundation.DisplayInfo
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "display.anim_set.<name>"),
-                new FieldSchema("clips", FieldKind.Object, required: true, description: "剪辑 id 到 {resource_ref, events} 的映射，见 04 第 7.1.1 节"),
+                // ADR-0024 第二批登记：键为剪辑名（自由字符串，AnimSetDef.Clips 类型注释"不要求点分
+                // Id 格式"），值结构与 AnimSetDef.ParseClip 逐字段核对一致——resource_ref 必填 Id，
+                // events 可选数组，元素 {name: 非空 String, time_pct: Number} 均必填（对照
+                // AnimSetEventsShapeRule.ValidateEvent 的同款结构性检查，Error 级）。time_pct 越界
+                // [0,1] 刻意不在此登记 Range：AnimSetEventsShapeRule 已把这条判定为 Warning（语义
+                // 合理性问题，FromRecord 仍能解析成功），登记 Range 会把同一违规提升为 Error，与既有
+                // 规则的严重级别产生分歧，见该规则类型判断记录"只登记警告，不阻断加载"。
+                new FieldSchema("clips", FieldKind.Object, required: true, description: "剪辑 id 到 {resource_ref, events} 的映射，见 04 第 7.1.1 节")
+                    .WithMap(MapSchema.FreeKeyed(
+                        "剪辑名是内容作者自行命名的剪辑标识，不要求点分 Id 格式，不指向任何已登记表（见 AnimSetDef.Clips 类型注释）",
+                        new FieldSchema("<clip>", FieldKind.Object, required: true, fields: new[]
+                        {
+                            new FieldSchema("resource_ref", FieldKind.Id, required: true,
+                                description: "指向具体动画剪辑资产的资源引用，由引擎适配层解析"),
+                            new FieldSchema("events", FieldKind.Array, required: false,
+                                item: new FieldSchema("<event>", FieldKind.Object, required: true, fields: new[]
+                                {
+                                    new FieldSchema("name", FieldKind.String, required: true,
+                                        description: "事件标记名，如 hit_frame"),
+                                    new FieldSchema("time_pct", FieldKind.Number, required: true,
+                                        description: "事件在剪辑时间轴上的相对位置，建议 [0,1]；越界由 AnimSetEventsShapeRule 报 Warning，不在此登记 Range（见判断记录）"),
+                                }, description: "单条关键帧事件"),
+                                description: "缺省空列表；未声明 events 字段时 AnimSetDef.FromRecord 视为无关键帧事件"),
+                        }, description: "{resource_ref: Id, events?: [{name, time_pct}]}，见 AnimSetDef.ParseClip"))),
             },
             migrations: Array.Empty<TableMigration>())
             .WithOwnership(SchemaLayer.Foundation, "display");

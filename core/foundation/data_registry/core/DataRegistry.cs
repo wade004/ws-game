@@ -1078,7 +1078,8 @@ namespace Core.Foundation.DataRegistry
         // 字段级校验（04 第 5 节：required_field / field_type / reference_integrity /
         // text_key_exists / expr_parsable，以及 ADR-0019 复合字段子结构校验新增的
         // variant_discriminator / substructure_depth / unknown_subfield，ADR-0021 范围约束新增的
-        // field_range；envelope / schema_version / primary_key 已在 LoadOneTablePartial 中检查）
+        // field_range，ADR-0024 映射登记复用 reference_integrity（键）与既有值种类检查项（值），不
+        // 新增检查名；envelope / schema_version / primary_key 已在 LoadOneTablePartial 中检查）
         //
         // 判断记录（ADR-0019 落地，子结构递归）：Object.Fields/Variants、Array.Item 的递归校验与
         // 顶层字段共用同一套 required_field/field_type/reference_integrity/text_key_exists/
@@ -1255,7 +1256,8 @@ namespace Core.Foundation.DataRegistry
 
             var variants = field.Variants;
             var fields = field.Fields;
-            if (variants == null && fields == null)
+            var map = field.Map;
+            if (variants == null && fields == null && map == null)
             {
                 return; // 未登记子结构：维持"存在且是对象"（向后兼容）。
             }
@@ -1266,7 +1268,15 @@ namespace Core.Foundation.DataRegistry
                 return;
             }
 
-            if (variants != null)
+            // ADR-0024（04 第 3.3 节"映射登记"）：Map 与 Fields/Variants 互斥，登记冲突本身是
+            // SchemaAudit 的 field_map_conflict 检查项职责（静态门禁，见该类型注释）；这里按 Map
+            // 优先处理并直接返回，不再对同一处冲突重复递归/重复计数——与 SchemaAudit.WalkField 遇到
+            // 同一冲突时的"报告后不继续展开"处理方式一致。
+            if (map != null)
+            {
+                ValidateMapObject(table, recordKey, fieldPath, map, obj, issues, depth);
+            }
+            else if (variants != null)
             {
                 ValidateVariantObject(table, recordKey, fieldPath, variants, obj, issues, depth);
             }
@@ -1275,6 +1285,51 @@ namespace Core.Foundation.DataRegistry
                 var known = new HashSet<string>(StringComparer.Ordinal);
                 ValidateFieldList(table, recordKey, fieldPath, fields, obj, issues, depth, known);
                 ReportUnknownSubfields(table, recordKey, fieldPath, obj, known, issues);
+            }
+        }
+
+        /// <summary>ADR-0024（04 第 3.3 节"映射登记"）：<see cref="FieldSchema.Map"/> 已登记时的
+        /// <see cref="FieldKind.Object"/> 递归校验——键按 <see cref="MapSchema.KeyReferenceTable"/>/
+        /// <see cref="MapSchema.KeyReferenceDomain"/> 并入 <c>reference_integrity</c> 检查项（复用
+        /// <see cref="ReferenceExists"/>/<see cref="ReferenceExistsInDomain"/>，与
+        /// <see cref="ValidateReferenceField"/>/<see cref="ValidateIdList"/> 同一套判定逻辑，只是主体
+        /// 从"字段值"换成"字段的每个键"）；<see cref="MapSchema.FreeKeys"/> 时键不做任何校验。每个值
+        /// 按 <see cref="MapSchema.ValueSchema"/> 递归调用 <see cref="ValidateFieldValue"/>，路径记法
+        /// <c>fieldPath[key]</c>（04 第 3.3 节示例 <c>base_stats[stat.strength]</c>），不新增平行的
+        /// 检查名/实现（同 ADR-0019 类型顶部判断记录"子层校验必须与顶层共用同一份实现"）。不做
+        /// <see cref="ReportUnknownSubfields"/>：映射字段的键集合本就是动态的，没有"已知键清单"可
+        /// 比对，任何满足键约束的键都是合法键。</summary>
+        private void ValidateMapObject(string table, string recordKey, string fieldPath, MapSchema map, JsonObject obj, List<ValidationIssue> issues, int depth)
+        {
+            foreach (var entry in obj)
+            {
+                var key = entry.Key;
+                var elementPath = $"{fieldPath}[{key}]";
+
+                if (map.KeyReferenceTable != null)
+                {
+                    if (!ReferenceExists(map.KeyReferenceTable, key))
+                    {
+                        issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "reference_integrity",
+                            $"字段 \"{fieldPath}\" 的键 \"{key}\" 在表 \"{map.KeyReferenceTable}\" 中不存在", recordKey: recordKey, field: elementPath));
+                    }
+                }
+                else if (map.KeyReferenceDomain != null)
+                {
+                    if (!CommonId.TryParse(key, out var idVal) || !string.Equals(idVal.Domain, map.KeyReferenceDomain, StringComparison.Ordinal))
+                    {
+                        issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "reference_integrity",
+                            $"字段 \"{fieldPath}\" 的键 \"{key}\" 的 domain 应为 \"{map.KeyReferenceDomain}\"", recordKey: recordKey, field: elementPath));
+                    }
+                    else if (!ReferenceExistsInDomain(map.KeyReferenceDomain, key))
+                    {
+                        issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "reference_integrity",
+                            $"字段 \"{fieldPath}\" 的键 \"{key}\" 在 domain \"{map.KeyReferenceDomain}\" 下的任何已加载表中都不存在",
+                            recordKey: recordKey, field: elementPath));
+                    }
+                }
+
+                ValidateFieldValue(table, recordKey, elementPath, map.ValueSchema, entry.Value, issues, depth + 1);
             }
         }
 

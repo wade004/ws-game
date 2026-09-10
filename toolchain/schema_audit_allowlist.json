@@ -1,60 +1,15 @@
 {
-  "_comment": "F3 元数据门禁（ADR-0018 决策 3、ADR-0019 决策 4）composite_without_substructure 白名单。见 Presentation.Assembly.SchemaAudit 类型注释——只允许豁免 composite_without_substructure，不允许豁免 missing_description。table/field 定位一个字段，field 用 SchemaAuditIssue.FieldPath 同款记法（Object.Fields/Variants.CommonFields 追加 \".子字段名\"，Array.Item 追加 \"[]\"，Variants.Cases[case] 追加 \"{判别字段=case}\"）。每条必须写 reason，来源与逐条核实见 architecture/落地计划 F3 交付说明；toolchain/tests/SchemaAuditTests.cs 断言真实登记跑出的 composite_without_substructure 命中恰好等于本文件条目集合。",
+  "_comment": "F3 元数据门禁（ADR-0018 决策 3、ADR-0019 决策 4）composite_without_substructure 白名单。见 Presentation.Assembly.SchemaAudit 类型注释——只允许豁免 composite_without_substructure，不允许豁免 missing_description。table/field 定位一个字段，field 用 SchemaAuditIssue.FieldPath 同款记法（Object.Fields/Variants.CommonFields 追加 \".子字段名\"，Array.Item 追加 \"[]\"，Object.Map 追加 \"[*]\"，Variants.Cases[case] 追加 \"{判别字段=case}\"）。每条必须写 reason，来源与逐条核实见 architecture/落地计划 F3 交付说明；toolchain/tests/SchemaAuditTests.cs 断言真实登记跑出的 composite_without_substructure 命中恰好等于本文件条目集合。ADR-0024（04 第 3.3 节\"映射登记\"）落地后，原 18 条动态键 Map 型条目中的 13 条已改用 MapSchema 登记（见架构落地计划 2026-09-10 编辑器第三批回复文档第 21 条最终清单），本文件收敛到剩余 7 条——这些字段确属无消费固定子键的解析代码（原样透传/占位扩展位）或现有登记 DSL 仍表达不了的联合类型，理由逐条见下。",
   "entries": [
     {
-      "table": "found.event_catalog",
-      "field": "fields",
-      "reason": "事件字段名清单：BuiltinSchemas.cs 判断记录明确按设计只登记字段名（string 数组），不登记类型/结构；EventDefinition.Fields 全程只做透传存储，没有消费固定子键的解析代码，Array.Item 机制无法表达"
-    },
-    {
-      "table": "display.map",
-      "field": "anchor_points",
-      "reason": "Map<anchor_name, AnchorDef>，键为锚点名，是动态键（ADR-0019 通用规则 5：动态键 Map 型对象不登记子结构），Fields 机制要求固定键清单，无法表达"
-    },
-    {
-      "table": "display.map",
-      "field": "default_slot_meshes",
-      "reason": "Map<slot_id, mesh_ref: Id>，键为槽位 id，动态键 Map 型，同 ADR-0019 通用规则 5"
-    },
-    {
-      "table": "display.map",
-      "field": "material_params",
-      "reason": "Map<param_name, Number>，键为材质参数名，动态键 Map 型，同 ADR-0019 通用规则 5"
-    },
-    {
-      "table": "display.anim_set",
-      "field": "clips",
-      "reason": "Map<剪辑名, {resource_ref, events}>：外层键（剪辑名）动态，值结构虽固定且确有 AnimSetDef.FromRecord/AnimSetEventsShapeRule 解析，但当前 Fields/Item/Variants 机制无法表达“动态键 -> 固定值结构”，属登记 DSL 表达力限制（未来扩展 DSL 时的重点候选），暂按 ADR-0019 通用规则 5 处理"
+      "table": "arch.talent_tree",
+      "field": "nodes[].grants",
+      "reason": "ArchSchemas.cs 判断记录明确：grants 结构未在本模块任何位置被进一步解析/消费（ArchetypeRegistry 只原样存成 JsonObject），当前无运行时解析代码可作登记依据（ADR-0024 复核未变：全仓搜索仍未发现任何消费方对其做固定子键或动态键解析）"
     },
     {
       "table": "found.time_model",
       "field": "grid_snap",
-      "reason": "{cell_size: Number} 为文档承诺的结构，但全仓搜索未发现任何运行时代码读取 grid_snap/cell_size（Unity 适配层格子导航用的是硬编码常量，与本字段无关），当前没有解析代码可作登记依据"
-    },
-    {
-      "table": "prog.level_curve",
-      "field": "entries[].growth",
-      "reason": "Map<stat_id, Number>，键为属性 id，动态键 Map 型，同 ADR-0019 通用规则 5，无消费固定子键的解析代码"
-    },
-    {
-      "table": "arch.class",
-      "field": "base_stats",
-      "reason": "Object<stat_id, Number>，StatBaseWriter 按动态 stat_id 遍历写入，不是固定子键结构，动态键 Map 型"
-    },
-    {
-      "table": "arch.race",
-      "field": "stat_mods",
-      "reason": "Object<stat_id, Number>，StatModifierWriter 按动态 stat_id 遍历写入，动态键 Map 型，同 arch.class.base_stats"
-    },
-    {
-      "table": "arch.talent_tree",
-      "field": "nodes[].grants",
-      "reason": "ArchSchemas.cs 判断记录明确：grants 结构未在本模块任何位置被进一步解析/消费（ArchetypeRegistry 只原样存成 JsonObject），当前无运行时解析代码可作登记依据"
-    },
-    {
-      "table": "ai.behavior_profile",
-      "field": "transitions",
-      "reason": "Map<转移名, Expr 文本>，键为转移名，动态键 Map 型，同 ADR-0019 通用规则 5，无消费固定子键的解析代码"
+      "reason": "{cell_size: Number} 为文档承诺的结构，但全仓搜索未发现任何运行时代码读取 grid_snap/cell_size（Unity 适配层格子导航用的是硬编码常量，与本字段无关），当前没有解析代码可作登记依据（ADR-0024 复核未变：既非固定键结构也无动态键 Map 消费代码）"
     },
     {
       "table": "item.affix",
@@ -62,44 +17,24 @@
       "reason": "ItemSchemas.cs 判断记录明确标注为扩展位占位字段，本版不解析、不实现（item.affix 表本版仅登记 schema，不接入真实数据集），无解析代码"
     },
     {
-      "table": "creature.template",
-      "field": "base_stats",
-      "reason": "Map<StatKey, Number>，同 arch.class.base_stats/arch.race.stat_mods，按动态 key 遍历写入，动态键 Map 型"
-    },
-    {
       "table": "gobj.template",
       "field": "type_data.trigger_shape",
-      "reason": "GobjSchemas.cs 判断记录：Shape 联合类型具体形状不属本模块解析范围，TrapTypeData.TriggerShape 原样透传给 L4；全仓未发现任何下游模块对其做固定子键解析，仅作不透明 JsonObject 透传"
+      "reason": "GobjSchemas.cs 判断记录：Shape 联合类型具体形状不属本模块解析范围，TrapTypeData.TriggerShape 原样透传给 L4；全仓未发现任何下游模块对其做固定子键解析，仅作不透明 JsonObject 透传（ADR-0024 复核：AreaTriggerShapeJson.Parse 的判断记录提到 gobj.template.type_data.trap.trigger_shape 只是文档层面点出语义对应关系，全仓未发现任何实际调用点对本字段执行该解析，仍是纯透传，不是动态键 Map，登记 Map 会声称一个不存在的键值约束）"
     },
     {
       "table": "world.flag_schema",
       "field": "allowed_values",
-      "reason": "WorldStateSchemas.cs 判断记录明确：该表本身不参与运行期加载、无运行时解析代码可作登记依据，且元素类型随同记录 kind 字段动态变化，Item 机制无法表达"
+      "reason": "WorldStateSchemas.cs 判断记录明确：该表本身不参与运行期加载、无运行时解析代码可作登记依据，且元素类型随同记录 kind 字段动态变化，Item 机制无法表达（ADR-0024 复核：这是数组元素类型随 kind 变化的联合类型问题，不是动态键 Map 问题，MapSchema 同样无法表达）"
     },
     {
       "table": "dialog.gossip_menu",
       "field": "options[].actions[]{kind=set_flag}.params",
-      "reason": "唯一子键 value 经 ExprValueJson.Parse 解析，取值是 Bool|Int|Number|String|{$id: Id} 的标量联合类型，现有 FieldKind 枚举无法表达该联合类型（不是多子键对象结构问题）"
-    },
-    {
-      "table": "encounter.def",
-      "field": "phases[].ai_rotation_override",
-      "reason": "EncounterSchemas.cs 判断记录明确：Map<Id, Id>（作战单位/模板 id -> 覆盖用的 ai.rotation id），现有 FieldSchema.Fields 只表达固定键清单，无法表达任意键的 Map"
-    },
-    {
-      "table": "display.weapon_style",
-      "field": "cast_anim_override",
-      "reason": "{skillId: animClipId}，WeaponStyleDef.ParseIdMap 解析为 Dictionary<Id,Id>，键为技能 id，动态键 Map 型（值虽是简单 Id 标量，但键集合不固定）"
-    },
-    {
-      "table": "display.weapon_style",
-      "field": "impact_vfx_override",
-      "reason": "{skillId: vfxId}，同 cast_anim_override，WeaponStyleDef.ParseIdMap 解析，动态键 Map 型"
+      "reason": "唯一子键 value 经 ExprValueJson.Parse 解析，取值是 Bool|Int|Number|String|{$id: Id} 的标量联合类型，现有 FieldKind 枚举无法表达该联合类型（不是多子键对象结构问题，ADR-0024 的动态键 Map 扩展同样解决不了固定单键、值类型是联合类型这个缺口——本字段的键是固定的 \"value\"，不是动态键，问题在值的类型，不在键的形态）"
     },
     {
       "table": "ui_layout_definition",
       "field": "fields",
-      "reason": "UiLayoutSchema.cs 类型注释明确：具体布局参数结构留给引擎适配层/表现资源解释，本模块（技术无关框架层）不应绑定具体引擎的布局参数形状；UiLayoutDefinition.FromRecord 只原样存成 JsonObject，不做任何子键解析"
+      "reason": "UiLayoutSchema.cs 类型注释明确：具体布局参数结构留给引擎适配层/表现资源解释，本模块（技术无关框架层）不应绑定具体引擎的布局参数形状；UiLayoutDefinition.FromRecord 只原样存成 JsonObject，不做任何子键解析（ADR-0024 复核未变：既非固定键也非动态键 Map，是刻意保持引擎无关的自由扩展位，登记 Map 会反过来给\"引擎无关\"这条设计意图强加一个不存在的键值约束）"
     }
   ]
 }
