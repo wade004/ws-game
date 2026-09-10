@@ -118,6 +118,54 @@ V-01/V-02/V-03 三项复现结果由整合 agent 独立验证（不复用/照抄
 wo/core17 的修复均已生效、未发现夸大或遗漏。复现用的临时工程与临时 worktree 均已在验证后清理，
 不落入仓库版本控制。
 
+## 整合阶段全量门禁验收结果（步骤 3，2026-09-10）
+
+三方合并 + 本文档回填提交（`3542b08`）落定后，在主树上执行全量 `check.ps1`（不带
+`-SkipUnity`/`-Quick`，跑满全部步骤含 Unity EditMode/PlayMode）：
+
+```
+powershell -File check.ps1 -ArtifactsPath <scratchpad>/build_wr_check -LogFile <scratchpad>/check_full_wr.log
+```
+
+退出码 0，27 个步骤全部 `PASS`（3 个 IL2CPP 步骤 `SKIP`，原因"未传 `-Il2cpp`"，属预期行为，不计入
+失败），总耗时 452s：
+
+| 步骤 | 结果 | 关键计数/说明 |
+|---|---|---|
+| 门禁自检：Test-NativeExitCode | PASS | 对失败/成功原生命令判定均正确 |
+| `dotnet build Core.sln -c Release` | PASS | 0 警告、0 错误 |
+| `dotnet test Core.sln -c Release --no-build`（六工程） | PASS | Tests.Foundation 910、Tests.Numbers 128、Tests.Carriers 398、Tests.Rules 463、Tests.PresentationCommon 564、Tests.Gameplay 656，共计 3119 用例，0 失败、0 跳过 |
+| ABI 探针（`toolchain/abi_probe.ps1`） | PASS | 独立单跑核实 `breaks=0 allowed=0 additions=253 RESULT=OK`（见上节），本次门禁内重跑同样退出码 0 |
+| `validate_data.py --strict`（合并根） | PASS | tables 63, records 300, errors 0, warnings 0, overrides 1 |
+| `validate_data.py --data-root data/_framework`（框架根单独） | PASS | tables 5, records 124, errors 0, warnings 1（`l10n.text` 未加载导致的文本键存在性检查跳过，非新问题） |
+| 元数据门禁 `validator --schema-audit` | PASS | tables 63, fields 783, errors 0, warnings 0 |
+| `gen_event_constants.py --check` | PASS | 40 个常量与生成文件一致 |
+| `gen_placeholder_assets.py --check` | PASS | 通过 92/92，失败 0 |
+| `import_assets.py check --dataset _sample` | PASS | 检查 10 条 display.map / 3 条 vfx.def / 3 条 sfx.def / 1 条 world.map，0 个问题 |
+| `format_data.py --schema-order --check` | PASS | 共检查 64 个文件，需要重排 0 个 |
+| `python -m pytest toolchain/tests -q` | PASS | 178 passed（含 wp/tool17 的 ABI 表面差异新增用例与 wq/editor3 的 `test_sample_table_empty.py`，后者为告警级门禁，本次未触发任何告警级失败） |
+| 禁用词扫描：全仓库不出现具体游戏代号 | PASS | — |
+| 禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名 | PASS | — |
+| 工作树文本文件无 CR | PASS | — |
+| 版本一致性：VERSION/package.json/packages-lock.json/CHANGELOG.md | PASS | VERSION=1.16.2，四者一致（发布前应有状态） |
+| `build.ps1 -SkipTests`（同步 DLL） | PASS | — |
+| 清单一致性（四个 npm 包版本 + `npm pack --dry-run`） | PASS | 四个包 version=1.16.2 一致，排除清单符合预期（adapter.unity 排除 model/anim 占位资产，toolchain 排除预编译 validator） |
+| Unity 编译期 | PASS | Unity 退出码 0 |
+| Unity EditMode 测试 | PASS | total=70 passed=70 failed=0 |
+| Unity PlayMode 测试 | PASS | total=272 passed=272 failed=0 |
+| 播放器构建 + `-gf-smoke` 冒烟（连续模式默认路径） | PASS | — |
+| 播放器 `-gf-smoke-discrete` 冒烟（离散模式路径） | PASS | — |
+| IL2CPP 播放器构建 | SKIP | 未传 `-Il2cpp`（预期） |
+| IL2CPP 播放器 `-gf-smoke` 冒烟 | SKIP | 未传 `-Il2cpp`（预期） |
+| IL2CPP 播放器 `-gf-smoke-discrete` 冒烟 | SKIP | 未传 `-Il2cpp`（预期） |
+| 消费方冒烟（`toolchain/consumer_smoke.ps1`） | PASS | — |
+
+`sample_table_empty` 告警级门禁（wq/editor3 本轮新增，随 `python -m pytest toolchain/tests -q`
+一并执行）本次未把整体判为 `FAIL`——走查结论：这是设计意图内的正常结果，不是门禁本身失效。
+`item.affix`/`item.set`/`world.flag_schema` 三张此前无示例数据的表已在 wq/editor3 提交
+`870884c` 里补齐 `data/_sample` 示例行（见"第 23 条"），本次合并后的 `_sample` 数据集里已不存在
+空表，因此该告警级检查项本身无内容可警告，PASS 是正确结果，不需要额外处理。
+
 ## 异常与判断记录
 
 - 本 agent 只在自己的工作树分支 `wp/tool17`（从主树 `main` 创建的独立 `git worktree`）内工作，
