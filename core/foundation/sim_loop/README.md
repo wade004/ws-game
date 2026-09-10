@@ -273,12 +273,25 @@ sim_loop/
    在装配好 `FeedbackBinder` 之后调用它接上 `() => Feedback.HasPendingPlayback`；Unity 引导
    （`adapters/unity` 的 `GameFoundationBootstrap`/`FrameworkResidentHost`）不需要任何轮询兜底。
 
-7. **ADR-0019 F1c 判断记录（`grid_snap` 不登记子结构）**：任务方案给出的建议登记
-   `{cell_size: Number}` 与 04 文档字段表描述一致，但全仓库搜索 `grid_snap`/`cell_size` 只有
-   `TimeModelSchema.cs` 自身的字段声明与注释，没有任何运行时代码读取过这两个字段（格子吸附本身
-   尚未落地）。按 ADR-0019 通用规则 1"以运行时解析代码为唯一依据……找不到运行时读取的字段不
-   登记"，本轮不登记子结构，待该字段有实际解析实现后再补（同 `core/carriers/item` 的
-   `item.affix.effects` 判断记录同一处理口径）。
+7. **格子吸附 `grid_snap` 已落地（ADR-0013 决策 6、04 第 3.1 节，codex 第十八轮）**：`TimeModelDefinition.GridSnapCellSize`
+   解析 `grid_snap.cell_size`；`TimeModelSchema.Table` 按 ADR-0019 登记了 `grid_snap` 的子结构
+   （`fields: [cell_size: Number, WithRange(min: 0, minExclusive: true)]`），`cell_size` 非正数在
+   数据加载期即被 `DataRegistry` 拒绝，`toolchain/schema_audit_allowlist.json` 的
+   `found.time_model/grid_snap` 豁免条目已移除（同上一版本这里描述的"没有运行时代码读取"这一
+   理由不再成立）。运行时消费两处：
+   - **移动吸附**：离散步且声明了 `grid_snap` 时，`core/carriers/unit.MovementTickHandler` 在本次
+     位移推进计算出最终坐标、写回 `IUnitAccess.SetPosition` 之前，用可替换策略
+     `Core.Foundation.Common.IGridSnapPolicy`（默认实现 `GridSnapPolicy`，以原点为基准的正方形
+     网格）把坐标吸附到所属格子的中心点，经 `MovementOptions.GridSnapPolicy`/`GridSnapCellSize`
+     两个字段接入；连续模式或未声明 `grid_snap` 时行为不变。
+   - **范围形状按格子中心采样**：`core/rules/targeting.BuiltinTargetStrategies`
+     （`nearest_in_shape`/`all_in_shape`）与 `core/rules/skill.SkillHost.FindUnits` 在离散步且声明
+     了 `grid_snap` 时，改用新增的 `Core.Foundation.EngineAdapter.GridSnapShapeQuery.QueryShapeAtCellCenters`
+     ——候选是否落在范围内，按其所属格子中心点判定，而不是按候选的原始坐标；未启用时行为不变。
+   `Core.Gameplay.Assembly.GameplayAssembly` 在 `TimeModelSwitch` 造好之后，按
+   `TimeModelSwitch.CombatModel.GridSnapCellSize` 统一回填 `Carriers.MovementOptions`/两个 L2
+   `Options` 类型的 `GridSnapCellSize`，惯例与 `MovementBudgetRule`/`IsDiscreteStep` 的回填手法
+   一致（见各自判断记录）。
 
 ## 基础架构提供 / 游戏层提供
 
