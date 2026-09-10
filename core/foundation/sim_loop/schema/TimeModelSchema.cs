@@ -45,7 +45,17 @@ namespace Core.Foundation.SimLoop
                     description: "initiative_policy: initiative_stat 时必填：指向 stat.definition 的先攻属性 id"),
                 new FieldSchema("movement_budget_rule", FieldKind.Enum, required: false, enumValues: MovementBudgetRuleValues,
                     description: "mode: discrete 时必填：离散模式下每回合移动预算的计算方式"),
-                new FieldSchema("grid_snap", FieldKind.Object, required: false,
+                // ADR-0019 子结构登记（04 第 3.2 节）：grid_snap 此前只做"存在且类型是 Object"检查
+                // （见 toolchain/schema_audit_allowlist.json 移除的 found.time_model/grid_snap 条目
+                // 判断记录"当前没有解析代码可作登记依据"——格子吸附落地后已有运行时消费
+                // （TimeModelDefinition.GridSnapCellSize），登记子结构使 cell_size>0 这条约束能被
+                // DataRegistry 在加载期直接拦下，不必再靠 TimeModelValidationRule 手写。
+                new FieldSchema("grid_snap", FieldKind.Object, required: false, fields: new[]
+                    {
+                        new FieldSchema("cell_size", FieldKind.Number, required: true,
+                            description: "格子尺寸，必须为正数")
+                            .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                    },
                     description: "若启用格子吸附，声明 {cell_size: Number}；范围形状按格子中心采样"),
                 // 04 第 3.1 节勘误（ADR-0013 补齐任务）：initiative_policy 或 movement_budget_rule
                 // 任一为 action_points 时，两者共享同一份"每回合行动点总额度"，见
