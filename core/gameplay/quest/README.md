@@ -171,7 +171,32 @@ quest/
     `kill`/`escort` domain 弱校验、`rewards` 数值范围、`world_flags[].value` 必填），构造签名不变
     （`GameplaySchemaCatalog.RegisterQuestSchemas` 调用点不需要改动）。
 
-## 不负责什么
+13. **CORE-118-QUEST 根治（外部审计 audit-d6fda65-20260911，P2）：定义被删除后仍保留的进度，
+    单位级枚举/事件消费必须安全跳过，不能直接索引**——`Reload` 删除某个 `questId` 的定义时按
+    既有约定保留 `_progress`（判断记录 5，本条不改变这一约定），但 `GetActiveObjectives(unitId)`
+    与全部事件驱动进度处理方法（`HandleUnitDied`/`HandleItemAdded`/`HandleItemRemoved`/
+    `HandleGobjInteracted`/`HandleSkillCastSuccess`/`HandleGossipOpened`/`HandleStoryNodeEntered`/
+    `HandleAreaTriggerEntered`/`HandleGenericQuestEvent`）此前都直接 `_definitions[key.QuestId]`
+    索引——这些路径只按 `unitId`/事件字段枚举 `_progress`，从未把 `questId` 交给调用方校验过，
+    真实探针复现：接取任务、取得进度、`Reload(空)` 删除定义后，`GetActiveObjectives(unit)`（未传
+    任何已删除 id）直接抛 `KeyNotFoundException`——这不是"调用者不该在此时查询被删 id"的合同异常
+    （这一旧假设的前提不成立，因为调用方根本没有传入该 id），是实现缺陷。改为统一经新增私有方法
+    `TryGetDefinition(questId, out def)`：定义缺失时该条进度本次直接跳过（不枚举、不推进、不抛
+    异常），进度本身继续原样保留在 `_progress` 里，等定义被重新 `Reload` 恢复后自动重新可见/可
+    推进——这是"保留进度但暂停对外暴露"的明确降级，不是"假装该记录不存在"。
+    **恢复同 `questId` 后目标数组的迁移锚点改为逐条进度自带**：`MigrateProgressAfterReload`
+    原来靠 `Reload` 每次调用时现取的"当前 `_definitions`"快照按 `(Type, TargetRef)` 配对新旧
+    目标数组，这个快照只在"相邻两次 `Reload`"之间有效——中间一旦插入过一次把该 `questId` 整体
+    删除的 `Reload`，之后恢复同一 id 时快照里已经没有它，旧代码把"找不到旧定义"当作"理论上不会
+    发生"直接跳过迁移（`ObjectiveCounts` 停留在删除前的旧长度）；真实探针复现：删除后以 2 目标
+    版本恢复同一 `questId`，对合法新索引 1 的 `UpdateProgress` 直接 `IndexOutOfRangeException`。
+    改为每条 `QuestRuntimeState` 自带 `LastKnownObjectives`（由 `Accept`/`MigrateProgressAfterReload`
+    /`ReplaceAllProgress` 维护，记录"当前 `ObjectiveCounts` 实际对应哪个目标数组形状"），迁移时
+    直接读这个字段，不再依赖 `Reload` 临时传入的快照——不管中间隔了多少次删除/恢复的 `Reload`
+    调用，这条进度记录的历史目标形状本身没有丢失。验收测试见
+    `tests/CORE118_QuestHostDefinitionDeletionTests.cs`（删除后单位级跟踪/多类事件消费不抛且进度
+    保留、恢复为目标增/减/重排三种形状变化均不越界、跨多次无关 `Reload` 的恢复、恢复为同形状后
+    完成态正确重算，共 9 例）。公开 API 无变化（`TryGetDefinition` 为私有方法，`Reload` 签名不变）。
 
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`

@@ -135,11 +135,19 @@ namespace Core.Gameplay.Quest
         {
             if (definitions == null) throw new ArgumentNullException(nameof(definitions));
 
-            // CORE114-01 根治（外部审计 audit-76d16a5-20260910）：迁移前先留一份旧定义快照——
-            // MigrateProgressAfterReload 需要按 (Type, TargetRef) 把新目标数组与旧目标数组配对，
-            // 必须在 _definitions 被整体替换之前捕获，替换之后就再也拿不到旧的 QuestObjective 形状了。
-            var oldDefinitions = new Dictionary<Id, QuestDefinition>(_definitions);
-
+            // CORE-118-QUEST 根治（外部审计 audit-d6fda65-20260911）：此前迁移前在这里现取一份
+            // "当前 _definitions" 快照传给 MigrateProgressAfterReload，按 (Type, TargetRef) 把新
+            // 目标数组与"上一次 Reload 调用时刻"的旧目标数组配对——这个快照只在"相邻两次 Reload"
+            // 之间有效：若中间插入过一次把某个 questId 整体删除的 Reload（判断记录 5，删除定义时
+            // 保留进度、不清 _progress），下一次恢复同一 questId 时，这里现取的快照已经是"删除后"
+            // 的空快照，压根找不到该 questId 的旧定义，MigrateProgressAfterReload 因此把这条进度
+            // 的 ObjectiveCounts 原样跳过（内部原以为"理论上不会发生"的分支）——真实探针复现：
+            // Reload(空) 删除定义、Reload([2 目标版]) 恢复同一 id 后，ObjectiveCounts 仍是接取时的
+            // 1 长度数组，UpdateProgress(index=1) 直接 IndexOutOfRangeException。
+            // 根治改法：不再由 Reload 每次临时抓一份快照传下去，迁移锚点改为每条
+            // QuestRuntimeState 自己持有的 LastKnownObjectives（见该字段判断记录）——它记录的是
+            // "这条进度当前 ObjectiveCounts 实际对应的目标数组"，由 Accept/本方法迁移完成后共同
+            // 维护，天然不受中间隔了多少次删除/恢复 Reload 影响。
             _definitions.Clear();
             foreach (var def in definitions)
             {
@@ -155,7 +163,7 @@ namespace Core.Gameplay.Quest
             // UpdateProgress/ApplyObjectiveCount 判断记录）。改为 reload 后立即对每条运行中
             // （Active/ObjectivesComplete）的进度按新定义迁移 ObjectiveCounts 形状，见
             // MigrateProgressAfterReload 判断记录。
-            MigrateProgressAfterReload(oldDefinitions);
+            MigrateProgressAfterReload();
         }
 
         /// <summary>
@@ -198,15 +206,28 @@ namespace Core.Gameplay.Quest
         /// （与 ApplyObjectiveCount 判断记录同一条理由：08 文档事件词汇表没有定义这一事件）。
         /// </para>
         /// <para>
-        /// 判断记录 5（定义被整体移除：保持现状）：<paramref name="oldDefinitions"/> 里存在、但新
-        /// <see cref="_definitions"/> 里已不存在的 questId——按任务书"定义被移除而进度仍在：保持
-        /// 现状"直接跳过，不清理 <c>_progress</c> 里的记录、也不触碰其 <c>ObjectiveCounts</c>。这类
-        /// 记录本就不会再被 <see cref="RequireDef"/> 之外的任何路径用新定义索引（<see
-        /// cref="RequireDef"/> 对未登记 id 直接抛 <see cref="ArgumentException"/>，行为与迁移前一致，
-        /// 不在本次根治范围内）。
+        /// 判断记录 5（定义被整体移除：保持现状）：新 <see cref="_definitions"/> 里已不存在的
+        /// questId——按任务书"定义被移除而进度仍在：保持现状"直接跳过，不清理 <c>_progress</c>
+        /// 里的记录、也不触碰其 <c>ObjectiveCounts</c>／<c>LastKnownObjectives</c>。这类记录本就
+        /// 不会再被 <see cref="RequireDef"/> 之外的任何路径用新定义索引（<see cref="RequireDef"/>
+        /// 对未登记 id 直接抛 <see cref="ArgumentException"/>，行为与迁移前一致，不在本次根治范围
+        /// 内），单位级枚举/事件路径见 <see cref="TryGetDefinition"/> 判断记录。
+        /// </para>
+        /// <para>
+        /// CORE-118-QUEST 根治（外部审计 audit-d6fda65-20260911）：判断记录 2 原本按"调用方传入的
+        /// <c>oldDefinitions</c> 参数"取旧目标数组，该参数是 <see cref="Reload"/> 每次调用时现取的
+        /// "当前 _definitions" 快照，只覆盖"相邻两次 Reload 之间"的变化——中间若插入过一次把该
+        /// questId 整体删除的 Reload，之后恢复同一 id 时快照里已经没有它，旧代码把这种情况当成
+        /// "理论上不会发生"直接 continue（跳过迁移，ObjectiveCounts 停留在删除前的旧长度），恢复后
+        /// 对新目标数组越界索引直接 <see cref="IndexOutOfRangeException"/>（真实探针复现，见类型
+        /// 判断记录）。改法：旧目标数组不再由 <see cref="Reload"/> 临时传入，直接读
+        /// <c>rt.LastKnownObjectives</c>（每条进度自己持有、由 <see cref="Accept"/> 与本方法自身
+        /// 维护，见该字段判断记录）——不管中间隔了多少次定义整体删除/恢复的 Reload，这条进度记录
+        /// "当前 ObjectiveCounts 对应哪个目标数组形状"这一事实本身没有丢失，因此也就不存在"找不到
+        /// 旧定义"这一分支，原有的防御性 continue 随之一并移除。
         /// </para>
         /// </summary>
-        private void MigrateProgressAfterReload(Dictionary<Id, QuestDefinition> oldDefinitions)
+        private void MigrateProgressAfterReload()
         {
             foreach (var kv in new List<KeyValuePair<(Id UnitId, Id QuestId), QuestRuntimeState>>(_progress))
             {
@@ -222,14 +243,9 @@ namespace Core.Gameplay.Quest
                 {
                     continue; // 判断记录 5：定义被移除，保持现状。
                 }
-                if (!oldDefinitions.TryGetValue(questId, out var oldDef))
-                {
-                    // 理论上不会发生：能在 _progress 里出现必然是此前 Accept 过，Accept 要求
-                    // GetState 先通过 RequireDef，说明当时的旧定义必然已经登记在 oldDefinitions 里。
-                    continue;
-                }
 
-                var matched = new bool[oldDef.Objectives.Count];
+                var oldObjectives = rt.LastKnownObjectives;
+                var matched = new bool[oldObjectives.Count];
                 var newCounts = new int[newDef.Objectives.Count];
                 var priorForCompare = new int[newDef.Objectives.Count];
 
@@ -238,13 +254,13 @@ namespace Core.Gameplay.Quest
                     var newObjective = newDef.Objectives[i];
                     int? sourceCount = null;
 
-                    for (var j = 0; j < oldDef.Objectives.Count; j++)
+                    for (var j = 0; j < oldObjectives.Count; j++)
                     {
                         if (matched[j])
                         {
                             continue;
                         }
-                        var oldObjective = oldDef.Objectives[j];
+                        var oldObjective = oldObjectives[j];
                         if (oldObjective.Type == newObjective.Type && oldObjective.TargetRef.Equals(newObjective.TargetRef))
                         {
                             matched[j] = true;
@@ -258,6 +274,7 @@ namespace Core.Gameplay.Quest
                 }
 
                 rt.ObjectiveCounts = newCounts;
+                rt.LastKnownObjectives = newDef.Objectives;
 
                 for (var i = 0; i < newCounts.Length; i++)
                 {
@@ -344,6 +361,9 @@ namespace Core.Gameplay.Quest
                 ObjectiveCounts = new int[def.Objectives.Count],
                 CompletionCount = existing?.CompletionCount ?? 0,
                 LastCompletedDay = existing?.LastCompletedDay,
+                // CORE-118-QUEST 根治：记下本次接取用的目标数组形状，供之后任意次 Reload 迁移使用
+                // （见 QuestRuntimeState.LastKnownObjectives 判断记录）。
+                LastKnownObjectives = def.Objectives,
             };
 
             Publish(new QuestAcceptedEvent(unitId, questId));
@@ -552,7 +572,10 @@ namespace Core.Gameplay.Quest
                 {
                     continue;
                 }
-                var def = _definitions[kv.Key.QuestId];
+                if (!TryGetDefinition(kv.Key.QuestId, out var def))
+                {
+                    continue; // CORE-118-QUEST：定义已删除，进度保留但本次跳过枚举，见 TryGetDefinition 判断记录。
+                }
                 for (var i = 0; i < def.Objectives.Count; i++)
                 {
                     if (kv.Value.ObjectiveCounts[i] < def.Objectives[i].Count)
@@ -636,6 +659,11 @@ namespace Core.Gameplay.Quest
                     ObjectiveCounts = counts,
                     CompletionCount = progress.CompletionCount,
                     LastCompletedDay = progress.LastCompletedDay,
+                    // CORE-118-QUEST 根治：读档恢复的进度同样要带上当时对应的目标数组形状，否则
+                    // 读档后紧接一次 Reload 会因为 LastKnownObjectives 仍是默认空数组而把全部旧计数
+                    // 当成"无匹配"丢弃（见 QuestRuntimeState.LastKnownObjectives／
+                    // MigrateProgressAfterReload 判断记录）。
+                    LastKnownObjectives = def.Objectives,
                 }));
             }
 
@@ -676,6 +704,27 @@ namespace Core.Gameplay.Quest
             }
             return def;
         }
+
+        /// <summary>
+        /// CORE-118-QUEST 根治（外部审计 audit-d6fda65-20260911）：此前 <see
+        /// cref="GetActiveObjectives"/> 与全部事件驱动进度处理方法（<see cref="HandleUnitDied"/>/
+        /// <see cref="HandleItemAdded"/>/<see cref="HandleItemRemoved"/>/<see
+        /// cref="HandleGobjInteracted"/>/<see cref="HandleSkillCastSuccess"/>/<see
+        /// cref="HandleGossipOpened"/>/<see cref="HandleStoryNodeEntered"/>/<see
+        /// cref="HandleAreaTriggerEntered"/>/<see cref="HandleGenericQuestEvent"/>）都直接
+        /// <c>_definitions[key.QuestId]</c> 索引——这些路径按 <c>unitId</c> 或事件字段枚举
+        /// <see cref="_progress"/>，从未把 <c>questId</c> 交给调用方校验过，一旦某条 Active 进度
+        /// 引用的定义已被 <see cref="Reload"/> 删除（判断记录 5：删除定义保留进度是既定行为），
+        /// 直接索引就是 <see cref="KeyNotFoundException"/>（真实探针复现：<c>GetActiveObjectives
+        /// (unit)</c> 未传任何已删除 id，仍然抛出）。这不同于 <see cref="RequireDef"/> 服务的
+        /// 显式按 id 调用（<see cref="GetState"/>/<see cref="Accept"/>/<see cref="UpdateProgress"/>/
+        /// <see cref="TurnIn"/>/<see cref="Fail"/>——调用方主动传入一个可能不存在的 questId，抛
+        /// <see cref="ArgumentException"/> 是既有合同，不在本次根治范围）。本方法统一收敛上述内部
+        /// 枚举路径：定义缺失时返回 <c>false</c>，调用方按"该条进度本次跳过（保留进度、不枚举、
+        /// 不推进）"处理，不抛异常——这也是任务书要求的"明确降级"：进度本身不受影响，只是暂停
+        /// 暴露/推进，直到该定义被重新 Reload 恢复。
+        /// </summary>
+        private bool TryGetDefinition(Id questId, out QuestDefinition def) => _definitions.TryGetValue(questId, out def!);
 
         private bool EvaluatePrerequisite(Id unitId, QuestDefinition def)
         {
@@ -905,7 +954,10 @@ namespace Core.Gameplay.Quest
                 {
                     continue;
                 }
-                var def = _definitions[key.QuestId];
+                if (!TryGetDefinition(key.QuestId, out var def))
+                {
+                    continue; // CORE-118-QUEST：定义已删除，进度保留但本次事件跳过推进，见 TryGetDefinition 判断记录。
+                }
                 for (var i = 0; i < def.Objectives.Count; i++)
                 {
                     var objective = def.Objectives[i];
@@ -935,8 +987,11 @@ namespace Core.Gameplay.Quest
         {
             foreach (var key in ActiveOrObjectivesCompleteKeysForUnit(evt.UnitId))
             {
+                if (!TryGetDefinition(key.QuestId, out var def))
+                {
+                    continue; // CORE-118-QUEST：定义已删除，进度保留但本次事件跳过推进，见 TryGetDefinition 判断记录。
+                }
                 var rt = _progress[key];
-                var def = _definitions[key.QuestId];
                 for (var i = 0; i < def.Objectives.Count; i++)
                 {
                     var objective = def.Objectives[i];
@@ -994,7 +1049,10 @@ namespace Core.Gameplay.Quest
         {
             foreach (var key in ActiveOrObjectivesCompleteKeysForUnit(evt.UnitId))
             {
-                var def = _definitions[key.QuestId];
+                if (!TryGetDefinition(key.QuestId, out var def))
+                {
+                    continue; // CORE-118-QUEST：定义已删除，进度保留但本次事件跳过推进，见 TryGetDefinition 判断记录。
+                }
                 for (var i = 0; i < def.Objectives.Count; i++)
                 {
                     var objective = def.Objectives[i];
@@ -1021,7 +1079,10 @@ namespace Core.Gameplay.Quest
 
             foreach (var key in ActiveKeysForUnit(evt.UnitId))
             {
-                var def = _definitions[key.QuestId];
+                if (!TryGetDefinition(key.QuestId, out var def))
+                {
+                    continue; // CORE-118-QUEST：定义已删除，进度保留但本次事件跳过推进，见 TryGetDefinition 判断记录。
+                }
                 for (var i = 0; i < def.Objectives.Count; i++)
                 {
                     var objective = def.Objectives[i];
@@ -1037,7 +1098,10 @@ namespace Core.Gameplay.Quest
         {
             foreach (var key in ActiveKeysForUnit(evt.CasterId))
             {
-                var def = _definitions[key.QuestId];
+                if (!TryGetDefinition(key.QuestId, out var def))
+                {
+                    continue; // CORE-118-QUEST：定义已删除，进度保留但本次事件跳过推进，见 TryGetDefinition 判断记录。
+                }
                 for (var i = 0; i < def.Objectives.Count; i++)
                 {
                     var objective = def.Objectives[i];
@@ -1053,7 +1117,10 @@ namespace Core.Gameplay.Quest
         {
             foreach (var key in ActiveKeysForUnit(evt.UnitId))
             {
-                var def = _definitions[key.QuestId];
+                if (!TryGetDefinition(key.QuestId, out var def))
+                {
+                    continue; // CORE-118-QUEST：定义已删除，进度保留但本次事件跳过推进，见 TryGetDefinition 判断记录。
+                }
                 for (var i = 0; i < def.Objectives.Count; i++)
                 {
                     var objective = def.Objectives[i];
@@ -1069,7 +1136,10 @@ namespace Core.Gameplay.Quest
         {
             foreach (var key in ActiveKeysForUnit(evt.UnitId))
             {
-                var def = _definitions[key.QuestId];
+                if (!TryGetDefinition(key.QuestId, out var def))
+                {
+                    continue; // CORE-118-QUEST：定义已删除，进度保留但本次事件跳过推进，见 TryGetDefinition 判断记录。
+                }
                 for (var i = 0; i < def.Objectives.Count; i++)
                 {
                     var objective = def.Objectives[i];
@@ -1092,7 +1162,10 @@ namespace Core.Gameplay.Quest
 
             foreach (var key in ActiveKeysForUnit(unitId))
             {
-                var def = _definitions[key.QuestId];
+                if (!TryGetDefinition(key.QuestId, out var def))
+                {
+                    continue; // CORE-118-QUEST：定义已删除，进度保留但本次事件跳过推进，见 TryGetDefinition 判断记录。
+                }
                 for (var i = 0; i < def.Objectives.Count; i++)
                 {
                     var objective = def.Objectives[i];
@@ -1112,7 +1185,10 @@ namespace Core.Gameplay.Quest
                 {
                     continue;
                 }
-                var def = _definitions[key.QuestId];
+                if (!TryGetDefinition(key.QuestId, out var def))
+                {
+                    continue; // CORE-118-QUEST：定义已删除，进度保留但本次事件跳过推进，见 TryGetDefinition 判断记录。
+                }
                 for (var i = 0; i < def.Objectives.Count; i++)
                 {
                     var objective = def.Objectives[i];
@@ -1142,6 +1218,12 @@ namespace Core.Gameplay.Quest
             public int[] ObjectiveCounts = Array.Empty<int>();
             public int CompletionCount;
             public long? LastCompletedDay;
+
+            /// <summary>CORE-118-QUEST 根治：<see cref="ObjectiveCounts"/> 当前形状对应的目标数组，
+            /// 随本条进度记录本身持久保存，不依赖某次 <see cref="Reload"/> 调用时刚好还留着的
+            /// <c>_definitions</c>／局部 oldDefinitions 快照——见 <see cref="MigrateProgressAfterReload"/>
+            /// 判断记录"迁移锚点改为逐条进度自带"。</summary>
+            public IReadOnlyList<QuestObjective> LastKnownObjectives = Array.Empty<QuestObjective>();
         }
     }
 }
