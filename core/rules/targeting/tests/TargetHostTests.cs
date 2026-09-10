@@ -782,5 +782,95 @@ namespace Tests.Rules.Targeting
             Assert.Throws<ArgumentException>(() =>
                 fx.Host.Resolve(new Id("target.chain.does_not_exist"), new Id("unit.caster")));
         }
+
+        // -----------------------------------------------------------------
+        // 格子吸附（ADR-0013 决策 6、04 第 3.1 节 grid_snap，codex 第十八轮）："范围形状按格子中心
+        // 采样"：候选原始坐标在范围边缘时，是否命中取决于它所属格子的中心点而不是原始坐标本身。
+        // 两条用例都取施法者在原点、圆形范围半径的链，只改候选坐标与半径，制造"原始坐标在内、格子
+        // 中心在外"与"原始坐标在外、格子中心在内"两种相反的采样口径变化，并各自对照同一份坐标在
+        // 未启用格子吸附时的结果，证明差异确由 GridSnapCellSize 是否装配决定。
+        // -----------------------------------------------------------------
+
+        private static TargetingOptions GridSnapOptions(double cellSize) => new TargetingOptions
+        {
+            IsDiscreteStep = () => true,
+            GridSnapCellSize = cellSize,
+        };
+
+        [Fact]
+        public void AllInShape_GridSnapEnabled_RawPositionInside_CellCenterOutside_ExcludesCandidate()
+        {
+            const string rows = @"[
+                { ""id"": ""target.chain.grid_snap_exclude"", ""source"": ""all_in_shape"",
+                  ""shape"": { ""kind"": ""circle"", ""radius"": 6.3 } }
+            ]";
+
+            // 候选 (5.9, 2.0) 到原点距离 ≈6.2298，落在半径 6.3 的圆内；cellSize=4 时它所属格子
+            // 中心是 (6.0, 2.0)，到原点距离 = sqrt(40) ≈6.3246，超出半径 6.3——吸附后应被排除。
+            void Setup(FakeUnitAccess units, StubSpatialQuery spatial, PowerHost powers, FakeThreatTable threat)
+            {
+                units.Add(new Id("unit.caster"), HeroFaction, new Vec2(0, 0));
+                units.Add(new Id("unit.edge"), MonsterFaction, new Vec2(5.9, 2.0));
+                spatial.Register(new Id("unit.edge"), new Vec2(5.9, 2.0), 0);
+            }
+
+            var withoutSnap = Build(rows, Setup);
+            var withoutResult = withoutSnap.Host.Resolve(new Id("target.chain.grid_snap_exclude"), new Id("unit.caster"));
+            Assert.Equal(new[] { new Id("unit.edge") }, withoutResult); // 对照组：未启用时按原始坐标命中。
+
+            var withSnap = Build(rows, Setup, options: GridSnapOptions(4.0));
+            var withResult = withSnap.Host.Resolve(new Id("target.chain.grid_snap_exclude"), new Id("unit.caster"));
+            Assert.Empty(withResult);
+        }
+
+        [Fact]
+        public void AllInShape_GridSnapEnabled_RawPositionOutside_CellCenterInside_IncludesCandidate()
+        {
+            const string rows = @"[
+                { ""id"": ""target.chain.grid_snap_include"", ""source"": ""all_in_shape"",
+                  ""shape"": { ""kind"": ""circle"", ""radius"": 6.33 } }
+            ]";
+
+            // 候选 (7.9, 3.9) 到原点距离 ≈8.81，超出半径 6.33（未吸附时压根查不到，不只是判定为
+            // 假）；它所属格子（cellSize=4）与上一条用例同一个格子，中心同样是 (6.0, 2.0)，到原点
+            // 距离 ≈6.3246，落在半径 6.33 内——吸附后应被纳入。
+            void Setup(FakeUnitAccess units, StubSpatialQuery spatial, PowerHost powers, FakeThreatTable threat)
+            {
+                units.Add(new Id("unit.caster"), HeroFaction, new Vec2(0, 0));
+                units.Add(new Id("unit.edge"), MonsterFaction, new Vec2(7.9, 3.9));
+                spatial.Register(new Id("unit.edge"), new Vec2(7.9, 3.9), 0);
+            }
+
+            var withoutSnap = Build(rows, Setup);
+            var withoutResult = withoutSnap.Host.Resolve(new Id("target.chain.grid_snap_include"), new Id("unit.caster"));
+            Assert.Empty(withoutResult); // 对照组：未启用时按原始坐标查不到。
+
+            var withSnap = Build(rows, Setup, options: GridSnapOptions(4.0));
+            var withResult = withSnap.Host.Resolve(new Id("target.chain.grid_snap_include"), new Id("unit.caster"));
+            Assert.Equal(new[] { new Id("unit.edge") }, withResult);
+        }
+
+        [Fact]
+        public void AllInShape_GridSnapCellSizeSetButIsDiscreteStepFalse_DoesNotSnap()
+        {
+            // IsDiscreteStep 未装配（默认 null，等价于恒连续模式）时，即便 GridSnapCellSize 已配置，
+            // 也不应吸附——同 Core.Rules.Skill.SkillOptions.IsDiscreteStep 判断记录"两者都为真才
+            // 生效"，只不过这里只设置了 GridSnapCellSize、不设置 IsDiscreteStep。
+            const string rows = @"[
+                { ""id"": ""target.chain.grid_snap_no_discrete"", ""source"": ""all_in_shape"",
+                  ""shape"": { ""kind"": ""circle"", ""radius"": 6.3 } }
+            ]";
+
+            var fx = Build(rows, (units, spatial, powers, threat) =>
+            {
+                units.Add(new Id("unit.caster"), HeroFaction, new Vec2(0, 0));
+                units.Add(new Id("unit.edge"), MonsterFaction, new Vec2(5.9, 2.0));
+                spatial.Register(new Id("unit.edge"), new Vec2(5.9, 2.0), 0);
+            }, options: new TargetingOptions { GridSnapCellSize = 4.0 }); // IsDiscreteStep 未装配。
+
+            var result = fx.Host.Resolve(new Id("target.chain.grid_snap_no_discrete"), new Id("unit.caster"));
+
+            Assert.Equal(new[] { new Id("unit.edge") }, result); // 与未启用格子吸附时结果一致。
+        }
     }
 }

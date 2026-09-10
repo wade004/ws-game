@@ -100,5 +100,21 @@ namespace Core.Rules.Skill
         /// <see cref="GcdEnabled"/>），呼应"没有调用方主动声明离散步，就不应该有任何行为变化"。
         /// </summary>
         public System.Func<bool>? IsDiscreteStep { get; set; }
+
+        /// <summary>
+        /// ADR-0013 决策 6、04 第 3.1 节 <c>grid_snap</c> 落地：<see cref="IsDiscreteStep"/> 返回
+        /// <c>true</c> 且 <see cref="GridSnapCellSize"/> 非 <c>null</c> 时，
+        /// <see cref="Core.Rules.Common.ISkillHost.FindUnits"/> 改用
+        /// <see cref="Core.Foundation.EngineAdapter.GridSnapShapeQuery.QueryShapeAtCellCenters"/>——
+        /// 候选按其所属格子中心点是否落在查询形状内判定，而不是按候选的原始坐标。默认
+        /// <see cref="Core.Foundation.Common.GridSnapPolicy"/>。
+        /// </summary>
+        public Core.Foundation.Common.IGridSnapPolicy GridSnapPolicy { get; set; } = new Core.Foundation.Common.GridSnapPolicy();
+
+        /// <summary><c>found.time_model.grid_snap.cell_size</c>；<c>null</c>（默认）表示未声明
+        /// <c>grid_snap</c>，<see cref="GridSnapPolicy"/> 不会被调用，<c>FindUnits</c> 行为与格子
+        /// 吸附落地之前逐字节一致。由 <c>Core.Gameplay.Assembly.GameplayAssembly</c> 按战斗时间模型
+        /// 回填（惯例同 <see cref="TryConsumeActionPoints"/> 判断记录）。</summary>
+        public double? GridSnapCellSize { get; set; }
     }
 }

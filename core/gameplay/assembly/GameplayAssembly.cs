@@ -381,11 +381,21 @@ namespace Core.Gameplay.Assembly
             Core.Foundation.SimLoop.TurnScheduler? scheduler = null;
             var resolvedSkillOptions = skillOptions ?? new SkillOptions();
 
+            // 格子吸附落地（ADR-0013 决策 6、04 第 3.1 节 grid_snap，codex 第十八轮）：resolvedTargetingOptions
+            // 必须在这里就地 new 出来，同 resolvedSkillOptions/resolvedGobjOptions 判断记录——
+            // CarriersAssembly 构造期就要把它转给 RulesAssembly/TargetHost 持有同一份引用，本方法
+            // 随后（第 10.5 步）才能回填 IsDiscreteStep/GridSnapCellSize，必须是同一个对象才能
+            // "回填"生效。此前本类型直接把调用方传入的 targetingOptions（可能为 null）原样转发给
+            // CarriersAssembly，未装配离散模式的调用方不受影响（resolvedTargetingOptions ==
+            // targetingOptions ?? new TargetingOptions()，语义与 RulesAssembly 内部的兜底完全一致，
+            // 只是提前到这里做，好让本类型拿到同一份引用）。
+            var resolvedTargetingOptions = targetingOptions ?? new TargetingOptions();
+
             Carriers = new CarriersAssembly(
                 bus, registry, rng, world, spatial, navigation, resolvedSpatialSyncKinds,
                 worldFlags: WorldState, lootRoller: deferredLootRoller,
                 statOptions: statOptions, combatOptions: combatOptions, skillOptions: resolvedSkillOptions,
-                targetingOptions: targetingOptions, aiOptions: aiOptions, inventoryOptions: inventoryOptions,
+                targetingOptions: resolvedTargetingOptions, aiOptions: aiOptions, inventoryOptions: inventoryOptions,
                 itemOptions: itemOptions, creatureOptions: creatureOptions, summonOptions: summonOptions,
                 gobjOptions: resolvedGobjOptions, movementOptions: movementOptions,
                 extraSchemas: new IExprSchema[] { GameplaySchemaCatalog.FullExprSchema },
@@ -598,6 +608,13 @@ namespace Core.Gameplay.Assembly
                     Carriers.MovementOptions.MovementActionCostPerUnit = switchInstance.CombatModel.MovementActionCostPerUnit ?? 0.0;
                     Carriers.MovementOptions.TryConsumeActionPoints = scheduler.TryConsumeActionPoints;
                     Carriers.MovementOptions.RequestEndTurn = scheduler.EndTurn;
+
+                    // 格子吸附落地（ADR-0013 决策 6、04 第 3.1 节 grid_snap，codex 第十八轮）：
+                    // MovementOptions.GridSnapCellSize 保持默认 null（未声明 grid_snap，见该字段
+                    // 判断记录）除非战斗时间模型显式声明了 grid_snap.cell_size；GridSnapPolicy 保留
+                    // MovementOptions 自身的默认实例，不在这里覆盖（游戏层若要替换网格几何，直接改
+                    // Carriers.MovementOptions.GridSnapPolicy 即可，装配根不越俎代庖）。
+                    Carriers.MovementOptions.GridSnapCellSize = switchInstance.CombatModel.GridSnapCellSize;
                 }
 
                 TurnScheduler = scheduler;
@@ -619,6 +636,26 @@ namespace Core.Gameplay.Assembly
                 resolvedSkillOptions.TryConsumeActionPoints = scheduler.TryConsumeActionPoints;
                 resolvedSkillOptions.IsDiscreteStep =
                     () => _clockHost != null && _clockHost.Mode == TimeModelMode.Discrete && _isProcessingDiscreteStep;
+
+                // 格子吸附落地（同上 MovementOptions/SkillOptions.TryConsumeActionPoints 回填手法）：
+                // TargetingOptions.IsDiscreteStep 与 resolvedSkillOptions.IsDiscreteStep 求值口径
+                // 完全一致（两个委托各自独立持有，不是同一个对象，见 TargetingOptions.IsDiscreteStep
+                // 判断记录），同样不放在"CombatModel != null"分支内——目标选择是否处于离散步不依赖
+                // 战斗时间模型是否声明了移动预算规则，只要装配了离散模式就应生效。
+                resolvedTargetingOptions.IsDiscreteStep =
+                    () => _clockHost != null && _clockHost.Mode == TimeModelMode.Discrete && _isProcessingDiscreteStep;
+
+                // GridSnapCellSize 只在 CombatModel 非空且声明了 grid_snap 时才非 null（同
+                // MovementOptions.GridSnapCellSize 判断记录），放在 CombatModel != null 分支内
+                // （与 MovementOptions 一致，见上方该分支）；resolvedSkillOptions.GridSnapCellSize
+                // 与 resolvedTargetingOptions.GridSnapCellSize 各自独立回填同一个值——两者是
+                // SkillHost.FindUnits/TargetHost 两个不同调用侧各自的配置项，不共用同一个 Options
+                // 实例。
+                if (switchInstance.CombatModel != null)
+                {
+                    resolvedSkillOptions.GridSnapCellSize = switchInstance.CombatModel.GridSnapCellSize;
+                    resolvedTargetingOptions.GridSnapCellSize = switchInstance.CombatModel.GridSnapCellSize;
+                }
 
                 // H4 补齐（意图路由缺口 1，见 WorldSim.AttachDiscreteRouting 判断记录）：只有
                 // world 是具体类型 WorldSim 时才能接线（IWorldSim 接口本身不暴露这个便利方法，

@@ -36,7 +36,7 @@ namespace Tests.Rules.Skill
             public StubSpatialQuery Spatial = default!;
         }
 
-        private static World Build(bool injectSpatial = true, bool injectFactions = true)
+        private static World Build(bool injectSpatial = true, bool injectFactions = true, SkillOptions? options = null)
         {
             var source = new InMemoryDataSource()
                 .Add("skill.def", Envelope("skill.def", "[]"))
@@ -80,6 +80,7 @@ namespace Tests.Rules.Skill
             var host = new SkillHost(
                 registry, bus, units, stats, powers, rng, combat, targets, exprs,
                 injectSpatial ? spatial : null,
+                options: options,
                 diagnostics: diagnostics,
                 factions: injectFactions ? factions : null);
 
@@ -291,6 +292,75 @@ namespace Tests.Rules.Skill
             var idx_a = result.ToList().IndexOf(a);
             var idx_b = result.ToList().IndexOf(b);
             Assert.True(idx_a < idx_b);
+        }
+
+        // -----------------------------------------------------------------
+        // 格子吸附（ADR-0013 决策 6、04 第 3.1 节 grid_snap，codex 第十八轮）：SkillOptions.
+        // IsDiscreteStep 与 GridSnapCellSize 都装配时，FindUnits 按候选所属格子中心点判定，而不是
+        // 原始坐标——用例参数与 TargetHostTests 的同名场景保持一致（同一段几何计算，两个不同调用侧）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void FindUnits_GridSnapEnabled_RawPositionInside_CellCenterOutside_ExcludesCandidate()
+        {
+            // 候选 (5.9, 2.0) 到原点距离 ≈6.2298，落在半径 6.3 的圆内；cellSize=4 时它所属格子
+            // 中心是 (6.0, 2.0)，到原点距离 ≈6.3246，超出半径 6.3——吸附后应被排除。
+            var edge = new Id("unit.p_findunits.edge_inside");
+            var shape = Shape.Circle(Vec2.Zero, 6.3);
+
+            var withoutOptions = Build();
+            withoutOptions.Units.Add(edge, new Vec2(5.9, 2.0));
+            withoutOptions.Spatial.Register(edge, new Vec2(5.9, 2.0), 0);
+            var withoutResult = withoutOptions.Host.FindUnits(shape, Vec2.Zero, UnitFilter.Default);
+            Assert.Contains(edge, withoutResult); // 对照组：未启用时按原始坐标命中。
+
+            var gridSnapOptions = new SkillOptions { IsDiscreteStep = () => true, GridSnapCellSize = 4.0 };
+            var withOptions = Build(options: gridSnapOptions);
+            withOptions.Units.Add(edge, new Vec2(5.9, 2.0));
+            withOptions.Spatial.Register(edge, new Vec2(5.9, 2.0), 0);
+            var withResult = withOptions.Host.FindUnits(shape, Vec2.Zero, UnitFilter.Default);
+            Assert.DoesNotContain(edge, withResult);
+        }
+
+        [Fact]
+        public void FindUnits_GridSnapEnabled_RawPositionOutside_CellCenterInside_IncludesCandidate()
+        {
+            // 候选 (7.9, 3.9) 到原点距离 ≈8.81，超出半径 6.33（未吸附时压根查不到）；它所属格子
+            // （cellSize=4）与上一条用例同一个格子，中心同样是 (6.0, 2.0)，到原点距离 ≈6.3246，
+            // 落在半径 6.33 内——吸附后应被纳入。
+            var edge = new Id("unit.p_findunits.edge_outside");
+            var shape = Shape.Circle(Vec2.Zero, 6.33);
+
+            var withoutOptions = Build();
+            withoutOptions.Units.Add(edge, new Vec2(7.9, 3.9));
+            withoutOptions.Spatial.Register(edge, new Vec2(7.9, 3.9), 0);
+            var withoutResult = withoutOptions.Host.FindUnits(shape, Vec2.Zero, UnitFilter.Default);
+            Assert.DoesNotContain(edge, withoutResult); // 对照组：未启用时按原始坐标查不到。
+
+            var gridSnapOptions = new SkillOptions { IsDiscreteStep = () => true, GridSnapCellSize = 4.0 };
+            var withOptions = Build(options: gridSnapOptions);
+            withOptions.Units.Add(edge, new Vec2(7.9, 3.9));
+            withOptions.Spatial.Register(edge, new Vec2(7.9, 3.9), 0);
+            var withResult = withOptions.Host.FindUnits(shape, Vec2.Zero, UnitFilter.Default);
+            Assert.Contains(edge, withResult);
+        }
+
+        [Fact]
+        public void FindUnits_GridSnapCellSizeSetButIsDiscreteStepNotConfigured_DoesNotSnap()
+        {
+            // IsDiscreteStep 未装配（默认 null，恒视为连续模式）时，即便 GridSnapCellSize 已配置，
+            // 也不应吸附。
+            var edge = new Id("unit.p_findunits.edge_no_discrete");
+            var shape = Shape.Circle(Vec2.Zero, 6.3);
+
+            var options = new SkillOptions { GridSnapCellSize = 4.0 }; // IsDiscreteStep 未装配。
+            var world = Build(options: options);
+            world.Units.Add(edge, new Vec2(5.9, 2.0));
+            world.Spatial.Register(edge, new Vec2(5.9, 2.0), 0);
+
+            var result = world.Host.FindUnits(shape, Vec2.Zero, UnitFilter.Default);
+
+            Assert.Contains(edge, result); // 与未启用格子吸附时结果一致。
         }
     }
 }
