@@ -33,7 +33,14 @@ namespace Core.Foundation.DataRegistry
             {
                 new FieldSchema("key", FieldKind.String, required: true, description: "事件 key，须为合法 Id 格式（^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$）"),
                 new FieldSchema("domain", FieldKind.String, required: true, description: "事件所属 domain，不保证等于 key 的第一段"),
-                new FieldSchema("fields", FieldKind.Array, required: true, description: "事件携带的字段名列表，只登记名字不登记类型"),
+                // ADR-0024 第二批登记：元素结构本身就是"只登记名字不登记类型"的裸字符串数组
+                // （EventDefinition.Fields 类型为 IReadOnlyList<string>，data/_framework/found/
+                // found.event_catalog.json 全部 90 行实测核对一致），Array.Item = String 精确表达
+                // 这条约束本身，不需要 Map（此前 allowlist 条目的"Array.Item 机制无法表达"是误判——
+                // 该条约束与"是否存在消费固定子键的解析代码"无关，纯粹是数组元素的类型声明）。
+                new FieldSchema("fields", FieldKind.Array, required: true,
+                    item: new FieldSchema("<field_name>", FieldKind.String, required: true, description: "事件携带的字段名"),
+                    description: "事件携带的字段名列表，只登记名字不登记类型"),
                 new FieldSchema("description", FieldKind.String, required: false,
                     description: "该事件的说明文本，供编辑器/文档展示，可为空"),
             },

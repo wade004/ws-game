@@ -95,8 +95,12 @@ display_info/
 5. **ADR-0019 F1c 子结构登记**：`mirror_pairs`（`[{direction_slot:Id, mirror_of:Id, flip_x:Bool}]`，
    前两者必填、`flip_x` 缺省 `false`）、`paperdoll_layers`（`[String]`）按 `DisplayInfo.
    ParseSpriteInfo` 权威解析登记为 `Item`。`anchor_points`/`default_slot_meshes`/
-   `material_params` 三个字段是 `Map<动态键, ...>`（分别为锚点名/槽位 id/参数名），按 ADR-0019
-   通用规则 5 不登记子结构，保持"存在且是对象"。
+   `material_params` 三个字段是 `Map<动态键, ...>`（分别为锚点名/槽位 id/参数名）——ADR-0024
+   第二批登记（04 第 3.3 节"映射登记"）改为 `MapSchema.FreeKeyed`（三者的键均不指向任何已登记
+   表，理由分别见各字段登记处注释）：`anchor_points` 值登记为
+   `{parent_layer:String, offset:Vec2, offset_by_direction?:Map<Id,Vec2>}`（与 `DisplayInfo.
+   ParseAnchorDef` 逐字段核对一致）；`default_slot_meshes` 值登记为 `FieldKind.Id`；
+   `material_params` 值登记为 `FieldKind.Number`。
 
 ## 基础架构提供 / 游戏层提供
 

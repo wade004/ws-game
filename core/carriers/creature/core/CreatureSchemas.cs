@@ -46,7 +46,10 @@ namespace Core.Carriers.Creature
                     referenceTable: "creature.tier_definition",
                     description: "强度分档引用"),
                 new FieldSchema("base_stats", FieldKind.Object, required: true,
-                    description: "Map<StatKey, Number>"),
+                    description: "Map<StatKey, Number>")
+                    .WithMap(MapSchema.ReferenceKeyTable("stat.definition",
+                        new FieldSchema("value", FieldKind.Number, required: true,
+                            description: "该属性的基础值，CreatureTemplate.FromRecord 逐键 Id.TryParse + JsonNumber 解析，非法即抛 DataFieldException（ADR-0024 第二批登记，键改为加载期即报 reference_integrity，早于该异常）"))),
                 new FieldSchema("stat_growth_ref", FieldKind.Reference, required: false,
                     referenceTable: "prog.level_curve",
                     description: "与 prog.level_curve 同类结构，供生物按等级成长属性"),

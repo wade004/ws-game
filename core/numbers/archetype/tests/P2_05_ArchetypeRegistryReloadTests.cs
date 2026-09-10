@@ -68,12 +68,17 @@ namespace Tests.Numbers.Archetype
         public void P2_05_Reload_PicksUpNewClassBaseStats_AfterDataLoadCompleted()
         {
             var bus = MakeBus();
+            // ADR-0024 第二批登记：arch.class.base_stats 现登记 MapSchema.ReferenceKeyTable
+            // ("stat.definition", ...)，stat.strength 键须能在 stat.definition 表里查到。
             var source = new MutableSource()
+                .Add("stat.definition", Envelope("stat.definition",
+                    "[{\"id\": \"stat.strength\", \"name_key\": \"l10n.stat.strength.name\", \"group\": \"primary\"}]"))
                 .Add("arch.class", Envelope("arch.class", ClassRow(10)))
                 .Add("arch.race", Envelope("arch.race", "[]"))
                 .Add("arch.talent_tree", Envelope("arch.talent_tree", "[]"));
 
             var registry = new DataRegistry(source, bus, new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
             registry.RegisterSchema(ArchSchemas.Class);
             registry.RegisterSchema(ArchSchemas.Race);
             registry.RegisterSchema(ArchSchemas.TalentTree);

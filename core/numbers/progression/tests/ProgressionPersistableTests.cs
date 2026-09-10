@@ -56,11 +56,22 @@ namespace Tests.Numbers.Progression
             }
         ]";
 
+        /// <summary>ADR-0024 第二批登记：<c>prog.level_curve.entries[].growth</c> 现登记
+        /// <c>MapSchema.ReferenceKeyTable("stat.definition", ...)</c>，<see cref="CurveRows"/> 用到的
+        /// stat.strength/stat.vitality 两个键必须能在 stat.definition 表里查到。</summary>
+        private const string StatDefinitionRows = @"[
+            { ""id"": ""stat.strength"", ""name_key"": ""l10n.stat.strength.name"", ""group"": ""primary"" },
+            { ""id"": ""stat.vitality"", ""name_key"": ""l10n.stat.vitality.name"", ""group"": ""primary"" }
+        ]";
+
         private static DataRegistry MakeRegistry(out IEventBus bus)
         {
             bus = MakeBus();
-            var source = new InMemoryDataSource().Add("prog.level_curve", Envelope("prog.level_curve", CurveRows));
+            var source = new InMemoryDataSource()
+                .Add("stat.definition", Envelope("stat.definition", StatDefinitionRows))
+                .Add("prog.level_curve", Envelope("prog.level_curve", CurveRows));
             var registry = new DataRegistry(source, bus, new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
             registry.RegisterSchema(ProgSchemas.LevelCurve);
             var report = registry.LoadAll();
             if (report.IsBlocking)

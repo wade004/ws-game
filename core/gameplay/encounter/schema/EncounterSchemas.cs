@@ -100,11 +100,21 @@ namespace Core.Gameplay.Encounter
                 new FieldSchema("enter_condition", FieldKind.Expr, required: true,
                     description: "阶段进入条件；ADR-0019 起随 Array.Item 递归被内置 expr_parsable 校验项覆盖，" +
                         "EncounterContentValidationRule 原手写的同名检查已退役（见该类型判断记录）。"),
+                // ADR-0024 第二批登记（04 第 3.3 节"映射登记"，兑现 schema/README.md"Map 型待后续
+                // 契约扩展"一节的待办）：键既可能是具体参战单位运行期 id，也可能是 creature.template
+                // 模板 id（EncounterHost.ApplyPhase 判断记录"用『键是否等于某个当前参战单位 id』区分，
+                // 是则按单位 id 精确处理；否则退化为按模板 id 匹配"），哪种校验由运行期动态判定，加载
+                // 期无法静态确定，因此键登记为 FreeKeyed；值（ai.rotation id）与本表
+                // <c>on_enter_hook</c> 字段维持 FieldKind.Id（不升级 Reference）同一分层/装配边界
+                // 理由——避免因狭窄测试装配未加载 ai.rotation 而误报 reference_integrity。与
+                // EncounterDefinition.cs 对键值均 Id.TryParse、非法即抛 DataFieldException 的解析
+                // 代码逐字段核对一致。
                 new FieldSchema("ai_rotation_override", FieldKind.Object, required: false,
-                    description: "Map<Id, Id>（键为具体参战单位 id 或模板 id，见 EncounterHost.ApplyPhase 判断记录）。" +
-                        "判断记录（Map 型待后续契约扩展，ADR-0019 首批范围外）：现有 FieldSchema.Fields 只表达固定键" +
-                        "清单，无法表达任意键的 Map；本轮不为此扩展 FieldKind，本字段维持\"存在且是对象\"的向后兼容" +
-                        "校验（见 schema/README.md\"Map 型待后续契约扩展\"一节）。"),
+                    description: "Map<Id, Id>（键为具体参战单位 id 或模板 id，见 EncounterHost.ApplyPhase 判断记录）")
+                    .WithMap(MapSchema.FreeKeyed(
+                        "键可能是参战单位运行期 id 或 creature.template 引用 id 之一，二者哪种由 EncounterHost.ApplyPhase 运行期判定，加载期无法静态确定校验哪一种",
+                        new FieldSchema("<rotation_id>", FieldKind.Id, required: true,
+                            description: "覆盖的 ai.rotation 循环 id，只做格式校验，不做引用完整性检查（同 on_enter_hook 判断记录）"))),
                 new FieldSchema("on_enter_hook", FieldKind.Id, required: false,
                     description: "found.hook 钩子 id。判断记录（分层边界，同 skill.script.hook_id）：found.hook" +
                         "当前无实现级 schema 登记，Reference 到未加载表恒判定引用失效，暂退回 Id，待补齐登记后再升级。"),

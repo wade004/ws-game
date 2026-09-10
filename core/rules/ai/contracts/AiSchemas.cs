@@ -41,9 +41,17 @@ namespace Core.Rules.Ai
                     description: "combat 态执行的优先级表；可经 IAiHost.SetRotation 运行期替换（Boss 阶段换表）"),
                 new FieldSchema("decision_interval", FieldKind.Number, required: false,
                     description: "combat 态求值优先级表的节奏（模拟时间单位），缺省 0.5"),
+                // ADR-0024 第二批登记：键（转移名）在 AiHost.LoadProfiles 里直接取 JsonObject 的
+                // 原始字符串键，不做任何格式收紧（不要求 Id 格式），故登记为 FreeKeyed；值经
+                // ((JsonString)kv.Value).Value 强转后 ExprParser.Parse 解析，登记为 Expr 种类，
+                // 与顶层 Expr 字段共用同一套 expr_parsable 检查（见 DataRegistry 判断记录"子层
+                // 校验与顶层共用同一份实现"）。
                 new FieldSchema("transitions", FieldKind.Object, required: false,
-                    description: "Map<转移名, Expr 文本>（键动态，ADR-0019 通用规则 5 不登记子结构）：" +
-                        "覆盖默认转移条件（如 idle_to_chase）；未列出的转移名沿用代码内置默认判定，见本模块 README 对照表"),
+                    description: "Map<转移名, Expr 文本>：覆盖默认转移条件（如 idle_to_chase）；未列出的转移名沿用代码内置默认判定，见本模块 README 对照表")
+                    .WithMap(MapSchema.FreeKeyed(
+                        "转移名是代码内置的固定词汇（idle_to_chase 等，见本模块 README 对照表），不指向任何已登记表，AiHost.LoadProfiles 按原始字符串键读取，不做格式收紧",
+                        new FieldSchema("<condition>", FieldKind.Expr, required: true,
+                            description: "覆盖该转移的判定条件表达式，AiHost.EvaluateNamedCondition 求值"))),
             }).WithOwnership(SchemaLayer.Rules, "ai");
 
         /// <summary>优先级表：条件到候选技能的有序列表（见 06 第 6.2 节 <c>RotationEntry</c>）。</summary>

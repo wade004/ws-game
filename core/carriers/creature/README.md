@@ -43,9 +43,11 @@ creature/
 `loot.table`/`display.map`——不在本任务数据集范围内，声明为 `Reference` 会让 `reference_integrity`
 校验恒报错，见 `CreatureSchemas` 判断记录）。
 
-ADR-0019 F1c 判断记录（`base_stats` 不登记子结构）：`base_stats` 是 `Map<StatKey, Number>`（键为
-`stat.definition` 的 id，动态键、值同构）——ADR-0019 通用规则 5"Map 型对象一律不登记，不为此扩展
-契约到新的 `FieldKind`"，本轮保持"存在且是对象"，待后续契约扩展 Map 型 `FieldKind` 后再登记。
+ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止的 ADR-0019 F1c 判断记录）：`base_stats`
+是 `Map<StatKey, Number>`（键为 `stat.definition` 的 id，动态键、值同构），现登记为
+`MapSchema.ReferenceKeyTable("stat.definition", ...)`——键按 `reference_integrity` 检查其在
+`stat.definition` 中存在，值登记为 `FieldKind.Number`，与 `CreatureTemplate.FromRecord` 逐键
+`Id.TryParse` + `JsonNumber` 解析的形状核对一致。
 
 ### `creature.tier_definition`（补录）
 

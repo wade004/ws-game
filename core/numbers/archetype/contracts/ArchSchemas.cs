@@ -28,6 +28,17 @@ namespace Core.Numbers.Archetype
     /// <see cref="IDataRegistry.DeclareReference"/> 契约本身的能力边界限制（只支持标量 Id 字段，
     /// 不支持 <see cref="FieldKind.IdList"/> 这种数组字段）。
     /// </para>
+    /// <para>
+    /// 判断记录（ADR-0024 第二批登记，04 第 3.3 节"映射登记"）：<c>base_stats</c>/<c>stat_mods</c>
+    /// 从"未登记子结构"升级为 <see cref="MapSchema.ReferenceKeyTable"/>——键登记为
+    /// <c>stat.definition</c> 的表引用（<c>ReferenceTable</c> 只是字符串常量，不产生程序集依赖，与
+    /// <c>talent_tree_ref</c>/<c>level_curve_ref</c> 已有的跨模块字符串引用同一惯例），值登记为
+    /// <see cref="FieldKind.Number"/>——与 <c>ArchetypeRegistry.ParseClass</c>/<c>ParseRace</c> 经
+    /// <c>ReadNumberObject</c> 读取的键值形状逐字段核对一致（键为字符串、值为 <c>JsonNumber</c>）。
+    /// 未改变 <c>primary_stat</c>/<c>power_types</c>/<c>skill_book_ref</c> 三个字段维持
+    /// <see cref="FieldKind.Id"/>/<see cref="FieldKind.IdList"/> 不升级为 Reference 的既有分层边界
+    /// 判断（这三个字段的理由与 <c>base_stats</c>/<c>stat_mods</c> 无关，见上方判断记录，本次不涉及）。
+    /// </para>
     /// </summary>
     public static class ArchSchemas
     {
@@ -44,7 +55,10 @@ namespace Core.Numbers.Archetype
                 new FieldSchema("primary_stat", FieldKind.Id, required: true,
                     description: "引用 stat.*；stat_block 模块尚未登记 schema，暂不声明为 Reference"),
                 new FieldSchema("base_stats", FieldKind.Object, required: true,
-                    description: "Object<stat_id, Number>，ApplyTo 经 StatBaseWriter 写入"),
+                    description: "Object<stat_id, Number>，ApplyTo 经 StatBaseWriter 写入")
+                    .WithMap(MapSchema.ReferenceKeyTable("stat.definition",
+                        new FieldSchema("value", FieldKind.Number, required: true,
+                            description: "该属性的基础值，ArchetypeRegistry.ParseClass 经 ReadNumberObject 读取"))),
                 new FieldSchema("power_types", FieldKind.IdList, required: true,
                     description: "引用 arch.power.*；power_set 模块尚未登记 schema，暂不声明为 Reference")
                     .WithFreeIds("分层边界：L1 不静态耦合 L2/L3 具体表结构（见类型判断记录），且 IDataRegistry.DeclareReference 契约本身只支持标量 Id 字段，不支持 IdList"),
@@ -67,7 +81,10 @@ namespace Core.Numbers.Archetype
                 new FieldSchema("name_key", FieldKind.TextKey, required: true,
                     description: "显示名文本键"),
                 new FieldSchema("stat_mods", FieldKind.Object, required: true,
-                    description: "Object<stat_id, Number>，ApplyTo 经 StatModifierWriter 以 flat 写入，来源为种族 id"),
+                    description: "Object<stat_id, Number>，ApplyTo 经 StatModifierWriter 以 flat 写入，来源为种族 id")
+                    .WithMap(MapSchema.ReferenceKeyTable("stat.definition",
+                        new FieldSchema("value", FieldKind.Number, required: true,
+                            description: "该属性的修正值，ArchetypeRegistry.ParseRace 经 ReadNumberObject 读取"))),
                 new FieldSchema("passive_auras", FieldKind.IdList, required: false,
                     description: "引用 skill.aura.*；暂不声明为 Reference（IdList 字段，见类型判断记录 DeclareReference 能力边界）；ArchetypeRegistry.ApplyTo 会施加这些被动光环（注入 aura applier 为 null 时兼容退化为不施加，不是本模块本身只保存不应用）")
                     .WithFreeIds("分层边界：L1 不静态耦合 L2 具体表结构（见类型判断记录），且 IDataRegistry.DeclareReference 契约本身只支持标量 Id 字段，不支持 IdList"),
