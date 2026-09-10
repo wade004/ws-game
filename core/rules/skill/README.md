@@ -493,6 +493,37 @@ skill/
     形态、运行时同类别不同定义各自独立叠加、溢出策略只影响命中定义、`AllowMultiSourceTiming`
     开关下 `sourceKey` 分槽/不分槽四条场景，详见 `architecture/落地计划/消费方反馈-2026-09-10-光环叠加类别.md`）。
 
+42. **同一光环多个 `proc_trigger` 各自独立生效，此前实现按单值字段处理是缺陷（消费方 2026-09-10
+    反馈"同一光环多个 Proc 触发器静默忽略问题"，见
+    `architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md`）**：消费方反馈复现，
+    `skill.aura_def.effects` 登记两个 `proc_trigger` 效果条目（各自引用不同的 `skill.proc_def`）
+    加载校验通过，但运行期只有 `effects` 数组里最后一条真正生效——根因是 `AuraInstanceState`
+    此前只有单值 `Id? ProcDefRef`，`ApplyStaticEffects` 遍历同一光环定义的多个 `proc_trigger`
+    条目时后一个覆盖前一个；`ProcHost._attachments` 同样以 `instanceId` 为单值键，第二次
+    `Attach` 直接覆盖第一次（旧订阅的 `SubscriptionHandle` 从未 `Dispose`，是另一层未回收的
+    订阅泄漏）。根治：`AuraInstanceState.ProcDefRefs` 改为有序集合，保存本光环定义登记的全部
+    `proc_trigger` 条目；`ProcHost._attachments` 改为按 `instanceId` 分桶的多槽列表
+    （`Dictionary<Id, List<Attachment>>`），同一光环实例下的多个 `Attachment` 各自持有独立的
+    `IcdRemaining`（内部冷却独立计时）与独立的 `SubscriptionHandle`。`AuraHost.CreateInstance`
+    对 `ProcDefRefs` 里每一个 `proc_ref` 各调一次 `ProcHost.Attach`（原有单值调用改为循环）；
+    `ProcHost.Detach(instanceId)` 语义变更为"摘除该实例挂载的全部触发器"（此前单槽存储下等价于
+    "摘除唯一一个"，调用方 `AuraHost.RemoveInstanceInternal` 未改，语义变更对它透明）——
+    `AuraHost` 的全部实例移除路径（到期 `Update`、`RemoveAura`、`Dispel`、`ConsumeAbsorb` 吸收
+    耗尽、叠加溢出 `Replace` 策略、`OnEntityDestroyed` 目标销毁）统一经
+    `RemoveInstanceInternal` 收口，一次 `Detach(instanceId)` 调用即完整注销，不会有孤儿订阅
+    残留。公开 API 只新增：`ProcHost` 新增重载 `Detach(Id instanceId, Id procDefId)`（按单个
+    `procDef` 精细摘除，当前调用方未使用，为公开 API 补齐的新增能力，不改变既有
+    `Attach(Id, Id, ProcDef)`/`Detach(Id)`/`Update(double)`/`RescaleAll(double)` 四个既有公开
+    方法的签名）；`AuraInstanceState`/`Attachment` 均为内部类型，不在公开 API 表面。同一光环内
+    重复引用同一个 `proc_def`（两条 `proc_trigger` 的 `proc_ref` 取值相同）改在加载期由新增的
+    `SkillValidationRules.AuraProcTriggerDuplicateRule`（检查名 `aura_proc_trigger_duplicate`，
+    定位到 `effects[index].params.proc_ref`）拒绝——两次独立挂载同一触发器对同一持有者没有可
+    区分的运行时语义（各自独立 ICD 抢同一个触发事件），比允许其静默生效更安全，已在
+    `RulesSchemaCatalog.RegisterAll` 默认登记。验收测试见
+    `tests/C07_MultipleProcTriggersTests.cs`（AB/BA 两种登记顺序均各自独立触发、两个独立光环
+    对照不受影响、内部冷却各自独立计时、`RemoveAura`/到期/叠加溢出替换三条移除路径均完整注销、
+    重复 `proc_ref` 加载期拒绝且定位到字段、正例对照）。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全

@@ -68,6 +68,26 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+消费方反馈"同一光环多个 Proc 触发器静默忽略问题"根治；核实与逐条回复见
+[消费方反馈-2026-09-10-多Proc触发器.md](architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md)。
+
+### 修复
+
+- 同一光环多个 `proc_trigger` 此前只有最后登记的一个真正生效（`AuraInstanceState.ProcDefRef`
+  单值字段被后一条覆盖，`ProcHost._attachments` 同样以光环实例 id 为单值键、第二次挂载直接覆盖
+  第一次），前面的触发器加载校验通过却在运行期被静默丢弃。改为 `AuraInstanceState.ProcDefRefs`
+  有序集合 + `ProcHost` 按实例 id 分桶的多槽列表，单光环登记的多个 `proc_trigger` 各自独立挂载、
+  独立结算条件/概率/内部冷却，光环整体移除（到期、`RemoveAura`、驱散、吸收耗尽、叠加溢出替换、
+  目标销毁）时全部一并注销，不残留孤儿订阅。`ProcHost` 新增重载 `Detach(Id instanceId, Id
+  procDefId)`（按单个触发器精细摘除），既有公开方法签名（`Attach(Id, Id, ProcDef)`/
+  `Detach(Id)`/`Update(double)`/`RescaleAll(double)`）不变。同一光环内重复引用同一个
+  `proc_def` 现在在加载期直接拒绝（新增校验规则 `AuraProcTriggerDuplicateRule`，检查名
+  `aura_proc_trigger_duplicate`，定位到 `effects[index].params.proc_ref`，已在
+  `RulesSchemaCatalog` 默认登记）。对消费方：升级后可把此前拆成多个原生光环的多个被动合并回
+  一个光环共用同一批 `proc_trigger`；若内容中已存在同一光环内重复引用同一个 `proc_def` 的写法，
+  升级后加载会报错，需要改为引用不同的 `proc_def` 记录，或拆成独立光环
+  （代码/校验规则/测试见提交 `5ef4128`；本文档与本条变更记录见本笔提交，哈希见 git log）。
+
 ## [1.16.2] - 2026-09-10
 
 外部深度审核（codex 第十六轮，基线 `24a11fe28f9647cd532c41f56f7ab18c00fb8516`/v1.16.1 自身，报告见

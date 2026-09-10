@@ -130,7 +130,7 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 | `periodic_heal` | 同 `periodic_damage` | `AuraHost.Update`/`FirePeriodic` |
 | `absorb` | `amount`:Number/是、`school`:Id/否（缺省吸收全部学派） | `AuraHost.ApplyStaticEffects`/`AbsorbPerStack` |
 | `immunity` | `schools`:IdList/否、`effect_kinds`:Array(Item=Enum，19 种 `EffectKind` 全集)/否 | `AuraHost.ApplyStaticEffects` |
-| `proc_trigger` | `proc_ref`:Reference(`skill.proc_def`)/是 | `AuraHost.ApplyStaticEffects`/`ProcHost.Attach` |
+| `proc_trigger` | `proc_ref`:Reference(`skill.proc_def`)/是 | `AuraHost.ApplyStaticEffects`/`ProcHost.Attach`（同一光环可登记多个本类型条目，各自独立挂载/结算/注销，见 `AuraInstanceState.ProcDefRefs` 判断记录；同一光环内重复引用同一个 `proc_ref` 由下表 `AuraProcTriggerDuplicateRule` 在加载期拒绝） |
 | `spell_mod` | `spell_mod_ref`:Reference(`skill.spell_mod_def`)/是 | `AuraHost.ApplyStaticEffects`/`SpellModResolver` |
 | `override_skill` | `from`:Reference(`skill.def`)/是、`to`:Reference(`skill.def`)/是 | `AuraHost.ApplyStaticEffects`/`ResolveSkillOverride` |
 | `control` | `flags`:Array(Item=Enum(no_move\|no_cast\|no_attack\|no_interact))/否 | `AuraHost.ApplyStaticEffects`/`ParseControlFlags` |
@@ -146,6 +146,7 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 | `PassiveSkillNoCastTimeRule` | `passive_skill_no_cast_time` | `kind: passive` 的技能不得声明非零 `cast_time` |
 | `ChargesRechargeTimeZeroWarningRule` | `charges_recharge_time_zero` | `charges.recharge_time <= 0` 提醒复核（引擎解读为"即时恢复"），Warning 不阻断 |
 | `ChargesMaxAtLeastOneRule` | `charges_max_invalid` | `charges.max` 必须 &gt;= 1 的整数（ADR-0019 收窄版，见下"退役规则"） |
+| `AuraProcTriggerDuplicateRule` | `aura_proc_trigger_duplicate` | 同一 `skill.aura_def.effects` 内两条以上 `proc_trigger` 引用同一个 `proc_def`（`proc_ref` 重复）报错，定位到重复出现的那一条 `effects[index].params.proc_ref`（04 第 5 节"光环内触发器重复引用"；消费方反馈 2026-09-10"同一光环多个 Proc 触发器静默忽略问题"）。单光环登记多个不同 `proc_trigger` 本身合法，见上表 `proc_trigger` 行 |
 
 以上规则通过 `IDataRegistry.RegisterValidationRule` 注册；`MaxEffectsPerSkillRule` 的构造参数
 （`SkillOptions.MaxEffectsPerSkill`）由宿主在注册时传入，本模块不在 `SkillSchemas`/`SkillValidationRules`
