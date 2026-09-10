@@ -26,12 +26,17 @@ namespace Tests.Presentation.Assembly
             return dir.FullName;
         }
 
+        /// <summary>ADR-0022（04 第 3.4 节"表级归属元数据"）：本文件绝大多数用例只关心其它检查项
+        /// （missing_description/composite_without_substructure/...），不是在测试 table_ownership
+        /// 本身——统一给 Layer/Module 一个占位值，避免每条既有用例各自被新增的 table_ownership 检查
+        /// 命中而失败；真正测试 table_ownership/field_group/time_scope_declared/idlist_reference_target
+        /// 的用例见下方"ADR-0022"分组，各自单独构造不经过本 helper 的 TableSchema。</summary>
         private static TableSchema SingleFieldTable(string tableName, FieldSchema field) =>
             new TableSchema(tableName, "id", 1, new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
                 field,
-            });
+            }).WithOwnership(SchemaLayer.Foundation, "test");
 
         [Fact]
         public void MissingDescription_ReportsError()
@@ -365,6 +370,183 @@ namespace Tests.Presentation.Assembly
             // FieldCount 应该是有限、很小的数（自引用只展开一层就被环检测挡住），不应该是
             // MaxDepth 量级（若环检测失效，会是数十/上百）。
             Assert.True(report.FieldCount < 10, $"FieldCount={report.FieldCount}，疑似环检测失效导致展开过深");
+        }
+
+        // -----------------------------------------------------------------
+        // ADR-0022：table_ownership / field_group（计算默认值）/ time_scope_declared /
+        // idlist_reference_target / time_unit_missing 五项新增自洽检查
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void TableOwnership_MissingLayerAndModule_ReportsError()
+        {
+            var table = new TableSchema("test.no_ownership", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+            });
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "table_ownership" && i.Table == "test.no_ownership" &&
+                i.Message.Contains("Layer"));
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "table_ownership" && i.Table == "test.no_ownership" &&
+                i.Message.Contains("Module"));
+        }
+
+        [Fact]
+        public void TableOwnership_WithOwnership_NoIssue()
+        {
+            var table = new TableSchema("test.with_ownership", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+            }).WithOwnership(SchemaLayer.Foundation, "test");
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "table_ownership");
+        }
+
+        [Fact]
+        public void TableOwnership_DomainDiffersFromFirstSegmentWithoutException_ReportsError()
+        {
+            // "test.mismatched_domain" 首段是 "test"，但显式登记 Domain 为 "found"，且不在
+            // 04 第 2.2 节三张命名例外清单内——应报错。
+            var table = new TableSchema("test.mismatched_domain", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+            }).WithOwnership(SchemaLayer.Foundation, "test").WithDomain("found");
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "table_ownership" && i.Table == "test.mismatched_domain");
+        }
+
+        [Fact]
+        public void TableOwnership_NamingExceptionTableWithoutExplicitDomain_ReportsError()
+        {
+            // camera_profile 是 04 第 2.2 节登记的单段名命名例外，必须显式 WithDomain("camera")，
+            // 不能沿用默认的表名首段（"camera_profile" 本身）。
+            var table = new TableSchema("camera_profile", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+            }).WithOwnership(SchemaLayer.Presentation, "camera");
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "table_ownership" && i.Table == "camera_profile");
+        }
+
+        [Fact]
+        public void FieldGroup_DefaultsByKindAndName_NoIssue()
+        {
+            var table = new TableSchema("test.field_group_defaults", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+                new FieldSchema("icon_id", FieldKind.String, required: false, description: "图标资源引用"),
+                new FieldSchema("amount", FieldKind.Number, required: false, description: "数值"),
+                new FieldSchema("other_thing", FieldKind.Reference, required: false, referenceTable: "test.field_group_defaults", description: "自引用示例"),
+            }).WithOwnership(SchemaLayer.Foundation, "test");
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "field_group");
+            Assert.Equal(FieldGroup.Basic, table.GetField("id")!.Group);
+            Assert.Equal(FieldGroup.Presentation, table.GetField("icon_id")!.Group);
+            Assert.Equal(FieldGroup.Numeric, table.GetField("amount")!.Group);
+            Assert.Equal(FieldGroup.Reference, table.GetField("other_thing")!.Group);
+        }
+
+        [Fact]
+        public void FieldGroup_ExplicitWithGroupOverridesDefault()
+        {
+            var field = new FieldSchema("value", FieldKind.Number, required: false, description: "数值")
+                .WithGroup(FieldGroup.Advanced);
+
+            Assert.Equal(FieldGroup.Advanced, field.Group);
+        }
+
+        [Fact]
+        public void TimeScopeDeclared_UnitTimeWithoutTableTimeScope_ReportsError()
+        {
+            var table = new TableSchema("test.time_no_scope", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+                new FieldSchema("duration", FieldKind.Number, required: false, description: "持续时间").WithUnit(FieldUnit.Time),
+            }).WithOwnership(SchemaLayer.Rules, "test");
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "time_scope_declared" && i.Table == "test.time_no_scope" && i.FieldPath == "duration");
+        }
+
+        [Fact]
+        public void TimeScopeDeclared_UnitTimeWithTableTimeScope_NoIssue()
+        {
+            var table = new TableSchema("test.time_with_scope", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+                new FieldSchema("duration", FieldKind.Number, required: false, description: "持续时间").WithUnit(FieldUnit.Time),
+            }).WithOwnership(SchemaLayer.Rules, "test").WithTimeScope(TimeScope.Combat);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "time_scope_declared");
+        }
+
+        [Fact]
+        public void IdListReferenceTarget_NeitherReferenceNorFreeIds_ReportsError()
+        {
+            var table = new TableSchema("test.idlist_missing_target", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+                new FieldSchema("tags", FieldKind.IdList, required: false, description: "标签集合"),
+            }).WithOwnership(SchemaLayer.Foundation, "test");
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "idlist_reference_target" &&
+                i.Table == "test.idlist_missing_target" && i.FieldPath == "tags");
+        }
+
+        [Fact]
+        public void IdListReferenceTarget_WithFreeIds_NoIssue()
+        {
+            var table = new TableSchema("test.idlist_free", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+                new FieldSchema("tags", FieldKind.IdList, required: false, description: "标签集合")
+                    .WithFreeIds("测试：自由标签，不指向任何表"),
+            }).WithOwnership(SchemaLayer.Foundation, "test");
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "idlist_reference_target");
+        }
+
+        [Fact]
+        public void IdListReferenceTarget_WithReferenceTable_NoIssue()
+        {
+            var targetTable = new TableSchema("test.idlist_ref_target", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+            }).WithOwnership(SchemaLayer.Foundation, "test");
+            var sourceTable = new TableSchema("test.idlist_ref_source", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+                new FieldSchema("refs", FieldKind.IdList, required: false, referenceTable: "test.idlist_ref_target",
+                    description: "指向 test.idlist_ref_target 的引用列表"),
+            }).WithOwnership(SchemaLayer.Foundation, "test");
+
+            var report = SchemaAudit.Run(new[] { targetTable, sourceTable }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "idlist_reference_target");
+            Assert.DoesNotContain(report.Issues, i => i.Check == "reference_target_unknown");
         }
 
         /// <summary>门禁本体：真实登记 + 仓库根白名单，断言 0 error（白名单未用条目仍允许——本测试

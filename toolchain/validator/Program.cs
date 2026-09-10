@@ -211,9 +211,18 @@ namespace Toolchain.Validator
                         var count = report.IsBlocking ? -1 : run.Registry.GetAll(table).Count;
                         Console.WriteLine(count < 0 ? $"table: {table} (? 条记录，数据未通过校验)" : $"table: {table} ({count} 条记录)");
 
+                        var schema = run.Registry.GetSchema(table);
+
+                        // ADR-0022 决策 5：表级归属元数据（04 第 3.4 节），文本模式下的人类可读展示。
+                        if (schema != null)
+                        {
+                            var layerText = schema.Layer?.ToString() ?? "(未登记)";
+                            var moduleText = schema.Module ?? "(未登记)";
+                            Console.WriteLine($"  owner: layer={layerText} module={moduleText} domain={schema.Domain} time_scope={schema.TimeScope}");
+                        }
+
                         // ADR-0021 决策 4："导出给内容工具"：把该表已登记的字段范围约束一并列出
                         // （供人工核对/编辑器接入前的手工检查），见 SchemaFieldRangeExport 判断记录。
-                        var schema = run.Registry.GetSchema(table);
                         if (schema != null)
                         {
                             foreach (var r in SchemaFieldRangeExport.Collect(schema))
@@ -419,6 +428,21 @@ namespace Toolchain.Validator
                     if (i > 0) sb.Append(',');
                     var count = report.IsBlocking ? -1 : tablesForListing.GetAll(names[i]).Count;
                     sb.Append('{').Append("\"name\":\"").Append(JsonEscape(names[i])).Append("\",\"record_count\":").Append(count).Append(',');
+
+                    // ADR-0022 决策 5："导出给内容工具"：表级归属元数据（Layer/Module/Domain/
+                    // TimeScope，04 第 3.4 节）——追加在既有 "record_count" 字段之后、"fields" 之前，
+                    // 不改动任何既有字段，保持此前 --json 输出对不读取这些新键的调用方逐字节兼容。
+                    var ownerSchema = tablesForListing.GetSchema(names[i]);
+                    sb.Append("\"layer\":");
+                    sb.Append(ownerSchema?.Layer == null ? "null" : "\"" + JsonEscape(ownerSchema.Layer.Value.ToString()) + "\"");
+                    sb.Append(',');
+                    sb.Append("\"module\":");
+                    sb.Append(ownerSchema?.Module == null ? "null" : "\"" + JsonEscape(ownerSchema.Module) + "\"");
+                    sb.Append(',');
+                    sb.Append("\"domain\":");
+                    sb.Append(ownerSchema == null ? "null" : "\"" + JsonEscape(ownerSchema.Domain) + "\"");
+                    sb.Append(',');
+                    sb.Append("\"time_scope\":\"").Append(JsonEscape((ownerSchema?.TimeScope ?? TimeScope.None).ToString())).Append("\",");
                     // 判断记录（消费方反馈 E11 根治，2026-09-10，见
                     // architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E11）：追加顶层字段的
                     // 登记顺序（TableSchema.Fields，构造时的登记顺序，见该类型注释）——
@@ -436,6 +460,22 @@ namespace Toolchain.Validator
                         {
                             if (j > 0) sb.Append(',');
                             sb.Append('"').Append(JsonEscape(fieldSchema.Fields[j].Name)).Append('"');
+                        }
+                    }
+                    sb.Append(']');
+                    sb.Append(',');
+
+                    // ADR-0022 决策 5："导出给内容工具"：随每张表一并输出顶层字段的分组/单位/引用
+                    // 目标元数据（04 第 3.4 节）——与上面 "fields" 名字数组同一层级范围（只覆盖顶层
+                    // 字段，不递归子结构；子结构内部的 Group/Unit/引用目标暂不导出，留待后续按需
+                    // 扩展，不影响本版三条决策 1～4 的验收范围）。
+                    sb.Append("\"field_meta\":[");
+                    if (fieldSchema != null)
+                    {
+                        for (var j = 0; j < fieldSchema.Fields.Count; j++)
+                        {
+                            if (j > 0) sb.Append(',');
+                            AppendFieldMetaJson(sb, fieldSchema.Fields[j]);
                         }
                     }
                     sb.Append(']');
@@ -508,6 +548,22 @@ namespace Toolchain.Validator
             sb.Append("\"record_key\":\"").Append(JsonEscape(diag.RecordKey)).Append("\",");
             sb.Append("\"overriding_location\":\"").Append(JsonEscape(diag.OverridingLocation)).Append("\",");
             sb.Append("\"overridden_location\":\"").Append(JsonEscape(diag.OverriddenLocation)).Append('"');
+            sb.Append('}');
+        }
+
+        /// <summary>ADR-0022 决策 5："导出给内容工具"：单个顶层字段的分组/单位/IdList 引用目标元数据
+        /// （04 第 3.4 节），供编辑器不必等一次完整加载即可按字段分组渲染表单、按引用目标提供自动
+        /// 补全候选。</summary>
+        private static void AppendFieldMetaJson(StringBuilder sb, FieldSchema field)
+        {
+            sb.Append('{');
+            sb.Append("\"name\":\"").Append(JsonEscape(field.Name)).Append("\",");
+            sb.Append("\"kind\":\"").Append(JsonEscape(field.Kind.ToString())).Append("\",");
+            sb.Append("\"group\":\"").Append(JsonEscape(field.Group.ToString())).Append("\",");
+            sb.Append("\"unit\":\"").Append(JsonEscape(field.Unit.ToString())).Append("\",");
+            sb.Append("\"reference_table\":").Append(field.ReferenceTable == null ? "null" : "\"" + JsonEscape(field.ReferenceTable) + "\"").Append(',');
+            sb.Append("\"reference_domain\":").Append(field.ReferenceDomain == null ? "null" : "\"" + JsonEscape(field.ReferenceDomain) + "\"").Append(',');
+            sb.Append("\"free_ids\":").Append(field.FreeIds ? "true" : "false");
             sb.Append('}');
         }
 

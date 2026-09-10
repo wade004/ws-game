@@ -950,7 +950,7 @@ namespace Core.Foundation.DataRegistry
                     break;
 
                 case FieldKind.IdList:
-                    ValidateIdList(table, recordKey, fieldPath, raw, issues);
+                    ValidateIdList(table, recordKey, fieldPath, field, raw, issues);
                     break;
 
                 case FieldKind.Reference:
@@ -1163,7 +1163,14 @@ namespace Core.Foundation.DataRegistry
                 recordKey: recordKey, field: fieldPath));
         }
 
-        private static void ValidateIdList(string table, string recordKey, string fieldPath, JsonValue raw, List<ValidationIssue> issues)
+        /// <summary>ADR-0022（04 第 3.4 节"IdList 引用目标"）：登记了 <see cref="FieldSchema.ReferenceTable"/>/
+        /// <see cref="FieldSchema.ReferenceDomain"/> 的 <c>IdList</c> 字段，其每个元素都按
+        /// <see cref="ValidateReferenceField"/> 同款规则做 <c>reference_integrity</c> 检查（元素路径
+        /// 加 <c>[i]</c> 下标，与 ADR-0019 数组元素路径记法一致）；未登记引用目标（含显式
+        /// <see cref="FieldSchema.FreeIds"/>）时只做既有的逐元素 Id 格式检查，行为与登记前一致
+        /// （向后兼容）。改为实例方法（原为 static）以复用 <see cref="ReferenceExists"/>/
+        /// <see cref="ReferenceExistsInDomain"/>。</summary>
+        private void ValidateIdList(string table, string recordKey, string fieldPath, FieldSchema field, JsonValue raw, List<ValidationIssue> issues)
         {
             if (!(raw is JsonArray arr))
             {
@@ -1177,6 +1184,38 @@ namespace Core.Foundation.DataRegistry
                 {
                     issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_type",
                         $"字段 \"{fieldPath}\" 第 {i} 个元素不是合法 Id", recordKey: recordKey, field: fieldPath));
+                    continue;
+                }
+
+                if (field.ReferenceTable == null && field.ReferenceDomain == null)
+                {
+                    continue;
+                }
+
+                var elementPath = $"{fieldPath}[{i}]";
+                var value = s.Value;
+
+                if (field.ReferenceTable != null)
+                {
+                    if (!ReferenceExists(field.ReferenceTable, value))
+                    {
+                        issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "reference_integrity",
+                            $"字段 \"{fieldPath}\" 第 {i} 个元素 \"{value}\" 在表 \"{field.ReferenceTable}\" 中不存在", recordKey: recordKey, field: elementPath));
+                    }
+                }
+                else if (field.ReferenceDomain != null)
+                {
+                    if (!CommonId.TryParse(value, out var idVal) || !string.Equals(idVal.Domain, field.ReferenceDomain, StringComparison.Ordinal))
+                    {
+                        issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "reference_integrity",
+                            $"字段 \"{fieldPath}\" 第 {i} 个元素 \"{value}\" 的 domain 应为 \"{field.ReferenceDomain}\"", recordKey: recordKey, field: elementPath));
+                    }
+                    else if (!ReferenceExistsInDomain(field.ReferenceDomain, value))
+                    {
+                        issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "reference_integrity",
+                            $"字段 \"{fieldPath}\" 第 {i} 个元素 \"{value}\" 在 domain \"{field.ReferenceDomain}\" 下的任何已加载表中都不存在",
+                            recordKey: recordKey, field: elementPath));
+                    }
                 }
             }
         }

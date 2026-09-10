@@ -198,6 +198,122 @@ namespace Presentation.Assembly
         /// 承认的合法用法，不算错误）。</summary>
         private const int MaxDepth = 32;
 
+        /// <summary>ADR-0022（04 第 2.2 节勘误"命名例外"）：三张单段名表——不符合"域.表"命名约定，
+        /// <see cref="TableSchema.Domain"/> 经 <see cref="TableSchema.WithDomain"/> 显式声明，不等于
+        /// 表名首段。<see cref="CheckTableOwnership"/> 对这三张表放宽"Domain 必须等于表名首段"检查，
+        /// 对其它任何表仍要求两者一致（Domain 走 WithDomain 是登记错误的信号）。</summary>
+        private static readonly HashSet<string> DomainNamingExceptions = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "camera_profile", "ui_layout_definition", "shell_menu_definition",
+        };
+
+        /// <summary>ADR-0022（04 第 3.4 节"时间字段单位与作用域"）：04 第 3.1 节"全部与时间相关的
+        /// 数据字段"清单里已落地为真实字段的一份静态对照表——(表名, 顶层字段路径) 对，用于
+        /// <see cref="CheckKnownTimeFieldsHaveUnit"/> 防遗漏（该清单里的字段名在对应表里必须已登记
+        /// <see cref="FieldUnit.Time"/>）。字段路径用 "." 定位一层嵌套（如
+        /// <c>charges.recharge_time</c>），与 <see cref="TableSchema.GetField"/>/
+        /// <see cref="FieldSchema.Fields"/> 逐段查找一致；不含 04 第 3.1 节例举但落在
+        /// <c>Variants</c> 分支内部的 <c>skill.aura_def.effects[].params.interval</c>（惰性 Variants
+        /// 结构，见 <c>SkillSchemas.PeriodicParamsCase</c>，字段对象本身已登记 Unit=Time，只是本清单
+        /// 不逐一枚举变体分支路径——变体分支路径的存在性/形状已由 <c>SkillSchemaCoverageTests</c> 等
+        /// 覆盖测试锁死，不在本审计职责范围）。</summary>
+        private static readonly (string Table, string FieldPath)[] KnownTimeFieldPaths =
+        {
+            ("skill.def", "cast_time"),
+            ("skill.def", "channel_time"),
+            ("skill.def", "cooldown_duration"),
+            ("skill.def", "charges.recharge_time"),
+            ("skill.aura_def", "duration"),
+            ("skill.proc_def", "internal_cooldown"),
+            ("arch.power_type", "regen_in_combat"),
+            ("arch.power_type", "regen_out_of_combat"),
+            ("arch.power_type", "decay_out_of_combat"),
+            ("spawn.table", "respawn_timer"),
+        };
+
+        /// <summary>ADR-0022（04 第 3.4 节"表级归属元数据"）：每张已登记表的 Layer/Module/Domain
+        /// 非空、Layer 取值合法（枚举本身保证）、Domain 与表名首段一致或属登记例外（检查名
+        /// "table_ownership"）。</summary>
+        private static void CheckTableOwnership(TableSchema schema, List<SchemaAuditIssue> issues)
+        {
+            if (schema.Layer == null)
+            {
+                issues.Add(new SchemaAuditIssue("error", schema.Name, "", "table_ownership",
+                    $"表 \"{schema.Name}\" 未登记 Layer（未调用 TableSchema.WithOwnership，ADR-0022 决策 1）"));
+            }
+
+            if (string.IsNullOrWhiteSpace(schema.Module))
+            {
+                issues.Add(new SchemaAuditIssue("error", schema.Name, "", "table_ownership",
+                    $"表 \"{schema.Name}\" 未登记 Module（未调用 TableSchema.WithOwnership，ADR-0022 决策 1）"));
+            }
+
+            var dot = schema.Name.IndexOf('.');
+            var defaultDomain = dot > 0 ? schema.Name.Substring(0, dot) : schema.Name;
+            if (schema.Domain != defaultDomain && !DomainNamingExceptions.Contains(schema.Name))
+            {
+                issues.Add(new SchemaAuditIssue("error", schema.Name, "", "table_ownership",
+                    $"表 \"{schema.Name}\" 的 Domain \"{schema.Domain}\" 与表名首段 \"{defaultDomain}\" 不一致，且不在 04 第 2.2 节命名例外清单内"));
+            }
+            if (schema.Domain == defaultDomain && DomainNamingExceptions.Contains(schema.Name))
+            {
+                issues.Add(new SchemaAuditIssue("error", schema.Name, "", "table_ownership",
+                    $"表 \"{schema.Name}\" 属 04 第 2.2 节命名例外，须经 TableSchema.WithDomain 显式声明 Domain（不能沿用默认的表名首段）"));
+            }
+        }
+
+        /// <summary>见 <see cref="KnownTimeFieldPaths"/>。</summary>
+        private static void CheckKnownTimeFieldsHaveUnit(IReadOnlyList<TableSchema> schemas, List<SchemaAuditIssue> issues)
+        {
+            var byName = new Dictionary<string, TableSchema>(StringComparer.Ordinal);
+            for (var i = 0; i < schemas.Count; i++)
+            {
+                byName[schemas[i].Name] = schemas[i];
+            }
+
+            for (var i = 0; i < KnownTimeFieldPaths.Length; i++)
+            {
+                var (table, fieldPath) = KnownTimeFieldPaths[i];
+                if (!byName.TryGetValue(table, out var schema))
+                {
+                    continue; // 表未登记进本次审计范围（如调用方只传入部分表），不属于本检查职责。
+                }
+
+                // 逐段查找：第 0 段来自表顶层 GetField，其余段来自上一段的 Fields 清单。
+                var segments = fieldPath.Split('.');
+                FieldSchema? field = schema.GetField(segments[0]);
+                for (var s = 1; s < segments.Length; s++)
+                {
+                    if (field?.Fields == null)
+                    {
+                        field = null;
+                        break;
+                    }
+                    FieldSchema? next = null;
+                    for (var k = 0; k < field.Fields.Count; k++)
+                    {
+                        if (field.Fields[k].Name == segments[s])
+                        {
+                            next = field.Fields[k];
+                            break;
+                        }
+                    }
+                    field = next;
+                }
+
+                if (field == null)
+                {
+                    issues.Add(new SchemaAuditIssue("error", table, fieldPath, "time_unit_missing",
+                        $"04 第 3.1 节时间字段清单里的 \"{table}.{fieldPath}\" 在当前登记里找不到（字段被改名/删除但清单未同步）"));
+                }
+                else if (field.Unit != FieldUnit.Time)
+                {
+                    issues.Add(new SchemaAuditIssue("error", table, fieldPath, "time_unit_missing",
+                        $"04 第 3.1 节时间字段清单里的 \"{table}.{fieldPath}\" 尚未登记 Unit=Time（ADR-0022 决策 3，防遗漏）"));
+                }
+            }
+        }
+
         /// <summary>构造一个只登记 schema、不加载任何数据的 <see cref="DataRegistry"/>（复用
         /// <see cref="ContentValidationAssembly.CreateRegistry"/> 同一份装配顺序，见该类型判断
         /// 记录），读出全部已登记 <see cref="TableSchema"/>。</summary>
@@ -233,15 +349,20 @@ namespace Presentation.Assembly
                 {
                     issues.Add(new SchemaAuditIssue("warning", schema.Name, "", "unschematized_table",
                         $"表 \"{schema.Name}\" 是 IsUnschematized 占位 schema（只做信封/主键格式检查，字段结构未登记，编辑器只能用 JSON 编辑）"));
+                    continue;
                 }
+
+                CheckTableOwnership(schema, issues);
 
                 var fields = schema.Fields;
                 for (var f = 0; f < fields.Count; f++)
                 {
                     var ancestors = new List<FieldSchema>();
-                    WalkField(schema.Name, fields[f], fields[f].Name, depth: 0, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
+                    WalkField(schema.Name, schema.TimeScope, fields[f], fields[f].Name, depth: 0, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
                 }
             }
+
+            CheckKnownTimeFieldsHaveUnit(schemas, issues);
 
             for (var i = 0; i < allowlist.Entries.Count; i++)
             {
@@ -280,7 +401,7 @@ namespace Presentation.Assembly
         /// 添加/移除（见方法末尾 <c>finally</c>），互不干扰。
         /// </summary>
         private static void WalkField(
-            string tableName, FieldSchema field, string path, int depth,
+            string tableName, TimeScope timeScope, FieldSchema field, string path, int depth,
             List<SchemaAuditIssue> issues, HashSet<string> allTableNames,
             SchemaAuditAllowlist allowlist, HashSet<string> usedAllowlistKeys, ref int fieldCount,
             List<FieldSchema> ancestors)
@@ -326,6 +447,47 @@ namespace Presentation.Assembly
                 }
             }
 
+            // ADR-0022（04 第 3.4 节"IdList 引用目标"）：IdList 字段必须在 ReferenceTable/
+            // ReferenceDomain/FreeIds 三者中恰好登记一种——FieldSchema.WithFreeIds 已在挂载时拒绝
+            // "FreeIds 与 Reference* 同时设置"，这里只需要检查"三者都没设"的遗漏情形。
+            if (field.Kind == FieldKind.IdList)
+            {
+                if (field.ReferenceTable == null && field.ReferenceDomain == null && !field.FreeIds)
+                {
+                    issues.Add(new SchemaAuditIssue("error", tableName, path, "idlist_reference_target",
+                        $"字段 \"{path}\" 是 IdList 但未登记 ReferenceTable/ReferenceDomain，也未调用 WithFreeIds() 显式声明为自由 id 列表（ADR-0022 决策 4）"));
+                }
+                if (field.ReferenceTable != null && !allTableNames.Contains(field.ReferenceTable))
+                {
+                    issues.Add(new SchemaAuditIssue("error", tableName, path, "reference_target_unknown",
+                        $"字段 \"{path}\" 的 ReferenceTable \"{field.ReferenceTable}\" 不在已登记表清单内"));
+                }
+                if (field.ReferenceDomain != null && !KnownDomains.Contains(field.ReferenceDomain))
+                {
+                    issues.Add(new SchemaAuditIssue("error", tableName, path, "reference_target_unknown",
+                        $"字段 \"{path}\" 的 ReferenceDomain \"{field.ReferenceDomain}\" 不在 04 第 2.2 节域名清单内（architecture/04_数据与内容管线.md）"));
+                }
+            }
+
+            // ADR-0022（04 第 3.4 节"字段分组元数据"）：Group 是计算属性，理论上不可能落到声明
+            // 集合之外的取值——本检查只是给"万一未来 FieldGroup 枚举扩展、DefaultGroup 分支遗漏"
+            // 留一道可被 --schema-audit/测试枚举出来的软失败（同 field_range_kind 的既有风格），
+            // 不依赖运行期抛异常。
+            if (!Enum.IsDefined(typeof(FieldGroup), field.Group))
+            {
+                issues.Add(new SchemaAuditIssue("error", tableName, path, "field_group",
+                    $"字段 \"{path}\" 的 Group 取值 {field.Group} 不是 FieldGroup 已定义的枚举值"));
+            }
+
+            // ADR-0022（04 第 3.4 节"时间字段单位与作用域"）：标记为 Unit=Time 的字段，所属表必须
+            // 声明非 None 的 TimeScope（见 CheckTableOwnership 里对 timeScope 参数的比较），否则
+            // "时间字段与时间模型一致"校验无从判定该字段对照哪个作用域的 found.time_model.mode。
+            if (field.Unit == FieldUnit.Time && timeScope == TimeScope.None)
+            {
+                issues.Add(new SchemaAuditIssue("error", tableName, path, "time_scope_declared",
+                    $"字段 \"{path}\" 登记为 Unit=Time，但所属表 \"{tableName}\" 的 TimeScope 仍是 None（未调用 TableSchema.WithTimeScope，ADR-0022 决策 3）"));
+            }
+
             if (depth >= MaxDepth)
             {
                 return;
@@ -352,14 +514,14 @@ namespace Presentation.Assembly
 
                     if (variants != null)
                     {
-                        WalkVariant(tableName, variants, path, depth, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
+                        WalkVariant(tableName, timeScope, variants, path, depth, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
                     }
                     else
                     {
                         for (var i = 0; i < subFields!.Count; i++)
                         {
                             var sub = subFields[i];
-                            WalkField(tableName, sub, path + "." + sub.Name, depth + 1, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
+                            WalkField(tableName, timeScope, sub, path + "." + sub.Name, depth + 1, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
                         }
                     }
                 }
@@ -372,7 +534,7 @@ namespace Presentation.Assembly
                         return;
                     }
 
-                    WalkField(tableName, item, path + "[]", depth + 1, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
+                    WalkField(tableName, timeScope, item, path + "[]", depth + 1, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
                 }
             }
             finally
@@ -396,7 +558,7 @@ namespace Presentation.Assembly
         }
 
         private static void WalkVariant(
-            string tableName, VariantSchema variants, string path, int depth,
+            string tableName, TimeScope timeScope, VariantSchema variants, string path, int depth,
             List<SchemaAuditIssue> issues, HashSet<string> allTableNames,
             SchemaAuditAllowlist allowlist, HashSet<string> usedAllowlistKeys, ref int fieldCount,
             List<FieldSchema> ancestors)
@@ -446,7 +608,7 @@ namespace Presentation.Assembly
                     for (var i = 0; i < caseFields.Count; i++)
                     {
                         var cf = caseFields[i];
-                        WalkField(tableName, cf, casePath + "." + cf.Name, depth + 1, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
+                        WalkField(tableName, timeScope, cf, casePath + "." + cf.Name, depth + 1, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
                     }
                 }
             }
@@ -456,7 +618,7 @@ namespace Presentation.Assembly
                 for (var i = 0; i < commonFields.Count; i++)
                 {
                     var cf = commonFields[i];
-                    WalkField(tableName, cf, path + "." + cf.Name, depth + 1, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
+                    WalkField(tableName, timeScope, cf, path + "." + cf.Name, depth + 1, issues, allTableNames, allowlist, usedAllowlistKeys, ref fieldCount, ancestors);
                 }
             }
         }

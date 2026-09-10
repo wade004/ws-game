@@ -72,6 +72,74 @@ namespace Core.Foundation.DataRegistry
         /// 结构的检查，只做信封与主键格式检查。</summary>
         public bool IsUnschematized { get; private set; }
 
+        /// <summary>ADR-0022（04 第 3.4 节"表级归属元数据"）：本表所属架构分层；由各层 schema
+        /// catalog 注册时经 <see cref="WithOwnership"/> 填入。未填入时为 <c>null</c>——只有
+        /// <c>SchemaAudit</c> 门禁覆盖到的真实登记表要求非空（见该类型"table_ownership"检查），
+        /// 测试用的临时 <see cref="TableSchema"/> 不受影响（向后兼容，同 <see cref="FieldSchema.Range"/>
+        /// 的登记惯例）。</summary>
+        public SchemaLayer? Layer { get; private set; }
+
+        /// <summary>所属模块名，与 <c>architecture/04_数据与内容管线.md</c> 第 1.1 节"模块"列、
+        /// 实现目录/装配名一致（如 <c>"archetype"</c>、<c>"skill"</c>）。</summary>
+        public string? Module { get; private set; }
+
+        private string? _domain;
+
+        /// <summary>04 第 2.2 节域名：默认取表名第一段（<c>Name</c> 按 <c>'.'</c> 切分后的首段），
+        /// 三张单段名表（<c>camera_profile</c>/<c>ui_layout_definition</c>/<c>shell_menu_definition</c>，
+        /// 04 第 2.2 节勘误登记的命名例外）经 <see cref="WithDomain"/> 显式声明为 <c>camera</c>/
+        /// <c>ui</c>/<c>shell</c>。工具应始终读取本属性而非自行解析表名首段（正是为了统一处理这三个
+        /// 例外）。</summary>
+        public string Domain => _domain ?? DefaultDomain;
+
+        private string DefaultDomain
+        {
+            get
+            {
+                var dot = Name.IndexOf('.');
+                return dot > 0 ? Name.Substring(0, dot) : Name;
+            }
+        }
+
+        /// <summary>ADR-0022（04 第 3.4 节"时间字段单位与作用域"）：本表所属的时间模型作用域，默认
+        /// <see cref="Core.Foundation.DataRegistry.TimeScope.None"/>（不含时间模型字段）。含
+        /// <see cref="FieldSchema.Unit"/> 为 <see cref="FieldUnit.Time"/> 字段的表必须经
+        /// <see cref="WithTimeScope"/> 显式声明非 <see cref="Core.Foundation.DataRegistry.TimeScope.None"/>
+        /// 的取值（见 <c>SchemaAudit</c>"time_scope_declared"检查）。</summary>
+        public TimeScope TimeScope { get; private set; } = TimeScope.None;
+
+        /// <summary>登记 <see cref="Layer"/>/<see cref="Module"/>；只能整体设置一次（重复调用抛异常，
+        /// 同 <see cref="FieldSchema.WithRange"/> 的"防止静默覆盖"惯例）。两者总是成对登记（04 第 1.1
+        /// 节总索引表"层"与"模块"两列总是同时出现），故合并为一个方法而非两个独立的 With*，减少调用点
+        /// 样板代码。返回 <c>this</c> 便于链式调用。</summary>
+        public TableSchema WithOwnership(SchemaLayer layer, string module)
+        {
+            if (string.IsNullOrWhiteSpace(module)) throw new ArgumentException("module 不能为空", nameof(module));
+            if (Layer != null) throw new InvalidOperationException($"表 \"{Name}\"：Layer/Module 已设置，不可重复设置");
+            Layer = layer;
+            Module = module;
+            return this;
+        }
+
+        /// <summary>显式登记 <see cref="Domain"/>，仅用于 04 第 2.2 节勘误登记的单段名命名例外
+        /// （<c>camera_profile</c>/<c>ui_layout_definition</c>/<c>shell_menu_definition</c>）；
+        /// 只能设置一次。返回 <c>this</c> 便于链式调用。</summary>
+        public TableSchema WithDomain(string domain)
+        {
+            if (string.IsNullOrWhiteSpace(domain)) throw new ArgumentException("domain 不能为空", nameof(domain));
+            if (_domain != null) throw new InvalidOperationException($"表 \"{Name}\"：Domain 已设置，不可重复设置");
+            _domain = domain;
+            return this;
+        }
+
+        /// <summary>登记 <see cref="TimeScope"/>；只能设置一次。返回 <c>this</c> 便于链式调用。</summary>
+        public TableSchema WithTimeScope(TimeScope timeScope)
+        {
+            if (TimeScope != TimeScope.None) throw new InvalidOperationException($"表 \"{Name}\"：TimeScope 已设置，不可重复设置");
+            TimeScope = timeScope;
+            return this;
+        }
+
         private readonly Dictionary<string, FieldSchema> _fieldsByName;
 
         public TableSchema(

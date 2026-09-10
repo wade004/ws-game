@@ -58,6 +58,105 @@ namespace Core.Foundation.DataRegistry
             return this;
         }
 
+        private FieldGroup? _group;
+
+        /// <summary>ADR-0022（04 第 3.4 节"字段分组元数据"）：字段语义分组，供编辑器表单视图折叠/
+        /// 排序（<c>editor/docs/编辑器产品文档.md</c> 5.4.1 节）。未经 <see cref="WithGroup"/> 显式
+        /// 登记时，按 <see cref="FieldGroup"/> 类型判断记录所述规则计算默认值——见
+        /// <see cref="DefaultGroup"/>。</summary>
+        public FieldGroup Group => _group ?? DefaultGroup;
+
+        private FieldGroup DefaultGroup
+        {
+            get
+            {
+                if (Name == "id" || Name == "key" || Name == "schema_version" || Name == "migrated_from")
+                {
+                    return FieldGroup.Basic;
+                }
+                if (Kind == FieldKind.TextKey)
+                {
+                    return FieldGroup.Basic;
+                }
+                if (Kind == FieldKind.Reference || Kind == FieldKind.IdList || Kind == FieldKind.Id)
+                {
+                    return FieldGroup.Reference;
+                }
+                if (Kind == FieldKind.Number || Kind == FieldKind.Int)
+                {
+                    return FieldGroup.Numeric;
+                }
+                for (var i = 0; i < PresentationNameHints.Length; i++)
+                {
+                    if (Name.Contains(PresentationNameHints[i]))
+                    {
+                        return FieldGroup.Presentation;
+                    }
+                }
+                return FieldGroup.Advanced;
+            }
+        }
+
+        /// <summary>见 <see cref="DefaultGroup"/>："名称含表现/资源类关键字=表现"这一条规则用到的
+        /// 关键字集合，取自已登记字段里实际出现的表现层命名惯例（图标/精灵/模型/动画/特效/音效/
+        /// UI/阴影/缩放/颜色/排序/挂点/渲染/粒子）。</summary>
+        private static readonly string[] PresentationNameHints =
+        {
+            "icon", "sprite", "model", "anim", "vfx", "sfx", "shadow", "scale", "color",
+            "sort", "socket", "slot_mesh", "render", "particle", "ui_", "layout", "camera",
+            "shake", "screen", "menu_icon", "portrait",
+        };
+
+        /// <summary>登记 <see cref="Group"/>，覆盖 <see cref="DefaultGroup"/> 的启发式判定（用于
+        /// 规则误判的少量字段）；只能设置一次。返回 <c>this</c> 便于链式调用。</summary>
+        public FieldSchema WithGroup(FieldGroup group)
+        {
+            if (_group != null) throw new InvalidOperationException($"字段 \"{Name}\"：Group 已设置，不可重复设置");
+            _group = group;
+            return this;
+        }
+
+        /// <summary>ADR-0022（04 第 3.4 节"时间字段单位与作用域"）：字段取值单位，默认
+        /// <see cref="FieldUnit.None"/>。<see cref="FieldUnit.Time"/> 标记 04 第 3.1 节列出的时间
+        /// 字段，须由所属 <see cref="TableSchema.TimeScope"/> 非 <see cref="Core.Foundation.DataRegistry.TimeScope.None"/>
+        /// 配合登记（见 <c>SchemaAudit</c>"time_scope_declared"检查）。</summary>
+        public FieldUnit Unit { get; private set; } = FieldUnit.None;
+
+        /// <summary>登记 <see cref="Unit"/>；只能设置一次。返回 <c>this</c> 便于链式调用。</summary>
+        public FieldSchema WithUnit(FieldUnit unit)
+        {
+            if (Unit != FieldUnit.None) throw new InvalidOperationException($"字段 \"{Name}\"：Unit 已设置，不可重复设置");
+            Unit = unit;
+            return this;
+        }
+
+        /// <summary>ADR-0022（04 第 3.4 节"IdList 引用目标"）：仅 <see cref="FieldKind.IdList"/> 字段
+        /// 有意义——显式标记该字段确属"自由 id 列表"（值不指向任何已登记表/domain，或分层边界不允许
+        /// 静态耦合目标表，如 <c>arch.class.power_types</c>/<c>arch.race.passive_auras</c> 见
+        /// <c>ArchSchemas</c> 判断记录），与 <see cref="ReferenceTable"/>/<see cref="ReferenceDomain"/>
+        /// 三者恰好登记其一，供 <c>SchemaAudit</c>"idlist_reference_target"检查判定"IdList 二者必居
+        /// 其一"。</summary>
+        public bool FreeIds { get; private set; }
+
+        /// <summary>登记 <see cref="FreeIds"/>；只能设置一次，且与 <see cref="ReferenceTable"/>/
+        /// <see cref="ReferenceDomain"/> 互斥。<paramref name="reason"/> 必填，供门禁报告与人工审阅
+        /// （同 <c>SchemaAuditAllowlistEntry.Reason</c> 惯例）。返回 <c>this</c> 便于链式调用。</summary>
+        public FieldSchema WithFreeIds(string reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("reason 不能为空——需说明为何该 IdList 确属自由列表", nameof(reason));
+            if (FreeIds) throw new InvalidOperationException($"字段 \"{Name}\"：FreeIds 已设置，不可重复设置");
+            if (ReferenceTable != null || ReferenceDomain != null)
+            {
+                throw new InvalidOperationException($"字段 \"{Name}\"：FreeIds 与 ReferenceTable/ReferenceDomain 互斥");
+            }
+            FreeIds = true;
+            FreeIdsReason = reason;
+            return this;
+        }
+
+        /// <summary>见 <see cref="WithFreeIds"/>。</summary>
+        public string? FreeIdsReason { get; private set; }
+
         /// <summary>仅 <see cref="FieldKind.Object"/> 可设：该对象的子字段清单，可递归嵌套
         /// <see cref="FieldKind.Object"/>/<see cref="FieldKind.Array"/>；与 <see cref="Variants"/>
         /// 互斥（见 ADR-0019）。</summary>
