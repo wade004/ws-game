@@ -58,6 +58,60 @@ namespace Tests.Foundation.Common.Json
             Assert.Throws<JsonParseException>(() => JsonReader.Parse("01"));
         }
 
+        // -----------------------------------------------------------------
+        // F-01 根治（2026-09-10 codex 第十六轮 schema 审计，schema-findings.md）：JSON 语法合法但
+        // double.Parse 求值结果非有限（Infinity/-Infinity）时拒绝，指数写法本身继续正常支持。
+        // -----------------------------------------------------------------
+
+        /// <summary>F-01 复现原文：<c>JsonReader.Parse("1e309")</c> 此前成功返回
+        /// <c>JsonNumber</c>，<c>Value</c> 是 <c>+Infinity</c>；<c>"-1e309"</c> 对称得到
+        /// <c>-Infinity</c>。两者语法都合法（数字 + 指数），JSON 语义里没有 Infinity，必须拒绝。</summary>
+        [Theory]
+        [InlineData("1e309")]
+        [InlineData("-1e309")]
+        public void Parse_ExponentOverflowToInfinity_Throws(string text)
+        {
+            var ex = Assert.Throws<JsonParseException>(() => JsonReader.Parse(text));
+            Assert.Equal(1, ex.Line);
+            Assert.Equal(1, ex.Column); // 起始列：错误定位在数字 token 开头，不是解析完之后的位置
+        }
+
+        [Fact]
+        public void Parse_LargeDecimalLiteralOverflowToInfinity_Throws()
+        {
+            var text = new string('9', 500) + ".1";
+            Assert.Throws<JsonParseException>(() => JsonReader.Parse(text));
+        }
+
+        [Fact]
+        public void Parse_ExponentOverflow_ErrorPositionAfterLeadingContent()
+        {
+            var ex = Assert.Throws<JsonParseException>(() => JsonReader.Parse("{\"value\": 1e309}"));
+            Assert.Equal(11, ex.Column); // "value": 后数字开头列号
+        }
+
+        /// <summary>普通指数写法（含负指数、正常量级）继续被接受，不受有限性检查误伤。</summary>
+        [Theory]
+        [InlineData("1e5", 100000.0)]
+        [InlineData("1.5e-3", 0.0015)]
+        [InlineData("-0", 0.0)]
+        public void Parse_FiniteExponentAndSignedZero_StillAccepted(string text, double expected)
+        {
+            var n = (JsonNumber)JsonReader.Parse(text);
+            Assert.Equal(expected, n.Value, 12);
+        }
+
+        /// <summary>2^53 + 1，超出 double 精确表示整数的边界，但仍是有限值——不应被有限性检查误伤；
+        /// <see cref="JsonNumber.TryGetInt64"/> 走 <see cref="JsonNumber.RawNumberText"/> 分支精确
+        /// 还原，不经过 <c>Value</c> 的精度损失。</summary>
+        [Fact]
+        public void Parse_LargeSafeIntegerBeyondDoublePrecision_StillAccepted()
+        {
+            var n = (JsonNumber)JsonReader.Parse("9007199254740993");
+            Assert.True(n.TryGetInt64(out var value));
+            Assert.Equal(9007199254740993L, value);
+        }
+
         [Fact]
         public void Parse_SimpleString()
         {

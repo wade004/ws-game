@@ -90,6 +90,34 @@ namespace Tests.Foundation.Common.Json
             Assert.Throws<System.InvalidOperationException>(() => JsonWriter.Write(n));
         }
 
+        /// <summary>F-01 根治（2026-09-10 codex 第十六轮 schema 审计，schema-findings.md）：此前
+        /// <c>FormatNumber</c> 在"<see cref="JsonNumber.RawNumberText"/> 不为 null"分支直接原样
+        /// 返回，跳过了紧接着才做的有限性检查——<c>JsonWriter.Write(parsedHuge)</c>（<c>parsedHuge</c>
+        /// 是 <c>JsonReader.Parse("1e309")</c> 的结果，带 <c>RawNumberText == "1e309"</c>）此前会
+        /// 成功输出字符串 <c>"1e309"</c>，把非有限值原样吐回 JSON 文本——JsonReader 现在已经在解析期
+        /// 就拒绝这个输入，这里改为直接 <c>new</c> 构造，覆盖"某处代码绕过 JsonReader 手工构造了一个
+        /// 带 RawNumberText 的非有限 JsonNumber"的边界场景，确认写出口独立守住有限性不变量。</summary>
+        [Fact]
+        public void Write_InfinityWithPreservedRawNumberText_Throws()
+        {
+            var n = new JsonNumber(double.PositiveInfinity, "1e309");
+            Assert.Throws<System.InvalidOperationException>(() => JsonWriter.Write(n));
+        }
+
+        [Fact]
+        public void Write_NegativeInfinityWithPreservedRawNumberText_Throws()
+        {
+            var n = new JsonNumber(double.NegativeInfinity, "-1e309");
+            Assert.Throws<System.InvalidOperationException>(() => JsonWriter.Write(n));
+        }
+
+        [Fact]
+        public void Write_NaNWithPreservedRawNumberText_Throws()
+        {
+            var n = new JsonNumber(double.NaN, "NaN");
+            Assert.Throws<System.InvalidOperationException>(() => JsonWriter.Write(n));
+        }
+
         [Fact]
         public void Write_ThenParse_RoundTripsDeterministically()
         {

@@ -122,15 +122,21 @@ namespace Core.Foundation.Common.Json
 
         private static string FormatNumber(JsonNumber number)
         {
-            if (number.RawNumberText != null)
-            {
-                return number.RawNumberText;
-            }
-
             var v = number.Value;
+
+            // F-01 根治：有限值检查必须在"是否有 RawNumberText"分支之前做——RawNumberText 是解析期
+            // 保留的原始文本（如 "1e309"），直接原样返回会绕开下面本该拒绝 NaN/Infinity 的检查，
+            // 把非有限值原封不动写出去（JsonReader 现在已经在解析期拒绝这类输入，但 JsonNumber 也能
+            // 被调用方直接 new 出来、绕过 JsonReader——写出口必须独立守住这条不变量，不能依赖读入口
+            // 已经守过一次）。
             if (double.IsNaN(v) || double.IsInfinity(v))
             {
                 throw new InvalidOperationException("JSON 不支持写出 NaN/Infinity 数值");
+            }
+
+            if (number.RawNumberText != null)
+            {
+                return number.RawNumberText;
             }
 
             if (v == Math.Floor(v) && Math.Abs(v) < 1e15)

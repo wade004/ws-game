@@ -56,6 +56,21 @@ namespace Core.Foundation.DataRegistry
                 throw new ArgumentException("Min 与 Max 至少指定一个", nameof(min));
             }
 
+            // F-02 根治：NaN/±Infinity 不是合法的范围端点——NaN 与任何值比较恒为 false，会让
+            // Contains 的边界判断反常（见类下方判断记录）；Infinity 作为端点在语义上与"该侧无界"
+            // （即不传，留 null）完全等价，允许它当端点只会让同一件事有两种表达方式、其中一种还悄悄
+            // 绕过下面 min <= max 一类比较（Infinity 参与比较不会抛异常，但比较结果对调用方的直觉
+            // 而言经常是反直觉的）。统一在构造入口拒绝，需要"无界"一律传 null。
+            if (min.HasValue && !double.IsFinite(min.Value))
+            {
+                throw new ArgumentException("Min 不能是 NaN/Infinity；表示该侧无界请传 null", nameof(min));
+            }
+
+            if (max.HasValue && !double.IsFinite(max.Value))
+            {
+                throw new ArgumentException("Max 不能是 NaN/Infinity；表示该侧无界请传 null", nameof(max));
+            }
+
             if (min != null && max != null)
             {
                 if (min.Value > max.Value)
@@ -78,6 +93,12 @@ namespace Core.Foundation.DataRegistry
         /// <see cref="MaxExclusive"/>）。</summary>
         public bool Contains(double value)
         {
+            // F-02 根治：NaN 与任何值（含自身）比较恒为 false，因此下面 "value < Min.Value" /
+            // "value > Max.Value" 这类比较在 value 为 NaN 时永远不成立，端点检查形同虚设，会把
+            // Contains(NaN) 反常判定为 true（构造期已经不再允许 Min/Max 本身是 NaN，但 value 是调用方
+            // 每次传入的运行期数据，这里必须独立防一次）。NaN 不落在任何区间内，恒为 false。
+            if (double.IsNaN(value)) return false;
+
             if (Min.HasValue)
             {
                 if (MinExclusive ? value <= Min.Value : value < Min.Value) return false;

@@ -78,6 +78,76 @@ namespace Tests.Foundation.Data
         }
 
         // -----------------------------------------------------------------
+        // F-02 根治（2026-09-10 codex 第十六轮 schema 审计，schema-findings.md）：Min/Max 端点
+        // 拒绝 NaN/±Infinity（无界一侧统一用 null 表达），Contains(NaN) 恒为 false。
+        // -----------------------------------------------------------------
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void Range_MinIsNonFinite_Throws(double min)
+        {
+            Assert.Throws<ArgumentException>(() => FieldRange.Range(min: min));
+        }
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void Range_MaxIsNonFinite_Throws(double max)
+        {
+            Assert.Throws<ArgumentException>(() => FieldRange.Range(max: max));
+        }
+
+        [Fact]
+        public void Range_MinIsPositiveInfinity_WithFiniteMax_StillThrows()
+        {
+            // 独立 consumer 复现（schema-findings.md F-02）：Range(min: +Infinity) 此前能成功构造。
+            Assert.Throws<ArgumentException>(() => FieldRange.Range(min: double.PositiveInfinity, max: 10));
+        }
+
+        /// <summary>F-02 复现原文：<c>Range(min: NaN)</c> 此前构造成功，<c>Describe()</c> 输出
+        /// <c>"[NaN, +∞)"</c>，且 <c>Contains(0)</c> 反常为 <c>true</c>（NaN 参与比较恒为 false，
+        /// 两处"小于 Min 就拒绝"的判断都不成立，等价于没有下界）。构造入口现在直接拒绝，
+        /// 不再可能构造出这种范围。</summary>
+        [Fact]
+        public void Range_NaNMin_NoLongerConstructible()
+        {
+            Assert.Throws<ArgumentException>(() => FieldRange.Range(min: double.NaN));
+        }
+
+        [Fact]
+        public void Contains_NaNValue_AlwaysFalse_UnboundedAbove()
+        {
+            var range = FieldRange.Range(min: 0); // 无上界（null），只有下界
+            Assert.False(range.Contains(double.NaN));
+        }
+
+        [Fact]
+        public void Contains_NaNValue_AlwaysFalse_FullyBounded()
+        {
+            var range = FieldRange.Range(min: 0, max: 10);
+            Assert.False(range.Contains(double.NaN));
+        }
+
+        [Fact]
+        public void Contains_NaNValue_AlwaysFalse_UnboundedBelow()
+        {
+            var range = FieldRange.Range(max: 10); // 无下界（null），只有上界
+            Assert.False(range.Contains(double.NaN));
+        }
+
+        /// <summary>Describe 不受本次改动影响（任务约束"Describe 不变"）：仍用 null 表示无界，
+        /// 输出 <c>"(-∞"</c>/<c>"+∞)"</c>，与改动前逐字节一致。</summary>
+        [Fact]
+        public void Describe_UnboundedSide_UnaffectedByFiniteEndpointCheck()
+        {
+            Assert.Equal("[0, +∞)", FieldRange.Range(min: 0).Describe());
+            Assert.Equal("(-∞, 0]", FieldRange.Range(max: 0).Describe());
+        }
+
+        // -----------------------------------------------------------------
         // FieldSchema.WithRange：单次设置、链式返回
         // -----------------------------------------------------------------
 

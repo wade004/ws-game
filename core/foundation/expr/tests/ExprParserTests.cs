@@ -303,6 +303,29 @@ namespace Tests.Foundation.Expr
             Assert.Equal(0, ex.Position);
         }
 
+        /// <summary>F-03 根治：<see cref="ExprLexer"/> 整数字面量溢出此前从
+        /// <see cref="ExprLexer.Tokenize"/> 直接抛出没有位置信息的 <see cref="System.OverflowException"/>
+        /// （见 ExprLexer.cs 判断记录），<see cref="ExprParser.Parse"/> 内部就是先调用
+        /// <see cref="ExprLexer.Tokenize"/> 再语法分析（同一份实现），因此同样的异常类型/契约缺口
+        /// 会经由 <see cref="ExprParser.Parse"/> 逃出——这正是真实内容 <c>skill.proc_def.condition</c>
+        /// 触发 <c>DataRegistry.LoadAll</c> 直接外抛 <see cref="System.OverflowException"/> 的路径
+        /// （见 04 §5 勘误与 schema-findings.md F-03）。这里确认 <see cref="ExprParser.Parse"/> 现在
+        /// 统一抛带位置的 <see cref="ExprParseException"/>，不再是 <see cref="System.OverflowException"/>。</summary>
+        [Fact]
+        public void ParseError_OverflowIntegerLiteral_ThrowsExprParseException_NotOverflowException()
+        {
+            var ex = Assert.Throws<ExprParseException>(() => ExprParser.Parse("self.hp_pct == 9223372036854775808", TestSchema.Build()));
+            Assert.Equal("self.hp_pct == 9223372036854775808".IndexOf('9'), ex.Position);
+        }
+
+        [Fact]
+        public void ParseError_NonFiniteNumberLiteral_ThrowsExprParseException()
+        {
+            var source = "self.hp_pct == " + new string('9', 500) + ".1";
+            var ex = Assert.Throws<ExprParseException>(() => ExprParser.Parse(source, TestSchema.Build()));
+            Assert.Equal(source.IndexOf('9'), ex.Position);
+        }
+
         // ---------- ToString 往返：解析 -> 打印 -> 再解析，AST 相等 ----------
 
         [Theory]

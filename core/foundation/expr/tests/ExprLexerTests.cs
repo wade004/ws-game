@@ -117,6 +117,74 @@ namespace Tests.Foundation.Expr
             Assert.Equal(0, ex.Position);
         }
 
+        /// <summary>F-03 根治：整数字面量超出 <see cref="long"/> 范围此前由 <c>long.Parse</c> 直接抛出
+        /// 没有位置信息的 <see cref="System.OverflowException"/>，不符合本类型"非法输入统一抛
+        /// <see cref="ExprParseException"/>"的契约（见类型注释、消费方反馈 E5/ADR-0020）。真实内容
+        /// <c>skill.proc_def.condition</c> 携带该数值时会让 <c>DataRegistry.LoadAll</c> 直接外抛
+        /// 未捕获异常（见 04 §5 勘误 schema-findings.md F-03）。</summary>
+        [Fact]
+        public void Tokenize_OverflowIntegerLiteral_ThrowsExprParseException_AtStart()
+        {
+            const string source = "9223372036854775808"; // long.MaxValue + 1
+            var ex = Assert.Throws<ExprParseException>(() => ExprLexer.Tokenize(source));
+            Assert.Equal(0, ex.Position);
+        }
+
+        [Fact]
+        public void Tokenize_OverflowIntegerLiteral_ReportsPositionWithinLargerExpression()
+        {
+            const string source = "self.hp_pct == 9223372036854775808";
+            var ex = Assert.Throws<ExprParseException>(() => ExprLexer.Tokenize(source));
+            Assert.Equal(source.IndexOf('9'), ex.Position);
+        }
+
+        [Fact]
+        public void Tokenize_NegativeOverflowIntegerLiteral_Throws()
+        {
+            // long.MinValue 是 -9223372036854775808；再小 1 就超出范围。
+            const string source = "-9223372036854775809";
+            var ex = Assert.Throws<ExprParseException>(() => ExprLexer.Tokenize(source));
+            Assert.Equal(0, ex.Position);
+        }
+
+        [Fact]
+        public void Tokenize_MinLongIntegerLiteral_StillAccepted()
+        {
+            var tokens = ExprLexer.Tokenize("-9223372036854775808");
+            Assert.Equal(ExprTokenKind.IntLiteral, tokens[0].Kind);
+            Assert.Equal(long.MinValue, tokens[0].IntValue);
+        }
+
+        [Fact]
+        public void Tokenize_MaxLongIntegerLiteral_StillAccepted()
+        {
+            var tokens = ExprLexer.Tokenize("9223372036854775807");
+            Assert.Equal(ExprTokenKind.IntLiteral, tokens[0].Kind);
+            Assert.Equal(long.MaxValue, tokens[0].IntValue);
+        }
+
+        /// <summary>F-03 根治：500 位十进制小数字面量语法合法（点分数字），但 <c>double.Parse</c>
+        /// 对合法语法的溢出静默饱和为 <c>Infinity</c>，不抛异常（与 F-01 同源，见
+        /// <see cref="Core.Foundation.Common.Json.JsonReader"/> 同名判断记录）。词法器现在拒绝这类
+        /// 非有限解析结果，同样统一抛带位置的 <see cref="ExprParseException"/>。</summary>
+        [Fact]
+        public void Tokenize_NonFiniteNumberLiteral_ThrowsExprParseException()
+        {
+            var source = new string('9', 500) + ".1";
+            var ex = Assert.Throws<ExprParseException>(() => ExprLexer.Tokenize(source));
+            Assert.Equal(0, ex.Position);
+        }
+
+        [Fact]
+        public void Tokenize_OrdinaryNumberLiteral_StillAccepted()
+        {
+            var tokens = ExprLexer.Tokenize("3.5 -2.25");
+            Assert.Equal(ExprTokenKind.NumberLiteral, tokens[0].Kind);
+            Assert.Equal(3.5, tokens[0].NumberValue);
+            Assert.Equal(ExprTokenKind.NumberLiteral, tokens[1].Kind);
+            Assert.Equal(-2.25, tokens[1].NumberValue);
+        }
+
         [Fact]
         public void Tokenize_Returns_ReadOnly_Sequence()
         {

@@ -205,12 +205,26 @@ namespace Core.Foundation.Expr
                     string numText = text.Substring(start, i - start);
                     if (isNumber)
                     {
-                        double value = double.Parse(numText, CultureInfo.InvariantCulture);
+                        // F-03 根治：JSON 侧 F-01 的同源问题——数字语法合法（如 500 位十进制小数）但
+                        // double.Parse 静默饱和为 Infinity，不抛异常。词法层必须拒绝，否则非有限数值
+                        // 字面量会以 ExprLiteralNode(ExprValue.OfNumber(Infinity)) 的形式混进解析树，
+                        // 后续求值/静态校验都不会再检查这一点。
+                        double value = double.Parse(numText, NumberStyles.Float, CultureInfo.InvariantCulture);
+                        if (!double.IsFinite(value))
+                        {
+                            throw new ExprParseException(start, $"数字字面量 \"{numText}\" 语法合法，但解析结果不是有限浮点数（位置 {start}）");
+                        }
                         tokens.Add(new ExprToken(ExprTokenKind.NumberLiteral, numText, start, i - start, numberValue: value));
                     }
                     else
                     {
-                        long value = long.Parse(numText, CultureInfo.InvariantCulture);
+                        // F-03 根治：整数字面量超出 long 范围时，long.Parse 会抛出没有位置信息的
+                        // OverflowException，逃出本词法器"非法输入统一抛 ExprParseException"的契约
+                        // （见类型/方法注释）。改用 TryParse，失败时按同一契约抛带位置的 ExprParseException。
+                        if (!long.TryParse(numText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+                        {
+                            throw new ExprParseException(start, $"整数字面量 \"{numText}\" 超出可表示范围（位置 {start}）");
+                        }
                         tokens.Add(new ExprToken(ExprTokenKind.IntLiteral, numText, start, i - start, intValue: value));
                     }
                     continue;

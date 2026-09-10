@@ -1429,5 +1429,231 @@ namespace Tests.Foundation.Data
 
             Assert.Null(registry.GetSchema("test.never_registered"));
         }
+
+        // -----------------------------------------------------------------
+        // 20. F-01/F-03 根治（2026-09-10 codex 第十六轮 schema/expr 审计，schema-findings.md）：
+        //     Number/Int 字段非有限值阻断（field_finite）、Expr 字段"校验器自身不该抛出的异常"
+        //     统一转阻断问题项（expr_validation_error）而不外逃、未预期异常下的加载状态语义
+        //     （不得残留可读的部分加载结果）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void NumberField_JsonExponentOverflow_RejectedAtJsonParseStage_ReportsEnvelopeError()
+        {
+            // JsonReader 现在在解析期本身就拒绝 "1e309"（见 JsonReader.ParseNumber 判断记录）——
+            // 经由正常 JSON 文本路径的这条路已经堵死：envelope 解析失败，字段级 field_finite 检查
+            // 根本轮不到（那是给"绕过 JsonReader 直接构造 JsonNumber"场景准备的第二道防线，见下面
+            // NumberField_NonFiniteViaMigration_* 用例）。
+            var schema = new TableSchema("test.finite_number", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("value", FieldKind.Number, required: false, description: "示例数值")
+                    .WithRange(FieldRange.Range(min: 0)),
+            });
+            var rows = "[{\"id\": \"test.a\", \"value\": 1e309}]";
+            var source = new InMemoryDataSource().Add("test.finite_number", Envelope("test.finite_number", 1, rows));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(schema);
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "envelope");
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.finite_number"));
+        }
+
+        /// <summary>用 <see cref="TableMigration"/> 程序化构造 <c>new JsonNumber(double.PositiveInfinity)</c>，
+        /// 模拟"自定义逻辑绕过 JsonReader 直接给出 Infinity"——<see cref="MigrateDelegate"/> 签名是
+        /// <c>JsonObject -&gt; JsonObject</c>，字段值可以是任何程序构造出的 <c>JsonValue</c>，不要求
+        /// 来自 <see cref="JsonReader.Parse"/> 的解析结果。字段登记了无上界的 Range（<c>min: 0</c>），
+        /// 旧行为下 <c>field_range</c>（<c>FieldRange.Contains</c>）对 <c>+Infinity</c> 也会放行——
+        /// 这正是 schema-findings.md F-01 的真实框架表复现（<c>skill.aura_def.duration</c>）。</summary>
+        [Fact]
+        public void NumberField_NonFiniteViaMigration_WithUnboundedRange_ReportsFieldFinite_NotFieldRange()
+        {
+            MigrateDelegate migrate = row =>
+            {
+                var builder = new JsonObjectBuilder();
+                foreach (var kv in row)
+                {
+                    builder.Add(kv.Key, kv.Key == "value" ? new JsonNumber(double.PositiveInfinity) : kv.Value);
+                }
+                return builder.Build();
+            };
+            var schema = new TableSchema(
+                "test.finite_number", "id", 2,
+                new[]
+                {
+                    new FieldSchema("id", FieldKind.Id, required: true),
+                    new FieldSchema("value", FieldKind.Number, required: false, description: "示例数值")
+                        .WithRange(FieldRange.Range(min: 0)),
+                },
+                migrations: new[] { new TableMigration(1, 2, migrate) });
+
+            var rows = "[{\"id\": \"test.a\", \"value\": 1}]"; // 迁移前是合法有限值，迁移后被替换成 Infinity
+            var source = new InMemoryDataSource().Add("test.finite_number", Envelope("test.finite_number", 1, rows));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(schema);
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_finite" && i.Field == "value");
+            Assert.DoesNotContain(report.Issues, i => i.Check == "field_range" && i.Field == "value");
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.finite_number"));
+        }
+
+        /// <summary>字段完全没有登记 Range 时，旧行为下 <c>ValidateFieldRange</c> 直接空操作
+        /// （<c>range == null</c> 时是纯粹的空操作，见该方法判断记录），非有限值畅通无阻——
+        /// field_finite 检查与是否登记 Range 无关，必须独立生效，覆盖 NaN 与不登记 Range 两个维度。</summary>
+        [Fact]
+        public void NumberField_NonFiniteViaMigration_NoRangeRegistered_StillReportsFieldFinite()
+        {
+            MigrateDelegate migrate = row =>
+            {
+                var builder = new JsonObjectBuilder();
+                foreach (var kv in row)
+                {
+                    builder.Add(kv.Key, kv.Key == "value" ? new JsonNumber(double.NaN) : kv.Value);
+                }
+                return builder.Build();
+            };
+            var schema = new TableSchema(
+                "test.finite_number", "id", 2,
+                new[]
+                {
+                    new FieldSchema("id", FieldKind.Id, required: true),
+                    new FieldSchema("value", FieldKind.Number, required: false, description: "示例数值"),
+                },
+                migrations: new[] { new TableMigration(1, 2, migrate) });
+
+            var rows = "[{\"id\": \"test.a\", \"value\": 1}]";
+            var source = new InMemoryDataSource().Add("test.finite_number", Envelope("test.finite_number", 1, rows));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(schema);
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_finite" && i.Field == "value");
+        }
+
+        /// <summary>Int 字段的非有限值已经由既有的 <see cref="JsonNumber.TryGetInt64"/>（显式检查
+        /// <c>!double.IsInfinity(Value)</c>，NaN 因 <c>Math.Floor(NaN) != NaN</c> 天然不满足整数判定）
+        /// 挡在 <c>field_type</c>，本用例确认这条既有防线在"绕过 JsonReader"场景下依然成立，不需要
+        /// 额外改动。</summary>
+        [Fact]
+        public void IntField_NonFiniteViaMigration_ReportsFieldType()
+        {
+            MigrateDelegate migrate = row =>
+            {
+                var builder = new JsonObjectBuilder();
+                foreach (var kv in row)
+                {
+                    builder.Add(kv.Key, kv.Key == "count" ? new JsonNumber(double.PositiveInfinity) : kv.Value);
+                }
+                return builder.Build();
+            };
+            var schema = new TableSchema(
+                "test.finite_int", "id", 2,
+                new[]
+                {
+                    new FieldSchema("id", FieldKind.Id, required: true),
+                    new FieldSchema("count", FieldKind.Int, required: true),
+                },
+                migrations: new[] { new TableMigration(1, 2, migrate) });
+
+            var rows = "[{\"id\": \"test.a\", \"count\": 1}]";
+            var source = new InMemoryDataSource().Add("test.finite_int", Envelope("test.finite_int", 1, rows));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(schema);
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_type" && i.Field == "count");
+        }
+
+        /// <summary>F-03 原始复现（schema-findings.md）：真实内容 <c>skill.proc_def.condition</c>
+        /// 携带超范围整数字面量时，<c>ExprLexer.Tokenize</c> 曾经直接抛出没有 <c>Position</c> 的
+        /// <see cref="OverflowException"/>，逃出 <c>ValidateExprField</c> 此前唯一捕获的
+        /// <see cref="ExprParseException"/>，导致 <c>DataRegistry.LoadAll</c> 本身对外抛出未捕获异常。
+        /// <c>ExprLexer</c> 现在把溢出转成带位置的 <see cref="ExprParseException"/>（见 ExprLexer.cs
+        /// 判断记录），这里确认 <c>LoadAll</c> 不再抛出，正常走 <c>expr_parsable</c> 阻断路径。</summary>
+        [Fact]
+        public void ExprField_OverflowIntegerLiteral_ReportsExprParsable_LoadAllDoesNotThrow()
+        {
+            var rows = "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1, \"rule\": \"world.some_flag(9223372036854775808)\"}]";
+            var source = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1, rows));
+            var registry = new DataRegistry(source, MakeBus(), new DataRegistryOptions { ExprSchema = WorldFlagExprSchema() });
+            registry.RegisterSchema(WidgetSchema());
+
+            var report = registry.LoadAll(); // 不应抛出 OverflowException
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "expr_parsable" && i.Severity == ValidationSeverity.Error);
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.widget"));
+        }
+
+        /// <summary>模拟"校验器自身不该抛出的异常"：<see cref="IExprSchema.TryGetSignature"/> 是
+        /// Expr 解析/静态校验过程中反复回调的宿主接口，<c>ExprParser.ParseIdentTerm</c> 与
+        /// <c>ExprValidator.Validate</c> 都会调用它——这里让它直接抛出一个与"表达式文本本身是否合法"
+        /// 无关的未预期异常，验证 <c>ValidateExprField</c> 的兜底 catch（见该方法判断记录）把它转成
+        /// 阻断级 <c>expr_validation_error</c> 问题项而不是外逃，且注册中心随之阻断。</summary>
+        private sealed class ThrowingExprSchema : IExprSchema
+        {
+            public bool TryGetSignature(string group, string key, out ExprSignature signature)
+            {
+                throw new InvalidOperationException("模拟校验器内部未预期异常（非 ExprParseException）");
+            }
+        }
+
+        [Fact]
+        public void ExprField_SchemaCallbackThrowsUnexpectedException_ReportsExprValidationErrorAndBlocks()
+        {
+            var rows = "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1, \"rule\": \"world.some_flag(item.town_key)\"}]";
+            var source = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1, rows));
+            var registry = new DataRegistry(source, MakeBus(), new DataRegistryOptions { ExprSchema = new ThrowingExprSchema() });
+            registry.RegisterSchema(WidgetSchema());
+
+            var report = registry.LoadAll(); // 不应抛出 InvalidOperationException
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "expr_validation_error"
+                && i.Severity == ValidationSeverity.Error
+                && i.Message.Contains(nameof(InvalidOperationException)));
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.widget"));
+        }
+
+        private sealed class ThrowingRule : IValidationRule
+        {
+            public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+            {
+                throw new InvalidOperationException("模拟规则内部未预期异常，不做任何转换，直接外抛");
+            }
+        }
+
+        /// <summary>F-03 根治（c，未预期异常下的加载状态语义）：即便某个校验入口（这里用自定义
+        /// <see cref="IValidationRule"/> 模拟——<c>DataRegistry</c> 本身不对 <c>IValidationRule.Validate</c>
+        /// 的异常做任何转换/兜底，那不是它的契约职责，与 <c>ValidateExprField</c> 主动兜底 Expr 校验器
+        /// 是两回事）真的抛出了未预期异常、逃出 <c>LoadAll</c>，注册中心也不能停留在"看起来能读，
+        /// 其实校验根本没跑完"的状态：<c>_blocked</c> 必须先于异常传播被强制置为阻断（见
+        /// <c>RunValidationAndBuildReport</c> 判断记录"未预期异常兜底"），后续 <c>GetAll</c> 必须抛
+        /// "数据校验未通过"，不能读到一份从未真正通过校验的 <c>_tables</c>（"可读的部分加载状态"）。</summary>
+        [Fact]
+        public void LoadAll_ValidationRuleThrowsUnexpectedException_PropagatesButLeavesRegistryBlocked()
+        {
+            var rows = "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]";
+            var source = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1, rows));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterValidationRule(new ThrowingRule());
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => registry.LoadAll());
+            Assert.Contains("模拟规则内部未预期异常", thrown.Message);
+
+            var blockedEx = Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.widget"));
+            Assert.Contains("数据校验未通过", blockedEx.Message);
+        }
     }
 }

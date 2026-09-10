@@ -334,13 +334,36 @@ namespace Core.Foundation.DataRegistry
             // 最终是否阻断由本次算出的报告决定。
             _blocked = false;
 
-            RunFieldValidation(issues);
-
-            foreach (var rule in _rules)
+            // F-03 根治（c，未预期异常兜底）：ValidateExprField 已经把"校验器自身不该抛出的"异常
+            // 转成问题项而不外抛（见该方法判断记录），但这是"尽量不发生"，不是"绝无可能发生"——
+            // 自定义 IValidationRule.Validate（本方法下面的 foreach）之类的其它校验入口没有同等的
+            // 兜底，理论上仍可能抛出。这里的 try/finally 是最后一道防线：LoadAllCore 在调用本方法
+            // 之前已经把 _tables 整体替换成本轮加载结果（见 LoadAllCore 判断记录"先赋值 _tables 再
+            // 校验"），如果校验期间真的有异常逃出本方法、异常会继续向上传给 LoadAll 的调用方，但绝不
+            // 能让 _blocked 停留在上面刚设的 false——那样 GetAll 会在校验根本没跑完的情况下读到
+            // 一份从未真正通过校验的 _tables（"可读的部分加载状态"）。finally 里只有"尚未走到方法
+            // 正常结尾"（completed 仍为 false）时才强制回填 true，正常路径不受影响（仍按下面
+            // report.IsBlocking 的计算结果为准）。
+            var completed = false;
+            try
             {
-                foreach (var issue in rule.Validate(this))
+                RunFieldValidation(issues);
+
+                foreach (var rule in _rules)
                 {
-                    issues.Add(issue);
+                    foreach (var issue in rule.Validate(this))
+                    {
+                        issues.Add(issue);
+                    }
+                }
+
+                completed = true;
+            }
+            finally
+            {
+                if (!completed)
+                {
+                    _blocked = true;
                 }
             }
 
@@ -994,6 +1017,20 @@ namespace Core.Foundation.DataRegistry
                     {
                         AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Number");
                     }
+                    else if (!double.IsFinite(nn.Value))
+                    {
+                        // F-01 根治，第二道入口：JsonReader 现在已在解析期拒绝 "1e309" 这类语法合法但
+                        // 结果非有限的数字（见 JsonReader.ParseNumber 判断记录），但 IDataSource 是公开
+                        // 接口——自定义实现可以绕过 JsonReader，直接构造一棵携带 Infinity/NaN 的
+                        // JsonValue 树喂给 DataRegistry。field_range（ValidateFieldRange）只在字段登记
+                        // 了 Range 时才检查，且未登记上界的 Range（如 Range(min: 0)）本就允许
+                        // +Infinity 通过——不能只靠 field_range 兜底。因此在类型检查之后、范围检查之前
+                        // 单独拦一次"是否有限"，与字段是否登记 Range 无关，新检查名 field_finite
+                        // （见 04 第 5 节勘误）。
+                        issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_finite",
+                            $"字段 \"{fieldPath}\" 取值 {(double.IsNaN(nn.Value) ? "NaN" : (double.IsPositiveInfinity(nn.Value) ? "+Infinity" : "-Infinity"))} 不是有限数值",
+                            recordKey: recordKey, field: fieldPath));
+                    }
                     else
                     {
                         ValidateFieldRange(table, recordKey, fieldPath, field, nn.Value, issues);
@@ -1354,24 +1391,36 @@ namespace Core.Foundation.DataRegistry
                 return;
             }
 
-            ExprNode node;
+            // F-03 根治（b）：解析（ExprParser.Parse，内部含 ExprLexer.Tokenize）与静态校验
+            // （ExprValidator.Validate）放进同一个 try——两者都不属于"数据本身合法与否"以外的逻辑，
+            // 调用方（IExprSchema.TryGetSignature 等宿主回调）理论上也可能抛出校验器自身不预期的
+            // 异常。ExprParseException 是词法/语法层"数据不合法"的正常反馈路径，按原有 expr_parsable
+            // 检查项报告；除此之外的任何异常（历史上如 ExprLexer 整数溢出的 OverflowException，见
+            // ExprLexer.cs 判断记录——该处已根治，但"校验器自身不该抛出的异常"这条防线要独立成立，
+            // 不能依赖每一处调用者各自记得不抛）统一转成阻断级 expr_validation_error 问题项，不再
+            // 外逃：外逃会绕过 RunFieldValidation 剩余记录的校验、也会绕过 LoadAllCore 正常的
+            // "先校验后提交阻断态"流程（见 RunValidationAndBuildReport 判断记录"未预期异常兜底"）。
             try
             {
-                node = ExprParser.Parse(s.Value, _options.ExprSchema);
+                var node = ExprParser.Parse(s.Value, _options.ExprSchema);
+                var exprIssues = ExprValidator.Validate(node, _options.ExprSchema);
+                for (int i = 0; i < exprIssues.Count; i++)
+                {
+                    var exprIssue = exprIssues[i];
+                    var severity = exprIssue.Severity == ExprIssueSeverity.Error ? ValidationSeverity.Error : ValidationSeverity.Warning;
+                    issues.Add(new ValidationIssue(severity, table, "expr_parsable", exprIssue.Message,
+                        recordKey: recordKey, field: fieldPath));
+                }
             }
             catch (ExprParseException ex)
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "expr_parsable",
                     $"表达式解析失败：{ex.Message}", recordKey: recordKey, field: fieldPath));
-                return;
             }
-
-            var exprIssues = ExprValidator.Validate(node, _options.ExprSchema);
-            for (int i = 0; i < exprIssues.Count; i++)
+            catch (Exception ex)
             {
-                var exprIssue = exprIssues[i];
-                var severity = exprIssue.Severity == ExprIssueSeverity.Error ? ValidationSeverity.Error : ValidationSeverity.Warning;
-                issues.Add(new ValidationIssue(severity, table, "expr_parsable", exprIssue.Message,
+                issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "expr_validation_error",
+                    $"表达式校验器内部抛出未预期异常 {ex.GetType().Name}：{ex.Message}（表 \"{table}\" 记录 \"{recordKey}\" 字段 \"{fieldPath}\"）",
                     recordKey: recordKey, field: fieldPath));
             }
         }

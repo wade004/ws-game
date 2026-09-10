@@ -319,6 +319,8 @@ namespace Core.Foundation.Common.Json
             private JsonNumber ParseNumber()
             {
                 var start = _pos;
+                var startLine = _line;
+                var startColumn = _column;
 
                 if (!AtEnd && Current == '-')
                 {
@@ -378,6 +380,18 @@ namespace Core.Foundation.Common.Json
 
                 var raw = _text.Substring(start, _pos - start);
                 var value = double.Parse(raw, NumberStyles.Float, CultureInfo.InvariantCulture);
+                if (!double.IsFinite(value))
+                {
+                    // F-01 根治：JSON 语法本身合法的指数写法（如 "1e309"）解析出的 double 可能溢出为
+                    // Infinity/-Infinity（.NET double.Parse 对合法语法的溢出不抛异常，静默饱和），
+                    // 但 JSON 数字语义里没有 Infinity/NaN 这回事——RFC 8259 明确排除它们（本读取器顶部
+                    // 类型注释"拒绝... NaN/Infinity"说的是字面量 NaN/Infinity token，这里补上"合法语法
+                    // 但求值结果非有限"这条同属该契约的边界）。在此处拒绝，不放行到 JsonNumber，
+                    // 是唯一能覆盖"任何走 JsonReader 解析路径"的入口——DataRegistry 的 field_finite
+                    // 检查是第二道防线，覆盖绕过 JsonReader 直接构造 JsonNumber 的自定义 IDataSource。
+                    throw new JsonParseException(startLine, startColumn,
+                        $"数字 \"{raw}\" 语法合法，但解析结果不是有限浮点数（{(double.IsPositiveInfinity(value) ? "+Infinity" : "-Infinity")}）：JSON 不支持 Infinity/NaN");
+                }
                 return new JsonNumber(value, raw);
             }
 
