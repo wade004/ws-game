@@ -1034,6 +1034,71 @@ if ($DistRequested) {
     Write-Host ("  已补齐 -> dist\{0}\adapters\headless\Adapters.Stub.dll + README.md（sha256={1}）" -f $DistDirVersion, $headlessAssemblyShaMap["Adapters.Stub.dll"])
 
     # -------------------------------------------------------------------
+    # 5.057 消费方反馈 E1 根治（architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E1）：
+    #      toolchain/validate_data.py 第二道校验此前一律用 `dotnet run --project toolchain/validator`
+    #      现场编译——解压产物落在消费方仓库内时，MSBuild 按项目目录向上找 Directory.Build.props
+    #      会继承到消费方自己的设置（如 TreatWarningsAsErrors=true），把本工具 XML 文档注释里原本
+    #      无害的告警（如未指定重载的 cref 歧义 CS0419）提升为编译错误，消费方连校验都跑不起来。
+    #      根治两层：
+    #      a) 随包携带预编译产物：Core.sln 第 1 步 `dotnet build` 已经把 Validator 项目连同它引用的
+    #         六个核心 DLL 一并构建到 toolchain\validator\bin\$Configuration\<tfm>\ 下（.NET SDK
+    #         对 Exe 项目的标准输出布局：Validator.dll/.deps.json/.runtimeconfig.json + 全部
+    #         ProjectReference 输出的拷贝），原样整份拷进 dist 的 toolchain\validator\bin\——消费方
+    #         校验时优先 `dotnet <Validator.dll 路径>` 直接执行已编译好的程序集，完全不触发 MSBuild/
+    #         Directory.Build.props 解析，从根上绕开这一整类"消费方构建设置污染"问题（见
+    #         validate_data.py 对应改动）。
+    #      b) 防御性兜底：找不到预编译产物时 validate_data.py 仍会退回 `dotnet run --project`
+    #         现场编译（例如源码仓库内自测、或消费方精简掉了 bin\ 目录），因此仍随 dist 在
+    #         toolchain\validator\ 下内置一份空 `Directory.Build.props`（`<Project></Project>`）
+    #         ——MSBuild 找 Directory.Build.props 只取"向上遇到的第一份"，不会继续再往上找，这份
+    #         空文件就此彻底挡住消费方仓库根的 Directory.Build.props 被隐式继承，无论其内容是什么。
+    #         判断记录：不在源码仓库树里常驻同名文件——源码仓库根 Directory.Build.props 本身就是
+    #         Validator 项目（Core.sln 的一部分）依赖的正常设置来源（LangVersion/Nullable/
+    #         TreatWarningsAsErrors/GenerateDocumentationFile），常驻一份空文件会截断这份继承，
+    #         削弱仓库内 `TreatWarningsAsErrors=true` 这条门禁（任务书"不放宽断言"），因此只在打包
+    #         这一步为 dist/UPM 产物生成，不进源码树、不提交。
+    #      c) cref 歧义本身也已在源头修（toolchain/validator/Program.cs 与全仓其它 CS0419 类歧义
+    #         cref，见提交记录），(a)/(b) 是即便未来又出现类似告警也不会再复现的结构性根治。
+    #      lock 文件新增 `validator_dlls`（Validator.dll 的 sha256，与 `dlls`/`headless_dlls` 同一
+    #      模式），见下面"5.6 zip + lock"节；get_framework.ps1 存在该字段时一并校验（向后兼容，
+    #      见其判断记录）。四个私服包里的 com.gamefoundation.toolchain 包内容取自这里已经补齐的
+    #      dist\<ver>\toolchain\（下方 5.15 节 `Copy-Item ... Tools~` 整份拷贝），因此本节必须排在
+    #      5.15 之前，不需要为私服通道单独重复一遍同样的逻辑。
+    # -------------------------------------------------------------------
+    Write-Step "补齐 dist\$DistDirVersion\toolchain\validator\bin\ + 空 Directory.Build.props（消费方反馈 E1 根治：预编译 validator，杜绝消费方构建设置污染）"
+    $srcValidatorBinParent = Join-Path $RepoRoot "toolchain\validator\bin\$Configuration"
+    if (-not (Test-Path $srcValidatorBinParent)) {
+        Write-Host "打分发包失败：找不到 $srcValidatorBinParent（-SyncOnly 要求 Validator 项目已完整构建过一次，请先不带 -SyncOnly 跑一次完整构建）" -ForegroundColor Red
+        exit 1
+    }
+    $srcValidatorTfmDirs = @(Get-ChildItem -Path $srcValidatorBinParent -Directory)
+    if ($srcValidatorTfmDirs.Count -ne 1) {
+        Write-Host ("打分发包失败：$srcValidatorBinParent 下应恰好有 1 个目标框架目录，实际 {0} 个" -f $srcValidatorTfmDirs.Count) -ForegroundColor Red
+        exit 1
+    }
+    $srcValidatorTfmDir = $srcValidatorTfmDirs[0].FullName
+    $srcValidatorDllPath = Join-Path $srcValidatorTfmDir "Validator.dll"
+    if (-not (Test-Path $srcValidatorDllPath)) {
+        Write-Host "打分发包失败：找不到 $srcValidatorDllPath（Validator 项目构建产物缺失）" -ForegroundColor Red
+        exit 1
+    }
+    $distValidatorBinDir = Join-Path $DistRoot "toolchain\validator\bin"
+    New-Item -ItemType Directory -Force -Path $distValidatorBinDir | Out-Null
+    Get-ChildItem -Path $srcValidatorTfmDir -File | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination (Join-Path $distValidatorBinDir $_.Name) -Force
+    }
+    $validatorAssemblyShaMap = [ordered]@{
+        "Validator.dll" = (Get-Sha256FileHash -Path (Join-Path $distValidatorBinDir "Validator.dll"))
+    }
+    # 空 Directory.Build.props：内容固定为 `<Project></Project>` 换行结尾（LF，无 BOM，任务书硬性
+    # 规则"生成的文本文件一律 LF"）。放在 toolchain\validator\ 下（与 Validator.csproj 同级），
+    # 是 MSBuild 沿项目目录向上查找时会命中的第一份，彻底挡住消费方仓库根同名文件被隐式继承。
+    $distValidatorDbpPath = Join-Path $DistRoot "toolchain\validator\Directory.Build.props"
+    $dbpContent = "<Project>`n</Project>`n"
+    [System.IO.File]::WriteAllText($distValidatorDbpPath, $dbpContent, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host ("  已补齐 {0} 个文件 -> dist\{1}\toolchain\validator\bin\（Validator.dll sha256={2}）+ 空 Directory.Build.props" -f (Get-ChildItem -Path $distValidatorBinDir -File).Count, $DistDirVersion, $validatorAssemblyShaMap["Validator.dll"])
+
+    # -------------------------------------------------------------------
     # 5.1 版本可追溯任务新增：把解析出的版本号写回 dist 内两个 package.json
     #     （含 games/_template 对适配层包的依赖版本号），保持"单一版本源"——
     #     源码仓库里的两个 package.json 已经在提交时同步改成当前 VERSION，这里
@@ -1258,7 +1323,10 @@ if ($DistRequested) {
     ) + $coreAssemblyLines + @(
         "",
         "[headless_assemblies]",
-        ("  Adapters.Stub.dll: sha256=" + $headlessAssemblyShaMap["Adapters.Stub.dll"])
+        ("  Adapters.Stub.dll: sha256=" + $headlessAssemblyShaMap["Adapters.Stub.dll"]),
+        "",
+        "[validator]",
+        ("  Validator.dll: sha256=" + $validatorAssemblyShaMap["Validator.dll"])
     )
 
     Set-Content -Path $manifestPath -Value $manifestLines -Encoding utf8
@@ -1295,20 +1363,74 @@ if ($DistRequested) {
         $zipSizeMb = [Math]::Round($zipSizeBytes / 1MB, 2)
         Write-Host ("  已生成 {0}（{1} MB，zip 内顶层目录 {2}/）" -f $zipPath, $zipSizeMb, $zipTopLevelName)
 
+        # -------------------------------------------------------------------
+        # 5.65 消费方反馈 E4 根治（architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E4）：
+        #      主 zip（上面这份）从不带 data/_sample、assets/_sample——那是本仓库自测用的验收数据集
+        #      （见 data/README.md"两类目录"一节），不代表任何真实游戏内容，因此不随 -Dist 打进
+        #      dist/<ver>/ 快照（见前面"打分发包"一节 Copy-DistDir 调用列表，只带 data/_framework）。
+        #      但消费方反馈：没有这份验收数据集，游戏侧新工程接入后想验证"框架端到端能不能跑起来"
+        #      缺一份现成的、已知合法的样例数据/资源可用（自己从零手写一份 world.map/quest.def 等
+        #      成本高、还可能踩数据格式的坑）。根治：额外单独打一份
+        #      dist/ws-game-<ver>-samples.zip（主 zip 内容不变，向后兼容——已经按主 zip 校验通过的
+        #      消费方接入流程不受影响），内含 data/_sample、assets/_sample 两棵目录树，zip 内顶层
+        #      目录名与主 zip 同一约定（"ws-game-<ver>/"），解压后可以直接与主 zip 的解压结果合并到
+        #      同一个 <Target>/ws-game-<ver>/ 目录下（两者内容路径不重叠：主 zip 没有 data/_sample、
+        #      assets/_sample 这两棵目录）。lock 文件新增 `samples.sha256` 字段；
+        #      `toolchain/get_framework.ps1 -WithSamples` 下载/解压并按该字段校验（见该脚本判断
+        #      记录）。源文件本身在仓库里已经是 LF（见工程规范"生成的文本文件一律 LF"，data/_sample、
+        #      assets/_sample 下的 JSON/MD 均受此约束），Compress-Archive 按字节原样打包，不需要
+        #      额外转换行尾。
+        # -------------------------------------------------------------------
+        Write-Step "打 samples zip（dist/ws-game-$DistDirVersion-samples.zip，消费方反馈 E4 根治）"
+        $samplesZipPath = Join-Path $RepoRoot ("dist\ws-game-" + $DistDirVersion + "-samples.zip")
+        $samplesStagingRoot = Join-Path $env:TEMP ("ws_game_samples_zip_staging_" + [guid]::NewGuid().ToString("N"))
+        $samplesStagingDir = Join-Path $samplesStagingRoot $zipTopLevelName
+        New-Item -ItemType Directory -Force -Path $samplesStagingDir | Out-Null
+        try {
+            $srcSampleDataDir = Join-Path $RepoRoot "data\_sample"
+            $srcSampleAssetsDir = Join-Path $RepoRoot "assets\_sample"
+            if (-not (Test-Path $srcSampleDataDir)) {
+                Write-Host "打分发包失败：找不到 $srcSampleDataDir（验收数据集源目录缺失）" -ForegroundColor Red
+                exit 1
+            }
+            if (-not (Test-Path $srcSampleAssetsDir)) {
+                Write-Host "打分发包失败：找不到 $srcSampleAssetsDir（验收数据集源目录缺失）" -ForegroundColor Red
+                exit 1
+            }
+            Copy-Item -Path $srcSampleDataDir -Destination (Join-Path $samplesStagingDir "data\_sample") -Recurse -Force
+            Copy-Item -Path $srcSampleAssetsDir -Destination (Join-Path $samplesStagingDir "assets\_sample") -Recurse -Force
+            if (Test-Path $samplesZipPath) {
+                Remove-Item -Path $samplesZipPath -Force
+            }
+            Compress-Archive -Path $samplesStagingDir -DestinationPath $samplesZipPath -CompressionLevel Optimal
+        } finally {
+            Remove-Item -Path $samplesStagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        $samplesZipSha = Get-Sha256FileHash -Path $samplesZipPath
+        $samplesZipSizeMb = [Math]::Round(((Get-Item $samplesZipPath).Length) / 1MB, 2)
+        Write-Host ("  已生成 {0}（{1} MB，sha256={2}）" -f $samplesZipPath, $samplesZipSizeMb, $samplesZipSha)
+
         # ws-game.lock 示例锁文件：版本号、git_commit、六个核心 DLL 的 sha256（复用上面 5.5 节已经
         # 算好的 $coreAssemblyShaMap，不重复计算）、无头适配层 DLL 的 sha256（ADR-0018 决策 3 新增
         # `headless_dlls` 字段，复用上面 5.056 节已经算好的 $headlessAssemblyShaMap）。字段内容一律
         # 用干净版本号 $ResolvedDistVersion（不带 -dryrun 后缀）——DryRun 只是产物文件名带后缀以
         # 避免覆盖真实发布产物，锁文件内容描述的仍然是"这是版本 X.Y.Z 的锁定信息"这一事实本身。
         # 游戏仓库拿到这份文件后原样复制为自己的 ws-game.lock（见 toolchain/get_framework.ps1）；
-        # `headless_dlls` 是可选字段，老版本锁文件没有该字段时 get_framework.ps1 跳过对应校验并
-        # 提示，保持向后兼容（见该脚本判断记录）。
+        # `headless_dlls`/`validator_dlls` 均为可选字段，老版本锁文件没有该字段时
+        # get_framework.ps1 跳过对应校验并提示，保持向后兼容（见该脚本判断记录）。`validator_dlls`
+        # 是消费方反馈 E1 根治新增（复用上面 5.057 节已经算好的 $validatorAssemblyShaMap）：记录
+        # dist 内预编译 toolchain\validator\bin\Validator.dll 的 sha256，与 `dlls`/`headless_dlls`
+        # 同一模式（文件名 -> sha256 的映射），供 get_framework.ps1 一并校验完整性。`samples` 是
+        # 消费方反馈 E4 根治新增：记录 dist/ws-game-<ver>-samples.zip 自身（整份 zip，不是内部
+        # 单个文件）的 sha256，`toolchain/get_framework.ps1 -WithSamples` 下载后据此校验。
         $lockPath = Join-Path $RepoRoot ("dist\ws-game-" + $DistDirVersion + ".lock")
         $lockObj = [ordered]@{
             version      = $ResolvedDistVersion
             git_commit   = $gitCommit
             dlls         = $coreAssemblyShaMap
             headless_dlls = $headlessAssemblyShaMap
+            validator_dlls = $validatorAssemblyShaMap
+            samples      = [ordered]@{ sha256 = $samplesZipSha }
         }
         $lockJson = ($lockObj | ConvertTo-Json -Depth 5)
         [System.IO.File]::WriteAllText($lockPath, $lockJson, (New-Object System.Text.UTF8Encoding($false)))
@@ -1395,8 +1517,18 @@ if ($DistRequested) {
             if ([string]::IsNullOrEmpty($currentBranchForPush) -or $currentBranchForPush -eq "HEAD") {
                 throw "无法确定当前分支（detached HEAD 或 git rev-parse 失败），-Release/-Publish 要求在一个具名分支（main 或维护分支 release/X.Y.x）上执行"
             }
+            # 判断记录（消费方反馈 E2 根治，2026-09-10，见
+            # architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E2）：Release 附件集合新增
+            # toolchain/get_framework.ps1（自包含后，游戏侧只下载这一个文件即可用，见该脚本文件头
+            # 判断记录）；继续一并附上 toolchain/_hash.ps1，兼容消费方现有"下载 get_framework.ps1 +
+            # _hash.ps1 两个文件"的还原脚本（本脚本自身不再读取它，纯粹是向后兼容附件，见
+            # .github/workflows/release.yml 同步的必需附件集合判断）。两个文件都取自源码仓库
+            # toolchain/ 下当前提交的版本（与本次发布提交内容一致，不是从 $DistRoot 里再拷一份）。
+            $getFrameworkAttachPath = Join-Path $RepoRoot "toolchain\get_framework.ps1"
+            $hashPsAttachPath = Join-Path $RepoRoot "toolchain\_hash.ps1"
+            # 消费方反馈 E4 根治新增附件：dist/ws-game-<ver>-samples.zip（上面 5.65 节已生成）。
             $pushCmd = "git push origin $currentBranchForPush refs/tags/$tagName"
-            $releaseCmd = "gh release create $tagName `"$zipPath`" `"$lockPath`" --title `"$tagName`" --notes-file `"$releaseNotesPath`""
+            $releaseCmd = "gh release create $tagName `"$zipPath`" `"$lockPath`" `"$samplesZipPath`" `"$getFrameworkAttachPath`" `"$hashPsAttachPath`" --title `"$tagName`" --notes-file `"$releaseNotesPath`""
 
             Write-Host ""
             Write-Host "==== -Release 完成：$ReleaseCurrentVersion -> $Release（已提交 + 已打标签 $tagName） ====" -ForegroundColor Green
@@ -1422,7 +1554,7 @@ if ($DistRequested) {
                     if ($LASTEXITCODE -ne 0) { throw "git push 失败，退出码 $LASTEXITCODE" }
 
                     Write-Host "  执行：$releaseCmd"
-                    & gh release create $tagName $zipPath $lockPath --title $tagName --notes-file $releaseNotesPath
+                    & gh release create $tagName $zipPath $lockPath $samplesZipPath $getFrameworkAttachPath $hashPsAttachPath --title $tagName --notes-file $releaseNotesPath
                     if ($LASTEXITCODE -ne 0) { throw "gh release create 失败，退出码 $LASTEXITCODE" }
                 } finally {
                     Pop-Location
@@ -1432,11 +1564,11 @@ if ($DistRequested) {
         } elseif ($ReleaseRequested -and $DryRun) {
             Write-Host ""
             Write-Host "==== -DryRun 完成：$Release 的发布流水线全流程校验 + 打包已跑通，未改写任何源码文件、未提交、未打标签 ====" -ForegroundColor Green
-            Write-Host "  dist/$DistDirVersion/、$zipPath、$lockPath 均为验证产物（dist/ 已 .gitignore，可随时删除）"
+            Write-Host "  dist/$DistDirVersion/、$zipPath、$lockPath、$samplesZipPath 均为验证产物（dist/ 已 .gitignore，可随时删除）"
             Write-Host "  dist/$DistDirVersion/packages/ 下四个包目录 + .tgz 同样已生成（npm pack，本地打包不联网）；-DryRun 不会 npm publish，见 .PARAMETER PublishRegistry"
         } else {
             Write-Host ""
-            Write-Host "==== -Zip 完成：$zipPath、$lockPath 已生成，未涉及版本号写回/提交/打标签（-Zip 独立于 -Release 使用） ====" -ForegroundColor Green
+            Write-Host "==== -Zip 完成：$zipPath、$lockPath、$samplesZipPath 已生成，未涉及版本号写回/提交/打标签（-Zip 独立于 -Release 使用） ====" -ForegroundColor Green
         }
     }
 } else {

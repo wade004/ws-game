@@ -21,7 +21,12 @@ namespace Toolchain.Validator
     /// <c>shell_menu_definition</c>/<c>display.map</c>/<c>display.anim_set</c>/
     /// <c>display.equip_visual</c>/<c>l10n.locale</c>/<c>l10n.text</c>，见
     /// <see cref="PresentationSchemaCatalog"/> 类型注释判断记录），对 <c>--data-root</c> 指向的磁盘
-    /// 目录跑一遍 <see cref="DataRegistry.LoadAll"/>，逐条打印校验问题。
+    /// 目录跑一遍 <see cref="DataRegistry.LoadAll(System.Collections.Generic.IReadOnlyList{Core.Foundation.DataRegistry.IDataSource})"/>
+    /// （多根合并加载的重载，见调用处判断记录"合并规则"；本工具恒定以列表形式传入，即便只有一个
+    /// <c>--data-root</c> 也归一化为单元素列表——消费方反馈 E1 根治，cref 此前未指定参数列表，与
+    /// 同名的无参重载 <see cref="DataRegistry.LoadAll()"/> 产生 CS0419 歧义警告，消费方
+    /// <c>Directory.Build.props</c> 若设置 <c>TreatWarningsAsErrors=true</c> 会被提升为编译错误，
+    /// 见 architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E1），逐条打印校验问题。
     /// <para>
     /// 判断记录：本类是唯一的真实校验逻辑实现——<c>toolchain/validate_data.py</c> 只做骨架级
     /// 信封/表名/id 格式检查（阶段 0），不得与本类重复实现任何字段级/引用完整性/Expr 规则（落地

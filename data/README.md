@@ -81,7 +81,14 @@ data/<game>/<domain>/<table>.json       具体游戏的数据（放各自游戏�
     类的字段默认值，游戏层可整体覆盖）引用或完全不被框架代码引用，属于示例/游戏内容，留在
     `data/_sample`。
 - **`data/_sample/`**：仅供本框架仓库 `DataRegistry` 冒烟测试与校验器自测使用，不代表任何真实
-  游戏内容，具体游戏不应依赖其中任何具体 id。
+  游戏内容，具体游戏不应依赖其中任何具体 id。不随主分发包 `dist/<version>/`/`ws-game-<ver>.zip`
+  分发（消费方接入的不是本仓库自身）；`assets/_sample` 同理。消费方反馈 E4 根治（2026-09-10，见
+  `architecture/落地计划/消费方反馈-2026-09-10-编辑器.md` E4）：新工程接入后若想拿一份现成的、
+  已知合法的样例数据/资源验证框架端到端能不能跑起来，`build.ps1 -Dist`/`-Release` 额外单独打一份
+  `dist/ws-game-<ver>-samples.zip`（内含 `data/_sample`、`assets/_sample`），
+  `toolchain/get_framework.ps1 -WithSamples` 下载/校验（按锁文件 `samples.sha256` 字段）并合并
+  落地到与主 zip 相同的目录下；不传 `-WithSamples` 时行为与改动前完全一致（不下载、不落地这两棵
+  目录树）。
 - **`data/<game>/`**：具体游戏的数据放各自游戏仓库自己的 `data/<game>/` 下（游戏代号由游戏仓库
   自己决定），与框架分发包的 `data/_framework/` **并列加载**（见下"多根加载与合并规则"），本框架
   仓库不包含任何具体游戏的数据目录。

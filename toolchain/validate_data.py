@@ -382,25 +382,49 @@ def main(argv: list[str] | None = None) -> int:
     # Tools~/validate_data.py 与 Tools~/validator/），改为相对本文件自身目录解析，不再依赖
     # "repo_root/toolchain" 这一假设仓库布局的拼接方式，两种场景都能正确定位。
     validator_project = Path(__file__).resolve().parent / "validator"
-    cmd = [dotnet_path, "run", "--project", str(validator_project)]
-    # 判断记录：本工具（`dotnet run`）与 `dotnet build`/`dotnet test` 一样支持 `--artifacts-path`
-    # 统一构建产物落盘目录（见任务书硬性规则 5）；`validate_data.py` 本身不接受命令行参数指定该
-    # 路径（避免与 `--data-root`/`--strict` 等既有参数表面混杂），改用环境变量
-    # `WS_GAME_ARTIFACTS_PATH` 透传——未设置该环境变量时行为与改动前完全一致（不传
-    # `--artifacts-path`，使用 dotnet 默认输出目录）。
-    artifacts_path = os.environ.get("WS_GAME_ARTIFACTS_PATH")
-    if artifacts_path:
-        cmd += ["--artifacts-path", artifacts_path]
-    cmd += ["--"]
+
+    # 判断记录（消费方反馈 E1 根治，2026-09-10，见
+    # architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E1）：此前一律用
+    # `dotnet run --project toolchain/validator` 现场编译——若本文件所在的 toolchain/ 目录（无论是
+    # 源码仓库内、还是消费方解压出的 dist zip/UPM 包）落在消费方仓库工作树内，MSBuild 沿项目目录
+    # 向上查找 Directory.Build.props 会继承到消费方自己的设置（如 TreatWarningsAsErrors=true），
+    # 把本工具 XML 文档注释里原本无害的告警提升为编译错误，消费方连校验都跑不起来。`build.ps1
+    # -Dist`/`-Release` 打包时已把 Validator 项目连同其依赖的六个核心 DLL 一并预编译进
+    # `toolchain/validator/bin/`（见该脚本"5.057 消费方反馈 E1 根治"判断记录），存在该预编译产物时
+    # 优先直接 `dotnet <Validator.dll>` 执行——这条路径完全不触发 MSBuild/Directory.Build.props
+    # 解析，从根上绕开消费方构建设置污染，不需要用户装 .NET SDK 之外的任何东西、也不需要一次编译
+    # 耗时。找不到预编译产物时（例如源码仓库内自测、或消费方精简掉了 bin/ 目录）退回原有的
+    # `dotnet run --project` 现场编译路径——dist 打包时同时内置了一份空 `Directory.Build.props`
+    # 挡住消费方设置被继承（见 build.ps1 判断记录），两层根治缺一不可。
+    validator_dll_path = validator_project / "bin" / "Validator.dll"
+    using_precompiled = validator_dll_path.is_file()
+    if using_precompiled:
+        cmd = [dotnet_path, str(validator_dll_path)]
+    else:
+        cmd = [dotnet_path, "run", "--project", str(validator_project)]
+        # 判断记录：本工具（`dotnet run`）与 `dotnet build`/`dotnet test` 一样支持
+        # `--artifacts-path` 统一构建产物落盘目录（见任务书硬性规则 5）；`validate_data.py`
+        # 本身不接受命令行参数指定该路径（避免与 `--data-root`/`--strict` 等既有参数表面混杂），
+        # 改用环境变量 `WS_GAME_ARTIFACTS_PATH` 透传——未设置该环境变量时行为与改动前完全一致
+        # （不传 `--artifacts-path`，使用 dotnet 默认输出目录）。只在现场编译路径下有意义，
+        # 直接执行预编译 DLL 时不涉及任何构建产物落盘。
+        artifacts_path = os.environ.get("WS_GAME_ARTIFACTS_PATH")
+        if artifacts_path:
+            cmd += ["--artifacts-path", artifacts_path]
+        cmd += ["--"]
     for target_root in target_roots:
         cmd += ["--data-root", str(target_root)]
     if args.strict:
         cmd.append("--strict")
 
-    print(
-        "[第二道·真实校验] 正在运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: "
-        + " ".join(cmd)
-    )
+    if using_precompiled:
+        print(f"[第二道·真实校验] 正在运行预编译的 toolchain/validator/bin/Validator.dll: " + " ".join(cmd))
+    else:
+        print(
+            "[第二道·真实校验] 未找到预编译的 toolchain/validator/bin/Validator.dll，"
+            "现场编译运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: "
+            + " ".join(cmd)
+        )
     result = subprocess.run(cmd, cwd=str(repo_root))
 
     if result.returncode == 2:

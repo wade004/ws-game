@@ -423,23 +423,50 @@ python toolchain/import_sample_assets.py
 用），不属于本框架仓库自身的构建/门禁链路——它是框架随每次发布产物一并提供、供游戏侧调用的工具，
 职责是"按版本号取得一份可信的框架发布产物"。
 
-**依赖边界**：`get_framework.ps1` 的 DLL 哈希校验依赖同目录的 `toolchain/_hash.ps1`
-（`Get-Sha256FileHash` 共享函数），两个文件是一对，不能只把 `get_framework.ps1` 单独复制到游戏
-仓库使用。游戏侧引用时请把 `toolchain` 整个目录一起复制/引用；确实只想拿这一个脚本时，至少要
-同时携带同目录的 `_hash.ps1`。缺失 `_hash.ps1` 时脚本会显式检查并报错退出，不会静默失败。
+**依赖边界（消费方反馈 E2 根治，2026-09-10）**：`get_framework.ps1` 现已自包含——DLL 哈希校验
+函数 `Get-Sha256FileHash` 原样内联在本文件内，不再 dot-source 同目录 `toolchain/_hash.ps1`，
+只下载/复制这一个文件即可在游戏仓库使用（GitHub Release 附件里单独提供，见下方"下载方式"）。
+`toolchain/_hash.ps1` 本身继续保留在本目录，供仓库内其它脚本（`build.ps1`、
+`sync_package_content.ps1`）共用，也继续作为 Release 附件一并提供，兼容消费方现有"下载
+`get_framework.ps1` + `_hash.ps1` 两个文件"的还原脚本（本脚本自身不再读取它）。两处
+`Get-Sha256FileHash` 函数体逐字节一致，`toolchain/tests/test_get_framework_hash_inline_consistency.py`
+静态比对回归。
+
+**下载方式**：三种等价途径都能拿到自包含的 `get_framework.ps1`——1) GitHub Release 附件里单独
+下载 `get_framework.ps1`（每次发布固定附带，见框架仓库根 `README.md`"版本与发布"一节）；
+2) 随 `ws-game-<ver>.zip` 解压得到 `toolchain/get_framework.ps1`；3) 把 `toolchain` 整个目录
+复制/引用过去。三种方式下脚本行为完全一致。
 
 ```powershell
 powershell -File toolchain\get_framework.ps1 -Version 1.0.0 -Target packages
 powershell -File toolchain\get_framework.ps1 -Version 1.0.0 -Target packages -FromLocalDist path\to\ws-game-1.0.0.zip
+powershell -File toolchain\get_framework.ps1 -Version 1.0.0 -Target packages -WithSamples
 ```
 
 在线路径依赖 `gh`（GitHub CLI）已登录，按 `v<Version>` 标签从框架仓库的 Release 下载
 `ws-game-<Version>.zip` 与配套的 `.lock` 锁文件；离线路径 `-FromLocalDist` 直接指定本机已有的
 zip（同目录需要有同名 `.lock` 文件）。两条路径都会：解压到临时目录 → 按锁文件记录的 sha256 校验
 六个核心 DLL（`Core.Foundation`/`Core.Numbers`/`Core.Rules`/`Core.Carriers`/`Core.Gameplay`/
-`Presentation.Common`）→ 校验通过才落地到 `<Target>/ws-game-<Version>/`（旧目录整体删除重建）→
-在当前目录写入/校验 `ws-game.lock`（游戏仓库根，内容与下载到的锁文件一致）。校验失败（哈希不
+`Presentation.Common`，锁文件存在 `headless_dlls`/`validator_dlls` 字段时一并校验无头适配层
+DLL/预编译 validator 的 DLL，见 ADR-0018 决策 3、消费方反馈 E1）→ 校验通过才落地到
+`<Target>/ws-game-<Version>/`（旧目录整体删除重建）→ 在当前目录写入/校验 `ws-game.lock`
+（游戏仓库根，与下载到的锁文件内容等价，判定规则见下方"消费方反馈 E3"）。校验失败（哈希不
 一致、DLL 缺失）时不会改动 `-Target` 与 `ws-game.lock`，保持"校验通过才落地"。
+
+**`-WithSamples`（消费方反馈 E4 根治，2026-09-10）**：主 zip 不含 `data/_sample`/`assets/_sample`
+（那是框架自测用的验收数据集，不代表真实游戏内容，见 `data/README.md`），新工程想要一份现成的、
+已知合法的样例数据/资源验证框架端到端可用时，传 `-WithSamples` 额外下载/校验
+`ws-game-<ver>-samples.zip`（按锁文件 `samples.sha256` 字段校验，`build.ps1 -Dist`/`-Release`
+同一次打包新增产出），合并落地到与主 zip 相同的 `<Target>/ws-game-<Version>/` 目录下。锁文件
+缺 `samples` 字段（早于本次功能落地的旧版本）时传 `-WithSamples` 会明确报错退出，不静默忽略。
+
+**锁文件 `source` 字段与本机路径（消费方反馈 E3 根治，2026-09-10）**：`ws-game.lock` 约定提交进
+游戏仓库；`-FromLocalDist` 场景的 `source` 字段不再写调用方本机的绝对路径（只写 `channel` 与
+相对的 `zip_file_name`），换机器重新运行不会因为本机路径不同产生一次与框架引用内容无关的锁文件
+diff。判定"锁文件是否需要改写"时也不再整份 JSON 字符串比较，改为只比较 `version`/`git_commit`/
+`dlls`/`headless_dlls`/`validator_dlls`/`samples` 这几个描述引用内容本身的字段，忽略 `source`
+差异；带旧格式 `source.local_path` 的既有锁文件仍能被正常接受。回归测试见
+`toolchain/tests/test_get_framework_lock_source_no_local_path.py`。
 
 版本号格式、锁文件字段、`build.ps1 -Release`/`-Zip` 如何产出这两个文件，见框架仓库根
 `README.md`"版本与发布"一节与 `architecture/落地计划/落地方案与分阶段计划.md` 第 3.5 节。

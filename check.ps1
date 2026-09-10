@@ -899,6 +899,16 @@ if ($Quick) {
             $fileEntries = $dryRunObj[0].files
             $hitSegments = New-Object System.Collections.Generic.HashSet[string]
             foreach ($entry in $fileEntries) {
+                $normalizedEntryPath = $entry.path -replace '\\', '/'
+                # 判断记录（消费方反馈 E1 根治，2026-09-10）：`Tools~/validator/bin/` 是本次新增的
+                # 预编译 validator 交付物（Validator.dll + 依赖 DLL，见 build.ps1"5.057"节判断
+                # 记录），是刻意随 com.gamefoundation.toolchain 包分发的内容，不是构建产物泄漏——
+                # 与本条排除规则原本要拦的"忘了排除的 bin/obj 构建中间产物"（例如某个 core/*/bin/
+                # 意外被扫进包）性质不同。只放行这一个精确路径模式（`.../validator/bin/...`），
+                # 其它任何位置出现的 "bin" 段仍然按原规则拦截，不整体放宽这条排除规则。
+                if ($normalizedEntryPath -match '(^|/)validator/bin/') {
+                    continue
+                }
                 $entryPathSegments = $entry.path -split '[\\/]'
                 foreach ($seg in $forbiddenSegments) {
                     if ($entryPathSegments -contains $seg) {
@@ -938,12 +948,37 @@ if ($Quick) {
                     $problems += ("$pkgName：npm pack --dry-run 文件清单缺失 model/anim 占位资产或生成器（PJ130-02）：" + ($missingModelAssets -join ", "))
                 }
             }
+
+            # 判断记录（消费方反馈 E1 根治，2026-09-10）：com.gamefoundation.toolchain 包现在应该
+            # 额外含预编译 validator（Tools~/validator/bin/Validator.dll，见 build.ps1"5.057"节）与
+            # 挡住消费方 Directory.Build.props 继承的空文件（Tools~/validator/Directory.Build.props，
+            # 内容固定为 `<Project></Project>`）——这里核对 npm pack --dry-run 的文件清单里确实含
+            # 这两项，防止将来打包逻辑被回退/漏改后又悄悄丢失这两个文件却没有任何门禁步骤发现（上面
+            # 9.5 节"bin"排除规则的放行口子若被误删，这里也会先一步以更具体的缺失信息报错，而不是
+            # 等到消费方在自己的 Directory.Build.props 下现场编译才发现）。
+            if ($pkgName -eq "com.gamefoundation.toolchain") {
+                $entryPaths = @($fileEntries | ForEach-Object { ($_.path -replace '\\', '/') })
+                $requiredValidatorArtifacts = @(
+                    "Tools~/validator/bin/Validator.dll",
+                    "Tools~/validator/Directory.Build.props"
+                )
+                $missingValidatorArtifacts = @()
+                foreach ($suffix in $requiredValidatorArtifacts) {
+                    $hit = @($entryPaths | Where-Object { $_ -like "*$suffix" })
+                    if ($hit.Count -eq 0) {
+                        $missingValidatorArtifacts += $suffix
+                    }
+                }
+                if ($missingValidatorArtifacts.Count -gt 0) {
+                    $problems += ("$pkgName：npm pack --dry-run 文件清单缺失预编译 validator 或隔离用 Directory.Build.props（消费方反馈 E1）：" + ($missingValidatorArtifacts -join ", "))
+                }
+            }
         }
 
         if ($problems.Count -gt 0) {
             throw ("包清单一致性校验失败：`n  " + ($problems -join "`n  "))
         }
-        [PSCustomObject]@{ Ok = $true; Detail = "四个包 version=$version 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器" }
+        [PSCustomObject]@{ Ok = $true; Detail = "四个包 version=$version 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器，toolchain 包含预编译 validator" }
     }
 }
 

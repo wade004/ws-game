@@ -10,7 +10,7 @@ namespace Core.Foundation.DataRegistry
 
     /// <summary>
     /// 一张待加载表的定位信息：表名、来源位置（供错误信息定位，含义由具体 <see cref="IDataSource"/>
-    /// 实现决定，如文件路径）、取文本的委托（延迟到 <see cref="DataRegistry.LoadAll"/> 真正需要时
+    /// 实现决定，如文件路径）、取文本的委托（延迟到 <c>DataRegistry.LoadAll</c> 真正需要时
     /// 才读取，避免一次性把全部表读进内存）。
     /// </summary>
     public sealed class DataTableSource
