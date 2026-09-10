@@ -81,8 +81,42 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-消费方反馈"同一光环多个 Proc 触发器静默忽略问题"根治；核实与逐条回复见
-[消费方反馈-2026-09-10-多Proc触发器.md](architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md)。
+## [1.17.0] - 2026-09-10
+
+MINOR 版本：编辑器相关契约新增（消费方反馈第三批 18/19/20/22/23 条）+ 框架数据/持久化合同修复
+（外部深度审核第十九方 V-01/V-02/V-03 + 消费方反馈"同一光环多个 Proc 触发器"）+ ABI 工具门禁补强
+（ABI-1162-01）+ 五处文档勘误（DOC-162-01～05）。核实与逐条回复见
+[消费方反馈-2026-09-10-多Proc触发器.md](architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md)、
+[消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)、
+[architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md](architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md)。
+提交链：`5ef4128`/`e103f18`（多 Proc 触发器修复与文档）、`f6f8c15`/`44f320d`（wo/core17：
+V-01/V-02/V-03 + DOC-162-01/05）、`f602c8c`（wp/tool17：ABI-1162-01 + DOC-162-02/03/04 + 归档）、
+`870884c`/`2297766`/`15d38e7`（wq/editor3：消费方反馈第三批 18/19/20/22/23）、`d7c1c6c`/`b344704`/
+`b797f03`（三分支合并）、`3542b08`/`e4970d2`（跟进核实与全量门禁回填）。
+
+### 新增
+
+- 编辑器相关契约新增 API（消费方反馈第三批 18/19/20/22，详情见文首"编辑器相关契约"索引小节
+  1.17.0 一行）：`IExprSchema.KnownKeys`/`KnownGroups`；`ExprIssue`/`ExprNode` 全系子类新增
+  `Start`/`Length` 源文本位置区间；`IDataRegistryView.TryGetAll`/`TryQuery`；`IDataSource.Root`；
+  `OverrideDiagnostic` 新增 `OverridingRootIndex`/`OverriddenRootIndex`/
+  `OverridingRelativePath`/`OverriddenRelativePath`。
+- `JsonNumber.FromInt64(long)`：精确整数工厂，`RawNumberText` 用不变文化十进制原文写出，覆盖
+  `long` 全值域的精确往返（含 `double` 无法精确表示的 2^53 以上整数）。
+- `ProcHost.Detach(Id instanceId, Id procDefId)`：按单个触发器精细摘除的新增重载，既有
+  `Attach(Id, Id, ProcDef)`/`Detach(Id)`/`Update(double)`/`RescaleAll(double)` 签名不变。
+- `sample_table_empty` 告警级门禁（`toolchain/tests/test_sample_table_empty.py`）：找出已注册
+  schema 但 `data/_sample` 与 `data/_framework` 两根并集里都没有任何行的表，提醒补充示例数据；
+  本测试恒 PASS，只在命中时 `warnings.warn` 提醒，不阻断整体 `pytest` 退出码。
+- `toolchain/validator --schema-audit --json` 新增 `table_names` 字段（全架构已注册表名数组）。
+- `data/_sample` 补齐 `item.affix`/`item.set`/`world.flag_schema` 三张此前无任何示例数据的表。
+
+**已知未完成事项（如实登记，供后续版本跟进）**：ADR-0019 子结构登记第二批（18 个字段）本轮未
+落地，其中至少 3 个字段（`arch.class.base_stats`/`arch.race.stat_mods`/
+`creature.template.base_stats`）需要先给 `FieldSchema` 设计一种当前不支持的"动态键 Map"登记
+形态，建议单独立项，见
+[消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)
+第 21 条。
 
 ### 修复
 
@@ -91,21 +125,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   第一次），前面的触发器加载校验通过却在运行期被静默丢弃。改为 `AuraInstanceState.ProcDefRefs`
   有序集合 + `ProcHost` 按实例 id 分桶的多槽列表，单光环登记的多个 `proc_trigger` 各自独立挂载、
   独立结算条件/概率/内部冷却，光环整体移除（到期、`RemoveAura`、驱散、吸收耗尽、叠加溢出替换、
-  目标销毁）时全部一并注销，不残留孤儿订阅。`ProcHost` 新增重载 `Detach(Id instanceId, Id
-  procDefId)`（按单个触发器精细摘除），既有公开方法签名（`Attach(Id, Id, ProcDef)`/
-  `Detach(Id)`/`Update(double)`/`RescaleAll(double)`）不变。同一光环内重复引用同一个
-  `proc_def` 现在在加载期直接拒绝（新增校验规则 `AuraProcTriggerDuplicateRule`，检查名
-  `aura_proc_trigger_duplicate`，定位到 `effects[index].params.proc_ref`，已在
-  `RulesSchemaCatalog` 默认登记）。对消费方：升级后可把此前拆成多个原生光环的多个被动合并回
-  一个光环共用同一批 `proc_trigger`；若内容中已存在同一光环内重复引用同一个 `proc_def` 的写法，
-  升级后加载会报错，需要改为引用不同的 `proc_def` 记录，或拆成独立光环
-  （代码/校验规则/测试见提交 `5ef4128`；本文档与本条变更记录见本笔提交，哈希见 git log）。
-
-外部深度审核（codex 第十七轮，基线 `4faab73e7081f2984e7addb88fee051b6c0d3d02`/v1.16.2 自身，报告见
-`architecture/落地计划/audit-4faab73-20260910/`）ABI 工具门禁修复一项，另加三处文档勘误；核实与
-逐条回复见
-[architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md](architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md)。
-
+  目标销毁）时全部一并注销，不残留孤儿订阅。同一光环内重复引用同一个 `proc_def` 现在在加载期直接
+  拒绝（新增校验规则 `AuraProcTriggerDuplicateRule`，检查名 `aura_proc_trigger_duplicate`，定位到
+  `effects[index].params.proc_ref`，已在 `RulesSchemaCatalog` 默认登记）。对消费方：升级后可把
+  此前拆成多个原生光环的多个被动合并回一个光环共用同一批 `proc_trigger`；若内容中已存在同一光环内
+  重复引用同一个 `proc_def` 的写法，升级后加载会报错，需要改为引用不同的 `proc_def` 记录，或拆成
+  独立光环（代码/校验规则/测试见提交 `5ef4128`）。
+- `schema_version` 越界（超过 int 上界的整数，如 4294967297）此前强转溢出被误判为低版本放行，
+  现阻断；`JsonNumber.TryGetInt64` 对 2^63 边界误判已修正；存档/事件序列化中的整数（货币余额、
+  经验、tick 计数、游玩时长等）以精确十进制原文写出（`JsonNumber.FromInt64`），大于 2^53 的整数
+  不再丢精度，旧存档仍可读（外部深度审核第十九方 V-01/V-02/V-03，分支 `wo/core17`，提交
+  `f6f8c15`；整合阶段独立复现核实见 followup-2026-09-10d.md）。
 - **ABI-1162-01（工具链）**：`toolchain/abi_surface` 属性签名此前只编码 `Name:PropertyType`，不含
   索引参数——public indexer（`this[int]`）的索引参数类型变化（如改成 `this[string]`）两次 dump
   输出逐字节相同，`compare` 判 `breaks=0`，旧编译消费方运行期 `System.MissingMethodException`。
@@ -115,55 +145,78 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `ref`/`out`/`in` 不编码设计同一治理逻辑，曾短暂编码又因产生历史基线假破坏而撤回，判断记录见
   `toolchain/abi_surface/TypeNameFormatter.cs` `FormatParameters`）。新版工具对
   `dist/ws-game-1.12.0.zip`/`dist/ws-game-1.13.0.zip` 两份历史基线重跑当前工作树六个 DLL 均
-  `breaks=0`，未发现历史真实破坏。
-- **DOC-162-02（发布计划文档）**：`architecture/落地计划/落地方案与分阶段计划.md` 一处仍写
-  "三个 `.tgz`"，落后于 ADR-0018 决策 3 已转正的第四个包（`com.gamefoundation.adapter.headless`）；
-  改为明确列出九件 GitHub Release 附件（zip、lock、samples zip、四个 `.tgz`、`get_framework.ps1`、
-  `_hash.ps1`）。
-- **DOC-162-03（发布计划文档）**：同文件"能力边界与未默认接入能力索引"表 `teleport_points` 一行
-  称元素"仅做是数组这一层检查"，落后于已登记的 `WorldMapSchema.PointItemSchema`（`{id?,
-  position?}` 元素结构已展开登记）；改为区分"结构已登记"与"引用目标完整性不由登记表保证，由
-  `TeleportTargetResolver`/业务约束负责"。
-- **DOC-162-04（发布计划文档）**：同文件 ATB（先攻策略预留位）一行分类"明确非目标"，与
-  ADR-0013 决策第 3 条原文"本版延期、预留扩展位"不符；改列"延期/预留"。
-- 修复：`schema_version` 越界（超过 int 上界的整数，如 4294967297）此前强转溢出被误判为低版本
-  放行，现阻断；`JsonNumber.TryGetInt64` 对 2^63 边界误判已修正；存档/事件序列化中的整数
-  （货币余额、经验、tick 计数、游玩时长等）以精确十进制原文写出（`JsonNumber.FromInt64`），大于
-  2^53 的整数不再丢精度，旧存档仍可读。核实与逐条回复见
-  [architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md](architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md)。
+  `breaks=0`，未发现历史真实破坏（提交 `f602c8c`）。三方分支合并进 `main` 后，整合阶段重新对
+  三方合并结果整体重跑 `abi_probe.ps1`，同样 `breaks=0 allowed=0 additions=253`，未发现任何
+  索引器/运算符/事件访问器类可见性合并回归。
 
-外部深度审核（第十九方，基于 `4faab73`）另有 V-01/V-02/V-03（同上，`schema_version` 越界/
-`TryGetInt64` 边界/大整数精度丢失）与 DOC-162-01/05 两处文档勘误，由分支 `wo/core17` 修复；
-DOC-162-01：`core/foundation/data_registry/README.md`"多根加载"一节补全 `AllowOverride`/行级
-`override`/`final` 的条件语义（跨根主键重复默认阻断，但可显式声明覆盖/拒绝覆盖，此前只提"无条件
-阻断"）；DOC-162-05：`architecture/04_数据与内容管线.md` 收窄"数值有限"（`field_finite`）校验项
-适用范围，明确只覆盖 `Number` 字段，`Int` 字段的非法取值落入既有 `field_type` 检查。
+### 文档与门禁
 
-### 新增
+- **DOC-162-01（`core/foundation/data_registry/README.md`）**：补全 `AllowOverride`/行级
+  `override`/`final` 的条件语义——跨根主键重复默认仍阻断，但 `AllowOverride=true`（默认）时
+  后层行可声明 `override:true` 整行覆盖前层不报错，前层行可声明 `final:true` 拒绝被覆盖仍阻断；
+  此前只提"无条件阻断"，与 `data/README.md` 既有准确描述不一致（分支 `wo/core17`，提交
+  `44f320d`）。
+- **DOC-162-02（`architecture/落地计划/落地方案与分阶段计划.md`）**：一处仍写"三个 `.tgz`"，
+  落后于 ADR-0018 决策 3 已转正的第四个包（`com.gamefoundation.adapter.headless`）；改为明确
+  列出九件 GitHub Release 附件（zip、lock、samples zip、四个 `.tgz`、`get_framework.ps1`、
+  `_hash.ps1`）（提交 `f602c8c`）。
+- **DOC-162-03（同文件）**：`teleport_points` 一行称元素"仅做是数组这一层检查"，落后于已登记的
+  `WorldMapSchema.PointItemSchema`（`{id?, position?}` 元素结构已展开登记）；改为区分"结构已
+  登记"与"引用目标完整性不由登记表保证，由 `TeleportTargetResolver`/业务约束负责"（提交
+  `f602c8c`）。
+- **DOC-162-04（同文件）**：ATB（先攻策略预留位）一行分类"明确非目标"，与 ADR-0013 决策第 3 条
+  原文"本版延期、预留扩展位"不符；改列"延期/预留"（提交 `f602c8c`）。
+- **DOC-162-05（`architecture/04_数据与内容管线.md`）**：收窄"数值有限"（`field_finite`）校验项
+  适用范围，明确只覆盖 `Number` 字段；`Int` 字段取值须先精确转换为 `long`
+  （`JsonNumber.TryGetInt64`），非有限值本身不是合法的 `Int` 编码，落入既有 `field_type` 检查
+  （分支 `wo/core17`，提交 `44f320d`）。
+- 归档 `architecture/落地计划/audit-4faab73-20260910/`（第十九方深度审核报告、核实表、证据）；
+  `followup-2026-09-10d.md` 回填 V-01/V-02/V-03、DOC-162-01/05 核实结果、三分支合并冲突处理、
+  整合阶段全量门禁验收结果（提交 `f602c8c`/`3542b08`/`e4970d2`）。
 
-消费方反馈第三批（18/19/20/22/23 条，见
-[消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)）：
+### 迁移说明
 
-- `IExprSchema` 新增 `KnownKeys(string group)`/`KnownGroups`（带默认实现）：按分组枚举已登记的
-  宿主引用 key，供编辑器自动补全。
-- `ExprIssue`/`ExprNode`（及全部子类）新增源文本位置区间 `Start`/`Length`（新增重载构造，既有
-  构造不变）：`ExprParser.Parse` 产出的语法树与 `ExprValidator` 产出的校验问题项均携带精确区间，
-  供编辑器把问题定位/高亮到源文本对应片段。
-- `IDataRegistryView` 新增 `TryGetAll`/`TryQuery`（带默认实现）：阻断态下仅供内容工具使用的只读
-  通道，`DataRegistry` 显式覆盖为读取当前已合并记录；运行期宿主仍须使用 `GetAll`/`Query`，阻断态
-  即禁止读取的既有结论不变。
-- `IDataSource` 新增 `Root`（带默认实现）；`OverrideDiagnostic` 新增
-  `OverridingRootIndex`/`OverriddenRootIndex`/`OverridingRelativePath`/`OverriddenRelativePath`：
-  多根合并覆盖诊断新增"根序号 + 相对路径"，`toolchain/validator` 文本/JSON 输出同步；绝对路径
-  字段保留。
-- `toolchain/validator --schema-audit --json` 新增 `table_names` 字段；新增 `sample_table_empty`
-  告警级 pytest 门禁（`toolchain/tests/test_sample_table_empty.py`）。
-- `data/_sample` 补齐 `item.affix`/`item.set`/`world.flag_schema` 三张此前无任何示例数据的表。
+- 同一光环内登记多个不同的 `proc_trigger`，从本版起会**全部合并生效**，不再只有最后登记的一个
+  生效——若此前依赖"只有最后一个生效"这一缺陷行为拆分过内容（如刻意用多个 `proc_trigger` 条目
+  表达互斥关系），升级后需要重新核对该内容的实际生效效果是否符合预期。
+- 同一光环内重复引用同一个 `proc_def` 的内容，从本版起在加载期直接报错阻断（`AuraProcTrigger
+  DuplicateRule`），此前不会阻断；若现有内容存在这种写法，需要改为引用不同的 `proc_def` 记录或
+  拆成独立光环。
+- `schema_version` 超过 `int` 上界的整数、或非 `[1, int.MaxValue]` 范围内的取值，从本版起在加载期
+  直接阻断，此前会因强转溢出被误判为低版本而放行；请在升级前用本版 `toolchain/validate_data.py
+  --strict` 排查现有内容。
+- 存档/事件序列化中的整数（货币余额、经验、tick 计数、游玩时长等）从本版起以精确十进制原文写出
+  （不再经 `double` 中转），大于 2^53 的大整数存档文件可能出现字节级 diff（数字的文本表示变了），
+  但语义完全等价，旧版本写出的存档文件本版仍可正常读取。
+- `IDataRegistryView.TryGetAll`/`TryQuery` 仅供内容工具（编辑器、校验命令行等）在阻断态下读取
+  当前已合并的记录视图使用，**不建议游戏运行时代码依赖**——运行期宿主仍须使用 `GetAll`/`Query`，
+  阻断态即禁止读取这一既有结论不变。
+- `OverrideDiagnostic` 新增了 `OverridingRootIndex`/`OverriddenRootIndex`/
+  `OverridingRelativePath`/`OverriddenRelativePath` 四个字段；已读取该类型既有字段
+  （`OverridingLocation`/`OverriddenLocation` 等绝对路径字段）的既有调用方不受影响，新字段是
+  纯增量。
 
-**已知未完成事项（如实登记，供后续版本跟进）**：ADR-0019 子结构登记第二批（18 个字段）本轮未
-落地，其中至少 3 个字段（`arch.class.base_stats`/`arch.race.stat_mods`/
-`creature.template.base_stats`）需要先给 `FieldSchema` 设计一种当前不支持的"动态键 Map"登记
-形态，建议单独立项，见上述文档第 21 条。
+### 兼容声明
+
+本版本对 1.12.0～1.16.2 期间编译的旧消费方二进制保持兼容：依据是 `toolchain/abi_probe.ps1`
+严格模式下的验证——1.12.0/1.13.0 两份历史基线 consumer 程序集不重新编译、直接换上本版本正式
+DLL 实跑通过，独立的公开 API 表面差异比对（`toolchain/abi_surface`）输出均 `breaks=0`；本版本
+表面差异工具自身已修复 ABI-1162-01，新增覆盖属性索引参数、运算符/转换运算符、事件 `remove`
+访问器可见性三类此前会被漏报的破坏性信号，即本版本发布时使用的门禁工具本身已具备检出这几类
+破坏的能力（不是"没检出=没发生"的弱依据）。
+
+如实记录一段真实开发过程（消费方反馈第三批第 19 条实现期间）：最初实现直接给 `ExprNode` 基类及
+其 6 个子类（`ExprLiteralNode`/`ExprReferenceNode`/`ExprNotNode`/`ExprCompareNode`/
+`ExprAndNode`/`ExprOrNode`）已有的构造函数各自加了可选参数（如
+`ExprLiteralNode(ExprValue value, int start = -1, int length = 0)`）来携带新增的源文本位置
+区间，源码层面完全向后兼容（既有调用点不用改一行），但可选参数只是编译期语法糖，物理上仍是同一个
+构造函数、只是参数数量变多——已编译的旧消费方对"少参数版本"的调用指令在新 DLL 里找不到对应物理
+签名，运行期会抛 `System.MissingMethodException`，属于二进制破坏性变更。`toolchain/abi_probe.ps1`
+对照 1.12.0 基线运行时真实拦下了这 7 处（7 个构造函数）破坏，本版本据此没有直接发布这个实现，
+而是改为给每个类新增一个真正独立的重载构造（既有构造物理签名完全不动）——`abi_probe.ps1` 复跑
+`breaks=0` 后才采用这个形态发布，见
+[消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)
+第 19 条"踩坑记录"。
 
 ## [1.16.2] - 2026-09-10
 
