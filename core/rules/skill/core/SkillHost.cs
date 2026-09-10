@@ -576,12 +576,74 @@ namespace Core.Rules.Skill
         // Tick
         // -----------------------------------------------------------------
 
-        /// <summary>推进读条/引导、冷却/充能/公共冷却、光环（含周期效果）、Proc 内部冷却
-        /// （见 <see cref="SkillTickHandler"/> 调用时机）。</summary>
+        /// <summary>
+        /// 推进读条/引导、冷却/充能/公共冷却、光环（含周期效果）、Proc 内部冷却
+        /// （见 <see cref="SkillTickHandler"/> 调用时机）。
+        /// <para>
+        /// 消费方反馈 2026-09-10（读条完成当帧新冷却被提前推进问题，证据 c08-new-cooldown，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md）根治：本方法此前先
+        /// 调 <c>_pipeline.Update(dt)</c> 再调 <see cref="AdvanceRoundTimers"/>——读条/引导恰好在本次
+        /// <paramref name="dt"/> 内完成时，<c>_pipeline.Update</c> 内部经 <c>CastPipeline.FinishCast</c>
+        /// 新开启的冷却/公共冷却/充能恢复窗口，会被同一次调用里紧接着执行的
+        /// <see cref="AdvanceRoundTimers"/> 用同一个 <paramref name="dt"/> 再扣一遍——新计时状态从
+        /// "尚不存在"到"存在"的那个瞬间被当成已经存在了整个 <paramref name="dt"/>，多扣的量随
+        /// <paramref name="dt"/> 如何被拆成多个子步而变化（外部复现：<c>cast_time=0.5、
+        /// cooldown_duration=1</c>，单步 <c>Update(0.5)</c> 剩 0.5、两步
+        /// <c>[0.25,0.25]</c> 剩 0.75、三步 <c>[0.25,0.125,0.125]</c> 剩 0.875，预期均为 1——同一个
+        /// 完成时刻因为分段方式不同产生不同结果，是本缺陷的核心症状）。<see cref="AuraHost"/> 的
+        /// 光环持续时间/周期累加器、<see cref="ProcHost"/> 的内部冷却与本方法共用同一条
+        /// <see cref="AdvanceRoundTimers"/> 推进路径，属于同一类"本 tick 内新创建的计时状态被本
+        /// tick 自己的 <paramref name="dt"/> 二次扣减"缺口（见判断记录"相邻计时状态排查"）。
+        /// </para>
+        /// <para>
+        /// 判断记录"相邻计时状态排查"：
+        /// <list type="bullet">
+        /// <item>GCD——<c>CastPipeline.StartCooldownAndGcd</c> 与技能自身冷却同一调用点写入
+        /// <see cref="CooldownTracker"/>，同一批被 <see cref="AdvanceRoundTimers"/> 的
+        /// <c>_cooldowns.Update(dt)</c> 推进，同类缺口，随本次改动一并根治。</item>
+        /// <item>充能恢复——<c>CastPipeline.StartCooldownAndGcd</c>→<c>CooldownTracker.StartCooldown</c>
+        /// 在充能耗尽的那一刻写入 <c>RechargeRemaining</c>，与技能自身冷却共用
+        /// <see cref="AdvanceRoundTimers"/> 内 <c>AdvanceCharges</c> 那一批推进，同类缺口，随本次
+        /// 改动一并根治。</item>
+        /// <item>光环持续时间/周期——<c>CastPipeline.ExecuteEffectsOnly</c>（读条/引导完成时结算的
+        /// 效果之一可以是 <c>apply_aura</c>）与 <see cref="AuraHost.Update"/> 同样共用本方法内的调用
+        /// 次序，同类缺口，随本次改动一并根治。</item>
+        /// <item>Proc 内部冷却——<see cref="ProcHost"/> 只在 <see cref="ProcHost.OnEvent"/>（经
+        /// <see cref="Core.Foundation.EventBus.IEventBus.Subscribe"/> 订阅、<c>DispatchPending</c>
+        /// 批处理时才派发，见 <see cref="CastPipeline"/> 类型注释 RC-01 判断记录"经 Enqueue 入队、
+        /// 下一个 DispatchPending pass 才派发"）里写入 <c>IcdRemaining</c>——本模块全部规则事件
+        /// （含触发 Proc 判定的 <c>combat.damage_dealt</c>/<c>combat.heal_done</c> 等）一律
+        /// <c>Enqueue</c>，不在 <see cref="Update"/> 内部同步派发，新 ICD 因此恒晚于本次
+        /// <see cref="Update"/> 调用（要等调用方后续显式调 <c>DispatchPending</c>）才被写入，不与本方法
+        /// 内的 <see cref="ProcHost.Update"/> 竞争同一个 <paramref name="dt"/>，不是同类缺口——
+        /// 保留 <see cref="ProcTests"/>/本次新增对照用例钉住"内部冷却按调用批次正常推进、不受本次
+        /// 调换顺序影响"。</item>
+        /// </list>
+        /// </para>
+        /// <para>
+        /// 判断记录"为什么调换顺序是安全的"（选择方案 a：调换调用顺序，而非给每个计时器额外记一个
+        /// "创建于本 tick"标记）：<see cref="AdvanceRoundTimers"/> 只读写既有的冷却/GCD/充能/光环/
+        /// Proc 内部冷却/学派锁定状态，不读取、不依赖 <c>_pipeline</c> 内部字段；调换后它在
+        /// <c>_pipeline.Update</c> 之前先把"进入本次 <paramref name="dt"/> 之前就已存在"的状态推进
+        /// 完毕，随后 <c>_pipeline.Update</c> 才会因为读条/引导完成而经
+        /// <c>CastPipeline.FinishCast</c>/<c>ExecuteEffectsOnly</c> 新建冷却/GCD/充能窗口/光环实例——
+        /// 这些新状态自然不会被"已经执行完毕"的 <see cref="AdvanceRoundTimers"/> 碰到，要等到<b>下一次</b>
+        /// <see cref="Update"/> 调用时才第一次被推进（此时它们已经真正存在了一整个 tick，用那次调用的
+        /// <paramref name="dt"/> 扣减是正确的）。唯一需要核实"顺序调换是否改变其它语义"的地方是：读条/
+        /// 引导完成时若有排队的下一个施法（<see cref="CastPipeline.FinishCast"/> 里的
+        /// <c>state.Queued</c> 分支），<c>TryStartCast</c> 检查 GCD/冷却是否就绪时读到的现在是"已经按
+        /// 本次 <paramref name="dt"/> 推进过"的最新值，而不是调换前"尚未被本次 tick 推进"的旧值——这
+        /// 让排队技能的就绪判定更及时（少算一次滞后），不存在把原本不就绪判成就绪、或反过来的错误方向；
+        /// 学派锁定的推进（<see cref="CastPipeline.AdvanceSchoolLocks"/>）与读条/引导完成之间没有任何
+        /// 数据依赖（<c>Interrupt</c> 写入学派锁定的两条路径——<c>OnAuraApplied</c>/<c>OnDamageDealt</c>
+        /// ——只在 <c>DispatchPending</c> 批处理时触发，不在本方法内部同步发生），调换顺序不影响它。
+        /// 见本模块新增测试对以上判断逐条钉住。
+        /// </para>
+        /// </summary>
         public void Update(double dt)
         {
-            _pipeline.Update(dt);
             AdvanceRoundTimers(dt);
+            _pipeline.Update(dt);
         }
 
         /// <summary>
