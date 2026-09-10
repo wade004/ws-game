@@ -29,24 +29,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   热重载标准实现 `games/_template/Runtime/DataHotReload.cs`（`Reload` 成功/失败经事件总线补发
   `data.load_completed`/`data.validation_failed`）；`.github/workflows/release.yml` 四包修正
   （编辑器项目若参照本仓库发布工作流的必需附件集合，需同步补齐第四个 `.tgz`）。
-- **E1～E4 交付面变化（Unreleased，消费方反馈处理，
+- **E1～E4 交付面变化（1.15.0，消费方反馈处理，
   [消费方反馈-2026-09-10-编辑器.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器.md)）**：
   Release 新增预编译 `toolchain/validator`（附隔离用的空 `Directory.Build.props`）作为发布附件，
   编辑器项目不再需要自行现场编译 validator；`toolchain/get_framework.ps1` 改为自包含（不再
   dot-source 同目录 `_hash.ps1`），可单独下载使用；`ws-game.lock` 的 `source` 字段不再写本机
   绝对路径（`local_path` 改为 `zip_file_name`）；新增可选附件 `ws-game-<ver>-samples.zip` 与
   `get_framework.ps1 -WithSamples` 参数，用于下载并合并落地验收数据集样例。
-- **E5（Unreleased）**：[ADR-0020](architecture/adr/0020-表达式词法器纳入公开契约.md)——
+- **E5（1.15.0）**：[ADR-0020](architecture/adr/0020-表达式词法器纳入公开契约.md)——
   `core/foundation/expr` 的 `ExprLexer`/`ExprToken`/`ExprTokenKind` 由 `internal` 改为
   `public`，`ExprLexer.Tokenize(string)` 成为公开的词法切分入口，编辑器等工具做语法高亮应改用
   该入口，不再自行正则切词。
-- **E8（Unreleased）**：`toolchain/validate_data.py` 新增 `--json`，把骨架检查结果与
+- **E8（1.15.0）**：`toolchain/validate_data.py` 新增 `--json`，把骨架检查结果与
   `toolchain/validator --json` 输出合并为一份结构化 JSON 打印到标准输出（人类可读诊断改走标准
   错误），结构见脚本头部 docstring 与 `data/README.md`。
-- **E10（Unreleased）**：`IDataRegistryView` 新增只读属性 `RecordCount`（带默认实现，按
+- **E10（1.15.0）**：`IDataRegistryView` 新增只读属性 `RecordCount`（带默认实现，按
   `Tables`/`GetAll` 求和，不要求已有实现类改动，不构成 ABI 破坏），`CreateRegistry` 路径（调用方
   自行持有 registry、自行调用 `Reload`）现在也能拿到精确记录计数，不必自行遍历求和。
-- **ADR-0021（Unreleased，消费方反馈处理，
+- **ADR-0021（1.15.0，消费方反馈处理，
   [消费方反馈-2026-09-10-技能效果参数范围.md](architecture/落地计划/消费方反馈-2026-09-10-技能效果参数范围.md)）**：
   `FieldSchema` 新增可选 `Range` 字段（Number/Int 字段的取值范围登记），`toolchain/validator
   --list-tables --json` 每张表新增 `field_ranges` 导出，编辑器可据此在数值输入控件上就地校验，
@@ -56,13 +56,37 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.15.0] - 2026-09-10
+
+第十五轮外部审核（codex，基线 `76d16a5`/v1.14.0 自身，`architecture/落地计划/audit-76d16a5-20260910/`）
+修复条目、消费方（内容编辑器项目）反馈 E1～E11、[ADR-0021](architecture/adr/0021-字段登记表纳入数值范围约束.md)
+（字段登记表数值范围约束）、[ADR-0020](architecture/adr/0020-表达式词法器纳入公开契约.md)（表达式词法器
+公开，随 E5 落地）、打断免疫统一门（消费方反馈 C06-PRE-01）、私服脚本 `start_registry.ps1` 的 `-Stop`
+误拒根治均在本版本收口；核实表见 `architecture/落地计划/audit-76d16a5-20260910/followup-2026-09-10b.md`。
+
 ### 新增
 
-- 字段登记表新增数值范围约束（ADR-0021）：`FieldSchema` 对 Number/Int 字段支持可选范围登记，
-  加载期新增 `field_range` 检查项；元数据门禁新增 `field_range_kind` 自洽检查；
-  `toolchain/validator --list-tables --json` 新增 `field_ranges` 导出。【编辑器相关契约】
-- `skill.aura_def` 周期效果 `interval`、`skill.def` `apply_aura.duration_override` 等 19 处字段
-  登记数值范围（依据见实现内判断记录），修复消费方反馈的"内容错误在加载期未被拦截"问题。
+- 字段登记表新增数值范围约束（[ADR-0021](architecture/adr/0021-字段登记表纳入数值范围约束.md)）：
+  `FieldSchema` 对 Number/Int 字段支持可选范围登记（`FieldRange`），加载期新增 `field_range` 检查项；
+  元数据门禁新增 `field_range_kind` 自洽检查；`toolchain/validator --list-tables --json` 新增
+  `field_ranges` 导出。【编辑器相关契约】
+- 18 处字段登记数值范围（依据见各字段旁 ADR-0021 判断记录注释），修复消费方反馈的"内容错误在加载期
+  未被拦截"问题：`item.template.stack_size`、`econ.currency.cap`、`econ.vendor` 售卖条目
+  `price_amount`/`stock_limit`、`loot.table` 的 `count_range.min`/`pick_count`/`guaranteed_min`、
+  `stat.rating_conversion.points_per_percent`、`combat.hit_table_config` 各判定分支
+  `base`/`crit_multiplier_base`/`glancing_damage_pct`、`combat.resist_curve` 的
+  `reduction`/`max_reduction`、`skill.def` 的 `apply_aura` 效果 `params.duration_override` 与
+  `charges.max`、`skill.aura_def` 周期效果（`periodic_damage`/`periodic_heal`）`params.interval`、
+  `skill.proc_def.proc_chance`、`target.chain_def.max_targets`。
+- 消费方反馈处理新增能力（逐条见下方"修复"小节"消费方（内容编辑器项目）反馈处理"）：**E4** 新增
+  验收数据集附件 `ws-game-<ver>-samples.zip` 与 `get_framework.ps1 -WithSamples`；**E5**
+  （[ADR-0020](architecture/adr/0020-表达式词法器纳入公开契约.md)）`ExprLexer`/`ExprToken`/
+  `ExprTokenKind` 由 `internal` 改为 `public`，新增 `ExprLexer.Tokenize(string)` 公开入口；**E8**
+  `toolchain/validate_data.py` 新增 `--json`；**E10** `IDataRegistryView` 新增只读属性
+  `RecordCount`（带默认实现，不构成 ABI 破坏）；**E11** 新增
+  `toolchain/format_data.py --schema-order[--check]`。
+
+### 修复
 
 - 根治 `toolchain/registry/start_registry.ps1` 的 `-Stop` 误拒缺陷：`-Detach` 就绪后按端口核实
   发现真正监听端口的 PID 与 `Start-Process` 记录的不一致而重写 `-PidFile`/`.meta.json` 时，改为
@@ -70,41 +94,12 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   时刻"的代理值——此前会导致该进程仍在正常服务却被身份核验条件 (c) 误判为"PID 被系统复用给了
   另一个更早启动的无关进程"而拒绝停止。新增 `toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py`
   静态 + 行为级回归。
-
-- 消费方（内容编辑器项目）反馈处理，逐条现象/根因/处理方式/验证结果见
-  [消费方反馈-2026-09-10-编辑器.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器.md)：
-  - **E1**：`toolchain/validator` 现场编译受消费方 `Directory.Build.props` 影响导致校验失败——
-    Release 现附带预编译的 `validator/bin/`（附隔离用的空 `Directory.Build.props`），
-    `validate_data.py` 改为优先执行预编译产物，找不到才退回现场编译，提交 `dc6e2e5`。
-  - **E2**：`get_framework.ps1` 依赖同目录 `_hash.ps1` 造成"先有鸡还是先有蛋"式引导死锁——改为
-    内联 `Get-Sha256FileHash` 函数体，脚本自包含、可单独下载使用，提交 `dc6e2e5`。
-  - **E3**：`ws-game.lock` 的 `source.local_path` 写入本机绝对路径导致换机器出现无意义
-    diff——改写为相对的 `zip_file_name`，判定"是否需要改写锁文件"改为只比较引用内容字段，
-    提交 `dc6e2e5`。
-  - **E4**：验收数据集 `data/_sample`/`assets/_sample` 不随 zip 分发——新增独立附件
-    `ws-game-<ver>-samples.zip` 与 `get_framework.ps1 -WithSamples` 下载合并落地，提交
-    `dc6e2e5`。
-  - **E5**：Expr 词法器不在公开契约内——新增 [ADR-0020](architecture/adr/0020-表达式词法器纳入公开契约.md)，
-    `ExprLexer`/`ExprToken`/`ExprTokenKind` 改为公开，新增 `ExprLexer.Tokenize(string)` 入口，
-    提交 `396afbc`。
-  - **E6**：示例数据 `quest.sample_hunt` 触发"疑似引用拼写错误"误报——根治
-    `ExprValidator` 规则本身（实参位置期望类型恰为 `Id` 时不再检查拼写），不是改数据迁就，
-    提交 `3deba37`。
-  - **E7**：`toolchain/gen_placeholder_assets.py` 在 Windows 上写出 CRLF——6 处 `write_text`
-    补齐 `newline="\n"`，新增静态扫描测试防回归，`check.ps1` 新增"工作树文本文件无 CR"步骤，
-    提交 `3deba37`。
-  - **E8**：`validate_data.py` 未透传 `--json`——新增 `--json`，骨架检查与
-    `toolchain/validator --json` 输出合并为一份结构化 JSON，提交 `3deba37`。
-  - **E9**：`--data-root` 相对路径按脚本安装位置解析而非调用方当前工作目录——改为按
-    `Path.cwd()` 解析，提交 `3deba37`。
-  - **E10**：`ContentValidationAssembly.CreateRegistry` 路径拿不到记录计数——`IDataRegistryView`
-    新增带默认实现的 `RecordCount` 只读属性（不破坏 ABI），提交 `3deba37`。
-  - **E11**：示例数据字段顺序与 schema 声明顺序不一致——新增
-    `toolchain/format_data.py --schema-order[--check]`，对 `data/_sample` 6 个文件重排并纳入
-    `check.ps1` 门禁，提交 `3deba37`。
-  - 逐条复现、根因、验证结果与迁移提示见
-    `architecture/落地计划/消费方反馈-2026-09-10-编辑器.md`（该文档本身提交 `f3f2d20`）。
-
+- 修正外部打断（`interrupt` 效果原语）未查询目标免疫的问题：效果分发入口新增统一免疫门，
+  `dispel`/`energize`/`teleport`/`move`/`trigger_spell`/`modify_cooldown`/`add_charge`/
+  `learn_skill`/`projectile` 及扩展类效果原语同样补齐了此前只有伤害/治疗分支才有的免疫判定；
+  打断免疫（动态光环或静态 `effect.interrupt` 标记）现在会正确保留目标读条/引导，免疫拦截时
+  施法者一侧仍正常消耗资源与进入冷却；`apply_aura` 本身的免疫语义未拍板，暂不纳入（控制类光环
+  免疫仍由光环宿主单独处理）。（消费方反馈 C06-PRE-01，`73cb55e`/`9cc4442`）
 - 第十五轮外部审核（codex，基线 `76d16a5`/v1.14.0 自身，
   `architecture/落地计划/audit-76d16a5-20260910/`）修复条目：
   - **PJ114-01**：恢复 `SkillHost` 17 参数构造签名的兼容入口——1.14.0 新增 `IFactionMatrix?
@@ -139,22 +134,130 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
     套装门槛光环句柄），已按排查结论修复，提交 `89b1b69`。
   - 归档、核实表与逐项判断/修复位置/验收见
     `architecture/落地计划/audit-76d16a5-20260910/followup-2026-09-10b.md`。
-- **更正 1.14.0 兼容声明**（不改动下方已发布的 `[1.14.0]` 小节正文）：该小节"迁移说明"所述"旧编译
-  的 1.12 consumer 换正式 1.14 DLL、不重新编译即可继续运行，不再出现 `MissingMethodException`"这一
-  结论对 `SkillHost` 构造签名不成立——第 18 个参数（`IFactionMatrix? factions`）的加入使旧有的 17
-  参数签名一并消失，第十五轮外部审核以独立 ABI 探针实跑复现（1.13.0 正式 consumer 只换 1.14 正式
-  DLL、不重新编译，退出码由 0 变为 11，报告 `MissingMethodException`）。本版本（见上方本轮修复
-  条目 PJ114-01）恢复 17 参数兼容入口并以独立探针实跑证明，不回头修改已发布的 `[1.14.0]` 小节
-  正文——按 [12_扩展与变更流程.md](architecture/12_扩展与变更流程.md) 第 4 节"发布不可变"约定，
-  已发布版本条目定版不改，如实记录的已知问题在此处以"已知问题"性质登记，修复结果随下一个版本号
-  正式发布。
+- 消费方（内容编辑器项目）反馈处理，逐条现象/根因/处理方式/验证结果见
+  [消费方反馈-2026-09-10-编辑器.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器.md)：
+  - **E1**：`toolchain/validator` 现场编译受消费方 `Directory.Build.props` 影响导致校验失败——
+    Release 现附带预编译的 `validator/bin/`（附隔离用的空 `Directory.Build.props`），
+    `validate_data.py` 改为优先执行预编译产物，找不到才退回现场编译，提交 `dc6e2e5`。
+  - **E2**：`get_framework.ps1` 依赖同目录 `_hash.ps1` 造成"先有鸡还是先有蛋"式引导死锁——改为
+    内联 `Get-Sha256FileHash` 函数体，脚本自包含、可单独下载使用，提交 `dc6e2e5`。
+  - **E3**：`ws-game.lock` 的 `source.local_path` 写入本机绝对路径导致换机器出现无意义
+    diff——改写为相对的 `zip_file_name`，判定"是否需要改写锁文件"改为只比较引用内容字段，
+    提交 `dc6e2e5`。
+  - **E4**：验收数据集 `data/_sample`/`assets/_sample` 不随 zip 分发——新增独立附件
+    `ws-game-<ver>-samples.zip` 与 `get_framework.ps1 -WithSamples` 下载合并落地，提交
+    `dc6e2e5`。
+  - **E5**：Expr 词法器不在公开契约内——新增 [ADR-0020](architecture/adr/0020-表达式词法器纳入公开契约.md)，
+    `ExprLexer`/`ExprToken`/`ExprTokenKind` 改为公开，新增 `ExprLexer.Tokenize(string)` 入口，
+    提交 `396afbc`。
+  - **E6**：示例数据 `quest.sample_hunt` 触发"疑似引用拼写错误"误报——根治
+    `ExprValidator` 规则本身（实参位置期望类型恰为 `Id` 时不再检查拼写），不是改数据迁就，
+    提交 `3deba37`。
+  - **E7**：`toolchain/gen_placeholder_assets.py` 在 Windows 上写出 CRLF——6 处 `write_text`
+    补齐 `newline="\n"`，新增静态扫描测试防回归，`check.ps1` 新增"工作树文本文件无 CR"步骤，
+    提交 `3deba37`。
+  - **E8**：`validate_data.py` 未透传 `--json`——新增 `--json`，骨架检查与
+    `toolchain/validator --json` 输出合并为一份结构化 JSON，提交 `3deba37`。
+  - **E9**：`--data-root` 相对路径按脚本安装位置解析而非调用方当前工作目录——改为按
+    `Path.cwd()` 解析，提交 `3deba37`。
+  - **E10**：`ContentValidationAssembly.CreateRegistry` 路径拿不到记录计数——`IDataRegistryView`
+    新增带默认实现的 `RecordCount` 只读属性（不破坏 ABI），提交 `3deba37`。
+  - **E11**：示例数据字段顺序与 schema 声明顺序不一致——新增
+    `toolchain/format_data.py --schema-order[--check]`，对 `data/_sample` 6 个文件重排并纳入
+    `check.ps1` 门禁，提交 `3deba37`。
+  - 逐条复现、根因、验证结果与迁移提示见
+    `architecture/落地计划/消费方反馈-2026-09-10-编辑器.md`（该文档本身提交 `f3f2d20`）。
 
-- 修正外部打断（`interrupt` 效果原语）未查询目标免疫的问题：效果分发入口新增统一免疫门，
-  `dispel`/`energize`/`teleport`/`move`/`trigger_spell`/`modify_cooldown`/`add_charge`/
-  `learn_skill`/`projectile` 及扩展类效果原语同样补齐了此前只有伤害/治疗分支才有的免疫判定；
-  打断免疫（动态光环或静态 `effect.interrupt` 标记）现在会正确保留目标读条/引导，免疫拦截时
-  施法者一侧仍正常消耗资源与进入冷却；`apply_aura` 本身的免疫语义未拍板，暂不纳入（控制类光环
-  免疫仍由光环宿主单独处理）。（消费方反馈 C06-PRE-01，`73cb55e`/`9cc4442`）
+### 文档与门禁
+
+- 新增文档：`architecture/落地计划/消费方反馈-2026-09-10-编辑器.md`（E1～E11 逐条归档，提交
+  `f3f2d20`）、`architecture/落地计划/消费方反馈-2026-09-10-技能效果参数范围.md`（ADR-0021 消费方
+  反馈归档）、[ADR-0020](architecture/adr/0020-表达式词法器纳入公开契约.md)、
+  [ADR-0021](architecture/adr/0021-字段登记表纳入数值范围约束.md)、
+  `architecture/落地计划/audit-76d16a5-20260910/followup-2026-09-10b.md`（第十五轮审核核实表）。
+- 顶部"编辑器相关契约"索引：E1～E4、E5、E8、E10、ADR-0021 各条版本标注由"Unreleased"改为
+  "1.15.0"（详见文首索引小节，与本版本正式发布对齐）。
+- 门禁新增：`check.ps1`"工作树文本文件无 CR"步骤（消费方反馈 E7）、`data/_sample
+  --schema-order --check` 步骤（消费方反馈 E11）；`build.ps1 -Release` 第 5 步固定传
+  `-AbiStrict`（PJ114-02 根治，见下方"兼容声明"）。新增回归测试
+  `toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py`、
+  `core/foundation/data_registry/tests/FieldRangeValidationTests.cs`、
+  `core/rules/skill/tests/SkillEffectParamRangeTests.cs`。
+
+### 迁移说明
+
+面向消费方（游戏侧工程、内容编辑器等无头宿主），逐条可执行：
+
+a. **Release 附件集合由 6 件变为 9 件**：`ws-game-<ver>.zip`、`ws-game-<ver>.lock`、
+   `ws-game-<ver>-samples.zip`、四个私服包 `.tgz`
+   （`com.gamefoundation.adapter.unity`/`com.gamefoundation.framework-data`/
+   `com.gamefoundation.toolchain`/`com.gamefoundation.adapter.headless`）、自包含的
+   `get_framework.ps1`、`_hash.ps1`（兼容旧还原脚本）。消费方可以直接从 Release 页面下载
+   `get_framework.ps1` 单个文件使用，不必先解压主 zip 再取脚本。
+b. **锁文件 `ws-game.lock` 的 `source` 字段不再含绝对路径**（`local_path` 改为相对的
+   `zip_file_name`），新增 `samples.sha256`（`-WithSamples` 校验用）与 `validator_dlls`/
+   `headless_dlls` 预编译产物哈希字段；判定"是否需要改写本机锁文件"改为只比较这些引用内容字段，
+   不再比较路径本身；不含这些新字段的旧锁文件仍可读（跳过对应校验并提示，向后兼容）。
+c. **新增 `get_framework.ps1 -WithSamples`**：下载并按锁文件 `samples.sha256` 校验、解压合并
+   `ws-game-<ver>-samples.zip`（含 `data/_sample`/`assets/_sample` 验收数据集）到本地落地目录。
+d. **`validate_data.py` 优先运行预编译 validator**（找不到才退回现场编译，规避消费方自带
+   `Directory.Build.props` 干扰）；新增 `--json`（骨架检查与 `toolchain/validator --json` 输出
+   合并为一份结构化 JSON 打印到标准输出，人类可读诊断改走标准错误）；`--data-root` 相对路径改为
+   按**调用方当前工作目录**解析（此前按脚本安装位置解析）——旧用法若依赖"相对脚本目录"这一行为，
+   需要相应调整调用处的相对路径或改传绝对路径。
+e. **`FieldSchema` 新增范围登记与 `field_range` 检查**：已登记范围的字段若消费方数据取值越界，
+   会在加载期被阻断。本版本登记范围的字段共 18 处，分布在 11 张表：`item.template`
+   （`stack_size`）、`econ.currency`（`cap`）、`econ.vendor`（售卖条目 `price_amount`/
+   `stock_limit`）、`loot.table`（`count_range.min`/`pick_count`/`guaranteed_min`）、
+   `stat.rating_conversion`（`points_per_percent`）、`combat.hit_table_config`（判定分支
+   `base`/`crit_multiplier_base`/`glancing_damage_pct`）、`combat.resist_curve`
+   （`reduction`/`max_reduction`）、`skill.def`（`apply_aura` 效果 `params.duration_override`/
+   `charges.max`）、`skill.aura_def`（周期效果 `params.interval`）、`skill.proc_def`
+   （`proc_chance`）、`target.chain_def`（`max_targets`）；每处范围的依据见对应 schema 文件里
+   紧邻 `.WithRange(...)` 调用的 ADR-0021 判断记录注释。`toolchain/validator --list-tables
+   --json` 每张表新增 `field_ranges` 导出，供编辑器就地校验数值输入控件。
+f. **`ExprLexer.Tokenize(string)` 公开**：`core/foundation/expr` 的 `ExprLexer`/`ExprToken`/
+   `ExprTokenKind` 由 `internal` 改为 `public`，编辑器等工具做语法高亮应改用该入口，不再自行
+   正则切词。
+g. **`IDataRegistryView.RecordCount` 新增默认实现**：`CreateRegistry` 路径（调用方自行持有
+   registry、自行调用 `Reload`）现在也能拿到精确记录计数，不必自行遍历求和；不要求已有实现类
+   改动，不构成 ABI 破坏。
+h. **打断免疫门扩展到全部效果原语**（`apply_aura` 除外）：`dispel`/`energize`/`teleport`/
+   `move`/`trigger_spell`/`modify_cooldown`/`add_charge`/`learn_skill`/`projectile` 及扩展类
+   效果原语现在同样受打断免疫判定约束——依赖"免疫不拦打断/驱散/位移"这一旧行为（即这些效果
+   此前对免疫目标同样生效）的内容需要复核。
+i. **定义热重载语义补强**：`QuestHost` reload 后活跃任务目标数组迁移已有进度计数（结构不兼容时
+   原子拒绝该次 reload）；`EconomyHost` 补货策略从 `none` 改为 `timer` 时正确初始化计时器；
+   `StatHost`/`EquipmentHost` 派生值与套装门槛缓存随 reload 一致失效重算。均不需要调用方改动
+   既有调用点。
+j. **`SkillHost`/`Presentation.ViewBinder` 旧构造签名重新恢复为 `[Obsolete]` 兼容重载**：
+   1.14.0 曾意外破坏这两处的旧构造签名（见下方"兼容声明"），本版本恢复；旧编译 consumer 换
+   1.15.0 正式 DLL 不需要重新编译。
+
+### 兼容声明
+
+本版本对 1.12.0/1.13.0/1.14.0 旧编译消费方保持二进制兼容：依据是 `toolchain/abi_probe.ps1`
+严格模式下的两项独立验证——① 1.12.0 基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑
+通过；② 独立的公开 API 表面差异比对（`toolchain/abi_surface`，以最后已知兼容基线为准）输出
+`breaks=0`；`build.ps1 -Release` 发布门禁固定传 `-AbiStrict`（PJ114-02 根治），缺基线或探针未
+真正跑起来会使门禁判定失败而不是静默放行。
+
+**1.14.0 的兼容声明曾不成立**：该版本"迁移说明"所述"旧编译的 1.12 consumer 换正式 1.14 DLL、不
+重新编译即可继续运行"这一结论，对 `SkillHost` 构造签名不成立——`IFactionMatrix? factions` 参数的
+加入使旧有的 17 参数构造签名一并消失，同批还漏了 `Presentation.ViewBinder` 7 参数构造 façade
+（`EquipmentVisualSource` 可选参数加入导致同类破坏）；第十五轮外部审核以独立 ABI 探针实跑复现
+（1.13.0 正式 consumer 只换 1.14 正式 DLL、不重新编译，退出码由 0 变为 11，报告
+`MissingMethodException`）。按 [12_扩展与变更流程.md](architecture/12_扩展与变更流程.md) 第 4 节
+"发布不可变"约定，已发布的 `[1.14.0]` 小节正文不回头修改；本版本（PJ114-01）恢复两处兼容入口并以
+独立探针实跑证明，上方"迁移说明"j 项记录修复结果。
+
+### 版本判据说明
+
+新增能力（字段数值范围登记与 `field_range`/`field_ranges` 导出、打断免疫门扩展、定义热重载语义
+补强、若干消费方交付面改进）与修复（`SkillHost`/`ViewBinder` 兼容 façade 恢复、ABI 门禁
+SKIP/严格模式、热重载缓存/库存/目标数组等第十五轮审核问题、`-Stop` 误拒、消费方反馈
+E1～E11）——均不改变任何现有公开签名的必填参数个数（新增字段登记与只读属性均可选/带默认实现）、
+不删改任何数据表既有字段、不改变存档格式，按 SemVer 判定为 MINOR。
 
 ## [1.14.0] - 2026-09-10
 
