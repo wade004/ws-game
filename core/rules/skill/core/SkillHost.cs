@@ -173,6 +173,58 @@ namespace Core.Rules.Skill
             eventBus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, OnDataLoadCompleted);
         }
 
+        /// <summary>
+        /// ABI/API 兼容 façade（PJ114-01 根治，外部审计 audit-76d16a5-20260910）：1.13.0（同时也是
+        /// 1.12.0，两者物理签名相同，见本重载判断记录复现命令）的唯一构造函数物理 IL 签名恰好是
+        /// 十七个参数、没有 <c>factions</c> 这个 1.14.0 新增的第十八个可选参数。C# 的可选参数是
+        /// 编译期特性——上面主构造函数虽然 <c>factions</c> 带默认值 <c>null</c>，但物理 IL 签名仍是
+        /// 完整的十八个参数；1.13.0/1.12.0 编译产物里对十七参数构造函数的调用（省略末尾的可选实参时，
+        /// 编译器把当时能看到的全部默认值一起固化进调用点 IL），在只替换正式 DLL、不重新编译的情况下，
+        /// 找不到匹配的物理方法而 <c>MissingMethodException</c>（见 project-findings.md PJ114-01
+        /// "实际"：1.13.0 正式 consumer 对 1.13.0 正式 DLL 运行 exit 0；只替换五个 1.14.0 正式 Core
+        /// DLL、不重编译，运行 exit 11，`MissingMethodException` 指向本重载缺失的十七参数构造器）。
+        /// CHANGELOG 把 1.14.0 定义为 MINOR 并声明旧 consumer 替换正式 DLL 无需重编译，本重载补回
+        /// 这个物理十七参数签名、转发到主构造函数，<c>factions</c> 固定传 <c>null</c>——旧调用方不会
+        /// 得到阵营矩阵注入（<see cref="UnitFilter.Relation"/> 为 Hostile/Friendly/Neutral 时判不
+        /// 通过，同未注入 <see cref="ISpatialQuery"/> 的既有降级惯例），只保证不再
+        /// <c>MissingMethodException</c>，其余行为与 1.13.0/1.12.0 完全一致。
+        /// <para>
+        /// 判断记录（不是可选参数）：本重载的十七个参数全部不带默认值——若也写成可选参数（例如给
+        /// <c>weaponDamageQuery</c> 之后再加一个可选 <c>factions</c>），会与主构造函数在"只传
+        /// 10～16 个参数"的调用点产生重载二义性（两者都可以匹配、都需要为末尾参数代入默认值，C#
+        /// 编译器无法确定唯一最佳候选）。全部十七个参数都必填后，C# 重载决议规则（"不需要为可选
+        /// 参数代入默认值的候选更优"）保证恰好传 17 个位置/具名参数时精确匹配本重载、不需要为
+        /// <c>factions</c> 代入默认值；传少于 17 个参数的调用只能匹配主构造函数（十八参数版本，
+        /// <c>factions</c> 及更早的可选参数依次代入默认值）。两条重载因此对源码侧（重新编译旧
+        /// 调用点）与二进制侧（旧调用点固化的 IL 恰好 17 个实参）都不产生歧义、都能兼容。
+        /// </para>
+        /// </summary>
+        [Obsolete("1.12.0/1.13.0 的十七参数构造签名，仅为源码/二进制兼容保留；新代码请使用带 factions 的十八参数构造函数。")]
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        public SkillHost(
+            IDataRegistryView dataRegistry,
+            IEventBus eventBus,
+            IUnitAccess unitAccess,
+            IStatHost statHost,
+            IPowerHost powerHost,
+            IRngHost rngHost,
+            ICombatHost combatHost,
+            ITargetHost targetHost,
+            IExprHostFactory exprHostFactory,
+            ISpatialQuery? spatialQuery,
+            SkillOptions? options,
+            IEffectExtension? effectExtension,
+            ISkillDiagnostics? diagnostics,
+            IExprSchema? exprSchema,
+            IStaticImmunityProvider? staticImmunity,
+            IProjectileSpawner? projectileSpawner,
+            IWeaponDamageQuery? weaponDamageQuery)
+            : this(dataRegistry, eventBus, unitAccess, statHost, powerHost, rngHost, combatHost,
+                targetHost, exprHostFactory, spatialQuery, options, effectExtension, diagnostics,
+                exprSchema, staticImmunity, projectileSpawner, weaponDamageQuery, factions: null)
+        {
+        }
+
         private void OnDataLoadCompleted(DataLoadCompletedEvent evt) => _defs.InvalidateAll();
 
         private void OnTimeModelRescaled(TimeModelRescaledEvent evt)

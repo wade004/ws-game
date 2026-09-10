@@ -138,6 +138,40 @@ namespace Presentation.ViewBinding
             }
         }
 
+        /// <summary>
+        /// ABI/API 兼容 façade（外部审计 audit-76d16a5-20260910 PJ114-01/A2 附加发现——通用表面差异
+        /// 工具 toolchain/abi_surface 对 1.12.0/1.13.0 基线跑当前工作树时另外找到的一处同类破坏，
+        /// 不在原 PJ114-01 报告文字范围内，但同一根因、同一套修复手法）：1.12.0/1.13.0 的唯一构造
+        /// 函数物理 IL 签名是七个参数，没有这里最后新增的 <see cref="EquipmentVisualSource"/> 参数。
+        /// C# 的可选参数是编译期特性——上面主构造函数虽然 <c>equipmentVisualSource</c> 带默认值
+        /// <c>null</c>，但物理 IL 签名仍是完整的八个参数；1.12.0/1.13.0 编译产物里对七参数构造函数
+        /// 的调用（省略这个新增可选实参时，编译器把当时能看到的默认值固化进调用点 IL），在只替换
+        /// 正式 DLL、不重新编译的情况下，找不到匹配的物理方法而 <c>MissingMethodException</c>——与
+        /// <c>core/rules/skill/core/SkillHost.cs</c> 的十七/十八参数构造同一根因，见该处判断记录里
+        /// 引用的复现命令与结论，这里不重复贴一遍。本重载补回物理七参数签名、转发到主构造函数，
+        /// <c>equipmentVisualSource</c> 固定传 <c>null</c>——旧调用方不会得到装备外观联动，其余行为
+        /// 与 1.12.0/1.13.0 完全一致。
+        /// <para>
+        /// 判断记录（不是可选参数，理由与 SkillHost 同一重载决议原理）：本重载的七个参数全部不带
+        /// 默认值——若也写成可选参数会与主构造函数在"只传 4～7 个参数"的调用点产生重载二义性。全部
+        /// 七个参数都必填后，C# 重载决议规则保证恰好传 7 个参数时精确匹配本重载，不需要为
+        /// <c>equipmentVisualSource</c> 代入默认值；传更少参数的调用只能匹配主构造函数。
+        /// </para>
+        /// </summary>
+        [Obsolete("1.12.0/1.13.0 的七参数构造签名，仅为源码/二进制兼容保留；新代码请使用带 equipmentVisualSource 的八参数构造函数。")]
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        public ViewBinder(
+            IEventBus bus,
+            IViewFactory factory,
+            ISimSnapshot snapshot,
+            IDisplayInfoRegistry displayInfo,
+            ViewBinderOptions? options,
+            IRenderConventionHost? renderConvention,
+            IPresentationDiagnostics? diagnostics)
+            : this(bus, factory, snapshot, displayInfo, options, renderConvention, diagnostics, equipmentVisualSource: null)
+        {
+        }
+
         /// <summary>退订构造期建立的全部事件订阅（缺口 5）。退订后不再创建/销毁 View、不再更新
         /// <see cref="OnTickFinished"/> 快照、不再转发事件；幂等，多次调用只生效一次。</summary>
         public void Dispose()
