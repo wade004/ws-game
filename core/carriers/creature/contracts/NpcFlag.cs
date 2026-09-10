@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
+using Core.Foundation.DataRegistry;
 
 namespace Core.Carriers.Creature
 {
@@ -30,6 +31,22 @@ namespace Core.Carriers.Creature
     /// 一类按标签过滤的场景使用（标签命名空间与数据表 Id 命名空间分开，避免"标签"与"数据引用"
     /// 两种不同用途的字符串共用同一前缀造成误用）。
     /// </para>
+    /// <para>
+    /// 消费方反馈第 28 条（<c>ToTag</c> 消费方核实）：<see cref="ToTag"/> 并非死代码——
+    /// <c>core/carriers/creature/core/CreatureFactory.cs</c> 的 <c>Spawn</c> 方法在生成单位时，对
+    /// <c>CreatureTemplate.NpcFlags</c> 的每一项都调用本方法把标志写入 <c>unit.Tags</c>
+    /// （<c>unit.Tags.Add(NpcFlagIds.ToTag(flag))</c>），供 <c>IUnitAccess.GetTags</c> 一类按标签过滤
+    /// 索敌/交互目标的场景消费（如排除/筛选贩卖商、训练师等 NPC）；<c>ToId</c> 则是
+    /// <c>creature.template.npc_flags</c> 数据表侧读写用的 Id 格式，两者服务不同的两端，见类型顶部
+    /// 判断记录。
+    /// </para>
+    /// <para>
+    /// 消费方反馈第 28 条（固定取值登记）：<see cref="All"/> 是六个合法职能标志 Id 的有序集合，供
+    /// <c>CreatureSchemas.Template</c> 的 <c>npc_flags</c> 字段登记
+    /// <see cref="FieldSchema.WithAllowedValues"/>——<c>DataRegistry</c> 加载期据此校验每个取值
+    /// （<c>field_allowed_value</c> 检查项），不再需要 <c>CreatureContentValidationRule</c> 手写重复
+    /// 校验（见该类型判断记录）。
+    /// </para>
     /// </summary>
     public static class NpcFlagIds
     {
@@ -54,6 +71,19 @@ namespace Core.Carriers.Creature
         };
 
         private static readonly IReadOnlyDictionary<string, NpcFlag> FromIdMap = BuildReverse(ToIdMap);
+
+        /// <summary>六个合法职能标志 Id 的有序集合（顺序照抄 <see cref="NpcFlag"/> 枚举声明顺序，即
+        /// 07 第 2.2 节表格行序），供 <c>CreatureSchemas.Template.npc_flags</c> 登记
+        /// <see cref="FieldSchema.WithAllowedValues"/>，见类型顶部判断记录。</summary>
+        public static readonly IReadOnlyList<Id> All = new[]
+        {
+            ToIdMap[NpcFlag.Vendor],
+            ToIdMap[NpcFlag.Trainer],
+            ToIdMap[NpcFlag.Questgiver],
+            ToIdMap[NpcFlag.Gossip],
+            ToIdMap[NpcFlag.SavePoint],
+            ToIdMap[NpcFlag.SummonOnly],
+        };
 
         private static Dictionary<string, NpcFlag> BuildReverse(IReadOnlyDictionary<NpcFlag, Id> map)
         {

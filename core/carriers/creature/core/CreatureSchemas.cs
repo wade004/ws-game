@@ -25,7 +25,12 @@ namespace Core.Carriers.Creature
     /// <c>stat_growth_ref</c> 则不同——它引用的 <c>prog.level_curve</c> 表结构已由
     /// <c>core/numbers/progression</c>（同一并行任务集里较早完成、且本模块运行期本就需要独立解析
     /// 该表来源用于成长累加，见 <c>CreatureFactory</c>）明确给出，声明为 <see cref="FieldKind.Reference"/>
-    /// 更贴合"该表引用应存在"的语义，测试装配时按需加载该表即可满足校验。
+    /// 更贴合"该表引用应存在"的语义，测试装配时按需加载该表即可满足校验。消费方反馈第 29 条：
+    /// 四者虽不参与加载期引用完整性校验，但目标表名确定（见上），已各自登记
+    /// <see cref="FieldSchema.WithSoftReference"/>——只传达"这个 Id 语义上指向哪张表"给内容工具做
+    /// 自动补全/跳转，不改变本判断记录说明的分层边界与校验范围。<c>on_hit_reaction_ref</c>/
+    /// <c>on_death_reaction_ref</c> 不在此列：消费方反馈第 29 条全仓核实无任何消费方读取这两个
+    /// 字段、也没有对应的目标表，按"预留字段"处理，不登记软引用（见各自 Description）。
     /// </para>
     /// </summary>
     public static class CreatureSchemas
@@ -56,23 +61,27 @@ namespace Core.Carriers.Creature
                 new FieldSchema("faction_id", FieldKind.Id, required: true,
                     description: "所属阵营 id，决定与其它生物/角色的敌对关系"),
                 new FieldSchema("npc_flags", FieldKind.IdList, required: false,
-                    description: "职能标志位，见 07 第 2.2 节六值")
-                    .WithFreeIds("固定词汇职能标志位（07 第 2.2 节六值），不指向任何已登记表的既有记录"),
+                    description: "职能标志位，取值为 npc_flag.<name> 形式，见 07 第 2.2 节六值（消费方反馈第 28 条：由 NpcFlagIds.All 登记为固定取值集合，取代此前手写的 CreatureContentValidationRule 校验）")
+                    .WithAllowedValues(NpcFlagIds.All),
                 new FieldSchema("ai_rotation_ref", FieldKind.Id, required: false,
-                    description: "指向 ai.rotation 的技能循环配置，可为空；跨模块不做引用完整性校验"),
+                    description: "指向 ai.rotation 的技能循环配置，可为空；跨模块不做引用完整性校验（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "ai.rotation"),
                 new FieldSchema("ai_behavior_ref", FieldKind.Id, required: false,
-                    description: "指向 ai.behavior_profile 的行为配置，可为空；跨模块不做引用完整性校验"),
+                    description: "指向 ai.behavior_profile 的行为配置，可为空；跨模块不做引用完整性校验（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "ai.behavior_profile"),
                 new FieldSchema("loot_table_ref", FieldKind.Id, required: false,
-                    description: "指向 loot.table 的掉落表，可为空；跨模块不做引用完整性校验"),
+                    description: "指向 loot.table 的掉落表，可为空；跨模块不做引用完整性校验（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "loot.table"),
                 new FieldSchema("display_ref", FieldKind.Id, required: true,
-                    description: "指向 display.map 的显示资源"),
+                    description: "指向 display.map 的显示资源（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "display.map"),
                 new FieldSchema("immunities", FieldKind.IdList, required: false,
                     description: "免疫的学派/效果类型/控制类别")
                     .WithFreeIds("混合词汇（学派/效果类型/控制类别），不指向单一已登记表的既有记录"),
                 new FieldSchema("on_hit_reaction_ref", FieldKind.Id, required: false,
-                    description: "受击时触发的反应配置引用，可为空"),
+                    description: "预留：受击时触发的反应配置引用。消费方反馈第 29 条核实全仓无任何消费方读取该字段，也没有对应的目标表——当前填写不生效，不登记软引用；待反应系统落地并确定目标表后再补登记"),
                 new FieldSchema("on_death_reaction_ref", FieldKind.Id, required: false,
-                    description: "死亡时触发的反应配置引用，可为空"),
+                    description: "预留：死亡时触发的反应配置引用。消费方反馈第 29 条核实全仓无任何消费方读取该字段，也没有对应的目标表——当前填写不生效，不登记软引用；待反应系统落地并确定目标表后再补登记"),
             }).WithOwnership(SchemaLayer.Carriers, "creature");
 
         public static readonly TableSchema TierDefinition = new TableSchema(

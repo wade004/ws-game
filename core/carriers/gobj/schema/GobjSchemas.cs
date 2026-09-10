@@ -49,9 +49,11 @@ namespace Core.Carriers.Gobj
                     description: "door/chest 可选：可读性冗余，不参与运行期逻辑（真正生效的是顶层 lock_id）"),
                 new FieldSchema("loot_table_ref", FieldKind.Id, required: false,
                     description: "chest/gather_node 必填（GobjTypeDataFieldGroupRule 校验，本登记只管类型）；" +
-                        "loot.table 属 L4，本模块（L3）不可 Reference（依赖方向），退回 Id"),
+                        "loot.table 属 L4，本模块（L3）不可 Reference（依赖方向），退回 Id（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "loot.table"),
                 new FieldSchema("quest_action_ref", FieldKind.Id, required: false,
-                    description: "quest_object 必填（同上，本登记只管类型）；quest.* 属 L4，退回 Id"),
+                    description: "quest_object 必填（同上，本登记只管类型）；quest.* 属 L4，退回 Id（消费方反馈第 29 条：目标是 quest domain 下某张具体表，非单一表，登记为 domain 软引用）")
+                    .WithSoftReference(domain: "quest"),
                 new FieldSchema("skill_id", FieldKind.Reference, required: false, referenceTable: "skill.def",
                     description: "trap 必填（同上，本登记只管类型）；skill.def 属 L2，本模块（L3）依赖方向合法"),
                 new FieldSchema("trigger_shape", FieldKind.Object, required: false,
@@ -121,7 +123,9 @@ namespace Core.Carriers.Gobj
                 new FieldSchema("lock_id", FieldKind.Reference, required: false, referenceTable: "gobj.lock",
                     description: "当前锁（可空），指向 gobj.lock"),
                 OnUseSchema,
-                new FieldSchema("display_ref", FieldKind.Id, required: true, description: "指向 display.map"),
+                new FieldSchema("display_ref", FieldKind.Id, required: true,
+                    description: "指向 display.map（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "display.map"),
                 new FieldSchema("tags", FieldKind.IdList, required: false, description: "标签集合")
                     .WithFreeIds("标签当前没有独立登记表，是内容作者自由声明的分类标签"),
             }).WithOwnership(SchemaLayer.Carriers, "gameobject");

@@ -98,27 +98,32 @@ namespace Core.Gameplay.Achievement
                 [CriterionTypeIds.KillCountValue] = new[]
                 {
                     new FieldSchema("target_ref", FieldKind.Id, required: false,
-                        description: "creature.template；退回 Id（不做存在性检查），理由见 CriterionItemSchema 判断记录"),
+                        description: "creature.template；退回 Id（不做存在性检查），理由见 CriterionItemSchema 判断记录（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "creature.template"),
                 },
                 [CriterionTypeIds.CollectCountValue] = new[]
                 {
                     new FieldSchema("target_ref", FieldKind.Id, required: false,
-                        description: "item.template；退回 Id，理由同 kill_count"),
+                        description: "item.template；退回 Id，理由同 kill_count（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "item.template"),
                 },
                 [CriterionTypeIds.QuestCompleteValue] = new[]
                 {
                     new FieldSchema("target_ref", FieldKind.Id, required: false,
-                        description: "quest.def；退回 Id，理由同 kill_count"),
+                        description: "quest.def；退回 Id，理由同 kill_count（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "quest.def"),
                 },
                 [CriterionTypeIds.ReachAreaValue] = new[]
                 {
                     new FieldSchema("target_ref", FieldKind.Id, required: false,
-                        description: "area.trigger_def；退回 Id，理由同 kill_count"),
+                        description: "area.trigger_def；退回 Id，理由同 kill_count（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "area.trigger_def"),
                 },
                 [CriterionTypeIds.CastCountValue] = new[]
                 {
                     new FieldSchema("target_ref", FieldKind.Id, required: false,
-                        description: "skill.def；退回 Id，理由同 kill_count"),
+                        description: "skill.def；退回 Id，理由同 kill_count（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "skill.def"),
                 },
                 // custom_event：不使用 target_ref（AchievementCriterion.TargetRef 类型注释），
                 // 本 case 不额外登记子字段——若内容作者仍然提供该字段，未登记子结构默认允许扩展

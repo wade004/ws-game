@@ -50,7 +50,9 @@ namespace Core.Gameplay.Economy
                     // 依据（ADR-0021）：EconomyHost.SetBalance/Add 文档明确按 "[0, cap]" 夹取余额
                     // （core/EconomyHost.cs :190 "夹取到 [0, cap]"），cap 为负会使该区间本身非法。
                     .WithRange(FieldRange.Range(min: 0)),
-                new FieldSchema("display_ref", FieldKind.Id, required: true, description: "货币图标/展示资源引用 id"),
+                new FieldSchema("display_ref", FieldKind.Id, required: true,
+                    description: "货币图标/展示资源引用 id（消费方反馈第 29 条：按全仓 display_ref 字段惯例推定指向 display.map，登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "display.map"),
             }).WithOwnership(SchemaLayer.Gameplay, "economy");
 
         private static readonly FieldSchema SellItem = new FieldSchema(

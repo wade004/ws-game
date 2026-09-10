@@ -78,5 +78,53 @@ namespace Tests.Carriers.Creature
             Assert.Contains(report.Issues, i =>
                 i.Check == "field_type" && i.Field == "base_stats[stat.cov_sample]");
         }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 28 条：NpcFlagIds.All 与 CreatureSchemas.Template.npc_flags 登记的
+        // AllowedValues 集合一致（防止 NpcFlag 枚举新增/改名时两处失步）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void NpcFlagsField_AllowedValues_EqualsNpcFlagIdsAll()
+        {
+            var field = Core.Carriers.Creature.CreatureSchemas.Template.GetField("npc_flags");
+
+            Assert.NotNull(field);
+            Assert.NotNull(field!.AllowedValues);
+            Assert.Equal(Core.Carriers.Creature.NpcFlagIds.All, field.AllowedValues);
+        }
+
+        [Fact]
+        public void NpcFlagIds_All_HasExactlySixValues_MatchingEnum()
+        {
+            var expected = System.Enum.GetValues(typeof(Core.Carriers.Creature.NpcFlag));
+            Assert.Equal(expected.Length, Core.Carriers.Creature.NpcFlagIds.All.Count);
+
+            foreach (Core.Carriers.Creature.NpcFlag flag in expected)
+            {
+                Assert.Contains(Core.Carriers.Creature.NpcFlagIds.ToId(flag), Core.Carriers.Creature.NpcFlagIds.All);
+            }
+        }
+
+        [Fact]
+        public void NpcFlags_AllSixAllowedValues_LoadWithoutError()
+        {
+            var flagsJson = "[";
+            for (var i = 0; i < Core.Carriers.Creature.NpcFlagIds.All.Count; i++)
+            {
+                if (i > 0) flagsJson += ",";
+                flagsJson += "\"" + Core.Carriers.Creature.NpcFlagIds.All[i].Value + "\"";
+            }
+            flagsJson += "]";
+
+            var rows = "[{\"id\":\"creature.cov_all_flags\",\"name_key\":\"l10n.creature.cov_all_flags.name\",\"level\":1," +
+                "\"tier\":\"creature.tier.cov_sample\",\"base_stats\":{\"stat.cov_sample\":10}," +
+                "\"faction_id\":\"fac.cov_sample\",\"npc_flags\":" + flagsJson + "," +
+                "\"display_ref\":\"display.map.cov_sample\"}]";
+
+            var report = MakeRegistry(rows).LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
     }
 }

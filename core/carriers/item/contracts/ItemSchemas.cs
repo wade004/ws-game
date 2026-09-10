@@ -104,7 +104,8 @@ namespace Core.Carriers.Item
                     description: "所属套装"),
                 WeaponProfileSchema,
                 new FieldSchema("display_ref", FieldKind.Id, required: true,
-                    description: "指向 display.map；本模块不引用 display_info 模块类型，不做引用完整性检查"),
+                    description: "指向 display.map；本模块不引用 display_info 模块类型，不做引用完整性检查（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "display.map"),
                 new FieldSchema("stack_size", FieldKind.Int, required: true,
                     description: "最大堆叠数量；装备类（slot 指向已登记 slot_definition）必须为 1" +
                         "（见 ItemStackSizeRule 判断记录）；下限见同类型 ItemStackSizeRule.CheckMin")

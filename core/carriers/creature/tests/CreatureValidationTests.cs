@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Core.Carriers.Creature;
 using Core.Foundation.DataRegistry;
 using Core.Numbers.StatBlock;
@@ -7,6 +8,12 @@ namespace Tests.Carriers.Creature
 {
     public class CreatureValidationTests
     {
+        /// <summary>消费方反馈第 28 条：<c>npc_flags</c> 非法值现由 <c>CreatureSchemas.Template</c>
+        /// 登记的 <c>FieldSchema.WithAllowedValues(NpcFlagIds.All)</c> 在 <c>DataRegistry.LoadAll</c>
+        /// 加载期拦截（<c>field_allowed_value</c> 检查项），不再是 <c>CreatureContentValidationRule</c>
+        /// 手写的 <c>creature_content</c> 检查项职责（该规则已收口，见其类型判断记录）——本用例同时
+        /// 断言"只报告一次"：即使仍显式注册 <c>CreatureContentValidationRule</c>（惯例调用不变），
+        /// 也不会对同一处非法取值重复报告 <c>creature_content</c>。</summary>
         [Fact]
         public void Validate_RejectsUnknownNpcFlag()
         {
@@ -35,15 +42,20 @@ namespace Tests.Carriers.Creature
             var report = registry.LoadAll();
 
             Assert.True(report.IsBlocking);
-            var found = false;
+
+            var matches = new List<ValidationIssue>();
             foreach (var issue in report.Issues)
             {
-                if (issue.Check == "creature_content" && issue.Field == "npc_flags")
+                if (issue.Field != null && issue.Field.StartsWith("npc_flags", System.StringComparison.Ordinal))
                 {
-                    found = true;
+                    matches.Add(issue);
                 }
             }
-            Assert.True(found, "应报告 npc_flags 含未登记职能标志的错误");
+
+            Assert.Single(matches);
+            Assert.Equal("field_allowed_value", matches[0].Check);
+            Assert.Equal("npc_flags[0]", matches[0].Field);
+            Assert.DoesNotContain(report.Issues, i => i.Check == "creature_content");
         }
 
         [Fact]

@@ -37,7 +37,8 @@ namespace Presentation.Assembly
         /// <summary>检查项名：<c>missing_description</c>/<c>composite_without_substructure</c>/
         /// <c>allowlist_entry_unused</c>/<c>reference_target_unknown</c>/<c>variant_shape</c>/
         /// <c>unschematized_table</c>/<c>field_range_kind</c>（ADR-0021）/<c>field_map_kind</c>/
-        /// <c>field_map_conflict</c>（ADR-0024）。</summary>
+        /// <c>field_map_conflict</c>（ADR-0024）/<c>idlist_allowed_values_conflict</c>/
+        /// <c>soft_reference_kind</c>（消费方反馈第 28/29 条，04 第 3.4 节勘误）。</summary>
         public string Check { get; }
 
         public string Message { get; }
@@ -444,6 +445,26 @@ namespace Presentation.Assembly
                     $"字段 \"{path}\" 登记了 Map，但 Kind 为 {field.Kind}——Map 仅 Object 字段可设"));
             }
 
+            // 消费方反馈第 28 条（04 第 3.4 节勘误"IdList/Id 固定取值登记"）自洽检查：AllowedValues
+            // 与 FreeIds/ReferenceTable 语义上互斥（三者都是"声明该字段值从哪来"的不同方式），刻意不在
+            // FieldSchema.WithAllowedValues 挂载时检查（同 field_range_kind/field_map_kind 既有风格），
+            // 交由本审计事后报告。
+            if (field.AllowedValues != null && (field.FreeIds || field.ReferenceTable != null))
+            {
+                issues.Add(new SchemaAuditIssue("error", tableName, path, "idlist_allowed_values_conflict",
+                    $"字段 \"{path}\" 同时登记了 AllowedValues 与 FreeIds/ReferenceTable，三者语义上互斥（消费方反馈第 28 条）"));
+            }
+
+            // 消费方反馈第 29 条（04 第 3.4 节勘误"软引用元数据"）自洽检查：SoftReferenceTable/
+            // SoftReferenceDomain 仅 Id/IdList 字段可设（同 field_range_kind/field_map_kind 既有风格，
+            // 刻意不在 FieldSchema.WithSoftReference 挂载时检查 Kind）。
+            if ((field.SoftReferenceTable != null || field.SoftReferenceDomain != null)
+                && field.Kind != FieldKind.Id && field.Kind != FieldKind.IdList)
+            {
+                issues.Add(new SchemaAuditIssue("error", tableName, path, "soft_reference_kind",
+                    $"字段 \"{path}\" 登记了 SoftReference，但 Kind 为 {field.Kind}——SoftReference 仅 Id/IdList 字段可设（消费方反馈第 29 条）"));
+            }
+
             if (field.Kind == FieldKind.Reference)
             {
                 if (field.ReferenceTable != null && !allTableNames.Contains(field.ReferenceTable))
@@ -459,14 +480,17 @@ namespace Presentation.Assembly
             }
 
             // ADR-0022（04 第 3.4 节"IdList 引用目标"）：IdList 字段必须在 ReferenceTable/
-            // ReferenceDomain/FreeIds 三者中恰好登记一种——FieldSchema.WithFreeIds 已在挂载时拒绝
-            // "FreeIds 与 Reference* 同时设置"，这里只需要检查"三者都没设"的遗漏情形。
+            // ReferenceDomain/FreeIds/AllowedValues 四者中恰好登记一种——FieldSchema.WithFreeIds 已在
+            // 挂载时拒绝"FreeIds 与 Reference* 同时设置"，这里只需要检查"四者都没设"的遗漏情形。
+            // 消费方反馈第 28 条：AllowedValues（固定取值登记，见该属性判断记录）同样是"声明该字段
+            // 值从哪来"的一种合法方式，与 FreeIds 等价地满足本检查——两者的互斥关系由
+            // idlist_allowed_values_conflict 单独检查，不在这里重复。
             if (field.Kind == FieldKind.IdList)
             {
-                if (field.ReferenceTable == null && field.ReferenceDomain == null && !field.FreeIds)
+                if (field.ReferenceTable == null && field.ReferenceDomain == null && !field.FreeIds && field.AllowedValues == null)
                 {
                     issues.Add(new SchemaAuditIssue("error", tableName, path, "idlist_reference_target",
-                        $"字段 \"{path}\" 是 IdList 但未登记 ReferenceTable/ReferenceDomain，也未调用 WithFreeIds() 显式声明为自由 id 列表（ADR-0022 决策 4）"));
+                        $"字段 \"{path}\" 是 IdList 但未登记 ReferenceTable/ReferenceDomain，也未调用 WithFreeIds()/WithAllowedValues() 显式声明取值来源（ADR-0022 决策 4，消费方反馈第 28 条扩展）"));
                 }
                 if (field.ReferenceTable != null && !allTableNames.Contains(field.ReferenceTable))
                 {

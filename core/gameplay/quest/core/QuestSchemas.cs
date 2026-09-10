@@ -69,7 +69,8 @@ namespace Core.Gameplay.Quest
                 ["kill"] = new[]
                 {
                     new FieldSchema("target_ref", FieldKind.Id, required: true,
-                        description: "creature.template；退回 Id（不做存在性检查），domain 匹配见 QuestContentValidationRule 判断记录"),
+                        description: "creature.template；退回 Id（不做存在性检查），domain 匹配见 QuestContentValidationRule 判断记录（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "creature.template"),
                     EmptyParam(),
                 },
 
@@ -101,7 +102,8 @@ namespace Core.Gameplay.Quest
                 ["escort"] = new[]
                 {
                     new FieldSchema("target_ref", FieldKind.Id, required: true,
-                        description: "creature.template（被护送对象）；退回 Id，理由同 kill 判断记录"),
+                        description: "creature.template（被护送对象）；退回 Id，理由同 kill 判断记录（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "creature.template"),
                     new FieldSchema("param", FieldKind.Object, required: false, fields: new[]
                     {
                         new FieldSchema("escort_route_ref", FieldKind.Id, required: false,

@@ -63,7 +63,9 @@ namespace Core.Gameplay.Encounter
                         "判断记录：domain 须为 spawn，但退回 Id 而非 Reference(ReferenceDomain: \"spawn\")——" +
                         "本模块与 core/gameplay/spawn 之间刻意只通过 SpawnRequester 委托解耦，不直接依赖该模块" +
                         "（见 README 判断记录 2），Reference 的跨表存在性检查会与这一决耦意图冲突；domain 校验" +
-                        "本身继续保留在 EncounterContentValidationRule。"),
+                        "本身继续保留在 EncounterContentValidationRule。消费方反馈第 29 条：登记为软引用" +
+                        "（仅供内容工具补全/跳转，不影响上述决耦意图）。")
+                    .WithSoftReference(table: "spawn.table"),
                 new FieldSchema("template_ref", FieldKind.Reference, required: false, referenceTable: "creature.template",
                     description: "内联生成的生物模板，与 spawn_ref 二选一。creature.template 属 L3，encounter（L4）" +
                         "经既有 Core.Gameplay.csproj→Core.Carriers 项目引用可 Reference（04 §5.1 口径）；" +
@@ -85,7 +87,8 @@ namespace Core.Gameplay.Encounter
                         "EncounterContentValidationRule 原手写的同名检查已退役（见该类型判断记录）。"),
                 new FieldSchema("spawn_refs", FieldKind.Array, required: false,
                     item: new FieldSchema("<spawn_ref>", FieldKind.Id, required: true,
-                        description: "spawn.table 条目引用；退回 Id，domain 校验保留在 EncounterContentValidationRule，判断记录同 units[].spawn_ref"),
+                        description: "spawn.table 条目引用；退回 Id，domain 校验保留在 EncounterContentValidationRule，判断记录同 units[].spawn_ref（消费方反馈第 29 条：登记为软引用）")
+                        .WithSoftReference(table: "spawn.table"),
                     description: "spawn.table 条目引用列表；判断记录同 units[].spawn_ref——退回 Id，" +
                         "domain 校验保留在 EncounterContentValidationRule。"),
             },
@@ -250,13 +253,16 @@ namespace Core.Gameplay.Encounter
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "encounter.level.<name>"),
                 new FieldSchema("map_ref", FieldKind.Id, required: true,
-                    description: "指向 world.map（该表不在本任务数据集范围内，用 Id 而非 Reference，见判断记录）"),
+                    description: "指向 world.map（该表不在本任务数据集范围内，用 Id 而非 Reference，见判断记录；消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "world.map"),
                 new FieldSchema("encounter_sequence", FieldKind.IdList, required: true,
                     description: "有序 encounter.def 引用；未升级为 Array+Item=Reference，见本类型顶部判断记录")
-                    .WithFreeIds("刻意不做跨表存在性检查——升级为引用会让 encounter.level 与 encounter.def 必须同一个 DataRegistry 里加载成为强约束，见本类型顶部判断记录"),
+                    .WithFreeIds("刻意不做跨表存在性检查——升级为引用会让 encounter.level 与 encounter.def 必须同一个 DataRegistry 里加载成为强约束，见本类型顶部判断记录")
+                    .WithSoftReference(table: "encounter.def"),
                 new FieldSchema("entry_difficulty_options", FieldKind.IdList, required: false,
                     description: "可选难度档位（diff.tier 引用）；处理惯例同 encounter_sequence")
-                    .WithFreeIds("处理惯例同 encounter_sequence，见本类型顶部判断记录"),
+                    .WithFreeIds("处理惯例同 encounter_sequence，见本类型顶部判断记录")
+                    .WithSoftReference(table: "diff.tier"),
             }).WithOwnership(SchemaLayer.Gameplay, "encounter");
     }
 }

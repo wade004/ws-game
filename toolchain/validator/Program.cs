@@ -593,6 +593,34 @@ namespace Toolchain.Validator
             sb.Append("\"reference_domain\":").Append(field.ReferenceDomain == null ? "null" : "\"" + JsonEscape(field.ReferenceDomain) + "\"").Append(',');
             sb.Append("\"free_ids\":").Append(field.FreeIds ? "true" : "false").Append(',');
 
+            // 消费方反馈第 28 条（04 第 3.4 节勘误"IdList/Id 固定取值登记"）："导出给内容工具"：
+            // AllowedValues 登记后随字段元信息一并导出，供编辑器渲染下拉候选/就地校验，不必等一次
+            // 完整的 DataRegistry.LoadAll 才发现非法取值。未登记时为 null，保持既有输出对不消费本键的
+            // 调用方逐字节兼容（新增字段追加在已有字段之后）。
+            sb.Append("\"allowed_values\":");
+            if (field.AllowedValues == null)
+            {
+                sb.Append("null");
+            }
+            else
+            {
+                sb.Append('[');
+                for (var i = 0; i < field.AllowedValues.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    sb.Append('"').Append(JsonEscape(field.AllowedValues[i].Value)).Append('"');
+                }
+                sb.Append(']');
+            }
+            sb.Append(',');
+
+            // 消费方反馈第 29 条（04 第 3.4 节勘误"软引用元数据"）："导出给内容工具"：
+            // SoftReferenceTable/SoftReferenceDomain 随字段元信息一并导出，供编辑器做自动补全/跳转——
+            // 不参与 DataRegistry 加载期的引用完整性校验（见 FieldSchema.WithSoftReference 判断记录），
+            // 纯粹是传达给内容工具的提示。
+            sb.Append("\"soft_reference_table\":").Append(field.SoftReferenceTable == null ? "null" : "\"" + JsonEscape(field.SoftReferenceTable) + "\"").Append(',');
+            sb.Append("\"soft_reference_domain\":").Append(field.SoftReferenceDomain == null ? "null" : "\"" + JsonEscape(field.SoftReferenceDomain) + "\"").Append(',');
+
             // ADR-0024 决策 5："导出给内容工具"：顶层字段登记了 Map（04 第 3.3 节"映射登记"）时，
             // 随其它字段元信息一并导出键约束（map_key）与值种类（map_value）——与 field_ranges 一样，
             // 只覆盖顶层字段，不递归导出映射值内部的子结构（那部分留给编辑器按需再查

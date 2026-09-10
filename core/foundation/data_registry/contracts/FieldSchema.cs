@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Core.Foundation.Common;
 
 namespace Core.Foundation.DataRegistry
 {
@@ -156,6 +157,74 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>见 <see cref="WithFreeIds"/>。</summary>
         public string? FreeIdsReason { get; private set; }
+
+        private IReadOnlyList<Id>? _allowedValues;
+
+        /// <summary>消费方反馈第 28 条（04 第 3.4 节勘误"IdList/Id 固定取值登记"）：<see cref="FieldKind.IdList"/>
+        /// （及单值 <see cref="FieldKind.Id"/>）字段的固定合法取值集合，有序（供编辑器下拉/自动补全按
+        /// 该顺序展示，如 <c>creature.template.npc_flags</c> 照抄 07 表格行序）。登记后
+        /// <c>DataRegistry</c> 加载期对每个取值做 <c>field_allowed_value</c> 检查——用于"取值是固定
+        /// 词汇表，但不指向任何已登记表的具体记录"这类场景（<see cref="EnumValues"/> 只对
+        /// <see cref="FieldKind.Enum"/> 种类可用，覆盖不到 IdList/Id；<see cref="ReferenceTable"/>/
+        /// <see cref="ReferenceDomain"/> 面向的是"表里的记录"，不是"代码里的固定枚举"）。
+        /// <para>
+        /// 判断记录：与 <see cref="FreeIds"/>/<see cref="ReferenceTable"/> 语义上互斥——三者都是
+        /// "声明该字段值从哪来"的不同方式，但 <see cref="WithAllowedValues"/> 刻意不在挂载时检查冲突
+        /// （同 <see cref="WithRange"/>/<see cref="WithMap"/> 既有风格"让登记在错误组合上的错误停留在
+        /// 可枚举的软失败"），冲突由 <c>SchemaAudit</c> 的 <c>idlist_allowed_values_conflict</c> 检查项
+        /// 事后报告。
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<Id>? AllowedValues => _allowedValues;
+
+        /// <summary>登记 <see cref="AllowedValues"/>；只能设置一次（重复设置抛异常，同
+        /// <see cref="WithRange"/>/<see cref="WithGroup"/>/<see cref="WithUnit"/> 惯例）。
+        /// <paramref name="values"/> 不能为空集合。返回 <c>this</c> 便于链式调用。</summary>
+        public FieldSchema WithAllowedValues(IReadOnlyList<Id> values)
+        {
+            if (values == null) throw new ArgumentNullException(nameof(values));
+            if (values.Count == 0) throw new ArgumentException($"字段 \"{Name}\"：AllowedValues 不能是空集合", nameof(values));
+            if (_allowedValues != null) throw new InvalidOperationException($"字段 \"{Name}\"：AllowedValues 已设置，不可重复设置");
+            _allowedValues = values;
+            return this;
+        }
+
+        private string? _softReferenceTable;
+
+        /// <summary>见 <see cref="WithSoftReference"/>。</summary>
+        public string? SoftReferenceTable => _softReferenceTable;
+
+        private string? _softReferenceDomain;
+
+        /// <summary>见 <see cref="WithSoftReference"/>。</summary>
+        public string? SoftReferenceDomain => _softReferenceDomain;
+
+        /// <summary>消费方反馈第 29 条（04 第 3.4 节勘误"软引用元数据"）：<see cref="FieldKind.Id"/>/
+        /// <see cref="FieldKind.IdList"/> 字段指向别的表/domain 的"软"提示——只传达跨层引用语义
+        /// （供内容工具做自动补全/跳转），刻意不像 <see cref="FieldKind.Reference"/>/
+        /// <see cref="ReferenceTable"/>/<see cref="ReferenceDomain"/> 那样参与
+        /// <c>DataRegistry</c> 加载期的 <c>reference_integrity</c> 校验，也不改变 00/04 既定的分层
+        /// 边界（典型场景：L3 字段语义上指向 L2/L4 的表，但分层规则不允许声明为
+        /// <see cref="FieldKind.Reference"/>，见 <c>CreatureSchemas</c> 判断记录）。
+        /// <paramref name="table"/> 与 <paramref name="domain"/> 至多设置一个，至少设置一个。</summary>
+        public FieldSchema WithSoftReference(string? table = null, string? domain = null)
+        {
+            if (table != null && domain != null)
+            {
+                throw new ArgumentException($"字段 \"{Name}\"：SoftReference 的 table 与 domain 至多设置一个", nameof(domain));
+            }
+            if (table == null && domain == null)
+            {
+                throw new ArgumentException($"字段 \"{Name}\"：SoftReference 的 table 与 domain 至少设置一个");
+            }
+            if (_softReferenceTable != null || _softReferenceDomain != null)
+            {
+                throw new InvalidOperationException($"字段 \"{Name}\"：SoftReference 已设置，不可重复设置");
+            }
+            _softReferenceTable = table;
+            _softReferenceDomain = domain;
+            return this;
+        }
 
         /// <summary>仅 <see cref="FieldKind.Object"/> 可设：该对象的子字段清单，可递归嵌套
         /// <see cref="FieldKind.Object"/>/<see cref="FieldKind.Array"/>；与 <see cref="Variants"/>

@@ -63,7 +63,8 @@ namespace Core.Numbers.Archetype
                     description: "引用 arch.power.*；power_set 模块尚未登记 schema，暂不声明为 Reference")
                     .WithFreeIds("分层边界：L1 不静态耦合 L2/L3 具体表结构（见类型判断记录），且 IDataRegistry.DeclareReference 契约本身只支持标量 Id 字段，不支持 IdList"),
                 new FieldSchema("skill_book_ref", FieldKind.Id, required: false,
-                    description: "引用 skill.book.*；skill 模块已实现，本字段仍不声明为 Reference——分层边界选择（L1 不静态耦合 L2 表结构），不是对方模块不存在，见类型判断记录"),
+                    description: "引用 skill.book.*；skill 模块已实现，本字段仍不声明为 Reference——分层边界选择（L1 不静态耦合 L2 表结构），不是对方模块不存在，见类型判断记录（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转，不改变上述分层边界选择）")
+                    .WithSoftReference(table: "skill.book"),
                 new FieldSchema("talent_tree_ref", FieldKind.Reference, required: false, referenceTable: "arch.talent_tree",
                     description: "引用 arch.talent_tree 的天赋树，可为空"),
                 new FieldSchema("level_curve_ref", FieldKind.Reference, required: false, referenceTable: "prog.level_curve",

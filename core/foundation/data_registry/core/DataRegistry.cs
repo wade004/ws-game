@@ -1201,7 +1201,15 @@ namespace Core.Foundation.DataRegistry
                     break;
 
                 case FieldKind.Id:
-                    if (!(raw is JsonString sid && CommonId.IsValidFormat(sid.Value))) AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Id");
+                    if (!(raw is JsonString sid && CommonId.IsValidFormat(sid.Value)))
+                    {
+                        AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Id");
+                    }
+                    else if (field.AllowedValues != null && !ContainsAllowedValue(field.AllowedValues, sid.Value))
+                    {
+                        issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_allowed_value",
+                            $"字段 \"{fieldPath}\" 取值 \"{sid.Value}\" 不在登记的固定取值集合内", recordKey: recordKey, field: fieldPath));
+                    }
                     break;
 
                 case FieldKind.IdList:
@@ -1479,6 +1487,17 @@ namespace Core.Foundation.DataRegistry
         /// <see cref="FieldSchema.FreeIds"/>）时只做既有的逐元素 Id 格式检查，行为与登记前一致
         /// （向后兼容）。改为实例方法（原为 static）以复用 <see cref="ReferenceExists"/>/
         /// <see cref="ReferenceExistsInDomain"/>。</summary>
+        /// <summary>见 <see cref="FieldSchema.AllowedValues"/>。线性查找——<see cref="FieldSchema.AllowedValues"/>
+        /// 是小型固定集合（如 <c>NpcFlagIds.All</c> 六个值），不值得为此再建一份哈希集合。</summary>
+        private static bool ContainsAllowedValue(IReadOnlyList<CommonId> allowedValues, string value)
+        {
+            for (var i = 0; i < allowedValues.Count; i++)
+            {
+                if (string.Equals(allowedValues[i].Value, value, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
         private void ValidateIdList(string table, string recordKey, string fieldPath, FieldSchema field, JsonValue raw, List<ValidationIssue> issues)
         {
             if (!(raw is JsonArray arr))
@@ -1496,13 +1515,23 @@ namespace Core.Foundation.DataRegistry
                     continue;
                 }
 
+                var elementPath = $"{fieldPath}[{i}]";
+                var value = s.Value;
+
+                // 消费方反馈第 28 条（04 第 3.4 节勘误"IdList/Id 固定取值登记"）：登记了 AllowedValues
+                // 的字段，每个元素都必须落在该集合内——与下方 ReferenceTable/ReferenceDomain 检查各自
+                // 独立（SchemaAudit 的 idlist_allowed_values_conflict 负责报告两者同时登记的冲突，
+                // 这里不假设二者互斥，各自按登记情况检查）。
+                if (field.AllowedValues != null && !ContainsAllowedValue(field.AllowedValues, value))
+                {
+                    issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_allowed_value",
+                        $"字段 \"{fieldPath}\" 第 {i} 个元素 \"{value}\" 不在登记的固定取值集合内", recordKey: recordKey, field: elementPath));
+                }
+
                 if (field.ReferenceTable == null && field.ReferenceDomain == null)
                 {
                     continue;
                 }
-
-                var elementPath = $"{fieldPath}[{i}]";
-                var value = s.Value;
 
                 if (field.ReferenceTable != null)
                 {

@@ -112,7 +112,9 @@ namespace Core.Gameplay.AreaTrigger
                 new FieldSchema("encounter_ref", FieldKind.Id, required: false,
                     description: "trigger_type=encounter_start 必填（同上，本登记只管类型）；经 " +
                         "AreaTriggerOptions.EncounterStartRequested 委托分发，本模块不直接依赖 core/gameplay/encounter" +
-                        "（判断记录同 EncounterSchemas.UnitItemSchema.spawn_ref 的决耦惯例），退回 Id"),
+                        "（判断记录同 EncounterSchemas.UnitItemSchema.spawn_ref 的决耦惯例），退回 Id" +
+                        "（消费方反馈第 29 条：按字段名与触发语义推定指向 encounter.def，登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "encounter.def"),
                 new FieldSchema("hook_id", FieldKind.Id, required: false,
                     description: "trigger_type=script 必填（同上，本登记只管类型）；found.hook 当前无实现级 schema 登记，" +
                         "判断记录同 EncounterSchemas.PhaseItemSchema.on_enter_hook，退回 Id"),

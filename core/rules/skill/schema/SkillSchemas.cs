@@ -161,7 +161,8 @@ namespace Core.Rules.Skill
                     new FieldSchema("impact_radius", FieldKind.Number, required: false, description: "缺省 ProjectileOptions.DefaultImpactRadius，仅 impact_on_expiry 生效"),
                     new FieldSchema("max_pierce_count", FieldKind.Int, required: false, description: "仅 pierce 生效，缺省不限"),
                     new FieldSchema("display_ref", FieldKind.Id, required: false,
-                        description: "判断记录（分层边界）：display.map 属 L3/L5，本模块（L2）不可 Reference（04 §5.1 口径），退回 Id"),
+                        description: "判断记录（分层边界）：display.map 属 L3/L5，本模块（L2）不可 Reference（04 §5.1 口径），退回 Id（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "display.map"),
                     new FieldSchema("on_hit_effects", FieldKind.Array, required: false, itemFactory: () => EffectsItemSchema,
                         description: "命中后触发的效果列表，元素结构复用本 variants 自身（同一原语注册表，见 04 第 3.2 节记法示例“登记一次、多处复用”）"),
                 }, "生成一枚投射物并按落体轨迹结算命中，具体参数见各子字段"),
@@ -405,7 +406,8 @@ namespace Core.Rules.Skill
                 new FieldSchema("action_cost", FieldKind.Number, required: false, description: "离散模式行动点消耗"),
                 new FieldSchema("respects_gcd", FieldKind.Bool, required: true, description: "是否受公共冷却影响"),
                 new FieldSchema("target_shape_ref", FieldKind.Id, required: true,
-                    description: "指向 target.chain_def（本模块按此语义解析，见 README）"),
+                    description: "指向 target.chain_def（本模块按此语义解析，见 README；消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "target.chain_def"),
                 new FieldSchema("effects", FieldKind.Array, required: true, item: EffectsItemSchema,
                     description: "[{kind: String, params: Object}, ...]，kind 取值见 EffectKindNames"),
                 new FieldSchema("interrupt_flags", FieldKind.Array, required: false,

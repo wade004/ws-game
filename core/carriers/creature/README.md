@@ -24,7 +24,7 @@ creature/
     CreatureTemplate.cs        creature.template 记录的强类型视图 + FromRecord
   core/
     CreatureSchemas.cs         creature.template / creature.tier_definition 的 TableSchema
-    CreatureContentValidationRule.cs  npc_flags 取值合法性校验
+    CreatureContentValidationRule.cs  模块专属校验扩展点（npc_flags 取值合法性已收口进 CreatureSchemas 的 FieldSchema.WithAllowedValues，见消费方反馈第 28 条）
     CreatureOptions.cs         口味配置项（默认资源类型、control_immune 标记 Id）
     CreatureFactory.cs         ICreatureFactory + ICreatureTemplateQuery 的默认实现
     CreatureImmunityProvider.cs  IStaticImmunityProvider 的默认实现（阶段 3 整理，见下）

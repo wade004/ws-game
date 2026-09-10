@@ -713,6 +713,116 @@ namespace Tests.Presentation.Assembly
             Assert.DoesNotContain(report.Issues, i => i.Check == "reference_target_unknown");
         }
 
+        // -----------------------------------------------------------------
+        // 消费方反馈第 28/29 条（04 第 3.4 节勘误"IdList/Id 固定取值登记""软引用元数据"）：
+        // idlist_allowed_values_conflict / soft_reference_kind 自洽检查 + idlist_reference_target
+        // 接受 AllowedValues 作为"已声明取值来源"之一。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void IdListReferenceTarget_WithAllowedValues_NoIssue()
+        {
+            var table = new TableSchema("test.idlist_allowed", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+                new FieldSchema("flags", FieldKind.IdList, required: false, description: "固定取值集合")
+                    .WithAllowedValues(new[] { new Core.Foundation.Common.Id("flag.a"), new Core.Foundation.Common.Id("flag.b") }),
+            }).WithOwnership(SchemaLayer.Foundation, "test");
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "idlist_reference_target");
+        }
+
+        [Fact]
+        public void IdlistAllowedValuesConflict_WithFreeIds_ReportsError()
+        {
+            var field = new FieldSchema("flags", FieldKind.IdList, required: false, description: "冲突登记")
+                .WithAllowedValues(new[] { new Core.Foundation.Common.Id("flag.a") })
+                .WithFreeIds("测试：刻意同时登记两者");
+            var table = SingleFieldTable("test.allowed_values_free_ids_conflict", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "idlist_allowed_values_conflict" &&
+                i.Table == "test.allowed_values_free_ids_conflict" && i.FieldPath == "flags");
+            Assert.True(report.IsBlocking);
+        }
+
+        [Fact]
+        public void IdlistAllowedValuesConflict_WithReferenceTable_ReportsError()
+        {
+            var field = new FieldSchema("flags", FieldKind.IdList, required: false, referenceTable: "test.some_target",
+                    description: "冲突登记")
+                .WithAllowedValues(new[] { new Core.Foundation.Common.Id("flag.a") });
+            var table = SingleFieldTable("test.allowed_values_reference_table_conflict", field);
+            var targetTable = new TableSchema("test.some_target", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+            }).WithOwnership(SchemaLayer.Foundation, "test");
+
+            var report = SchemaAudit.Run(new[] { table, targetTable }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "idlist_allowed_values_conflict" &&
+                i.Table == "test.allowed_values_reference_table_conflict" && i.FieldPath == "flags");
+        }
+
+        [Fact]
+        public void IdlistAllowedValuesConflict_AllowedValuesAlone_NoIssue()
+        {
+            var field = new FieldSchema("flags", FieldKind.IdList, required: false, description: "固定取值")
+                .WithAllowedValues(new[] { new Core.Foundation.Common.Id("flag.a") });
+            var table = SingleFieldTable("test.allowed_values_alone", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "idlist_allowed_values_conflict");
+            Assert.False(report.IsBlocking, string.Join("; ", MessagesOf(report)));
+        }
+
+        [Fact]
+        public void SoftReferenceKind_OnStringField_ReportsError()
+        {
+            var field = new FieldSchema("value", FieldKind.String, required: false, description: "非 Id/IdList 字段")
+                .WithSoftReference(table: "test.some_target");
+            var table = SingleFieldTable("test.soft_reference_on_string", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "soft_reference_kind" &&
+                i.Table == "test.soft_reference_on_string" && i.FieldPath == "value");
+            Assert.True(report.IsBlocking);
+        }
+
+        [Fact]
+        public void SoftReferenceKind_OnIdField_NoIssue()
+        {
+            var field = new FieldSchema("target_ref", FieldKind.Id, required: false, description: "软引用")
+                .WithSoftReference(table: "test.some_target");
+            var table = SingleFieldTable("test.soft_reference_on_id", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "soft_reference_kind");
+            Assert.False(report.IsBlocking, string.Join("; ", MessagesOf(report)));
+        }
+
+        [Fact]
+        public void SoftReferenceKind_OnIdListField_NoIssue()
+        {
+            var field = new FieldSchema("target_refs", FieldKind.IdList, required: false, description: "软引用列表")
+                .WithFreeIds("测试占位")
+                .WithSoftReference(domain: "test");
+            var table = SingleFieldTable("test.soft_reference_on_idlist", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "soft_reference_kind");
+        }
+
         /// <summary>门禁本体：真实登记 + 仓库根白名单，断言 0 error（白名单未用条目仍允许——本测试
         /// 只关心不阻断，"白名单条目全部命中"由 <c>check.ps1</c> 门禁步骤的真实输出与本测试共同
         /// 覆盖，不在此重复断言，避免白名单每次调整都要同步改测试）。</summary>
