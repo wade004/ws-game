@@ -1,0 +1,30 @@
+[abi_probe] 显式 -OutDir 已存在且为空，直接复用：D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\abi-probe
+[abi_probe] 中间产物目录：D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\abi-probe
+[abi_probe] 基线版本=1.12.0 基线 zip=D:\workespace\ws-game\dist\ws-game-1.12.0.zip
+[abi_probe] 已解出基线 DLL：Core.Foundation.dll
+[abi_probe] 已解出基线 DLL：Core.Numbers.dll
+[abi_probe] 已解出基线 DLL：Core.Carriers.dll
+[abi_probe] 已解出基线 DLL：Core.Rules.dll
+[abi_probe] 已解出基线 DLL：Core.Gameplay.dll
+[abi_probe] 已解出基线 DLL：Presentation.Common.dll
+[abi_probe] 编译 consumer（针对基线 1.12.0 DLL）...
+[abi_probe] 针对基线 DLL 运行退出码=0
+[abi_probe] 基线自检通过（旧 consumer 对旧 DLL 正常运行）。
+[abi_probe] 当前工作树 DLL：Core.Foundation.dll <- D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Core.Foundation\release\Core.Foundation.dll
+[abi_probe] 当前工作树 DLL：Core.Numbers.dll <- D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Core.Numbers\release\Core.Numbers.dll
+[abi_probe] 当前工作树 DLL：Core.Carriers.dll <- D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Core.Carriers\release\Core.Carriers.dll
+[abi_probe] 当前工作树 DLL：Core.Rules.dll <- D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Core.Rules\release\Core.Rules.dll
+[abi_probe] 当前工作树 DLL：Core.Gameplay.dll <- D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Core.Gameplay\release\Core.Gameplay.dll
+[abi_probe] 当前工作树 DLL：Presentation.Common.dll <- D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Presentation.Common\release\Presentation.Common.dll
+[abi_probe] 已用当前工作树 Release DLL 就地替换 consumer 输出目录（未重新编译 consumer）。
+[abi_probe] 针对当前 DLL（不重编译）运行退出码=0
+[abi_probe] 通过：旧编译 consumer（针对 1.12.0）换上当前工作树 DLL、不重新编译，运行正常。
+[abi_probe] 构建 abi_surface 工具...
+[abi_surface] compare baseline=D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\abi-probe\surface-baseline.txt current=D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\abi-probe\surface-current.txt
+[abi_surface] allowlist=D:\workespace\ws-game-artifacts\audit-4faab73-frozen\toolchain\abi_surface_allowlist.txt
+[abi_surface] breaks=0 allowed=0 additions=221
+[abi_surface] 新增（不计入破坏）：221 行
+[abi_surface] RESULT=OK
+
+[abi_probe] abi_surface compare 退出码=0（报告：D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\abi-probe\surface-report.txt）
+[abi_probe] 已写入 summary.txt：D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\abi-probe\summary.txt

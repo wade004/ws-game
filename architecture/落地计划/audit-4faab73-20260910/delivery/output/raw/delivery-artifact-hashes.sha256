@@ -1,0 +1,15 @@
+036b443577d389dedd797371a231bae5143ad753269cfae90e92970bcc35ee85  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\delivery.md
+5a55adeed3e7e4351612f0f700c85acd580b0dfafb2d47fe458676f3daaeaa47  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\reproduce-formal-and-indexer.ps1
+36df88af21634b7971dba517a0d89658ee190765565919ad7b19d9314f302b06  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\unity-repro\prepare-unity-copy.ps1
+bb912796a60171b9bfebf702e08df52655403ec2bdef2d9ae50556fbaaee4d5b  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\unity-repro\run-unity-current.ps1
+461c10f091816ba85b86de76ad3447a2f3e1eee8e9c54f49af093a25334644df  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\raw\check.log
+15ce41bec153843452c110d4a20c5311278093ee7e91c7ccbb3f577f890f6bb4  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\raw\abi-probe.log
+023d88deaedb874ae41b1e430fba12ab99acbbb4537b6100f0bf839b0694f007  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\raw\abi-outdir-safety.log
+02c3126a5286531464f19ff60397d89d20446e274944d79566a4bdeaf2cad229  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\raw\unity-input-copy-hashes.txt
+8de5479727e160c34304fab0e2ec4bf4b4be7287921e645a61e9848bf905b705  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\raw\unity-dll-copy-hashes.txt
+15985fef9bfab9cb07374d54af569388c2d363388de289e0093db53a0947037f  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\run5\output\raw\formal-and-indexer.raw.txt
+5230cbc1c7b7c4544cdf189bf5ddd17c318ff6d230a9704a1fceb6278fc37717  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\run5\output\raw\formal-zip-consumer.log
+e73c41bb83e7562d96b7afc1d3474aff3934f6569184ccde11a4657ef46adfc9  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\run9\output\raw\formal-and-indexer.raw.txt
+46677a792047971616274e5e01d12df72ef29ba67897548e1b97a4337100c599  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\run9\output\raw\indexer-oracle-current.log
+81fb53e7f497fc880031cc5b56202166bfda134a631144f443e2695f132525f2  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\unity-evidence2\full-edit.xml
+a32d8c873813f6745128ffc6d5655675f15b7c6b7a6c0d140a68e23936777f8f  D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\unity-evidence2\full-play.xml

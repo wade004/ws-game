@@ -1,0 +1,31 @@
+formal_zip_check=START
+formal_zip=D:\workespace\ws-game\dist\ws-game-1.16.2.zip
+formal_zip_sha256=544bedaf54bf6c97cd0ad7b5afd1b51f0e210c165ee756efcb2c34319683f454
+lock=D:\workespace\ws-game\dist\ws-game-1.16.2.lock
+lock_sha256=7a1f8f5a01e928d9262632e0c2c7b86f5af9a2cbb4305bc0f4b6da8af483b453
+lock_version=1.16.2 expected=1.16.2
+lock_git_commit=4faab73 expected=4faab73
+zip_entries=1147
+dll=Core.Foundation.dll expected=563eb3377d361dd9ecb22354e996479dfc173d24f420eb2e3831abe8a78d0360 copies=6 unique_sha256=563eb3377d361dd9ecb22354e996479dfc173d24f420eb2e3831abe8a78d0360 result=PASS
+dll=Core.Numbers.dll expected=d6558383dcd31db91993acbd5bed742ec6e69e07a28cb864df83dd43af90f29c copies=6 unique_sha256=d6558383dcd31db91993acbd5bed742ec6e69e07a28cb864df83dd43af90f29c result=PASS
+dll=Core.Rules.dll expected=6c191515345a19fc99ffe7c5e56f689862346edadc135787497011d80380f3be copies=6 unique_sha256=6c191515345a19fc99ffe7c5e56f689862346edadc135787497011d80380f3be result=PASS
+dll=Core.Carriers.dll expected=bfe8c853d7b2dcec53ac8004d0b826f75f413d3598ea2b2ac572d497564b3ad5 copies=6 unique_sha256=bfe8c853d7b2dcec53ac8004d0b826f75f413d3598ea2b2ac572d497564b3ad5 result=PASS
+dll=Core.Gameplay.dll expected=1295a4582a72bb60e69bc1e8ac6ecba31614f71e547a9cd7f70e05012ee29d47 copies=6 unique_sha256=1295a4582a72bb60e69bc1e8ac6ecba31614f71e547a9cd7f70e05012ee29d47 result=PASS
+dll=Presentation.Common.dll expected=d75892972be056601076edae3193e59bfec2f0619fcf378b47b6af51b1feb19d copies=6 unique_sha256=d75892972be056601076edae3193e59bfec2f0619fcf378b47b6af51b1feb19d result=PASS
+dll=Adapters.Stub.dll expected=9d2be4083c8810211e135ca60e014e214db8cb23c1d94cd9820a3f70ced635fe copies=2 unique_sha256=9d2be4083c8810211e135ca60e014e214db8cb23c1d94cd9820a3f70ced635fe result=PASS
+dll=Validator.dll expected=daa9c93c4e37be274ccf234d390219aeb38b247276e3309d952ecc1b632c2e1a copies=2 unique_sha256=daa9c93c4e37be274ccf234d390219aeb38b247276e3309d952ecc1b632c2e1a result=PASS
+package=com.gamefoundation.adapter.unity version=1.16.2 expected=1.16.2 result=PASS
+package=com.gamefoundation.framework-data version=1.16.2 expected=1.16.2 result=PASS
+package=com.gamefoundation.toolchain version=1.16.2 expected=1.16.2 result=PASS
+package=com.gamefoundation.adapter.headless version=1.16.2 expected=1.16.2 result=PASS
+manifest_sha256=21bda1e1c8fe98effc1d69c54fb44925c2cc738f73f659b0b479576da7cc9f79 result=PASS
+formal_zip_check=PASS
+missing compiled old consumer: D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\run2\output\abi-probe\co
+nsumer\bin\Release\net8.0\AbiProbeConsumer.dll
+At D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\reproduce-formal-and-indexer.ps1:93 char:51
++ ... oldConsumer)) { throw "missing compiled old consumer: $oldConsumer" }
++                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (missing compile...obeConsumer.dll:String) [], RuntimeException
+    + FullyQualifiedErrorId : missing compiled old consumer: D:\workespace\ws-game-artifacts\audit-4faab73-20260910\de 
+   livery\run2\output\abi-probe\consumer\bin\Release\net8.0\AbiProbeConsumer.dll
+ 

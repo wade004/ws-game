@@ -455,6 +455,346 @@ def test_const_field_value_change_is_breaking(abi_surface_dll: Path, tmp_path: P
     assert "RESULT=BREAKING" in report
 
 
+# -----------------------------------------------------------------------------
+# ABI-1162-01 根治（codex 第十七轮，audit-4faab73-20260910）：属性签名此前只编码
+# `Name:PropertyType`，不含 `PropertyInfo.GetIndexParameters()`——public indexer 的索引参数类型
+# 变化（如 `this[int]` 改 `this[string]`）dump 前后逐字节相同，`breaks=0`，但旧编译消费方运行期
+# `MissingMethodException`（见 delivery/run5-console.log 30-39 行、AUDIT_REPORT.md ABI-1162-01）。
+# 顺带核查同一批容易漏判的签名维度：运算符重载/转换运算符（此前被 IsSpecialName 整体跳过）、
+# 事件 remove 访问器可见性（此前只记 add 半边）——这两项确认是真实的二进制破坏缺口，补齐编码。
+#
+# 另外两个维度（方法/索引器参数的 `params` 数组修饰、可选参数默认值存在性/取值）核查后确认
+# **不**编码，与 ref/out/in 同一条既有设计（TypeNameFormatter.FormatParameters 判断记录）：
+# 三者都是 C# 编译器侧语法糖，不改变 IL 物理签名。曾经短暂编码过这两项，但用
+# `dist/ws-game-1.12.0.zip` 基线重跑当前工作树六个 DLL 时产生 5 处假破坏——框架给公开构造函数
+# 新增尾部可选参数时的既有模式是"新增一个更长的可选参数重载，同时保留原始定长参数表的旧重载
+# （旧重载参数改为不带默认值，仅作为物理兼容 shim）"，旧编译调用方物理上调用的正是这个保留的
+# 定长重载，从未因为它是否声明默认值而受影响；按值/存在性编码后误将这种合法模式判成破坏。见
+# `TypeNameFormatter.FormatParameters` 判断记录与下方
+# `test_optional_default_value_or_params_modifier_change_alone_is_not_breaking`。
+# -----------------------------------------------------------------------------
+
+
+def test_indexer_parameter_type_change_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """ABI-1162-01 核心场景：public indexer `this[int]` 改 `this[string]`。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tItem[System.Int32]:System.String\tget:public,set:public",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tItem[System.String]:System.String\tget:public,set:public",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+    assert "Item[System.Int32]" in report
+
+
+def test_indexer_new_overload_is_not_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """新增一个索引参数类型不同的重载（`this[int]` 保留、新增 `this[string]`）：旧签名仍在，纯新增
+    不算破坏。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tItem[System.Int32]:System.String\tget:public,set:public",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tItem[System.Int32]:System.String\tget:public,set:public",
+        "MEMBER\tNs.Foo\tproperty\tItem[System.String]:System.String\tget:public,set:public",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "RESULT=OK" in report
+    assert "新增" in report
+
+
+def test_indexer_removed_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tItem[System.Int32]:System.String\tget:public,set:public",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_ref_out_modifier_change_alone_is_not_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """确认性正例：ref/out/in 三者物理参数类型都是同一个 byref 类型 `T&`，签名文本本身不区分
+    ref/out/in，两次 dump 对同一个 `ref int`/`out int` 参数产出完全相同的行，不应判破坏。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\tBar(System.Int32&):System.Void\tpublic",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\tBar(System.Int32&):System.Void\tpublic",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "RESULT=OK" in report
+
+
+def test_params_and_optional_default_value_are_not_encoded_in_real_dump(
+    abi_surface_dll: Path, tmp_path: Path
+) -> None:
+    """核查结论（不编码）的真实反射验证：`params` 修饰、可选参数默认值存在性/取值与 ref/out/in
+    同属 C# 编译器语法糖，不改变 IL 物理签名，故意不编码进签名文本。用手写文本行无法验证"真的没有
+    编码"（手写行本来就是想写什么就写什么），必须真实编译一个带 `params` 与可选参数默认值的库、
+    走真实 `Dump()` 反射，确认输出行不含 `!params`/`!opt` 这类标记，且默认值从 1 改成 2 后 dump
+    文本不变——证明这不是"忘记加标记"而是有意不区分。
+
+    背景：曾经短暂编码过这两项，但用 `dist/ws-game-1.12.0.zip` 基线重跑当前工作树六个 DLL 时
+    产生 5 处假破坏（`FieldSchema`/`EconomyContentValidationRule`/`LootContentValidationRule`/
+    `SkillHost`/`ViewBinder` 的公开构造函数新增尾部可选参数时，框架统一保留原始定长参数表的旧
+    重载作为物理兼容 shim，该旧重载改为不带默认值——旧编译调用方物理上调用的正是这个保留的
+    重载，从未因为默认值存在与否而失败）。见 `TypeNameFormatter.FormatParameters` 判断记录。
+    """
+    proj_root = tmp_path / "params_opt_check"
+    src_v1 = proj_root / "V1"
+    src_v2 = proj_root / "V2"
+    for d in (src_v1, src_v2):
+        d.mkdir(parents=True)
+
+    csproj_lib = (
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+        "  <PropertyGroup>\n"
+        "    <TargetFramework>netstandard2.1</TargetFramework>\n"
+        "    <AssemblyName>ParamsOptContract</AssemblyName>\n"
+        "    <Nullable>enable</Nullable>\n"
+        "  </PropertyGroup>\n"
+        "</Project>\n"
+    )
+    (src_v1 / "V1.csproj").write_text(csproj_lib, encoding="utf-8")
+    (src_v2 / "V2.csproj").write_text(csproj_lib, encoding="utf-8")
+    (src_v1 / "Api.cs").write_text(
+        "namespace ParamsOptNs { public class Foo {\n"
+        "    public void Bar(params int[] xs) { }\n"
+        "    public void Baz(int x = 1) { }\n"
+        "} }\n",
+        encoding="utf-8",
+    )
+    (src_v2 / "Api.cs").write_text(
+        "namespace ParamsOptNs { public class Foo {\n"
+        "    public void Bar(int[] xs) { }\n"
+        "    public void Baz(int x = 2) { }\n"
+        "} }\n",
+        encoding="utf-8",
+    )
+
+    build_v1_dir = proj_root / "build" / "v1"
+    build_v2_dir = proj_root / "build" / "v2"
+    for csproj, out_dir in ((src_v1 / "V1.csproj", build_v1_dir), (src_v2 / "V2.csproj", build_v2_dir)):
+        r = subprocess.run(
+            [DOTNET, "build", str(csproj), "-c", "Release", "--nologo", "-o", str(out_dir)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+        )
+        assert r.returncode == 0, "params/opt 核查库构建失败：\n" + r.stdout + r.stderr
+
+    v1_dump = tmp_path / "v1-dump.txt"
+    v2_dump = tmp_path / "v2-dump.txt"
+    for dll_path, out_path in ((build_v1_dir / "ParamsOptContract.dll", v1_dump), (build_v2_dir / "ParamsOptContract.dll", v2_dump)):
+        r = subprocess.run(
+            [DOTNET, str(abi_surface_dll), "dump", "--out", str(out_path), str(dll_path)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+        )
+        assert r.returncode == 0, "abi_surface dump 失败：\n" + r.stdout + r.stderr
+
+    v1_text = v1_dump.read_text(encoding="utf-8")
+    v2_text = v2_dump.read_text(encoding="utf-8")
+    assert "!params" not in v1_text, "`params` 修饰不应被编码进 dump 行：\n" + v1_text
+    assert "!opt" not in v1_text, "可选参数默认值不应被编码进 dump 行：\n" + v1_text
+    assert "Bar(System.Int32[]):System.Void" in v1_text
+    assert "Baz(System.Int32):System.Void" in v1_text
+    assert v1_text == v2_text, (
+        "去掉 params 修饰、把默认值从 1 改成 2 都不应该改变 dump 文本（两者都是编译器语法糖，"
+        "不改变 IL 物理签名）：\nv1=\n" + v1_text + "\nv2=\n" + v2_text
+    )
+
+
+def test_operator_overload_removed_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """运算符重载/转换运算符：此前 `IsSpecialName` 整体跳过 method 循环，`op_Addition`/
+    `op_Implicit` 等完全不进 dump，删除或改签名都不会被 compare 抓到。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\top_Addition(Ns.Foo,Ns.Foo):Ns.Foo\tpublic,static",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+    assert "op_Addition" in report
+
+
+def test_conversion_operator_signature_change_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\top_Implicit(Ns.Foo):System.Int32\tpublic,static",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\top_Implicit(Ns.Foo):System.Int64\tpublic,static",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_event_remove_accessor_narrowed_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """事件 remove 访问器单独收窄（add 仍 public）：此前 dump 只记 add 半边可见性，这类收窄两次
+    dump 输出相同，旧消费方 `obj.Event -= handler;` 运行期 `MissingMethodException`。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tevent\tChanged:System.Action\tpublic,remove:public",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tevent\tChanged:System.Action\tpublic,remove:protected",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_indexer_parameter_type_change_negative_oracle_end_to_end_via_real_dll(
+    abi_surface_dll: Path, tmp_path: Path
+) -> None:
+    """ABI-1162-01 端到端负例：真实编译 baseline（`public string this[int i]`）与 current（同一
+    indexer 改成 `this[string i]`）两份库，一个针对 baseline 编译好、不重新编译的旧 consumer 直接
+    通过索引器读值——运行期必须 `MissingMethodException`（钉死这确实是一次二进制破坏，复现
+    delivery/run5-console.log 的 indexer oracle），同时修复后的 `abi_surface dump`+`compare` 必须
+    给出 `breaks>0`（RESULT=BREAKING）。"""
+    proj_root = tmp_path / "indexer_oracle"
+    baseline_src = proj_root / "ApiBaseline"
+    current_src = proj_root / "ApiCurrent"
+    consumer_src = proj_root / "Consumer"
+    for d in (baseline_src, current_src, consumer_src):
+        d.mkdir(parents=True)
+
+    csproj_lib = (
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+        "  <PropertyGroup>\n"
+        "    <TargetFramework>netstandard2.1</TargetFramework>\n"
+        "    <AssemblyName>IndexerContract</AssemblyName>\n"
+        "    <Nullable>enable</Nullable>\n"
+        "  </PropertyGroup>\n"
+        "</Project>\n"
+    )
+    (baseline_src / "IndexerBaseline.csproj").write_text(csproj_lib, encoding="utf-8")
+    (current_src / "IndexerCurrent.csproj").write_text(csproj_lib, encoding="utf-8")
+    (baseline_src / "Api.cs").write_text(
+        "namespace IndexerOracleNs { public class Foo { public string this[int i] => \"v\" + i; } }\n",
+        encoding="utf-8",
+    )
+    (current_src / "Api.cs").write_text(
+        "namespace IndexerOracleNs { public class Foo { public string this[string i] => \"v\" + i; } }\n",
+        encoding="utf-8",
+    )
+    (consumer_src / "Consumer.csproj").write_text(
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+        "  <PropertyGroup>\n"
+        "    <OutputType>Exe</OutputType>\n"
+        "    <TargetFramework>net8.0</TargetFramework>\n"
+        "    <Nullable>enable</Nullable>\n"
+        "  </PropertyGroup>\n"
+        "  <ItemGroup>\n"
+        "    <Reference Include=\"IndexerContract\"><HintPath>lib/IndexerContract.dll</HintPath></Reference>\n"
+        "  </ItemGroup>\n"
+        "</Project>\n",
+        encoding="utf-8",
+    )
+    (consumer_src / "Program.cs").write_text(
+        "using IndexerOracleNs;\n"
+        "class Program\n"
+        "{\n"
+        "    static int Main()\n"
+        "    {\n"
+        "        var v = new Foo()[1];\n"
+        "        System.Console.WriteLine(\"ORACLE_CONSUMER_OK:\" + v);\n"
+        "        return 0;\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    build_baseline_dir = proj_root / "build" / "baseline"
+    build_current_dir = proj_root / "build" / "current"
+    for csproj, out_dir in (
+        (baseline_src / "IndexerBaseline.csproj", build_baseline_dir),
+        (current_src / "IndexerCurrent.csproj", build_current_dir),
+    ):
+        r = subprocess.run(
+            [DOTNET, "build", str(csproj), "-c", "Release", "--nologo", "-o", str(out_dir)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+        )
+        assert r.returncode == 0, "indexer oracle 库构建失败：\n" + r.stdout + r.stderr
+
+    consumer_lib = consumer_src / "lib"
+    consumer_lib.mkdir()
+    shutil.copy(build_baseline_dir / "IndexerContract.dll", consumer_lib / "IndexerContract.dll")
+    consumer_out = proj_root / "consumer-bin"
+    r = subprocess.run(
+        [DOTNET, "build", str(consumer_src / "Consumer.csproj"), "-c", "Release", "--nologo", "-o", str(consumer_out)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+    )
+    assert r.returncode == 0, "indexer oracle consumer 构建失败：\n" + r.stdout + r.stderr
+
+    consumer_dll = consumer_out / "Consumer.dll"
+    shutil.copy(build_baseline_dir / "IndexerContract.dll", consumer_out / "IndexerContract.dll")
+    r = subprocess.run(
+        [DOTNET, str(consumer_dll)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+    )
+    assert r.returncode == 0 and "ORACLE_CONSUMER_OK" in r.stdout, (
+        "indexer oracle consumer 针对基线 DLL 自检应成功：\n" + r.stdout + r.stderr
+    )
+
+    shutil.copy(build_current_dir / "IndexerContract.dll", consumer_out / "IndexerContract.dll")
+    r = subprocess.run(
+        [DOTNET, str(consumer_dll)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+    )
+    assert r.returncode != 0, "换上 string 索引器版本后旧 consumer 应运行失败（MissingMethodException），实际却成功了"
+    assert "MissingMethodException" in (r.stdout + r.stderr), (
+        "期望 MissingMethodException，实际输出：\n" + r.stdout + r.stderr
+    )
+
+    baseline_dump = tmp_path / "indexer-baseline.txt"
+    current_dump = tmp_path / "indexer-current.txt"
+    for dll_path, out_path in (
+        (build_baseline_dir / "IndexerContract.dll", baseline_dump),
+        (build_current_dir / "IndexerContract.dll", current_dump),
+    ):
+        r = subprocess.run(
+            [DOTNET, str(abi_surface_dll), "dump", "--out", str(out_path), str(dll_path)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+        )
+        assert r.returncode == 0, "abi_surface dump 失败：\n" + r.stdout + r.stderr
+
+    baseline_dump_text = baseline_dump.read_text(encoding="utf-8")
+    current_dump_text = current_dump.read_text(encoding="utf-8")
+    assert "Item[System.Int32]" in baseline_dump_text, (
+        "根治后 dump 必须把索引参数编进属性签名：\n" + baseline_dump_text
+    )
+    assert "Item[System.String]" in current_dump_text
+    assert baseline_dump_text != current_dump_text, "修复前的症状：索引参数变化前后 dump 逐字节相同"
+
+    report_path = tmp_path / "indexer-report.txt"
+    r = subprocess.run(
+        [DOTNET, str(abi_surface_dll), "compare", str(baseline_dump), str(current_dump), "--out", str(report_path)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+    )
+    report_text = report_path.read_text(encoding="utf-8") if report_path.is_file() else ""
+    assert r.returncode == 2, (
+        "修复后 compare 必须判定 breaks>0（旧 consumer 已实测 MissingMethodException）：\n" + report_text
+    )
+    assert "RESULT=BREAKING" in report_text
+    assert "Item" in report_text
+
+
 def test_public_to_protected_negative_oracle_end_to_end_via_real_dll(
     abi_surface_dll: Path, tmp_path: Path
 ) -> None:

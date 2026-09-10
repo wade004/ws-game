@@ -68,6 +68,32 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+外部深度审核（codex 第十七轮，基线 `4faab73e7081f2984e7addb88fee051b6c0d3d02`/v1.16.2 自身，报告见
+`architecture/落地计划/audit-4faab73-20260910/`）ABI 工具门禁修复一项，另加三处文档勘误；核实与
+逐条回复见
+[architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md](architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md)。
+
+- **ABI-1162-01（工具链）**：`toolchain/abi_surface` 属性签名此前只编码 `Name:PropertyType`，不含
+  索引参数——public indexer（`this[int]`）的索引参数类型变化（如改成 `this[string]`）两次 dump
+  输出逐字节相同，`compare` 判 `breaks=0`，旧编译消费方运行期 `System.MissingMethodException`。
+  现属性 sig 编码索引参数类型列表；同批核查另确认运算符重载/转换运算符（此前被 `IsSpecialName`
+  整体跳过、完全不进 dump）、事件 `remove` 访问器可见性（此前只记 `add` 半边）两处也是真实缺口，
+  一并补齐；`params` 数组修饰、可选参数默认值存在性/取值两个维度核查后确认不编码（与既有
+  `ref`/`out`/`in` 不编码设计同一治理逻辑，曾短暂编码又因产生历史基线假破坏而撤回，判断记录见
+  `toolchain/abi_surface/TypeNameFormatter.cs` `FormatParameters`）。新版工具对
+  `dist/ws-game-1.12.0.zip`/`dist/ws-game-1.13.0.zip` 两份历史基线重跑当前工作树六个 DLL 均
+  `breaks=0`，未发现历史真实破坏。
+- **DOC-162-02（发布计划文档）**：`architecture/落地计划/落地方案与分阶段计划.md` 一处仍写
+  "三个 `.tgz`"，落后于 ADR-0018 决策 3 已转正的第四个包（`com.gamefoundation.adapter.headless`）；
+  改为明确列出九件 GitHub Release 附件（zip、lock、samples zip、四个 `.tgz`、`get_framework.ps1`、
+  `_hash.ps1`）。
+- **DOC-162-03（发布计划文档）**：同文件"能力边界与未默认接入能力索引"表 `teleport_points` 一行
+  称元素"仅做是数组这一层检查"，落后于已登记的 `WorldMapSchema.PointItemSchema`（`{id?,
+  position?}` 元素结构已展开登记）；改为区分"结构已登记"与"引用目标完整性不由登记表保证，由
+  `TeleportTargetResolver`/业务约束负责"。
+- **DOC-162-04（发布计划文档）**：同文件 ATB（先攻策略预留位）一行分类"明确非目标"，与
+  ADR-0013 决策第 3 条原文"本版延期、预留扩展位"不符；改列"延期/预留"。
+
 ## [1.16.2] - 2026-09-10
 
 外部深度审核（codex 第十六轮，基线 `24a11fe28f9647cd532c41f56f7ab18c00fb8516`/v1.16.1 自身，报告见

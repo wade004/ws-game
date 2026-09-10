@@ -92,3 +92,24 @@
 adapters/unity/ProjectSettings/*.asset eol=lf
 adapters/unity/Packages/manifest.json eol=lf
 adapters/unity/Packages/packages-lock.json eol=lf
+
+# ---------------------------------------------------------------------------
+# ABI-1162-01 归档跟进（codex 第十七轮，audit-4faab73-20260910）：新增审计归档目录内证据文件
+# 行尾声明——路径限定，不是全仓库扩展名规则
+# ---------------------------------------------------------------------------
+#
+# 判断记录：新增审计归档 architecture/落地计划/audit-4faab73-20260910/ 含大量 .log/.xml/
+# .sha256/.err/.stderr/.stdout 证据文件（check.log、ABI 探针日志、Unity EditMode/PlayMode 结果
+# XML、哈希清单等），归档时已统一转换为 LF；这些扩展名此前未声明 eol=lf，`git add` 报"LF will
+# be replaced by CRLF the next time Git touches it"。第一次尝试把这五类扩展名加成全仓库通用规则
+# （`*.log`/`*.xml` 等），结果 `check.ps1` 的"工作树文本文件无 CR"步骤在本机 `core.autocrlf=true`
+# 环境下反而新增 375 处 FAIL——仓库内此前已有十余个历史审计归档目录（`audit-3224ca1-20260908`/
+# `audit-5c444f1-20260908`/`audit-6739f50-20260909` 等）同样含大量 `.log`/`.xml` 文件，它们的
+# 工作目录副本是在这条全仓库规则加入之前检出的，`git ls-files --eol` 显示 `i/lf w/crlf`（索引内
+# 是 LF，工作目录因本机检出时的历史状态残留 CRLF）——新增的全仓库属性声明让这些早已存在、与
+# 本次改动无关的文件被反向判定为"违反自己刚刚声明的属性"，而不会改变它们已提交的索引内容。属性
+# 声明改为只限定本次新增的归档目录路径（`architecture/落地计划/audit-4faab73-20260910/**`），
+# 不影响仓库其它任何 `.log`/`.xml`/`.sha256`/`.err`/`.stderr`/`.stdout` 文件的既有换行策略——
+# 如需把这五类扩展名提升为全仓库通用规则，应作为独立的、对历史归档目录先做一次
+# `git add --renormalize` 的单独改动，不在本次 ABI-1162-01 任务范围内。
+architecture/落地计划/audit-4faab73-20260910/** text eol=lf

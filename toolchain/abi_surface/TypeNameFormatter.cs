@@ -78,6 +78,22 @@ namespace Toolchain.AbiSurface
         /// <c>ParameterInfo.IsOut</c>/<c>IsIn</c> 只是源码侧修饰符的元数据标记，不改变 IL 物理
         /// 签名——把 <c>ref</c> 改成 <c>out</c>（或反过来）不会触发 <c>MissingMethodException</c>，
         /// 因此这里故意不把它们计入差异文本，避免把非破坏性改动误报成破坏。
+        ///
+        /// ABI-1162-01 复核（codex 第十七轮，audit-4faab73-20260910）：同一条不编码的判断记录
+        /// 扩展到 `params` 数组修饰（<c>ParamArrayAttribute</c>）与可选参数默认值（存在性/取值）——
+        /// 两者与 <c>ref</c>/<c>out</c>/<c>in</c> 同属"C# 编译器侧语法糖、不改变 IL 物理签名"：
+        /// 省略实参时，编译器在调用方 IL 里已经把具体默认值/展开后的显式数组当作普通实参写死，
+        /// CLR 方法绑定只按物理参数类型+个数匹配，不读 <c>ParameterAttributes.Optional</c>/
+        /// <c>ParamArrayAttribute</c>。曾尝试把这两个维度编码进签名文本（比照非枚举 const 字段
+        /// 值内联同一治理逻辑），但用 `dist/ws-game-1.12.0.zip` 基线重跑当前工作树时产生 5 处假
+        /// 破坏：`FieldSchema`/`EconomyContentValidationRule`/`LootContentValidationRule`/
+        /// `SkillHost`/`ViewBinder` 的公开构造函数在新增尾部可选参数时，框架统一采用"新增一个更
+        /// 长的可选参数重载，同时保留原始定长参数表的旧重载（该旧重载参数改为不带默认值，仅保留
+        /// 类型，作为纯粹的物理兼容 shim）"模式——旧编译调用方在编译期已经把省略的实参展开成显式
+        /// 值，物理上调用的正是这个保留的定长重载，从未因为它"不再声明默认值"而失败；但按值/存在
+        /// 性编码后，旧签名文本（帶 `!opt=`）与新保留重载的文本（不带 `!opt=`）不再逐字节相同，
+        /// 被规则 1 误判成"旧签名消失"。这证明该维度的变化不构成二进制破坏，也不是本工具其余
+        /// "值内联进调用方 IL"类目（const 字段）的同类问题，因此故意不编码，避免制造噪音。
         /// </summary>
         public static string FormatParameters(ParameterInfo[] parameters)
         {
@@ -88,6 +104,21 @@ namespace Toolchain.AbiSurface
                 sb.Append(Format(parameters[i].ParameterType));
             }
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 字面量值的文本化——非枚举 const 字段（<see cref="SurfaceDumper.FormatConstValue"/>）
+        /// 复用同一套格式。之所以单独抽出（即使当前只有一处调用方），是为了让"值文本化规则"与
+        /// "是否编码进签名"两件事分开维护：上面 <see cref="FormatParameters"/> 判断记录说明了为
+        /// 什么可选参数默认值不编码进参数签名，但 const 字段值仍然需要编码（const 值是真正内联进
+        /// 调用方 IL 的字面量，与可选参数默认值的语法糖性质不同），两处共用同一套值文本化格式。
+        /// </summary>
+        internal static string FormatLiteralValue(object? raw)
+        {
+            if (raw == null) return "null";
+            if (raw is bool b) return b ? "true" : "false";
+            if (raw is string s) return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+            return Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture) ?? raw.ToString() ?? "?";
         }
     }
 }

@@ -1,0 +1,2 @@
+platform=EditMode filter= exit=0 xml=D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\unity-evidence2\full-edit.xml log=D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\unity-evidence2\logs\full-edit.log
+platform=PlayMode filter= exit=0 xml=D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\unity-evidence2\full-play.xml log=D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\unity-evidence2\logs\full-play.log

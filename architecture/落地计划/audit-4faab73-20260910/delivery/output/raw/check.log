@@ -1,0 +1,284 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20260910205221
+Username: ONCE20240717\ONCE
+RunAs User: ONCE20240717\ONCE
+Configuration Name: 
+Machine: ONCE20240717 (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\check.ps1 -SkipUnity -ArtifactsPath D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check -LogFile D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\raw\check.log
+Process ID: 25384
+PSVersion: 5.1.26100.9444
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9444
+BuildVersion: 10.0.26100.9444
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+==== 门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定 ====
+F1_SELF_CHECK_PROBE
+F1_SELF_CHECK_PROBE
+[Test-NativeExitCode] 可执行文件 '__ws_game_check_missing_executable__' 未找到（不在 PATH 中，或路径不存在），判定为 FAIL
+[门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定] 通过，用时 1.2s
+
+==== dotnet build Core.sln -c Release ====
+  正在确定要还原的项目…
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\core\carriers\Core.Carriers.csproj (用时 40 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\core\foundation\Core.Foundation.csproj (用时 38 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\core\gameplay\Core.Gameplay.csproj (用时 40 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\core\numbers\Core.Numbers.csproj (用时 39 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\core\rules\Core.Rules.csproj (用时 40 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\toolchain\validator\Validator.csproj (用时 40 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\presentation\Presentation.Common.csproj (用时 40 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\adapters\stub\Adapters.Stub.csproj (用时 39 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\core\carriers\tests\Tests.Carriers.csproj (用时 915 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\core\numbers\tests\Tests.Numbers.csproj (用时 916 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\core\foundation\tests\Tests.Foundation.csproj (用时 916 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\core\rules\tests\Tests.Rules.csproj (用时 916 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\core\gameplay\tests\Tests.Gameplay.csproj (用时 916 毫秒)。
+  已还原 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\presentation\tests\Tests.PresentationCommon.csproj (用时 916 毫秒)。
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Core.Foundation\release\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Core.Numbers\release\Core.Numbers.dll
+  Adapters.Stub -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Adapters.Stub\release\Adapters.Stub.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Core.Rules\release\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Core.Carriers\release\Core.Carriers.dll
+  Tests.Numbers -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.Numbers\release\Tests.Numbers.dll
+  Tests.Rules -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.Rules\release\Tests.Rules.dll
+  Tests.Foundation -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.Foundation\release\Tests.Foundation.dll
+  Core.Gameplay -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Core.Gameplay\release\Core.Gameplay.dll
+  Tests.Carriers -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.Carriers\release\Tests.Carriers.dll
+  Presentation.Common -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Presentation.Common\release\Presentation.Common.dll
+  Validator -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Validator\release\Validator.dll
+  Tests.PresentationCommon -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.PresentationCommon\release\Tests.PresentationCommon.dll
+  Tests.Gameplay -> D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.Gameplay\release\Tests.Gameplay.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:06.66
+[dotnet build Core.sln -c Release] 通过，用时 6.8s
+
+==== dotnet test Core.sln -c Release --no-build（六工程，含 Perf 类别） ====
+D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.Numbers\release\Tests.Numbers.dll (.NETCoreApp,Version=v8.0)的测试运行
+D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.Foundation\release\Tests.Foundation.dll (.NETCoreApp,Version=v8.0)的测试运行
+D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.Carriers\release\Tests.Carriers.dll (.NETCoreApp,Version=v8.0)的测试运行
+D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.Gameplay\release\Tests.Gameplay.dll (.NETCoreApp,Version=v8.0)的测试运行
+D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.PresentationCommon\release\Tests.PresentationCommon.dll (.NETCoreApp,Version=v8.0)的测试运行
+D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\bin\Tests.Rules\release\Tests.Rules.dll (.NETCoreApp,Version=v8.0)的测试运行
+VSTest 版本 17.11.1 (x64)
+
+VSTest 版本 17.11.1 (x64)
+
+VSTest 版本 17.11.1 (x64)
+VSTest 版本 17.11.1 (x64)
+
+
+VSTest 版本 17.11.1 (x64)
+VSTest 版本 17.11.1 (x64)
+
+
+正在启动测试执行，请稍候...
+正在启动测试执行，请稍候...
+正在启动测试执行，请稍候...
+正在启动测试执行，请稍候...
+正在启动测试执行，请稍候...
+正在启动测试执行，请稍候...
+总共 1 个测试文件与指定模式相匹配。
+总共 1 个测试文件与指定模式相匹配。
+总共 1 个测试文件与指定模式相匹配。
+总共 1 个测试文件与指定模式相匹配。
+总共 1 个测试文件与指定模式相匹配。
+总共 1 个测试文件与指定模式相匹配。
+
+已通过! - 失败:     0，通过:   852，已跳过:     0，总计:   852，持续时间: 75 ms - Tests.Foundation.dll (net8.0)
+
+已通过! - 失败:     0，通过:   127，已跳过:     0，总计:   127，持续时间: 88 ms - Tests.Numbers.dll (net8.0)
+
+已通过! - 失败:     0，通过:   398，已跳过:     0，总计:   398，持续时间: 129 ms - Tests.Carriers.dll (net8.0)
+
+已通过! - 失败:     0，通过:   454，已跳过:     0，总计:   454，持续时间: 86 ms - Tests.Rules.dll (net8.0)
+
+已通过! - 失败:     0，通过:   564，已跳过:     0，总计:   564，持续时间: 111 ms - Tests.PresentationCommon.dll (net8.0)
+
+已通过! - 失败:     0，通过:   650，已跳过:     0，总计:   650，持续时间: 2 s - Tests.Gameplay.dll (net8.0)
+[dotnet test Core.sln -c Release --no-build（六工程，含 Perf 类别）] 通过，用时 6.2s
+
+==== ABI 探针（toolchain/abi_probe.ps1） ====
+[ABI 探针（toolchain/abi_probe.ps1）] 已跳过：基线发行包不存在（详见 D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\abi_probe.log）
+
+==== python toolchain/validate_data.py --strict（合并根） ====
+覆盖清单（1 条，见 data/README.md"多根加载与合并规则"）：
+  [override] arch.power_type[arch.power.health]: "D:/workespace/ws-game-artifacts/audit-4faab73-frozen/data/_sample/arch/arch.power_type.json" 覆盖 "D:/workespace/ws-game-artifacts/audit-4faab73-frozen/data/_framework/arch/arch.power_type.json"
+tables 60, records 290, errors 0, warnings 0, overrides 1
+optional rules disabled: SpawnSummonOnlyCreatureRule, DisplayMapCoverageRule
+[第一道·骨架检查] checked 61 files across 2 root(s), 0 errors
+[第二道·真实校验] 未找到预编译的 toolchain/validator/bin/Validator.dll，现场编译运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: C:\Program Files\dotnet\dotnet.EXE run --project D:\workespace\ws-game-artifacts\audit-4faab73-frozen\toolchain\validator -- --data-root D:\workespace\ws-game-artifacts\audit-4faab73-frozen\data\_framework --data-root D:\workespace\ws-game-artifacts\audit-4faab73-frozen\data\_sample --strict
+[python toolchain/validate_data.py --strict（合并根）] 通过，用时 3.8s
+
+==== python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验） ====
+[warning] arch.power_type/arch.power.health/name_key: text_key_exists: l10n.text 表未加载，跳过文本键存在性检查
+tables 5, records 124, errors 0, warnings 1, overrides 0
+optional rules disabled: SpawnSummonOnlyCreatureRule, DisplayMapCoverageRule
+[第一道·骨架检查] checked 5 files across 1 root(s), 0 errors
+[第二道·真实校验] 未找到预编译的 toolchain/validator/bin/Validator.dll，现场编译运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: C:\Program Files\dotnet\dotnet.EXE run --project D:\workespace\ws-game-artifacts\audit-4faab73-frozen\toolchain\validator -- --data-root D:\workespace\ws-game-artifacts\audit-4faab73-frozen\data\_framework
+[python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验）] 通过，用时 1.4s
+
+==== 元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4） ====
+tables 63, fields 783, errors 0, warnings 0
+[元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4）] 通过，用时 1.1s
+
+==== python toolchain/gen_event_constants.py --check ====
+check 通过：90 个常量与 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\core\foundation\event_bus\generated\EventKeys.g.cs 一致
+[python toolchain/gen_event_constants.py --check] 通过，用时 0.1s
+
+==== python toolchain/gen_placeholder_assets.py --check ====
+--check 完成：通过 92 / 92，失败 0
+[python toolchain/gen_placeholder_assets.py --check] 通过，用时 0.3s
+
+==== python toolchain/import_assets.py check --dataset _sample ====
+[check] dataset=_sample only=sfx,sprite,vfx,world: 检查 10 条 display.map / 3 条 vfx.def / 3 条 sfx.def / 1 条 world.map，发现 0 个问题
+[python toolchain/import_assets.py check --dataset _sample] 通过，用时 0.2s
+
+==== python toolchain/format_data.py --schema-order --check（消费方反馈 E11） ====
+[format_data.py --schema-order --check] 共检查 61 个文件，需要重排 0 个
+[python toolchain/format_data.py --schema-order --check（消费方反馈 E11）] 通过，用时 1.3s
+
+==== python -m pytest toolchain/tests -q ====
+...........................s...................................ss....... [ 40%]
+........................................................................ [ 80%]
+..........................s.........                                     [100%]
+176 passed, 4 skipped in 53.28s
+[python -m pytest toolchain/tests -q] 通过，用时 53.9s
+
+==== 禁用词扫描：全仓库不出现具体游戏代号 ====
+[禁用词扫描：全仓库不出现具体游戏代号] 通过，用时 2.7s
+
+==== 禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外） ====
+[禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）] 通过，用时 0s
+
+==== 工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7） ====
+[工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7）] 通过，用时 0.6s
+
+==== 版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md ====
+[版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md] 通过，用时 0.1s
+
+==== build.ps1 -SkipTests（同步 DLL） ====
+[build.ps1 -SkipTests（同步 DLL）] 通过，用时 4.2s
+
+==== 包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则） ====
+-Dist auto：从 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\VERSION 读取版本号 -> 1.16.2
+
+==== 已启用 -SyncOnly：跳过 dotnet build/test ====
+
+==== 同步核心 DLL 到 Runtime/Plugins/Core/（哈希不同才拷贝） ====
+  [跳过] Core.Foundation.dll  (272384 bytes，内容未变化）
+  [跳过] Core.Numbers.dll  (64512 bytes，内容未变化）
+  [跳过] Core.Rules.dll  (233472 bytes，内容未变化）
+  [跳过] Core.Carriers.dll  (173056 bytes，内容未变化）
+  [跳过] Core.Gameplay.dll  (307200 bytes，内容未变化）
+  [跳过] Presentation.Common.dll  (211456 bytes，内容未变化）
+已同步 0 个 / 跳过 6 个
+Runtime/Plugins/Core/ 下 DLL 数量核对通过：6
+
+==== 同步内容数据集到 StreamingAssets/GameFoundation/（哈希不同才拷贝，镜像删除源目录已不存在的文件） ====
+  data/_framework -> StreamingAssets/GameFoundation/data/_framework：共 5 个文件，拷贝 0，跳过 5，删除 0
+  data/_sample -> StreamingAssets/GameFoundation/data/_sample：共 57 个文件，拷贝 0，跳过 57，删除 0
+  games/_template/data/game -> StreamingAssets/GameFoundation/data/game（模板自带最小数据集，供模板 PlayMode 测试使用）：共 37 个文件，拷贝 0，跳过 37，删除 0
+  assets/_placeholder -> StreamingAssets/GameFoundation/assets/_placeholder（整体镜像）：共 97 个文件，拷贝 0，跳过 97，删除 0
+  assets/_placeholder/sprites + assets/_sample/sprites -> StreamingAssets/GameFoundation/sprites（加载器路径规则，见 toolchain/resource_layout_map.json）：共 95 个文件，拷贝 0，跳过 95，删除 0
+  assets/_placeholder/sfx + assets/_sample/sfx -> StreamingAssets/GameFoundation/audio（加载器路径规则，见 toolchain/resource_layout_map.json）：共 13 个文件，拷贝 0，跳过 13，删除 0
+  assets/_placeholder/vfx + assets/_sample/vfx -> StreamingAssets/GameFoundation/vfx（加载器路径规则，见 toolchain/resource_layout_map.json）：共 36 个文件，拷贝 0，跳过 36，删除 0
+StreamingAssets/GameFoundation/ 下文件总数（含以上五棵树的并集，sprites/audio/vfx 与 assets/_placeholder 下同名文件各自独立计数）：344
+  assets/_placeholder/fonts/*.otf|*.ttf -> Assets/Framework/Resources/Fonts（字体资源 id -> 路径规则）：共 1 个文件，拷贝 0，跳过 1，删除 0
+  已生成占位场景资源：D:\workespace\ws-game-artifacts\audit-4faab73-frozen\adapters\unity\Assets\StreamingAssets\GameFoundation\scene\sample_field.json（scene.sample_field）
+  已生成占位导航资源：D:\workespace\ws-game-artifacts\audit-4faab73-frozen\adapters\unity\Assets\StreamingAssets\GameFoundation\nav_mesh\sample_field.json（nav.sample_field）
+  已生成占位场景资源：D:\workespace\ws-game-artifacts\audit-4faab73-frozen\adapters\unity\Assets\StreamingAssets\GameFoundation\scene\template_field.json（scene.template_field，供 games/_template 测试用）
+  已生成占位导航资源：D:\workespace\ws-game-artifacts\audit-4faab73-frozen\adapters\unity\Assets\StreamingAssets\GameFoundation\nav_mesh\template_field.json（nav.template_field，供 games/_template 测试用）
+
+==== 打分发包 dist/1.16.2/ ====
+  adapters\unity\Packages\com.gamefoundation.adapter.unity -> dist\1.16.2\adapters\unity\Packages\com.gamefoundation.adapter.unity  (218 files)
+  games\_template -> dist\1.16.2\games\_template  (84 files)
+  toolchain -> dist\1.16.2\toolchain  (64 files)
+  assets\_placeholder -> dist\1.16.2\assets\_placeholder  (97 files)
+  data\_framework -> dist\1.16.2\data\_framework  (5 files)
+  adapters\unity\Assets\TextMesh Pro -> dist\1.16.2\assets\textmesh_pro_essentials  (81 files)
+
+==== 补齐 dist\1.16.2\...\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\{models,anim_clips} 与 Editor 生成器（PJ130-02 根治） ====
+  已补齐 model/anim_clips 占位资产 + 生成器 -> dist\1.16.2\adapters\unity\Packages\com.gamefoundation.adapter.unity\（当前共 234 files）
+
+==== 补齐 dist\1.16.2\toolchain\validator\lib\（P02 根治：独立包内 Validator 自包含所需的核心 DLL） ====
+  已补齐 6 个核心 DLL -> dist\1.16.2\toolchain\validator\lib\
+
+==== 补齐 dist\1.16.2\adapters\headless\Adapters.Stub.dll（ADR-0018 决策 3：无头适配层交付） ====
+  已补齐 -> dist\1.16.2\adapters\headless\Adapters.Stub.dll + README.md（sha256=4c604d7414bd3a500b0f191edf8f6600b4dbf2cfd92859fa18838de130e5deee）
+
+==== 补齐 dist\1.16.2\toolchain\validator\bin\ + 空 Directory.Build.props（消费方反馈 E1 根治：预编译 validator，杜绝消费方构建设置污染） ====
+  已补齐 17 个文件 -> dist\1.16.2\toolchain\validator\bin\（Validator.dll sha256=746e53d44ae0753ddfe868813c56c456335c471bb61b0e43a3d06203a69efac9）+ 空 Directory.Build.props
+  已回写版本号 1.16.2 -> D:\workespace\ws-game-artifacts\audit-4faab73-frozen\dist\1.16.2\adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json
+  已回写版本号 1.16.2 -> D:\workespace\ws-game-artifacts\audit-4faab73-frozen\dist\1.16.2\games\_template\package.json
+
+==== 打四个 npm 包（私服交付通道）：dist\1.16.2\packages\ ====
+  已组装 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\dist\1.16.2\packages\com.gamefoundation.adapter.unity
+  已组装 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\dist\1.16.2\packages\com.gamefoundation.framework-data
+  已组装 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\dist\1.16.2\packages\com.gamefoundation.toolchain
+  已组装 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\dist\1.16.2\packages\com.gamefoundation.adapter.headless
+  已生成 4 个 .tgz：com.gamefoundation.adapter.headless-1.16.2.tgz, com.gamefoundation.adapter.unity-1.16.2.tgz, com.gamefoundation.framework-data-1.16.2.tgz, com.gamefoundation.toolchain-1.16.2.tgz
+已生成 D:\workespace\ws-game-artifacts\audit-4faab73-frozen\dist\1.16.2\MANIFEST.txt
+
+build.ps1 完成。
+[包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）] 通过，用时 10s
+
+==== Unity 编译检查 ====
+已跳过：-SkipUnity
+
+==== Unity EditMode 测试 ====
+已跳过：-SkipUnity
+
+==== Unity PlayMode 测试 ====
+已跳过：-SkipUnity
+
+==== 独立版构建 + -gf-smoke 冒烟（连续模式默认流程） ====
+已跳过：-SkipUnity
+
+==== 独立版 -gf-smoke-discrete 冒烟（离散模式链路） ====
+已跳过：-SkipUnity
+
+==== 消费方演练 ====
+已跳过：-SkipUnity
+
+==== 汇总 ====
+
+Step                                                                     Result Seconds Detail                                                                                                          
+----                                                                     ------ ------- ------                                                                                                          
+门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定                                  PASS       1.2                                                                                                                 
+dotnet build Core.sln -c Release                                         PASS       6.8                                                                                                                 
+dotnet test Core.sln -c Release --no-build（六工程，含 Perf 类别）                PASS       6.2                                                                                                                 
+ABI 探针（toolchain/abi_probe.ps1）                                          SKIP       0.8 基线发行包不存在（详见 D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\output\build\check\abi_probe.log）   
+python toolchain/validate_data.py --strict（合并根）                          PASS       3.8                                                                                                                 
+python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验） PASS       1.4                                                                                                                 
+元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4）              PASS       1.1                                                                                                                 
+python toolchain/gen_event_constants.py --check                          PASS       0.1                                                                                                                 
+python toolchain/gen_placeholder_assets.py --check                       PASS       0.3                                                                                                                 
+python toolchain/import_assets.py check --dataset _sample                PASS       0.2                                                                                                                 
+python toolchain/format_data.py --schema-order --check（消费方反馈 E11）        PASS       1.3                                                                                                                 
+python -m pytest toolchain/tests -q                                      PASS      53.9                                                                                                                 
+禁用词扫描：全仓库不出现具体游戏代号                                                       PASS       2.7                                                                                                                 
+禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）                        PASS         0                                                                                                                 
+工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7）                       PASS       0.6                                                                                                                 
+版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md          PASS       0.1 VERSION=1.16.2，两个 package.json、packages-lock.json 与 CHANGELOG.md 一致                                             
+build.ps1 -SkipTests（同步 DLL）                                             PASS       4.2                                                                                                                 
+包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）                            PASS        10 四个包 version=1.16.2 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器，toolchain 包含预编译 validator
+Unity 编译检查                                                               SKIP         0 -SkipUnity                                                                                                      
+Unity EditMode 测试                                                        SKIP         0 -SkipUnity                                                                                                      
+Unity PlayMode 测试                                                        SKIP         0 -SkipUnity                                                                                                      
+独立版构建 + -gf-smoke 冒烟（连续模式默认流程）                                           SKIP         0 -SkipUnity                                                                                                      
+独立版 -gf-smoke-discrete 冒烟（离散模式链路）                                        SKIP         0 -SkipUnity                                                                                                      
+消费方演练                                                                    SKIP         0 -SkipUnity
+门禁通过：全部 24 步（总用时 94.7s）。
+**********************
+Windows PowerShell transcript end
+End time: 20260910205356
+**********************
