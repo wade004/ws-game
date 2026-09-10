@@ -56,8 +56,13 @@ namespace Core.Numbers.StatBlock
                     {
                         new FieldSchema("level", FieldKind.Int, required: true,
                             description: "等级"),
+                        // 依据（ADR-0021）：StatHost.DivideByPointsPerPercent（core/StatHost.cs :507-510）
+                        // 对 pointsPerPercent == 0 特判返回 0（而不是抛除零异常），是"内容错误被静默
+                        // 降级"的同款模式（同 skill.def.interval<=0 的消费方反馈）；负值同样没有
+                        // "每 1% 需要 -N 点评级"的合理含义。登记 > 0，把这类内容错误提前到加载期。
                         new FieldSchema("points_per_percent", FieldKind.Number, required: true,
-                            description: "该等级下每 1% 效果所需的评级点数"),
+                            description: "该等级下每 1% 效果所需的评级点数，> 0")
+                            .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
                     }, description: "单级评级换算条目"),
                     description: "[{level: Int, points_per_percent: Number}, ...]，按 level 升序" +
                         "（StatHost.LoadRatingConversions 对缺失 level/points_per_percent 抛异常，两者均必填）"),

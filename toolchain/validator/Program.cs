@@ -210,6 +210,17 @@ namespace Toolchain.Validator
                     {
                         var count = report.IsBlocking ? -1 : run.Registry.GetAll(table).Count;
                         Console.WriteLine(count < 0 ? $"table: {table} (? 条记录，数据未通过校验)" : $"table: {table} ({count} 条记录)");
+
+                        // ADR-0021 决策 4："导出给内容工具"：把该表已登记的字段范围约束一并列出
+                        // （供人工核对/编辑器接入前的手工检查），见 SchemaFieldRangeExport 判断记录。
+                        var schema = run.Registry.GetSchema(table);
+                        if (schema != null)
+                        {
+                            foreach (var r in SchemaFieldRangeExport.Collect(schema))
+                            {
+                                Console.WriteLine($"  range: {r.FieldPath}: {r.Kind} {r.Range.Describe()}");
+                            }
+                        }
                     }
                 }
 
@@ -417,8 +428,8 @@ namespace Toolchain.Validator
                     // 条目里追加的新增字段，不改动任何既有字段，--json 输出对不需要这份信息的
                     // 调用方保持逐字节兼容）。GetSchema 理论上不会返回 null（tablesForListing.Tables
                     // 枚举的都是已注册过 schema 的表名），仍防御性判空，避免这里意外抛异常。
-                    sb.Append("\"fields\":[");
                     var fieldSchema = tablesForListing.GetSchema(names[i]);
+                    sb.Append("\"fields\":[");
                     if (fieldSchema != null)
                     {
                         for (var j = 0; j < fieldSchema.Fields.Count; j++)
@@ -428,6 +439,23 @@ namespace Toolchain.Validator
                         }
                     }
                     sb.Append(']');
+                    sb.Append(',');
+
+                    // ADR-0021 决策 4："导出给内容工具"：随每张表一并输出已登记的字段范围约束
+                    // （SchemaFieldRangeExport 判断记录），编辑器可据此在内容作者输入时就地校验，
+                    // 不必等到一次完整的 DataRegistry.LoadAll。
+                    sb.Append("\"field_ranges\":[");
+                    if (fieldSchema != null)
+                    {
+                        var ranges = SchemaFieldRangeExport.Collect(fieldSchema);
+                        for (var r = 0; r < ranges.Count; r++)
+                        {
+                            if (r > 0) sb.Append(',');
+                            AppendFieldRangeJson(sb, ranges[r]);
+                        }
+                    }
+                    sb.Append(']');
+
                     sb.Append('}');
                 }
                 sb.Append("],");
@@ -480,6 +508,20 @@ namespace Toolchain.Validator
             sb.Append("\"record_key\":\"").Append(JsonEscape(diag.RecordKey)).Append("\",");
             sb.Append("\"overriding_location\":\"").Append(JsonEscape(diag.OverridingLocation)).Append("\",");
             sb.Append("\"overridden_location\":\"").Append(JsonEscape(diag.OverriddenLocation)).Append('"');
+            sb.Append('}');
+        }
+
+        private static void AppendFieldRangeJson(StringBuilder sb, FieldRangeInfo info)
+        {
+            var range = info.Range;
+            sb.Append('{');
+            sb.Append("\"field_path\":\"").Append(JsonEscape(info.FieldPath)).Append("\",");
+            sb.Append("\"kind\":\"").Append(JsonEscape(info.Kind)).Append("\",");
+            sb.Append("\"min\":").Append(range.Min.HasValue ? range.Min.Value.ToString(CultureInfo.InvariantCulture) : "null").Append(',');
+            sb.Append("\"min_exclusive\":").Append(range.MinExclusive ? "true" : "false").Append(',');
+            sb.Append("\"max\":").Append(range.Max.HasValue ? range.Max.Value.ToString(CultureInfo.InvariantCulture) : "null").Append(',');
+            sb.Append("\"max_exclusive\":").Append(range.MaxExclusive ? "true" : "false").Append(',');
+            sb.Append("\"describe\":\"").Append(JsonEscape(range.Describe())).Append('"');
             sb.Append('}');
         }
 

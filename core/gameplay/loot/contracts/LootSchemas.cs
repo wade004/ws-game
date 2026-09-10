@@ -19,11 +19,22 @@ namespace Core.Gameplay.Loot
     /// 存在性校验保留为 <see cref="LootContentValidationRule"/> 的手写业务判断（惯例同
     /// <c>core/gameplay/spawn.SpawnContentRefRule</c> 对 <c>spawn.table.content_ref</c> 的处理）。
     /// <c>count_range</c> 登记为带 <c>Fields</c> 的 Object（<c>min</c>/<c>max</c> 均
-    /// <see cref="FieldKind.Int"/> 必填）；<c>min&lt;=max</c>、<c>min&gt;=1</c> 属于登记表达不了的
-    /// 数值范围约束，同样保留为业务判断。<c>weight_or_chance</c> 的合法区间随所属分组的
-    /// <c>roll_mode</c>（同一 <c>entries</c> 元素登记里看不到父级 <c>roll_mode</c> 取值）变化，
-    /// 同理保留为业务判断。<c>pick_count&gt;=1</c>、<c>guaranteed_min&gt;=0</c> 同属数值范围约束，
-    /// 保留为业务判断。嵌套 <c>loot.*</c> 引用成环检测（DFS）是跨记录判断，登记无法表达，保留。
+    /// <see cref="FieldKind.Int"/> 必填）；<c>min&lt;=max</c> 是跨字段约束，<see cref="FieldSchema.Range"/>
+    /// 表达不了（只能约束单个字段自身），保留为业务判断。<c>weight_or_chance</c> 的合法区间随所属
+    /// 分组的 <c>roll_mode</c>（同一 <c>entries</c> 元素登记里看不到父级 <c>roll_mode</c> 取值）
+    /// 变化，同理保留为业务判断（一个字段不能同时登记两个互斥的固定区间）。嵌套 <c>loot.*</c> 引用
+    /// 成环检测（DFS）是跨记录判断，登记无法表达，保留。
+    /// <para>
+    /// ADR-0021 补登（04 第 4 节勘误"范围约束"）：<c>min&gt;=1</c>、<c>pick_count&gt;=1</c>、
+    /// <c>guaranteed_min&gt;=0</c> 三处此前因 <see cref="FieldSchema"/> 尚无 Range 能力而只能退回
+    /// 业务判断（<see cref="LootContentValidationRule"/>），现已用 <see cref="FieldSchema.WithRange"/>
+    /// 补登为加载期 <c>field_range</c> 阻断——与 <see cref="LootContentValidationRule"/> 里同名判断
+    /// 并存（不是互斥选一个）：后者除了下界还兼顾 <c>min&lt;=max</c> 等跨字段/跨记录判断，删掉会丢失
+    /// 那部分；单字段下界交给登记表在更早的阶段（字段级校验先于 <see cref="IValidationRule"/> 跑，
+    /// 见 <c>DataRegistry.RunFieldValidation</c>）挡住，违规数据会同时看到 <c>field_range</c> 与
+    /// <c>loot_content</c> 两条消息，不是回归（既有测试用 <c>Assert.Contains</c> 断言存在性，不断言
+    /// 唯一性，见 <c>LootSchemaCoverageTests</c>）。
+    /// </para>
     /// 详见 README"子结构登记表（ADR-0019 / F1b）"一节、<see cref="LootContentValidationRule"/>
     /// 类型注释"退役说明"。
     /// </para>
@@ -35,7 +46,8 @@ namespace Core.Gameplay.Loot
             description: "{min: Int, max: Int}；1<=min<=max 是登记表达不了的数值范围约束，见 LootContentValidationRule",
             fields: new[]
             {
-                new FieldSchema("min", FieldKind.Int, required: true, description: "掉落数量下限"),
+                new FieldSchema("min", FieldKind.Int, required: true, description: "掉落数量下限")
+                    .WithRange(FieldRange.Range(min: 1)), // 依据：LootContentValidationRule 既有 "min>=1" 判断（见类型注释）。
                 new FieldSchema("max", FieldKind.Int, required: true, description: "掉落数量上限"),
             });
 
@@ -62,7 +74,8 @@ namespace Core.Gameplay.Loot
                     enumValues: new[] { "chance_each", "weighted_pick_one" },
                     description: "chance_each：每条按自身概率独立判定；weighted_pick_one：按权重从条目中抽取"),
                 new FieldSchema("pick_count", FieldKind.Int, required: false,
-                    description: "weighted_pick_one 下可选多次抽取；>=1 是登记表达不了的数值范围约束，见 LootContentValidationRule"),
+                    description: "weighted_pick_one 下可选多次抽取；>=1，见 LootContentValidationRule 同名判断")
+                    .WithRange(FieldRange.Range(min: 1)),
                 new FieldSchema("entries", FieldKind.Array, required: true, item: EntryItem,
                     description: "本组候选掉落条目列表，见 LootEntry"),
             });
@@ -78,7 +91,8 @@ namespace Core.Gameplay.Loot
                 new FieldSchema("groups", FieldKind.Array, required: true, item: GroupItem,
                     description: "List<LootGroup>，见 08 第 1.1 节，子结构登记见本类型注释"),
                 new FieldSchema("guaranteed_min", FieldKind.Int, required: false,
-                    description: "保底计数：本表整体至少掉落的条目数；>=0 是登记表达不了的数值范围约束，见 LootContentValidationRule"),
+                    description: "保底计数：本表整体至少掉落的条目数；>=0，见 LootContentValidationRule 同名判断")
+                    .WithRange(FieldRange.Range(min: 0)),
             });
     }
 }

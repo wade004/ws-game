@@ -35,6 +35,29 @@ namespace Core.Foundation.DataRegistry
 
         public string? Description { get; }
 
+        private FieldRange? _range;
+
+        /// <summary>ADR-0021（04 第 4 节勘误）：仅对 <see cref="FieldKind.Number"/>/
+        /// <see cref="FieldKind.Int"/> 字段有意义的数值范围约束，由 <see cref="WithRange"/> 事后登记
+        /// （不进构造函数——见类型顶部 ABI 兼容判断记录，构造函数已因"新增参数即产生新物理签名"的
+        /// 教训而冻结，新能力一律用新增成员/新构造重载承载，不再改动既有构造函数的参数列表）。
+        /// 是否"仅数值种类可设"不在这里检查：<see cref="WithRange"/> 允许挂在任意 <see cref="Kind"/>
+        /// 上，由 <c>SchemaAudit</c> 的自洽检查项负责事后报告——见 <see cref="FieldRange"/> 类型顶部
+        /// 判断记录。</summary>
+        public FieldRange? Range => _range;
+
+        /// <summary>登记 <see cref="Range"/>；只能设置一次（重复设置抛异常，防止后来的登记代码静默
+        /// 覆盖前面已登记的范围）。返回 <c>this</c> 便于链式调用，如
+        /// <c>new FieldSchema("interval", FieldKind.Number, required: true, description: "...")
+        /// .WithRange(FieldRange.Range(min: 0, minExclusive: true))</c>。</summary>
+        public FieldSchema WithRange(FieldRange range)
+        {
+            if (range == null) throw new ArgumentNullException(nameof(range));
+            if (_range != null) throw new InvalidOperationException($"字段 \"{Name}\"：Range 已设置，不可重复设置");
+            _range = range;
+            return this;
+        }
+
         /// <summary>仅 <see cref="FieldKind.Object"/> 可设：该对象的子字段清单，可递归嵌套
         /// <see cref="FieldKind.Object"/>/<see cref="FieldKind.Array"/>；与 <see cref="Variants"/>
         /// 互斥（见 ADR-0019）。</summary>

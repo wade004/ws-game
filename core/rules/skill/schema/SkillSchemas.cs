@@ -97,7 +97,14 @@ namespace Core.Rules.Skill
                 {
                     new FieldSchema("aura_def", FieldKind.Reference, required: true, referenceTable: "skill.aura_def",
                         description: "要施加的光环定义引用"),
-                    new FieldSchema("duration_override", FieldKind.Number, required: false, description: "覆盖 aura_def.duration"),
+                    new FieldSchema("duration_override", FieldKind.Number, required: false, description: "覆盖 aura_def.duration")
+                        .WithRange(FieldRange.Range(min: 0)),
+                    // 依据（ADR-0021、消费方反馈 2026-09-10"技能效果参数数值范围校验改进建议"）：
+                    // EffectDispatcher.ApplyAuraEffectPrimitive（本文件同目录 core/EffectDispatcher.cs :235）
+                    // 原样把 duration_override 转发给 AuraHost.ApplyAura 作为光环剩余时长——负值会
+                    // 产生一个负的剩余持续时间，语义上不可能存在（"持续 -1 秒"没有意义）；省略该字段
+                    // 时沿用 aura_def.duration（可空=永久），这条既有约定不受本次登记影响。0 合法
+                    // （代表极短/几乎立即到期的光环，登记层不禁止这种边界用法）。
                 }, "对目标施加一个光环实例，见 aura_def/duration_override 子字段"),
 
                 [EffectKindNames.ToText(EffectKind.Dispel)] = ParamsCase(required: true, new[]
@@ -326,7 +333,13 @@ namespace Core.Rules.Skill
 
         private static IReadOnlyList<FieldSchema> PeriodicParamsCase(string description) => ParamsCase(required: true, new[]
         {
-            new FieldSchema("interval", FieldKind.Number, required: true, description: "周期间隔，以时间单位计（见判断记录）"),
+            // 依据（ADR-0021、消费方反馈 2026-09-10"技能效果参数数值范围校验改进建议"）：
+            // AuraHost.Update（core/AuraHost.cs :377-381）对折算后的 interval <= 0 直接跳过本次周期
+            // 结算（"周期效果整体不生效"）——interval<=0 在登记表层面就是内容错误（作者本意是"每隔
+            // N 单位触发一次"，<=0 无法表达任何有意义的周期），此前只能在运行期被静默吞掉，登记范围
+            // 后改为加载期 0 error 阻断，见 AuraHost.Update 分支旁新增诊断判断记录。
+            new FieldSchema("interval", FieldKind.Number, required: true, description: "周期间隔，以时间单位计（见判断记录）")
+                .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
             new FieldSchema("base_value", FieldKind.Number, required: false, description: "缺省 0"),
             new FieldSchema("coefficient", FieldKind.Number, required: false, description: "缺省 0"),
             new FieldSchema("school", FieldKind.Id, required: true, description: "无缺省（见判断记录）"),
@@ -372,7 +385,18 @@ namespace Core.Rules.Skill
                 new FieldSchema("charges", FieldKind.Object, required: false,
                     fields: new[]
                     {
-                        new FieldSchema("max", FieldKind.Int, required: true, description: "最大充能次数"),
+                        // 依据（ADR-0021）：SkillValidationRules.ChargesMaxAtLeastOneRule（check
+                        // "charges_max_invalid"）既有判断"charges.max 必须是 >= 1 的整数"——该判断记录
+                        // 原文写"这条数值范围约束不是 FieldSchema.Fields 能表达的……登记层只保证 max
+                        // 是 Int，0 与负数同样是合法 Int"，是在 Range 能力加入之前写的，现已过时，
+                        // 补登为加载期 field_range；ChargesMaxAtLeastOneRule 保留（不重复移除，见
+                        // LootSchemas 类型注释同款判断记录）。
+                        new FieldSchema("max", FieldKind.Int, required: true, description: "最大充能次数，>= 1")
+                            .WithRange(FieldRange.Range(min: 1)),
+                        // recharge_time 的 <= 0 不登记 Range：CooldownTracker.StartCooldown 判断记录
+                        // 明确 0/负数被引擎解读为"即时恢复"这一合法语义（不是数据错误），只由
+                        // ChargesRechargeTimeZeroWarningRule 给 Warning 提醒复核，不能升级为阻断——
+                        // 与本次消费方反馈里"interval<=0 应阻断"是相反的既有设计结论，不能一概而论。
                         new FieldSchema("recharge_time", FieldKind.Number, required: true, description: "单次充能所需时间"),
                     },
                     description: "{max: Int, recharge_time: Number}"),
@@ -414,7 +438,11 @@ namespace Core.Rules.Skill
                 new FieldSchema("condition", FieldKind.Expr, required: false, description: "触发条件"),
                 new FieldSchema("trigger_skill", FieldKind.Id, required: true, description: "触发后释放的技能"),
                 new FieldSchema("internal_cooldown", FieldKind.Number, required: false, description: "触发器自身冷却"),
-                new FieldSchema("proc_chance", FieldKind.Number, required: true, description: "触发概率 0~1"),
+                // 依据（ADR-0021）：字段描述本身已明确"触发概率 0~1"；ProcHost.TryProc（core/ProcHost.cs
+                // :165 "roll >= attachment.Def.ProcChance"）把它当均匀分布 [0,1) 随机数的比较阈值使用，
+                // 越界值不会崩溃但会产生"必定触发/必定不触发"这类偏离概率语义的静默行为。
+                new FieldSchema("proc_chance", FieldKind.Number, required: true, description: "触发概率 0~1")
+                    .WithRange(FieldRange.Range(min: 0, max: 1)),
             });
 
         public static readonly string[] SpellModDimensionValues =

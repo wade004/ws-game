@@ -36,7 +36,7 @@ namespace Presentation.Assembly
 
         /// <summary>检查项名：<c>missing_description</c>/<c>composite_without_substructure</c>/
         /// <c>allowlist_entry_unused</c>/<c>reference_target_unknown</c>/<c>variant_shape</c>/
-        /// <c>unschematized_table</c>。</summary>
+        /// <c>unschematized_table</c>/<c>field_range_kind</c>（ADR-0021）。</summary>
         public string Check { get; }
 
         public string Message { get; }
@@ -298,6 +298,18 @@ namespace Presentation.Assembly
             {
                 issues.Add(new SchemaAuditIssue("error", tableName, path, "missing_description",
                     $"字段 \"{path}\" 缺少描述（FieldSchema.Description 为空/空白），需要中文一句话描述（含缺省值/单位/引用目标提示）"));
+            }
+
+            // ADR-0021（04 第 4 节勘误"范围约束"）自洽检查：Range 只对 Number/Int 字段有意义。
+            // FieldSchema.WithRange 刻意不在挂载时检查 Kind（见 FieldRange 类型顶部判断记录），
+            // 让"登记在错误种类字段上"停留在这里——一条可枚举、可被 --schema-audit 门禁与测试
+            // 断言的软失败，而不是启动路径上的一次性异常。min&lt;=max/端点合法这两条已经由
+            // FieldRange.Range 工厂在构造时无条件拒绝（同 Enum 必须有 EnumValues 的既有风格），
+            // 不可能有实例带着非法取值走到这里，因此本审计不重复检查。
+            if (field.Range != null && field.Kind != FieldKind.Number && field.Kind != FieldKind.Int)
+            {
+                issues.Add(new SchemaAuditIssue("error", tableName, path, "field_range_kind",
+                    $"字段 \"{path}\" 登记了 Range，但 Kind 为 {field.Kind}——Range 仅 Number/Int 字段可设"));
             }
 
             if (field.Kind == FieldKind.Reference)
