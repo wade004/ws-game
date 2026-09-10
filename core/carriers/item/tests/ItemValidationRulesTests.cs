@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Core.Carriers.Item;
 using Core.Foundation.Common;
@@ -181,16 +182,24 @@ namespace Tests.Carriers.Item
         }
 
         [Fact]
-        public void StackSizeRule_BelowOne_ReportsIssue()
+        public void StackSizeRule_BelowOne_NowCaughtBySchemaAlone_AtBuildTime()
         {
-            var view = BuildView(
+            // ADR-0021 收口：stack_size < 1 此前结构上仍是合法 Int（0/负数不违反 field_type），数值
+            // 范围只能靠 ItemStackSizeRule.CheckMin 拦下；ItemSchemas.Template 对 stack_size 登记
+            // min:1 后（见 ItemSchemas.cs stack_size 字段旁判断记录），同一批坏数据现在在
+            // TestSupport.BuildRegistry 内部的 registry.LoadAll() 就已经被 field_range 挡下
+            // （IsBlocking），该辅助方法按设计在夹具不干净时直接抛 InvalidOperationException（见类型
+            // 顶部判断记录），不再需要专门注册/调用 ItemStackSizeRule 才能观测到这条约束——
+            // ItemStackSizeRule.CheckMin 本身未退役（同 LootSchemas/EconomySchemas 判断记录，字段级
+            // Range 与业务规则并存），只是这个具体输入值现在两者会同时命中，无法用同一个输入值单独
+            // 触发其中一个而不触发另一个。
+            var ex = Assert.Throws<InvalidOperationException>(() => BuildView(
                 "[{\"id\": \"item.sample_bad_stack\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
                 " \"item_level\": 1, \"display_ref\": \"display.item.sample_bad_stack\", \"stack_size\": 0," +
-                " \"name_key\": \"l10n.item.sample_bad_stack\"}]");
+                " \"name_key\": \"l10n.item.sample_bad_stack\"}]"));
 
-            var issues = new ItemStackSizeRule().Validate(view).ToList();
-
-            Assert.Contains(issues, i => i.Check == ItemStackSizeRule.CheckMin);
+            Assert.Contains("field_range", ex.Message);
+            Assert.Contains("stack_size", ex.Message);
         }
 
         [Fact]

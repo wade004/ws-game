@@ -107,7 +107,11 @@ namespace Core.Carriers.Item
                     description: "指向 display.map；本模块不引用 display_info 模块类型，不做引用完整性检查"),
                 new FieldSchema("stack_size", FieldKind.Int, required: true,
                     description: "最大堆叠数量；装备类（slot 指向已登记 slot_definition）必须为 1" +
-                        "（见 ItemStackSizeRule 判断记录）"),
+                        "（见 ItemStackSizeRule 判断记录）；下限见同类型 ItemStackSizeRule.CheckMin")
+                    // 依据（ADR-0021）：ItemValidationRules.cs ItemStackSizeRule 既有判断
+                    // "stack_size ({stackSize}) 必须 >= 1"（CheckMin），装备类额外要求 == 1 是跨字段
+                    // 条件约束（依赖 slot 是否为已登记装备槽），登记表达不了，保留在该规则里。
+                    .WithRange(FieldRange.Range(min: 1)),
                 new FieldSchema("name_key", FieldKind.TextKey, required: true,
                     description: "显示名文本键（04 未展开，本模块实现期补录）"),
                 RequirementsSchema,

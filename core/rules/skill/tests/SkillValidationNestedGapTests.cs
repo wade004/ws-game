@@ -173,7 +173,7 @@ namespace Tests.Rules.Skill
         }
 
         [Fact]
-        public void ChargesMaxZero_CaughtByChargesMaxAtLeastOneRule()
+        public void ChargesMaxZero_CaughtBySchemaAlone_NoExtraRuleNeeded()
         {
             var skill = J.O(
                 ("id", J.S(SkillId.Value)),
@@ -186,18 +186,25 @@ namespace Tests.Rules.Skill
                 ("target_shape_ref", J.S("target.chain.svng_sample")),
                 ("effects", J.A()));
 
-            // charges.max == 0 结构上仍是合法 Int（0/负数不违反 field_type），schema 本身不会报错——
-            // 这条数值范围约束是登记表达不了的业务判断，须显式注册 ChargesMaxAtLeastOneRule。
+            // ADR-0021 收口：charges.max == 0 此前结构上仍是合法 Int（0/负数不违反 field_type），
+            // 数值范围只能靠额外注册的 ChargesMaxAtLeastOneRule 拦下（见该类型判断记录）；
+            // FieldSchema 补上 Range 能力后，SkillSchemas.Def 对 charges.max 登记
+            // min:1，同一批坏数据现在只靠 schema 本身（SkillWorldBuilder.Validate() 默认注册的
+            // RegisterSchema，不额外注册任何 IValidationRule）即可在加载阶段被 field_range 拦下，
+            // 与本文件其余测试"证明缺口已经被登记本身关闭"同一叙事。
             var schemaOnly = new SkillWorldBuilder().SkillDef(skill).Validate();
-            Assert.False(schemaOnly.IsBlocking, string.Join("; ", schemaOnly.Issues));
+            Assert.True(schemaOnly.IsBlocking);
+            Assert.Contains(schemaOnly.Issues, i => i.Check == "field_range" && i.Field == "charges.max");
 
-            var report = new SkillWorldBuilder()
+            // ChargesMaxAtLeastOneRule 未退役（同 LootContentValidationRule/EconomyContentValidationRule
+            // 判断记录：字段级 Range 与业务规则并存，不是互斥关系），显式注册仍会额外报告同一处坏数据。
+            var withRule = new SkillWorldBuilder()
                 .SkillDef(skill)
                 .ValidationRule(new ChargesMaxAtLeastOneRule())
                 .Validate();
 
-            Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "charges_max_invalid");
+            Assert.True(withRule.IsBlocking);
+            Assert.Contains(withRule.Issues, i => i.Check == "charges_max_invalid");
         }
 
         [Fact]

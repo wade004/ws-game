@@ -71,8 +71,12 @@ namespace Core.Rules.Targeting
                         description: "缺省 asc"),
                 },
                     description: "{key: distance|hp_pct|threat|level, direction: asc|desc}；省略 direction 时按 asc。"),
+                // 依据（ADR-0021）：TargetChainDef 构造函数（core/TargetChainDef.cs :91-95）对
+                // max_targets < 0 直接 throw DataFieldException（不是返回校验问题，是运行期异常）——
+                // 内容错误此前只能在这条链第一次被解析时才炸出来，登记范围后提前到加载期阻断。
                 new FieldSchema("max_targets", FieldKind.Int, required: false,
-                    description: "默认 1；0 表示不限。"),
+                    description: "默认 1；0 表示不限，不能为负数。")
+                    .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("fallback", FieldKind.Reference, required: false, referenceTable: "target.chain_def",
                     description: "候选为空时改用的另一条链；不得成环（见 ChainDefValidationRule）。"),
             });

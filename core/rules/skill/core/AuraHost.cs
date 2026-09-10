@@ -377,6 +377,16 @@ namespace Core.Rules.Skill
                     var interval = ParamsX.GetNumber(entry.Params, "interval") * _currentFactor;
                     if (interval <= 0)
                     {
+                        // ADR-0021 落地（消费方反馈 2026-09-10：技能效果参数数值范围校验改进建议）：
+                        // interval 现已在 skill.def 登记表登记 field_range（> 0），正常内容不可能
+                        // 加载出这个分支——本诊断只覆盖登记表校验之外的路径（如直接构造 AuraDef
+                        // 走内存数据源、绕过 DataRegistry.LoadAll 的单元测试/工具场景）。此前这里是
+                        // 纯静默 continue，把内容错误（interval<=0 本应在加载期被拦下）悄悄降级成
+                        // "光环没有周期效果"的运行期沉默，问题报告方从探针复跑里完全看不到任何提示。
+                        // 保留防御性跳过（不让一个非法 interval 崩溃整条 Update 循环），但先记一条
+                        // 诊断，行为语义不变（该周期效果依旧不生效）。
+                        _diagnostics.Warn(
+                            $"光环实例 \"{instance.InstanceId}\"（def \"{instance.DefId}\"）的周期效果 interval={interval.ToString(System.Globalization.CultureInfo.InvariantCulture)} <= 0，已跳过本次周期结算");
                         continue;
                     }
 

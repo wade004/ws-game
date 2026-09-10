@@ -24,9 +24,16 @@ namespace Core.Gameplay.Economy
     /// registry 里从未加载"而对现有全部测试数据误报（<c>ReferenceExists</c> 对未加载目标表恒
     /// 返回不存在），因此退回 <c>Id</c>，存在性核对保留为 <see cref="EconomyContentValidationRule"/>
     /// 的业务判断，仿照 <c>core/gameplay/spawn.SpawnContentRefRule</c>"目标表已加载才检查"的宽松惯例
-    /// （详见该类型注释）。<c>price_amount&gt;=0</c>、<c>stock_limit&gt;=0</c>、
-    /// <c>restock_policy=timer</c> 时 <c>restock_timer</c> 必填且 &gt;0，均为登记表达不了的数值
-    /// 范围/条件必填约束，保留为业务判断。
+    /// （详见该类型注释）。<c>restock_policy=timer</c> 时 <c>restock_timer</c> 必填且 &gt;0——"必填"
+    /// 与"&gt;0"两者都以 <c>restock_policy</c> 取值为条件，登记表达不了条件必填/条件范围，保留为
+    /// 业务判断。
+    /// </para>
+    /// <para>
+    /// ADR-0021 补登（04 第 4 节勘误"范围约束"）：<c>price_amount&gt;=0</c>、<c>stock_limit&gt;=0</c>、
+    /// <c>cap&gt;=0</c> 三处此前因 <see cref="FieldSchema"/> 尚无 Range 能力只能退回业务判断，现已用
+    /// <see cref="FieldSchema.WithRange"/> 补登为加载期 <c>field_range</c> 阻断；与
+    /// <see cref="EconomyContentValidationRule"/> 里同名判断并存的理由同 <c>LootSchemas</c> 类型注释
+    /// 的判断记录（不是互斥选一个，字段级校验更早拦截，不影响既有 <c>Assert.Contains</c> 断言）。
     /// </para>
     /// </summary>
     public static class EconomySchemas
@@ -39,7 +46,10 @@ namespace Core.Gameplay.Economy
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "econ.currency.<name>"),
                 new FieldSchema("name_key", FieldKind.TextKey, required: true, description: "货币显示名的本地化文本键"),
-                new FieldSchema("cap", FieldKind.Int, required: false, description: "上限，空表示无上限"),
+                new FieldSchema("cap", FieldKind.Int, required: false, description: "上限，空表示无上限")
+                    // 依据（ADR-0021）：EconomyHost.SetBalance/Add 文档明确按 "[0, cap]" 夹取余额
+                    // （core/EconomyHost.cs :190 "夹取到 [0, cap]"），cap 为负会使该区间本身非法。
+                    .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("display_ref", FieldKind.Id, required: true, description: "货币图标/展示资源引用 id"),
             });
 
@@ -53,9 +63,11 @@ namespace Core.Gameplay.Economy
                 new FieldSchema("price_currency_id", FieldKind.Reference, required: true,
                     referenceTable: "econ.currency", description: "计价所用的货币"),
                 new FieldSchema("price_amount", FieldKind.Int, required: true,
-                    description: ">=0 是登记表达不了的数值范围约束，见 EconomyContentValidationRule"),
+                    description: ">=0，见 EconomyContentValidationRule 同名判断")
+                    .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("stock_limit", FieldKind.Int, required: false,
-                    description: "限量；缺省不限量；>=0 是登记表达不了的数值范围约束，见 EconomyContentValidationRule"),
+                    description: "限量；缺省不限量；>=0，见 EconomyContentValidationRule 同名判断")
+                    .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("restock_policy", FieldKind.Enum, required: false,
                     enumValues: new[] { "on_map_enter", "timer" },
                     description: "补货时机：on_map_enter 进图时补货；timer 按 restock_timer 定时补货；缺省不补货"),

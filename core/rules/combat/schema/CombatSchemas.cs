@@ -38,7 +38,11 @@ namespace Core.Rules.Combat
             new FieldSchema("enabled", FieldKind.Bool, required: false, description: "缺省 false"),
             new FieldSchema("stat", FieldKind.Reference, required: false, referenceTable: "stat.definition",
                 description: "提供时概率取该属性当前值，缺省用 base 常量"),
-            new FieldSchema("base", FieldKind.Number, required: false, description: "缺省 0；须落在 [0,1]，见 CombatHitTableValidationRule"),
+            // 依据（ADR-0021）：CombatHitTableValidationRule 既有判断 "baseNum.Value < 0.0 ||
+            // baseNum.Value > 1.0"（check "hit_table_base_range" 一类，见该类型），与字段自身文档
+            // "须落在 [0,1]" 一致，补登为加载期 field_range；该规则保留（判断记录同 LootSchemas）。
+            new FieldSchema("base", FieldKind.Number, required: false, description: "缺省 0；须落在 [0,1]，见 CombatHitTableValidationRule")
+                .WithRange(FieldRange.Range(min: 0, max: 1)),
         };
 
         public static TableSchema HitTableConfig { get; } = new TableSchema(
@@ -63,10 +67,17 @@ namespace Core.Rules.Combat
                     description: "{enabled, stat?, base}，暴击判定分支，见 06 第 4.2 节"),
                 new FieldSchema("crit_multiplier_stat", FieldKind.Id, required: false,
                     description: "暴击倍率来源属性，未提供时用 crit_multiplier_base"),
+                // 依据（ADR-0021）：CombatHitTableValidationRule 既有判断
+                // "critMul < 0.0"（check "hit_table_crit_multiplier_base_range"）。
                 new FieldSchema("crit_multiplier_base", FieldKind.Number, required: false,
-                    description: "暴击倍率默认值；具体默认由口味清单给出，本表只声明字段，缺省 2.0"),
+                    description: "暴击倍率默认值；具体默认由口味清单给出，本表只声明字段，缺省 2.0；非负")
+                    .WithRange(FieldRange.Range(min: 0)),
+                // 依据（ADR-0021）：CombatHitTableValidationRule 既有判断 "glancingPct < 0.0"（check
+                // "hit_table_glancing_damage_pct_range"）——只检查非负，没有上限检查（字段文档写
+                // "0~1" 但规则代码本身不卡 1 这一端，登记范围以运行期实际校验为准，不超出既有行为）。
                 new FieldSchema("glancing_damage_pct", FieldKind.Number, required: false,
-                    description: "偏斜命中时保留的伤害比例（0~1）"),
+                    description: "偏斜命中时保留的伤害比例（0~1），非负")
+                    .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("block_value_stat", FieldKind.Id, required: false,
                     description: "格挡固定减免量来源属性"),
             });
@@ -95,16 +106,24 @@ namespace Core.Rules.Combat
                     {
                         new FieldSchema("value", FieldKind.Number, required: true,
                             description: "护甲/抗性输入值，分段插值的横坐标"),
+                        // 依据（ADR-0021）：字段自身文档"对应的减免百分比（0~1）"；
+                        // CombatResistCurveValidationRule 目前只检查 entries 的单调性，未检查逐项
+                        // 数值范围（只有 max_reduction 有专门检查），登记范围据文档口径补齐，落地前
+                        // 已用 validate_data.py --strict 核对现有框架/示例数据不违反。
                         new FieldSchema("reduction", FieldKind.Number, required: true,
-                            description: "对应的减免百分比（0~1），分段插值的纵坐标"),
+                            description: "对应的减免百分比（0~1），分段插值的纵坐标")
+                            .WithRange(FieldRange.Range(min: 0, max: 1)),
                     },
                     description: "分段线性插值的一个采样点 {value, reduction}"),
                     description: "kind=table 时 [{value, reduction}, ...]，按 value 升序（非空/单调性" +
                         "业务判断留在 CombatResistCurveValidationRule；kind 与 entries/k 是表顶层平级" +
                         "字段，Variants 不适用——同 GobjSchemas.TypeDataSchema 判断记录，条件必填继续" +
                         "由该规则表达）"),
+                // 依据（ADR-0021）：CombatResistCurveValidationRule 既有判断
+                // "maxReduction < 0.0 || maxReduction > 1.0"（check "resist_curve_max_reduction_range"）。
                 new FieldSchema("max_reduction", FieldKind.Number, required: false,
-                    description: "减免上限，缺省 0.75"),
+                    description: "减免上限，缺省 0.75，须落在 [0,1]")
+                    .WithRange(FieldRange.Range(min: 0, max: 1)),
             });
     }
 }
