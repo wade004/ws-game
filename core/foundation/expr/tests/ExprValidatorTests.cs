@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Core.Foundation.Expr;
 using Xunit;
 
@@ -128,6 +129,106 @@ namespace Tests.Foundation.Expr
             Assert.True(issues.Count >= 2);
             Assert.Contains(issues, i => i.Kind == ExprIssueKind.LogicalOperandNotBool);
             Assert.Contains(issues, i => i.Kind == ExprIssueKind.ArgTypeMismatch);
+        }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第三批第 19 条（2026-09-10，见
+        // architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 19 条）：
+        // ExprIssue.Start/Length 与源文本精确对应。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void UnknownKey_IssueSpan_MatchesHandBuiltReferenceNodeSpan()
+        {
+            // 与既有 UnknownKey_IsReported 用例同样的理由（见该用例注释）：ADR-0015 之后
+            // ExprParser 不会为未登记的非 event 分组 key 产出 <reference>，UnknownKey 只能在
+            // 手工构造的 AST 上触发——这里额外验证 ExprReferenceNode 的可选 start/length 构造
+            // 参数会被 ExprValidator 原样透传到产出的 ExprIssue 上。
+            var node = new ExprReferenceNode("self", "no_such_key", Array.Empty<ExprNode>(), start: 5, length: 20);
+            var issues = ExprValidator.Validate(node, BuildSchema());
+
+            var issue = Assert.Single(issues, i => i.Kind == ExprIssueKind.UnknownKey);
+            Assert.Equal(5, issue.Start);
+            Assert.Equal(20, issue.Length);
+        }
+
+        [Fact]
+        public void ArgTypeMismatch_IssueSpan_MatchesOffendingArgumentText()
+        {
+            var text = "self.has_aura(\"nope\")";
+            var argStart = text.IndexOf("\"nope\"", StringComparison.Ordinal);
+            var node = ExprParser.Parse(text, BuildSchema());
+            var issues = ExprValidator.Validate(node, BuildSchema());
+
+            var issue = Assert.Single(issues, i => i.Kind == ExprIssueKind.ArgTypeMismatch);
+            Assert.Equal(argStart, issue.Start);
+            Assert.Equal("\"nope\"".Length, issue.Length);
+        }
+
+        [Fact]
+        public void CompareTypeMismatch_IssueSpan_CoversWholeCompareExpression()
+        {
+            var text = "target.faction == target.hp_pct";
+            var node = ExprParser.Parse(text, BuildSchema());
+            var issues = ExprValidator.Validate(node, BuildSchema());
+
+            var issue = Assert.Single(issues, i => i.Kind == ExprIssueKind.CompareTypeMismatch);
+            Assert.Equal(0, issue.Start);
+            Assert.Equal(text.Length, issue.Length);
+        }
+
+        [Fact]
+        public void SuspiciousReferenceSpelling_IssueSpan_MatchesIdLiteralText()
+        {
+            var text = "self.hp_pct > 0 and world.bridge_repaired";
+            var idStart = text.IndexOf("world.bridge_repaired", StringComparison.Ordinal);
+            var node = ExprParser.Parse(text, BuildSchema());
+            var issues = ExprValidator.Validate(node, BuildSchema());
+
+            var issue = Assert.Single(issues, i => i.Kind == ExprIssueKind.SuspiciousReferenceSpelling);
+            Assert.Equal(idStart, issue.Start);
+            Assert.Equal("world.bridge_repaired".Length, issue.Length);
+        }
+
+        [Fact]
+        public void SameGroupKey_AppearingTwice_ProducesIssuesWithDistinctSpans()
+        {
+            // "bogus" 不是 04 第 6.2 节九个分组之一——但只要 schema 里登记了 "bogus.a" 的签名，
+            // ExprParser（只认 schema 是否命中，不检查是否属于九个分组）就会把它解析成
+            // <reference>，交给 ExprValidator 报 UnknownGroup（见 ValidateReference 判断记录）。
+            var schema = new ExprSchema()
+                .Register("self", "hp_pct", ExprValueKind.Number)
+                .Register("bogus", "a", ExprValueKind.Bool);
+            var text = "bogus.a or bogus.a";
+            var node = ExprParser.Parse(text, schema);
+            var issues = ExprValidator.Validate(node, schema);
+
+            var unknownGroupIssues = issues.Where(i => i.Kind == ExprIssueKind.UnknownGroup).ToList();
+            Assert.Equal(2, unknownGroupIssues.Count);
+            Assert.NotEqual(unknownGroupIssues[0].Start, unknownGroupIssues[1].Start);
+            Assert.Equal(0, unknownGroupIssues[0].Start);
+            Assert.Equal(text.IndexOf("bogus.a", 5, StringComparison.Ordinal), unknownGroupIssues[1].Start);
+        }
+
+        [Fact]
+        public void LogicalOperandNotBool_IssueSpan_MatchesOffendingOperandText()
+        {
+            var text = "self.has_aura(\"self.a\") and self.hp_pct";
+            var node = ExprParser.Parse(text, BuildSchema());
+            var issues = ExprValidator.Validate(node, BuildSchema());
+
+            var operandStart = text.IndexOf("self.hp_pct", 10, StringComparison.Ordinal);
+            var issue = Assert.Single(issues, i => i.Kind == ExprIssueKind.LogicalOperandNotBool);
+            Assert.Equal(operandStart, issue.Start);
+            Assert.Equal("self.hp_pct".Length, issue.Length);
+        }
+
+        [Fact]
+        public void LegacyTwoArgConstructor_LeavesStartAtMinusOne()
+        {
+            var issue = new ExprIssue(ExprIssueKind.UnknownGroup, "手写问题，没有源位置");
+            Assert.Equal(-1, issue.Start);
+            Assert.Equal(0, issue.Length);
         }
     }
 }

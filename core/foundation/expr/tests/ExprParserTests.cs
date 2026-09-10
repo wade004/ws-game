@@ -349,5 +349,66 @@ namespace Tests.Foundation.Expr
 
             Assert.Equal(first, second);
         }
+
+        // ---------- 消费方反馈第三批第 19 条：ExprParser 产出节点的 Start/Length ----------
+
+        [Fact]
+        public void Parse_LiteralNode_HasSourceSpan()
+        {
+            var text = "self.hp_pct < 0.3";
+            var node = (ExprCompareNode)ExprParser.Parse(text, TestSchema.Build());
+            var right = (ExprLiteralNode)node.Right;
+
+            Assert.Equal(text.IndexOf("0.3"), right.Start);
+            Assert.Equal(3, right.Length);
+        }
+
+        [Fact]
+        public void Parse_ReferenceNodeWithoutArgs_SpanIsJustTheIdentifier()
+        {
+            var text = "combat.in_combat";
+            var node = (ExprReferenceNode)ExprParser.Parse(text, TestSchema.Build());
+
+            Assert.Equal(0, node.Start);
+            Assert.Equal(text.Length, node.Length);
+        }
+
+        [Fact]
+        public void Parse_ReferenceNodeWithArgs_SpanCoversClosingParen()
+        {
+            var text = "self.has_aura(skill.aura.burning)";
+            var node = (ExprReferenceNode)ExprParser.Parse(text, TestSchema.Build());
+
+            Assert.Equal(0, node.Start);
+            Assert.Equal(text.Length, node.Length); // 一路覆盖到闭括号，不只是 "self.has_aura" 本身。
+        }
+
+        [Fact]
+        public void Parse_NotNode_SpanStartsAtNotKeyword()
+        {
+            var text = "not combat.in_combat";
+            var node = (ExprNotNode)ExprParser.Parse(text, TestSchema.Build());
+
+            Assert.Equal(0, node.Start);
+            Assert.Equal(text.Length, node.Length);
+        }
+
+        [Fact]
+        public void Parse_AndOrNode_SpanCoversFirstToLastOperand()
+        {
+            var text = "combat.in_combat and target.hp_pct < 0.3 or player.level >= 10";
+            var node = ExprParser.Parse(text, TestSchema.Build());
+
+            Assert.Equal(0, node.Start);
+            Assert.Equal(text.Length, node.Length);
+        }
+
+        [Fact]
+        public void ExprNode_LegacyConstructor_WithoutPosition_DefaultsToUnknown()
+        {
+            var literal = new ExprLiteralNode(ExprValue.OfBool(true));
+            Assert.Equal(-1, literal.Start);
+            Assert.Equal(0, literal.Length);
+        }
     }
 }

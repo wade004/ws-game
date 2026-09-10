@@ -51,19 +51,52 @@ namespace Core.Foundation.Expr
 
         public string Message { get; }
 
+        /// <summary>
+        /// 消费方反馈第三批第 19 条（2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 19 条）：该问题对应的
+        /// 源文本起始字符偏移（0 基，与 <see cref="ExprParseException.Position"/>/
+        /// <see cref="ExprToken.Start"/> 同一套坐标系）；<c>-1</c> 表示未定位到具体源区间——旧
+        /// 构造重载（不传位置）与不携带区间信息的问题种类（如某些无法归到单一子树的整体性问题）
+        /// 都会落在这个默认值上，调用方须先判断 <c>Start &gt;= 0</c> 再使用区间信息。
+        /// </summary>
+        public int Start { get; }
+
+        /// <summary>该问题对应源文本区间的字符长度（半开区间 <c>[Start, Start+Length)</c>）；
+        /// <see cref="Start"/> 为 <c>-1</c> 时恒为 <c>0</c>，没有独立含义。</summary>
+        public int Length { get; }
+
         /// <summary>构造一条 <see cref="ExprIssueSeverity.Error"/> 级别的问题（校验器里绝大多数问题都是错误）。</summary>
         public ExprIssue(ExprIssueKind kind, string message)
             : this(kind, ExprIssueSeverity.Error, message)
         {
         }
 
+        /// <summary>构造一条 <see cref="ExprIssueSeverity.Error"/> 级别、带源区间的问题（消费方反馈
+        /// 第三批第 19 条新增的可选参数重载；不传时等价于既有两参数构造，<see cref="Start"/> 落在
+        /// 默认值 <c>-1</c>）。</summary>
+        public ExprIssue(ExprIssueKind kind, string message, int start, int length = 0)
+            : this(kind, ExprIssueSeverity.Error, message, start, length)
+        {
+        }
+
         public ExprIssue(ExprIssueKind kind, ExprIssueSeverity severity, string message)
+            : this(kind, severity, message, -1, 0)
+        {
+        }
+
+        /// <summary>消费方反馈第三批第 19 条新增的可选参数重载：既有三参数构造（kind/severity/message）
+        /// 保持不变（<see cref="Start"/> 默认为 <c>-1</c>），本重载额外接受源区间。</summary>
+        public ExprIssue(ExprIssueKind kind, ExprIssueSeverity severity, string message, int start, int length = 0)
         {
             Kind = kind;
             Severity = severity;
             Message = message;
+            Start = start;
+            Length = length;
         }
 
-        public override string ToString() => $"[{Severity}] {Message}";
+        public override string ToString() => Start >= 0
+            ? $"[{Severity}] {Message}（位置 {Start}，长度 {Length}）"
+            : $"[{Severity}] {Message}";
     }
 }

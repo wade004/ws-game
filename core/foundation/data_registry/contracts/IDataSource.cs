@@ -37,5 +37,17 @@ namespace Core.Foundation.DataRegistry
     public interface IDataSource
     {
         IReadOnlyList<DataTableSource> ListTables();
+
+        /// <summary>
+        /// 消费方反馈第三批第 22 条（2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 22 条）：本数据源自身的
+        /// "根"标识——当且仅当它是 <see cref="DataTableSource.Location"/> 的前缀时，
+        /// <c>Core.Foundation.DataRegistry.DataRegistry</c> 用它裁出相对路径（见
+        /// <see cref="OverrideDiagnostic.OverridingRelativePath"/>）。带默认实现（恒返回
+        /// <c>null</c>，表示"不提供根标识，退化为用完整 <see cref="DataTableSource.Location"/>
+        /// 本身作为相对路径"）新增，不要求已有 <see cref="IDataSource"/> 实现方必须提供，不构成
+        /// "公开 API 表面"意义上的破坏性变更。<see cref="FileSystemDataSource"/> 显式覆盖为构造时
+        /// 传入的根目录。</summary>
+        string? Root => null;
     }
 }

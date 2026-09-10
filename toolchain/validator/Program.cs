@@ -243,7 +243,12 @@ namespace Toolchain.Validator
                     Console.WriteLine($"覆盖清单（{overrides.Count} 条，见 data/README.md\"多根加载与合并规则\"）：");
                     foreach (var diag in overrides.OrderBy(d => d.Table, StringComparer.Ordinal).ThenBy(d => d.RecordKey, StringComparer.Ordinal))
                     {
-                        Console.WriteLine($"  [override] {diag.Table}[{diag.RecordKey}]: \"{diag.OverridingLocation}\" 覆盖 \"{diag.OverriddenLocation}\"");
+                        // 消费方反馈第三批第 22 条（2026-09-10，见
+                        // architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 22 条）：
+                        // 人类可读文本改用"根序号 + 相对路径"，比完整绝对路径更短、跨机器可比对；
+                        // 绝对路径仍随 --json 一并给出（见 AppendOverrideJson）。
+                        Console.WriteLine($"  [override] {diag.Table}[{diag.RecordKey}]: " +
+                            $"\"根{diag.OverridingRootIndex}:{diag.OverridingRelativePath}\" 覆盖 \"根{diag.OverriddenRootIndex}:{diag.OverriddenRelativePath}\"");
                     }
                 }
 
@@ -543,11 +548,17 @@ namespace Toolchain.Validator
 
         private static void AppendOverrideJson(StringBuilder sb, OverrideDiagnostic diag)
         {
+            // 消费方反馈第三批第 22 条：--json 两者都给——绝对路径字段保留（向后兼容既有消费方），
+            // 新增根序号 + 相对路径字段。
             sb.Append('{');
             sb.Append("\"table\":\"").Append(JsonEscape(diag.Table)).Append("\",");
             sb.Append("\"record_key\":\"").Append(JsonEscape(diag.RecordKey)).Append("\",");
             sb.Append("\"overriding_location\":\"").Append(JsonEscape(diag.OverridingLocation)).Append("\",");
-            sb.Append("\"overridden_location\":\"").Append(JsonEscape(diag.OverriddenLocation)).Append('"');
+            sb.Append("\"overridden_location\":\"").Append(JsonEscape(diag.OverriddenLocation)).Append("\",");
+            sb.Append("\"overriding_root_index\":").Append(diag.OverridingRootIndex).Append(',');
+            sb.Append("\"overriding_relative_path\":\"").Append(JsonEscape(diag.OverridingRelativePath)).Append("\",");
+            sb.Append("\"overridden_root_index\":").Append(diag.OverriddenRootIndex).Append(',');
+            sb.Append("\"overridden_relative_path\":\"").Append(JsonEscape(diag.OverriddenRelativePath)).Append('"');
             sb.Append('}');
         }
 

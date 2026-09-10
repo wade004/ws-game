@@ -130,6 +130,24 @@ namespace Core.Foundation.DataRegistry
             public List<string> Locations = null!;
         }
 
+        /// <summary>消费方反馈第三批第 22 条：一条待加载表定位信息 + 它来自 <c>sources</c> 参数
+        /// 里的下标（"根序号"）+ 该根自身的 <see cref="IDataSource.Root"/>——<see cref="LoadAllCore"/>
+        /// 按表名分组时构造，贯穿 <see cref="LoadOneTablePartial"/>/<see cref="LoadMergedTable"/>，
+        /// 最终用于计算 <see cref="OverrideDiagnostic"/> 的根序号/相对路径字段。</summary>
+        private readonly struct SourcedTable
+        {
+            public DataTableSource TableSource { get; }
+            public int SourceIndex { get; }
+            public string? Root { get; }
+
+            public SourcedTable(DataTableSource tableSource, int sourceIndex, string? root)
+            {
+                TableSource = tableSource;
+                SourceIndex = sourceIndex;
+                Root = root;
+            }
+        }
+
         /// <summary>单个数据根对一张表的独立解析结果（信封检查、版本迁移、根内建记录均已完成，
         /// 尚未与其它根合并）——见类型级判断记录"合并规则"。</summary>
         private sealed class PartialTable
@@ -144,6 +162,17 @@ namespace Core.Foundation.DataRegistry
             public List<DataRecord> RecordsInOrder = null!;
             public Dictionary<string, DataRecord> ByKey = null!;
             public string Location = null!;
+
+            /// <summary>消费方反馈第三批第 22 条：该表来自 <c>sources</c> 参数里的下标（"根序号"）；
+            /// 单表 <see cref="IDataRegistry.Reload(string)"/> 在 <see cref="_sources"/> 中重新定位时
+            /// 同样按这份下标计算，语义与初次加载一致。</summary>
+            public int RootIndex;
+
+            /// <summary>消费方反馈第三批第 22 条：<see cref="Location"/> 相对其所在数据根
+            /// （<see cref="SourcedTable.Root"/>）的路径——该根未提供 <see cref="IDataSource.Root"/>
+            /// （默认实现返回 <c>null</c>）或 <see cref="Location"/> 不以其为前缀时，退化为与
+            /// <see cref="Location"/> 相同（见 <see cref="ComputeRelativeLocation"/>）。</summary>
+            public string RelativeLocation = null!;
         }
 
         // ---------------------------------------------------------------
@@ -201,19 +230,22 @@ namespace Core.Foundation.DataRegistry
 
             // 按表名分组：同一表名出现在多个根时才走合并路径，出现在单个根时走原有单根路径
             // （保持与改动前逐字节相同的行为，见类型级判断记录）。
-            var byTable = new Dictionary<string, List<DataTableSource>>(StringComparer.Ordinal);
+            // 消费方反馈第三批第 22 条：额外携带每个 DataTableSource 来自 sources 中的下标（"根序号"）
+            // 与该根自身的 IDataSource.Root，供后续构造 OverrideDiagnostic 计算根序号/相对路径。
+            var byTable = new Dictionary<string, List<SourcedTable>>(StringComparer.Ordinal);
             for (int s = 0; s < sources.Count; s++)
             {
+                var root = sources[s].Root;
                 var tableSources = sources[s].ListTables();
                 for (int i = 0; i < tableSources.Count; i++)
                 {
                     var ts = tableSources[i];
                     if (!byTable.TryGetValue(ts.TableName, out var list))
                     {
-                        list = new List<DataTableSource>();
+                        list = new List<SourcedTable>();
                         byTable[ts.TableName] = list;
                     }
-                    list.Add(ts);
+                    list.Add(new SourcedTable(ts, s, root));
                 }
             }
 
@@ -266,13 +298,14 @@ namespace Core.Foundation.DataRegistry
         {
             if (string.IsNullOrEmpty(table)) throw new ArgumentException("table 不能为空", nameof(table));
 
-            var matches = new List<DataTableSource>();
+            var matches = new List<SourcedTable>();
             for (int s = 0; s < _sources.Count; s++)
             {
+                var root = _sources[s].Root;
                 var tableSources = _sources[s].ListTables();
                 for (int i = 0; i < tableSources.Count; i++)
                 {
-                    if (tableSources[i].TableName == table) matches.Add(tableSources[i]);
+                    if (tableSources[i].TableName == table) matches.Add(new SourcedTable(tableSources[i], s, root));
                 }
             }
 
@@ -387,14 +420,29 @@ namespace Core.Foundation.DataRegistry
         public IReadOnlyList<DataRecord> GetAll(string table)
         {
             EnsureReadable();
-            return _tables.TryGetValue(table, out var t) ? t.Records : Array.Empty<DataRecord>();
+            return GetAllUnchecked(table);
         }
+
+        /// <summary>不经过 <see cref="EnsureReadable"/> 的内部读取——<see cref="GetAll"/> 与
+        /// 消费方反馈第三批第 20 条新增的显式 <see cref="IDataRegistryView.TryGetAll"/> 共用同一份
+        /// 实现，只是前者多一道阻断检查。</summary>
+        private IReadOnlyList<DataRecord> GetAllUnchecked(string table) =>
+            _tables.TryGetValue(table, out var t) ? t.Records : Array.Empty<DataRecord>();
 
         public IReadOnlyList<DataRecord> Query(string table, ExprNode predicate)
         {
             if (predicate == null) throw new ArgumentNullException(nameof(predicate));
 
-            var records = GetAll(table);
+            EnsureReadable();
+            return QueryUnchecked(table, predicate);
+        }
+
+        /// <summary>不经过 <see cref="EnsureReadable"/> 的内部实现——<see cref="Query(string, ExprNode)"/>
+        /// 与消费方反馈第三批第 20 条新增的显式 <see cref="IDataRegistryView.TryQuery(string, ExprNode, out IReadOnlyList{DataRecord})"/>
+        /// 共用同一份求值逻辑，只是前者多一道阻断检查。</summary>
+        private IReadOnlyList<DataRecord> QueryUnchecked(string table, ExprNode predicate)
+        {
+            var records = GetAllUnchecked(table);
             var result = new List<DataRecord>();
             for (int i = 0; i < records.Count; i++)
             {
@@ -415,13 +463,23 @@ namespace Core.Foundation.DataRegistry
         /// 要求该表已经 <see cref="RegisterSchema"/>。</summary>
         public IReadOnlyList<DataRecord> Query(string table, string predicateText)
         {
-            if (predicateText == null) throw new ArgumentNullException(nameof(predicateText));
-
-            var schema = GetSchema(table) ?? throw new InvalidOperationException($"表 \"{table}\" 未注册 schema，无法解析谓词文本");
-            var exprSchema = RecordExprSchema.For(schema);
-            var node = ExprParser.Parse(predicateText, exprSchema);
+            var node = ParsePredicateText(table, predicateText);
             return Query(table, node);
         }
+
+        /// <summary>把谓词文本解析为 <see cref="ExprNode"/>——<see cref="Query(string, string)"/> 与
+        /// 显式 <see cref="IDataRegistryView.TryQuery(string, string, out IReadOnlyList{DataRecord})"/>
+        /// 共用同一份解析逻辑（不阻断，与是否阻断无关，纯粹是"表未注册 schema"这一独立错误）。</summary>
+        private static ExprNode ParsePredicateText(string table, string predicateText, Func<string, TableSchema?> getSchema)
+        {
+            if (predicateText == null) throw new ArgumentNullException(nameof(predicateText));
+
+            var schema = getSchema(table) ?? throw new InvalidOperationException($"表 \"{table}\" 未注册 schema，无法解析谓词文本");
+            var exprSchema = RecordExprSchema.For(schema);
+            return ExprParser.Parse(predicateText, exprSchema);
+        }
+
+        private ExprNode ParsePredicateText(string table, string predicateText) => ParsePredicateText(table, predicateText, GetSchema);
 
         public IReadOnlyList<string> Tables
         {
@@ -521,6 +579,48 @@ namespace Core.Foundation.DataRegistry
             return true;
         }
 
+        /// <summary>
+        /// 消费方反馈第三批第 20 条（2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 20 条）：阻断态下的
+        /// 内容工具只读通道——显式接口实现（<c>bool IDataRegistryView.TryGetAll(...)</c> 语法，
+        /// 不是同签名公开成员），刻意不出现在 <see cref="DataRegistry"/> 的公开类型表面上，只能
+        /// 通过 <see cref="IDataRegistryView"/> 接口引用调用，呼应任务书"仅供内容工具使用"的定位——
+        /// 运行期宿主一贯持有具体 <see cref="DataRegistry"/> 类型或通过 <see cref="IDataRegistry"/>
+        /// 使用 <see cref="GetAll"/>，不会"顺手"用到这条通道；只有明确改用 <see cref="IDataRegistryView"/>
+        /// 接口引用的调用方（内容工具）才会看到它。直接读取 <see cref="_tables"/>（本类内部"已成功
+        /// 解析、参与合并"的表快照，与 <see cref="RecordCount"/> 同一份数据源，见该成员判断记录），
+        /// 不经过 <see cref="EnsureReadable"/>，因此阻断态（<see cref="_blocked"/> 为 <c>true</c>）
+        /// 下也能读取、恒返回 <c>true</c>——表不存在时与 <see cref="GetAll"/> 行为一致，返回空列表
+        /// （而不是 <c>false</c>），因为"表未加载"与"数据整体阻断"是两件独立的事，这里只处理后者。</summary>
+        bool IDataRegistryView.TryGetAll(string table, out IReadOnlyList<DataRecord> records)
+        {
+            records = GetAllUnchecked(table);
+            return true;
+        }
+
+        /// <summary>消费方反馈第三批第 20 条：<see cref="IDataRegistryView.TryGetAll"/> 的同族显式
+        /// 实现，覆盖 <see cref="Query(string, ExprNode)"/> 谓词重载——同一份判断记录，直接调用
+        /// <see cref="QueryUnchecked"/>，不经过 <see cref="EnsureReadable"/>。</summary>
+        bool IDataRegistryView.TryQuery(string table, ExprNode predicate, out IReadOnlyList<DataRecord> records)
+        {
+            if (predicate == null) throw new ArgumentNullException(nameof(predicate));
+            records = QueryUnchecked(table, predicate);
+            return true;
+        }
+
+        /// <summary>消费方反馈第三批第 20 条：<see cref="IDataRegistryView.TryGetAll"/> 的同族显式
+        /// 实现，覆盖 <see cref="Query(string, string)"/> 谓词文本重载——解析谓词文本本身可能因为
+        /// "表未注册 schema" 抛 <see cref="InvalidOperationException"/>（与数据是否阻断无关的独立
+        /// 错误，见 <see cref="ParsePredicateText(string, string, Func{string, TableSchema?})"/>），
+        /// 这类异常不吞，照常向外抛出——本通道只豁免"数据校验未通过"这一种阻断，不豁免调用方自身
+        /// 的用法错误。</summary>
+        bool IDataRegistryView.TryQuery(string table, string predicateText, out IReadOnlyList<DataRecord> records)
+        {
+            var node = ParsePredicateText(table, predicateText);
+            records = QueryUnchecked(table, node);
+            return true;
+        }
+
         private void EnsureReadable()
         {
             if (_blocked)
@@ -533,15 +633,16 @@ namespace Core.Foundation.DataRegistry
         // 加载单表（单根路径，行为与改动前完全一致）
         // ---------------------------------------------------------------
 
-        private void LoadOneTable(DataTableSource tableSource, List<ValidationIssue> issues, Dictionary<string, LoadedTable> loaded, ref int recordCount)
+        private void LoadOneTable(SourcedTable tableSource, List<ValidationIssue> issues, Dictionary<string, LoadedTable> loaded, ref int recordCount)
         {
             var partial = LoadOneTablePartial(tableSource, issues);
             if (partial == null) return;
 
-            WarnStrayOverrideMetaFields(tableSource.TableName, partial.RecordsInOrder, issues);
+            var tableName = tableSource.TableSource.TableName;
+            WarnStrayOverrideMetaFields(tableName, partial.RecordsInOrder, issues);
 
             recordCount += partial.RecordsInOrder.Count;
-            loaded[tableSource.TableName] = new LoadedTable
+            loaded[tableName] = new LoadedTable
             {
                 Schema = partial.Schema,
                 Records = partial.RecordsInOrder,
@@ -579,7 +680,7 @@ namespace Core.Foundation.DataRegistry
         // 加载并合并多根同名表（见类型级判断记录"合并规则"/"覆盖语义"）
         // ---------------------------------------------------------------
 
-        private void LoadMergedTable(string tableName, List<DataTableSource> tableSources, List<ValidationIssue> issues, Dictionary<string, LoadedTable> loaded, ref int recordCount, List<OverrideDiagnostic> diagnostics)
+        private void LoadMergedTable(string tableName, List<SourcedTable> tableSources, List<ValidationIssue> issues, Dictionary<string, LoadedTable> loaded, ref int recordCount, List<OverrideDiagnostic> diagnostics)
         {
             var partials = new List<PartialTable>();
             for (int i = 0; i < tableSources.Count; i++)
@@ -627,6 +728,10 @@ namespace Core.Foundation.DataRegistry
             var mergedRecords = new List<DataRecord>();
             var mergedIndexByKey = new Dictionary<string, int>(StringComparer.Ordinal);
             var mergedLocationByKey = new Dictionary<string, string>(StringComparer.Ordinal);
+            // 消费方反馈第三批第 22 条：与 mergedLocationByKey 同步维护——记录当前胜出行的根序号/
+            // 相对路径，供该行之后若被再次覆盖时构造 OverrideDiagnostic 的"被覆盖方"字段。
+            var mergedRootIndexByKey = new Dictionary<string, int>(StringComparer.Ordinal);
+            var mergedRelativeByKey = new Dictionary<string, string>(StringComparer.Ordinal);
             var locations = new List<string>(partials.Count);
 
             for (int p = 0; p < partials.Count; p++)
@@ -656,8 +761,16 @@ namespace Core.Foundation.DataRegistry
                             var idx = mergedIndexByKey[record.Key];
                             mergedRecords[idx] = record;
                             mergedByKey[record.Key] = record;
+                            var existingRootIndex = mergedRootIndexByKey[record.Key];
+                            var existingRelative = mergedRelativeByKey[record.Key];
+                            diagnostics.Add(new OverrideDiagnostic(
+                                tableName, record.Key,
+                                partial.Location, existingLocation,
+                                partial.RootIndex, partial.RelativeLocation,
+                                existingRootIndex, existingRelative));
                             mergedLocationByKey[record.Key] = partial.Location;
-                            diagnostics.Add(new OverrideDiagnostic(tableName, record.Key, partial.Location, existingLocation));
+                            mergedRootIndexByKey[record.Key] = partial.RootIndex;
+                            mergedRelativeByKey[record.Key] = partial.RelativeLocation;
                             continue;
                         }
 
@@ -671,6 +784,8 @@ namespace Core.Foundation.DataRegistry
                     mergedByKey.Add(record.Key, record);
                     mergedRecords.Add(record);
                     mergedLocationByKey[record.Key] = partial.Location;
+                    mergedRootIndexByKey[record.Key] = partial.RootIndex;
+                    mergedRelativeByKey[record.Key] = partial.RelativeLocation;
                     recordCount++;
                 }
             }
@@ -690,8 +805,9 @@ namespace Core.Foundation.DataRegistry
         /// 写入任何"已加载表"字典——是否直接落表（单根）还是与同名表的其它根合并
         /// （<see cref="LoadMergedTable"/>）由调用方决定。逻辑与改动前的 <c>LoadOneTable</c>
         /// 完全一致，只是把"结果"从直接赋值给 <c>loaded[tableName]</c> 改成返回值。</summary>
-        private PartialTable? LoadOneTablePartial(DataTableSource tableSource, List<ValidationIssue> issues)
+        private PartialTable? LoadOneTablePartial(SourcedTable sourced, List<ValidationIssue> issues)
         {
+            var tableSource = sourced.TableSource;
             var tableName = tableSource.TableName;
 
             string text;
@@ -891,7 +1007,25 @@ namespace Core.Foundation.DataRegistry
                 RecordsInOrder = recordsInOrder,
                 ByKey = recordsByKey,
                 Location = tableSource.Location,
+                RootIndex = sourced.SourceIndex,
+                RelativeLocation = ComputeRelativeLocation(sourced.Root, tableSource.Location),
             };
+        }
+
+        /// <summary>消费方反馈第三批第 22 条：把 <paramref name="location"/> 裁成相对
+        /// <paramref name="root"/> 的路径——<paramref name="root"/> 为 <c>null</c>/空，或
+        /// <paramref name="location"/> 不以它为前缀（<see cref="IDataSource.Root"/> 默认实现、或
+        /// 自定义实现返回了与实际 <see cref="DataTableSource.Location"/> 无关的值）时，原样返回
+        /// <paramref name="location"/>（退化，不是错误——见 <see cref="OverrideDiagnostic.OverridingRelativePath"/>
+        /// 判断记录）。裁剪后额外去掉开头残留的 <c>/</c>，避免 <c>"root/"</c> + <c>"rel"</c> 这类
+        /// 拼接方式裁出 <c>"/rel"</c>。</summary>
+        private static string ComputeRelativeLocation(string? root, string location)
+        {
+            if (string.IsNullOrEmpty(root)) return location;
+            if (!location.StartsWith(root, StringComparison.Ordinal)) return location;
+
+            var rest = location.Substring(root.Length);
+            return rest.TrimStart('/');
         }
 
         private static List<TableMigration>? BuildMigrationChain(TableSchema schema, int fromVersion, int toVersion)

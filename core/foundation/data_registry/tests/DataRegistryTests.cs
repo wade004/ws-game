@@ -1655,5 +1655,269 @@ namespace Tests.Foundation.Data
             var blockedEx = Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.widget"));
             Assert.Contains("数据校验未通过", blockedEx.Message);
         }
+
+        // -----------------------------------------------------------------
+        // 21. 阻断态下的工具只读通道（消费方反馈第三批第 20 条，2026-09-10，见
+        //     architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 20 条）：
+        //     IDataRegistryView.TryGetAll/TryQuery。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void TryGetAll_OnDataRegistry_BlockingState_ReturnsTrueWithMergedRecords()
+        {
+            // 与 TryGetRecordCount_OnDataRegistry_BlockingState_ReturnsTrueWithMergedCount 同一副
+            // 坏表/好表夹具：test.widget 是坏 JSON（envelope 级错误），test.owner 是一条能正常解析
+            // 的好记录——整体报告阻断，GetAll("test.owner") 会抛异常，但 IDataRegistryView.TryGetAll
+            // （显式接口实现）应能绕过阻断，读到与 RecordCount 同一份已合并记录。
+            var source = new MutableMultiTableSource()
+                .Set("test.widget", "{ not valid json")
+                .Set("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll();
+            Assert.True(report.IsBlocking);
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.owner"));
+
+            IDataRegistryView view = registry;
+            var ok = view.TryGetAll("test.owner", out var records);
+
+            Assert.True(ok);
+            var record = Assert.Single(records);
+            Assert.Equal("Ann", record.GetString("name"));
+        }
+
+        [Fact]
+        public void TryGetAll_OnDataRegistry_NotBlocking_MatchesGetAll()
+        {
+            var rows = "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]";
+            var source = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1, rows));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.LoadAll();
+
+            IDataRegistryView view = registry;
+            var ok = view.TryGetAll("test.widget", out var records);
+
+            Assert.True(ok);
+            Assert.Equal(registry.GetAll("test.widget"), records);
+        }
+
+        [Fact]
+        public void TryGetAll_OnDataRegistry_UnknownTable_ReturnsTrueWithEmptyList()
+        {
+            // 表不存在与"数据整体阻断"是两件独立的事——本通道只处理后者，表不存在时与 GetAll
+            // 行为一致：返回空列表，不是 false。
+            var registry = new DataRegistry(new InMemoryDataSource(), MakeBus());
+
+            IDataRegistryView view = registry;
+            var ok = view.TryGetAll("test.never_registered", out var records);
+
+            Assert.True(ok);
+            Assert.Empty(records);
+        }
+
+        [Fact]
+        public void TryQuery_ExprNodeOverload_OnDataRegistry_BlockingState_ReturnsTrueWithMergedResult()
+        {
+            var source = new MutableMultiTableSource()
+                .Set("test.widget", "{ not valid json")
+                .Set("test.owner", Envelope("test.owner", 1,
+                    "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}, {\"id\": \"test.owner.b\", \"name\": \"Bob\"}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+            registry.LoadAll();
+
+            var predicate = ExprParser.Parse("self.name == \"Ann\"", RecordExprSchema.For(OwnerSchema()));
+
+            IDataRegistryView view = registry;
+            var ok = view.TryQuery("test.owner", predicate, out var records);
+
+            Assert.True(ok);
+            var record = Assert.Single(records);
+            Assert.Equal("Ann", record.GetString("name"));
+        }
+
+        [Fact]
+        public void TryQuery_PredicateTextOverload_OnDataRegistry_BlockingState_ReturnsTrueWithMergedResult()
+        {
+            var source = new MutableMultiTableSource()
+                .Set("test.widget", "{ not valid json")
+                .Set("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+            registry.LoadAll();
+
+            IDataRegistryView view = registry;
+            var ok = view.TryQuery("test.owner", "self.name == \"Ann\"", out var records);
+
+            Assert.True(ok);
+            Assert.Single(records);
+        }
+
+        /// <summary>只实现 <see cref="IDataRegistryView"/>（未覆盖 <see cref="IDataRegistryView.TryGetAll"/>/
+        /// <see cref="IDataRegistryView.TryQuery(string, ExprNode, out IReadOnlyList{DataRecord})"/>）
+        /// 的最小测试替身，验证接口默认实现在阻断类异常下返回 <c>false</c>，同
+        /// <see cref="ThrowingRecordCountView"/> 的定位。</summary>
+        private sealed class ThrowingQueryView : IDataRegistryView
+        {
+            private readonly bool _blocked;
+
+            public ThrowingQueryView(bool blocked) => _blocked = blocked;
+
+            public IReadOnlyList<string> Tables { get; } = new[] { "test.widget" };
+
+            public DataRecord? Get(string table, string key) => throw new NotSupportedException("测试替身不支持 Get");
+
+            public DataRecord? Get(string table, Id id) => throw new NotSupportedException("测试替身不支持 Get");
+
+            public IReadOnlyList<DataRecord> GetAll(string table)
+            {
+                if (_blocked) throw new InvalidOperationException("数据校验未通过，禁止读取");
+                return Array.Empty<DataRecord>();
+            }
+
+            public IReadOnlyList<DataRecord> Query(string table, ExprNode predicate)
+            {
+                if (_blocked) throw new InvalidOperationException("数据校验未通过，禁止读取");
+                return Array.Empty<DataRecord>();
+            }
+
+            public IReadOnlyList<DataRecord> Query(string table, string predicateText)
+            {
+                if (_blocked) throw new InvalidOperationException("数据校验未通过，禁止读取");
+                return Array.Empty<DataRecord>();
+            }
+
+            public TableSchema? GetSchema(string table) => null;
+        }
+
+        [Fact]
+        public void TryGetAll_DefaultInterfaceImplementation_BlockingLikeException_ReturnsFalseWithoutThrowing()
+        {
+            IDataRegistryView view = new ThrowingQueryView(blocked: true);
+
+            var ok = view.TryGetAll("test.widget", out var records);
+
+            Assert.False(ok);
+            Assert.Empty(records);
+        }
+
+        [Fact]
+        public void TryGetAll_DefaultInterfaceImplementation_NotBlocking_ReturnsTrueMatchingGetAll()
+        {
+            IDataRegistryView view = new ThrowingQueryView(blocked: false);
+
+            var ok = view.TryGetAll("test.widget", out var records);
+
+            Assert.True(ok);
+            Assert.Empty(records);
+        }
+
+        [Fact]
+        public void TryQuery_ExprNodeOverload_DefaultInterfaceImplementation_BlockingLikeException_ReturnsFalse()
+        {
+            IDataRegistryView view = new ThrowingQueryView(blocked: true);
+            var predicate = new ExprLiteralNode(ExprValue.OfBool(true));
+
+            var ok = view.TryQuery("test.widget", predicate, out var records);
+
+            Assert.False(ok);
+            Assert.Empty(records);
+        }
+
+        [Fact]
+        public void TryQuery_PredicateTextOverload_DefaultInterfaceImplementation_BlockingLikeException_ReturnsFalse()
+        {
+            IDataRegistryView view = new ThrowingQueryView(blocked: true);
+
+            var ok = view.TryQuery("test.widget", "true", out var records);
+
+            Assert.False(ok);
+            Assert.Empty(records);
+        }
+
+        // -----------------------------------------------------------------
+        // 22. OverrideDiagnostic 相对路径（消费方反馈第三批第 22 条，2026-09-10，见
+        //     architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 22 条）。
+        // -----------------------------------------------------------------
+
+        /// <summary>带显式 <see cref="IDataSource.Root"/> 的最小 <see cref="IDataSource"/> 实现，
+        /// 模拟 <see cref="FileSystemDataSource"/>"根目录 + 相对路径拼成完整 Location"的做法，但
+        /// 不接触真实文件系统——验证 <c>DataRegistry.ComputeRelativeLocation</c> 真的会裁掉根前缀。</summary>
+        private sealed class RootedSource : IDataSource
+        {
+            private readonly List<DataTableSource> _tables = new List<DataTableSource>();
+
+            public RootedSource(string root) => Root = root;
+
+            public string? Root { get; }
+
+            public RootedSource Add(string tableName, string jsonText, string relativePath)
+            {
+                var location = Root!.EndsWith("/", StringComparison.Ordinal) ? Root + relativePath : Root + "/" + relativePath;
+                _tables.Add(new DataTableSource(tableName, location, () => jsonText));
+                return this;
+            }
+
+            public IReadOnlyList<DataTableSource> ListTables() => _tables;
+        }
+
+        [Fact]
+        public void OverrideDiagnostic_RootIndex_MatchesPositionInSourcesList()
+        {
+            var rootA = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Framework\", \"count\": 1}]"), location: "data/_framework/test.widget.json");
+            var rootB = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1,
+                "[{\"id\": \"test.widget.a\", \"name\": \"Game\", \"count\": 9, \"override\": true}]"), location: "data/_sample/test.widget.json");
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            var diag = Assert.Single(registry.GetOverrideDiagnostics());
+            Assert.Equal(1, diag.OverridingRootIndex); // rootB 是 sources 列表里的第二个（下标 1）。
+            Assert.Equal(0, diag.OverriddenRootIndex); // rootA 是第一个（下标 0）。
+
+            // InMemoryDataSource 不提供 IDataSource.Root（默认实现恒返回 null），退化为相对路径
+            // 与绝对路径相同——不是缺失，只是裁不出更短的形式（见 ComputeRelativeLocation 判断记录）。
+            Assert.Equal(diag.OverridingLocation, diag.OverridingRelativePath);
+            Assert.Equal(diag.OverriddenLocation, diag.OverriddenRelativePath);
+        }
+
+        [Fact]
+        public void OverrideDiagnostic_RelativePath_StripsDeclaredRootPrefix()
+        {
+            var rootA = new RootedSource("data/_framework")
+                .Add("test.widget", Envelope("test.widget", 1,
+                    "[{\"id\": \"test.widget.a\", \"name\": \"Framework\", \"count\": 1}]"), "test.widget.json");
+            var rootB = new RootedSource("data/_sample")
+                .Add("test.widget", Envelope("test.widget", 1,
+                    "[{\"id\": \"test.widget.a\", \"name\": \"Game\", \"count\": 9, \"override\": true}]"), "test.widget.json");
+
+            var registry = new DataRegistry(rootA, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.LoadAll(new IDataSource[] { rootA, rootB });
+
+            var diag = Assert.Single(registry.GetOverrideDiagnostics());
+            Assert.Equal("data/_sample/test.widget.json", diag.OverridingLocation);
+            Assert.Equal("test.widget.json", diag.OverridingRelativePath);
+            Assert.Equal("data/_framework/test.widget.json", diag.OverriddenLocation);
+            Assert.Equal("test.widget.json", diag.OverriddenRelativePath);
+        }
+
+        [Fact]
+        public void OverrideDiagnostic_LegacyFourArgConstructor_DefaultsRootIndexToMinusOneAndRelativePathToLocation()
+        {
+            var diag = new OverrideDiagnostic("test.widget", "test.widget.a", "root_b/x.json", "root_a/x.json");
+
+            Assert.Equal(-1, diag.OverridingRootIndex);
+            Assert.Equal(-1, diag.OverriddenRootIndex);
+            Assert.Equal("root_b/x.json", diag.OverridingRelativePath);
+            Assert.Equal("root_a/x.json", diag.OverriddenRelativePath);
+        }
     }
 }

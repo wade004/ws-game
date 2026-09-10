@@ -32,6 +32,11 @@ namespace Core.Foundation.DataRegistry
             _rootDir = rootDir ?? throw new ArgumentNullException(nameof(rootDir));
         }
 
+        /// <summary>消费方反馈第三批第 22 条：显式覆盖 <see cref="IDataSource.Root"/> 默认实现，
+        /// 返回构造时传入的根目录——<see cref="ListTables"/> 产出的每条 <see cref="DataTableSource.Location"/>
+        /// 都以 <c>CombinePath(_rootDir, rel)</c> 拼成，本属性即那个前缀本身。</summary>
+        public string? Root => _rootDir;
+
         public IReadOnlyList<DataTableSource> ListTables()
         {
             var relatives = _fs.ListFiles(_rootDir);
