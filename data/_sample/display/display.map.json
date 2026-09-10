@@ -2,15 +2,229 @@
   "table": "display.map",
   "schema_version": 1,
   "rows": [
-    {"id": "display.map.sample_beast", "category": "creature", "logical_id": "creature.sample_beast", "kind": "sprite", "sprite_set_id": "sprite.creature.sample_beast", "direction_count": 8, "paperdoll_layers": ["body"], "icon_id": "icon.creature.sample_beast", "shadow": "blob", "sort_offset": 0, "mirror_pairs": [{"direction_slot": "dir.front_side_l", "mirror_of": "dir.front_side_r", "flip_x": true}, {"direction_slot": "dir.side_l", "mirror_of": "dir.side_r", "flip_x": true}, {"direction_slot": "dir.back_side_l", "mirror_of": "dir.back_side_r", "flip_x": true}]},
-    {"id": "display.map.sample_blade", "category": "item", "logical_id": "item.sample_blade", "kind": "sprite", "sprite_set_id": "sprite.item.sample_blade", "direction_count": 4, "weapon_style_ref": "display.weapon_style.sample_sword", "mirror_pairs": [{"direction_slot": "dir.side_l", "mirror_of": "dir.side_r", "flip_x": true}]},
-    {"id": "display.map.sample_bolt", "category": "projectile", "logical_id": "projectile.sample_bolt", "kind": "sprite", "sprite_set_id": "sprite.item.sample_blade", "direction_count": 4, "shadow": "none", "sort_offset": 1, "mirror_pairs": [{"direction_slot": "dir.side_l", "mirror_of": "dir.side_r", "flip_x": true}]},
-    {"id": "display.map.sample_chest", "category": "gobj", "logical_id": "gobj.sample_chest", "kind": "sprite", "sprite_set_id": "sprite.gobj.sample_chest", "direction_count": 4, "icon_id": "icon.gobj.sample_chest", "shadow": "blob", "sort_offset": -1, "mirror_pairs": [{"direction_slot": "dir.side_l", "mirror_of": "dir.side_r", "flip_x": true}]},
-    {"id": "display.map.sample_door", "category": "gobj", "logical_id": "gobj.sample_door", "kind": "sprite", "sprite_set_id": "sprite.gobj.sample_door", "direction_count": 4, "icon_id": "icon.gobj.sample_door", "shadow": "none", "sort_offset": -1, "mirror_pairs": [{"direction_slot": "dir.side_l", "mirror_of": "dir.side_r", "flip_x": true}]},
-    {"id": "display.map.sample_hero", "category": "creature", "logical_id": "creature.sample_hero", "kind": "sprite", "sprite_set_id": "sprite.creature.sample_hero", "direction_count": 8, "mirror_pairs": [{"direction_slot": "dir.front_side_l", "mirror_of": "dir.front_side_r", "flip_x": true}, {"direction_slot": "dir.side_l", "mirror_of": "dir.side_r", "flip_x": true}, {"direction_slot": "dir.back_side_l", "mirror_of": "dir.back_side_r", "flip_x": true}], "paperdoll_layers": ["body", "hand_main", "head"], "anchor_points": {"hand_main": {"parent_layer": "hand_main", "offset": {"x": 1.1875, "y": 1.8125}, "offset_by_direction": {"dir.side_r": {"x": 1.5, "y": 1.8125}}}, "head": {"parent_layer": "head", "offset": {"x": 1.05625, "y": 0.125}}}, "icon_id": "icon.creature.sample_hero", "shadow": "blob", "sort_offset": 0},
-    {"id": "display.map.sample_loot_pile", "category": "item", "logical_id": "loot.generic_pile", "kind": "sprite", "sprite_set_id": "sprite.gobj.sample_chest", "direction_count": 4, "icon_id": "icon.gobj.sample_chest", "shadow": "blob", "sort_offset": -1, "mirror_pairs": [{"direction_slot": "dir.side_l", "mirror_of": "dir.side_r", "flip_x": true}]},
-    {"id": "display.map.sample_model_hero", "category": "creature", "logical_id": "creature.sample_model_hero", "kind": "model", "model_ref": "model.placeholder_biped", "anim_set_ref": "display.anim_set.placeholder_biped", "sockets": ["socket.main_hand"], "slots": ["slot.head"], "icon_id": "icon.creature.sample_hero", "shadow": "blob", "sort_offset": 0},
-    {"id": "display.map.sample_model_sword", "category": "item", "logical_id": "item.sample_model_sword", "kind": "sprite", "sprite_set_id": "sprite.item.sample_blade", "direction_count": 4, "weapon_style_ref": "display.weapon_style.sample_model_sword", "mirror_pairs": [{"direction_slot": "dir.side_l", "mirror_of": "dir.side_r", "flip_x": true}]},
-    {"id": "display.map.sample_save_point", "category": "gobj", "logical_id": "gobj.sample_save_point", "kind": "sprite", "sprite_set_id": "sprite.gobj.sample_save_point", "direction_count": 4, "icon_id": "icon.gobj.sample_save_point", "shadow": "none", "sort_offset": -1, "mirror_pairs": [{"direction_slot": "dir.side_l", "mirror_of": "dir.side_r", "flip_x": true}]}
+    {
+      "id": "display.map.sample_beast",
+      "category": "creature",
+      "logical_id": "creature.sample_beast",
+      "kind": "sprite",
+      "icon_id": "icon.creature.sample_beast",
+      "shadow": "blob",
+      "sort_offset": 0,
+      "sprite_set_id": "sprite.creature.sample_beast",
+      "direction_count": 8,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.front_side_l",
+          "mirror_of": "dir.front_side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.back_side_l",
+          "mirror_of": "dir.back_side_r",
+          "flip_x": true
+        }
+      ],
+      "paperdoll_layers": [
+        "body"
+      ]
+    },
+    {
+      "id": "display.map.sample_blade",
+      "category": "item",
+      "logical_id": "item.sample_blade",
+      "kind": "sprite",
+      "weapon_style_ref": "display.weapon_style.sample_sword",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_bolt",
+      "category": "projectile",
+      "logical_id": "projectile.sample_bolt",
+      "kind": "sprite",
+      "shadow": "none",
+      "sort_offset": 1,
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_chest",
+      "category": "gobj",
+      "logical_id": "gobj.sample_chest",
+      "kind": "sprite",
+      "icon_id": "icon.gobj.sample_chest",
+      "shadow": "blob",
+      "sort_offset": -1,
+      "sprite_set_id": "sprite.gobj.sample_chest",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_door",
+      "category": "gobj",
+      "logical_id": "gobj.sample_door",
+      "kind": "sprite",
+      "icon_id": "icon.gobj.sample_door",
+      "shadow": "none",
+      "sort_offset": -1,
+      "sprite_set_id": "sprite.gobj.sample_door",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_hero",
+      "category": "creature",
+      "logical_id": "creature.sample_hero",
+      "kind": "sprite",
+      "icon_id": "icon.creature.sample_hero",
+      "shadow": "blob",
+      "sort_offset": 0,
+      "sprite_set_id": "sprite.creature.sample_hero",
+      "direction_count": 8,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.front_side_l",
+          "mirror_of": "dir.front_side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.back_side_l",
+          "mirror_of": "dir.back_side_r",
+          "flip_x": true
+        }
+      ],
+      "paperdoll_layers": [
+        "body",
+        "hand_main",
+        "head"
+      ],
+      "anchor_points": {
+        "hand_main": {
+          "parent_layer": "hand_main",
+          "offset": {
+            "x": 1.1875,
+            "y": 1.8125
+          },
+          "offset_by_direction": {
+            "dir.side_r": {
+              "x": 1.5,
+              "y": 1.8125
+            }
+          }
+        },
+        "head": {
+          "parent_layer": "head",
+          "offset": {
+            "x": 1.05625,
+            "y": 0.125
+          }
+        }
+      }
+    },
+    {
+      "id": "display.map.sample_loot_pile",
+      "category": "item",
+      "logical_id": "loot.generic_pile",
+      "kind": "sprite",
+      "icon_id": "icon.gobj.sample_chest",
+      "shadow": "blob",
+      "sort_offset": -1,
+      "sprite_set_id": "sprite.gobj.sample_chest",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_model_hero",
+      "category": "creature",
+      "logical_id": "creature.sample_model_hero",
+      "kind": "model",
+      "icon_id": "icon.creature.sample_hero",
+      "shadow": "blob",
+      "sort_offset": 0,
+      "model_ref": "model.placeholder_biped",
+      "anim_set_ref": "display.anim_set.placeholder_biped",
+      "sockets": [
+        "socket.main_hand"
+      ],
+      "slots": [
+        "slot.head"
+      ]
+    },
+    {
+      "id": "display.map.sample_model_sword",
+      "category": "item",
+      "logical_id": "item.sample_model_sword",
+      "kind": "sprite",
+      "weapon_style_ref": "display.weapon_style.sample_model_sword",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_save_point",
+      "category": "gobj",
+      "logical_id": "gobj.sample_save_point",
+      "kind": "sprite",
+      "icon_id": "icon.gobj.sample_save_point",
+      "shadow": "none",
+      "sort_offset": -1,
+      "sprite_set_id": "sprite.gobj.sample_save_point",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    }
   ]
 }

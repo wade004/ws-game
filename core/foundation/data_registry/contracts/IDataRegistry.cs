@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Core.Foundation.Expr;
 using CommonId = Core.Foundation.Common.Id;
 
@@ -30,6 +31,24 @@ namespace Core.Foundation.DataRegistry
         IReadOnlyList<string> Tables { get; }
 
         TableSchema? GetSchema(string table);
+
+        /// <summary>
+        /// 判断记录（消费方反馈 E10 根治，2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E10）：全部已加载表的记录总数。
+        /// <see cref="Presentation.Assembly.ContentValidationAssembly.Run"/> 走一条独立的事件订阅
+        /// 路径拿到精确记录数（见该方法判断记录——即便加载结果阻断也能取到，<see cref="GetAll"/>
+        /// 阻断时会抛异常，两条路径语义不同、不能互相替代）；但 <see cref="Presentation.Assembly.ContentValidationAssembly.CreateRegistry"/>
+        /// 场景下调用方自己持有 registry、自行决定何时调用 <see cref="IDataRegistry.LoadAll()"/>/
+        /// <see cref="IDataRegistry.Reload"/>（例如编辑器需要在用户操作间隙重复单表 Reload），
+        /// 此前完全没有拿到记录总数的办法。本成员按 <see cref="Tables"/>/<see cref="GetAll"/> 求和
+        /// 给出默认实现——用带默认实现的接口成员（C# 8+/netstandard2.1 支持，不要求任何已有实现类
+        /// 显式实现它）新增，不是要求实现方必须提供的抽象成员，因此不构成"公开 API 表面"意义上的
+        /// 破坏性变更（不会让任何现有 <see cref="IDataRegistryView"/> 实现类编译失败）。与
+        /// <see cref="Get(string, string)"/> 同样的前提：数据未通过校验时调用方需自行处理
+        /// <see cref="GetAll"/> 可能抛出的异常（本成员不做额外的静默降级，见 11 第 4 节"运行时不做
+        /// 静默降级"）。
+        /// </summary>
+        int RecordCount => Tables.Sum(table => GetAll(table).Count);
     }
 
     /// <summary>

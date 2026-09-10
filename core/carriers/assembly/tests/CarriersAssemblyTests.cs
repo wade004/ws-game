@@ -12,8 +12,9 @@ namespace Tests.Carriers.Assembly
     /// <summary>
     /// 阶段 3 整理"事项四"烟雾测试：<see cref="CarriersAssembly"/> 按
     /// <see cref="CarriersSchemaCatalog.RegisterAll"/> 注册的全部 L0～L3 schema 构造一份空数据的
-    /// <see cref="DataRegistry"/>（不提供任何行——<see cref="DataRegistry.LoadAll"/> 只加载数据源里
-    /// 实际存在的表，未提供数据的已注册 schema 就是零条记录，见该类型判断记录），验证：
+    /// <see cref="DataRegistry"/>（不提供任何行——<c>DataRegistry.LoadAll</c>（两个重载统称，具体见
+    /// <see cref="DataRegistry.LoadAll()"/>/<see cref="DataRegistry.LoadAll(System.Collections.Generic.IReadOnlyList{IDataSource})"/>）
+    /// 只加载数据源里实际存在的表，未提供数据的已注册 schema 就是零条记录，见该类型判断记录），验证：
     /// <list type="bullet">
     /// <item>构造期全部装配（<see cref="Core.Rules.Assembly.RulesAssembly"/> + 五个 L3 宿主 +
     /// <see cref="Core.Rules.Assembly.DeferredEffectExtension"/> 换绑 + tick 处理器挂载顺序）不抛

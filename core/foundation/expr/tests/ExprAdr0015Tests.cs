@@ -219,6 +219,39 @@ namespace Tests.Foundation.Expr
             Assert.DoesNotContain(issues, i => i.Kind == ExprIssueKind.SuspiciousReferenceSpelling);
         }
 
+        [Fact]
+        public void SuspiciousReferenceSpelling_NotReported_WhenArgExpectedKindIsId()
+        {
+            // 消费方反馈 E6 根治：quest.is_available(quest.sample_hunt) ——quest.sample_hunt 是
+            // quest.def 表里真实存在的内容 id（不是拼写错误），域名 "quest" 恰好与分组同名，按
+            // ADR-0015 归类为 Id 字面量。此前的"疑似引用拼写错误"规则对此会误报——本用例是那次
+            // 误报的最小复现，同时验证根治后不再误报：quest.is_available 的实参签名类型已登记为
+            // Id，该位置上域名与分组同名的 Id 字面量不应再触发警告。
+            var schema = new ExprSchema().Register("quest", "is_available", ExprValueKind.Bool, ExprValueKind.Id);
+            var node = ExprParser.Parse("quest.is_available(quest.sample_hunt)", schema);
+
+            var issues = ExprValidator.Validate(node, schema);
+
+            Assert.DoesNotContain(issues, i => i.Kind == ExprIssueKind.SuspiciousReferenceSpelling);
+            Assert.Empty(issues);
+        }
+
+        [Fact]
+        public void SuspiciousReferenceSpelling_StillReported_WhenArgExpectedKindIsNotId()
+        {
+            // 反例：豁免只对参数期望类型确实是 Id 的位置生效，不是"只要在参数位置就不检查"。
+            // 构造一个期望 Bool 的参数位置，塞一个域名与分组同名、未登记的 Id 字面量
+            // （quest.sample_hunt）——类型本身就不匹配（触发 ArgTypeMismatch），"疑似拼写错误"
+            // 警告也应照常触发，因为这个位置压根不期望 Id，更可能真的是笔误。
+            var schema = new ExprSchema().Register("quest", "some_flag", ExprValueKind.Bool, ExprValueKind.Bool);
+            var node = ExprParser.Parse("quest.some_flag(quest.sample_hunt)", schema);
+
+            var issues = ExprValidator.Validate(node, schema);
+
+            Assert.Contains(issues, i => i.Kind == ExprIssueKind.SuspiciousReferenceSpelling);
+            Assert.Contains(issues, i => i.Kind == ExprIssueKind.ArgTypeMismatch);
+        }
+
         // ---------- ExprIssue.Severity 过滤 / HasErrors ----------
 
         [Fact]

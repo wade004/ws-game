@@ -168,5 +168,74 @@ namespace Tests.Presentation.Assembly
             Assert.Equal(directIssueStrings, assemblyIssueStrings);
             Assert.Equal(directReport.IsBlocking, run.Report.IsBlocking);
         }
+
+        // ---------- 消费方反馈 E10 根治：IDataRegistryView.RecordCount ----------
+
+        [Fact]
+        public void Run_RecordCount_MatchesRegistryRecordCount_WhenNotBlocking()
+        {
+            // 非阻断态下，ContentValidationRun.RecordCount（Run 内部改用 registry.RecordCount，
+            // 见该方法判断记录）应与直接读 run.Registry.RecordCount（新增的默认接口成员）完全一致
+            // ——两者是同一份数据源。故意不接线两条可选规则（默认禁用，同
+            // Run_DefaultOptions_BothOptionalRulesDisabled_NoneEnabled 用例），避免
+            // DisplayMapCoverageRule 因测试数据没有覆盖 display.map 而报 Error 变成阻断态——
+            // 本用例只关心非阻断路径下两个 RecordCount 来源是否一致，不是可选规则接线本身。
+            var source = BuildCreatureTemplateSource();
+            var options = new ContentValidationOptions { FailOnUnknownTable = false };
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
+
+            Assert.False(run.Report.IsBlocking, string.Join("; ", run.Report.Issues));
+            Assert.Equal(5, run.RecordCount); // stat.definition/arch.power_type/prog.level_curve/creature.tier_definition/creature.template 各 1 条
+            Assert.Equal(run.RecordCount, run.Registry.RecordCount);
+        }
+
+        [Fact]
+        public void CreateRegistry_CallerControlledLoadAll_RecordCount_ReflectsLoadedRows()
+        {
+            // 消费方反馈 E10 复现场景：调用方自己持有 CreateRegistry 返回的 registry、自行决定何时
+            // LoadAll——此前没有任何办法在这条路径上拿到记录总数，只能自己遍历 Tables/GetAll 求和。
+            // IDataRegistryView.RecordCount 新增后，CreateRegistry 场景与 Run 场景使用同一个默认
+            // 求和口径（本用例不经过 Run，验证独立成立）。
+            var source = new InMemoryDataSource();
+            source.Add("stat.definition",
+                "{\"table\": \"stat.definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"stat.max_health\", \"name_key\": \"l10n.stat.sample_max_health.name\", \"group\": \"primary\", \"default_base\": 0}," +
+                "{\"id\": \"stat.max_mana\", \"name_key\": \"l10n.stat.sample_max_mana.name\", \"group\": \"primary\", \"default_base\": 0}" +
+                "]}");
+            var options = new ContentValidationOptions { FailOnUnknownTable = false };
+
+            var registry = ContentValidationAssembly.CreateRegistry(source, options, out _);
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+            Assert.Equal(2, registry.RecordCount);
+        }
+
+        [Fact]
+        public void RecordCount_DefaultImplementation_SumsAcrossMultipleTables()
+        {
+            // 覆盖"多张表各自贡献若干条记录，RecordCount 应是全部表的总和"这一基本求和语义
+            // （不是只统计第一张表、或漏算某张表）。
+            var source = new InMemoryDataSource();
+            source.Add("stat.definition",
+                "{\"table\": \"stat.definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"stat.max_health\", \"name_key\": \"l10n.stat.sample_max_health.name\", \"group\": \"primary\", \"default_base\": 0}" +
+                "]}");
+            source.Add("arch.power_type",
+                "{\"table\": \"arch.power_type\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"arch.power.health\", \"name_key\": \"l10n.power.sample_health.name\", " +
+                "\"max_source\": {\"kind\": \"stat\", \"stat\": \"stat.max_health\"}}," +
+                "{\"id\": \"arch.power.mana\", \"name_key\": \"l10n.power.sample_mana.name\", " +
+                "\"max_source\": {\"kind\": \"fixed\", \"value\": 100}}" +
+                "]}");
+            var options = new ContentValidationOptions { FailOnUnknownTable = false };
+
+            var registry = ContentValidationAssembly.CreateRegistry(source, options, out _);
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+            Assert.Equal(3, registry.RecordCount); // 1 + 2
+        }
     }
 }

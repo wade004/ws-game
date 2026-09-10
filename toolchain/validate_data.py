@@ -55,14 +55,49 @@ Program.cs``）。第一道骨架检查只做"若出现必须是布尔值"这一
                        的 ``--strict``，见该工具 ``Program.cs``）。
     ``--skip-dotnet``  只跑第一道骨架检查，跳过第二道（用于没有安装 .NET SDK
                        的环境，或只想快速跑一遍最基础的形状检查）。
-    ``--data-root``    数据根目录，可重复传入以合并多个根（相对仓库根解析，也
-                       可传绝对路径）；一次都不传时默认合并 ``data/_framework``
-                       与 ``data/_sample`` 两根（框架自测默认路径）。
+    ``--data-root``    数据根目录，可重复传入以合并多个根（相对路径按调用方当前工作目录
+                       解析，也可传绝对路径——消费方反馈 E9 根治，2026-09-10：此前误按
+                       本脚本自身所在目录的上一级解析，游戏侧从自己仓库根目录之外的
+                       位置调用时会解析到错误的路径）；一次都不传时默认合并
+                       ``data/_framework`` 与 ``data/_sample`` 两根（框架自测默认
+                       路径，同样按当前工作目录解析，需从仓库根目录运行）。
     ``--framework-root`` 额外追加一个框架级数据根（默认不追加）；配合
                        ``--data-root`` 传入游戏自己的数据目录时常用，例如新游戏
                        仓库里校验"框架分发包 + 本游戏数据"：
                        ``validate_data.py --framework-root <dist>/data/_framework
                        --data-root ./data``。
+    ``--json``         消费方反馈 E8 根治（2026-09-10，见
+                       architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E8）：
+                       把第一道骨架检查结果与第二道 ``toolchain/validator --json``
+                       输出合并为一份 JSON，打印到标准输出（人类可读的诊断消息改
+                       打印到标准错误，标准输出只有这一份 JSON，供调用方直接
+                       ``json.loads(subprocess 的 stdout)``）。结构固定为::
+
+                           {
+                             "skeleton": {
+                               "files_checked": int,   # 第一道检查过的文件总数
+                               "roots_checked": int,    # 参与本次校验的数据根个数
+                               "error_count": int,      # 第一道发现的错误条数
+                               "errors": [
+                                 {"path": str, "message": str}, ...
+                               ]
+                             },
+                             "validator": <toolchain/validator --json 的原始输出对象>
+                                          | null（--skip-dotnet 时）
+                                          | {"raw_output": str, "parse_error": str,
+                                             "returncode": int}
+                                          （validator 输出不是合法 JSON 时的兜底，
+                                          例如找不到 dotnet、或 validator 自身的
+                                          参数错误没有走到打印 JSON 那一步）,
+                             "exit_code": int  # 本次调用最终会返回的进程退出码，
+                                                # 与不带 --json 时的退出码约定一致
+                           }
+
+                       ``validator`` 字段本身的 JSON 结构（``tables``/``records``/
+                       ``errors``/``warnings``/``overrides``/``issues`` 等字段）由
+                       ``toolchain/validator/Program.cs`` 的 ``PrintJson`` 决定，本
+                       脚本原样透传、不解读其内部字段，避免维护两份关于该结构的
+                       文档（该工具自己的 ``--json`` 说明是唯一权威来源）。
 
 用法举例：
     默认（框架自测，_framework + _sample 合并）：
@@ -268,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         dest="data_roots",
         action="append",
         default=None,
-        help="数据根目录，相对仓库根解析（也可传绝对路径）；可重复传入以合并多个根，"
+        help="数据根目录，相对路径按当前工作目录解析（也可传绝对路径）；可重复传入以合并多个根，"
              "一次都不传时默认合并 data/_framework 与 data/_sample 两根",
     )
     parser.add_argument(
@@ -297,6 +332,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="跳过第二道校验（不调用 toolchain/validator），只跑第一道骨架检查",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="把两道校验结果合并为一份 JSON 打印到标准输出（人类可读消息改打印到标准错误），"
+             "结构见本文件头 --json 参数说明",
+    )
 
     try:
         args = parser.parse_args(argv)
@@ -315,9 +356,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.framework_root:
         root_args = [args.framework_root] + root_args
 
+    # 判断记录（消费方反馈 E9 根治，2026-09-10，见
+    # architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E9）：相对路径此前按 repo_root
+    # （find_repo_root() = 本文件所在目录的上一级）解析，不是按调用方实际运行时的当前工作目录——
+    # 这在"从仓库根目录运行本脚本"这一惯例场景下 repo_root 恰好等于当前工作目录，看不出区别；
+    # 但游戏侧把 toolchain/ 整个目录复制/引用到自己仓库、又不是从自己仓库根目录调用本脚本时
+    # （例如从子目录、或用绝对路径调用），"相对路径相对哪个目录解析"这两种基准会给出不同结果，
+    # 按 repo_root 解析会让调用方"我明明在当前目录下有这个路径"的直觉落空。改为统一按调用方当前
+    # 工作目录（`Path.cwd()`）解析全部相对路径（含未传 --data-root 时的默认
+    # data/_framework、data/_sample 两根——不为默认值单独保留 repo_root 基准，保持"相对路径解析
+    # 规则只有一条"，与常规命令行工具惯例一致）；绝对路径不受影响。
+    cwd = Path.cwd()
+
     def resolve_root(root_arg: str) -> Path:
         p = Path(root_arg)
-        base = p if p.is_absolute() else (repo_root / p)
+        base = p if p.is_absolute() else (cwd / p)
         return (base / args.dataset) if args.dataset else base
 
     target_roots = [resolve_root(r) for r in root_args]
@@ -338,6 +391,7 @@ def main(argv: list[str] | None = None) -> int:
 
     total_files = 0
     total_errors = 0
+    skeleton_errors: list[dict[str, str]] = []
 
     for target_root in target_roots:
         for path in iter_json_files(target_root):
@@ -345,14 +399,27 @@ def main(argv: list[str] | None = None) -> int:
             rel_path = path.relative_to(repo_root) if _is_relative_to(path, repo_root) else path
             file_errors = validate_file(path, args.verbose)
             for message in file_errors:
-                print(f"{rel_path}: {message}")
+                if args.json:
+                    skeleton_errors.append({"path": str(rel_path), "message": message})
+                else:
+                    print(f"{rel_path}: {message}")
                 total_errors += 1
 
-    print(f"[第一道·骨架检查] checked {total_files} files across {len(target_roots)} root(s), {total_errors} errors")
+    stage1_summary_line = f"[第一道·骨架检查] checked {total_files} files across {len(target_roots)} root(s), {total_errors} errors"
+    print(stage1_summary_line, file=sys.stderr if args.json else sys.stdout)
     stage1_failed = total_errors > 0
+    skeleton_result = {
+        "files_checked": total_files,
+        "roots_checked": len(target_roots),
+        "error_count": total_errors,
+        "errors": skeleton_errors,
+    }
 
     if args.skip_dotnet:
-        return 1 if stage1_failed else 0
+        exit_code = 1 if stage1_failed else 0
+        if args.json:
+            _emit_json_result(skeleton_result, None, exit_code)
+        return exit_code
 
     # ---------------------------------------------------------------
     # 第二道：真实校验（子进程调用 toolchain/validator，复用 core 内
@@ -368,6 +435,8 @@ def main(argv: list[str] | None = None) -> int:
             "请安装 .NET SDK 后重试，或用 --skip-dotnet 只跑第一道骨架检查。",
             file=sys.stderr,
         )
+        if args.json:
+            _emit_json_result(skeleton_result, None, 2)
         return 2
 
     # 判断记录（P02 根治，2026-09-07，审计 project-review.md P02）：此前用
@@ -382,34 +451,100 @@ def main(argv: list[str] | None = None) -> int:
     # Tools~/validate_data.py 与 Tools~/validator/），改为相对本文件自身目录解析，不再依赖
     # "repo_root/toolchain" 这一假设仓库布局的拼接方式，两种场景都能正确定位。
     validator_project = Path(__file__).resolve().parent / "validator"
-    cmd = [dotnet_path, "run", "--project", str(validator_project)]
-    # 判断记录：本工具（`dotnet run`）与 `dotnet build`/`dotnet test` 一样支持 `--artifacts-path`
-    # 统一构建产物落盘目录（见任务书硬性规则 5）；`validate_data.py` 本身不接受命令行参数指定该
-    # 路径（避免与 `--data-root`/`--strict` 等既有参数表面混杂），改用环境变量
-    # `WS_GAME_ARTIFACTS_PATH` 透传——未设置该环境变量时行为与改动前完全一致（不传
-    # `--artifacts-path`，使用 dotnet 默认输出目录）。
-    artifacts_path = os.environ.get("WS_GAME_ARTIFACTS_PATH")
-    if artifacts_path:
-        cmd += ["--artifacts-path", artifacts_path]
-    cmd += ["--"]
+
+    # 判断记录（消费方反馈 E1 根治，2026-09-10，见
+    # architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E1）：此前一律用
+    # `dotnet run --project toolchain/validator` 现场编译——若本文件所在的 toolchain/ 目录（无论是
+    # 源码仓库内、还是消费方解压出的 dist zip/UPM 包）落在消费方仓库工作树内，MSBuild 沿项目目录
+    # 向上查找 Directory.Build.props 会继承到消费方自己的设置（如 TreatWarningsAsErrors=true），
+    # 把本工具 XML 文档注释里原本无害的告警提升为编译错误，消费方连校验都跑不起来。`build.ps1
+    # -Dist`/`-Release` 打包时已把 Validator 项目连同其依赖的六个核心 DLL 一并预编译进
+    # `toolchain/validator/bin/`（见该脚本"5.057 消费方反馈 E1 根治"判断记录），存在该预编译产物时
+    # 优先直接 `dotnet <Validator.dll>` 执行——这条路径完全不触发 MSBuild/Directory.Build.props
+    # 解析，从根上绕开消费方构建设置污染，不需要用户装 .NET SDK 之外的任何东西、也不需要一次编译
+    # 耗时。找不到预编译产物时（例如源码仓库内自测、或消费方精简掉了 bin/ 目录）退回原有的
+    # `dotnet run --project` 现场编译路径——dist 打包时同时内置了一份空 `Directory.Build.props`
+    # 挡住消费方设置被继承（见 build.ps1 判断记录），两层根治缺一不可。
+    validator_dll_path = validator_project / "bin" / "Validator.dll"
+    using_precompiled = validator_dll_path.is_file()
+    if using_precompiled:
+        cmd = [dotnet_path, str(validator_dll_path)]
+    else:
+        cmd = [dotnet_path, "run", "--project", str(validator_project)]
+        # 判断记录：本工具（`dotnet run`）与 `dotnet build`/`dotnet test` 一样支持
+        # `--artifacts-path` 统一构建产物落盘目录（见任务书硬性规则 5）；`validate_data.py`
+        # 本身不接受命令行参数指定该路径（避免与 `--data-root`/`--strict` 等既有参数表面混杂），
+        # 改用环境变量 `WS_GAME_ARTIFACTS_PATH` 透传——未设置该环境变量时行为与改动前完全一致
+        # （不传 `--artifacts-path`，使用 dotnet 默认输出目录）。只在现场编译路径下有意义，
+        # 直接执行预编译 DLL 时不涉及任何构建产物落盘。
+        artifacts_path = os.environ.get("WS_GAME_ARTIFACTS_PATH")
+        if artifacts_path:
+            cmd += ["--artifacts-path", artifacts_path]
+        cmd += ["--"]
     for target_root in target_roots:
         cmd += ["--data-root", str(target_root)]
     if args.strict:
         cmd.append("--strict")
+    if args.json:
+        # 消费方反馈 E8 根治：透传给 toolchain/validator 自己的 --json，让它把校验结果打印成
+        # JSON（而不是人类可读文本），本脚本原样解析、合并进最终输出的 "validator" 字段。
+        cmd.append("--json")
 
-    print(
-        "[第二道·真实校验] 正在运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: "
-        + " ".join(cmd)
+    running_message = (
+        f"[第二道·真实校验] 正在运行预编译的 toolchain/validator/bin/Validator.dll: " + " ".join(cmd)
+        if using_precompiled
+        else (
+            "[第二道·真实校验] 未找到预编译的 toolchain/validator/bin/Validator.dll，"
+            "现场编译运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: "
+            + " ".join(cmd)
+        )
     )
-    result = subprocess.run(cmd, cwd=str(repo_root))
+    print(running_message, file=sys.stderr if args.json else sys.stdout)
+
+    if args.json:
+        # 判断记录：--json 模式下用 capture_output 接住子进程 stdout（validator 自己的 --json
+        # 输出），不直接透传给本进程的 stdout——否则本脚本自己最终要打印的合并 JSON 会跟在
+        # validator 的原始 JSON 后面，破坏"标准输出只有一份 JSON"的约定。validator 打到 stderr
+        # 的任何内容原样转发到本进程的 stderr（保留可见性，不吞掉）。
+        result = subprocess.run(
+            cmd, cwd=str(repo_root), capture_output=True, text=True, encoding="utf-8", errors="replace"
+        )
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
+        validator_result: dict | None
+        try:
+            validator_result = json.loads(result.stdout) if result.stdout.strip() else None
+        except json.JSONDecodeError as exc:
+            validator_result = {
+                "raw_output": result.stdout,
+                "parse_error": str(exc),
+                "returncode": result.returncode,
+            }
+    else:
+        result = subprocess.run(cmd, cwd=str(repo_root))
+        validator_result = None
 
     if result.returncode == 2:
         # toolchain/validator 自身的参数错误（如 --data-root 指向的目录在子进程视角下不存在），
         # 按同一约定原样透传为脚本级参数错误，不归为"数据校验失败"。
+        if args.json:
+            _emit_json_result(skeleton_result, validator_result, 2)
         return 2
 
     stage2_failed = result.returncode != 0
-    return 1 if (stage1_failed or stage2_failed) else 0
+    exit_code = 1 if (stage1_failed or stage2_failed) else 0
+    if args.json:
+        _emit_json_result(skeleton_result, validator_result, exit_code)
+    return exit_code
+
+
+def _emit_json_result(skeleton: dict, validator: dict | None, exit_code: int) -> None:
+    """消费方反馈 E8 根治：把第一道/第二道校验结果合并为一份 JSON 打印到标准输出，结构见本文件
+    头 ``--json`` 参数说明。是本文件唯一一处直接往标准输出 ``print`` JSON 的地方——调用方按
+    ``--json`` 打开后，标准输出上应当只出现这一份 JSON，其它诊断消息一律走标准错误（见各调用点
+    判断记录），保证 ``json.loads(subprocess 的 stdout)`` 不会因为混入人类可读文本而解析失败。
+    """
+    print(json.dumps({"skeleton": skeleton, "validator": validator, "exit_code": exit_code}, ensure_ascii=False, indent=2))
 
 
 def _is_relative_to(path: Path, other: Path) -> bool:

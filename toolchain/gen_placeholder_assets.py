@@ -179,7 +179,7 @@ class Manifest:
             "files": self.entries,
         }
         (out_dir / "MANIFEST.json").write_text(
-            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n"
         )
         return data
 
@@ -311,7 +311,7 @@ def gen_hero(out: Path, seed: int, manifest: Manifest):
         "mirror_pairs": HERO_MIRROR_PAIRS,
     }
     p = base / "anchors.json"
-    p.write_text(json.dumps(anchors, indent=2, ensure_ascii=False), encoding="utf-8")
+    p.write_text(json.dumps(anchors, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
     manifest.add(p, "json", {})
 
 
@@ -369,7 +369,7 @@ def gen_beast(out: Path, seed: int, manifest: Manifest):
         "mirror_pairs": [],
     }
     p = base / "anchors.json"
-    p.write_text(json.dumps(anchors, indent=2, ensure_ascii=False), encoding="utf-8")
+    p.write_text(json.dumps(anchors, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
     manifest.add(p, "json", {})
 
 
@@ -620,7 +620,7 @@ def gen_vfx(out: Path, seed: int, manifest: Manifest):
             "frames": frame_rects,
         }
         p = d_dir / "frames.json"
-        p.write_text(json.dumps(frames_json, indent=2, ensure_ascii=False), encoding="utf-8")
+        p.write_text(json.dumps(frames_json, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
         manifest.add(p, "json", {})
 
 
@@ -1210,13 +1210,13 @@ def run_generate(out: Path, seed: int, clean: bool = False) -> int:
     # 原样不动（不在 manifest 清单里重复登记它——manifest 只登记本脚本自己生成/接管的文件）。
     has_real_font = any(fonts_dir.glob("*.otf")) or any(fonts_dir.glob("*.ttf"))
     if not has_real_font:
-        (fonts_dir / "README.md").write_text(FONTS_README, encoding="utf-8")
+        (fonts_dir / "README.md").write_text(FONTS_README, encoding="utf-8", newline="\n")
         manifest.add(fonts_dir / "README.md", "text", {})
 
     # 先写一次 manifest 拿到统计数据用于 README，再补写 README 自身条目
     manifest_data = manifest.write(out, seed)
     readme_text = build_readme_text(manifest_data)
-    (out / "README.md").write_text(readme_text, encoding="utf-8")
+    (out / "README.md").write_text(readme_text, encoding="utf-8", newline="\n")
     manifest.add(out / "README.md", "text", {})
     manifest_data = manifest.write(out, seed)  # 覆盖，纳入 README.md 自身条目
 

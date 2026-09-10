@@ -44,7 +44,7 @@ namespace Core.Gameplay.Achievement
         /// <c>Core.Rules.Assembly.RulesSchemaCatalog</c>/若干 L0～L1 测试里出现），既有测试
         /// <c>AchievementHostTests</c> 用只注册 <c>achv.def</c> 一张表的最小 <c>DataRegistry</c>
         /// （<c>TestSupport.MakeRegistry</c>）驱动全部用例；若登记为 Reference，<c>found.event_catalog</c>
-        /// 未加载会让 <see cref="Core.Foundation.DataRegistry.DataRegistry.LoadAll"/> 对每条使用
+        /// 未加载会让 <c>Core.Foundation.DataRegistry.DataRegistry.LoadAll</c> 对每条使用
         /// 任意 <c>observe_event</c> 的记录都报 <c>reference_integrity</c> 错误，与既有测试冲突（理由
         /// 同 <c>QuestSchemas.ObjectiveItemSchema</c> "kill"/"escort" 判断记录）。退回 Id（只查格式），
         /// "已登记事件 key"这条比 Reference 弱一档的成员资格检查改由 <see cref="AchievementContentValidationRule"/>

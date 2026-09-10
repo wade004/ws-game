@@ -37,10 +37,25 @@ namespace Core.Foundation.Expr
 
         private static ExprValueKind? InferKind(ExprNode node, IExprSchema schema, List<ExprIssue> issues)
         {
+            return InferKind(node, schema, issues, suppressSuspiciousIdWarning: false);
+        }
+
+        /// <summary>
+        /// 判断记录（消费方反馈 E6 根治，2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E6）：<paramref name="suppressSuspiciousIdWarning"/>
+        /// 只在 <see cref="ValidateReference"/> 处理某个参数位置、且该位置按已登记签名期望类型
+        /// 恰好是 <see cref="ExprValueKind.Id"/> 时才会传 <c>true</c>（见该方法判断记录），其余
+        /// 全部调用点维持默认的 <c>false</c>（行为与改动前完全一致）。
+        /// </summary>
+        private static ExprValueKind? InferKind(ExprNode node, IExprSchema schema, List<ExprIssue> issues, bool suppressSuspiciousIdWarning)
+        {
             switch (node)
             {
                 case ExprLiteralNode literal:
-                    CheckSuspiciousIdLiteral(literal.Value, schema, issues);
+                    if (!suppressSuspiciousIdWarning)
+                    {
+                        CheckSuspiciousIdLiteral(literal.Value, schema, issues);
+                    }
                     return literal.Value.Kind;
 
                 case ExprReferenceNode reference:
@@ -90,11 +105,34 @@ namespace Core.Foundation.Expr
 
         private static ExprValueKind? ValidateReference(ExprReferenceNode reference, IExprSchema schema, List<ExprIssue> issues)
         {
+            // 判断记录（消费方反馈 E6 根治，2026-09-10）：提前（在处理实参之前）尝试解析本次引用的
+            // 签名——只是为了知道每个实参位置"期望的静态类型"，不改变下面第二次同样查询之后的
+            // UnknownGroup/UnknownKey 报错时机与顺序（那两处判断保持在原来的位置不变，本次查询
+            // 结果只读不用于任何提前 return）。
+            ExprSignature signatureForArgs = default;
+            bool signatureKnownForArgs = ExprGroups.IsKnown(reference.Group) &&
+                schema.TryGetSignature(reference.Group, reference.Key, out signatureForArgs);
+
             // 无论 group/key 是否已知，都先递归校验全部实参子树，尽量收集问题而不是遇错即停。
             var argKinds = new ExprValueKind?[reference.Args.Count];
             for (int i = 0; i < reference.Args.Count; i++)
             {
-                argKinds[i] = InferKind(reference.Args[i], schema, issues);
+                // 判断记录（消费方反馈 E6 根治，见 core/foundation/expr/README.md"疑似引用拼写
+                // 错误"判断记录）："疑似引用拼写错误"警告的原意是提醒"这段文本本该是一个引用、
+                // 却因为未登记而被归类成 Id 字面量"；但当这个位置的静态期望类型（来自已登记签名）
+                // 本身就是 Id 时，该位置天然应该填一个内容 id，不是"疑似漏注册的引用"——04 第 2.2
+                // 节允许内容 id 的 domain 与九个分组之一同名（`quest.sample_hunt`/
+                // `world.bridge.repaired` 一类用法本就是设计内的正常写法，见
+                // core/foundation/expr/tests/ExprAdr0015Tests.cs 对应用例），此前的规则只认"把
+                // 该 Id 本身也登记进签名表"这一种消除警告的方式（见
+                // SuspiciousReferenceSpelling_NotReported_WhenGroupKeyIsRegistered 用例），对参数
+                // 位置期望类型已经是 Id 的场景没有对应豁免，产生系统性误报（任何"域名与某个分组
+                // 同名的内容 domain"，只要把自己的 id 当参数传给该分组下任意一个已登记签名，都会
+                // 触发）。这里改为额外识别这条豁免：期望类型是 Id 时，该实参位置的字面量不再触发
+                // "疑似拼错"警告；其它位置（期望类型非 Id、或签名本身未知）行为不变。
+                bool suppress = signatureKnownForArgs && i < signatureForArgs.ArgKinds.Count &&
+                    signatureForArgs.ArgKinds[i] == ExprValueKind.Id;
+                argKinds[i] = InferKind(reference.Args[i], schema, issues, suppress);
             }
 
             if (!ExprGroups.IsKnown(reference.Group))

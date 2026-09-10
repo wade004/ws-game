@@ -134,7 +134,7 @@ namespace Core.Foundation.Expr
                     return ParseIdentTerm(s);
 
                 default:
-                    throw new ExprParseException(token.Position, $"表达式语法错误：未预期的记号 \"{token.Text}\"（位置 {token.Position}）");
+                    throw new ExprParseException(token.Start, $"表达式语法错误：未预期的记号 \"{token.Text}\"（位置 {token.Start}）");
             }
         }
 
@@ -155,7 +155,7 @@ namespace Core.Foundation.Expr
             var segments = token.Text.Split('.');
             if (segments.Length < 2)
             {
-                throw new ExprParseException(token.Position, $"标识符缺少 domain/分组前缀：\"{token.Text}\"（位置 {token.Position}）");
+                throw new ExprParseException(token.Start, $"标识符缺少 domain/分组前缀：\"{token.Text}\"（位置 {token.Start}）");
             }
 
             var group = segments[0];
@@ -184,7 +184,7 @@ namespace Core.Foundation.Expr
                     {
                         // arg_list ::= term ("," term)* 至少一个 term；空括号不合法（见 README"语法细节"第 6 条），
                         // 零参引用应省略括号而不是写 "()"。
-                        throw new ExprParseException(lparen.Position, "空参数列表 '()' 不合法：零参引用应省略括号（位置 " + lparen.Position + "）");
+                        throw new ExprParseException(lparen.Start, "空参数列表 '()' 不合法：零参引用应省略括号（位置 " + lparen.Start + "）");
                     }
                     args.Add(ParseTerm(s));
                     while (s.Peek().Kind == ExprTokenKind.Comma)
@@ -203,8 +203,8 @@ namespace Core.Foundation.Expr
             if (s.Peek().Kind == ExprTokenKind.LParen)
             {
                 var lparen = s.Peek();
-                throw new ExprParseException(lparen.Position,
-                    $"未登记的引用不能带参数列表：\"{token.Text}\"（位置 {lparen.Position}）——如果这本应是一个引用，请先在 IExprSchema 中登记 \"{group}.{key}\" 的签名");
+                throw new ExprParseException(lparen.Start,
+                    $"未登记的引用不能带参数列表：\"{token.Text}\"（位置 {lparen.Start}）——如果这本应是一个引用，请先在 IExprSchema 中登记 \"{group}.{key}\" 的签名");
             }
 
             return new ExprLiteralNode(ExprValue.OfId(idValue));
@@ -212,12 +212,12 @@ namespace Core.Foundation.Expr
 
         private sealed class ParserState
         {
-            private readonly List<ExprToken> _tokens;
+            private readonly IReadOnlyList<ExprToken> _tokens;
             private int _pos;
 
             public IExprSchema Schema { get; }
 
-            public ParserState(List<ExprToken> tokens, IExprSchema schema)
+            public ParserState(IReadOnlyList<ExprToken> tokens, IExprSchema schema)
             {
                 _tokens = tokens;
                 Schema = schema;
@@ -235,7 +235,7 @@ namespace Core.Foundation.Expr
                 var token = Peek();
                 if (token.Kind != kind)
                 {
-                    throw new ExprParseException(token.Position, $"{errorMessage}（位置 {token.Position}，实际记号 \"{token.Text}\"）");
+                    throw new ExprParseException(token.Start, $"{errorMessage}（位置 {token.Start}，实际记号 \"{token.Text}\"）");
                 }
                 Advance();
             }

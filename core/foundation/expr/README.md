@@ -140,6 +140,20 @@ BNF 没有规定词法细节与"点分标识符到底是 reference 还是 Id"的
    schema 中登记为引用，报"疑似引用拼写错误"——提示调用方"你是不是想写一个引用，但忘了登记"，
    同时不禁止"和分组同名的 Id 字面量"这种合法用法。
 
+   判断记录（消费方反馈 E6 根治，2026-09-10，见
+   architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E6）：上一段"忘了登记"的唯一消除方式
+   此前只有"把这个 Id 本身也登记进 schema 的签名表"一种（见
+   `ExprAdr0015Tests.SuspiciousReferenceSpelling_NotReported_WhenGroupKeyIsRegistered`），对
+   "该 Id 正被用作某个已登记引用的实参、且那个实参位置的静态期望类型本来就是 `Id`"这一同样合法、
+   在框架示例数据里真实出现过的场景（`quest.is_available(quest.sample_hunt)`——`quest.sample_hunt`
+   是 `quest.def` 表里真实存在的内容 id，不是拼写错误）没有对应豁免，会系统性误报：任何"域名与
+   某个分组同名的内容 domain"，只要把自己的 id 当参数传给该分组下任意一个已登记签名，都会触发。
+   `ExprValidator.ValidateReference` 已改为：处理每个实参前先查一次调用本身的签名，若该实参位置
+   的期望类型恰好是 `Id`，则该位置上的字面量不再检查"疑似拼写错误"（其它位置行为不变）——见
+   `ValidateReference`/`InferKind` 判断记录与
+   `ExprAdr0015Tests.SuspiciousReferenceSpelling_NotReported_WhenArgExpectedKindIsId`/
+   `SuspiciousReferenceSpelling_StillReported_WhenArgExpectedKindIsNotId` 两条用例。
+
    这样一来，`world.get(world.bridge.repaired)` 里只要 `world.get` 本身登记了签名、而
    `world.bridge.repaired` 没有被登记为 `world` 分组下的引用，参数就会被正确解析成 Id 字面量
    `world.bridge.repaired`，与文档原意一致；`quest.deliver_letter` 同理。校验期

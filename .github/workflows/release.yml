@@ -130,6 +130,23 @@ jobs:
           # main），必须显式取输入的 tag，否则会 checkout 到分支 HEAD 而不是要验证的那个 tag。
           ref: ${{ github.event.inputs.tag || github.ref_name }}
 
+      - name: Stage self-contained get_framework.ps1 assets
+        shell: powershell
+        # 判断记录（消费方反馈 E2 根治，2026-09-10，见
+        # architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E2）：toolchain/get_framework.ps1
+        # 与 toolchain/_hash.ps1 是随本次 tag 提交一起 checkout 出来的纯文本源文件，不依赖任何
+        # dotnet/npm 构建步骤——与下面的 zip/lock/tgz（确定性构建产物，字节随 checkout 路径变化，
+        # 见文件头"本机已验证产物优先"一整套判断记录）性质完全不同，同一个 commit checkout 出来的
+        # 这两个文件在任何机器上都是逐字节相同的，没有"托管运行器重建出不同字节"的风险，不需要走
+        # 下面那一整套"是否已存在/是否需要从 zip 抽取/是否需要全量重建"的批次一致性判定。这里在
+        # 最前面无条件拷贝一份到 dist/，后面按普通附件走"缺失才上传"逻辑即可。
+        run: |
+          $ErrorActionPreference = "Continue"
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          Copy-Item -Path "toolchain\get_framework.ps1" -Destination "dist\get_framework.ps1" -Force
+          Copy-Item -Path "toolchain\_hash.ps1" -Destination "dist\_hash.ps1" -Force
+          Write-Host "Staged dist/get_framework.ps1 and dist/_hash.ps1 from checkout (plain source files, commit-identical everywhere)."
+
       - name: Setup .NET 8.0.x
         uses: actions/setup-dotnet@v4
         with:
@@ -231,6 +248,17 @@ jobs:
         # 提交历史）；现补齐为四个 .tgz/六个附件（zip、lock、四个 tgz），下面"从已验证 zip 抽附件"
         # 逻辑（Repair missing assets from existing zip 步骤）按 tgz 文件名通配处理，不需要为
         # 第四个包单独加分支，新增本包后自动覆盖。
+        # 判断记录（消费方反馈 E2/E4 根治，2026-09-10，见
+        # architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E2/E4）：新增三项必需附件——
+        # get_framework.ps1、_hash.ps1（固定文件名，不带版本号，上一步已无条件拷到 dist/，纯
+        # 源文件，任何 commit 下都是确定性的，见该步骤判断记录）、ws-game-$version-samples.zip
+        # （E4 新增的验收数据集独立包，build.ps1 -Dist/-Release/-Zip 同一次打包新增产出）。get_
+        # framework.ps1/_hash.ps1 不参与"zip 缺失、其它构建产物已存在 -> 阻断，防止混批"这条判定
+        # （见下面 $batchSensitiveNames）——它们永远可以安全地从当前 checkout 重新拷贝一份，不存在
+        # "与旧构建产物字节不一致"的风险，不应该因为它们碰巧已经是 Release 附件就把一次本该顺利
+        # 进行的全量重建挡住。
+        # 判断记录（run: 正文必须是纯 ASCII，见文件头判断记录）：本步骤 run: 正文里原本内联的这些
+        # 中文说明已移到这里（YAML # 注释，不受该限制），run: 正文只保留英文提示文案。
         run: |
           $ErrorActionPreference = "Continue"
           $tag = "${{ steps.version.outputs.tag }}"
@@ -239,19 +267,28 @@ jobs:
           $requiredNames = @(
             "ws-game-$version.zip",
             "ws-game-$version.lock",
+            "ws-game-$version-samples.zip",
             "com.gamefoundation.adapter.unity-$version.tgz",
             "com.gamefoundation.framework-data-$version.tgz",
             "com.gamefoundation.toolchain-$version.tgz",
-            "com.gamefoundation.adapter.headless-$version.tgz"
+            "com.gamefoundation.adapter.headless-$version.tgz",
+            "get_framework.ps1",
+            "_hash.ps1"
           )
           $requiredPaths = @{
             "ws-game-$version.zip" = "dist/ws-game-$version.zip"
             "ws-game-$version.lock" = "dist/ws-game-$version.lock"
+            "ws-game-$version-samples.zip" = "dist/ws-game-$version-samples.zip"
             "com.gamefoundation.adapter.unity-$version.tgz" = "dist/$version/packages/com.gamefoundation.adapter.unity-$version.tgz"
             "com.gamefoundation.framework-data-$version.tgz" = "dist/$version/packages/com.gamefoundation.framework-data-$version.tgz"
             "com.gamefoundation.toolchain-$version.tgz" = "dist/$version/packages/com.gamefoundation.toolchain-$version.tgz"
             "com.gamefoundation.adapter.headless-$version.tgz" = "dist/$version/packages/com.gamefoundation.adapter.headless-$version.tgz"
+            "get_framework.ps1" = "dist/get_framework.ps1"
+            "_hash.ps1" = "dist/_hash.ps1"
           }
+          # get_framework.ps1/_hash.ps1 are plain source files (see step above); excluded from the
+          # mixed-batch check below since they can always be safely re-copied from checkout.
+          $batchSensitiveNames = @($requiredNames | Where-Object { $_ -ne "get_framework.ps1" -and $_ -ne "_hash.ps1" })
 
           $json = gh release view $tag --json assets 2>$null
           $existingNames = @()
@@ -334,7 +371,7 @@ jobs:
             $zipMissing = $missingNames -contains $zipName
             Write-Host "Release $tag is missing: $($missingNames -join ', ')."
             if ($zipMissing) {
-              $otherPresent = @($existingNames | Where-Object { $requiredNames -contains $_ -and $_ -ne $zipName })
+              $otherPresent = @($existingNames | Where-Object { $batchSensitiveNames -contains $_ -and $_ -ne $zipName })
               if ($otherPresent.Count -gt 0) {
                 Write-Host "BLOCKED: the zip ($zipName) is missing, but other release assets already exist: $($otherPresent -join ', ')."
                 Write-Host "A hosted-runner rebuild would produce a new zip with different DLL bytes/hashes than a local build (deterministic builds encode the checkout path; see file header note), so there is no way to prove the existing assets belong to the same batch as a freshly rebuilt zip."
@@ -360,11 +397,29 @@ jobs:
         # 判断记录：见文件头"缺附件 fallback 根治为'从已验证 zip 抽取'"。只在 zip 存在且 commit 已
         # 校验通过、但 lock 或某个 .tgz 缺失时运行；直接从上一步下载好的 zip 里抽取字节/重算哈希，
         # 不调用 build.ps1、不触发任何新构建，因此不存在"新构建批次配旧 zip"的混批风险。
+        # 判断记录（消费方反馈 E4 根治，2026-09-10）：samples zip（data/_sample、assets/_sample
+        # 打包）内容全部来自当前 checkout 里的纯文本/资源源文件，不依赖任何编译产物——与六个核心
+        # DLL（确定性构建、字节随 checkout 路径变化）性质不同，可以安全地直接用 Compress-Archive
+        # 重新生成，不算"新构建批次混旧产物"。若缺失清单里有它，统一在 lock/tgz 循环之前重建一次，
+        # 供 lock 分支（若也缺失）引用其 sha256；若 lock 已存在（这次不重建）且带 samples.sha256
+        # 字段，重建出的 samples zip 哈希必须与之一致，否则说明历史 lock 记录的是另一份不同内容的
+        # samples zip（理论上不该发生，但一旦发生绝不能悄悄发布一份哈希对不上已发布 lock 的附件），
+        # 阻断并提示人工核查。lock 需要重建时一并补上 samples 字段：优先用刚重建好的哈希（常见
+        # 情形，samples zip 同批一起缺失）；samples zip 这次不缺失（已是既有附件，少见组合）则下载
+        # 它计算哈希；两者都取不到（理论上不该发生）则跳过该字段，保持向后兼容语义
+        # （get_framework.ps1 遇到缺字段的旧锁文件会跳过对应校验并提示，不视为篡改，见该脚本判断
+        # 记录）。get_framework.ps1/_hash.ps1 两个纯源文件不需要从 zip 里抽取/重算——上面 "Stage
+        # self-contained get_framework.ps1 assets" 步骤已经无条件拷贝到位，这里直接跳过。
+        # 判断记录（run: 正文必须是纯 ASCII，见文件头判断记录）：本步骤 run: 正文里原本内联的中文
+        # 说明已移到这里（YAML # 注释，不受该限制），run: 正文只保留英文提示文案。
         if: steps.assets.outputs.skip != 'true' && steps.assets.outputs.zip_missing != 'true'
         shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Continue"
           $version = "${{ steps.version.outputs.version }}"
+          $tag = "${{ steps.version.outputs.tag }}"
           $existingZipPath = "${{ steps.assets.outputs.existing_zip_path }}"
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $zipTopLevelName = "ws-game-$version"
@@ -378,7 +433,43 @@ jobs:
           "@
           $missing = $missingRaw -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
 
+          # See YAML comment above for rationale (samples zip is rebuilt here from plain checkout
+          # source files, unlike the DLL/lock/tgz path which must come from the verified zip).
+          $samplesZipMissingPath = "dist/ws-game-$version-samples.zip"
+          $regeneratedSamplesSha = $null
+          if ($missing -contains $samplesZipMissingPath) {
+            $samplesStagingRoot = Join-Path $env:RUNNER_TEMP ("gf_release_samples_staging_" + [guid]::NewGuid().ToString("N"))
+            $samplesStagingDir = Join-Path $samplesStagingRoot $zipTopLevelName
+            New-Item -ItemType Directory -Force -Path $samplesStagingDir | Out-Null
+            Copy-Item -Path "data\_sample" -Destination (Join-Path $samplesStagingDir "data\_sample") -Recurse -Force
+            Copy-Item -Path "assets\_sample" -Destination (Join-Path $samplesStagingDir "assets\_sample") -Recurse -Force
+            Compress-Archive -Path $samplesStagingDir -DestinationPath $samplesZipMissingPath -CompressionLevel Optimal -Force
+            Remove-Item -Path $samplesStagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+            $regeneratedSamplesSha = (Get-FileHash -Path $samplesZipMissingPath -Algorithm SHA256).Hash.ToLower()
+            Write-Host "Regenerated $samplesZipMissingPath from checkout (plain source files, no build-path nondeterminism); sha256=$regeneratedSamplesSha"
+
+            if (-not ($missing -contains "dist/ws-game-$version.lock")) {
+              $existingLockPathForSamplesCheck = Join-Path $env:RUNNER_TEMP "gf_existing_lock\ws-game-$version.lock"
+              if (Test-Path $existingLockPathForSamplesCheck) {
+                $existingLockForSamplesCheck = Get-Content -Raw -Path $existingLockPathForSamplesCheck | ConvertFrom-Json
+                if ($null -ne $existingLockForSamplesCheck.samples -and -not [string]::IsNullOrEmpty($existingLockForSamplesCheck.samples.sha256)) {
+                  if ($existingLockForSamplesCheck.samples.sha256 -ne $regeneratedSamplesSha) {
+                    Write-Host "BLOCKED: existing ws-game-$version.lock records samples.sha256=$($existingLockForSamplesCheck.samples.sha256), but the samples zip regenerated from this commit's checkout hashes to $regeneratedSamplesSha. Refusing to publish a mismatched pair; investigate manually (see file header note on deterministic-build mixed-batch risk)."
+                    exit 1
+                  }
+                  Write-Host "Regenerated samples zip sha256 matches existing lock's samples.sha256 field."
+                }
+              }
+            }
+          }
+
           foreach ($m in $missing) {
+            if ($m -eq $samplesZipMissingPath) {
+              continue # Already rebuilt above.
+            }
+            if ($m -eq "dist/get_framework.ps1" -or $m -eq "dist/_hash.ps1") {
+              continue # Already staged in the "Stage self-contained get_framework.ps1 assets" step.
+            }
             if ($m -eq "dist/ws-game-$version.lock") {
               $shaMap = [ordered]@{}
               foreach ($asm in $coreAssemblies) {
@@ -401,6 +492,22 @@ jobs:
               $gm = [regex]::Match($manifestText, 'git_commit:\s*(\S+)')
               $gitCommit = $gm.Groups[1].Value
               $lockObj = [ordered]@{ version = $version; git_commit = $gitCommit; dlls = $shaMap }
+              $samplesShaForLock = $regeneratedSamplesSha
+              if ([string]::IsNullOrEmpty($samplesShaForLock)) {
+                $existingSamplesAssetPath = Join-Path $env:RUNNER_TEMP "gf_existing_samples\ws-game-$version-samples.zip"
+                if (-not (Test-Path $existingSamplesAssetPath)) {
+                  New-Item -ItemType Directory -Force -Path (Split-Path $existingSamplesAssetPath -Parent) | Out-Null
+                  gh release download $tag -p "ws-game-$version-samples.zip" -D (Split-Path $existingSamplesAssetPath -Parent) --clobber 2>$null
+                }
+                if (Test-Path $existingSamplesAssetPath) {
+                  $samplesShaForLock = (Get-FileHash -Path $existingSamplesAssetPath -Algorithm SHA256).Hash.ToLower()
+                }
+              }
+              if (-not [string]::IsNullOrEmpty($samplesShaForLock)) {
+                $lockObj["samples"] = [ordered]@{ sha256 = $samplesShaForLock }
+              } else {
+                Write-Host "Could not determine samples zip sha256 while regenerating $m; omitting 'samples' field (backward-compatible, see get_framework.ps1 judgment note)." -ForegroundColor Yellow
+              }
               $lockJson = ($lockObj | ConvertTo-Json -Depth 5)
               [System.IO.File]::WriteAllText($m, $lockJson, (New-Object System.Text.UTF8Encoding($false)))
               Write-Host "Regenerated $m from the DLLs inside the existing zip (same bytes, recomputed hash)."

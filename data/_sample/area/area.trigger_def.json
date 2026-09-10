@@ -5,10 +5,17 @@
     {
       "id": "area.sample_field_explore",
       "map_id": "world.sample_field",
-      "shape": { "kind": "circle", "radius": 10, "center": { "x": 5, "y": 0 } },
+      "shape": {
+        "kind": "circle",
+        "radius": 10,
+        "center": {
+          "x": 5,
+          "y": 0
+        }
+      },
       "trigger_type": "quest_explore",
-      "params": {},
-      "one_shot": false
+      "one_shot": false,
+      "params": {}
     }
   ]
 }

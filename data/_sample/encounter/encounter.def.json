@@ -5,7 +5,9 @@
     {
       "id": "encounter.sample_beast_fight",
       "units": [
-        { "spawn_ref": "spawn.sample_encounter_ambusher" }
+        {
+          "spawn_ref": "spawn.sample_encounter_ambusher"
+        }
       ],
       "victory_condition": "enemies.count_in_range(50) == 0",
       "defeat_condition": "self.hp_pct <= 0",
@@ -15,12 +17,14 @@
     },
     {
       "id": "encounter.sample_mode_override_discrete",
-      "combat_mode_override": "discrete",
       "units": [
-        { "spawn_ref": "spawn.sample_encounter_ambusher" }
+        {
+          "spawn_ref": "spawn.sample_encounter_ambusher"
+        }
       ],
       "victory_condition": "enemies.count_in_range(50) == 0",
-      "defeat_condition": "self.hp_pct <= 0"
+      "defeat_condition": "self.hp_pct <= 0",
+      "combat_mode_override": "discrete"
     }
   ]
 }
