@@ -5,7 +5,7 @@ namespace Core.Foundation.Rng
 {
     /// <summary>
     /// 分流随机源契约（对应 03_运行时骨架.md 第 9 节 <c>RngHost</c> 签名）。
-    /// 按 <paramref name="stream"/>（一个 <see cref="Id"/>）分流生成随机数以保证可复现：
+    /// 按 <c>stream</c>（一个 <see cref="Id"/>）分流生成随机数以保证可复现：
     /// 不同用途（掉落、AI、技能……）各自持有独立流，互不干扰；<see cref="GetStreamState"/>/
     /// <see cref="SetStreamState"/> 供存档系统持久化与恢复某条流的内部状态。
     /// </summary>
@@ -41,7 +41,7 @@ namespace Core.Foundation.Rng
         /// 其初始状态由本值经 <see cref="Reset"/> 构造时的 <c>SeedDerivation</c> 派生（见
         /// rng/README.md"懒创建与派生"一节）——存档/回放系统必须把它一并持久化/传递，否则这类
         /// "未来新流"在读档/重放后会派生自与录制/保存时不同的主种子，产生不同的随机序列
-        /// （见 <see cref="RngStreamsPersistable"/>、<c>Core.Foundation.SaveSystem.ReplayPlayer</c>
+        /// （见 <see cref="Core.Foundation.SaveSystem.RngStreamsPersistable"/>、<c>Core.Foundation.SaveSystem.ReplayPlayer</c>
         /// 判断记录）。
         /// </summary>
         ulong MasterSeed { get; }

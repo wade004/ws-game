@@ -46,7 +46,7 @@ namespace Core.Foundation.InputMap
         /// <summary>
         /// 每帧/每 tick 调用一次：拉取 <paramref name="input"/>.PollEvents() 更新按键/轴状态、
         /// 重算全部已声明动作的状态；按下型动作出现"按下沿"（本次激活、上次未激活）时
-        /// <see cref="IEventBus.Enqueue"/> 一条 <see cref="InputActionTriggeredEvent"/>。
+        /// <see cref="Core.Foundation.EventBus.IEventBus.Enqueue"/> 一条 <see cref="InputActionTriggeredEvent"/>。
         /// </summary>
         void Update(IInput input);
 

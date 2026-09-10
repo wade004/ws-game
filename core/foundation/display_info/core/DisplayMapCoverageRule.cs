@@ -10,7 +10,7 @@ namespace Core.Foundation.DisplayInfo
     /// display 域引用集合中的逻辑 id（技能、光环、物品、生物、物件）必须在 display.map 中有
     /// 对应行"）。本模块不预设"哪些表参与外形域引用集合"——具体是 <c>skill.def</c> 还是
     /// <c>creature.template</c> 一类内容表属于更上层模块，由调用方经构造函数
-    /// <paramref name="sources"/> 注入"要检查覆盖的表 + 该表用哪个字段做逻辑 id"。
+    /// <c>sources</c> 注入"要检查覆盖的表 + 该表用哪个字段做逻辑 id"。
     /// </summary>
     public sealed class DisplayMapCoverageRule : IValidationRule
     {

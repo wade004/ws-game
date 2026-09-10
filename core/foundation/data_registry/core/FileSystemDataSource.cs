@@ -14,7 +14,7 @@ namespace Core.Foundation.DataRegistry
     /// <c>listFiles(dirPath): List&lt;String&gt;</c>，未规定返回值是绝对路径还是相对
     /// <c>dirPath</c> 的路径、是否递归。本模块按"实现级约定"（见
     /// <c>core/foundation/engine_adapter/README.md</c>"IFileSystem"一节）采用：返回
-    /// <paramref name="rootDir"/>之下（递归）全部文件、相对 <paramref name="rootDir"/>、
+    /// <c>rootDir</c>之下（递归）全部文件、相对 <c>rootDir</c>、
     /// 用 <c>/</c> 分隔、按序数排序——因此本类把 <c>rootDir</c> 与每个相对路径拼接回完整路径
     /// 后才传给 <see cref="IFileSystem.ReadText"/>。
     /// </para>

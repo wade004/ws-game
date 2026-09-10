@@ -24,7 +24,7 @@ namespace Core.Foundation.SceneRouter
     /// 见 08 难度档位，用 <see cref="FieldKind.IdList"/>）。四个字段均不声明
     /// <see cref="FieldSchema.ReferenceTable"/>/<see cref="FieldSchema.ReferenceDomain"/>——
     /// <c>regions</c> 引用的子区域划分与 <c>allowed_difficulties</c> 引用的难度档位当前均无独立
-    /// 登记表可供引用完整性校验（08 难度档位只在运行期以 <see cref="Id"/> 标识，未登记进
+    /// 登记表可供引用完整性校验（08 难度档位只在运行期以 <see cref="Core.Foundation.Common.Id"/> 标识，未登记进
     /// <c>IDataRegistry</c>），登记完整性校验属于后续独立收口项。
     /// </para>
     /// <para>
@@ -51,7 +51,7 @@ namespace Core.Foundation.SceneRouter
     /// 不是两种不同的 schema——<c>TeleportTargetResolver.TryReadPosition</c> 对缺失字段温和降级为
     /// "找不到"而非抛异常（见该方法判断记录），因此这里不新增引用完整性校验；跨地图/跨表按 id
     /// 引用这些命名点是否存在，属于内容管线的更高层职责（04/05 尚未给出具体规则），本次不越权
-    /// 替 04/05 拍板。
+    /// 替 04/05 拍板。</item>
     /// </list>
     /// </para>
     /// </summary>

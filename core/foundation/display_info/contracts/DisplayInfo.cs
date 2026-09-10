@@ -256,7 +256,7 @@ namespace Core.Foundation.DisplayInfo
         /// <see cref="AnchorDef"/>（09 第 3.3.1 节锚点表：<c>parent_layer</c>/<c>offset</c> 必填，
         /// <c>offset_by_direction</c> 可选）。<paramref name="anchorName"/> 就是
         /// <see cref="SpriteInfo.AnchorPoints"/> 字典的键，同时也是本对象的
-        /// <see cref="AnchorDef.AnchorId"/>。
+        /// <c>AnchorDef.AnchorId</c>。
         /// </summary>
         private static AnchorDef ParseAnchorDef(DataRecord record, string anchorName, JsonValue value)
         {

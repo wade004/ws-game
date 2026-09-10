@@ -828,8 +828,8 @@ namespace Core.Foundation.SaveSystem
         /// 两个子场景）。本次回滚循环天然按与 <see cref="Load"/> 正常主循环相同的正向顺序处理
         /// <paramref name="loadedKeysInOrder"/>（CORE-180-02 既有结论），因此对每个成功回滚的段重放
         /// 同一个 <see cref="IDerivedStateRebuilder.OnSectionLoaded"/> 调用，等价于"用读档前快照
-        /// 重新走一遍正常读档的派生重建依赖顺序"，不需要为回滚单独定义一套派生重建规则；<see
-        /// cref="GameplayAssembly.DerivedStateRebuilder"/> 判断记录说明了这次复用为什么不需要区分
+        /// 重新走一遍正常读档的派生重建依赖顺序"，不需要为回滚单独定义一套派生重建规则；
+        /// <c>GameplayAssembly.DerivedStateRebuilder</c> 判断记录说明了这次复用为什么不需要区分
         /// "这次调用是正常读档还是回滚"。
         /// </para>
         /// </summary>

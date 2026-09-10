@@ -39,7 +39,7 @@ namespace Core.Foundation.DataRegistry
     /// 在多个根之间不一致，判定为阻断错误（<c>schema_version</c> 检查项，消息里点出两个根各自的
     /// 位置），不再合并该表（该表本次加载视为失败，不出现在 <see cref="Tables"/> 中，语义与其它
     /// envelope 级错误一致）；否则各根独立完成版本迁移与"根内"逐行建 <see cref="DataRecord"/>
-    /// （根内主键重复仍按原规则报 <c>primary_key</c> 错误），再按 <paramref name="sources"/> 声明
+    /// （根内主键重复仍按原规则报 <c>primary_key</c> 错误），再按 <c>sources</c> 声明
     /// 顺序把各根产出的记录集合依次合并（顺序即"层"：先声明的根是前层，后声明的根是后层——典型
     /// 用法是框架根在前、具体游戏根在后）——合并阶段若同一主键在两个不同根间重复，见下"覆盖语义"。
     /// </para>
@@ -125,7 +125,7 @@ namespace Core.Foundation.DataRegistry
             public Dictionary<string, DataRecord> ByKey = null!;
 
             /// <summary>该表本次加载实际读取到的全部来源位置（诊断用，见
-            /// <see cref="IDataRegistryView.GetTableSourceLocations"/>）：单根加载时只有一条，
+            /// <see cref="IDataRegistry.GetTableSourceLocations(string)"/>）：单根加载时只有一条，
             /// 多根合并时按参与合并的根顺序排列。</summary>
             public List<string> Locations = null!;
         }
@@ -412,7 +412,7 @@ namespace Core.Foundation.DataRegistry
 
         public TableSchema? GetSchema(string table) => _schemas.TryGetValue(table, out var s) ? s : null;
 
-        /// <summary>只读诊断（F3 元数据门禁新增，见 <see cref="Presentation.Assembly.SchemaAudit"/>）：
+        /// <summary>只读诊断（F3 元数据门禁新增，见 <c>Presentation.Assembly.SchemaAudit</c>）：
         /// 本次已 <see cref="RegisterSchema"/> 登记的全部 <see cref="TableSchema"/>（不要求已
         /// <see cref="LoadAll()"/>——只反映"代码里声明了哪些表结构"，与是否已加载任何实际数据行
         /// 无关）。<see cref="IDataRegistry"/> 接口本身不暴露这份列表（不改接口签名，见任务书约束），

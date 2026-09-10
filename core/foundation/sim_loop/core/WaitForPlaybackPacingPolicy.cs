@@ -27,7 +27,7 @@ namespace Core.Foundation.SimLoop
     /// 真正的播放队列；<c>PresentationAssembly</c> 依赖已构造完成的 <c>GameplayAssembly</c>（L5 在
     /// L0～L4 之上），因此改为"先占位、后回填"——<c>PresentationAssembly</c> 装配好
     /// <c>FeedbackBinder</c>（播放队列随之就绪）之后，经
-    /// <see cref="Core.Gameplay.Assembly.GameplayAssembly.SetPendingPlaybackProbe"/> 这一窄方法把
+    /// <c>Core.Gameplay.Assembly.GameplayAssembly.SetPendingPlaybackProbe</c> 这一窄方法把
     /// <c>() =&gt; Feedback.HasPendingPlayback</c> 接进来，同本类型一贯"未接线时不影响装配
     /// 成功、只是退化"的取舍——未接线（<c>null</c>，如只装配了 <c>core</c>/<c>gameplay</c> 两层、
     /// 没有表现层的核心测试/纯逻辑场景）时本类型不知道"有没有要回放的东西"，按"没有"处理（立即
@@ -42,7 +42,7 @@ namespace Core.Foundation.SimLoop
 
         /// <summary>可选探针："当前是否存在尚未回放完的表现动作"（典型实现：表现层播放队列的
         /// <c>PendingCount &gt; 0</c>）。默认 <c>null</c>（未接线，见类型判断记录）；调用方（生产
-        /// 代码经 <see cref="Core.Gameplay.Assembly.GameplayAssembly.SetPendingPlaybackProbe"/>，
+        /// 代码经 <c>Core.Gameplay.Assembly.GameplayAssembly.SetPendingPlaybackProbe</c>，
         /// 测试可直接赋值）随时可重新赋值——本类型每次 <see cref="BeginStep"/> 都重新读取当前值，
         /// 不缓存。</summary>
         public Func<bool>? HasPendingPlayback { get; set; }

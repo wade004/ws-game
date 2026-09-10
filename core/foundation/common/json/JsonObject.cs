@@ -7,7 +7,7 @@ namespace Core.Foundation.Common.Json
     /// <summary>
     /// JSON 对象：保持键的插入（解析出现）顺序，用 <c>List&lt;KeyValuePair&lt;string, JsonValue&gt;&gt;</c>
     /// 存主体、外加一个 <c>Dictionary&lt;string, int&gt;</c> 索引加速按键查找。不可变——构造之后
-    /// （<see cref="JsonObjectBuilder"/> 完成 <see cref="Build"/> 之后）不提供任何修改方法。
+    /// （<see cref="JsonObjectBuilder"/> 完成 <see cref="JsonObjectBuilder.Build"/> 之后）不提供任何修改方法。
     /// 重复键（同一层出现两次同名字段）在构建期直接报错，不做"后者覆盖前者"的静默处理
     /// （避免数据表里的拼写失误被悄悄接受）。
     /// </summary>
