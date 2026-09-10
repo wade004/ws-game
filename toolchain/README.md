@@ -492,21 +492,39 @@ powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <你的 Un
 powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <工程根> -PackageName com.gamefoundation.toolchain -ResolveOnly
 ```
 
-## ABI 探针（`abi_probe.ps1`，第十六方深度审核跟进）
+## ABI 探针（`abi_probe.ps1`，第十六/十七方深度审核跟进）
 
-`toolchain/abi_probe.ps1`：发布前二进制兼容性门禁（见根 `architecture/11_工程规范与测试.md` 第 7
-节"发布说明不得宣称未经验证的二进制兼容"）。原理：编译一份只见过基线版本公开签名的最小消费方
-（`toolchain/abi_probe/`，四个核心程序集各一条调用路径），换上当前工作树刚构建出的正式 DLL、**不
-重新编译**运行——`System.MissingMethodException` 等即说明存在未声明的二进制破坏性变更，此时脚本以
-非零退出码收尾。基线版本号读取同目录 `abi_probe_baseline.txt`（默认 `1.12.0`，人工维护的"最后一个
-已知二进制兼容"锚点，日常 MINOR/PATCH 发布不应推进它，见该脚本 `.PARAMETER BaselineVersion` 判断
-记录）。基线发行包（`dist/ws-game-<基线版本>.zip`）是本机构建缓存，`.gitignore` 排除、未必存在于
-每台机器——找不到时脚本默认打印警告后以 PASS 收尾（不阻塞门禁），可用
-`-SkipIfBaselineMissing:$false` 改为强制要求。
+`toolchain/abi_probe.ps1`：发布前二进制/API 兼容性门禁（见根 `architecture/11_工程规范与测试.md`
+第 7 节"发布说明不得宣称未经验证的二进制兼容"）。两道独立检查，任一不满足都判失败：
 
-已纳入 `check.ps1` 全量步骤（`-Quick` 跳过，见该脚本"2b. ABI 探针"步骤）。独立运行：
+1. 手写消费方探针（`toolchain/abi_probe/`）：编译一份只见过基线版本公开签名的最小消费方，换上
+   当前工作树刚构建出的正式 DLL、**不重新编译**运行——`System.MissingMethodException` 等即说明
+   存在未声明的二进制破坏性变更。
+2. 通用公开 API 表面差异（`toolchain/abi_surface/`，PJ114-02 根治）：用
+   `System.Reflection.MetadataLoadContext` 反射基线与当前六个核心 DLL 的全部公开/受保护 API
+   表面并逐行比对，不再依赖第 1 点手写消费方里人工维护的少量调用点——新增/修改的公开签名即使没人
+   记得在消费方探针里补一条调用，也会被这一道检查覆盖到。放行清单见
+   `toolchain/abi_surface_allowlist.txt`（默认空，只允许放行走过 ADR 流程的 MAJOR 破坏）。
+
+基线版本号读取同目录 `abi_probe_baseline.txt`（默认 `1.12.0`，人工维护的"最后一个已知二进制兼容"
+锚点，日常 MINOR/PATCH 发布不应推进它，见该脚本 `.PARAMETER BaselineVersion` 判断记录）。基线
+发行包（`dist/ws-game-<基线版本>.zip`）是本机构建缓存，`.gitignore` 排除、未必存在于每台机器——
+找不到时脚本默认打印警告后以**退出码 3（SKIP，不是 PASS）**收尾，`-SkipIfBaselineMissing:$false`
+改为强制要求（此时基线缺失判 FAIL，退出码 1）。`-OutDir` 输出目录有边界保护（PJ114-03 根治）：
+省略时用时间戳 + 随机后缀新建一个全新临时目录；显式传入且已存在时，非空直接拒绝，任何分支都不再
+对已存在目录做递归删除。
+
+已纳入 `check.ps1` 全量步骤（`-Quick` 跳过，见该脚本"2b. ABI 探针"步骤）；`check.ps1 -AbiStrict`
+把"基线缺失"从可见 SKIP 升级为 FAIL（`build.ps1 -Release` 固定传此开关）。独立运行：
 
 ```powershell
 powershell -File toolchain\abi_probe.ps1
 powershell -File toolchain\abi_probe.ps1 -BaselineVersion 1.12.0 -SkipIfBaselineMissing:$false
+```
+
+`toolchain/abi_surface` 也可独立调用，覆盖任意 DLL 集合（不限于本仓库的基线/当前场景）：
+
+```powershell
+dotnet run --project toolchain\abi_surface -- dump --out surface.txt <dll1> <dll2> ...
+dotnet run --project toolchain\abi_surface -- compare baseline.txt current.txt --allowlist toolchain\abi_surface_allowlist.txt --out report.txt
 ```

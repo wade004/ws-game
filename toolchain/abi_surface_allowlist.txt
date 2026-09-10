@@ -1,0 +1,13 @@
+# toolchain/abi_surface compare 的放行清单（PJ114-02 根治，外部审计 audit-76d16a5-20260910）。
+#
+# 每行一条放行记录，格式：<签名文本> | <原因> | <ADR 编号>
+#   - <签名文本>：toolchain/abi_surface dump 输出的完整一行（TYPE 或 MEMBER 行，逐字节匹配，见
+#     toolchain/abi_surface/Program.cs BuildReport 判断记录），照抄 compare 报告里 BREAKING 小节
+#     打印的那一行即可。
+#   - <原因> / <ADR 编号>：人话说明为什么这处破坏是刻意的、经过评审的（只允许用于走了
+#     architecture/12_扩展与变更流程.md ADR 流程的 MAJOR 破坏性变更，不是随手放行的逃生舱）。
+#
+# 本文件默认是空的（只有注释）——没有任何签名走过 ADR 流程放行破坏性变更。
+#
+# 示例（不生效，仅示范格式，# 开头的行会被跳过）：
+# MEMBER	Core.Rules.Skill.SkillHost	ctor	.ctor(...)	- | 示例：说明为什么放行 | ADR-0099

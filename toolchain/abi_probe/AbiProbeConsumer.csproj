@@ -21,8 +21,10 @@
     <AssemblyName>AbiProbeConsumer</AssemblyName>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <!-- 探针只关心"能不能找到方法"，故意不当 CS0618（Obsolete）为错误——本探针本就是要调用
-         已标 [Obsolete] 的兼容 façade。 -->
-    <NoWarn>CS0618</NoWarn>
+         已标 [Obsolete] 的兼容 façade。CS8625（A5 补充：SkillHost 17 参数构造字面量 null 实参）
+         同理不是需要关注的告警——探针故意对每个引用类型参数传字面量 null 来验证签名可解析，可空性
+         告警是预期噪音。 -->
+    <NoWarn>CS0618;CS8625</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
@@ -30,6 +32,14 @@
   <ItemGroup>
     <Reference Include="Core.Foundation">
       <HintPath>lib\Core.Foundation.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <!-- A5 补充（外部审计 audit-76d16a5-20260910，PJ114-01 SkillHost 17 参数构造 façade 探针）：
+         SkillHost 构造签名里 IStatHost/IPowerHost 两个参数类型定义在 Core.Numbers（见
+         core/rules/skill/core/SkillHost.cs 构造函数参数列表），即使调用点全部传字面量 null，
+         C# 编译期解析重载/参数类型仍需要能看到这两个类型的程序集，否则 CS0012。 -->
+    <Reference Include="Core.Numbers">
+      <HintPath>lib\Core.Numbers.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Core.Carriers">
