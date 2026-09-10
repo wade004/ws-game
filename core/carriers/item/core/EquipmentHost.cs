@@ -854,6 +854,29 @@ namespace Core.Carriers.Item
         // 套装件数门槛（07 第 1.5 节 ItemSet）
         // -----------------------------------------------------------------
 
+        /// <summary>
+        /// CORE114 静态候选根治（外部审计 audit-76d16a5-20260910 core-findings.md"静态边界与未列
+        /// P2"一节"Equipment set cache"）：判断记录——此前下方"按 <paramref name="bonuses"/>（当前
+        /// <c>item.set</c> 定义）逐门槛比较 <c>isApplied</c>"的循环，只能发现"新定义里存在、但施加
+        /// 状态需要变化"的门槛，天生看不到"<see cref="_appliedSetBonuses"/> 里已经 applied、但新定义
+        /// 里已经不存在这个门槛 key"的情况——<c>item.set</c> reload 把某个门槛删除，或把
+        /// <c>count</c> 改到当前装备件数永远达不到的值，都会让旧门槛从新 <paramref name="bonuses"/>
+        /// 里消失，循环因此完全不会访问它，句柄永久孤儿（真实探针复现：合法 2 件套装门槛已施加，
+        /// reload 删除该门槛后逐件卸下，光环句柄从未被释放，<c>HasAura</c> 持续为 true）。改为先扫一遍
+        /// <see cref="_appliedSetBonuses"/> 里已记录、但新 <paramref name="bonuses"/> 里已不存在的
+        /// "孤儿门槛"，无条件释放——这与 <see cref="ReapplySetBonuses"/>（跨图重放场景）判断记录里
+        /// "先清失效记录、再交给本方法按当前件数重新判定"是同一条原则，只是触发时机不同：那里是
+        /// "光环系统内已失效但记录还在"，这里是"记录仍然有效存活、但定义已经不再承认这个门槛"，两者
+        /// 都必须在遍历新定义之前先行清理，否则新定义的遍历范围本就覆盖不到它们。
+        /// <para>
+        /// 已知局限（未在本次根治范围内）：孤儿门槛的清理只在本方法被调用时发生（装备/卸下变化，或
+        /// <see cref="ReapplySetBonuses"/> 跨图重放）——<c>item.set</c> reload 那一刻本身不会主动为
+        /// 全部已注册单位重算，如果 reload 后玩家迟迟不做任何装备操作，孤儿光环会一直生效到下一次
+        /// 装备变化才被发现并释放。这与 <c>EconomyHost</c>/<c>StatHost</c> 等"reload 时立即对账"的
+        /// 处理时机不同，是否需要 reload 时主动扫描全部单位属于另一个更大的设计决策（需要遍历全部
+        /// 已知单位 × 已知套装，本类型当前不持有"全部已注册单位"的索引），不在本次候选验收范围内。
+        /// </para>
+        /// </summary>
         private void RecomputeSetBonuses(Id unitId, Id setId)
         {
             if (!_sets.TryGetValue(setId, out var setRecord))
@@ -864,12 +887,32 @@ namespace Core.Carriers.Item
 
             var currentCount = CountEquippedPiecesOfSet(unitId, setId);
             var bonuses = ParseSetBonuses(setRecord);
+            var thresholdsInCurrentDefinition = new HashSet<int>();
+            foreach (var (threshold, _) in bonuses)
+            {
+                thresholdsInCurrentDefinition.Add(threshold);
+            }
 
             var key = (unitId, setId);
             if (!_appliedSetBonuses.TryGetValue(key, out var applied))
             {
                 applied = new Dictionary<int, List<AuraInstanceRef>>();
                 _appliedSetBonuses[key] = applied;
+            }
+
+            foreach (var staleThreshold in new List<int>(applied.Keys))
+            {
+                if (thresholdsInCurrentDefinition.Contains(staleThreshold))
+                {
+                    continue;
+                }
+
+                foreach (var staleRef in applied[staleThreshold])
+                {
+                    ReleaseAuraHandle(unitId, staleRef);
+                }
+
+                applied.Remove(staleThreshold);
             }
 
             foreach (var (threshold, auraRef) in bonuses)

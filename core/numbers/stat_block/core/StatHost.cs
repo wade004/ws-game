@@ -62,10 +62,19 @@ namespace Core.Numbers.StatBlock
             // _definitions/_ratingConversions 此前只在构造期从 registry 读取一次、永久常驻，
             // 与 SkillDefCache/ArchetypeRegistry 同一类"构造期一次性读 registry 建索引、之后
             // 只读"模式。本类型本就持有 registry 引用（原先只作为局部参数传给 Load* 方法，
-            // 现改存字段），直接内部订阅、自行重新查询——_units（每单位属性运行期状态、缓存
-            // 最终值）不受影响，reload 只刷新定义表本身，不倒退已经算过的属性缓存（同
-            // ArchetypeRegistry.ReloadFromRegistry 判断记录："reload 只刷新定义表本身，不倒退
-            // 已应用的效果"）。
+            // 现改存字段），直接内部订阅、自行重新查询。
+            //
+            // CORE114-03 根治（外部审计 audit-76d16a5-20260910）：上一段判断记录此前还有一句
+            // "_units 不受影响，reload 只刷新定义表本身，不倒退已经算过的属性缓存"——这句话是错的，
+            // 已删除：<see cref="UnitStats.Cache"/>（<see cref="GetStat"/> 的派生值缓存）不是运行期
+            // 状态，它是"上一次用某份定义算出的结果"，定义变了缓存就必须失效，和 <see cref="_units"/>
+            // 里真正的运行态（<see cref="UnitStats.Base"/> 显式覆盖值、<see
+            // cref="UnitStats.ModifiersByStat"/> 修正列表）不是一回事——真实审计复现：两个相同、都未
+            // 显式 <see cref="SetBase"/> 过的单位，reload 前只查询过其中一个（缓存下 0），reload
+            // <c>default_base</c> 为 77 后，先查询过的那个仍返回缓存里的旧值 0，另一个第一次查询直接
+            // 现算得到 77——同一条规则下两个未修改过的单位就因为"查询顺序"分叉出不同结果
+            // （STAT-QUERY-ORDER beforeA=0;afterA=0;afterB=77）。见 <see
+            // cref="RecomputeAllCachedStatsAfterReload"/> 判断记录。
             _bus.Subscribe<Core.Foundation.DataRegistry.DataLoadCompletedEvent>(
                 Core.Foundation.DataRegistry.DataRegistryEventKeys.LoadCompleted, _ => ReloadFromRegistry());
         }
@@ -78,6 +87,66 @@ namespace Core.Numbers.StatBlock
             if (_options.EnableRatingConversion)
             {
                 LoadRatingConversions(_registry);
+            }
+
+            RecomputeAllCachedStatsAfterReload();
+        }
+
+        /// <summary>
+        /// CORE114-03 根治（外部审计 audit-76d16a5-20260910）：<see cref="ReloadFromRegistry"/>
+        /// 替换 <see cref="_definitions"/> 后，对每个已注册单位、每条此前已经被 <see
+        /// cref="GetStat"/> 现算并写入过 <see cref="UnitStats.Cache"/> 的属性，用新定义立即重算一遍
+        /// ——不等下一次 <see cref="GetStat"/> 调用才发现缓存是旧的（构造期首次调用时 <see
+        /// cref="_units"/> 必为空，天然 no-op，不需要额外判空）。
+        /// <para>
+        /// 判断记录（只重算"已经算过"的属性，不主动补算全部已注册属性）：<see cref="GetStat"/> 对
+        /// "该单位该属性自注册以来从未被任何变更路径算过"的属性本就不发 <see cref="StatChangedEvent"/>
+        /// （只读查询不产生变化，见类型顶部注释），这里保持同一条口径——缓存里没有的属性表示"还没有
+        /// 任何人关心过这个值"，不需要为它们提前触发一次事件；它们下一次被 <see cref="GetStat"/>
+        /// 查询时自然会用（已经是新的）<see cref="_definitions"/> 现算，不存在分叉风险。
+        /// </para>
+        /// <para>
+        /// 判断记录（显式 base 保留、派生缓存失效是两件事）：只重写 <see cref="UnitStats.Cache"/>，
+        /// 不触碰 <see cref="UnitStats.Base"/>——显式 <see cref="SetBase"/> 过的值是调用方主动设定的
+        /// 运行期状态，定义表 <c>default_base</c> 变化不应该覆盖它（<see cref="ComputeFinal"/> 本就
+        /// 优先取 <c>unit.Base</c>，重算只是让"这份显式 base + 新定义的 min/max/modifiers 组合"重新
+        /// 生效，不是重置显式值）。
+        /// </para>
+        /// <para>
+        /// 判断记录（定义被移除：清除缓存、不发事件）：<see cref="_definitions"/> 里已经没有的属性
+        /// key，说明这条属性定义已被整表 reload 删除——<see cref="RequireDefinition"/> 之后任何按
+        /// 该 key 的查询都会抛 <see cref="ArgumentException"/>（既有契约，不在本次根治范围内），
+        /// 继续把一个指向已消失定义的值留在缓存里没有意义，直接移除；不发 <see
+        /// cref="StatChangedEvent"/>——这条属性已经不存在，没有"新值"可供下游消费。
+        /// </para>
+        /// </summary>
+        private void RecomputeAllCachedStatsAfterReload()
+        {
+            foreach (var unitEntry in _units)
+            {
+                var unitId = unitEntry.Key;
+                var unit = unitEntry.Value;
+
+                // 快照缓存 key 集合：下面的循环会就地修改 unit.Cache（重算写回/移除失效项），
+                // 不能在遍历同一个字典时直接改它。
+                var cachedStats = new List<Id>(unit.Cache.Keys);
+                foreach (var stat in cachedStats)
+                {
+                    if (!_definitions.TryGetValue(stat, out var def))
+                    {
+                        unit.Cache.Remove(stat);
+                        continue;
+                    }
+
+                    var oldValue = unit.Cache[stat];
+                    var newValue = ComputeFinal(unitId, unit, def);
+                    unit.Cache[stat] = newValue;
+
+                    if (newValue != oldValue)
+                    {
+                        _bus.Enqueue(new StatChangedEvent(unitId, stat, oldValue, newValue));
+                    }
+                }
             }
         }
 

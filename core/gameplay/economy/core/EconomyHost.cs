@@ -93,12 +93,13 @@ namespace Core.Gameplay.Economy
         /// 剩余库存/补货倒计时"这一运行期状态，若整体清空重建会把玩家已经买剩的库存/补货进度全部
         /// 重置回满库存——同 QuestHost.Reload 判断记录"不清空运行期状态"的同一条原则，只是这里的
         /// 运行期状态（_stock）在构造期是从 def 派生初始化的，不能像 Quest 进度那样完全独立于
-        /// reload 逻辑之外。处理方式：已存在的 (vendorId, itemId) 组合保留原 StockState 不动；
-        /// 新出现的 vendorId 或已有商人新增的 sell_item（此前不存在于 _stock[vendorId]）按 def
-        /// 初始化为满库存——与"首次构造/首次遇到这个商品"语义一致。已下架但仍留在 _stock 里的旧
-        /// itemId 条目不主动清理（不影响任何查询路径：<see cref="GetStock"/>/<see
-        /// cref="TryConsumeStock"/>/<see cref="Update"/> 均按当前 <c>_vendors[vendorId].SellItems</c>
-        /// 反向驱动访问 _stock，不会遍历到这些孤儿 key）。
+        /// reload 逻辑之外。处理方式：已存在的 (vendorId, itemId) 组合保留原 <see cref="StockState"/>
+        /// 实例、但与新 <c>sell_item</c> 定义对账（见 <see cref="ReconcileStockStateWithNewDefinition"/>
+        /// 判断记录——CORE114-02 根治新增，此前"保留原样不动"这句话本身就是缺陷根源）；新出现的
+        /// vendorId 或已有商人新增的 sell_item（此前不存在于 _stock[vendorId]）按 def 初始化为满库存
+        /// ——与"首次构造/首次遇到这个商品"语义一致。已下架但仍留在 _stock 里的旧 itemId 条目不主动
+        /// 清理（不影响任何查询路径：<see cref="GetStock"/>/<see cref="Update"/> 均按当前
+        /// <c>_vendors[vendorId].SellItems</c> 反向驱动访问 _stock，不会遍历到这些孤儿 key）。
         /// </summary>
         private void ReloadFromRegistry()
         {
@@ -112,6 +113,11 @@ namespace Core.Gameplay.Economy
             }
 
             _currencyOrder.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
+
+            // CORE114-02 根治（外部审计 audit-76d16a5-20260910）：迁移前留一份旧 vendor 定义快照
+            // ——ReconcileStockStateWithNewDefinition 需要按 (vendorId, itemId) 找回"reload 之前
+            // 这件商品到底是什么补货策略"，必须在 _vendors 被整体替换之前捕获。
+            var oldVendors = new Dictionary<Id, VendorDef>(_vendors);
 
             _vendors.Clear();
             _vendorOrder.Clear();
@@ -127,10 +133,14 @@ namespace Core.Gameplay.Economy
                     _stock[def.Id] = stockByItem;
                 }
 
+                oldVendors.TryGetValue(def.Id, out var oldVendorDef);
+
                 foreach (var sellItem in def.SellItems)
                 {
-                    if (stockByItem.ContainsKey(sellItem.ItemId))
+                    if (stockByItem.TryGetValue(sellItem.ItemId, out var existing))
                     {
+                        var oldSellItem = oldVendorDef != null ? FindSellItem(oldVendorDef, sellItem.ItemId) : null;
+                        ReconcileStockStateWithNewDefinition(existing, oldSellItem?.RestockPolicy, sellItem);
                         continue;
                     }
 
@@ -143,6 +153,71 @@ namespace Core.Gameplay.Economy
             }
 
             _vendorOrder.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
+        }
+
+        /// <summary>
+        /// CORE114-02 根治（外部审计 audit-76d16a5-20260910）：把一件已存在的限量商品的运行期
+        /// <see cref="StockState"/> 与 reload 后的新 <paramref name="newSellItem"/> 定义对账——此前
+        /// <see cref="ReloadFromRegistry"/> 对已存在的 (vendor,item) 组合"原样保留不动"，真实探针
+        /// 复现：<c>none</c>（<c>TimerRemaining</c> 恒为 null）库存耗尽为 0 后，reload 同一商品为
+        /// <c>timer</c> 策略，旧 <see cref="StockState"/> 原样保留，<c>TimerRemaining</c> 仍是 null，
+        /// <see cref="Update"/> 因 <c>!state.TimerRemaining.HasValue</c>（见该方法判断）直接跳过，
+        /// 库存永久卡在 0、再也不会补货（外部审计 ECON-NONE-TO-TIMER）。
+        /// <para>
+        /// 三种 <see cref="VendorRestockPolicy"/>（<c>none</c>/<c>on_map_enter</c>/<c>timer</c>）
+        /// 两两转换的结果（<paramref name="oldPolicy"/> 为 <c>null</c> 表示这件商品在旧 vendor 定义
+        /// 里已不存在——按"此前不是 timer"同等对待，走下方"变为 Timer 且 TimerRemaining 为 null"分支）：
+        /// <list type="bullet">
+        /// <item><c>none/on_map_enter → none/on_map_enter</c>：<c>TimerRemaining</c> 本就是/继续是
+        /// null，本方法的 timer 分支不触碰它，等价于"仍不是 timer 策略"，no-op。</item>
+        /// <item><c>none/on_map_enter → timer</c>：<c>TimerRemaining</c> 此前必为 null（这两种策略
+        /// 从不写入该字段），命中"为 null → 置为新 <c>RestockTimer</c>（完整周期）"分支，建立一个
+        /// 全新的、从满周期开始倒计时的计时器。</item>
+        /// <item><c>timer → none/on_map_enter</c>：<c>TimerRemaining</c> 显式置回 null——不再是
+        /// timer 策略后不应该留一个再也不会被 <see cref="Update"/> 消费、但仍然存在的倒计时值。</item>
+        /// <item><c>timer → timer</c>，周期不变：<c>TimerRemaining</c> 已经有值，<c>oldPolicy ==
+        /// Timer</c> 命中 clamp 分支，<c>Math.Min(旧值, 新周期)</c> 在周期不变时等于原值，no-op。</item>
+        /// <item><c>timer → timer</c>，周期变化：同上 clamp 分支，但新周期可能比旧的剩余时间短——
+        /// clamp 到新周期上限，不允许"剩余时间超过新定义的完整周期"这种不自洽状态。</item>
+        /// </list>
+        /// </para>
+        /// <para>
+        /// <c>StockLimit</c>（库存上限）与补货策略正交，独立对账：新上限存在时，<c>Remaining</c>
+        /// 有值则 <c>Math.Min(旧值, 新上限)</c>（已消费的库存量守恒——上限调大不会凭空把已经卖掉的
+        /// 库存补回来，上限调小则把超出部分砍平，不能让旧库存显示"超过新上限"这种不自洽状态）；
+        /// <c>Remaining</c> 此前是 null（旧定义无限库存）则直接按新上限满库存起算（无限库存期间没有
+        /// 任何消费计数可以守恒）。新上限不存在（改回无限库存）则 <c>Remaining</c> 置回 null。
+        /// </para>
+        /// </summary>
+        private static void ReconcileStockStateWithNewDefinition(
+            StockState state, VendorRestockPolicy? oldPolicy, VendorSellItem newSellItem)
+        {
+            if (newSellItem.RestockPolicy == VendorRestockPolicy.Timer)
+            {
+                if (!state.TimerRemaining.HasValue)
+                {
+                    state.TimerRemaining = newSellItem.RestockTimer;
+                }
+                else if (oldPolicy == VendorRestockPolicy.Timer && newSellItem.RestockTimer.HasValue)
+                {
+                    state.TimerRemaining = Math.Min(state.TimerRemaining.Value, newSellItem.RestockTimer.Value);
+                }
+            }
+            else
+            {
+                state.TimerRemaining = null;
+            }
+
+            if (newSellItem.StockLimit.HasValue)
+            {
+                state.Remaining = state.Remaining.HasValue
+                    ? Math.Min(state.Remaining.Value, newSellItem.StockLimit.Value)
+                    : newSellItem.StockLimit;
+            }
+            else
+            {
+                state.Remaining = null;
+            }
         }
 
         /// <summary>全部已加载货币 id，按 <see cref="Id"/> 序数排列（供 <see

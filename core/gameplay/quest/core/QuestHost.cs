@@ -135,6 +135,11 @@ namespace Core.Gameplay.Quest
         {
             if (definitions == null) throw new ArgumentNullException(nameof(definitions));
 
+            // CORE114-01 根治（外部审计 audit-76d16a5-20260910）：迁移前先留一份旧定义快照——
+            // MigrateProgressAfterReload 需要按 (Type, TargetRef) 把新目标数组与旧目标数组配对，
+            // 必须在 _definitions 被整体替换之前捕获，替换之后就再也拿不到旧的 QuestObjective 形状了。
+            var oldDefinitions = new Dictionary<Id, QuestDefinition>(_definitions);
+
             _definitions.Clear();
             foreach (var def in definitions)
             {
@@ -142,6 +147,147 @@ namespace Core.Gameplay.Quest
             }
 
             SubscribeEventObjectiveKeys(_definitions.Values);
+
+            // CORE114-01 根治（外部审计 audit-76d16a5-20260910）：此前本方法只替换 _definitions，
+            // 完全不触碰 _progress——真实探针复现：旧定义 1 条 kill 目标、玩家已接取并取得进度，
+            // reload 同一 quest id 为 2 条目标后，再次 UpdateProgress(index=1) 直接
+            // IndexOutOfRangeException（rt.ObjectiveCounts 仍是旧的 1 长度数组，见
+            // UpdateProgress/ApplyObjectiveCount 判断记录）。改为 reload 后立即对每条运行中
+            // （Active/ObjectivesComplete）的进度按新定义迁移 ObjectiveCounts 形状，见
+            // MigrateProgressAfterReload 判断记录。
+            MigrateProgressAfterReload(oldDefinitions);
+        }
+
+        /// <summary>
+        /// CORE114-01 根治（外部审计 audit-76d16a5-20260910）：<see cref="Reload"/> 替换定义后，把
+        /// 每条运行中（<see cref="QuestState.Active"/>/<see cref="QuestState.ObjectivesComplete"/>，
+        /// 见判断记录 1）的 <see cref="QuestRuntimeState.ObjectiveCounts"/> 从旧定义的目标数组形状
+        /// 迁移到新定义的目标数组形状，不再让后续任何按新定义索引的读写（<see
+        /// cref="UpdateProgress"/>/<see cref="GetActiveObjectives"/> 等）撞上一个大小仍是旧值的数组。
+        /// <para>
+        /// 判断记录 1（迁移范围只覆盖 Active/ObjectivesComplete）：<see cref="QuestState.Failed"/>/
+        /// <see cref="QuestState.TurnedIn"/> 两个终态下，<c>ObjectiveCounts</c> 不会再被任何按当前
+        /// 定义索引的路径触碰（<see cref="TryGetActive"/>/<see
+        /// cref="TryGetActiveOrObjectivesComplete"/> 都已把范围限定为这两个非终态），保留旧数组不会
+        /// 造成越界，也不需要为不会被再读取的历史进度花代价重算。
+        /// </para>
+        /// <para>
+        /// 判断记录 2（逐新目标按 (Type, TargetRef) 匹配旧目标，先到先得）：新目标 i 依次在旧定义里
+        /// 找"Type 与 TargetRef 相同、且尚未被本次迁移匹配过"的第一条旧目标——用
+        /// <c>matched</c> 数组防止同一条旧目标被两个新目标重复认领（例如旧定义有两条不同
+        /// <c>target_ref</c> 的 kill 目标，新定义把其中一条拆成两条相同 <c>target_ref</c> 的目标，
+        /// 只有排在前面的新目标能认领到那条旧进度，另一条按"无匹配"处理，不会凭空把同一份旧计数
+        /// 复制两遍）。命中的旧计数按新目标的 <c>Count</c> clamp（新上限可能比旧的小）。目标增加、
+        /// 减少、重排三种变化都落在这同一套"逐新目标找旧目标"的循环里，不需要分情况处理。
+        /// </para>
+        /// <para>
+        /// 判断记录 3（无匹配的新目标：Collect 非消耗型按持有量重算，其余置 0）：新出现的目标没有
+        /// 历史进度可继承，语义上等价于"任务刚刚才第一次拥有这个目标"——<see cref="Accept"/> 对
+        /// <c>Collect</c> 且 <c>!ConsumeOnProgress</c> 的目标就是"接取瞬间按当前库存持有量重算"
+        /// （GP-08 判断记录），这里复用同一条规则，不发明第二套语义；其余目标类型（消耗型 collect、
+        /// kill/interact/cast/explore/talk/event）没有"当前已持有多少"这个概念，一律从 0 开始。
+        /// </para>
+        /// <para>
+        /// 判断记录 4（事件与状态收尾复用既有路径）：每个新索引的最终值与"迁移前的对应值"（匹配到的
+        /// 旧计数，或无匹配时的 0）不同才发一次 <see cref="QuestObjectiveProgressEvent"/>——与
+        /// <see cref="ApplyObjectiveCount"/> "值不变不发事件"同一条惯例。全部索引迁移完成后调用与
+        /// <see cref="ApplyObjectiveCount"/> 共用的 <see cref="ReevaluateCompletionState"/>：
+        /// 迁移后恰好全部达标（含目标减少到玩家已有进度足以覆盖的情形）从 Active 进入
+        /// ObjectivesComplete 并照常发 <see cref="QuestCompletedEvent"/>；此前已 ObjectivesComplete
+        /// 但新定义下不再全部达标（目标增加/上限提高）回落 Active，不合成任何"取消完成"新事件类型
+        /// （与 ApplyObjectiveCount 判断记录同一条理由：08 文档事件词汇表没有定义这一事件）。
+        /// </para>
+        /// <para>
+        /// 判断记录 5（定义被整体移除：保持现状）：<paramref name="oldDefinitions"/> 里存在、但新
+        /// <see cref="_definitions"/> 里已不存在的 questId——按任务书"定义被移除而进度仍在：保持
+        /// 现状"直接跳过，不清理 <c>_progress</c> 里的记录、也不触碰其 <c>ObjectiveCounts</c>。这类
+        /// 记录本就不会再被 <see cref="RequireDef"/> 之外的任何路径用新定义索引（<see
+        /// cref="RequireDef"/> 对未登记 id 直接抛 <see cref="ArgumentException"/>，行为与迁移前一致，
+        /// 不在本次根治范围内）。
+        /// </para>
+        /// </summary>
+        private void MigrateProgressAfterReload(Dictionary<Id, QuestDefinition> oldDefinitions)
+        {
+            foreach (var kv in new List<KeyValuePair<(Id UnitId, Id QuestId), QuestRuntimeState>>(_progress))
+            {
+                var unitId = kv.Key.UnitId;
+                var questId = kv.Key.QuestId;
+                var rt = kv.Value;
+
+                if (rt.State != QuestState.Active && rt.State != QuestState.ObjectivesComplete)
+                {
+                    continue;
+                }
+                if (!_definitions.TryGetValue(questId, out var newDef))
+                {
+                    continue; // 判断记录 5：定义被移除，保持现状。
+                }
+                if (!oldDefinitions.TryGetValue(questId, out var oldDef))
+                {
+                    // 理论上不会发生：能在 _progress 里出现必然是此前 Accept 过，Accept 要求
+                    // GetState 先通过 RequireDef，说明当时的旧定义必然已经登记在 oldDefinitions 里。
+                    continue;
+                }
+
+                var matched = new bool[oldDef.Objectives.Count];
+                var newCounts = new int[newDef.Objectives.Count];
+                var priorForCompare = new int[newDef.Objectives.Count];
+
+                for (var i = 0; i < newCounts.Length; i++)
+                {
+                    var newObjective = newDef.Objectives[i];
+                    int? sourceCount = null;
+
+                    for (var j = 0; j < oldDef.Objectives.Count; j++)
+                    {
+                        if (matched[j])
+                        {
+                            continue;
+                        }
+                        var oldObjective = oldDef.Objectives[j];
+                        if (oldObjective.Type == newObjective.Type && oldObjective.TargetRef.Equals(newObjective.TargetRef))
+                        {
+                            matched[j] = true;
+                            sourceCount = rt.ObjectiveCounts[j];
+                            break;
+                        }
+                    }
+
+                    priorForCompare[i] = sourceCount ?? 0;
+                    newCounts[i] = ResolveMigratedObjectiveCount(unitId, newObjective, sourceCount);
+                }
+
+                rt.ObjectiveCounts = newCounts;
+
+                for (var i = 0; i < newCounts.Length; i++)
+                {
+                    if (newCounts[i] != priorForCompare[i])
+                    {
+                        Publish(new QuestObjectiveProgressEvent(unitId, questId, i, newCounts[i]));
+                    }
+                }
+
+                ReevaluateCompletionState(unitId, questId, newDef, rt);
+            }
+        }
+
+        /// <summary>供 <see cref="MigrateProgressAfterReload"/> 与存档读入迁移
+        /// （<see cref="ReplaceAllProgress"/>）共用的单目标"旧计数 → 新计数"收尾规则：找到旧计数则
+        /// clamp 到新 <paramref name="objective"/> 的 <see cref="QuestObjective.Count"/> 上限；没有
+        /// 旧计数可继承时，<c>Collect</c> 且 <c>!ConsumeOnProgress</c> 按当前库存持有量重算（同
+        /// <see cref="Accept"/> 的 GP-08 判断记录），其余类型置 0（见
+        /// <see cref="MigrateProgressAfterReload"/> 判断记录 3）。</summary>
+        private int ResolveMigratedObjectiveCount(Id unitId, QuestObjective objective, int? sourceCount)
+        {
+            if (sourceCount.HasValue)
+            {
+                return Clamp(sourceCount.Value, 0, objective.Count);
+            }
+            if (objective.Type == QuestObjectiveType.Collect && !objective.ConsumeOnProgress)
+            {
+                return Clamp(_inventoryHost.CountOf(unitId, objective.TargetRef), 0, objective.Count);
+            }
+            return 0;
         }
 
         // -------------------------------------------------------------
@@ -465,10 +611,23 @@ namespace Core.Gameplay.Quest
             foreach (var progress in snapshot)
             {
                 var def = RequireDef(progress.QuestId);
+
+                // CORE114-01 收口（外部审计 audit-76d16a5-20260910）：此前这里只按位置直接
+                // `counts[i] = progress.ObjectiveCounts[i]`——既不 clamp 到当前 def 的 Count 上限
+                // （存档写出之后若内容改小了某目标的 Count，读档会把"超过新上限"的旧值原样保留），
+                // 快照比当前定义短时多出来的新目标也一律留 0（哪怕是 Collect 且 !ConsumeOnProgress、
+                // 背包里其实已经有货）。改为与 <see cref="MigrateProgressAfterReload"/> 共用同一个单
+                // 目标收尾规则 <see cref="ResolveMigratedObjectiveCount"/>：存档快照按位置对应（同一份
+                // 快照本就是针对写出时那份定义按顺序序列化的，不需要也没有旧 QuestDefinition 可供
+                // 按 (Type, TargetRef) 重新匹配，位置对应即权威对应），超出快照长度的新目标与迁移场景
+                // 走同一条"Collect 非消耗型按持有量重算，其余置 0"规则；命中的快照值统一 clamp 到当前
+                // Count。本方法不重新评估 <c>rt.State</c>（仍按快照写入的 <c>progress.State</c> 为准，
+                // 存档读入的状态一致性是 GP-01 既有契约，不在本次 CORE114-01 范围内）。
                 var counts = new int[def.Objectives.Count];
-                for (var i = 0; i < counts.Length && i < progress.ObjectiveCounts.Count; i++)
+                for (var i = 0; i < counts.Length; i++)
                 {
-                    counts[i] = progress.ObjectiveCounts[i];
+                    int? sourceCount = i < progress.ObjectiveCounts.Count ? progress.ObjectiveCounts[i] : (int?)null;
+                    counts[i] = ResolveMigratedObjectiveCount(unitId, def.Objectives[i], sourceCount);
                 }
 
                 newEntries.Add(((unitId, progress.QuestId), new QuestRuntimeState
@@ -599,6 +758,16 @@ namespace Core.Gameplay.Quest
             rt.ObjectiveCounts[objectiveIndex] = clamped;
             Publish(new QuestObjectiveProgressEvent(unitId, questId, objectiveIndex, clamped));
 
+            ReevaluateCompletionState(unitId, questId, def, rt);
+        }
+
+        /// <summary>CORE114-01 根治（外部审计 audit-76d16a5-20260910）：从 <see
+        /// cref="ApplyObjectiveCount"/> 尾部收口出来的状态双向同步——单条目标计数变化（本方法原有
+        /// 调用方）与 reload 迁移后整批计数变化（<see cref="MigrateProgressAfterReload"/> 新增调用方）
+        /// 共用同一条"是否全部达标"判定与同一条事件路径，不为迁移场景另开一份平行逻辑、也不合成新的
+        /// 事件类型（同 <see cref="ApplyObjectiveCount"/> 原有判断记录）。</summary>
+        private void ReevaluateCompletionState(Id unitId, Id questId, QuestDefinition def, QuestRuntimeState rt)
+        {
             if (rt.State == QuestState.Active && AllObjectivesComplete(def, rt))
             {
                 rt.State = QuestState.ObjectivesComplete;

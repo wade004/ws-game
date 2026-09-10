@@ -26,7 +26,22 @@ namespace Core.Gameplay.Common
                 case JsonString s:
                     return ExprValue.OfString(s.Value);
                 case JsonObject o when o.Count == 1 && o.TryGetValue("$id", out var idField) && idField is JsonString idText:
-                    return ExprValue.OfId(new Id(idText.Value));
+                    // CORE114-04 根治（外部审计 audit-76d16a5-20260910）：判断记录——此前直接
+                    // `new Id(idText.Value)`，Id 构造期格式校验失败抛 ArgumentException，与本方法
+                    // "格式错误一律 FormatException"的对外合同（见 IsValid 判断记录"Parse 抛
+                    // FormatException"）不一致，导致 IsValid 的 try/catch(FormatException) 接不住
+                    // 这条异常、原样冒泡到调用方（正式 QuestContentValidationRule/
+                    // DialogContentValidationRule 校验阶段），使恶意/错误内容能让校验入口整体崩溃
+                    // 而不是形成一条可定位的 report（外部审计 QuestWorldFlagValueBoundaryProbe 复现：
+                    // {"$id":"BAD"} 报 invalid_id_formal=throws;type=ArgumentException）。改用
+                    // Id.TryParse——失败时统一转译为 FormatException（携带原始 "$id" 文本），
+                    // 使 Parse 对"合法 JSON 形状、但 Id 内容不合法"与"JSON 形状本身不在受支持并集内"
+                    // 两类错误都归一为同一种异常类型，IsValid 不需要再区分。
+                    if (!Id.TryParse(idText.Value, out var parsedId))
+                    {
+                        throw new FormatException($"\"$id\" 字段不是合法的 Id 格式：\"{idText.Value}\"");
+                    }
+                    return ExprValue.OfId(parsedId);
                 default:
                     throw new FormatException($"不是受支持的 ExprValue JSON 形状（实际种类：{value.Kind}）");
             }
@@ -42,6 +57,13 @@ namespace Core.Gameplay.Common
         /// <see cref="Parse"/> 并吞掉其异常，而不是重新实现一份平行的判别 switch——两处独立维护同一
         /// 判别逻辑迟早会漂移（校验通过了但解析失败，或反之），本方法与 <see cref="Parse"/> 永远
         /// 接受同一个形状集合。
+        /// <para>
+        /// CORE114-04 根治（外部审计 audit-76d16a5-20260910）：只捕获 <see cref="FormatException"/>
+        /// ——这是 <see cref="Parse"/> 对外承诺的"格式错误"异常类型（见上方 <c>$id</c> 分支判断记录，
+        /// Parse 内部已把 Id 构造失败转译成 FormatException，不会再冒泡 ArgumentException）。不额外
+        /// 捕获 <see cref="ArgumentException"/> 或更宽的 <see cref="Exception"/>——那样会连同吞掉
+        /// Parse/Id 实现里其他类别的编程错误（例如误传 null），掩盖真正的 bug 而不是内容缺陷。
+        /// </para>
         /// </summary>
         public static bool IsValid(JsonValue value)
         {

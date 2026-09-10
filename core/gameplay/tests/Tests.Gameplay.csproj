@@ -20,6 +20,13 @@
   <ItemGroup>
     <ProjectReference Include="../Core.Gameplay.csproj" />
     <ProjectReference Include="../../../adapters/stub/Adapters.Stub.csproj" />
+    <!-- CORE114-04 根治（外部审计 audit-76d16a5-20260910）：验收要求覆盖正式装配
+         Presentation.Assembly.ContentValidationAssembly.Run 默认参数下 quest.def/dialog.gossip_menu
+         对非法 {"$id":...} 的端到端行为（见 core/gameplay/quest/tests/CORE114_04_*、
+         core/gameplay/dialog/tests/CORE114_04_* 判断记录）——Core.Gameplay（生产代码）不依赖
+         presentation/，只有测试需要引用它，新增这条引用只影响 Tests.Gameplay，不影响生产装配的层次
+         依赖方向（presentation → core/gameplay，反向不成立）。 -->
+    <ProjectReference Include="../../../presentation/Presentation.Common.csproj" />
   </ItemGroup>
 
 </Project>
