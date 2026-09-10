@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Expr;
 
 namespace Core.Rules.ExprHost
@@ -50,6 +51,19 @@ namespace Core.Rules.ExprHost
 
         public bool TryGetSignature(string group, string key, out ExprSignature signature) =>
             _known.TryGetSignature(group, key, out signature);
+
+        /// <summary>
+        /// 消费方反馈（编辑器）第 27 条根治（2026-09-11，见
+        /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md）：转发给
+        /// <see cref="_known"/>（真正持有全部已登记签名的内层 <see cref="ExprSchema"/>）——本类型
+        /// 不显式重写会落回 <see cref="IExprSchema.KnownKeys"/> 的默认实现（恒返回空集合），与
+        /// <see cref="TryGetSignature"/> 已经转发给 <see cref="_known"/> 的行为不一致（签名能查到，
+        /// 已知 key 列表却是空的）。
+        /// </summary>
+        public IReadOnlyCollection<string> KnownKeys(string group) => _known.KnownKeys(group);
+
+        /// <summary>同上一份判断记录：转发给 <see cref="_known"/>。</summary>
+        public IReadOnlyCollection<string> KnownGroups => _known.KnownGroups;
 
         /// <summary>
         /// 把若干份游戏层/上层模块自己的 <see cref="IExprSchema"/>（如 <c>world.get</c>/

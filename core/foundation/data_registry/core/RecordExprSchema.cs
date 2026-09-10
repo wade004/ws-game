@@ -58,6 +58,29 @@ namespace Core.Foundation.DataRegistry
             signature = default;
             return false;
         }
+
+        /// <summary>
+        /// 消费方反馈（编辑器）第 27 条根治（2026-09-11，见
+        /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md）：<paramref name="group"/>
+        /// 为 <see cref="ExprGroups.Self"/> 时返回 <see cref="For"/> 登记过的全部字段名（按序号
+        /// Ordinal 排序，确定性；与 <see cref="ExprSchema.KnownKeys"/> 同一份判断记录），其它分组
+        /// 本类型从不登记（见 <see cref="TryGetSignature"/>），返回空集合。</summary>
+        public IReadOnlyCollection<string> KnownKeys(string group)
+        {
+            if (group != ExprGroups.Self || _fields.Count == 0)
+            {
+                return Array.Empty<string>();
+            }
+
+            var result = new List<string>(_fields.Keys);
+            result.Sort(StringComparer.Ordinal);
+            return result;
+        }
+
+        /// <summary>本类型只可能登记 <see cref="ExprGroups.Self"/> 一个分组（见
+        /// <see cref="TryGetSignature"/>），字段非空时返回该分组，否则返回空集合。</summary>
+        public IReadOnlyCollection<string> KnownGroups =>
+            _fields.Count == 0 ? Array.Empty<string>() : new[] { ExprGroups.Self };
     }
 
     /// <summary>
