@@ -46,11 +46,52 @@ WB 负责核心运行时四项（CORE114-01～04）+ P3 注释勘误 + 套装缓
 4. PJ114-01 独立复现（见上表判断记录）：基于 `docs-project/api-compat/run-skillhost-abi.ps1`
    同一方法论，用本轮修复后重新构建的 Core DLL 替换未重新编译的 consumer 程序集，退出码由 11
    （修复前，对未打补丁的 `dist/ws-game-1.14.0.zip`）变为 0（修复后）。
-5. 本文档未执行的项（留待步骤 6，不在本次整合范围内提前断言）：`toolchain/abi_probe.ps1`
-   完整门禁路径实跑（含基线包 1.12.0/1.13.0 下的 consumer probe 与 `abi_surface` compare）、
-   `check.ps1` 全量步骤（含 Unity EditMode/PlayMode）、`validate_data.py`/`--schema-audit`、
-   `python -m pytest toolchain/tests` 全量（本次只重跑了与本轮改动直接相关的两个测试文件，未跑
-   全部 132+ 个用例）。这些项目留给"步骤 6"（全量提交门槛脚本）统一执行并记录结果。
+5. `check.ps1` 全量门禁（不加 `-SkipUnity`/`-Quick`/`-Il2cpp`）已于 2026-09-10 在整合阶段执行完毕，
+   一轮即全绿：**门禁通过：全部 27 步（总用时 370.8s）**，IL2CPP 三步按预期 SKIP（未传 `-Il2cpp`），
+   其余 24 步全部 PASS，无遗漏 SKIP。命令：
+   `powershell -File check.ps1 -ArtifactsPath <scratchpad>/build_wd3_check -LogFile <scratchpad>/check_full_wd3.log`。
+   日志文件：`check_full_wd3.log`（scratchpad 相对路径；与条目 1～4 所用的 `build_wd` 产物目录不同批次，
+   本次 `-ArtifactsPath` 为 `build_wd3_check`）。逐步 PASS/SKIP 结果：
+
+   | # | 步骤 | 结果 | 用时(s) | 备注 |
+   |---|---|---|---|---|
+   | 1 | 门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定 | PASS | 0.3 | |
+   | 2 | dotnet build Core.sln -c Release | PASS | 3.2 | 0 警告 0 错误 |
+   | 3 | dotnet test Core.sln -c Release --no-build（六工程，含 Perf 类别） | PASS | 6.2 | 见下方六工程计数 |
+   | 4 | ABI 探针（toolchain/abi_probe.ps1） | PASS | 3.7 | |
+   | 5 | python toolchain/validate_data.py --strict（合并根） | PASS | 3.8 | |
+   | 6 | python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验） | PASS | 1.5 | |
+   | 7 | 元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4） | PASS | 1.3 | |
+   | 8 | python toolchain/gen_event_constants.py --check | PASS | 0.1 | |
+   | 9 | python toolchain/gen_placeholder_assets.py --check | PASS | 0.1 | |
+   | 10 | python toolchain/import_assets.py check --dataset _sample | PASS | 0.1 | |
+   | 11 | python toolchain/format_data.py --schema-order --check（消费方反馈 E11） | PASS | 1.4 | |
+   | 12 | python -m pytest toolchain/tests -q | PASS | 31.5 | 146 passed |
+   | 13 | 禁用词扫描：全仓库不出现具体游戏代号 | PASS | 26.9 | |
+   | 14 | 禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外） | PASS | 0.0 | |
+   | 15 | 工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7） | PASS | 0.6 | |
+   | 16 | 版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md | PASS | 0.1 | VERSION=1.14.0 |
+   | 17 | build.ps1 -SkipTests（同步 DLL） | PASS | 5.1 | |
+   | 18 | 包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则） | PASS | 10.0 | 四包 version=1.14.0 一致 |
+   | 19 | Unity 编译检查 | PASS | 20.7 | Unity 退出码 0 |
+   | 20 | Unity EditMode 测试 | PASS | 11.5 | total=70 passed=70 failed=0 |
+   | 21 | Unity PlayMode 测试 | PASS | 76.6 | total=272 passed=272 failed=0 |
+   | 22 | 独立版构建 + -gf-smoke 冒烟（连续模式默认流程） | PASS | 28.0 | |
+   | 23 | 独立版 -gf-smoke-discrete 冒烟（离散模式链路） | PASS | 3.4 | |
+   | 24 | IL2CPP 独立版构建 | SKIP | 0.0 | 未传 -Il2cpp（预期） |
+   | 25 | IL2CPP 独立版 -gf-smoke 冒烟 | SKIP | 0.0 | 未传 -Il2cpp（预期） |
+   | 26 | IL2CPP 独立版 -gf-smoke-discrete 冒烟 | SKIP | 0.0 | 未传 -Il2cpp（预期） |
+   | 27 | 消费方演练（toolchain/consumer_smoke.ps1） | PASS | 134.7 | 门禁日志本节未额外打印分项计数 |
+
+   六个 dotnet 测试工程本轮计数（步骤 3；本次全量门禁运行于本文档条目 1～4 之后新增的两轮提交
+   `fc88c79`/`1b8a59d` 之后，测试数较条目 2 记录的 2897 有增长，属预期，非冲突）：
+   Tests.Foundation 772、Tests.Numbers 127、Tests.Carriers 398、Tests.Rules 449、
+   Tests.PresentationCommon 551、Tests.Gameplay 650，合计 **2947** 个测试全部通过，0 失败、0 跳过。
+
+   消费方演练（步骤 27，`toolchain/consumer_smoke.ps1`）：PASS，用时 134.7s；`check.ps1` 汇总表
+   对该步骤未打印额外分项计数，仅记录 PASS 与耗时。
+
+   总耗时：**370.8s**（约 6.2 分钟）。日志文件：`check_full_wd3.log`。
 
 ## 异常与判断记录
 
