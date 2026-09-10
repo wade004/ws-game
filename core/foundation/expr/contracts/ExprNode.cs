@@ -25,6 +25,40 @@ namespace Core.Foundation.Expr
     /// </summary>
     public abstract class ExprNode
     {
+        /// <summary>
+        /// 消费方反馈第三批第 19 条（2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 19 条）：该节点在源文本里
+        /// 的起始字符偏移（0 基，与 <see cref="ExprToken.Start"/>/<see cref="ExprParseException.Position"/>
+        /// 同一套坐标系）。<c>-1</c> 表示未知——本类型的既有构造方式（不传位置信息，供既有测试与
+        /// 除 <see cref="ExprParser"/> 之外的调用方直接手写语法树时使用）都落在这个默认值上；只有
+        /// <see cref="ExprParser.Parse"/> 解析源文本产出的节点会带上精确区间。
+        /// </summary>
+        public int Start { get; }
+
+        /// <summary>该节点覆盖的源文本长度（半开区间 <c>[Start, Start+Length)</c>）；<see cref="Start"/>
+        /// 为 <c>-1</c> 时恒为 <c>0</c>，没有独立含义。</summary>
+        public int Length { get; }
+
+        /// <summary>
+        /// 硬规则（公开 API 表面差异门禁）：本类型原先没有任何显式构造函数（抽象类的隐式默认构造
+        /// 是 <c>protected</c>），不能给它加可选参数——那会把物理签名从 <c>.ctor()</c> 改成
+        /// <c>.ctor(int, int)</c>，让已编译消费方对旧 <c>.ctor()</c> 的调用在运行期
+        /// <see cref="System.MissingMethodException"/>（toolchain/abi_probe 门禁真实拦到过这个
+        /// 问题，见修复判断记录）。这里改为两个物理上各自独立的构造函数：无参的保留原物理签名，
+        /// 新增的双参数版本是纯增量。</summary>
+        protected ExprNode()
+            : this(-1, 0)
+        {
+        }
+
+        /// <summary>消费方反馈第三批第 19 条新增：带源区间的构造——与无参 <see cref="ExprNode()"/>
+        /// 物理上是两个不同的构造函数（真正的重载新增），不是给原有 <c>.ctor()</c> 追加可选参数。</summary>
+        protected ExprNode(int start, int length)
+        {
+            Start = start;
+            Length = length;
+        }
+
         public abstract override string ToString();
 
         public abstract override bool Equals(object? obj);
@@ -42,6 +76,15 @@ namespace Core.Foundation.Expr
         /// <summary>把节点打印为 and_expr（or 操作数）位置合法的文本：只有 or 本身需要加括号。</summary>
         internal static string PrintAsAndOperand(ExprNode node) =>
             node is ExprOrNode ? "(" + node + ")" : node.ToString();
+
+        /// <summary>消费方反馈第三批第 19 条：由两个已知端点节点推出覆盖两者的源区间——两端点
+        /// 任一 <see cref="Start"/> 为 <c>-1</c>（未知）时，结果也是未知（<c>(-1, 0)</c>），不猜测。
+        /// 供 <see cref="ExprParser"/> 构造复合节点（比较/and/or/not）时计算自身区间。</summary>
+        internal static (int Start, int Length) SpanOf(ExprNode first, ExprNode last)
+        {
+            if (first.Start < 0 || last.Start < 0) return (-1, 0);
+            return (first.Start, last.Start + last.Length - first.Start);
+        }
     }
 
     /// <summary>字面量：Bool、Int、Number、String，或不属于任何分组前缀的 Id。</summary>
@@ -50,6 +93,14 @@ namespace Core.Foundation.Expr
         public ExprValue Value { get; }
 
         public ExprLiteralNode(ExprValue value)
+            : this(value, -1, 0)
+        {
+        }
+
+        /// <summary>消费方反馈第三批第 19 条新增：与 <see cref="ExprLiteralNode(ExprValue)"/> 物理上
+        /// 是两个不同的构造函数（见 <see cref="ExprNode"/> 类型级判断记录，不给既有构造加可选参数）。</summary>
+        public ExprLiteralNode(ExprValue value, int start, int length)
+            : base(start, length)
         {
             Value = value;
         }
@@ -88,6 +139,14 @@ namespace Core.Foundation.Expr
         public IReadOnlyList<ExprNode> Args { get; }
 
         public ExprReferenceNode(string group, string key, IReadOnlyList<ExprNode> args)
+            : this(group, key, args, -1, 0)
+        {
+        }
+
+        /// <summary>消费方反馈第三批第 19 条新增：与三参数构造物理上是两个不同的构造函数
+        /// （见 <see cref="ExprNode"/> 类型级判断记录）。</summary>
+        public ExprReferenceNode(string group, string key, IReadOnlyList<ExprNode> args, int start, int length)
+            : base(start, length)
         {
             Group = group ?? throw new ArgumentNullException(nameof(group));
             Key = key ?? throw new ArgumentNullException(nameof(key));
@@ -133,6 +192,14 @@ namespace Core.Foundation.Expr
         public ExprNode Operand { get; }
 
         public ExprNotNode(ExprNode operand)
+            : this(operand, -1, 0)
+        {
+        }
+
+        /// <summary>消费方反馈第三批第 19 条新增：与单参数构造物理上是两个不同的构造函数
+        /// （见 <see cref="ExprNode"/> 类型级判断记录）。</summary>
+        public ExprNotNode(ExprNode operand, int start, int length)
+            : base(start, length)
         {
             Operand = operand ?? throw new ArgumentNullException(nameof(operand));
         }
@@ -154,6 +221,14 @@ namespace Core.Foundation.Expr
         public ExprNode Right { get; }
 
         public ExprCompareNode(ExprNode left, ExprCompareOp op, ExprNode right)
+            : this(left, op, right, -1, 0)
+        {
+        }
+
+        /// <summary>消费方反馈第三批第 19 条新增：与三参数构造物理上是两个不同的构造函数
+        /// （见 <see cref="ExprNode"/> 类型级判断记录）。</summary>
+        public ExprCompareNode(ExprNode left, ExprCompareOp op, ExprNode right, int start, int length)
+            : base(start, length)
         {
             Left = left ?? throw new ArgumentNullException(nameof(left));
             Op = op;
@@ -194,6 +269,14 @@ namespace Core.Foundation.Expr
         public IReadOnlyList<ExprNode> Operands { get; }
 
         public ExprAndNode(IReadOnlyList<ExprNode> operands)
+            : this(operands, -1, 0)
+        {
+        }
+
+        /// <summary>消费方反馈第三批第 19 条新增：与单参数构造物理上是两个不同的构造函数
+        /// （见 <see cref="ExprNode"/> 类型级判断记录）。</summary>
+        public ExprAndNode(IReadOnlyList<ExprNode> operands, int start, int length)
+            : base(start, length)
         {
             if (operands == null || operands.Count < 2)
             {
@@ -231,6 +314,14 @@ namespace Core.Foundation.Expr
         public IReadOnlyList<ExprNode> Operands { get; }
 
         public ExprOrNode(IReadOnlyList<ExprNode> operands)
+            : this(operands, -1, 0)
+        {
+        }
+
+        /// <summary>消费方反馈第三批第 19 条新增：与单参数构造物理上是两个不同的构造函数
+        /// （见 <see cref="ExprNode"/> 类型级判断记录）。</summary>
+        public ExprOrNode(IReadOnlyList<ExprNode> operands, int start, int length)
+            : base(start, length)
         {
             if (operands == null || operands.Count < 2)
             {

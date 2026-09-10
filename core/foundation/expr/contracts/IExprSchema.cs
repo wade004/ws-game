@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 namespace Core.Foundation.Expr
 {
     /// <summary>
@@ -8,5 +11,23 @@ namespace Core.Foundation.Expr
     public interface IExprSchema
     {
         bool TryGetSignature(string group, string key, out ExprSignature signature);
+
+        /// <summary>
+        /// 消费方反馈第三批第 18 条（2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 18 条）：按分组枚举
+        /// 该分组下全部已登记的 key（供编辑器等工具做自动补全/字段清单展示，不必先枚举全部
+        /// group.key 组合再自行过滤）。<paramref name="group"/> 未知或没有任何已登记 key 时返回
+        /// 空集合，不抛异常。带默认实现（恒返回空集合）新增——不要求已有 <see cref="IExprSchema"/>
+        /// 实现方必须提供，不构成"公开 API 表面"意义上的破坏性变更；<see cref="ExprSchema"/>
+        /// 显式覆盖为返回该分组全部已登记 key 的有序、确定性列表（见该类型同名成员判断记录）。
+        /// </summary>
+        IReadOnlyCollection<string> KnownKeys(string group) => Array.Empty<string>();
+
+        /// <summary>
+        /// 消费方反馈第三批第 18 条：本登记表已出现过至少一个已登记 key 的全部分组（有序、
+        /// 确定性，与 <see cref="KnownKeys"/> 同一批判断记录）。带默认实现（恒返回空集合）新增，
+        /// 同样不构成破坏性变更。
+        /// </summary>
+        IReadOnlyCollection<string> KnownGroups => Array.Empty<string>();
     }
 }

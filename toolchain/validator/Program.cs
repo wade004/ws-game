@@ -243,7 +243,12 @@ namespace Toolchain.Validator
                     Console.WriteLine($"覆盖清单（{overrides.Count} 条，见 data/README.md\"多根加载与合并规则\"）：");
                     foreach (var diag in overrides.OrderBy(d => d.Table, StringComparer.Ordinal).ThenBy(d => d.RecordKey, StringComparer.Ordinal))
                     {
-                        Console.WriteLine($"  [override] {diag.Table}[{diag.RecordKey}]: \"{diag.OverridingLocation}\" 覆盖 \"{diag.OverriddenLocation}\"");
+                        // 消费方反馈第三批第 22 条（2026-09-10，见
+                        // architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 22 条）：
+                        // 人类可读文本改用"根序号 + 相对路径"，比完整绝对路径更短、跨机器可比对；
+                        // 绝对路径仍随 --json 一并给出（见 AppendOverrideJson）。
+                        Console.WriteLine($"  [override] {diag.Table}[{diag.RecordKey}]: " +
+                            $"\"根{diag.OverridingRootIndex}:{diag.OverridingRelativePath}\" 覆盖 \"根{diag.OverriddenRootIndex}:{diag.OverriddenRelativePath}\"");
                     }
                 }
 
@@ -305,7 +310,7 @@ namespace Toolchain.Validator
 
             if (jsonOutput)
             {
-                PrintSchemaAuditJson(report);
+                PrintSchemaAuditJson(report, schemas);
             }
             else
             {
@@ -320,7 +325,17 @@ namespace Toolchain.Validator
             return report.IsBlocking ? 1 : 0;
         }
 
-        private static void PrintSchemaAuditJson(SchemaAuditReport report)
+        /// <summary>
+        /// 消费方反馈第三批第 23 条（2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 23 条）：<paramref name="schemas"/>
+        /// 新增输出到 <c>--json</c> 的 <c>table_names</c> 字段——本次已注册的全部表名（与
+        /// <c>SchemaAudit.EnumerateRegisteredSchemas</c> 同一份快照，纯增量字段，不影响既有消费方
+        /// 已在用的 <c>tables</c>/<c>fields</c>/<c>errors</c>/<c>warnings</c>/<c>blocking</c>/<c>issues</c>
+        /// 字段）。供 <c>toolchain/validate_data.py</c> 的 <c>sample_table_empty</c> 告警级门禁
+        /// （见该脚本 <c>check_sample_table_coverage</c> 判断记录）比对"已注册但 <c>data/_sample</c>
+        /// 里一行都没有"的表——这类比对天然需要"全架构已注册哪些表"这份权威信息，只有 C# 侧持有。
+        /// </summary>
+        private static void PrintSchemaAuditJson(SchemaAuditReport report, IReadOnlyList<TableSchema> schemas)
         {
             var sb = new StringBuilder();
             sb.Append('{');
@@ -329,6 +344,13 @@ namespace Toolchain.Validator
             sb.Append("\"errors\":").Append(report.ErrorCount).Append(',');
             sb.Append("\"warnings\":").Append(report.WarningCount).Append(',');
             sb.Append("\"blocking\":").Append(report.IsBlocking ? "true" : "false").Append(',');
+            sb.Append("\"table_names\":[");
+            for (var i = 0; i < schemas.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append('"').Append(JsonEscape(schemas[i].Name)).Append('"');
+            }
+            sb.Append("],");
             sb.Append("\"issues\":[");
             for (var i = 0; i < report.Issues.Count; i++)
             {
@@ -543,11 +565,17 @@ namespace Toolchain.Validator
 
         private static void AppendOverrideJson(StringBuilder sb, OverrideDiagnostic diag)
         {
+            // 消费方反馈第三批第 22 条：--json 两者都给——绝对路径字段保留（向后兼容既有消费方），
+            // 新增根序号 + 相对路径字段。
             sb.Append('{');
             sb.Append("\"table\":\"").Append(JsonEscape(diag.Table)).Append("\",");
             sb.Append("\"record_key\":\"").Append(JsonEscape(diag.RecordKey)).Append("\",");
             sb.Append("\"overriding_location\":\"").Append(JsonEscape(diag.OverridingLocation)).Append("\",");
-            sb.Append("\"overridden_location\":\"").Append(JsonEscape(diag.OverriddenLocation)).Append('"');
+            sb.Append("\"overridden_location\":\"").Append(JsonEscape(diag.OverriddenLocation)).Append("\",");
+            sb.Append("\"overriding_root_index\":").Append(diag.OverridingRootIndex).Append(',');
+            sb.Append("\"overriding_relative_path\":\"").Append(JsonEscape(diag.OverridingRelativePath)).Append("\",");
+            sb.Append("\"overridden_root_index\":").Append(diag.OverriddenRootIndex).Append(',');
+            sb.Append("\"overridden_relative_path\":\"").Append(JsonEscape(diag.OverriddenRelativePath)).Append('"');
             sb.Append('}');
         }
 

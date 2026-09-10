@@ -45,7 +45,8 @@ namespace Core.Foundation.Expr
                 s.Advance();
                 operands.Add(ParseAnd(s));
             }
-            return new ExprOrNode(operands);
+            var span = ExprNode.SpanOf(operands[0], operands[operands.Count - 1]);
+            return new ExprOrNode(operands, span.Start, span.Length);
         }
 
         private static ExprNode ParseAnd(ParserState s)
@@ -59,16 +60,19 @@ namespace Core.Foundation.Expr
                 s.Advance();
                 operands.Add(ParseUnary(s));
             }
-            return new ExprAndNode(operands);
+            var span = ExprNode.SpanOf(operands[0], operands[operands.Count - 1]);
+            return new ExprAndNode(operands, span.Start, span.Length);
         }
 
         private static ExprNode ParseUnary(ParserState s)
         {
             if (s.Peek().Kind == ExprTokenKind.Not)
             {
+                var notToken = s.Peek();
                 s.Advance();
                 var operand = ParseUnary(s);
-                return new ExprNotNode(operand);
+                var length = operand.Start >= 0 ? (operand.Start + operand.Length) - notToken.Start : 0;
+                return new ExprNotNode(operand, notToken.Start, length);
             }
             return ParseCompare(s);
         }
@@ -80,7 +84,8 @@ namespace Core.Foundation.Expr
             if (op == null) return left;
 
             var right = ParseTerm(s);
-            return new ExprCompareNode(left, op.Value, right);
+            var span = ExprNode.SpanOf(left, right);
+            return new ExprCompareNode(left, op.Value, right, span.Start, span.Length);
         }
 
         private static ExprCompareOp? TryReadCmpOp(ParserState s)
@@ -104,23 +109,23 @@ namespace Core.Foundation.Expr
             {
                 case ExprTokenKind.IntLiteral:
                     s.Advance();
-                    return new ExprLiteralNode(ExprValue.OfInt(token.IntValue));
+                    return new ExprLiteralNode(ExprValue.OfInt(token.IntValue), token.Start, token.Length);
 
                 case ExprTokenKind.NumberLiteral:
                     s.Advance();
-                    return new ExprLiteralNode(ExprValue.OfNumber(token.NumberValue));
+                    return new ExprLiteralNode(ExprValue.OfNumber(token.NumberValue), token.Start, token.Length);
 
                 case ExprTokenKind.StringLiteral:
                     s.Advance();
-                    return new ExprLiteralNode(ExprValue.OfString(token.Text));
+                    return new ExprLiteralNode(ExprValue.OfString(token.Text), token.Start, token.Length);
 
                 case ExprTokenKind.True:
                     s.Advance();
-                    return new ExprLiteralNode(ExprValue.OfBool(true));
+                    return new ExprLiteralNode(ExprValue.OfBool(true), token.Start, token.Length);
 
                 case ExprTokenKind.False:
                     s.Advance();
-                    return new ExprLiteralNode(ExprValue.OfBool(false));
+                    return new ExprLiteralNode(ExprValue.OfBool(false), token.Start, token.Length);
 
                 case ExprTokenKind.LParen:
                 {
@@ -176,6 +181,7 @@ namespace Core.Foundation.Expr
             if (isKnownReference || isEventFallbackReference)
             {
                 var args = new List<ExprNode>();
+                var identEnd = token.Start + token.Length;
                 if (s.Peek().Kind == ExprTokenKind.LParen)
                 {
                     var lparen = s.Peek();
@@ -192,9 +198,13 @@ namespace Core.Foundation.Expr
                         s.Advance();
                         args.Add(ParseTerm(s));
                     }
+                    var closeParen = s.Peek();
                     s.Expect(ExprTokenKind.RParen, "缺少右括号 ')'");
+                    // 消费方反馈第三批第 19 条：引用节点的源区间须覆盖到闭括号（若有参数列表），
+                    // 不只是 "group.key" 这一段标识符本身。
+                    identEnd = closeParen.Start + closeParen.Length;
                 }
-                return new ExprReferenceNode(group, key, args);
+                return new ExprReferenceNode(group, key, args, token.Start, identEnd - token.Start);
             }
 
             // 未在登记表中命中 -> 整体作为 Id 字面量（ADR-0015）。
@@ -207,7 +217,7 @@ namespace Core.Foundation.Expr
                     $"未登记的引用不能带参数列表：\"{token.Text}\"（位置 {lparen.Start}）——如果这本应是一个引用，请先在 IExprSchema 中登记 \"{group}.{key}\" 的签名");
             }
 
-            return new ExprLiteralNode(ExprValue.OfId(idValue));
+            return new ExprLiteralNode(ExprValue.OfId(idValue), token.Start, token.Length);
         }
 
         private sealed class ParserState

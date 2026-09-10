@@ -90,6 +90,67 @@ namespace Core.Foundation.DataRegistry
                 return false;
             }
         }
+
+        /// <summary>
+        /// 消费方反馈第三批第 20 条（2026-09-10，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 20 条）：阻断态下的
+        /// 只读通道——仅供内容工具使用（编辑器等场景需要在数据未通过校验时仍能读取当前已合并的
+        /// 记录，供作者定位/修复问题；运行期宿主必须继续用 <see cref="GetAll"/>，阻断态即禁止
+        /// 读取，见 11 第 4 节"运行时不做静默降级"，本成员不改变那条规则）。默认实现按
+        /// "try <see cref="GetAll"/>，只捕获 <see cref="System.InvalidOperationException"/>
+        /// （<c>DataRegistry.EnsureReadable</c> 阻断态精确抛出的类型）"给出——不用
+        /// <c>catch (Exception)</c> 掩盖其它意外异常。阻断态返回 <c>false</c>，
+        /// <paramref name="records"/> 置空列表；非阻断态与 <see cref="GetAll"/> 结果一致，返回
+        /// <c>true</c>。带默认实现的接口成员新增，不构成"公开 API 表面"意义上的破坏性变更（与
+        /// <see cref="RecordCount"/>/<see cref="TryGetRecordCount"/> 同一批判断记录）。
+        /// <see cref="Core.Foundation.DataRegistry.DataRegistry"/> 显式覆盖为阻断态也能读取的
+        /// 直接实现（见该类型同名成员判断记录），不经过这里的 try/catch。</summary>
+        bool TryGetAll(string table, out IReadOnlyList<DataRecord> records)
+        {
+            try
+            {
+                records = GetAll(table);
+                return true;
+            }
+            catch (System.InvalidOperationException)
+            {
+                records = System.Array.Empty<DataRecord>();
+                return false;
+            }
+        }
+
+        /// <summary>消费方反馈第三批第 20 条：<see cref="TryGetAll"/> 的同族成员，覆盖
+        /// <see cref="Query(string, ExprNode)"/>（<c>ExprNode</c> 谓词重载）——语义与判断记录完全
+        /// 相同，只是把 <see cref="GetAll"/> 换成 <see cref="Query(string, ExprNode)"/>。</summary>
+        bool TryQuery(string table, ExprNode predicate, out IReadOnlyList<DataRecord> records)
+        {
+            try
+            {
+                records = Query(table, predicate);
+                return true;
+            }
+            catch (System.InvalidOperationException)
+            {
+                records = System.Array.Empty<DataRecord>();
+                return false;
+            }
+        }
+
+        /// <summary>消费方反馈第三批第 20 条：<see cref="TryGetAll"/> 的同族成员，覆盖
+        /// <see cref="Query(string, string)"/>（谓词文本重载）——语义与判断记录完全相同。</summary>
+        bool TryQuery(string table, string predicateText, out IReadOnlyList<DataRecord> records)
+        {
+            try
+            {
+                records = Query(table, predicateText);
+                return true;
+            }
+            catch (System.InvalidOperationException)
+            {
+                records = System.Array.Empty<DataRecord>();
+                return false;
+            }
+        }
     }
 
     /// <summary>

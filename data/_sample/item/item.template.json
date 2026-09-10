@@ -10,6 +10,7 @@
       "stats": [
         { "stat": "stat.strength", "op": "flat", "value": 2 }
       ],
+      "affixes": ["item.affix.sample_of_strength", "item.affix.sample_of_fire"],
       "weapon_profile": { "damage_min": 3, "damage_max": 6, "speed": 1.5, "weapon_school": "school.physical" },
       "display_ref": "display.map.sample_blade",
       "stack_size": 1,
@@ -23,6 +24,7 @@
       "stats": [
         { "stat": "stat.strength", "op": "flat", "value": 2 }
       ],
+      "affixes": ["item.affix.sample_of_frost"],
       "weapon_profile": { "damage_min": 3, "damage_max": 6, "speed": 1.5, "weapon_school": "school.physical" },
       "display_ref": "display.map.sample_model_sword",
       "stack_size": 1,

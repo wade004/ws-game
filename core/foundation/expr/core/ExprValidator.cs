@@ -54,7 +54,7 @@ namespace Core.Foundation.Expr
                 case ExprLiteralNode literal:
                     if (!suppressSuspiciousIdWarning)
                     {
-                        CheckSuspiciousIdLiteral(literal.Value, schema, issues);
+                        CheckSuspiciousIdLiteral(literal, schema, issues);
                     }
                     return literal.Value.Kind;
 
@@ -64,7 +64,7 @@ namespace Core.Foundation.Expr
                 case ExprNotNode notNode:
                 {
                     var operandKind = InferKind(notNode.Operand, schema, issues);
-                    CheckBoolOperand("not", operandKind, issues);
+                    CheckBoolOperand("not", notNode.Operand, operandKind, issues);
                     return ExprValueKind.Bool;
                 }
 
@@ -72,7 +72,7 @@ namespace Core.Foundation.Expr
                 {
                     foreach (var operand in andNode.Operands)
                     {
-                        CheckBoolOperand("and", InferKind(operand, schema, issues), issues);
+                        CheckBoolOperand("and", operand, InferKind(operand, schema, issues), issues);
                     }
                     return ExprValueKind.Bool;
                 }
@@ -81,7 +81,7 @@ namespace Core.Foundation.Expr
                 {
                     foreach (var operand in orNode.Operands)
                     {
-                        CheckBoolOperand("or", InferKind(operand, schema, issues), issues);
+                        CheckBoolOperand("or", operand, InferKind(operand, schema, issues), issues);
                     }
                     return ExprValueKind.Bool;
                 }
@@ -94,12 +94,12 @@ namespace Core.Foundation.Expr
             }
         }
 
-        private static void CheckBoolOperand(string opName, ExprValueKind? kind, List<ExprIssue> issues)
+        private static void CheckBoolOperand(string opName, ExprNode operand, ExprValueKind? kind, List<ExprIssue> issues)
         {
             if (kind.HasValue && kind.Value != ExprValueKind.Bool)
             {
                 issues.Add(new ExprIssue(ExprIssueKind.LogicalOperandNotBool,
-                    $"{opName} 操作数不是 Bool：实际为 {kind.Value}"));
+                    $"{opName} 操作数不是 Bool：实际为 {kind.Value}", operand.Start, operand.Length));
             }
         }
 
@@ -137,7 +137,8 @@ namespace Core.Foundation.Expr
 
             if (!ExprGroups.IsKnown(reference.Group))
             {
-                issues.Add(new ExprIssue(ExprIssueKind.UnknownGroup, $"未知的引用分组：\"{reference.Group}\""));
+                issues.Add(new ExprIssue(ExprIssueKind.UnknownGroup, $"未知的引用分组：\"{reference.Group}\"",
+                    reference.Start, reference.Length));
                 return null;
             }
 
@@ -154,7 +155,8 @@ namespace Core.Foundation.Expr
                 // 行为：未登记的 group.key 仍是 UnknownKey 错误。
                 if (reference.Group != ExprGroups.Event)
                 {
-                    issues.Add(new ExprIssue(ExprIssueKind.UnknownKey, $"未知的引用 key：\"{reference.Group}.{reference.Key}\""));
+                    issues.Add(new ExprIssue(ExprIssueKind.UnknownKey, $"未知的引用 key：\"{reference.Group}.{reference.Key}\"",
+                        reference.Start, reference.Length));
                 }
                 return null;
             }
@@ -162,7 +164,8 @@ namespace Core.Foundation.Expr
             if (signature.ArgKinds.Count != reference.Args.Count)
             {
                 issues.Add(new ExprIssue(ExprIssueKind.ArgCountMismatch,
-                    $"\"{reference.Group}.{reference.Key}\" 期望 {signature.ArgKinds.Count} 个参数，实际 {reference.Args.Count} 个"));
+                    $"\"{reference.Group}.{reference.Key}\" 期望 {signature.ArgKinds.Count} 个参数，实际 {reference.Args.Count} 个",
+                    reference.Start, reference.Length));
             }
             else
             {
@@ -172,8 +175,10 @@ namespace Core.Foundation.Expr
                     var actual = argKinds[i];
                     if (actual.HasValue && !KindsCompatible(expected, actual.Value))
                     {
+                        var argNode = reference.Args[i];
                         issues.Add(new ExprIssue(ExprIssueKind.ArgTypeMismatch,
-                            $"\"{reference.Group}.{reference.Key}\" 第 {i + 1} 个参数期望 {expected}，实际 {actual.Value}"));
+                            $"\"{reference.Group}.{reference.Key}\" 第 {i + 1} 个参数期望 {expected}，实际 {actual.Value}",
+                            argNode.Start, argNode.Length));
                     }
                 }
             }
@@ -203,7 +208,7 @@ namespace Core.Foundation.Expr
             if (leftKind.Value != rightKind.Value)
             {
                 issues.Add(new ExprIssue(ExprIssueKind.CompareTypeMismatch,
-                    $"比较两侧类型不一致：{leftKind.Value} 与 {rightKind.Value}"));
+                    $"比较两侧类型不一致：{leftKind.Value} 与 {rightKind.Value}", node.Start, node.Length));
                 return ExprValueKind.Bool;
             }
 
@@ -212,7 +217,7 @@ namespace Core.Foundation.Expr
             if (!eqOnly)
             {
                 issues.Add(new ExprIssue(ExprIssueKind.InvalidCompareForType,
-                    $"{leftKind.Value} 类型只支持 ==/!= 比较，不支持 {ExprCompareNode.OpText(node.Op)}"));
+                    $"{leftKind.Value} 类型只支持 ==/!= 比较，不支持 {ExprCompareNode.OpText(node.Op)}", node.Start, node.Length));
             }
 
             return ExprValueKind.Bool;
@@ -225,8 +230,9 @@ namespace Core.Foundation.Expr
         /// <see cref="ExprIssueSeverity.Warning"/>（不阻断，因为"和分组同名的 Id 字面量"本身
         /// 是合法用法，见 04 第 2.2 节域名清单）。
         /// </summary>
-        private static void CheckSuspiciousIdLiteral(ExprValue value, IExprSchema schema, List<ExprIssue> issues)
+        private static void CheckSuspiciousIdLiteral(ExprLiteralNode literal, IExprSchema schema, List<ExprIssue> issues)
         {
+            var value = literal.Value;
             if (value.Kind != ExprValueKind.Id) return;
 
             var idText = value.AsId.Value;
@@ -240,7 +246,8 @@ namespace Core.Foundation.Expr
             if (schema.TryGetSignature(domain, key, out _)) return;
 
             issues.Add(new ExprIssue(ExprIssueKind.SuspiciousReferenceSpelling, ExprIssueSeverity.Warning,
-                $"疑似引用拼写错误：\"{idText}\" 的域名与分组 \"{domain}\" 同名但未登记为引用"));
+                $"疑似引用拼写错误：\"{idText}\" 的域名与分组 \"{domain}\" 同名但未登记为引用",
+                literal.Start, literal.Length));
         }
 
         private static bool IsNumeric(ExprValueKind kind) => kind == ExprValueKind.Int || kind == ExprValueKind.Number;
