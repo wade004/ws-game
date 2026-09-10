@@ -237,6 +237,31 @@ python toolchain/gen_event_constants.py
 返回码约定：`0` 成功；`1` 数据错误（信封非法、key 格式非法、重复 key、常量名冲突）或
 `--check` 模式下内容不一致；`2` 命令行参数错误（如 `--catalog` 指向不存在的文件）。
 
+## 数据表字段顺序格式化（format_data.py，消费方反馈 E11 根治）
+
+消费方反馈 E11（2026-09-10，见 `architecture/落地计划/消费方反馈-2026-09-10-编辑器.md` E11）：
+示例数据里记录字段的书写顺序与对应 `TableSchema.Fields` 的登记顺序经常不一致，编辑器等工具按
+schema 顺序渲染表单/生成 diff 时与仓库里实际的 JSON 字段顺序对不上。`toolchain/format_data.py
+--schema-order` 把每条记录的字段按该表 `TableSchema.Fields` 的登记顺序重排（未登记字段保持原
+相对顺序、整体追加在已登记字段之后，不丢弃）；字段顺序信息来自
+`toolchain/validator --list-tables --json`（`tables_list` 条目新增的 `fields` 数组，同一次
+消费方反馈改动，不新增独立子命令，见 `toolchain/validator/Program.cs` `PrintJson` 判断记录）。
+
+```powershell
+python toolchain/format_data.py --schema-order                    # 处理 data/_framework + data/_sample，就地重写
+python toolchain/format_data.py --schema-order --check            # 只检查，不写文件；有差异时返回码 1（check.ps1 门禁用这一条）
+python toolchain/format_data.py --schema-order --data-root data/_framework  # 只处理指定根，可重复传入
+```
+
+判断记录：是否需要重排只看"字段相对顺序是否真的变化"（逐行比较重排前后的 key 序列），不是看
+整份文件重新序列化后字节是否不同——仓库里现有数据文件的空白/换行风格本来就不统一（部分文件每条
+记录压缩成单行，部分文件展开成多行），按字节差异判定会把纯粹的空白规范化混进"字段顺序不对"这条
+判断里。真正发生字段顺序变化而被改写的文件，会顺带统一成 2 空格缩进、每个字段各占一行的展开格式
+（与 `data/README.md`"编码与格式"约定的 UTF-8 无 BOM、LF 行尾一致）。
+
+返回码约定：`0` 成功（`--check` 模式下代表未发现需要重排的文件）；`1` `--check` 模式下发现有
+文件需要重排；`2` 命令行参数错误、或调用 `toolchain/validator` 拿字段顺序失败。
+
 ## 资产导入工具（import_assets.py）
 
 `toolchain/import_assets.py`（薄入口，实现在 `toolchain/asset_import/` 包）：把出图产物

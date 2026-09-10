@@ -162,7 +162,17 @@ namespace Presentation.Assembly
                 subscription.Dispose();
             }
 
-            var recordCount = loadCompleted?.RecordCount ?? 0;
+            // 判断记录（消费方反馈 E10 根治，2026-09-10）：非阻断态下改为直接读
+            // IDataRegistryView.RecordCount（新增的默认接口成员，按 Tables/GetAll 求和，见该成员
+            // 判断记录）而不是继续依赖事件订阅值——两者在非阻断态下数值上必然相等（事件里的
+            // recordCount 就是同一次 LoadAll 解析出的记录数，GetAll 求和读的是同一份已加载结果），
+            // 让 CreateRegistry 场景（调用方自行 LoadAll/Reload 后读 RecordCount）与 Run 场景用
+            // 同一个计算口径，不是两套互相独立、只是"恰好数值相同"的实现。阻断态下 GetAll 会抛
+            // 异常（IDataRegistryView.GetAll 契约，见类型注释），只能继续依赖事件值——这是
+            // Run 相对 CreateRegistry 场景的本质优势（Run 自己控制 LoadAll 调用时机，能在
+            // LoadAll 返回前订阅到事件；CreateRegistry 的调用方要自己承担这部分职责，未来若也
+            // 想要阻断态下的记录数，需要自行订阅同一个事件，不是本次改动范围）。
+            var recordCount = report.IsBlocking ? (loadCompleted?.RecordCount ?? 0) : registry.RecordCount;
             var enabledOptionalRules = OptionalRuleNames.Except(disabledOptionalRules).ToList();
 
             return new ContentValidationRun(

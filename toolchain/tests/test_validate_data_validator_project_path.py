@@ -95,8 +95,16 @@ class ValidatorProjectPathTests(unittest.TestCase):
             captured_cmd["cwd"] = cwd
             return SimpleNamespace(returncode=0)
 
-        module.shutil.which = fake_which
-        module.subprocess.run = fake_run
+        # 判断记录（消费方反馈相关收尾根治，2026-09-10）：不能写
+        # module.shutil.which = .../module.subprocess.run = ...——shutil/subprocess 是解释器内
+        # 所有模块共享的同一个全局模块对象，那样写会把真实的 shutil.which/subprocess.run 在整个
+        # 进程范围内永久替换掉，泄漏给按字母序更晚收集执行、真正需要跑真实 PowerShell 子进程的
+        # 用例（test_get_framework_*/test_powershell_* 等），实测复现过整个 toolchain/tests
+        # 套件级联失败（本文件按字母序早于那些文件被收集，是泄漏源头之一）。改为只重新绑定本次
+        # 动态加载出的这个模块实例自己的 shutil/subprocess 名字，指向只带所需属性的轻量命名空间
+        # 对象，不触碰真正的全局模块。
+        module.shutil = SimpleNamespace(which=fake_which)
+        module.subprocess = SimpleNamespace(run=fake_run)
 
         exit_code = module.main(["--data-root", str(data_root)])
 

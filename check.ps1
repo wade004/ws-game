@@ -498,11 +498,21 @@ if ($Quick) {
 
 # -----------------------------------------------------------------------------
 # 3. 数据校验（合并根：data/_framework + data/_sample）
+#    判断记录（消费方反馈 E6 根治，2026-09-10，见
+#    architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E6）：新增 --strict（Warning 也阻断）。
+#    根治前 dialog.gossip_menu.json 两处 quest.is_available(quest.sample_hunt)/
+#    quest.is_active(quest.sample_hunt) 会触发 3 条"疑似引用拼写错误"警告——排查后是
+#    ExprValidator 的规则误报（该规则只认"把 Id 本身也登记进签名表"这一种消除警告的方式，对
+#    "参数位置期望类型本来就是 Id"这一同样合法的场景没有对应豁免），已在
+#    core/foundation/expr/core/ExprValidator.cs 根治规则本身（不是改数据迁就误报，数据
+#    quest.sample_hunt 本身合法存在，见 data/_sample/quest/quest.def.json）。这一步现在要求
+#    框架自带示例数据（_framework + _sample 合并）0 warning，加 --strict 防止同类误报或真实
+#    拼写错误再次悄悄滑入而不被发现。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/validate_data.py（合并根）" {
+Invoke-CheckStep "python toolchain/validate_data.py --strict（合并根）" {
     Push-Location $RepoRoot
     try {
-        Test-NativeExitCode "python" @("toolchain/validate_data.py")
+        Test-NativeExitCode "python" @("toolchain/validate_data.py", "--strict")
     } finally {
         Pop-Location
     }
@@ -512,6 +522,15 @@ Invoke-CheckStep "python toolchain/validate_data.py（合并根）" {
 # 3b. 框架根单独完整校验（加固J3：core/carriers/item 的预算超标规则改为"item.template 一行
 #     都没有时跳过"后，data/_framework 单独跑完整两道校验不再需要 --skip-dotnet 规避，见
 #     data/README.md"与校验器的关系"一节判断记录）。
+#     判断记录（消费方反馈 E6 根治，2026-09-10）：本步骤故意不加 --strict——data/_framework
+#     单独校验时 l10n.text 表（只随 data/_sample 提供，_framework 不含真实本地化文本，见
+#     data/README.md"两类目录"一节）必然缺失，arch.power_type.name_key 等字段的
+#     text_key_exists 检查会因此恒定产出"l10n.text 表未加载，跳过文本键存在性检查"这一条
+#     Warning——这是"只看框架子集"这一场景本身的结构性、不可避免的警告，与 E6 排查的"疑似引用
+#     拼写错误"误报是两回事（后者已在规则层根治，见上一步判断记录），不能也不该通过增加数据
+#     或调整规则消除，加 --strict 只会让本步骤在任何情况下都必然失败。0 warning 的验收目标只
+#     适用于 _framework + _sample 合并后的完整数据集（上一步），不适用于单独校验框架子集这一
+#     天然不完整的场景。
 # -----------------------------------------------------------------------------
 Invoke-CheckStep "python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验）" {
     Push-Location $RepoRoot
@@ -580,6 +599,23 @@ Invoke-CheckStep "python toolchain/import_assets.py check --dataset _sample" {
     Push-Location $RepoRoot
     try {
         Test-NativeExitCode "python" @("toolchain/import_assets.py", "check", "--dataset", "_sample")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 5c. 数据表字段顺序与 schema 登记顺序一致性检查（消费方反馈 E11 根治，2026-09-10，见
+#     architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E11）：只检查、不写文件
+#     （--check），只对框架自带的 data/_framework、data/_sample 两根跑（与上面数据校验步骤同一对
+#     默认根，不含具体游戏的 data/<game>——那是游戏仓库自己的门禁职责，本仓库门禁不越权检查游戏
+#     侧内容）；发现字段顺序与 schema 登记不一致时以非 0 退出码阻断，提示本机跑
+#     `python toolchain/format_data.py --schema-order` 就地重排后重新提交。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/format_data.py --schema-order --check（消费方反馈 E11）" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/format_data.py", "--schema-order", "--check", "--data-root", "data/_framework", "--data-root", "data/_sample")
     } finally {
         Pop-Location
     }
@@ -682,6 +718,42 @@ Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/�
         throw "发现 $($hits.Count) 处技术名命中：`n$($lines -join "`n")"
     }
     $true
+}
+
+# -----------------------------------------------------------------------------
+# 7.5 工作树文本文件无 CR（消费方反馈 E7 根治，2026-09-10，见
+#     architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E7）：`.gitattributes` 对
+#     `*.cs`/`*.py`/`*.ps1`/`*.md`/`*.json`/... 等常见文本类型显式声明 `text eol=lf`——按
+#     "生成的文本文件一律 LF"这条工程规范，凡是 `.gitattributes` 已经显式要求 `eol=lf` 的路径，
+#     工作树里就不应该出现 CRLF 字节（出现说明有工具/编辑器在本机写出了 CRLF，`git add` 时虽会被
+#     `eol=lf` 规范化，但规范化前的原始字节仍可能被其它不经过 git 的下游工具直接读取，见
+#     toolchain/gen_placeholder_assets.py 6 处 write_text 遗漏 newline="\n" 的复现记录，
+#     toolchain/tests/test_generators_write_lf.py 从生成器源码层面做了静态回归；本步骤是运行时
+#     兜底，扫描工作树实际字节）。
+#
+#     用 `git ls-files --eol` 找出"索引里 attr 显式为 eol=lf、但工作树实际是 crlf"的文件——只对
+#     `.gitattributes` 已经明确表态"这里应该是 LF"的路径报错，不动那些完全没有声明 eol 策略、
+#     由本机 core.autocrlf 决定行尾的历史遗留路径（如 Unity `.anim`/`.controller`/`.prefab`、
+#     历史审计存档的 `.log`/`.xml`/`.html`——那些不在本次 E7 根治范围内，强行统一会牵扯到与本任务
+#     无关的既有文件，见任务书"对 .gitattributes 显式 eol=crlf 的文件豁免"这句反过来同样适用于
+#     "根本没有声明"的文件：本步骤的判定粒度是"声明了 eol=lf 却不是 LF"才算违规，未声明的路径
+#     不在断言范围内，天然不需要额外维护一份豁免名单）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7）" {
+    Push-Location $RepoRoot
+    try {
+        $eolOutput = & git ls-files --eol
+        if ($LASTEXITCODE -ne 0) {
+            throw "git ls-files --eol 失败，退出码 $LASTEXITCODE"
+        }
+        $violations = @($eolOutput | Where-Object { $_ -match 'w/crlf' -and $_ -match 'eol=lf' })
+        if ($violations.Count -gt 0) {
+            throw ("发现 " + $violations.Count + " 个文件已在 .gitattributes 声明 eol=lf，但工作树实际是 CRLF：`n  " + ($violations -join "`n  "))
+        }
+        $true
+    } finally {
+        Pop-Location
+    }
 }
 
 # -----------------------------------------------------------------------------

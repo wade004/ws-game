@@ -7,16 +7,32 @@
       "title_key": "l10n.quest.sample_hunt.title",
       "description_key": "l10n.quest.sample_hunt.description",
       "objectives": [
-        { "type": "kill", "target_ref": "creature.sample_beast", "count": 1 },
-        { "type": "collect", "target_ref": "item.sample_token", "count": 1, "param": { "consume_on_progress": false } }
+        {
+          "type": "kill",
+          "target_ref": "creature.sample_beast",
+          "count": 1
+        },
+        {
+          "type": "collect",
+          "target_ref": "item.sample_token",
+          "count": 1,
+          "param": {
+            "consume_on_progress": false
+          }
+        }
       ],
       "start_method": "npc_gossip",
       "turn_in_method": "npc_gossip",
-      "repeatable": "none",
       "rewards": {
         "xp": 50,
-        "currency": [ { "currencyId": "econ.currency.sample_coin", "amount": 10 } ]
-      }
+        "currency": [
+          {
+            "currencyId": "econ.currency.sample_coin",
+            "amount": 10
+          }
+        ]
+      },
+      "repeatable": "none"
     }
   ]
 }

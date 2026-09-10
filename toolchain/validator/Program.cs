@@ -407,7 +407,28 @@ namespace Toolchain.Validator
                 {
                     if (i > 0) sb.Append(',');
                     var count = report.IsBlocking ? -1 : tablesForListing.GetAll(names[i]).Count;
-                    sb.Append('{').Append("\"name\":\"").Append(JsonEscape(names[i])).Append("\",\"record_count\":").Append(count).Append('}');
+                    sb.Append('{').Append("\"name\":\"").Append(JsonEscape(names[i])).Append("\",\"record_count\":").Append(count).Append(',');
+                    // 判断记录（消费方反馈 E11 根治，2026-09-10，见
+                    // architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E11）：追加顶层字段的
+                    // 登记顺序（TableSchema.Fields，构造时的登记顺序，见该类型注释）——
+                    // toolchain/format_data.py --schema-order 靠这份顺序把示例数据记录字段重排成
+                    // 与 schema 声明一致，不需要新增一个独立的验证器子命令，复用既有的
+                    // --list-tables --json 组合（"选最省事且可测的"，本字段是在既有 tables_list
+                    // 条目里追加的新增字段，不改动任何既有字段，--json 输出对不需要这份信息的
+                    // 调用方保持逐字节兼容）。GetSchema 理论上不会返回 null（tablesForListing.Tables
+                    // 枚举的都是已注册过 schema 的表名），仍防御性判空，避免这里意外抛异常。
+                    sb.Append("\"fields\":[");
+                    var fieldSchema = tablesForListing.GetSchema(names[i]);
+                    if (fieldSchema != null)
+                    {
+                        for (var j = 0; j < fieldSchema.Fields.Count; j++)
+                        {
+                            if (j > 0) sb.Append(',');
+                            sb.Append('"').Append(JsonEscape(fieldSchema.Fields[j].Name)).Append('"');
+                        }
+                    }
+                    sb.Append(']');
+                    sb.Append('}');
                 }
                 sb.Append("],");
             }
