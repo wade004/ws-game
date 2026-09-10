@@ -1,0 +1,30 @@
+[
+  {
+    "Path": "D:\\workespace\\ws-game-artifacts\\audit-d6fda65-20260911\\presentation\\probe\\lib\\Adapters.Stub.dll",
+    "Hash": "B0D1983A83BB1754F4DC3EDB8C770985ADE82D40F3963E19999F144639445EAA"
+  },
+  {
+    "Path": "D:\\workespace\\ws-game-artifacts\\audit-d6fda65-20260911\\presentation\\probe\\lib\\Core.Carriers.dll",
+    "Hash": "2A297009B2E947AC6E02D5E9B95CBF4C775192D19A76FFFE631EA56A7C1B9BE9"
+  },
+  {
+    "Path": "D:\\workespace\\ws-game-artifacts\\audit-d6fda65-20260911\\presentation\\probe\\lib\\Core.Foundation.dll",
+    "Hash": "4DC3FBC8F11F3442FB42933F6E7DD4FE218DAD39D9A25D1DBAA00D9A928BF1CA"
+  },
+  {
+    "Path": "D:\\workespace\\ws-game-artifacts\\audit-d6fda65-20260911\\presentation\\probe\\lib\\Core.Gameplay.dll",
+    "Hash": "D6F64B4C9F66048B05E67E4B83ACC6D4F335A9E5BE3462676100D57F4A2633C4"
+  },
+  {
+    "Path": "D:\\workespace\\ws-game-artifacts\\audit-d6fda65-20260911\\presentation\\probe\\lib\\Core.Numbers.dll",
+    "Hash": "D824137B9B8AA35C416FA5085CE0E23716348367EEB39B088BFDF6046660244B"
+  },
+  {
+    "Path": "D:\\workespace\\ws-game-artifacts\\audit-d6fda65-20260911\\presentation\\probe\\lib\\Core.Rules.dll",
+    "Hash": "E33AAC10D1ED54C2E046A75C39C5B2AB020C31292C914E3D9CD27C1E45F457DF"
+  },
+  {
+    "Path": "D:\\workespace\\ws-game-artifacts\\audit-d6fda65-20260911\\presentation\\probe\\lib\\Presentation.Common.dll",
+    "Hash": "79418B26EB2881E6488FE25530DC21D3E4575E0D47AC0BF01B1058A4D9FACF54"
+  }
+]

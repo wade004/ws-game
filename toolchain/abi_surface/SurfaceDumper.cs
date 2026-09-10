@@ -151,8 +151,31 @@ namespace Toolchain.AbiSurface
                 // 记同一处签名两遍）。接口属性是否 abstract（没有默认实现体）因此只能记在这一行的
                 // flags 里——SurfaceCompareLogic 的"既有接口新增 abstract 成员"规则要靠这个标记
                 // 识别属性访问器，不是只识别 method 行。
+                // TOOL-118-ABI 根治（codex 第十八轮，audit-d6fda65-20260911）：此前属性行 flags 只有
+                // `get:X,set:Y[,abstract]`，完全不编码访问器的 static/virtual/final——public 实例
+                // 属性改成同名同类型 static 属性（或反过来），两次 dump 逐字节相同，compare
+                // `breaks=0`，但物理上 getter/setter 从虚方法调用（callvirt）变成 static 方法调用
+                // （call），旧编译消费方运行期 `MissingMethodException`（见
+                // docs-project/abi-property/{result.json,consumer-new.log,surface-report.txt}，
+                // AUDIT_REPORT.md TOOL-118-ABI）。按与 MethodFlags 相同的一套修饰编码补齐：C# 不允许
+                // 同一属性 get/set 一个 static 一个不是，两者必然一致，取非 null 的访问器判定即可；
+                // abstract/virtual/sealed-override 取 get/set 的并集，任一访问器发生这类调用形态
+                // 变化都应判定为破坏。
+                var modifierAccessor = getter ?? setter;
+                bool isStaticProp = modifierAccessor != null && modifierAccessor.IsStatic;
                 bool isAbstractProp = (getter != null && getter.IsAbstract) || (setter != null && setter.IsAbstract);
-                var mflags = "get:" + getVis + ",set:" + setVis + (isAbstractProp ? ",abstract" : "");
+                bool isVirtualNonFinalProp = !isAbstractProp && (
+                    (getter != null && getter.IsVirtual && !getter.IsFinal) ||
+                    (setter != null && setter.IsVirtual && !setter.IsFinal));
+                bool isSealedOverrideProp =
+                    (getter != null && getter.IsFinal && getter.IsVirtual) ||
+                    (setter != null && setter.IsFinal && setter.IsVirtual);
+                var propFlagsList = new List<string> { "get:" + getVis, "set:" + setVis };
+                if (isStaticProp) propFlagsList.Add("static");
+                if (isAbstractProp) propFlagsList.Add("abstract");
+                else if (isVirtualNonFinalProp) propFlagsList.Add("virtual");
+                else if (isSealedOverrideProp) propFlagsList.Add("sealed-override");
+                var mflags = string.Join(",", propFlagsList);
                 lines.Add(string.Join("\t", "MEMBER", TypeNameFormatter.Format(type), "property", sig, mflags));
             }
 
@@ -206,6 +229,20 @@ namespace Toolchain.AbiSurface
                 // token 变化会让整行"身份"不同，走规则 1 的"行消失即破坏"判定。
                 var remover = evt.RemoveMethod;
                 var removeVis = remover != null && IsMemberVisible(remover.Attributes) ? Visibility(remover.Attributes) : "none";
+                // TOOL-118-ABI 根治（codex 第十八轮，audit-d6fda65-20260911）：与属性分支同一批
+                // 修复——事件此前只记 static，没记 abstract/virtual/final，接口事件或可覆写事件的
+                // 这类调用形态变化同样检测不到。add/remove 任一访问器命中即判定，逻辑与属性分支
+                // 对称。
+                bool isAbstractEvt = adder.IsAbstract || (remover != null && remover.IsAbstract);
+                bool isVirtualNonFinalEvt = !isAbstractEvt && (
+                    (adder.IsVirtual && !adder.IsFinal) ||
+                    (remover != null && remover.IsVirtual && !remover.IsFinal));
+                bool isSealedOverrideEvt =
+                    (adder.IsFinal && adder.IsVirtual) ||
+                    (remover != null && remover.IsFinal && remover.IsVirtual);
+                if (isAbstractEvt) eflagsList.Add("abstract");
+                else if (isVirtualNonFinalEvt) eflagsList.Add("virtual");
+                else if (isSealedOverrideEvt) eflagsList.Add("sealed-override");
                 eflagsList.Add("remove:" + removeVis);
                 var eflags = string.Join(",", eflagsList);
                 lines.Add(string.Join("\t", "MEMBER", TypeNameFormatter.Format(type), "event", esig, eflags));

@@ -1,0 +1,4 @@
+[abi_surface] compare baseline=D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\docs-project\abi-property\old-surface.txt current=D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\docs-project\abi-property\new-surface.txt
+[abi_surface] breaks=0 allowed=0 additions=0
+[abi_surface] RESULT=OK
+

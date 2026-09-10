@@ -143,6 +143,61 @@ namespace Tests.Rules.Combat
         }
 
         // -----------------------------------------------------------------
+        // 偏斜/格挡与暴击默认可叠加（DOC-118-09 根治，codex 第十八轮，audit-d6fda65-20260911：
+        // combat/README.md 判断记录 4 此前称"偏斜/格挡命中时不再参与暴击判定（isCrit 恒 false）"，
+        // 与 DetermineHit/Resolve 的实际实现不符——isCrit 由独立掷骰决定，不受 special 分支影响，
+        // 偏斜的伤害系数与暴击倍率依次相乘应用到同一笔伤害上。钉住这一行为：flattened HitResult
+        // 标签报告 GlancingBlow/Block（DetermineHit 的分支优先序决定报告哪个名字），但落地金额与
+        // CombatDamageDealtEvent.IsCrit 都体现暴击确实叠加生效，不是被跳过。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Resolve_GlancingAndCritBothForced_StacksGlancingPercentAndCritMultiplier()
+        {
+            var fx = MakeFixture("glancing_and_crit_forced"); // glancing_damage_pct=0.4, crit_multiplier_base=3.0
+            var result = fx.Host.ResolveEffect(DamageContext(baseValue: 100));
+            fx.Bus.DispatchPending(); // Resolver 只 Enqueue，需要显式派发才能被订阅者观察到
+
+            // 扁平标签报告 GlancingBlow（DetermineHit 优先序：glancing_blow 排在 crit 之前），
+            // 不代表暴击倍率没有生效——FinalAmount = 100 × 0.4（偏斜系数）× 3.0（暴击倍率）= 120，
+            // 与"只偏斜不暴击"的 40 或"只暴击不偏斜"的 300 都不同，证明两者是相乘叠加、不是互斥。
+            Assert.Equal(HitResult.GlancingBlow, result.Hit);
+            Assert.Equal(120.0, result.FinalAmount);
+
+            CombatDamageDealtEvent? dealt = null;
+            foreach (var evt in fx.Events)
+            {
+                if (evt is CombatDamageDealtEvent d) dealt = d;
+            }
+            Assert.NotNull(dealt);
+            Assert.True(dealt!.IsCrit, "CombatDamageDealtEvent.IsCrit 应为 true——暴击判定与偏斜互不排斥");
+            Assert.Equal(HitResult.GlancingBlow, dealt.HitResult);
+        }
+
+        [Fact]
+        public void Resolve_BlockAndCritBothForced_StacksFlatBlockReductionAndCritMultiplier()
+        {
+            var fx = MakeFixture("block_and_crit_forced"); // crit_multiplier_base=2.0
+            fx.Stats.SetBase(Dummy, CombatTestSupport.StatBlockValue, 30);
+
+            var result = fx.Host.ResolveEffect(DamageContext(baseValue: 100));
+            fx.Bus.DispatchPending();
+
+            // FinalAmount = (100 - 30 固定减免) × 2.0（暴击倍率）= 140，同样证明格挡与暴击可叠加。
+            Assert.Equal(HitResult.Block, result.Hit);
+            Assert.Equal(140.0, result.FinalAmount);
+
+            CombatDamageDealtEvent? dealt = null;
+            foreach (var evt in fx.Events)
+            {
+                if (evt is CombatDamageDealtEvent d) dealt = d;
+            }
+            Assert.NotNull(dealt);
+            Assert.True(dealt!.IsCrit, "CombatDamageDealtEvent.IsCrit 应为 true——暴击判定与格挡互不排斥");
+            Assert.Equal(HitResult.Block, dealt.HitResult);
+        }
+
+        // -----------------------------------------------------------------
         // 手算全链
         // -----------------------------------------------------------------
 

@@ -1,0 +1,225 @@
+....................................s................................... [ 37%]
+ss...................................................................... [ 75%]
+...................................s..........                           [100%]
+=================================== PASSES ====================================
+________ test_check_mode_detects_scrambled_field_order_without_writing ________
+---------------------------- Captured stdout call -----------------------------
+��Ҫ����: data_root\test\test.thing.json
+[format_data.py --schema-order --check] ����� 1 ���ļ�����Ҫ���� 1 ��
+_____________ test_schema_order_rewrites_fields_in_declared_order _____________
+---------------------------- Captured stdout call -----------------------------
+������: data_root\test\test.thing.json
+[format_data.py --schema-order] ����� 1 ���ļ��������� 1 ��
+[format_data.py --schema-order --check] ����� 1 ���ļ�����Ҫ���� 0 ��
+_______________ test_check_mode_no_changes_needed_returns_zero ________________
+---------------------------- Captured stdout call -----------------------------
+[format_data.py --schema-order --check] ����� 1 ���ļ�����Ҫ���� 0 ��
+_ PrecompiledValidatorDispatchTests.test_falls_back_to_dotnet_run_when_precompiled_dll_absent _
+---------------------------- Captured stdout call -----------------------------
+[��һ�����Ǽܼ��] checked 1 files across 1 root(s), 0 errors
+[�ڶ�������ʵУ��] δ�ҵ�Ԥ����� toolchain/validator/bin/Validator.dll���ֳ��������� toolchain/validator���״����л��Զ����룬������Ҫ���룩: /fake/dotnet run --project C:\Users\1\AppData\Local\Temp\tmptpilusn1\toolchain_copy\validator -- --data-root C:\Users\1\AppData\Local\Temp\tmptpilusn1\data_root
+_ PrecompiledValidatorDispatchTests.test_prefers_precompiled_validator_dll_when_present _
+---------------------------- Captured stdout call -----------------------------
+[��һ�����Ǽܼ��] checked 1 files across 1 root(s), 0 errors
+[�ڶ�������ʵУ��] ��������Ԥ����� toolchain/validator/bin/Validator.dll: /fake/dotnet C:\Users\1\AppData\Local\Temp\tmpslm_hiu6\toolchain_copy\validator\bin\Validator.dll --data-root C:\Users\1\AppData\Local\Temp\tmpslm_hiu6\data_root
+______ test_relative_data_root_resolved_against_cwd_not_script_location _______
+---------------------------- Captured stdout call -----------------------------
+[��һ�����Ǽܼ��] checked 1 files across 1 root(s), 0 errors
+____________ test_relative_data_root_not_found_from_unrelated_cwd _____________
+---------------------------- Captured stderr call -----------------------------
+��������Ŀ¼������: C:\Users\1\AppData\Local\Temp\pytest-of-ONCE\pytest-1499\test_relative_data_root_not_fo0\unrelated_cwd\my_game_data
+_ ValidatorProjectPathTests.test_validator_project_is_sibling_of_script_not_repo_root_toolchain _
+---------------------------- Captured stdout call -----------------------------
+[��һ�����Ǽܼ��] checked 1 files across 1 root(s), 0 errors
+[�ڶ�������ʵУ��] δ�ҵ�Ԥ����� toolchain/validator/bin/Validator.dll���ֳ��������� toolchain/validator���״����л��Զ����룬������Ҫ���룩: /fake/dotnet run --project C:\Users\1\AppData\Local\Temp\tmpk_mly35b\com.gamefoundation.toolchain-fake\Tools~\validator -- --data-root C:\Users\1\AppData\Local\Temp\tmpk_mly35b\data_root
+=========================== short test summary info ===========================
+PASSED toolchain/tests/test_abi_probe_outdir_safety.py::test_nonempty_existing_outdir_rejected_and_sentinel_survives
+PASSED toolchain/tests/test_abi_probe_outdir_safety.py::test_empty_existing_outdir_is_reused_not_rejected
+PASSED toolchain/tests/test_abi_probe_outdir_safety.py::test_default_outdir_is_created_fresh_each_run
+PASSED toolchain/tests/test_abi_surface_compare.py::test_deleted_method_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_changed_parameter_type_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_changed_return_type_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_deleted_enum_member_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_interface_new_abstract_method_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_interface_new_default_implementation_method_is_not_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_plain_new_member_is_not_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_allowlist_permits_documented_break
+PASSED toolchain/tests/test_abi_surface_compare.py::test_allowlist_does_not_permit_undocumented_break
+PASSED toolchain/tests/test_abi_surface_compare.py::test_visibility_narrowed_method_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_visibility_widened_method_is_not_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_visibility_narrowed_constructor_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_visibility_narrowed_field_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_visibility_narrowed_event_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_visibility_narrowed_property_getter_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_visibility_widened_property_setter_is_not_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_visibility_narrowed_type_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_visibility_widened_type_is_not_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_virtual_becomes_sealed_override_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_instance_to_static_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_class_becomes_struct_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_generic_constraint_change_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_const_field_value_change_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_indexer_parameter_type_change_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_indexer_new_overload_is_not_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_indexer_removed_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_ref_out_modifier_change_alone_is_not_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_params_and_optional_default_value_are_not_encoded_in_real_dump
+PASSED toolchain/tests/test_abi_surface_compare.py::test_operator_overload_removed_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_conversion_operator_signature_change_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_event_remove_accessor_narrowed_is_breaking
+PASSED toolchain/tests/test_abi_surface_compare.py::test_indexer_parameter_type_change_negative_oracle_end_to_end_via_real_dll
+PASSED toolchain/tests/test_abi_surface_compare.py::test_public_to_protected_negative_oracle_end_to_end_via_real_dll
+PASSED toolchain/tests/test_build_version_writeback_lf.py::test_set_version_file_content_no_cr
+PASSED toolchain/tests/test_build_version_writeback_lf.py::test_set_source_package_json_version_no_cr[adapter_package_json]
+PASSED toolchain/tests/test_build_version_writeback_lf.py::test_set_source_package_json_version_no_cr[template_package_json]
+PASSED toolchain/tests/test_build_version_writeback_lf.py::test_set_packages_lock_game_template_dependency_no_cr
+PASSED toolchain/tests/test_build_version_writeback_lf.py::test_writeback_script_avoids_set_content_family
+PASSED toolchain/tests/test_format_data_schema_order.py::test_check_mode_detects_scrambled_field_order_without_writing
+PASSED toolchain/tests/test_format_data_schema_order.py::test_schema_order_rewrites_fields_in_declared_order
+PASSED toolchain/tests/test_format_data_schema_order.py::test_unregistered_field_kept_and_appended_at_end
+PASSED toolchain/tests/test_format_data_schema_order.py::test_check_mode_no_changes_needed_returns_zero
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[_console.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\__init__.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\atlas.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\check_cmd.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\cli.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\common.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\directions.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\icon_cmd.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\image_ops.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\map_cmd.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\sfx_cmd.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\sprite_cmd.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[asset_import\\vfx_cmd.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[format_data.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[gen_event_constants.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[gen_placeholder_assets.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[import_assets.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[import_sample_assets.py]
+PASSED toolchain/tests/test_generators_write_lf.py::test_generator_script_text_writes_pass_newline_lf[validate_data.py]
+PASSED toolchain/tests/test_get_framework_hash_inline_consistency.py::test_get_framework_ps1_is_self_contained_no_hash_ps1_dot_source
+PASSED toolchain/tests/test_get_framework_hash_inline_consistency.py::test_inlined_function_body_matches_hash_ps1
+PASSED toolchain/tests/test_get_framework_lock_source_no_local_path.py::test_lock_source_has_no_absolute_local_path
+PASSED toolchain/tests/test_get_framework_lock_source_no_local_path.py::test_two_machines_different_local_paths_no_spurious_rewrite
+PASSED toolchain/tests/test_get_framework_lock_source_no_local_path.py::test_legacy_lock_with_source_local_path_still_accepted
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_normal_version_lands_and_hashes_match[powershell]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_normal_version_lands_and_hashes_match[pwsh]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_legal_version_mismatch_allowed[powershell]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_legal_version_mismatch_allowed[pwsh]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[powershell-forward-slash-dotdot]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[powershell-backslash-dotdot]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[powershell-leading-dotdot]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[powershell-bare-dotdot]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[powershell-windows-absolute-path]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[powershell-posix-absolute-path]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[powershell-trailing-whitespace]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[powershell-shell-metacharacters]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[pwsh-forward-slash-dotdot]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[pwsh-backslash-dotdot]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[pwsh-leading-dotdot]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[pwsh-bare-dotdot]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[pwsh-windows-absolute-path]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[pwsh-posix-absolute-path]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[pwsh-trailing-whitespace]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_malicious_lock_version_rejected_before_any_write[pwsh-shell-metacharacters]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_zip_entry_path_traversal_rejected[powershell]
+PASSED toolchain/tests/test_get_framework_path_boundary.py::test_zip_entry_path_traversal_rejected[pwsh]
+PASSED toolchain/tests/test_get_framework_with_samples.py::test_without_with_samples_flag_unaffected
+PASSED toolchain/tests/test_get_framework_with_samples.py::test_with_samples_merges_into_landed_tree
+PASSED toolchain/tests/test_get_framework_with_samples.py::test_with_samples_missing_sibling_zip_rejected
+PASSED toolchain/tests/test_get_framework_with_samples.py::test_with_samples_hash_mismatch_rejected
+PASSED toolchain/tests/test_get_framework_with_samples.py::test_with_samples_legacy_lock_without_samples_field_rejected
+PASSED toolchain/tests/test_import_assets.py::SpriteBasicFlowTest::test_all_eight_direction_dirs_materialized
+PASSED toolchain/tests/test_import_assets.py::SpriteBasicFlowTest::test_anchor_points_converted_to_world_units
+PASSED toolchain/tests/test_import_assets.py::SpriteBasicFlowTest::test_check_passes_on_valid_output
+PASSED toolchain/tests/test_import_assets.py::SpriteBasicFlowTest::test_display_map_row_fields
+PASSED toolchain/tests/test_import_assets.py::SpriteBasicFlowTest::test_exits_successfully
+PASSED toolchain/tests/test_import_assets.py::SpriteBasicFlowTest::test_icon_copied_and_referenced
+PASSED toolchain/tests/test_import_assets.py::SpriteBasicFlowTest::test_mirror_pairs_has_three_entries
+PASSED toolchain/tests/test_import_assets.py::SpriteTrimTest::test_trim_crops_and_shifts_anchor
+PASSED toolchain/tests/test_import_assets.py::SpriteMirrorNoneTest::test_mirror_none_leaves_slots_unfilled
+PASSED toolchain/tests/test_import_assets.py::SpriteMissingCanonicalTest::test_missing_canonical_direction_raises
+PASSED toolchain/tests/test_import_assets.py::SpriteMergeWriteTest::test_second_sprite_set_is_merged_not_overwritten
+PASSED toolchain/tests/test_import_assets.py::DryRunTest::test_dry_run_writes_nothing
+PASSED toolchain/tests/test_import_assets.py::CheckDetectsMissingFileTest::test_check_reports_missing_frame_file
+PASSED toolchain/tests/test_import_assets.py::CheckMirrorPairsAndAnchorTest::test_declared_anchor_missing_in_anchors_json_detected
+PASSED toolchain/tests/test_import_assets.py::CheckMirrorPairsAndAnchorTest::test_mirror_source_not_materialized_detected
+PASSED toolchain/tests/test_import_assets.py::CheckMirrorPairsAndAnchorTest::test_missing_mirror_declaration_detected
+PASSED toolchain/tests/test_import_assets.py::MapCommandTest::test_map_custom_spawn_points
+PASSED toolchain/tests/test_import_assets.py::MapCommandTest::test_map_dry_run_writes_nothing
+PASSED toolchain/tests/test_import_assets.py::MapCommandTest::test_map_imports_layers_and_writes_world_row
+PASSED toolchain/tests/test_import_assets.py::MapCommandTest::test_map_missing_required_layer_raises
+PASSED toolchain/tests/test_import_assets.py::CheckWorldMapTest::test_check_reports_missing_map_dir
+PASSED toolchain/tests/test_import_assets.py::CheckWorldMapTest::test_check_reports_missing_required_layer_file
+PASSED toolchain/tests/test_import_assets.py::IconCommandTest::test_icon_normalizes_size_and_lists_manifest
+PASSED toolchain/tests/test_import_assets.py::VfxCommandTest::test_dotted_and_underscored_ids_do_not_collide
+PASSED toolchain/tests/test_import_assets.py::VfxCommandTest::test_vfx_attach_mode_variants_round_trip
+PASSED toolchain/tests/test_import_assets.py::VfxCommandTest::test_vfx_loop_with_explicit_lifetime_keeps_it
+PASSED toolchain/tests/test_import_assets.py::VfxCommandTest::test_vfx_loop_without_explicit_lifetime_omits_lifetime_field
+PASSED toolchain/tests/test_import_assets.py::VfxCommandTest::test_vfx_many_frames_with_explicit_lifetime_override
+PASSED toolchain/tests/test_import_assets.py::VfxCommandTest::test_vfx_packs_atlas_and_writes_def_row
+PASSED toolchain/tests/test_import_assets.py::VfxCommandTest::test_vfx_single_frame_boundary
+PASSED toolchain/tests/test_import_assets.py::SfxCommandTest::test_dotted_and_underscored_ids_do_not_collide
+PASSED toolchain/tests/test_import_assets.py::SfxCommandTest::test_resource_ref_collision_is_rejected_not_overwritten
+PASSED toolchain/tests/test_import_assets.py::SfxCommandTest::test_sfx_multiple_files_writes_variants_including_resource_ref
+PASSED toolchain/tests/test_import_assets.py::SfxCommandTest::test_sfx_rejects_non_wav_file
+PASSED toolchain/tests/test_import_assets.py::SfxCommandTest::test_sfx_single_file_writes_resource_ref_without_variants
+PASSED toolchain/tests/test_import_assets.py::CheckSfxReferenceTest::test_check_reports_missing_resource_ref_file
+PASSED toolchain/tests/test_import_assets.py::CheckSfxReferenceTest::test_check_reports_missing_variant_file
+PASSED toolchain/tests/test_import_assets.py::AssetImportErrorDirectTest::test_all_slot_names_length_matches_direction_count
+PASSED toolchain/tests/test_import_assets.py::AssetImportErrorDirectTest::test_unsupported_direction_count_raises
+PASSED toolchain/tests/test_import_sample_assets.py::ImportSampleAssetsTest::test_display_map_ids_and_logical_ids_unchanged
+PASSED toolchain/tests/test_import_sample_assets.py::ImportSampleAssetsTest::test_final_check_passes
+PASSED toolchain/tests/test_import_sample_assets.py::ImportSampleAssetsTest::test_returns_success
+PASSED toolchain/tests/test_import_sample_assets.py::ImportSampleAssetsTest::test_sfx_sample_hit_variants_contains_resource_ref
+PASSED toolchain/tests/test_import_sample_assets.py::ImportSampleAssetsTest::test_sprite_set_ids_are_three_segment_and_assets_exist
+PASSED toolchain/tests/test_import_sample_assets.py::ImportSampleAssetsTest::test_vfx_rows_have_frames_json
+PASSED toolchain/tests/test_import_sample_assets.py::ImportSampleAssetsTest::test_vfx_sample_burn_has_no_lifetime
+PASSED toolchain/tests/test_markdown_relative_links.py::test_no_broken_relative_links_in_tracked_markdown
+PASSED toolchain/tests/test_package_name_consistency.py::test_registry_json_packages_match_expected_four
+PASSED toolchain/tests/test_package_name_consistency.py::test_build_ps1_assembles_all_four_packages
+PASSED toolchain/tests/test_package_name_consistency.py::test_check_ps1_package_names_match_expected_four
+PASSED toolchain/tests/test_package_name_consistency.py::test_get_framework_ps1_recognizes_all_four_package_names
+PASSED toolchain/tests/test_package_name_consistency.py::test_registry_manifests_directory_has_four_entries
+PASSED toolchain/tests/test_package_name_consistency.py::test_release_yml_required_assets_match_expected_four_packages
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[build.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[check.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[games/_template/validate.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[toolchain/_hash.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[toolchain/_version_writeback.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[toolchain/abi_probe.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[toolchain/consumer_smoke.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[toolchain/get_framework.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[toolchain/install_hooks.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[toolchain/registry/init_publisher.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[toolchain/registry/start_registry.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[toolchain/sync_package_content.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_non_ascii_script_has_bom[toolchain/tests/_ansi_parse_check.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[build.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[check.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[games/_template/validate.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[toolchain/_hash.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[toolchain/_version_writeback.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[toolchain/abi_probe.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[toolchain/consumer_smoke.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[toolchain/get_framework.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[toolchain/install_hooks.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[toolchain/registry/init_publisher.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[toolchain/registry/start_registry.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[toolchain/sync_package_content.ps1]
+PASSED toolchain/tests/test_powershell_scripts_ansi_safe.py::test_script_parses_under_ci_codepage[toolchain/tests/_ansi_parse_check.ps1]
+PASSED toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py::test_rewrite_branch_reuses_initial_timestamp_statically
+PASSED toolchain/tests/test_sample_table_empty.py::test_sample_table_empty_warns_on_tables_with_no_data_in_either_root
+PASSED toolchain/tests/test_validate_data_json_output.py::test_json_flag_emits_single_json_object_with_expected_shape
+PASSED toolchain/tests/test_validate_data_json_output.py::test_json_flag_collects_skeleton_errors
+PASSED toolchain/tests/test_validate_data_json_output.py::test_json_flag_with_skip_dotnet_has_null_validator
+PASSED toolchain/tests/test_validate_data_json_output.py::test_json_flag_validator_non_json_output_falls_back_to_raw
+PASSED toolchain/tests/test_validate_data_precompiled_validator.py::PrecompiledValidatorDispatchTests::test_falls_back_to_dotnet_run_when_precompiled_dll_absent
+PASSED toolchain/tests/test_validate_data_precompiled_validator.py::PrecompiledValidatorDispatchTests::test_prefers_precompiled_validator_dll_when_present
+PASSED toolchain/tests/test_validate_data_relative_root_cwd.py::test_relative_data_root_resolved_against_cwd_not_script_location
+PASSED toolchain/tests/test_validate_data_relative_root_cwd.py::test_relative_data_root_not_found_from_unrelated_cwd
+PASSED toolchain/tests/test_validate_data_validator_project_path.py::ValidatorProjectPathTests::test_validator_project_is_sibling_of_script_not_repo_root_toolchain
+SKIPPED [1] toolchain\tests\test_abi_surface_compare.py:940: ����û�� dist/ws-game-1.12.0.zip��������ʵ���߶˵��˲��ԣ����� pass��
+SKIPPED [2] toolchain\tests\test_get_framework_path_boundary.py:232: ����û�� dist/ws-game-1.18.0.zip|.lock��������ʵ����ع�
+SKIPPED [1] toolchain\tests\test_registry_stop_pidfile_rewrite_timestamp.py:269: ���� D:\workespace\ws-game-audit-d6fda65-20260911\toolchain\registry\node_modules\verdaccio\bin\verdaccio �����ڣ���δ npm ci ��װ verdaccio ����������Ϊ���ع�������ʵ���̣������ﲻ���� npm ci��������������������������
+186 passed, 4 skipped in 73.40s (0:01:13)

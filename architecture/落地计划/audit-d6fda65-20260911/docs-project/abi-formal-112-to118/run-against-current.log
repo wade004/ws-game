@@ -1,0 +1,11 @@
+SkillHost(17-arg legacy ctor) ok ArgumentNullException=dataRegistry
+FieldSchema ok name=id
+GobjOnUseKindRule ok Core.Carriers.Gobj.GobjOnUseKindRule
+GobjLockRequirementFieldGroupRule ok Core.Carriers.Gobj.GobjLockRequirementFieldGroupRule
+EffectKindRegisteredRule ok Core.Rules.Skill.EffectKindRegisteredRule
+CostEntryShapeRule ok Core.Rules.Skill.CostEntryShapeRule
+ChargesShapeRule ok Core.Rules.Skill.ChargesShapeRule
+AreaTriggerShapeKindRule ok Core.Gameplay.AreaTrigger.AreaTriggerShapeKindRule
+EconomyContentValidationRule(IExprSchema?) ok Core.Gameplay.Economy.EconomyContentValidationRule
+LootContentValidationRule(IExprSchema?) ok Core.Gameplay.Loot.LootContentValidationRule
+ABI_PROBE_ALL_OK

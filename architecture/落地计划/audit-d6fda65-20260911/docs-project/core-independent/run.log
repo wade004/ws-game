@@ -1,0 +1,5 @@
+D:\workespace\ws-game-audit-d6fda65-20260911\core\gameplay\quest\tests\TestSupport.cs(154,21): warning CS0649: 从未对字段“FakeRewardDispatcher.ShouldFail”赋值，字段将一直保持其默认值 false [D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\docs-project\core-independent\Independent.csproj]
+QUEST removed GetActiveObjectives=KeyNotFoundException expected=no exception for unit-only query
+QUEST restored UpdateProgress=IndexOutOfRangeException expected=no exception, second objective valid
+death_dispatch_before_update=True active=skill.cast_inst_1 queued=skill.cast_inst_2 interrupted=1 queueFailed=1 expected=1,1 casting=False
+death_dispatch_before_update=False active=skill.cast_inst_1 queued=skill.cast_inst_2 interrupted=0 queueFailed=0 expected=1,1 casting=False

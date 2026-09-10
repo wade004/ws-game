@@ -1,0 +1,42 @@
+[
+  {
+    "Path": "presentation-review.md",
+    "SHA256": "0281F1A46A020BDE275BC569AB0FAADF4E6D8E377950545118D3F7459241FE11"
+  },
+  {
+    "Path": "probe/Program.cs",
+    "SHA256": "8E4F2BC4172C1E4BD86320E4CB2BB9558FD18271492A12A65EB26078F7CD6AA2"
+  },
+  {
+    "Path": "probe/Probe.csproj",
+    "SHA256": "C64F051F00C7676C8775C64AAE88022A029D2269EDEC51FB9B0F76848A36F243"
+  },
+  {
+    "Path": "probe/probe.log",
+    "SHA256": "5D78B4A5668F8AD67FA07839E2F819872ACD7F75BB183F40EE993D154C62E470"
+  },
+  {
+    "Path": "probe/assembly-hashes.json",
+    "SHA256": "75FF543F8020E16857FB63B9DEFE635807BE54C12F168421E5E1174A243ED8E3"
+  },
+  {
+    "Path": "playmode-selected.xml",
+    "SHA256": "3C4177B96F2F953A680E0BF04BCD7825546FABC00481D66B6FDEBDEDEB6D78B3"
+  },
+  {
+    "Path": "playmode-selected.log",
+    "SHA256": "E2E8F700CEC04C6E807AFD8B8611E816F678F460C43D6E7F6729FA40061B9247"
+  },
+  {
+    "Path": "run-selected-unity.ps1",
+    "SHA256": "92840AA0D78E3FB70EDC9982219785C48A32FC110F738E3A1ACED68FF6068801"
+  },
+  {
+    "Path": "UnityCopy/adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/Audit118PresentationTests.cs",
+    "SHA256": "7F63909CA2729E5B58BE8E0473CEC00EC2336A26C379629B1F29C1A6C87EC56E"
+  },
+  {
+    "Path": "UnityCopy/adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/GlobalPlayModeTestSetup.cs",
+    "SHA256": "CDABB59A812340352ACFBA0796AD949033ECD2B3EA1AFB233BA9D9CE5CEB449B"
+  }
+]

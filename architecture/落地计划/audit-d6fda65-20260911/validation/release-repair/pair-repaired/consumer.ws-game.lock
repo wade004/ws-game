@@ -1,0 +1,16 @@
+{
+  "version": "1.18.0",
+  "git_commit": "d6fda65",
+  "dlls": {
+    "Core.Foundation.dll": "108d89ace825118cb9c2309e9f6efcd6a00058eefaafe3e7aeca723a947fe0d8",
+    "Core.Numbers.dll": "ae59cba3b72f1ac0a209fcf154e6a6a4d150143b15cc09772c28cb12c8a8d3c8",
+    "Core.Rules.dll": "98dcf9a65eaf3ff1f721730d9ca71ea8ae32fda155c077490823f55e5e400ac7",
+    "Core.Carriers.dll": "396fc4cad0ce51ee31e9eb18f923d423c8a354b3aa168a44e3a8b2b57eac807b",
+    "Core.Gameplay.dll": "3e5d7ea157e55604bc30a030dbd3880aa68bae50559b54399db4e8e73c496ffb",
+    "Presentation.Common.dll": "b3a0ae435d7f981824ebfa5d819786f8dd77235e3565e8d570e94e6f793301d0"
+  },
+  "source": {
+    "channel": "zip",
+    "zip_file_name": "ws-game-1.18.0.zip"
+  }
+}

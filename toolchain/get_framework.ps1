@@ -183,6 +183,44 @@ if ($Version -notmatch $VersionFormatPattern) {
 # 都不足以杜绝越界，必须同时具备。
 $LockVersionFormatPattern = '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$'
 
+# TOOL-118-LOCK 根治（codex 第十八轮，audit-d6fda65-20260911）：`headless_dlls`/`validator_dlls`
+# 缺字段的"向后兼容跳过"此前对任何锁文件一视同仁——只要字段是 $null 就跳过对应校验、只打印提示，
+# 不管这份锁文件的 version 字段实际是多少。这在锁文件由正常 `build.ps1` 生成时没问题（老版本
+# 锁文件本来就没有这两个字段），但 `.github/workflows/release.yml`"缺附件修复"分支曾经手写过一份
+# 不含这两个字段的锁文件（见该文件"Repair missing assets from existing zip"步骤判断记录）——对于
+# `headless_dlls` 字段从 1.13.0 起、`validator_dlls` 字段从 1.15.0 起就应该随正常 `build.ps1` 一起
+# 出现的版本，"缺字段"不再是"老版本正常没有"，而是"这份锁文件本身残缺/生成方式有问题"，继续跳过
+# 校验会让 `Adapters.Stub.dll`/`Validator.dll` 被篡改也检测不出来（见
+# validation/release-repair 下的复现记录）。用统一阈值 1.15.0（两个字段里更晚引入的那个，简化
+# 判断口径，不逐字段各自维护一个阈值）：锁文件 version < 1.15.0 时任一字段缺失仍按老逻辑跳过并
+# 提示；version >= 1.15.0 时任一字段缺失直接判定锁文件损坏、报错退出，不落地。
+function ConvertTo-ComparableVersion {
+    param([Parameter(Mandatory = $true)][string]$VersionText)
+    # 只取形如 X.Y.Z 的核心部分参与比较，预发布后缀（-dryrun 等）不影响"是否达到某个基线版本"的
+    # 判断——[version] 类型不接受预发布后缀，且发布流程里预发布版本本来就不会进正式 Release 锁文件。
+    $core = ($VersionText -split '-', 2)[0]
+    return [version]$core
+}
+
+function Test-LockVersionAtLeast {
+    param(
+        [Parameter(Mandatory = $true)][string]$VersionText,
+        [Parameter(Mandatory = $true)][version]$Threshold
+    )
+    try {
+        $v = ConvertTo-ComparableVersion -VersionText $VersionText
+    } catch {
+        # version 字段格式此前已经过 $LockVersionFormatPattern 校验（或走的是与 -Version 一致、
+        # 未触发格式校验的默认路径，此时字段值就是 -Version 本身，格式同样受调用方约束），理论上
+        # 不会解析失败；解析失败时保守地当作"达到阈值"处理（不放宽缺字段校验，宁可误报损坏也不
+        # 漏判——落地前拒绝远比落地一份完整性覆盖不全的框架安全）。
+        return $true
+    }
+    return $v -ge $Threshold
+}
+
+$HeadlessValidatorDllsRequiredSinceVersion = [version]"1.15.0"
+
 # 判断记录（P150-01 根治，同上）：把“规范化落点是否为 -Target 的严格子目录”抽成一个可复用函数，
 # 落地目录计算（zip 通道）与后续任何需要做同类边界校验的地方（例如 zip 内条目路径）共用同一份
 # 判定逻辑，不重复实现、不因为遗漏某处校验而留下另一个越界口子。严格子目录：规范化后的绝对路径，
@@ -574,10 +612,13 @@ try {
     }
     Write-Host "  六个核心 DLL 哈希全部与锁文件一致"
 
-    # 判断记录（ADR-0018 决策 3，向后兼容）：锁文件里若存在 `headless_dlls` 字段（build.ps1 新增，
-    # 见其 5.6 节判断记录）则一并校验无头适配层 DLL 的哈希；老版本锁文件（框架 < 无头适配层交付
-    # 落地的版本）没有这个字段时，`$lockObj.headless_dlls` 是 $null，跳过这项校验并打印提示，不
-    # 报错、不阻断——旧锁文件描述的那个版本本来就没有这份交付物，"缺字段"不代表"内容被篡改"。
+    # 判断记录（ADR-0018 决策 3，向后兼容；TOOL-118-LOCK 根治收紧了"向后兼容"的适用范围，见上面
+    # `$HeadlessValidatorDllsRequiredSinceVersion` 判断记录）：锁文件里若存在 `headless_dlls`
+    # 字段（build.ps1 新增，见其 5.6 节判断记录）则一并校验无头适配层 DLL 的哈希；老版本锁文件
+    # （锁文件 version < 1.15.0）没有这个字段时，`$lockObj.headless_dlls` 是 $null，跳过这项校验
+    # 并打印提示，不报错、不阻断——旧锁文件描述的那个版本本来就没有这份交付物，"缺字段"不代表
+    # "内容被篡改"；但 version >= 1.15.0 仍缺字段，说明锁文件不是由正常 `build.ps1` 生成（例如
+    # `release.yml` 缺附件修复分支手写的残缺版本），按损坏处理、拒绝落地。
     if ($null -ne $lockObj.headless_dlls) {
         $headlessDir = Join-Path $innerRoot "adapters\headless"
         $headlessHashMismatches = @()
@@ -604,13 +645,20 @@ try {
             throw ("无头适配层 DLL 哈希校验失败，未落地到 -Target（内容可能被篡改或下载不完整）：`n  " + ($headlessHashMismatches -join "`n  "))
         }
         Write-Host "  无头适配层 DLL 哈希全部与锁文件一致"
+    } elseif (Test-LockVersionAtLeast -VersionText $lockObj.version -Threshold $HeadlessValidatorDllsRequiredSinceVersion) {
+        throw ("锁文件 " + $LockSourcePath + " 的 version=" + $lockObj.version + "（>= " +
+               $HeadlessValidatorDllsRequiredSinceVersion.ToString() + "）缺少 headless_dlls 字段——该版本正常构建流程" +
+               "（build.ps1）总会写出这个字段，缺失说明这份锁文件不是完整正常生成的（例如发布流程的" +
+               "缺附件修复分支手写了残缺版本），按损坏处理，拒绝落地。")
     } else {
-        Write-Host "  锁文件无 headless_dlls 字段（该版本早于无头适配层交付落地，或来自尚未升级的旧构建），跳过该项校验" -ForegroundColor Yellow
+        Write-Host "  锁文件无 headless_dlls 字段（version=$($lockObj.version) 早于 $($HeadlessValidatorDllsRequiredSinceVersion.ToString())，早于无头适配层交付落地，或来自尚未升级的旧构建），跳过该项校验" -ForegroundColor Yellow
     }
 
-    # 判断记录（消费方反馈 E1 根治，2026-09-10）：锁文件里若存在 `validator_dlls` 字段（build.ps1
-    # 新增，见其 5.057 节判断记录）则一并校验预编译 toolchain/validator/bin/Validator.dll 的哈希，
-    # 与上面 headless_dlls 同一套模式（可选字段、缺字段不报错，向后兼容旧版本锁文件）。这份 DLL
+    # 判断记录（消费方反馈 E1 根治，2026-09-10；TOOL-118-LOCK 根治收紧了"向后兼容"的适用范围，
+    # 见上面 `$HeadlessValidatorDllsRequiredSinceVersion` 判断记录）：锁文件里若存在
+    # `validator_dlls` 字段（build.ps1 新增，见其 5.057 节判断记录）则一并校验预编译
+    # toolchain/validator/bin/Validator.dll 的哈希，与上面 headless_dlls 同一套模式（可选字段、
+    # 缺字段不报错——但仅限锁文件 version < 1.15.0；>= 1.15.0 仍缺字段按损坏拒绝）。这份 DLL
     # 会被 toolchain/validate_data.py 直接 `dotnet <Validator.dll>` 执行，与六个核心 DLL/无头适配层
     # DLL 一样纳入完整性校验，保证"校验通过才落地"的语义同样覆盖这份可执行产物。
     if ($null -ne $lockObj.validator_dlls) {
@@ -639,8 +687,13 @@ try {
             throw ("预编译 validator DLL 哈希校验失败，未落地到 -Target（内容可能被篡改或下载不完整）：`n  " + ($validatorHashMismatches -join "`n  "))
         }
         Write-Host "  预编译 validator DLL 哈希全部与锁文件一致"
+    } elseif (Test-LockVersionAtLeast -VersionText $lockObj.version -Threshold $HeadlessValidatorDllsRequiredSinceVersion) {
+        throw ("锁文件 " + $LockSourcePath + " 的 version=" + $lockObj.version + "（>= " +
+               $HeadlessValidatorDllsRequiredSinceVersion.ToString() + "）缺少 validator_dlls 字段——该版本正常构建流程" +
+               "（build.ps1）总会写出这个字段，缺失说明这份锁文件不是完整正常生成的（例如发布流程的" +
+               "缺附件修复分支手写了残缺版本），按损坏处理，拒绝落地。")
     } else {
-        Write-Host "  锁文件无 validator_dlls 字段（该版本早于预编译 validator 交付落地，或来自尚未升级的旧构建），跳过该项校验" -ForegroundColor Yellow
+        Write-Host "  锁文件无 validator_dlls 字段（version=$($lockObj.version) 早于 $($HeadlessValidatorDllsRequiredSinceVersion.ToString())，早于预编译 validator 交付落地，或来自尚未升级的旧构建），跳过该项校验" -ForegroundColor Yellow
     }
 
     # -----------------------------------------------------------------------------

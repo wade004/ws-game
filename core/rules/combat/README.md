@@ -58,11 +58,21 @@ combat/
    确定），本实现把偏斜的伤害系数相乘、格挡的固定量相减挪到"基础值"确定后、"暴击"倍率相乘前
    应用，语义不变——它们仍然是"判定"阶段决出的结果，只是数值应用点顺延到有数值可用的第一时机。
 
-4. **偏斜/格挡命中时不再参与暴击判定**：`HitResult` 是扁平枚举而非位标记，一次结算只报告一个
-   分支标签。本实现的优先序是 miss > dodge > parry > glancing_blow > block > (crit | hit)——
-   偏斜或格挡一旦触发，直接跳过暴击判定（`isCrit` 恒 false）。这是一个未在 06 中明确规定的
-   简化，符合 WoW"偏斜不能暴击"的常见设计直觉；`CombatDamageDealtEvent.IsCrit` 与
-   `ResolveResult.Hit` 因此不会同时表达"暴击的偏斜"这种组合。
+4. **偏斜/格挡与暴击默认可叠加**（勘误，codex 第十八轮，audit-d6fda65-20260911，DOC-118-09：
+   本条此前称"偏斜/格挡命中时不再参与暴击判定（`isCrit` 恒 false）"，与实现不符，已改写）：
+   `HitResult` 是扁平枚举而非位标记，一次结算只报告一个分支标签（`DetermineHit` 的优先序是
+   miss > dodge > parry > glancing_blow > block > (crit | hit)），但**暴击判定与伤害倍率是独立
+   计算的**——`isCrit` 由单独一次掷骰决定（`DetermineHit` 内 `context.CanCrit && table.Crit.Enabled`
+   分支），不受 `special` 是否已经是 glancing_blow/block 影响；调用方（`Resolve`）拿到 `isCrit`
+   后，偏斜的伤害系数与暴击倍率依次相乘应用到同一笔伤害上（先 `amount *= glancingMult`，再
+   `if (isCrit) amount *= critMultiplier`），两者可以同时生效。`CombatDamageDealtEvent.IsCrit`
+   与 `ResolveResult.Hit`（扁平标签，此时会是 `GlancingBlow`/`Block`）因此**可以**同时表达"暴击的
+   偏斜/格挡"这种组合——扁平标签只反映 `DetermineHit` 的优先序（决定报告哪个分支名），不代表
+   伤害计算互斥。06 未规定偏斜/格挡与暴击是否必须互斥；框架把"可叠加"作为通用默认策略——是否需要
+   互斥（例如某款游戏希望"偏斜的攻击不可能同时暴击"这类口味）由消费方在自己的战斗结算流程/口味
+   配置层面决定，不属于本模块的通用契约，也不通过修改本模块算法本身实现。回归测试见
+   `core/rules/combat/tests/ResolverHitTableTests.cs`（`Resolve_GlancingAndCritBothForced_StacksGlancingPercentAndCritMultiplier`/
+   `Resolve_BlockAndCritBothForced_StacksFlatBlockReductionAndCritMultiplier`）。
 
 5. **`context.BaseValue` 直接使用，不再乘 `context.Coefficient`**：06 第 4.1 节"基础值"一步
    原文"效果原语给出的基础数值"，任务书"设计"一节明确"`context.BaseValue`（skill 已含系数）"——

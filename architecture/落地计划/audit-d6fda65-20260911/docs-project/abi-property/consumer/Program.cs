@@ -1,0 +1,1 @@
+using System; using System.Runtime.CompilerServices; class Program { [MethodImpl(MethodImplOptions.NoInlining)] static int Read() { return new Compat().Value; } static int Main() { try { Console.WriteLine("VALUE=" + Read()); return 0; } catch(Exception ex) { Console.WriteLine("FAIL=" + ex.GetType().Name + ": " + ex.Message); return 9; } } }

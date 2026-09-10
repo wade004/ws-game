@@ -1,0 +1,34 @@
+ws-game ABI 探针 summary
+生成时间=2026-09-11 01:52:14
+基线版本=1.12.0
+基线 zip=D:\workespace\ws-game\dist\ws-game-1.12.0.zip
+基线 zip sha256=f87bc2f3a68315eb06f650855b369898fc5181b2fb5111923ecd806089422935
+
+基线六个 DLL sha256：
+  Core.Foundation.dll = 76e852f5cdc6bc27385c4f1c03384f85fba2f480588b5ec5934a43a3e6c7671f
+  Core.Numbers.dll = 856b88558b34d2e50f6a223cfd500b020b9ed4ca0e19d1b56f9c5eb714d0c66a
+  Core.Carriers.dll = 887a0fbc293ba942bb42fc9dbbcddaf38ec436900e5ffc20104466f20a73e745
+  Core.Rules.dll = ea22e046a9d5493790fc2d12a7c4a46d8be4e7527708ca0c4ed71a0e361a8623
+  Core.Gameplay.dll = bdc0990162508d351bcf380359a7f4edcf157dde4f76cf588fba525d125f06ea
+  Presentation.Common.dll = 5c847edaf0bb04ad94e569669332bfa835c6ae000de2f7bae50b6d379fbdf988
+
+当前工作树六个 DLL sha256：
+  Core.Foundation.dll = 108d89ace825118cb9c2309e9f6efcd6a00058eefaafe3e7aeca723a947fe0d8
+  Core.Numbers.dll = ae59cba3b72f1ac0a209fcf154e6a6a4d150143b15cc09772c28cb12c8a8d3c8
+  Core.Carriers.dll = 396fc4cad0ce51ee31e9eb18f923d423c8a354b3aa168a44e3a8b2b57eac807b
+  Core.Rules.dll = 98dcf9a65eaf3ff1f721730d9ca71ea8ae32fda155c077490823f55e5e400ac7
+  Core.Gameplay.dll = 3e5d7ea157e55604bc30a030dbd3880aa68bae50559b54399db4e8e73c496ffb
+  Presentation.Common.dll = b3a0ae435d7f981824ebfa5d819786f8dd77235e3565e8d570e94e6f793301d0
+
+consumer 程序集 sha256（替换 DLL 前）=43d2313b080e4793247460baff871ab09ff49b33d594fcfcad8ddac06761e093
+consumer 程序集 sha256（替换 DLL 后）=43d2313b080e4793247460baff871ab09ff49b33d594fcfcad8ddac06761e093
+consumer 程序集替换前后一致=True
+consumer 针对基线 DLL 运行退出码=0
+consumer 针对当前工作树 DLL 运行退出码（不重编译）=0
+
+表面差异 dump（基线）=D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\docs-project\abi-formal-112-to118\surface-baseline.txt
+表面差异 dump（当前）=D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\docs-project\abi-formal-112-to118\surface-current.txt
+表面差异报告=D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\docs-project\abi-formal-112-to118\surface-report.txt
+表面差异 compare 退出码=0
+
+结论=PASS

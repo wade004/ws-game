@@ -156,6 +156,10 @@ $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 # Get-FileHash 可用时优先用、不可用时透明退化到不依赖该 cmdlet 的 .NET SHA256 兜底实现。
 . (Join-Path $RepoRoot "toolchain\_hash.ps1")
 . (Join-Path $RepoRoot "toolchain\_version_writeback.ps1")
+# 判断记录（TOOL-118-LOCK 根治，见 toolchain/_lock_writeback.ps1 文件头）：锁文件对象构造/写出
+# 逻辑抽成共享函数，与 .github/workflows/release.yml 的"缺附件修复"分支调用同一份，杜绝两处各自
+# 手写再次漂移（该分支此前漏写 headless_dlls/validator_dlls 两个字段）。
+. (Join-Path $RepoRoot "toolchain\_lock_writeback.ps1")
 
 function Write-Step {
     param([string]$Message)
@@ -1386,16 +1390,14 @@ if ($DistRequested) {
         # 消费方反馈 E4 根治新增：记录 dist/ws-game-<ver>-samples.zip 自身（整份 zip，不是内部
         # 单个文件）的 sha256，`toolchain/get_framework.ps1 -WithSamples` 下载后据此校验。
         $lockPath = Join-Path $RepoRoot ("dist\ws-game-" + $DistDirVersion + ".lock")
-        $lockObj = [ordered]@{
-            version      = $ResolvedDistVersion
-            git_commit   = $gitCommit
-            dlls         = $coreAssemblyShaMap
-            headless_dlls = $headlessAssemblyShaMap
-            validator_dlls = $validatorAssemblyShaMap
-            samples      = [ordered]@{ sha256 = $samplesZipSha }
-        }
-        $lockJson = ($lockObj | ConvertTo-Json -Depth 5)
-        [System.IO.File]::WriteAllText($lockPath, $lockJson, (New-Object System.Text.UTF8Encoding($false)))
+        # 判断记录（TOOL-118-LOCK 根治）：对象构造与 JSON 写出改调用
+        # toolchain/_lock_writeback.ps1（本文件顶部已 dot-source）的共享函数，与
+        # release.yml"缺附件修复"分支走同一份逻辑，字段集合/顺序/写出方式只有一处实现。
+        $lockObj = New-WsGameLockObject `
+            -Version $ResolvedDistVersion -GitCommit $gitCommit `
+            -CoreDlls $coreAssemblyShaMap -HeadlessDlls $headlessAssemblyShaMap -ValidatorDlls $validatorAssemblyShaMap `
+            -SamplesSha256 $samplesZipSha
+        Write-WsGameLockFile -Path $lockPath -LockObject $lockObj
         Write-Host "  已生成 $lockPath"
 
         # -------------------------------------------------------------------

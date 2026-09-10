@@ -1,0 +1,5 @@
+{"path":"D:\\workespace\\ws-game\\dist\\ws-game-1.18.0.lock","top_fields":"version,git_commit,dlls,headless_dlls,validator_dlls,samples","dlls_count":6,"headless_dlls_present":true,"validator_dlls_present":true,"samples_present":true}
+{"path":"D:\\workespace\\ws-game-artifacts\\audit-d6fda65-20260911\\validation\\release-repair\\ws-game-1.18.0-repaired.lock","top_fields":"version,git_commit,dlls","dlls_count":6,"headless_dlls_present":false,"validator_dlls_present":false,"samples_present":false}
+mutated_zip_sha256=c71290b4a54b47bfd8083e279e57fa079923bf474084e202c81d722b3fc3b80f
+original_lock_sha256=3122cf47e621a9e89cd09a8512707402e38e48f818af9b8747c462597ef9bfbf
+rebuilt_lock_sha256=ceaa7e32b10f190fdb89c7d8fbac65c7eb5596b517499fe393c379eae4a85bcd

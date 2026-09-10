@@ -282,7 +282,19 @@ namespace Tests.Rules.Combat
                   ""miss"": {""enabled"": true, ""base"": 0.5}, ""dodge"": {""enabled"": true, ""base"": 0.3},
                   ""parry"": {""enabled"": false, ""base"": 0}, ""glancing_blow"": {""enabled"": false, ""base"": 0},
                   ""block"": {""enabled"": false, ""base"": 0}, ""crit"": {""enabled"": true, ""base"": 0.5},
-                  ""crit_multiplier_base"": 2.0 }
+                  ""crit_multiplier_base"": 2.0 },
+
+                { ""id"": ""combat.hit_table.glancing_and_crit_forced"",
+                  ""miss"": {""enabled"": false, ""base"": 0}, ""dodge"": {""enabled"": false, ""base"": 0},
+                  ""parry"": {""enabled"": false, ""base"": 0}, ""glancing_blow"": {""enabled"": true, ""base"": 1},
+                  ""block"": {""enabled"": false, ""base"": 0}, ""crit"": {""enabled"": true, ""base"": 1},
+                  ""crit_multiplier_base"": 3.0, ""glancing_damage_pct"": 0.4 },
+
+                { ""id"": ""combat.hit_table.block_and_crit_forced"",
+                  ""miss"": {""enabled"": false, ""base"": 0}, ""dodge"": {""enabled"": false, ""base"": 0},
+                  ""parry"": {""enabled"": false, ""base"": 0}, ""glancing_blow"": {""enabled"": false, ""base"": 0},
+                  ""block"": {""enabled"": true, ""base"": 1}, ""crit"": {""enabled"": true, ""base"": 1},
+                  ""crit_multiplier_base"": 2.0, ""block_value_stat"": ""stat.block_value"" }
             ]
         }";
 

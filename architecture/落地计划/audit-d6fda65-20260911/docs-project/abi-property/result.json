@@ -1,0 +1,10 @@
+﻿{
+    "frozen_commit":  "d6fda65cd6b00ede5c5f6f606f724d2ab0f60603",
+    "expected_old_exit":  0,
+    "actual_old_exit":  0,
+    "expected_new_consumer_failure":  true,
+    "actual_new_exit":  9,
+    "expected_surface_break_exit":  2,
+    "actual_surface_exit":  0,
+    "consumer_compiled_once":  true
+}
