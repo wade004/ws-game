@@ -51,10 +51,41 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `FieldSchema` 新增可选 `Range` 字段（Number/Int 字段的取值范围登记），`toolchain/validator
   --list-tables --json` 每张表新增 `field_ranges` 导出，编辑器可据此在数值输入控件上就地校验，
   不必等到一次完整加载校验才发现越界。
+- **ADR-0022（下一版本，消费方反馈处理，
+  [消费方反馈-2026-09-10-编辑器-第二批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md)）**：
+  `TableSchema` 新增 `Layer`/`Module`/`Domain`/`TimeScope`，`FieldSchema` 新增 `Group`/`Unit`，
+  `IdList` 字段种类补齐 `ReferenceTable`/`ReferenceDomain`/`WithFreeIds` 登记，`reference_integrity`
+  扩展覆盖 `IdList` 元素；元数据门禁新增五项自洽检查；`toolchain/validator --list-tables --json`
+  每张表新增 `layer`/`module`/`domain`/`time_scope`，每个字段新增 `field_meta`
+  （`group`/`unit`/`reference_table`/`reference_domain`/`free_ids`）。
 
 ## [Unreleased]
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
+
+### 新增
+
+- 登记表补充导航与编辑元数据（[ADR-0022](architecture/adr/0022-登记表补充导航与编辑元数据.md)，
+  消费方反馈处理，
+  [消费方反馈-2026-09-10-编辑器-第二批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md)
+  第 12～16 条）：【编辑器相关契约】
+  - `TableSchema` 新增只读属性 `Layer`/`Module`/`Domain`/`TimeScope` 与 `WithOwnership`/
+    `WithDomain`/`WithTimeScope` 链式登记方法；全部 63 张已登记表填齐 `Layer`/`Module`，
+    三张单段名命名例外表（`camera_profile`/`ui_layout_definition`/`shell_menu_definition`）
+    显式登记 `Domain`；5 张含时间字段的表（`skill.def`/`skill.aura_def`/`skill.proc_def`/
+    `arch.power_type`/`spawn.table`）登记 `TimeScope`。
+  - `FieldSchema` 新增只读属性 `Group`（未显式登记时按种类/命名计算默认值）、`Unit`（标记时间模型
+    单位字段）、`FreeIds`/`FreeIdsReason`，新增 `WithGroup`/`WithUnit`/`WithFreeIds` 链式登记方法；
+    全部 783 个已登记字段的 `Group` 生效（计算默认值 + 少量显式覆盖）；10 个已知时间字段登记
+    `Unit=Time`；22 个 `IdList` 字段逐一登记 `ReferenceTable`/`ReferenceDomain` 或 `WithFreeIds`。
+  - `DataRegistry` 的 `reference_integrity` 检查扩展为覆盖 `IdList` 字段的每个数组元素。
+  - 新增公开静态工具类 `Core.Foundation.SimLoop.TimeModelRules`（`GetTimeScope`/`IsTimeField`），
+    暴露"时间字段与时间模型一致"校验规则此前封装在实现内部的判定入口。
+  - 元数据门禁（`SchemaAudit`）新增五项自洽检查：`table_ownership`/`field_group`/
+    `time_scope_declared`/`time_unit_missing`/`idlist_reference_target`。
+  - `toolchain/validator --list-tables --json` 每张表新增 `layer`/`module`/`domain`/
+    `time_scope`；每个顶层字段新增 `field_meta`（`group`/`unit`/`reference_table`/
+    `reference_domain`/`free_ids`）。
 
 ### 修复
 
