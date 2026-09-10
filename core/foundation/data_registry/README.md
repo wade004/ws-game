@@ -130,7 +130,12 @@ data_registry/
 转换）；记录缺该字段返回 `Bool false` 并记一条 Expr 求值期警告，不抛异常（见 04 第 4 节
 "宿主上下文只暴露记录自身字段"）。便捷重载 `Query(table, string predicateText)` 用
 `RecordExprSchema.For(schema)` 把该表字段登记成 `self.<field>` 的零参引用后再解析——要求
-该表已 `RegisterSchema`。
+该表已 `RegisterSchema`。**不是全部字段种类都登记**：`RecordExprMapping.ToExprValueKind`
+只把能映射为 Expr 标量类型（`Bool`/`Int`/`Number`/`String`/`Id`）的字段种类登记为
+`self.<field>`，`IdList`/`Vec2`/`Object`/`Array`/`Expr` 五种不登记（消费方反馈第四批第 25
+条，2026-09-10：`Expr` 字段此前误按 `String` 登记，现改为不登记——该字段的值是待求值文本，
+`self.<expr_field>` 没有明确的取值语义）；谓词文本引用到未登记字段名时按 ADR-0015 默认规则
+整体解析为 `<id_literal>`，不抛异常。
 
 ## `BuiltinSchemas`
 
