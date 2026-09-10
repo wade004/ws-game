@@ -81,6 +81,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-09-11
+
+MINOR 版本：编辑器相关契约新增（ADR-0024 动态键映射登记、消费方反馈第三批第 21 条 + 第四批第
+24/25/26 条）+ 施法生命周期事件新增实例标识与失败原因码 + 读条完成当帧新冷却被提前推进的时序
+修复 + 06 §8 事件词汇表勘误。核实与逐条回复见
+[消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)
+第 21 条、
+[消费方反馈-2026-09-10-编辑器-第四批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第四批.md)、
+[消费方反馈-2026-09-10-施法时序与实例标识.md](architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md)。
+提交链：`dd2fdec`/`9a57361`/`f8ffc3d`（ws/adr24：ADR-0024 新增 + 第二批 18 字段登记 + 文档
+对齐）、`9b3fcbd`/`6d76569`（wt/editor4：第四批第 25/26 条根治 + 文档同步）、`f6d99dd`/
+`75b3f41`/`37ca21b`（wu/cast17：读条完成新冷却提前推进根治 + `CastInstanceId` + 文档）、
+`d6822b0`/`7e87741`/`3fb88d7`（三分支合并）、`f519a2f`（06 §8 `combat.damage_dealt` 事件表
+勘误）、`4bb70fe`（变更记录与提交哈希回填）。
+
 ### 新增
 
 - **ADR-0024（编辑器相关契约，消费方反馈第三批第 21 条）**：`FieldSchema` 新增 `Map`（动态键
@@ -124,6 +139,36 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - 04 §3.5 补充 `Map` 动态键映射登记形态说明（ADR-0024）；06 §3.6/§8 勘误（读条完成当帧新冷却
   提前推进的起算时刻规则、四个施法生命周期事件补充 `castInstanceId`）；06 §8 事件词汇表
   `combat.damage_dealt` 行补登记既已实现的 `triggerChainDepth`/`attackInstanceId` 两个字段。
+
+### 迁移说明
+
+- 元数据门禁白名单收敛后，本版内容若使用了 12 个已改用 `Map` 登记的字段（`arch.class.
+  base_stats`/`arch.race.stat_mods`/`creature.template.base_stats`/`prog.level_curve.
+  entries[].growth`/`display.map.{anchor_points,default_slot_meshes,material_params}`/
+  `display.anim_set.clips`/`display.weapon_style.{cast_anim_override,impact_vfx_override}`/
+  `encounter.def.phases[].ai_rotation_override`/`ai.behavior_profile.transitions`），键约束
+  为"引用表"的字段（如 `arch.class.base_stats` 的键须引用 `stat.definition`）从本版起在加载
+  期做键值校验，此前完全不校验；请在升级前用本版 `toolchain/validate_data.py --strict` 排查
+  现有内容里这些字段的键是否为合法引用。
+- `DataRegistry.Query(string, string)` 谓词文本中若曾写过 `self.<Expr 字段名>` 引用，从本版
+  起不再登记为 `self.<field>` 引用（回退为 `<id_literal>` 解析）——全仓 grep 确认框架自身与
+  `data/` 现有内容均无此用法，属安全收紧；若消费方自有内容存在类似写法，需要相应调整。
+- 四个施法生命周期事件（`skill.cast_start`/`skill.cast_success`/`skill.cast_failed`/
+  `skill.cast_interrupted`）新增 `CastInstanceId` 属性与对应构造重载，均为纯新增（既有构造
+  物理签名不变，见下方"兼容声明"）；`skill.cast_failed` 新增失败原因码
+  `CastFailureReason.QueueCleared`，若消费方订阅该事件时对 `reasonCode` 做了穷举分支（如
+  `switch` 语句），升级后需要补上这个新分支或提供默认兜底分支。
+- 读条/引导完成当帧新创建的计时状态（冷却/公共冷却/充能恢复窗口/光环持续时间与周期累加器）
+  从本版起不再被同一个 `dt` 二次扣减；若现有内容或消费方测试断言依赖了"提前推进"这一此前的
+  缺陷行为（如手动补偿过冷却剩余时长），升级后需要复核并移除这类补偿逻辑。
+
+### 兼容声明
+
+本版本对 1.12.0～1.17.0 期间编译的旧消费方二进制保持兼容：依据是 `toolchain/abi_probe.ps1`
+严格模式下的验证——历史基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑通过，独立的
+公开 API 表面差异比对（`toolchain/abi_surface`）输出 `breaks=0 allowed=0 additions=275`，
+未发现任何破坏性变更；`Map`/`CastInstanceId`/`RecordExprMapping` 公开可见性放宽等新增契约面
+均为新增类型/新增成员/新增重载，不删改任何既有公开签名。
 
 ## [1.17.0] - 2026-09-10
 
