@@ -46,10 +46,23 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **E10（Unreleased）**：`IDataRegistryView` 新增只读属性 `RecordCount`（带默认实现，按
   `Tables`/`GetAll` 求和，不要求已有实现类改动，不构成 ABI 破坏），`CreateRegistry` 路径（调用方
   自行持有 registry、自行调用 `Reload`）现在也能拿到精确记录计数，不必自行遍历求和。
+- **ADR-0021（Unreleased，消费方反馈处理，
+  [消费方反馈-2026-09-10-技能效果参数范围.md](architecture/落地计划/消费方反馈-2026-09-10-技能效果参数范围.md)）**：
+  `FieldSchema` 新增可选 `Range` 字段（Number/Int 字段的取值范围登记），`toolchain/validator
+  --list-tables --json` 每张表新增 `field_ranges` 导出，编辑器可据此在数值输入控件上就地校验，
+  不必等到一次完整加载校验才发现越界。
 
 ## [Unreleased]
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
+
+### 新增
+
+- 字段登记表新增数值范围约束（ADR-0021）：`FieldSchema` 对 Number/Int 字段支持可选范围登记，
+  加载期新增 `field_range` 检查项；元数据门禁新增 `field_range_kind` 自洽检查；
+  `toolchain/validator --list-tables --json` 新增 `field_ranges` 导出。【编辑器相关契约】
+- `skill.aura_def` 周期效果 `interval`、`skill.def` `apply_aura.duration_override` 等 19 处字段
+  登记数值范围（依据见实现内判断记录），修复消费方反馈的"内容错误在加载期未被拦截"问题。
 
 - 根治 `toolchain/registry/start_registry.ps1` 的 `-Stop` 误拒缺陷：`-Detach` 就绪后按端口核实
   发现真正监听端口的 PID 与 `Start-Process` 记录的不一致而重写 `-PidFile`/`.meta.json` 时，改为
