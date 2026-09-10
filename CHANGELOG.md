@@ -81,6 +81,50 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **ADR-0024（编辑器相关契约，消费方反馈第三批第 21 条）**：`FieldSchema` 新增 `Map`（动态键
+  映射子结构登记，与 `Fields`/`Variants` 并列，新增 `MapSchema` 契约类型，键约束"引用表/引用域/
+  自由字符串"三选一）；`DataRegistry` 按登记做加载期键值校验；`SchemaAudit` 新增 `Map` 相关
+  自洽检查；`toolchain/validator --list-tables --json` 每个顶层字段的 `field_meta` 新增
+  `map_key`（键约束）/`map_value`（值种类）。18 个此前退化为 JSON 子编辑的字段中 12 个改用
+  `Map` 登记、1 个改用既有 `Item` 登记（`Array<String>`），元数据门禁白名单从 20 条收敛到 7
+  条。详见
+  [消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)
+  第 21 条。
+- **消费方反馈第四批第 26 条**：`RecordExprMapping`/`RecordExprMapping.ToExprValueKind(FieldKind)`
+  （字段种类 → Expr 标量类型的映射函数，驱动 `RecordExprSchema.For` 的 `self.<field>` 自动
+  登记）由框架内部实现放宽为 `public static`，供编辑器等消费方直接复用同一份映射规则。详见
+  [消费方反馈-2026-09-10-编辑器-第四批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第四批.md)。
+- **施法生命周期事件实例标识（消费方反馈"施法时序与实例标识"）**：`SkillCastStartEvent`/
+  `SkillCastSuccessEvent`/`SkillCastFailedEvent`/`SkillCastInterruptedEvent` 新增只读属性
+  `CastInstanceId`（与 `CastResult.CastInstanceId` 同一枚 id）及对应构造重载，用于跨事件关联
+  同一次施法请求的完整生命周期；新增失败原因码 `CastFailureReason.QueueCleared`（法术队列请求
+  被新请求覆盖、或所在读条/引导被打断清空时发出）。详见
+  [消费方反馈-2026-09-10-施法时序与实例标识.md](architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md)。
+
+### 修复
+
+- **消费方反馈第四批第 25 条**：`DataRegistry.Query(string, string)` 便捷重载（及底层
+  `RecordExprSchema.For(TableSchema)`）不再把 `FieldKind.Expr` 字段注册为 `self.<field>` 引用
+  ——该字段种类的值是待求值的表达式文本，没有明确取值语义，此前误按 `String` 注册；改为与
+  `IdList`/`Vec2`/`Object`/`Array` 同等对待，不登记。全仓 grep 确认无真实使用者受影响。详见
+  [消费方反馈-2026-09-10-编辑器-第四批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第四批.md)。
+- **读条/引导完成当帧新冷却被提前推进**：`SkillHost.Update`（连续模式）此前"结算触发"与"冷却
+  等既有计时器统一推进"共用同一次调用、且结算触发在前，导致同一完成时刻新创建的计时状态
+  （冷却/公共冷却/充能恢复窗口/光环持续时间与周期累加器）被同一个 `dt` 二次扣减；改为先推进
+  既有计时器、再处理结算触发，GCD/充能/光环同类问题一并修复。详见
+  [消费方反馈-2026-09-10-施法时序与实例标识.md](architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md)。
+
+### 文档与门禁
+
+- 04 第 6.3/6.4 节、`QuestExprSchemaEntries.cs` 注释纠正"`event` 分组未登记 → 不报"的措辞
+  （消费方反馈第四批第 24 条）：明确该分组根本不做静态签名校验、`TryGetSignature` 恒放行，
+  不存在"已登记/未登记"两态；运行时行为本身未变。
+- 04 §3.5 补充 `Map` 动态键映射登记形态说明（ADR-0024）；06 §3.6/§8 勘误（读条完成当帧新冷却
+  提前推进的起算时刻规则、四个施法生命周期事件补充 `castInstanceId`）；06 §8 事件词汇表
+  `combat.damage_dealt` 行补登记既已实现的 `triggerChainDepth`/`attackInstanceId` 两个字段。
+
 ## [1.17.0] - 2026-09-10
 
 MINOR 版本：编辑器相关契约新增（消费方反馈第三批 18/19/20/22/23 条）+ 框架数据/持久化合同修复
@@ -101,6 +145,17 @@ V-01/V-02/V-03 + DOC-162-01/05）、`f602c8c`（wp/tool17：ABI-1162-01 + DOC-16
   `Start`/`Length` 源文本位置区间；`IDataRegistryView.TryGetAll`/`TryQuery`；`IDataSource.Root`；
   `OverrideDiagnostic` 新增 `OverridingRootIndex`/`OverriddenRootIndex`/
   `OverridingRelativePath`/`OverriddenRelativePath`。
+- **ADR-0024 + 第 21/25/26 条（1.18.0，消费方反馈处理，
+  [消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)
+  第 21 条、
+  [消费方反馈-2026-09-10-编辑器-第四批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第四批.md)）**：
+  `FieldSchema` 新增 `Map`（动态键映射子结构登记，与 `Fields`/`Variants` 并列，`MapSchema`
+  契约类型）；`toolchain/validator --list-tables --json` 每个顶层字段的 `field_meta` 新增
+  `map_key`/`map_value`；18 个此前退化为 JSON 子编辑的字段中 12 个改用 `Map` 登记、1 个改用
+  既有 `Item` 登记，元数据门禁白名单从 20 条收敛到 7 条（第 21 条）。`RecordExprMapping`/
+  `RecordExprMapping.ToExprValueKind(FieldKind)` 由框架内部实现放宽为 `public static`（第 26
+  条）；`DataRegistry.Query(string, string)` 便捷重载不再把 `FieldKind.Expr` 字段注册为
+  `self.<field>` 引用，改为与 `IdList`/`Vec2`/`Object`/`Array` 同等对待、不登记（第 25 条）。
 - `JsonNumber.FromInt64(long)`：精确整数工厂，`RawNumberText` 用不变文化十进制原文写出，覆盖
   `long` 全值域的精确往返（含 `double` 无法精确表示的 2^53 以上整数）。
 - `ProcHost.Detach(Id instanceId, Id procDefId)`：按单个触发器精细摘除的新增重载，既有
