@@ -76,7 +76,7 @@ namespace Core.Foundation.SaveSystem
         /// 审计复现：真实 <c>SaveSystem.Save</c> 生成合法档案后只移除本段、读档，段缺失的
         /// <see cref="Load"/> 从未被调用，pending 数量原样保留而不是归零）。因此实现方必须像
         /// 处理"段存在但内容为空"一样正确处理 <c>data is JsonNull</c>（多数实现已经如此，见
-        /// <see cref="Core.Carriers.Gobj.GobjPendingLootPersistable"/>）。
+        /// <c>Core.Carriers.Gobj.GobjPendingLootPersistable</c>）。
         /// </para>
         /// </summary>
         void Load(JsonValue data);

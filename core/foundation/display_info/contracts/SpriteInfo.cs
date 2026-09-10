@@ -45,7 +45,7 @@ namespace Core.Foundation.DisplayInfo
 
         /// <summary>
         /// 挂点定义，供特效/武器/头顶信息等对齐，可选，默认空字典；键是锚点 id 的裸名字符串（同
-        /// <see cref="AnchorDef.AnchorId"/> 的 <c>Id.Value</c>）。
+        /// <c>AnchorDef.AnchorId</c> 的 <c>Id.Value</c>）。
         /// <para>
         /// GP-PRES-07 收口（09 第 3.3.1 节"锚点表"）：值类型此前是裸 <see cref="Vec2"/>（等价于
         /// 09 表格 <c>offset</c> 一个字段），<c>parent_layer</c>（必填）与

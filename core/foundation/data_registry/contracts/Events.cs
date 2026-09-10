@@ -13,7 +13,7 @@ namespace Core.Foundation.DataRegistry
     }
 
     /// <summary>
-    /// <see cref="DataRegistry.LoadAll"/> 完成一批数据表加载后触发（无论报告是否阻断，都会
+    /// <see cref="DataRegistry.LoadAll()"/> 完成一批数据表加载后触发（无论报告是否阻断，都会
     /// 发出——阻断时紧接着还会再发 <see cref="DataValidationFailedEvent"/>，见
     /// <c>data_registry/README.md</c>"加载流程"）。
     /// <para>

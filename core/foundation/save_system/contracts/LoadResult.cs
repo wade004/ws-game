@@ -53,7 +53,7 @@ namespace Core.Foundation.SaveSystem
         /// 成功/<see cref="LoadStatus.PersistableThrew"/> 状态时为 null（见
         /// <see cref="ISaveSystem.Load"/> 判断记录——本字段不依赖调用方是否已经注册
         /// <c>world.current_map_id</c> 对应的 <see cref="IPersistable"/>，直接读文档原始段，
-        /// 供"读档前先知道要加载哪张地图"的调用方（如场景路由）在任何 <see cref="Core.Carriers.Unit.PlayerUnit"/>
+        /// 供"读档前先知道要加载哪张地图"的调用方（如场景路由）在任何 <c>Core.Carriers.Unit.PlayerUnit</c>
         /// 实体存在之前就能拿到目标地图）。</summary>
         public Id? CurrentMapId { get; }
 

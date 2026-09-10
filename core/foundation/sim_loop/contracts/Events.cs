@@ -112,8 +112,8 @@ namespace Core.Foundation.SimLoop
 
     /// <summary>
     /// <see cref="TurnScheduler"/> 切到某行动者时触发（见 03 第 3.2 节、found.event_catalog
-    /// <c>sim.turn_started</c> 行字段表 <c>{actorId, roundIndex}</c>）：<see cref="BeginCombat"/>
-    /// 首个行动者、<see cref="AdvanceToNextActor"/> 每次切换都会发出一次。
+    /// <c>sim.turn_started</c> 行字段表 <c>{actorId, roundIndex}</c>）：<see cref="TurnScheduler.BeginCombat"/>
+    /// 首个行动者、<see cref="TurnScheduler.AdvanceToNextActor"/> 每次切换都会发出一次。
     /// </summary>
     public sealed class SimTurnStartedEvent : IEvent
     {
