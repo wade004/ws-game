@@ -57,6 +57,17 @@ camera/
    （`[{id:Id, amplitude:Number, duration:Number, frequency:Number?}]`，`frequency` 缺省 0）按
    `CameraProfile.FromRecord` 权威解析登记为 `Fields`/`Item`。
 
+6. **PRES-118-CAMERA 根治（第十八轮审核）：`CameraHostOptions` 新增 `FollowTargetResolverOnReset`**：
+   `ResetFollowOnSceneLoadFinished` 为真时，`scene.load_finished` 会先清空跟随目标；此前调用方只能
+   在 `SceneRouter` PostLoad 钩子里"提前"重新 `Follow`，但钩子先于该事件派发，提前设置的目标必然被
+   随后到达的重置覆盖掉（`presentation/assembly/README.md` 判断记录、`core/foundation/scene_router`
+   判断记录"PostLoad 先于 load_finished"）。新增的 `FollowTargetResolverOnReset` 委托在
+   `CameraHost.OnSceneLoadFinished` 内部、重置之后同一次处理内立即调用，从根本上避免"钩子与事件谁先
+   谁后"这个时序竞争，不是新增一个需要调用方自己排时序的钩子。新增一个三参构造函数重载（不修改原
+   两参构造函数签名），只新增不修改，见 `CameraHostOptions.cs` 判断记录"ABI 兼容"。
+   `Presentation.Assembly.PresentationAssembly` 在 `AutoConfigureCameraFromFirstProfile` 打开、调用方
+   未显式装配本委托时，默认补一个"继续跟随同一玩家单位"的解析函数，见该类型判断记录。
+
 ## 契约缺口
 
 - （已由 ADR-0016 解决）`ShakePreset.Frequency` 此前无对应的 `ICamera` 参数可传递（见判断记录 3

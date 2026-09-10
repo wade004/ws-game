@@ -294,12 +294,27 @@ namespace Presentation.ViewBinding
         /// <c>item.equipped</c>/<c>item.unequipped</c> 全局业务事件，重复收到 <c>save.loaded</c>
         /// （同类型注释"幂等去重"）用同一份快照重复对账，结果不变。
         /// </para>
+        /// <para>
+        /// PRES-118-VIEW 根治（第十八轮审核）：上面两段只处理 View "有没有"与"装备外观内容"，仍然
+        /// 遗漏第三种陈旧状态——<see cref="_prevPositions"/>/<see cref="_currPositions"/> 这份插值
+        /// 快照。同图直接 <c>SaveSystem.Load</c>（不经 SceneRouter 卸载重建）时，留存 View 既不会走
+        /// <see cref="OnEntityDestroyed"/>（快照随之清空）也不会走 <see cref="OnEntityCreated"/>（快照
+        /// 随之按恢复后的位置初始化），<see cref="OnTickFinished"/> 又只在下一次
+        /// <c>sim.tick_finished</c> 才会重新采样——离散模拟等待输入/暂停时不会立即有下一个 tick
+        /// （ADR-0013 §4），<see cref="GetInterpolatedPosition"/> 因此会继续插值出读档前的旧坐标，
+        /// 直到某次无关的下一次 tick 才"顺带"刷新，画面与刚恢复的逻辑位置不同步。修复：不区分是否
+        /// 装配了 <see cref="_equipmentVisualSource"/>，对本次 <c>save.loaded</c> 触发前后身份都没变
+        /// 的每个存活 View，直接用 <see cref="ISimSnapshot.GetPosition"/> 的恢复后位置重设
+        /// prev=curr（与 <see cref="OnEntityCreated"/> "避免第一帧跳变"同一手法），不发起任何
+        /// <see cref="IWorldSim"/> tick、不改变任何逻辑结算，只重建表现层自己的插值起点，因此
+        /// alpha 取 0/0.5/1 任意值都会落在恢复点，暂停/离散等待输入期间也是如此。
+        /// </para>
         /// </summary>
         private void OnSaveLoaded()
         {
-            var existingIds = _equipmentVisualSource != null ? new List<Id>(_views.Keys) : null;
+            var existingIds = new List<Id>(_views.Keys);
 
-            foreach (var entityId in new List<Id>(_views.Keys))
+            foreach (var entityId in existingIds)
             {
                 if (!_snapshot.Exists(entityId))
                 {
@@ -331,7 +346,25 @@ namespace Presentation.ViewBinding
                 OnEntityCreated(entityId, rawKind, displayId.Value);
             }
 
-            if (existingIds == null)
+            // PRES-118-VIEW 根治：existingIds 里仍留在 _views 中的那部分，就是"身份未变、被完整
+            // 保留"的既有 View（被上面第一个循环销毁的已从 _views 移除，天然排除；第二个循环新建的
+            // 从未进入过 existingIds，同样天然排除，它们已经在 OnEntityCreated 里按恢复后位置初始化
+            // 过一次，不需要在这里重复处理）。_snapshot.Exists 恒为真（existingIds 是"未被上面销毁"
+            // 的子集），仍保留判断防御未来改动。
+            for (var i = 0; i < existingIds.Count; i++)
+            {
+                var entityId = existingIds[i];
+                if (!_views.ContainsKey(entityId) || !_snapshot.Exists(entityId))
+                {
+                    continue;
+                }
+
+                var restoredPos = _snapshot.GetPosition(entityId);
+                _prevPositions[entityId] = restoredPos;
+                _currPositions[entityId] = restoredPos;
+            }
+
+            if (_equipmentVisualSource == null)
             {
                 return;
             }
@@ -344,7 +377,7 @@ namespace Presentation.ViewBinding
                     continue;
                 }
 
-                var equipped = _equipmentVisualSource!.ReplayEquippedForUnit(entityId);
+                var equipped = _equipmentVisualSource.ReplayEquippedForUnit(entityId);
                 resettable.ResetEquipmentVisuals(equipped);
             }
         }

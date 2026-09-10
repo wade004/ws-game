@@ -1,0 +1,7 @@
+{
+  "table": "sfx.def",
+  "schema_version": 1,
+  "rows": [
+    {"id": "sfx.pres118_missing_resource_probe", "layer": "combat", "priority": 0, "resource_ref": "sfx.pres118_never_exists_on_disk"}
+  ]
+}

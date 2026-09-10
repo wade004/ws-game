@@ -252,6 +252,34 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
    （`List<SubscriberEntry>` 尾插 + 遍历），本装配根的订阅注册在后，收到通知时读到的
    `CurrentMode` 必然已经是切换后的最新值。此前 Unity 引导侧靠"零事件兜底"短路的临时手法随本次
    收口废弃。
+9b. **PRES-118-CAMERA 根治（第十八轮审核）：`AutoConfigureCameraFromFirstProfile` 打开时默认补一个
+   `CameraHostOptions.FollowTargetResolverOnReset`**：`CameraHost` 默认 `ResetFollowOnSceneLoadFinished`
+   为真，`scene.load_finished` 到达时会清空跟随目标（见 `presentation/camera/README.md` 判断记录
+   "PRES-118-CAMERA 根治"）；本装配根构造 `Camera` 之前，若调用方未通过 `opts.CameraHostOptions` 显式
+   装配 `FollowTargetResolverOnReset`，且 `AutoConfigureCameraFromFirstProfile` 打开，就补一个
+   `() => _playerId` 的默认解析函数——与"打开该开关时构造期立即 `Follow(_playerId)`"同一语义，只是
+   延伸到后续每一次场景加载完成都重新生效，不是只在构造那一刻生效一次。调用方已经自己装配了
+   `FollowTargetResolverOnReset`（哪怕值是 `null` 的委托本身不算"装配"，只有 `CameraHostOptions`
+   构造出的对象非空且该属性非 `null` 才算）时完全尊重其选择，不覆盖；`AutoConfigureCameraFromFirstProfile`
+   关闭时也不补，保持"未启用自动配置镜头"这条路径的既有语义（调用方完全自行决定何时 `Configure`/
+   `Follow`）。三个生产装配入口（`FrameworkResidentHost`/`GameFoundationBootstrap`/`games/_template`
+   `GameBootstrap`）均未覆盖 `AutoConfigureCameraFromFirstProfile`（默认 true）且构造 `CameraHostOptions`
+   时未装配自定义解析函数，因此全部自动获得这条默认接线，不需要各自改代码。
+
+9c. **PRES-118-SFX 根治（第十八轮审核）：新增 `PresentationAssembly.UpdatePlaybackMaintenance` 统一
+   逐帧维护入口**：`Feedback.Update`/`Vfx.Update`/`Sfx.Update` 三步"不受 InWorld/Pause 状态门槛限制、
+   必须逐帧维护"的表现步骤，此前由三个生产装配入口各自在 `OnFrameTick` 里手工罗列，`GameFoundationBootstrap`
+   与 `games/_template` `GameBootstrap` 两处都漏抄了 `Sfx.Update`（对照 `FrameworkResidentHost` 有
+   调用）——连续两次播放同一个缺失音效资源时，`SfxPlayer` 内部记录过的资源 id 不会再次触发加载，
+   第二次请求没有任何未来回调可等，只能靠 `Sfx.Update` 内部的超时扫描清理，没有生产入口驱动时永久
+   卡在 pending。本方法把三步收敛为一处，接受可选的 `stepRunner: Action<Action>` 参数——
+   `FrameworkResidentHost`/`GameFoundationBootstrap` 均有"拍板 12 表现层异常隔离"的
+   `RunPresentationStep`（一步抛异常不阻塞同一帧内其余步骤），两者传入各自的该方法即可保留原有隔离
+   粒度（三步仍然分别独立 try/catch，不因为集中到本方法就合并成一次 try/catch）；`games/_template`
+   `GameBootstrap` 当前没有这层隔离机制，不传 `stepRunner`，行为与改动前对 `Feedback`/`Vfx` 两步完全
+   一致（直接调用）。三个入口现全部改为调用本方法，不再各自罗列，避免未来新增第四个入口或改动播放器
+   清单时重蹈"抄漏一项"的覆辙。
+
 9. **离散回放门"零事件步骤"永久卡死已根治（W5c，第三轮审计"仍保留项"收口）**：`PlaybackQueue.
    Finished` 只在队列"由非空变空"的边沿触发，一个没有产生任何反馈动作的离散步不会触发该边沿，
    `GameplayAssembly.Advance` 此前每个离散步都无条件进入 `playing_back` 等待，会永久卡死——本

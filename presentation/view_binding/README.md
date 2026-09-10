@@ -108,6 +108,21 @@ public void SyncAll(double alpha)
    `GameBootstrap`/`SaveSystem`/`EquipmentHost`/`UnityModelView`：同图 A（已装备）→B（空装备）
    读档后既有 View 的 `socket.main_hand` 子物体数应归零）。
 
+7. **PRES-118-VIEW 根治（第十八轮审核）：`OnSaveLoaded` 补第四段"插值快照重建"，不区分是否装配了
+   `equipmentVisualSource`**——判断记录 5/6 覆盖的是"View 有没有""装备外观内容"两类陈旧状态，仍遗漏
+   第三类：`_prevPositions`/`_currPositions` 这份供 `GetInterpolatedPosition` 使用的插值快照。同图
+   直接 `SaveSystem.Load`（不经 `SceneRouter` 卸载重建）时，继续存活的既有 View 既不会走
+   `OnEntityDestroyed`（快照随之清空）也不会走 `OnEntityCreated`（快照随之按恢复后位置初始化），
+   `OnTickFinished` 又只在下一次 `sim.tick_finished` 才重新采样——离散模拟等待输入/暂停时不会立即
+   有下一个 tick（ADR-0013 §4），`GetInterpolatedPosition` 因此会继续插值出读档前的旧坐标，直到某次
+   无关的下一次 tick 才"顺带"刷新。修复：`OnSaveLoaded` 对本次触发前后身份都未变的每个存活 View，
+   直接用 `ISimSnapshot.GetPosition` 的恢复后位置重设 `prev=curr`（与 `OnEntityCreated`"避免第一帧
+   跳变"同一手法），不发起任何 `IWorldSim` tick、不改变任何逻辑结算，只重建表现层自己的插值起点，
+   alpha 取 0/0.5/1 任意值都落在恢复点，暂停/离散等待输入期间也是如此。回归见
+   `tests/PRES118_ViewSaveLoadPositionSnapshotTests.cs`（真实 `SaveSystem`/
+   `Core.Carriers.Unit.UnitPersistable.CurrentPosition`/`WorldSim`/`ViewBinder`）：无额外
+   `world.Tick` 的同图读档、重复读档、显式补一次 tick 的控制组三个用例。
+
 ## 契约缺口
 
 - 见 `presentation/common/README.md`"契约缺口"一节（`Entity.Kind` 词汇表未统一、
