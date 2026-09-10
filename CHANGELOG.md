@@ -68,6 +68,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 文档
+
+- [ADR-0023](architecture/adr/0023-光环叠加类别为静态校验分组.md)：明确 `skill.aura_def.
+  stack_category` 是跨定义的静态叠加校验分组（仅供加载期内容校验使用），不是运行时叠加槽位维度——
+  运行时叠加与溢出严格按 `(target, aura_def, sourceKey)` 分槽，不同 `aura_def` 即使 `stack_category`
+  相同也各自独立叠加、互不影响；`sourceKey` 在默认共享计时模式（`AllowMultiSourceTiming=false`）下
+  恒为 `null`，仅开启独立来源计时时才按来源区分。06 第 3.3/3.8 节、04 第 5 节"叠加类别冲突"行随之
+  改写措辞，`AuraHost.cs`/`SkillOptions.cs`/`SkillValidationRules.cs`/两份模块 README 同步对齐；
+  跨定义共享叠加槽位列入落地方案"能力边界与未默认接入能力索引"表"未提供"分类。不改变任何运行时
+  算法与公开签名，消费方复核见
+  [消费方反馈-2026-09-10-光环叠加类别.md](architecture/落地计划/消费方反馈-2026-09-10-光环叠加类别.md)（提交 `d7a300f`/`16edfa7`）。
+
 ## [1.16.1] - 2026-09-10
 
 消费方（内容编辑器项目）反馈第二批第 17 条根治，另含 ADR-0022 文档事实勘误；核实与逐条回复见

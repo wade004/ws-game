@@ -3,8 +3,13 @@ using Core.Foundation.Common;
 namespace Core.Rules.Skill
 {
     /// <summary>
-    /// 同 <c>stack_category</c> 光环叠加数超过 <c>max_stacks</c> 时的处理策略（见 06 第 3.8 节
-    /// "忽略新实例的叠加请求，或按策略替换为最新参数（策略配置项：ignore|refresh_only|replace）"）。
+    /// 同一 <see cref="Core.Rules.Skill.AuraHost"/> 运行时槽位——键为 <c>(target, aura_def,
+    /// sourceKey)</c>，见该类型 <c>_slots</c> 判断记录——叠加数超过 <c>max_stacks</c> 时的处理策略
+    /// （见 06 第 3.8 节"忽略新实例的叠加请求，或按策略替换为最新参数（策略配置项：
+    /// ignore|refresh_only|replace）"）。<c>stack_category</c> 不参与该槽位键，只在加载期供
+    /// <c>StackCategoryConflictRule</c> 做静态内容校验（见架构 ADR-0023"光环叠加类别为静态校验
+    /// 分组"）；不同 <c>aura_def</c> 即使 <c>stack_category</c> 相同，也各自独立按本策略处理、
+    /// 互不影响。
     /// </summary>
     public enum StackOverflowPolicy
     {

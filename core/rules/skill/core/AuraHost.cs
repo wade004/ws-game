@@ -73,6 +73,15 @@ namespace Core.Rules.Skill
         private readonly IStaticImmunityProvider _staticImmunity;
 
         private readonly Dictionary<Id, AuraInstanceState> _instances = new Dictionary<Id, AuraInstanceState>();
+
+        /// <summary>运行时叠加槽位表，键为 <c>(target, defId, sourceKey)</c>——<c>skill.aura_def.
+        /// stack_category</c> 不参与本键（架构 ADR-0023"光环叠加类别为静态校验分组"：<c>stack_category</c>
+        /// 只供 <c>StackCategoryConflictRule</c> 在加载期做静态内容校验，不是运行时槽位维度）。
+        /// <see cref="SkillOptions.StackOverflowPolicy"/> 在 <see cref="ReapplyExisting"/> 中只处理
+        /// 同一个槽位（同一 <c>defId</c>、同一 <c>sourceKey</c>）的重复应用；不同 <c>defId</c> 即使
+        /// <c>stack_category</c> 相同，也是本字典里两个独立的键，互不叠加、互不触发对方的溢出策略。
+        /// <c>sourceKey</c> 取值见 <see cref="ApplyAura"/>：<see cref="SkillOptions.AllowMultiSourceTiming"/>
+        /// 为 <c>false</c>（默认）时恒为 <c>null</c>，为 <c>true</c> 时取实际来源 id。</summary>
         private readonly Dictionary<(Id Target, Id DefId, Id? SourceKey), Id> _slots =
             new Dictionary<(Id, Id, Id?), Id>();
 

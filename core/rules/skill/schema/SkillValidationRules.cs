@@ -60,10 +60,19 @@ namespace Core.Rules.Skill
     }
 
     /// <summary>
-    /// 叠加类别冲突校验（见 04 第 5 节"叠加类别冲突：同一叠加类别下不得有两条效果同时要求互斥的
-    /// 叠加语义"）。判断记录：06 第 3.8 节未给出"互斥的叠加语义"的精确定义，本模块取最小可判定
-    /// 解释——同一 <c>stack_category</c> 下，若同时存在 <c>max_stacks > 1</c>（声明"可叠加"）与
-    /// <c>max_stacks == 1</c>（声明"不可叠加，仅可刷新"）两种记录，视为互斥冲突。
+    /// 叠加类别冲突校验（见 04 第 5 节"叠加类别冲突：同一 <c>stack_category</c> 静态分组下不得
+    /// 同时登记可叠加与不可叠加两种叠加形态的定义"）。判断记录：06 第 3.8 节未给出"互斥的叠加
+    /// 语义"的精确定义，本模块取最小可判定解释——同一 <c>stack_category</c> 下，若同时存在
+    /// <c>max_stacks > 1</c>（声明"可叠加"）与 <c>max_stacks == 1</c>（声明"不可叠加，仅可刷新"）
+    /// 两种记录，视为叠加形态冲突。
+    /// <para>
+    /// 范围说明（架构 ADR-0023"光环叠加类别为静态校验分组"）：<c>stack_category</c> 与本规则均只
+    /// 作用于加载期内容校验，不是运行时叠加槽位维度——<see cref="AuraHost"/> 的运行时槽位键是
+    /// <c>(target, aura_def, sourceKey)</c>，不包含 <c>stack_category</c>；本规则通过（同类别下
+    /// 叠加形态一致）不代表这些定义在运行时共享同一份叠加计数或互相触发溢出策略，不同 <c>aura_def</c>
+    /// 即使类别相同、且都通过本规则，运行时仍各自独立叠加、互不影响，这是既定范围而非本规则的
+    /// 检查缺口。
+    /// </para>
     /// </summary>
     public sealed class StackCategoryConflictRule : IValidationRule
     {
@@ -107,7 +116,7 @@ namespace Core.Rules.Skill
                 {
                     yield return new ValidationIssue(
                         ValidationSeverity.Error, "skill.aura_def", "stack_category_conflict",
-                        $"叠加类别 \"{pair.Key}\" 同时存在 max_stacks>1（{pair.Value}）与 max_stacks==1（{otherKey}）两条互斥记录",
+                        $"静态叠加校验分组 \"{pair.Key}\" 下同时存在叠加形态互斥的两条定义：max_stacks>1（{pair.Value}）与 max_stacks==1（{otherKey}），加载期内容校验不通过；本项不影响运行时叠加行为，运行时叠加仍按各定义自身的 (target, aura_def, sourceKey) 槽位独立处理（见 ADR-0023）",
                         recordKey: pair.Value, field: "stack_category");
                 }
             }

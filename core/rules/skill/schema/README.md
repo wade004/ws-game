@@ -38,7 +38,7 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 | `id` | Id | 是 | `skill.aura_def.<name>` |
 | `duration` | Number | 否 | 空表示永久直到被移除 |
 | `max_stacks` | Int | 否 | 缺省 1 |
-| `stack_category` | Id | 否 | 叠加冲突检测用类别（见校验规则"叠加类别冲突"） |
+| `stack_category` | Id | 否 | 跨定义的静态叠加校验分组，仅供加载期内容校验使用（见校验规则"叠加类别冲突"）；不是运行时叠加槽位维度，运行时按 `(target, aura_def, sourceKey)` 分槽，与本字段无关（见 [ADR-0023](../../../../architecture/adr/0023-光环叠加类别为静态校验分组.md)） |
 | `dispel_type` | Id | 否 | 供 `dispel` 效果按类别筛选 |
 | `effects` | Array | 是 | `[{kind: String, params: Object}, ...]`，`kind` 取值见 `AuraEffectKindNames`（10 项）；ADR-0019 起元素结构登记为 `SkillSchemas.AuraEffectsItemSchema`，10 种取值各自的 `params` 结构见下"光环效果参数表" |
 
@@ -141,7 +141,7 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 | 规则 | 检查项名 | 说明 |
 |---|---|---|
 | `MaxEffectsPerSkillRule` | `max_effects_per_skill` | `skill.def.effects`/`skill.aura_def.effects` 长度均不超过 `SkillOptions.MaxEffectsPerSkill`（04 第 5 节"效果数上限"） |
-| `StackCategoryConflictRule` | `stack_category_conflict` | 同一 `stack_category` 下不得同时存在 `max_stacks>1` 与 `max_stacks==1` 两条记录（04 第 5 节"叠加类别冲突"；判断记录：06 第 3.8 节未给出"互斥叠加语义"的精确定义，本模块取"是否可叠加"这一最小可判定解释，见规则源码注释） |
+| `StackCategoryConflictRule` | `stack_category_conflict` | 同一 `stack_category` 静态分组下不得同时存在 `max_stacks>1` 与 `max_stacks==1` 两条记录（04 第 5 节"叠加类别冲突"；判断记录：06 第 3.8 节未给出"互斥叠加语义"的精确定义，本模块取"是否可叠加"这一最小可判定解释，见规则源码注释）。仅是加载期静态内容校验，不改变运行时叠加行为——`AuraHost` 运行时按 `(target, aura_def, sourceKey)` 分槽，不同 `aura_def` 即使类别相同也各自独立叠加、互不影响（见 [ADR-0023](../../../../architecture/adr/0023-光环叠加类别为静态校验分组.md)，判断记录追加条目见下） |
 | `CastTimeChannelTimeExclusiveRule` | `cast_time_channel_time_exclusive` | `cast_time`/`channel_time` 不得同时非零 |
 | `PassiveSkillNoCastTimeRule` | `passive_skill_no_cast_time` | `kind: passive` 的技能不得声明非零 `cast_time` |
 | `ChargesRechargeTimeZeroWarningRule` | `charges_recharge_time_zero` | `charges.recharge_time <= 0` 提醒复核（引擎解读为"即时恢复"），Warning 不阻断 |

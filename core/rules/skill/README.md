@@ -470,6 +470,25 @@ skill/
     `CreatureImmunityProvider` 装配，覆盖动态/静态打断免疫、控制免疫不等同打断免疫、驱散/位移/
     能量免疫、免疫时施法仍消耗资源与进冷却、`ResolveResult.Immune` 可观察、自身内部取消不受影响）。
 
+41. **`stack_category` 契约明确为静态校验分组，不是运行时叠加槽位维度（消费方 2026-09-10 反馈
+    "光环叠加类别契约一致性核对"，见 [ADR-0023](../../../architecture/adr/0023-光环叠加类别为静态校验分组.md)）**：
+    消费方 Runtime 报告复现，把两个显式相同 `stack_category` 且 `max_stacks=1` 的 `aura_def` 依次
+    施加到同一目标，均产生成功的 `aura.applied`、各自 `AuraInstanceRef` 不同、层数各 1——这是既有
+    实现的既定行为，不是缺陷：`AuraHost._slots` 的运行时槽位键是 `(target, defId, sourceKey)`，
+    `stack_category` 不参与该键；`stack_category` 只被 `schema/SkillValidationRules.cs` 的
+    `StackCategoryConflictRule` 在加载期用作静态内容校验分组，检查同一分组下是否混用了不同叠加
+    形态（`max_stacks>1` 与 `max_stacks==1`），不影响运行时叠加/溢出行为。`SkillOptions.
+    StackOverflowPolicy`（`Ignore`/`RefreshOnly`/`Replace`）只作用于同一 `aura_def` 与同一来源
+    槽位的重复应用；`sourceKey` 在默认的 `AllowMultiSourceTiming=false` 下恒为 `null`（不按来源
+    区分），开启后才按 `(defId, sourceId)` 分别维护独立实例。跨定义共享叠加槽位（同类别不同
+    `aura_def` 互相竞争同一份叠加计数）是未提供能力，列入
+    `architecture/落地计划/落地方案与分阶段计划.md`"能力边界与未默认接入能力索引"表"未提供"分类。
+    本次未改动 `AuraHost`/`StackCategoryConflictRule` 的任何判定逻辑，只对齐了 06/04/本模块与
+    `AuraHost.cs`/`SkillOptions.cs`/`SkillValidationRules.cs`/`schema/README.md` 的措辞；新增
+    验收测试见 `tests/ADR0023_StackCategoryStaticGroupingTests.cs`（覆盖静态校验允许同类别一致
+    形态、运行时同类别不同定义各自独立叠加、溢出策略只影响命中定义、`AllowMultiSourceTiming`
+    开关下 `sourceKey` 分槽/不分槽四条场景，详见 `architecture/落地计划/消费方反馈-2026-09-10-光环叠加类别.md`）。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全
