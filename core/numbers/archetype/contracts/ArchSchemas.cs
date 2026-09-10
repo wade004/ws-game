@@ -46,14 +46,15 @@ namespace Core.Numbers.Archetype
                 new FieldSchema("base_stats", FieldKind.Object, required: true,
                     description: "Object<stat_id, Number>，ApplyTo 经 StatBaseWriter 写入"),
                 new FieldSchema("power_types", FieldKind.IdList, required: true,
-                    description: "引用 arch.power.*；power_set 模块尚未登记 schema，暂不声明为 Reference"),
+                    description: "引用 arch.power.*；power_set 模块尚未登记 schema，暂不声明为 Reference")
+                    .WithFreeIds("分层边界：L1 不静态耦合 L2/L3 具体表结构（见类型判断记录），且 IDataRegistry.DeclareReference 契约本身只支持标量 Id 字段，不支持 IdList"),
                 new FieldSchema("skill_book_ref", FieldKind.Id, required: false,
                     description: "引用 skill.book.*；skill 模块已实现，本字段仍不声明为 Reference——分层边界选择（L1 不静态耦合 L2 表结构），不是对方模块不存在，见类型判断记录"),
                 new FieldSchema("talent_tree_ref", FieldKind.Reference, required: false, referenceTable: "arch.talent_tree",
                     description: "引用 arch.talent_tree 的天赋树，可为空"),
                 new FieldSchema("level_curve_ref", FieldKind.Reference, required: false, referenceTable: "prog.level_curve",
                     description: "引用 prog.level_curve 的等级曲线，可为空"),
-            });
+            }).WithOwnership(SchemaLayer.Numbers, "archetype");
 
         public static readonly TableSchema Race = new TableSchema(
             name: "arch.race",
@@ -68,8 +69,9 @@ namespace Core.Numbers.Archetype
                 new FieldSchema("stat_mods", FieldKind.Object, required: true,
                     description: "Object<stat_id, Number>，ApplyTo 经 StatModifierWriter 以 flat 写入，来源为种族 id"),
                 new FieldSchema("passive_auras", FieldKind.IdList, required: false,
-                    description: "引用 skill.aura.*；暂不声明为 Reference（IdList 字段，见类型判断记录 DeclareReference 能力边界）；ArchetypeRegistry.ApplyTo 会施加这些被动光环（注入 aura applier 为 null 时兼容退化为不施加，不是本模块本身只保存不应用）"),
-            });
+                    description: "引用 skill.aura.*；暂不声明为 Reference（IdList 字段，见类型判断记录 DeclareReference 能力边界）；ArchetypeRegistry.ApplyTo 会施加这些被动光环（注入 aura applier 为 null 时兼容退化为不施加，不是本模块本身只保存不应用）")
+                    .WithFreeIds("分层边界：L1 不静态耦合 L2 具体表结构（见类型判断记录），且 IDataRegistry.DeclareReference 契约本身只支持标量 Id 字段，不支持 IdList"),
+            }).WithOwnership(SchemaLayer.Numbers, "archetype");
 
         public static readonly TableSchema TalentTree = new TableSchema(
             name: "arch.talent_tree",
@@ -100,6 +102,6 @@ namespace Core.Numbers.Archetype
                     }, description: "天赋树节点"),
                     description: "Array<{id:String, prerequisites:[String], cost:Int, grants:Object}>；" +
                         "前置存在性与无环由 ArchTalentTreeCycleValidationRule 校验"),
-            });
+            }).WithOwnership(SchemaLayer.Numbers, "archetype");
     }
 }

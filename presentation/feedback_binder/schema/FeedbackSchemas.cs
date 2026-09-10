@@ -102,7 +102,7 @@ namespace Presentation.FeedbackBinder.Schema
                     description: "有序 FeedbackAction 列表：[{kind: floating_text|play_vfx|play_sfx|freeze|shake_camera|flash, params: {...}}]，见 09 第 6.1 节"),
                 new FieldSchema("sync", FieldKind.Enum, required: false, enumValues: new[] { "hit_frame" }, description: "ADR-0017 决策 d：命中帧同步声明，未提供时按 event 是否为 combat.damage_dealt 决定默认值（见 FeedbackRule.Sync 判断记录）"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "feedback");
 
         /// <summary><c>feedback.floating_text_style</c>（09 第 6.2 节）。</summary>
         public static readonly TableSchema FloatingTextStyle = new TableSchema(
@@ -116,7 +116,7 @@ namespace Presentation.FeedbackBinder.Schema
                 new FieldSchema("size_scale", FieldKind.Number, required: false, description: "相对基础字号的缩放"),
                 new FieldSchema("motion_profile", FieldKind.Id, required: false, description: "飘字运动曲线引用（上浮/抖动/聚合等）"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "feedback");
 
         public static IReadOnlyList<TableSchema> All { get; } = new[] { Binding, FloatingTextStyle };
     }

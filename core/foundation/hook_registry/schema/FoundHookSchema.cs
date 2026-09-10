@@ -33,7 +33,8 @@ namespace Core.Foundation.HookRegistry
                 new FieldSchema("description", FieldKind.String, required: false,
                     description: "该挂载点的说明文本，供编辑器/文档展示，可为空"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>())
+            .WithOwnership(SchemaLayer.Foundation, "foundation");
 
         /// <summary>全部内置 schema，供 <see cref="IDataRegistry.RegisterSchema"/> 批量登记
         /// （本模块目前只有一张表，保留该属性与其它模块的 <c>*Schemas.All</c>/<c>*Schema.All</c>

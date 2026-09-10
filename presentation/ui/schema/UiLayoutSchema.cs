@@ -124,6 +124,8 @@ namespace Presentation.Ui
                 new FieldSchema("panel", FieldKind.Enum, required: true, enumValues: UiPanelWireNames.EnumValues, description: "面板类别"),
                 new FieldSchema("slots", FieldKind.Int, required: false, description: "动作条槽位数量，仅 panel=action_bar 时有意义"),
                 new FieldSchema("fields", FieldKind.Object, required: true, description: "布局参数，结构留给引擎适配层解释"),
-            });
+            })
+            .WithOwnership(SchemaLayer.Presentation, "ui")
+            .WithDomain("ui");
     }
 }

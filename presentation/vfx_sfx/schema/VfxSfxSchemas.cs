@@ -28,7 +28,7 @@ namespace Presentation.VfxSfx.Schema
                 new FieldSchema("lifetime", FieldKind.Number, required: false, description: "预期存活时长，用于对象池回收兜底"),
                 new FieldSchema("resource_ref", FieldKind.Id, required: true, description: "指向具体引擎资源的间接引用，由适配层解释"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "vfx");
 
         /// <summary><c>sfx.def</c>（09 第 5.2 节）。</summary>
         public static readonly TableSchema Sfx = new TableSchema(
@@ -40,10 +40,11 @@ namespace Presentation.VfxSfx.Schema
                 new FieldSchema("id", FieldKind.Id, required: true, description: "sfx.<name>"),
                 new FieldSchema("layer", FieldKind.String, required: true, description: "分层音效轨道（如 战斗/环境/UI/语音），供混音分组"),
                 new FieldSchema("priority", FieldKind.Int, required: false, description: "同轨道抢占优先级"),
-                new FieldSchema("variants", FieldKind.IdList, required: false, description: "多个随机变体资源引用，播放时随机挑一个"),
+                new FieldSchema("variants", FieldKind.IdList, required: false, description: "多个随机变体资源引用，播放时随机挑一个")
+                    .WithFreeIds("指向具体引擎资源的间接引用，不是任何已登记内容表的记录 id"),
                 new FieldSchema("resource_ref", FieldKind.Id, required: true, description: "指向具体引擎资源的间接引用"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "sfx");
 
         /// <summary><c>display.weapon_style</c>（09 第 4.4 节）：判断记录同
         /// <c>Core.Foundation.DisplayInfo.DisplaySchemas</c>——<c>cast_anim_override</c>/
@@ -61,7 +62,7 @@ namespace Presentation.VfxSfx.Schema
                 new FieldSchema("swing_vfx", FieldKind.Id, required: false, description: "挥舞轨迹特效，指向 vfx.def"),
                 new FieldSchema("impact_vfx_override", FieldKind.Object, required: false, description: "按技能 id 覆盖命中特效：{skillId: vfxId}"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "display");
 
         public static IReadOnlyList<TableSchema> All { get; } = new[] { Vfx, Sfx, WeaponStyle };
     }

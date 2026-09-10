@@ -51,7 +51,7 @@ namespace Core.Gameplay.Economy
                     // （core/EconomyHost.cs :190 "夹取到 [0, cap]"），cap 为负会使该区间本身非法。
                     .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("display_ref", FieldKind.Id, required: true, description: "货币图标/展示资源引用 id"),
-            });
+            }).WithOwnership(SchemaLayer.Gameplay, "economy");
 
         private static readonly FieldSchema SellItem = new FieldSchema(
             "<sell_item>", FieldKind.Object, required: true,
@@ -88,6 +88,6 @@ namespace Core.Gameplay.Economy
                 new FieldSchema("buy_price_rule", FieldKind.Expr, required: false,
                     description: "玩家出售物品给商人时的收购价规则；本版只支持返回数值的简单 Expr"),
                 new FieldSchema("map_id", FieldKind.Id, required: false, description: "on_map_enter 补货用"),
-            });
+            }).WithOwnership(SchemaLayer.Gameplay, "economy");
     }
 }

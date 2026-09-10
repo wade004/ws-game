@@ -38,6 +38,6 @@ namespace Core.Gameplay.WorldState
                 // "存在且是数组"），详见 schema/README.md"子结构登记表"一节判断记录。
                 new FieldSchema("allowed_values", FieldKind.Array, required: false,
                     description: "可选：该标志允许的取值枚举，元素应与同记录 kind 取值同型（主要用于收窄 int/string/id 类型的合法取值范围；缺省表示不限制，本模块不对其做任何运行期强制，元素子结构未登记，见类型注释判断记录）"),
-            });
+            }).WithOwnership(SchemaLayer.Gameplay, "world");
     }
 }

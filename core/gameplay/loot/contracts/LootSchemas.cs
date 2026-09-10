@@ -93,6 +93,6 @@ namespace Core.Gameplay.Loot
                 new FieldSchema("guaranteed_min", FieldKind.Int, required: false,
                     description: "保底计数：本表整体至少掉落的条目数；>=0，见 LootContentValidationRule 同名判断")
                     .WithRange(FieldRange.Range(min: 0)),
-            });
+            }).WithOwnership(SchemaLayer.Gameplay, "loot");
     }
 }

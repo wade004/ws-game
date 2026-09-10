@@ -79,6 +79,6 @@ namespace Core.Rules.Targeting
                     .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("fallback", FieldKind.Reference, required: false, referenceTable: "target.chain_def",
                     description: "候选为空时改用的另一条链；不得成环（见 ChainDefValidationRule）。"),
-            });
+            }).WithOwnership(SchemaLayer.Rules, "targeting");
     }
 }

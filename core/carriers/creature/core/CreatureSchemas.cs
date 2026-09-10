@@ -53,7 +53,8 @@ namespace Core.Carriers.Creature
                 new FieldSchema("faction_id", FieldKind.Id, required: true,
                     description: "所属阵营 id，决定与其它生物/角色的敌对关系"),
                 new FieldSchema("npc_flags", FieldKind.IdList, required: false,
-                    description: "职能标志位，见 07 第 2.2 节六值"),
+                    description: "职能标志位，见 07 第 2.2 节六值")
+                    .WithFreeIds("固定词汇职能标志位（07 第 2.2 节六值），不指向任何已登记表的既有记录"),
                 new FieldSchema("ai_rotation_ref", FieldKind.Id, required: false,
                     description: "指向 ai.rotation 的技能循环配置，可为空；跨模块不做引用完整性校验"),
                 new FieldSchema("ai_behavior_ref", FieldKind.Id, required: false,
@@ -63,12 +64,13 @@ namespace Core.Carriers.Creature
                 new FieldSchema("display_ref", FieldKind.Id, required: true,
                     description: "指向 display.map 的显示资源"),
                 new FieldSchema("immunities", FieldKind.IdList, required: false,
-                    description: "免疫的学派/效果类型/控制类别"),
+                    description: "免疫的学派/效果类型/控制类别")
+                    .WithFreeIds("混合词汇（学派/效果类型/控制类别），不指向单一已登记表的既有记录"),
                 new FieldSchema("on_hit_reaction_ref", FieldKind.Id, required: false,
                     description: "受击时触发的反应配置引用，可为空"),
                 new FieldSchema("on_death_reaction_ref", FieldKind.Id, required: false,
                     description: "死亡时触发的反应配置引用，可为空"),
-            });
+            }).WithOwnership(SchemaLayer.Carriers, "creature");
 
         public static readonly TableSchema TierDefinition = new TableSchema(
             name: "creature.tier_definition",
@@ -86,6 +88,6 @@ namespace Core.Carriers.Creature
                     description: "Boss/精英级免疫标志（06 第 3.9 节），缺省 false"),
                 new FieldSchema("sort_weight", FieldKind.Number, required: false,
                     description: "仅供内容管线排序展示，运行期不读取，缺省 0"),
-            });
+            }).WithOwnership(SchemaLayer.Carriers, "creature");
     }
 }

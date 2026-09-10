@@ -234,6 +234,6 @@ namespace Core.Gameplay.Quest
                     description: "{items, xp, currency, skills, world_flags, talent_points}，见 Core.Gameplay.Common.RewardBundle；ADR-0019/F1b 起登记 Fields（见 QuestSchemas.RewardsFields 判断记录）"),
                 new FieldSchema("repeatable", FieldKind.Enum, required: true, enumValues: QuestEnumWireNames.RepeatableValues,
                     description: "任务可重复接取的规则，见 QuestEnumWireNames.RepeatableValues"),
-            });
+            }).WithOwnership(SchemaLayer.Gameplay, "quest");
     }
 }

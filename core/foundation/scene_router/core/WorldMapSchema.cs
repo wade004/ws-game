@@ -86,16 +86,20 @@ namespace Core.Foundation.SceneRouter
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "world.<地图名>"),
                 new FieldSchema("scene_ref", FieldKind.String, required: true, description: "场景资源引用（不含路径），由引擎适配层解析加载"),
-                new FieldSchema("regions", FieldKind.IdList, required: false, description: "该地图内的子区域划分，供 Expr 中 world 分组按区域读取标志"),
+                new FieldSchema("regions", FieldKind.IdList, required: false, description: "该地图内的子区域划分，供 Expr 中 world 分组按区域读取标志")
+                    .WithFreeIds("子区域 id 由本条记录自行声明的局部划分名字，不指向任何已登记表的既有记录"),
                 new FieldSchema("nav_ref", FieldKind.String, required: true, description: "导航资源引用（可行走区域、遮挡层数据），由引擎适配层加载后经 INavigation2D 暴露"),
                 new FieldSchema("spawn_points", FieldKind.Array, required: true, item: PointItemSchema,
                     description: "玩家出生点/复活点清单，List<{id?, position?}>；本模块只读取第 0 个元素的 position 作为默认出生点"),
                 new FieldSchema("teleport_points", FieldKind.Array, required: false, item: PointItemSchema,
                     description: "供传送类效果/AreaTrigger 引用的命名传送目标，List<{id?, position?}>"),
                 new FieldSchema("music_ref", FieldKind.String, required: false, description: "背景音乐资源引用"),
-                new FieldSchema("allowed_difficulties", FieldKind.IdList, required: false, description: "该地图允许应用的难度档位（见 08）"),
+                new FieldSchema("allowed_difficulties", FieldKind.IdList, required: false, referenceTable: "diff.tier",
+                    description: "该地图允许应用的难度档位（见 08），引用 diff.tier（ADR-0022 补齐：diff.tier 现已登记进 IDataRegistry，此前类型判断记录"
+                        + "\"08 难度档位未登记进 IDataRegistry\"的前提已不成立）"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>())
+            .WithOwnership(SchemaLayer.Gameplay, "world");
     }
 
     /// <summary>

@@ -26,13 +26,14 @@ namespace Core.Gameplay.Difficulty
                 new FieldSchema("name_key", FieldKind.TextKey, required: true,
                     description: "显示名文本键（08 第 5.1 节未列出，任务书拍板补录）"),
                 new FieldSchema("modifier_aura_refs", FieldKind.IdList, required: false,
-                    description: "施加给该难度下敌对单位（或全体单位）的修正光环"),
+                    description: "施加给该难度下敌对单位（或全体单位）的修正光环")
+                    .WithFreeIds("指向 skill.aura_def，但该表不在本模块既有测试装配的数据集范围内，声明为引用会让 reference_integrity 因目标表未加载而恒报错，见类型判断记录"),
                 new FieldSchema("affix_pool_ref", FieldKind.Id, required: false,
                     description: "词缀池引用（本版只登记挂载点）"),
                 new FieldSchema("loot_multiplier", FieldKind.Number, required: true,
                     description: "掉落数量/概率的整体倍率"),
                 new FieldSchema("sort_weight", FieldKind.Number, required: false,
                     description: "仅供内容管线排序展示，运行期不读取，缺省 0"),
-            });
+            }).WithOwnership(SchemaLayer.Gameplay, "difficulty");
     }
 }

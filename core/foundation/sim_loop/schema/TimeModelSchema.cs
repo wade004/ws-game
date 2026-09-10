@@ -54,7 +54,7 @@ namespace Core.Foundation.SimLoop
                     description: "initiative_policy 或 movement_budget_rule 为 action_points 时使用的每回合行动点总额度，默认 1"),
                 new FieldSchema("movement_action_cost_per_unit", FieldKind.Number, required: false,
                     description: "movement_budget_rule: action_points 时必填：移动 1 单位距离消耗的行动点数"),
-            });
+            }).WithOwnership(SchemaLayer.Foundation, "foundation");
     }
 
     /// <summary>

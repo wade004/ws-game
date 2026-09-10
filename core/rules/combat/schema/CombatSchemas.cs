@@ -80,7 +80,7 @@ namespace Core.Rules.Combat
                     .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("block_value_stat", FieldKind.Id, required: false,
                     description: "格挡固定减免量来源属性"),
-            });
+            }).WithOwnership(SchemaLayer.Rules, "combat");
 
         public static TableSchema ResistCurve { get; } = new TableSchema(
             name: "combat.resist_curve",
@@ -124,6 +124,6 @@ namespace Core.Rules.Combat
                 new FieldSchema("max_reduction", FieldKind.Number, required: false,
                     description: "减免上限，缺省 0.75，须落在 [0,1]")
                     .WithRange(FieldRange.Range(min: 0, max: 1)),
-            });
+            }).WithOwnership(SchemaLayer.Rules, "combat");
     }
 }

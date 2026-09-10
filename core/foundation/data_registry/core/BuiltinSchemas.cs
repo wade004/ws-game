@@ -38,7 +38,8 @@ namespace Core.Foundation.DataRegistry
                     description: "该事件的说明文本，供编辑器/文档展示，可为空"),
             },
             migrations: Array.Empty<TableMigration>(),
-            isRegistryTable: true);
+            isRegistryTable: true)
+            .WithOwnership(SchemaLayer.Foundation, "foundation");
 
         /// <summary>全部内置 schema，供 <see cref="IDataRegistry.RegisterSchema"/> 批量登记。</summary>
         public static IReadOnlyList<TableSchema> All { get; } = new[]

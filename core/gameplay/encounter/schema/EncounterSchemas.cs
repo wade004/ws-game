@@ -229,7 +229,7 @@ namespace Core.Gameplay.Encounter
                 new FieldSchema("combat_mode_override", FieldKind.Enum, required: false, enumValues: CombatModeValues,
                     description: "覆盖场景默认 combat_time_model，仅本遭遇生效；由 GameplayAssembly/TimeModelSwitch 在离散模式下真实执行"),
                 InitiativeOverrideSchema,
-            });
+            }).WithOwnership(SchemaLayer.Gameplay, "encounter");
 
         public static readonly TableSchema Level = new TableSchema(
             name: "encounter.level",
@@ -242,9 +242,11 @@ namespace Core.Gameplay.Encounter
                 new FieldSchema("map_ref", FieldKind.Id, required: true,
                     description: "指向 world.map（该表不在本任务数据集范围内，用 Id 而非 Reference，见判断记录）"),
                 new FieldSchema("encounter_sequence", FieldKind.IdList, required: true,
-                    description: "有序 encounter.def 引用；未升级为 Array+Item=Reference，见本类型顶部判断记录"),
+                    description: "有序 encounter.def 引用；未升级为 Array+Item=Reference，见本类型顶部判断记录")
+                    .WithFreeIds("刻意不做跨表存在性检查——升级为引用会让 encounter.level 与 encounter.def 必须同一个 DataRegistry 里加载成为强约束，见本类型顶部判断记录"),
                 new FieldSchema("entry_difficulty_options", FieldKind.IdList, required: false,
-                    description: "可选难度档位（diff.tier 引用）；处理惯例同 encounter_sequence"),
-            });
+                    description: "可选难度档位（diff.tier 引用）；处理惯例同 encounter_sequence")
+                    .WithFreeIds("处理惯例同 encounter_sequence，见本类型顶部判断记录"),
+            }).WithOwnership(SchemaLayer.Gameplay, "encounter");
     }
 }

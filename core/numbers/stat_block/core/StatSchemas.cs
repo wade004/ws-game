@@ -41,7 +41,7 @@ namespace Core.Numbers.StatBlock
                     description: "指向 stat.rating_conversion 的曲线引用，仅 is_rating=true 时有意义"),
                 new FieldSchema("description", FieldKind.String, required: false,
                     description: "属性说明文本，供编辑器/文档展示，可为空"),
-            });
+            }).WithOwnership(SchemaLayer.Numbers, "stats");
 
         public static TableSchema RatingConversion { get; } = new TableSchema(
             name: "stat.rating_conversion",
@@ -66,6 +66,6 @@ namespace Core.Numbers.StatBlock
                     }, description: "单级评级换算条目"),
                     description: "[{level: Int, points_per_percent: Number}, ...]，按 level 升序" +
                         "（StatHost.LoadRatingConversions 对缺失 level/points_per_percent 抛异常，两者均必填）"),
-            });
+            }).WithOwnership(SchemaLayer.Numbers, "stats");
     }
 }

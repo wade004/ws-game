@@ -185,7 +185,7 @@ namespace Core.Gameplay.Dialog
                 new FieldSchema("id", FieldKind.Id, required: true, description: "dialog.<name> 或内容作者自定义命名"),
                 new FieldSchema("options", FieldKind.Array, required: true, item: GossipOptionItemSchema,
                     description: "List<GossipOption>，见 08 第 3.1 节；元素结构 ADR-0019/F1b 起登记为 GossipOptionItemSchema"),
-            });
+            }).WithOwnership(SchemaLayer.Gameplay, "dialog");
 
         public static readonly TableSchema StoryTree = new TableSchema(
             name: "dialog.story_tree",
@@ -196,6 +196,6 @@ namespace Core.Gameplay.Dialog
                 new FieldSchema("id", FieldKind.Id, required: true, description: "dialog.<name> 或内容作者自定义命名"),
                 new FieldSchema("nodes", FieldKind.Array, required: true, item: StoryNodeItemSchema,
                     description: "List<StoryNode>，见 08 第 3.2 节；元素结构 ADR-0019/F1b 起登记为 StoryNodeItemSchema"),
-            });
+            }).WithOwnership(SchemaLayer.Gameplay, "dialog");
     }
 }

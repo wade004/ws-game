@@ -54,11 +54,11 @@ namespace Core.Numbers.PowerSet
                     description: "显示名文本键"),
                 MaxSourceSchema,
                 new FieldSchema("regen_in_combat", FieldKind.Number, required: false,
-                    description: "战斗内每时间单位回复量，默认 0"),
+                    description: "战斗内每时间单位回复量，默认 0").WithUnit(FieldUnit.Time),
                 new FieldSchema("regen_out_of_combat", FieldKind.Number, required: false,
-                    description: "脱战每时间单位回复量，默认 0"),
+                    description: "脱战每时间单位回复量，默认 0").WithUnit(FieldUnit.Time),
                 new FieldSchema("decay_out_of_combat", FieldKind.Number, required: false,
-                    description: "脱战每时间单位衰减量，默认 0"),
+                    description: "脱战每时间单位衰减量，默认 0").WithUnit(FieldUnit.Time),
                 new FieldSchema("refill_on_leave_combat", FieldKind.Bool, required: false,
                     description: "脱战时是否立即回满，默认 false"),
                 new FieldSchema("start_full", FieldKind.Bool, required: false,
@@ -67,6 +67,6 @@ namespace Core.Numbers.PowerSet
                     description: "是否允许超出上限，默认 false"),
                 new FieldSchema("min", FieldKind.Number, required: false,
                     description: "下限，默认 0"),
-            });
+            }).WithOwnership(SchemaLayer.Numbers, "power_set").WithTimeScope(TimeScope.Both);
     }
 }

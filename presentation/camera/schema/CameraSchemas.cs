@@ -44,7 +44,9 @@ namespace Presentation.Camera.Schema
                     }, description: "单条震屏档位：{id, amplitude, duration, frequency?}"),
                     description: "震屏档位清单 List<{id, amplitude, duration, frequency?}>"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>())
+            .WithOwnership(SchemaLayer.Presentation, "camera")
+            .WithDomain("camera");
 
         public static IReadOnlyList<TableSchema> All { get; } = new[] { Profile };
     }

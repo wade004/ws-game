@@ -44,7 +44,7 @@ namespace Core.Rules.Ai
                 new FieldSchema("transitions", FieldKind.Object, required: false,
                     description: "Map<转移名, Expr 文本>（键动态，ADR-0019 通用规则 5 不登记子结构）：" +
                         "覆盖默认转移条件（如 idle_to_chase）；未列出的转移名沿用代码内置默认判定，见本模块 README 对照表"),
-            });
+            }).WithOwnership(SchemaLayer.Rules, "ai");
 
         /// <summary>优先级表：条件到候选技能的有序列表（见 06 第 6.2 节 <c>RotationEntry</c>）。</summary>
         public static readonly TableSchema Rotation = new TableSchema(
@@ -70,7 +70,7 @@ namespace Core.Rules.Ai
                     },
                         description: "RotationEntry：一条候选技能规则 {priority, condition, skill_id}"),
                     description: "有序 RotationEntry 列表：[{priority: Int, condition: Expr, skill_id: Reference(skill.def)}]；priority 在同一张表内不得重复，见 AiContentValidationRule"),
-            });
+            }).WithOwnership(SchemaLayer.Rules, "ai");
 
         /// <summary>巡逻路径：有序 Vec2 列表 + <c>loop</c>|<c>pingpong</c> 模式（见 06 第 6.3 节）。</summary>
         public static readonly TableSchema PatrolPath = new TableSchema(
@@ -87,6 +87,6 @@ namespace Core.Rules.Ai
                     description: "有序路径点列表：[{x: Number, y: Number}, ...]，至少 2 个点，见 AiContentValidationRule"),
                 new FieldSchema("mode", FieldKind.Enum, required: true, enumValues: PatrolModeValues,
                     description: "loop：到终点跳回起点；pingpong：到端点折返方向"),
-            });
+            }).WithOwnership(SchemaLayer.Rules, "ai");
     }
 }

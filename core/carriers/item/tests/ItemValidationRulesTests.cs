@@ -234,12 +234,21 @@ namespace Tests.Carriers.Item
         [Fact]
         public void SetMembershipRule_MismatchedPieces_ReportsIssue()
         {
+            // ADR-0022 决策 4：item.set.pieces 现登记为 IdList + ReferenceTable(item.template)，
+            // reference_integrity 会先于本规则拦下指向不存在物品的 pieces 元素——本用例要测试的是
+            // "item.template.set_id 与 item.set.pieces 互相不一致"这条更窄的业务判断（两者都指向
+            // 真实存在的记录，只是彼此不认可对方），因此 pieces 改为指向另一件真实存在的物品
+            // （item.sample_other），而不是一个不存在的 id；"不存在的 id"这类缺陷现由
+            // reference_integrity 在加载期更早地报告，不再是本规则的职责。
             var setJson = "[{\"id\": \"item.set.sample_broken\", \"name_key\": \"l10n.item.set.sample_broken\"," +
                 " \"pieces\": [\"item.sample_other\"], \"bonuses\": []}]";
             var view = BuildView(
                 "[{\"id\": \"item.sample_ring\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
                 " \"item_level\": 1, \"display_ref\": \"display.item.sample_ring\", \"stack_size\": 1," +
-                " \"name_key\": \"l10n.item.sample_ring\", \"set_id\": \"item.set.sample_broken\"}]",
+                " \"name_key\": \"l10n.item.sample_ring\", \"set_id\": \"item.set.sample_broken\"}," +
+                "{\"id\": \"item.sample_other\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
+                " \"item_level\": 1, \"display_ref\": \"display.item.sample_other\", \"stack_size\": 1," +
+                " \"name_key\": \"l10n.item.sample_other\"}]",
                 setJson);
 
             var issues = new ItemSetMembershipRule().Validate(view).ToList();

@@ -143,6 +143,6 @@ namespace Core.Gameplay.AreaTrigger
                 new FieldSchema("one_shot", FieldKind.Bool, required: false, description: "是否只触发一次，缺省 false"),
                 ParamsSchema,
                 new FieldSchema("name_key", FieldKind.TextKey, required: false, description: "显示名文本键（可选）"),
-            });
+            }).WithOwnership(SchemaLayer.Gameplay, "area");
     }
 }

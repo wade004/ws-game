@@ -285,7 +285,8 @@ namespace Core.Rules.Skill
 
                 [AuraEffectKindNames.ToText(AuraEffectKind.Immunity)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("schools", FieldKind.IdList, required: false, description: "免疫的学派集合，缺省不限学派"),
+                    new FieldSchema("schools", FieldKind.IdList, required: false, description: "免疫的学派集合，缺省不限学派")
+                        .WithFreeIds("学派（school）当前没有独立登记表，只是随 skill.def.school 自由填写的 Id，见本文件多处 school 字段判断记录"),
                     new FieldSchema("effect_kinds", FieldKind.Array, required: false,
                         item: new FieldSchema("<effect_kind>", FieldKind.Enum, required: true, enumValues: AllEffectKindValues,
                             description: "免疫的效果原语取值，见 EffectKindNames 全集"),
@@ -339,7 +340,7 @@ namespace Core.Rules.Skill
             // N 单位触发一次"，<=0 无法表达任何有意义的周期），此前只能在运行期被静默吞掉，登记范围
             // 后改为加载期 0 error 阻断，见 AuraHost.Update 分支旁新增诊断判断记录。
             new FieldSchema("interval", FieldKind.Number, required: true, description: "周期间隔，以时间单位计（见判断记录）")
-                .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                .WithRange(FieldRange.Range(min: 0, minExclusive: true)).WithUnit(FieldUnit.Time),
             new FieldSchema("base_value", FieldKind.Number, required: false, description: "缺省 0"),
             new FieldSchema("coefficient", FieldKind.Number, required: false, description: "缺省 0"),
             new FieldSchema("school", FieldKind.Id, required: true, description: "无缺省（见判断记录）"),
@@ -370,9 +371,10 @@ namespace Core.Rules.Skill
                 new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: SkillKindValues,
                     description: "active|passive"),
                 new FieldSchema("range", FieldKind.Number, required: true, description: "射程，0 表示无限制/作用于自身"),
-                new FieldSchema("tags", FieldKind.IdList, required: false, description: "标签集合"),
-                new FieldSchema("cast_time", FieldKind.Number, required: true, description: "读条时间，0 表示瞬发"),
-                new FieldSchema("channel_time", FieldKind.Number, required: false, description: "引导时长，与 cast_time 互斥"),
+                new FieldSchema("tags", FieldKind.IdList, required: false, description: "标签集合")
+                    .WithFreeIds("技能标签当前没有独立登记表，是内容作者自由声明的分类标签"),
+                new FieldSchema("cast_time", FieldKind.Number, required: true, description: "读条时间，0 表示瞬发").WithUnit(FieldUnit.Time),
+                new FieldSchema("channel_time", FieldKind.Number, required: false, description: "引导时长，与 cast_time 互斥").WithUnit(FieldUnit.Time),
                 new FieldSchema("cost", FieldKind.Array, required: false,
                     item: new FieldSchema("<cost_entry>", FieldKind.Object, required: true, fields: new[]
                     {
@@ -381,7 +383,7 @@ namespace Core.Rules.Skill
                     }, description: "{power_type: Id, amount: Number}，单条消耗资源条目"),
                     description: "[{power_type: Id, amount: Number}, ...]"),
                 new FieldSchema("cooldown_category", FieldKind.Id, required: false, description: "冷却分类引用"),
-                new FieldSchema("cooldown_duration", FieldKind.Number, required: false, description: "冷却时长，缺省 0"),
+                new FieldSchema("cooldown_duration", FieldKind.Number, required: false, description: "冷却时长，缺省 0").WithUnit(FieldUnit.Time),
                 new FieldSchema("charges", FieldKind.Object, required: false,
                     fields: new[]
                     {
@@ -397,7 +399,7 @@ namespace Core.Rules.Skill
                         // 明确 0/负数被引擎解读为"即时恢复"这一合法语义（不是数据错误），只由
                         // ChargesRechargeTimeZeroWarningRule 给 Warning 提醒复核，不能升级为阻断——
                         // 与本次消费方反馈里"interval<=0 应阻断"是相反的既有设计结论，不能一概而论。
-                        new FieldSchema("recharge_time", FieldKind.Number, required: true, description: "单次充能所需时间"),
+                        new FieldSchema("recharge_time", FieldKind.Number, required: true, description: "单次充能所需时间").WithUnit(FieldUnit.Time),
                     },
                     description: "{max: Int, recharge_time: Number}"),
                 new FieldSchema("action_cost", FieldKind.Number, required: false, description: "离散模式行动点消耗"),
@@ -410,7 +412,7 @@ namespace Core.Rules.Skill
                     item: new FieldSchema("<flag>", FieldKind.Enum, required: true, enumValues: InterruptFlagValues,
                         description: "打断当前读条/引导的触发条件，取值 movement|damage_taken|control 之一"),
                     description: "[movement|damage_taken|control, ...]"),
-            });
+            }).WithOwnership(SchemaLayer.Rules, "skill").WithTimeScope(TimeScope.Combat);
 
         public static TableSchema AuraDef { get; } = new TableSchema(
             name: "skill.aura_def",
@@ -419,13 +421,13 @@ namespace Core.Rules.Skill
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "skill.aura_def.<name>"),
-                new FieldSchema("duration", FieldKind.Number, required: false, description: "空表示永久直到被移除"),
+                new FieldSchema("duration", FieldKind.Number, required: false, description: "空表示永久直到被移除").WithUnit(FieldUnit.Time),
                 new FieldSchema("max_stacks", FieldKind.Int, required: false, description: "缺省 1"),
                 new FieldSchema("stack_category", FieldKind.Id, required: false, description: "叠加冲突检测用类别"),
                 new FieldSchema("dispel_type", FieldKind.Id, required: false, description: "供 dispel 效果按类别筛选"),
                 new FieldSchema("effects", FieldKind.Array, required: true, item: AuraEffectsItemSchema,
                     description: "[{kind: String, params: Object}, ...]，kind 取值见 06 第 3.3 节"),
-            });
+            }).WithOwnership(SchemaLayer.Rules, "skill").WithTimeScope(TimeScope.Combat);
 
         public static TableSchema ProcDef { get; } = new TableSchema(
             name: "skill.proc_def",
@@ -437,13 +439,13 @@ namespace Core.Rules.Skill
                 new FieldSchema("trigger_event", FieldKind.Id, required: true, description: "监听的事件 key"),
                 new FieldSchema("condition", FieldKind.Expr, required: false, description: "触发条件"),
                 new FieldSchema("trigger_skill", FieldKind.Id, required: true, description: "触发后释放的技能"),
-                new FieldSchema("internal_cooldown", FieldKind.Number, required: false, description: "触发器自身冷却"),
+                new FieldSchema("internal_cooldown", FieldKind.Number, required: false, description: "触发器自身冷却").WithUnit(FieldUnit.Time),
                 // 依据（ADR-0021）：字段描述本身已明确"触发概率 0~1"；ProcHost.TryProc（core/ProcHost.cs
                 // :165 "roll >= attachment.Def.ProcChance"）把它当均匀分布 [0,1) 随机数的比较阈值使用，
                 // 越界值不会崩溃但会产生"必定触发/必定不触发"这类偏离概率语义的静默行为。
                 new FieldSchema("proc_chance", FieldKind.Number, required: true, description: "触发概率 0~1")
                     .WithRange(FieldRange.Range(min: 0, max: 1)),
-            });
+            }).WithOwnership(SchemaLayer.Rules, "skill").WithTimeScope(TimeScope.Combat);
 
         public static readonly string[] SpellModDimensionValues =
             { "cast_time", "cost", "cooldown", "crit_chance", "effect_value", "charges" };
@@ -465,12 +467,22 @@ namespace Core.Rules.Skill
                 new FieldSchema("affects", FieldKind.Object, required: false,
                     fields: new[]
                     {
-                        new FieldSchema("schools", FieldKind.IdList, required: false, description: "限定生效的学派集合，缺省不限学派"),
-                        new FieldSchema("tags", FieldKind.IdList, required: false, description: "限定生效的技能标签集合，缺省不限标签"),
-                        new FieldSchema("skill_ids", FieldKind.IdList, required: false, description: "限定生效的技能集合，缺省不限技能"),
+                        new FieldSchema("schools", FieldKind.IdList, required: false, description: "限定生效的学派集合，缺省不限学派")
+                            .WithFreeIds("学派（school）当前没有独立登记表，见本文件多处 school 字段判断记录"),
+                        new FieldSchema("tags", FieldKind.IdList, required: false, description: "限定生效的技能标签集合，缺省不限标签")
+                            .WithFreeIds("技能标签当前没有独立登记表，是内容作者自由声明的分类标签"),
+                        // 判断记录（2026-09-10，测试回归修复）：本字段是"过滤条件"，不是必须存在的
+                        // 内容关系——既有测试 SpellModTests.Affects_FiltersBySkillId 用从未注册进
+                        // skill.def 的合成 id 驱动过滤匹配断言（不关心该 id 是否真的是一条已加载的
+                        // 技能记录，只关心字符串是否命中）；若登记为 Reference(skill.def)，
+                        // reference_integrity 会让这类既有用例的测试夹具在加载期就判为阻断错误，
+                        // 与 schools/tags 两个同处 affects 对象的字段同一取舍，退回 WithFreeIds。
+                        new FieldSchema("skill_ids", FieldKind.IdList, required: false,
+                            description: "限定生效的技能集合，缺省不限技能")
+                            .WithFreeIds("过滤条件而非内容关系；existing 测试用未注册进 skill.def 的合成 id 驱动匹配断言，见本字段判断记录"),
                     },
                     description: "{schools: [Id], tags: [Id], skill_ids: [Id]}"),
-            });
+            }).WithOwnership(SchemaLayer.Rules, "skill");
 
         public static TableSchema Book { get; } = new TableSchema(
             name: "skill.book",
@@ -487,6 +499,6 @@ namespace Core.Rules.Skill
                             description: "习得的技能引用"),
                     }, description: "{level: Int, skill_id: Reference(skill.def)}，单条技能书条目"),
                     description: "[{level: Int, skill_id: Reference(skill.def)}, ...]"),
-            });
+            }).WithOwnership(SchemaLayer.Rules, "skill");
     }
 }

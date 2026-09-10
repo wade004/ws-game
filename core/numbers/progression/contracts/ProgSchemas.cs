@@ -38,7 +38,7 @@ namespace Core.Numbers.Progression
                     description: "Array<{level:Int, xp_to_next:Int, growth:Object<stat_id,Number>}>，" +
                         "level 从 1 连续到 max_level（连续性/数量一致性业务判断留在 " +
                         "ProgLevelCurveValidationRule，登记层只表达无条件必填/类型）"),
-            });
+            }).WithOwnership(SchemaLayer.Numbers, "progression");
 
         public static readonly TableSchema XpSource = new TableSchema(
             name: "prog.xp_source",
@@ -55,6 +55,6 @@ namespace Core.Numbers.Progression
                 new FieldSchema("condition", FieldKind.Expr, required: false,
                     description: "本任务只登记字段类型（供未来内容校验 expr_parsable 使用），" +
                         "IProgressionHost 本身不对该字段求值"),
-            });
+            }).WithOwnership(SchemaLayer.Numbers, "progression");
     }
 }

@@ -70,14 +70,17 @@ namespace Core.Foundation.DisplayInfo
                 // model 型专属字段（schema 层非必填，见类型注释）
                 new FieldSchema("model_ref", FieldKind.Id, required: false, description: "model 型专属，模型资源的间接引用，由引擎适配层解析加载"),
                 new FieldSchema("anim_set_ref", FieldKind.Reference, required: false, referenceTable: "display.anim_set", description: "model 型专属，指向本模块的 display.anim_set 动画剪辑集合"),
-                new FieldSchema("sockets", FieldKind.IdList, required: false, description: "model 型专属，该模型声明的挂点 id 列表，供 display.equip_visual 的 socket_attach 模式引用"),
-                new FieldSchema("slots", FieldKind.IdList, required: false, description: "model 型专属，该模型声明的可换装槽位 id 列表，供 display.equip_visual 的 slot_mesh 模式引用"),
+                new FieldSchema("sockets", FieldKind.IdList, required: false, description: "model 型专属，该模型声明的挂点 id 列表，供 display.equip_visual 的 socket_attach 模式引用")
+                    .WithFreeIds("挂点 id 由本条记录自行声明的局部名字，不指向任何已登记表的既有记录；display.equip_visual.socket_id 按字符串比较，不在本字段做引用完整性检查"),
+                new FieldSchema("slots", FieldKind.IdList, required: false, description: "model 型专属，该模型声明的可换装槽位 id 列表，供 display.equip_visual 的 slot_mesh 模式引用")
+                    .WithFreeIds("槽位 id 由本条记录自行声明的局部名字，不指向任何已登记表的既有记录；display.equip_visual.slot_id 按字符串比较，不在本字段做引用完整性检查"),
                 new FieldSchema("default_slot_meshes", FieldKind.Object, required: false,
                     description: "Map<slot_id, mesh_ref:Id>，动态键，ADR-0019 通用规则 5 不登记子结构"),
                 new FieldSchema("material_params", FieldKind.Object, required: false,
                     description: "Map<param_name, Number>，动态键，ADR-0019 通用规则 5 不登记子结构"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>())
+            .WithOwnership(SchemaLayer.Foundation, "display");
 
         /// <summary><c>display.anim_set</c>（04 第 7.1.1 节）。</summary>
         public static readonly TableSchema AnimSet = new TableSchema(
@@ -89,7 +92,8 @@ namespace Core.Foundation.DisplayInfo
                 new FieldSchema("id", FieldKind.Id, required: true, description: "display.anim_set.<name>"),
                 new FieldSchema("clips", FieldKind.Object, required: true, description: "剪辑 id 到 {resource_ref, events} 的映射，见 04 第 7.1.1 节"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>())
+            .WithOwnership(SchemaLayer.Foundation, "display");
 
         /// <summary><c>display.equip_visual</c>（04 第 7.1.2 节）。<c>slot_id</c>/<c>mesh_ref</c>
         /// 在 <c>mode: slot_mesh</c> 时必填、<c>socket_id</c>/<c>model_ref</c> 在
@@ -111,7 +115,8 @@ namespace Core.Foundation.DisplayInfo
                 new FieldSchema("socket_id", FieldKind.Id, required: false, description: "mode: socket_attach 时必填，对应 display.map 的 sockets"),
                 new FieldSchema("model_ref", FieldKind.Id, required: false, description: "mode: socket_attach 时必填"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>())
+            .WithOwnership(SchemaLayer.Foundation, "display");
 
         /// <summary>全部三张表，供 <see cref="IDataRegistry.RegisterSchema"/> 批量登记。</summary>
         public static IReadOnlyList<TableSchema> All { get; } = new[] { Map, AnimSet, EquipVisual };

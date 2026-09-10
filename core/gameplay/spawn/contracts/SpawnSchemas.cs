@@ -33,7 +33,7 @@ namespace Core.Gameplay.Spawn
                 new FieldSchema("respawn_policy", FieldKind.Enum, required: true, enumValues: RespawnPolicyValues,
                     description: "on_map_enter：进图时补齐；once：只刷一次；never：不重生；timer：按 respawn_timer 定时重生"),
                 new FieldSchema("respawn_timer", FieldKind.Number, required: false,
-                    description: "respawn_policy=timer 时必填，见 SpawnRespawnPolicyFieldGroupRule"),
-            });
+                    description: "respawn_policy=timer 时必填，见 SpawnRespawnPolicyFieldGroupRule").WithUnit(FieldUnit.Time),
+            }).WithOwnership(SchemaLayer.Gameplay, "spawn").WithTimeScope(TimeScope.Exploration);
     }
 }

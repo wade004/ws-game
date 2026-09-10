@@ -152,6 +152,8 @@ namespace Presentation.Shell
                 new FieldSchema("id", FieldKind.Id, required: true, description: "菜单逻辑 id"),
                 new FieldSchema("entries", FieldKind.Array, required: true, item: EntriesItemSchema,
                     description: "菜单项列表，见 ShellMenuEntry"),
-            });
+            })
+            .WithOwnership(SchemaLayer.Presentation, "shell")
+            .WithDomain("shell");
     }
 }

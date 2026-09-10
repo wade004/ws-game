@@ -28,7 +28,7 @@ namespace Core.Numbers.Faction
                     description: "显示名文本键"),
                 new FieldSchema("default_reaction", FieldKind.Enum, required: true, enumValues: ReactionValues,
                     description: "与未在 fac.reaction_matrix 中显式登记的阵营之间的默认关系"),
-            });
+            }).WithOwnership(SchemaLayer.Numbers, "faction");
 
         public static readonly TableSchema ReactionMatrix = new TableSchema(
             name: "fac.reaction_matrix",
@@ -44,6 +44,6 @@ namespace Core.Numbers.Faction
                     description: "引用 fac.faction，反应目标方阵营"),
                 new FieldSchema("reaction", FieldKind.Enum, required: true, enumValues: ReactionValues,
                     description: "from 对 to 的显式反应；矩阵不要求对称，缺失方向按其 from 端的 default_reaction 回退"),
-            });
+            }).WithOwnership(SchemaLayer.Numbers, "faction");
     }
 }

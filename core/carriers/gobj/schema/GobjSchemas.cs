@@ -66,7 +66,8 @@ namespace Core.Carriers.Gobj
                         "运行期解析，非静态数据表引用，按 Id 登记"),
                 new FieldSchema("linked_object_ids", FieldKind.IdList, required: false,
                     description: "lever 必填（同上，本登记只管类型）；ToggleLever 按运行期实体 id 索引" +
-                        "（非 gobj.template 数据表引用），按 IdList 登记，不加 Reference"),
+                        "（非 gobj.template 数据表引用），按 IdList 登记，不加 Reference")
+                    .WithFreeIds("按运行期实体 id 索引（非 gobj.template 数据表引用），见字段描述判断记录"),
                 new FieldSchema("text_key", FieldKind.TextKey, required: false,
                     description: "sign 必填（同上，本登记只管类型）；本次登记补齐嵌套 TextKey 存在性校验" +
                         "（原判断记录\"契约缺口\"——DataRegistry 内建 text_key_exists 只覆盖表顶层字段——" +
@@ -121,8 +122,9 @@ namespace Core.Carriers.Gobj
                     description: "当前锁（可空），指向 gobj.lock"),
                 OnUseSchema,
                 new FieldSchema("display_ref", FieldKind.Id, required: true, description: "指向 display.map"),
-                new FieldSchema("tags", FieldKind.IdList, required: false, description: "标签集合"),
-            });
+                new FieldSchema("tags", FieldKind.IdList, required: false, description: "标签集合")
+                    .WithFreeIds("标签当前没有独立登记表，是内容作者自由声明的分类标签"),
+            }).WithOwnership(SchemaLayer.Carriers, "gameobject");
 
         /// <summary><c>gobj.lock.requirement</c>：判别字段 <c>kind</c> 与三种变体的专属字段同处
         /// <c>requirement</c> 对象内，Variants 适用。原 <c>GobjLockRequirementFieldGroupRule</c> 的
@@ -176,6 +178,6 @@ namespace Core.Carriers.Gobj
                 RequirementSchema,
                 new FieldSchema("consume_key", FieldKind.Bool, required: false,
                     description: "item_key 时是否消耗钥匙，缺省 false"),
-            });
+            }).WithOwnership(SchemaLayer.Carriers, "gameobject");
     }
 }

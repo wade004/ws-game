@@ -31,7 +31,8 @@ namespace Core.Foundation.Localization
                 new FieldSchema("is_default", FieldKind.Bool, required: true,
                     description: "是否为默认语言；全表必须恰好一条为 true"),
             },
-            migrations: Array.Empty<TableMigration>());
+            migrations: Array.Empty<TableMigration>())
+            .WithOwnership(SchemaLayer.Foundation, "l10n");
 
         /// <summary>本地化文本表（04 第 7.2 节）。主键 <c>key</c> + <c>locale</c> 复合
         /// （见 <see cref="TableSchema.HasLocaleCompositeKey"/>、<c>data/README.md</c>"记录主键"
@@ -49,7 +50,8 @@ namespace Core.Foundation.Localization
             },
             migrations: Array.Empty<TableMigration>(),
             isRegistryTable: true,
-            hasLocaleCompositeKey: true);
+            hasLocaleCompositeKey: true)
+            .WithOwnership(SchemaLayer.Foundation, "l10n");
 
         /// <summary>全部内置 schema，供 <see cref="IDataRegistry.RegisterSchema"/> 批量登记。</summary>
         public static IReadOnlyList<TableSchema> All { get; } = new[]

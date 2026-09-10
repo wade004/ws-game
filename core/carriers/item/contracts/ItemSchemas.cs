@@ -97,7 +97,7 @@ namespace Core.Carriers.Item
                     description: "Array<{stat:Reference(stat.definition), op:flat|pct|mult, value:Number}>，" +
                         "装备后提供的固定/百分比属性"),
                 GrantsSchema,
-                new FieldSchema("affixes", FieldKind.IdList, required: false,
+                new FieldSchema("affixes", FieldKind.IdList, required: false, referenceTable: "item.affix",
                     description: "词缀引用（指向 item.affix，扩展位，本版不实现具体效果）"),
                 new FieldSchema("set_id", FieldKind.Reference, required: false,
                     referenceTable: "item.set",
@@ -120,7 +120,8 @@ namespace Core.Carriers.Item
                 new FieldSchema("socket_count", FieldKind.Int, required: false,
                     description: "07 第 1.6 节扩展位：宝石镶嵌槽数，默认 0"),
                 new FieldSchema("socket_ids", FieldKind.IdList, required: false,
-                    description: "07 第 1.6 节扩展位：宝石镶嵌结果，本版不展开"),
+                    description: "07 第 1.6 节扩展位：宝石镶嵌结果，本版不展开")
+                    .WithFreeIds("07 第 1.6 节扩展位，本版不展开镶嵌结果指向哪张表，暂无目标可引用"),
                 new FieldSchema("has_durability", FieldKind.Bool, required: false,
                     description: "07 第 1.6 节扩展位：是否具备耐久字段位，默认 false"),
                 new FieldSchema("bind_type", FieldKind.Enum, required: false,
@@ -128,7 +129,7 @@ namespace Core.Carriers.Item
                     description: "07 第 1.6 节扩展位：绑定方式，单机默认不产生实际限制"),
                 new FieldSchema("stat_roll_ref", FieldKind.Id, required: false,
                     description: "07 第 1.6 节扩展位：指向未来的随机属性生成规则表，本版不展开"),
-            });
+            }).WithOwnership(SchemaLayer.Carriers, "item");
 
         /// <summary><c>item.slot_definition</c>：槽位枚举定义（07 第 1.1 节原文 + 本模块实现期
         /// 补录 <c>is_weapon</c>/<c>accepts</c>/<c>is_equipment</c>，见 schema/README.md）。</summary>
@@ -147,7 +148,7 @@ namespace Core.Carriers.Item
                 new FieldSchema("is_weapon", FieldKind.Bool, required: false,
                     description: "本模块实现期补录：该槽位是否为武器槽（决定 weapon_profile 是否" +
                         "必填，见 ItemWeaponProfileRule），缺省 false"),
-                new FieldSchema("accepts", FieldKind.IdList, required: false,
+                new FieldSchema("accepts", FieldKind.IdList, required: false, referenceTable: "item.slot_definition",
                     description: "允许放入本槽位的物品 slot 取值列表（跨槽兼容，如\"左右戒指共用一个" +
                         "槽位定义\"一类场景）；未提供时只接受与本槽位 id 完全相同的 item.template.slot"),
                 new FieldSchema("is_equipment", FieldKind.Bool, required: false,
@@ -155,7 +156,7 @@ namespace Core.Carriers.Item
                         "本槽位只是物品的分类桶（如消耗品/材料），不可经 EquipmentHost.Equip 装备" +
                         "（返回 SlotMismatch），堆叠数不受\"装备类 stack_size 必须为 1\"约束——见" +
                         "ItemStackSizeRule/EquipmentHost 判断记录"),
-            });
+            }).WithOwnership(SchemaLayer.Carriers, "item");
 
         /// <summary><c>item.quality_definition</c>：品质分档定义（07 第 1.1 节原文 + 本模块实现期
         /// 补录 <c>budget_multiplier</c>，见 schema/README.md）。</summary>
@@ -174,7 +175,7 @@ namespace Core.Carriers.Item
                 new FieldSchema("budget_multiplier", FieldKind.Number, required: false,
                     description: "本模块实现期补录：预算曲线值的品质系数，缺省 1（见 07 第 1.2 节" +
                         "预算公式契约、ItemBudgetValidationRule）"),
-            });
+            }).WithOwnership(SchemaLayer.Carriers, "item");
 
         /// <summary><c>item.budget_curve</c>：物品等级到属性预算上限的曲线（07 第 1.2 节，
         /// 线性插值，见 schema/README.md、<see cref="ItemBudgetCurve"/>）。</summary>
@@ -197,7 +198,7 @@ namespace Core.Carriers.Item
                     description: "{item_level, budget}，物品等级到属性预算上限曲线的一个采样点"),
                     description: "Array<{item_level:Int, budget:Number}>，按 item_level 线性插值" +
                         "（ItemBudgetCurve.ParseEntries 对缺失 item_level/budget 抛异常，故两者均必填）"),
-            });
+            }).WithOwnership(SchemaLayer.Carriers, "item");
 
         /// <summary><c>item.set</c>：套装定义（07 第 1.1/1.5 节，件数门槛 → apply_aura）。</summary>
         public static readonly TableSchema Set = new TableSchema(
@@ -210,7 +211,7 @@ namespace Core.Carriers.Item
                     description: "item.set.<name>"),
                 new FieldSchema("name_key", FieldKind.TextKey, required: true,
                     description: "套装显示名文本键"),
-                new FieldSchema("pieces", FieldKind.IdList, required: true,
+                new FieldSchema("pieces", FieldKind.IdList, required: true, referenceTable: "item.template",
                     description: "所属物品模板 id 列表（指向 item.template）；反向一致性见 " +
                         "ItemSetMembershipRule"),
                 new FieldSchema("bonuses", FieldKind.Array, required: true,
@@ -224,7 +225,7 @@ namespace Core.Carriers.Item
                     description: "Array<{count:Int, aura_ref:Reference(skill.aura_def)}>，件数门槛到" +
                         "套装光环的映射（EquipmentHost.ParseSetBonuses；aura_ref 登记为 Reference：" +
                         "skill.aura_def 属 L2，本模块 L3 依赖方向合法）"),
-            });
+            }).WithOwnership(SchemaLayer.Carriers, "item");
 
         /// <summary><c>item.affix</c>：词缀（07 第 1.6 节扩展位，只登记 schema，不实现具体效果，
         /// 见 schema/README.md 判断记录）。</summary>
@@ -240,6 +241,6 @@ namespace Core.Carriers.Item
                     description: "词缀显示名文本键"),
                 new FieldSchema("effects", FieldKind.Array, required: false,
                     description: "扩展位占位字段，本版不解析、不实现"),
-            });
+            }).WithOwnership(SchemaLayer.Carriers, "item");
     }
 }
