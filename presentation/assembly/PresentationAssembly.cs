@@ -312,7 +312,27 @@ namespace Presentation.Assembly
             ViewBinder = new ViewBinder(bus, viewFactory, snapshot, DisplayInfo, opts.ViewBinderOptions, renderConvention: Render, equipmentVisualSource: opts.EquipmentVisualSource);
 
             var followTarget = new SimSnapshotFollowTarget(snapshot);
-            Camera = new CameraHost(camera, followTarget, bus, opts.CameraHostOptions);
+
+            // PRES-118-CAMERA 根治（第十八轮审核）：AutoConfigureCameraFromFirstProfile（"进图后镜头
+            // 自动配置并跟随玩家"）打开时，装配根默认希望切图之后也继续跟随同一个玩家单位——CameraHost
+            // 默认选项 ResetFollowOnSceneLoadFinished=true，scene.load_finished 到达时会清空跟随目标
+            // （见该选项判断记录），此前三个生产装配入口都没有在切图完成后重新 Follow，导致新游戏进图/
+            // 跨图/读档重进后镜头静止不再跟随。这里不是取消"是否重置"这项可替换策略本身（调用方仍可
+            // 通过 opts.CameraHostOptions 完全自定义，包括传 resetFollowOnSceneLoadFinished:false 或
+            // 自己的 FollowTargetResolverOnReset），只是在调用方没有显式接管"重置后跟随谁"时，提供
+            // 一个与"AutoConfigureCameraFromFirstProfile 打开时的初始 Follow(_playerId)"语义一致的
+            // 默认解析函数：继续跟随同一个玩家单位。调用方已经自己装配了 FollowTargetResolverOnReset
+            // 时完全尊重其选择，不覆盖。
+            var cameraHostOptions = opts.CameraHostOptions;
+            if (opts.AutoConfigureCameraFromFirstProfile && cameraHostOptions?.FollowTargetResolverOnReset == null)
+            {
+                cameraHostOptions = new CameraHostOptions(
+                    resetFollowOnSceneLoadFinished: cameraHostOptions?.ResetFollowOnSceneLoadFinished ?? true,
+                    phaseProfileSwitch: cameraHostOptions?.PhaseProfileSwitch,
+                    followTargetResolverOnReset: () => _playerId);
+            }
+
+            Camera = new CameraHost(camera, followTarget, bus, cameraHostOptions);
             if (opts.AutoConfigureCameraFromFirstProfile)
             {
                 var firstProfileRecord = registry.GetAll(CameraSchemas.Profile.Name).FirstOrDefault();

@@ -153,12 +153,28 @@ namespace Presentation.Camera
         }
 
         /// <summary>见 <see cref="CameraHostOptions.ResetFollowOnSceneLoadFinished"/>：重置跟随目标，
-        /// 由调用方在新场景初始化完成后重新 <see cref="Follow"/>（见 09 第 8 节）。</summary>
+        /// 由调用方在新场景初始化完成后重新 <see cref="Follow"/>（见 09 第 8 节）。
+        /// <para>
+        /// PRES-118-CAMERA 根治：重置之后，若 <see cref="CameraHostOptions.FollowTargetResolverOnReset"/>
+        /// 已装配，立即调用它决定新的跟随目标——同一次处理内先重置后重新指定，不依赖调用方在
+        /// <c>SceneRouter</c> PostLoad 钩子与 <c>scene.load_finished</c> 事件之间抢时序（见该属性
+        /// 判断记录）。解析函数返回 <c>null</c> 时维持"已重置、无跟随目标"，与未装配解析函数时完全
+        /// 一致。
+        /// </para>
+        /// </summary>
         private void OnSceneLoadFinished()
         {
-            if (_options.ResetFollowOnSceneLoadFinished)
+            if (!_options.ResetFollowOnSceneLoadFinished)
             {
-                _followEntityId = null;
+                return;
+            }
+
+            _followEntityId = null;
+
+            var resolved = _options.FollowTargetResolverOnReset?.Invoke();
+            if (resolved.HasValue)
+            {
+                _followEntityId = resolved.Value;
             }
         }
 

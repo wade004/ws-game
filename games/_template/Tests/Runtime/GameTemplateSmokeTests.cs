@@ -15,28 +15,103 @@ using UnityEngine.TestTools;
 
 namespace Game.Template.Tests
 {
-    /// <summary>装配级清理：存档槽会累积在跨运行持久化的真实目录里（见
-    /// Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup 同款判断记录），本模板测试用固定的
-    /// "game.template." 前缀槽位 id，同样的道理在此清理一次，避免多次本地重跑累积到
-    /// SaveSystemOptions.MaxSlots 上限。</summary>
+    /// <summary>装配级清理（PRES-118-CAMERA 根治，见 PRES118_TemplateContractTests.cs 判断记录）：
+    /// 本类型此前的实现只删除真实 <c>Application.persistentDataPath/saves</c> 目录下
+    /// "game.template." 前缀的顶层文件——这与 <see cref="Adapter.Unity.Tests.Runtime.
+    /// GlobalPlayModeTestSetup"/> 判断记录 2 已经定位并根治过的缺陷是同一类问题（"只清一个前缀
+    /// 不够"）：同一台开发机上，<c>toolchain/consumer_smoke.ps1</c>/<c>check.ps1</c> 的
+    /// <c>-gf-smoke</c>/<c>-gf-smoke-discrete</c> 步骤反复构建并运行独立版 Player，这些 Player
+    /// 进程不经过任何 PlayMode 测试装配级 setup，直接对真实 <c>Application.persistentDataPath/
+    /// saves</c>（本工程 companyName/productName 为默认值"DefaultCompany/unity"，是这台机器上
+    /// 很多未改过默认名的 Unity 工程共用的同一个物理目录）写入 "game.sample.*"/裸 "slot.*"
+    /// 前缀的存档槽，跨越"第十八轮审核"这样的多轮本地重跑不断累积、从未被清理；一旦这些残留
+    /// 加上本次运行内新建的槽把 <see cref="Core.Foundation.SaveSystem.SaveSystemOptions.MaxSlots"/>
+    /// （默认 20，且 <see cref="Core.Foundation.SaveSystem.SaveSystem.Save"/> 对"目标槽不存在"的
+    /// 计数不分前缀，见该方法源码）顶满，<see cref="PRES118_TemplateContractTests.
+    /// GameBootstrap_NewGame_CameraFollowsPlayer_AfterInWorld"/> 这类首次调用
+    /// <c>RequestNewGame</c> 新建槽的用例就会稳定命中 <c>SaveFailureReason.SlotLimitReached</c>
+    /// 而返回 false——真实复现：本地一次全新 check.ps1 全量门禁跑到这一步时，
+    /// <c>%LOCALAPPDATA%Low\DefaultCompany\unity\saves</c> 下恰好已有 20 个非本模板前缀的历史
+    /// 遗留文件，与本用例代码逻辑、与 PRES-118-CAMERA/SFX/VIEW 三项改动均无关，是模板测试套件
+    /// 自身的装配级隔离缺口，因此在本轮一并根治，采用与 <c>GlobalPlayModeTestSetup</c> 完全相同的
+    /// 手法：不再对真实目录做前缀删除，改为把
+    /// <see cref="Adapter.Unity.EngineAdapter.UnityFileSystem.UserDataRootOverride"/> 重定向到
+    /// 本套件专属的子目录（与 <c>GlobalPlayModeTestSetup</c> 用的 "_playmode_tests" 同级但另起
+    /// 一个名字，避免两套装配级 setup 在同一次 -runTests 调用里各自打印的诊断日志/目录名混淆——
+    /// 二者按 NUnit 装配顺序先后运行、不会同时持有覆盖，互不冲突），运行结束后整体删除并把覆盖
+    /// 复位为 null；真实玩家存档目录自此对本模板测试套件也完全不可见。回归测试见
+    /// GlobalTemplateTestSetupTests（同目录）。</summary>
     [SetUpFixture]
     public sealed class GlobalTemplateTestSetup
     {
-        private const string TemplateSlotPrefix = "game.template.";
+        /// <summary>专属测试用户数据根，相对真实 <c>Application.persistentDataPath</c> 的子目录，
+        /// 与 <see cref="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup.TestUserDataRoot"/>
+        /// 用途相同但目录名不同（见本类型判断记录）。internal 可见性供
+        /// GlobalTemplateTestSetupTests 回归测试读取。</summary>
+        internal static string TestUserDataRoot => Path.Combine(Application.persistentDataPath, "_playmode_tests_template");
 
         [OneTimeSetUp]
         public void ClearTemplateSaveSlotsBeforeAnyTestRuns()
         {
-            var savesDir = Path.Combine(Application.persistentDataPath, "saves");
+            var testRoot = TestUserDataRoot;
+            Adapter.Unity.EngineAdapter.UnityFileSystem.UserDataRootOverride = testRoot;
+
+            var savesDir = Path.Combine(testRoot, "saves");
+            var removed = ClearAllSaveArtifacts(savesDir);
+            Debug.Log($"[GlobalTemplateTestSetup] 已把用户数据根重定向到测试专属目录：{testRoot}" +
+                      $"（预清理存档子目录={savesDir}，删除文件数={removed}），真实存档目录未被触碰。");
+        }
+
+        /// <summary>递归清空 <paramref name="savesDir"/> 下的全部文件。判断记录（为什么本类型不直接
+        /// 调用 <see cref="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup.ClearAllSaveArtifacts"/>
+        /// 复用同一份实现，而是就地复制一份等价逻辑）：该方法是 internal，且其所在 asmdef
+        /// "Adapter.Unity.Tests.Runtime" 本身不在 <c>Game.Template.Tests.asmdef</c> 的 references
+        /// 数组里（本模板测试套件只引用生产装配 "Adapter.Unity"，不应该为了复用几行文件系统清理
+        /// 代码而额外引入对方测试程序集这一跨装配耦合）；逻辑与命名均与该方法保持一致，方便对照，
+        /// 回归测试见 GlobalTemplateTestSetupTests（同目录）。</summary>
+        internal static int ClearAllSaveArtifacts(string savesDir)
+        {
             if (!Directory.Exists(savesDir))
             {
-                return;
+                return 0;
             }
 
-            foreach (var file in Directory.GetFiles(savesDir).Where(f => Path.GetFileName(f).StartsWith(TemplateSlotPrefix)))
+            var removed = 0;
+            foreach (var file in Directory.GetFiles(savesDir, "*", SearchOption.AllDirectories))
             {
-                try { File.Delete(file); } catch { /* 尽力而为，见 GlobalPlayModeTestSetup 同款判断记录 */ }
+                try
+                {
+                    File.Delete(file);
+                    removed++;
+                }
+                catch
+                {
+                    // 尽力而为，同 GlobalPlayModeTestSetup 同款判断记录。
+                }
             }
+
+            return removed;
+        }
+
+        [OneTimeTearDown]
+        public void RestoreUserDataRootAfterAllTestsRun()
+        {
+            var testRoot = TestUserDataRoot;
+            Adapter.Unity.EngineAdapter.UnityFileSystem.UserDataRootOverride = null;
+
+            if (Directory.Exists(testRoot))
+            {
+                try
+                {
+                    Directory.Delete(testRoot, recursive: true);
+                }
+                catch
+                {
+                    // 尽力而为，同 GlobalPlayModeTestSetup 同款判断记录：清理失败不阻断测试运行结束。
+                }
+            }
+
+            Debug.Log($"[GlobalTemplateTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：{testRoot}");
         }
     }
 

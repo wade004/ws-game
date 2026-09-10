@@ -424,6 +424,14 @@ namespace Game.Template
             ActionBarSlotCountFallback = _options.ActiveSkillSlotCount,
             HudPowerTypes = new[] { Core.Rules.Common.WellKnownPowers.Health },
             EquipmentSlotIds = _options.BuildEquipmentSlotIds(),
+            // PRES-118-CAMERA 根治（第十八轮审核）：GameOptions.CameraResetFollowOnSceneLoadFinished
+            // 此前只在 GameOptions.cs 里声明为"13 §4 第 12 行"口味配置项的落点，从未真正传给
+            // PresentationAssemblyOptions.CameraHostOptions——本模板此前始终使用 CameraHost 的默认值
+            // （true），该字段名不副实。这里补上真正的透传；FollowTargetResolverOnReset 留空（null）
+            // 由 PresentationAssembly 按 AutoConfigureCameraFromFirstProfile 语义自动补一个"继续跟随
+            // 同一玩家单位"的默认解析函数（见该类型判断记录），本模板不需要重复接线。
+            CameraHostOptions = new global::Presentation.Camera.CameraHostOptions(
+                resetFollowOnSceneLoadFinished: _options.CameraResetFollowOnSceneLoadFinished),
             // W6 收口：复用 Bootstrap() 里已经构造并传给 ViewFactory 的同一个 _renderOptions 实例
             // （见该字段判断记录），不再另外调用一次 _options.BuildRenderOptions()——两次调用会各自
             // 产生独立的 RenderOptions 对象，即便字段取值相同也不是"同一份"，与 UnityViewFactory
