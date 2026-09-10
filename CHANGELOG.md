@@ -58,10 +58,22 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   扩展覆盖 `IdList` 元素；元数据门禁新增五项自洽检查；`toolchain/validator --list-tables --json`
   每张表新增 `layer`/`module`/`domain`/`time_scope`，每个字段新增 `field_meta`
   （`group`/`unit`/`reference_table`/`reference_domain`/`free_ids`）。
+- **第 17 条修复（1.16.1，消费方反馈处理，
+  [消费方反馈-2026-09-10-编辑器-第二批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md)
+  第 17 条）**：`DataRegistry.RecordCount` 阻断态不再抛异常（直接读内部按表合并去重后的记录快照）；
+  `IDataRegistryView` 新增 `bool TryGetRecordCount(out int count)`（带默认实现，阻断态返回
+  `false` 而不抛异常）；`ContentValidationAssembly.Run` 统一改用 `registry.RecordCount`，不再另开
+  事件订阅旁路。`IDataRegistryView.RecordCount` 默认实现本身保持不变（仍可能抛异常，供无具体
+  `DataRegistry` 实现的第三方替身兜底），XML 注释已更新建议改用新成员。
 
 ## [Unreleased]
 
-（尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
+### 修复
+
+- `DataRegistry.RecordCount`（阻断态不再抛异常）与新增 `IDataRegistryView.TryGetRecordCount`
+  （消费方反馈处理，
+  [消费方反馈-2026-09-10-编辑器-第二批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md)
+  第 17 条，提交 `0364cce`）：【编辑器相关契约】见上方索引"第 17 条修复（1.16.1）"一行。
 
 ## [1.16.0] - 2026-09-10
 
