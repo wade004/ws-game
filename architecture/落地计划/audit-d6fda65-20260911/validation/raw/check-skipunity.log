@@ -1,0 +1,281 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20260911014207
+Username: ONCE20240717\ONCE
+RunAs User: ONCE20240717\ONCE
+Configuration Name: 
+Machine: ONCE20240717 (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:\workespace\ws-game-audit-d6fda65-20260911\check.ps1 -SkipUnity -ArtifactsPath D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65 -LogFile D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\validation\raw\check-skipunity.log
+Process ID: 12416
+PSVersion: 5.1.26100.9444
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9444
+BuildVersion: 10.0.26100.9444
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+==== 门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定 ====
+F1_SELF_CHECK_PROBE
+F1_SELF_CHECK_PROBE
+[Test-NativeExitCode] 可执行文件 '__ws_game_check_missing_executable__' 未找到（不在 PATH 中，或路径不存在），判定为 FAIL
+[门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定] 通过，用时 1.4s
+
+==== dotnet build Core.sln -c Release ====
+  正在确定要还原的项目…
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\core\rules\Core.Rules.csproj (用时 44 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\adapters\stub\Adapters.Stub.csproj (用时 44 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\core\carriers\Core.Carriers.csproj (用时 44 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\core\gameplay\Core.Gameplay.csproj (用时 44 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\toolchain\validator\Validator.csproj (用时 44 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\presentation\Presentation.Common.csproj (用时 44 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\core\numbers\Core.Numbers.csproj (用时 44 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\core\foundation\Core.Foundation.csproj (用时 42 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\core\foundation\tests\Tests.Foundation.csproj (用时 248 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\core\gameplay\tests\Tests.Gameplay.csproj (用时 248 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\core\rules\tests\Tests.Rules.csproj (用时 248 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\presentation\tests\Tests.PresentationCommon.csproj (用时 248 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\core\numbers\tests\Tests.Numbers.csproj (用时 248 毫秒)。
+  已还原 D:\workespace\ws-game-audit-d6fda65-20260911\core\carriers\tests\Tests.Carriers.csproj (用时 248 毫秒)。
+  Core.Foundation -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Core.Foundation\release\Core.Foundation.dll
+  Adapters.Stub -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Adapters.Stub\release\Adapters.Stub.dll
+  Core.Numbers -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Core.Numbers\release\Core.Numbers.dll
+  Core.Rules -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Core.Rules\release\Core.Rules.dll
+  Tests.Numbers -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.Numbers\release\Tests.Numbers.dll
+  Core.Carriers -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Core.Carriers\release\Core.Carriers.dll
+  Tests.Foundation -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.Foundation\release\Tests.Foundation.dll
+  Tests.Rules -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.Rules\release\Tests.Rules.dll
+  Core.Gameplay -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Core.Gameplay\release\Core.Gameplay.dll
+  Tests.Carriers -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.Carriers\release\Tests.Carriers.dll
+  Presentation.Common -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Presentation.Common\release\Presentation.Common.dll
+  Validator -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Validator\release\Validator.dll
+  Tests.PresentationCommon -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.PresentationCommon\release\Tests.PresentationCommon.dll
+  Tests.Gameplay -> D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.Gameplay\release\Tests.Gameplay.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:08.89
+[dotnet build Core.sln -c Release] 通过，用时 9.1s
+
+==== dotnet test Core.sln -c Release --no-build（六工程，含 Perf 类别） ====
+D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.Numbers\release\Tests.Numbers.dll (.NETCoreApp,Version=v8.0)的测试运行
+D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.Foundation\release\Tests.Foundation.dll (.NETCoreApp,Version=v8.0)的测试运行
+D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.PresentationCommon\release\Tests.PresentationCommon.dll (.NETCoreApp,Version=v8.0)的测试运行
+D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.Rules\release\Tests.Rules.dll (.NETCoreApp,Version=v8.0)的测试运行
+D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.Gameplay\release\Tests.Gameplay.dll (.NETCoreApp,Version=v8.0)的测试运行
+D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\bin\Tests.Carriers\release\Tests.Carriers.dll (.NETCoreApp,Version=v8.0)的测试运行
+VSTest 版本 17.11.1 (x64)
+
+VSTest 版本 17.11.1 (x64)
+VSTest 版本 17.11.1 (x64)
+
+
+VSTest 版本 17.11.1 (x64)
+
+VSTest 版本 17.11.1 (x64)
+
+VSTest 版本 17.11.1 (x64)
+
+正在启动测试执行，请稍候...
+正在启动测试执行，请稍候...
+正在启动测试执行，请稍候...
+正在启动测试执行，请稍候...
+正在启动测试执行，请稍候...
+正在启动测试执行，请稍候...
+总共 1 个测试文件与指定模式相匹配。
+总共 1 个测试文件与指定模式相匹配。
+总共 1 个测试文件与指定模式相匹配。
+总共 1 个测试文件与指定模式相匹配。
+总共 1 个测试文件与指定模式相匹配。
+总共 1 个测试文件与指定模式相匹配。
+
+已通过! - 失败:     0，通过:   956，已跳过:     0，总计:   956，持续时间: 262 ms - Tests.Foundation.dll (net8.0)
+
+已通过! - 失败:     0，通过:   132，已跳过:     0，总计:   132，持续时间: 224 ms - Tests.Numbers.dll (net8.0)
+
+已通过! - 失败:     0，通过:   401，已跳过:     0，总计:   401，持续时间: 125 ms - Tests.Carriers.dll (net8.0)
+
+已通过! - 失败:     0，通过:   485，已跳过:     0，总计:   485，持续时间: 146 ms - Tests.Rules.dll (net8.0)
+
+已通过! - 失败:     0，通过:   577，已跳过:     0，总计:   577，持续时间: 167 ms - Tests.PresentationCommon.dll (net8.0)
+
+已通过! - 失败:     0，通过:   657，已跳过:     0，总计:   657，持续时间: 2 s - Tests.Gameplay.dll (net8.0)
+[dotnet test Core.sln -c Release --no-build（六工程，含 Perf 类别）] 通过，用时 6.4s
+
+==== ABI 探针（toolchain/abi_probe.ps1） ====
+[ABI 探针（toolchain/abi_probe.ps1）] 已跳过：基线发行包不存在（详见 D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\abi_probe.log）
+
+==== python toolchain/validate_data.py --strict（合并根） ====
+覆盖清单（1 条，见 data/README.md"多根加载与合并规则"）：
+  [override] arch.power_type[arch.power.health]: "根1:arch/arch.power_type.json" 覆盖 "根0:arch/arch.power_type.json"
+tables 63, records 300, errors 0, warnings 0, overrides 1
+optional rules disabled: SpawnSummonOnlyCreatureRule, DisplayMapCoverageRule
+[第一道·骨架检查] checked 64 files across 2 root(s), 0 errors
+[第二道·真实校验] 未找到预编译的 toolchain/validator/bin/Validator.dll，现场编译运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: C:\Program Files\dotnet\dotnet.EXE run --project D:\workespace\ws-game-audit-d6fda65-20260911\toolchain\validator -- --data-root D:\workespace\ws-game-audit-d6fda65-20260911\data\_framework --data-root D:\workespace\ws-game-audit-d6fda65-20260911\data\_sample --strict
+[python toolchain/validate_data.py --strict（合并根）] 通过，用时 5.7s
+
+==== python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验） ====
+[warning] arch.power_type/arch.power.health/name_key: text_key_exists: l10n.text 表未加载，跳过文本键存在性检查
+tables 5, records 124, errors 0, warnings 1, overrides 0
+optional rules disabled: SpawnSummonOnlyCreatureRule, DisplayMapCoverageRule
+[第一道·骨架检查] checked 5 files across 1 root(s), 0 errors
+[第二道·真实校验] 未找到预编译的 toolchain/validator/bin/Validator.dll，现场编译运行 toolchain/validator（首次运行会自动编译，可能需要几秒）: C:\Program Files\dotnet\dotnet.EXE run --project D:\workespace\ws-game-audit-d6fda65-20260911\toolchain\validator -- --data-root D:\workespace\ws-game-audit-d6fda65-20260911\data\_framework
+[python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验）] 通过，用时 1.7s
+
+==== 元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4） ====
+tables 63, fields 805, errors 0, warnings 0
+[元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4）] 通过，用时 1.2s
+
+==== python toolchain/gen_event_constants.py --check ====
+check 通过：90 个常量与 D:\workespace\ws-game-audit-d6fda65-20260911\core\foundation\event_bus\generated\EventKeys.g.cs 一致
+[python toolchain/gen_event_constants.py --check] 通过，用时 0.1s
+
+==== python toolchain/gen_placeholder_assets.py --check ====
+--check 完成：通过 92 / 92，失败 0
+[python toolchain/gen_placeholder_assets.py --check] 通过，用时 0.3s
+
+==== python toolchain/import_assets.py check --dataset _sample ====
+[check] dataset=_sample only=sfx,sprite,vfx,world: 检查 10 条 display.map / 3 条 vfx.def / 3 条 sfx.def / 1 条 world.map，发现 0 个问题
+[python toolchain/import_assets.py check --dataset _sample] 通过，用时 0.2s
+
+==== python toolchain/format_data.py --schema-order --check（消费方反馈 E11） ====
+[format_data.py --schema-order --check] 共检查 64 个文件，需要重排 0 个
+[python toolchain/format_data.py --schema-order --check（消费方反馈 E11）] 通过，用时 1.5s
+
+==== python -m pytest toolchain/tests -q ====
+..
+[python -m pytest toolchain/tests -q] 失败，用时 2.7s
+
+==== 禁用词扫描：全仓库不出现具体游戏代号 ====
+[禁用词扫描：全仓库不出现具体游戏代号] 通过，用时 8.4s
+
+==== 禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外） ====
+[禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）] 通过，用时 0s
+
+==== 工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7） ====
+[工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7）] 通过，用时 0.6s
+
+==== 版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md ====
+[版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md] 通过，用时 0.1s
+
+==== build.ps1 -SkipTests（同步 DLL） ====
+[build.ps1 -SkipTests（同步 DLL）] 通过，用时 10.9s
+
+==== 包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则） ====
+-Dist auto：从 D:\workespace\ws-game-audit-d6fda65-20260911\VERSION 读取版本号 -> 1.18.0
+
+==== 已启用 -SyncOnly：跳过 dotnet build/test ====
+
+==== 同步核心 DLL 到 Runtime/Plugins/Core/（哈希不同才拷贝） ====
+  [跳过] Core.Foundation.dll  (282624 bytes，内容未变化）
+  [跳过] Core.Numbers.dll  (65024 bytes，内容未变化）
+  [跳过] Core.Rules.dll  (237568 bytes，内容未变化）
+  [跳过] Core.Carriers.dll  (173056 bytes，内容未变化）
+  [跳过] Core.Gameplay.dll  (307712 bytes，内容未变化）
+  [跳过] Presentation.Common.dll  (212992 bytes，内容未变化）
+已同步 0 个 / 跳过 6 个
+Runtime/Plugins/Core/ 下 DLL 数量核对通过：6
+
+==== 同步内容数据集到 StreamingAssets/GameFoundation/（哈希不同才拷贝，镜像删除源目录已不存在的文件） ====
+  data/_framework -> StreamingAssets/GameFoundation/data/_framework：共 5 个文件，拷贝 0，跳过 5，删除 0
+  data/_sample -> StreamingAssets/GameFoundation/data/_sample：共 60 个文件，拷贝 0，跳过 60，删除 0
+  games/_template/data/game -> StreamingAssets/GameFoundation/data/game（模板自带最小数据集，供模板 PlayMode 测试使用）：共 37 个文件，拷贝 0，跳过 37，删除 0
+  assets/_placeholder -> StreamingAssets/GameFoundation/assets/_placeholder（整体镜像）：共 97 个文件，拷贝 0，跳过 97，删除 0
+  assets/_placeholder/sprites + assets/_sample/sprites -> StreamingAssets/GameFoundation/sprites（加载器路径规则，见 toolchain/resource_layout_map.json）：共 95 个文件，拷贝 0，跳过 95，删除 0
+  assets/_placeholder/sfx + assets/_sample/sfx -> StreamingAssets/GameFoundation/audio（加载器路径规则，见 toolchain/resource_layout_map.json）：共 13 个文件，拷贝 0，跳过 13，删除 0
+  assets/_placeholder/vfx + assets/_sample/vfx -> StreamingAssets/GameFoundation/vfx（加载器路径规则，见 toolchain/resource_layout_map.json）：共 36 个文件，拷贝 0，跳过 36，删除 0
+StreamingAssets/GameFoundation/ 下文件总数（含以上五棵树的并集，sprites/audio/vfx 与 assets/_placeholder 下同名文件各自独立计数）：347
+  assets/_placeholder/fonts/*.otf|*.ttf -> Assets/Framework/Resources/Fonts（字体资源 id -> 路径规则）：共 1 个文件，拷贝 0，跳过 1，删除 0
+  已生成占位场景资源：D:\workespace\ws-game-audit-d6fda65-20260911\adapters\unity\Assets\StreamingAssets\GameFoundation\scene\sample_field.json（scene.sample_field）
+  已生成占位导航资源：D:\workespace\ws-game-audit-d6fda65-20260911\adapters\unity\Assets\StreamingAssets\GameFoundation\nav_mesh\sample_field.json（nav.sample_field）
+  已生成占位场景资源：D:\workespace\ws-game-audit-d6fda65-20260911\adapters\unity\Assets\StreamingAssets\GameFoundation\scene\template_field.json（scene.template_field，供 games/_template 测试用）
+  已生成占位导航资源：D:\workespace\ws-game-audit-d6fda65-20260911\adapters\unity\Assets\StreamingAssets\GameFoundation\nav_mesh\template_field.json（nav.template_field，供 games/_template 测试用）
+
+==== 打分发包 dist/1.18.0/ ====
+  adapters\unity\Packages\com.gamefoundation.adapter.unity -> dist\1.18.0\adapters\unity\Packages\com.gamefoundation.adapter.unity  (218 files)
+  games\_template -> dist\1.18.0\games\_template  (84 files)
+  toolchain -> dist\1.18.0\toolchain  (65 files)
+  assets\_placeholder -> dist\1.18.0\assets\_placeholder  (97 files)
+  data\_framework -> dist\1.18.0\data\_framework  (5 files)
+  adapters\unity\Assets\TextMesh Pro -> dist\1.18.0\assets\textmesh_pro_essentials  (81 files)
+
+==== 补齐 dist\1.18.0\...\com.gamefoundation.adapter.unity\Runtime\Resources\GameFoundation\{models,anim_clips} 与 Editor 生成器（PJ130-02 根治） ====
+  已补齐 model/anim_clips 占位资产 + 生成器 -> dist\1.18.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\（当前共 234 files）
+
+==== 补齐 dist\1.18.0\toolchain\validator\lib\（P02 根治：独立包内 Validator 自包含所需的核心 DLL） ====
+  已补齐 6 个核心 DLL -> dist\1.18.0\toolchain\validator\lib\
+
+==== 补齐 dist\1.18.0\adapters\headless\Adapters.Stub.dll（ADR-0018 决策 3：无头适配层交付） ====
+  已补齐 -> dist\1.18.0\adapters\headless\Adapters.Stub.dll + README.md（sha256=faa7bb6be6fb5281db1d279c5a43f9f5a07ae59fba2cbd879ea8b6267fa45043）
+
+==== 补齐 dist\1.18.0\toolchain\validator\bin\ + 空 Directory.Build.props（消费方反馈 E1 根治：预编译 validator，杜绝消费方构建设置污染） ====
+  已补齐 17 个文件 -> dist\1.18.0\toolchain\validator\bin\（Validator.dll sha256=d762d87d21314709255b9bc792d4e5f46f8f1e8ced2ecfbd091ff48f713aa132）+ 空 Directory.Build.props
+  已回写版本号 1.18.0 -> D:\workespace\ws-game-audit-d6fda65-20260911\dist\1.18.0\adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json
+  已回写版本号 1.18.0 -> D:\workespace\ws-game-audit-d6fda65-20260911\dist\1.18.0\games\_template\package.json
+
+==== 打四个 npm 包（私服交付通道）：dist\1.18.0\packages\ ====
+  已组装 D:\workespace\ws-game-audit-d6fda65-20260911\dist\1.18.0\packages\com.gamefoundation.adapter.unity
+  已组装 D:\workespace\ws-game-audit-d6fda65-20260911\dist\1.18.0\packages\com.gamefoundation.framework-data
+  已组装 D:\workespace\ws-game-audit-d6fda65-20260911\dist\1.18.0\packages\com.gamefoundation.toolchain
+  已组装 D:\workespace\ws-game-audit-d6fda65-20260911\dist\1.18.0\packages\com.gamefoundation.adapter.headless
+  已生成 4 个 .tgz：com.gamefoundation.adapter.headless-1.18.0.tgz, com.gamefoundation.adapter.unity-1.18.0.tgz, com.gamefoundation.framework-data-1.18.0.tgz, com.gamefoundation.toolchain-1.18.0.tgz
+已生成 D:\workespace\ws-game-audit-d6fda65-20260911\dist\1.18.0\MANIFEST.txt
+
+build.ps1 完成。
+[包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）] 通过，用时 12s
+
+==== Unity 编译检查 ====
+已跳过：-SkipUnity
+
+==== Unity EditMode 测试 ====
+已跳过：-SkipUnity
+
+==== Unity PlayMode 测试 ====
+已跳过：-SkipUnity
+
+==== 独立版构建 + -gf-smoke 冒烟（连续模式默认流程） ====
+已跳过：-SkipUnity
+
+==== 独立版 -gf-smoke-discrete 冒烟（离散模式链路） ====
+已跳过：-SkipUnity
+
+==== 消费方演练 ====
+已跳过：-SkipUnity
+
+==== 汇总 ====
+
+Step                                                                     Result Seconds Detail                                                                                                          
+----                                                                     ------ ------- ------                                                                                                          
+门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定                                  PASS       1.4                                                                                                                 
+dotnet build Core.sln -c Release                                         PASS       9.1                                                                                                                 
+dotnet test Core.sln -c Release --no-build（六工程，含 Perf 类别）                PASS       6.4                                                                                                                 
+ABI 探针（toolchain/abi_probe.ps1）                                          SKIP       0.8 基线发行包不存在（详见 D:\workespace\ws-game-audit-d6fda65-20260911\bin\_validation_d6fda65\abi_probe.log）                 
+python toolchain/validate_data.py --strict（合并根）                          PASS       5.7                                                                                                                 
+python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验） PASS       1.7                                                                                                                 
+元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4）              PASS       1.2                                                                                                                 
+python toolchain/gen_event_constants.py --check                          PASS       0.1                                                                                                                 
+python toolchain/gen_placeholder_assets.py --check                       PASS       0.3                                                                                                                 
+python toolchain/import_assets.py check --dataset _sample                PASS       0.2                                                                                                                 
+python toolchain/format_data.py --schema-order --check（消费方反馈 E11）        PASS       1.5                                                                                                                 
+python -m pytest toolchain/tests -q                                      FAIL       2.7                                                                                                                 
+禁用词扫描：全仓库不出现具体游戏代号                                                       PASS       8.4                                                                                                                 
+禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）                        PASS         0                                                                                                                 
+工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7）                       PASS       0.6                                                                                                                 
+版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md          PASS       0.1 VERSION=1.18.0，两个 package.json、packages-lock.json 与 CHANGELOG.md 一致                                             
+build.ps1 -SkipTests（同步 DLL）                                             PASS      10.9                                                                                                                 
+包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）                            PASS        12 四个包 version=1.18.0 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器，toolchain 包含预编译 validator
+Unity 编译检查                                                               SKIP         0 -SkipUnity                                                                                                      
+Unity EditMode 测试                                                        SKIP         0 -SkipUnity                                                                                                      
+Unity PlayMode 测试                                                        SKIP         0 -SkipUnity                                                                                                      
+独立版构建 + -gf-smoke 冒烟（连续模式默认流程）                                           SKIP         0 -SkipUnity                                                                                                      
+独立版 -gf-smoke-discrete 冒烟（离散模式链路）                                        SKIP         0 -SkipUnity                                                                                                      
+消费方演练                                                                    SKIP         0 -SkipUnity
+门禁失败：1 步未通过（共 24 步，总用时 63.1s）。
+**********************
+Windows PowerShell transcript end
+End time: 20260911014310
+**********************

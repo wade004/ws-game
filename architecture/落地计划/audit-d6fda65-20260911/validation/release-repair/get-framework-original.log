@@ -1,0 +1,22 @@
+
+==== 离线来源：-FromLocalDist D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\validation\release-repair\pair-original\ws-game-1.18.0.zip ====
+  zip: D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\validation\release-repair\pair-original\ws-game-1.18.0.zip
+  lock: D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\validation\release-repair\pair-original\ws-game-1.18.0.lock
+
+==== 读取锁文件并校验 ====
+  锁文件 version=1.18.0，git_commit=d6fda65
+
+==== 解压并校验六个核心 DLL 的 sha256 ====
+  [通过] Core.Foundation.dll sha256=108d89ace825118cb9c2309e9f6efcd6a00058eefaafe3e7aeca723a947fe0d8
+  [通过] Core.Numbers.dll sha256=ae59cba3b72f1ac0a209fcf154e6a6a4d150143b15cc09772c28cb12c8a8d3c8
+  [通过] Core.Rules.dll sha256=98dcf9a65eaf3ff1f721730d9ca71ea8ae32fda155c077490823f55e5e400ac7
+  [通过] Core.Carriers.dll sha256=396fc4cad0ce51ee31e9eb18f923d423c8a354b3aa168a44e3a8b2b57eac807b
+  [通过] Core.Gameplay.dll sha256=3e5d7ea157e55604bc30a030dbd3880aa68bae50559b54399db4e8e73c496ffb
+  [通过] Presentation.Common.dll sha256=b3a0ae435d7f981824ebfa5d819786f8dd77235e3565e8d570e94e6f793301d0
+  六个核心 DLL 哈希全部与锁文件一致
+Exception: D:\workespace\ws-game-audit-d6fda65-20260911\toolchain\get_framework.ps1:604
+Line |
+ 604 |              throw ("无头适配层 DLL 哈希校验失败，未落地到 -Target（内容可能被篡改或下载不完整）：`n   …
+     |              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | 无头适配层 DLL 哈希校验失败，未落地到 -Target（内容可能被篡改或下载不完整）：   Adapters.Stub.dll：sha256
+     | 不一致（锁文件=2d561394e4b5bf7ae086460316a017ad4fd990b9552b524177a73bac4658de9e，实际=f4db53c8699988b31f1fc1b2bfa97bbe503dd8d77325b56f1f580c0db8e4d290）

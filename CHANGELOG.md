@@ -81,6 +81,54 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+第二十方深度审核修复（codex 第十八轮，基线 `d6fda65`）本 agent 负责范围：TOOL-118-ABI/
+TOOL-118-LOCK 两项 P2 工具链缺陷 + 九类文档更新中除 `grid_snap` 外的全部行。归档与核实表见
+[audit-d6fda65-20260911/](architecture/落地计划/audit-d6fda65-20260911/)、
+[followup-2026-09-11.md](architecture/落地计划/audit-d6fda65-20260911/followup-2026-09-11.md)。
+
+### 修复
+
+- **TOOL-118-ABI**：`toolchain/abi_surface/SurfaceDumper.cs` 的属性/索引器/事件行此前不编码
+  访问器的 `static`/`virtual`/`abstract`/`sealed-override`——public 实例属性改成同名同类型
+  static 属性（或反过来）两次 dump 输出逐字节相同，ABI 门禁判 `breaks=0`，而旧编译消费方运行期
+  `System.MissingMethodException`。按与 method 行同一套修饰编码补齐三类成员；配套修复
+  `SurfaceCompareLogic.SplitPropertyIdentity`（可见性放宽豁免判定用的"身份"此前不含这些新 token，
+  会让"可见性放宽 + static 化"复合变化被误判成纯放宽而漏判）。新增 8 个测试用例（含真实
+  `dotnet build` 端到端负例）；用新版工具对 1.12.0/1.13.0 两份历史基线重跑当前工作树六个 DLL
+  均 `breaks=0`，未发现历史真实破坏。
+- **TOOL-118-LOCK**：`.github/workflows/release.yml`"缺附件修复"分支（zip 已存在、lock 缺失时从
+  已验证 zip 重建 lock）此前手写的锁对象构造逻辑漏写 `headless_dlls`/`validator_dlls` 两个字段，
+  使 `toolchain/get_framework.ps1` 对缺字段一律按"旧版本、跳过校验"处理，`Adapters.Stub.dll`/
+  `Validator.dll` 被篡改也检测不出来。新增共用脚本 `toolchain/_lock_writeback.ps1`
+  （`New-WsGameLockObject`/`Write-WsGameLockFile`/`New-WsGameLockObjectFromZip`），`build.ps1`
+  正常路径与 `release.yml` 修复分支均改为调用同一份实现，三个 DLL 哈希映射参数均为 PowerShell
+  `Mandatory`、结构上杜绝再漏传；`get_framework.ps1` 新增版本阈值（锁文件 `version >= 1.15.0`
+  时缺 `headless_dlls`/`validator_dlls` 直接判定损坏拒绝，`< 1.15.0` 仍走既有兼容跳过）。新增
+  3 个测试用例，含篡改副本场景下"正常路径风格锁"与"修复分支风格锁"同等阻断的专项回归。
+
+### 文档
+
+- ADR 总清单两处"23 条"更正为"24 条"（`architecture/README.md`、根 `README.md`），补
+  `adr/0024` 一行。
+- 根 `README.md` 落地状态摘要：ATB 从"明确非目标"改列"延期/预留"；teleport 一行改为
+  "`teleport_points` 引用目标完整性校验"（元素结构已登记，未提供的是跨表引用完整性检查）。
+- `editor/docs/编辑器产品文档.html` 版本头/变更记录表/第 4.1 节契约面清单表按 md 版（v2.5）同步
+  补齐 `Range`/`field_meta`（`group`/`unit`/`reference_table`/`reference_domain`/`free_ids`/
+  `map_key`/`map_value`）/`TryGetAll`/`TryQuery`/`OverrideDiagnostic` 新字段/`ExprNode`/
+  `ExprIssue` 区间/`KnownKeys`/`KnownGroups` 等新契约；`editor/README.md` 版本号同步至 v2.5 并
+  注明 HTML 由 md 手工同步生成（仓库内无自动转换脚本）。
+- `architecture/14_资产规格书模板.md`"基础架构提供 / 游戏层提供"表导入工具责任行改为"通用实现是
+  框架交付物，游戏负责具体资源/参数/阈值/专属扩展"，按 ADR-0014 与当前 `toolchain/` 落地状态更正
+  此前写反的责任归属。
+- `architecture/13_新游戏接入指南.md` 第 6 步"命中帧同步与武器风格默认关闭/未接线"一句拆成三条：
+  命中帧开关（默认关闭）、武器风格数据来源接线（三处生产装配根均已默认构造，非"未接线"）、
+  Swing/Impact 特效消费（已实现未默认调用）。
+- `core/rules/combat/README.md` 判断记录 4、`architecture/06_规则层_属性技能战斗AI.md` 第 4.1
+  节：偏斜/格挡与暴击默认可叠加（此前称暴击判定被跳过，与 `Resolver` 实际实现不符），是否互斥
+  由消费方策略决定，不改算法本身；`core/rules/combat/tests/{CombatTestSupport,ResolverHitTableTests}.cs`
+  新增两条回归测试钉住该行为。
+- `toolchain/README.md` 新增"`abi_surface` dump/compare 覆盖范围补齐（TOOL-118-ABI 根治）"一节。
+
 ## [1.18.0] - 2026-09-11
 
 MINOR 版本：编辑器相关契约新增（ADR-0024 动态键映射登记、消费方反馈第三批第 21 条 + 第四批第

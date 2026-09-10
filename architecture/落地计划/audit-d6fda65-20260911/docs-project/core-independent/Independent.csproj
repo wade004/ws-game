@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="D:/workespace/ws-game-artifacts/audit-d6fda65-20260911/core/probe/Program.cs" />
+    <Compile Include="D:/workespace/ws-game-artifacts/audit-d6fda65-20260911/core/probe/QuestProbe.cs" />
+    <Compile Include="D:/workespace/ws-game-audit-d6fda65-20260911/core/gameplay/quest/tests/TestSupport.cs" />
+    <Compile Include="D:/workespace/ws-game-audit-d6fda65-20260911/core/rules/skill/tests/SkillTestSupport.cs" />
+    <Compile Include="D:/workespace/ws-game-audit-d6fda65-20260911/core/rules/skill/tests/FakeUnitAccess.cs" />
+    <Compile Include="D:/workespace/ws-game-audit-d6fda65-20260911/core/rules/skill/tests/FakeTargetHost.cs" />
+    <Compile Include="D:/workespace/ws-game-audit-d6fda65-20260911/core/rules/skill/tests/FakeCombatHost.cs" />
+    <Compile Include="D:/workespace/ws-game-audit-d6fda65-20260911/core/rules/skill/tests/FakeExprHostFactory.cs" />
+    <Reference Include="Core.Foundation">
+      <HintPath>D:/workespace/ws-game/dist/1.18.0/toolchain/validator/bin/Core.Foundation.dll</HintPath>
+    </Reference>
+    <Reference Include="Core.Numbers">
+      <HintPath>D:/workespace/ws-game/dist/1.18.0/toolchain/validator/bin/Core.Numbers.dll</HintPath>
+    </Reference>
+    <Reference Include="Core.Rules">
+      <HintPath>D:/workespace/ws-game/dist/1.18.0/toolchain/validator/bin/Core.Rules.dll</HintPath>
+    </Reference>
+    <Reference Include="Core.Carriers">
+      <HintPath>D:/workespace/ws-game/dist/1.18.0/toolchain/validator/bin/Core.Carriers.dll</HintPath>
+    </Reference>
+    <Reference Include="Core.Gameplay">
+      <HintPath>D:/workespace/ws-game/dist/1.18.0/toolchain/validator/bin/Core.Gameplay.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

@@ -54,6 +54,9 @@ PLUGINS_CORE_REL = (
     "adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core"
 )
 
+HEADLESS_DLL_NAME = "Adapters.Stub.dll"
+VALIDATOR_DLL_NAME = "Validator.dll"
+
 pytestmark = pytest.mark.skipif(
     sys.platform != "win32", reason="get_framework.ps1 只在 Windows PowerShell 下运行"
 )
@@ -71,7 +74,13 @@ POWERSHELL = _find_powershell_executable() if sys.platform == "win32" else None
 
 
 def _build_fixture_zip(zip_path: Path, version: str) -> dict:
-    """构造一个最小但结构合法的 ws-game 发布主 zip：顶层目录 + 六个 DLL。"""
+    """构造一个最小但结构合法的 ws-game 发布主 zip：顶层目录 + 六个 DLL。
+
+    TOOL-118-LOCK 根治（codex 第十八轮）：也带上无头适配层/预编译 validator 两个 DLL 的固定内容
+    条目——get_framework.ps1 现在对 version >= 1.15.0 的锁文件强制要求 headless_dlls/
+    validator_dlls 字段齐全，本文件 fixture 版本号（6.6.x）>= 1.15.0，_write_lock 默认会带上这两
+    个字段，这里必须有对应的 zip 条目可供哈希校验通过。
+    """
     top_dir_name = f"ws-game-{version}"
     dll_hashes: dict[str, str] = {}
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -79,11 +88,25 @@ def _build_fixture_zip(zip_path: Path, version: str) -> dict:
             content = f"fixture-dll:{dll_name}:{version}".encode("utf-8")
             dll_hashes[dll_name] = hashlib.sha256(content).hexdigest()
             zf.writestr(f"{top_dir_name}/{PLUGINS_CORE_REL}/{dll_name}", content)
+        headless_content = f"fixture-dll:{HEADLESS_DLL_NAME}:{version}".encode("utf-8")
+        zf.writestr(f"{top_dir_name}/adapters/headless/{HEADLESS_DLL_NAME}", headless_content)
+        validator_content = f"fixture-dll:{VALIDATOR_DLL_NAME}:{version}".encode("utf-8")
+        zf.writestr(f"{top_dir_name}/toolchain/validator/bin/{VALIDATOR_DLL_NAME}", validator_content)
         # 主 zip 也带一份 data/_framework，贴近真实产物结构（不是 -WithSamples 的校验对象，但
         # 确认合并 samples 内容时不会误伤既有的框架级数据）。
         zf.writestr(f"{top_dir_name}/data/_framework/found.marker.json", '{"table":"found.marker"}')
         zf.writestr(f"{top_dir_name}/MANIFEST.txt", f"version={version}\n")
     return dll_hashes
+
+
+def _fixture_headless_dlls(version: str) -> dict:
+    content = f"fixture-dll:{HEADLESS_DLL_NAME}:{version}".encode("utf-8")
+    return {HEADLESS_DLL_NAME: hashlib.sha256(content).hexdigest()}
+
+
+def _fixture_validator_dlls(version: str) -> dict:
+    content = f"fixture-dll:{VALIDATOR_DLL_NAME}:{version}".encode("utf-8")
+    return {VALIDATOR_DLL_NAME: hashlib.sha256(content).hexdigest()}
 
 
 def _build_fixture_samples_zip(zip_path: Path, version: str) -> None:
@@ -109,8 +132,22 @@ def _write_lock(
     dll_hashes: dict,
     git_commit: str = "deadbeef",
     samples_sha256: str | None = None,
+    headless_dlls: dict | None = None,
+    validator_dlls: dict | None = None,
 ) -> None:
+    """默认带上 headless_dlls/validator_dlls（TOOL-118-LOCK 根治后 version >= 1.15.0 的锁文件
+    强制要求这两个字段）。传 ``headless_dlls={}``/``validator_dlls={}``（空字典，不是 None）可以
+    显式构造出"缺这两个字段"的旧格式锁文件。
+    """
     lock_obj: dict = {"version": version, "git_commit": git_commit, "dlls": dll_hashes}
+    if headless_dlls is None:
+        headless_dlls = _fixture_headless_dlls(version)
+    if headless_dlls:
+        lock_obj["headless_dlls"] = headless_dlls
+    if validator_dlls is None:
+        validator_dlls = _fixture_validator_dlls(version)
+    if validator_dlls:
+        lock_obj["validator_dlls"] = validator_dlls
     if samples_sha256 is not None:
         lock_obj["samples"] = {"sha256": samples_sha256}
     lock_path.write_text(json.dumps(lock_obj, indent=2), encoding="utf-8")

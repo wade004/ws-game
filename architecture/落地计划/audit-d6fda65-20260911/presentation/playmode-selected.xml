@@ -1,0 +1,739 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="10" result="Failed(Child)" total="10" passed="9" failed="1" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-10 16:47:42Z" end-time="2026-09-10 16:47:46Z" duration="3.5167158">
+  <test-suite type="TestSuite" id="1337" name="unity" fullname="unity" runstate="Runnable" testcasecount="274" result="Failed" site="Child" start-time="2026-09-10 16:47:42Z" end-time="2026-09-10 16:47:46Z" duration="3.516716" total="10" passed="9" failed="1" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1319" name="Adapter.Unity.Tests.Runtime.dll" fullname="D:/workespace/ws-game-artifacts/audit-d6fda65-20260911/presentation/UnityCopy/adapters/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="270" result="Failed" site="Child" start-time="2026-09-10 16:47:42Z" end-time="2026-09-10 16:47:46Z" duration="3.510429" total="10" passed="9" failed="1" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="40084" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1320" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="270" result="Failed" site="Child" start-time="2026-09-10 16:47:42Z" end-time="2026-09-10 16:47:46Z" duration="3.508843" total="10" passed="9" failed="1" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1321" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="270" result="Failed" site="Child" start-time="2026-09-10 16:47:42Z" end-time="2026-09-10 16:47:46Z" duration="3.508102" total="10" passed="9" failed="1" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestSuite" id="1322" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="270" result="Failed" site="Child" start-time="2026-09-10 16:47:42Z" end-time="2026-09-10 16:47:46Z" duration="3.507357" total="10" passed="9" failed="1" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-suite type="SetUpFixture" id="1119" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="270" result="Failed" site="Child" start-time="2026-09-10 16:47:42Z" end-time="2026-09-10 16:47:46Z" duration="3.506129" total="10" passed="9" failed="1" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <failure>
+                <message><![CDATA[One or more child tests had errors]]></message>
+              </failure>
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\presentation\test-userdata（预清理存档子目录=D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\presentation\test-userdata\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1030" name="Audit118PresentationTests" fullname="Adapter.Unity.Tests.Runtime.Audit118PresentationTests" classname="Adapter.Unity.Tests.Runtime.Audit118PresentationTests" runstate="Runnable" testcasecount="2" result="Failed" site="Child" start-time="2026-09-10 16:47:42Z" end-time="2026-09-10 16:47:43Z" duration="0.416401" total="2" passed="1" failed="1" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <failure>
+                  <message><![CDATA[One or more child tests had errors]]></message>
+                </failure>
+                <test-case id="1032" name="MissingSound_SecondPlay_StillPendingAfterHostEquivalentFrames_Observation" fullname="Adapter.Unity.Tests.Runtime.Audit118PresentationTests.MissingSound_SecondPlay_StillPendingAfterHostEquivalentFrames_Observation" methodname="MissingSound_SecondPlay_StillPendingAfterHostEquivalentFrames_Observation" classname="Adapter.Unity.Tests.Runtime.Audit118PresentationTests" runstate="Runnable" seed="2093460602" result="Passed" start-time="2026-09-10 16:47:42Z" end-time="2026-09-10 16:47:43Z" duration="0.043252" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+[AUDIT118 SFX] real_unity_pending_second_play=1;expected_after_host_timeout=0
+]]></output>
+                </test-case>
+                <test-case id="1031" name="Resident_NewGame_RetainsCameraFollow_Oracle" fullname="Adapter.Unity.Tests.Runtime.Audit118PresentationTests.Resident_NewGame_RetainsCameraFollow_Oracle" methodname="Resident_NewGame_RetainsCameraFollow_Oracle" classname="Adapter.Unity.Tests.Runtime.Audit118PresentationTests" runstate="Runnable" seed="1275743467" result="Failed" start-time="2026-09-10 16:47:43Z" end-time="2026-09-10 16:47:43Z" duration="0.364268" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <failure>
+                    <message><![CDATA[  Default resident host must follow player after scene.load_finished
+  Expected: unit.sample_player
+  But was:  null
+]]></message>
+                    <stack-trace><![CDATA[at Adapter.Unity.Tests.Runtime.Audit118PresentationTests+<Resident_NewGame_RetainsCameraFollow_Oracle>d__0.MoveNext () [0x001ab] in .\Packages\com.gamefoundation.adapter.unity\Tests\Runtime\Audit118PresentationTests.cs:34
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\Library\PackageCache\com.unity.test-framework@bd7f943e9647\UnityEngine.TestRunner\NUnitExtensions\Attributes\TestEnumerator.cs:44
+]]></stack-trace>
+                  </failure>
+                  <output><![CDATA[[UnityViewFactory] displayId "display.map.sample_beast" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__body
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__hand_main
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_hero__side_r__head
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_beast__side_r__body
+[UnityViewFactory] 状态 "idle" 引用的动画资源 "anim.sample_hero_idle" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "move" 引用的动画资源 "anim.sample_hero_move" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "attack" 引用的动画资源 "anim.sample_hero_attack" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "cast" 引用的动画资源 "anim.sample_hero_cast" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "hit" 引用的动画资源 "anim.sample_hero_hit" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "death" 引用的动画资源 "anim.sample_hero_death" 加载失败，继续使用单帧占位剪辑（不重试）
+[AUDIT118 CAMERA] before=unit.sample_player;after=;expected=unit.sample_player;page=InWorld
+]]></output>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1115" name="EquipmentVisualSaveLoadResetTests" fullname="Adapter.Unity.Tests.Runtime.EquipmentVisualSaveLoadResetTests" classname="Adapter.Unity.Tests.Runtime.EquipmentVisualSaveLoadResetTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-10 16:47:43Z" end-time="2026-09-10 16:47:43Z" duration="0.144460" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1116" name="SurvivingView_SaveEmptyThenEquip_LoadEmptySave_ResetsStaleEquipmentVisual" fullname="Adapter.Unity.Tests.Runtime.EquipmentVisualSaveLoadResetTests.SurvivingView_SaveEmptyThenEquip_LoadEmptySave_ResetsStaleEquipmentVisual" methodname="SurvivingView_SaveEmptyThenEquip_LoadEmptySave_ResetsStaleEquipmentVisual" classname="Adapter.Unity.Tests.Runtime.EquipmentVisualSaveLoadResetTests" runstate="Runnable" seed="791494084" result="Passed" start-time="2026-09-10 16:47:43Z" end-time="2026-09-10 16:47:43Z" duration="0.142353" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[EquipmentVisualSaveLoadResetTests] saveB=True;loadB=Loaded;equipment_after_load=0;socket_childCount_before=0;socket_childCount_after=0;view_same=True
+]]></output>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1135" name="HitFrameSyncEndToEndTests" fullname="Adapter.Unity.Tests.Runtime.HitFrameSyncEndToEndTests" classname="Adapter.Unity.Tests.Runtime.HitFrameSyncEndToEndTests" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-09-10 16:47:43Z" end-time="2026-09-10 16:47:44Z" duration="0.970827" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1136" name="ModelAttacker_HitFrameSync_DelaysPlayVfxUntilRealHitFrame" fullname="Adapter.Unity.Tests.Runtime.HitFrameSyncEndToEndTests.ModelAttacker_HitFrameSync_DelaysPlayVfxUntilRealHitFrame" methodname="ModelAttacker_HitFrameSync_DelaysPlayVfxUntilRealHitFrame" classname="Adapter.Unity.Tests.Runtime.HitFrameSyncEndToEndTests" runstate="Runnable" seed="1798721011" result="Passed" start-time="2026-09-10 16:47:43Z" end-time="2026-09-10 16:47:43Z" duration="0.438062" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityViewFactory] displayId "display.map.sample_beast" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_beast__front_side_r__body
+[UnityRenderer2D] 精灵资源未加载或不存在，使用占位方块：layer.creature_sample_beast__back_side_r__body
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+]]></output>
+                </test-case>
+                <test-case id="1137" name="ModelAttacker_HitFrameSync_NeverFires_TimesOutWithTimeoutReason" fullname="Adapter.Unity.Tests.Runtime.HitFrameSyncEndToEndTests.ModelAttacker_HitFrameSync_NeverFires_TimesOutWithTimeoutReason" methodname="ModelAttacker_HitFrameSync_NeverFires_TimesOutWithTimeoutReason" classname="Adapter.Unity.Tests.Runtime.HitFrameSyncEndToEndTests" runstate="Runnable" seed="1283010060" result="Passed" start-time="2026-09-10 16:47:43Z" end-time="2026-09-10 16:47:44Z" duration="0.529419" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+]]></output>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1178" name="SharedBootstrapDiscreteTests" fullname="Adapter.Unity.Tests.Runtime.SharedBootstrapDiscreteTests" classname="Adapter.Unity.Tests.Runtime.SharedBootstrapDiscreteTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-10 16:47:44Z" end-time="2026-09-10 16:47:46Z" duration="1.931846" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+]]></output>
+                <test-case id="1181" name="SharedBootstrap_EndTurnKeyBinding_StillWorks_WithStaleSceneBootstrapLeftAlive" fullname="Adapter.Unity.Tests.Runtime.SharedBootstrapDiscreteTests.SharedBootstrap_EndTurnKeyBinding_StillWorks_WithStaleSceneBootstrapLeftAlive" methodname="SharedBootstrap_EndTurnKeyBinding_StillWorks_WithStaleSceneBootstrapLeftAlive" classname="Adapter.Unity.Tests.Runtime.SharedBootstrapDiscreteTests" runstate="Runnable" seed="581690187" result="Passed" start-time="2026-09-10 16:47:44Z" end-time="2026-09-10 16:47:45Z" duration="1.005992" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+There can be only one active Event System.
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] 状态 "idle" 引用的动画资源 "anim.sample_hero_idle" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "attack" 引用的动画资源 "anim.sample_hero_attack" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "move" 引用的动画资源 "anim.sample_hero_move" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "cast" 引用的动画资源 "anim.sample_hero_cast" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "hit" 引用的动画资源 "anim.sample_hero_hit" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "death" 引用的动画资源 "anim.sample_hero_death" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] 状态 "idle" 引用的动画资源 "anim.sample_hero_idle" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "move" 引用的动画资源 "anim.sample_hero_move" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "attack" 引用的动画资源 "anim.sample_hero_attack" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "cast" 引用的动画资源 "anim.sample_hero_cast" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "death" 引用的动画资源 "anim.sample_hero_death" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "hit" 引用的动画资源 "anim.sample_hero_hit" 加载失败，继续使用单帧占位剪辑（不重试）
+]]></output>
+                </test-case>
+                <test-case id="1180" name="SharedBootstrap_EndTurnKeyBinding_UnblocksAwaitingInput" fullname="Adapter.Unity.Tests.Runtime.SharedBootstrapDiscreteTests.SharedBootstrap_EndTurnKeyBinding_UnblocksAwaitingInput" methodname="SharedBootstrap_EndTurnKeyBinding_UnblocksAwaitingInput" classname="Adapter.Unity.Tests.Runtime.SharedBootstrapDiscreteTests" runstate="Runnable" seed="201738176" result="Passed" start-time="2026-09-10 16:47:45Z" end-time="2026-09-10 16:47:46Z" duration="0.680993" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityViewFactory] displayId "display.map.sample_beast" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] 状态 "move" 引用的动画资源 "anim.sample_hero_move" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "idle" 引用的动画资源 "anim.sample_hero_idle" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "attack" 引用的动画资源 "anim.sample_hero_attack" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "cast" 引用的动画资源 "anim.sample_hero_cast" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "hit" 引用的动画资源 "anim.sample_hero_hit" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "death" 引用的动画资源 "anim.sample_hero_death" 加载失败，继续使用单帧占位剪辑（不重试）
+]]></output>
+                </test-case>
+                <test-case id="1179" name="SharedBootstrap_WithDiscreteOverlay_EntersDiscreteCombat_ViaRealResolver" fullname="Adapter.Unity.Tests.Runtime.SharedBootstrapDiscreteTests.SharedBootstrap_WithDiscreteOverlay_EntersDiscreteCombat_ViaRealResolver" methodname="SharedBootstrap_WithDiscreteOverlay_EntersDiscreteCombat_ViaRealResolver" classname="Adapter.Unity.Tests.Runtime.SharedBootstrapDiscreteTests" runstate="Runnable" seed="8158991" result="Passed" start-time="2026-09-10 16:47:46Z" end-time="2026-09-10 16:47:46Z" duration="0.242075" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[UnityViewFactory] displayId "display.map.sample_beast" 状态 "idle" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "move" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "attack" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "cast" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "hit" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] displayId "display.map.sample_beast" 状态 "death" 没有可用的 display.anim_set 序列帧剪辑，退化为单帧剪辑（Rig.PlayClip 仍可执行，只是视觉上不切换贴图）
+[UnityViewFactory] 状态 "idle" 引用的动画资源 "anim.sample_hero_idle" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "attack" 引用的动画资源 "anim.sample_hero_attack" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "move" 引用的动画资源 "anim.sample_hero_move" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "cast" 引用的动画资源 "anim.sample_hero_cast" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "hit" 引用的动画资源 "anim.sample_hero_hit" 加载失败，继续使用单帧占位剪辑（不重试）
+[UnityViewFactory] 状态 "death" 引用的动画资源 "anim.sample_hero_death" 加载失败，继续使用单帧占位剪辑（不重试）
+]]></output>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1313" name="VfxAnchorFollowTests" fullname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests" classname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-09-10 16:47:46Z" end-time="2026-09-10 16:47:46Z" duration="0.021338" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1315" name="SetParticlePosition_AfterStopParticle_IsSilentlyIgnored" fullname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests.SetParticlePosition_AfterStopParticle_IsSilentlyIgnored" methodname="SetParticlePosition_AfterStopParticle_IsSilentlyIgnored" classname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests" runstate="Runnable" seed="1375134865" result="Passed" start-time="2026-09-10 16:47:46Z" end-time="2026-09-10 16:47:46Z" duration="0.013724" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1314" name="SetParticlePosition_MovesTheRealTransformCreatedByEmitParticle" fullname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests.SetParticlePosition_MovesTheRealTransformCreatedByEmitParticle" methodname="SetParticlePosition_MovesTheRealTransformCreatedByEmitParticle" classname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests" runstate="Runnable" seed="1127046558" result="Passed" start-time="2026-09-10 16:47:46Z" end-time="2026-09-10 16:47:46Z" duration="0.005875" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：D:\workespace\ws-game-artifacts\audit-d6fda65-20260911\presentation\test-userdata
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

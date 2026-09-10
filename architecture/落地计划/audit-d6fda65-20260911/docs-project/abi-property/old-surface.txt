@@ -1,0 +1,3 @@
+MEMBER	Compat	ctor	.ctor()	public
+MEMBER	Compat	property	Value:System.Int32	get:public,set:none
+TYPE	Compat	class	public

@@ -219,23 +219,28 @@ namespace Toolchain.AbiSurface
 
         /// <summary>
         /// property 行专用：sig（<c>parts[3]</c>）本来就不含可见性，可见性打包在 flags 里的
-        /// <c>get:VIS,set:VIS[,abstract]</c>（见 SurfaceDumper 属性分支判断记录）——"身份"是
-        /// type+kind+sig+是否 abstract（abstract 标记改变仍走既有 interface_new_abstract_member/
-        /// 普通行 diff 规则，不参与可见性放宽豁免），get/set 可见性各自返回供调用方分别比较。
+        /// <c>get:VIS,set:VIS[,static][,abstract|virtual|sealed-override]</c>（见 SurfaceDumper
+        /// 属性分支判断记录）——"身份"是 type+kind+sig+其余非可见性 token（static/abstract/
+        /// virtual/sealed-override 的并集文本，与 method 行 SplitVisibility 的"去掉可见性 token
+        /// 后其余部分参与身份比较"同一口径，TOOL-118-ABI 根治：以前这里的身份只保留 abstract，
+        /// 不含 static/virtual/sealed-override，会让"属性从实例变 static 同时可见性放宽"这种
+        /// 复合变化被误判成纯可见性放宽而放过——现在这些 token 变化会让身份不同，直接走规则 1
+        /// 的"行消失即破坏"判定，不再经过放宽豁免），get/set 可见性各自返回供调用方分别比较。
         /// </summary>
         private static (string? Identity, string? GetVis, string? SetVis) SplitPropertyIdentity(string line)
         {
             var parts = line.Split('\t');
             if (parts.Length < 5 || parts[0] != "MEMBER" || parts[2] != "property") return (null, null, null);
             string getVis = "none", setVis = "none";
-            bool isAbstract = false;
+            var restTokens = new List<string>();
             foreach (var tok in parts[4].Split(','))
             {
                 if (tok.StartsWith("get:", StringComparison.Ordinal)) getVis = tok.Substring(4);
                 else if (tok.StartsWith("set:", StringComparison.Ordinal)) setVis = tok.Substring(4);
-                else if (tok == "abstract") isAbstract = true;
+                else restTokens.Add(tok);
             }
-            var identity = string.Join("\t", parts[0], parts[1], parts[2], parts[3], isAbstract ? "abstract" : "-");
+            var rest = restTokens.Count > 0 ? string.Join(",", restTokens) : "-";
+            var identity = string.Join("\t", parts[0], parts[1], parts[2], parts[3], rest);
             return (identity, getVis, setVis);
         }
 

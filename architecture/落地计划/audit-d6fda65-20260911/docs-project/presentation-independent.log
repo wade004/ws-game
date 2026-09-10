@@ -1,0 +1,6 @@
+SFX first_failed_load_pending=0
+SFX after_second_missing_resource_plus_600_host_equivalent_frames pending=1;pacing_finished=False;expected_pending=0;expected_pacing_finished=True
+SFX control_after_explicit_sfx_update pending=0;pacing_finished=True
+VIEW save_success=True
+VIEW status=Loaded;logical=(3, 4);rendered=(30, 40);expected_rendered=(3,4);without_postload_sim_tick=True
+VIEW control_after_sim_tick rendered=(3, 4)

@@ -1,0 +1,69 @@
+{
+  "captured_utc": "2026-09-10T16:53:03.090212+00:00",
+  "frozen_worktree": "D:\\workespace\\ws-game-audit-d6fda65-20260911",
+  "frozen_commit": "d6fda65cd6b00ede5c5f6f606f724d2ab0f60603",
+  "source_repository_readonly": "D:\\workespace\\ws-game",
+  "source_repository_commit": "d6fda65cd6b00ede5c5f6f606f724d2ab0f60603",
+  "formal_release": {
+    "zip": "D:\\workespace\\ws-game\\dist\\ws-game-1.18.0.zip",
+    "zip_bytes": 56161842,
+    "zip_sha256": "1700390fcfc7a86272cc151f49e50d5ca05f7d878d85e8217aeb4b78716bd721",
+    "lock": "D:\\workespace\\ws-game\\dist\\ws-game-1.18.0.lock",
+    "lock_bytes": 1216,
+    "lock_sha256": "3122cf47e621a9e89cd09a8512707402e38e48f818af9b8747c462597ef9bfbf",
+    "samples_zip": "D:\\workespace\\ws-game\\dist\\ws-game-1.18.0-samples.zip",
+    "samples_bytes": 148336,
+    "samples_sha256": "ccbccb02110ce568e5aedbc193c87fddfb391ef38d5f667e7f920c2f05a80ec3",
+    "lock_fields": [
+      "version",
+      "git_commit",
+      "dlls",
+      "headless_dlls",
+      "validator_dlls",
+      "samples"
+    ],
+    "lock_version": "1.18.0",
+    "lock_git_commit": "d6fda65",
+    "core_hashes_in_zip": {
+      "Core.Foundation.dll": "108d89ace825118cb9c2309e9f6efcd6a00058eefaafe3e7aeca723a947fe0d8",
+      "Core.Numbers.dll": "ae59cba3b72f1ac0a209fcf154e6a6a4d150143b15cc09772c28cb12c8a8d3c8",
+      "Core.Rules.dll": "98dcf9a65eaf3ff1f721730d9ca71ea8ae32fda155c077490823f55e5e400ac7",
+      "Core.Carriers.dll": "396fc4cad0ce51ee31e9eb18f923d423c8a354b3aa168a44e3a8b2b57eac807b",
+      "Core.Gameplay.dll": "3e5d7ea157e55604bc30a030dbd3880aa68bae50559b54399db4e8e73c496ffb",
+      "Presentation.Common.dll": "b3a0ae435d7f981824ebfa5d819786f8dd77235e3565e8d570e94e6f793301d0"
+    },
+    "core_hashes_in_lock": {
+      "Core.Foundation.dll": "108d89ace825118cb9c2309e9f6efcd6a00058eefaafe3e7aeca723a947fe0d8",
+      "Core.Numbers.dll": "ae59cba3b72f1ac0a209fcf154e6a6a4d150143b15cc09772c28cb12c8a8d3c8",
+      "Core.Rules.dll": "98dcf9a65eaf3ff1f721730d9ca71ea8ae32fda155c077490823f55e5e400ac7",
+      "Core.Carriers.dll": "396fc4cad0ce51ee31e9eb18f923d423c8a354b3aa168a44e3a8b2b57eac807b",
+      "Core.Gameplay.dll": "3e5d7ea157e55604bc30a030dbd3880aa68bae50559b54399db4e8e73c496ffb",
+      "Presentation.Common.dll": "b3a0ae435d7f981824ebfa5d819786f8dd77235e3565e8d570e94e6f793301d0"
+    },
+    "headless_hash_in_zip": "2d561394e4b5bf7ae086460316a017ad4fd990b9552b524177a73bac4658de9e",
+    "headless_hash_in_lock": "2d561394e4b5bf7ae086460316a017ad4fd990b9552b524177a73bac4658de9e",
+    "validator_hash_in_zip": "84f68ee8b0f9b5e8fcf740aeafb7c0f136c70c341479530b23871b39aab4e2eb",
+    "validator_hash_in_lock": "84f68ee8b0f9b5e8fcf740aeafb7c0f136c70c341479530b23871b39aab4e2eb",
+    "manifest_sha256": "3cf852480dd680a4e8b3ce0d66b5ac7e8ae669cbb1965fce38aaf7849bf8b3f7",
+    "manifest_git_commit_line": "git_commit: d6fda65",
+    "manifest_version_line": null,
+    "package_versions": {
+      "ws-game-1.18.0/adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json": "1.18.0",
+      "ws-game-1.18.0/games/_template/package.json": "1.18.0",
+      "ws-game-1.18.0/packages/com.gamefoundation.adapter.headless/package.json": "1.18.0",
+      "ws-game-1.18.0/packages/com.gamefoundation.adapter.unity/package.json": "1.18.0",
+      "ws-game-1.18.0/packages/com.gamefoundation.framework-data/package.json": "1.18.0",
+      "ws-game-1.18.0/packages/com.gamefoundation.toolchain/package.json": "1.18.0"
+    }
+  },
+  "validation_boundary": {
+    "dotnet": "PASS",
+    "python": "check-step FAIL; independent pytest 186 passed/4 skipped",
+    "unity": "NOT_RUN (-SkipUnity)",
+    "standalone": "NOT_RUN (-SkipUnity)",
+    "il2cpp": "NOT_RUN (-SkipUnity)",
+    "consumer_smoke": "NOT_RUN (-SkipUnity)",
+    "abi_probe_gate": "SKIP (baseline dist/ws-game-1.12.0.zip absent in frozen worktree)",
+    "abi_probe_formal_rerun": "PASS (old consumer against formal 1.12 and 1.18 exit 0; assembly hashes match; ABI surface breaks 0, additions 275; evidence supplied by independent audit)"
+  }
+}

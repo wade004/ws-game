@@ -922,6 +922,268 @@ def test_public_to_protected_negative_oracle_end_to_end_via_real_dll(
 
 
 # -----------------------------------------------------------------------------
+# TOOL-118-ABI 根治（codex 第十八轮，audit-d6fda65-20260911）：属性/索引器/事件访问器此前不编码
+# static/virtual/abstract/final——public 实例属性改成同名同类型 static 属性（或反过来）dump 前后
+# 逐字节相同，compare `breaks=0`，旧编译消费方运行期 `MissingMethodException`（见
+# docs-project/abi-property/{result.json,consumer-new.log,surface-report.txt}）。下方补齐三类
+# 单元负例（实例↔静态、virtual→final、abstract→非 abstract）与一个正例，另加一个专门钉死
+# SplitPropertyIdentity 修复的复合场景（可见性放宽与 static 化同时发生，不应被放宽豁免误判成
+# 非破坏），最后是真实 `dotnet build` 的端到端负例。
+# -----------------------------------------------------------------------------
+
+
+def test_property_instance_to_static_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:public",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:public,static",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+    assert "Value" in report
+
+
+def test_property_static_to_instance_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """反方向同样要破坏：static 属性改回实例属性，旧消费方的静态调用形态（不带 this）同样
+    `MissingMethodException`。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:public,static",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:public",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_property_virtual_becomes_sealed_override_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """与方法行的 test_virtual_becomes_sealed_override_is_breaking 同一治理口径：属性 virtual
+    变成不可再重写，派生类里重写该属性的旧 consumer 重编译会报"找不到可重写的成员"。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:none,virtual",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:none,sealed-override",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_property_abstract_becomes_non_abstract_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """接口/抽象类里的属性从 abstract（无访问器方法体）变成非 abstract（补了默认实现）：调用形态
+    从"必须由实现方提供访问器"变成"基类自带访问器"，与方法行 abstract 变化同一套"整行即签名"
+    判定——不走既有 interface_new_abstract_member 规则（那条规则只管新增，不管既有成员的
+    abstract 状态翻转），这里应该落进规则 1 的普通身份变化判破坏。"""
+    baseline = [
+        "TYPE\tNs.IFoo\tinterface\tpublic",
+        "MEMBER\tNs.IFoo\tproperty\tValue:System.Int32\tget:public,set:none,abstract",
+    ]
+    current = [
+        "TYPE\tNs.IFoo\tinterface\tpublic",
+        "MEMBER\tNs.IFoo\tproperty\tValue:System.Int32\tget:public,set:none",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_property_static_change_not_masked_by_simultaneous_visibility_widening_is_breaking(
+    abi_surface_dll: Path, tmp_path: Path
+) -> None:
+    """SplitPropertyIdentity 修复专项回归：可见性放宽（protected -> public）与 static 化同时发生。
+    修复前身份只含 abstract、不含 static，current-only 的同身份候选会被误判成"纯可见性放宽"而
+    从 Breaks 里剔除（假阴性）；修复后 static 变化让身份不同，不进入放宽豁免分支，正确判破坏。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:protected,set:none",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:none,static",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+    assert "Value" in report
+
+
+def test_property_unchanged_static_getter_is_not_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """正例：static 属性的 flags 两次 dump 完全相同，不应误判破坏——防止上面几条负例的修复矫枉
+    过正，把"没变化"也判破坏。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:public,static",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:public,static",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "RESULT=OK" in report
+
+
+def test_event_abstract_becomes_non_abstract_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """事件访问器同样要编码 abstract/virtual/final（任务书要求"核查事件访问器与索引器访问器同样
+    编码"）——索引器复用属性分支（见 test_indexer_parameter_type_change_negative_oracle_end_to_end_via_real_dll
+    已覆盖 sig 部分），这里单独钉事件的 abstract 状态翻转。"""
+    baseline = [
+        "TYPE\tNs.IFoo\tinterface\tpublic",
+        "MEMBER\tNs.IFoo\tevent\tChanged:System.Action\tpublic,abstract,remove:public",
+    ]
+    current = [
+        "TYPE\tNs.IFoo\tinterface\tpublic",
+        "MEMBER\tNs.IFoo\tevent\tChanged:System.Action\tpublic,remove:public",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_property_instance_to_static_negative_oracle_end_to_end_via_real_dll(
+    abi_surface_dll: Path, tmp_path: Path
+) -> None:
+    """TOOL-118-ABI 端到端负例：真实编译 baseline（`public int Value { get; set; }` 实例属性）与
+    current（同名同类型改成 `public static int Value { get; set; }`）两份库，一个针对 baseline
+    编译好、不重新编译的旧 consumer 读实例属性——运行期必须 `MissingMethodException`（复现
+    docs-project/abi-property/consumer-new.log 的现场证据），同时修复后的 `abi_surface
+    dump`+`compare` 必须给出 `breaks>0`（RESULT=BREAKING）。"""
+    proj_root = tmp_path / "prop_static_oracle"
+    baseline_src = proj_root / "ApiBaseline"
+    current_src = proj_root / "ApiCurrent"
+    consumer_src = proj_root / "Consumer"
+    for d in (baseline_src, current_src, consumer_src):
+        d.mkdir(parents=True)
+
+    csproj_lib = (
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+        "  <PropertyGroup>\n"
+        "    <TargetFramework>netstandard2.1</TargetFramework>\n"
+        "    <AssemblyName>PropStaticContract</AssemblyName>\n"
+        "    <Nullable>enable</Nullable>\n"
+        "  </PropertyGroup>\n"
+        "</Project>\n"
+    )
+    (baseline_src / "PropStaticBaseline.csproj").write_text(csproj_lib, encoding="utf-8")
+    (current_src / "PropStaticCurrent.csproj").write_text(csproj_lib, encoding="utf-8")
+    (baseline_src / "Api.cs").write_text(
+        "namespace PropStaticOracleNs { public class Foo { public int Value { get; set; } = 7; } }\n",
+        encoding="utf-8",
+    )
+    (current_src / "Api.cs").write_text(
+        "namespace PropStaticOracleNs { public class Foo { public static int Value { get; set; } = 7; } }\n",
+        encoding="utf-8",
+    )
+    (consumer_src / "Consumer.csproj").write_text(
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+        "  <PropertyGroup>\n"
+        "    <OutputType>Exe</OutputType>\n"
+        "    <TargetFramework>net8.0</TargetFramework>\n"
+        "    <Nullable>enable</Nullable>\n"
+        "  </PropertyGroup>\n"
+        "  <ItemGroup>\n"
+        "    <Reference Include=\"PropStaticContract\"><HintPath>lib/PropStaticContract.dll</HintPath></Reference>\n"
+        "  </ItemGroup>\n"
+        "</Project>\n",
+        encoding="utf-8",
+    )
+    (consumer_src / "Program.cs").write_text(
+        "using PropStaticOracleNs;\n"
+        "class Program\n"
+        "{\n"
+        "    static int Main()\n"
+        "    {\n"
+        "        var v = new Foo().Value;\n"
+        "        System.Console.WriteLine(\"ORACLE_CONSUMER_OK:\" + v);\n"
+        "        return 0;\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    build_baseline_dir = proj_root / "build" / "baseline"
+    build_current_dir = proj_root / "build" / "current"
+    for csproj, out_dir in (
+        (baseline_src / "PropStaticBaseline.csproj", build_baseline_dir),
+        (current_src / "PropStaticCurrent.csproj", build_current_dir),
+    ):
+        r = subprocess.run(
+            [DOTNET, "build", str(csproj), "-c", "Release", "--nologo", "-o", str(out_dir)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+        )
+        assert r.returncode == 0, "property static oracle 库构建失败：\n" + r.stdout + r.stderr
+
+    consumer_lib = consumer_src / "lib"
+    consumer_lib.mkdir()
+    shutil.copy(build_baseline_dir / "PropStaticContract.dll", consumer_lib / "PropStaticContract.dll")
+    consumer_out = proj_root / "consumer-bin"
+    r = subprocess.run(
+        [DOTNET, "build", str(consumer_src / "Consumer.csproj"), "-c", "Release", "--nologo", "-o", str(consumer_out)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+    )
+    assert r.returncode == 0, "property static oracle consumer 构建失败：\n" + r.stdout + r.stderr
+
+    consumer_dll = consumer_out / "Consumer.dll"
+    shutil.copy(build_baseline_dir / "PropStaticContract.dll", consumer_out / "PropStaticContract.dll")
+    r = subprocess.run(
+        [DOTNET, str(consumer_dll)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+    )
+    assert r.returncode == 0 and "ORACLE_CONSUMER_OK" in r.stdout, (
+        "property static oracle consumer 针对基线 DLL 自检应成功：\n" + r.stdout + r.stderr
+    )
+
+    shutil.copy(build_current_dir / "PropStaticContract.dll", consumer_out / "PropStaticContract.dll")
+    r = subprocess.run(
+        [DOTNET, str(consumer_dll)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+    )
+    assert r.returncode != 0, "换上 static 属性版本后旧 consumer 应运行失败（MissingMethodException），实际却成功了"
+    assert "MissingMethodException" in (r.stdout + r.stderr), (
+        "期望 MissingMethodException，实际输出：\n" + r.stdout + r.stderr
+    )
+
+    baseline_dump = tmp_path / "prop-static-baseline.txt"
+    current_dump = tmp_path / "prop-static-current.txt"
+    for dll_path, out_path in (
+        (build_baseline_dir / "PropStaticContract.dll", baseline_dump),
+        (build_current_dir / "PropStaticContract.dll", current_dump),
+    ):
+        r = subprocess.run(
+            [DOTNET, str(abi_surface_dll), "dump", "--out", str(out_path), str(dll_path)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+        )
+        assert r.returncode == 0, "abi_surface dump 失败：\n" + r.stdout + r.stderr
+
+    baseline_dump_text = baseline_dump.read_text(encoding="utf-8")
+    current_dump_text = current_dump.read_text(encoding="utf-8")
+    assert baseline_dump_text != current_dump_text, (
+        "修复前的症状：实例属性改静态属性前后 dump 逐字节相同（TOOL-118-ABI 复现场景）：\n"
+        + baseline_dump_text
+    )
+
+    report_path = tmp_path / "prop-static-report.txt"
+    r = subprocess.run(
+        [DOTNET, str(abi_surface_dll), "compare", str(baseline_dump), str(current_dump), "--out", str(report_path)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+    )
+    report_text = report_path.read_text(encoding="utf-8") if report_path.is_file() else ""
+    assert r.returncode == 2, (
+        "修复后 compare 必须判定 breaks>0（旧 consumer 已实测 MissingMethodException）：\n" + report_text
+    )
+    assert "RESULT=BREAKING" in report_text
+    assert "Value" in report_text
+
+
+# -----------------------------------------------------------------------------
 # 真实基线端到端：本机有 dist/ws-game-1.12.0.zip 时跑一遍 toolchain/abi_probe.ps1（内部会构建并
 # 调用 abi_surface），应 exit 0；zip 不存在则 skip（不是 pass）。Windows-only（依赖 PowerShell）。
 # -----------------------------------------------------------------------------

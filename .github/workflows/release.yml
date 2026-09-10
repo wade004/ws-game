@@ -426,7 +426,14 @@ jobs:
           $zr = [System.IO.Compression.ZipFile]::OpenRead($existingZipPath)
 
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          $coreAssemblies = @("Core.Foundation", "Core.Numbers", "Core.Rules", "Core.Carriers", "Core.Gameplay", "Presentation.Common")
+          # See TOOL-118-LOCK judgment note in toolchain/_lock_writeback.ps1: the "generate a full
+          # lock object from an existing verified zip" logic (six core DLLs + Adapters.Stub.dll +
+          # Validator.dll hashes + MANIFEST.txt git_commit) lives in exactly one place
+          # (New-WsGameLockObjectFromZip) now, shared with anything else that needs to rebuild a
+          # lock from a zip; this repair branch cannot silently drop headless_dlls/validator_dlls
+          # again by re-implementing the extraction loop here.
+          . "toolchain\_hash.ps1"
+          . "toolchain\_lock_writeback.ps1"
 
           $missingRaw = @"
           ${{ steps.assets.outputs.missing_files }}
@@ -471,27 +478,6 @@ jobs:
               continue # Already staged in the "Stage self-contained get_framework.ps1 assets" step.
             }
             if ($m -eq "dist/ws-game-$version.lock") {
-              $shaMap = [ordered]@{}
-              foreach ($asm in $coreAssemblies) {
-                $entryPath = "$zipTopLevelName\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\$asm.dll"
-                $entry = $zr.Entries | Where-Object { $_.FullName -eq $entryPath }
-                if (-not $entry) {
-                  Write-Host "Missing dll entry in zip: $entryPath"
-                  exit 1
-                }
-                $tmpDll = [System.IO.Path]::GetTempFileName()
-                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $tmpDll, $true)
-                $sha = (Get-FileHash -Path $tmpDll -Algorithm SHA256).Hash.ToLower()
-                Remove-Item $tmpDll -Force
-                $shaMap[$asm + ".dll"] = $sha
-              }
-              $manifestEntry = $zr.Entries | Where-Object { $_.FullName -eq "$zipTopLevelName\MANIFEST.txt" }
-              $reader = New-Object System.IO.StreamReader($manifestEntry.Open())
-              $manifestText = $reader.ReadToEnd()
-              $reader.Close()
-              $gm = [regex]::Match($manifestText, 'git_commit:\s*(\S+)')
-              $gitCommit = $gm.Groups[1].Value
-              $lockObj = [ordered]@{ version = $version; git_commit = $gitCommit; dlls = $shaMap }
               $samplesShaForLock = $regeneratedSamplesSha
               if ([string]::IsNullOrEmpty($samplesShaForLock)) {
                 $existingSamplesAssetPath = Join-Path $env:RUNNER_TEMP "gf_existing_samples\ws-game-$version-samples.zip"
@@ -503,14 +489,16 @@ jobs:
                   $samplesShaForLock = (Get-FileHash -Path $existingSamplesAssetPath -Algorithm SHA256).Hash.ToLower()
                 }
               }
-              if (-not [string]::IsNullOrEmpty($samplesShaForLock)) {
-                $lockObj["samples"] = [ordered]@{ sha256 = $samplesShaForLock }
-              } else {
+              if ([string]::IsNullOrEmpty($samplesShaForLock)) {
                 Write-Host "Could not determine samples zip sha256 while regenerating $m; omitting 'samples' field (backward-compatible, see get_framework.ps1 judgment note)." -ForegroundColor Yellow
               }
-              $lockJson = ($lockObj | ConvertTo-Json -Depth 5)
-              [System.IO.File]::WriteAllText($m, $lockJson, (New-Object System.Text.UTF8Encoding($false)))
-              Write-Host "Regenerated $m from the DLLs inside the existing zip (same bytes, recomputed hash)."
+              # Same lock object shape/field order/JSON write-out as build.ps1's normal path, and
+              # the same DLL-hash-from-zip extraction as this branch always used for the six core
+              # DLLs -- both now live only in toolchain/_lock_writeback.ps1 (dot-sourced above),
+              # so headless_dlls/validator_dlls cannot be silently dropped here again.
+              $lockObj = New-WsGameLockObjectFromZip -ZipPath $existingZipPath -Version $version -SamplesSha256 $samplesShaForLock
+              Write-WsGameLockFile -Path $m -LockObject $lockObj
+              Write-Host "Regenerated $m from the DLLs inside the existing zip (same bytes, recomputed hash; headless_dlls/validator_dlls included, TOOL-118-LOCK)."
             } elseif ($m -like "*.tgz") {
               $tgzName = Split-Path $m -Leaf
               $entryPath = "$zipTopLevelName\packages\$tgzName"

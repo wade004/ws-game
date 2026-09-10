@@ -1,0 +1,130 @@
+      - name: Repair missing assets from existing zip
+        # 判断记录：见文件头"缺附件 fallback 根治为'从已验证 zip 抽取'"。只在 zip 存在且 commit 已
+        # 校验通过、但 lock 或某个 .tgz 缺失时运行；直接从上一步下载好的 zip 里抽取字节/重算哈希，
+        # 不调用 build.ps1、不触发任何新构建，因此不存在"新构建批次配旧 zip"的混批风险。
+        # 判断记录（消费方反馈 E4 根治，2026-09-10）：samples zip（data/_sample、assets/_sample
+        # 打包）内容全部来自当前 checkout 里的纯文本/资源源文件，不依赖任何编译产物——与六个核心
+        # DLL（确定性构建、字节随 checkout 路径变化）性质不同，可以安全地直接用 Compress-Archive
+        # 重新生成，不算"新构建批次混旧产物"。若缺失清单里有它，统一在 lock/tgz 循环之前重建一次，
+        # 供 lock 分支（若也缺失）引用其 sha256；若 lock 已存在（这次不重建）且带 samples.sha256
+        # 字段，重建出的 samples zip 哈希必须与之一致，否则说明历史 lock 记录的是另一份不同内容的
+        # samples zip（理论上不该发生，但一旦发生绝不能悄悄发布一份哈希对不上已发布 lock 的附件），
+        # 阻断并提示人工核查。lock 需要重建时一并补上 samples 字段：优先用刚重建好的哈希（常见
+        # 情形，samples zip 同批一起缺失）；samples zip 这次不缺失（已是既有附件，少见组合）则下载
+        # 它计算哈希；两者都取不到（理论上不该发生）则跳过该字段，保持向后兼容语义
+        # （get_framework.ps1 遇到缺字段的旧锁文件会跳过对应校验并提示，不视为篡改，见该脚本判断
+        # 记录）。get_framework.ps1/_hash.ps1 两个纯源文件不需要从 zip 里抽取/重算——上面 "Stage
+        # self-contained get_framework.ps1 assets" 步骤已经无条件拷贝到位，这里直接跳过。
+        # 判断记录（run: 正文必须是纯 ASCII，见文件头判断记录）：本步骤 run: 正文里原本内联的中文
+        # 说明已移到这里（YAML # 注释，不受该限制），run: 正文只保留英文提示文案。
+        if: steps.assets.outputs.skip != 'true' && steps.assets.outputs.zip_missing != 'true'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          $version = "${{ steps.version.outputs.version }}"
+          $tag = "${{ steps.version.outputs.tag }}"
+          $existingZipPath = "${{ steps.assets.outputs.existing_zip_path }}"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zipTopLevelName = "ws-game-$version"
+          $zr = [System.IO.Compression.ZipFile]::OpenRead($existingZipPath)
+
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          $coreAssemblies = @("Core.Foundation", "Core.Numbers", "Core.Rules", "Core.Carriers", "Core.Gameplay", "Presentation.Common")
+
+          $missingRaw = @"
+          ${{ steps.assets.outputs.missing_files }}
+          "@
+          $missing = $missingRaw -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+
+          # See YAML comment above for rationale (samples zip is rebuilt here from plain checkout
+          # source files, unlike the DLL/lock/tgz path which must come from the verified zip).
+          $samplesZipMissingPath = "dist/ws-game-$version-samples.zip"
+          $regeneratedSamplesSha = $null
+          if ($missing -contains $samplesZipMissingPath) {
+            $samplesStagingRoot = Join-Path $env:RUNNER_TEMP ("gf_release_samples_staging_" + [guid]::NewGuid().ToString("N"))
+            $samplesStagingDir = Join-Path $samplesStagingRoot $zipTopLevelName
+            New-Item -ItemType Directory -Force -Path $samplesStagingDir | Out-Null
+            Copy-Item -Path "data\_sample" -Destination (Join-Path $samplesStagingDir "data\_sample") -Recurse -Force
+            Copy-Item -Path "assets\_sample" -Destination (Join-Path $samplesStagingDir "assets\_sample") -Recurse -Force
+            Compress-Archive -Path $samplesStagingDir -DestinationPath $samplesZipMissingPath -CompressionLevel Optimal -Force
+            Remove-Item -Path $samplesStagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+            $regeneratedSamplesSha = (Get-FileHash -Path $samplesZipMissingPath -Algorithm SHA256).Hash.ToLower()
+            Write-Host "Regenerated $samplesZipMissingPath from checkout (plain source files, no build-path nondeterminism); sha256=$regeneratedSamplesSha"
+
+            if (-not ($missing -contains "dist/ws-game-$version.lock")) {
+              $existingLockPathForSamplesCheck = Join-Path $env:RUNNER_TEMP "gf_existing_lock\ws-game-$version.lock"
+              if (Test-Path $existingLockPathForSamplesCheck) {
+                $existingLockForSamplesCheck = Get-Content -Raw -Path $existingLockPathForSamplesCheck | ConvertFrom-Json
+                if ($null -ne $existingLockForSamplesCheck.samples -and -not [string]::IsNullOrEmpty($existingLockForSamplesCheck.samples.sha256)) {
+                  if ($existingLockForSamplesCheck.samples.sha256 -ne $regeneratedSamplesSha) {
+                    Write-Host "BLOCKED: existing ws-game-$version.lock records samples.sha256=$($existingLockForSamplesCheck.samples.sha256), but the samples zip regenerated from this commit's checkout hashes to $regeneratedSamplesSha. Refusing to publish a mismatched pair; investigate manually (see file header note on deterministic-build mixed-batch risk)."
+                    exit 1
+                  }
+                  Write-Host "Regenerated samples zip sha256 matches existing lock's samples.sha256 field."
+                }
+              }
+            }
+          }
+
+          foreach ($m in $missing) {
+            if ($m -eq $samplesZipMissingPath) {
+              continue # Already rebuilt above.
+            }
+            if ($m -eq "dist/get_framework.ps1" -or $m -eq "dist/_hash.ps1") {
+              continue # Already staged in the "Stage self-contained get_framework.ps1 assets" step.
+            }
+            if ($m -eq "dist/ws-game-$version.lock") {
+              $shaMap = [ordered]@{}
+              foreach ($asm in $coreAssemblies) {
+                $entryPath = "$zipTopLevelName\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\$asm.dll"
+                $entry = $zr.Entries | Where-Object { $_.FullName -eq $entryPath }
+                if (-not $entry) {
+                  Write-Host "Missing dll entry in zip: $entryPath"
+                  exit 1
+                }
+                $tmpDll = [System.IO.Path]::GetTempFileName()
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $tmpDll, $true)
+                $sha = (Get-FileHash -Path $tmpDll -Algorithm SHA256).Hash.ToLower()
+                Remove-Item $tmpDll -Force
+                $shaMap[$asm + ".dll"] = $sha
+              }
+              $manifestEntry = $zr.Entries | Where-Object { $_.FullName -eq "$zipTopLevelName\MANIFEST.txt" }
+              $reader = New-Object System.IO.StreamReader($manifestEntry.Open())
+              $manifestText = $reader.ReadToEnd()
+              $reader.Close()
+              $gm = [regex]::Match($manifestText, 'git_commit:\s*(\S+)')
+              $gitCommit = $gm.Groups[1].Value
+              $lockObj = [ordered]@{ version = $version; git_commit = $gitCommit; dlls = $shaMap }
+              $samplesShaForLock = $regeneratedSamplesSha
+              if ([string]::IsNullOrEmpty($samplesShaForLock)) {
+                $existingSamplesAssetPath = Join-Path $env:RUNNER_TEMP "gf_existing_samples\ws-game-$version-samples.zip"
+                if (-not (Test-Path $existingSamplesAssetPath)) {
+                  New-Item -ItemType Directory -Force -Path (Split-Path $existingSamplesAssetPath -Parent) | Out-Null
+                  gh release download $tag -p "ws-game-$version-samples.zip" -D (Split-Path $existingSamplesAssetPath -Parent) --clobber 2>$null
+                }
+                if (Test-Path $existingSamplesAssetPath) {
+                  $samplesShaForLock = (Get-FileHash -Path $existingSamplesAssetPath -Algorithm SHA256).Hash.ToLower()
+                }
+              }
+              if (-not [string]::IsNullOrEmpty($samplesShaForLock)) {
+                $lockObj["samples"] = [ordered]@{ sha256 = $samplesShaForLock }
+              } else {
+                Write-Host "Could not determine samples zip sha256 while regenerating $m; omitting 'samples' field (backward-compatible, see get_framework.ps1 judgment note)." -ForegroundColor Yellow
+              }
+              $lockJson = ($lockObj | ConvertTo-Json -Depth 5)
+              [System.IO.File]::WriteAllText($m, $lockJson, (New-Object System.Text.UTF8Encoding($false)))
+              Write-Host "Regenerated $m from the DLLs inside the existing zip (same bytes, recomputed hash)."
+            } elseif ($m -like "*.tgz") {
+              $tgzName = Split-Path $m -Leaf
+              $entryPath = "$zipTopLevelName\packages\$tgzName"
+              $entry = $zr.Entries | Where-Object { $_.FullName -eq $entryPath }
+              if (-not $entry) {
+                Write-Host "Missing tgz entry in zip: $entryPath"
+                exit 1
+              }
+              $destDir = Split-Path $m -Parent
+              New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+              [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $m, $true)
+              Write-Host "Extracted $m from the existing zip's embedded packages."

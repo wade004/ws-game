@@ -59,6 +59,9 @@ PLUGINS_CORE_REL = (
     "adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core"
 )
 
+HEADLESS_DLL_NAME = "Adapters.Stub.dll"
+VALIDATOR_DLL_NAME = "Validator.dll"
+
 pytestmark = pytest.mark.skipif(
     sys.platform != "win32", reason="get_framework.ps1 只在 Windows PowerShell 下运行"
 )
@@ -81,6 +84,12 @@ POWERSHELL = _find_powershell_executable() if sys.platform == "win32" else None
 def _build_fixture_zip(zip_path: Path, version: str) -> dict:
     """构造一个最小但结构合法的 ws-game 发布 zip：顶层目录 + 六个 DLL（内容固定，两次调用
     传入同一个 version 会产出内容完全相同的 zip，模拟"同一份发布产物"）。
+
+    TOOL-118-LOCK 根治（codex 第十八轮）：也带上无头适配层/预编译 validator 两个 DLL 的固定内容
+    条目——get_framework.ps1 现在对 version >= 1.15.0 的锁文件强制要求 headless_dlls/
+    validator_dlls 字段齐全（缺字段直接判损坏拒绝，不再无条件跳过，见该脚本判断记录），本文件
+    fixture 版本号（8.8.x）显然 >= 1.15.0，_write_lock 默认会带上这两个字段，这里必须有对应的
+    zip 条目可供哈希校验通过。
     """
     top_dir_name = f"ws-game-{version}"
     dll_hashes: dict[str, str] = {}
@@ -89,12 +98,45 @@ def _build_fixture_zip(zip_path: Path, version: str) -> dict:
             content = f"fixture-dll:{dll_name}:{version}".encode("utf-8")
             dll_hashes[dll_name] = hashlib.sha256(content).hexdigest()
             zf.writestr(f"{top_dir_name}/{PLUGINS_CORE_REL}/{dll_name}", content)
+        headless_content = f"fixture-dll:{HEADLESS_DLL_NAME}:{version}".encode("utf-8")
+        zf.writestr(f"{top_dir_name}/adapters/headless/{HEADLESS_DLL_NAME}", headless_content)
+        validator_content = f"fixture-dll:{VALIDATOR_DLL_NAME}:{version}".encode("utf-8")
+        zf.writestr(f"{top_dir_name}/toolchain/validator/bin/{VALIDATOR_DLL_NAME}", validator_content)
         zf.writestr(f"{top_dir_name}/MANIFEST.txt", f"version={version}\n")
     return dll_hashes
 
 
-def _write_lock(lock_path: Path, version: str, dll_hashes: dict, git_commit: str = "deadbeef") -> None:
-    lock_obj = {"version": version, "git_commit": git_commit, "dlls": dll_hashes}
+def _fixture_headless_dlls(version: str) -> dict:
+    content = f"fixture-dll:{HEADLESS_DLL_NAME}:{version}".encode("utf-8")
+    return {HEADLESS_DLL_NAME: hashlib.sha256(content).hexdigest()}
+
+
+def _fixture_validator_dlls(version: str) -> dict:
+    content = f"fixture-dll:{VALIDATOR_DLL_NAME}:{version}".encode("utf-8")
+    return {VALIDATOR_DLL_NAME: hashlib.sha256(content).hexdigest()}
+
+
+def _write_lock(
+    lock_path: Path,
+    version: str,
+    dll_hashes: dict,
+    git_commit: str = "deadbeef",
+    headless_dlls: dict | None = None,
+    validator_dlls: dict | None = None,
+) -> None:
+    """默认带上 headless_dlls/validator_dlls（TOOL-118-LOCK 根治后 version >= 1.15.0 的锁文件
+    强制要求这两个字段）。传 ``headless_dlls={}``/``validator_dlls={}``（空字典，不是 None）可以
+    显式构造出"缺这两个字段"的旧格式锁文件，供需要测试该缺字段场景的用例使用。
+    """
+    lock_obj: dict = {"version": version, "git_commit": git_commit, "dlls": dll_hashes}
+    if headless_dlls is None:
+        headless_dlls = _fixture_headless_dlls(version)
+    if headless_dlls:
+        lock_obj["headless_dlls"] = headless_dlls
+    if validator_dlls is None:
+        validator_dlls = _fixture_validator_dlls(version)
+    if validator_dlls:
+        lock_obj["validator_dlls"] = validator_dlls
     lock_path.write_text(json.dumps(lock_obj, indent=2), encoding="utf-8")
 
 
@@ -226,12 +268,17 @@ def test_legacy_lock_with_source_local_path_still_accepted(tmp_path: Path) -> No
     target = workspace / "packages"
     game_lock_path = workspace / "ws-game.lock"
 
-    # 预置一份"旧格式"锁文件：version/git_commit/dlls 与本次要拉取的内容完全一致，但 source
-    # 字段还是改动前的形状（channel + local_path，指向一个跟本次调用毫不相干的路径）。
+    # 预置一份"旧格式"锁文件：version/git_commit/dlls/headless_dlls/validator_dlls 与本次要拉取的
+    # 内容完全一致（TOOL-118-LOCK 根治后 Test-LockContentEquivalent 会比较这两个字段，见
+    # get_framework.ps1 判断记录——这里必须与 _write_lock 默认写入 lock_source_path 的值一致，
+    # 否则会被判定为"内容不同"触发改写，掩盖了本用例真正要测的点：source 字段形状不同不触发改写），
+    # 但 source 字段还是改动前的形状（channel + local_path，指向一个跟本次调用毫不相干的路径）。
     legacy_lock_obj = {
         "version": version,
         "git_commit": "deadbeef",
         "dlls": dll_hashes,
+        "headless_dlls": _fixture_headless_dlls(version),
+        "validator_dlls": _fixture_validator_dlls(version),
         "source": {
             "channel": "zip",
             "local_path": r"C:\some\completely\different\old\machine\path\ws-game-8.8.10.zip",

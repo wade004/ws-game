@@ -629,8 +629,30 @@ DLL 时产生 5 处假破坏——框架给公开构造函数新增尾部可选�
 而受影响；按值/存在性编码后误将这一合法兼容模式判成破坏，因此撤回、改为不编码（真实反射验证见
 `toolchain/tests/test_abi_surface_compare.py::test_params_and_optional_default_value_are_not_encoded_in_real_dump`）。
 
+### `abi_surface` dump/compare 覆盖范围补齐（TOOL-118-ABI 根治，codex 第十八轮，audit-d6fda65-20260911）
+
+此前属性行 flags 只有 `get:VIS,set:VIS[,abstract]`，完全不编码访问器的 static/virtual/final——
+public 实例属性改成同名同类型 static 属性（或反过来）两次 dump 输出完全相同，`compare` 判
+`breaks=0`，而旧编译消费方运行期 `System.MissingMethodException`（getter/setter 从虚方法调用
+`callvirt` 变成 static 方法调用 `call`，物理绑定方式不同；最小 oracle 见
+`toolchain/tests/test_abi_surface_compare.py::test_property_instance_to_static_negative_oracle_end_to_end_via_real_dll`，
+复现证据见 `docs-project/abi-property/{result.json,consumer-new.log,surface-report.txt}`）。索引器
+复用属性分支的同一套 flags，事件此前只记 `static`、没记 `abstract`/`virtual`/`final`，一并补齐：
+
+| 维度 | dump 记录位置 | compare 判定 |
+|---|---|---|
+| 属性/索引器实例 ↔ 静态 | property 行 flags 追加 `static`（get/set 任一访问器判定，C# 不允许同一属性两个访问器 static 状态不一致） | 变化=破坏 |
+| 属性/索引器 abstract/virtual/sealed-override | property 行 flags 追加，与 method 行同一套编码（`abstract`/`virtual`/`sealed-override` 三选一或都不出现） | 变化=破坏 |
+| 事件 abstract/virtual/sealed-override | event 行 flags 追加，取 add/remove 访问器并集判定 | 变化=破坏 |
+
+与此配套，`SurfaceCompareLogic.SplitPropertyIdentity`（可见性放宽豁免判定用的"身份"）此前只把
+`abstract` 状态纳入身份、不含 static/virtual/sealed-override，会让"属性同时可见性放宽 + 从实例
+变 static"这类复合变化被误判成纯可见性放宽而放过（假阴性）；现在身份纳入全部非可见性 token，
+与 method 行 `SplitVisibility` 的"去掉可见性 token 后其余部分参与身份比较"同一口径（回归测试见
+`test_property_static_change_not_masked_by_simultaneous_visibility_widening_is_breaking`）。
+
 用新版工具对 `dist/ws-game-1.12.0.zip`、`dist/ws-game-1.13.0.zip` 两份历史基线重跑当前工作树六个
-DLL：两者均 `breaks=0`（未发现历史真实破坏；1.13.0 场景的手写消费方探针第 1 点因 consumer 源码
-只锚定 `abi_probe_baseline.txt` 记录的 1.12.0 签名集合，对 1.13.0 编译会失败，这是既有已知边界，
-与本次 dump/compare 覆盖范围扩充无关，不在本次改动范围——1.13.0 只跑 dump/compare 两份基线
-DLL，不跑消费方探针）。
+DLL：两者均 `breaks=0`（1.12.0 additions=275，1.13.0 additions=186；未发现历史真实破坏；1.13.0
+场景的手写消费方探针第 1 点因 consumer 源码只锚定 `abi_probe_baseline.txt` 记录的 1.12.0 签名
+集合，对 1.13.0 编译会失败，这是既有已知边界，与本次 dump/compare 覆盖范围扩充无关，不在本次
+改动范围——1.13.0 只跑 dump/compare 两份基线 DLL，不跑消费方探针）。
