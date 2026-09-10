@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Core.Foundation.Common.Json;
 using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
@@ -180,10 +181,17 @@ namespace Core.Foundation.DataRegistry
             return LoadAllCore(_sources);
         }
 
-        /// <summary>多根加载：见类型级判断记录"合并规则"。<paramref name="sources"/> 内的顺序
-        /// 只影响诊断信息（<see cref="LoadedTable.Locations"/> 的排列顺序、冲突消息里"先出现的根"
-        /// 是谁），不影响合并结果本身是否报错——两个根之间同一主键冲突/同一表 schema_version
-        /// 不一致，无论顺序都会报错。</summary>
+        /// <summary>多根加载：见类型级判断记录"合并规则""覆盖语义"。<paramref name="sources"/> 内的
+        /// 顺序只影响诊断信息（<see cref="LoadedTable.Locations"/> 的排列顺序、冲突消息里"先出现的根"
+        /// 是谁）与"层"含义（先声明的根是前层，后声明的根是后层，覆盖语义按此判定谁是发起覆盖的
+        /// "后层行"），不影响合并结果本身是否报错——两个根之间同一表 <c>schema_version</c> 不一致，
+        /// 无论顺序都会报错，不受覆盖语义影响（勘误，第十七方深度审核 DOC-162-01：与类型级判断记录
+        /// "覆盖语义"对齐）。同一主键跨根重复默认仍阻断，但这不是无条件的——
+        /// <see cref="DataRegistryOptions.AllowOverride"/> 为 <c>true</c>（默认）且后层行显式声明
+        /// <c>"override": true</c> 时，改为整行覆盖前层同主键行、不报错（记一条
+        /// <see cref="OverrideDiagnostic"/>）；前层行显式声明 <c>"final": true</c> 时拒绝被覆盖，仍判定
+        /// 为阻断错误。完整条件与单根场景例外见类型级判断记录"覆盖语义"、<c>data/README.md</c>"多根
+        /// 加载与合并规则"。</summary>
         public ValidationReport LoadAll(IReadOnlyList<IDataSource> sources)
         {
             if (sources == null) throw new ArgumentNullException(nameof(sources));
@@ -734,11 +742,27 @@ namespace Core.Foundation.DataRegistry
                 return null;
             }
 
-            if (!rootObj.TryGetValue("schema_version", out var svVal) || !(svVal is JsonNumber svNum)
-                || !svNum.TryGetInt64(out var svLong) || svLong < 1)
+            if (!rootObj.TryGetValue("schema_version", out var svVal) || !(svVal is JsonNumber svNum))
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "envelope",
                     "缺少或非法的顶层字段 \"schema_version\"（须为 >=1 的整数）"));
+                return null;
+            }
+
+            // V-01 根治（第十七方深度审核）：此前先 TryGetInt64 再直接 `(int)svLong` 强转，
+            // int.MaxValue 以上的合法 long（如 4294967297 = 2^32+1）会在强转时溢出回绕（unchecked
+            // 语义），4294967297 回绕成 1，被当作"版本 1"放行，读屏障完全不生效——这正是审核报告
+            // V-01 的复现路径。修复：强转之前显式核对上界 `svLong <= int.MaxValue`（`schemaVersion`
+            // 字段与 TableSchema.CurrentSchemaVersion 都固定是 int，见 TableSchema.cs，未来版本号不
+            // 可能合法地超出 int.MaxValue，超出即视为非法输入而非"更高但暂不支持的版本"）；非整数、
+            // 负数、零、越界统一归为同一类"schema_version 字段本身不合法"问题（检查名改用
+            // "schema_version"，与下面"版本过高/迁移缺环节"两条同名检查共用同一检查名，消息里点出
+            // 实际收到的取值，方便定位）。
+            if (!svNum.TryGetInt64(out var svLong) || svLong < 1 || svLong > int.MaxValue)
+            {
+                var actualText = svNum.RawNumberText ?? svNum.Value.ToString("R", CultureInfo.InvariantCulture);
+                issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "schema_version",
+                    $"表 \"{tableName}\" 的顶层字段 \"schema_version\" 取值 \"{actualText}\" 非法（须为 [1, {int.MaxValue}] 范围内的整数）"));
                 return null;
             }
             var schemaVersion = (int)svLong;

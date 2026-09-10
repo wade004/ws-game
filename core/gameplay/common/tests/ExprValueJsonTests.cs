@@ -39,6 +39,24 @@ namespace Tests.Gameplay.Common
             Assert.False(ExprValueJson.IsValid(value));
         }
 
+        /// <summary>V-02 根治验收（第十七方深度审核）：<see cref="ExprValueJson.ToJson"/> 的 Int
+        /// 分支改用 <c>JsonNumber.FromInt64</c> 之后，超过 2^53 的整数值必须精确往返（与
+        /// <c>Tests.Gameplay.WorldState.WorldStateTests</c> 同款判断记录，验证同一逻辑在
+        /// <c>RewardBundle</c>/<c>dialog</c> 复用路径上的独立实现）。</summary>
+        [Fact]
+        public void ToJson_FromJson_RoundTripsIntExactlyAboveDoublePrecisionBoundary()
+        {
+            const long hugeInt = 9007199254740993L; // 2^53 + 1
+            var value = ExprValue.OfInt(hugeInt);
+
+            var json = ExprValueJson.ToJson(value);
+            var text = JsonWriter.Write(json);
+            Assert.Contains(hugeInt.ToString(System.Globalization.CultureInfo.InvariantCulture), text);
+
+            var roundTripped = ExprValueJson.Parse(JsonReader.Parse(text));
+            Assert.Equal(value, roundTripped);
+        }
+
         [Fact]
         public void IsValid_ArrayShape_ReturnsFalse()
         {

@@ -40,18 +40,21 @@ namespace Core.Gameplay.Quest
                     continue;
                 }
 
+                // 以下三处改用 JsonNumber.FromInt64（第十七方深度审核 V-02 收口后新增的统一工厂）代替
+                // 手写的 ToString(InvariantCulture)，行为不变（本就是精确整数原始文本），只是收敛到
+                // 一个公开工厂，避免各处各写一份格式化代码。
                 var countsArray = new List<JsonValue>(progress.ObjectiveCounts.Count);
                 foreach (var count in progress.ObjectiveCounts)
                 {
-                    countsArray.Add(new JsonNumber(count, count.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                    countsArray.Add(JsonNumber.FromInt64(count));
                 }
 
                 var entry = new JsonObjectBuilder()
                     .Add("state", new JsonString(progress.State.ToString()))
                     .Add("objective_counts", new JsonArray(countsArray))
-                    .Add("completion_count", new JsonNumber(progress.CompletionCount, progress.CompletionCount.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+                    .Add("completion_count", JsonNumber.FromInt64(progress.CompletionCount))
                     .Add("last_completed_day", progress.LastCompletedDay.HasValue
-                        ? new JsonNumber(progress.LastCompletedDay.Value, progress.LastCompletedDay.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                        ? JsonNumber.FromInt64(progress.LastCompletedDay.Value)
                         : (JsonValue)JsonNull.Instance)
                     .Build();
 

@@ -280,7 +280,10 @@ namespace Core.Numbers.Progression
             return new JsonObjectBuilder()
                 .Add("curve_id", new JsonString(unit.Curve.Id.Value))
                 .Add("level", new JsonNumber(unit.Level))
-                .Add("xp", new JsonNumber(unit.Xp))
+                // xp 是 long（见字段声明），与 CurrencyPersistable 同款判断记录：用 FromInt64 保留精确
+                // 原始文本，避免超过 2^53 的 xp 值经 double 中转丢精度；level 是 int（远小于 2^53），
+                // 不受影响，维持原写法。
+                .Add("xp", JsonNumber.FromInt64(unit.Xp))
                 .Build();
         }
 

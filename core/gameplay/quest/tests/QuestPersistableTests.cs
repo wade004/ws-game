@@ -1,5 +1,6 @@
 using System.Linq;
 using Core.Foundation.Common;
+using Core.Foundation.Common.Json;
 using Core.Gameplay.Quest;
 using Xunit;
 
@@ -70,6 +71,43 @@ namespace Tests.Gameplay.Quest
             var log = h.Host.GetLog(Player);
             Assert.Single(log);
             Assert.Equal(questA, log[0].QuestId);
+        }
+
+        /// <summary>V-02 根治验收（第十七方深度审核）：<see cref="QuestPersistable.Save"/> 的
+        /// <c>last_completed_day</c> 字段改用 <c>JsonNumber.FromInt64</c> 之后，超过 2^53 的"天数"
+        /// 必须精确往返（直接构造一份携带巨大 <c>last_completed_day</c> 的快照 Load 进去，再 Save
+        /// 出来核对精确原文——不需要真的推进 9 千万亿天）。</summary>
+        [Fact]
+        public void Load_Save_RoundTripsLastCompletedDayExactlyAboveDoublePrecisionBoundary()
+        {
+            const long hugeDay = 9007199254740993L; // 2^53 + 1
+            var questId = new Id("quest.sample_daily");
+            var quest = SimpleEscortQuest(questId, QuestRepeatable.Daily);
+            var h = new Harness(new[] { quest });
+            var persistable = new QuestPersistable(h.Host, () => Player);
+
+            var craftedSnapshot = new JsonObjectBuilder()
+                .Add(questId.Value, new JsonObjectBuilder()
+                    .Add("state", new JsonString("TurnedIn"))
+                    .Add("objective_counts", new JsonArray(new JsonValue[] { new JsonNumber(1) }))
+                    .Add("completion_count", new JsonNumber(1))
+                    .Add("last_completed_day", new JsonNumber((double)hugeDay, hugeDay.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+                    .Build())
+                .Build();
+
+            persistable.Load(craftedSnapshot);
+            var resaved = persistable.Save();
+            var text = JsonWriter.Write(resaved);
+
+            Assert.Contains(hugeDay.ToString(System.Globalization.CultureInfo.InvariantCulture), text);
+
+            // 再走一轮 Load→Save，确认精确文本在"读回来的宿主"上依然稳定复现（不是巧合地只在
+            // 第一次 Save 时凑巧精确）。
+            var h2 = new Harness(new[] { quest });
+            var persistable2 = new QuestPersistable(h2.Host, () => Player);
+            persistable2.Load(JsonReader.Parse(text));
+            var reresaved = persistable2.Save();
+            Assert.Equal(text, JsonWriter.Write(reresaved));
         }
 
         /// <summary>daily 任务完成计数/每日记录必须随快照回滚，不能停留在读档后又推进过的值上。</summary>

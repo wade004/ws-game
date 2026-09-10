@@ -450,6 +450,25 @@ namespace Tests.Foundation.SaveSystem
             Assert.Equal((Id?)new Id("difficulty.normal"), meta.DifficultyId);
         }
 
+        /// <summary>V-02 根治验收（第十七方深度审核）：<c>meta.play_time_seconds</c> 改用
+        /// <c>JsonNumber.FromInt64</c> 写出之后，超过 2^53 的游玩时长（秒）必须精确往返，不再退化到
+        /// 相邻可表示的 double。</summary>
+        [Fact]
+        public void Save_Meta_RoundTripsPlayTimeSecondsExactlyAboveDoublePrecisionBoundary()
+        {
+            const long hugePlayTime = 9007199254740993L; // 2^53 + 1
+            var fs = new StubFileSystem();
+            var slotId = new Id("slot.meta_precision");
+            var sut = CreateSut(fs);
+
+            var result = sut.Save(new SaveRequest(slotId, "2026-09-10T00:00:00", playTimeSeconds: hugePlayTime));
+            Assert.True(result.Success);
+
+            var loadResult = sut.Load(slotId);
+            Assert.Equal(LoadStatus.Loaded, loadResult.Status);
+            Assert.Equal((long?)hugePlayTime, loadResult.Meta!.PlayTimeSeconds);
+        }
+
         [Fact]
         public void Save_Meta_PreservesCreatedAtAcrossOverwrite()
         {

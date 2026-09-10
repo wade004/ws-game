@@ -308,8 +308,11 @@ namespace Core.Gameplay.WorldState
                 case ExprValueKind.Int:
                     // 判断记录：整数用不带小数点的原始文本写出（TryGetInt64 据此在读档时识别为 Int），
                     // 与下面 Number 分支故意写出的".0"后缀互斥，二者共同保证 Int/Number 在
-                    // JsonNumber 这同一个 JSON 种类下仍可无损区分（见 README 判断记录）。
-                    return new JsonNumber(value.AsInt, value.AsInt.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    // JsonNumber 这同一个 JSON 种类下仍可无损区分（见 README 判断记录）。改用
+                    // JsonNumber.FromInt64（第十七方深度审核 V-02 收口后新增的统一工厂）代替手写的
+                    // ToString(InvariantCulture)，行为不变，只是把"整数精确原始文本"这条规则收敛到
+                    // 一个公开工厂，避免各处各写一份格式化代码。
+                    return JsonNumber.FromInt64(value.AsInt);
 
                 case ExprValueKind.Number:
                     return new JsonNumber(value.AsNumber, FormatNumberWithDecimalPoint(value.AsNumber));

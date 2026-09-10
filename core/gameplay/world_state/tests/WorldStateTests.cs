@@ -295,6 +295,25 @@ namespace Tests.Gameplay.WorldState
             Assert.Equal(ExprValue.OfId(new Id("item.iron_sword")), loadedInto.Get(new Id("world.flag.id")));
         }
 
+        /// <summary>V-02 根治验收（第十七方深度审核）：<c>WorldState.ToJson</c> 的 Int 分支改用
+        /// <c>JsonNumber.FromInt64</c> 之后，超过 2^53 的整数世界标志必须精确往返。</summary>
+        [Fact]
+        public void Save_Load_RoundTripsIntFlagExactlyAboveDoublePrecisionBoundary()
+        {
+            const long hugeInt = 9007199254740993L; // 2^53 + 1
+            var state = new Core.Gameplay.WorldState.WorldState(TestSupport.NewEventBus());
+            state.Set(new Id("world.flag.huge_int"), ExprValue.OfInt(hugeInt), WriterQuest);
+
+            var saved = state.Save();
+            var text = JsonWriter.Write(saved);
+            Assert.Contains(hugeInt.ToString(System.Globalization.CultureInfo.InvariantCulture), text);
+
+            var loadedInto = new Core.Gameplay.WorldState.WorldState(TestSupport.NewEventBus());
+            loadedInto.Load(JsonReader.Parse(text));
+
+            Assert.Equal(ExprValue.OfInt(hugeInt), loadedInto.Get(new Id("world.flag.huge_int")));
+        }
+
         [Fact]
         public void Save_DistinguishesIdFromString_ViaDollarIdWrapper()
         {

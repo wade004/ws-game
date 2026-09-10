@@ -41,7 +41,14 @@ namespace Core.Gameplay.Economy
                 var balance = _economy.GetBalance(_unitId, currencyId);
                 if (balance != 0)
                 {
-                    builder.Add(currencyId.Value, new JsonNumber(balance));
+                    // V-02 根治（第十七方深度审核）：balance 是 long，`new JsonNumber(balance)` 会先把
+                    // balance 隐式转换成 double 再存，2^53 以上的精确整数（如 9007199254740993）在这一步
+                    // 就已经丢精度（往返变成 9007199254740992），JsonWriter/JsonReader 之后原样传递这个
+                    // 已经错误的 double，看不出问题。改用 JsonNumber.FromInt64 保留精确的十进制原始文本，
+                    // 使 Save→JsonWriter→JsonReader→Load（本类 Load 方法已经在用 TryGetInt64，优先按原始
+                    // 文本解析）全程不经过有精度损失的 long/double 转换。旧存档（历史 double 文本，如无
+                    // 原始文本的科学计数法）仍可被 TryGetInt64 的 double 兜底路径读取，不受影响。
+                    builder.Add(currencyId.Value, JsonNumber.FromInt64(balance));
                 }
             }
 

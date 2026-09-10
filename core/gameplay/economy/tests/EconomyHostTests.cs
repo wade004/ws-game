@@ -15,6 +15,12 @@ namespace Tests.Gameplay.Economy
             "[{\"id\": \"econ.currency.sample_coin\", \"name_key\": \"l10n.currency.sample.name\", " +
             "\"cap\": 1000, \"display_ref\": \"display.sample_coin\"}]";
 
+        // V-02 根治验收（第十七方深度审核）：不带 cap 的货币行，供大额精度往返测试使用——SetBalance
+        // 会把带 cap 的余额夹到 [0, cap]，测试 2^53 以上的大整数往返必须先排除 cap 干扰。
+        private const string UncappedCurrencyRow =
+            "[{\"id\": \"econ.currency.sample_coin\", \"name_key\": \"l10n.currency.sample.name\", " +
+            "\"display_ref\": \"display.sample_coin\"}]";
+
         private static EconomyHost NewHost(
             string currencyRowsJson,
             string vendorRowsJson,
@@ -261,6 +267,51 @@ namespace Tests.Gameplay.Economy
             new CurrencyPersistable(unitId, host2).Load(saved);
 
             Assert.Equal(42, host2.GetBalance(unitId, new Id("econ.currency.sample_coin")));
+        }
+
+        // -----------------------------------------------------------------
+        // V-02 根治验收（第十七方深度审核）：CurrencyPersistable.Save 改用 JsonNumber.FromInt64
+        // 之后，超过 2^53（double 精确整数表示上界）的余额必须精确往返，不再退化到相邻可表示 double。
+        // -----------------------------------------------------------------
+
+        [Theory]
+        [InlineData(9007199254740993L)] // 2^53 + 1，审核报告 V-02 复现原文的确切输入
+        [InlineData(long.MaxValue)]
+        public void CurrencyPersistable_RoundTripsBalances_ExactlyAboveDoublePrecisionBoundary(long intended)
+        {
+            var host1 = NewHost(UncappedCurrencyRow, "[]", out _, out _);
+            var unitId = new Id("player.precision");
+            var currencyId = new Id("econ.currency.sample_coin");
+            host1.SetBalance(unitId, currencyId, intended);
+
+            var saved = new CurrencyPersistable(unitId, host1).Save();
+            var text = JsonWriter.Write(saved);
+            var roundtripped = JsonReader.Parse(text);
+
+            // 写出文本必须是精确的十进制原始文本，不能出现"...992"这类 double 舍入痕迹（V-02 复现
+            // 原文的直接症状）。
+            Assert.Contains(intended.ToString(System.Globalization.CultureInfo.InvariantCulture), text);
+
+            var host2 = NewHost(UncappedCurrencyRow, "[]", out _, out _);
+            new CurrencyPersistable(unitId, host2).Load(roundtripped);
+
+            Assert.Equal(intended, host2.GetBalance(unitId, currencyId));
+        }
+
+        /// <summary>旧存档兼容：Save 改动前产出的存档文本（对该修复而言就是"不带特殊标记的普通整数
+        /// JSON 字面量"，因为 <see cref="JsonReader"/> 解析任何整数字面量时都会重新赋值
+        /// <see cref="JsonNumber.RawNumberText"/>，与它最初是被谁、用什么方式写出的无关）必须仍可
+        /// 正常 Load，不需要任何迁移步骤。</summary>
+        [Fact]
+        public void CurrencyPersistable_Load_AcceptsLegacyPlainIntegerJsonText()
+        {
+            var host = NewHost(OneCurrencyRow, "[]", out _, out _);
+            var unitId = new Id("player.sample_1");
+            var legacyJson = JsonReader.Parse("{\"econ.currency.sample_coin\": 100}");
+
+            new CurrencyPersistable(unitId, host).Load(legacyJson);
+
+            Assert.Equal(100, host.GetBalance(unitId, new Id("econ.currency.sample_coin")));
         }
 
         [Fact]

@@ -880,7 +880,9 @@ namespace Core.Foundation.SaveSystem
 
             if (meta.PlayTimeSeconds.HasValue)
             {
-                b.Add("play_time_seconds", new JsonNumber(meta.PlayTimeSeconds.Value));
+                // V-02 同款判断记录（第十七方深度审核）：PlayTimeSeconds 是 long? 秒计数，长期游玩可能
+                // 超过 2^53 秒（理论上），用 FromInt64 保留精确原始文本。
+                b.Add("play_time_seconds", JsonNumber.FromInt64(meta.PlayTimeSeconds.Value));
             }
 
             if (meta.DisplaySummary.Count > 0)

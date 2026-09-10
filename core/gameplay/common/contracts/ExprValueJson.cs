@@ -22,7 +22,16 @@ namespace Core.Gameplay.Common
                 case JsonBool b:
                     return ExprValue.OfBool(b.Value);
                 case JsonNumber n:
-                    return IsIntegerRawText(n) ? ExprValue.OfInt((long)n.Value) : ExprValue.OfNumber(n.Value);
+                    // V-02 根治顺带发现并修复（第十七方深度审核，写 FromInt64 精确往返用例时暴露）：
+                    // 此前 `(long)n.Value` 直接截断 double，即便 n.RawNumberText 携带精确的十进制原文
+                    // 也绕过不用——ToJson 的 Int 分支已经改成 FromInt64（带精确 RawNumberText）之后，
+                    // 这里仍按 double 截断会让"写出精确、读回丢精度"，V-02 的精确往返承诺在
+                    // RewardBundle/dialog 这两个消费方（本类型的调用方）身上名存实亡。改用
+                    // TryGetInt64——优先按 RawNumberText 精确解析，与 WorldState.FromJson 同款
+                    // RequireInt64 helper 对齐；同时顺带堵住"IsIntegerRawText 为 true 但数字本身超出
+                    // long 范围"（如 50 位纯数字整数文本）这类此前会静默产出垃圾值的边界，统一转成
+                    // FormatException。
+                    return IsIntegerRawText(n) ? ExprValue.OfInt(RequireInt64(n)) : ExprValue.OfNumber(n.Value);
                 case JsonString s:
                     return ExprValue.OfString(s.Value);
                 case JsonObject o when o.Count == 1 && o.TryGetValue("$id", out var idField) && idField is JsonString idText:
@@ -85,7 +94,10 @@ namespace Core.Gameplay.Common
                 case ExprValueKind.Bool:
                     return JsonBool.Of(value.AsBool);
                 case ExprValueKind.Int:
-                    return new JsonNumber(value.AsInt, value.AsInt.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    // 改用 JsonNumber.FromInt64（第十七方深度审核 V-02 收口后新增的统一工厂），行为
+                    // 与原手写 ToString(InvariantCulture) 一致，收敛到同一处判断记录（见
+                    // WorldState.ToJson 同款分支）。
+                    return JsonNumber.FromInt64(value.AsInt);
                 case ExprValueKind.Number:
                     return new JsonNumber(value.AsNumber, FormatNumberWithDecimalPoint(value.AsNumber));
                 case ExprValueKind.String:
@@ -104,6 +116,20 @@ namespace Core.Gameplay.Common
                 return n.TryGetInt64(out _);
             }
             return n.RawNumberText.IndexOf('.') < 0 && n.RawNumberText.IndexOf('e') < 0 && n.RawNumberText.IndexOf('E') < 0;
+        }
+
+        /// <summary>与 <c>WorldState.RequireInt64</c> 同款判断记录：<see cref="IsIntegerRawText"/>
+        /// 只确认"看起来像整数文本"（没有小数点/指数），不确认真的落在 long 范围内（如超过 19 位的
+        /// 纯数字文本）；这里统一按 <see cref="JsonNumber.TryGetInt64"/> 做最终裁决，失败则报
+        /// <see cref="FormatException"/>，不静默产出截断/溢出的垃圾值。</summary>
+        private static long RequireInt64(JsonNumber n)
+        {
+            if (!n.TryGetInt64(out var v))
+            {
+                throw new FormatException(
+                    $"数字 \"{n.RawNumberText ?? n.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}\" 看起来是整数但无法解析为 Int64");
+            }
+            return v;
         }
 
         private static string FormatNumberWithDecimalPoint(double value)
