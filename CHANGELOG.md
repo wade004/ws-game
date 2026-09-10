@@ -135,6 +135,12 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `on_hit_reaction_ref`/`on_death_reaction_ref` 标注预留。04 文档 3.4/5 节同步补充两项新登记与
   两个新检查名。`editor/docs/编辑器产品文档.md`（v2.6）契约面清单同步补充。
 
+### 文档
+
+- 06 事件表 `combat.damage_dealt` 行补充字段语义说明——`triggerChainDepth`（产生本次结算的
+  `EffectContext.triggerChainDepth` 原样戳入）、`attackInstanceId`（同一次结算批次共用的攻击
+  实例 id）两字段的含义解释，不改变已登记的字段列表与事件契约（`689d0e6`）。
+
 ## [1.19.0] - 2026-09-11
 
 MINOR 版本：五个并行分支整合——新增格子吸附（`grid_snap`）通用能力、接口默认成员转发门禁、ABI
