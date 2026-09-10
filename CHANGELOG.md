@@ -56,6 +56,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+### 修复
+
+- 修复 `core/foundation` XML 文档注释：WorldMapSchema 未闭合标签与 cref/paramref 漂移（`ace367d`）。
+
 ## [1.15.0] - 2026-09-10
 
 第十五轮外部审核（codex，基线 `76d16a5`/v1.14.0 自身，`architecture/落地计划/audit-76d16a5-20260910/`）
