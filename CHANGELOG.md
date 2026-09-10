@@ -87,13 +87,26 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-第二十方深度审核修复（codex 第十八轮，基线 `d6fda65`）五个并行分支整合：`wy/tool18`
-（TOOL-118-ABI/TOOL-118-LOCK 两项 P2 工具链缺陷 + 九类文档更新中除 `grid_snap` 外的全部行）、
-`ww/core18`（CORE-118-QUEST/CORE-118-CAST 两项 P2 运行时缺陷）、`wx/pres18`
-（PRES-118-CAMERA/SFX/VIEW 三项 P2 表现层缺陷）、`wz/gridsnap`（`grid_snap` 通用能力实现）、
-`w27/expr-forward`（消费方反馈第 27 条，接口默认成员转发门禁）。归档与核实表见
+## [1.19.0] - 2026-09-11
+
+MINOR 版本：五个并行分支整合——新增格子吸附（`grid_snap`）通用能力、接口默认成员转发门禁、ABI
+属性/索引器/事件形态覆盖、发布锁重建共用脚本；修复七项 P2（PRES-118-CAMERA/CORE-118-QUEST/
+CORE-118-CAST/PRES-118-SFX/PRES-118-VIEW/TOOL-118-ABI/TOOL-118-LOCK）与消费方反馈第 27 条
+【编辑器相关契约】；九类文档更新（DOC-118-01～09）。第二十方深度审核修复（codex 第十八轮，
+基线 `d6fda65`）五个并行分支整合：`wy/tool18`（TOOL-118-ABI/TOOL-118-LOCK 两项 P2 工具链
+缺陷 + 九类文档更新中除 `grid_snap` 外的全部行）、`ww/core18`（CORE-118-QUEST/CORE-118-CAST
+两项 P2 运行时缺陷）、`wx/pres18`（PRES-118-CAMERA/SFX/VIEW 三项 P2 表现层缺陷）、
+`wz/gridsnap`（`grid_snap` 通用能力实现）、`w27/expr-forward`（消费方反馈第 27 条，接口默认
+成员转发门禁）。归档与核实表见
 [audit-d6fda65-20260911/](architecture/落地计划/audit-d6fda65-20260911/)、
-[followup-2026-09-11.md](architecture/落地计划/audit-d6fda65-20260911/followup-2026-09-11.md)。
+[followup-2026-09-11.md](architecture/落地计划/audit-d6fda65-20260911/followup-2026-09-11.md)、
+[消费方反馈-2026-09-11-编辑器-第27条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md)。
+提交链：`907c15d`/`d40938c`（`ww/core18`：CORE-118-QUEST/CAST）、`003f73d`/`82cbad1`/`6a9b1cf`
+（`wx/pres18`：PRES-118-CAMERA/SFX/VIEW）、`349d484`（`wy/tool18`：TOOL-118-ABI/LOCK + 九类
+文档其余行）、`638d62e`/`b436226`/`aba64cd`（`wz/gridsnap`：格子吸附通用实现）、
+`bba98ae`/`9d696cf`（`w27/expr-forward`：消费方反馈第 27 条）、
+`96db5a6`/`f5fb6a3`/`b84af22`/`932c349`/`2fa600b`（五分支依次 `--no-ff` 合入 `main`）、
+`88aba80`/`3d7caec`（整合阶段回填核实表、变更记录、能力索引与全量门禁验收）。
 
 ### 新增
 
@@ -111,6 +124,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   assembly/tests/`），自动扫描组合/包装某个接口的实现类型，校验其是否显式转发了该接口全部带
   默认实现的成员（未转发即回落到"什么都不做"的默认实现，属常见疏漏模式，第 27 条即一例）；
   当前 18 处经审查确认"有意不转发"的实现登记豁免并附理由。
+- **ABI 属性/索引器/事件形态覆盖**：`toolchain/abi_surface` dump/compare 新增编码属性、索引器、
+  事件访问器的 `static`/`virtual`/`abstract`/`sealed-override` 修饰组合（此前只有 method 行
+  覆盖这些维度），并配套修复 `SplitPropertyIdentity` 的"身份"判定范围，使"可见性放宽 + static
+  化"复合变化不再被误判为纯可见性放宽而漏判。
+- **发布锁重建共用脚本**：新增 `toolchain/_lock_writeback.ps1`（`New-WsGameLockObject`/
+  `Write-WsGameLockFile`/`New-WsGameLockObjectFromZip`），`build.ps1` 正常路径与
+  `.github/workflows/release.yml`"缺附件修复"分支统一改为调用同一份实现，三个 DLL 哈希映射
+  参数均为 PowerShell `Mandatory`，结构上杜绝遗漏；`toolchain/get_framework.ps1` 新增版本阈值
+  判定（锁文件 `version >= 1.15.0` 时缺 `headless_dlls`/`validator_dlls` 直接判定损坏）。
 
 ### 修复
 
@@ -155,6 +177,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `Mandatory`、结构上杜绝再漏传；`get_framework.ps1` 新增版本阈值（锁文件 `version >= 1.15.0`
   时缺 `headless_dlls`/`validator_dlls` 直接判定损坏拒绝，`< 1.15.0` 仍走既有兼容跳过）。新增
   3 个测试用例，含篡改副本场景下"正常路径风格锁"与"修复分支风格锁"同等阻断的专项回归。
+- **消费方反馈第 27 条【编辑器相关契约】**：具体游戏/工具实际使用的正式装配入口是多个模块
+  `IExprSchema` 登记表组合/包装出的门面（如 `PresentationSchemaCatalog.FullExprSchema`），
+  其 `KnownKeys`/`KnownGroups` 此前逐级落回接口默认实现，九个分组全部返回空集合，未反映任何
+  成员登记表的真实内容。四处组合/包装实现补齐显式转发（并集聚合全部成员登记表结果），新增
+  `InterfaceDefaultMemberForwardingTests` 反射门禁防止同类遗漏再次发生。
 
 ### 文档
 
@@ -190,6 +217,36 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - `architecture/04_数据与内容管线.md` 第 6.2 节补充"按分组枚举已登记 key/枚举全部已登记分组"
   的组合登记表并集口径说明（消费方反馈第 27 条）；`architecture/11_工程规范与测试.md` 第 7/8
   节新增接口默认成员转发门禁的说明与豁免登记口径。
+
+### 迁移说明
+
+- 离散模式下声明 `found.time_model.grid_snap`（`{cell_size: Number}`，`> 0`）后，移动会在每个
+  模拟步结束吸附到格子中心，`nearest_in_shape`/`all_in_shape`/`ISkillHost.FindUnits` 三处范围
+  形状查询也会按候选所属格子中心点判定包含关系——若现有内容已声明该字段但依赖"只登记、不生效"
+  的旧行为（例如手工在数据侧做过等效的格子对齐处理），升级后需要复核是否与新的运行时吸附叠加；
+  未声明该字段或使用连续模式的既有内容行为逐字节不变。
+- `toolchain/get_framework.ps1` 对 `version >= 1.15.0` 的锁文件新增强制字段校验：缺
+  `headless_dlls`/`validator_dlls` 任一字段即判定锁文件损坏、拒绝落地（此前一律按"旧版本、跳过
+  该项校验"处理）。仅影响手工编辑或由非官方工具生成、缺失这两个字段的 1.15.0 及以上版本锁文件；
+  由 `build.ps1`/`release.yml` 正常发布流程生成的锁文件不受影响。`version < 1.15.0` 的锁文件仍
+  走既有兼容跳过分支。
+- 施法者死亡/销毁后若相应的 `unit.died`/`entity.destroyed` 事件延后到本次推进调用结束后才派发，
+  当前读条/引导与排队请求现在保证收到对应的终结事件（`skill.cast_interrupted` 或携带
+  `QUEUE_CLEARED` 的 `skill.cast_failed`）——若消费方此前依赖"这种时序下不会收到终结事件"这一
+  缺陷行为（例如自行补发过等效通知），升级后需要复核并移除这类补偿逻辑；同一次施法/排队请求不会
+  重复收到终结事件。
+- `games/_template` 等生产装配入口的镜头选项（`GameOptions.CameraResetFollowOnSceneLoadFinished`）
+  与逐帧播放维护现在被真正透传/驱动到底层（此前声明了但未接入/未调用）——若消费方此前依赖旧的
+  "配置了也不生效"行为，升级后需要复核对应模板配置的实际取值是否符合预期。
+
+### 兼容声明
+
+本版本对 1.12.0～1.18.0 期间编译的旧消费方二进制保持兼容：依据是 `toolchain/abi_probe.ps1`
+严格模式下的验证——历史基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑通过，独立的
+公开 API 表面差异比对（`toolchain/abi_surface`）输出 `breaks=0`，未发现任何破坏性变更；本版本
+新增的公开契约面（`IGridSnapPolicy`/`GridSnapShapeQuery`/`ShapeGeometry`/`CameraHostOptions`
+新构造重载/`PresentationAssembly.UpdatePlaybackMaintenance`/`QuestHost.TryGetDefinition` 等）均
+为新增类型、新增成员或新增构造重载，不删改任何既有公开签名。
 
 ## [1.18.0] - 2026-09-11
 
