@@ -65,6 +65,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `false` 而不抛异常）；`ContentValidationAssembly.Run` 统一改用 `registry.RecordCount`，不再另开
   事件订阅旁路。`IDataRegistryView.RecordCount` 默认实现本身保持不变（仍可能抛异常，供无具体
   `DataRegistry` 实现的第三方替身兜底），XML 注释已更新建议改用新成员。
+- **消费方反馈第三批 18/19/20/22（1.17.0，消费方反馈处理，
+  [消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)）**：
+  `IExprSchema` 新增 `KnownKeys(string group)`/`KnownGroups`（带默认实现）：按分组枚举已登记的
+  宿主引用 key，供编辑器自动补全；`ExprIssue`/`ExprNode`（及全部子类）新增源文本位置区间
+  `Start`/`Length`（新增重载构造，既有构造不变）：`ExprParser.Parse` 产出的语法树与
+  `ExprValidator` 产出的校验问题项均携带精确区间，供编辑器把问题定位/高亮到源文本对应片段；
+  `IDataRegistryView` 新增 `TryGetAll`/`TryQuery`（带默认实现）：阻断态下仅供内容工具使用的只读
+  通道，运行期宿主仍须使用 `GetAll`/`Query`，阻断态即禁止读取的既有结论不变；`IDataSource` 新增
+  `Root`（带默认实现），`OverrideDiagnostic` 新增
+  `OverridingRootIndex`/`OverriddenRootIndex`/`OverridingRelativePath`/`OverriddenRelativePath`：
+  多根合并覆盖诊断新增"根序号 + 相对路径"，`toolchain/validator` 文本/JSON 输出同步，绝对路径
+  字段保留。**第 21 条（ADR-0019 子结构登记第二批，18 个字段）本轮未完成，单独立项**，见该文档
+  第 21 条"如实说明"。
 
 ## [Unreleased]
 
@@ -113,6 +126,44 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `TeleportTargetResolver`/业务约束负责"。
 - **DOC-162-04（发布计划文档）**：同文件 ATB（先攻策略预留位）一行分类"明确非目标"，与
   ADR-0013 决策第 3 条原文"本版延期、预留扩展位"不符；改列"延期/预留"。
+- 修复：`schema_version` 越界（超过 int 上界的整数，如 4294967297）此前强转溢出被误判为低版本
+  放行，现阻断；`JsonNumber.TryGetInt64` 对 2^63 边界误判已修正；存档/事件序列化中的整数
+  （货币余额、经验、tick 计数、游玩时长等）以精确十进制原文写出（`JsonNumber.FromInt64`），大于
+  2^53 的整数不再丢精度，旧存档仍可读。核实与逐条回复见
+  [architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md](architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md)。
+
+外部深度审核（第十九方，基于 `4faab73`）另有 V-01/V-02/V-03（同上，`schema_version` 越界/
+`TryGetInt64` 边界/大整数精度丢失）与 DOC-162-01/05 两处文档勘误，由分支 `wo/core17` 修复；
+DOC-162-01：`core/foundation/data_registry/README.md`"多根加载"一节补全 `AllowOverride`/行级
+`override`/`final` 的条件语义（跨根主键重复默认阻断，但可显式声明覆盖/拒绝覆盖，此前只提"无条件
+阻断"）；DOC-162-05：`architecture/04_数据与内容管线.md` 收窄"数值有限"（`field_finite`）校验项
+适用范围，明确只覆盖 `Number` 字段，`Int` 字段的非法取值落入既有 `field_type` 检查。
+
+### 新增
+
+消费方反馈第三批（18/19/20/22/23 条，见
+[消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)）：
+
+- `IExprSchema` 新增 `KnownKeys(string group)`/`KnownGroups`（带默认实现）：按分组枚举已登记的
+  宿主引用 key，供编辑器自动补全。
+- `ExprIssue`/`ExprNode`（及全部子类）新增源文本位置区间 `Start`/`Length`（新增重载构造，既有
+  构造不变）：`ExprParser.Parse` 产出的语法树与 `ExprValidator` 产出的校验问题项均携带精确区间，
+  供编辑器把问题定位/高亮到源文本对应片段。
+- `IDataRegistryView` 新增 `TryGetAll`/`TryQuery`（带默认实现）：阻断态下仅供内容工具使用的只读
+  通道，`DataRegistry` 显式覆盖为读取当前已合并记录；运行期宿主仍须使用 `GetAll`/`Query`，阻断态
+  即禁止读取的既有结论不变。
+- `IDataSource` 新增 `Root`（带默认实现）；`OverrideDiagnostic` 新增
+  `OverridingRootIndex`/`OverriddenRootIndex`/`OverridingRelativePath`/`OverriddenRelativePath`：
+  多根合并覆盖诊断新增"根序号 + 相对路径"，`toolchain/validator` 文本/JSON 输出同步；绝对路径
+  字段保留。
+- `toolchain/validator --schema-audit --json` 新增 `table_names` 字段；新增 `sample_table_empty`
+  告警级 pytest 门禁（`toolchain/tests/test_sample_table_empty.py`）。
+- `data/_sample` 补齐 `item.affix`/`item.set`/`world.flag_schema` 三张此前无任何示例数据的表。
+
+**已知未完成事项（如实登记，供后续版本跟进）**：ADR-0019 子结构登记第二批（18 个字段）本轮未
+落地，其中至少 3 个字段（`arch.class.base_stats`/`arch.race.stat_mods`/
+`creature.template.base_stats`）需要先给 `FieldSchema` 设计一种当前不支持的"动态键 Map"登记
+形态，建议单独立项，见上述文档第 21 条。
 
 ## [1.16.2] - 2026-09-10
 
