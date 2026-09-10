@@ -47,11 +47,18 @@ data_registry/
 
 数据目录框架/游戏分层任务新增：同一次加载可以传入多个 `IDataSource`（典型场景是"框架级数据表
 `data/_framework` + 具体游戏的 `data/<game>`"并列加载，见 `data/README.md`"多根加载与合并规则"）。
-同一张表出现在多个根时按主键并集合并；跨根主键重复、跨根信封 `schema_version` 不一致均判定为
-阻断错误（消息里点出两个根各自的 `Location`）。`LoadAll()`（无参，构造函数传入的单一
-`IDataSource`）行为完全不变，等价于单元素多根调用。只读诊断 `GetTableSourceLocations(table)`
-（声明在 `IDataRegistry`，见该接口判断记录）返回某表本次加载实际来自哪些根的 `Location` 列表，
-供上层核对"这张表到底是从哪个数据根读上来的"，不参与任何校验判定。
+同一张表出现在多个根时按主键并集合并；跨根信封 `schema_version` 不一致判定为阻断错误（消息里点出
+两个根各自的 `Location`），不受下述覆盖语义影响。跨根主键重复默认仍判定为阻断错误，但这不是无条件
+的（勘误，2026-09-10，第十七方深度审核 DOC-162-01）：`DataRegistryOptions.AllowOverride` 为 `true`
+（默认）时，后层行（合并顺序更靠后的根，典型用法是游戏根在框架根之后）可显式声明 `"override": true`
+整行替换前层同主键行（不做字段级合并），记一条覆盖诊断（见 `GetOverrideDiagnostics`）、不产生校验
+问题；前层行可显式声明 `"final": true` 拒绝被覆盖，此时仍判定为阻断错误。`override`/`final` 只在
+多根合并且确实发生同主键跨根重复时生效，单根加载中这两个字段为真判定为 Warning 并忽略。完整条件
+与示例见 `data/README.md`"多根加载与合并规则"、`core/foundation/data_registry/core/DataRegistry.cs`
+类型级判断记录"覆盖语义"。`LoadAll()`（无参，构造函数传入的单一 `IDataSource`）行为完全不变，等价
+于单元素多根调用。只读诊断 `GetTableSourceLocations(table)`（声明在 `IDataRegistry`，见该接口判断
+记录）返回某表本次加载实际来自哪些根的 `Location` 列表，供上层核对"这张表到底是从哪个数据根读上来
+的"，不参与任何校验判定。
 
 ## 校验项检查名（04 第 5 节，`ValidationIssue.Check` 固定取值）
 

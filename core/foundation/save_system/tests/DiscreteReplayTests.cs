@@ -407,6 +407,30 @@ namespace Tests.Foundation.SaveSystem
             Assert.Equal(finalTick, snapshot.Tick);
         }
 
+        /// <summary>V-02 根治验收（第十七方深度审核）：<see cref="ReplayStepRecord.Tick"/>/
+        /// <see cref="ReplayData.TickCount"/> 改用 <c>JsonNumber.FromInt64</c> 写出之后，超过 2^53
+        /// 的 tick 号必须精确往返（长时间录像的 tick 计数理论上可能超出 double 精确整数表示上界）。
+        /// 直接构造最小 <see cref="ReplayData"/>，不需要真的驱动 9 千万亿个 tick。</summary>
+        [Fact]
+        public void ReplayData_JsonRoundTrip_PreservesHugeTickCountAndStepTickExactly()
+        {
+            const long hugeTick = 9007199254740993L; // 2^53 + 1
+            var replay = new ReplayData(
+                rngSeeds: new Dictionary<string, RngStreamState>(),
+                inputs: Array.Empty<ReplayInputRecord>(),
+                stepSeconds: StepSeconds,
+                tickCount: hugeTick,
+                steps: new[] { ReplayStepRecord.FromStep(hugeTick, SimStep.Continuous(StepSeconds)) });
+
+            var text = JsonWriter.Write(replay.ToJson());
+            Assert.Contains(hugeTick.ToString(System.Globalization.CultureInfo.InvariantCulture), text);
+
+            var roundTripped = ReplayData.FromJson((JsonObject)JsonReader.Parse(text));
+
+            Assert.Equal(hugeTick, roundTripped.TickCount);
+            Assert.Equal(hugeTick, roundTripped.Steps[0].Tick);
+        }
+
         /// <summary>
         /// 旧格式兼容（<see cref="ReplayStepRecord"/> 类型注释"判断记录（旧格式兼容）"）：手工
         /// 构造本任务之前唯一存在过的录像 JSON 形状（无 <c>format_version</c>/<c>steps</c> 字段，

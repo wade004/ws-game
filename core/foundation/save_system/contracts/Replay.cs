@@ -44,7 +44,9 @@ namespace Core.Foundation.SaveSystem
         public JsonObject ToJson()
         {
             return new JsonObjectBuilder()
-                .Add("tick", new JsonNumber(Tick))
+                // V-02 同款判断记录（第十七方深度审核）：Tick 是 long，长时间录像可能超过 2^53，
+                // 用 FromInt64 保留精确原始文本，避免经 double 中转丢精度。
+                .Add("tick", JsonNumber.FromInt64(Tick))
                 .Add("actorId", new JsonString(ActorId.Value))
                 .Add("intentKind", new JsonString(IntentKind))
                 .Add("args", Args)
@@ -131,7 +133,9 @@ namespace Core.Foundation.SaveSystem
         public JsonObject ToJson()
         {
             var builder = new JsonObjectBuilder()
-                .Add("tick", new JsonNumber(Tick))
+                // V-02 同款判断记录（第十七方深度审核）：Tick 是 long，长时间录像可能超过 2^53，
+                // 用 FromInt64 保留精确原始文本，避免经 double 中转丢精度。
+                .Add("tick", JsonNumber.FromInt64(Tick))
                 .Add("kind", new JsonString(Kind == SimStepKind.Continuous ? "continuous" : "discrete"));
 
             builder.Add("actorId", ActorId.HasValue ? (JsonValue)new JsonString(ActorId.Value.Value) : JsonNull.Instance);
@@ -195,7 +199,9 @@ namespace Core.Foundation.SaveSystem
         public JsonObject ToJson()
         {
             return new JsonObjectBuilder()
-                .Add("tick", new JsonNumber(Tick))
+                // V-02 同款判断记录（第十七方深度审核）：Tick 是 long，长时间录像可能超过 2^53，
+                // 用 FromInt64 保留精确原始文本，避免经 double 中转丢精度。
+                .Add("tick", JsonNumber.FromInt64(Tick))
                 .Add("actorId", new JsonString(ActorId.Value))
                 .Build();
         }
@@ -340,7 +346,8 @@ namespace Core.Foundation.SaveSystem
             return new JsonObjectBuilder()
                 .Add("format_version", new JsonNumber(CurrentFormatVersion))
                 .Add("stepSeconds", new JsonNumber(StepSeconds))
-                .Add("tickCount", new JsonNumber(TickCount))
+                // TickCount 同 Tick 判断记录：long，用 FromInt64 精确往返。
+                .Add("tickCount", JsonNumber.FromInt64(TickCount))
                 // 十六进制文本而非 JsonNumber：同 RngStreamsPersistable.Save 判断记录，避免 ulong
                 // 全值域经 JsonNumber 内部 double 存储丢精度。
                 .Add("master_seed", new JsonString(MasterSeed.ToString("x16", CultureInfo.InvariantCulture)))

@@ -125,6 +125,28 @@ namespace Tests.Numbers.Progression
             Assert.Contains(targetWriters.WriteCalls, c => c.Stat.Value == "stat.vitality" && c.Value == 1);
         }
 
+        /// <summary>V-02 根治验收（第十七方深度审核）：<see cref="ProgressionHost.SaveUnit"/> 改用
+        /// <c>JsonNumber.FromInt64</c> 写 <c>xp</c> 字段之后，超过 2^53 的 xp 值必须精确往返
+        /// （<see cref="ProgressionHost.RestoreState"/> 允许直接注入任意 xp，不需要真的刷 1.2 亿级
+        /// 经验）。</summary>
+        [Fact]
+        public void RoundTrips_ExactXpAboveDoublePrecisionBoundary()
+        {
+            const long hugeXp = 9007199254740993L; // 2^53 + 1
+            var registry = MakeRegistry(out var bus);
+            var sourceHost = MakeHost(registry, bus, new RecordingWriters());
+            sourceHost.RestoreState(Unit, CurveId, level: 3, xp: hugeXp); // 3 级已满级，xp 不会被再消费
+
+            var saved = ProgressionPersistable.For(sourceHost, Unit).Save();
+            var text = JsonWriter.Write(saved);
+            Assert.Contains(hugeXp.ToString(System.Globalization.CultureInfo.InvariantCulture), text);
+
+            var targetHost = MakeHost(registry, bus, new RecordingWriters());
+            ProgressionPersistable.For(targetHost, Unit).Load(JsonReader.Parse(text));
+
+            Assert.Equal(hugeXp, targetHost.GetXp(Unit));
+        }
+
         [Fact]
         public void Save_UnregisteredUnit_Throws()
         {

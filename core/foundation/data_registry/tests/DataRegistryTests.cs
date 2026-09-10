@@ -410,6 +410,110 @@ namespace Tests.Foundation.Data
         }
 
         // -----------------------------------------------------------------
+        // V-01 根治验收（第十七方深度审核）：schema_version 转 int 之前必须核对上界，越界/非整数/
+        // 负数一律阻断，不得强转溢出回绕。
+        // -----------------------------------------------------------------
+
+        private static TableSchema VersionBoundarySchema() => new TableSchema(
+            "test.version_boundary", "id", 1,
+            new[] { new FieldSchema("id", FieldKind.Id, required: true) });
+
+        private static string VersionBoundaryEnvelope(string schemaVersionLiteral) =>
+            "{\"table\": \"test.version_boundary\", \"schema_version\": " + schemaVersionLiteral +
+            ", \"rows\": [{\"id\": \"test.version_boundary.a\"}]}";
+
+        [Fact]
+        public void LoadAll_SchemaVersionExactlyOne_Accepted()
+        {
+            var source = new InMemoryDataSource().Add("test.version_boundary", VersionBoundaryEnvelope("1"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(VersionBoundarySchema());
+
+            var report = registry.LoadAll();
+
+            Assert.Equal(0, report.ErrorCount);
+            Assert.False(report.IsBlocking);
+            Assert.Single(registry.GetAll("test.version_boundary"));
+        }
+
+        /// <summary>V-01 复现原文：修复前 <c>schema_version=4294967297</c>（2^32+1，合法的正 long，
+        /// 但超出 <c>int.MaxValue</c>）在 <c>(int)svLong</c> 强转时溢出回绕成 1，被当作"版本 1"放行、
+        /// 读屏障完全不生效（<c>errors=0 blocking=False</c>）。修复后必须报 <c>schema_version</c> 阻断
+        /// 错误，消息中点出实际收到的取值（本用例用 4294967297，与审核报告 raw log 同一输入）。</summary>
+        [Fact]
+        public void LoadAll_SchemaVersionOverflowsInt32_NoWrapAroundToOne_BlocksWithActualValueInMessage()
+        {
+            var source = new InMemoryDataSource().Add("test.version_boundary", VersionBoundaryEnvelope("4294967297"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(VersionBoundarySchema());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            var issue = Assert.Single(report.Issues, i => i.Table == "test.version_boundary" && i.Check == "schema_version");
+            Assert.Contains("4294967297", issue.Message);
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.version_boundary"));
+        }
+
+        [Theory]
+        [InlineData("2147483648")] // int.MaxValue + 1：刚好越过上界一格
+        [InlineData("0")]
+        [InlineData("-1")]
+        [InlineData("1.5")] // 非整数
+        public void LoadAll_SchemaVersionOutOfRangeOrNonInteger_Blocks(string schemaVersionLiteral)
+        {
+            var source = new InMemoryDataSource().Add("test.version_boundary", VersionBoundaryEnvelope(schemaVersionLiteral));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(VersionBoundarySchema());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Table == "test.version_boundary" && i.Severity == ValidationSeverity.Error);
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.version_boundary"));
+        }
+
+        // -----------------------------------------------------------------
+        // V-03 根治验收（第十七方深度审核）：TableMigration 把 2^63 直接塞进 FieldKind.Int 字段，
+        // 必须命中 field_type 阻断（JsonNumber.TryGetInt64 的 double 边界修复令 2^63 不再被误判为
+        // 可转换的 long）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void LoadAll_MigrationInjectsTwoPow63IntoIntField_ReportsFieldTypeErrorAndBlocks()
+        {
+            MigrateDelegate migrate = row =>
+            {
+                var builder = new JsonObjectBuilder();
+                foreach (var kv in row)
+                {
+                    builder.Add(kv.Key, kv.Key == "count" ? new JsonNumber(9223372036854775808d) : kv.Value);
+                }
+                return builder.Build();
+            };
+
+            var schema = new TableSchema(
+                "test.int_boundary", "id", 2,
+                new[]
+                {
+                    new FieldSchema("id", FieldKind.Id, required: true),
+                    new FieldSchema("count", FieldKind.Int, required: true),
+                },
+                migrations: new[] { new TableMigration(1, 2, migrate) });
+
+            var rows = "[{\"id\": \"test.int_boundary.a\", \"count\": 1}]";
+            var source = new InMemoryDataSource().Add("test.int_boundary", Envelope("test.int_boundary", 1, rows));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(schema);
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Table == "test.int_boundary" && i.Check == "field_type" && i.Severity == ValidationSeverity.Error);
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.int_boundary"));
+        }
+
+        // -----------------------------------------------------------------
         // 9. 主键
         // -----------------------------------------------------------------
 
