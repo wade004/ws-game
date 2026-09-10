@@ -71,8 +71,39 @@ namespace Core.Rules.Skill
             _learnSkill = learnSkill ?? throw new ArgumentNullException(nameof(learnSkill));
         }
 
+        /// <summary>
+        /// 判断记录（效果免疫统一门，2026-09-10 根治"消费方反馈-2026-09-10-打断免疫"）：06 第 3.3
+        /// 节 <c>AuraDef.immunity</c>"对指定学派/效果类型免疫"与 07 第 2.1 节
+        /// <c>CreatureUnit.Immunities</c> 的 <c>effect.&lt;kind&gt;</c> 写法均按
+        /// (<c>school</c>, <see cref="EffectKind"/>) 泛化定义、不限定于
+        /// <c>school_damage</c>/<c>heal</c>（见 <see cref="IStaticImmunityProvider"/>/
+        /// <c>CreatureImmunityProvider</c> 类型注释）——此前只有 <see cref="ApplyDamageOrHeal"/>
+        /// 一处落地了这份语义，<c>interrupt</c>/<c>dispel</c>/<c>energize</c>/<c>teleport</c>/
+        /// <c>move</c> 等其余分支从未查询过免疫（<see cref="AuraHost.IsImmune"/> 内部已合并静态
+        /// <see cref="IStaticImmunityProvider"/> 查询，见该方法实现），导致打断免疫等动态光环/静态
+        /// 标记对这些效果原语完全不生效（外部消费方 M-C06 前置核验复现）。改为在分发入口统一判定
+        /// 并短路（不进入任何具体分支、不产生该效果的事件/状态变化，含 <c>interrupt</c> 免疫时不
+        /// 触发学派锁定——被拦截效果的全部后续影响都不该发生），<see cref="ApplyDamageOrHeal"/>
+        /// 内原有的同一判定随之收口到这里，不再重复查询、不产生两条 immune 记录。
+        /// <para>
+        /// 例外：<see cref="EffectKind.ApplyAura"/> 不纳入本统一判定——对"施加一个光环实例"这个
+        /// 操作本身的免疫是另一层语义（免疫的是"获得光环"这件事本身，不是光环生效后内部某个子
+        /// 效果），06 未就此拍板；且按 <see cref="AuraHost.IsImmune"/> 既有规则"未声明
+        /// <c>effect_kinds</c> 时只看学派、不挑 kind"，若在这里也拦截 <c>apply_aura</c>，会让任何
+        /// 只声明 <c>schools</c> 的免疫光环（如"火免疫"）意外连带挡住该学派下全部增益光环的施加
+        /// （含友方治疗类光环），超出本次打断免疫缺口修复的范围。<c>apply_aura</c> 的控制类光环
+        /// 免疫仍按既有实现在 <see cref="AuraHost.ApplyAura"/> 内部逐条判定
+        /// （<see cref="IStaticImmunityProvider.GetControlImmunity"/> 只剔除本次施加的控制标志位，
+        /// 不影响光环其余子效果落地），不在这里重复判定。
+        /// </para>
+        /// </summary>
         public ResolveResult ApplyEffect(EffectContext context)
         {
+            if (context.Kind != EffectKind.ApplyAura && _auraHost.IsImmune(context.TargetId, context.School, context.Kind))
+            {
+                return new ResolveResult(HitResult.Miss, 0, 0, 0, immune: true, isHeal: context.Kind == EffectKind.Heal);
+            }
+
             switch (context.Kind)
             {
                 case EffectKind.SchoolDamage:
@@ -137,13 +168,10 @@ namespace Core.Rules.Skill
         // school_damage / weapon_damage_pct / heal
         // -----------------------------------------------------------------
 
+        // 判断记录：免疫判定已收口到 ApplyEffect 分发入口（见该方法判断记录"效果免疫统一门"），本
+        // 方法不再重复查询 _auraHost.IsImmune——免疫命中时 ApplyEffect 已提前返回，不会走到这里。
         private ResolveResult ApplyDamageOrHeal(EffectContext context)
         {
-            if (_auraHost.IsImmune(context.TargetId, context.School, context.Kind))
-            {
-                return new ResolveResult(HitResult.Miss, 0, 0, 0, immune: true, isHeal: context.Kind == EffectKind.Heal);
-            }
-
             double value;
             double coefficient = context.Coefficient;
 
