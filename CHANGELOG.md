@@ -51,7 +51,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `FieldSchema` 新增可选 `Range` 字段（Number/Int 字段的取值范围登记），`toolchain/validator
   --list-tables --json` 每张表新增 `field_ranges` 导出，编辑器可据此在数值输入控件上就地校验，
   不必等到一次完整加载校验才发现越界。
-- **ADR-0022（下一版本，消费方反馈处理，
+- **ADR-0022（1.16.0，消费方反馈处理，
   [消费方反馈-2026-09-10-编辑器-第二批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md)）**：
   `TableSchema` 新增 `Layer`/`Module`/`Domain`/`TimeScope`，`FieldSchema` 新增 `Group`/`Unit`，
   `IdList` 字段种类补齐 `ReferenceTable`/`ReferenceDomain`/`WithFreeIds` 登记，`reference_integrity`
@@ -63,12 +63,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 （尚未发布的变更累积在此，随下一次 `build.ps1 -Release` 归档为对应版本号的条目。）
 
+## [1.16.0] - 2026-09-10
+
+消费方（内容编辑器项目）反馈处理，[ADR-0022](architecture/adr/0022-登记表补充导航与编辑元数据.md)
+（登记表补充导航与编辑元数据）与 XML 文档注释修复均在本版本收口；核实与逐条回复见
+`architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md`。提交 `53b2e90`/`ad84a2f`/
+`74cff87`/`5688c4b`（ADR-0022 落地）、`ab4d42c`（XML 文档注释修复）。
+
 ### 新增
 
 - 登记表补充导航与编辑元数据（[ADR-0022](architecture/adr/0022-登记表补充导航与编辑元数据.md)，
   消费方反馈处理，
   [消费方反馈-2026-09-10-编辑器-第二批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md)
-  第 12～16 条）：【编辑器相关契约】
+  第 12～16 条，提交 `53b2e90`/`ad84a2f`）：【编辑器相关契约】
   - `TableSchema` 新增只读属性 `Layer`/`Module`/`Domain`/`TimeScope` 与 `WithOwnership`/
     `WithDomain`/`WithTimeScope` 链式登记方法；全部 63 张已登记表填齐 `Layer`/`Module`，
     三张单段名命名例外表（`camera_profile`/`ui_layout_definition`/`shell_menu_definition`）
@@ -89,7 +96,49 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ### 修复
 
-- 修复 `core/foundation` XML 文档注释：WorldMapSchema 未闭合标签与 cref/paramref 漂移（`ace367d`）。
+- 修复 `core/foundation` XML 文档注释：WorldMapSchema 未闭合标签与 cref/paramref 漂移（`ab4d42c`）。
+
+### 文档与门禁
+
+- 新增文档：[ADR-0022](architecture/adr/0022-登记表补充导航与编辑元数据.md)、
+  `architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md`（消费方反馈第 12～16 条逐条回复，
+  提交 `74cff87`）。
+- 顶部"编辑器相关契约"索引：ADR-0022 条目版本标注由"下一版本"改为"1.16.0"（详见文首索引小节，
+  与本版本正式发布对齐）。
+- 新增/更新回归测试：`core/foundation/data_registry/tests/SchemaMetadataTests.cs`、
+  `presentation/assembly/tests/SchemaAuditTests.cs`。
+
+### 迁移说明
+
+面向消费方（游戏侧工程、内容编辑器等无头宿主），逐条可执行：
+
+a. **`reference_integrity` 现在覆盖 `IdList` 元素**：消费方数据里 `item.template.affixes`、
+   `item.slot_definition.accepts`、`item.set.pieces`、`world.map.allowed_difficulties` 等
+   `IdList` 字段若含悬空 id，将在加载期被阻断（此前 `reference_integrity` 只校验单值引用字段，
+   不遍历 `IdList` 数组元素）。
+b. **消费方自定义 catalog 注册的表需声明归属元数据**：若表未声明 `Layer`/`Module`（含时间字段的
+   表还需声明 `TimeScope`），元数据门禁（`SchemaAudit`）会报 `table_ownership`/
+   `time_scope_declared` 等检查项；声明方式为在表登记处链式调用 `TableSchema.WithOwnership(...)`/
+   `WithDomain(...)`/`WithTimeScope(...)`。
+c. **三张单段名表不改名**：`camera_profile`/`ui_layout_definition`/`shell_menu_definition`
+   （命名本身不含 `.` 分段）继续沿用原表名，工具改为按显式登记的 `Domain` 取域，不依赖表名分段。
+d. **`Group` 为计算默认值 + 可覆盖**：字段未显式登记 `Group` 时按种类/命名规则计算得到默认值；
+   编辑器等下游工具应读取 `toolchain/validator --list-tables --json` 导出的 `field_meta.group`
+   （即计算/覆盖后的最终值），不要自行重新推导。
+
+### 兼容声明
+
+本版本对 1.12.0～1.15.0 旧编译消费方保持二进制兼容：依据是 `toolchain/abi_probe.ps1` 严格模式下的
+验证——1.12.0 基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑通过，且独立的公开 API
+表面差异比对输出 `breaks=0`；`build.ps1 -Release` 发布门禁本次固定传 `-AbiStrict`。
+
+### 版本判据说明
+
+新增能力（`TableSchema`/`FieldSchema` 归属与分组元数据、`IdList` 引用登记、`TimeModelRules` 公开
+入口、元数据门禁五项新检查、`--list-tables --json` 导出扩展）与修复（XML 文档注释）均不改变任何
+现有公开签名的必填参数个数（新增只读属性与链式登记方法均可选）、不删改任何数据表既有字段、不改变
+存档格式；`reference_integrity` 覆盖 `IdList` 元素属于新增校验范围而非签名变化，按 SemVer 判定为
+MINOR。
 
 ## [1.15.0] - 2026-09-10
 
