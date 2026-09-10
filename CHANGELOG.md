@@ -68,6 +68,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.16.2] - 2026-09-10
+
+外部深度审核（codex 第十六轮，基线 `24a11fe28f9647cd532c41f56f7ab18c00fb8516`/v1.16.1 自身，报告见
+`architecture/落地计划/audit-24a11fe-20260910/`）ABI 工具门禁、框架数据/表达式合同修复共两项，另加
+五处文档勘误与 ADR-0023 光环叠加类别澄清；核实与逐条回复见
+`architecture/落地计划/audit-24a11fe-20260910/followup-2026-09-10c.md`。提交 `af22b4b`（核心侧
+F-01/F-02/F-03）、`a6702c0`（工具链与文档：ABI-116-01 + DOC-116-01～04/TOOL-116-01 + 归档）、
+`9c7d533`（followup 回填）、`d7a300f`/`8dc7008`/`7886c1d`（ADR-0023）。
+
 ### 修复
 
 - ABI-116-01（外部审计 audit-24a11fe-20260910，codex 第十六轮）：`toolchain/abi_surface`
@@ -81,7 +90,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   非枚举 `const` 字段内联值变化两处此前同样未被记录的信号（均判破坏）。用新版工具对
   `dist/ws-game-1.12.0.zip`、`dist/ws-game-1.13.0.zip` 两份历史基线重跑当前工作树六个 DLL，
   均 `breaks=0`，未发现历史真实破坏——本条属门禁能力补强，不代表已发布版本存在未声明的破坏性变更
-  （提交 `<提交待填>`）。
+  （提交 `a6702c0`）。
 - F-01/F-02/F-03（外部审计 audit-24a11fe-20260910，codex 第十六轮）：`JsonReader`/`ExprLexer` 拒绝
   语法合法但求值非有限（Infinity/NaN）的数字与超出可表示范围的整数字面量，统一为带位置的解析错误；
   `FieldRange` 拒绝 NaN/Infinity 端点（无界用 null）；`DataRegistry` 新增 `field_finite` 检查项；
@@ -93,21 +102,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 - DOC-116-02（外部审计 audit-24a11fe-20260910）：`core/rules/skill/README.md`
   `ISkillHost.FindUnits` 一节由"当前恒返回空列表"更正为"已实现查询/过滤/排序，生产装配默认注入
-  `Spatial`，仅未注入 `ISpatialQuery` 时降级为空列表+诊断"（提交 `<提交待填>`）。
+  `Spatial`，仅未注入 `ISpatialQuery` 时降级为空列表+诊断"（提交 `a6702c0`）。
 - DOC-116-01（外部审计 audit-24a11fe-20260910）：`architecture/README.md` 文件清单与根
   `README.md` 两处 ADR 计数由 17～19 条更正为实际 23 条，补 `adr/0020`～`adr/0023` 四行索引
-  （提交 `<提交待填>`）。
+  （提交 `a6702c0`）。
 - DOC-116-03（外部审计 audit-24a11fe-20260910）：`core/foundation/data_registry/README.md`
   校验项检查名表补 `field_range`（ADR-0021）一行，`reference_integrity` 一行补充 ADR-0022
-  的 `IdList` 元素引用覆盖说明（提交 `<提交待填>`）。
+  的 `IdList` 元素引用覆盖说明；检查项表新增 `field_finite`/`expr_validation_error` 两行说明
+  （提交 `a6702c0`）。
 - DOC-116-04（外部审计 audit-24a11fe-20260910）：[ADR-0022](architecture/adr/0022-登记表补充导航与编辑元数据.md)
   第 5 节"导出"改写为分别说明 `toolchain/validator --list-tables --json`（元数据导出，顶层
   `tables_list` 含 `field_meta`/`field_ranges`）与 `toolchain/validate_data.py --json`（校验结果
   输出，顶层 `skeleton/validator/exit_code`，不含表清单）两条命令的不同输出结构，避免此前措辞被
-  误读为两者输出等价（提交 `<提交待填>`）。
+  误读为两者输出等价（提交 `a6702c0`）。
 - TOOL-116-01（外部审计 audit-24a11fe-20260910）：根 `README.md` 说明 `check.ps1`（含
   `-SkipUnity`）的 `-ArtifactsPath` 与"包清单一致性"步骤仍会往 `.gitignore` 覆盖的 `bin/`/`dist/`
-  写入构建产物/打包中间物，"不修改已跟踪文件"不等于"运行过程零副作用"（提交 `<提交待填>`）。
+  写入构建产物/打包中间物，"不修改已跟踪文件"不等于"运行过程零副作用"（提交 `a6702c0`）。
+- 归档 `architecture/落地计划/audit-24a11fe-20260910/`（提交 `a6702c0`）；`followup-2026-09-10c.md`
+  回填 F-01/F-02/F-03 核实结果与整合 agent 全量门禁验收（提交 `9c7d533`）。
 
 - [ADR-0023](architecture/adr/0023-光环叠加类别为静态校验分组.md)：明确 `skill.aura_def.
   stack_category` 是跨定义的静态叠加校验分组（仅供加载期内容校验使用），不是运行时叠加槽位维度——
@@ -118,6 +130,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   跨定义共享叠加槽位列入落地方案"能力边界与未默认接入能力索引"表"未提供"分类。不改变任何运行时
   算法与公开签名，消费方复核见
   [消费方反馈-2026-09-10-光环叠加类别.md](architecture/落地计划/消费方反馈-2026-09-10-光环叠加类别.md)（提交 `d7a300f`/`8dc7008`）。
+
+### 迁移说明
+
+- 此前携带 Infinity/NaN 数值或超出 `long` 可表示范围的整数字面量的数据内容，从本版起在加载期
+  （`JsonReader`/`ExprLexer` 解析阶段，或 `DataRegistry` 的 `field_finite`/`expr_validation_error`
+  校验阶段）直接阻断，请在升级前用本版 `toolchain/validate_data.py --strict` 排查现有内容。
+- `FieldRange.Range` 不再接受 NaN/Infinity 作为端点，若代码里存在类似写法请改用 `null` 表示该侧
+  无界。
+
+### 兼容声明
+
+本版本对 1.12.0～1.16.1 旧编译消费方保持二进制兼容：依据是 `toolchain/abi_probe.ps1` 严格模式下的
+验证——1.12.0 基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑通过，且独立的公开 API
+表面差异比对输出 `breaks=0`；本版本表面差异工具（`toolchain/abi_surface`）自身已修复 ABI-116-01，
+新增覆盖可见性收窄、泛型约束变化、非枚举 `const` 字段值变化三类此前会被漏报的破坏性信号。
 
 ## [1.16.1] - 2026-09-10
 
