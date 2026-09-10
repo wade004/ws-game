@@ -661,8 +661,8 @@ ws-game ④⑤⑥（元数据门禁、热重载标准实现、文档义务）
 </tr>
 <tr>
 <td>Expr 解析器</td>
-<td><code>core/foundation/expr/</code>，九个宿主分组（<code>self</code>/<code>target</code>/<code>event</code>/<code>world</code>/<code>quest</code>/<code>player</code>/<code>combat</code>/<code>enemies</code>/<code>time</code>）</td>
-<td>编辑器 Expr 编辑器（第 5.4.2 节）语法高亮、自动补全、失焦解析全部调用同一份解析器，不自己实现一套 BNF</td>
+<td><code>core/foundation/expr/</code>，九个宿主分组（<code>self</code>/<code>target</code>/<code>event</code>/<code>world</code>/<code>quest</code>/<code>player</code>/<code>combat</code>/<code>enemies</code>/<code>time</code>）；<code>ExprParser.Parse(string, IExprSchema)</code> 解析为 AST，<code>ExprLexer.Tokenize(string)</code> 词法切分为只读 <code>IReadOnlyList&lt;ExprToken&gt;</code>（<a href="../../architecture/adr/0020-表达式词法器纳入公开契约.md">ADR-0020</a> 新增契约面，<code>ExprToken</code> 含 <code>Kind</code>/<code>Start</code>/<code>Length</code>/<code>Text</code>）</td>
+<td>编辑器 Expr 编辑器（第 5.4.2 节）语法高亮、自动补全、失焦解析全部调用同一份解析器/词法器，不自己实现一套 BNF 或词法规则——语法高亮按 <code>ExprLexer.Tokenize</code> 返回的 token 种类与 <code>Start</code>/<code>Length</code> 区间着色，不得自行正则切词</td>
 </tr>
 <tr>
 <td>校验装配入口</td>
