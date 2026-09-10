@@ -1,0 +1,17 @@
+indexer_oracle=public_int_indexer_to_string_indexer
+indexer_old_consumer_hash_before=a6e250751a59fe6b1f1ab557a778b919f057f9f90b6a362cb03a79320be135a6
+indexer_old_consumer_hash_after=a6e250751a59fe6b1f1ab557a778b919f057f9f90b6a362cb03a79320be135a6
+indexer_old_consumer_rebuilt_after_swap=False expected=False
+indexer_baseline_exit=0 expected=0
+indexer_current_exit=0 expected=nonzero
+indexer_current_runtime_missing_method_exception=True expected=True
+indexer_surface_exit=0 expected=0_current_tool_misses_change
+indexer_surface_dump_sha_equal=True expected=True
+indexer_oracle_result=FAIL
+indexer oracle did not reproduce expected tool blind spot
+At D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\reproduce-formal-and-indexer.ps1:195 char:181
++ ... merHash)) { throw 'indexer oracle did not reproduce expected tool bli ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (indexer oracle ...tool blind spot:String) [], RuntimeException
+    + FullyQualifiedErrorId : indexer oracle did not reproduce expected tool blind spot
+ 

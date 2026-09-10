@@ -112,7 +112,14 @@ namespace Toolchain.AbiSurface
             foreach (var method in type.GetMethods(Bindings))
             {
                 if (!IsMemberVisible(method.Attributes)) continue;
-                if (method.IsSpecialName) continue; // 属性/事件的 get_/set_/add_/remove_ 访问器另按 property/event 记录，避免重复。
+                // ABI-1162-01 根治（codex 第十七轮，audit-4faab73-20260910）：此前 `IsSpecialName`
+                // 整体跳过，误伤了运算符重载/转换运算符（`op_Addition`/`op_Implicit`/`op_Explicit`
+                // 等——C# 编译器同样把它们标记 IsSpecialName=true，物理上是普通 static 方法，删除
+                // 或改签名会让旧调用方 `MissingMethodException`）。只应跳过属性/事件的
+                // `get_`/`set_`/`add_`/`remove_` 访问器（它们另按 property/event 记录，避免与这里
+                // 重复记同一签名两遍）——按访问器方法名前缀 + IsSpecialName 双重判定，不再用
+                // IsSpecialName 单独判定，运算符类方法（`op_` 前缀）不在这四个前缀里，照常记录。
+                if (method.IsSpecialName && IsAccessorMethodName(method.Name)) continue;
                 var arity = method.IsGenericMethodDefinition ? method.GetGenericArguments().Length : 0;
                 var name = arity > 0 ? method.Name + "`" + arity : method.Name;
                 var sig = name + "(" + TypeNameFormatter.FormatParameters(method.GetParameters()) + "):" + TypeNameFormatter.Format(method.ReturnType);
@@ -128,10 +135,20 @@ namespace Toolchain.AbiSurface
                 var getVis = getter != null && IsMemberVisible(getter.Attributes) ? Visibility(getter.Attributes) : "none";
                 var setVis = setter != null && IsMemberVisible(setter.Attributes) ? Visibility(setter.Attributes) : "none";
                 if (getVis == "none" && setVis == "none") continue; // 访问器都不是 public/protected，属性本身不算表面成员。
-                var sig = prop.Name + ":" + TypeNameFormatter.Format(prop.PropertyType);
+                // ABI-1162-01 根治（codex 第十七轮，audit-4faab73-20260910）：此前 sig 只编码
+                // `Name:PropertyType`，完全不含 `PropertyInfo.GetIndexParameters()`——public
+                // indexer（`this[int]`）的索引参数类型变化（例如改成 `this[string]`）dump 前后
+                // 逐字节相同，compare `breaks=0`，但物理上是完全不同的 `get_Item`/`set_Item`
+                // 方法签名，旧编译消费方运行期 `MissingMethodException`（见
+                // delivery/run5-console.log 的 indexer oracle 与 AUDIT_REPORT.md ABI-1162-01）。
+                // 索引参数与方法参数共用 TypeNameFormatter.FormatParameters，非索引器
+                // （Length==0）时不追加 `[...]`，签名文本与旧格式保持一致，不产生无谓的格式噪音。
+                var indexParams = prop.GetIndexParameters();
+                var indexSig = indexParams.Length > 0 ? "[" + TypeNameFormatter.FormatParameters(indexParams) + "]" : "";
+                var sig = prop.Name + indexSig + ":" + TypeNameFormatter.Format(prop.PropertyType);
                 // 判断记录：本 dumper 不单独为属性的 get_/set_ 访问器方法输出 method 行（上面
-                // GetMethods 循环用 IsSpecialName 过滤掉了它们，避免与这里的 property 行重复记同
-                // 一处签名两遍）。接口属性是否 abstract（没有默认实现体）因此只能记在这一行的
+                // GetMethods 循环用 IsSpecialName+前缀 过滤掉了它们，避免与这里的 property 行重复
+                // 记同一处签名两遍）。接口属性是否 abstract（没有默认实现体）因此只能记在这一行的
                 // flags 里——SurfaceCompareLogic 的"既有接口新增 abstract 成员"规则要靠这个标记
                 // 识别属性访问器，不是只识别 method 行。
                 bool isAbstractProp = (getter != null && getter.IsAbstract) || (setter != null && setter.IsAbstract);
@@ -179,6 +196,17 @@ namespace Toolchain.AbiSurface
                 var esig = evt.Name + ":" + TypeNameFormatter.Format(evt.EventHandlerType!);
                 var eflagsList = new List<string> { Visibility(adder.Attributes) };
                 if (adder.IsStatic) eflagsList.Add("static");
+                // ABI-1162-01 根治（codex 第十七轮，audit-4faab73-20260910）：此前只记 add 访问器
+                // 可见性——remove 访问器单独收窄（例如 add 仍 public，remove 从 public 收窄成
+                // internal/private）时事件这一行 flags 不变，compare `breaks=0`，但旧编译消费方
+                // 的 `obj.Event -= handler;` 物理上调用 `remove_Event`，收窄后同样
+                // `MissingMethodException`（与 get/set 分别判定同一治理口径，见属性分支）。首
+                // token 仍固定是 add 可见性（SurfaceCompareLogic 的可见性放宽豁免按首 token 识别，
+                // 不能挪位——见该处判断记录），remove 可见性追加为独立 token，narrowing 时这条
+                // token 变化会让整行"身份"不同，走规则 1 的"行消失即破坏"判定。
+                var remover = evt.RemoveMethod;
+                var removeVis = remover != null && IsMemberVisible(remover.Attributes) ? Visibility(remover.Attributes) : "none";
+                eflagsList.Add("remove:" + removeVis);
                 var eflags = string.Join(",", eflagsList);
                 lines.Add(string.Join("\t", "MEMBER", TypeNameFormatter.Format(type), "event", esig, eflags));
             }
@@ -190,6 +218,23 @@ namespace Toolchain.AbiSurface
         }
 
         private const BindingFlags Bindings = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+
+        private static readonly string[] AccessorMethodNamePrefixes = { "get_", "set_", "add_", "remove_" };
+
+        /// <summary>
+        /// ABI-1162-01 根治：判断一个 `IsSpecialName=true` 的方法是否是属性/事件访问器（这些已经
+        /// 另按 property/event 记录，method 循环要跳过避免重复）——按前缀区分，运算符重载/转换
+        /// 运算符（`op_Addition`/`op_Implicit` 等）同样 `IsSpecialName=true` 但不匹配这四个前缀，
+        /// 因此不会被这里过滤，会正常按普通 method 记录（见调用点判断记录）。
+        /// </summary>
+        private static bool IsAccessorMethodName(string methodName)
+        {
+            foreach (var prefix in AccessorMethodNamePrefixes)
+            {
+                if (methodName.StartsWith(prefix, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
 
         private static bool IsMemberVisible(MethodAttributes attrs)
         {
@@ -286,16 +331,11 @@ namespace Toolchain.AbiSurface
         }
 
         /// <summary>
-        /// 非枚举 const 字段的内联常量值——文本化用于 dump 行，字符串加引号+转义避免与制表符/逗号
-        /// 分隔符混淆（虽然 C# 标识符层面的 const 值罕见嵌入制表符，仍按防御性处理）。
+        /// 非枚举 const 字段的内联常量值——文本化用于 dump 行，与
+        /// <see cref="TypeNameFormatter.FormatLiteralValue"/> 共用同一套格式（判断记录见该处：
+        /// const 字段值真正内联进调用方 IL，与可选参数默认值的编译器语法糖性质不同，仍要编码）。
         /// </summary>
-        private static string FormatConstValue(object? raw)
-        {
-            if (raw == null) return "null";
-            if (raw is bool b) return b ? "true" : "false";
-            if (raw is string s) return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
-            return Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture) ?? raw.ToString() ?? "?";
-        }
+        private static string FormatConstValue(object? raw) => TypeNameFormatter.FormatLiteralValue(raw);
 
         private static string ClassifyKind(Type type)
         {

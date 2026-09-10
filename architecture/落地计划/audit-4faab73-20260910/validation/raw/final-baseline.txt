@@ -1,0 +1,44 @@
+FINAL_BASELINE_BEGIN
+captured_utc=2026-09-10T12:10:51.2521082Z
+[MAIN]
+path=D:\workespace\ws-game
+HEAD=4faab73e7081f2984e7addb88fee051b6c0d3d02
+VERSION=1.16.2
+git_status_porcelain_begin
+(clean)
+git_status_porcelain_end
+git_worktree_list_begin
+worktree D:/workespace/ws-game
+HEAD 4faab73e7081f2984e7addb88fee051b6c0d3d02
+branch refs/heads/main
+
+worktree D:/workespace/ws-game-artifacts/audit-4faab73-frozen
+HEAD 4faab73e7081f2984e7addb88fee051b6c0d3d02
+detached
+git_worktree_list_end
+[FROZEN]
+path=D:\workespace\ws-game-artifacts\audit-4faab73-frozen
+HEAD=4faab73e7081f2984e7addb88fee051b6c0d3d02
+VERSION=1.16.2
+git_status_porcelain_begin
+(clean)
+git_status_porcelain_end
+git_worktree_list_begin
+worktree D:/workespace/ws-game
+HEAD 4faab73e7081f2984e7addb88fee051b6c0d3d02
+branch refs/heads/main
+
+worktree D:/workespace/ws-game-artifacts/audit-4faab73-frozen
+HEAD 4faab73e7081f2984e7addb88fee051b6c0d3d02
+detached
+git_worktree_list_end
+[FORMAL_1.16.2]
+file=D:\workespace\ws-game\dist\ws-game-1.16.2.zip
+bytes=56071279
+sha256=544bedaf54bf6c97cd0ad7b5afd1b51f0e210c165ee756efcb2c34319683f454
+file=D:\workespace\ws-game\dist\ws-game-1.16.2.lock
+bytes=1216
+sha256=7a1f8f5a01e928d9262632e0c2c7b86f5af9a2cbb4305bc0f4b6da8af483b453
+[UNITY_PROCESS_STATUS]
+(no Unity or UnityHub process observed)
+FINAL_BASELINE_END

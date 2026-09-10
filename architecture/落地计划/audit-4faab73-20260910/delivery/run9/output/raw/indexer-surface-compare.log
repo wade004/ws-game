@@ -1,0 +1,4 @@
+﻿[abi_surface] compare baseline=D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\run9\output\indexer-oracle\surface-baseline.txt current=D:\workespace\ws-game-artifacts\audit-4faab73-20260910\delivery\run9\output\indexer-oracle\surface-current.txt
+[abi_surface] breaks=0 allowed=0 additions=0
+[abi_surface] RESULT=OK
+

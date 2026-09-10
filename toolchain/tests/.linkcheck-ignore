@@ -45,3 +45,20 @@ architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md::presentation/p
 architecture/落地计划/audit-6739f50-20260909/presentation/presentation-findings.md::navigation-probes.log
 architecture/落地计划/audit-6739f50-20260909/presentation/presentation-findings.md::playmode-full-final.xml
 architecture/落地计划/audit-6739f50-20260909/presentation/presentation-findings.md::playmode-full-final.log
+
+# 2026-09-10 codex 第十七轮归档：audit-4faab73-20260910/delivery/delivery.md（原始输出根文档，
+# 逐字节保留未改写）引用的六处目标在原始输出根中确实存在，但按归档时的排除规则（源与体积/构建
+# 产物原则，见同目录 README.md"原件未归档"表）未纳入本次归档，不是"找不回"——delivery/ 本轮
+# 归档范围只保留日志与清单，不含 build/binary 中间产物与逐轮复现探针源码/脚本：
+# `output/sentinel.txt`（`output/build/` 之下的构建阶段哨兵文件，随构建中间物一起排除）、
+# `output/abi-probe/summary.txt`（`output/abi-probe/` 目录本身已整体排除，见 README.md）、
+# `reproduce-formal-and-indexer.ps1`（顶层复现脚本，不属于"日志与清单"归档范围）、
+# `run9/output/indexer-oracle/surface-report.txt`（`run{2..9}/output/indexer-oracle/` 目录本身
+# 已整体排除，只保留同轮 `output/raw/` 日志与清单）、`unity-repro/prepare-unity-copy.ps1`、
+# `unity-repro/run-unity-current.ps1`（复现脚本，同上不在归档范围）。
+architecture/落地计划/audit-4faab73-20260910/delivery/delivery.md::output/sentinel.txt
+architecture/落地计划/audit-4faab73-20260910/delivery/delivery.md::output/abi-probe/summary.txt
+architecture/落地计划/audit-4faab73-20260910/delivery/delivery.md::reproduce-formal-and-indexer.ps1
+architecture/落地计划/audit-4faab73-20260910/delivery/delivery.md::run9/output/indexer-oracle/surface-report.txt
+architecture/落地计划/audit-4faab73-20260910/delivery/delivery.md::unity-repro/prepare-unity-copy.ps1
+architecture/落地计划/audit-4faab73-20260910/delivery/delivery.md::unity-repro/run-unity-current.ps1

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <SourceRoot Condition="'$(SourceRoot)' == ''">$(MSBuildProjectDirectory)\..\build\source</SourceRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="SchemaConsumer.Program.cs" />
+    <ProjectReference Include="$(SourceRoot)\presentation\Presentation.Common.csproj" />
+  </ItemGroup>
+</Project>

@@ -602,7 +602,35 @@ dump），不记具体是哪一档——`public -> protected` 这类可见性收
 | 泛型约束变化 | TYPE/MEMBER flags：`constraints:!<位置>:<variance&特殊约束&基类约束>` | 任何变化=破坏（不做放宽豁免，任何方向都当破坏处理，对齐既有接口新增 abstract 成员的治理口径） |
 | 非枚举 const 字段值变化 | field 行 sig 追加 `=<内联值>` | 变化=破坏（值被内联进旧调用方 IL） |
 
+### `abi_surface` dump/compare 覆盖范围补齐（ABI-1162-01 根治，外部审计 audit-4faab73-20260910）
+
+此前属性签名只编码 `Name:PropertyType`，不含 `PropertyInfo.GetIndexParameters()`——public indexer
+（`this[int]`）的索引参数类型变化（例如改成 `this[string]`）两次 dump 输出完全相同，`compare` 判
+`breaks=0`，而旧编译消费方运行期 `System.MissingMethodException`（最小 oracle 见
+`toolchain/tests/test_abi_surface_compare.py::test_indexer_parameter_type_change_negative_oracle_end_to_end_via_real_dll`）。
+核对同一批容易漏判的签名维度时，另确认运算符重载/转换运算符（此前被 `IsSpecialName` 整体跳过，
+完全不进 dump）、事件 remove 访问器可见性（此前只记 add 半边）两处也是真实缺口，一并补齐：
+
+| 维度 | dump 记录位置 | compare 判定 |
+|---|---|---|
+| 索引器（属性）索引参数类型 | property 行 sig：`Name[<索引参数类型列表>]:PropertyType`，非索引器不追加 `[...]` | 变化=破坏（物理上是不同的 `get_Item`/`set_Item` 方法签名） |
+| 运算符重载/转换运算符 | method 行（`op_Addition`/`op_Implicit`/`op_Explicit` 等按普通 method 记录，不再被 `IsSpecialName` 整体过滤） | 删除/改签名=破坏，与普通方法同一治理口径 |
+| 事件 remove 访问器可见性 | MEMBER 行 flags 追加独立 token：`remove:<VIS>`（add 可见性仍是首 token，不影响既有放宽豁免逻辑） | remove 单独收窄=破坏（`obj.Event -= handler` 物理调用 `remove_Event`） |
+
+以下两个维度核查后确认**不**编码，与既有 `ref`/`out`/`in` 不编码设计（见
+`TypeNameFormatter.FormatParameters` 判断记录）同一治理逻辑：`params` 数组修饰
+（`ParamArrayAttribute`）与可选参数默认值存在性/取值——两者都是 C# 编译器侧语法糖，不改变 IL
+物理签名，旧编译调用方省略实参时编译器已把具体值/展开后的显式数组写死进调用方 IL，物理绑定只按
+参数类型与个数匹配。曾经短暂编码过这两项，但用 `dist/ws-game-1.12.0.zip` 基线重跑当前工作树六个
+DLL 时产生 5 处假破坏——框架给公开构造函数新增尾部可选参数时统一采用"新增一个更长的可选参数
+重载，同时保留原始定长参数表的旧重载（旧重载参数改为不带默认值，仅作为物理兼容 shim）"模式
+（`FieldSchema`/`EconomyContentValidationRule`/`LootContentValidationRule`/`SkillHost`/
+`ViewBinder` 均如此），旧编译调用方物理上调用的正是这个保留的定长重载，从未因为它是否声明默认值
+而受影响；按值/存在性编码后误将这一合法兼容模式判成破坏，因此撤回、改为不编码（真实反射验证见
+`toolchain/tests/test_abi_surface_compare.py::test_params_and_optional_default_value_are_not_encoded_in_real_dump`）。
+
 用新版工具对 `dist/ws-game-1.12.0.zip`、`dist/ws-game-1.13.0.zip` 两份历史基线重跑当前工作树六个
 DLL：两者均 `breaks=0`（未发现历史真实破坏；1.13.0 场景的手写消费方探针第 1 点因 consumer 源码
 只锚定 `abi_probe_baseline.txt` 记录的 1.12.0 签名集合，对 1.13.0 编译会失败，这是既有已知边界，
-与本次 dump/compare 覆盖范围扩充无关，不在本次改动范围）。
+与本次 dump/compare 覆盖范围扩充无关，不在本次改动范围——1.13.0 只跑 dump/compare 两份基线
+DLL，不跑消费方探针）。

@@ -1,0 +1,139 @@
+PRESENTATION_CONSUMER_BEGIN
+SCHEMA_AUDIT tables=63 fields=783 errors=20 warnings=0 blocking=True
+AUDIT error found.event_catalog/fields composite_without_substructure 字段 "fields" 是 Array 但未登记子结构（Item），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error display.map/anchor_points composite_without_substructure 字段 "anchor_points" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error display.map/default_slot_meshes composite_without_substructure 字段 "default_slot_meshes" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error display.map/material_params composite_without_substructure 字段 "material_params" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error display.anim_set/clips composite_without_substructure 字段 "clips" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error found.time_model/grid_snap composite_without_substructure 字段 "grid_snap" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error prog.level_curve/entries[].growth composite_without_substructure 字段 "entries[].growth" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error arch.class/base_stats composite_without_substructure 字段 "base_stats" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error arch.race/stat_mods composite_without_substructure 字段 "stat_mods" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error arch.talent_tree/nodes[].grants composite_without_substructure 字段 "nodes[].grants" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error ai.behavior_profile/transitions composite_without_substructure 字段 "transitions" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error item.affix/effects composite_without_substructure 字段 "effects" 是 Array 但未登记子结构（Item），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error creature.template/base_stats composite_without_substructure 字段 "base_stats" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error gobj.template/type_data.trigger_shape composite_without_substructure 字段 "type_data.trigger_shape" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error world.flag_schema/allowed_values composite_without_substructure 字段 "allowed_values" 是 Array 但未登记子结构（Item），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error dialog.gossip_menu/options[].actions[]{kind=set_flag}.params composite_without_substructure 字段 "options[].actions[]{kind=set_flag}.params" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error encounter.def/phases[].ai_rotation_override composite_without_substructure 字段 "phases[].ai_rotation_override" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error display.weapon_style/cast_anim_override composite_without_substructure 字段 "cast_anim_override" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error display.weapon_style/impact_vfx_override composite_without_substructure 字段 "impact_vfx_override" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+AUDIT error ui_layout_definition/fields composite_without_substructure 字段 "fields" 是 Object 但未登记子结构（Fields/Variants），若确认暂不支持结构化登记（如 Map 型对象），须加入 toolchain/schema_audit_allowlist.json 并写明 reason
+SCHEMA_AUDIT_ALLOWLIST tables=63 fields=783 errors=0 warnings=0 blocking=False
+TABLE name=achv.def layer=Gameplay module=achievement domain=achv scope=None fields=4
+TABLE name=ai.behavior_profile layer=Rules module=ai domain=ai scope=None fields=9
+TABLE name=ai.patrol_path layer=Rules module=ai domain=ai scope=None fields=3
+TABLE name=ai.rotation layer=Rules module=ai domain=ai scope=None fields=2
+TABLE name=arch.class layer=Numbers module=archetype domain=arch scope=None fields=8
+FIELD table=arch.class name=power_types kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+TABLE name=arch.power_type layer=Numbers module=power_set domain=arch scope=Both fields=10
+FIELD table=arch.power_type name=regen_in_combat kind=Number group=Numeric unit=Time refTable= refDomain= freeIds=False range=
+FIELD table=arch.power_type name=regen_out_of_combat kind=Number group=Numeric unit=Time refTable= refDomain= freeIds=False range=
+FIELD table=arch.power_type name=decay_out_of_combat kind=Number group=Numeric unit=Time refTable= refDomain= freeIds=False range=
+TABLE name=arch.race layer=Numbers module=archetype domain=arch scope=None fields=4
+FIELD table=arch.race name=passive_auras kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+TABLE name=arch.talent_tree layer=Numbers module=archetype domain=arch scope=None fields=2
+TABLE name=area.trigger_def layer=Gameplay module=area domain=area scope=None fields=8
+TABLE name=camera_profile layer=Presentation module=camera domain=camera scope=None fields=9
+TABLE name=combat.hit_table_config layer=Rules module=combat domain=combat scope=None fields=11
+FIELD table=combat.hit_table_config name=crit_multiplier_base kind=Number group=Numeric unit=None refTable= refDomain= freeIds=False range=[0, +∞)
+FIELD table=combat.hit_table_config name=glancing_damage_pct kind=Number group=Numeric unit=None refTable= refDomain= freeIds=False range=[0, +∞)
+TABLE name=combat.resist_curve layer=Rules module=combat domain=combat scope=None fields=6
+FIELD table=combat.resist_curve name=max_reduction kind=Number group=Numeric unit=None refTable= refDomain= freeIds=False range=[0, 1]
+TABLE name=creature.template layer=Carriers module=creature domain=creature scope=None fields=15
+FIELD table=creature.template name=npc_flags kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+FIELD table=creature.template name=immunities kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+TABLE name=creature.tier_definition layer=Carriers module=creature domain=creature scope=None fields=5
+TABLE name=dialog.gossip_menu layer=Gameplay module=dialog domain=dialog scope=None fields=2
+TABLE name=dialog.story_tree layer=Gameplay module=dialog domain=dialog scope=None fields=2
+TABLE name=diff.tier layer=Gameplay module=difficulty domain=diff scope=None fields=6
+FIELD table=diff.tier name=modifier_aura_refs kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+TABLE name=display.anim_set layer=Foundation module=display domain=display scope=None fields=2
+TABLE name=display.equip_visual layer=Foundation module=display domain=display scope=None fields=7
+TABLE name=display.map layer=Foundation module=display domain=display scope=None fields=22
+FIELD table=display.map name=sockets kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+FIELD table=display.map name=slots kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+TABLE name=display.weapon_style layer=Presentation module=display domain=display scope=None fields=5
+TABLE name=econ.currency layer=Gameplay module=economy domain=econ scope=None fields=4
+FIELD table=econ.currency name=cap kind=Int group=Numeric unit=None refTable= refDomain= freeIds=False range=[0, +∞)
+TABLE name=econ.vendor layer=Gameplay module=economy domain=econ scope=None fields=5
+TABLE name=encounter.def layer=Gameplay module=encounter domain=encounter scope=None fields=10
+TABLE name=encounter.level layer=Gameplay module=encounter domain=encounter scope=None fields=4
+FIELD table=encounter.level name=encounter_sequence kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+FIELD table=encounter.level name=entry_difficulty_options kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+TABLE name=fac.faction layer=Numbers module=faction domain=fac scope=None fields=3
+TABLE name=fac.reaction_matrix layer=Numbers module=faction domain=fac scope=None fields=4
+TABLE name=feedback.binding layer=Presentation module=feedback domain=feedback scope=None fields=5
+TABLE name=feedback.floating_text_style layer=Presentation module=feedback domain=feedback scope=None fields=4
+TABLE name=found.event_catalog layer=Foundation module=foundation domain=found scope=None fields=4
+TABLE name=found.game_state layer=Foundation module=foundation domain=found scope=None fields=5
+TABLE name=found.hook layer=Foundation module=foundation domain=found scope=None fields=4
+TABLE name=found.input_action layer=Foundation module=foundation domain=found scope=None fields=5
+TABLE name=found.time_model layer=Foundation module=foundation domain=found scope=None fields=10
+TABLE name=gobj.lock layer=Carriers module=gameobject domain=gobj scope=None fields=3
+TABLE name=gobj.template layer=Carriers module=gameobject domain=gobj scope=None fields=8
+FIELD table=gobj.template name=tags kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+TABLE name=item.affix layer=Carriers module=item domain=item scope=None fields=3
+TABLE name=item.budget_curve layer=Carriers module=item domain=item scope=None fields=2
+TABLE name=item.quality_definition layer=Carriers module=item domain=item scope=None fields=4
+TABLE name=item.set layer=Carriers module=item domain=item scope=None fields=4
+FIELD table=item.set name=pieces kind=IdList group=Reference unit=None refTable=item.template refDomain= freeIds=False range=
+TABLE name=item.slot_definition layer=Carriers module=item domain=item scope=None fields=6
+FIELD table=item.slot_definition name=accepts kind=IdList group=Reference unit=None refTable=item.slot_definition refDomain= freeIds=False range=
+TABLE name=item.template layer=Carriers module=item domain=item scope=None fields=19
+FIELD table=item.template name=affixes kind=IdList group=Reference unit=None refTable=item.affix refDomain= freeIds=False range=
+FIELD table=item.template name=stack_size kind=Int group=Numeric unit=None refTable= refDomain= freeIds=False range=[1, +∞)
+FIELD table=item.template name=socket_ids kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+TABLE name=l10n.locale layer=Foundation module=l10n domain=l10n scope=None fields=3
+TABLE name=l10n.text layer=Foundation module=l10n domain=l10n scope=None fields=3
+TABLE name=loot.table layer=Gameplay module=loot domain=loot scope=None fields=3
+FIELD table=loot.table name=guaranteed_min kind=Int group=Numeric unit=None refTable= refDomain= freeIds=False range=[0, +∞)
+TABLE name=prog.level_curve layer=Numbers module=progression domain=prog scope=None fields=3
+TABLE name=prog.xp_source layer=Numbers module=progression domain=prog scope=None fields=4
+TABLE name=quest.def layer=Gameplay module=quest domain=quest scope=None fields=10
+TABLE name=sfx.def layer=Presentation module=sfx domain=sfx scope=None fields=5
+FIELD table=sfx.def name=variants kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+TABLE name=shell_menu_definition layer=Presentation module=shell domain=shell scope=None fields=2
+TABLE name=skill.aura_def layer=Rules module=skill domain=skill scope=Combat fields=6
+FIELD table=skill.aura_def name=duration kind=Number group=Numeric unit=Time refTable= refDomain= freeIds=False range=
+TABLE name=skill.book layer=Rules module=skill domain=skill scope=None fields=2
+TABLE name=skill.def layer=Rules module=skill domain=skill scope=Combat fields=16
+FIELD table=skill.def name=tags kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+FIELD table=skill.def name=cast_time kind=Number group=Numeric unit=Time refTable= refDomain= freeIds=False range=
+FIELD table=skill.def name=channel_time kind=Number group=Numeric unit=Time refTable= refDomain= freeIds=False range=
+FIELD table=skill.def name=cooldown_duration kind=Number group=Numeric unit=Time refTable= refDomain= freeIds=False range=
+TABLE name=skill.proc_def layer=Rules module=skill domain=skill scope=Combat fields=6
+FIELD table=skill.proc_def name=internal_cooldown kind=Number group=Numeric unit=Time refTable= refDomain= freeIds=False range=
+FIELD table=skill.proc_def name=proc_chance kind=Number group=Numeric unit=None refTable= refDomain= freeIds=False range=[0, 1]
+TABLE name=skill.spell_mod_def layer=Rules module=skill domain=skill scope=None fields=5
+TABLE name=spawn.table layer=Gameplay module=spawn domain=spawn scope=Exploration fields=8
+FIELD table=spawn.table name=respawn_timer kind=Number group=Numeric unit=Time refTable= refDomain= freeIds=False range=
+TABLE name=stat.definition layer=Numbers module=stats domain=stat scope=None fields=9
+TABLE name=stat.rating_conversion layer=Numbers module=stats domain=stat scope=None fields=2
+TABLE name=target.chain_def layer=Rules module=targeting domain=target scope=None fields=7
+FIELD table=target.chain_def name=max_targets kind=Int group=Numeric unit=None refTable= refDomain= freeIds=False range=[0, +∞)
+TABLE name=ui_layout_definition layer=Presentation module=ui domain=ui scope=None fields=4
+TABLE name=vfx.def layer=Presentation module=vfx domain=vfx scope=None fields=5
+TABLE name=world.flag_schema layer=Gameplay module=world domain=world scope=None fields=4
+TABLE name=world.map layer=Gameplay module=world domain=world scope=None fields=8
+FIELD table=world.map name=regions kind=IdList group=Reference unit=None refTable= refDomain= freeIds=True range=
+FIELD table=world.map name=allowed_difficulties kind=IdList group=Reference unit=None refTable=diff.tier refDomain= freeIds=False range=
+BAD_RANGE errors=1 field_range_kind=1
+BAD_RANGE export_count=0
+DOMAIN_RUNTIME tableDomain=camera id=camera_profile.default errors=1 cameraRefErrors=1
+DOMAIN_ISSUE [Error] reference_integrity found.consumer[found.consumer_one].camera: 字段 "camera" 的值 "camera_profile.default" 的 domain 应为 "camera"
+F01_REAL_AURA input=duration:1e309, effects[0].params.interval:1e309 expected=JSON parse rejects non-finite and registry blocks actual_errors=1 actual_blocking=True
+F01_REAL_AURA_ISSUE [Error] envelope skill.aura_def: JSON 解析失败：第 1 行第 97 列：数字 "1e309" 语法合法，但解析结果不是有限浮点数（+Infinity）：JSON 不支持 Infinity/NaN
+F01_REAL_AURA_READ expected=InvalidOperationException actual=InvalidOperationException message=数据校验未通过，禁止读取
+F03_REAL_PROC input=condition:9223372036854775808 expected=expr_parsable error, blocking, no throw actual_errors=2 actual_blocking=True
+F03_REAL_PROC_ISSUE [Error] expr_parsable skill.proc_def[skill.proc_def.overflow].condition: 表达式解析失败：整数字面量 "9223372036854775808" 超出可表示范围（位置 0）
+F03_REAL_PROC_READ expected=InvalidOperationException actual=InvalidOperationException message=数据校验未通过，禁止读取
+F03_RELOAD_BASELINE input=condition:true expected=readable actual_errors=1 actual_blocking=True issues=[Error] reference_integrity skill.def[skill.sample_burn].target_shape_ref: 字段 "target_shape_ref" 的值 "target.chain_def.single" 在表 "target.chain_def" 中不存在
+F03_RELOAD_BAD input=condition:9223372036854775808 expected=blocking+read shield actual_errors=2 actual_blocking=True
+F03_RELOAD_BAD_READ expected=InvalidOperationException actual=InvalidOperationException message=数据校验未通过，禁止读取
+Unhandled exception. System.InvalidOperationException: 数据校验未通过，禁止读取
+   at Core.Foundation.DataRegistry.DataRegistry.EnsureReadable() in D:\workespace\ws-game-artifacts\audit-4faab73-20260910\validation\build\source\core\foundation\data_registry\core\DataRegistry.cs:line 528
+   at Core.Foundation.DataRegistry.DataRegistry.GetAll(String table) in D:\workespace\ws-game-artifacts\audit-4faab73-20260910\validation\build\source\core\foundation\data_registry\core\DataRegistry.cs:line 389
+   at Program.ExprReloadRecoveryCase() in D:\workespace\ws-game-artifacts\audit-4faab73-20260910\validation\repro\PresentationConsumer.Program.cs:line 130
+   at Program.Main() in D:\workespace\ws-game-artifacts\audit-4faab73-20260910\validation\repro\PresentationConsumer.Program.cs:line 47

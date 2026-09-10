@@ -1,0 +1,6 @@
+Unity copy input hash comparison; source and copied non-meta inputs; Library/import-generated meta excluded
+adapters\unity source_inputs=500 same=500 missing=0 different=0 result=PASS
+adapters\conformance source_inputs=19 same=19 missing=0 different=0 result=PASS
+games\_template source_inputs=33 same=33 missing=0 different=0 result=PASS
+data source_inputs=63 same=63 missing=0 different=0 result=PASS
+assets source_inputs=181 same=181 missing=0 different=0 result=PASS
