@@ -55,6 +55,16 @@
     Unity 相关步骤与消费方演练——本开关本身就意味着不跑任何 Unity 步骤（等价于隐含 -SkipUnity，
     同传 -SkipUnity 不冲突也没有必要）。不能替代完整门禁，只用于提交前快速把关。
 
+.PARAMETER AbiStrict
+    外部审计 audit-76d16a5-20260910（PJ114-02）新增：把"ABI 探针基线发行包缺失"从可见 SKIP
+    升级为 FAIL（透传 `toolchain/abi_probe.ps1 -SkipIfBaselineMissing:$false`，见该脚本
+    `.PARAMETER SkipIfBaselineMissing` 判断记录——基线缺失时退出码从 SKIP 的 3 变成 FAIL 的 1）。
+    本地开发机 `dist/` 未必有历史版本 zip，缺基线时看不到 ABI 验证是正常状态、不该拖住日常提交；
+    但发布机在跑 `build.ps1 -Release` 之前 `dist/` 一定已经有基线版本（历次发布都会落地），此时
+    "探针没跑"本身就是发布链路故障，必须失败而不是安静跳过——`build.ps1 -Release` 调用全量 check
+    时固定传本开关（见该脚本调用点判断记录）。`-Quick`/`-SkipUnity` 均不影响本开关是否生效（本开关
+    只改变"基线缺失"这一种局面下 ABI 步骤的判定，`-Quick` 下 ABI 步骤本身整体 SKIP，不受影响）。
+
 .PARAMETER Il2cpp
     工程收尾 K 新增，默认不跑（因为耗时数分钟到十几分钟，见 adapters/unity/README.md"IL2CPP
     发布路径验证"一节判断记录）：额外跑一遍 IL2CPP 脚本后端的独立版构建
@@ -87,6 +97,7 @@ param(
     [switch]$SkipSmoke,
     [switch]$SkipConsumer,
     [switch]$Quick,
+    [switch]$AbiStrict,
     [switch]$Il2cpp,
     [string]$ArtifactsPath = "",
     [string]$UnityExe = "",
@@ -160,7 +171,12 @@ function Write-StepHeader {
 #   1) $null：通过，明细列留空（既有大多数步骤的写法）；
 #   2) $true/$false：直接就是通过/失败，明细列留空；
 #   3) [PSCustomObject]@{ Ok = <bool>; Detail = <string> }：通过/失败取 Ok，明细列取 Detail
-#      （H5 新增，供 Unity EditMode/PlayMode 步骤把 total/passed/failed 计数写进汇总表）。
+#      （H5 新增，供 Unity EditMode/PlayMode 步骤把 total/passed/failed 计数写进汇总表）；
+#   4) [PSCustomObject]@{ Skip = $true; Reason = <string> }：判定为可见 SKIP（不是 PASS，也不是
+#      FAIL），明细列取 Reason（外部审计 audit-76d16a5-20260910 PJ114-02 根治新增，等价于
+#      Add-SkippedStep，但用在"是否跳过要等脚本内部跑了一步才知道"的场景——例如 ABI 探针要先跑
+#      一次 toolchain/abi_probe.ps1 拿到其退出码是不是"基线缺失"的 3，不能像别的步骤那样在
+#      Invoke-CheckStep 调用之前就用 if/else 决定要不要整体换成 Add-SkippedStep）。
 # 抛异常同样记为失败（异常消息进明细列）。任一步骤失败都不会中断后续步骤（"顺序执行并汇总"，
 # 见任务书）。
 function Invoke-CheckStep {
@@ -189,6 +205,23 @@ function Invoke-CheckStep {
                 Write-Host "[$Name] 警告：检查步骤脚本块返回了 $($result.Count) 个对象（应恰好一个），只取最后一个参与判定——前面的对象可能是原生命令泄漏的输出，请检查该步骤实现" -ForegroundColor Yellow
             }
             $result = if ($result.Count -gt 0) { $result[-1] } else { $null }
+        }
+
+        if ($result -is [pscustomobject] -and ($result.PSObject.Properties.Name -contains "Skip") -and [bool]$result.Skip) {
+            $skipReason = ""
+            if (($result.PSObject.Properties.Name -contains "Reason") -and $result.Reason) {
+                $skipReason = [string]$result.Reason
+            }
+            $sw.Stop()
+            $seconds = [Math]::Round($sw.Elapsed.TotalSeconds, 1)
+            $script:Results.Add([PSCustomObject]@{
+                Step    = $Name
+                Result  = "SKIP"
+                Seconds = $seconds
+                Detail  = $skipReason
+            })
+            Write-Host "[$Name] 已跳过：$skipReason" -ForegroundColor Yellow
+            return
         }
 
         if ($null -eq $result) {
@@ -473,26 +506,66 @@ Invoke-CheckStep "dotnet test Core.sln -c $Configuration --no-build（六工程�
 # 2b. ABI 探针（toolchain/abi_probe.ps1，第十六方深度审核跟进，见 architecture/11_工程规范与测试.md
 #     第 7 节"发布说明不得宣称未经验证的二进制兼容"）：旧编译 consumer（针对
 #     toolchain/abi_probe_baseline.txt 记录的基线版本）换上本次步骤 1 刚构建出的正式 DLL、不重新
-#     编译，验证是否仍能正常运行——不满足则说明存在未声明的二进制破坏性变更（1.13.0 的真实教训，
-#     见 CHANGELOG.md"已知问题：ABI/API 兼容性"）。-Quick 跳过：需要额外解压/编译一个独立 consumer
-#     工程，不是秒级步骤；本机没有基线版本 dist zip（.gitignore 排除的本机构建缓存）时脚本自身会
-#     打印警告并以 PASS 收尾，不阻塞门禁，见该脚本 .PARAMETER SkipIfBaselineMissing 说明。另起一个
-#     powershell 子进程跑（脚本内部用 exit 语句表达结果，惯例同下方"消费方演练"步骤，避免子脚本的
-#     exit 连带终止本脚本）。
+#     编译，验证是否仍能正常运行；再加一道通用公开 API 表面差异比对（toolchain/abi_surface）——
+#     两者任一不满足都说明存在未声明的破坏性变更（1.13.0 的真实教训，见 CHANGELOG.md"已知问题：
+#     ABI/API 兼容性"）。-Quick 跳过：需要额外解压/编译独立 consumer 与 abi_surface 两个工程，
+#     不是秒级步骤。另起一个 powershell 子进程跑（脚本内部用 exit 语句表达结果，惯例同下方"消费方
+#     演练"步骤，避免子脚本的 exit 连带终止本脚本）。
+#
+#     PJ114-02 根治（外部审计 audit-76d16a5-20260910）：此前本机没有基线版本 dist zip
+#     （.gitignore 排除的本机构建缓存）时子脚本打印警告并以退出码 0（PASS）收尾，这里又把子进程
+#     stdout `| Out-Null` 丢弃——完整 transcript 里这一行永远显示 PASS，却从没有真的跑过一次
+#     consumer，不是 ABI 验收证据。新语义：子脚本退出码 3 = 基线缺失，本步骤记为可见 SKIP（通过
+#     Invoke-CheckStep 的 Skip 结果形状，见该函数头判断记录）；0 = PASS；其余非零 = FAIL。子进程
+#     stdout/stderr 不再吃掉，改用 `*>` 落盘到 `$ArtifactsPath\abi_probe.log`，失败时回显完整内容
+#     方便定位（PASS/SKIP 时只保留日志文件，不刷屏）——`*>` 重定向发生在这条命令自己的语句里，不
+#     进入 `& $Action` 的返回值管道，同样不会污染 Invoke-CheckStep 的返回值判定。`-AbiStrict` 透传
+#     给子脚本的 `-SkipIfBaselineMissing`（取反），发布模式下基线缺失直接判 FAIL（子脚本退出码 1）。
+#
+#     判断记录（改用 `-Command "& ... -SkipIfBaselineMissing:$literal"`，不用 `-File` + 参数数组）：
+#     实测本机 Windows PowerShell 5.1 下，`-File` 调用子进程时给一个非 `[switch]` 的 `[bool]`
+#     类型形参传值（不论是单独一个数组元素 `$true`/`$false`，还是 `"-Name:$true"`/`"-Name True"`
+#     这类字符串形式），参数绑定器一律报
+#     `Cannot process argument transformation ... Cannot convert value "System.String" to type
+#     "System.Boolean"`——`-File` 把随后每个 token 都当成原始字符串塞进子进程的 argv，其自动类型转换
+#     在这条路径上不生效（哪怕错误消息本身声称"接受 1/0"）；`[switch]` 类型的显式 `:$false` 语法同样
+#     复现这个问题（本仓库其余 `& powershell @xxxArgs -File ...` 调用点都没有传过需要显式取值的
+#     布尔/开关参数，此前未暴露）。改成 `-Command "& '<script>' ... -SkipIfBaselineMissing:$true"`
+#     这种形式后，`$true`/`$false` 是被子进程自己的 PowerShell 解析器当场解析成的原生布尔字面量
+#     （同一路径下人工在交互式提示符里直接敲 `.\abi_probe.ps1 -SkipIfBaselineMissing:$false` 一样
+#     正常工作，问题只出在"数组化参数 + -File"这一种调用形状），实测两种取值都能正确送达子脚本。
 # -----------------------------------------------------------------------------
 if ($Quick) {
     Add-SkippedStep "ABI 探针（toolchain/abi_probe.ps1）" "-Quick"
 } else {
     Invoke-CheckStep "ABI 探针（toolchain/abi_probe.ps1）" {
         $abiProbeScript = Join-Path $RepoRoot "toolchain\abi_probe.ps1"
-        $abiProbeArgs = @(
-            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $abiProbeScript,
-            "-ArtifactsPath", $ArtifactsPath, "-Configuration", $Configuration
-        )
-        # 判断记录（同"消费方演练"步骤同一处误判修复）：`| Out-Null` 把子进程 stdout 在管道里吃掉，
-        # 不让它混进 Invoke-CheckStep 的 `& $Action` 返回值数组，只靠 $LASTEXITCODE 判定结果。
-        & powershell @abiProbeArgs | Out-Null
-        return ($LASTEXITCODE -eq 0)
+        if (-not (Test-Path -LiteralPath $ArtifactsPath)) {
+            New-Item -ItemType Directory -Force -Path $ArtifactsPath | Out-Null
+        }
+        $abiProbeLog = Join-Path $ArtifactsPath "abi_probe.log"
+        $skipMissingLiteral = if ($AbiStrict) { '$false' } else { '$true' }
+        $quotedScript = "'" + $abiProbeScript.Replace("'", "''") + "'"
+        $quotedArtifacts = "'" + $ArtifactsPath.Replace("'", "''") + "'"
+        $quotedConfiguration = "'" + $Configuration.Replace("'", "''") + "'"
+        # 判断记录（命令末尾追加 `; exit $LASTEXITCODE`）：实测 `-Command "& '<script>' ..."` 这条
+        # 调用形状下，被调用脚本内部的 `exit N` 不会原样成为宿主 powershell.exe 进程自身的退出码
+        # （`-File` 才会）——`-Command` 下子脚本 `exit 3` 之后，宿主进程自己却报 `$LASTEXITCODE=1`。
+        # 显式在同一条 `-Command` 文本末尾追加 `exit $LASTEXITCODE`，让宿主进程的退出码等于调用
+        # 子脚本后 `$LASTEXITCODE` 的当前值（子脚本 `exit N` 会先设置这个变量），实测能正确得到
+        # 0/1/3 三种预期退出码。
+        $abiProbeCommand = "& $quotedScript -ArtifactsPath $quotedArtifacts -Configuration $quotedConfiguration -SkipIfBaselineMissing:$skipMissingLiteral; exit `$LASTEXITCODE"
+        & powershell -NoProfile -ExecutionPolicy Bypass -Command $abiProbeCommand *> $abiProbeLog
+        $abiExit = $LASTEXITCODE
+
+        if ($abiExit -eq 3) {
+            return [PSCustomObject]@{ Skip = $true; Reason = "基线发行包不存在（详见 $abiProbeLog）" }
+        }
+        if ($abiExit -ne 0) {
+            Get-Content -LiteralPath $abiProbeLog | Write-Host
+            return [PSCustomObject]@{ Ok = $false; Detail = "abi_probe.ps1 退出码=$abiExit，详见 $abiProbeLog" }
+        }
+        return $true
     }
 }
 

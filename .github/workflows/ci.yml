@@ -111,6 +111,56 @@ jobs:
         # 权重才真正可用，check.ps1 门禁的任何一步都不依赖它，CI 不装，见该文件头注释。
         run: pip install -r toolchain/requirements.txt
 
+      # 判断记录（PJ114-02 根治，外部审计 audit-76d16a5-20260910）：check.ps1 的 ABI 探针步骤
+      # （toolchain/abi_probe.ps1）需要一份基线版本（toolchain/abi_probe_baseline.txt 记录）的
+      # 正式发行包 zip 才能真正跑起来；`dist/` 是仓库根 .gitignore 排除的本机构建缓存，全新
+      # checkout 的 CI 运行器天然没有历史版本产物。这里在跑 check.ps1 之前，从本仓库的 GitHub
+      # Release 下载那个基线版本对应的 `ws-game-<version>.zip` 落到 dist/ 下，让 CI 上的 ABI 探针
+      # 也能真正执行，而不是每次都退化成 SKIP。按版本号做 actions/cache 缓存，同一个基线版本号
+      # 在后续运行里不需要重复下载。下载失败（网络问题、当时还没有任何 Release 等）不应该让本步骤
+      # 或整个 job 直接崩溃——按"CI 非严格"处理：不传 check.ps1 的 -AbiStrict，基线缺失时 ABI 步骤
+      # 自然显示为可见 SKIP（见 check.ps1 -AbiStrict 说明），但下载失败必须在步骤输出里留一条
+      # 显式 warning，不能悄悄略过。
+      #
+      # 判断记录（run: 正文只用纯 ASCII）：见 release.yml 文件头"run: 脚本正文必须是纯 ASCII"的
+      # 教训——托管运行器上 Windows PowerShell 5.1 按系统 ANSI 代码页读取不带 BOM 的 run: 临时
+      # 脚本文件，中文字节序列可能被误解析成词法定界符导致语法错误；本步骤提示文案全部用英文，
+      # 中文说明写在 run: 代码块之外的 YAML 注释里。
+      - name: Read ABI baseline version
+        id: abi_baseline
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          $version = (Get-Content -LiteralPath "toolchain/abi_probe_baseline.txt" -Raw).Trim()
+          Write-Host "ABI baseline version: $version"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Cache ABI baseline release package
+        id: abi_baseline_cache
+        uses: actions/cache@v4
+        with:
+          path: dist/ws-game-${{ steps.abi_baseline.outputs.version }}.zip
+          key: abi-baseline-${{ steps.abi_baseline.outputs.version }}
+
+      - name: Download ABI baseline release package
+        if: steps.abi_baseline_cache.outputs.cache-hit != 'true'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = "Continue"
+          $version = "${{ steps.abi_baseline.outputs.version }}"
+          $zipName = "ws-game-$version.zip"
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          gh release download "v$version" -p $zipName -D dist
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::warning::Failed to download ABI baseline release package v$version ($zipName). The ABI surface diff step will show SKIP for this run, not a real pass. See toolchain/abi_probe.ps1 -SkipIfBaselineMissing."
+          } else {
+            Write-Host "Downloaded $zipName into dist/"
+          }
+          exit 0
+
       - name: Run check.ps1 -SkipUnity
         shell: powershell
         # 判断记录：见文件头"控制台 UTF-8 + PowerShell 5.1 原生 stderr 包装两处根因"。

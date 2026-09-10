@@ -407,9 +407,15 @@ if ($ReleaseRequested) {
 
     # 第 5 步：全量门禁（-ReleaseSkipUnity 时传 -SkipUnity 给 check.ps1）。DryRun 同样跑——
     # DryRun 的目的正是验证"发布流水线全流程能否走通"，门禁本身不写文件，天然安全。
+    #
+    # 判断记录（固定传 -AbiStrict，外部审计 audit-76d16a5-20260910 PJ114-02 根治）：发布机在跑到
+    # 这一步之前，第 4 步已经确保历史版本 dist/ 产物齐备（`-Release` 打包本身就要求能追溯到基线
+    # 版本，见 toolchain/abi_probe_baseline.txt 手动推进说明），"ABI 探针基线缺失"在发布链路上不是
+    # 正常状态，必须让 check.ps1 的 ABI 步骤在这种情况下判 FAIL 而不是安静 SKIP——不传本开关会让
+    # 一次因为环境问题（例如发布机 dist/ 被误清空）而完全没跑起来的 ABI 探针被门禁静默放行。
     Write-Step "check.ps1 门禁（-Release 第 5 步）"
     $checkScript = Join-Path $RepoRoot "check.ps1"
-    $checkArgs = @()
+    $checkArgs = @("-AbiStrict")
     if ($ReleaseSkipUnity) { $checkArgs += "-SkipUnity" }
     & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript @checkArgs
     if ($LASTEXITCODE -ne 0) {
