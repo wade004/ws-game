@@ -84,8 +84,56 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   已在四处组合/包装实现补齐显式转发（并集聚合全部成员登记表的结果，不再只反映某一个成员登记
   表），新增反射门禁 `InterfaceDefaultMemberForwardingTests` 防止同类遗漏再次发生。详见
   [消费方反馈-2026-09-11-编辑器-第27条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md)。
+- **消费方反馈第 28/29 条（1.20.0，消费方反馈处理，
+  [消费方反馈-2026-09-11-编辑器-第28-29条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第28-29条.md)）**：
+  `FieldSchema` 新增可选 `AllowedValues`（`IdList`/`Id` 固定取值集合登记，与 `FreeIds`/
+  `ReferenceTable` 互斥，新增运行期检查名 `field_allowed_value`，元数据门禁新增
+  `idlist_allowed_values_conflict`）与可选 `SoftReferenceTable`/`SoftReferenceDomain`
+  （软引用元数据，仅 `Id`/`IdList` 可设、不参与加载期引用完整性校验，元数据门禁新增
+  `soft_reference_kind`）；`toolchain/validator --list-tables --json` 每个字段的 `field_meta`
+  新增 `allowed_values`/`soft_reference_table`/`soft_reference_domain`。
+  `creature.template.npc_flags` 改用 `AllowedValues` 登记（收口 `CreatureContentValidationRule`
+  此前手写的重复校验）；`ai_rotation_ref`/`ai_behavior_ref`/`loot_table_ref`/`display_ref` 等
+  一批已确认目标表的字段补登软引用。
 
 ## [Unreleased]
+
+消费方反馈第 28/29 条（编辑器内容校验，见
+[消费方反馈-2026-09-11-编辑器-第28-29条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第28-29条.md)）：
+
+### Added
+
+- `Core.Foundation.DataRegistry.FieldSchema` 新增可选 `AllowedValues`（`IReadOnlyList<Id>`）+
+  `WithAllowedValues(...)`：`IdList`/`Id` 两种字段种类的固定合法取值集合登记，`DataRegistry.LoadAll`
+  据此新增运行期检查项 `field_allowed_value`（`IdList` 逐元素、`Id` 单值均覆盖）；与 `FreeIds`/
+  `ReferenceTable` 语义上互斥，元数据门禁（`toolchain/validator --schema-audit`）新增自洽检查
+  `idlist_allowed_values_conflict`；既有 `idlist_reference_target` 检查扩展接受 `AllowedValues`
+  作为合法登记之一。
+- `FieldSchema` 新增可选 `SoftReferenceTable`/`SoftReferenceDomain` + `WithSoftReference(table:,
+  domain:)`：`Id`/`IdList` 字段"软引用"元数据，只传达内容工具（编辑器自动补全/跳转）可用的目标表
+  提示，**不参与**任何加载期引用完整性校验，不改变既定分层边界；登记种类限制新增元数据门禁
+  `soft_reference_kind`。
+- `toolchain/validator --list-tables --json` 的 `field_meta` 数组新增 `allowed_values`/
+  `soft_reference_table`/`soft_reference_domain` 三个字段，与既有键并列，不改动既有输出。
+
+### Changed
+
+- `Core.Carriers.Creature.NpcFlagIds` 新增 `All`（六个合法职能标志 Id 的有序集合）；
+  `CreatureSchemas.Template` 的 `npc_flags` 字段改用 `WithAllowedValues(NpcFlagIds.All)` 登记，
+  取代 `CreatureContentValidationRule` 此前手写的重复校验（该规则收口为空实现，保留类型与
+  `IValidationRule` 注册点供未来扩展）——非法职能标志现由 `field_allowed_value` 单独报告一次，
+  不再与旧 `creature_content` 检查项重复报告同一处问题。
+- `creature.template` 的 `ai_rotation_ref`（→`ai.rotation`）、`ai_behavior_ref`
+  （→`ai.behavior_profile`）、`loot_table_ref`（→`loot.table`）、`display_ref`（→`display.map`）
+  补登软引用；全仓走查另有 21 处 `_ref`/`target_ref` 字段（`skill.def`/`item.template`/
+  `gobj.template`/`encounter.def`/`encounter.level`/`econ.currency`/`area_trigger.params`/
+  `quest.def`/`achv.def`/`arch.class` 等模块）按已确认目标表补登软引用，完整清单见回复文档。
+  `creature.template.on_hit_reaction_ref`/`on_death_reaction_ref` 核实为预留字段（全仓无消费方、
+  无目标表），标注 `Description` 并说明，不登记软引用。
+- 07 文档 `npc_flags` 改写为正式 `npc_flag.<name>` 写法（此前裸词如 `vendor`），补充运行期额外
+  映射为单位标签 `tag.npc.<name>` 的消费方说明（`CreatureFactory.Spawn` → `unit.Tags`）；
+  `on_hit_reaction_ref`/`on_death_reaction_ref` 标注预留。04 文档 3.4/5 节同步补充两项新登记与
+  两个新检查名。`editor/docs/编辑器产品文档.md`（v2.6）契约面清单同步补充。
 
 ## [1.19.0] - 2026-09-11
 
