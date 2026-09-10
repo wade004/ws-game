@@ -444,7 +444,19 @@ namespace Core.Rules.Skill
             // 命中纯属兜底，理论上不会在正常事件顺序下触发）。
             if (!IsCasterStillValid(casterId))
             {
+                // CORE-118-CAST 根治（外部审计 audit-d6fda65-20260911）：此前这里只 Remove、不发任何
+                // 事件——若施法者死亡/销毁事件本身已经 Enqueue、但要等本次 SkillHost.Update 之后的
+                // DispatchPending 才真正派发到 OnCasterDiedOrDestroyed（见类型注释"RC-03 收边补齐"
+                // 与本方法顶部判断记录），本兜底会抢先摘掉 CastState，等死亡事件真正派发时
+                // Interrupt 已经在 _casting 里找不到状态而直接 no-op——当前读条与排队请求都拿不到
+                // Interrupted/QueueCleared 通知（真实探针复现：先 Update 后 Flush 时
+                // interrupted=0,queueFailed=0；先 Flush 后 Update 时正常为 1,1）。改为与
+                // FinishCast 的同类兜底、以及 Interrupt 本身共用同一个终结方法 TerminateCast——
+                // 摘除 CastState 与发送终结事件收拢成同一次操作，不会再出现"摘了但没发"的中间态；
+                // 幂等性由 _casting 的移除时机保证（见 TerminateCast 判断记录），真正的死亡/销毁事件
+                // 到达时 Interrupt 发现 _casting 已空会自然 no-op，不会重复发送。
                 _casting.Remove(casterId);
+                TerminateCast(casterId, state, casterId, null, 0);
                 return;
             }
 
@@ -488,9 +500,16 @@ namespace Core.Rules.Skill
             _casting.Remove(casterId);
 
             // RC-03 收边补齐：同 AdvanceOne 顶部的判断记录——完成前重验施法者仍然有效，命中则
-            // 静默丢弃（不结算、不扣资源、不进冷却、不发成功事件、不启动排队的下一个技能）。
+            // 不再走正常成功路径（不结算、不扣资源、不进冷却、不发成功事件、不启动排队的下一个
+            // 技能）。CORE-118-CAST 根治（外部审计 audit-d6fda65-20260911）：此前命中即直接
+            // return、不发任何终结事件——与 AdvanceOne 顶部兜底同一类缺口（死亡事件已入队但尚未
+            // 派发到 OnCasterDiedOrDestroyed 时，本次 Update 恰好推进到 Remaining<=0 触发
+            // FinishCast，同样会抢在 Interrupt 之前静默吞掉 CastState）。改为同样经
+            // TerminateCast 补发 Interrupted/QueueCleared，与 AdvanceOne/Interrupt 共用同一条
+            // 幂等终结路径。
             if (!IsCasterStillValid(casterId))
             {
+                TerminateCast(casterId, state, casterId, null, 0);
                 return;
             }
 
@@ -582,7 +601,38 @@ namespace Core.Rules.Skill
             }
 
             _casting.Remove(unitId);
+            TerminateCast(unitId, state, interrupterId, lockSchool, lockDuration);
+        }
 
+        /// <summary>
+        /// CORE-118-CAST 根治（外部审计 audit-d6fda65-20260911）：把此前只存在于 <see
+        /// cref="Interrupt"/> 里的"发终结事件"逻辑收敛成一个独立方法，供 <see cref="Interrupt"/>
+        /// 本身、<see cref="AdvanceOne"/> 与 <see cref="FinishCast"/> 的"施法者已失效"防御性兜底
+        /// 三处共用——这三处都会把某个施法者的 <see cref="CastState"/> 从 <see cref="_casting"/>
+        /// 里摘除，此前只有 <see cref="Interrupt"/> 会同时发送 <see cref="SkillCastInterruptedEvent"/>
+        /// （当前读条/引导）与排队请求的 <see cref="SkillCastFailedEvent"/>(QueueCleared)，另两处
+        /// 静默 Remove——当施法者死亡/销毁事件已经 <see cref="IEventBus.Enqueue"/> 入队、但要等本次
+        /// <c>SkillHost.Update</c> 结束后的 DispatchPending 才真正派发到订阅的
+        /// <see cref="OnCasterDiedOrDestroyed"/>（见类型注释）时，<see cref="AdvanceOne"/>/<see
+        /// cref="FinishCast"/> 的防御性重验会抢先摘掉状态，等死亡事件真正派发时 <see
+        /// cref="Interrupt"/> 已经在 <see cref="_casting"/> 里找不到对应 state 而直接 no-op——当前
+        /// 读条与排队请求都拿不到任何终结通知（真实探针复现：<c>death_dispatch_before_update=False</c>
+        /// 时 <c>interrupted=0,queueFailed=0</c>，而先派发时正常为 <c>1,1</c>）。
+        /// <para>
+        /// 幂等性：本方法不做任何 <see cref="_casting"/> 查找/移除，只负责"已经从字典摘出来的
+        /// <paramref name="state"/> 该怎么收尾"——三个调用点都是各自先用 <c>TryGetValue</c> +
+        /// <c>Remove</c> 拿到唯一一次这个施法者的 <see cref="CastState"/> 之后才调用本方法，
+        /// 而 <see cref="Dictionary{TKey,TValue}"/> 的同一个 key 只能被这三处调用点中的一处
+        /// 先摘到——不管是死亡事件先派发（<see cref="Interrupt"/> 先摘）还是 <see
+        /// cref="AdvanceOne"/>/<see cref="FinishCast"/> 的兜底先摘，后到达的另一条路径都会因为
+        /// <c>TryGetValue</c> 失败而直接返回，不会对同一次施法重复调用本方法、不会重复发送任何
+        /// 事件——覆盖"死亡已入队但尚未 Dispatch""实体销毁""队列替换后仍在读条的当前施法被
+        /// 打断""正常打断（控制/受伤/位移）""FinishCast 完成前失效"等全部会摘除 CastState 的
+        /// 路径，不需要为其中任何一条单独判重。
+        /// </para>
+        /// </summary>
+        private void TerminateCast(Id casterId, CastState state, Id interrupterId, Id? lockSchool, double lockDuration)
+        {
             if (lockSchool.HasValue)
             {
                 // CR130-03 根治（外部审计 audit-5c444f1-20260908）：lockDuration 是调用方按 authoring
@@ -591,12 +641,12 @@ namespace Core.Rules.Skill
                 // cref="CooldownTracker.StartCooldown"/> 写入冷却同款处理——写入前先乘
                 // <see cref="_currentFactor"/> 折算成当前模式的计时单位，否则连续模式 authoring 的
                 // "3 秒沉默"在离散模式下会被当成"3 轮沉默"。
-                _schoolLocks[(unitId, lockSchool.Value)] = lockDuration * _currentFactor;
+                _schoolLocks[(casterId, lockSchool.Value)] = lockDuration * _currentFactor;
             }
 
             // 消费方反馈 2026-09-10：携带被打断的这次施法自己的 CastInstanceId（见
             // CastState.CastInstanceId 判断记录）。
-            _bus.Enqueue(new SkillCastInterruptedEvent(unitId, state.SkillId, interrupterId, state.CastInstanceId));
+            _bus.Enqueue(new SkillCastInterruptedEvent(casterId, state.SkillId, interrupterId, state.CastInstanceId));
 
             if (state.Queued.HasValue)
             {
@@ -606,7 +656,7 @@ namespace Core.Rules.Skill
                 // 的 QueueCleared SkillCastFailedEvent（与被打断的当前施法各自携带自己的 id，
                 // 两个事件不共用同一个值）。
                 var queued = state.Queued.Value;
-                _bus.Enqueue(new SkillCastFailedEvent(unitId, queued.SkillId, CastFailureReason.QueueCleared, queued.CastInstanceId));
+                _bus.Enqueue(new SkillCastFailedEvent(casterId, queued.SkillId, CastFailureReason.QueueCleared, queued.CastInstanceId));
             }
         }
 

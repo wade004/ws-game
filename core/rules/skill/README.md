@@ -593,6 +593,29 @@ skill/
     改变既有成员的底层数值，不影响 ABI）。ABI 探针（`toolchain/abi_probe.ps1`，基线 1.12.0）
     breaks=0。
 
+45. **CORE-118-CAST 根治（外部审计 audit-d6fda65-20260911，P2）：施法者死亡/销毁事件延后派发时，
+    防御性重验分支静默吞掉终结事件，本条目 23（RC-03 收口）"`AdvanceOne`/`FinishCast` 完成前
+    重验施法者仍然存在/存活"这句话此前只字未提"重验命中之后要不要发事件"——原实现两处防御分支
+    命中即直接 `_casting.Remove(casterId); return;`，判断记录写着"理论上不会在正常事件顺序下
+    触发"，这一前提不成立：真实探针复现，施法者已死亡/销毁（`IUnitAccess.IsAlive`/`Exists`
+    已反映新状态）、对应的 `unit.died`/`entity.destroyed` 已经 `IEventBus.Enqueue` 入队，但要
+    等本次 `SkillHost.Update` 结束后的批处理派发才真正送达订阅的 `OnCasterDiedOrDestroyed` ——
+    `AdvanceOne`/`FinishCast` 的防御分支跑在派发之前，抢先摘除 `CastState` 且不发任何事件；等
+    死亡/销毁事件真正派发到 `Interrupt` 时 `_casting` 已经找不到对应状态而直接 no-op，当前读条
+    与排队请求都收不到 `skill.cast_interrupted`/`skill.cast_failed(QueueCleared)`
+    （`interrupted=0,queueFailed=0`，若死亡事件恰好先于本次 `Update` 派发则正常为 `1,1`）。
+    现在把 `Interrupt`（正常打断/自我打断路径）与 `AdvanceOne`/`FinishCast` 两处防御分支共用同一
+    个新私有方法 `TerminateCast(casterId, state, interrupterId, lockSchool, lockDuration)`：三处
+    调用点各自先用 `_casting.TryGetValue` + `Remove` 唯一摘除一次某个施法者的 `CastState`，再交
+    给 `TerminateCast` 统一发送终结事件——`Dictionary` 的同一个 key 只能被其中一处先摘到，后到达
+    的另一条路径必然因为 `TryGetValue` 失败直接返回，天然幂等，不会对同一次施法/排队请求重复
+    发送。覆盖场景：死亡事件已入队但尚未派发、实体销毁同类时序、队列替换（不涉及 `TerminateCast`，
+    行为不变）、正常中断（控制/受伤/位移）、`FinishCast` 完成前重验命中。验收测试见
+    `tests/CORE118_CastPipelineDeathTerminationTests.cs`（死亡事件先/后派发两种时序均得到
+    `Interrupted=1, QueueCleared=1` 且各自携带正确 `CastInstanceId`、无重复事件、实体销毁、
+    `FinishCast` 兜底、队列替换与正常打断回归，共 7 例）。公开 API 无变化（`TerminateCast` 为
+    私有方法）。ABI 探针 breaks=0。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全
