@@ -1,0 +1,5 @@
+SOURCE-MIRROR-HASHES
+FREEZE=D:\workespace\ws-game-artifacts\audit-76d16a5-frozen
+MIRROR=D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\source
+EXCLUDE=bin,obj
+FILES=1066 MATCH=1066 MISMATCH=0 MISSING=0

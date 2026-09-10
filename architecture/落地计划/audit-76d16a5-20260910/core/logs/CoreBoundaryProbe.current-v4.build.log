@@ -1,0 +1,21 @@
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Numbers.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Carriers.dll
+  Core.Gameplay -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Gameplay.dll
+  Presentation.Common -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Presentation.Common.dll
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(73,73): error CS0103: 当前上下文中不存在名称“Currency” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(73,120): error CS0103: 当前上下文中不存在名称“Vendor” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(76,49): error CS0103: 当前上下文中不存在名称“Vendor” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\QuestTestSupport.cs(154,21): warning CS0649: 从未对字段“FakeRewardDispatcher.ShouldFail”赋值，字段将一直保持其默认值 false [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+
+生成失败。
+
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\QuestTestSupport.cs(154,21): warning CS0649: 从未对字段“FakeRewardDispatcher.ShouldFail”赋值，字段将一直保持其默认值 false [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(73,73): error CS0103: 当前上下文中不存在名称“Currency” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(73,120): error CS0103: 当前上下文中不存在名称“Vendor” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(76,49): error CS0103: 当前上下文中不存在名称“Vendor” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+    1 个警告
+    3 个错误
+
+已用时间 00:00:01.54

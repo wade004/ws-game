@@ -1,0 +1,6 @@
+formal_blocking=True;formal_issue_count=1;formal_error_count=1;formal_warning_count=0;issues=[Error] gobj_lock_world_flag_expected gobj.lock[gobj.lock.audit].requirement: requirement.kind="world_flag" 要求字段 "expected" 必填，但缺失
+carriers_blocking=True;carriers_issue_count=1;carriers_error_count=1;carriers_warning_count=0
+lockdef_parse=blocked;type=InvalidOperationException;message=数据校验未通过，禁止读取
+positive_expected_formal_blocking=False;positive_expected_error_count=0;positive_carriers_error_count=0;positive_lockdef_kind=WorldFlag
+ORACLE-CURRENT=world_flag requirement requires flag_key and expected; missing expected is rejected by formal validation before runtime parsing, while expected=true is valid.
+INTERPRETATION-CURRENT=1.14 formal validation blocks the missing expected variant, so registry reads are correctly blocked; the positive fixture confirms both formal acceptance and LockDef parsing. Process exit 0 is not semantic proof.

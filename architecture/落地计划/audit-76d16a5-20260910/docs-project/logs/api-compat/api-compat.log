@@ -1,0 +1,14 @@
+probe=SkillHost 1.13.0 formal consumer -> 1.14.0 formal DLL replacement
+script_source=D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\docs-project\api-compat\run-skillhost-abi.ps1
+baseline_zip=D:\workespace\ws-game\dist\ws-game-1.13.0.zip
+formal_zip=D:\workespace\ws-game\dist\ws-game-1.14.0.zip
+consumer_build=against baseline 1.13.0 DLLs
+old_formal_exit=0
+old_formal_observation=SKILLHOST_LEGACY_SIGNATURE_FOUND ArgumentNullException=dataRegistry
+replacement=only five Core.* dependency DLLs copied into consumer output; consumer assembly not rebuilt
+new_formal_exit=11
+new_formal_observation=SKILLHOST_LEGACY_SIGNATURE_MISSING MissingMethodException for 17-parameter SkillHost ctor
+raw_old_log=run-old-formal.log
+raw_new_log=run-new-formal.log
+interpretation=negative compatibility evidence; not a passing feature test
+consumer_assembly_sha256=13500df60474618a7960649f8ff1241a2cad460cfe576e30bbd033fd5457e00a

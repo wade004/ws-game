@@ -1,0 +1,16 @@
+﻿zip=D:\workespace\ws-game\dist\ws-game-1.14.0.zip
+zip_sha256=68e4cdec66333931d679ea2ebd1c97d77e8bcca9675061c74b8d5531fd841561
+lock=D:\workespace\ws-game\dist\ws-game-1.14.0.lock
+lock_version=1.14.0
+lock_git_commit=76d16a5
+ZIP_ENTRY ws-game-1.14.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Foundation.dll length=263168 sha256=f07a309187c60b29cc7e72a901e85b99ff9ec8180f49b15c0a9ecad3f5b1479a lock=f07a309187c60b29cc7e72a901e85b99ff9ec8180f49b15c0a9ecad3f5b1479a match=True
+ZIP_ENTRY ws-game-1.14.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Numbers.dll length=62976 sha256=2b400533410405787558229929a7bf82ee0b1d9a114ce8c39a968ab39ad0bce1 lock=2b400533410405787558229929a7bf82ee0b1d9a114ce8c39a968ab39ad0bce1 match=True
+ZIP_ENTRY ws-game-1.14.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Carriers.dll length=171520 sha256=190057a94345b9e8e4dc25a50e5f0f7179b8026e076bf17e3282ebfa5cf253a4 lock=190057a94345b9e8e4dc25a50e5f0f7179b8026e076bf17e3282ebfa5cf253a4 match=True
+ZIP_ENTRY ws-game-1.14.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Rules.dll length=230912 sha256=9a46a66d672237170323ebdfb31d7d19898801c3430a84ae212dfc9a3109c7ac lock=9a46a66d672237170323ebdfb31d7d19898801c3430a84ae212dfc9a3109c7ac match=True
+ZIP_ENTRY ws-game-1.14.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Core.Gameplay.dll length=304640 sha256=c9386a768ec616f3b6456ea29b5b106736ee31636c0825b27f5d3ebf3e0ca557 lock=c9386a768ec616f3b6456ea29b5b106736ee31636c0825b27f5d3ebf3e0ca557 match=True
+ZIP_ENTRY ws-game-1.14.0\packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\Presentation.Common.dll length=205312 sha256=afb8ecfeb8a83d2c62c6e545619d4e8f6220b5450bef60c47049f14dd1615d4a lock=afb8ecfeb8a83d2c62c6e545619d4e8f6220b5450bef60c47049f14dd1615d4a match=True
+ZIP_ENTRY ws-game-1.14.0\packages\com.gamefoundation.adapter.headless\Lib~\Adapters.Stub.dll length=36352 sha256=c26467d66502c4e693dad799ca7822a81cba7f4b6d6f0951766b8ee8fc634903 lock=c26467d66502c4e693dad799ca7822a81cba7f4b6d6f0951766b8ee8fc634903 match=True
+MANIFEST ws-game-1.14.0\packages\com.gamefoundation.adapter.unity\package.json version=1.14.0 exact_1_14=True
+MANIFEST ws-game-1.14.0\packages\com.gamefoundation.framework-data\package.json version=1.14.0 exact_1_14=True
+MANIFEST ws-game-1.14.0\packages\com.gamefoundation.toolchain\package.json version=1.14.0 exact_1_14=True
+MANIFEST ws-game-1.14.0\packages\com.gamefoundation.adapter.headless\package.json version=1.14.0 exact_1_14=True

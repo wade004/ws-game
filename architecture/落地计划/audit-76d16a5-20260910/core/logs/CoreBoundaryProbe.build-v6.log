@@ -1,0 +1,41 @@
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Numbers.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Carriers.dll
+  Core.Gameplay -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Gameplay.dll
+  Presentation.Common -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Presentation.Common.dll
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(11,27): error CS0101: 命名空间“Tests.Rules.Skill”已经包含“FakeUnitAccess”的定义 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(21,31): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“Add”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(31,21): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“Exists”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(35,21): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetPosition”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(37,21): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“SetPosition”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(39,19): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetFaction”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(41,20): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetLevel”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(43,23): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetFacing”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(45,21): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“IsAlive”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(47,21): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“SetAlive”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(49,20): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetTemplateId”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(51,34): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetTags”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(58,31): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“Remove”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+
+生成失败。
+
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(11,27): error CS0101: 命名空间“Tests.Rules.Skill”已经包含“FakeUnitAccess”的定义 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(21,31): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“Add”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(31,21): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“Exists”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(35,21): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetPosition”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(37,21): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“SetPosition”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(39,19): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetFaction”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(41,20): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetLevel”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(43,23): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetFacing”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(45,21): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“IsAlive”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(47,21): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“SetAlive”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(49,20): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetTemplateId”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(51,34): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“GetTags”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\FakeUnitAccess.cs(58,31): error CS0111: 类型“FakeUnitAccess”已定义了一个名为“Remove”的具有相同参数类型的成员 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+    0 个警告
+    13 个错误
+
+已用时间 00:00:00.89

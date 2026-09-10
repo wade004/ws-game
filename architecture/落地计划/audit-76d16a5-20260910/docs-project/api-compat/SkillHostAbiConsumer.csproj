@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SkillHostAbiConsumer</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>CS8625</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Core.Numbers"><HintPath>lib\Core.Numbers.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Core.Foundation"><HintPath>lib\Core.Foundation.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Core.Carriers"><HintPath>lib\Core.Carriers.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Core.Rules"><HintPath>lib\Core.Rules.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Core.Gameplay"><HintPath>lib\Core.Gameplay.dll</HintPath><Private>true</Private></Reference>
+  </ItemGroup>
+</Project>
+
+
+

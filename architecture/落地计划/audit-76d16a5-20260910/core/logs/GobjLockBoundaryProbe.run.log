@@ -1,0 +1,6 @@
+formal_blocking=True;formal_issue_count=1;formal_error_count=1;formal_warning_count=0;issues=[Error] gobj_lock_world_flag_expected gobj.lock[gobj.lock.audit].requirement: requirement.kind="world_flag" 要求字段 "expected" 必填，但缺失
+carriers_blocking=True;carriers_issue_count=1;carriers_error_count=1;carriers_warning_count=0
+Unhandled exception. System.InvalidOperationException: 数据校验未通过，禁止读取
+   at Core.Foundation.DataRegistry.DataRegistry.EnsureReadable() in D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\source\core\foundation\data_registry\core\DataRegistry.cs:line 446
+   at Core.Foundation.DataRegistry.DataRegistry.Get(String table, String key) in D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\source\core\foundation\data_registry\core\DataRegistry.cs:line 358
+   at GobjLockBoundaryProbe.Main() in D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\GobjLockBoundaryProbe.cs:line 27

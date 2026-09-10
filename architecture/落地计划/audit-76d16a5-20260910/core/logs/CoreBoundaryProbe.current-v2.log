@@ -1,0 +1,10 @@
+CURRENT-CORE-BOUNDARY-PROBE head=76d16a5 version=1.14.0
+EXPR-ID;is_valid=<none>;is_valid_call=throws:ArgumentException
+parse=throws:ArgumentException
+ORACLE=IsValid contract says no throw and malformed Id must be false; Parse may throw ArgumentException for invalid Id. Validator must report this before runtime consumers.
+QUEST-OBJECTIVE-RELOAD;exception=IndexOutOfRangeException;message=Index was outside the bounds of the array.
+ORACLE=Reload must preserve active progress without indexing a stale ObjectiveCounts array; changed objective cardinality must migrate safely or reject atomically.
+STAT-QUERY-ORDER;load_blocking=False;reload_blocking=False;beforeA=0;afterA=0;afterB=77;baseA=77;baseB=77
+ORACLE=CHANGELOG current definition reload promises next access sees the new definition; two unmodified registered units must not differ solely because one was queried before reload. Explicit SetBase runtime state is a separate preserved state.
+ECON-NONE-TO-TIMER;load_blocking=False;reload_blocking=False;before_update=0;after_update=0;fresh_before=2;fresh_after=2
+ORACLE=when a retained stock entry adopts timer policy, Update after the timer interval must restock to the current stock limit; null timer state must be initialized on definition transition.

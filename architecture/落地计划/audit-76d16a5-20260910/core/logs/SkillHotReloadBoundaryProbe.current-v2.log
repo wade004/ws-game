@@ -1,0 +1,5 @@
+initial_registry_cooldown=0;host_cooldown_before=0;first_cast_success=True;damage_before=7
+reload_blocking=False;reload_error_count=0;registry_cooldown_after=5;registry_damage_after=99;host_cooldown_before_second_cast=0;second_cast_success=True;damage_after=99;host_cooldown_after_second_cast=5
+fresh_host_expected_cast_success=True;fresh_host_expected_damage=99;fresh_host_expected_cooldown_after_cast=5
+ORACLE-CURRENT=after a successful reload and DataLoadCompleted, an existing SkillHost must either invalidate its SkillDefCache or explicitly document stale behavior; same action compared with a fresh host is the independent oracle. Existing host should use damage=99 and cooldown=5, matching the fresh host.
+INTERPRETATION-CURRENT=registry exposes cooldown=5 and damage=99; after DataLoadCompleted the existing host second cast observes damage=99 and cooldown=5, matching a fresh real host. FakeCombatHost damage is EffectContext.BaseValue, not HP. Process exit 0 is not semantic proof.

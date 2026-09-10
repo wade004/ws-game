@@ -1,0 +1,5 @@
+report_blocking=True;report_issue_count=1;report_error_count=1;report_warning_count=0;issues=[Error] reward_world_flag_value_shape quest.def[quest.audit].rewards.world_flags[0].value: rewards.world_flags[].value 不是合法的 ExprValue 形状（Bool|Number|String|{"$id":...}），实际类型：Array
+quest_parse=throws;type=InvalidOperationException;message=数据校验未通过，禁止读取
+positive_true_blocking=False;positive_true_error_count=0;positive_true_loaded_error_count=0;positive_true_world_flag_count=1
+ORACLE-CURRENT=ExprValueJson.Parse accepts Bool, Number, Int, String, or {$id:...}; an Array is outside the union and must be rejected before QuestHost/QuestDefinition runtime parsing. The correct strict validation oracle is to report the malformed value before runtime parsing; current default assembly does not.
+INTERPRETATION-CURRENT=Current QuestContentValidationRule only checks that rewards.world_flags[].value exists, so value=[] yields zero validation errors but QuestDefinition.FromRecord throws FormatException. The positive value=true fixture validates the accepted path; process exit 0 is not semantic proof.

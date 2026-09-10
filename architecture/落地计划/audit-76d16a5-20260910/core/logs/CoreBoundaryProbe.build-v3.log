@@ -1,0 +1,31 @@
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Numbers.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Carriers.dll
+  Core.Gameplay -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Gameplay.dll
+  Presentation.Common -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Presentation.Common.dll
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(8,28): error CS1056: 意外的字符“\” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(8,40): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(8,41): error CS1002: 应输入 ; [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(9,1): error CS1529: using 子句必须位于命名空间中定义的所有其他元素之前(外部别名声明除外) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(10,1): error CS1529: using 子句必须位于命名空间中定义的所有其他元素之前(外部别名声明除外) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(11,1): error CS1529: using 子句必须位于命名空间中定义的所有其他元素之前(外部别名声明除外) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(12,1): error CS1529: using 子句必须位于命名空间中定义的所有其他元素之前(外部别名声明除外) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(13,1): error CS1529: using 子句必须位于命名空间中定义的所有其他元素之前(外部别名声明除外) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+
+生成失败。
+
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(8,28): error CS1056: 意外的字符“\” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(8,40): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(8,41): error CS1002: 应输入 ; [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(9,1): error CS1529: using 子句必须位于命名空间中定义的所有其他元素之前(外部别名声明除外) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(10,1): error CS1529: using 子句必须位于命名空间中定义的所有其他元素之前(外部别名声明除外) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(11,1): error CS1529: using 子句必须位于命名空间中定义的所有其他元素之前(外部别名声明除外) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(12,1): error CS1529: using 子句必须位于命名空间中定义的所有其他元素之前(外部别名声明除外) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(13,1): error CS1529: using 子句必须位于命名空间中定义的所有其他元素之前(外部别名声明除外) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+    0 个警告
+    8 个错误
+
+已用时间 00:00:01.36

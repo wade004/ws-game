@@ -1,0 +1,37 @@
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Numbers.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Carriers.dll
+  Core.Gameplay -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Core.Gameplay.dll
+  Presentation.Common -> D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\build\core\out\CoreBoundaryProbe\Presentation.Common.dll
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(46,100): error CS1003: 语法错误，应输入“}” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(46,47): error CS1073: 意外标记“\” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(46,66): error CS1525: 表达式项“”无效 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(46,66): error CS1056: 意外的字符“\” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,59): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,73): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,116): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,128): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,129): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,129): error CS1010: 常量中有换行符 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,151): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(48,202): error CS1026: 应输入 ) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+
+生成失败。
+
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(46,100): error CS1003: 语法错误，应输入“}” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(46,47): error CS1073: 意外标记“\” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(46,66): error CS1525: 表达式项“”无效 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(46,66): error CS1056: 意外的字符“\” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,59): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,73): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,116): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,128): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,129): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,129): error CS1010: 常量中有换行符 [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(47,151): error CS1003: 语法错误，应输入“,” [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.cs(48,202): error CS1026: 应输入 ) [D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\core\repro\CoreBoundaryProbe.csproj]
+    0 个警告
+    12 个错误
+
+已用时间 00:00:02.66

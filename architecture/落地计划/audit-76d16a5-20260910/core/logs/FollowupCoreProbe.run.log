@@ -1,0 +1,57 @@
+FOLLOWUP-CORE-PROBE baseline=c9ff301 version=1.13.0
+SUCCESSFUL-LOAD-INTERNAL-EVENTS
+save_success=True;load_status=Loaded
+before_save_level=10;rating_at_10=10
+mutated_level=1;rating_at_1=5
+after_load_level=10;entity_level=10;rating_after_load_before_dispatch=10;rating_after_dispatch=10
+ORACLE-CURRENT=load_status=Loaded;after_load_level=10;rating_after_load=10
+INTERPRETATION-CURRENT=SaveSystem suppression remains active, but v1.11 DerivedStateRebuilder directly recomputes after the relevant section; rating follows the restored level.
+SUCCESSFUL-LOAD-POWER-MAX-INTERNAL-EVENT
+equip_success=True;save_success=True;load_status=Loaded
+saved_max=200;saved_health=200;mutated_max=100
+after_load_before_dispatch_max=200;after_load_before_dispatch_health=200
+after_load_max=200;after_load_health=200;equipped_after=True
+ORACLE-CURRENT=load_status=Loaded;after_load_max=200;after_load_health=200;equipped_after=true
+INTERPRETATION-CURRENT=The v1.11 section hook recomputes Power max before PlayerVitals.Load, so saved health is applied against max 200 despite event suppression.
+ROLLBACK-EQUIPMENT-BEFORE-PROGRESSION
+initial_equip=True;baseline_inventory_count=0;save_success=True;load_status=PersistableThrew
+after_level=2;entity_level=2;equipped_after=True;inventory_count_after=0
+ORACLE-CURRENT=load_status=PersistableThrew;after_level=2;entity_level=2;equipped_after=true;inventory_count_after=0
+INTERPRETATION-CURRENT=Positive rollback restores Progression before Equipment, so the level-2 item is re-equipped after the level is restored.
+SAME-MAP-RACE-SAVE-LOAD
+save_a_valid=True;save_b_valid=True;race_b_oracle_stat=91;load_status=Loaded;map=world.followup_core
+before_load_race=arch.race.followup_a;stat=61;auraA=True;auraB=False
+after_load_race=arch.race.followup_b;stat=91;auraA=False;auraB=True
+ORACLE-CURRENT=save_a_valid=True;save_b_valid=True;race_b_oracle_stat=91;load_status=Loaded;after_load_race=arch.race.followup_b;stat=91;auraA=False;auraB=True
+INTERPRETATION-CURRENT=Two separately built valid role saves were used. Same-map RestoreFromSlot on A loads B and rebuilds B stat_mods/aura while clearing A state.
+DERIVED-HOOK-EXCEPTION-BOUNDARY
+save_success=True;load_status=Loaded;before_calls=1;section_calls=20;warning_count=21;rating_after=5
+ORACLE-CURRENT=save_success=True;load_status=Loaded;before_calls=1;section_calls>0;warning_count>0
+INTERPRETATION=SaveSystem contains BeforeLoad and OnSectionLoaded exceptions, returns Loaded, and records warnings; replacing the production rebuilder intentionally leaves derived state at the stale value.
+ROLLBACK-DERIVED-STATE-RACE
+save_a_initial=True;save_a_with_failure=True;save_b_valid=True;load_status=PersistableThrew;after_race=arch.race.followup_a;stat=61;auraA=True;auraB=False
+ORACLE-CURRENT=load_status=PersistableThrew;after_race=arch.race.followup_a;stat=61;auraA=True;auraB=False
+INTERPRETATION-CURRENT=Forward load applies B and its rebuild hook, then the missing custom section throws. v1.11 positive rollback restores A fields and re-runs the derived hook, restoring A stat/aura.
+ROLLBACK-DERIVED-STATE-KNOWN-SKILLS-BEFORE-VITALS
+fault_section=player.known_skills;equip_success=True;saved_max=200;saved_health=200;save_a_valid=True;save_b_valid=True;load_status=PersistableThrew;after_level=2;equipped_after=True;max_after=200;health_after=200
+ORACLE-CURRENT=load_status=PersistableThrew;after_level=2;equipped_after=True;max_after=200;health_after=200
+INTERPRETATION-CURRENT=The B save is valid before fault injection; malformed player.known_skills fails after equipment and before player.vitals. v1.11 positive rollback restores equipment, re-runs the derived hook, and restores max/health to 200.
+SAME-MAP-CLASS-SAVE-LOAD
+save_a_valid=True;save_b_valid=True;a_stat=10;a_legacy=5;a_mana=True;b_oracle_stat=20;b_oracle_legacy=0;b_oracle_mana=False;load_status=Loaded;after_class=arch.class.followup_b;after_stat=20;after_legacy=0;after_mana=False
+ORACLE-CURRENT=save_a_valid=True;save_b_valid=True;b_oracle_stat=20;b_oracle_legacy=0;b_oracle_mana=False;load_status=Loaded;after_class=arch.class.followup_b;after_stat=20;after_legacy=0;after_mana=False
+INTERPRETATION-CURRENT=Class B omits A's legacy base-stat key and mana power type. v1.11 ReloadArchetypeAndRace rebuilds the class contribution and resource set to match B.
+ROLLBACK-CLASS-POWER-CURRENT-AND-COMBAT-STATE
+save_a_initial=True;save_a_with_failure=True;save_b_valid=True;race_before=arch.race.followup_a;race_after=arch.race.followup_a;class_after=arch.class.followup_a;mana_before=30;in_combat_before=True;load_status=PersistableThrew;mana_present_after=True;mana_after_rollback=30;in_combat_after_rollback=True;mana_after_advance_1=30;in_combat_after_advance_1=True
+ORACLE-CURRENT=load_status=PersistableThrew;race_after=arch.race.followup_a;class_after=arch.class.followup_a;mana_present_after=True;mana_after_rollback=30;in_combat_after_rollback=True;mana_after_advance_1=30;in_combat_after_advance_1=True
+INTERPRETATION-CURRENT=The valid A save has the same race, class A, and partially consumed Mana=30 while in combat. Forward B load removes Mana, then failure rollback rebuilds class A resources; current 1.13 PlayerVitals persistence restores Mana=30 and InCombat=True, and Advance(1) leaves both values unchanged under regen_in_combat=0.
+ROLLBACK-CLASS-WRITTEN-BEFORE-RACE-LOAD-FAILURE
+save_a_valid=True;save_a_with_failure=True;save_b_valid=True;before_class=arch.class.followup_a;before_race=arch.race.followup_a;mana_before=30;auraA_before=True;auraA_stacks_before=1;load_status=PersistableThrew;after_class=arch.class.followup_a;after_race=arch.race.followup_a;mana_present_after=True;mana_after=30;auraA_after=True;auraA_stacks_after=1;auraB_after=False
+ORACLE-CURRENT=load_status=PersistableThrew;after_class=arch.class.followup_a;after_race=arch.race.followup_a;mana_present_after=True;mana_after=30;auraA_after=True;auraA_stacks_after=1;auraB_after=False
+INTERPRETATION-CURRENT=The valid B document writes class B before its malformed race section fails. v1.11 rollback restores the same race and different class in forward order, re-runs derived rebuilding, and preserves the partially consumed Mana and single RaceA aura reference.
+INVENTORY-VM-SAME-MAP-LOAD
+a_inventory_count=1;a_direct_count=1;a_direct_item_count=1;a_equipped_instance=item.inst_2;a_vm_item_count=1;a_vm_equipped_instance=item.inst_2
+b_entries_before_save=item.followup_level2:1,item.followup_level2:1;save_b_valid=True;load_status=Loaded;direct_count_after=2;direct_entries_after=item.followup_level2:1,item.followup_level2:1;direct_equipped_instance_after=item.inst_3;direct_equipped_template_after=item.weapon.followup_b;vm_entries_after=item.followup_level2:1,item.followup_level2:1;vm_equipped_instance_after=item.inst_3
+CORRECTNESS-ORACLE-CURRENT=after successful load, VM entries/equipped must equal live B direct query: direct_entries_after=item.followup_level2:1,item.followup_level2:1;direct_equipped_template_after=item.weapon.followup_b;vm_entries_after=item.followup_level2:1,item.followup_level2:1;vm_equipped_template_after=item.weapon.followup_b
+BUG-SIGNATURE-CURRENT=NO-BUG-SIGNATURE;vm_entries_after and vm_equipped_instance_after match the live B direct query after SaveLoaded.
+INTERPRETATION-CURRENT=UiDataSource queries the live B inventory/equipment after same-map load, and current 1.13 InventoryViewModel refreshes from SaveLoaded; the explicit Refresh below is a repeatability check, not required to make the production load path consistent.
+vm_after_manual_refresh_entries=item.followup_level2:1,item.followup_level2:1;vm_after_manual_refresh_equipped_instance=item.inst_3

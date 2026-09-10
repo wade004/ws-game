@@ -1,0 +1,293 @@
+[Licensing::Module] Trying to connect to existing licensing client channel...
+Built from '6000.3/staging' branch; Version is '6000.3.23f1 (09d2ecc7fb28) revision 643820'; Using compiler version '194234433'; Build Type 'Release'
+[Licensing::IpcConnector] Channel LicenseClient-ONCE doesn't exist
+OS: 'Windows 11  (10.0.26200) Enterprise' Language: 'zh' Physical Memory: 65323 MB
+BatchMode: 1, IsHumanControllingUs: 0, StartBugReporterOnCrash: 0, Is64bit: 1
+System  architecture: x64
+Process architecture: x64
+Date: 2026-09-09T17:32:46Z
+[Licensing::Module] Successfully launched the LicensingClient (PId: 31968)
+
+COMMAND LINE ARGUMENTS:
+C:\Program Files\Unity\Hub\Editor\6000.3.23f1\Editor\Unity.exe
+[Licensing::IpcConnector] Successfully connected to: "LicenseClient-ONCE" at "2026-09-09T17:32:46.6348192Z"
+-batchmode
+-nographics
+-projectPath
+D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity
+-runTests
+-testPlatform
+EditMode
+-testFilter
+DataHotReloadDeletedOverlayTests
+-testResults
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\presentation\filtered-edit-hotreload.xml
+-logFile
+D:\workespace\ws-game-artifacts\audit-76d16a5-20260910\presentation\filtered-edit-hotreload.log
+Successfully changed project path to: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity
+D:/workespace/ws-game-unity-audit-76d16a5/copyRoot/adapters/unity
+[UnityMemory] Configuration Parameters - Can be set up in boot.config
+    "memorysetup-temp-allocator-size-nav-mesh-worker=65536"
+    "memorysetup-temp-allocator-size-audio-worker=65536"
+    "memorysetup-temp-allocator-size-gfx=262144"
+    "memorysetup-allocator-temp-initial-block-size-main=262144"
+    "memorysetup-allocator-temp-initial-block-size-worker=262144"
+    "memorysetup-temp-allocator-size-background-worker=32768"
+    "memorysetup-temp-allocator-size-job-worker=262144"
+    "memorysetup-temp-allocator-size-preload-manager=33554432"
+    "memorysetup-remapper-allocator-initial-capacity=32768"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-bucket-allocator-granularity=16"
+    "memorysetup-bucket-allocator-bucket-count=8"
+    "memorysetup-bucket-allocator-block-size=33554432"
+    "memorysetup-bucket-allocator-block-count=8"
+    "memorysetup-main-allocator-block-size=16777216"
+    "memorysetup-thread-allocator-block-size=16777216"
+    "memorysetup-gfx-main-allocator-block-size=16777216"
+    "memorysetup-gfx-thread-allocator-block-size=16777216"
+    "memorysetup-cache-allocator-block-size=4194304"
+    "memorysetup-typetree-allocator-block-size=2097152"
+    "memorysetup-profiler-bucket-allocator-granularity=16"
+    "memorysetup-profiler-bucket-allocator-bucket-count=8"
+    "memorysetup-profiler-bucket-allocator-block-size=33554432"
+    "memorysetup-profiler-bucket-allocator-block-count=8"
+    "memorysetup-profiler-allocator-block-size=16777216"
+    "memorysetup-profiler-editor-allocator-block-size=1048576"
+    "memorysetup-temp-allocator-size-main=16777216"
+    "memorysetup-job-temp-allocator-block-size=2097152"
+    "memorysetup-job-temp-allocator-block-size-background=1048576"
+    "memorysetup-job-temp-allocator-reduction-small-platforms=262144"
+    "memorysetup-temp-allocator-size-cloud-worker=32768"
+Player connection [34072]  Target information:
+
+Player connection [34072]  * "[IP] 192.168.213.1 [Port] 55504 [Flags] 2 [Guid] 157629102 [EditorId] 157629102 [Version] 1048832 [Id] WindowsEditor(7,ONCE20240717) [Debug] 1 [PackageName] WindowsEditor [ProjectName] Editor" 
+
+Player connection [34072]  * "[IP] 192.168.177.1 [Port] 55504 [Flags] 2 [Guid] 157629102 [EditorId] 157629102 [Version] 1048832 [Id] WindowsEditor(7,ONCE20240717) [Debug] 1 [PackageName] WindowsEditor [ProjectName] Editor" 
+
+Player connection [34072]  * "[IP] 192.168.0.108 [Port] 55504 [Flags] 2 [Guid] 157629102 [EditorId] 157629102 [Version] 1048832 [Id] WindowsEditor(7,ONCE20240717) [Debug] 1 [PackageName] WindowsEditor [ProjectName] Editor" 
+
+Player connection [34072] Host joined multi-casting on [225.0.0.222:54997]...
+Player connection [34072] Host joined alternative multi-casting on [225.0.0.222:34997]...
+Input System module state changed to: Initialized.
+[Physics::Module] Initialized fallback backend.
+[Physics::Module] Id: 0xdecafbad
+[Licensing::Client] Code 10 while verifying Licensing Client signature (process Id: 31968, path: "C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client.exe")
+[Licensing::Module] LicensingClient has failed validation; ignoring
+[Licensing::Client] Handshaking with LicensingClient:
+  Version:                 1.18.3+d7ffd15
+  Session Id:              45ff03e6fd064db3ad114106fcb3c9a7
+  Correlation Id:          4fe9174d50fab707c1ff03bf67373e78
+  External correlation Id: 3072035737570711026
+  Machine Id:              pQ8GbSGPDRbB5TuKiq5VeAXcv3M=
+[Licensing::Module] Successfully connected to LicensingClient on channel: "LicenseClient-ONCE" (connect: 0.24s, validation: 0.11s, handshake: 0.04s)
+[Licensing::IpcConnector] Successfully connected to: "LicenseClient-ONCE-notifications" at "2026-09-09T17:32:46.7847888Z"
+[Licensing::Module] Connected to LicensingClient (PId: 31968, launch time: 0.01, total connection time: 0.39s)
+[Licensing::Module] Error: Access token is unavailable; failed to update
+[Licensing::Client] Successfully resolved entitlement details
+[Licensing::Module] License group:
+  Id: F4-RBAU-NDFH-NT7X-YNCU-XXXX
+  Product: Unity Personal
+  Type: ULF
+  Expiration: Unlimited
+[Licensing::Client] Successfully updated license, isAsync: True, time: 0.01
+[Licensing::Module] Licensing Background thread has ended after 0.43s
+[Package Manager] Connected to IPC stream "Upm-53016" after 0.2 seconds.
+[Licensing::Client] Successfully resolved entitlement details
+Library Redirect Path: Library/
+[Physics::Module] Selected backend.
+[Physics::Module] Name: PhysX
+[Physics::Module] Id: 0xf2b8ea05
+[Physics::Module] SDK Version: 4.1.2
+[Physics::Module] Integration Version: 1.0.0
+[Physics::Module] Threading Mode: Multi-Threaded
+Refreshing native plugins compatible for Editor in 0.05 ms, found 0 plugins.
+Preloading 0 native plugins for Editor in 0.00 ms.
+Initialize engine version: 6000.3.23f1 (09d2ecc7fb28)
+[Subsystems] Discovering subsystems at path C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/Resources/UnitySubsystems
+[Subsystems] Discovering subsystems at path D:/workespace/ws-game-unity-audit-76d16a5/copyRoot/adapters/unity/Assets
+Forcing GfxDevice: Null
+GfxDevice: creating device client; kGfxThreadingModeNonThreaded
+NullGfxDevice:
+    Version:  NULL 1.0 [1.0]
+    Renderer: Null Device
+    Vendor:   Unity Technologies
+Initialize mono
+Mono path[0] = 'C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/Managed'
+Mono path[1] = 'C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/MonoBleedingEdge/lib/mono/unityjit-win32'
+Mono config path = 'C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/MonoBleedingEdge/etc'
+Using monoOptions --debugger-agent=transport=dt_socket,embedding=1,server=y,suspend=n,address=127.0.0.1:56016
+Using cacheserver namespaces - metadata:defaultmetadata, artifacts:defaultartifacts
+Using cacheserver namespaces - metadata:defaultmetadata, artifacts:defaultartifacts
+ImportWorker Server TCP listen port: 0
+AcceleratorClientConnectionCallback - disconnected - :0
+Begin MonoManager ReloadAssembly
+Registering precompiled unity dll's ...
+Register platform support module: C:/Program Files/Unity/Hub/Editor/6000.3.23f1/Editor/Data/PlaybackEngines/WindowsStandaloneSupport/UnityEditor.WindowsStandalone.Extensions.dll
+Registered in 0.000819 seconds.
+- Loaded All Assemblies, in  0.254 seconds
+Native extension for WindowsStandalone target not found
+Package Manager log level set to [2]
+ScheduleIndexationOnStartup MainProcess:False IndexOnStartup:False
+Mono: successfully reloaded assembly
+- Finished resetting the current domain, in  0.238 seconds
+Domain Reload Profiling: 491ms
+	BeginReloadAssembly (87ms)
+		ExecutionOrderSort (0ms)
+		DisableScriptedObjects (0ms)
+		BackupInstance (0ms)
+		ReleaseScriptingObjects (0ms)
+		CreateAndSetChildDomain (5ms)
+	RebuildCommonClasses (23ms)
+	RebuildNativeTypeToScriptingClass (8ms)
+	initialDomainReloadingComplete (27ms)
+	LoadAllAssembliesAndSetupDomain (109ms)
+		LoadAssemblies (82ms)
+		RebuildTransferFunctionScriptingTraits (0ms)
+		AnalyzeDomain (107ms)
+			TypeCache.Refresh (105ms)
+				TypeCache.ScanAssembly (96ms)
+			BuildScriptInfoCaches (0ms)
+			ResolveRequiredComponents (0ms)
+	FinalizeReload (238ms)
+		ReleaseScriptCaches (0ms)
+		RebuildScriptCaches (0ms)
+		SetupLoadedEditorAssemblies (215ms)
+			LogAssemblyErrors (0ms)
+			InitializePlatformSupportModulesInManaged (28ms)
+			SetLoadedEditorAssemblies (2ms)
+			BeforeProcessingInitializeOnLoad (50ms)
+			ProcessInitializeOnLoadAttributes (88ms)
+			ProcessInitializeOnLoadMethodAttributes (48ms)
+			AfterProcessingInitializeOnLoad (0ms)
+			EditorAssembliesLoaded (0ms)
+		ExecutionOrderSort2 (0ms)
+		AwakeInstancesAfterBackupRestoration (0ms)
+[Licensing::Client] Successfully resolved entitlement details
+Application.AssetDatabase Initial Refresh Start
+[Package Manager] Restoring resolved packages state from cache
+[Licensing::Client] Successfully resolved entitlement details
+[Package Manager] Registered 55 packages:
+  Packages from [https://packages.unity.com]:
+    com.unity.ide.visualstudio@2.0.22 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.ide.visualstudio@8140e851d83e)
+    com.unity.inputsystem@1.20.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.inputsystem@7a4e1a2a8194)
+    com.unity.searcher@4.9.5 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.searcher@a463122f2c00)
+    com.unity.burst@1.8.30 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.burst@2f3d916873ea)
+    com.unity.mathematics@1.3.3 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.mathematics@19a9377c4ffa)
+    com.unity.collections@2.6.8 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.collections@84e8eb3fc12e)
+    com.unity.nuget.mono-cecil@1.11.6 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.nuget.mono-cecil@ecb9724e46ff)
+    com.unity.test-framework.performance@3.5.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.test-framework.performance@8b56083ec0f0)
+  Built-in packages:
+    com.unity.2d.sprite@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.2d.sprite@5b922524bd83)
+    com.unity.render-pipelines.universal@17.3.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.render-pipelines.universal@7865b6b91f8a)
+    com.unity.test-framework@1.6.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.test-framework@bd7f943e9647)
+    com.unity.ugui@2.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.ugui@27635d171b1a)
+    com.unity.modules.accessibility@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.accessibility)
+    com.unity.modules.adaptiveperformance@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.adaptiveperformance)
+    com.unity.modules.ai@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.ai)
+    com.unity.modules.androidjni@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.androidjni)
+    com.unity.modules.animation@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.animation)
+    com.unity.modules.assetbundle@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.assetbundle)
+    com.unity.modules.audio@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.audio)
+    com.unity.modules.cloth@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.cloth)
+    com.unity.modules.director@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.director)
+    com.unity.modules.imageconversion@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.imageconversion)
+    com.unity.modules.imgui@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.imgui)
+    com.unity.modules.jsonserialize@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.jsonserialize)
+    com.unity.modules.particlesystem@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.particlesystem)
+    com.unity.modules.physics@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.physics)
+    com.unity.modules.physics2d@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.physics2d)
+    com.unity.modules.screencapture@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.screencapture)
+    com.unity.modules.terrain@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.terrain)
+    com.unity.modules.terrainphysics@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.terrainphysics)
+    com.unity.modules.tilemap@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.tilemap)
+    com.unity.modules.ui@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.ui)
+    com.unity.modules.uielements@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.uielements)
+    com.unity.modules.umbra@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.umbra)
+    com.unity.modules.unityanalytics@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unityanalytics)
+    com.unity.modules.unitywebrequest@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unitywebrequest)
+    com.unity.modules.unitywebrequestassetbundle@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unitywebrequestassetbundle)
+    com.unity.modules.unitywebrequestaudio@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unitywebrequestaudio)
+    com.unity.modules.unitywebrequesttexture@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unitywebrequesttexture)
+    com.unity.modules.unitywebrequestwww@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.unitywebrequestwww)
+    com.unity.modules.vectorgraphics@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.vectorgraphics)
+    com.unity.modules.vehicles@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.vehicles)
+    com.unity.modules.video@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.video)
+    com.unity.modules.vr@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.vr)
+    com.unity.modules.wind@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.wind)
+    com.unity.modules.xr@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.xr)
+    com.unity.modules.subsystems@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.subsystems)
+    com.unity.modules.hierarchycore@1.0.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.modules.hierarchycore)
+    com.unity.ext.nunit@2.0.5 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.ext.nunit@d8c07649098d)
+    com.unity.render-pipelines.core@17.3.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.render-pipelines.core@0bb36005e9ba)
+    com.unity.shadergraph@17.3.0 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.shadergraph@b4b75cc00891)
+    com.unity.render-pipelines.universal-config@17.0.3 (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Library\PackageCache\com.unity.render-pipelines.universal-config@8dc1aab4af1d)
+  Embedded packages:
+    com.gamefoundation.adapter.unity@file:D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Packages\com.gamefoundation.adapter.unity (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\unity\Packages\com.gamefoundation.adapter.unity)
+  Local packages:
+    com.gamefoundation.conformance@file:D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\conformance (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\adapters\conformance)
+    com.gamefoundation.game-template@file:D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\games\_template (location: D:\workespace\ws-game-unity-audit-76d16a5\copyRoot\games\_template)
+[Subsystems] No new subsystems found in resolved package list.
+[Package Manager] Done registering packages in 0.01 seconds
+GUID [0ba9d9a7123ae6a4bb243e6bacb2b226] for asset 'Assets/AuditTemplate/Editor/Game.Template.Editor.asmdef' conflicts with:
+  'Packages/com.gamefoundation.game-template/Editor/Game.Template.Editor.asmdef' (current owner)
+Assigning a new guid.
+GUID [1fc5756609dca324686679a9380e4619] for asset 'Assets/AuditTemplate/Editor/GameSceneBuilder.cs' conflicts with:
+  'Packages/com.gamefoundation.game-template/Editor/GameSceneBuilder.cs' (current owner)
+Assigning a new guid.
+GUID [e8d7b5cbc51746128d5406c093593917] for asset 'Assets/AuditTemplate/Runtime/DataHotReload.cs' conflicts with:
+  'Packages/com.gamefoundation.game-template/Runtime/DataHotReload.cs' (current owner)
+Assigning a new guid.
+GUID [c4104697b910c5f488263964eb988b37] for asset 'Assets/AuditTemplate/Runtime/Game.Template.asmdef' conflicts with:
+  'Packages/com.gamefoundation.game-template/Runtime/Game.Template.asmdef' (current owner)
+Assigning a new guid.
+GUID [1435461c3820d884f8ec832302dcb8a2] for asset 'Assets/AuditTemplate/Runtime/GameBootstrap.cs' conflicts with:
+  'Packages/com.gamefoundation.game-template/Runtime/GameBootstrap.cs' (current owner)
+Assigning a new guid.
+GUID [a42aaea86ca768c428f2d61a8d71653d] for asset 'Assets/AuditTemplate/Runtime/GameOptions.cs' conflicts with:
+  'Packages/com.gamefoundation.game-template/Runtime/GameOptions.cs' (current owner)
+Assigning a new guid.
+GUID [74e72305dd9b8b547a734a448b3b1477] for asset 'Assets/AuditTemplate/Runtime/GameTemplateMarker.cs' conflicts with:
+  'Packages/com.gamefoundation.game-template/Runtime/GameTemplateMarker.cs' (current owner)
+Assigning a new guid.
+GUID [3ee86943fa4bc8a4aa0ddf8e44519b49] for asset 'Assets/AuditTemplate/Runtime/SampleNewGameStarter.cs' conflicts with:
+  'Packages/com.gamefoundation.game-template/Runtime/SampleNewGameStarter.cs' (current owner)
+Assigning a new guid.
+GUID [5577ac16fe37bb8469a42f69a60c1c50] for asset 'Assets/AuditTemplate/Runtime/TemplateAutoStart.cs' conflicts with:
+  'Packages/com.gamefoundation.game-template/Runtime/TemplateAutoStart.cs' (current owner)
+Assigning a new guid.
+GUID [f478aae6d5f230c42bc939e0b78b4214] for asset 'Assets/AuditTemplate/Runtime/TemplateShellUi.cs' conflicts with:
+  'Packages/com.gamefoundation.game-template/Runtime/TemplateShellUi.cs' (current owner)
+Assigning a new guid.
+GUID [e3983c474167e1f47bf21b7e513412bd] for asset 'Assets/AuditTemplate/Runtime/TemplateSmokeRunner.cs' conflicts with:
+  'Packages/com.gamefoundation.game-template/Runtime/TemplateSmokeRunner.cs' (current owner)
+Assigning a new guid.
+GUID [e86ebef14f0d75c49a07781f860cd64c] for asset 'Assets/AuditTemplate/Tests/Editor/DataHotReloadDeletedOverlayTests.cs' conflicts with:
+  'Packages/com.gamefoundation.game-template/Tests/Editor/DataHotReloadDeletedOverlayTests.cs' (current owner)
+Assigning a new guid.
+GUID [01fcb481e37349e390440d44a0649e74] for asset 'Assets/AuditTemplate/Tests/Editor/DataHotReloadEditModeTests.cs' conflicts with:
+  'Packages/com.gamefoundation.game-template/Tests/Editor/DataHotReloadEditModeTests.cs' (current owner)
+Assigning a new guid.
+GUID [a433418a216b4692bb1affefc54172ab] for asset 'Assets/AuditTemplate/Tests/Editor/Game.Template.EditorTests.asmdef' conflicts with:
+  'Packages/com.gamefoundation.game-template/Tests/Editor/Game.Template.EditorTests.asmdef' (current owner)
+Assigning a new guid.
+Assembly with name 'Game.Template.Editor' already exists (Packages/com.gamefoundation.game-template/Editor/Game.Template.Editor.asmdef)
+Assembly with name 'Game.Template.Editor' already exists (Assets/AuditTemplate/Editor/Game.Template.Editor.asmdef)
+Assembly with name 'Game.Template.EditorTests' already exists (Packages/com.gamefoundation.game-template/Tests/Editor/Game.Template.EditorTests.asmdef)
+Assembly with name 'Game.Template.EditorTests' already exists (Assets/AuditTemplate/Tests/Editor/Game.Template.EditorTests.asmdef)
+Assembly with name 'Game.Template' already exists (Assets/AuditTemplate/Runtime/Game.Template.asmdef)
+Assembly with name 'Game.Template' already exists (Packages/com.gamefoundation.game-template/Runtime/Game.Template.asmdef)
+Assembly with name 'Game.Template.Editor' already exists (Packages/com.gamefoundation.game-template/Editor/Game.Template.Editor.asmdef)
+Assembly with name 'Game.Template.Editor' already exists (Assets/AuditTemplate/Editor/Game.Template.Editor.asmdef)
+Assembly with name 'Game.Template.EditorTests' already exists (Packages/com.gamefoundation.game-template/Tests/Editor/Game.Template.EditorTests.asmdef)
+Assembly with name 'Game.Template.EditorTests' already exists (Assets/AuditTemplate/Tests/Editor/Game.Template.EditorTests.asmdef)
+Assembly with name 'Game.Template' already exists (Assets/AuditTemplate/Runtime/Game.Template.asmdef)
+Assembly with name 'Game.Template' already exists (Packages/com.gamefoundation.game-template/Runtime/Game.Template.asmdef)
+[ScriptCompilation] Requested script compilation because: Assembly Definition File(s) changed
+[ScriptCompilation] Requested script compilation because: Assetdatabase observed changes in script compilation related files
+AssetDatabase: script compilation time: 0.055156s
+Scripts have compiler errors.
+Exiting without the bug reporter. Application will terminate with return code 1
