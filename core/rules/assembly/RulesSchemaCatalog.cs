@@ -138,6 +138,11 @@ namespace Core.Rules.Assembly
             registry.RegisterValidationRule(new ChargesRechargeTimeZeroWarningRule());
             registry.RegisterValidationRule(new ChargesMaxAtLeastOneRule());
 
+            // 消费方反馈 2026-09-10"同一光环多个 Proc 触发器静默忽略问题"：单光环允许多个
+            // proc_trigger，但同一光环内重复引用同一个 proc_def 在加载期拒绝（见
+            // SkillValidationRules.cs AuraProcTriggerDuplicateRule 判断记录）。
+            registry.RegisterValidationRule(new AuraProcTriggerDuplicateRule());
+
             // ADR-0019 / F1a 判断记录：EffectKindRegisteredRule/CostEntryShapeRule 两条纯结构手写
             // 规则、ChargesShapeRule 的结构部分已退役——SkillSchemas.Def/AuraDef 现把
             // effects/charges/cost[] 登记为带 Fields/Variants 的子结构，DataRegistry 的递归校验已

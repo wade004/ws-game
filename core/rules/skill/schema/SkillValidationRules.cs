@@ -124,6 +124,77 @@ namespace Core.Rules.Skill
     }
 
     /// <summary>
+    /// 同一光环重复引用同一 <c>proc_trigger</c> 定义校验（消费方反馈 2026-09-10"同一光环多个 Proc
+    /// 触发器静默忽略问题"，见 architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md）。
+    /// <para>
+    /// 契约决定：单光环允许登记多个 <c>proc_trigger</c> 效果条目，各自独立经 <see cref="ProcHost"/>
+    /// 挂载、独立结算条件/概率/内部冷却（见 <see cref="AuraInstanceState.ProcDefRefs"/> 判断记录）。
+    /// 但同一光环定义内多条 <c>proc_trigger</c> 引用同一个 <c>proc_def</c>（<c>proc_ref</c> 取值
+    /// 重复）没有可区分的运行时语义——两次独立挂载会各自起一份 ICD 计时器争抢同一个触发事件，
+    /// 行为对内容作者不可预测，不是"多个不同被动叠在一个光环"这一诉求想要表达的东西。在加载期
+    /// 直接拒绝，比允许其静默生效（或运行期悄悄去重）更安全，也呼应原始反馈"不能加载成功后静默
+    /// 忽略合法表面配置"的验收要求，改成"非法表面配置在加载期就报错"。
+    /// </para>
+    /// </summary>
+    public sealed class AuraProcTriggerDuplicateRule : IValidationRule
+    {
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            if (!view.Tables.Contains("skill.aura_def"))
+            {
+                yield break;
+            }
+
+            foreach (var record in view.GetAll("skill.aura_def"))
+            {
+                if (!record.TryGetArray("effects", out var effects))
+                {
+                    continue;
+                }
+
+                var seenAtIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+                for (var i = 0; i < effects.Count; i++)
+                {
+                    if (!(effects[i] is JsonObject entry))
+                    {
+                        continue;
+                    }
+
+                    if (!entry.TryGetValue("kind", out var kindVal) || !(kindVal is JsonString kindStr)
+                        || kindStr.Value != AuraEffectKindNames.ToText(AuraEffectKind.ProcTrigger))
+                    {
+                        continue;
+                    }
+
+                    if (!entry.TryGetValue("params", out var paramsVal) || !(paramsVal is JsonObject paramsObj))
+                    {
+                        continue;
+                    }
+
+                    if (!paramsObj.TryGetValue("proc_ref", out var procRefVal) || !(procRefVal is JsonString procRefStr))
+                    {
+                        continue;
+                    }
+
+                    if (seenAtIndex.TryGetValue(procRefStr.Value, out var firstIndex))
+                    {
+                        yield return new ValidationIssue(
+                            ValidationSeverity.Error, "skill.aura_def", "aura_proc_trigger_duplicate",
+                            $"effects[{i}].params.proc_ref 与 effects[{firstIndex}].params.proc_ref 重复引用同一个 proc_def " +
+                            $"\"{procRefStr.Value}\"：同一光环内不得重复登记同一个触发器定义（同一触发器两次独立挂载没有可" +
+                            "区分的运行时语义），若想让多个不同被动共用一个光环，请分别引用不同的 skill.proc_def 记录",
+                            recordKey: record.Key, field: $"effects[{i}].params.proc_ref");
+                    }
+                    else
+                    {
+                        seenAtIndex[procRefStr.Value] = i;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// <c>cast_time</c>/<c>channel_time</c> 互斥校验（见 06 第 3.1 节
     /// "channel_time……与 cast_time 互斥语义"）：不得同时非零。
     /// </summary>

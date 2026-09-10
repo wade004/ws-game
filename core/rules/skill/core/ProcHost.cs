@@ -68,7 +68,17 @@ namespace Core.Rules.Skill
         private readonly ISkillDiagnostics _diagnostics;
         private readonly TriggerCastCallback _triggerCast;
 
-        private readonly Dictionary<Id, Attachment> _attachments = new Dictionary<Id, Attachment>();
+        /// <summary>消费方反馈 2026-09-10（同一光环多个 Proc 触发器静默忽略问题，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md）根治：此前是
+        /// <c>Dictionary&lt;Id, Attachment&gt;</c>——以 <c>instanceId</c> 为单值键的单槽存储，
+        /// 同一光环实例第二次 <see cref="Attach"/> 会直接覆盖第一次的订阅（旧订阅的
+        /// <see cref="SubscriptionHandle"/> 从未 <c>Dispose</c>，是另一层订阅泄漏），只有最后一次
+        /// 挂载的触发器真正生效。改为按 <c>instanceId</c> 分桶的多槽列表——<see cref="AuraHost"/>
+        /// 对同一光环实例登记的每个 <c>proc_trigger</c> 各调一次 <see cref="Attach"/>，本类不再
+        /// 假设"一个光环实例最多一个触发器"，同一实例下的多个 <see cref="Attachment"/> 各自持有
+        /// 独立的 <see cref="Attachment.IcdRemaining"/>（内部冷却独立计时）与独立的
+        /// <see cref="SubscriptionHandle"/>（独立订阅、独立摘除）。</summary>
+        private readonly Dictionary<Id, List<Attachment>> _attachments = new Dictionary<Id, List<Attachment>>();
 
         public ProcHost(
             IEventBus bus,
@@ -86,30 +96,80 @@ namespace Core.Rules.Skill
             _triggerCast = triggerCast ?? throw new ArgumentNullException(nameof(triggerCast));
         }
 
+        /// <summary>挂载一个 <c>proc_trigger</c> 触发器：<paramref name="instanceId"/> 相同、
+        /// <paramref name="def"/>（按 <see cref="ProcDef.Id"/>）不同的多次调用各自独立生效（见
+        /// <see cref="_attachments"/> 判断记录），不会互相覆盖。<see cref="AuraHost"/> 保证同一光环
+        /// 实例不会用相同 <c>procDef.Id</c> 调用本方法两次（加载期
+        /// <see cref="AuraProcTriggerDuplicateRule"/> 已拒绝同一光环内重复 <c>proc_ref</c>）。</summary>
         public void Attach(Id instanceId, Id holderId, ProcDef def)
         {
             var attachment = new Attachment { InstanceId = instanceId, HolderId = holderId, Def = def };
             attachment.Subscription = _bus.Subscribe(def.TriggerEvent, evt => OnEvent(attachment, evt));
-            _attachments[instanceId] = attachment;
+
+            if (!_attachments.TryGetValue(instanceId, out var list))
+            {
+                list = new List<Attachment>();
+                _attachments[instanceId] = list;
+            }
+
+            list.Add(attachment);
         }
 
+        /// <summary>摘除 <paramref name="instanceId"/> 挂载的全部触发器（语义变更：此前单槽存储下
+        /// 等价于"摘除唯一一个"，见 <see cref="_attachments"/> 判断记录）。<see cref="AuraHost"/> 的
+        /// 全部实例移除路径（到期、<c>RemoveAura</c>、<c>Dispel</c>、吸收耗尽、叠加溢出替换、目标
+        /// 销毁）统一调用本方法一次即完整注销该实例名下的全部触发器订阅，不会有孤儿条目残留。</summary>
         public void Detach(Id instanceId)
         {
-            if (_attachments.TryGetValue(instanceId, out var attachment))
+            if (_attachments.TryGetValue(instanceId, out var list))
             {
-                attachment.Subscription?.Dispose();
+                foreach (var attachment in list)
+                {
+                    attachment.Subscription?.Dispose();
+                }
+
                 _attachments.Remove(instanceId);
             }
         }
 
-        /// <summary>按 <paramref name="dt"/> 推进全部已挂载触发器的内部冷却。</summary>
+        /// <summary>按 <paramref name="procDefId"/> 摘除 <paramref name="instanceId"/> 名下单个
+        /// 触发器，其余触发器不受影响；本类当前调用方（<see cref="AuraHost"/>）的全部移除路径都是
+        /// "整个实例一起摘除"，不需要按单个 <c>procDef</c> 精细摘除，这里作为公开 API 新增补齐
+        /// （与上面 <see cref="Detach(Id)"/> 同名不同参数，纯新增重载，不改变既有签名）。</summary>
+        public void Detach(Id instanceId, Id procDefId)
+        {
+            if (!_attachments.TryGetValue(instanceId, out var list))
+            {
+                return;
+            }
+
+            for (var i = list.Count - 1; i >= 0; i--)
+            {
+                if (list[i].Def.Id.Equals(procDefId))
+                {
+                    list[i].Subscription?.Dispose();
+                    list.RemoveAt(i);
+                }
+            }
+
+            if (list.Count == 0)
+            {
+                _attachments.Remove(instanceId);
+            }
+        }
+
+        /// <summary>按 <paramref name="dt"/> 推进全部已挂载触发器的内部冷却——同一光环实例下的多个
+        /// 触发器各自持有独立的 <see cref="Attachment.IcdRemaining"/>，互不影响。</summary>
         public void Update(double dt)
         {
-            foreach (var attachment in _attachments.Values)
+            foreach (var list in _attachments.Values)
             {
-                if (attachment.IcdRemaining > 0)
+                foreach (var attachment in list)
                 {
-                    attachment.IcdRemaining = Math.Max(0, attachment.IcdRemaining - dt);
+                    if (attachment.IcdRemaining > 0)
+                    {
+                        attachment.IcdRemaining = Math.Max(0, attachment.IcdRemaining - dt);
+                    }
                 }
             }
         }
@@ -130,11 +190,14 @@ namespace Core.Rules.Skill
 
             _currentFactor *= factor;
 
-            foreach (var attachment in _attachments.Values)
+            foreach (var list in _attachments.Values)
             {
-                if (attachment.IcdRemaining > 0)
+                foreach (var attachment in list)
                 {
-                    attachment.IcdRemaining *= factor;
+                    if (attachment.IcdRemaining > 0)
+                    {
+                        attachment.IcdRemaining *= factor;
+                    }
                 }
             }
         }

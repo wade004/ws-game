@@ -46,7 +46,21 @@ namespace Core.Rules.Skill
         public readonly HashSet<Id> ImmuneSchools = new HashSet<Id>();
         public readonly HashSet<EffectKind> ImmuneEffectKinds = new HashSet<EffectKind>();
 
-        public Id? ProcDefRef;
+        /// <summary>消费方反馈 2026-09-10（同一光环多个 Proc 触发器静默忽略问题，见
+        /// architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md）根治：此前是单值
+        /// <c>Id? ProcDefRef</c>，<see cref="ApplyStaticEffects"/> 遍历 <c>def.Effects</c> 时同一
+        /// 字段被后一个 <c>proc_trigger</c> 效果条目覆盖，只有最后登记的触发器真正挂载到
+        /// <see cref="ProcHost"/>，前面的条目加载校验通过却在运行期被静默丢弃。改为有序集合，
+        /// 保存本光环定义里全部 <c>proc_trigger</c> 效果条目的 <c>proc_ref</c>；<see cref="CreateInstance"/>
+        /// 对集合中每一个都各自调一次 <see cref="ProcHost.Attach"/>（各自独立挂载、独立经
+        /// <see cref="ProcHost"/> 结算条件/概率/内部冷却），<see cref="RemoveInstanceInternal"/>
+        /// 仍只调一次 <see cref="ProcHost.Detach(Id)"/>——该方法语义同步改为"摘除该光环实例挂载的
+        /// 全部触发器"（见 ProcHost.cs 判断记录），不需要本类逐个记账。同一光环内重复引用同一个
+        /// <c>proc_ref</c> 不在运行期去重/容忍，改在加载期由
+        /// <see cref="AuraProcTriggerDuplicateRule"/>（check 名 <c>aura_proc_trigger_duplicate</c>）
+        /// 阻断——两次挂载同一触发器对同一持有者没有可区分的语义（各自独立 ICD 互相抢同一个事件，
+        /// 行为难以预期），比允许其静默生效更安全。</summary>
+        public readonly List<Id> ProcDefRefs = new List<Id>();
         public readonly List<Id> SpellModRefs = new List<Id>();
         public (Id From, Id To)? OverrideSkill;
     }
@@ -268,10 +282,15 @@ namespace Core.Rules.Skill
             var sourceKey = _options.AllowMultiSourceTiming ? (Id?)sourceId : null;
             _slots[(targetId, def.Id, sourceKey)] = instance.InstanceId;
 
-            if (instance.ProcDefRef.HasValue && ProcHost != null)
+            if (ProcHost != null)
             {
-                var procDef = _defs.GetProcDef(instance.ProcDefRef.Value);
-                ProcHost.Attach(instance.InstanceId, targetId, procDef);
+                // 判断记录见 AuraInstanceState.ProcDefRefs：本光环定义登记的每一个 proc_trigger
+                // 效果条目各自调一次 Attach，各自在 ProcHost 内部独立挂载（互不覆盖）。
+                foreach (var procDefRef in instance.ProcDefRefs)
+                {
+                    var procDef = _defs.GetProcDef(procDefRef);
+                    ProcHost.Attach(instance.InstanceId, targetId, procDef);
+                }
             }
 
             _bus.Enqueue(new AuraAppliedEvent(targetId, def.Id, sourceId, instance.Stacks, triggerChainDepth));
@@ -313,8 +332,12 @@ namespace Core.Rules.Skill
             var sourceKey = _options.AllowMultiSourceTiming ? (Id?)instance.SourceId : null;
             _slots.Remove((instance.TargetId, instance.DefId, sourceKey));
 
-            if (instance.ProcDefRef.HasValue)
+            if (instance.ProcDefRefs.Count > 0)
             {
+                // ProcHost.Detach(instanceId) 语义现为"摘除该实例挂载的全部触发器"（见 ProcHost.cs
+                // 判断记录），本类不需要逐个 procDef 调用——全部移除路径（到期 Update、RemoveAura、
+                // Dispel、ConsumeAbsorb 吸收耗尽、叠加溢出 Replace、目标销毁 OnEntityDestroyed）
+                // 都经由本方法统一收口，一次调用即完整注销，不会有孤儿订阅残留。
                 ProcHost?.Detach(instance.InstanceId);
             }
 
@@ -483,7 +506,10 @@ namespace Core.Rules.Skill
                         break;
 
                     case AuraEffectKind.ProcTrigger:
-                        instance.ProcDefRef = ParamsX.GetIdOpt(entry.Params, "proc_ref");
+                        // 判断记录见 AuraInstanceState.ProcDefRefs：改为追加而不是覆盖，保留本光环
+                        // 定义里全部 proc_trigger 效果条目的 proc_ref（按 effects 数组原始顺序）。
+                        var procRef = ParamsX.GetIdOpt(entry.Params, "proc_ref");
+                        if (procRef.HasValue) instance.ProcDefRefs.Add(procRef.Value);
                         break;
 
                     case AuraEffectKind.SpellMod:
