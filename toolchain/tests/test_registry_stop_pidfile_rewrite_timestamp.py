@@ -163,6 +163,23 @@ def _run(args: list[str], powershell: str, timeout: int, tmp_path: Path, tag: st
             stdout=stdout_f,
             stderr=stderr_f,
             timeout=timeout,
+            # 判断记录（2026-09-10，本轮整合复现的顺序依赖 flaky 根治）：不显式指定
+            # creationflags 时，子进程默认继承/附着到本 Python 进程当前所在的同一个控制台——
+            # 如果同一个 pytest 会话里更早跑过的另一个用例（如 test_abi_surface_compare.py）
+            # 也用 subprocess 调用过 `dotnet build`，dotnet/CLR 在那次调用里会把这个共享控制台
+            # 的输出代码页改成 UTF-8（`SetConsoleOutputCP`），且这个改动在该控制台的生命周期内
+            # 持续生效，不会随那次 `dotnet build` 子进程退出而复原。本函数随后启动的
+            # powershell.exe 若继承同一个已被改过的控制台，会按 UTF-8 而不是系统 ANSI 代码页
+            # 写中文提示文案；但下面仍按 `locale.getpreferredencoding()`（反映的是系统区域设置，
+            # 不随控制台代码页运行期改动而变）解码，两者不一致时中文文案解码成乱码，导致按中文
+            # 子串（如 REWRITE_MARKER）的断言随 pytest 执行顺序假性失败——不是
+            # start_registry.ps1 本身的行为随执行顺序变化，纯属测试进程与同一 pytest 会话内其它
+            # 用例共享控制台代码页状态导致的编码假象（实测：单独跑本文件必过，紧跟在
+            # test_abi_surface_compare.py 之后跑必然按此模式失败，跟 `dotnet build` 是否发生在
+            # 本文件之前强相关，与真实 -Detach 行为无关，见 followup-2026-09-10b.md 的定性记录）。
+            # 显式要求一个全新控制台（`CREATE_NEW_CONSOLE`）切断这条继承链，让每次调用都从系统
+            # 默认代码页起步，与下面的解码假设重新对齐，不依赖调用方之前跑过什么。
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
         )
     # 判断记录：直接把 stdout/stderr 重定向到文件句柄（而不是走 capture_output 的管道 +
     # text=True/encoding="utf-8"）时，Windows PowerShell 5.1 实测按系统 ANSI 代码页
