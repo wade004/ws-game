@@ -580,3 +580,29 @@ powershell -File toolchain\abi_probe.ps1 -BaselineVersion 1.12.0 -SkipIfBaseline
 dotnet run --project toolchain\abi_surface -- dump --out surface.txt <dll1> <dll2> ...
 dotnet run --project toolchain\abi_surface -- compare baseline.txt current.txt --allowlist toolchain\abi_surface_allowlist.txt --out report.txt
 ```
+
+### `abi_surface` dump/compare 覆盖范围（ABI-116-01 根治，外部审计 audit-24a11fe-20260910）
+
+此前 dump 只记方法/构造/字段/事件/属性访问器"是否可见"（public/protected/protected-internal 才
+dump），不记具体是哪一档——`public -> protected` 这类可见性收窄两次 dump 输出完全相同，
+`compare` 判 `breaks=0`，而旧编译消费方实际运行会抛 `System.MethodAccessException`（最小 oracle
+见 `toolchain/tests/test_abi_surface_compare.py::test_public_to_protected_negative_oracle_end_to_end_via_real_dll`）。
+现在每种成员与类型都单独记可见性档位，`compare` 对"收窄"判破坏、对"放宽"豁免（放宽是调用方能力
+只增不减，不构成破坏，报告里单列"可见性放宽"小节，不计入 `breaks`）：
+
+| 维度 | dump 记录位置 | compare 判定 |
+|---|---|---|
+| 方法/构造/事件可见性 | MEMBER 行 flags 首 token：`public`/`protected`/`protected-internal` | 收窄=破坏，放宽=豁免 |
+| 字段可见性 | 同上 | 同上 |
+| 属性 get/set 可见性 | 既有 `get:VIS,set:VIS`（未变） | get/set 分别判定，任一收窄即破坏 |
+| 类型可见性（含嵌套类型） | TYPE 行 flags 首 token：`public`/`nested-public`/`nested-protected`/`nested-protected-internal` | 收窄=破坏，放宽=豁免 |
+| 抽象/虚方法变 sealed/非虚 | MEMBER 行 flags：`virtual`/`abstract`/`sealed-override` | 变化=破坏（派生方重写会断） |
+| 实例 ↔ 静态 | MEMBER/字段/事件 flags：`static` | 变化=破坏 |
+| 类型种类变化（class/struct/interface/enum/delegate） | TYPE 行第 3 列 | 变化=破坏 |
+| 泛型约束变化 | TYPE/MEMBER flags：`constraints:!<位置>:<variance&特殊约束&基类约束>` | 任何变化=破坏（不做放宽豁免，任何方向都当破坏处理，对齐既有接口新增 abstract 成员的治理口径） |
+| 非枚举 const 字段值变化 | field 行 sig 追加 `=<内联值>` | 变化=破坏（值被内联进旧调用方 IL） |
+
+用新版工具对 `dist/ws-game-1.12.0.zip`、`dist/ws-game-1.13.0.zip` 两份历史基线重跑当前工作树六个
+DLL：两者均 `breaks=0`（未发现历史真实破坏；1.13.0 场景的手写消费方探针第 1 点因 consumer 源码
+只锚定 `abi_probe_baseline.txt` 记录的 1.12.0 签名集合，对 1.13.0 编译会失败，这是既有已知边界，
+与本次 dump/compare 覆盖范围扩充无关，不在本次改动范围）。

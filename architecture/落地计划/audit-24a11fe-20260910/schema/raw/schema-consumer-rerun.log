@@ -1,0 +1,26 @@
+SCHEMA_CONSUMER_BEGIN
+LEXER token_count=6
+TOKEN kind=Ident text=event.value start=2 length=11 raw=event.value
+TOKEN kind=Eq text=== start=14 length=2 raw===
+TOKEN kind=StringLiteral text=a\"b start=17 length=6 raw=\"a\\\"b\"
+TOKEN kind=And text=and start=24 length=3 raw=and
+TOKEN kind=Ident text=quest.foo start=28 length=9 raw=quest.foo
+TOKEN kind=Eof text= start=39 length=0 raw=
+PARSER success=True
+LEXER bad_input=event.value = 1 outcome=ExprParseException position=12
+PARSER bad_input=event.value = 1 outcome=ExprParseException position=12
+LEXER bad_input=event.value == \"unterminated outcome=ExprParseException position=15
+PARSER bad_input=event.value == \"unterminated outcome=ExprParseException position=15
+LEXER overflow_int outcome=OverflowException position=NA
+LEXER overflow_number outcome=ACCEPT number_is_infinity=True value=∞
+RANGE label=NaNMin outcome=ACCEPT describe=[NaN, +∞) contains0=True
+RANGE label=InfinityMin outcome=ACCEPT describe=[Infinity, +∞) contains0=False
+RANGE label=NaNMax outcome=ACCEPT describe=(-∞, NaN] contains0=True
+JSON_NUMBER raw=1 errors=0 warnings=0 blocking=False actual=1
+JSON_NUMBER raw=1e309 errors=0 warnings=0 blocking=False actual=+Infinity
+JSON_NUMBER raw=-1e309 errors=1 warnings=0 blocking=True actual=<unloaded>
+ISSUE raw=-1e309 [Error] field_range test.number[test.one].value: 字段 "value" 取值 -Infinity 超出范围 [0, +∞)
+DIRECT_JSON_NUMBER nan_kind=Number value_is_nan=True
+JSON_READER_OVERFLOW kind=Number value_is_infinity=True
+JSON_WRITER_OVERFLOW outcome=1e309
+SCHEMA_CONSUMER_END

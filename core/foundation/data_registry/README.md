@@ -62,12 +62,15 @@ data_registry/
 | `primary_key` | 主键字段缺失/格式非法、内容表 id 的 domain 前缀与表名首段不符、主键重复 |
 | `required_field` | 必填字段缺失（或值为 JSON `null`，视为未提供） |
 | `field_type` | 字段 JSON 类型与声明的 `FieldKind` 不符，含 `Id`/`IdList` 格式、`Enum` 取值 |
-| `reference_integrity` | `Reference` 字段（含 `ReferenceTable`/`ReferenceDomain`）与 `DeclareReference` 动态声明的引用，目标不存在 |
+| `reference_integrity` | `Reference` 字段（含 `ReferenceTable`/`ReferenceDomain`）与 `DeclareReference` 动态声明的引用目标不存在；ADR-0022 起同样覆盖登记了 `ReferenceTable`/`ReferenceDomain` 的 `IdList` 字段——按同款规则逐个校验其每个元素（元素路径形如 `field[2]`），不是只校验 `Id` 单值字段 |
+| `field_range` | ADR-0021：字段登记了 `FieldSchema.Range`（数值下上界）时，`Number`/`Int` 字段的值超出该范围（`ValidateFieldRange`，见字段级校验小节判断记录——只在登记了范围时触发，未登记不检查） |
 | `text_key_exists` | `TextKey` 字段的值在 `l10n.text` 表按 `DefaultLocale` 查不到；`l10n.text` 表未加载时降级为 Warning |
 | `expr_parsable` | `Expr` 字段解析失败（Error）、`ExprValidator` 报出的 Error/Warning 级问题原样映射；`ExprSchema` 未配置时整体降级为一条 Warning，不解析 |
 | `variant_discriminator` | ADR-0019：`Object` 字段登记了 `Variants` 时，判别字段缺失、非字符串、或取值不在 `Cases` 键集合内 |
 | `substructure_depth` | ADR-0019：子结构递归深度超过 `MaxSubstructureDepth`（32），已停止对该子树继续校验（防御登记错误导致的无限递归，如把 `itemFactory` 误指向自身之外仍会成环的结构） |
 | `unknown_subfield` | ADR-0019：已登记 `Fields`（或 `Variants` 命中分支的字段清单）之外出现的多余子字段；默认关闭（`DataRegistryOptions.UnknownSubfieldSeverity = None`），开启后为 Warning |
+| `field_finite` | 第十八方深度审核 F-01：`Number` 字段的值是 NaN/±Infinity（不是有限浮点数）时报出；独立于该字段是否登记 `Range`——未登记上界的 `Range`（如 `Range(min: 0)`）本就放行 +Infinity，不能只靠 `field_range` 兜底。判断在类型检查之后、`field_range` 之前 |
+| `expr_validation_error` | 第十八方深度审核 F-03：`Expr` 字段解析（`ExprParser.Parse`/`ExprLexer.Tokenize`）或静态校验（`ExprValidator.Validate`）内部抛出除 `ExprParseException` 之外的未预期异常时报出，Error 级、阻断；`ExprParseException` 仍归入既有 `expr_parsable`，不受影响 |
 
 其余检查项（效果数上限、预算超标、叠加类别冲突、外形映射存在、外形类型字段组完整、循环引用
 检测、孤儿记录检测、时间字段与时间模型一致）由各内容模块以 `IValidationRule` 注册，本模块

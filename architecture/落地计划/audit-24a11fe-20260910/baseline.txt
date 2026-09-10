@@ -1,0 +1,8 @@
+version=1.16.1
+head=24a11fe28f9647cd532c41f56f7ab18c00fb8516
+source=D:\workespace\ws-game
+source_status=clean
+freeze=
+D:\workespace\ws-game-artifacts\audit-24a11fe-frozen
+audit=
+D:\workespace\ws-game-artifacts\audit-24a11fe-20260910

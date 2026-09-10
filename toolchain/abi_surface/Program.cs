@@ -159,6 +159,15 @@ namespace Toolchain.AbiSurface
             {
                 sb.AppendLine("[abi_surface] 新增（不计入破坏）：" + result.Additions.Count + " 行");
             }
+            if (result.Widened.Count > 0)
+            {
+                sb.AppendLine("[abi_surface] 可见性放宽（不计入破坏）：" + result.Widened.Count + " 行");
+                foreach (var w in result.Widened)
+                {
+                    sb.AppendLine("  [" + w.Category + "] " + w.Line);
+                    sb.AppendLine("    " + w.Detail);
+                }
+            }
             sb.AppendLine(result.HasBreaks ? "[abi_surface] RESULT=BREAKING" : "[abi_surface] RESULT=OK");
             return sb.ToString();
         }

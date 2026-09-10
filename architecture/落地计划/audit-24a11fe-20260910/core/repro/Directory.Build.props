@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <BaseOutputPath>..\build\core\out\CoreBoundaryProbe\</BaseOutputPath>
+    <BaseIntermediateOutputPath>..\build\core\obj\CoreBoundaryProbe\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

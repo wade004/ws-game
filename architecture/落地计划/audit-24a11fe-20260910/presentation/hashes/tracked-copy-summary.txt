@@ -1,0 +1,10 @@
+frozen_head=24a11fe28f9647cd532c41f56f7ab18c00fb8516
+frozen_version=1.16.1
+temporary_project=D:\workespace\ws-game-unity-audit-24a11fe\copyRoot
+copy_part=adapters\unity source_files_excluding_current_dlls=714 hash_matches=714
+copy_part=adapters\conformance source_files_excluding_current_dlls=39 hash_matches=39
+copy_part=games\_template source_files_excluding_current_dlls=84 hash_matches=84
+copy_part=data source_files_excluding_current_dlls=63 hash_matches=63
+copy_part=assets source_files_excluding_current_dlls=181 hash_matches=181
+tracked_copy_hash_match_excluding_current_dlls=True source_files=1081 matches=1081
+current six DLLs intentionally replace the frozen package plugin copies; see six-dll-copy.txt

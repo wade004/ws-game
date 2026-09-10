@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-10 07:40:13Z" end-time="2026-09-10 07:40:14Z" duration="1.162752">
+  <test-suite type="TestSuite" id="1000" name="unity" fullname="unity" runstate="Runnable" testcasecount="70" result="Passed" start-time="2026-09-10 07:40:13Z" end-time="2026-09-10 07:40:14Z" duration="1.162752" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1088" name="Game.Template.EditorTests.dll" fullname="D:/workespace/ws-game-unity-audit-24a11fe/copyRoot/adapters/unity/Library/ScriptAssemblies/Game.Template.EditorTests.dll" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-09-10 07:40:13Z" end-time="2026-09-10 07:40:14Z" duration="1.158161" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="42152" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1089" name="Game" fullname="Game" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-09-10 07:40:13Z" end-time="2026-09-10 07:40:14Z" duration="1.157893" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1090" name="Template" fullname="Game.Template" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-09-10 07:40:13Z" end-time="2026-09-10 07:40:14Z" duration="1.157783" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1091" name="EditorTests" fullname="Game.Template.EditorTests" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-09-10 07:40:13Z" end-time="2026-09-10 07:40:14Z" duration="1.157669" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestFixture" id="1084" name="DataHotReloadDeletedOverlayTests" fullname="Game.Template.EditorTests.DataHotReloadDeletedOverlayTests" classname="Game.Template.EditorTests.DataHotReloadDeletedOverlayTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-10 07:40:13Z" end-time="2026-09-10 07:40:14Z" duration="1.157032" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1085" name="DeletedGameOverride_AutoReloadsAndFallsBackToFrameworkValue" fullname="Game.Template.EditorTests.DataHotReloadDeletedOverlayTests.DeletedGameOverride_AutoReloadsAndFallsBackToFrameworkValue" methodname="DeletedGameOverride_AutoReloadsAndFallsBackToFrameworkValue" classname="Game.Template.EditorTests.DataHotReloadDeletedOverlayTests" runstate="Runnable" seed="933746175" result="Passed" start-time="2026-09-10 07:40:13Z" end-time="2026-09-10 07:40:14Z" duration="1.149690" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[[DataHotReload] 热重载 "stat.definition" 成功（1 条记录）
+[DataHotReloadDeletedOverlayTests] before=2;after_delete=1
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

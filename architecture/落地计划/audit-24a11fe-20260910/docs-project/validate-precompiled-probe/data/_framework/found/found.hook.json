@@ -1,0 +1,8 @@
+{
+  "table": "found.hook",
+  "schema_version": 1,
+  "rows": [
+    { "id": "found.hook.scene_pre_unload", "signature": "sceneId: Id", "allow_multiple": true, "description": "场景卸载前触发，存档系统在此完成自动存档（见 03 第 6 节步骤 4）" },
+    { "id": "found.hook.scene_post_load", "signature": "sceneId: Id", "allow_multiple": true, "description": "场景加载与初始化完成、应用状态机转入 InWorld 后触发（见 03 第 6 节步骤 6）" }
+  ]
+}

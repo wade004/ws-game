@@ -1,0 +1,129 @@
+formal release stream check
+source_root=D:\workespace\ws-game
+formal_zips_are_read_only=true
+rebuild_performed=false
+
+[1.12.0]
+zip_sha256=f87bc2f3a68315eb06f650855b369898fc5181b2fb5111923ecd806089422935
+zip_entries=1036 dll_entries=24 npm_package_manifests=3
+lock_dll=Core.Foundation.dll result=MATCH sha256=76e852f5cdc6bc27385c4f1c03384f85fba2f480588b5ec5934a43a3e6c7671f entry=ws-game-1.12.0/toolchain/validator/lib/Core.Foundation.dll
+lock_dll_all_copies=Core.Foundation.dll result=MATCH copies=4 unique_sha256=76e852f5cdc6bc27385c4f1c03384f85fba2f480588b5ec5934a43a3e6c7671f
+lock_dll=Core.Numbers.dll result=MATCH sha256=856b88558b34d2e50f6a223cfd500b020b9ed4ca0e19d1b56f9c5eb714d0c66a entry=ws-game-1.12.0/toolchain/validator/lib/Core.Numbers.dll
+lock_dll_all_copies=Core.Numbers.dll result=MATCH copies=4 unique_sha256=856b88558b34d2e50f6a223cfd500b020b9ed4ca0e19d1b56f9c5eb714d0c66a
+lock_dll=Core.Rules.dll result=MATCH sha256=ea22e046a9d5493790fc2d12a7c4a46d8be4e7527708ca0c4ed71a0e361a8623 entry=ws-game-1.12.0/toolchain/validator/lib/Core.Rules.dll
+lock_dll_all_copies=Core.Rules.dll result=MATCH copies=4 unique_sha256=ea22e046a9d5493790fc2d12a7c4a46d8be4e7527708ca0c4ed71a0e361a8623
+lock_dll=Core.Carriers.dll result=MATCH sha256=887a0fbc293ba942bb42fc9dbbcddaf38ec436900e5ffc20104466f20a73e745 entry=ws-game-1.12.0/toolchain/validator/lib/Core.Carriers.dll
+lock_dll_all_copies=Core.Carriers.dll result=MATCH copies=4 unique_sha256=887a0fbc293ba942bb42fc9dbbcddaf38ec436900e5ffc20104466f20a73e745
+lock_dll=Core.Gameplay.dll result=MATCH sha256=bdc0990162508d351bcf380359a7f4edcf157dde4f76cf588fba525d125f06ea entry=ws-game-1.12.0/toolchain/validator/lib/Core.Gameplay.dll
+lock_dll_all_copies=Core.Gameplay.dll result=MATCH copies=4 unique_sha256=bdc0990162508d351bcf380359a7f4edcf157dde4f76cf588fba525d125f06ea
+lock_dll=Presentation.Common.dll result=MATCH sha256=5c847edaf0bb04ad94e569669332bfa835c6ae000de2f7bae50b6d379fbdf988 entry=ws-game-1.12.0/toolchain/validator/lib/Presentation.Common.dll
+lock_dll_all_copies=Presentation.Common.dll result=MATCH copies=4 unique_sha256=5c847edaf0bb04ad94e569669332bfa835c6ae000de2f7bae50b6d379fbdf988
+manifest=com.gamefoundation.adapter.unity result=MATCH version=1.12.0 entry=ws-game-1.12.0/packages/com.gamefoundation.adapter.unity/package.json
+manifest=com.gamefoundation.framework-data result=MATCH version=1.12.0 entry=ws-game-1.12.0/packages/com.gamefoundation.framework-data/package.json
+manifest=com.gamefoundation.toolchain result=MATCH version=1.12.0 entry=ws-game-1.12.0/packages/com.gamefoundation.toolchain/package.json
+manifest=com.gamefoundation.adapter.headless result=ABSENT_EXPECTED version=1.12.0
+manifest_txt_present=true sha256=ff04416d4fa2b854f583cb11a0272742f50e523e54d60c3f5ba9ba84a0f13b5b
+result=PASS
+
+[1.14.0]
+zip_sha256=408941b56074fe8f8730f17ff11d8f9d0928f0714edbaf7f472fe07f621ba0e4
+zip_entries=1073 dll_entries=26 npm_package_manifests=4
+lock_dll=Core.Foundation.dll result=MATCH sha256=e0de1436032aba333d3eacd90e07e4e07489e9004f8ba3d93952ffe92debb283 entry=ws-game-1.14.0/toolchain/validator/lib/Core.Foundation.dll
+lock_dll_all_copies=Core.Foundation.dll result=MATCH copies=4 unique_sha256=e0de1436032aba333d3eacd90e07e4e07489e9004f8ba3d93952ffe92debb283
+lock_dll=Core.Numbers.dll result=MATCH sha256=c2a6c4d5a9352f76a781a265bb0248d5af585147bd279eb8997452a4c4f3a290 entry=ws-game-1.14.0/toolchain/validator/lib/Core.Numbers.dll
+lock_dll_all_copies=Core.Numbers.dll result=MATCH copies=4 unique_sha256=c2a6c4d5a9352f76a781a265bb0248d5af585147bd279eb8997452a4c4f3a290
+lock_dll=Core.Rules.dll result=MATCH sha256=ab353d217c0a95ea2d2aeb7a5517a71a8c9af8f3f46d6e4e7de0f0fd6e899453 entry=ws-game-1.14.0/toolchain/validator/lib/Core.Rules.dll
+lock_dll_all_copies=Core.Rules.dll result=MATCH copies=4 unique_sha256=ab353d217c0a95ea2d2aeb7a5517a71a8c9af8f3f46d6e4e7de0f0fd6e899453
+lock_dll=Core.Carriers.dll result=MATCH sha256=9bfab0fc3630bb60dacb30f06d058ab198d6806427aaa25da6c32626ada3f8ec entry=ws-game-1.14.0/toolchain/validator/lib/Core.Carriers.dll
+lock_dll_all_copies=Core.Carriers.dll result=MATCH copies=4 unique_sha256=9bfab0fc3630bb60dacb30f06d058ab198d6806427aaa25da6c32626ada3f8ec
+lock_dll=Core.Gameplay.dll result=MATCH sha256=a341fee9108701331c268e908ffe72981d75fdf601aeff7868353d1703ad6a74 entry=ws-game-1.14.0/toolchain/validator/lib/Core.Gameplay.dll
+lock_dll_all_copies=Core.Gameplay.dll result=MATCH copies=4 unique_sha256=a341fee9108701331c268e908ffe72981d75fdf601aeff7868353d1703ad6a74
+lock_dll=Presentation.Common.dll result=MATCH sha256=71b2e5d4bc5544dee85f123d20e1bc4046d3e1f1c73393430f4dac36ea9892d0 entry=ws-game-1.14.0/toolchain/validator/lib/Presentation.Common.dll
+lock_dll_all_copies=Presentation.Common.dll result=MATCH copies=4 unique_sha256=71b2e5d4bc5544dee85f123d20e1bc4046d3e1f1c73393430f4dac36ea9892d0
+lock_dll=Adapters.Stub.dll result=MATCH sha256=b12d36e19856d832e365d3d1cdf05ab4c87d24be81906aa9c6c9941b6609adbc entry=ws-game-1.14.0/adapters/headless/Adapters.Stub.dll
+lock_dll_all_copies=Adapters.Stub.dll result=MATCH copies=2 unique_sha256=b12d36e19856d832e365d3d1cdf05ab4c87d24be81906aa9c6c9941b6609adbc
+manifest=com.gamefoundation.adapter.unity result=MATCH version=1.14.0 entry=ws-game-1.14.0/packages/com.gamefoundation.adapter.unity/package.json
+manifest=com.gamefoundation.framework-data result=MATCH version=1.14.0 entry=ws-game-1.14.0/packages/com.gamefoundation.framework-data/package.json
+manifest=com.gamefoundation.toolchain result=MATCH version=1.14.0 entry=ws-game-1.14.0/packages/com.gamefoundation.toolchain/package.json
+manifest=com.gamefoundation.adapter.headless result=MATCH version=1.14.0 entry=ws-game-1.14.0/packages/com.gamefoundation.adapter.headless/package.json
+manifest_txt_present=true sha256=28897579cd6ec2368fb8ff74adb271093aa8a07cfd0fa4849c47e98526d77ba7
+result=PASS
+
+[1.15.0]
+zip_sha256=66cf440779f97c53a025480740445f33d1431ba26de3cd4151575938f3d6acd6
+zip_entries=1147 dll_entries=40 npm_package_manifests=4
+lock_dll=Core.Foundation.dll result=MATCH sha256=0eec7aa9290064b4d575e24aff444da1620b08ba41d65ebee773fc69557353d0 entry=ws-game-1.15.0/toolchain/validator/lib/Core.Foundation.dll
+lock_dll_all_copies=Core.Foundation.dll result=MATCH copies=6 unique_sha256=0eec7aa9290064b4d575e24aff444da1620b08ba41d65ebee773fc69557353d0
+lock_dll=Core.Numbers.dll result=MATCH sha256=0179d7535fc48987302720ea7f6ef4a523d53e8ae6397bdf3785355b36aa8c4f entry=ws-game-1.15.0/toolchain/validator/lib/Core.Numbers.dll
+lock_dll_all_copies=Core.Numbers.dll result=MATCH copies=6 unique_sha256=0179d7535fc48987302720ea7f6ef4a523d53e8ae6397bdf3785355b36aa8c4f
+lock_dll=Core.Rules.dll result=MATCH sha256=fcc91b8f881945e3e2982f5d8c5a2e7f50e08f99f345e984700f21c716225a1e entry=ws-game-1.15.0/toolchain/validator/lib/Core.Rules.dll
+lock_dll_all_copies=Core.Rules.dll result=MATCH copies=6 unique_sha256=fcc91b8f881945e3e2982f5d8c5a2e7f50e08f99f345e984700f21c716225a1e
+lock_dll=Core.Carriers.dll result=MATCH sha256=c2e439e5d91f8df099c07372144e757762285f4fa252bcd3755dd2efe7a0182b entry=ws-game-1.15.0/toolchain/validator/lib/Core.Carriers.dll
+lock_dll_all_copies=Core.Carriers.dll result=MATCH copies=6 unique_sha256=c2e439e5d91f8df099c07372144e757762285f4fa252bcd3755dd2efe7a0182b
+lock_dll=Core.Gameplay.dll result=MATCH sha256=a716d8358fb8515f5fbae6d54084b86e7b5a9fdb56cd4d36949de0bcf89bf96c entry=ws-game-1.15.0/toolchain/validator/lib/Core.Gameplay.dll
+lock_dll_all_copies=Core.Gameplay.dll result=MATCH copies=6 unique_sha256=a716d8358fb8515f5fbae6d54084b86e7b5a9fdb56cd4d36949de0bcf89bf96c
+lock_dll=Presentation.Common.dll result=MATCH sha256=952c1d6d37f7c312767a576b2bc0686a6bd512d5c7fc06bc2f700839819b2599 entry=ws-game-1.15.0/toolchain/validator/lib/Presentation.Common.dll
+lock_dll_all_copies=Presentation.Common.dll result=MATCH copies=6 unique_sha256=952c1d6d37f7c312767a576b2bc0686a6bd512d5c7fc06bc2f700839819b2599
+lock_dll=Adapters.Stub.dll result=MATCH sha256=2955fa5021118255f77f25bf0ad30fdac0972579ce50808f4b8408a8d40634f5 entry=ws-game-1.15.0/adapters/headless/Adapters.Stub.dll
+lock_dll_all_copies=Adapters.Stub.dll result=MATCH copies=2 unique_sha256=2955fa5021118255f77f25bf0ad30fdac0972579ce50808f4b8408a8d40634f5
+lock_dll=Validator.dll result=MATCH sha256=b9fc83209c19faccbad9786f24236fb96f5b3c5dc2f320a9902a10be910b0174 entry=ws-game-1.15.0/toolchain/validator/bin/Validator.dll
+lock_dll_all_copies=Validator.dll result=MATCH copies=2 unique_sha256=b9fc83209c19faccbad9786f24236fb96f5b3c5dc2f320a9902a10be910b0174
+manifest=com.gamefoundation.adapter.unity result=MATCH version=1.15.0 entry=ws-game-1.15.0/packages/com.gamefoundation.adapter.unity/package.json
+manifest=com.gamefoundation.framework-data result=MATCH version=1.15.0 entry=ws-game-1.15.0/packages/com.gamefoundation.framework-data/package.json
+manifest=com.gamefoundation.toolchain result=MATCH version=1.15.0 entry=ws-game-1.15.0/packages/com.gamefoundation.toolchain/package.json
+manifest=com.gamefoundation.adapter.headless result=MATCH version=1.15.0 entry=ws-game-1.15.0/packages/com.gamefoundation.adapter.headless/package.json
+manifest_txt_present=true sha256=4b7fe7cbc541176e5a6d4d4fe3a2e1c1e6c367c77f783329bcdfd8f542cfed25
+result=PASS
+
+[1.16.0]
+zip_sha256=e08fcc5c6f7749209a570cf79c198908b472918370b4204559e2f49ce8333743
+zip_entries=1147 dll_entries=40 npm_package_manifests=4
+lock_dll=Core.Foundation.dll result=MATCH sha256=e872c9cf48a5e545a54fce0e6c495c1ce1ff6f6852464875990d7d85159b15e7 entry=ws-game-1.16.0/toolchain/validator/lib/Core.Foundation.dll
+lock_dll_all_copies=Core.Foundation.dll result=MATCH copies=6 unique_sha256=e872c9cf48a5e545a54fce0e6c495c1ce1ff6f6852464875990d7d85159b15e7
+lock_dll=Core.Numbers.dll result=MATCH sha256=473f650325c0028a53954a2c2ce4dd24c17529e32b8af0acb53c928509f8a959 entry=ws-game-1.16.0/toolchain/validator/lib/Core.Numbers.dll
+lock_dll_all_copies=Core.Numbers.dll result=MATCH copies=6 unique_sha256=473f650325c0028a53954a2c2ce4dd24c17529e32b8af0acb53c928509f8a959
+lock_dll=Core.Rules.dll result=MATCH sha256=4386f9bb261fdcf68e2d083846c6d4e83d4ea25941f34e0b8c7cab399be4e3f3 entry=ws-game-1.16.0/toolchain/validator/lib/Core.Rules.dll
+lock_dll_all_copies=Core.Rules.dll result=MATCH copies=6 unique_sha256=4386f9bb261fdcf68e2d083846c6d4e83d4ea25941f34e0b8c7cab399be4e3f3
+lock_dll=Core.Carriers.dll result=MATCH sha256=934b5abadec5bdd940ca658df1ddc7aedc0d650d23307cf66901c5a78d994f06 entry=ws-game-1.16.0/toolchain/validator/lib/Core.Carriers.dll
+lock_dll_all_copies=Core.Carriers.dll result=MATCH copies=6 unique_sha256=934b5abadec5bdd940ca658df1ddc7aedc0d650d23307cf66901c5a78d994f06
+lock_dll=Core.Gameplay.dll result=MATCH sha256=04923d2be596dc92203cc01b5c8a5e074687f6f52b59406d6ffb679de2d9d609 entry=ws-game-1.16.0/toolchain/validator/lib/Core.Gameplay.dll
+lock_dll_all_copies=Core.Gameplay.dll result=MATCH copies=6 unique_sha256=04923d2be596dc92203cc01b5c8a5e074687f6f52b59406d6ffb679de2d9d609
+lock_dll=Presentation.Common.dll result=MATCH sha256=a5d06ae880828efbd58a4f6a495819ec2436aaf087158d926a6846031ea8a4c6 entry=ws-game-1.16.0/toolchain/validator/lib/Presentation.Common.dll
+lock_dll_all_copies=Presentation.Common.dll result=MATCH copies=6 unique_sha256=a5d06ae880828efbd58a4f6a495819ec2436aaf087158d926a6846031ea8a4c6
+lock_dll=Adapters.Stub.dll result=MATCH sha256=6da500019c09be2cfc76fb2ac3ef00ca399dc6b2c9c2aba108c006e5a013f557 entry=ws-game-1.16.0/adapters/headless/Adapters.Stub.dll
+lock_dll_all_copies=Adapters.Stub.dll result=MATCH copies=2 unique_sha256=6da500019c09be2cfc76fb2ac3ef00ca399dc6b2c9c2aba108c006e5a013f557
+lock_dll=Validator.dll result=MATCH sha256=f0f5d5b6b1ec36d8c0439a06485fb22c4fdd2a53e3c722b2716c88fa8b3ee866 entry=ws-game-1.16.0/toolchain/validator/bin/Validator.dll
+lock_dll_all_copies=Validator.dll result=MATCH copies=2 unique_sha256=f0f5d5b6b1ec36d8c0439a06485fb22c4fdd2a53e3c722b2716c88fa8b3ee866
+manifest=com.gamefoundation.adapter.unity result=MATCH version=1.16.0 entry=ws-game-1.16.0/packages/com.gamefoundation.adapter.unity/package.json
+manifest=com.gamefoundation.framework-data result=MATCH version=1.16.0 entry=ws-game-1.16.0/packages/com.gamefoundation.framework-data/package.json
+manifest=com.gamefoundation.toolchain result=MATCH version=1.16.0 entry=ws-game-1.16.0/packages/com.gamefoundation.toolchain/package.json
+manifest=com.gamefoundation.adapter.headless result=MATCH version=1.16.0 entry=ws-game-1.16.0/packages/com.gamefoundation.adapter.headless/package.json
+manifest_txt_present=true sha256=c13043774e6c80cd85f170a041d98309dfebf84e7391c626228742ca993ab50f
+result=PASS
+
+[1.16.1]
+zip_sha256=5b5a842d1259dd6e4735d6796a16f0331033aeb38138a09b543b104a74b4dd7b
+zip_entries=1147 dll_entries=40 npm_package_manifests=4
+lock_dll=Core.Foundation.dll result=MATCH sha256=abac1f0e06760d12c746e6973be3e116071dae65d9dc57c17e9a4510eefda911 entry=ws-game-1.16.1/toolchain/validator/lib/Core.Foundation.dll
+lock_dll_all_copies=Core.Foundation.dll result=MATCH copies=6 unique_sha256=abac1f0e06760d12c746e6973be3e116071dae65d9dc57c17e9a4510eefda911
+lock_dll=Core.Numbers.dll result=MATCH sha256=e6c736995ae3c823fc7b8d7f22c6f7d9527b20bc03926f59c44346676636a319 entry=ws-game-1.16.1/toolchain/validator/lib/Core.Numbers.dll
+lock_dll_all_copies=Core.Numbers.dll result=MATCH copies=6 unique_sha256=e6c736995ae3c823fc7b8d7f22c6f7d9527b20bc03926f59c44346676636a319
+lock_dll=Core.Rules.dll result=MATCH sha256=fbfb771b20c525b242a191345e686b7d211f22b1622b70d0222086575fc66c95 entry=ws-game-1.16.1/toolchain/validator/lib/Core.Rules.dll
+lock_dll_all_copies=Core.Rules.dll result=MATCH copies=6 unique_sha256=fbfb771b20c525b242a191345e686b7d211f22b1622b70d0222086575fc66c95
+lock_dll=Core.Carriers.dll result=MATCH sha256=5df3dfa3ae85492dc57b208da3bafda249fd754802444ea9599a392e7eb19c75 entry=ws-game-1.16.1/toolchain/validator/lib/Core.Carriers.dll
+lock_dll_all_copies=Core.Carriers.dll result=MATCH copies=6 unique_sha256=5df3dfa3ae85492dc57b208da3bafda249fd754802444ea9599a392e7eb19c75
+lock_dll=Core.Gameplay.dll result=MATCH sha256=475813c5692934ce462926c4f8c39b3a8f617e13f855007cf8d8b54af41a9fb8 entry=ws-game-1.16.1/toolchain/validator/lib/Core.Gameplay.dll
+lock_dll_all_copies=Core.Gameplay.dll result=MATCH copies=6 unique_sha256=475813c5692934ce462926c4f8c39b3a8f617e13f855007cf8d8b54af41a9fb8
+lock_dll=Presentation.Common.dll result=MATCH sha256=1c7443ff80bb16a1dc33fed376b2805edf9998024cc265de1652734f2cd008ad entry=ws-game-1.16.1/toolchain/validator/lib/Presentation.Common.dll
+lock_dll_all_copies=Presentation.Common.dll result=MATCH copies=6 unique_sha256=1c7443ff80bb16a1dc33fed376b2805edf9998024cc265de1652734f2cd008ad
+lock_dll=Adapters.Stub.dll result=MATCH sha256=8eb746565f562c4ea100026d94c0c76624d09c679abf790d8b7369d0870ffd73 entry=ws-game-1.16.1/adapters/headless/Adapters.Stub.dll
+lock_dll_all_copies=Adapters.Stub.dll result=MATCH copies=2 unique_sha256=8eb746565f562c4ea100026d94c0c76624d09c679abf790d8b7369d0870ffd73
+lock_dll=Validator.dll result=MATCH sha256=90887e0f1223fc24d921db48bb47ba3356e0579b44cfd3dc3ae286a44d5a8e8e entry=ws-game-1.16.1/toolchain/validator/bin/Validator.dll
+lock_dll_all_copies=Validator.dll result=MATCH copies=2 unique_sha256=90887e0f1223fc24d921db48bb47ba3356e0579b44cfd3dc3ae286a44d5a8e8e
+manifest=com.gamefoundation.adapter.unity result=MATCH version=1.16.1 entry=ws-game-1.16.1/packages/com.gamefoundation.adapter.unity/package.json
+manifest=com.gamefoundation.framework-data result=MATCH version=1.16.1 entry=ws-game-1.16.1/packages/com.gamefoundation.framework-data/package.json
+manifest=com.gamefoundation.toolchain result=MATCH version=1.16.1 entry=ws-game-1.16.1/packages/com.gamefoundation.toolchain/package.json
+manifest=com.gamefoundation.adapter.headless result=MATCH version=1.16.1 entry=ws-game-1.16.1/packages/com.gamefoundation.adapter.headless/package.json
+manifest_txt_present=true sha256=9bc227f3167bbbc1a4bd924b203ee200c02b3a0796b4e4eee2cb2094a993f4b1
+result=PASS
+

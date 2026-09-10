@@ -1,0 +1,2 @@
+[第一道·骨架检查] checked 5 files across 1 root(s), 0 errors
+[第二道·真实校验] 正在运行预编译的 toolchain/validator/bin/Validator.dll: C:\Program Files\dotnet\dotnet.EXE D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\docs-project\validate-precompiled-probe\toolchain\validator\bin\Validator.dll --data-root D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\docs-project\validate-precompiled-probe\data\_framework --json

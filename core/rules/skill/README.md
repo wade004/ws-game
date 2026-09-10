@@ -77,13 +77,17 @@ skill/
    （若接口有）否则跳过"——本模块构造函数把 `ISpatialQuery` 声明为可空参数，为 null 时步骤 7 只做
    距离检查、跳过视线检查，不抛异常。
 
-3. **`ISkillHost.FindUnits` 当前恒返回空列表**（文档代码一致性审计对齐，外部审计 68c9bed）：06
-   第 7 节该方法本身要求一个空间查询能力，本模块尚未接入真正的空间查询委托实现——不是"仅在未
-   注入 `ISpatialQuery` 时降级为空"，而是当前调用点（`SkillHost.FindUnits`，见 `core/rules/skill/
-   core/SkillHost.cs`）无条件记一条诊断警告并返回空列表，不区分是否注入了 `ISpatialQuery`（该依赖
-   目前只用于射程/视线检查，见判断记录 2，尚未接到 `FindUnits`）。这是一处已知未完成能力，不是
-   降级路径，供技能内部效果按范围查找单位（`origin`+`Shape` 组合用法）的调用方目前一律得到空
-   结果。
+3. **`ISkillHost.FindUnits` 已实现查询/筛选/排序**（DOC-116-02 根治，外部审计 audit-24a11fe-20260910；
+   取代此前"当前恒返回空列表"的过时表述）：委托注入的 `ISpatialQuery.QueryShape` 做真正的形状
+   判定（`shape.WithOrigin(origin)` 换锚点，其余字段原样保留），按 `UnitFilter` 的 `AliveOnly`/
+   `Exclude`/`RequiredTags`/`ExcludedTags`/`Relation` 过滤（`Relation` 为 `Hostile`/`Friendly`/
+   `Neutral` 时经可选注入的 `IFactionMatrix` 判定，未注入时这三种关系一律判不通过，宁可漏收不
+   误纳），登记的触发体（`trigger_only` 标签）一律排除，结果按 `Id` 序数升序排序保证确定性——
+   完整判断记录见 `SkillHost.FindUnits`（`core/rules/skill/core/SkillHost.cs`）方法文档。生产装配
+   （`core/rules/assembly/RulesAssembly.cs`）默认把 `Spatial` 传给 `SkillHost` 构造函数，因此正常
+   装配下 `FindUnits` 直接可用；只有在**未注入 `ISpatialQuery`** 的场景（例如自定义、不带空间索引
+   的宿主）才降级——此时无条件记一条诊断警告并返回空列表（不抛异常，与判断记录 2 的射程/视线检查
+   降级惯例一致），不区分 `UnitFilter` 其余字段。
 
 4. **法术队列窗口外的再次施法请求**：06 第 3.6 节只描述了"窗口内入队"的行为，未规定窗口外再次
    `CastSkill` 的处理方式。本模块拍板：窗口外一律拒绝（每单位只有一个队列槽，不支持排更多队）。

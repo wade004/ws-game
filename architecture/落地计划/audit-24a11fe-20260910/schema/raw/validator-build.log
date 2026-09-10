@@ -1,0 +1,15 @@
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\schema\build\validator\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\schema\build\validator\Core.Numbers.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\schema\build\validator\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\schema\build\validator\Core.Carriers.dll
+  Core.Gameplay -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\schema\build\validator\Core.Gameplay.dll
+  Presentation.Common -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\schema\build\validator\Presentation.Common.dll
+  Validator -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\schema\build\validator\Validator.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:03.78

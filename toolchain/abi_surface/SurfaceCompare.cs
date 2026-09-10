@@ -19,6 +19,9 @@ namespace Toolchain.AbiSurface
         public List<BreakItem> Breaks { get; } = new List<BreakItem>();
         public List<BreakItem> Allowed { get; } = new List<BreakItem>();
         public List<string> Additions { get; } = new List<string>();
+        // ABI-116-01 根治：可见性放宽（例如 protected -> public）不是破坏，但也不该悄悄混进
+        // Additions（那是"新签名"的语义）——单独记一类，供报告展示、不影响 exit code。
+        public List<BreakItem> Widened { get; } = new List<BreakItem>();
         public bool HasBreaks => Breaks.Count > 0;
     }
 
@@ -39,12 +42,77 @@ namespace Toolchain.AbiSurface
                 allowlistBySignature[entry.Signature] = entry;
             }
 
+            // ABI-116-01 根治（codex 第十六轮，audit-24a11fe-20260910）：可见性放宽豁免——
+            // SurfaceDumper 现在把可见性编进了 TYPE/MEMBER 行（TYPE 与 ctor/method/field/event 的
+            // flags 首 token，property 仍是既有的 get:X,set:Y），这让"整行即签名"规则 1 能自动抓到
+            // 可见性收窄（旧行因为可见性词变了而消失，判破坏，见下方规则 1）；但同一套机制会误伤
+            // 可见性放宽（protected -> public 时旧的 "...protected..." 行同样会消失）——放宽不算破坏
+            // （调用方能力只增不减），必须单独识别、从 Breaks 里剔除。做法：为每条"baseline 有、
+            // current 没有"的行算出"身份"（去掉可见性 token 后的其余部分）与它的可见性，再看
+            // current-only 的行里有没有同身份、可见性更宽的——有就是放宽，不计破坏；其余（可见性
+            // 收窄、或身份本身就变了，比如参数/返回值/virtual/静态/约束/常量值变化）保持规则 1 原有
+            // 判破坏逻辑不变。
+            var currentOnlyLines = new List<string>();
+            foreach (var line in currentLines)
+            {
+                if (!baselineSet.Contains(line)) currentOnlyLines.Add(line);
+            }
+            var currentOnlyByIdentity = new Dictionary<string, List<(string Line, string Vis)>>(StringComparer.Ordinal);
+            var currentOnlyPropsByIdentity = new Dictionary<string, (string Line, string GetVis, string SetVis)>(StringComparer.Ordinal);
+            foreach (var cLine in currentOnlyLines)
+            {
+                var parsed = SplitVisibility(cLine);
+                if (parsed.Vis != null)
+                {
+                    if (!currentOnlyByIdentity.TryGetValue(parsed.Identity, out var list))
+                    {
+                        list = new List<(string, string)>();
+                        currentOnlyByIdentity[parsed.Identity] = list;
+                    }
+                    list.Add((cLine, parsed.Vis));
+                    continue;
+                }
+                var propParsed = SplitPropertyIdentity(cLine);
+                if (propParsed.Identity != null)
+                {
+                    currentOnlyPropsByIdentity[propParsed.Identity] = (cLine, propParsed.GetVis!, propParsed.SetVis!);
+                }
+            }
+
             // 规则 1：baseline 存在、current 缺失的行——不管是整条 TYPE 行（类型被删）还是单条
             // MEMBER 行（成员被删/改签名，改签名在这套"整行即签名"的表示下等价于"旧行消失+可能新增
             // 一条新行"，旧行消失已经足以判定为破坏，不需要额外分辨"删除"和"改动"）。
             foreach (var line in baselineLines)
             {
                 if (currentSet.Contains(line)) continue;
+
+                var parsed = SplitVisibility(line);
+                if (parsed.Vis != null && currentOnlyByIdentity.TryGetValue(parsed.Identity, out var candidates))
+                {
+                    var baseRank = VisRank(parsed.Vis);
+                    var widerCandidate = candidates.FirstOrDefault(c => VisRank(c.Vis) > baseRank);
+                    if (widerCandidate.Line != null)
+                    {
+                        result.Widened.Add(new BreakItem { Line = line, Category = "visibility_widened", Detail = "可见性从 " + parsed.Vis + " 放宽为 " + widerCandidate.Vis + "（" + widerCandidate.Line + "），不计入破坏" });
+                        continue;
+                    }
+                }
+                else
+                {
+                    var propParsed = SplitPropertyIdentity(line);
+                    if (propParsed.Identity != null && currentOnlyPropsByIdentity.TryGetValue(propParsed.Identity, out var propCandidate))
+                    {
+                        bool getNotNarrower = VisRank(propCandidate.GetVis) >= VisRank(propParsed.GetVis!);
+                        bool setNotNarrower = VisRank(propCandidate.SetVis) >= VisRank(propParsed.SetVis!);
+                        bool strictlyWider = VisRank(propCandidate.GetVis) > VisRank(propParsed.GetVis!) || VisRank(propCandidate.SetVis) > VisRank(propParsed.SetVis!);
+                        if (getNotNarrower && setNotNarrower && strictlyWider)
+                        {
+                            result.Widened.Add(new BreakItem { Line = line, Category = "visibility_widened", Detail = "属性 get/set 可见性放宽为 " + propCandidate.Line + "，不计入破坏" });
+                            continue;
+                        }
+                    }
+                }
+
                 if (allowlistBySignature.TryGetValue(line, out var allowed))
                 {
                     result.Allowed.Add(new BreakItem { Line = line, Category = "removed_or_changed", Detail = allowed.Reason + "（ADR " + allowed.AdrId + "）" });
@@ -98,6 +166,77 @@ namespace Toolchain.AbiSurface
             }
 
             return result;
+        }
+
+        private static readonly HashSet<string> KnownVisTokens = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "public", "protected", "protected-internal", "nested-public", "nested-protected", "nested-protected-internal",
+        };
+
+        private static readonly Dictionary<string, int> VisibilityRank = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["public"] = 3,
+            ["nested-public"] = 3,
+            ["protected-internal"] = 2,
+            ["nested-protected-internal"] = 2,
+            ["protected"] = 1,
+            ["nested-protected"] = 1,
+            ["none"] = 0,
+        };
+
+        private static int VisRank(string? vis) => vis != null && VisibilityRank.TryGetValue(vis, out var r) ? r : 0;
+
+        /// <summary>
+        /// 把一条 TYPE 或 ctor/method/field/event 的 MEMBER 行拆成"身份"（去掉可见性 token 后的
+        /// 剩余部分，仍按 tab 拼回、可整体比较）与"可见性" token——TYPE 行可见性是 flags 的首
+        /// token（<see cref="SurfaceDumper"/>.DumpType 判断记录），ctor/method/field/event 的
+        /// MEMBER 行同理（见该类 MethodFlags/字段/事件分支判断记录）。property 走单独的
+        /// <see cref="SplitPropertyIdentity"/>（get/set 各自独立可见性，不是单一 token）。
+        /// 无法识别（不是 TYPE/MEMBER、kind=property、或首 flag 不是已知可见性词汇——例如本文件
+        /// 测试里手写的旧格式行 "MEMBER\t...\t-"）时 Vis 返回 null，调用方据此退化为规则 1 原有的
+        /// 整行 diff，不做放宽豁免（向后兼容手写测试数据与尚未升级格式的输入）。
+        /// </summary>
+        private static (string Identity, string? Vis) SplitVisibility(string line)
+        {
+            var parts = line.Split('\t');
+            if (parts.Length == 0) return (line, null);
+            if (parts[0] == "TYPE" && parts.Length >= 4)
+            {
+                var tokens = parts[3] == "-" ? Array.Empty<string>() : parts[3].Split(',');
+                if (tokens.Length == 0 || !KnownVisTokens.Contains(tokens[0])) return (line, null);
+                var rest = tokens.Length > 1 ? string.Join(",", tokens.Skip(1)) : "-";
+                return (string.Join("\t", parts[0], parts[1], parts[2], rest), tokens[0]);
+            }
+            if (parts[0] == "MEMBER" && parts.Length >= 5 && parts[2] != "property")
+            {
+                var tokens = parts[4] == "-" ? Array.Empty<string>() : parts[4].Split(',');
+                if (tokens.Length == 0 || !KnownVisTokens.Contains(tokens[0])) return (line, null);
+                var rest = tokens.Length > 1 ? string.Join(",", tokens.Skip(1)) : "-";
+                return (string.Join("\t", parts[0], parts[1], parts[2], parts[3], rest), tokens[0]);
+            }
+            return (line, null);
+        }
+
+        /// <summary>
+        /// property 行专用：sig（<c>parts[3]</c>）本来就不含可见性，可见性打包在 flags 里的
+        /// <c>get:VIS,set:VIS[,abstract]</c>（见 SurfaceDumper 属性分支判断记录）——"身份"是
+        /// type+kind+sig+是否 abstract（abstract 标记改变仍走既有 interface_new_abstract_member/
+        /// 普通行 diff 规则，不参与可见性放宽豁免），get/set 可见性各自返回供调用方分别比较。
+        /// </summary>
+        private static (string? Identity, string? GetVis, string? SetVis) SplitPropertyIdentity(string line)
+        {
+            var parts = line.Split('\t');
+            if (parts.Length < 5 || parts[0] != "MEMBER" || parts[2] != "property") return (null, null, null);
+            string getVis = "none", setVis = "none";
+            bool isAbstract = false;
+            foreach (var tok in parts[4].Split(','))
+            {
+                if (tok.StartsWith("get:", StringComparison.Ordinal)) getVis = tok.Substring(4);
+                else if (tok.StartsWith("set:", StringComparison.Ordinal)) setVis = tok.Substring(4);
+                else if (tok == "abstract") isAbstract = true;
+            }
+            var identity = string.Join("\t", parts[0], parts[1], parts[2], parts[3], isAbstract ? "abstract" : "-");
+            return (identity, getVis, setVis);
         }
 
         public static List<AllowlistEntry> ParseAllowlist(IEnumerable<string> lines)

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="3" result="Passed" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.4018533">
+  <test-suite type="TestSuite" id="1334" name="unity" fullname="unity" runstate="Runnable" testcasecount="272" result="Passed" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.401853" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="PlayMode" />
+    </properties>
+    <test-suite type="Assembly" id="1316" name="Adapter.Unity.Tests.Runtime.dll" fullname="D:/workespace/ws-game-unity-audit-24a11fe/copyRoot/adapters/unity/Library/ScriptAssemblies/Adapter.Unity.Tests.Runtime.dll" runstate="Runnable" testcasecount="268" result="Passed" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.395527" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="32288" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="PlayMode" />
+        <property name="EditorOnly" value="False" />
+      </properties>
+      <test-suite type="TestSuite" id="1317" name="Adapter" fullname="Adapter" runstate="Runnable" testcasecount="268" result="Passed" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.394014" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1318" name="Unity" fullname="Adapter.Unity" runstate="Runnable" testcasecount="268" result="Passed" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.393027" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1319" name="Tests" fullname="Adapter.Unity.Tests" runstate="Runnable" testcasecount="268" result="Passed" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.391486" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="SetUpFixture" id="1116" name="Runtime" fullname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" classname="Adapter.Unity.Tests.Runtime.GlobalPlayModeTestSetup" runstate="Runnable" testcasecount="268" result="Passed" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.390073" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <output><![CDATA[[GlobalPlayModeTestSetup] 已把用户数据根重定向到测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests（预清理存档子目录=C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests\saves，删除文件数=0），真实存档目录未被触碰。
+]]></output>
+              <test-suite type="TestFixture" id="1112" name="EquipmentVisualSaveLoadResetTests" fullname="Adapter.Unity.Tests.Runtime.EquipmentVisualSaveLoadResetTests" classname="Adapter.Unity.Tests.Runtime.EquipmentVisualSaveLoadResetTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.356776" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1113" name="SurvivingView_SaveEmptyThenEquip_LoadEmptySave_ResetsStaleEquipmentVisual" fullname="Adapter.Unity.Tests.Runtime.EquipmentVisualSaveLoadResetTests.SurvivingView_SaveEmptyThenEquip_LoadEmptySave_ResetsStaleEquipmentVisual" methodname="SurvivingView_SaveEmptyThenEquip_LoadEmptySave_ResetsStaleEquipmentVisual" classname="Adapter.Unity.Tests.Runtime.EquipmentVisualSaveLoadResetTests" runstate="Runnable" seed="1629460876" result="Passed" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.350582" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[EquipmentVisualSaveLoadResetTests] saveB=True;loadB=Loaded;equipment_after_load=0;socket_childCount_before=0;socket_childCount_after=0;view_same=True
+]]></output>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1310" name="VfxAnchorFollowTests" fullname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests" classname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.021273" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <output><![CDATA[There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene
+]]></output>
+                <test-case id="1312" name="SetParticlePosition_AfterStopParticle_IsSilentlyIgnored" fullname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests.SetParticlePosition_AfterStopParticle_IsSilentlyIgnored" methodname="SetParticlePosition_AfterStopParticle_IsSilentlyIgnored" classname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests" runstate="Runnable" seed="1189952606" result="Passed" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.011382" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1311" name="SetParticlePosition_MovesTheRealTransformCreatedByEmitParticle" fullname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests.SetParticlePosition_MovesTheRealTransformCreatedByEmitParticle" methodname="SetParticlePosition_MovesTheRealTransformCreatedByEmitParticle" classname="Adapter.Unity.Tests.Runtime.VfxAnchorFollowTests" runstate="Runnable" seed="1867942884" result="Passed" start-time="2026-09-10 07:40:27Z" end-time="2026-09-10 07:40:27Z" duration="0.002471" asserts="0">
+                  <properties>
+                    <property name="_JOINTYPE" value="UnityCombinatorial" />
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                  <output><![CDATA[[GlobalPlayModeTestSetup] 已恢复用户数据根覆盖为 null，已清理测试专属目录：C:/Users/1/AppData/LocalLow/DefaultCompany/unity\_playmode_tests
+Saving results to: C:/Users/1/AppData/LocalLow/DefaultCompany/unity\TestResults.xml
+]]></output>
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

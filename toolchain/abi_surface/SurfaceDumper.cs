@@ -78,7 +78,11 @@ namespace Toolchain.AbiSurface
             if (!IsSurfaceVisible(type)) return;
 
             var kind = ClassifyKind(type);
-            var flags = new List<string>();
+            // ABI-116-01 根治（codex 第十六轮，audit-24a11fe-20260910）：TYPE 行第一个 flag 固定是
+            // 类型可见性（public/nested-public/nested-protected/nested-protected-internal），供
+            // SurfaceCompareLogic 的可见性放宽豁免逻辑按"去掉可见性 token 后其余 flags 是否相同"
+            // 识别——放在首位是那段逻辑的硬约定，不能挪到其它位置。
+            var flags = new List<string> { TypeVisibility(type) };
             bool isStaticClass = type.IsAbstract && type.IsSealed && type.IsClass;
             if (kind == "class")
             {
@@ -86,8 +90,14 @@ namespace Toolchain.AbiSurface
                 else if (type.IsAbstract) flags.Add("abstract");
                 else if (type.IsSealed) flags.Add("sealed");
             }
-            if (type.IsGenericTypeDefinition) flags.Add("generic:" + type.GetGenericArguments().Length);
-            var flagsText = flags.Count > 0 ? string.Join(",", flags) : "-";
+            if (type.IsGenericTypeDefinition)
+            {
+                var genericArgs = type.GetGenericArguments();
+                flags.Add("generic:" + genericArgs.Length);
+                var constraints = FormatGenericConstraints(genericArgs);
+                if (constraints.Length > 0) flags.Add("constraints:" + constraints);
+            }
+            var flagsText = string.Join(",", flags);
 
             lines.Add(string.Join("\t", "TYPE", TypeNameFormatter.Format(type), kind, flagsText));
 
@@ -95,7 +105,7 @@ namespace Toolchain.AbiSurface
             {
                 if (!IsMemberVisible(ctor.Attributes)) continue;
                 var sig = ".ctor(" + TypeNameFormatter.FormatParameters(ctor.GetParameters()) + ")";
-                var mflags = MethodFlags(ctor.IsStatic, false, false, false);
+                var mflags = MethodFlags(Visibility(ctor.Attributes), ctor.IsStatic, false, false, false, null);
                 lines.Add(string.Join("\t", "MEMBER", TypeNameFormatter.Format(type), "ctor", sig, mflags));
             }
 
@@ -106,7 +116,8 @@ namespace Toolchain.AbiSurface
                 var arity = method.IsGenericMethodDefinition ? method.GetGenericArguments().Length : 0;
                 var name = arity > 0 ? method.Name + "`" + arity : method.Name;
                 var sig = name + "(" + TypeNameFormatter.FormatParameters(method.GetParameters()) + "):" + TypeNameFormatter.Format(method.ReturnType);
-                var mflags = MethodFlags(method.IsStatic, method.IsVirtual && !method.IsFinal, method.IsAbstract, method.IsFinal && method.IsVirtual);
+                string? constraints = arity > 0 ? FormatGenericConstraints(method.GetGenericArguments()) : null;
+                var mflags = MethodFlags(Visibility(method.Attributes), method.IsStatic, method.IsVirtual && !method.IsFinal, method.IsAbstract, method.IsFinal && method.IsVirtual, constraints);
                 lines.Add(string.Join("\t", "MEMBER", TypeNameFormatter.Format(type), "method", sig, mflags));
             }
 
@@ -140,12 +151,24 @@ namespace Toolchain.AbiSurface
                     continue;
                 }
                 if (type.IsEnum) continue; // value__ 实例字段：不是可用的枚举成员，跳过。
-                var fsig = field.Name + ":" + TypeNameFormatter.Format(field.FieldType);
-                var fflagsList = new List<string>();
+                // ABI-116-01 根治：非枚举 const（IsLiteral）字段把内联常量值编进 sig（旧行为只记
+                // 类型不记值）——旧 consumer 在编译期把 const 的值内联进 IL，值变化即使字段签名
+                // 物理上没变，重编译前旧 consumer 用的还是旧值，属于契约破坏，必须让新旧两行不同。
+                string fsig;
+                if (field.IsLiteral)
+                {
+                    var raw = field.GetRawConstantValue();
+                    fsig = field.Name + ":" + TypeNameFormatter.Format(field.FieldType) + "=" + FormatConstValue(raw);
+                }
+                else
+                {
+                    fsig = field.Name + ":" + TypeNameFormatter.Format(field.FieldType);
+                }
+                var fflagsList = new List<string> { Visibility(field.Attributes) };
                 if (field.IsStatic) fflagsList.Add("static");
                 if (field.IsInitOnly) fflagsList.Add("readonly");
                 if (field.IsLiteral) fflagsList.Add("literal");
-                var fflags = fflagsList.Count > 0 ? string.Join(",", fflagsList) : "-";
+                var fflags = string.Join(",", fflagsList);
                 lines.Add(string.Join("\t", "MEMBER", TypeNameFormatter.Format(type), "field", fsig, fflags));
             }
 
@@ -154,7 +177,9 @@ namespace Toolchain.AbiSurface
                 var adder = evt.AddMethod;
                 if (adder == null || !IsMemberVisible(adder.Attributes)) continue;
                 var esig = evt.Name + ":" + TypeNameFormatter.Format(evt.EventHandlerType!);
-                var eflags = adder.IsStatic ? "static" : "-";
+                var eflagsList = new List<string> { Visibility(adder.Attributes) };
+                if (adder.IsStatic) eflagsList.Add("static");
+                var eflags = string.Join(",", eflagsList);
                 lines.Add(string.Join("\t", "MEMBER", TypeNameFormatter.Format(type), "event", esig, eflags));
             }
 
@@ -187,14 +212,89 @@ namespace Toolchain.AbiSurface
             return "none";
         }
 
-        private static string MethodFlags(bool isStatic, bool isVirtualNonFinal, bool isAbstract, bool isSealedOverride)
+        // ABI-116-01 根治：字段可见性判定，与上面 MethodAttributes 版本同构（FieldAttributes 是
+        // 独立的位域类型，不能复用同一个重载）。
+        private static string Visibility(FieldAttributes attrs)
         {
-            var flags = new List<string>();
+            var access = attrs & FieldAttributes.FieldAccessMask;
+            if (access == FieldAttributes.Public) return "public";
+            if (access == FieldAttributes.Family) return "protected";
+            if (access == FieldAttributes.FamORAssem) return "protected-internal";
+            return "none";
+        }
+
+        /// <summary>
+        /// 类型自身的可见性——只对已经通过 <see cref="IsSurfaceVisible"/> 的类型调用，因此
+        /// 兜底分支（各判定都不成立）实际不可达；分类只覆盖顶层 public 与三档嵌套可见性
+        /// （nested-public/nested-protected/nested-protected-internal），供
+        /// <see cref="SurfaceCompareLogic"/> 的可见性放宽豁免识别嵌套类型的可见性收窄
+        /// （例如 nested-public 收窄为 nested-protected：旧格式两次 dump 该 TYPE 行的 flags 完全
+        /// 相同、看不出变化，只有把可见性单独记一个 token 才能让这处收窄体现为行差异）。
+        /// </summary>
+        private static string TypeVisibility(Type type)
+        {
+            if (type.IsNestedPublic) return "nested-public";
+            if (type.IsNestedFamily) return "nested-protected";
+            if (type.IsNestedFamORAssem) return "nested-protected-internal";
+            if (type.IsPublic) return "public";
+            return "public";
+        }
+
+        private static string MethodFlags(string visibility, bool isStatic, bool isVirtualNonFinal, bool isAbstract, bool isSealedOverride, string? constraints)
+        {
+            // ABI-116-01 根治：visibility 固定放在第一个 token——理由与 TYPE 行相同，见 DumpType
+            // 判断记录；SurfaceCompareLogic 的放宽豁免逻辑按"首 token 是否已知可见性词汇"识别，
+            // 挪到别处会让豁免逻辑失效（退化为普通全行 diff，narrowing/widening 都判破坏）。
+            var flags = new List<string> { visibility };
             if (isStatic) flags.Add("static");
             if (isAbstract) flags.Add("abstract");
             else if (isVirtualNonFinal) flags.Add("virtual");
             else if (isSealedOverride) flags.Add("sealed-override");
-            return flags.Count > 0 ? string.Join(",", flags) : "-";
+            if (!string.IsNullOrEmpty(constraints)) flags.Add("constraints:" + constraints);
+            return string.Join(",", flags);
+        }
+
+        /// <summary>
+        /// 泛型参数约束（类型或方法级泛型定义）——覆盖 variance（out/in）、特殊约束
+        /// （class/struct/new()）与显式基类/接口约束，按参数位置、约束内部按 ordinal 排序后拼接，
+        /// 保证同一份 DLL 两次独立 dump 逐字节相同。约束改变（增/删/换）不做放宽豁免，任何变化都
+        /// 让整条 TYPE/MEMBER 行的 flags 不同，走默认的"行消失即破坏"规则——已编译调用方虽然不会
+        /// 因为约束变化在运行期直接崩，但源码重新编译会报"类型/方法不满足约束"，属于治理目标里
+        /// "未声明的破坏性变更"（与既有接口新增 abstract 成员同一治理逻辑，见 SurfaceCompare.cs
+        /// 规则 2 判断记录）。
+        /// </summary>
+        private static string FormatGenericConstraints(Type[] genericParams)
+        {
+            var parts = new List<string>();
+            foreach (var gp in genericParams)
+            {
+                var special = new List<string>();
+                var varAttrs = gp.GenericParameterAttributes & GenericParameterAttributes.VarianceMask;
+                if (varAttrs == GenericParameterAttributes.Covariant) special.Add("out");
+                else if (varAttrs == GenericParameterAttributes.Contravariant) special.Add("in");
+                var constraintAttrs = gp.GenericParameterAttributes & GenericParameterAttributes.SpecialConstraintMask;
+                if ((constraintAttrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0) special.Add("class");
+                if ((constraintAttrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0) special.Add("struct");
+                if ((constraintAttrs & GenericParameterAttributes.DefaultConstructorConstraint) != 0) special.Add("new()");
+                var baseConstraints = gp.GetGenericParameterConstraints()
+                    .Select(TypeNameFormatter.Format)
+                    .OrderBy(s => s, StringComparer.Ordinal);
+                special.AddRange(baseConstraints);
+                parts.Add("!" + gp.GenericParameterPosition + ":" + (special.Count > 0 ? string.Join("&", special) : "-"));
+            }
+            return string.Join(";", parts);
+        }
+
+        /// <summary>
+        /// 非枚举 const 字段的内联常量值——文本化用于 dump 行，字符串加引号+转义避免与制表符/逗号
+        /// 分隔符混淆（虽然 C# 标识符层面的 const 值罕见嵌入制表符，仍按防御性处理）。
+        /// </summary>
+        private static string FormatConstValue(object? raw)
+        {
+            if (raw == null) return "null";
+            if (raw is bool b) return b ? "true" : "false";
+            if (raw is string s) return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+            return Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture) ?? raw.ToString() ?? "?";
         }
 
         private static string ClassifyKind(Type type)

@@ -1,0 +1,170 @@
+CORE-BOUNDED-RUN baseline=24a11fe28f9647cd532c41f56f7ab18c00fb8516 version=1.16.1
+source=D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source
+PROJECT=GameplayCore114 FILTER=FullyQualifiedName~CORE114_01|FullyQualifiedName~CORE114_02|FullyQualifiedName~CORE114_04|FullyQualifiedName~QuestPersistableTests|FullyQualifiedName~TP_111_FollowupAuditTests
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\foundation\bin\Release\netstandard2.1\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\numbers\bin\Release\netstandard2.1\Core.Numbers.dll
+  Adapters.Stub -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\adapters\stub\bin\Release\netstandard2.1\Adapters.Stub.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\rules\bin\Release\netstandard2.1\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\carriers\bin\Release\netstandard2.1\Core.Carriers.dll
+  Core.Gameplay -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\gameplay\bin\Release\netstandard2.1\Core.Gameplay.dll
+  Presentation.Common -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\presentation\bin\Release\netstandard2.1\Presentation.Common.dll
+  Tests.Gameplay -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\gameplay\tests\bin\Release\net8.0\Tests.Gameplay.dll
+D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\gameplay\tests\bin\Release\net8.0\Tests.Gameplay.dll (.NETCoreApp,Version=v8.0)的测试运行
+VSTest 版本 17.11.1 (x64)
+
+正在启动测试执行，请稍候...
+总共 1 个测试文件与指定模式相匹配。
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.5.3.1+6b60a9e56a (64-bit .NET 8.0.30)
+[xUnit.net 00:00:00.04]   Discovering: Tests.Gameplay
+[xUnit.net 00:00:00.08]   Discovered:  Tests.Gameplay
+[xUnit.net 00:00:00.09]   Starting:    Tests.Gameplay
+  已通过 Tests.Gameplay.Quest.CORE114_01_QuestHostReloadMigrationTests.Reload_ObjectiveCountLowered_ActiveBecomesObjectivesCompleteAndFiresEvent [15 ms]
+  已通过 Tests.Gameplay.Quest.QuestPersistableTests.Load_ForOneUnit_DoesNotAffectAnotherUnitsProgressOnSameHost [14 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_01_QuestHostReloadMigrationTests.Reload_ObjectiveCountIncreases_NewIndexUpdatesWithoutException [1 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_01_QuestHostReloadMigrationTests.Reload_ObjectiveRemoved_ProgressForRemainingObjectivePreserved [< 1 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_01_QuestHostReloadMigrationTests.Reload_NewUnmatchedCollectObjective_RecomputesFromCurrentInventory [< 1 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_01_QuestHostReloadMigrationTests.Reload_NewUnmatchedNonCollectObjective_StartsAtZero [< 1 ms]
+  已通过 Tests.Gameplay.Quest.QuestPersistableTests.Load_OldSnapshot_RestoresCompletionCountAndLastCompletedDay [3 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_01_QuestHostReloadMigrationTests.Reload_FailedQuestProgressArray_NotTouchedAndNoException [< 1 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_01_QuestHostReloadMigrationTests.Reload_IncompatibleChange_ObjectivesCompleteFallsBackToActive [< 1 ms]
+  已通过 Tests.Gameplay.Quest.QuestPersistableTests.Load_EmptySnapshot_RollsBackSubsequentlyAcceptedQuest [< 1 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_01_QuestHostReloadMigrationTests.Reload_QuestDefinitionRemovedWhileActive_ProgressUntouchedNoException [< 1 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_01_QuestHostReloadMigrationTests.Reload_ObjectivesReordered_CountsFollowByTypeAndTargetRef [< 1 ms]
+  已通过 Tests.Gameplay.Quest.QuestPersistableTests.Load_SnapshotWithoutQuest_RemovesQuestAcceptedAfterSave [1 ms]
+  已通过 Tests.Gameplay.Quest.QuestPersistableTests.Load_SameSnapshotTwice_IsIdempotent [< 1 ms]
+  已通过 Tests.Gameplay.Economy.CORE114_02_EconomyReloadStockPolicyTransitionTests.Reload_StockLimitRaised_RemainingUnaffectedNotRefilled [23 ms]
+  已通过 Tests.Gameplay.Economy.CORE114_02_EconomyReloadStockPolicyTransitionTests.Reload_NoneToTimer_TimerInitializedAndRestocksOnUpdate [< 1 ms]
+  已通过 Tests.Gameplay.Economy.CORE114_02_EconomyReloadStockPolicyTransitionTests.Reload_TimerPeriodShortened_TimerRemainingClampedToNewPeriod [1 ms]
+  已通过 Tests.Gameplay.Economy.CORE114_02_EconomyReloadStockPolicyTransitionTests.Reload_TimerToNone_TimerClearedAndNoLongerRestocks [< 1 ms]
+  已通过 Tests.Gameplay.Economy.CORE114_02_EconomyReloadStockPolicyTransitionTests.Reload_StockLimitShrunk_RemainingClampedDownButNotRestocked [< 1 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_04_QuestWorldFlagInvalidIdFormalValidationTests.Run_OtherLegalShapes_PassAndParse(value: "1") [41 ms]
+  已通过 Tests.Gameplay.Dialog.CORE114_04_DialogSetFlagInvalidIdFormalValidationTests.Run_LegalShapes_Pass(value: "\"some_text\"") [41 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_04_QuestWorldFlagInvalidIdFormalValidationTests.Run_OtherLegalShapes_PassAndParse(value: "1.5") [< 1 ms]
+  已通过 Tests.Gameplay.Dialog.CORE114_04_DialogSetFlagInvalidIdFormalValidationTests.Run_LegalShapes_Pass(value: "{\"$id\": \"world.core114_04_other\"}") [< 1 ms]
+  已通过 Tests.Gameplay.Dialog.CORE114_04_DialogSetFlagInvalidIdFormalValidationTests.Run_LegalShapes_Pass(value: "1") [< 1 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_04_QuestWorldFlagInvalidIdFormalValidationTests.Run_OtherLegalShapes_PassAndParse(value: "\"some_text\"") [< 1 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_04_QuestWorldFlagInvalidIdFormalValidationTests.Run_OtherLegalShapes_PassAndParse(value: "{\"$id\": \"world.core114_04_other\"}") [< 1 ms]
+  已通过 Tests.Gameplay.Dialog.CORE114_04_DialogSetFlagInvalidIdFormalValidationTests.Run_LegalShapes_Pass(value: "true") [< 1 ms]
+  已通过 Tests.Gameplay.Dialog.CORE114_04_DialogSetFlagInvalidIdFormalValidationTests.Run_LegalShapes_Pass(value: "1.5") [< 1 ms]
+  已通过 Tests.Gameplay.Dialog.CORE114_04_DialogSetFlagInvalidIdFormalValidationTests.Run_MalformedIdSetFlagValue_ReportsBlockingErrorInsteadOfThrowing [1 ms]
+  已通过 Tests.Gameplay.Quest.CORE114_04_QuestWorldFlagInvalidIdFormalValidationTests.Run_ValidBoolWorldFlagValue_PassesAndParsesOneWorldFlag [2 ms]
+[xUnit.net 00:00:00.20]   Finished:    Tests.Gameplay
+  已通过 Tests.Gameplay.Quest.CORE114_04_QuestWorldFlagInvalidIdFormalValidationTests.Run_MalformedIdWorldFlagValue_ReportsBlockingErrorInsteadOfThrowing [< 1 ms]
+  已通过 Tests.Gameplay.Assembly.TP_111_FollowupAuditTests.TP_111_01_ConsecutiveGossipTeleportWhileLoading_KeepsSceneAndPlayerMapConsistent [84 ms]
+
+测试运行成功。
+测试总数: 32
+     通过数: 32
+总时间: 0.4534 秒
+PROJECT_EXIT=0
+PROJECT=NumbersCore114 FILTER=FullyQualifiedName~CORE114_03|FullyQualifiedName~P2_05_PowerHostReloadTests|FullyQualifiedName~ProgressionPersistableTests
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\foundation\bin\Release\netstandard2.1\Core.Foundation.dll
+  Adapters.Stub -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\adapters\stub\bin\Release\netstandard2.1\Adapters.Stub.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\numbers\bin\Release\netstandard2.1\Core.Numbers.dll
+  Tests.Numbers -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\numbers\tests\bin\Release\net8.0\Tests.Numbers.dll
+D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\numbers\tests\bin\Release\net8.0\Tests.Numbers.dll (.NETCoreApp,Version=v8.0)的测试运行
+VSTest 版本 17.11.1 (x64)
+
+正在启动测试执行，请稍候...
+总共 1 个测试文件与指定模式相匹配。
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.5.3.1+6b60a9e56a (64-bit .NET 8.0.30)
+[xUnit.net 00:00:00.03]   Discovering: Tests.Numbers
+[xUnit.net 00:00:00.05]   Discovered:  Tests.Numbers
+[xUnit.net 00:00:00.05]   Starting:    Tests.Numbers
+  已通过 Tests.Numbers.PowerSet.P2_05_PowerHostReloadTests.Reload_SupportsAddingNewPowerType_NotPresentBeforeReload [15 ms]
+  已通过 Tests.Numbers.Progression.ProgressionPersistableTests.Load_WrongShape_Throws [16 ms]
+  已通过 Tests.Numbers.Progression.ProgressionPersistableTests.Load_NullData_LeavesUnitUnregistered [< 1 ms]
+  已通过 Tests.Numbers.PowerSet.P2_05_PowerHostReloadTests.Reload_DoesNotResetAlreadyRegisteredUnitCurrentValue [< 1 ms]
+  已通过 Tests.Numbers.PowerSet.P2_05_PowerHostReloadTests.Reload_ThenRegisterNewUnit_SeesUpdatedFixedMaxValue [< 1 ms]
+  已通过 Tests.Numbers.StatBlock.CORE114_03_StatHostReloadCacheInvalidationTests.Reload_CachedStatValueChanges_FiresStatChangedEvent [20 ms]
+  已通过 Tests.Numbers.Progression.ProgressionPersistableTests.Load_NullData_ResetsRegisteredUnitToLevelOneAndZeroXp [3 ms]
+  已通过 Tests.Numbers.Progression.ProgressionPersistableTests.RestoreState_LevelOutOfCurveRange_Throws [< 1 ms]
+[xUnit.net 00:00:00.11]   Finished:    Tests.Numbers
+  已通过 Tests.Numbers.StatBlock.CORE114_03_StatHostReloadCacheInvalidationTests.Reload_CachedStatValueUnchanged_DoesNotFireEvent [< 1 ms]
+  已通过 Tests.Numbers.Progression.ProgressionPersistableTests.SectionKey_MatchesSaveSections [< 1 ms]
+  已通过 Tests.Numbers.StatBlock.CORE114_03_StatHostReloadCacheInvalidationTests.Reload_ExplicitSetBaseUnit_KeepsExplicitValueAfterReload [< 1 ms]
+  已通过 Tests.Numbers.Progression.ProgressionPersistableTests.Save_UnregisteredUnit_Throws [< 1 ms]
+  已通过 Tests.Numbers.StatBlock.CORE114_03_StatHostReloadCacheInvalidationTests.Reload_TwoUnregisteredOverrideUnits_BothSeeNewDefaultBase_RegardlessOfQueryOrder [< 1 ms]
+  已通过 Tests.Numbers.Progression.ProgressionPersistableTests.RoundTrips_LevelAndXp_AndReappliesGrowth [3 ms]
+
+测试运行成功。
+测试总数: 14
+     通过数: 14
+总时间: 0.3597 秒
+PROJECT_EXIT=0
+PROJECT=EquipmentAndImmunity FILTER=FullyQualifiedName~CORE114_EquipmentSetBonusReloadOrphanTests|FullyQualifiedName~EffectImmunityGateTests|FullyQualifiedName~ItemPersistableTests|FullyQualifiedName~UnitPersistableTests|FullyQualifiedName~EntitySpatialSyncHostTests|FullyQualifiedName~ISkillHost_FindUnitsTests
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  Core.Foundation -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\foundation\bin\Release\netstandard2.1\Core.Foundation.dll
+  Core.Numbers -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\numbers\bin\Release\netstandard2.1\Core.Numbers.dll
+  Adapters.Stub -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\adapters\stub\bin\Release\netstandard2.1\Adapters.Stub.dll
+  Core.Rules -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\rules\bin\Release\netstandard2.1\Core.Rules.dll
+  Core.Carriers -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\carriers\bin\Release\netstandard2.1\Core.Carriers.dll
+  Tests.Carriers -> D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\carriers\tests\bin\Release\net8.0\Tests.Carriers.dll
+D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\build\core\source\core\carriers\tests\bin\Release\net8.0\Tests.Carriers.dll (.NETCoreApp,Version=v8.0)的测试运行
+VSTest 版本 17.11.1 (x64)
+
+正在启动测试执行，请稍候...
+总共 1 个测试文件与指定模式相匹配。
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.5.3.1+6b60a9e56a (64-bit .NET 8.0.30)
+[xUnit.net 00:00:00.04]   Discovering: Tests.Carriers
+[xUnit.net 00:00:00.07]   Discovered:  Tests.Carriers
+[xUnit.net 00:00:00.08]   Starting:    Tests.Carriers
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.ArchetypeId_SectionKey_MatchesSaveSections [6 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.CurrentPosition_SectionKey_MatchesSaveSections [< 1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.RaceId_RoundTrips_WhenSet [1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.CurrentMapId_SectionKey_MatchesSaveSections [< 1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.ArchetypeId_Load_RejectsWrongShape [< 1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.RaceId_SectionKey_MatchesSaveSections [< 1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.ArchetypeId_Load_NullData_LeavesUnchanged [< 1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.ArchetypeId_RoundTrips [< 1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.CurrentPosition_Load_RejectsWrongShape [< 1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.CurrentPosition_RoundTrips [1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.RaceId_Load_NullData_ClearsToNull_EvenIfPreviouslySet [< 1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.RaceId_Save_WhenUnset_ProducesJsonNull [< 1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.CurrentMapId_Load_NullData_LeavesUnchanged [< 1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.CurrentMapId_RoundTrips [< 1 ms]
+  已通过 Tests.Carriers.Unit.UnitPersistableTests.RaceId_Load_RejectsWrongShape [< 1 ms]
+  已通过 Tests.Carriers.Assembly.EntitySpatialSyncHostTests.EntityCreated_RegistersGobjWithGobjTag_WhenExplicitlyConfigured [13 ms]
+  已通过 Tests.Carriers.Assembly.EntitySpatialSyncHostTests.EntityCreated_AreaTriggerKind_RegistersWithTriggerOnlyTag_UsingDefaultKinds [< 1 ms]
+  已通过 Tests.Carriers.Assembly.EntitySpatialSyncHostTests.DefaultSpatialSyncKinds_CreatureAndPlayer_CarryUnitBlockTag [< 1 ms]
+  已通过 Tests.Carriers.Assembly.EntitySpatialSyncHostTests.EntityDestroyed_UnregistersFromSpatialIndex [1 ms]
+  已通过 Tests.Carriers.Assembly.EntitySpatialSyncHostTests.EntityCreated_UnconfiguredKind_IsIgnored [< 1 ms]
+  已通过 Tests.Carriers.Assembly.EntitySpatialSyncHostTests.EntityCreated_GobjWithDefaultKinds_IsNotRegistered [< 1 ms]
+  已通过 Tests.Carriers.Assembly.EntitySpatialSyncHostTests.EntityCreated_RegistersUnitWithUnitTag [< 1 ms]
+  已通过 Tests.Carriers.Assembly.EntitySpatialSyncHostTests.DefaultSpatialSyncKinds_DoesNotIncludeGobj [< 1 ms]
+  已通过 Tests.Carriers.Assembly.EntitySpatialSyncHostTests.DefaultSpatialSyncKinds_IncludesAreaTrigger_WithTriggerOnlyTag_NotUnitTag [< 1 ms]
+  已通过 Tests.Carriers.Item.ItemPersistableTests.EquipmentPersistable_Load_SameSnapshotTwice_IsIdempotent [33 ms]
+  已通过 Tests.Carriers.Item.ItemPersistableTests.InventoryPersistable_Load_NullData_LeavesBagEmpty [< 1 ms]
+  已通过 Tests.Carriers.Item.ItemPersistableTests.EquipmentPersistable_Load_OldSnapshot_DoesNotLeakLiveItemIntoBag_AndRestoresOnlySnapshotItem [< 1 ms]
+  已通过 Tests.Carriers.Item.ItemPersistableTests.EquipmentPersistable_Load_EmptySnapshot_UnequipsCurrentLiveItemAndRevertsGrants [< 1 ms]
+  已通过 Tests.Carriers.Item.ItemPersistableTests.InventoryPersistable_Load_NullData_ClearsPreExistingItems [< 1 ms]
+  已通过 Tests.Carriers.Item.ItemPersistableTests.RoundTrip_InventoryAndEquipment_RestoresStateAndReappliesLinkage [2 ms]
+  已通过 Tests.Carriers.Item.ItemPersistableTests.EquipmentPersistable_Load_SnapshotMissingSlot_UnequipsThatSlot [< 1 ms]
+  已通过 Tests.Carriers.Item.CORE114_EquipmentSetBonusReloadOrphanTests.SetBonusThresholdRemovedByReload_UnequippingAllPieces_ReleasesOrphanedAuraCompletely [49 ms]
+  已通过 Tests.Carriers.Item.CORE114_EquipmentSetBonusReloadOrphanTests.SetBonusThresholdRaisedByReload_RecomputeOnEquipChange_ReleasesOrphanedAura [< 1 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.DynamicInterruptImmunity_PreservesCast_CompletesNaturally_WithDamage_NoInterruptedEvent [58 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.NoImmunity_TeleportMovesTarget [1 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.TeleportImmunity_BlocksPositionChange [< 1 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.SelfMovementCancel_NotBlockedByOwnInterruptImmunity [1 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.ControlImmuneOnly_DoesNotPreventInterrupt [1 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.DispelImmunity_PreventsAuraRemoval [< 1 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.NoImmunity_EnergizeSelf_IncreasesPower [< 1 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.NoImmunity_ExternalInterrupt_StopsCast_FiresInterruptedEvent_NoDamageLands [< 1 ms]
+[xUnit.net 00:00:00.18]   Finished:    Tests.Carriers
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.ImmuneInterrupt_CasterStillConsumesCostAndStartsCooldown [1 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.StaticEffectInterruptImmunity_PreservesCast_CompletesNaturally [7 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.ImmuneResult_ObservableViaEffectSinkReturnValue [< 1 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.EnergizeImmunity_SelfTarget_BlocksOwnPowerGain [< 1 ms]
+  已通过 Tests.Carriers.Creature.EffectImmunityGateTests.NoImmunity_DispelRemovesAura [< 1 ms]
+
+测试运行成功。
+测试总数: 46
+     通过数: 46
+总时间: 0.4331 秒
+PROJECT_EXIT=0
+RUNNER_EXIT=0

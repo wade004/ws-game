@@ -1,0 +1,34 @@
+[第一道·骨架检查] checked 5 files across 1 root(s), 0 errors
+[第二道·真实校验] 正在运行预编译的 toolchain/validator/bin/Validator.dll: C:\Program Files\dotnet\dotnet.EXE D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\docs-project\validate-precompiled-probe\toolchain\validator\bin\Validator.dll --data-root D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\docs-project\validate-precompiled-probe\data\_framework --strict --json
+{
+  "skeleton": {
+    "files_checked": 5,
+    "roots_checked": 1,
+    "error_count": 0,
+    "errors": []
+  },
+  "validator": {
+    "tables": 5,
+    "records": 124,
+    "errors": 0,
+    "warnings": 1,
+    "blocking": true,
+    "issues": [
+      {
+        "severity": "warning",
+        "table": "arch.power_type",
+        "record_key": "arch.power.health",
+        "field": "name_key",
+        "check": "text_key_exists",
+        "message": "l10n.text 表未加载，跳过文本键存在性检查"
+      }
+    ],
+    "overrides": [],
+    "disabled_optional_rules": [
+      "SpawnSummonOnlyCreatureRule",
+      "DisplayMapCoverageRule"
+    ],
+    "enabled_optional_rules": []
+  },
+  "exit_code": 1
+}

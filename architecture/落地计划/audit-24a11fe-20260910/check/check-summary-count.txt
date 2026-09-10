@@ -1,0 +1,11 @@
+steps=24
+pass=17
+skip=7
+skip_names:
+- ABI 探针（toolchain/abi_probe.ps1）
+- Unity 编译检查
+- Unity EditMode 测试
+- Unity PlayMode 测试
+- 独立版构建 + -gf-smoke 冒烟（连续模式默认流程）
+- 独立版 -gf-smoke-discrete 冒烟（离散模式链路）
+- 消费方演练

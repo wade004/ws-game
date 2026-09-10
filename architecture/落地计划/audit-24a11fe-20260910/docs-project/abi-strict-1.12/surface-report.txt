@@ -1,0 +1,5 @@
+[abi_surface] compare baseline=D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\docs-project\abi-strict-1.12\surface-baseline.txt current=D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\docs-project\abi-strict-1.12\surface-current.txt
+[abi_surface] allowlist=D:\workespace\ws-game-artifacts\audit-24a11fe-frozen\toolchain\abi_surface_allowlist.txt
+[abi_surface] breaks=0 allowed=0 additions=221
+[abi_surface] 新增（不计入破坏）：221 行
+[abi_surface] RESULT=OK

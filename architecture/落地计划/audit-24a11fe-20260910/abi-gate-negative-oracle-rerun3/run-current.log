@@ -1,0 +1,2 @@
+Unhandled exception. System.MethodAccessException: Attempt by method 'Program.<Main>$(System.String[])' to access method 'ApiContract.Api.Read()' failed.
+   at Program.<Main>$(String[] args) in D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\abi-gate-negative-oracle-rerun3\Consumer\Program.cs:line 4

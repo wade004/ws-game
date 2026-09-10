@@ -68,7 +68,46 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- ABI-116-01（外部审计 audit-24a11fe-20260910，codex 第十六轮）：`toolchain/abi_surface`
+  （公开 API 表面差异门禁）dump/compare 补齐可见性覆盖——此前方法/构造/字段/事件/属性访问器的
+  可见性（`public`/`protected`/`protected-internal`）不记录具体档位，`public → protected` 这类
+  收窄前后两次 dump 输出相同、`compare` 判 `breaks=0`，而真实旧编译消费方运行会抛
+  `System.MethodAccessException`（最小 oracle 见
+  `toolchain/tests/test_abi_surface_compare.py::test_public_to_protected_negative_oracle_end_to_end_via_real_dll`）。
+  现在 TYPE/MEMBER 行统一记录可见性（类型另覆盖 `public`/`nested-public`/`nested-protected`/
+  `nested-protected-internal`），`compare` 对可见性收窄判破坏、放宽豁免；同批补齐泛型约束变化、
+  非枚举 `const` 字段内联值变化两处此前同样未被记录的信号（均判破坏）。用新版工具对
+  `dist/ws-game-1.12.0.zip`、`dist/ws-game-1.13.0.zip` 两份历史基线重跑当前工作树六个 DLL，
+  均 `breaks=0`，未发现历史真实破坏——本条属门禁能力补强，不代表已发布版本存在未声明的破坏性变更
+  （提交 `<提交待填>`）。
+- F-01/F-02/F-03（外部审计 audit-24a11fe-20260910，codex 第十六轮）：`JsonReader`/`ExprLexer` 拒绝
+  语法合法但求值非有限（Infinity/NaN）的数字与超出可表示范围的整数字面量，统一为带位置的解析错误；
+  `FieldRange` 拒绝 NaN/Infinity 端点（无界用 null）；`DataRegistry` 新增 `field_finite` 检查项；
+  表达式字段校验器内部异常统一转为阻断级 `expr_validation_error`，校验期任何未预期异常下注册中心
+  保证阻断态、不留残留可读数据。对消费方：此前携带 Infinity/超范围整数仍能加载的内容从本版起在
+  加载期阻断，请检查现有内容（提交 `af22b4b`）。
+
 ### 文档
+
+- DOC-116-02（外部审计 audit-24a11fe-20260910）：`core/rules/skill/README.md`
+  `ISkillHost.FindUnits` 一节由"当前恒返回空列表"更正为"已实现查询/过滤/排序，生产装配默认注入
+  `Spatial`，仅未注入 `ISpatialQuery` 时降级为空列表+诊断"（提交 `<提交待填>`）。
+- DOC-116-01（外部审计 audit-24a11fe-20260910）：`architecture/README.md` 文件清单与根
+  `README.md` 两处 ADR 计数由 17～19 条更正为实际 23 条，补 `adr/0020`～`adr/0023` 四行索引
+  （提交 `<提交待填>`）。
+- DOC-116-03（外部审计 audit-24a11fe-20260910）：`core/foundation/data_registry/README.md`
+  校验项检查名表补 `field_range`（ADR-0021）一行，`reference_integrity` 一行补充 ADR-0022
+  的 `IdList` 元素引用覆盖说明（提交 `<提交待填>`）。
+- DOC-116-04（外部审计 audit-24a11fe-20260910）：[ADR-0022](architecture/adr/0022-登记表补充导航与编辑元数据.md)
+  第 5 节"导出"改写为分别说明 `toolchain/validator --list-tables --json`（元数据导出，顶层
+  `tables_list` 含 `field_meta`/`field_ranges`）与 `toolchain/validate_data.py --json`（校验结果
+  输出，顶层 `skeleton/validator/exit_code`，不含表清单）两条命令的不同输出结构，避免此前措辞被
+  误读为两者输出等价（提交 `<提交待填>`）。
+- TOOL-116-01（外部审计 audit-24a11fe-20260910）：根 `README.md` 说明 `check.ps1`（含
+  `-SkipUnity`）的 `-ArtifactsPath` 与"包清单一致性"步骤仍会往 `.gitignore` 覆盖的 `bin/`/`dist/`
+  写入构建产物/打包中间物，"不修改已跟踪文件"不等于"运行过程零副作用"（提交 `<提交待填>`）。
 
 - [ADR-0023](architecture/adr/0023-光环叠加类别为静态校验分组.md)：明确 `skill.aura_def.
   stack_category` 是跨定义的静态叠加校验分组（仅供加载期内容校验使用），不是运行时叠加槽位维度——

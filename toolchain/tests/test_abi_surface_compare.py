@@ -7,10 +7,16 @@ audit-76d16a5-20260910）：`toolchain/abi_probe/Program.cs` 此前只覆盖人�
 删方法、改参数、改返回类型、删枚举成员、接口新增 abstract 成员（应判破坏）、接口新增默认实现成员
 与普通新增（不应判破坏）、allowlist 放行。
 
-另有一个"真实基线"端到端用例：本机 `dist/ws-game-1.12.0.zip` 存在时跑一遍
-`toolchain/abi_probe.ps1`（内部会构建并调用 `toolchain/abi_surface`），应 exit 0；zip 不存在则
-skip（不是 pass——`abi_probe.ps1` 现在对基线缺失的默认行为是可见 SKIP/退出码 3，见该脚本
-`.PARAMETER SkipIfBaselineMissing` 判断记录，本文件的 skip 与它是同一件事的两处独立体现）。
+ABI-116-01 根治（外部审计 audit-24a11fe-20260910，codex 第十六轮）：此前 dump 不记录方法/构造/
+字段/事件/属性访问器的可见性，`public -> protected` 这类收窄改动 dump 输出完全相同、
+compare `breaks=0`，而旧 consumer 实际运行会抛 `System.MethodAccessException`（见本文件末尾
+`test_public_to_protected_negative_oracle_end_to_end_via_real_dll`，用真实 `dotnet build` 复现
+并验证 compare 与运行时结果一致）。修复后 `SurfaceDumper` 把可见性记进 TYPE/MEMBER 行（ctor/
+method/field/event 的 flags 首 token；property 沿用既有的 `get:VIS,set:VIS`；TYPE 行 flags 首
+token），`SurfaceCompareLogic` 新增"可见性放宽豁免"（放宽不算破坏，收窄/其它 flags 变化仍按原
+规则 1 判破坏）——下方补充可见性收窄/放宽（method/ctor/field/event/property/TYPE 六类）、
+virtual/abstract 变 sealed-override、实例↔静态、class 变 struct、泛型约束变化、非枚举 const
+字段值变化的正负例。
 
 运行：
 
@@ -233,6 +239,346 @@ def test_allowlist_does_not_permit_undocumented_break(abi_surface_dll: Path, tmp
     assert result.returncode == 2, result.stdout + result.stderr
     assert "Bar" in report
     assert "RESULT=BREAKING" in report
+
+
+# -----------------------------------------------------------------------------
+# ABI-116-01 根治：可见性收窄/放宽——method/ctor/field/event/property/TYPE 六类，外加"同核对
+# 清单里其它容易漏判的项"（virtual/abstract 变 sealed-override、实例↔静态、class 变 struct、泛型
+# 约束变化、非枚举 const 字段值变化）。行格式对照 toolchain/abi_surface/SurfaceDumper.cs 当前实现：
+# ctor/method/field/event 的 flags 首 token 固定是可见性（public/protected/protected-internal），
+# TYPE 行同理（public/nested-public/nested-protected/nested-protected-internal），property 沿用
+# 既有 get:VIS,set:VIS[,abstract]。
+# -----------------------------------------------------------------------------
+
+
+def test_visibility_narrowed_method_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\tBar():System.Void\tpublic",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\tBar():System.Void\tprotected",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+    assert "Bar():System.Void\tpublic" in report
+
+
+def test_visibility_widened_method_is_not_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """protected -> public 是放宽（调用方能力只增不减），不应判破坏——这正是 ABI-116-01 的负例：
+    旧版 dump 不记可见性时，public -> protected 这类收窄同样会被这套"不算破坏"的逻辑误伤（因为
+    两次 dump 完全相同），必须先证明放宽方向被正确排除在破坏之外，收窄方向才有意义。
+    """
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\tBar():System.Void\tprotected",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\tBar():System.Void\tpublic",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "RESULT=OK" in report
+    assert "visibility_widened" in report
+
+
+def test_visibility_narrowed_constructor_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tctor\t.ctor(System.Int32)\tpublic",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tctor\t.ctor(System.Int32)\tprotected-internal",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_visibility_narrowed_field_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tfield\tCount:System.Int32\tpublic",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tfield\tCount:System.Int32\tprotected",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_visibility_narrowed_event_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tevent\tChanged:System.Action\tpublic",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tevent\tChanged:System.Action\tprotected",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_visibility_narrowed_property_getter_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:public",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:protected,set:public",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_visibility_widened_property_setter_is_not_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """新增一个 public setter（baseline 没有 set，current 有）：get 不变、set 从 none 放宽为
+    public，两个方向都不收窄，不应判破坏。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:none",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tproperty\tValue:System.Int32\tget:public,set:public",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "RESULT=OK" in report
+    assert "visibility_widened" in report
+
+
+def test_visibility_narrowed_type_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Outer+Inner\tclass\tnested-public",
+        "MEMBER\tNs.Outer+Inner\tmethod\tBar():System.Void\tpublic",
+    ]
+    current = [
+        "TYPE\tNs.Outer+Inner\tclass\tnested-protected",
+        "MEMBER\tNs.Outer+Inner\tmethod\tBar():System.Void\tpublic",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_visibility_widened_type_is_not_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Outer+Inner\tclass\tnested-protected",
+    ]
+    current = [
+        "TYPE\tNs.Outer+Inner\tclass\tnested-public",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "RESULT=OK" in report
+    assert "visibility_widened" in report
+
+
+def test_virtual_becomes_sealed_override_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """派生方重写了这个 virtual 方法之后，若基线的 virtual 变成不可再重写（sealed-override 或
+    完全去掉 virtual），派生方重编译会报"找不到可重写的成员"——判破坏。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\tBar():System.Void\tpublic,virtual",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\tBar():System.Void\tpublic,sealed-override",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_instance_to_static_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\tBar():System.Void\tpublic",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tmethod\tBar():System.Void\tpublic,static",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_class_becomes_struct_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tstruct\tpublic",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_generic_constraint_change_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    baseline = [
+        "TYPE\tNs.Box`1\tclass\tpublic,generic:1",
+    ]
+    current = [
+        "TYPE\tNs.Box`1\tclass\tpublic,generic:1,constraints:!0:class",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_const_field_value_change_is_breaking(abi_surface_dll: Path, tmp_path: Path) -> None:
+    """非枚举 const 字段的值在编译期被内联进调用方 IL——值变化即使字段的类型签名没变，旧 consumer
+    不重新编译就用的还是旧值，属于契约破坏。"""
+    baseline = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tfield\tMaxCount:System.Int32=5\tpublic,literal",
+    ]
+    current = [
+        "TYPE\tNs.Foo\tclass\tpublic",
+        "MEMBER\tNs.Foo\tfield\tMaxCount:System.Int32=6\tpublic,literal",
+    ]
+    result, report = _run_compare(abi_surface_dll, tmp_path, baseline, current)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RESULT=BREAKING" in report
+
+
+def test_public_to_protected_negative_oracle_end_to_end_via_real_dll(
+    abi_surface_dll: Path, tmp_path: Path
+) -> None:
+    """ABI-116-01 端到端负例（audit-24a11fe-20260910 codex 第十六轮最小 oracle）：真实编译一个
+    baseline 库（`public void Bar()`）与一份仅把该方法改成 `protected` 的 current 库，一个针对
+    baseline 编译好、不重新编译的旧 consumer 直接调用 `Bar()`——运行期必须抛
+    `System.MethodAccessException`（验证这确实是一次二进制破坏，不是本测试臆造的场景），同时
+    `abi_surface dump`+`compare` 针对同一对 DLL 必须给出 `breaks>0`（RESULT=BREAKING）。两者在
+    修复前不一致（旧 consumer 崩、compare 却 breaks=0）；本用例把这个不一致钉成回归测试。
+    """
+    proj_root = tmp_path / "oracle"
+    baseline_src = proj_root / "ApiBaseline"
+    current_src = proj_root / "ApiCurrent"
+    consumer_src = proj_root / "Consumer"
+    for d in (baseline_src, current_src, consumer_src):
+        d.mkdir(parents=True)
+
+    csproj_lib = (
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+        "  <PropertyGroup>\n"
+        "    <TargetFramework>netstandard2.1</TargetFramework>\n"
+        "    <AssemblyName>ApiContract</AssemblyName>\n"
+        "    <Nullable>enable</Nullable>\n"
+        "  </PropertyGroup>\n"
+        "</Project>\n"
+    )
+    (baseline_src / "ApiBaseline.csproj").write_text(csproj_lib, encoding="utf-8")
+    (current_src / "ApiCurrent.csproj").write_text(csproj_lib, encoding="utf-8")
+    (baseline_src / "Api.cs").write_text(
+        "namespace OracleNs { public class Foo { public void Bar() { } } }\n", encoding="utf-8"
+    )
+    (current_src / "Api.cs").write_text(
+        "namespace OracleNs { public class Foo { protected void Bar() { } } }\n", encoding="utf-8"
+    )
+    (consumer_src / "Consumer.csproj").write_text(
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+        "  <PropertyGroup>\n"
+        "    <OutputType>Exe</OutputType>\n"
+        "    <TargetFramework>net8.0</TargetFramework>\n"
+        "    <Nullable>enable</Nullable>\n"
+        "  </PropertyGroup>\n"
+        "  <ItemGroup>\n"
+        "    <Reference Include=\"ApiContract\"><HintPath>lib/ApiContract.dll</HintPath></Reference>\n"
+        "  </ItemGroup>\n"
+        "</Project>\n",
+        encoding="utf-8",
+    )
+    (consumer_src / "Program.cs").write_text(
+        "using OracleNs;\n"
+        "class Program\n"
+        "{\n"
+        "    static int Main()\n"
+        "    {\n"
+        "        new Foo().Bar();\n"
+        "        System.Console.WriteLine(\"ORACLE_CONSUMER_OK\");\n"
+        "        return 0;\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    build_baseline_dir = proj_root / "build" / "baseline"
+    build_current_dir = proj_root / "build" / "current"
+    for csproj, out_dir in (
+        (baseline_src / "ApiBaseline.csproj", build_baseline_dir),
+        (current_src / "ApiCurrent.csproj", build_current_dir),
+    ):
+        r = subprocess.run(
+            [DOTNET, "build", str(csproj), "-c", "Release", "--nologo", "-o", str(out_dir)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+        )
+        assert r.returncode == 0, "oracle 库构建失败：\n" + r.stdout + r.stderr
+
+    consumer_lib = consumer_src / "lib"
+    consumer_lib.mkdir()
+    shutil.copy(build_baseline_dir / "ApiContract.dll", consumer_lib / "ApiContract.dll")
+    consumer_out = proj_root / "consumer-bin"
+    r = subprocess.run(
+        [DOTNET, "build", str(consumer_src / "Consumer.csproj"), "-c", "Release", "--nologo", "-o", str(consumer_out)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+    )
+    assert r.returncode == 0, "oracle consumer 构建失败：\n" + r.stdout + r.stderr
+
+    consumer_dll = consumer_out / "Consumer.dll"
+    shutil.copy(build_baseline_dir / "ApiContract.dll", consumer_out / "ApiContract.dll")
+    r = subprocess.run(
+        [DOTNET, str(consumer_dll)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+    )
+    assert r.returncode == 0 and "ORACLE_CONSUMER_OK" in r.stdout, (
+        "oracle consumer 针对基线 DLL 自检应成功：\n" + r.stdout + r.stderr
+    )
+
+    shutil.copy(build_current_dir / "ApiContract.dll", consumer_out / "ApiContract.dll")
+    r = subprocess.run(
+        [DOTNET, str(consumer_dll)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+    )
+    assert r.returncode != 0, "换上 protected 版本后旧 consumer 应运行失败（MethodAccessException），实际却成功了"
+    assert "MethodAccessException" in (r.stdout + r.stderr), (
+        "期望 MethodAccessException，实际输出：\n" + r.stdout + r.stderr
+    )
+
+    baseline_dump = tmp_path / "oracle-baseline.txt"
+    current_dump = tmp_path / "oracle-current.txt"
+    for dll_path, out_path in (
+        (build_baseline_dir / "ApiContract.dll", baseline_dump),
+        (build_current_dir / "ApiContract.dll", current_dump),
+    ):
+        r = subprocess.run(
+            [DOTNET, str(abi_surface_dll), "dump", "--out", str(out_path), str(dll_path)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+        )
+        assert r.returncode == 0, "abi_surface dump 失败：\n" + r.stdout + r.stderr
+
+    report_path = tmp_path / "oracle-report.txt"
+    r = subprocess.run(
+        [DOTNET, str(abi_surface_dll), "compare", str(baseline_dump), str(current_dump), "--out", str(report_path)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+    )
+    report_text = report_path.read_text(encoding="utf-8") if report_path.is_file() else ""
+    assert r.returncode == 2, (
+        "修复后 compare 必须判定 breaks>0（旧 consumer 已实测 MethodAccessException）：\n" + report_text
+    )
+    assert "RESULT=BREAKING" in report_text
+    assert "Bar" in report_text
 
 
 # -----------------------------------------------------------------------------

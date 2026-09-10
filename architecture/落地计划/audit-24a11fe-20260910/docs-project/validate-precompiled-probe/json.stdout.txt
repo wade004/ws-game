@@ -1,0 +1,32 @@
+{
+  "skeleton": {
+    "files_checked": 5,
+    "roots_checked": 1,
+    "error_count": 0,
+    "errors": []
+  },
+  "validator": {
+    "tables": 5,
+    "records": 124,
+    "errors": 0,
+    "warnings": 1,
+    "blocking": false,
+    "issues": [
+      {
+        "severity": "warning",
+        "table": "arch.power_type",
+        "record_key": "arch.power.health",
+        "field": "name_key",
+        "check": "text_key_exists",
+        "message": "l10n.text 表未加载，跳过文本键存在性检查"
+      }
+    ],
+    "overrides": [],
+    "disabled_optional_rules": [
+      "SpawnSummonOnlyCreatureRule",
+      "DisplayMapCoverageRule"
+    ],
+    "enabled_optional_rules": []
+  },
+  "exit_code": 0
+}

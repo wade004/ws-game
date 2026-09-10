@@ -1,0 +1,11 @@
+D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\repro\QuestTestSupport.cs(154,21): warning CS0649: 从未对字段“FakeRewardDispatcher.ShouldFail”赋值，字段将一直保持其默认值 false [D:\workespace\ws-game-artifacts\audit-24a11fe-20260910\core\repro\CoreBoundaryProbe.csproj]
+CORE-BOUNDARY-INDEPENDENT-PROBE head=24a11fe28f9647cd532c41f56f7ab18c00fb8516 version=1.16.1
+EXPR-ID;is_valid=False;is_valid_call=returned
+parse=throws:FormatException
+ORACLE=IsValid must return false without throwing for malformed Id; Parse may throw FormatException, and formal Quest/Dialog validators must convert it to a blocking report before runtime consumers.
+QUEST-OBJECTIVE-RELOAD;result=True;exception=<none>
+ORACLE=Reload must preserve active progress without indexing a stale ObjectiveCounts array; changed objective cardinality must migrate safely or reject atomically.
+STAT-QUERY-ORDER;load_blocking=False;reload_blocking=False;beforeA=0;afterA=77;afterB=77;baseA=77;baseB=77
+ORACLE=CHANGELOG current definition reload promises next access sees the new definition; two unmodified registered units must not differ solely because one was queried before reload. Explicit SetBase runtime state is a separate preserved state.
+ECON-NONE-TO-TIMER;load_blocking=False;reload_blocking=False;before_update=0;after_update=2;timer_before=1;timer_after=1;fresh_before=0;fresh_after=2
+ORACLE=when a retained stock entry adopts timer policy, Update after the timer interval must restock to the current stock limit; null timer state must be initialized on definition transition. A fresh host is the current-definition control.
