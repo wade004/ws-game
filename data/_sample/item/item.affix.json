@@ -1,0 +1,9 @@
+{
+  "table": "item.affix",
+  "schema_version": 1,
+  "rows": [
+    { "id": "item.affix.sample_of_strength", "name_key": "l10n.item.affix.sample_of_strength.name" },
+    { "id": "item.affix.sample_of_fire", "name_key": "l10n.item.affix.sample_of_fire.name" },
+    { "id": "item.affix.sample_of_frost", "name_key": "l10n.item.affix.sample_of_frost.name" }
+  ]
+}

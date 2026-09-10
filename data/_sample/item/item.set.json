@@ -1,0 +1,14 @@
+{
+  "table": "item.set",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.set.sample_starter_set",
+      "name_key": "l10n.item.set.sample_starter_set.name",
+      "pieces": ["item.sample_blade", "item.sample_model_sword"],
+      "bonuses": [
+        { "count": 2, "aura_ref": "skill.aura_def.sample_fortify" }
+      ]
+    }
+  ]
+}

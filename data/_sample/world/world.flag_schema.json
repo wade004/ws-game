@@ -1,0 +1,8 @@
+{
+  "table": "world.flag_schema",
+  "schema_version": 1,
+  "rows": [
+    { "id": "world.sample_bridge_repaired", "kind": "bool", "description": "示例标志：示例区域的桥是否已修复" },
+    { "id": "world.sample_gobj", "kind": "id", "description": "示例命名空间：覆盖示例场景内全部可交互物件状态标志" }
+  ]
+}
