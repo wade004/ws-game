@@ -14,6 +14,15 @@ namespace Core.Foundation.DataRegistry
     /// <see cref="FieldKind.Object"/>/<see cref="FieldKind.Array"/>）不登记，谓词文本引用到
     /// 这些字段名时会被 <see cref="ExprParser"/> 按 Id 字面量处理（未登记 = 非引用，见
     /// ADR-0015），不会抛异常。
+    /// <para>
+    /// 判断记录（消费方反馈第四批第 25 条，2026-09-10）：<see cref="FieldKind.Expr"/> 字段同样不
+    /// 登记为 <c>self.&lt;field&gt;</c>。该字段种类的值是待求值的表达式文本，不是可直接比较的标量
+    /// 数据——把它当 <see cref="ExprValueKind.String"/> 注册会让 <c>self.&lt;expr_field&gt;</c>
+    /// 在谓词里被当作字符串字面量参与比较，但记录里实际存的是一段代码，取值语义不明确。已 grep 全仓
+    /// <c>data/</c> 与全部测试，未发现任何 <c>self.&lt;Expr 字段名&gt;</c> 的现存引用（见
+    /// <c>RecordExprSchemaExprFieldExclusionTests</c>），故直接排除，不采用"保留注册但只在文档
+    /// 说明取到的是文本"的折中方案。
+    /// </para>
     /// </summary>
     public sealed class RecordExprSchema : IExprSchema
     {
@@ -51,10 +60,37 @@ namespace Core.Foundation.DataRegistry
         }
     }
 
-    /// <summary>字段类型（<see cref="FieldKind"/>）到 Expr 标量类型（<see cref="ExprValueKind"/>）
-    /// 的映射，供 <see cref="RecordExprSchema"/>（静态签名）与 <see cref="RecordExprHost"/>
-    /// （实际取值）共用同一份规则，保证两者一致。</summary>
-    internal static class RecordExprMapping
+    /// <summary>
+    /// 字段类型（<see cref="FieldKind"/>）到 Expr 标量类型（<see cref="ExprValueKind"/>）的映射，
+    /// 供 <see cref="RecordExprSchema"/>（静态签名）与 <see cref="RecordExprHost"/>（实际取值）
+    /// 共用同一份规则，保证两者一致。
+    /// <para>
+    /// 判断记录（消费方反馈第四批第 26 条，2026-09-10）：本类型与 <see cref="ToExprValueKind"/>
+    /// 由 <c>internal</c>/隐式 <c>public</c> 放宽为显式 <c>public static</c>，纯可见性放宽，不改变
+    /// 任何映射结果或调用方行为——编辑器等框架外消费方需要独立复用这份"字段种类 → Expr 标量类型"
+    /// 映射表（例如做字段级联动提示），此前只能通过 <see cref="RecordExprSchema.For"/> 间接观察到
+    /// 结果，拿不到可直接调用的映射函数本身。
+    /// </para>
+    /// <para>
+    /// 完整映射表（13 种 <see cref="FieldKind"/>，见 <c>RecordExprSchemaExprFieldExclusionTests</c>
+    /// 与其余映射测试逐条断言）：
+    /// <list type="bullet">
+    /// <item><description><see cref="FieldKind.Bool"/> → <see cref="ExprValueKind.Bool"/></description></item>
+    /// <item><description><see cref="FieldKind.Int"/> → <see cref="ExprValueKind.Int"/></description></item>
+    /// <item><description><see cref="FieldKind.Number"/> → <see cref="ExprValueKind.Number"/></description></item>
+    /// <item><description><see cref="FieldKind.String"/>/<see cref="FieldKind.Enum"/> →
+    /// <see cref="ExprValueKind.String"/></description></item>
+    /// <item><description><see cref="FieldKind.Id"/>/<see cref="FieldKind.Reference"/>/
+    /// <see cref="FieldKind.TextKey"/> → <see cref="ExprValueKind.Id"/></description></item>
+    /// <item><description><see cref="FieldKind.Expr"/>/<see cref="FieldKind.IdList"/>/
+    /// <see cref="FieldKind.Vec2"/>/<see cref="FieldKind.Object"/>/<see cref="FieldKind.Array"/> →
+    /// <c>null</c>（不是 Expr 标量类型，不登记为 <c>self.&lt;field&gt;</c> 引用；<c>Expr</c> 的排除
+    /// 理由见 <see cref="RecordExprSchema"/> 类型注释判断记录，其余四种是本就不可能映射为标量的复合
+    /// 类型）</description></item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    public static class RecordExprMapping
     {
         public static ExprValueKind? ToExprValueKind(FieldKind kind)
         {
@@ -65,12 +101,17 @@ namespace Core.Foundation.DataRegistry
                 case FieldKind.Number: return ExprValueKind.Number;
                 case FieldKind.String:
                 case FieldKind.Enum:
-                case FieldKind.Expr:
                     return ExprValueKind.String;
                 case FieldKind.Id:
                 case FieldKind.Reference:
                 case FieldKind.TextKey:
                     return ExprValueKind.Id;
+                case FieldKind.Expr:
+                    // 判断记录（消费方反馈第四批第 25 条）：Expr 字段的值是待求值文本，不是可比较的
+                    // 标量数据，self.<expr_field> 没有明确的取值语义，排除出 self. 自动注册（与
+                    // IdList/Vec2/Object/Array 同等对待，不是折中方案），见 RecordExprSchema 类型
+                    // 注释判断记录。
+                    return null;
                 default:
                     // IdList/Vec2/Object/Array 不是 Expr 标量类型，不登记为 self.<field> 引用。
                     return null;

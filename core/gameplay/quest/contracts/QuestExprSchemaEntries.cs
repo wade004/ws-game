@@ -52,17 +52,22 @@ namespace Core.Gameplay.Quest
         /// 姊妹模块，非 <c>RulesExprSchema</c>，不违反本类型顶部"不能与 RulesExprSchema 的已知分组
         /// 放行分支合并"的判断记录）。
         /// <para>
-        /// 判断记录（<c>event</c> 分组，任务书"event 类目标 param.eventFilter：eventFilter: Expr"）：
-        /// <c>event.&lt;field&gt;</c> 的具体字段名随触发本次求值的事件类型而变（见
-        /// <c>Core.Rules.Common.IExprReadableEvent</c> 类型注释"事件字段可被 Expr 读取"），无法在
-        /// 这里逐条穷举登记；本类型对外层调用（<c>quest</c>/<c>player</c>/<c>world</c>）坚持"精确
-        /// 登记，不做已知分组放行"（避免 ADR-0015 参数字面量被误判为引用），但 <c>event</c> 分组
-        /// 别无选择，只能采用与 <c>RulesExprSchema</c> 相同的"已知分组、未登记 key 一律放行"策略——
-        /// 二者的差异不影响 ADR-0015 的场景，因为 <c>event.eventFilter</c> 文本里从不会出现
-        /// "把某个 <c>event.&lt;field&gt;</c> 引用当函数调用参数传给另一个 <c>event.*</c> 调用"这种
-        /// 自我嵌套写法（<c>event</c> 分组的字段访问永远只出现在比较表达式的一侧，不会有
-        /// <c>event.get(event.foo)</c> 这类形态），因此对 <c>event</c> 单独放宽不会引入
-        /// <c>WorldExprSchemaEntries</c> 判断记录里描述的那个问题。</para>
+        /// 判断记录（<c>event</c> 分组，任务书"event 类目标 param.eventFilter：eventFilter: Expr"；
+        /// 措辞对齐消费方反馈第四批第 24 条，2026-09-10）：<c>event.&lt;field&gt;</c> 的具体字段名
+        /// 随触发本次求值的事件类型而变（见 <c>Core.Rules.Common.IExprReadableEvent</c> 类型注释
+        /// "事件字段可被 Expr 读取"），任何一份引用登记表都不可能逐条穷举登记；本类型对外层调用
+        /// （<c>quest</c>/<c>player</c>/<c>world</c>）坚持"精确登记，未登记则回退为 Id 字面量"
+        /// （避免 ADR-0015 参数字面量被误判为引用），但 <c>event</c> 分组不适用这套"已登记/未登记"
+        /// 二态判断——事件键由内容自由定义、可能在运行时才登记，本类型对该分组直接不做签名校验：
+        /// <see cref="EventGroupPermissiveSchema.TryGetSignature"/> 对 <c>event</c> 分组恒返回
+        /// <c>true</c>（签名固定为"参数未知、返回 Bool"），不存在"某个 event key 已登记、会被真正
+        /// 校验"的状态（本类型从不登记任何具体 <c>event.*</c> 签名）。这与 <c>RulesExprSchema</c>
+        /// 早期"已知分组内未登记 key 一律放行"的历史策略形似但语义不同：那是"部分 key 可能已登记、
+        /// 其余放行"，本类型是"整个分组都不做静态签名检查"。不影响 ADR-0015 的消歧场景，因为
+        /// <c>event.eventFilter</c> 文本里从不会出现"把某个 <c>event.&lt;field&gt;</c> 引用当函数
+        /// 调用参数传给另一个 <c>event.*</c> 调用"这种自我嵌套写法（<c>event</c> 分组的字段访问永远
+        /// 只出现在比较表达式的一侧，不会有 <c>event.get(event.foo)</c> 这类形态），因此对
+        /// <c>event</c> 恒放行不会引入 <c>WorldExprSchemaEntries</c> 判断记录里描述的那个问题。</para>
         /// </summary>
         public static IExprSchema BuildParsingSchema()
         {
@@ -71,8 +76,11 @@ namespace Core.Gameplay.Quest
             return new EventGroupPermissiveSchema(schema);
         }
 
-        /// <summary>把内层精确登记表包一层：<c>event</c> 分组下任意未登记的 key 一律视为"合法引用，
-        /// 签名未知"放行（见 <see cref="BuildParsingSchema"/> 判断记录），其余分组严格委托给内层。</summary>
+        /// <summary>把内层精确登记表包一层：<c>event</c> 分组不做签名校验，
+        /// <see cref="TryGetSignature"/> 对该分组恒放行（返回"参数未知、返回 Bool"的固定签名，不区分
+        /// 具体 key 是否曾经登记过——本类型从不登记任何 <c>event.*</c> 签名，见
+        /// <see cref="BuildParsingSchema"/> 判断记录），其余分组严格委托给内层，内层未登记的 key 按
+        /// 该分组自身规则处理（普通分组回退为 Id 字面量）。</summary>
         private sealed class EventGroupPermissiveSchema : IExprSchema
         {
             private static readonly ExprSignature Permissive = new ExprSignature(ExprValueKind.Bool, Array.Empty<ExprValueKind>());
