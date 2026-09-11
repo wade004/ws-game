@@ -138,6 +138,26 @@ unit/
     保留"例外——`Id?` 本身就有明确无歧义的空值，不存在"清空成什么才对"的两难。见
     `UnitPersistableTests`（`RaceId_*` 系列）、`RacePassiveAuraCrossMapTests`。
 
+14. **C11-RELOAD 根治（2026-09-11，消费方反馈第 C11 项，基线 1.22.0，architecture/落地计划/
+    消费方反馈-2026-09-11-读档空间索引与复活生命周期.md）：`UnitPersistable.CurrentPosition`
+    新增 `(PlayerUnit, IUnitAccess)` 重载，`Load` 经 `IUnitAccess.SetPosition` 写入位置**——
+    此前唯一的工厂方法（`CurrentPosition(PlayerUnit)`）的 `Load` 直接改写 `_player.Position`
+    字段，与判断记录 4 描述的"`WorldUnitAccess.SetPosition` 才会经 `ISpatialQuery.UpdatePosition`
+    同步空间索引"这条既有规则正面冲突——`CurrentPositionPersistable` 本身不经过
+    `WorldUnitAccess`，直接写字段完全绕开了判断记录 4 那套登记/同步机制。真实探针复现：保存
+    `(5,5)` → 移动到 `(9,9)`（经 `WorldUnitAccess.SetPosition`，空间索引正确同步为 `(9,9)`）→
+    致死 → 同图读档，读档后 `_player.Position` 正确回到 `(5,5)`，但空间索引仍登记在移动后的
+    `(9,9)`（未同步的旧登记会一直留在那里），在存档位置附近查询查不到玩家。修复：新增重载接受
+    `IUnitAccess`（生产装配传入 `Carriers.Units`，即判断记录 4 描述的 `WorldUnitAccess`），
+    `Load` 改经其 `SetPosition` 写入，天然复用判断记录 4 的同步机制；`Save` 不受影响，仍直接读
+    `PlayerUnit.Position`（两者指向同一个运行期实体，读到的值恒一致）。旧的单参数工厂方法保留
+    （源码兼容，`Load` 仍是直接写字段的旧行为），本模块自身的 `GameplayAssembly.RegisterPersistables`
+    已经改用新重载，见 `core/gameplay/assembly/README.md` 判断记录 14。`core/foundation/
+    engine_adapter.ISpatialQuery` 同批新增 `ResyncPositions`（默认接口方法，逐个转发
+    `UpdatePosition`）供派生状态重建阶段做一次全量兜底重同步，不属于本模块职责范围，接口定义与
+    判断记录见该模块自身文档。见 `core/gameplay/assembly/tests/C11_LifecycleReloadTests.cs`
+    （`SameMapLoad_RestoresSpatialIndexToSavedPosition`）。
+
 ## L2 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.IUnitAccess` 没有 `SetFacing`：`WorldUnitAccess` 未补这个方法（不修改

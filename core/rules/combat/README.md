@@ -196,6 +196,25 @@ combat/
     瞬发伤害/光环周期伤害/Proc 嵌套施法/治疗四类路径，以及"未设置行为不变""回调抛异常不影响结算"
     两条跨路径不变量）。
 
+17. **C11-RELOAD 根治新增 `ClearCombatState`/`RestoreCombatState`（2026-09-11，消费方反馈第 C11
+    项，基线 1.22.0，architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md）：
+    `CombatHost` 自身的 `_inCombat` 字典是"是否在战"的唯一来源，读档场景需要一个绕开事件总线、
+    直接把这份状态与 `IPowerHost` 同步的入口**——真实探针复现：`player.vitals` 段
+    （`Core.Gameplay.Assembly.PlayerVitalsPersistable`）此前恢复 `in_combat` 时直接调用
+    `IPowerHost.SetInCombat`，只改到了 `PowerHost` 自己的状态；`CombatHost` 本类的
+    `_inCombat` 字典对此一无所知，仍停留在读档前的值（例如死亡前一刻进战、死亡结算未清空
+    `_inCombat`）——读档后 `IsInCombat` 与 `PowerHost.IsInCombat` 出现分歧。新增两个公开方法：
+    `ClearCombatState(unitId)` 清空该单位的 `_inCombat`/脱战计时器/双向仇恨表（同
+    `OnEntityDestroyed` 同款清理惯例，见判断记录 13），不发事件、不碰 `IPowerHost`；
+    `RestoreCombatState(unitId, inCombat)` 写入 `_inCombat` 并（单位存在时）同步调用
+    `IPowerHost.SetInCombat`，同样不发事件（读档本就处于"不是一次业务事件"的抑制范围内，见 10
+    第 3 节）。两者按"先清空、再恢复"的固定顺序由 `Core.Gameplay.Assembly.GameplayAssembly` 的
+    `IDerivedStateRebuilder` 实现调用（`BeforeLoad` 清空、`player.vitals` 段 `Load` 恢复），见
+    `core/gameplay/assembly/README.md` 判断记录 14；本类不知道、也不需要知道调用方是"读档"，
+    只提供这两个窄操作。见
+    `core/gameplay/assembly/tests/C11_LifecycleReloadTests.cs`
+    （`SameMapLoad_CombatAndPowerHostAgreeOutOfCombat_AndStayConsistentNextTick`）。
+
 ## 契约缺口 / 未决问题
 
 - `IThreatTable` 契约的方法签名对"是否每单位一份实例"没有强约束（见判断记录 1），如果后续
