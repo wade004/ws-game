@@ -3,6 +3,21 @@
   "schema_version": 1,
   "rows": [
     {
+      "id": "display.map.sample_aura_burn",
+      "category": "aura",
+      "logical_id": "skill.aura_def.sample_burn",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
       "id": "display.map.sample_beast",
       "category": "creature",
       "logical_id": "creature.sample_beast",
@@ -67,6 +82,21 @@
       ]
     },
     {
+      "id": "display.map.sample_burn",
+      "category": "skill",
+      "logical_id": "skill.sample_burn",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
       "id": "display.map.sample_chest",
       "category": "gobj",
       "logical_id": "gobj.sample_chest",
@@ -93,6 +123,21 @@
       "shadow": "none",
       "sort_offset": -1,
       "sprite_set_id": "sprite.gobj.sample_door",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_fortify",
+      "category": "aura",
+      "logical_id": "skill.aura_def.sample_fortify",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
       "direction_count": 4,
       "mirror_pairs": [
         {
@@ -209,6 +254,21 @@
       ]
     },
     {
+      "id": "display.map.sample_passive",
+      "category": "skill",
+      "logical_id": "skill.sample_passive",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
       "id": "display.map.sample_save_point",
       "category": "gobj",
       "logical_id": "gobj.sample_save_point",
@@ -217,6 +277,66 @@
       "shadow": "none",
       "sort_offset": -1,
       "sprite_set_id": "sprite.gobj.sample_save_point",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_skill_bolt",
+      "category": "skill",
+      "logical_id": "skill.sample_bolt",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_strike",
+      "category": "skill",
+      "logical_id": "skill.sample_strike",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_token",
+      "category": "item",
+      "logical_id": "item.sample_token",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_tonic",
+      "category": "item",
+      "logical_id": "item.sample_tonic",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
       "direction_count": 4,
       "mirror_pairs": [
         {

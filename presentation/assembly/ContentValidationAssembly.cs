@@ -41,9 +41,19 @@ namespace Presentation.Assembly
         /// 里如实列出，不静默跳过。</summary>
         public ICreatureTemplateQuery? CreatureTemplateQuery { get; set; }
 
-        /// <summary>可选规则 <see cref="DisplayMapCoverageRule"/> 的接线依赖（哪些内容表参与外形域
-        /// 覆盖检查 + 各表用哪个字段做逻辑 id，见该规则构造函数）：未提供（默认 <c>null</c>）时本入口
-        /// 不注册该规则，同样如实列入 <see cref="ContentValidationRun.DisabledOptionalRules"/>。</summary>
+        /// <summary>
+        /// 消费方反馈第 34 条：<see cref="DisplayMapCoverageRule"/> 的接线依赖（哪些内容表参与外形域
+        /// 覆盖检查 + 各表用哪个字段做逻辑 id，见该规则构造函数）。未提供（默认 <c>null</c>）时不再
+        /// 等价于"该规则禁用"——本入口改用
+        /// <see cref="PresentationSchemaCatalog.DefaultDisplayMapCoverageSources"/>（覆盖
+        /// <c>skill.def</c>/<c>skill.aura_def</c>/<c>item.template</c>/<c>creature.template</c>/
+        /// <c>gobj.template</c> 五张表），规则因此默认启用，同样如实列入
+        /// <see cref="ContentValidationRun.EnabledOptionalRules"/>。仍想完全关闭该规则的调用方显式
+        /// 传入空列表（<c>System.Array.Empty&lt;(string, string)&gt;()</c>）——本入口据此注册一条
+        /// 永远不产出问题的规则实例，效果等价于关闭，但仍计入
+        /// <see cref="ContentValidationRun.EnabledOptionalRules"/>（规则本身确实注册了，只是
+        /// <c>sources</c> 为空，与"未提供接线参数、无法判断调用方意图"是两回事）。
+        /// </summary>
         public IReadOnlyList<(string table, string idField)>? DisplayMapCoverageSources { get; set; }
 
         /// <summary>装配用的事件总线；未提供（默认 <c>null</c>）时本入口按
@@ -188,14 +198,11 @@ namespace Presentation.Assembly
                 disabled.Add(SpawnSummonOnlyCreatureRuleName);
             }
 
-            if (options.DisplayMapCoverageSources != null)
-            {
-                registry.RegisterValidationRule(new DisplayMapCoverageRule(options.DisplayMapCoverageSources));
-            }
-            else
-            {
-                disabled.Add(DisplayMapCoverageRuleName);
-            }
+            // 消费方反馈第 34 条：未指定时默认使用 PresentationSchemaCatalog.DefaultDisplayMapCoverageSources
+            // （见该属性判断记录），规则因此默认启用——不再有"未接线即禁用"的分支，DisplayMapCoverageRuleName
+            // 不再计入 disabled。
+            var displayMapCoverageSources = options.DisplayMapCoverageSources ?? PresentationSchemaCatalog.DefaultDisplayMapCoverageSources;
+            registry.RegisterValidationRule(new DisplayMapCoverageRule(displayMapCoverageSources));
 
             disabledOptionalRules = disabled;
             return registry;

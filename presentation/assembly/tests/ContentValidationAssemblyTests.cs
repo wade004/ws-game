@@ -75,19 +75,45 @@ namespace Tests.Presentation.Assembly
                 ContentValidationAssembly.OptionalRuleNames);
         }
 
+        /// <summary>消费方反馈第 34 条：<see cref="ContentValidationOptions.DisplayMapCoverageSources"/>
+        /// 未指定（<c>null</c>）时不再等价于"该可选规则禁用"，改为默认使用
+        /// <see cref="PresentationSchemaCatalog.DefaultDisplayMapCoverageSources"/>——只有
+        /// <c>SpawnSummonOnlyCreatureRule</c>（没有框架级默认 <c>ICreatureTemplateQuery</c> 可用）
+        /// 仍然默认禁用。测试数据集里 5 张默认覆盖表均未注册任何数据（<c>InMemoryDataSource</c> 未
+        /// <c>Add</c> 过它们），<c>DisplayMapCoverageRule.Validate</c> 对空表不产出任何问题，因此
+        /// 本用例仍应保持不阻断。</summary>
         [Fact]
-        public void Run_DefaultOptions_BothOptionalRulesDisabled_NoneEnabled()
+        public void Run_DefaultOptions_DisplayMapCoverageRuleEnabledByDefault_OnlySpawnSummonRuleDisabled()
         {
             var source = new InMemoryDataSource();
             var options = new ContentValidationOptions { FailOnUnknownTable = false };
 
             var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
 
-            Assert.Equal(
-                new[] { "SpawnSummonOnlyCreatureRule", "DisplayMapCoverageRule" },
-                run.DisabledOptionalRules);
-            Assert.Empty(run.EnabledOptionalRules);
+            Assert.Equal(new[] { "SpawnSummonOnlyCreatureRule" }, run.DisabledOptionalRules);
+            Assert.Equal(new[] { "DisplayMapCoverageRule" }, run.EnabledOptionalRules);
             Assert.False(run.Report.IsBlocking, string.Join("; ", run.Report.Issues));
+        }
+
+        /// <summary>消费方反馈第 34 条：默认覆盖清单真的接线生效——<see cref="BuildCreatureTemplateSource"/>
+        /// 的 <c>creature.sample_player</c> 没有配对的 <c>display.map</c> 行，未显式覆盖
+        /// <see cref="ContentValidationOptions.DisplayMapCoverageSources"/> 时应按
+        /// <see cref="PresentationSchemaCatalog.DefaultDisplayMapCoverageSources"/>（含
+        /// <c>creature.template</c>）对它报 <c>display_map_coverage</c> 错误，不是"清单存在但
+        /// 没真的接线"。</summary>
+        [Fact]
+        public void Run_DefaultOptions_DisplayMapCoverageRule_FiresForUncoveredCreatureTemplate()
+        {
+            var source = BuildCreatureTemplateSource();
+            var options = new ContentValidationOptions { FailOnUnknownTable = false };
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
+
+            Assert.Contains(run.Report.Issues, i =>
+                i.Check == "display_map_coverage" &&
+                i.Table == "creature.template" &&
+                i.RecordKey == "creature.sample_player");
+            Assert.True(run.Report.IsBlocking);
         }
 
         [Fact]
@@ -149,9 +175,19 @@ namespace Tests.Presentation.Assembly
             var sourceForAssembly = BuildCreatureTemplateSource();
             var sourceForDirect = BuildCreatureTemplateSource();
 
+            // 消费方反馈第 34 条：直接调用 PresentationSchemaCatalog.RegisterAll 的路径从不注册
+            // DisplayMapCoverageRule（见该方法判断记录），而 ContentValidationAssembly.Run 默认选项
+            // 现在会启用它（DisplayMapCoverageSources 未指定时按 DefaultDisplayMapCoverageSources
+            // 生效，见 Run_DefaultOptions_DisplayMapCoverageRule_FiresForUncoveredCreatureTemplate）；
+            // 本用例只关心"两条路径对其余规则报告的问题集合是否一致"，显式传空列表关闭该规则，避免
+            // 两条路径的差异被这条本用例范围外的规则掩盖。
             var run = ContentValidationAssembly.Run(
                 new IDataSource[] { sourceForAssembly },
-                new ContentValidationOptions { FailOnUnknownTable = false });
+                new ContentValidationOptions
+                {
+                    FailOnUnknownTable = false,
+                    DisplayMapCoverageSources = System.Array.Empty<(string, string)>(),
+                });
 
             var directOptions = PresentationSchemaCatalog.CreateOptions();
             directOptions.FailOnUnknownTable = false;
@@ -176,12 +212,18 @@ namespace Tests.Presentation.Assembly
         {
             // 非阻断态下，ContentValidationRun.RecordCount（Run 内部改用 registry.RecordCount，
             // 见该方法判断记录）应与直接读 run.Registry.RecordCount（新增的默认接口成员）完全一致
-            // ——两者是同一份数据源。故意不接线两条可选规则（默认禁用，同
-            // Run_DefaultOptions_BothOptionalRulesDisabled_NoneEnabled 用例），避免
-            // DisplayMapCoverageRule 因测试数据没有覆盖 display.map 而报 Error 变成阻断态——
-            // 本用例只关心非阻断路径下两个 RecordCount 来源是否一致，不是可选规则接线本身。
+            // ——两者是同一份数据源。消费方反馈第 34 条：DisplayMapCoverageRule 现在默认启用
+            // （DisplayMapCoverageSources 未指定时按 DefaultDisplayMapCoverageSources 生效），
+            // 测试数据里 creature.sample_player 没有配对的 display.map 行会被判定为阻断——本用例
+            // 只关心非阻断路径下两个 RecordCount 来源是否一致，不是可选规则接线本身，显式传空列表
+            // 关闭该规则（同 Run_ProducesSameIssueSet_AsDirectPresentationSchemaCatalogRegisterAll
+            // 判断记录）。
             var source = BuildCreatureTemplateSource();
-            var options = new ContentValidationOptions { FailOnUnknownTable = false };
+            var options = new ContentValidationOptions
+            {
+                FailOnUnknownTable = false,
+                DisplayMapCoverageSources = System.Array.Empty<(string, string)>(),
+            };
 
             var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
 

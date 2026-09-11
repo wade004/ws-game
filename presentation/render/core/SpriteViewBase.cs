@@ -356,15 +356,12 @@ namespace Presentation.Render
             return new Id($"layer.{spriteSetName}__{directionSlotName}__{placement.LayerName}");
         }
 
-        /// <summary>去掉资源引用 id 的"类别前缀"（第一个点分段，如 <c>sprite.creature.wolf_grey</c>
-        /// 的 <c>sprite</c>），剩余部分把点号换成下划线（见 14 第 1.2 节命名模板
-        /// "&lt;资源引用id去掉类别前缀，点号换下划线&gt;"）。</summary>
-        private static string StripCategoryPrefix(string resourceRefId)
-        {
-            var dotIndex = resourceRefId.IndexOf('.');
-            var withoutCategory = dotIndex < 0 ? resourceRefId : resourceRefId.Substring(dotIndex + 1);
-            return withoutCategory.Replace('.', '_');
-        }
+        /// <summary>消费方反馈第 32 条（ADR-0025）：此前本方法独立实现"去掉类别前缀、点号换下划线"
+        /// 规则（见 14 第 1.2 节命名模板"&lt;资源引用id去掉类别前缀，点号换下划线&gt;"），与
+        /// <c>UnityResourceLoader</c> 的同名私有方法字节级相同但各自维护；现转发到
+        /// <see cref="AssetRefConventions.StripCategoryPrefix"/>，全仓唯一实现见该类型。</summary>
+        private static string StripCategoryPrefix(string resourceRefId) =>
+            AssetRefConventions.StripCategoryPrefix(resourceRefId);
 
         public virtual void Destroy()
         {

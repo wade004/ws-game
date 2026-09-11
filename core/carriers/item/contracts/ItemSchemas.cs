@@ -60,7 +60,7 @@ namespace Core.Carriers.Item
                 new FieldSchema("speed", FieldKind.Number, required: false, description: "缺省 0"),
                 new FieldSchema("weapon_school", FieldKind.Id, required: false,
                     description: "缺省无（WeaponProfile.WeaponSchool 为 null）；判断记录：无独立跨层" +
-                        "可引用的学派登记表（同 skill.def.school 惯例），按 Id 登记"),
+                        "登记表可挂载的学派标签（同 skill.def.school 惯例），按 Id 登记，不登记 SoftReferenceTable"),
             },
             description: "{damage_min,damage_max,speed:Number, weapon_school:Id?}；当且仅当 " +
                 "slot_definition.is_weapon 为 true 时必须存在（ItemWeaponProfileRule）");
@@ -117,7 +117,7 @@ namespace Core.Carriers.Item
                     description: "显示名文本键（04 未展开，本模块实现期补录）"),
                 RequirementsSchema,
                 new FieldSchema("enchant_slot", FieldKind.Id, required: false,
-                    description: "07 第 1.6 节扩展位：指向未来 item.enchant 表，本版不展开"),
+                    description: "07 第 1.6 节扩展位：预留 item.enchant 扩展表的挂载位，本版未定义该表，不登记 SoftReferenceTable（消费方反馈第 30 条核实）"),
                 new FieldSchema("socket_count", FieldKind.Int, required: false,
                     description: "07 第 1.6 节扩展位：宝石镶嵌槽数，默认 0"),
                 new FieldSchema("socket_ids", FieldKind.IdList, required: false,
@@ -129,7 +129,7 @@ namespace Core.Carriers.Item
                     enumValues: new[] { "none", "on_pickup", "on_equip" },
                     description: "07 第 1.6 节扩展位：绑定方式，单机默认不产生实际限制"),
                 new FieldSchema("stat_roll_ref", FieldKind.Id, required: false,
-                    description: "07 第 1.6 节扩展位：指向未来的随机属性生成规则表，本版不展开"),
+                    description: "07 第 1.6 节扩展位：预留随机属性生成规则的挂载位，本版未定义目标表，不登记 SoftReferenceTable（消费方反馈第 30 条核实）"),
             }).WithOwnership(SchemaLayer.Carriers, "item");
 
         /// <summary><c>item.slot_definition</c>：槽位枚举定义（07 第 1.1 节原文 + 本模块实现期

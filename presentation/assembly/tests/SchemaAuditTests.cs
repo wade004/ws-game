@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Presentation.Assembly;
 using Xunit;
@@ -823,9 +824,110 @@ namespace Tests.Presentation.Assembly
             Assert.DoesNotContain(report.Issues, i => i.Check == "soft_reference_kind");
         }
 
+        // -----------------------------------------------------------------
+        // id_description_reference_hint（消费方反馈第 30 条，04 第 5 节勘误）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void IdDescriptionReferenceHint_MentionsReferenceWithoutMetadata_ReportsWarning()
+        {
+            var field = new FieldSchema("target_ref", FieldKind.Id, required: false,
+                description: "引用 test.other_table 的目标记录");
+            var table = SingleFieldTable("test.reference_hint_unregistered", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "warning" && i.Check == "id_description_reference_hint" &&
+                i.Table == "test.reference_hint_unregistered" && i.FieldPath == "target_ref");
+            Assert.False(report.IsBlocking, string.Join("; ", MessagesOf(report)));
+        }
+
+        [Fact]
+        public void IdDescriptionReferenceHint_MentionsPointsToWithoutMetadata_ReportsWarning()
+        {
+            var field = new FieldSchema("logical_id", FieldKind.IdList, required: false,
+                description: "指向 test.other_table 的记录列表");
+            var table = SingleFieldTable("test.points_to_hint_unregistered", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "warning" && i.Check == "id_description_reference_hint" &&
+                i.Table == "test.points_to_hint_unregistered" && i.FieldPath == "logical_id");
+        }
+
+        [Fact]
+        public void IdDescriptionReferenceHint_WithSoftReference_NoIssue()
+        {
+            var field = new FieldSchema("target_ref", FieldKind.Id, required: false,
+                description: "引用 test.other_table 的目标记录")
+                .WithSoftReference(table: "test.other_table");
+            var table = SingleFieldTable("test.reference_hint_soft_ref", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "id_description_reference_hint");
+        }
+
+        [Fact]
+        public void IdDescriptionReferenceHint_WithAllowedValues_NoIssue()
+        {
+            var field = new FieldSchema("target_ref", FieldKind.IdList, required: false,
+                description: "引用固定取值集合的标签列表")
+                .WithAllowedValues(new[] { new Id("test.tag_a"), new Id("test.tag_b") });
+            var table = SingleFieldTable("test.reference_hint_allowed_values", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "id_description_reference_hint");
+        }
+
+        [Fact]
+        public void IdDescriptionReferenceHint_WithFreeIds_NoIssue()
+        {
+            var field = new FieldSchema("target_refs", FieldKind.IdList, required: false,
+                description: "引用自由声明的标签列表，不对应任何已登记表")
+                .WithFreeIds("测试占位：自由标签，无目标表");
+            var table = SingleFieldTable("test.reference_hint_free_ids", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "id_description_reference_hint");
+        }
+
+        [Fact]
+        public void IdDescriptionReferenceHint_WithoutReferenceWording_NoIssue()
+        {
+            var field = new FieldSchema("tag", FieldKind.Id, required: false,
+                description: "标签，非表内 id，按 Id 登记");
+            var table = SingleFieldTable("test.reference_hint_no_wording", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "id_description_reference_hint");
+        }
+
+        [Fact]
+        public void IdDescriptionReferenceHint_OnStringField_NoIssue()
+        {
+            // 本检查只覆盖 Id/IdList——String 字段（如引擎适配层解析的不透明资源标识）即使描述含
+            // "引用"/"指向"也不在本检查范围内，见 04 第 3.4 节勘误"描述文本与引用元数据自洽"判断记录。
+            var field = new FieldSchema("resource_ref", FieldKind.String, required: false,
+                description: "指向具体引擎资源的不透明标识");
+            var table = SingleFieldTable("test.reference_hint_string_field", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "id_description_reference_hint");
+        }
+
         /// <summary>门禁本体：真实登记 + 仓库根白名单，断言 0 error（白名单未用条目仍允许——本测试
         /// 只关心不阻断，"白名单条目全部命中"由 <c>check.ps1</c> 门禁步骤的真实输出与本测试共同
-        /// 覆盖，不在此重复断言，避免白名单每次调整都要同步改测试）。</summary>
+        /// 覆盖，不在此重复断言，避免白名单每次调整都要同步改测试）。消费方反馈第 30 条：一并断言
+        /// 新增的 <c>id_description_reference_hint</c> 告警级检查在当前全量登记上是 0 命中——该检查
+        /// 是防遗漏用的门禁，不是"欢迎警告常驻"，命中即应立即补登记或改描述（见该检查项判断记录），
+        /// 不像有些告警级检查允许长期非零（本项没有这类既有先例）。</summary>
         [Fact]
         public void RealRegisteredSchemas_WithRepoAllowlist_ZeroErrors()
         {
@@ -840,6 +942,7 @@ namespace Tests.Presentation.Assembly
 
             Assert.Equal(0, report.ErrorCount);
             Assert.False(report.IsBlocking, string.Join("\n", MessagesOf(report)));
+            Assert.DoesNotContain(report.Issues, i => i.Check == "id_description_reference_hint");
         }
 
         private static IEnumerable<string> MessagesOf(SchemaAuditReport report)

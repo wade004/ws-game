@@ -107,7 +107,7 @@ namespace Core.Gameplay.Quest
                     new FieldSchema("param", FieldKind.Object, required: false, fields: new[]
                     {
                         new FieldSchema("escort_route_ref", FieldKind.Id, required: false,
-                            description: "护送路径引用；判断记录：04 §2.2 域名清单无对应 domain/登记表，无法 Reference，退回 Id"),
+                            description: "护送路径的自由标识；判断记录：04 §2.2 域名清单无对应 domain/登记表可挂载，无法 Reference，退回 Id，不登记 SoftReferenceTable（消费方反馈第 30 条核实）"),
                     }, description: "{escort_route_ref?: Id}"),
                 },
 

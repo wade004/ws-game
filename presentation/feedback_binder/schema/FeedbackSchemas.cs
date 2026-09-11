@@ -70,11 +70,13 @@ namespace Presentation.FeedbackBinder.Schema
                 {
                     // camera_profile 与本模块同属 L5，但分属两个不同的 Presentation 子目录；判断记录
                     // 同 vfx_id/sfx_id：本模块不预设跨子模块表已加载，退回 Id（不做引用完整性检查）。
-                    new FieldSchema("profile_id", FieldKind.Id, required: true, description: "指向 camera_profile"),
+                    new FieldSchema("profile_id", FieldKind.Id, required: true, description: "指向 camera_profile（消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "camera_profile"),
                 }, description: "shake_camera 动作参数：{profile_id}"),
                 ["flash"] = ParamsCase(new[]
                 {
-                    new FieldSchema("profile_id", FieldKind.Id, required: true, description: "指向 camera_profile 中的震屏/闪光档位"),
+                    new FieldSchema("profile_id", FieldKind.Id, required: true, description: "指向 camera_profile 中的震屏/闪光档位（消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "camera_profile"),
                     new FieldSchema("target", FieldKind.Enum, required: true, enumValues: FeedbackAttachTargetValues,
                         description: "只能是 source|target，不得为 world（FlashAction 构造函数校验，登记层不表达取值子集）"),
                 }, description: "flash 动作参数：{profile_id, target}"),
@@ -96,7 +98,8 @@ namespace Presentation.FeedbackBinder.Schema
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "feedback.<name>"),
-                new FieldSchema("event", FieldKind.Id, required: true, description: "订阅的事件 key（如 combat.damage_dealt），指向 found.event_catalog，见判断记录（跨 domain 登记表不适合用 FieldKind.Reference，本模块的 FeedbackRuleValidator 另行按 EventKeys.All 校验）"),
+                new FieldSchema("event", FieldKind.Id, required: true, description: "订阅的事件 key（如 combat.damage_dealt），指向 found.event_catalog，见判断记录（跨 domain 登记表不适合用 FieldKind.Reference，本模块的 FeedbackRuleValidator 另行按 EventKeys.All 校验；消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "found.event_catalog"),
                 new FieldSchema("condition", FieldKind.Expr, required: false, description: "Expr 条件文本，见 04 第 6 节；宿主分组含 event（触发事件字段）"),
                 new FieldSchema("actions", FieldKind.Array, required: true, item: ActionsItemSchema,
                     description: "有序 FeedbackAction 列表：[{kind: floating_text|play_vfx|play_sfx|freeze|shake_camera|flash, params: {...}}]，见 09 第 6.1 节"),
@@ -112,9 +115,9 @@ namespace Presentation.FeedbackBinder.Schema
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "feedback.floating_text_style.<name>"),
-                new FieldSchema("color_ref", FieldKind.Id, required: true, description: "颜色引用（正常伤害/暴击/治疗/闪避文案各自配色）"),
+                new FieldSchema("color_ref", FieldKind.Id, required: true, description: "颜色标识（正常伤害/暴击/治疗/闪避文案各自配色），由表现层适配代码按约定字符串解析，不对应任何已登记内容表（消费方反馈第 30 条核实，不登记 SoftReferenceTable）"),
                 new FieldSchema("size_scale", FieldKind.Number, required: false, description: "相对基础字号的缩放"),
-                new FieldSchema("motion_profile", FieldKind.Id, required: false, description: "飘字运动曲线引用（上浮/抖动/聚合等）"),
+                new FieldSchema("motion_profile", FieldKind.Id, required: false, description: "飘字运动曲线标识（上浮/抖动/聚合等），由表现层适配代码按约定字符串解析，不对应任何已登记内容表（消费方反馈第 30 条核实，不登记 SoftReferenceTable）"),
             },
             migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "feedback");
 

@@ -37,7 +37,7 @@ namespace Presentation.Camera.Schema
                 new FieldSchema("shake_presets", FieldKind.Array, required: false,
                     item: new FieldSchema("<shake_preset>", FieldKind.Object, required: true, fields: new[]
                     {
-                        new FieldSchema("id", FieldKind.Id, required: true, description: "震屏档位 id，供 feedback.binding 的 shake_camera 动作按 profile_id 引用后按此 id 定位具体档位"),
+                        new FieldSchema("id", FieldKind.Id, required: true, description: "震屏档位 id；本字段是被关联方，自身不带外部目标——feedback.binding 的 shake_camera 动作按 profile_id 关联本表后再用此 id 定位具体档位"),
                         new FieldSchema("amplitude", FieldKind.Number, required: true, description: "震屏振幅"),
                         new FieldSchema("duration", FieldKind.Number, required: true, description: "震屏持续时长，单位秒"),
                         new FieldSchema("frequency", FieldKind.Number, required: false, description: "缺省 0"),

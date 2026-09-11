@@ -53,7 +53,10 @@ namespace Core.Numbers.Archetype
                 new FieldSchema("name_key", FieldKind.TextKey, required: true,
                     description: "显示名文本键"),
                 new FieldSchema("primary_stat", FieldKind.Id, required: true,
-                    description: "引用 stat.*；stat_block 模块尚未登记 schema，暂不声明为 Reference"),
+                    description: "引用 stat.definition；stat_block 模块已登记 schema，但按 skill_book_ref 同一分层边界选择" +
+                        "（L1 不同模块间不静态耦合表结构，见类型判断记录）不声明为 Reference——消费方反馈第 30 条：" +
+                        "补登记为软引用，仅供内容工具补全/跳转，不改变上述分层边界选择")
+                    .WithSoftReference(table: "stat.definition"),
                 new FieldSchema("base_stats", FieldKind.Object, required: true,
                     description: "Object<stat_id, Number>，ApplyTo 经 StatBaseWriter 写入")
                     .WithMap(MapSchema.ReferenceKeyTable("stat.definition",

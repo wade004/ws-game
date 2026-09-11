@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from .common import find_repo_root, log, resolve_root
+from .ref_conventions import icon_file
 
 CATEGORY_CHOICES = ["creature", "item", "skill", "aura", "gobj", "projectile", "misc"]
 
@@ -41,7 +42,10 @@ def run(args: argparse.Namespace) -> int:
         if not src_path.is_file():
             raise FileNotFoundError(f"图标源文件不存在: {src_path}")
         icon_id = f"icon.{args.category}.{src_path.stem}"
-        out_path = assets_root / args.dataset / "icons" / args.category / f"{src_path.stem}.png"
+        # 消费方反馈第 32 条（ADR-0025）：路径计算改为经由 ref_conventions.icon_file，不再本地
+        # 内联 "icons" / args.category / f"{...}.png" 拼接，与 sprite_cmd.py 的 icon.png 随带
+        # 登记路径、C# 侧 AssetRefConventions.IconFile 共用同一条约定。
+        out_path = assets_root / args.dataset / icon_file(icon_id)
         manifest.append((icon_id, out_path))
 
         if args.dry_run:

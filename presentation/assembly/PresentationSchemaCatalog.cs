@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
@@ -5,6 +6,9 @@ using Core.Foundation.Expr;
 using Core.Foundation.Localization;
 using Core.Gameplay.Assembly;
 using Core.Carriers.Creature;
+using Core.Carriers.Gobj;
+using Core.Carriers.Item;
+using Core.Rules.Skill;
 using Presentation.Camera.Schema;
 using Presentation.FeedbackBinder.Schema;
 using Presentation.VfxSfx.Schema;
@@ -36,9 +40,22 @@ namespace Presentation.Assembly
     /// 因此在本类型补registrer，不新造 schema、只补登记，符合"复用现有 schema、不发明新原语"的
     /// 取舍原则。<see cref="DisplayKindFieldGroupRule"/>（无构造依赖）一并注册；
     /// <see cref="DisplayMapCoverageRule"/> 需要调用方显式声明"哪些内容表参与外形域覆盖检查"
-    /// （构造函数要求 <c>sources</c> 列表），且对现有大量尚未逐一配上 <c>display.map</c> 行的
-    /// L0～L4 示例内容（技能/生物/物件模板等）会产出大量误报，本类型不代为决定这份 <c>sources</c>
-    /// 清单，不注册该规则，留给具体游戏接入阶段按 04 第 5 节校验器检查项清单自行补上。
+    /// （构造函数要求 <c>sources</c> 列表），本类型不知道调用方是否已经给全部内容表配齐
+    /// <c>display.map</c> 行（不同调用方的接入进度不同），因此仍不在本方法内代为注册——留给
+    /// <see cref="ContentValidationAssembly"/> 决定何时接线（见该类型消费方反馈第 34 条判断记录）。
+    /// </para>
+    /// <para>
+    /// 判断记录（消费方反馈第 34 条，<see cref="DefaultDisplayMapCoverageSources"/>）：此前
+    /// <see cref="DisplayMapCoverageRule"/> 的 <c>sources</c> 清单要求每个调用方（<c>toolchain/validator</c>
+    /// 命令行参数、编辑器基础套件）各自手写 <c>(table, idField)</c> 列表，容易遗漏/口径不一致。
+    /// 本类型公开一份固定默认清单——04 第 1.1 节点名"外形映射存在"检查项覆盖"技能、光环、物品、
+    /// 生物、物件"五类逻辑对象，对应 <c>skill.def</c>/<c>skill.aura_def</c>/<c>item.template</c>/
+    /// <c>creature.template</c>/<c>gobj.template</c> 五张表；各表用于比对 <c>display.map.logical_id</c>
+    /// 的字段统一是各自的主键 <c>id</c>（该字段本身就是这五类内容记录的逻辑 id，不是它们各自指向
+    /// <c>display.map</c> 的 <c>display_ref</c> 反向字段——两者方向相反，见
+    /// <see cref="DisplayMapCoverageRule"/> 类型注释"外形映射存在"检查项定义）。
+    /// <see cref="ContentValidationAssembly"/> 未显式指定 <c>DisplayMapCoverageSources</c> 时默认
+    /// 使用本清单（该规则从此默认启用，不再是"默认禁用、需要调用方自行接线"）。
     /// </para>
     /// <para>
     /// 判断记录（<see cref="CreateOptions"/> 不新造一份表现层专属 <see cref="IExprSchema"/>）：
@@ -60,6 +77,18 @@ namespace Presentation.Assembly
         /// <see cref="GameplaySchemaCatalog.FullExprSchema"/>（见类型注释判断记录，本层不新增
         /// 分组）。</summary>
         public static IExprSchema FullExprSchema => GameplaySchemaCatalog.FullExprSchema;
+
+        /// <summary><see cref="DisplayMapCoverageRule"/> 的默认 <c>sources</c> 清单，见类型注释
+        /// "消费方反馈第 34 条"判断记录。<see cref="ContentValidationAssembly"/> 未显式指定
+        /// <see cref="ContentValidationOptions.DisplayMapCoverageSources"/> 时默认使用本清单。</summary>
+        public static readonly IReadOnlyList<(string table, string idField)> DefaultDisplayMapCoverageSources = new[]
+        {
+            (SkillSchemas.Def.Name, "id"),
+            (SkillSchemas.AuraDef.Name, "id"),
+            (ItemSchemas.Template.Name, "id"),
+            (CreatureSchemas.Template.Name, "id"),
+            (GobjSchemas.Template.Name, "id"),
+        };
 
         /// <summary>判断记录同 <see cref="GameplaySchemaCatalog.CreateOptions"/>：<see cref="IDataRegistry"/>
         /// 契约不暴露构造期传入的 <see cref="DataRegistryOptions"/> 实例，调用方用本方法构造。</summary>

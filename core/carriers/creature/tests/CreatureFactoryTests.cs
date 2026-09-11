@@ -43,7 +43,7 @@ namespace Tests.Carriers.Creature
             var world = new WorldSim(bus);
             var units = new WorldUnitAccess(world);
             var stats = CreatureTestSupport.MakeStatHost(registry, bus);
-            var powers = CreatureTestSupport.MakePowerHost(bus, stats);
+            var powers = CreatureTestSupport.MakePowerHost(registry, bus, stats);
             var progression = CreatureTestSupport.MakeProgressionHost(registry, bus, stats);
 
             var aiCalls = new List<(Id, Id, Vec2, Id?)>();
@@ -144,6 +144,75 @@ namespace Tests.Carriers.Creature
             Assert.True(f.Powers.HasPower(id, WellKnownPowers.Health));
             Assert.Equal(220.0, f.Powers.GetPowerMax(id, WellKnownPowers.Health), 6);
             Assert.Equal(220.0, f.Powers.GetPower(id, WellKnownPowers.Health), 6); // start_full=true
+        }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 33 条：资源类型注册顺序（CreatureOptions.DefaultPowerTypes 新语义）
+        // -----------------------------------------------------------------
+
+        /// <summary>默认选项（<see cref="CreatureOptions.DefaultPowerTypes"/> 未显式覆盖，为
+        /// <c>null</c>）下，<see cref="CreatureFactory.Spawn"/> 回落到数据集里全部已登记的
+        /// <c>arch.power_type</c> 定义（见 <see cref="CreatureTestSupport.PowerTypeRows"/>：
+        /// health + mana 两条）——mana 不在旧默认值 <c>[Health]</c> 里，此前会因未注册而在
+        /// <c>GetPower</c> 时抛异常，本用例证明新默认路径下可用。</summary>
+        [Fact]
+        public void Spawn_WithDefaultOptions_RegistersAllDatasetPowerTypes_IncludingMana()
+        {
+            var f = Build();
+
+            var id = f.Factory.Spawn(BasicTemplateId, MapId, Vec2.Zero, 0);
+
+            Assert.True(f.Powers.HasPower(id, WellKnownPowers.Health));
+            var mana = new Id("arch.power.mana");
+            Assert.True(f.Powers.HasPower(id, mana));
+            Assert.Equal(50.0, f.Powers.GetPower(id, mana), 6); // max_source: fixed 50, start_full=true
+        }
+
+        /// <summary>未注册的资源类型（本仓库任何 <c>arch.power_type</c> 都未登记的虚构 id）上调用
+        /// <see cref="IPowerHost.TryGetPower"/> 返回 <c>false</c> 且不抛异常——同一场景下
+        /// <see cref="IPowerHost.GetPower"/> 仍然抛出，两者行为按各自契约分别验证。</summary>
+        [Fact]
+        public void TryGetPower_UnregisteredPowerType_ReturnsFalseWithoutThrowing()
+        {
+            var f = Build();
+            var id = f.Factory.Spawn(BasicTemplateId, MapId, Vec2.Zero, 0);
+            var unknownPowerType = new Id("arch.power.does_not_exist");
+
+            var found = f.Powers.TryGetPower(id, unknownPowerType, out var value);
+
+            Assert.False(found);
+            Assert.Equal(0.0, value);
+            Assert.Throws<InvalidOperationException>(() => f.Powers.GetPower(id, unknownPowerType));
+        }
+
+        /// <summary>已注册资源类型上 <see cref="IPowerHost.TryGetPower"/> 返回 <c>true</c> 且取值与
+        /// <see cref="IPowerHost.GetPower"/> 一致。</summary>
+        [Fact]
+        public void TryGetPower_RegisteredPowerType_ReturnsTrueWithCurrentValue()
+        {
+            var f = Build();
+            var id = f.Factory.Spawn(EliteTemplateId, MapId, Vec2.Zero, 0);
+
+            var found = f.Powers.TryGetPower(id, WellKnownPowers.Health, out var value);
+
+            Assert.True(found);
+            Assert.Equal(220.0, value, 6);
+        }
+
+        /// <summary>显式设置 <see cref="CreatureOptions.DefaultPowerTypes"/>（哪怕设成与旧默认值
+        /// 相同的 <c>[Health]</c>）时，优先于"回落到数据集全部 arch.power_type 定义"这一步，
+        /// 对全部生成的生物统一生效——mana 不会被注册，<see cref="IPowerHost.TryGetPower"/> 对它
+        /// 返回 <c>false</c>。</summary>
+        [Fact]
+        public void Spawn_WithExplicitDefaultPowerTypes_OverridesDatasetFallback()
+        {
+            var options = new CreatureOptions { DefaultPowerTypes = new[] { WellKnownPowers.Health } };
+            var f = Build(options);
+
+            var id = f.Factory.Spawn(BasicTemplateId, MapId, Vec2.Zero, 0);
+
+            Assert.True(f.Powers.HasPower(id, WellKnownPowers.Health));
+            Assert.False(f.Powers.TryGetPower(id, new Id("arch.power.mana"), out _));
         }
 
         [Fact]
@@ -290,7 +359,7 @@ namespace Tests.Carriers.Creature
             var world = new WorldSim(bus);
             var units = new WorldUnitAccess(world);
             var stats = CreatureTestSupport.MakeStatHost(registry, bus);
-            var powers = CreatureTestSupport.MakePowerHost(bus, stats);
+            var powers = CreatureTestSupport.MakePowerHost(registry, bus, stats);
             var progression = CreatureTestSupport.MakeProgressionHost(registry, bus, stats);
             AiRegistrar registrar = (unitId, profileId, spawnPoint, rotationId) => { };
 

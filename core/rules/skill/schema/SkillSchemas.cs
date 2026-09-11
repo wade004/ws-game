@@ -116,7 +116,9 @@ namespace Core.Rules.Skill
                 [EffectKindNames.ToText(EffectKind.Energize)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("power_type", FieldKind.Id, required: true,
-                        description: "判断记录：power_type 无独立可跨层引用的登记表口径（同 04 §5.1 arch.class.power_types 判断记录），按 Id 登记"),
+                        description: "判断记录：多数取值是 arch.power_type 的记录 id，但也允许内置特例（如 health，不是数据行），" +
+                            "不是干净的单一表引用，按 Id 登记（消费方反馈第 30 条：常见情形目标确定，登记为软引用，内置特例不解析属预期降级）")
+                        .WithSoftReference(table: "arch.power_type"),
                     new FieldSchema("amount", FieldKind.Number, required: false, description: "缺省 0"),
                 }, "为目标恢复/扣减指定资源类型的数值，见 power_type/amount 子字段"),
 
@@ -132,20 +134,22 @@ namespace Core.Rules.Skill
                 // 不存在的 aura_def 没有同等的温和降级）。三处按 Id 登记，不做跨表存在性检查。
                 [EffectKindNames.ToText(EffectKind.TriggerSpell)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("skill_id", FieldKind.Id, required: true, description: "要触发施放的技能引用"),
+                    new FieldSchema("skill_id", FieldKind.Id, required: true, description: "要触发施放的技能引用（消费方反馈第 30 条：登记为软引用）")
+                        .WithSoftReference(table: "skill.def"),
                 }, "以当前效果的触发链深度同步触发一次技能施放，见 skill_id 子字段"),
 
                 [EffectKindNames.ToText(EffectKind.ModifyCooldown)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("skill_id", FieldKind.Id, required: false,
                         description: "skill_id/category 至少填一个（业务判断，登记层不表达“二选一必填”）"),
-                    new FieldSchema("category", FieldKind.Id, required: false, description: "冷却分类引用，与 skill_id 至少填一个"),
+                    new FieldSchema("category", FieldKind.Id, required: false, description: "冷却分类标签，与 skill_id 至少填一个；无独立登记表，是 skill.def.cooldown_category 使用的同一套自由标签"),
                     new FieldSchema("delta", FieldKind.Number, required: false, description: "缺省 0"),
                 }, "按 skill_id 或 category 调整目标技能/分类的冷却，delta 为增量（正数延长、负数缩短）"),
 
                 [EffectKindNames.ToText(EffectKind.AddCharge)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("skill_id", FieldKind.Id, required: true, description: "要增加充能的技能引用"),
+                    new FieldSchema("skill_id", FieldKind.Id, required: true, description: "要增加充能的技能引用（消费方反馈第 30 条：登记为软引用）")
+                        .WithSoftReference(table: "skill.def"),
                     new FieldSchema("amount", FieldKind.Int, required: false, description: "缺省 1"),
                 }, "为目标指定技能增加充能次数，见 skill_id/amount 子字段"),
 
@@ -221,7 +225,8 @@ namespace Core.Rules.Skill
                 // 既有测试明确以一个不在 skill.def 表中的 id 驱动，按 Id 登记。
                 [EffectKindNames.ToText(EffectKind.LearnSkill)] = ParamsCase(required: true, new[]
                 {
-                    new FieldSchema("skill_id", FieldKind.Id, required: true, description: "要学会的技能引用"),
+                    new FieldSchema("skill_id", FieldKind.Id, required: true, description: "要学会的技能引用（消费方反馈第 30 条：登记为软引用）")
+                        .WithSoftReference(table: "skill.def"),
                 }, "使目标学会指定技能，见 skill_id 子字段"),
 
                 // set_world_flag：06 第 3.2 节"flagKey、值"，本模块尚无落地的 IEffectExtension 实现
@@ -379,11 +384,12 @@ namespace Core.Rules.Skill
                 new FieldSchema("cost", FieldKind.Array, required: false,
                     item: new FieldSchema("<cost_entry>", FieldKind.Object, required: true, fields: new[]
                     {
-                        new FieldSchema("power_type", FieldKind.Id, required: true, description: "消耗的资源类型引用"),
+                        new FieldSchema("power_type", FieldKind.Id, required: true, description: "消耗的资源类型引用，多数取值是 arch.power_type 的记录 id，也允许内置特例（同 energize.power_type 判断记录；消费方反馈第 30 条：登记为软引用）")
+                            .WithSoftReference(table: "arch.power_type"),
                         new FieldSchema("amount", FieldKind.Number, required: true, description: "消耗数量"),
                     }, description: "{power_type: Id, amount: Number}，单条消耗资源条目"),
                     description: "[{power_type: Id, amount: Number}, ...]"),
-                new FieldSchema("cooldown_category", FieldKind.Id, required: false, description: "冷却分类引用"),
+                new FieldSchema("cooldown_category", FieldKind.Id, required: false, description: "冷却分类标签，无独立登记表，是内容作者自由声明的分类标签（同 modify_cooldown.category 判断记录）"),
                 new FieldSchema("cooldown_duration", FieldKind.Number, required: false, description: "冷却时长，缺省 0").WithUnit(FieldUnit.Time),
                 new FieldSchema("charges", FieldKind.Object, required: false,
                     fields: new[]
