@@ -124,6 +124,17 @@ namespace Tests.Rules.Skill
         /// <c>CarriersAssembly</c> 绑定真实 <c>EquipmentHost</c> 之前的行为一致。</summary>
         public IWeaponDamageQuery? WeaponDamageQuery { get; set; }
 
+        /// <summary>ADR-0028 收边补齐：注入 <see cref="IProjectileSpawner"/>（<c>projectile</c> 效果
+        /// 原语的落地出口，见该接口判断记录"依赖倒置"），未设置时 <see cref="SkillHost"/> 缺省不
+        /// 注入（<c>EffectDispatcher.ApplyProjectile</c> 记诊断警告并 no-op，见
+        /// <see cref="Tests.Rules.Skill.EffectPrimitiveDispatchTests.Projectile_WithoutSpawnerInjected_WarnsAndDoesNotThrow"/>）。
+        /// 本模块（L2）不依赖 <c>core/carriers/projectile</c>（L3）的真实实现，供测试注入一个记录
+        /// 调用参数的假实现，只验证"技能层→<see cref="EffectContext"/>"这一段的参数透传契约，不
+        /// 重复覆盖 <c>ProjectileHost</c> 自己的关系筛选/命中行为（那部分由
+        /// <c>core/carriers/projectile/tests</c> 覆盖，见该模块 README"不负责什么"一节同一分层
+        /// 原则）。</summary>
+        public IProjectileSpawner? ProjectileSpawner { get; set; }
+
         public ulong RngSeed { get; set; } = 1;
 
         /// <summary>只跑到"注册 schema/校验规则 + LoadAll"这一步，返回校验报告，不构造
@@ -230,7 +241,9 @@ namespace Tests.Rules.Skill
             var host = new SkillHost(
                 registry, bus, units, stats, powers, rng, combat, targets, exprs, SpatialQuery,
                 Options, Extension, diagnostics, exprSchema: null, staticImmunity: StaticImmunity,
-                weaponDamageQuery: WeaponDamageQuery);
+                projectileSpawner: ProjectileSpawner, weaponDamageQuery: WeaponDamageQuery,
+                factions: null); // 显式传 factions（哪怕 null）选中当前十八参数构造函数，避免落到
+                                  // 已标注 [Obsolete] 的十七参数兼容重载（本项目把过时警告当错误）。
 
             var world = new SkillWorld
             {

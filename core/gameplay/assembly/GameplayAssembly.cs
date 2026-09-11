@@ -1062,6 +1062,18 @@ namespace Core.Gameplay.Assembly
             // 这里再调一次是无害的空操作。
             _bus.DispatchPending();
 
+            // ADR-0028 收边（消费方反馈第 4 节 P3，ProjectileHost.ActiveCount 契约）：本方法与
+            // IWorldSim.ClearAll 的调用先后顺序不固定（见本方法上方判断记录——SceneRouter 经
+            // pre_unload 钩子在 ClearAll 之前调用本方法，手工/测试场景约定 ClearAll 在前），但
+            // ProjectileHost 自己的运行期簿记不会因为 IWorldSim.ClearAll 而自动清空（该方法只清
+            // WorldSim 自己的实体集合，两者脱节，见 ProjectileHost.ClearAll 判断记录）。地图切换是
+            // "世界即将/刚刚被整体清空"最主要的既有触发点，本方法作为既有的出图收尾入口顺带接上
+            // Projectiles.ClearAll，让 ActiveCount/IsQuiescent 在地图切换后立即可信，不必等待下一次
+            // 正 dt 的 Advance 才自愈；未经本方法、直接调用 world.ClearAll() 的调用方（例如脱离场景
+            // 路由的手工测试）仍需自行显式调用 Projectiles.ClearAll() 才能拿到"立即归零"的保证，见
+            // ProjectileHost.ClearAll 判断记录。
+            Carriers.Projectiles.ClearAll();
+
             AreaTrigger.UnloadMap(mapId);
             Spawn.UnloadMap(mapId);
 
