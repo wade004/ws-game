@@ -27,11 +27,14 @@ loot/
     LootPickupResult.cs         PickUp 返回值 + 失败原因枚举
     Events.cs                    LootEventKeys + LootRolledEvent/LootPickedUpEvent
     LootExprSchemaEntries.cs     空登记表（本模块不新增 Expr 分组/键，见类型注释）
+    LootAnalysisContext.cs       LootTableAnalyzer 求值上下文 + LootExpectedOutcome/LootPseudoRandomKey（见判断记录 14）
   core/
     LootTableParser.cs           DataRecord -> LootTableDef（运行期解析，ADR-0019/F1b 起校验期不再共用，见判断记录 13）
     LootContentValidationRule.cs groups 内登记表达不了的业务判断 + 嵌套引用成环 DFS 检测（ADR-0019/F1b 收窄，见判断记录 13）
     DroppedLootEntity.cs         Entity 子类，Kind="loot"
+    LootRollCore.cs              抽取核心的纯步骤（条件筛选/权重归一/按阈值选中一条），LootHost 与 LootTableAnalyzer 共用（见判断记录 14）
     LootHost.cs                  ILootHost + ILootRoller 唯一实现（抽取核心 + Drop/PickUp/过期/存档重建）
+    LootTableAnalyzer.cs         期望概率分析入口（消费方反馈第 35 条，见判断记录 14）
     LootExpiryTickHandler.cs     挂 TickPhase.TriggerEvaluation，驱动 LootHost.PurgeExpired
     CreatureDeathLootListener.cs 订阅 unit.died，自动结算生物掉落
     DroppedLootPersistable.cs    world.dropped_loot 段（补录，见判断记录）
@@ -39,6 +42,7 @@ loot/
     LootTestSupport.cs           DataRegistry/EventBus/WorldSim/RngHost/Fake 装配帮助
     LootHostRollTests.cs         Roll 核心算法用例
     LootDropPickupTests.cs       Drop/PickUp/过期/死亡联动/事件/持久化用例
+    E35_LootTableAnalyzerTests.cs 期望概率分析对照用例（解析式 vs 蒙特卡洛，见判断记录 14）
 ```
 
 ## 判断记录
@@ -167,6 +171,53 @@ loot/
     `guaranteed_min>=0`。嵌套 `loot.*` 引用成环检测（DFS）不变，只是改为直接从原始 JSON 容错构建
     `loot->loot` 邻接表（不再依赖 `LootTableDef`）。详见 `LootSchemas.cs`/
     `LootContentValidationRule.cs` 判断记录、`tests/LootSchemaCoverageTests.cs`。
+
+14. **消费方反馈第 35 条收口：`LootHost` 抽取核心的纯步骤收拢到 `LootRollCore`，新增公开
+    `LootTableAnalyzer.ExpectedProbabilities` 期望概率分析入口**：反馈原文——`LootHost` 只提供
+    "抽一次给我结果"的黑箱接口，`LootTableDef` 只是结构模型；嵌套表、条件、多抽不放回、保底等
+    情形的期望概率此前只能复制 `LootHost` 私有抽取语义或蒙特卡洛逼近。处理分两步：(1) 把
+    `LootHost` 私有的"条件筛选（`ConditionPasses`）/权重归一（`PickWeighted` 的 `totalWeight`
+    求和）/按阈值累加权重选中一条"这几个与随机数无关的纯计算步骤原样（不改变任何一步浮点运算
+    顺序）搬到新文件 `core/gameplay/loot/core/LootRollCore.cs`（`internal`，不引用
+    `IRngHost`），`LootHost` 改为调用它、只在真正采样处（`PickWeighted` 消耗一次
+    `IRngHost.Next` 得到 [0,1) 阈值分数、`RollChanceEachGroup` 消耗一次 `IRngHost.Next` 判定
+    命中）注入随机数——`IRngHost` 调用的顺序与次数、每一步的浮点运算逐字节不变，见既有
+    `LootHostRollTests`/`LootDropPickupTests` 等 50 条固定种子/精确期望值用例重构前后全部
+    不改动断言、原样通过；(2) 新增公开 `core/gameplay/loot/core/LootTableAnalyzer.cs`
+    （`LootTableAnalyzer.ExpectedProbabilities(LootTableDef def, LootAnalysisContext context):
+    IReadOnlyList<LootExpectedOutcome>`）与 `contracts/LootAnalysisContext.cs`
+    （`LootAnalysisContext`/`LootConditionEvaluationMode`/`LootPseudoRandomKey`/
+    `LootExpectedOutcome`），与 `LootHost` 共用 `LootRollCore` 的条件筛选/权重归一步骤，解析式
+    计算"至少掉落一次的概率"与"期望数量"，按叶子（嵌套 `loot.*` 展开后的 `item.*` 引用）聚合。
+    关键判断记录（详见 `LootTableAnalyzer.cs` 类型注释"抽取语义清单"/"精确 / 近似边界"两节）：
+    - `chance_each`/`weighted_pick_one` 单抽都是解析式精确值；`weighted_pick_one` 多抽不放回在
+      候选池条目数不超过 `LootAnalysisContext.ExactWithoutReplacementMaxEntries`（默认 12）时
+      用位掩码动态规划精确枚举全部抽取顺序分支（与 `LootHost.PickWeighted` 逐步"按剩余候选池
+      归一权重抽一条、移出、重复"完全同构，含"剩余权重合计 &lt;=0 时整个分支提前停止"这一行为），
+      超过阈值退化为"视作放回抽样"的近似估计并标注 `IsApproximate`。
+    - `guaranteed_min` 保底：自然产出数（`chance_each` 命中数之和 + `weighted_pick_one` 各组
+      确定性选中数）本身是随机变量，用泊松二项分布精确建模；"该条目自然命中"与"该条目被保底
+      补抽命中"两件事的合并按条目类型分两种情形，不是笼统的独立近似合并——`chance_each` 直接
+      条目自身是否命中直接是"自然产出数"的一个加数、与补抽规模天然相关，用条件概率精确展开
+      （"自然命中概率 + 自然未命中概率 × 排除该条目自身贡献后的分布下的补抽命中概率"）；
+      `weighted_pick_one` 条目一次抽取固定选出的数量本身不随机、与具体选中哪几条无关，因此该
+      条目是否被自然选中与"自然产出数"的分布无关，用边际分布独立合并同样是精确值；只有
+      `loot.*` 嵌套条目落在保底候选池时（"自然命中与补抽命中若同时发生，等价于两次独立的嵌套
+      子抽取"这一层未展开建模）与"补抽候选池条目数超过精确阈值"两种情形才标注近似。手算校验见
+      `E35_LootTableAnalyzerTests.GuaranteedMin_DirectItems_ExactMatchesMonteCarlo` 注释（三
+      条目候选池的完整推导过程）。
+    - 条件（`LootEntry.Condition`）三种求值模式：`AssumeTrue`/`AssumeFalse`（不需要
+      `IExprHost`，全体条件统一视为真/假）、`Evaluate`（需要调用方提供已装配好的
+      `IExprHost`，语义与 `LootHost.Roll` 完全一致，复用同一份 `LootRollCore.ConditionPasses`）。
+    - 嵌套 `loot.*` 引用解析源由 `LootAnalysisContext.Tables` 提供（调用方传入，通常是
+      `IDataRegistryView.GetAll(LootSchemas.Table.Name)` 解析后的结果）；引用了字典里不存在的
+      表或递归深度超过 `MaxNestedDepth` 时静默跳过该分支（不贡献概率/期望数量），语义与
+      `LootHost.ResolveEntryAtDepth`/`RollTableInto` 运行期兜底完全一致，不抛异常。
+    - 分析本身不消耗随机数、不修改传入的 `LootTableDef`/`LootAnalysisContext`、不触碰任何
+      `LootHost` 实例状态（`LootTableAnalyzer` 只接受 `LootTableDef` 值对象，从不持有或引用
+      `LootHost`），可在任意时刻、任意次数重复调用，见
+      `E35_LootTableAnalyzerTests.ExpectedProbabilities_DoesNotAffectUnrelatedLootHostRollSequence`
+      （交叉调用不影响无关 `LootHost` 的 `Roll` 序列）。
 
 ## 子结构登记表（ADR-0019 / F1b）
 
