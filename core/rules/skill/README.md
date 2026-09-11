@@ -655,6 +655,58 @@ skill/
     结果不变）且快照与随后一次 `CastSkill` 的裁决一致。ABI 探针（`toolchain/abi_probe.ps1`，
     基线 1.12.0）breaks=0。
 
+47. **P2 根治（消费方反馈 2026-09-11"只读就绪查询影响后续充能状态"，见
+    `architecture/落地计划/消费方反馈-2026-09-11-充能查询副作用.md`，06 第 3.5 节同批勘误）：
+    充能只读查询不得产生状态、`charges` 维度有效上限变化的守恒规则**：条目 46 新增的
+    `GetSkillReadiness` 只读接口投入使用后，消费方复现出一处与"只读查询"契约相反的可观测副作用
+    ——`CooldownTracker.GetCharges(unitId, def)`/`GetChargeRechargeRemaining` 等只读方法此前经
+    `GetOrCreateChargeState` 惰性创建账本，创建时把 `Current` 写成<b>查询当下</b>的有效充能上限；
+    若查询发生在一次上限变化（如施加提高充能上限的光环）<b>之前</b>，创建的账本记下旧上限，此后
+    上限变化不会追认到已创建的账本——消费方 A/B 探针复现：技能配置 `charges: {max: 2}`、
+    `GetSkillReadiness` 查询一次（上限仍是 2）后，再施加把上限从 2 提到 3 的 `charges` 维度
+    SpellMod 光环，A（先查询过）此时当前充能仍是 2、只能连续施法成功 2 次；B（完全不查询，直接
+    施法）当前充能变为 3、能连续成功 3 次——同一场景"是否提前查询过一次"这一操作本身，决定了
+    后续<b>原生</b>施法能连续成功几次。深挖后发现这不只是"查询有副作用"：即便完全不经过任何只读
+    查询，只要该 (unit, skill) 组合是在上限变化<b>之后</b>才第一次被任何路径（含首次施法）触达，
+    同样会按变化后的上限创建账本；反过来，若组合在上限变化<b>之前</b>已经被触达过（不论是查询还
+    是施法），上限变化后当前充能数从不跟着调整——本质是"有效上限变化时，当前充能数不守恒"这一更
+    深的账本语义缺陷，查询只是最容易触发它的路径之一。
+    <br/><br/>
+    根治按两条规则收口（完整判断记录见 `core/rules/skill/core/CooldownTracker.cs` 类型注释）：
+    (1) **查询纯化**——`GetCharges(Id, SkillDef)`/`GetChargeRechargeRemaining`/
+    `GetEffectiveChargesMax`/`GetEffectiveRechargeTimeScaled`/`IsSkillReady`/
+    `GetCooldown(Id, SkillDef)` 六个只读方法全部不再触达 `GetOrCreateChargeState`，改经新增私有
+    方法 `ComputeReadOnlySnapshot` 计算只读快照（无账本时按当前有效上限给出默认快照，不创建；有
+    账本时按下一条守恒规则<b>计算</b>对账后的值，不写回）；惰性创建收窄为只允许发生在写路径
+    （`StartCooldown`/`AddCharge`/`AdvanceCharges`，经 `GetOrCreateChargeState`）。顺带修复一枚
+    同源的独立读路径缺口：`GetCooldown(Id, SkillDef)` 此前内部调用 `GetCharges(Id, SkillDef)`
+    间接触发创建，现同样改走 `ComputeReadOnlySnapshot`。(2) **充能上限变化守恒规则**——
+    `ChargeState` 新增字段 `KnownEffectiveMax`（记录"上一次对账时的有效上限"）；新增纯函数
+    `ReconcileForMaxChange(current, rechargeRemaining, knownMax, newMax)`：上限<b>提高</b> Δ →
+    `Current += Δ`（新增充能格立即可用，正在进行中的恢复窗口不受影响、不重置）；<b>降低</b> →
+    `Current` 夹取到不超过新上限，夹取后若恰好满充能则 `RechargeRemaining` 清零。写路径
+    （`GetOrCreateChargeState`/`AdvanceCharges`）与只读路径（`ComputeReadOnlySnapshot`）共用同一
+    个纯函数，前者对账后写回 `ChargeState`，后者只使用返回值、不写回——保证只读查询看到的数字与
+    "紧接着这次查询之后立即发生一次原生写路径触达"会产生的结果完全一致，不会因为"查没查询过"而
+    改变后续原生施法的实际次数；`AdvanceCharges`（`SkillHost.Update` 逐个已知充能组合调用）同样
+    先对账再推进——充能上限光环生效时充能往往已经满（`RechargeRemaining<=0`），若仍先判定
+    `RechargeRemaining<=0` 提前返回、后对账，会跳过这类"满充能状态下上限提高"的场景，因此对账必须
+    排在提前返回判断之前。
+    <br/><br/>
+    测试：`tests/CooldownTrackerReadOnlyQueryTests.cs`（直接构造裸 `CooldownTracker`，验证只读
+    方法调用前后 `TrackedChargeKeys`——`SkillHost.Update` 借以枚举需要推进充能恢复的组合——保持
+    不变，覆盖 0/1/多次调用；充能上限提高/降低/满充能时提高三种守恒场景，共 9 例）；
+    `tests/C09b_ChargeQueryConservationTests.cs`（经真实 `RulesAssembly` 装配根 + 真实 `charges`
+    维度 SpellMod，同一份技能/光环定义分别驱动两个独立单位模拟"先查询"与"不查询"两条路径，逐一
+    对照最终快照与连续施法成功次数：上限提高消费方原始场景、上限降低到低于当前触发夹取与恢复窗口
+    清零、部分充能恢复中叠加上限提高、零充能叠加上限提高立即可用、暂停区间内反复查询叠加上限变化
+    不产生任何隐性推进，共 5 例）；既有 `tests/C09_SkillReadinessTests.cs` 六例、
+    `tests/ChargesSpellModTests.cs`、`tests/ChargesZeroRechargeTests.cs` 等既有充能相关测试保持
+    全部通过（本次改动不改变任何原生写路径的既定行为，只收紧只读路径 + 补齐上限变化对账）。公开
+    API 无变化（`GetOrCreateChargeState`/`ComputeReadOnlySnapshot`/`ReconcileForMaxChange` 均为
+    私有方法，`ChargeState` 为私有嵌套类型）。ABI 探针（`toolchain/abi_probe.ps1`，基线 1.12.0）
+    breaks=0。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全
