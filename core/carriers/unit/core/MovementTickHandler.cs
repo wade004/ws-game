@@ -116,6 +116,41 @@ namespace Core.Carriers.Unit
                 processedThisTick.Add(unit.EntityId);
             }
 
+            // 第一遍 A.5（ADR-0026《技能位移的连续模式》新增）：处理 move_displace 意图（开始一次
+            // 受控位移），排在 move_stop 之后、move 之前——与既有 move_stop→move 的固定顺序同一惯例：
+            // 本 tick 该单位最后一条 move_stop 之前提交的 move_displace 视为被丢弃（不开始）；同一
+            // 单位本 tick 存活的多条 move_displace 只取最后一条（"最后一条生效"，同 move 意图判断
+            // 记录 CORE-110-03），不逐条推进、不逐条消费 dt。开始成功后立即消费本 tick 的推进预算
+            // （见 BeginDisplacement→AdvanceDisplacement），随后 ApplyIntent 处理 move 意图时会看到
+            // MovementState.Displacement 已非空而拒绝——同一 tick 内"先建立位移、后来的普通移动意图
+            // 即被拒绝"是确定性的（不依赖 intents 顺序，只依赖两个 kind 之间的固定处理顺序）。
+            var lastDisplaceIndex = new Dictionary<Id, int>();
+            for (var i = 0; i < intents.Count; i++)
+            {
+                var intent = intents[i];
+                if (intent.Kind != "move_displace") continue;
+                if (lastStopIndex.TryGetValue(intent.ActorId, out var stopIdx) && stopIdx > i) continue;
+
+                lastDisplaceIndex[intent.ActorId] = i;
+            }
+
+            for (var i = 0; i < intents.Count; i++)
+            {
+                var intent = intents[i];
+                if (intent.Kind != "move_displace") continue;
+                if (!lastDisplaceIndex.TryGetValue(intent.ActorId, out var winningDisplaceIndex) || winningDisplaceIndex != i) continue;
+                if (!(world.GetEntity(intent.ActorId) is Unit displaceUnit)) continue;
+
+                // 判断记录：只在 BeginDisplacement 真正开始了一次新位移时才计入 processedThisTick
+                // （见该方法返回值判断记录）——被忽略的 move_displace（已在位移中/被锁定/参数无效）
+                // 不应该让下面第三遍循环误以为"这个单位本 tick 已经处理过"而跳过对其既有受控位移的
+                // 续推。
+                if (BeginDisplacement(displaceUnit, intent, dt, step.Kind == SimStepKind.Discrete))
+                {
+                    processedThisTick.Add(displaceUnit.EntityId);
+                }
+            }
+
             // 第一遍 B：消费本 tick 存活的 move 意图（(重新)确立移动状态并推进这一 tick 的位移）。
             // 被同一 tick 内更晚提交的 move_stop 丢弃的 move 意图在这里跳过（见上方 lastStopIndex）。
             //
@@ -179,6 +214,18 @@ namespace Core.Carriers.Unit
                 if (processedThisTick.Contains(entity.EntityId)) continue;
 
                 var unit = (Unit)entity;
+
+                // ADR-0026 补齐：CurrentPath（路径跟随）与 Displacement（受控位移）互斥（见
+                // MovementState.Displacement 判断记录），本 tick 未收到新意图、但仍有进行中的受控
+                // 位移的单位在这里续推——不检查 IsLocked/RevalidateBlocking（那两项是路径跟随专属
+                // 的既有语义；受控位移的控制/死亡检查在 AdvanceDisplacement 内部统一做，见该方法
+                // 判断记录，不是"跳过本 tick"而是"直接结束位移"）。
+                if (unit.MovementState.Displacement.HasValue)
+                {
+                    AdvanceDisplacement(unit, dt, isDiscrete: false);
+                    continue;
+                }
+
                 if (unit.MovementState.CurrentPath == null) continue;
 
                 if (IsLocked(unit)) continue;
@@ -226,15 +273,22 @@ namespace Core.Carriers.Unit
             var state = unit.MovementState;
             var hadPath = state.CurrentPath != null;
 
-            if (!hadPath && !hadDiscardedMoveIntent)
+            // ADR-0026 补齐：显式 Stop（既有 MovementHost.Stop，Kind == "move_stop"）也能取消一次
+            // 进行中的受控位移——就地停止（不套用 blocking 策略的 revert/pull-back，"调用方主动喊
+            // 停"不是撞墙，语义同下面 hadPath 分支"清路径、不产生位移、位置不变"），复用同一个
+            // Requested 原因值（调用方已经知道是自己主动 Stop 的，不需要区分"停的是路径还是位移"，
+            // 见 IControlledDisplacementSink.BeginControlledDisplacement 判断记录）。
+            var hadDisplacement = state.Displacement.HasValue;
+
+            if (!hadPath && !hadDisplacement && !hadDiscardedMoveIntent)
             {
                 return;
             }
 
-            if (hadPath)
+            if (hadPath || hadDisplacement)
             {
                 var oldMode = state.Mode;
-                unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
+                unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0, 0, null);
                 RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
             }
 
@@ -266,6 +320,18 @@ namespace Core.Carriers.Unit
         {
             if (IsLocked(unit))
             {
+                return;
+            }
+
+            // ADR-0026《技能位移的连续模式》：受控位移期间普通寻路/方向移动意图被拒绝（"位移与
+            // 移动互斥"，落地位置同既有"控制期间禁止移动"——都在 ApplyIntent 顶部短路，不产生任何
+            // 位移/状态变化）。本 tick 的 move_displace 意图先于 move 处理（见 Execute 判断记录），
+            // 因此这里读到的 Displacement 已经包含"本 tick 刚开始的一次位移"。
+            if (unit.MovementState.Displacement.HasValue)
+            {
+                _diagnostics.Warn(
+                    $"MovementTickHandler: 单位 \"{unit.EntityId}\" 正在受控位移中（ADR-0026），" +
+                    "普通移动意图被拒绝");
                 return;
             }
 
@@ -365,6 +431,259 @@ namespace Core.Carriers.Unit
             }
 
             ContinuePathCore(unit, dt, isDiscrete);
+        }
+
+        // -------------------------------------------------------------------
+        // ADR-0026《技能位移的连续模式》：move_displace 意图的开始/推进/结束。
+        // -------------------------------------------------------------------
+
+        /// <summary>处理一条 <c>move_displace</c> 意图：开始一次新的受控位移并立即消费本 tick 的
+        /// 推进预算（惯例同 <see cref="BeginPathTo"/> 建路后立即调用 <see cref="ContinuePathCore"/>）。
+        /// 已在受控位移中的单位（不支持位移嵌套/覆盖）或被控制/参数不完整时忽略本次意图（见方法体
+        /// 各分支注释）。返回值供 <see cref="Execute"/> 判断本次调用是否真正"处理"了该单位——
+        /// 各类忽略分支（已在位移中/被锁定/参数无效）返回 <c>false</c> 时，<see cref="Execute"/>
+        /// 不应把该单位计入本 tick <c>processedThisTick</c>，否则一条被忽略的多余 move_displace
+        /// 意图会错误地让 <see cref="Execute"/> 第三遍循环跳过本该继续推进的既有受控位移（见调用点
+        /// 判断记录）。</summary>
+        private bool BeginDisplacement(Unit unit, Intent intent, double dt, bool isDiscrete)
+        {
+            if (IsLocked(unit))
+            {
+                return false; // 同 ApplyIntent 判断记录：控制期间禁止移动同样适用于"开始"一次受控位移。
+            }
+
+            if (unit.MovementState.Displacement.HasValue)
+            {
+                _diagnostics.Warn(
+                    $"MovementTickHandler: 单位 \"{unit.EntityId}\" 已在受控位移中，忽略新的 " +
+                    "move_displace 意图（不支持位移嵌套/覆盖，见 ADR-0026 判断记录）");
+                return false;
+            }
+
+            if (!TryReadDisplaceArgs(intent.Args, out var origin, out var target, out var speed, out var blocking, out var sampleStep))
+            {
+                _diagnostics.Warn(
+                    $"MovementTickHandler: move_displace 意图参数不完整，单位 \"{unit.EntityId}\" " +
+                    "本次意图被忽略");
+                return false;
+            }
+
+            if (speed <= 0 || (target - origin).Length <= ZeroLengthEpsilon)
+            {
+                // 无效速度或零距离：no-op，不建立位移状态、不产生任何事件（同 BeginPathTo 判断记录
+                // "零长度目标：不建路径、不动、不回调"）。EffectDispatcher.ApplyMove 正常情况下已经
+                // 在组装请求前做过同样的校验、不会提交这样的请求，这里是防御性兜底。
+                return false;
+            }
+
+            var resolvedSampleStep = sampleStep > 0 ? sampleStep : _options.DefaultDisplacementSampleStep;
+            var displacement = new ControlledDisplacementState(origin, target, speed, blocking, resolvedSampleStep);
+
+            var oldState = unit.MovementState;
+            var oldMode = oldState.Mode;
+            unit.MovementState = new MovementState(null, MoveMode.Forced, oldState.MovementLocked, 0, 0, displacement);
+            RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Forced);
+
+            AdvanceDisplacement(unit, dt, isDiscrete);
+            return true;
+        }
+
+        /// <summary>
+        /// 推进 <paramref name="unit"/> 当前进行中的受控位移一步。终止条件（到达/被阻挡/被控制/
+        /// 施法者死亡）任一命中时经 <see cref="EndDisplacement"/> 结束并 <c>return</c>；否则写回本次
+        /// 推进后的中间位置，位移状态保持 <see cref="MovementState.Displacement"/> 非空，等待下一次
+        /// 调用（<see cref="BeginDisplacement"/> 本 tick 内立即调用一次；此后每个连续模式 tick 由
+        /// <see cref="Execute"/> 第三遍循环续推——离散模式不会走到"保持进行中"这一分支，见下方
+        /// <paramref name="isDiscrete"/> 判断记录）。
+        /// </summary>
+        private void AdvanceDisplacement(Unit unit, double dt, bool isDiscrete)
+        {
+            var state = unit.MovementState;
+            if (!state.Displacement.HasValue)
+            {
+                return; // 防御性：调用方（BeginDisplacement/Execute 第三遍循环）已经判断过非空。
+            }
+
+            var disp = state.Displacement.Value;
+
+            if (!unit.Alive)
+            {
+                EndDisplacement(unit, MoveStopReason.DisplacementCasterDead);
+                return;
+            }
+
+            if (IsLocked(unit))
+            {
+                EndDisplacement(unit, MoveStopReason.DisplacementControlled);
+                return;
+            }
+
+            // ADR-0026 决策 2"离散模式一次性完成"：budget 取一个必然覆盖剩余全程的上界（剩余直线
+            // 距离 + 一个采样步长的余量），不按 speed×dt 连续积分——保证下面的 while 循环必然在有限
+            // 次采样步内经"到达"或"受阻"分支之一返回，不会把 Displacement 保持为非空带到下一个
+            // 离散步（03 第 4.2 节"离散步只处理当前行动者"下，没有类似连续模式第三遍循环的自动续推，
+            // 见 Execute 判断记录）。连续模式下暂停（<paramref name="dt"/> &lt;= 0，时间模型暂停）
+            // 时 budget &lt;= 0，本次推进不产生任何位移/事件，位移保持进行中等待下一个有效 dt。
+            var budget = isDiscrete
+                ? (disp.Target - unit.Position).Length + disp.SampleStep
+                : disp.Speed * dt;
+
+            if (budget <= 0)
+            {
+                return;
+            }
+
+            // callStartPos：本次调用开始时的位置——阻挡受阻的回退（pull-back）以它为下界（见下方
+            // "受阻"分支判断记录），不是每个采样子步各自的临时 pos，避免"某个采样子步的候选终点
+            // 恰好落在阻挡区域的开区间边界上（未受阻，见 INavigation2D.Raycast 判断记录"边界/角点
+            // 相切不算受阻"），下一个采样子步从这个边界点出发、入射距离恰好为 0，导致回退量被
+            // Math.Min(0, ArrivalEpsilon) 夹成 0、最终停在边界上而不是边界前"这一采样粒度带来的
+            // 边界瑕疵——始终相对"这次调用一开始站的地方"回退一整个 ArrivalEpsilon，与
+            // ApplyDirectionalMove 对单次候选终点整体做一次 Raycast 的既有回退手法在"不倒退到本次
+            // 推进开始之前"这一点上语义一致，采样粒度只影响观测到的中间位置序列，不影响最终停止点。
+            var callStartPos = unit.Position;
+            var pos = callStartPos;
+            var remaining = budget;
+            var traveledFromCallStart = 0.0;
+
+            while (remaining > 0)
+            {
+                var toTarget = disp.Target - pos;
+                var distToTarget = toTarget.Length;
+                if (distToTarget <= _options.ArrivalEpsilon)
+                {
+                    WriteDisplacementPosition(unit, disp.Target);
+                    EndDisplacement(unit, MoveStopReason.DisplacementArrived);
+                    return;
+                }
+
+                var dir = new Vec2(toTarget.X / distToTarget, toTarget.Y / distToTarget);
+                var stepLen = Math.Min(Math.Min(remaining, disp.SampleStep), distToTarget);
+                var reachesTarget = stepLen >= distToTarget;
+                // 采样步恰好到达/越过终点时直接对齐终点坐标，避免除法/累加的浮点误差（同
+                // ContinuePathCore 判断记录"dist <= remaining 时 pos = waypoint"）。
+                var candidate = reachesTarget ? disp.Target : pos + dir * stepLen;
+
+                if (_navigation != null)
+                {
+                    var hit = _navigation.Raycast(unit.MapId, pos, candidate);
+                    if (hit.HasValue)
+                    {
+                        if (disp.Blocking == DisplacementBlockingPolicy.Revert)
+                        {
+                            WriteDisplacementPosition(unit, disp.Origin);
+                        }
+                        else
+                        {
+                            // Stop：停在阻挡前最后可通行采样点（判断记录见上方 callStartPos 声明处）。
+                            var hitDistanceFromCallStart = traveledFromCallStart + (hit.Value - pos).Length;
+                            var pullBack = Math.Min(hitDistanceFromCallStart, _options.ArrivalEpsilon);
+                            WriteDisplacementPosition(unit, hit.Value - dir * pullBack);
+                        }
+
+                        EndDisplacement(unit, MoveStopReason.DisplacementBlocked);
+                        return;
+                    }
+                }
+
+                pos = candidate;
+                remaining -= stepLen;
+                traveledFromCallStart += stepLen;
+
+                if (reachesTarget)
+                {
+                    WriteDisplacementPosition(unit, pos);
+                    EndDisplacement(unit, MoveStopReason.DisplacementArrived);
+                    return;
+                }
+            }
+
+            // 本次推进预算耗尽，仍未到达/未受阻（仅连续模式会走到这里，见上面 budget 判断记录）：
+            // 写回中间位置，位移状态保持进行中，下一 tick 由 Execute 第三遍循环续推。
+            WriteDisplacementPosition(unit, pos);
+            var refreshed = unit.MovementState; // WriteDisplacementPosition 不改 MovementState 其它字段。
+            unit.MovementState = new MovementState(null, refreshed.Mode, refreshed.MovementLocked, 0, 0, disp);
+        }
+
+        /// <summary>受控位移的统一终止出口：清空 <see cref="MovementState.Displacement"/>、状态收回
+        /// <see cref="MoveMode.Idle"/>，并触发既有 <see cref="MovementHost.OnMoveStopped"/>（携带
+        /// <paramref name="reason"/>，见 <c>MoveStopReason</c> 新增的四个 <c>Displacement*</c> 枚举
+        /// 成员）——复用既有事件出口而不新增事件类型（ADR-0026 决策 3"经现有移动事件"）。</summary>
+        private void EndDisplacement(Unit unit, MoveStopReason reason)
+        {
+            var state = unit.MovementState;
+            var oldMode = state.Mode;
+            unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0, 0, null);
+            RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
+            _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, reason);
+        }
+
+        /// <summary>受控位移专用的位置写回帮助方法：位置未变化时不写、不发事件（同
+        /// <see cref="ContinuePathCore"/>/<see cref="ApplyDirectionalMove"/> 惯例，避免发一条位移量为
+        /// 零的 <c>unit.moved</c>），否则按移动方向更新朝向、写回位置并入队 <c>unit.moved</c>（复用
+        /// 既有事件——ADR-0026 决策 3"位移期间的逐 tick 位置序列经现有 unit.moved 事件观察"）。
+        /// </summary>
+        private void WriteDisplacementPosition(Unit unit, Vec2 newPos)
+        {
+            var from = unit.Position;
+            if (newPos.Equals(from))
+            {
+                return;
+            }
+
+            var direction = newPos - from;
+            if (direction.Length > ZeroLengthEpsilon)
+            {
+                unit.Facing = Math.Atan2(direction.Y, direction.X);
+            }
+
+            _units.SetPosition(unit.EntityId, newPos);
+            EnqueueMoved(unit.EntityId, newPos);
+        }
+
+        /// <summary><see cref="MovementHost.BeginControlledDisplacement"/> 组装的 <c>move_displace</c>
+        /// 意图参数解码（见该方法判断记录，字段形状 <c>{originX,originY,targetX,targetY,speed,
+        /// blocking,sampleStep}</c>）。<c>originX/originY/targetX/targetY/speed</c> 五项缺失或类型不对
+        /// 即整体判定失败；<c>blocking</c> 缺失/无法解析时回退 <see cref="DisplacementBlockingPolicy.Stop"/>
+        /// （枚举默认值，与 <c>ControlledDisplacementRequest</c> 未显式声明时的既有默认一致）；
+        /// <c>sampleStep</c> 缺失时回退 0（"未声明"哨兵值，由调用方按
+        /// <see cref="MovementOptions.DefaultDisplacementSampleStep"/> 兜底，不在这里兜底——本方法
+        /// 只负责解码，不负责默认值解析）。</summary>
+        private static bool TryReadDisplaceArgs(
+            JsonObject args, out Vec2 origin, out Vec2 target, out double speed,
+            out DisplacementBlockingPolicy blocking, out double sampleStep)
+        {
+            origin = default;
+            target = default;
+            speed = 0;
+            blocking = DisplacementBlockingPolicy.Stop;
+            sampleStep = 0;
+
+            if (!(args.TryGetValue("originX", out var ox) && ox is JsonNumber oxN) ||
+                !(args.TryGetValue("originY", out var oy) && oy is JsonNumber oyN) ||
+                !(args.TryGetValue("targetX", out var tx) && tx is JsonNumber txN) ||
+                !(args.TryGetValue("targetY", out var ty) && ty is JsonNumber tyN) ||
+                !(args.TryGetValue("speed", out var sp) && sp is JsonNumber spN))
+            {
+                return false;
+            }
+
+            origin = new Vec2(oxN.Value, oyN.Value);
+            target = new Vec2(txN.Value, tyN.Value);
+            speed = spN.Value;
+
+            if (args.TryGetValue("blocking", out var bl) && bl is JsonString blS &&
+                Enum.TryParse<DisplacementBlockingPolicy>(blS.Value, out var parsedBlocking))
+            {
+                blocking = parsedBlocking;
+            }
+
+            if (args.TryGetValue("sampleStep", out var ss) && ss is JsonNumber ssN)
+            {
+                sampleStep = ssN.Value;
+            }
+
+            return true;
         }
 
         /// <summary>

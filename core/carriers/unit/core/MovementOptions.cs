@@ -190,5 +190,19 @@ namespace Core.Carriers.Unit
         /// </para>
         /// </summary>
         public double? GridSnapCellSize { get; set; }
+
+        /// <summary>
+        /// ADR-0026《技能位移的连续模式》：<c>skill.def.effects[].kind == "move"</c> 且
+        /// <c>params.motion == "continuous"</c> 时，若数据未声明 <c>params.sample_step</c>（或声明为
+        /// 非正值，视为"未声明"），受控位移逐 tick 推进采用的采样步长兜底值（见
+        /// <c>Core.Rules.Common.ControlledDisplacementRequest.SampleStep</c> 判断记录"默认取导航网格
+        /// 尺寸或固定值"）。判断记录：<see cref="Core.Foundation.EngineAdapter.INavigation2D"/> 契约
+        /// 本身不暴露"网格尺寸"这个概念（见该接口成员列表），本模块因此只能提供"固定值"分支；默认
+        /// 0.5——与 <see cref="UnitBlockRadius"/> 同量级（典型单位体积尺度），足够细以避免单个采样步
+        /// 内穿过一堵薄墙却漏检（同 <c>MovementTickHandler.ApplyDirectionalMove</c> 对候选终点整体做
+        /// 一次 Raycast 的既有精度——采样只是把"阻挡后停在哪"的粒度控制得更细，不是弥补 Raycast 本身
+        /// 的精度缺口），具体数值仍是口味配置项，游戏层可按自己的场景尺度调整。
+        /// </summary>
+        public double DefaultDisplacementSampleStep { get; set; } = 0.5;
     }
 }

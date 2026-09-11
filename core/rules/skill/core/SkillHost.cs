@@ -96,6 +96,21 @@ namespace Core.Rules.Skill
         /// <summary>供 <c>combat</c>/<c>ai</c> 调用的光环状态只读查询（见 06 第 7 节）。</summary>
         public IAuraQuery AuraQuery => _auraHost;
 
+        /// <summary>
+        /// ADR-0026《技能位移的连续模式》：<c>move</c> 效果原语 <c>motion: continuous</c> 分支的
+        /// 依赖倒置出口，转发到 <see cref="EffectDispatcher.DisplacementSink"/>（见该属性判断记录）。
+        /// 判断记录（新增可写属性而非新增构造函数参数）：<see cref="SkillHost"/> 的构造函数已经历过
+        /// 多轮"新增可选参数=破坏 ABI"的教训（见本文件下方十七参数 <c>[Obsolete]</c> 兼容构造函数的
+        /// 完整判断记录），本次改用组装期属性赋值（<c>CarriersAssembly</c> 在 <c>Movement</c>/
+        /// <c>Rules</c> 都构造完成后一行 <c>Rules.Skill.DisplacementSink = Movement;</c>），不改动
+        /// 本类型任何一个构造函数的物理签名。
+        /// </summary>
+        public IControlledDisplacementSink? DisplacementSink
+        {
+            get => _effectDispatcher.DisplacementSink;
+            set => _effectDispatcher.DisplacementSink = value;
+        }
+
         public SkillHost(
             IDataRegistryView dataRegistry,
             IEventBus eventBus,

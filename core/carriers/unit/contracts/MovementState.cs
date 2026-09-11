@@ -48,14 +48,37 @@ namespace Core.Carriers.Unit
         /// </summary>
         public int NavVersion { get; }
 
+        /// <summary>
+        /// ADR-0026《技能位移的连续模式》：非 null 表示该单位当前正处于一次"受控位移"中（见
+        /// <see cref="MovementHost.BeginControlledDisplacement"/>）。与 <see cref="CurrentPath"/>
+        /// 互斥——两套机制分别由 <c>move</c>/<c>move_displace</c> 两种不同 <c>Intent.Kind</c> 驱动，
+        /// 同一单位同一时刻至多处于其中一种（受控位移期间普通移动意图被拒绝，见
+        /// <c>MovementTickHandler.ApplyIntent</c> 判断记录）。</summary>
+        public ControlledDisplacementState? Displacement { get; }
+
+        /// <summary>ADR-0026 决策 3"MovementState 暴露受控位移进行中标志"——新增只读属性，等价于
+        /// <c>Displacement.HasValue</c>，供调用方不必自行判空 <see cref="Displacement"/>。</summary>
+        public bool IsControlledDisplacementActive => Displacement.HasValue;
+
         public MovementState(
             IReadOnlyList<Vec2>? currentPath, MoveMode mode, bool movementLocked, int pathIndex, int navVersion = 0)
+            : this(currentPath, mode, movementLocked, pathIndex, navVersion, null)
+        {
+        }
+
+        /// <summary>ADR-0026 新增重载（不改动上面既有 5 参数构造函数的物理签名，见
+        /// <c>architecture/adr/0026-*.md</c> 判断记录"ABI 安全：新增构造函数重载而非新增参数"）：
+        /// 额外携带 <paramref name="displacement"/>。</summary>
+        public MovementState(
+            IReadOnlyList<Vec2>? currentPath, MoveMode mode, bool movementLocked, int pathIndex, int navVersion,
+            ControlledDisplacementState? displacement)
         {
             CurrentPath = currentPath;
             Mode = mode;
             MovementLocked = movementLocked;
             PathIndex = pathIndex;
             NavVersion = navVersion;
+            Displacement = displacement;
         }
 
         /// <summary>未在移动、未被锁定的默认状态。</summary>
@@ -63,8 +86,10 @@ namespace Core.Carriers.Unit
 
         /// <summary>返回一份仅 <see cref="MovementLocked"/> 不同的新实例，供控制效果施加/解除时
         /// 调用方便捷更新（其余字段照抄本实例，不受锁定状态影响，见 05 第 6.2 节"移动系统只读这些
-        /// 派生状态"——锁定只影响是否推进,不清空既有路径）。</summary>
+        /// 派生状态"——锁定只影响是否推进,不清空既有路径）。<see cref="Displacement"/> 同样原样带过
+        /// （ADR-0026：锁定/解锁控制效果不应该悄悄打断或凭空产生一次受控位移，位移的开始/结束只由
+        /// <c>MovementTickHandler</c> 显式管理）。</summary>
         public MovementState WithLocked(bool movementLocked) =>
-            new MovementState(CurrentPath, Mode, movementLocked, PathIndex, NavVersion);
+            new MovementState(CurrentPath, Mode, movementLocked, PathIndex, NavVersion, Displacement);
     }
 }

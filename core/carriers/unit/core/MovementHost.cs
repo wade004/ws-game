@@ -2,6 +2,7 @@ using System;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.SimLoop;
+using Core.Rules.Common;
 
 namespace Core.Carriers.Unit
 {
@@ -55,6 +56,26 @@ namespace Core.Carriers.Unit
         /// <summary>一次新的 <see cref="MovementHost.Request"/>（目标类）整体替换了仍在进行中的旧
         /// 路径（仅当旧路径确实存在时触发，见 <see cref="MovementHost.Request"/> 判断记录）。</summary>
         Replaced,
+
+        /// <summary>ADR-0026《技能位移的连续模式》：一次受控位移正常到达终点。</summary>
+        DisplacementArrived,
+
+        /// <summary>ADR-0026：一次受控位移采样受阻，按
+        /// <see cref="Core.Rules.Common.DisplacementBlockingPolicy"/> 停在阻挡前最后可通行采样点
+        /// （<c>Stop</c>）或回到起点（<c>Revert</c>）后结束——两种子行为共用本一个原因值，调用方
+        /// 已经知道自己声明的策略是哪一种，不需要从事件原因反推（见 ADR-0026 决策 2）。</summary>
+        DisplacementBlocked,
+
+        /// <summary>ADR-0026：一次受控位移进行中，单位被施加禁止移动的控制标志（含
+        /// <see cref="MovementState.MovementLocked"/> 与
+        /// <see cref="Core.Rules.Common.IAuraQuery.GetControlFlags"/> 的 <c>NoMove</c> 位，判定同
+        /// <c>MovementTickHandler.IsLocked</c>）——就地停止（不套用 <see cref="DisplacementBlocked"/>
+        /// 的阻挡策略，被控制打断不是"撞墙"）。</summary>
+        DisplacementControlled,
+
+        /// <summary>ADR-0026：一次受控位移进行中，单位死亡（<see cref="Unit.Alive"/> 变为
+        /// <c>false</c>）——就地停止。</summary>
+        DisplacementCasterDead,
     }
 
     /// <summary>供 <see cref="MovementHost.OnMoveStopped"/> 使用的具名委托：<paramref name="position"/>
@@ -71,7 +92,7 @@ namespace Core.Carriers.Unit
     /// <see cref="OnMoveFailed"/>（found.event_catalog 未登记 <c>unit.move_failed</c> 事件，任务书
     /// 拍板"不新增事件，改为委托回调"，见本模块 README）。
     /// </summary>
-    public sealed class MovementHost
+    public sealed class MovementHost : IControlledDisplacementSink
     {
         private readonly IWorldSim _world;
 
@@ -144,6 +165,31 @@ namespace Core.Carriers.Unit
         public void Stop(Id unitId)
         {
             _world.SubmitIntent(new Intent(unitId, "move_stop"));
+        }
+
+        /// <summary>
+        /// ADR-0026《技能位移的连续模式》——<see cref="IControlledDisplacementSink"/> 的落地实现：
+        /// 把 <paramref name="request"/> 转译为一条 <c>Kind == "move_displace"</c> 的
+        /// <see cref="Intent"/> 并提交，惯例同 <see cref="Request"/>（下一 tick 才真正生效，本方法
+        /// 本身不立即改变任何 <see cref="MovementState"/>）；真正逐 tick 推进的是
+        /// <c>MovementTickHandler</c>（见该类型 <c>BeginDisplacement</c>/<c>AdvanceDisplacement</c>
+        /// 判断记录）。<see cref="ControlledDisplacementRequest.Speed"/> 必须 &gt; 0——调用方（
+        /// <c>EffectDispatcher.ApplyMove</c>）已经在组装请求前校验过（<c>speed&lt;=0</c> 或零距离
+        /// 时直接 no-op，不提交意图），本方法不重复校验。
+        /// </summary>
+        public void BeginControlledDisplacement(ControlledDisplacementRequest request)
+        {
+            var args = new JsonObjectBuilder()
+                .Add("originX", new JsonNumber(request.Origin.X))
+                .Add("originY", new JsonNumber(request.Origin.Y))
+                .Add("targetX", new JsonNumber(request.Target.X))
+                .Add("targetY", new JsonNumber(request.Target.Y))
+                .Add("speed", new JsonNumber(request.Speed))
+                .Add("blocking", new JsonString(request.Blocking.ToString()))
+                .Add("sampleStep", new JsonNumber(request.SampleStep))
+                .Build();
+
+            _world.SubmitIntent(new Intent(request.UnitId, "move_displace", args));
         }
 
         /// <summary>供 <see cref="MovementTickHandler"/>（同程序集）在寻路失败时回调触发
