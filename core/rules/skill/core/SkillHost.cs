@@ -129,7 +129,8 @@ namespace Core.Rules.Skill
             IStaticImmunityProvider? staticImmunity = null,
             IProjectileSpawner? projectileSpawner = null,
             IWeaponDamageQuery? weaponDamageQuery = null,
-            Core.Numbers.Faction.IFactionMatrix? factions = null)
+            Core.Numbers.Faction.IFactionMatrix? factions = null,
+            INavigation2D? navigation = null)
         {
             _registry = dataRegistry ?? throw new ArgumentNullException(nameof(dataRegistry));
             _units = unitAccess ?? throw new ArgumentNullException(nameof(unitAccess));
@@ -173,7 +174,7 @@ namespace Core.Rules.Skill
 
             _pipeline = new CastPipeline(
                 _defs, _cooldowns, _auraHost, _effectDispatcher, targetHost, _units, spatialQuery,
-                powerHost, _spellMods, eventBus, options1, _diagnostics);
+                powerHost, _spellMods, eventBus, options1, _diagnostics, navigation);
 
             // R05 收边补齐（外部审计 5e779c6，P2；见 Core.Rules.Common.TimeModelRescaledEvent
             // 类型判断记录）：本类型是 CooldownTracker/AuraHost 的组合根，在这里订阅一次、原子
@@ -245,6 +246,50 @@ namespace Core.Rules.Skill
             : this(dataRegistry, eventBus, unitAccess, statHost, powerHost, rngHost, combatHost,
                 targetHost, exprHostFactory, spatialQuery, options, effectExtension, diagnostics,
                 exprSchema, staticImmunity, projectileSpawner, weaponDamageQuery, factions: null)
+        {
+        }
+
+        /// <summary>
+        /// ABI/API 兼容 façade（ADR-0027《地面坐标施法请求》补充 <c>navigation</c> 之前的物理十八
+        /// 参数构造签名，同上方十七参数façade判断记录同一套推导）：补充 <c>navigation</c> 之前，
+        /// 上面那个带 <c>factions</c> 默认值的构造函数才是"主构造函数"，物理 IL 签名恰好十八个参数；
+        /// 现在主构造函数追加了 <c>navigation</c>（十九个参数），已编译好、以"省略 navigation"方式
+        /// 调用旧十八参数签名的既有二进制消费方（1.14.0～ADR-0027 之前发布的版本区间）会
+        /// <c>MissingMethodException</c>——本重载补回这个物理十八参数签名，转发到十九参数主构造
+        /// 函数，<c>navigation</c> 固定传 <c>null</c>：旧调用方不会得到地面坐标可行走校验（同未注入
+        /// <see cref="ISpatialQuery"/> 的既有降级惯例——<c>CastPipeline.ValidateGroundPoint</c> 对
+        /// 这类实例的可行走分支恒跳过），其余行为与本重载补充之前完全一致。
+        /// <para>
+        /// 判断记录（不是可选参数，同上方十七参数façade同一条推导）：本重载的十八个参数全部不带
+        /// 默认值——写成可选参数会与十九参数主构造函数在"只传 10～18 个参数"的调用点产生重载
+        /// 二义性；全部必填后，C# 重载决议"不需要为可选参数代入默认值的候选更优"保证恰好传 18 个
+        /// 参数时精确匹配本重载，传 19 个（含 navigation）才匹配主构造函数，两者互不冲突。
+        /// </para>
+        /// </summary>
+        [Obsolete("ADR-0027 之前的十八参数构造签名，仅为源码/二进制兼容保留；新代码请使用带 navigation 的十九参数构造函数。")]
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        public SkillHost(
+            IDataRegistryView dataRegistry,
+            IEventBus eventBus,
+            IUnitAccess unitAccess,
+            IStatHost statHost,
+            IPowerHost powerHost,
+            IRngHost rngHost,
+            ICombatHost combatHost,
+            ITargetHost targetHost,
+            IExprHostFactory exprHostFactory,
+            ISpatialQuery? spatialQuery,
+            SkillOptions? options,
+            IEffectExtension? effectExtension,
+            ISkillDiagnostics? diagnostics,
+            IExprSchema? exprSchema,
+            IStaticImmunityProvider? staticImmunity,
+            IProjectileSpawner? projectileSpawner,
+            IWeaponDamageQuery? weaponDamageQuery,
+            Core.Numbers.Faction.IFactionMatrix? factions)
+            : this(dataRegistry, eventBus, unitAccess, statHost, powerHost, rngHost, combatHost,
+                targetHost, exprHostFactory, spatialQuery, options, effectExtension, diagnostics,
+                exprSchema, staticImmunity, projectileSpawner, weaponDamageQuery, factions, navigation: null)
         {
         }
 
@@ -405,6 +450,12 @@ namespace Core.Rules.Skill
 
         public CastResult CastSkill(Id casterId, Id skillId, IReadOnlyList<Id> targets) =>
             _pipeline.CastSkill(casterId, skillId, targets);
+
+        /// <summary>ADR-0027《地面坐标施法请求》：见 <see cref="ISkillHost.CastSkillAtGround"/>/
+        /// <see cref="CastPipeline.CastSkillAtGround"/> 判断记录。显式覆盖接口默认实现（同
+        /// <see cref="CastSkill"/> 既有惯例），转发到真正的裁决实现。</summary>
+        public CastResult CastSkillAtGround(Id casterId, Id skillId, GroundCastRequest request) =>
+            _pipeline.CastSkillAtGround(casterId, skillId, request);
 
         public double GetCooldown(Id unitId, Id skillId) =>
             _defs.TryGetSkillDef(skillId, out var def) ? _cooldowns.GetCooldown(unitId, def) : 0;

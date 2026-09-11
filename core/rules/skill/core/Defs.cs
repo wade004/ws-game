@@ -46,6 +46,15 @@ namespace Core.Rules.Skill
         /// 技能可无限连续释放，见 A3 审计 #5。</summary>
         public double ActionCost { get; }
 
+        /// <summary>
+        /// ADR-0027《地面坐标施法请求》补充：本技能是否允许经
+        /// <see cref="Core.Rules.Common.ISkillHost.CastSkillAtGround"/> 以地面坐标为落点施放
+        /// （<c>skill.def.ground_target</c>，见 schema/README.md）。缺省 <c>false</c>——保持既有
+        /// 技能（本字段落地前登记的全部 <c>skill.def</c> 行）行为不变，地面坐标是新增能力，需要
+        /// 内容作者显式声明才生效，不是"只要技能有射程/形状就自动允许"。
+        /// </summary>
+        public bool AllowGroundTarget { get; }
+
         public bool HasCharges => ChargesMax.HasValue;
 
         public SkillDef(
@@ -72,6 +81,41 @@ namespace Core.Rules.Skill
             Effects = effects;
             InterruptFlags = interruptFlags;
             ActionCost = actionCost;
+            AllowGroundTarget = false;
+        }
+
+        /// <summary>
+        /// ADR-0027 新增重载：携带 <see cref="AllowGroundTarget"/>。判断记录（不是给既有构造函数的
+        /// <c>actionCost</c> 之后再加一个可选参数）：同 <see cref="Core.Rules.Common.EffectContext"/>
+        /// 十六参数重载判断记录同一套 ABI 兼容惯例——既有构造函数追加参数会改变其物理 IL 签名；本
+        /// 重载十八个参数全部不带默认值，与既有构造函数（16 个必填 + <c>actionCost</c> 最多 17 个）
+        /// 参数个数不重叠，互不冲突。
+        /// </summary>
+        public SkillDef(
+            Id id, Id school, bool isPassive, double range, IReadOnlyList<Id> tags,
+            double castTime, double channelTime, IReadOnlyList<(Id, double)> cost,
+            Id? cooldownCategory, double cooldownDuration, int? chargesMax, double chargesRechargeTime,
+            bool respectsGcd, Id targetShapeRef, IReadOnlyList<EffectRef> effects, InterruptFlags interruptFlags,
+            double actionCost, bool allowGroundTarget)
+        {
+            Id = id;
+            School = school;
+            IsPassive = isPassive;
+            Range = range;
+            Tags = tags;
+            CastTime = castTime;
+            ChannelTime = channelTime;
+            Cost = cost;
+            CooldownCategory = cooldownCategory;
+            CooldownDuration = cooldownDuration;
+            ChargesMax = chargesMax;
+            ChargesRechargeTime = chargesRechargeTime;
+            RespectsGcd = respectsGcd;
+            TargetShapeRef = targetShapeRef;
+            Effects = effects;
+            InterruptFlags = interruptFlags;
+            ActionCost = actionCost;
+            AllowGroundTarget = allowGroundTarget;
         }
     }
 

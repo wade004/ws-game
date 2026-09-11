@@ -77,5 +77,36 @@ namespace Core.Rules.Common
         /// 最终没有被执行"而不是永远等不到任何结果通知。
         /// </summary>
         QueueCleared,
+
+        /// <summary>
+        /// ADR-0027《地面坐标施法请求》补充：<see cref="ISkillHost.CastSkillAtGround"/> 目标的技能
+        /// 未在 <c>skill.def</c> 声明允许地面坐标目标（<c>ground_target</c> 缺省 <c>false</c>，见
+        /// <c>Core.Rules.Skill.SkillDef.AllowGroundTarget</c>）。<see cref="ISkillHost.CastSkillAtGround"/>
+        /// 默认接口实现恒返回本原因（见该方法判断记录），生产实现
+        /// <c>Core.Rules.Skill.CastPipeline.CastSkillAtGround</c> 在技能未声明时同样返回本原因，
+        /// 与既有单位目标 <see cref="ISkillHost.CastSkill"/> 逐字节不变——地面坐标是新增能力，未
+        /// 声明的既有技能继续只能走单位目标入口。
+        /// </summary>
+        GroundTargetUnsupported,
+
+        /// <summary>
+        /// ADR-0027 补充：地面坐标施法请求的落点不可行走（<c>INavigation2D.IsWalkable</c> 判 false，
+        /// 见 <c>CastPipeline.ValidateGroundPoint</c> 判断记录）——与 <see cref="OutOfRange"/>/
+        /// <see cref="GroundTargetNoLineOfSight"/> 是同一批地面坐标专属校验的三个独立分支，互不
+        /// 覆盖。未注入 <c>INavigation2D</c>（可选依赖，见 02 第 1.8 节"可选接口"）或该单位未接入
+        /// 地图概念（<c>IUnitAccess.GetMapId</c> 返回 null）时本校验跳过（宁可漏判，不误判——没有
+        /// 导航数据无法判定"是否可行走"，不应该悄悄拒绝）。
+        /// </summary>
+        GroundTargetUnreachable,
+
+        /// <summary>
+        /// ADR-0027 补充：施法者到地面坐标落点之间无视线（复用既有 <c>ISpatialQuery.HasLineOfSight</c>，
+        /// 与步骤 7 单位目标 <see cref="LineOfSight"/> 同一判定方法，只是终点从目标单位坐标换成
+        /// 地面落点坐标）——与 <see cref="LineOfSight"/> 拆成独立原因码，供消费方区分"这是一次地面
+        /// 坐标请求被挡"还是"这是一次单位目标请求被挡"。仅当 <c>skill.def.range &gt; 0</c> 时校验
+        /// （<c>range == 0</c> 表示无限制，见 06 第 3.1 节，同 <see cref="OutOfRange"/> 判断记录），
+        /// 未注入 <c>ISpatialQuery</c> 时本校验跳过（同步骤 7 既有降级惯例）。
+        /// </summary>
+        GroundTargetNoLineOfSight,
     }
 }

@@ -37,6 +37,35 @@ namespace Core.Rules.Common
 
         CastResult CastSkill(Id casterId, Id skillId, IReadOnlyList<Id> targets);
 
+        /// <summary>
+        /// ADR-0027《地面坐标施法请求》补充：以显式世界坐标点（而非选中的单位列表）为落点的施法
+        /// 请求入口——消费方反馈 2026-09-11"动态地面坐标施法请求"（见
+        /// architecture/落地计划/消费方反馈-2026-09-11-地面坐标施法.md）：<see cref="CastSkill"/>
+        /// 的施法者/选中目标校验已有距离/视线保护，但没有独立的"动态地面坐标"施法请求通道；本方法
+        /// 补上这条通道。裁决口径与 <see cref="CastSkill"/> 共用步骤 1～5（存活/控制、学派锁定、
+        /// 冷却/充能、公共冷却、资源），随后换成地面坐标专属校验（技能是否声明允许地面目标、射程、
+        /// 视线、可行走）取代步骤 6/7 的单位目标解析/距离/视线；<see cref="CastResult.CastInstanceId"/>
+        /// 与生命周期事件（<c>skill.cast_start</c>/<c>skill.cast_success</c>/<c>skill.cast_interrupted</c>）
+        /// 语义与 <see cref="CastSkill"/> 完全一致，事件额外携带 <c>GroundPoint</c>。
+        /// <para>
+        /// 互斥（见 <see cref="GroundCastRequest"/> 判断记录）：本方法与 <see cref="CastSkill"/> 是
+        /// 两条独立入口，不共享目标解析管线——调用本方法不会读取、也不会被任何"当前选中单位目标"
+        /// 字段静默替代（消费方反馈验证条件原文）；<c>request.Point</c> 是效果结算唯一的落点来源。
+        /// </para>
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现恒拒绝（<see cref="CastFailureReason.GroundTargetUnsupported"/>，
+        /// 不分配施法实例 id、不发任何事件——与 <see cref="CastResult.Fail"/> 既有"校验阶段失败不
+        /// 分配 id"惯例一致），供未实现本能力的 <see cref="ISkillHost"/>（如旧版本编译产物、未升级
+        /// 的自定义实现）源码/二进制兼容——新增接口成员不破坏既有实现类的编译。生产实现
+        /// <c>Core.Rules.Skill.SkillHost</c> 显式覆盖，转发到 <c>CastPipeline.CastSkillAtGround</c>。
+        /// 任何组合/包装 <see cref="ISkillHost"/>（若存在）都应显式转发到内层实现，不应悄悄吃掉这个
+        /// 降级默认值——同 <see cref="GetSkillReadiness"/> 判断记录"框架内 InterfaceDefaultMemberForwardingTests
+        /// 门禁"。
+        /// </para>
+        /// </summary>
+        CastResult CastSkillAtGround(Id casterId, Id skillId, GroundCastRequest request) =>
+            CastResult.Fail(CastFailureReason.GroundTargetUnsupported);
+
         /// <summary>某技能（或其所属冷却分类）距下次可用的剩余时间；就绪返回 0。</summary>
         double GetCooldown(Id unitId, Id skillId);
 

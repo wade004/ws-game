@@ -750,13 +750,44 @@ CarriersAssembly` 在装配期把真正实现（`Core.Carriers.Unit.MovementHost
 `core/carriers/assembly/tests/C10a_ContinuousMoveEndToEndTests.cs`（真实 `CarriersAssembly` + 带
 阻挡的 `StubNavigation2D`，复现消费方反馈原始最小场景）。
 
+- ADR-0027《地面坐标施法请求》：新增独立入口 `ISkillHost.CastSkillAtGround`/`CastPipeline.CastSkillAtGround`，
+    以显式世界坐标点（而非选中的单位列表）为落点，与既有 `CastSkill` 结构性互斥（签名不含单位目标
+    列表）。裁决口径共用步骤 1～5，换成地面坐标专属校验取代步骤 6/7：`skill.def.ground_target`
+    （新增可选字段，缺省 `false`，`SkillDef.AllowGroundTarget`）门禁；射程/视线仅当 `range > 0`
+    时校验（复用 `ISpatialQuery.HasLineOfSight`，受阻返回新增的 `GroundTargetNoLineOfSight`，与单位
+    目标 `LineOfSight` 拆成独立原因码）；可行走校验新增依赖 `INavigation2D`（可选注入，未注入或该
+    单位无地图概念时跳过），不可行走返回新增的 `GroundTargetUnreachable`；技能未声明返回新增的
+    `GroundTargetUnsupported`。请求（`GroundCastRequest`，`core/rules/common/contracts`，判断记录
+    见 ADR-0027"放置位置"——与 `ISkillHost` 同处 common，不落在本模块）携带坐标快照策略
+    （`AtRequest`/`AtRelease`），效果落地那一刻（瞬发本身、读条完成、引导每一次周期跳）用与请求时
+    相同的校验逻辑再校验一次，未通过则跳过该次效果落地（不影响施法本身正常收尾，同既有
+    `FilterDestroyedTargets` 静默剔除惯例）；效果落地时改用新增的 `ITargetHost.ResolveAtPoint`
+    （见下方"不实现目标选择链"判断记录更新）解析命中单位，不调用 `Resolve`/`FilterExplicitTargets`。
+    不支持法术队列（读条中收到地面坐标请求一律 `Busy`，见 ADR-0027"不支持法术队列"判断记录）。
+    `EffectContext`/`SkillCastStartEvent`/`SkillCastSuccessEvent` 各新增一个 `GroundPoint`
+    属性（经新构造重载承载，旧构造保留）。<br/><br/>
+    ABI 兼容：`ISkillHost.CastSkillAtGround`/`ITargetHost.ResolveAtPoint` 为带默认实现的接口成员
+    （默认分别退化为 `GroundTargetUnsupported`/`Resolve(chainId, casterId)`），框架内全部组合/包装
+    实现（`RulesAssembly.DeferredSkillCastQuery`）显式转发，接入既有
+    `InterfaceDefaultMemberForwardingTests` 门禁；`CastPipeline`/`SkillHost` 构造函数各新增一个
+    可选尾参数 `navigation`，各自同时补回一个物理签名不变、全部参数必填的 `[Obsolete]` façade
+    构造函数（同既有 `factions` 十七/十八参数构造函数处理方式）。ABI 探针（`toolchain/abi_probe.ps1`，
+    基线 1.12.0）breaks=0。<br/><br/>
+    测试：`tests/C10b_GroundCastTests.cs`（经真实 `RulesAssembly` 装配根 + 带墙可配置的导航/空间
+    桩，覆盖合法点命中范围内单位且不命中施法者附近单位、墙后点拒绝、不可行点拒绝、超射程拒绝、
+    `AtRequest`/`AtRelease` 两种快照策略在施法期间点移动时的行为差异、技能未声明地面目标时拒绝、
+    地面请求与既有单位目标入口互斥且互不替代，共 8 例）；既有单位目标测试套件（`CastPipelineFlowTests`/
+    `CastPipelineFailureTests`/`DiscreteModeCastPipelineTests` 等）不改一行断言、全部通过。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全
   是 `core/rules/combat` 的职责；`EffectDispatcher` 对 `school_damage`/`weapon_damage_pct`/`heal`
   三类效果只组装 `EffectContext`（含 SpellMod `effect_value`/`crit_chance` 修正）交给
   `ICombatHost.ResolveEffect`，返回值原样透传。
-- 不实现目标选择链（`target.chain_def` 的候选/过滤/排序），只在施法管线步骤 6 调用注入的
-  `ITargetHost.Resolve`。
+- 不实现目标选择链（`target.chain_def` 的候选/过滤/排序），单位目标路径在施法管线步骤 6 调用注入
+  的 `ITargetHost.Resolve`/`FilterExplicitTargets`；地面坐标施法请求路径（ADR-0027）改调
+  `ITargetHost.ResolveAtPoint`，两条路径共用同一个注入的 `ITargetHost` 实例，但互相独立，均不在
+  本模块内部重新实现来源收集/过滤/排序。
 - 不实现 AI 优先级表（`ai.rotation`）求值，只被动接受 `ISkillHost.CastSkill`/`SkillTickHandler`
   消费的 `cast` 意图。

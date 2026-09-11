@@ -95,6 +95,14 @@ namespace Core.Rules.Common
         /// </summary>
         public Id? CastInstanceId { get; }
 
+        /// <summary>
+        /// ADR-0027《地面坐标施法请求》补充：本次施法若经 <c>CastPipeline.CastSkillAtGround</c>
+        /// 发起，为该请求效果落地那一刻实际使用的地面坐标（见 <see cref="Core.Rules.Common.EffectContext.GroundPoint"/>
+        /// 判断记录同一惯例）；经既有 <see cref="Core.Rules.Common.ISkillHost.CastSkill"/> 单位目标
+        /// 路径发起的施法恒为 <c>null</c>。旧构造（不带本参数）恒为 <c>null</c>。
+        /// </summary>
+        public Vec2? GroundPoint { get; }
+
         /// <summary>ABI 兼容 façade：不带 <see cref="CastInstanceId"/> 的旧构造签名，物理 IL 签名与
         /// 补充实例标识之前完全一致，供旧编译产物不重新编译即可继续加载。<see cref="CastInstanceId"/>
         /// 恒为 <c>null</c>。</summary>
@@ -106,11 +114,20 @@ namespace Core.Rules.Common
         /// <summary>见 <see cref="CastInstanceId"/> 判断记录：新增重载，纯新增物理签名，不影响
         /// 上面的三参数旧构造。</summary>
         public SkillCastStartEvent(Id casterId, Id skillId, double castTime, Id? castInstanceId)
+            : this(casterId, skillId, castTime, castInstanceId, groundPoint: null)
+        {
+        }
+
+        /// <summary>见 <see cref="GroundPoint"/> 判断记录：新增重载，五个参数均不带默认值，避免与
+        /// 上面四参数构造在"只传 3～4 个参数"的调用点产生重载二义性（同
+        /// <see cref="SkillCastSuccessEvent"/> 六参数构造判断记录同一套推导）。</summary>
+        public SkillCastStartEvent(Id casterId, Id skillId, double castTime, Id? castInstanceId, Vec2? groundPoint)
         {
             CasterId = casterId;
             SkillId = skillId;
             CastTime = castTime;
             CastInstanceId = castInstanceId;
+            GroundPoint = groundPoint;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -162,6 +179,11 @@ namespace Core.Rules.Common
         /// 同一个值。旧构造（不带本参数）恒为 <c>null</c>。</summary>
         public Id? CastInstanceId { get; }
 
+        /// <summary>见 <see cref="Core.Rules.Common.EffectContext.GroundPoint"/>/<see cref="SkillCastStartEvent.GroundPoint"/>
+        /// 判断记录（ADR-0027）：地面坐标施法请求效果落地那一刻实际使用的坐标；单位目标路径恒为
+        /// <c>null</c>。旧构造（不带本参数）恒为 <c>null</c>。</summary>
+        public Vec2? GroundPoint { get; }
+
         /// <summary>ABI 兼容 façade：不带 <see cref="CastInstanceId"/> 的旧构造签名，物理签名不变。</summary>
         public SkillCastSuccessEvent(Id casterId, Id skillId, IReadOnlyList<Id> targets, bool isInstant = false, double castTimeSeconds = 0)
             : this(casterId, skillId, targets, isInstant, castTimeSeconds, castInstanceId: null)
@@ -173,6 +195,15 @@ namespace Core.Rules.Common
         /// 十八参数构造重载判断记录同一套推导）。</summary>
         public SkillCastSuccessEvent(
             Id casterId, Id skillId, IReadOnlyList<Id> targets, bool isInstant, double castTimeSeconds, Id? castInstanceId)
+            : this(casterId, skillId, targets, isInstant, castTimeSeconds, castInstanceId, groundPoint: null)
+        {
+        }
+
+        /// <summary>见 <see cref="GroundPoint"/> 判断记录：新增重载（七个参数均不带默认值，避免与
+        /// 上面六参数构造产生重载二义性，同一套推导）。</summary>
+        public SkillCastSuccessEvent(
+            Id casterId, Id skillId, IReadOnlyList<Id> targets, bool isInstant, double castTimeSeconds, Id? castInstanceId,
+            Vec2? groundPoint)
         {
             CasterId = casterId;
             SkillId = skillId;
@@ -180,6 +211,7 @@ namespace Core.Rules.Common
             IsInstant = isInstant;
             CastTimeSeconds = castTimeSeconds;
             CastInstanceId = castInstanceId;
+            GroundPoint = groundPoint;
         }
 
         /// <summary><see cref="Targets"/> 是列表，Expr 无列表类型（见

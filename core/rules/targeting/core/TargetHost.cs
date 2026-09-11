@@ -126,7 +126,9 @@ namespace Core.Rules.Targeting
 
         public IReadOnlyList<Id> Resolve(Id chainId, Id casterId, Id? currentTarget)
         {
-            var result = ResolveChain(chainId, casterId, currentTarget, depth: 0);
+            var origin = _units.GetPosition(casterId);
+            var facing = _units.GetFacing(casterId);
+            var result = ResolveChain(chainId, casterId, currentTarget, origin, facing, depth: 0);
 
             if (_options.EmitResolvedEvent)
             {
@@ -149,7 +151,27 @@ namespace Core.Rules.Targeting
             return ApplyFilters(chain, casterId, targets);
         }
 
-        private IReadOnlyList<Id> ResolveChain(Id chainId, Id casterId, Id? currentTarget, int depth)
+        /// <summary>
+        /// ADR-0027《地面坐标施法请求》补充（见 <see cref="ITargetHost.ResolveAtPoint"/> 判断记录）：
+        /// 与 <see cref="Resolve(Id, Id, Id?)"/> 复用同一条 <see cref="ResolveChain"/> 管线，唯一差异
+        /// 是形状查询/排序距离基准的锚点从"施法者当前坐标/朝向"（<see cref="_units"/>.GetPosition/
+        /// GetFacing(casterId)）换成显式传入的 <paramref name="point"/>；朝向固定为 0（世界 +X 轴）——
+        /// 一个地面坐标点没有"朝向"这个概念，cone/line/rect 一类方向性形状的
+        /// <c>target.chain_def</c> 若用于地面坐标施法，内容作者需要知道其朝向恒沿 +X 轴，不随施法者
+        /// 面向改变；纯半径类（circle）形状不受影响。<paramref name="currentTarget"/> 恒传 null——
+        /// <c>current_target</c> 一类依赖"调用方当前选中目标"的来源策略与地面坐标请求语义上不相关
+        /// （地面坐标请求不建立在"已有一个当前目标"之上），链若声明了 <c>current_target</c> 来源，
+        /// 行为与未提供 currentTarget 时的 <see cref="Resolve(Id, Id)"/> 一致（该策略返回空列表，见
+        /// <c>BuiltinTargetStrategies.CurrentTargetStrategy</c>）。不发布 <see cref="TargetingResolvedEvent"/>
+        /// ——该事件的字段表（<c>targeting.resolved</c>）以"施法者+链"为主键，本方法调用频率/语义
+        /// 与既有 <see cref="Resolve(Id, Id, Id?)"/> 不同（同一次地面坐标施法读条期间可能因
+        /// <see cref="GroundCastSnapshotPolicy.AtRelease"/> 反复调用），刻意不叠加进同一份事件流，
+        /// 避免消费方误将其与既有 <c>Resolve</c> 调用一次一事件的既有惯例混淆。
+        /// </summary>
+        public IReadOnlyList<Id> ResolveAtPoint(Id chainId, Id casterId, Vec2 point) =>
+            ResolveChain(chainId, casterId, currentTarget: null, origin: point, facing: 0, depth: 0);
+
+        private IReadOnlyList<Id> ResolveChain(Id chainId, Id casterId, Id? currentTarget, Vec2 origin, double facing, int depth)
         {
             if (depth > _options.MaxFallbackDepth)
             {
@@ -160,8 +182,6 @@ namespace Core.Rules.Targeting
             var chain = LoadChain(chainId);
             var strategy = _registry.Get(chain.Source);
 
-            var origin = _units.GetPosition(casterId);
-            var facing = _units.GetFacing(casterId);
             var template = chain.Shape ?? EngineShape.Circle(Vec2.Zero, _options.DefaultRadius);
             var shape = RebaseShape(template, origin, facing);
 
@@ -182,7 +202,7 @@ namespace Core.Rules.Targeting
 
             if (candidates.Count == 0 && chain.Fallback.HasValue)
             {
-                return ResolveChain(chain.Fallback.Value, casterId, currentTarget, depth + 1);
+                return ResolveChain(chain.Fallback.Value, casterId, currentTarget, origin, facing, depth + 1);
             }
 
             return candidates;

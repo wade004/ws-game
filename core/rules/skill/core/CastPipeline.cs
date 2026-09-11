@@ -84,6 +84,15 @@ namespace Core.Rules.Skill
             /// <see cref="SkillCastFailedEvent"/>。</summary>
             public (Id SkillId, IReadOnlyList<Id> Targets, Id CastInstanceId)? Queued;
 
+            /// <summary>
+            /// ADR-0027《地面坐标施法请求》补充：非空表示本次读条/引导来自
+            /// <see cref="CastSkillAtGround"/>（地面坐标施法请求），<see cref="Targets"/> 恒为空列表，
+            /// 效果落地时改按本字段解析（见 <see cref="ApplyGroundEffectsIfValid"/> 判断记录）；为 null
+            /// 表示既有单位目标路径（<see cref="CastSkill"/>），与此前完全一致。两条路径互斥——同一个
+            /// <see cref="CastState"/> 不会同时有非空 <see cref="Targets"/> 又非空本字段。
+            /// </summary>
+            public GroundCastRequest? GroundRequest;
+
             /// <summary>N19 收边补齐：本次读条/引导开始时的原始时长（引导为 <c>channel_time</c>、
             /// 读条为 <c>cast_time</c>，均已按当时 SpellMod 修正），与本次施法开始时发布的
             /// <see cref="SkillCastStartEvent.CastTime"/> 同一个值——<see cref="FinishCast"/> 完成时
@@ -112,6 +121,14 @@ namespace Core.Rules.Skill
         private readonly SkillOptions _options;
         private readonly ISkillDiagnostics _diagnostics;
 
+        /// <summary>
+        /// ADR-0027《地面坐标施法请求》补充：地面坐标可行走判定（见
+        /// <see cref="ValidateGroundPoint"/> 判断记录）。可选依赖（同 <see cref="_spatialQuery"/>
+        /// 既有惯例——02 第 1.8 节 <see cref="Core.Foundation.EngineAdapter.INavigation2D"/> 本身是
+        /// "可选接口"）：未注入时地面坐标施法请求跳过可行走校验（宁可漏判，不误判）。
+        /// </summary>
+        private readonly INavigation2D? _navigation;
+
         private readonly Dictionary<Id, CastState> _casting = new Dictionary<Id, CastState>();
         private readonly Dictionary<(Id Unit, Id School), double> _schoolLocks = new Dictionary<(Id, Id), double>();
 
@@ -129,7 +146,8 @@ namespace Core.Rules.Skill
             SpellModResolver spellMods,
             IEventBus bus,
             SkillOptions options,
-            ISkillDiagnostics diagnostics)
+            ISkillDiagnostics diagnostics,
+            INavigation2D? navigation = null)
         {
             _defs = defs ?? throw new ArgumentNullException(nameof(defs));
             _cooldowns = cooldowns ?? throw new ArgumentNullException(nameof(cooldowns));
@@ -143,6 +161,7 @@ namespace Core.Rules.Skill
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+            _navigation = navigation;
 
             _bus.Subscribe(RulesEventKeys.AuraApplied, OnAuraApplied);
             _bus.Subscribe(RulesEventKeys.CombatDamageDealt, OnDamageDealt);
@@ -153,6 +172,36 @@ namespace Core.Rules.Skill
             // 访问已注销的 Powers/Unit 资源而抛异常（审计 RC-03）。
             _bus.Subscribe<UnitDiedEvent>(RulesEventKeys.UnitDied, evt => OnCasterDiedOrDestroyed(evt.UnitId));
             _bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, evt => OnCasterDiedOrDestroyed(evt.EntityId));
+        }
+
+        /// <summary>
+        /// ABI 兼容 façade（ADR-0027 补充 <see cref="_navigation"/> 之前的物理十二参数构造签名，
+        /// 同 <c>Core.Rules.Skill.SkillHost</c> 十七/十八参数构造函数判断记录同一套推导）：本重载
+        /// 十二个参数全部不带默认值，与上方主构造函数（12 个必填 + <c>navigation</c> 最多 13 个）
+        /// 参数个数不重叠时精确匹配本重载，恰好传 13 个参数时精确匹配主构造函数，互不冲突，保证
+        /// 已编译好、以"省略 navigation"方式调用本构造函数的既有二进制消费方不需要重新编译。
+        /// <c>navigation</c> 固定传 <c>null</c>——旧调用方不会得到地面坐标可行走校验，
+        /// <see cref="ValidateGroundPoint"/> 对这类实例恒跳过可行走分支（同未注入
+        /// <see cref="_spatialQuery"/> 的既有降级惯例），其余行为与本重载补充之前完全一致。
+        /// </summary>
+        [Obsolete("ADR-0027 之前的十二参数构造签名，仅为源码/二进制兼容保留；新代码请使用带 navigation 的十三参数构造函数。")]
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        public CastPipeline(
+            SkillDefCache defs,
+            CooldownTracker cooldowns,
+            AuraHost auraHost,
+            EffectDispatcher effects,
+            ITargetHost targetHost,
+            IUnitAccess units,
+            ISpatialQuery? spatialQuery,
+            IPowerHost powerHost,
+            SpellModResolver spellMods,
+            IEventBus bus,
+            SkillOptions options,
+            ISkillDiagnostics diagnostics)
+            : this(defs, cooldowns, auraHost, effects, targetHost, units, spatialQuery, powerHost, spellMods, bus,
+                options, diagnostics, navigation: null)
+        {
         }
 
         public bool IsCasting(Id unitId) => _casting.ContainsKey(unitId);
@@ -197,6 +246,38 @@ namespace Core.Rules.Skill
             }
 
             return TryStartCast(casterId, skillId, safeTargets);
+        }
+
+        /// <summary>
+        /// ADR-0027《地面坐标施法请求》：见 <see cref="Core.Rules.Common.ISkillHost.CastSkillAtGround"/>
+        /// 判断记录。裁决口径与 <see cref="CastSkill"/> 共用步骤 1～5，随后换成地面坐标专属校验
+        /// （<see cref="TryStartCastAtGround"/>）。
+        /// <para>
+        /// 判断记录（不支持法术队列）：<see cref="CastSkill"/> 的"读条即将结束前的窗口内可预先提交
+        /// 下一个施法请求"（06 第 3.6 节法术队列）依赖 <see cref="CastState.Queued"/> 这一
+        /// <c>(SkillId, IReadOnlyList&lt;Id&gt; Targets, Id CastInstanceId)</c> 三元组，形状是单位目标
+        /// 专属的；把地面坐标请求也塞进同一个队列槽位需要扩出第二套"排队的是地面请求还是单位目标
+        /// 请求"的分支语义，超出消费方反馈"动态地面坐标施法请求"的最小场景与验证条件范围（见
+        /// architecture/落地计划/消费方反馈-2026-09-11-地面坐标施法.md）。本方法在施法者已经处于
+        /// 读条/引导中时一律直接拒绝（<see cref="CastFailureReason.Busy"/>），不区分是否落在
+        /// <see cref="SkillOptions.QueueWindow"/> 窗口内——与 <see cref="CastSkill"/> 窗口外拒绝复用
+        /// 同一个失败原因码，但地面坐标请求没有"窗口内则入队"这一分支。地面坐标施法排队留待后续
+        /// 有真实场景需求时再补齐，不在本次范围内过度设计。
+        /// </para>
+        /// </summary>
+        public CastResult CastSkillAtGround(Id casterId, Id skillId, GroundCastRequest request)
+        {
+            if (request == null)
+            {
+                throw new ArgumentNullException(nameof(request));
+            }
+
+            if (_casting.ContainsKey(casterId))
+            {
+                return Fail(casterId, skillId, CastFailureReason.Busy);
+            }
+
+            return TryStartCastAtGround(casterId, skillId, request);
         }
 
         /// <summary>见 <see cref="CastState.Queued"/>/<see cref="CastSkill"/> 判断记录"身份规则"：
@@ -399,6 +480,240 @@ namespace Core.Rules.Skill
         }
 
         // -----------------------------------------------------------------
+        // ADR-0027《地面坐标施法请求》：地面坐标专属校验/进入读条/效果落地
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 见 <see cref="CastSkillAtGround"/> 判断记录：步骤 1～5 与 <see cref="TryStartCast"/> 逐字节
+        /// 相同的检查内容（存活/控制、学派锁定、冷却/充能、公共冷却、资源），换成地面坐标专属的
+        /// 步骤 6'（技能是否声明允许地面目标）/7'（射程/视线/可行走，见 <see cref="ValidateGroundPoint"/>）
+        /// 取代单位目标步骤 6（目标合法性）/7（距离与视线）。判断记录（为什么不重构成共享一份步骤
+        /// 1～5 的私有方法）：<see cref="TryStartCast"/> 是全部既有单位目标施法测试覆盖的核心路径，
+        /// 抽出共享辅助方法会让这条已被大量测试锁定的路径多一层间接调用——本方法独立复制这五步，
+        /// 用少量重复代码换取"改动地面坐标路径时不可能影响单位目标路径的字节级行为"这一更强的
+        /// 保证，与任务书"既有单位目标施法语义与事件序列逐字节不变"的硬约束直接对应。
+        /// </summary>
+        private CastResult TryStartCastAtGround(Id casterId, Id skillId, GroundCastRequest request)
+        {
+            if (!_defs.TryGetSkillDef(skillId, out var def))
+            {
+                return Fail(casterId, skillId, CastFailureReason.UnknownSkill);
+            }
+
+            var overridden = _auraHost.ResolveSkillOverride(casterId, skillId);
+            if (overridden.HasValue && _defs.TryGetSkillDef(overridden.Value, out var overriddenDef))
+            {
+                skillId = overridden.Value;
+                def = overriddenDef;
+            }
+
+            if (def.IsPassive)
+            {
+                return Fail(casterId, skillId, CastFailureReason.PassiveSkill);
+            }
+
+            // 步骤 6'（技能定义门禁）：未声明 ground_target 的技能一律拒绝，保持既有技能行为不变
+            // （见 SkillDef.AllowGroundTarget 判断记录）。放在步骤 1～5 之前——这是"这条技能定义是否
+            // 支持本入口"这一静态问题，不依赖施法者当前状态，与 PassiveSkill/UnknownSkill 同属
+            // "技能定义级别的前置校验"，早失败早返回。
+            if (!def.AllowGroundTarget)
+            {
+                return Fail(casterId, skillId, CastFailureReason.GroundTargetUnsupported);
+            }
+
+            // 步骤 1：存活与状态
+            if (!_units.IsAlive(casterId))
+            {
+                return Fail(casterId, skillId, CastFailureReason.Dead);
+            }
+
+            var control = _auraHost.GetControlFlags(casterId);
+            const ControlFlags fullyIncapacitated = ControlFlags.NoCast | ControlFlags.NoMove | ControlFlags.NoAttack;
+            if ((control & fullyIncapacitated) == fullyIncapacitated)
+            {
+                return Fail(casterId, skillId, CastFailureReason.Stunned);
+            }
+
+            if ((control & ControlFlags.NoCast) != 0)
+            {
+                return Fail(casterId, skillId, CastFailureReason.Silenced);
+            }
+
+            // 步骤 2：学派锁定
+            if (GetSchoolLockRemaining(casterId, def.School) > 0)
+            {
+                return Fail(casterId, skillId, CastFailureReason.SchoolLocked);
+            }
+
+            // 步骤 3：冷却/充能
+            if (!_cooldowns.IsSkillReady(casterId, def))
+            {
+                var reason = def.HasCharges && _cooldowns.GetCharges(casterId, def) <= 0
+                    ? CastFailureReason.NoCharges
+                    : CastFailureReason.OnCooldown;
+                return Fail(casterId, skillId, reason);
+            }
+
+            // 步骤 4：公共冷却
+            var isDiscreteStep = _options.IsDiscreteStep?.Invoke() ?? false;
+            if (_options.GcdEnabled && def.RespectsGcd && !isDiscreteStep && !_cooldowns.IsGcdReady(casterId))
+            {
+                return Fail(casterId, skillId, CastFailureReason.GcdActive);
+            }
+
+            // 步骤 5：资源
+            var modifiedCost = ComputeCost(casterId, def);
+            foreach (var (powerType, amount) in modifiedCost)
+            {
+                if (_powerHost.GetPower(casterId, powerType) < amount)
+                {
+                    return Fail(casterId, skillId, CastFailureReason.InsufficientPower);
+                }
+            }
+
+            // 步骤 6'/7'：地面坐标射程/视线/可行走。
+            var invalidReason = ValidateGroundPoint(casterId, def, request.Point);
+            if (invalidReason.HasValue)
+            {
+                return Fail(casterId, skillId, invalidReason.Value);
+            }
+
+            // RC-04 同款时机：全部会失败的校验都已通过，行动点消耗放在进入读条/引导之前（同
+            // TryStartCast 判断记录）。
+            if (isDiscreteStep && def.ActionCost > 0)
+            {
+                if (_options.TryConsumeActionPoints == null || !_options.TryConsumeActionPoints(casterId, def.ActionCost))
+                {
+                    return Fail(casterId, skillId, CastFailureReason.InsufficientActionPoints);
+                }
+            }
+
+            return EnterGroundCastOrChannel(casterId, skillId, def, request, modifiedCost);
+        }
+
+        /// <summary>
+        /// 地面坐标专属校验：射程/视线仅当 <c>def.Range &gt; 0</c> 时生效（<c>0</c> 表示无限制，见
+        /// 06 第 3.1 节、<see cref="TryStartCast"/> 步骤 7 同一惯例）；可行走校验与射程无关，只要
+        /// 注入了 <see cref="_navigation"/> 且该施法者能取得地图 id（<see cref="IUnitAccess.GetMapId"/>）
+        /// 就无条件生效——一个"无限射程"的地面坐标技能仍然不应该落在墙内。返回 <c>null</c> 表示通过；
+        /// 非 null 时是具体的拒绝原因，供 <see cref="TryStartCastAtGround"/>（请求时）与
+        /// <see cref="ApplyGroundEffectsIfValid"/>（释放时再校验一次，见该方法判断记录）共用同一套
+        /// 判定逻辑，不允许两处出现不一致的裁决口径。
+        /// </summary>
+        private CastFailureReason? ValidateGroundPoint(Id casterId, SkillDef def, Vec2 point)
+        {
+            if (def.Range > 0)
+            {
+                var casterPos = _units.GetPosition(casterId);
+                if (Vec2.Distance(casterPos, point) > def.Range)
+                {
+                    return CastFailureReason.OutOfRange;
+                }
+
+                if (_spatialQuery != null && !_spatialQuery.HasLineOfSight(casterPos, point))
+                {
+                    return CastFailureReason.GroundTargetNoLineOfSight;
+                }
+            }
+
+            if (_navigation != null)
+            {
+                var mapId = _units.GetMapId(casterId);
+                if (mapId.HasValue && !_navigation.IsWalkable(mapId.Value, point))
+                {
+                    return CastFailureReason.GroundTargetUnreachable;
+                }
+            }
+
+            return null;
+        }
+
+        private CastResult EnterGroundCastOrChannel(
+            Id casterId, Id skillId, SkillDef def, GroundCastRequest request, IReadOnlyList<(Id, double)> modifiedCost)
+        {
+            var castInstanceId = NextCastInstanceId();
+            var castTime = ComputeCastTime(casterId, def) * _currentFactor;
+            var channelTime = def.ChannelTime * _currentFactor;
+            var isChannel = def.ChannelTime > 0;
+
+            // 事件携带请求时快照坐标（诊断用途）——AtRelease 策略下效果落地那一刻可能重采样出不同
+            // 坐标（见 SkillCastSuccessEvent.GroundPoint 携带的才是"实际使用"的坐标），本事件只标记
+            // "这次请求当初落在哪"。
+            _bus.Enqueue(new SkillCastStartEvent(
+                casterId, skillId, isChannel ? channelTime : castTime, castInstanceId, request.Point));
+
+            if (!isChannel && castTime <= 0)
+            {
+                // 瞬发：步骤 8 立即完成，直接执行步骤 9。
+                DeductResources(casterId, def.Id, modifiedCost);
+                StartCooldownAndGcd(casterId, def);
+                var hitTargets = ApplyGroundEffectsIfValid(casterId, def, request, out var appliedPoint);
+                _bus.Enqueue(new SkillCastSuccessEvent(
+                    casterId, skillId, hitTargets, isInstant: true, castTimeSeconds: 0,
+                    castInstanceId: castInstanceId, groundPoint: appliedPoint ?? request.Point));
+                return CastResult.Ok(castInstanceId);
+            }
+
+            if (isChannel)
+            {
+                // 判断记录同 EnterCastOrChannel：引导开始时一次性扣资源进冷却。
+                DeductResources(casterId, def.Id, modifiedCost);
+                StartCooldownAndGcd(casterId, def);
+            }
+
+            var state = new CastState
+            {
+                SkillId = skillId,
+                Def = def,
+                Targets = Array.Empty<Id>(),
+                GroundRequest = request,
+                IsChannel = isChannel,
+                Remaining = isChannel ? channelTime : castTime,
+                TickInterval = isChannel ? ComputeChannelTickInterval(def) * _currentFactor : 0,
+                ModifiedCost = modifiedCost,
+                CastTimeSeconds = isChannel ? channelTime : castTime,
+                CastInstanceId = castInstanceId,
+            };
+
+            _casting[casterId] = state;
+            return CastResult.Ok(castInstanceId);
+        }
+
+        /// <summary>
+        /// 效果落地那一刻（瞬发本身、非引导读条完成、引导每一次周期跳）解析实际坐标并再校验一次
+        /// （消费方反馈验证条件"施法期间移动点"）：按 <see cref="GroundCastRequest.SnapshotPolicy"/>
+        /// 决定用请求时快照坐标（<see cref="GroundCastSnapshotPolicy.AtRequest"/>）还是重新采样
+        /// （<see cref="GroundCastSnapshotPolicy.AtRelease"/>，<see cref="GroundCastRequest.Sampler"/>
+        /// 未提供时退化为快照坐标），再用与请求时相同的 <see cref="ValidateGroundPoint"/> 重新判一次
+        /// （施法者自己在读条/引导期间也可能移动，射程/视线的判定基准——施法者当前坐标——同样需要
+        /// 重新取值，不是只有点会变）。校验未通过时不应用任何效果（返回空列表，<paramref
+        /// name="appliedPoint"/> 为 null）——判断记录：不是把整次施法判失败（<see cref="CastResult"/>
+        /// 早在请求时就已经同步返回成功，读条期间没有第二次机会改写它），而是与既有
+        /// <see cref="FilterDestroyedTargets"/>"目标在读条期间被销毁则从结算列表里剔除，不影响施法
+        /// 本身完成"同一惯例——静默跳过这一次效果落地，只记一条诊断，cast 生命周期事件仍然正常收尾。
+        /// </summary>
+        private IReadOnlyList<Id> ApplyGroundEffectsIfValid(
+            Id casterId, SkillDef def, GroundCastRequest request, out Vec2? appliedPoint)
+        {
+            var point = request.SnapshotPolicy == GroundCastSnapshotPolicy.AtRelease && request.Sampler != null
+                ? request.Sampler()
+                : request.Point;
+
+            if (ValidateGroundPoint(casterId, def, point).HasValue)
+            {
+                appliedPoint = null;
+                _diagnostics.Warn(
+                    $"地面坐标施法 \"{def.Id}\" 效果落地时坐标校验未通过（casterId=\"{casterId}\"），跳过本次效果落地");
+                return Array.Empty<Id>();
+            }
+
+            appliedPoint = point;
+            var hitTargets = _targetHost.ResolveAtPoint(def.TargetShapeRef, casterId, point);
+            ExecuteEffectsOnly(casterId, def, hitTargets, groundPoint: point);
+            return hitTargets;
+        }
+
+        // -----------------------------------------------------------------
         // Update：推进读条/引导
         // -----------------------------------------------------------------
 
@@ -473,10 +788,21 @@ namespace Core.Rules.Skill
                 while (state.TickInterval > 0 && state.TickAccumulator >= state.TickInterval && _casting.ContainsKey(casterId))
                 {
                     state.TickAccumulator -= state.TickInterval;
-                    var tickTargets = FilterDestroyedTargets(state.Targets);
-                    if (tickTargets.Count > 0)
+
+                    // ADR-0027：引导型地面坐标施法请求每一次周期跳都是一次独立的"效果落地"——见
+                    // ApplyGroundEffectsIfValid 判断记录（AtRelease 策略下每一跳各自重新采样/校验一次，
+                    // 不是只在引导开始或结束时各算一次）。
+                    if (state.GroundRequest != null)
                     {
-                        ExecuteEffectsOnly(casterId, state.Def, tickTargets);
+                        ApplyGroundEffectsIfValid(casterId, state.Def, state.GroundRequest, out _);
+                    }
+                    else
+                    {
+                        var tickTargets = FilterDestroyedTargets(state.Targets);
+                        if (tickTargets.Count > 0)
+                        {
+                            ExecuteEffectsOnly(casterId, state.Def, tickTargets);
+                        }
                     }
                 }
             }
@@ -513,24 +839,50 @@ namespace Core.Rules.Skill
                 return;
             }
 
-            var targets = FilterDestroyedTargets(state.Targets);
-
-            if (!state.IsChannel)
+            // ADR-0027：地面坐标施法请求与既有单位目标路径在这里彻底分叉——见 CastState.GroundRequest
+            // 判断记录"两条路径互斥"。地面分支是全新代码，单位目标分支（else）与本次改动之前逐字节
+            // 相同，只是从"方法主体"缩进进了 else 块。
+            if (state.GroundRequest != null)
             {
-                DeductResources(casterId, state.Def.Id, state.ModifiedCost);
-                StartCooldownAndGcd(casterId, state.Def);
-                if (targets.Count > 0)
-                {
-                    ExecuteEffectsOnly(casterId, state.Def, targets);
-                }
-            }
+                Vec2? appliedPoint = null;
+                var hitTargets = (IReadOnlyList<Id>)Array.Empty<Id>();
 
-            // N19 收边补齐：非瞬发（真正经历过读条/引导才走到这里）——IsInstant=false，
-            // CastTimeSeconds 取本次开始时记录的原始时长（见 CastState.CastTimeSeconds 判断记录）。
-            // 消费方反馈 2026-09-10：携带与本次 SkillCastStartEvent 同一个 state.CastInstanceId。
-            _bus.Enqueue(new SkillCastSuccessEvent(
-                casterId, state.SkillId, state.Targets, isInstant: false, castTimeSeconds: state.CastTimeSeconds,
-                castInstanceId: state.CastInstanceId));
+                if (!state.IsChannel)
+                {
+                    DeductResources(casterId, state.Def.Id, state.ModifiedCost);
+                    StartCooldownAndGcd(casterId, state.Def);
+                    hitTargets = ApplyGroundEffectsIfValid(casterId, state.Def, state.GroundRequest, out appliedPoint);
+                }
+
+                // N19/消费方反馈 2026-09-10 同款惯例：见下方 else 分支同一段注释。ADR-0027：Targets
+                // 改用"效果落地那一刻实际命中的单位"（引导型在完成时不重复结算，见上方 IsChannel
+                // 判断，恒为空列表——每一次周期跳已经在 AdvanceOne 各自结算过），GroundPoint 取实际
+                // 使用的坐标（校验未通过时退回请求时快照坐标，仅作诊断标注，不代表真的应用过效果）。
+                _bus.Enqueue(new SkillCastSuccessEvent(
+                    casterId, state.SkillId, hitTargets, isInstant: false, castTimeSeconds: state.CastTimeSeconds,
+                    castInstanceId: state.CastInstanceId, groundPoint: appliedPoint ?? state.GroundRequest.Point));
+            }
+            else
+            {
+                var targets = FilterDestroyedTargets(state.Targets);
+
+                if (!state.IsChannel)
+                {
+                    DeductResources(casterId, state.Def.Id, state.ModifiedCost);
+                    StartCooldownAndGcd(casterId, state.Def);
+                    if (targets.Count > 0)
+                    {
+                        ExecuteEffectsOnly(casterId, state.Def, targets);
+                    }
+                }
+
+                // N19 收边补齐：非瞬发（真正经历过读条/引导才走到这里）——IsInstant=false，
+                // CastTimeSeconds 取本次开始时记录的原始时长（见 CastState.CastTimeSeconds 判断记录）。
+                // 消费方反馈 2026-09-10：携带与本次 SkillCastStartEvent 同一个 state.CastInstanceId。
+                _bus.Enqueue(new SkillCastSuccessEvent(
+                    casterId, state.SkillId, state.Targets, isInstant: false, castTimeSeconds: state.CastTimeSeconds,
+                    castInstanceId: state.CastInstanceId));
+            }
 
             if (state.Queued.HasValue)
             {
@@ -753,7 +1105,15 @@ namespace Core.Rules.Skill
         /// 用同一个粒度天然同时满足这两条互相制约的要求，不需要额外的"同一引导跨 tick 但不同批次"
         /// 特判。</para>
         /// </summary>
-        private void ExecuteEffectsOnly(Id casterId, SkillDef def, IReadOnlyList<Id> targets, int chainDepth = 0)
+        /// <summary>
+        /// ADR-0027 补充 <paramref name="groundPoint"/>：地面坐标施法请求效果落地时实际使用的坐标，
+        /// 原样戳到每一份 <see cref="EffectContext.GroundPoint"/> 上（见该属性判断记录）；默认 null
+        /// 表示既有单位目标路径，全部既有调用点（<see cref="EnterCastOrChannel"/>/<see cref="AdvanceOne"/>/
+        /// <see cref="FinishCast"/>/<see cref="TriggerCast"/>）均不传本参数，构造 <see cref="EffectContext"/>
+        /// 时继续调用原十五参数构造函数（未新增本参数之前的同一条代码路径），逐字节不变——只有
+        /// <see cref="ApplyGroundEffectsIfValid"/> 这一个新增调用点会传入非 null 值。
+        /// </summary>
+        private void ExecuteEffectsOnly(Id casterId, SkillDef def, IReadOnlyList<Id> targets, int chainDepth = 0, Vec2? groundPoint = null)
         {
             var attackInstanceId = NextCastInstanceId();
 
@@ -766,10 +1126,16 @@ namespace Core.Rules.Skill
                     var coefficient = ParamsX.GetNumber(effect.Params, "coefficient");
                     var canMiss = effect.Kind != EffectKind.Heal;
 
-                    var context = new EffectContext(
-                        casterId, targetId, def.Id, effect.Kind, school, baseValue, coefficient,
-                        effect.Params, auraInstanceId: null, isPeriodic: false, canCrit: true, canMiss: canMiss,
-                        tags: def.Tags, triggerChainDepth: chainDepth, attackInstanceId: attackInstanceId);
+                    var context = groundPoint.HasValue
+                        ? new EffectContext(
+                            casterId, targetId, def.Id, effect.Kind, school, baseValue, coefficient,
+                            effect.Params, auraInstanceId: null, isPeriodic: false, canCrit: true, canMiss: canMiss,
+                            tags: def.Tags, triggerChainDepth: chainDepth, attackInstanceId: attackInstanceId,
+                            groundPoint: groundPoint)
+                        : new EffectContext(
+                            casterId, targetId, def.Id, effect.Kind, school, baseValue, coefficient,
+                            effect.Params, auraInstanceId: null, isPeriodic: false, canCrit: true, canMiss: canMiss,
+                            tags: def.Tags, triggerChainDepth: chainDepth, attackInstanceId: attackInstanceId);
 
                     _effects.ApplyEffect(context);
                 }

@@ -438,6 +438,10 @@ namespace Core.Rules.Skill
                     },
                     description: "{max: Int, recharge_time: Number}"),
                 new FieldSchema("action_cost", FieldKind.Number, required: false, description: "离散模式行动点消耗"),
+                // ADR-0027《地面坐标施法请求》：是否允许经 ISkillHost.CastSkillAtGround 以地面坐标为
+                // 落点施放，缺省 false（见 SkillDef.AllowGroundTarget 判断记录，保持既有技能行为不变）。
+                new FieldSchema("ground_target", FieldKind.Bool, required: false,
+                    description: "是否允许地面坐标施法请求（ISkillHost.CastSkillAtGround），缺省 false"),
                 new FieldSchema("respects_gcd", FieldKind.Bool, required: true, description: "是否受公共冷却影响"),
                 new FieldSchema("target_shape_ref", FieldKind.Id, required: true,
                     description: "指向 target.chain_def（本模块按此语义解析，见 README；消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
