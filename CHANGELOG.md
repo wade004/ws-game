@@ -98,6 +98,52 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.21.1] - 2026-09-11
+
+PATCH 版本：消费方反馈处理——只读就绪查询影响后续充能状态——`CooldownTracker` 只读充能查询
+（`GetCharges`/`GetChargeRechargeRemaining`/`GetEffectiveChargesMax`/`GetEffectiveRechargeTimeScaled`/
+`IsSkillReady`/`GetCooldown`）不再惰性创建或修改充能账本；充能上限发生变化（`charges` 维度
+SpellMod 生效/失效）时，已存在账本的当前充能数按守恒规则跟随调整（提高同步增、降低夹取并按需清零
+恢复窗口），不再因"查没查询过一次"而产生分叉。核实与逐条回复见
+[消费方反馈-2026-09-11-充能查询副作用.md](architecture/落地计划/消费方反馈-2026-09-11-充能查询副作用.md)。
+提交链：`2c16551`（`CooldownTracker` 修复 + 单元/集成测试）、`656588c`（06 第 3.5 节勘误 +
+判断记录 + 回复文档 + 落地方案登记）、本笔提交（变更记录与迁移说明）。
+
+### 修复
+
+- `core/rules/skill/core/CooldownTracker.cs`：只读方法改经新增私有方法 `ComputeReadOnlySnapshot`
+  计算快照，不再触达惰性创建路径 `GetOrCreateChargeState`；`GetCooldown(Id, SkillDef)` 此前经
+  `GetCharges(Id, SkillDef)` 间接触发创建的同源独立读路径缺口一并修复。
+- `ChargeState` 新增字段 `KnownEffectiveMax`（记录"上一次对账时的有效上限"），新增共用纯函数
+  `ReconcileForMaxChange` 实现充能上限变化的守恒规则：提高 Δ → 当前充能数 `+= Δ`（恢复窗口不变）；
+  降低 → 当前充能数夹取到不超过新上限，夹取后若恰好满充能则距下次恢复剩余清零。写路径
+  （`GetOrCreateChargeState`/`AddCharge`/`StartCooldown`）与推进路径（`AdvanceCharges`）在真正
+  触达/推进账本前先对账，只读路径（`ComputeReadOnlySnapshot`）计算同一结果但不写回，保证查询
+  是否发生过不影响后续原生施法的实际充能数与连续可施放次数。
+  （消费方反馈处理，
+  [消费方反馈-2026-09-11-充能查询副作用.md](architecture/落地计划/消费方反馈-2026-09-11-充能查询副作用.md)，
+  提交 `2c16551`）。
+
+### 文档
+
+- 06 第 3.5 节勘误：补充"充能只读查询不得产生状态、`charges` 维度上限变化的守恒规则"说明，并同步
+  更新变更记录。
+- `core/rules/skill/README.md` 新增判断记录条目 47，完整记录现象/根因/两条根治规则/测试清单。
+
+### 迁移说明
+
+- 若消费方此前的数值/技能设计**依赖**"查询后充能上限提高不生效"这一修复前的旧行为（例如刻意利用
+  该路径营造"充能暂不到账"的效果），需要复核相关配置——该行为建立在一个未定义、且与只读查询契约
+  相反的副作用之上，不建议继续依赖。除此之外无需任何改动：查询频率、调用时机均不受限制，公开
+  签名未发生任何变化。
+
+### 兼容声明
+
+本版本对 1.12.0～1.21.0 期间编译的旧消费方二进制保持兼容：依据是 `toolchain/abi_probe.ps1`
+严格模式下的验证——1.12.0 基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑通过，且
+独立的公开 API 表面差异比对（`toolchain/abi_surface`）输出 `breaks=0`；本次改动全部落在私有字段
+与私有方法层面，未新增、未删改任何公开签名。
+
 ## [1.21.0] - 2026-09-11
 
 MINOR 版本：消费方反馈处理——冷却充能与公共冷却缺少统一只读查询接口——新增
