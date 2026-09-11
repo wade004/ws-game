@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Core.Carriers.Common;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
@@ -179,13 +178,7 @@ namespace Core.Gameplay.Loot
                 var candidatePool = new List<LootEntry>();
                 foreach (var group in def.Groups)
                 {
-                    foreach (var entry in group.Entries)
-                    {
-                        if (ConditionPasses(entry, exprHost))
-                        {
-                            candidatePool.Add(entry);
-                        }
-                    }
+                    candidatePool.AddRange(LootRollCore.FilterEligible(group.Entries, exprHost, _diagnostics));
                 }
 
                 while (resultCount < def.GuaranteedMin.Value && candidatePool.Count > 0)
@@ -215,7 +208,7 @@ namespace Core.Gameplay.Loot
                     continue;
                 }
 
-                var baseChance = Clamp01(entry.WeightOrChance * context.Multiplier);
+                var baseChance = LootRollCore.EffectiveChanceEach(entry.WeightOrChance, context.Multiplier);
                 var effectiveChance = baseChance;
                 string? pseudoKey = null;
 
@@ -223,7 +216,7 @@ namespace Core.Gameplay.Loot
                 {
                     pseudoKey = $"{context.ContextId}|{def.Id}|{groupIndex}|{ei}";
                     var streak = _missStreaks.TryGetValue(pseudoKey, out var s) ? s : 0;
-                    effectiveChance = Clamp01(baseChance * (1 + streak * _options.PseudoRandomStep));
+                    effectiveChance = LootRollCore.ApplyPseudoRandomStep(baseChance, streak, _options.PseudoRandomStep);
                 }
 
                 var roll = _rng.Next(_options.RngStream);
@@ -249,14 +242,7 @@ namespace Core.Gameplay.Loot
 
         private int RollWeightedGroup(IReadOnlyList<LootEntry> entries, int pickCount, RollContext context, IExprHost exprHost, int depth, List<(Id, int)> output)
         {
-            var pool = new List<LootEntry>();
-            foreach (var entry in entries)
-            {
-                if (ConditionPasses(entry, exprHost))
-                {
-                    pool.Add(entry);
-                }
-            }
+            var pool = LootRollCore.FilterEligible(entries, exprHost, _diagnostics);
 
             var produced = 0;
             for (var i = 0; i < pickCount && pool.Count > 0; i++)
@@ -278,32 +264,21 @@ namespace Core.Gameplay.Loot
 
         private LootEntry? PickWeighted(List<LootEntry> pool)
         {
-            var totalWeight = pool.Sum(e => e.WeightOrChance);
+            var totalWeight = LootRollCore.TotalWeight(pool);
             if (totalWeight <= 0)
             {
                 return null;
             }
 
-            var threshold = _rng.Next(_options.RngStream) * totalWeight;
-            var cumulative = 0.0;
-            foreach (var entry in pool)
-            {
-                cumulative += entry.WeightOrChance;
-                if (threshold < cumulative)
-                {
-                    return entry;
-                }
-            }
-
-            // 浮点误差兜底：理论上不可达（cumulative 最终等于 totalWeight > threshold），保留防御分支。
-            return pool[pool.Count - 1];
+            var thresholdFraction = _rng.Next(_options.RngStream);
+            return LootRollCore.SelectByThreshold(pool, totalWeight, thresholdFraction);
         }
 
         private int RollCount(LootEntry entry) =>
             entry.CountMin == entry.CountMax ? entry.CountMin : _rng.NextInt(_options.RngStream, entry.CountMin, entry.CountMax);
 
         private bool ConditionPasses(LootEntry entry, IExprHost exprHost) =>
-            entry.Condition == null || ExprEvaluator.EvaluateBool(entry.Condition, exprHost, _diagnostics);
+            LootRollCore.ConditionPasses(entry, exprHost, _diagnostics);
 
         /// <summary>把一条候选解析为具体产出：<paramref name="entry"/>.Ref 是 <c>item.*</c> 时直接
         /// 追加一条 <c>(templateId, count)</c>；是 <c>loot.*</c> 时按判断记录 2 递归展开该嵌套表
@@ -358,8 +333,6 @@ namespace Core.Gameplay.Loot
 
             return result;
         }
-
-        private static double Clamp01(double value) => value < 0 ? 0 : (value > 1 ? 1 : value);
 
         // -----------------------------------------------------------------
         // Drop / PickUp
