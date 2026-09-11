@@ -223,5 +223,28 @@ namespace Core.Foundation.EngineAdapter
 
         /// <summary>场景卸载时调用，清空整个空间索引。</summary>
         void Clear();
+
+        /// <summary>
+        /// C11-RELOAD 根治新增（architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命
+        /// 周期.md）：批量重同步一批对象在空间索引中的位置——供读档等"某个对象的位置可能已经绕开
+        /// <see cref="UpdatePosition"/> 被直接改写"的场景，在派生状态重建阶段做一次全量兜底重同步
+        /// （见 <c>Core.Gameplay.Assembly.GameplayAssembly</c> 的 <c>IDerivedStateRebuilder</c> 实现
+        /// 判断记录）。默认实现（C#8 默认接口方法）逐个调用 <see cref="UpdatePosition"/>，与调用方
+        /// 自己写一个等价循环行为完全一致；本接口目前的实现（真实引擎适配层 + 测试用
+        /// <c>Adapters.Stub.StubSpatialQuery</c>）新增本成员不需要跟着实现，只是拿不到比逐个调用更
+        /// 高效的批量重建（如整体重建内部索引结构而非逐个更新），具体实现可按需覆盖本方法。
+        /// </summary>
+        void ResyncPositions(IEnumerable<(Id Id, Vec2 Position)> entries)
+        {
+            if (entries == null)
+            {
+                return;
+            }
+
+            foreach (var (id, position) in entries)
+            {
+                UpdatePosition(id, position);
+            }
+        }
     }
 }

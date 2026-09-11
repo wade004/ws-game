@@ -185,6 +185,7 @@ namespace Core.Gameplay.Assembly
 
         private readonly IEventBus _bus;
         private readonly IWorldSim _world;
+        private readonly ISpatialQuery _spatial;
         private readonly ISimClockHost? _clockHost;
 
         /// <summary>外部审核阻塞项 2 收口新增：<see cref="RestoreFromSlot"/> 需要它判断"读档后是否
@@ -284,6 +285,7 @@ namespace Core.Gameplay.Assembly
 
             _bus = bus;
             _world = world;
+            _spatial = spatial;
             _sceneRouter = sceneRouter;
 
             // 判断记录（缺口 16，自动存档槽 id/时间戳来源）：提前到构造函数最前面解析（原在第 14 步
@@ -1277,7 +1279,9 @@ namespace Core.Gameplay.Assembly
             // player.race_id（可选），见 UnitPersistable.RaceId 判断记录。
             saveSystem.RegisterPersistable(UnitPersistable.RaceId(player));
             saveSystem.RegisterPersistable(UnitPersistable.CurrentMapId(player));
-            saveSystem.RegisterPersistable(UnitPersistable.CurrentPosition(player));
+            // C11-RELOAD 根治：改用带 IUnitAccess 的重载——Load 经 Carriers.Units（生产环境唯一实现
+            // WorldUnitAccess）写入位置，连带同步空间索引，见该重载判断记录。
+            saveSystem.RegisterPersistable(UnitPersistable.CurrentPosition(player, Carriers.Units));
             saveSystem.RegisterPersistable(new InventoryPersistable(player.EntityId, Carriers.Inventory));
             saveSystem.RegisterPersistable(new EquipmentPersistable(player.EntityId, Carriers.Inventory, Carriers.Equipment));
             // G1 遗留恢复：player.known_skills（10 §3 步骤 5，此前缺 IPersistable 实现，见
@@ -1307,7 +1311,10 @@ namespace Core.Gameplay.Assembly
             // 战斗运行态，CORE-111-01 根治后不再只覆盖生命值一种资源，见 PlayerVitalsPersistable
             // 类型注释）——放在 world.difficulty 之后、TurnScheduler/rng 之前（10 号文档固定段序
             // 此前未列出本段，本次一并补录，见该文档"2026-09-07 勘误"）。
-            saveSystem.RegisterPersistable(new PlayerVitalsPersistable(player, Carriers.Rules.Powers));
+            // C11-RELOAD 根治：改用带 CombatHost 的重载——Load 恢复 in_combat 时经
+            // Carriers.Rules.Combat.RestoreCombatState 写入（唯一来源，见该方法判断记录），不再直接
+            // 绕开 CombatHost 只改 PowerHost。
+            saveSystem.RegisterPersistable(new PlayerVitalsPersistable(player, Carriers.Rules.Powers, Carriers.Rules.Combat));
 
             // ADR-0013：TurnScheduler 全部状态可存档（见任务书"全部状态可存档"），只在装配了离散
             // 模式（构造函数传入 clockHost）时注册——段名 sim.turn_state 已登记进 10 号文档第 3 节
@@ -1333,7 +1340,7 @@ namespace Core.Gameplay.Assembly
             // README.md"CORE-180-01 根治"一节。放在本方法末尾——此时全部段都已经注册完毕，晚于
             // 构造函数但早于任何一次真正的 saveSystem.Load 调用（调用方约定顺序：先
             // RegisterPersistables，再才会有读档发生）。
-            saveSystem.SetDerivedStateRebuilder(new DerivedStateRebuilder(Carriers.Rules, player));
+            saveSystem.SetDerivedStateRebuilder(new DerivedStateRebuilder(Carriers.Rules, player, Carriers.Units, _spatial, Death));
         }
 
         /// <summary>
@@ -1368,19 +1375,56 @@ namespace Core.Gameplay.Assembly
         {
             private readonly Core.Rules.Assembly.RulesAssembly _rules;
             private readonly PlayerUnit _player;
+            private readonly IUnitAccess _units;
+            private readonly ISpatialQuery _spatial;
+            private readonly Core.Gameplay.Death.DeathPolicyHost _death;
             private Id? _previousArchetypeId;
             private Id? _previousRaceId;
 
-            public DerivedStateRebuilder(Core.Rules.Assembly.RulesAssembly rules, PlayerUnit player)
+            /// <summary>
+            /// C11-RELOAD/C11-PENDING-LOAD 根治新增参数（architecture/落地计划/消费方反馈-2026-09-11-
+            /// 读档空间索引与复活生命周期.md）：<paramref name="units"/>/<paramref name="spatial"/>
+            /// 供 <see cref="OnSectionLoaded"/> 在 <c>world.current_position</c> 段恢复之后做一次
+            /// "空间索引全量重同步"兜底（见该方法判断记录）；<paramref name="death"/> 供
+            /// <see cref="BeforeLoad"/> 清空读档前遗留的延迟复活队列（见该方法判断记录）。
+            /// </summary>
+            public DerivedStateRebuilder(
+                Core.Rules.Assembly.RulesAssembly rules,
+                PlayerUnit player,
+                IUnitAccess units,
+                ISpatialQuery spatial,
+                Core.Gameplay.Death.DeathPolicyHost death)
             {
                 _rules = rules ?? throw new ArgumentNullException(nameof(rules));
                 _player = player ?? throw new ArgumentNullException(nameof(player));
+                _units = units ?? throw new ArgumentNullException(nameof(units));
+                _spatial = spatial ?? throw new ArgumentNullException(nameof(spatial));
+                _death = death ?? throw new ArgumentNullException(nameof(death));
             }
 
+            /// <summary>
+            /// C11-RELOAD/C11-PENDING-LOAD 根治：除原有的"快照读档前 ArchetypeId/RaceId"之外，追加
+            /// 两步（均早于任何存档段真正 Load，见 <see cref="Core.Foundation.SaveSystem.
+            /// IDerivedStateRebuilder.BeforeLoad"/> 判断记录"真正开始逐段 Load 之前调用一次"）：
+            /// (a) 清空 <see cref="RulesAssembly.Combat"/> 的运行期战斗态（见 <see
+            /// cref="Core.Rules.Combat.CombatHost.ClearCombatState"/> 判断记录）——随后
+            /// <c>player.vitals</c> 段的 <c>PlayerVitalsPersistable.Load</c> 会把存档里的
+            /// <c>in_combat</c> 恢复回 <see cref="RulesAssembly.Combat"/>，两步合起来即"清空 → 恢复"
+            /// 的固定顺序契约（见 <c>GameplayAssembly.RestoreFromSlot</c> 恢复顺序契约、10 号文档
+            /// 勘误）；(b) 清空 <see cref="_death"/> 的延迟复活队列（见 <see
+            /// cref="Core.Gameplay.Death.DeathPolicyHost.ClearPending"/> 判断记录）——避免读档前
+            /// 遗留的延迟复活记录在读档完成后到期时把刚恢复好的存档状态覆盖掉。两步都允许在
+            /// <see cref="RulesAssembly.Combat"/>/<see cref="_death"/> 尚未真正参与过战斗/死亡（如
+            /// 全新装配、从未调用过 <see cref="RulesAssembly.RegisterUnit"/>）时安全调用——分别是
+            /// 对不存在 key 的 <c>Dictionary.Remove</c>/空 <c>List.Clear</c>，不抛异常。
+            /// </summary>
             public void BeforeLoad()
             {
                 _previousArchetypeId = _player.ArchetypeId;
                 _previousRaceId = _player.RaceId;
+
+                _rules.Combat.ClearCombatState(_player.EntityId);
+                _death.ClearPending();
             }
 
             /// <summary>
@@ -1426,6 +1470,26 @@ namespace Core.Gameplay.Assembly
                     {
                         _rules.Powers.RecomputeMax(_player.EntityId);
                     }
+                }
+
+                // C11-RELOAD 根治新增（消费方反馈第 1 项判断记录"兜底"）：world.current_position 段
+                // 恢复之后，对全部存活单位按当前位置做一次空间索引全量重同步——本次收口已经把
+                // UnitPersistable.CurrentPosition 改经 IUnitAccess.SetPosition 写入（见该类型判断
+                // 记录），正常路径下这一步已经是多余的（SetPosition 内部已经同步过一次）；保留作为
+                // 兜底，覆盖"以后又出现一个绕开 SetPosition 直接改 Position 字段的 Load 实现"这类
+                // 回归——同一单位被 ResyncPositions 重复 UpdatePosition 到同一个值是安全空操作。
+                if (sectionKey == SaveSections.WorldCurrentPosition)
+                {
+                    var entries = new List<(Id, Vec2)>();
+                    foreach (var unitId in _units.AllUnits)
+                    {
+                        if (_units.IsAlive(unitId))
+                        {
+                            entries.Add((unitId, _units.GetPosition(unitId)));
+                        }
+                    }
+
+                    _spatial.ResyncPositions(entries);
                 }
             }
         }

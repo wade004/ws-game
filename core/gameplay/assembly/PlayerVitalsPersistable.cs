@@ -5,6 +5,7 @@ using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.SaveSystem;
 using Core.Numbers.PowerSet;
+using Core.Rules.Combat;
 using Core.Rules.Common;
 
 namespace Core.Gameplay.Assembly
@@ -101,11 +102,33 @@ namespace Core.Gameplay.Assembly
 
         private readonly PlayerUnit _player;
         private readonly PowerHost _powers;
+        private readonly CombatHost? _combat;
 
         public PlayerVitalsPersistable(PlayerUnit player, PowerHost powers)
+            : this(player, powers, combat: null)
+        {
+        }
+
+        /// <summary>
+        /// C11-RELOAD 根治新增重载（architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活
+        /// 生命周期.md 第 2 项）：额外注入 <see cref="CombatHost"/>——<see cref="Load"/> 恢复
+        /// <c>in_combat</c> 字段时改经 <see cref="CombatHost.RestoreCombatState"/>（唯一来源，见该
+        /// 方法判断记录），不再直接调用 <see cref="IPowerHost.SetInCombat"/>：直接调用只会改到
+        /// <see cref="PowerHost"/> 自己的内部状态，<see cref="CombatHost"/> 自身的进战登记表对此一无
+        /// 所知，读档后 <see cref="CombatHost.IsInCombat"/> 与 <see cref="IPowerHost.IsInCombat"/>
+        /// 会出现分歧（真实探针复现，见消费方反馈第 2 项）。
+        /// <para>
+        /// <paramref name="combat"/> 为 <c>null</c>（本类型保留的旧两参构造函数路径，源码兼容）时
+        /// <see cref="Load"/> 退回旧行为——只同步 <see cref="PowerHost"/>，不修复上述分歧；生产装配
+        /// （<c>GameplayAssembly.RegisterPersistables</c>）已经改用本重载并传入真实
+        /// <c>Core.Rules.Assembly.RulesAssembly.Combat</c>，不受影响。
+        /// </para>
+        /// </summary>
+        public PlayerVitalsPersistable(PlayerUnit player, PowerHost powers, CombatHost? combat)
         {
             _player = player ?? throw new ArgumentNullException(nameof(player));
             _powers = powers ?? throw new ArgumentNullException(nameof(powers));
+            _combat = combat;
         }
 
         /// <summary>
@@ -197,6 +220,15 @@ namespace Core.Gameplay.Assembly
                     _powers.ModifyPower(_player.EntityId, WellKnownPowers.Health, max - current, ReloadSource);
                 }
 
+                // C11-RELOAD 根治：段整体缺失同样按"从未发生过"归零进出战斗状态（新游戏/本段从未
+                // 写入过的玩家本就不在战），见下方 RestoreInCombat 判断记录——与"有段但缺
+                // in_combat 字段"（旧格式存档）走同一条默认 false 路径，保持 CombatHost/PowerHost
+                // 恒一致（消费方反馈第 2 项 c 条断言）。
+                if (_powers.IsRegistered(_player.EntityId))
+                {
+                    RestoreInCombat(false);
+                }
+
                 return;
             }
 
@@ -244,10 +276,34 @@ namespace Core.Gameplay.Assembly
                 _powers.ModifyPower(_player.EntityId, WellKnownPowers.Health, healthNumber.Value - current, ReloadSource);
             }
 
-            if (obj.TryGetValue(InCombatKey, out var inCombatRaw) && inCombatRaw is JsonBool inCombatBool &&
-                _powers.IsRegistered(_player.EntityId))
+            // C11-RELOAD 根治：不再只在 in_combat 键存在时才写——旧格式存档（没有 in_combat 字段）
+            // 同样要显式归零（见 RestoreInCombat 判断记录），否则 CombatHost（经
+            // GameplayAssembly.DerivedStateRebuilder.BeforeLoad 已经清空为 false，见该方法判断
+            // 记录）与 PowerHost（本段缺键时此前保持读档前的旧值不动）在读档后会分歧。
+            if (_powers.IsRegistered(_player.EntityId))
             {
-                _powers.SetInCombat(_player.EntityId, inCombatBool.Value);
+                var inCombat = obj.TryGetValue(InCombatKey, out var inCombatRaw) &&
+                    inCombatRaw is JsonBool inCombatBool && inCombatBool.Value;
+                RestoreInCombat(inCombat);
+            }
+        }
+
+        /// <summary>
+        /// C11-RELOAD 根治新增：把 <paramref name="inCombat"/> 写回"进出战斗状态的唯一来源"——已注入
+        /// <see cref="CombatHost"/>（生产装配路径）时经 <see cref="CombatHost.RestoreCombatState"/>
+        /// 写入（同时同步 <see cref="PowerHost"/>，见该方法判断记录）；未注入（旧两参构造函数，源码
+        /// 兼容路径）时退回直接调用 <see cref="IPowerHost.SetInCombat"/> 的旧行为，见构造函数判断
+        /// 记录。
+        /// </summary>
+        private void RestoreInCombat(bool inCombat)
+        {
+            if (_combat != null)
+            {
+                _combat.RestoreCombatState(_player.EntityId, inCombat);
+            }
+            else
+            {
+                _powers.SetInCombat(_player.EntityId, inCombat);
             }
         }
     }

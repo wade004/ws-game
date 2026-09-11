@@ -2,6 +2,7 @@ using System;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.SaveSystem;
+using Core.Rules.Common;
 
 namespace Core.Carriers.Unit
 {
@@ -23,8 +24,34 @@ namespace Core.Carriers.Unit
         /// <summary><c>world.current_map_id</c> 段（见 10 第 2.3 节）。</summary>
         public static IPersistable CurrentMapId(PlayerUnit player) => new CurrentMapIdPersistable(player);
 
-        /// <summary><c>world.current_position</c> 段（见 10 第 2.3 节）。</summary>
-        public static IPersistable CurrentPosition(PlayerUnit player) => new CurrentPositionPersistable(player);
+        /// <summary>
+        /// <c>world.current_position</c> 段（见 10 第 2.3 节）。
+        /// <para>
+        /// C11-RELOAD 根治（架构落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md 第 1
+        /// 项）判断记录：本重载保留 <see cref="Load"/> 直接写 <paramref name="player"/>.<see
+        /// cref="PlayerUnit.Position"/> 字段的旧行为，绕开 <see cref="IUnitAccess.SetPosition"/>——
+        /// 空间索引因此不会同步（<see cref="Core.Carriers.Unit.WorldUnitAccess.SetPosition"/> 才会
+        /// 经 <c>ISpatialQuery.UpdatePosition</c> 同步，见该方法判断记录）。仅为源码兼容保留（本类型
+        /// 是 <c>public static</c> 工厂，不能排除既有调用方直接以这个签名调用）；生产装配
+        /// （<c>GameplayAssembly.RegisterPersistables</c>）已经改用下方
+        /// <see cref="CurrentPosition(PlayerUnit, IUnitAccess)"/> 重载。
+        /// </para>
+        /// </summary>
+        public static IPersistable CurrentPosition(PlayerUnit player) => new CurrentPositionPersistable(player, null);
+
+        /// <summary>
+        /// C11-RELOAD 根治新增：<c>world.current_position</c> 段，<see cref="IPersistable.Load"/>
+        /// 改经 <paramref name="unitAccess"/>.<see cref="IUnitAccess.SetPosition"/> 写入位置——统一
+        /// 单位访问层入口，若 <paramref name="unitAccess"/> 实际是 <see
+        /// cref="Core.Carriers.Unit.WorldUnitAccess"/>（生产环境唯一实现），写入的同时会经其注入的
+        /// <c>ISpatialQuery.UpdatePosition</c> 同步空间索引——根治"同图读档后玩家位置正确但空间索引
+        /// 仍是移动前登记的旧位置（甚至查询不到）"（真实探针复现：<c>spatial_index_count=0</c>，见
+        /// 消费方反馈第 1 项）。<see cref="Save"/> 不受影响，仍直接读 <paramref name="player"/>.<see
+        /// cref="PlayerUnit.Position"/>——该字段本就与 <paramref name="unitAccess"/> 指向同一个运行期
+        /// <c>Unit</c> 实体，两者读到的值恒一致，不需要改走 <see cref="IUnitAccess.GetPosition"/>。
+        /// </summary>
+        public static IPersistable CurrentPosition(PlayerUnit player, IUnitAccess unitAccess) =>
+            new CurrentPositionPersistable(player, unitAccess ?? throw new ArgumentNullException(nameof(unitAccess)));
 
         /// <summary>
         /// W1 收边补齐（A4 审计 F1：10 第 2.2 节 <c>archetype_id</c> 字段"必填"，此前无任何
@@ -173,9 +200,16 @@ namespace Core.Carriers.Unit
         {
             private readonly PlayerUnit _player;
 
-            public CurrentPositionPersistable(PlayerUnit player)
+            /// <summary>C11-RELOAD 根治新增：为 null 时（<see cref="CurrentPosition(PlayerUnit)"/>
+            /// 旧工厂路径）<see cref="Load"/> 退回直接写 <see cref="_player"/>.Position 字段的旧行为；
+            /// 非 null（<see cref="CurrentPosition(PlayerUnit, IUnitAccess)"/> 新工厂路径）时经它写入，
+            /// 见两个工厂方法判断记录。</summary>
+            private readonly IUnitAccess? _unitAccess;
+
+            public CurrentPositionPersistable(PlayerUnit player, IUnitAccess? unitAccess)
             {
                 _player = player ?? throw new ArgumentNullException(nameof(player));
+                _unitAccess = unitAccess;
             }
 
             public string SectionKey => SaveSections.WorldCurrentPosition;
@@ -208,7 +242,15 @@ namespace Core.Carriers.Unit
                         "world.current_position 段的数据不是 {x, y} 形状的 JSON 对象");
                 }
 
-                _player.Position = new Vec2(x.Value, y.Value);
+                var position = new Vec2(x.Value, y.Value);
+                if (_unitAccess != null)
+                {
+                    _unitAccess.SetPosition(_player.EntityId, position);
+                }
+                else
+                {
+                    _player.Position = position;
+                }
             }
         }
     }
