@@ -120,6 +120,20 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-09-11
+
+MINOR 版本：消费方反馈"投射物与技能位移通用能力反馈"（M-C10）第 1/2/3/4 节处理，核实与逐条回复见
+[消费方反馈-2026-09-11-技能位移连续模式.md](architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md)、
+[消费方反馈-2026-09-11-地面坐标施法.md](architecture/落地计划/消费方反馈-2026-09-11-地面坐标施法.md)、
+[消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md](architecture/落地计划/消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md)。
+提交链：连续位移 `015e882`（ADR-0026 + 契约/schema）/`b65af95`（实现 + 46 例测试）/`2115ecc`
+（文档 + 回复），分支 `wao/continuous-move`，`--no-ff` 合入 `main` `f38dd14`；地面坐标施法
+`bc59d9a`（ADR-0027 + 契约/schema）/`d63dca3`（实现 + 验收测试）/`917452f`（文档 + 回复），
+分支 `wap/ground-cast`，`--no-ff` 合入 `main` `ae4996c`；投射物敌友策略 `334c260`（ADR-0028 +
+契约/schema）/`4ff9ae1`（实现 + 测试）/`33ec751`（文档 + 回复），分支 `waq/projectile-policy`，
+`--no-ff` 合入 `main` `dbd6ad6`；`09aabe7`（本版本变更记录与计划文档回填，含合并期间根治
+`SkillTestSupport.cs` 一处构造函数重载选择漂移）。
+
 ### 新增
 
 - `move` 效果原语新增可选参数 `motion: instant|continuous`（缺省 `instant`，既有三种子类型
@@ -152,6 +166,42 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   [ADR-0028](architecture/adr/0028-投射物碰撞的敌友关系策略.md)、
   `core/carriers/projectile/README.md`"敌友关系策略"一节、
   [消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md](architecture/落地计划/消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md)。
+
+### 迁移说明
+
+- **`motion` 缺省瞬移不变**：`move` 效果原语不声明 `motion` 字段时行为与 1.25.0 之前逐字节
+  一致（`charge`/`leap`/`knockback` 三种子类型仍是一次性 `SetPosition`），仅显式声明
+  `motion: continuous` 才转为逐 tick 推进；未装配 `core/carriers`（未接入
+  `IControlledDisplacementSink`）的纯 L2 测试/集成场景下，`continuous` 会降级为直接按算出的
+  目标点 `SetPosition`（记一条警告，不抛异常），不需要任何一次性迁移。
+- **`ground_target` 缺省不允许**：技能不声明 `skill.def.ground_target: true` 时，
+  `CastSkillAtGround` 一律返回 `GroundTargetUnsupported`，既有技能内容与既有 `CastSkill` 单位
+  目标入口不受影响，不需要任何数据迁移；需要开放地面坐标施法的技能需显式在内容表打开该字段。
+- **`relation_policy` 缺省兼容**：`projectile` 效果原语不声明 `relation_policy`/`pierce_order`
+  时按 `default`/`nearest` 既有裁决口径运行，候选筛选、命中顺序与事件序列逐字节不变；若消费方
+  自行手工构造 `ProjectileHost`（不经 `CarriersAssembly` 装配根），`Factions` 属性不会自动注入，
+  `hostile_only`/`friendly_only`/`hostile_first` 三项取值静默退化为兼容默认行为并记一条诊断
+  警告（不是报错），需要该能力时须自行设置该属性。
+- **`ActiveCount` 语义与 `ClearAll()` 接入**：`ProjectileHost.ActiveCount`/`IsQuiescent` 反映的
+  是"截至上一次 `Advance`/`ClearAll` 调用后的存活投射物数"，经本仓库
+  `Core.Gameplay.Assembly.GameplayAssembly.LeaveMap`（既有出图收尾入口）触发的
+  `IWorldSim.ClearAll()` 已自动接线 `ProjectileHost.ClearAll()`；若消费方在该入口之外的路径
+  直接调用 `IWorldSim.ClearAll()`（如脱离场景路由的手工重置/测试），需要自行一并调用
+  `ProjectileHost.ClearAll()` 才能让 `ActiveCount`/`IsQuiescent` 立即归零反映"已清空"，否则会
+  保持清空前的数值直到下一次正 `dt` 的 `Advance`（不产生幽灵伤害，纯粹是可观测性滞后）。
+
+### 兼容声明
+
+本版本对 1.12.0～1.24.0 期间编译的旧消费方二进制保持兼容：依据是 `toolchain/abi_probe.ps1`
+严格模式下的验证——1.12.0 基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑通过，且
+独立的公开 API 表面差异比对（`toolchain/abi_surface`）输出 `breaks=0`（`allowed=0`,
+`additions=456`）；带默认实现的接口新增成员（`ISkillHost.CastSkillAtGround`/
+`ITargetHost.ResolveAtPoint`）与新增可写属性（`SkillHost.DisplacementSink`/
+`EffectDispatcher.DisplacementSink`、`ProjectileHost.Factions`）均不改变任何既有构造函数的
+物理签名；`CastPipeline`/`SkillHost` 新增的 `navigation` 尾参数各自补回一个物理签名不变、全部
+参数必填的 `[Obsolete]` façade 构造函数（同既有 `factions` 参数处理方式）。经同一探针验证旧
+编译 consumer 无需重新编译即可继续运行（含接口默认成员转发门禁
+`InterfaceDefaultMemberForwardingTests`，覆盖 `ISkillHost`/`ITargetHost` 全部默认成员）。
 
 ## [1.24.0] - 2026-09-11
 
