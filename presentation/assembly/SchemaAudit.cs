@@ -39,7 +39,8 @@ namespace Presentation.Assembly
         /// <c>unschematized_table</c>/<c>field_range_kind</c>（ADR-0021）/<c>field_map_kind</c>/
         /// <c>field_map_conflict</c>（ADR-0024）/<c>idlist_allowed_values_conflict</c>/
         /// <c>soft_reference_kind</c>（消费方反馈第 28/29 条，04 第 3.4 节勘误）/
-        /// <c>id_description_reference_hint</c>（消费方反馈第 30 条，告警级，04 第 3.4 节勘误）。</summary>
+        /// <c>id_description_reference_hint</c>（消费方反馈第 30 条，告警级，04 第 3.4 节勘误）/
+        /// <c>declared_reference_unregistered</c>（消费方反馈第 37 条，告警级，04 第 4 节勘误）。</summary>
         public string Check { get; }
 
         public string Message { get; }
@@ -328,10 +329,38 @@ namespace Presentation.Assembly
             return registry.RegisteredSchemas;
         }
 
-        public static SchemaAuditReport Run(IReadOnlyList<TableSchema> schemas, SchemaAuditAllowlist allowlist)
+        /// <summary>
+        /// 消费方反馈第 37 条：与 <see cref="EnumerateRegisteredSchemas"/> 同一份装配（只登记 schema、
+        /// 不加载任何数据），读出全部已登记 <c>DeclareReference</c>/带来源重载的登记（见
+        /// <see cref="IDataRegistryView.GetReferenceDeclarations"/>），供 <c>--schema-audit</c> 跑
+        /// <c>declared_reference_unregistered</c> 检查。
+        /// </summary>
+        public static IReadOnlyList<ReferenceDeclaration> EnumerateReferenceDeclarations(ContentValidationOptions? options = null)
+        {
+            var opts = options ?? new ContentValidationOptions();
+            var registry = (DataRegistry)ContentValidationAssembly.CreateRegistry(
+                new InMemoryDataSource(), opts, out _);
+            return registry.GetReferenceDeclarations();
+        }
+
+        public static SchemaAuditReport Run(IReadOnlyList<TableSchema> schemas, SchemaAuditAllowlist allowlist) =>
+            Run(schemas, allowlist, Array.Empty<ReferenceDeclaration>());
+
+        /// <summary>
+        /// 消费方反馈第 37 条（2026-09-12）新增的三参数重载：额外接受
+        /// <paramref name="referenceDeclarations"/>（<see cref="IDataRegistryView.GetReferenceDeclarations"/>
+        /// 的快照）以跑 <see cref="CheckDeclaredReferencesRegistered"/>（<c>declared_reference_unregistered</c>
+        /// 检查，见该方法判断记录）。纯新增重载，不改动既有两参数 <c>Run(IReadOnlyList&lt;TableSchema&gt;, SchemaAuditAllowlist)</c>
+        /// 的物理签名（该重载转发到本重载、<paramref name="referenceDeclarations"/> 传空集合，行为与
+        /// 改动前完全一致——不构成"公开 API 表面"意义上的破坏性变更）。
+        /// </summary>
+        public static SchemaAuditReport Run(
+            IReadOnlyList<TableSchema> schemas, SchemaAuditAllowlist allowlist,
+            IReadOnlyList<ReferenceDeclaration> referenceDeclarations)
         {
             if (schemas == null) throw new ArgumentNullException(nameof(schemas));
             if (allowlist == null) throw new ArgumentNullException(nameof(allowlist));
+            if (referenceDeclarations == null) throw new ArgumentNullException(nameof(referenceDeclarations));
 
             var issues = new List<SchemaAuditIssue>();
             var fieldCount = 0;
@@ -366,6 +395,7 @@ namespace Presentation.Assembly
             }
 
             CheckKnownTimeFieldsHaveUnit(schemas, issues);
+            CheckDeclaredReferencesRegistered(schemas, referenceDeclarations, issues);
 
             for (var i = 0; i < allowlist.Entries.Count; i++)
             {
@@ -379,6 +409,59 @@ namespace Presentation.Assembly
             }
 
             return new SchemaAuditReport(issues, schemas.Count, fieldCount);
+        }
+
+        /// <summary>
+        /// 消费方反馈第 37 条（04 第 4 节勘误"declareReference 与字段元数据同步"）：凡经
+        /// <see cref="IDataRegistry.DeclareReference(string, string, string)"/>（含带来源标注的重载）
+        /// 声明的 (表, 字段)，若对应 <see cref="FieldSchema"/> 既未登记 <see cref="FieldSchema.ReferenceTable"/>/
+        /// <see cref="FieldSchema.ReferenceDomain"/>，也未登记 <see cref="FieldSchema.SoftReferenceTable"/>/
+        /// <see cref="FieldSchema.SoftReferenceDomain"/>，也未登记 <see cref="FieldSchema.AllowedValues"/>——
+        /// 意味着 <c>DeclareReference</c> 一侧知道这是条引用，但字段元数据一侧对内容工具"哑"（既无
+        /// 引用目标提示也无固定取值提示），只能按值弱推断，即消费方反馈第 37 条 <c>trigger_skill</c>
+        /// 案例本身（本条原始案例已在 <c>SkillSchemas.cs</c> 补登 <see cref="FieldSchema.WithSoftReference"/>
+        /// 修复，见该字段声明）。告警级，不阻断——<c>DeclareReference</c> 与字段级软引用元数据是两套
+        /// 独立机制（见 <see cref="ReferenceDeclaration"/> 类型判断记录），刻意不互相要求，只在两者
+        /// 都缺失时提示"内容工具侧完全看不到这条引用语义"这一具体风险。源表不在本次 <c>schemas</c>
+        /// 范围内、或源表登记里找不到该字段，均跳过（同 <see cref="CheckKnownTimeFieldsHaveUnit"/>
+        /// 判断记录"表未登记进本次审计范围不属于本检查职责"）。
+        /// </summary>
+        private static void CheckDeclaredReferencesRegistered(
+            IReadOnlyList<TableSchema> schemas, IReadOnlyList<ReferenceDeclaration> referenceDeclarations,
+            List<SchemaAuditIssue> issues)
+        {
+            var byName = new Dictionary<string, TableSchema>(StringComparer.Ordinal);
+            for (var i = 0; i < schemas.Count; i++)
+            {
+                byName[schemas[i].Name] = schemas[i];
+            }
+
+            for (var i = 0; i < referenceDeclarations.Count; i++)
+            {
+                var decl = referenceDeclarations[i];
+                if (!byName.TryGetValue(decl.FromTable, out var schema))
+                {
+                    continue;
+                }
+
+                var field = schema.GetField(decl.FieldPath);
+                if (field == null)
+                {
+                    continue;
+                }
+
+                if (field.ReferenceTable == null && field.ReferenceDomain == null
+                    && field.SoftReferenceTable == null && field.SoftReferenceDomain == null
+                    && field.AllowedValues == null)
+                {
+                    issues.Add(new SchemaAuditIssue("warning", decl.FromTable, decl.FieldPath, "declared_reference_unregistered",
+                        $"字段 \"{decl.FieldPath}\" 经 DeclareReference 声明指向 \"{decl.ToTable}\"" +
+                        (decl.Source == null ? "" : $"（登记来源 {decl.Source}）") +
+                        "，但 FieldSchema 既未登记 ReferenceTable/ReferenceDomain，也未登记 SoftReferenceTable/" +
+                        "SoftReferenceDomain，也未登记 AllowedValues——内容工具无法从字段元数据得知这是一条引用" +
+                        $"（消费方反馈第 37 条）；补登记 WithSoftReference(table: \"{decl.ToTable}\")"));
+                }
+            }
         }
 
         /// <summary>

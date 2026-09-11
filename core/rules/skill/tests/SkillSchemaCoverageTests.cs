@@ -93,5 +93,21 @@ namespace Tests.Rules.Skill
             Assert.Equal(19, SkillSchemas.AllEffectKindValues.Length);
             Assert.Equal(19, SkillSchemas.AllEffectKindValues.Distinct(StringComparer.Ordinal).Count());
         }
+
+        /// <summary>消费方反馈第 37 条：<c>skill.proc_def.trigger_skill</c> 此前只在
+        /// <c>RulesSchemaCatalog.DeclareKnownReferences</c> 登记了加载期硬校验（
+        /// <c>DeclareReference("skill.proc_def", "trigger_skill", "skill.def")</c>），字段元数据一侧
+        /// 未同步登记 <see cref="FieldSchema.SoftReferenceTable"/>，导致内容工具（编辑器 P3.1 引用图）
+        /// 只能按值弱推断该字段是否是引用。本测试锁死字段元数据一侧已同步补齐（同 29/30 号反馈同类
+        /// 修复的验收口径）。</summary>
+        [Fact]
+        public void ProcDef_TriggerSkill_DeclaresSoftReferenceToSkillDef()
+        {
+            var field = SkillSchemas.ProcDef.GetField("trigger_skill");
+            Assert.NotNull(field);
+            Assert.Equal(FieldKind.Id, field!.Kind);
+            Assert.Equal("skill.def", field.SoftReferenceTable);
+            Assert.Null(field.SoftReferenceDomain);
+        }
     }
 }

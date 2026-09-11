@@ -181,9 +181,13 @@ namespace Core.Rules.Assembly
         /// </summary>
         private static void DeclareKnownReferences(IDataRegistry registry)
         {
-            registry.DeclareReference("arch.class", "primary_stat", "stat.definition");
-            registry.DeclareReference("skill.def", "target_shape_ref", "target.chain_def");
-            registry.DeclareReference("skill.proc_def", "trigger_skill", "skill.def");
+            // 消费方反馈第 37 条：改用带来源标注的重载——三条声明统一标注 "RulesSchemaCatalog"
+            // （本方法所在类型名），供 IDataRegistryView.GetReferenceDeclarations 回吐时供内容工具
+            // 定位登记点（见 ReferenceDeclaration.Source 判断记录）。三条声明本身不变。
+            const string source = nameof(RulesSchemaCatalog);
+            registry.DeclareReference("arch.class", "primary_stat", "stat.definition", source);
+            registry.DeclareReference("skill.def", "target_shape_ref", "target.chain_def", source);
+            registry.DeclareReference("skill.proc_def", "trigger_skill", "skill.def", source);
         }
 
         /// <summary>

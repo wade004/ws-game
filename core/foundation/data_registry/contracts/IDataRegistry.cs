@@ -151,6 +151,23 @@ namespace Core.Foundation.DataRegistry
                 return false;
             }
         }
+
+        /// <summary>
+        /// 消费方反馈第 37 条（2026-09-12，见
+        /// architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md）：只读回吐全部经
+        /// <see cref="IDataRegistry.DeclareReference(string, string, string)"/>（含带来源标注的重载）
+        /// 登记的引用声明（见 <see cref="ReferenceDeclaration"/>）。<c>DeclareReference</c> 此前只写入
+        /// 注册期一侧、驱动加载期 <c>reference_integrity</c> 硬校验，没有任何公开读回方式——内容工具
+        /// （如编辑器 P3.1 引用图/影响分析）只能按"值恰好等于某条已加载记录的键"弱推断，不知道这条
+        /// 声明的存在，见反馈原文 <c>trigger_skill</c> 案例。默认实现返回空集合（带默认实现的接口
+        /// 成员新增，不构成"公开 API 表面"意义上的破坏性变更，同 <see cref="RecordCount"/>/
+        /// <see cref="TryGetAll(string, out IReadOnlyList{DataRecord})"/> 等既有成员的判断记录）——
+        /// 只有具体持有 <c>DeclareReference</c> 内部登记状态的实现方（<see cref="Core.Foundation.DataRegistry.DataRegistry"/>）
+        /// 才有数据可回吐，其余只实现本接口做适配/测试替身的类型沿用默认空集合是正确语义，不是遗漏。
+        /// 不保证顺序稳定跨版本——具体实现按"登记先后"排列即可，供人类阅读/测试断言使用，不建议下游
+        /// 依赖具体顺序做语义判断（表/字段名才是稳定标识）。
+        /// </summary>
+        IReadOnlyList<ReferenceDeclaration> GetReferenceDeclarations() => System.Array.Empty<ReferenceDeclaration>();
     }
 
     /// <summary>
@@ -166,6 +183,21 @@ namespace Core.Foundation.DataRegistry
         /// 供尚未在 <see cref="TableSchema"/> 里声明该字段为 Reference 的场景补充声明，
         /// 不修改已注册的 <see cref="TableSchema"/> 本身。</summary>
         void DeclareReference(string fromTable, string field, string toTable);
+
+        /// <summary>
+        /// 消费方反馈第 37 条：<see cref="DeclareReference(string, string, string)"/> 的同族重载——
+        /// 多接受一个 <paramref name="source"/>（声明来源标注，通常是调用方 catalog 的类型名，如
+        /// <c>"RulesSchemaCatalog"</c>），随登记一并保留，供 <see cref="IDataRegistryView.GetReferenceDeclarations"/>
+        /// 回吐时标注"这条引用是谁登记的"（见 <see cref="ReferenceDeclaration.Source"/>）。带默认实现
+        /// 的接口成员新增（新方法签名，不改动既有 <see cref="DeclareReference(string, string, string)"/>
+        /// 物理签名，不构成"公开 API 表面"意义上的破坏性变更）：默认实现转发到三参数重载、丢弃
+        /// <paramref name="source"/>——未显式重写本成员的实现方（<see cref="DeclareReference(string, string, string)"/>
+        /// 的既有调用方无需改动）行为与改动前完全一致，只是回吐时 <see cref="ReferenceDeclaration.Source"/>
+        /// 为 <c>null</c>。<see cref="Core.Foundation.DataRegistry.DataRegistry"/> 显式覆盖为真正记录
+        /// <paramref name="source"/>。
+        /// </summary>
+        void DeclareReference(string fromTable, string field, string toTable, string source) =>
+            DeclareReference(fromTable, field, toTable);
 
         void RegisterValidationRule(IValidationRule rule);
 

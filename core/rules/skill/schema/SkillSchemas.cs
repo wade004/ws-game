@@ -496,7 +496,9 @@ namespace Core.Rules.Skill
                 new FieldSchema("id", FieldKind.Id, required: true, description: "skill.proc_def.<name>"),
                 new FieldSchema("trigger_event", FieldKind.Id, required: true, description: "监听的事件 key"),
                 new FieldSchema("condition", FieldKind.Expr, required: false, description: "触发条件"),
-                new FieldSchema("trigger_skill", FieldKind.Id, required: true, description: "触发后释放的技能"),
+                new FieldSchema("trigger_skill", FieldKind.Id, required: true,
+                    description: "触发后释放的技能，指向 skill.def（消费方反馈第 37 条：登记为软引用，仅供内容工具补全/跳转，与 RulesSchemaCatalog.DeclareKnownReferences 的加载期硬校验并列）")
+                    .WithSoftReference(table: "skill.def"),
                 new FieldSchema("internal_cooldown", FieldKind.Number, required: false, description: "触发器自身冷却").WithUnit(FieldUnit.Time),
                 // 依据（ADR-0021）：字段描述本身已明确"触发概率 0~1"；ProcHost.TryProc（core/ProcHost.cs
                 // :165 "roll >= attachment.Def.ProcChance"）把它当均匀分布 [0,1) 随机数的比较阈值使用，

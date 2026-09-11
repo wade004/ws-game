@@ -314,7 +314,10 @@ namespace Toolchain.Validator
             }
 
             var schemas = SchemaAudit.EnumerateRegisteredSchemas();
-            var report = SchemaAudit.Run(schemas, allowlist);
+            // 消费方反馈第 37 条：一并读出已登记的 DeclareReference 声明，供 declared_reference_unregistered
+            // 检查使用（见 SchemaAudit.CheckDeclaredReferencesRegistered 判断记录）。
+            var referenceDeclarations = SchemaAudit.EnumerateReferenceDeclarations();
+            var report = SchemaAudit.Run(schemas, allowlist, referenceDeclarations);
 
             if (jsonOutput)
             {
@@ -586,8 +589,39 @@ namespace Toolchain.Validator
             }
             sb.Append(']');
 
+            // 消费方反馈第 37 条："--list-tables --json 组合" 新增字段（同 "tables_list" 一样只在
+            // --list-tables 传入时才有意义，见 tablesForListing 判空）：本次已登记的全部 DeclareReference
+            // 声明（见 IDataRegistryView.GetReferenceDeclarations），供内容工具不必再按值弱推断
+            // "这个 Id/IdList 字段到底是不是引用"（消费方反馈第 37 条 trigger_skill 案例）。追加在既有
+            // "display_map_coverage_sources" 字段之后、闭合大括号之前，不改动任何既有字段。
+            if (tablesForListing != null)
+            {
+                sb.Append(',');
+                sb.Append("\"reference_declarations\":[");
+                var declarations = tablesForListing.GetReferenceDeclarations();
+                for (var i = 0; i < declarations.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    AppendReferenceDeclarationJson(sb, declarations[i]);
+                }
+                sb.Append(']');
+            }
+
             sb.Append('}');
             Console.WriteLine(sb.ToString());
+        }
+
+        /// <summary>见 <see cref="PrintJson"/> 里 <c>reference_declarations</c> 字段的判断记录。</summary>
+        private static void AppendReferenceDeclarationJson(StringBuilder sb, ReferenceDeclaration decl)
+        {
+            sb.Append('{');
+            sb.Append("\"from_table\":\"").Append(JsonEscape(decl.FromTable)).Append("\",");
+            sb.Append("\"field_path\":\"").Append(JsonEscape(decl.FieldPath)).Append("\",");
+            sb.Append("\"to_table\":\"").Append(JsonEscape(decl.ToTable)).Append("\",");
+            sb.Append("\"to_domain\":").Append(decl.ToDomain == null ? "null" : "\"" + JsonEscape(decl.ToDomain) + "\"").Append(',');
+            sb.Append("\"is_optional\":").Append(decl.IsOptional ? "true" : "false").Append(',');
+            sb.Append("\"source\":").Append(decl.Source == null ? "null" : "\"" + JsonEscape(decl.Source) + "\"");
+            sb.Append('}');
         }
 
         private static void AppendOverrideJson(StringBuilder sb, OverrideDiagnostic diag)
