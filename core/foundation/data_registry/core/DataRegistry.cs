@@ -76,8 +76,13 @@ namespace Core.Foundation.DataRegistry
         private readonly DataRegistryOptions _options;
 
         private readonly Dictionary<string, TableSchema> _schemas = new Dictionary<string, TableSchema>(StringComparer.Ordinal);
-        private readonly List<(string FromTable, string Field, string ToTable)> _declaredReferences =
-            new List<(string FromTable, string Field, string ToTable)>();
+
+        /// <summary>消费方反馈第 37 条：<c>Source</c>（声明来源标注，见
+        /// <see cref="IDataRegistry.DeclareReference(string, string, string, string)"/>）为既有三元组
+        /// 新增的第四段，三参数 <see cref="DeclareReference(string, string, string)"/> 调用时恒为
+        /// <c>null</c>（见该方法转发实现）。</summary>
+        private readonly List<(string FromTable, string Field, string ToTable, string? Source)> _declaredReferences =
+            new List<(string FromTable, string Field, string ToTable, string? Source)>();
         private readonly List<IValidationRule> _rules = new List<IValidationRule>();
 
         private Dictionary<string, LoadedTable> _tables = new Dictionary<string, LoadedTable>(StringComparer.Ordinal);
@@ -186,12 +191,49 @@ namespace Core.Foundation.DataRegistry
             _schemas[schema.Name] = schema;
         }
 
-        public void DeclareReference(string fromTable, string field, string toTable)
+        public void DeclareReference(string fromTable, string field, string toTable) =>
+            DeclareReferenceCore(fromTable, field, toTable, source: null);
+
+        /// <summary>消费方反馈第 37 条：带来源标注的重载显式实现（见
+        /// <see cref="IDataRegistry.DeclareReference(string, string, string, string)"/> 判断记录）——
+        /// 不落回接口默认实现（那样会丢弃 <paramref name="source"/>），直接记录。</summary>
+        public void DeclareReference(string fromTable, string field, string toTable, string source) =>
+            DeclareReferenceCore(fromTable, field, toTable, source);
+
+        private void DeclareReferenceCore(string fromTable, string field, string toTable, string? source)
         {
             if (string.IsNullOrEmpty(fromTable)) throw new ArgumentException("fromTable 不能为空", nameof(fromTable));
             if (string.IsNullOrEmpty(field)) throw new ArgumentException("field 不能为空", nameof(field));
             if (string.IsNullOrEmpty(toTable)) throw new ArgumentException("toTable 不能为空", nameof(toTable));
-            _declaredReferences.Add((fromTable, field, toTable));
+            _declaredReferences.Add((fromTable, field, toTable, source));
+        }
+
+        /// <summary>消费方反馈第 37 条：<see cref="IDataRegistryView.GetReferenceDeclarations"/> 的
+        /// 显式实现——把 <see cref="DeclareReference(string, string, string)"/>（及带来源重载）登记的
+        /// 全部条目按登记顺序（有序、确定性，见接口成员判断记录）回吐为 <see cref="ReferenceDeclaration"/>
+        /// 快照。<see cref="ReferenceDeclaration.IsOptional"/> 现场查一次源表 <see cref="TableSchema"/>
+        /// 与字段 <see cref="FieldSchema.Required"/>（见 <see cref="ReferenceDeclaration"/> 类型判断
+        /// 记录"IsOptional 的口径"）：源表未注册或字段未登记时保守按 <c>true</c>。</summary>
+        public IReadOnlyList<ReferenceDeclaration> GetReferenceDeclarations()
+        {
+            var result = new ReferenceDeclaration[_declaredReferences.Count];
+            for (var i = 0; i < _declaredReferences.Count; i++)
+            {
+                var decl = _declaredReferences[i];
+                var isOptional = true;
+                if (_schemas.TryGetValue(decl.FromTable, out var schema))
+                {
+                    var field = schema.GetField(decl.Field);
+                    if (field != null)
+                    {
+                        isOptional = !field.Required;
+                    }
+                }
+
+                result[i] = new ReferenceDeclaration(decl.FromTable, decl.Field, decl.ToTable, toDomain: null, isOptional, decl.Source);
+            }
+
+            return result;
         }
 
         public void RegisterValidationRule(IValidationRule rule)

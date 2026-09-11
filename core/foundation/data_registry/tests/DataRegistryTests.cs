@@ -665,6 +665,91 @@ namespace Tests.Foundation.Data
             Assert.Contains(reportBad.Issues, i => i.Check == "reference_integrity" && i.Field == "linked_owner");
         }
 
+        /// <summary>消费方反馈第 37 条：<see cref="IDataRegistryView.GetReferenceDeclarations"/> 把
+        /// <see cref="IDataRegistry.DeclareReference(string, string, string)"/>（三参数，不带来源）
+        /// 登记的条目如实回吐——<see cref="ReferenceDeclaration.Source"/> 为 <c>null</c>，
+        /// <see cref="ReferenceDeclaration.IsOptional"/> 按源字段 <see cref="FieldSchema.Required"/>
+        /// 取反算出（<c>linked_owner</c> 为 <c>required: false</c>，见 <see cref="WidgetSchema"/>）。</summary>
+        [Fact]
+        public void GetReferenceDeclarations_ThreeArgDeclareReference_ReturnsEntryWithNullSourceAndOptionalTrue()
+        {
+            var source = new InMemoryDataSource();
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+            registry.DeclareReference("test.widget", "linked_owner", "test.owner");
+
+            var declarations = registry.GetReferenceDeclarations();
+
+            var decl = Assert.Single(declarations);
+            Assert.Equal("test.widget", decl.FromTable);
+            Assert.Equal("linked_owner", decl.FieldPath);
+            Assert.Equal("test.owner", decl.ToTable);
+            Assert.Null(decl.ToDomain);
+            Assert.True(decl.IsOptional);
+            Assert.Null(decl.Source);
+        }
+
+        /// <summary>消费方反馈第 37 条：带来源标注的四参数重载——<see cref="ReferenceDeclaration.Source"/>
+        /// 如实保留调用方传入的标注；<c>id</c> 字段 <c>required: true</c>（见 <see cref="WidgetSchema"/>），
+        /// <see cref="ReferenceDeclaration.IsOptional"/> 相应为 <c>false</c>。多条声明按登记顺序（有序、
+        /// 确定性）回吐。</summary>
+        [Fact]
+        public void GetReferenceDeclarations_FourArgDeclareReferenceWithSource_ReturnsSourceAndOrderedEntries()
+        {
+            var source = new InMemoryDataSource();
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+            registry.DeclareReference("test.widget", "linked_owner", "test.owner", "TestCatalog");
+            registry.DeclareReference("test.widget", "id", "test.owner", "TestCatalog");
+
+            var declarations = registry.GetReferenceDeclarations();
+
+            Assert.Equal(2, declarations.Count);
+            Assert.Equal("linked_owner", declarations[0].FieldPath);
+            Assert.Equal("TestCatalog", declarations[0].Source);
+            Assert.True(declarations[0].IsOptional);
+            Assert.Equal("id", declarations[1].FieldPath);
+            Assert.Equal("TestCatalog", declarations[1].Source);
+            Assert.False(declarations[1].IsOptional);
+        }
+
+        /// <summary>消费方反馈第 37 条：未调用 <c>DeclareReference</c> 时 <c>GetReferenceDeclarations</c>
+        /// 返回空集合（不是 <c>null</c>），与接口默认实现同一口径（见
+        /// <see cref="IDataRegistryView.GetReferenceDeclarations"/> 判断记录）。</summary>
+        [Fact]
+        public void GetReferenceDeclarations_NoDeclareReferenceCalls_ReturnsEmpty()
+        {
+            var registry = new DataRegistry(new InMemoryDataSource(), MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+
+            Assert.Empty(registry.GetReferenceDeclarations());
+        }
+
+        /// <summary>消费方反馈第 37 条：<see cref="IDataRegistryView.GetReferenceDeclarations"/> 的
+        /// 接口默认实现（未持有 <see cref="DataRegistry"/> 具体登记状态的实现方，如本测试用的最小
+        /// 测试替身）恒返回空集合，不构成"公开 API 表面"意义上的破坏性变更（新增带默认实现的接口
+        /// 成员不要求既有实现类改动即可编译通过）。</summary>
+        [Fact]
+        public void GetReferenceDeclarations_DefaultInterfaceImplementation_ReturnsEmpty()
+        {
+            IDataRegistryView view = new MinimalRegistryView();
+
+            Assert.Empty(view.GetReferenceDeclarations());
+        }
+
+        private sealed class MinimalRegistryView : IDataRegistryView
+        {
+            public DataRecord? Get(string table, string key) => null;
+            public DataRecord? Get(string table, Id id) => null;
+            public IReadOnlyList<DataRecord> GetAll(string table) => Array.Empty<DataRecord>();
+            public IReadOnlyList<DataRecord> Query(string table, ExprNode predicate) => Array.Empty<DataRecord>();
+            public IReadOnlyList<DataRecord> Query(string table, string predicateText) => Array.Empty<DataRecord>();
+            public IReadOnlyList<string> Tables => Array.Empty<string>();
+            public TableSchema? GetSchema(string table) => null;
+        }
+
         // -----------------------------------------------------------------
         // 12. Expr 字段
         // -----------------------------------------------------------------

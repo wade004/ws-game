@@ -922,27 +922,136 @@ namespace Tests.Presentation.Assembly
             Assert.DoesNotContain(report.Issues, i => i.Check == "id_description_reference_hint");
         }
 
+        // -----------------------------------------------------------------
+        // declared_reference_unregistered（消费方反馈第 37 条，04 第 4 节勘误）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void DeclaredReferenceUnregistered_FieldWithoutAnyReferenceMetadata_ReportsWarning()
+        {
+            var field = new FieldSchema("target_id", FieldKind.Id, required: true, description: "占位描述，未登记引用元数据");
+            var table = SingleFieldTable("test.declared_reference_unregistered", field);
+            var declarations = new[]
+            {
+                new ReferenceDeclaration("test.declared_reference_unregistered", "target_id", "test.some_target",
+                    toDomain: null, isOptional: false, source: "TestCatalog"),
+            };
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty, declarations);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "warning" && i.Check == "declared_reference_unregistered" &&
+                i.Table == "test.declared_reference_unregistered" && i.FieldPath == "target_id");
+            Assert.False(report.IsBlocking, string.Join("; ", MessagesOf(report)));
+        }
+
+        [Fact]
+        public void DeclaredReferenceUnregistered_WithSoftReference_NoIssue()
+        {
+            var field = new FieldSchema("target_id", FieldKind.Id, required: true, description: "占位描述")
+                .WithSoftReference(table: "test.some_target");
+            var table = SingleFieldTable("test.declared_reference_soft_ref", field);
+            var declarations = new[]
+            {
+                new ReferenceDeclaration("test.declared_reference_soft_ref", "target_id", "test.some_target",
+                    toDomain: null, isOptional: false, source: "TestCatalog"),
+            };
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty, declarations);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "declared_reference_unregistered");
+        }
+
+        [Fact]
+        public void DeclaredReferenceUnregistered_WithAllowedValues_NoIssue()
+        {
+            var field = new FieldSchema("target_id", FieldKind.Id, required: true, description: "占位描述")
+                .WithAllowedValues(new[] { new Id("test.some_target.a") });
+            var table = SingleFieldTable("test.declared_reference_allowed_values", field);
+            var declarations = new[]
+            {
+                new ReferenceDeclaration("test.declared_reference_allowed_values", "target_id", "test.some_target",
+                    toDomain: null, isOptional: false, source: "TestCatalog"),
+            };
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty, declarations);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "declared_reference_unregistered");
+        }
+
+        [Fact]
+        public void DeclaredReferenceUnregistered_DeclaredFieldNotInSchema_NoIssue()
+        {
+            var field = new FieldSchema("target_id", FieldKind.Id, required: true, description: "占位描述");
+            var table = SingleFieldTable("test.declared_reference_field_missing", field);
+            var declarations = new[]
+            {
+                new ReferenceDeclaration("test.declared_reference_field_missing", "no_such_field", "test.some_target",
+                    toDomain: null, isOptional: false, source: "TestCatalog"),
+            };
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty, declarations);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "declared_reference_unregistered");
+        }
+
+        [Fact]
+        public void DeclaredReferenceUnregistered_DeclaredTableOutOfAuditScope_NoIssue()
+        {
+            var field = new FieldSchema("target_id", FieldKind.Id, required: true, description: "占位描述");
+            var table = SingleFieldTable("test.declared_reference_in_scope", field);
+            var declarations = new[]
+            {
+                new ReferenceDeclaration("test.declared_reference_out_of_scope", "target_id", "test.some_target",
+                    toDomain: null, isOptional: false, source: "TestCatalog"),
+            };
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty, declarations);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "declared_reference_unregistered");
+        }
+
+        [Fact]
+        public void DeclaredReferenceUnregistered_TwoArgRunOverload_SkipsCheckEntirely()
+        {
+            // 两参数 Run 转发到三参数重载、referenceDeclarations 传空集合（见该重载判断记录）——
+            // 即便字段本身完全符合命中条件，不传 referenceDeclarations 时本检查天然 0 命中。
+            var field = new FieldSchema("target_id", FieldKind.Id, required: true, description: "占位描述，未登记引用元数据");
+            var table = SingleFieldTable("test.declared_reference_two_arg_run", field);
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "declared_reference_unregistered");
+        }
+
         /// <summary>门禁本体：真实登记 + 仓库根白名单，断言 0 error（白名单未用条目仍允许——本测试
         /// 只关心不阻断，"白名单条目全部命中"由 <c>check.ps1</c> 门禁步骤的真实输出与本测试共同
         /// 覆盖，不在此重复断言，避免白名单每次调整都要同步改测试）。消费方反馈第 30 条：一并断言
         /// 新增的 <c>id_description_reference_hint</c> 告警级检查在当前全量登记上是 0 命中——该检查
         /// 是防遗漏用的门禁，不是"欢迎警告常驻"，命中即应立即补登记或改描述（见该检查项判断记录），
-        /// 不像有些告警级检查允许长期非零（本项没有这类既有先例）。</summary>
+        /// 不像有些告警级检查允许长期非零（本项没有这类既有先例）。消费方反馈第 37 条：同一口径新增
+        /// 断言 <c>declared_reference_unregistered</c> 也是 0 命中——真实登记的全部 3 条
+        /// <c>DeclareReference</c> 声明（<c>arch.class.primary_stat</c>/<c>skill.def.target_shape_ref</c>/
+        /// <c>skill.proc_def.trigger_skill</c>，见 <c>RulesSchemaCatalog.DeclareKnownReferences</c>）
+        /// 对应字段均已补登 <c>SoftReferenceTable</c>（本条原始案例 <c>trigger_skill</c> 本次修复补齐，
+        /// 另两条分别是 29/30 号反馈的既有修复）。</summary>
         [Fact]
         public void RealRegisteredSchemas_WithRepoAllowlist_ZeroErrors()
         {
             var schemas = SchemaAudit.EnumerateRegisteredSchemas();
+            var referenceDeclarations = SchemaAudit.EnumerateReferenceDeclarations();
 
             var repoRoot = FindRepoRoot();
             var allowlistPath = Path.Combine(repoRoot, "toolchain", "schema_audit_allowlist.json");
             Assert.True(File.Exists(allowlistPath), $"找不到白名单文件：{allowlistPath}");
             var allowlist = SchemaAuditAllowlist.Parse(File.ReadAllText(allowlistPath));
 
-            var report = SchemaAudit.Run(schemas, allowlist);
+            var report = SchemaAudit.Run(schemas, allowlist, referenceDeclarations);
 
             Assert.Equal(0, report.ErrorCount);
             Assert.False(report.IsBlocking, string.Join("\n", MessagesOf(report)));
             Assert.DoesNotContain(report.Issues, i => i.Check == "id_description_reference_hint");
+            Assert.DoesNotContain(report.Issues, i => i.Check == "declared_reference_unregistered");
         }
 
         private static IEnumerable<string> MessagesOf(SchemaAuditReport report)
