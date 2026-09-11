@@ -1,6 +1,6 @@
 {
     "name":  "com.gamefoundation.adapter.unity",
-    "version":  "1.19.0",
+    "version":  "1.20.0",
     "displayName":  "Game Foundation Unity Adapter",
     "description":  "框架的 Unity 引擎适配层（L-1）与表现层引擎侧实现，供各游戏工程以 file: 方式引用。",
     "unity":  "6000.3",
