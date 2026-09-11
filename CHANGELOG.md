@@ -95,8 +95,26 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `creature.template.npc_flags` 改用 `AllowedValues` 登记（收口 `CreatureContentValidationRule`
   此前手写的重复校验）；`ai_rotation_ref`/`ai_behavior_ref`/`loot_table_ref`/`display_ref` 等
   一批已确认目标表的字段补登软引用。
+- **消费方反馈第 31 条（1.22.0）**：`CombatOptions` 新增可选 `ResolveTrace: Action<EffectContext,
+  ResolveResult>?`（结算追踪回调），供编辑器"右侧结算预览"/"简易战斗回放"直接订阅
+  `Resolver.Resolve` 每次真实返回前的完整输入输出（含分步中间值 `Steps`），不必自行复刻结算
+  公式。详见
+  [消费方反馈-2026-09-11-编辑器-第31条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md)。
 
 ## [Unreleased]
+
+### 新增
+
+- `CombatOptions` 新增可选 `ResolveTrace: Action<EffectContext, ResolveResult>?`（结算追踪
+  回调，见架构文档 06 第 4.1 节勘误、`architecture/落地计划/消费方反馈-2026-09-11-编辑器-
+  第31条.md`）——供内容工具/诊断消费方在结算管线（`Resolver.Resolve`）每次真实返回前（含
+  判定步骤即终止的短路分支）获取本次 `EffectContext` 与完整 `ResolveResult`（含各步骤中间值
+  `Steps`），覆盖技能瞬发/读条完成/引导 tick、光环周期效果、Proc 触发的嵌套施法、弹道命中后
+  效果全部落地路径；未设置零开销，不改变既有行为；回调抛出的异常被捕获吞掉，不影响真实结算。
+  【编辑器相关契约】核实与逐条回复见
+  [消费方反馈-2026-09-11-编辑器-第31条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md)。
+  提交链：`d5da983`（契约 + 实现 + 测试）、`bba9474`（06 勘误 + 判断记录 + 回复文档 + 编辑器
+  产品文档 v2.7）、`49fabe5`（`--no-ff` 合入 `main`）。
 
 ## [1.21.1] - 2026-09-11
 
