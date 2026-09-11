@@ -41,6 +41,48 @@ namespace Core.Rules.Skill
     /// 量纲，乘时间换算系数没有意义（会把"加 1 次充能"在 factor≠1 时变成非整数次充能，需要额外
     /// 舍入规则且无对应的数据语义可循）；06 未把 <c>amount</c> 登记为时间字段，维持原样。
     /// </para>
+    /// <para>
+    /// 判断记录（P2 根治，消费方反馈 2026-09-11"只读就绪查询影响后续充能状态"，见
+    /// architecture/落地计划/消费方反馈-2026-09-11-充能查询副作用.md；06 第 3.5 节同批勘误）：
+    /// <b>查询纯化</b>——<see cref="GetCharges(Id, SkillDef)"/>/<see cref="GetChargeRechargeRemaining"/>/
+    /// <see cref="GetEffectiveChargesMax"/>/<see cref="GetEffectiveRechargeTimeScaled"/>/
+    /// <see cref="IsSkillReady"/>/<see cref="GetCooldown(Id, SkillDef)"/> 等只读路径此前经
+    /// <see cref="GetOrCreateChargeState"/> 惰性创建状态，创建时把 <see cref="ChargeState.Current"/>
+    /// 写成查询当下的 <see cref="EffectiveChargesMax"/>——查询因此从"读取"变成了"以当下有效上限初始化
+    /// 账本"这一有副作用的写操作：若查询发生在上限变化（如充能上限光环生效）<b>之前</b>，创建的状态
+    /// 记下了旧上限；上限变化后同一 (unit, skill) 若从未被任何路径触达过，反而会在它第一次被触达时
+    /// （不论是另一次只读查询还是首次施法）直接按<b>当下</b>（已经变化后）的上限创建——同一场景"是否
+    /// 提前查询过一次"这一操作本身，决定了后续原生施法能连续成功几次（消费方反馈 A/B 复现：先查询
+    /// 一次，充能上限光环生效后连续施法成功 2 次；不查询，成功 3 次，见反馈原文表格）。这不只是"查询
+    /// 有副作用"，还暴露了"有效上限变化时，已创建状态的当前充能数从不跟着调整"这一更深的语义缺陷——
+    /// 即便完全不查询，首次施法同样会触发 <see cref="GetOrCreateChargeState"/> 创建状态，同一枚缺口
+    /// 换一个触发方式仍然成立。现按下列两条规则根治：
+    /// <list type="number">
+    /// <item>查询纯化——上面列出的只读方法全部不再触达 <see cref="GetOrCreateChargeState"/>，改用
+    /// 私有 <see cref="ComputeReadOnlySnapshot"/> 计算只读快照（无状态时按当前 <see
+    /// cref="EffectiveChargesMax"/> 给出默认快照：当前=上限、恢复剩余=0；有状态时按下一条守恒规则
+    /// <b>计算</b>对账后的值，不写回 <see cref="_charges"/>）——惰性创建只允许发生在写路径（<see
+    /// cref="StartCooldown"/>/<see cref="AddCharge"/>/<see cref="AdvanceCharges"/> 经 <see
+    /// cref="GetOrCreateChargeState"/>）。</item>
+    /// <item>充能上限变化守恒规则——<see cref="ChargeState"/> 新增 <see
+    /// cref="ChargeState.KnownEffectiveMax"/> 字段记录"上一次对账时的有效上限"；任何写路径或推进
+    /// （<see cref="AdvanceCharges"/>）触达某 (unit, skill) 状态前，先经共用的纯函数 <see
+    /// cref="ReconcileForMaxChange"/> 对账：当下有效上限较 <see cref="ChargeState.KnownEffectiveMax"/>
+    /// <b>提高</b> Δ → <see cref="ChargeState.Current"/> 同步 <c>+= Δ</c>（获得的新充能格立即可用，
+    /// 已经在进行中的恢复窗口 <see cref="ChargeState.RechargeRemaining"/> 不受影响、不重置）；
+    /// <b>降低</b> → <see cref="ChargeState.Current"/> 夹取到不超过新上限，若夹取后恰好满充能则
+    /// <see cref="ChargeState.RechargeRemaining"/> 清零（没有正在进行的恢复窗口，与 <see
+    /// cref="AddCharge"/> 补满时清零的既有惯例一致）；随后把 <see cref="ChargeState.KnownEffectiveMax"/>
+    /// 更新为当下有效上限。<see cref="ComputeReadOnlySnapshot"/> 对已存在的状态调用同一个 <see
+    /// cref="ReconcileForMaxChange"/> 函数<b>计算</b>（不写回 <see cref="_charges"/> 字段本身）出对账
+    /// 后的快照——保证只读查询看到的数字与"紧接着这次查询之后立即发生一次原生写路径触达"会产生的结果
+    /// 完全一致，不会因为"查没查询过"而改变后续原生施法的实际次数。</item>
+    /// </list>
+    /// 顺带修复一枚同源的独立读路径缺口：修复前 <see cref="GetCooldown(Id, SkillDef)"/> 内部调用
+    /// <see cref="GetCharges(Id, SkillDef)"/>（当时经 <see cref="GetOrCreateChargeState"/>）取
+    /// 当前充能数，同样会被查询触发创建；现改为同样调用 <see cref="ComputeReadOnlySnapshot"/>，与
+    /// 其它只读方法共用一致口径。
+    /// </para>
     /// </summary>
     public sealed class CooldownTracker
     {
@@ -53,6 +95,13 @@ namespace Core.Rules.Skill
         {
             public int Current;
             public double RechargeRemaining;
+
+            /// <summary>见类型判断记录"充能上限变化守恒规则"：本状态最近一次被写路径/推进对账时所用的
+            /// 有效充能上限快照——不是"当前"有效上限（那随时可能因 SpellMod 增减重新计算），而是
+            /// "上一次已经把 <see cref="Current"/> 调整到与哪个上限保持一致"的记账基准，供下一次对账
+            /// 计算 Δ（新旧上限之差）。创建状态时取创建当下的有效上限（与 <see cref="Current"/> 初始
+            /// 值同一次计算，两者天然相等）。</summary>
+            public int KnownEffectiveMax;
         }
 
         private readonly Dictionary<(Id Unit, Id Skill), double> _skillCooldowns = new Dictionary<(Id, Id), double>();
@@ -120,18 +169,20 @@ namespace Core.Rules.Skill
 
         /// <summary>合并技能自身与所属分类冷却的剩余时间（<see cref="ISkillHost.GetCooldown"/> 语义，
         /// 见 06 第 7 节"某技能……距下次可用的剩余时间；就绪返回 0"）：有充能配置时按"充能耗尽时的
-        /// 恢复进度"折算。</summary>
+        /// 恢复进度"折算。只读，见类型判断记录"查询纯化"——改经 <see cref="ComputeReadOnlySnapshot"/>
+        /// 取对账后的快照，不再间接经 <see cref="GetCharges(Id, SkillDef)"/> 触达 <see
+        /// cref="GetOrCreateChargeState"/>（修复前的独立读路径缺口，同判断记录）。</summary>
         public double GetCooldown(Id unitId, SkillDef def)
         {
             if (def.HasCharges)
             {
-                var current = GetCharges(unitId, def);
-                if (current > 0)
+                var snapshot = ComputeReadOnlySnapshot(unitId, def);
+                if (snapshot.Current > 0)
                 {
                     return 0;
                 }
 
-                return _charges.TryGetValue((unitId, def.Id), out var state) ? Math.Max(0, state.RechargeRemaining) : 0;
+                return Math.Max(0, snapshot.RechargeRemaining);
             }
 
             var skillRemaining = GetSkillCooldownRemaining(unitId, def.Id);
@@ -154,24 +205,37 @@ namespace Core.Rules.Skill
             _charges.TryGetValue((unitId, skillId), out var state) ? state.Current : 0;
 
         /// <summary>当前充能数；从未产生过充能状态（技能从未施放过，也未被 <see cref="AdvanceCharges"/>
-        /// 触达过）时视为"满充能"（<c>def.ChargesMax</c>），而不是 0——一个刚学会、从未使用过的
-        /// 技能理应是满充能可用状态。惰性创建状态（见 <see cref="GetOrCreateChargeState"/>）。</summary>
-        public int GetCharges(Id unitId, SkillDef def) => GetOrCreateChargeState(unitId, def).Current;
+        /// 触达过）时视为"满充能"（按当前有效上限 <see cref="EffectiveChargesMax"/>），而不是 0——
+        /// 一个刚学会、从未使用过的技能理应是满充能可用状态。
+        /// <para>
+        /// 判断记录（P2 根治，见类型判断记录"查询纯化"）：本方法<b>只读</b>，不创建、不修改任何状态
+        /// ——修复前经 <see cref="GetOrCreateChargeState"/> 惰性创建状态并把 <see
+        /// cref="ChargeState.Current"/> 写死为查询当下的有效上限，导致"查没查询过"这一操作本身会
+        /// 影响后续有效上限变化（如充能上限光环生效）时原生写路径（<see cref="StartCooldown"/> 等）
+        /// 计算出的结果，是与接口契约相反的可观测副作用（消费方反馈 A/B 复现，见类型判断记录）。现
+        /// 改经 <see cref="ComputeReadOnlySnapshot"/> 计算只读快照：无状态时按当前有效上限给出默认
+        /// 快照，有状态时按"充能上限变化守恒规则"（同判断记录）<b>计算</b>对账后的值、不写回。
+        /// </para>
+        /// </summary>
+        public int GetCharges(Id unitId, SkillDef def) => ComputeReadOnlySnapshot(unitId, def).Current;
 
         /// <summary>
         /// 消费方反馈（2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"，见
         /// architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md）：距下一次充能恢复完成
         /// 的剩余时间——供 <see cref="SkillHost.GetSkillReadiness"/> 呈现"部分充能恢复中"这一状态
         /// （区分"当前充能数"与"下次恢复还差多久"，<see cref="GetCharges(Id, SkillDef)"/> 只呈现前者）。
-        /// 与 <see cref="GetCharges(Id, SkillDef)"/> 同一惯例：从未产生过充能状态时惰性创建（满充能、
-        /// <c>RechargeRemaining=0</c>），不是"未知"；满充能（含从未消耗过）时恒为 0——没有正在进行
-        /// 的恢复窗口，与 <see cref="AddCharge"/>/<see cref="StartCooldown"/> 补满时清零
-        /// <c>RechargeRemaining</c> 的既有惯例一致。只读，不推进时间、不修改任何状态（惰性创建的
-        /// 默认状态与"从未调用本方法"时 <see cref="GetCharges(Id, SkillDef)"/> 会创建的状态完全
-        /// 相同，不产生可观测差异）。
+        /// 满充能（含从未消耗过）时恒为 0——没有正在进行的恢复窗口，与 <see cref="AddCharge"/>/
+        /// <see cref="StartCooldown"/> 补满时清零 <c>RechargeRemaining</c> 的既有惯例一致。
+        /// <para>
+        /// 判断记录（P2 根治，同 <see cref="GetCharges(Id, SkillDef)"/> 判断记录"查询纯化"）：本方法
+        /// <b>只读</b>，不创建、不修改任何状态——修复前"从未产生过充能状态时惰性创建"的旧描述已随本次
+        /// 修复失效：现改经 <see cref="ComputeReadOnlySnapshot"/> 计算只读快照（无状态时默认恢复剩余
+        /// 为 0，与"惰性创建一个满充能、剩余 0 的状态"数值上等价，但不再写入 <see cref="_charges"/>），
+        /// 有状态时按守恒规则计算对账后的值、不写回。
+        /// </para>
         /// </summary>
         public double GetChargeRechargeRemaining(Id unitId, SkillDef def) =>
-            Math.Max(0, GetOrCreateChargeState(unitId, def).RechargeRemaining);
+            Math.Max(0, ComputeReadOnlySnapshot(unitId, def).RechargeRemaining);
 
         /// <summary>
         /// 消费方反馈（同上）：<c>charges</c> 维度 SpellMod 修正后的有效充能上限——原为私有
@@ -326,7 +390,18 @@ namespace Core.Rules.Skill
         /// <summary>充能恢复的"归零即 +1 并重置进度"语义需要知道 <c>ChargesMax</c>，本类
         /// <see cref="Update"/> 不持有 <see cref="SkillDef"/>，改由调用方在拿到 def 时调用本方法
         /// 精确推进单个技能的充能恢复（<see cref="SkillHost"/> 在 <c>Update</c> 中对每个已知
-        /// 技能定义调用）。</summary>
+        /// 技能定义调用）。
+        /// <para>
+        /// 判断记录（P2 根治，见类型判断记录"充能上限变化守恒规则"）：本方法是"推进"，不是只读查询
+        /// ——只对已经存在充能状态的 (unit, skill) 生效（不创建，与修复前行为一致：<see
+        /// cref="SkillHost.Update"/> 只对 <see cref="TrackedChargeKeys"/> 里已知的组合调用本方法），
+        /// 但既然要触达该状态，就必须先经 <see cref="ReconcileForMaxChange"/> 对账——不能等到
+        /// <see cref="RechargeRemaining"/> 判定分支再对账，否则"有效上限提高、且当前恰好已经满充能
+        /// （<c>RechargeRemaining&lt;=0</c>）"这一常见场景（充能上限光环生效时充能往往已经用满）会在
+        /// 对账逻辑被提前返回跳过之前就已经出局——本方法此前就是这枚"未查询也会触发"的缺口来源之一
+        /// （首次施法触发创建只是另一条路径，同一类"有效上限变化后未被任何路径正确对账"问题）。
+        /// </para>
+        /// </summary>
         public void AdvanceCharges(Id unitId, SkillDef def, double dt)
         {
             if (!def.HasCharges)
@@ -334,12 +409,22 @@ namespace Core.Rules.Skill
                 return;
             }
 
-            if (!_charges.TryGetValue((unitId, def.Id), out var state) || state.RechargeRemaining <= 0)
+            if (!_charges.TryGetValue((unitId, def.Id), out var state))
             {
                 return;
             }
 
             var max = EffectiveChargesMax(unitId, def);
+            var reconciled = ReconcileForMaxChange(state.Current, state.RechargeRemaining, state.KnownEffectiveMax, max);
+            state.Current = reconciled.Current;
+            state.RechargeRemaining = reconciled.RechargeRemaining;
+            state.KnownEffectiveMax = max;
+
+            if (state.RechargeRemaining <= 0)
+            {
+                return;
+            }
+
             state.RechargeRemaining -= dt;
             while (state.RechargeRemaining <= 0 && state.Current < max)
             {
@@ -359,15 +444,75 @@ namespace Core.Rules.Skill
             }
         }
 
+        /// <summary>充能上限变化守恒规则的纯函数实现（见类型判断记录）：给定当前 <paramref
+        /// name="current"/>/<paramref name="rechargeRemaining"/> 与"上一次对账时的有效上限"
+        /// <paramref name="knownMax"/>、"当下的有效上限"<paramref name="newMax"/>，计算对账后的
+        /// (Current, RechargeRemaining)。提高 Δ→<c>Current += Δ</c>（恢复窗口不变）；降低→
+        /// <c>Current</c> 夹取到不超过 <paramref name="newMax"/>，夹取后若恰好满充能则
+        /// <c>RechargeRemaining</c> 清零；<paramref name="newMax"/> 等于 <paramref name="knownMax"/>
+        /// 时原样返回（无变化）。纯函数、不读写任何字段——供写路径（<see
+        /// cref="GetOrCreateChargeState"/>/<see cref="AdvanceCharges"/>，计算后写回 <see
+        /// cref="ChargeState"/>）与只读路径（<see cref="ComputeReadOnlySnapshot"/>，只使用返回值、
+        /// 不写回）共用同一份口径，避免两处独立实现产生行为分歧。</summary>
+        private static (int Current, double RechargeRemaining) ReconcileForMaxChange(
+            int current, double rechargeRemaining, int knownMax, int newMax)
+        {
+            if (newMax > knownMax)
+            {
+                current += newMax - knownMax;
+            }
+            else if (newMax < knownMax)
+            {
+                if (current > newMax)
+                {
+                    current = newMax;
+                }
+
+                if (current >= newMax)
+                {
+                    rechargeRemaining = 0;
+                }
+            }
+
+            return (current, rechargeRemaining);
+        }
+
+        /// <summary>只读充能快照计算（见类型判断记录"查询纯化"）：不创建、不修改 <see
+        /// cref="_charges"/> 中的任何状态。无状态时按当前有效上限给出默认快照（当前=上限、恢复剩余=0，
+        /// 与"从未产生过充能状态"的既有查询语义一致）；有状态时经 <see cref="ReconcileForMaxChange"/>
+        /// <b>计算</b>出对账后的值（不写回），保证与"紧接着这次查询之后立即发生一次原生写路径触达"
+        /// 会产生的结果完全一致。</summary>
+        private (int Current, double RechargeRemaining) ComputeReadOnlySnapshot(Id unitId, SkillDef def)
+        {
+            var max = EffectiveChargesMax(unitId, def);
+            if (!_charges.TryGetValue((unitId, def.Id), out var state))
+            {
+                return (max, 0);
+            }
+
+            return ReconcileForMaxChange(state.Current, state.RechargeRemaining, state.KnownEffectiveMax, max);
+        }
+
+        /// <summary>写路径专用：取得或创建充能状态，创建时按当下有效上限初始化满充能；已存在时先经
+        /// <see cref="ReconcileForMaxChange"/> 对账（见类型判断记录"充能上限变化守恒规则"）再返回，
+        /// 保证任何写路径（<see cref="StartCooldown"/>/<see cref="AddCharge"/>）看到的 <see
+        /// cref="ChargeState"/> 已经是对账后的最新值。只应被写路径调用——只读查询改用 <see
+        /// cref="ComputeReadOnlySnapshot"/>（不创建、不写回）。</summary>
         private ChargeState GetOrCreateChargeState(Id unitId, SkillDef def)
         {
             var key = (unitId, def.Id);
+            var max = EffectiveChargesMax(unitId, def);
             if (!_charges.TryGetValue(key, out var state))
             {
-                state = new ChargeState { Current = EffectiveChargesMax(unitId, def), RechargeRemaining = 0 };
+                state = new ChargeState { Current = max, RechargeRemaining = 0, KnownEffectiveMax = max };
                 _charges[key] = state;
+                return state;
             }
 
+            var reconciled = ReconcileForMaxChange(state.Current, state.RechargeRemaining, state.KnownEffectiveMax, max);
+            state.Current = reconciled.Current;
+            state.RechargeRemaining = reconciled.RechargeRemaining;
+            state.KnownEffectiveMax = max;
             return state;
         }
 
