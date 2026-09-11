@@ -98,18 +98,25 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
 4. **`CreatureFactory.Spawn` 装配顺序固定**：`AllocateEntityId` → 构造 `CreatureUnit`（含
    `npc_flags`/`immunities`/`Tags` 装配）→ `world.AddEntity` → `IUnitAccess.SetPosition`（冗余但
    幂等，触发潜在的空间索引同步，见 `core/carriers/unit` README 判断记录 4）→
-   `IStatHost.RegisterUnit` + `SetBase`（`base_stats × tier.stat_multiplier` + 曲线成长累加）→
-   `IProgressionHost.RegisterUnit`（有 `stat_growth_ref` 时）→ `IPowerHost.RegisterUnit`（此时属性
-   已就绪，`max_source: stat` 的资源类型才能正确算出上限）→ `AiRegistrar`（有 `ai_behavior_ref`
-   时）→ 发 `creature.spawned`。这个顺序不是随意的：属性必须先于资源池注册，资源池上限依赖属性。
+   `IStatHost.RegisterUnit` + `SetBase`（只写 `base_stats × tier.stat_multiplier`，不再叠加曲线
+   成长，见判断记录 5）→ `IProgressionHost.RegisterUnit` + `ApplyGrowthToCurrentLevel`（有
+   `stat_growth_ref` 时，后者把"2 级到出生等级"的曲线成长以修正形式写入）→ `IPowerHost.RegisterUnit`
+   （此时属性已就绪——基础值 + 成长修正都已写完，`max_source: stat` 的资源类型才能正确算出上限）→
+   `AiRegistrar`（有 `ai_behavior_ref` 时）→ 发 `creature.spawned`。这个顺序不是随意的：属性必须
+   先于资源池注册，资源池上限依赖属性。
 
-5. **成长曲线在本模块独立解析，不复用 `Core.Numbers.Progression.ProgressionHost` 内部实现**：
-   `IProgressionHost` 契约不暴露"给定曲线与等级返回累计成长量"这一查询（只有
-   `RegisterUnit`——且刻意不隐式写成长，见该接口注释判断记录），本模块需要在装配基础属性这一步
-   （早于 `IPowerHost.RegisterUnit`）就拿到最终数值，因此 `CreatureFactory` 按
-   `prog.level_curve` 的既定结构（`entries[].growth: Object<stat_id, Number>`）独立解析一份只读
-   索引，成长口径与 `ProgressionHost.ApplyGrowth` 完全一致："从 2 级累加到当前等级"（1 级本身
-   没有成长增量）。
+5. **成长统一由 `Core.Numbers.Progression.ProgressionHost` 的修正承载，本模块不再重复解析
+   `prog.level_curve`（消费方反馈第 36 条根治）**：此前 `CreatureFactory.ApplyStats` 独立解析
+   `prog.level_curve` 并把"2 级到出生等级"的累计成长直接叠进 `SetBase` 写的基础值；该单位一旦
+   经 `IProgressionHost.AddXp` 真实升级，`ProgressionHost.ApplyGrowth` 又会把"2 级到新等级"整段
+   成长重算并整体覆盖写入修正——`[2..出生等级]` 这一段因此被基础值与修正各计了一次（真实探针：
+   出生等级 2、出生 strength 7，升到 3 级实测 11，应为 9）。根治为"成长统一只由修正承载，单一
+   来源"：`ApplyStats` 只写 `base_stats × tier.stat_multiplier`；`Spawn` 在
+   `IProgressionHost.RegisterUnit` 之后紧接着调用新增的
+   `IProgressionHost.ApplyGrowthToCurrentLevel`——与升级（`AddXp`）、读档（`RestoreState`）共用
+   `ProgressionHost` 内部同一份聚合实现（先移除旧的 `prog.growth` 修正、再按当前等级重新算出整段
+   累计值写入），不是另外维护一份公式，出生等级 1（既有示例数据现状）时这一步是空操作
+   （`[2..1]` 区间不存在），行为不变。
 
 6. **`summon_only` 标志不在本模块拦截刷新表生成**：07 第 2.2 节"`summon_only` 只能由 `summon`
    效果生成，不进入常规刷新表"——这一约束的执行方是 `core/gameplay/spawn`（L4 刷新表，不在本

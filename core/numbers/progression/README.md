@@ -108,6 +108,24 @@ progression/
    `ProgressionPersistableTests.Load_NullData_ResetsRegisteredUnitToLevelOneAndZeroXp`（已注册
    单位分支）、`Load_NullData_LeavesUnitUnregistered`（未注册单位分支，既有测试）。
 
+8. **消费方反馈第 36 条根治：新增 `ApplyGrowthToCurrentLevel`，成长统一只由本模块的修正承载**：
+   `core/carriers/creature.CreatureFactory.ApplyStats` 此前自行重复解析 `prog.level_curve`，把
+   "2 级到出生等级"的累计成长直接叠进 `IStatHost.SetBase` 写的基础值；该单位一旦经 `AddXp` 真实
+   升级，`ApplyGrowth`（判断记录 3）又会把"2 级到新等级"整段成长重算并整体覆盖写入修正——两处各自
+   独立维护"从 2 级累加"这同一段成长，`[2..出生等级]` 因此被基础值与修正各计了一次（真实探针：
+   出生等级 2、出生 strength 7，升到 3 级实测 11，应为 9）。根治为在 `IProgressionHost` 上新增
+   `ApplyGrowthToCurrentLevel(unitId)`——内部直接调用与 `AddXp`/`RestoreState` 末尾完全相同的
+   `ApplyGrowth` 私有方法（先 `StatModifierRemover` 清空旧 `prog.growth` 修正、再按当前等级整体
+   重算写入），不新写一份公式；`CreatureFactory.ApplyStats` 相应改为只写
+   `base_stats × tier.stat_multiplier`，`Spawn` 在 `RegisterUnit` 之后紧接着调用
+   `ApplyGrowthToCurrentLevel` 一次性补上"2 级到出生等级"的成长（出生等级 1、无曲线的既有示例
+   数据下这一步是空操作，行为不变）。本方法刻意不发任何事件——语义上既不是"升级"（没有真实的
+   等级提升，见判断记录 3）也不是"读档恢复"（`ProgressionRestoredEvent` 的语义是"状态被存档
+   覆盖"，见判断记录 4/`Events.cs` 判断记录"语义诚实"，硬套给一次全新生成反而语义不诚实），典型
+   调用方（`CreatureFactory.Spawn`）本身就在生成流程内，不需要额外的失效重算通知。见
+   `core/numbers/progression/tests/ProgressionHostTests.cs`（`ApplyGrowthToCurrentLevel` 相关用例）、
+   `core/carriers/creature/tests/CreatureFactoryTests.cs`（`E36_*`）。
+
 ## CORE-170-02 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
 
 `ProgressionHost` 是单位等级的唯一权威，但修复前 `AddXp`/`RestoreState` 只更新本模块内部的
