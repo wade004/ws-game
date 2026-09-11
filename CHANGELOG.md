@@ -100,8 +100,57 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `Resolver.Resolve` 每次真实返回前的完整输入输出（含分步中间值 `Steps`），不必自行复刻结算
   公式。详见
   [消费方反馈-2026-09-11-编辑器-第31条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md)。
+- **消费方反馈第 32 条（1.23.0）**：新增
+  `Core.Foundation.EngineAdapter.AssetRefConventions`，把此前分散在引擎适配层、框架表现层、
+  `toolchain/asset_import` 三处的 `sprite_set_id`/`icon_id` → 资产相对路径解析规则收口为公开
+  契约（`SpriteSetDirectory`/`IconFile`/`TryParseSpriteSetId`/`TryParseIconId`），规则本身不变。
+  详见 [ADR-0025](architecture/adr/0025-资源引用标识到资产相对路径的约定纳入公开契约.md)、
+  [消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md)。
+- **消费方反馈第 34 条（1.23.0）**：`PresentationSchemaCatalog` 新增公开
+  `DefaultDisplayMapCoverageSources`（五张表），`ContentValidationOptions
+  .DisplayMapCoverageSources` 未指定时默认使用该清单，`DisplayMapCoverageRule` 从此默认启用
+  （此前默认禁用）；`toolchain/validator` 的 `--display-map-sources` 改为可选覆盖参数。详见
+  [消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md)。
 
 ## [Unreleased]
+
+消费方反馈第 30/32/33/34 条处理，核实与逐条回复见
+[消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md)。
+提交链：`e11a55b`（第 30 条）、`8331310`（第 32 条，ADR-0025）、`7127bd5`（第 33 条）、
+`bbae580`（第 34 条）、`81f40c2`（回复文档）、`a0623b2`（`--no-ff` 合入 `main`）。
+
+### 新增
+
+- `Core.Foundation.EngineAdapter.AssetRefConventions`：`sprite_set_id`/`icon_id` 资源引用标识
+  到资产相对路径的公开约定（`SpriteSetDirectory`/`IconFile`/`TryParseSpriteSetId`/
+  `TryParseIconId`），收口此前分散的多处私有实现（[ADR-0025](architecture/adr/0025-资源引用标识到资产相对路径的约定纳入公开契约.md)）。【编辑器相关契约】
+- `Core.Numbers.PowerSet.IPowerHost.TryGetPower(Id, Id, out double)`：容错查询资源池当前值，
+  未注册/未持有时返回 `false` 而不抛异常（带默认实现，不影响既有实现）。
+- `Presentation.Assembly.PresentationSchemaCatalog.DefaultDisplayMapCoverageSources`：外形映射
+  覆盖检查的默认内容表清单（`skill.def`/`skill.aura_def`/`item.template`/`creature.template`/
+  `gobj.template`，均以 `id` 比对）。【编辑器相关契约】
+- `SchemaAudit` 元数据门禁新增检查 `id_description_reference_hint`（告警级）：`Id`/`IdList`
+  字段 `Description` 提到"引用"/"指向"却未登记任何引用元数据时告警，防止第 30 条同类遗漏。
+
+### 变更（编辑器相关契约）
+
+- `Core.Carriers.Creature.CreatureOptions.DefaultPowerTypes` 类型改为 `IReadOnlyList<Id>?`，
+  默认值由 `[Health]` 改为 `null`；`CreatureFactory.Spawn` 未显式覆盖时改为按模板/数据集实际
+  定义的资源类型注册（详见消费方反馈第 33 条）——生成单位默认注册的资源类型范围随之变化，若
+  消费方曾依赖"不设置该选项时只注册 Health"的隐式行为需复核，详见文档"对消费方提示"一节。
+- `ContentValidationOptions.DisplayMapCoverageSources` 未指定时默认使用
+  `PresentationSchemaCatalog.DefaultDisplayMapCoverageSources`，`DisplayMapCoverageRule` 默认
+  启用（此前默认禁用）——外形映射覆盖检查现默认启用，消费方数据若有外形域引用缺失将报错；
+  `validator --list-tables --json` 新增 `display_map_coverage_sources` 导出字段（详见消费方
+  反馈第 34 条）。
+- `arch.class.primary_stat` 等 21 处字段补登 `SoftReferenceTable`/`SoftReferenceDomain`，另有
+  22 处字段描述改写去除"引用"/"指向"误导性措辞（目标不确定，不登记软引用）；资源路径约定
+  （`sprite_set_id`/`icon_id`）纳入公开契约面（详见消费方反馈第 30/32 条）。
+
+### 修复
+
+- 示例数据集补齐 `skill.def`/`skill.aura_def`/`item.template` 共 8 条记录的外形映射行，配合
+  `DisplayMapCoverageRule` 默认启用后仍保持 `validate_data.py --strict` 0 error。
 
 ## [1.22.0] - 2026-09-11
 
