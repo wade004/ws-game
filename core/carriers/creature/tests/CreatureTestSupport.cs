@@ -38,6 +38,24 @@ namespace Tests.Carriers.Creature
             "{\"level\": 1, \"xp_to_next\": 100, \"growth\": {}}," +
             "{\"level\": 2, \"xp_to_next\": 200, \"growth\": {\"stat.power\": 5}}," +
             "{\"level\": 3, \"xp_to_next\": 0, \"growth\": {\"stat.power\": 5, \"stat.max_health\": 20}}" +
+            "]}," +
+            // 消费方反馈第 36 条根治验收专用曲线：口径同上（entries[level-1].growth 生效），
+            // 供 creature.sample_beast（出生等级 2，见 TemplateRows）复现/验收"出生等级 > 1 再升级
+            // 不重复计入成长"。
+            "{\"id\": \"prog.sample_curve_e36\", \"max_level\": 3, \"entries\": [" +
+            "{\"level\": 1, \"xp_to_next\": 100, \"growth\": {}}," +
+            "{\"level\": 2, \"xp_to_next\": 200, \"growth\": {\"stat.power\": 2}}," +
+            "{\"level\": 3, \"xp_to_next\": 0, \"growth\": {\"stat.power\": 2}}" +
+            "]}," +
+            // 消费方反馈第 36 条根治验收专用曲线（五级）：供"出生等级 5 直接生成" vs "出生 1 级
+            // 逐级真实升到 5 级"两条路径的等价性验证（creature.sample_hydra/sample_hydra_cub，见
+            // TemplateRows）——每级成长量刻意各不相同，避免"总和碰巧相等"掩盖顺序错误。
+            "{\"id\": \"prog.sample_curve_e36_l5\", \"max_level\": 5, \"entries\": [" +
+            "{\"level\": 1, \"xp_to_next\": 100, \"growth\": {}}," +
+            "{\"level\": 2, \"xp_to_next\": 100, \"growth\": {\"stat.power\": 1}}," +
+            "{\"level\": 3, \"xp_to_next\": 100, \"growth\": {\"stat.power\": 2}}," +
+            "{\"level\": 4, \"xp_to_next\": 100, \"growth\": {\"stat.power\": 3}}," +
+            "{\"level\": 5, \"xp_to_next\": 0, \"growth\": {\"stat.power\": 4}}" +
             "]}" +
             "]";
 
@@ -70,7 +88,30 @@ namespace Tests.Carriers.Creature
             "\"npc_flags\": [\"npc_flag.vendor\", \"npc_flag.questgiver\"], " +
             "\"ai_rotation_ref\": \"ai.rotation.sample\", \"ai_behavior_ref\": \"ai.behavior.sample\", " +
             "\"loot_table_ref\": \"loot.sample_table\", \"display_ref\": \"display.sample_elite\", " +
-            "\"immunities\": [\"school.sample_fire\"]}" +
+            "\"immunities\": [\"school.sample_fire\"]}," +
+            // 消费方反馈第 36 条根治验收专用：出生等级 2（> 1）+ stat_growth_ref，tier.normal
+            // 倍率 1——探针原文的"出生等级 2、出生 strength 7、升到 3 级应为 9"用本仓库现成的
+            // stat.power 复现同一形状（base=5，曲线每级 +2，见 prog.sample_curve_e36）：出生
+            // power = 5*1 + Σ[2..2](2) = 7；升到 3 级正确应为 5*1 + Σ[2..3](2+2=4) = 9，根治前会
+            // 重复计入成为 7 + 4 = 11。
+            "{\"id\": \"creature.sample_beast\", \"name_key\": \"l10n.creature.sample_beast.name\", " +
+            "\"level\": 2, \"tier\": \"creature.tier.normal\", " +
+            "\"base_stats\": {\"stat.power\": 5}, " +
+            "\"stat_growth_ref\": \"prog.sample_curve_e36\", " +
+            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_beast\"}," +
+            // 消费方反馈第 36 条根治验收专用：路径等价性一对（同一条五级曲线 prog.sample_curve_e36_l5，
+            // 同样的 base_stats/tier）——sample_hydra 出生即 5 级，sample_hydra_cub 出生 1 级（供测试
+            // 用例真实经 AddXp 逐级升到 5 级后与前者对比最终值）。
+            "{\"id\": \"creature.sample_hydra\", \"name_key\": \"l10n.creature.sample_hydra.name\", " +
+            "\"level\": 5, \"tier\": \"creature.tier.normal\", " +
+            "\"base_stats\": {\"stat.power\": 3}, " +
+            "\"stat_growth_ref\": \"prog.sample_curve_e36_l5\", " +
+            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_hydra\"}," +
+            "{\"id\": \"creature.sample_hydra_cub\", \"name_key\": \"l10n.creature.sample_hydra_cub.name\", " +
+            "\"level\": 1, \"tier\": \"creature.tier.normal\", " +
+            "\"base_stats\": {\"stat.power\": 3}, " +
+            "\"stat_growth_ref\": \"prog.sample_curve_e36_l5\", " +
+            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_hydra_cub\"}" +
             "]";
 
         public static IEventBus CreateBus() =>

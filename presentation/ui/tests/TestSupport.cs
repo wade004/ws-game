@@ -139,6 +139,11 @@ namespace Tests.PresentationUi
         {
         }
 
+        // ApplyGrowthToCurrentLevel 不在此覆盖：IProgressionHost 的默认接口方法（空操作）已够用，
+        // 本假实现不建模真实的曲线成长聚合（_units 只记 Level/Xp/XpToNext，不持有曲线数据），
+        // 呈现层测试目前也没有依赖成长修正是否写入，见 IProgressionHost.ApplyGrowthToCurrentLevel
+        // 判断记录。
+
         public void SetForTest(Id unitId, int level, long xp, long xpToNext) => _units[unitId] = (level, xp, xpToNext);
     }
 
