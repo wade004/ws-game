@@ -33,6 +33,14 @@ namespace Core.Rules.Skill
         public static readonly string[] ProjectileTravelModeValues = { "straight", "arc", "homing" };
         public static readonly string[] ProjectileHitBehaviorValues = { "impact_on_first", "pierce", "impact_on_expiry" };
         public static readonly string[] MoveModeValues = { "charge", "leap", "knockback" };
+
+        /// <summary>ADR-0026《技能位移的连续模式》：<c>move</c> 效果原语新增的 <c>motion</c> 字段
+        /// 取值——与既有 <c>mode</c>（<see cref="MoveModeValues"/>）是正交的两个维度，见
+        /// <c>EffectDispatcher.ApplyMove</c> 判断记录"命名，不复用既有 mode 字段"。</summary>
+        public static readonly string[] MoveMotionValues = { "instant", "continuous" };
+
+        /// <summary>ADR-0026：<c>motion: continuous</c> 时可选的阻挡后处理策略。</summary>
+        public static readonly string[] DisplacementBlockingValues = { "stop", "revert" };
         public static readonly string[] ModStatOpValues = { "flat", "pct", "mult" };
         public static readonly string[] ControlFlagValues = { "no_move", "no_cast", "no_attack", "no_interact" };
 
@@ -175,13 +183,33 @@ namespace Core.Rules.Skill
                 // （EffectDispatcher.ApplyMove），本次登记不再按 mode 拆一层嵌套 Variants——四个字段
                 // 作为一份扁平的"该原语参数超集"登记即可覆盖 F1a 目标（mode 本身已有 Enum 校验），
                 // 二级 Variants 留待后续确有需要时再引入，避免过度设计。
+                // ADR-0026《技能位移的连续模式》：补 motion/speed/duration/blocking/sample_step 五个
+                // 字段——motion 缺省 instant 时行为与登记扩容之前逐字节一致（EffectDispatcher.
+                // ApplyMove 未改动的既有 switch 分支）；后四项只在 motion=continuous 时被读取（同
+                // 上面判断记录"四个子字段按 mode 分别只使用其中一部分"的既有登记风格，本次同样不再
+                // 拆二级 Variants，扁平超集登记即可，见该判断记录"避免过度设计"）。speed/duration/
+                // sample_step 三者都是"若声明则必须为正数"（消费方反馈 2026-09-10"技能效果参数数值
+                // 范围校验改进建议"、ADR-0021 同一口径），speed/duration 至少声明一个才能算出有效
+                // 速度（业务判断，登记层不表达"二选一必填"，同上面 modify_cooldown 的 skill_id/
+                // category 判断记录）——两者皆缺或皆非正时 EffectDispatcher.ApplyContinuousMove
+                // 按 no-op 处理，不抛异常。
                 [EffectKindNames.ToText(EffectKind.Move)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("mode", FieldKind.Enum, required: false, enumValues: MoveModeValues, description: "缺省 charge"),
                     new FieldSchema("point", FieldKind.Vec2, required: false, description: "leap 目标点"),
                     new FieldSchema("distance", FieldKind.Number, required: false, description: "knockback 距离，缺省 5"),
                     new FieldSchema("stop_distance", FieldKind.Number, required: false, description: "charge 停止距离，缺省 1.0"),
-                }, "按 mode（charge|leap|knockback）位移施法者或目标，只写最终逻辑位置，不做寻路/碰撞"),
+                    new FieldSchema("motion", FieldKind.Enum, required: false, enumValues: MoveMotionValues,
+                        description: "ADR-0026：缺省 instant（现行三种位移的既有语义）；continuous 转交 IControlledDisplacementSink 逐 tick 推进"),
+                    new FieldSchema("speed", FieldKind.Number, required: false, description: "ADR-0026：仅 motion=continuous 生效，每秒位移距离，若声明必须 > 0")
+                        .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                    new FieldSchema("duration", FieldKind.Number, required: false, description: "ADR-0026：仅 motion=continuous 且未声明 speed 时生效，按 |target-origin|/duration 换算速度，若声明必须 > 0")
+                        .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                    new FieldSchema("blocking", FieldKind.Enum, required: false, enumValues: DisplacementBlockingValues,
+                        description: "ADR-0026：仅 motion=continuous 生效，缺省 stop（停在阻挡前最后可通行采样点），revert 回到起点"),
+                    new FieldSchema("sample_step", FieldKind.Number, required: false, description: "ADR-0026：仅 motion=continuous 生效，路径采样步长，若声明必须 > 0，缺省取 MovementOptions.DefaultDisplacementSampleStep")
+                        .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                }, "按 mode（charge|leap|knockback）位移施法者或目标；motion=instant（缺省）只写最终逻辑位置，不做寻路/碰撞，motion=continuous 见 ADR-0026"),
 
                 [EffectKindNames.ToText(EffectKind.Summon)] = ParamsCase(required: true, new[]
                 {
