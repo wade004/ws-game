@@ -18,7 +18,7 @@
 combat/
   README.md
   contracts/
-    CombatOptions.cs        构造期策略配置（命中表 id、属性 id 引用、系数、脱战时长、仇恨上限、死亡策略）
+    CombatOptions.cs        构造期策略配置（命中表 id、属性 id 引用、系数、脱战时长、仇恨上限、死亡策略、结算追踪回调）
     ICombatDiagnostics.cs   最小诊断出口
   core/
     HitTableConfig.cs        combat.hit_table_config 强类型视图
@@ -35,6 +35,7 @@ combat/
   tests/
     CombatTestSupport.cs      Fake IUnitAccess/IAuraQuery + 真实 Stat/Power/Rng/Faction/DataRegistry 夹具
     ResolverHitTableTests.cs  命中表六分支 + 手算全链 + 免疫 + 治疗 + 死亡
+    C10_ResolveTraceTests.cs  CombatOptions.ResolveTrace 三条返回路径 + 未设置零开销 + 回调抛异常不中断
     ThreatTableTests.cs       仇恨表增减/置顶/上限裁剪/清理/事件
     CombatEnterLeaveTests.cs  进出战斗、仇恨驱动脱战、治疗仇恨
     CombatDeterminismTests.cs 同种子重放一致性
@@ -169,6 +170,31 @@ combat/
     PeriodicDotWithScalingStat_SourceDespawnedThenMultipleTicksElapse_DoesNotThrow_
     AndKeepsLandingDamage`（`core/carriers/assembly/tests/`）。06/05 文档同步补充语义说明，见两者
     变更记录。
+
+16. **`CombatOptions.ResolveTrace`：结算追踪回调（消费方反馈 2026-09-11 编辑器第 31 条，见
+    `architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md`"方案 1"）**：消费方内容编辑器
+    反馈"结算中间步骤经真实施法路径不可观测"——`ResolveResult.Steps` 总是被计算，但
+    `CastPipeline.ExecuteEffectsOnly` 丢弃了 `ApplyEffect` 的返回值，落地事件
+    （`CombatDamageDealtEvent`/`CombatHealDoneEvent`）也不携带分步明细，导致内容工具无法按 06
+    第 4.1 节固定管线分步展示结算过程（沙盘回放同样只能看到落地总量）。三个候选方案里选**方案
+    1**：不改事件契约、不给 `RulesAssembly` 加结算宿主注入点（消费方反馈原文另两个方案），只给
+    `CombatOptions` 加一个可选回调 `ResolveTrace: Action<EffectContext, ResolveResult>?`。
+    `Resolver.Resolve` 是全部伤害/治疗效果原语落地的唯一出口（见判断记录 7/8 与
+    `core/rules/skill/core/EffectDispatcher.ApplyDamageOrHeal` 恒调用
+    `ICombatHost.ResolveEffect`），本方法全部三条返回路径（"目标已死亡"短路、
+    miss/dodge/parry 判定终止短路、完整九步落地）在各自 `return` 前统一经私有方法
+    `InvokeResolveTrace` 调用一次，因此技能瞬发/读条完成/引导 tick、光环周期效果
+    （`periodic_damage`/`periodic_heal`，经 `AuraHost.FirePeriodic` 直调
+    `EffectSink.ApplyEffect`）、Proc 触发的嵌套施法（`CastPipeline.TriggerCast`）、免疫吸收
+    （步骤 7 的 `ConsumeAbsorb` 发生在同一次 `Resolve` 调用内，天然覆盖，不需要单独接线）全部覆盖，
+    不需要在各调用点分别接入。未设置（缺省 `null`）时只多一次 null 判断，不分配、不改变既有输出，
+    零开销；回调本身抛出的异常被 `InvokeResolveTrace` 捕获后经 `ICombatDiagnostics.Warn` 记一次
+    警告并继续，不向上传播——工具/诊断代码里的 bug 不应打断真实游戏结算。`RulesAssembly` 已有的
+    `combatOptions` 构造参数原样透传，装配根本身不改。回归测试见
+    `core/rules/combat/tests/C10_ResolveTraceTests.cs`（`Resolver.Resolve` 三条返回路径穷举）与
+    `core/rules/skill/tests/C10_ResolveTraceTests.cs`（真实 `RulesAssembly` + `CastSkill`，覆盖
+    瞬发伤害/光环周期伤害/Proc 嵌套施法/治疗四类路径，以及"未设置行为不变""回调抛异常不影响结算"
+    两条跨路径不变量）。
 
 ## 契约缺口 / 未决问题
 
