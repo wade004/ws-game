@@ -37,6 +37,21 @@ namespace Core.Rules.Skill
         private readonly Action<Id, Id, Id?, double> _interrupt;
         private readonly Action<Id, Id> _learnSkill;
 
+        /// <summary>
+        /// ADR-0026《技能位移的连续模式》：<c>move</c> 效果原语 <c>motion: continuous</c> 分支的
+        /// 依赖倒置出口，由 <c>Core.Carriers.Assembly.CarriersAssembly</c> 在装配期经
+        /// <see cref="Core.Rules.Skill.SkillHost.DisplacementSink"/> 这个新增可写属性注入（不是
+        /// 构造函数参数——见该属性判断记录"ABI 安全：新增属性而非新增构造参数，避免改动本类型/
+        /// <see cref="SkillHost"/>/<see cref="Core.Rules.Assembly.RulesAssembly"/>/
+        /// <see cref="Core.Carriers.Assembly.CarriersAssembly"/> 任何一处既有构造函数的物理签名"）。
+        /// 未注入（<c>null</c>，典型场景：只装配 <c>core/rules</c> 不装配 <c>core/carriers</c> 的纯
+        /// L2 测试/集成）时 <see cref="ApplyMove"/> 的 <c>motion: continuous</c> 分支退化为直接按算出
+        /// 的终点整体 <c>SetPosition</c>（同 <c>instant</c> 语义，只是跳过逐 tick 推进/碰撞裁决），
+        /// 并记一条警告，不抛异常（惯例同 <see cref="ApplyProjectile"/> 对未注入
+        /// <see cref="IProjectileSpawner"/> 的既有降级）。
+        /// </summary>
+        public IControlledDisplacementSink? DisplacementSink { get; set; }
+
         public EffectDispatcher(
             AuraHost auraHost,
             CooldownTracker cooldowns,
@@ -366,9 +381,26 @@ namespace Core.Rules.Skill
         /// 只写目标最终位置，不做寻路/碰撞——06 原文本节未规定位移的插值/寻路细节，由 L3 移动系统
         /// 在表现层/物理层精化（本模块只保证逻辑位置的最终落点正确，呼应 05 对象模型"移动系统"
         /// 分工）。
+        /// <para>
+        /// ADR-0026《技能位移的连续模式》：新增可选参数 <c>motion</c>（<c>instant</c>，缺省，本方法
+        /// 原有的直接 <c>SetPosition</c> 语义；<c>continuous</c>，转交 <see cref="DisplacementSink"/>
+        /// 逐 tick 推进）。判断记录（<c>motion</c> 命名，不复用既有 <c>mode</c> 字段）：本原语早已有
+        /// 一个名为 <c>mode</c> 的参数表示子类型（<c>charge|leap|knockback</c>，见下方 switch），若
+        /// "瞬移/连续"这一正交维度也叫 <c>mode</c> 会与既有字段撞名、破坏既有数据/测试对 <c>mode</c>
+        /// 取值集合 <c>{charge,leap,knockback}</c> 的假设——两个维度正交（子类型决定"移动到哪"，
+        /// <c>motion</c> 决定"怎么移过去"），改用 <c>motion</c> 避免命名碰撞，见 ADR-0026 决策记录。
+        /// 本分支只负责判别并转发，<see cref="ApplyMove"/> 原有的 <c>instant</c> switch 分支代码
+        /// 逐字节未改动（新分支在其之前短路返回）。
+        /// </para>
         /// </summary>
         private ResolveResult ApplyMove(EffectContext context)
         {
+            var motion = ParamsX.GetString(context.Params, "motion", "instant");
+            if (motion == "continuous")
+            {
+                return ApplyContinuousMove(context);
+            }
+
             var mode = ParamsX.GetString(context.Params, "mode", "charge");
 
             switch (mode)
@@ -410,6 +442,103 @@ namespace Core.Rules.Skill
                 }
             }
 
+            return NoOp(context);
+        }
+
+        /// <summary>
+        /// ADR-0026《技能位移的连续模式》：<c>move</c> 效果原语 <c>motion: continuous</c> 分支——按
+        /// 与瞬移分支完全相同的 <c>mode</c>（<c>charge|leap|knockback</c>）算出被位移单位与目标点
+        /// （逐子类型的几何计算与上面 <see cref="ApplyMove"/> 的 <c>switch</c> 分支各自独立实现，不
+        /// 共享代码，保证 <c>instant</c> 分支不受本方法任何改动影响，见 ADR-0026 兼容性 4"无阻挡时
+        /// 连续/瞬移终点一致"——两段独立代码算出的目标点在无阻挡场景下逐字节相同，由测试锁定），
+        /// 随后不直接 <c>SetPosition</c>，而是组装 <see cref="ControlledDisplacementRequest"/> 交给
+        /// <see cref="DisplacementSink"/>（真正逐 tick 推进的是 L3 <c>MovementHost</c>/
+        /// <c>MovementTickHandler</c>，见该接口判断记录）。
+        /// </summary>
+        private ResolveResult ApplyContinuousMove(EffectContext context)
+        {
+            var mode = ParamsX.GetString(context.Params, "mode", "charge");
+            Id movingUnitId;
+            Vec2 origin;
+            Vec2 target;
+
+            switch (mode)
+            {
+                case "leap":
+                {
+                    movingUnitId = context.SourceId;
+                    origin = _units.GetPosition(context.SourceId);
+                    target = ParamsX.GetVec2(context.Params, "point", origin);
+                    break;
+                }
+
+                case "knockback":
+                {
+                    movingUnitId = context.TargetId;
+                    var from = _units.GetPosition(context.SourceId);
+                    var to = _units.GetPosition(context.TargetId);
+                    var distance = ParamsX.GetNumber(context.Params, "distance", 5);
+                    var direction = to - from;
+                    var length = direction.Length;
+                    var normalized = length > 1e-9 ? direction * (1.0 / length) : new Vec2(1, 0);
+                    origin = to;
+                    target = to + normalized * distance;
+                    break;
+                }
+
+                case "charge":
+                default:
+                {
+                    movingUnitId = context.SourceId;
+                    var from = _units.GetPosition(context.SourceId);
+                    var to = _units.GetPosition(context.TargetId);
+                    var stopDistance = ParamsX.GetNumber(context.Params, "stop_distance", 1.0);
+                    var direction = to - from;
+                    var length = direction.Length;
+                    origin = from;
+                    target = length > stopDistance ? to - direction * (1.0 / length) * stopDistance : from;
+                    break;
+                }
+            }
+
+            var declaredSpeed = ParamsX.GetNumber(context.Params, "speed", 0);
+            var distanceTotal = (target - origin).Length;
+            double speed;
+            if (declaredSpeed > 0)
+            {
+                speed = declaredSpeed;
+            }
+            else
+            {
+                var duration = ParamsX.GetNumber(context.Params, "duration", 0);
+                speed = duration > 1e-9 ? distanceTotal / duration : 0;
+            }
+
+            if (speed <= 0 || distanceTotal <= 1e-9)
+            {
+                // 无效速度（既未声明 speed 也未声明可用的 duration）或零距离：no-op，不提交任何
+                // 位移请求（同瞬移分支"charge 已在停止距离内"时不动的既有语义）。
+                return NoOp(context);
+            }
+
+            var blockingText = ParamsX.GetString(context.Params, "blocking", "stop");
+            var blocking = blockingText == "revert" ? DisplacementBlockingPolicy.Revert : DisplacementBlockingPolicy.Stop;
+            var sampleStep = ParamsX.GetNumber(context.Params, "sample_step", 0);
+
+            if (DisplacementSink == null)
+            {
+                // 降级（见 DisplacementSink 判断记录）：未装配 L3 受控位移宿主时退化为直接
+                // SetPosition，保证"没有 L3 时至少落到与瞬移一致的最终位置"，不静默丢弃这次位移。
+                _diagnostics.Warn(
+                    "EffectKind.Move motion=continuous 未注入 IControlledDisplacementSink（见 " +
+                    "core/rules/common/contracts/IControlledDisplacementSink.cs 判断记录\"依赖倒置\"，" +
+                    "通常经 CarriersAssembly 注入），已退化为按目标点直接 SetPosition");
+                _units.SetPosition(movingUnitId, target);
+                return NoOp(context);
+            }
+
+            DisplacementSink.BeginControlledDisplacement(
+                new ControlledDisplacementRequest(movingUnitId, origin, target, speed, blocking, sampleStep));
             return NoOp(context);
         }
 

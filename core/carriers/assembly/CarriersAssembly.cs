@@ -342,6 +342,15 @@ namespace Core.Carriers.Assembly
             Rules.RegisterTickHandlers();
 
             Movement = new MovementHost(world);
+
+            // ADR-0026《技能位移的连续模式》：MovementHost 直接实现 IControlledDisplacementSink
+            // （同 ProjectileHost : IProjectileSpawner 既有惯例），这里把它接入 Rules.Skill 新增的
+            // 可写属性 DisplacementSink——纯属性赋值，不改变 RulesAssembly/SkillHost/
+            // EffectDispatcher/本类型任何一个构造函数的物理签名（见 SkillHost.DisplacementSink 判断
+            // 记录"ABI 安全"）。Rules 早于本行已构造完成（见上面第 3 步），顺序上不需要像 Projectiles
+            // 那样把 MovementHost 的构造提前到 RulesAssembly 之前。
+            Rules.Skill.DisplacementSink = Movement;
+
             var resolvedMovementOptions = movementOptions ?? new MovementOptions();
             MovementOptions = resolvedMovementOptions;
             // spatial 注入（加固任务：unit_block 阻挡判定，见 MovementTickHandler 判断记录）：

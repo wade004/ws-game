@@ -707,6 +707,49 @@ skill/
     私有方法，`ChargeState` 为私有嵌套类型）。ABI 探针（`toolchain/abi_probe.ps1`，基线 1.12.0）
     breaks=0。
 
+## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
+
+消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：
+`EffectDispatcher.ApplyMove` 的三种子类型（`charge`/`leap`/`knockback`）只做一次性 `SetPosition`，
+没有连续路径采样/碰撞裁决。新增可选参数 `motion`（`instant`，缺省，原有语义；`continuous`）——
+判断记录（命名不复用既有 `mode` 字段）：`mode` 早已表示子类型取值集合
+`{charge,leap,knockback}`，"瞬移/连续"是另一个正交维度，复用同名字段会与既有取值集合冲突，改用
+`motion` 避免撞名（两个字段各自独立登记进 `SkillSchemas` 的 `move` 变体枚举）。
+
+`motion: continuous` 时，`ApplyMove` 顶部短路到独立的 `ApplyContinuousMove`——按与瞬移分支完全
+独立实现（不共享代码/状态）的相同子类型几何公式算出被位移单位与目标点，取 `speed`（缺省用
+`duration` 换算：`|target-origin|/duration`，`speed` 存在时优先）、`blocking`（缺省 `stop`）、
+`sample_step`（缺省 0，透传"未声明"哨兵值，由 L3 `MovementOptions.DefaultDisplacementSampleStep`
+兜底——本模块不持有导航网格尺寸信息，不在这里猜默认值），组装
+`Core.Rules.Common.ControlledDisplacementRequest` 交给新增可写属性 `DisplacementSink`
+（`IControlledDisplacementSink?`，依赖倒置接口，惯例同既有 `IProjectileSpawner`）。
+
+判断记录（新增可写属性而非新增构造函数参数）：`EffectDispatcher`/`SkillHost` 均不改动任何既有
+构造函数的物理签名——`DisplacementSink` 是纯 getter/setter 属性，`Core.Carriers.Assembly.
+CarriersAssembly` 在装配期把真正实现（`Core.Carriers.Unit.MovementHost`，直接实现该接口）通过
+一行属性赋值接入（`Rules.Skill.DisplacementSink = Movement;`），不需要像 `IProjectileSpawner`
+那样把依赖提前到 `RulesAssembly` 构造之前传入——晚于 `RulesAssembly`/`CarriersAssembly` 双双构造
+完成后再赋值同样安全，构造函数因此保持零改动，ABI 探针（`toolchain/abi_probe.ps1`）与
+`toolchain/abi_surface`（全公开签名表面 diff）均验证通过。未注入时（典型场景：只装配
+`core/rules` 不装配 `core/carriers` 的纯 L2 测试/集成）`ApplyContinuousMove` 退化为直接按算出的
+目标点 `SetPosition`（同 `instant` 语义，跳过逐 tick 推进/裁决）并记一条警告，不抛异常（惯例同
+`ApplyProjectile` 对未注入 `IProjectileSpawner` 的既有降级）。
+
+真正的逐 tick 推进/阻挡裁决/终止条件（到达/受阻/控制打断/施法者死亡/显式 Stop）由 L3
+`core/carriers/unit` 的 `MovementHost`/`MovementTickHandler` 落地，见该模块 README
+"ADR-0026《技能位移的连续模式》：受控位移"一节的完整判断记录，本模块不重复实现、也不了解其内部
+状态机。
+
+测试：`core/rules/skill/tests/C10a_ContinuousMoveDispatchTests.cs`（10 例，用记录用的假
+`IControlledDisplacementSink` 验证三种子类型的目标点/被位移单位判定、`speed`/`duration` 换算、
+`blocking`/`sample_step` 参数透传、无效速度/零距离 no-op、未注入 sink 的降级、既有三种瞬移模式
+在 `motion` 缺省/显式 `instant` 时完全不触碰 sink 的回归）；
+`core/rules/skill/tests/C10a_MoveContinuousSchemaRangeTests.cs`（16 例，`SkillSchemas.cs` 新增
+五个字段的加载期校验：`speed`/`duration`/`sample_step` 若声明必须 `> 0`，`motion`/`blocking`
+枚举取值集合，既有 `mode` 字段取值集合不受影响的回归）；端到端真实施法链路见
+`core/carriers/assembly/tests/C10a_ContinuousMoveEndToEndTests.cs`（真实 `CarriersAssembly` + 带
+阻挡的 `StubNavigation2D`，复现消费方反馈原始最小场景）。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全
