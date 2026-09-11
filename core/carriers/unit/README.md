@@ -246,6 +246,66 @@ unit/
   真正穿过矩形内部的判定结果不变。`FindPath` 补齐端点契约（不可行走端点优先于零长度判断、零长度
   目标返回单元素路径），`GetBlockingVersion` 按地图独立计数。
 
+## ADR-0026《技能位移的连续模式》：受控位移（Controlled Displacement）
+
+消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：
+`core/rules/skill` 的 `move` 效果原语此前只有一次性 `SetPosition` 的瞬移语义（合法墙前目标 leap
+到墙对面时终点直接跳变穿墙）。本模块新增"受控位移"——与既有 `CurrentPath`（路径跟随）平级、互斥
+的第二种由 `MovementTickHandler` 驱动的位移任务，由 `EffectDispatcher.ApplyMove`（L2）经依赖倒置
+接口 `Core.Rules.Common.IControlledDisplacementSink` 发起（`MovementHost` 直接实现该接口，新增公开
+入口 `BeginControlledDisplacement(ControlledDisplacementRequest)`，惯例同
+`Core.Carriers.Projectile.ProjectileHost : IProjectileSpawner`）。
+
+- **状态**：`MovementState` 新增 `ControlledDisplacementState? Displacement`（起点/终点/速度/阻挡
+  策略/采样步长）与只读属性 `IsControlledDisplacementActive`；新增 6 参数构造函数重载（原 5 参数
+  构造函数改为内部转发，物理签名不变，源码/二进制兼容）。
+- **意图**：新增 `Intent.Kind == "move_displace"`，处理顺序排在既有 `move_stop`→`move` 之间（先
+  `move_stop`→再 `move_displace`（本次新增）→再 `move`）——"最后一条生效"同一惯例（`lastDisplaceIndex`
+  扫描）。`MovementTickHandler.ApplyIntent` 顶部新增判定：`Displacement.HasValue` 时拒绝本次
+  `move` 意图（受控位移期间普通移动互斥，落地位置与既有"控制期间禁止移动"同一处）；既有
+  `MovementHost.Stop`（`move_stop`）扩展为同时能取消受控位移（就地停止，不套用阻挡策略）。
+- **推进**：`AdvanceDisplacement` 每次调用按"连续模式 `speed × dt`；离散模式一次性给出必然覆盖
+  剩余全程的预算上界"计算本次可推进距离，按不超过 `ControlledDisplacementState.SampleStep` 的
+  增量逐段推进，每段用 `INavigation2D.Raycast` 判定（与既有目标/方向移动同一"射线与路径段同源
+  判定"）。判断记录（回退距离的下界）：受阻时的回退量（`MovementOptions.ArrivalEpsilon`）相对
+  "本次 `AdvanceDisplacement` 调用开始时的位置"取下界，不是相对每个采样子步各自的临时位置——
+  否则某个采样子步的候选终点恰好落在阻挡区域开区间边界上（`Raycast` 判定"不算受阻"，见
+  `INavigation2D.Raycast` 判断记录"边界/角点相切不算受阻"）时，紧接着下一个采样子步的入射距离
+  会是 0，回退量被 `Math.Min(0, ArrivalEpsilon)` 夹成 0，最终停在边界上而不是边界前——这是
+  M-C10 反馈墙前场景在实现早期版本复现过的真实 bug（`x==1.5` 而非 `x<1.5`），已在
+  `core/carriers/unit/tests/C10a_ControlledDisplacementTests.cs` 用精确坐标断言钉住。判断记录
+  （即时终止而非延后一轮）：采样步恰好到达/越过终点时本轮循环内直接终止（`WriteDisplacementPosition`
+  + `EndDisplacement`），不是把 `remaining` 减到 0 后指望下一次循环迭代的"到达"检查——`while`
+  条件 `remaining > 0` 会在 `remaining` 恰好归零时提前退出循环，若不即时终止会导致"明明已经站在
+  终点上，`Displacement` 却还留着非空"的状态泄漏（同一批开发中复现过、已修复）。
+- **终止**：到达（`DisplacementArrived`）、受阻（`DisplacementBlocked`，`Stop`/`Revert` 两种子
+  行为共用同一原因值）、控制打断（`DisplacementControlled`，判定同 `IsLocked`）、施法者死亡
+  （`DisplacementCasterDead`，`Unit.Alive`）、显式 `Stop`（复用既有 `Requested`）——均触发既有
+  `MovementHost.OnMoveStopped`，`MoveStopReason` 新增四个 `Displacement*` 枚举成员，不新增事件
+  类型（决策：可观测性复用 `unit.moved`/`unit.state_changed`/`OnMoveStopped` 三个既有出口）。
+- **BeginDisplacement 返回值**（判断记录）：`bool` 而非 `void`——`Execute` 只在
+  `BeginDisplacement` 真正开始了一次新位移（返回 `true`）时才把该单位计入本 tick
+  `processedThisTick`；忽略分支（已在位移中/被锁定/参数无效，返回 `false`）不计入，否则一条被
+  忽略的多余 `move_displace` 意图会让第三遍循环（"本 tick 未收到新意图但仍在进行中"）误以为该
+  单位本 tick 已处理过而跳过对其既有受控位移的续推——同一批开发中复现过、已修复（见
+  `C10a_ControlledDisplacementTests.BeginDisplacement_WhileAlreadyDisplacing_IgnoresSecondRequest`）。
+- **离散模式**：一次性完成整段位移，不按每回合移动预算拆分（判断记录见 ADR-0026 决策 4）——
+  `AdvanceDisplacement` 的 `budget` 在 `isDiscrete` 为真时取"剩余直线距离 + 一个采样步长"的上界，
+  保证 `while` 循环必然经"到达"或"受阻"分支之一返回，不会把 `Displacement` 非空状态带到下一个
+  离散步。
+- **兼容性**：`MovementOptions` 新增 `DefaultDisplacementSampleStep`（默认 0.5，`sample_step`
+  未声明或非正值时的兜底，构造函数新增带默认值属性，源码/二进制兼容）；除上述新增成员外不改动
+  任何既有公开签名。既有三种瞬移模式（`EffectDispatcher.ApplyMove` 的 `charge`/`leap`/`knockback`
+  分支）完全不受影响——`motion: continuous` 分支在其之前短路返回，两段代码互不共享状态。
+
+测试：`core/carriers/unit/tests/C10a_ControlledDisplacementTests.cs`（16 例，直接驱动
+`MovementHost.BeginControlledDisplacement`：无阻挡终点/逐 tick 位置序列与瞬移一致、消费方反馈
+最小场景 `stop`/`revert` 两种阻挡子行为、采样步长参数生效、控制打断/施法者死亡/显式 Stop 三类
+中断就地停止、位移期间普通移动被拒绝、暂停不推进、离散模式一次性完成（含阻挡）、位移嵌套防御）；
+`core/rules/skill/tests/C10a_ContinuousMoveDispatchTests.cs`、
+`core/carriers/assembly/tests/C10a_ContinuousMoveEndToEndTests.cs` 见对应模块 README/测试文件头
+注释。
+
 ## 不负责什么
 
 - 不实现 `core/carriers/item`/`creature`/`gobj`/`summon` 四个并行模块的任何逻辑，只提供它们依赖的
