@@ -394,6 +394,128 @@ namespace Core.Rules.Skill
         public double GetCooldown(Id unitId, Id skillId) =>
             _defs.TryGetSkillDef(skillId, out var def) ? _cooldowns.GetCooldown(unitId, def) : 0;
 
+        /// <summary>
+        /// 消费方反馈（2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"，见
+        /// architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md）：<see cref="ISkillHost"/>
+        /// 默认降级实现的显式覆盖——直接从 <see cref="_cooldowns"/>/<see cref="_spellMods"/>/
+        /// <see cref="_options"/> 读取精确状态，裁决口径与 <see cref="TryStartCast"/>（经
+        /// <see cref="CastPipeline"/>）步骤 3/4 完全一致：
+        /// <list type="bullet">
+        /// <item><c>def.HasCharges</c> 时只看当前充能数是否 &gt; 0，<b>不检查分类冷却</b>——同
+        /// <see cref="CooldownTracker.IsSkillReady"/> 判断记录（<see cref="CooldownTracker.StartCooldown"/>
+        /// 的充能分支从不写入分类冷却账本，分类冷却在这台引擎里只对非充能技能生效），本方法据此
+        /// 不为充能技能产生 <see cref="SkillReadiness.CategoryCooldownRemaining"/> 快照，即便
+        /// <c>def.CooldownCategory</c> 恰好有值也不呈现（呈现一个从不参与真实裁决的数字会误导调用
+        /// 方）。</item>
+        /// <item>否则看技能自身冷却与（若声明了 <c>cooldown_category</c>）所属分类冷却是否均已
+        /// 归零，两者独立汇报进 <see cref="SkillReadiness.BlockingSources"/>。</item>
+        /// <item>公共冷却只在 <c>_options.GcdEnabled &amp;&amp; def.RespectsGcd &amp;&amp;
+        /// !isDiscreteStep</c> 同时成立时才参与裁决——与 <see cref="CastPipeline"/> 步骤 4 判定条件
+        /// 逐字对齐；不满足时 <see cref="SkillReadiness.GlobalCooldownRemaining"/> 恒为 0（"不适用"
+        /// 与"适用但已就绪"对 <see cref="SkillReadiness.IsReady"/> 效果相同）。</item>
+        /// </list>
+        /// <see cref="SkillReadiness.IsReady"/> 因此与随后一次 <see cref="CastSkill"/> 在同一冷却/
+        /// 充能/公共冷却状态下会得到一致的"是否会被这三类原因拒绝"结论（不含步骤 1/2/5/6/7 等其它
+        /// 拒绝原因，见接口方法文档）。<see cref="SkillReadiness.EffectiveCooldownDuration"/> 对充能
+        /// 技能取单次恢复时长（<see cref="CooldownTracker.GetEffectiveRechargeTimeScaled"/>），对
+        /// 普通冷却技能取 <c>cooldown</c> 维度 SpellMod 修正后再按当前时间模型折算的完整冷却时长
+        /// （与 <see cref="StartCooldownAndGcd"/> 的 <c>modifiedCooldown</c> 计算同一算式，唯一区别是
+        /// 这里只读不写）。只读取，全程不调用 <see cref="CooldownTracker"/> 的任何写方法（<c>
+        /// StartCooldown</c>/<c>StartGcd</c>/<c>Update</c>/<c>AdvanceCharges</c> 等），不推进时间、
+        /// 不修改任何状态。
+        /// </summary>
+        public SkillReadiness GetSkillReadiness(Id unitId, Id skillId)
+        {
+            if (!_defs.TryGetSkillDef(skillId, out var def))
+            {
+                // 未知技能：与 GetCooldown 对未知技能返回 0（见该方法实现）同一口径——冷却/充能/
+                // 公共冷却均无数据可查，判定"不受这三类原因阻塞"。这与 CastSkill 会以
+                // CastFailureReason.UnknownSkill 拒绝不是同一件事，本方法只裁决冷却/充能/公共冷却
+                // （见接口方法文档"不含……其它拒绝原因"）。
+                return new SkillReadiness(
+                    skillId, isReady: true, blockingSources: SkillReadinessBlockers.None,
+                    skillCooldownRemaining: null, categoryCooldownRemaining: null,
+                    globalCooldownRemaining: null, maxCharges: null, currentCharges: null,
+                    nextChargeRemaining: null, effectiveCooldownDuration: null);
+            }
+
+            var blocking = SkillReadinessBlockers.None;
+            int? maxCharges = null;
+            int? currentCharges = null;
+            double? nextChargeRemaining = null;
+            double? skillCooldownRemaining = null;
+            CategoryCooldownStatus? categoryCooldown = null;
+            double effectiveCooldownDuration;
+            bool cooldownOrChargesReady;
+
+            if (def.HasCharges)
+            {
+                currentCharges = _cooldowns.GetCharges(unitId, def);
+                maxCharges = _cooldowns.GetEffectiveChargesMax(unitId, def);
+                nextChargeRemaining = _cooldowns.GetChargeRechargeRemaining(unitId, def);
+                effectiveCooldownDuration = _cooldowns.GetEffectiveRechargeTimeScaled(unitId, def);
+
+                cooldownOrChargesReady = currentCharges > 0;
+                if (!cooldownOrChargesReady)
+                {
+                    blocking |= SkillReadinessBlockers.NoCharges;
+                }
+            }
+            else
+            {
+                skillCooldownRemaining = _cooldowns.GetSkillCooldownRemaining(unitId, def.Id);
+                var skillCdReady = skillCooldownRemaining <= 0;
+                if (!skillCdReady)
+                {
+                    blocking |= SkillReadinessBlockers.SkillCooldown;
+                }
+
+                var categoryReady = true;
+                if (def.CooldownCategory.HasValue)
+                {
+                    var categoryRemaining = _cooldowns.GetCategoryCooldownRemaining(unitId, def.CooldownCategory.Value);
+                    categoryCooldown = new CategoryCooldownStatus(def.CooldownCategory.Value, categoryRemaining);
+                    categoryReady = categoryRemaining <= 0;
+                    if (!categoryReady)
+                    {
+                        blocking |= SkillReadinessBlockers.CategoryCooldown;
+                    }
+                }
+
+                cooldownOrChargesReady = skillCdReady && categoryReady;
+
+                // 与 StartCooldownAndGcd 的 modifiedCooldown 同一算式——只读不写，不调用 StartCooldown。
+                var modifiedCooldown = _spellMods.Apply(
+                    unitId, SpellModDimension.Cooldown, def.Id, def.School, def.Tags, def.CooldownDuration);
+                effectiveCooldownDuration = modifiedCooldown * _cooldowns.CurrentTimeFactor;
+            }
+
+            var isDiscreteStep = _options.IsDiscreteStep?.Invoke() ?? false;
+            var globalCooldownRemaining = 0.0;
+            if (_options.GcdEnabled && def.RespectsGcd && !isDiscreteStep)
+            {
+                globalCooldownRemaining = _cooldowns.GetGcdRemaining(unitId);
+                if (globalCooldownRemaining > 0)
+                {
+                    blocking |= SkillReadinessBlockers.GlobalCooldown;
+                }
+            }
+
+            var isReady = cooldownOrChargesReady && globalCooldownRemaining <= 0;
+
+            return new SkillReadiness(
+                skillId: def.Id,
+                isReady: isReady,
+                blockingSources: blocking,
+                skillCooldownRemaining: skillCooldownRemaining,
+                categoryCooldownRemaining: categoryCooldown,
+                globalCooldownRemaining: globalCooldownRemaining,
+                maxCharges: maxCharges,
+                currentCharges: currentCharges,
+                nextChargeRemaining: nextChargeRemaining,
+                effectiveCooldownDuration: effectiveCooldownDuration);
+        }
+
         public bool IsCasting(Id unitId) => _pipeline.IsCasting(unitId);
 
         public void Interrupt(Id unitId, Id interrupterId, Id? lockSchool, double lockDuration) =>

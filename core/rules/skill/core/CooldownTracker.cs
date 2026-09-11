@@ -79,6 +79,16 @@ namespace Core.Rules.Skill
         /// </summary>
         public SpellModResolver? SpellMods { get; set; }
 
+        /// <summary>
+        /// 消费方反馈（2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"，见
+        /// architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md）：<see cref="_currentFactor"/>
+        /// 的只读公开出口——供 <see cref="SkillHost.GetSkillReadiness"/> 把 <see cref="SpellModResolver"/>
+        /// 修饰后、仍是 authoring 规范单位的 <c>cooldown_duration</c> 换算成与 <see cref="GetCooldown"/>
+        /// 同一口径的"当前模式计时单位"（换算方式与 <see cref="StartCooldown"/> 写入倒计时状态前的
+        /// 折算完全相同：修饰后原始值 × 本系数）。只读，不修改任何状态。
+        /// </summary>
+        public double CurrentTimeFactor => _currentFactor;
+
         /// <summary>该技能是否就绪（不含公共冷却，公共冷却由 <see cref="IsGcdReady"/> 单独判断，
         /// 见 06 第 3.6 节步骤 3/4 是两个独立步骤）：有充能配置时看充能数 &gt; 0，否则看技能自身
         /// 与所属分类冷却是否均已归零。</summary>
@@ -147,6 +157,38 @@ namespace Core.Rules.Skill
         /// 触达过）时视为"满充能"（<c>def.ChargesMax</c>），而不是 0——一个刚学会、从未使用过的
         /// 技能理应是满充能可用状态。惰性创建状态（见 <see cref="GetOrCreateChargeState"/>）。</summary>
         public int GetCharges(Id unitId, SkillDef def) => GetOrCreateChargeState(unitId, def).Current;
+
+        /// <summary>
+        /// 消费方反馈（2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"，见
+        /// architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md）：距下一次充能恢复完成
+        /// 的剩余时间——供 <see cref="SkillHost.GetSkillReadiness"/> 呈现"部分充能恢复中"这一状态
+        /// （区分"当前充能数"与"下次恢复还差多久"，<see cref="GetCharges(Id, SkillDef)"/> 只呈现前者）。
+        /// 与 <see cref="GetCharges(Id, SkillDef)"/> 同一惯例：从未产生过充能状态时惰性创建（满充能、
+        /// <c>RechargeRemaining=0</c>），不是"未知"；满充能（含从未消耗过）时恒为 0——没有正在进行
+        /// 的恢复窗口，与 <see cref="AddCharge"/>/<see cref="StartCooldown"/> 补满时清零
+        /// <c>RechargeRemaining</c> 的既有惯例一致。只读，不推进时间、不修改任何状态（惰性创建的
+        /// 默认状态与"从未调用本方法"时 <see cref="GetCharges(Id, SkillDef)"/> 会创建的状态完全
+        /// 相同，不产生可观测差异）。
+        /// </summary>
+        public double GetChargeRechargeRemaining(Id unitId, SkillDef def) =>
+            Math.Max(0, GetOrCreateChargeState(unitId, def).RechargeRemaining);
+
+        /// <summary>
+        /// 消费方反馈（同上）：<c>charges</c> 维度 SpellMod 修正后的有效充能上限——原为私有
+        /// <see cref="EffectiveChargesMax"/> 的只读公开出口，供 <see cref="SkillHost.GetSkillReadiness"/>
+        /// 呈现"修饰后有效上限"。只读，不修改任何状态。
+        /// </summary>
+        public int GetEffectiveChargesMax(Id unitId, SkillDef def) => EffectiveChargesMax(unitId, def);
+
+        /// <summary>
+        /// 消费方反馈（同上）：<c>charges</c> 维度 SpellMod 修正后的单次充能恢复时间，已按
+        /// <see cref="CurrentTimeFactor"/> 折算为与 <see cref="GetCooldown(Id, SkillDef)"/> 同一口径
+        /// 的当前模式计时单位（折算方式同 <see cref="StartCooldown"/>/<see cref="AdvanceCharges"/>
+        /// 写入 <c>RechargeRemaining</c> 前的折算）——供 <see cref="SkillReadiness.EffectiveCooldownDuration"/>
+        /// 呈现有充能配置的技能"修饰后完整恢复周期"。只读，不修改任何状态。
+        /// </summary>
+        public double GetEffectiveRechargeTimeScaled(Id unitId, SkillDef def) =>
+            EffectiveRechargeTime(unitId, def) * _currentFactor;
 
         /// <summary>技能施放成功、进入步骤 9 时调用：扣减一次充能或进入标准冷却（见 06 第 3.6 节
         /// 步骤 9）。<paramref name="cooldownDurationOverride"/> 供 <see cref="SpellModResolver"/>
