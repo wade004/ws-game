@@ -32,6 +32,20 @@ namespace Core.Numbers.Progression
     /// 经验被记入"时不发放事件——<c>xp_gained</c> 语义是"记入了多少经验"，丢弃分支记入量为 0，
     /// 发一个 <c>amount=0</c> 的事件对下游（如浮字提示）没有意义，改用诊断警告表达"发生了什么"。
     /// </para>
+    /// <para>
+    /// 判断记录（消费方反馈第 36 条，成长唯一来源）：出生等级 &gt; 1 的单位（<see
+    /// cref="Core.Carriers.Creature.CreatureFactory.Spawn"/> 按 <c>creature.template.level</c>
+    /// 生成）此前由 <c>CreatureFactory.ApplyStats</c> 自行重复解析 <c>prog.level_curve</c>、把
+    /// "2 级到出生等级"的累计成长直接加进 <see cref="Core.Numbers.StatBlock.IStatHost.SetBase"/>
+    /// 写的基础值里；随后该单位一旦经 <see cref="AddXp"/> 真实升级，<see cref="ApplyGrowth"/> 又会
+    /// 按"2 级到新等级"整段重算并整体覆盖写入修正——"2 级到出生等级"这一段因此被基础值与修正
+    /// 各计了一次（真实探针：出生等级 2、出生 strength 7，升到 3 级实测 11，应为 9）。根治为
+    /// "成长统一只由修正承载"：<c>CreatureFactory.ApplyStats</c> 只再写
+    /// <c>base_stats × tier.stat_multiplier</c>，出生等级 &gt; 1 时改为紧随 <see
+    /// cref="RegisterUnit"/> 显式调用 <see cref="ApplyGrowthToCurrentLevel"/>——与升级、读档共用
+    /// 同一份 <see cref="ApplyGrowth"/> 聚合实现，成长量因此只有"当前等级对应的整段修正"这一份，
+    /// 不会再与基础值里的另一份重复。
+    /// </para>
     /// </summary>
     public sealed class ProgressionHost : IProgressionHost
     {
@@ -327,6 +341,15 @@ namespace Core.Numbers.Progression
             // CORE-170-02 根治：读档恢复同样是一条等级会变化/确立的路径，同步外部实体字段——理由
             // 与 RegisterUnit/AddXp 完全一致，见 LevelSync 判断记录。
             _levelSync?.Invoke(unitId, level);
+        }
+
+        /// <summary>消费方反馈第 36 条根治：见 <see cref="IProgressionHost.ApplyGrowthToCurrentLevel"/>
+        /// 契约注释——直接复用 <see cref="ApplyGrowth"/> 这同一段内部聚合逻辑，不新写公式，也不发
+        /// 任何事件。</summary>
+        public void ApplyGrowthToCurrentLevel(Id unitId)
+        {
+            var unit = GetUnitOrThrow(unitId);
+            ApplyGrowth(unitId, unit);
         }
 
         public void GrantFromSource(Id unitId, Id xpSourceId, double multiplier = 1)

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using Core.Carriers.Common;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
-using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
@@ -20,9 +19,8 @@ namespace Core.Carriers.Creature
     /// PowerSet/Progression）与 L2（AI，经 <see cref="AiRegistrar"/> 委托）完成一整套"读模板 →
     /// 装配单位"流程（见 <c>core/carriers/common/contracts/ICreatureFactory.cs</c> 顶部注释
     /// "core/gameplay/spawn（L4）与 ISummonHost 的实现均可复用本接口生成生物实体"）。构造期从
-    /// <see cref="IDataRegistryView"/> 一次性解析 <c>creature.template</c>/<c>creature.tier_definition</c>/
-    /// <c>prog.level_curve</c>（成长曲线口径同 <c>Core.Numbers.Progression.ProgressionHost</c>，
-    /// 见 <see cref="ApplyStats"/> 判断记录）三张表，之后只读，惯例同 <c>AiHost</c>/<c>StatHost</c>。
+    /// <see cref="IDataRegistryView"/> 一次性解析 <c>creature.template</c>/<c>creature.tier_definition</c>
+    /// 两张表，之后只读，惯例同 <c>AiHost</c>/<c>StatHost</c>。
     /// <para>
     /// 判断记录（消费方反馈第 33 条，资源类型注册顺序）：<see cref="Spawn"/> 此前恒按
     /// <see cref="CreatureOptions.DefaultPowerTypes"/> 的旧默认值 <c>[WellKnownPowers.Health]</c>
@@ -37,6 +35,22 @@ namespace Core.Carriers.Creature
     /// <see cref="_allPowerTypeIds"/>（当前数据集 <c>arch.power_type</c> 全部已登记 id，按升序保证
     /// 确定性——<see cref="IPowerHost.RegisterUnit"/> 按传入顺序确定性初始化，见该方法契约注释）。
     /// </para>
+    /// <para>
+    /// 判断记录（消费方反馈第 36 条根治，成长不再由本类型承载）：此前 <see cref="ApplyStats"/> 自行
+    /// 重复解析 <c>prog.level_curve</c>，把"2 级到出生等级"的累计成长直接叠进
+    /// <see cref="IStatHost.SetBase"/> 写的基础值——该单位一旦经
+    /// <see cref="Core.Numbers.Progression.IProgressionHost.AddXp"/> 真实升级，
+    /// <c>Core.Numbers.Progression.ProgressionHost.ApplyGrowth</c> 又会把"2 级到新等级"整段成长
+    /// 重算并整体覆盖写入修正，与已经叠进基础值的那一段重复计入（真实探针：出生等级 2、出生
+    /// strength 7，升到 3 级实测 11，应为 9；细节见
+    /// <c>Core.Numbers.Progression.ProgressionHost</c> 判断记录"成长唯一来源"）。根治为"成长统一
+    /// 只由修正承载"：本类型不再解析 <c>prog.level_curve</c>，<see cref="ApplyStats"/> 只写
+    /// <c>base_stats × tier.stat_multiplier</c>；<see cref="Spawn"/> 改为在
+    /// <see cref="Core.Numbers.Progression.IProgressionHost.RegisterUnit"/> 之后紧接着调用
+    /// <see cref="Core.Numbers.Progression.IProgressionHost.ApplyGrowthToCurrentLevel"/>——与
+    /// 升级、读档共用同一份聚合实现，出生等级 1（无成长曲线的既有示例数据）时这一步是空操作
+    /// （曲线 2..1 区间不存在），行为不变。
+    /// </para>
     /// </summary>
     public sealed class CreatureFactory : ICreatureFactory, ICreatureTemplateQuery
     {
@@ -44,12 +58,6 @@ namespace Core.Carriers.Creature
         {
             public double StatMultiplier;
             public bool ControlImmune;
-        }
-
-        private sealed class GrowthCurveInfo
-        {
-            public int MaxLevel;
-            public List<IReadOnlyDictionary<string, double>> LevelGrowth = new List<IReadOnlyDictionary<string, double>>();
         }
 
         private readonly IDataRegistryView _registry;
@@ -64,12 +72,11 @@ namespace Core.Carriers.Creature
 
         private readonly Dictionary<string, CreatureTemplate> _templates = new Dictionary<string, CreatureTemplate>(StringComparer.Ordinal);
         private readonly Dictionary<string, TierInfo> _tiers = new Dictionary<string, TierInfo>(StringComparer.Ordinal);
-        private readonly Dictionary<string, GrowthCurveInfo> _growthCurves = new Dictionary<string, GrowthCurveInfo>(StringComparer.Ordinal);
 
         /// <summary>消费方反馈第 33 条：当前数据集 <c>arch.power_type</c> 全部已登记 id，按升序
         /// 排列，见 <see cref="ResolvePowerTypes"/>/<see cref="LoadPowerTypeIds"/> 判断记录。独立
-        /// 解析（不依赖 <c>PowerHost</c> 内部实现），惯例同 <see cref="LoadGrowthCurves"/> 判断记录
-        /// "本模块需要……因此独立按既定结构解析一份只读索引，不依赖……内部实现"。</summary>
+        /// 解析（不依赖 <c>PowerHost</c> 内部实现），惯例同 <c>LoadTiers</c>/<c>LoadTemplates</c>——
+        /// 本模块按既定结构解析一份只读索引，不依赖其它模块内部实现。</summary>
         private readonly List<Id> _allPowerTypeIds = new List<Id>();
 
         public CreatureFactory(
@@ -95,7 +102,6 @@ namespace Core.Carriers.Creature
 
             LoadTiers(_registry);
             LoadTemplates(_registry);
-            LoadGrowthCurves(_registry);
             LoadPowerTypeIds(_registry);
         }
 
@@ -152,6 +158,11 @@ namespace Core.Carriers.Creature
             if (template.StatGrowthRef.HasValue)
             {
                 _progression.RegisterUnit(entityId, template.StatGrowthRef.Value, template.Level);
+                // 消费方反馈第 36 条根治：出生等级 > 1 时，"2 级到出生等级"的曲线成长只经这一步
+                // 写成修正（与升级、读档共用同一份聚合实现，见类型判断记录），不再叠进 ApplyStats
+                // 写的基础值——放在 Powers.RegisterUnit 之前，保证 max_source: stat 的资源类型
+                // 用到的是已经计入成长的最终属性值（与改动前的既有顺序要求一致）。
+                _progression.ApplyGrowthToCurrentLevel(entityId);
             }
 
             _powers.RegisterUnit(entityId, ResolvePowerTypes(template));
@@ -247,50 +258,17 @@ namespace Core.Carriers.Creature
         // -----------------------------------------------------------------
 
         /// <summary>
-        /// 按 <c>base_stats × tier.stat_multiplier</c> 算出各属性基础值，<paramref name="template"/>
-        /// 挂了 <c>stat_growth_ref</c> 时再叠加"从 2 级累加到 <c>template.Level</c>"的曲线成长量
-        /// （与 <c>Core.Numbers.Progression.ProgressionHost.ApplyGrowth</c> 同一口径：升 1 级只在
-        /// 曲线 <c>entries[level-1].growth</c> 生效，1 级本身没有成长增量），最终按属性 id 调用一次
-        /// <see cref="IStatHost.SetBase"/>（<see cref="IStatHost.SetBase"/> 整体替换基础值而非叠加，
-        /// 因此这里先在内存里把 tier 倍率与成长量汇总成同一份"最终基础值"再一次性写入，不是先
-        /// SetBase 一次基础值、再另外调一次成长）。
+        /// 按 <c>base_stats × tier.stat_multiplier</c> 算出各属性基础值，按属性 id 调用一次
+        /// <see cref="IStatHost.SetBase"/>。消费方反馈第 36 条根治：本方法不再叠加曲线成长量——
+        /// 成长统一由 <see cref="Core.Numbers.Progression.IProgressionHost.ApplyGrowthToCurrentLevel"/>
+        /// 以修正形式写入（见 <see cref="Spawn"/> 调用点、类型判断记录"成长不再由本类型承载"），
+        /// 基础值只承载"分档倍率"这一项，避免与修正重复计入同一段成长。
         /// </summary>
         private void ApplyStats(Id unitId, CreatureTemplate template, TierInfo tier)
         {
-            var totals = new Dictionary<string, double>(StringComparer.Ordinal);
-            var order = new List<string>();
-
             foreach (var kv in template.BaseStats)
             {
-                var key = kv.Key.Value;
-                totals[key] = kv.Value * tier.StatMultiplier;
-                order.Add(key);
-            }
-
-            if (template.StatGrowthRef.HasValue)
-            {
-                var curve = RequireGrowthCurve(template.StatGrowthRef.Value);
-                var maxLevel = template.Level < curve.MaxLevel ? template.Level : curve.MaxLevel;
-
-                for (var level = 2; level <= maxLevel; level++)
-                {
-                    var growth = curve.LevelGrowth[level - 1];
-                    foreach (var kv in growth)
-                    {
-                        if (!totals.ContainsKey(kv.Key))
-                        {
-                            totals[kv.Key] = 0;
-                            order.Add(kv.Key);
-                        }
-                        totals[kv.Key] += kv.Value;
-                    }
-                }
-            }
-
-            for (var i = 0; i < order.Count; i++)
-            {
-                var statKey = order[i];
-                _stats.SetBase(unitId, new Id(statKey), totals[statKey]);
+                _stats.SetBase(unitId, kv.Key, kv.Value * tier.StatMultiplier);
             }
         }
 
@@ -319,46 +297,6 @@ namespace Core.Carriers.Creature
             }
         }
 
-        /// <summary>独立解析 <c>prog.level_curve</c> 用于成长累加（见 <see cref="ApplyStats"/>）。
-        /// 判断记录（与 <c>Core.Numbers.Progression.ProgressionHost</c> 重复解析同一张表）：
-        /// <c>IProgressionHost</c> 契约本身不暴露"给定曲线与等级，返回累计成长量"这一查询（只有
-        /// <see cref="IProgressionHost.RegisterUnit"/> 这样的写操作，且刻意不在 RegisterUnit 内隐式
-        /// 写成长，见该接口注释判断记录），本模块需要在装配基础属性这一步就拿到最终数值（用于
-        /// <see cref="IPowerHost.RegisterUnit"/> 之前，供 <c>max_source: stat</c> 的资源类型正确
-        /// 计算上限），因此独立按 <c>prog.level_curve</c> 的既定结构（04 第 1.1 节 + 04 未给出的
-        /// entries 结构，见 <c>ProgSchemas.LevelCurve</c> 描述）解析一份只读索引，不依赖
-        /// <c>ProgressionHost</c> 内部实现。</summary>
-        private void LoadGrowthCurves(IDataRegistryView registry)
-        {
-            foreach (var record in registry.GetAll("prog.level_curve"))
-            {
-                var id = record.GetId("id");
-                var maxLevel = (int)record.GetInt("max_level");
-                var entries = record.GetArray("entries");
-
-                var levelGrowth = new List<IReadOnlyDictionary<string, double>>(entries.Count);
-                for (var i = 0; i < entries.Count; i++)
-                {
-                    var growth = new Dictionary<string, double>(StringComparer.Ordinal);
-                    if (entries[i] is JsonObject entryObj &&
-                        entryObj.TryGetValue("growth", out var growthValue) &&
-                        growthValue is JsonObject growthObj)
-                    {
-                        foreach (var kv in growthObj)
-                        {
-                            if (kv.Value is JsonNumber num)
-                            {
-                                growth[kv.Key] = num.Value;
-                            }
-                        }
-                    }
-                    levelGrowth.Add(growth);
-                }
-
-                _growthCurves[id.Value] = new GrowthCurveInfo { MaxLevel = maxLevel, LevelGrowth = levelGrowth };
-            }
-        }
-
         // -----------------------------------------------------------------
         // 内部辅助
         // -----------------------------------------------------------------
@@ -379,15 +317,6 @@ namespace Core.Carriers.Creature
                 return tier;
             }
             throw new ArgumentException($"未知的 creature.tier_definition \"{tierId}\"", nameof(tierId));
-        }
-
-        private GrowthCurveInfo RequireGrowthCurve(Id curveId)
-        {
-            if (_growthCurves.TryGetValue(curveId.Value, out var curve))
-            {
-                return curve;
-            }
-            throw new ArgumentException($"未知的 prog.level_curve \"{curveId}\"（creature.template.stat_growth_ref 引用）", nameof(curveId));
         }
     }
 }

@@ -19,8 +19,13 @@ namespace Tests.Carriers.Creature
         private static readonly Id MapId = new Id("map.test");
         private static readonly Id BasicTemplateId = new Id("creature.sample_basic");
         private static readonly Id EliteTemplateId = new Id("creature.sample_elite");
+        private static readonly Id BeastTemplateId = new Id("creature.sample_beast");
+        private static readonly Id HydraTemplateId = new Id("creature.sample_hydra");
+        private static readonly Id HydraCubTemplateId = new Id("creature.sample_hydra_cub");
         private static readonly Id PowerStat = new Id("stat.power");
         private static readonly Id MaxHealthStat = new Id("stat.max_health");
+        // AddXp 的 sourceId 只用于事件携带，不要求在 prog.xp_source 表里登记，任意 Id 均可。
+        private static readonly Id TestXpSourceId = new Id("prog.xp.test_source");
 
         private sealed class Fixture
         {
@@ -112,6 +117,154 @@ namespace Tests.Carriers.Creature
             Assert.Equal(30.0, f.Stats.GetStat(id, PowerStat), 6);
             // base 100*2=200，成长曲线只在 3 级 +20 → 最终 220。
             Assert.Equal(220.0, f.Stats.GetStat(id, MaxHealthStat), 6);
+        }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 36 条根治：出生等级 > 1 的生物再升级时，成长量此前被重复计入
+        // -----------------------------------------------------------------
+
+        /// <summary>复现/验收探针本身：<c>creature.sample_beast</c> 出生等级 2、
+        /// <c>base_stats.stat.power=5</c>、tier.normal 倍率 1、曲线每级 +2——出生时只应叠加
+        /// "2 级"这一段成长（5+2=7），不应该把 3 级的成长也提前算进去。</summary>
+        [Fact]
+        public void E36_Spawn_AtBirthLevel2_AppliesLevel2GrowthOnly()
+        {
+            var f = Build();
+
+            var id = f.Factory.Spawn(BeastTemplateId, MapId, Vec2.Zero, 0);
+
+            Assert.Equal(7.0, f.Stats.GetStat(id, PowerStat), 6);
+            Assert.Equal(2, f.Progression.GetLevel(id));
+        }
+
+        /// <summary>核心验收：出生等级 2 的生物真实升到 3 级后，<c>stat.power</c> 应为 9
+        /// （<c>base(5) + Σ[2..3](2+2=4)</c>），根治前的错误行为是 11
+        /// （<c>base 已含 level2 的 7 + 升级再整段重写的 4</c>）——与消费方反馈第 36 条给出的
+        /// 探针数值完全对应。</summary>
+        [Fact]
+        public void E36_SpawnAtBirthLevel2_UpgradeToLevel3_StrengthIsNineNotEleven()
+        {
+            var f = Build();
+            var id = f.Factory.Spawn(BeastTemplateId, MapId, Vec2.Zero, 0);
+            Assert.Equal(7.0, f.Stats.GetStat(id, PowerStat), 6); // 出生态基线，见上一条用例
+
+            // prog.sample_curve_e36 的 level2.xp_to_next=200，投入恰好 200 经验触发一次升级。
+            f.Progression.AddXp(id, TestXpSourceId, 200);
+
+            Assert.Equal(3, f.Progression.GetLevel(id));
+            Assert.Equal(9.0, f.Stats.GetStat(id, PowerStat), 6);
+        }
+
+        /// <summary>路径等价性：出生等级 5 直接生成的最终值，应与"出生等级 1 生成后逐级真实升到
+        /// 5 级"的最终值完全一致——成长统一只由 <c>ProgressionHost</c> 的修正承载后，两条路径
+        /// 共用同一份聚合实现，不应因为"从哪个等级起步"而产生不同结果。<c>creature.sample_hydra</c>
+        /// （出生 5 级）与 <c>creature.sample_hydra_cub</c>（出生 1 级）共用同一条五级曲线
+        /// <c>prog.sample_curve_e36_l5</c>（每级成长量各不相同，避免"总和碰巧相等"掩盖顺序
+        /// 错误）与相同的 <c>base_stats</c>/tier。</summary>
+        [Fact]
+        public void E36_BirthAtLevel5_EqualsBirthAtLevel1ThenUpgradeToLevel5()
+        {
+            // 路径 A：出生即 5 级。
+            var fA = Build();
+            var birth5 = fA.Factory.Spawn(HydraTemplateId, MapId, Vec2.Zero, 0);
+            var birth5Power = fA.Stats.GetStat(birth5, PowerStat);
+
+            // 路径 B：出生 1 级，真实逐级升到 5 级（曲线每级 xp_to_next=100）。
+            var fB = Build();
+            var upgraded = fB.Factory.Spawn(HydraCubTemplateId, MapId, Vec2.Zero, 0);
+            fB.Progression.AddXp(upgraded, TestXpSourceId, 100); // 1→2
+            fB.Progression.AddXp(upgraded, TestXpSourceId, 100); // 2→3
+            fB.Progression.AddXp(upgraded, TestXpSourceId, 100); // 3→4
+            fB.Progression.AddXp(upgraded, TestXpSourceId, 100); // 4→5
+            var upgradeToLevel5Power = fB.Stats.GetStat(upgraded, PowerStat);
+
+            Assert.Equal(5, fA.Progression.GetLevel(birth5));
+            Assert.Equal(5, fB.Progression.GetLevel(upgraded));
+            Assert.Equal(birth5Power, upgradeToLevel5Power, 6);
+            // 具体数值核对：base 3 + Σ[2..5](1+2+3+4=10) = 13。
+            Assert.Equal(13.0, birth5Power, 6);
+        }
+
+        /// <summary>存档对账：读档（<c>ProgressionHost.RestoreState</c>，经
+        /// <c>ProgressionPersistable.Load</c> 同一路径）恢复出生等级 &gt; 1 的生物后，属性与
+        /// 修正数量应与"出生即处于该等级"一致（不重复施加、不丢失），随后再真实升级一次，结果也应
+        /// 正确——验证 <see cref="Core.Numbers.Progression.ProgressionHost.RestoreState"/> 与
+        /// <see cref="Core.Numbers.Progression.IProgressionHost.ApplyGrowthToCurrentLevel"/> 共用
+        /// 同一份聚合实现，读档不会在"出生已经写过一次"的基础上再叠加一次。</summary>
+        [Fact]
+        public void E36_SaveThenLoad_BirthLevel2Creature_RestoresConsistentState_ThenUpgradesCorrectly()
+        {
+            var f = Build();
+            var id = f.Factory.Spawn(BeastTemplateId, MapId, Vec2.Zero, 0);
+            Assert.Equal(7.0, f.Stats.GetStat(id, PowerStat), 6);
+
+            // 模拟"存档 → 读档"：取回当前 Progression 快照，用 RestoreState 重放到同一个单位
+            // （同一单位、同一 StatHost：RestoreState 内部会先移除旧的 prog.growth 修正再重写，
+            // 幂等——不应该让属性偏离出生态的 7）。
+            var snapshot = f.Progression.SaveUnit(id);
+            var snapshotObj = (Core.Foundation.Common.Json.JsonObject)snapshot;
+            var curveId = new Id(((Core.Foundation.Common.Json.JsonString)snapshotObj["curve_id"]).Value);
+            var level = (int)((Core.Foundation.Common.Json.JsonNumber)snapshotObj["level"]).Value;
+            var xp = (long)((Core.Foundation.Common.Json.JsonNumber)snapshotObj["xp"]).Value;
+
+            f.Progression.RestoreState(id, curveId, level, xp);
+
+            Assert.Equal(2, f.Progression.GetLevel(id));
+            Assert.Equal(7.0, f.Stats.GetStat(id, PowerStat), 6); // 读档对账后不应偏离出生态
+
+            // 读档之后再真实升级一次，结果应与"从未读档、一路升上来"完全一致（9，不是 11 或更高）。
+            f.Progression.AddXp(id, TestXpSourceId, 200);
+            Assert.Equal(3, f.Progression.GetLevel(id));
+            Assert.Equal(9.0, f.Stats.GetStat(id, PowerStat), 6);
+        }
+
+        /// <summary>换职业/种族重载路径（<c>RulesAssembly.ReloadArchetypeAndRace</c>）本身完全不
+        /// 触碰 <c>Progression</c>（只处理职业基础属性/种族修正/被动光环，见该方法与
+        /// <c>ProgressionWriters.LevelSync</c> 判断记录），<c>CreatureFactory.Spawn</c> 也只在生成
+        /// 这一次性时机调用 <c>ApplyGrowthToCurrentLevel</c>——本用例证明重复调用
+        /// <c>ApplyGrowthToCurrentLevel</c>（模拟"换职业类路径意外重放成长"的最坏情形）本身是幂等
+        /// 的，不会因为多调用一次而让成长重复叠加。</summary>
+        [Fact]
+        public void E36_ApplyGrowthToCurrentLevel_CalledAgainAfterSpawn_DoesNotDuplicateGrowth()
+        {
+            var f = Build();
+            var id = f.Factory.Spawn(BeastTemplateId, MapId, Vec2.Zero, 0);
+            Assert.Equal(7.0, f.Stats.GetStat(id, PowerStat), 6);
+
+            f.Progression.ApplyGrowthToCurrentLevel(id);
+            f.Progression.ApplyGrowthToCurrentLevel(id);
+
+            Assert.Equal(7.0, f.Stats.GetStat(id, PowerStat), 6);
+        }
+
+        /// <summary>分档倍率与成长组合：<c>creature.sample_elite</c>（tier.elite 倍率 2，出生
+        /// 即满配 3 级）验证成长量本身不受倍率影响（曲线是 flat 修正，见
+        /// <c>ProgressionWriters.StatModifierWriter</c> 判断记录"本模块固定传 flat"）——只有
+        /// <c>base_stats</c> 部分乘以倍率，成长部分原样相加，两者互不相乘。</summary>
+        [Fact]
+        public void E36_TierMultiplier_DoesNotScaleGrowthAmount()
+        {
+            var f = Build();
+
+            var id = f.Factory.Spawn(EliteTemplateId, MapId, Vec2.Zero, 0);
+
+            // base 10*2=20，成长 Σ[2..3](5+5=10)——倍率只作用于 base，不作用于成长，最终 30。
+            Assert.Equal(30.0, f.Stats.GetStat(id, PowerStat), 6);
+        }
+
+        /// <summary>出生 1 级、无成长曲线的既有行为不受影响（既有测试
+        /// <see cref="Spawn_WithoutGrowth_AppliesTierMultiplierOnly"/> 已覆盖同一场景，本条从
+        /// 消费方反馈第 36 条验收清单角度重复确认：改动前后数值完全一致）。</summary>
+        [Fact]
+        public void E36_SpawnAtBirthLevel1_NoGrowthCurve_BehaviorUnchanged()
+        {
+            var f = Build();
+
+            var id = f.Factory.Spawn(BasicTemplateId, MapId, Vec2.Zero, 0);
+
+            Assert.Equal(10.0, f.Stats.GetStat(id, PowerStat), 6);
+            Assert.Equal(100.0, f.Stats.GetStat(id, MaxHealthStat), 6);
+            Assert.Throws<ArgumentException>(() => f.Progression.GetLevel(id)); // 未挂 Progression
         }
 
         [Fact]

@@ -439,5 +439,139 @@ namespace Tests.Numbers.Progression
 
             Assert.Throws<ArgumentException>(() => host.RegisterUnit(new Id("unit.hero_10"), new Id("prog.curve.unknown")));
         }
+
+        // -----------------------------------------------------------------
+        // 9. 消费方反馈第 36 条根治：ApplyGrowthToCurrentLevel（供出生等级 > 1 的单位一次性补写
+        // 成长，与 AddXp/RestoreState 共用同一段聚合实现，见 ProgressionHost 判断记录 8）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ApplyGrowthToCurrentLevel_RegisterAtLevel2_WritesLevel2GrowthOnly()
+        {
+            var registry = MakeRegistry(GoodCurveRows, out var bus, registerCurveRule: true);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.hero_e36_01");
+            host.RegisterUnit(unit, new Id("prog.curve.sample"), startLevel: 2);
+
+            host.ApplyGrowthToCurrentLevel(unit);
+
+            Assert.Single(writers.RemoveCalls);
+            Assert.Equal((unit, new Id("prog.growth")), writers.RemoveCalls[0]);
+
+            Assert.Equal(2, writers.WriteCalls.Count);
+            var strength = writers.WriteCalls.Find(c => c.Stat.Value == "stat.strength");
+            var vitality = writers.WriteCalls.Find(c => c.Stat.Value == "stat.vitality");
+            Assert.NotNull(strength);
+            Assert.Equal(2, strength!.Value); // 只有 level2 的成长，不含 level3
+            Assert.NotNull(vitality);
+            Assert.Equal(1, vitality!.Value);
+        }
+
+        /// <summary>出生等级 2 之后紧接着真实升到 3 级（AddXp）：<see cref="ApplyGrowthToCurrentLevel"/>
+        /// 先写入的 level2 段修正必须被 <see cref="IProgressionHost.AddXp"/> 触发的 <c>ApplyGrowth</c>
+        /// 整段覆盖为 level2+level3 的合计值，不是在 level2 的基础上再叠加 level3——这正是消费方
+        /// 反馈第 36 条要求的"出生施加"与"升级"共用同一份聚合实现、不重复计入的验收断言。</summary>
+        [Fact]
+        public void ApplyGrowthToCurrentLevel_ThenAddXpLevelsUp_FinalGrowthIsNotDoubleCounted()
+        {
+            var registry = MakeRegistry(GoodCurveRows, out var bus, registerCurveRule: true);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.hero_e36_02");
+            host.RegisterUnit(unit, new Id("prog.curve.sample"), startLevel: 2);
+            host.ApplyGrowthToCurrentLevel(unit);
+
+            // 2→3 需 50 经验（GoodCurveRows）。
+            host.AddXp(unit, new Id("prog.xp.kill_wolf"), 50);
+
+            Assert.Equal(3, host.GetLevel(unit));
+            Assert.Equal(2, writers.RemoveCalls.Count); // 出生施加一次 + 升级再一次，均是整体重写前先清空
+
+            // 最终一次写入的才是"当前生效"的修正：level2(2)+level3(3)=5，不是 2+5=7。
+            var lastStrengthWrite = writers.WriteCalls.FindLast(c => c.Stat.Value == "stat.strength");
+            Assert.NotNull(lastStrengthWrite);
+            Assert.Equal(5, lastStrengthWrite!.Value);
+        }
+
+        [Fact]
+        public void ApplyGrowthToCurrentLevel_IsIdempotent_RepeatedCallsDoNotAccumulate()
+        {
+            var registry = MakeRegistry(GoodCurveRows, out var bus, registerCurveRule: true);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.hero_e36_03");
+            host.RegisterUnit(unit, new Id("prog.curve.sample"), startLevel: 3);
+
+            host.ApplyGrowthToCurrentLevel(unit);
+            host.ApplyGrowthToCurrentLevel(unit);
+            host.ApplyGrowthToCurrentLevel(unit);
+
+            Assert.Equal(3, writers.RemoveCalls.Count); // 每次调用都先清空
+            // 每次重算都是同一个整体累计值（level2+level3=5），不会因为调用三次而变成 15。
+            foreach (var call in writers.WriteCalls)
+            {
+                if (call.Stat.Value == "stat.strength")
+                {
+                    Assert.Equal(5, call.Value);
+                }
+            }
+        }
+
+        [Fact]
+        public void ApplyGrowthToCurrentLevel_AtBirthLevel1_NoGrowthCurve_NoOp()
+        {
+            var registry = MakeRegistry(GoodCurveRows, out var bus, registerCurveRule: true);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.hero_e36_04");
+            host.RegisterUnit(unit, new Id("prog.curve.sample")); // 默认 startLevel=1
+
+            host.ApplyGrowthToCurrentLevel(unit);
+
+            Assert.Single(writers.RemoveCalls); // 幂等清空仍会发生，但没有任何成长可写
+            Assert.Empty(writers.WriteCalls);
+        }
+
+        [Fact]
+        public void ApplyGrowthToCurrentLevel_UnregisteredUnit_Throws()
+        {
+            var registry = MakeRegistry(GoodCurveRows, out var bus, registerCurveRule: true);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+
+            Assert.Throws<ArgumentException>(() => host.ApplyGrowthToCurrentLevel(new Id("unit.ghost_e36")));
+        }
+
+        /// <summary>本方法不是"升级"也不是"读档恢复"，不应该发布 <see cref="LevelUpEvent"/> 或
+        /// <see cref="ProgressionRestoredEvent"/>（见判断记录"语义诚实"）。</summary>
+        [Fact]
+        public void ApplyGrowthToCurrentLevel_DoesNotPublishLevelUpOrRestoredEvent()
+        {
+            var registry = MakeRegistry(GoodCurveRows, out var bus, registerCurveRule: true);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.hero_e36_05");
+            host.RegisterUnit(unit, new Id("prog.curve.sample"), startLevel: 2);
+
+            var levelUpFired = false;
+            bus.Subscribe<LevelUpEvent>(ProgressionEventKeys.LevelUp, _ => levelUpFired = true);
+
+            host.ApplyGrowthToCurrentLevel(unit);
+
+            Assert.False(levelUpFired);
+        }
     }
 }

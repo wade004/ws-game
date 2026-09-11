@@ -87,6 +87,9 @@ namespace Tests.Gameplay.Common
         public void AddXp(Id unitId, Id sourceId, long amount) => AddXpCalls.Add((unitId, sourceId, amount));
 
         public void GrantFromSource(Id unitId, Id xpSourceId, double multiplier = 1) => throw new NotSupportedException();
+
+        // ApplyGrowthToCurrentLevel 不在此覆盖：IProgressionHost 的默认接口方法（空操作）已够用，
+        // 本假实现不测试成长聚合，见 IProgressionHost.ApplyGrowthToCurrentLevel 判断记录。
     }
 
     /// <summary>最小 <see cref="IWorldState"/> 假实现：只记录 <see cref="Set"/> 调用。</summary>
