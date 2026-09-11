@@ -98,6 +98,47 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+消费方反馈处理：冷却充能与公共冷却缺少统一只读查询接口——新增
+`ISkillHost.GetSkillReadiness(unitId, skillId)` 统一只读就绪快照（充能上限/当前充能数/下次充能
+恢复剩余、技能冷却/分类冷却/公共冷却剩余、修饰后的有效值、按位标记的阻塞来源），裁决口径与
+`CastSkill` 施法管线步骤 3（冷却/充能）、步骤 4（公共冷却）一致；`CastSkill` 仍是唯一最终裁决。
+核实与逐条回复见
+[消费方反馈-2026-09-11-冷却充能只读查询.md](architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md)。
+提交链：`d4ed9cd`（契约 + 实现 + 验收测试）、`0e87e1a`（06 勘误 + 判断记录 + 回复文档）、
+`2b601b4`（`--no-ff` 合入 `main`）。
+
+### 新增
+
+- `Core.Rules.Skill.SkillReadiness`（不可变值类型，`SkillId`/`IsReady`/`BlockingSources`/
+  `SkillCooldownRemaining`/`CategoryCooldownRemaining`/`GlobalCooldownRemaining`/`MaxCharges`/
+  `CurrentCharges`/`NextChargeRemaining`/`EffectiveCooldownDuration` 十个只读字段）、
+  `[Flags] SkillReadinessBlockers`（`None`/`SkillCooldown`/`CategoryCooldown`/`GlobalCooldown`/
+  `NoCharges`，可按位或组合）、`CategoryCooldownStatus`（分类 id + 该分类剩余的不可变结构体）。
+- `ISkillHost` 新增带默认实现的 `GetSkillReadiness(Id unitId, Id skillId): SkillReadiness`
+  （C# 8 default interface member，公开 API 只新增，既有实现方零改动仍可编译）；默认实现只能借
+  `GetCooldown` 拼一个降级快照，公共冷却不参与判定，其余字段为 `null`。生产实现
+  `Core.Rules.Skill.SkillHost.GetSkillReadiness` 显式覆盖，直接从 `CooldownTracker`/
+  `SpellModResolver`/`SkillOptions` 读取精确字段，与 `CastSkill`（经 `CastPipeline`）裁决逐字
+  对齐；`Core.Rules.Assembly.RulesAssembly` 内代理 `DeferredSkillCastQuery` 显式转发到内层实现。
+- `CooldownTracker` 补充四个只读公开出口：`CurrentTimeFactor`、`GetChargeRechargeRemaining`、
+  `GetEffectiveChargesMax`、`GetEffectiveRechargeTimeScaled`（均为既有私有状态/私有方法的只读
+  转发，不新增账本、不改变既有写路径）。
+
+### 文档
+
+- 06 第 3.1/3.6/7 节同批勘误：`SkillHost` 契约补充只读查询接口说明。
+- `core/rules/skill/README.md` 新增本次接口的"谁实现、谁调用"说明。
+
+### 迁移说明
+
+- 纯新增，既有 `ISkillHost` 实现方（含消费方自定义实现/测试替身）无需任何改动即可继续编译；未
+  显式覆盖 `GetSkillReadiness` 时落回默认接口成员提供的降级快照（`IsReady`/`BlockingSources` 只能
+  从 `GetCooldown` 粗略推断，公共冷却不参与判定，其余字段为 `null`）——这是刻意设计的兼容兜底。
+- `GetSkillReadiness` 只覆盖施法管线步骤 3（冷却/充能）、步骤 4（公共冷却）两项拒绝原因，不含
+  存活/控制、学派锁定、资源、目标合法性、距离与视线等其它步骤；`IsReady=true` 不代表此刻
+  `CastSkill` 一定成功，仍需以 `CastSkill` 返回值为唯一最终裁决。消费方可用本快照替代自建计时器
+  做 UI 呈现（冷却圈、充能图标、GCD 转圈），不再需要在客户端侧另行维护一套冷却/充能镜像状态。
+
 ## [1.20.0] - 2026-09-11
 
 MINOR 版本：消费方反馈第 28/29 条（编辑器内容校验）落地——`FieldSchema` 新增固定取值集合登记
