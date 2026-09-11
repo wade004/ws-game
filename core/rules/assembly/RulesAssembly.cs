@@ -356,11 +356,15 @@ namespace Core.Rules.Assembly
                 resolvedTargetingOptions);
 
             var resolvedSkillOptions = skillOptions ?? new SkillOptions();
+            // ADR-0027《地面坐标施法请求》：Navigation（本类型第 7 个构造参数，此前只转发给下方
+            // 第 7 步 AiHost）一并接进 SkillHost/CastPipeline——地面坐标施法请求的可行走校验
+            // （CastPipeline.ValidateGroundPoint）需要同一份 INavigation2D，未注入时该校验跳过
+            // （同 Spatial 既有降级惯例），不引入新的必填依赖。
             Skill = new SkillHost(
                 Registry, Bus, Units, Stats, Powers, Rng, Combat, Targeting, ExprHostFactory, Spatial,
                 resolvedSkillOptions, effectExtension: EffectExtension, diagnostics: null, exprSchema: null,
                 staticImmunity: staticImmunity, projectileSpawner: projectileSpawner,
-                weaponDamageQuery: WeaponDamageQuery, factions: Factions);
+                weaponDamageQuery: WeaponDamageQuery, factions: Factions, navigation: Navigation);
             skill = Skill; // 回填第 3 步 archAuraApplier 闭包捕获的局部变量。
 
             // CORE-170-01 根治：AuraHandles 需要真实的 IEffectSink（RemoveAura 出口）与
@@ -898,6 +902,14 @@ namespace Core.Rules.Assembly
             public IReadOnlyList<Id> FindUnits(Shape shape, Vec2 origin, UnitFilter filter) => Real.FindUnits(shape, origin, filter);
             public void ApplyStatMod(Id sourceId, Id unitId, Id stat, StatModifierOp op, double value) => Real.ApplyStatMod(sourceId, unitId, stat, op, value);
             public CastResult CastSkill(Id casterId, Id skillId, IReadOnlyList<Id> targets) => Real.CastSkill(casterId, skillId, targets);
+
+            // ADR-0027《地面坐标施法请求》：同上方 CastSkill 及下方 GetSkillReadiness 判断记录，
+            // 必须显式转发，不能依赖 ISkillHost.CastSkillAtGround 的默认接口方法隐式兜底（该默认
+            // 实现恒返回 GroundTargetUnsupported，见该方法判断记录）——否则本代理绑定完成后经它
+            // 调用 CastSkillAtGround 会绕开 Real（真正的 SkillHost）已经能提供的真实裁决，永远
+            // 落回"不支持"，见 InterfaceDefaultMemberForwardingTests 门禁。
+            public CastResult CastSkillAtGround(Id casterId, Id skillId, GroundCastRequest request) => Real.CastSkillAtGround(casterId, skillId, request);
+
             public double GetCooldown(Id unitId, Id skillId) => Real.GetCooldown(unitId, skillId);
             public bool IsCasting(Id unitId) => Real.IsCasting(unitId);
             public void Interrupt(Id unitId, Id interrupterId, Id? lockSchool, double lockDuration) => Real.Interrupt(unitId, interrupterId, lockSchool, lockDuration);

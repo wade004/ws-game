@@ -229,6 +229,8 @@ namespace Core.Rules.Skill
             var respectsGcd = record.GetBool("respects_gcd");
             var targetShapeRef = record.GetId("target_shape_ref");
             var actionCost = record.TryGetNumber("action_cost", out var ac) ? ac : 0;
+            // ADR-0027：缺省 false，见 SkillDef.AllowGroundTarget 判断记录。
+            var allowGroundTarget = record.TryGetBool("ground_target", out var gt) && gt;
 
             var effects = ParseEffectRefs(record.GetArray("effects"));
 
@@ -251,7 +253,7 @@ namespace Core.Rules.Skill
             return new SkillDef(
                 id, school, isPassive, range, tags, castTime, channelTime, cost,
                 cooldownCategory, cooldownDuration, chargesMax, chargesRecharge,
-                respectsGcd, targetShapeRef, effects, interruptFlags, actionCost);
+                respectsGcd, targetShapeRef, effects, interruptFlags, actionCost, allowGroundTarget);
         }
 
         internal static IReadOnlyList<EffectRef> ParseEffectRefs(JsonArray array)
