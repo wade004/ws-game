@@ -111,8 +111,42 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   .DisplayMapCoverageSources` 未指定时默认使用该清单，`DisplayMapCoverageRule` 从此默认启用
   （此前默认禁用）；`toolchain/validator` 的 `--display-map-sources` 改为可选覆盖参数。详见
   [消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md)。
+- **消费方反馈第 35 条（1.24.0）**：新增公开
+  `Core.Gameplay.Loot.LootTableAnalyzer.ExpectedProbabilities(LootTableDef,
+  LootAnalysisContext)`（掉落表期望概率分析），供编辑器"掉落与爆率编辑器"分组树右侧概率/期望
+  数量列直接调用而不必复刻语义或做蒙特卡洛逼近；与真实抽取（`LootHost.Roll`）共用同一份条件
+  筛选/权重归一实现，不改变任何抽取行为。详见
+  [消费方反馈-2026-09-11-编辑器-第35条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第35条.md)。
 
 ## [Unreleased]
+
+### 新增
+
+- `Core.Numbers.Progression.IProgressionHost` 新增可选覆盖的 `ApplyGrowthToCurrentLevel(Id
+  unitId)`（C#8 默认接口方法，默认空操作，既有实现方零改动仍可编译）——按当前已注册等级重新
+  聚合"2 级到当前等级"的曲线成长量并整体写回属性宿主，供调用方在把单位注册到某个 > 1 的起始
+  等级之后一次性补写成长，与升级（`AddXp`）/读档恢复（`RestoreState`）共用同一份聚合逻辑。详见
+  [消费方反馈-2026-09-11-编辑器-第36条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第36条.md)。
+- `Core.Gameplay.Loot` 新增公开 `LootTableAnalyzer.ExpectedProbabilities(LootTableDef,
+  LootAnalysisContext): IReadOnlyList<LootExpectedOutcome>`（掉落表期望概率分析），按叶子
+  （嵌套 `loot.*` 展开后的 `item.*` 引用）聚合给出至少掉落一次的概率、期望数量、来源路径，与
+  真实抽取（`LootHost.Roll`）共用同一份条件筛选/权重归一实现；`chance_each`/`weighted_pick_one`
+  单抽、嵌套展开、`guaranteed_min` 保底对直接条目的组合均为解析式精确值，不放回多抽候选池超过
+  阈值（`LootAnalysisContext.ExactWithoutReplacementMaxEntries`，默认 12）或嵌套引用落在保底
+  候选池时标注近似（`LootExpectedOutcome.IsApproximate`）。条件求值支持三种模式
+  （`AssumeTrue`/`AssumeFalse`/按给定 `IExprHost` 求值）。不改变 `LootHost`/`LootTableDef`
+  既有契约，不改变任何抽取行为。【编辑器相关契约】详见
+  [消费方反馈-2026-09-11-编辑器-第35条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第35条.md)。
+
+### 修复
+
+- 修复出生等级 > 1 且配置了成长曲线（`stat_growth_ref`）的生物再升级时，"出生态已经计入的一段
+  成长"被再次叠加进属性修正，导致数值偏高的问题——`CreatureFactory.ApplyStats` 不再把曲线成长
+  叠进基础值，出生态成长统一经 `IProgressionHost.ApplyGrowthToCurrentLevel`（与正常升级、读档
+  恢复共用同一份聚合实现）以属性修正形式写入。出生等级 1（既有示例数据现状）的生物不受影响；
+  已有存档不需要任何迁移（生物本身不逐个持久化，玩家出生等级恒为 1，历史存档从未落入本条缺陷
+  窗口）。详见
+  [消费方反馈-2026-09-11-编辑器-第36条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第36条.md)。
 
 ## [1.23.0] - 2026-09-11
 
