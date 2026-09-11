@@ -137,7 +137,8 @@ namespace Core.Gameplay.AreaTrigger
                 // 只做格式校验，不做跨表引用完整性检查（同 SpawnSchemas.Table.map_id、
                 // SpawnSchemas.Table.content_ref 的处理惯例，见该文件判断记录）。
                 new FieldSchema("map_id", FieldKind.Id, required: true,
-                    description: "所属地图，指向 world.map（见 05 第 1.5 节）"),
+                    description: "所属地图，指向 world.map（见 05 第 1.5 节；消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "world.map"),
                 ShapeSchema,
                 new FieldSchema("trigger_type", FieldKind.Enum, required: true, enumValues: TriggerTypeValues,
                     description: "四种类型之一，见 05 第 7 节"),

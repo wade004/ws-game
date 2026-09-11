@@ -60,12 +60,12 @@ namespace Core.Carriers.Gobj
                     description: "trap 必填（同上，本登记只管类型）；Shape 联合类型的具体形状不属于本模块" +
                         "解析范围（TrapTypeData.TriggerShape 原样透传给 L4），不展开子结构"),
                 new FieldSchema("required_skill_tag", FieldKind.Id, required: false,
-                    description: "spell_focus 必填（同上，本登记只管类型）；标签而非表引用，按 Id 登记"),
+                    description: "spell_focus 必填（同上，本登记只管类型）；标签，非表内 id，按 Id 登记"),
                 new FieldSchema("respawn_after_use", FieldKind.Number, required: false,
                     description: "gather_node 必填（同上，本登记只管类型）"),
                 new FieldSchema("teleport_target_ref", FieldKind.Id, required: false,
                     description: "teleporter 必填（同上，本登记只管类型）；经 GobjOptions.TeleportResolver" +
-                        "运行期解析，非静态数据表引用，按 Id 登记"),
+                        "运行期解析的命名传送目标，非静态数据表内容，按 Id 登记，不登记 SoftReferenceTable"),
                 new FieldSchema("linked_object_ids", FieldKind.IdList, required: false,
                     description: "lever 必填（同上，本登记只管类型）；ToggleLever 按运行期实体 id 索引" +
                         "（非 gobj.template 数据表引用），按 IdList 登记，不加 Reference")
@@ -103,7 +103,8 @@ namespace Core.Carriers.Gobj
                 {
                     // dialog.gossip_menu 属 L4，本模块（L3）不可 Reference（依赖方向），退回 Id。
                     new FieldSchema("ref", FieldKind.Id, required: true,
-                        description: "指向 dialog.gossip_menu 的动作项；L4 高于本模块 L3，退回 Id"),
+                        description: "指向 dialog.gossip_menu 的动作项；L4 高于本模块 L3，退回 Id（消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "dialog.gossip_menu"),
                 },
             };
             return new VariantSchema("kind", cases);
@@ -159,12 +160,13 @@ namespace Core.Carriers.Gobj
                     // Reference（依赖方向），退回 Id；expected 判断记录见本字段顶部注释——不在这里
                     // 登记，改由 GobjLockWorldFlagExpectedRule 校验。
                     new FieldSchema("flag_key", FieldKind.Id, required: true,
-                        description: "指向 world.flag_schema 的世界标志键，退回 Id 登记（跨层不做引用完整性校验）"),
+                        description: "指向 world.flag_schema 的世界标志键，退回 Id 登记（跨层不做引用完整性校验；消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
+                        .WithSoftReference(table: "world.flag_schema"),
                 },
                 ["skill_check"] = new[]
                 {
                     new FieldSchema("skill_tag", FieldKind.Id, required: true,
-                        description: "标签而非表引用，按 Id 登记"),
+                        description: "标签，非表内 id，按 Id 登记"),
                     new FieldSchema("min_value", FieldKind.Number, required: true,
                         description: "技能检定需要达到的最小值"),
                 },

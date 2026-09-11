@@ -10,14 +10,21 @@ namespace Core.Foundation.DisplayInfo
     /// <para>
     /// 判断记录（部分字段用 <see cref="FieldKind.Id"/> 而非 <see cref="FieldKind.Reference"/>）：
     /// 任务书显式拍板 <c>logical_id</c>（指向技能/光环/物品/生物/物件，具体指向哪张表由
-    /// <c>category</c> 决定，不是单一目标表）、<c>vfx_id</c>/<c>sfx_id</c>（指向 <c>vfx.def</c>/
-    /// <c>sfx.def</c>，两张表本任务未定义、可能不在当前数据集里加载）、<c>weapon_style_ref</c>
-    /// （指向 <c>display.weapon_style</c>，04 原文点名该表但本任务不定义它）一律用
+    /// <c>category</c> 决定，不是单一目标表，无法登记单一 SoftReferenceTable）一律用
     /// <see cref="FieldKind.Id"/>，只做格式校验，不做跨表存在性检查——避免 display_info 模块
-    /// 单独跑校验时，因为这些表未加载而报虚假的引用完整性错误。<c>display.equip_visual.item_id</c>
-    /// （指向 <c>item.template</c>，同样不在本任务数据集里）按同一理由处理为
-    /// <see cref="FieldKind.Id"/>。<c>anim_set_ref</c> 指向的 <c>display.anim_set</c> 是本模块
-    /// 自己拥有并登记的表，因此按文档原意用 <see cref="FieldKind.Reference"/>。
+    /// 单独跑校验时，因为目标表未加载而报虚假的引用完整性错误。<c>vfx_id</c>/<c>sfx_id</c>
+    /// （指向 <c>vfx.def</c>/<c>sfx.def</c>）、<c>weapon_style_ref</c>（指向
+    /// <c>display.weapon_style</c>）、<c>display.equip_visual.item_id</c>（指向
+    /// <c>item.template</c>）同样维持 <see cref="FieldKind.Id"/>——这四张表现已在各自模块
+    /// （<c>Presentation.VfxSfx</c>/<c>Core.Carriers.Item</c>）登记，但均高于/独立于本模块
+    /// （<c>Core.Foundation</c>）所在层，本模块不倒转依赖方向声明为 Reference（同 <c>anim_set_ref</c>
+    /// 判断记录相反的情形——<c>anim_set_ref</c> 指向本模块自己拥有的 <c>display.anim_set</c>，
+    /// 因此按文档原意用 <see cref="FieldKind.Reference"/>）。消费方反馈第 30 条核实：以上四个字段
+    /// 目标表名确定，已各自登记 <see cref="FieldSchema.WithSoftReference"/>——只传达"这个 Id 语义上
+    /// 指向哪张表"给内容工具做自动补全/跳转，不改变本判断记录说明的分层边界。<c>model_ref</c>/
+    /// <c>default_slot_meshes</c> 的映射值/<c>display.anim_set.clips.resource_ref</c> 不在此列：
+    /// 它们是引擎适配层解析的不透明资源标识（同 09 表现层"资源引用"惯例），不指向任何内容表，
+    /// 不登记 SoftReference。
     /// </para>
     /// </summary>
     public static class DisplaySchemas
@@ -39,15 +46,18 @@ namespace Core.Foundation.DisplayInfo
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "display.map.<name>"),
                 new FieldSchema("category", FieldKind.Enum, required: true, enumValues: Categories, description: "所属类别（skill/aura/item/creature/gobj/projectile），决定 logical_id 指向哪张表，见判断记录"),
-                new FieldSchema("logical_id", FieldKind.Id, required: true, description: "指向的逻辑记录 id（技能/光环/物品/生物/物件），具体目标表由 category 决定，见判断记录"),
+                new FieldSchema("logical_id", FieldKind.Id, required: true, description: "对应技能/光环/物品/生物/物件其一的记录 id，具体目标表由 category 决定，见判断记录（多态目标，不登记单一 SoftReferenceTable）"),
                 new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: Kinds, description: "显示类型（sprite/model），决定下方哪组专属字段生效，见 DisplayKindFieldGroupRule"),
                 new FieldSchema("icon_id", FieldKind.String, required: false, description: "UI 图标资源引用"),
-                new FieldSchema("vfx_id", FieldKind.Id, required: false, description: "指向 vfx.def，见判断记录"),
-                new FieldSchema("sfx_id", FieldKind.Id, required: false, description: "指向 sfx.def，见判断记录"),
+                new FieldSchema("vfx_id", FieldKind.Id, required: false, description: "指向 vfx.def，见判断记录（消费方反馈第 30 条：登记为软引用）")
+                    .WithSoftReference(table: "vfx.def"),
+                new FieldSchema("sfx_id", FieldKind.Id, required: false, description: "指向 sfx.def，见判断记录（消费方反馈第 30 条：登记为软引用）")
+                    .WithSoftReference(table: "sfx.def"),
                 new FieldSchema("scale", FieldKind.Number, required: false, description: "默认缩放，缺省 1.0"),
                 new FieldSchema("shadow", FieldKind.Enum, required: false, enumValues: Shadows, description: "缺省 blob"),
                 new FieldSchema("sort_offset", FieldKind.Number, required: false, description: "缺省 0"),
-                new FieldSchema("weapon_style_ref", FieldKind.Id, required: false, description: "指向 display.weapon_style（本任务未定义该表），见判断记录"),
+                new FieldSchema("weapon_style_ref", FieldKind.Id, required: false, description: "指向 display.weapon_style，见判断记录（消费方反馈第 30 条：登记为软引用）")
+                    .WithSoftReference(table: "display.weapon_style"),
 
                 // sprite 型专属字段（schema 层非必填，见类型注释）
                 new FieldSchema("sprite_set_id", FieldKind.String, required: false, description: "精灵集资源引用（不含路径），sprite 型必填"),
@@ -85,7 +95,7 @@ namespace Core.Foundation.DisplayInfo
                         }, description: "{parent_layer: String, offset: Vec2, offset_by_direction?: Map<Id,Vec2>}，见 DisplayInfo.ParseAnchorDef"))),
 
                 // model 型专属字段（schema 层非必填，见类型注释）
-                new FieldSchema("model_ref", FieldKind.Id, required: false, description: "model 型专属，模型资源的间接引用，由引擎适配层解析加载"),
+                new FieldSchema("model_ref", FieldKind.Id, required: false, description: "model 型专属，模型资源的不透明标识，由引擎适配层解析加载，不对应任何内容表"),
                 new FieldSchema("anim_set_ref", FieldKind.Reference, required: false, referenceTable: "display.anim_set", description: "model 型专属，指向本模块的 display.anim_set 动画剪辑集合"),
                 new FieldSchema("sockets", FieldKind.IdList, required: false, description: "model 型专属，该模型声明的挂点 id 列表，供 display.equip_visual 的 socket_attach 模式引用")
                     .WithFreeIds("挂点 id 由本条记录自行声明的局部名字，不指向任何已登记表的既有记录；display.equip_visual.socket_id 按字符串比较，不在本字段做引用完整性检查"),
@@ -96,7 +106,7 @@ namespace Core.Foundation.DisplayInfo
                     .WithMap(MapSchema.FreeKeyed(
                         "槽位 id 由本条记录自行声明的局部名字（slots 字段），不指向任何已登记表的既有记录，同 slots/sockets 字段的 FreeIds 判断记录",
                         new FieldSchema("<mesh_ref>", FieldKind.Id, required: true,
-                            description: "该槽位默认换装的网格资源引用，由引擎适配层解析加载，不做引用完整性检查"))),
+                            description: "该槽位默认换装的网格资源不透明标识，由引擎适配层解析加载，不对应任何内容表，不做存在性检查"))),
                 new FieldSchema("material_params", FieldKind.Object, required: false,
                     description: "Map<param_name, Number>，键为材质参数名（自由字符串，非 Id 格式）")
                     .WithMap(MapSchema.FreeKeyed(
@@ -128,7 +138,7 @@ namespace Core.Foundation.DisplayInfo
                         new FieldSchema("<clip>", FieldKind.Object, required: true, fields: new[]
                         {
                             new FieldSchema("resource_ref", FieldKind.Id, required: true,
-                                description: "指向具体动画剪辑资产的资源引用，由引擎适配层解析"),
+                                description: "具体动画剪辑资产的不透明资源标识，由引擎适配层解析，不对应任何内容表"),
                             new FieldSchema("events", FieldKind.Array, required: false,
                                 item: new FieldSchema("<event>", FieldKind.Object, required: true, fields: new[]
                                 {
@@ -156,7 +166,8 @@ namespace Core.Foundation.DisplayInfo
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "display.equip_visual.<name>"),
-                new FieldSchema("item_id", FieldKind.Id, required: true, description: "指向 item.template（本任务未定义该表），见判断记录"),
+                new FieldSchema("item_id", FieldKind.Id, required: true, description: "指向 item.template，见判断记录（消费方反馈第 30 条：登记为软引用）")
+                    .WithSoftReference(table: "item.template"),
                 new FieldSchema("mode", FieldKind.Enum, required: true, enumValues: EquipVisualModes, description: "呈现模式（slot_mesh/socket_attach），决定 slot_id+mesh_ref 与 socket_id+model_ref 哪组必填"),
                 new FieldSchema("slot_id", FieldKind.Id, required: false, description: "mode: slot_mesh 时必填，对应 display.map 的 slots"),
                 new FieldSchema("mesh_ref", FieldKind.Id, required: false, description: "mode: slot_mesh 时必填"),

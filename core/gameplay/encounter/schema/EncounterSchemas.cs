@@ -117,10 +117,11 @@ namespace Core.Gameplay.Encounter
                     .WithMap(MapSchema.FreeKeyed(
                         "键可能是参战单位运行期 id 或 creature.template 引用 id 之一，二者哪种由 EncounterHost.ApplyPhase 运行期判定，加载期无法静态确定校验哪一种",
                         new FieldSchema("<rotation_id>", FieldKind.Id, required: true,
-                            description: "覆盖的 ai.rotation 循环 id，只做格式校验，不做引用完整性检查（同 on_enter_hook 判断记录）"))),
+                            description: "覆盖的 ai.rotation 循环 id，只做格式校验，不做引用完整性检查（同 on_enter_hook 判断记录；消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
+                            .WithSoftReference(table: "ai.rotation"))),
                 new FieldSchema("on_enter_hook", FieldKind.Id, required: false,
                     description: "found.hook 钩子 id。判断记录（分层边界，同 skill.script.hook_id）：found.hook" +
-                        "当前无实现级 schema 登记，Reference 到未加载表恒判定引用失效，暂退回 Id，待补齐登记后再升级。"),
+                        "当前无实现级 schema 登记，暂无表可挂载 SoftReferenceTable，暂退回 Id，待补齐登记后再升级为 Reference。"),
             },
             description: "{enter_condition: Expr, ai_rotation_override?: Map<Id, Id>, on_enter_hook?: Id}");
 

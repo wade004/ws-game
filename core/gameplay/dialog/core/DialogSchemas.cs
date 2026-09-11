@@ -164,7 +164,8 @@ namespace Core.Gameplay.Dialog
                     description: "节点 id；同一棵树内必须唯一——唯一性是跨元素一致性检查，FieldSchema 不表达，见 DialogContentValidationRule"),
                 new FieldSchema("text_key", FieldKind.TextKey, required: true, description: "该节点的对话文本键"),
                 new FieldSchema("speaker_ref", FieldKind.Id, required: false,
-                    description: "指向 creature.template 或占位角色 id；判断记录：本模块（dialog）不依赖 Core.Carriers.Creature 程序集（README 依赖清单未列出），无法 Reference，退回 Id"),
+                    description: "指向 creature.template 或占位角色 id；判断记录：本模块（dialog）不依赖 Core.Carriers.Creature 程序集（README 依赖清单未列出），无法 Reference，退回 Id（消费方反馈第 30 条：主用途是 creature.template，登记为软引用，占位角色 id 不解析属预期降级）")
+                    .WithSoftReference(table: "creature.template"),
                 new FieldSchema("branches", FieldKind.Array, required: false, item: StoryBranchItemSchema,
                     description: "缺省空数组；分支为空的节点是终止节点"),
                 new FieldSchema("performance_hook_ref", FieldKind.Id, required: false,

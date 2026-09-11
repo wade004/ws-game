@@ -20,13 +20,16 @@ namespace Core.Gameplay.Spawn
                 new FieldSchema("id", FieldKind.Id, required: true, description: "spawn.<name>"),
                 // 判断记录同 AreaTriggerSchemas.TriggerDef.map_id：world.map 暂存于
                 // core/foundation/scene_router，本模块不跨目录耦合其加载时机，只做 Id 格式校验。
-                new FieldSchema("map_id", FieldKind.Id, required: true, description: "所属地图，指向 world.map"),
+                new FieldSchema("map_id", FieldKind.Id, required: true,
+                    description: "所属地图，指向 world.map（消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "world.map"),
                 // 判断记录：content_ref 可指向 creature.template 或 gobj.template 两张不同表，
-                // FieldSchema.ReferenceTable/ReferenceDomain 只支持单一目标，无法同时表达"二选一"；
+                // FieldSchema.ReferenceTable/ReferenceDomain/SoftReferenceTable 均只支持单一目标，
+                // 无法同时表达"二选一"（消费方反馈第 30 条核实：目标不唯一确定，不登记软引用）；
                 // 域名合法性（creature|gobj）与目标行是否存在改由 SpawnContentRefRule（本模块自有
                 // IValidationRule）负责，见 schema/SpawnValidationRules.cs。
                 new FieldSchema("content_ref", FieldKind.Id, required: true,
-                    description: "指向 creature.template 或 gobj.template（见 SpawnContentRefRule）"),
+                    description: "creature.template 或 gobj.template 之一的 id（见 SpawnContentRefRule；二者非单一目标，不登记 SoftReferenceTable）"),
                 new FieldSchema("position", FieldKind.Vec2, required: true, description: "刷新点坐标"),
                 new FieldSchema("facing", FieldKind.Number, required: false, description: "初始朝向，缺省 0"),
                 new FieldSchema("condition", FieldKind.Expr, required: false, description: "刷新条件（可空）"),

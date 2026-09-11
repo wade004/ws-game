@@ -38,7 +38,8 @@ namespace Presentation.Assembly
         /// <c>allowlist_entry_unused</c>/<c>reference_target_unknown</c>/<c>variant_shape</c>/
         /// <c>unschematized_table</c>/<c>field_range_kind</c>（ADR-0021）/<c>field_map_kind</c>/
         /// <c>field_map_conflict</c>（ADR-0024）/<c>idlist_allowed_values_conflict</c>/
-        /// <c>soft_reference_kind</c>（消费方反馈第 28/29 条，04 第 3.4 节勘误）。</summary>
+        /// <c>soft_reference_kind</c>（消费方反馈第 28/29 条，04 第 3.4 节勘误）/
+        /// <c>id_description_reference_hint</c>（消费方反馈第 30 条，告警级，04 第 3.4 节勘误）。</summary>
         public string Check { get; }
 
         public string Message { get; }
@@ -463,6 +464,31 @@ namespace Presentation.Assembly
             {
                 issues.Add(new SchemaAuditIssue("error", tableName, path, "soft_reference_kind",
                     $"字段 \"{path}\" 登记了 SoftReference，但 Kind 为 {field.Kind}——SoftReference 仅 Id/IdList 字段可设（消费方反馈第 29 条）"));
+            }
+
+            // 消费方反馈第 30 条（04 第 3.4 节勘误"描述文本与引用元数据自洽"）自洽检查：Id/IdList
+            // 字段的 Description 含"引用"/"指向"字样——内容作者/工具读者据此会以为该字段的取值指向
+            // 某张具体表或 domain——但既未登记 ReferenceTable/ReferenceDomain（仅 Reference 种类有效，
+            // 本检查只覆盖 Id/IdList 两种，Reference 种类的目标存在性另有 reference_target_unknown
+            // 检查），也未登记 SoftReferenceTable/SoftReferenceDomain，也未登记 AllowedValues，也未调用
+            // WithFreeIds() 显式声明"确属自由/不透明标识，不对应任何表"——这四类都是"已对取值来源做出
+            // 显式声明"的合法方式，任一存在即视为已处理，不再报告（同 idlist_reference_target 检查
+            // "四选一"的既有风格，本检查在此基础上把 FreeIds 视为与 Reference*/SoftReference*/
+            // AllowedValues 等价的"已显式声明"）。命中时是遗漏登记的信号（消费方反馈第 30 条原始案例
+            // arch.class.primary_stat：描述写"引用 stat.*"但未补 SoftReferenceTable）——告警级，不阻断
+            // 加载/校验，留给登记者事后补齐或改写描述使其不再暗示存在引用关系。
+            if ((field.Kind == FieldKind.Id || field.Kind == FieldKind.IdList)
+                && !string.IsNullOrEmpty(field.Description)
+                && (field.Description.Contains("引用") || field.Description.Contains("指向"))
+                && field.ReferenceTable == null && field.ReferenceDomain == null
+                && field.SoftReferenceTable == null && field.SoftReferenceDomain == null
+                && field.AllowedValues == null && !field.FreeIds)
+            {
+                issues.Add(new SchemaAuditIssue("warning", tableName, path, "id_description_reference_hint",
+                    $"字段 \"{path}\" 的 Description 含\"引用\"/\"指向\"字样，但未登记 ReferenceTable/ReferenceDomain/" +
+                    "SoftReferenceTable/SoftReferenceDomain/AllowedValues，也未调用 WithFreeIds()——若目标表/domain" +
+                    "可确定，补登记 WithSoftReference（或 Reference 种类改用 referenceTable/referenceDomain）；" +
+                    "若目标不确定，改写描述使其不再暗示存在引用关系（消费方反馈第 30 条）"));
             }
 
             if (field.Kind == FieldKind.Reference)

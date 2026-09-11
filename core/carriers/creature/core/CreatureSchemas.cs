@@ -79,9 +79,9 @@ namespace Core.Carriers.Creature
                     description: "免疫的学派/效果类型/控制类别")
                     .WithFreeIds("混合词汇（学派/效果类型/控制类别），不指向单一已登记表的既有记录"),
                 new FieldSchema("on_hit_reaction_ref", FieldKind.Id, required: false,
-                    description: "预留：受击时触发的反应配置引用。消费方反馈第 29 条核实全仓无任何消费方读取该字段，也没有对应的目标表——当前填写不生效，不登记软引用；待反应系统落地并确定目标表后再补登记"),
+                    description: "预留：受击时触发的反应配置标识。消费方反馈第 29/30 条核实全仓无任何消费方读取该字段，也没有可挂载的目标表——当前填写不生效，暂不登记 SoftReferenceTable；待反应系统落地并确定目标表后再补登记"),
                 new FieldSchema("on_death_reaction_ref", FieldKind.Id, required: false,
-                    description: "预留：死亡时触发的反应配置引用。消费方反馈第 29 条核实全仓无任何消费方读取该字段，也没有对应的目标表——当前填写不生效，不登记软引用；待反应系统落地并确定目标表后再补登记"),
+                    description: "预留：死亡时触发的反应配置标识。消费方反馈第 29/30 条核实全仓无任何消费方读取该字段，也没有可挂载的目标表——当前填写不生效，暂不登记 SoftReferenceTable；待反应系统落地并确定目标表后再补登记"),
             }).WithOwnership(SchemaLayer.Carriers, "creature");
 
         public static readonly TableSchema TierDefinition = new TableSchema(
