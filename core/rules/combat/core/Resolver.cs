@@ -99,7 +99,9 @@ namespace Core.Rules.Combat
             {
                 _diagnostics.Warn($"Resolver.Resolve: 目标 \"{context.TargetId}\" 已死亡，本次结算按 Miss 处理，不落地、不发事件");
                 steps.Add("precheck: target already dead -> Miss");
-                return new ResolveResult(HitResult.Miss, 0.0, 0.0, 0.0, immune: false, isHeal, steps);
+                var deadTargetResult = new ResolveResult(HitResult.Miss, 0.0, 0.0, 0.0, immune: false, isHeal, steps);
+                InvokeResolveTrace(context, deadTargetResult);
+                return deadTargetResult;
             }
 
             var hitTable = RequireHitTable();
@@ -112,7 +114,9 @@ namespace Core.Rules.Combat
                 steps.Add($"terminal: hit={hit}，跳过步骤 2-8，FinalAmount=0");
                 _notifyCombatEvent(context.SourceId, context.TargetId);
                 _notifyCombatEvent(context.TargetId, context.SourceId);
-                return new ResolveResult(hit, 0.0, 0.0, 0.0, immune: false, isHeal, steps);
+                var terminalResult = new ResolveResult(hit, 0.0, 0.0, 0.0, immune: false, isHeal, steps);
+                InvokeResolveTrace(context, terminalResult);
+                return terminalResult;
             }
 
             // ---------------- 步骤 2：基础值 ----------------
@@ -259,7 +263,37 @@ namespace Core.Rules.Combat
             _notifyCombatEvent(context.TargetId, context.SourceId);
             steps.Add("post: 仇恨/进战/事件处理完成");
 
-            return new ResolveResult(hit, requestedAmount, finalAmount, absorbed, immune, isHeal, steps);
+            var result = new ResolveResult(hit, requestedAmount, finalAmount, absorbed, immune, isHeal, steps);
+            InvokeResolveTrace(context, result);
+            return result;
+        }
+
+        /// <summary>
+        /// 消费方反馈 2026-09-11 编辑器第 31 条"方案 1"落地：<see cref="CombatOptions.ResolveTrace"/>
+        /// 的唯一调用点，供本方法三条返回路径共用（见该属性判断记录 (1)）。未设置时不做任何工作
+        /// （零开销，判断记录 (2)）；回调抛出的异常被捕获后经 <see cref="ICombatDiagnostics.Warn"/>
+        /// 记一次警告并吞掉，不向上传播——工具/诊断代码里的 bug 不应打断真实游戏结算（判断记录
+        /// (3)），这是本方法与调用方约定的"诊断通道"，不是把异常静默丢弃：调用方接入真实
+        /// <see cref="ICombatDiagnostics"/> 实现后能在日志/遥测里看到这条警告。
+        /// </summary>
+        private void InvokeResolveTrace(EffectContext context, ResolveResult result)
+        {
+            var trace = _options.ResolveTrace;
+            if (trace == null)
+            {
+                return;
+            }
+
+            try
+            {
+                trace(context, result);
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.Warn(
+                    $"Resolver.Resolve: CombatOptions.ResolveTrace 回调抛出异常，已捕获并忽略，" +
+                    $"不影响本次结算（sourceId={context.SourceId}, targetId={context.TargetId}）：{ex}");
+            }
         }
 
         // -----------------------------------------------------------------
