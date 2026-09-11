@@ -1,3 +1,4 @@
+using System;
 using Core.Foundation.Common;
 using Core.Rules.Common;
 
@@ -52,5 +53,34 @@ namespace Core.Rules.Combat
 
         /// <summary>命中判定与暴击判定共用的随机数流（见 06 第 4.1 节"骰子 IRngHost.Next(RngStream)"）。</summary>
         public Id RngStream { get; set; } = new Id("combat.hit");
+
+        /// <summary>
+        /// 结算追踪回调（消费方反馈 2026-09-11 编辑器第 31 条，见
+        /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md"方案 1"）：仅供内容工具/
+        /// 诊断消费，不改变结算管线本身。<see cref="Resolver.Resolve"/> 是全部伤害/治疗效果原语
+        /// （<c>school_damage</c>/<c>weapon_damage_pct</c>/<c>heal</c>）落地的唯一出口（见
+        /// <c>core/rules/skill/core/EffectDispatcher.ApplyDamageOrHeal</c> 恒调用
+        /// <c>ICombatHost.ResolveEffect</c>），因此技能瞬发/读条完成/引导 tick、光环周期效果
+        /// （<c>periodic_damage</c>/<c>periodic_heal</c>）、Proc 触发的嵌套施法（<c>TriggerCast</c>）、
+        /// 弹道命中后效果全部经同一出口，不需要在各调用点分别接线。
+        /// <para>
+        /// 判断记录：
+        /// (1) 本回调在 <see cref="Resolver.Resolve"/> 每一条返回路径（"目标已死亡"短路、
+        /// miss/dodge/parry 判定终止短路、完整九步落地）返回前恰好调用一次，传入本次结算的
+        /// <see cref="EffectContext"/> 与完整的 <see cref="ResolveResult"/>（含
+        /// <see cref="ResolveResult.Steps"/>，与 06 第 4.1 节固定步骤一一对应）。
+        /// </para>
+        /// <para>
+        /// (2) 未设置（缺省 <c>null</c>）时零开销——<see cref="Resolver.Resolve"/> 只多一次 null
+        /// 判断，不分配、不改变既有输出（<c>ResolveResult</c>/事件/仇恨表/Stat/Power 变化逐字节
+        /// 不变）。
+        /// </para>
+        /// <para>
+        /// (3) 回调本身抛出的任何异常都会被 <see cref="Resolver.Resolve"/> 捕获后经
+        /// <see cref="ICombatDiagnostics.Warn"/> 记一次警告并继续——调用方（工具/诊断代码）里的
+        /// bug 不应打断真实游戏结算，本次结算的落地、事件、仇恨表不受回调异常影响。
+        /// </para>
+        /// </summary>
+        public Action<EffectContext, ResolveResult>? ResolveTrace { get; set; }
     }
 }
