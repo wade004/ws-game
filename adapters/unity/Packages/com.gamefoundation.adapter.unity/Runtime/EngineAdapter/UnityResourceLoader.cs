@@ -1,6 +1,11 @@
 #nullable enable
 // UnityResourceLoader：IResourceLoader 的 Unity 引擎实现。
 //
+// 消费方反馈第 32 条（ADR-0025）：sprite_set_id/icon_id 两个字段的"资源引用 id → 资产相对路径"
+// 规则已收口为公开静态类 Core.Foundation.EngineAdapter.AssetRefConventions（SpriteSetDirectory/
+// IconFile/TryParseSpriteSetId/TryParseIconId），本类型的 StripCategoryPrefix 私有方法现转发到
+// 该类型的同名方法，不再独立维护一份拷贝，见该方法与 AssetRefConventions 类型注释。
+//
 // 资源 id → 相对路径映射规则（与 architecture/14_资产规格书模板.md 第 1.2 节文件名模板保持
 // 同一套命名，具体做法参照 presentation/render/core/SpriteViewBase.ResolveLayerResourceId 已经
 // 采用的"去掉类别前缀（第一个点分段）、剩余点号换下划线"规则）：
@@ -941,11 +946,10 @@ namespace Adapter.Unity.EngineAdapter
             return category == "layer";
         }
 
-        private static string StripCategoryPrefix(string resourceRefId)
-        {
-            var dotIndex = resourceRefId.IndexOf('.');
-            var withoutCategory = dotIndex < 0 ? resourceRefId : resourceRefId.Substring(dotIndex + 1);
-            return withoutCategory.Replace('.', '_');
-        }
+        /// <summary>消费方反馈第 32 条（ADR-0025）：此前本方法独立实现"去掉类别前缀、点号换下划线"
+        /// 规则，与 <c>SpriteViewBase</c> 的同名私有方法字节级相同但各自维护；现转发到
+        /// <see cref="AssetRefConventions.StripCategoryPrefix"/>，全仓唯一实现见该类型。</summary>
+        private static string StripCategoryPrefix(string resourceRefId) =>
+            AssetRefConventions.StripCategoryPrefix(resourceRefId);
     }
 }

@@ -39,6 +39,7 @@ from .common import (
     write_json_pretty,
 )
 from .image_ops import apply_matting, flip_horizontal, parse_matting_spec, trim_transparent
+from .ref_conventions import icon_file, sprite_set_directory
 
 FLAT_LAYER_KEY = "__flat__"
 CATEGORY_CHOICES = ["creature", "item", "skill", "aura", "gobj", "projectile"]
@@ -251,14 +252,14 @@ def run(args: argparse.Namespace) -> int:
         icon_img = Image.open(icon_src).convert("RGBA")
         icon_img = _fit_square(icon_img, args.icon_size)
         icon_id = f"icon.{args.category}.{sprite_set_name}"
-        icon_out_path = assets_root / args.dataset / "icons" / args.category / f"{sprite_set_name}.png"
+        icon_out_path = assets_root / args.dataset / icon_file(icon_id)
 
-    # 输出路径：目录名与运行时资源 id 解析规则对齐（14 第 1.2 节命名模板、
-    # adapters/unity 侧 UnityResourceLoader/SpriteViewBase.ResolveLayerResourceId），
-    # 即 sprite_set_id（"sprite.<category>.<sprite_set_name>"）去掉首段类别前缀
-    # "sprite." 后把剩余点号换成下划线，得到 "<category>_<sprite_set_name>"；不能只用
-    # sprite_set_name 本身（会与运行时按 sprite_set_id 解析出的路径不一致）。
-    sprite_out_dir = assets_root / args.dataset / "sprites" / f"{args.category}_{sprite_set_name}"
+    # 输出路径：目录名与运行时资源 id 解析规则对齐（消费方反馈第 32 条，ADR-0025——
+    # architecture/14_资产规格书模板.md 第 1.2 节命名模板、adapters/unity 侧
+    # UnityResourceLoader/SpriteViewBase.ResolveLayerResourceId 均已改为经由同一条公开约定，
+    # 见 ref_conventions.sprite_set_directory 判断记录），不能只用 sprite_set_name 本身（会与
+    # 运行时按 sprite_set_id 解析出的路径不一致）。
+    sprite_out_dir = assets_root / args.dataset / sprite_set_directory(f"sprite.{args.category}.{sprite_set_name}")
     atlas_png_path = sprite_out_dir / "atlas.png"
     atlas_json_path = sprite_out_dir / "atlas.json"
     anchors_json_path = sprite_out_dir / "anchors.json"
