@@ -120,6 +120,32 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **C11-RELOAD（读档空间索引未同步）**：`world.current_position` 段 `Load` 此前直接改写
+  `PlayerUnit.Position` 字段，绕开 `Core.Carriers.Unit.WorldUnitAccess.SetPosition`，空间索引
+  不会同步（同图读档后玩家位置正确但查询不到）。`Core.Carriers.Unit.UnitPersistable` 新增
+  `CurrentPosition(PlayerUnit, IUnitAccess)` 重载，`Load` 改经 `IUnitAccess.SetPosition` 写入；
+  `Core.Foundation.EngineAdapter.ISpatialQuery` 新增默认接口方法
+  `ResyncPositions(IEnumerable<(Id, Vec2)>)` 供派生状态重建阶段做一次全量兜底重同步。
+- **C11-RELOAD（读档战斗态不一致）**：读档恢复 `in_combat` 此前只直接调用
+  `IPowerHost.SetInCombat`，未触碰 `Core.Rules.Combat.CombatHost` 自身的进出战斗登记表（唯一
+  来源），读档后两者分歧。`CombatHost` 新增 `ClearCombatState(Id)`/`RestoreCombatState(Id, bool)`；
+  `Core.Gameplay.Assembly.PlayerVitalsPersistable` 新增 `(PlayerUnit, PowerHost, CombatHost?)`
+  三参构造重载，`Load` 改经 `RestoreCombatState` 写入；读档恢复顺序固定为"先清空运行期战斗态、
+  再按存档值恢复"。
+- **C11-PENDING-LOAD/C11-CLEANUP（延迟复活生命周期）**：`Core.Gameplay.Death.DeathPolicyHost`
+  的延迟复活队列此前没有任何失效机制——读档前遗留的记录会在读档完成后到期覆盖刚恢复好的状态；
+  `WorldSim.ClearAll` 后下一 tick 对已销毁单位复活会抛异常。新增公开方法 `ClearPending()`（读档
+  前清空，供 `GameplayAssembly` 的 `IDerivedStateRebuilder.BeforeLoad` 调用）；新增
+  `IDisposable` 实现（宿主释放时取消订阅并清空队列）；新增对 `entity.destroyed` 事件的订阅，
+  单位销毁后立即摘除对应记录；`Execute` 在调用 `ReviveUnit` 前新增目标单位存在性校验，不存在时
+  丢弃记录并记诊断，不抛异常。
+
+核实与逐条回复见
+[消费方反馈-2026-09-11-读档空间索引与复活生命周期.md](architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md)。
+以上改动全部为新增方法/构造函数重载/默认接口成员，不删改任何既有公开签名。
+
 ## [1.25.0] - 2026-09-11
 
 MINOR 版本：消费方反馈"投射物与技能位移通用能力反馈"（M-C10）第 1/2/3/4 节处理，核实与逐条回复见
