@@ -23,6 +23,20 @@ namespace Core.Carriers.Creature
     /// <see cref="IDataRegistryView"/> 一次性解析 <c>creature.template</c>/<c>creature.tier_definition</c>/
     /// <c>prog.level_curve</c>（成长曲线口径同 <c>Core.Numbers.Progression.ProgressionHost</c>，
     /// 见 <see cref="ApplyStats"/> 判断记录）三张表，之后只读，惯例同 <c>AiHost</c>/<c>StatHost</c>。
+    /// <para>
+    /// 判断记录（消费方反馈第 33 条，资源类型注册顺序）：<see cref="Spawn"/> 此前恒按
+    /// <see cref="CreatureOptions.DefaultPowerTypes"/> 的旧默认值 <c>[WellKnownPowers.Health]</c>
+    /// 向 <see cref="IPowerHost.RegisterUnit"/> 注册资源类型，与模板/数据集实际定义的资源类型无关
+    /// ——示例技能消耗 <c>arch.power.mana</c> 时，生成的生物从未注册过 <c>mana</c>，
+    /// <see cref="IPowerHost.GetPower"/> 必然抛异常。<see cref="ResolvePowerTypes"/> 改为按
+    /// <see cref="CreatureOptions.DefaultPowerTypes"/> 的新语义（见该属性判断记录）解析：显式覆盖
+    /// 时优先生效；否则尝试"模板/职业实际声明或引用的资源类型"（<c>creature.template</c> 当前未
+    /// 登记此类字段，本步骤恒空——为未来该表补充职业/资源类型引用字段预留扩展点，届时只需要在
+    /// <see cref="ResolvePowerTypes"/> 内补一段读取逻辑，不需要改动本方法的调用点或
+    /// <see cref="IPowerHost"/> 契约本身）；再否则回落到构造期解析好的
+    /// <see cref="_allPowerTypeIds"/>（当前数据集 <c>arch.power_type</c> 全部已登记 id，按升序保证
+    /// 确定性——<see cref="IPowerHost.RegisterUnit"/> 按传入顺序确定性初始化，见该方法契约注释）。
+    /// </para>
     /// </summary>
     public sealed class CreatureFactory : ICreatureFactory, ICreatureTemplateQuery
     {
@@ -52,6 +66,12 @@ namespace Core.Carriers.Creature
         private readonly Dictionary<string, TierInfo> _tiers = new Dictionary<string, TierInfo>(StringComparer.Ordinal);
         private readonly Dictionary<string, GrowthCurveInfo> _growthCurves = new Dictionary<string, GrowthCurveInfo>(StringComparer.Ordinal);
 
+        /// <summary>消费方反馈第 33 条：当前数据集 <c>arch.power_type</c> 全部已登记 id，按升序
+        /// 排列，见 <see cref="ResolvePowerTypes"/>/<see cref="LoadPowerTypeIds"/> 判断记录。独立
+        /// 解析（不依赖 <c>PowerHost</c> 内部实现），惯例同 <see cref="LoadGrowthCurves"/> 判断记录
+        /// "本模块需要……因此独立按既定结构解析一份只读索引，不依赖……内部实现"。</summary>
+        private readonly List<Id> _allPowerTypeIds = new List<Id>();
+
         public CreatureFactory(
             IDataRegistryView registry,
             IWorldSim world,
@@ -76,6 +96,7 @@ namespace Core.Carriers.Creature
             LoadTiers(_registry);
             LoadTemplates(_registry);
             LoadGrowthCurves(_registry);
+            LoadPowerTypeIds(_registry);
         }
 
         // -----------------------------------------------------------------
@@ -133,7 +154,7 @@ namespace Core.Carriers.Creature
                 _progression.RegisterUnit(entityId, template.StatGrowthRef.Value, template.Level);
             }
 
-            _powers.RegisterUnit(entityId, _options.DefaultPowerTypes);
+            _powers.RegisterUnit(entityId, ResolvePowerTypes(template));
 
             if (template.AiBehaviorRef.HasValue)
             {
@@ -174,6 +195,51 @@ namespace Core.Carriers.Creature
                 }
             }
             return false;
+        }
+
+        // -----------------------------------------------------------------
+        // 资源类型注册顺序（消费方反馈第 33 条）
+        // -----------------------------------------------------------------
+
+        /// <summary>按 <see cref="CreatureOptions.DefaultPowerTypes"/> 的语义解析
+        /// <paramref name="template"/> 生成的单位实际应注册的资源类型集合，见类型顶部判断记录。</summary>
+        private IReadOnlyList<Id> ResolvePowerTypes(CreatureTemplate template)
+        {
+            if (_options.DefaultPowerTypes != null)
+            {
+                return _options.DefaultPowerTypes;
+            }
+
+            // 步骤①：模板/职业实际声明或引用的资源类型。creature.template 当前未登记此类字段
+            // （07 第 2.1 节字段表无对应项），本步骤恒空——为未来该表补充职业/资源类型引用字段
+            // 预留扩展点，届时只需要在此处补一段读取逻辑（如 template.PowerTypes 非空时直接
+            // 返回），不需要改动调用点或 IPowerHost 契约本身。忽略未使用参数警告：template 已经
+            // 是本步骤将来读取的对象，提前接收它可以避免届时改签名。
+            _ = template;
+
+            // 步骤②：回落到当前数据集里全部已登记的 arch.power_type 定义（见
+            // _allPowerTypeIds/LoadPowerTypeIds 判断记录）。
+            return _allPowerTypeIds;
+        }
+
+        /// <summary>见 <see cref="_allPowerTypeIds"/> 判断记录：独立解析 <c>arch.power_type</c>
+        /// 全部已登记 id，不依赖 <c>PowerHost</c> 内部实现——本方法与
+        /// <c>Core.Rules.Assembly.RulesAssembly</c> 装配 <c>PowerHost</c> 时遍历同一张表的顺序无
+        /// 强制一致性要求（<see cref="IPowerHost.RegisterUnit"/> 只要求传入的 id 集合是
+        /// <c>PowerHost</c> 构造期已登记 id 的子集，不要求顺序与之相同），因此本方法按 id
+        /// 升序排列，保证同一次加载内多次调用 <see cref="ResolvePowerTypes"/> 结果确定。表未注册
+        /// （<c>GetAll</c> 对未知表名返回空列表，不抛异常，见 <c>DataRegistry.GetAllUnchecked</c>
+        /// 判断记录）或数据集本身没有登记任何资源类型时，<see cref="_allPowerTypeIds"/> 为空列表——
+        /// <see cref="ResolvePowerTypes"/> 据此向 <see cref="IPowerHost.RegisterUnit"/> 传入空集合，
+        /// 等价于该单位不持有任何资源池，不抛异常（与 06 第 2.1 节"资源类型可配置数量……含 0 种"的
+        /// 既有语义一致）。</summary>
+        private void LoadPowerTypeIds(IDataRegistryView registry)
+        {
+            foreach (var record in registry.GetAll("arch.power_type"))
+            {
+                _allPowerTypeIds.Add(record.GetId("id"));
+            }
+            _allPowerTypeIds.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
         }
 
         // -----------------------------------------------------------------

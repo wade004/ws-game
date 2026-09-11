@@ -33,6 +33,34 @@ namespace Core.Numbers.PowerSet
         /// <summary>取当前值；单位未注册或未持有该资源类型时抛 <see cref="System.InvalidOperationException"/>。</summary>
         double GetPower(Id unitId, Id powerType);
 
+        /// <summary>
+        /// 消费方反馈第 33 条（示例技能消耗 <c>arch.power.mana</c> 时 <see cref="GetPower"/> 直接
+        /// 抛异常，调用方常常只是想"这个单位有没有这种资源、有的话是多少"这类容错查询，不想每次都
+        /// 包一层 try/catch 或先调 <see cref="HasPower"/> 再调 <see cref="GetPower"/> 两次查找）：
+        /// 尝试获取当前值，单位未注册或未持有该资源类型时返回 <c>false</c>（<paramref name="value"/>
+        /// 置 0）而不抛异常；成功时返回 <c>true</c>。默认实现按"try <see cref="GetPower"/>，只捕获
+        /// <see cref="System.InvalidOperationException"/>（本接口该方法明确抛出的异常类型）"给出——
+        /// 不用 <c>catch (Exception)</c> 掩盖其它意外异常，呼应 11 第 4 节"运行时不做静默降级"、
+        /// 与 <see cref="Core.Foundation.DataRegistry.IDataRegistryView.TryGetRecordCount"/> 同一套
+        /// 既有惯例（见该成员判断记录）。带默认实现的接口成员新增不构成"公开 API 表面"意义上的
+        /// 破坏性变更。<see cref="Core.Numbers.PowerSet.PowerHost"/> 显式覆盖为永不抛出的直接实现
+        /// （先 <see cref="HasPower"/> 判断，命中才取值，不经过这里的 try/catch），见该类型同名成员
+        /// 判断记录。
+        /// </summary>
+        bool TryGetPower(Id unitId, Id powerType, out double value)
+        {
+            try
+            {
+                value = GetPower(unitId, powerType);
+                return true;
+            }
+            catch (System.InvalidOperationException)
+            {
+                value = 0;
+                return false;
+            }
+        }
+
         /// <summary>取当前上限；单位未注册或未持有该资源类型时抛 <see cref="System.InvalidOperationException"/>。</summary>
         double GetPowerMax(Id unitId, Id powerType);
 

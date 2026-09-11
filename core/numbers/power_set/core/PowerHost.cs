@@ -184,6 +184,22 @@ namespace Core.Numbers.PowerSet
 
         public double GetPower(Id unitId, Id powerType) => RequirePower(unitId, powerType).Current;
 
+        /// <summary>消费方反馈第 33 条：显式实现，不经过 <see cref="IPowerHost.TryGetPower"/> 默认
+        /// 实现的 try/catch——先 <see cref="HasPower"/> 判断是否存在，命中才取值，未命中直接返回
+        /// <c>false</c>，不依赖抛异常再捕获这条路径（同 <see cref="Core.Foundation.DataRegistry.DataRegistry"/>
+        /// 对 <c>TryGetRecordCount</c>/<c>TryGetAll</c> 的既有显式覆盖惯例，见该类型同名成员判断
+        /// 记录）。</summary>
+        public bool TryGetPower(Id unitId, Id powerType, out double value)
+        {
+            if (HasPower(unitId, powerType))
+            {
+                value = GetPower(unitId, powerType);
+                return true;
+            }
+            value = 0;
+            return false;
+        }
+
         public double GetPowerMax(Id unitId, Id powerType) => RequirePower(unitId, powerType).Max;
 
         // -----------------------------------------------------------------

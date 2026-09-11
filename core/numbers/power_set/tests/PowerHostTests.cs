@@ -179,6 +179,93 @@ namespace Tests.Numbers.PowerSet
         }
 
         // -----------------------------------------------------------------
+        // TryGetPower（消费方反馈第 33 条）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void TryGetPower_RegisteredType_ReturnsTrueAndCurrentValue()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+
+            var found = host.TryGetPower(Hero, Rage, out var value);
+
+            Assert.True(found);
+            Assert.Equal(100, value);
+        }
+
+        [Fact]
+        public void TryGetPower_UnitNotRegistered_ReturnsFalseWithoutThrowing()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100);
+            var host = new PowerHost(new[] { rage }, bus);
+
+            var found = host.TryGetPower(Hero, Rage, out var value);
+
+            Assert.False(found);
+            Assert.Equal(0, value);
+        }
+
+        [Fact]
+        public void TryGetPower_UnitRegisteredButPowerTypeNotHeld_ReturnsFalseWithoutThrowing()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100);
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100);
+            var host = new PowerHost(new[] { mana, rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana")); // 未注册 rage
+
+            var found = host.TryGetPower(Hero, Rage, out var value);
+
+            Assert.False(found);
+            Assert.Equal(0, value);
+            Assert.Throws<InvalidOperationException>(() => host.GetPower(Hero, Rage));
+        }
+
+        /// <summary>消费方反馈第 33 条："转发/豁免其它实现"——<see cref="PowerHost"/> 之外的
+        /// <see cref="IPowerHost"/> 实现若不自行覆盖 <see cref="IPowerHost.TryGetPower"/>，自动
+        /// 继承接口默认实现（try/catch 精确异常，见该成员判断记录），不需要逐个实现类补代码。
+        /// <see cref="MinimalPowerHostStub"/> 只实现契约必需的成员、刻意不覆盖 <c>TryGetPower</c>，
+        /// 证明默认实现本身对"未注册单位/未持有资源类型" 与"已持有资源类型"两种场景均给出正确
+        /// 结果——不依赖 <see cref="PowerHost"/> 的具体覆盖是否存在。</summary>
+        [Fact]
+        public void TryGetPower_OnImplementationWithoutOwnOverride_UsesInterfaceDefaultImplementation()
+        {
+            IPowerHost host = new MinimalPowerHostStub();
+
+            var foundMissing = host.TryGetPower(Hero, Rage, out var missingValue);
+            var foundKnown = host.TryGetPower(Hero, Mana, out var knownValue);
+
+            Assert.False(foundMissing);
+            Assert.Equal(0, missingValue);
+            Assert.True(foundKnown);
+            Assert.Equal(42, knownValue);
+        }
+
+        /// <summary>见 <see cref="TryGetPower_OnImplementationWithoutOwnOverride_UsesInterfaceDefaultImplementation"/>：
+        /// 最小 <see cref="IPowerHost"/> 实现，只认得一个硬编码的 (Hero, Mana) 组合，其余查询按契约
+        /// 抛 <see cref="InvalidOperationException"/>（与 <see cref="PowerHost.GetPower"/> 同一异常
+        /// 类型约定），本用例范围外的成员均不实现（抛 <see cref="NotImplementedException"/>，不会被
+        /// 本用例调用到）。</summary>
+        private sealed class MinimalPowerHostStub : IPowerHost
+        {
+            public void RegisterUnit(Id unitId, IReadOnlyList<Id> powerTypes) => throw new NotImplementedException();
+            public void UnregisterUnit(Id unitId) => throw new NotImplementedException();
+            public bool HasPower(Id unitId, Id powerType) => unitId == Hero && powerType == Mana;
+            public double GetPower(Id unitId, Id powerType) =>
+                HasPower(unitId, powerType) ? 42 : throw new InvalidOperationException("未注册");
+            public double GetPowerMax(Id unitId, Id powerType) => throw new NotImplementedException();
+            public void ModifyPower(Id unitId, Id powerType, double delta, Id sourceId) => throw new NotImplementedException();
+            public void SetInCombat(Id unitId, bool inCombat) => throw new NotImplementedException();
+            public void Advance(Id unitId, double timeUnits) => throw new NotImplementedException();
+            public void AdvanceAll(double timeUnits) => throw new NotImplementedException();
+            public void RecomputeMax(Id unitId) => throw new NotImplementedException();
+        }
+
+        // -----------------------------------------------------------------
         // 时间推进：回复 / 衰减
         // -----------------------------------------------------------------
 

@@ -36,7 +36,7 @@ namespace Tests.Carriers.Summon
             var world = new WorldSim(bus);
             var units = new WorldUnitAccess(world);
             var stats = CreatureTestSupport.MakeStatHost(registry, bus);
-            var powers = CreatureTestSupport.MakePowerHost(bus, stats);
+            var powers = CreatureTestSupport.MakePowerHost(registry, bus, stats);
             var progression = CreatureTestSupport.MakeProgressionHost(registry, bus, stats);
             AiRegistrar registrar = (unitId, profileId, spawnPoint, rotationId) => { };
             var factory = new CreatureFactory(registry, world, bus, stats, powers, progression, units, registrar);

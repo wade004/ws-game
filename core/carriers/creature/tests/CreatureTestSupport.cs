@@ -41,6 +41,22 @@ namespace Tests.Carriers.Creature
             "]}" +
             "]";
 
+        /// <summary>消费方反馈第 33 条：<c>arch.power_type</c> 样例行——health（沿用此前
+        /// <see cref="MakePowerHost"/> 手写的同一份 max_source/start_full 取值，保证既有断言
+        /// 不变）+ mana（新增，验证"回落到数据集全部 arch.power_type 定义"这条新默认路径确实
+        /// 让未在 <see cref="CreatureOptions.DefaultPowerTypes"/> 里显式列出的资源类型也能被
+        /// 注册/查询）。</summary>
+        public const string PowerTypeRows = "[" +
+            "{\"id\": \"arch.power.health\", \"name_key\": \"l10n.power.health.name\", " +
+            "\"max_source\": {\"kind\": \"stat\", \"stat\": \"stat.max_health\"}, " +
+            "\"regen_in_combat\": 0, \"regen_out_of_combat\": 0, \"decay_out_of_combat\": 0, " +
+            "\"refill_on_leave_combat\": false, \"start_full\": true, \"allow_overflow\": false, \"min\": 0}," +
+            "{\"id\": \"arch.power.mana\", \"name_key\": \"l10n.power.mana.name\", " +
+            "\"max_source\": {\"kind\": \"fixed\", \"value\": 50}, " +
+            "\"regen_in_combat\": 0, \"regen_out_of_combat\": 0, \"decay_out_of_combat\": 0, " +
+            "\"refill_on_leave_combat\": false, \"start_full\": true, \"allow_overflow\": false, \"min\": 0}" +
+            "]";
+
         public const string TemplateRows = "[" +
             "{\"id\": \"creature.sample_basic\", \"name_key\": \"l10n.creature.sample_basic.name\", " +
             "\"level\": 1, \"tier\": \"creature.tier.normal\", " +
@@ -63,7 +79,8 @@ namespace Tests.Carriers.Creature
                 new EventBusOptions { StrictCatalog = false });
 
         /// <summary>装配一个已加载 stat.definition/creature.tier_definition/creature.template/
-        /// prog.level_curve 四张表的 <see cref="DataRegistry"/>。</summary>
+        /// prog.level_curve/arch.power_type（消费方反馈第 33 条新增，见 <see cref="PowerTypeRows"/>
+        /// 判断记录）五张表的 <see cref="DataRegistry"/>。</summary>
         public static DataRegistry MakeRegistry(IEventBus bus)
         {
             var source = new InMemoryDataSource()
@@ -72,13 +89,15 @@ namespace Tests.Carriers.Creature
                     Envelope(Core.Carriers.Creature.CreatureSchemas.TierDefinition.Name, TierDefinitionRows))
                 .Add(Core.Carriers.Creature.CreatureSchemas.Template.Name,
                     Envelope(Core.Carriers.Creature.CreatureSchemas.Template.Name, TemplateRows))
-                .Add("prog.level_curve", Envelope("prog.level_curve", LevelCurveRows));
+                .Add("prog.level_curve", Envelope("prog.level_curve", LevelCurveRows))
+                .Add(PowerSchemas.PowerType.Name, Envelope(PowerSchemas.PowerType.Name, PowerTypeRows));
 
             var registry = new DataRegistry(source, bus, new DataRegistryOptions());
             registry.RegisterSchema(StatSchemas.Definition);
             registry.RegisterSchema(Core.Carriers.Creature.CreatureSchemas.TierDefinition);
             registry.RegisterSchema(Core.Carriers.Creature.CreatureSchemas.Template);
             registry.RegisterSchema(ProgSchemas.LevelCurve);
+            registry.RegisterSchema(PowerSchemas.PowerType);
             registry.RegisterValidationRule(new ProgLevelCurveValidationRule());
             registry.RegisterValidationRule(new Core.Carriers.Creature.CreatureContentValidationRule());
 
@@ -89,27 +108,24 @@ namespace Tests.Carriers.Creature
 
         public static StatHost MakeStatHost(DataRegistry registry, IEventBus bus) => new StatHost(registry, bus);
 
-        public static PowerHost MakePowerHost(IEventBus bus, IStatHost stats)
+        /// <summary>消费方反馈第 33 条：从 <paramref name="registry"/> 的 <c>arch.power_type</c>
+        /// 全部已登记行装配 <see cref="PowerHost"/>（惯例改同 <c>Core.Rules.Assembly.RulesAssembly</c>
+        /// 装配 <c>Powers</c> 字段的既有真实生产路径——遍历 <c>Registry.GetAll("arch.power_type")</c>
+        /// 逐行构造 <see cref="PowerTypeDefinition"/>——此前本方法手写单一 health 定义、与
+        /// <paramref name="registry"/> 完全脱节，<see cref="CreatureFactory"/> 新增的"回落到数据集
+        /// 全部 arch.power_type 定义"路径据此才有意义验证：<see cref="PowerHost"/> 与
+        /// <see cref="CreatureFactory"/> 的资源类型全集现在共享同一个 <paramref name="registry"/>
+        /// 来源，不会出现"工厂想注册一个 PowerHost 根本不认识的资源类型"从而抛异常的情形）。</summary>
+        public static PowerHost MakePowerHost(DataRegistry registry, IEventBus bus, IStatHost stats)
         {
-            var json = "{"
-                + "\"id\": \"" + WellKnownPowers.Health.Value + "\","
-                + "\"name_key\": \"l10n.power.health.name\","
-                + "\"max_source\": {\"kind\": \"stat\", \"stat\": \"stat.max_health\"},"
-                + "\"regen_in_combat\": 0,"
-                + "\"regen_out_of_combat\": 0,"
-                + "\"decay_out_of_combat\": 0,"
-                + "\"refill_on_leave_combat\": false,"
-                + "\"start_full\": true,"
-                + "\"allow_overflow\": false,"
-                + "\"min\": 0"
-                + "}";
-
-            var obj = (JsonObject)JsonReader.Parse(json);
-            var record = new DataRecord(PowerSchemas.PowerType, WellKnownPowers.Health.Value, WellKnownPowers.Health, obj);
-            var definition = new PowerTypeDefinition(record);
+            var powerTypes = new List<PowerTypeDefinition>();
+            foreach (var record in registry.GetAll(PowerSchemas.PowerType.Name))
+            {
+                powerTypes.Add(new PowerTypeDefinition(record));
+            }
 
             StatLookup lookup = stats.GetStat;
-            return new PowerHost(new[] { definition }, bus, lookup);
+            return new PowerHost(powerTypes, bus, lookup);
         }
 
         public static ProgressionHost MakeProgressionHost(DataRegistry registry, IEventBus bus, IStatHost stats)
