@@ -127,6 +127,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-09-12
+
+MINOR 版本：消费方反馈处理——`declareReference` 登记可读回（编辑器第 37 条），核实与逐条回复见
+[消费方反馈-2026-09-12-编辑器-第37条.md](architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md)。
+提交链：`6d0ecbd`（实现 + 测试）、`baca53a`（文档 + 回复），分支 `wau/editor37`，`--no-ff` 合入
+`main` `95a7f79`、`84b3e46`（合入后 CHANGELOG/落地方案文档回填），本笔提交（1.26.0 变更记录与
+迁移说明）。
+
 ### 新增
 
 - `IDataRegistryView` 新增 `GetReferenceDeclarations(): IReadOnlyList<ReferenceDeclaration>`
@@ -143,6 +151,29 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   即报告——防止"`declareReference` 登记了引用但字段元数据未同步"的遗漏（消费方反馈第 37 条原始
   案例 `skill.proc_def.trigger_skill` 即属此类，已补登 `SoftReferenceTable("skill.def")`）。
   【编辑器相关契约】
+
+### 迁移说明
+
+- **`GetReferenceDeclarations`/带来源 `DeclareReference` 重载均为带默认实现的新增接口成员**：
+  不要求任何既有 `IDataRegistryView`/`IDataRegistry` 实现类型改动即可编译通过；未覆盖
+  `GetReferenceDeclarations()` 的第三方实现（如测试替身）调用该方法恒返回空集合，不抛异常。
+  `toolchain/validator --list-tables --json` 新增的 `reference_declarations` 字段追加在既有
+  `display_map_coverage_sources` 之后、闭合大括号之前，不改动任何既有字段，按字段名读取 JSON 的
+  既有消费方不受影响。
+- **新增告警级检查 `declared_reference_unregistered` 可能在消费方自定义 catalog 上出告警**：若
+  消费方在自己的 schema 目录（未纳入本仓库 `toolchain/schema_audit_allowlist.json`）里调用了
+  `registry.DeclareReference(...)`，但对应字段元数据未同步登记 `ReferenceTable`/
+  `SoftReferenceTable`/`SoftReferenceDomain`/`AllowedValues` 之一，升级后跑
+  `Presentation.Assembly.SchemaAudit`/`toolchain/validator --schema-audit` 会新增一条告警（不是
+  错误，不阻断加载）；如确认该遗漏是有意为之，可在自己的 allowlist 中豁免，或补登对应的引用
+  元数据（推荐，参照本条 `skill.proc_def.trigger_skill` 补登 `SoftReferenceTable` 的写法）。
+
+### 兼容声明
+
+本版本对 1.12.0～1.25.1 期间编译的旧消费方二进制保持兼容：依据是 `toolchain/abi_probe.ps1`
+严格模式下的验证——1.12.0 基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑通过，且
+独立的公开 API 表面差异比对（`toolchain/abi_surface`）输出 `breaks=0`（新增 478 行，均为纯新增
+公开成员，未删改任何既有公开签名）。
 
 ## [1.25.1] - 2026-09-11
 
