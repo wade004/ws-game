@@ -101,6 +101,18 @@ namespace Core.Rules.Common
         /// </summary>
         public Id? AttackInstanceId { get; }
 
+        /// <summary>
+        /// ADR-0027《地面坐标施法请求》补充：本次结算所属的地面坐标施法请求落点（见
+        /// <see cref="Core.Rules.Common.GroundCastRequest"/>）——经
+        /// <c>Core.Rules.Skill.CastPipeline.CastSkillAtGround</c> 产生的结算，把效果落地那一刻实际
+        /// 使用的坐标（已按 <see cref="GroundCastSnapshotPolicy"/> 决议、已通过释放时再校验，见该
+        /// 管线方法判断记录）原样戳到这里；单位目标 <see cref="Core.Rules.Common.ISkillHost.CastSkill"/>
+        /// 路径产生的结算恒为 <c>null</c>。供需要知道"效果是以哪个地面点为原点结算的"的下游消费方
+        /// （如按距落点远近做伤害衰减的自定义 <see cref="IEffectExtension"/> 实现）读取，本层
+        /// （结算管线固定步骤）本身不解释、不使用本字段。
+        /// </summary>
+        public Vec2? GroundPoint { get; }
+
         public EffectContext(
             Id sourceId,
             Id targetId,
@@ -133,6 +145,54 @@ namespace Core.Rules.Common
             Tags = tags ?? EmptyTags;
             TriggerChainDepth = triggerChainDepth;
             AttackInstanceId = attackInstanceId;
+            GroundPoint = null;
+        }
+
+        /// <summary>
+        /// ADR-0027 新增重载：携带 <see cref="GroundPoint"/>，供 <c>CastPipeline.CastSkillAtGround</c>
+        /// 产生的结算使用。判断记录（不是给既有构造函数加可选参数）：既有十五参数构造函数已经有
+        /// 八个尾部可选参数，直接追加第十六个可选参数会改变它的物理 IL 签名（参数个数从 15 变 16），
+        /// 对已编译好、以"省略部分可选参数"方式调用该构造函数的外部消费方二进制是破坏性变更——同
+        /// <c>Core.Rules.Skill.SkillHost</c> 十七/十八参数构造函数判断记录、
+        /// <c>Core.Foundation.DataRegistry.FieldSchema</c>"新能力一律用新增成员/新构造重载承载，
+        /// 不再改动既有构造函数的参数列表"同一条 ABI 兼容惯例。本重载十六个参数全部不带默认值
+        /// （同上述判断记录"若也写成可选参数会与既有构造函数在调用点产生重载二义性"），与既有构造
+        /// 函数在参数个数上不重叠（15 对 16），互不冲突。
+        /// </summary>
+        public EffectContext(
+            Id sourceId,
+            Id targetId,
+            Id skillId,
+            EffectKind kind,
+            Id school,
+            double baseValue,
+            double coefficient,
+            JsonObject? @params,
+            Id? auraInstanceId,
+            bool isPeriodic,
+            bool canCrit,
+            bool canMiss,
+            IReadOnlyList<Id>? tags,
+            int triggerChainDepth,
+            Id? attackInstanceId,
+            Vec2? groundPoint)
+        {
+            SourceId = sourceId;
+            TargetId = targetId;
+            SkillId = skillId;
+            Kind = kind;
+            School = school;
+            BaseValue = baseValue;
+            Coefficient = coefficient;
+            Params = @params ?? EmptyParams;
+            AuraInstanceId = auraInstanceId;
+            IsPeriodic = isPeriodic;
+            CanCrit = canCrit;
+            CanMiss = canMiss;
+            Tags = tags ?? EmptyTags;
+            TriggerChainDepth = triggerChainDepth;
+            AttackInstanceId = attackInstanceId;
+            GroundPoint = groundPoint;
         }
     }
 }
