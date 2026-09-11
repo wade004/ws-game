@@ -114,10 +114,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-消费方反馈第 30/32/33/34 条处理，核实与逐条回复见
+## [1.23.0] - 2026-09-11
+
+MINOR 版本：消费方反馈第 30/32/33/34 条处理，核实与逐条回复见
 [消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md)。
 提交链：`e11a55b`（第 30 条）、`8331310`（第 32 条，ADR-0025）、`7127bd5`（第 33 条）、
-`bbae580`（第 34 条）、`81f40c2`（回复文档）、`a0623b2`（`--no-ff` 合入 `main`）。
+`bbae580`（第 34 条）、`81f40c2`（回复文档），分支 `waj/editor5`，`--no-ff` 合入 `main`
+`a0623b2`；`e1fbeb2`（本版本变更记录与计划文档回填）。
 
 ### 新增
 
@@ -151,6 +154,35 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 - 示例数据集补齐 `skill.def`/`skill.aura_def`/`item.template` 共 8 条记录的外形映射行，配合
   `DisplayMapCoverageRule` 默认启用后仍保持 `validate_data.py --strict` 0 error。
+
+### 迁移说明
+
+- **生成单位默认注册的资源类型范围变化**：`CreatureFactory.Spawn` 未显式设置
+  `CreatureOptions.DefaultPowerTypes` 时，此前只注册 `Health` 一种，现在改为注册当前数据集里
+  全部已登记的 `arch.power_type` 定义。若消费方代码曾依赖"不设置该选项时只注册 Health"的隐式
+  行为（如断言某单位没有除 Health 外的资源池），升级后需复核；如仍需旧行为，显式设置
+  `DefaultPowerTypes = new[] { WellKnownPowers.Health }`。
+- **外形映射覆盖检查现默认启用**：`DisplayMapCoverageRule` 此前默认禁用（需调用方显式接线
+  `(table, idField)` 列表才生效），本版本起默认对 `skill.def`/`skill.aura_def`/`item.template`/
+  `creature.template`/`gobj.template` 五张表启用。消费方数据集若有上述表的记录尚未配齐
+  `display.map` 外形映射行，升级后 `validate_data.py --strict`/`validator` 会新增
+  `display_map_coverage` 错误；如需暂时保留旧行为，显式传入
+  `DisplayMapCoverageSources = Array.Empty<(string, string)>()`（`ContentValidationOptions`）。
+- **资源路径约定纳入契约**：`sprite_set_id`/`icon_id` → 资产相对路径的推导规则此前分散在多处
+  私有实现、行为不变，现收口为 `Core.Foundation.EngineAdapter.AssetRefConventions` 公开契约
+  （`toolchain/asset_import/ref_conventions.py` 为脚本侧对等实现）；建议消费方改为直接调用，不要
+  再照抄样例反推，往后调整须走 ADR。
+- 其余改动（`IPowerHost.TryGetPower`、`PresentationSchemaCatalog.DefaultDisplayMapCoverageSources`、
+  `SchemaAudit.id_description_reference_hint`、21 处字段补登软引用）均为纯新增或元数据补充，既有
+  消费方无需任何改动即可继续编译运行。
+
+### 兼容声明
+
+本版本对 1.12.0～1.22.0 期间编译的旧消费方二进制保持兼容：依据是 `toolchain/abi_probe.ps1`
+严格模式下的验证——1.12.0 基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑通过，且
+独立的公开 API 表面差异比对（`toolchain/abi_surface`）输出 `breaks=0`（`allowed=0`,
+`additions=349`）；带默认实现的接口新增成员（`IPowerHost.TryGetPower`）经同一探针验证旧编译
+consumer 无需重新编译即可继续运行。
 
 ## [1.22.0] - 2026-09-11
 
