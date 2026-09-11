@@ -46,6 +46,20 @@ EXPECTED_DISPLAY_ROWS = {
     # 与复用 sample_blade 精灵集的武器风格示例。
     "display.map.sample_model_hero": ("creature.sample_model_hero", "creature"),
     "display.map.sample_model_sword": ("item.sample_model_sword", "item"),
+    # 消费方反馈第 34 条（PresentationSchemaCatalog.DefaultDisplayMapCoverageSources 默认启用
+    # DisplayMapCoverageRule，覆盖 skill.def/skill.aura_def/item.template/creature.template/
+    # gobj.template 五张表）补齐的外形映射行：此前 skill.def 四条、skill.aura_def 两条、
+    # item.template 两条样例记录没有对应的 display.map 行，默认启用该规则后会报
+    # display_map_coverage 错误，按同一惯例（复用 sprite.item.sample_blade 精灵集，不新增素材）
+    # 补齐最小合法行，仅用于满足覆盖检查，不代表这些技能/光环/物品有独立美术资源。
+    "display.map.sample_strike": ("skill.sample_strike", "skill"),
+    "display.map.sample_burn": ("skill.sample_burn", "skill"),
+    "display.map.sample_skill_bolt": ("skill.sample_bolt", "skill"),
+    "display.map.sample_passive": ("skill.sample_passive", "skill"),
+    "display.map.sample_aura_burn": ("skill.aura_def.sample_burn", "aura"),
+    "display.map.sample_fortify": ("skill.aura_def.sample_fortify", "aura"),
+    "display.map.sample_token": ("item.sample_token", "item"),
+    "display.map.sample_tonic": ("item.sample_tonic", "item"),
 }
 
 

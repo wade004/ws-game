@@ -119,6 +119,9 @@ namespace Toolchain.Validator
                         allowlistPath = args[++i];
                         break;
 
+                    // 消费方反馈第 34 条：本参数现在是可选覆盖——不传时 ContentValidationAssembly
+                    // 默认使用 PresentationSchemaCatalog.DefaultDisplayMapCoverageSources（该规则
+                    // 默认启用），传了则完整替换默认清单（不是追加）。
                     case "--display-map-sources":
                         if (i + 1 >= args.Length)
                         {
@@ -147,7 +150,7 @@ namespace Toolchain.Validator
             {
                 Console.Error.WriteLine(
                     "参数错误：缺少必填参数 --data-root <dir>（可重复传入以合并多个数据根）\n" +
-                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>]\n" +
+                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>]（省略 --display-map-sources 时默认覆盖 skill.def/skill.aura_def/item.template/creature.template/gobj.template）\n" +
                     "或元数据门禁：dotnet run --project toolchain/validator -- --schema-audit [--allowlist <path>] [--json]");
                 return 2;
             }
@@ -176,16 +179,20 @@ namespace Toolchain.Validator
             // ADR-0018 决策 3（校验装配入口）：本工具不再自行内联"建 EventBus + 建 DataRegistry +
             // PresentationSchemaCatalog.RegisterAll + LoadAll + 汇总"这一整段装配逻辑——改为调用
             // Presentation.Assembly.ContentValidationAssembly.Run（核心库内的单一公开入口，供本工具
-            // 与编辑器基础套件共用同一份装配代码，见该类型注释判断记录）。--display-map-sources 是
-            // 本工具唯一新增的可选规则接线参数（DisplayMapCoverageRule）；SpawnSummonOnlyCreatureRule
-            // 仍不接线——本工具运行时机（一次性命令行进程）没有真正的 ICreatureTemplateQuery 实现
-            // 可用（同 ContentValidationAssembly.CreateRegistry 判断记录），与改动前行为一致。
+            // 与编辑器基础套件共用同一份装配代码，见该类型注释判断记录）。消费方反馈第 34 条：
+            // --display-map-sources 现在是可选覆盖——不传（displayMapSources 为 null）时
+            // ContentValidationAssembly 默认使用 PresentationSchemaCatalog.DefaultDisplayMapCoverageSources
+            // （该规则默认启用，不再是"未接线即禁用"），传了则按解析结果覆盖默认清单；
+            // SpawnSummonOnlyCreatureRule 仍不接线——本工具运行时机（一次性命令行进程）没有真正的
+            // ICreatureTemplateQuery 实现可用（同 ContentValidationAssembly.CreateRegistry 判断记录），
+            // 与改动前行为一致。
             var validationOptions = new ContentValidationOptions
             {
                 FailOnUnknownTable = true,
                 Strictness = strict ? DataRegistryStrictness.WarningsBlock : DataRegistryStrictness.WarningsAllowed,
                 DisplayMapCoverageSources = displayMapSources,
             };
+            var effectiveDisplayMapCoverageSources = displayMapSources ?? PresentationSchemaCatalog.DefaultDisplayMapCoverageSources;
 
             var run = ContentValidationAssembly.Run(sources, validationOptions);
             var report = run.Report;
@@ -200,7 +207,8 @@ namespace Toolchain.Validator
 
             if (jsonOutput)
             {
-                PrintJson(report, tableCount, recordCount, listTables ? run.Registry : null, overrides, run.DisabledOptionalRules, run.EnabledOptionalRules);
+                PrintJson(report, tableCount, recordCount, listTables ? run.Registry : null, overrides,
+                    run.DisabledOptionalRules, run.EnabledOptionalRules, effectiveDisplayMapCoverageSources);
             }
             else
             {
@@ -430,7 +438,8 @@ namespace Toolchain.Validator
         private static void PrintJson(
             ValidationReport report, int tableCount, int recordCount, IDataRegistryView? tablesForListing,
             IReadOnlyList<OverrideDiagnostic> overrides,
-            IReadOnlyList<string> disabledOptionalRules, IReadOnlyList<string> enabledOptionalRules)
+            IReadOnlyList<string> disabledOptionalRules, IReadOnlyList<string> enabledOptionalRules,
+            IReadOnlyList<(string table, string idField)> effectiveDisplayMapCoverageSources)
         {
             var sb = new StringBuilder();
             sb.Append('{');
@@ -556,6 +565,24 @@ namespace Toolchain.Validator
             {
                 if (i > 0) sb.Append(',');
                 sb.Append('"').Append(JsonEscape(enabledOptionalRules[i])).Append('"');
+            }
+            sb.Append(']');
+            sb.Append(',');
+
+            // 消费方反馈第 34 条：如实导出本次实际生效的 DisplayMapCoverageRule sources 清单——
+            // 未传 --display-map-sources 时是 PresentationSchemaCatalog.DefaultDisplayMapCoverageSources
+            // （见该属性判断记录），传了则是解析出的覆盖值；不区分这两种来源，字段名本身只承诺"本次
+            // 实际用的是什么"，不承诺"是否显式传参"（后者已由 enabled_optional_rules 是否含
+            // "DisplayMapCoverageRule" 间接表达）。追加在既有 "enabled_optional_rules" 字段之后、
+            // 闭合大括号之前，不改动任何既有字段。
+            sb.Append("\"display_map_coverage_sources\":[");
+            for (var i = 0; i < effectiveDisplayMapCoverageSources.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append('{');
+                sb.Append("\"table\":\"").Append(JsonEscape(effectiveDisplayMapCoverageSources[i].table)).Append("\",");
+                sb.Append("\"id_field\":\"").Append(JsonEscape(effectiveDisplayMapCoverageSources[i].idField)).Append('"');
+                sb.Append('}');
             }
             sb.Append(']');
 
