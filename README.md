@@ -13,7 +13,7 @@
 ```
 .github/workflows/      GitHub Actions 持续集成工作流（ci.yml + release.yml，见"持续集成"一节）
 .githooks/              版本化 git 钩子（pre-commit，见"提交前钩子"一节）
-architecture/          架构文档集（已定稿），本仓库唯一的规范来源；00~14 号文档 + adr/（24 条 ADR）+ 落地计划/ + 选型/
+architecture/          架构文档集（已定稿），本仓库唯一的规范来源；00~14 号文档 + adr/（28 条 ADR）+ 落地计划/ + 选型/
 core/                  L0~L4 纯逻辑类库，零引擎依赖，目标框架 .NET Standard 2.1
   foundation/            L0 基础层：event_bus、rng、expr、data_registry、sim_loop、save_system、input_map、l10n、display_info、scene_router、hook_registry、app_lifecycle
   numbers/               L1 数值层：stat_block、power_set、progression、archetype、faction
@@ -237,6 +237,6 @@ powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <你的 Un
 ## 文档入口
 
 - 架构文档集导读（阅读顺序、强制约束、文件清单）：[architecture/README.md](architecture/README.md)
-- ADR 索引（24 条架构决策记录）：[architecture/adr/README.md](architecture/adr/README.md)
+- ADR 索引（28 条架构决策记录）：[architecture/adr/README.md](architecture/adr/README.md)
 - 技术选型、工程结构、分工与分阶段落地计划、落地进度记录：[architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md)
 - 具体技术选型细节（引擎、语言、工具链等，`architecture/00~14` 与 `adr/` 本身不出现这些名字）：`architecture/选型/`

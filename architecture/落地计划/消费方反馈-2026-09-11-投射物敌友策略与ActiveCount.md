@@ -9,8 +9,8 @@
   `9cd22f6`），隔离工作树分支 `waq/projectile-policy`。
 - 反馈第 1、2 两节（连续技能位移、动态地面坐标施法请求）不在本次改动范围，按反馈原文"能力建议"
   分类留待独立评估；本回复只覆盖第 3 节（敌友关系策略）与第 4 节（`ActiveCount` P3 可观测性项）。
-- 提交：见文末"六工程与门禁结果"下方提交哈希清单（ADR + 契约/schema、实现 + 测试、文档 + 本回复
-  三笔）。
+- 提交：`334c260`（ADR-0028 + 契约/schema）、`4ff9ae1`（实现 + 测试）、`33ec751`（文档 + 本回复）
+  三笔，见文末"六工程与门禁结果"下方提交哈希清单。
 
 ## 观察（消费方反馈原文摘要）
 
@@ -174,7 +174,8 @@
 | ②实现 + 测试（含 ActiveCount） | `core/carriers/projectile/core/ProjectileHost.cs`、`core/carriers/assembly/CarriersAssembly.cs`、`core/gameplay/assembly/GameplayAssembly.cs`、`core/carriers/projectile/tests/ProjectileHostTests.cs`、`core/carriers/projectile/tests/ProjectileTestSupport.cs`、`core/carriers/assembly/tests/ADR0028_ProjectileFactionsBackfillTests.cs`、`core/rules/skill/tests/SkillTestSupport.cs`、`core/rules/skill/tests/C10c_ProjectileRelationPolicyParamsTests.cs` |
 | ③文档 + 回复 | `architecture/05_对象模型与世界.md`、`architecture/06_规则层_属性技能战斗AI.md`、`core/carriers/projectile/README.md`、本文档 |
 
-（三笔提交的具体哈希见 `git log --oneline -3` 分支 `waq/projectile-policy`。）
+三笔提交哈希：①`334c260` ②`4ff9ae1` ③`33ec751`（分支 `waq/projectile-policy`），与
+`wao/continuous-move`/`wap/ground-cast` 一并 `--no-ff` 合入 `main` `dbd6ad6`。
 
 ## 对消费方的提示
 

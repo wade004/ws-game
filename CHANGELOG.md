@@ -120,6 +120,39 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- `move` 效果原语新增可选参数 `motion: instant|continuous`（缺省 `instant`，既有三种子类型
+  `charge`/`leap`/`knockback` 的既有语义不变）。`continuous` 时新增 `speed`/`duration`/
+  `blocking`/`sample_step` 参数，转为逐 tick 推进并做导航裁决（阻挡后按策略停在阻挡前最后可
+  通行点或回到起点），经新增依赖倒置接口 `IControlledDisplacementSink`（`SkillHost.
+  DisplacementSink`/`EffectDispatcher.DisplacementSink` 可写属性，由 `CarriersAssembly` 装配期
+  接入 `core/carriers/unit` 的 `MovementHost`/`MovementTickHandler`）交给 L3 落地逐 tick 推进/
+  阻挡裁决/终止条件（到达/受阻/控制打断/施法者死亡/显式 Stop）。详见
+  [ADR-0026](architecture/adr/0026-技能位移的连续模式.md)、
+  [消费方反馈-2026-09-11-技能位移连续模式.md](architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md)。
+- 新增独立施法入口 `ISkillHost.CastSkillAtGround`/`CastPipeline.CastSkillAtGround`，以显式世界
+  坐标点（而非选中的单位列表）为落点，与既有 `CastSkill` 结构性互斥。新增 `skill.def.
+  ground_target` 字段（缺省 `false`，`SkillDef.AllowGroundTarget`）门禁；射程/视线仅当
+  `range > 0` 时校验（受阻返回新增的 `GroundTargetNoLineOfSight`）；可行走校验新增依赖
+  `INavigation2D`（可选注入），不可行走返回新增的 `GroundTargetUnreachable`；技能未声明返回新增
+  的 `GroundTargetUnsupported`。请求（`GroundCastRequest`）携带坐标快照策略
+  （`AtRequest`/`AtRelease`），效果落地时改用新增的 `ITargetHost.ResolveAtPoint` 解析命中单位。
+  `EffectContext`/`SkillCastStartEvent`/`SkillCastSuccessEvent` 各新增一个 `GroundPoint` 属性。
+  详见 [ADR-0027](architecture/adr/0027-地面坐标施法请求.md)、
+  [消费方反馈-2026-09-11-地面坐标施法.md](architecture/落地计划/消费方反馈-2026-09-11-地面坐标施法.md)。
+- `projectile` 效果原语新增可选的敌友关系策略参数 `relation_policy`
+  （`default|hostile_only|friendly_only|locked_target_only`，缺省 `default`）与 `pierce_order`
+  （`nearest|hostile_first`，缺省 `nearest`），裁决优先级为"施法者排除 → 目标锁定 → 关系筛选 →
+  标签筛选 → 穿透计数 → 命中效果回灌"；二者均为可选字段，缺省组合下候选筛选、命中顺序与事件序列
+  逐字节不变。`ProjectileHost` 新增公开契约 `Factions`（`IFactionMatrix?`，由
+  `CarriersAssembly` 装配期自动回填为与 `Rules.Factions` 同一实例）、`ActiveCount`（存活投射物
+  数）、`IsQuiescent`（`ActiveCount == 0` 的别名）与 `ClearAll()`（经 `GameplayAssembly.
+  LeaveMap` 既有出图收尾入口自动接线）。详见
+  [ADR-0028](architecture/adr/0028-投射物碰撞的敌友关系策略.md)、
+  `core/carriers/projectile/README.md`"敌友关系策略"一节、
+  [消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md](architecture/落地计划/消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md)。
+
 ## [1.24.0] - 2026-09-11
 
 MINOR 版本：消费方反馈第 35/36 条处理，核实与逐条回复见
