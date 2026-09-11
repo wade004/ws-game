@@ -901,6 +901,13 @@ namespace Core.Rules.Assembly
             public double GetCooldown(Id unitId, Id skillId) => Real.GetCooldown(unitId, skillId);
             public bool IsCasting(Id unitId) => Real.IsCasting(unitId);
             public void Interrupt(Id unitId, Id interrupterId, Id? lockSchool, double lockDuration) => Real.Interrupt(unitId, interrupterId, lockSchool, lockDuration);
+
+            // 消费方反馈（2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"）：同上方全部成员一样
+            // 必须显式转发，不能依赖 ISkillHost.GetSkillReadiness 的默认接口方法隐式兜底——否则本代理
+            // 绑定完成后经它调用 GetSkillReadiness 仍会落回默认降级快照（其余字段全 null），绕开
+            // Real（真正的 SkillHost）已经能提供的精确结果，见 InterfaceDefaultMemberForwardingTests
+            // 门禁与该接口成员判断记录。
+            public SkillReadiness GetSkillReadiness(Id unitId, Id skillId) => Real.GetSkillReadiness(unitId, skillId);
         }
     }
 }

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
 using Core.Numbers.StatBlock;
+using Core.Rules.Skill;
 
 namespace Core.Rules.Common
 {
@@ -49,5 +50,46 @@ namespace Core.Rules.Common
         /// 不锁定学派。未在读条/引导中的单位调用本方法无效果（幂等）。
         /// </summary>
         void Interrupt(Id unitId, Id interrupterId, Id? lockSchool, double lockDuration);
+
+        /// <summary>
+        /// 补充（消费方反馈 2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"，见
+        /// architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md）：技能冷却/充能/公共
+        /// 冷却的统一只读就绪快照。裁决口径与 <see cref="CastSkill"/> 施法管线步骤 3（冷却/充能）、
+        /// 步骤 4（公共冷却）一致，<b>不含</b>步骤 1/2/5/6/7（存活/控制、学派锁定、资源、目标合法性、
+        /// 距离与视线）等其它拒绝原因——<see cref="SkillReadiness.IsReady"/> 为 <c>true</c> 只表示
+        /// "不会被冷却/充能/公共冷却挡下"，不等价于"此刻 <c>CastSkill</c> 一定成功"；<see
+        /// cref="CastSkill"/> 的返回值始终是唯一的最终裁决。只读取宿主现有账本，不推进时间、不创建
+        /// 第二套计时器、不修改任何状态（查询前后再次查询/再次 <see cref="GetCooldown"/> 得到的值
+        /// 不变）。<paramref name="skillId"/> 与 <see cref="GetCooldown"/> 同一惯例——按调用方传入的
+        /// id 原样查询，不做 <c>override_skill</c> 光环重定向。
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现只能用 <see cref="GetCooldown"/> 拼一个降级快照——<see
+        /// cref="SkillReadiness.IsReady"/> 直接取 <c>GetCooldown(unitId, skillId) &lt;= 0</c>，<see
+        /// cref="SkillReadiness.BlockingSources"/> 不为就绪时粗略标记 <see
+        /// cref="SkillReadinessBlockers.SkillCooldown"/>（无法进一步区分究竟是技能自身冷却、分类
+        /// 冷却还是充能未恢复——<c>GetCooldown</c> 本身就不区分，见该方法文档），公共冷却完全不参与
+        /// 判定（默认实现不知道 <c>SkillOptions</c>/GCD 状态）；其余字段一律为 <c>null</c>，表示
+        /// "未知"。任何组合/包装 <see cref="ISkillHost"/>（若存在）都应显式转发到内层实现，而不是
+        /// 悄悄吃掉这个降级默认值——参见框架内 <c>InterfaceDefaultMemberForwardingTests</c> 门禁；
+        /// 生产实现 <c>Core.Rules.Skill.SkillHost</c> 显式覆盖，直接从 <c>CooldownTracker</c>/GCD/
+        /// 充能状态读取精确字段。
+        /// </para>
+        /// </summary>
+        SkillReadiness GetSkillReadiness(Id unitId, Id skillId)
+        {
+            var remaining = GetCooldown(unitId, skillId);
+            var blocking = remaining > 0 ? SkillReadinessBlockers.SkillCooldown : SkillReadinessBlockers.None;
+            return new SkillReadiness(
+                skillId: skillId,
+                isReady: remaining <= 0,
+                blockingSources: blocking,
+                skillCooldownRemaining: null,
+                categoryCooldownRemaining: null,
+                globalCooldownRemaining: null,
+                maxCharges: null,
+                currentCharges: null,
+                nextChargeRemaining: null,
+                effectiveCooldownDuration: null);
+        }
     }
 }
