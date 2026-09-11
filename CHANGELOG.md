@@ -117,8 +117,32 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   数量列直接调用而不必复刻语义或做蒙特卡洛逼近；与真实抽取（`LootHost.Roll`）共用同一份条件
   筛选/权重归一实现，不改变任何抽取行为。详见
   [消费方反馈-2026-09-11-编辑器-第35条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第35条.md)。
+- **消费方反馈第 37 条（1.26.0）**：`IDataRegistryView` 新增
+  `GetReferenceDeclarations(): IReadOnlyList<ReferenceDeclaration>`（只读回吐经
+  `IDataRegistry.DeclareReference` 声明的全部引用关系：源表/源字段/目标表/是否可选/登记来源），
+  `IDataRegistry.DeclareReference` 新增带来源标注的重载；`toolchain/validator --list-tables
+  --json` 新增 `reference_declarations` 导出；`SchemaAudit` 新增元数据门禁检查
+  `declared_reference_unregistered`（告警级）。详见
+  [消费方反馈-2026-09-12-编辑器-第37条.md](architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md)。
 
 ## [Unreleased]
+
+### 新增
+
+- `IDataRegistryView` 新增 `GetReferenceDeclarations(): IReadOnlyList<ReferenceDeclaration>`
+  （只读回吐经 `IDataRegistry.DeclareReference` 声明的全部引用关系：源表/源字段/目标表/是否
+  可选/登记来源），`IDataRegistry.DeclareReference` 新增带来源标注的重载；`toolchain/validator
+  --list-tables --json` 新增 `reference_declarations` 导出（见架构文档 04 第 4 节勘误、
+  `architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md`）——`declareReference` 登记
+  此前只驱动加载期硬校验、没有公开读回方式，内容工具（引用图/影响分析）只能按值弱推断某字段
+  是否是引用；新契约面均为带默认实现的接口成员/新增重载/新增只读导出字段，不破坏既有兼容
+  调用。【编辑器相关契约】
+- `Presentation.Assembly.SchemaAudit` 新增元数据门禁检查 `declared_reference_unregistered`
+  （告警级）：凡经 `declareReference` 声明的 (表, 字段) 若字段元数据既无 `ReferenceTable`/
+  `ReferenceDomain`、也无 `SoftReferenceTable`/`SoftReferenceDomain`、也无 `AllowedValues`，
+  即报告——防止"`declareReference` 登记了引用但字段元数据未同步"的遗漏（消费方反馈第 37 条原始
+  案例 `skill.proc_def.trigger_skill` 即属此类，已补登 `SoftReferenceTable("skill.def")`）。
+  【编辑器相关契约】
 
 ## [1.25.1] - 2026-09-11
 
