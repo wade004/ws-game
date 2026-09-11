@@ -101,6 +101,33 @@ death/
    本仓库没有任何"运行时热切换战斗口味配置"的先例，`DeathPolicyHost` 与其它 L4 宿主一样，在
    构造函数里把最终生效值算好存成只读属性，不在每次死亡事件到来时重新计算。
 
+7. **C11-CLEANUP/C11-PENDING-LOAD 根治新增（2026-09-11，消费方反馈第 C11 项，基线 1.22.0）：
+   延迟复活队列的四个失效时机与执行前的存在性校验**——`respawn_point` 延迟复活队列（`_pending`）
+   依赖"目标单位到期时仍然存在"这一前提，本次收口前完全没有任何失效机制，撞上两类真实探针复现
+   的问题：(a) 见上方"不负责什么"一节已改判的判断记录——读档前遗留的 pending 覆盖读档恢复好的
+   状态；(b) `WorldSim.ClearAll` 后下一 tick，`Execute`（挂在 `TickPhase.TriggerEvaluation`，见
+   判断记录 3）先于对应的 `entity.destroyed`（`ClearAll` 只是把它排入待处理队列，不立即派发，
+   要等同一次 `Tick` 更晚的 `EventDispatch` 阶段——见 `WorldSim.ClearAll`/`Tick` 判断记录）被执行，
+   此时倒计时恰好到期会直接调用 `ReviveUnit`（生产装配即 `WorldUnitAccess.Revive`）尝试复活一个
+   `IWorldSim.GetEntity` 已经查不到的单位，抛 `InvalidOperationException`。修复分两层，互补而非
+   互斥：
+   - `ClearPending()`（新增公开方法，清空 `_pending`，不发布任何事件）——由
+     `core/gameplay/assembly.GameplayAssembly` 经其 `IDerivedStateRebuilder.BeforeLoad`
+     实现（早于任何存档段真正 `Load`，见该接口类型判断记录）在读档开始前调用一次；同时新增
+     `IDisposable.Dispose()` 同样清空 `_pending`（并取消两个事件订阅，幂等）——供调用方在释放
+     本宿主时主动失效，不依赖后续任何 tick。
+   - 新增对 `SimEventKeys.EntityDestroyed` 的订阅（`OnEntityDestroyedForPending`）：某单位被销毁、
+     对应的 `entity.destroyed` **真正派发**之后，立即摘除 `_pending` 里匹配该单位 id 的记录——
+     覆盖 `ClearAll`/`MarkForDestruction` 两种销毁路径里"事件已经派发"之后的全部后续 tick。
+   - `Execute` 本身在真正调用 `ReviveUnit` 之前，新增一道防御性存在性校验（`IWorldSim.GetEntity`
+     是否返回 `Unit`）——覆盖上述订阅覆盖不到的那个时序窗口（`ClearAll` 到对应
+     `entity.destroyed` 真正派发之间，早于派发的那次 `Execute`）：目标单位不存在时丢弃这条
+     `_pending` 记录、只记一条诊断（`IDeathPolicyDiagnostics.Warn`），不抛异常——同
+     `core/rules/combat.CombatHost.NotifyCombatEvent` 判断记录"对不存在单位静默跳过"同一惯例。
+   三者合起来才是完整修复：`ClearPending`/`Dispose` 处理"读档"与"宿主释放"两个非"单位销毁"触发
+   的失效场景，事件订阅处理"单位销毁后、事件已派发"的后续 tick，`Execute` 自身的存在性校验兜底
+   "事件尚未派发"的时序窗口，任一层单独存在都不足以覆盖全部真实探针复现的路径。
+
 ## 不负责什么
 
 - 不解析/查找具体的复活点坐标算法本身（如"取最近出生点"而非固定 `spawn_points[0]`的距离比较）
@@ -110,9 +137,17 @@ death/
 - 不做尸体清理、掉落物生成、复活无敌帧一类周边表现/规则——06/08 文档未把它们划给死亡复活策略，
   分别属于既有的 `core/gameplay/loot`（死亡掉落）/表现层（复活特效）职责。
 - 不持久化"待复活队列"：`respawn_point` 策略的延迟复活队列是纯运行期瞬时状态，不实现
-  `IPersistable`——如果死亡后、复活前的极短窗口内恰好触发存档并读档，待复活的记录会丢失（复活
-  永远不会发生）。这是一处已知的边界情况，未在 06/10 文档中找到明确要求覆盖，判定为可接受的
-  简化（该窗口通常只有 1 个 tick，实际游戏中触发概率极低）。
+  `IPersistable`。**C11-PENDING-LOAD 勘误（2026-09-11，消费方反馈第 C11 项，基线 1.22.0，见
+  `architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md`）：本条原判断记录
+  "待复活的记录会丢失（复活永远不会发生），判定为可接受的简化"已不成立**——真实探针复现的不是
+  "丢失"而是更严重的"残留"：死亡后留有一条尚未执行的延迟复活记录时若发生一次读档（同图或跨图，
+  不限于死亡→`reload_save`那一条内部触发路径，玩家从菜单手工读档同样会撞上），读档本身已经把
+  存活状态/生命值/位置按存档内容恢复到位，但这条读档前遗留的旧延迟复活记录不会被读档感知，会在
+  它原定的 tick 到期时用死亡地图的默认复活点/复活血量把刚恢复好的读档状态覆盖掉。现由
+  `ClearPending`（见判断记录 7）在读档开始前清空，不再是"可接受的简化"，而是"读档必须先失效
+  它"的确定行为——存档语义因此简化为：若存档时刻已处于死亡未复活状态，读档后玩家按存档段
+  （`player.vitals` 的 `alive`/资源池当前值）原样停留在死亡态，不会凭空复活（本模块当前仍不为
+  这个队列本身新增一个存档段，语义上等价于"没有需要恢复的 pending"）。
 - 不管理 AI/生物单位的死亡后续（复活、移除、刷新计时）——那是 `core/gameplay/spawn`
   （`respawn_policy`）与 `core/carriers/creature`（`Despawn`/`creature.despawned`）既有职责，
   本模块对非玩家单位的 `unit.died` 直接忽略（见判断记录、08 归属说明惯例）。

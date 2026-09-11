@@ -97,7 +97,9 @@ assembly/
 `ProgressionPersistable.For`（`player.progression`）/`UnitPersistable.ArchetypeId`
 （`player.archetype`，W2 收边补齐，见判断记录 6）/`UnitPersistable.RaceId`（`player.race_id`，
 种族被动光环跨图丢失根治新增，见判断记录 8）→
-`UnitPersistable.CurrentMapId`/`CurrentPosition` → `InventoryPersistable`/`EquipmentPersistable`
+`UnitPersistable.CurrentMapId`/`CurrentPosition`（`CurrentPosition` 自 C11-RELOAD 根治起改传
+`(player, Carriers.Units)` 重载，`Load` 经 `IUnitAccess.SetPosition` 同步空间索引，见判断记录 14）
+→ `InventoryPersistable`/`EquipmentPersistable`
 → `CurrencyPersistable`/`VendorStockPersistable` → `QuestPersistable` → `AchievementHost` →
 `SpawnHost` → `DroppedLootPersistable` → `DifficultyHost`（自定义段 `world.difficulty`）→
 `TurnScheduler`（`sim.turn_state`，只在装配了离散模式时注册）→
@@ -374,3 +376,37 @@ assembly/
     验收：真实 A/B fixture 下，失败回滚后字段/评级/光环/资源池上限与当前值全部回到 A；同图切换
     职业后旧职业独有基础键归零、旧职业独有资源类型不可再查询，共同键与 B oracle 一致，重复读档
     不叠加。测试：`core/gameplay/assembly/tests/CORE_110_FollowupAuditTests.cs`。
+
+14. **C11-RELOAD/C11-PENDING-LOAD 根治（2026-09-11，消费方反馈第 C11 项，基线 1.22.0，
+    architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md）：读档"恢复顺序与
+    一致性契约"（10 第 3 节）在装配根的落点**——真实探针复现三处读档一致性缺口，均发生在
+    "各段自己的字段被 `Load` 正确写回"与"依赖该字段的运行期派生结构同步"这两件事之间：
+    - **位置**：`RegisterPersistables` 里的 `UnitPersistable.CurrentPosition` 改传新增的
+      `(player, unitAccess)` 重载（`Carriers.Units`），`Load` 因此经 `IUnitAccess.SetPosition`
+      写入（生产环境唯一实现 `WorldUnitAccess` 内部会同步 `ISpatialQuery.UpdatePosition`），不再
+      直接改写 `PlayerUnit.Position` 字段绕开空间索引。`DerivedStateRebuilder.OnSectionLoaded`
+      在 `SaveSections.WorldCurrentPosition` 段之后追加一步"空间索引全量重同步"兜底（对全部存活
+      单位调用新增的 `ISpatialQuery.ResyncPositions`，默认实现等价于逐个 `UpdatePosition`）——
+      正常路径下这一步已是多余（`SetPosition` 内部已经同步过一次），保留只为覆盖"以后又出现一个
+      绕开 `SetPosition` 的写入路径"这类回归，不是本次修复依赖的主路径。
+    - **战斗态**：`RegisterPersistables` 里的 `PlayerVitalsPersistable` 改传新增的
+      `(player, powers, combat)` 三参构造重载（`Carriers.Rules.Combat`），`Load` 恢复
+      `in_combat` 时改经新增的 `CombatHost.RestoreCombatState`（同时同步 `PowerHost`，唯一来源
+      落在 `CombatHost`，见 10 第 3 节该条契约），不再直接调用 `IPowerHost.SetInCombat`（那只会
+      改到 `PowerHost` 自己的状态，`CombatHost` 自身的进战登记表对此一无所知，读档后两者
+      `IsInCombat` 会分歧）。`DerivedStateRebuilder.BeforeLoad`（早于任何段真正 `Load`）新增一步
+      `RulesAssembly.Combat.ClearCombatState`（清空进战标记/脱战计时器/仇恨表），与上面的
+      `RestoreCombatState` 合起来即 10 第 3 节固定的"清空 → 恢复 → 同步"三步顺序。
+    - **延迟复活**：`DerivedStateRebuilder.BeforeLoad` 同一处再新增一步
+      `Core.Gameplay.Death.DeathPolicyHost.ClearPending`——读档前遗留的延迟复活记录（若有）在这里
+      失效，避免它在读档完成后到期时把刚恢复好的存档状态覆盖掉；详见
+      `core/gameplay/death/README.md` 判断记录 7（该模块另有两层互补的失效机制，覆盖本方法覆盖
+      不到的"单位销毁"与"世界清空后事件尚未派发"两类时机）。
+    三处改动共用同一个事实：`DerivedStateRebuilder`（本类内部类，`IDerivedStateRebuilder` 的生产
+    实现）本就是"读档过程中需要绕开事件总线、直接调用目标模块方法"这类钩子的既定落点（见判断
+    记录 13 CORE-110/180 系列），本次只是把它的构造函数参数从 `(rules, player)` 扩展为
+    `(rules, player, units, spatial, death)`——`RegisterPersistables` 是本类内唯一构造点，随
+    `RegisterPersistables` 一起改动，不影响任何外部调用方签名。验收：`SameMapLoad_*`/
+    `ClearAll_*`/`EntityDestroyedEvent_*`/`Dispose_*`/`SavedWhileDead_*` 五组场景 + 既有
+    `CORE_180_FollowupAuditTests`/`GameplayAssemblyDeathReloadTests` 全部保持通过。测试：
+    `core/gameplay/assembly/tests/C11_LifecycleReloadTests.cs`。

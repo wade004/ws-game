@@ -108,6 +108,51 @@ namespace Core.Rules.Combat
         public bool IsInCombat(Id unitId) => _inCombat.TryGetValue(unitId, out var value) && value;
 
         /// <summary>
+        /// C11-RELOAD 根治新增（architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命
+        /// 周期.md 第 2 项）：清空该单位的运行期战斗态——<see cref="_inCombat"/> 标记、脱战计时器、
+        /// 双向仇恨表（<see cref="ThreatTable.Clear"/> 该单位自己持有的仇恨表 + <see
+        /// cref="ThreatTable.RemoveSourceEverywhere"/> 把它从其它单位仇恨表里摘除，同 <see
+        /// cref="OnEntityDestroyed"/> 同款清理惯例）——不发布 <see cref="CombatLeftEvent"/>、不触碰
+        /// <see cref="IPowerHost"/>。供读档恢复流程（<c>Core.Gameplay.Assembly.GameplayAssembly</c>
+        /// 的 <c>IDerivedStateRebuilder.BeforeLoad</c>）在真正回填存档 <c>in_combat</c> 之前调用一次，
+        /// 把"死亡结算等已经写入、但读档不会覆盖"的运行期战斗态先行清空，避免读档后 <see
+        /// cref="IsInCombat"/> 仍残留读档前的旧值（真实探针复现：保存时不在战、致死移动后同图读档，
+        /// 读档后 <c>CombatHost.IsInCombat=true</c>）。
+        /// </summary>
+        public void ClearCombatState(Id unitId)
+        {
+            _inCombat.Remove(unitId);
+            _timeSinceLastEvent.Remove(unitId);
+            _threatTable.Clear(unitId);
+            _threatTable.RemoveSourceEverywhere(unitId);
+        }
+
+        /// <summary>
+        /// C11-RELOAD 根治新增：把该单位的进出战斗状态显式置为 <paramref name="inCombat"/>——<see
+        /// cref="CombatHost"/> 自身的 <see cref="_inCombat"/> 是"是否在战"的唯一来源（见本类型注释、
+        /// 消费方反馈第 2 项判断记录），本方法同时按既有惯例（<see cref="NotifyCombatEvent"/>/<see
+        /// cref="Update"/> 两处既有写法）把同一份值同步进 <see cref="IPowerHost"/>（脱战/在战回复速率
+        /// 切换依赖 <see cref="IPowerHost.SetInCombat"/>），保证两者读到的值恒一致，不再需要调用方
+        /// （<c>PlayerVitalsPersistable.Load</c>）绕开本类型直接调用 <see cref="IPowerHost.SetInCombat"/>。
+        /// 不发布 <see cref="CombatEnteredEvent"/>/<see cref="CombatLeftEvent"/>——读档不是一次业务
+        /// 事件（同本仓库既有"读档不重发业务事件"惯例，调用方本就处于 <c>IEventBus.SuppressDispatch</c>
+        /// 作用域内）。调用前应先调用 <see cref="ClearCombatState"/>（见调用方恢复顺序契约：先清空、
+        /// 再恢复），本方法本身不做这一步，只管赋值。<paramref name="unitId"/> 当前不存在于世界模拟中
+        /// （<see cref="IUnitAccess.Exists"/> 为 false）时仍会写入 <see cref="_inCombat"/>（字典本身
+        /// 不要求单位存在），但跳过 <see cref="IPowerHost"/> 同步这一步——避免重现 <see
+        /// cref="NotifyCombatEvent"/> 判断记录"直接调用 IPowerHost.SetInCombat 对已注销单位会抛
+        /// InvalidOperationException"那个崩溃路径。
+        /// </summary>
+        public void RestoreCombatState(Id unitId, bool inCombat)
+        {
+            _inCombat[unitId] = inCombat;
+            if (_units.Exists(unitId))
+            {
+                _powers.SetInCombat(unitId, inCombat);
+            }
+        }
+
+        /// <summary>
         /// C02 收口（外部审计 7e63d66 第四轮）：真实 <c>CreatureFactory.Despawn</c> 会同步注销
         /// <see cref="IPowerHost"/>/<see cref="IStatHost"/> 的单位注册（见 <see cref="OnEntityDestroyed"/>
         /// 判断记录），但已施加到其它存活目标身上、来源正是这个被销毁单位的周期性效果

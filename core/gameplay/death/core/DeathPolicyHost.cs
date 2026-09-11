@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Core.Carriers.Unit;
 using Core.Foundation.AppLifecycle;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
@@ -40,7 +41,7 @@ namespace Core.Gameplay.Death
     /// <see cref="SimStepKind.Discrete"/>，两种时间模型下死亡都可能发生，复活延迟按"tick 数"计，
     /// 不按秒数（<c>Discrete</c> 步没有秒数概念）。
     /// </summary>
-    public sealed class DeathPolicyHost : IDeathPolicyHost, ITickPhaseHandler
+    public sealed class DeathPolicyHost : IDeathPolicyHost, ITickPhaseHandler, IDisposable
     {
         private readonly IEventBus _bus;
         private readonly IWorldSim _world;
@@ -49,6 +50,8 @@ namespace Core.Gameplay.Death
         private readonly DeathPolicyOptions _options;
         private readonly IDeathPolicyDiagnostics _diagnostics;
         private readonly List<PendingRespawn> _pending = new List<PendingRespawn>();
+        private readonly SubscriptionHandle _unitDiedSubscription;
+        private readonly SubscriptionHandle _entityDestroyedSubscription;
 
         public RespawnPolicy EffectivePolicy { get; }
 
@@ -82,7 +85,73 @@ namespace Core.Gameplay.Death
 
             EffectivePolicy = _options.Policy ?? defaultCombatDeathPolicy;
 
-            _bus.Subscribe<UnitDiedEvent>(RulesEventKeys.UnitDied, OnUnitDied);
+            _unitDiedSubscription = _bus.Subscribe<UnitDiedEvent>(RulesEventKeys.UnitDied, OnUnitDied);
+
+            // C11-CLEANUP 根治新增（architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活
+            // 生命周期.md 第 3 项）：订阅 entity.destroyed，任一 pending 复活记录对应的单位被销毁
+            // （含 IWorldSim.ClearAll——见该方法判断记录"按 EntityId 序数顺序 Enqueue 全部实体各一次
+            // entity.destroyed"）时立即摘除对应记录，见 OnEntityDestroyedForPending 判断记录。本订阅
+            // 只覆盖"事件已经真正派发"之后的时机；ClearAll 与派发之间的窗口（下一次 tick 的
+            // TriggerEvaluation 阶段早于 EventDispatch 阶段，见 Execute 判断记录）由 Execute 自身的
+            // 存在性校验兜底，两者合起来才是完整修复，见 Execute 判断记录。
+            _entityDestroyedSubscription = _bus.Subscribe<EntityDestroyedEvent>(
+                SimEventKeys.EntityDestroyed, OnEntityDestroyedForPending);
+        }
+
+        /// <summary>
+        /// C11-CLEANUP 根治新增：某个单位被销毁时，若它在延迟复活队列（<see cref="_pending"/>）里有
+        /// 待执行的记录，立即摘除——避免 <see cref="Execute"/> 在倒计时到期后仍尝试对一个已经不存在
+        /// 的单位调用 <see cref="DeathPolicyOptions.ReviveUnit"/>（真实实现
+        /// <c>Core.Carriers.Unit.WorldUnitAccess.Revive</c> 会抛 <see
+        /// cref="InvalidOperationException"/>，见消费方反馈第 3 项 B 条）。倒序遍历 + RemoveAt：
+        /// 理论上同一单位不会在 <see cref="_pending"/> 里出现两次（<see cref="OnUnitDied"/> 只在
+        /// <see cref="RespawnPolicy.RespawnPoint"/> 策略下才 Enqueue，且玩家单位一次只会死亡一次、
+        /// 复活一次），这里按"允许多条"的宽松写法防御性遍历，不假设至多一条。
+        /// </summary>
+        private void OnEntityDestroyedForPending(EntityDestroyedEvent evt)
+        {
+            for (var i = _pending.Count - 1; i >= 0; i--)
+            {
+                if (_pending[i].UnitId.Equals(evt.EntityId))
+                {
+                    _pending.RemoveAt(i);
+                }
+            }
+        }
+
+        /// <summary>
+        /// C11-PENDING-LOAD 根治新增（消费方反馈第 3 项 A 条）：清空延迟复活队列，不触碰任何其它
+        /// 状态、不发布任何事件。供读档（<c>Core.Gameplay.Assembly.GameplayAssembly</c> 经其
+        /// <c>IDerivedStateRebuilder.BeforeLoad</c>——早于任何存档段真正 Load，见该接口类型判断
+        /// 记录——在真正开始恢复存档状态之前调用一次，见该类型判断记录）场景使用：玩家死亡后留有
+        /// 尚未执行的延迟复活记录，此时若发生一次读档（同图或跨图），读档本身已经按存档内容把玩家
+        /// 存活状态/生命值/位置等全部恢复到位（<c>player.vitals</c> 段，见 <c>PlayerVitalsPersistable</c>
+        /// 判断记录），若不清空这条旧的延迟复活记录，它会在读档完成后的某次 <see cref="Execute"/>
+        /// 到期时用死亡地图的默认复活点/复活血量把刚恢复好的读档状态原地覆盖掉（真实探针复现：
+        /// 读档后下一 tick 位置被覆盖为默认复活点、HP 被覆盖为满血）。
+        /// <para>
+        /// 判断记录（为什么不判断"存档里有没有 pending"）：本模块当前不持久化延迟复活队列本身（未
+        /// 找到既有段/字段），存档语义因此简化为"若存档时刻已经处于死亡未复活状态，读档后玩家按
+        /// 存档的 <c>alive=false</c>/HP 值原样停留在死亡态，不会凭空复活"——<see
+        /// cref="PlayerVitalsPersistable"/> 已经完整覆盖这一语义（见该类型 <c>Load</c>），本方法只
+        /// 需要确保读档前遗留的旧队列不会在读档之后继续生效，不需要额外读一份"存档里的 pending"。
+        /// </para>
+        /// </summary>
+        public void ClearPending()
+        {
+            _pending.Clear();
+        }
+
+        /// <summary>
+        /// C11-CLEANUP 根治新增：宿主释放时取消两个事件订阅并清空延迟复活队列——幂等（<see
+        /// cref="SubscriptionHandle.Dispose"/> 本身幂等，<see cref="List{T}.Clear"/> 对空表安全），
+        /// 多次调用/未装配任何 pending 记录时都是安全空操作。
+        /// </summary>
+        public void Dispose()
+        {
+            _unitDiedSubscription.Dispose();
+            _entityDestroyedSubscription.Dispose();
+            _pending.Clear();
         }
 
         private void OnUnitDied(UnitDiedEvent evt)
@@ -216,6 +285,22 @@ namespace Core.Gameplay.Death
                 }
 
                 _pending.RemoveAt(i);
+
+                // C11-CLEANUP 根治新增（消费方反馈第 3 项 B 条）：执行前校验目标单位仍然存在且是
+                // Unit——覆盖 OnEntityDestroyedForPending 订阅来不及生效的窗口（IWorldSim.ClearAll
+                // 只是把 entity.destroyed 排入待处理队列，不立即派发，见该方法判断记录；本
+                // Execute 挂在 TickPhase.TriggerEvaluation，早于 TickPhase.EventDispatch，ClearAll
+                // 之后的下一个 tick 里，本方法先于对应的 entity.destroyed 被派发执行——见类型顶部
+                // 判断记录"AiDecision 阶段早于 EventDispatch"同款时序）。不存在时静默丢弃这条记录、
+                // 只记一条诊断，不抛异常——同 <see cref="NotifyCombatEvent"/>（CombatHost 同款场景）
+                // 判断记录"进战通知对不存在单位静默跳过"的既有惯例。
+                if (!(_world.GetEntity(pending.UnitId) is Unit))
+                {
+                    _diagnostics.Warn(
+                        $"DeathPolicyHost（respawn_point）：单位 \"{pending.UnitId}\" 复活倒计时已到，" +
+                        "但该单位已不存在于世界模拟中（可能已被 WorldSim.ClearAll 或其它方式销毁），丢弃这条待复活记录，不执行复活");
+                    continue;
+                }
 
                 if (_options.ReviveUnit == null)
                 {
