@@ -4,6 +4,7 @@ using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.EngineAdapter;
 using Core.Foundation.SimLoop;
+using Core.Numbers.Faction;
 using Core.Rules.Common;
 
 namespace Core.Carriers.Projectile
@@ -65,8 +66,58 @@ namespace Core.Carriers.Projectile
             _diagnostics = diagnostics ?? new InMemoryProjectileDiagnostics();
         }
 
-        /// <summary>当前存活（未销毁）的投射物数量，供测试/诊断查看。</summary>
+        /// <summary>
+        /// ADR-0028：可选阵营矩阵注入，供 <c>relation_policy</c>（<c>hostile_only</c>/
+        /// <c>friendly_only</c>）与 <c>pierce_order</c>（<c>hostile_first</c>）取值判定阵营关系
+        /// 使用。判断记录（构造后回填而非构造参数）：<see cref="Core.Carriers.Assembly.
+        /// CarriersAssembly"/> 装配时 <see cref="ProjectileHost"/>（第 2.5 步）先于
+        /// <c>RulesAssembly</c>（第 3 步，<c>Factions</c> 在其内部构造）构造完成——后者的构造又
+        /// 需要把本类实例当 <see cref="Core.Rules.Common.IProjectileSpawner"/> 传入，存在"谁先构造"
+        /// 的循环依赖，惯例同本仓库 <c>PowerHost powers = null!</c> 一类"先构造不需要对方的一侧，
+        /// 再用可写属性回填另一侧引用"的处理手法（见 <c>CarriersAssembly</c> 构造函数第 1 步同款
+        /// 判断记录），不新增构造参数（<see cref="ProjectileHost(IWorldSim,IUnitAccess,ISpatialQuery,
+        /// INavigation2D?,ProjectileOptions?,IProjectileDiagnostics?)"/> 签名保持不变，ABI 只增不改）。
+        /// 缺省 <c>null</c>：任何要求阵营判定的取值在缺省下均退化为不做该项过滤/排序（见
+        /// <see cref="PassesRelationPolicy"/>、<see cref="BuildPierceComparer"/> 判断记录），
+        /// <c>relation_policy</c> 缺省值 <c>default</c> 本身从不读取本属性，行为与 ADR-0028 之前
+        /// 逐字节一致。
+        /// </summary>
+        public IFactionMatrix? Factions { get; set; }
+
+        /// <summary>当前存活（未销毁）的投射物数量，供测试/诊断查看。ADR-0028 契约明确：调用
+        /// <see cref="ClearAll"/> 后立即归零，不需要等待下一次正 dt 的 <see cref="Advance"/>。</summary>
         public int ActiveCount => _states.Count;
+
+        /// <summary>ADR-0028 新增只读查询：当前是否"静默"——无存活投射物、且（本类命中判定为同步
+        /// 调用内一次性回灌效果，不维护跨 tick 的待处理命中队列，见 <see cref="TryResolveUnitHits"/>/
+        /// <see cref="ResolveExpiry"/> 判断记录）因此没有任何待处理命中。<see cref="ActiveCount"/>
+        /// 为 0 时恒为 true，供调用方在 <c>IWorldSim.ClearAll</c>/<see cref="ClearAll"/> 之后判断
+        /// "重置是否已经完成"，不必自行猜测本类内部是否还有残留簿记。</summary>
+        public bool IsQuiescent => _states.Count == 0;
+
+        /// <summary>
+        /// ADR-0028 新增：立即清空本类全部运行期簿记（<see cref="_states"/>），使
+        /// <see cref="ActiveCount"/>/<see cref="IsQuiescent"/> 同步反映"无存活投射物"，不等待下一次
+        /// 正 dt 的 <see cref="Advance"/>（该方法此前只在 <c>_world.GetEntity(id)</c> 返回 null 时
+        /// 防御性移除簿记，见该方法内注释，<c>IWorldSim.ClearAll</c> 只 Enqueue <c>entity.destroyed</c>
+        /// 不改变本类自己的字典，二者此前脱节，见消费方反馈第 4 节 P3）。
+        /// <para>
+        /// 判断记录（不触碰 <see cref="_world"/>）：<c>IWorldSim.ClearAll</c> 已经负责把实体从世界
+        /// 集合移除、Enqueue 销毁事件——本方法只清自己的簿记，不重复调用
+        /// <see cref="IWorldSim.MarkForDestruction"/>/不发任何事件（投射物本就不发专属事件，见类型
+        /// 顶部判断记录 3）。调用顺序与 <c>IWorldSim.ClearAll</c> 无先后要求（先调用哪个都不会遗留
+        /// 幽灵伤害——世界侧实体没了、这一侧簿记没了，二者独立生效），但要让 <see cref="ActiveCount"/>
+        /// 在 <c>world.ClearAll()</c> 后立即可信，调用方需要显式把两者接在一起调用（无法在本类内部
+        /// 自动感知"外部某个 <see cref="IWorldSim"/> 实例被清空了"，本类构造期未持有事件总线，见
+        /// <c>core/carriers/projectile/README.md</c> 判断记录 3"不新增专属事件"同一顾虑——不为这一
+        /// 个契约缺口新开一条订阅关系；<see cref="Core.Gameplay.Assembly.GameplayAssembly.LeaveMap"/>
+        /// 已接线本方法，见该方法判断记录）。
+        /// </para>
+        /// </summary>
+        public void ClearAll()
+        {
+            _states.Clear();
+        }
 
         // -----------------------------------------------------------------
         // IProjectileSpawner
@@ -95,6 +146,8 @@ namespace Core.Carriers.Projectile
             var maxPierceCount = context.Params.TryGetValue("max_pierce_count", out var mpcVal) && mpcVal is JsonNumber mpcNum
                 ? (int?)mpcNum.Value
                 : null;
+            var relationPolicy = ResolveRelationPolicy(GetString(context.Params, "relation_policy", RelationPolicyDefault));
+            var pierceOrder = ResolvePierceOrder(GetString(context.Params, "pierce_order", PierceOrderNearest));
 
             var sourcePos = _units.GetPosition(context.SourceId);
             var hasTarget = !context.TargetId.Equals(context.SourceId) && _units.Exists(context.TargetId);
@@ -141,6 +194,8 @@ namespace Core.Carriers.Projectile
                 OnHitEffects = onHitEffects,
                 EffectSink = effectSink,
                 MaxPierceCount = maxPierceCount,
+                RelationPolicy = relationPolicy,
+                PierceOrder = pierceOrder,
             };
         }
 
@@ -286,7 +341,15 @@ namespace Core.Carriers.Projectile
 
         /// <summary>沿本 tick 位移线段（<paramref name="from"/>→<paramref name="to"/>）查询命中的
         /// 单位并按 <see cref="ProjectileState.HitBehavior"/> 处理；返回 true 表示投射物已在本方法
-        /// 内被销毁（调用方不应再继续本 tick 剩余逻辑）。</summary>
+        /// 内被销毁（调用方不应再继续本 tick 剩余逻辑）。
+        /// <para>
+        /// ADR-0028 裁决优先级（施法者排除 → 目标锁定 → 关系筛选 → 标签筛选 → 穿透计数 → 命中效果
+        /// 回灌）：五个必要条件按文档顺序逐条列出供阅读，运行时是逻辑与门（同时满足才算候选），
+        /// 不是严格分阶段串行——标签筛选（<see cref="ProjectileOptions.HitQueryTags"/>）复用既有
+        /// <see cref="ISpatialQuery.QueryLine"/> 在集合层面先行收窄候选面（性能优化，不改变最终
+        /// 结果），施法者排除/目标锁定/关系筛选三步在下方循环内对每个候选逐一核对，见
+        /// <see cref="PassesRelationPolicy"/>。</para>
+        /// </summary>
         private bool TryResolveUnitHits(ProjectileEntity entity, ProjectileState state, Vec2 from, Vec2 to)
         {
             var filter = new QueryFilter(_options.HitQueryTags);
@@ -296,20 +359,23 @@ namespace Core.Carriers.Projectile
                 return false;
             }
 
-            // 按到起点的距离升序排序，保证"先经过先命中"的确定性顺序（QueryLine 本身不保证顺序）。
+            // 按到起点的距离升序排序，保证"先经过先命中"的确定性顺序（QueryLine 本身不保证顺序）；
+            // ADR-0028 relation_policy=Default 时排序键/候选集合与之前逐字节一致（仍是纯距离升序，
+            // PassesRelationPolicy 对 Default 恒为 true，不淘汰任何候选）。
             var candidates = new List<(Id Id, double Dist)>();
             for (var i = 0; i < candidateIds.Count; i++)
             {
                 var candidateId = candidateIds[i];
-                if (candidateId.Equals(state.SourceUnitId)) continue;
+                if (candidateId.Equals(state.SourceUnitId)) continue; // 施法者排除：无条件、不受 RelationPolicy 影响。
                 if (state.HitUnitIds.Contains(candidateId)) continue;
                 if (!_units.Exists(candidateId) || !_units.IsAlive(candidateId)) continue;
+                if (!PassesRelationPolicy(state, candidateId)) continue; // 目标锁定 + 关系筛选。
 
                 var dist = (_units.GetPosition(candidateId) - from).Length;
                 candidates.Add((candidateId, dist));
             }
 
-            candidates.Sort((a, b) => a.Dist.CompareTo(b.Dist));
+            candidates.Sort(BuildPierceComparer(state));
 
             for (var i = 0; i < candidates.Count; i++)
             {
@@ -346,8 +412,9 @@ namespace Core.Carriers.Projectile
                 for (var i = 0; i < candidates.Count; i++)
                 {
                     var candidateId = candidates[i];
-                    if (candidateId.Equals(state.SourceUnitId)) continue;
+                    if (candidateId.Equals(state.SourceUnitId)) continue; // 施法者排除：同 TryResolveUnitHits。
                     if (!_units.Exists(candidateId) || !_units.IsAlive(candidateId)) continue;
+                    if (!PassesRelationPolicy(state, candidateId)) continue; // ADR-0028：目标锁定 + 关系筛选，同一裁决优先级。
 
                     ApplyOnHitEffects(state, candidateId);
                 }
@@ -379,6 +446,136 @@ namespace Core.Carriers.Projectile
         {
             _states.Remove(entityId);
             _world.MarkForDestruction(entityId);
+        }
+
+        // -----------------------------------------------------------------
+        // ADR-0028：投射物碰撞的敌友关系策略
+        // -----------------------------------------------------------------
+
+        private const string RelationPolicyDefault = "default";
+        private const string RelationPolicyHostileOnly = "hostile_only";
+        private const string RelationPolicyFriendlyOnly = "friendly_only";
+        private const string RelationPolicyLockedTargetOnly = "locked_target_only";
+
+        private const string PierceOrderNearest = "nearest";
+        private const string PierceOrderHostileFirst = "hostile_first";
+
+        /// <summary>把 <c>params.relation_policy</c> 原始字符串规范化为本类内部使用的取值：未知
+        /// 取值按本类惯例（同 <c>travel_mode</c>/<c>hit_behavior</c>，见 <see cref="AdvanceOne"/>
+        /// 对未知飞行方式的处理——不匹配任何已知分支时隐式落到最保守的默认行为）静默按
+        /// <see cref="RelationPolicyDefault"/> 处理，不额外记诊断（数据校验交给
+        /// <c>core/rules/skill/schema/SkillSchemas.cs</c> 的 <c>Enum</c> 字段声明，运行时不重复
+        /// 校验、只做安全兜底）。<c>hostile_only</c>/<c>friendly_only</c> 在
+        /// <see cref="Factions"/> 未注入时于生成当下（不是每 tick）记一次诊断警告并规范化为
+        /// <see cref="RelationPolicyDefault"/>（ADR-0028"缺省 null 时退化为 Default"）。</summary>
+        private string ResolveRelationPolicy(string raw)
+        {
+            switch (raw)
+            {
+                case RelationPolicyHostileOnly:
+                case RelationPolicyFriendlyOnly:
+                    if (Factions == null)
+                    {
+                        _diagnostics.Warn(
+                            $"ProjectileHost.Spawn: relation_policy=\"{raw}\" 需要阵营矩阵，但本实例未注入 " +
+                            "IFactionMatrix（见 ProjectileHost.Factions 判断记录），已退化为 \"default\"（不做关系过滤）");
+                        return RelationPolicyDefault;
+                    }
+
+                    return raw;
+
+                case RelationPolicyLockedTargetOnly:
+                case RelationPolicyDefault:
+                    return raw;
+
+                default:
+                    return RelationPolicyDefault;
+            }
+        }
+
+        /// <summary>同 <see cref="ResolveRelationPolicy"/> 判断记录：<c>hostile_first</c> 需要阵营
+        /// 矩阵判定候选敌友关系用于排序，未注入时退化为 <see cref="PierceOrderNearest"/>（现行按
+        /// 距离升序的默认行为）。</summary>
+        private string ResolvePierceOrder(string raw)
+        {
+            if (raw == PierceOrderHostileFirst)
+            {
+                if (Factions == null)
+                {
+                    _diagnostics.Warn(
+                        "ProjectileHost.Spawn: pierce_order=\"hostile_first\" 需要阵营矩阵，但本实例未注入 " +
+                        "IFactionMatrix，已退化为 \"nearest\"（按距离升序）");
+                    return PierceOrderNearest;
+                }
+
+                return raw;
+            }
+
+            return PierceOrderNearest;
+        }
+
+        /// <summary>ADR-0028 裁决优先级第 2、3 步（施法者排除已在调用方无条件完成，见调用处注释）：
+        /// <list type="bullet">
+        /// <item><c>locked_target_only</c>：只有 <see cref="ProjectileState.TargetUnitId"/>
+        /// 本身通过（未锁定目标——自由瞄准发射——时恒不通过，穿透/范围判定都不会命中任何候选，
+        /// 这是"选中目标"这一策略字面意义的直接推论，不是遗漏）。</item>
+        /// <item><c>hostile_only</c>/<c>friendly_only</c>：用 <see cref="Factions"/> 查
+        /// <see cref="ProjectileState.SourceUnitId"/> 对候选的阵营反应（惯例同
+        /// <c>core/rules/skill/core/SkillHost.PassesRelation</c> 对 <c>UnitFilter.Relation</c> 的
+        /// 判定手法，两处独立实现、同一判定口径：以施法者/发射者为参照方）；<see cref="Spawn"/>
+        /// 已把 <see cref="Factions"/> 缺失的情形规范化成 <see cref="RelationPolicyDefault"/>，本
+        /// 方法内不会再遇到"要求阵营矩阵但矩阵为空"的组合。</item>
+        /// <item><c>default</c>：不做任何关系过滤，恒通过（ADR-0028 之前的逐字节兼容行为）。</item>
+        /// </list>
+        /// </summary>
+        private bool PassesRelationPolicy(ProjectileState state, Id candidateId)
+        {
+            switch (state.RelationPolicy)
+            {
+                case RelationPolicyLockedTargetOnly:
+                    return state.TargetUnitId.HasValue && candidateId.Equals(state.TargetUnitId.Value);
+
+                case RelationPolicyHostileOnly:
+                case RelationPolicyFriendlyOnly:
+                    // Factions 不为 null：ResolveRelationPolicy 已在 Spawn 阶段兜底，见该方法判断记录。
+                    var reaction = Factions!.GetReaction(_units.GetFaction(state.SourceUnitId), _units.GetFaction(candidateId));
+                    return state.RelationPolicy == RelationPolicyHostileOnly
+                        ? reaction == Reaction.Hostile
+                        : reaction == Reaction.Friendly;
+
+                default:
+                    return true;
+            }
+        }
+
+        /// <summary>穿透（<c>pierce</c>）命中多个候选时的处理顺序（ADR-0028"穿透优先级"）：
+        /// <see cref="PierceOrderNearest"/>（缺省）按到线段起点距离升序——与本方法引入之前逐字节
+        /// 一致；<see cref="PierceOrderHostileFirst"/> 先处理阵营反应为 <see cref="Reaction.Hostile"/>
+        /// 的候选（同为 Hostile 或同为非 Hostile 的候选之间仍按距离升序），供"箭矢先扎穿路径上的
+        /// 敌人、最后才可能波及友军"一类内容需求使用——独立于 <c>relation_policy</c> 是否也要求
+        /// 阵营过滤，<see cref="ResolvePierceOrder"/> 已保证走到本方法 <c>hostile_first</c> 分支时
+        /// <see cref="Factions"/> 非空（Spawn 阶段兜底，同 <see cref="PassesRelationPolicy"/>）。</summary>
+        private Comparison<(Id Id, double Dist)> BuildPierceComparer(ProjectileState state)
+        {
+            if (state.PierceOrder != PierceOrderHostileFirst)
+            {
+                return (a, b) => a.Dist.CompareTo(b.Dist);
+            }
+
+            var sourceFaction = _units.GetFaction(state.SourceUnitId);
+            bool IsHostile(Id candidateId) => Factions!.GetReaction(sourceFaction, _units.GetFaction(candidateId)) == Reaction.Hostile;
+
+            return (a, b) =>
+            {
+                var aHostile = IsHostile(a.Id);
+                var bHostile = IsHostile(b.Id);
+                if (aHostile != bHostile)
+                {
+                    return aHostile ? -1 : 1; // Hostile 候选排在非 Hostile 候选之前。
+                }
+
+                return a.Dist.CompareTo(b.Dist);
+            };
         }
 
         // -----------------------------------------------------------------
@@ -459,6 +656,14 @@ namespace Core.Carriers.Projectile
             public readonly HashSet<Id> HitUnitIds = new HashSet<Id>();
             public int? MaxPierceCount;
             public int PierceCount;
+
+            /// <summary>ADR-0028：已规范化的关系策略取值（<c>default</c>/<c>hostile_only</c>/
+            /// <c>friendly_only</c>/<c>locked_target_only</c> 之一，见 <see cref="ResolveRelationPolicy"/>）。</summary>
+            public string RelationPolicy = RelationPolicyDefault;
+
+            /// <summary>ADR-0028：已规范化的穿透命中顺序（<c>nearest</c>/<c>hostile_first</c> 之一，
+            /// 见 <see cref="ResolvePierceOrder"/>）。</summary>
+            public string PierceOrder = PierceOrderNearest;
         }
     }
 }

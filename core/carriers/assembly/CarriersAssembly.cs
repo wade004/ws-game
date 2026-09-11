@@ -245,6 +245,15 @@ namespace Core.Carriers.Assembly
                 levelSync: Units.SetLevel);
             powers = Rules.Powers; // 回填第 1 步 healthFractionSetter 闭包捕获的局部变量。
 
+            // ADR-0028 收边：Projectiles（第 2.5 步）先于本步 RulesAssembly 构造完成，Rules.Factions
+            // 在 RulesAssembly 构造函数内部才真正 new 出来（本类无法在构造 Projectiles 之前就先拿到
+            // 它，两者存在"谁先构造"的循环依赖，见 ProjectileHost.Factions 判断记录），这里用同一份
+            // 引用回填——投射物 relation_policy=hostile_only/friendly_only、pierce_order=hostile_first
+            // 与 06 第 7 节 SkillHost.findUnits 的阵营关系判定共用同一份 IFactionMatrix（同一账本，
+            // SetReaction 运行期覆盖两侧同步可见，不会出现"技能目标选择"与"投射物命中"看到不同
+            // 阵营关系"的不一致）。
+            Projectiles.Factions = Rules.Factions;
+
             // ---------------------------------------------------------
             // 3a) SkillBindingHost（缺口 4）：KnownSkillQuery 委托接线到 Rules.Skill.Knows（惯例同
             //     下面第 4 步 SkillGranter 对 Rules.Skill.LearnSkill/ForgetSkill 的接线——L3 不得

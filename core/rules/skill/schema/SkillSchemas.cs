@@ -32,6 +32,20 @@ namespace Core.Rules.Skill
 
         public static readonly string[] ProjectileTravelModeValues = { "straight", "arc", "homing" };
         public static readonly string[] ProjectileHitBehaviorValues = { "impact_on_first", "pierce", "impact_on_expiry" };
+
+        /// <summary>ADR-0028 新增：<c>projectile.params.relation_policy</c> 合法取值——
+        /// <c>default</c>（缺省，现行按 <c>HitQueryTags</c> 标签过滤的行为，不做阵营判定）、
+        /// <c>hostile_only</c>/<c>friendly_only</c>（按 <c>IFactionMatrix</c> 判定，未注入时退化为
+        /// <c>default</c>）、<c>locked_target_only</c>（只命中施法时选中的目标）。见
+        /// <c>Core.Carriers.Projectile.ProjectileHost.PassesRelationPolicy</c>。</summary>
+        public static readonly string[] ProjectileRelationPolicyValues =
+            { "default", "hostile_only", "friendly_only", "locked_target_only" };
+
+        /// <summary>ADR-0028 新增：<c>projectile.params.pierce_order</c> 合法取值——<c>nearest</c>
+        /// （缺省，按到起点距离升序，现行 <c>pierce</c> 命中行为的既有顺序）、<c>hostile_first</c>
+        /// （先处理阵营反应为 Hostile 的候选，未注入 <c>IFactionMatrix</c> 时退化为 <c>nearest</c>）。
+        /// 见 <c>Core.Carriers.Projectile.ProjectileHost.BuildPierceComparer</c>。</summary>
+        public static readonly string[] ProjectilePierceOrderValues = { "nearest", "hostile_first" };
         public static readonly string[] MoveModeValues = { "charge", "leap", "knockback" };
 
         /// <summary>ADR-0026《技能位移的连续模式》：<c>move</c> 效果原语新增的 <c>motion</c> 字段
@@ -172,6 +186,10 @@ namespace Core.Rules.Skill
                     new FieldSchema("arc_height", FieldKind.Number, required: false, description: "缺省 ProjectileOptions.DefaultArcHeight，仅 arc 生效"),
                     new FieldSchema("impact_radius", FieldKind.Number, required: false, description: "缺省 ProjectileOptions.DefaultImpactRadius，仅 impact_on_expiry 生效"),
                     new FieldSchema("max_pierce_count", FieldKind.Int, required: false, description: "仅 pierce 生效，缺省不限"),
+                    new FieldSchema("relation_policy", FieldKind.Enum, required: false, enumValues: ProjectileRelationPolicyValues,
+                        description: "ADR-0028，缺省 default（不做阵营过滤，现行行为）"),
+                    new FieldSchema("pierce_order", FieldKind.Enum, required: false, enumValues: ProjectilePierceOrderValues,
+                        description: "ADR-0028，仅 pierce 生效，缺省 nearest（按距离升序，现行行为）"),
                     new FieldSchema("display_ref", FieldKind.Id, required: false,
                         description: "判断记录（分层边界）：display.map 属 L3/L5，本模块（L2）不可 Reference（04 §5.1 口径），退回 Id（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
                         .WithSoftReference(table: "display.map"),

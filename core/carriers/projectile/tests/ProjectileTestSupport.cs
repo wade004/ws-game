@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Adapters.Stub;
 using Core.Carriers.Projectile;
 using Core.Carriers.Unit;
@@ -7,6 +8,7 @@ using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
+using Core.Numbers.Faction;
 using Core.Rules.Common;
 
 namespace Tests.Carriers.Projectile
@@ -53,6 +55,39 @@ namespace Tests.Carriers.Projectile
         public void RemoveAura(Id targetId, AuraInstanceRef auraInstanceRef)
         {
         }
+    }
+
+    /// <summary>
+    /// ADR-0028 测试用最小 <see cref="IFactionMatrix"/> 桩：按显式登记的 <c>(from, to)</c> 键值对
+    /// 查询反应，同阵营恒 Friendly（同 <see cref="IFactionMatrix.GetReaction"/> 文档约定），未登记
+    /// 的组合缺省 <see cref="Reaction.Neutral"/>（不是本测试关心的取值，够用即可，不追求覆盖真实
+    /// <c>FactionMatrix</c> 的全部裁决优先级——那部分已由 <c>core/numbers/faction/tests</c> 覆盖）。
+    /// </summary>
+    internal sealed class StubFactionMatrix : IFactionMatrix
+    {
+        private readonly Dictionary<(Id From, Id To), Reaction> _reactions = new Dictionary<(Id, Id), Reaction>();
+        private readonly HashSet<Id> _factions = new HashSet<Id>();
+
+        public void Set(Id from, Id to, Reaction reaction)
+        {
+            _reactions[(from, to)] = reaction;
+            _factions.Add(from);
+            _factions.Add(to);
+        }
+
+        public Reaction GetReaction(Id from, Id to)
+        {
+            if (from.Equals(to)) return Reaction.Friendly;
+            return _reactions.TryGetValue((from, to), out var reaction) ? reaction : Reaction.Neutral;
+        }
+
+        public void SetReaction(Id from, Id to, Reaction reaction) => Set(from, to, reaction);
+
+        public void ResetOverrides() => _reactions.Clear();
+
+        public bool IsHostile(Id a, Id b) => GetReaction(a, b) == Reaction.Hostile;
+
+        public IReadOnlyList<Id> Factions => _factions.ToList();
     }
 
     /// <summary>已构建好的一整套测试宿主：真实 <see cref="WorldSim"/>/<see cref="EventBus"/>/

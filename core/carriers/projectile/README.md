@@ -44,6 +44,8 @@ projectile/
 | `arc_height` | Number | 否，缺省 `ProjectileOptions.DefaultArcHeight`（2） | `arc` 飞行方式的抛物线峰值高度（纯表现参数，见 `ProjectileEntity.HeightOffset`） |
 | `impact_radius` | Number | 否，缺省 `ProjectileOptions.DefaultImpactRadius`（1） | `impact_on_expiry` 到期时的命中判定半径 |
 | `max_pierce_count` | Number | 否，缺省不限 | `pierce` 命中行为最多穿透命中的单位数 |
+| `relation_policy` | `default\|hostile_only\|friendly_only\|locked_target_only` | 否，缺省 `default` | ADR-0028：候选敌友关系策略，见下"敌友关系策略"一节 |
+| `pierce_order` | `nearest\|hostile_first` | 否，缺省 `nearest` | ADR-0028：`pierce` 命中行为下多个候选的处理顺序，见下"敌友关系策略"一节 |
 | `display_ref` | Id | 否 | 指向 `display.map`（`logical_id` 匹配），写入 `ProjectileEntity.TemplateId` 供表现层解析外形；未提供时 `TemplateId` 为空，presentation 按"未知种类降级"处理（本任务不改表现层） |
 | `on_hit_effects` | List\<{kind, params}\> | 否，缺省空列表 | 命中后交回 L2 效果管线的效果列表，形状同 `skill.def.effects[]`（见 06 第 3.1 节 `EffectRef`），未知 `kind` 的项记诊断警告并跳过 |
 
@@ -73,6 +75,61 @@ projectile/
 `impact_on_first`/`pierce` 达到 `max_range` 仍未产生（更多）命中时，直接销毁、不回灌任何效果
 （"未命中"）；`impact_on_expiry` 到期即触发范围判定，范围内若无任何符合条件的单位，同样销毁、
 不回灌任何效果（"落点空砸"）。
+
+## 敌友关系策略（ADR-0028）
+
+`relation_policy` 决定"标签筛选（`HitQueryTags`）之后，还有哪些候选真正算命中"，与"目标校验"
+（`CastSkill` 选中目标是否合法）是两回事——本模块只管"投射物飞行途中/到期时命中判定该纳入谁"，不
+重新校验施法时目标是否合法。裁决优先级（同时满足才算候选，标签筛选在候选查询阶段已经完成，见
+`ProjectileHost.TryResolveUnitHits`/`ResolveExpiry` 方法注释）：
+
+1. **施法者排除**：无条件排除 `sourceUnitId` 自身，不受 `relation_policy` 取值影响。
+2. **目标锁定**：`locked_target_only` 时只保留 `EffectContext.TargetId`（若施法时确有目标）本身，
+   未锁定目标（自由瞄准发射）时恒不命中任何候选。
+3. **关系筛选**：`hostile_only`/`friendly_only` 用 `ProjectileHost.Factions`（可选注入的
+   `IFactionMatrix`，判定手法与 `core/rules/skill` `SkillHost.FindUnits` 的 `UnitFilter.Relation`
+   同一口径，各自独立实现）判定候选相对发射者的阵营反应；`default` 不做本步过滤。
+4. **标签筛选**：`ProjectileOptions.HitQueryTags`（既有行为），实现上在候选查询阶段（`ISpatialQuery.
+   QueryLine`/`QueryRadius`）先行完成，属集合层面的性能优化，不改变最终纳入结果。
+5. **穿透计数**：`pierce` 命中行为下 `max_pierce_count` 耗尽即销毁（既有行为）。
+6. **命中效果回灌**：`on_hit_effects` 逐项交回 `IEffectSink`（既有行为）。
+
+`pierce_order` 决定 `pierce` 命中行为下、同一 tick 命中多个候选时的处理顺序：`nearest`（缺省，按
+到线段起点距离升序，与 ADR-0028 之前逐字节一致）、`hostile_first`（先处理阵营反应为 Hostile 的
+候选，候选间关系相同时仍按距离升序）。
+
+**兼容性**：`relation_policy`/`pierce_order` 均为可选字段，缺省 `default`/`nearest`，两者缺省组合
+下的候选集合、命中顺序、事件序列与 ADR-0028 之前逐字节一致（含消费方反馈第 3 节复现场景——默认
+策略下友方候选仍会被命中，这是既有行为，不是本次改动要修的 bug；要避免误伤改用 `hostile_only`）。
+
+**阵营矩阵未注入时的退化**：`ProjectileHost.Factions` 缺省 `null`（`Core.Carriers.Assembly.
+CarriersAssembly` 装配时从 `Rules.Factions` 回填，见该类型判断记录）。`relation_policy=hostile_only
+/friendly_only` 或 `pierce_order=hostile_first` 在生成（`Spawn`）当下若发现 `Factions` 为空，记一次
+诊断警告并把该发投射物的对应取值规范化为 `default`/`nearest`（不是每 tick 反复判定，也不是悄悄
+放行——与 `SkillHost.PassesRelation` "宁可漏收不误纳"的保守原则不同，这里的选择是"整条策略退化为
+兼容行为"，因为投射物允许在完全不装配阵营系统的最小场景下工作，退化比"直接不生成"或"每候选都判
+不通过"更贴合"缺省策略行为不变"这条硬约束）。
+
+## `ActiveCount`/`IsQuiescent`/`ClearAll` 契约（ADR-0028）
+
+`ActiveCount`：当前存活（未到期、未命中终结、未被清除）的投射物数——本类内部 `_states` 字典的
+条目数。`IsQuiescent`：`ActiveCount == 0` 的别名，语义上表示"无存活投射物、且无待处理命中"（本类
+命中判定是 `Advance` 调用内的同步一次性回灌，不维护跨 tick 的待处理命中队列，二者因此恒等价）。
+
+`ClearAll()`：立即清空 `_states`，不触碰 `IWorldSim`（后者的实体集合与本类字典是两本独立的账，见
+`IWorldSim.ClearAll` 判断记录——它只清 `WorldSim` 自己的实体、`Enqueue` 销毁事件，从不知道也不需要
+知道 `ProjectileHost` 的存在）。消费方反馈第 4 节复现的现象（`WorldSim.ClearAll` 后 `ActiveCount`
+在下一次正 dt 更新前仍非零）根因正是这条脱节——`Advance` 此前只在 `_world.GetEntity(id)` 返回 null
+时防御性移除簿记，因此需要一次正 dt 调用才会触发这条清理路径；`ClearAll` 之前该窗口期内不会产生
+幽灵伤害（`Advance` 对已从世界移除的投射物直接跳过、不回灌效果），本次收口只是让 `ActiveCount`
+本身在契约意义上立即可信，不是修一个会打伤害的 bug。
+
+调用方约定：`Core.Gameplay.Assembly.GameplayAssembly.LeaveMap`（既有的"出图"收尾入口）已接上
+`Carriers.Projectiles.ClearAll()`，覆盖"地图切换"这一 `IWorldSim.ClearAll` 最主要的既有触发点；脱离
+场景路由、直接调用 `world.ClearAll()` 的调用方（例如独立测试）若需要 `ActiveCount` 立即归零，需自行
+显式一并调用 `ProjectileHost.ClearAll()`——本类构造期不持有事件总线，无法自行感知"外部某个
+`IWorldSim` 实例被清空了"（同判断记录 3"不新增专属事件"一致的顾虑，不为这一个契约缺口新开一条
+订阅关系）。
 
 ## 设计要点与判断记录
 
