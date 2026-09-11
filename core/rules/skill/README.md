@@ -616,6 +616,45 @@ skill/
     `FinishCast` 兜底、队列替换与正常打断回归，共 7 例）。公开 API 无变化（`TerminateCast` 为
     私有方法）。ABI 探针 breaks=0。
 
+46. **冷却/充能/公共冷却统一只读查询接口（消费方反馈 2026-09-11"冷却充能与公共冷却缺少统一只读
+    查询接口"，见 `architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md`，06 第 3.1/3.6/7
+    节同批勘误）：此前 `ISkillHost.GetCooldown` 是消费方唯一的间接查询出口——不区分究竟是技能自身
+    冷却、分类冷却还是充能未恢复，不呈现当前充能数、下次充能恢复剩余、公共冷却是否生效、修饰后的
+    完整周期，消费方只能靠反复调用 `GetCooldown` + 自行拼凑猜测。新增 `SkillReadiness`（不可变值
+    类型，`core/rules/skill/contracts/SkillReadiness.cs`）与 `[Flags] SkillReadinessBlockers`
+    （`None`/`SkillCooldown`/`CategoryCooldown`/`GlobalCooldown`/`NoCharges`，可按位或组合）、
+    `CategoryCooldownStatus`（分类 id + 该分类剩余，不可变结构体）三个新类型，`ISkillHost` 新增
+    带默认实现的 `GetSkillReadiness(Id unitId, Id skillId): SkillReadiness`——C# 8 默认接口成员，
+    公开 API 只新增不删改，既有实现方零改动仍可编译。默认实现只能借 `GetCooldown` 拼一个降级快照
+    （`IsReady`/`BlockingSources` 粗略推断，公共冷却完全不参与判定，其余字段一律 `null` 表示
+    "未知"）；生产实现 `SkillHost.GetSkillReadiness` 显式覆盖，直接从 `CooldownTracker`/GCD/充能
+    状态读取精确字段，裁决口径与 `CastSkill`（经 `CastPipeline`）步骤 3（冷却/充能）、步骤 4
+    （公共冷却）逐字对齐（`def.HasCharges` 时只看充能数、不检查分类冷却，同 `CooldownTracker.
+    IsSkillReady` 既有判断记录；`EffectiveCooldownDuration` 与 `StartCooldownAndGcd` 的
+    `modifiedCooldown` 计算同一算式，只读不写）；不推进时间、不创建第二套计时器、不修改任何状态
+    （全程不调用 `CooldownTracker` 任何写方法）。`CooldownTracker` 补充只读公开出口
+    `CurrentTimeFactor`/`GetChargeRechargeRemaining`/`GetEffectiveChargesMax`/
+    `GetEffectiveRechargeTimeScaled`（均为既有私有状态/私有方法的只读转发，不新增账本、不改变既有
+    写路径）。**转发/豁免清单**：框架内 `ISkillHost` 的全部实现/包装——生产实现 `SkillHost`（显式
+    覆盖，见上）、`RulesAssembly` 内部的 `DeferredSkillCastQuery` 延迟绑定代理（显式转发到
+    `Real.GetSkillReadiness`，理由同该代理对其余全部成员的既有转发惯例：默认接口成员的"悄悄吃掉
+    默认值"陷阱对组合/包装实现方同样成立，见 `presentation/assembly/tests/
+    InterfaceDefaultMemberForwardingTests.cs` 类型判断记录里 `IExprSchema.KnownKeys` 那个反面
+    案例）——均已按此登记；`core/rules/*/tests/**/FakeSkillHost`（`ai`/`expr_host`/`gobj`/
+    `dialog` 四处测试替身）均位于各自模块的独立测试程序集（`Tests.Rules`/`Tests.Carriers`/
+    `Tests.Gameplay`），不在 `InterfaceDefaultMemberForwardingTests` 反射的六个生产程序集
+    （`Core.Foundation`/`Core.Numbers`/`Core.Carriers`/`Core.Rules`/`Core.Gameplay`/
+    `Presentation.Common`）依赖链上，门禁本就反射不到，比照该门禁类型判断记录"本测试只反射六个
+    生产程序集本身，不含各自配对的测试程序集"对 `LegacyFakeSchema` 一类测试替身的既定处理方式，
+    不登记豁免、不需要改动。验收测试 `tests/C09_SkillReadinessTests.cs`（经真实
+    `Core.Rules.Assembly.RulesAssembly` 装配根，非本模块其余测试惯用的最小 `SkillWorldBuilder`
+    直接构造裸 `SkillHost`）：零充能、部分充能恢复中（`CurrentCharges`/`NextChargeRemaining` 同时
+    正确）、仅公共冷却阻塞、冷却修饰后 `EffectiveCooldownDuration` 与刚施放完毕的剩余一致、暂停
+    （未推进时间）反复查询逐字段不变与恢复（推进时间）后正确反映流逝时间、分类冷却（自身从未
+    施放的姊妹技能仍被分类冷却阻塞）共 6 例，每例均断言查询本身只读（重复查询/`GetCooldown`
+    结果不变）且快照与随后一次 `CastSkill` 的裁决一致。ABI 探针（`toolchain/abi_probe.ps1`，
+    基线 1.12.0）breaks=0。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全
