@@ -134,21 +134,68 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-### 新增
+## [1.26.1] - 2026-09-13
 
-- `QuestContentValidationRule` 新增前置链循环检测——`quest_prerequisite_cycle`（`quest.def.
-  prerequisite` 引用图成环，含自环，三色标记 DFS）与 `quest_prerequisite_unknown`（前置引用了
-  不存在的任务），均为阻断级检查项（见架构文档 04 第 8 节勘误、消费方反馈第 38 条，
-  `architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md`）——此前两个任务互相以对方
-  为前置在加载期 0 错误，运行期永远互相卡死。不新增公开 API（构造函数签名不变，新增方法均为
-  private）。
-- `dialog.story_tree.nodes[].performance_hook_ref`/`dialog.gossip_menu.options[].
+PATCH 版本：消费方反馈处理——`quest.def.prerequisite` 前置链循环检测缺失（编辑器第 38 条）+
+`found.hook` 消费方字段引用元数据缺失（编辑器第 39 条），核实与逐条回复见
+[消费方反馈-2026-09-13-编辑器-第38-39条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md)。
+提交链：`5e028fb`（第 38 条实现 + 测试）、`69ea8c6`（第 39 条实现 + 测试）、`d1fa3d2`（编辑器
+产品文档 + 回复文档），分支 `wax/editor38-39`，`--no-ff` 合入 `main` `6baa22c`、`13ef2f4`（合入后
+CHANGELOG/落地方案/回复文档回填 + `speaker_ref` 说明更正），本笔提交（变更记录与迁移说明）。
+
+### 修复
+
+- **消费方反馈第 38 条（`quest.def.prerequisite` 前置链循环检测缺失）**：
+  `QuestContentValidationRule` 此前只校验 `prerequisite` 表达式语法本身是否合法，从未解析表达式
+  里引用的其它任务、也不检测是否成环——两个任务互相以对方为前置时，加载期 0 错误，运行期永远
+  互相卡死（真实复现，见回复文档）。新增 `ValidatePrerequisiteGraph`：重新解析每条 `prerequisite`
+  文本收集 `quest.*` 引用构图，跑三色标记 DFS（算法同既有 `story_tree_cycle`），新增两项阻断级
+  检查——`quest_prerequisite_cycle`（成环，含自环）与 `quest_prerequisite_unknown`（前置引用了
+  不存在的任务）。不新增公开 API（构造函数签名不变，新增方法均为 `private`）。
+- **消费方反馈第 39 条（`found.hook` 消费方字段引用元数据缺失）**：全仓排查核实 `found.hook`
+  （脚本钩子注册表）早已登记 `TableSchema`（收边 I1 落地），反馈原文"从未被登记过 schema"的
+  复现 grep 只扫描了 `core/foundation/app_lifecycle/`，未覆盖真实登记所在的
+  `core/foundation/hook_registry/`，是复现步骤的目录遗漏，不是表未注册；真正的空白是
+  `dialog.story_tree.nodes[].performance_hook_ref`/`dialog.gossip_menu.options[].
   actions[]{kind=script}.ref`/`encounter.def.phases[].on_enter_hook`/`skill.def.
   effects[]{kind=script}.params.hook_id`/`area.trigger_def.params{trigger_type=script}.
-  hook_id` 五处字段补登 `SoftReferenceTable("found.hook")`（消费方反馈第 39 条）——`found.hook`
-  早已登记 `TableSchema`（收边 I1 落地），此前五处消费方字段的引用元数据一直没跟着补齐；
+  hook_id` 五处消费方字段的判断记录/引用元数据一直没跟着补齐。本版本五处补登
+  `SoftReferenceTable("found.hook")`（不升级为 `Reference`，理由同 29/30/37 号反馈同类修复路径）；
   `data/_sample` 新增 `found/found.hook.json` 示例数据与四处消费方示例引用。纯新增可选元数据，
   不破坏既有兼容调用。【编辑器相关契约】
+
+### 文档
+
+- **04 第 8 节**"新任务"行勘误：补齐"循环引用检测（前置链）"对应的实现检查名
+  `quest_prerequisite_cycle`/`quest_prerequisite_unknown`；新增 2026-09-13 变更记录一行。
+- **`core/gameplay/quest/README.md`**：新增判断记录 14。
+- **五份 schema README**（`core/gameplay/area_trigger/schema/README.md`、`core/gameplay/dialog/
+  schema/dialog.gossip_menu.md`、`core/gameplay/dialog/schema/dialog.story_tree.md`、
+  `core/gameplay/encounter/schema/README.md`、`core/rules/skill/schema/README.md`）：五处字段
+  描述改写为如实反映"`found.hook` 已登记 `TableSchema`，本字段补软引用"，不再出现过时表述。
+- **`editor/docs/编辑器产品文档.md`**（v2.9 → v2.11）：变更记录新增两行，4.1 节补充五处字段清单。
+- **`dialog.story_tree.md` 判断记录 1**（合入后勘误，非本轮反馈范围）：`speaker_ref` 字段代码
+  实际早已登记 `.WithSoftReference(table: "creature.template")`（消费方反馈第 30 条落地），文档
+  仍写"不登记 Reference"、未提软引用，改为如实描述；只改文档不改代码。
+- 新增 [消费方反馈-2026-09-13-编辑器-第38-39条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md)：
+  两条反馈的复现、根因、处理方式、验证结果。
+
+### 迁移说明
+
+- **任务前置成环或引用未知任务的内容从本版起在加载期阻断**：升级前建议先用本版
+  `python toolchain/validate_data.py --strict` 排查既有 `quest.def` 内容，确认没有任务互为前置
+  （或更长的环）、也没有 `prerequisite` 引用不存在的任务 id；此前这类内容加载期 0 错误、运行期
+  卡死，升级后会在加载期直接报 `quest_prerequisite_cycle`/`quest_prerequisite_unknown` 并阻断。
+- 五处 `found.hook` 消费方字段新增软引用元数据是纯新增、不参与加载期引用完整性校验，不改变任何
+  既有加载行为，无需迁移动作。
+
+### 兼容声明
+
+本版本对 1.12.0～1.26.0 期间编译的旧消费方二进制保持兼容：依据是 `toolchain/abi_probe.ps1`
+严格模式下的验证——1.12.0 基线 consumer 程序集不重新编译、直接换上本版本正式 DLL 实跑通过，且
+独立的公开 API 表面差异比对（`toolchain/abi_surface`）输出 `breaks=0`（本次两条反馈均未新增
+公开 API：38 条新增方法均为 `private`，39 条只是给既有 `FieldSchema` 补调用既有的
+`.WithSoftReference(...)`）。
 
 ## [1.26.0] - 2026-09-12
 
