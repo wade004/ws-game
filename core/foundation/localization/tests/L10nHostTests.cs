@@ -268,6 +268,58 @@ namespace Tests.Foundation.Localization
         }
 
         // -----------------------------------------------------------------
+        // 5b. fallback 引用登记（reference_integrity，复核附带收口）：l10n.locale.fallback
+        // 从 FieldKind.Id 改登记为 FieldKind.Reference（referenceTable: "l10n.locale"）后，
+        // 指向未登记语言的坏数据在 DataRegistry.LoadAll 阶段（早于 L10nHost 构造）即报错。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void LoadAll_FallbackPointsToUndeclaredLocale_ReportsReferenceIntegrityError()
+        {
+            var bus = MakeBus();
+            var localeEnvelope = "{\"table\": \"l10n.locale\", \"schema_version\": 1, \"rows\": " +
+                "[{\"id\": \"l10n.locale.zh_cn\", \"fallback\": \"l10n.locale.ja_jp\", \"is_default\": true}]}";
+            var textEnvelope = "{\"table\": \"l10n.text\", \"schema_version\": 1, \"rows\": []}";
+            var source = new InMemoryDataSource()
+                .Add("l10n.locale", localeEnvelope)
+                .Add("l10n.text", textEnvelope);
+
+            var registry = new DataRegistry(source, bus);
+            registry.RegisterSchema(L10nSchemas.Locale);
+            registry.RegisterSchema(L10nSchemas.Text);
+
+            var report = registry.LoadAll();
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == ValidationSeverity.Error &&
+                i.Check == "reference_integrity" &&
+                i.Table == "l10n.locale" &&
+                i.Field == "fallback");
+        }
+
+        [Fact]
+        public void LoadAll_FallbackNullOrDeclaredLocale_NoReferenceIntegrityIssues()
+        {
+            var bus = MakeBus();
+            var localeEnvelope = "{\"table\": \"l10n.locale\", \"schema_version\": 1, \"rows\": " +
+                "[{\"id\": \"l10n.locale.zh_cn\", \"fallback\": null, \"is_default\": true}," +
+                " {\"id\": \"l10n.locale.en_us\", \"fallback\": \"l10n.locale.zh_cn\", \"is_default\": false}]}";
+            var textEnvelope = "{\"table\": \"l10n.text\", \"schema_version\": 1, \"rows\": []}";
+            var source = new InMemoryDataSource()
+                .Add("l10n.locale", localeEnvelope)
+                .Add("l10n.text", textEnvelope);
+
+            var registry = new DataRegistry(source, bus);
+            registry.RegisterSchema(L10nSchemas.Locale);
+            registry.RegisterSchema(L10nSchemas.Text);
+
+            var report = registry.LoadAll();
+
+            Assert.Equal(0, report.ErrorCount);
+            Assert.DoesNotContain(report.Issues, i => i.Check == "reference_integrity" && i.Field == "fallback");
+        }
+
+        // -----------------------------------------------------------------
         // 6. HasText
         // -----------------------------------------------------------------
 
