@@ -157,6 +157,90 @@ def test_unregistered_field_kept_and_appended_at_end() -> None:
     assert list(reordered.keys()) == ["id", "value", "extra_unregistered", "another_extra"]
 
 
+FIELD_ORDER_MAP_V2 = {
+    "test.migrated": ["id", "display_name", "note"],
+}
+
+
+def _fake_validator_run_v2(cmd, cwd=None, capture_output=False, text=False, encoding=None, errors=None):
+    """消费方反馈第 40 条根治：模拟一张当前登记版本为 2 的表（对照真实的
+    `found.migration_sample`），`tables_list` 条目带新增的 `schema_version`/`migrations` 字段。"""
+    assert "--list-tables" in cmd
+    assert "--json" in cmd
+    payload = {
+        "tables": 1,
+        "records": 1,
+        "errors": 0,
+        "warnings": 0,
+        "blocking": False,
+        "tables_list": [
+            {
+                "name": table,
+                "record_count": 1,
+                "fields": fields,
+                "schema_version": 2,
+                "migrations": [{"from": 1, "to": 2}],
+            }
+            for table, fields in FIELD_ORDER_MAP_V2.items()
+        ],
+        "issues": [],
+        "overrides": [],
+        "disabled_optional_rules": [],
+        "enabled_optional_rules": [],
+    }
+    return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+
+def test_lower_schema_version_file_skipped_not_rewritten(tmp_path: Path) -> None:
+    """消费方反馈第 40 条根治：文件信封 schema_version（1）低于表当前登记版本（2）时，本工具整体
+    跳过——不按当前版本的字段登记顺序重排（v1 文件用的字段名 label 本来就不在当前 fields 清单
+    ["id", "display_name", "note"] 里，按当前顺序重排没有意义，见 format_data.py process_file
+    判断记录），--check 也不应把它判定为"需要重排"。
+    """
+    toolchain_copy = _make_toolchain_copy(tmp_path)
+    data_root = tmp_path / "data_root"
+    (data_root / "test").mkdir(parents=True)
+    # v1 字段顺序：label 在 id 之后（未登记字段，若真的按当前 fields 重排会被判定为"需要重排"，
+    # 因为当前 fields 清单里第一个是 id、第二个是 display_name，label 不在其中）。
+    row = {"id": "test.migrated.a", "label": "Alpha"}
+    envelope = {"table": "test.migrated", "schema_version": 1, "rows": [row]}
+    original_text = json.dumps(envelope, ensure_ascii=False, indent=2) + "\n"
+    (data_root / "test" / "test.migrated.json").write_text(original_text, encoding="utf-8", newline="\n")
+
+    module = _load_format_data_copy(toolchain_copy)
+    module.subprocess = SimpleNamespace(run=_fake_validator_run_v2)
+
+    exit_code_check = module.main(["--schema-order", "--check", "--data-root", str(data_root)])
+    assert exit_code_check == 0
+
+    exit_code_write = module.main(["--schema-order", "--data-root", str(data_root)])
+    assert exit_code_write == 0
+    assert (data_root / "test" / "test.migrated.json").read_text(encoding="utf-8") == original_text
+
+
+def test_schema_version_equal_to_current_still_reordered(tmp_path: Path) -> None:
+    """信封 schema_version 已等于表当前版本时，不受本次改动影响——字段顺序检查/重排照常进行。"""
+    toolchain_copy = _make_toolchain_copy(tmp_path)
+    data_root = tmp_path / "data_root"
+    (data_root / "test").mkdir(parents=True)
+    row = {"note": "n", "id": "test.migrated.a", "display_name": "Alpha"}
+    envelope = {"table": "test.migrated", "schema_version": 2, "rows": [row]}
+    (data_root / "test" / "test.migrated.json").write_text(
+        json.dumps(envelope, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
+
+    module = _load_format_data_copy(toolchain_copy)
+    module.subprocess = SimpleNamespace(run=_fake_validator_run_v2)
+
+    exit_code_check = module.main(["--schema-order", "--check", "--data-root", str(data_root)])
+    assert exit_code_check == 1
+
+    exit_code_write = module.main(["--schema-order", "--data-root", str(data_root)])
+    assert exit_code_write == 0
+    rewritten = json.loads((data_root / "test" / "test.migrated.json").read_text(encoding="utf-8"))
+    assert list(rewritten["rows"][0].keys()) == ["id", "display_name", "note"]
+
+
 def test_check_mode_no_changes_needed_returns_zero(tmp_path: Path) -> None:
     toolchain_copy = _make_toolchain_copy(tmp_path)
     data_root = tmp_path / "data_root"
