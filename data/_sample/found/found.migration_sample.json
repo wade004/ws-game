@@ -1,0 +1,8 @@
+{
+  "table": "found.migration_sample",
+  "schema_version": 1,
+  "rows": [
+    { "id": "found.migration_sample.alpha", "label": "阿尔法示例", "note": "迁移链演示行：v1 版本使用 label 字段，加载期自动迁移为 display_name" },
+    { "id": "found.migration_sample.beta", "label": "贝塔示例" }
+  ]
+}

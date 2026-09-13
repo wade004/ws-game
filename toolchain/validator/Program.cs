@@ -529,6 +529,27 @@ namespace Toolchain.Validator
                         }
                     }
                     sb.Append(']');
+                    sb.Append(',');
+
+                    // 消费方反馈第 40 条："--list-tables --json 组合" 新增字段——每张表当前登记的
+                    // schema_version（TableSchema.CurrentSchemaVersion）与迁移链形状（Migrations 的
+                    // (from, to) 环节清单，按登记顺序，不代表已从 fromVersion 到 CurrentSchemaVersion
+                    // 全部串通，链是否可用仍须调用 SchemaMigrator.BuildChain 才能确认）。追加在既有
+                    // "field_ranges" 字段之后、闭合大括号之前，不改动任何既有字段，供内容工具不必靠
+                    // 反射/复刻常量即可得知链形状（editor 侧此前只能自行硬编码或反射读取）。
+                    sb.Append("\"schema_version\":").Append(fieldSchema?.CurrentSchemaVersion ?? 1).Append(',');
+                    sb.Append("\"migrations\":[");
+                    if (fieldSchema != null)
+                    {
+                        var migrations = fieldSchema.Migrations;
+                        for (var m = 0; m < migrations.Count; m++)
+                        {
+                            if (m > 0) sb.Append(',');
+                            sb.Append('{').Append("\"from\":").Append(migrations[m].FromVersion)
+                                .Append(",\"to\":").Append(migrations[m].ToVersion).Append('}');
+                        }
+                    }
+                    sb.Append(']');
 
                     sb.Append('}');
                 }

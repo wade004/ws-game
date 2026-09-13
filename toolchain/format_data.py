@@ -78,8 +78,9 @@ def _build_validator_cmd(repo_root: Path, data_roots: list[Path]) -> list[str]:
     return cmd
 
 
-def get_field_order_map(repo_root: Path, data_roots: list[Path]) -> dict[str, list[str]]:
-    """跑一遍 toolchain/validator --list-tables --json，返回 {表名: [按 schema 登记顺序的字段名]}。
+def get_field_order_map(repo_root: Path, data_roots: list[Path]) -> tuple[dict[str, list[str]], dict[str, int]]:
+    """跑一遍 toolchain/validator --list-tables --json，返回
+    ({表名: [按 schema 登记顺序的字段名]}, {表名: 当前 schema_version})。
 
     判断记录：`--list-tables --json` 输出的 `fields` 数组来自 `TableSchema.GetSchema`，与
     数据是否通过校验（`report.blocking`）无关（schema 在装配阶段就已经登记完毕，不依赖加载结果，
@@ -87,6 +88,12 @@ def get_field_order_map(repo_root: Path, data_roots: list[Path]) -> dict[str, li
     引用缺失而报错，`fields` 信息仍然可靠，因此这里不关心 validator 的退出码/report 是否 blocking，
     只要能拿到合法 JSON 输出就提取 `fields`；拿不到（子进程失败、非法 JSON）则直接抛错，不静默
     返回空表（那样会让调用方误以为"这张表没有登记字段"从而不做任何重排，掩盖真实问题）。
+
+    判断记录（消费方反馈第 40 条）：一并取 `schema_version`（表当前代码期望的版本，
+    Program.cs `PrintJson` 新增字段）——`process_file` 用它判断某个数据文件的信封 `schema_version`
+    是否落后于当前版本；落后的文件（如迁移链演示表 `found.migration_sample` 的 v1 示例数据）字段名
+    本身就还是旧版本的（如 `label` 而非 `display_name`），按当前版本的字段登记顺序重排没有意义，
+    见 `process_file`/`main` 判断记录。
     """
     cmd = _build_validator_cmd(repo_root, data_roots)
     result = subprocess.run(
@@ -106,7 +113,11 @@ def get_field_order_map(repo_root: Path, data_roots: list[Path]) -> dict[str, li
             "toolchain/validator --list-tables --json 输出缺少 tables_list 字段，"
             "无法取字段顺序（validator 是否是较旧版本，未包含消费方反馈 E11 新增的 fields 字段？）"
         )
-    return {entry["name"]: list(entry.get("fields") or []) for entry in tables_list}
+    field_order_map = {entry["name"]: list(entry.get("fields") or []) for entry in tables_list}
+    # schema_version 是消费方反馈第 40 条新增字段，旧版本 validator 输出里没有这个键——缺失时按 1
+    # 兜底（等价于"不落后"，不因为对接了旧版本 validator 就误判全部文件都需要跳过重排检查）。
+    schema_version_map = {entry["name"]: int(entry.get("schema_version") or 1) for entry in tables_list}
+    return field_order_map, schema_version_map
 
 
 def _reorder_row(row: dict, field_order: list[str]) -> dict:
@@ -124,31 +135,61 @@ def _format_envelope(data: dict) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
 
 
-def process_file(path: Path, field_order_map: dict[str, list[str]], verbose: bool) -> tuple[bool, str]:
-    """返回 (是否需要重排, 重排后的完整文本)。字段顺序信息里没有这张表（未登记 schema、或表名
-    与文件名不一致导致的骨架级问题——那是 validate_data.py 骨架检查的职责，本工具不重复判断）时
-    原样返回，不改动、不报错。
+def process_file(
+    path: Path,
+    field_order_map: dict[str, list[str]],
+    schema_version_map: dict[str, int],
+    verbose: bool,
+) -> tuple[bool, str, bool]:
+    """返回 (是否需要重排, 重排后的完整文本, 是否因版本落后被跳过)。字段顺序信息里没有这张表
+    （未登记 schema、或表名与文件名不一致导致的骨架级问题——那是 validate_data.py 骨架检查的职责，
+    本工具不重复判断）时原样返回，不改动、不报错。
+
+    判断记录（消费方反馈第 40 条根治）：文件信封 `schema_version` 低于该表当前登记版本
+    （`schema_version_map`）时整体跳过——`field_order_map` 里的字段名清单是按当前版本的
+    `TableSchema.Fields` 登记的，旧版本文件的字段名本就不同（如迁移链演示表 v1 用 `label`，当前
+    版本登记的是 `display_name`），按当前版本的字段顺序重排没有意义：`label` 这类不在当前字段
+    清单里的字段会被视为"未登记字段"整体追加在已登记字段之后，只要原始文件里这些字段与"已登记
+    字段先出现、未登记字段后出现"这一巧合顺序不一致，就会被误判为"需要重排"（见文件头判断记录），
+    而这类文件的正确处理方式是先用 `SchemaMigrator.MigrateEnvelope`（或框架加载期的自动迁移）
+    升到当前版本，不是靠本工具重排字段——升版本前，本工具不对其字段顺序做任何判断。
     """
     original_text = path.read_text(encoding="utf-8")
     try:
         data = json.loads(original_text)
     except json.JSONDecodeError:
         # 非法 JSON 不是本工具的职责（validate_data.py 第一道骨架检查会报），原样跳过。
-        return False, original_text
+        return False, original_text, False
 
     if not isinstance(data, dict):
-        return False, original_text
+        return False, original_text, False
 
     table = data.get("table")
     field_order = field_order_map.get(table) if isinstance(table, str) else None
     if not field_order:
         if verbose:
             print(f"[verbose] 跳过（未登记字段顺序信息）: {path}", file=sys.stderr)
-        return False, original_text
+        return False, original_text, False
+
+    current_version = schema_version_map.get(table) if isinstance(table, str) else None
+    file_version = data.get("schema_version")
+    if (
+        current_version is not None
+        and isinstance(file_version, int)
+        and not isinstance(file_version, bool)
+        and file_version < current_version
+    ):
+        if verbose:
+            print(
+                f"[verbose] 跳过（信封 schema_version={file_version} 低于表 '{table}' 当前版本 "
+                f"{current_version}，按当前字段顺序重排没有意义，见文件头判断记录）: {path}",
+                file=sys.stderr,
+            )
+        return False, original_text, True
 
     rows = data.get("rows")
     if not isinstance(rows, list):
-        return False, original_text
+        return False, original_text, False
 
     # 判断记录：是否需要重排，只看"字段的相对顺序是否真的发生了变化"（逐行比较重排前后的
     # dict key 序列），不是看"整份文件重新序列化后字节是否不同"——本仓库现有数据文件的空白/
@@ -170,13 +211,13 @@ def process_file(path: Path, field_order_map: dict[str, list[str]], verbose: boo
         new_rows.append(reordered)
 
     if not any_row_reordered:
-        return False, original_text
+        return False, original_text, False
 
     new_data = dict(data)
     new_data["rows"] = new_rows
     new_text = _format_envelope(new_data)
 
-    return True, new_text
+    return True, new_text, False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -231,17 +272,22 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
     try:
-        field_order_map = get_field_order_map(repo_root, data_roots)
+        field_order_map, schema_version_map = get_field_order_map(repo_root, data_roots)
     except RuntimeError as exc:
         print(f"参数错误：{exc}", file=sys.stderr)
         return 2
 
     changed_files: list[Path] = []
+    skipped_low_version_files: list[Path] = []
     total_files = 0
     for root in data_roots:
         for path in sorted(root.rglob("*.json")):
             total_files += 1
-            needs_rewrite, new_text = process_file(path, field_order_map, args.verbose)
+            needs_rewrite, new_text, skipped_low_version = process_file(
+                path, field_order_map, schema_version_map, args.verbose
+            )
+            if skipped_low_version:
+                skipped_low_version_files.append(path)
             if needs_rewrite:
                 changed_files.append(path)
                 if not args.check:
@@ -255,9 +301,20 @@ def main(argv: list[str] | None = None) -> int:
             rel = f
         print(f"{verb}: {rel}")
 
+    # 消费方反馈第 40 条：如实汇报"信封 schema_version 低于表当前版本、跳过重排检查"的文件——不是
+    # 静默跳过（见 process_file 判断记录），让调用方知道这些文件的字段顺序本工具没有判断过，仍需要
+    # 先经迁移升到当前版本才谈得上"字段顺序是否符合 schema 登记"。
+    for f in skipped_low_version_files:
+        try:
+            rel = f.relative_to(repo_root)
+        except ValueError:
+            rel = f
+        print(f"跳过（版本落后，未判断字段顺序）: {rel}")
+
     print(
         f"[format_data.py --schema-order{' --check' if args.check else ''}] "
-        f"共检查 {total_files} 个文件，{verb} {len(changed_files)} 个"
+        f"共检查 {total_files} 个文件，{verb} {len(changed_files)} 个，"
+        f"跳过版本落后 {len(skipped_low_version_files)} 个"
     )
 
     if args.check and changed_files:

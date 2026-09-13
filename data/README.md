@@ -88,7 +88,12 @@ data/<game>/<domain>/<table>.json       具体游戏的数据（放各自游戏�
   `dist/ws-game-<ver>-samples.zip`（内含 `data/_sample`、`assets/_sample`），
   `toolchain/get_framework.ps1 -WithSamples` 下载/校验（按锁文件 `samples.sha256` 字段）并合并
   落地到与主 zip 相同的目录下；不传 `-WithSamples` 时行为与改动前完全一致（不下载、不落地这两棵
-  目录树）。
+  目录树）。消费方反馈第 40 条（2026-09-13）：`data/_sample/found/found.migration_sample.json`
+  是**迁移链演示表**——`found.migration_sample`（见
+  `core/foundation/data_registry/core/BuiltinSchemas.cs`）是框架内唯一真正声明并使用了
+  `TableMigration` 的登记表，没有任何运行时消费方，该文件的 `schema_version` 故意写 `1`（落后于
+  该表当前登记版本 `2`），供内容工具/编辑器用真实数据验证"迁移链串接 + 整表迁移"复刻实现是否与
+  框架行为一致；不要往这张表填真实内容、也不要把它当作任何游戏功能的一部分。
 - **`data/<game>/`**：具体游戏的数据放各自游戏仓库自己的 `data/<game>/` 下（游戏代号由游戏仓库
   自己决定），与框架分发包的 `data/_framework/` **并列加载**（见下"多根加载与合并规则"），本框架
   仓库不包含任何具体游戏的数据目录。
@@ -150,6 +155,13 @@ data/<game_or_sample>/<domain>/<table>.json
 - `table`：字符串，必须等于文件名（不含 `.json`）。
 - `schema_version`：正整数，从 1 起，表级统一版本号（04 第 3 节允许表级版本，同一张表内全部记录共享同一个版本号）。
 - `rows`：记录数组，每条记录是"字段名 → 值"的对象，字段定义见 04 及 05～09 各文档。
+- `migrated_from`（可选）：整数，与 `schema_version` 同级的信封字段（不是逐行字段——04 第 3 节
+  "schema 版本与迁移"是表级统一版本号，`migrated_from` 同样按表统一登记，不逐行登记）；若文件经历过
+  迁移，记录该表最早的原始版本号，便于排查（04 第 3 节字段表）。取值须严格小于当前 `schema_version`
+  （即 `[1, schema_version - 1]` 范围内的整数），否则 `DataRegistry` 加载期判定为 `envelope` 检查项
+  错误。消费方反馈第 40 条：内容工具在把迁移结果写回磁盘前，用框架公开的
+  `Core.Foundation.DataRegistry.SchemaMigrator.MigrateEnvelope` 生成该字段的取值——多次增量迁移时该
+  实现会保留最早一次的原始版本，不会被后续每次迁移逐次覆盖成"上一次迁移前的版本"。
 
 ## 记录主键
 

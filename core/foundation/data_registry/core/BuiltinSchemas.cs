@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Core.Foundation.Common.Json;
 
 namespace Core.Foundation.DataRegistry
 {
@@ -48,10 +49,60 @@ namespace Core.Foundation.DataRegistry
             isRegistryTable: true)
             .WithOwnership(SchemaLayer.Foundation, "foundation");
 
+        /// <summary>
+        /// 消费方反馈第 40 条（2026-09-13，见
+        /// <c>architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md</c>）迁移链演示表：框架内
+        /// 唯一真正声明并使用了 <see cref="TableMigration"/> 的登记表，没有任何运行时消费方——只用于
+        /// 让内容工具/编辑器用真实数据（<c>data/_sample/found/found.migration_sample.json</c>，
+        /// <c>schema_version: 1</c>）验证"迁移链串接 + 整表迁移"复刻实现是否与框架行为一致，不必再像
+        /// 此前那样自行合成测试专用 <see cref="TableSchema"/>（见反馈原文"编辑器只能靠自己合成的
+        /// TestMigratedSchema 验证"一节）。
+        /// <para>
+        /// 1→2 迁移：v1 的 <c>label</c> 字段改名为 <c>display_name</c>（其余字段原样保留）；v1 没有
+        /// <c>note</c> 字段时迁移不补（选择"不补"而非"补空串"——迁移函数只做结构转换，不做业务判断，
+        /// 见 04 第 3 节"迁移函数只做结构转换...不做业务判断"；<c>note</c> 本身是可选字段，缺失是合法
+        /// 状态，迁移没有理由替内容作者决定"缺失等价于空字符串"这个业务默认值）。
+        /// </para>
+        /// </summary>
+        public static readonly TableSchema MigrationSample = new TableSchema(
+            name: "found.migration_sample",
+            primaryKey: "id",
+            currentSchemaVersion: 2,
+            fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true,
+                    description: "found.migration_sample.<name>，仅供迁移链演示，无运行时消费方"),
+                new FieldSchema("display_name", FieldKind.String, required: true,
+                    description: "显示名（v2 字段名；v1 版本里同一语义的字段名为 label，经 1→2 迁移改名而来）"),
+                new FieldSchema("note", FieldKind.String, required: false,
+                    description: "备注说明，可选；v1 版本没有这个字段，1→2 迁移遇到缺失时不补默认值"),
+            },
+            migrations: new[]
+            {
+                new TableMigration(1, 2, row =>
+                {
+                    var builder = new JsonObjectBuilder();
+                    foreach (var entry in row)
+                    {
+                        if (entry.Key == "label")
+                        {
+                            builder.Add("display_name", entry.Value);
+                        }
+                        else
+                        {
+                            builder.Add(entry.Key, entry.Value);
+                        }
+                    }
+                    return builder.Build();
+                }),
+            })
+            .WithOwnership(SchemaLayer.Foundation, "foundation");
+
         /// <summary>全部内置 schema，供 <see cref="IDataRegistry.RegisterSchema"/> 批量登记。</summary>
         public static IReadOnlyList<TableSchema> All { get; } = new[]
         {
             FoundEventCatalog,
+            MigrationSample,
         };
     }
 }
