@@ -37,6 +37,14 @@ namespace Core.Foundation.DataRegistry
         /// 默认 <c>l10n.locale.zh_cn</c>。</summary>
         public CommonId DefaultLocale { get; set; } = new CommonId("l10n.locale.zh_cn");
 
+        /// <summary>消费方反馈第 42 条：<c>l10n.locale</c> 表已登记、且不等于 <see cref="DefaultLocale"/>
+        /// 的每个语言，若某 <c>TextKey</c> 字段引用的键在该语言下没有对应 <c>l10n.text</c> 行，是否
+        /// 额外报一条 Warning 级 <c>text_key_exists</c>（检查名与默认语言缺失时相同，消息里点出
+        /// 该语言经回退链会落到哪个语言取文本）。默认语言下缺失该键始终是 Error，不受本开关影响。
+        /// <c>l10n.locale</c> 表未加载时本项天然跳过，不额外告警。默认 <c>true</c>；设为 <c>false</c>
+        /// 恢复"只查默认语言"的旧行为（<c>text_key_exists</c> 检查名不新增分支）。</summary>
+        public bool WarnOnMissingTranslation { get; set; } = true;
+
         /// <summary>Expr 字段（<see cref="FieldKind.Expr"/>）解析/校验用的引用登记表；为 null 时
         /// <c>expr_parsable</c> 校验项跳过实际解析，只记一条 Warning（见任务书"ExprSchema 为空 →
         /// 警告并跳过"）。</summary>

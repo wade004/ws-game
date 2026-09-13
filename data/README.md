@@ -169,6 +169,29 @@ data/<game_or_sample>/<domain>/<table>.json
 - `l10n.text` 表例外：没有 `id` 字段，主键是 `key`（格式 `l10n.<来源域>.<来源记录 name>.<字段名>`，见 04 第 7.2 节）与 `locale` 的复合键。
 - 主键规则：内容表用 `id`（domain 前缀 = 表名第一段）；跨 domain 的登记表（`found.event_catalog`、`found.input_action`、`l10n.text`）用 `key`，不做 domain 前缀检查（见 `core/foundation/data_registry/README.md`"主键规则"一节、`event_bus/schema/found.event_catalog.md`"与通用 id 规则的偏差"、`core/foundation/input_map/schema/found.input_action.md`"判断记录：登记表，主键字段名 key"）。`found.input_action` 记录的 id 域名是 `input`（不是表名首段 `found`），与 `found.event_catalog` 同理。
 
+## l10n 示例数据（多语言/回退链/变量缺失演示）
+
+消费方反馈第 41 条（2026-09-14）：`data/_sample/l10n/` 现登记两种语言——`l10n.locale.zh_cn`
+（默认语言，`fallback: null`）与 `l10n.locale.en_us`（`fallback: l10n.locale.zh_cn`）；`l10n.text`
+里每一个被某张内容表 `TextKey` 字段引用的键都补齐了 `en_us` 一行译文（英文正文与中文含义对应，
+含 `{变量}` 占位的行英文保留同名占位符），`python toolchain/validate_data.py --strict` 在该数据集
+上仍保持 0 error 0 warning（含消费方反馈第 42 条新增的非默认语言缺翻译 Warning，见下）。
+
+另外补了两个**不被任何表字段引用**的纯演示键（因此不会触发第 42 条的 Warning）：
+
+- `l10n.ui.sample_fallback_demo.text`：只登记了 `zh_cn` 一行，没有 `en_us`——演示语言回退链：
+  `en_us` 查询本键时，`L10nHost`/`DataRegistry` 均沿 `en_us` 的 `fallback` 链（这里只有一步，直接
+  落到 `zh_cn`）取到中文正文。
+- `l10n.ui.sample_variable_demo.text`：`zh_cn`/`en_us` 都有，正文含 `{amount}` 占位——演示变量
+  缺失路径：不提供 `amount` 时占位符原样保留，且记一条变量缺失警告（`L10nOptions.WarnOnMissingVar`，
+  见 `core/foundation/localization/core/L10nHost.cs` 的 `SubstituteVars`）。
+
+对应的加载/断言用例见 `core/foundation/localization/tests/L10nHostTests.cs`
+（`RealSampleL10nFiles_FallbackDemoKey_...`/`RealSampleL10nFiles_VariableDemoKey_...`）。两个演示键
+与其余内容表的示例数据一样，仅供本框架仓库自测使用，不代表任何真实游戏内容（同上"两类目录"一节
+`data/_sample/` 判定说明）；`sample_*` 前缀、`<game>` 占位规则同样适用——本框架仓库不含任何具体
+游戏专属键。
+
 ## 编码与格式
 
 - UTF-8，无 BOM。

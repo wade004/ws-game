@@ -30,6 +30,12 @@ namespace Presentation.Assembly
         /// 与 <c>toolchain/validator</c> 此前硬编码的取值一致。</summary>
         public bool FailOnUnknownTable { get; set; } = true;
 
+        /// <summary>消费方反馈第 42 条：透传给 <see cref="DataRegistryOptions.WarnOnMissingTranslation"/>。
+        /// 默认 <c>true</c>——<c>toolchain/validator</c>/编辑器基础套件默认都会报非默认语言缺翻译的
+        /// Warning；<c>toolchain/validator --no-missing-translation-warning</c> 显式关闭时传
+        /// <c>false</c>。</summary>
+        public bool WarnOnMissingTranslation { get; set; } = true;
+
         /// <summary>透传给 <see cref="Core.Carriers.Assembly.CarriersSchemaCatalog.RegisterAll"/>
         /// （经 <see cref="Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll"/> 转发）。默认
         /// <c>null</c>。</summary>
@@ -186,6 +192,7 @@ namespace Presentation.Assembly
             var registryOptions = PresentationSchemaCatalog.CreateOptions();
             registryOptions.FailOnUnknownTable = options.FailOnUnknownTable;
             registryOptions.Strictness = options.Strictness;
+            registryOptions.WarnOnMissingTranslation = options.WarnOnMissingTranslation;
 
             bus = options.Bus ?? CreateDefaultBus();
             var registry = new DataRegistry(primary, bus, registryOptions);

@@ -27,7 +27,8 @@ namespace Core.Foundation.Localization
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "语言 id，如 l10n.locale.zh_cn"),
-                new FieldSchema("fallback", FieldKind.Id, required: false, description: "回退语言 id，可为空"),
+                new FieldSchema("fallback", FieldKind.Reference, required: false, referenceTable: "l10n.locale",
+                    description: "回退语言 id，可为空；须为本表已登记的语言 id"),
                 new FieldSchema("is_default", FieldKind.Bool, required: true,
                     description: "是否为默认语言；全表必须恰好一条为 true"),
             },

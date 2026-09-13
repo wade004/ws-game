@@ -268,6 +268,58 @@ namespace Tests.Foundation.Localization
         }
 
         // -----------------------------------------------------------------
+        // 5b. fallback 引用登记（reference_integrity，复核附带收口）：l10n.locale.fallback
+        // 从 FieldKind.Id 改登记为 FieldKind.Reference（referenceTable: "l10n.locale"）后，
+        // 指向未登记语言的坏数据在 DataRegistry.LoadAll 阶段（早于 L10nHost 构造）即报错。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void LoadAll_FallbackPointsToUndeclaredLocale_ReportsReferenceIntegrityError()
+        {
+            var bus = MakeBus();
+            var localeEnvelope = "{\"table\": \"l10n.locale\", \"schema_version\": 1, \"rows\": " +
+                "[{\"id\": \"l10n.locale.zh_cn\", \"fallback\": \"l10n.locale.ja_jp\", \"is_default\": true}]}";
+            var textEnvelope = "{\"table\": \"l10n.text\", \"schema_version\": 1, \"rows\": []}";
+            var source = new InMemoryDataSource()
+                .Add("l10n.locale", localeEnvelope)
+                .Add("l10n.text", textEnvelope);
+
+            var registry = new DataRegistry(source, bus);
+            registry.RegisterSchema(L10nSchemas.Locale);
+            registry.RegisterSchema(L10nSchemas.Text);
+
+            var report = registry.LoadAll();
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == ValidationSeverity.Error &&
+                i.Check == "reference_integrity" &&
+                i.Table == "l10n.locale" &&
+                i.Field == "fallback");
+        }
+
+        [Fact]
+        public void LoadAll_FallbackNullOrDeclaredLocale_NoReferenceIntegrityIssues()
+        {
+            var bus = MakeBus();
+            var localeEnvelope = "{\"table\": \"l10n.locale\", \"schema_version\": 1, \"rows\": " +
+                "[{\"id\": \"l10n.locale.zh_cn\", \"fallback\": null, \"is_default\": true}," +
+                " {\"id\": \"l10n.locale.en_us\", \"fallback\": \"l10n.locale.zh_cn\", \"is_default\": false}]}";
+            var textEnvelope = "{\"table\": \"l10n.text\", \"schema_version\": 1, \"rows\": []}";
+            var source = new InMemoryDataSource()
+                .Add("l10n.locale", localeEnvelope)
+                .Add("l10n.text", textEnvelope);
+
+            var registry = new DataRegistry(source, bus);
+            registry.RegisterSchema(L10nSchemas.Locale);
+            registry.RegisterSchema(L10nSchemas.Text);
+
+            var report = registry.LoadAll();
+
+            Assert.Equal(0, report.ErrorCount);
+            Assert.DoesNotContain(report.Issues, i => i.Check == "reference_integrity" && i.Field == "fallback");
+        }
+
+        // -----------------------------------------------------------------
         // 6. HasText
         // -----------------------------------------------------------------
 
@@ -334,6 +386,71 @@ namespace Tests.Foundation.Localization
 
             Assert.Equal(new Id("l10n.locale.zh_cn"), host.DefaultLocale);
             Assert.Equal("力量", host.Text(new Id("l10n.stat.strength.name")));
+        }
+
+        // -----------------------------------------------------------------
+        // 8. 消费方反馈第 41 条：示例数据补的第二语言 en_us + 两个演示键
+        // （回退链 / 变量缺失警告），复用第 7 节的真实文件加载方式（data/README.md
+        // "l10n 示例数据"一节）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void RealSampleL10nFiles_FallbackDemoKey_EnUsResolvesToZhCnTextViaFallbackChain()
+        {
+            var repoRoot = FindRepoRoot();
+            var localeJson = File.ReadAllText(Path.Combine(repoRoot, "data", "_sample", "l10n", "l10n.locale.json"));
+            var textJson = File.ReadAllText(Path.Combine(repoRoot, "data", "_sample", "l10n", "l10n.text.json"));
+
+            var bus = MakeBus();
+            var source = new InMemoryDataSource()
+                .Add("l10n.locale", localeJson)
+                .Add("l10n.text", textJson);
+            var registry = new DataRegistry(source, bus);
+            registry.RegisterSchema(L10nSchemas.Locale);
+            registry.RegisterSchema(L10nSchemas.Text);
+            var report = registry.LoadAll();
+            Assert.Equal(0, report.ErrorCount);
+
+            var host = new L10nHost(registry, bus);
+            host.SetLocale(new Id("l10n.locale.en_us"));
+
+            // l10n.ui.sample_fallback_demo.text 只登记了 zh_cn（见 data/_sample/l10n/l10n.text.json、
+            // data/README.md"l10n 示例数据"一节）；en_us 自己没有这条文本，经 en_us 声明的
+            // fallback（l10n.locale.zh_cn）取到中文正文。
+            Assert.Equal(
+                "这条文本只登记了中文，用于演示语言回退链：en_us 查询本键会经回退链取到这条中文文本。",
+                host.Text(new Id("l10n.ui.sample_fallback_demo.text")));
+        }
+
+        [Fact]
+        public void RealSampleL10nFiles_VariableDemoKey_EnUsWithoutAmount_KeepsPlaceholderAndWarns()
+        {
+            var repoRoot = FindRepoRoot();
+            var localeJson = File.ReadAllText(Path.Combine(repoRoot, "data", "_sample", "l10n", "l10n.locale.json"));
+            var textJson = File.ReadAllText(Path.Combine(repoRoot, "data", "_sample", "l10n", "l10n.text.json"));
+
+            var bus = MakeBus();
+            var source = new InMemoryDataSource()
+                .Add("l10n.locale", localeJson)
+                .Add("l10n.text", textJson);
+            var registry = new DataRegistry(source, bus);
+            registry.RegisterSchema(L10nSchemas.Locale);
+            registry.RegisterSchema(L10nSchemas.Text);
+            var report = registry.LoadAll();
+            Assert.Equal(0, report.ErrorCount);
+
+            var diagnostics = new InMemoryL10nDiagnostics();
+            var host = new L10nHost(registry, bus, diagnostics: diagnostics);
+            host.SetLocale(new Id("l10n.locale.en_us"));
+
+            // l10n.ui.sample_variable_demo.text 在 zh_cn/en_us 都登记了，正文含 {amount} 占位
+            // （见 data/_sample/l10n/l10n.text.json）；不提供 amount 时占位符原样保留，且
+            // L10nOptions.WarnOnMissingVar 默认 true，记一条变量缺失警告（见
+            // L10nHost.SubstituteVars 判断记录）。
+            var text = host.Text(new Id("l10n.ui.sample_variable_demo.text"), null);
+
+            Assert.Equal("You received {amount} gold coins.", text);
+            Assert.Contains(diagnostics.Warnings, w => w.Contains("amount"));
         }
     }
 }

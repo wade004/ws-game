@@ -87,6 +87,19 @@ namespace Core.Foundation.DataRegistry
 
         private Dictionary<string, LoadedTable> _tables = new Dictionary<string, LoadedTable>(StringComparer.Ordinal);
 
+        /// <summary>消费方反馈第 42 条：本次 <see cref="RunFieldValidation"/> 期间的"非默认已登记
+        /// 语言"清单缓存（<see cref="BuildLocaleValidationCaches"/> 在每次校验开始时算一次，不在
+        /// <see cref="ValidateTextKeyField"/> 里逐字段重复遍历 <c>l10n.locale</c>）；<c>l10n.locale</c>
+        /// 表未加载时为 null，<see cref="ValidateTextKeyField"/> 据此判断"跳过非默认语言告警、不
+        /// 额外报错"。</summary>
+        private List<CommonId>? _nonDefaultLocalesCache;
+
+        /// <summary>与 <see cref="_nonDefaultLocalesCache"/> 同批构建：语言 id 原文 → 其
+        /// <c>fallback</c>（无则 null），用于 <see cref="ResolveFallbackLanding"/> 沿回退链查找
+        /// "运行时会落到哪个语言"（与 <c>core/foundation/localization/core/L10nHost.cs</c> 的
+        /// <c>TryResolve</c> 回退语义一致：链耗尽仍未找到则落到默认语言）。</summary>
+        private Dictionary<string, CommonId?>? _localeFallbackCache;
+
         /// <summary>最近一次加载/重载实际发生的全部行覆盖（见 <see cref="GetOverrideDiagnostics"/>、
         /// 类型级判断记录"覆盖语义"）；<see cref="LoadAllCore"/> 整体重建，<see cref="Reload(string)"/>
         /// 只替换对应表的条目。</summary>
@@ -1140,6 +1153,8 @@ namespace Core.Foundation.DataRegistry
 
         private void RunFieldValidation(List<ValidationIssue> issues)
         {
+            BuildLocaleValidationCaches();
+
             foreach (var kvp in _tables)
             {
                 var schema = kvp.Value.Schema;
@@ -1635,6 +1650,75 @@ namespace Core.Foundation.DataRegistry
             }
         }
 
+        /// <summary>消费方反馈第 42 条：<see cref="RunFieldValidation"/> 每次校验开始时调用一次，
+        /// 建立 <see cref="_nonDefaultLocalesCache"/>/<see cref="_localeFallbackCache"/>——
+        /// <c>l10n.locale</c> 未加载时两者都置 null（<see cref="ValidateTextKeyField"/> 据此跳过
+        /// 非默认语言告警，不额外报错）；id 字段格式不合法的行（本身会被 <c>l10n.locale</c> 自身的
+        /// <c>field_type</c> 校验单独报出）在这里直接跳过，不参与本缓存。</summary>
+        private void BuildLocaleValidationCaches()
+        {
+            if (!_tables.TryGetValue("l10n.locale", out var localeTable))
+            {
+                _nonDefaultLocalesCache = null;
+                _localeFallbackCache = null;
+                return;
+            }
+
+            var defaultLocale = _options.DefaultLocale.Value;
+            var nonDefault = new List<CommonId>();
+            var fallbackMap = new Dictionary<string, CommonId?>(StringComparer.Ordinal);
+
+            var records = localeTable.Records;
+            for (int i = 0; i < records.Count; i++)
+            {
+                var record = records[i];
+                if (!record.TryGetId("id", out var id))
+                {
+                    continue;
+                }
+
+                CommonId? fallback = record.TryGetId("fallback", out var fb) ? fb : (CommonId?)null;
+                fallbackMap[id.Value] = fallback;
+
+                if (!string.Equals(id.Value, defaultLocale, StringComparison.Ordinal))
+                {
+                    nonDefault.Add(id);
+                }
+            }
+
+            _nonDefaultLocalesCache = nonDefault;
+            _localeFallbackCache = fallbackMap;
+        }
+
+        /// <summary>消费方反馈第 42 条：<paramref name="startLocale"/>（已确认缺该文本键）沿
+        /// <c>fallback</c> 链查找"运行时会落到哪个语言"——与
+        /// <c>core/foundation/localization/core/L10nHost.cs</c> 的 <c>TryResolve</c> 语义一致：
+        /// 逐级查下一个 fallback 是否有该键文本，链耗尽（或成环，防御性 visited 集合，构造期正常
+        /// 数据不会出现）仍未找到则落到默认语言（调用方已确认默认语言下该键存在）。</summary>
+        private string ResolveFallbackLanding(string textKey, CommonId startLocale, string defaultLocale, Dictionary<string, DataRecord> l10nTextByKey)
+        {
+            var visited = new HashSet<string>(StringComparer.Ordinal) { startLocale.Value };
+            var current = startLocale.Value;
+
+            while (_localeFallbackCache != null && _localeFallbackCache.TryGetValue(current, out var fallback) && fallback.HasValue)
+            {
+                var next = fallback.Value.Value;
+                if (!visited.Add(next))
+                {
+                    break;
+                }
+
+                if (l10nTextByKey.ContainsKey(textKey + "@" + next))
+                {
+                    return next;
+                }
+
+                current = next;
+            }
+
+            return defaultLocale;
+        }
+
         private void ValidateTextKeyField(string table, string recordKey, string fieldPath, JsonValue raw, List<ValidationIssue> issues)
         {
             if (!(raw is JsonString s) || !CommonId.IsValidFormat(s.Value))
@@ -1658,6 +1742,30 @@ namespace Core.Foundation.DataRegistry
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "text_key_exists",
                     $"文本键 \"{textKey}\" 在语言 \"{defaultLocale}\" 下不存在", recordKey: recordKey, field: fieldPath));
+                return;
+            }
+
+            // 消费方反馈第 42 条：默认语言这个键已确认存在时，再对每个已登记的非默认语言补一条
+            // Warning（_nonDefaultLocalesCache 为 null 表示 l10n.locale 未加载，跳过这部分、不额外
+            // 告警；WarnOnMissingTranslation=false 时也跳过，恢复只查默认语言的旧行为）。
+            if (!_options.WarnOnMissingTranslation || _nonDefaultLocalesCache == null)
+            {
+                return;
+            }
+
+            var nonDefaultLocales = _nonDefaultLocalesCache;
+            for (int i = 0; i < nonDefaultLocales.Count; i++)
+            {
+                var locale = nonDefaultLocales[i];
+                if (l10nText.ByKey.ContainsKey(textKey + "@" + locale.Value))
+                {
+                    continue;
+                }
+
+                var landing = ResolveFallbackLanding(textKey, locale, defaultLocale, l10nText.ByKey);
+                issues.Add(new ValidationIssue(ValidationSeverity.Warning, table, "text_key_exists",
+                    $"文本键 \"{textKey}\" 在语言 \"{locale.Value}\" 下缺失（该语言经回退链在 \"{landing}\" 下有文本，运行时回退）",
+                    recordKey: recordKey, field: fieldPath));
             }
         }
 

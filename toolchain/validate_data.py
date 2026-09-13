@@ -66,6 +66,11 @@ Program.cs``）。第一道骨架检查只做"若出现必须是布尔值"这一
                        仓库里校验"框架分发包 + 本游戏数据"：
                        ``validate_data.py --framework-root <dist>/data/_framework
                        --data-root ./data``。
+    ``--no-missing-translation-warning`` 消费方反馈第 42 条：关闭第二道校验里
+                       "文本键在非默认已登记语言下缺失"的 Warning 级
+                       ``text_key_exists``（透传为 ``toolchain/validator`` 同名参数，
+                       见 ``DataRegistryOptions.WarnOnMissingTranslation``），恢复
+                       只查默认语言的旧行为。
     ``--json``         消费方反馈 E8 根治（2026-09-10，见
                        architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E8）：
                        把第一道骨架检查结果与第二道 ``toolchain/validator --json``
@@ -338,6 +343,14 @@ def main(argv: list[str] | None = None) -> int:
         help="把两道校验结果合并为一份 JSON 打印到标准输出（人类可读消息改打印到标准错误），"
              "结构见本文件头 --json 参数说明",
     )
+    parser.add_argument(
+        "--no-missing-translation-warning",
+        action="store_true",
+        help="消费方反馈第 42 条：关闭第二道校验里"
+             "\"文本键在非默认已登记语言下缺失\"的 Warning 级 text_key_exists，"
+             "透传为 toolchain/validator 的 --no-missing-translation-warning，"
+             "恢复只查默认语言的旧行为",
+    )
 
     try:
         args = parser.parse_args(argv)
@@ -485,6 +498,8 @@ def main(argv: list[str] | None = None) -> int:
         cmd += ["--data-root", str(target_root)]
     if args.strict:
         cmd.append("--strict")
+    if args.no_missing_translation_warning:
+        cmd.append("--no-missing-translation-warning")
     if args.json:
         # 消费方反馈 E8 根治：透传给 toolchain/validator 自己的 --json，让它把校验结果打印成
         # JSON（而不是人类可读文本），本脚本原样解析、合并进最终输出的 "validator" 字段。
