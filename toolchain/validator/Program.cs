@@ -76,6 +76,9 @@ namespace Toolchain.Validator
             var schemaAudit = false;
             string? allowlistPath = null;
             IReadOnlyList<(string table, string idField)>? displayMapSources = null;
+            // 消费方反馈第 42 条：默认 WarnOnMissingTranslation=true（见
+            // DataRegistryOptions.WarnOnMissingTranslation 判断记录），本开关显式传入时关闭。
+            var noMissingTranslationWarning = false;
 
             for (var i = 0; i < args.Length; i++)
             {
@@ -100,6 +103,12 @@ namespace Toolchain.Validator
 
                     case "--list-tables":
                         listTables = true;
+                        break;
+
+                    // 消费方反馈第 42 条：关闭"非默认已登记语言缺翻译报 Warning 级 text_key_exists"
+                    // 这条校验，恢复只查默认语言的旧行为（见 DataRegistryOptions.WarnOnMissingTranslation）。
+                    case "--no-missing-translation-warning":
+                        noMissingTranslationWarning = true;
                         break;
 
                     // 判断记录（F3 元数据门禁）：--schema-audit 是一种完全不同的运行模式——不需要
@@ -150,7 +159,7 @@ namespace Toolchain.Validator
             {
                 Console.Error.WriteLine(
                     "参数错误：缺少必填参数 --data-root <dir>（可重复传入以合并多个数据根）\n" +
-                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>]（省略 --display-map-sources 时默认覆盖 skill.def/skill.aura_def/item.template/creature.template/gobj.template）\n" +
+                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>] [--no-missing-translation-warning]（省略 --display-map-sources 时默认覆盖 skill.def/skill.aura_def/item.template/creature.template/gobj.template；--no-missing-translation-warning 关闭非默认语言缺翻译的 text_key_exists Warning，见消费方反馈第 42 条）\n" +
                     "或元数据门禁：dotnet run --project toolchain/validator -- --schema-audit [--allowlist <path>] [--json]");
                 return 2;
             }
@@ -191,6 +200,7 @@ namespace Toolchain.Validator
                 FailOnUnknownTable = true,
                 Strictness = strict ? DataRegistryStrictness.WarningsBlock : DataRegistryStrictness.WarningsAllowed,
                 DisplayMapCoverageSources = displayMapSources,
+                WarnOnMissingTranslation = !noMissingTranslationWarning,
             };
             var effectiveDisplayMapCoverageSources = displayMapSources ?? PresentationSchemaCatalog.DefaultDisplayMapCoverageSources;
 
@@ -208,7 +218,8 @@ namespace Toolchain.Validator
             if (jsonOutput)
             {
                 PrintJson(report, tableCount, recordCount, listTables ? run.Registry : null, overrides,
-                    run.DisabledOptionalRules, run.EnabledOptionalRules, effectiveDisplayMapCoverageSources);
+                    run.DisabledOptionalRules, run.EnabledOptionalRules, effectiveDisplayMapCoverageSources,
+                    validationOptions.WarnOnMissingTranslation);
             }
             else
             {
@@ -270,6 +281,10 @@ namespace Toolchain.Validator
                     ? "none"
                     : string.Join(", ", run.DisabledOptionalRules);
                 Console.WriteLine($"optional rules disabled: {disabledSummary}");
+
+                // 消费方反馈第 42 条：如实汇报本次是否启用了"非默认语言缺翻译报 Warning"，追加在
+                // 既有 "optional rules disabled" 行之后，不改动既有任何一行的内容。
+                Console.WriteLine($"missing translation warning: {(validationOptions.WarnOnMissingTranslation ? "enabled" : "disabled")}");
             }
 
             return report.IsBlocking ? 1 : 0;
@@ -442,7 +457,8 @@ namespace Toolchain.Validator
             ValidationReport report, int tableCount, int recordCount, IDataRegistryView? tablesForListing,
             IReadOnlyList<OverrideDiagnostic> overrides,
             IReadOnlyList<string> disabledOptionalRules, IReadOnlyList<string> enabledOptionalRules,
-            IReadOnlyList<(string table, string idField)> effectiveDisplayMapCoverageSources)
+            IReadOnlyList<(string table, string idField)> effectiveDisplayMapCoverageSources,
+            bool warnOnMissingTranslation)
         {
             var sb = new StringBuilder();
             sb.Append('{');
@@ -609,6 +625,12 @@ namespace Toolchain.Validator
                 sb.Append('}');
             }
             sb.Append(']');
+
+            // 消费方反馈第 42 条：如实导出本次是否启用了"非默认语言缺翻译报 Warning"（见
+            // DataRegistryOptions.WarnOnMissingTranslation / --no-missing-translation-warning）。
+            // 追加在既有 "display_map_coverage_sources" 字段之后，不改动任何既有字段。
+            sb.Append(',');
+            sb.Append("\"warn_on_missing_translation\":").Append(warnOnMissingTranslation ? "true" : "false");
 
             // 消费方反馈第 37 条："--list-tables --json 组合" 新增字段（同 "tables_list" 一样只在
             // --list-tables 传入时才有意义，见 tablesForListing 判空）：本次已登记的全部 DeclareReference

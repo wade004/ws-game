@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Adapters.Stub;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
@@ -2107,6 +2108,146 @@ namespace Tests.Foundation.Data
             Assert.Equal(-1, diag.OverriddenRootIndex);
             Assert.Equal("root_b/x.json", diag.OverridingRelativePath);
             Assert.Equal("root_a/x.json", diag.OverriddenRelativePath);
+        }
+
+        // -----------------------------------------------------------------
+        // 15. 消费方反馈第 42 条：text_key_exists 对已登记的非默认语言补 Warning
+        // -----------------------------------------------------------------
+
+        /// <summary>test.widget.a 的 label 字段引用 "l10n.test.widget.a.title"；调用方按
+        /// <paramref name="localeRowsJson"/>/<paramref name="textRowsJson"/> 自行摆好
+        /// l10n.locale/l10n.text 两张表内容，不预置任何文本行——每个测试用例按自己需要的缺失
+        /// 组合传入。</summary>
+        private static IDataRegistry BuildTextKeyLocaleFixture(
+            string localeRowsJson, string textRowsJson, DataRegistryOptions? options = null)
+        {
+            var widgetRows = "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1, \"label\": \"l10n.test.widget.a.title\"}]";
+            var source = new InMemoryDataSource()
+                .Add("test.widget", Envelope("test.widget", 1, widgetRows))
+                .Add("l10n.text", Envelope("l10n.text", 1, textRowsJson))
+                .Add("l10n.locale", Envelope("l10n.locale", 1, localeRowsJson));
+
+            var registry = new DataRegistry(source, MakeBus(), options ?? new DataRegistryOptions());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(L10nSchemas.Text);
+            registry.RegisterSchema(L10nSchemas.Locale);
+            return registry;
+        }
+
+        [Fact]
+        public void LoadAll_TextKeyMissingFromNonDefaultLocale_ReportsWarningWithFallbackLanding()
+        {
+            var registry = BuildTextKeyLocaleFixture(
+                "[{\"id\": \"l10n.locale.zh_cn\", \"fallback\": null, \"is_default\": true}," +
+                " {\"id\": \"l10n.locale.en_us\", \"fallback\": \"l10n.locale.zh_cn\", \"is_default\": false}]",
+                "[{\"key\": \"l10n.test.widget.a.title\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"标题\"}]");
+
+            var report = registry.LoadAll();
+
+            Assert.Equal(0, report.ErrorCount);
+            var warning = Assert.Single(report.Issues, i => i.Check == "text_key_exists" && i.Severity == ValidationSeverity.Warning);
+            Assert.Contains("l10n.locale.en_us", warning.Message);
+            Assert.Contains("l10n.locale.zh_cn", warning.Message);
+            Assert.Equal("label", warning.Field);
+        }
+
+        [Fact]
+        public void LoadAll_TextKeyMissingFromDefaultLocale_ReportsErrorOnly_NoWarningForNonDefaultLocale()
+        {
+            var registry = BuildTextKeyLocaleFixture(
+                "[{\"id\": \"l10n.locale.zh_cn\", \"fallback\": null, \"is_default\": true}," +
+                " {\"id\": \"l10n.locale.en_us\", \"fallback\": \"l10n.locale.zh_cn\", \"is_default\": false}]",
+                "[]");
+
+            var report = registry.LoadAll();
+
+            // 默认语言本身缺失该键——只报 Error，_nonDefaultLocalesCache 那一段在 Error 分支里
+            // 提前 return，不会额外为 en_us 补一条 Warning（见 DataRegistry.ValidateTextKeyField
+            // 判断记录）。
+            Assert.Equal(1, report.ErrorCount);
+            Assert.Equal(0, report.WarningCount);
+            Assert.Single(report.Issues, i => i.Check == "text_key_exists" && i.Severity == ValidationSeverity.Error);
+        }
+
+        [Fact]
+        public void LoadAll_WarnOnMissingTranslationFalse_SkipsNonDefaultLocaleWarning()
+        {
+            var registry = BuildTextKeyLocaleFixture(
+                "[{\"id\": \"l10n.locale.zh_cn\", \"fallback\": null, \"is_default\": true}," +
+                " {\"id\": \"l10n.locale.en_us\", \"fallback\": \"l10n.locale.zh_cn\", \"is_default\": false}]",
+                "[{\"key\": \"l10n.test.widget.a.title\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"标题\"}]",
+                new DataRegistryOptions { WarnOnMissingTranslation = false });
+
+            var report = registry.LoadAll();
+
+            Assert.Equal(0, report.ErrorCount);
+            Assert.Equal(0, report.WarningCount);
+        }
+
+        [Fact]
+        public void LoadAll_L10nLocaleTableNotLoaded_SkipsNonDefaultLocaleWarning()
+        {
+            var widgetRows = "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1, \"label\": \"l10n.test.widget.a.title\"}]";
+            var source = new InMemoryDataSource()
+                .Add("test.widget", Envelope("test.widget", 1, widgetRows))
+                .Add("l10n.text", Envelope("l10n.text", 1,
+                    "[{\"key\": \"l10n.test.widget.a.title\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"标题\"}]"));
+            // 判断记录：不注册/不加载 l10n.locale——DataRegistryOptions.WarnOnMissingTranslation
+            // 仍是默认 true，但 _nonDefaultLocalesCache 因 l10n.locale 未加载而是 null，
+            // ValidateTextKeyField 据此跳过整段非默认语言告警，不额外报错也不报警。l10n.text 自己
+            // 的 locale 字段（Reference → l10n.locale）在 l10n.locale 表缺失时必然报一条与本次
+            // 改动无关的 reference_integrity 错误——这是既有字段登记的既有行为，不是本条反馈的
+            // 校验范围，这里只按 Check == "text_key_exists" 过滤出与本次改动相关的问题项。
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(L10nSchemas.Text);
+
+            var report = registry.LoadAll();
+
+            var textKeyIssues = report.Issues.Where(i => i.Check == "text_key_exists").ToList();
+            Assert.Empty(textKeyIssues);
+        }
+
+        [Fact]
+        public void LoadAll_FallbackCycleBetweenNonDefaultLocales_DoesNotHangAndLandsAtDefaultLocale()
+        {
+            // b/c 互相把对方登记为 fallback，构成一个不经过默认语言的环——DataRegistry 本身不像
+            // L10nHost 那样在构造期拒绝这种数据（那是 L10nHost 自己的校验，见其
+            // ValidateNoFallbackCycle），ResolveFallbackLanding 必须靠 visited 集合防御，不能死循环。
+            var registry = BuildTextKeyLocaleFixture(
+                "[{\"id\": \"l10n.locale.zh_cn\", \"fallback\": null, \"is_default\": true}," +
+                " {\"id\": \"l10n.locale.b\", \"fallback\": \"l10n.locale.c\", \"is_default\": false}," +
+                " {\"id\": \"l10n.locale.c\", \"fallback\": \"l10n.locale.b\", \"is_default\": false}]",
+                "[{\"key\": \"l10n.test.widget.a.title\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"标题\"}]");
+
+            var report = registry.LoadAll();
+
+            Assert.Equal(0, report.ErrorCount);
+            var warnings = report.Issues.Where(i => i.Check == "text_key_exists" && i.Severity == ValidationSeverity.Warning).ToList();
+            Assert.Equal(2, warnings.Count);
+            Assert.All(warnings, w => Assert.Contains("l10n.locale.zh_cn", w.Message));
+        }
+
+        [Fact]
+        public void LoadAll_ThreeLocaleChain_MissingOnlyInFarthestLocale_LandsAtNearestLocaleWithText()
+        {
+            // 链 c → b → a（默认）：a/b 都有该键文本，c 没有——c 的落点应该是最近的、沿链真正
+            // 查得到文本的 b，而不是一路查到默认语言 a（与 L10nHost.TryResolve 运行时语义一致：
+            // 沿链找到第一个有文本的语言就停）；b 自己有文本，不产生任何 text_key_exists 问题。
+            var registry = BuildTextKeyLocaleFixture(
+                "[{\"id\": \"l10n.locale.zh_cn\", \"fallback\": null, \"is_default\": true}," +
+                " {\"id\": \"l10n.locale.b\", \"fallback\": \"l10n.locale.zh_cn\", \"is_default\": false}," +
+                " {\"id\": \"l10n.locale.c\", \"fallback\": \"l10n.locale.b\", \"is_default\": false}]",
+                "[{\"key\": \"l10n.test.widget.a.title\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"标题\"}," +
+                " {\"key\": \"l10n.test.widget.a.title\", \"locale\": \"l10n.locale.b\", \"text\": \"Title-B\"}]");
+
+            var report = registry.LoadAll();
+
+            Assert.Equal(0, report.ErrorCount);
+            var warning = Assert.Single(report.Issues, i => i.Check == "text_key_exists" && i.Severity == ValidationSeverity.Warning);
+            Assert.Contains("l10n.locale.c", warning.Message);
+            Assert.Contains("l10n.locale.b", warning.Message);
+            Assert.DoesNotContain("l10n.locale.zh_cn", warning.Message);
         }
     }
 }
