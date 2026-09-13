@@ -116,7 +116,9 @@ namespace Core.Foundation.DataRegistry
         /// <paramref name="envelope"/> 已带合法 <c>migrated_from</c>（<c>[1, 原 schema_version - 1]</c>
         /// 范围内的整数，说明此前已迁移过一次），保留那个更早的值，不用本次迁移前的 <c>schema_version</c>
         /// 覆盖它（否则多次增量迁移会逐次丢失最早的原始版本号，"记录原始版本号，便于排查"这一目的落空，
-        /// 见 04 第 3 节字段表 <c>migrated_from</c> 一行）；<paramref name="envelope"/> 原本没有
+        /// 见 04 第 3 节字段表 <c>migrated_from</c> 一行）；<c>migrated_from</c> 存在但不合法（非整数、
+        /// 或超出 <c>[1, 原 schema_version - 1]</c> 范围）时按未提供处理——不校验、不抛异常，用本次迁移前
+        /// 的 <c>schema_version</c> 写入。<paramref name="envelope"/> 原本没有
         /// <c>migrated_from</c> 键时，新键追加在信封末尾（键序不影响 <see cref="JsonObject"/> 语义，见该
         /// 类型注释"保持插入顺序"仅为 <see cref="JsonWriter"/> 原样回写时的可读性考虑）。<c>rows</c> 每个
         /// 元素经 <see cref="MigrateRow"/>。<paramref name="envelope"/> 本身不被修改——<see cref="JsonObject"/>
