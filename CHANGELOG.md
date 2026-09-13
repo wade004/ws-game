@@ -131,8 +131,82 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   effects[]{kind=script}.params.hook_id`/`area.trigger_def.params{trigger_type=script}.hook_id`
   五处字段补登 `SoftReferenceTable("found.hook")`（纯新增可选元数据，编辑器第 39 条）。详见
   [消费方反馈-2026-09-13-编辑器-第38-39条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md)。
+- **ADR-0029（1.27.0）**：`Core.Foundation.DataRegistry.SchemaMigrator` 公开静态类
+  （`BuildChain`/`MigrateRow`/`MigrateEnvelope`），把此前只服务于加载期内部的迁移链串接逻辑收口
+  为公开、单一来源的静态入口，并新增"整表迁移"（信封级，供内容工具写回磁盘前调用）；加载器新增
+  信封级可选键 `migrated_from` 的形状校验；`toolchain/validator --list-tables --json` 每张表新增
+  `schema_version`/`migrations` 导出。详见
+  [ADR-0029](architecture/adr/0029-迁移链串接与整表迁移纳入公开契约.md)、
+  [消费方反馈-2026-09-13-编辑器-第40条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md)。
 
 ## [Unreleased]
+
+## [1.27.0] - 2026-09-13
+
+MINOR 版本：消费方反馈处理——数据注册表加载期内部私有的"迁移链串接"逻辑此前从未对外公开，内容
+工具（编辑器"执行迁移并写回磁盘"功能）被迫照着文字描述与框架源码自行复刻链选取语义与信封改写
+逻辑，且没有真实迁移用例可供端到端比对（编辑器第 40 条）；核实与逐条回复见
+[消费方反馈-2026-09-13-编辑器-第40条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md)、
+[ADR-0029](architecture/adr/0029-迁移链串接与整表迁移纳入公开契约.md)。
+提交链：`4f11244`（公开 SchemaMigrator：迁移链串接 + 整表迁移）、`51955ca`（迁移链演示表 +
+`--list-tables --json` 导出 + `format_data.py` 根治）、`507eaa2`（ADR-0029 + 04/README/编辑器
+产品文档回填）、`c4590e2`（复核修正：链接路径、04 变更记录 ADR 列、`MigrateEnvelope` 注释），分支
+`wba/editor40`，`--no-ff` 合入 `main` `7a03f55`，本笔提交（1.27.0 变更记录与迁移说明）。
+
+### 新增
+
+- `Core.Foundation.DataRegistry.SchemaMigrator` 公开静态类——`BuildChain`/`MigrateRow`/
+  `MigrateEnvelope` 三个方法，把此前只服务于加载期内部的"迁移链串接"逻辑（从起始版本起，每一步
+  取该表登记的迁移环节集合中第一条"起点等于当前版本"的环节，直到精确到达目标版本；途中缺少衔接
+  某个版本的环节判定为"缺少迁移环节"）收口为公开、单一来源的静态入口，语义与原私有实现逐字一致；
+  新增"整表迁移"（信封级，供内容工具写回磁盘前调用，权威处理 `schema_version`/`migrated_from`
+  改写，含多次增量迁移时保留最早原始版本这条细节，`migrated_from` 存在但不合法时按未提供处理，
+  不校验、不抛异常）。`DataRegistry` 加载器改为委托该类，行为不变。【编辑器相关契约】
+- 数据注册表加载器新增信封级可选键 `migrated_from` 的形状校验（须为
+  `[1, schema_version - 1]` 范围内的整数，否则报阻断错误）；04 号文档第 3 节勘误，澄清
+  `migrated_from` 与 `schema_version` 同级，是**信封级**（表级统一）可选键，不是逐行字段。
+  【编辑器相关契约】
+- `toolchain/validator --list-tables --json` 每张表新增导出 `schema_version`（当前登记版本）与
+  `migrations`（迁移环节清单，按登记顺序，是否可从任意起点串通仍须调用 `SchemaMigrator.BuildChain`
+  确认）；`toolchain/format_data.py --schema-order` 据此根治此前的一处误判——文件信封
+  `schema_version` 低于表当前版本时整体跳过字段顺序检查（旧版本文件的字段名与当前版本登记不同，
+  按当前顺序重排没有意义，升版本应先调用 `SchemaMigrator.MigrateEnvelope`）。【编辑器相关契约】
+- 示例数据集新增迁移链演示表 `found.migration_sample`（1→2 迁移：`label` 字段改名为
+  `display_name`，无运行时消费方），随 `BuiltinSchemas.All` 自动登记、样例包自动包含，供内容
+  工具用真实数据端到端验证"迁移链串接 + 整表迁移"复刻实现是否与框架行为一致，不必再自行合成
+  测试专用 schema。
+
+### 文档
+
+- 新增 [ADR-0029](architecture/adr/0029-迁移链串接与整表迁移纳入公开契约.md)：迁移链串接、单行
+  迁移、整表迁移三个入口纳入公开契约的决策记录与备选方案取舍。
+- **04 数据与内容管线**：第 1.1 节总索引新增 `found.migration_sample` 一行；第 3 节字段表之后
+  补充 `migrated_from` 的信封级语义说明；变更记录表 2026-09-13 第 40 条一行补上 ADR-0029 链接。
+- **`data/README.md`**：补充迁移链演示表的归属说明（示例数据目录，不随主分发包发布）。
+- **`editor/docs/编辑器产品文档.md`**（v2.11 → v2.12）：变更记录新增一行。
+- 新增
+  [消费方反馈-2026-09-13-编辑器-第40条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md)：
+  反馈复现、决策依据、处理方式、验证结果与对编辑器的使用建议。
+
+### 迁移说明
+
+- **信封 `migrated_from` 键新增形状校验**：升级前建议先用本版
+  `python toolchain/validate_data.py --strict` 排查既有数据文件——若某表信封携带
+  `migrated_from` 键且取值非法（非整数，或不在 `[1, schema_version - 1]` 范围内），此前加载期
+  静默接受，升级后会报阻断错误并中止加载。核实当前框架全部已登记表的框架/示例数据文件均不含
+  这个键，不受影响，这条新校验只影响未来新写入该键的文件。
+- `SchemaMigrator`/`--list-tables --json` 新增字段/`format_data.py` 新行为均为纯新增，不改变
+  任何既有公开方法签名或既有字段的既有输出，无需迁移动作。
+
+### 编辑器接入建议
+
+- **"执行迁移并写回磁盘"直接调用 `SchemaMigrator.MigrateEnvelope(schema, envelope)`**，不要自行
+  拼装 `BuildChain` + 手写信封改写逻辑；用 `toolchain/validator --list-tables --json` 的
+  `schema_version`/`migrations` 字段判断哪些表存在待迁移的可能（权威答案仍须调用
+  `SchemaMigrator.BuildChain` 确认链是否可用，不要自行用 `migrations` 数组拼接推断）。
+- 用 `found.migration_sample` 做端到端验证：加载该表 v1 示例数据 → 调用 `MigrateEnvelope` →
+  断言产出信封与直接用 `DataRegistry` 加载同一份 v1 数据得到的记录字段值一致。这张表没有任何
+  运行时消费方，可放心用真实数据反复练习迁移流程。
 
 ## [1.26.1] - 2026-09-13
 
