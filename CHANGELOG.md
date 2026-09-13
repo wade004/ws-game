@@ -124,8 +124,31 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   --json` 新增 `reference_declarations` 导出；`SchemaAudit` 新增元数据门禁检查
   `declared_reference_unregistered`（告警级）。详见
   [消费方反馈-2026-09-12-编辑器-第37条.md](architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md)。
+- **消费方反馈第 38/39 条（1.26.1）**：`QuestContentValidationRule` 新增前置链循环检测
+  `quest_prerequisite_cycle`/`quest_prerequisite_unknown`（阻断级，不新增公开 API，编辑器第 38
+  条）；`dialog.story_tree.nodes[].performance_hook_ref`/`dialog.gossip_menu.options[].
+  actions[]{kind=script}.ref`/`encounter.def.phases[].on_enter_hook`/`skill.def.
+  effects[]{kind=script}.params.hook_id`/`area.trigger_def.params{trigger_type=script}.hook_id`
+  五处字段补登 `SoftReferenceTable("found.hook")`（纯新增可选元数据，编辑器第 39 条）。详见
+  [消费方反馈-2026-09-13-编辑器-第38-39条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md)。
 
 ## [Unreleased]
+
+### 新增
+
+- `QuestContentValidationRule` 新增前置链循环检测——`quest_prerequisite_cycle`（`quest.def.
+  prerequisite` 引用图成环，含自环，三色标记 DFS）与 `quest_prerequisite_unknown`（前置引用了
+  不存在的任务），均为阻断级检查项（见架构文档 04 第 8 节勘误、消费方反馈第 38 条，
+  `architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md`）——此前两个任务互相以对方
+  为前置在加载期 0 错误，运行期永远互相卡死。不新增公开 API（构造函数签名不变，新增方法均为
+  private）。
+- `dialog.story_tree.nodes[].performance_hook_ref`/`dialog.gossip_menu.options[].
+  actions[]{kind=script}.ref`/`encounter.def.phases[].on_enter_hook`/`skill.def.
+  effects[]{kind=script}.params.hook_id`/`area.trigger_def.params{trigger_type=script}.
+  hook_id` 五处字段补登 `SoftReferenceTable("found.hook")`（消费方反馈第 39 条）——`found.hook`
+  早已登记 `TableSchema`（收边 I1 落地），此前五处消费方字段的引用元数据一直没跟着补齐；
+  `data/_sample` 新增 `found/found.hook.json` 示例数据与四处消费方示例引用。纯新增可选元数据，
+  不破坏既有兼容调用。【编辑器相关契约】
 
 ## [1.26.0] - 2026-09-12
 

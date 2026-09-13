@@ -71,7 +71,7 @@
 |---|---|---|---|---|
 | `id` | Id | 是 | — | `StoryTreeDefinition.ParseNode` |
 | `text_key` | TextKey | 是 | — | `StoryTreeDefinition.ParseNode` |
-| `speaker_ref` | Id | 否 | 退回 Id（见下方判断记录） | `StoryTreeDefinition.ParseNode` |
+| `speaker_ref` | Id | 否 | 退回 Id + `SoftReferenceTable("creature.template")`（见下方判断记录） | `StoryTreeDefinition.ParseNode` |
 | `branches` | Array\<StoryBranch\> | 否（缺省空数组） | — | `StoryTreeDefinition.ParseNode` |
 | `performance_hook_ref` | Id | 否 | 退回 Id（消费方反馈第 39 条：补 `SoftReferenceTable("found.hook")`） | `StoryTreeDefinition.ParseNode` |
 
@@ -85,11 +85,13 @@
 
 ### 判断记录
 
-1. **`speaker_ref` 退回 Id，不登记 `Reference(creature.template)`**：`creature.template` 属 L3
-   `Core.Carriers.Creature`，`dialog` 模块（`Core.Gameplay.csproj`）只经 `Core.Carriers.csproj`
-   传递可见、README 依赖清单未把它列为本模块直接依赖，登记为 Reference 前应先在 README 补一条
-   依赖声明——本轮不在任务范围内新增模块依赖，先退回 Id，待 `speaker_ref` 真正需要存在性校验时
-   再补依赖声明并升级。
+1. **`speaker_ref` 退回 Id，补 `SoftReferenceTable("creature.template")`，不登记 `Reference`**：
+   `creature.template` 属 L3 `Core.Carriers.Creature`，`dialog` 模块（`Core.Gameplay.csproj`）只经
+   `Core.Carriers.csproj` 传递可见、README 依赖清单未把它列为本模块直接依赖，登记为 Reference 前
+   应先在 README 补一条依赖声明——本轮不在任务范围内新增模块依赖，先退回 Id；消费方反馈第 30 条
+   已为本字段登记 `SoftReferenceTable("creature.template")`（主用途是 `creature.template`，占位
+   角色 id 不解析属预期降级），"当前无引用元数据"一说已过时，待真正需要存在性校验、补齐 README
+   依赖声明后再升级为 `Reference`。
 2. **`performance_hook_ref` 退回 Id，补 `SoftReferenceTable("found.hook")`**：同
    `dialog.gossip_menu.md` "`script.ref`" 判断记录——消费方反馈第 39 条（2026-09-13）核实
    `found.hook` 早已登记 `TableSchema`，此前"当前无实现级 schema 登记"的说法已过时，本字段补软
