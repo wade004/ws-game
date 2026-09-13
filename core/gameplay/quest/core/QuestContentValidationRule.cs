@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Core.Foundation.Common;
@@ -44,16 +45,36 @@ namespace Core.Gameplay.Quest
     /// <item><c>rewards.world_flags[].value</c> 必须存在（<c>RewardBundle.ParseWorldFlags</c> 硬
     /// 约束；<c>value</c> 是 Bool｜Number｜Id 联合类型，<see cref="FieldKind"/> 无法表达，
     /// <c>QuestSchemas.RewardsFields</c> 未登记该子字段）——<c>reward_world_flag_value_required</c>。</item>
+    /// <item>
+    /// 消费方反馈第 38 条（2026-09-13，见
+    /// architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md）：<c>prerequisite</c> 里
+    /// <c>quest.*</c> 引用（<c>is_active</c>/<c>is_completed</c>/<c>is_available</c>/
+    /// <c>is_objectives_complete</c>/<c>objective_progress</c>，见
+    /// <see cref="QuestExprSchemaEntries.RegisterInto"/>）引用的任务 id 若不存在于
+    /// <c>quest.def</c>——<c>quest_prerequisite_unknown</c>；<c>prerequisite</c> 引用图（"任务 →
+    /// 前置任务"有向边）成环（含自环）——<c>quest_prerequisite_cycle</c>，算法与
+    /// <c>DialogContentValidationRule.story_tree_cycle</c> 同款三色标记 DFS，只是图节点是
+    /// <c>quest.def</c> 记录、边由重新解析 <c>prerequisite</c> Expr 文本得到的 AST
+    /// （<see cref="ExprParser"/>/<see cref="ExprReferenceNode"/>）推出，不是正则匹配文本。语法本身
+    /// 不可解析已由 <c>expr_parsable</c> 结构校验报告，本规则重新解析时遇到该情形直接跳过（不在
+    /// 损坏的语法树上继续构图，也不重复报告同一缺陷）——<c>quest_prerequisite_unknown</c>/
+    /// <c>quest_prerequisite_cycle</c>。
+    /// </item>
     /// </list>
     /// <para>
-    /// <paramref name="exprSchema"/> 构造参数保留只是为了不改动
-    /// <c>GameplaySchemaCatalog.RegisterQuestSchemas</c> 现有调用点的签名
-    /// （<c>new QuestContentValidationRule(exprSchema)</c>）——本规则收窄后不再需要用它做任何 Expr
-    /// 解析：<c>prerequisite</c>（顶层）/<c>eventFilter</c>（<c>event</c> 变体分支）的
-    /// <c>expr_parsable</c> 检查已经由 <c>DataRegistry</c> 的顶层/子结构字段登记覆盖，且用的是同一份
-    /// <c>exprSchema</c> 实例（<c>GameplaySchemaCatalog.RegisterQuestSchemas</c> 把
-    /// <c>FullExprSchema</c> 同时传给 <c>DataRegistryOptions.ExprSchema</c> 与本规则构造函数），不会
-    /// 产生解析行为分歧。
+    /// <paramref name="exprSchema"/> 构造参数：<c>objectives</c>/<c>rewards</c> 两类既有业务判断不需要
+    /// 它（<c>prerequisite</c>（顶层）/<c>eventFilter</c>（<c>event</c> 变体分支）语法本身是否可解析的
+    /// <c>expr_parsable</c> 检查已经由 <c>DataRegistry</c> 的顶层/子结构字段登记覆盖，用的是同一份
+    /// <c>exprSchema</c> 实例——<c>GameplaySchemaCatalog.RegisterQuestSchemas</c> 把 <c>FullExprSchema</c>
+    /// 同时传给 <c>DataRegistryOptions.ExprSchema</c> 与本规则构造函数，不会产生解析行为分歧）；第 38
+    /// 条新增的 <c>quest_prerequisite_cycle</c>/<c>quest_prerequisite_unknown</c> 检查需要重新把
+    /// <c>prerequisite</c> 文本解析成 AST 才能提取 <c>quest.*</c> 引用，因此本规则起改为真正持有并使用
+    /// 这份 schema（<c>_exprSchema</c>）——不传（<c>null</c>）时退回
+    /// <see cref="QuestExprSchemaEntries.BuildParsingSchema"/> 构造的独立登记表（覆盖
+    /// <c>quest</c>/<c>player</c>/<c>world</c>/<c>event</c> 四分组，足以正确解析
+    /// <c>prerequisite</c>/<c>eventFilter</c> 里出现的全部分组前缀），保证
+    /// <c>new QuestContentValidationRule()</c>（无参构造，既有测试/调用点惯例）也能正确解析、不抛
+    /// <see cref="ExprParseException"/>"未登记分组"一类误报。
     /// </para>
     /// <para>
     /// 判断记录：本规则不由 <c>data_registry</c> 自动注册，调用方（组装层或本模块测试）需要显式
@@ -63,10 +84,13 @@ namespace Core.Gameplay.Quest
     /// </summary>
     public sealed class QuestContentValidationRule : IValidationRule
     {
+        private readonly IExprSchema _exprSchema;
+
         public QuestContentValidationRule(IExprSchema? exprSchema = null)
         {
-            // 见类型顶部判断记录：参数只保留用于构造签名兼容，本规则收窄后不再使用它。
-            _ = exprSchema;
+            // 见类型顶部判断记录：exprSchema 起改为供 quest_prerequisite_cycle/quest_prerequisite_unknown
+            // 重新解析 prerequisite AST 用；未提供时退回独立登记表，保证无参构造仍可用。
+            _exprSchema = exprSchema ?? QuestExprSchemaEntries.BuildParsingSchema();
         }
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
@@ -76,7 +100,9 @@ namespace Core.Gameplay.Quest
                 yield break;
             }
 
-            foreach (var record in view.GetAll(QuestSchemas.Def.Name))
+            var records = view.GetAll(QuestSchemas.Def.Name).ToList();
+
+            foreach (var record in records)
             {
                 foreach (var issue in ValidateObjectives(record))
                 {
@@ -87,6 +113,11 @@ namespace Core.Gameplay.Quest
                 {
                     yield return issue;
                 }
+            }
+
+            foreach (var issue in ValidatePrerequisiteGraph(records))
+            {
+                yield return issue;
             }
         }
 
@@ -218,6 +249,233 @@ namespace Core.Gameplay.Quest
                     }
                 }
             }
+        }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 38 条：prerequisite 前置链循环检测 + 未知任务引用
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 对全表 <c>quest.def</c> 记录的 <c>prerequisite</c> 重新解析成 AST（复用
+        /// <see cref="ExprParser"/>，不使用正则），提取其中全部 <c>quest.*</c> 引用（见
+        /// <see cref="QuestExprSchemaEntries.RegisterInto"/> 登记的五个 key）的 Id 字面量参数，构成
+        /// "任务 → 前置任务" 有向图：
+        /// <list type="bullet">
+        /// <item>引用的任务 id 不在本表已知 id 集合内——<c>quest_prerequisite_unknown</c>（阻断级，
+        /// 该条边不参与后续成环检测：目标节点本就不存在，图算法无意义）。</item>
+        /// <item>图中存在环（含自环——同一任务在自身 <c>prerequisite</c> 里直接引用自己）——
+        /// <c>quest_prerequisite_cycle</c>（阻断级，算法同
+        /// <see cref="Core.Gameplay.Dialog.DialogContentValidationRule"/> 的 <c>story_tree_cycle</c>
+        /// 三色标记 DFS，只报告首个发现的环，不穷举全部环）。</item>
+        /// </list>
+        /// <c>prerequisite</c> 文本语法本身不可解析（<see cref="ExprParseException"/>）已由
+        /// <c>expr_parsable</c> 结构校验报告，本方法遇到该情形跳过该记录（不重复报告，也不在损坏的
+        /// 语法树上继续构图）。
+        /// </summary>
+        private IEnumerable<ValidationIssue> ValidatePrerequisiteGraph(IReadOnlyList<DataRecord> records)
+        {
+            var knownIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var r in records)
+            {
+                knownIds.Add(r.Key);
+            }
+
+            // fromId -> 该任务 prerequisite 里出现的全部 quest.* 引用目标 id（已知目标才计入，见上）。
+            var edges = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            var nodeOrder = records.Select(r => r.Key).ToList();
+
+            foreach (var record in records)
+            {
+                if (!record.TryGetString("prerequisite", out var text) || string.IsNullOrEmpty(text))
+                {
+                    continue;
+                }
+
+                ExprNode root;
+                try
+                {
+                    root = ExprParser.Parse(text, _exprSchema);
+                }
+                catch (ExprParseException)
+                {
+                    // 语法错误已由 expr_parsable 报告，见方法顶部判断记录。
+                    continue;
+                }
+
+                var idArgs = new List<ExprLiteralNode>();
+                CollectQuestIdLiteralArgs(root, idArgs);
+
+                if (idArgs.Count == 0)
+                {
+                    continue;
+                }
+
+                var targets = edges.TryGetValue(record.Key, out var existing)
+                    ? existing
+                    : (edges[record.Key] = new List<string>());
+
+                foreach (var idArg in idArgs)
+                {
+                    var targetId = idArg.Value.AsId.ToString();
+
+                    if (!knownIds.Contains(targetId))
+                    {
+                        yield return new ValidationIssue(
+                            ValidationSeverity.Error, QuestSchemas.Def.Name, "quest_prerequisite_unknown",
+                            $"prerequisite 引用了不存在的任务 \"{targetId}\"" + PositionSuffix(idArg),
+                            recordKey: record.Key, field: "prerequisite");
+                        continue; // 目标节点不存在，不参与下面的成环检测。
+                    }
+
+                    targets.Add(targetId);
+                }
+            }
+
+            if (TryFindCycle(nodeOrder, edges, knownIds, out var cyclePath))
+            {
+                yield return new ValidationIssue(
+                    ValidationSeverity.Error, QuestSchemas.Def.Name, "quest_prerequisite_cycle",
+                    $"任务前置链成环：{string.Join(" -> ", cyclePath)}",
+                    recordKey: cyclePath[0], field: "prerequisite");
+            }
+        }
+
+        /// <summary>把 <see cref="ExprIssue"/> 同款"位置 X，长度 Y"格式附加在消息末尾（复用
+        /// <see cref="ExprNode.Start"/>/<see cref="ExprNode.Length"/> 的位置能力，<c>Start</c> 为
+        /// <c>-1</c>（未知，理论上不会发生——<see cref="ExprParser.Parse"/> 产出的节点恒带精确区间）
+        /// 时不附加任何后缀）。</summary>
+        private static string PositionSuffix(ExprNode node) =>
+            node.Start >= 0 ? $"（位置 {node.Start}，长度 {node.Length}）" : string.Empty;
+
+        /// <summary>递归收集 <paramref name="node"/> 子树内全部 <c>quest.*</c> 引用（见
+        /// <see cref="ExprGroups.Quest"/>）的 Id 字面量参数——不限定具体 key（<c>is_active</c> 等五个
+        /// 已知 key 的首参数全部是 Id，未来新增 <c>quest.*</c> 签名若仍以 Id 参数指向另一个任务，本方法
+        /// 不需要跟着改）。同时递归 <see cref="ExprReferenceNode.Args"/> 本身（虽然现有五个 quest 签名
+        /// 的参数都是原子字面量，不会嵌套引用，但不假设未来签名不会嵌套），以及 and/or/not/比较各分支，
+        /// 保证 <c>prerequisite</c> 里 <c>quest.*</c> 引用不论出现在表达式哪个位置都不会被漏掉。</summary>
+        private static void CollectQuestIdLiteralArgs(ExprNode node, List<ExprLiteralNode> results)
+        {
+            switch (node)
+            {
+                case ExprOrNode orNode:
+                    foreach (var operand in orNode.Operands)
+                    {
+                        CollectQuestIdLiteralArgs(operand, results);
+                    }
+                    break;
+
+                case ExprAndNode andNode:
+                    foreach (var operand in andNode.Operands)
+                    {
+                        CollectQuestIdLiteralArgs(operand, results);
+                    }
+                    break;
+
+                case ExprNotNode notNode:
+                    CollectQuestIdLiteralArgs(notNode.Operand, results);
+                    break;
+
+                case ExprCompareNode compareNode:
+                    CollectQuestIdLiteralArgs(compareNode.Left, results);
+                    CollectQuestIdLiteralArgs(compareNode.Right, results);
+                    break;
+
+                case ExprReferenceNode referenceNode:
+                    if (string.Equals(referenceNode.Group, ExprGroups.Quest, StringComparison.Ordinal))
+                    {
+                        foreach (var arg in referenceNode.Args)
+                        {
+                            if (arg is ExprLiteralNode literalArg && literalArg.Value.Kind == ExprValueKind.Id)
+                            {
+                                results.Add(literalArg);
+                            }
+                        }
+                    }
+                    foreach (var arg in referenceNode.Args)
+                    {
+                        CollectQuestIdLiteralArgs(arg, results);
+                    }
+                    break;
+
+                case ExprLiteralNode:
+                    break; // 字面量无子节点。
+            }
+        }
+
+        /// <summary>三色标记的迭代式 DFS 成环检测，算法与
+        /// <see cref="Core.Gameplay.Dialog.DialogContentValidationRule"/> 的
+        /// <c>story_tree_cycle</c> 检查同款（见该类型判断记录），只是图节点是 <c>quest.def</c> 记录 id、
+        /// 边来自重新解析 <c>prerequisite</c> AST 得到的 <c>quest.*</c> 引用（见
+        /// <see cref="ValidatePrerequisiteGraph"/>），不是剧情树节点的 <c>branches[].next_node_id</c>。
+        /// 自环（<c>edges[id]</c> 含 <c>id</c> 自身）按同一套算法自然判定为环，不需要特判。</summary>
+        private static bool TryFindCycle(
+            List<string> nodeOrder,
+            Dictionary<string, List<string>> edges,
+            HashSet<string> nodeIdSet,
+            out IReadOnlyList<string> cyclePath)
+        {
+            var state = new Dictionary<string, int>(StringComparer.Ordinal); // 0=未访问 1=访问中 2=已完成
+            var path = new List<string>();
+
+            foreach (var start in nodeOrder)
+            {
+                if (state.TryGetValue(start, out var s0) && s0 != 0)
+                {
+                    continue;
+                }
+                if (Visit(start, edges, nodeIdSet, state, path))
+                {
+                    cyclePath = path;
+                    return true;
+                }
+            }
+
+            cyclePath = Array.Empty<string>();
+            return false;
+        }
+
+        private static bool Visit(
+            string nodeId,
+            Dictionary<string, List<string>> edges,
+            HashSet<string> nodeIdSet,
+            Dictionary<string, int> state,
+            List<string> path)
+        {
+            state[nodeId] = 1;
+            path.Add(nodeId);
+
+            if (edges.TryGetValue(nodeId, out var targets))
+            {
+                foreach (var target in targets)
+                {
+                    if (!nodeIdSet.Contains(target))
+                    {
+                        continue; // 未知引用属于另一条校验项（quest_prerequisite_unknown），本方法只管成环检测。
+                    }
+
+                    if (state.TryGetValue(target, out var targetState))
+                    {
+                        if (targetState == 1)
+                        {
+                            path.Add(target);
+                            return true;
+                        }
+                        if (targetState == 2)
+                        {
+                            continue;
+                        }
+                    }
+
+                    if (Visit(target, edges, nodeIdSet, state, path))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            path.RemoveAt(path.Count - 1);
+            state[nodeId] = 2;
+            return false;
         }
     }
 }

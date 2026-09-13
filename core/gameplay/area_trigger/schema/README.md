@@ -64,7 +64,7 @@
 | `target_map` | Id | 否（业务必填性见 `AreaTriggerParamsFieldGroupRule`） | `map_transition` | `world.map` 未随本模块登记加载，判断记录同顶层 `map_id`，退回 Id，不做引用完整性检查 |
 | `spawn_point` | Id | 否（`map_transition` 下本身也是可选字段，见 `MapTransitionParams.SpawnPoint` 判断记录：缺省由 `ISceneRouter` 落在目标地图默认出生点） | `map_transition` | 同上，退回 Id |
 | `encounter_ref` | Id | 否（业务必填性见 `AreaTriggerParamsFieldGroupRule`） | `encounter_start` | 经 `AreaTriggerOptions.EncounterStartRequested` 委托分发，本模块不直接依赖 `core/gameplay/encounter`（判断记录同 `EncounterSchemas.UnitItemSchema.spawn_ref` 的决耦惯例，见 `encounter/schema/README.md` 判断记录 2），退回 Id |
-| `hook_id` | Id | 否（业务必填性见 `AreaTriggerParamsFieldGroupRule`） | `script` | `found.hook` 当前无实现级 schema 登记，判断记录同 `EncounterSchemas.PhaseItemSchema.on_enter_hook`，退回 Id |
+| `hook_id` | Id | 否（业务必填性见 `AreaTriggerParamsFieldGroupRule`） | `script` | 消费方反馈第 39 条（2026-09-13）：`found.hook` 挂载点注册表早已登记 `TableSchema`，本字段补登 `SoftReferenceTable("found.hook")`，判断记录同 `EncounterSchemas.PhaseItemSchema.on_enter_hook`，仍退回 `Id`（不升级 `Reference`，避免加载期硬阻断） |
 
 `quest_explore` 无任何子字段（`params` 允许为空对象 `{}`，`AreaTriggerDef.FromRecord` 的
 `switch` 分支对该类型不读取任何 `params` 键）。
@@ -124,8 +124,10 @@ AreaTriggerValidationRules.cs` 现在只剩 `AreaTriggerParamsFieldGroupRule` �
    `map_id`，`world.map` 未登记加载）、`spawn_point`（同上，且本身语义上不指向任何数据表主键，是
    `world.map.spawn_points` 数组的索引/键）、`encounter_ref`（判断记录同 `encounter` 模块
    `spawn_ref` 的决耦考虑——`AreaTriggerHost` 经 `AreaTriggerOptions.EncounterStartRequested` 委托
-   分发，刻意不直接依赖 `core/gameplay/encounter`）、`hook_id`（`found.hook` 当前无实现级 schema
-   登记，判断记录同 `encounter` 模块 `on_enter_hook`）——四者均退回 `Id`，只做格式校验。
+   分发，刻意不直接依赖 `core/gameplay/encounter`）、`hook_id`（消费方反馈第 39 条：`found.hook`
+   已登记 `TableSchema`，补登 `SoftReferenceTable("found.hook")`，判断记录同 `encounter` 模块
+   `on_enter_hook`）——四者均退回 `Id`，只做格式校验（`hook_id` 额外带软引用元数据，仍不做加载期
+   存在性检查）。
 3. **未使用 `itemFactory`/自引用递归**：`shape`/`params` 均是"叶子"结构（子字段全是标量），不存在
    `SkillSchemas.EffectsItemSchema`/`SubstructureValidationTests` 那种自引用场景，本模块无需惰性
    求值。

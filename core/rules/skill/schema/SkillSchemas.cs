@@ -287,14 +287,19 @@ namespace Core.Rules.Skill
                         description: "世界标志键，见 world.flag_schema；required 收窄为 false（同 summon.creature_template 判断记录，本模块无落地实现）"),
                 }, "写入一个世界标志，具体落地由持有 WorldState 的宿主实现（本模块不落地）"),
 
-                // script：06 第 3.2 节"钩子 id"，对应 found.hook。判断记录（分层边界）：found.hook
-                // 当前无实现级 schema 登记（见 04 变更记录 2026-09-05 行"仍无对应实现级 schema 登记"），
-                // Reference 到未登记 schema 的表在校验期恒不存在、会把每条使用 script 效果的记录判为
-                // 引用失效，先退回 Id，待 found.hook 补齐登记后再升级为 Reference。
+                // script：06 第 3.2 节"钩子 id"，对应 found.hook（Core.Foundation.HookRegistry.
+                // FoundHookSchema.Table，L0，本模块 L2，跨层）。消费方反馈第 39 条（2026-09-13）核实：
+                // found.hook 早在收边 I1 就已完成 TableSchema 登记（04 变更记录 2026-09-05 行"仍无
+                // 对应实现级 schema 登记"为当时快照，见该行同日追加注记），本字段判断记录此前描述的
+                // "found.hook 当前无实现级 schema 登记"已经过时，与 dialog 两处（actions[].script.ref/
+                // performance_hook_ref）、encounter.def.on_enter_hook 是同一根因的四处症状，同批修复。
+                // 仍不升级为 FieldKind.Reference（保持 Id + SoftReferenceTable）：found.hook 是运行时
+                // 按 id 分发的挂载点注册表，不希望把"是否存在"变成加载期硬阻断。
                 [EffectKindNames.ToText(EffectKind.Script)] = ParamsCase(required: true, new[]
                 {
                     new FieldSchema("hook_id", FieldKind.Id, required: false,
-                        description: "found.hook 钩子 id，退回 Id 见判断记录；required 收窄为 false（同 summon.creature_template 判断记录，本模块无落地实现）"),
+                        description: "found.hook 钩子 id（消费方反馈第 39 条：登记为软引用，仅供内容工具补全/跳转）；required 收窄为 false（同 summon.creature_template 判断记录，本模块无落地实现）")
+                        .WithSoftReference(table: "found.hook"),
                 }, "调用一个脚本钩子，见 hook_id 子字段（本模块不落地）"),
             };
 

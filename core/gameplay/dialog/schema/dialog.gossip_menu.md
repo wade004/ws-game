@@ -88,7 +88,7 @@
 | `start_encounter` | 是 | `Reference(encounter.def)` | — | `DialogHost.ExecuteAction`/`GameplayAssembly` |
 | `cast_skill` | 是 | `Reference(skill.def)` | — | `DialogHost.ExecuteAction` |
 | `start_story` | 是 | `Reference(dialog.story_tree)` | — | `DialogHost.ExecuteAction`/`DialogHost.StartStory` |
-| `script` | 是 | 退回 Id（`found.hook` 无实现级 schema 登记） | — | `DialogHost.ExecuteAction` |
+| `script` | 是 | 退回 Id（消费方反馈第 39 条：补 `SoftReferenceTable("found.hook")`） | — | `DialogHost.ExecuteAction` |
 
 ### 判断记录
 
@@ -112,8 +112,12 @@
      `TableSchema` 登记，但该表"非运行态数据，仅作文档化 schema"、不参与运行期加载（见
      `WorldStateSchemas.FlagSchema` 类型注释判断记录），登记为 Reference 会让该表未加载时的每条
      `set_flag` 动作都判为引用失效，判断记录同 `QuestSchemas.RewardsFields.world_flags.flagKey`。
-   - `script`：`ref` 指向 `found.hook` 钩子 id，`found.hook` 当前无实现级 schema 登记（04 变更
-     记录 2026-09-05"仍无对应实现级 schema 登记"），判断记录同 `SkillSchemas` 的 `script` 效果原语。
+   - `script`：`ref` 指向 `found.hook` 钩子 id。消费方反馈第 39 条（2026-09-13）核实：`found.hook`
+     早在收边 I1 就已完成 `TableSchema` 登记（04 变更记录 2026-09-05 行"仍无对应实现级 schema 登记"
+     为当时快照，见该行同日追加注记），此前本字段判断记录描述已过时——本字段现补
+     `SoftReferenceTable("found.hook")`（判断记录同 `SkillSchemas` 的 `script` 效果原语），仍不升级
+     为 `Reference`：`found.hook` 是运行时按 id 分发的挂载点注册表，不希望把"是否存在"变成加载期
+     硬阻断。
 4. **`set_flag.params.value` 未登记子结构**：`value` 经 `Core.Gameplay.Common.ExprValueJson.Parse`
    解析，取值可以是 `Bool|Int|Number|String|{$id: Id}` 联合类型，04 记法的 `FieldKind` 是单一类型
    枚举，无法表达联合类型，因此 `params` 只登记"存在且是对象"，不登记 `value` 子字段（判断记录同

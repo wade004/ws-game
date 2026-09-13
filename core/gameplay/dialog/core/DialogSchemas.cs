@@ -109,14 +109,20 @@ namespace Core.Gameplay.Dialog
                         description: "待开始的剧情树，Reference(dialog.story_tree)"),
                 },
 
-                // script：ref 指向 found.hook 钩子 id。判断记录（同 SkillSchemas.script）：found.hook
-                // 当前无实现级 schema 登记（04 变更记录 2026-09-05"仍无对应实现级 schema 登记"），
-                // Reference 到未登记 schema 的表在校验期恒不存在、会把每条使用 script 动作的记录判为
-                // 引用失效，先退回 Id，待 found.hook 补齐登记后再升级为 Reference。
+                // script：ref 指向 found.hook 钩子 id（Core.Foundation.HookRegistry.FoundHookSchema.
+                // Table，L0，本模块 L4，跨层）。消费方反馈第 39 条（2026-09-13）核实：found.hook 早在
+                // 收边 I1 就已完成 TableSchema 登记（04 变更记录 2026-09-05 行"仍无对应实现级 schema
+                // 登记"为当时快照，同一行随后已注明两表"已于收边 I1 完成登记"），此前本字段判断记录
+                // 描述的"found.hook 当前无实现级 schema 登记"已经过时——真正的空白只是本字段/
+                // performance_hook_ref/SkillSchemas.script 三处消费方字段登记一直没跟着补引用元数据，
+                // 与该次反馈"29/30/37 号反馈同类修复路径"一致：登记 SoftReferenceTable（不是
+                // FieldKind.Reference——found.hook 是运行时按 id 分发的挂载点注册表，内容作者调用的
+                // 具体钩子集合允许比框架内置默认值更宽，不希望把"是否存在"升级为加载期硬阻断）。
                 [DialogActionKinds.ToWireString(DialogActionKind.Script)] = new[]
                 {
                     new FieldSchema("ref", FieldKind.Id, required: true,
-                        description: "found.hook 钩子 id；found.hook 当前无实现级 schema 登记，退回 Id，理由同 SkillSchemas.script 判断记录"),
+                        description: "found.hook 钩子 id（消费方反馈第 39 条：登记为软引用，仅供内容工具补全/跳转，不做加载期存在性检查）")
+                        .WithSoftReference(table: "found.hook"),
                 },
             };
 
@@ -169,7 +175,8 @@ namespace Core.Gameplay.Dialog
                 new FieldSchema("branches", FieldKind.Array, required: false, item: StoryBranchItemSchema,
                     description: "缺省空数组；分支为空的节点是终止节点"),
                 new FieldSchema("performance_hook_ref", FieldKind.Id, required: false,
-                    description: "进入该节点时调用的 found.hook；found.hook 当前无实现级 schema 登记，退回 Id，理由同 actions[].script.ref"),
+                    description: "进入该节点时调用的 found.hook（消费方反馈第 39 条：登记为软引用，理由同 actions[].script.ref 判断记录）")
+                    .WithSoftReference(table: "found.hook"),
             },
             description: "{id, text_key, speaker_ref?, branches?, performance_hook_ref?}，见 08 第 3.2 节 StoryNode");
 

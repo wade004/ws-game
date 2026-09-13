@@ -198,6 +198,25 @@ quest/
     保留、恢复为目标增/减/重排三种形状变化均不越界、跨多次无关 `Reload` 的恢复、恢复为同形状后
     完成态正确重算，共 9 例）。公开 API 无变化（`TryGetDefinition` 为私有方法，`Reload` 签名不变）。
 
+14. **消费方反馈第 38 条（2026-09-13）：`QuestContentValidationRule` 新增 `quest_prerequisite_cycle`/
+    `quest_prerequisite_unknown`**——04 第 8 节"新任务"一行早就写了"循环引用检测（前置链）"，但
+    `prerequisite` 登记为 `FieldKind.Expr` 只做语法可解析检查，`QuestContentValidationRule` 全文没
+    有任何解析 `prerequisite` 里 `quest.*` 引用、构图找环的代码路径——两个任务互为前置在正式装配
+    默认参数下 0 error，任务在运行期永远互相卡死、无法确定是配置错误还是设计意图。复现与改造前后
+    行为见 `tests/E38_QuestPrerequisiteCycleTests.cs` 顶部判断记录。改造：本规则构造函数起真正持有
+    并使用 `exprSchema`（未提供时退回 `QuestExprSchemaEntries.BuildParsingSchema()`，判断记录见
+    `QuestContentValidationRule` 类型顶部——此前该参数只保留构造签名兼容，本次起不再是死参数），
+    `Validate` 新增 `ValidatePrerequisiteGraph`：把全表 `quest.def` 记录的 `prerequisite` 重新解析成
+    AST（复用 `ExprParser`，不用正则），递归收集全部 `quest.*` 引用（不限定具体 key，见方法判断
+    记录）的 Id 字面量参数构成"任务 → 前置任务"有向图；引用的任务 id 不在本表已知 id 集合内报
+    `quest_prerequisite_unknown`（阻断级，该条边不参与成环检测）；图中存在环（含自环）报
+    `quest_prerequisite_cycle`（阻断级），算法与 `DialogContentValidationRule.story_tree_cycle` 同款
+    三色标记 DFS。语法本身不可解析（`ExprParseException`）已由 `expr_parsable` 结构校验报告，重新
+    解析遇到该情形直接跳过该记录，不重复报告、不在损坏语法树上继续构图。两项检查报告的 `Field`
+    均为 `"prerequisite"`；`quest_prerequisite_unknown` 的消息额外附带引用位置（复用
+    `ExprNode.Start`/`Length`，`ExprIssue` 同款"位置 X，长度 Y"格式）。公开 API 无新增（构造函数
+    签名不变，仅内部开始真正使用既有参数）。
+
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`
   三元组，具体位置由调用方按 `targetRef` 对应实体查询，本模块不涉及空间查询（08 第 2.3 节"逻辑层

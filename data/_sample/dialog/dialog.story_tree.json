@@ -10,7 +10,8 @@
           "text_key": "l10n.dialog.sample_hunter_story.node_intro",
           "branches": [
             { "text_key": "l10n.dialog.sample_hunter_story.branch_continue", "next_node_id": "dialog.sample_hunter_story.node_end" }
-          ]
+          ],
+          "performance_hook_ref": "found.hook.sample_hunter_story_intro"
         },
         {
           "id": "dialog.sample_hunter_story.node_end",

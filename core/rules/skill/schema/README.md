@@ -99,14 +99,15 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 | `create_item` | `item_template`:Id/否（分层边界退回 Id 且收窄为非必填）、`count`:Int/否（缺省 1） | `Core.Carriers.Item.ItemEffectExtension.TryHandle` |
 | `learn_skill` | `skill_id`:Id/是（判断记录：收窄为 Id，同 `trigger_spell`） | `EffectDispatcher.ApplyLearnSkill` |
 | `set_world_flag` | `flag_key`:Id/否（判断记录：本模块尚无落地 `IEffectExtension` 实现，`value` 因联合类型 Bool\|Id 无法用 `FieldKind` 表达，未登记） | 无落地实现（扩展点，见 `IEffectExtension.cs`） |
-| `script` | `hook_id`:Id/否（分层边界：`found.hook` 当前无实现级 schema 登记，无法 Reference） | 无落地实现（扩展点） |
+| `script` | `hook_id`:Id/否（消费方反馈第 39 条：补 `SoftReferenceTable("found.hook")`，不升级 Reference） | 无落地实现（扩展点） |
 
 **分层边界（04 §5.1 口径）**：`create_item.item_template`→`item.template`、
 `summon.creature_template`→`creature.template`、`projectile.params.display_ref`→`display.map`
 三处概念上想引用 L3/L5 层的表，但 `skill` 模块属 L2、依赖方向单向不可"向上"引用，均退回 `Id`
 （只做格式校验，不做跨表存在性检查）。`script.hook_id` 概念上指向 L0 的 `found.hook`，方向合法，
-但该表当前无实现级 schema 登记（Reference 到未加载表恒判定为引用失效），暂退回 `Id`，待
-`found.hook` 补齐登记后再升级。
+消费方反馈第 39 条（2026-09-13）核实该表早已登记 `TableSchema`，本字段补
+`SoftReferenceTable("found.hook")`；仍不升级为 `Reference`——`found.hook` 是运行时按 id 分发的
+挂载点注册表，不希望把"是否存在"变成加载期硬阻断。
 
 **分层与既有测试（判断记录，偏离方案第 36 行"skill_id→skill.def"示例）**：`trigger_spell`/
 `modify_cooldown`/`add_charge`/`learn_skill` 四处 `skill_id`、以及 `summon.creature_template`/

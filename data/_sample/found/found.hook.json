@@ -1,0 +1,10 @@
+{
+  "table": "found.hook",
+  "schema_version": 1,
+  "rows": [
+    { "id": "found.hook.sample_hunter_greeting", "signature": "none", "description": "示例对话脚本动作调用的钩子（见 dialog.gossip_menu 示例数据）" },
+    { "id": "found.hook.sample_hunter_story_intro", "signature": "none", "description": "示例剧情树进入节点触发的演出钩子（见 dialog.story_tree 示例数据）" },
+    { "id": "found.hook.sample_boss_phase2", "signature": "none", "description": "示例遭遇战阶段进入触发的钩子（见 encounter.def 示例数据）" },
+    { "id": "found.hook.sample_field_trap", "signature": "none", "description": "示例区域触发器脚本类型调用的钩子（见 area.trigger_def 示例数据）" }
+  ]
+}

@@ -73,7 +73,7 @@
 | `text_key` | TextKey | 是 | — | `StoryTreeDefinition.ParseNode` |
 | `speaker_ref` | Id | 否 | 退回 Id（见下方判断记录） | `StoryTreeDefinition.ParseNode` |
 | `branches` | Array\<StoryBranch\> | 否（缺省空数组） | — | `StoryTreeDefinition.ParseNode` |
-| `performance_hook_ref` | Id | 否 | 退回 Id（`found.hook` 无实现级 schema 登记） | `StoryTreeDefinition.ParseNode` |
+| `performance_hook_ref` | Id | 否 | 退回 Id（消费方反馈第 39 条：补 `SoftReferenceTable("found.hook")`） | `StoryTreeDefinition.ParseNode` |
 
 ### `StoryBranch`（`nodes[].branches[]`）
 
@@ -90,8 +90,10 @@
    传递可见、README 依赖清单未把它列为本模块直接依赖，登记为 Reference 前应先在 README 补一条
    依赖声明——本轮不在任务范围内新增模块依赖，先退回 Id，待 `speaker_ref` 真正需要存在性校验时
    再补依赖声明并升级。
-2. **`performance_hook_ref` 退回 Id**：同 `dialog.gossip_menu.md` "`script.ref`" 判断记录，
-   `found.hook` 当前无实现级 schema 登记。
+2. **`performance_hook_ref` 退回 Id，补 `SoftReferenceTable("found.hook")`**：同
+   `dialog.gossip_menu.md` "`script.ref`" 判断记录——消费方反馈第 39 条（2026-09-13）核实
+   `found.hook` 早已登记 `TableSchema`，此前"当前无实现级 schema 登记"的说法已过时，本字段补软
+   引用元数据，仍不升级为 `Reference`（避免加载期硬阻断）。
 3. **`next_node_id` 未登记为 Reference（甚至没有登记为跨表引用）**：它引用的是"同一条记录内、
    `nodes` 数组的其它元素"，不是另一张表的主键——`FieldKind.Reference` 表达的是跨表引用完整性，
    VariantSchema/Fields 递归也没有"引用同一数组其它元素"的记法，因此这项检查天然只能是业务判断

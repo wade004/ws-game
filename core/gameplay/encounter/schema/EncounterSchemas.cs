@@ -120,8 +120,9 @@ namespace Core.Gameplay.Encounter
                             description: "覆盖的 ai.rotation 循环 id，只做格式校验，不做引用完整性检查（同 on_enter_hook 判断记录；消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
                             .WithSoftReference(table: "ai.rotation"))),
                 new FieldSchema("on_enter_hook", FieldKind.Id, required: false,
-                    description: "found.hook 钩子 id。判断记录（分层边界，同 skill.script.hook_id）：found.hook" +
-                        "当前无实现级 schema 登记，暂无表可挂载 SoftReferenceTable，暂退回 Id，待补齐登记后再升级为 Reference。"),
+                    description: "found.hook 钩子 id（消费方反馈第 39 条：found.hook 早已登记 TableSchema，只是本字段一直没跟进登记引用元数据，" +
+                        "补 SoftReferenceTable，理由同 dialog.story_tree.performance_hook_ref 判断记录——不用 FieldKind.Reference，避免把\"是否存在\"升级为加载期硬阻断）")
+                    .WithSoftReference(table: "found.hook"),
             },
             description: "{enter_condition: Expr, ai_rotation_override?: Map<Id, Id>, on_enter_hook?: Id}");
 
