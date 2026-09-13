@@ -925,6 +925,27 @@ namespace Core.Foundation.DataRegistry
             }
             var schemaVersion = (int)svLong;
 
+            // 消费方反馈第 40 条（04 第 3 节勘误）：信封级可选键 migrated_from——若出现，须为
+            // [1, schema_version - 1] 范围内的整数（记录该表"最早的原始版本"，便于排查，见该节字段表）；
+            // 非法时报同一类 "envelope" 检查（与上面 schema_version 自身非法共用检查名，消息点出实际收到
+            // 的取值）。合法时本方法不做其它事——不参与迁移判断（迁移链只看 schema_version），只是放行
+            // 一个允许存在的信封键，真正会写这个键的是 SchemaMigrator.MigrateEnvelope（内容工具写回前
+            // 调用），加载器本身从不写文件。
+            if (rootObj.TryGetValue("migrated_from", out var mfVal))
+            {
+                var migratedFromValid = mfVal is JsonNumber mfNum && mfNum.TryGetInt64(out var mfLong)
+                    && mfLong >= 1 && mfLong < schemaVersion;
+                if (!migratedFromValid)
+                {
+                    var actualText = mfVal is JsonNumber n
+                        ? (n.RawNumberText ?? n.Value.ToString("R", CultureInfo.InvariantCulture))
+                        : mfVal.Kind.ToString();
+                    issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "envelope",
+                        $"表 \"{tableName}\" 的顶层字段 \"migrated_from\" 取值 \"{actualText}\" 非法（须为 [1, {schemaVersion - 1}] 范围内的整数）"));
+                    return null;
+                }
+            }
+
             if (!rootObj.TryGetValue("rows", out var rowsVal) || !(rowsVal is JsonArray rowsArr))
             {
                 issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "envelope", "缺少或非法的顶层字段 \"rows\"（须为数组）"));
@@ -963,7 +984,10 @@ namespace Core.Foundation.DataRegistry
 
                 if (schemaVersion < schema.CurrentSchemaVersion)
                 {
-                    var chain = BuildMigrationChain(schema, schemaVersion, schema.CurrentSchemaVersion);
+                    // 消费方反馈第 40 条：链构造与逐行迁移收口为 SchemaMigrator 的公开静态实现（本方法
+                    // 此前的私有 BuildMigrationChain 与行内迁移循环已删除，改为委托），语义逐字不变——
+                    // 见 SchemaMigrator.BuildChain/MigrateRow 判断记录。
+                    var chain = SchemaMigrator.BuildChain(schema, schemaVersion, schema.CurrentSchemaVersion);
                     if (chain == null)
                     {
                         issues.Add(new ValidationIssue(ValidationSeverity.Error, tableName, "schema_version",
@@ -980,12 +1004,7 @@ namespace Core.Foundation.DataRegistry
                             continue;
                         }
 
-                        var current = rowObj;
-                        for (int m = 0; m < chain.Count; m++)
-                        {
-                            current = chain[m].Migrate(current);
-                        }
-                        migrated.Add(current);
+                        migrated.Add(SchemaMigrator.MigrateRow(chain, rowObj));
                     }
                     effectiveRows = migrated;
                 }
@@ -1094,27 +1113,9 @@ namespace Core.Foundation.DataRegistry
             return rest.TrimStart('/');
         }
 
-        private static List<TableMigration>? BuildMigrationChain(TableSchema schema, int fromVersion, int toVersion)
-        {
-            var chain = new List<TableMigration>();
-            var current = fromVersion;
-            while (current < toVersion)
-            {
-                TableMigration? step = null;
-                foreach (var m in schema.Migrations)
-                {
-                    if (m.FromVersion == current)
-                    {
-                        step = m;
-                        break;
-                    }
-                }
-                if (step == null) return null;
-                chain.Add(step);
-                current = step.ToVersion;
-            }
-            return current == toVersion ? chain : null;
-        }
+        // 消费方反馈第 40 条：私有 BuildMigrationChain 已删除，链构造收口到公开的
+        // SchemaMigrator.BuildChain（见上方 LoadOneTablePartial 调用点、SchemaMigrator.cs 判断记录），
+        // 保证"迁移链串接"只有一份实现来源。
 
         // ---------------------------------------------------------------
         // 字段级校验（04 第 5 节：required_field / field_type / reference_integrity /
