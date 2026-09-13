@@ -138,8 +138,93 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `schema_version`/`migrations` 导出。详见
   [ADR-0029](architecture/adr/0029-迁移链串接与整表迁移纳入公开契约.md)、
   [消费方反馈-2026-09-13-编辑器-第40条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md)。
+- **消费方反馈第 41/42 条（1.28.0）**：`DataRegistryOptions` 新增 `WarnOnMissingTranslation`
+  （默认 `true`）——`l10n.locale` 已登记的非默认语言下 `TextKey` 字段缺翻译，新增 Warning 级
+  `text_key_exists`（消息附带回退链落点），默认语言缺失仍是 Error；`toolchain/validator` 新增
+  `--no-missing-translation-warning` 开关（`--json` 新增 `warn_on_missing_translation` 字段），
+  `toolchain/validate_data.py` 透传同名参数；`l10n.locale.fallback` 字段改登记为
+  `FieldKind.Reference`（`--list-tables --json` 该字段 `kind` 由 `Id` 变为 `Reference`），指向
+  未登记语言的坏数据从此在加载期即报 `reference_integrity` 错误。详见
+  [消费方反馈-2026-09-14-编辑器-第41-42条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第41-42条.md)。
 
 ## [Unreleased]
+
+## [1.28.0] - 2026-09-14
+
+MINOR 版本：消费方反馈处理——`text_key_exists` 此前只校验默认语言，非默认语言缺翻译对内容团队
+完全静默，编辑器本地化矩阵的 `HasMissing` 判定只能自行扫描 `l10n.text` 重新推断（编辑器第 42
+条）；框架示例数据集只有一种语言，编辑器无法用真实数据验证多语言/回退链/变量缺失路径（编辑器第
+41 条）。核实与逐条回复见
+[消费方反馈-2026-09-14-编辑器-第41-42条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第41-42条.md)。
+独立复核通过后，整合 agent 另发现一处既有缺口一并收口：`l10n.locale.fallback` 登记为
+`FieldKind.Id`，指向未登记语言的坏数据加载期不拦，要到 `L10nHost` 构造期才抛异常；详见该文档末尾
+"复核附带收口"小节。
+提交链：`72a6632`（第 42 条：非默认语言缺翻译报 Warning 级 `text_key_exists`）、`a3f0443`（第 41
+条：示例数据补第二语言 `en_us` 与回退链/变量演示键）、`1d8ccf1`（回复文档 + 编辑器产品文档回填）、
+`902cacb`（复核附带收口：`l10n.locale.fallback` 改为引用登记），分支 `wbd/editor41-42`，`--no-ff`
+合入 `main` `93ae55a`，本笔提交（1.28.0 变更记录与迁移说明）。
+
+### 新增
+
+- `DataRegistryOptions.WarnOnMissingTranslation`（默认 `true`）——`l10n.locale` 表已登记、且不等于
+  `DefaultLocale` 的每个语言，若某 `TextKey` 字段引用的键在该语言下没有对应 `l10n.text` 行，新增
+  一条 Warning 级 `text_key_exists`（检查名与默认语言缺失时相同），消息附带该语言经回退链会落到
+  哪个语言取文本；默认语言下缺失该键仍始终是 Error，不受本开关影响；`l10n.locale` 表未加载时天然
+  跳过，不额外告警。`ContentValidationOptions` 新增同名 `WarnOnMissingTranslation`（默认
+  `true`）透传给 `DataRegistryOptions`。`toolchain/validator` 新增命令行开关
+  `--no-missing-translation-warning`（关闭该 Warning，恢复只查默认语言的旧行为），非 `--json`
+  模式追加一行 `missing translation warning: enabled|disabled`，`--json` 模式在
+  `display_map_coverage_sources` 字段之后新增布尔字段 `warn_on_missing_translation`；
+  `toolchain/validate_data.py` 新增同名 `--no-missing-translation-warning` 透传参数。【编辑器相关契约】
+- `l10n.locale.fallback` 字段改登记为 `FieldKind.Reference`（`referenceTable: "l10n.locale"`，
+  仍 `required: false`）——`fallback` 指向本表未登记的语言 id 现在在 `DataRegistry.LoadAll`
+  加载期即报 `reference_integrity` 错误（此前登记为 `FieldKind.Id`，只校验格式合法，坏数据要等到
+  `L10nHost` 构造期 `ValidateNoFallbackCycle` 才抛异常）；`fallback: null`、指向已登记语言（含
+  自引用）均不受影响。`toolchain/validator --list-tables --json` 里 `l10n.locale.fallback` 的
+  `field_meta.kind` 由 `"Id"` 变为 `"Reference"`，新增 `reference_table: "l10n.locale"`，属登记
+  元数据修正。【编辑器相关契约】
+- 示例数据集 `data/_sample/l10n` 新增第二语言 `l10n.locale.en_us`（`fallback` 指向 `zh_cn`）与
+  原有 56 条 `zh_cn` 文本对应的英文译文，另加两个不被任何表字段引用的纯演示键：
+  `l10n.ui.sample_fallback_demo.text`（只登记 `zh_cn`，演示 `en_us` 查询经回退链取到中文正文）、
+  `l10n.ui.sample_variable_demo.text`（`zh_cn`/`en_us` 均登记且含 `{amount}` 占位，演示变量缺失
+  路径）。
+
+### 文档
+
+- **04 数据与内容管线**：第 5 节校验项清单"文本键存在"一行改写，变更记录表新增一行（本条为既有
+  检查项覆盖面补齐，不改变结论，不出 ADR）。
+- **`data/README.md`**：新增"l10n 示例数据（多语言/回退链/变量缺失演示）"一节，说明第二语言与
+  两个演示键的用途。
+- **`editor/docs/编辑器产品文档.md`**（v2.12 → v2.13）：变更记录新增一行；第 5.5.8 节"本地化
+  编辑器"补充"框架契约更新（消费方反馈第 42 条）"说明，建议矩阵 `HasMissing` 复用框架诊断。
+- 新增
+  [消费方反馈-2026-09-14-编辑器-第41-42条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第41-42条.md)：
+  反馈复现、决策依据、处理方式、验证结果、对编辑器的使用建议，及复核附带收口说明。
+
+### 迁移说明
+
+- **`WarnOnMissingTranslation` 默认开启**：消费方若翻译不全（非默认语言存在缺失键）且 CI 用
+  `python toolchain/validate_data.py --strict`（把 Warning 当阻断），升级后会因新增的
+  `text_key_exists` Warning 而失败——升级前建议先补齐缺失译文，或按需用
+  `--no-missing-translation-warning`（`toolchain/validate_data.py`/`toolchain/validator` 均支持）
+  或 `DataRegistryOptions.WarnOnMissingTranslation = false`/`ContentValidationOptions
+  .WarnOnMissingTranslation = false` 关闭该项。非严格模式（`--strict` 未传）不受影响，只是多打印
+  一条 Warning，不阻断。
+- **`l10n.locale.fallback` 新增加载期引用完整性校验**：升级前建议先用本版
+  `python toolchain/validate_data.py --strict` 排查既有 `l10n.locale` 数据——若某语言的 `fallback`
+  指向一个当前未登记的语言 id，此前加载期静默接受（要到运行时 `L10nHost` 构造才报错），升级后会在
+  加载期即报 `reference_integrity` 阻断错误。核实当前框架示例数据不受影响。
+
+### 编辑器接入建议
+
+- **本地化矩阵 `HasMissing` 可改为复用框架 `text_key_exists` Warning**——对同一份数据跑一次
+  `DataRegistry.LoadAll`/`toolchain/validator --json`，按 `check == "text_key_exists" &&
+  severity == "warning"` 过滤即得到与框架诊断同源的缺失清单（`field`/`record_key`/`table`
+  可直接定位到具体记录字段），不必再自行扫描 `l10n.text` 重新判定一遍；消息文本里已带回退落点，
+  矩阵若要展示"回退后实际显示哪个语言"，也可以直接解析复用。
+- 用示例数据 `data/_sample/l10n` 的 `l10n.locale.en_us` 与两个演示键
+  （`l10n.ui.sample_fallback_demo.text`/`l10n.ui.sample_variable_demo.text`）做多语言/回退链/
+  变量缺失路径的端到端验证或自动化测试固件，不必再自行注入内存态第二语言。
 
 ## [1.27.0] - 2026-09-13
 
