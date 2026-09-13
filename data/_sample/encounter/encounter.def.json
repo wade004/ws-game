@@ -22,6 +22,12 @@
           "spawn_ref": "spawn.sample_encounter_ambusher"
         }
       ],
+      "phases": [
+        {
+          "enter_condition": "self.hp_pct <= 50",
+          "on_enter_hook": "found.hook.sample_boss_phase2"
+        }
+      ],
       "victory_condition": "enemies.count_in_range(50) == 0",
       "defeat_condition": "self.hp_pct <= 0",
       "combat_mode_override": "discrete"

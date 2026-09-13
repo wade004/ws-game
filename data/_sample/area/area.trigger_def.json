@@ -16,6 +16,23 @@
       "trigger_type": "quest_explore",
       "one_shot": false,
       "params": {}
+    },
+    {
+      "id": "area.sample_field_trap",
+      "map_id": "world.sample_field",
+      "shape": {
+        "kind": "circle",
+        "radius": 3,
+        "center": {
+          "x": 8,
+          "y": 2
+        }
+      },
+      "trigger_type": "script",
+      "one_shot": true,
+      "params": {
+        "hook_id": "found.hook.sample_field_trap"
+      }
     }
   ]
 }

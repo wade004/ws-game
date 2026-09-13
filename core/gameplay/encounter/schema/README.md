@@ -57,7 +57,7 @@
 |---|---|---|---|
 | `enter_condition` | Expr | 是 | 阶段进入条件；无缺省 |
 | `ai_rotation_override` | Object（`MapSchema.FreeKeyed`） | 否 | `Map<Id, Id>`，键为具体参战单位 id 或模板 id（见 `EncounterHost.ApplyPhase` 判断记录），值为 `ai.rotation` 引用。**ADR-0024 第二批登记**：键不做任何校验（`FreeKeyed`，理由是运行期动态判定"单位 id 还是模板 id"，加载期无法静态区分），值登记为 `FieldKind.Id`（格式校验，不做引用完整性检查，理由同 `on_enter_hook`）——`AiRotationOverride_ArbitraryKeys_NoUnknownSubfieldReported`/`AiRotationOverride_ValueNotValidId_ReportsFieldType` 覆盖 |
-| `on_enter_hook` | Id | 否 | `found.hook` 钩子 id。判断记录（分层边界，同 `skill.script.hook_id`）：`found.hook` 当前无实现级 schema 登记，`Reference` 到未加载表恒判定引用失效，暂退回 `Id`，待补齐登记后再升级 |
+| `on_enter_hook` | Id | 否 | `found.hook` 钩子 id。消费方反馈第 39 条（2026-09-13）：`found.hook` 已登记 `TableSchema`，补 `SoftReferenceTable("found.hook")`，判断记录同 `skill.script.hook_id`——仍退回 `Id`（不升级 `Reference`，避免加载期硬阻断） |
 
 ### `arena_rules`（`Fields`：`bounds_shape` + `reset_if_leave`）
 

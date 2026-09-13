@@ -116,8 +116,10 @@ namespace Core.Gameplay.AreaTrigger
                         "（消费方反馈第 29 条：按字段名与触发语义推定指向 encounter.def，登记为软引用，仅供内容工具补全/跳转）")
                     .WithSoftReference(table: "encounter.def"),
                 new FieldSchema("hook_id", FieldKind.Id, required: false,
-                    description: "trigger_type=script 必填（同上，本登记只管类型）；found.hook 当前无实现级 schema 登记，" +
-                        "判断记录同 EncounterSchemas.PhaseItemSchema.on_enter_hook，退回 Id"),
+                    description: "trigger_type=script 必填（同上，本登记只管类型）；found.hook 挂载点注册表，" +
+                        "消费方反馈第 39 条：登记为软引用（理由同 EncounterSchemas.PhaseItemSchema.on_enter_hook 判断记录，" +
+                        "不升级 FieldKind.Reference，避免把\"是否存在\"变成加载期硬阻断）")
+                    .WithSoftReference(table: "found.hook"),
             },
             description: "按 trigger_type 分派：map_transition {target_map, spawn_point?}；" +
                 "encounter_start {encounter_ref}；script {hook_id}；quest_explore {}；" +

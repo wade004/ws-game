@@ -24,6 +24,11 @@
           "text_key": "l10n.dialog.sample_hunter.option_save",
           "visible_if": "true",
           "actions": [ { "kind": "save" } ]
+        },
+        {
+          "text_key": "l10n.dialog.sample_hunter.option_greeting",
+          "visible_if": "true",
+          "actions": [ { "kind": "script", "ref": "found.hook.sample_hunter_greeting" } ]
         }
       ]
     }
