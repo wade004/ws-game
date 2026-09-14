@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数值怎么算 · 架构图解</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="home-link" href="index.html">游戏技术基础架构 图解</a>
+    <span class="spacer"></span>
+    <div class="prevnext">
+      <a href="12_怎么改架构.html">← 上一章：怎么改架构</a>
+      <a href="13_附录.html">下一章：附录 →</a>
+    </div>
+    <details class="allchapters">
+      <summary>全部章节</summary>
+      <ul class="menu">
+        <li><a href="index.html">封面 · 一分钟看懂</a></li>
+        <li><a href="01_七层结构.html">第二章 · 七层结构</a></li>
+        <li><a href="02_程序怎么跑起来.html">第三章 · 程序怎么跑起来</a></li>
+        <li><a href="03_逻辑与画面分家.html">第四章 · 逻辑与画面分家</a></li>
+        <li><a href="04_数据即内容.html">第五章 · 数据即内容</a></li>
+        <li><a href="05_万物皆法术.html">第六章 · 万物皆法术</a></li>
+        <li><a href="06_战斗周边.html">第七章 · 战斗周边</a></li>
+        <li><a href="07_载体与玩法.html">第八章 · 载体与玩法</a></li>
+        <li><a href="08_表现层.html">第九章 · 表现层</a></li>
+        <li><a href="09_存档.html">第十章 · 存档</a></li>
+        <li><a href="10_引擎适配与选型.html">第十一章 · 引擎适配与选型</a></li>
+        <li><a href="11_做一款新游戏.html">第十二章 · 做一款新游戏</a></li>
+        <li><a href="12_怎么改架构.html">第十三章 · 怎么改架构</a></li>
+        <li><a href="14_数值怎么算.html">第十四章 · 数值怎么算</a></li>
+        <li><a href="13_附录.html">附录</a></li>
+      </ul>
+    </details>
+  </div>
+</header>
+
+<main class="page">
+<h1>第十四章 · 数值怎么算</h1>
+<p class="subtitle">属性、技能、装备、经验、金钱五块数值为什么能互相比较、平衡性靠什么有依据、填错了怎么被发现——一条主线，五段推导，两层验证。</p>
+
+<div class="section-block">
+  <h3>一条主线：所有数都换算到同一把尺子上</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    像一家公司做预算：所有部门的开销都折成"元"才能放在一张表里比较；所有年份的数据都按"年份"排才能看趋势。这套架构里，"元"是<b>秒伤当量</b>（一切价值最终折成"每秒能打多少伤害"），"年份"是<b>等级</b>（角色等级、怪物等级、物品等级三者靠一条"期望装备等级"曲线绑在一起）。属性靠权重表折成当量，技能和装备各有一套"预算"，经验和金钱写成"几只同级怪"的当量——五块东西因此可以互相比较、互相定价。
+  </div>
+
+  <div class="figure">
+    <span class="fig-num">图 X</span><b>数值推导的五段链</b>
+    <svg viewBox="0 0 1100 250" role="img" aria-label="数值推导五段链：锚点、曲线、预算、静态校验、动态仿真，前一段输出是后一段输入">
+      <rect x="20" y="40" width="190" height="120" rx="10" class="tag-l1"/>
+      <text x="115" y="68" text-anchor="middle" font-size="13" font-weight="700">1 锚点</text>
+      <text x="115" y="92" text-anchor="middle" font-size="12" class="small-note">每级期望生命、秒伤、</text>
+      <text x="115" y="108" text-anchor="middle" font-size="12" class="small-note">击杀时长、期望装备等级</text>
+      <text x="115" y="140" text-anchor="middle" font-size="11" class="small-note">表结构归框架，数归游戏</text>
+
+      <rect x="240" y="40" width="190" height="120" rx="10" class="tag-l1"/>
+      <text x="335" y="68" text-anchor="middle" font-size="13" font-weight="700">2 曲线</text>
+      <text x="335" y="92" text-anchor="middle" font-size="12" class="small-note">预算曲线、成长曲线、</text>
+      <text x="335" y="108" text-anchor="middle" font-size="12" class="small-note">换算曲线、价值曲线……</text>
+      <text x="335" y="140" text-anchor="middle" font-size="11" class="small-note">横轴永远是等级，必须单调</text>
+
+      <rect x="460" y="40" width="190" height="120" rx="10" class="tag-l2"/>
+      <text x="555" y="68" text-anchor="middle" font-size="13" font-weight="700">3 预算</text>
+      <text x="555" y="92" text-anchor="middle" font-size="12" class="small-note">每件装备、每个技能</text>
+      <text x="555" y="108" text-anchor="middle" font-size="12" class="small-note">允许的价值上限</text>
+      <text x="555" y="140" text-anchor="middle" font-size="11" class="small-note">公式归框架，系数归游戏</text>
+
+      <rect x="680" y="40" width="190" height="120" rx="10" class="tag-l4"/>
+      <text x="775" y="68" text-anchor="middle" font-size="13" font-weight="700">4 静态校验</text>
+      <text x="775" y="92" text-anchor="middle" font-size="12" class="small-note">超预算、曲线不单调、</text>
+      <text x="775" y="108" text-anchor="middle" font-size="12" class="small-note">派生成环 → 阻断</text>
+      <text x="775" y="140" text-anchor="middle" font-size="11" class="small-note">抓手滑，不抓意图</text>
+
+      <rect x="900" y="40" width="180" height="120" rx="10" class="tag-game"/>
+      <text x="990" y="68" text-anchor="middle" font-size="13" font-weight="700" class="txt-game">5 动态仿真</text>
+      <text x="990" y="92" text-anchor="middle" font-size="12" class="small-note">标准玩家打标准怪，</text>
+      <text x="990" y="108" text-anchor="middle" font-size="12" class="small-note">跑上千局看分布</text>
+      <text x="990" y="140" text-anchor="middle" font-size="11" class="small-note">验"曲线本身对不对"</text>
+
+      <line x1="210" y1="100" x2="238" y2="100" class="edge"/><polygon points="232,94 232,106 242,100" class="arrowhead"/>
+      <line x1="430" y1="100" x2="458" y2="100" class="edge"/><polygon points="452,94 452,106 462,100" class="arrowhead"/>
+      <line x1="650" y1="100" x2="678" y2="100" class="edge"/><polygon points="672,94 672,106 682,100" class="arrowhead"/>
+      <line x1="870" y1="100" x2="898" y2="100" class="edge"/><polygon points="892,94 892,106 902,100" class="arrowhead"/>
+
+      <text x="20" y="205" class="small-note">每段的输出是下一段的输入。设计师填的是锚点（比如"三十级打一只同级怪要八秒"），曲线和预算是从锚点推出来的产物，不是先拍脑袋填的经验表。</text>
+      <text x="20" y="228" class="small-note">五条原则：曲线单调；一切写相对量（份额、当量、倍率），绝对数只在曲线表里；每个数都有消费者；每个公式可反推；换个数值尺度只改曲线不改公式。</text>
+    </svg>
+    <figcaption>锚点 → 曲线 → 预算 → 静态校验 → 动态仿真，顺序固定；前三段定"应该是多少"，后两段验"填的对不对"。</figcaption>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>属性：先算主属性，再算派生属性，百分比必经一层换算</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    第七章的三段式公式现在要跑两轮：第一轮先把"力量""智力"这些主属性算出最终值，第二轮再用"力量 × 职业系数"算出攻击强度，然后攻击强度再吃自己的百分比加成。同一件加力量的装备，战士换出两点攻击强度，法师一点都换不出——职业差异就藏在这个系数里。百分比属性（暴击、急速）则像不同国家的货币：装备上写的是"点数"，要经过一张汇率表才变成百分比。汇率表可以是"一比一"（保守的游戏），也可以是"等级越高越不值钱"（标准做法），还可以是"永远换不满一百"（数值极度膨胀的游戏）——换游戏只换汇率表，不换算法。
+  </div>
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>属性定义表登记"类别"和"派生自谁、系数多少"，派生关系不能成环，校验器直接拦。</li>
+      <li>百分比换算这一层<b>总是存在</b>，默认是恒等曲线；第七章原来写的"评级换算是可选策略"已据此收敛——不再有开关，只有曲线形态的差别。</li>
+      <li>属性还带一个"作用域"：只对来自玩家的伤害生效的减免属性，在单机里永远读不到，是为将来联机对战留的口子，零成本。</li>
+      <li>命中保留，并接入一张"等级差表"：打高几级的怪明显打不中、再高就白打；同一张表还决定越级打怪的暴击压制、低级怪给不给经验、目标名字是灰是红。</li>
+      <li>资源条推荐"上限固定不随等级涨"：消耗写成整数玩家一眼看懂，成长体现在回复速度上。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>预算：装备阻断，技能警告</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    每件装备和每个技能都有一张"额度卡"。装备的额度由物品等级和品质决定，刷超了就是填错——想要更强的装备，正确做法是抬它的等级或品质，让额度名正言顺变大，所以装备超额度直接拦下。技能的额度由施放时间、冷却、目标数、消耗算出，但"只对残血目标有效的斩杀""放完自己定身的大招"这类形态公式定不了价，超额度多半是设计意图而不是错误，所以只警告并要求写一句"为什么超模"；只有超得离谱又没写理由的（系数多敲一个零），才当错误拦。
+  </div>
+
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>对象</th><th>额度怎么算</th><th>实际消耗怎么算</th><th>超了怎么办</th></tr>
+    <tr><td><b>装备</b></td><td>预算曲线(物品等级) × 品质倍率 × 槽位系数</td><td>各属性乘权重后合并，带一个约 1.5 的指数惩罚只堆一种属性</td><td>阻断；利用率太低（漏填）警告</td></tr>
+    <tr><td><b>技能</b></td><td>锚点秒伤 × 施放时间当量 × 冷却溢价 × 范围折价 × 消耗溢价</td><td>基础值 ＋ Σ(缩放属性 × 系数)，按该等级期望属性代入</td><td>带宽外警告并可填"超模说明"；超硬上限且无说明阻断</td></tr>
+    <tr><td><b>随机词缀</b></td><td>占该件装备额度的一个<b>份额</b>，比如三成</td><td>掉落那一刻按这件装备的额度算出具体数值</td><td>模板属性＋词缀最大份额不得超额度，阻断</td></tr>
+  </table>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>词缀永远不改物品等级和品质：品质决定额度有多少，词缀决定额度怎么花。"更强的一次掉落"由品质骰子表达，不由词缀表达。</li>
+      <li>装备掉落是三次独立掷骰：等级来自来源（怪物等级或难度层），品质来自掉落表的品质权重，词缀从该品质的池里抽。</li>
+      <li>"高等级装备一定更好"在<b>属性总量</b>上由阻断级校验保证；同额度的两件装备属性组合可以不同，那是配装的乐趣。玩家看到的是一个"装备评分"，不用理解等级和品质两个数。</li>
+      <li>物品实例只存"模板 + 品质 + 词缀"这些身份，不存算出来的属性数值，读档按数据重算——策划填错合不进去，玩家改内存也改不进存档。</li>
+      <li>技能不做"等级"：技能随属性自动成长，天赋和"技能升级"统一用施法修正表达，技能定义永远只有一份。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>经验与金钱：写"几只同级怪"，不写绝对数</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    任务奖励不写"给三千经验"，写"相当于十五只同级怪"；商人价格不逐件手填，由"价值曲线(物品等级) × 品质倍率 × 槽位倍率"算出。这样调一次曲线，全部任务、全部商人自动跟上，和词缀写份额是同一个思路。
+  </div>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>模块</th><th>框架固定的写法</th><th>游戏层自己定的</th></tr>
+    <tr><td><b>经验</b></td><td>击杀 / 任务 / 探索三种来源，都以"一只同级怪的经验"为基数乘当量、乘分档与难度倍率、乘等级差系数；升级所需经验是一张单调曲线表</td><td>曲线里的数、每级时长目标、来源占比；从"每级时长"倒推经验表是游戏层的方法</td></tr>
+    <tr><td><b>金钱</b></td><td>一种货币一个整数；怪掉钱与任务金币以"一只同级怪的金币"为基数乘当量；买价售价由价值曲线算；扣费经一个原子契约（余额够才扣）</td><td>水龙头与下水道的平衡、售价比例、复活费扣多少、坐骑价格</td></tr>
+  </table>
+  </div>
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>从不扣经验；升级时生命与资源回满；满级后经验直接不产生，成长轴交给难度层与装备等级。</li>
+      <li>区域怪物等级固定为"等级带"，不做"怪物跟着玩家等级走"：单机的成长感和地理危险感靠它，越级与碾压由等级差表双向表达。</li>
+      <li>复活费替代耐久修理作为"战斗损耗税"，只在失败时收，且永远取"计算值与余额的较小者"——没钱也能复活。</li>
+      <li>货币不占背包格子，背包满不影响捡钱；不做灰色垃圾物品、副货币、金银铜三段显示、拍卖行与一切玩家间经济。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section-block">
+  <h3>两层验证：校验器抓手滑，仿真验曲线</h3>
+  <div class="analogy">
+    <span class="label">打个比方：</span>
+    校验器像财务的"票据核对"：一张报销单超了额度、日期填反了、发票缺了，当场退回。但它看不出"整个部门的额度定得合不合理"，这要靠"跑一遍全年预算演练"——让一个按标准配置的角色，拿着标准装备，用一键智能释放的那张优先级表，去打标准的怪，跑上千局，看击杀时长的分布是不是落在锚点附近。仿真用的策略和玩家一键释放用的是同一张表，所以仿真结果就是真实玩家的下限体验。
+  </div>
+
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>仿真</th><th>输入</th><th>输出</th><th>验什么</th></tr>
+    <tr><td><b>战斗仿真</b></td><td>标准玩家（等级＋职业，装备按期望装备等级反解）对指定等级的怪，N 个随机种子</td><td>击杀 / 被杀时长分布、命中率、资源曲线、技能输出占比；越级矩阵热图</td><td>锚点自洽：自上而下写的秒伤与自下而上算的秒伤在带宽内相等；等级差表形状</td></tr>
+    <tr><td><b>成长仿真</b></td><td>战斗仿真结果；一级到满级，按怪当量击杀、按占比做任务、掉落按种子掷骰</td><td>每级实际时长、装备等级轨迹、命中率随等级、金币累积</td><td>曲线与来源组合起来的效应，比如某段掉落偏低导致装备落后、命中崩掉</td></tr>
+    <tr><td><b>内容覆盖仿真</b></td><td>每个技能、装备、生物模板</td><td>离群值列表，按偏离排序</td><td>警告级校验的评审入口</td></tr>
+  </table>
+  </div>
+
+  <div class="keypoints">
+    <span class="label">要点</span>
+    <ul>
+      <li>仿真跑在不接引擎的无头运行时上，同种子同输入同结果，所以每次报告都能存成基线；数据改动后重跑，输出"三十级击杀时长从八秒变成十一秒"这类差异——这是数值回归，和第十章的回放回归同一原理。</li>
+      <li>仿真骨架（运行器、标准玩家生成、场景表结构、报告格式、基线对比）是框架交付物；场景清单、锚点数值、带宽与阈值归游戏层。本阶段只定设计与交付物范围。</li>
+      <li>自测顺序固定：填锚点 → 推曲线并在表格里先验对账 → 填内容 → 校验阻断清零 → 内容覆盖 → 战斗仿真 → 成长仿真 → 存基线。</li>
+    </ul>
+  </div>
+
+  <div class="deepdive">
+    <span class="label">想深入看：</span>
+    <code>数值设计/00_数值总纲.md</code>（主线、五段推导、公式清单、对账等式）、<code>数值设计/01～06</code>（属性、技能、装备、经验、金钱、仿真六份专题：参照系梳理、单机取舍、方案、拍板记录）、<code>adr/0030 ～ 0035</code>（六条决策记录）
+  </div>
+</div>
+
+<nav class="bottomnav">
+  <a href="12_怎么改架构.html">← 上一章：怎么改架构</a>
+  <a href="13_附录.html">下一章：附录 →</a>
+</nav>
+</main>
+<script src="nav.js"></script>
+</body>
+</html>
