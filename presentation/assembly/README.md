@@ -43,8 +43,8 @@ public sealed class ContentValidationOptions {
     DataRegistryStrictness Strictness = WarningsAllowed;
     bool FailOnUnknownTable = true;
     Id? ItemBudgetCurveId;
-    ICreatureTemplateQuery? CreatureTemplateQuery;        // 未提供 -> SpawnSummonOnlyCreatureRule 不注册
-    IReadOnlyList<(string table, string idField)>? DisplayMapCoverageSources; // 未提供 -> DisplayMapCoverageRule 不注册
+    ICreatureTemplateQuery? CreatureTemplateQuery;        // 未提供 -> 默认改用 RegistryCreatureTemplateQuery（基于登记表视图），规则默认启用
+    IReadOnlyList<(string table, string idField)>? DisplayMapCoverageSources; // 未提供 -> 默认改用 PresentationSchemaCatalog.DefaultDisplayMapCoverageSources，规则默认启用
     IEventBus? Bus;                                       // 未提供 -> 内部建一个 StrictCatalog=false 的总线
 }
 public sealed class ContentValidationRun {
@@ -62,21 +62,37 @@ public static class ContentValidationAssembly {
 
 `Run` 内部装配顺序：`PresentationSchemaCatalog.CreateOptions()` 起步 + `options` 覆盖
 `FailOnUnknownTable`/`Strictness` → `new DataRegistry(sources[0], bus, registryOptions)` →
-`PresentationSchemaCatalog.RegisterAll(registry, options.ItemBudgetCurveId,
-options.CreatureTemplateQuery)`（`SpawnSummonOnlyCreatureRule` 是否注册由该调用内部按
-`creatureTemplateQuery` 是否为空决定，见该方法判断记录）→ 若 `options.DisplayMapCoverageSources
-!= null` 额外注册 `DisplayMapCoverageRule` → `registry.LoadAll(sources)` → 汇总
-`ValidationReport`/`Overrides`/`TableCount`/`RecordCount`/两个可选规则清单为
-`ContentValidationRun`。`CreateRegistry` 只做到"注册完成、不加载"这一步，供需要先持有 registry、
-再自行决定何时/用哪些数据源加载的宿主使用（如编辑器需要在用户操作间隙重复
+解析 `options.CreatureTemplateQuery ?? new RegistryCreatureTemplateQuery(registry)` →
+`PresentationSchemaCatalog.RegisterAll(registry, options.ItemBudgetCurveId, creatureTemplateQuery)`
+（`SpawnSummonOnlyCreatureRule` 是否注册仍由该调用内部按 `creatureTemplateQuery` 是否为空决定，见
+该方法判断记录；但本入口解析后传入的值只在调用方显式传 `CreatureTemplateQuery` 为空引用时才可能
+为空，其余情况恒非空）→ 无条件注册 `DisplayMapCoverageRule`（接线源用
+`options.DisplayMapCoverageSources ?? PresentationSchemaCatalog.DefaultDisplayMapCoverageSources`）
+→ `registry.LoadAll(sources)` → 汇总 `ValidationReport`/`Overrides`/`TableCount`/`RecordCount`/两个
+可选规则清单为 `ContentValidationRun`。`CreateRegistry` 只做到"注册完成、不加载"这一步，供需要先
+持有 registry、再自行决定何时/用哪些数据源加载的宿主使用（如编辑器需要在用户操作间隙重复
 `IDataRegistry.Reload` 单表）。
 
-判断记录（两个可选规则的"未启用"语义）：`OptionalRuleNames` 是固定的两项——
-`"SpawnSummonOnlyCreatureRule"`、`"DisplayMapCoverageRule"`——`DisabledOptionalRules`/
-`EnabledOptionalRules` 互补（并集恒等于 `OptionalRuleNames`）。判定条件分别是
-`options.CreatureTemplateQuery == null`、`options.DisplayMapCoverageSources == null`；本类型不
-改变底层两个 `RegisterAll` 各自的注册行为，只是把"这次到底注册没注册"这件事从"调用方自己看代码
-才知道"变成"结构化返回值"。
+判断记录（两个可选规则的"未启用"语义，消费方反馈第 43/44 条修正）：`OptionalRuleNames` 是固定的
+两项——`"SpawnSummonOnlyCreatureRule"`、`"DisplayMapCoverageRule"`——两条现均在本入口默认启用
+（`DisplayMapCoverageRule` 自消费方反馈第 34 条起、`SpawnSummonOnlyCreatureRule` 自消费方反馈第 44
+条根治起）：`options.CreatureTemplateQuery`/`options.DisplayMapCoverageSources` 未提供时，本入口
+分别改用内置默认接线——`Core.Carriers.Creature.RegistryCreatureTemplateQuery`（基于刚构造出的
+`DataRegistry` 现读现解析，见该类型判断记录）、`PresentationSchemaCatalog.DefaultDisplayMapCoverageSources`
+——而不是把接线参数原样透传为 `null`/`Empty`。`DisabledOptionalRules` 在当前入口下因此恒为空列表，
+`EnabledOptionalRules` 恒等于 `OptionalRuleNames` 全量；这套"未提供接线参数即禁用"的机制本身没有
+删除，只是当前两条规则都已升级为"未提供则用默认接线"，机制预留给未来新增的、确实需要默认禁用的
+可选规则。本类型不改变底层 `GameplaySchemaCatalog.RegisterAll`/`RegisterValidationRule` 各自的注册
+行为（`creatureTemplateQuery`/`displayMapCoverageSources` 仍是决定是否注册的入参，只是本入口不再
+把它们原样传 `null`），只是把"这次到底注册没注册"这件事从"调用方自己看代码才知道"变成"结构化
+返回值"。
+
+消费方反馈第 43 条：`OptionalRules`（`IReadOnlyList<OptionalRuleDescriptor>`）是"规则名 ↔ 检查名"
+关联的单一来源——每项 `CheckName` 直接引用规则类型自己公开的 `CheckName` 常量
+（`SpawnSummonOnlyCreatureRule.CheckName`/`DisplayMapCoverageRule.CheckName`），不是另行抄写的字面
+量；`OptionalRuleNames` 现由 `OptionalRules` 投影得到。`TryGetOptionalRuleByCheck(checkName, out
+descriptor)` 按检查名反查描述符，供内容工具（如编辑器问题面板）判断某条诊断的 `Check` 是否来自
+某个可选规则、来自哪个，不必自行维护 PascalCase→snake_case 映射表。
 
 `RecordCount` 取值惯例同 `toolchain/validator/Program.cs` 此前的写法——订阅 `DataRegistry.LoadAll`
 内部发出的 `data.load_completed` 事件读 `RecordCount` 字段（阻断态下事件仍会照常发出），不是事后
@@ -326,7 +342,7 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
 | 用例 | 覆盖点 |
 |---|---|
 | `OptionalRuleNames_IsFixedTwoEntryList` | 固定清单恰好两项，顺序稳定 |
-| `Run_DefaultOptions_BothOptionalRulesDisabled_NoneEnabled` | 默认选项下两条可选规则均在 `DisabledOptionalRules`，`EnabledOptionalRules` 为空 |
+| `Run_DefaultOptions_BothOptionalRulesEnabledByDefault` | 消费方反馈第 44 条根治后：默认选项（不传接线参数）下 `DisabledOptionalRules` 为空，两条可选规则均出现在 `EnabledOptionalRules` |
 | `Run_WithBothOptionalRuleDependencies_BothEnabled_AndDisplayMapCoverageRuleActuallyFires` | 提供两个接线参数后均出现在 `EnabledOptionalRules`；`DisplayMapCoverageRule` 真实生效（构造一条未被 `display.map` 覆盖的 `creature.template` 行，断言产出 `display_map_coverage` 错误） |
 | `Run_WarningsBlockStrictness_WarningOnlyReport_IsBlocking` | 同一份只含 Warning（`text_key_exists`，`l10n.text` 未加载）的数据集：`WarningsAllowed` 不阻断，`WarningsBlock` 阻断 |
 | `Run_ProducesSameIssueSet_AsDirectPresentationSchemaCatalogRegisterAll` | 同一份数据分别经 `ContentValidationAssembly.Run` 与手工 `PresentationSchemaCatalog.RegisterAll` + `LoadAll` 两条路径，问题集合（格式化字符串排序后逐条比较）与 `IsBlocking` 完全一致 |
