@@ -817,7 +817,35 @@ namespace Toolchain.Validator
             sb.Append(',');
             sb.Append("\"map_value\":");
             AppendMapValueJson(sb, field.Map);
+            sb.Append(',');
+
+            // 分阶段落地计划阶段 N0 任务线 ②（T-N0-1 曲线形态登记的导出面，04 第 3.6 节）："导出给内容
+            // 工具"：顶层字段登记了 FieldSchema.Curve 时导出 {shape, axis}（shape：breakpoints/saturation；
+            // axis：level/item_level/value），编辑器据此渲染曲线编辑控件并标注横轴；未登记为 null，
+            // 追加在既有字段之后，保持既有输出对不消费本键的调用方逐字节兼容。
+            sb.Append("\"curve\":");
+            if (field.Curve == null)
+            {
+                sb.Append("null");
+            }
+            else
+            {
+                sb.Append('{');
+                sb.Append("\"shape\":\"").Append(field.Curve.Shape == CurveShape.Breakpoints ? "breakpoints" : "saturation").Append("\",");
+                sb.Append("\"axis\":\"").Append(CurveAxisName(field.Curve.Axis)).Append('"');
+                sb.Append('}');
+            }
             sb.Append('}');
+        }
+
+        private static string CurveAxisName(CurveAxis axis)
+        {
+            switch (axis)
+            {
+                case CurveAxis.Level: return "level";
+                case CurveAxis.ItemLevel: return "item_level";
+                default: return "value";
+            }
         }
 
         private static void AppendMapKeyJson(StringBuilder sb, MapSchema? map)

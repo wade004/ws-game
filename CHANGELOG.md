@@ -156,30 +156,45 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `disabled_optional_rules` 默认恒为空（第 44 条根治）；示例数据集新增 `summon_only` 生物模板
   `creature.sample_summon_totem`。详见
   [消费方反馈-2026-09-14-编辑器-第43-44条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md)。
-- **数值设计落地 T-N0-1（Unreleased）**：`FieldSchema` 新增可选 `Curve`/`WithCurve(CurveSchema)`
+- **数值设计落地 T-N0-1（1.30.0）**：`FieldSchema` 新增可选 `Curve`/`WithCurve(CurveSchema)`
   （曲线形态标记：断点表 `{x, y}` + 横轴语义 / 二元饱和 `{k, cap}`，见 04 第 3.6 节），新增契约
   类型 `CurveSchema`/`CurveAxis`/`CurveShape` 与工厂 `CurveSchema.BreakpointsField`/`SaturationField`；
   元数据门禁新增 `field_curve_shape`。编辑器若按字段元数据渲染曲线编辑控件，可据 `Curve` 识别
-  曲线字段；`toolchain/validator --list-tables --json` 的 `field_meta` 导出随后续小任务补齐。
-- **数值设计落地 T-N0-2（Unreleased）**：`IValidationRule` 新增三个带默认实现的成员 `RuleId`/
+  曲线字段；`toolchain/validator --list-tables --json` 每个字段的 `field_meta` 新增 `curve`
+  （`null` 或 `{shape: breakpoints|saturation, axis: level|item_level|value}`）。
+- **数值设计落地 T-N0-2（1.30.0）**：`IValidationRule` 新增三个带默认实现的成员 `RuleId`/
   `DefaultSeverity`/`NonEscalatable`（既有实现无需改动）；`ValidationIssue` 新增可选 `Group`/`Note`/
   `RuleId`（新增九参数构造与 `WithRuleId`，既有六参数构造签名不变）；`ValidationReport` 新增
   `Rules`（`ValidationRuleSummary` 列表）与 `NonEscalatableWarningCount`，`WarningsBlock` 下不可提升
   规则的 Warning 不再计入 `IsBlocking`；`RegisterValidationRule` 按 `RuleId` 去重。编辑器问题面板
   可据 `RuleId`/`Group`/`Note` 分组展示；`toolchain/validator` 报告字段随 T-N0-6 补齐。
-- **数值设计落地 T-N0-3（Unreleased）**：新增框架级校验规则 `CurveMonotonicFiniteRule`（检查名
+- **数值设计落地 T-N0-3（1.30.0）**：新增框架级校验规则 `CurveMonotonicFiniteRule`（检查名
   `curve_monotonic_finite`，Error 级），随 `PresentationSchemaCatalog.RegisterAll` 默认注册；编辑器
   问题面板会出现这一新检查名，按检查名过滤的既有逻辑不受影响。
-- **数值设计落地 T-N0-4（Unreleased）**：`item.budget_curve`/`stat.rating_conversion` schema 版本 1→2，
+- **数值设计落地 T-N0-4（1.30.0）**：`item.budget_curve`/`stat.rating_conversion` schema 版本 1→2，
   `entries` 元素改为通用断点表 `{x, y}`（`FieldSchema.Curve` 标记横轴语义），v1 字段名经迁移链自动改名；
   编辑器曲线编辑控件（物品编辑器 5.5.3 曲线图）应按 `x`/`y` 读写并据 `Curve.Axis` 标注横轴，
   执行整表迁移仍走 ADR-0029 的 `SchemaMigrator.MigrateEnvelope`。
-- **数值设计落地 T-N0-5（Unreleased）**：`ProgLevelCurveValidationRule` 新增检查名 `level_curve_xp_monotonic`；
+- **数值设计落地 T-N0-5（1.30.0）**：`ProgLevelCurveValidationRule` 新增检查名 `level_curve_xp_monotonic`；
   `combat.resist_curve`/`prog.level_curve` 的字段与版本均不变。
-- **数值设计落地 T-N0-6（Unreleased）**：`toolchain/validator --json` 新增 `rules[]` 与
+- **数值设计落地 T-N0-6（1.30.0）**：`toolchain/validator --json` 新增 `rules[]` 与
   `issues[].group/note/rule_id`，编辑器问题面板可据此按规则分组并展示作者说明原文；既有字段不变。
 
 ## [Unreleased]
+
+## [1.30.0] - 2026-09-14
+
+MINOR 版本：数值设计落地阶段 N0"横切前置"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)
+第 6 节，T-N0-1～T-N0-8）——建立通用曲线契约（04 第 3.6 节曲线形态登记 + 公共插值工具）、校验规则元数据
+与报告（规则 id/默认级别/不可提升、注册去重、`rules[]`、`issues[].group/note/rule_id`）、通用"曲线单调
+有限"阻断规则，并把既有四张曲线表接到通用插值上（`item.budget_curve`/`stat.rating_conversion` schema
+版本 1→2 走迁移链，`combat.resist_curve` 的 `table` 分支复用插值、`prog.level_curve` 只接单调校验）。
+回放与 Perf 基线零变化。**迁移说明**：两张迁移表的旧数据文件无需手改（1→2 迁移环节自动改名
+`{item_level, budget}`/`{level, points_per_percent}` → `{x, y}`），内容工具执行整表迁移仍走 ADR-0029
+`SchemaMigrator.MigrateEnvelope`；直接读这两张表原始 JSON 的消费方改读 `x`/`y`；编辑器问题面板可按
+`rule_id`/`group` 分组；`data/_sample` 的 `stat.rating_conversion` 示例值改为随等级不递减（示例数据集未
+启用评级换算，无行为影响）；新增阻断检查名 `curve_monotonic_finite`/`level_curve_xp_monotonic` 与元数据
+门禁 `field_curve_shape`。各小任务门禁与逐项验收记录见该计划末节"落地进度记录"。
 
 ### 新增
 
@@ -192,7 +207,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   形态、`BreakpointsField`/`SaturationField` 标准子结构工厂、`ReadBreakpoints`/`TryReadBreakpoints`
   解析入口）与 `FieldSchema.Curve`/`WithCurve`；`SchemaAudit` 新增 `field_curve_shape` 自洽检查
   （形态标记与字段种类/子结构相符）。04 新增第 3.6 节"曲线形态登记"与元数据门禁一行。既有曲线表
-  一律未改动（T-N0-4/T-N0-5 迁移），加载期检查全部复用既有检查名。测试：`PiecewiseCurveTests`
+  一律未改动（T-N0-4/T-N0-5 迁移），加载期检查全部复用既有检查名；`toolchain/validator --list-tables
+  --json` 的 `field_meta` 新增 `curve`（阶段任务线 ②）。测试：`PiecewiseCurveTests`
   12 例、`CurveSchemaTests` 11 例、`SchemaAuditTests` 新增 5 例。
 - **数值设计落地阶段 N0 · T-N0-2（校验规则元数据、注册去重、问题分组/说明）**：
   `IValidationRule` 新增带默认实现的 `RuleId`（默认类型名）/`DefaultSeverity`（默认 Error）/
