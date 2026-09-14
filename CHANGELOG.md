@@ -182,6 +182,37 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **数值设计落地阶段 N1 · T-N1-1（`stat.definition` 新字段 category/derived_from/clamp/
+  conversion_ref/scope 与 1→2 迁移，[数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
+  第 14 节）**：`core/numbers/stat_block` 的 `stat.definition` schema 版本 1→2，新增
+  `category`（`primary|derived|percent|defense|misc`，决定聚合轮次与是否经换算层）、
+  `derived_from`（`Array<{stat:Reference(stat.definition), coefficient:Number}>`，仅
+  `category=derived` 有意义，`coefficient` 允许负数只登记有限性不登记下界，拍板 11）、`clamp`
+  （`{min?, max?}`，取代平级 `min`/`max`，夹取时机随 T-N1-2 落地）、`conversion_ref`（引用
+  `stat.rating_conversion`，仅 `category=percent` 有意义）、`scope`（`any|from_player|from_creature`，
+  缺省 `any`）五个字段；`group`/`min`/`max`/`is_rating`/`rating_conversion_ref` 标废弃，保留一个
+  版本周期不删（拍板 1/2），迁移链自动补算新字段而不移除旧字段。`group` 本版本仍必填——
+  `StatHost.LoadDefinitions`（T-N1-1 不改动 `StatHost.cs`）目前仍无条件读取该字段，放宽为可选
+  留给 T-N1-2 改读 `category` 之后。`StatDefinitionValidationRule` 新增两条 Error 检查：
+  `derived_from` 出现在非 `derived` 类别、`conversion_ref` 出现在非 `percent` 类别（检查名
+  `stat_definition_derived_from_requires_derived`/`stat_definition_conversion_ref_requires_percent`，
+  04 第 5 节分级表未逐条列出这两项检查名，按 `stat_definition_*` 前缀命名，**待设计层确认**）。
+  **迁移说明**：`group→category` 映射——`resistance→defense`（拍板 1 明文规定）、`primary`/
+  `derived` 恒等、`secondary` 按 `is_rating` 取值二选一分裂为 `percent`/`misc`（**推断，非契约
+  条文明文规定，待设计层确认**，理由与既有样例数据 `crit_rating`/`dodge_rating`/`move_speed`
+  的既定用法一致）；`min`/`max` 同时或部分存在时嵌套进 `clamp`；`is_rating=true` 且带
+  `rating_conversion_ref` 时映射出 `conversion_ref`。`games/_template/data/game/stat/stat.definition.json`
+  升级为 v2 写法示例（直接写 `category`，`group` 仍需同时提供）；`data/_sample/stat/stat.definition.json`
+  保留 v1 写法练迁移链。三处既有测试夹具（`core/numbers/stat_block/tests/StatHostTests.cs`、
+  `core/rules/tests/Integration/ProgressionRestoreRatingRecomputeTests.cs`、
+  `core/gameplay/assembly/tests/CORE_180_FollowupAuditTests.cs`）把 `is_rating=true` 属性的
+  `group` 由 `primary` 改为 `secondary`，避免迁移后 `category=primary` 与同时迁移出的
+  `conversion_ref` 冲突新增校验（`group` 本版本对 `StatHost` 行为无差异，见 `GroupValues`
+  判断记录）。测试：`StatDefinitionMigrationTests` 8 例、`StatSchemaCoverageTests` 新增 4 例、
+  `StatHostTests` 新增 4 例（两条新规则正负例）。
+
 ## [1.30.0] - 2026-09-14
 
 MINOR 版本：数值设计落地阶段 N0"横切前置"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)

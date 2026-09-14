@@ -28,12 +28,17 @@ namespace Tests.Rules.Integration
         private static readonly Id CurveId = new Id("prog.curve.r08");
         private static readonly Id StatRating = new Id("stat.r08_rating");
 
+        // T-N1-1 判断记录：group 用 secondary（不是 primary）——stat.definition 1→2 迁移把
+        // group=secondary + is_rating=true 映射为 category=percent（同既有样例 crit_rating/
+        // dodge_rating 惯例），与同时迁移出的 conversion_ref 一致；若仍用 primary 会映射成
+        // category=primary，触发新增的 StatDefinitionValidationRule.CheckConversionRefRequiresPercentCategory。
+        // RulesAssembly 生产装配会注册该规则（见 RulesSchemaCatalog.RegisterL1Schemas）。
         private const string StatDefinitionJson = @"
         {
             ""table"": ""stat.definition"",
             ""schema_version"": 1,
             ""rows"": [
-                { ""id"": ""stat.r08_rating"", ""name_key"": ""l10n.stat.r08_rating.name"", ""group"": ""primary"",
+                { ""id"": ""stat.r08_rating"", ""name_key"": ""l10n.stat.r08_rating.name"", ""group"": ""secondary"",
                   ""default_base"": 0, ""is_rating"": true, ""rating_conversion_ref"": ""stat.rating.r08_curve"" }
             ]
         }";

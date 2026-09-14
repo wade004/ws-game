@@ -20,13 +20,35 @@ stat_block/
                IStatHost.cs
                StatHostOptions.cs
                StatChangedEvent.cs（StatBlockEventKeys、StatChangedEvent）
-  core/        StatSchemas.cs（stat.definition / stat.rating_conversion 的 TableSchema）
+  core/        StatSchemas.cs（stat.definition / stat.rating_conversion 的 TableSchema；
+               stat.definition schema 版本 2，T-N1-1）
                StatDefinitionValidationRule.cs（IValidationRule：min<=max、
-               rating_conversion_ref 需要 is_rating）
-               StatHost.cs（IStatHost 默认实现）
+               rating_conversion_ref 需要 is_rating、derived_from 仅限 derived、
+               conversion_ref 仅限 percent，T-N1-1 新增后两条）
+               StatHost.cs（IStatHost 默认实现；仍读 group/min/max/is_rating/
+               rating_conversion_ref，T-N1-1 未改，T-N1-2 落地两轮聚合时改读
+               category/derived_from/clamp/conversion_ref）
   schema/      README.md（字段表）
   tests/       StatHostTests.cs
+               StatDefinitionMigrationTests.cs（T-N1-1：1→2 迁移字段值回归）
+               StatSchemaCoverageTests.cs（rating_conversion.entries、
+               definition.derived_from/clamp 子结构覆盖）
+               RatingConversionMigrationTests.cs
+               P2_05_StatHostReloadTests.cs
+               CORE114_03_StatHostReloadCacheInvalidationTests.cs
 ```
+
+## T-N1-1：stat.definition schema 版本 2（category/derived_from/clamp/conversion_ref/scope）
+
+分阶段落地计划 T-N1-1（ADR-0030 决策 1；落地清单拍板 1/2/11）：`stat.definition` 新增
+`category`/`derived_from`/`clamp`/`conversion_ref`/`scope` 五个字段，`group`/`min`/`max`/
+`is_rating`/`rating_conversion_ref` 标废弃（保留一个版本周期不删），schema 版本 1→2 迁移链
+自动补齐新字段。**本任务只改 schema 与校验规则，不改 `StatHost.cs`**——三段式聚合、评级换算、
+抗性维度三节描述的仍是 T-N1-1 之前的行为，`StatHost` 仍读 `group`/`is_rating` 等旧字段；两轮
+拓扑序聚合、换算层始终启用、`clamp` 真正生效等 ADR-0030 决策 2/3 的运行时改动留给 T-N1-2。
+
+字段表与 `group→category` 映射细节见 `schema/README.md`"`stat.definition`"一节（含"待设计层
+确认"标注的推断映射：`secondary` 按 `is_rating` 分裂为 `percent`/`misc`）。
 
 ## 用法
 

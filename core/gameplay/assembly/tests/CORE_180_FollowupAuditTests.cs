@@ -310,9 +310,15 @@ namespace Tests.Gameplay.Assembly
         {
             string E(string table, string rows) => "{\"table\":\"" + table + "\",\"schema_version\":1,\"rows\":" + rows + "}";
             var levels = string.Join(",", Enumerable.Range(1, 10).Select(i => "{\"level\":" + i + ",\"xp_to_next\":100,\"growth\":{}}"));
+            // T-N1-1 判断记录：Rating 的 group 用 secondary（不是 primary）——stat.definition 1→2
+            // 迁移把 group=secondary + is_rating=true 映射为 category=percent（同既有样例
+            // crit_rating/dodge_rating 惯例），与同时迁移出的 conversion_ref 一致；若仍用 primary
+            // 会映射成 category=primary，触发新增的
+            // StatDefinitionValidationRule.CheckConversionRefRequiresPercentCategory（本测试走生产
+            // GameplayAssembly，会注册该规则）。
             return new InMemoryDataSource()
                 .Add("stat.definition", E("stat.definition",
-                    "[{\"id\":\"" + Rating.Value + "\",\"name_key\":\"l10n.rating\",\"group\":\"primary\",\"default_base\":0,\"is_rating\":true,\"rating_conversion_ref\":\"stat.rating.core_180_followup\"}," +
+                    "[{\"id\":\"" + Rating.Value + "\",\"name_key\":\"l10n.rating\",\"group\":\"secondary\",\"default_base\":0,\"is_rating\":true,\"rating_conversion_ref\":\"stat.rating.core_180_followup\"}," +
                     "{\"id\":\"" + MaxHealth.Value + "\",\"name_key\":\"l10n.max\",\"group\":\"primary\",\"default_base\":100}," +
                     "{\"id\":\"" + StatRacePower.Value + "\",\"name_key\":\"l10n.race.power\",\"group\":\"primary\",\"default_base\":1}," +
                     "{\"id\":\"" + StatClassPower.Value + "\",\"name_key\":\"l10n.class.power\",\"group\":\"primary\",\"default_base\":1}]"))

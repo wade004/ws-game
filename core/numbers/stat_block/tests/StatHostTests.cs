@@ -14,6 +14,12 @@ namespace Tests.Numbers.StatBlock
         // 公共夹具
         // -----------------------------------------------------------------
 
+        // T-N1-1 判断记录：stat.test_d 的 group 从 primary 改为 secondary——1→2 迁移把
+        // group=secondary + is_rating=true 映射为 category=percent（与既有样例 crit_rating/
+        // dodge_rating 同一惯例），若仍是 primary 会映射成 category=primary，与同时迁移出的
+        // conversion_ref 冲突，触发 StatDefinitionValidationRule.CheckConversionRefRequiresPercentCategory
+        // （新增于 T-N1-1）。group 本身在本版本行为上未被 StatHost 区分 primary/secondary（唯一被
+        // 特殊处理的是 resistance），改动不影响本文件任何既有断言。
         private const string StatDefinitionJson = @"
         {
             ""table"": ""stat.definition"",
@@ -22,7 +28,7 @@ namespace Tests.Numbers.StatBlock
                 { ""id"": ""stat.test_a"", ""name_key"": ""l10n.stat.test_a.name"", ""group"": ""primary"", ""default_base"": 0 },
                 { ""id"": ""stat.test_b"", ""name_key"": ""l10n.stat.test_b.name"", ""group"": ""primary"", ""default_base"": 0 },
                 { ""id"": ""stat.test_c"", ""name_key"": ""l10n.stat.test_c.name"", ""group"": ""primary"", ""default_base"": 0, ""min"": 0, ""max"": 100 },
-                { ""id"": ""stat.test_d"", ""name_key"": ""l10n.stat.test_d.name"", ""group"": ""primary"", ""default_base"": 0, ""is_rating"": true, ""rating_conversion_ref"": ""stat.rating.test_curve"" },
+                { ""id"": ""stat.test_d"", ""name_key"": ""l10n.stat.test_d.name"", ""group"": ""secondary"", ""default_base"": 0, ""is_rating"": true, ""rating_conversion_ref"": ""stat.rating.test_curve"" },
                 { ""id"": ""stat.test_r"", ""name_key"": ""l10n.stat.test_r.name"", ""group"": ""resistance"", ""default_base"": 0 }
             ]
         }";
@@ -547,6 +553,103 @@ namespace Tests.Numbers.StatBlock
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i => i.Check == StatDefinitionValidationRule.CheckMinMaxOrder
                                                  && i.RecordKey == "stat.bad_minmax");
+        }
+
+        // -----------------------------------------------------------------
+        // T-N1-1 新增：derived_from 仅限 derived、conversion_ref 仅限 percent 正反例
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ValidationRule_DerivedFromWithNonDerivedCategory_ReportsError()
+        {
+            const string badJson = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.bad_derived_from"", ""name_key"": ""l10n.a"", ""category"": ""primary"", ""group"": ""primary"",
+                      ""derived_from"": [ { ""stat"": ""stat.bad_derived_from"", ""coefficient"": 1.0 } ] }
+                ]
+            }";
+
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (_, report) = BuildRegistry(bus, badJson, null, new StatDefinitionValidationRule());
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == StatDefinitionValidationRule.CheckDerivedFromRequiresDerivedCategory
+                                                 && i.RecordKey == "stat.bad_derived_from");
+        }
+
+        [Fact]
+        public void ValidationRule_DerivedFromWithDerivedCategory_NoError()
+        {
+            const string okJson = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.src"", ""name_key"": ""l10n.src"", ""category"": ""primary"", ""group"": ""primary"" },
+                    { ""id"": ""stat.ok_derived"", ""name_key"": ""l10n.b"", ""category"": ""derived"", ""group"": ""derived"",
+                      ""derived_from"": [ { ""stat"": ""stat.src"", ""coefficient"": 2.0 } ] }
+                ]
+            }";
+
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (_, report) = BuildRegistry(bus, okJson, null, new StatDefinitionValidationRule());
+
+            Assert.False(report.IsBlocking);
+            foreach (var issue in report.Issues)
+            {
+                Assert.NotEqual(StatDefinitionValidationRule.CheckDerivedFromRequiresDerivedCategory, issue.Check);
+            }
+        }
+
+        [Fact]
+        public void ValidationRule_ConversionRefWithNonPercentCategory_ReportsError()
+        {
+            const string badJson = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.bad_conversion_ref"", ""name_key"": ""l10n.c"", ""category"": ""primary"", ""group"": ""primary"",
+                      ""conversion_ref"": ""stat.rating.test_curve"" }
+                ]
+            }";
+
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (_, report) = BuildRegistry(bus, badJson, RatingConversionJson, new StatDefinitionValidationRule());
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == StatDefinitionValidationRule.CheckConversionRefRequiresPercentCategory
+                                                 && i.RecordKey == "stat.bad_conversion_ref");
+        }
+
+        [Fact]
+        public void ValidationRule_ConversionRefWithPercentCategory_NoError()
+        {
+            const string okJson = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.ok_conversion_ref"", ""name_key"": ""l10n.d"", ""category"": ""percent"", ""group"": ""secondary"",
+                      ""conversion_ref"": ""stat.rating.test_curve"" }
+                ]
+            }";
+
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (_, report) = BuildRegistry(bus, okJson, RatingConversionJson, new StatDefinitionValidationRule());
+
+            Assert.False(report.IsBlocking);
+            foreach (var issue in report.Issues)
+            {
+                Assert.NotEqual(StatDefinitionValidationRule.CheckConversionRefRequiresPercentCategory, issue.Check);
+            }
         }
 
         // -----------------------------------------------------------------
