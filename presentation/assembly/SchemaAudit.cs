@@ -40,7 +40,8 @@ namespace Presentation.Assembly
         /// <c>field_map_conflict</c>（ADR-0024）/<c>idlist_allowed_values_conflict</c>/
         /// <c>soft_reference_kind</c>（消费方反馈第 28/29 条，04 第 3.4 节勘误）/
         /// <c>id_description_reference_hint</c>（消费方反馈第 30 条，告警级，04 第 3.4 节勘误）/
-        /// <c>declared_reference_unregistered</c>（消费方反馈第 37 条，告警级，04 第 4 节勘误）。</summary>
+        /// <c>declared_reference_unregistered</c>（消费方反馈第 37 条，告警级，04 第 4 节勘误）/
+        /// <c>field_curve_shape</c>（分阶段落地计划 T-N0-1，04 第 3.6 节"曲线形态登记"）。</summary>
         public string Check { get; }
 
         public string Message { get; }
@@ -574,6 +575,16 @@ namespace Presentation.Assembly
                     "若目标不确定，改写描述使其不再暗示存在引用关系（消费方反馈第 30 条）"));
             }
 
+            // 分阶段落地计划 T-N0-1（04 第 3.6 节"曲线形态登记"）自洽检查：Curve 形态与字段种类/子结构
+            // 相符——断点表须是 Array 且元素为 Object{x, y}（两者必填、数值种类），饱和须是 Object 且含
+            // 必填数值 k。刻意不在 FieldSchema.WithCurve 挂载时检查（同 field_range_kind/field_map_kind
+            // 既有风格），交由本审计事后报告；标准形态由 CurveSchema.BreakpointsField/SaturationField 生成，
+            // 手工拼装的登记若形态不符在这里被拦下。
+            if (field.Curve != null)
+            {
+                CheckCurveShape(tableName, path, field, issues);
+            }
+
             if (field.Kind == FieldKind.Reference)
             {
                 if (field.ReferenceTable != null && !allTableNames.Contains(field.ReferenceTable))
@@ -703,6 +714,75 @@ namespace Presentation.Assembly
             {
                 ancestors.RemoveAt(ancestors.Count - 1);
             }
+        }
+
+        /// <summary>见 <see cref="WalkField"/> 里 <c>field_curve_shape</c> 的调用点注释。只报告第一处不符
+        /// 之处（形态错了后面的子结构比较没有意义），消息里指明应改用的工厂方法。</summary>
+        private static void CheckCurveShape(string tableName, string path, FieldSchema field, List<SchemaAuditIssue> issues)
+        {
+            var curve = field.Curve!;
+            string? problem = null;
+
+            if (curve.Shape == CurveShape.Breakpoints)
+            {
+                if (field.Kind != FieldKind.Array)
+                {
+                    problem = $"登记为断点表曲线，但 Kind 为 {field.Kind}——断点表仅 Array 字段可设";
+                }
+                else if (field.Item == null || field.Item.Kind != FieldKind.Object || field.Item.Fields == null)
+                {
+                    problem = "登记为断点表曲线，但 Item 未登记为带 Fields 的 Object（元素须是 {x, y} 对象）";
+                }
+                else
+                {
+                    problem = DescribeMissingNumericField(field.Item.Fields, CurveSchema.XFieldName)
+                        ?? DescribeMissingNumericField(field.Item.Fields, CurveSchema.YFieldName);
+                }
+            }
+            else
+            {
+                if (field.Kind != FieldKind.Object)
+                {
+                    problem = $"登记为饱和曲线，但 Kind 为 {field.Kind}——饱和形态仅 Object 字段可设";
+                }
+                else if (field.Fields == null)
+                {
+                    problem = "登记为饱和曲线，但未登记 Fields（须含必填数值子字段 k）";
+                }
+                else
+                {
+                    problem = DescribeMissingNumericField(field.Fields, CurveSchema.SaturationKFieldName);
+                }
+            }
+
+            if (problem != null)
+            {
+                issues.Add(new SchemaAuditIssue("error", tableName, path, "field_curve_shape",
+                    $"字段 \"{path}\" {problem}（用 CurveSchema.BreakpointsField/SaturationField 生成标准形态，分阶段落地计划 T-N0-1）"));
+            }
+        }
+
+        private static string? DescribeMissingNumericField(IReadOnlyList<FieldSchema> fields, string name)
+        {
+            for (var i = 0; i < fields.Count; i++)
+            {
+                var f = fields[i];
+                if (f.Name != name)
+                {
+                    continue;
+                }
+                if (!f.Required)
+                {
+                    return $"曲线子字段 \"{name}\" 必须必填";
+                }
+                if (f.Kind != FieldKind.Number && f.Kind != FieldKind.Int)
+                {
+                    return $"曲线子字段 \"{name}\" 的 Kind 为 {f.Kind}——须是 Number/Int";
+                }
+                return null;
+            }
+
+            return $"缺少曲线子字段 \"{name}\"";
         }
 
         private static void ReportOrConsumeAllowlist(

@@ -156,8 +156,27 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `disabled_optional_rules` 默认恒为空（第 44 条根治）；示例数据集新增 `summon_only` 生物模板
   `creature.sample_summon_totem`。详见
   [消费方反馈-2026-09-14-编辑器-第43-44条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md)。
+- **数值设计落地 T-N0-1（Unreleased）**：`FieldSchema` 新增可选 `Curve`/`WithCurve(CurveSchema)`
+  （曲线形态标记：断点表 `{x, y}` + 横轴语义 / 二元饱和 `{k, cap}`，见 04 第 3.6 节），新增契约
+  类型 `CurveSchema`/`CurveAxis`/`CurveShape` 与工厂 `CurveSchema.BreakpointsField`/`SaturationField`；
+  元数据门禁新增 `field_curve_shape`。编辑器若按字段元数据渲染曲线编辑控件，可据 `Curve` 识别
+  曲线字段；`toolchain/validator --list-tables --json` 的 `field_meta` 导出随后续小任务补齐。
 
 ## [Unreleased]
+
+### 新增
+
+- **数值设计落地阶段 N0 · T-N0-1（通用曲线形态与公共插值工具，
+  [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md) 第 6 节）**：
+  `core/foundation/common` 新增 `CurvePoint`/`PiecewiseCurve`（按 `x` 稳定排序、分段线性插值、
+  两端夹取、空表为 0，插值式子与迁移前 `ItemBudgetCurve`/`StatHost` 手写式子逐运算相同，无超越
+  函数路径；`IsNonDecreasing()`/`IsFinite()` 只读查询）；`core/foundation/data_registry` 新增
+  `CurveSchema`（`CurveAxis` 等级/物品等级/数值三种横轴语义、`CurveShape` 断点表/二元饱和两种
+  形态、`BreakpointsField`/`SaturationField` 标准子结构工厂、`ReadBreakpoints`/`TryReadBreakpoints`
+  解析入口）与 `FieldSchema.Curve`/`WithCurve`；`SchemaAudit` 新增 `field_curve_shape` 自洽检查
+  （形态标记与字段种类/子结构相符）。04 新增第 3.6 节"曲线形态登记"与元数据门禁一行。既有曲线表
+  一律未改动（T-N0-4/T-N0-5 迁移），加载期检查全部复用既有检查名。测试：`PiecewiseCurveTests`
+  12 例、`CurveSchemaTests` 11 例、`SchemaAuditTests` 新增 5 例。
 
 ## [1.29.0] - 2026-09-14
 

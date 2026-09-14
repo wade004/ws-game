@@ -17,7 +17,8 @@ schema 版本迁移、做第 5 节列出的引用完整性等校验、提供只�
 ```
 data_registry/
   README.md
-  contracts/   FieldKind.cs FieldSchema.cs VariantSchema.cs TableSchema.cs（含 TableMigration/MigrateDelegate）
+  contracts/   FieldKind.cs FieldSchema.cs VariantSchema.cs CurveSchema.cs（含 CurveAxis/CurveShape）
+               TableSchema.cs（含 TableMigration/MigrateDelegate）
                IDataSource.cs（DataTableSource/TextProvider）DataRecord.cs DataFieldException.cs
                ValidationReport.cs（ValidationSeverity/ValidationIssue）IValidationRule.cs
                IDataRegistry.cs（IDataRegistryView/IDataRegistry）DataRegistryOptions.cs Events.cs
@@ -25,6 +26,7 @@ data_registry/
                RecordExprHost.cs RecordExprSchema.cs
   schema/      README.md（schema_registry 元表说明、信封/主键规则、判断记录）
   tests/       DataRegistryTests.cs SubstructureValidationTests.cs（ADR-0019 子结构递归校验）
+               CurveSchemaTests.cs（T-N0-1 曲线形态登记）
 ```
 
 ## 加载流程（`LoadAll`）
@@ -112,6 +114,29 @@ data_registry/
    子结构——`Query` 的谓词场景（按字段筛选内容表）目前没有"按嵌套子字段筛选"的实际需求，贸然
    展开会显著扩大 `RecordExprSchema.For` 的实现复杂度（嵌套路径怎么表达成 Expr 引用语法、数组
    元素怎么索引），本批不做，待有真实场景再评估。
+
+## 曲线形态登记（分阶段落地计划 T-N0-1，04 第 3.6 节）
+
+数值设计要求全部"横轴为等级/物品等级/数值"的曲线表共用一种登记形态与一份插值实现（数值总纲第 3 节
+原则 1、落地清单 2.1 C1/C2）。`CurveSchema.cs` 提供：
+
+- `FieldSchema.WithCurve(CurveSchema)`/`FieldSchema.Curve`：把"该字段是一条曲线、横轴是什么"作为
+  元数据挂到字段上；不新增 `FieldKind`，曲线仍是 `Array`（断点表）或 `Object`（饱和）字段，子结构
+  沿 ADR-0019 登记，加载期必填/类型/范围检查全部复用既有检查项（不新增平行检查名）。
+- 两种形态：`CurveShape.Breakpoints`（一元断点表，元素固定为 `{x, y}`，横轴语义由 `CurveAxis`
+  声明——`Level`/`ItemLevel` 的 `x` 登记为 `Int`，`Value` 的 `x` 为 `Number`）与
+  `CurveShape.Saturation`（二元饱和 `{k, cap}`，输入为数值 × 等级；本模块只登记形态与参数字段，
+  不提供求值，既有 `combat.resist_curve` 的 `saturation` 分支公式保持原样）。
+- 工厂 `CurveSchema.BreakpointsField(...)`/`SaturationField(...)` 生成标准子结构；手工拼装的登记若
+  形态与种类/子结构不符，由 `SchemaAudit` 的 `field_curve_shape` 检查项事后报告（同 `WithRange`/
+  `WithMap`"挂载时不检查、门禁事后报告"的既有风格）。
+- 解析入口 `CurveSchema.ReadBreakpoints(DataRecord, fieldName)`（形态不符抛 `DataFieldException`，
+  路径定位到 `字段[下标]`）与 `TryReadBreakpoints(JsonArray, ...)`（供校验规则使用，不抛异常），
+  返回 `Core.Foundation.Common.PiecewiseCurve`——解析放在本模块而不是 `common`，因为依赖方向是
+  `data_registry → common`。
+
+既有曲线表（`item.budget_curve`/`stat.rating_conversion`/`combat.resist_curve` 的 `table` 分支）迁移到
+本形态与通用单调有限规则 `curve_monotonic_finite` 分别是分阶段落地计划 T-N0-4/T-N0-5 与 T-N0-3 的内容。
 
 ## 主键规则
 

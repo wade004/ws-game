@@ -293,6 +293,28 @@ namespace Core.Foundation.DataRegistry
             return this;
         }
 
+        private CurveSchema? _curve;
+
+        /// <summary>分阶段落地计划 T-N0-1（落地清单 2.1 C1、数值总纲第 3 节原则 1）：该字段是一条曲线的
+        /// 形态标记（断点表 / 二元饱和 + 横轴语义，见 <see cref="CurveSchema"/>），供通用曲线校验规则、
+        /// 内容工具与运行时解析只认这一份登记。形态与 <see cref="Kind"/>/子结构是否相符（断点表须是
+        /// <see cref="FieldKind.Array"/> 且元素为 <c>{x, y}</c>，饱和须是 <see cref="FieldKind.Object"/>
+        /// 且含 <c>k</c>）刻意不在 <see cref="WithCurve"/> 挂载时检查，由 <c>SchemaAudit</c> 的
+        /// <c>field_curve_shape</c> 检查项事后报告（同 <see cref="WithRange"/>/<see cref="WithMap"/>
+        /// "让登记在错误组合上的错误停留在可枚举的软失败"这条既有风格）；按标准形态生成字段请用
+        /// <see cref="CurveSchema.BreakpointsField"/>/<see cref="CurveSchema.SaturationField"/>。</summary>
+        public CurveSchema? Curve => _curve;
+
+        /// <summary>登记 <see cref="Curve"/>；只能设置一次（重复设置抛异常，同 <see cref="WithRange"/>/
+        /// <see cref="WithMap"/> 惯例）。返回 <c>this</c> 便于链式调用。</summary>
+        public FieldSchema WithCurve(CurveSchema curve)
+        {
+            if (curve == null) throw new ArgumentNullException(nameof(curve));
+            if (_curve != null) throw new InvalidOperationException($"字段 \"{Name}\"：Curve 已设置，不可重复设置");
+            _curve = curve;
+            return this;
+        }
+
         public FieldSchema(
             string name,
             FieldKind kind,
