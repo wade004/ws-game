@@ -38,6 +38,11 @@ stat_block/
                写法照抄 archetype 层 ArchTalentTreeCycleValidationRule）
                StatRatingConversionValidationRule.cs（T-N1-3 新增 IValidationRule：
                stat.rating_conversion 记录必须恰好登记 entries 或 saturation 之一）
+               StatDefinitionConsumerValidationRule.cs（T-N1-9 新增 IValidationRule：
+               检查名 stat_definition_no_consumer，Warning 级、NonEscalatable=true（04 第 5
+               节"属性无消费者"整组警告登记为不可提升）；通用扫描全部已注册表的 Reference/
+               SoftReference/Map 键引用字段是否命中 stat.definition，外加
+               GetReferenceDeclarations() 动态声明与框架内置消费者属性名清单两条补充来源）
                StatHost.cs（IStatHost 默认实现；T-N1-2 起改读 category/derived_from/
                clamp（不再读 group/平级 min/max），两轮拓扑序聚合、派生失效传播、
                抗性维度判定改用 category=="defense"；T-N1-3 起 LoadRatingConversions
@@ -55,6 +60,9 @@ stat_block/
                rating_conversion.saturation 子结构与形态二选一正反例）
                StatWeightSchemaTests.cs（T-N1-5：stat.weight 合法记录/缺必填/引用不存在/
                class_overrides 子结构坏形状覆盖；"StatHost 不读该表"源码扫描 + 行为双重防御）
+               StatDefinitionConsumerValidationRuleTests.cs（T-N1-9：无消费者警告正负例——
+               负例/stat.weight 引用正例/derived_from 来源正例/框架内置豁免正例/
+               NonEscalatable 在 WarningsBlock 下不阻断）
                RatingConversionMigrationTests.cs
                P2_05_StatHostReloadTests.cs
                CORE114_03_StatHostReloadCacheInvalidationTests.cs
@@ -267,6 +275,69 @@ ReloadArchetypeAndRace`（直接持有 `StatHost` 具体类型，同 `Stats.Rese
 `GetDefinitionIdsByCategory` 已撤回——**从未发布**（本模块 `IStatHost.cs` 未随任何已发布版本
 对外，`toolchain/abi_probe.ps1` 对已发布基线核对无破坏），直接删除签名，不留废弃占位。详见
 `core/rules/combat/README.md` 判断记录 18"偏离计划原文的说明"一节。
+
+## T-N1-9：属性无消费者警告规则、样例按推荐分类补齐
+
+分阶段落地计划 T-N1-9（ADR-0030 决策 8/9；04 第 5 节数值类校验项分级表"警告 | 属性无消费者 |
+`stat.definition` 条目未被命中表配置、结算管线、资源池定义、派生规则或任一表达式引用"一行）：
+新增 `StatDefinitionConsumerValidationRule`（检查名 `stat_definition_no_consumer`），并把
+`data/_sample/stat/stat.definition.json` 按 ADR-0030 决策 9 的推荐分类升级为 v2 写法、补齐样例。
+
+- **"消费者"定义与扫描机制**：04 原文四个例子（命中表配置/结算管线/资源池定义/派生规则/表达式
+  引用）是例举而非封闭枚举（判断记录见规则源码类型注释）。实现不逐表硬编码消费者定义，而是通用
+  扫描：(1) 全部已注册表的 `TableSchema`，任意深度递归 `Fields`/`Item`/`Variants`/`Map`，命中
+  `ReferenceTable`/`SoftReferenceTable`/`MapSchema.KeyReferenceTable` 等于 `"stat.definition"`
+  的字段，把已加载记录里该字段的实际取值计入"已消费属性 id"集合（一次遍历天然覆盖
+  `stat.definition.derived_from[].stat`、`stat.weight.stat`、`arch.class.base_stats`/
+  `derivation_overrides`、`arch.power_type.max_source.stat`、
+  `combat.hit_table_config.*.stat`/`miss.hit_stat` 等全部既有引用点，新增一张引用表不需要改本
+  规则代码）；(2) `IDataRegistryView.GetReferenceDeclarations()`（1.26.0）动态声明的引用；
+  (3) 框架内置消费者属性名清单（`StatDefinitionConsumerValidationRule.
+  FrameworkBuiltinConsumerStatIds`：`stat.armor`/`stat.damage_done_pct`/`stat.damage_taken_pct`/
+  `stat.healing_done_pct`——`Core.Rules.Combat.CombatOptions` 构造期硬编码的默认属性 id，运行时
+  选项引用不在数据里，规则拿不到，只能手抄登记，若 `CombatOptions` 未来改名/新增默认属性 id 需要
+  人工同步，本模块不能反射跨层读取 L2 类型）。
+- **级别与不可提升**：`DefaultSeverity = Warning`，`NonEscalatable = true`——04 第 5 节明文
+  "警告级这一组登记为不可提升"（ADR-0030～0034 新增的数值类警告整组，不只本规则），即使
+  `DataRegistryStrictness.WarningsBlock` 下也不阻断（`ValidationRuleMetadataTests` 同款语义，见
+  `core/foundation/data_registry`）。`toolchain/validate_data.py --strict` 因此对该规则命中的
+  Warning 不阻断退出码；示例数据仍要求每条属性都有消费者（本任务样例已逐条核对，见下），"无消费者"
+  负例只出现在 `tests/StatDefinitionConsumerValidationRuleTests.cs` 的构造夹具里，不出现在
+  `data/_sample`。
+- **样例按 ADR-0030 决策 9 推荐分类补齐**（`data/_sample/stat/stat.definition.json` 升级为 v2
+  写法，`schema_version: 2`，因为派生属性需要 `derived_from` 字段、v1 无此字段）：主属性四个
+  （力量/敏捷/智力/体质）；派生三个（攻击强度=力量×2.0、法术强度=智力×1.5、资源回复速率=
+  智力×0.1——决策 8/数值设计 01 第 3.7 节"派生属性列表中'资源上限'改为'资源回复速率'"，本样例
+  据此**不**再把"生命上限"列入派生属性，与 06 第 1.3 节修订段仍保留"生命上限"字样这一处表述
+  不一致，已如实记录为契约疑点，未改架构文档）；战斗百分比五个（暴击率/闪避/命中三个沿用既有
+  评级属性迁移到 `category: percent`，新增暴击伤害与急速——急速引用新增
+  `stat.rating.haste` 饱和曲线换算，示范"变态版"曲线形态，与既有 crit/dodge 的"标准版"断点表
+  换算互补）；防御一个（护甲，`category` 从 v1 `derived` 改判为 `defense`——沿用 T-N1-7 复核
+  返工记录"ADR-0030 决策 9 明确把护甲归入 defense 推荐分类"的既定裁定）；杂项四个（移动速度/
+  仇恨系数/先攻/幸运）。每条新增属性都在 `data/_sample/stat/stat.weight.json` 补一条权重记录
+  作为保底消费者（`stat.weight` 本身不影响 `StatHost` 运行时行为，见 T-N1-5，纯粹用于满足
+  "有消费者"这条内容惯例），部分属性另有更具体的消费者（`arch.class.sample_a.base_stats`/
+  `derivation_overrides`、`combat.hit_table_config` 各分支）。
+- **`arch.power_type` 样例 health 上限改回固定值**：ADR-0030 决策 8"资源上限固定、回复速率
+  派生"为推荐默认，`data/_sample/arch/arch.power_type.json` 的 `arch.power.health`
+  （`"override": true` 行，见 `data/README.md`"arch.power_type"判断记录）从此前"演示改为随
+  `stat.stamina` 成长"（`{kind: stat, stat: stat.stamina}`）撤回为另一个固定值
+  `{kind: fixed, value: 120}`——继续演示行覆盖语义（覆盖后的值与框架级默认 100 不同，证明确实
+  发生了覆盖），只是覆盖后不再引用属性；`data/_framework` 侧的框架级默认行本就是
+  `{kind: fixed, value: 100}`，不受影响。`arch.power.sample_vigor`（`max_source` 引用
+  `stat.stamina`）保留不变，继续承担"上限引用属性"这条路径的测试覆盖（同 `data/README.md`
+  该节既有判断记录的分工）。`core/numbers/tests/L1SampleDataTests.cs` 两个断言健康池上限的用例
+  （`ApplyTo_RegistersPowerTypes_HealthCapReferencesStamina` 改名为
+  `ApplyTo_RegistersPowerTypes_HealthCapFixed`、`GrantFromSource_LevelUp_
+  AppliesGrowth_StatsAndPowerCapChange`）同步改断言为固定值 120、不随属性成长。
+- **契约疑点（如实上报，未改架构文档）**：(1) 检查名 `stat_definition_no_consumer`——04 第 5 节
+  分级表"属性无消费者"一行未给出检查名（该表检查项列是中文短语），按 `stat_definition_*` 前缀
+  命名，同本模块既有三条检查名的处理口径，待设计层确认；(2) ADR-0030 决策 9 原文与 06 第 1.3
+  节修订段的推荐派生属性列表仍写"生命上限"，与决策 8/数值设计 01 第 3.7 节"改为资源回复速率"
+  的表述冲突，本任务样例遵照后者（更具体、更晚的修订段落）；(3) "消费者"的操作化定义（本节
+  第一条）比 04 原文四个例子更宽，把 `stat.weight`/`arch.power_type.max_source` 等任一登记为
+  `Reference(stat.definition)` 的字段都算作消费者，不局限于 04 原文逐字列出的四类，属于对
+  "或任一表达式引用"收尾措辞的从宽解释，待设计层确认是否需要收紧。
 
 ## 用法
 

@@ -28,9 +28,15 @@ schema 版本 2（T-N1-1，ADR-0030 决策 1；落地清单拍板 1/2/11）：�
 | `rating_conversion_ref`（废弃） | Id（引用 `stat.rating_conversion`） | 否 | 曲线引用，仅 `is_rating=true` 时有意义。v2 起由 `conversion_ref` 取代 |
 | `description` | String | 否 | 说明文字 |
 
-与现有示例文件（`data/_sample/stat/stat.definition.json`，v1 写法：`id`/`name_key`/`group` 等）
-兼容：v1 数据经 1→2 迁移自动补齐 `category`/`clamp`/`conversion_ref`，`games/_template/data/game/stat/stat.definition.json`
-已升级为 v2 写法示例（直接写 `category`，`group` 仍需同时提供，理由同上表）。
+v1 写法（`id`/`name_key`/`group` 等）经 1→2 迁移自动补齐 `category`/`clamp`/`conversion_ref`，仍受
+支持（迁移链回归见 `tests/StatDefinitionMigrationTests.cs`）；`games/_template/data/game/stat/
+stat.definition.json` 早已升级为 v2 写法示例（直接写 `category`，同时保留 `group` 冗余填写）。
+`data/_sample/stat/stat.definition.json` 自 T-N1-9 起同样升级为纯 v2 写法（`schema_version: 2`，
+不再提供已废弃的 `group`/`min`/`max`/`is_rating`/`rating_conversion_ref` 五个字段——因为样例已经
+用到 `derived_from`，这是 v1 没有的字段，见该模块 README"T-N1-9"一节），按 ADR-0030 决策 9 的
+推荐分类补齐：主属性四个、派生三个、战斗百分比五个、防御一个、杂项四个，逐条核对均有消费者
+（`stat.weight`/`arch.class`/`combat.hit_table_config` 或框架内置消费者清单，见
+`StatDefinitionConsumerValidationRule`"判断记录：消费者定义与豁免机制"一节）。
 
 `group→category` 迁移映射（`StatSchemas.MigrateDefinitionV1ToV2` 判断记录）：`resistance→defense`
 （拍板 1 明文规定）；`primary`/`derived` 恒等；`secondary` 契约未给出显式映射，按 `is_rating` 取值
@@ -59,6 +65,17 @@ schema 版本 2（T-N1-1，ADR-0030 决策 1；落地清单拍板 1/2/11）：�
   确认**。
 - `stat_definition_conversion_ref_requires_percent`（T-N1-1 新增）：提供了 `conversion_ref` 时，
   `category` 必须是 `percent`。检查名同上一条判断记录，**待设计层确认**。
+- `stat_definition_no_consumer`（`core/StatDefinitionConsumerValidationRule.cs`，独立文件/独立
+  规则，T-N1-9 新增；ADR-0030 决策 8/9；04 第 5 节数值类校验项分级表"属性无消费者"一行）：某条
+  `stat.definition` 记录未被任何已注册表的引用字段/`GetReferenceDeclarations()` 动态声明/框架
+  内置消费者属性名清单命中，报一条 Warning。Warning 级，`NonEscalatable=true`（04"警告级这一组
+  登记为不可提升"，`WarningsBlock` 下也不阻断）。检查名——04 第 5 节分级表本行同样未给出检查名，
+  按 `stat_definition_*` 前缀命名，**待设计层确认**。"消费者"的判定不逐表硬编码，通用扫描全部
+  已注册表的 `Reference`/`SoftReference`/`Map` 键引用字段，见该规则源码类型注释与本模块
+  README"T-N1-9"一节；"框架内置消费者属性名清单"（`CombatOptions` 构造期硬编码的默认属性 id，
+  如 `stat.armor`）是本规则**唯一的豁免机制**——手抄字符串常量，本模块（L1）不能引用 L2
+  `Core.Rules.Combat` 具体类型，若该清单未来改动需要人工同步，**待设计层确认**是否需要更稳固的
+  跨层同步机制（如登记在某张公共配置表里）。
 
 **T-N1-4 判断记录（职业派生系数覆盖不是 `stat.definition` 自己的字段）**：ADR-0030 决策 2"职业
 模板可覆盖派生系数"落地为 `arch.class.derivation_overrides`（`Core.Numbers.Archetype` 模块自己的

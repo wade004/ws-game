@@ -112,6 +112,9 @@ namespace Core.Rules.Assembly
             // power_set/faction 没有模块专属校验规则（见 L1SampleDataTests.cs 注释）。
             registry.RegisterValidationRule(new StatDefinitionValidationRule());
             registry.RegisterValidationRule(new StatDefinitionDerivationCycleValidationRule());
+            // T-N1-9（04 第 5 节"属性无消费者"）：跨表扫描规则，注册时机不影响结果（Validate 在
+            // RegisterAll 全部完成后才执行，见该规则类型判断记录）。
+            registry.RegisterValidationRule(new StatDefinitionConsumerValidationRule());
             registry.RegisterValidationRule(new StatRatingConversionValidationRule());
             registry.RegisterValidationRule(new ProgLevelCurveValidationRule());
             registry.RegisterValidationRule(new ArchTalentTreeCycleValidationRule());

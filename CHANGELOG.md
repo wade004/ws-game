@@ -220,6 +220,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `crit_suppression`/`xp_factor` 三列输出 `{shape: "breakpoints", axis: "level_diff"}`（新增轴
   取值字符串，复用既有 `field_meta.curve` 导出结构，编辑器需要按新字符串区分"这是差值轴不是等级
   轴"，不识别的客户端可退化为按普通数值轴渲染，不阻断）。
+- **数值设计落地阶段 N1 · T-N1-9（Unreleased）**：新校验规则 `stat_definition_no_consumer`（04
+  第 5 节"属性无消费者"，Warning 级，`NonEscalatable=true`）随 `RulesSchemaCatalog.RegisterAll`
+  一起注册，出现在 `toolchain/validator --json`/`--list-tables --json` 的 `rules[]` 与命中
+  记录的 `issues[]` 里——编辑器问题面板若已按 04"警告级这一组登记为不可提升"渲染既有规则（同
+  T-N0-2 起的 `rules[].non_escalatable` 字段），本规则天然落入同一渲染分组，不需要新增前端
+  分支；若编辑器给"属性详情"面板加"谁在引用我"反查视图，本规则的扫描逻辑（全部已注册表的
+  `Reference`/`SoftReference`/`Map` 键引用字段）可直接复用同一份实现思路。
 
 ## [Unreleased]
 
@@ -465,6 +472,39 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   选择不叠加（`dodge` 已是独立分支单独判定，06 未规定两者是否应同时生效）；`grey_line` 的具体
   消费公式（灰名门槛换算、目标名字五色固定分档）留待阶段 N4 确认。详见
   `core/rules/combat/README.md` 判断记录 19。
+- **数值设计落地阶段 N1 · T-N1-9（属性无消费者校验、样例按推荐分类补齐、`arch.power_type` 样例
+  health 上限改回固定值，
+  [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md) 第 14 节；
+  [ADR-0030](architecture/adr/0030-属性系统派生换算与来源类别.md) 决策 8/9；04 第 5 节数值类
+  校验项分级表"属性无消费者"一行）**：新增 `core/numbers/stat_block.
+  StatDefinitionConsumerValidationRule`（检查名 `stat_definition_no_consumer`，Warning 级，
+  `NonEscalatable=true`——04"警告级这一组登记为不可提升"，`WarningsBlock` 下也不阻断）：通用
+  扫描全部已注册表的 `Reference`/`SoftReference`/`Map` 键引用字段与
+  `IDataRegistryView.GetReferenceDeclarations()` 动态声明是否命中某条 `stat.definition` 记录，
+  外加手抄的"框架内置消费者属性名清单"（`CombatOptions` 构造期硬编码默认值：`stat.armor`/
+  `stat.damage_done_pct`/`stat.damage_taken_pct`/`stat.healing_done_pct`）兜底运行时选项引用。
+  `data/_sample/stat/stat.definition.json` 升级为纯 v2 写法（`schema_version: 2`，不再提供已
+  废弃的 `group`/`min`/`max`/`is_rating`/`rating_conversion_ref`），按 ADR-0030 决策 9 推荐分类
+  补齐：主属性四个（力量/敏捷/智力/体质）、派生三个（攻击强度/法术强度/资源回复速率，均带
+  `derived_from` 系数样例）、战斗百分比五个（暴击率/闪避/命中/暴击伤害/急速，急速新增引用
+  `stat.rating.haste` 饱和曲线，示范"变态版"换算形态）、防御一个（护甲，`category` 由 v1
+  `derived` 改判为 `defense`）、杂项四个（移动速度/仇恨系数/先攻/幸运）；`data/_sample/stat/
+  stat.weight.json`/`data/_sample/arch/arch.class.json`（新增 `base_stats.stat.agility`/
+  `stat.intellect` 与一条 `derivation_overrides` 样例）/`data/_sample/l10n/l10n.text.json`
+  （新属性两语言文本）配套更新，逐条属性均核对有消费者。`data/_sample/arch/arch.power_type.json`
+  的 `arch.power.health`（`"override": true` 行）撤回此前"改为随 `stat.stamina` 成长"的示例，
+  改回另一个固定值 `{kind: fixed, value: 120}`（ADR-0030 决策 8"资源上限固定、回复速率派生"为
+  推荐默认；`data/_framework` 侧框架级默认行仍是 `{kind: fixed, value: 100}`，不受影响）；
+  `core/numbers/tests/L1SampleDataTests.cs` 两个健康池上限用例同步改断言（其一改名
+  `ApplyTo_RegistersPowerTypes_HealthCapFixed`）。新增测试
+  `core/numbers/stat_block/tests/StatDefinitionConsumerValidationRuleTests.cs`（无消费者警告
+  正负例、`stat.weight`/`derived_from` 来源引用正例、框架内置豁免正例、`NonEscalatable` 在
+  `WarningsBlock` 下不阻断，共 5 例）。**契约疑点（如实上报，未改架构文档）**：ADR-0030 决策 9
+  原文与 06 第 1.3 节修订段的推荐派生属性列表仍写"生命上限"，与决策 8/数值设计 01 第 3.7 节
+  "改为资源回复速率"表述冲突，本任务样例遵照后者；检查名 `stat_definition_no_consumer` 与
+  "消费者"的操作化定义（比 04 原文四个例子更宽）均**待设计层确认**，详见
+  `core/numbers/stat_block/README.md`"T-N1-9"一节、`schema/README.md`"`stat_definition_no_
+  consumer`"判断记录。
 
 MINOR 版本：数值设计落地阶段 N0"横切前置"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)
 第 6 节，T-N0-1～T-N0-8）——建立通用曲线契约（04 第 3.6 节曲线形态登记 + 公共插值工具）、校验规则元数据
