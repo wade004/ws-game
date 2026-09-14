@@ -33,7 +33,7 @@ namespace Core.Numbers.StatBlock
         /// cref="StatHost.ComputeFinal"/> 判断记录），<c>conversion_ref</c> 缺省时按恒等曲线处理，
         /// 不存在任何"关闭换算层"的路径（见 <c>StatHostTests</c> 的
         /// <c>EnableRatingConversion_HasNoEffect_PercentStatsStillConvert</c> 与
-        /// <c>StatHostOptions_NoOtherUnobsoleteConversionSwitch_Exists</c> 两条反射/行为测试）。
+        /// <c>StatHostOptions_NoUnobsoleteConversionSwitch_Exists</c> 两条反射/行为测试）。
         /// </para>
         /// </summary>
         [Obsolete("换算层自 1.31.0 起始终启用（ADR-0030 决策 3），本属性无任何作用，保留仅为二进制兼容")]
