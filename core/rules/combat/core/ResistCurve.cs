@@ -51,6 +51,14 @@ namespace Core.Rules.Combat
 
         public double MaxReduction { get; }
 
+        /// <summary>T-N0-5：<see cref="ResistCurveKind.Table"/> 分支的插值载体——由 <see cref="Entries"/>
+        /// 构造的通用分段线性曲线（x = 输入值，y = 减免）。<see cref="Entries"/> 保持原样公开（ABI 不变），
+        /// 求值改为委托 <see cref="PiecewiseCurve.Evaluate"/>：越界夹取端点、段内 <c>lo + t × (hi − lo)</c>、
+        /// 空表为 0，与此前本类型手写的 <c>InterpolateTable</c> 逐运算相同（合法数据下逐位一致；数据经
+        /// <c>resist_curve_entries_monotonic</c> 保证 value 严格递增，通用曲线的稳定排序不改变顺序）。
+        /// 饱和分支不经过本字段，公式原样保留（T-N0-5 禁止事项）。</summary>
+        private readonly PiecewiseCurve _tableCurve;
+
         public ResistCurve(DataRecord record)
         {
             Id = record.GetId("id");
@@ -86,6 +94,13 @@ namespace Core.Rules.Combat
             }
 
             Entries = entries;
+
+            var points = new CurvePoint[entries.Count];
+            for (int i = 0; i < entries.Count; i++)
+            {
+                points[i] = new CurvePoint(entries[i].Value, entries[i].Reduction);
+            }
+            _tableCurve = new PiecewiseCurve(points);
         }
 
         /// <summary><paramref name="value"/> 为护甲/抗性属性当前值，<paramref name="attackerLevel"/>
@@ -101,7 +116,7 @@ namespace Core.Rules.Combat
                     break;
 
                 case ResistCurveKind.Table:
-                    raw = InterpolateTable(value);
+                    raw = _tableCurve.Evaluate(value);
                     break;
 
                 default:
@@ -110,38 +125,6 @@ namespace Core.Rules.Combat
 
             if (raw < 0.0) raw = 0.0;
             return Math.Min(raw, MaxReduction);
-        }
-
-        private double InterpolateTable(double value)
-        {
-            if (Entries.Count == 0)
-            {
-                return 0.0;
-            }
-
-            if (value <= Entries[0].Value)
-            {
-                return Entries[0].Reduction;
-            }
-
-            var last = Entries[Entries.Count - 1];
-            if (value >= last.Value)
-            {
-                return last.Reduction;
-            }
-
-            for (int i = 0; i < Entries.Count - 1; i++)
-            {
-                var low = Entries[i];
-                var high = Entries[i + 1];
-                if (value >= low.Value && value <= high.Value)
-                {
-                    var t = (value - low.Value) / (high.Value - low.Value);
-                    return low.Reduction + t * (high.Reduction - low.Reduction);
-                }
-            }
-
-            return last.Reduction;
         }
     }
 }

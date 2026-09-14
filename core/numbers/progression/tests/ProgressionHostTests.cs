@@ -34,14 +34,15 @@ namespace Tests.Numbers.Progression
             "{\"table\": \"" + table + "\", \"schema_version\": 1, \"rows\": " + rowsJson + "}";
 
         // 标准三级曲线：1→2 需 100 经验（成长 {stat.strength:2, stat.vitality:1}），
-        // 2→3 需 50 经验（成长 {stat.strength:3}），3 级（满级）xp_to_next=0。
+        // 2→3 需 100 经验（成长 {stat.strength:3}），3 级（满级）xp_to_next=0。
+        // T-N0-5：xp_to_next 沿等级不递减（level_curve_xp_monotonic），2→3 由 50 改为 100（允许相等）。
         private const string GoodCurveRows = @"[
             {
                 ""id"": ""prog.curve.sample"",
                 ""max_level"": 3,
                 ""entries"": [
                     { ""level"": 1, ""xp_to_next"": 100, ""growth"": {} },
-                    { ""level"": 2, ""xp_to_next"": 50, ""growth"": { ""stat.strength"": 2, ""stat.vitality"": 1 } },
+                    { ""level"": 2, ""xp_to_next"": 100, ""growth"": { ""stat.strength"": 2, ""stat.vitality"": 1 } },
                     { ""level"": 3, ""xp_to_next"": 0, ""growth"": { ""stat.strength"": 3 } }
                 ]
             }
@@ -240,8 +241,8 @@ namespace Tests.Numbers.Progression
             var levelUps = new List<LevelUpEvent>();
             bus.Subscribe<LevelUpEvent>(ProgressionEventKeys.LevelUp, e => levelUps.Add(e));
 
-            // 1→2 需 100，2→3 需 50，3 级是满级：给 200 经验足够连跨两级，残余 50 在满级时被丢弃。
-            host.AddXp(unit, new Id("prog.xp.kill_wolf"), 200);
+            // 1→2 需 100，2→3 需 100，3 级是满级：给 250 经验足够连跨两级，残余 50 在满级时被丢弃。
+            host.AddXp(unit, new Id("prog.xp.kill_wolf"), 250);
 
             Assert.Equal(3, host.GetLevel(unit));
             Assert.Equal(0, host.GetXp(unit)); // 满级残余经验被丢弃
@@ -486,8 +487,8 @@ namespace Tests.Numbers.Progression
             host.RegisterUnit(unit, new Id("prog.curve.sample"), startLevel: 2);
             host.ApplyGrowthToCurrentLevel(unit);
 
-            // 2→3 需 50 经验（GoodCurveRows）。
-            host.AddXp(unit, new Id("prog.xp.kill_wolf"), 50);
+            // 2→3 需 100 经验（GoodCurveRows）。
+            host.AddXp(unit, new Id("prog.xp.kill_wolf"), 100);
 
             Assert.Equal(3, host.GetLevel(unit));
             Assert.Equal(2, writers.RemoveCalls.Count); // 出生施加一次 + 升级再一次，均是整体重写前先清空

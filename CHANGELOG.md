@@ -174,6 +174,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `entries` 元素改为通用断点表 `{x, y}`（`FieldSchema.Curve` 标记横轴语义），v1 字段名经迁移链自动改名；
   编辑器曲线编辑控件（物品编辑器 5.5.3 曲线图）应按 `x`/`y` 读写并据 `Curve.Axis` 标注横轴，
   执行整表迁移仍走 ADR-0029 的 `SchemaMigrator.MigrateEnvelope`。
+- **数值设计落地 T-N0-5（Unreleased）**：`ProgLevelCurveValidationRule` 新增检查名 `level_curve_xp_monotonic`；
+  `combat.resist_curve`/`prog.level_curve` 的字段与版本均不变。
 
 ## [Unreleased]
 
@@ -220,6 +222,12 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   评级换算，回放/Perf 基线不受影响；`L1SampleDataTests` 一处按示例值断言的期望同步）。两处覆盖测试的
   `required_field` 路径断言由 `entries[0].budget`/`entries[0].points_per_percent` 改为 `entries[0].y`。
   测试：`ItemBudgetCurveMigrationTests` 12 例、`RatingConversionMigrationTests` 7 例。
+- **数值设计落地阶段 N0 · T-N0-5（`combat.resist_curve` table 分支复用插值、`prog.level_curve` 接入单调校验）**：
+  `ResistCurve` 的 `table` 分支求值改为委托 `PiecewiseCurve.Evaluate`（式子逐运算相同，`Entries` 公开面不变），
+  `saturation` 分支公式原样不动；`ProgLevelCurveValidationRule` 新增检查名 `level_curve_xp_monotonic`
+  （`xp_to_next` 沿等级不递减、允许相等，末级条目按约定为 0 不参与比较），表本身保持逐级密集枚举不迁移
+  （拍板 3）。既有 `resist_curve_entries_monotonic`/`level_curve_entries`/`level_curve_continuity` 不变。
+  测试：`ResistCurveTableInterpolationTests` 14 例、`ProgLevelCurveXpMonotonicTests` 4 例。
 
 ## [1.29.0] - 2026-09-14
 
