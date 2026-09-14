@@ -746,6 +746,124 @@ namespace Core.Numbers.StatBlock
         }
 
         /// <summary>
+        /// T-N1-4（ADR-0030 决策 2"职业模板可覆盖派生系数（<c>arch.class.derivation_overrides</c>，
+        /// 可选）"）：整体替换 <paramref name="unitId"/> 当前生效的派生系数覆盖——<b>全量替换语义</b>，
+        /// 不是增量合并：上一次调用登记过、这一次 <paramref name="overrides"/> 里不再出现的
+        /// <c>(stat, source)</c> 条目自动失效（等价于"先清旧覆盖再写新覆盖"，见 <see
+        /// cref="Core.Numbers.Archetype.ArchetypeRegistry"/> 换职业接线点判断记录），调用方不需要
+        /// 自己先调 <see cref="ClearDerivationCoefficientOverrides"/> 再调本方法。<paramref
+        /// name="overrides"/> 为空数组等价于清空（与 <see cref="ClearDerivationCoefficientOverrides"/>
+        /// 结果相同，提供后者只是让调用方表达意图更直接）。
+        /// <para>
+        /// 每条覆盖是 <c>(目标派生属性, 来源属性, 覆盖系数)</c> 三元组——同一 <c>(stat, source)</c> 在
+        /// <paramref name="overrides"/> 里重复出现时保留最后一条（同 <see cref="AddModifier"/> 对同一
+        /// 属性多条修正的既有"按顺序生效"惯例，这里退化为"后写覆盖先写"，因为覆盖表本身是键值对，
+        /// 没有"多条同时生效"的语义空间）。<b>不做"覆盖是否指向 <paramref name="def"/>.<see
+        /// cref="StatDefinition.DerivedFrom"/> 中真实存在的边"这类内容层面的校验</b>——那是内容加载期
+        /// 的职责（见 <c>Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule</c>），指向
+        /// 不存在边的覆盖在 <see cref="ComputeDerivedBase"/> 里天然读不到、不产生任何效果（防御性静默
+        /// 忽略，同本类型一贯的"内容错误已由校验层拦下，运行时只做兜底"口径）。目标属性
+        /// <c>category</c> 不是 <c>derived</c> 时同理——覆盖表写进去了，但 <see
+        /// cref="ComputeDerivedBase"/> 根本不会为非 derived 属性调用，不产生效果。
+        /// </para>
+        /// <para>
+        /// 判断记录（不加入 <see cref="IStatHost"/> 契约接口）：同 <see cref="ResetBase"/>——
+        /// <c>Core.Rules.Assembly.RulesAssembly</c> 持有的是 <see cref="StatHost"/> 具体类型，不是
+        /// <see cref="IStatHost"/> 接口，加入具体类型即可满足换职业/读档恢复的接线需求，不扩大既有
+        /// 接口契约的语义范围，也不影响任何既有 <see cref="IStatHost"/> 实现的源码兼容性。
+        /// </para>
+        /// <para>
+        /// 判断记录（重算与事件）：只重算"此前已经被缓存过"的受影响属性（同 <see
+        /// cref="PropagateDerivedInvalidation"/>/<see cref="RecomputeAllCachedStatsAfterReload"/> 一贯
+        /// 口径），受影响集合 = 本次覆盖表变化涉及的目标属性（新旧两份覆盖表 key 的并集）∪ 它们的全部
+        /// 传递依赖者（覆盖变化的派生属性自己也可能是另一条派生关系的来源），按 <see
+        /// cref="_topoOrder"/> 顺序处理，逐个比较新旧值决定是否补发 <see cref="StatChangedEvent"/>——
+        /// 与来源属性变化触发的失效传播是同一条通知路径（06 第 1.1 节修订段"来源属性或派生系数变化时
+        /// 派生属性重算，与既有'等级变化驱动评级缓存重算'同一通知路径"）。
+        /// </para>
+        /// </summary>
+        public void SetDerivationCoefficientOverrides(Id unitId, IReadOnlyList<(Id Stat, Id Source, double Coefficient)> overrides)
+        {
+            var unit = RequireUnit(unitId);
+
+            var newMap = new Dictionary<Id, Dictionary<Id, double>>();
+            for (int i = 0; i < overrides.Count; i++)
+            {
+                var (stat, source, coefficient) = overrides[i];
+                if (!newMap.TryGetValue(stat, out var bySource))
+                {
+                    bySource = new Dictionary<Id, double>();
+                    newMap[stat] = bySource;
+                }
+                bySource[source] = coefficient; // 同一 (stat, source) 重复登记：保留最后一条。
+            }
+
+            var affected = new HashSet<Id>();
+            if (unit.DerivationOverrides != null)
+            {
+                foreach (var stat in unit.DerivationOverrides.Keys) affected.Add(stat);
+            }
+            foreach (var stat in newMap.Keys) affected.Add(stat);
+
+            unit.DerivationOverrides = newMap.Count > 0 ? newMap : null;
+
+            RecomputeDerivationOverrideAffectedStats(unitId, unit, affected);
+        }
+
+        /// <summary>T-N1-4：清空 <paramref name="unitId"/> 当前生效的派生系数覆盖，等价于
+        /// <c>SetDerivationCoefficientOverrides(unitId, Array.Empty&lt;...&gt;())</c>（见该方法判断
+        /// 记录）。本就没有任何覆盖时是安全的幂等 no-op（不发 <see cref="StatChangedEvent"/>，同
+        /// <see cref="ResetBase"/> 的既有幂等惯例）。</summary>
+        public void ClearDerivationCoefficientOverrides(Id unitId)
+        {
+            var unit = RequireUnit(unitId);
+            if (unit.DerivationOverrides == null)
+            {
+                return; // 幂等 no-op。
+            }
+
+            var affected = new HashSet<Id>(unit.DerivationOverrides.Keys);
+            unit.DerivationOverrides = null;
+
+            RecomputeDerivationOverrideAffectedStats(unitId, unit, affected);
+        }
+
+        /// <summary>T-N1-4：<paramref name="directlyAffected"/>（覆盖表变化直接涉及的目标属性）及其
+        /// 全部传递依赖者中，"此前已经被缓存过"的属性按 <see cref="_topoOrder"/> 顺序重算，值变化则
+        /// 补发 <see cref="StatChangedEvent"/>——与 <see cref="PropagateDerivedInvalidation"/> 同一套
+        /// 算法，只是触发源是"覆盖表本身"而不是"某个属性的 base/modifier"。</summary>
+        private void RecomputeDerivationOverrideAffectedStats(Id unitId, UnitStats unit, HashSet<Id> directlyAffected)
+        {
+            var allAffected = new HashSet<Id>(directlyAffected);
+            foreach (var stat in directlyAffected)
+            {
+                CollectTransitiveDependents(stat, allAffected);
+            }
+
+            for (int i = 0; i < _topoOrder.Count; i++)
+            {
+                var stat = _topoOrder[i];
+                if (!allAffected.Contains(stat) || !unit.Cache.TryGetValue(stat, out var oldValue))
+                {
+                    continue;
+                }
+
+                if (!_definitions.TryGetValue(stat, out var def))
+                {
+                    continue;
+                }
+
+                var newValue = ComputeFinal(unitId, unit, def);
+                unit.Cache[stat] = newValue;
+
+                if (newValue != oldValue)
+                {
+                    _bus.Enqueue(new StatChangedEvent(unitId, stat, oldValue, newValue));
+                }
+            }
+        }
+
+        /// <summary>
         /// T-N1-2（ADR-0030 决策 2）：<paramref name="changedStat"/> 的某一路输入（base/modifier，
         /// 或如 <see cref="RecomputeRatingStats"/> 场景下的评级换算结果）发生变化后，把失效传播给
         /// 全部（传递）以它为 <c>derived_from</c> 来源的派生属性——只处理"此前已经被
@@ -925,14 +1043,35 @@ namespace Core.Numbers.StatBlock
         /// <paramref name="def"/>.<see cref="StatDefinition.DerivedFrom"/> 允许为空（<c>category
         /// =derived</c> 但未登记来源的属性，合法但基础值恒为 0，与"没有任何 flat 修正的属性基础值
         /// 为 0"同一语义，不是错误）；<see cref="StatDefinition.DerivedFrom"/>.<c>Coefficient</c>
-        /// 允许为负（拍板 11）。</summary>
+        /// 允许为负（拍板 11）。
+        /// <para>
+        /// 判断记录（T-N1-4，ADR-0030 决策 2"职业模板可覆盖派生系数"）：每条来源的系数先查
+        /// <paramref name="unit"/>.<see cref="UnitStats.DerivationOverrides"/>（按
+        /// <c>(本属性 id, 来源 id)</c）二级查找），命中则用覆盖值取代 <c>stat.definition</c> 里登记的
+        /// 默认系数；未命中（含整条属性都没有任何覆盖、或覆盖表里没有这一条具体的来源边）时回退到
+        /// <paramref name="def"/> 自己的系数——覆盖只影响"用哪个数"，不改变来源集合本身，也不需要
+        /// 在这里做"覆盖是否指向一条真实存在的 derived_from 边"的校验：覆盖表本就只按
+        /// <paramref name="def"/>.<see cref="StatDefinition.DerivedFrom"/> 实际登记的来源顺序遍历查找，
+        /// 一条指向不存在边的覆盖天然不会被读到（内容层面的"覆盖必须指向真实存在的边"校验见
+        /// <c>Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule</c>，属于内容校验阶段，
+        /// 不是本方法的职责）。
+        /// </para>
+        /// </summary>
         private double ComputeDerivedBase(Id unitId, UnitStats unit, StatDefinition def)
         {
             var sources = def.DerivedFrom;
+            Dictionary<Id, double>? overridesForThisStat = null;
+            unit.DerivationOverrides?.TryGetValue(def.Id, out overridesForThisStat);
+
             double sum = 0;
             for (int i = 0; i < sources.Count; i++)
             {
-                sum += ResolveFinal(unitId, unit, sources[i].Stat) * sources[i].Coefficient;
+                var coefficient = sources[i].Coefficient;
+                if (overridesForThisStat != null && overridesForThisStat.TryGetValue(sources[i].Stat, out var overrideCoefficient))
+                {
+                    coefficient = overrideCoefficient;
+                }
+                sum += ResolveFinal(unitId, unit, sources[i].Stat) * coefficient;
             }
             return sum;
         }
@@ -1163,6 +1302,13 @@ namespace Core.Numbers.StatBlock
             public readonly Dictionary<Id, double> Base = new Dictionary<Id, double>();
             public readonly Dictionary<Id, List<StatModifier>> ModifiersByStat = new Dictionary<Id, List<StatModifier>>();
             public readonly Dictionary<Id, double> Cache = new Dictionary<Id, double>();
+
+            /// <summary>T-N1-4（ADR-0030 决策 2"职业模板可覆盖派生系数"）：本单位当前生效的派生系数
+            /// 覆盖——<c>目标派生属性 id → (来源属性 id → 覆盖系数)</c>；<c>null</c> 表示没有任何覆盖
+            /// （既有单位的既有行为，绝大多数单位永远是这个状态），与 <see cref="Base"/>/
+            /// <see cref="ModifiersByStat"/> 同属运行期状态，reload 不清空（见 <see
+            /// cref="SetDerivationCoefficientOverrides"/> 判断记录）。</summary>
+            public Dictionary<Id, Dictionary<Id, double>>? DerivationOverrides;
         }
     }
 }

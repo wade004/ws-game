@@ -18,6 +18,7 @@
 | `skill_book_ref` | Optional\<Id\> | 否 | 引用 `skill.book.*`；L2 `skill` 模块已实现（`core/rules/skill`），本字段仍不在模块内部声明为 `Reference`——避免 L1 `archetype` 反向静态耦合 L2 的表结构，是分层边界选择而不是对方模块不存在（见下方判断记录） |
 | `talent_tree_ref` | Optional\<Id\>（Reference→`arch.talent_tree`） | 否 | 引用同表清单的 `arch.talent_tree` |
 | `level_curve_ref` | Optional\<Id\>（Reference→`prog.level_curve`） | 否 | 引用 `progression` 模块的等级曲线 |
+| `derivation_overrides` | Optional\<Array\<{stat, source, coefficient}\>\> | 否 | T-N1-4 新增（ADR-0030 决策 2"职业模板可覆盖派生系数"）：`stat`/`source` 均 Reference→`stat.definition`，`stat` 是被覆盖系数的目标派生属性、`source` 是该属性 `derived_from` 里被覆盖的那一条来源，`coefficient` 取代 `stat.definition.derived_from` 登记的默认系数；纯新增可选字段，不升级 `currentSchemaVersion`（同 T-N1-3 `stat.rating_conversion.saturation` 先例）。子结构选 `Array` 而非 `Map` 与两个字段名的判断记录见下 |
 
 ## `arch.race`
 
@@ -59,3 +60,22 @@
   （`arch.talent_tree` 是本模块自己的表，`prog.level_curve` 是同一任务 progression 模块的表），
   可以放心静态声明，也是任务书验收标准"`level_curve_ref` 引用完整性经 DataRegistry 报错"的
   直接实现依据。
+- **T-N1-4：`derivation_overrides` 选 `Array<{stat, source, coefficient}>` 而非 `Map`**：
+  ADR-0030 决策 2 只给出表名"`arch.class.derivation_overrides`，可选"，06 第 1.3 节字段表未展开
+  子结构（该节只给了 `stat.definition.derived_from` 的形态）。一条覆盖需要同时定位"覆盖哪个派生
+  属性"与"覆盖它的哪一条来源边"两个 `stat.definition` 引用；`Map` 形态（`base_stats`/`stat_mods`
+  用的 `MapSchema.ReferenceKeyTable`）的键只能承载单个属性 id，无法同时表达"目标属性 + 来源属性"
+  这一对复合键，因此选 `Array` 形态。字段名 `stat`（被覆盖的目标派生属性）与 `source`（来源
+  属性）均为实现期按最贴近 `derived_from` 既有字段名（`stat`）的形态命名，**待设计层确认**——
+  与 T-N1-1 `stat_definition_derived_from_requires_derived`/`stat_definition_conversion_ref_
+  requires_percent` 两个检查名"契约未给出、按前缀命名后标注待确认"同一处理口径。详见
+  `core/ArchSchemas.cs` 的 `DerivationOverrideEntrySchema` 源码注释。
+- **T-N1-4：`derivation_overrides[].stat`/`.source` 是否指向真实存在的派生边，由
+  `ArchClassDerivationOverrideValidationRule` 校验（检查名 `arch_class_derivation_override_
+  requires_existing_edge`，Error 级，同样"待设计层确认"，04 第 5 节分级表未列出本项）**：两个
+  字段各自指向不存在的 `stat.definition` 记录由字段级 `reference_integrity` 拦截，本规则只关心
+  "两个引用都存在时，这条边是否真的登记在目标属性的 `derived_from` 里"——即 `stat` 必须
+  `category=derived` 且其 `derived_from` 数组里存在一条 `stat==source` 的记录。`StatHost`/
+  `ArchetypeRegistry` 运行时不重复做这项校验，指向不存在边的覆盖在
+  `StatHost.ComputeDerivedBase` 里天然读不到、静默不产生效果（防御性兜底，同本表其它字段的一贯
+  口径）。

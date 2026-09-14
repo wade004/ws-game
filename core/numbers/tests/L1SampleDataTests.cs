@@ -184,6 +184,7 @@ namespace Tests.Numbers
             registry.RegisterValidationRule(new StatDefinitionDerivationCycleValidationRule());
             registry.RegisterValidationRule(new ProgLevelCurveValidationRule());
             registry.RegisterValidationRule(new ArchTalentTreeCycleValidationRule());
+            registry.RegisterValidationRule(new ArchClassDerivationOverrideValidationRule());
 
             // 补上 archetype 模块 README"设计要点与判断记录"第 2 条标注的"待动态声明"引用。
             // arch.class.primary_stat 是标量 Id 字段，可以声明：

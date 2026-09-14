@@ -35,6 +35,7 @@ namespace Core.Numbers.Archetype
         private readonly StatModifierWriter _statModifierWriter;
         private readonly PowerRegistrar _powerRegistrar;
         private readonly AuraApplier? _auraApplier;
+        private readonly DerivationCoefficientOverrideWriter? _derivationOverrideWriter;
 
         private readonly Dictionary<string, ClassDefinition> _classes = new Dictionary<string, ClassDefinition>(StringComparer.Ordinal);
         private readonly Dictionary<string, RaceDefinition> _races = new Dictionary<string, RaceDefinition>(StringComparer.Ordinal);
@@ -56,6 +57,34 @@ namespace Core.Numbers.Archetype
             StatModifierWriter statModifierWriter,
             PowerRegistrar powerRegistrar,
             AuraApplier? auraApplier = null)
+            : this(registry, bus, statBaseWriter, statModifierWriter, powerRegistrar, derivationOverrideWriter: null, auraApplier)
+        {
+        }
+
+        /// <summary>
+        /// T-N1-4 新增重载（ADR-0030 决策 2"职业模板可覆盖派生系数"）：在既有六参构造之上追加
+        /// <paramref name="derivationOverrideWriter"/>。ABI 门禁 G3 禁止给既有公开构造加可选参数，
+        /// 只能新增重载——既有六参构造改为委托本构造并传 <c>derivationOverrideWriter: null</c>，
+        /// 行为完全不变（<see cref="ApplyTo"/> 在该委托为 null 时跳过派生系数覆盖这一步，见该方法
+        /// 判断记录），不产生任何既有调用点的破坏；两个公开构造共用同一份初始化逻辑（只有一次
+        /// <see cref="ReloadFromRegistry"/>、一次事件订阅），不是各自独立初始化一遍——避免调用新
+        /// 重载时把订阅逻辑跑两遍。
+        /// </summary>
+        /// <param name="derivationOverrideWriter">
+        /// T-N1-4：把 <c>arch.class.derivation_overrides</c> 写入属性宿主的具名委托。为 null（默认，
+        /// 向后兼容既有调用方——同 <paramref name="auraApplier"/> 的既有取舍）时 <see cref="ApplyTo"/>
+        /// 跳过这一步，行为与本次改动之前完全一致；非 null 时，每次 <see cref="ApplyTo"/> 都会用当前
+        /// 职业的完整覆盖列表调用一次（可能是空列表，即"这个职业没有任何覆盖"），由接收方负责全量
+        /// 替换语义（见 <see cref="DerivationCoefficientOverrideWriter"/> 判断记录）。
+        /// </param>
+        public ArchetypeRegistry(
+            IDataRegistryView registry,
+            IEventBus bus,
+            StatBaseWriter statBaseWriter,
+            StatModifierWriter statModifierWriter,
+            PowerRegistrar powerRegistrar,
+            DerivationCoefficientOverrideWriter? derivationOverrideWriter,
+            AuraApplier? auraApplier = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
@@ -63,6 +92,7 @@ namespace Core.Numbers.Archetype
             _statModifierWriter = statModifierWriter ?? throw new ArgumentNullException(nameof(statModifierWriter));
             _powerRegistrar = powerRegistrar ?? throw new ArgumentNullException(nameof(powerRegistrar));
             _auraApplier = auraApplier;
+            _derivationOverrideWriter = derivationOverrideWriter;
 
             ReloadFromRegistry();
 
@@ -116,6 +146,11 @@ namespace Core.Numbers.Archetype
                 _statBaseWriter(unitId, new Id(kv.Key), kv.Value);
             }
 
+            // T-N1-4（ADR-0030 决策 2）：把本职业的派生系数覆盖整体写入属性宿主——委托为 null
+            // （调用方未注入，见构造函数判断记录）时跳过，行为与本次改动之前完全一致。传入的是
+            // cls.DerivationOverrides 完整列表（可能为空），由接收方负责全量替换语义。
+            _derivationOverrideWriter?.Invoke(unitId, cls.DerivationOverrides);
+
             if (raceId.HasValue)
             {
                 var race = GetRace(raceId.Value) ?? throw new ArgumentException($"未知种族 \"{raceId.Value}\"", nameof(raceId));
@@ -157,8 +192,36 @@ namespace Core.Numbers.Archetype
             var skillBookRef = record.TryGetId("skill_book_ref", out var sb) ? sb : (Id?)null;
             var talentTreeRef = record.TryGetId("talent_tree_ref", out var tt) ? tt : (Id?)null;
             var levelCurveRef = record.TryGetId("level_curve_ref", out var lc) ? lc : (Id?)null;
+            var derivationOverrides = ReadDerivationOverrides(record);
 
-            return new ClassDefinition(id, nameKey, primaryStat, baseStats, powerTypes, skillBookRef, talentTreeRef, levelCurveRef);
+            return new ClassDefinition(id, nameKey, primaryStat, baseStats, powerTypes, skillBookRef, talentTreeRef, levelCurveRef, derivationOverrides);
+        }
+
+        /// <summary>T-N1-4：解析 <c>arch.class.derivation_overrides</c>（可选，缺省空列表）——元素
+        /// 形状不符（缺字段/类型不对）已由 <c>ArchSchemas.DerivationOverrideEntrySchema</c> 的
+        /// <c>required_field</c>/<c>field_type</c> 在加载期报过，这里静默跳过，不重复报（同
+        /// <c>StatHost.LoadDefinitions</c> 对 <c>derived_from</c> 元素形状的既有口径）。</summary>
+        private static IReadOnlyList<(Id Stat, Id Source, double Coefficient)> ReadDerivationOverrides(DataRecord record)
+        {
+            if (!record.TryGetArray("derivation_overrides", out var overridesArray) || overridesArray.Count == 0)
+            {
+                return Array.Empty<(Id, Id, double)>();
+            }
+
+            var list = new List<(Id Stat, Id Source, double Coefficient)>(overridesArray.Count);
+            for (int i = 0; i < overridesArray.Count; i++)
+            {
+                if (overridesArray[i] is JsonObject entryObj
+                    && entryObj.TryGetValue("stat", out var statRaw) && statRaw is JsonString statStr
+                    && Id.TryParse(statStr.Value, out var statId)
+                    && entryObj.TryGetValue("source", out var sourceRaw) && sourceRaw is JsonString sourceStr
+                    && Id.TryParse(sourceStr.Value, out var sourceId)
+                    && entryObj.TryGetValue("coefficient", out var coeffRaw) && coeffRaw is JsonNumber coeffNum)
+                {
+                    list.Add((statId, sourceId, coeffNum.Value));
+                }
+            }
+            return list;
         }
 
         private static RaceDefinition ParseRace(DataRecord record)

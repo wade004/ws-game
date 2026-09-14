@@ -29,4 +29,16 @@ namespace Core.Numbers.Archetype
     /// <see cref="ArchetypeRegistry"/> 类注释判断记录），供调用方需要撤销时能按来源整体识别。
     /// </summary>
     public delegate void AuraApplier(Id unitId, Id auraDefId, Id sourceId);
+
+    /// <summary>
+    /// T-N1-4（ADR-0030 决策 2"职业模板可覆盖派生系数（<c>arch.class.derivation_overrides</c>，
+    /// 可选）"）：把职业模板声明的派生系数覆盖整体写入属性宿主的具名委托——本模块不引用
+    /// <c>core/numbers/stat_block</c> 的任何具体类型（同 <see cref="StatBaseWriter"/>/<see
+    /// cref="StatModifierWriter"/> 的既有分层理由），只把 <c>arch.class.derivation_overrides</c>
+    /// 解析出的 <c>(目标派生属性, 来源属性, 系数)</c> 三元组列表原样转发。<paramref name="overrides"/>
+    /// 是<b>全量替换</b>语义（对应 <c>StatHost.SetDerivationCoefficientOverrides</c> 的判断记录）：
+    /// <see cref="ArchetypeRegistry.ApplyTo"/> 每次调用都会传入当前职业的完整覆盖列表（可能为空），
+    /// 由接收方（属性宿主）负责"先清旧覆盖再写新覆盖"，本委托不需要配一个单独的"清除"委托。
+    /// </summary>
+    public delegate void DerivationCoefficientOverrideWriter(Id unitId, IReadOnlyList<(Id Stat, Id Source, double Coefficient)> overrides);
 }

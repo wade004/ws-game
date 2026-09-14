@@ -42,6 +42,38 @@ namespace Core.Numbers.Archetype
     /// </summary>
     public static class ArchSchemas
     {
+        /// <summary><c>arch.class.derivation_overrides</c> 数组元素结构（T-N1-4，ADR-0030 决策 2
+        /// "职业模板可覆盖派生系数（<c>arch.class.derivation_overrides</c>，可选）"）。
+        /// <para>
+        /// 判断记录（子结构形态：<c>Array&lt;{stat, source, coefficient}&gt;</c>，不是 <c>Map</c>）：
+        /// ADR-0030 决策 2 原文只给出表名与"可选"，06 第 1.3 节字段表未展开本字段的子结构（该节只给了
+        /// `stat.definition.derived_from` 的形态 `List&lt;{stat, coefficient}&gt;`）。一条覆盖需要同时
+        /// 定位"覆盖哪个派生属性"与"覆盖它的哪一条来源边"两个 <c>stat.definition</c> 引用，`Map` 形态
+        /// （如 <c>base_stats</c>/<c>stat_mods</c> 用的 <c>ReferenceKeyTable</c>）的键只能承载单个
+        /// 属性 id，无法同时表达"目标属性 + 来源属性"这一对复合键；因此选择 <c>Array</c> 形态，字段名
+        /// 直接复用 <c>derived_from</c> 契约原文的 <c>stat</c>（派生属性自身，与 <c>derived_from</c>
+        /// 条目里"来源"叫 <c>stat</c> 不同，这里 <c>stat</c> 指"被覆盖的目标派生属性"，避免与
+        /// <c>derived_from</c> 内层的 <c>stat</c> 语义混淆，改用 <c>source</c> 命名"来源属性"）。已在
+        /// 任务汇报标注"待设计层确认"，与 <c>StatSchemas.DerivedFromEntrySchema</c>"stat_definition_*
+        /// 前缀命名"同一处理口径（不明确契约细节，按最贴近既有同类字段的形态实现并如实标注）。
+        /// </para>
+        /// </summary>
+        private static readonly FieldSchema DerivationOverrideEntrySchema = new FieldSchema(
+            "<derivation_override_entry>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("stat", FieldKind.Reference, required: true, referenceTable: "stat.definition",
+                    description: "被覆盖系数的目标派生属性，指向 stat.definition（须 category=derived，" +
+                        "由 ArchClassDerivationOverrideValidationRule 校验）"),
+                new FieldSchema("source", FieldKind.Reference, required: true, referenceTable: "stat.definition",
+                    description: "目标派生属性 derived_from 列表里被覆盖的那一条来源属性，指向 stat.definition" +
+                        "（须是目标属性 derived_from 中真实登记的来源，由 ArchClassDerivationOverrideValidationRule 校验）"),
+                new FieldSchema("coefficient", FieldKind.Number, required: true,
+                    description: "覆盖后的派生系数，取代 stat.definition.derived_from 里该来源登记的默认系数；" +
+                        "允许负数（同 derived_from.coefficient，拍板 11 同一惯例），只登记有限性，不登记下界"),
+            },
+            description: "{stat:Reference(stat.definition), source:Reference(stat.definition), coefficient:Number}，" +
+                "一条派生系数覆盖（ADR-0030 决策 2，T-N1-4）");
+
         public static readonly TableSchema Class = new TableSchema(
             name: "arch.class",
             primaryKey: "id",
@@ -72,6 +104,10 @@ namespace Core.Numbers.Archetype
                     description: "引用 arch.talent_tree 的天赋树，可为空"),
                 new FieldSchema("level_curve_ref", FieldKind.Reference, required: false, referenceTable: "prog.level_curve",
                     description: "引用 prog.level_curve 的等级曲线，可为空"),
+                new FieldSchema("derivation_overrides", FieldKind.Array, required: false, item: DerivationOverrideEntrySchema,
+                    description: "Array<{stat:Reference(stat.definition), source:Reference(stat.definition), " +
+                        "coefficient:Number}>，本职业覆盖的派生系数，可选（ADR-0030 决策 2，T-N1-4；" +
+                        "纯新增可选字段，不升级 currentSchemaVersion，同 T-N1-3 saturation 字段先例）"),
             }).WithOwnership(SchemaLayer.Numbers, "archetype");
 
         public static readonly TableSchema Race = new TableSchema(

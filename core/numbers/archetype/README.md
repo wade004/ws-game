@@ -10,9 +10,9 @@
 `IEventBus`）、`core/foundation/data_registry`（`IDataRegistryView`、`DataRecord`、
 `TableSchema`、`IValidationRule` 等）与 .NET 标准库；不引用任何引擎适配层实现、不使用系统
 时间、不使用多线程、不使用系统级 `Random`、不使用反射。**并行开发期显式不引用**
-`Core.Numbers.StatBlock`/`Core.Numbers.PowerSet` 的任何具体类型——写属性、注册资源改由
-`StatBaseWriter`/`StatModifierWriter`/`PowerRegistrar` 具名委托注入（见
-`contracts/ArchetypeWriters.cs`）。
+`Core.Numbers.StatBlock`/`Core.Numbers.PowerSet` 的任何具体类型——写属性、注册资源、写派生系数
+覆盖改由 `StatBaseWriter`/`StatModifierWriter`/`PowerRegistrar`/`DerivationCoefficientOverrideWriter`
+具名委托注入（见 `contracts/ArchetypeWriters.cs`）。
 
 **本模块及其测试内不出现任何具体游戏的职业/种族名称**（落地方案与分阶段计划.md T2-3 行显式
 禁止），全部职业/种族的取名、数值完全由外部注入的 `arch.class`/`arch.race` 数据行决定，测试
@@ -24,18 +24,24 @@
 archetype/
   README.md
   contracts/
-    ArchSchemas.cs        arch.class / arch.race / arch.talent_tree 的 TableSchema
-    Models.cs              ClassDefinition、RaceDefinition、TalentNode、TalentTree、AppliedArchetype
+    ArchSchemas.cs        arch.class / arch.race / arch.talent_tree 的 TableSchema（T-N1-4：
+                           arch.class 新增可选 derivation_overrides 字段）
+    Models.cs              ClassDefinition（T-N1-4 新增 DerivationOverrides 属性与配套构造重载）、
+                            RaceDefinition、TalentNode、TalentTree、AppliedArchetype
     Events.cs               ArchetypeEventKeys、ArchetypeAppliedEvent
-    ArchetypeWriters.cs     StatBaseWriter / StatModifierWriter / PowerRegistrar 具名委托
+    ArchetypeWriters.cs     StatBaseWriter / StatModifierWriter / PowerRegistrar /
+                            DerivationCoefficientOverrideWriter（T-N1-4 新增）具名委托
     IArchetypeRegistry.cs   IArchetypeRegistry
   core/
-    ArchetypeRegistry.cs                 IArchetypeRegistry 默认实现
-    ArchTalentTreeCycleValidationRule.cs  天赋树前置存在性 + 无环校验规则
+    ArchetypeRegistry.cs                        IArchetypeRegistry 默认实现（T-N1-4 新增构造重载与
+                                                 ApplyTo 派生系数覆盖转发，见判断记录 8）
+    ArchTalentTreeCycleValidationRule.cs         天赋树前置存在性 + 无环校验规则
+    ArchClassDerivationOverrideValidationRule.cs T-N1-4 新增：derivation_overrides 边存在性校验规则
   schema/
     README.md               三张表的字段说明与判断记录
   tests/
     ArchetypeRegistryTests.cs
+    ArchSchemaCoverageTests.cs
 ```
 
 ## 设计要点与判断记录
@@ -83,8 +89,28 @@ archetype/
    改动之前完全一致，仍旧只保存不应用。真正的接线（把 `IEffectSink.ApplyAura` 转发进来）在
    `core/rules/assembly/RulesAssembly.cs` 完成，本模块本身不引用 `core/rules/skill` 任何类型。
 
+8. **T-N1-4：`arch.class.derivation_overrides` 经 `DerivationCoefficientOverrideWriter` 转发，
+   在 `ApplyTo` 的 base_stats 写入之后、种族修正/被动光环/资源注册之前**（ADR-0030 决策 2"职业
+   模板可覆盖派生系数"）——子结构选 `Array<{stat, source, coefficient}>` 而不是 `Map` 的判断记录
+   见 `contracts/ArchSchemas.cs` 的 `DerivationOverrideEntrySchema` 注释；`stat` 指"被覆盖系数的
+   目标派生属性"、`source` 指"该属性 `derived_from` 里被覆盖的那一条来源"，两个字段名均已在任务
+   汇报标注"待设计层确认"。委托为 null（既有六参构造，向后兼容）时跳过这一步，同
+   `AuraApplier`/判断记录 7 的既有取舍；非 null 时每次 `ApplyTo` 都会用当前职业的完整覆盖列表
+   （可能为空）调用一次——**全量替换语义**，由接收方（`StatHost.SetDerivationCoefficientOverrides`）
+   负责"先清旧覆盖再写新覆盖"。换职业/读档恢复不走 `ApplyTo`，走
+   `Core.Rules.Assembly.RulesAssembly.ReloadArchetypeAndRace`——该方法直接持有 `StatHost` 具体
+   类型，不经本委托，直接调用 `Stats.SetDerivationCoefficientOverrides`（同该方法对
+   `Stats.ResetBase`/`Stats.SetBase` 的既有用法），详见该方法源码判断记录。覆盖是否指向
+   `stat.definition` 中真实存在的 `(stat, source)` 派生边，由内容校验阶段的
+   `ArchClassDerivationOverrideValidationRule` 保证，不是 `ArchetypeRegistry`/`StatHost` 运行时的
+   职责——两者对不存在的边都是静默安全忽略（见 `StatHost.ComputeDerivedBase` 判断记录）。禁止事项
+   核对：本任务全程未在 `ArchetypeRegistry` 出现任何具体职业名，测试用
+   `arch.class.n1_4_warrior_like`/`arch.class.n1_4_mage_like` 一类中性 id（同判断记录顶部
+   "sample_a" 惯例，`warrior_like`/`mage_like` 只是让测试断言的意图更直观，不是真实游戏职业名）。
+
 ## 不负责什么
 
-- 不实现属性聚合/资源池的具体运算，只通过 `StatBaseWriter`/`StatModifierWriter`/
-  `PowerRegistrar`/`AuraApplier` 四个具名委托与外界交互（见判断记录 2、7）。
+- 不实现属性聚合/资源池/派生系数覆盖的具体运算，只通过 `StatBaseWriter`/`StatModifierWriter`/
+  `PowerRegistrar`/`AuraApplier`/`DerivationCoefficientOverrideWriter` 五个具名委托与外界交互
+  （见判断记录 2、7、8）。
 - 不处理天赋点消耗/学习流程，只提供 `GetTalentTree` 只读查询（见判断记录 5）。

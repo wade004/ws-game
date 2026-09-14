@@ -189,6 +189,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   按 `field_meta.curve.shape` 分流两种编辑器 UI。`toolchain/validator --list-tables --json`
   的 `field_meta.curve` 对本字段输出 `{shape: "saturation", axis: "value"}`（复用 T-N0-1 已有
   的 `field_meta.curve` 导出结构，不新增导出字段）。
+- **数值设计落地阶段 N1 · T-N1-4（Unreleased）**：`arch.class` 新增可选字段 `derivation_overrides`
+  （`Array<{stat:Reference(stat.definition), source:Reference(stat.definition), coefficient:Number}>`，
+  ADR-0030 决策 2"职业模板可覆盖派生系数"），纯新增可选字段不升级 `currentSchemaVersion`（仍为
+  1）；新增校验规则 `ArchClassDerivationOverrideValidationRule`（检查名
+  `arch_class_derivation_override_requires_existing_edge`，Error 级，04 第 5 节分级表未列出，
+  按 `arch_class_*` 前缀命名，**待设计层确认**）：每条覆盖的 `stat` 必须是 `stat.definition`
+  里 `category=derived` 的属性，且 `source` 必须出现在该属性 `derived_from[].stat` 登记的来源
+  列表中。编辑器职业模板编辑界面若展示派生属性系数编辑控件，可据本字段渲染"按来源覆盖系数"的
+  子表单，`stat`/`source` 两个引用字段的下拉候选建议限定为目标属性的 `derived_from` 列表（避免
+  用户在界面上就构造出会被本规则拦下的非法组合）。`toolchain/validator --list-tables --json`
+  对 `arch.class` 表新增该字段的常规字段元数据导出（复用既有 `Reference`/`Array` 字段种类，不
+  新增导出结构）。
 
 ## [Unreleased]
 
@@ -296,6 +308,43 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   显示两个基线文件零改动）。`games/_template` 无 `percent`/`conversion_ref` 类属性，不受影响。
   测试：`StatHostTests` 新增 6 例（恒等 2、饱和 2、不存在关闭路径行为/反射各 1）、
   `StatSchemaCoverageTests` 新增 5 例（`saturation` 子结构正反例 2、形态二选一正反例 3）。
+- **数值设计落地阶段 N1 · T-N1-4（`arch.class.derivation_overrides` 子结构、`ArchetypeRegistry`
+  写入派生系数覆盖、换职业/读档恢复触发派生重算，[数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
+  第 14 节）**：`core/numbers/stat_block/core/StatHost.cs` 新增按单位的派生系数覆盖层——公开方法
+  `SetDerivationCoefficientOverrides(Id unitId, IReadOnlyList<(Id Stat, Id Source, double
+  Coefficient)> overrides)`（全量替换语义）与 `ClearDerivationCoefficientOverrides(Id unitId)`
+  （未加入 `IStatHost` 接口，同既有 `ResetBase` 判断记录）；`ComputeDerivedBase` 为每条
+  `derived_from` 来源先查该单位的覆盖表，命中则用覆盖系数取代默认系数，未命中（含指向不存在的
+  边）静默回退默认，覆盖表变化后按拓扑序重算受影响的已缓存派生属性并广播 `stat.changed`（与
+  `PropagateDerivedInvalidation` 同一通知路径）。`core/numbers/archetype`：`ArchSchemas.Class`
+  新增可选字段 `derivation_overrides`（见上方编辑器契约条目）；`ArchetypeWriters.cs` 新增具名
+  委托 `DerivationCoefficientOverrideWriter`；`Models.ClassDefinition` 新增只读属性
+  `DerivationOverrides` 与配套构造重载（既有八参构造委托新九参构造，签名不变）；
+  `ArchetypeRegistry` 新增构造重载（在既有六参构造之上追加
+  `DerivationCoefficientOverrideWriter?`，既有六参构造改为委托新重载并传 `null`，签名与行为
+  完全不变），`ApplyTo` 在写完 `base_stats` 之后、种族修正之前用当前职业的完整覆盖列表调用一次
+  该委托（为 `null` 时向后兼容跳过）；新增校验规则 `ArchClassDerivationOverrideValidationRule`
+  （见上方编辑器契约条目）。`core/rules/assembly/RulesAssembly.cs`：`ArchetypeRegistry` 构造
+  接入新委托（转发到 `Stats.SetDerivationCoefficientOverrides`）；`ReloadArchetypeAndRace`（换
+  职业与 `IDerivedStateRebuilder.OnSectionLoaded` 对 `player.race_id` 段读档恢复共用的唯一路径）
+  新增一步：写完新职业 `BaseStats` 之后无条件调用
+  `Stats.SetDerivationCoefficientOverrides(unitId, cls.DerivationOverrides)`，不按 `classChanged`
+  分叉（全量替换语义天然实现"先清旧覆盖再写新覆盖"，职业未变时重复调用是幂等的）。**子结构形态
+  判断记录（待设计层确认）**：ADR-0030 决策 2 只给出表名"可选"，06 第 1.3 节字段表未展开子结构；
+  选 `Array<{stat, source, coefficient}>` 而非 `Map`——一条覆盖需要同时定位"目标派生属性"与
+  "被覆盖的来源边"两个 `stat.definition` 引用，`Map` 形态的键只能承载单个属性 id，无法表达这一对
+  复合键，理由与命名详见 `core/numbers/archetype/contracts/ArchSchemas.cs` 的
+  `DerivationOverrideEntrySchema` 注释。**样例说明**：`data/_sample/stat/stat.definition.json`
+  当前没有 `category=derived` 的属性（分类样例留给 T-N1-9），本任务只登记 schema、规则与测试内嵌
+  数据，`data/_sample`/`games/_template` 均未新增 `derivation_overrides` 数据行。**禁止事项核对**：
+  `ArchetypeRegistry` 全程未出现任何具体职业名，测试沿用 `sample_a` 一类中性 id 惯例。测试：
+  `StatHostTests` 新增 5 例（覆盖单条来源/其余来源走默认系数 1、覆盖不存在边静默忽略 1、清空覆盖
+  1、全量替换语义 1、覆盖表变化广播 `stat.changed` 1）；`ArchSchemaCoverageTests` 新增 2 例
+  （`arch_class_derivation_override_requires_existing_edge` 正反例）；`ArchetypeRegistryTests` 新增
+  3 例（`ApplyTo` 转发覆盖列表、职业未登记覆盖时转发空列表、未注入委托时向后兼容跳过）；
+  `core/rules/tests/Integration/ArchetypeDerivationOverrideTests.cs` 新增 3 例（战士/法师覆盖不同
+  系数得到不同派生值、一个职业覆盖另一个走默认系数得到不同派生值、`ReloadArchetypeAndRace`
+  模拟读档恢复后派生值按该职业系数重算）。
 
 ## [1.30.0] - 2026-09-14
 

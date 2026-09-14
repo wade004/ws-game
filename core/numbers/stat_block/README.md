@@ -168,6 +168,38 @@ EnableRatingConversion` 门控的可选策略"改为"始终启用"，触发条�
   perf_baseline.json` 零改动，`--filter "FullyQualifiedName~Replay"` 全绿。
   `games/_template` 无 `percent`/`conversion_ref` 类属性，不受影响。
 
+## T-N1-4：SetDerivationCoefficientOverrides / ClearDerivationCoefficientOverrides（职业派生系数覆盖）
+
+分阶段落地计划 T-N1-4（ADR-0030 决策 2"职业模板可覆盖派生系数（`arch.class.derivation_overrides`，
+可选）"）：`StatHost` 新增按单位的派生系数覆盖层，供 `Core.Numbers.Archetype.ArchetypeRegistry`
+（经 `DerivationCoefficientOverrideWriter` 具名委托）与 `Core.Rules.Assembly.RulesAssembly.
+ReloadArchetypeAndRace`（直接持有 `StatHost` 具体类型，同 `Stats.ResetBase`/`Stats.SetBase` 既有
+用法）在单位首次应用职业/换职业/读档恢复时写入。
+
+- **公开入口**（新增，未加入 `IStatHost` 接口——同 `ResetBase` 判断记录，`RulesAssembly.Stats`
+  持有的是 `StatHost` 具体类型，加入具体类型即可满足接线需求，不扩大既有接口契约的语义范围）：
+  - `void SetDerivationCoefficientOverrides(Id unitId, IReadOnlyList<(Id Stat, Id Source, double
+    Coefficient)> overrides)`——**全量替换**语义：上一次调用登记过、这次不再出现的
+    `(stat, source)` 自动失效，调用方不需要先调 `Clear` 再调 `Set`（天然实现"先清旧覆盖再写新
+    覆盖"）。
+  - `void ClearDerivationCoefficientOverrides(Id unitId)`——等价于传空数组，幂等 no-op（本就没有
+    覆盖时不发 `StatChanged`，同 `ResetBase` 惯例）。
+- **生效位置**：`ComputeDerivedBase`（第二轮聚合，见 T-N1-2）为每条来源查找 `unit.
+  DerivationOverrides[目标属性][来源属性]`，命中则用覆盖系数取代 `stat.definition.derived_from`
+  登记的默认系数，未命中（含整条属性没有任何覆盖、或覆盖指向一条不存在的来源边）回退默认——覆盖
+  只改变"用哪个数"，不改变来源集合本身，也不在运行时校验"覆盖是否指向真实存在的边"（那是内容
+  校验阶段 `ArchClassDerivationOverrideValidationRule` 的职责，见 `Core.Numbers.Archetype` 模块
+  README）。
+- **重算与事件**：只重算"此前已经被缓存过"的受影响属性（同 `PropagateDerivedInvalidation`/
+  `RecomputeAllCachedStatsAfterReload` 一贯口径），受影响集合 = 覆盖表变化涉及的目标属性 ∪ 它们
+  的全部传递依赖者，按拓扑序处理，与来源属性变化触发的失效传播是同一条通知路径。
+- **换职业/读档恢复接线点**：`ArchetypeRegistry.ApplyTo`（单位首次注册）经新增构造重载注入的
+  `DerivationCoefficientOverrideWriter` 转发（委托为 null 时向后兼容跳过）；`RulesAssembly.
+  ReloadArchetypeAndRace`（换职业与 `IDerivedStateRebuilder.OnSectionLoaded` 对 `player.race_id`
+  段的读档恢复共用的唯一路径）在写完新职业 `BaseStats` 之后无条件调用一次
+  `Stats.SetDerivationCoefficientOverrides(unitId, cls.DerivationOverrides)`——不按 `classChanged`
+  分叉，职业未变时重复调用是幂等的。
+
 ## 用法
 
 ```csharp

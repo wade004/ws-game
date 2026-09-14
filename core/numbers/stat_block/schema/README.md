@@ -60,6 +60,13 @@ schema 版本 2（T-N1-1，ADR-0030 决策 1；落地清单拍板 1/2/11）：�
 - `stat_definition_conversion_ref_requires_percent`（T-N1-1 新增）：提供了 `conversion_ref` 时，
   `category` 必须是 `percent`。检查名同上一条判断记录，**待设计层确认**。
 
+**T-N1-4 判断记录（职业派生系数覆盖不是 `stat.definition` 自己的字段）**：ADR-0030 决策 2"职业
+模板可覆盖派生系数"落地为 `arch.class.derivation_overrides`（`Core.Numbers.Archetype` 模块自己的
+表字段，见该模块 `schema/README.md`），不是本表新增字段——`stat.definition.derived_from` 只登记
+"默认系数"，"某个职业把这条系数覆盖成多少"是职业模板的属性，不是属性定义本身的属性，因此不在
+`stat.definition` schema 里加字段，而是在 `StatHost` 新增按单位的运行期覆盖层（`Set
+DerivationCoefficientOverrides`/`ClearDerivationCoefficientOverrides`，见 README"T-N1-4"一节）。
+
 ## `stat.rating_conversion`
 
 schema 版本 2（不变）。T-N1-3（ADR-0030 决策 3；04 第 3.6 节；数值设计 01 第 5 节"三种曲线

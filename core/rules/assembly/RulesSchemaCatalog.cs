@@ -112,6 +112,7 @@ namespace Core.Rules.Assembly
             registry.RegisterValidationRule(new StatRatingConversionValidationRule());
             registry.RegisterValidationRule(new ProgLevelCurveValidationRule());
             registry.RegisterValidationRule(new ArchTalentTreeCycleValidationRule());
+            registry.RegisterValidationRule(new ArchClassDerivationOverrideValidationRule());
         }
 
         private static void RegisterL2Schemas(IDataRegistry registry)

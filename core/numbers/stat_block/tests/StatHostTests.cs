@@ -1345,5 +1345,111 @@ namespace Tests.Numbers.StatBlock
             host.SetBase(unit, StatDerivedX, 999.0);
             Assert.Equal(999.0, host.GetStat(unit, StatDerivedX), 10); // 显式覆盖优先，derived_from 不再生效
         }
+
+        // -----------------------------------------------------------------
+        // T-N1-4：SetDerivationCoefficientOverrides / ClearDerivationCoefficientOverrides
+        // （ADR-0030 决策 2"职业模板可覆盖派生系数"）
+        // -----------------------------------------------------------------
+
+        // 1/5：覆盖 derived_x 两条来源中的一条（src_a），另一条（src_b）未被覆盖、仍用
+        // stat.definition.derived_from 登记的默认系数 0.5——同一份来源值下，覆盖前后派生值不同。
+        [Fact]
+        public void DerivationCoefficientOverride_OverridesOneSource_OtherSourceKeepsDefaultCoefficient()
+        {
+            var (host, _, _) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.n1_4_override_one_source");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+            host.SetBase(unit, StatSrcB, 10.0);
+            Assert.Equal(205.0, host.GetStat(unit, StatDerivedX), 10); // 覆盖前：100*2.0 + 10*0.5
+
+            host.SetDerivationCoefficientOverrides(unit, new[] { (StatDerivedX, StatSrcA, 5.0) });
+
+            // src_a 系数被覆盖为 5.0，src_b 仍是默认 0.5：100*5.0 + 10*0.5 = 505。
+            Assert.Equal(505.0, host.GetStat(unit, StatDerivedX), 10);
+        }
+
+        // 2/5：覆盖指向一条 stat.definition.derived_from 中不存在的 (stat, source) 边——运行时安全
+        // 忽略，不抛异常、不影响任何已有派生值（内容层面的边存在性校验见
+        // Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule，不是本方法的职责）。
+        [Fact]
+        public void DerivationCoefficientOverride_PointingToNonExistentEdge_IsSilentlyIgnored()
+        {
+            var (host, _, _) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.n1_4_override_bad_edge");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+            host.SetBase(unit, StatSrcB, 10.0);
+
+            // derived_x 并不以 src_clamped 为来源——这条覆盖天然读不到。
+            host.SetDerivationCoefficientOverrides(unit, new[] { (StatDerivedX, StatSrcClamped, 999.0) });
+
+            Assert.Equal(205.0, host.GetStat(unit, StatDerivedX), 10); // 未受影响，仍是覆盖前的默认值
+        }
+
+        // 3/5：ClearDerivationCoefficientOverrides 恢复到 stat.definition.derived_from 登记的默认系数。
+        [Fact]
+        public void ClearDerivationCoefficientOverrides_RestoresDefaultCoefficients()
+        {
+            var (host, _, _) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.n1_4_clear_override");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+            host.SetBase(unit, StatSrcB, 10.0);
+            host.SetDerivationCoefficientOverrides(unit, new[] { (StatDerivedX, StatSrcA, 5.0) });
+            Assert.Equal(505.0, host.GetStat(unit, StatDerivedX), 10);
+
+            host.ClearDerivationCoefficientOverrides(unit);
+
+            Assert.Equal(205.0, host.GetStat(unit, StatDerivedX), 10); // 恢复默认：100*2.0 + 10*0.5
+        }
+
+        // 4/5：SetDerivationCoefficientOverrides 是全量替换语义——第二次调用不再包含第一次登记的
+        // (stat, source) 时，那条覆盖自动失效（等价于"先清旧覆盖再写新覆盖"，供换职业场景使用）。
+        [Fact]
+        public void SetDerivationCoefficientOverrides_SecondCall_FullyReplacesFirstCall()
+        {
+            var (host, _, _) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.n1_4_full_replace");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+            host.SetBase(unit, StatSrcB, 10.0);
+
+            host.SetDerivationCoefficientOverrides(unit, new[] { (StatDerivedX, StatSrcA, 5.0) });
+            Assert.Equal(505.0, host.GetStat(unit, StatDerivedX), 10);
+
+            // 第二次调用换了一份新职业的覆盖列表，不包含 src_a——src_a 的覆盖应随之失效，回到默认
+            // 系数 2.0；这次改覆盖 src_b 为 10.0。
+            host.SetDerivationCoefficientOverrides(unit, new[] { (StatDerivedX, StatSrcB, 10.0) });
+
+            // 100*2.0（默认，src_a 覆盖已被替换掉） + 10*10.0（本次覆盖） = 300。
+            Assert.Equal(300.0, host.GetStat(unit, StatDerivedX), 10);
+        }
+
+        // 5/5：覆盖表变化后，已缓存的派生属性自动重算并广播 stat.changed（与来源属性变化触发的
+        // 失效传播是同一条通知路径，见 SetDerivationCoefficientOverrides 判断记录）。
+        [Fact]
+        public void SetDerivationCoefficientOverrides_CachedDerivedStat_FiresStatChangedEvent()
+        {
+            var (host, captured, bus) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.n1_4_override_event");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+            host.SetBase(unit, StatSrcB, 10.0);
+            Assert.Equal(205.0, host.GetStat(unit, StatDerivedX), 10); // 先查询一次，让 derived_x 进缓存
+            bus.DispatchPending();
+            captured.Clear();
+
+            host.SetDerivationCoefficientOverrides(unit, new[] { (StatDerivedX, StatSrcA, 5.0) });
+            bus.DispatchPending();
+
+            Assert.Equal(505.0, host.GetStat(unit, StatDerivedX), 10);
+            Assert.Contains(captured, e => e.Stat == StatDerivedX && e.OldValue == 205.0 && e.NewValue == 505.0);
+        }
     }
 }
