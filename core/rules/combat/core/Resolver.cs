@@ -170,9 +170,19 @@ namespace Core.Rules.Combat
             // ---------------- 步骤 6：目标乘区（仅伤害分支） ----------------
             if (!isHeal)
             {
+                // T-N1-7（ADR-0030 决策 5；06 第 4.1 节 2026-09-14 修订段）：既有单属性配置项
+                // DamageTakenPctStat 与按类别/作用域遍历出的新扫描结果求和后一次性应用，见
+                // CombatOptions.DamageTakenPctStat/DamageTakenCategory 判断记录"两者求和、不重复
+                // 计入"。
                 var targetPct = GetStatSafe(context.TargetId, _options.DamageTakenPctStat);
-                amount *= (1.0 + targetPct / 100.0);
-                steps.Add($"target_multiplier: stat={_options.DamageTakenPctStat}={targetPct} -> {amount}");
+                var scopedPct = SumScopedStats(
+                    context.TargetId, _options.DamageTakenCategory, context.SourceKind,
+                    _options.DamageTakenPctStat, steps, "target_multiplier_scoped");
+                var combinedPct = targetPct + scopedPct;
+                amount *= (1.0 + combinedPct / 100.0);
+                steps.Add($"target_multiplier: stat={_options.DamageTakenPctStat}={targetPct} " +
+                    $"scoped_sum(category={_options.DamageTakenCategory}, sourceKind={context.SourceKind})={scopedPct} " +
+                    $"combined={combinedPct} -> {amount}");
             }
             else
             {
@@ -358,10 +368,19 @@ namespace Core.Rules.Combat
 
             if (context.CanCrit && table.Crit.Enabled)
             {
-                var chance = ResolveChance(table.Crit, context.SourceId) + ReadCritChanceBonus(context);
+                // T-N1-7（ADR-0030 决策 5；06 第 4.1 节 2026-09-14 修订段）：被暴击减免介入点——
+                // 在取样（_rng.Next）之前，把目标单位按类别/作用域遍历出的"被暴击减免"属性值之和
+                // 从暴击率里扣减，下限 0（不影响 RNG 流 id、不影响本次判定是否取样——只影响取样前
+                // 的 chance 数值本身，取样次数不变，见 CombatOptions.CritTakenReductionCategory
+                // 判断记录）。
+                var baseChance = ResolveChance(table.Crit, context.SourceId) + ReadCritChanceBonus(context);
+                var critTakenReduction = SumScopedStats(
+                    context.TargetId, _options.CritTakenReductionCategory, context.SourceKind,
+                    excludeStat: null, steps, "crit_taken_reduction");
+                var chance = Math.Max(0.0, baseChance - critTakenReduction);
                 var roll = _rng.Next(_options.RngStream);
                 isCrit = roll < chance;
-                steps.Add($"hit_check: crit chance={chance} roll={roll} -> isCrit={isCrit}");
+                steps.Add($"hit_check: crit chance={chance}(base={baseChance}, taken_reduction={critTakenReduction}) roll={roll} -> isCrit={isCrit}");
             }
             else
             {
@@ -399,6 +418,82 @@ namespace Core.Rules.Combat
             }
 
             return 0.0;
+        }
+
+        // -----------------------------------------------------------------
+        // T-N1-7：步骤 1（被暴击减免介入暴击率）与步骤 6（目标乘区）共用的按类别/作用域扫描
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// T-N1-7（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+        /// 决策 5；06 第 4.1 节 2026-09-14 修订段）："目标乘区"（承伤）与"被暴击减免"两处共用的扫描
+        /// 逻辑：经 <see cref="IStatHost.GetDefinitionIdsByCategory"/> 取 <paramref name="category"/>
+        /// 类别下全部属性定义 id（已按 <see cref="Id"/> 序数字符串序排序，遍历顺序确定），逐条：
+        /// (1) 若等于 <paramref name="excludeStat"/> 则跳过——避免与既有单属性配置项
+        /// （<see cref="CombatOptions.DamageTakenPctStat"/>）重复计入，被暴击减免调用处无此顾虑，传
+        /// <c>null</c>；(2) 经 <see cref="IStatHost.GetScope"/> 读取该属性的作用域，按
+        /// <see cref="ScopeMatches"/> 与 <paramref name="sourceKind"/> 匹配，不匹配则跳过（单机下
+        /// <c>scope: from_player</c> 的属性对 <see cref="SourceKind.Creature"/>/
+        /// <see cref="SourceKind.Unknown"/> 来源恒不匹配，零成本退化，见 <see cref="SourceKind"/>
+        /// 类型判断记录）；(3) 匹配的属性对 <paramref name="targetId"/> 求最终值（<see cref="GetStatSafe"/>，
+        /// 缺失按 0 处理）累加求和。<paramref name="label"/> 只用于 <paramref name="steps"/> 追踪日志
+        /// 前缀，不影响计算结果。
+        /// </summary>
+        private double SumScopedStats(
+            Id targetId, string category, SourceKind sourceKind, Id? excludeStat, List<string> steps, string label)
+        {
+            var ids = _stats.GetDefinitionIdsByCategory(category);
+            double sum = 0.0;
+
+            if (ids.Count == 0)
+            {
+                steps.Add($"{label}: category=\"{category}\" 无匹配属性定义，sum=0");
+                return sum;
+            }
+
+            for (int i = 0; i < ids.Count; i++)
+            {
+                var statId = ids[i];
+                if (excludeStat.HasValue && statId.Equals(excludeStat.Value))
+                {
+                    steps.Add($"{label}: stat={statId} 与既有单属性配置项重复，跳过");
+                    continue;
+                }
+
+                var scope = _stats.GetScope(statId);
+                if (!ScopeMatches(scope, sourceKind))
+                {
+                    steps.Add($"{label}: stat={statId} scope={scope} 与 sourceKind={sourceKind} 不匹配，跳过");
+                    continue;
+                }
+
+                var value = GetStatSafe(targetId, statId);
+                sum += value;
+                steps.Add($"{label}: stat={statId} scope={scope} sourceKind={sourceKind} value={value} -> sum={sum}");
+            }
+
+            return sum;
+        }
+
+        /// <summary>
+        /// T-N1-7（ADR-0030 决策 5）：<c>stat.definition.scope</c> 与结算上下文
+        /// <see cref="EffectContext.SourceKind"/> 的匹配规则——<c>any</c> 恒匹配；<c>from_player</c>
+        /// 仅 <see cref="SourceKind.Player"/> 匹配；<c>from_creature</c> 仅 <see cref="SourceKind.Creature"/>
+        /// 匹配；<see cref="SourceKind.Unknown"/> 只对 <c>any</c> 匹配（同 <see cref="SourceKind"/>
+        /// 类型判断记录"两类作用域属性对 Unknown 一律不匹配"）。未识别的 <paramref name="scope"/> 取值
+        /// （理论上不会发生——内容校验已按 <c>StatSchemas.ScopeValues</c> 枚举拦下非法值，这里的防御
+        /// 姿态同 <see cref="GetStatSafe"/> 对缺失属性"按 0/不匹配处理，不抛异常"的既有风格）保守按
+        /// 不匹配处理，不静默当 <c>any</c>。
+        /// </summary>
+        private static bool ScopeMatches(string scope, SourceKind sourceKind)
+        {
+            switch (scope)
+            {
+                case "any": return true;
+                case "from_player": return sourceKind == SourceKind.Player;
+                case "from_creature": return sourceKind == SourceKind.Creature;
+                default: return false;
+            }
         }
 
         // -----------------------------------------------------------------

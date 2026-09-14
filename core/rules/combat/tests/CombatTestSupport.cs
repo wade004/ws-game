@@ -178,6 +178,21 @@ namespace Tests.Rules.Combat
         public static readonly Id StatHealingDonePct = new Id("stat.healing_done_pct");
         public static readonly Id StatBlockValue = new Id("stat.block_value");
 
+        /// <summary>T-N1-7：category="defense"、scope="from_player" 的目标承伤减免属性，供
+        /// <see cref="CombatOptions.DamageTakenCategory"/> 新扫描机制测试用——单机下只在
+        /// <c>SourceKind.Player</c> 时生效。</summary>
+        public static readonly Id StatResilDamageTakenFromPlayerPct = new Id("stat.resil_damage_taken_from_player_pct");
+
+        /// <summary>T-N1-7：category="defense"、scope="any" 的目标承伤减免属性，两种来源类别均生效。</summary>
+        public static readonly Id StatResilDamageTakenAnyPct = new Id("stat.resil_damage_taken_any_pct");
+
+        /// <summary>T-N1-7：category="defense"、scope="from_player" 的被暴击减免属性，供
+        /// <see cref="CombatOptions.CritTakenReductionCategory"/> 新介入点测试用。</summary>
+        public static readonly Id StatResilCritTakenFromPlayerPct = new Id("stat.resil_crit_taken_from_player_pct");
+
+        /// <summary>T-N1-7：category="defense"、scope="any" 的被暴击减免属性，两种来源类别均生效。</summary>
+        public static readonly Id StatResilCritTakenAnyPct = new Id("stat.resil_crit_taken_any_pct");
+
         public static readonly Id SchoolPhysical = new Id("school.physical");
 
         private const string StatDefinitionJson = @"
@@ -189,7 +204,11 @@ namespace Tests.Rules.Combat
                 { ""id"": ""stat.damage_done_pct"", ""name_key"": ""l10n.stat.damage_done_pct.name"", ""group"": ""secondary"", ""default_base"": 0 },
                 { ""id"": ""stat.damage_taken_pct"", ""name_key"": ""l10n.stat.damage_taken_pct.name"", ""group"": ""secondary"", ""default_base"": 0 },
                 { ""id"": ""stat.healing_done_pct"", ""name_key"": ""l10n.stat.healing_done_pct.name"", ""group"": ""secondary"", ""default_base"": 0 },
-                { ""id"": ""stat.block_value"", ""name_key"": ""l10n.stat.block_value.name"", ""group"": ""secondary"", ""default_base"": 0 }
+                { ""id"": ""stat.block_value"", ""name_key"": ""l10n.stat.block_value.name"", ""group"": ""secondary"", ""default_base"": 0 },
+                { ""id"": ""stat.resil_damage_taken_from_player_pct"", ""name_key"": ""l10n.stat.resil_damage_taken_from_player_pct.name"", ""category"": ""defense"", ""scope"": ""from_player"", ""default_base"": 0 },
+                { ""id"": ""stat.resil_damage_taken_any_pct"", ""name_key"": ""l10n.stat.resil_damage_taken_any_pct.name"", ""category"": ""defense"", ""scope"": ""any"", ""default_base"": 0 },
+                { ""id"": ""stat.resil_crit_taken_from_player_pct"", ""name_key"": ""l10n.stat.resil_crit_taken_from_player_pct.name"", ""category"": ""defense"", ""scope"": ""from_player"", ""default_base"": 0 },
+                { ""id"": ""stat.resil_crit_taken_any_pct"", ""name_key"": ""l10n.stat.resil_crit_taken_any_pct.name"", ""category"": ""defense"", ""scope"": ""any"", ""default_base"": 0 }
             ]
         }";
 

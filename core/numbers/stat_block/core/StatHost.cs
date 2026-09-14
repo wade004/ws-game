@@ -281,7 +281,17 @@ namespace Core.Numbers.StatBlock
                     derivedFrom = list;
                 }
 
-                _definitions[id] = new StatDefinition(id, category, defaultBase, min, max, conversionRef, derivedFrom);
+                // T-N1-7（ADR-0030 决策 5；06 第 4.1 节 2026-09-14 修订段"目标乘区"）：读取
+                // scope（optional，缺省 "any"，同 stat.definition.scope 字段本身缺省语义，见
+                // StatSchemas.ScopeValues 判断记录）。T-N1-1 已把该字段登记进 schema，但当时判断记录
+                // 明确写"本任务只改 schema 与校验规则，不改 StatHost.cs"——StatHost 到 T-N1-6 为止
+                // 从未真正消费过这个字段；本任务是第一个需要它的消费方（结算管线"目标乘区"按来源
+                // 类别遍历 scope 匹配属性），这里补上加载期解析。
+                var scope = "any";
+                record.TryGetString("scope", out var scopeValue);
+                if (!string.IsNullOrEmpty(scopeValue)) scope = scopeValue;
+
+                _definitions[id] = new StatDefinition(id, category, defaultBase, min, max, conversionRef, derivedFrom, scope);
             }
         }
 
@@ -695,6 +705,42 @@ namespace Core.Numbers.StatBlock
             var unit = RequireUnit(unitId);
             RequireDefinition(stat);
             return unit.ModifiersByStat.TryGetValue(stat, out var list) ? list.ToArray() : Array.Empty<StatModifier>();
+        }
+
+        /// <summary>
+        /// T-N1-7（<see cref="IStatHost.GetDefinitionIdsByCategory"/> 判断记录）：真正接入内容数据的
+        /// 实现——遍历 <see cref="_definitions"/>，按 <see cref="StatDefinition.Category"/> 等值匹配，
+        /// 结果按 <see cref="Id"/> 序数字符串序排序后返回（不依赖 <see cref="Dictionary{TKey,TValue}"/>
+        /// 的枚举顺序，同 <see cref="_topoOrder"/> 构建时"候选集合用 <see cref="SortedSet{T}"/>"同一
+        /// 确定性惯例）。<paramref name="category"/> 大小写敏感、按字面值比较——同
+        /// <see cref="ComputeFinal"/> 判断 <c>def.Category == "defense"</c>/<c>"percent"</c> 的既有
+        /// 风格，不做大小写归一化（<c>stat.definition.category</c> 是受限枚举，内容校验已保证取值
+        /// 落在 <see cref="StatSchemas.CategoryValues"/> 之内）。
+        /// </summary>
+        public IReadOnlyList<Id> GetDefinitionIdsByCategory(string category)
+        {
+            var result = new List<Id>();
+            foreach (var kv in _definitions)
+            {
+                if (kv.Value.Category == category)
+                {
+                    result.Add(kv.Key);
+                }
+            }
+            result.Sort();
+            return result;
+        }
+
+        /// <summary>
+        /// T-N1-7（<see cref="IStatHost.GetScope"/> 判断记录）：真正接入内容数据的实现——属性已登记
+        /// 时返回其 <see cref="StatDefinition.Scope"/>（加载期已从 <c>stat.definition.scope</c> 解析，
+        /// 缺省 <c>"any"</c>，见 <see cref="LoadDefinitions"/>）；未登记（<paramref name="stat"/> 不在
+        /// <see cref="_definitions"/> 中）时同样返回 <c>"any"</c>——不抛异常，同接口成员判断记录
+        /// "缺省 any 与属性缺失不需要调用方区分"。
+        /// </summary>
+        public string GetScope(Id stat)
+        {
+            return _definitions.TryGetValue(stat, out var def) ? def.Scope : "any";
         }
 
         /// <summary>
@@ -1235,9 +1281,13 @@ namespace Core.Numbers.StatBlock
             /// 有意义，空列表合法（见 <see cref="ComputeDerivedBase"/> 判断记录）。</summary>
             public IReadOnlyList<(Id Stat, double Coefficient)> DerivedFrom { get; }
 
+            /// <summary>T-N1-7（ADR-0030 决策 5）：取自 <c>stat.definition.scope</c>，缺省
+            /// <c>"any"</c>；供 <see cref="IStatHost.GetScope"/> 对外暴露，见该接口成员判断记录。</summary>
+            public string Scope { get; }
+
             public StatDefinition(
                 Id id, string category, double defaultBase, double? min, double? max,
-                Id? conversionRef, IReadOnlyList<(Id Stat, double Coefficient)> derivedFrom)
+                Id? conversionRef, IReadOnlyList<(Id Stat, double Coefficient)> derivedFrom, string scope)
             {
                 Id = id;
                 Category = category;
@@ -1246,6 +1296,7 @@ namespace Core.Numbers.StatBlock
                 Max = max;
                 ConversionRef = conversionRef;
                 DerivedFrom = derivedFrom;
+                Scope = scope;
             }
         }
 
