@@ -68,6 +68,48 @@ namespace Adapter.Unity.Tests.Runtime
 
         private static void Cast(ShellRoot shell, string skillId) => shell.Framework.CastSkill(new Id(skillId));
 
+        // 判断记录（PlayMode 全量门禁 283/284 根治：PRES180 对 TMP 缺字警告的顺序依赖，根因与
+        // 对策）——本条判断记录只放这一处，两条用例（下方 FullVerticalSlice_.../PRES180_...）
+        // 死亡飘字前各自调用一次本方法，均引用这里，不重复贴。
+        //
+        // 根因（已用 Unity 6000.3.23f1 随包源码逐行核实，不是猜测）：死亡飘字固定文案取
+        // l10n.combat.sample_death_text（"阵亡"），由生产代码 Runtime/Presentation/
+        // FloatingTextReceiver.cs 的 Show() 落到一个 Queue&lt;TextMeshPro&gt; 对象池上；这个池子
+        // 挂在 FrameworkResidentHost（DontDestroyOnLoad，Bootstrap() 只在首次 Awake 执行一次，见
+        // 该类型判断记录）身上，跨整个 -runTests 进程、跨全部 PlayMode 用例只构造一次、循环复用
+        // 同一批 TextMeshPro 组件——Show() 只是把回收的旧实例 SetActive(true) 后 tmp.text = text，
+        // 从未清空过旧文本。而 TMPro.TMP_Text.text 的 setter（Library/PackageCache/
+        // com.unity.ugui@*/Runtime/TMP/TMP_Text.cs 第 116 行起）在"新值与当前 m_text 长度、内容都
+        // 相同"时直接 return，不调用 SetVerticesDirty()/SetLayoutDirty()——也就不会重新走
+        // GenerateTextMesh 里逐字符查字形的流程，TMP 缺字警告正是在那条路径里逐字符
+        // Debug.LogWarning 出来的（TextMeshPro.cs 的 MISSING CHARACTER HANDLING 分支）。只要对象池
+        // 里曾经有某个实例显示过一次"阵亡"（哪怕早因生命周期结束被 SetActive(false) 回收），下次不
+        // 管是本用例还是另一条用例的死亡再取出同一个实例、再设一遍同样的"阵亡"，setter 的早退会让
+        // 这次调用完全不触发字形查找，两条警告都不会再出现——这与 TMP_FontAsset 的字形缓存
+        // （characterLookupTable，只缓存真正找到的字符，从未缓存过"阵"/"亡"这两个从未在占位字体里
+        // 出现过的码点，已用 GetInstanceID()/表项数量核实前后不变）无关，纯粹是 TMP_Text 组件实例
+        // 级别的"新旧文本相同则跳过重排版"优化，与跨用例复用的对象池叠加后产生的效果——具体哪个用例
+        // 收到警告、哪个收不到，取决于死亡那一刻 Queue 里排到队头的具体是哪个实例，随执行顺序（本套件
+        // 按 NUnit 默认顺序 Feedback_* 先于 FullVerticalSlice_* 先于 PRES180_*）变化，不受任何一条
+        // 用例自己控制。
+        //
+        // 对策：死亡飘字必然发生之前，把当前场景里全部 TextMeshPro 组件（含对象池中因
+        // SetActive(false) 已停用、默认的 FindObjectsByType 查询会跳过的实例——必须显式传
+        // FindObjectsInactive.Include，否则恰好查不到这些实例）的 .text 重置为空字符串。空串与
+        // "阵亡"长度必然不同，保证 setter 早退判定失败，接下来无论对象池吐出哪个实例显示"阵亡"，
+        // 都会真实走一遍生成网格/查字形流程——两条警告因此与执行顺序、对象池此前的复用历史完全无关，
+        // 每次都必然触发。只重置 .text 字段，不触碰生产代码/对象池实现本身；此刻场景里其它正在播放
+        // 的飘字（如战斗过程中的伤害数字）被清空不影响任何断言——两条用例都只检查
+        // FloatingText.SpawnedCount 计数或是否发生了飘字，不检查具体文本内容。
+        private static void ResetFloatingTextBeforeDeathWarning()
+        {
+            var all = Object.FindObjectsByType<TMPro.TextMeshPro>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var tmp in all)
+            {
+                tmp.text = string.Empty;
+            }
+        }
+
         // 判断记录（收边任务 3：本套件此前独有的 TearDown 已收敛到
         // Tests/Runtime/PlayModeIsolation.cs，由基类 PlayModeTestBase 统一调用——世界清空 +
         // AppState 复位 MainMenu（原"根治残留光环命中已清空世界"判断记录）、ResourceLoader
@@ -187,7 +229,11 @@ namespace Adapter.Unity.Tests.Runtime
             // "Noto Sans CJK SC" 勘误，真正的 CJK 字体尚未接入占位资产管线），因此预期并放行这一条
             // 警告，不放宽 LogAssert.NoUnexpectedReceived() 对其它任何未预期日志的拦截力。
             // "阵亡"两个字都不在占位字体字形表内，TMP 逐字符各记一条警告（"阵"阵、"亡"亡），
-            // 因此需要预期两条，不是一条。
+            // 因此需要预期两条，不是一条。是否真的触发这两条警告取决于飘字对象池此刻吐出的具体
+            // 实例此前是否已经显示过同样的"阵亡"文案（与执行顺序耦合），先调用
+            // ResetFloatingTextBeforeDeathWarning() 把这一变量钉死（判断记录见该方法顶部），使
+            // 警告必然触发、与顺序无关。
+            ResetFloatingTextBeforeDeathWarning();
             var missingGlyphWarning = new System.Text.RegularExpressions.Regex(
                 @"was not found in the \[LiberationSans SDF\] font asset");
             LogAssert.Expect(UnityEngine.LogType.Warning, missingGlyphWarning);
@@ -320,7 +366,12 @@ namespace Adapter.Unity.Tests.Runtime
             var beastId = shell.Framework.BeastEntityId!.Value;
 
             // 同 FullVerticalSlice_..._Save_Load_... 判断记录：占位字体不含 CJK 字形，死亡飘字
-            // "阵亡"两个字各记一条 TMP 缺字形警告。
+            // "阵亡"两个字各记一条 TMP 缺字形警告；是否真的触发与飘字对象池此刻吐出的实例此前的
+            // 复用历史耦合（本用例此前在全量门禁里稳定失败正是因为 FullVerticalSlice 先跑一遍
+            // "阵亡"、消耗了对象池里唯一会再被复用的实例，本用例这里再设同样的文案不再触发字形
+            // 查找），先调用 ResetFloatingTextBeforeDeathWarning() 钉死这一变量（判断记录见该方法
+            // 顶部），使警告必然触发、与顺序无关，单独用 -testFilter 跑本用例同样成立。
+            ResetFloatingTextBeforeDeathWarning();
             var missingGlyphWarning = new System.Text.RegularExpressions.Regex(
                 @"was not found in the \[LiberationSans SDF\] font asset");
             LogAssert.Expect(UnityEngine.LogType.Warning, missingGlyphWarning);

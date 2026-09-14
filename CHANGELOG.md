@@ -534,6 +534,29 @@ Replay README 五步核实）；Perf 基线未变。各小任务门禁与逐项�
   `scope` 过滤"，`GetDefinitionIdsByCategory` 已撤回（从未发布，直接删除签名）。详见
   `core/rules/combat/README.md` 判断记录 18、`core/numbers/stat_block/README.md`"T-N1-7"一节。
 
+### 修复
+
+- **PlayMode 全量门禁 `VerticalSliceTests` 283/284 稳定失败根治**：真正根因是
+  `FrameworkResidentHost` 的玩家对象（`Core.Numbers.PowerSet.PowerHost` 名下 `arch.power.mana`
+  等资源池）跨整个 `-runTests` 批处理进程复用，`SampleNewGameStarter`（示例"新游戏"入口）只重置
+  `Position`/`MapId`、不回满资源池——上一条用例（如 `FullVerticalSlice_...`）把玩家法力值打到
+  接近 0 后，下一条用例（`PRES180_...`）的"新游戏"直接继承这份未回满的法力，其攻击循环在固定
+  预算内换算不出足够的普攻次数杀死示例生物，`Assert.IsTrue(died, ...)` 因此真的失败；但 Unity
+  Test Framework 的 `UnityLogCheckDelegatingCommand` 在协程异常终止后仍会继续做日志核对，两条
+  `LogAssert.Expect`（死亡飘字缺字警告）因为死亡从未发生自然也不会被满足，NUnit 记录的
+  "最后一次"异常覆盖了更早的死亡断言失败，最终报告只剩"Expected log did not appear"——这是此前
+  两轮排查被"TMP 缺字警告的顺序依赖"这一表面症状带偏的根本原因（判断记录详见
+  `adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/PlayModeIsolation.cs`
+  `TearDownAfterTest` 新增小节）。对策落在测试基建（不改生产代码）：`PlayModeIsolation.
+  TearDownAfterTest` 新增"跨用例回满玩家资源池"步骤，仿照 `PlayerVitalsPersistable` 已有的
+  `GetRegisteredPowerTypes` 遍历模式把当前值补到当前上限；另外用同一份判断记录独立确认的次要
+  问题——死亡飘字复用的 `TextMeshPro` 对象池实例在文本值与上次相同时会跳过 TMP 重新生成网格，导致
+  缺字警告在同一实例第二次显示同一文案时不再触发——`VerticalSliceTests.
+  ResetFloatingTextBeforeDeathWarning`（`FullVerticalSlice_.../PRES180_...` 死亡飘字前各调用
+  一次）在死亡飘字发生前把场景内全部 `TextMeshPro`（含对象池中已停用实例）的 `.text` 清空，使
+  两条缺字警告与对象池复用历史、执行顺序均无关，必然触发。验证：工作树内连续两次全量 PlayMode
+  284/284，单独 `-testFilter` 跑 `PRES180_...` 同样通过，EditMode 70/70。
+
 ### 文档
 
 - **`architecture/04_数据与内容管线.md`**：第 5 节数值类校验项分级表为阶段 N1 新增检查登记——
