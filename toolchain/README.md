@@ -160,8 +160,11 @@ dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json
   "相对仓库根"），绝对路径原样使用。
 - `--strict`：Warning 也阻断（`DataRegistryStrictness.WarningsBlock`）。
 - `--json`：输出机器可读的单行 JSON（`{tables, records, errors, warnings, blocking, issues[],
-  overrides[], disabled_optional_rules[], enabled_optional_rules[], optional_rules[]}`），不输出
-  人类可读文本行。消费方反馈第 43 条新增 `optional_rules`：每项 `{rule, check, enabled}`——`rule`/
+  overrides[], disabled_optional_rules[], enabled_optional_rules[], optional_rules[], rules[]}`），不输出
+  人类可读文本行。分阶段落地计划 T-N0-6（落地清单 2.2 V2/V3）新增：`rules`——本次跑过的全部已注册规则
+  （`ValidationReport.Rules`，按注册顺序、含命中 0 条的），每项 `{id, severity, non_escalatable, hits}`；
+  `issues[]` 每项追加 `group`/`note`/`rule_id`（未填为 `null`）。文本模式对应追加末尾 `rules (N):` 段与
+  问题行尾的 ` [group: …]`/` [note: …]` 后缀（未填时行内容不变）。既有字段名与语义一律不变。消费方反馈第 43 条新增 `optional_rules`：每项 `{rule, check, enabled}`——`rule`/
   `check` 直接取自 `ContentValidationAssembly.OptionalRules`（单一来源，规则名 ↔ 检查名不再需要
   消费方自行维护 PascalCase→snake_case 映射表），`enabled` 按该规则是否出现在
   `disabled_optional_rules` 判定；追加在既有 `enabled_optional_rules` 字段之后，不改动既有任何

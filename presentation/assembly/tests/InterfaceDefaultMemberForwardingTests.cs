@@ -118,7 +118,61 @@ namespace Tests.Presentation.Assembly
                     "与另一段存在必须同生共死的一致性约束）性质不同。";
             }
 
+            // T-N0-2（分阶段落地计划；11 第 7 节"默认实现"路线）：IValidationRule 的三个元数据默认成员
+            // （RuleId/DefaultSeverity/NonEscalatable）对"非组合型"规则——自己直接产出问题、不持有也不
+            // 委托给另一份 IValidationRule 的实现——沿用默认值（类型名 / Error / 可提升）本身就是正确
+            // 语义，不是遗漏：这三个成员的设计目的就是"既有规则一行不改即得到正确元数据"。只有组合/
+            // 转发型规则（持有 IValidationRule 或其集合的字段）才会把内层规则的元数据吃掉，那才是本门禁
+            // 要拦的形态——它们不登记豁免，必须显式转发。判定"是否组合型"按实例字段类型静态判断
+            // （字段类型可赋给 IValidationRule，或是泛型/数组且元素类型可赋给 IValidationRule），
+            // 与 CompositeExprSchema 一类既有组合实现的形态一致；逐条登记（而不是整体跳过该接口）
+            // 是为了让本清单仍然是"实现方 + 理由"的显式记录，新增一条非组合规则时自动纳入，新增一条
+            // 组合规则时自动被拦下。
+            var validationRuleType = typeof(Core.Foundation.DataRegistry.IValidationRule);
+            foreach (var type in SixAssemblies.SelectMany(a => a.GetTypes()))
+            {
+                if (type.IsInterface || type.IsAbstract || !validationRuleType.IsAssignableFrom(type)) continue;
+                if (HoldsFieldOfType(type, validationRuleType)) continue;
+
+                foreach (var member in new[] { "RuleId (getter)", "DefaultSeverity (getter)", "NonEscalatable (getter)" })
+                {
+                    exemptions[$"{type.FullName}.{member}"] =
+                        "IValidationRule 的规则元数据默认成员（T-N0-2）：本规则是非组合型实现（不持有/不委托" +
+                        "另一份 IValidationRule），默认值（RuleId=类型名、DefaultSeverity=Error、NonEscalatable=false）" +
+                        "即是正确语义，不是遗漏；组合/转发型规则不在本豁免之列，须显式转发。";
+                }
+            }
+
             return exemptions;
+        }
+
+        /// <summary>见 <see cref="BuildExemptions"/> 里 IValidationRule 一段：类型（含其基类链）是否持有
+        /// 任一实例字段，其类型可赋给 <paramref name="target"/>、或是元素/泛型参数可赋给
+        /// <paramref name="target"/> 的数组/泛型类型（组合/转发型实现的静态特征）。</summary>
+        private static bool HoldsFieldOfType(Type type, Type target)
+        {
+            for (var t = type; t != null && t != typeof(object); t = t.BaseType)
+            {
+                foreach (var field in t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                {
+                    if (TypeRefersTo(field.FieldType, target)) return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool TypeRefersTo(Type candidate, Type target)
+        {
+            if (target.IsAssignableFrom(candidate)) return true;
+            if (candidate.IsArray && candidate.GetElementType() is Type element) return TypeRefersTo(element, target);
+            if (candidate.IsGenericType)
+            {
+                foreach (var arg in candidate.GetGenericArguments())
+                {
+                    if (TypeRefersTo(arg, target)) return true;
+                }
+            }
+            return false;
         }
 
         private static string FriendlyMemberName(MethodInfo m)

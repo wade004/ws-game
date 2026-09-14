@@ -214,33 +214,66 @@ namespace Core.Numbers.StatBlock
             {
                 var record = records[i];
                 var id = record.GetId("id");
-                var entriesArray = record.GetArray("entries");
-
-                var entries = new List<RatingEntry>(entriesArray.Count);
-                for (int e = 0; e < entriesArray.Count; e++)
-                {
-                    if (!(entriesArray[e] is JsonObject entryObj))
-                    {
-                        throw new InvalidOperationException(
-                            $"stat.rating_conversion[{id}].entries[{e}] 不是对象");
-                    }
-                    if (!entryObj.TryGetValue("level", out var levelVal) || !(levelVal is JsonNumber levelNum)
-                        || !levelNum.TryGetInt64(out var level))
-                    {
-                        throw new InvalidOperationException(
-                            $"stat.rating_conversion[{id}].entries[{e}] 缺少合法的 \"level\"（Int）");
-                    }
-                    if (!entryObj.TryGetValue("points_per_percent", out var pppVal) || !(pppVal is JsonNumber pppNum))
-                    {
-                        throw new InvalidOperationException(
-                            $"stat.rating_conversion[{id}].entries[{e}] 缺少合法的 \"points_per_percent\"（Number）");
-                    }
-                    entries.Add(new RatingEntry((int)level, pppNum.Value));
-                }
-                entries.Sort((a, b) => a.Level.CompareTo(b.Level));
-
-                _ratingConversions[id] = new RatingConversion(id, entries);
+                _ratingConversions[id] = new RatingConversion(id, ParseCurve(record, id));
             }
+        }
+
+        /// <summary>T-N0-4：解析 <c>entries</c> 为 <see cref="PiecewiseCurve"/>（x = 单位等级，y = 每 1% 所需
+        /// 点数）。经 <c>DataRegistry</c> 加载的记录已由 1→2 迁移改名为 <c>{x, y}</c>；未经迁移直接构造的
+        /// 记录仍接受 v1 的 <c>{level, points_per_percent}</c>（禁止删除旧字段读取路径）。缺字段/类型不对
+        /// 抛 <see cref="InvalidOperationException"/>（沿本方法既有异常类型：内容数据的结构性错误）。</summary>
+        private static PiecewiseCurve ParseCurve(DataRecord record, Id id)
+        {
+            var entriesArray = record.GetArray("entries");
+            var points = new CurvePoint[entriesArray.Count];
+            for (int e = 0; e < entriesArray.Count; e++)
+            {
+                if (!(entriesArray[e] is JsonObject entryObj))
+                {
+                    throw new InvalidOperationException(
+                        $"stat.rating_conversion[{id}].entries[{e}] 不是对象");
+                }
+
+                double x, y;
+                if (TryReadInt(entryObj, CurveSchema.XFieldName, out var xLevel) && TryReadNumber(entryObj, CurveSchema.YFieldName, out y))
+                {
+                    x = xLevel;
+                }
+                else if (TryReadInt(entryObj, "level", out var legacyLevel) && TryReadNumber(entryObj, "points_per_percent", out y))
+                {
+                    x = legacyLevel;
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        $"stat.rating_conversion[{id}].entries[{e}] 缺少合法的 \"x\"（Int）/\"y\"（Number）（或 v1 的 \"level\"/\"points_per_percent\"）");
+                }
+
+                points[e] = new CurvePoint(x, y);
+            }
+
+            return new PiecewiseCurve(points);
+        }
+
+        private static bool TryReadInt(JsonObject obj, string key, out long value)
+        {
+            if (obj.TryGetValue(key, out var raw) && raw is JsonNumber num && num.TryGetInt64(out value))
+            {
+                return true;
+            }
+            value = 0;
+            return false;
+        }
+
+        private static bool TryReadNumber(JsonObject obj, string key, out double value)
+        {
+            if (obj.TryGetValue(key, out var raw) && raw is JsonNumber num)
+            {
+                value = num.Value;
+                return true;
+            }
+            value = 0;
+            return false;
         }
 
         // -----------------------------------------------------------------
@@ -539,37 +572,16 @@ namespace Core.Numbers.StatBlock
             {
                 return rawValue;
             }
-            if (!_ratingConversions.TryGetValue(def.RatingConversionRef.Value, out var conversion) || conversion.Entries.Count == 0)
+            if (!_ratingConversions.TryGetValue(def.RatingConversionRef.Value, out var conversion) || conversion.Curve.Count == 0)
             {
                 return rawValue;
             }
 
             var level = _options.LevelLookup?.Invoke(unitId) ?? 1;
-            var entries = conversion.Entries;
 
-            if (level <= entries[0].Level)
-            {
-                return DivideByPointsPerPercent(rawValue, entries[0].PointsPerPercent);
-            }
-            if (level >= entries[entries.Count - 1].Level)
-            {
-                return DivideByPointsPerPercent(rawValue, entries[entries.Count - 1].PointsPerPercent);
-            }
-
-            var low = entries[0];
-            var high = entries[entries.Count - 1];
-            for (int i = 0; i < entries.Count - 1; i++)
-            {
-                if (level >= entries[i].Level && level <= entries[i + 1].Level)
-                {
-                    low = entries[i];
-                    high = entries[i + 1];
-                    break;
-                }
-            }
-
-            var t = (level - low.Level) / (double)(high.Level - low.Level);
-            var pointsPerPercent = low.PointsPerPercent + t * (high.PointsPerPercent - low.PointsPerPercent);
+            // T-N0-4：插值委托 PiecewiseCurve.Evaluate（越界夹取端点、段内 lo + t × (hi − lo)，与迁移前
+            // 本方法手写的式子逐运算相同，见 PiecewiseCurve 判断记录 2）。
+            var pointsPerPercent = conversion.Curve.Evaluate(level);
             return DivideByPointsPerPercent(rawValue, pointsPerPercent);
         }
 
@@ -626,27 +638,17 @@ namespace Core.Numbers.StatBlock
             }
         }
 
-        private readonly struct RatingEntry
-        {
-            public int Level { get; }
-            public double PointsPerPercent { get; }
-
-            public RatingEntry(int level, double pointsPerPercent)
-            {
-                Level = level;
-                PointsPerPercent = pointsPerPercent;
-            }
-        }
-
         private sealed class RatingConversion
         {
             public Id Id { get; }
-            public List<RatingEntry> Entries { get; }
 
-            public RatingConversion(Id id, List<RatingEntry> entries)
+            /// <summary>x = 单位等级，y = 该等级下每 1% 效果所需点数（T-N0-4 起以通用曲线承载）。</summary>
+            public PiecewiseCurve Curve { get; }
+
+            public RatingConversion(Id id, PiecewiseCurve curve)
             {
                 Id = id;
-                Entries = entries;
+                Curve = curve;
             }
         }
 

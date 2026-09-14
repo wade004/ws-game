@@ -34,11 +34,12 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `stat.rating.<name>` |
-| `entries` | Array | 是 | `[{level: Int, points_per_percent: Number}, ...]`，按 `level` 升序；`level` 是**单位等级**（见下方判断记录），不是评级原始值 |
+| `entries` | Array | 是 | 通用断点表 `[{x: Int, y: Number}, ...]`（04 第 3.6 节 `CurveSchema.BreakpointsField`，横轴 `Level`）：`x` 是**单位等级**（见下方判断记录），不是评级原始值；`y` 是该等级下每 1% 效果所需点数（登记 `> 0`）。schema 版本 2（T-N0-4）：v1 的 `{level, points_per_percent}` 由 1→2 迁移环节改名，旧数据文件无需手改即可加载；`curve_monotonic_finite` 规则要求非空、有限、`x` 无重复、`y` 不递减（除数随等级不递减，数值总纲原则 1） |
 
-`entries` 数组内层结构不由 `data_registry` 的 `field_type` 校验项深入检查（`FieldKind.Array`
-只保证"是数组"），由 `StatHost` 构造期解析时做结构校验（缺字段/类型不对直接抛
-`InvalidOperationException`，因为这属于内容数据的结构性错误，不是运行期可恢复的场景）。
+`entries` 数组内层结构由 ADR-0019 子结构登记在加载期检查（`required_field`/`field_type`/`field_range`，路径
+形如 `entries[0].y`）；`StatHost` 构造期解析（`ParseCurve`）仍做一道结构兜底（缺字段/类型不对直接抛
+`InvalidOperationException`，因为这属于内容数据的结构性错误，不是运行期可恢复的场景），并对未经迁移
+直接构造的记录接受 v1 的 `{level, points_per_percent}` 元素名（T-N0-4 禁止删除旧字段读取路径）。
 
 判断记录（2026-09-05，设计层裁定，取代原判断记录）：`entries[].level` 就是**单位等级**，插值
 时的自变量是 `StatHostOptions.LevelLookup(unitId)` 查到的等级；`rawValue`（`base + Σflat`，

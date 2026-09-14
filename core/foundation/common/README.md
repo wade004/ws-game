@@ -23,8 +23,8 @@
 ```
 common/
   README.md
-  contracts/   Id.cs Vec2.cs Callbacks.cs SubscriptionHandle.cs
-  tests/       IdTests.cs Vec2Tests.cs
+  contracts/   Id.cs Vec2.cs Callbacks.cs SubscriptionHandle.cs PiecewiseCurve.cs（含 CurvePoint）
+  tests/       IdTests.cs Vec2Tests.cs PiecewiseCurveTests.cs
 ```
 
 ## 类型清单
@@ -35,3 +35,5 @@ common/
 | `Vec2` | `readonly struct`，二维平面坐标，仅提供纯数学运算，不做任何与引擎类型的转换 | `00_架构总则.md` 4.1 |
 | `Callback` | 无参、无返回值的具名委托，供 `IWindow.onCloseRequested` 等只需要"通知一下"的回调点复用 | `02_引擎适配层.md` 1.1 |
 | `SubscriptionHandle` | `sealed class`，`Dispose()` 幂等地调用构造时传入的取消订阅委托 | `02_引擎适配层.md` 1.12（`IRenderer3D.onAnimEvent` 返回值） |
+| `CurvePoint` | `readonly struct`，分段线性曲线上的一个断点 `(x, y)`；横轴语义由字段登记声明（`data_registry` 的 `CurveSchema`），本类型只承载数值 | `数值设计/00_数值总纲.md` 3（原则 1）、`落地计划/数值设计落地改动点清单.md` 2.1 C2 |
+| `PiecewiseCurve` | `sealed class`，全部曲线表共用的唯一插值实现：按 `x` 稳定排序、断点间线性插值（式子固定为 `y0 + t × (y1 − y0)`，与迁移前各模块手写式子逐运算相同）、两端之外夹取到端点、空表恒为 0；另提供 `IsNonDecreasing()`/`IsFinite()` 只读查询供校验规则使用。只含加减乘除与比较，无超越函数（确定性约束） | 同上；`落地计划/数值设计分阶段落地计划.md` T-N0-1 |

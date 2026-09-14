@@ -22,7 +22,9 @@
 成长增量；1 级（`level=1`）的 `growth` 即便存在也不参与累计（任务书原文"1 级无成长"）。
 
 **校验规则**（`ProgLevelCurveValidationRule`，check 名 `level_curve_entries`/
-`level_curve_continuity`）：`entries.Count == max_level`；`entries[i].level == i+1`（0 基下标）。
+`level_curve_continuity`/`level_curve_xp_monotonic`）：`entries.Count == max_level`；`entries[i].level == i+1`（0 基下标）；
+`xp_to_next` 沿等级不递减（允许相等；末级条目按约定为 0，不参与比较）——分阶段落地计划 T-N0-5、拍板 3：本表保持
+逐级密集枚举、不迁移到 04 第 3.6 节断点表形态，只接入单调校验（数值总纲原则 1、ADR-0033）。
 
 ## `prog.xp_source`
 

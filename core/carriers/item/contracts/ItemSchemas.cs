@@ -179,26 +179,31 @@ namespace Core.Carriers.Item
             }).WithOwnership(SchemaLayer.Carriers, "item");
 
         /// <summary><c>item.budget_curve</c>：物品等级到属性预算上限的曲线（07 第 1.2 节，
-        /// 线性插值，见 schema/README.md、<see cref="ItemBudgetCurve"/>）。</summary>
+        /// 线性插值，见 schema/README.md、<see cref="ItemBudgetCurve"/>）。
+        /// <para>
+        /// 分阶段落地计划 T-N0-4（落地清单 2.1 C4）：<c>entries</c> 迁移到 04 第 3.6 节通用断点表形态
+        /// <c>{x, y}</c>（横轴语义 <see cref="CurveAxis.ItemLevel"/>），schema 版本 1→2，迁移环节把
+        /// v1 的 <c>{item_level, budget}</c> 逐元素改名为 <c>{x, y}</c>（其余键原样保留）。运行时解析
+        /// 与插值委托 <see cref="CurveSchema.ReadBreakpoints(DataRecord, string)"/>/
+        /// <c>Core.Foundation.Common.PiecewiseCurve</c>；通用规则 <c>curve_monotonic_finite</c> 自动
+        /// 覆盖本表。</para></summary>
         public static readonly TableSchema BudgetCurve = new TableSchema(
             name: "item.budget_curve",
             primaryKey: "id",
-            currentSchemaVersion: 1,
+            currentSchemaVersion: 2,
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "item.budget.<name>"),
-                new FieldSchema("entries", FieldKind.Array, required: true,
-                    item: new FieldSchema("<budget_entry>", FieldKind.Object, required: true, fields: new[]
-                    {
-                        new FieldSchema("item_level", FieldKind.Int, required: true,
-                            description: "采样点对应的物品等级"),
-                        new FieldSchema("budget", FieldKind.Number, required: true,
-                            description: "该物品等级对应的属性预算上限"),
-                    },
-                    description: "{item_level, budget}，物品等级到属性预算上限曲线的一个采样点"),
-                    description: "Array<{item_level:Int, budget:Number}>，按 item_level 线性插值" +
-                        "（ItemBudgetCurve.ParseEntries 对缺失 item_level/budget 抛异常，故两者均必填）"),
+                CurveSchema.BreakpointsField("entries", CurveAxis.ItemLevel, required: true,
+                    description: "断点表 [{x: 物品等级(Int), y: 预算上限(Number)}]，按 x 线性插值、越界夹取到端点" +
+                        "（04 第 3.6 节通用曲线形态；v1 字段名 item_level/budget 经 1→2 迁移改名）",
+                    xDescription: "采样点对应的物品等级",
+                    yDescription: "该物品等级对应的属性预算上限"),
+            },
+            migrations: new[]
+            {
+                new TableMigration(1, 2, row => CurveSchema.MigrateBreakpointsFieldNames(row, "entries", "item_level", "budget")),
             }).WithOwnership(SchemaLayer.Carriers, "item");
 
         /// <summary><c>item.set</c>：套装定义（07 第 1.1/1.5 节，件数门槛 → apply_aura）。</summary>

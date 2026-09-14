@@ -1061,5 +1061,77 @@ namespace Tests.Presentation.Assembly
                 yield return $"[{issue.Severity}] {issue.Table}/{issue.FieldPath}: {issue.Check}: {issue.Message}";
             }
         }
+
+        // -----------------------------------------------------------------
+        // 分阶段落地计划 T-N0-1：field_curve_shape（04 第 3.6 节"曲线形态登记"）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void CurveShape_BreakpointsFactory_PassesAudit()
+        {
+            var table = SingleFieldTable("test.curve_ok",
+                CurveSchema.BreakpointsField("entries", CurveAxis.Level, required: true, description: "等级曲线"));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Empty(report.Issues);
+        }
+
+        [Fact]
+        public void CurveShape_SaturationFactory_PassesAudit()
+        {
+            var table = SingleFieldTable("test.curve_sat_ok",
+                CurveSchema.SaturationField("curve", required: true, description: "饱和曲线"));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Empty(report.Issues);
+        }
+
+        [Fact]
+        public void CurveShape_BreakpointsOnScalarField_ReportsError()
+        {
+            var table = SingleFieldTable("test.curve_scalar",
+                new FieldSchema("value", FieldKind.Number, required: true, description: "数值")
+                    .WithCurve(CurveSchema.Breakpoints(CurveAxis.Level)));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "field_curve_shape" && i.FieldPath == "value");
+        }
+
+        [Fact]
+        public void CurveShape_BreakpointsArrayWithoutXY_ReportsError()
+        {
+            var table = SingleFieldTable("test.curve_bad_item",
+                new FieldSchema("entries", FieldKind.Array, required: true, description: "曲线",
+                    item: new FieldSchema("<e>", FieldKind.Object, required: true, description: "元素", fields: new[]
+                    {
+                        new FieldSchema("level", FieldKind.Int, required: true, description: "等级"),
+                        new FieldSchema("y", FieldKind.Number, required: true, description: "值"),
+                    }))
+                    .WithCurve(CurveSchema.Breakpoints(CurveAxis.Level)));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "field_curve_shape" && i.FieldPath == "entries" && i.Message.Contains("\"x\""));
+        }
+
+        [Fact]
+        public void CurveShape_SaturationWithOptionalK_ReportsError()
+        {
+            var table = SingleFieldTable("test.curve_sat_bad",
+                new FieldSchema("curve", FieldKind.Object, required: true, description: "饱和", fields: new[]
+                {
+                    new FieldSchema("k", FieldKind.Number, required: false, description: "系数"),
+                }).WithCurve(CurveSchema.Saturation()));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.Contains(report.Issues, i =>
+                i.Severity == "error" && i.Check == "field_curve_shape" && i.FieldPath == "curve" && i.Message.Contains("必填"));
+        }
     }
 }

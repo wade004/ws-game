@@ -43,8 +43,8 @@
 | `requirements` | `level` | Int | 否 | 不限等级 | |
 
 `item.set.bonuses[]`：`{count:Int(缺省0), aura_ref:Reference(skill.aura_def)}`（`aura_ref` 同 `grants.auras`
-判断记录，L3 引用 L2 合法）。`item.budget_curve.entries[]`：`{item_level:Int, budget:Number}`（均必填，
-`ItemBudgetCurve.ParseEntries` 缺失即抛异常）。
+判断记录，L3 引用 L2 合法）。`item.budget_curve.entries[]`：04 第 3.6 节通用断点表 `{x:Int, y:Number}`（均必填，
+横轴语义为物品等级；T-N0-4 起，v1 的 `{item_level, budget}` 经 1→2 迁移改名；`ItemBudgetCurve.ParseCurve` 缺失即抛异常）。
 
 判断记录（`item.affix.effects` 不登记子结构）：任务书额外要求 1 提到"若要复用技能域的
 `EffectsItemSchema`"，但 ADR-0019 通用规则 1"以运行时解析代码为唯一依据……找不到运行时读取的字段
@@ -77,7 +77,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `item.budget.<name>` |
-| `entries` | Array | 是 | `[{item_level:Int, budget:Number}]`，按 `item_level` 线性插值（`ItemBudgetCurve.Interpolate`），越界夹取到边界项 |
+| `entries` | Array | 是 | 通用断点表 `[{x:Int, y:Number}]`（`x` = 物品等级，`y` = 预算上限；04 第 3.6 节 `CurveSchema.BreakpointsField`，横轴 `ItemLevel`），按 `x` 线性插值（`ItemBudgetCurve.Interpolate` → `PiecewiseCurve.Evaluate`），越界夹取到端点；`curve_monotonic_finite` 规则要求非空、有限、`x` 无重复、`y` 不递减。schema 版本 2（T-N0-4）：v1 的 `{item_level, budget}` 由 1→2 迁移环节改名，旧数据文件无需手改即可加载 |
 
 预算校验公式（07 第 1.2 节）：`Σ|stats[].value|`（`pct`/`mult` 按 ×100 折算，`flat` 原值）不得超过
 `budget_curve(item_level) × quality.budget_multiplier`。曲线 id 由 `ItemOptions.BudgetCurveId`

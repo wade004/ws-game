@@ -50,7 +50,8 @@ namespace Core.Carriers.Item
                 yield break;
             }
 
-            var entries = ItemBudgetCurve.ParseEntries(curveRecord);
+            // T-N0-4：解析一次为 PiecewiseCurve，逐模板插值不再重建曲线。
+            var curve = ItemBudgetCurve.ParseCurve(curveRecord);
 
             var qualityMultipliers = new Dictionary<string, double>();
             foreach (var q in view.GetAll("item.quality_definition"))
@@ -71,7 +72,7 @@ namespace Core.Carriers.Item
                 }
 
                 var multiplier = qualityMultipliers.TryGetValue(quality, out var m2) ? m2 : 1.0;
-                var budget = ItemBudgetCurve.Interpolate(entries, (int)itemLevel) * multiplier;
+                var budget = ItemBudgetCurve.Interpolate(curve, (int)itemLevel) * multiplier;
                 var consumed = ItemBudgetCurve.SumConsumed(stats);
 
                 if (consumed > budget)

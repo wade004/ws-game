@@ -156,8 +156,109 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `disabled_optional_rules` 默认恒为空（第 44 条根治）；示例数据集新增 `summon_only` 生物模板
   `creature.sample_summon_totem`。详见
   [消费方反馈-2026-09-14-编辑器-第43-44条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md)。
+- **数值设计落地 T-N0-1（1.30.0）**：`FieldSchema` 新增可选 `Curve`/`WithCurve(CurveSchema)`
+  （曲线形态标记：断点表 `{x, y}` + 横轴语义 / 二元饱和 `{k, cap}`，见 04 第 3.6 节），新增契约
+  类型 `CurveSchema`/`CurveAxis`/`CurveShape` 与工厂 `CurveSchema.BreakpointsField`/`SaturationField`；
+  元数据门禁新增 `field_curve_shape`。编辑器若按字段元数据渲染曲线编辑控件，可据 `Curve` 识别
+  曲线字段；`toolchain/validator --list-tables --json` 每个字段的 `field_meta` 新增 `curve`
+  （`null` 或 `{shape: breakpoints|saturation, axis: level|item_level|value}`）。
+- **数值设计落地 T-N0-2（1.30.0）**：`IValidationRule` 新增三个带默认实现的成员 `RuleId`/
+  `DefaultSeverity`/`NonEscalatable`（既有实现无需改动）；`ValidationIssue` 新增可选 `Group`/`Note`/
+  `RuleId`（新增九参数构造与 `WithRuleId`，既有六参数构造签名不变）；`ValidationReport` 新增
+  `Rules`（`ValidationRuleSummary` 列表）与 `NonEscalatableWarningCount`，`WarningsBlock` 下不可提升
+  规则的 Warning 不再计入 `IsBlocking`；`RegisterValidationRule` 按 `RuleId` 去重。编辑器问题面板
+  可据 `RuleId`/`Group`/`Note` 分组展示；`toolchain/validator` 报告字段随 T-N0-6 补齐。
+- **数值设计落地 T-N0-3（1.30.0）**：新增框架级校验规则 `CurveMonotonicFiniteRule`（检查名
+  `curve_monotonic_finite`，Error 级），随 `PresentationSchemaCatalog.RegisterAll` 默认注册；编辑器
+  问题面板会出现这一新检查名，按检查名过滤的既有逻辑不受影响。
+- **数值设计落地 T-N0-4（1.30.0）**：`item.budget_curve`/`stat.rating_conversion` schema 版本 1→2，
+  `entries` 元素改为通用断点表 `{x, y}`（`FieldSchema.Curve` 标记横轴语义），v1 字段名经迁移链自动改名；
+  编辑器曲线编辑控件（物品编辑器 5.5.3 曲线图）应按 `x`/`y` 读写并据 `Curve.Axis` 标注横轴，
+  执行整表迁移仍走 ADR-0029 的 `SchemaMigrator.MigrateEnvelope`。
+- **数值设计落地 T-N0-5（1.30.0）**：`ProgLevelCurveValidationRule` 新增检查名 `level_curve_xp_monotonic`；
+  `combat.resist_curve`/`prog.level_curve` 的字段与版本均不变。
+- **数值设计落地 T-N0-6（1.30.0）**：`toolchain/validator --json` 新增 `rules[]` 与
+  `issues[].group/note/rule_id`，编辑器问题面板可据此按规则分组并展示作者说明原文；既有字段不变。
 
 ## [Unreleased]
+
+## [1.30.0] - 2026-09-14
+
+MINOR 版本：数值设计落地阶段 N0"横切前置"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)
+第 6 节，T-N0-1～T-N0-8）——建立通用曲线契约（04 第 3.6 节曲线形态登记 + 公共插值工具）、校验规则元数据
+与报告（规则 id/默认级别/不可提升、注册去重、`rules[]`、`issues[].group/note/rule_id`）、通用"曲线单调
+有限"阻断规则，并把既有四张曲线表接到通用插值上（`item.budget_curve`/`stat.rating_conversion` schema
+版本 1→2 走迁移链，`combat.resist_curve` 的 `table` 分支复用插值、`prog.level_curve` 只接单调校验）。
+回放与 Perf 基线零变化。**迁移说明**：两张迁移表的旧数据文件无需手改（1→2 迁移环节自动改名
+`{item_level, budget}`/`{level, points_per_percent}` → `{x, y}`），内容工具执行整表迁移仍走 ADR-0029
+`SchemaMigrator.MigrateEnvelope`；直接读这两张表原始 JSON 的消费方改读 `x`/`y`；编辑器问题面板可按
+`rule_id`/`group` 分组；`data/_sample` 的 `stat.rating_conversion` 示例值改为随等级不递减（示例数据集未
+启用评级换算，无行为影响）；新增阻断检查名 `curve_monotonic_finite`/`level_curve_xp_monotonic` 与元数据
+门禁 `field_curve_shape`。各小任务门禁与逐项验收记录见该计划末节"落地进度记录"。
+
+### 新增
+
+- **数值设计落地阶段 N0 · T-N0-1（通用曲线形态与公共插值工具，
+  [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md) 第 6 节）**：
+  `core/foundation/common` 新增 `CurvePoint`/`PiecewiseCurve`（按 `x` 稳定排序、分段线性插值、
+  两端夹取、空表为 0，插值式子与迁移前 `ItemBudgetCurve`/`StatHost` 手写式子逐运算相同，无超越
+  函数路径；`IsNonDecreasing()`/`IsFinite()` 只读查询）；`core/foundation/data_registry` 新增
+  `CurveSchema`（`CurveAxis` 等级/物品等级/数值三种横轴语义、`CurveShape` 断点表/二元饱和两种
+  形态、`BreakpointsField`/`SaturationField` 标准子结构工厂、`ReadBreakpoints`/`TryReadBreakpoints`
+  解析入口）与 `FieldSchema.Curve`/`WithCurve`；`SchemaAudit` 新增 `field_curve_shape` 自洽检查
+  （形态标记与字段种类/子结构相符）。04 新增第 3.6 节"曲线形态登记"与元数据门禁一行。既有曲线表
+  一律未改动（T-N0-4/T-N0-5 迁移），加载期检查全部复用既有检查名；`toolchain/validator --list-tables
+  --json` 的 `field_meta` 新增 `curve`（阶段任务线 ②）。测试：`PiecewiseCurveTests`
+  12 例、`CurveSchemaTests` 11 例、`SchemaAuditTests` 新增 5 例。
+- **数值设计落地阶段 N0 · T-N0-2（校验规则元数据、注册去重、问题分组/说明）**：
+  `IValidationRule` 新增带默认实现的 `RuleId`（默认类型名）/`DefaultSeverity`（默认 Error）/
+  `NonEscalatable`（默认 false）；`DataRegistry.RegisterValidationRule` 按 `RuleId` 去重（同一实例或
+  同 id 的另一实例静默忽略，保留先注册者），校验时给每条规则问题补 `RuleId`（规则自填不覆盖）并按
+  注册顺序生成规则摘要；`ValidationIssue` 新增 `Group`/`Note`/`RuleId` 与九参数构造、`WithRuleId`；
+  `ValidationReport` 新增 `Rules`/`NonEscalatableWarningCount`，`WarningsBlock` 下不可提升规则的
+  Warning 不计入阻断（04 第 5 节数值类校验项分级表警告级"抓意图不抓手滑"）。
+  `InterfaceDefaultMemberForwardingTests` 对非组合型规则逐条登记这三个默认成员的豁免（默认值即
+  正确语义），组合/转发型规则仍须显式转发。既有规则与检查名一律未改。测试：
+  `ValidationRuleMetadataTests` 11 例。
+- **数值设计落地阶段 N0 · T-N0-3（通用曲线单调有限阻断规则）**：`core/foundation/data_registry` 新增
+  `CurveMonotonicFiniteRule`（检查名 `curve_monotonic_finite`，Error 级）：对全部登记为断点表形态
+  （`CurveSchema`）的字段逐条记录检查断点非空、逐值有限、`x` 严格递增无重复、`y` 不递减（允许平台段），
+  嵌在对象子字段/数组元素/映射值/变体分支里的曲线一并覆盖，问题定位到完整字段路径；元素形态不符由
+  `required_field`/`field_type` 报，本规则不重复；与 `field_finite` 层次不同不合并。由
+  `PresentationSchemaCatalog.RegisterAll` 注册（`ContentValidationAssembly`/`toolchain/validator` 与
+  运行期组装根一处登记两边生效）。04 第 5 节分级表"曲线单调有限"一行补检查名与判定口径。测试：
+  `CurveMonotonicFiniteRuleTests` 12 例、`ContentValidationAssemblyTests` 新增 1 例。
+- **数值设计落地阶段 N0 · T-N0-4（既有两张曲线表迁移到通用形态）**：`item.budget_curve`、
+  `stat.rating_conversion` 的 `entries` 改用 `CurveSchema.BreakpointsField` 登记（元素 `{x, y}`，横轴分别为
+  物品等级/单位等级；后者 `y > 0` 范围登记沿用），schema 版本 1→2，迁移环节 `CurveSchema.MigrateBreakpointsFieldNames`
+  把 v1 的 `{item_level, budget}`/`{level, points_per_percent}` 逐元素改名（其余键保留），旧数据文件不改即可
+  加载；`ItemBudgetCurve` 新增 `ParseCurve`/`Interpolate(PiecewiseCurve, int)`，既有 `ParseEntries`/元组版
+  `Interpolate` 保留为兼容 façade，`StatHost.ConvertRating` 改为 `PiecewiseCurve.Evaluate`（插值式子逐运算相同，
+  迁移前后结果逐位一致）；两处解析对未经迁移直接构造的记录仍接受 v1 元素名。`data/_sample`、
+  `games/_template` 的两张表数据迁移到 v2；`data/_sample` 的 `stat.rating_conversion` 示例值由随等级递减
+  （50→20）改为不递减（50→80）以符合数值总纲原则 1 与新规则 `curve_monotonic_finite`（示例数据集未启用
+  评级换算，回放/Perf 基线不受影响；`L1SampleDataTests` 一处按示例值断言的期望同步）。两处覆盖测试的
+  `required_field` 路径断言由 `entries[0].budget`/`entries[0].points_per_percent` 改为 `entries[0].y`。
+  测试：`ItemBudgetCurveMigrationTests` 12 例、`RatingConversionMigrationTests` 7 例。
+- **数值设计落地阶段 N0 · T-N0-5（`combat.resist_curve` table 分支复用插值、`prog.level_curve` 接入单调校验）**：
+  `ResistCurve` 的 `table` 分支求值改为委托 `PiecewiseCurve.Evaluate`（式子逐运算相同，`Entries` 公开面不变），
+  `saturation` 分支公式原样不动；`ProgLevelCurveValidationRule` 新增检查名 `level_curve_xp_monotonic`
+  （`xp_to_next` 沿等级不递减、允许相等，末级条目按约定为 0 不参与比较），表本身保持逐级密集枚举不迁移
+  （拍板 3）。既有 `resist_curve_entries_monotonic`/`level_curve_entries`/`level_curve_continuity` 不变。
+  测试：`ResistCurveTableInterpolationTests` 14 例、`ProgLevelCurveXpMonotonicTests` 4 例。
+- **数值设计落地阶段 N0 · T-N0-6（校验器报告：规则清单与命中统计、问题分组/说明）**：
+  `toolchain/validator --json` 新增 `rules[]`（每项 `{id, severity, non_escalatable, hits}`，按注册
+  顺序、含命中 0 条的规则）与 `issues[].group/note/rule_id`（未填为 `null`）；文本模式追加末尾
+  `rules (N):` 段，问题行尾追加 ` [group: …]`/` [note: …]` 后缀（未填时逐字节不变）；
+  `validate_data.py --json` 原样透传。既有字段名与语义一律不变。测试：
+  `test_validate_data_json_output.py` 新增 3 例（规则清单、分组/说明、无规则时空数组）。
+- **数值设计落地阶段 N0 · T-N0-7（游戏模板空壳表与示例数据核对）**：`games/_template/data/game/item/`
+  新增 `item.slot_definition.json`/`item.quality_definition.json` 空壳（空 `rows`，不含任何具体系数，
+  拍板 10）；`stat.weight`/`combat.level_diff_table`/`skill.budget_rule` 三张表尚未登记（分别随 N1/N3
+  落地），登记前放文件会触发 `FailOnUnknownTable`，本阶段只在模板 `data/README.md` 表清单预留其位置。
+  `data/_sample` 迁移后数据（`item.budget_curve`/`stat.rating_conversion` v2）经 `validate_data.py
+  --strict` 与迁移回归测试核对一致。模板数据经 `validate_data.py --framework-root data/_framework
+  --data-root games/_template/data/game --strict` 零错误零警告（等价于 `validate.ps1 -Strict`）。
 
 ## [1.29.0] - 2026-09-14
 

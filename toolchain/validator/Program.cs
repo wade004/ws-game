@@ -294,6 +294,17 @@ namespace Toolchain.Validator
                 // 消费方反馈第 42 条：如实汇报本次是否启用了"非默认语言缺翻译报 Warning"，追加在
                 // 既有 "optional rules disabled" 行之后，不改动既有任何一行的内容。
                 Console.WriteLine($"missing translation warning: {(validationOptions.WarnOnMissingTranslation ? "enabled" : "disabled")}");
+
+                // 分阶段落地计划 T-N0-6（落地清单 2.2 V3；ADR-0035 决策 5 报告要求）：追加"规则清单与
+                // 命中统计"段——本次跑过的全部已注册规则（ValidationReport.Rules，按注册顺序、含命中
+                // 0 条的），每行 id / 默认级别 / 是否不可提升 / 命中条数；追加在既有末尾各行之后，
+                // 不改动既有任何一行，保持此前文本输出逐字节兼容。
+                Console.WriteLine($"rules ({report.Rules.Count}):");
+                foreach (var rule in report.Rules)
+                {
+                    var severity = rule.DefaultSeverity == ValidationSeverity.Error ? "error" : "warning";
+                    Console.WriteLine($"  {rule.RuleId}: {severity}{(rule.NonEscalatable ? " (non-escalatable)" : "")}, hits {rule.HitCount}");
+                }
             }
 
             return report.IsBlocking ? 1 : 0;
@@ -459,7 +470,18 @@ namespace Toolchain.Validator
                 loc = $"{issue.Table}/{issue.RecordKey}/{issue.Field}";
             }
 
-            return $"[{severity}] {loc}: {issue.Check}: {issue.Message}";
+            // T-N0-6（落地清单 2.2 V2）：可选的分组与说明原文以后缀形式追加在既有行尾，未填时行内容
+            // 与此前逐字节相同。
+            var line = $"[{severity}] {loc}: {issue.Check}: {issue.Message}";
+            if (issue.Group != null)
+            {
+                line += $" [group: {issue.Group}]";
+            }
+            if (issue.Note != null)
+            {
+                line += $" [note: {issue.Note}]";
+            }
+            return line;
         }
 
         private static void PrintJson(
@@ -690,6 +712,25 @@ namespace Toolchain.Validator
                 sb.Append(']');
             }
 
+            // 分阶段落地计划 T-N0-6（落地清单 2.2 V3；ADR-0035 决策 5 报告要求）："rules"——本次跑过的
+            // 全部已注册规则（ValidationReport.Rules，按注册顺序、含命中 0 条的），每项
+            // {id, severity, non_escalatable, hits}。追加在既有各字段之后、闭合大括号之前，不改动任何
+            // 既有字段名与语义（禁止事项）。
+            sb.Append(',');
+            sb.Append("\"rules\":[");
+            for (var i = 0; i < report.Rules.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                var rule = report.Rules[i];
+                sb.Append('{');
+                sb.Append("\"id\":\"").Append(JsonEscape(rule.RuleId)).Append("\",");
+                sb.Append("\"severity\":\"").Append(rule.DefaultSeverity == ValidationSeverity.Error ? "error" : "warning").Append("\",");
+                sb.Append("\"non_escalatable\":").Append(rule.NonEscalatable ? "true" : "false").Append(',');
+                sb.Append("\"hits\":").Append(rule.HitCount);
+                sb.Append('}');
+            }
+            sb.Append(']');
+
             sb.Append('}');
             Console.WriteLine(sb.ToString());
         }
@@ -776,7 +817,35 @@ namespace Toolchain.Validator
             sb.Append(',');
             sb.Append("\"map_value\":");
             AppendMapValueJson(sb, field.Map);
+            sb.Append(',');
+
+            // 分阶段落地计划阶段 N0 任务线 ②（T-N0-1 曲线形态登记的导出面，04 第 3.6 节）："导出给内容
+            // 工具"：顶层字段登记了 FieldSchema.Curve 时导出 {shape, axis}（shape：breakpoints/saturation；
+            // axis：level/item_level/value），编辑器据此渲染曲线编辑控件并标注横轴；未登记为 null，
+            // 追加在既有字段之后，保持既有输出对不消费本键的调用方逐字节兼容。
+            sb.Append("\"curve\":");
+            if (field.Curve == null)
+            {
+                sb.Append("null");
+            }
+            else
+            {
+                sb.Append('{');
+                sb.Append("\"shape\":\"").Append(field.Curve.Shape == CurveShape.Breakpoints ? "breakpoints" : "saturation").Append("\",");
+                sb.Append("\"axis\":\"").Append(CurveAxisName(field.Curve.Axis)).Append('"');
+                sb.Append('}');
+            }
             sb.Append('}');
+        }
+
+        private static string CurveAxisName(CurveAxis axis)
+        {
+            switch (axis)
+            {
+                case CurveAxis.Level: return "level";
+                case CurveAxis.ItemLevel: return "item_level";
+                default: return "value";
+            }
         }
 
         private static void AppendMapKeyJson(StringBuilder sb, MapSchema? map)
@@ -829,7 +898,12 @@ namespace Toolchain.Validator
             sb.Append("\"record_key\":").Append(issue.RecordKey == null ? "null" : "\"" + JsonEscape(issue.RecordKey) + "\"").Append(',');
             sb.Append("\"field\":").Append(issue.Field == null ? "null" : "\"" + JsonEscape(issue.Field) + "\"").Append(',');
             sb.Append("\"check\":\"").Append(JsonEscape(issue.Check)).Append("\",");
-            sb.Append("\"message\":\"").Append(JsonEscape(issue.Message)).Append('"');
+            sb.Append("\"message\":\"").Append(JsonEscape(issue.Message)).Append("\",");
+            // T-N0-6（落地清单 2.2 V2）：追加在既有 "message" 之后，未填时为 null；既有字段名与
+            // 语义一律不变（禁止事项）。
+            sb.Append("\"group\":").Append(issue.Group == null ? "null" : "\"" + JsonEscape(issue.Group) + "\"").Append(',');
+            sb.Append("\"note\":").Append(issue.Note == null ? "null" : "\"" + JsonEscape(issue.Note) + "\"").Append(',');
+            sb.Append("\"rule_id\":").Append(issue.RuleId == null ? "null" : "\"" + JsonEscape(issue.RuleId) + "\"");
             sb.Append('}');
         }
 

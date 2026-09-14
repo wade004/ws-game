@@ -22,7 +22,7 @@ combat/
     ICombatDiagnostics.cs   最小诊断出口
   core/
     HitTableConfig.cs        combat.hit_table_config 强类型视图
-    ResistCurve.cs           combat.resist_curve 强类型视图 + 减免求值
+    ResistCurve.cs           combat.resist_curve 强类型视图 + 减免求值（table 分支自 T-N0-5 起委托 PiecewiseCurve 插值，saturation 公式不变）
     CombatDataLoader.cs      从 IDataRegistryView 加载上面两张表
     Resolver.cs               结算管线九步实现
     ThreatTable.cs            IThreatTable 默认实现

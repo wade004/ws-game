@@ -17,14 +17,17 @@ schema 版本迁移、做第 5 节列出的引用完整性等校验、提供只�
 ```
 data_registry/
   README.md
-  contracts/   FieldKind.cs FieldSchema.cs VariantSchema.cs TableSchema.cs（含 TableMigration/MigrateDelegate）
+  contracts/   FieldKind.cs FieldSchema.cs VariantSchema.cs CurveSchema.cs（含 CurveAxis/CurveShape）
+               TableSchema.cs（含 TableMigration/MigrateDelegate）
                IDataSource.cs（DataTableSource/TextProvider）DataRecord.cs DataFieldException.cs
                ValidationReport.cs（ValidationSeverity/ValidationIssue）IValidationRule.cs
                IDataRegistry.cs（IDataRegistryView/IDataRegistry）DataRegistryOptions.cs Events.cs
   core/        DataRegistry.cs BuiltinSchemas.cs InMemoryDataSource.cs FileSystemDataSource.cs
-               RecordExprHost.cs RecordExprSchema.cs
+               RecordExprHost.cs RecordExprSchema.cs CurveMonotonicFiniteRule.cs（T-N0-3）
   schema/      README.md（schema_registry 元表说明、信封/主键规则、判断记录）
   tests/       DataRegistryTests.cs SubstructureValidationTests.cs（ADR-0019 子结构递归校验）
+               CurveSchemaTests.cs（T-N0-1 曲线形态登记）CurveMonotonicFiniteRuleTests.cs（T-N0-3）
+               ValidationRuleMetadataTests.cs（T-N0-2）
 ```
 
 ## 加载流程（`LoadAll`）
@@ -77,6 +80,7 @@ data_registry/
 | `substructure_depth` | ADR-0019：子结构递归深度超过 `MaxSubstructureDepth`（32），已停止对该子树继续校验（防御登记错误导致的无限递归，如把 `itemFactory` 误指向自身之外仍会成环的结构） |
 | `unknown_subfield` | ADR-0019：已登记 `Fields`（或 `Variants` 命中分支的字段清单）之外出现的多余子字段；默认关闭（`DataRegistryOptions.UnknownSubfieldSeverity = None`），开启后为 Warning |
 | `field_finite` | 第十八方深度审核 F-01：`Number` 字段的值是 NaN/±Infinity（不是有限浮点数）时报出；独立于该字段是否登记 `Range`——未登记上界的 `Range`（如 `Range(min: 0)`）本就放行 +Infinity，不能只靠 `field_range` 兜底。判断在类型检查之后、`field_range` 之前 |
+| `curve_monotonic_finite` | 分阶段落地计划 T-N0-3（04 第 5 节数值类校验项分级表"曲线单调有限"）：`CurveMonotonicFiniteRule`——本模块唯一自带的 `IValidationRule`（框架级、不认具体表名，由装配根 `PresentationSchemaCatalog.RegisterAll` 注册）；对全部登记为断点表形态（`CurveSchema`）的字段逐条记录检查：断点非空、逐值有限、`x` 严格递增无重复、`y` 不递减（允许平台段），任一不满足报 Error，问题定位到曲线字段完整路径（含对象子字段/数组元素/映射值/变体分支）；元素形态不符（已由 `required_field`/`field_type` 报过）跳过不重复报；与 `field_finite` 层次不同不合并 |
 | `expr_validation_error` | 第十八方深度审核 F-03：`Expr` 字段解析（`ExprParser.Parse`/`ExprLexer.Tokenize`）或静态校验（`ExprValidator.Validate`）内部抛出除 `ExprParseException` 之外的未预期异常时报出，Error 级、阻断；`ExprParseException` 仍归入既有 `expr_parsable`，不受影响 |
 
 其余检查项（效果数上限、预算超标、叠加类别冲突、外形映射存在、外形类型字段组完整、循环引用
@@ -112,6 +116,56 @@ data_registry/
    子结构——`Query` 的谓词场景（按字段筛选内容表）目前没有"按嵌套子字段筛选"的实际需求，贸然
    展开会显著扩大 `RecordExprSchema.For` 的实现复杂度（嵌套路径怎么表达成 Expr 引用语法、数组
    元素怎么索引），本批不做，待有真实场景再评估。
+
+## 曲线形态登记（分阶段落地计划 T-N0-1，04 第 3.6 节）
+
+数值设计要求全部"横轴为等级/物品等级/数值"的曲线表共用一种登记形态与一份插值实现（数值总纲第 3 节
+原则 1、落地清单 2.1 C1/C2）。`CurveSchema.cs` 提供：
+
+- `FieldSchema.WithCurve(CurveSchema)`/`FieldSchema.Curve`：把"该字段是一条曲线、横轴是什么"作为
+  元数据挂到字段上；不新增 `FieldKind`，曲线仍是 `Array`（断点表）或 `Object`（饱和）字段，子结构
+  沿 ADR-0019 登记，加载期必填/类型/范围检查全部复用既有检查项（不新增平行检查名）。
+- 两种形态：`CurveShape.Breakpoints`（一元断点表，元素固定为 `{x, y}`，横轴语义由 `CurveAxis`
+  声明——`Level`/`ItemLevel` 的 `x` 登记为 `Int`，`Value` 的 `x` 为 `Number`）与
+  `CurveShape.Saturation`（二元饱和 `{k, cap}`，输入为数值 × 等级；本模块只登记形态与参数字段，
+  不提供求值，既有 `combat.resist_curve` 的 `saturation` 分支公式保持原样）。
+- 工厂 `CurveSchema.BreakpointsField(...)`/`SaturationField(...)` 生成标准子结构；手工拼装的登记若
+  形态与种类/子结构不符，由 `SchemaAudit` 的 `field_curve_shape` 检查项事后报告（同 `WithRange`/
+  `WithMap`"挂载时不检查、门禁事后报告"的既有风格）。
+- 解析入口 `CurveSchema.ReadBreakpoints(DataRecord, fieldName)`（形态不符抛 `DataFieldException`，
+  路径定位到 `字段[下标]`）与 `TryReadBreakpoints(JsonArray, ...)`（供校验规则使用，不抛异常），
+  返回 `Core.Foundation.Common.PiecewiseCurve`——解析放在本模块而不是 `common`，因为依赖方向是
+  `data_registry → common`。
+
+既有曲线表（`item.budget_curve`/`stat.rating_conversion`/`combat.resist_curve` 的 `table` 分支）迁移到
+本形态与通用单调有限规则 `curve_monotonic_finite` 分别是分阶段落地计划 T-N0-4/T-N0-5 与 T-N0-3 的内容。
+
+## 校验规则元数据与不可提升警告（分阶段落地计划 T-N0-2，04 第 5 节数值类校验项分级表）
+
+`IValidationRule` 新增三个带默认实现的成员（11 第 7 节"默认实现"路线，既有规则一行不改）：
+
+| 成员 | 默认值 | 用途 |
+|---|---|---|
+| `RuleId` | 具体类型名 | 报告 `Rules[]` 的键、`RegisterValidationRule` 去重的键、收集时补到每条 `ValidationIssue.RuleId`（规则自填不覆盖） |
+| `DefaultSeverity` | `Error` | 本规则问题通常所处级别，只供报告/工具展示，不改变逐条 `Severity` |
+| `NonEscalatable` | `false` | `true` 时本规则的 Warning 在 `WarningsBlock` 下也不计入阻断（04 第 5 节数值类分级表的警告级"抓意图不抓手滑"） |
+
+配套改动：
+
+1. **注册去重**：`RegisterValidationRule` 按 `RuleId` 去重——同一实例重复注册、或另一实例的 `RuleId`
+   已注册，静默忽略并保留先注册的那份（多根装配/多个装配入口叠加注册同一条规则不再重复跑、重复报；
+   不抛异常，因为重复注册不是编程错误的信号）。
+2. **`ValidationIssue` 新增可选 `Group`/`Note`/`RuleId`**：经新增的九参数构造传入（全部必填参数，
+   避免与既有六参数构造二义；既有构造物理签名不变，三者为 null）；`WithRuleId` 返回补了规则 id 的副本。
+3. **`ValidationReport` 新增 `Rules`（`ValidationRuleSummary`：id/默认级别/不可提升/命中条数，按注册
+   顺序、含零命中）与 `NonEscalatableWarningCount`**；三参数构造按 `Rules` 里不可提升规则的 id 匹配
+   问题的 `RuleId` 把这部分 Warning 从阻断判定里排除：`IsBlocking = Error > 0 || (WarningsBlock &&
+   (Warning − 不可提升 Warning) > 0)`。两参数构造行为不变（`Rules` 为空）。
+4. **转发门禁**：`InterfaceDefaultMemberForwardingTests` 对非组合型规则（不持有/不委托另一份
+   `IValidationRule`）逐条登记这三个默认成员的豁免（默认值即正确语义）；组合/转发型规则不在豁免之列，
+   必须显式转发。
+
+`toolchain/validator` 的文本/JSON 报告输出 `rules[]` 与 `issues[].group/note` 是 T-N0-6 的内容。
 
 ## 主键规则
 
