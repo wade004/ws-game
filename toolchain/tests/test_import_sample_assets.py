@@ -60,6 +60,11 @@ EXPECTED_DISPLAY_ROWS = {
     "display.map.sample_fortify": ("skill.aura_def.sample_fortify", "aura"),
     "display.map.sample_token": ("item.sample_token", "item"),
     "display.map.sample_tonic": ("item.sample_tonic", "item"),
+    # 消费方反馈第 44 条：creature.template 补的 summon_only 生物示例
+    # （creature.sample_summon_totem，见 core/carriers/creature/contracts/NpcFlag.cs
+    # npc_flag.summon_only）需要一条 display.map 覆盖行才能满足 DisplayMapCoverageRule；
+    # 复用 sprite.creature.sample_beast 精灵集，不新增素材，同上面 skill/aura 补齐行同一惯例。
+    "display.map.sample_summon_totem": ("creature.sample_summon_totem", "creature"),
 }
 
 

@@ -317,6 +317,37 @@
       ]
     },
     {
+      "id": "display.map.sample_summon_totem",
+      "category": "creature",
+      "logical_id": "creature.sample_summon_totem",
+      "kind": "sprite",
+      "icon_id": "icon.creature.sample_beast",
+      "shadow": "blob",
+      "sort_offset": 0,
+      "sprite_set_id": "sprite.creature.sample_beast",
+      "direction_count": 8,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.front_side_l",
+          "mirror_of": "dir.front_side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.back_side_l",
+          "mirror_of": "dir.back_side_r",
+          "flip_x": true
+        }
+      ],
+      "paperdoll_layers": [
+        "body"
+      ]
+    },
+    {
       "id": "display.map.sample_token",
       "category": "item",
       "logical_id": "item.sample_token",

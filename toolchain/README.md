@@ -160,14 +160,25 @@ dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json
   "相对仓库根"），绝对路径原样使用。
 - `--strict`：Warning 也阻断（`DataRegistryStrictness.WarningsBlock`）。
 - `--json`：输出机器可读的单行 JSON（`{tables, records, errors, warnings, blocking, issues[],
-  overrides[], disabled_optional_rules[], enabled_optional_rules[]}`），不输出人类可读文本行。
+  overrides[], disabled_optional_rules[], enabled_optional_rules[], optional_rules[]}`），不输出
+  人类可读文本行。消费方反馈第 43 条新增 `optional_rules`：每项 `{rule, check, enabled}`——`rule`/
+  `check` 直接取自 `ContentValidationAssembly.OptionalRules`（单一来源，规则名 ↔ 检查名不再需要
+  消费方自行维护 PascalCase→snake_case 映射表），`enabled` 按该规则是否出现在
+  `disabled_optional_rules` 判定；追加在既有 `enabled_optional_rules` 字段之后，不改动既有任何
+  字段的取值。
 - `--list-tables`：额外列出本次加载到的全部表名与记录数（文本模式下逐行打印，JSON 模式下并入
   `tables_list` 字段）。
 - `--display-map-sources <table:idField,...>`（ADR-0018 决策 3 新增，可选）：接线
   `ContentValidationOptions.DisplayMapCoverageSources`，声明哪些内容表参与"外形映射存在"检查
   （`DisplayMapCoverageRule`，见 04 第 5 节检查项清单）——逗号分隔多组 `table:idField`。未传时该
-  可选规则不启用（与改动前行为一致）。`SpawnSummonOnlyCreatureRule` 仍不接线（本工具是一次性命令
-  行进程，没有真正的 `ICreatureTemplateQuery` 实现可用，见 `ContentValidationAssembly` 判断记录）。
+  可选规则仍默认启用（消费方反馈第 34 条根治：改用
+  `PresentationSchemaCatalog.DefaultDisplayMapCoverageSources`），本参数只用来覆盖默认接线源，不
+  是"传了才启用"的开关。`SpawnSummonOnlyCreatureRule` 自 1.29.0 起默认接线：本工具不显式传
+  `ContentValidationOptions.CreatureTemplateQuery`（一次性命令行进程没有真正的
+  `ICreatureTemplateQuery` 实现可用，这一点没变），但 `ContentValidationAssembly` 未提供时改用
+  `Core.Carriers.Creature.RegistryCreatureTemplateQuery`（基于已构造的 registry 现读现解析，见该
+  类型判断记录），规则因此默认启用，不再是"仍不接线"——`disabled_optional_rules` 在当前入口下默认
+  恒为空。
 
 问题逐条打印为 `[severity] table/key/field: check: message`（`key`/`field` 缺失时对应段落省略），
 `severity` 取 `error`/`warning`，`check` 是 04 第 5 节固定的检查项名或各模块 `IValidationRule`

@@ -187,6 +187,50 @@ def test_json_flag_validator_non_json_output_falls_back_to_raw(tmp_path, capsys)
     assert "build failed" in result["validator"]["raw_output"]
 
 
+def test_json_flag_passes_through_optional_rules_field_unmodified(tmp_path, capsys) -> None:
+    """消费方反馈第 43 条：``toolchain/validator --json`` 新增的 ``optional_rules``
+    （``[{"rule", "check", "enabled"}, ...]``，见 ``toolchain/validator/Program.cs``
+    ``PrintJson`` 判断记录）只是 validator 子进程 JSON 输出里的一个字段，``validate_data.py --json``
+    把整份 validator JSON 原样塞进 ``result["validator"]``（不解析/不改写任何字段），本用例断言这条
+    透传路径对新字段同样成立——不需要真的跑 dotnet，字段本身的取值语义已由
+    ``presentation/assembly/tests/ContentValidationAssemblyTests.cs`` 与手工核实的
+    ``dotnet run --project toolchain/validator -- --json`` 真实输出覆盖。
+    """
+    toolchain_copy = _make_toolchain_copy(tmp_path)
+    data_root = _make_valid_data_root(tmp_path)
+    module = _load_validate_data_copy(toolchain_copy)
+
+    validator_json_payload = {
+        "tables": 1,
+        "records": 0,
+        "errors": 0,
+        "warnings": 0,
+        "blocking": False,
+        "issues": [],
+        "overrides": [],
+        "disabled_optional_rules": ["SpawnSummonOnlyCreatureRule"],
+        "enabled_optional_rules": ["DisplayMapCoverageRule"],
+        "optional_rules": [
+            {"rule": "SpawnSummonOnlyCreatureRule", "check": "spawn_summon_only_creature", "enabled": False},
+            {"rule": "DisplayMapCoverageRule", "check": "display_map_coverage", "enabled": True},
+        ],
+    }
+
+    # 判断记录：同文件其它用例同一手法，不能直接改写全局 shutil/subprocess（见上面用例的判断记录）。
+    module.shutil = SimpleNamespace(which=lambda name: "/fake/dotnet")
+    module.subprocess = SimpleNamespace(run=lambda *a, **k: SimpleNamespace(
+        returncode=0, stdout=json.dumps(validator_json_payload), stderr=""
+    ))
+
+    exit_code = module.main(["--data-root", str(data_root), "--json"])
+    assert exit_code == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["validator"]["optional_rules"] == validator_json_payload["optional_rules"]
+    assert result["validator"]["disabled_optional_rules"] == ["SpawnSummonOnlyCreatureRule"]
+    assert result["validator"]["enabled_optional_rules"] == ["DisplayMapCoverageRule"]
+
+
 if __name__ == "__main__":
     import sys
     import pytest

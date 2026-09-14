@@ -3,6 +3,8 @@ using System.Linq;
 using Core.Carriers.Creature;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
+using Core.Foundation.DisplayInfo;
+using Core.Gameplay.Spawn;
 using Presentation.Assembly;
 using Xunit;
 
@@ -67,6 +69,16 @@ namespace Tests.Presentation.Assembly
                 throw new System.InvalidOperationException("测试夹具中不应被调用：spawn.table 为空");
         }
 
+        /// <summary>消费方反馈第 43 条验收：只用来让 <c>SpawnSummonOnlyCreatureRule</c> 真的产出一条
+        /// Error 诊断（不关心具体模板 id，本类型对任意模板一律返回 <c>true</c>）。</summary>
+        private sealed class AlwaysSummonOnlyCreatureTemplateQuery : ICreatureTemplateQuery
+        {
+            public CreatureTemplate Get(Id templateId) =>
+                throw new System.NotSupportedException("测试夹具未实现 Get：本用例只用到 HasFlag");
+
+            public bool HasFlag(Id templateId, NpcFlag flag) => true;
+        }
+
         [Fact]
         public void OptionalRuleNames_IsFixedTwoEntryList()
         {
@@ -75,23 +87,117 @@ namespace Tests.Presentation.Assembly
                 ContentValidationAssembly.OptionalRuleNames);
         }
 
-        /// <summary>消费方反馈第 34 条：<see cref="ContentValidationOptions.DisplayMapCoverageSources"/>
-        /// 未指定（<c>null</c>）时不再等价于"该可选规则禁用"，改为默认使用
-        /// <see cref="PresentationSchemaCatalog.DefaultDisplayMapCoverageSources"/>——只有
-        /// <c>SpawnSummonOnlyCreatureRule</c>（没有框架级默认 <c>ICreatureTemplateQuery</c> 可用）
-        /// 仍然默认禁用。测试数据集里 5 张默认覆盖表均未注册任何数据（<c>InMemoryDataSource</c> 未
-        /// <c>Add</c> 过它们），<c>DisplayMapCoverageRule.Validate</c> 对空表不产出任何问题，因此
-        /// 本用例仍应保持不阻断。</summary>
+        /// <summary>消费方反馈第 43 条：<see cref="ContentValidationAssembly.OptionalRuleNames"/> 现由
+        /// <see cref="ContentValidationAssembly.OptionalRules"/> 投影得到，两者逐项相等（顺序不变）。</summary>
         [Fact]
-        public void Run_DefaultOptions_DisplayMapCoverageRuleEnabledByDefault_OnlySpawnSummonRuleDisabled()
+        public void OptionalRuleNames_EqualsOptionalRules_ProjectedByRuleName()
+        {
+            Assert.Equal(
+                ContentValidationAssembly.OptionalRules.Select(d => d.RuleName).ToList(),
+                ContentValidationAssembly.OptionalRuleNames);
+        }
+
+        /// <summary>消费方反馈第 43 条核心诉求：<see cref="OptionalRuleDescriptor.CheckName"/> 必须等于
+        /// 各规则实际产出诊断的 <see cref="ValidationIssue.Check"/>——不是比对两个字面量字符串是否恰好
+        /// 拼写一致，而是让规则真的跑一遍、拿真实诊断的 <c>Check</c> 出来比对，防止"描述符抄错/规则改名
+        /// 但描述符没跟着改"这类静态比对发现不了的问题。</summary>
+        [Fact]
+        public void OptionalRules_CheckName_MatchesActualRuleIssueCheck_ViaRun()
+        {
+            var source = BuildCreatureTemplateSource();
+            source.Add(SpawnSchemas.Table.Name,
+                "{\"table\": \"spawn.table\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"spawn.sample_x\", \"map_id\": \"world.sample_field\", \"content_ref\": \"creature.sample_player\", " +
+                "\"position\": {\"x\": 0, \"y\": 0}, \"facing\": 0, \"respawn_policy\": \"never\"}" +
+                "]}");
+
+            var options = new ContentValidationOptions
+            {
+                FailOnUnknownTable = false,
+                CreatureTemplateQuery = new AlwaysSummonOnlyCreatureTemplateQuery(),
+                // 判断记录：本用例只关心 SpawnSummonOnlyCreatureRule 产出的诊断，显式关闭
+                // DisplayMapCoverageRule（同类其它用例判断记录），避免 creature.sample_player 没有
+                // display.map 覆盖行触发的 display_map_coverage 诊断掩盖本用例要断言的那一条。
+                DisplayMapCoverageSources = System.Array.Empty<(string, string)>(),
+            };
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
+
+            var spawnIssue = Assert.Single(run.Report.Issues, i => i.Table == SpawnSchemas.Table.Name);
+            Assert.Equal(SpawnSummonOnlyCreatureRule.CheckName, spawnIssue.Check);
+            Assert.True(ContentValidationAssembly.TryGetOptionalRuleByCheck(spawnIssue.Check, out var spawnDescriptor));
+            Assert.Equal("SpawnSummonOnlyCreatureRule", spawnDescriptor.RuleName);
+
+            // 同一次 Run 里 DisplayMapCoverageRule 关了（sources 为空），换一次单独的调用验证它的
+            // CheckName 同样对得上真实诊断（用 Run_DefaultOptions_DisplayMapCoverageRule_FiresForUncoveredCreatureTemplate
+            // 同款夹具，默认开启）。
+            var displayRun = ContentValidationAssembly.Run(
+                new IDataSource[] { BuildCreatureTemplateSource() },
+                new ContentValidationOptions { FailOnUnknownTable = false });
+            var displayIssue = Assert.Single(displayRun.Report.Issues, i => i.Check == DisplayMapCoverageRule.CheckName);
+            Assert.True(ContentValidationAssembly.TryGetOptionalRuleByCheck(displayIssue.Check, out var displayDescriptor));
+            Assert.Equal("DisplayMapCoverageRule", displayDescriptor.RuleName);
+        }
+
+        /// <summary>消费方反馈第 43 条：<see cref="ContentValidationAssembly.TryGetOptionalRuleByCheck"/>
+        /// 命中/未命中两个分支。</summary>
+        [Fact]
+        public void TryGetOptionalRuleByCheck_HitAndMiss()
+        {
+            Assert.True(ContentValidationAssembly.TryGetOptionalRuleByCheck(DisplayMapCoverageRule.CheckName, out var hit));
+            Assert.Equal("DisplayMapCoverageRule", hit.RuleName);
+            Assert.Equal(DisplayMapCoverageRule.CheckName, hit.CheckName);
+
+            Assert.False(ContentValidationAssembly.TryGetOptionalRuleByCheck("not_a_registered_check", out var miss));
+            Assert.Null(miss);
+        }
+
+        /// <summary>消费方反馈第 43 条：<see cref="ContentValidationRun.EnabledOptionalRuleChecks"/>/
+        /// <see cref="ContentValidationRun.DisabledOptionalRuleChecks"/> 与
+        /// <see cref="ContentValidationRun.EnabledOptionalRules"/>/<see cref="ContentValidationRun.DisabledOptionalRules"/>
+        /// 一一对应。**行为变更（消费方反馈第 44 条根治，2026-09-14）**：本用例此前断言默认选项下
+        /// 只有 <c>DisplayMapCoverageRule</c> 启用、<c>SpawnSummonOnlyCreatureRule</c> 因未接线
+        /// <c>CreatureTemplateQuery</c> 而禁用；现在 <see cref="ContentValidationOptions.CreatureTemplateQuery"/>
+        /// 未提供时默认改用 <see cref="Core.Carriers.Creature.RegistryCreatureTemplateQuery"/>（见该
+        /// 属性判断记录），两条可选规则默认均启用，<see cref="ContentValidationRun.DisabledOptionalRules"/>
+        /// 恒为空——不是放宽断言，是真实的默认行为变更。</summary>
+        [Fact]
+        public void Run_EnabledDisabledOptionalRuleChecks_CorrespondToRuleNameLists()
         {
             var source = new InMemoryDataSource();
             var options = new ContentValidationOptions { FailOnUnknownTable = false };
 
             var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
 
-            Assert.Equal(new[] { "SpawnSummonOnlyCreatureRule" }, run.DisabledOptionalRules);
-            Assert.Equal(new[] { "DisplayMapCoverageRule" }, run.EnabledOptionalRules);
+            Assert.Empty(run.DisabledOptionalRules);
+            Assert.Empty(run.DisabledOptionalRuleChecks);
+            Assert.Equal(new[] { "SpawnSummonOnlyCreatureRule", "DisplayMapCoverageRule" }, run.EnabledOptionalRules);
+            Assert.Equal(
+                new[] { SpawnSummonOnlyCreatureRule.CheckName, DisplayMapCoverageRule.CheckName },
+                run.EnabledOptionalRuleChecks);
+        }
+
+        /// <summary>消费方反馈第 34 条：<see cref="ContentValidationOptions.DisplayMapCoverageSources"/>
+        /// 未指定（<c>null</c>）时不再等价于"该可选规则禁用"，改为默认使用
+        /// <see cref="PresentationSchemaCatalog.DefaultDisplayMapCoverageSources"/>。**行为变更
+        /// （消费方反馈第 44 条根治，2026-09-14，比照本条第 34 条先例）**：本用例此前断言
+        /// <c>SpawnSummonOnlyCreatureRule</c>（没有框架级默认 <c>ICreatureTemplateQuery</c> 可用）
+        /// 仍然默认禁用；现在 <see cref="ContentValidationOptions.CreatureTemplateQuery"/> 未提供时
+        /// 默认改用 <see cref="Core.Carriers.Creature.RegistryCreatureTemplateQuery"/>，该规则也默认
+        /// 启用——不是放宽断言，是真实的默认行为变更，方法名同步改掉"OnlySpawnSummonRuleDisabled"这
+        /// 半句已不再成立的描述。测试数据集里 5 张默认覆盖表均未注册任何数据（<c>InMemoryDataSource</c>
+        /// 未 <c>Add</c> 过它们），两条规则对空表/空 <c>spawn.table</c> 均不产出任何问题，因此本用例
+        /// 仍应保持不阻断。</summary>
+        [Fact]
+        public void Run_DefaultOptions_BothOptionalRulesEnabledByDefault()
+        {
+            var source = new InMemoryDataSource();
+            var options = new ContentValidationOptions { FailOnUnknownTable = false };
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
+
+            Assert.Empty(run.DisabledOptionalRules);
+            Assert.Equal(new[] { "SpawnSummonOnlyCreatureRule", "DisplayMapCoverageRule" }, run.EnabledOptionalRules);
             Assert.False(run.Report.IsBlocking, string.Join("; ", run.Report.Issues));
         }
 
@@ -369,6 +475,125 @@ namespace Tests.Presentation.Assembly
 
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
             Assert.Equal(3, registry.RecordCount); // 1 + 2
+        }
+
+        // ---------- 消费方反馈第 44 条根治：CreatureTemplateQuery 默认接线（RegistryCreatureTemplateQuery） ----------
+
+        /// <summary>最小支撑表集合（<c>stat.definition</c>/<c>creature.tier_definition</c>），同
+        /// <see cref="BuildCreatureTemplateSource"/> 惯例；不含 <c>l10n.text</c>（<c>name_key</c>
+        /// 各产出一条 Warning，不阻断，同惯例）。</summary>
+        private static InMemoryDataSource BuildSpawnSummonOnlyFixtureSource()
+        {
+            var source = new InMemoryDataSource();
+            source.Add("stat.definition",
+                "{\"table\": \"stat.definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"stat.max_health\", \"name_key\": \"l10n.stat.sample_max_health.name\", \"group\": \"primary\", \"default_base\": 0}" +
+                "]}");
+            source.Add("creature.tier_definition",
+                "{\"table\": \"creature.tier_definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"creature.tier.sample_normal\", \"name_key\": \"l10n.creature.tier.sample_normal.name\", " +
+                "\"stat_multiplier\": 1, \"control_immune\": false, \"sort_weight\": 0}" +
+                "]}");
+            return source;
+        }
+
+        private static ContentValidationOptions SpawnSummonOnlyFixtureOptions() => new ContentValidationOptions
+        {
+            FailOnUnknownTable = false,
+            // 判断记录：本组用例只关心 SpawnSummonOnlyCreatureRule 的默认接线行为，显式关闭
+            // DisplayMapCoverageRule（同类其它用例判断记录），避免 creature.template 记录没有
+            // display.map 覆盖行触发的 display_map_coverage 诊断掩盖本组用例要断言的内容。
+            DisplayMapCoverageSources = System.Array.Empty<(string, string)>(),
+        };
+
+        /// <summary>消费方反馈第 44 条根治（未提供 <see cref="ContentValidationOptions.CreatureTemplateQuery"/>
+        /// 时默认改用 <see cref="Core.Carriers.Creature.RegistryCreatureTemplateQuery"/>，见该属性
+        /// 判断记录）：正例——<c>creature.template</c> 里一条真实登记了 <c>npc_flag.summon_only</c>
+        /// 的生物模板被 <c>spawn.table</c> 引用，不必像此前那样调用方必须自己提供
+        /// <see cref="ICreatureTemplateQuery"/> 实现才能观测到这条规则的 Error 分支。</summary>
+        [Fact]
+        public void Run_DefaultCreatureTemplateQuery_SpawnTableReferencesSummonOnlyCreature_ReportsError()
+        {
+            var source = BuildSpawnSummonOnlyFixtureSource();
+            source.Add("creature.template",
+                "{\"table\": \"creature.template\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"creature.sample_totem\", \"name_key\": \"l10n.creature.sample_totem.name\", " +
+                "\"level\": 1, \"tier\": \"creature.tier.sample_normal\", \"base_stats\": {\"stat.max_health\": 1}, " +
+                "\"faction_id\": \"fac.sample_wildlife\", \"npc_flags\": [\"npc_flag.summon_only\"], " +
+                "\"display_ref\": \"display.sample_totem\"}" +
+                "]}");
+            source.Add(SpawnSchemas.Table.Name,
+                "{\"table\": \"spawn.table\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"spawn.sample_totem\", \"map_id\": \"world.sample_field\", \"content_ref\": \"creature.sample_totem\", " +
+                "\"position\": {\"x\": 0, \"y\": 0}, \"facing\": 0, \"respawn_policy\": \"never\"}" +
+                "]}");
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, SpawnSummonOnlyFixtureOptions());
+
+            Assert.DoesNotContain("SpawnSummonOnlyCreatureRule", run.DisabledOptionalRules);
+            Assert.Contains(run.Report.Issues, i =>
+                i.Check == SpawnSummonOnlyCreatureRule.CheckName &&
+                i.Severity == ValidationSeverity.Error &&
+                i.RecordKey == "spawn.sample_totem");
+        }
+
+        /// <summary>消费方反馈第 44 条根治：<c>spawn.table.content_ref</c> 指向一个
+        /// <c>creature.template</c> 里根本不存在的 id——<see cref="Core.Carriers.Creature.RegistryCreatureTemplateQuery.Get"/>
+        /// 对未登记 id 抛 <see cref="System.ArgumentException"/>，
+        /// <c>SpawnSummonOnlyCreatureRule.Validate</c> 捕获后按其既有判断记录"模板未登记：属
+        /// reference_integrity/SpawnContentRefRule 职责，本规则不重复报错"跳过，不产出
+        /// <c>spawn_summon_only_creature</c>（该场景改由 <c>SpawnContentRefRule</c> 的
+        /// <c>spawn_content_ref</c> 报出）。</summary>
+        [Fact]
+        public void Run_DefaultCreatureTemplateQuery_SpawnTableReferencesUnregisteredCreature_DoesNotReportSpawnSummonOnlyRule()
+        {
+            var source = BuildSpawnSummonOnlyFixtureSource();
+            // creature.template 表本身已注册 schema、但不含 creature.sample_missing 这一行。
+            source.Add("creature.template",
+                "{\"table\": \"creature.template\", \"schema_version\": 1, \"rows\": []}");
+            source.Add(SpawnSchemas.Table.Name,
+                "{\"table\": \"spawn.table\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"spawn.sample_missing\", \"map_id\": \"world.sample_field\", \"content_ref\": \"creature.sample_missing\", " +
+                "\"position\": {\"x\": 0, \"y\": 0}, \"facing\": 0, \"respawn_policy\": \"never\"}" +
+                "]}");
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, SpawnSummonOnlyFixtureOptions());
+
+            Assert.DoesNotContain(run.Report.Issues, i => i.Check == SpawnSummonOnlyCreatureRule.CheckName);
+            Assert.Contains(run.Report.Issues, i => i.Check == "spawn_content_ref");
+        }
+
+        /// <summary>消费方反馈第 44 条根治：<c>creature.template</c> 记录的 <c>npc_flags</c> 含未登记
+        /// 职能标志（字段级 <c>field_allowed_value</c> 单独报一条 Error，报告因此阻断，但记录本身
+        /// 仍进入表——见 <see cref="Core.Carriers.Creature.RegistryCreatureTemplateQuery"/> 类型级
+        /// 判断记录）——<c>ContentValidationAssembly.Run</c> 整体必须正常返回报告，不能被
+        /// <see cref="Core.Carriers.Creature.CreatureTemplate.FromRecord"/> 抛出的
+        /// <see cref="DataFieldException"/> 中断成未处理异常。</summary>
+        [Fact]
+        public void Run_DefaultCreatureTemplateQuery_SpawnTableReferencesCreatureWithIllegalNpcFlags_DoesNotThrow()
+        {
+            var source = BuildSpawnSummonOnlyFixtureSource();
+            source.Add("creature.template",
+                "{\"table\": \"creature.template\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"creature.sample_bad_flag\", \"name_key\": \"l10n.creature.sample_bad_flag.name\", " +
+                "\"level\": 1, \"tier\": \"creature.tier.sample_normal\", \"base_stats\": {\"stat.max_health\": 1}, " +
+                "\"faction_id\": \"fac.sample_wildlife\", \"npc_flags\": [\"npc_flag.unknown_flag\"], " +
+                "\"display_ref\": \"display.sample_bad_flag\"}" +
+                "]}");
+            source.Add(SpawnSchemas.Table.Name,
+                "{\"table\": \"spawn.table\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"spawn.sample_bad_flag\", \"map_id\": \"world.sample_field\", \"content_ref\": \"creature.sample_bad_flag\", " +
+                "\"position\": {\"x\": 0, \"y\": 0}, \"facing\": 0, \"respawn_policy\": \"never\"}" +
+                "]}");
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, SpawnSummonOnlyFixtureOptions());
+
+            // 字段级问题单独报（field_allowed_value），报告因此阻断；但不应该因本规则额外报
+            // spawn_summon_only_creature（没法判定该记录是否 summon_only，同"未登记"判断记录），
+            // 更不应该抛出未处理异常（走到这里、能拿到 run 本身就是断言的一部分）。
+            Assert.True(run.Report.IsBlocking);
+            Assert.Contains(run.Report.Issues, i => i.Check == "field_allowed_value");
+            Assert.DoesNotContain(run.Report.Issues, i => i.Check == SpawnSummonOnlyCreatureRule.CheckName);
         }
     }
 }
