@@ -70,7 +70,7 @@ namespace Core.Numbers.StatBlock
         /// 检查项 | 说明"三列，检查项是中文短语不是代码标识符，同表其它多数行也是如此），按
         /// <c>stat_definition_*</c> 前缀命名（同本模块既有
         /// <see cref="StatDefinitionValidationRule.CheckDerivedFromRequiresDerivedCategory"/> 等三条
-        /// 判断记录一致的处理口径），<b>待设计层确认</b>。</summary>
+        /// 判断记录一致的处理口径）。设计层裁定（2026-09-14）：采纳。</summary>
         public const string CheckNoConsumer = "stat_definition_no_consumer";
 
         /// <summary>见类型判断记录"框架内置消费者属性名清单"一节。</summary>

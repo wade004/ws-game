@@ -66,13 +66,13 @@
   属性"与"覆盖它的哪一条来源边"两个 `stat.definition` 引用；`Map` 形态（`base_stats`/`stat_mods`
   用的 `MapSchema.ReferenceKeyTable`）的键只能承载单个属性 id，无法同时表达"目标属性 + 来源属性"
   这一对复合键，因此选 `Array` 形态。字段名 `stat`（被覆盖的目标派生属性）与 `source`（来源
-  属性）均为实现期按最贴近 `derived_from` 既有字段名（`stat`）的形态命名，**待设计层确认**——
-  与 T-N1-1 `stat_definition_derived_from_requires_derived`/`stat_definition_conversion_ref_
-  requires_percent` 两个检查名"契约未给出、按前缀命名后标注待确认"同一处理口径。详见
+  属性）均为实现期按最贴近 `derived_from` 既有字段名（`stat`）的形态命名，设计层裁定
+  （2026-09-14）：采纳——与 T-N1-1 `stat_definition_derived_from_requires_derived`/
+  `stat_definition_conversion_ref_requires_percent` 两个检查名同一处理口径。详见
   `core/ArchSchemas.cs` 的 `DerivationOverrideEntrySchema` 源码注释。
 - **T-N1-4：`derivation_overrides[].stat`/`.source` 是否指向真实存在的派生边，由
   `ArchClassDerivationOverrideValidationRule` 校验（检查名 `arch_class_derivation_override_
-  requires_existing_edge`，Error 级，同样"待设计层确认"，04 第 5 节分级表未列出本项）**：两个
+  requires_existing_edge`，Error 级，同样经设计层裁定（2026-09-14）：采纳，04 第 5 节分级表未列出本项）**：两个
   字段各自指向不存在的 `stat.definition` 记录由字段级 `reference_integrity` 拦截，本规则只关心
   "两个引用都存在时，这条边是否真的登记在目标属性的 `derived_from` 里"——即 `stat` 必须
   `category=derived` 且其 `derived_from` 数组里存在一条 `stat==source` 的记录。`StatHost`/

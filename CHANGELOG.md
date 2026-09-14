@@ -179,7 +179,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `combat.resist_curve`/`prog.level_curve` 的字段与版本均不变。
 - **数值设计落地 T-N0-6（1.30.0）**：`toolchain/validator --json` 新增 `rules[]` 与
   `issues[].group/note/rule_id`，编辑器问题面板可据此按规则分组并展示作者说明原文；既有字段不变。
-- **数值设计落地阶段 N1 · T-N1-3（Unreleased）**：`stat.rating_conversion` 新增可选字段
+- **数值设计落地阶段 N1 · T-N1-3（1.31.0）**：`stat.rating_conversion` 新增可选字段
   `saturation`（`CurveSchema.SaturationField`，`Curve.Shape=Saturation`，子字段 `k`/`cap`），与
   既有 `entries`（`Curve.Shape=Breakpoints`）二选一，由新增校验规则
   `StatRatingConversionValidationRule`（检查名 `stat_rating_conversion_requires_one_shape`）
@@ -189,19 +189,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   按 `field_meta.curve.shape` 分流两种编辑器 UI。`toolchain/validator --list-tables --json`
   的 `field_meta.curve` 对本字段输出 `{shape: "saturation", axis: "value"}`（复用 T-N0-1 已有
   的 `field_meta.curve` 导出结构，不新增导出字段）。
-- **数值设计落地阶段 N1 · T-N1-4（Unreleased）**：`arch.class` 新增可选字段 `derivation_overrides`
+- **数值设计落地阶段 N1 · T-N1-4（1.31.0）**：`arch.class` 新增可选字段 `derivation_overrides`
   （`Array<{stat:Reference(stat.definition), source:Reference(stat.definition), coefficient:Number}>`，
   ADR-0030 决策 2"职业模板可覆盖派生系数"），纯新增可选字段不升级 `currentSchemaVersion`（仍为
   1）；新增校验规则 `ArchClassDerivationOverrideValidationRule`（检查名
   `arch_class_derivation_override_requires_existing_edge`，Error 级，04 第 5 节分级表未列出，
-  按 `arch_class_*` 前缀命名，**待设计层确认**）：每条覆盖的 `stat` 必须是 `stat.definition`
+  按 `arch_class_*` 前缀命名，设计层裁定（2026-09-14）：采纳）：每条覆盖的 `stat` 必须是 `stat.definition`
   里 `category=derived` 的属性，且 `source` 必须出现在该属性 `derived_from[].stat` 登记的来源
   列表中。编辑器职业模板编辑界面若展示派生属性系数编辑控件，可据本字段渲染"按来源覆盖系数"的
   子表单，`stat`/`source` 两个引用字段的下拉候选建议限定为目标属性的 `derived_from` 列表（避免
   用户在界面上就构造出会被本规则拦下的非法组合）。`toolchain/validator --list-tables --json`
   对 `arch.class` 表新增该字段的常规字段元数据导出（复用既有 `Reference`/`Array` 字段种类，不
   新增导出结构）。
-- **数值设计落地阶段 N1 · T-N1-5（Unreleased）**：新表 `stat.weight`（属性 id → 权重当量，可按
+- **数值设计落地阶段 N1 · T-N1-5（1.31.0）**：新表 `stat.weight`（属性 id → 权重当量，可按
   职业覆盖，ADR-0030 决策 7），字段 `id`/`stat`（Reference→`stat.definition`）/`weight`
   （Number，`>= 0`）/`class_overrides`（可选，`Array<{class:Reference(arch.class),
   weight:Number(>= 0)}>`）/`description`；`StatHost` 不读取本表。编辑器属性/装备编辑界面若展示
@@ -209,7 +209,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `arch.class` 全表（不像 `arch.class.derivation_overrides` 那样需要限定到某个属性的
   `derived_from` 子集）。`toolchain/validator --list-tables --json` 新增本表的常规字段元数据
   导出（复用既有 `Reference`/`Array`/`Number` 字段种类，不新增导出结构）。
-- **数值设计落地阶段 N1 · T-N1-8（Unreleased）**：新表 `combat.level_diff_table`（等级差规则表，
+- **数值设计落地阶段 N1 · T-N1-8（1.31.0）**：新表 `combat.level_diff_table`（等级差规则表，
   ADR-0030 决策 6），字段 `id`/`miss_bonus`/`crit_suppression`/`xp_factor`（三条断点表曲线，
   横轴新增 `CurveAxis.LevelDiff`——等级差 Δ，可负，编辑器曲线编辑控件遇到该轴应渲染为允许负值
   的横轴输入，不像既有 `CurveAxis.Level`/`ItemLevel` 那样默认非负）/`grey_line`（断点表曲线，
@@ -220,7 +220,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `crit_suppression`/`xp_factor` 三列输出 `{shape: "breakpoints", axis: "level_diff"}`（新增轴
   取值字符串，复用既有 `field_meta.curve` 导出结构，编辑器需要按新字符串区分"这是差值轴不是等级
   轴"，不识别的客户端可退化为按普通数值轴渲染，不阻断）。
-- **数值设计落地阶段 N1 · T-N1-9（Unreleased）**：新校验规则 `stat_definition_no_consumer`（04
+- **数值设计落地阶段 N1 · T-N1-9（1.31.0）**：新校验规则 `stat_definition_no_consumer`（04
   第 5 节"属性无消费者"，Warning 级，`NonEscalatable=true`）随 `RulesSchemaCatalog.RegisterAll`
   一起注册，出现在 `toolchain/validator --json`/`--list-tables --json` 的 `rules[]` 与命中
   记录的 `issues[]` 里——编辑器问题面板若已按 04"警告级这一组登记为不可提升"渲染既有规则（同
@@ -229,6 +229,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `Reference`/`SoftReference`/`Map` 键引用字段）可直接复用同一份实现思路。
 
 ## [Unreleased]
+
+## [1.31.0] - 2026-09-14
+
+MINOR 版本：数值设计落地阶段 N1"属性"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 7/14 节，T-N1-1～T-N1-10）——落地 ADR-0030 全部决策：属性类别与派生两轮聚合、
+换算层始终启用、来源类别进结算上下文、等级差规则表、属性权重表、职业派生系数覆盖。
+回放基线未变（回放场景不依赖 `data/_sample`、自带命中表全分支禁用且未装配
+`LevelDiffTableId`，Δ 相关代码路径与 T-N1-3 评级换算路径均未在回放场景中触发，已按
+Replay README 五步核实）；Perf 基线未变。各小任务门禁与逐项验收记录见该计划末节
+"落地进度记录"。
+
+提交链：`c2a63c7`（T-N1-1）、`7d70adb`（T-N1-2）、`f4890f2`（T-N1-3）、`60a18fe`（T-N1-4）、
+`686576c`（T-N1-5）、`5cddee1`（T-N1-6）、`0a3fd95`（T-N1-7）、`d987294`（T-N1-7 返工）、
+`ea0f6de`（T-N1-8 ★确定性敏感）、`4e7a650`（T-N1-9），分支 `n1/attributes`，`--no-ff` 合入
+`main`（哈希待补），本笔提交（T-N1-10：文档收尾——裁定落地、04/06/ADR-0030 勘误、落地进度
+记录、1.31.0 变更记录）。
 
 ### 新增
 
@@ -246,10 +261,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   留给 T-N1-2 改读 `category` 之后。`StatDefinitionValidationRule` 新增两条 Error 检查：
   `derived_from` 出现在非 `derived` 类别、`conversion_ref` 出现在非 `percent` 类别（检查名
   `stat_definition_derived_from_requires_derived`/`stat_definition_conversion_ref_requires_percent`，
-  04 第 5 节分级表未逐条列出这两项检查名，按 `stat_definition_*` 前缀命名，**待设计层确认**）。
+  04 第 5 节分级表未逐条列出这两项检查名，按 `stat_definition_*` 前缀命名，设计层裁定
+  （2026-09-14）：采纳）。
   **迁移说明**：`group→category` 映射——`resistance→defense`（拍板 1 明文规定）、`primary`/
-  `derived` 恒等、`secondary` 按 `is_rating` 取值二选一分裂为 `percent`/`misc`（**推断，非契约
-  条文明文规定，待设计层确认**，理由与既有样例数据 `crit_rating`/`dodge_rating`/`move_speed`
+  `derived` 恒等、`secondary` 按 `is_rating` 取值二选一分裂为 `percent`/`misc`（推断，非契约
+  条文明文规定，设计层裁定（2026-09-14）：采纳，理由与既有样例数据 `crit_rating`/`dodge_rating`/`move_speed`
   的既定用法一致）；`min`/`max` 同时或部分存在时嵌套进 `clamp`；`is_rating=true` 且带
   `rating_conversion_ref` 时映射出 `conversion_ref`。`games/_template/data/game/stat/stat.definition.json`
   升级为 v2 写法示例（直接写 `category`，`group` 仍需同时提供）；`data/_sample/stat/stat.definition.json`
@@ -260,80 +276,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `conversion_ref` 冲突新增校验（`group` 本版本对 `StatHost` 行为无差异，见 `GroupValues`
   判断记录）。测试：`StatDefinitionMigrationTests` 8 例、`StatSchemaCoverageTests` 新增 4 例、
   `StatHostTests` 新增 4 例（两条新规则正负例）。
-- **数值设计落地阶段 N1 · T-N1-2（`StatHost` 两轮拓扑序聚合、派生失效传播、clamp 第二轮后夹取、
-  抗性维度独立策略项、派生无环校验，[数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
-  第 14 节）**：`core/numbers/stat_block/core/StatHost.cs` 改读 `stat.definition.category`（不再
-  读已废弃的 `group`）与嵌套 `clamp.min`/`clamp.max`（不再读平级 `min`/`max`）；`is_rating`/
-  `rating_conversion_ref` 读取逻辑本任务未改（换算层触发条件改 `category==percent` 留给
-  T-N1-3）。加载期新增 `BuildDerivationGraph`：按 `derived_from` 建反向依赖表与全部属性 id 的
-  稳定拓扑序（候选零入度集合用 `SortedSet<Id>` 逐步取最小值出队，不依赖字典/数组枚举顺序），
-  遇到环（含自环）抛 `InvalidOperationException`（加载期防御，正常数据应已被下方新校验规则
-  拦下）。`ComputeFinal` 的"基础值"改由 `ResolveBaseValue` 决定：显式 `SetBase` 值永远优先
-  （**待设计层确认**：与既有 `DefaultBase` 回退规则同构的自然推广，ADR-0030 决策 2 原文未明确
-  与显式覆盖的优先级关系）；否则 `category=="derived"` 的属性走 `ComputeDerivedBase`——基础值
-  = Σ(`derived_from` 来源属性最终值 × 系数，系数允许负数，拍板 11)，再走同一套三段式；其余
-  属性沿用既有 `default_base` 规则。`clamp` 仍是每个属性自己聚合的最后一步（拍板 2：来源属性
-  先在自己的聚合里被夹取，派生属性拿到的是夹取之后的来源值；派生属性自身的 `clamp` 在它自己
-  的第二轮聚合之后生效）。`SetBase`/`AddModifier`/`RemoveModifiersBySource`/`ResetBase` 新增
-  `PropagateDerivedInvalidation`：按拓扑序把失效传播给全部（传递）依赖变化属性、且此前已被
-  缓存过的派生属性（未查询过的不主动补算，与既有 `RecomputeAllCachedStatsAfterReload` 判断
-  记录同一口径），`RecomputeRatingStats`（等级变化驱动的评级重算）同样接入这条路径。抗性维度
-  判定条件从 `group == "resistance"` 改为 `category == "defense"`；`StatHostOptions.
-  EnableResistanceGroup` 属性名不改（已经是独立于内容数据的 `bool`，改名等价于删除既有公开
-  成员，违反 ABI 门禁），默认值不变。新增 `StatDefinitionDerivationCycleValidationRule`（检查
-  名 `stat_definition_derivation_cycle`，Error 级，随 `RulesSchemaCatalog` 注册，写法照抄
-  `ArchTalentTreeCycleValidationRule`）；`StatDefinitionValidationRule.CheckMinMaxOrder`
-  扩展到同时检查嵌套 `clamp.min`/`clamp.max`（此前只查已废弃的平级 `min`/`max`，纯 v2 记录会
-  绕过检查）；`StatSchemas.cs` 的 `group` 字段 `required` 放宽为 `false`。`core/carriers/item/
-  tests/TestSupport.cs` 原先手写一份独立于真实 `StatSchemas.Definition` 的最小 `stat.definition`
-  schema（无 `category` 字段、无迁移链），随 `StatHost` 改读 `category` 而在加载期报错，改为
-  直接注册真实 `StatSchemas.Definition`。测试：`StatHostTests` 新增 15 例（两轮聚合 6、失效
-  传播 2、派生成环加载期防御 1、显式覆盖 1、派生无环校验规则正反例 3、`clamp` 嵌套校验 1、
-  抗性维度 v2 原生用例 1）。
-- **数值设计落地阶段 N1 · T-N1-3（换算层始终启用、触发条件改 `category==percent`、恒等/按等级
-  除数/饱和三形态复用通用曲线，[数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
-  第 14 节）**：`core/numbers/stat_block/core/StatHost.cs` 的 `LoadRatingConversions` 改为无条件
-  执行（不再由 `StatHostOptions.EnableRatingConversion` 门控）；`ComputeFinal` 的换算触发条件从
-  "`EnableRatingConversion` 开关 && `is_rating` 字段"改为单一条件 `category=="percent"`；
-  `LoadDefinitions` 改读 v2 字段 `conversion_ref`（不再读已废弃的 `is_rating`/
-  `rating_conversion_ref`，两者的取值已由 T-N1-1 迁移链折算进 `category`/`conversion_ref`）。
-  **偏离计划原文的说明**：计划原文要求"删除 `EnableRatingConversion`"，但落地计划第 1 节"每阶段
-  对外契约变化必须控制在 MINOR"——删除既有公开属性是 ABI 破坏，G3 门禁不允许。设计层裁定改为
-  **保留但无效化**：`StatHostOptions.EnableRatingConversion` 标记 `[Obsolete("换算层自 1.31.0
-  起始终启用（ADR-0030 决策 3），本属性无任何作用，保留仅为二进制兼容")]`，`StatHost` 不再有
-  任何代码读取它；"不存在关闭路径"由两条测试保证——`EnableRatingConversion_HasNoEffect_
-  PercentStatsStillConvert`（显式构造 `EnableRatingConversion=false`，断言 `percent` 属性仍经
-  曲线换算）与 `StatHostOptions_NoUnobsoleteConversionSwitch_Exists`（反射断言 `StatHostOptions`
-  上不存在任何未标 `[Obsolete]` 的、名字含 `RatingConversion`/`Conversion` 的布尔属性）。**三种
-  曲线形态**（ADR-0030 决策 3；数值设计 01 第 5 节）复用 04 第 3.6 节通用曲线契约，不新增求值
-  路径：恒等（保守版：`conversion_ref` 缺省，直通原值，硬上限由 `stat.definition.clamp` 在聚合
-  末尾夹取，与换算层本身无关）；按等级除数（标准版：既有 `entries` 断点表形态，T-N0-4 起已复用
-  `PiecewiseCurve`，本任务未改公式）；饱和（变态版：`stat.rating_conversion` 新增可选字段
-  `saturation`（`CurveSchema.SaturationField`，子字段 `k`（必填，> 0）/`cap`（可选，> 0，缺省
-  1）），公式 `输出 = rawValue / (rawValue + k × 单位等级)`，以 `cap` 封顶，与 `combat.resist_curve`
-  饱和分支同形态，ADR-0030 决策 3"换算曲线契约……与 `combat.resist_curve` 同形态"）。`entries`
-  放宽为 `required: false`，与 `saturation` 二选一，由新增
-  `StatRatingConversionValidationRule`（检查名 `stat_rating_conversion_requires_one_shape`，
-  Error 级，04 第 5 节分级表未逐条列出，按 `stat_*` 前缀命名，**待设计层确认**）强制"恰好二选
-  一"；纯新增可选字段不升级 `stat.rating_conversion` 的 schema 版本（仍为 2，同
-  `StatSchemas.GroupValues` 判断记录先例：放宽必填/新增可选字段不是破坏性变更）。**行为变更
-  （不是放宽断言）**：原测试 `RatingConversion_DisabledPassesRawValueThrough`（断言
-  `EnableRatingConversion=false` 时直通原值）语义已不成立，改写为
-  `EnableRatingConversion_HasNoEffect_PercentStatsStillConvert`（同一输入现在断言经曲线换算，
-  不再直通）；生产装配测试（`core/gameplay/assembly/tests/CORE_110_FollowupAuditTests.cs`/
-  `CORE_180_FollowupAuditTests.cs`、`core/rules/tests/Integration/
-  ProgressionRestoreRatingRecomputeTests.cs`、`core/numbers/stat_block/tests/
-  RatingConversionMigrationTests.cs`、`core/numbers/tests/L1SampleDataTests.cs`）里此前
-  显式 `EnableRatingConversion=true`/`=false` 的初始化项全部去掉（换算层已始终启用，无需
-  也不能再引用已废弃属性）。**回放/Perf 基线核查**：`data/_sample/stat/stat.definition.json`
-  的 `crit_rating`/`dodge_rating` 两条属性 `is_rating=true`，迁移后 `category=percent`——换算
-  从"默认关闭"变为"始终启用"，但两者在 `data/_sample` 全库无任何 `default_base`/装备/光环
-  赋值来源（`default_base` 缺省 0），`combat.hit_table_config` 直接引用其原始值作为 miss/crit
-  分支概率，`0` 经任意换算曲线（恒等或除数）结果仍是 `0`——核查结论：**运行时数值零变化**，
-  `Replay`/`Perf` 基线保持零改动（已跑 `--filter "FullyQualifiedName~Replay"` 确认，`git status`
-  显示两个基线文件零改动）。`games/_template` 无 `percent`/`conversion_ref` 类属性，不受影响。
-  测试：`StatHostTests` 新增 6 例（恒等 2、饱和 2、不存在关闭路径行为/反射各 1）、
-  `StatSchemaCoverageTests` 新增 5 例（`saturation` 子结构正反例 2、形态二选一正反例 3）。
+
 - **数值设计落地阶段 N1 · T-N1-4（`arch.class.derivation_overrides` 子结构、`ArchetypeRegistry`
   写入派生系数覆盖、换职业/读档恢复触发派生重算，[数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
   第 14 节）**：`core/numbers/stat_block/core/StatHost.cs` 新增按单位的派生系数覆盖层——公开方法
@@ -356,7 +299,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   新增一步：写完新职业 `BaseStats` 之后无条件调用
   `Stats.SetDerivationCoefficientOverrides(unitId, cls.DerivationOverrides)`，不按 `classChanged`
   分叉（全量替换语义天然实现"先清旧覆盖再写新覆盖"，职业未变时重复调用是幂等的）。**子结构形态
-  判断记录（待设计层确认）**：ADR-0030 决策 2 只给出表名"可选"，06 第 1.3 节字段表未展开子结构；
+  判断记录（设计层裁定 2026-09-14：采纳）**：ADR-0030 决策 2 只给出表名"可选"，06 第 1.3 节字段表未展开子结构；
   选 `Array<{stat, source, coefficient}>` 而非 `Map`——一条覆盖需要同时定位"目标派生属性"与
   "被覆盖的来源边"两个 `stat.definition` 引用，`Map` 形态的键只能承载单个属性 id，无法表达这一对
   复合键，理由与命名详见 `core/numbers/archetype/contracts/ArchSchemas.cs` 的
@@ -371,6 +314,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `core/rules/tests/Integration/ArchetypeDerivationOverrideTests.cs` 新增 3 例（战士/法师覆盖不同
   系数得到不同派生值、一个职业覆盖另一个走默认系数得到不同派生值、`ReloadArchetypeAndRace`
   模拟读档恢复后派生值按该职业系数重算）。
+
 - **数值设计落地阶段 N1 · T-N1-5（`stat.weight` 属性权重表 schema、注册、样例，
   [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
   第 14 节）**：`core/numbers/stat_block/core/StatSchemas.cs` 新增 `stat.weight` 表（schema
@@ -382,14 +326,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `BuildWorld` 同步补齐。**本任务只登记 schema/注册/样例，`StatHost` 不读取本表**（06 第 1 节
   明文规定；`core/StatHost.cs` 全文不出现字符串 `"stat.weight"`，由新增
   `tests/StatWeightSchemaTests.cs` 源码扫描 + 行为双重测试防御，见下方测试小节）。**子结构形态
-  判断记录（待设计层确认）**：ADR-0030 决策 7、06 第 1 节、数值设计 01 第 128 行均只有一行
+  判断记录（设计层裁定 2026-09-14：采纳）**：ADR-0030 决策 7、06 第 1 节、数值设计 01 第 128 行均只有一行
   描述，未展开 `class_overrides` 子结构形态；任务派发提示词给出两个候选（`Map<arch.class id,
   Number>` 或 `Array<{class, weight}>`），要求"与 T-N1-4 的 `derivation_overrides` 形态保持
   同一风格"——`derivation_overrides` 选 `Array` 的原始理由（一条覆盖需要同时定位两个
   `stat.definition` 引用，`Map` 键承载不下）在本字段不成立（本字段只需单一职业维度，`Map`
   形态同样可行），选 `Array` 是遵照任务派发提示词显式指示统一子结构记法，不是本字段独立推导
   的必然结论，理由详见 `StatSchemas.WeightClassOverrideEntrySchema` 注释。**范围约束判断记录
-  （待设计层确认）**：`weight`/`class_overrides[].weight` 登记 `>= 0`（不像
+  （设计层裁定 2026-09-14：采纳）**：`weight`/`class_overrides[].weight` 登记 `>= 0`（不像
   `derived_from[].coefficient` 那样允许负数）——契约未明文规定范围，但 07 第 1.2 节/ADR-0032
   决策 3 的消费公式 `实际消耗 = (Σ(属性值_i × 权重_i)^k)^(1/k)`（`k` 默认 1.5，非整数）在负权重
   下于实数域无定义，登记范围据下游公式推断，若设计层裁定允许负权重，去掉对应 `WithRange`
@@ -402,6 +346,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   测试：`StatWeightSchemaTests` 新增 7 例（合法记录、缺必填 `weight`、`stat` 引用不存在、
   `class_overrides` 子结构缺必填、`class_overrides[].class` 引用不存在、`weight` 负数越界各
   1 例；"`StatHost` 不读该表"源码扫描 1 例、行为测试 1 例）。
+
 - **数值设计落地阶段 N1 · T-N1-6（`EffectContext.sourceKind` 构造重载、`IUnitAccess` 载体类型
   查询默认成员、`WorldUnitAccess` 实现、全部生产构造点补入参，
   [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
@@ -420,27 +365,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   未消费它（T-N1-7 落地），回放与 Perf 基线零变化。游戏侧若自行实现 `IUnitAccess`（教程/
   测试替身之外的场景）建议按同一判定依据覆盖 `GetSourceKind`，否则 `scope: from_player`/
   `scope: from_creature` 两类属性对该实现的单位一律不生效（`scope: any` 不受影响）。
-- **数值设计落地阶段 N1 · T-N1-7（目标乘区按 `scope` 匹配 `sourceKind` 遍历减免属性、被暴击减免
-  新介入点、`CombatOptions.DamageTakenPctStat` 改按显式属性 id 清单筛选，
-  [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md) 第 14 节；
-  [ADR-0030](architecture/adr/0030-属性系统派生换算与来源类别.md) 决策 5；06 第 4.1 节
-  2026-09-14 修订段）**：`Core.Numbers.StatBlock.IStatHost` 新增默认接口成员
-  `GetScope(Id stat)`（恒 `"any"`），`StatHost` 侧显式实现（按加载期解析的
-  `stat.definition.scope` 返回真实值，`LoadDefinitions` 补上此前一直未消费的 `scope` 字段
-  解析）。`core/rules/combat.CombatOptions` 新增 `DamageTakenPctStats`/`CritTakenReductionStats`
-  （均 `IReadOnlyList<Id>`，默认空列表）。`core/rules/combat.Resolver`"目标乘区"步骤（九步结算
-  步骤 6，顺序不变）改为：实际读取的属性集合 = `{DamageTakenPctStat} ∪ DamageTakenPctStats`
-  （去重，同一 id 只计入一次），逐条经 `scope` 与 `sourceKind` 匹配后求和，一次性应用；命中表
-  "暴击"分支取样前新增介入点——遍历 `CritTakenReductionStats`，同样按 `scope` 过滤后求和，从
-  暴击率里扣减，下限 0，不改变 RNG 流 id/取样次数。两个新清单默认均为空列表，既有内容数据/
-  回放/Perf 基线零变化。
-  **偏离计划原文的说明（复核返工，同一批次内完成，未发布）**：任务表原文"改按类别筛选"的首版
-  实现按 `stat.definition.category` 批量扫描（新增 `IStatHost.GetDefinitionIdsByCategory`，
-  默认扫描类别 `"defense"`）；复核指出该实现与 ADR-0030 决策 9 的推荐分类冲突——护甲被推荐归入
-  `defense` 类别，类别扫描会把护甲原始数值误当百分比计入目标乘区，真实内容一接入即错，比"两个
-  新扫描角色共享默认类别可能重复计入"更严重，判定打回返工。现改为本条目描述的"显式 id 清单 +
-  `scope` 过滤"，`GetDefinitionIdsByCategory` 已撤回（从未发布，直接删除签名）。详见
-  `core/rules/combat/README.md` 判断记录 18、`core/numbers/stat_block/README.md`"T-N1-7"一节。
+
 - **数值设计落地阶段 N1 · T-N1-8 ★确定性敏感（`combat.level_diff_table` 接入命中/暴击公式、
   "有效等级是否计入装备等级偏移"策略项，
   [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md) 第 14 节；
@@ -467,11 +392,12 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   分支禁用且未装配 `LevelDiffTableId`，Δ 相关代码路径未被触发，`replay_baseline.json` **本次未
   变化**（已按 Replay README 五步的第 1 步核实，`ReplayBaselineTests` 全绿）。
   `games/_template/data/game/combat/combat.level_diff_table.json` 补空壳（`rows: []`）+
-  `.meta`，`games/_template/data/README.md` 表清单同步更新。**待设计层确认**：06 原文"未命中率 =
-  基础未命中 − 攻击者命中属性 + 目标闪避属性 + 未命中加成(Δ)"里的"+ 目标闪避属性"一项，本实现
-  选择不叠加（`dodge` 已是独立分支单独判定，06 未规定两者是否应同时生效）；`grey_line` 的具体
+  `.meta`，`games/_template/data/README.md` 表清单同步更新。设计层裁定（2026-09-14）：采纳，06 原文"未命中率 =
+  基础未命中 − 攻击者命中属性 + 目标闪避属性 + 未命中加成(Δ)"里的"+ 目标闪避属性"一项由独立 `dodge`
+  分支承担、本实现不在 miss 公式里叠加（06 同日已做勘误，见下方"文档"小节）；`grey_line` 的具体
   消费公式（灰名门槛换算、目标名字五色固定分档）留待阶段 N4 确认。详见
   `core/rules/combat/README.md` 判断记录 19。
+
 - **数值设计落地阶段 N1 · T-N1-9（属性无消费者校验、样例按推荐分类补齐、`arch.power_type` 样例
   health 上限改回固定值，
   [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md) 第 14 节；
@@ -499,12 +425,183 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `ApplyTo_RegistersPowerTypes_HealthCapFixed`）。新增测试
   `core/numbers/stat_block/tests/StatDefinitionConsumerValidationRuleTests.cs`（无消费者警告
   正负例、`stat.weight`/`derived_from` 来源引用正例、框架内置豁免正例、`NonEscalatable` 在
-  `WarningsBlock` 下不阻断，共 5 例）。**契约疑点（如实上报，未改架构文档）**：ADR-0030 决策 9
-  原文与 06 第 1.3 节修订段的推荐派生属性列表仍写"生命上限"，与决策 8/数值设计 01 第 3.7 节
-  "改为资源回复速率"表述冲突，本任务样例遵照后者；检查名 `stat_definition_no_consumer` 与
-  "消费者"的操作化定义（比 04 原文四个例子更宽）均**待设计层确认**，详见
+  `WarningsBlock` 下不阻断，共 5 例）。**契约疑点（T-N1-10 已勘误）**：ADR-0030 决策 9
+  原文与 06 第 1.3 节修订段的推荐派生属性列表此前仍写"生命上限"，与决策 8/数值设计 01 第 3.7 节
+  "改为资源回复速率"表述冲突，本任务样例遵照后者；T-N1-10 已在 ADR-0030"修订记录"节补一条
+  （2026-09-14）把决策 9 该处的派生属性列表改写为只保留"资源回复速率"。检查名
+  `stat_definition_no_consumer` 与"消费者"的操作化定义（比 04 原文四个例子更宽）均经设计层
+  裁定（2026-09-14）：采纳，详见
   `core/numbers/stat_block/README.md`"T-N1-9"一节、`schema/README.md`"`stat_definition_no_
   consumer`"判断记录。
+
+### 变更（行为变更）
+
+- **数值设计落地阶段 N1 · T-N1-2（`StatHost` 两轮拓扑序聚合、派生失效传播、clamp 第二轮后夹取、
+  抗性维度独立策略项、派生无环校验，[数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
+  第 14 节）**：`core/numbers/stat_block/core/StatHost.cs` 改读 `stat.definition.category`（不再
+  读已废弃的 `group`）与嵌套 `clamp.min`/`clamp.max`（不再读平级 `min`/`max`）；`is_rating`/
+  `rating_conversion_ref` 读取逻辑本任务未改（换算层触发条件改 `category==percent` 留给
+  T-N1-3）。加载期新增 `BuildDerivationGraph`：按 `derived_from` 建反向依赖表与全部属性 id 的
+  稳定拓扑序（候选零入度集合用 `SortedSet<Id>` 逐步取最小值出队，不依赖字典/数组枚举顺序），
+  遇到环（含自环）抛 `InvalidOperationException`（加载期防御，正常数据应已被下方新校验规则
+  拦下）。`ComputeFinal` 的"基础值"改由 `ResolveBaseValue` 决定：显式 `SetBase` 值永远优先
+  （设计层裁定（2026-09-14）：采纳，与既有 `DefaultBase` 回退规则同构的自然推广，ADR-0030 决策 2 原文未明确
+  与显式覆盖的优先级关系）；否则 `category=="derived"` 的属性走 `ComputeDerivedBase`——基础值
+  = Σ(`derived_from` 来源属性最终值 × 系数，系数允许负数，拍板 11)，再走同一套三段式；其余
+  属性沿用既有 `default_base` 规则。`clamp` 仍是每个属性自己聚合的最后一步（拍板 2：来源属性
+  先在自己的聚合里被夹取，派生属性拿到的是夹取之后的来源值；派生属性自身的 `clamp` 在它自己
+  的第二轮聚合之后生效）。`SetBase`/`AddModifier`/`RemoveModifiersBySource`/`ResetBase` 新增
+  `PropagateDerivedInvalidation`：按拓扑序把失效传播给全部（传递）依赖变化属性、且此前已被
+  缓存过的派生属性（未查询过的不主动补算，与既有 `RecomputeAllCachedStatsAfterReload` 判断
+  记录同一口径），`RecomputeRatingStats`（等级变化驱动的评级重算）同样接入这条路径。抗性维度
+  判定条件从 `group == "resistance"` 改为 `category == "defense"`；`StatHostOptions.
+  EnableResistanceGroup` 属性名不改（已经是独立于内容数据的 `bool`，改名等价于删除既有公开
+  成员，违反 ABI 门禁），默认值不变。新增 `StatDefinitionDerivationCycleValidationRule`（检查
+  名 `stat_definition_derivation_cycle`，Error 级，随 `RulesSchemaCatalog` 注册，写法照抄
+  `ArchTalentTreeCycleValidationRule`）；`StatDefinitionValidationRule.CheckMinMaxOrder`
+  扩展到同时检查嵌套 `clamp.min`/`clamp.max`（此前只查已废弃的平级 `min`/`max`，纯 v2 记录会
+  绕过检查）；`StatSchemas.cs` 的 `group` 字段 `required` 放宽为 `false`。`core/carriers/item/
+  tests/TestSupport.cs` 原先手写一份独立于真实 `StatSchemas.Definition` 的最小 `stat.definition`
+  schema（无 `category` 字段、无迁移链），随 `StatHost` 改读 `category` 而在加载期报错，改为
+  直接注册真实 `StatSchemas.Definition`。测试：`StatHostTests` 新增 15 例（两轮聚合 6、失效
+  传播 2、派生成环加载期防御 1、显式覆盖 1、派生无环校验规则正反例 3、`clamp` 嵌套校验 1、
+  抗性维度 v2 原生用例 1）。
+
+- **数值设计落地阶段 N1 · T-N1-3（换算层始终启用、触发条件改 `category==percent`、恒等/按等级
+  除数/饱和三形态复用通用曲线，[数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
+  第 14 节）**：`core/numbers/stat_block/core/StatHost.cs` 的 `LoadRatingConversions` 改为无条件
+  执行（不再由 `StatHostOptions.EnableRatingConversion` 门控）；`ComputeFinal` 的换算触发条件从
+  "`EnableRatingConversion` 开关 && `is_rating` 字段"改为单一条件 `category=="percent"`；
+  `LoadDefinitions` 改读 v2 字段 `conversion_ref`（不再读已废弃的 `is_rating`/
+  `rating_conversion_ref`，两者的取值已由 T-N1-1 迁移链折算进 `category`/`conversion_ref`）。
+  **偏离计划原文的说明**：计划原文要求"删除 `EnableRatingConversion`"，但落地计划第 1 节"每阶段
+  对外契约变化必须控制在 MINOR"——删除既有公开属性是 ABI 破坏，G3 门禁不允许。设计层裁定改为
+  **保留但无效化**：`StatHostOptions.EnableRatingConversion` 标记 `[Obsolete("换算层自 1.31.0
+  起始终启用（ADR-0030 决策 3），本属性无任何作用，保留仅为二进制兼容")]`，`StatHost` 不再有
+  任何代码读取它；"不存在关闭路径"由两条测试保证——`EnableRatingConversion_HasNoEffect_
+  PercentStatsStillConvert`（显式构造 `EnableRatingConversion=false`，断言 `percent` 属性仍经
+  曲线换算）与 `StatHostOptions_NoUnobsoleteConversionSwitch_Exists`（反射断言 `StatHostOptions`
+  上不存在任何未标 `[Obsolete]` 的、名字含 `RatingConversion`/`Conversion` 的布尔属性）。**三种
+  曲线形态**（ADR-0030 决策 3；数值设计 01 第 5 节）复用 04 第 3.6 节通用曲线契约，不新增求值
+  路径：恒等（保守版：`conversion_ref` 缺省，直通原值，硬上限由 `stat.definition.clamp` 在聚合
+  末尾夹取，与换算层本身无关）；按等级除数（标准版：既有 `entries` 断点表形态，T-N0-4 起已复用
+  `PiecewiseCurve`，本任务未改公式）；饱和（变态版：`stat.rating_conversion` 新增可选字段
+  `saturation`（`CurveSchema.SaturationField`，子字段 `k`（必填，> 0）/`cap`（可选，> 0，缺省
+  1）），公式 `输出 = rawValue / (rawValue + k × 单位等级)`，以 `cap` 封顶，与 `combat.resist_curve`
+  饱和分支同形态，ADR-0030 决策 3"换算曲线契约……与 `combat.resist_curve` 同形态"）。`entries`
+  放宽为 `required: false`，与 `saturation` 二选一，由新增
+  `StatRatingConversionValidationRule`（检查名 `stat_rating_conversion_requires_one_shape`，
+  Error 级，04 第 5 节分级表未逐条列出，按 `stat_*` 前缀命名，设计层裁定（2026-09-14）：采纳）强制"恰好二选
+  一"；纯新增可选字段不升级 `stat.rating_conversion` 的 schema 版本（仍为 2，同
+  `StatSchemas.GroupValues` 判断记录先例：放宽必填/新增可选字段不是破坏性变更）。**行为变更
+  （不是放宽断言）**：原测试 `RatingConversion_DisabledPassesRawValueThrough`（断言
+  `EnableRatingConversion=false` 时直通原值）语义已不成立，改写为
+  `EnableRatingConversion_HasNoEffect_PercentStatsStillConvert`（同一输入现在断言经曲线换算，
+  不再直通）；生产装配测试（`core/gameplay/assembly/tests/CORE_110_FollowupAuditTests.cs`/
+  `CORE_180_FollowupAuditTests.cs`、`core/rules/tests/Integration/
+  ProgressionRestoreRatingRecomputeTests.cs`、`core/numbers/stat_block/tests/
+  RatingConversionMigrationTests.cs`、`core/numbers/tests/L1SampleDataTests.cs`）里此前
+  显式 `EnableRatingConversion=true`/`=false` 的初始化项全部去掉（换算层已始终启用，无需
+  也不能再引用已废弃属性）。**回放/Perf 基线核查**：`data/_sample/stat/stat.definition.json`
+  的 `crit_rating`/`dodge_rating` 两条属性 `is_rating=true`，迁移后 `category=percent`——换算
+  从"默认关闭"变为"始终启用"，但两者在 `data/_sample` 全库无任何 `default_base`/装备/光环
+  赋值来源（`default_base` 缺省 0），`combat.hit_table_config` 直接引用其原始值作为 miss/crit
+  分支概率，`0` 经任意换算曲线（恒等或除数）结果仍是 `0`——核查结论：**运行时数值零变化**，
+  `Replay`/`Perf` 基线保持零改动（已跑 `--filter "FullyQualifiedName~Replay"` 确认，`git status`
+  显示两个基线文件零改动）。`games/_template` 无 `percent`/`conversion_ref` 类属性，不受影响。
+  测试：`StatHostTests` 新增 6 例（恒等 2、饱和 2、不存在关闭路径行为/反射各 1）、
+  `StatSchemaCoverageTests` 新增 5 例（`saturation` 子结构正反例 2、形态二选一正反例 3）。
+
+- **数值设计落地阶段 N1 · T-N1-7（目标乘区按 `scope` 匹配 `sourceKind` 遍历减免属性、被暴击减免
+  新介入点、`CombatOptions.DamageTakenPctStat` 改按显式属性 id 清单筛选，
+  [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md) 第 14 节；
+  [ADR-0030](architecture/adr/0030-属性系统派生换算与来源类别.md) 决策 5；06 第 4.1 节
+  2026-09-14 修订段）**：`Core.Numbers.StatBlock.IStatHost` 新增默认接口成员
+  `GetScope(Id stat)`（恒 `"any"`），`StatHost` 侧显式实现（按加载期解析的
+  `stat.definition.scope` 返回真实值，`LoadDefinitions` 补上此前一直未消费的 `scope` 字段
+  解析）。`core/rules/combat.CombatOptions` 新增 `DamageTakenPctStats`/`CritTakenReductionStats`
+  （均 `IReadOnlyList<Id>`，默认空列表）。`core/rules/combat.Resolver`"目标乘区"步骤（九步结算
+  步骤 6，顺序不变）改为：实际读取的属性集合 = `{DamageTakenPctStat} ∪ DamageTakenPctStats`
+  （去重，同一 id 只计入一次），逐条经 `scope` 与 `sourceKind` 匹配后求和，一次性应用；命中表
+  "暴击"分支取样前新增介入点——遍历 `CritTakenReductionStats`，同样按 `scope` 过滤后求和，从
+  暴击率里扣减，下限 0，不改变 RNG 流 id/取样次数。两个新清单默认均为空列表，既有内容数据/
+  回放/Perf 基线零变化。
+  **偏离计划原文的说明（复核返工，同一批次内完成，未发布）**：任务表原文"改按类别筛选"的首版
+  实现按 `stat.definition.category` 批量扫描（新增 `IStatHost.GetDefinitionIdsByCategory`，
+  默认扫描类别 `"defense"`）；复核指出该实现与 ADR-0030 决策 9 的推荐分类冲突——护甲被推荐归入
+  `defense` 类别，类别扫描会把护甲原始数值误当百分比计入目标乘区，真实内容一接入即错，比"两个
+  新扫描角色共享默认类别可能重复计入"更严重，判定打回返工。现改为本条目描述的"显式 id 清单 +
+  `scope` 过滤"，`GetDefinitionIdsByCategory` 已撤回（从未发布，直接删除签名）。详见
+  `core/rules/combat/README.md` 判断记录 18、`core/numbers/stat_block/README.md`"T-N1-7"一节。
+
+### 文档
+
+- **`architecture/04_数据与内容管线.md`**：第 5 节数值类校验项分级表为阶段 N1 新增检查登记——
+  "派生无环"一行补检查名 `stat_definition_derivation_cycle`；阻断组新增四行
+  （`stat_definition_derived_from_requires_derived`/`stat_definition_conversion_ref_requires_percent`/
+  `stat_rating_conversion_requires_one_shape`/`arch_class_derivation_override_requires_existing_edge`）；
+  "属性无消费者"一行补检查名 `stat_definition_no_consumer` 并把"消费者"定义改写为"被任一登记
+  为引用 `stat.definition` 的字段/引用声明或框架内置消费者清单引用"。细节勘误，版本号不变。
+- **`architecture/06_规则层_属性技能战斗AI.md`**：第 4.2 节等级差规则表公式之后补一句勘误——
+  "+ 目标闪避属性"一项由六分支命中表里独立的 `dodge` 分支承担，`miss` 分支概率只取"基础
+  未命中 − 攻击者命中属性 + 未命中加成(Δ)"，不重复计入闪避；第 1.3 节"策略配置项：评级换算是否
+  启用"字样改写为"换算层始终启用（ADR-0030 决策 3），不再是策略配置项"，与本节既有修订段
+  对齐。细节勘误，版本号不变。
+- **`architecture/adr/0030-属性系统派生换算与来源类别.md`**："修订记录"节新增一条
+  （2026-09-14）——决策 9 派生属性列表原文同时列出"生命上限"与"资源回复速率"两项，与决策 8
+  "资源上限固定、回复速率派生"冲突，以决策 8 为准，决策 9 正文该处改写为只保留"资源回复
+  速率"。
+- 全部 T-N1-* 判断记录里的"待设计层确认"字样已按设计层裁定（2026-09-14）改写为明确结论——
+  `core/numbers/stat_block/README.md`/`schema/README.md`、`core/numbers/archetype/README.md`/
+  `schema/README.md`、`core/rules/combat/README.md`、若干 `.cs` 源码注释，共约 39 处，逐处结论
+  见各文件判断记录本身与本文件下方"落地进度记录"N1 一节。
+- `architecture/落地计划/数值设计分阶段落地计划.md` 末节"落地进度记录"追加"阶段 N1"一节
+  （小任务门禁、阶段验收标准 1～7 逐项、阶段门禁 P1～P5、偏离首版基准的说明）。
+
+### 迁移说明
+
+- **`stat.definition` 1→2 迁移**：`group`/`min`/`max`/`is_rating`/`rating_conversion_ref`
+  标废弃，保留一个版本周期不删；`group` 自本版本起改为可选（`StatHost.LoadDefinitions` 已不再
+  读取该字段，只在加载期做枚举合法性检查）。旧数据文件无需手改，迁移链自动补齐新字段。
+- **换算层始终启用**：`StatHostOptions.EnableRatingConversion` 标 `[Obsolete]` 无效化——不删除
+  签名（ABI 不允许），但不再有任何代码读取它，不存在"关闭换算层"的路径；显式设置该属性的调用
+  方应移除设置（设置与否不再影响任何行为）。
+- **`arch.power_type` 样例**：`data/_sample/arch/arch.power_type.json` 的 `arch.power.health`
+  上限示例由"随 `stat.stamina` 成长"改回固定值 120（仅示例数据变化，不影响框架默认值
+  `{kind: fixed, value: 100}`）。
+- **`combat.hit_table_config.miss` 新增可选字段 `hit_stat`**（攻击者命中属性引用）——未提供时
+  行为与本版本之前逐位一致。
+- **`CombatOptions.DamageTakenPctStat` 现只是目标承伤减免读取集合里的一项**：新增
+  `DamageTakenPctStats`/`CritTakenReductionStats`（均默认空列表），依赖"目标乘区只读取
+  `DamageTakenPctStat` 单一属性"这一假设的调用方需要了解读取集合已可扩展；默认空列表对既有
+  内容数据是恒等变换。
+- **新增检查名清单**：阻断——`stat_definition_derived_from_requires_derived`/
+  `stat_definition_conversion_ref_requires_percent`/`stat_definition_derivation_cycle`/
+  `stat_rating_conversion_requires_one_shape`/`arch_class_derivation_override_requires_existing_edge`；
+  警告（不可提升）——`stat_definition_no_consumer`。按检查名过滤诊断的既有逻辑需要认识这六个
+  新检查名。
+
+### 编辑器接入建议
+
+- 文首"编辑器相关契约"索引里 T-N1-3/4/5/8/9 五条已从 `（Unreleased）` 改标 `（1.31.0）`，
+  内容不变——编辑器项目按该索引即可判断新版本需要跟改的契约面，不必重读本节全部正文。
+- `stat.rating_conversion.saturation` 字段（T-N1-3）：曲线编辑控件遇到
+  `field_meta.curve.shape="saturation"` 应渲染为"数值 × 等级"两参数输入（`k`/`cap`），不是
+  断点表。
+- `arch.class.derivation_overrides`（T-N1-4）：职业模板编辑界面若展示派生系数覆盖控件，建议
+  渲染为"按来源覆盖系数"子表单，`stat`/`source` 两个引用字段候选建议限定到目标属性的
+  `derived_from` 列表。
+- `stat.weight`（T-N1-5）：权重编辑控件的 `class_overrides` 建议渲染为"按职业覆盖"子表单，
+  `class` 候选取 `arch.class` 全表。
+- `combat.level_diff_table`（T-N1-8）：`miss_bonus`/`crit_suppression`/`xp_factor` 三列
+  `field_meta.curve.axis="level_diff"`，允许负值输入，不同于既有 `level`/`item_level` 轴默认
+  非负；`combat.hit_table_config.miss` 分支新增 `hit_stat` 列，其余五分支不出现该字段。
+- `stat_definition_no_consumer`（T-N1-9）：Warning 级、`NonEscalatable=true`，落入既有"警告级
+  这一组登记为不可提升"的渲染分组，不需要新增前端分支；若编辑器给"属性详情"面板加"谁在引用
+  我"反查视图，可直接复用本规则的扫描逻辑（全部已注册表的 `Reference`/`SoftReference`/`Map`
+  键引用字段 + `GetReferenceDeclarations()`）。
+
+## [1.30.0] - 2026-09-14
 
 MINOR 版本：数值设计落地阶段 N0"横切前置"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)
 第 6 节，T-N0-1～T-N0-8）——建立通用曲线契约（04 第 3.6 节曲线形态登记 + 公共插值工具）、校验规则元数据

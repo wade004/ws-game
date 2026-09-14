@@ -70,7 +70,7 @@ namespace Core.Numbers.StatBlock
         /// 已有的 <c>MapSchema.ReferenceKeyTable</c> 惯例）本身并不存在同款"键承载不下"的问题；选择
         /// <c>Array</c> 仍然是遵照任务派发提示词"与 derivation_overrides 同一风格"的显式指示，不是本字段
         /// 自己独立推导的结论——两种形态实现难度相当，按指示统一成同一种子结构记法，减少内容作者/编辑器
-        /// 表单要理解的形态种类。已在任务汇报标注"待设计层确认"，与
+        /// 表单要理解的形态种类。设计层裁定（2026-09-14）：采纳，与
         /// <c>ArchSchemas.DerivationOverrideEntrySchema</c>"契约未给出子结构、按最贴近既有同类字段的
         /// 形态实现并如实标注"同一处理口径。
         /// </para>
@@ -167,8 +167,8 @@ namespace Core.Numbers.StatBlock
         /// <c>primary</c>/<c>derived</c> 与新枚举同名，恒等映射；<c>secondary</c> 契约未给出显式映射——
         /// 旧 <c>group</c> 与 <c>is_rating</c> 在 v1 是两个互相独立的字段，"secondary" 语义上横跨新分类里
         /// 的 <c>percent</c>（评级换算候选，如 crit_rating/dodge_rating）与 <c>misc</c>（如
-        /// move_speed）两种，本迁移按 <c>is_rating</c> 取值二选一分裂（true→percent，否则→misc），
-        /// 已在任务汇报标注"待设计层确认"，不视为契约条文。</description></item>
+        /// move_speed）两种，本迁移按 <c>is_rating</c> 取值二选一分裂（true→percent，否则→misc）。
+        /// 设计层裁定（2026-09-14）：采纳。</description></item>
         /// <item><description><c>min</c>/<c>max→clamp{min,max}</c>：拍板 2，仅当至少一个存在时才生成
         /// <c>clamp</c> 对象（两者都缺失时不产生空 <c>clamp</c>）。</description></item>
         /// <item><description><c>is_rating=true</c> 且带 <c>rating_conversion_ref</c> 时
@@ -311,9 +311,8 @@ namespace Core.Numbers.StatBlock
         /// 非整数指数在实数域无定义；<c>0</c> 则是"这个属性不计入预算消耗"的合法表达（不是错误）。
         /// 因此登记 <c>WithRange(FieldRange.Range(min: 0))</c>（含 0，不含负数），比照
         /// <c>StatSchemas.RatingConversion.entries[].y</c>"登记范围据下游公式推断，非契约条文明文
-        /// 规定"同一处理口径——<b>已在任务汇报标注"待设计层确认"</b>，与拍板 11 对 <c>coefficient</c>
-        /// 的明文"允许负数"不是同一等级的契约确定性，若设计层裁定允许负权重（如"反向配装惩罚"一类
-        /// 设计意图），只需去掉这条 <c>WithRange</c> 调用，不影响其余 schema 结构。
+        /// 规定"同一处理口径——设计层裁定（2026-09-14）：采纳 <c>weight ≥ 0</c>，负权重在 ADR-0032
+        /// 预算公式非整数幂下无定义。
         /// </para>
         /// </summary>
         public static TableSchema Weight { get; } = new TableSchema(
@@ -330,7 +329,7 @@ namespace Core.Numbers.StatBlock
                 new FieldSchema("weight", FieldKind.Number, required: true,
                     description: "一点该属性相当于多少点主属性当量（ADR-0030 决策 7）；未被 " +
                         "class_overrides 命中的职业使用本值。范围 >= 0，理由见类型顶部判断记录" +
-                        "（待设计层确认）")
+                        "（设计层裁定 2026-09-14：采纳）")
                     .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("class_overrides", FieldKind.Array, required: false,
                     item: WeightClassOverrideEntrySchema,

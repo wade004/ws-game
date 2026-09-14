@@ -77,8 +77,8 @@ stat_block/
 抗性维度三节描述的仍是 T-N1-1 之前的行为，`StatHost` 仍读 `group`/`is_rating` 等旧字段；两轮
 拓扑序聚合、换算层始终启用、`clamp` 真正生效等 ADR-0030 决策 2/3 的运行时改动留给 T-N1-2。
 
-字段表与 `group→category` 映射细节见 `schema/README.md`"`stat.definition`"一节（含"待设计层
-确认"标注的推断映射：`secondary` 按 `is_rating` 分裂为 `percent`/`misc`）。
+字段表与 `group→category` 映射细节见 `schema/README.md`"`stat.definition`"一节（含设计层裁定
+（2026-09-14）采纳的推断映射：`secondary` 按 `is_rating` 分裂为 `percent`/`misc`）。
 
 ## T-N1-2：两轮拓扑序聚合、clamp 第二轮后夹取、失效传播、抗性维度独立策略项
 
@@ -96,7 +96,7 @@ stat_block/
   `InvalidOperationException`，是内容校验之外的加载期防御（正常数据应已被下面的
   `StatDefinitionDerivationCycleValidationRule` 拦下）。
 - **两轮聚合**：`ComputeFinal` 的"基础值"由 `ResolveBaseValue` 决定——显式 `SetBase` 过的值
-  永远优先（判断记录，待设计层确认：与既有 `DefaultBase` 回退规则同构的自然推广，见
+  永远优先（设计层裁定（2026-09-14）：采纳，与既有 `DefaultBase` 回退规则同构的自然推广，见
   `ResolveBaseValue` 源码注释）；否则 `category=="derived"` 的属性走 `ComputeDerivedBase`
   （Σ 来源属性最终值 × 系数，来源经 `ResolveFinal` 取值——命中缓存直接读，未命中现算但不
   写缓存），其余属性沿用 `default_base`。flat/pct/mult 三段顺序与 `multGroup` 算法不变；
@@ -221,8 +221,8 @@ ReloadArchetypeAndRace`（直接持有 `StatHost` 具体类型，同 `Stats.Rese
 - **字段**：`id`（`stat.weight.<name>`）、`stat`（Reference→`stat.definition`，目标属性）、
   `weight`（Number，`>= 0`，默认权重）、`class_overrides`（可选，`Array<{class:
   Reference(arch.class), weight: Number(>= 0)}>`，按职业覆盖）、`description`（可选）。字段表
-  与两条"待设计层确认"判断记录（`class_overrides` 子结构形态选 `Array` 而非 `Map`；`weight`
-  范围约束 `>= 0` 而非放开负数）见 `schema/README.md`"`stat.weight`"一节。
+  与两条设计层裁定（2026-09-14，均采纳：`class_overrides` 子结构形态选 `Array` 而非 `Map`；
+  `weight` 范围约束 `>= 0` 而非放开负数）见 `schema/README.md`"`stat.weight`"一节。
 - **注册**：`RulesSchemaCatalog.RegisterL1Schemas` 在 `StatSchemas.RatingConversion` 之后新增
   `registry.RegisterSchema(StatSchemas.Weight)`；`core/numbers/tests/L1SampleDataTests.cs`
   的 `BuildWorld`（L1 五模块联调世界的等价手工清单）同步补齐，随 `data/_sample/stat/
@@ -332,12 +332,13 @@ ReloadArchetypeAndRace`（直接持有 `StatHost` 具体类型，同 `Stats.Rese
   AppliesGrowth_StatsAndPowerCapChange`）同步改断言为固定值 120、不随属性成长。
 - **契约疑点（如实上报，未改架构文档）**：(1) 检查名 `stat_definition_no_consumer`——04 第 5 节
   分级表"属性无消费者"一行未给出检查名（该表检查项列是中文短语），按 `stat_definition_*` 前缀
-  命名，同本模块既有三条检查名的处理口径，待设计层确认；(2) ADR-0030 决策 9 原文与 06 第 1.3
+  命名，同本模块既有三条检查名的处理口径，设计层裁定（2026-09-14）：采纳；(2) ADR-0030 决策 9 原文与 06 第 1.3
   节修订段的推荐派生属性列表仍写"生命上限"，与决策 8/数值设计 01 第 3.7 节"改为资源回复速率"
   的表述冲突，本任务样例遵照后者（更具体、更晚的修订段落）；(3) "消费者"的操作化定义（本节
   第一条）比 04 原文四个例子更宽，把 `stat.weight`/`arch.power_type.max_source` 等任一登记为
   `Reference(stat.definition)` 的字段都算作消费者，不局限于 04 原文逐字列出的四类，属于对
-  "或任一表达式引用"收尾措辞的从宽解释，待设计层确认是否需要收紧。
+  "或任一表达式引用"收尾措辞的从宽解释——设计层裁定（2026-09-14）：采纳，比 04 原文四例更宽是
+  正确方向，不收紧。
 
 ## 用法
 

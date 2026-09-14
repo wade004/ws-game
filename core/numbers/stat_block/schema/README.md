@@ -42,7 +42,7 @@ stat.definition.json` 早已升级为 v2 写法示例（直接写 `category`，�
 （拍板 1 明文规定）；`primary`/`derived` 恒等；`secondary` 契约未给出显式映射，按 `is_rating` 取值
 二选一分裂——`is_rating=true→percent`（评级换算候选，如既有样例 `crit_rating`/`dodge_rating`），
 否则 `→misc`（如既有样例 `move_speed`）。这条分裂规则是本迁移的推断，**非契约条文明文规定**，
-已在 T-N1-1 任务汇报标注"待设计层确认"。
+设计层裁定（2026-09-14）：采纳。
 
 校验（`core/StatDefinitionValidationRule.cs`，`data_registry` 内建字段级校验之外的扩展项）：
 
@@ -61,21 +61,21 @@ stat.definition.json` 早已升级为 v2 写法示例（直接写 `category`，�
   对该属性直通不换算，见 `StatHost.ConvertRating`）。
 - `stat_definition_derived_from_requires_derived`（T-N1-1 新增）：提供了 `derived_from` 时，
   `category` 必须是 `derived`。检查名——04 第 5 节数值类校验项分级表未逐条列出本项（只列了"派生
-  无环"一条），按任务派发提示词"契约未给检查名，用 `stat_definition_*` 前缀"命名，**待设计层
-  确认**。
+  无环"一条），按任务派发提示词"契约未给检查名，用 `stat_definition_*` 前缀"命名，设计层裁定
+  （2026-09-14）：采纳。
 - `stat_definition_conversion_ref_requires_percent`（T-N1-1 新增）：提供了 `conversion_ref` 时，
-  `category` 必须是 `percent`。检查名同上一条判断记录，**待设计层确认**。
+  `category` 必须是 `percent`。检查名同上一条判断记录，设计层裁定（2026-09-14）：采纳。
 - `stat_definition_no_consumer`（`core/StatDefinitionConsumerValidationRule.cs`，独立文件/独立
   规则，T-N1-9 新增；ADR-0030 决策 8/9；04 第 5 节数值类校验项分级表"属性无消费者"一行）：某条
   `stat.definition` 记录未被任何已注册表的引用字段/`GetReferenceDeclarations()` 动态声明/框架
   内置消费者属性名清单命中，报一条 Warning。Warning 级，`NonEscalatable=true`（04"警告级这一组
   登记为不可提升"，`WarningsBlock` 下也不阻断）。检查名——04 第 5 节分级表本行同样未给出检查名，
-  按 `stat_definition_*` 前缀命名，**待设计层确认**。"消费者"的判定不逐表硬编码，通用扫描全部
+  按 `stat_definition_*` 前缀命名，设计层裁定（2026-09-14）：采纳。"消费者"的判定不逐表硬编码，通用扫描全部
   已注册表的 `Reference`/`SoftReference`/`Map` 键引用字段，见该规则源码类型注释与本模块
   README"T-N1-9"一节；"框架内置消费者属性名清单"（`CombatOptions` 构造期硬编码的默认属性 id，
   如 `stat.armor`）是本规则**唯一的豁免机制**——手抄字符串常量，本模块（L1）不能引用 L2
-  `Core.Rules.Combat` 具体类型，若该清单未来改动需要人工同步，**待设计层确认**是否需要更稳固的
-  跨层同步机制（如登记在某张公共配置表里）。
+  `Core.Rules.Combat` 具体类型，若该清单未来改动需要人工同步——设计层裁定（2026-09-14）：接受
+  手抄常量的同步方式，不追加更稳固的跨层同步机制，本 README 已写同步要求。
 
 **T-N1-4 判断记录（职业派生系数覆盖不是 `stat.definition` 自己的字段）**：ADR-0030 决策 2"职业
 模板可覆盖派生系数"落地为 `arch.class.derivation_overrides`（`Core.Numbers.Archetype` 模块自己的
@@ -104,7 +104,7 @@ schema 版本 2（不变）。T-N1-3（ADR-0030 决策 3；04 第 3.6 节；数�
 元素名（T-N0-4 禁止删除旧字段读取路径）。一条记录必须**恰好**登记 `entries`/`saturation`
 之一，由 `StatRatingConversionValidationRule`（检查名
 `stat_rating_conversion_requires_one_shape`，Error 级，04 第 5 节分级表未逐条列出，按
-`stat_*` 前缀命名，**待设计层确认**）强制；两者都缺或都填时 `ParseConversion` 仍有加载期防御
+`stat_*` 前缀命名，设计层裁定（2026-09-14）：采纳）强制；两者都缺或都填时 `ParseConversion` 仍有加载期防御
 （都缺抛异常；都填时优先 `entries`），但正常数据不应触发这条防御路径。
 
 判断记录（2026-09-05，设计层裁定，取代原判断记录）：`entries[].level` 就是**单位等级**，插值
@@ -148,8 +148,8 @@ Number>`）：ADR-0030 决策 7、06 第 1 节、数值设计 01 第 128 行均�
 `Array` 的原始理由（一条覆盖要同时定位两个 `stat.definition` 引用，`Map` 键承载不下）在本字段
 不成立（本字段只需单一职业维度，`Map<arch.class id, Number>` 同 `ArchSchemas.Class.base_stats`
 的 `MapSchema.ReferenceKeyTable` 惯例其实同样可行）——选 `Array` 是遵照任务派发提示词"与
-derivation_overrides 同一风格"的显式指示，统一子结构记法，不是本字段独立推导的必然结论。**已在
-任务汇报标注"待设计层确认"**，与 `ArchSchemas.DerivationOverrideEntrySchema` 同一处理口径。
+derivation_overrides 同一风格"的显式指示，统一子结构记法，不是本字段独立推导的必然结论。设计层
+裁定（2026-09-14）：采纳，与 `ArchSchemas.DerivationOverrideEntrySchema` 同一处理口径。
 
 判断记录（`weight`/`class_overrides[].weight` 范围约束 `>= 0`，不像 `derived_from[].coefficient`
 那样允许负数）：契约未明文规定范围（不像拍板 11 对 `coefficient` 明文"允许负数"）。但 07 第 1.2
@@ -157,5 +157,4 @@ derivation_overrides 同一风格"的显式指示，统一子结构记法，不�
 1.5（非整数）——负权重可能让括号内求和为负，对非整数指数在实数域无定义；`0` 是"该属性不计入
 预算消耗"的合法表达。登记 `WithRange(FieldRange.Range(min: 0))`（含 0、不含负数），比照
 `RatingConversion.entries[].y`"登记范围据下游公式推断、非契约条文明文规定"同一处理口径。
-**已在任务汇报标注"待设计层确认"**——若设计层裁定允许负权重，去掉这条 `WithRange` 调用即可，
-不影响其余 schema 结构。
+设计层裁定（2026-09-14）：采纳，`weight ≥ 0`——负权重在 ADR-0032 预算公式非整数幂下无定义。

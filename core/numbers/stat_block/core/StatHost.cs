@@ -1043,7 +1043,7 @@ namespace Core.Numbers.StatBlock
         }
 
         /// <summary>
-        /// 判断记录（T-N1-2，待设计层确认）：显式 <see cref="SetBase"/> 值对任何属性（含
+        /// 判断记录（T-N1-2，设计层裁定（2026-09-14）：采纳）：显式 <see cref="SetBase"/> 值对任何属性（含
         /// <c>category=derived</c>）都优先生效——这是既有"未显式 <see cref="SetBase"/> 时退回
         /// <see cref="StatDefinition.DefaultBase"/>"规则（见 <see cref="GetBase"/>）向派生属性的
         /// 自然推广：派生属性没有被显式 <see cref="SetBase"/> 过时才用 <see cref="ComputeDerivedBase"/>
@@ -1052,8 +1052,8 @@ namespace Core.Numbers.StatBlock
         /// Σ(来源属性最终值×系数)"只给出默认公式，未明确与显式覆盖的优先级关系——本实现选择"显式覆盖
         /// 优先"是因为：(a) 与 <c>DefaultBase</c> 回退规则同构，不需要为 derived 类别新引入一套单独的
         /// 优先级语义；(b) 不这样做则 <see cref="SetBase"/> 对 derived 类别属性变成静默 no-op（写入
-        /// <c>unit.Base</c> 但从不参与计算），对调用方是隐蔽的行为陷阱。已在任务汇报标注"待设计层
-        /// 确认"，与 T-N1-1 对不明确映射规则的处理口径一致。
+        /// <c>unit.Base</c> 但从不参与计算），对调用方是隐蔽的行为陷阱。设计层裁定（2026-09-14）：
+        /// 采纳，与 T-N1-1 对不明确映射规则的处理口径一致。
         /// </summary>
         private double ResolveBaseValue(Id unitId, UnitStats unit, StatDefinition def)
         {

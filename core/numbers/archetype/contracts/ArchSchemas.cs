@@ -53,8 +53,8 @@ namespace Core.Numbers.Archetype
         /// 属性 id，无法同时表达"目标属性 + 来源属性"这一对复合键；因此选择 <c>Array</c> 形态，字段名
         /// 直接复用 <c>derived_from</c> 契约原文的 <c>stat</c>（派生属性自身，与 <c>derived_from</c>
         /// 条目里"来源"叫 <c>stat</c> 不同，这里 <c>stat</c> 指"被覆盖的目标派生属性"，避免与
-        /// <c>derived_from</c> 内层的 <c>stat</c> 语义混淆，改用 <c>source</c> 命名"来源属性"）。已在
-        /// 任务汇报标注"待设计层确认"，与 <c>StatSchemas.DerivedFromEntrySchema</c>"stat_definition_*
+        /// <c>derived_from</c> 内层的 <c>stat</c> 语义混淆，改用 <c>source</c> 命名"来源属性"）。设计层
+        /// 裁定（2026-09-14）：采纳，与 <c>StatSchemas.DerivedFromEntrySchema</c>"stat_definition_*
         /// 前缀命名"同一处理口径（不明确契约细节，按最贴近既有同类字段的形态实现并如实标注）。
         /// </para>
         /// </summary>

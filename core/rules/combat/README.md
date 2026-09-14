@@ -219,7 +219,7 @@ combat/
     `core/gameplay/assembly/tests/C11_LifecycleReloadTests.cs`
     （`SameMapLoad_CombatAndPowerHostAgreeOutOfCombat_AndStayConsistentNextTick`）。
 
-18. **T-N1-7（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+18. **T-N1-7（[ADR-0030](../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
     决策 5；06 第 4.1 节 2026-09-14 修订段）：目标乘区按 `scope` 匹配 `sourceKind` 遍历减免属性、
     新增被暴击减免介入点、`CombatOptions.DamageTakenPctStat` 改按显式属性 id 清单筛选**——九步
     结算的"目标乘区"与"暴击"两步内部实现调整，**固定九步顺序本身不变**：
@@ -236,7 +236,8 @@ combat/
       已撤回（未发布，直接删除，不留废弃占位）。06 第 4.1 节修订段与 ADR-0030 决策 5 原文只规定
       "目标乘区步骤按 scope 匹配读取减免属性"，未规定用类别还是显式清单圈定候选集合——两种实现
       都不违反契约文字，但显式清单不会把内容作者按 ADR 推荐分类登记的既有属性（护甲、抗性等）
-      误吸收进来，风险更低，因此改判显式清单为最终实现，不再是"待设计层确认"的候选之一。
+      误吸收进来，风险更低，因此改判显式清单为最终实现。设计层裁定（2026-09-14）：确认采纳显式
+      清单方案，不再是候选之一。
     - **"目标乘区"步骤（步骤 6）**：此前只读取 `CombatOptions.DamageTakenPctStat` 一条属性、且
       不经 `scope` 过滤；现在实际读取的属性集合 = `{DamageTakenPctStat} ∪ DamageTakenPctStats`
       （`Resolver.BuildDamageTakenStatIds` 按首次出现顺序去重，`DamageTakenPctStat` 恒排最前，
@@ -267,7 +268,7 @@ combat/
       覆盖，`Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests` 门禁已验证无
       遗漏转发。
 
-19. **T-N1-8（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+19. **T-N1-8（[ADR-0030](../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
     决策 6；06 第 4.2 节 2026-09-14 修订段）：`combat.level_diff_table` 接入 `DetermineHit`，
     命中/暴击改加减式公式并接 Δ，双向生效；"有效等级是否计入装备等级偏移"策略项；`miss` 分支
     新增 `hit_stat`（攻击者命中属性）**：

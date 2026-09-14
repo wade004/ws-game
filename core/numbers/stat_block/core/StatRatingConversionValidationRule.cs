@@ -14,7 +14,7 @@ namespace Core.Numbers.StatBlock
     /// 判断记录（检查名未见于 04 第 5 节数值类校验项分级表逐条列出）：分级表只列了"曲线单调有限"
     /// 这类通用规则，本表形态二选一属于 <c>stat.rating_conversion</c> 表自身的结构性约束，按
     /// <c>StatDefinitionValidationRule</c>/<c>StatDefinitionDerivationCycleValidationRule</c> 已有的
-    /// "契约未给检查名、用 <c>stat_*</c> 前缀"命名惯例处理，已在任务汇报标注"待设计层确认"。
+    /// "契约未给检查名、用 <c>stat_*</c> 前缀"命名惯例处理。设计层裁定（2026-09-14）：采纳。
     /// </para>
     /// <para>
     /// 调用方需要 <c>registry.RegisterValidationRule(new StatRatingConversionValidationRule())</c>
@@ -24,7 +24,7 @@ namespace Core.Numbers.StatBlock
     /// </summary>
     public sealed class StatRatingConversionValidationRule : IValidationRule
     {
-        /// <summary>检查名（判断记录见类型顶部，待设计层确认）。</summary>
+        /// <summary>检查名（判断记录见类型顶部，设计层裁定（2026-09-14）：采纳）。</summary>
         public const string CheckRequiresExactlyOneShape = "stat_rating_conversion_requires_one_shape";
 
         public string RuleId => nameof(StatRatingConversionValidationRule);

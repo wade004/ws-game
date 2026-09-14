@@ -1329,8 +1329,8 @@ namespace Tests.Numbers.StatBlock
             Assert.Contains("环", ex.Message);
         }
 
-        // 显式 SetBase 对派生属性优先生效（ResolveBaseValue 判断记录，待设计层确认）：写过之后不再
-        // 理会 derived_from，与 DefaultBase 对主属性的既有回退规则同构。
+        // 显式 SetBase 对派生属性优先生效（ResolveBaseValue 判断记录，设计层裁定 2026-09-14：采纳）：
+        // 写过之后不再理会 derived_from，与 DefaultBase 对主属性的既有回退规则同构。
         [Fact]
         public void ExplicitSetBase_OnDerivedStat_OverridesComputedDerivedBase()
         {

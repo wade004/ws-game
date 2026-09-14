@@ -19,13 +19,14 @@ namespace Core.Numbers.StatBlock
 
         /// <summary>分阶段落地计划 T-N1-1（ADR-0030 决策 1；06 第 1.3 节字段表"derived_from | 仅
         /// derived"）：检查名——04 第 5 节数值类校验项分级表未逐条列出本项（只列了"派生无环"这一条，
-        /// 见该表），按任务派发提示词"契约未给检查名，用 stat_definition_* 前缀"处理，已在任务汇报标注
-        /// "待设计层确认"。</summary>
+        /// 见该表），按任务派发提示词"契约未给检查名，用 stat_definition_* 前缀"处理。设计层裁定
+        /// （2026-09-14）：采纳。</summary>
         public const string CheckDerivedFromRequiresDerivedCategory = "stat_definition_derived_from_requires_derived";
 
         /// <summary>分阶段落地计划 T-N1-1（ADR-0030 决策 1；06 第 1.3 节字段表"conversion_ref | 仅
         /// percent"）：检查名同 <see cref="CheckDerivedFromRequiresDerivedCategory"/> 判断记录——
-        /// 04 第 5 节分级表未列出本项，按 stat_definition_* 前缀命名，待设计层确认。</summary>
+        /// 04 第 5 节分级表未列出本项，按 stat_definition_* 前缀命名。设计层裁定（2026-09-14）：
+        /// 采纳。</summary>
         public const string CheckConversionRefRequiresPercentCategory = "stat_definition_conversion_ref_requires_percent";
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)

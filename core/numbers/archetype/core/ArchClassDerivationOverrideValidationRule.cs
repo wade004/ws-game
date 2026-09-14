@@ -14,10 +14,11 @@ namespace Core.Numbers.Archetype
     /// 生效，本模块不自动注册（同 <see cref="ArchTalentTreeCycleValidationRule"/>，注册时机由宿主
     /// 统一掌控）。
     /// <para>
-    /// 判断记录（检查名"待设计层确认"）：04 第 5 节数值类校验项分级表未列出本项（只列了"派生无环"
+    /// 判断记录（检查名）：04 第 5 节数值类校验项分级表未列出本项（只列了"派生无环"
     /// 一条，那条对应 <c>stat.definition</c> 自己的 <c>StatDefinitionDerivationCycleValidationRule</c>），
     /// 按任务派发提示词"契约未给检查名，用 <c>arch_class_*</c> 前缀"命名，与
     /// <c>StatDefinitionValidationRule.CheckDerivedFromRequiresDerivedCategory</c> 同一处理口径。
+    /// 设计层裁定（2026-09-14）：采纳。
     /// </para>
     /// <para>
     /// 判断记录（跨表校验、不是引用完整性）：<c>derivation_overrides[].stat</c>/<c>.source</c> 各自

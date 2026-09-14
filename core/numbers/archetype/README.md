@@ -93,8 +93,8 @@ archetype/
    在 `ApplyTo` 的 base_stats 写入之后、种族修正/被动光环/资源注册之前**（ADR-0030 决策 2"职业
    模板可覆盖派生系数"）——子结构选 `Array<{stat, source, coefficient}>` 而不是 `Map` 的判断记录
    见 `contracts/ArchSchemas.cs` 的 `DerivationOverrideEntrySchema` 注释；`stat` 指"被覆盖系数的
-   目标派生属性"、`source` 指"该属性 `derived_from` 里被覆盖的那一条来源"，两个字段名均已在任务
-   汇报标注"待设计层确认"。委托为 null（既有六参构造，向后兼容）时跳过这一步，同
+   目标派生属性"、`source` 指"该属性 `derived_from` 里被覆盖的那一条来源"，两个字段名均经设计层
+   裁定（2026-09-14）：采纳。委托为 null（既有六参构造，向后兼容）时跳过这一步，同
    `AuraApplier`/判断记录 7 的既有取舍；非 null 时每次 `ApplyTo` 都会用当前职业的完整覆盖列表
    （可能为空）调用一次——**全量替换语义**，由接收方（`StatHost.SetDerivationCoefficientOverrides`）
    负责"先清旧覆盖再写新覆盖"。换职业/读档恢复不走 `ApplyTo`，走
