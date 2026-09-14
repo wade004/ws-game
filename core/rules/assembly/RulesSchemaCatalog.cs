@@ -97,6 +97,9 @@ namespace Core.Rules.Assembly
         {
             registry.RegisterSchema(StatSchemas.Definition);
             registry.RegisterSchema(StatSchemas.RatingConversion);
+            // T-N1-5（ADR-0030 决策 7）：stat.weight 属性权重表，StatHost 不读取（见 StatSchemas.Weight
+            // 判断记录），仅供装备预算消耗/技能价值/装备评分等尚未落地的消费者引用。
+            registry.RegisterSchema(StatSchemas.Weight);
             registry.RegisterSchema(PowerSchemas.PowerType);
             registry.RegisterSchema(ProgSchemas.LevelCurve);
             registry.RegisterSchema(ProgSchemas.XpSource);

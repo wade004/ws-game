@@ -102,3 +102,43 @@ schema 版本 2（不变）。T-N1-3（ADR-0030 决策 3；04 第 3.6 节；数�
 `saturation`）决定"用哪条公式"。三者组合覆盖 ADR-0030 决策 3 的三种曲线形态：`conversion_ref`
 缺省 = 恒等（保守版）；引用 `entries` 记录 = 按等级除数（标准版）；引用 `saturation` 记录 =
 饱和（变态版）。
+
+## `stat.weight`
+
+分阶段落地计划 T-N1-5（ADR-0030 决策 7；04 第 1.1 节表清单 `stat.weight` 行）：新表，schema
+版本 1。属性权重表——属性 id → 权重（一点主属性当量），可按职业覆盖；消费者是装备预算消耗
+（ADR-0032）、技能控制/增益价值（ADR-0031）与装备评分/自动配装，均不在本任务范围内落地。
+**`StatHost` 不读取本表**（06 第 1 节明文规定，`core/StatHost.cs` 全文不出现字符串
+`"stat.weight"`，由 `tests/StatWeightSchemaTests.cs` 源码扫描 + 行为双重测试防御）。
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `id` | Id | 是 | `stat.weight.<name>`，惯例上与 `stat` 字段指向的属性同名（非强制） |
+| `stat` | Id（引用 `stat.definition`） | 是 | 本条权重登记的目标属性 |
+| `weight` | Number，`>= 0` | 是 | 一点该属性相当于多少点主属性当量；未被 `class_overrides` 命中的职业使用本值 |
+| `class_overrides` | Array\<{class: Reference(arch.class), weight: Number（`>= 0`）}\> | 否 | 按职业覆盖权重，子结构见下方判断记录 |
+| `description` | String | 否 | 说明文字 |
+
+判断记录（一条记录对应一个属性，`stat` 字段显式登记目标，不靠解析 `id` 字符串）：与
+`stat.rating_conversion`（每条记录是一条独立曲线，供 `conversion_ref` 按需引用）同一记法——
+`derived_from[].stat`/`DerivedFromEntrySchema` 判断记录"字段名取自契约原文，不拿 id 的字符串
+结构表达语义"的一贯做法在本表的延伸。
+
+判断记录（`class_overrides` 子结构形态：`Array<{class, weight}>`，不是 `Map<arch.class id,
+Number>`）：ADR-0030 决策 7、06 第 1 节、数值设计 01 第 128 行均只有一行描述，未展开子结构
+形态——04 第 1.1 节总索引同样只有一行描述。任务派发提示词给出两个候选（`Map` 或 `Array`），
+要求"与 T-N1-4 的 `derivation_overrides` 形态保持同一风格"；`derivation_overrides` 选
+`Array` 的原始理由（一条覆盖要同时定位两个 `stat.definition` 引用，`Map` 键承载不下）在本字段
+不成立（本字段只需单一职业维度，`Map<arch.class id, Number>` 同 `ArchSchemas.Class.base_stats`
+的 `MapSchema.ReferenceKeyTable` 惯例其实同样可行）——选 `Array` 是遵照任务派发提示词"与
+derivation_overrides 同一风格"的显式指示，统一子结构记法，不是本字段独立推导的必然结论。**已在
+任务汇报标注"待设计层确认"**，与 `ArchSchemas.DerivationOverrideEntrySchema` 同一处理口径。
+
+判断记录（`weight`/`class_overrides[].weight` 范围约束 `>= 0`，不像 `derived_from[].coefficient`
+那样允许负数）：契约未明文规定范围（不像拍板 11 对 `coefficient` 明文"允许负数"）。但 07 第 1.2
+节、ADR-0032 决策 3 已把消费公式写死为 `实际消耗 = (Σ(属性值_i × 权重_i)^k)^(1/k)`，`k` 默认
+1.5（非整数）——负权重可能让括号内求和为负，对非整数指数在实数域无定义；`0` 是"该属性不计入
+预算消耗"的合法表达。登记 `WithRange(FieldRange.Range(min: 0))`（含 0、不含负数），比照
+`RatingConversion.entries[].y`"登记范围据下游公式推断、非契约条文明文规定"同一处理口径。
+**已在任务汇报标注"待设计层确认"**——若设计层裁定允许负权重，去掉这条 `WithRange` 调用即可，
+不影响其余 schema 结构。

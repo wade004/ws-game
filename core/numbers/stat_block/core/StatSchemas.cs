@@ -57,6 +57,37 @@ namespace Core.Numbers.StatBlock
             },
             description: "{stat:Reference(stat.definition), coefficient:Number}，一条派生来源与系数（ADR-0030 决策 1）");
 
+        /// <summary><c>stat.weight.class_overrides</c> 数组元素结构（T-N1-5，ADR-0030 决策 7
+        /// "属性权重表……可按职业覆盖"）。
+        /// <para>
+        /// 判断记录（子结构形态：<c>Array&lt;{class, weight}&gt;</c>，不是 <c>Map&lt;arch.class id,
+        /// Number&gt;</c>）：ADR-0030 决策 7 原文只给出表名与"可按职业覆盖"，06 第 1 节只重复了同一句
+        /// 一行描述，未展开子结构形态——04 第 1.1 节总索引同样只有一行描述。任务派发提示词给出两个候选
+        /// （<c>Map</c> 或 <c>Array</c>），要求"与 T-N1-4 的 <c>derivation_overrides</c> 形态保持
+        /// 同一风格"；<c>derivation_overrides</c> 选择 <c>Array</c> 的理由是"一条覆盖需要同时定位两个
+        /// <c>stat.definition</c> 引用，<c>Map</c> 键只能承载单个 id"——本字段只需单一职业维度（键即
+        /// <c>class</c>），<c>Map&lt;arch.class id, Number&gt;</c>（同 <c>ArchSchemas.Class.base_stats</c>
+        /// 已有的 <c>MapSchema.ReferenceKeyTable</c> 惯例）本身并不存在同款"键承载不下"的问题；选择
+        /// <c>Array</c> 仍然是遵照任务派发提示词"与 derivation_overrides 同一风格"的显式指示，不是本字段
+        /// 自己独立推导的结论——两种形态实现难度相当，按指示统一成同一种子结构记法，减少内容作者/编辑器
+        /// 表单要理解的形态种类。已在任务汇报标注"待设计层确认"，与
+        /// <c>ArchSchemas.DerivationOverrideEntrySchema</c>"契约未给出子结构、按最贴近既有同类字段的
+        /// 形态实现并如实标注"同一处理口径。
+        /// </para>
+        /// </summary>
+        private static readonly FieldSchema WeightClassOverrideEntrySchema = new FieldSchema(
+            "<weight_class_override_entry>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("class", FieldKind.Reference, required: true, referenceTable: "arch.class",
+                    description: "覆盖本条权重的职业，指向 arch.class（ADR-0030 决策 7"
+                        + "\"可按职业覆盖\"）"),
+                new FieldSchema("weight", FieldKind.Number, required: true,
+                    description: "该职业下生效的覆盖权重，取代同一条记录顶层的 weight；范围约束同顶层 weight"
+                        + "（>= 0，见该字段判断记录），只经内建 field_finite 检查有限性")
+                    .WithRange(FieldRange.Range(min: 0)),
+            },
+            description: "{class:Reference(arch.class), weight:Number}，一条按职业覆盖的权重（ADR-0030 决策 7，T-N1-5）");
+
         /// <summary><c>stat.definition.clamp</c> 结构（ADR-0030 决策 1，拍板 2）：取代原平级
         /// <c>min</c>/<c>max</c>，夹取发生在两轮聚合中该属性自己完成三段式聚合之后
         /// （T-N1-2 落地：<c>StatHost.ComputeFinal</c> 已读取本字段并在聚合末尾夹取，见该方法
@@ -251,6 +282,62 @@ namespace Core.Numbers.StatBlock
             migrations: new[]
             {
                 new TableMigration(1, 2, row => CurveSchema.MigrateBreakpointsFieldNames(row, "entries", "level", "points_per_percent")),
+            }).WithOwnership(SchemaLayer.Numbers, "stats");
+
+        /// <summary><c>stat.weight</c>：属性权重表（分阶段落地计划 T-N1-5；ADR-0030 决策 7；04 第 1.1
+        /// 节表清单 <c>stat.weight</c> 行）——属性 id → 权重（一点主属性当量），可按职业覆盖；消费者是
+        /// 装备预算消耗（ADR-0032）、技能控制/增益价值（ADR-0031）与装备评分/自动配装，均不在本任务
+        /// 范围内落地。<b>本表只登记 schema，<see cref="StatHost"/> 不读取本表</b>（06 第 1 节"StatHost
+        /// 不读它"明文规定，落地为 <c>StatHost.cs</c> 全文不出现字符串 <c>"stat.weight"</c>，见
+        /// <c>tests/StatWeightSchemaTests.cs</c> 源码扫描 + 行为双重防御测试）。
+        /// <para>
+        /// 判断记录（一条记录对应一个属性，不是"整表一条记录、内部按属性分组"）：与 <c>stat.rating_
+        /// conversion</c>（每条记录是一条独立的换算曲线，供 <c>stat.definition.conversion_ref</c>
+        /// 按需引用）同一记法——每条 <c>stat.weight</c> 记录用显式 <c>stat</c> 字段（<see
+        /// cref="FieldKind.Reference"/> 指向 <c>stat.definition</c>）登记"这条权重是哪个属性的"，
+        /// 不把"属性 id"本身塞进主键 <c>id</c> 让消费方去解析——同 <c>DerivedFromEntrySchema</c>
+        /// 判断记录"字段名取自契约原文，不是拿 id 的字符串结构表达语义"的一贯做法。<c>id</c> 内容惯例
+        /// 建议 <c>stat.weight.&lt;与目标属性同名&gt;</c>（本表 <c>data/_sample</c> 样例、
+        /// <c>games/_template</c> 空壳表均遵循），但 schema 本身不强制这条命名惯例（未登记"id 必须
+        /// 匹配 stat 字段"这类跨字段校验——不是契约条文明文规定，超出本任务"只登记 schema、不发明
+        /// 契约"的范围）。
+        /// </para>
+        /// <para>
+        /// 判断记录（<c>weight</c> 范围约束：<c>&gt;= 0</c>，不像 <c>derived_from[].coefficient</c>
+        /// 那样允许负数）：ADR-0030 决策 7、06 第 1 节、数值设计 01 第 128 行均未明文规定
+        /// <c>weight</c> 的取值范围（不像拍板 11 对 <c>coefficient</c> 明文"允许负数"）。但 07 第 1.2
+        /// 节、ADR-0032 决策 3 已把本表唯一已知的消费公式写死为 <c>实际消耗 = (Σ(属性值_i ×
+        /// 权重_i)^k)^(1/k)</c>，<c>k</c> 默认 1.5（非整数）——负权重会让括号内求和结果可能为负，对
+        /// 非整数指数在实数域无定义；<c>0</c> 则是"这个属性不计入预算消耗"的合法表达（不是错误）。
+        /// 因此登记 <c>WithRange(FieldRange.Range(min: 0))</c>（含 0，不含负数），比照
+        /// <c>StatSchemas.RatingConversion.entries[].y</c>"登记范围据下游公式推断，非契约条文明文
+        /// 规定"同一处理口径——<b>已在任务汇报标注"待设计层确认"</b>，与拍板 11 对 <c>coefficient</c>
+        /// 的明文"允许负数"不是同一等级的契约确定性，若设计层裁定允许负权重（如"反向配装惩罚"一类
+        /// 设计意图），只需去掉这条 <c>WithRange</c> 调用，不影响其余 schema 结构。
+        /// </para>
+        /// </summary>
+        public static TableSchema Weight { get; } = new TableSchema(
+            name: "stat.weight",
+            primaryKey: "id",
+            currentSchemaVersion: 1,
+            fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true,
+                    description: "stat.weight.<name>，惯例上与 stat 字段登记的属性同名（非强制，见类型" +
+                        "顶部判断记录）"),
+                new FieldSchema("stat", FieldKind.Reference, required: true, referenceTable: "stat.definition",
+                    description: "本条权重登记的目标属性，指向 stat.definition（ADR-0030 决策 7）"),
+                new FieldSchema("weight", FieldKind.Number, required: true,
+                    description: "一点该属性相当于多少点主属性当量（ADR-0030 决策 7）；未被 " +
+                        "class_overrides 命中的职业使用本值。范围 >= 0，理由见类型顶部判断记录" +
+                        "（待设计层确认）")
+                    .WithRange(FieldRange.Range(min: 0)),
+                new FieldSchema("class_overrides", FieldKind.Array, required: false,
+                    item: WeightClassOverrideEntrySchema,
+                    description: "Array<{class:Reference(arch.class), weight:Number}>，可选，按职业覆盖" +
+                        "权重（ADR-0030 决策 7；子结构形态判断记录见 WeightClassOverrideEntrySchema）"),
+                new FieldSchema("description", FieldKind.String, required: false,
+                    description: "属性权重说明文本，供编辑器/文档展示，可为空"),
             }).WithOwnership(SchemaLayer.Numbers, "stats");
     }
 }

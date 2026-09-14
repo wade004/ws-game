@@ -24,11 +24,11 @@ stat_block/
                IStatHost.cs
                StatHostOptions.cs
                StatChangedEvent.cs（StatBlockEventKeys、StatChangedEvent）
-  core/        StatSchemas.cs（stat.definition / stat.rating_conversion 的 TableSchema；
-               stat.definition schema 版本 2，T-N1-1；group 字段 T-N1-2 起放宽为
+  core/        StatSchemas.cs（stat.definition / stat.rating_conversion / stat.weight 的
+               TableSchema；stat.definition schema 版本 2，T-N1-1；group 字段 T-N1-2 起放宽为
                required:false；stat.rating_conversion 的 entries 字段 T-N1-3 起放宽为
                required:false，新增可选 saturation 字段，与 entries 二选一，schema 版本
-               不变仍为 2）
+               不变仍为 2；stat.weight 为 T-N1-5 新表，schema 版本 1，StatHost 不读取）
                StatDefinitionValidationRule.cs（IValidationRule：min<=max（T-N1-2 起
                同时检查嵌套 clamp.min<=clamp.max）、rating_conversion_ref 需要
                is_rating、derived_from 仅限 derived、conversion_ref 仅限 percent，
@@ -53,6 +53,8 @@ stat_block/
                StatSchemaCoverageTests.cs（rating_conversion.entries、
                definition.derived_from/clamp 子结构覆盖；T-N1-3：
                rating_conversion.saturation 子结构与形态二选一正反例）
+               StatWeightSchemaTests.cs（T-N1-5：stat.weight 合法记录/缺必填/引用不存在/
+               class_overrides 子结构坏形状覆盖；"StatHost 不读该表"源码扫描 + 行为双重防御）
                RatingConversionMigrationTests.cs
                P2_05_StatHostReloadTests.cs
                CORE114_03_StatHostReloadCacheInvalidationTests.cs
@@ -199,6 +201,34 @@ ReloadArchetypeAndRace`（直接持有 `StatHost` 具体类型，同 `Stats.Rese
   段的读档恢复共用的唯一路径）在写完新职业 `BaseStats` 之后无条件调用一次
   `Stats.SetDerivationCoefficientOverrides(unitId, cls.DerivationOverrides)`——不按 `classChanged`
   分叉，职业未变时重复调用是幂等的。
+
+## T-N1-5：stat.weight 属性权重表 schema、注册、样例
+
+分阶段落地计划 T-N1-5（ADR-0030 决策 7；04 第 1.1 节表清单 `stat.weight` 行）：新增
+`stat.weight` 表——属性 id → 权重（一点主属性当量），可按职业覆盖；消费者是装备预算消耗
+（ADR-0032）、技能控制/增益价值（ADR-0031）与装备评分/自动配装，三者均不在本任务范围内落地。
+**本任务只登记 schema/注册/样例，`StatHost` 不读取 `stat.weight`**（06 第 1 节明文规定，
+`core/StatHost.cs` 全文不出现字符串 `"stat.weight"`）。
+
+- **字段**：`id`（`stat.weight.<name>`）、`stat`（Reference→`stat.definition`，目标属性）、
+  `weight`（Number，`>= 0`，默认权重）、`class_overrides`（可选，`Array<{class:
+  Reference(arch.class), weight: Number(>= 0)}>`，按职业覆盖）、`description`（可选）。字段表
+  与两条"待设计层确认"判断记录（`class_overrides` 子结构形态选 `Array` 而非 `Map`；`weight`
+  范围约束 `>= 0` 而非放开负数）见 `schema/README.md`"`stat.weight`"一节。
+- **注册**：`RulesSchemaCatalog.RegisterL1Schemas` 在 `StatSchemas.RatingConversion` 之后新增
+  `registry.RegisterSchema(StatSchemas.Weight)`；`core/numbers/tests/L1SampleDataTests.cs`
+  的 `BuildWorld`（L1 五模块联调世界的等价手工清单）同步补齐，随 `data/_sample/stat/
+  stat.weight.json` 一起走完整字段级校验。
+- **样例**：`data/_sample/stat/stat.weight.json` 为既有六条示例属性（strength/stamina/
+  armor/crit_rating/dodge_rating/move_speed）各登记一条权重，`stat.weight.strength` 一条带
+  `class_overrides`（覆盖 `arch.class.sample_a`）——数值只是样例，不是框架默认值。
+  `games/_template/data/game/stat/stat.weight.json` 给空壳（`rows: []`，拍板 10），随附
+  `.meta`（`TextScriptImporter`，guid 照 N0 `item.slot_definition.json.meta` 写法新生成一份
+  唯一值）；`games/_template/data/README.md` 表清单同步拆行。
+- **"StatHost 不读该表"防御**：`tests/StatWeightSchemaTests.cs` 双重防御——源码扫描
+  （`[CallerFilePath]` 定位 `core/StatHost.cs` 磁盘路径、`File.ReadAllText` 断言不含
+  `"stat.weight"` 字符串）+ 行为测试（注册 `stat.weight` 并加载含数据的记录后，正常构造
+  `StatHost`、`GetStat` 不受影响、不抛异常）。
 
 ## 用法
 

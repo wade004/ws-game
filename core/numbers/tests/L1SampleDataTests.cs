@@ -170,6 +170,9 @@ namespace Tests.Numbers
             // L1 五个模块的全部 TableSchema。
             registry.RegisterSchema(StatSchemas.Definition);
             registry.RegisterSchema(StatSchemas.RatingConversion);
+            // T-N1-5：stat.weight（StatHost 不读取，见 StatSchemas.Weight 判断记录），随 data/_sample
+            // 新增的 stat/stat.weight.json 一并纳入本联调世界，走完整字段级校验。
+            registry.RegisterSchema(StatSchemas.Weight);
             registry.RegisterSchema(PowerSchemas.PowerType);
             registry.RegisterSchema(ProgSchemas.LevelCurve);
             registry.RegisterSchema(ProgSchemas.XpSource);

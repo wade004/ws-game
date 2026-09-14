@@ -41,7 +41,8 @@
 | `found.time_model` | 游戏必填 | 探索/战斗各一条（`found/found.time_model.json`），`Core.Gameplay.Assembly.TimeModelSwitch` 构造期无条件要求至少存在 `scope: exploration` 一条；本模板两条都给 `mode: continuous`（探索/战斗都走连续模式，架构文档 `architecture/13_新游戏接入指南.md` 第 4 节"口味项"里的默认选择），游戏若要接入回合制战斗，把 `found.time_model.combat` 一行改成 `mode: discrete` 并按 04 第 3.1 节补齐 `seconds_per_turn`/`initiative_policy`/`movement_budget_rule` 等字段 |
 | `item.slot_definition` | 游戏必填（若已有 `item.template` 内容）/ 空壳（尚无物品内容时） | 数值设计落地阶段 N0（分阶段落地计划 T-N0-7、拍板 10）补的空壳表：`item/item.slot_definition.json` 只有空 `rows`，槽位清单、`is_weapon`/`is_equipment` 与后续的槽位预算系数（ADR-0032 `budget_coefficient`）全部由具体游戏填写，模板里不写任何具体系数 |
 | `item.quality_definition` | 游戏必填（若已有 `item.template` 内容）/ 空壳（尚无物品内容时） | 同上：`item/item.quality_definition.json` 只有空 `rows`，品质分档与 `budget_multiplier`（预算倍率）由具体游戏填写，模板里不写任何具体系数 |
-| `stat.weight`、`combat.level_diff_table`、`skill.budget_rule` | 游戏必填（登记后） | 数值设计落地计划为这三张表预留的空壳位：它们的登记分别随阶段 N1（`stat.weight`、`combat.level_diff_table`）与 N3（`skill.budget_rule`）落地，登记前校验器对未登记表报错（`FailOnUnknownTable`），因此阶段 N0 不放文件，各阶段登记时随即补空壳 `rows: []` 到本目录并在此表追加行 |
+| `stat.weight` | 游戏必填（若已有装备预算消耗/技能价值/装备评分等消费者内容）/ 空壳（尚无这些消费者时） | 分阶段落地计划 T-N1-5（ADR-0030 决策 7）补的空壳表：`stat/stat.weight.json` 只有空 `rows`，属性权重当量与职业覆盖（`class_overrides`）由具体游戏填写；`StatHost` 本身不读这张表——装备预算消耗（ADR-0032）、技能控制/增益价值（ADR-0031）、装备评分的消费实现均不在框架当前落地范围内 |
+| `combat.level_diff_table`、`skill.budget_rule` | 游戏必填（登记后） | 数值设计落地计划为这两张表预留的空壳位：登记分别随阶段 N1（`combat.level_diff_table`）与 N3（`skill.budget_rule`）落地，登记前校验器对未登记表报错（`FailOnUnknownTable`），因此暂不放文件，各阶段登记时随即补空壳 `rows: []` 到本目录并在此表追加行 |
 
 ## 覆盖 `arch.power.health`（可选）
 

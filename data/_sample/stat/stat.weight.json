@@ -1,0 +1,45 @@
+{
+  "table": "stat.weight",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "stat.weight.strength",
+      "stat": "stat.strength",
+      "weight": 1.0,
+      "class_overrides": [
+        { "class": "arch.class.sample_a", "weight": 1.2 }
+      ],
+      "description": "主属性本身，权重当量基准为 1（T-N1-5 样例，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.stamina",
+      "stat": "stat.stamina",
+      "weight": 0.8,
+      "description": "主属性，样例权重（T-N1-5 样例，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.armor",
+      "stat": "stat.armor",
+      "weight": 0.5,
+      "description": "派生防御属性，样例权重（T-N1-5 样例，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.crit_rating",
+      "stat": "stat.crit_rating",
+      "weight": 0.3,
+      "description": "评级换算属性，样例权重（T-N1-5 样例，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.dodge_rating",
+      "stat": "stat.dodge_rating",
+      "weight": 0.3,
+      "description": "评级换算属性，样例权重（T-N1-5 样例，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.move_speed",
+      "stat": "stat.move_speed",
+      "weight": 0.2,
+      "description": "杂项属性，样例权重（T-N1-5 样例，非框架默认值）"
+    }
+  ]
+}

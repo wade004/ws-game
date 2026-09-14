@@ -201,6 +201,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   用户在界面上就构造出会被本规则拦下的非法组合）。`toolchain/validator --list-tables --json`
   对 `arch.class` 表新增该字段的常规字段元数据导出（复用既有 `Reference`/`Array` 字段种类，不
   新增导出结构）。
+- **数值设计落地阶段 N1 · T-N1-5（Unreleased）**：新表 `stat.weight`（属性 id → 权重当量，可按
+  职业覆盖，ADR-0030 决策 7），字段 `id`/`stat`（Reference→`stat.definition`）/`weight`
+  （Number，`>= 0`）/`class_overrides`（可选，`Array<{class:Reference(arch.class),
+  weight:Number(>= 0)}>`）/`description`；`StatHost` 不读取本表。编辑器属性/装备编辑界面若展示
+  权重编辑控件，`class_overrides` 建议渲染为"按职业覆盖"子表单，`class` 引用字段下拉候选取
+  `arch.class` 全表（不像 `arch.class.derivation_overrides` 那样需要限定到某个属性的
+  `derived_from` 子集）。`toolchain/validator --list-tables --json` 新增本表的常规字段元数据
+  导出（复用既有 `Reference`/`Array`/`Number` 字段种类，不新增导出结构）。
 
 ## [Unreleased]
 
@@ -345,6 +353,37 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `core/rules/tests/Integration/ArchetypeDerivationOverrideTests.cs` 新增 3 例（战士/法师覆盖不同
   系数得到不同派生值、一个职业覆盖另一个走默认系数得到不同派生值、`ReloadArchetypeAndRace`
   模拟读档恢复后派生值按该职业系数重算）。
+- **数值设计落地阶段 N1 · T-N1-5（`stat.weight` 属性权重表 schema、注册、样例，
+  [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
+  第 14 节）**：`core/numbers/stat_block/core/StatSchemas.cs` 新增 `stat.weight` 表（schema
+  版本 1）——字段 `id`（`stat.weight.<name>`）、`stat`（`Reference`→`stat.definition`，目标
+  属性）、`weight`（`Number`，`WithRange(min: 0)`，一点该属性相当于多少点主属性当量）、
+  `class_overrides`（可选，`Array<{class:Reference(arch.class), weight:Number(WithRange(min:
+  0))}>`，按职业覆盖）、`description`（可选）；`RulesSchemaCatalog.RegisterL1Schemas` 在
+  `StatSchemas.RatingConversion` 之后新增注册，`core/numbers/tests/L1SampleDataTests.cs`
+  `BuildWorld` 同步补齐。**本任务只登记 schema/注册/样例，`StatHost` 不读取本表**（06 第 1 节
+  明文规定；`core/StatHost.cs` 全文不出现字符串 `"stat.weight"`，由新增
+  `tests/StatWeightSchemaTests.cs` 源码扫描 + 行为双重测试防御，见下方测试小节）。**子结构形态
+  判断记录（待设计层确认）**：ADR-0030 决策 7、06 第 1 节、数值设计 01 第 128 行均只有一行
+  描述，未展开 `class_overrides` 子结构形态；任务派发提示词给出两个候选（`Map<arch.class id,
+  Number>` 或 `Array<{class, weight}>`），要求"与 T-N1-4 的 `derivation_overrides` 形态保持
+  同一风格"——`derivation_overrides` 选 `Array` 的原始理由（一条覆盖需要同时定位两个
+  `stat.definition` 引用，`Map` 键承载不下）在本字段不成立（本字段只需单一职业维度，`Map`
+  形态同样可行），选 `Array` 是遵照任务派发提示词显式指示统一子结构记法，不是本字段独立推导
+  的必然结论，理由详见 `StatSchemas.WeightClassOverrideEntrySchema` 注释。**范围约束判断记录
+  （待设计层确认）**：`weight`/`class_overrides[].weight` 登记 `>= 0`（不像
+  `derived_from[].coefficient` 那样允许负数）——契约未明文规定范围，但 07 第 1.2 节/ADR-0032
+  决策 3 的消费公式 `实际消耗 = (Σ(属性值_i × 权重_i)^k)^(1/k)`（`k` 默认 1.5，非整数）在负权重
+  下于实数域无定义，登记范围据下游公式推断，若设计层裁定允许负权重，去掉对应 `WithRange`
+  调用即可。**样例**：`data/_sample/stat/stat.weight.json` 为既有六条示例属性
+  （strength/stamina/armor/crit_rating/dodge_rating/move_speed）各登记一条权重（数值仅为
+  样例，非框架默认值），`stat.weight.strength` 一条带 `class_overrides`（覆盖
+  `arch.class.sample_a`）；`games/_template/data/game/stat/stat.weight.json` 给空壳
+  （`rows: []`，拍板 10）并配 `.meta`（guid 新生成），`games/_template/data/README.md` 表清单
+  拆行（`stat.weight` 单列一行，`combat.level_diff_table`/`skill.budget_rule` 仍留待后续任务）。
+  测试：`StatWeightSchemaTests` 新增 7 例（合法记录、缺必填 `weight`、`stat` 引用不存在、
+  `class_overrides` 子结构缺必填、`class_overrides[].class` 引用不存在、`weight` 负数越界各
+  1 例；"`StatHost` 不读该表"源码扫描 1 例、行为测试 1 例）。
 
 ## [1.30.0] - 2026-09-14
 
