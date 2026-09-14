@@ -609,6 +609,37 @@ namespace Toolchain.Validator
             sb.Append(']');
             sb.Append(',');
 
+            // 消费方反馈第 43 条：在既有 "disabled_optional_rules"/"enabled_optional_rules" 之后追加
+            // "optional_rules"——每项 {rule, check, enabled}，rule/check 直接来自
+            // ContentValidationAssembly.OptionalRules（单一来源，见该属性判断记录），enabled 按
+            // disabledOptionalRules 是否含该规则名判定。消费方（编辑器问题面板）据此可以不必再自行
+            // 维护一份 PascalCase 规则名 -> snake_case 检查名的映射表；不改动既有两个字段，保持此前
+            // --json 输出逐字节兼容。
+            sb.Append("\"optional_rules\":[");
+            var optionalRuleDescriptors = ContentValidationAssembly.OptionalRules;
+            for (var i = 0; i < optionalRuleDescriptors.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                var descriptor = optionalRuleDescriptors[i];
+                var ruleEnabled = true;
+                for (var j = 0; j < disabledOptionalRules.Count; j++)
+                {
+                    if (disabledOptionalRules[j] == descriptor.RuleName)
+                    {
+                        ruleEnabled = false;
+                        break;
+                    }
+                }
+
+                sb.Append('{');
+                sb.Append("\"rule\":\"").Append(JsonEscape(descriptor.RuleName)).Append("\",");
+                sb.Append("\"check\":\"").Append(JsonEscape(descriptor.CheckName)).Append("\",");
+                sb.Append("\"enabled\":").Append(ruleEnabled ? "true" : "false");
+                sb.Append('}');
+            }
+            sb.Append(']');
+            sb.Append(',');
+
             // 消费方反馈第 34 条：如实导出本次实际生效的 DisplayMapCoverageRule sources 清单——
             // 未传 --display-map-sources 时是 PresentationSchemaCatalog.DefaultDisplayMapCoverageSources
             // （见该属性判断记录），传了则是解析出的覆盖值；不区分这两种来源，字段名本身只承诺"本次

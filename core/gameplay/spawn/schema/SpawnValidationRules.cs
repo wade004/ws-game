@@ -102,7 +102,10 @@ namespace Core.Gameplay.Spawn
     /// </summary>
     public sealed class SpawnSummonOnlyCreatureRule : IValidationRule
     {
-        private const string CheckName = "spawn_summon_only_creature";
+        /// <summary>消费方反馈第 43 条：本规则产出的全部 <see cref="ValidationIssue.Check"/> 取值。
+        /// 消费方按检查名过滤本规则产出的诊断时应引用本常量，不要复制字面量（见
+        /// <c>Presentation.Assembly.ContentValidationAssembly.OptionalRules</c> 同一判断记录）。</summary>
+        public const string CheckName = "spawn_summon_only_creature";
 
         private readonly ICreatureTemplateQuery? _templateQuery;
 

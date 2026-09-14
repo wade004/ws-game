@@ -3,6 +3,8 @@ using System.Linq;
 using Core.Carriers.Creature;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
+using Core.Foundation.DisplayInfo;
+using Core.Gameplay.Spawn;
 using Presentation.Assembly;
 using Xunit;
 
@@ -67,12 +69,106 @@ namespace Tests.Presentation.Assembly
                 throw new System.InvalidOperationException("测试夹具中不应被调用：spawn.table 为空");
         }
 
+        /// <summary>消费方反馈第 43 条验收：只用来让 <c>SpawnSummonOnlyCreatureRule</c> 真的产出一条
+        /// Error 诊断（不关心具体模板 id，本类型对任意模板一律返回 <c>true</c>）。</summary>
+        private sealed class AlwaysSummonOnlyCreatureTemplateQuery : ICreatureTemplateQuery
+        {
+            public CreatureTemplate Get(Id templateId) =>
+                throw new System.NotSupportedException("测试夹具未实现 Get：本用例只用到 HasFlag");
+
+            public bool HasFlag(Id templateId, NpcFlag flag) => true;
+        }
+
         [Fact]
         public void OptionalRuleNames_IsFixedTwoEntryList()
         {
             Assert.Equal(
                 new[] { "SpawnSummonOnlyCreatureRule", "DisplayMapCoverageRule" },
                 ContentValidationAssembly.OptionalRuleNames);
+        }
+
+        /// <summary>消费方反馈第 43 条：<see cref="ContentValidationAssembly.OptionalRuleNames"/> 现由
+        /// <see cref="ContentValidationAssembly.OptionalRules"/> 投影得到，两者逐项相等（顺序不变）。</summary>
+        [Fact]
+        public void OptionalRuleNames_EqualsOptionalRules_ProjectedByRuleName()
+        {
+            Assert.Equal(
+                ContentValidationAssembly.OptionalRules.Select(d => d.RuleName).ToList(),
+                ContentValidationAssembly.OptionalRuleNames);
+        }
+
+        /// <summary>消费方反馈第 43 条核心诉求：<see cref="OptionalRuleDescriptor.CheckName"/> 必须等于
+        /// 各规则实际产出诊断的 <see cref="ValidationIssue.Check"/>——不是比对两个字面量字符串是否恰好
+        /// 拼写一致，而是让规则真的跑一遍、拿真实诊断的 <c>Check</c> 出来比对，防止"描述符抄错/规则改名
+        /// 但描述符没跟着改"这类静态比对发现不了的问题。</summary>
+        [Fact]
+        public void OptionalRules_CheckName_MatchesActualRuleIssueCheck_ViaRun()
+        {
+            var source = BuildCreatureTemplateSource();
+            source.Add(SpawnSchemas.Table.Name,
+                "{\"table\": \"spawn.table\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"spawn.sample_x\", \"map_id\": \"world.sample_field\", \"content_ref\": \"creature.sample_player\", " +
+                "\"position\": {\"x\": 0, \"y\": 0}, \"facing\": 0, \"respawn_policy\": \"never\"}" +
+                "]}");
+
+            var options = new ContentValidationOptions
+            {
+                FailOnUnknownTable = false,
+                CreatureTemplateQuery = new AlwaysSummonOnlyCreatureTemplateQuery(),
+                // 判断记录：本用例只关心 SpawnSummonOnlyCreatureRule 产出的诊断，显式关闭
+                // DisplayMapCoverageRule（同类其它用例判断记录），避免 creature.sample_player 没有
+                // display.map 覆盖行触发的 display_map_coverage 诊断掩盖本用例要断言的那一条。
+                DisplayMapCoverageSources = System.Array.Empty<(string, string)>(),
+            };
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
+
+            var spawnIssue = Assert.Single(run.Report.Issues, i => i.Table == SpawnSchemas.Table.Name);
+            Assert.Equal(SpawnSummonOnlyCreatureRule.CheckName, spawnIssue.Check);
+            Assert.True(ContentValidationAssembly.TryGetOptionalRuleByCheck(spawnIssue.Check, out var spawnDescriptor));
+            Assert.Equal("SpawnSummonOnlyCreatureRule", spawnDescriptor.RuleName);
+
+            // 同一次 Run 里 DisplayMapCoverageRule 关了（sources 为空），换一次单独的调用验证它的
+            // CheckName 同样对得上真实诊断（用 Run_DefaultOptions_DisplayMapCoverageRule_FiresForUncoveredCreatureTemplate
+            // 同款夹具，默认开启）。
+            var displayRun = ContentValidationAssembly.Run(
+                new IDataSource[] { BuildCreatureTemplateSource() },
+                new ContentValidationOptions { FailOnUnknownTable = false });
+            var displayIssue = Assert.Single(displayRun.Report.Issues, i => i.Check == DisplayMapCoverageRule.CheckName);
+            Assert.True(ContentValidationAssembly.TryGetOptionalRuleByCheck(displayIssue.Check, out var displayDescriptor));
+            Assert.Equal("DisplayMapCoverageRule", displayDescriptor.RuleName);
+        }
+
+        /// <summary>消费方反馈第 43 条：<see cref="ContentValidationAssembly.TryGetOptionalRuleByCheck"/>
+        /// 命中/未命中两个分支。</summary>
+        [Fact]
+        public void TryGetOptionalRuleByCheck_HitAndMiss()
+        {
+            Assert.True(ContentValidationAssembly.TryGetOptionalRuleByCheck(DisplayMapCoverageRule.CheckName, out var hit));
+            Assert.Equal("DisplayMapCoverageRule", hit.RuleName);
+            Assert.Equal(DisplayMapCoverageRule.CheckName, hit.CheckName);
+
+            Assert.False(ContentValidationAssembly.TryGetOptionalRuleByCheck("not_a_registered_check", out var miss));
+            Assert.Null(miss);
+        }
+
+        /// <summary>消费方反馈第 43 条：<see cref="ContentValidationRun.EnabledOptionalRuleChecks"/>/
+        /// <see cref="ContentValidationRun.DisabledOptionalRuleChecks"/> 与
+        /// <see cref="ContentValidationRun.EnabledOptionalRules"/>/<see cref="ContentValidationRun.DisabledOptionalRules"/>
+        /// 一一对应（同 <see cref="Run_DefaultOptions_DisplayMapCoverageRuleEnabledByDefault_OnlySpawnSummonRuleDisabled"/>
+        /// 同款默认选项夹具：只有 SpawnSummonOnlyCreatureRule 未接线禁用）。</summary>
+        [Fact]
+        public void Run_EnabledDisabledOptionalRuleChecks_CorrespondToRuleNameLists()
+        {
+            var source = new InMemoryDataSource();
+            var options = new ContentValidationOptions { FailOnUnknownTable = false };
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
+
+            Assert.Equal(new[] { "SpawnSummonOnlyCreatureRule" }, run.DisabledOptionalRules);
+            Assert.Equal(new[] { SpawnSummonOnlyCreatureRule.CheckName }, run.DisabledOptionalRuleChecks);
+            Assert.Equal(new[] { "DisplayMapCoverageRule" }, run.EnabledOptionalRules);
+            Assert.Equal(new[] { DisplayMapCoverageRule.CheckName }, run.EnabledOptionalRuleChecks);
         }
 
         /// <summary>消费方反馈第 34 条：<see cref="ContentValidationOptions.DisplayMapCoverageSources"/>
