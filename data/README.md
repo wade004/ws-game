@@ -192,6 +192,39 @@ data/<game_or_sample>/<domain>/<table>.json
 `data/_sample/` 判定说明）；`sample_*` 前缀、`<game>` 占位规则同样适用——本框架仓库不含任何具体
 游戏专属键。
 
+## creature 示例数据（summon_only 正例演示）
+
+消费方反馈第 44 条（2026-09-14）：`data/_sample/creature/creature.template.json` 新增
+`creature.sample_summon_totem`——`npc_flags` 含 `npc_flag.summon_only`（见
+`core/carriers/creature/contracts/NpcFlag.cs`），是此前两条示例生物（`creature.sample_hero`/
+`creature.sample_beast`）都没有覆盖到的取值：`SpawnSummonOnlyCreatureRule`（见
+`core/gameplay/spawn/schema/SpawnValidationRules.cs`）的 Error 分支此前只能靠消费方自己在内存里
+现改某条生物的 `npc_flags` 才能观测到，示例数据集本身给不出开箱即用的正例样本。配套补了一条
+`display.map.sample_summon_totem`（复用 `sprite.creature.sample_beast` 精灵集，不新增素材）满足
+`DisplayMapCoverageRule` 的覆盖检查，以及 `l10n.text` 里 `zh_cn`/`en_us` 两行译文满足非默认语言
+缺翻译 Warning（消费方反馈第 42 条）。
+
+**判断记录（不进 `spawn.table`）**：`data/_sample/spawn/spawn.table.json` 故意不引用这条生物——
+示例数据集的既有基线是"`python toolchain/validate_data.py --strict` 0 error 0 warning"，若
+`spawn.table` 真的引用一条 `summon_only` 生物会触发 `spawn_summon_only_creature` Error，破坏这条
+基线。想看这条规则真的触发 Error 的"一眼可见的坏例子"，见：
+
+- `core/gameplay/spawn/tests/SpawnSummonOnlyCreatureRealSampleDataTests.cs`：用真实
+  `data/_framework` + `data/_sample`（含本条新增生物）经 `Presentation.Assembly.
+  ContentValidationAssembly.CreateRegistry`/`LoadAll` 正式装配加载，内存里额外追加一条指向
+  `creature.sample_summon_totem` 的 `spawn.table` 行（不落盘），断言产出
+  `spawn_summon_only_creature` Error。
+
+**判断记录（`toolchain/validator` 侧无法演示同一场景）**：`SpawnSummonOnlyCreatureRule` 需要
+`ICreatureTemplateQuery` 才会注册（见 `ContentValidationOptions.CreatureTemplateQuery` 判断记录），
+而 `toolchain/validator`（一次性命令行进程）按既有设计从不接线该依赖——避免在未接线时注册一条
+"每次都产出 Warning"的规则、污染门禁要求的"0 错误 0 警告"（见 `toolchain/validator/Program.cs`
+判断记录）。因此 `python toolchain/validate_data.py --strict` 这条命令行路径下
+`spawn_summon_only_creature` 检查项恒不生效，`--json` 输出里 `SpawnSummonOnlyCreatureRule` 也恒
+出现在 `disabled_optional_rules`/`optional_rules[].enabled == false` 里——这是本工具既有取舍，不是
+本条反馈引入的缺陷，也不在本条反馈整改范围内；本仓库因此把"规则真的能触发"这条演示放进 C# 集成
+测试（见上），不是 `toolchain/tests` 里跑真实 `validate_data.py --strict` 子进程的 pytest。
+
 ## 编码与格式
 
 - UTF-8，无 BOM。

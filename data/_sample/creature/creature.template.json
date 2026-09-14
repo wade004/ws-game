@@ -21,6 +21,16 @@
       "ai_behavior_ref": "ai.profile.sample_melee",
       "loot_table_ref": "loot.sample_beast",
       "display_ref": "display.map.sample_beast"
+    },
+    {
+      "id": "creature.sample_summon_totem",
+      "name_key": "l10n.creature.sample_summon_totem.name",
+      "level": 1,
+      "tier": "creature.tier.sample_normal",
+      "base_stats": { "stat.strength": 1, "stat.stamina": 1 },
+      "faction_id": "fac.wildlife",
+      "npc_flags": ["npc_flag.summon_only"],
+      "display_ref": "display.map.sample_summon_totem"
     }
   ]
 }
