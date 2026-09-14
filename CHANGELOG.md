@@ -146,8 +146,126 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `FieldKind.Reference`（`--list-tables --json` 该字段 `kind` 由 `Id` 变为 `Reference`），指向
   未登记语言的坏数据从此在加载期即报 `reference_integrity` 错误。详见
   [消费方反馈-2026-09-14-编辑器-第41-42条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第41-42条.md)。
+- **消费方反馈第 43/44 条（1.29.0）**：`Presentation.Assembly.ContentValidationAssembly` 新增
+  `OptionalRules`/`OptionalRuleDescriptor`/`TryGetOptionalRuleByCheck`（可选规则"规则名 ↔ 检查名"
+  关联单一来源），`SpawnSummonOnlyCreatureRule`/`DisplayMapCoverageRule` 的 `CheckName` 常量随之
+  改为公开，`toolchain/validator --json` 新增 `optional_rules: [{rule, check, enabled}]`（第 43
+  条）；新增 `Core.Carriers.Creature.RegistryCreatureTemplateQuery`，`ContentValidationAssembly`
+  未提供 `CreatureTemplateQuery` 时默认改用它，`SpawnSummonOnlyCreatureRule` 从此默认启用（此前
+  默认禁用，比照 1.23.0 `DisplayMapCoverageRule` 先例），`DisabledOptionalRules`/
+  `disabled_optional_rules` 默认恒为空（第 44 条根治）；示例数据集新增 `summon_only` 生物模板
+  `creature.sample_summon_totem`。详见
+  [消费方反馈-2026-09-14-编辑器-第43-44条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md)。
 
 ## [Unreleased]
+
+## [1.29.0] - 2026-09-14
+
+MINOR 版本：消费方反馈处理——问题面板"本条来自可选规则"标注此前只能靠编辑器自行硬编码一份
+"规则类型名（PascalCase）→检查项名（snake_case）"映射表，框架新增/改名可选规则时该映射会静默
+失效（编辑器第 43 条）；示例数据集 `creature.template` 没有一条 `summon_only` 生物模板，
+`SpawnSummonOnlyCreatureRule` 的正例分支无法用真实示例数据验证（编辑器第 44 条）。独立复核"有
+条件通过"过程中，主会话进一步认定"`SpawnSummonOnlyCreatureRule` 需要显式提供
+`ICreatureTemplateQuery` 才注册、`toolchain/validator` 按既有设计从不接线该依赖、示例数据门禁
+因此从未真正跑过这条规则"是真实缺口而非可搁置的边界，决定比照 1.23.0 `DisplayMapCoverageRule`
+默认启用的先例一并根治。核实、逐条回复、根治追记见
+[消费方反馈-2026-09-14-编辑器-第43-44条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md)。
+提交链：`d1787b9`（第 43 条：可选规则描述符）、`64f20d7`（第 44 条：示例数据补 summon_only 生物
+正例演示）、`ccd7c78`（回复文档 + 编辑器产品文档回填）、`e51d2d6`（第 44 条根治：
+`SpawnSummonOnlyCreatureRule` 改为默认接线）、`5a9dda6`（独立复核修正：两份 README 同步默认接线
+行为），分支 `wbg/editor43-44`，`--no-ff` 合入 `main` `1d0c2ed`，本笔提交（1.29.0 变更记录与迁移
+说明）。
+
+### 新增
+
+- `Presentation.Assembly.ContentValidationAssembly.OptionalRules`/`OptionalRuleDescriptor`/
+  `TryGetOptionalRuleByCheck`——可选规则的"规则名 ↔ 检查名"关联单一来源：`OptionalRuleDescriptor`
+  （`RuleName`/`CheckName`/`Description` 三只读属性）的 `CheckName` 直接引用各规则类型自己公开的
+  `CheckName` 常量（`SpawnSummonOnlyCreatureRule.CheckName`/`DisplayMapCoverageRule.CheckName` 随
+  之由 `private` 改为 `public const string`），不是另行抄写的字面量；`OptionalRuleNames` 保留不变
+  （既有签名不变），改由 `OptionalRules.Select(d => d.RuleName)` 投影得到。`TryGetOptionalRuleByCheck
+  (string checkName, out OptionalRuleDescriptor descriptor)` 按检查名反查描述符。`ContentValidationRun`
+  新增 `EnabledOptionalRuleChecks`/`DisabledOptionalRuleChecks`（与 `EnabledOptionalRules`/
+  `DisabledOptionalRules` 一一对应，经 `OptionalRules` 投影得到）。`toolchain/validator --json` 在
+  既有 `disabled_optional_rules`/`enabled_optional_rules` 之后追加
+  `optional_rules: [{rule, check, enabled}]`（`rule`/`check` 直接来自 `OptionalRules`）。详见消费方
+  反馈第 43 条，
+  [消费方反馈-2026-09-14-编辑器-第43-44条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md)。【编辑器相关契约】
+- `Core.Carriers.Creature.RegistryCreatureTemplateQuery`（新增公开类型，实现
+  `ICreatureTemplateQuery`）：构造参数 `IDataRegistryView view`，`Get`/`HasFlag` 直接从已加载的
+  `view` 现读现解析 `creature.template` 记录（不像 `CreatureFactory` 那样在构造期预先解析出完整
+  强类型索引），因此不要求 `view` 提前加载完成；`Get` 未命中或字段非法时统一抛 `ArgumentException`
+  （`DataFieldException` 被捕获并包成 `ArgumentException`，`InnerException` 保留原始异常，不让本
+  查询的异常把整次 `ContentValidationAssembly.Run` 变成进程级未处理异常）；不做跨次缓存。
+- 示例数据集 `data/_sample/creature` 新增 `summon_only` 生物模板 `creature.sample_summon_totem`
+  （`npc_flags` 含 `npc_flag.summon_only`，不进 `spawn.table`，保持示例数据集 0 error 0 warning
+  基线），配套 `display.map`/`l10n.text` 补齐行；新增
+  `core/gameplay/spawn/tests/SpawnSummonOnlyCreatureRealSampleDataTests.cs`，用真实
+  `data/_framework` + `data/_sample` 正式装配加载后内存追加一条违规 `spawn.table` 行，断言
+  `SpawnSummonOnlyCreatureRule` 的 Error 分支触发。详见消费方反馈第 44 条，同上文档。
+
+### 变更（行为变更）
+
+- `SpawnSummonOnlyCreatureRule` 经 `ContentValidationAssembly` 装配入口默认启用（此前默认禁用）：
+  `CreateRegistryCore` 未提供 `ContentValidationOptions.CreatureTemplateQuery` 时，改为
+  `options.CreatureTemplateQuery ?? new RegistryCreatureTemplateQuery(registry)`（比照 1.23.0
+  `DisplayMapCoverageRule` 默认启用的先例，`DisplayMapCoverageSources` 未提供时改用
+  `PresentationSchemaCatalog.DefaultDisplayMapCoverageSources` 的机制不变）；显式提供
+  `CreatureTemplateQuery` 的调用方仍以传入值为准（覆盖默认）。`toolchain/validator` 不需要任何
+  代码改动即自动生效（该工具从未显式设置过 `CreatureTemplateQuery`）。`ContentValidationRun.
+  DisabledOptionalRules`/`toolchain/validator --json` 的 `disabled_optional_rules` 在默认装配下
+  现恒为空数组——两个可选规则接线参数"未提供即禁用"的机制本身未删除，只是当前两条规则均已升级为
+  "未提供则用默认接线"，机制预留给未来新增的、确实需要默认禁用的可选规则。详见消费方反馈第 44
+  条追记（二次根治），同上文档。【编辑器相关契约】
+
+### 文档
+
+- **`presentation/assembly/README.md`**：校验装配入口"判断记录"整段按新行为改写（两条可选规则
+  现均默认启用，`DisabledOptionalRules` 恒为空），补充 `OptionalRules`/`TryGetOptionalRuleByCheck`
+  用途说明；测试用例表同步改名后的用例。
+- **`toolchain/README.md`**：`--json` 字段清单补 `optional_rules`；`--display-map-sources`/
+  `SpawnSummonOnlyCreatureRule` 相关段落改写为默认接线行为。
+- **`data/README.md`**："creature 示例数据（summon_only 正例演示）"一节改写：`toolchain/validator`
+  侧现同样会拦下（此前"无法演示"的既有边界已根治），补充新增 pytest 用例引用与行为变更提醒。
+- **`editor/docs/编辑器产品文档.md`**（v2.13 → v2.15）：第 4.4 节"校验装配入口"（签名示例注释、
+  正文段落）、第 5.7.6 节"校验覆盖矩阵与可选规则装配"表格行、第 5.9 节"游戏专属定制清单"附近
+  "可选规则标注"一句，均按新行为改写；变更记录新增两行（v2.14 第 43/44 条落地、v2.15 第 44 条
+  追加根治）。
+- 新增
+  [消费方反馈-2026-09-14-编辑器-第43-44条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md)：
+  反馈复现、决策依据、处理方式、验证结果、对编辑器的使用建议，及追记（二次根治）说明。
+
+### 迁移说明
+
+- **`SpawnSummonOnlyCreatureRule` 默认启用**：消费方若自己的 `spawn.table`（或游戏数据目录同名表）
+  引用了任何 `npc_flags` 含 `npc_flag.summon_only` 的生物模板，升级到本版本后 `dotnet test`/
+  `python toolchain/validate_data.py`（含未加 `--strict` 的默认严格级别，因为该检查项是 Error
+  级、不受严格级别影响）会报 `spawn_summon_only_creature` 错误，需要先清理这类引用（或改用其它非
+  summon_only 生物模板）再升级；若确实需要保留旧行为（不做该项检查），可显式传入
+  `ContentValidationOptions.CreatureTemplateQuery` 一个"永远返回 false"的自定义
+  `ICreatureTemplateQuery` 实现覆盖默认接线。
+- 依赖 `ContentValidationRun.DisabledOptionalRules`/`toolchain/validator --json` 的
+  `disabled_optional_rules` 字段判断"`SpawnSummonOnlyCreatureRule` 是否启用"的既有逻辑需要更新：
+  该字段在默认装配下现恒为空数组，不能再用它反推该规则是否启用，应改读
+  `EnabledOptionalRules`/`enabled_optional_rules`（或新字段 `optional_rules[].enabled`）。
+
+### 编辑器接入建议
+
+- **问题面板"本条来自可选规则"标注改用 `ContentValidationAssembly.TryGetOptionalRuleByCheck`/
+  `OptionalRules`，不再硬编码映射表**——对每条诊断的 `Check` 调用
+  `TryGetOptionalRuleByCheck(issue.Check, out var descriptor)`，命中即标注"来自可选规则：
+  `descriptor.Description`"；框架未来新增第三个可选规则或调整检查名拼写时，这段标注逻辑不需要
+  跟着改一行代码。
+- **"校验设置"面板展示可选规则全量选项建议改用 `OptionalRules` 而不是 `OptionalRuleNames`**——
+  每项自带 `Description`，面板可直接展示，不必自行维护规则名到说明文案的映射。
+- **`SpawnSummonOnlyCreatureRule`/`DisplayMapCoverageRule` 现均有框架内置默认接线，默认装配下均
+  显示"已启用"**——基础套件若走的是框架正式装配入口（`ContentValidationAssembly`），无需任何额外
+  配置即自动获得默认查询/默认覆盖清单；若已有更高效的强类型索引（如运行时装配根已构造好的
+  `CreatureFactory`），仍可显式提供 `ICreatureTemplateQuery`/`DisplayMapCoverageSources` 覆盖默认
+  实现。
+- 示例数据 `data/_sample/creature/creature.template.json` 新增的 `creature.sample_summon_totem`
+  可直接用于编辑器侧"可选规则/summon_only 校验"UI 交互的手工验证或自动化测试固件，不必再自行改写
+  `creature.sample_beast` 等既有记录的 `npc_flags`。
 
 ## [1.28.0] - 2026-09-14
 
