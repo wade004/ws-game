@@ -123,15 +123,27 @@ def test_last_exception_overridden_by_first_assertion(tmp_path: Path) -> None:
 
 
 def test_test_first_chance_marker_gives_precise_window(tmp_path: Path) -> None:
-    """C 部分新增的 [TestFirstChance] 回调命中时，定位方式应优先于 name_fallback。"""
+    """C 部分新增的 TestFirstChanceExceptionLogger 回调命中时，定位方式应优先于 name_fallback。
+
+    夹具按真实 C# 回调的实际输出格式构造（见 adapters/unity 下 TestFirstChanceExceptionLogger
+    判断记录 1：最初设计按 AppDomain.FirstChanceException 实现，2026-09-15 实测在本仓库使用的
+    Unity 6000.3.23f1 Mono 运行时完全不触发，已改为 Started/Finished 用例边界 +
+    Application.logMessageReceivedThreaded 捕获窗口内 Error/Exception 级日志的验证可用方案；
+    真实端到端跑通记录见同一 C# 文件与复盘文档）——断言异常本身不会出现在窗口内（NUnit 断言
+    失败不经过 Unity 日志系统），但窗口边界精确，且窗口内的 Error 级日志会被
+    ``[TestFirstChance] LogDuringTest`` 行捕获并归属正确用例。
+    """
     log_path = tmp_path / "playmode.log"
     log_path.write_text(
         "\n".join(
             [
                 "line 1: 无关",
-                "line 2: MyFixture.MyFailingTest running",
-                "[TestFirstChance] MyFixture.MyFailingTest: AssertionException: died is false",
+                "[TestFirstChance] Started: MyFixture.MyFailingTest",
+                "[TestFirstChance] LogDuringTest: MyFixture.MyFailingTest: Error: something went wrong",
                 "line 4: 其它输出",
+                "[TestFirstChance] Finished: MyFixture.MyFailingTest result=Failed message=died is false",
+                "[TestFirstChance] Started: MyFixture.NextTest",
+                "line 7: 属于 NextTest 的内容，不应该被算进上一个用例的窗口",
             ]
         ),
         encoding="utf-8",
@@ -144,16 +156,25 @@ def test_test_first_chance_marker_gives_precise_window(tmp_path: Path) -> None:
         cases_xml=(
             '  <test-case id="1" name="MyFailingTest" fullname="MyFixture.MyFailingTest" '
             'methodname="MyFailingTest" classname="MyFixture" result="Failed" duration="1.0">\n'
-            "    <failure><message><![CDATA[some other final message]]></message></failure>\n"
+            "    <failure><message><![CDATA[died is false]]></message></failure>\n"
             "  </test-case>\n"
         ),
     )
 
     report = triage.build_report(xml_path, log_path, max_lines=40)
     failed = report["failed_tests"][0]
-    assert failed["window"]["method"] == "test_first_chance"
-    assert len(failed["first_chance_hits"]) == 1
-    assert failed["first_chance_hits"][0]["line"] == 3
+    window = failed["window"]
+    assert window["method"] == "test_first_chance"
+    assert window["is_full_log_fallback"] is False
+    assert window["start_line"] == 2
+    assert window["end_line"] == 5
+    assert window["finished_result"] == "Failed"
+    assert window["finished_message"] == "died is false"
+
+    assert len(failed["log_during_test"]) == 1
+    assert failed["log_during_test"][0]["line"] == 3
+    assert failed["log_during_test"][0]["level"] == "Error"
+    assert "something went wrong" in failed["log_during_test"][0]["text"]
 
 
 def test_no_failures_reports_empty_and_exit_zero(tmp_path: Path, capsys) -> None:

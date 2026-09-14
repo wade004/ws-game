@@ -16,9 +16,18 @@ Unity Test Framework 的 ``UnityLogCheckDelegatingCommand`` 在断言异常之�
 甚至连用例名/类名本身都不会被打印（用真实门禁产物核对过：``grep -c VerticalSliceTests
 playmode.log`` 为 0）。因此本脚本的用例窗口定位分四级回退，见 :func:`locate_window`：
 
-1. ``test_first_chance``——若测试程序集里已接入 ``toolchain/unity_test_triage.py`` 的配套
-   C# 回调（``[TestFirstChance]`` 日志行，见 ``adapters/unity`` 下 ``FirstChanceExceptionLogger``
-   一类实现），直接用该行定位，最精确。
+1. ``test_first_chance``——若测试程序集里已接入配套 C# 回调
+   （``adapters/unity`` 下 ``TestFirstChanceExceptionLogger``，两个测试程序集
+   Tests/Runtime、Tests/Editor 下各一份），日志里会有一对精确的用例边界标记
+   ``[TestFirstChance] Started: <用例全名>`` / ``[TestFirstChance] Finished: <用例全名>
+   result=<ResultState> message=<NUnit 记录的消息首行>``，直接用这对标记切出精确窗口——注意
+   该回调最初按 ``AppDomain.FirstChanceException`` 设计，2026-09-15 实测在本仓库使用的
+   Unity 6000.3.23f1 Mono 运行时完全不触发（连最简单的 try/catch 良性异常都测不到），已改为
+   验证可用的 ``Application.logMessageReceivedThreaded`` + 用例边界打点方案，详见该 C# 文件
+   头部判断记录——这意味着窗口内不会有"断言异常本身"的日志行（NUnit 断言失败不经过 Unity
+   日志系统，与该回调机制无关），但窗口内出现的 ``LogType.Error``/``LogType.Exception`` 级别
+   日志会额外打印一行 ``[TestFirstChance] LogDuringTest: <用例全名>: <级别>: <消息首行>``，
+   本脚本一并识别（见 :func:`find_log_during_test_hits`）。
 2. ``name_fallback``——退化为在日志里搜索用例 ``fullname``/``methodname`` 的**首次出现位置**，
    按各用例找到的行号排序切窗口；同批全部搜不到时整体回退到下一级。
 3. ``message_fallback``——再退化为用 NUnit 失败 message 里的一段原文去日志里找可能相关的行，
@@ -82,9 +91,17 @@ _EXCEPTION_PATTERN = re.compile(
     r"|(?P<unexpected>\bUnexpected\b)"
 )
 
-# TestFirstChance 回调（见本文件头判断记录 1）打印的行格式：
-#   [TestFirstChance] <用例 FullName>: <异常类型全名>: <消息首行>
-_TEST_FIRST_CHANCE_PATTERN = re.compile(r"^\[TestFirstChance\]\s*(?P<test>.+?):\s*(?P<rest>.+)$")
+# TestFirstChanceExceptionLogger（见本文件头判断记录 1）打印的三种行格式：
+#   [TestFirstChance] Started: <用例全名>
+#   [TestFirstChance] Finished: <用例全名> result=<ResultState> message=<消息首行>
+#   [TestFirstChance] LogDuringTest: <用例全名>: <Error|Exception>: <消息首行>
+_TEST_STARTED_PATTERN = re.compile(r"^\[TestFirstChance\]\s*Started:\s*(?P<test>.+)$")
+_TEST_FINISHED_PATTERN = re.compile(
+    r"^\[TestFirstChance\]\s*Finished:\s*(?P<test>.+?)\s+result=(?P<result>\S+)\s+message=(?P<message>.*)$"
+)
+_LOG_DURING_TEST_PATTERN = re.compile(
+    r"^\[TestFirstChance\]\s*LogDuringTest:\s*(?P<test>.+?):\s*(?P<level>Error|Exception):\s*(?P<message>.*)$"
+)
 
 # Unity Debug.LogWarning/LogError/LogException 调用栈块的起始行；块内几行之内会出现具体的
 # LogWarning/LogError/LogException 调用点，见本文件头判断记录 2。
@@ -172,15 +189,68 @@ def parse_nunit_xml(xml_path: Path) -> tuple[dict[str, Any], list[dict[str, Any]
     return summary, cases
 
 
-def find_test_first_chance_hits(lines: list[str], fullname: str) -> list[dict[str, Any]]:
-    hits: list[dict[str, Any]] = []
+def _test_name_matches(candidate: str, fullname: str) -> bool:
+    return candidate == fullname or fullname.endswith(candidate) or candidate.endswith(fullname)
+
+
+def find_test_boundary(lines: list[str], fullname: str) -> dict[str, Any]:
+    """在日志里找 TestFirstChanceExceptionLogger 打印的 Started/Finished 边界对（见文件头
+    判断记录 1）。返回 0-based 行号：
+    ``{"start": int|None, "end": int|None, "result": str|None, "message": str|None}``。
+
+    判断记录（Unity 项目里两个测试程序集的回调会同时触发，日志里边界行可能重复出现两遍）：
+    ``UnityEngine.TestRunner.Utils.TestRunCallbackListener.GetAllCallbacks`` 按"引用了
+    UnityEngine.TestRunner 的全部已加载程序集"收集 ``[assembly: TestRunCallback]``，不区分
+    EditMode/PlayMode——Adapter.Unity.Tests.Runtime 与 Adapter.Unity.Tests.Editor 各自的回调
+    实例都会对同一次测试运行触发，实测每条边界/LogDuringTest 行会重复打印两遍（内容相同）。
+    本函数只取"第一次出现"（``start`` 取第一条匹配的 Started，``end`` 取 ``start`` 之后第一条
+    匹配的 Finished），重复行不影响窗口定位的正确性。
+    """
+    start: int | None = None
+    end: int | None = None
+    result: str | None = None
+    message: str | None = None
+
     for idx, line in enumerate(lines):
-        m = _TEST_FIRST_CHANCE_PATTERN.match(line.strip())
+        stripped = line.strip()
+        if start is None:
+            m = _TEST_STARTED_PATTERN.match(stripped)
+            if m and _test_name_matches(m.group("test").strip(), fullname):
+                start = idx
+            continue
+
+        m = _TEST_FINISHED_PATTERN.match(stripped)
+        if m and _test_name_matches(m.group("test").strip(), fullname):
+            end = idx
+            result = m.group("result").strip()
+            message = m.group("message").strip()
+            break
+
+    return {"start": start, "end": end, "result": result, "message": message}
+
+
+def find_log_during_test_hits(
+    lines: list[str], fullname: str, start: int | None, end: int | None
+) -> list[dict[str, Any]]:
+    """在 [start, end]（0-based，闭区间；均为 None 时搜索整份日志）内找
+    ``[TestFirstChance] LogDuringTest: ...`` 行——测试窗口内出现的 Error/Exception 级
+    Unity 日志，见文件头判断记录 1（该回调机制的实际能力边界：捕获不到 NUnit 断言异常本身，
+    但能捕获窗口内真实发生的 Error/Exception 级日志）。"""
+    lo = start if start is not None else 0
+    hi = (end + 1) if end is not None else len(lines)
+    hits: list[dict[str, Any]] = []
+    for idx in range(lo, min(hi, len(lines))):
+        m = _LOG_DURING_TEST_PATTERN.match(lines[idx].strip())
         if not m:
             continue
-        test = m.group("test").strip()
-        if test == fullname or fullname.endswith(test) or test.endswith(fullname):
-            hits.append({"line": idx + 1, "text": line.strip()})
+        if _test_name_matches(m.group("test").strip(), fullname):
+            hits.append(
+                {
+                    "line": idx + 1,
+                    "level": m.group("level"),
+                    "text": lines[idx].strip(),
+                }
+            )
     return hits
 
 
@@ -205,18 +275,34 @@ def locate_window(
     """
     fullname = target["fullname"]
 
-    # 1) test_first_chance：最精确，直接用命中行 ± context 围出窗口。
-    first_chance_hits = find_test_first_chance_hits(lines, fullname)
-    if first_chance_hits:
-        first_hit_line = first_chance_hits[0]["line"] - 1  # 转回 0-based
-        start = max(0, first_hit_line - context)
-        end = min(len(lines), first_hit_line + context + 1)
+    # 1) test_first_chance：最精确，直接用 Started/Finished 边界对围出窗口（见文件头判断记录 1
+    # 与 find_test_boundary 判断记录）。
+    boundary = find_test_boundary(lines, fullname)
+    if boundary["start"] is not None:
+        start_line = boundary["start"] + 1
+        if boundary["end"] is not None:
+            end_line = boundary["end"] + 1
+            note = (
+                "定位依据：[TestFirstChance] Started/Finished 用例边界标记（C# 回调打印，见 "
+                "adapters/unity 下 TestFirstChanceExceptionLogger 判断记录）——精确窗口，不是"
+                "近似值；但窗口内不会有断言异常本身的日志行（NUnit 断言失败不经过 Unity 日志"
+                "系统，与该回调机制无关），只有窗口内真实发生的 Error/Exception 级日志（见下方"
+                "“测试窗口内 Error/Exception 级日志”）。"
+            )
+        else:
+            end_line = len(lines)
+            note = (
+                "定位依据：[TestFirstChance] Started 标记（未找到对应 Finished 标记，用例可能"
+                "异常中断/进程提前退出），窗口延伸到日志末尾。"
+            )
         return {
             "method": "test_first_chance",
-            "start_line": start + 1,
-            "end_line": end,
-            "note": "定位依据：[TestFirstChance] 回调打印的第一现场标记（见 toolchain/unity_test_triage.py 头部判断记录 1）。",
+            "start_line": start_line,
+            "end_line": end_line,
+            "note": note,
             "related_lines": [],
+            "finished_result": boundary["result"],
+            "finished_message": boundary["message"],
         }
 
     # 2) name_fallback：按全部用例名称首次出现的行号排序切窗口。
@@ -363,7 +449,6 @@ def build_report(xml_path: Path, log_path: Path, max_lines: int) -> dict[str, An
     failed_reports = []
     for case in failed_cases:
         window = locate_window(lines, case, cases, context)
-        first_chance_hits = find_test_first_chance_hits(lines, case["fullname"])
 
         # 窗口定位方式为 message_fallback/not_found 时没有 start/end——按判断记录里承诺的
         # "退化为全局摘要"，改用整份日志范围扫异常/Warning/Error，报告里同步标注这是全局范围，
@@ -375,8 +460,13 @@ def build_report(xml_path: Path, log_path: Path, max_lines: int) -> dict[str, An
             eff_start, eff_end = 1, len(lines)
         window["is_full_log_fallback"] = window_is_full_log
 
+        # log_during_test：TestFirstChanceExceptionLogger 在窗口内捕获到的 Error/Exception 级
+        # Unity 日志（见 find_log_during_test_hits 判断记录）；用 0-based 边界重新计算而不是复用
+        # eff_start/eff_end（那两个是 1-based，且 message_fallback/not_found 时已经整份日志兜底
+        # ——这里同样传整份日志范围，语义一致）。
         exceptions = collect_exception_lines(lines, eff_start, eff_end, max_lines)
         log_messages = find_unity_log_messages(lines, eff_start, eff_end)
+        log_during_test = find_log_during_test_hits(lines, case["fullname"], eff_start - 1, eff_end - 1)
         failed_reports.append(
             {
                 "fullname": case["fullname"],
@@ -386,7 +476,7 @@ def build_report(xml_path: Path, log_path: Path, max_lines: int) -> dict[str, An
                 "nunit_message": case["message"],
                 "nunit_stacktrace": case["stacktrace"],
                 "window": window,
-                "first_chance_hits": first_chance_hits,
+                "log_during_test": log_during_test,
                 "first_exceptions": exceptions,
                 "warning_error_summary": summarize_warning_error(log_messages),
             }
@@ -431,14 +521,16 @@ def format_human_report(report: dict[str, Any], max_lines: int) -> str:
         out.append(f"  {w['note']}")
         if w["method"] in ("test_first_chance", "name_fallback") and w["start_line"]:
             out.append(f"  窗口行号：{w['start_line']} ~ {w['end_line']}")
+        if w["method"] == "test_first_chance" and w.get("finished_result"):
+            out.append(f"  [TestFirstChance] Finished 记录：result={w['finished_result']} message={w.get('finished_message') or ''}")
         if w["method"] == "message_fallback" and w["related_lines"]:
             shown = w["related_lines"][:max_lines]
             out.append(f"  可能相关的行号（不保证归属，共 {len(w['related_lines'])} 处，最多列 {len(shown)} 个）：{shown}")
 
-        if t["first_chance_hits"]:
-            out.append(f"TestFirstChance 命中（{len(t['first_chance_hits'])} 条）：")
-            for hit in t["first_chance_hits"][:max_lines]:
-                out.append(f"  行 {hit['line']}：{hit['text']}")
+        if t["log_during_test"]:
+            out.append(f"测试窗口内 Error/Exception 级日志（[TestFirstChance] LogDuringTest，{len(t['log_during_test'])} 条）：")
+            for hit in t["log_during_test"][:max_lines]:
+                out.append(f"  行 {hit['line']} [{hit['level']}]：{hit['text']}")
 
         scope_label = "整份日志范围（未能定位到该用例的执行窗口，以下可能混入其它用例的内容）" if w.get("is_full_log_fallback") else "窗口内"
 

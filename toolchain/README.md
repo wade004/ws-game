@@ -702,8 +702,14 @@ python toolchain/unity_test_triage.py --xml ... --log ... --max-lines 60
 `-runTests` 跑出的日志**没有**任何逐用例起止标记，甚至连用例名/类名都不会被打印。定位因此按
 以下顺序回退：
 
-1. `test_first_chance`——若测试程序集里已接入 `[TestFirstChance]` 回调（见 `adapters/unity`
-   下的实现，本工具与之配套设计），直接用该行精确定位，最可靠；
+1. `test_first_chance`——若测试程序集里已接入 `TestFirstChanceExceptionLogger` 回调（见
+   `adapters/unity` 下 `Tests/Runtime`/`Tests/Editor` 两份实现，本工具与之配套设计），日志里
+   会有精确的 `[TestFirstChance] Started: <用例全名>` / `[TestFirstChance] Finished: <用例全名>
+   result=<ResultState> message=<...>` 边界对，直接用这对标记切出精确窗口——**注意**：窗口内
+   不会有断言异常本身的日志行（NUnit 断言失败不经过 Unity 日志系统，与该回调无关），但窗口内
+   真实发生的 `LogType.Error`/`LogType.Exception` 级日志会额外打一行
+   `[TestFirstChance] LogDuringTest: <用例全名>: <级别>: <消息首行>`，本工具一并识别、单独列出
+   （见 `--json` 输出的 `log_during_test` 字段）；
 2. `name_fallback`——退化为在日志里搜索用例全名/方法名的**首次出现位置**，按各用例找到的行号
    排序切窗口，是近似值；
 3. `message_fallback`——再退化为用 NUnit message 里一段原文去日志里找可能相关的行，**不保证**
@@ -711,10 +717,20 @@ python toolchain/unity_test_triage.py --xml ... --log ... --max-lines 60
 4. `not_found`——以上都找不到时，如实说明，Warning/Error 摘要与异常扫描退化为整份日志范围
    （报告里会明确标注"可能混入其它用例的内容"）。
 
-已知限制：在本仓库真实产出的历史 `playmode.log`（未接入 `[TestFirstChance]` 回调时）上实测，
-`PRES180` 一类失败用例会一路退化到 `not_found`——这正是本工具单独存在时的准确性上限，也是
-仍要在测试程序集里补一份 `[TestFirstChance]` 回调（复盘文档 C 部分）的原因：日志里没有任何
-可供第三方脚本识别的用例边界信号，唯一可靠的办法是从测试进程内部主动打点。
+已知限制：在本仓库真实产出的历史 `playmode.log`（PRES180 事发时那次，`TestFirstChanceExceptionLogger`
+尚未接入）上实测，`PRES180` 一类失败用例会一路退化到 `not_found`——这正是本工具单独存在时的
+准确性上限，也是仍要在测试程序集里补一份回调（复盘文档 C 部分）的原因：日志里没有任何可供
+第三方脚本识别的用例边界信号，唯一可靠的办法是从测试进程内部主动打点。
+
+**判断记录（`TestFirstChanceExceptionLogger` 最初设计与实测证伪，2026-09-15）**：该回调最初
+按 `AppDomain.FirstChanceException` 设计（异常刚抛出、尚未被任何代码捕获时就能拿到），但在本仓库
+使用的 Unity 6000.3.23f1 Editor（Mono 脚本后端）上实测：即使是最简单的
+`try { throw new InvalidOperationException(...); } catch { }` 也不会触发该事件订阅的回调——
+不是实现哪里写错了，是这个 Mono 运行时压根不触发该事件（已知的 Mono 嵌入式运行时限制）。已改为
+验证可用的方案：`TestStarted`/`TestFinished` 打边界，`Application.logMessageReceivedThreaded`
+（标准公开 API，不依赖 Mono 对 `FirstChanceException` 的支持）捕获窗口内的 Error/Exception 级
+日志——真实用 EditMode/PlayMode 各跑一条构造的失败用例验证过：边界与 `LogDuringTest` 行均按
+预期出现（见 `adapters/unity` 下该文件判断记录 1 的完整记录）。
 
 已接入 `check.ps1`："Unity EditMode 测试"/"Unity PlayMode 测试" 两步判定失败（NUnit 结果 XML
 根节点 `result` 非 `Passed`）时自动调用本脚本，把报告打进门禁日志；成功分支不调用、不多打印。
