@@ -230,36 +230,43 @@ ReloadArchetypeAndRace`（直接持有 `StatHost` 具体类型，同 `Stats.Rese
   `"stat.weight"` 字符串）+ 行为测试（注册 `stat.weight` 并加载含数据的记录后，正常构造
   `StatHost`、`GetStat` 不受影响、不抛异常）。
 
-## T-N1-7：IStatHost.GetDefinitionIdsByCategory / GetScope（供结算管线目标乘区消费）
+## T-N1-7：IStatHost.GetScope（供结算管线目标乘区/被暴击减免按显式清单消费）
 
 分阶段落地计划 T-N1-7（[ADR-0030](../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
-决策 5；06 第 4.1 节 2026-09-14 修订段"目标乘区"）：`core/rules/combat.Resolver` 需要按
-`stat.definition.category` 遍历一批属性、再按 `scope` 与结算上下文的来源类别匹配求和，但
-`IStatHost` 到 T-N1-6 为止只暴露"查询某个已知 id 的属性最终值"（`GetStat`），不支持"按类别列出
-一批属性 id"或"查询某属性的作用域"——**T-N1-1 已把 `scope` 字段登记进 schema，但当时判断记录
-明确写"本任务只改 schema 与校验规则，不改 `StatHost.cs`"，此后 T-N1-2～T-N1-6 均未消费过这个
-字段**（`StatHost.cs` 全文不出现 `scope`，直到本任务）。本任务是第一个需要它的消费方，补齐：
+决策 5；06 第 4.1 节 2026-09-14 修订段"目标乘区"）：`core/rules/combat.Resolver` 需要对结算配置
+显式给出的一批属性 id，按 `scope` 与结算上下文的来源类别匹配求和，但 `IStatHost` 到 T-N1-6 为止
+只暴露"查询某个已知 id 的属性最终值"（`GetStat`），不支持"查询某属性的作用域"——**T-N1-1 已把
+`scope` 字段登记进 schema，但当时判断记录明确写"本任务只改 schema 与校验规则，不改
+`StatHost.cs`"，此后 T-N1-2～T-N1-6 均未消费过这个字段**（`StatHost.cs` 全文不出现 `scope`，
+直到本任务）。本任务是第一个需要它的消费方，补齐：
 
-- `IStatHost` 新增两个 C#8 默认接口成员（同 `Core.Rules.Common.IUnitAccess.GetSourceKind`/
+- `IStatHost` 新增一个 C#8 默认接口成员（同 `Core.Rules.Common.IUnitAccess.GetSourceKind`/
   `GetMapId`——T-N1-6 先例——同一惯例："默认实现零成本退化，真正实现方显式 override"）：
-  - `GetDefinitionIdsByCategory(string category) -> IReadOnlyList<Id>`：默认恒空列表；
-    `StatHost` 侧遍历内部 `_definitions`，按 `Category` 等值匹配，结果按 `Id` 序数字符串序
-    排序后返回（不依赖 `Dictionary` 枚举顺序，遍历顺序确定，供结算管线满足 06 第 4.1 节
-    "同种子同输入同结果"的确定性要求）。
-  - `GetScope(Id stat) -> string`：默认恒 `"any"`；`StatHost` 侧查内部
-    `_definitions[stat].Scope`，属性未登记时同样返回 `"any"`（与 `stat.definition.scope`
-    字段本身缺省 `any` 同一语义，不是"未知属性"的特殊标记）。
+  `GetScope(Id stat) -> string`：默认恒 `"any"`；`StatHost` 侧查内部
+  `_definitions[stat].Scope`，属性未登记时同样返回 `"any"`（与 `stat.definition.scope` 字段
+  本身缺省 `any` 同一语义，不是"未知属性"的特殊标记）。
 - `StatHost.LoadDefinitions` 补上 `scope`（`TryGetString`，缺省 `"any"`）解析，私有
   `StatDefinition` 记录类型新增 `Scope` 字段——三段式聚合/两轮拓扑序/换算层三段既有逻辑完全不读
   这个字段，只是把它从"内容数据里的一个字段"变成"运行期可查询的元数据"，不改变任何既有
   `GetStat`/`SetBase`/聚合行为。
 - `Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests`（该通用门禁反射六个核心
-  程序集，见该测试类型注释）已验证 `StatHost` 对两个新默认成员均显式转发（未静默吃掉默认值）。
-- 本任务未新增测试文件到本模块（`core/numbers/stat_block/tests/`）——两个新方法的行为经
+  程序集，见该测试类型注释）已验证 `StatHost` 对该新默认成员显式转发（未静默吃掉默认值）。
+- 本任务未新增测试文件到本模块（`core/numbers/stat_block/tests/`）——`GetScope` 的行为经
   `core/rules/combat/tests/ResolverScopedReductionTests.cs`（消费方）端到端覆盖：该测试类
-  通过真实 `StatHost` + 含 `category`/`scope` 字段的 `stat.definition` 夹具数据驱动
-  `Resolver`，比直接单测 `StatHost` 两个新方法本身更贴近实际用法（同一属性经加载→查询→
-  结算管线消费的完整链路），已在 combat 模块的 G1 用例清单里列出。
+  通过真实 `StatHost` + 含 `scope` 字段的 `stat.definition` 夹具数据驱动 `Resolver`，比直接
+  单测 `StatHost` 该方法本身更贴近实际用法（同一属性经加载→查询→结算管线消费的完整链路），已在
+  combat 模块的 G1 用例清单里列出。
+
+**复核返工记录（2026-09-14）**：首版实现在本方法之外，还给 `IStatHost` 新增了
+`GetDefinitionIdsByCategory(string category)`（按 `stat.definition.category` 批量列出属性 id），
+供 `core/rules/combat.Resolver` 按类别扫描目标乘区/被暴击减免候选属性。复核裁定该设计有严重
+缺陷并打回：ADR-0030 决策 9 明确把"护甲"归入 `defense` 推荐分类，一旦游戏内容按此分类登记护甲
+属性，类别扫描会把护甲原始数值误当百分比计入目标乘区，真实内容一接入即错。返工改为
+`core/rules/combat.CombatOptions` 显式属性 id 清单（`DamageTakenPctStats`/
+`CritTakenReductionStats`）+ 本方法 `GetScope` 过滤，不再需要"按类别列出一批属性 id"这个能力，
+`GetDefinitionIdsByCategory` 已撤回——**从未发布**（本模块 `IStatHost.cs` 未随任何已发布版本
+对外，`toolchain/abi_probe.ps1` 对已发布基线核对无破坏），直接删除签名，不留废弃占位。详见
+`core/rules/combat/README.md` 判断记录 18"偏离计划原文的说明"一节。
 
 ## 用法
 

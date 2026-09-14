@@ -170,19 +170,15 @@ namespace Core.Rules.Combat
             // ---------------- 步骤 6：目标乘区（仅伤害分支） ----------------
             if (!isHeal)
             {
-                // T-N1-7（ADR-0030 决策 5；06 第 4.1 节 2026-09-14 修订段）：既有单属性配置项
-                // DamageTakenPctStat 与按类别/作用域遍历出的新扫描结果求和后一次性应用，见
-                // CombatOptions.DamageTakenPctStat/DamageTakenCategory 判断记录"两者求和、不重复
-                // 计入"。
-                var targetPct = GetStatSafe(context.TargetId, _options.DamageTakenPctStat);
-                var scopedPct = SumScopedStats(
-                    context.TargetId, _options.DamageTakenCategory, context.SourceKind,
-                    _options.DamageTakenPctStat, steps, "target_multiplier_scoped");
-                var combinedPct = targetPct + scopedPct;
+                // T-N1-7（ADR-0030 决策 5；06 第 4.1 节 2026-09-14 修订段；复核返工：识别"减免
+                // 属性"改为 CombatOptions 显式 id 清单 + scope 过滤，不再按 stat.definition.category
+                // 批量扫描——见 CombatOptions.DamageTakenPctStat/DamageTakenPctStats 判断记录）：
+                // 实际读取的属性集合 = {DamageTakenPctStat} ∪ DamageTakenPctStats（去重），逐条按
+                // scope 与 context.SourceKind 匹配后求和，一次性应用。
+                var ids = BuildDamageTakenStatIds();
+                var combinedPct = SumScopedStats(context.TargetId, ids, context.SourceKind, steps, "target_multiplier_scoped");
                 amount *= (1.0 + combinedPct / 100.0);
-                steps.Add($"target_multiplier: stat={_options.DamageTakenPctStat}={targetPct} " +
-                    $"scoped_sum(category={_options.DamageTakenCategory}, sourceKind={context.SourceKind})={scopedPct} " +
-                    $"combined={combinedPct} -> {amount}");
+                steps.Add($"target_multiplier: stats=[{string.Join(",", ids)}] combined={combinedPct} -> {amount}");
             }
             else
             {
@@ -368,15 +364,14 @@ namespace Core.Rules.Combat
 
             if (context.CanCrit && table.Crit.Enabled)
             {
-                // T-N1-7（ADR-0030 决策 5；06 第 4.1 节 2026-09-14 修订段）：被暴击减免介入点——
-                // 在取样（_rng.Next）之前，把目标单位按类别/作用域遍历出的"被暴击减免"属性值之和
-                // 从暴击率里扣减，下限 0（不影响 RNG 流 id、不影响本次判定是否取样——只影响取样前
-                // 的 chance 数值本身，取样次数不变，见 CombatOptions.CritTakenReductionCategory
-                // 判断记录）。
+                // T-N1-7（ADR-0030 决策 5；06 第 4.1 节 2026-09-14 修订段；复核返工：识别"被暴击
+                // 减免属性"改为 CombatOptions.CritTakenReductionStats 显式 id 清单 + scope 过滤，
+                // 不再按 stat.definition.category 批量扫描）：在取样（_rng.Next）之前，把清单里
+                // scope 匹配的属性值之和从暴击率里扣减，下限 0（不影响 RNG 流 id、不影响本次判定
+                // 是否取样——只影响取样前的 chance 数值本身，取样次数不变）。
                 var baseChance = ResolveChance(table.Crit, context.SourceId) + ReadCritChanceBonus(context);
                 var critTakenReduction = SumScopedStats(
-                    context.TargetId, _options.CritTakenReductionCategory, context.SourceKind,
-                    excludeStat: null, steps, "crit_taken_reduction");
+                    context.TargetId, _options.CritTakenReductionStats, context.SourceKind, steps, "crit_taken_reduction");
                 var chance = Math.Max(0.0, baseChance - critTakenReduction);
                 var roll = _rng.Next(_options.RngStream);
                 isCrit = roll < chance;
@@ -421,45 +416,67 @@ namespace Core.Rules.Combat
         }
 
         // -----------------------------------------------------------------
-        // T-N1-7：步骤 1（被暴击减免介入暴击率）与步骤 6（目标乘区）共用的按类别/作用域扫描
+        // T-N1-7：步骤 1（被暴击减免介入暴击率）与步骤 6（目标乘区）共用的按显式 id 清单 + 作用域求和
         // -----------------------------------------------------------------
 
         /// <summary>
         /// T-N1-7（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
-        /// 决策 5；06 第 4.1 节 2026-09-14 修订段）："目标乘区"（承伤）与"被暴击减免"两处共用的扫描
-        /// 逻辑：经 <see cref="IStatHost.GetDefinitionIdsByCategory"/> 取 <paramref name="category"/>
-        /// 类别下全部属性定义 id（已按 <see cref="Id"/> 序数字符串序排序，遍历顺序确定），逐条：
-        /// (1) 若等于 <paramref name="excludeStat"/> 则跳过——避免与既有单属性配置项
-        /// （<see cref="CombatOptions.DamageTakenPctStat"/>）重复计入，被暴击减免调用处无此顾虑，传
-        /// <c>null</c>；(2) 经 <see cref="IStatHost.GetScope"/> 读取该属性的作用域，按
-        /// <see cref="ScopeMatches"/> 与 <paramref name="sourceKind"/> 匹配，不匹配则跳过（单机下
-        /// <c>scope: from_player</c> 的属性对 <see cref="SourceKind.Creature"/>/
-        /// <see cref="SourceKind.Unknown"/> 来源恒不匹配，零成本退化，见 <see cref="SourceKind"/>
-        /// 类型判断记录）；(3) 匹配的属性对 <paramref name="targetId"/> 求最终值（<see cref="GetStatSafe"/>，
-        /// 缺失按 0 处理）累加求和。<paramref name="label"/> 只用于 <paramref name="steps"/> 追踪日志
-        /// 前缀，不影响计算结果。
+        /// 决策 5；06 第 4.1 节 2026-09-14 修订段）：目标乘区实际读取的属性 id 集合 =
+        /// <c>{CombatOptions.DamageTakenPctStat} ∪ CombatOptions.DamageTakenPctStats</c>，按首次
+        /// 出现顺序去重（<see cref="CombatOptions.DamageTakenPctStat"/> 恒排在最前）——保证既有单
+        /// 属性配置项即便也被显式列进 <see cref="CombatOptions.DamageTakenPctStats"/>，也只计入
+        /// 一次（见该属性判断记录）。
+        /// </summary>
+        private IReadOnlyList<Id> BuildDamageTakenStatIds()
+        {
+            var seen = new HashSet<Id>();
+            var result = new List<Id>();
+
+            if (seen.Add(_options.DamageTakenPctStat))
+            {
+                result.Add(_options.DamageTakenPctStat);
+            }
+
+            var extra = _options.DamageTakenPctStats;
+            for (int i = 0; i < extra.Count; i++)
+            {
+                if (seen.Add(extra[i]))
+                {
+                    result.Add(extra[i]);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// T-N1-7（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+        /// 决策 5；06 第 4.1 节 2026-09-14 修订段；复核返工：撤回"按 <c>stat.definition.category</c>
+        /// 批量扫描"的首版实现——ADR-0030 决策 9 把护甲也归入 <c>defense</c> 类别，类别扫描会把
+        /// 护甲原始数值误当百分比计入目标乘区；改为本"显式 id 清单"）："目标乘区"（承伤）与"被暴击
+        /// 减免"两处共用的求和逻辑：遍历调用方显式给出的 <paramref name="statIds"/>（见
+        /// <see cref="BuildDamageTakenStatIds"/>/<see cref="CombatOptions.CritTakenReductionStats"/>），
+        /// 逐条经 <see cref="IStatHost.GetScope"/> 读取该属性的作用域，按 <see cref="ScopeMatches"/>
+        /// 与 <paramref name="sourceKind"/> 匹配，不匹配则跳过（单机下 <c>scope: from_player</c> 的
+        /// 属性对 <see cref="SourceKind.Creature"/>/<see cref="SourceKind.Unknown"/> 来源恒不匹配，
+        /// 零成本退化，见 <see cref="SourceKind"/> 类型判断记录）；匹配的属性对
+        /// <paramref name="targetId"/> 求最终值（<see cref="GetStatSafe"/>，缺失按 0 处理）累加求和。
+        /// <paramref name="label"/> 只用于 <paramref name="steps"/> 追踪日志前缀，不影响计算结果。
         /// </summary>
         private double SumScopedStats(
-            Id targetId, string category, SourceKind sourceKind, Id? excludeStat, List<string> steps, string label)
+            Id targetId, IReadOnlyList<Id> statIds, SourceKind sourceKind, List<string> steps, string label)
         {
-            var ids = _stats.GetDefinitionIdsByCategory(category);
             double sum = 0.0;
 
-            if (ids.Count == 0)
+            if (statIds.Count == 0)
             {
-                steps.Add($"{label}: category=\"{category}\" 无匹配属性定义，sum=0");
+                steps.Add($"{label}: 未配置任何属性 id，sum=0");
                 return sum;
             }
 
-            for (int i = 0; i < ids.Count; i++)
+            for (int i = 0; i < statIds.Count; i++)
             {
-                var statId = ids[i];
-                if (excludeStat.HasValue && statId.Equals(excludeStat.Value))
-                {
-                    steps.Add($"{label}: stat={statId} 与既有单属性配置项重复，跳过");
-                    continue;
-                }
-
+                var statId = statIds[i];
                 var scope = _stats.GetScope(statId);
                 if (!ScopeMatches(scope, sourceKind))
                 {

@@ -200,7 +200,7 @@ namespace Tests.Rules.Combat
             ""table"": ""stat.definition"",
             ""schema_version"": 1,
             ""rows"": [
-                { ""id"": ""stat.armor"", ""name_key"": ""l10n.stat.armor.name"", ""group"": ""secondary"", ""default_base"": 0 },
+                { ""id"": ""stat.armor"", ""name_key"": ""l10n.stat.armor.name"", ""category"": ""defense"", ""default_base"": 0 },
                 { ""id"": ""stat.damage_done_pct"", ""name_key"": ""l10n.stat.damage_done_pct.name"", ""group"": ""secondary"", ""default_base"": 0 },
                 { ""id"": ""stat.damage_taken_pct"", ""name_key"": ""l10n.stat.damage_taken_pct.name"", ""group"": ""secondary"", ""default_base"": 0 },
                 { ""id"": ""stat.healing_done_pct"", ""name_key"": ""l10n.stat.healing_done_pct.name"", ""group"": ""secondary"", ""default_base"": 0 },

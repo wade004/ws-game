@@ -18,7 +18,7 @@
 combat/
   README.md
   contracts/
-    CombatOptions.cs        构造期策略配置（命中表 id、属性 id 引用、系数、脱战时长、仇恨上限、死亡策略、结算追踪回调、T-N1-7 目标乘区/被暴击减免扫描类别）
+    CombatOptions.cs        构造期策略配置（命中表 id、属性 id 引用、系数、脱战时长、仇恨上限、死亡策略、结算追踪回调、T-N1-7 目标乘区/被暴击减免显式属性 id 清单）
     ICombatDiagnostics.cs   最小诊断出口
   core/
     HitTableConfig.cs        combat.hit_table_config 强类型视图
@@ -218,47 +218,51 @@ combat/
 
 18. **T-N1-7（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
     决策 5；06 第 4.1 节 2026-09-14 修订段）：目标乘区按 `scope` 匹配 `sourceKind` 遍历减免属性、
-    新增被暴击减免介入点、`CombatOptions.DamageTakenPctStat` 改按类别筛选**——九步结算的"目标
-    乘区"与"暴击"两步内部实现调整，**固定九步顺序本身不变**：
-    - **"目标乘区"步骤（步骤 6）**：此前只读取 `CombatOptions.DamageTakenPctStat` 一条属性；
-      现在额外经 `IStatHost.GetDefinitionIdsByCategory(CombatOptions.DamageTakenCategory)`
-      （T-N1-7 新增，`IStatHost` 默认接口成员，`StatHost` 侧显式实现，见
-      `core/numbers/stat_block/README.md`"T-N1-7"一节）取该类别下全部属性定义，逐条经
-      `IStatHost.GetScope`（同批新增）按 `ScopeMatches` 与 `EffectContext.SourceKind` 匹配
+    新增被暴击减免介入点、`CombatOptions.DamageTakenPctStat` 改按显式属性 id 清单筛选**——九步
+    结算的"目标乘区"与"暴击"两步内部实现调整，**固定九步顺序本身不变**：
+    - **偏离计划原文的说明（复核返工，2026-09-14）**：任务表原文写"`CombatOptions.
+      DamageTakenPctStat` 改为按类别筛选"，首版实现据此按 `stat.definition.category` 批量扫描
+      （`IStatHost.GetDefinitionIdsByCategory`，默认扫描类别 `"defense"`）。复核裁定该实现有
+      严重缺陷并打回：ADR-0030 决策 9 明确把"护甲"归入 `defense` 推荐分类，一旦游戏内容按此
+      分类登记护甲属性，类别扫描会把护甲的原始数值（如 300）当成"目标承伤 +300%"误计入目标
+      乘区——不是"两个新扫描角色共享同一默认类别、可能重复计入"这种可以事后靠改配置规避的边界
+      情形，而是默认配置本身与 ADR 推荐分类直接冲突，真实护甲数据一接入就错。返工改为**显式
+      属性 id 清单**：`CombatOptions` 新增 `DamageTakenPctStats`/`CritTakenReductionStats`
+      （均 `IReadOnlyList<Id>`，默认空列表），识别"哪些属性属于目标承伤减免/被暴击减免角色"由
+      结算配置显式列出 id，不再由某个 `category` 取值批量圈定；`IStatHost.GetDefinitionIdsByCategory`
+      已撤回（未发布，直接删除，不留废弃占位）。06 第 4.1 节修订段与 ADR-0030 决策 5 原文只规定
+      "目标乘区步骤按 scope 匹配读取减免属性"，未规定用类别还是显式清单圈定候选集合——两种实现
+      都不违反契约文字，但显式清单不会把内容作者按 ADR 推荐分类登记的既有属性（护甲、抗性等）
+      误吸收进来，风险更低，因此改判显式清单为最终实现，不再是"待设计层确认"的候选之一。
+    - **"目标乘区"步骤（步骤 6）**：此前只读取 `CombatOptions.DamageTakenPctStat` 一条属性、且
+      不经 `scope` 过滤；现在实际读取的属性集合 = `{DamageTakenPctStat} ∪ DamageTakenPctStats`
+      （`Resolver.BuildDamageTakenStatIds` 按首次出现顺序去重，`DamageTakenPctStat` 恒排最前，
+      同一 id 出现在两处只计入一次），逐条经 `IStatHost.GetScope`（T-N1-7 新增 `IStatHost` 默认
+      接口成员，`StatHost` 侧显式实现）按 `ScopeMatches` 与 `EffectContext.SourceKind` 匹配
       （`any` 恒匹配；`from_player` 仅 `SourceKind.Player`；`from_creature` 仅
-      `SourceKind.Creature`）过滤，命中的对目标单位求最终值累加。`DamageTakenPctStat` 与该
-      求和结果**相加**后一次性应用（`amount *= 1 + (targetPct + scopedPct) / 100`）——不是
-      "非空则只用它"的二选一：`Resolver` 对新扫描结果显式排除 `DamageTakenPctStat` 自身的 id，
-      避免同一属性被算两次；既有内容数据从未给任何属性配置过
-      `category == DamageTakenCategory`（默认 `"defense"`），新扫描结果恒为空集合，既有
-      回放基线/`ResolverHitTableTests.Resolve_FullChain_MatchesHandCalculatedValue`（184.8/
-      134.8）逐位不变。
-    - **被暴击减免新介入点**：命中表"暴击"分支取样（`IRngHost.Next`）之前，同样经
-      `CombatOptions.CritTakenReductionCategory`（默认同为 `"defense"`）扫描 scope 匹配的
-      属性求和，从 `ResolveChance(table.Crit, sourceId) + crit_chance_bonus` 里扣减，
-      `Math.Max(0.0, ...)` 下限夹取到 0——不改变 RNG 流 id（仍是 `CombatOptions.RngStream`），
-      不改变取样次数（只影响取样前 `chance` 的数值本身，disabled 分支本就不取样，见
-      `Resolver.RollBranch`）。既有内容数据同样不存在该类别的属性，扫描默认零命中，暴击判定
-      既有行为不变。
-    - **判断记录（契约疑点，如实上报）**：`DamageTakenCategory`/`CritTakenReductionCategory`
-      默认值都是 `"defense"`——`stat.definition.category` 只有五个合法枚举值
-      （`primary/derived/percent/defense/misc`），06 第 4.1 节修订段与 ADR-0030 决策 5 只规定
-      "按 scope 匹配读取减免属性"，未规定用哪个既有 category 值筛选候选集合，也没有给"目标承伤
-      减免"与"被暴击减免"两种新扫描角色各自独立的分类位；逐一核对 `data/_sample`/
-      `games/_template`/本模块与 Replay 测试夹具后，`defense` 是唯一确认零占用的取值（其余四个
-      均已被既有内容以不同方式占用，包括 Replay 夹具自身的既有属性——若拿其中任一个做默认值都会
-      直接污染既有回放基线），因此两个新扫描类别目前只能共享同一个安全默认值：若某个游戏同时
-      使用两种减免机制且都沿用默认类别，一条属性落在 `defense` 类别下会被两个扫描各计入一次（详细
-      理由与后续处理建议见 `contracts/CombatOptions.cs` 的 `CritTakenReductionCategory` 属性
-      判断记录）。本任务未改动 `stat.definition.category` 枚举本身（那是 ADR-0030 决策 1 已拍板的
-      集合，扩展需要走 `architecture/12_扩展与变更流程.md` 的 ADR 流程），只如实记录这一限制，
-      供后续任务/ADR 视需要处理。
-    - **`IStatHost` 新增两个 C#8 默认接口成员**（`GetDefinitionIdsByCategory(string category)`
-      恒空列表、`GetScope(Id stat)` 恒 `"any"`）：理由同 `IUnitAccess.GetSourceKind`/
-      `GetMapId`（T-N1-6 先例）——本接口已有多个模块的测试假实现，默认值保证它们不必跟着改也能
-      继续编译，默认实现下两个新扫描机制天然退化为空集合，等价于"新机制未生效"。仅 `StatHost`
-      （生产实现）显式覆盖，`Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests`
-      门禁已验证无遗漏转发。
+      `SourceKind.Creature`）过滤，命中的对目标单位求最终值累加，求和结果一次性应用
+      （`amount *= 1 + Σ / 100`）。既有内容数据从未给 `stat.damage_taken_pct` 登记过 `scope`
+      字段（`GetScope` 对未登记属性缺省返回 `"any"`，恒匹配），`DamageTakenPctStats` 默认空
+      列表，因此新逻辑对既有内容是恒等变换，回放基线/
+      `ResolverHitTableTests.Resolve_FullChain_MatchesHandCalculatedValue`（184.8/134.8）
+      逐位不变；`ResolverScopedReductionTests.TargetMultiplier_ArmorWithDefenseCategory_
+      NotInList_NotAppliedToTargetMultiplier` 钉住"护甲即便是 `defense` 类别、数值很大，未被
+      显式列进清单就不计入目标乘区"这一修复点。
+    - **被暴击减免新介入点**：命中表"暴击"分支取样（`IRngHost.Next`）之前，遍历
+      `CombatOptions.CritTakenReductionStats`（默认空列表）逐条经 `IStatHost.GetScope` 按
+      `ScopeMatches` 过滤后求和，从 `ResolveChance(table.Crit, sourceId) + crit_chance_bonus`
+      里扣减，`Math.Max(0.0, ...)` 下限夹取到 0——不改变 RNG 流 id（仍是
+      `CombatOptions.RngStream`），不改变取样次数（只影响取样前 `chance` 的数值本身，disabled
+      分支本就不取样，见 `Resolver.RollBranch`）。默认空列表，既有内容数据/回放基线不受影响。
+    - **`IStatHost` 变更**：新增 `GetScope(Id stat)` 默认接口成员（恒 `"any"`，`StatHost` 侧
+      显式实现）；首版新增的 `GetDefinitionIdsByCategory(string category)` 在本次返工已撤回
+      （从未发布，直接删除签名，不留废弃占位——G3 ABI 门禁"只能新增"的约束只适用于已发布的公开
+      契约，本任务在 `StatHost` 侧的实现细节改动不构成对外破坏性变更，`toolchain/abi_probe.ps1`
+      对已发布基线 `breaks=0`）。理由同 `IUnitAccess.GetSourceKind`/`GetMapId`（T-N1-6
+      先例）——本接口已有多个模块的测试假实现，默认值保证它们不必跟着改也能继续编译，默认实现
+      下新介入点天然退化为空列表、零命中，等价于"新机制未生效"。仅 `StatHost`（生产实现）显式
+      覆盖，`Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests` 门禁已验证无
+      遗漏转发。
 
 ## 契约缺口 / 未决问题
 
@@ -271,11 +275,6 @@ combat/
 - `combat.resist_curve` 没有"同一 school 多条曲线覆盖策略"的显式规定，本模块按"后加载覆盖先
   加载"处理（见 `CombatDataLoader` 注释），不阻断构造；如果需要阻断，应改为在
   `CombatResistCurveValidationRule` 里新增"同 school 重复"检查项。
-- **T-N1-7**：`CombatOptions.DamageTakenCategory`/`CritTakenReductionCategory` 目前共享同一个
-  默认值 `"defense"`（判断记录 18）——`stat.definition.category` 五值枚举没有给"目标承伤减免"
-  与"被暴击减免"两个新扫描角色留独立分类位，若游戏内容需要两者互不干扰，需要显式把其中一个
-  改配置成别的类别值（并自行保证不与该类别下既有内容语义冲突），或等待后续 ADR 视需要给
-  `stat.definition` 增加更细的分类字段/维度。
 
 ## 不负责什么
 

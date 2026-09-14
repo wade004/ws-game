@@ -403,22 +403,26 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   测试替身之外的场景）建议按同一判定依据覆盖 `GetSourceKind`，否则 `scope: from_player`/
   `scope: from_creature` 两类属性对该实现的单位一律不生效（`scope: any` 不受影响）。
 - **数值设计落地阶段 N1 · T-N1-7（目标乘区按 `scope` 匹配 `sourceKind` 遍历减免属性、被暴击减免
-  新介入点、`CombatOptions.DamageTakenPctStat` 改按类别筛选，
+  新介入点、`CombatOptions.DamageTakenPctStat` 改按显式属性 id 清单筛选，
   [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md) 第 14 节；
   [ADR-0030](architecture/adr/0030-属性系统派生换算与来源类别.md) 决策 5；06 第 4.1 节
-  2026-09-14 修订段）**：`Core.Numbers.StatBlock.IStatHost` 新增两个默认接口成员
-  `GetDefinitionIdsByCategory(string category)`（恒空列表）/`GetScope(Id stat)`（恒
-  `"any"`），`StatHost` 侧显式实现（按加载期解析的 `stat.definition.category`/`scope` 返回
-  真实值，`LoadDefinitions` 补上此前一直未消费的 `scope` 字段解析）。`core/rules/combat.Resolver`
-  "目标乘区"步骤（九步结算步骤 6，顺序不变）改为：既有 `CombatOptions.DamageTakenPctStat` 与
-  新增 `CombatOptions.DamageTakenCategory`（默认 `"defense"`）扫描出的 scope 匹配属性求和后
-  一次性应用；命中表"暴击"分支取样前新增介入点——`CombatOptions.CritTakenReductionCategory`
-  （默认同为 `"defense"`）扫描出的 scope 匹配属性求和后从暴击率里扣减，下限 0，不改变 RNG 流
-  id/取样次数。既有内容数据未给任何属性配置该默认类别，新扫描机制零命中，回放与 Perf 基线零
-  变化。**已知限制（契约疑点，详见 `core/rules/combat/README.md`"T-N1-7"判断记录与
-  `contracts/CombatOptions.cs`）**：`stat.definition.category` 五值枚举里 `defense` 是唯一
-  确认与既有内容零冲突的取值，两个新扫描类别目前只能共享同一个默认值——同时使用两种减免机制的
-  游戏需要显式把其中一个改配置成别的类别值。
+  2026-09-14 修订段）**：`Core.Numbers.StatBlock.IStatHost` 新增默认接口成员
+  `GetScope(Id stat)`（恒 `"any"`），`StatHost` 侧显式实现（按加载期解析的
+  `stat.definition.scope` 返回真实值，`LoadDefinitions` 补上此前一直未消费的 `scope` 字段
+  解析）。`core/rules/combat.CombatOptions` 新增 `DamageTakenPctStats`/`CritTakenReductionStats`
+  （均 `IReadOnlyList<Id>`，默认空列表）。`core/rules/combat.Resolver`"目标乘区"步骤（九步结算
+  步骤 6，顺序不变）改为：实际读取的属性集合 = `{DamageTakenPctStat} ∪ DamageTakenPctStats`
+  （去重，同一 id 只计入一次），逐条经 `scope` 与 `sourceKind` 匹配后求和，一次性应用；命中表
+  "暴击"分支取样前新增介入点——遍历 `CritTakenReductionStats`，同样按 `scope` 过滤后求和，从
+  暴击率里扣减，下限 0，不改变 RNG 流 id/取样次数。两个新清单默认均为空列表，既有内容数据/
+  回放/Perf 基线零变化。
+  **偏离计划原文的说明（复核返工，同一批次内完成，未发布）**：任务表原文"改按类别筛选"的首版
+  实现按 `stat.definition.category` 批量扫描（新增 `IStatHost.GetDefinitionIdsByCategory`，
+  默认扫描类别 `"defense"`）；复核指出该实现与 ADR-0030 决策 9 的推荐分类冲突——护甲被推荐归入
+  `defense` 类别，类别扫描会把护甲原始数值误当百分比计入目标乘区，真实内容一接入即错，比"两个
+  新扫描角色共享默认类别可能重复计入"更严重，判定打回返工。现改为本条目描述的"显式 id 清单 +
+  `scope` 过滤"，`GetDefinitionIdsByCategory` 已撤回（从未发布，直接删除签名）。详见
+  `core/rules/combat/README.md` 判断记录 18、`core/numbers/stat_block/README.md`"T-N1-7"一节。
 
 MINOR 版本：数值设计落地阶段 N0"横切前置"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)
 第 6 节，T-N0-1～T-N0-8）——建立通用曲线契约（04 第 3.6 节曲线形态登记 + 公共插值工具）、校验规则元数据

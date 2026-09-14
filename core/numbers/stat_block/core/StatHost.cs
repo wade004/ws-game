@@ -708,33 +708,13 @@ namespace Core.Numbers.StatBlock
         }
 
         /// <summary>
-        /// T-N1-7（<see cref="IStatHost.GetDefinitionIdsByCategory"/> 判断记录）：真正接入内容数据的
-        /// 实现——遍历 <see cref="_definitions"/>，按 <see cref="StatDefinition.Category"/> 等值匹配，
-        /// 结果按 <see cref="Id"/> 序数字符串序排序后返回（不依赖 <see cref="Dictionary{TKey,TValue}"/>
-        /// 的枚举顺序，同 <see cref="_topoOrder"/> 构建时"候选集合用 <see cref="SortedSet{T}"/>"同一
-        /// 确定性惯例）。<paramref name="category"/> 大小写敏感、按字面值比较——同
-        /// <see cref="ComputeFinal"/> 判断 <c>def.Category == "defense"</c>/<c>"percent"</c> 的既有
-        /// 风格，不做大小写归一化（<c>stat.definition.category</c> 是受限枚举，内容校验已保证取值
-        /// 落在 <see cref="StatSchemas.CategoryValues"/> 之内）。
-        /// </summary>
-        public IReadOnlyList<Id> GetDefinitionIdsByCategory(string category)
-        {
-            var result = new List<Id>();
-            foreach (var kv in _definitions)
-            {
-                if (kv.Value.Category == category)
-                {
-                    result.Add(kv.Key);
-                }
-            }
-            result.Sort();
-            return result;
-        }
-
-        /// <summary>
-        /// T-N1-7（<see cref="IStatHost.GetScope"/> 判断记录）：真正接入内容数据的实现——属性已登记
-        /// 时返回其 <see cref="StatDefinition.Scope"/>（加载期已从 <c>stat.definition.scope</c> 解析，
-        /// 缺省 <c>"any"</c>，见 <see cref="LoadDefinitions"/>）；未登记（<paramref name="stat"/> 不在
+        /// T-N1-7（<see cref="IStatHost.GetScope"/> 判断记录；复核返工撤回了同批次曾经新增的
+        /// <c>GetDefinitionIdsByCategory</c>——类别扫描会把 ADR-0030 决策 9 里同属 <c>defense</c>
+        /// 类别的护甲值当成百分比误计入目标乘区，识别"减免属性"改由
+        /// <c>Core.Rules.Combat.CombatOptions</c> 显式列出 id 清单，本方法保留、继续按属性 id
+        /// 查询）：真正接入内容数据的实现——属性已登记时返回其 <see cref="StatDefinition.Scope"/>
+        /// （加载期已从 <c>stat.definition.scope</c> 解析，缺省 <c>"any"</c>，见
+        /// <see cref="LoadDefinitions"/>）；未登记（<paramref name="stat"/> 不在
         /// <see cref="_definitions"/> 中）时同样返回 <c>"any"</c>——不抛异常，同接口成员判断记录
         /// "缺省 any 与属性缺失不需要调用方区分"。
         /// </summary>
