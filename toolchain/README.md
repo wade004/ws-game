@@ -670,3 +670,57 @@ DLL：两者均 `breaks=0`（1.12.0 additions=275，1.13.0 additions=186；未�
 场景的手写消费方探针第 1 点因 consumer 源码只锚定 `abi_probe_baseline.txt` 记录的 1.12.0 签名
 集合，对 1.13.0 编译会失败，这是既有已知边界，与本次 dump/compare 覆盖范围扩充无关，不在本次
 改动范围——1.13.0 只跑 dump/compare 两份基线 DLL，不跑消费方探针）。
+
+## Unity 测试结果分诊（`unity_test_triage.py`，排查复盘 2026-09-15 落地）
+
+背景见 `architecture/落地计划/排查复盘-2026-09-15-PlayMode-PRES180.md`：一次 PlayMode
+全量门禁稳定失败排查耗时约 3.5 小时、约 156 万 token，其中很大一块耗在"没有工具把失败用例对应
+的日志片段与首个异常抽出来，只能整段读 `playmode.log`"（十几千行）。本脚本补上这一环，输入
+NUnit3 结果 XML（`playmode.xml`/`editmode.xml`）与对应 Unity 日志（`playmode.log`/
+`editmode.log`），输出：
+
+- 汇总（`total`/`passed`/`failed`/`skipped`/`inconclusive`）；
+- 每个失败用例的 NUnit message/stack-trace；
+- 用例在日志里的执行窗口片段（见下方"定位方式"）；
+- 窗口内按行号顺序排列的疑似异常/断言行——**并显式提醒**：NUnit 结果 XML 里的
+  message/stack-trace 只是该用例抛出的**最后一次**异常（`UnityLogCheckDelegatingCommand` 在
+  断言异常之后仍会跑 `CheckLogs`，见复盘文档），窗口内更早出现的一条才是第一现场；
+- 窗口内 Warning/Error 行摘要（按文本去重计数）。
+
+用法：
+
+```
+python toolchain/unity_test_triage.py --xml <path/to/playmode.xml> --log <path/to/playmode.log>
+python toolchain/unity_test_triage.py --xml ... --log ... --json
+python toolchain/unity_test_triage.py --xml ... --log ... --max-lines 60
+```
+
+返回码：`0` 结果 XML 里没有失败用例；`1` 至少一个失败用例（诊断信息的退出码，不代表脚本本身
+出错）；`2` 命令行参数错误（输入文件不存在/XML 解析失败）。
+
+**用例窗口定位方式（四级回退，见脚本文件头判断记录）**：实测本仓库 Unity 6000.3.23f1 批处理
+`-runTests` 跑出的日志**没有**任何逐用例起止标记，甚至连用例名/类名都不会被打印。定位因此按
+以下顺序回退：
+
+1. `test_first_chance`——若测试程序集里已接入 `[TestFirstChance]` 回调（见 `adapters/unity`
+   下的实现，本工具与之配套设计），直接用该行精确定位，最可靠；
+2. `name_fallback`——退化为在日志里搜索用例全名/方法名的**首次出现位置**，按各用例找到的行号
+   排序切窗口，是近似值；
+3. `message_fallback`——再退化为用 NUnit message 里一段原文去日志里找可能相关的行，**不保证**
+   属于该用例窗口；
+4. `not_found`——以上都找不到时，如实说明，Warning/Error 摘要与异常扫描退化为整份日志范围
+   （报告里会明确标注"可能混入其它用例的内容"）。
+
+已知限制：在本仓库真实产出的历史 `playmode.log`（未接入 `[TestFirstChance]` 回调时）上实测，
+`PRES180` 一类失败用例会一路退化到 `not_found`——这正是本工具单独存在时的准确性上限，也是
+仍要在测试程序集里补一份 `[TestFirstChance]` 回调（复盘文档 C 部分）的原因：日志里没有任何
+可供第三方脚本识别的用例边界信号，唯一可靠的办法是从测试进程内部主动打点。
+
+已接入 `check.ps1`："Unity EditMode 测试"/"Unity PlayMode 测试" 两步判定失败（NUnit 结果 XML
+根节点 `result` 非 `Passed`）时自动调用本脚本，把报告打进门禁日志；成功分支不调用、不多打印。
+找不到 `python` 或分诊脚本自身报错只告警，不改变 Unity 步骤本身的 Ok/Detail 判定（诊断辅助，
+不是新的把关点）。
+
+回归测试：`toolchain/tests/test_unity_test_triage.py`（内嵌最小 XML+log 夹具，核心用例还原
+"最后异常覆盖首个断言"场景，断言分诊脚本把更早出现的 `AssertionException` 排在
+`UnexpectedLogMessageException`/`Expected log did not appear` 之前）。

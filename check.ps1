@@ -1144,6 +1144,40 @@ function Resolve-UnityExe {
     return "Unity.exe"
 }
 
+# 排查复盘 2026-09-15 落地（architecture/落地计划/排查复盘-2026-09-15-PlayMode-PRES180.md）：
+# Unity EditMode/PlayMode 测试步骤判定为失败时，自动跑一遍 toolchain/unity_test_triage.py，
+# 把失败用例对应的日志窗口片段、窗口内首个异常/断言、Warning/Error 摘要打进本脚本的日志
+# （Write-Host 输出会被 Start-Transcript 的 -LogFile 转写、以及控制台原样录下，不需要额外
+# 落盘）。只在失败分支调用（调用点见下方 EditMode/PlayMode 两步），成功时不多打印一行。
+#
+# 判断记录：本工具是诊断辅助，不是新的把关点——找不到 python、分诊脚本自身报错，都只告警，
+# 不改变 Unity 步骤本身已经由 NUnit 结果 XML 算出的 Ok/Detail。调用前把 $ErrorActionPreference
+# 局部降级为 Continue，理由与 Test-NativeExitCode 判断记录一致（脚本作用域是 "Stop"，
+# python 写 stderr 会被提升成终止性异常，见该函数上方判断记录）。
+function Invoke-UnityTestTriageOnFailure {
+    param(
+        [string]$ResultsXml,
+        [string]$LogPath
+    )
+    $pythonCmd = Get-Command -Name "python" -CommandType Application -ErrorAction SilentlyContinue
+    if (-not $pythonCmd) {
+        Write-Host "[Unity 测试分诊] 未找到 python，跳过自动分诊（可手工运行：python toolchain/unity_test_triage.py --xml `"$ResultsXml`" --log `"$LogPath`"）" -ForegroundColor Yellow
+        return
+    }
+    Write-Host ""
+    Write-Host "--- Unity 测试分诊（toolchain/unity_test_triage.py，失败分支自动触发） ---" -ForegroundColor Yellow
+    $ErrorActionPreference = "Continue"
+    Push-Location $RepoRoot
+    try {
+        & python "toolchain/unity_test_triage.py" "--xml" $ResultsXml "--log" $LogPath | Out-Host
+    } catch {
+        Write-Host "[Unity 测试分诊] 运行分诊脚本本身出错（不影响门禁判定）：$($_.Exception.Message)" -ForegroundColor Yellow
+    } finally {
+        Pop-Location
+    }
+    Write-Host "--- Unity 测试分诊结束 ---" -ForegroundColor Yellow
+}
+
 if ($SkipUnity) {
     Add-SkippedStep "Unity 编译检查" "-SkipUnity"
     Add-SkippedStep "Unity EditMode 测试" "-SkipUnity"
@@ -1195,8 +1229,12 @@ if ($SkipUnity) {
         # 但进程退出码仍为 0"的已知情况，不能只信退出码）。
         [xml]$xml = Get-Content -Path $resultsXml -Raw
         $root = $xml.DocumentElement
+        $editModeOk = ($root.result -eq "Passed")
+        if (-not $editModeOk) {
+            Invoke-UnityTestTriageOnFailure -ResultsXml $resultsXml -LogPath $log
+        }
         [PSCustomObject]@{
-            Ok     = ($root.result -eq "Passed")
+            Ok     = $editModeOk
             Detail = "total=$($root.total) passed=$($root.passed) failed=$($root.failed)"
         }
     }
@@ -1222,8 +1260,12 @@ if ($SkipUnity) {
         [xml]$xml = Get-Content -Path $resultsXml -Raw
         $root = $xml.DocumentElement
         # H5 新增：除根节点 result 外，把 total/passed/failed 计数写进汇总表 Detail 列。
+        $playModeOk = ($root.result -eq "Passed")
+        if (-not $playModeOk) {
+            Invoke-UnityTestTriageOnFailure -ResultsXml $resultsXml -LogPath $log
+        }
         [PSCustomObject]@{
-            Ok     = ($root.result -eq "Passed")
+            Ok     = $playModeOk
             Detail = "total=$($root.total) passed=$($root.passed) failed=$($root.failed)"
         }
     }

@@ -230,6 +230,9 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+新增 `toolchain/unity_test_triage.py`：Unity EditMode/PlayMode 测试结果分诊脚本，从 NUnit3 结果 XML 与 Unity 日志里抽出失败用例的执行窗口、窗口内首个异常/断言（并提醒 NUnit message 只是最后一次异常）与 Warning/Error 摘要；已接入 `check.ps1` 失败分支自动调用（排查复盘 2026-09-15-PlayMode-PRES180）。
+新增 Unity 测试程序集内的 `[TestFirstChance]` 首个异常记录回调：测试运行期把每个断言/未预期日志异常的第一现场打进 Unity 日志，与上条分诊脚本配套，弥补 Unity 批处理日志不打印用例边界与异常发生时机的已知限制。
+
 ## [1.31.0] - 2026-09-14
 
 MINOR 版本：数值设计落地阶段 N1"属性"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 7/14 节，T-N1-1～T-N1-10）——落地 ADR-0030 全部决策：属性类别与派生两轮聚合、
