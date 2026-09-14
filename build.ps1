@@ -586,10 +586,23 @@ $StreamingAssetsRoot = Join-Path $RepoRoot "adapters\unity\Assets\StreamingAsset
 # 删除哪些残留文件）取全部源目录相对路径的并集；多个源目录出现同名相对路径时，按数组顺序
 # 后列源目录覆盖前者（内容以后列为准）并打印警告——调用方按"优先级从低到高"的顺序传入。
 # 单个源目录不存在时照旧跳过它（不影响其余源目录正常同步）；全部源目录都不存在则整体跳过。
+# $ExcludeExtensions（可选）：跳过指定扩展名的源文件，不拷贝进目标目录；目标目录里若已存在
+# 同名残留文件仍会按下方"镜像删除"逻辑清掉（因为它们不在 keepRelative 里）。默认空数组，不改变
+# 其它调用方行为。
+# 判断记录（games/_template/data/game -> StreamingAssets/data/game 同步排除 .meta，2026-09-14）：
+# games/_template 同时以 Unity 本地包形式挂进 adapters/unity/Packages/manifest.json
+# （file:../../../games/_template），又被本函数整份 data/game（含 .meta）镜像进
+# StreamingAssets/GameFoundation/data/game——同一批 .meta 里记录的 guid 在同一个 Unity 工程里
+# 出现两次（包内一份 + StreamingAssets 副本一份），Unity 重新导入时会把其中一份的 guid 改写掉，
+# 写回的是 games/_template 源码库里的 .meta（源文件），导致发布自检报 git dirty（见
+# 2026-09-14 修复 1.30.0 半途发布提交的事故记录）。data/_framework、data/_sample、
+# assets/_placeholder 源目录本身没有 .meta 文件，不受影响，因此只给 games/_template/data/game
+# 这一次调用传 -ExcludeExtensions @('.meta')，不做函数级统一排除，避免误伤其它调用方语义。
 function Sync-ContentTree {
     param(
         [string[]]$SourceDirs,
-        [string]$DestDir
+        [string]$DestDir,
+        [string[]]$ExcludeExtensions = @()
     )
 
     $resolvedSources = @()
@@ -616,6 +629,9 @@ function Sync-ContentTree {
     foreach ($resolvedSource in $resolvedSources) {
         $sourceFiles = Get-ChildItem -Path $resolvedSource -Recurse -File
         foreach ($file in $sourceFiles) {
+            if ($ExcludeExtensions -contains $file.Extension) {
+                continue
+            }
             $relative = $file.FullName.Substring($resolvedSource.Length).TrimStart('\', '/')
             if ($keepRelative.Contains($relative)) {
                 Write-Host ("  警告：多个源目录都提供了相对路径 '{0}'，以后列源目录为准（当前来自 '{1}'）" -f $relative, $resolvedSource) -ForegroundColor Yellow
@@ -652,8 +668,22 @@ Write-Host ("  data/_sample -> StreamingAssets/GameFoundation/data/_sample：共
 # 供 games/_template/Runtime/GameBootstrap.cs 的 PlayMode 测试（在工作台里跑，见
 # games/_template/Tests/Runtime）默认 GameOptions（_gameDatasetRoot = "data/game"）能找到数据；
 # 与 data/_framework、data/_sample 同一治理方式（构建期产物、gitignore，不进源码库）。
-$templateDataSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "games\_template\data\game")) -DestDir (Join-Path $StreamingAssetsRoot "data\game")
-Write-Host ("  games/_template/data/game -> StreamingAssets/GameFoundation/data/game（模板自带最小数据集，供模板 PlayMode 测试使用）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $templateDataSyncResult.Total, $templateDataSyncResult.Copied, $templateDataSyncResult.Skipped, $templateDataSyncResult.Removed)
+$templateDataSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "games\_template\data\game")) -DestDir (Join-Path $StreamingAssetsRoot "data\game") -ExcludeExtensions @('.meta')
+Write-Host ("  games/_template/data/game -> StreamingAssets/GameFoundation/data/game（模板自带最小数据集，供模板 PlayMode 测试使用；.meta 不拷贝，见 Sync-ContentTree 判断记录，避免与 games/_template 本地包在同一 Unity 工程里 guid 重复被改写）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $templateDataSyncResult.Total, $templateDataSyncResult.Copied, $templateDataSyncResult.Skipped, $templateDataSyncResult.Removed)
+
+# 回归门禁（2026-09-14 新增，配合上面 -ExcludeExtensions @('.meta') 的根治）：StreamingAssets/data/game
+# 下不允许出现任何 .meta 文件——一旦以后有人改动本函数调用或 Sync-ContentTree 本身导致 .meta 又被
+# 同步进来，这里必须立刻报错退出，而不是等到 Unity 悄悄改写 games/_template 源码库里的 .meta guid、
+# 下一次发布再报 git dirty 才被发现。
+$templateDataGameDir = Join-Path $StreamingAssetsRoot "data\game"
+if (Test-Path $templateDataGameDir) {
+    $leakedMetaFiles = Get-ChildItem -Path $templateDataGameDir -Recurse -Filter "*.meta" -File -ErrorAction SilentlyContinue
+    if ($leakedMetaFiles.Count -gt 0) {
+        Write-Host "自检失败：StreamingAssets/GameFoundation/data/game 下发现 $($leakedMetaFiles.Count) 个 .meta 文件（不应存在，见 games/_template/data/game 同步 -ExcludeExtensions 判断记录）：" -ForegroundColor Red
+        foreach ($leaked in $leakedMetaFiles) { Write-Host "  $($leaked.FullName)" -ForegroundColor Red }
+        exit 1
+    }
+}
 
 $placeholderMirrorResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "assets\_placeholder")) -DestDir (Join-Path $StreamingAssetsRoot "assets\_placeholder")
 Write-Host ("  assets/_placeholder -> StreamingAssets/GameFoundation/assets/_placeholder（整体镜像）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $placeholderMirrorResult.Total, $placeholderMirrorResult.Copied, $placeholderMirrorResult.Skipped, $placeholderMirrorResult.Removed)
