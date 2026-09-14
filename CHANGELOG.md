@@ -161,6 +161,12 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   类型 `CurveSchema`/`CurveAxis`/`CurveShape` 与工厂 `CurveSchema.BreakpointsField`/`SaturationField`；
   元数据门禁新增 `field_curve_shape`。编辑器若按字段元数据渲染曲线编辑控件，可据 `Curve` 识别
   曲线字段；`toolchain/validator --list-tables --json` 的 `field_meta` 导出随后续小任务补齐。
+- **数值设计落地 T-N0-2（Unreleased）**：`IValidationRule` 新增三个带默认实现的成员 `RuleId`/
+  `DefaultSeverity`/`NonEscalatable`（既有实现无需改动）；`ValidationIssue` 新增可选 `Group`/`Note`/
+  `RuleId`（新增九参数构造与 `WithRuleId`，既有六参数构造签名不变）；`ValidationReport` 新增
+  `Rules`（`ValidationRuleSummary` 列表）与 `NonEscalatableWarningCount`，`WarningsBlock` 下不可提升
+  规则的 Warning 不再计入 `IsBlocking`；`RegisterValidationRule` 按 `RuleId` 去重。编辑器问题面板
+  可据 `RuleId`/`Group`/`Note` 分组展示；`toolchain/validator` 报告字段随 T-N0-6 补齐。
 
 ## [Unreleased]
 
@@ -177,6 +183,16 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   （形态标记与字段种类/子结构相符）。04 新增第 3.6 节"曲线形态登记"与元数据门禁一行。既有曲线表
   一律未改动（T-N0-4/T-N0-5 迁移），加载期检查全部复用既有检查名。测试：`PiecewiseCurveTests`
   12 例、`CurveSchemaTests` 11 例、`SchemaAuditTests` 新增 5 例。
+- **数值设计落地阶段 N0 · T-N0-2（校验规则元数据、注册去重、问题分组/说明）**：
+  `IValidationRule` 新增带默认实现的 `RuleId`（默认类型名）/`DefaultSeverity`（默认 Error）/
+  `NonEscalatable`（默认 false）；`DataRegistry.RegisterValidationRule` 按 `RuleId` 去重（同一实例或
+  同 id 的另一实例静默忽略，保留先注册者），校验时给每条规则问题补 `RuleId`（规则自填不覆盖）并按
+  注册顺序生成规则摘要；`ValidationIssue` 新增 `Group`/`Note`/`RuleId` 与九参数构造、`WithRuleId`；
+  `ValidationReport` 新增 `Rules`/`NonEscalatableWarningCount`，`WarningsBlock` 下不可提升规则的
+  Warning 不计入阻断（04 第 5 节数值类校验项分级表警告级"抓意图不抓手滑"）。
+  `InterfaceDefaultMemberForwardingTests` 对非组合型规则逐条登记这三个默认成员的豁免（默认值即
+  正确语义），组合/转发型规则仍须显式转发。既有规则与检查名一律未改。测试：
+  `ValidationRuleMetadataTests` 11 例。
 
 ## [1.29.0] - 2026-09-14
 

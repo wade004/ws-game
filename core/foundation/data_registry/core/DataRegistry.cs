@@ -85,6 +85,10 @@ namespace Core.Foundation.DataRegistry
             new List<(string FromTable, string Field, string ToTable, string? Source)>();
         private readonly List<IValidationRule> _rules = new List<IValidationRule>();
 
+        /// <summary>T-N0-2：已注册规则的 <see cref="IValidationRule.RuleId"/> 集合，供
+        /// <see cref="RegisterValidationRule"/> 去重。</summary>
+        private readonly HashSet<string> _ruleIds = new HashSet<string>(StringComparer.Ordinal);
+
         private Dictionary<string, LoadedTable> _tables = new Dictionary<string, LoadedTable>(StringComparer.Ordinal);
 
         /// <summary>消费方反馈第 42 条：本次 <see cref="RunFieldValidation"/> 期间的"非默认已登记
@@ -249,10 +253,27 @@ namespace Core.Foundation.DataRegistry
             return result;
         }
 
+        /// <summary>注册模块专属校验规则。分阶段落地计划 T-N0-2（落地清单 2.2 V1）起按
+        /// <see cref="IValidationRule.RuleId"/> 去重：同一实例重复注册、或另一实例的 RuleId 已注册，
+        /// 均静默忽略（保留先注册的那份）——多个装配入口/目录叠加注册同一条规则时不再重复跑、重复报。
+        /// 不抛异常：重复注册不是编程错误的信号（多根装配天然会重复），只是无效果。</summary>
         public void RegisterValidationRule(IValidationRule rule)
         {
             if (rule == null) throw new ArgumentNullException(nameof(rule));
+            var ruleId = ResolveRuleId(rule);
+            if (!_ruleIds.Add(ruleId))
+            {
+                return;
+            }
             _rules.Add(rule);
+        }
+
+        /// <summary><see cref="IValidationRule.RuleId"/> 的兜底：实现方返回 null/空串时退回具体类型名
+        /// （与接口默认实现同一口径），保证去重键与报告里的规则 id 永远非空。</summary>
+        private static string ResolveRuleId(IValidationRule rule)
+        {
+            var id = rule.RuleId;
+            return string.IsNullOrEmpty(id) ? rule.GetType().Name : id;
         }
 
         // ---------------------------------------------------------------
@@ -440,17 +461,25 @@ namespace Core.Foundation.DataRegistry
             // 一份从未真正通过校验的 _tables（"可读的部分加载状态"）。finally 里只有"尚未走到方法
             // 正常结尾"（completed 仍为 false）时才强制回填 true，正常路径不受影响（仍按下面
             // report.IsBlocking 的计算结果为准）。
+            var ruleSummaries = new List<ValidationRuleSummary>(_rules.Count);
             var completed = false;
             try
             {
                 RunFieldValidation(issues);
 
+                // T-N0-2：逐规则收集——给规则产出的每条问题补上规则 id（规则自己已填时不覆盖）、
+                // 统计命中条数，按注册顺序生成规则摘要（含命中 0 条的规则），供报告 rules[] 段与
+                // "不可提升警告不计入阻断"的判定（见 ValidationReport 三参数构造）。
                 foreach (var rule in _rules)
                 {
+                    var ruleId = ResolveRuleId(rule);
+                    var hits = 0;
                     foreach (var issue in rule.Validate(this))
                     {
-                        issues.Add(issue);
+                        issues.Add(issue.RuleId == null ? issue.WithRuleId(ruleId) : issue);
+                        hits++;
                     }
+                    ruleSummaries.Add(new ValidationRuleSummary(ruleId, rule.DefaultSeverity, rule.NonEscalatable, hits));
                 }
 
                 completed = true;
@@ -463,7 +492,7 @@ namespace Core.Foundation.DataRegistry
                 }
             }
 
-            var report = new ValidationReport(issues, _options.Strictness);
+            var report = new ValidationReport(issues, _options.Strictness, ruleSummaries);
             _blocked = report.IsBlocking;
             return report;
         }

@@ -138,6 +138,33 @@ data_registry/
 既有曲线表（`item.budget_curve`/`stat.rating_conversion`/`combat.resist_curve` 的 `table` 分支）迁移到
 本形态与通用单调有限规则 `curve_monotonic_finite` 分别是分阶段落地计划 T-N0-4/T-N0-5 与 T-N0-3 的内容。
 
+## 校验规则元数据与不可提升警告（分阶段落地计划 T-N0-2，04 第 5 节数值类校验项分级表）
+
+`IValidationRule` 新增三个带默认实现的成员（11 第 7 节"默认实现"路线，既有规则一行不改）：
+
+| 成员 | 默认值 | 用途 |
+|---|---|---|
+| `RuleId` | 具体类型名 | 报告 `Rules[]` 的键、`RegisterValidationRule` 去重的键、收集时补到每条 `ValidationIssue.RuleId`（规则自填不覆盖） |
+| `DefaultSeverity` | `Error` | 本规则问题通常所处级别，只供报告/工具展示，不改变逐条 `Severity` |
+| `NonEscalatable` | `false` | `true` 时本规则的 Warning 在 `WarningsBlock` 下也不计入阻断（04 第 5 节数值类分级表的警告级"抓意图不抓手滑"） |
+
+配套改动：
+
+1. **注册去重**：`RegisterValidationRule` 按 `RuleId` 去重——同一实例重复注册、或另一实例的 `RuleId`
+   已注册，静默忽略并保留先注册的那份（多根装配/多个装配入口叠加注册同一条规则不再重复跑、重复报；
+   不抛异常，因为重复注册不是编程错误的信号）。
+2. **`ValidationIssue` 新增可选 `Group`/`Note`/`RuleId`**：经新增的九参数构造传入（全部必填参数，
+   避免与既有六参数构造二义；既有构造物理签名不变，三者为 null）；`WithRuleId` 返回补了规则 id 的副本。
+3. **`ValidationReport` 新增 `Rules`（`ValidationRuleSummary`：id/默认级别/不可提升/命中条数，按注册
+   顺序、含零命中）与 `NonEscalatableWarningCount`**；三参数构造按 `Rules` 里不可提升规则的 id 匹配
+   问题的 `RuleId` 把这部分 Warning 从阻断判定里排除：`IsBlocking = Error > 0 || (WarningsBlock &&
+   (Warning − 不可提升 Warning) > 0)`。两参数构造行为不变（`Rules` 为空）。
+4. **转发门禁**：`InterfaceDefaultMemberForwardingTests` 对非组合型规则（不持有/不委托另一份
+   `IValidationRule`）逐条登记这三个默认成员的豁免（默认值即正确语义）；组合/转发型规则不在豁免之列，
+   必须显式转发。
+
+`toolchain/validator` 的文本/JSON 报告输出 `rules[]` 与 `issues[].group/note` 是 T-N0-6 的内容。
+
 ## 主键规则
 
 - 内容表：主键字段 `id`，值须符合 04 第 2.1 节 id 格式，且 domain 前缀（`Id.Domain`，即第一段）
