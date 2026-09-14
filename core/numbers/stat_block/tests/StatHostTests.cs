@@ -20,6 +20,12 @@ namespace Tests.Numbers.StatBlock
         // conversion_ref 冲突，触发 StatDefinitionValidationRule.CheckConversionRefRequiresPercentCategory
         // （新增于 T-N1-1）。group 本身在本版本行为上未被 StatHost 区分 primary/secondary（唯一被
         // 特殊处理的是 resistance），改动不影响本文件任何既有断言。
+        // T-N1-3 新增 stat.test_e/f/g：三种换算曲线形态的测试夹具——
+        // stat.test_e：category=percent 但不带 conversion_ref（"恒等"形态，无 clamp）；
+        // stat.test_f：category=percent 带 conversion_ref 指向 RatingConversionJson 的
+        //   stat.rating.test_saturation（"变态版：饱和曲线"形态）；
+        // stat.test_g：category=percent 但不带 conversion_ref，同时带 min/max（"保守版：恒等加
+        //   clamp 硬上限"形态——clamp 由 ComputeFinal 在换算之后的聚合末尾夹取，不是换算曲线本身）。
         private const string StatDefinitionJson = @"
         {
             ""table"": ""stat.definition"",
@@ -29,13 +35,19 @@ namespace Tests.Numbers.StatBlock
                 { ""id"": ""stat.test_b"", ""name_key"": ""l10n.stat.test_b.name"", ""group"": ""primary"", ""default_base"": 0 },
                 { ""id"": ""stat.test_c"", ""name_key"": ""l10n.stat.test_c.name"", ""group"": ""primary"", ""default_base"": 0, ""min"": 0, ""max"": 100 },
                 { ""id"": ""stat.test_d"", ""name_key"": ""l10n.stat.test_d.name"", ""group"": ""secondary"", ""default_base"": 0, ""is_rating"": true, ""rating_conversion_ref"": ""stat.rating.test_curve"" },
-                { ""id"": ""stat.test_r"", ""name_key"": ""l10n.stat.test_r.name"", ""group"": ""resistance"", ""default_base"": 0 }
+                { ""id"": ""stat.test_r"", ""name_key"": ""l10n.stat.test_r.name"", ""group"": ""resistance"", ""default_base"": 0 },
+                { ""id"": ""stat.test_e"", ""name_key"": ""l10n.stat.test_e.name"", ""group"": ""secondary"", ""default_base"": 0, ""is_rating"": true },
+                { ""id"": ""stat.test_f"", ""name_key"": ""l10n.stat.test_f.name"", ""group"": ""secondary"", ""default_base"": 0, ""is_rating"": true, ""rating_conversion_ref"": ""stat.rating.test_saturation"" },
+                { ""id"": ""stat.test_g"", ""name_key"": ""l10n.stat.test_g.name"", ""group"": ""secondary"", ""default_base"": 0, ""is_rating"": true, ""min"": 0, ""max"": 100 }
             ]
         }";
 
         // 判断记录（2026-09-05，设计层裁定）：entries[].level 就是单位等级（取代此前"level 是
         // 评级原始值自己的插值断点"的判断），见 StatHost.ConvertRating 源码注释。测试曲线的两个
         // 断点固定在 level 1 与 level 10。
+        // T-N1-3 新增 stat.rating.test_saturation：二元饱和形态 {k: 10, cap: 0.5}——k/cap 取值
+        // 保证下面两组用例分别落在"未触顶"（raw=5, level=1 -> 5/15=1/3 < 0.5）与"触顶"
+        // （raw=90, level=1 -> 90/100=0.9 > 0.5，夹到 0.5）两侧，同时覆盖公式与 cap 封顶两条路径。
         private const string RatingConversionJson = @"
         {
             ""table"": ""stat.rating_conversion"",
@@ -47,6 +59,10 @@ namespace Tests.Numbers.StatBlock
                         { ""level"": 1, ""points_per_percent"": 10 },
                         { ""level"": 10, ""points_per_percent"": 5 }
                     ]
+                },
+                {
+                    ""id"": ""stat.rating.test_saturation"",
+                    ""saturation"": { ""k"": 10, ""cap"": 0.5 }
                 }
             ]
         }";
@@ -56,6 +72,9 @@ namespace Tests.Numbers.StatBlock
         private static readonly Id StatC = new Id("stat.test_c");
         private static readonly Id StatD = new Id("stat.test_d");
         private static readonly Id StatR = new Id("stat.test_r");
+        private static readonly Id StatE = new Id("stat.test_e");
+        private static readonly Id StatF = new Id("stat.test_f");
+        private static readonly Id StatG = new Id("stat.test_g");
 
         private static IEventBus MakeBus(List<StatChangedEvent> captured)
         {
@@ -97,8 +116,9 @@ namespace Tests.Numbers.StatBlock
             return (registry, report);
         }
 
+        // T-N1-3：不再接受 enableRatingConversion 参数——换算层始终启用，
+        // StatHostOptions.EnableRatingConversion 已废弃且 StatHost 不再读取它（见该属性判断记录）。
         private static (StatHost Host, List<StatChangedEvent> Captured, IEventBus Bus, ValidationReport Report) BuildHost(
-            bool enableRatingConversion = false,
             bool enableResistanceGroup = true,
             LevelLookup? levelLookup = null)
         {
@@ -109,7 +129,6 @@ namespace Tests.Numbers.StatBlock
 
             var host = new StatHost(registry, bus, new StatHostOptions
             {
-                EnableRatingConversion = enableRatingConversion,
                 EnableResistanceGroup = enableResistanceGroup,
                 LevelLookup = levelLookup,
             });
@@ -245,7 +264,8 @@ namespace Tests.Numbers.StatBlock
         }
 
         // -----------------------------------------------------------------
-        // 8~12. 评级换算（2026-09-05 设计层裁定：entries[].level 是单位等级，不是评级原始值）
+        // 8~12. 评级换算——"标准版：等级索引除数"形态（2026-09-05 设计层裁定：entries[].level 是
+        // 单位等级，不是评级原始值）。T-N1-3 起换算层始终启用，不再需要 enableRatingConversion 参数。
         // -----------------------------------------------------------------
 
         [Fact]
@@ -254,7 +274,7 @@ namespace Tests.Numbers.StatBlock
             var levelByUnit = new Dictionary<Id, int>();
             LevelLookup lookup = unitId => levelByUnit.TryGetValue(unitId, out var lvl) ? lvl : 1;
 
-            var (host, _, _, _) = BuildHost(enableRatingConversion: true, levelLookup: lookup);
+            var (host, _, _, _) = BuildHost(levelLookup: lookup);
             var unitLevel1 = new Id("unit.rating_lvl1");
             var unitLevel10 = new Id("unit.rating_lvl10");
             host.RegisterUnit(unitLevel1);
@@ -283,7 +303,7 @@ namespace Tests.Numbers.StatBlock
             var level = 1;
             LevelLookup lookup = _ => level;
 
-            var (host, captured, bus, _) = BuildHost(enableRatingConversion: true, levelLookup: lookup);
+            var (host, captured, bus, _) = BuildHost(levelLookup: lookup);
             var unit = new Id("unit.rating_recompute");
             host.RegisterUnit(unit);
             host.SetBase(unit, StatD, 50.0);
@@ -318,7 +338,7 @@ namespace Tests.Numbers.StatBlock
         [Fact]
         public void RecomputeRatingStats_UnregisteredUnit_IsIdempotentNoOp()
         {
-            var (host, _, _, _) = BuildHost(enableRatingConversion: true);
+            var (host, _, _, _) = BuildHost();
 
             var exception = Record.Exception(() => host.RecomputeRatingStats(new Id("unit.never_registered")));
 
@@ -330,7 +350,7 @@ namespace Tests.Numbers.StatBlock
         {
             LevelLookup lookup = _ => 5; // entries 断点 1..10 之间，t = (5-1)/(10-1) = 4/9
 
-            var (host, _, _, _) = BuildHost(enableRatingConversion: true, levelLookup: lookup);
+            var (host, _, _, _) = BuildHost(levelLookup: lookup);
             var unit = new Id("unit.rating_mid");
             host.RegisterUnit(unit);
 
@@ -343,7 +363,7 @@ namespace Tests.Numbers.StatBlock
         [Fact]
         public void RatingConversion_NoLevelLookup_DefaultsToLevelOne()
         {
-            var (host, _, _, _) = BuildHost(enableRatingConversion: true); // 不传 levelLookup
+            var (host, _, _, _) = BuildHost(); // 不传 levelLookup
             var unit = new Id("unit.rating_nolookup");
             host.RegisterUnit(unit);
 
@@ -359,30 +379,145 @@ namespace Tests.Numbers.StatBlock
             LevelLookup lookupAboveMax = _ => 999; // 越界高端，取 entries[10].ppp=5
             LevelLookup lookupBelowMin = _ => -5;  // 越界低端，取 entries[1].ppp=10
 
-            var (hostHigh, _, _, _) = BuildHost(enableRatingConversion: true, levelLookup: lookupAboveMax);
+            var (hostHigh, _, _, _) = BuildHost(levelLookup: lookupAboveMax);
             var unitHigh = new Id("unit.rating_high");
             hostHigh.RegisterUnit(unitHigh);
             hostHigh.SetBase(unitHigh, StatD, 50.0);
             Assert.Equal(10.0, hostHigh.GetStat(unitHigh, StatD), 10); // 50/5
 
-            var (hostLow, _, _, _) = BuildHost(enableRatingConversion: true, levelLookup: lookupBelowMin);
+            var (hostLow, _, _, _) = BuildHost(levelLookup: lookupBelowMin);
             var unitLow = new Id("unit.rating_low");
             hostLow.RegisterUnit(unitLow);
             hostLow.SetBase(unitLow, StatD, 50.0);
             Assert.Equal(5.0, hostLow.GetStat(unitLow, StatD), 10); // 50/10
         }
 
+        // -----------------------------------------------------------------
+        // T-N1-3：换算层三种曲线形态——恒等（无 conversion_ref）、按等级除数（entries，上面 8~12
+        // 已覆盖）、饱和（saturation）；以及"不存在关闭路径"的行为/反射用例。
+        // -----------------------------------------------------------------
+
+        // 恒等形态 1/2：category=percent 但不带 conversion_ref——base+Σflat 原样即最终值，不经
+        // 任何曲线（ADR-0030 决策 3"保守版：恒等加 clamp 硬上限"的"恒等"部分）。
         [Fact]
-        public void RatingConversion_DisabledPassesRawValueThrough()
+        public void RatingConversion_Identity_NoConversionRef_PassesRawValueThrough()
         {
-            var (host, _, _, _) = BuildHost(enableRatingConversion: false);
-            var unit = new Id("unit.t10");
+            var (host, _, _, _) = BuildHost();
+            var unit = new Id("unit.identity_a");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatE, 50.0);
+
+            Assert.Equal(50.0, host.GetStat(unit, StatE), 10);
+        }
+
+        // 恒等形态 2/2："保守版：恒等加 clamp 硬上限"完整形态——恒等曲线之后，clamp 仍在
+        // ComputeFinal 聚合末尾夹取（拍板 2，与换算层本身无关，换算只是恒等直通）。
+        [Fact]
+        public void RatingConversion_Identity_WithClamp_HardCapsAfterIdentity()
+        {
+            var (host, _, _, _) = BuildHost();
+            var unit = new Id("unit.identity_b");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatG, 150.0);
+            Assert.Equal(100.0, host.GetStat(unit, StatG), 10); // clamp.max = 100
+
+            host.SetBase(unit, StatG, -50.0);
+            Assert.Equal(0.0, host.GetStat(unit, StatG), 10); // clamp.min = 0
+        }
+
+        // 饱和形态 1/2：raw=5, level=1, k=10, cap=0.5 -> 5/(5+10*1)=1/3，未触顶，验证公式本身
+        // （"变态版：饱和曲线，除数随等级增长"，公式同 combat.resist_curve 饱和分支）。
+        [Fact]
+        public void RatingConversion_Saturation_ComputesValueOverValuePlusKTimesLevel()
+        {
+            var (host, _, _, _) = BuildHost(levelLookup: _ => 1);
+            var unit = new Id("unit.saturation_a");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatF, 5.0);
+
+            Assert.Equal(5.0 / 15.0, host.GetStat(unit, StatF), 10);
+        }
+
+        // 饱和形态 2/2：raw=90, level=1, k=10, cap=0.5 -> 90/(90+10*1)=0.9，超过 cap，夹到 0.5，
+        // 验证封顶分支；同一 raw 换到 level=3 -> 90/(90+30)=0.75，仍触顶——用不同等级证明"除数随
+        // 等级增长"这一形态特征本身不会绕开 cap。
+        [Fact]
+        public void RatingConversion_Saturation_CapsOutputAtCap()
+        {
+            var (hostLvl1, _, _, _) = BuildHost(levelLookup: _ => 1);
+            var unitLvl1 = new Id("unit.saturation_b1");
+            hostLvl1.RegisterUnit(unitLvl1);
+            hostLvl1.SetBase(unitLvl1, StatF, 90.0);
+            Assert.Equal(0.5, hostLvl1.GetStat(unitLvl1, StatF), 10);
+
+            var (hostLvl3, _, _, _) = BuildHost(levelLookup: _ => 3);
+            var unitLvl3 = new Id("unit.saturation_b2");
+            hostLvl3.RegisterUnit(unitLvl3);
+            hostLvl3.SetBase(unitLvl3, StatF, 90.0);
+            Assert.Equal(0.5, hostLvl3.GetStat(unitLvl3, StatF), 10);
+        }
+
+        // -----------------------------------------------------------------
+        // "不存在关闭路径"（T-N1-3 设计层裁定，见 StatHostOptions.EnableRatingConversion 判断
+        // 记录）：一条行为用例（显式构造 EnableRatingConversion=false 仍不影响换算）+ 一条反射用例
+        // （StatHostOptions 上不存在任何未标 [Obsolete] 的、名字含 RatingConversion/Conversion 的
+        // 布尔属性——防止未来有人加一个新开关重新引入关闭路径）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void EnableRatingConversion_HasNoEffect_PercentStatsStillConvert()
+        {
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (registry, report) = BuildRegistry(bus, StatDefinitionJson, RatingConversionJson, new StatDefinitionValidationRule());
+            Assert.False(report.IsBlocking);
+
+#pragma warning disable CS0618 // 本用例故意构造已废弃的 EnableRatingConversion=false，证明它没有任何效果（唯一允许的读取点）
+            var host = new StatHost(registry, bus, new StatHostOptions { EnableRatingConversion = false });
+#pragma warning restore CS0618
+            var unit = new Id("unit.no_disable_path");
             host.RegisterUnit(unit);
 
             host.SetBase(unit, StatD, 50.0);
 
-            // 未启用评级换算：即使 is_rating=true，也直通原值
-            Assert.Equal(50.0, host.GetStat(unit, StatD), 10);
+            // 即便显式把已废弃的 EnableRatingConversion 设为 false，StatD（category=percent，带
+            // conversion_ref）仍按 1 级（未传 LevelLookup）经曲线换算得 percent=5（50/ppp[0]=50/10），
+            // 不是直通原值 50——证明该属性确实"无任何效果"，不是"换算层默认值恰好等于其语义"的假象。
+            Assert.Equal(5.0, host.GetStat(unit, StatD), 10);
+        }
+
+        [Fact]
+        public void StatHostOptions_NoUnobsoleteConversionSwitch_Exists()
+        {
+            var offenders = new List<string>();
+            foreach (var property in typeof(StatHostOptions).GetProperties())
+            {
+                if (property.PropertyType != typeof(bool))
+                {
+                    continue;
+                }
+
+                var nameHintsConversionSwitch =
+                    property.Name.IndexOf("RatingConversion", StringComparison.Ordinal) >= 0 ||
+                    property.Name.IndexOf("Conversion", StringComparison.Ordinal) >= 0;
+                if (!nameHintsConversionSwitch)
+                {
+                    continue;
+                }
+
+                var isObsolete = property.GetCustomAttributes(typeof(ObsoleteAttribute), inherit: false).Length > 0;
+                if (!isObsolete)
+                {
+                    offenders.Add(property.Name);
+                }
+            }
+
+            Assert.True(offenders.Count == 0,
+                "StatHostOptions 上存在未标 [Obsolete] 的换算相关布尔属性（可能重新引入了关闭换算层的" +
+                "路径），违反 ADR-0030 决策 3 换算层始终启用：" + string.Join(", ", offenders));
         }
 
         // -----------------------------------------------------------------

@@ -109,6 +109,7 @@ namespace Core.Rules.Assembly
             // power_set/faction 没有模块专属校验规则（见 L1SampleDataTests.cs 注释）。
             registry.RegisterValidationRule(new StatDefinitionValidationRule());
             registry.RegisterValidationRule(new StatDefinitionDerivationCycleValidationRule());
+            registry.RegisterValidationRule(new StatRatingConversionValidationRule());
             registry.RegisterValidationRule(new ProgLevelCurveValidationRule());
             registry.RegisterValidationRule(new ArchTalentTreeCycleValidationRule());
         }

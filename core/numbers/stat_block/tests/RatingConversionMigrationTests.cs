@@ -42,9 +42,10 @@ namespace Tests.Numbers.StatBlock
             var report = registry.LoadAll();
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
 
+            // T-N1-3：换算层始终启用，不再需要 EnableRatingConversion=true（该属性已废弃、无任何
+            // 效果，StatHost 不再读取）。
             var host = new StatHost(registry, MakeBus(), new StatHostOptions
             {
-                EnableRatingConversion = true,
                 LevelLookup = _ => level,
             });
             host.RegisterUnit(Unit);

@@ -62,18 +62,36 @@ schema 版本 2（T-N1-1，ADR-0030 决策 1；落地清单拍板 1/2/11）：�
 
 ## `stat.rating_conversion`
 
+schema 版本 2（不变）。T-N1-3（ADR-0030 决策 3；04 第 3.6 节；数值设计 01 第 5 节"三种曲线
+形态"）：新增可选 `saturation` 字段，与 `entries` 二选一——纯新增可选字段/放宽必填不改变已有
+合法数据判定结论，不升级 schema 版本。
+
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `stat.rating.<name>` |
-| `entries` | Array | 是 | 通用断点表 `[{x: Int, y: Number}, ...]`（04 第 3.6 节 `CurveSchema.BreakpointsField`，横轴 `Level`）：`x` 是**单位等级**（见下方判断记录），不是评级原始值；`y` 是该等级下每 1% 效果所需点数（登记 `> 0`）。schema 版本 2（T-N0-4）：v1 的 `{level, points_per_percent}` 由 1→2 迁移环节改名，旧数据文件无需手改即可加载；`curve_monotonic_finite` 规则要求非空、有限、`x` 无重复、`y` 不递减（除数随等级不递减，数值总纲原则 1） |
+| `entries` | Array | 否（T-N1-3 起放宽，与 `saturation` 二选一） | 通用断点表 `[{x: Int, y: Number}, ...]`（04 第 3.6 节 `CurveSchema.BreakpointsField`，横轴 `Level`）："标准版：等级索引除数"形态：`x` 是**单位等级**（见下方判断记录），不是评级原始值；`y` 是该等级下每 1% 效果所需点数（登记 `> 0`）。schema 版本 2（T-N0-4）：v1 的 `{level, points_per_percent}` 由 1→2 迁移环节改名，旧数据文件无需手改即可加载；`curve_monotonic_finite` 规则要求非空、有限、`x` 无重复、`y` 不递减（除数随等级不递减，数值总纲原则 1） |
+| `saturation` | Object | 否（T-N1-3 新增，与 `entries` 二选一） | `{k: Number(必填,>0), cap?: Number(可选,>0,缺省 1)}`（04 第 3.6 节 `CurveSchema.SaturationField`，形态 `Saturation`）："变态版：饱和曲线，除数随等级增长"形态：`输出 = rawValue / (rawValue + k × 单位等级)`，以 `cap` 封顶；与 `combat.resist_curve` 饱和分支（`ResistCurveKind.Saturation`）同形态（ADR-0030 决策 3） |
 
-`entries` 数组内层结构由 ADR-0019 子结构登记在加载期检查（`required_field`/`field_type`/`field_range`，路径
-形如 `entries[0].y`）；`StatHost` 构造期解析（`ParseCurve`）仍做一道结构兜底（缺字段/类型不对直接抛
-`InvalidOperationException`，因为这属于内容数据的结构性错误，不是运行期可恢复的场景），并对未经迁移
-直接构造的记录接受 v1 的 `{level, points_per_percent}` 元素名（T-N0-4 禁止删除旧字段读取路径）。
+`entries`/`saturation` 数组/对象内层结构由 ADR-0019 子结构登记在加载期检查
+（`required_field`/`field_type`/`field_range`，路径形如 `entries[0].y`/`saturation.k`）；
+`StatHost` 构造期解析（`ParseConversion`/`ParseCurve`/`ParseSaturation`）仍做一道结构兜底
+（缺字段/类型不对直接抛 `InvalidOperationException`，因为这属于内容数据的结构性错误，不是
+运行期可恢复的场景），并对未经迁移直接构造的记录接受 v1 的 `{level, points_per_percent}`
+元素名（T-N0-4 禁止删除旧字段读取路径）。一条记录必须**恰好**登记 `entries`/`saturation`
+之一，由 `StatRatingConversionValidationRule`（检查名
+`stat_rating_conversion_requires_one_shape`，Error 级，04 第 5 节分级表未逐条列出，按
+`stat_*` 前缀命名，**待设计层确认**）强制；两者都缺或都填时 `ParseConversion` 仍有加载期防御
+（都缺抛异常；都填时优先 `entries`），但正常数据不应触发这条防御路径。
 
 判断记录（2026-09-05，设计层裁定，取代原判断记录）：`entries[].level` 就是**单位等级**，插值
 时的自变量是 `StatHostOptions.LevelLookup(unitId)` 查到的等级；`rawValue`（`base + Σflat`，
 "待换算的评级原始值本身"）只在插值算出 `points_per_percent` 之后作被除数
 （`percent = rawValue / pointsPerPercent`），不参与插值本身。`LevelLookup` 为 `null` 时按 1 级
-处理。详见 `core/StatHost.cs` 的 `ConvertRating` 方法注释与 `README.md`"评级换算"一节。
+处理。详见 `core/StatHost.cs` 的 `ConvertRating` 方法注释与 `README.md`"换算层"一节。
+
+判断记录（T-N1-3）：换算层触发条件与曲线形态本身现已互相独立——`stat.definition.category
+== "percent"` 决定"是否经过换算层"，`conversion_ref` 缺省决定"经过的是恒等曲线"，
+`conversion_ref` 指向的 `stat.rating_conversion` 记录登记了哪种形态（`entries`/
+`saturation`）决定"用哪条公式"。三者组合覆盖 ADR-0030 决策 3 的三种曲线形态：`conversion_ref`
+缺省 = 恒等（保守版）；引用 `entries` 记录 = 按等级除数（标准版）；引用 `saturation` 记录 =
+饱和（变态版）。

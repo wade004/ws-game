@@ -59,6 +59,101 @@ namespace Tests.Numbers.StatBlock
         }
 
         // -----------------------------------------------------------------
+        // T-N1-3：stat.rating_conversion.saturation 子结构覆盖（entries 之外的第二种形态），与
+        // StatRatingConversionValidationRule"恰好二选一"正反例。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void RatingConversionSaturation_WellFormed_LoadsWithoutErrors()
+        {
+            var rows = "[{\"id\":\"stat.rating.cov_saturation\",\"saturation\":{\"k\":10}}]";
+
+            var source = new InMemoryDataSource().Add(
+                Core.Numbers.StatBlock.StatSchemas.RatingConversion.Name,
+                Envelope(Core.Numbers.StatBlock.StatSchemas.RatingConversion.Name, rows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.RatingConversion);
+
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        [Fact]
+        public void RatingConversionSaturation_MissingK_ReportsRequiredField()
+        {
+            var rows = "[{\"id\":\"stat.rating.cov_bad_saturation\",\"saturation\":{\"cap\":0.5}}]";
+
+            var source = new InMemoryDataSource().Add(
+                Core.Numbers.StatBlock.StatSchemas.RatingConversion.Name,
+                Envelope(Core.Numbers.StatBlock.StatSchemas.RatingConversion.Name, rows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.RatingConversion);
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "required_field" && i.Field == "saturation.k");
+        }
+
+        [Fact]
+        public void RatingConversionShape_BothEntriesAndSaturation_ReportsError()
+        {
+            var rows = "[{\"id\":\"stat.rating.cov_both\",\"entries\":[{\"x\":1,\"y\":10}],\"saturation\":{\"k\":10}}]";
+
+            var source = new InMemoryDataSource().Add(
+                Core.Numbers.StatBlock.StatSchemas.RatingConversion.Name,
+                EnvelopeV2(Core.Numbers.StatBlock.StatSchemas.RatingConversion.Name, rows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.RatingConversion);
+            registry.RegisterValidationRule(new Core.Numbers.StatBlock.StatRatingConversionValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i =>
+                i.Check == Core.Numbers.StatBlock.StatRatingConversionValidationRule.CheckRequiresExactlyOneShape
+                && i.RecordKey == "stat.rating.cov_both");
+        }
+
+        [Fact]
+        public void RatingConversionShape_NeitherEntriesNorSaturation_ReportsError()
+        {
+            var rows = "[{\"id\":\"stat.rating.cov_neither\"}]";
+
+            var source = new InMemoryDataSource().Add(
+                Core.Numbers.StatBlock.StatSchemas.RatingConversion.Name,
+                EnvelopeV2(Core.Numbers.StatBlock.StatSchemas.RatingConversion.Name, rows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.RatingConversion);
+            registry.RegisterValidationRule(new Core.Numbers.StatBlock.StatRatingConversionValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i =>
+                i.Check == Core.Numbers.StatBlock.StatRatingConversionValidationRule.CheckRequiresExactlyOneShape
+                && i.RecordKey == "stat.rating.cov_neither");
+        }
+
+        [Fact]
+        public void RatingConversionShape_ExactlyOne_NoErrorFromShapeRule()
+        {
+            var rows = "[{\"id\":\"stat.rating.cov_one\",\"saturation\":{\"k\":10}}]";
+
+            var source = new InMemoryDataSource().Add(
+                Core.Numbers.StatBlock.StatSchemas.RatingConversion.Name,
+                EnvelopeV2(Core.Numbers.StatBlock.StatSchemas.RatingConversion.Name, rows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.RatingConversion);
+            registry.RegisterValidationRule(new Core.Numbers.StatBlock.StatRatingConversionValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        // -----------------------------------------------------------------
         // T-N1-1：stat.definition.derived_from / clamp 子结构覆盖（ADR-0019 惯例：子结构命中/坏
         // 形状各一例）。
         // -----------------------------------------------------------------

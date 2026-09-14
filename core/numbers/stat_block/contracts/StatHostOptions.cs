@@ -1,3 +1,4 @@
+using System;
 using Core.Foundation.Common;
 
 namespace Core.Numbers.StatBlock
@@ -15,15 +16,27 @@ namespace Core.Numbers.StatBlock
 
     /// <summary>
     /// <see cref="StatHost"/> 的构造期策略配置（见 01_分层与依赖.md L1 模块表 <c>stat_block</c> 行
-    /// "策略配置项：是否启用评级换算、是否启用抗性维度"、00_架构总则.md 第 3 节"属性评级换算
-    /// ……可选策略默认关闭""抗性系统……可选属性维度"）。
+    /// "策略配置项：是否启用抗性维度"、00_架构总则.md 第 3 节"抗性系统……可选属性维度"；换算层自
+    /// T-N1-3 起始终启用，不再是策略配置项，见 <see cref="EnableRatingConversion"/> 判断记录）。
     /// </summary>
     public sealed class StatHostOptions
     {
-        /// <summary>评级换算是否启用（06 第 1.1 节）：启用且属性定义
-        /// <c>stat.definition.is_rating=true</c> 时，基础值+固定修正段先经
-        /// <c>stat.rating_conversion</c> 曲线换算，再进入百分比/独立乘区两段；默认关闭
-        /// （00 第 3 节"作为 StatBlock 的可选策略，默认关闭"）。</summary>
+        /// <summary>
+        /// （已废弃，无任何效果）曾经的"评级换算是否启用"开关（00 第 3 节旧文"作为 StatBlock 的
+        /// 可选策略，默认关闭"）。
+        /// <para>
+        /// 判断记录（T-N1-3，ADR-0030 决策 3；分阶段落地计划 T-N1-3 设计层裁定）：计划原文要求
+        /// "删除 <c>EnableRatingConversion</c>"，但落地计划第 1 节"每阶段对外契约变化必须控制在
+        /// MINOR"——删除既有公开属性是 ABI 破坏（G3 门禁禁止）。设计层裁定改为<b>保留但无效化</b>：
+        /// 本属性仍可读写（保留二进制兼容），但 <see cref="StatHost"/> 自 T-N1-3 起不再读取它——
+        /// 换算层改为始终启用（<c>category=="percent"</c> 即触发，见 <see
+        /// cref="StatHost.ComputeFinal"/> 判断记录），<c>conversion_ref</c> 缺省时按恒等曲线处理，
+        /// 不存在任何"关闭换算层"的路径（见 <c>StatHostTests</c> 的
+        /// <c>EnableRatingConversion_HasNoEffect_PercentStatsStillConvert</c> 与
+        /// <c>StatHostOptions_NoOtherUnobsoleteConversionSwitch_Exists</c> 两条反射/行为测试）。
+        /// </para>
+        /// </summary>
+        [Obsolete("换算层自 1.31.0 起始终启用（ADR-0030 决策 3），本属性无任何作用，保留仅为二进制兼容")]
         public bool EnableRatingConversion { get; set; } = false;
 
         /// <summary>抗性维度是否启用（00 第 3 节"作为可选属性维度，游戏层决定是否启用"）：
@@ -47,10 +60,16 @@ namespace Core.Numbers.StatBlock
         public bool EnableResistanceGroup { get; set; } = true;
 
         /// <summary>
-        /// 评级换算曲线（<c>stat.rating_conversion.entries[].level</c>）的自变量来源（设计层
-        /// 2026-09-05 拍板：<c>level</c> 就是单位等级，取代此前"level 是评级原始值自己的插值
-        /// 断点"的判断，见 <c>StatHost.ConvertRating</c> 判断记录）。为 null 时等级一律按 1
-        /// 处理（<c>EnableRatingConversion=false</c> 时本委托完全不会被调用）。
+        /// 换算曲线（<c>stat.rating_conversion</c>，断点表或饱和两种形态均以本委托取单位等级，
+        /// 见 <c>CurveSchema</c> 判断记录）的自变量来源（设计层 2026-09-05 拍板：断点表形态的
+        /// <c>x</c> 就是单位等级，取代此前"level 是评级原始值自己的插值断点"的判断，见
+        /// <c>StatHost.ConvertRating</c> 判断记录）。为 null 时等级一律按 1 处理。
+        /// <para>
+        /// 判断记录（T-N1-3）：换算层始终启用（见 <see cref="EnableRatingConversion"/> 判断记录），
+        /// 本委托对任何 <c>category=="percent"</c> 且带 <c>conversion_ref</c> 的属性都会被调用——
+        /// 此前"<c>EnableRatingConversion=false</c> 时本委托完全不会被调用"的描述随换算层开关
+        /// 一并失效，已删除。
+        /// </para>
         /// </summary>
         public LevelLookup? LevelLookup { get; set; }
     }

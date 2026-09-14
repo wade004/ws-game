@@ -368,9 +368,10 @@ namespace Tests.Numbers
 
             // 单独构造第二个 StatHost 开启评级换算，LevelLookup 接到同一个 ProgressionHost 实例
             // 的 GetLevel——演示"事项一"新增的委托如何在不引入编译期依赖的前提下接住真实等级来源。
+            // T-N1-3：换算层始终启用，不再需要 EnableRatingConversion=true（该属性已废弃、无任何
+            // 效果，StatHost 不再读取）。
             var statHost2 = new StatHost(world.Registry, world.Bus, new StatHostOptions
             {
-                EnableRatingConversion = true,
                 LevelLookup = uid => world.ProgressionHost.GetLevel(uid),
             });
             statHost2.RegisterUnit(unit);

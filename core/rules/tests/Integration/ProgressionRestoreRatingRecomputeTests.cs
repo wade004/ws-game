@@ -118,9 +118,11 @@ namespace Tests.Rules.Integration
             var spatial = new StubSpatialQuery();
             var rng = new RngHost(1);
 
+            // T-N1-3：换算层始终启用，不再需要 EnableRatingConversion=true（该属性已废弃、无任何
+            // 效果，StatHost 不再读取）。
             var rules = new Core.Rules.Assembly.RulesAssembly(
                 busLocal, registry, rng, units, spatial, world,
-                statOptions: new Core.Numbers.StatBlock.StatHostOptions { EnableRatingConversion = true });
+                statOptions: new Core.Numbers.StatBlock.StatHostOptions());
 
             bus = busLocal;
             return rules;

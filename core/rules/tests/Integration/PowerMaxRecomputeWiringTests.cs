@@ -44,14 +44,15 @@ namespace Tests.Rules.Integration
             Assert.Equal(100, fx.Rules.Powers.GetPowerMax(unit, FightWorldBuilder.PowerShield));
         }
 
-        // 评级换算属性（is_rating + rating_conversion_ref）的等级失效见
+        // 换算层属性（category=percent + conversion_ref）的等级失效见
         // core/numbers/stat_block/tests/StatHostTests.cs
         // RecomputeRatingStats_AfterLevelLookupChanges_UpdatesCacheAndFiresStatChanged（勘误：原引用
         // 的 LevelUp_ProgressionEvent_RecomputesRatingConvertedStat_ViaRecomputeRatingStats 从未存在
         // 于该文件，是笔误的历史测试名；上述才是该文件里实际验证"RecomputeRatingStats 更新缓存并
-        // 广播 stat.changed"这条行为的用例）——评级换算需要额外的 stat.rating_conversion 表与
-        // StatHostOptions.EnableRatingConversion 开关，StatHostTests.cs 已有现成夹具
-        // （BuildHost(enableRatingConversion:true, ...)），不重复在本文件另起一份 RulesAssembly
+        // 广播 stat.changed"这条行为的用例）——换算层需要额外的 stat.rating_conversion 表
+        // （T-N1-3 起换算层始终启用，不再需要 StatHostOptions.EnableRatingConversion 开关——该
+        // 属性已标废弃、无任何效果），StatHostTests.cs 已有现成夹具
+        // （BuildHost(levelLookup: ...)），不重复在本文件另起一份 RulesAssembly
         // 级别的等价数据。RulesAssembly 是否真的把 StatHost.RecomputeRatingStats 接到
         // progression.level_up 上，见 core/rules/assembly/RulesAssembly.cs 构造函数"RC-06 收边补齐"
         // 判断记录源码本身——两处订阅代码紧邻在一起，调用的正是 StatHostTests.cs 那条用例验证过的

@@ -81,10 +81,12 @@ namespace Tests.Gameplay.Assembly
             var world = new WorldSim(bus);
             var fs = new StubFileSystem();
             var save = new SaveSystem(fs, new SaveSystemOptions(new Id("game.core_110_followup")), bus);
+            // T-N1-3：EnableRatingConversion 已废弃、无任何效果（换算层始终启用），本夹具不依赖
+            // 评级换算，去掉该初始化项。
             var gameplay = new GameplayAssembly(
                 bus, registry, new RngHost(1), world, new StubSpatialQuery(), save,
                 playerUnitProvider: () => Unit, playerFactionId: Faction,
-                statOptions: new StatHostOptions { EnableRatingConversion = false });
+                statOptions: new StatHostOptions());
 
             var player = new PlayerUnit(Unit, Map, Faction, resolvedClassId) { Position = Vec2.Zero, RaceId = raceId };
             world.AddEntity(player);

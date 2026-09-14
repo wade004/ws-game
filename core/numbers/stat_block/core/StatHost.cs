@@ -11,9 +11,9 @@ namespace Core.Numbers.StatBlock
     /// <see cref="IStatHost"/> 默认实现（见 06_规则层_属性技能战斗AI.md 第 1 节）。构造时从
     /// <c>stat.definition</c> 读取全部属性定义（表不存在直接抛异常；表存在但没有校验通过则
     /// <see cref="IDataRegistryView"/> 自身的 <c>Get*</c> 方法会抛 <see cref="InvalidOperationException"/>，
-    /// 见 04 第 4 节"报告含错误项即视为不可进入运行时"）；评级换算启用时另外读取
-    /// <c>stat.rating_conversion</c>（表不存在则视为空曲线集合，换算时退化为直通，不阻断构造——
-    /// 只有 <c>stat.definition</c> 是本模块的强依赖，见判断记录）。
+    /// 见 04 第 4 节"报告含错误项即视为不可进入运行时"）；换算层始终启用（T-N1-3，ADR-0030
+    /// 决策 3），构造时无条件另外读取 <c>stat.rating_conversion</c>（表不存在则视为空曲线集合，
+    /// 换算时退化为直通，不阻断构造——只有 <c>stat.definition</c> 是本模块的强依赖，见判断记录）。
     /// <para>
     /// 三段式聚合与浮点确定性（06 第 1.1 节、11 第 5 节"避免每 tick 产生大量临时分配"、
     /// 落地方案.md 第 4.1 节"同类项按声明顺序累加"）：<c>flat</c>/<c>pct</c> 按
@@ -115,10 +115,11 @@ namespace Core.Numbers.StatBlock
             // 定义（新增/删除属性、derived_from 关系变化）。
             BuildDerivationGraph();
 
-            if (_options.EnableRatingConversion)
-            {
-                LoadRatingConversions(_registry);
-            }
+            // T-N1-3（ADR-0030 决策 3）：换算层始终启用——LoadRatingConversions 无条件执行，不再由
+            // StatHostOptions.EnableRatingConversion 门控（该属性已标废弃、StatHost 不再读取，见
+            // StatHostOptions.EnableRatingConversion 判断记录）。表不存在时 LoadRatingConversions
+            // 自身已有"不阻断构造，换算时对未引用到曲线的属性直通原值"的兜底，见该方法判断记录。
+            LoadRatingConversions(_registry);
 
             RecomputeAllCachedStatsAfterReload();
         }
@@ -247,12 +248,14 @@ namespace Core.Numbers.StatBlock
                     if (clampObj.TryGetValue("max", out var maxRaw) && maxRaw is JsonNumber maxNum) max = maxNum.Value;
                 }
 
-                // is_rating/rating_conversion_ref 读取逻辑本任务不改（换算层触发条件改
-                // category==percent 是 T-N1-3 的范围，见分阶段落地计划 T-N1-3 行）。
-                var isRating = record.TryGetBool("is_rating", out var isRatingValue) && isRatingValue;
-
-                Id? ratingRef = null;
-                if (record.TryGetId("rating_conversion_ref", out var refValue)) ratingRef = refValue;
+                // T-N1-3（ADR-0030 决策 3）：换算层触发条件改为 category=="percent"——不再读取
+                // 废弃的 is_rating 字段（v1 数据的 is_rating 已由 1→2 迁移链折算进 category/
+                // conversion_ref，见 StatSchemas.MigrateDefinitionV1ToV2；到这里读到的记录已经过
+                // 迁移，直接读新字段即可，同 T-N1-2 对 category/clamp 的既有处理口径）。改读
+                // conversion_ref（v2 新字段）取代 rating_conversion_ref（废弃字段，v1 数据经迁移
+                // 已折算进 conversion_ref）。
+                Id? conversionRef = null;
+                if (record.TryGetId("conversion_ref", out var convRefValue)) conversionRef = convRefValue;
 
                 // T-N1-2（ADR-0030 决策 2；拍板 11）：derived_from 仅在 category=derived 时才纳入
                 // 派生计算图——非 derived 记录即使（不合法地）带了 derived_from，也已由
@@ -278,7 +281,7 @@ namespace Core.Numbers.StatBlock
                     derivedFrom = list;
                 }
 
-                _definitions[id] = new StatDefinition(id, category, defaultBase, min, max, isRating, ratingRef, derivedFrom);
+                _definitions[id] = new StatDefinition(id, category, defaultBase, min, max, conversionRef, derivedFrom);
             }
         }
 
@@ -403,7 +406,7 @@ namespace Core.Numbers.StatBlock
             }
             if (!hasTable)
             {
-                // 评级换算启用但没有任何曲线数据：不阻断构造，换算时对没有引用到曲线的属性
+                // 换算层始终启用但没有任何曲线数据：不阻断构造，换算时对没有引用到曲线的属性
                 // 直通原值（见 ConvertRating 判断记录）。
                 return;
             }
@@ -413,8 +416,52 @@ namespace Core.Numbers.StatBlock
             {
                 var record = records[i];
                 var id = record.GetId("id");
-                _ratingConversions[id] = new RatingConversion(id, ParseCurve(record, id));
+                _ratingConversions[id] = ParseConversion(record, id);
             }
+        }
+
+        /// <summary>
+        /// T-N1-3（ADR-0030 决策 3；04 第 3.6 节；数值设计 01 第 5 节"三种曲线形态"）：按一条
+        /// <c>stat.rating_conversion</c> 记录登记的形态解析为 <see cref="RatingConversion"/>——
+        /// <c>entries</c> 在先（"标准版：等级索引除数"，见 <see cref="ParseCurve"/>），否则
+        /// <c>saturation</c>（"变态版：饱和曲线，除数随等级增长"，见 <see cref="ParseSaturation"/>）；
+        /// 两者都缺是防御分支（正常数据应已被 <see cref="StatRatingConversionValidationRule"/> 的
+        /// "恰好二选一"检查拦下），抛 <see cref="InvalidOperationException"/>，同本类型其它加载期
+        /// 结构性错误的既有异常类型。
+        /// </summary>
+        private static RatingConversion ParseConversion(DataRecord record, Id id)
+        {
+            if (record.Has("entries"))
+            {
+                return RatingConversion.CreateBreakpoints(id, ParseCurve(record, id));
+            }
+
+            if (record.Has("saturation"))
+            {
+                var (k, cap) = ParseSaturation(record, id);
+                return RatingConversion.CreateSaturation(id, k, cap);
+            }
+
+            throw new InvalidOperationException(
+                $"stat.rating_conversion[{id}] 既没有 \"entries\" 也没有 \"saturation\"（两种曲线形态二选一，" +
+                "正常数据应已被 StatRatingConversionValidationRule 拦下，这里是加载期防御）");
+        }
+
+        /// <summary>T-N1-3：解析 <c>saturation</c> 为 <c>(k, cap)</c>——<c>k</c> 必填（04 第 3.6 节
+        /// <c>CurveSchema.SaturationField</c> 已在加载期用 <c>field_range</c> 保证 &gt; 0，这里再兜底一次
+        /// 缺字段的结构性错误）；<c>cap</c> 缺省 1（同 <c>CurveSchema.SaturationField</c> 的字段登记
+        /// 缺省语义）。</summary>
+        private static (double K, double Cap) ParseSaturation(DataRecord record, Id id)
+        {
+            var saturation = record.GetObject("saturation");
+            if (!TryReadNumber(saturation, CurveSchema.SaturationKFieldName, out var k))
+            {
+                throw new InvalidOperationException(
+                    $"stat.rating_conversion[{id}].saturation 缺少合法的 \"k\"（Number）");
+            }
+
+            var cap = TryReadNumber(saturation, CurveSchema.SaturationCapFieldName, out var capValue) ? capValue : 1.0;
+            return (k, cap);
         }
 
         /// <summary>T-N0-4：解析 <c>entries</c> 为 <see cref="PiecewiseCurve"/>（x = 单位等级，y = 每 1% 所需
@@ -652,7 +699,7 @@ namespace Core.Numbers.StatBlock
 
         /// <summary>
         /// RC-06 收边补齐：单位等级变化后，重算并按需广播全部经评级曲线换算（<see
-        /// cref="StatDefinition.RatingConversionRef"/> 非空，见 <see cref="ConvertRating"/>）的属性。
+        /// cref="StatDefinition.ConversionRef"/> 非空，见 <see cref="ConvertRating"/>）的属性。
         /// <para>
         /// 判断记录：<see cref="GetStat"/> 的缓存（<see cref="UnitStats.Cache"/>）只在
         /// <see cref="SetBase"/>/<see cref="AddModifier"/>/<see cref="RemoveModifiersBySource"/> 三个
@@ -680,7 +727,7 @@ namespace Core.Numbers.StatBlock
 
             foreach (var def in _definitions.Values)
             {
-                if (!def.RatingConversionRef.HasValue)
+                if (!def.ConversionRef.HasValue)
                 {
                     continue;
                 }
@@ -825,7 +872,12 @@ namespace Core.Numbers.StatBlock
 
             var value = baseValue + flatSum;
 
-            if (_options.EnableRatingConversion && def.IsRating)
+            // T-N1-3（ADR-0030 决策 3）：换算层始终启用，触发条件是 category=="percent" 本身——
+            // 不再有 StatHostOptions.EnableRatingConversion 这道开关（该属性已标废弃且 StatHost
+            // 不再读取它，见 StatHostOptions.EnableRatingConversion 判断记录）。ConvertRating 内部
+            // 对 conversion_ref 缺省的属性直接返回原值（恒等曲线），所以本分支对"percent 但未引用
+            // 曲线"的属性同样安全——不是"看似换算、实则被开关拦下"的隐藏分叉。
+            if (def.Category == "percent")
             {
                 value = ConvertRating(unitId, def, value);
             }
@@ -913,31 +965,58 @@ namespace Core.Numbers.StatBlock
         }
 
         /// <summary>
-        /// 评级换算（06 第 1.1 节"某些属性在参与三段式聚合前先过一层评级曲线"）。
+        /// 换算层（06 第 1.1 节修订段"某些属性在参与三段式聚合前先过一层评级曲线"；T-N1-3，
+        /// ADR-0030 决策 3："换算层始终存在，恒等曲线为默认"）。
         /// <para>
-        /// 判断记录（2026-09-05，设计层裁定，取代原判断记录）：曲线 <c>entries[].level</c> 就是
-        /// 单位等级——按等级在 <c>entries</c>（已按 <c>level</c> 升序排列）上线性插值取得
-        /// <c>points_per_percent</c>（越界取端点），再用 <c>percent = rawValue / pointsPerPercent</c>
-        /// 算出换算结果；<c>rawValue</c>（<c>base + Σflat</c>）本身只作为被除数，不参与插值。
+        /// <c>conversion_ref</c> 缺省（<see cref="StatDefinition.ConversionRef"/> 为 <c>null</c>）
+        /// 即恒等曲线——直接返回 <paramref name="rawValue"/>（"保守版：恒等加 clamp 硬上限"，硬上限
+        /// 由 <see cref="ComputeFinal"/> 末尾的 <c>clamp</c> 夹取承担，不在本方法内）。引用了曲线但
+        /// 该 id 在 <see cref="_ratingConversions"/> 里查不到（内容错误：引用不存在的曲线，正常情况
+        /// 应已由 <c>reference_integrity</c> 校验拦下）时同样退化为直通，同既有"内容错误被静默降级"
+        /// 兜底口径。
+        /// </para>
+        /// <para>
+        /// 引用到曲线时按其登记的形态求值（<see cref="RatingConversionShape"/>）：
+        /// <see cref="RatingConversionShape.Breakpoints"/>（"标准版：等级索引除数"）——按等级在
+        /// <c>entries</c>（已按 <c>x</c> 升序排列）上线性插值取得 <c>y</c>（每 1% 所需点数，越界取
+        /// 端点），再用 <c>percent = rawValue / pointsPerPercent</c> 算出换算结果（2026-09-05 设计层
+        /// 裁定：<c>x</c> 就是单位等级，<c>rawValue</c> 本身只作被除数，不参与插值，见
+        /// <see cref="ParseCurve"/> 判断记录）；空曲线（迁移前遗留的极端情形）退化为直通。
+        /// <see cref="RatingConversionShape.Saturation"/>（"变态版：饱和曲线，除数随等级增长"）——
+        /// 委托 <see cref="EvaluateSaturation"/>，公式与 <c>combat.resist_curve</c> 饱和分支
+        /// （<c>ResistCurve.ComputeReduction</c>）同形态，见 04 第 3.6 节
+        /// <c>CurveSchema.SaturationField</c> 判断记录。
+        /// </para>
+        /// <para>
         /// 单位等级经构造期注入的 <see cref="StatHostOptions.LevelLookup"/> 具名委托查询——
         /// <c>StatHost</c> 仍然不直接引用 <c>core/numbers/progression</c> 的任何类型（01 第 3 节
         /// "同层仅契约/仅事件"），由调用方把真正的等级来源（如
         /// <c>IProgressionHost.GetLevel</c>）适配成该委托签名后注入；委托为 <c>null</c> 时等级
-        /// 一律按 1 处理。
+        /// 一律按 1 处理。两种形态共用同一次 <c>LevelLookup</c> 查询。
         /// </para>
         /// </summary>
         private double ConvertRating(Id unitId, StatDefinition def, double rawValue)
         {
-            if (!def.RatingConversionRef.HasValue)
+            if (!def.ConversionRef.HasValue)
             {
                 return rawValue;
             }
-            if (!_ratingConversions.TryGetValue(def.RatingConversionRef.Value, out var conversion) || conversion.Curve.Count == 0)
+            if (!_ratingConversions.TryGetValue(def.ConversionRef.Value, out var conversion))
             {
                 return rawValue;
             }
 
             var level = _options.LevelLookup?.Invoke(unitId) ?? 1;
+
+            if (conversion.Shape == RatingConversionShape.Saturation)
+            {
+                return EvaluateSaturation(rawValue, level, conversion.K, conversion.Cap);
+            }
+
+            if (conversion.Curve.Count == 0)
+            {
+                return rawValue;
+            }
 
             // T-N0-4：插值委托 PiecewiseCurve.Evaluate（越界夹取端点、段内 lo + t × (hi − lo)，与迁移前
             // 本方法手写的式子逐运算相同，见 PiecewiseCurve 判断记录 2）。
@@ -948,6 +1027,20 @@ namespace Core.Numbers.StatBlock
         private static double DivideByPointsPerPercent(double rawValue, double pointsPerPercent)
         {
             return pointsPerPercent == 0 ? 0.0 : rawValue / pointsPerPercent;
+        }
+
+        /// <summary>T-N1-3（ADR-0030 决策 3；04 第 3.6 节 <c>CurveSchema.SaturationField</c> 判断
+        /// 记录）："变态版：饱和曲线，除数随等级增长"——<c>输出 = rawValue / (rawValue + k × level)</c>，
+        /// 以 <c>cap</c> 封顶；非正分母（<c>rawValue</c> 与 <c>k × level</c> 相消或为负）与负结果一律
+        /// 降级为 0，公式与 <c>ResistCurve.ComputeReduction</c> 的 <c>ResistCurveKind.Saturation</c>
+        /// 分支逐运算相同（与护甲/抗性减免曲线同形态，ADR-0030 决策 3"换算曲线契约固定为……与
+        /// <c>combat.resist_curve</c> 同形态"）。</summary>
+        private static double EvaluateSaturation(double rawValue, int level, double k, double cap)
+        {
+            var denom = rawValue + k * level;
+            var result = denom <= 0.0 ? 0.0 : rawValue / denom;
+            if (result < 0.0) result = 0.0;
+            return Math.Min(result, cap);
         }
 
         // -----------------------------------------------------------------
@@ -992,40 +1085,77 @@ namespace Core.Numbers.StatBlock
             /// <summary>T-N1-2：来源改为嵌套 <c>clamp.max</c>（拍板 2），不再是平级 <c>max</c>。</summary>
             public double? Max { get; }
 
-            public bool IsRating { get; }
-            public Id? RatingConversionRef { get; }
+            /// <summary>T-N1-3（ADR-0030 决策 3）：取代此前的 <c>IsRating</c>/<c>RatingConversionRef</c>
+            /// 两个字段——换算层的触发条件不再是独立的 <c>is_rating</c> 布尔值，而是
+            /// <c>Category == "percent"</c> 本身（见 <see cref="ComputeFinal"/> 判断记录）；本字段只
+            /// 承载"换算用哪条曲线"，取自 v2 <c>conversion_ref</c>（缺省 null，即恒等曲线，见
+            /// <see cref="ConvertRating"/>）。</summary>
+            public Id? ConversionRef { get; }
 
             /// <summary>T-N1-2（ADR-0030 决策 1/2）：仅 <see cref="Category"/> 为 <c>"derived"</c> 时
             /// 有意义，空列表合法（见 <see cref="ComputeDerivedBase"/> 判断记录）。</summary>
             public IReadOnlyList<(Id Stat, double Coefficient)> DerivedFrom { get; }
 
             public StatDefinition(
-                Id id, string category, double defaultBase, double? min, double? max, bool isRating,
-                Id? ratingConversionRef, IReadOnlyList<(Id Stat, double Coefficient)> derivedFrom)
+                Id id, string category, double defaultBase, double? min, double? max,
+                Id? conversionRef, IReadOnlyList<(Id Stat, double Coefficient)> derivedFrom)
             {
                 Id = id;
                 Category = category;
                 DefaultBase = defaultBase;
                 Min = min;
                 Max = max;
-                IsRating = isRating;
-                RatingConversionRef = ratingConversionRef;
+                ConversionRef = conversionRef;
                 DerivedFrom = derivedFrom;
             }
+        }
+
+        /// <summary>T-N1-3（ADR-0030 决策 3；04 第 3.6 节）：一条 <c>stat.rating_conversion</c> 记录
+        /// 登记的曲线形态——两者二选一，由 <c>StatRatingConversionValidationRule</c> 在内容校验阶段
+        /// 保证互斥。</summary>
+        private enum RatingConversionShape
+        {
+            /// <summary>"标准版：等级索引除数"，见 <see cref="RatingConversion.Curve"/>。</summary>
+            Breakpoints,
+
+            /// <summary>"变态版：饱和曲线，除数随等级增长"，见 <see cref="RatingConversion.K"/>/
+            /// <see cref="RatingConversion.Cap"/>。</summary>
+            Saturation,
         }
 
         private sealed class RatingConversion
         {
             public Id Id { get; }
 
-            /// <summary>x = 单位等级，y = 该等级下每 1% 效果所需点数（T-N0-4 起以通用曲线承载）。</summary>
+            public RatingConversionShape Shape { get; }
+
+            /// <summary>x = 单位等级，y = 该等级下每 1% 效果所需点数（T-N0-4 起以通用曲线承载）；仅
+            /// <see cref="Shape"/> 为 <see cref="RatingConversionShape.Breakpoints"/> 时有意义，否则为
+            /// <see cref="PiecewiseCurve.Empty"/>。</summary>
             public PiecewiseCurve Curve { get; }
 
-            public RatingConversion(Id id, PiecewiseCurve curve)
+            /// <summary>饱和形态除数系数，&gt; 0；仅 <see cref="Shape"/> 为
+            /// <see cref="RatingConversionShape.Saturation"/> 时有意义（T-N1-3）。</summary>
+            public double K { get; }
+
+            /// <summary>饱和形态输出封顶，&gt; 0，缺省 1；仅 <see cref="Shape"/> 为
+            /// <see cref="RatingConversionShape.Saturation"/> 时有意义（T-N1-3）。</summary>
+            public double Cap { get; }
+
+            private RatingConversion(Id id, RatingConversionShape shape, PiecewiseCurve curve, double k, double cap)
             {
                 Id = id;
+                Shape = shape;
                 Curve = curve;
+                K = k;
+                Cap = cap;
             }
+
+            public static RatingConversion CreateBreakpoints(Id id, PiecewiseCurve curve) =>
+                new RatingConversion(id, RatingConversionShape.Breakpoints, curve, k: 0, cap: 0);
+
+            public static RatingConversion CreateSaturation(Id id, double k, double cap) =>
+                new RatingConversion(id, RatingConversionShape.Saturation, PiecewiseCurve.Empty, k, cap);
         }
 
         private sealed class UnitStats

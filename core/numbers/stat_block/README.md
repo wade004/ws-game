@@ -4,7 +4,8 @@
 `× (1 + Σpct)` → `× Π(1 + Σmult_group)`；第二轮：`category=derived` 的属性基础值改为
 Σ(来源属性最终值 × 系数)，再走同一套三段式，见 `architecture/06_规则层_属性技能战斗AI.md`
 第 1.1 节、`architecture/adr/0030-属性系统派生换算与来源类别.md` 决策 2，T-N1-2 落地），
-可选评级换算（第 1.1 节、`00_架构总则.md` 第 3 节"默认关闭"）与可选抗性维度（`00` 第 3 节
+始终启用的换算层（第 1.1 节修订段、ADR-0030 决策 3；T-N1-3 起触发条件为
+`category=="percent"`，不再有独立开关，见下文"换算层"一节）与可选抗性维度（`00` 第 3 节
 "可选属性维度"；判定条件 T-N1-2 起改为 `category=="defense"`，见下文"抗性维度"一节）。
 对应 `01_分层与依赖.md` L1 模块表 `stat_block` 行、契约接口名 `StatHost`。
 
@@ -25,7 +26,9 @@ stat_block/
                StatChangedEvent.cs（StatBlockEventKeys、StatChangedEvent）
   core/        StatSchemas.cs（stat.definition / stat.rating_conversion 的 TableSchema；
                stat.definition schema 版本 2，T-N1-1；group 字段 T-N1-2 起放宽为
-               required:false）
+               required:false；stat.rating_conversion 的 entries 字段 T-N1-3 起放宽为
+               required:false，新增可选 saturation 字段，与 entries 二选一，schema 版本
+               不变仍为 2）
                StatDefinitionValidationRule.cs（IValidationRule：min<=max（T-N1-2 起
                同时检查嵌套 clamp.min<=clamp.max）、rating_conversion_ref 需要
                is_rating、derived_from 仅限 derived、conversion_ref 仅限 percent，
@@ -33,16 +36,23 @@ stat_block/
                StatDefinitionDerivationCycleValidationRule.cs（T-N1-2 新增
                IValidationRule：stat.definition.derived_from 派生来源链无环，含自环；
                写法照抄 archetype 层 ArchTalentTreeCycleValidationRule）
+               StatRatingConversionValidationRule.cs（T-N1-3 新增 IValidationRule：
+               stat.rating_conversion 记录必须恰好登记 entries 或 saturation 之一）
                StatHost.cs（IStatHost 默认实现；T-N1-2 起改读 category/derived_from/
                clamp（不再读 group/平级 min/max），两轮拓扑序聚合、派生失效传播、
-               抗性维度判定改用 category=="defense"；is_rating/rating_conversion_ref
-               读取逻辑本任务未改，换算层触发条件改 category==percent 留给 T-N1-3）
+               抗性维度判定改用 category=="defense"；T-N1-3 起 LoadRatingConversions
+               无条件执行、换算触发条件改 category=="percent"、改读 v2 的
+               conversion_ref（不再读已废弃的 is_rating/rating_conversion_ref）、
+               ConvertRating 按 stat.rating_conversion 登记的形态（entries 断点表 /
+               saturation 二元饱和）求值）
   schema/      README.md（字段表）
   tests/       StatHostTests.cs（T-N1-2：两轮聚合/clamp 夹取时机/失效传播/拓扑序
-               稳定/派生成环防御/派生无环校验规则/抗性维度 v2 原生用例）
+               稳定/派生成环防御/派生无环校验规则/抗性维度 v2 原生用例；T-N1-3：
+               恒等/饱和两种曲线形态、"不存在关闭路径"行为与反射用例）
                StatDefinitionMigrationTests.cs（T-N1-1：1→2 迁移字段值回归）
                StatSchemaCoverageTests.cs（rating_conversion.entries、
-               definition.derived_from/clamp 子结构覆盖）
+               definition.derived_from/clamp 子结构覆盖；T-N1-3：
+               rating_conversion.saturation 子结构与形态二选一正反例）
                RatingConversionMigrationTests.cs
                P2_05_StatHostReloadTests.cs
                CORE114_03_StatHostReloadCacheInvalidationTests.cs
@@ -102,6 +112,62 @@ stat_block/
   `ArchTalentTreeCycleValidationRule`），随 `RulesSchemaCatalog.RegisterL1Schemas` 与
   `L1SampleDataTests.BuildWorld` 注册。
 
+## T-N1-3：换算层始终启用、触发条件改 category==percent、三形态复用通用曲线
+
+分阶段落地计划 T-N1-3（ADR-0030 决策 3；落地清单）：换算层从"`StatHostOptions.
+EnableRatingConversion` 门控的可选策略"改为"始终启用"，触发条件从"`is_rating` 字段"改为
+"`category=="percent"`"，三种曲线形态（恒等、按等级除数、饱和）全部复用 04 第 3.6 节通用
+曲线契约，不新增求值路径。
+
+- **换算层始终启用**：`ReloadFromRegistry` 的 `LoadRatingConversions` 调用不再被
+  `if (_options.EnableRatingConversion)` 包裹；`ComputeFinal` 的触发条件从
+  `_options.EnableRatingConversion && def.IsRating` 改为单一条件 `def.Category ==
+  "percent"`——`StatDefinition.IsRating` 字段已删除（内部实现细节，不是公开契约），`Category`
+  本身已经能表达"是否经换算层"，不需要独立布尔值冗余记录同一件事。
+- **`EnableRatingConversion` 保留但无效化（偏离计划原文"删除"）**：计划原文要求删除该属性，
+  但落地计划第 1 节"每阶段对外契约变化必须控制在 MINOR"——删除既有公开属性是 ABI 破坏（G3
+  门禁不允许）。设计层裁定：属性签名不变，标记 `[Obsolete("换算层自 1.31.0 起始终启用
+  （ADR-0030 决策 3），本属性无任何作用，保留仅为二进制兼容")]`，`StatHost` 全部代码路径不再
+  读取它（`grep -n "_options.EnableRatingConversion" core/numbers/stat_block/core/StatHost.cs`
+  应为零命中）。"不存在关闭路径"由两条测试守护（`StatHostTests.cs`）：
+  `EnableRatingConversion_HasNoEffect_PercentStatsStillConvert`（显式构造
+  `EnableRatingConversion=false`，断言 `percent` 属性仍经曲线换算，不是直通原值）、
+  `StatHostOptions_NoUnobsoleteConversionSwitch_Exists`（反射扫描 `StatHostOptions` 全部公开
+  属性，断言不存在任何未标 `[Obsolete]` 的、名字含 `RatingConversion`/`Conversion` 的布尔
+  属性——防止未来有人加一个新开关重新引入关闭路径而没人发现）。
+- **`LoadDefinitions` 改读 `conversion_ref`**：不再读已废弃的 `is_rating`/
+  `rating_conversion_ref`（两者的取值已由 T-N1-1 的 1→2 迁移链折算进 `category`/
+  `conversion_ref`，到 `LoadDefinitions` 读到的记录已经过迁移，直接读新字段即可，同 T-N1-2
+  对 `category`/`clamp` 的既有处理口径）。
+- **三种曲线形态复用通用曲线契约**（`StatHost.ConvertRating`）：
+  - **恒等**（保守版：恒等加 `clamp` 硬上限）：`stat.definition.conversion_ref` 缺省——直接
+    返回 `base + Σflat` 原值；硬上限由 `ComputeFinal` 聚合末尾的 `clamp` 夹取承担，与换算层
+    本身无关。
+  - **按等级除数**（标准版：等级索引除数）：既有 `stat.rating_conversion.entries` 断点表形态
+    （T-N0-4 起复用 `PiecewiseCurve`），公式与本任务之前完全相同——`percent = rawValue /
+    Evaluate(单位等级)`，本任务未改动该路径的任何代码。
+  - **饱和**（变态版：饱和曲线，除数随等级增长）：`stat.rating_conversion` 新增可选字段
+    `saturation`（`CurveSchema.SaturationField`，`{k: Number(必填,>0), cap?:
+    Number(可选,>0,缺省 1)}`），公式 `输出 = rawValue / (rawValue + k × 单位等级)`，非正分母
+    与负结果降级为 0，再以 `cap` 封顶——与 `combat.resist_curve` 的
+    `ResistCurveKind.Saturation` 分支（`ResistCurve.ComputeReduction`）逐运算相同公式，落实
+    ADR-0030 决策 3"换算曲线契约固定为……与 `combat.resist_curve` 同形态"。`entries`/
+    `saturation` 二选一由新增 `StatRatingConversionValidationRule`（检查名
+    `stat_rating_conversion_requires_one_shape`）强制。
+- **schema 版本判断**：`entries` 从 `required: true` 放宽为 `required: false`，新增
+  `saturation` 可选字段——纯新增可选字段/放宽必填不改变已有合法数据的判定结论，不升级
+  `stat.rating_conversion` 的 `currentSchemaVersion`（仍为 2），同 `StatSchemas.GroupValues`
+  判断记录先例（T-N1-2"`group` 字段放宽为 `required:false` 不升版本"）。
+- **回放/Perf 基线核查（本任务不是 ★ 任务，核查结论为零影响，未改动基线）**：
+  `data/_sample/stat/stat.definition.json` 的 `crit_rating`/`dodge_rating` 两条属性
+  `is_rating=true`，1→2 迁移后 `category=percent`——换算从"默认关闭"变为"始终启用"，属于
+  行为变更；但核查 `data/_sample` 全库，两条属性均无 `default_base`（缺省 0）也没有任何
+  装备/光环/职业模板赋值来源，`combat.hit_table_config` 直接把其原始值当 miss/crit 分支概率
+  使用，`0` 经任意换算曲线（恒等或除数曲线）结果仍是 `0`——运行时数值零变化。`git status`
+  确认 `core/gameplay/tests/Replay/replay_baseline.json`/`core/gameplay/tests/Perf/
+  perf_baseline.json` 零改动，`--filter "FullyQualifiedName~Replay"` 全绿。
+  `games/_template` 无 `percent`/`conversion_ref` 类属性，不受影响。
+
 ## 用法
 
 ```csharp
@@ -113,7 +179,8 @@ var report = registry.LoadAll();
 
 var statHost = new StatHost(registry, bus, new StatHostOptions
 {
-    EnableRatingConversion = false,   // 00 第 3 节：默认关闭
+    // 换算层自 T-N1-3 起始终启用，不再有开关（EnableRatingConversion 已废弃、无任何效果，
+    // 见"T-N1-3"一节）——这里不需要也不应该再设置它。
     EnableResistanceGroup = true,     // 00 第 3 节：可选维度，本项默认开启；T-N1-2 起判定
                                        // category=="defense"（属性名沿用旧名，见"T-N1-2"一节）
 });
@@ -151,23 +218,27 @@ audit-ac3b622-20260909）**：`StatHost.ResetBase(unitId, stat)` 清除某单位
   相等（`Mult` 各乘区之间是乘法，浮点乘法不满足结合律的舍入误差属于预期行为，架构文档只
   承诺"同种子同输入产生同结果"，不承诺不同插入顺序等价）。
 
-## 评级换算（可选，默认关闭）
+## 换算层（始终启用，T-N1-3 起不再有开关）
 
-`StatHostOptions.EnableRatingConversion=true` 且某属性 `is_rating=true` 时，
-`base + Σflat` 先经该属性 `rating_conversion_ref` 指向的 `stat.rating_conversion` 曲线换算，
-换算结果再进入 `pct`/`mult` 两段。曲线的自变量是**单位等级**（`entries[].level`，设计层
-2026-09-05 拍板，取代此前"level 是评级原始值自己的插值断点"的判断）：按 `StatHostOptions.LevelLookup(unitId)`
-查到的等级在 `entries`（通用断点表 `{x: 等级, y: 每 1% 所需点数}`，T-N0-4 起经 `PiecewiseCurve.Evaluate`
-插值，式子与此前手写实现逐运算相同）上线性插值取每 1% 所需点数（越界取端点），
-再用 `percent = rawValue / pointsPerPercent` 算出换算结果；`LevelLookup` 为 `null` 时等级一律按
-1 处理。`StatHost` 仍不直接引用 `core/numbers/progression` 的任何类型——由调用方把真正的等级
-来源（如 `IProgressionHost.GetLevel`）适配成 `LevelLookup` 委托签名后注入构造期的
-`StatHostOptions`。判断记录见 `StatHost.ConvertRating` 源码注释。
+`stat.definition.category == "percent"` 的属性，`base + Σflat` 一律先经换算层
+（`StatHost.ConvertRating`），换算结果再进入 `pct`/`mult` 两段——不再有独立开关（此前的
+`StatHostOptions.EnableRatingConversion` 已标 `[Obsolete]`、无任何效果，见"T-N1-3"一节）。
+`conversion_ref` 缺省即**恒等**曲线（原样返回，保守版风格的硬上限改由 `stat.definition.clamp`
+承担）；引用 `stat.rating_conversion` 时按该记录登记的形态求值：
+
+- **按等级除数**（标准版）：`entries` 通用断点表 `{x: 等级, y: 每 1% 所需点数}`（T-N0-4 起经
+  `PiecewiseCurve.Evaluate` 插值，越界取端点）——`percent = rawValue / pointsPerPercent`。曲线
+  的自变量是**单位等级**（`x`，设计层 2026-09-05 拍板，取代此前"level 是评级原始值自己的
+  插值断点"的判断），经 `StatHostOptions.LevelLookup(unitId)` 查询；为 `null` 时等级一律按
+  1 处理。`StatHost` 不直接引用 `core/numbers/progression` 的任何类型——由调用方把真正的
+  等级来源（如 `IProgressionHost.GetLevel`）适配成 `LevelLookup` 委托签名后注入。
+- **饱和**（变态版，T-N1-3 新增）：`saturation` 字段 `{k, cap?}`——
+  `percent = rawValue / (rawValue + k × 单位等级)`，以 `cap` 封顶（缺省 1），公式与
+  `combat.resist_curve` 饱和分支同形态。
 
 ```csharp
 var statHost = new StatHost(registry, bus, new StatHostOptions
 {
-    EnableRatingConversion = true,
     LevelLookup = unitId => progressionHost.GetLevel(unitId),  // 由调用方适配真正的等级来源
 });
 ```
@@ -185,7 +256,7 @@ var statHost = new StatHost(registry, bus, new StatHostOptions
 - 不持有单位的其它状态（生命值、资源池等属于 `power_set` 与更高层）。
 - 不做数据文件的读写/校验实现（复用 `core/foundation/data_registry`），本模块只提供
   `TableSchema`/`IValidationRule` 声明，注册时机由调用方掌控。
-- 不直接依赖 `core/numbers/progression` 的任何具体类型——评级曲线虽然以单位等级为自变量
-  （见"评级换算"一节，设计层 2026-09-05 拍板），但等级经 `StatHostOptions.LevelLookup`
+- 不直接依赖 `core/numbers/progression` 的任何具体类型——换算层曲线虽然以单位等级为自变量
+  （见"换算层"一节，设计层 2026-09-05 拍板），但等级经 `StatHostOptions.LevelLookup`
   具名委托注入，不是直接引用 `IProgressionHost`，避免与 `progression` 产生同层跨模块的编译期
   耦合（`ConvertRating` 判断记录）。

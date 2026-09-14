@@ -179,6 +179,16 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `combat.resist_curve`/`prog.level_curve` 的字段与版本均不变。
 - **数值设计落地 T-N0-6（1.30.0）**：`toolchain/validator --json` 新增 `rules[]` 与
   `issues[].group/note/rule_id`，编辑器问题面板可据此按规则分组并展示作者说明原文；既有字段不变。
+- **数值设计落地阶段 N1 · T-N1-3（Unreleased）**：`stat.rating_conversion` 新增可选字段
+  `saturation`（`CurveSchema.SaturationField`，`Curve.Shape=Saturation`，子字段 `k`/`cap`），与
+  既有 `entries`（`Curve.Shape=Breakpoints`）二选一，由新增校验规则
+  `StatRatingConversionValidationRule`（检查名 `stat_rating_conversion_requires_one_shape`）
+  强制恰好二选一；`entries` 从 `required: true` 放宽为 `required: false`，schema 版本不变
+  （仍为 2）。编辑器曲线编辑控件遇到 `Curve.Shape=Saturation` 的字段应渲染为"数值 × 等级"
+  两参数输入（`k`/`cap`），不是断点表；物品编辑器 5.5.3 曲线图一节若复用本表的编辑控件，需
+  按 `field_meta.curve.shape` 分流两种编辑器 UI。`toolchain/validator --list-tables --json`
+  的 `field_meta.curve` 对本字段输出 `{shape: "saturation", axis: "value"}`（复用 T-N0-1 已有
+  的 `field_meta.curve` 导出结构，不新增导出字段）。
 
 ## [Unreleased]
 
@@ -242,6 +252,50 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   直接注册真实 `StatSchemas.Definition`。测试：`StatHostTests` 新增 15 例（两轮聚合 6、失效
   传播 2、派生成环加载期防御 1、显式覆盖 1、派生无环校验规则正反例 3、`clamp` 嵌套校验 1、
   抗性维度 v2 原生用例 1）。
+- **数值设计落地阶段 N1 · T-N1-3（换算层始终启用、触发条件改 `category==percent`、恒等/按等级
+  除数/饱和三形态复用通用曲线，[数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
+  第 14 节）**：`core/numbers/stat_block/core/StatHost.cs` 的 `LoadRatingConversions` 改为无条件
+  执行（不再由 `StatHostOptions.EnableRatingConversion` 门控）；`ComputeFinal` 的换算触发条件从
+  "`EnableRatingConversion` 开关 && `is_rating` 字段"改为单一条件 `category=="percent"`；
+  `LoadDefinitions` 改读 v2 字段 `conversion_ref`（不再读已废弃的 `is_rating`/
+  `rating_conversion_ref`，两者的取值已由 T-N1-1 迁移链折算进 `category`/`conversion_ref`）。
+  **偏离计划原文的说明**：计划原文要求"删除 `EnableRatingConversion`"，但落地计划第 1 节"每阶段
+  对外契约变化必须控制在 MINOR"——删除既有公开属性是 ABI 破坏，G3 门禁不允许。设计层裁定改为
+  **保留但无效化**：`StatHostOptions.EnableRatingConversion` 标记 `[Obsolete("换算层自 1.31.0
+  起始终启用（ADR-0030 决策 3），本属性无任何作用，保留仅为二进制兼容")]`，`StatHost` 不再有
+  任何代码读取它；"不存在关闭路径"由两条测试保证——`EnableRatingConversion_HasNoEffect_
+  PercentStatsStillConvert`（显式构造 `EnableRatingConversion=false`，断言 `percent` 属性仍经
+  曲线换算）与 `StatHostOptions_NoUnobsoleteConversionSwitch_Exists`（反射断言 `StatHostOptions`
+  上不存在任何未标 `[Obsolete]` 的、名字含 `RatingConversion`/`Conversion` 的布尔属性）。**三种
+  曲线形态**（ADR-0030 决策 3；数值设计 01 第 5 节）复用 04 第 3.6 节通用曲线契约，不新增求值
+  路径：恒等（保守版：`conversion_ref` 缺省，直通原值，硬上限由 `stat.definition.clamp` 在聚合
+  末尾夹取，与换算层本身无关）；按等级除数（标准版：既有 `entries` 断点表形态，T-N0-4 起已复用
+  `PiecewiseCurve`，本任务未改公式）；饱和（变态版：`stat.rating_conversion` 新增可选字段
+  `saturation`（`CurveSchema.SaturationField`，子字段 `k`（必填，> 0）/`cap`（可选，> 0，缺省
+  1）），公式 `输出 = rawValue / (rawValue + k × 单位等级)`，以 `cap` 封顶，与 `combat.resist_curve`
+  饱和分支同形态，ADR-0030 决策 3"换算曲线契约……与 `combat.resist_curve` 同形态"）。`entries`
+  放宽为 `required: false`，与 `saturation` 二选一，由新增
+  `StatRatingConversionValidationRule`（检查名 `stat_rating_conversion_requires_one_shape`，
+  Error 级，04 第 5 节分级表未逐条列出，按 `stat_*` 前缀命名，**待设计层确认**）强制"恰好二选
+  一"；纯新增可选字段不升级 `stat.rating_conversion` 的 schema 版本（仍为 2，同
+  `StatSchemas.GroupValues` 判断记录先例：放宽必填/新增可选字段不是破坏性变更）。**行为变更
+  （不是放宽断言）**：原测试 `RatingConversion_DisabledPassesRawValueThrough`（断言
+  `EnableRatingConversion=false` 时直通原值）语义已不成立，改写为
+  `EnableRatingConversion_HasNoEffect_PercentStatsStillConvert`（同一输入现在断言经曲线换算，
+  不再直通）；生产装配测试（`core/gameplay/assembly/tests/CORE_110_FollowupAuditTests.cs`/
+  `CORE_180_FollowupAuditTests.cs`、`core/rules/tests/Integration/
+  ProgressionRestoreRatingRecomputeTests.cs`、`core/numbers/stat_block/tests/
+  RatingConversionMigrationTests.cs`、`core/numbers/tests/L1SampleDataTests.cs`）里此前
+  显式 `EnableRatingConversion=true`/`=false` 的初始化项全部去掉（换算层已始终启用，无需
+  也不能再引用已废弃属性）。**回放/Perf 基线核查**：`data/_sample/stat/stat.definition.json`
+  的 `crit_rating`/`dodge_rating` 两条属性 `is_rating=true`，迁移后 `category=percent`——换算
+  从"默认关闭"变为"始终启用"，但两者在 `data/_sample` 全库无任何 `default_base`/装备/光环
+  赋值来源（`default_base` 缺省 0），`combat.hit_table_config` 直接引用其原始值作为 miss/crit
+  分支概率，`0` 经任意换算曲线（恒等或除数）结果仍是 `0`——核查结论：**运行时数值零变化**，
+  `Replay`/`Perf` 基线保持零改动（已跑 `--filter "FullyQualifiedName~Replay"` 确认，`git status`
+  显示两个基线文件零改动）。`games/_template` 无 `percent`/`conversion_ref` 类属性，不受影响。
+  测试：`StatHostTests` 新增 6 例（恒等 2、饱和 2、不存在关闭路径行为/反射各 1）、
+  `StatSchemaCoverageTests` 新增 5 例（`saturation` 子结构正反例 2、形态二选一正反例 3）。
 
 ## [1.30.0] - 2026-09-14
 

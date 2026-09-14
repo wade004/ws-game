@@ -211,7 +211,22 @@ namespace Core.Numbers.StatBlock
         /// <c>y &gt; 0</c> 的范围登记沿用 v1 对 <c>points_per_percent</c> 的判断记录（ADR-0021：
         /// <c>StatHost.DivideByPointsPerPercent</c> 对 0 特判返回 0 是"内容错误被静默降级"的同款模式，
         /// 负值没有合理含义，提前到加载期拦下）。通用规则 <c>curve_monotonic_finite</c> 自动覆盖本表
-        /// （数值总纲第 3 节原则 1：除数随等级不递减）。</summary>
+        /// （数值总纲第 3 节原则 1：除数随等级不递减）。
+        /// <para>
+        /// 判断记录（T-N1-3，ADR-0030 决策 3；04 第 3.6 节；数值总纲 01 第 5 节"三种曲线形态"）：新增
+        /// 可选 <c>saturation</c> 字段（<see cref="CurveSchema.SaturationField"/>，形态
+        /// <see cref="CurveShape.Saturation"/>，子字段 <c>k</c>/<c>cap</c>），与 <c>entries</c> 二选一——
+        /// 一条 <c>stat.rating_conversion</c> 记录用哪种形态由内容作者选择（"标准版：等级索引除数"用
+        /// <c>entries</c>，"变态版：饱和曲线，除数随等级增长"用 <c>saturation</c>，见
+        /// <c>StatRatingConversionValidationRule</c>"恰好二选一"校验）。<c>entries</c> 因此从
+        /// <c>required: true</c> 放宽为 <c>required: false</c>——纯放宽必填不改变已合法数据的判定结论
+        /// （既有只填 <c>entries</c> 的记录仍然合法），<b>不升级 schema 版本</b>（同
+        /// <c>StatSchemas.GroupValues</c> 判断记录"T-N1-2 起放宽为 required:false"先例：放宽必填不是
+        /// 破坏性变更，不需要迁移函数）。"恰好二选一"（而不是"两者都可选、都缺省时按恒等"）是因为
+        /// 恒等形态由 <c>stat.definition.conversion_ref</c> 缺省本身表达（不引用任何
+        /// <c>stat.rating_conversion</c> 记录），已存在的 <c>stat.rating_conversion</c> 记录理应
+        /// 明确选择一种非恒等形态，否则该记录本身没有存在意义。
+        /// </para></summary>
         public static TableSchema RatingConversion { get; } = new TableSchema(
             name: "stat.rating_conversion",
             primaryKey: "id",
@@ -220,12 +235,18 @@ namespace Core.Numbers.StatBlock
             {
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "stat.rating.<name>"),
-                CurveSchema.BreakpointsField("entries", CurveAxis.Level, required: true,
+                CurveSchema.BreakpointsField("entries", CurveAxis.Level, required: false,
                     description: "断点表 [{x: 单位等级(Int), y: 每 1% 效果所需点数(Number, > 0)}]，按 x 线性插值、" +
-                        "越界夹取到端点（04 第 3.6 节通用曲线形态；v1 字段名 level/points_per_percent 经 1→2 迁移改名）",
+                        "越界夹取到端点（04 第 3.6 节通用曲线形态；v1 字段名 level/points_per_percent 经 1→2 迁移改名）；" +
+                        "\"标准版：等级索引除数\"形态（数值设计 01 第 5 节），与 saturation 二选一（T-N1-3）",
                     xDescription: "单位等级（StatHostOptions.LevelLookup 查到的等级，不是评级原始值）",
                     yDescription: "该等级下每 1% 效果所需的评级点数，> 0",
                     yRange: FieldRange.Range(min: 0, minExclusive: true)),
+                CurveSchema.SaturationField("saturation", required: false,
+                    description: "二元饱和形态 {k: Number(>0), cap?: Number(>0, 缺省 1)}：输出 = " +
+                        "rawValue / (rawValue + k × 单位等级)，以 cap 封顶（04 第 3.6 节；\"变态版：饱和曲线，" +
+                        "除数随等级增长\"形态，数值设计 01 第 5 节；与护甲/抗性减免曲线同形态，ADR-0030 决策 3）；" +
+                        "与 entries 二选一（T-N1-3，见本表类型顶部判断记录）"),
             },
             migrations: new[]
             {
