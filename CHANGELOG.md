@@ -233,6 +233,20 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 新增 `toolchain/unity_test_triage.py`：Unity EditMode/PlayMode 测试结果分诊脚本，从 NUnit3 结果 XML 与 Unity 日志里抽出失败用例的执行窗口、窗口内首个异常/断言（并提醒 NUnit message 只是最后一次异常）与 Warning/Error 摘要；已接入 `check.ps1` 失败分支自动调用（排查复盘 2026-09-15-PlayMode-PRES180）。
 新增 Unity 测试程序集内的 `[TestFirstChance]` 首个异常记录回调：测试运行期把每个断言/未预期日志异常的第一现场打进 Unity 日志，与上条分诊脚本配套，弥补 Unity 批处理日志不打印用例边界与异常发生时机的已知限制。
 
+### 修复
+
+- **EditMode 热重载去抖用例偶发失败根治**：`games/_template/Tests/Editor/DataHotReloadEditModeTests.cs`
+  的 `FileChange_AfterDebounceWindow_ReloadsTableAndUpdatesRegistry` 偶发 `Expected: 2, But was: 1`。
+  用带诊断打点的仪表化版本反复跑全量 EditMode 门禁定位：`System.IO.FileSystemWatcher` 的事件投递
+  延迟在观测中就有约 350ms~950ms 的波动，且官方文档明确它在系统繁忙/内部缓冲区来不及消费时会静默
+  丢事件、不重投递、不报错——单靠它触发 300ms 去抖窗口，在偶发的高延迟/丢事件场景下会导致"表文件
+  已经改了，但热重载永远不会触发"，且不留任何 Error/Exception 日志（与该用例实际失败现场用
+  `toolchain/unity_test_triage.py` 分诊出的"断言失败窗口内没有任何 `[DataHotReload]` 日志行"完全
+  吻合）。`games/_template/Runtime/DataHotReload.cs` 新增轮询兜底：`ProcessPendingChanges` 每次
+  调用时额外做一轮节流轮询（250ms 间隔），对监视根下的 `*.json` 文件比较"上次记录的 mtime+长度"
+  与"当前 mtime+长度"，检测到变化/新增/消失都走与 `FileSystemWatcher` 事件同一条
+  `MarkPending`→300ms 去抖→`Reload` 路径登记，不新开重载分支、不依赖单一事件源。
+
 ## [1.31.0] - 2026-09-14
 
 MINOR 版本：数值设计落地阶段 N1"属性"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 7/14 节，T-N1-1～T-N1-10）——落地 ADR-0030 全部决策：属性类别与派生两轮聚合、
