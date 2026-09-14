@@ -231,6 +231,88 @@ def test_json_flag_passes_through_optional_rules_field_unmodified(tmp_path, caps
     assert result["validator"]["enabled_optional_rules"] == ["DisplayMapCoverageRule"]
 
 
+def _run_with_validator_payload(tmp_path, capsys, payload: dict) -> dict:
+    """T-N0-6 三个透传用例共用：伪造 validator 子进程输出 ``payload``，返回 ``validate_data.py --json``
+    打到标准输出的合并 JSON。"""
+    toolchain_copy = _make_toolchain_copy(tmp_path)
+    data_root = _make_valid_data_root(tmp_path)
+    module = _load_validate_data_copy(toolchain_copy)
+    # 判断记录：同文件其它用例同一手法，不能直接改写全局 shutil/subprocess（见上面用例的判断记录）。
+    module.shutil = SimpleNamespace(which=lambda name: "/fake/dotnet")
+    module.subprocess = SimpleNamespace(run=lambda *a, **k: SimpleNamespace(
+        returncode=0, stdout=json.dumps(payload, ensure_ascii=False), stderr=""
+    ))
+    exit_code = module.main(["--data-root", str(data_root), "--json"])
+    assert exit_code == 0
+    return json.loads(capsys.readouterr().out)
+
+
+def _base_payload() -> dict:
+    return {
+        "tables": 1,
+        "records": 0,
+        "errors": 0,
+        "warnings": 0,
+        "blocking": False,
+        "issues": [],
+        "overrides": [],
+        "disabled_optional_rules": [],
+        "enabled_optional_rules": [],
+        "optional_rules": [],
+        "rules": [],
+    }
+
+
+def test_json_flag_passes_through_rules_list_unmodified(tmp_path, capsys) -> None:
+    """分阶段落地计划 T-N0-6（落地清单 2.2 V3）：``toolchain/validator --json`` 新增 ``rules``
+    （``[{"id", "severity", "non_escalatable", "hits"}, ...]``，按注册顺序、含命中 0 条的规则，见
+    ``Program.cs`` ``PrintJson`` 判断记录）经 ``validate_data.py --json`` 原样透传。"""
+    payload = _base_payload()
+    payload["rules"] = [
+        {"id": "CurveMonotonicFiniteRule", "severity": "error", "non_escalatable": False, "hits": 0},
+        {"id": "SkillBudgetBandRule", "severity": "warning", "non_escalatable": True, "hits": 2},
+    ]
+
+    result = _run_with_validator_payload(tmp_path, capsys, payload)
+
+    assert result["validator"]["rules"] == payload["rules"]
+    assert result["validator"]["rules"][1]["non_escalatable"] is True
+
+
+def test_json_flag_passes_through_issue_group_and_note(tmp_path, capsys) -> None:
+    """T-N0-6（落地清单 2.2 V2）：``issues[]`` 每项新增 ``group``/``note``/``rule_id``（未填为 null），
+    既有 ``severity``/``table``/``record_key``/``field``/``check``/``message`` 字段名与语义不变。"""
+    payload = _base_payload()
+    payload["warnings"] = 1
+    payload["issues"] = [
+        {
+            "severity": "warning", "table": "skill.def", "record_key": "skill.sample", "field": "effects",
+            "check": "skill_budget_band", "message": "预算比值超出带宽",
+            "group": "待确认", "note": "策划：本技能有意超模，作为爆发窗口", "rule_id": "SkillBudgetBandRule",
+        },
+        {
+            "severity": "error", "table": "item.template", "record_key": None, "field": None,
+            "check": "required_field", "message": "缺少 id", "group": None, "note": None, "rule_id": None,
+        },
+    ]
+
+    result = _run_with_validator_payload(tmp_path, capsys, payload)
+
+    issues = result["validator"]["issues"]
+    assert issues == payload["issues"]
+    assert issues[0]["group"] == "待确认"
+    assert issues[0]["note"].startswith("策划：")
+    assert issues[1]["group"] is None and issues[1]["note"] is None and issues[1]["rule_id"] is None
+
+
+def test_json_flag_passes_through_empty_rules_array(tmp_path, capsys) -> None:
+    """T-N0-6：没有任何已注册规则跑过时 ``rules`` 是空数组（不是缺字段、不是 null），透传后同样为 ``[]``。"""
+    result = _run_with_validator_payload(tmp_path, capsys, _base_payload())
+
+    assert "rules" in result["validator"]
+    assert result["validator"]["rules"] == []
+
+
 if __name__ == "__main__":
     import sys
     import pytest

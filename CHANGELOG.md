@@ -176,6 +176,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   执行整表迁移仍走 ADR-0029 的 `SchemaMigrator.MigrateEnvelope`。
 - **数值设计落地 T-N0-5（Unreleased）**：`ProgLevelCurveValidationRule` 新增检查名 `level_curve_xp_monotonic`；
   `combat.resist_curve`/`prog.level_curve` 的字段与版本均不变。
+- **数值设计落地 T-N0-6（Unreleased）**：`toolchain/validator --json` 新增 `rules[]` 与
+  `issues[].group/note/rule_id`，编辑器问题面板可据此按规则分组并展示作者说明原文；既有字段不变。
 
 ## [Unreleased]
 
@@ -228,6 +230,12 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   （`xp_to_next` 沿等级不递减、允许相等，末级条目按约定为 0 不参与比较），表本身保持逐级密集枚举不迁移
   （拍板 3）。既有 `resist_curve_entries_monotonic`/`level_curve_entries`/`level_curve_continuity` 不变。
   测试：`ResistCurveTableInterpolationTests` 14 例、`ProgLevelCurveXpMonotonicTests` 4 例。
+- **数值设计落地阶段 N0 · T-N0-6（校验器报告：规则清单与命中统计、问题分组/说明）**：
+  `toolchain/validator --json` 新增 `rules[]`（每项 `{id, severity, non_escalatable, hits}`，按注册
+  顺序、含命中 0 条的规则）与 `issues[].group/note/rule_id`（未填为 `null`）；文本模式追加末尾
+  `rules (N):` 段，问题行尾追加 ` [group: …]`/` [note: …]` 后缀（未填时逐字节不变）；
+  `validate_data.py --json` 原样透传。既有字段名与语义一律不变。测试：
+  `test_validate_data_json_output.py` 新增 3 例（规则清单、分组/说明、无规则时空数组）。
 
 ## [1.29.0] - 2026-09-14
 
