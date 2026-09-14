@@ -425,6 +425,12 @@ namespace Core.Carriers.Projectile
 
         private void ApplyOnHitEffects(ProjectileState state, Id targetId)
         {
+            // T-N1-6（ADR-0030 决策 5；06 第 4.1 节）：投射物命中结算所属来源单位的类别，经
+            // IUnitAccess.GetSourceKind 查询一次、本次命中产生的全部命中后效果共享同一个值（同
+            // CastPipeline.ExecuteEffectsOnly 的既有粒度惯例）。来源单位已销毁（同 C02 判断记录
+            // 描述的既有边界情形）时按 SourceKind.Unknown 处理，不抛异常。
+            var sourceKind = _units.GetSourceKind(state.SourceUnitId);
+
             for (var i = 0; i < state.OnHitEffects.Count; i++)
             {
                 var effect = state.OnHitEffects[i];
@@ -436,7 +442,9 @@ namespace Core.Carriers.Projectile
                 var context = new EffectContext(
                     state.SourceUnitId, targetId, state.SkillId, effect.Kind, school,
                     baseValue, coefficient, effect.Params, auraInstanceId: null, isPeriodic: false,
-                    canCrit: true, canMiss: canMiss, tags: state.Tags);
+                    canCrit: true, canMiss: canMiss, tags: state.Tags,
+                    triggerChainDepth: 0, attackInstanceId: null, groundPoint: null,
+                    sourceKind: sourceKind);
 
                 state.EffectSink.ApplyEffect(context);
             }

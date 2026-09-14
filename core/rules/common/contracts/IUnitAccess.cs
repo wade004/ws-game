@@ -71,5 +71,29 @@ namespace Core.Rules.Common
         /// </para>
         /// </summary>
         Id? GetMapId(Id unitId) => null;
+
+        /// <summary>
+        /// T-N1-6（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+        /// 决策 5；06 第 4.1 节 2026-09-14 修订段）：该 <paramref name="unitId"/> 的载体类型——玩家
+        /// 单位还是生物单位——供结算管线构造 <see cref="EffectContext"/> 时填入
+        /// <see cref="EffectContext.SourceKind"/>（"目标乘区"步骤据此按 <c>stat.definition.scope</c>
+        /// 匹配减免属性）。
+        /// <para>
+        /// 用 C#8 默认接口方法（恒返回 <see cref="SourceKind.Unknown"/>）而不是必须实现的抽象成员：
+        /// 同 <see cref="GetMapId"/> 判断记录同一惯例——本接口已有十余个 combat/skill/targeting/ai/
+        /// gameplay 各模块的测试假实现（<c>FakeUnitAccess</c>/<c>StubUnitAccess</c>/<c>NullUnitAccess</c>
+        /// 等），本任务改动范围明确限定在 <c>common</c>/<c>core/carriers/unit</c>/生产结算调用点，不
+        /// 允许连带修改这些测试文件；默认实现返回 <see cref="SourceKind.Unknown"/>（"载体类型未知/
+        /// 未接入"）保证既有假实现不必跟着改也能继续通过编译，<c>scope: from_player</c>/
+        /// <c>scope: from_creature</c> 两类作用域属性对 <see cref="SourceKind.Unknown"/> 一律不匹配
+        /// （同 <c>scope: any</c> 恒匹配、单机下 <c>scope: from_player</c> 永远读不到同属"零成本退化"
+        /// 路径），行为等价于集成前（<c>EffectContext.SourceKind</c> 字段引入之前无人读取它）。真正
+        /// 按单位接入载体类型的实现（本任务 <c>core/carriers/unit.WorldUnitAccess</c>）应 override
+        /// 本方法，按 <see cref="Core.Foundation.SimLoop.Entity.Kind"/>（<c>EntityKinds.Player</c>/
+        /// <c>EntityKinds.Creature</c>）返回真实值——复用既有"单位是玩家还是生物"的判定依据
+        /// （<c>Core.Carriers.Unit.PlayerUnit.Kind</c>/<c>CreatureUnit.Kind</c>），不新造标记字段。
+        /// </para>
+        /// </summary>
+        SourceKind GetSourceKind(Id unitId) => SourceKind.Unknown;
     }
 }

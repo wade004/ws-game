@@ -122,6 +122,22 @@ namespace Core.Rules.Skill
         /// <see cref="SkillHost"/> 在 <see cref="EffectDispatcher"/> 构造完成后设置。</summary>
         public IEffectSink? EffectSink { get; set; }
 
+        /// <summary>
+        /// T-N1-6（ADR-0030 决策 5；06 第 4.1 节）：供 <see cref="FirePeriodic"/> 查询周期效果来源
+        /// 单位（<see cref="AuraInstanceState.SourceId"/>）的载体类型，构造 <see cref="EffectContext"/>
+        /// 时填入 <see cref="EffectContext.SourceKind"/>。判断记录（新增可写属性而非构造函数参数，
+        /// 同 <see cref="ProcHost"/>/<see cref="EffectSink"/> 既有惯例）：本类型的构造函数是 ABI 表面
+        /// 的一部分，新增依赖一律走"构造完成后由 <see cref="SkillHost"/>（组合根）回填可写属性"，
+        /// 不改动本类型/<see cref="Core.Rules.Assembly.RulesAssembly"/>/
+        /// <see cref="Core.Carriers.Assembly.CarriersAssembly"/> 任一构造函数的物理签名（同
+        /// <see cref="EffectDispatcher.DisplacementSink"/> 判断记录同一条 ABI 兼容惯例）。未注入
+        /// （<c>null</c>，典型场景：只装配 <c>core/rules</c> 不装配 <c>core/carriers</c> 的纯 L2 测试/
+        /// 集成，或既有测试夹具未跟着改动）时 <see cref="FirePeriodic"/> 退化为
+        /// <see cref="SourceKind.Unknown"/>（同 <see cref="IUnitAccess.GetSourceKind"/> 默认
+        /// 接口实现的保守默认——两类作用域属性对它一律不匹配，不是遗漏也不崩溃），不改变既有行为。
+        /// </summary>
+        public IUnitAccess? Units { get; set; }
+
         /// <summary>C08 收口：见 <see cref="IAuraQuery.InstanceReplaced"/> 判断记录。</summary>
         public event Action<Id, Id, Id, Id>? InstanceReplaced;
 
@@ -461,6 +477,12 @@ namespace Core.Rules.Skill
             var baseValue = ParamsX.GetNumber(entry.Params, "base_value");
             var coefficient = ParamsX.GetNumber(entry.Params, "coefficient");
 
+            // T-N1-6（ADR-0030 决策 5；06 第 4.1 节）：周期效果的来源类别经 Units（见该属性判断
+            // 记录）查询 instance.SourceId 的载体类型；Units 未注入或来源单位已被销毁（C02 判断
+            // 记录"来源销毁后光环仍会继续按周期结算"这一既有支持的边界情形）时都退化为
+            // SourceKind.Unknown，不抛异常、不中断周期 tick 循环。
+            var sourceKind = Units?.GetSourceKind(instance.SourceId) ?? SourceKind.Unknown;
+
             var context = new EffectContext(
                 sourceId: instance.SourceId,
                 targetId: instance.TargetId,
@@ -474,7 +496,11 @@ namespace Core.Rules.Skill
                 isPeriodic: true,
                 canCrit: true,
                 canMiss: false,
-                tags: instance.Tags);
+                tags: instance.Tags,
+                triggerChainDepth: 0,
+                attackInstanceId: null,
+                groundPoint: null,
+                sourceKind: sourceKind);
 
             EffectSink.ApplyEffect(context);
         }

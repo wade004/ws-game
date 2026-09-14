@@ -51,17 +51,20 @@ skill/
 `SkillHost` 构造函数按以下顺序组装内部组件，避免 `AuraHost`/`ProcHost`/`EffectDispatcher` 三者出现
 构造期循环依赖：
 
-1. `AuraHost` 先构造——它不需要 `ProcHost`/`EffectSink`，两者改用可写属性 `AuraHost.ProcHost`/
-   `AuraHost.EffectSink` 事后回填。
-2. `ProcHost` 构造时注入一个绑定到 `SkillHost.TriggerCastInternal`（方法组）的回调；该方法内部读取
+1. `AuraHost` 先构造——它不需要 `ProcHost`/`EffectSink`/`IUnitAccess`，三者改用可写属性
+   `AuraHost.ProcHost`/`AuraHost.EffectSink`/`AuraHost.Units` 事后回填。
+2. `AuraHost.Units = _units` 回填（T-N1-6，ADR-0030 决策 5：供 `AuraHost.FirePeriodic` 查询周期
+   效果来源单位的载体类型，构造 `EffectContext.SourceKind`；`_units` 是本构造函数最早赋值的字段
+   之一，此刻已可用，不必等到构造末尾）。
+3. `ProcHost` 构造时注入一个绑定到 `SkillHost.TriggerCastInternal`（方法组）的回调；该方法内部读取
    `SkillHost._pipeline` 字段，而 `_pipeline`要到构造函数末尾才赋值——C# 方法组/闭包按**调用时刻**
    求值捕获的字段，只要真正触发发生在整个构造完成之后（游戏运行期间必然如此，任何 Proc/
    `trigger_spell` 都不会在构造期触发），这个"提前绑定、稍后才有效"的写法是安全的。
-3. `AuraHost.ProcHost = procHost` 回填。
-4. `SpellModResolver` 构造（依赖 `AuraHost`）。
-5. `EffectDispatcher` 构造（依赖 `AuraHost`/`CooldownTracker`/`SpellModResolver`/回调）。
-6. `AuraHost.EffectSink = effectDispatcher` 回填（供光环周期效果结算调用）。
-7. `CastPipeline` 构造（依赖以上全部）。
+4. `AuraHost.ProcHost = procHost` 回填。
+5. `SpellModResolver` 构造（依赖 `AuraHost`）。
+6. `EffectDispatcher` 构造（依赖 `AuraHost`/`CooldownTracker`/`SpellModResolver`/回调）。
+7. `AuraHost.EffectSink = effectDispatcher` 回填（供光环周期效果结算调用）。
+8. `CastPipeline` 构造（依赖以上全部）。
 
 ## 设计要点与判断记录
 

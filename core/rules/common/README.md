@@ -28,6 +28,7 @@ common/
     ControlFlags.cs         控制标志位组合
     EffectRef.cs             技能定义里的一条效果项（Kind + Params）
     EffectContext.cs         结算管线输入（不可变）
+    SourceKind.cs             来源类别枚举（T-N1-6，Unknown/Player/Creature）
     HitResult.cs             命中判定结果
     ResolveResult.cs         结算管线输出（不可变）
     AuraInstanceRef.cs       光环实例句柄
@@ -121,6 +122,27 @@ common/
      （否则深度/事件订阅会在代理层悄悄失效），见 `core/rules/assembly/README.md` 同编号条目。
      本接口已有的多个 combat/expr_host/carriers 测试假实现（改动范围不允许连带修改它们）继承
      默认实现即是安全的等价降级——它们本就不模拟 `Replace` 策略或吸收耗尽的深度传播。
+
+9. **T-N1-6（[ADR-0030](../../../architecture/adr/0030-属性系统派生换算与来源类别.md) 决策 5；
+   06 第 4.1 节 2026-09-14 修订段）：`EffectContext.SourceKind` 走新增十七参构造函数、
+   `IUnitAccess.GetSourceKind` 走 C#8 默认接口成员，均不强制既有测试假实现连带改动**：
+   - `SourceKind`（`Unknown|Player|Creature`）新增枚举，`Unknown` 是"载体类型未知/未显式提供"
+     的保守占位（同 `IAuraQuery` 前一条判断记录的"默认值不改变既有行为"惯例），不是契约新增的
+     第三种玩法取值——06 §4.1 原文只登记 `player|creature` 两个取值，详见该类型注释。
+   - `EffectContext` 既有十五/十六参数构造函数（ABI 规则禁止改动签名）不带 `sourceKind`，恒得到
+     `SourceKind.Unknown`；新增的十七参数构造函数（与既有两个在参数个数上不重叠）携带真实值。
+   - `IUnitAccess.GetSourceKind(Id) => SourceKind.Unknown` 默认返回未知，只有
+     `core/carriers/unit.WorldUnitAccess`（本接口目前唯一的生产实现）覆盖为按
+     `Entity.Kind`（`PlayerUnit`/`CreatureUnit` 既有判定依据，不新造标记字段）返回真实值——本接口
+     十余个 combat/skill/targeting/ai/gameplay 各模块的测试假实现（`FakeUnitAccess`/
+     `StubUnitAccess`/`NullUnitAccess` 等）继承默认实现即是安全的等价降级。
+   - 全部生产构造点（`CastPipeline.ExecuteEffectsOnly`、`AuraHost.FirePeriodic`——经新增可写属性
+     `AuraHost.Units` 查询、`core/carriers/projectile.ProjectileHost.ApplyOnHitEffects`）经
+     `IUnitAccess.GetSourceKind` 查询真实值；`EffectDispatcher.ApplyDamageOrHeal` 重建 outbound
+     上下文时原样转发入参 `context.SourceKind`（同该方法对 `TriggerChainDepth`/
+     `AttackInstanceId` 的既有转发惯例，不重新查询）——四处均已逐一核对（grep `new EffectContext(`
+     全部生产/测试构造点，任务汇报逐条列出文件:行），任一处漏填都会让 06 §4.1"目标乘区"步骤
+     读到的 `sourceKind` 静默退化为 `Unknown`，是本任务表"风险"段点名的遗漏形态。
 
 ## 不负责什么
 

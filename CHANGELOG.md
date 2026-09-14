@@ -384,6 +384,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   测试：`StatWeightSchemaTests` 新增 7 例（合法记录、缺必填 `weight`、`stat` 引用不存在、
   `class_overrides` 子结构缺必填、`class_overrides[].class` 引用不存在、`weight` 负数越界各
   1 例；"`StatHost` 不读该表"源码扫描 1 例、行为测试 1 例）。
+- **数值设计落地阶段 N1 · T-N1-6（`EffectContext.sourceKind` 构造重载、`IUnitAccess` 载体类型
+  查询默认成员、`WorldUnitAccess` 实现、全部生产构造点补入参，
+  [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
+  第 14 节；[ADR-0030](architecture/adr/0030-属性系统派生换算与来源类别.md) 决策 5）**：新增
+  `Core.Rules.Common.SourceKind` 枚举（`Unknown|Player|Creature`）；`EffectContext` 新增只读
+  属性 `SourceKind` 与承载它的第十七参数构造函数重载（既有十五/十六参数构造函数物理签名不变，
+  经它们构造的实例 `SourceKind` 恒为 `Unknown`）；`IUnitAccess` 新增默认接口成员
+  `GetSourceKind(Id unitId) => SourceKind.Unknown`（同 `GetMapId` 既有惯例，不强制既有测试假
+  实现改动）；`core/carriers/unit.WorldUnitAccess` 覆盖该成员，按 `Entity.Kind`
+  （`EntityKinds.Player`/`EntityKinds.Creature`，即 `PlayerUnit`/`CreatureUnit` 既有的"单位是
+  玩家还是生物"判定依据）返回真实值，未知/不存在的单位返回 `Unknown`（不抛异常，供来源单位已
+  销毁这一既有支持的边界情形安全退化）。全部生产构造点（`CastPipeline.ExecuteEffectsOnly`、
+  `EffectDispatcher.ApplyDamageOrHeal` 重建 outbound 上下文、`AuraHost.FirePeriodic`——经新增
+  可写属性 `AuraHost.Units` 注入、`ProjectileHost.ApplyOnHitEffects`）均已补齐 `sourceKind`
+  入参；测试夹具未改动的按需继续使用旧构造函数。本任务只透传字段，06 第 4.1 节"目标乘区"步骤尚
+  未消费它（T-N1-7 落地），回放与 Perf 基线零变化。游戏侧若自行实现 `IUnitAccess`（教程/
+  测试替身之外的场景）建议按同一判定依据覆盖 `GetSourceKind`，否则 `scope: from_player`/
+  `scope: from_creature` 两类属性对该实现的单位一律不生效（`scope: any` 不受影响）。
 
 ## [1.30.0] - 2026-09-14
 

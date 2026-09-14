@@ -171,6 +171,15 @@ CarriersAssembly` 装配时从 `Rules.Factions` 回填，见该类型判断记�
    线段做单位/墙体/终点判定——保证"一步走完"与"拆成多个小 tick 走完"命中结果一致，射程外目标
    不会被命中。见 `ProjectileHost.cs`、`ProjectileHostTests.cs`。
 
+9. **T-N1-6（[ADR-0030](../../../architecture/adr/0030-属性系统派生换算与来源类别.md) 决策 5；
+   06 第 4.1 节 2026-09-14 修订段）：`ApplyOnHitEffects` 构造 `EffectContext` 改经十七参构造
+   函数，`sourceKind` 经 `_units.GetSourceKind(state.SourceUnitId)` 查询一次、本次命中产生的
+   全部命中后效果共享同一个值**（同本次命中判定/穿透计数等既有"同一次命中批处理"的粒度惯例）；
+   来源单位已销毁时返回 `SourceKind.Unknown`（`WorldUnitAccess.GetSourceKind` 判断记录，见
+   `core/carriers/unit/README.md` 判断记录 15），不抛异常、不中断命中结算。本任务只透传字段，
+   `sourceKind` 尚无消费者（T-N1-7 落地后才被 06 §4.1"目标乘区"步骤读取），命中判定/穿透/
+   `ActiveCount` 等既有行为不受影响。
+
 ## 契约缺口 / 未覆盖内容
 
 - **`arc` 飞行方式的水平轨迹与 `straight` 完全一致**：05 第 3.3 节"高度偏移……不参与平面距离与

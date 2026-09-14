@@ -1109,13 +1109,27 @@ namespace Core.Rules.Skill
         /// ADR-0027 补充 <paramref name="groundPoint"/>：地面坐标施法请求效果落地时实际使用的坐标，
         /// 原样戳到每一份 <see cref="EffectContext.GroundPoint"/> 上（见该属性判断记录）；默认 null
         /// 表示既有单位目标路径，全部既有调用点（<see cref="EnterCastOrChannel"/>/<see cref="AdvanceOne"/>/
-        /// <see cref="FinishCast"/>/<see cref="TriggerCast"/>）均不传本参数，构造 <see cref="EffectContext"/>
-        /// 时继续调用原十五参数构造函数（未新增本参数之前的同一条代码路径），逐字节不变——只有
+        /// <see cref="FinishCast"/>/<see cref="TriggerCast"/>）均不传本参数——只有
         /// <see cref="ApplyGroundEffectsIfValid"/> 这一个新增调用点会传入非 null 值。
+        /// <para>
+        /// 勘误（T-N1-6，构造 <see cref="EffectContext"/> 补 <see cref="EffectContext.SourceKind"/>
+        /// 之后）：本方法此前按 <c>groundPoint.HasValue</c> 分两个分支分别调用原十五参数/十六参数
+        /// 构造函数（"未新增 groundPoint 之前的同一条代码路径逐字节不变"），是为了在 ADR-0027 落地
+        /// 当时把改动面收紧到"只新增一个调用点"；T-N1-6 要求全部生产构造点显式传入 sourceKind，
+        /// 十五参数构造函数已经没有承载它的余地——统一改经新增的十七参数构造函数（<c>groundPoint</c>
+        /// 直接传入本方法的同名可空参数，为 null 与两个分支各自省略该参数的既有效果等价），不再
+        /// 区分两个分支；<see cref="EffectContext.GroundPoint"/>/其余字段的取值与改动前逐一对应，
+        /// 不变，只是不再由"调用哪个构造函数重载"来决定是否携带 <c>groundPoint</c>。
+        /// </para>
         /// </summary>
         private void ExecuteEffectsOnly(Id casterId, SkillDef def, IReadOnlyList<Id> targets, int chainDepth = 0, Vec2? groundPoint = null)
         {
             var attackInstanceId = NextCastInstanceId();
+
+            // T-N1-6（ADR-0030 决策 5；06 第 4.1 节）：本次结算所属施法者的来源类别，经
+            // IUnitAccess.GetSourceKind 查询一次、本方法内全部效果 × 目标的笛卡尔积共享同一个值
+            // （与 attackInstanceId 同一粒度惯例——"这一次结算"）。见本方法 XML 文档"勘误"段。
+            var sourceKind = _units.GetSourceKind(casterId);
 
             foreach (var effect in def.Effects)
             {
@@ -1126,16 +1140,11 @@ namespace Core.Rules.Skill
                     var coefficient = ParamsX.GetNumber(effect.Params, "coefficient");
                     var canMiss = effect.Kind != EffectKind.Heal;
 
-                    var context = groundPoint.HasValue
-                        ? new EffectContext(
-                            casterId, targetId, def.Id, effect.Kind, school, baseValue, coefficient,
-                            effect.Params, auraInstanceId: null, isPeriodic: false, canCrit: true, canMiss: canMiss,
-                            tags: def.Tags, triggerChainDepth: chainDepth, attackInstanceId: attackInstanceId,
-                            groundPoint: groundPoint)
-                        : new EffectContext(
-                            casterId, targetId, def.Id, effect.Kind, school, baseValue, coefficient,
-                            effect.Params, auraInstanceId: null, isPeriodic: false, canCrit: true, canMiss: canMiss,
-                            tags: def.Tags, triggerChainDepth: chainDepth, attackInstanceId: attackInstanceId);
+                    var context = new EffectContext(
+                        casterId, targetId, def.Id, effect.Kind, school, baseValue, coefficient,
+                        effect.Params, auraInstanceId: null, isPeriodic: false, canCrit: true, canMiss: canMiss,
+                        tags: def.Tags, triggerChainDepth: chainDepth, attackInstanceId: attackInstanceId,
+                        groundPoint: groundPoint, sourceKind: sourceKind);
 
                     _effects.ApplyEffect(context);
                 }

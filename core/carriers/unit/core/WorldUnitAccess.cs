@@ -108,6 +108,36 @@ namespace Core.Carriers.Unit
         public Id? GetMapId(Id unitId) => Require(unitId).MapId;
 
         /// <summary>
+        /// T-N1-6：覆盖 <see cref="IUnitAccess.GetSourceKind"/> 的默认接口实现（默认返回
+        /// <see cref="SourceKind.Unknown"/>）——复用既有"单位是玩家还是生物"的判定依据
+        /// <see cref="Entity.Kind"/>（<see cref="PlayerUnit.Kind"/> 恒为 <see cref="EntityKinds.Player"/>、
+        /// <see cref="CreatureUnit.Kind"/> 恒为 <see cref="EntityKinds.Creature"/>，见
+        /// <c>core/carriers/unit/tests/PlayerAndCreatureUnitTests.cs</c>），不新造标记字段。
+        /// <para>
+        /// 判断记录（不用 <see cref="Require"/>，<paramref name="unitId"/> 不存在时返回
+        /// <see cref="SourceKind.Unknown"/> 而不是抛异常，与本类型其余访问器"未知单位一律抛出"的
+        /// 既有惯例不同）：本方法的实际调用方（<c>CastPipeline.ExecuteEffectsOnly</c>/
+        /// <c>AuraHost.FirePeriodic</c>/<c>ProjectileHost.ApplyOnHitEffects</c>）在构造
+        /// <see cref="EffectContext"/> 时调用它查询来源，而来源单位在光环仍生效期间被销毁、周期效果
+        /// 仍会继续结算是既有支持的边界情形（见 <c>EffectDispatcher.ApplyDamageOrHeal</c> 判断记录
+        /// C02"来源销毁后光环仍会继续按周期结算……缩放贡献按 0 处理，效果本身继续正常结算/落地，
+        /// 不中断周期 tick 循环、不抛异常"）——若本方法对已销毁来源抛异常，会让这条既有安全退化路径
+        /// 在本次改动后反而崩溃，与"本任务只透传字段，不改变既有行为"的要求相悖；来源不存在时按
+        /// <see cref="SourceKind.Unknown"/> 处理与 C02 判断记录"缩放贡献按 0 处理"同一条"确定安全"
+        /// 退化路径，二者互不冲突。
+        /// </para>
+        /// </summary>
+        public SourceKind GetSourceKind(Id unitId) =>
+            _world.GetEntity(unitId) is Unit unit
+                ? unit.Kind switch
+                {
+                    EntityKinds.Player => SourceKind.Player,
+                    EntityKinds.Creature => SourceKind.Creature,
+                    _ => SourceKind.Unknown,
+                }
+                : SourceKind.Unknown;
+
+        /// <summary>
         /// W1 收边补齐（拍板 3 前置：死亡复活链路，见 <c>architecture/adr/</c> DECISIONS 拍板 3
         /// "DeathPolicyHost：respawn_point 策略……置于当前地图 spawn_points[0]、恢复生命并发
         /// unit.respawned"）：复活单位的窄契约——恢复 <see cref="Unit.Alive"/>、写入复活坐标

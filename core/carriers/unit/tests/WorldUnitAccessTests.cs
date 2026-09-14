@@ -229,6 +229,57 @@ namespace Tests.Carriers.Unit
             Assert.Throws<InvalidOperationException>(() => units.GetPosition(new Id("unit.unknown")));
         }
 
+        // -----------------------------------------------------------------
+        // GetSourceKind（T-N1-6，ADR-0030 决策 5；06 第 4.1 节）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void GetSourceKind_PlayerUnit_ReturnsPlayer()
+        {
+            var world = NewWorld();
+            var units = new WorldUnitAccess(world);
+            var player = new PlayerUnit(new Id("unit.hero"), MapId, FactionId, ArchetypeId);
+            world.AddEntity(player);
+
+            Assert.Equal(Core.Rules.Common.SourceKind.Player, units.GetSourceKind(player.EntityId));
+        }
+
+        [Fact]
+        public void GetSourceKind_CreatureUnit_ReturnsCreature()
+        {
+            var world = NewWorld();
+            var units = new WorldUnitAccess(world);
+            var creature = new CreatureUnit(new Id("unit.wolf"), MapId, FactionId, CreatureTemplateId);
+            world.AddEntity(creature);
+
+            Assert.Equal(Core.Rules.Common.SourceKind.Creature, units.GetSourceKind(creature.EntityId));
+        }
+
+        [Fact]
+        public void GetSourceKind_UnknownUnitId_ReturnsUnknown_DoesNotThrow()
+        {
+            // 判断记录（WorldUnitAccess.GetSourceKind）：与 GetPosition 等既有访问器"未知单位一律
+            // 抛出"的惯例不同——本方法的生产调用方（构造 EffectContext 时查询）需要在来源单位已被
+            // 销毁（C02 判断记录"来源销毁后光环仍会继续按周期结算"）这一既有支持的边界情形下安全
+            // 退化，不抛异常。
+            var world = NewWorld();
+            var units = new WorldUnitAccess(world);
+
+            var result = units.GetSourceKind(new Id("unit.unknown"));
+
+            Assert.Equal(Core.Rules.Common.SourceKind.Unknown, result);
+        }
+
+        [Fact]
+        public void GetSourceKind_NonUnitEntity_ReturnsUnknown()
+        {
+            var world = NewWorld();
+            var units = new WorldUnitAccess(world);
+            world.AddEntity(new NonUnitTestEntity(new Id("gobj.chest_1"), MapId));
+
+            Assert.Equal(Core.Rules.Common.SourceKind.Unknown, units.GetSourceKind(new Id("gobj.chest_1")));
+        }
+
         /// <summary>非 Unit 的最小 Entity 子类，供 <see cref="AllUnits_ExcludesNonUnitEntities"/> 验证
         /// 过滤条件（同惯例 <c>core/rules/tests/Integration/TestUnit.cs</c>：只在测试里定义，不代表
         /// 任何正式类型）。</summary>

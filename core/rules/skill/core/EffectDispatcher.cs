@@ -260,10 +260,19 @@ namespace Core.Rules.Skill
             // 一样原样转发 context.AttackInstanceId，否则 CastPipeline.ExecuteEffectsOnly 构造时
             // 携带的攻击实例 id 会在这里被静默丢弃，永远到不了 Resolver.Resolve 与落地事件——见
             // EffectContext.AttackInstanceId 判断记录。
+            //
+            // T-N1-6（ADR-0030 决策 5）同一条惯例：必须原样转发 context.SourceKind，不重新经
+            // IUnitAccess.GetSourceKind 查询——本方法收到的 context 已经是 CastPipeline/AuraHost/
+            // ProjectileHost 三个生产构造点之一按各自来源正确查询过的结果，在这里重新查询不但多余，
+            // 若 context.SourceId 与"真正的来源单位"不一致（本方法不持有这层业务知识，只是原样转发
+            // 已经算好的值）还会算出错误结果；不转发则会让 06 第 4.1 节"目标乘区"步骤读到的
+            // sourceKind 静默退化为 SourceKind.Unknown（T-N1-6 风险段点名的"漏一处默认值"正是这类
+            // 遗漏）。GroundPoint 字段本任务不改动其既有转发行为（该字段结算管线本身不消费，见其
+            // 判断记录，且本方法此前就不转发它，非本任务改动范围）。
             var outbound = new EffectContext(
                 context.SourceId, context.TargetId, context.SkillId, context.Kind, context.School,
                 value, coefficient, mergedParams, context.AuraInstanceId, context.IsPeriodic, context.CanCrit, context.CanMiss,
-                context.Tags, context.TriggerChainDepth, context.AttackInstanceId);
+                context.Tags, context.TriggerChainDepth, context.AttackInstanceId, groundPoint: null, sourceKind: context.SourceKind);
 
             return _combatHost.ResolveEffect(outbound);
         }
