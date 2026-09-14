@@ -6,9 +6,9 @@
 计划 T2-7（`Resolver`）+ T2-8（`ThreatTable` 与进出战斗）。
 
 依赖：`Core.Rules.Common`（`IUnitAccess`/`IAuraQuery`/`ICombatHost`/`IThreatTable`/
-`IStaticImmunityProvider`/`EffectContext`/`ResolveResult`/`HitResult`/`EffectKind`/
-`WellKnownPowers`/`RulesEventKeys` 及强类型事件）、L1 `Core.Numbers`（`IStatHost`/`IPowerHost`/
-`IFactionMatrix`）、L0 `Core.Foundation`（`IRngHost`/`IEventBus`/`IDataRegistry`/
+`IStaticImmunityProvider`/`IGearLevelOffsetProvider`/`EffectContext`/`ResolveResult`/`HitResult`/
+`EffectKind`/`WellKnownPowers`/`RulesEventKeys` 及强类型事件）、L1 `Core.Numbers`（`IStatHost`/
+`IPowerHost`/`IFactionMatrix`）、L0 `Core.Foundation`（`IRngHost`/`IEventBus`/`IDataRegistry`/
 `ITickPhaseHandler`）。不引用 `core/rules/skill`/`targeting`/`ai` 的具体类型（`IAuraQuery` 用调用方
 注入的实现，测试用 Fake）。
 
@@ -18,24 +18,27 @@
 combat/
   README.md
   contracts/
-    CombatOptions.cs        构造期策略配置（命中表 id、属性 id 引用、系数、脱战时长、仇恨上限、死亡策略、结算追踪回调、T-N1-7 目标乘区/被暴击减免显式属性 id 清单）
+    CombatOptions.cs        构造期策略配置（命中表 id、属性 id 引用、系数、脱战时长、仇恨上限、死亡策略、结算追踪回调、T-N1-7 目标乘区/被暴击减免显式属性 id 清单、T-N1-8 LevelDiffTableId/EffectiveLevelIncludesGearOffset）
     ICombatDiagnostics.cs   最小诊断出口
   core/
-    HitTableConfig.cs        combat.hit_table_config 强类型视图
+    HitTableConfig.cs        combat.hit_table_config 强类型视图（T-N1-8：miss 分支新增 HitStat）
     ResistCurve.cs           combat.resist_curve 强类型视图 + 减免求值（table 分支自 T-N0-5 起委托 PiecewiseCurve 插值，saturation 公式不变）
-    CombatDataLoader.cs      从 IDataRegistryView 加载上面两张表
-    Resolver.cs               结算管线九步实现
+    LevelDiffTable.cs        T-N1-8：combat.level_diff_table 强类型视图（四条曲线）
+    CombatDataLoader.cs      从 IDataRegistryView 加载上面三张表（level_diff_table 可选，见判断记录 19）
+    Resolver.cs               结算管线九步实现（T-N1-8：DetermineHit 接入 Δ 加成/压制）
     ThreatTable.cs            IThreatTable 默认实现
     CombatHost.cs             ICombatHost 默认实现
     CombatTickHandler.cs      接入 sim_loop TickPhase.CombatResolution
     InMemoryCombatDiagnostics.cs
   schema/
-    CombatSchemas.cs          两张表的 TableSchema 声明
+    CombatSchemas.cs          三张表的 TableSchema 声明
     CombatValidationRules.cs  概率范围/曲线单调性等校验规则
   tests/
-    CombatTestSupport.cs      Fake IUnitAccess/IAuraQuery + 真实 Stat/Power/Rng/Faction/DataRegistry 夹具
+    CombatTestSupport.cs      Fake IUnitAccess/IAuraQuery/IGearLevelOffsetProvider + 真实 Stat/Power/Rng/Faction/DataRegistry 夹具
     ResolverHitTableTests.cs  命中表六分支 + 手算全链 + 免疫 + 治疗 + 死亡
     ResolverScopedReductionTests.cs  T-N1-7：目标乘区 scope 匹配 sourceKind 遍历减免属性 + 被暴击减免介入暴击率下限夹取
+    ResolverLevelDiffTests.cs  T-N1-8：Δ 矩阵（11 组）、命中/暴击双向生效与封顶、miss hit_stat、有效等级装备偏移策略项
+    CombatLevelDiffTableSchemaTests.cs  T-N1-8：combat.level_diff_table schema 覆盖（合法/缺字段/负数纵轴/非单调）
     C10_ResolveTraceTests.cs  CombatOptions.ResolveTrace 三条返回路径 + 未设置零开销 + 回调抛异常不中断
     ThreatTableTests.cs       仇恨表增减/置顶/上限裁剪/清理/事件
     CombatEnterLeaveTests.cs  进出战斗、仇恨驱动脱战、治疗仇恨
@@ -264,6 +267,74 @@ combat/
       覆盖，`Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests` 门禁已验证无
       遗漏转发。
 
+19. **T-N1-8（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+    决策 6；06 第 4.2 节 2026-09-14 修订段）：`combat.level_diff_table` 接入 `DetermineHit`，
+    命中/暴击改加减式公式并接 Δ，双向生效；"有效等级是否计入装备等级偏移"策略项；`miss` 分支
+    新增 `hit_stat`（攻击者命中属性）**：
+    - **命中/暴击公式**：`未命中率 = 基础未命中 − 攻击者命中属性(hit_stat) + 未命中加成(Δ)`，
+      `暴击率 = 攻击者暴击属性 − 暴击压制(Δ)`（在既有 T-N1-7 被暴击减免之外再减）；结果夹取到
+      [0,1]（`Resolver.Clamp01`，crit 分支沿用既有 `Math.Max(0.0, ...)` 下限夹取，未设上限——同
+      T-N1-7 既有实现，本任务不扩大范围改动）。Δ = 目标有效等级 − 攻击者有效等级，取自
+      `Resolver.ResolveLevelDiffAdjustments`，无条件计算一次（不产生 RNG 消耗，只影响掷骰前的
+      chance 数值本身），`CombatOptions.LevelDiffTableId` 缺省 `null` 时两项恒为 0，不写
+      `level_diff:` 追踪日志——与 T-N1-8 之前逐位一致，回放基线不受影响（见
+      `core/gameplay/tests/Replay/README.md`"如何更新基线"第 1 步核对结论：`ReplayWorldBuilder`
+      不依赖 `data/_sample`、自带的 `combat.hit_table_config` 全分支禁用且不装配
+      `LevelDiffTableId`，Δ 相关代码路径在回放场景里从未被触发，基线未变）。
+    - **06 原文"未命中率 = 基础未命中 − 攻击者命中属性 + 目标闪避属性 + 未命中加成(Δ)"里的
+      "+ 目标闪避属性"一项，本实现选择不叠加**（判断记录，契约存在歧义）：`dodge` 是六分支之一，
+      已经是独立判定、单独消耗一次掷骰（见判断记录 2"dodge 查询防御者"），06 原文写在同一条公式里
+      的"目标闪避属性"若再叠加进 `miss` 的 chance 计算，会与 `dodge` 分支重复表达"目标更容易躲开
+      攻击"这同一件事——06 全文没有说明这两处是否应该同时生效还是二选一。本实现选择不叠加，只保留
+      "基础未命中 − 攻击者命中属性 + 未命中加成(Δ)"，`miss`/`dodge`/`parry`/`glancing_blow`/`block`/
+      `crit` 六分支既有优先序不变（禁止事项"不改九步顺序"同样约束六分支优先序）。若游戏口味需要
+      "目标闪避属性"额外叠加进 miss 公式，需要回来在 `RollMissBranch` 里加一项，而不是在数据层
+      绕过。
+    - **`HitTableBranch` 新增 `HitStat`（`Id?`，仅 `miss` 分支消费，四参构造重载）**：不复用既有
+      `Stat` 字段——`Stat` 在六分支里的既有语义是"提供时概率直接取该属性当前值，否则取 `Base`"
+      （见判断记录 11），与"从 `base` 算出的概率上再额外减去一个命中属性"是不同的运算，复用会与
+      既有语义冲突，因此单开 `hit_stat` 字段名，且只登记在 `miss` 分支的字段列表
+      （`CombatSchemas.MissBranchFieldList`）——其余五分支即便数据里误填 `hit_stat` 也没有任何
+      消费点。
+    - **`CombatOptions.LevelDiffTableId`（`Id?`，默认 `null`）**：不接表时 `Resolver` 的行为与
+      T-N1-8 之前逐位一致；配置了但该 id 在 `combat.level_diff_table` 里找不到（表未加载/拼错 id）
+      同样退化为 Δ 加成/压制恒 0，不抛异常（同 `ArmorStat` 等既有属性缺失"按 0 处理"的防御姿态）。
+      `combat.level_diff_table` 是**可选表**：`CombatDataLoader.LoadLevelDiffTables` 不像
+      `LoadHitTables`/`LoadResistCurvesBySchool` 那样要求表必须存在，未注册 schema、或注册了但
+      数据源没有对应文件（`IDataRegistryView.Tables` 判断记录，见 `CombatDataLoader.HasTable`）
+      都返回空字典，不阻断构造——单机/既有测试夹具/T-N1-8 之前的既有装配都不受影响。
+    - **"有效等级是否计入装备等级偏移"（`CombatOptions.EffectiveLevelIncludesGearOffset`，默认
+      关闭）与 `IGearLevelOffsetProvider` 接口钩子（新契约，`core/rules/common`）**：关闭时有效
+      等级恒等于 `IUnitAccess.GetLevel`（角色等级本身）；开启时叠加
+      `IGearLevelOffsetProvider.GetGearLevelOffset` 的返回值。**契约缺口如实上报**：06 第 4.2 节
+      原文"开启时有效等级 = 角色等级 + 偏移曲线(平均装备等级 − 期望装备等级)"——"期望装备等级曲线
+      E(L)"归属 `sim.anchor` 表（阶段 N6 仿真骨架，尚未落地）、"平均装备等级"查询归属装备模块
+      （`core/carriers/item.IEquipmentHost`，阶段 N2，尚未落地），两者均不是本模块（`combat`，L2）
+      允许依赖的对象（不引用 L3 具体类型、不依赖尚不存在的仿真模块）。本任务因此只落地策略项与
+      接口钩子（`IGearLevelOffsetProvider.GetGearLevelOffset(unitId)`——直接返回"已求值好的偏移量"
+      这一个数，不暴露两个中间量），真实实现（把 `IEquipmentHost`/未来 `sim.anchor` 接到这个接口）
+      留给阶段 N2/N6 落地时装配；测试用 `FakeGearLevelOffsetProvider` 验证策略项开关本身在
+      `Resolver` 里正确生效（见 `core/rules/combat/tests/ResolverLevelDiffTests.cs`）。
+    - **`combat.level_diff_table` 四条曲线的横轴与消费范围**：`miss_bonus`/`crit_suppression`
+      横轴是 Δ（新增 `CurveAxis.LevelDiff`，见 `core/foundation/data_registry/schema/README.md`
+      同名判断记录），本模块消费；`xp_factor`（经验系数）横轴同样是 Δ，`grey_line`（灰名界线）
+      横轴是攻击者有效等级本身（不是 Δ——见 `CombatSchemas.LevelDiffTable` 判断记录 2"待设计层
+      确认"），两者本任务只登记 schema 与样例，不在本模块内求值消费——分阶段落地计划阶段 N1 任务
+      清单原文"经验系数与灰名界线两条曲线本任务只登记 schema 与样例，消费者在 N4（Progression）
+      接入"。
+    - **回放基线**：`data/_sample/combat/combat.hit_table_config.json` 的 `miss` 分支已真实接上
+      `hit_stat: "stat.hit_rating"`（并新增 `data/_sample/stat/stat.definition.json` 的
+      `stat.hit_rating` 一行），`data/_sample/combat/combat.level_diff_table.json` 已新增一条真实
+      样例记录（四条曲线，`|Δ|<=2` 每级加得少、`>=3` 陡增并封顶到 ±0.30/±0.15，双向生效）——满足
+      "示例数据必须真实接上"这一要求；但 `combat.hit_table_config`/`combat.level_diff_table` 均不
+      在 `Replay` 场景（`core/gameplay/tests/Replay/ReplayWorldBuilder.cs`）的依赖范围内
+      （该场景固定不读 `data/_sample`），且 `CombatOptions.LevelDiffTableId` 需要显式配置才会生效
+      （默认 `null`），因此本次 `replay_baseline.json` **未发生变化**，已按 Replay README 五步的
+      第 1 步"确认这是否是一次有意的战斗结算行为变化"核实（跑 `ReplayBaselineTests` 全绿、diff
+      为空）——本次没有第 2～5 步的基线更新提交内容，这也是拍板 12"命中公式改写与回放基线更新
+      同一提交"的另一种满足方式：改写发生了，但（如实核实后）不产生基线差异，因此不存在"分开
+      提交"的风险。
+
 ## 契约缺口 / 未决问题
 
 - `IThreatTable` 契约的方法签名对"是否每单位一份实例"没有强约束（见判断记录 1），如果后续
@@ -272,6 +343,18 @@ combat/
 - 06 未规定命中表六分支的概率查询主体归属攻击者还是防御者（判断记录 2）、偏斜/格挡是否与暴击
   互斥（判断记录 4）——这两处若游戏口味清单有明确要求，需要回来调整 `Resolver` 而非在数据层
   绕过。
+- **T-N1-8**：06 第 4.2 节与 04_经验.md 只定性描述"灰名界线随攻击者等级放宽"，未给出具体公式——
+  `combat.level_diff_table.grey_line` 当前选取的形态（横轴攻击者有效等级、纵轴"允许的 Δ 下界
+  绝对值"）是本任务选取的最简形态，消费公式（灰名门槛具体如何从这条曲线换算、目标名字五色的固定
+  分档）留待阶段 N4 落地经验模块时确认（见 `CombatSchemas.LevelDiffTable` 判断记录 2、README
+  判断记录 19）。
+- **T-N1-8**：06 第 4.2 节原文"未命中率 = 基础未命中 − 攻击者命中属性 + 目标闪避属性 + 未命中
+  加成(Δ)"里的"+ 目标闪避属性"一项，与独立的 `dodge` 分支是否应该同时生效，06 未给出明确规定
+  （见判断记录 19）——本任务选择不在 `miss` 公式里叠加这一项，若游戏口味清单后续有明确要求，需要
+  回来调整 `RollMissBranch`。
+- **T-N1-8**："有效等级是否计入装备等级偏移"策略项开启时的真实装备等级偏移来源
+  （`IGearLevelOffsetProvider` 的生产实现）留给阶段 N2（装备模块）/N6（仿真锚点表 `sim.anchor`）
+  落地时装配，本阶段只有接口钩子与测试用 Fake 实现（见判断记录 19）。
 - `combat.resist_curve` 没有"同一 school 多条曲线覆盖策略"的显式规定，本模块按"后加载覆盖先
   加载"处理（见 `CombatDataLoader` 注释），不阻断构造；如果需要阻断，应改为在
   `CombatResistCurveValidationRule` 里新增"同 school 重复"检查项。

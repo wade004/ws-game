@@ -17,11 +17,37 @@ namespace Core.Rules.Combat
 
         public double Base { get; }
 
-        public HitTableBranch(bool enabled, Id? stat, double @base)
+        /// <summary>
+        /// T-N1-8（ADR-0030 决策 6；06 第 4.2 节修订段"未命中率 = 基础未命中 − 攻击者命中属性 +
+        /// 目标闪避属性 + 未命中加成(Δ)"）：仅 <c>miss</c> 分支消费的扩展字段——攻击者命中属性，
+        /// 提供时从 <see cref="Resolver.DetermineHit"/> 计算出的未命中率里额外减去该属性当前值。
+        /// 判断记录（不是重用既有 <see cref="Stat"/>）：<see cref="Stat"/> 在六个分支里的既有语义是
+        /// "提供时概率直接取该属性当前值，否则取 <see cref="Base"/>"（见 <c>CombatSchemas</c> 判断
+        /// 记录 11），与本字段"从 base 计算出的概率上再减去一个命中属性"是不同的运算——复用 <c>stat</c>
+        /// 会与既有语义冲突，因此单开一个字段名 <c>hit_stat</c>，且只在 <c>miss</c> 分支的字段列表里
+        /// 登记（<c>CombatSchemas.MissBranchFieldList</c>），其余五个分支即便数据里误填也没有任何
+        /// 消费点，不产生效果。06 第 4.2 节修订段原文里的"目标闪避属性"一项：<c>dodge</c> 分支已经是
+        /// 独立判定、单独消耗一次掷骰（见本模块 README 判断记录 2"dodge 查询防御者"），未命中率公式
+        /// 里若再叠加一次目标闪避属性会与 <c>dodge</c> 分支重复计入同一件事——本实现选择不在 <c>miss</c>
+        /// 公式里重复叠加"目标闪避属性"这一项，只保留"基础未命中 − 攻击者命中属性 + 未命中加成(Δ)"，
+        /// 六分支既有优先序（miss → dodge → parry → glancing_blow → block → crit）不变，见
+        /// <see cref="Resolver"/> 判断记录。
+        /// </summary>
+        public Id? HitStat { get; }
+
+        public HitTableBranch(bool enabled, Id? stat, double @base) : this(enabled, stat, @base, hitStat: null)
+        {
+        }
+
+        /// <summary>T-N1-8 新增重载：追加 <see cref="HitStat"/>（ABI 兼容惯例同
+        /// <c>Core.Rules.Common.EffectContext</c> 多参构造重载——不改动既有三参构造函数的物理签名，
+        /// 新增一个参数个数不同的重载）。</summary>
+        public HitTableBranch(bool enabled, Id? stat, double @base, Id? hitStat)
         {
             Enabled = enabled;
             Stat = stat;
             Base = @base;
+            HitStat = hitStat;
         }
 
         internal static HitTableBranch Parse(DataRecord record, string field)
@@ -42,7 +68,13 @@ namespace Core.Rules.Combat
                 baseValue = n.Value;
             }
 
-            return new HitTableBranch(enabled, stat, baseValue);
+            Id? hitStat = null;
+            if (obj.TryGetValue("hit_stat", out var hitStatVal) && hitStatVal is JsonString hs && Id.TryParse(hs.Value, out var hitId))
+            {
+                hitStat = hitId;
+            }
+
+            return new HitTableBranch(enabled, stat, baseValue, hitStat);
         }
     }
 

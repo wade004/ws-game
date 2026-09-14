@@ -127,6 +127,10 @@ namespace Core.Rules.Assembly
             registry.RegisterSchema(SkillSchemas.Book);
             registry.RegisterSchema(CombatSchemas.HitTableConfig);
             registry.RegisterSchema(CombatSchemas.ResistCurve);
+            // T-N1-8（ADR-0030 决策 6）：combat.level_diff_table 是可选表——注册 schema 不代表强制
+            // 每个游戏都要提供数据，CombatOptions.LevelDiffTableId 默认 null 不接表（见该属性判断
+            // 记录），未提供数据文件时 CombatDataLoader.LoadLevelDiffTables 返回空字典，不阻断。
+            registry.RegisterSchema(CombatSchemas.LevelDiffTable);
             registry.RegisterSchema(TargetSchemas.ChainDef);
             registry.RegisterSchema(AiSchemas.BehaviorProfile);
             registry.RegisterSchema(AiSchemas.Rotation);

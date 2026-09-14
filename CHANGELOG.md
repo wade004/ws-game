@@ -209,6 +209,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `arch.class` 全表（不像 `arch.class.derivation_overrides` 那样需要限定到某个属性的
   `derived_from` 子集）。`toolchain/validator --list-tables --json` 新增本表的常规字段元数据
   导出（复用既有 `Reference`/`Array`/`Number` 字段种类，不新增导出结构）。
+- **数值设计落地阶段 N1 · T-N1-8（Unreleased）**：新表 `combat.level_diff_table`（等级差规则表，
+  ADR-0030 决策 6），字段 `id`/`miss_bonus`/`crit_suppression`/`xp_factor`（三条断点表曲线，
+  横轴新增 `CurveAxis.LevelDiff`——等级差 Δ，可负，编辑器曲线编辑控件遇到该轴应渲染为允许负值
+  的横轴输入，不像既有 `CurveAxis.Level`/`ItemLevel` 那样默认非负）/`grey_line`（断点表曲线，
+  横轴 `CurveAxis.Level`，攻击者有效等级本身，不是 Δ）。`combat.hit_table_config` 的 `miss` 分支
+  新增可选字段 `hit_stat`（`Reference(stat.definition)`，攻击者命中属性）——编辑器命中表编辑界面
+  若渲染六分支的 `stat`/`base` 输入，`miss` 分支需额外渲染这一列，其余五分支不出现该字段。
+  `toolchain/validator --list-tables --json` 的 `field_meta.curve` 对 `miss_bonus`/
+  `crit_suppression`/`xp_factor` 三列输出 `{shape: "breakpoints", axis: "level_diff"}`（新增轴
+  取值字符串，复用既有 `field_meta.curve` 导出结构，编辑器需要按新字符串区分"这是差值轴不是等级
+  轴"，不识别的客户端可退化为按普通数值轴渲染，不阻断）。
 
 ## [Unreleased]
 
@@ -423,6 +434,37 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   新扫描角色共享默认类别可能重复计入"更严重，判定打回返工。现改为本条目描述的"显式 id 清单 +
   `scope` 过滤"，`GetDefinitionIdsByCategory` 已撤回（从未发布，直接删除签名）。详见
   `core/rules/combat/README.md` 判断记录 18、`core/numbers/stat_block/README.md`"T-N1-7"一节。
+- **数值设计落地阶段 N1 · T-N1-8 ★确定性敏感（`combat.level_diff_table` 接入命中/暴击公式、
+  "有效等级是否计入装备等级偏移"策略项，
+  [数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md) 第 14 节；
+  [ADR-0030](architecture/adr/0030-属性系统派生换算与来源类别.md) 决策 6；06 第 4.2 节
+  2026-09-14 修订段；拍板 12）**：新增数据表 `combat.level_diff_table`（三条断点表曲线
+  `miss_bonus`/`crit_suppression`/`xp_factor`，横轴 Δ = 目标有效等级 − 攻击者有效等级，新增
+  `Core.Foundation.DataRegistry.CurveAxis.LevelDiff` 枚举成员承接这一横轴语义；一条 `grey_line`，
+  横轴攻击者有效等级本身，`CurveAxis.Level`）。`core/rules/combat.Resolver.DetermineHit` 命中/
+  暴击改加减式公式并接入 Δ：`未命中率 = 基础未命中 − 攻击者命中属性(hit_stat) + 未命中加成(Δ)`、
+  `暴击率 = 攻击者暴击属性 − 暴击压制(Δ)`（在既有 T-N1-7 被暴击减免之外再减），结果夹取到 [0,1]，
+  双向生效（Δ 可负，miss_bonus/crit_suppression 随之可负）。`CombatOptions` 新增
+  `LevelDiffTableId`（`Id?`，默认 `null`，不接表时 Δ 加成/压制恒 0，行为与 T-N1-8 之前逐位一致）、
+  `EffectiveLevelIncludesGearOffset`（`bool`，默认 `false`）；新增契约
+  `Core.Rules.Common.IGearLevelOffsetProvider`（装备等级偏移量查询钩子，缺省
+  `NullGearLevelOffsetProvider` 恒返回 0）——期望装备等级曲线（`sim.anchor`，阶段 N6）与平均装备
+  等级查询（`core/carriers/item`，阶段 N2）均晚于本阶段落地，本任务只落地策略项与接口钩子，真实
+  实现留给后续阶段装配（如实上报）。`combat.hit_table_config` 的 `miss` 分支新增可选字段
+  `hit_stat`（攻击者命中属性，`HitTableBranch` 四参构造重载，仅 `miss` 分支消费）。ABI 新增（不
+  改动既有签名）：`HitTableBranch`/`Resolver`/`CombatHost` 均以新增构造重载承载新增参数，`Resolver`
+  十六参数新重载、`CombatHost` 十二参数新重载。回放基线：`data/_sample/combat/combat.hit_table_config.json`
+  的 `miss` 分支已真实接上 `hit_stat: "stat.hit_rating"`（新增 `data/_sample/stat/stat.definition.json`
+  同名一行），并新增 `data/_sample/combat/combat.level_diff_table.json` 一条真实样例记录；`Replay`
+  场景（`core/gameplay/tests/Replay/ReplayWorldBuilder.cs`）不依赖 `data/_sample`、自带命中表全
+  分支禁用且未装配 `LevelDiffTableId`，Δ 相关代码路径未被触发，`replay_baseline.json` **本次未
+  变化**（已按 Replay README 五步的第 1 步核实，`ReplayBaselineTests` 全绿）。
+  `games/_template/data/game/combat/combat.level_diff_table.json` 补空壳（`rows: []`）+
+  `.meta`，`games/_template/data/README.md` 表清单同步更新。**待设计层确认**：06 原文"未命中率 =
+  基础未命中 − 攻击者命中属性 + 目标闪避属性 + 未命中加成(Δ)"里的"+ 目标闪避属性"一项，本实现
+  选择不叠加（`dodge` 已是独立分支单独判定，06 未规定两者是否应同时生效）；`grey_line` 的具体
+  消费公式（灰名门槛换算、目标名字五色固定分档）留待阶段 N4 确认。详见
+  `core/rules/combat/README.md` 判断记录 19。
 
 MINOR 版本：数值设计落地阶段 N0"横切前置"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)
 第 6 节，T-N0-1～T-N0-8）——建立通用曲线契约（04 第 3.6 节曲线形态登记 + 公共插值工具）、校验规则元数据

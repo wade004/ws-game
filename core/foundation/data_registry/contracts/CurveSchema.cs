@@ -17,6 +17,25 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>任意数值（如护甲/抗性点数、评级点数）；横轴为实数。</summary>
         Value,
+
+        /// <summary>
+        /// 分阶段落地计划 T-N1-8（ADR-0030 决策 6；06_规则层_属性技能战斗AI.md 第 4.2 节修订段
+        /// "命中判定接入 combat.level_diff_table，横轴 Δ = 目标有效等级 − 攻击者有效等级"）：
+        /// 等级差 Δ，横轴取整数、可为负数（<see cref="Level"/> 的整数登记强度沿用，见
+        /// <see cref="BreakpointsField"/> 对非 <see cref="Value"/> 轴一律用 <see cref="FieldKind.Int"/>
+        /// 的既有规则；<see cref="FieldKind.Int"/> 本身不限制符号，本枚举成员不额外登记下界）。
+        /// <para>
+        /// 判断记录（新增枚举成员而不是复用 <see cref="Level"/>）：<see cref="Level"/> 的既有语义与
+        /// <see cref="DefaultXDescription"/> 文本、既有消费者（<c>prog.level_curve</c>、
+        /// <c>stat.rating_conversion</c>、<c>econ.gold_base_curve</c>）都是"角色/怪物等级"本身
+        /// （语义上非负、随游戏设计通常从 1 起），而 Δ 是"两个等级的差"，可正可负、以 0 为中心双向
+        /// 展开——直接复用 <see cref="Level"/> 会让内容工具/编辑器按"等级"语义渲染横轴（如默认给出
+        /// 非负输入框、提示文案写"角色等级"），对 Δ 场景产生误导。新增枚举成员是 ABI 允许的新增
+        /// （不修改既有成员，只追加），成本上可接受，换来横轴语义在工具侧可机器区分，判断记录落笔于
+        /// 此，供后续同类"差值类横轴"曲线（如有）参考复用本成员而不是继续新增。
+        /// </para>
+        /// </summary>
+        LevelDiff,
     }
 
     /// <summary>曲线的登记形态（分阶段落地计划 T-N0-1："一元断点表"与"二元输入的饱和形态"分开登记）。</summary>
@@ -266,6 +285,7 @@ namespace Core.Foundation.DataRegistry
             {
                 case CurveAxis.Level: return "横轴：等级（整数）";
                 case CurveAxis.ItemLevel: return "横轴：物品等级（整数）";
+                case CurveAxis.LevelDiff: return "横轴：等级差 Δ（整数，可为负）";
                 default: return "横轴：数值";
             }
         }

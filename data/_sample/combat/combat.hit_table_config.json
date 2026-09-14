@@ -4,7 +4,7 @@
   "rows": [
     {
       "id": "combat.hit_table.default",
-      "miss": { "enabled": true, "base": 0.05 },
+      "miss": { "enabled": true, "base": 0.05, "hit_stat": "stat.hit_rating" },
       "dodge": { "enabled": true, "stat": "stat.dodge_rating", "base": 0.05 },
       "parry": { "enabled": false, "base": 0.0 },
       "glancing_blow": { "enabled": false, "base": 0.0 },

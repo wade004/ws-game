@@ -161,6 +161,24 @@ namespace Tests.Rules.Combat
         public ControlFlags GetControlImmunity(Id unitId) => ControlFlags.None;
     }
 
+    /// <summary>T-N1-8：最小可控的 <see cref="IGearLevelOffsetProvider"/> 假实现，供
+    /// <see cref="Core.Rules.Combat.CombatOptions.EffectiveLevelIncludesGearOffset"/> 策略项测试用——
+    /// 按单位显式配置一个偏移量，未配置的单位恒返回 0（与
+    /// <see cref="Core.Rules.Common.NullGearLevelOffsetProvider"/> 同样的缺省语义，但本类允许区分
+    /// "显式配置为 0"与"从未配置"，供测试按需选用）。</summary>
+    internal sealed class FakeGearLevelOffsetProvider : IGearLevelOffsetProvider
+    {
+        private readonly Dictionary<Id, double> _offsets = new Dictionary<Id, double>();
+
+        public FakeGearLevelOffsetProvider SetOffset(Id unitId, double offset)
+        {
+            _offsets[unitId] = offset;
+            return this;
+        }
+
+        public double GetGearLevelOffset(Id unitId) => _offsets.TryGetValue(unitId, out var v) ? v : 0.0;
+    }
+
     /// <summary>
     /// 测试夹具：搭建真实 <see cref="IStatHost"/>/<see cref="IPowerHost"/>/<see cref="IRngHost"/>/
     /// <see cref="IEventBus"/>/<see cref="IFactionMatrix"/>/<see cref="IDataRegistry"/>
@@ -179,7 +197,7 @@ namespace Tests.Rules.Combat
         public static readonly Id StatBlockValue = new Id("stat.block_value");
 
         /// <summary>T-N1-7：category="defense"、scope="from_player" 的目标承伤减免属性，供
-        /// <see cref="CombatOptions.DamageTakenCategory"/> 新扫描机制测试用——单机下只在
+        /// <see cref="CombatOptions.DamageTakenPctStats"/> 显式清单测试用——单机下只在
         /// <c>SourceKind.Player</c> 时生效。</summary>
         public static readonly Id StatResilDamageTakenFromPlayerPct = new Id("stat.resil_damage_taken_from_player_pct");
 
@@ -187,11 +205,15 @@ namespace Tests.Rules.Combat
         public static readonly Id StatResilDamageTakenAnyPct = new Id("stat.resil_damage_taken_any_pct");
 
         /// <summary>T-N1-7：category="defense"、scope="from_player" 的被暴击减免属性，供
-        /// <see cref="CombatOptions.CritTakenReductionCategory"/> 新介入点测试用。</summary>
+        /// <see cref="CombatOptions.CritTakenReductionStats"/> 显式清单测试用。</summary>
         public static readonly Id StatResilCritTakenFromPlayerPct = new Id("stat.resil_crit_taken_from_player_pct");
 
         /// <summary>T-N1-7：category="defense"、scope="any" 的被暴击减免属性，两种来源类别均生效。</summary>
         public static readonly Id StatResilCritTakenAnyPct = new Id("stat.resil_crit_taken_any_pct");
+
+        /// <summary>T-N1-8：攻击者命中属性，供 <c>combat.hit_table_config</c> miss 分支的
+        /// <c>hit_stat</c> 字段测试用（见 <see cref="Core.Rules.Combat.HitTableBranch.HitStat"/>）。</summary>
+        public static readonly Id StatHitRating = new Id("stat.hit_rating");
 
         public static readonly Id SchoolPhysical = new Id("school.physical");
 
@@ -208,7 +230,8 @@ namespace Tests.Rules.Combat
                 { ""id"": ""stat.resil_damage_taken_from_player_pct"", ""name_key"": ""l10n.stat.resil_damage_taken_from_player_pct.name"", ""category"": ""defense"", ""scope"": ""from_player"", ""default_base"": 0 },
                 { ""id"": ""stat.resil_damage_taken_any_pct"", ""name_key"": ""l10n.stat.resil_damage_taken_any_pct.name"", ""category"": ""defense"", ""scope"": ""any"", ""default_base"": 0 },
                 { ""id"": ""stat.resil_crit_taken_from_player_pct"", ""name_key"": ""l10n.stat.resil_crit_taken_from_player_pct.name"", ""category"": ""defense"", ""scope"": ""from_player"", ""default_base"": 0 },
-                { ""id"": ""stat.resil_crit_taken_any_pct"", ""name_key"": ""l10n.stat.resil_crit_taken_any_pct.name"", ""category"": ""defense"", ""scope"": ""any"", ""default_base"": 0 }
+                { ""id"": ""stat.resil_crit_taken_any_pct"", ""name_key"": ""l10n.stat.resil_crit_taken_any_pct.name"", ""category"": ""defense"", ""scope"": ""any"", ""default_base"": 0 },
+                { ""id"": ""stat.hit_rating"", ""name_key"": ""l10n.stat.hit_rating.name"", ""group"": ""secondary"", ""default_base"": 0 }
             ]
         }";
 
@@ -313,7 +336,55 @@ namespace Tests.Rules.Combat
                   ""miss"": {""enabled"": false, ""base"": 0}, ""dodge"": {""enabled"": false, ""base"": 0},
                   ""parry"": {""enabled"": false, ""base"": 0}, ""glancing_blow"": {""enabled"": false, ""base"": 0},
                   ""block"": {""enabled"": true, ""base"": 1}, ""crit"": {""enabled"": true, ""base"": 1},
-                  ""crit_multiplier_base"": 2.0, ""block_value_stat"": ""stat.block_value"" }
+                  ""crit_multiplier_base"": 2.0, ""block_value_stat"": ""stat.block_value"" },
+
+                { ""id"": ""combat.hit_table.miss_forced_with_hit_stat"",
+                  ""miss"": {""enabled"": true, ""base"": 1, ""hit_stat"": ""stat.hit_rating""},
+                  ""dodge"": {""enabled"": false, ""base"": 0}, ""parry"": {""enabled"": false, ""base"": 0},
+                  ""glancing_blow"": {""enabled"": false, ""base"": 0}, ""block"": {""enabled"": false, ""base"": 0},
+                  ""crit"": {""enabled"": false, ""base"": 0}, ""crit_multiplier_base"": 2.0 },
+
+                { ""id"": ""combat.hit_table.level_diff_probe"",
+                  ""miss"": {""enabled"": true, ""base"": 0.5}, ""dodge"": {""enabled"": false, ""base"": 0},
+                  ""parry"": {""enabled"": false, ""base"": 0}, ""glancing_blow"": {""enabled"": false, ""base"": 0},
+                  ""block"": {""enabled"": false, ""base"": 0}, ""crit"": {""enabled"": false, ""base"": 0},
+                  ""crit_multiplier_base"": 2.0 },
+
+                { ""id"": ""combat.hit_table.level_diff_crit_zero_base"",
+                  ""miss"": {""enabled"": false, ""base"": 0}, ""dodge"": {""enabled"": false, ""base"": 0},
+                  ""parry"": {""enabled"": false, ""base"": 0}, ""glancing_blow"": {""enabled"": false, ""base"": 0},
+                  ""block"": {""enabled"": false, ""base"": 0}, ""crit"": {""enabled"": true, ""base"": 0},
+                  ""crit_multiplier_base"": 2.0 }
+            ]
+        }";
+
+        // T-N1-8：等级差规则表——横轴 Δ = 目标有效等级 − 攻击者有效等级（miss_bonus/crit_suppression）；
+        // grey_line 横轴是攻击者有效等级本身。数值只服务测试（|Δ|<=2 每级加得少，>=3 陡增并封顶到
+        // ±1.0，双向生效），不进框架默认——见 CombatSchemas.LevelDiffTable 判断记录。
+        private const string LevelDiffTableJson = @"
+        {
+            ""table"": ""combat.level_diff_table"",
+            ""schema_version"": 1,
+            ""rows"": [
+                { ""id"": ""combat.level_diff.test_matrix"",
+                  ""miss_bonus"": [
+                    {""x"": -5, ""y"": -1.0}, {""x"": -3, ""y"": -1.0}, {""x"": -2, ""y"": -0.04},
+                    {""x"": -1, ""y"": -0.02}, {""x"": 0, ""y"": 0.0}, {""x"": 1, ""y"": 0.02},
+                    {""x"": 2, ""y"": 0.04}, {""x"": 3, ""y"": 1.0}, {""x"": 5, ""y"": 1.0}
+                  ],
+                  ""crit_suppression"": [
+                    {""x"": -5, ""y"": -1.0}, {""x"": -3, ""y"": -1.0}, {""x"": -2, ""y"": -0.02},
+                    {""x"": -1, ""y"": -0.01}, {""x"": 0, ""y"": 0.0}, {""x"": 1, ""y"": 0.01},
+                    {""x"": 2, ""y"": 0.02}, {""x"": 3, ""y"": 1.0}, {""x"": 5, ""y"": 1.0}
+                  ],
+                  ""xp_factor"": [
+                    {""x"": -5, ""y"": 0.0}, {""x"": 0, ""y"": 1.0}, {""x"": 5, ""y"": 2.0}
+                  ],
+                  ""grey_line"": [
+                    {""x"": 1, ""y"": 2}, {""x"": 10, ""y"": 3}, {""x"": 20, ""y"": 5},
+                    {""x"": 30, ""y"": 8}, {""x"": 60, ""y"": 15}
+                  ]
+                }
             ]
         }";
 
@@ -368,7 +439,8 @@ namespace Tests.Rules.Combat
                 .Add("fac.faction", FactionJson)
                 .Add("fac.reaction_matrix", ReactionMatrixJson)
                 .Add("combat.hit_table_config", HitTableJson)
-                .Add("combat.resist_curve", ResistCurveJson);
+                .Add("combat.resist_curve", ResistCurveJson)
+                .Add("combat.level_diff_table", LevelDiffTableJson);
 
             var registry = new DataRegistry(source, bus, new DataRegistryOptions());
             registry.RegisterSchema(StatSchemas.Definition);
@@ -376,6 +448,9 @@ namespace Tests.Rules.Combat
             registry.RegisterSchema(FacSchemas.ReactionMatrix);
             registry.RegisterSchema(Core.Rules.Combat.CombatSchemas.HitTableConfig);
             registry.RegisterSchema(Core.Rules.Combat.CombatSchemas.ResistCurve);
+            // T-N1-8：level_diff_table 随本夹具一起加载（数据始终存在），是否真正接入 Δ 计算由各
+            // 测试自己的 CombatOptions.LevelDiffTableId 决定（缺省 null 不接表，见该属性判断记录）。
+            registry.RegisterSchema(Core.Rules.Combat.CombatSchemas.LevelDiffTable);
             registry.RegisterValidationRule(new Core.Rules.Combat.CombatHitTableValidationRule());
             registry.RegisterValidationRule(new Core.Rules.Combat.CombatResistCurveValidationRule());
 
@@ -419,6 +494,7 @@ namespace Tests.Rules.Combat
             public FakeUnitAccess Units = null!;
             public FakeAuraQuery Auras = null!;
             public FakeStaticImmunityProvider StaticImmunity = null!;
+            public FakeGearLevelOffsetProvider GearLevelOffset = null!;
             public InMemoryCombatDiagnostics Diagnostics = null!;
             public Core.Rules.Combat.CombatHost Host = null!;
             public List<IEvent> Events = null!;
@@ -446,6 +522,7 @@ namespace Tests.Rules.Combat
             var units = new FakeUnitAccess();
             var auras = new FakeAuraQuery();
             var staticImmunity = new FakeStaticImmunityProvider();
+            var gearLevelOffset = new FakeGearLevelOffsetProvider();
             var diagnostics = new InMemoryCombatDiagnostics();
 
             var options = new Core.Rules.Combat.CombatOptions
@@ -459,9 +536,13 @@ namespace Tests.Rules.Combat
             };
             configureOptions?.Invoke(options);
 
+            // T-N1-8：经十二参数新重载装配（见 CombatHost 该重载判断记录），全部测试夹具统一走这条
+            // 装配路径，默认附带一个空配置的 FakeGearLevelOffsetProvider——未显式 SetOffset 的单位
+            // 恒返回 0，与 NullGearLevelOffsetProvider 行为等价，覆盖"开启策略项但未配置真实偏移来源
+            // 时不抛异常、退化为 0"这一路径。
             var host = new Core.Rules.Combat.CombatHost(
                 stats, powers, units, auras, factions, rng, bus, registry, options, diagnostics,
-                staticImmunity: staticImmunity);
+                staticImmunity, gearLevelOffset);
 
             return new Fixture
             {
@@ -474,6 +555,7 @@ namespace Tests.Rules.Combat
                 Units = units,
                 Auras = auras,
                 StaticImmunity = staticImmunity,
+                GearLevelOffset = gearLevelOffset,
                 Diagnostics = diagnostics,
                 Host = host,
                 Events = events,

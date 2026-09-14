@@ -42,7 +42,8 @@
 | `item.slot_definition` | 游戏必填（若已有 `item.template` 内容）/ 空壳（尚无物品内容时） | 数值设计落地阶段 N0（分阶段落地计划 T-N0-7、拍板 10）补的空壳表：`item/item.slot_definition.json` 只有空 `rows`，槽位清单、`is_weapon`/`is_equipment` 与后续的槽位预算系数（ADR-0032 `budget_coefficient`）全部由具体游戏填写，模板里不写任何具体系数 |
 | `item.quality_definition` | 游戏必填（若已有 `item.template` 内容）/ 空壳（尚无物品内容时） | 同上：`item/item.quality_definition.json` 只有空 `rows`，品质分档与 `budget_multiplier`（预算倍率）由具体游戏填写，模板里不写任何具体系数 |
 | `stat.weight` | 游戏必填（若已有装备预算消耗/技能价值/装备评分等消费者内容）/ 空壳（尚无这些消费者时） | 分阶段落地计划 T-N1-5（ADR-0030 决策 7）补的空壳表：`stat/stat.weight.json` 只有空 `rows`，属性权重当量与职业覆盖（`class_overrides`）由具体游戏填写；`StatHost` 本身不读这张表——装备预算消耗（ADR-0032）、技能控制/增益价值（ADR-0031）、装备评分的消费实现均不在框架当前落地范围内 |
-| `combat.level_diff_table`、`skill.budget_rule` | 游戏必填（登记后） | 数值设计落地计划为这两张表预留的空壳位：登记分别随阶段 N1（`combat.level_diff_table`）与 N3（`skill.budget_rule`）落地，登记前校验器对未登记表报错（`FailOnUnknownTable`），因此暂不放文件，各阶段登记时随即补空壳 `rows: []` 到本目录并在此表追加行 |
+| `combat.level_diff_table` | 游戏必填（若已配置 `CombatOptions.LevelDiffTableId`）/ 空壳（未接入等级差手感时） | 分阶段落地计划 T-N1-8（ADR-0030 决策 6）补的空壳表：`combat/combat.level_diff_table.json` 只有空 `rows`，三条曲线（`miss_bonus`/`crit_suppression`/`xp_factor`，横轴 Δ = 目标有效等级 − 攻击者有效等级）加一条灰名界线（`grey_line`，横轴攻击者有效等级）由具体游戏填写；`CombatOptions.LevelDiffTableId` 默认 `null`，不接这张表时 `Resolver` 的命中/暴击公式退化为 Δ 加成/压制恒为 0（同 T-N1-8 之前逐位一致）——`xp_factor`/`grey_line` 两列本框架当前只登记数据形状，消费实现（经验系数、目标名字五色）不在框架当前落地范围内（阶段 N4 接入） |
+| `skill.budget_rule` | 游戏必填（登记后） | 数值设计落地计划为该表预留的空壳位：登记随阶段 N3 落地，登记前校验器对未登记表报错（`FailOnUnknownTable`），因此暂不放文件，该阶段登记时随即补空壳 `rows: []` 到本目录并在此表追加行 |
 
 ## 覆盖 `arch.power.health`（可选）
 

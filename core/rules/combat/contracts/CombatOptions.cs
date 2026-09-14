@@ -106,6 +106,27 @@ namespace Core.Rules.Combat
         public Id RngStream { get; set; } = new Id("combat.hit");
 
         /// <summary>
+        /// T-N1-8（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+        /// 决策 6；06 第 4.2 节修订段）：本次结算使用的等级差规则表 <c>combat.level_diff_table</c>
+        /// 记录 id。缺省 <c>null</c>——不接等级差表，<see cref="Resolver.DetermineHit"/> 的未命中率/
+        /// 暴击率公式退化为"Δ 加成/压制恒为 0"，行为与 T-N1-8 之前逐位一致（不改变既有回放基线/既有
+        /// 内容数据的结算结果）。配置为某条 <c>combat.level_diff_table</c> 记录 id 时才会按 Δ 查表：
+        /// 该记录在加载期未找到（表未注册/id 不存在）同样按"Δ 加成/压制=0"退化，不抛异常（同
+        /// <see cref="ArmorStat"/> 等既有属性缺失"按 0 处理"的防御姿态）。
+        /// </summary>
+        public Id? LevelDiffTableId { get; set; } = null;
+
+        /// <summary>
+        /// T-N1-8（同上决策/章节，"有效等级是否计入装备等级偏移"策略配置项，默认关闭）：关闭时
+        /// "有效等级"恒等于 <see cref="IUnitAccess.GetLevel"/> 返回的角色等级本身；开启时"有效等级
+        /// = 角色等级 + <see cref="IGearLevelOffsetProvider.GetGearLevelOffset"/>"（见该接口判断
+        /// 记录——本任务范围内没有可用的真实装备等级偏移来源，只落地这个策略项与接口钩子，真实实现
+        /// 留给后续阶段）。默认关闭的理由（06 第 4.2 节修订段原文）：命中属性本身来自装备，装备落后
+        /// 命中就低，已是自然路径；两者叠加会惩罚两次。
+        /// </summary>
+        public bool EffectiveLevelIncludesGearOffset { get; set; } = false;
+
+        /// <summary>
         /// 结算追踪回调（消费方反馈 2026-09-11 编辑器第 31 条，见
         /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md"方案 1"）：仅供内容工具/
         /// 诊断消费，不改变结算管线本身。<see cref="Resolver.Resolve"/> 是全部伤害/治疗效果原语

@@ -844,6 +844,11 @@ namespace Toolchain.Validator
             {
                 case CurveAxis.Level: return "level";
                 case CurveAxis.ItemLevel: return "item_level";
+                // T-N1-8（ADR-0030 决策 6）：新增等级差 Δ 横轴（combat.level_diff_table 的
+                // miss_bonus/crit_suppression/xp_factor 三列），不落进 default 分支——否则会与
+                // CurveAxis.Value（数值横轴）混淆，编辑器曲线编辑控件就无法区分"这是等级差、可为
+                // 负"与"这是任意数值"两种语义（见 CurveAxis.LevelDiff 判断记录）。
+                case CurveAxis.LevelDiff: return "level_diff";
                 default: return "value";
             }
         }
