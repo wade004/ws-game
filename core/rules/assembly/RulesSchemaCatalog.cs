@@ -97,6 +97,9 @@ namespace Core.Rules.Assembly
         {
             registry.RegisterSchema(StatSchemas.Definition);
             registry.RegisterSchema(StatSchemas.RatingConversion);
+            // T-N1-5（ADR-0030 决策 7）：stat.weight 属性权重表，StatHost 不读取（见 StatSchemas.Weight
+            // 判断记录），仅供装备预算消耗/技能价值/装备评分等尚未落地的消费者引用。
+            registry.RegisterSchema(StatSchemas.Weight);
             registry.RegisterSchema(PowerSchemas.PowerType);
             registry.RegisterSchema(ProgSchemas.LevelCurve);
             registry.RegisterSchema(ProgSchemas.XpSource);
@@ -108,8 +111,14 @@ namespace Core.Rules.Assembly
 
             // power_set/faction 没有模块专属校验规则（见 L1SampleDataTests.cs 注释）。
             registry.RegisterValidationRule(new StatDefinitionValidationRule());
+            registry.RegisterValidationRule(new StatDefinitionDerivationCycleValidationRule());
+            // T-N1-9（04 第 5 节"属性无消费者"）：跨表扫描规则，注册时机不影响结果（Validate 在
+            // RegisterAll 全部完成后才执行，见该规则类型判断记录）。
+            registry.RegisterValidationRule(new StatDefinitionConsumerValidationRule());
+            registry.RegisterValidationRule(new StatRatingConversionValidationRule());
             registry.RegisterValidationRule(new ProgLevelCurveValidationRule());
             registry.RegisterValidationRule(new ArchTalentTreeCycleValidationRule());
+            registry.RegisterValidationRule(new ArchClassDerivationOverrideValidationRule());
         }
 
         private static void RegisterL2Schemas(IDataRegistry registry)
@@ -121,6 +130,10 @@ namespace Core.Rules.Assembly
             registry.RegisterSchema(SkillSchemas.Book);
             registry.RegisterSchema(CombatSchemas.HitTableConfig);
             registry.RegisterSchema(CombatSchemas.ResistCurve);
+            // T-N1-8（ADR-0030 决策 6）：combat.level_diff_table 是可选表——注册 schema 不代表强制
+            // 每个游戏都要提供数据，CombatOptions.LevelDiffTableId 默认 null 不接表（见该属性判断
+            // 记录），未提供数据文件时 CombatDataLoader.LoadLevelDiffTables 返回空字典，不阻断。
+            registry.RegisterSchema(CombatSchemas.LevelDiffTable);
             registry.RegisterSchema(TargetSchemas.ChainDef);
             registry.RegisterSchema(AiSchemas.BehaviorProfile);
             registry.RegisterSchema(AiSchemas.Rotation);

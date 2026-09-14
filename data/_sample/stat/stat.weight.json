@@ -1,0 +1,111 @@
+{
+  "table": "stat.weight",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "stat.weight.strength",
+      "stat": "stat.strength",
+      "weight": 1.0,
+      "class_overrides": [
+        { "class": "arch.class.sample_a", "weight": 1.2 }
+      ],
+      "description": "主属性本身，权重当量基准为 1（T-N1-5 样例，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.agility",
+      "stat": "stat.agility",
+      "weight": 1.0,
+      "description": "主属性，样例权重（T-N1-9 补齐，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.intellect",
+      "stat": "stat.intellect",
+      "weight": 1.0,
+      "description": "主属性，样例权重（T-N1-9 补齐，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.stamina",
+      "stat": "stat.stamina",
+      "weight": 0.8,
+      "description": "主属性，样例权重（T-N1-5 样例，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.attack_power",
+      "stat": "stat.attack_power",
+      "weight": 0.5,
+      "description": "派生属性——攻击强度，样例权重（T-N1-9 补齐，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.spell_power",
+      "stat": "stat.spell_power",
+      "weight": 0.5,
+      "description": "派生属性——法术强度，样例权重（T-N1-9 补齐，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.power_regen",
+      "stat": "stat.power_regen",
+      "weight": 0.4,
+      "description": "派生属性——资源回复速率，样例权重（T-N1-9 补齐，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.armor",
+      "stat": "stat.armor",
+      "weight": 0.5,
+      "description": "防御属性，样例权重（T-N1-5 样例，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.crit_rating",
+      "stat": "stat.crit_rating",
+      "weight": 0.3,
+      "description": "评级换算属性，样例权重（T-N1-5 样例，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.dodge_rating",
+      "stat": "stat.dodge_rating",
+      "weight": 0.3,
+      "description": "评级换算属性，样例权重（T-N1-5 样例，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.hit_rating",
+      "stat": "stat.hit_rating",
+      "weight": 0.3,
+      "description": "战斗百分比属性，样例权重（T-N1-9 补齐，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.crit_damage_pct",
+      "stat": "stat.crit_damage_pct",
+      "weight": 0.3,
+      "description": "战斗百分比属性，样例权重（T-N1-9 补齐，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.haste_rating",
+      "stat": "stat.haste_rating",
+      "weight": 0.3,
+      "description": "战斗百分比属性，样例权重（T-N1-9 补齐，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.move_speed",
+      "stat": "stat.move_speed",
+      "weight": 0.2,
+      "description": "杂项属性，样例权重（T-N1-5 样例，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.threat_coefficient",
+      "stat": "stat.threat_coefficient",
+      "weight": 0.1,
+      "description": "杂项属性，样例权重（T-N1-9 补齐，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.initiative",
+      "stat": "stat.initiative",
+      "weight": 0.1,
+      "description": "杂项属性，样例权重（T-N1-9 补齐，非框架默认值）"
+    },
+    {
+      "id": "stat.weight.luck",
+      "stat": "stat.luck",
+      "weight": 0.1,
+      "description": "杂项属性，样例权重（T-N1-9 补齐，非框架默认值）"
+    }
+  ]
+}

@@ -158,7 +158,20 @@ unit/
     判断记录见该模块自身文档。见 `core/gameplay/assembly/tests/C11_LifecycleReloadTests.cs`
     （`SameMapLoad_RestoresSpatialIndexToSavedPosition`）。
 
-## L2 契约缺口清单（本次未新增/未修改 `core/rules/*`）
+15. **T-N1-6（[ADR-0030](../../../architecture/adr/0030-属性系统派生换算与来源类别.md) 决策 5；
+    06 第 4.1 节 2026-09-14 修订段）：`WorldUnitAccess.GetSourceKind` 覆盖
+    `IUnitAccess.GetSourceKind` 默认接口实现，复用 `Entity.Kind` 判定"单位是玩家还是生物"，
+    不新造标记字段**——`PlayerUnit.Kind`/`CreatureUnit.Kind` 恒为 `EntityKinds.Player`/
+    `EntityKinds.Creature`（判断记录 1 描述的既有字段，非本任务新增），供结算管线构造
+    `Core.Rules.Common.EffectContext` 时填入 `SourceKind`（06 第 4.1 节"目标乘区"步骤据此按
+    `stat.definition.scope` 匹配减免属性，消费方为 T-N1-7）。判断记录（未知/不存在的单位返回
+    `SourceKind.Unknown` 而不是像 `GetPosition`/`GetFaction` 等既有访问器那样抛出）：本方法的
+    生产调用方在构造 `EffectContext` 时查询来源单位，而来源单位在光环仍生效期间被销毁、周期效果
+    仍继续结算是既有支持的边界情形（见 `core/rules/skill.EffectDispatcher.ApplyDamageOrHeal`
+    判断记录 C02"来源销毁后……缩放贡献按 0 处理，效果本身继续正常结算/落地，不中断周期 tick
+    循环、不抛异常"）——本方法对已销毁来源返回 `Unknown` 而非抛异常，是这条既有安全退化路径在
+    本次改动后不至于反而崩溃的必要选择，与判断记录 3（`SetAlive` 不销毁实体）、上述 C02 判断
+    记录同属"面对已知会发生的边界情形选择确定安全的退化路径"这一惯例。
 
 - `Core.Rules.Common.IUnitAccess` 没有 `SetFacing`：`WorldUnitAccess` 未补这个方法（不修改
   `core/rules/common`），`MovementTickHandler` 需要写朝向时直接操作拿到的 `Unit`/`Entity` 实例的

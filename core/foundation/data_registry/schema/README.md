@@ -69,4 +69,15 @@
 本模块拍板：`{"x": Number, "y": Number}`（对象，两个数值字段），与 `巡逻路径`
 （`ai.patrol_path`，04 第 1.1 节"有序 Vec2 列表"）等未来表对齐时可复用同一约定；若后续某个
 具体模块的落地实现选择了不同表示（如 `[x, y]` 数组），应在该模块自己的 `schema/*.md` 里
+
+## `CurveAxis` 新增 `LevelDiff`（T-N1-8，判断记录）
+
+分阶段落地计划 T-N1-8（ADR-0030 决策 6；06 第 4.2 节修订段）新增 `combat.level_diff_table`，
+横轴是"目标有效等级 − 攻击者有效等级"这一等级差 Δ（可正可负），与既有 `CurveAxis.Level`
+（`prog.level_curve`/`stat.rating_conversion`/`econ.gold_base_curve` 一类"角色/怪物等级本身"，
+语义上非负）不是同一个东西——直接复用 `Level` 会让内容工具按"等级"语义渲染横轴（如默认非负输入
+框），对 Δ 场景产生误导。新增 `CurveAxis.LevelDiff` 枚举成员（`CurveSchema.cs`）承接这一横轴
+语义：`x` 仍登记为 `FieldKind.Int`（沿用非 `Value` 轴的既有登记强度），但不额外登记下界，允许
+负值。枚举新增成员是 G3 门禁允许的 ABI 新增（只追加、不改动既有成员），后续如有其它"差值类"横轴
+曲线，应复用本成员而不是继续新增。
 明确记录偏差，不应静默假设与本约定一致。

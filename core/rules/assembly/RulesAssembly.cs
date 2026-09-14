@@ -289,6 +289,12 @@ namespace Core.Rules.Assembly
             ArchStatModifierWriter archModifierWriter = (unitId, stat, op, value, sourceId) =>
                 Stats.AddModifier(unitId, new StatModifier(stat, ParseOp(op), value, sourceId));
             PowerRegistrar archPowerRegistrar = (unitId, types) => Powers.RegisterUnit(unitId, types);
+            // T-N1-4（ADR-0030 决策 2）：ArchetypeRegistry.ApplyTo（单位首次注册）经本委托把
+            // arch.class.derivation_overrides 写入 StatHost；换职业/读档恢复路径见下方
+            // ReloadArchetypeAndRace 判断记录（直接调 Stats.SetDerivationCoefficientOverrides，
+            // 不经本委托——该方法本就直接持有 Stats 具体类型，同 Stats.ResetBase/SetBase 既有用法）。
+            DerivationCoefficientOverrideWriter archDerivationOverrideWriter =
+                (unitId, overrides) => Stats.SetDerivationCoefficientOverrides(unitId, overrides);
 
             // W1 收边补齐（race.passive_auras，A3 审计 #8）：闭包提前捕获尚未赋值的 skill 局部
             // 变量，与上面第 1 步 progression 闭包同一种处理手法——ArchetypeRegistry（第 3 步）
@@ -309,7 +315,8 @@ namespace Core.Rules.Assembly
                 auraHandles.Register(unitId, granted.AuraInstanceId);
                 _raceAuraHandles[(unitId, auraDefId)] = granted;
             };
-            Archetypes = new ArchetypeRegistry(Registry, Bus, archBaseWriter, archModifierWriter, archPowerRegistrar, archAuraApplier);
+            Archetypes = new ArchetypeRegistry(
+                Registry, Bus, archBaseWriter, archModifierWriter, archPowerRegistrar, archDerivationOverrideWriter, archAuraApplier);
 
             // -------------------------------------------------------------
             // 4) FactionMatrix。
@@ -726,6 +733,14 @@ namespace Core.Rules.Assembly
             {
                 Stats.SetBase(unitId, new Id(kv.Key), kv.Value);
             }
+
+            // T-N1-4（ADR-0030 决策 2；任务书"换职业/读档恢复触发派生重算"）：本方法是换职业与读档
+            // 恢复（GameplayAssembly.IDerivedStateRebuilder.OnSectionLoaded 对 player.race_id 段的
+            // 唯一重建入口，见该方法判断记录）共用的唯一路径——无条件用新职业的完整覆盖列表调用一次
+            // SetDerivationCoefficientOverrides（全量替换语义，天然覆盖"先清旧覆盖再写新覆盖"，见该
+            // 方法判断记录），不需要按 classChanged 分叉：职业未变时覆盖列表也不变，重复调用是幂等的
+            // （不产生任何 stat.changed 之外的副作用），比额外加一层"是否变化"判断更简单可靠。
+            Stats.SetDerivationCoefficientOverrides(unitId, cls.DerivationOverrides);
 
             if (raceId.HasValue)
             {

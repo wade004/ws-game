@@ -1,12 +1,51 @@
 {
   "table": "stat.definition",
-  "schema_version": 1,
+  "schema_version": 2,
   "rows": [
-    { "id": "stat.strength", "name_key": "l10n.stat.strength.name", "group": "primary" },
-    { "id": "stat.stamina", "name_key": "l10n.stat.stamina.name", "group": "primary" },
-    { "id": "stat.armor", "name_key": "l10n.stat.armor.name", "group": "derived" },
-    { "id": "stat.crit_rating", "name_key": "l10n.stat.crit_rating.name", "group": "secondary", "is_rating": true, "rating_conversion_ref": "stat.rating.crit" },
-    { "id": "stat.dodge_rating", "name_key": "l10n.stat.dodge_rating.name", "group": "secondary", "is_rating": true, "rating_conversion_ref": "stat.rating.dodge" },
-    { "id": "stat.move_speed", "name_key": "l10n.stat.move_speed.name", "group": "secondary", "default_base": 5 }
+    { "id": "stat.strength", "name_key": "l10n.stat.strength.name", "category": "primary",
+      "description": "样例：主属性——力量（ADR-0030 决策 9 推荐分类，非框架默认值）" },
+    { "id": "stat.agility", "name_key": "l10n.stat.agility.name", "category": "primary",
+      "description": "样例：主属性——敏捷（ADR-0030 决策 9 推荐分类，非框架默认值）" },
+    { "id": "stat.intellect", "name_key": "l10n.stat.intellect.name", "category": "primary",
+      "description": "样例：主属性——智力（ADR-0030 决策 9 推荐分类，非框架默认值）" },
+    { "id": "stat.stamina", "name_key": "l10n.stat.stamina.name", "category": "primary",
+      "description": "样例：主属性——体质（ADR-0030 决策 9 推荐分类，非框架默认值）" },
+
+    { "id": "stat.attack_power", "name_key": "l10n.stat.attack_power.name", "category": "derived",
+      "derived_from": [ { "stat": "stat.strength", "coefficient": 2.0 } ],
+      "description": "样例：派生——攻击强度，来源力量（ADR-0030 决策 9；系数为样例，非框架默认值；arch.class.sample_a.derivation_overrides 演示按职业覆盖该系数）" },
+    { "id": "stat.spell_power", "name_key": "l10n.stat.spell_power.name", "category": "derived",
+      "derived_from": [ { "stat": "stat.intellect", "coefficient": 1.5 } ],
+      "description": "样例：派生——法术强度，来源智力（ADR-0030 决策 9；系数为样例，非框架默认值）" },
+    { "id": "stat.power_regen", "name_key": "l10n.stat.power_regen.name", "category": "derived",
+      "derived_from": [ { "stat": "stat.intellect", "coefficient": 0.1 } ],
+      "description": "样例：派生——资源回复速率，来源智力（ADR-0030 决策 8/数值设计 01 第 3.7 节：推荐派生列表用\"资源回复速率\"取代\"资源上限\"，资源池上限改走固定值，见 arch.power_type.json；系数为样例，非框架默认值）" },
+
+    { "id": "stat.crit_rating", "name_key": "l10n.stat.crit_rating.name", "category": "percent",
+      "conversion_ref": "stat.rating.crit",
+      "description": "样例：战斗百分比——暴击率评级，按等级除数换算（ADR-0030 决策 9；combat.hit_table_config.crit.stat 消费）" },
+    { "id": "stat.dodge_rating", "name_key": "l10n.stat.dodge_rating.name", "category": "percent",
+      "conversion_ref": "stat.rating.dodge",
+      "description": "样例：战斗百分比——闪避评级，按等级除数换算（ADR-0030 决策 9；combat.hit_table_config.dodge.stat 消费）" },
+    { "id": "stat.hit_rating", "name_key": "l10n.stat.hit_rating.name", "category": "percent", "default_base": 0,
+      "description": "样例：战斗百分比——命中评级，缺省 conversion_ref 即恒等换算（ADR-0030 决策 9；combat.hit_table_config.miss.hit_stat 消费）" },
+    { "id": "stat.crit_damage_pct", "name_key": "l10n.stat.crit_damage_pct.name", "category": "percent",
+      "clamp": { "min": 0 },
+      "description": "样例：战斗百分比——暴击伤害加成，恒等换算加硬下限（ADR-0030 决策 9；保守版曲线形态示例）" },
+    { "id": "stat.haste_rating", "name_key": "l10n.stat.haste_rating.name", "category": "percent",
+      "conversion_ref": "stat.rating.haste",
+      "description": "样例：战斗百分比——急速评级，饱和曲线换算（ADR-0030 决策 9；变态版曲线形态示例，除数随等级增长）" },
+
+    { "id": "stat.armor", "name_key": "l10n.stat.armor.name", "category": "defense", "clamp": { "min": 0 },
+      "description": "样例：防御——护甲，走减免曲线而非换算层，抗性维度判定用（ADR-0030 决策 9；Core.Rules.Combat.CombatOptions.ArmorStat 框架内置默认消费者）" },
+
+    { "id": "stat.move_speed", "name_key": "l10n.stat.move_speed.name", "category": "misc", "default_base": 5,
+      "description": "样例：杂项——移动速度（ADR-0030 决策 9）" },
+    { "id": "stat.threat_coefficient", "name_key": "l10n.stat.threat_coefficient.name", "category": "misc", "default_base": 1,
+      "description": "样例：杂项——仇恨系数（ADR-0030 决策 9）" },
+    { "id": "stat.initiative", "name_key": "l10n.stat.initiative.name", "category": "misc", "default_base": 0,
+      "description": "样例：杂项——先攻（ADR-0030 决策 9）" },
+    { "id": "stat.luck", "name_key": "l10n.stat.luck.name", "category": "misc", "default_base": 0,
+      "description": "样例：杂项——幸运（ADR-0030 决策 9）" }
   ]
 }

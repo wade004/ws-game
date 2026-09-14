@@ -49,17 +49,16 @@ namespace Tests.Numbers
         private static readonly Id StatCritRating = new Id("stat.crit_rating");
         private static readonly Id PowerHealth = new Id("arch.power.health");
         private static readonly Id PowerMana = new Id("arch.power.mana");
-        // 判断记录（数据行覆盖语义任务，取代下方已过期的"收边任务补齐"记录）：
-        // data/_framework/arch/arch.power_type.json 的 arch.power.health 保持框架级默认
-        // {kind: fixed, value: 100}；data/_sample/arch/arch.power_type.json 现新增一条同 id、
-        // "override": true 的行，把 max_source 改成 {kind: stat, stat: stat.stamina}——整行替换
-        // 框架那一行，演示 DataRegistry 的行覆盖语义（见 data/README.md"arch.power_type"判断记录、
-        // DataRegistry 类型级判断记录"覆盖语义"），同时恢复了本类此前"health 上限引用属性、属性
-        // 成长后上限跟着变"这条端到端测试路径的原语义——本类合并加载 _framework + _sample 后，
-        // PowerHealth 与 PowerSampleVigor 的期望值因此完全一致（两者 max_source 都是 stat.stamina）。
-        // sample_vigor 是此前"health 改成框架级固定值"阶段新增的替代资源类型，覆盖回归后不再是
-        // 唯一覆盖该路径的资源，但保留不删——它验证的是"未被覆盖时" stat 引用路径本身，与
-        // PowerHealth 验证的是"覆盖之后" stat 引用路径是分工不同的两条断言。
+        // 判断记录（T-N1-9 更新，取代下方已过期的"数据行覆盖语义任务"记录）：ADR-0030 决策 8/
+        // 数值设计 01 第 3.7 节"资源上限固定、回复速率派生"定为推荐默认——data/_sample/arch/
+        // arch.power_type.json 的 arch.power.health 撤回此前"改为随 stat.stamina 成长"的示例，
+        // max_source 改回 {kind: fixed, value: 120}（data/_framework 的框架级默认仍是
+        // {kind: fixed, value: 100}），"override": true 行覆盖语义本身继续保留演示（见
+        // data/README.md"arch.power_type"判断记录、DataRegistry 类型级判断记录"覆盖语义"），只是
+        // 覆盖后的值从"引用属性"改回"另一个固定值"。PowerHealth 与 PowerSampleVigor 的期望值因此
+        // 不再相同——PowerHealth 固定 120，PowerSampleVigor 仍是 {kind: stat, stat: stat.stamina}
+        // （随 stamina 成长），sample_vigor 继续验证"stat 引用路径"本身，PowerHealth 改为验证
+        // "固定值 override"路径，两者分工不同。
         private static readonly Id PowerSampleVigor = new Id("arch.power.sample_vigor");
         private static readonly Id FacPlayer = new Id("fac.player");
         private static readonly Id FacWildlife = new Id("fac.wildlife");
@@ -170,6 +169,9 @@ namespace Tests.Numbers
             // L1 五个模块的全部 TableSchema。
             registry.RegisterSchema(StatSchemas.Definition);
             registry.RegisterSchema(StatSchemas.RatingConversion);
+            // T-N1-5：stat.weight（StatHost 不读取，见 StatSchemas.Weight 判断记录），随 data/_sample
+            // 新增的 stat/stat.weight.json 一并纳入本联调世界，走完整字段级校验。
+            registry.RegisterSchema(StatSchemas.Weight);
             registry.RegisterSchema(PowerSchemas.PowerType);
             registry.RegisterSchema(ProgSchemas.LevelCurve);
             registry.RegisterSchema(ProgSchemas.XpSource);
@@ -181,8 +183,13 @@ namespace Tests.Numbers
 
             // L1 五个模块的全部 IValidationRule（power_set/faction 没有模块专属规则）。
             registry.RegisterValidationRule(new StatDefinitionValidationRule());
+            registry.RegisterValidationRule(new StatDefinitionDerivationCycleValidationRule());
+            // T-N1-9（04 第 5 节"属性无消费者"）：跨表扫描规则，随本世界的全部 L1 schema 一起注册
+            // 才能扫描到 stat.weight/arch.class 等消费者字段。
+            registry.RegisterValidationRule(new StatDefinitionConsumerValidationRule());
             registry.RegisterValidationRule(new ProgLevelCurveValidationRule());
             registry.RegisterValidationRule(new ArchTalentTreeCycleValidationRule());
+            registry.RegisterValidationRule(new ArchClassDerivationOverrideValidationRule());
 
             // 补上 archetype 模块 README"设计要点与判断记录"第 2 条标注的"待动态声明"引用。
             // arch.class.primary_stat 是标量 Id 字段，可以声明：
@@ -259,13 +266,13 @@ namespace Tests.Numbers
         }
 
         // -----------------------------------------------------------------
-        // 3. ApplyTo 注册资源池：health（_sample 用 override 把框架级固定上限改成引用 stamina）+
-        //    mana（固定上限）+ sample_vigor（上限引用 stamina，StatLookup 跨模块装配，见
-        //    PowerSampleVigor 判断记录）
+        // 3. ApplyTo 注册资源池：health（T-N1-9 起 _sample 用 override 把框架级固定上限 100 改成
+        //    另一个固定值 120，ADR-0030 决策 8"资源上限固定"推荐默认）+ mana（固定上限）+
+        //    sample_vigor（上限引用 stamina，StatLookup 跨模块装配，见 PowerSampleVigor 判断记录）
         // -----------------------------------------------------------------
 
         [Fact]
-        public void ApplyTo_RegistersPowerTypes_HealthCapReferencesStamina()
+        public void ApplyTo_RegistersPowerTypes_HealthCapFixed()
         {
             var world = BuildWorld();
             var unit = new Id("unit.applyto_2");
@@ -278,10 +285,12 @@ namespace Tests.Numbers
             Assert.True(world.PowerHost.HasPower(unit, PowerSampleVigor));
 
             // arch.power.health：data/_framework 的框架级默认行 max_source = {kind: fixed, value:
-            // 100} 已被 data/_sample 声明 "override": true 的同 id 行整行替换，改为
-            // {kind: stat, stat: stat.stamina}；此时最终 stamina=9（同下方 sample_vigor 断言）。
-            Assert.Equal(9.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
-            Assert.Equal(9.0, world.PowerHost.GetPower(unit, PowerHealth), 10); // start_full 默认 true
+            // 100} 已被 data/_sample 声明 "override": true 的同 id 行整行替换（T-N1-9：ADR-0030
+            // 决策 8"资源上限固定、回复速率派生"为推荐默认，撤回此前"改为随 stat.stamina 成长"的
+            // 示例），改为另一个固定值 {kind: fixed, value: 120}——与 stamina 无关，升级/属性变化
+            // 不影响本上限（同下方第 4 个用例）。
+            Assert.Equal(120.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
+            Assert.Equal(120.0, world.PowerHost.GetPower(unit, PowerHealth), 10); // start_full 默认 true
 
             // arch.power.mana.max_source = {kind: fixed, value: 100}。
             Assert.Equal(100.0, world.PowerHost.GetPowerMax(unit, PowerMana), 10);
@@ -294,6 +303,7 @@ namespace Tests.Numbers
 
         // -----------------------------------------------------------------
         // 4. GrantFromSource 升级 → 成长写入 → 属性再变 → RecomputeMax 后资源上限跟着变
+        //    （health 自 T-N1-9 起固定上限，不再跟随 stamina 成长——仅 sample_vigor 跟随）
         // -----------------------------------------------------------------
 
         [Fact]
@@ -306,9 +316,10 @@ namespace Tests.Numbers
             world.ProgressionHost.RegisterUnit(unit, CurveSample);
 
             Assert.Equal(1, world.ProgressionHost.GetLevel(unit));
-            // 升级前：sample_vigor 与 health（_sample override 后）上限都=stamina=9。
+            // 升级前：sample_vigor 上限=stamina=9；health（_sample override 后）固定 120，不随
+            // stamina 变化（T-N1-9，见上方第 3 个用例判断记录）。
             Assert.Equal(9.0, world.PowerHost.GetPowerMax(unit, PowerSampleVigor), 10);
-            Assert.Equal(9.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
+            Assert.Equal(120.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
 
             // prog.xp.kill_sample.base_xp=50；两次授予共 100 = level1.xp_to_next，恰好跨到 2 级。
             world.ProgressionHost.GrantFromSource(unit, XpKillSample);
@@ -321,13 +332,13 @@ namespace Tests.Numbers
             Assert.Equal(12.0, world.StatHost.GetStat(unit, StatStamina), 10);  // 9 + 3
 
             // PowerHost 不会自动感知 StatHost 的变化（跨模块无隐式依赖），需调用方显式
-            // RecomputeMax；调用后 sample_vigor 与 health（_sample override 后同样引用 stamina）
-            // 上限都跟随新的 stamina 变化，当前值未超新上限，不夹取。
+            // RecomputeMax；调用后 sample_vigor 上限跟随新的 stamina 变化，当前值未超新上限，
+            // 不夹取；health 固定上限 120 保持不变（T-N1-9，不再引用 stamina）。
             world.PowerHost.RecomputeMax(unit);
             Assert.Equal(12.0, world.PowerHost.GetPowerMax(unit, PowerSampleVigor), 10);
             Assert.Equal(9.0, world.PowerHost.GetPower(unit, PowerSampleVigor), 10); // 当前值不因上限提高而自动回满
-            Assert.Equal(12.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
-            Assert.Equal(9.0, world.PowerHost.GetPower(unit, PowerHealth), 10); // 同理，当前值不自动回满
+            Assert.Equal(120.0, world.PowerHost.GetPowerMax(unit, PowerHealth), 10);
+            Assert.Equal(120.0, world.PowerHost.GetPower(unit, PowerHealth), 10); // start_full 默认 true，固定上限，当前值同上限
         }
 
         // -----------------------------------------------------------------
@@ -367,9 +378,10 @@ namespace Tests.Numbers
 
             // 单独构造第二个 StatHost 开启评级换算，LevelLookup 接到同一个 ProgressionHost 实例
             // 的 GetLevel——演示"事项一"新增的委托如何在不引入编译期依赖的前提下接住真实等级来源。
+            // T-N1-3：换算层始终启用，不再需要 EnableRatingConversion=true（该属性已废弃、无任何
+            // 效果，StatHost 不再读取）。
             var statHost2 = new StatHost(world.Registry, world.Bus, new StatHostOptions
             {
-                EnableRatingConversion = true,
                 LevelLookup = uid => world.ProgressionHost.GetLevel(uid),
             });
             statHost2.RegisterUnit(unit);

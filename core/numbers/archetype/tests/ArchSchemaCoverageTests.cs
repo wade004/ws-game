@@ -144,5 +144,68 @@ namespace Tests.Numbers.Archetype
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i => i.Check == "required_field" && i.Field == "nodes[0].id");
         }
+
+        // -----------------------------------------------------------------
+        // T-N1-4：arch.class.derivation_overrides 子结构（ADR-0030 决策 2）与
+        // ArchClassDerivationOverrideValidationRule 正负例
+        // -----------------------------------------------------------------
+
+        private const string DerivedStatDefinitionRows =
+            "[{\"id\":\"stat.cov_might\",\"name_key\":\"l10n.stat.cov_might.name\",\"category\":\"primary\"}," +
+            "{\"id\":\"stat.cov_power\",\"name_key\":\"l10n.stat.cov_power.name\",\"category\":\"derived\"," +
+            "\"derived_from\":[{\"stat\":\"stat.cov_might\",\"coefficient\":1.0}]}]";
+
+        [Fact]
+        public void ClassDerivationOverrides_PointingToExistingEdge_LoadsWithoutErrors()
+        {
+            var rows = "[{\"id\":\"arch.class.cov_override_ok\",\"name_key\":\"l10n.arch.class.cov_override_ok.name\"," +
+                "\"primary_stat\":\"stat.cov_might\",\"base_stats\":{\"stat.cov_might\":10},\"power_types\":[]," +
+                "\"derivation_overrides\":[{\"stat\":\"stat.cov_power\",\"source\":\"stat.cov_might\",\"coefficient\":2.0}]}]";
+
+            var source = new InMemoryDataSource()
+                .Add(Core.Numbers.StatBlock.StatSchemas.Definition.Name,
+                    Envelope(Core.Numbers.StatBlock.StatSchemas.Definition.Name, DerivedStatDefinitionRows))
+                .Add(Core.Numbers.Archetype.ArchSchemas.Class.Name,
+                    Envelope(Core.Numbers.Archetype.ArchSchemas.Class.Name, rows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
+            registry.RegisterSchema(Core.Numbers.Archetype.ArchSchemas.Class);
+            registry.RegisterValidationRule(new Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        [Fact]
+        public void ClassDerivationOverrides_PointingToNonExistentEdge_ReportsError()
+        {
+            // stat.cov_power 的 derived_from 里只登记了 stat.cov_might 这一条来源，这里覆盖一条
+            // 不存在的来源 stat.cov_bogus——ArchClassDerivationOverrideValidationRule 应报错。
+            var rows = "[{\"id\":\"arch.class.cov_override_bad\",\"name_key\":\"l10n.arch.class.cov_override_bad.name\"," +
+                "\"primary_stat\":\"stat.cov_might\",\"base_stats\":{\"stat.cov_might\":10},\"power_types\":[]," +
+                "\"derivation_overrides\":[{\"stat\":\"stat.cov_power\",\"source\":\"stat.cov_bogus\",\"coefficient\":2.0}]}]";
+            var extraStatDefinitionRows =
+                "[{\"id\":\"stat.cov_might\",\"name_key\":\"l10n.stat.cov_might.name\",\"category\":\"primary\"}," +
+                "{\"id\":\"stat.cov_power\",\"name_key\":\"l10n.stat.cov_power.name\",\"category\":\"derived\"," +
+                "\"derived_from\":[{\"stat\":\"stat.cov_might\",\"coefficient\":1.0}]}," +
+                "{\"id\":\"stat.cov_bogus\",\"name_key\":\"l10n.stat.cov_bogus.name\",\"category\":\"primary\"}]";
+
+            var source = new InMemoryDataSource()
+                .Add(Core.Numbers.StatBlock.StatSchemas.Definition.Name,
+                    Envelope(Core.Numbers.StatBlock.StatSchemas.Definition.Name, extraStatDefinitionRows))
+                .Add(Core.Numbers.Archetype.ArchSchemas.Class.Name,
+                    Envelope(Core.Numbers.Archetype.ArchSchemas.Class.Name, rows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
+            registry.RegisterSchema(Core.Numbers.Archetype.ArchSchemas.Class);
+            registry.RegisterValidationRule(new Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i =>
+                i.Check == Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule.CheckName);
+        }
     }
 }

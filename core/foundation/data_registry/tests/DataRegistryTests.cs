@@ -54,7 +54,18 @@ namespace Tests.Foundation.Data
             {
                 registry.RegisterSchema(schema);
             }
-            registry.RegisterSchema(StatDefinitionSchema());
+            // 判断记录（T-N1-9 更新，唯一调用方是下方 LoadAll_RealFrameworkAndSampleData_
+            // ZeroIssues_AndPublishesLoadCompleted）：此前这里额外注册了本文件自己的最小
+            // StatDefinitionSchema()（固定 currentSchemaVersion:1、group 三值枚举，只为服务
+            // LoadStatDefinitionFixture 那组 Query/Expr 用例），但该调用方紧邻的注释明确写着
+            // "本类是 L0 data_registry 自己的测试，不引用任何 L1 模块类型注册对应 schema……这些表
+            // 在本测试里改用 FailOnUnknownTable=false 以'无 schema 表'方式加载"——真正加载的
+            // data/_sample/stat/stat.definition.json 早已在 T-N1-1 升级为 schema_version 2（v2
+            // 写法，T-N1-9 起补齐推荐分类样例），与这份写死 version 1 的本地占位 schema 冲突，
+            // 报 "schema_version 2 超过当前代码期望的版本 1"。既然唯一调用方本就不需要
+            // stat.definition 被字段级校验（下方只用 registry.Get 断言记录存在，不读任何字段），
+            // 删掉这行让它按注释原意走 Unschematized 兜底——不影响 LoadStatDefinitionFixture
+            // （该方法自己独立注册 StatDefinitionSchema()，不经过本方法）。
             registry.RegisterSchema(L10nSchemas.Locale);
             registry.RegisterSchema(L10nSchemas.Text);
             registry.RegisterSchema(InputActionSchema.Table);

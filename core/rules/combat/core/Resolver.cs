@@ -43,6 +43,12 @@ namespace Core.Rules.Combat
         private readonly CombatOptions _options;
         private readonly IReadOnlyDictionary<Id, HitTableConfig> _hitTables;
         private readonly IReadOnlyDictionary<Id, ResistCurve> _resistCurvesBySchool;
+
+        /// <summary>T-N1-8：<c>combat.level_diff_table</c> 强类型缓存，键为记录 id。旧构造函数（未带
+        /// 本参数）恒得到 <see cref="EmptyLevelDiffTables"/>，等价于"没有任何等级差表"——见
+        /// <see cref="CombatOptions.LevelDiffTableId"/> 判断记录"缺省 null 不接表"。</summary>
+        private readonly IReadOnlyDictionary<Id, LevelDiffTable> _levelDiffTables;
+
         private readonly ICombatDiagnostics _diagnostics;
         private readonly ThreatTable _threatTable;
         private readonly Action<Id, Id?> _notifyCombatEvent;
@@ -52,7 +58,15 @@ namespace Core.Rules.Combat
         /// <see cref="NullStaticImmunityProvider.Instance"/>（一律不免疫，不改变既有行为）。</summary>
         private readonly IStaticImmunityProvider _staticImmunity;
 
+        /// <summary>T-N1-8：装备等级偏移量查询钩子，见 <see cref="IGearLevelOffsetProvider"/> 判断
+        /// 记录。可选构造参数，缺省 <see cref="NullGearLevelOffsetProvider.Instance"/>（恒返回 0，
+        /// 不改变既有行为）。</summary>
+        private readonly IGearLevelOffsetProvider _gearLevelOffsetProvider;
+
         private readonly HashSet<Id> _warnedMissingStats = new HashSet<Id>();
+
+        private static readonly IReadOnlyDictionary<Id, LevelDiffTable> EmptyLevelDiffTables =
+            new Dictionary<Id, LevelDiffTable>();
 
         public Resolver(
             IStatHost stats,
@@ -69,6 +83,37 @@ namespace Core.Rules.Combat
             ThreatTable threatTable,
             Action<Id, Id?> notifyCombatEvent,
             IStaticImmunityProvider? staticImmunity = null)
+            : this(stats, powers, units, auras, factions, rng, bus, options, hitTables, resistCurvesBySchool,
+                EmptyLevelDiffTables, diagnostics, threatTable, notifyCombatEvent, staticImmunity, null)
+        {
+        }
+
+        /// <summary>
+        /// T-N1-8 新增重载：追加 <paramref name="levelDiffTables"/>/<paramref name="gearLevelOffsetProvider"/>
+        /// 两个参数。判断记录（不是给既有构造函数加可选参数，ABI 兼容惯例同
+        /// <c>Core.Rules.Common.EffectContext</c> 多参构造重载、<c>HitTableBranch</c> 四参重载）：
+        /// 既有十四参数构造函数（含可选的 <paramref name="staticImmunity"/>）已经是发布过的公开签名，
+        /// 直接追加参数会改变其物理 IL 签名，对已编译好的外部消费方二进制是破坏性变更；本重载十六个
+        /// 参数全部不带默认值，与既有构造函数在参数个数上不重叠（14 对 16），互不冲突，也不产生调用点
+        /// 重载二义性。<see cref="CombatHost"/> 是本类唯一的生产调用方，已改经本重载。
+        /// </summary>
+        public Resolver(
+            IStatHost stats,
+            IPowerHost powers,
+            IUnitAccess units,
+            IAuraQuery auras,
+            IFactionMatrix factions,
+            IRngHost rng,
+            IEventBus bus,
+            CombatOptions options,
+            IReadOnlyDictionary<Id, HitTableConfig> hitTables,
+            IReadOnlyDictionary<Id, ResistCurve> resistCurvesBySchool,
+            IReadOnlyDictionary<Id, LevelDiffTable> levelDiffTables,
+            ICombatDiagnostics diagnostics,
+            ThreatTable threatTable,
+            Action<Id, Id?> notifyCombatEvent,
+            IStaticImmunityProvider? staticImmunity,
+            IGearLevelOffsetProvider? gearLevelOffsetProvider)
         {
             _stats = stats ?? throw new ArgumentNullException(nameof(stats));
             _powers = powers ?? throw new ArgumentNullException(nameof(powers));
@@ -80,10 +125,12 @@ namespace Core.Rules.Combat
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _hitTables = hitTables ?? throw new ArgumentNullException(nameof(hitTables));
             _resistCurvesBySchool = resistCurvesBySchool ?? throw new ArgumentNullException(nameof(resistCurvesBySchool));
+            _levelDiffTables = levelDiffTables ?? throw new ArgumentNullException(nameof(levelDiffTables));
             _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             _threatTable = threatTable ?? throw new ArgumentNullException(nameof(threatTable));
             _notifyCombatEvent = notifyCombatEvent ?? throw new ArgumentNullException(nameof(notifyCombatEvent));
             _staticImmunity = staticImmunity ?? NullStaticImmunityProvider.Instance;
+            _gearLevelOffsetProvider = gearLevelOffsetProvider ?? NullGearLevelOffsetProvider.Instance;
         }
 
         public ResolveResult Resolve(EffectContext context)
@@ -170,9 +217,15 @@ namespace Core.Rules.Combat
             // ---------------- 步骤 6：目标乘区（仅伤害分支） ----------------
             if (!isHeal)
             {
-                var targetPct = GetStatSafe(context.TargetId, _options.DamageTakenPctStat);
-                amount *= (1.0 + targetPct / 100.0);
-                steps.Add($"target_multiplier: stat={_options.DamageTakenPctStat}={targetPct} -> {amount}");
+                // T-N1-7（ADR-0030 决策 5；06 第 4.1 节 2026-09-14 修订段；复核返工：识别"减免
+                // 属性"改为 CombatOptions 显式 id 清单 + scope 过滤，不再按 stat.definition.category
+                // 批量扫描——见 CombatOptions.DamageTakenPctStat/DamageTakenPctStats 判断记录）：
+                // 实际读取的属性集合 = {DamageTakenPctStat} ∪ DamageTakenPctStats（去重），逐条按
+                // scope 与 context.SourceKind 匹配后求和，一次性应用。
+                var ids = BuildDamageTakenStatIds();
+                var combinedPct = SumScopedStats(context.TargetId, ids, context.SourceKind, steps, "target_multiplier_scoped");
+                amount *= (1.0 + combinedPct / 100.0);
+                steps.Add($"target_multiplier: stats=[{string.Join(",", ids)}] combined={combinedPct} -> {amount}");
             }
             else
             {
@@ -316,10 +369,17 @@ namespace Core.Rules.Combat
             // Hit 作为"尚未触发任何特殊分支"的哨兵值，见下方 special 的用法。
             var special = HitResult.Hit;
 
+            // T-N1-8（ADR-0030 决策 6；06 第 4.2 节修订段）：Δ 加成/压制无条件计算一次（即便本次
+            // 结算最终不掷骰 miss/crit 也不影响其它结算步骤或事件流，只是多写一条 steps 追踪日志，
+            // 不产生任何 RNG 消耗——不改变 RNG 流 id、不改变取样次数，见 CombatOptions.LevelDiffTableId
+            // 判断记录）。未配置 CombatOptions.LevelDiffTableId 或表未加载时两者恒为 0，退化为
+            // T-N1-8 之前的行为。
+            var (deltaMissBonus, deltaCritSuppression) = ResolveLevelDiffAdjustments(context, steps);
+
             var rollAvoidance = !isHeal && context.CanMiss;
             if (rollAvoidance)
             {
-                if (RollBranch(table.Miss, context.SourceId, steps, "miss"))
+                if (RollMissBranch(table.Miss, context.SourceId, deltaMissBonus, steps))
                 {
                     return HitResult.Miss;
                 }
@@ -358,10 +418,22 @@ namespace Core.Rules.Combat
 
             if (context.CanCrit && table.Crit.Enabled)
             {
-                var chance = ResolveChance(table.Crit, context.SourceId) + ReadCritChanceBonus(context);
+                // T-N1-7（ADR-0030 决策 5；06 第 4.1 节 2026-09-14 修订段；复核返工：识别"被暴击
+                // 减免属性"改为 CombatOptions.CritTakenReductionStats 显式 id 清单 + scope 过滤，
+                // 不再按 stat.definition.category 批量扫描）：在取样（_rng.Next）之前，把清单里
+                // scope 匹配的属性值之和从暴击率里扣减，下限 0（不影响 RNG 流 id、不影响本次判定
+                // 是否取样——只影响取样前的 chance 数值本身，取样次数不变）。
+                var baseChance = ResolveChance(table.Crit, context.SourceId) + ReadCritChanceBonus(context);
+                var critTakenReduction = SumScopedStats(
+                    context.TargetId, _options.CritTakenReductionStats, context.SourceKind, steps, "crit_taken_reduction");
+                // T-N1-8（ADR-0030 决策 6；06 第 4.2 节修订段"暴击率 = 攻击者暴击属性 − 暴击压制(Δ)"）：
+                // 在既有 T-N1-7 被暴击减免之外再扣减 Δ 压制，双向生效——deltaCritSuppression 可为负
+                // （Δ<0，即攻击者相对更高等级时），此时减去一个负数等于额外增加暴击率。未配置
+                // CombatOptions.LevelDiffTableId 时 deltaCritSuppression 恒为 0，不影响既有结果。
+                var chance = Math.Max(0.0, baseChance - critTakenReduction - deltaCritSuppression);
                 var roll = _rng.Next(_options.RngStream);
                 isCrit = roll < chance;
-                steps.Add($"hit_check: crit chance={chance} roll={roll} -> isCrit={isCrit}");
+                steps.Add($"hit_check: crit chance={chance}(base={baseChance}, taken_reduction={critTakenReduction}, level_diff_suppression={deltaCritSuppression}) roll={roll} -> isCrit={isCrit}");
             }
             else
             {
@@ -380,6 +452,42 @@ namespace Core.Rules.Combat
             }
 
             var chance = ResolveChance(branch, statSubject);
+            return RollChance(chance, steps, label);
+        }
+
+        /// <summary>
+        /// T-N1-8：<c>miss</c> 分支专用掷骰入口——与其余四个"判定"分支（dodge/parry/glancing_blow/
+        /// block，仍走 <see cref="RollBranch"/>）不同，miss 的 chance 不是"提供 stat 就直接取该属性
+        /// 值，否则取 base"这一既有语义（<see cref="ResolveChance"/>）本身，而是在此基础上再减去
+        /// 攻击者命中属性（<see cref="HitTableBranch.HitStat"/>）、加上 Δ 加成（06 第 4.2 节修订段
+        /// "未命中率 = 基础未命中 − 攻击者命中属性 + 未命中加成(Δ)"），结果夹取到 [0,1]（
+        /// <see cref="Clamp01"/>）。<see cref="HitTableBranch.HitStat"/> 未提供、<paramref name="missBonus"/>
+        /// 为 0（未配置 <see cref="CombatOptions.LevelDiffTableId"/>）时，chance 退化为
+        /// <c>ResolveChance(branch, attackerId)</c> 本身——与 T-N1-8 之前逐位一致。
+        /// </summary>
+        private bool RollMissBranch(HitTableBranch branch, Id attackerId, double missBonus, List<string> steps)
+        {
+            if (!branch.Enabled)
+            {
+                steps.Add("hit_check: miss 未开启，跳过掷骰");
+                return false;
+            }
+
+            var baseChance = ResolveChance(branch, attackerId);
+            var hitStatValue = branch.HitStat.HasValue ? GetStatSafe(attackerId, branch.HitStat.Value) : 0.0;
+            var chance = Clamp01(baseChance - hitStatValue + missBonus);
+            var roll = _rng.Next(_options.RngStream);
+            var triggered = roll < chance;
+            steps.Add($"hit_check: miss chance={chance}(base={baseChance}, hit_stat={hitStatValue}, level_diff_bonus={missBonus}) roll={roll} -> {triggered}");
+            return triggered;
+        }
+
+        /// <summary>掷骰 + 比较 + 追踪日志的公共部分，从既有 <see cref="RollBranch"/> 抽出（T-N1-8），
+        /// 供 <see cref="RollMissBranch"/> 复用同一段 RNG 消耗逻辑——两者对 <see cref="IRngHost.Next"/>
+        /// 的调用次数与顺序未发生任何改变，只是取样前 chance 的计算方式不同（同 <c>miss</c> 分支之外
+        /// 四个分支）。</summary>
+        private bool RollChance(double chance, List<string> steps, string label)
+        {
             var roll = _rng.Next(_options.RngStream);
             var triggered = roll < chance;
             steps.Add($"hit_check: {label} chance={chance} roll={roll} -> {triggered}");
@@ -391,6 +499,67 @@ namespace Core.Rules.Combat
             return branch.Stat.HasValue ? GetStatSafe(statSubject, branch.Stat.Value) : branch.Base;
         }
 
+        private static double Clamp01(double value) => value < 0.0 ? 0.0 : (value > 1.0 ? 1.0 : value);
+
+        /// <summary>
+        /// T-N1-8（ADR-0030 决策 6；06 第 4.2 节修订段）：计算本次结算的 Δ 加成/压制——未配置
+        /// <see cref="CombatOptions.LevelDiffTableId"/>，或配置了但该记录未在
+        /// <see cref="_levelDiffTables"/> 中找到（表未加载/id 拼错），两者恒为 (0, 0)，不写 steps
+        /// 追踪日志（保持既有行为路径的日志输出不变，不给"从未启用过本特性"的场景添加噪音）；配置
+        /// 且找到时按 <see cref="ResolveEffectiveLevel"/> 分别取攻击者/目标的有效等级，Δ = 目标有效
+        /// 等级 − 攻击者有效等级，代入 <see cref="LevelDiffTable.MissBonus"/>/
+        /// <see cref="LevelDiffTable.CritSuppression"/> 两条断点表求值（<see cref="PiecewiseCurve.Evaluate"/>
+        /// 越界夹取到端点），并追加一条 steps 追踪日志。
+        /// </summary>
+        private (double missBonus, double critSuppression) ResolveLevelDiffAdjustments(EffectContext context, List<string> steps)
+        {
+            if (!TryGetLevelDiffTable(out var table))
+            {
+                return (0.0, 0.0);
+            }
+
+            var attackerLevel = ResolveEffectiveLevel(context.SourceId);
+            var targetLevel = ResolveEffectiveLevel(context.TargetId);
+            var delta = targetLevel - attackerLevel;
+            var missBonus = table.MissBonus.Evaluate(delta);
+            var critSuppression = table.CritSuppression.Evaluate(delta);
+            steps.Add($"level_diff: table={table.Id} attacker_level={attackerLevel} target_level={targetLevel} " +
+                $"delta={delta} miss_bonus={missBonus} crit_suppression={critSuppression}");
+            return (missBonus, critSuppression);
+        }
+
+        private bool TryGetLevelDiffTable(out LevelDiffTable table)
+        {
+            var id = _options.LevelDiffTableId;
+            if (id == null)
+            {
+                table = null!;
+                return false;
+            }
+
+            return _levelDiffTables.TryGetValue(id.Value, out table!);
+        }
+
+        /// <summary>
+        /// T-N1-8（06 第 4.2 节修订段"有效等级默认等于角色等级；策略配置项有效等级是否计入装备等级
+        /// 偏移，默认关闭"）：<see cref="CombatOptions.EffectiveLevelIncludesGearOffset"/> 关闭时恒
+        /// 返回 <see cref="IUnitAccess.GetLevel"/>（角色等级本身）；开启时叠加
+        /// <see cref="IGearLevelOffsetProvider.GetGearLevelOffset"/> 的返回值（见该接口判断记录——
+        /// 缺省 <see cref="NullGearLevelOffsetProvider"/> 恒返回 0，开启但未接入真实来源时退化为与
+        /// 关闭时相同的结果）。<paramref name="unitId"/> 已从世界移除时按等级 1 处理（同
+        /// <see cref="ResolveAttackerLevelForMitigation"/> 判断记录同一防御姿态，不抛异常）。
+        /// </summary>
+        private double ResolveEffectiveLevel(Id unitId)
+        {
+            var baseLevel = _units.Exists(unitId) ? (double)_units.GetLevel(unitId) : 1.0;
+            if (!_options.EffectiveLevelIncludesGearOffset)
+            {
+                return baseLevel;
+            }
+
+            return baseLevel + _gearLevelOffsetProvider.GetGearLevelOffset(unitId);
+        }
+
         private static double ReadCritChanceBonus(EffectContext context)
         {
             if (context.Params.TryGetValue("crit_chance_bonus", out var value) && value is JsonNumber number)
@@ -399,6 +568,104 @@ namespace Core.Rules.Combat
             }
 
             return 0.0;
+        }
+
+        // -----------------------------------------------------------------
+        // T-N1-7：步骤 1（被暴击减免介入暴击率）与步骤 6（目标乘区）共用的按显式 id 清单 + 作用域求和
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// T-N1-7（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+        /// 决策 5；06 第 4.1 节 2026-09-14 修订段）：目标乘区实际读取的属性 id 集合 =
+        /// <c>{CombatOptions.DamageTakenPctStat} ∪ CombatOptions.DamageTakenPctStats</c>，按首次
+        /// 出现顺序去重（<see cref="CombatOptions.DamageTakenPctStat"/> 恒排在最前）——保证既有单
+        /// 属性配置项即便也被显式列进 <see cref="CombatOptions.DamageTakenPctStats"/>，也只计入
+        /// 一次（见该属性判断记录）。
+        /// </summary>
+        private IReadOnlyList<Id> BuildDamageTakenStatIds()
+        {
+            var seen = new HashSet<Id>();
+            var result = new List<Id>();
+
+            if (seen.Add(_options.DamageTakenPctStat))
+            {
+                result.Add(_options.DamageTakenPctStat);
+            }
+
+            var extra = _options.DamageTakenPctStats;
+            for (int i = 0; i < extra.Count; i++)
+            {
+                if (seen.Add(extra[i]))
+                {
+                    result.Add(extra[i]);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// T-N1-7（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+        /// 决策 5；06 第 4.1 节 2026-09-14 修订段；复核返工：撤回"按 <c>stat.definition.category</c>
+        /// 批量扫描"的首版实现——ADR-0030 决策 9 把护甲也归入 <c>defense</c> 类别，类别扫描会把
+        /// 护甲原始数值误当百分比计入目标乘区；改为本"显式 id 清单"）："目标乘区"（承伤）与"被暴击
+        /// 减免"两处共用的求和逻辑：遍历调用方显式给出的 <paramref name="statIds"/>（见
+        /// <see cref="BuildDamageTakenStatIds"/>/<see cref="CombatOptions.CritTakenReductionStats"/>），
+        /// 逐条经 <see cref="IStatHost.GetScope"/> 读取该属性的作用域，按 <see cref="ScopeMatches"/>
+        /// 与 <paramref name="sourceKind"/> 匹配，不匹配则跳过（单机下 <c>scope: from_player</c> 的
+        /// 属性对 <see cref="SourceKind.Creature"/>/<see cref="SourceKind.Unknown"/> 来源恒不匹配，
+        /// 零成本退化，见 <see cref="SourceKind"/> 类型判断记录）；匹配的属性对
+        /// <paramref name="targetId"/> 求最终值（<see cref="GetStatSafe"/>，缺失按 0 处理）累加求和。
+        /// <paramref name="label"/> 只用于 <paramref name="steps"/> 追踪日志前缀，不影响计算结果。
+        /// </summary>
+        private double SumScopedStats(
+            Id targetId, IReadOnlyList<Id> statIds, SourceKind sourceKind, List<string> steps, string label)
+        {
+            double sum = 0.0;
+
+            if (statIds.Count == 0)
+            {
+                steps.Add($"{label}: 未配置任何属性 id，sum=0");
+                return sum;
+            }
+
+            for (int i = 0; i < statIds.Count; i++)
+            {
+                var statId = statIds[i];
+                var scope = _stats.GetScope(statId);
+                if (!ScopeMatches(scope, sourceKind))
+                {
+                    steps.Add($"{label}: stat={statId} scope={scope} 与 sourceKind={sourceKind} 不匹配，跳过");
+                    continue;
+                }
+
+                var value = GetStatSafe(targetId, statId);
+                sum += value;
+                steps.Add($"{label}: stat={statId} scope={scope} sourceKind={sourceKind} value={value} -> sum={sum}");
+            }
+
+            return sum;
+        }
+
+        /// <summary>
+        /// T-N1-7（ADR-0030 决策 5）：<c>stat.definition.scope</c> 与结算上下文
+        /// <see cref="EffectContext.SourceKind"/> 的匹配规则——<c>any</c> 恒匹配；<c>from_player</c>
+        /// 仅 <see cref="SourceKind.Player"/> 匹配；<c>from_creature</c> 仅 <see cref="SourceKind.Creature"/>
+        /// 匹配；<see cref="SourceKind.Unknown"/> 只对 <c>any</c> 匹配（同 <see cref="SourceKind"/>
+        /// 类型判断记录"两类作用域属性对 Unknown 一律不匹配"）。未识别的 <paramref name="scope"/> 取值
+        /// （理论上不会发生——内容校验已按 <c>StatSchemas.ScopeValues</c> 枚举拦下非法值，这里的防御
+        /// 姿态同 <see cref="GetStatSafe"/> 对缺失属性"按 0/不匹配处理，不抛异常"的既有风格）保守按
+        /// 不匹配处理，不静默当 <c>any</c>。
+        /// </summary>
+        private static bool ScopeMatches(string scope, SourceKind sourceKind)
+        {
+            switch (scope)
+            {
+                case "any": return true;
+                case "from_player": return sourceKind == SourceKind.Player;
+                case "from_creature": return sourceKind == SourceKind.Creature;
+                default: return false;
+            }
         }
 
         // -----------------------------------------------------------------

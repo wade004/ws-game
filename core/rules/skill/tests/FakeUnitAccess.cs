@@ -18,6 +18,15 @@ namespace Tests.Rules.Skill
         private readonly Dictionary<Id, double> _facings = new Dictionary<Id, double>();
         private readonly Dictionary<Id, List<Id>> _tags = new Dictionary<Id, List<Id>>();
 
+        /// <summary>T-N1-6：按单位登记的来源类别（ADR-0030 决策 5），供
+        /// <see cref="GetSourceKind"/> 查询；未登记的单位沿用 <see cref="IUnitAccess.GetSourceKind"/>
+        /// 默认接口实现（<see cref="SourceKind.Unknown"/>）——本假实现只在需要显式验证
+        /// <c>CastPipeline</c>/<c>AuraHost.FirePeriodic</c> 等生产路径是否正确查询并透传
+        /// <see cref="EffectContext.SourceKind"/> 的测试里才调用 <see cref="SetSourceKind"/>，其余既有
+        /// 测试不受影响（同 <see cref="IUnitAccess.GetMapId"/> 默认实现同一惯例——不强制既有测试
+        /// 跟着改）。</summary>
+        private readonly Dictionary<Id, SourceKind> _sourceKinds = new Dictionary<Id, SourceKind>();
+
         public FakeUnitAccess Add(Id id, Vec2? position = null, bool alive = true, Id? faction = null, int level = 1)
         {
             _units.Add(id);
@@ -27,6 +36,15 @@ namespace Tests.Rules.Skill
             _levels[id] = level;
             return this;
         }
+
+        /// <summary>T-N1-6：登记 <paramref name="id"/> 的来源类别，供 <see cref="GetSourceKind"/> 返回。</summary>
+        public FakeUnitAccess SetSourceKind(Id id, SourceKind kind)
+        {
+            _sourceKinds[id] = kind;
+            return this;
+        }
+
+        public SourceKind GetSourceKind(Id unitId) => _sourceKinds.TryGetValue(unitId, out var k) ? k : SourceKind.Unknown;
 
         public bool Exists(Id unitId) => _units.Contains(unitId);
 

@@ -47,6 +47,30 @@ namespace Core.Rules.Combat
             CombatOptions? options = null,
             ICombatDiagnostics? diagnostics = null,
             IStaticImmunityProvider? staticImmunity = null)
+            : this(stats, powers, units, auras, factions, rng, bus, registry, options, diagnostics, staticImmunity, null)
+        {
+        }
+
+        /// <summary>
+        /// T-N1-8 新增重载：追加 <paramref name="gearLevelOffsetProvider"/>（见
+        /// <see cref="IGearLevelOffsetProvider"/> 判断记录）。判断记录（ABI 兼容惯例同
+        /// <see cref="Resolver"/> 十六参数新重载）：既有十一参数构造函数（8 个必填 + 3 个可选）已是
+        /// 发布过的公开签名，不能直接追加参数；本重载十二个参数全部不带默认值，与既有构造函数在
+        /// "省略可选参数"能达到的物理参数个数（8～11）不重叠，互不冲突。
+        /// </summary>
+        public CombatHost(
+            IStatHost stats,
+            IPowerHost powers,
+            IUnitAccess units,
+            IAuraQuery auras,
+            IFactionMatrix factions,
+            IRngHost rng,
+            IEventBus bus,
+            IDataRegistryView registry,
+            CombatOptions? options,
+            ICombatDiagnostics? diagnostics,
+            IStaticImmunityProvider? staticImmunity,
+            IGearLevelOffsetProvider? gearLevelOffsetProvider)
         {
             if (stats == null) throw new ArgumentNullException(nameof(stats));
             _powers = powers ?? throw new ArgumentNullException(nameof(powers));
@@ -62,11 +86,16 @@ namespace Core.Rules.Combat
 
             var hitTables = CombatDataLoader.LoadHitTables(registry);
             var resistCurves = CombatDataLoader.LoadResistCurvesBySchool(registry);
+            // T-N1-8：combat.level_diff_table 是可选表，见 CombatDataLoader.LoadLevelDiffTables
+            // 判断记录——未装配该表时返回空字典，CombatOptions.LevelDiffTableId 默认 null 不接表，
+            // 不影响既有装配点（RulesAssembly 等）继续正常工作。
+            var levelDiffTables = CombatDataLoader.LoadLevelDiffTables(registry);
 
             _threatTable = new ThreatTable(units, bus, _options.MaxThreatEntries);
             _resolver = new Resolver(
                 stats, powers, units, auras, factions, rng, bus, _options,
-                hitTables, resistCurves, diag, _threatTable, NotifyCombatEvent, staticImmunity);
+                hitTables, resistCurves, levelDiffTables, diag, _threatTable, NotifyCombatEvent,
+                staticImmunity, gearLevelOffsetProvider);
 
             // RC-02 收边补齐：订阅 entity.destroyed 做幂等战斗清理（见 OnEntityDestroyed 判断
             // 记录）——生物销毁（如 CreatureFactory.Despawn）会先同步注销 IPowerHost/IStatHost 的

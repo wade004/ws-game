@@ -60,7 +60,7 @@ namespace Tests.Carriers.Item
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.BudgetCurve);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Set);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Affix);
-            registry.RegisterSchema(StatDefinitionSchema());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
             // ADR-0019 F1c：grants.skills/auras、item.set.bonuses[].aura_ref 登记为
             // Reference(skill.def)/Reference(skill.aura_def)（L3 引用 L2 程序集合法），
             // reference_integrity 内建校验因此需要这两张表已加载——本模块测试用到的 skill/aura id
@@ -87,18 +87,16 @@ namespace Tests.Carriers.Item
             return registry;
         }
 
-        private static TableSchema StatDefinitionSchema() => new TableSchema(
-            name: "stat.definition",
-            primaryKey: "id",
-            currentSchemaVersion: 1,
-            fields: new[]
-            {
-                new FieldSchema("id", FieldKind.Id, required: true),
-                new FieldSchema("name_key", FieldKind.TextKey, required: true),
-                new FieldSchema("group", FieldKind.Enum, required: true,
-                    enumValues: new[] { "primary", "secondary", "derived", "resistance" }),
-                new FieldSchema("default_base", FieldKind.Number, required: false),
-            });
+        // T-N1-2 判断记录：本方法此前手写一份"够用就行"的 stat.definition 最小 schema
+        // （只声明 id/name_key/group/default_base），与 core/numbers/stat_block 的真实
+        // StatSchemas.Definition 各自独立维护——StatHost.LoadDefinitions 从 T-N1-2 起无条件读取
+        // category（不再读 group），这份手写 schema 从未声明过 category 字段，也没有 1→2 迁移链，
+        // 导致本模块用真实 StatHost 构造的测试全部在加载期抛 DataFieldException。改为直接注册
+        // Core.Numbers.StatBlock.StatSchemas.Definition（本文件已经通过 StatBlockEventKeys 依赖
+        // 该命名空间，不是新增跨层耦合）——好处是往后 stat.definition 的字段/迁移变化只有一处
+        // 权威定义，不会再有第二份手写副本悄悄过期；下面 Table() 产出的信封仍是 schema_version 1、
+        // 只填 group（不填 category），走真实的 MigrateDefinitionV1ToV2 自动补齐 category，
+        // 现有全部行 JSON 字面量不需要改一个字符。
 
         public static string Table(string name, string rowsJson) =>
             "{\"table\": \"" + name + "\", \"schema_version\": 1, \"rows\": " + rowsJson + "}";

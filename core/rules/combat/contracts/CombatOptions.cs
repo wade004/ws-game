@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Rules.Common;
 
@@ -31,8 +32,58 @@ namespace Core.Rules.Combat
         /// <summary>施法者伤害加成乘区来源属性（百分比数值，如 10 表示 +10%）。</summary>
         public Id DamageDonePctStat { get; set; } = new Id("stat.damage_done_pct");
 
-        /// <summary>目标承伤乘区来源属性（百分比数值）。</summary>
+        /// <summary>
+        /// 目标承伤乘区来源属性（百分比数值）。T-N1-7 之前是"目标乘区"步骤唯一读取的属性，且不经
+        /// <c>scope</c> 过滤；T-N1-7（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+        /// 决策 5；06 第 4.1 节 2026-09-14 修订段）起，"目标乘区"步骤实际读取的属性集合改为
+        /// <c>{DamageTakenPctStat} ∪ DamageTakenPctStats</c>（去重，见 <see cref="DamageTakenPctStats"/>
+        /// 判断记录），本属性同样经 <see cref="EffectContext.SourceKind"/> 作用域过滤——
+        /// 判断记录（不改变既有回放基线）：既有内容数据从未给 <c>stat.damage_taken_pct</c> 登记过
+        /// <c>scope</c> 字段，<see cref="Core.Numbers.StatBlock.IStatHost.GetScope"/> 对未登记属性
+        /// 缺省返回 <c>"any"</c>（与 <c>stat.definition.scope</c> 字段本身缺省语义一致），
+        /// <c>any</c> 恒匹配一切来源类别，因此本属性新增的作用域过滤对既有内容数据是无操作的
+        /// 恒等变换，结果逐位不变，见
+        /// <c>ResolverHitTableTests.Resolve_FullChain_MatchesHandCalculatedValue</c>。
+        /// </summary>
         public Id DamageTakenPctStat { get; set; } = new Id("stat.damage_taken_pct");
+
+        /// <summary>
+        /// T-N1-7（同上决策/章节）"目标乘区"步骤按 <c>scope</c> 匹配 <c>sourceKind</c> 遍历减免
+        /// 属性的显式配置清单——与 <see cref="DamageTakenPctStat"/> 求并集（去重）后，逐条经
+        /// <see cref="Core.Numbers.StatBlock.IStatHost.GetScope"/> 按 <see cref="EffectContext.SourceKind"/>
+        /// 过滤（<c>any</c> 恒匹配；<c>from_player</c> 仅 <see cref="SourceKind.Player"/>；
+        /// <c>from_creature</c> 仅 <see cref="SourceKind.Creature"/>）后求和，并入目标乘区
+        /// （见 <see cref="Resolver"/> 判断记录"目标乘区"一节）。默认空列表——不改变既有回放基线
+        /// （单机场景下不配置本清单，行为与 T-N1-7 之前逐位一致）。
+        /// <para>
+        /// 判断记录（复核返工：撤回"按 <c>stat.definition.category</c> 批量扫描"的首版实现，
+        /// 改为本"显式 id 清单"）：06 第 4.1 节修订段与 ADR-0030 决策 5 原文是"目标乘区步骤按
+        /// scope 匹配读取减免属性"——识别"哪些属性属于减免角色"由结算配置显式给出，不是由某个
+        /// <c>stat.definition.category</c> 取值批量圈定。首版实现按类别扫描（默认类别
+        /// <c>"defense"</c>）在复核中被指出会造成真实内容接入即错的后果：ADR-0030 决策 9 明确把
+        /// "护甲"归为 <c>defense</c> 类别的推荐分类，一旦游戏按此分类登记护甲属性，类别扫描会把
+        /// 护甲的原始数值（如 300）当成"目标承伤 +300%"直接计入目标乘区——这不是"两个新扫描
+        /// 角色共享同一默认类别"那种可以事后靠改配置规避的边界情形，而是默认配置本身与 ADR
+        /// 推荐分类相冲突，一接入护甲数据就错，比"重复计入"更严重。显式清单从根本上避免了这一
+        /// 冲突：本属性的默认值是空列表，不会漫无目的地圈进任何按内容分类惯例登记的属性，游戏层
+        /// 需要哪条属性参与目标乘区，必须逐个显式列出 id——与 <c>ArmorStat</c>/
+        /// <c>ResistStatPrefix</c> 等既有"逐条显式引用属性 id"的配置风格一致，也不再需要
+        /// <c>category</c> 枚举里挤出一个专用取值。
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<Id> DamageTakenPctStats { get; set; } = Array.Empty<Id>();
+
+        /// <summary>
+        /// T-N1-7（同上决策/章节新增介入点；复核返工后改为显式清单，理由同
+        /// <see cref="DamageTakenPctStats"/> 判断记录）：命中表"暴击"分支取样（<c>IRngHost.Next</c>）
+        /// 之前，逐条经 <see cref="Core.Numbers.StatBlock.IStatHost.GetScope"/> 按
+        /// <see cref="EffectContext.SourceKind"/> 过滤后求和，从
+        /// <c>ResolveChance(table.Crit, sourceId) + crit_chance_bonus</c> 里扣减（下限 0，不影响
+        /// 其余命中表分支与暴击倍率本身，不改变 RNG 流 id、不改变取样次数）。默认空列表——不改变
+        /// 既有回放基线。本属性是 T-N1-7 全新介入点，没有"既有单属性配置项"需要兼容（不同于
+        /// <see cref="DamageTakenPctStat"/>）。
+        /// </summary>
+        public IReadOnlyList<Id> CritTakenReductionStats { get; set; } = Array.Empty<Id>();
 
         /// <summary>施法者治疗加成乘区来源属性（百分比数值）。</summary>
         public Id HealingDonePctStat { get; set; } = new Id("stat.healing_done_pct");
@@ -53,6 +104,27 @@ namespace Core.Rules.Combat
 
         /// <summary>命中判定与暴击判定共用的随机数流（见 06 第 4.1 节"骰子 IRngHost.Next(RngStream)"）。</summary>
         public Id RngStream { get; set; } = new Id("combat.hit");
+
+        /// <summary>
+        /// T-N1-8（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+        /// 决策 6；06 第 4.2 节修订段）：本次结算使用的等级差规则表 <c>combat.level_diff_table</c>
+        /// 记录 id。缺省 <c>null</c>——不接等级差表，<see cref="Resolver.DetermineHit"/> 的未命中率/
+        /// 暴击率公式退化为"Δ 加成/压制恒为 0"，行为与 T-N1-8 之前逐位一致（不改变既有回放基线/既有
+        /// 内容数据的结算结果）。配置为某条 <c>combat.level_diff_table</c> 记录 id 时才会按 Δ 查表：
+        /// 该记录在加载期未找到（表未注册/id 不存在）同样按"Δ 加成/压制=0"退化，不抛异常（同
+        /// <see cref="ArmorStat"/> 等既有属性缺失"按 0 处理"的防御姿态）。
+        /// </summary>
+        public Id? LevelDiffTableId { get; set; } = null;
+
+        /// <summary>
+        /// T-N1-8（同上决策/章节，"有效等级是否计入装备等级偏移"策略配置项，默认关闭）：关闭时
+        /// "有效等级"恒等于 <see cref="IUnitAccess.GetLevel"/> 返回的角色等级本身；开启时"有效等级
+        /// = 角色等级 + <see cref="IGearLevelOffsetProvider.GetGearLevelOffset"/>"（见该接口判断
+        /// 记录——本任务范围内没有可用的真实装备等级偏移来源，只落地这个策略项与接口钩子，真实实现
+        /// 留给后续阶段）。默认关闭的理由（06 第 4.2 节修订段原文）：命中属性本身来自装备，装备落后
+        /// 命中就低，已是自然路径；两者叠加会惩罚两次。
+        /// </summary>
+        public bool EffectiveLevelIncludesGearOffset { get; set; } = false;
 
         /// <summary>
         /// 结算追踪回调（消费方反馈 2026-09-11 编辑器第 31 条，见

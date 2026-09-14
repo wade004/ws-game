@@ -154,6 +154,10 @@ namespace Core.Rules.Skill
             // 避免"AuraHost 施加带 proc_trigger/周期效果的光环时需要 ProcHost/EffectSink，
             // 而 ProcHost/EffectDispatcher 的构造又需要引用 AuraHost"这一循环。
             _auraHost = new AuraHost(_defs, statHost, eventBus, options1, _diagnostics, staticImmunity);
+            // T-N1-6（ADR-0030 决策 5）：回填 AuraHost.Units（见该属性判断记录"新增可写属性而非
+            // 构造函数参数"），供 AuraHost.FirePeriodic 查询周期效果来源单位的载体类型。_units
+            // 本构造函数最早的必填参数之一，此刻已可用。
+            _auraHost.Units = _units;
 
             // ProcHost 的触发回调用方法组转换绑定 TriggerCastInternal——该方法内部读取 _pipeline
             // 字段，而 _pipeline 要到本构造函数末尾才赋值；C# 闭包/方法组按调用时刻求值字段，

@@ -15,6 +15,10 @@
         { "x": 1, "y": 50 },
         { "x": 3, "y": 80 }
       ]
+    },
+    {
+      "id": "stat.rating.haste",
+      "saturation": { "k": 50, "cap": 0.5 }
     }
   ]
 }

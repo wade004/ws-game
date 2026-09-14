@@ -113,6 +113,17 @@ namespace Core.Rules.Common
         /// </summary>
         public Vec2? GroundPoint { get; }
 
+        /// <summary>
+        /// T-N1-6（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+        /// 决策 5；06 第 4.1 节 2026-09-14 修订段）：本次结算所属施法者的来源类别（玩家单位/生物
+        /// 单位，由载体类型给出），"目标乘区"步骤据此按 <c>stat.definition.scope</c> 匹配减免属性。
+        /// 经既有十五/十六参构造函数（不带本参数，ABI 规则禁止改动其签名）构造的实例恒为
+        /// <see cref="SourceKind.Unknown"/>（见 <see cref="SourceKind"/> 类型注释——
+        /// 这是"未显式提供"的保守占位，不是契约默认语义本身；生产路径必须改经本类型新增的十七参
+        /// 构造函数、显式传入经 <see cref="IUnitAccess.GetSourceKind"/> 查得的真实值）。
+        /// </summary>
+        public SourceKind SourceKind { get; }
+
         public EffectContext(
             Id sourceId,
             Id targetId,
@@ -146,6 +157,9 @@ namespace Core.Rules.Common
             TriggerChainDepth = triggerChainDepth;
             AttackInstanceId = attackInstanceId;
             GroundPoint = null;
+            // T-N1-6：本构造函数不带 sourceKind 参数（ABI 规则禁止改动既有签名），恒取保守默认值
+            // SourceKind.Unknown（见 SourceKind 属性/类型判断记录）。
+            SourceKind = SourceKind.Unknown;
         }
 
         /// <summary>
@@ -193,6 +207,65 @@ namespace Core.Rules.Common
             TriggerChainDepth = triggerChainDepth;
             AttackInstanceId = attackInstanceId;
             GroundPoint = groundPoint;
+            // T-N1-6：同上一构造函数判断记录，本构造函数（ADR-0027 补充 groundPoint 时新增）同样
+            // 不带 sourceKind 参数，恒取保守默认值 SourceKind.Unknown。
+            SourceKind = SourceKind.Unknown;
+        }
+
+        /// <summary>
+        /// T-N1-6 新增重载（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
+        /// 决策 5；06 第 4.1 节 2026-09-14 修订段"来源类别进入结算上下文"）：携带 <see cref="SourceKind"/>。
+        /// 判断记录（不是给既有构造函数加可选参数，同上一构造函数"ADR-0027 新增重载"判断记录同一条
+        /// ABI 兼容惯例）：既有十六参数构造函数（含 <c>groundPoint</c>）已经没有任何可选参数，直接
+        /// 追加第十七个参数会改变其物理 IL 签名，对已编译好的外部消费方二进制是破坏性变更；本重载
+        /// 十七个参数全部不带默认值（理由同上一构造函数：写成可选参数会与既有构造函数在调用点产生
+        /// 重载二义性），与既有两个构造函数在参数个数上不重叠（15/16 对 17），互不冲突。
+        /// <para>
+        /// 生产路径（<c>CastPipeline.ExecuteEffectsOnly</c>/<c>EffectDispatcher.ApplyDamageOrHeal</c>
+        /// 重建 outbound 上下文/<c>AuraHost.FirePeriodic</c>/<c>ProjectileHost.ApplyOnHitEffects</c>）
+        /// 一律改经本构造函数，<paramref name="sourceKind"/> 来自 <see cref="IUnitAccess.GetSourceKind"/>
+        /// 查询结果（<c>EffectDispatcher.ApplyDamageOrHeal</c> 例外：原样转发入参 <c>context.SourceKind</c>，
+        /// 不重新查询，同该方法对 <see cref="TriggerChainDepth"/>/<see cref="AttackInstanceId"/> 的既有
+        /// 转发惯例）；测试夹具按需显式指定，其余仍可继续使用既有两个构造函数（得到
+        /// <see cref="SourceKind.Unknown"/>）。
+        /// </para>
+        /// </summary>
+        public EffectContext(
+            Id sourceId,
+            Id targetId,
+            Id skillId,
+            EffectKind kind,
+            Id school,
+            double baseValue,
+            double coefficient,
+            JsonObject? @params,
+            Id? auraInstanceId,
+            bool isPeriodic,
+            bool canCrit,
+            bool canMiss,
+            IReadOnlyList<Id>? tags,
+            int triggerChainDepth,
+            Id? attackInstanceId,
+            Vec2? groundPoint,
+            SourceKind sourceKind)
+        {
+            SourceId = sourceId;
+            TargetId = targetId;
+            SkillId = skillId;
+            Kind = kind;
+            School = school;
+            BaseValue = baseValue;
+            Coefficient = coefficient;
+            Params = @params ?? EmptyParams;
+            AuraInstanceId = auraInstanceId;
+            IsPeriodic = isPeriodic;
+            CanCrit = canCrit;
+            CanMiss = canMiss;
+            Tags = tags ?? EmptyTags;
+            TriggerChainDepth = triggerChainDepth;
+            AttackInstanceId = attackInstanceId;
+            GroundPoint = groundPoint;
+            SourceKind = sourceKind;
         }
     }
 }

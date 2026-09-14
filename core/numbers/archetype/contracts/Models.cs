@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
@@ -28,6 +29,16 @@ namespace Core.Numbers.Archetype
 
         public Id? LevelCurveRef { get; }
 
+        /// <summary>T-N1-4（ADR-0030 决策 2"职业模板可覆盖派生系数（<c>arch.class.derivation_overrides</c>，
+        /// 可选）"）：本职业登记的派生系数覆盖列表，元素为 <c>(目标派生属性, 来源属性, 覆盖系数)</c>
+        /// 三元组，未登记 <c>derivation_overrides</c> 字段时为空列表（不是 null，与 <see
+        /// cref="BaseStats"/>/<see cref="PowerTypes"/> 等其它列表字段同一"缺省即空集合"惯例）。经
+        /// <see cref="ArchetypeRegistry.ApplyTo"/> 转发给 <see cref="DerivationCoefficientOverrideWriter"/>
+        /// （若构造时注入了该委托），由属性宿主（<c>StatHost.SetDerivationCoefficientOverrides</c>）
+        /// 实际生效——本模块自己不解释系数含义，只透传（同 <see cref="PowerTypes"/> 的既有分层选择）。
+        /// </summary>
+        public IReadOnlyList<(Id Stat, Id Source, double Coefficient)> DerivationOverrides { get; }
+
         public ClassDefinition(
             Id id,
             string nameKey,
@@ -37,6 +48,24 @@ namespace Core.Numbers.Archetype
             Id? skillBookRef,
             Id? talentTreeRef,
             Id? levelCurveRef)
+            : this(id, nameKey, primaryStat, baseStats, powerTypes, skillBookRef, talentTreeRef, levelCurveRef,
+                  Array.Empty<(Id, Id, double)>())
+        {
+        }
+
+        /// <summary>T-N1-4 新增重载：在既有八参构造之上追加 <see cref="DerivationOverrides"/>（ABI
+        /// 门禁 G3 禁止给既有公开构造加可选参数，只能新增重载，见任务硬性规则）。既有八参构造改为
+        /// 委托本构造并传空数组，行为完全不变，不产生任何调用点破坏。</summary>
+        public ClassDefinition(
+            Id id,
+            string nameKey,
+            Id primaryStat,
+            IReadOnlyList<KeyValuePair<string, double>> baseStats,
+            IReadOnlyList<Id> powerTypes,
+            Id? skillBookRef,
+            Id? talentTreeRef,
+            Id? levelCurveRef,
+            IReadOnlyList<(Id Stat, Id Source, double Coefficient)> derivationOverrides)
         {
             Id = id;
             NameKey = nameKey;
@@ -46,6 +75,7 @@ namespace Core.Numbers.Archetype
             SkillBookRef = skillBookRef;
             TalentTreeRef = talentTreeRef;
             LevelCurveRef = levelCurveRef;
+            DerivationOverrides = derivationOverrides;
         }
     }
 

@@ -135,6 +135,13 @@ namespace Tests.Numbers.Archetype
             public Id SourceId;
         }
 
+        /// <summary>T-N1-4：一次 <see cref="DerivationCoefficientOverrideWriter"/> 调用记录。</summary>
+        private sealed class DerivationOverrideWriteCall
+        {
+            public Id UnitId;
+            public IReadOnlyList<(Id Stat, Id Source, double Coefficient)> Overrides = Array.Empty<(Id, Id, double)>();
+        }
+
         private sealed class RecordingWriters
         {
             public readonly List<string> CallOrder = new List<string>();
@@ -142,6 +149,7 @@ namespace Tests.Numbers.Archetype
             public readonly List<ModWriteCall> ModWrites = new List<ModWriteCall>();
             public readonly List<(Id UnitId, IReadOnlyList<Id> PowerTypes)> PowerRegistrations = new List<(Id, IReadOnlyList<Id>)>();
             public readonly List<AuraApplyCall> AuraApplies = new List<AuraApplyCall>();
+            public readonly List<DerivationOverrideWriteCall> DerivationOverrideWrites = new List<DerivationOverrideWriteCall>();
 
             public void WriteBase(Id unitId, Id stat, double value)
             {
@@ -167,12 +175,21 @@ namespace Tests.Numbers.Archetype
                 CallOrder.Add("aura");
                 AuraApplies.Add(new AuraApplyCall { UnitId = unitId, AuraDefId = auraDefId, SourceId = sourceId });
             }
+
+            /// <summary>T-N1-4：<see cref="DerivationCoefficientOverrideWriter"/> 调用记录。</summary>
+            public void WriteDerivationOverrides(Id unitId, IReadOnlyList<(Id Stat, Id Source, double Coefficient)> overrides)
+            {
+                CallOrder.Add("derivation_overrides");
+                DerivationOverrideWrites.Add(new DerivationOverrideWriteCall { UnitId = unitId, Overrides = overrides });
+            }
         }
 
         private static ArchetypeRegistry MakeRegistryHost(
-            IDataRegistryView registry, IEventBus bus, RecordingWriters writers, bool withAuraApplier = false) =>
+            IDataRegistryView registry, IEventBus bus, RecordingWriters writers,
+            bool withAuraApplier = false, bool withDerivationOverrideWriter = false) =>
             new ArchetypeRegistry(
                 registry, bus, writers.WriteBase, writers.WriteMod, writers.RegisterPowers,
+                withDerivationOverrideWriter ? writers.WriteDerivationOverrides : (DerivationCoefficientOverrideWriter?)null,
                 withAuraApplier ? writers.ApplyAura : (AuraApplier?)null);
 
         // -----------------------------------------------------------------
@@ -437,6 +454,120 @@ namespace Tests.Numbers.Archetype
             var report = registry.LoadAll();
 
             Assert.False(report.IsBlocking);
+        }
+
+        // -----------------------------------------------------------------
+        // 6. arch.class.derivation_overrides → DerivationCoefficientOverrideWriter（T-N1-4，
+        //    ADR-0030 决策 2）
+        // -----------------------------------------------------------------
+
+        private const string ClassRowsWithDerivationOverrides = @"[
+            {
+                ""id"": ""arch.class.sample_a"",
+                ""name_key"": ""l10n.arch.class.sample_a.name"",
+                ""primary_stat"": ""stat.strength"",
+                ""base_stats"": { ""stat.strength"": 10, ""stat.vitality"": 8 },
+                ""power_types"": [ ""arch.power.sample_energy"" ],
+                ""talent_tree_ref"": ""arch.talent_tree.sample_tree"",
+                ""level_curve_ref"": ""prog.curve.sample"",
+                ""derivation_overrides"": [
+                    { ""stat"": ""stat.power"", ""source"": ""stat.strength"", ""coefficient"": 3.0 }
+                ]
+            }
+        ]";
+
+        /// <summary>本组用例需要一条 category=derived 的 stat.power（derived_from 以 stat.strength
+        /// 为来源），供 derivation_overrides 覆盖——基类夹具 <see cref="StatDefinitionRows"/> 只有主
+        /// 属性，这里追加一条。</summary>
+        private const string StatDefinitionRowsWithDerivedStat = @"[
+            { ""id"": ""stat.strength"", ""name_key"": ""l10n.stat.strength.name"", ""group"": ""primary"" },
+            { ""id"": ""stat.vitality"", ""name_key"": ""l10n.stat.vitality.name"", ""group"": ""primary"" },
+            { ""id"": ""stat.agility"", ""name_key"": ""l10n.stat.agility.name"", ""group"": ""primary"" },
+            { ""id"": ""stat.power"", ""name_key"": ""l10n.stat.power.name"", ""category"": ""derived"",
+              ""derived_from"": [ { ""stat"": ""stat.strength"", ""coefficient"": 1.0 } ] }
+        ]";
+
+        private static DataRegistry MakeRegistryWithDerivedStat(
+            string classRows, string raceRows, string talentTreeRows, out IEventBus bus)
+        {
+            bus = MakeBus();
+            var source = new InMemoryDataSource()
+                .Add("stat.definition", Envelope("stat.definition", StatDefinitionRowsWithDerivedStat))
+                .Add("arch.class", Envelope("arch.class", classRows))
+                .Add("arch.race", Envelope("arch.race", raceRows))
+                .Add("arch.talent_tree", Envelope("arch.talent_tree", talentTreeRows))
+                .Add("prog.level_curve", Envelope("prog.level_curve", LevelCurveRows));
+
+            var registry = new DataRegistry(source, bus, new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
+            registry.RegisterSchema(ArchSchemas.Class);
+            registry.RegisterSchema(ArchSchemas.Race);
+            registry.RegisterSchema(ArchSchemas.TalentTree);
+            registry.RegisterSchema(Core.Numbers.Progression.ProgSchemas.LevelCurve);
+            registry.RegisterValidationRule(new ArchTalentTreeCycleValidationRule());
+            registry.RegisterValidationRule(new ArchClassDerivationOverrideValidationRule());
+            return registry;
+        }
+
+        [Fact]
+        public void ApplyTo_ClassWithDerivationOverrides_ForwardsListToWriter_AfterBaseStats()
+        {
+            var registry = MakeRegistryWithDerivedStat(ClassRowsWithDerivationOverrides, RaceRows, GoodTalentTreeRows, out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeRegistryHost(registry, bus, writers, withDerivationOverrideWriter: true);
+
+            var unit = new Id("unit.hero_n1_4_a");
+            host.ApplyTo(unit, new Id("arch.class.sample_a"), null);
+
+            // 顺序：base(×2) → derivation_overrides(×1) → powers(×1)——覆盖紧跟基础属性写入之后
+            // （无种族时没有 mod/aura 两步，见 ApplyTo_WithoutRace_SkipsModifierWriter 同一断言习惯）。
+            Assert.Equal(new[] { "base", "base", "derivation_overrides", "powers" }, writers.CallOrder);
+
+            Assert.Single(writers.DerivationOverrideWrites);
+            var call = writers.DerivationOverrideWrites[0];
+            Assert.Equal(unit, call.UnitId);
+            Assert.Single(call.Overrides);
+            Assert.Equal("stat.power", call.Overrides[0].Stat.Value);
+            Assert.Equal("stat.strength", call.Overrides[0].Source.Value);
+            Assert.Equal(3.0, call.Overrides[0].Coefficient);
+        }
+
+        [Fact]
+        public void ApplyTo_ClassWithoutDerivationOverrides_ForwardsEmptyListToWriter()
+        {
+            // ClassRows（基类夹具）未登记 derivation_overrides——ClassDefinition.DerivationOverrides
+            // 缺省空列表（不是 null），写入的仍是一次调用、只是列表为空。
+            var registry = MakeRegistryWithDerivedStat(ClassRows, RaceRows, GoodTalentTreeRows, out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeRegistryHost(registry, bus, writers, withDerivationOverrideWriter: true);
+
+            var unit = new Id("unit.hero_n1_4_b");
+            host.ApplyTo(unit, new Id("arch.class.sample_a"), null);
+
+            Assert.Single(writers.DerivationOverrideWrites);
+            Assert.Empty(writers.DerivationOverrideWrites[0].Overrides);
+        }
+
+        [Fact]
+        public void ApplyTo_WithoutDerivationOverrideWriterInjected_SkipsStep_DoesNotThrow()
+        {
+            // 向后兼容：调用方用既有六参构造（未注入 DerivationCoefficientOverrideWriter）时，ApplyTo
+            // 不应抛异常，只是跳过这一步——行为与本次改动之前完全一致（同 AuraApplier 的既有取舍）。
+            var registry = MakeRegistryWithDerivedStat(ClassRowsWithDerivationOverrides, RaceRows, GoodTalentTreeRows, out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeRegistryHost(registry, bus, writers, withDerivationOverrideWriter: false);
+
+            var unit = new Id("unit.hero_n1_4_c");
+            host.ApplyTo(unit, new Id("arch.class.sample_a"), null);
+
+            Assert.Empty(writers.DerivationOverrideWrites);
+            Assert.DoesNotContain("derivation_overrides", writers.CallOrder);
         }
     }
 }
