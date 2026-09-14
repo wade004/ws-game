@@ -43,29 +43,32 @@ namespace Core.Numbers.StatBlock
                     description: "属性说明文本，供编辑器/文档展示，可为空"),
             }).WithOwnership(SchemaLayer.Numbers, "stats");
 
+        /// <summary><c>stat.rating_conversion</c>：点数到百分比的换算曲线。分阶段落地计划 T-N0-4
+        /// （落地清单 2.1 C4）：<c>entries</c> 迁移到 04 第 3.6 节通用断点表形态 <c>{x, y}</c>
+        /// （横轴语义 <see cref="CurveAxis.Level"/>，<c>x</c> = 单位等级，<c>y</c> = 该等级下每 1% 效果
+        /// 所需点数），schema 版本 1→2，迁移环节把 v1 的 <c>{level, points_per_percent}</c> 逐元素改名。
+        /// <c>y &gt; 0</c> 的范围登记沿用 v1 对 <c>points_per_percent</c> 的判断记录（ADR-0021：
+        /// <c>StatHost.DivideByPointsPerPercent</c> 对 0 特判返回 0 是"内容错误被静默降级"的同款模式，
+        /// 负值没有合理含义，提前到加载期拦下）。通用规则 <c>curve_monotonic_finite</c> 自动覆盖本表
+        /// （数值总纲第 3 节原则 1：除数随等级不递减）。</summary>
         public static TableSchema RatingConversion { get; } = new TableSchema(
             name: "stat.rating_conversion",
             primaryKey: "id",
-            currentSchemaVersion: 1,
+            currentSchemaVersion: 2,
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "stat.rating.<name>"),
-                new FieldSchema("entries", FieldKind.Array, required: true,
-                    item: new FieldSchema("<rating_entry>", FieldKind.Object, required: true, fields: new[]
-                    {
-                        new FieldSchema("level", FieldKind.Int, required: true,
-                            description: "等级"),
-                        // 依据（ADR-0021）：StatHost.DivideByPointsPerPercent（core/StatHost.cs :507-510）
-                        // 对 pointsPerPercent == 0 特判返回 0（而不是抛除零异常），是"内容错误被静默
-                        // 降级"的同款模式（同 skill.def.interval<=0 的消费方反馈）；负值同样没有
-                        // "每 1% 需要 -N 点评级"的合理含义。登记 > 0，把这类内容错误提前到加载期。
-                        new FieldSchema("points_per_percent", FieldKind.Number, required: true,
-                            description: "该等级下每 1% 效果所需的评级点数，> 0")
-                            .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
-                    }, description: "单级评级换算条目"),
-                    description: "[{level: Int, points_per_percent: Number}, ...]，按 level 升序" +
-                        "（StatHost.LoadRatingConversions 对缺失 level/points_per_percent 抛异常，两者均必填）"),
+                CurveSchema.BreakpointsField("entries", CurveAxis.Level, required: true,
+                    description: "断点表 [{x: 单位等级(Int), y: 每 1% 效果所需点数(Number, > 0)}]，按 x 线性插值、" +
+                        "越界夹取到端点（04 第 3.6 节通用曲线形态；v1 字段名 level/points_per_percent 经 1→2 迁移改名）",
+                    xDescription: "单位等级（StatHostOptions.LevelLookup 查到的等级，不是评级原始值）",
+                    yDescription: "该等级下每 1% 效果所需的评级点数，> 0",
+                    yRange: FieldRange.Range(min: 0, minExclusive: true)),
+            },
+            migrations: new[]
+            {
+                new TableMigration(1, 2, row => CurveSchema.MigrateBreakpointsFieldNames(row, "entries", "level", "points_per_percent")),
             }).WithOwnership(SchemaLayer.Numbers, "stats");
     }
 }

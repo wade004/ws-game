@@ -170,6 +170,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **数值设计落地 T-N0-3（Unreleased）**：新增框架级校验规则 `CurveMonotonicFiniteRule`（检查名
   `curve_monotonic_finite`，Error 级），随 `PresentationSchemaCatalog.RegisterAll` 默认注册；编辑器
   问题面板会出现这一新检查名，按检查名过滤的既有逻辑不受影响。
+- **数值设计落地 T-N0-4（Unreleased）**：`item.budget_curve`/`stat.rating_conversion` schema 版本 1→2，
+  `entries` 元素改为通用断点表 `{x, y}`（`FieldSchema.Curve` 标记横轴语义），v1 字段名经迁移链自动改名；
+  编辑器曲线编辑控件（物品编辑器 5.5.3 曲线图）应按 `x`/`y` 读写并据 `Curve.Axis` 标注横轴，
+  执行整表迁移仍走 ADR-0029 的 `SchemaMigrator.MigrateEnvelope`。
 
 ## [Unreleased]
 
@@ -204,6 +208,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `PresentationSchemaCatalog.RegisterAll` 注册（`ContentValidationAssembly`/`toolchain/validator` 与
   运行期组装根一处登记两边生效）。04 第 5 节分级表"曲线单调有限"一行补检查名与判定口径。测试：
   `CurveMonotonicFiniteRuleTests` 12 例、`ContentValidationAssemblyTests` 新增 1 例。
+- **数值设计落地阶段 N0 · T-N0-4（既有两张曲线表迁移到通用形态）**：`item.budget_curve`、
+  `stat.rating_conversion` 的 `entries` 改用 `CurveSchema.BreakpointsField` 登记（元素 `{x, y}`，横轴分别为
+  物品等级/单位等级；后者 `y > 0` 范围登记沿用），schema 版本 1→2，迁移环节 `CurveSchema.MigrateBreakpointsFieldNames`
+  把 v1 的 `{item_level, budget}`/`{level, points_per_percent}` 逐元素改名（其余键保留），旧数据文件不改即可
+  加载；`ItemBudgetCurve` 新增 `ParseCurve`/`Interpolate(PiecewiseCurve, int)`，既有 `ParseEntries`/元组版
+  `Interpolate` 保留为兼容 façade，`StatHost.ConvertRating` 改为 `PiecewiseCurve.Evaluate`（插值式子逐运算相同，
+  迁移前后结果逐位一致）；两处解析对未经迁移直接构造的记录仍接受 v1 元素名。`data/_sample`、
+  `games/_template` 的两张表数据迁移到 v2；`data/_sample` 的 `stat.rating_conversion` 示例值由随等级递减
+  （50→20）改为不递减（50→80）以符合数值总纲原则 1 与新规则 `curve_monotonic_finite`（示例数据集未启用
+  评级换算，回放/Perf 基线不受影响；`L1SampleDataTests` 一处按示例值断言的期望同步）。两处覆盖测试的
+  `required_field` 路径断言由 `entries[0].budget`/`entries[0].points_per_percent` 改为 `entries[0].y`。
+  测试：`ItemBudgetCurveMigrationTests` 12 例、`RatingConversionMigrationTests` 7 例。
 
 ## [1.29.0] - 2026-09-14
 

@@ -375,8 +375,9 @@ namespace Tests.Numbers
             statHost2.RegisterUnit(unit);
             statHost2.SetBase(unit, StatCritRating, 100.0);
 
-            // stat.rating.crit entries: level1 ppp=50，level3 ppp=20（见 data/_sample/stat/
-            // stat.rating_conversion.json）。1 级（默认起始等级）在 entries[0] 端点上：
+            // stat.rating.crit entries（T-N0-4 起为通用断点表 {x: 等级, y: 每 1% 所需点数}）：
+            // x=1 y=50，x=3 y=80（见 data/_sample/stat/stat.rating_conversion.json；示例值随数值总纲
+            // 原则 1"等级曲线单调递增"改为随等级不递减）。1 级（默认起始等级）在 entries[0] 端点上：
             // percent = 100 / 50 = 2。
             Assert.Equal(2.0, statHost2.GetStat(unit, StatCritRating), 10);
 
@@ -393,9 +394,9 @@ namespace Tests.Numbers
             // 调用方必须在等级变化后主动触发一次受影响属性的重算（这里用 SetBase 同值重置）。
             statHost2.SetBase(unit, StatCritRating, 100.0);
 
-            // 3 级落在 entries[1] 端点上：percent = 100 / 20 = 5。同一评级原始值 100，
+            // 3 级落在 entries[1] 端点上：percent = 100 / 80 = 1.25。同一评级原始值 100，
             // 换算结果随单位等级变化——这正是事项一裁定"level 就是单位等级"的落地效果。
-            Assert.Equal(5.0, statHost2.GetStat(unit, StatCritRating), 10);
+            Assert.Equal(1.25, statHost2.GetStat(unit, StatCritRating), 10);
         }
     }
 }

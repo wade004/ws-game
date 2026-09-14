@@ -265,7 +265,7 @@ namespace Tests.Carriers.Item
             var report = registry.LoadAll();
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "required_field" && i.Field == "entries[0].budget");
+            Assert.Contains(report.Issues, i => i.Check == "required_field" && i.Field == "entries[0].y");
         }
 
         private static string SampleSkillDefRow(string id) =>

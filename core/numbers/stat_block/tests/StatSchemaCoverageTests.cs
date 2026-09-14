@@ -49,7 +49,7 @@ namespace Tests.Numbers.StatBlock
             var report = registry.LoadAll();
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "required_field" && i.Field == "entries[0].points_per_percent");
+            Assert.Contains(report.Issues, i => i.Check == "required_field" && i.Field == "entries[0].y");
         }
     }
 }

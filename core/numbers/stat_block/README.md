@@ -82,7 +82,8 @@ audit-ac3b622-20260909）**：`StatHost.ResetBase(unitId, stat)` 清除某单位
 `base + Σflat` 先经该属性 `rating_conversion_ref` 指向的 `stat.rating_conversion` 曲线换算，
 换算结果再进入 `pct`/`mult` 两段。曲线的自变量是**单位等级**（`entries[].level`，设计层
 2026-09-05 拍板，取代此前"level 是评级原始值自己的插值断点"的判断）：按 `StatHostOptions.LevelLookup(unitId)`
-查到的等级在 `entries`（按 `level` 升序排列）上线性插值取 `points_per_percent`（越界取端点），
+查到的等级在 `entries`（通用断点表 `{x: 等级, y: 每 1% 所需点数}`，T-N0-4 起经 `PiecewiseCurve.Evaluate`
+插值，式子与此前手写实现逐运算相同）上线性插值取每 1% 所需点数（越界取端点），
 再用 `percent = rawValue / pointsPerPercent` 算出换算结果；`LevelLookup` 为 `null` 时等级一律按
 1 处理。`StatHost` 仍不直接引用 `core/numbers/progression` 的任何类型——由调用方把真正的等级
 来源（如 `IProgressionHost.GetLevel`）适配成 `LevelLookup` 委托签名后注入构造期的

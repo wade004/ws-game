@@ -202,6 +202,50 @@ namespace Core.Foundation.DataRegistry
             return true;
         }
 
+        /// <summary>迁移环节公共实现（T-N0-4；ADR-0029 迁移链）：把 <paramref name="row"/> 里
+        /// <paramref name="fieldName"/> 数组的每个对象元素中，键 <paramref name="oldXName"/>/
+        /// <paramref name="oldYName"/> 改名为 <see cref="XFieldName"/>/<see cref="YFieldName"/>，其余键与
+        /// 顺序原样保留；非对象元素、字段缺失或不是数组时原样透传（形状问题留给迁移后的字段级校验报告，
+        /// 迁移函数不做校验——沿 <c>BuiltinSchemas.MigrationSample</c> 的迁移环节惯例）。输入不被修改。</summary>
+        public static JsonObject MigrateBreakpointsFieldNames(JsonObject row, string fieldName, string oldXName, string oldYName)
+        {
+            if (row == null) throw new ArgumentNullException(nameof(row));
+            if (string.IsNullOrEmpty(fieldName)) throw new ArgumentException("fieldName 不能为空", nameof(fieldName));
+            if (string.IsNullOrEmpty(oldXName)) throw new ArgumentException("oldXName 不能为空", nameof(oldXName));
+            if (string.IsNullOrEmpty(oldYName)) throw new ArgumentException("oldYName 不能为空", nameof(oldYName));
+
+            var builder = new JsonObjectBuilder();
+            foreach (var entry in row)
+            {
+                if (entry.Key == fieldName && entry.Value is JsonArray array)
+                {
+                    var migrated = new JsonValue[array.Count];
+                    for (var i = 0; i < array.Count; i++)
+                    {
+                        migrated[i] = array[i] is JsonObject element ? RenameKeys(element, oldXName, oldYName) : array[i];
+                    }
+                    builder.Add(entry.Key, new JsonArray(migrated));
+                }
+                else
+                {
+                    builder.Add(entry.Key, entry.Value);
+                }
+            }
+
+            return builder.Build();
+        }
+
+        private static JsonObject RenameKeys(JsonObject element, string oldXName, string oldYName)
+        {
+            var builder = new JsonObjectBuilder();
+            foreach (var kv in element)
+            {
+                var key = kv.Key == oldXName ? XFieldName : (kv.Key == oldYName ? YFieldName : kv.Key);
+                builder.Add(key, kv.Value);
+            }
+            return builder.Build();
+        }
+
         private static bool TryReadPoint(JsonValue element, out CurvePoint point)
         {
             if (element is JsonObject obj &&
