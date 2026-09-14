@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 
 namespace Core.Numbers.StatBlock
@@ -41,6 +42,29 @@ namespace Core.Numbers.StatBlock
                     yield return new ValidationIssue(
                         ValidationSeverity.Error, "stat.definition", CheckMinMaxOrder,
                         $"min ({min}) 大于 max ({max})", recordKey: record.Key, field: "min");
+                }
+
+                // T-N1-2 补充：CheckMinMaxOrder 原本只查平级（废弃）min/max——一条只填新字段
+                // clamp{min,max}、完全不带平级 min/max 的纯 v2 记录会绕过上面这条检查，
+                // clamp.min > clamp.max 却拿不到任何 Error（StatHost.ComputeFinal 在第二轮聚合
+                // 之后夹取时，Math.Max 再 Math.Min 的顺序会把取值恒定收敛到 clamp.max，属于
+                // "内容错误被静默降级"的同款模式）。检查名沿用同一个 CheckMinMaxOrder——两处校验的
+                // 是同一条语义不变量（下限不得大于上限），只是承载字段从平级迁到嵌套，不新增检查名。
+                if (record.TryGetObject("clamp", out var clampObj))
+                {
+                    var hasClampMin = clampObj.TryGetValue("min", out var clampMinRaw) && clampMinRaw is JsonNumber;
+                    var hasClampMax = clampObj.TryGetValue("max", out var clampMaxRaw) && clampMaxRaw is JsonNumber;
+                    if (hasClampMin && hasClampMax)
+                    {
+                        var clampMin = ((JsonNumber)clampMinRaw).Value;
+                        var clampMax = ((JsonNumber)clampMaxRaw).Value;
+                        if (clampMin > clampMax)
+                        {
+                            yield return new ValidationIssue(
+                                ValidationSeverity.Error, "stat.definition", CheckMinMaxOrder,
+                                $"clamp.min ({clampMin}) 大于 clamp.max ({clampMax})", recordKey: record.Key, field: "clamp.min");
+                        }
+                    }
                 }
 
                 var hasRatingRef = record.TryGetId("rating_conversion_ref", out _);

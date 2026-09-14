@@ -212,6 +212,36 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `conversion_ref` 冲突新增校验（`group` 本版本对 `StatHost` 行为无差异，见 `GroupValues`
   判断记录）。测试：`StatDefinitionMigrationTests` 8 例、`StatSchemaCoverageTests` 新增 4 例、
   `StatHostTests` 新增 4 例（两条新规则正负例）。
+- **数值设计落地阶段 N1 · T-N1-2（`StatHost` 两轮拓扑序聚合、派生失效传播、clamp 第二轮后夹取、
+  抗性维度独立策略项、派生无环校验，[数值设计分阶段落地计划.md](architecture/落地计划/数值设计分阶段落地计划.md)
+  第 14 节）**：`core/numbers/stat_block/core/StatHost.cs` 改读 `stat.definition.category`（不再
+  读已废弃的 `group`）与嵌套 `clamp.min`/`clamp.max`（不再读平级 `min`/`max`）；`is_rating`/
+  `rating_conversion_ref` 读取逻辑本任务未改（换算层触发条件改 `category==percent` 留给
+  T-N1-3）。加载期新增 `BuildDerivationGraph`：按 `derived_from` 建反向依赖表与全部属性 id 的
+  稳定拓扑序（候选零入度集合用 `SortedSet<Id>` 逐步取最小值出队，不依赖字典/数组枚举顺序），
+  遇到环（含自环）抛 `InvalidOperationException`（加载期防御，正常数据应已被下方新校验规则
+  拦下）。`ComputeFinal` 的"基础值"改由 `ResolveBaseValue` 决定：显式 `SetBase` 值永远优先
+  （**待设计层确认**：与既有 `DefaultBase` 回退规则同构的自然推广，ADR-0030 决策 2 原文未明确
+  与显式覆盖的优先级关系）；否则 `category=="derived"` 的属性走 `ComputeDerivedBase`——基础值
+  = Σ(`derived_from` 来源属性最终值 × 系数，系数允许负数，拍板 11)，再走同一套三段式；其余
+  属性沿用既有 `default_base` 规则。`clamp` 仍是每个属性自己聚合的最后一步（拍板 2：来源属性
+  先在自己的聚合里被夹取，派生属性拿到的是夹取之后的来源值；派生属性自身的 `clamp` 在它自己
+  的第二轮聚合之后生效）。`SetBase`/`AddModifier`/`RemoveModifiersBySource`/`ResetBase` 新增
+  `PropagateDerivedInvalidation`：按拓扑序把失效传播给全部（传递）依赖变化属性、且此前已被
+  缓存过的派生属性（未查询过的不主动补算，与既有 `RecomputeAllCachedStatsAfterReload` 判断
+  记录同一口径），`RecomputeRatingStats`（等级变化驱动的评级重算）同样接入这条路径。抗性维度
+  判定条件从 `group == "resistance"` 改为 `category == "defense"`；`StatHostOptions.
+  EnableResistanceGroup` 属性名不改（已经是独立于内容数据的 `bool`，改名等价于删除既有公开
+  成员，违反 ABI 门禁），默认值不变。新增 `StatDefinitionDerivationCycleValidationRule`（检查
+  名 `stat_definition_derivation_cycle`，Error 级，随 `RulesSchemaCatalog` 注册，写法照抄
+  `ArchTalentTreeCycleValidationRule`）；`StatDefinitionValidationRule.CheckMinMaxOrder`
+  扩展到同时检查嵌套 `clamp.min`/`clamp.max`（此前只查已废弃的平级 `min`/`max`，纯 v2 记录会
+  绕过检查）；`StatSchemas.cs` 的 `group` 字段 `required` 放宽为 `false`。`core/carriers/item/
+  tests/TestSupport.cs` 原先手写一份独立于真实 `StatSchemas.Definition` 的最小 `stat.definition`
+  schema（无 `category` 字段、无迁移链），随 `StatHost` 改读 `category` 而在加载期报错，改为
+  直接注册真实 `StatSchemas.Definition`。测试：`StatHostTests` 新增 15 例（两轮聚合 6、失效
+  传播 2、派生成环加载期防御 1、显式覆盖 1、派生无环校验规则正反例 3、`clamp` 嵌套校验 1、
+  抗性维度 v2 原生用例 1）。
 
 ## [1.30.0] - 2026-09-14
 

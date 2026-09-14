@@ -27,9 +27,23 @@ namespace Core.Numbers.StatBlock
         public bool EnableRatingConversion { get; set; } = false;
 
         /// <summary>抗性维度是否启用（00 第 3 节"作为可选属性维度，游戏层决定是否启用"）：
-        /// 关闭时，<c>group: resistance</c> 的属性仍可正常定义、设置基础值、挂修正，但
+        /// 关闭时，<c>category: defense</c> 的属性仍可正常定义、设置基础值、挂修正，但
         /// <see cref="IStatHost.GetStat"/> 恒返回 0 并记一条警告（见
-        /// <see cref="StatHost.Warnings"/>）。默认开启。</summary>
+        /// <see cref="StatHost.Warnings"/>）。默认开启。
+        /// <para>
+        /// 判断记录（T-N1-2，ADR-0030 拍板 1"抗性维度开关改独立策略项"；汇报里写明）：本属性在
+        /// T-N1-1 之前就已经是 <see cref="StatHostOptions"/> 上一个独立于内容数据的 <see cref="bool"/>
+        /// 策略项——真正随本任务变化的只是它所"门控"的判定条件：<see cref="StatHost.ComputeFinal"/>
+        /// 从 <c>stat.definition.group == "resistance"</c> 改为 <c>category == "defense"</c>
+        /// （<c>group</c> 已废弃，<see cref="StatHost"/> 不再读取，见 <see cref="StatHost.LoadDefinitions"/>
+        /// 判断记录）。属性名维持 <c>EnableResistanceGroup</c> 不改名——G3 ABI 门禁禁止删除既有公开
+        /// 成员，改名等价于"删除旧成员 + 新增同义成员"，会破坏调用方已编译的代码；新增一个同义的
+        /// <c>EnableResistanceDimension</c> 属性并让两者保持同步又会引入"两个旗标谁为准"的新歧义，
+        /// 没有实际收益。默认值维持 <c>true</c>，与 T-N1-1 之前（<c>group == resistance</c> 驱动）的
+        /// 默认行为等价——迁移链保证 v1 <c>group: resistance</c> 的属性经 1→2 迁移后 <c>category</c>
+        /// 恒为 <c>defense</c>（拍板 1 明文"resistance→defense"），因此"默认开启、判定条件从 group
+        /// 改到 category"这次切换对任何已迁移数据都是行为不变的重构，不是新契约。
+        /// </para></summary>
         public bool EnableResistanceGroup { get; set; } = true;
 
         /// <summary>

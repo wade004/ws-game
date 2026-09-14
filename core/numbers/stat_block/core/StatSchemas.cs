@@ -13,16 +13,21 @@ namespace Core.Numbers.StatBlock
     public static class StatSchemas
     {
         /// <summary>属性分组枚举合法取值（06 第 1 节、04 第 1.1 节）。<c>resistance</c> 分组是
-        /// 00 第 3 节"可选属性维度"的落地，是否生效由 <see cref="StatHostOptions.EnableResistanceGroup"/>
-        /// 控制，与本表校验无关——校验只保证取值在合法集合内。
+        /// 00 第 3 节"可选属性维度"的落地历史记法；T-N1-2 起 <see cref="StatHost"/> 的抗性维度判定
+        /// 已改用 <c>category == "defense"</c>（见 <see cref="StatHostOptions.EnableResistanceGroup"/>
+        /// 判断记录），本字段的取值不再驱动任何运行期行为，只作内容格式约束。
         /// <para>
         /// 分阶段落地计划 T-N1-1（ADR-0030 决策 1，拍板 1）：本字段自 schema 版本 2 起标废弃，由
-        /// <see cref="CategoryValues"/> 取代，但<b>保留一个版本周期不删</b>——<c>StatHost.LoadDefinitions</c>
-        /// （T-N1-1 涉及文件不含 <c>StatHost.cs</c>，其读取逻辑本任务不改）目前仍用
-        /// <c>DataRecord.GetString("group")</c> 无条件读取（非 <c>TryGetString</c>），因此本字段本版本
-        /// 继续保持 <c>required: true</c>，不能放宽为可选——放宽会让"新写只填 category、不填 group"的
-        /// v2 数据在运行期直接抛 <see cref="DataFieldException"/>，需等 T-N1-2 把 <c>StatHost</c> 改为
-        /// 消费 <c>category</c> 后再放宽。
+        /// <see cref="CategoryValues"/> 取代，<b>保留一个版本周期不删</b>。
+        /// </para>
+        /// <para>
+        /// 分阶段落地计划 T-N1-2：<c>StatHost.LoadDefinitions</c> 已改为无条件消费 <c>category</c>，
+        /// 不再读取本字段（<c>DataRecord.GetString("group")</c> 调用已删除）——T-N1-1 遗留的
+        /// "保持 required:true，等 T-N1-2 放宽"判断记录到此兑现：本字段自本版本起放宽为
+        /// <c>required: false</c>，允许"新写只填 category、不填 group"的纯 v2 数据直接通过加载，
+        /// 不再需要为兼容旧运行期读取路径而强制内容作者同时维护两套字段。已有的 v1→v2 迁移链
+        /// （<c>MigrateDefinitionV1ToV2</c>）与既有 v1 数据（仍提供 <c>group</c>）不受影响——
+        /// 放宽必填只影响"是否可以不填"，不影响"填了就必须是合法枚举值"这条既有校验。
         /// </para>
         /// </summary>
         public static readonly string[] GroupValues = { "primary", "secondary", "derived", "resistance" };
@@ -53,7 +58,9 @@ namespace Core.Numbers.StatBlock
             description: "{stat:Reference(stat.definition), coefficient:Number}，一条派生来源与系数（ADR-0030 决策 1）");
 
         /// <summary><c>stat.definition.clamp</c> 结构（ADR-0030 决策 1，拍板 2）：取代原平级
-        /// <c>min</c>/<c>max</c>，夹取发生在两轮聚合的第二轮之后（T-N1-2 落地，本任务只登记 schema）。</summary>
+        /// <c>min</c>/<c>max</c>，夹取发生在两轮聚合中该属性自己完成三段式聚合之后
+        /// （T-N1-2 落地：<c>StatHost.ComputeFinal</c> 已读取本字段并在聚合末尾夹取，见该方法
+        /// 判断记录）。</summary>
         private static readonly FieldSchema ClampSchema = new FieldSchema(
             "clamp", FieldKind.Object, required: false, fields: new[]
             {
@@ -82,8 +89,9 @@ namespace Core.Numbers.StatBlock
                         "secondary 按 is_rating 取值分裂为 percent/misc，见 MigrateDefinitionV1ToV2 判断记录）"),
                 new FieldSchema("derived_from", FieldKind.Array, required: false, item: DerivedFromEntrySchema,
                     description: "Array<{stat:Reference(stat.definition), coefficient:Number}>，仅 " +
-                        "category=derived 时登记，派生来源与系数（ADR-0030 决策 1；派生无环校验见 T-N1-2；" +
-                        "非 derived 类别登记本字段报 Error，见 StatDefinitionValidationRule）"),
+                        "category=derived 时登记，派生来源与系数（ADR-0030 决策 1；派生无环校验见 " +
+                        "StatDefinitionDerivationCycleValidationRule，T-N1-2 新增；非 derived 类别登记本字段报 " +
+                        "Error，见 StatDefinitionValidationRule）"),
                 ClampSchema,
                 new FieldSchema("conversion_ref", FieldKind.Reference, required: false,
                     referenceTable: "stat.rating_conversion",
@@ -92,9 +100,9 @@ namespace Core.Numbers.StatBlock
                         "映射而来；非 percent 类别登记本字段报 Error，见 StatDefinitionValidationRule"),
                 new FieldSchema("scope", FieldKind.Enum, required: false, enumValues: ScopeValues,
                     description: "作用域：any/from_player/from_creature，缺省 any（06 第 1.3 节字段表，ADR-0030 决策 5）"),
-                new FieldSchema("group", FieldKind.Enum, required: true, enumValues: GroupValues,
+                new FieldSchema("group", FieldKind.Enum, required: false, enumValues: GroupValues,
                     description: "（废弃，v2 起由 category 取代，迁移链自动转换；保留一个版本周期不删，拍板 1；" +
-                        "StatHost.LoadDefinitions 仍无条件读取本字段，本任务不放宽必填——见 GroupValues 判断记录）" +
+                        "T-N1-2 起放宽为可选——StatHost.LoadDefinitions 已不再读取本字段，见 GroupValues 判断记录）" +
                         "聚合分组：primary/secondary/derived/resistance"),
                 new FieldSchema("default_base", FieldKind.Number, required: false,
                     description: "未显式 SetBase 时的基础值，缺省 0"),

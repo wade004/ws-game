@@ -20,7 +20,7 @@ schema 版本 2（T-N1-1，ADR-0030 决策 1；落地清单拍板 1/2/11）：�
 | `clamp` | Object {min?: Number, max?: Number} | 否 | 最终值取值区间，两轮聚合的第二轮之后夹取（T-N1-2 落地，本表只登记 schema）；v1 平级 `min`/`max` 经迁移嵌套进本字段 |
 | `conversion_ref` | Id（引用 `stat.rating_conversion`） | 否，仅 `category=percent` 有意义 | 换算曲线引用，缺省恒等曲线；v1 数据经迁移由 `is_rating=true` 且带 `rating_conversion_ref` 映射而来 |
 | `scope` | Enum | 否，缺省 `any` | `any`\|`from_player`\|`from_creature`；结算管线"目标乘区"步骤按来源类别匹配作用域（ADR-0030 决策 5） |
-| `group`（废弃） | Enum | 是 | `primary`\|`secondary`\|`derived`\|`resistance`。v2 起由 `category` 取代；仍必填——`StatHost.LoadDefinitions`（T-N1-2 落地）目前仍无条件 `GetString("group")`，放宽为可选要等该处读取逻辑改为消费 `category` 之后 |
+| `group`（废弃） | Enum | 否（T-N1-2 起放宽） | `primary`\|`secondary`\|`derived`\|`resistance`。v2 起由 `category` 取代；`StatHost.LoadDefinitions` 已改为无条件消费 `category`，不再读取本字段，因此本字段不再需要强制必填——填了仍要满足枚举取值合法 |
 | `default_base` | Number | 否 | 未显式 `SetBase` 时的基础值，缺省 0 |
 | `min`（废弃） | Number | 否 | 最终值下限（可空）。v2 起由 `clamp.min` 取代 |
 | `max`（废弃） | Number | 否 | 最终值上限（可空）。v2 起由 `clamp.max` 取代 |
@@ -41,7 +41,15 @@ schema 版本 2（T-N1-1，ADR-0030 决策 1；落地清单拍板 1/2/11）：�
 校验（`core/StatDefinitionValidationRule.cs`，`data_registry` 内建字段级校验之外的扩展项）：
 
 - `stat_min_max_order`：`min` 与 `max` 同时提供时，`min <= max`（沿用废弃字段的既有检查，不因
-  `clamp` 新增而移除，`min`/`max` 本版本仍原样保留在数据里）。
+  `clamp` 新增而移除，`min`/`max` 本版本仍原样保留在数据里）；T-N1-2 起同一检查名扩展到嵌套
+  `clamp.min`/`clamp.max`（两者同时提供时同样要求 `clamp.min <= clamp.max`）——只填新字段、
+  不带平级 `min`/`max` 的纯 v2 记录此前会绕过这条检查，属于同一条"下限不得大于上限"语义
+  不变量在两种承载字段形态下的完整覆盖，不新增检查名。
+- `stat_definition_derivation_cycle`（`core/StatDefinitionDerivationCycleValidationRule.cs`，
+  T-N1-2 新增，独立文件/独立规则，照抄 `core/numbers/archetype` 的
+  `ArchTalentTreeCycleValidationRule` 写法）：`category=derived` 属性的 `derived_from[].stat`
+  来源链不得成环，含属性以自身为来源的自环。Error 级，04 第 5 节数值类校验项分级表"派生
+  无环"一行。
 - `stat_rating_ref_requires_is_rating`：提供了 `rating_conversion_ref` 时，`is_rating` 必须为
   `true`（反向不要求——`is_rating=true` 而没有 `rating_conversion_ref` 是合法的，此时评级换算
   对该属性直通不换算，见 `StatHost.ConvertRating`）。

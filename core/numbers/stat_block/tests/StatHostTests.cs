@@ -465,6 +465,35 @@ namespace Tests.Numbers.StatBlock
             Assert.Equal(30.0, host.GetStat(unit, StatR), 10);
         }
 
+        // T-N1-2：直接用 v2 原生 category=defense 数据验证判定条件确实已经从 group=="resistance"
+        // 改为 category=="defense"（而不是恰好通过 1→2 迁移链间接测到）。
+        [Fact]
+        public void ResistanceGroup_DisabledReturnsZero_ForV2NativeDefenseCategory_NotDrivenByGroup()
+        {
+            const string v2Json = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.v2_defense"", ""name_key"": ""l10n.v2_defense"", ""category"": ""defense"", ""default_base"": 0 }
+                ]
+            }";
+
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (registry, report) = BuildRegistry(bus, v2Json, null, new StatDefinitionValidationRule());
+            Assert.False(report.IsBlocking);
+
+            var hostDisabled = new StatHost(registry, bus, new StatHostOptions { EnableResistanceGroup = false });
+            var unit = new Id("unit.v2_defense");
+            hostDisabled.RegisterUnit(unit);
+
+            hostDisabled.SetBase(unit, new Id("stat.v2_defense"), 30.0);
+
+            Assert.Equal(0.0, hostDisabled.GetStat(unit, new Id("stat.v2_defense")));
+            Assert.Contains(hostDisabled.Warnings, w => w.Contains("stat.v2_defense"));
+        }
+
         // -----------------------------------------------------------------
         // 14~15. 未注册单位 / 未知属性异常
         // -----------------------------------------------------------------
@@ -553,6 +582,30 @@ namespace Tests.Numbers.StatBlock
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i => i.Check == StatDefinitionValidationRule.CheckMinMaxOrder
                                                  && i.RecordKey == "stat.bad_minmax");
+        }
+
+        // T-N1-2 补充：只填新字段 clamp{min,max}、不带废弃平级 min/max 的纯 v2 记录同样要受
+        // CheckMinMaxOrder 约束（见 StatDefinitionValidationRule 判断记录）。
+        [Fact]
+        public void ValidationRule_ClampMinGreaterThanClampMax_ReportsError()
+        {
+            const string badJson = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.bad_clamp"", ""name_key"": ""l10n.stat.bad_clamp.name"", ""category"": ""primary"",
+                      ""clamp"": { ""min"": 10, ""max"": 5 } }
+                ]
+            }";
+
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (_, report) = BuildRegistry(bus, badJson, null, new StatDefinitionValidationRule());
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == StatDefinitionValidationRule.CheckMinMaxOrder
+                                                 && i.RecordKey == "stat.bad_clamp");
         }
 
         // -----------------------------------------------------------------
@@ -649,6 +702,82 @@ namespace Tests.Numbers.StatBlock
             foreach (var issue in report.Issues)
             {
                 Assert.NotEqual(StatDefinitionValidationRule.CheckConversionRefRequiresPercentCategory, issue.Check);
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // T-N1-2 新增：StatDefinitionDerivationCycleValidationRule 派生无环校验正反例
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ValidationRule_DerivationCycle_SelfLoop_ReportsError()
+        {
+            const string selfLoopJson = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.self_loop"", ""name_key"": ""l10n.e"", ""category"": ""derived"",
+                      ""derived_from"": [ { ""stat"": ""stat.self_loop"", ""coefficient"": 1.0 } ] }
+                ]
+            }";
+
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (_, report) = BuildRegistry(bus, selfLoopJson, null, new StatDefinitionDerivationCycleValidationRule());
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == StatDefinitionDerivationCycleValidationRule.CheckName
+                                                 && i.RecordKey == "stat.self_loop");
+        }
+
+        [Fact]
+        public void ValidationRule_DerivationCycle_TwoNodeCycle_ReportsError()
+        {
+            const string twoNodeCycleJson = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.cycle_a"", ""name_key"": ""l10n.f"", ""category"": ""derived"",
+                      ""derived_from"": [ { ""stat"": ""stat.cycle_b"", ""coefficient"": 1.0 } ] },
+                    { ""id"": ""stat.cycle_b"", ""name_key"": ""l10n.g"", ""category"": ""derived"",
+                      ""derived_from"": [ { ""stat"": ""stat.cycle_a"", ""coefficient"": 1.0 } ] }
+                ]
+            }";
+
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (_, report) = BuildRegistry(bus, twoNodeCycleJson, null, new StatDefinitionDerivationCycleValidationRule());
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == StatDefinitionDerivationCycleValidationRule.CheckName);
+        }
+
+        [Fact]
+        public void ValidationRule_DerivationCycle_AcyclicChain_NoError()
+        {
+            const string acyclicChainJson = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.chain_src"", ""name_key"": ""l10n.h"", ""category"": ""primary"" },
+                    { ""id"": ""stat.chain_mid"", ""name_key"": ""l10n.i"", ""category"": ""derived"",
+                      ""derived_from"": [ { ""stat"": ""stat.chain_src"", ""coefficient"": 1.0 } ] },
+                    { ""id"": ""stat.chain_end"", ""name_key"": ""l10n.j"", ""category"": ""derived"",
+                      ""derived_from"": [ { ""stat"": ""stat.chain_mid"", ""coefficient"": 1.0 } ] }
+                ]
+            }";
+
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (_, report) = BuildRegistry(bus, acyclicChainJson, null, new StatDefinitionDerivationCycleValidationRule());
+
+            Assert.False(report.IsBlocking);
+            foreach (var issue in report.Issues)
+            {
+                Assert.NotEqual(StatDefinitionDerivationCycleValidationRule.CheckName, issue.Check);
             }
         }
 
@@ -789,6 +918,297 @@ namespace Tests.Numbers.StatBlock
             // 快照本身（GetModifiers 内部 ToArray()）不随后续 AddModifier 变化。
             Assert.Single(snapshot);
             Assert.Equal(2, host.GetModifiers(unit, StatA).Count);
+        }
+
+        // -----------------------------------------------------------------
+        // T-N1-2 新增：两轮拓扑序聚合、clamp 在第二轮后夹取、失效传播、拓扑序稳定、
+        // 派生成环的加载期防御（ADR-0030 决策 2）
+        // -----------------------------------------------------------------
+
+        // 判断记录：本组测试用独立的 v2 原生 fixture（schema_version 2，直接写 category，不写已废弃的
+        // group——T-N1-2 已把 group 放宽为 required:false，见 StatSchemas.GroupValues 判断记录），
+        // 与上面沿用 v1→v2 迁移链的既有 fixture（StatDefinitionJson）分开，互不干扰。
+        //
+        // 图（用于两轮聚合/失效传播用例）：
+        //   stat.src_a、stat.src_b：category=primary，独立主属性。
+        //   stat.src_clamped：category=primary，clamp.max=20。
+        //   stat.derived_x：category=derived，来源 [src_a×2.0, src_b×0.5]，无自身 clamp。
+        //   stat.derived_neg：category=derived，来源 [src_a×(-1.0)]（负系数，拍板 11）。
+        //   stat.derived_clamped_self：category=derived，来源 [src_a×1.0]，clamp.max=50。
+        //   stat.derived_from_clamped_src：category=derived，来源 [src_clamped×2.0]，无自身 clamp——
+        //     用于区分"来源被夹取后再派生"（本条）与"派生自身夹取"（derived_clamped_self）。
+        private const string DerivedStatDefinitionJson = @"
+        {
+            ""table"": ""stat.definition"",
+            ""schema_version"": 2,
+            ""rows"": [
+                { ""id"": ""stat.src_a"", ""name_key"": ""l10n.stat.src_a.name"", ""category"": ""primary"", ""default_base"": 0 },
+                { ""id"": ""stat.src_b"", ""name_key"": ""l10n.stat.src_b.name"", ""category"": ""primary"", ""default_base"": 0 },
+                { ""id"": ""stat.src_clamped"", ""name_key"": ""l10n.stat.src_clamped.name"", ""category"": ""primary"", ""default_base"": 0, ""clamp"": { ""max"": 20 } },
+                { ""id"": ""stat.derived_x"", ""name_key"": ""l10n.stat.derived_x.name"", ""category"": ""derived"",
+                  ""derived_from"": [ { ""stat"": ""stat.src_a"", ""coefficient"": 2.0 }, { ""stat"": ""stat.src_b"", ""coefficient"": 0.5 } ] },
+                { ""id"": ""stat.derived_neg"", ""name_key"": ""l10n.stat.derived_neg.name"", ""category"": ""derived"",
+                  ""derived_from"": [ { ""stat"": ""stat.src_a"", ""coefficient"": -1.0 } ] },
+                { ""id"": ""stat.derived_clamped_self"", ""name_key"": ""l10n.stat.derived_clamped_self.name"", ""category"": ""derived"",
+                  ""derived_from"": [ { ""stat"": ""stat.src_a"", ""coefficient"": 1.0 } ], ""clamp"": { ""max"": 50 } },
+                { ""id"": ""stat.derived_from_clamped_src"", ""name_key"": ""l10n.stat.derived_from_clamped_src.name"", ""category"": ""derived"",
+                  ""derived_from"": [ { ""stat"": ""stat.src_clamped"", ""coefficient"": 2.0 } ] }
+            ]
+        }";
+
+        // 与上面完全相同的七行记录，只是数组顺序整体反过来——用于"拓扑序稳定：同一输入不同登记
+        // 顺序结果一致"用例（禁止事项：拓扑序不得依赖字典/数组枚举顺序）。
+        private const string DerivedStatDefinitionJsonReversedOrder = @"
+        {
+            ""table"": ""stat.definition"",
+            ""schema_version"": 2,
+            ""rows"": [
+                { ""id"": ""stat.derived_from_clamped_src"", ""name_key"": ""l10n.stat.derived_from_clamped_src.name"", ""category"": ""derived"",
+                  ""derived_from"": [ { ""stat"": ""stat.src_clamped"", ""coefficient"": 2.0 } ] },
+                { ""id"": ""stat.derived_clamped_self"", ""name_key"": ""l10n.stat.derived_clamped_self.name"", ""category"": ""derived"",
+                  ""derived_from"": [ { ""stat"": ""stat.src_a"", ""coefficient"": 1.0 } ], ""clamp"": { ""max"": 50 } },
+                { ""id"": ""stat.derived_neg"", ""name_key"": ""l10n.stat.derived_neg.name"", ""category"": ""derived"",
+                  ""derived_from"": [ { ""stat"": ""stat.src_a"", ""coefficient"": -1.0 } ] },
+                { ""id"": ""stat.derived_x"", ""name_key"": ""l10n.stat.derived_x.name"", ""category"": ""derived"",
+                  ""derived_from"": [ { ""stat"": ""stat.src_a"", ""coefficient"": 2.0 }, { ""stat"": ""stat.src_b"", ""coefficient"": 0.5 } ] },
+                { ""id"": ""stat.src_clamped"", ""name_key"": ""l10n.stat.src_clamped.name"", ""category"": ""primary"", ""default_base"": 0, ""clamp"": { ""max"": 20 } },
+                { ""id"": ""stat.src_b"", ""name_key"": ""l10n.stat.src_b.name"", ""category"": ""primary"", ""default_base"": 0 },
+                { ""id"": ""stat.src_a"", ""name_key"": ""l10n.stat.src_a.name"", ""category"": ""primary"", ""default_base"": 0 }
+            ]
+        }";
+
+        private static readonly Id StatSrcA = new Id("stat.src_a");
+        private static readonly Id StatSrcB = new Id("stat.src_b");
+        private static readonly Id StatSrcClamped = new Id("stat.src_clamped");
+        private static readonly Id StatDerivedX = new Id("stat.derived_x");
+        private static readonly Id StatDerivedNeg = new Id("stat.derived_neg");
+        private static readonly Id StatDerivedClampedSelf = new Id("stat.derived_clamped_self");
+        private static readonly Id StatDerivedFromClampedSrc = new Id("stat.derived_from_clamped_src");
+
+        private static (StatHost Host, List<StatChangedEvent> Captured, IEventBus Bus) BuildDerivedHost(string definitionJson)
+        {
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (registry, report) = BuildRegistry(bus, definitionJson, null,
+                new StatDefinitionValidationRule());
+            Assert.False(report.IsBlocking);
+
+            var host = new StatHost(registry, bus, new StatHostOptions());
+            return (host, captured, bus);
+        }
+
+        // 1/6：主属性三段式在两轮聚合改动之后仍然不变（category=primary 走第一轮，行为与 T-N1-2
+        // 之前完全一致）。
+        [Fact]
+        public void TwoRoundAggregation_PrimaryStatStillAggregatesThreeSegment()
+        {
+            var (host, _, _) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.two_round_primary");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+            host.AddModifier(unit, new StatModifier(StatSrcA, StatModifierOp.Flat, 5.0, new Id("src.gear")));
+            host.AddModifier(unit, new StatModifier(StatSrcA, StatModifierOp.Pct, 0.10, new Id("src.buff")));
+
+            // (100 + 5) * 1.10 = 115.5
+            Assert.Equal(115.5, host.GetStat(unit, StatSrcA), 10);
+        }
+
+        // 2/6：派生属性由两条来源各带系数——基础值 = Σ(来源最终值 × 系数)，再走自己的三段式。
+        [Fact]
+        public void TwoRoundAggregation_DerivedStat_SumsTwoWeightedSources()
+        {
+            var (host, _, _) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.two_round_derived");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+            host.SetBase(unit, StatSrcB, 10.0);
+
+            // derived_x 基础值 = 100*2.0 + 10*0.5 = 205，自身无修正，最终值即 205。
+            Assert.Equal(205.0, host.GetStat(unit, StatDerivedX), 10);
+
+            // 派生属性自己也能再叠加 flat/pct/mult（06 第 1.1 节修订段"装备直接加的攻击强度等落在
+            // 第二轮的 flat 段"）。
+            host.AddModifier(unit, new StatModifier(StatDerivedX, StatModifierOp.Flat, 15.0, new Id("src.gear")));
+            Assert.Equal(220.0, host.GetStat(unit, StatDerivedX), 10);
+        }
+
+        // 3/6：派生系数允许为负（拍板 11）。
+        [Fact]
+        public void TwoRoundAggregation_DerivedStat_NegativeCoefficient()
+        {
+            var (host, _, _) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.two_round_negative");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+
+            // derived_neg 基础值 = 100 * (-1.0) = -100。
+            Assert.Equal(-100.0, host.GetStat(unit, StatDerivedNeg), 10);
+        }
+
+        // 4/6：clamp 在第二轮聚合之后夹取——"来源被夹取后再派生"：src_clamped 自己先夹到 20，
+        // derived_from_clamped_src 拿到的是夹取之后的 20，而不是夹取之前的原始值 100。
+        [Fact]
+        public void TwoRoundAggregation_Clamp_SourceClampedBeforeFeedingDerived()
+        {
+            var (host, _, _) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.two_round_clamp_source");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcClamped, 100.0);
+            Assert.Equal(20.0, host.GetStat(unit, StatSrcClamped), 10); // 来源自己先被夹到 20
+
+            // derived_from_clamped_src 基础值 = ResolveFinal(src_clamped) * 2.0 = 20 * 2 = 40——
+            // 如果错误地使用夹取前的原始值 100，这里会算出 200，测试能区分两种实现。
+            Assert.Equal(40.0, host.GetStat(unit, StatDerivedFromClampedSrc), 10);
+        }
+
+        // 5/6：clamp 在第二轮聚合之后夹取——"派生自身夹取"：derived_clamped_self 自己的最终值
+        // 超过 clamp.max 时在自己这一轮聚合结束后被夹取，不影响来源 src_a 本身的值。
+        [Fact]
+        public void TwoRoundAggregation_Clamp_DerivedClampsItsOwnFinalValue()
+        {
+            var (host, _, _) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.two_round_clamp_derived");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+
+            // derived_clamped_self 基础值 = 100 * 1.0 = 100，clamp.max=50 → 夹到 50。
+            Assert.Equal(50.0, host.GetStat(unit, StatDerivedClampedSelf), 10);
+            // 来源属性本身不受下游派生属性 clamp 的影响。
+            Assert.Equal(100.0, host.GetStat(unit, StatSrcA), 10);
+        }
+
+        // 6/6：拓扑序稳定——同一输入、不同登记（数组）顺序，两个 StatHost 实例对同一操作序列算出
+        // 逐位相等的结果（禁止事项：不得依赖字典枚举顺序）。
+        [Fact]
+        public void TwoRoundAggregation_TopoOrder_StableAcrossDifferentRegistrationOrder()
+        {
+            var (hostForward, _, _) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var (hostReversed, _, _) = BuildDerivedHost(DerivedStatDefinitionJsonReversedOrder);
+
+            void ApplySequence(StatHost host, Id unit)
+            {
+                host.RegisterUnit(unit);
+                host.SetBase(unit, StatSrcA, 100.0);
+                host.SetBase(unit, StatSrcB, 10.0);
+                host.SetBase(unit, StatSrcClamped, 100.0);
+            }
+
+            var unitForward = new Id("unit.topo_forward");
+            var unitReversed = new Id("unit.topo_reversed");
+            ApplySequence(hostForward, unitForward);
+            ApplySequence(hostReversed, unitReversed);
+
+            Assert.Equal(hostForward.GetStat(unitForward, StatDerivedX), hostReversed.GetStat(unitReversed, StatDerivedX));
+            Assert.Equal(hostForward.GetStat(unitForward, StatDerivedNeg), hostReversed.GetStat(unitReversed, StatDerivedNeg));
+            Assert.Equal(hostForward.GetStat(unitForward, StatDerivedClampedSelf), hostReversed.GetStat(unitReversed, StatDerivedClampedSelf));
+            Assert.Equal(hostForward.GetStat(unitForward, StatDerivedFromClampedSrc), hostReversed.GetStat(unitReversed, StatDerivedFromClampedSrc));
+        }
+
+        // 1/2：来源属性的 flat 修正变化（AddModifier）后，已缓存的派生属性自动重算并广播
+        // stat.changed（失效传播）。
+        [Fact]
+        public void InvalidationPropagation_SourceModifierChange_UpdatesCachedDerivedStat()
+        {
+            var (host, captured, bus) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.propagation_modifier");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+            host.SetBase(unit, StatSrcB, 10.0);
+            Assert.Equal(205.0, host.GetStat(unit, StatDerivedX), 10); // 先查询一次，让 derived_x 进缓存
+            bus.DispatchPending();
+            captured.Clear();
+
+            host.AddModifier(unit, new StatModifier(StatSrcA, StatModifierOp.Flat, 50.0, new Id("src.gear")));
+            bus.DispatchPending();
+
+            // src_a: 100 -> 150；derived_x: 205 -> 150*2 + 10*0.5 = 305，不需要再调用一次 GetStat
+            // 才刷新——PropagateDerivedInvalidation 在 AddModifier 内部已经把新值写回缓存。
+            Assert.Equal(305.0, host.GetStat(unit, StatDerivedX), 10);
+            Assert.Contains(captured, e => e.Stat == StatSrcA && e.OldValue == 100.0 && e.NewValue == 150.0);
+            Assert.Contains(captured, e => e.Stat == StatDerivedX && e.OldValue == 205.0 && e.NewValue == 305.0);
+        }
+
+        // 2/2：RemoveModifiersBySource 撤销来源属性上的修正后，同样传播给已缓存的派生属性；
+        // 未被缓存过的派生属性不主动补算（与 RecomputeAllCachedStatsAfterReload 同一判断记录口径），
+        // 但下一次查询时自然读到最新状态。
+        [Fact]
+        public void InvalidationPropagation_RemoveModifiersBySource_UpdatesCachedDerivedStat_UncachedStaysLazy()
+        {
+            var (host, captured, bus) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.propagation_remove");
+            var gearSource = new Id("src.full_gear_piece");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+            host.AddModifier(unit, new StatModifier(StatSrcA, StatModifierOp.Flat, 50.0, gearSource));
+
+            // 只查询 derived_x，不查询 derived_neg/derived_clamped_self——后两者此时都还没有缓存条目。
+            Assert.Equal(300.0, host.GetStat(unit, StatDerivedX), 10); // (100+50)*2 + 0*0.5 = 300
+            bus.DispatchPending();
+            captured.Clear();
+
+            host.RemoveModifiersBySource(unit, gearSource);
+            bus.DispatchPending();
+
+            // src_a: 150 -> 100；derived_x（已缓存）: 300 -> 200，自动传播。
+            Assert.Equal(200.0, host.GetStat(unit, StatDerivedX), 10);
+            Assert.Contains(captured, e => e.Stat == StatDerivedX && e.OldValue == 300.0 && e.NewValue == 200.0);
+
+            // derived_neg（此前从未被查询过、没有缓存条目）：传播阶段按判断记录跳过，但现在第一次
+            // 查询时用的已经是 RemoveModifiersBySource 之后的最新 src_a（100），结果正确，不存在
+            // 过期风险——ComputeFinal 从不记忆旧输入。
+            Assert.Equal(-100.0, host.GetStat(unit, StatDerivedNeg), 10);
+        }
+
+        // 派生成环：StatHost 加载期的防御性检查（正常数据流程应已被
+        // StatDefinitionDerivationCycleValidationRule 在内容校验阶段拦下，这里模拟"校验规则被遗漏
+        // 注册"场景，验证 BuildDerivationGraph 自己的兜底仍然生效）。
+        [Fact]
+        public void BuildDerivationGraph_CyclicDerivedFrom_ThrowsAsLoadTimeDefense()
+        {
+            const string cyclicJson = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.cycle_a"", ""name_key"": ""l10n.a"", ""category"": ""derived"",
+                      ""derived_from"": [ { ""stat"": ""stat.cycle_b"", ""coefficient"": 1.0 } ] },
+                    { ""id"": ""stat.cycle_b"", ""name_key"": ""l10n.b"", ""category"": ""derived"",
+                      ""derived_from"": [ { ""stat"": ""stat.cycle_a"", ""coefficient"": 1.0 } ] }
+                ]
+            }";
+
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            // 故意不注册 StatDefinitionDerivationCycleValidationRule，模拟内容校验被跳过的场景。
+            var (registry, report) = BuildRegistry(bus, cyclicJson, null, extraRule: null);
+            Assert.False(report.IsBlocking);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => new StatHost(registry, bus, new StatHostOptions()));
+            Assert.Contains("环", ex.Message);
+        }
+
+        // 显式 SetBase 对派生属性优先生效（ResolveBaseValue 判断记录，待设计层确认）：写过之后不再
+        // 理会 derived_from，与 DefaultBase 对主属性的既有回退规则同构。
+        [Fact]
+        public void ExplicitSetBase_OnDerivedStat_OverridesComputedDerivedBase()
+        {
+            var (host, _, _) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.explicit_override_derived");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 100.0);
+            host.SetBase(unit, StatSrcB, 10.0);
+            Assert.Equal(205.0, host.GetStat(unit, StatDerivedX), 10); // 未显式覆盖时走 Σ(来源×系数)
+
+            host.SetBase(unit, StatDerivedX, 999.0);
+            Assert.Equal(999.0, host.GetStat(unit, StatDerivedX), 10); // 显式覆盖优先，derived_from 不再生效
         }
     }
 }

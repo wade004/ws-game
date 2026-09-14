@@ -1,8 +1,11 @@
 # L1 数值层 · stat_block 属性表
 
-职责：单位的属性三段式聚合（`基础值 + Σflat` → `× (1 + Σpct)` → `× Π(1 + Σmult_group)`，
-见 `architecture/06_规则层_属性技能战斗AI.md` 第 1.1 节），可选评级换算（第 1.1 节、
-`00_架构总则.md` 第 3 节"默认关闭"）与可选抗性维度（`00` 第 3 节"可选属性维度"）。
+职责：单位的属性两轮拓扑序聚合（第一轮：无派生来源的属性三段式 `基础值 + Σflat` →
+`× (1 + Σpct)` → `× Π(1 + Σmult_group)`；第二轮：`category=derived` 的属性基础值改为
+Σ(来源属性最终值 × 系数)，再走同一套三段式，见 `architecture/06_规则层_属性技能战斗AI.md`
+第 1.1 节、`architecture/adr/0030-属性系统派生换算与来源类别.md` 决策 2，T-N1-2 落地），
+可选评级换算（第 1.1 节、`00_架构总则.md` 第 3 节"默认关闭"）与可选抗性维度（`00` 第 3 节
+"可选属性维度"；判定条件 T-N1-2 起改为 `category=="defense"`，见下文"抗性维度"一节）。
 对应 `01_分层与依赖.md` L1 模块表 `stat_block` 行、契约接口名 `StatHost`。
 
 依赖：L0（`Core.Foundation.Common` 的 `Id`；`Core.Foundation.DataRegistry` 的
@@ -21,15 +24,22 @@ stat_block/
                StatHostOptions.cs
                StatChangedEvent.cs（StatBlockEventKeys、StatChangedEvent）
   core/        StatSchemas.cs（stat.definition / stat.rating_conversion 的 TableSchema；
-               stat.definition schema 版本 2，T-N1-1）
-               StatDefinitionValidationRule.cs（IValidationRule：min<=max、
-               rating_conversion_ref 需要 is_rating、derived_from 仅限 derived、
-               conversion_ref 仅限 percent，T-N1-1 新增后两条）
-               StatHost.cs（IStatHost 默认实现；仍读 group/min/max/is_rating/
-               rating_conversion_ref，T-N1-1 未改，T-N1-2 落地两轮聚合时改读
-               category/derived_from/clamp/conversion_ref）
+               stat.definition schema 版本 2，T-N1-1；group 字段 T-N1-2 起放宽为
+               required:false）
+               StatDefinitionValidationRule.cs（IValidationRule：min<=max（T-N1-2 起
+               同时检查嵌套 clamp.min<=clamp.max）、rating_conversion_ref 需要
+               is_rating、derived_from 仅限 derived、conversion_ref 仅限 percent，
+               T-N1-1 新增后两条）
+               StatDefinitionDerivationCycleValidationRule.cs（T-N1-2 新增
+               IValidationRule：stat.definition.derived_from 派生来源链无环，含自环；
+               写法照抄 archetype 层 ArchTalentTreeCycleValidationRule）
+               StatHost.cs（IStatHost 默认实现；T-N1-2 起改读 category/derived_from/
+               clamp（不再读 group/平级 min/max），两轮拓扑序聚合、派生失效传播、
+               抗性维度判定改用 category=="defense"；is_rating/rating_conversion_ref
+               读取逻辑本任务未改，换算层触发条件改 category==percent 留给 T-N1-3）
   schema/      README.md（字段表）
-  tests/       StatHostTests.cs
+  tests/       StatHostTests.cs（T-N1-2：两轮聚合/clamp 夹取时机/失效传播/拓扑序
+               稳定/派生成环防御/派生无环校验规则/抗性维度 v2 原生用例）
                StatDefinitionMigrationTests.cs（T-N1-1：1→2 迁移字段值回归）
                StatSchemaCoverageTests.cs（rating_conversion.entries、
                definition.derived_from/clamp 子结构覆盖）
@@ -50,6 +60,48 @@ stat_block/
 字段表与 `group→category` 映射细节见 `schema/README.md`"`stat.definition`"一节（含"待设计层
 确认"标注的推断映射：`secondary` 按 `is_rating` 分裂为 `percent`/`misc`）。
 
+## T-N1-2：两轮拓扑序聚合、clamp 第二轮后夹取、失效传播、抗性维度独立策略项
+
+分阶段落地计划 T-N1-2（ADR-0030 决策 2；落地清单拍板 1/2/11）：`StatHost` 从 T-N1-1 遗留的
+"仍读 group/min/max"状态，改为无条件消费 `category`/`derived_from`/嵌套 `clamp`；
+`is_rating`/`rating_conversion_ref` 读取逻辑本任务未改（换算层触发条件改
+`category==percent` 留给 T-N1-3）。
+
+- **加载期**：`StatHost.LoadDefinitions` 改读 `category`（`GetString`，required，不再无条件读
+  `group`）；`derived_from` 仅当 `category=="derived"` 时纳入派生计算图；`clamp.min`/
+  `clamp.max` 取代平级 `min`/`max`。随后 `BuildDerivationGraph` 建反向依赖表
+  `_derivedDependents`（source → 直接依赖它的派生属性）与全部属性 id 的稳定拓扑序
+  `_topoOrder`（Kahn 算法，候选零入度集合用 `SortedSet<Id>` 逐步取最小值出队，`Id` 按序数
+  字符串序比较——不依赖字典/数组枚举顺序，见"拓扑序稳定"测试）；遇到环（含自环）抛
+  `InvalidOperationException`，是内容校验之外的加载期防御（正常数据应已被下面的
+  `StatDefinitionDerivationCycleValidationRule` 拦下）。
+- **两轮聚合**：`ComputeFinal` 的"基础值"由 `ResolveBaseValue` 决定——显式 `SetBase` 过的值
+  永远优先（判断记录，待设计层确认：与既有 `DefaultBase` 回退规则同构的自然推广，见
+  `ResolveBaseValue` 源码注释）；否则 `category=="derived"` 的属性走 `ComputeDerivedBase`
+  （Σ 来源属性最终值 × 系数，来源经 `ResolveFinal` 取值——命中缓存直接读，未命中现算但不
+  写缓存），其余属性沿用 `default_base`。flat/pct/mult 三段顺序与 `multGroup` 算法不变；
+  `clamp` 仍是每个属性自己聚合的最后一步，对来源属性即"它自己完成三段式之后"（先于被下游
+  派生属性读取），对派生属性即"第二轮聚合之后"（拍板 2）——两种情形共用同一段代码，不按轮次
+  分叉。
+- **失效传播**：`SetBase`/`AddModifier`/`RemoveModifiersBySource`/`ResetBase` 更新自己那个
+  属性的缓存之后，经 `PropagateDerivedInvalidation` 按 `_topoOrder` 顺序重算全部（传递）
+  依赖它、且此前已经被缓存过的派生属性（未被查询过的不主动补算，下次 `GetStat` 现算时自然
+  读到最新状态——与 `RecomputeAllCachedStatsAfterReload` 同一判断记录口径）；`
+  RecomputeRatingStats`（等级变化驱动的评级重算入口）同样接入这条传播路径（06 第 1.1 节
+  修订段"与既有'等级变化驱动评级缓存重算'同一通知路径"）。`RecomputeAllCachedStatsAfterReload`
+  （整表 reload 后的缓存重算）改为按 `_topoOrder` 过滤后处理，不再直接遍历
+  `unit.Cache.Keys` 的原始顺序。
+- **抗性维度独立策略项**：`StatHostOptions.EnableResistanceGroup` 属性本身在 T-N1-1 之前就
+  已经是独立于内容数据的 `bool`（不是从 `group` 取值算出来的），本任务真正改变的只是它门控的
+  判定条件——`ComputeFinal` 从 `def.Group == "resistance"` 改为 `def.Category == "defense"`。
+  属性名保持 `EnableResistanceGroup` 不改名（G3 ABI 门禁禁止删除既有公开成员，改名等价于
+  "删除旧成员"；新增一个同义属性又会造成"两个旗标谁为准"的歧义，没有收益），默认值维持
+  `true`——判断记录与理由见 `contracts/StatHostOptions.cs` 该属性源码注释。
+- **派生无环校验**：新增 `StatDefinitionDerivationCycleValidationRule`（检查名
+  `stat_definition_derivation_cycle`，Error 级，写法照抄 `core/numbers/archetype` 的
+  `ArchTalentTreeCycleValidationRule`），随 `RulesSchemaCatalog.RegisterL1Schemas` 与
+  `L1SampleDataTests.BuildWorld` 注册。
+
 ## 用法
 
 ```csharp
@@ -62,7 +114,8 @@ var report = registry.LoadAll();
 var statHost = new StatHost(registry, bus, new StatHostOptions
 {
     EnableRatingConversion = false,   // 00 第 3 节：默认关闭
-    EnableResistanceGroup = true,     // 00 第 3 节：可选维度，本项默认开启
+    EnableResistanceGroup = true,     // 00 第 3 节：可选维度，本项默认开启；T-N1-2 起判定
+                                       // category=="defense"（属性名沿用旧名，见"T-N1-2"一节）
 });
 
 statHost.RegisterUnit(unitId);
@@ -121,9 +174,10 @@ var statHost = new StatHost(registry, bus, new StatHostOptions
 
 ## 抗性维度（可选，默认开启）
 
-`stat.definition.group == "resistance"` 的属性始终可以正常 `SetBase`/`AddModifier`；
-`StatHostOptions.EnableResistanceGroup=false` 时 `GetStat` 对这类属性恒返回 `0` 并向
-`StatHost.Warnings` 追加一条警告，不影响其它分组属性的聚合。
+`stat.definition.category == "defense"`（T-N1-2 起；此前是 `group == "resistance"`，`group`
+已废弃）的属性始终可以正常 `SetBase`/`AddModifier`；`StatHostOptions.EnableResistanceGroup=false`
+时 `GetStat` 对这类属性恒返回 `0` 并向 `StatHost.Warnings` 追加一条警告，不影响其它类别属性的
+聚合。
 
 ## 不负责什么
 

@@ -181,6 +181,7 @@ namespace Tests.Numbers
 
             // L1 五个模块的全部 IValidationRule（power_set/faction 没有模块专属规则）。
             registry.RegisterValidationRule(new StatDefinitionValidationRule());
+            registry.RegisterValidationRule(new StatDefinitionDerivationCycleValidationRule());
             registry.RegisterValidationRule(new ProgLevelCurveValidationRule());
             registry.RegisterValidationRule(new ArchTalentTreeCycleValidationRule());
 
