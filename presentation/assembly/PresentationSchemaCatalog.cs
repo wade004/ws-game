@@ -110,6 +110,12 @@ namespace Presentation.Assembly
         {
             GameplaySchemaCatalog.RegisterAll(registry, itemBudgetCurveId, creatureTemplateQuery);
 
+            // 分阶段落地计划 T-N0-3（04 第 5 节数值类校验项分级表"曲线单调有限"）：框架级通用规则，对
+            // 全部登记为断点表形态（CurveSchema）的字段生效、不认具体表名——放在本装配根而不是某一层的
+            // 目录里，因为它跨越 L1～L5 所有登记了曲线的表；ContentValidationAssembly/toolchain validator
+            // 与运行期组装根都经本方法注册，一处登记两边生效。规则元数据（RuleId/去重）见 T-N0-2。
+            registry.RegisterValidationRule(new CurveMonotonicFiniteRule());
+
             RegisterDisplayInfoSchemas(registry);
             RegisterLocalizationSchemas(registry);
             RegisterVfxSfxSchemas(registry);

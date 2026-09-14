@@ -23,10 +23,11 @@ data_registry/
                ValidationReport.cs（ValidationSeverity/ValidationIssue）IValidationRule.cs
                IDataRegistry.cs（IDataRegistryView/IDataRegistry）DataRegistryOptions.cs Events.cs
   core/        DataRegistry.cs BuiltinSchemas.cs InMemoryDataSource.cs FileSystemDataSource.cs
-               RecordExprHost.cs RecordExprSchema.cs
+               RecordExprHost.cs RecordExprSchema.cs CurveMonotonicFiniteRule.cs（T-N0-3）
   schema/      README.md（schema_registry 元表说明、信封/主键规则、判断记录）
   tests/       DataRegistryTests.cs SubstructureValidationTests.cs（ADR-0019 子结构递归校验）
-               CurveSchemaTests.cs（T-N0-1 曲线形态登记）
+               CurveSchemaTests.cs（T-N0-1 曲线形态登记）CurveMonotonicFiniteRuleTests.cs（T-N0-3）
+               ValidationRuleMetadataTests.cs（T-N0-2）
 ```
 
 ## 加载流程（`LoadAll`）
@@ -79,6 +80,7 @@ data_registry/
 | `substructure_depth` | ADR-0019：子结构递归深度超过 `MaxSubstructureDepth`（32），已停止对该子树继续校验（防御登记错误导致的无限递归，如把 `itemFactory` 误指向自身之外仍会成环的结构） |
 | `unknown_subfield` | ADR-0019：已登记 `Fields`（或 `Variants` 命中分支的字段清单）之外出现的多余子字段；默认关闭（`DataRegistryOptions.UnknownSubfieldSeverity = None`），开启后为 Warning |
 | `field_finite` | 第十八方深度审核 F-01：`Number` 字段的值是 NaN/±Infinity（不是有限浮点数）时报出；独立于该字段是否登记 `Range`——未登记上界的 `Range`（如 `Range(min: 0)`）本就放行 +Infinity，不能只靠 `field_range` 兜底。判断在类型检查之后、`field_range` 之前 |
+| `curve_monotonic_finite` | 分阶段落地计划 T-N0-3（04 第 5 节数值类校验项分级表"曲线单调有限"）：`CurveMonotonicFiniteRule`——本模块唯一自带的 `IValidationRule`（框架级、不认具体表名，由装配根 `PresentationSchemaCatalog.RegisterAll` 注册）；对全部登记为断点表形态（`CurveSchema`）的字段逐条记录检查：断点非空、逐值有限、`x` 严格递增无重复、`y` 不递减（允许平台段），任一不满足报 Error，问题定位到曲线字段完整路径（含对象子字段/数组元素/映射值/变体分支）；元素形态不符（已由 `required_field`/`field_type` 报过）跳过不重复报；与 `field_finite` 层次不同不合并 |
 | `expr_validation_error` | 第十八方深度审核 F-03：`Expr` 字段解析（`ExprParser.Parse`/`ExprLexer.Tokenize`）或静态校验（`ExprValidator.Validate`）内部抛出除 `ExprParseException` 之外的未预期异常时报出，Error 级、阻断；`ExprParseException` 仍归入既有 `expr_parsable`，不受影响 |
 
 其余检查项（效果数上限、预算超标、叠加类别冲突、外形映射存在、外形类型字段组完整、循环引用

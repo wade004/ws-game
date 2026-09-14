@@ -595,5 +595,25 @@ namespace Tests.Presentation.Assembly
             Assert.Contains(run.Report.Issues, i => i.Check == "field_allowed_value");
             Assert.DoesNotContain(run.Report.Issues, i => i.Check == SpawnSummonOnlyCreatureRule.CheckName);
         }
+
+        /// <summary>分阶段落地计划 T-N0-3：框架级曲线单调有限规则经 <see cref="PresentationSchemaCatalog.RegisterAll"/>
+        /// 注册，<see cref="ContentValidationAssembly.Run"/> 的报告规则清单里必须能看到它（T-N0-2 的
+        /// <see cref="ValidationReport.Rules"/>），且只登记一份（去重）。</summary>
+        [Fact]
+        public void Run_RegistersCurveMonotonicFiniteRule_Once()
+        {
+            var source = BuildCreatureTemplateSource();
+            var options = new ContentValidationOptions
+            {
+                FailOnUnknownTable = false,
+                DisplayMapCoverageSources = System.Array.Empty<(string, string)>(),
+            };
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
+
+            var summary = Assert.Single(run.Report.Rules, r => r.RuleId == nameof(CurveMonotonicFiniteRule));
+            Assert.Equal(ValidationSeverity.Error, summary.DefaultSeverity);
+            Assert.False(summary.NonEscalatable);
+        }
     }
 }

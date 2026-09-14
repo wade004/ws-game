@@ -167,6 +167,9 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `Rules`（`ValidationRuleSummary` 列表）与 `NonEscalatableWarningCount`，`WarningsBlock` 下不可提升
   规则的 Warning 不再计入 `IsBlocking`；`RegisterValidationRule` 按 `RuleId` 去重。编辑器问题面板
   可据 `RuleId`/`Group`/`Note` 分组展示；`toolchain/validator` 报告字段随 T-N0-6 补齐。
+- **数值设计落地 T-N0-3（Unreleased）**：新增框架级校验规则 `CurveMonotonicFiniteRule`（检查名
+  `curve_monotonic_finite`，Error 级），随 `PresentationSchemaCatalog.RegisterAll` 默认注册；编辑器
+  问题面板会出现这一新检查名，按检查名过滤的既有逻辑不受影响。
 
 ## [Unreleased]
 
@@ -193,6 +196,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `InterfaceDefaultMemberForwardingTests` 对非组合型规则逐条登记这三个默认成员的豁免（默认值即
   正确语义），组合/转发型规则仍须显式转发。既有规则与检查名一律未改。测试：
   `ValidationRuleMetadataTests` 11 例。
+- **数值设计落地阶段 N0 · T-N0-3（通用曲线单调有限阻断规则）**：`core/foundation/data_registry` 新增
+  `CurveMonotonicFiniteRule`（检查名 `curve_monotonic_finite`，Error 级）：对全部登记为断点表形态
+  （`CurveSchema`）的字段逐条记录检查断点非空、逐值有限、`x` 严格递增无重复、`y` 不递减（允许平台段），
+  嵌在对象子字段/数组元素/映射值/变体分支里的曲线一并覆盖，问题定位到完整字段路径；元素形态不符由
+  `required_field`/`field_type` 报，本规则不重复；与 `field_finite` 层次不同不合并。由
+  `PresentationSchemaCatalog.RegisterAll` 注册（`ContentValidationAssembly`/`toolchain/validator` 与
+  运行期组装根一处登记两边生效）。04 第 5 节分级表"曲线单调有限"一行补检查名与判定口径。测试：
+  `CurveMonotonicFiniteRuleTests` 12 例、`ContentValidationAssemblyTests` 新增 1 例。
 
 ## [1.29.0] - 2026-09-14
 
