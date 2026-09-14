@@ -39,6 +39,9 @@
 | `world.map` | 游戏必填 | 至少起始地图一条（`world/world.map.json`），`scene_ref`/`nav_ref` 指向的场景/导航资源需要引擎适配层能读到（Unity 侧见 `Editor/GameSceneBuilder.cs`/`build.ps1` 判断记录：本仓库工作台自测用途，用同名占位资源；正式游戏接入自己的资产管线） |
 | `item.budget_curve` | 游戏必填（若已有 `item.template` 内容）/ 可选（尚无任何物品内容时） | 至少 `item.budget.default` 一条（`item/item.budget_curve.json`），`ItemOptions.BudgetCurveId` 默认指向它——加固J3 起 `ItemBudgetValidationRule` 只在数据集确实登记了 `item.template` 行时才要求该曲线存在（没有物品就没有预算可超标，见框架 `data/README.md`"与校验器的关系"一节判断记录）；本模板暂无 `item.template` 行，这里保留的一条只是留作示例 |
 | `found.time_model` | 游戏必填 | 探索/战斗各一条（`found/found.time_model.json`），`Core.Gameplay.Assembly.TimeModelSwitch` 构造期无条件要求至少存在 `scope: exploration` 一条；本模板两条都给 `mode: continuous`（探索/战斗都走连续模式，架构文档 `architecture/13_新游戏接入指南.md` 第 4 节"口味项"里的默认选择），游戏若要接入回合制战斗，把 `found.time_model.combat` 一行改成 `mode: discrete` 并按 04 第 3.1 节补齐 `seconds_per_turn`/`initiative_policy`/`movement_budget_rule` 等字段 |
+| `item.slot_definition` | 游戏必填（若已有 `item.template` 内容）/ 空壳（尚无物品内容时） | 数值设计落地阶段 N0（分阶段落地计划 T-N0-7、拍板 10）补的空壳表：`item/item.slot_definition.json` 只有空 `rows`，槽位清单、`is_weapon`/`is_equipment` 与后续的槽位预算系数（ADR-0032 `budget_coefficient`）全部由具体游戏填写，模板里不写任何具体系数 |
+| `item.quality_definition` | 游戏必填（若已有 `item.template` 内容）/ 空壳（尚无物品内容时） | 同上：`item/item.quality_definition.json` 只有空 `rows`，品质分档与 `budget_multiplier`（预算倍率）由具体游戏填写，模板里不写任何具体系数 |
+| `stat.weight`、`combat.level_diff_table`、`skill.budget_rule` | 游戏必填（登记后） | 数值设计落地计划为这三张表预留的空壳位：它们的登记分别随阶段 N1（`stat.weight`、`combat.level_diff_table`）与 N3（`skill.budget_rule`）落地，登记前校验器对未登记表报错（`FailOnUnknownTable`），因此阶段 N0 不放文件，各阶段登记时随即补空壳 `rows: []` 到本目录并在此表追加行 |
 
 ## 覆盖 `arch.power.health`（可选）
 

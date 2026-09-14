@@ -236,6 +236,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `rules (N):` 段，问题行尾追加 ` [group: …]`/` [note: …]` 后缀（未填时逐字节不变）；
   `validate_data.py --json` 原样透传。既有字段名与语义一律不变。测试：
   `test_validate_data_json_output.py` 新增 3 例（规则清单、分组/说明、无规则时空数组）。
+- **数值设计落地阶段 N0 · T-N0-7（游戏模板空壳表与示例数据核对）**：`games/_template/data/game/item/`
+  新增 `item.slot_definition.json`/`item.quality_definition.json` 空壳（空 `rows`，不含任何具体系数，
+  拍板 10）；`stat.weight`/`combat.level_diff_table`/`skill.budget_rule` 三张表尚未登记（分别随 N1/N3
+  落地），登记前放文件会触发 `FailOnUnknownTable`，本阶段只在模板 `data/README.md` 表清单预留其位置。
+  `data/_sample` 迁移后数据（`item.budget_curve`/`stat.rating_conversion` v2）经 `validate_data.py
+  --strict` 与迁移回归测试核对一致。模板数据经 `validate_data.py --framework-root data/_framework
+  --data-root games/_template/data/game --strict` 零错误零警告（等价于 `validate.ps1 -Strict`）。
 
 ## [1.29.0] - 2026-09-14
 
