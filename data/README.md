@@ -214,16 +214,28 @@ data/<game_or_sample>/<domain>/<table>.json
   ContentValidationAssembly.CreateRegistry`/`LoadAll` 正式装配加载，内存里额外追加一条指向
   `creature.sample_summon_totem` 的 `spawn.table` 行（不落盘），断言产出
   `spawn_summon_only_creature` Error。
+- `toolchain/tests/test_validate_data_summon_only_rule_default_wiring.py`：真实调用 `dotnet`
+  （经 `validate_data.py` 拉起 `toolchain/validator`），把示例数据集拷到临时目录、往拷贝出的
+  `spawn.table.json` 追加同一条违规行后跑 `validate_data.py --strict`，断言退出码非 0、输出含
+  `spawn_summon_only_creature`——见下一条判断记录，这条路径现在也真的会拦下。
 
-**判断记录（`toolchain/validator` 侧无法演示同一场景）**：`SpawnSummonOnlyCreatureRule` 需要
-`ICreatureTemplateQuery` 才会注册（见 `ContentValidationOptions.CreatureTemplateQuery` 判断记录），
-而 `toolchain/validator`（一次性命令行进程）按既有设计从不接线该依赖——避免在未接线时注册一条
-"每次都产出 Warning"的规则、污染门禁要求的"0 错误 0 警告"（见 `toolchain/validator/Program.cs`
-判断记录）。因此 `python toolchain/validate_data.py --strict` 这条命令行路径下
-`spawn_summon_only_creature` 检查项恒不生效，`--json` 输出里 `SpawnSummonOnlyCreatureRule` 也恒
-出现在 `disabled_optional_rules`/`optional_rules[].enabled == false` 里——这是本工具既有取舍，不是
-本条反馈引入的缺陷，也不在本条反馈整改范围内；本仓库因此把"规则真的能触发"这条演示放进 C# 集成
-测试（见上），不是 `toolchain/tests` 里跑真实 `validate_data.py --strict` 子进程的 pytest。
+**判断记录（根治：`SpawnSummonOnlyCreatureRule` 现默认接线，`toolchain/validator` 侧同样生效）**：
+此前 `SpawnSummonOnlyCreatureRule` 需要显式提供 `ICreatureTemplateQuery` 才会注册（见
+`ContentValidationOptions.CreatureTemplateQuery` 判断记录），而 `toolchain/validator`（一次性命令行
+进程）按既有设计从不接线该依赖——`python toolchain/validate_data.py --strict` 这条命令行路径下
+`spawn_summon_only_creature` 检查项因此恒不生效，是示例数据门禁的一处真实缺口：`spawn.table` 即便
+真的引用一条 `summon_only` 生物，门禁也永远不会拦下。2026-09-14 根治（比照消费方反馈第 34 条
+`DisplayMapCoverageRule` 先例）：新增 `Core.Carriers.Creature.RegistryCreatureTemplateQuery`——直接
+从已构造的 `IDataRegistryView` 现读现解析 `creature.template` 记录（不像 `CreatureFactory` 那样要求
+"registry 必须已加载完成"这一更强前置条件，见该类型判断记录），`ContentValidationAssembly.
+CreateRegistryCore` 未提供 `CreatureTemplateQuery` 时默认改用它，规则因此默认启用。`toolchain/
+validator/Program.cs` 不需要任何改动——它从未显式设置过 `CreatureTemplateQuery`，走
+`ContentValidationAssembly` 的新默认值即可。`--json` 输出里 `SpawnSummonOnlyCreatureRule` 现出现
+在 `enabled_optional_rules`/`optional_rules[].enabled == true` 里，`disabled_optional_rules` 恒为
+空数组（两条可选规则现均默认启用，同 `DisplayMapCoverageRule` 现状）。**行为变更提醒**：消费方若
+自己的 `data/<game>/spawn/spawn.table.json` 引用了任何 `npc_flags` 含 `summon_only` 的生物模板，
+升级到本版本后 `validate_data.py --strict`（乃至默认的 `WarningsAllowed` 严格级别，因为
+`spawn_summon_only_creature` 是 Error 级，不受严格级别影响）会报错，需要先清理这类引用再升级。
 
 ## 编码与格式
 

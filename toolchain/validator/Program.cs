@@ -191,10 +191,19 @@ namespace Toolchain.Validator
             // 与编辑器基础套件共用同一份装配代码，见该类型注释判断记录）。消费方反馈第 34 条：
             // --display-map-sources 现在是可选覆盖——不传（displayMapSources 为 null）时
             // ContentValidationAssembly 默认使用 PresentationSchemaCatalog.DefaultDisplayMapCoverageSources
-            // （该规则默认启用，不再是"未接线即禁用"），传了则按解析结果覆盖默认清单；
-            // SpawnSummonOnlyCreatureRule 仍不接线——本工具运行时机（一次性命令行进程）没有真正的
-            // ICreatureTemplateQuery 实现可用（同 ContentValidationAssembly.CreateRegistry 判断记录），
-            // 与改动前行为一致。
+            // （该规则默认启用，不再是"未接线即禁用"），传了则按解析结果覆盖默认清单。
+            //
+            // 消费方反馈第 44 条根治（2026-09-14，比照上面第 34 条 DisplayMapCoverageRule 先例）：
+            // 本处判断记录此前写着"SpawnSummonOnlyCreatureRule 仍不接线——本工具运行时机（一次性
+            // 命令行进程）没有真正的 ICreatureTemplateQuery 实现可用"，据此本工具从未在
+            // CreatureTemplateQuery 传参——这是真实缺口：示例数据集的门禁（本命令行工具）因此从未
+            // 真正跑过这条规则，`spawn.table` 引用一条 `summon_only` 生物永远不会被拦下。根治：
+            // ContentValidationAssembly.CreateRegistryCore 现在未提供 CreatureTemplateQuery 时默认
+            // 改用 Core.Carriers.Creature.RegistryCreatureTemplateQuery（直接从已构造的 registry
+            // 现读现解析 creature.template 记录，不需要像 CreatureFactory 那样预先解析出完整索引，
+            // 因此命令行一次性进程这个运行时机同样可以直接用——此前"没有真正的实现可用"的判断记录
+            // 已不成立）。本工具不需要改动：validationOptions 仍不显式设置 CreatureTemplateQuery，
+            // 走 ContentValidationAssembly 的新默认值即可，SpawnSummonOnlyCreatureRule 现默认启用。
             var validationOptions = new ContentValidationOptions
             {
                 FailOnUnknownTable = true,

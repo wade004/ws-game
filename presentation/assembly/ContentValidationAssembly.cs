@@ -42,10 +42,18 @@ namespace Presentation.Assembly
         /// <c>null</c>。</summary>
         public Id? ItemBudgetCurveId { get; set; }
 
-        /// <summary>可选规则 <c>SpawnSummonOnlyCreatureRule</c> 的接线依赖：未提供（默认 <c>null</c>）
-        /// 时 <see cref="Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll"/> 不注册该规则
-        /// （见其判断记录，等价于"该项检查不生效"），本入口在 <see cref="ContentValidationRun.DisabledOptionalRules"/>
-        /// 里如实列出，不静默跳过。</summary>
+        /// <summary>
+        /// 可选规则 <c>SpawnSummonOnlyCreatureRule</c> 的接线依赖。校验器示例数据门禁从未真正跑过
+        /// 这条规则、消费方反馈第 44 条排查这一事实的根治（比照消费方反馈第 34 条
+        /// <see cref="DisplayMapCoverageRule"/> 先例）：未提供（默认 <c>null</c>）时本入口不再等价于
+        /// "该规则禁用"——改用 <see cref="Core.Carriers.Creature.RegistryCreatureTemplateQuery"/>
+        /// （直接从刚构造出的 <see cref="DataRegistry"/> 现读现解析 <c>creature.template</c> 记录，
+        /// 不需要预先解析出完整索引，见该类型判断记录），规则因此默认启用，如实列入
+        /// <see cref="ContentValidationRun.EnabledOptionalRules"/>，不再计入
+        /// <see cref="ContentValidationRun.DisabledOptionalRules"/>。显式提供查询实现的调用方仍以
+        /// 传入值为准（覆盖默认，如 <c>Core.Carriers.Creature.CreatureFactory</c> 装配完成后若需要
+        /// 重新校验，可传入自己那份已解析好的强类型索引，省一次重复解析）。
+        /// </summary>
         public ICreatureTemplateQuery? CreatureTemplateQuery { get; set; }
 
         /// <summary>
@@ -194,7 +202,9 @@ namespace Presentation.Assembly
             new OptionalRuleDescriptor(
                 SpawnSummonOnlyCreatureRuleName,
                 SpawnSummonOnlyCreatureRule.CheckName,
-                "校验 spawn.table 是否误将 summon_only 职能标志的生物模板直接配置为可刷出（07 第 2.2 节）"),
+                "校验 spawn.table 是否误将 summon_only 职能标志的生物模板直接配置为可刷出（07 第 2.2 节，" +
+                "消费方反馈第 44 条根治后默认启用，接线依赖 CreatureTemplateQuery 未显式提供时改用" +
+                "内置的 RegistryCreatureTemplateQuery）"),
             new OptionalRuleDescriptor(
                 DisplayMapCoverageRuleName,
                 DisplayMapCoverageRule.CheckName,
@@ -304,13 +314,18 @@ namespace Presentation.Assembly
             bus = options.Bus ?? CreateDefaultBus();
             var registry = new DataRegistry(primary, bus, registryOptions);
 
-            PresentationSchemaCatalog.RegisterAll(registry, options.ItemBudgetCurveId, options.CreatureTemplateQuery);
+            // 消费方反馈第 44 条根治（比照消费方反馈第 34 条 DisplayMapCoverageRule 先例，见
+            // ContentValidationOptions.CreatureTemplateQuery 判断记录）：未提供时默认改用
+            // RegistryCreatureTemplateQuery——它只持有 registry 引用，真正读取延迟到规则
+            // Validate() 调用时（此时数据已加载），构造顺序上不需要 registry 提前加载完成，
+            // 这里直接传刚 new 出来的 registry（它本身就是 IDataRegistryView）即可。
+            var creatureTemplateQuery = options.CreatureTemplateQuery ?? new RegistryCreatureTemplateQuery(registry);
+            PresentationSchemaCatalog.RegisterAll(registry, options.ItemBudgetCurveId, creatureTemplateQuery);
 
+            // 消费方反馈第 44 条：CreatureTemplateQuery 未指定时默认使用 RegistryCreatureTemplateQuery
+            // （见上），规则因此默认启用——不再有"未接线即禁用"的分支，SpawnSummonOnlyCreatureRuleName
+            // 不再计入 disabled。
             var disabled = new List<string>();
-            if (options.CreatureTemplateQuery == null)
-            {
-                disabled.Add(SpawnSummonOnlyCreatureRuleName);
-            }
 
             // 消费方反馈第 34 条：未指定时默认使用 PresentationSchemaCatalog.DefaultDisplayMapCoverageSources
             // （见该属性判断记录），规则因此默认启用——不再有"未接线即禁用"的分支，DisplayMapCoverageRuleName
