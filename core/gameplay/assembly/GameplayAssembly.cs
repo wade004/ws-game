@@ -1700,6 +1700,11 @@ namespace Core.Gameplay.Assembly
         /// 不落回 <see cref="IEconomyHost"/> 自身默认实现——同 <see cref="DeferredLootRoller.RollDetailed"/>
         /// 判断记录，见 <c>Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests</c> 门禁。
         /// </para>
+        /// <para>
+        /// T-N4-8 追加：<see cref="IEconomyHost"/> 新增第三个默认接口成员
+        /// <c>TryPay(Id,Id,long,string)</c>（带 reason 的原子扣费重载），同上一段判断记录同样显式
+        /// 转发，不落回接口自身默认实现。
+        /// </para>
         /// </summary>
         private sealed class DeferredEconomyHost : IEconomyHost
         {
@@ -1719,6 +1724,12 @@ namespace Core.Gameplay.Assembly
 
             public bool TryPay(Id unitId, Id currencyId, long amount) =>
                 _real?.TryPay(unitId, currencyId, amount) ?? false;
+
+            // T-N4-8：显式转发带 reason 的重载，不落回 IEconomyHost 自身默认实现（同本类型其余两个
+            // 默认接口成员 TryGetGoldBaseAmount/DepositPolicy 的判断记录，Tests.Presentation.Assembly.
+            // InterfaceDefaultMemberForwardingTests 门禁要求）。
+            public bool TryPay(Id unitId, Id currencyId, long amount, string reason) =>
+                _real?.TryPay(unitId, currencyId, amount, reason) ?? false;
 
             public PurchaseResult Buy(Id unitId, Id vendorId, Id itemId, int count) =>
                 _real?.Buy(unitId, vendorId, itemId, count) ?? PurchaseResult.Fail(PurchaseFailureReason.UnknownVendor);

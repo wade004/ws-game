@@ -362,6 +362,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   非新增校验维度。全部新增字段均为可选、`schema_version` 不递增，旧数据/旧存档不受影响；三条
   新检查规则默认注册但因未接入 `sim.anchor`（阶段 N6）而整体不产生任何问题，见
   `core/rules/skill/README.md` 判断记录 55、`core/carriers/item/README.md` 判断记录 26。
+- **数值设计落地阶段 N4 · T-N4-8（Unreleased）**：新增事件 `economy.charged`（字段
+  `unitId`/`currencyId`/`amount`/`reason`），已登记进 `found.event_catalog.json` 并生成
+  `EventKeys.EconomyCharged`；T-N4-7 新增的 `economy.currency_overflow`（字段
+  `unitId`/`currencyId`/`discarded`）同时补登记并生成 `EventKeys.EconomyCurrencyOverflow`。
+  `IEconomyHost.TryPay` 旧无 reason 三参数签名从本版本起也会在原子扣费成功时发
+  `economy.charged`（此前该签名不发任何"扣费"事件，只有 `Add` 间接发 `currency_changed`）——
+  依赖"该签名不发事件"这一旧行为的编辑器侧逻辑需要重新核对。新增带 reason 的
+  `TryPay(Id,Id,long,string)` 重载与 `CurrencyGranters.ViaEconomyHost` 静态工厂均为纯新增 C#
+  API，不涉及数据表/编辑器控件改动。
 
 ## [Unreleased]
 
@@ -419,6 +428,24 @@ entries[].ref` 放行 `econ` 域（`LootTableParser`/`LootContentValidationRule`
 表。数据侧：`data/_sample/econ/econ.currency.json` 补 `cap: 99999`；`data/_sample/loot/
 loot.table.json` 的 `loot.sample_beast` 新增一条 `econ.currency.sample_coin` 货币条目
 （`count_range: {min:1,max:3}`）。
+
+数值设计落地阶段 N4 · T-N4-8（ADR-0034 决策 5；08 第 7.4 节修订段；分阶段落地计划 M5/M7）：
+`IEconomyHost` 新增默认接口成员 `TryPay(Id unitId, Id currencyId, long amount, string reason):
+bool`（原子扣费带 reason 重载；ABI 只增，旧无 reason 三参数签名保留不变；默认实现转发旧签名、不发
+事件，唯一实现 `EconomyHost` 显式覆写为真实原子扣费 + 发事件逻辑，`GameplayAssembly.
+DeferredEconomyHost` 显式转发）。新增事件 `economy.charged`（`Core.Gameplay.Economy.
+EconomyChargedEvent`，字段 `unitId`/`currencyId`/`amount`/`reason`）：`TryPay(...,reason)` 原子
+扣费成功时触发。判断记录：`EconomyHost.TryPay(Id,Id,long)`（旧无 reason 签名）改为转发带 reason
+的新签名、传入占位 `reason="unspecified"`——旧调用路径（`Buy` 内部扣款改传显式
+`"vendor_buy"`，其余调用方维持占位）从本次起同样会发 `economy.charged`，与 ADR-0034 决策 5"原子
+扣费即发事件"口径一致（详见 `EconomyHost.TryPay(Id,Id,long)` 判断记录，编辑器等下游若依赖"旧签名
+不发扣费事件"的既有行为需要注意此变化）。任务/遭遇奖励货币入账收口：`core/gameplay/common.
+RewardDispatchDelegates` 新增 `CurrencyGranters.ViaEconomyHost(IEconomyHost)` 静态工厂，构造经
+`IEconomyHost.Add` 入账的 `CurrencyGranter`；`CurrencyGranter`/`RewardDispatcher` 既有签名不变，
+`GameplayAssembly` 现有等价闭包未切换（风格统一留待后续）。两条新经济事件登记与常量重生成收口：
+`economy.charged`、T-N4-7 遗留的 `economy.currency_overflow` 一并登记进
+`data/_framework/found/found.event_catalog.json`，`toolchain/gen_event_constants.py` 重生成
+`EventKeys.g.cs`（新增 `EconomyCharged`/`EconomyCurrencyOverflow` 两个常量，`--check` 通过）。
 
 ## [1.33.0] - 2026-09-15
 

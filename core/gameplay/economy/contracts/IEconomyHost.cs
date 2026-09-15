@@ -29,6 +29,30 @@ namespace Core.Gameplay.Economy
         /// <summary>尝试扣除 <paramref name="amount"/>（要求非负），余额不足则不生效、返回 false。</summary>
         bool TryPay(Id unitId, Id currencyId, long amount);
 
+        /// <summary>
+        /// T-N4-8（ADR-0034 决策 5；08 第 7.4 节修订段"tryCharge/TryPay(unitId, currencyId, amount,
+        /// reason)——余额足够时一次性扣除并发 economy.charged{unitId, currencyId, amount, reason}；
+        /// 不足时不扣、不发、返回 false"）：<see cref="TryPay(Id,Id,long)"/> 的带 <paramref
+        /// name="reason"/> 重载，语义（原子：先只读校验余额是否足够，足够才一次性扣除，不产生"扣了
+        /// 一部分"的中间态；不足时不扣不发直接返回 false）与旧签名完全一致，仅额外携带"这次扣费是为了
+        /// 什么"（如 <c>"vendor_buy"</c>/<c>"respawn_fee"</c>），随成功时发出的 <see
+        /// cref="EconomyChargedEvent.Reason"/> 字段供下游按用途拆分统计/日志。
+        /// <para>
+        /// 默认接口成员（ABI 硬性规则"只允许新增，禁止删除旧 TryPay"）：默认转发旧无 reason 签名
+        /// <see cref="TryPay(Id,Id,long)"/>，<b>不</b>发 <see cref="EconomyChargedEvent"/>——默认值
+        /// 语义是"这一次扣费调用方根本没有走带 reason 的新契约，也就不去凑一个假 reason 发一条新事件"，
+        /// 与 <see cref="TryGetGoldBaseAmount"/>/<see cref="DepositPolicy"/> 同一惯例（默认值是"中性
+        /// 退化"，不是"正确答案"）。唯一生产实现 <see cref="EconomyHost"/> 显式覆写为真正的原子扣费 +
+        /// 发事件逻辑，且其自身的 <see cref="TryPay(Id,Id,long)"/> 反过来转发本方法——两者是"接口默认
+        /// 值该是什么"与"唯一实现的旧签名该不该发事件"两个不同层次的独立判断，见 <see
+        /// cref="EconomyHost"/> 对应判断记录，不矛盾。组合/包装实现（如 <c>core/gameplay/assembly.
+        /// GameplayAssembly.DeferredEconomyHost</c>）须显式转发到内层真实宿主，见 <see
+        /// cref="TryGetGoldBaseAmount"/> 判断记录同款 <c>Tests.Presentation.Assembly.
+        /// InterfaceDefaultMemberForwardingTests</c> 门禁。
+        /// </para>
+        /// </summary>
+        bool TryPay(Id unitId, Id currencyId, long amount, string reason) => TryPay(unitId, currencyId, amount);
+
         PurchaseResult Buy(Id unitId, Id vendorId, Id itemId, int count);
 
         SellResult Sell(Id unitId, Id vendorId, Id itemInstanceId, int count);

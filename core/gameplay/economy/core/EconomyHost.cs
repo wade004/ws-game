@@ -45,7 +45,7 @@ namespace Core.Gameplay.Economy
     /// 判断记录 2——<see cref="Buy"/> 的"满包回滚不扣款"顺序：先检查限量库存与余额（只读，不改任何
     /// 状态），确认余额足够后才调用 <c>IInventoryHost.AddItem</c>；若加入数量（用前后
     /// <c>CountOf</c> 差值判定，同 <c>core/gameplay/loot.LootHost</c> 判断记录 7）不足
-    /// <paramref name="count"/>，回滚已加入的部分并直接返回失败，**不调用** <see cref="TryPay"/>——
+    /// <paramref name="count"/>，回滚已加入的部分并直接返回失败，**不调用** <see cref="TryPay(Id,Id,long,string)"/>——
     /// 保证"背包放不下"这一失败分支绝不会产生任何货币/库存副作用，不需要"先扣款、货物给不了再退款"
     /// 这种更复杂、更容易出错的补偿事务。
     /// </para>
@@ -322,7 +322,35 @@ namespace Core.Gameplay.Economy
             return true;
         }
 
-        public bool TryPay(Id unitId, Id currencyId, long amount)
+        /// <summary>T-N4-8 判断记录（旧无 reason 签名，转发带 reason 重载）：本方法从"独立实现原子
+        /// 扣费"改为直接调用 <see cref="TryPay(Id,Id,long,string)"/>、传入 <see
+        /// cref="UnspecifiedPayReason"/> 占位——效果是本方法从这次改动起也会在成功扣费时发 <see
+        /// cref="EconomyChargedEvent"/>（<c>reason = "unspecified"</c>）。这是刻意的判断，不是"顺手
+        /// 带上"：ADR-0034 决策 5 原文把"原子扣费"描述为唯一一种操作（"tryCharge……余额足够则扣并发
+        /// economy.charged 事件返回真"），没有定义"发生扣费但不发事件"的另一分支；<see cref="Add"/>
+        /// 早已是同样口径——不管调用方传的 <c>sourceId</c> 是否携带业务语义，只要余额真的变化就发
+        /// <c>currency_changed</c>，"这次调用有没有额外标注意图"从不影响"账本事件该不该发"。本方法
+        /// 与带 reason 的新签名在本类型里向来是同一份底层"检查余额、原子扣除"操作，只是历史上（T-N4-6
+        /// 及更早）没有 reason 标签可发；补上"缺省 reason 也发事件"后，返回值与对余额本身的副作用
+        /// 逐位不变（既有 <c>EconomyHostTests.TryPay_*</c> 用例不依赖"不发事件"，见该测试文件），只是
+        /// 让全部既有调用点（本类型 <see cref="Buy"/> 内部扣款、<c>GameplayAssembly.
+        /// DeferredEconomyHost</c> 代理、任何外部直接持有 <see cref="IEconomyHost"/> 引用调用旧签名的
+        /// 调用方）从这次改动起也能在事件总线上观察到扣费发生——与"账本必须能追溯全部资金变动"的既有
+        /// 设计取向一致，不产生"一部分扣费永远追踪不到"的暗角。<see cref="Buy"/> 自身改传显式
+        /// <c>"vendor_buy"</c>，不吃这个占位默认值（见该方法调用点）。<b>与 IEconomyHost 接口默认接口
+        /// 成员的默认值（转发旧签名、不发事件）是两个不同层次的判断，互不矛盾</b>——接口默认值面向"没有
+        /// 显式覆写的组合/包装实现该退化成什么"，本类型是唯一生产实现，可以且应该给出比中性默认值更
+        /// 正确的真实行为。</summary>
+        public bool TryPay(Id unitId, Id currencyId, long amount) =>
+            TryPay(unitId, currencyId, amount, UnspecifiedPayReason);
+
+        /// <summary>T-N4-8（ADR-0034 决策 5；08 第 7.4 节修订段）：带 reason 的原子扣费——余额足够
+        /// （<c>&gt;= amount</c>）时经 <see cref="Add"/> 一次性扣除并发 <see
+        /// cref="EconomyChargedEvent"/>（携带 <paramref name="reason"/>），返回 true；不足时不调用
+        /// <see cref="Add"/>（不扣、不发任何事件），返回 false——两个分支之间没有"扣了一部分"的中间
+        /// 状态，判定与扣除在同一次调用内完成（<see cref="GetBalance"/> 只读，<see cref="Add"/> 是
+        /// 唯一产生副作用的调用，二者之间没有其它可能改变余额的操作插入，天然原子）。</summary>
+        public bool TryPay(Id unitId, Id currencyId, long amount, string reason)
         {
             if (amount < 0)
             {
@@ -340,8 +368,14 @@ namespace Core.Gameplay.Economy
             }
 
             Add(unitId, currencyId, -amount, sourceId: unitId);
+            _bus.Enqueue(new EconomyChargedEvent(unitId, currencyId, amount, reason));
             return true;
         }
+
+        /// <summary>T-N4-8：<see cref="TryPay(Id,Id,long)"/>（旧无 reason 签名）转发到带 reason 重载
+        /// 时使用的占位——调用方没有提供任何"为什么扣费"的语义，不替它编造一个更具体的假理由，见该
+        /// 方法判断记录。</summary>
+        private const string UnspecifiedPayReason = "unspecified";
 
         private Dictionary<Id, long> EnsureWallet(Id unitId)
         {
@@ -424,7 +458,9 @@ namespace Core.Gameplay.Economy
                 transaction?.Commit();
             }
 
-            TryPay(unitId, sellItem.PriceCurrencyId, price);
+            // T-N4-8：显式传 "vendor_buy"，不吃 TryPay(Id,Id,long) 转发时用的占位 reason
+            // （见该方法判断记录）——购买场景本就知道自己为什么扣费，没有理由退化成占位值。
+            TryPay(unitId, sellItem.PriceCurrencyId, price, "vendor_buy");
             DecrementStock(vendorId, itemId, count);
             _bus.Enqueue(new ItemPurchasedEvent(unitId, vendorId, itemId, count, price));
             return PurchaseResult.Ok(price);

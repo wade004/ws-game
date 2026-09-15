@@ -87,8 +87,14 @@ namespace Core.Foundation.EventBus
         /// <summary>display_info.reloaded — 字段：无字段。DisplayInfoRegistry 底层数据重新加载完成（见 01 模块表 display_info 行）；不携带字段，字段为建议值。</summary>
         public static readonly Id DisplayInfoReloaded = new Id("display_info.reloaded");
 
+        /// <summary>economy.charged — 字段：unitId, currencyId, amount, reason。T-N4-8（ADR-0034 决策 5；08 第 7.4 节修订段）：EconomyHost.TryPay 原子扣费成功时触发；旧无 reason 三参数签名转发带 reason 的新签名并传入占位 reason="unspecified"，同样会发本事件，见 EconomyHost.TryPay(Id,Id,long) 判断记录。</summary>
+        public static readonly Id EconomyCharged = new Id("economy.charged");
+
         /// <summary>economy.currency_changed — 字段：unitId, currencyId, oldValue, newValue。货币数量变化时触发（见 01 L4 模块表 economy 行、08 第 7、9 节）；字段为建议值。</summary>
         public static readonly Id EconomyCurrencyChanged = new Id("economy.currency_changed");
+
+        /// <summary>economy.currency_overflow — 字段：unitId, currencyId, discarded。T-N4-7（ADR-0034 决策 4；08 第 7.4 节修订段）：EconomyHost.Add 使某单位某货币余额被夹取到 econ.currency.cap 之上而丢弃超出部分时触发；EconomyHost.SetBalance 即便结果同样被夹到 cap 也不发本事件，见该方法判断记录。</summary>
+        public static readonly Id EconomyCurrencyOverflow = new Id("economy.currency_overflow");
 
         /// <summary>economy.item_purchased — 字段：unitId, vendorId, itemTemplateId, count, price。从商人购买物品完成时触发（见 01 L4 模块表 economy 行、08 第 7、9 节 EconomyHost.buy）；字段为建议值。</summary>
         public static readonly Id EconomyItemPurchased = new Id("economy.item_purchased");
@@ -308,7 +314,9 @@ namespace Core.Foundation.EventBus
             DialogStoryNodeEntered,
             DifficultyApplied,
             DisplayInfoReloaded,
+            EconomyCharged,
             EconomyCurrencyChanged,
+            EconomyCurrencyOverflow,
             EconomyItemPurchased,
             EconomyItemSold,
             EconomyVendorRestocked,

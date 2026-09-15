@@ -5,11 +5,13 @@
 `econ.gold_base_curve`，ADR-0034 决策 2，T-N4-6）、货币掉落条目的金币基数取值与入账方式策略项
 （ADR-0034 决策 3/4，T-N4-7——落地实现见 `core/gameplay/loot`，本模块只提供
 `IEconomyHost.TryGetGoldBaseAmount`/`DepositPolicy` 两个查询点与超 cap 的 `economy.currency_overflow`
-事件）。对应 01 第 L4 模块表 `economy` 行（契约
+事件）、带 `reason` 的原子扣费 `TryPay(unitId, currencyId, amount, reason)` 与 `economy.charged` 事件
+（ADR-0034 决策 5，T-N4-8）、任务/遭遇奖励货币收口到 `IEconomyHost.Add`（`core/gameplay/common.
+CurrencyGranters.ViaEconomyHost`，T-N4-8）。对应 01 第 L4 模块表 `economy` 行（契约
 `EconomyHost.buy/sell(...)`、数据表 `econ.currency`/`econ.vendor`/`econ.value_curve`/
 `econ.gold_base_curve`、事件
-`economy.currency_changed`/`economy.item_purchased`/`economy.item_sold`/`economy.vendor_restocked`/
-`economy.currency_overflow`）。
+`economy.currency_changed`/`economy.charged`/`economy.item_purchased`/`economy.item_sold`/
+`economy.vendor_restocked`/`economy.currency_overflow`）。
 
 依赖：L0（`data_registry`/`event_bus`/`expr`）、L3（`Core.Carriers.Common.IInventoryHost`；T-N4-6 起
 价格公式按表名字符串读取 `item.template`/`item.quality_definition`/`item.slot_definition` 三张
@@ -19,7 +21,10 @@
 `Core.Carriers` 项目引用传递可见。T-N4-7 起被同一程序集内的 `core/gameplay/loot`（同层 L4）反向
 依赖——`LootHost`/`CreatureDeathLootListener` 持有 `IEconomyHost` 引用用于货币掉落条目换算/入账，
 见该模块 README 判断记录（同层 L4 互相依赖的先例是 `core/gameplay/loot` 对
-`core/gameplay/difficulty.IDifficultyHost` 的既有依赖，T-N2-8b）。
+`core/gameplay/difficulty.IDifficultyHost` 的既有依赖，T-N2-8b）。T-N4-8 起同样被
+`core/gameplay/common`（同层 L4，`RewardDispatcher` 所在模块）反向依赖——
+`RewardDispatchDelegates.CurrencyGranters.ViaEconomyHost` 引用 `IEconomyHost` 把货币奖励收口到
+`Add`，见该文件判断记录。
 
 ## 目录
 
@@ -32,14 +37,18 @@ economy/
                                    VendorSellItem 新增 HasPriceAmount + 对应构造重载）
     EconomySchemas.cs             econ.currency/econ.vendor/econ.value_curve/econ.gold_base_curve
                                    的 TableSchema（T-N4-6 新增后两张）
-    IEconomyHost.cs                契约接口（T-N4-7：新增默认接口成员 TryGetGoldBaseAmount/DepositPolicy）
+    IEconomyHost.cs                契约接口（T-N4-7：新增默认接口成员 TryGetGoldBaseAmount/DepositPolicy；
+                                   T-N4-8：新增默认接口成员 TryPay(Id,Id,long,string) 带 reason 重载，
+                                   默认转发旧签名、不发事件）
     PurchaseResult.cs             Buy 返回值 + 失败原因枚举
     SellResult.cs                  Sell 返回值 + 失败原因枚举
     EconomyOptions.cs              售价比例（重定位）、价值曲线 id、偏离警告阈值等策略配置（T-N4-6）；
                                    T-N4-7 新增 GoldBaseCurveId、DepositPolicy（CurrencyDepositPolicy
                                    枚举，OnKill/GroundPickup，同文件顶层类型）
-    Events.cs                      EconomyEventKeys + 五个事件类型（T-N4-7 新增
-                                   economy.currency_overflow/CurrencyOverflowEvent）
+    Events.cs                      EconomyEventKeys + 六个事件类型（T-N4-7 新增
+                                   economy.currency_overflow/CurrencyOverflowEvent；T-N4-8 新增
+                                   economy.charged/EconomyChargedEvent，两条事件本次登记进
+                                   found.event_catalog.json 并重生成 EventKeys.g.cs）
     EconomyExprSchemaEntries.cs    player.currency(currencyId): Int 登记
     ChainedExprGroupProvider.cs    player 分组"链式包装"合并帮助类型
   core/
@@ -53,7 +62,9 @@ economy/
                                    （检查名 econ_price_deviates_formula，待设计层确认）
     EconomyHost.cs                  IEconomyHost 唯一实现（T-N4-6：Buy/Sell 缺省走价格公式；T-N4-7：
                                    Add 超 cap 发 currency_overflow，SetBalance 不发；显式覆写
-                                   TryGetGoldBaseAmount/DepositPolicy 两个默认接口成员）
+                                   TryGetGoldBaseAmount/DepositPolicy 两个默认接口成员；T-N4-8：显式
+                                   覆写 TryPay(Id,Id,long,string) 为真正的原子扣费 + 发 charged 事件，
+                                   旧 TryPay(Id,Id,long) 反过来转发新签名传占位 reason，见判断记录 14）
     PlayerCurrencyExprGroupProvider.cs  player.currency 的 IExprGroupProvider 实现
     CurrencyPersistable.cs          player.currencies 段
     VendorStockPersistable.cs       world.vendor_stock 段（补录，可选）
@@ -64,6 +75,10 @@ economy/
                                    正负例、NonEscalatable、新表 schema 覆盖
     T_N4_7_CurrencyOverflowTests.cs Add 超 cap 丢弃并发 currency_overflow（2 组：discards+emits、
                                    within-cap 不发）、SetBalance 夹取但不发该事件
+    T_N4_8_TryPayReasonAndRewardCurrencyTests.cs TryPay(reason) 原子性 2 组（成功扣费发 charged、
+                                   余额不足不扣不发）、旧签名转发新签名同样发事件 1 组、
+                                   RewardDispatcher 经 CurrencyGranters.ViaEconomyHost 发放货币
+                                   奖励真正经 IEconomyHost.Add 入账 1 组、工厂方法拒绝 null 1 组
 ```
 
 ## 判断记录
@@ -243,6 +258,58 @@ economy/
     - 测试：`tests/T_N4_7_CurrencyOverflowTests.cs`（`Add` 超 cap 丢弃+发事件、`Add` 未超 cap 不发、
       `SetBalance` 超 cap 夹取但不发，3 例）；`core/gameplay/loot/tests/T_N4_7_CurrencyLootTests.cs`/
       `T_N4_7_CreatureDeathCurrencyDepositTests.cs`（消费端集成用例，见该模块 README）。
+
+14. **T-N4-8（ADR-0034 决策 5；08 第 7.4 节修订段"tryCharge/TryPay(unitId, currencyId, amount,
+    reason)——余额足够时一次性扣除并发 economy.charged{unitId, currencyId, amount, reason}；不足时
+    不扣、不发、返回 false"）：`TryPay` 带 reason 重载、旧签名转发决策、任务奖励货币收口、两条
+    经济事件登记收口。**
+    - `IEconomyHost` 新增默认接口成员 `TryPay(Id unitId, Id currencyId, long amount, string
+      reason): bool`（ABI 硬性规则"只允许新增，禁止删除旧 TryPay"）。默认实现转发旧无 reason
+      三参数签名、**不**发 `EconomyChargedEvent`（"调用方没有走带 reason 的新契约，也就不去凑一个
+      假 reason 发一条新事件"，与 `TryGetGoldBaseAmount`/`DepositPolicy` 同一惯例）；唯一生产实现
+      `EconomyHost` 显式覆写为真正的原子扣费（先只读校验余额是否足够，足够才一次性经 `Add` 扣除，
+      不产生"扣了一部分"的中间态）+ 成功时发 `EconomyChargedEvent`。`core/gameplay/assembly.
+      GameplayAssembly.DeferredEconomyHost` 显式转发该成员，已过
+      `Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests` 门禁。
+    - **判断记录（旧无 reason 三参数签名要不要也发事件，本次的核心判断）**：`EconomyHost.
+      TryPay(Id,Id,long)` 改为直接调用带 reason 的新签名、传入占位 `"unspecified"`——效果是旧签名
+      从本次改动起也会在成功扣费时发 `economy.charged`。这不是"顺手带上"，是对照 ADR-0034 决策 5
+      原文做出的判断：原文把"原子扣费"描述成唯一一种操作（"tryCharge……余额足够则扣并发
+      economy.charged 事件返回真"），没有定义"发生扣费但不发事件"的另一分支；`Add` 早已是同样口径
+      ——不管调用方传的 `sourceId` 是否携带业务语义，只要余额真的变化就发 `currency_changed`，"这次
+      调用有没有额外标注意图"从不影响"账本事件该不该发"。旧签名与新签名在本类型里向来是同一份底层
+      "检查余额、原子扣除"操作，只是历史上（T-N4-6 及更早）没有 reason 标签可发；补上"缺省 reason
+      也发事件"后，返回值与对余额本身的副作用逐位不变（既有 `EconomyHostTests.TryPay_*` 用例不依赖
+      "不发事件"，全部保持通过），只是让全部既有调用点——本类型 `Buy` 内部扣款（本次改为显式传
+      `"vendor_buy"`，不吃占位默认值）、`GameplayAssembly.DeferredEconomyHost` 代理、任何外部直接
+      持有 `IEconomyHost` 引用调用旧签名的调用方——从这次改动起也能在事件总线上观察到扣费发生。
+      与"接口默认接口成员的默认值（转发旧签名、不发事件）"是两个不同层次的判断，互不矛盾：接口
+      默认值面向"没有显式覆写的组合/包装实现该退化成什么"，`EconomyHost` 是唯一生产实现，可以且
+      应该给出比中性默认值更正确的真实行为。
+    - **任务奖励货币收口到 `IEconomyHost`**：`core/gameplay/common/contracts/
+      RewardDispatchDelegates.cs` 新增 `CurrencyGranters.ViaEconomyHost(IEconomyHost)` 静态工厂，
+      构造一个把货币奖励经 `IEconomyHost.Add` 入账的 `CurrencyGranter`。`CurrencyGranter` 委托类型
+      本身未删除/未改写（ABI"只允许新增"，且 `RewardDispatcher` 既有构造参数与
+      `GameplayAssembly` 现有 `currencyGranter` 闭包都依赖它继续存在）——`GameplayAssembly` 现有
+      闭包本就直接调用 `EconomyHost.Add`（同一效果），未切换到本工厂：任务书要求 `GameplayAssembly.
+      cs` 本次"只加行"，且切换纯属风格统一、不产生行为差异，留给后续任务收敛，不在 T-N4-8 范围内。
+      验收用 `core/gameplay/economy/tests/T_N4_8_TryPayReasonAndRewardCurrencyTests.
+      RewardDispatcher_GrantCurrency_ViaEconomyHost_DepositsThroughAdd` 验证：用本工厂构造的
+      `CurrencyGranter` 注入 `RewardDispatcher`，`Grant` 后货币真正落地在 `EconomyHost` 的余额表里
+      （经 `Add`，触发既有 `currency_changed` 账本事件），不是绕开经济宿主的旁路。
+    - **两条经济事件登记收口**：`economy.charged`（`fields: [unitId, currencyId, amount, reason]`）
+      与 T-N4-7 遗留的 `economy.currency_overflow`（`fields: [unitId, currencyId, discarded]`）一并
+      登记进 `data/_framework/found/found.event_catalog.json`，跑 `python
+      toolchain/gen_event_constants.py` 重生成 `core/foundation/event_bus/generated/
+      EventKeys.g.cs`（新增 `EconomyCharged`/`EconomyCurrencyOverflow` 两个常量，`--check` 通过）。
+      `EconomyEventKeys`（本类型手写的 `Id` 常量）与生成的 `EventKeys` 并存，值逐字相同——前者是
+      本模块内部长期以来的既有惯例（订阅/发布都引用它），后者供不方便直接依赖
+      `Core.Gameplay.Economy` 的外部消费方使用，改哪一套的引用来源属于超出本任务范围的重构。
+      `core/foundation/data_registry/tests/DataRegistryTests.cs` 里硬编码的 `found.event_catalog`
+      行数断言（`88 -> 90` 的既有注释）随之更新为 `90 -> 92`。
+    - 测试：`tests/T_N4_8_TryPayReasonAndRewardCurrencyTests.cs`（原子性 2 组：成功扣费发
+      charged、余额不足不扣不发；旧签名转发新签名同样发事件 1 组；`RewardDispatcher` 经
+      `IEconomyHost.Add` 入账 1 组；工厂方法拒绝 null 1 组）。
 
 ## 子结构登记表（ADR-0019 / F1b）
 
