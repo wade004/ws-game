@@ -438,6 +438,36 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   结论同步进目录约定正文，不新增结论）：`architecture/11_工程规范与测试.md` 第 1 节目录树补
   `core/sim/` 一行，并为"`core/` 下的模块不得引用 `adapters/`"这条规则补充唯一例外；
   `architecture/01_分层与依赖.md` 第 4 节"实现级共享目录"同步补 `core/sim` 一行。
+- **数值设计落地阶段 N6 · T-N6-2a**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 4）：`core/sim` 新增 `schema/`（`SimSchemas.cs`/`SimValidationRules.cs`/
+  `SimSchemaCatalog.cs`）——`sim.anchor`（每级期望 HP/DPS/TTK/TTD/期望装备等级 E(L)/目标每级时长
+  T(L)/期望击杀间隔 G(L)/任务探索占比 Q(L)，数值总纲第 4.1 节）与 `sim.scenario`（仿真场景：双方、
+  等级、分档、次数、种子、对照锚点与带宽）两张表的 `TableSchema` 声明、专属表级校验规则
+  `SimAnchorValidationRule`（等级从 1 连续无缺口无重复 [阻断]、`expected_item_level` 沿等级单调
+  不减 [警告，不可提升]）与 `SimScenarioValidationRule`（`kind` 专属等级覆盖字段条件必填、
+  `opponent.level`/`level_offsets` 二选一）、统一注册入口 `SimSchemaCatalog.RegisterAll`；`core/`
+  新增类型化只读读取 `AnchorTable`（`MaxLevel`/`TryGet`/`Get`）与
+  `ScenarioCatalog`（`All`/`TryGet`/`Get`/`ByKind`）。`SchemaLayer` 新增 `Sim` 成员（04 第 1.1 节
+  "层"列原文"框架工具（无头仿真）"，不对应 01 文档任一层，纯新增不删改，非破坏性变更）。
+  `HeadlessWorldBuilder.Build` 在 `GameplaySchemaCatalog.RegisterAll` 之后追加
+  `SimSchemaCatalog.RegisterAll`，`HeadlessWorld` 新增 `AnchorTable?`/`ScenarioCatalog?` 两个可空
+  属性（数据根未提供对应数据时为 `null`，不抛异常）——两表仍"仅无头仿真与内容工具读取，运行期
+  宿主不读"，不进 `GameplaySchemaCatalog`/`PresentationSchemaCatalog`。`Presentation.Assembly.
+  ContentValidationOptions` 新增可选属性 `ExtraSchemaRegistration`（`Action<IDataRegistry>?`，ABI
+  兼容的纯新增属性），供 `toolchain/validator`（`--data-root` 校验与 `--schema-audit` 两条路径）与
+  `Tests.PresentationCommon`（`NumericValidationRuleCatalogTests`，因 `data/_sample` 新增 `sim/`
+  域而需要接入）接入 `SimSchemaCatalog.RegisterAll`；`toolchain/validator/Validator.csproj`、
+  `Tests.PresentationCommon.csproj` 新增对 `Core.Sim.csproj`（含 `Adapters.Stub.csproj`）的引用
+  （源码树/独立发行包二选一分支，同 `Presentation.Common` 既有惯例；独立发行包分支当前缺
+  `lib/Core.Sim.dll`/`lib/Adapters.Stub.dll`，`build.ps1` 未打包，已知缺口留给 T-N6-7）。新增示例
+  数据 `data/_sample/sim/{sim.anchor,sim.scenario}.json`（五级锚点 + 一个 arena 场景）与
+  `games/_template/data/game/sim/{sim.anchor,sim.scenario}.json` 空壳表（`rows: []`）。新增测试
+  `Tests.Sim.{SimSchemaTests,AnchorTableTests,ScenarioCatalogTests,HeadlessWorldBuilderSimTests}`
+  （25 例：schema 正反例、类型化读取、`HeadlessWorldBuilder` 用 `data/_framework`+`data/_sample`
+  构建后 `AnchorTable` 5 行/`ScenarioCatalog` 1 个场景）。架构文档勘误：`architecture/
+  04_数据与内容管线.md` 第 5 节数值类校验项分级表新增三行检查登记
+  （`sim_anchor_level_continuity`/`sim_anchor_expected_item_level_monotonic`/
+  `sim_scenario_level_coverage_required`），不改变既有检查项判定逻辑。
 
 ## [1.35.0] - 2026-09-16
 

@@ -20,6 +20,15 @@
   <ItemGroup>
     <ProjectReference Include="../Presentation.Common.csproj" />
     <ProjectReference Include="../../adapters/stub/Adapters.Stub.csproj" />
+    <!-- T-N6-2a：data/_sample 新增 sim/ 域（sim.anchor/sim.scenario，仅无头仿真与内容工具读取，不进
+         PresentationSchemaCatalog，见 Core.Sim.SimSchemaCatalog 类型判断记录）之后，
+         NumericValidationRuleCatalogTests 对 data/_framework+data/_sample 全量跑
+         ContentValidationAssembly.Run（FailOnUnknownTable 默认 true）会因为遇到未登记 schema 的
+         sim.* 表而报 envelope 错误——需要引用 Core.Sim 才能在该测试里经
+         ContentValidationOptions.ExtraSchemaRegistration 钩子接入 SimSchemaCatalog.RegisterAll
+         （同 toolchain/validator 的接入方式）。本项目已经引用 Adapters.Stub（见上一行），
+         Core.Sim 同样依赖 Adapters.Stub，不新增额外的依赖边界。 -->
+    <ProjectReference Include="../../core/sim/Core.Sim.csproj" />
   </ItemGroup>
 
 </Project>

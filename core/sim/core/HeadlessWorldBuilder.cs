@@ -113,6 +113,15 @@ namespace Core.Sim
         public StubFileSystem FileSystem { get; }
         public RealSaveSystem SaveSystem { get; }
 
+        /// <summary>T-N6-2a：<c>sim.anchor</c> 的类型化只读读取；数据根未提供任何 <c>sim.anchor</c>
+        /// 行时为 <c>null</c>（不抛异常，见 <see cref="HeadlessWorldBuilder.Build"/> 判断记录
+        /// "sim.* 表数据可选"）。</summary>
+        public AnchorTable? AnchorTable { get; }
+
+        /// <summary>T-N6-2a：<c>sim.scenario</c> 的类型化只读读取；数据根未提供任何 <c>sim.scenario</c>
+        /// 行时为 <c>null</c>，同 <see cref="AnchorTable"/>。</summary>
+        public ScenarioCatalog? ScenarioCatalog { get; }
+
         internal HeadlessWorld(
             IEventBus bus,
             List<IEvent> events,
@@ -125,7 +134,9 @@ namespace Core.Sim
             GameplayAssembly gameplay,
             PlayerUnit player,
             StubFileSystem fileSystem,
-            RealSaveSystem saveSystem)
+            RealSaveSystem saveSystem,
+            AnchorTable? anchorTable,
+            ScenarioCatalog? scenarioCatalog)
         {
             Bus = bus;
             Events = events;
@@ -139,6 +150,8 @@ namespace Core.Sim
             Player = player;
             FileSystem = fileSystem;
             SaveSystem = saveSystem;
+            AnchorTable = anchorTable;
+            ScenarioCatalog = scenarioCatalog;
         }
     }
 
@@ -177,6 +190,11 @@ namespace Core.Sim
             registryOptions.FailOnUnknownTable = options.FailOnUnknownTable;
             var registry = new DataRegistry(options.DataSources[0], bus, registryOptions);
             GameplaySchemaCatalog.RegisterAll(registry);
+            // T-N6-2a（ADR-0035 决策 4）：sim.anchor/sim.scenario 仅无头仿真与内容工具读取、运行期
+            // 宿主不读（见 SimSchemaCatalog 类型注释判断记录"为何不并入 GameplaySchemaCatalog"）——
+            // 装配根既服务运行期宿主（GameWorldFixture 转发调用）又服务无头仿真本身，两张表因此在
+            // GameplaySchemaCatalog.RegisterAll 之后单独追加登记，不进 GameplaySchemaCatalog 本身。
+            SimSchemaCatalog.RegisterAll(registry);
             var report = registry.LoadAll(options.DataSources);
             if (report.IsBlocking)
             {
@@ -209,8 +227,17 @@ namespace Core.Sim
             spatial.Register(options.PlayerId, player.Position, options.PlayerSpawnRadius);
             gameplay.Economy.RegisterUnit(options.PlayerId);
 
+            // 判断记录（sim.* 表数据可选）：SimSchemaCatalog.RegisterAll 总是登记 schema，但数据根
+            // 完全可以不提供任何 sim.anchor/sim.scenario 行（如既有端到端测试夹具的数据集，见
+            // GameWorldFixture 转发调用）——registry.GetAll 对"schema 已注册但零行"返回空列表，不抛
+            // 异常（DataRegistry.GetAllUnchecked 判断记录），这里按"是否有至少一行"决定是否构造类型化
+            // 读取，不得为零行场景抛异常（任务书"数据里无 sim 表时为 null 或空，不得抛"）。
+            var anchorTable = registry.GetAll("sim.anchor").Count > 0 ? new AnchorTable(registry) : null;
+            var scenarioCatalog = registry.GetAll("sim.scenario").Count > 0 ? new ScenarioCatalog(registry) : null;
+
             return new HeadlessWorld(
-                bus, events, registry, report, rng, world, spatial, clock, gameplay, player, fs, saveSystem);
+                bus, events, registry, report, rng, world, spatial, clock, gameplay, player, fs, saveSystem,
+                anchorTable, scenarioCatalog);
         }
     }
 }

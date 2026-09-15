@@ -31,5 +31,15 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>L5 表现层 Presentation。</summary>
         Presentation,
+
+        /// <summary>
+        /// T-N6-2a（ADR-0035 决策 4）：框架工具（无头仿真），04 第 1.1 节表清单"层"列对
+        /// <c>sim.scenario</c>/<c>sim.anchor</c> 两表的取值原文——不对应 01 文档 L-1～L5 中任何一层
+        /// （见 01 第 4 节 2026-09-16 勘误"<c>core/sim</c>……不对应 L0～L4 中的某一层"），是
+        /// <c>core/sim</c> 装配根专属的表级归属标签，只给这两张表用，供 ADR-0022 <c>table_ownership</c>
+        /// 门禁判定"Layer 已登记"。新增枚举成员是纯粹的类型表面扩容（不删改任何既有成员），不构成
+        /// 破坏性变更；仓库内无任何对 <see cref="SchemaLayer"/> 的穷尽 switch（已核实），新增成员不会
+        /// 让既有代码产生未处理分支。</summary>
+        Sim,
     }
 }

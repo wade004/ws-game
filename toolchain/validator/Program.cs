@@ -210,6 +210,11 @@ namespace Toolchain.Validator
                 Strictness = strict ? DataRegistryStrictness.WarningsBlock : DataRegistryStrictness.WarningsAllowed,
                 DisplayMapCoverageSources = displayMapSources,
                 WarnOnMissingTranslation = !noMissingTranslationWarning,
+                // T-N6-2a：sim.scenario/sim.anchor 仅无头仿真与内容工具读取（ADR-0035），不进
+                // PresentationSchemaCatalog——本工具正是"内容工具"之一，经 ExtraSchemaRegistration
+                // 钩子把这两张表接进本次校验（见 ContentValidationOptions.ExtraSchemaRegistration
+                // 判断记录）。
+                ExtraSchemaRegistration = Core.Sim.SimSchemaCatalog.RegisterAll,
             };
             var effectiveDisplayMapCoverageSources = displayMapSources ?? PresentationSchemaCatalog.DefaultDisplayMapCoverageSources;
 
@@ -356,10 +361,17 @@ namespace Toolchain.Validator
                 }
             }
 
-            var schemas = SchemaAudit.EnumerateRegisteredSchemas();
+            // T-N6-2a：--schema-audit 同样要覆盖 sim.scenario/sim.anchor（见上面主校验路径同一处
+            // ExtraSchemaRegistration 判断记录）——两个 Enumerate* 入口各自独立构造 registry（见其
+            // 实现），必须各自传入同一份 options，否则 --schema-audit 会漏审这两张新表。
+            var schemaAuditOptions = new ContentValidationOptions
+            {
+                ExtraSchemaRegistration = Core.Sim.SimSchemaCatalog.RegisterAll,
+            };
+            var schemas = SchemaAudit.EnumerateRegisteredSchemas(schemaAuditOptions);
             // 消费方反馈第 37 条：一并读出已登记的 DeclareReference 声明，供 declared_reference_unregistered
             // 检查使用（见 SchemaAudit.CheckDeclaredReferencesRegistered 判断记录）。
-            var referenceDeclarations = SchemaAudit.EnumerateReferenceDeclarations();
+            var referenceDeclarations = SchemaAudit.EnumerateReferenceDeclarations(schemaAuditOptions);
             var report = SchemaAudit.Run(schemas, allowlist, referenceDeclarations);
 
             if (jsonOutput)

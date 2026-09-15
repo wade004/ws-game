@@ -1,0 +1,67 @@
+{
+  "table": "sim.anchor",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "sim.anchor.l1",
+      "level": 1,
+      "hp": 100,
+      "dps": 10,
+      "ttk_seconds": 5,
+      "ttd_seconds": 8,
+      "expected_item_level": 1,
+      "level_duration_seconds": 300,
+      "kill_interval_seconds": 15,
+      "quest_share": 0.3
+    },
+    {
+      "id": "sim.anchor.l2",
+      "level": 2,
+      "hp": 140,
+      "dps": 14,
+      "ttk_seconds": 5,
+      "ttd_seconds": 8,
+      "expected_item_level": 2,
+      "level_duration_seconds": 320,
+      "kill_interval_seconds": 15,
+      "quest_share": 0.3
+    },
+    {
+      "id": "sim.anchor.l3",
+      "level": 3,
+      "hp": 190,
+      "dps": 19,
+      "ttk_seconds": 5,
+      "ttd_seconds": 8,
+      "expected_item_level": 3,
+      "level_duration_seconds": 340,
+      "kill_interval_seconds": 16,
+      "quest_share": 0.3
+    },
+    {
+      "id": "sim.anchor.l4",
+      "level": 4,
+      "hp": 250,
+      "dps": 25,
+      "ttk_seconds": 5,
+      "ttd_seconds": 8,
+      "expected_item_level": 4,
+      "level_duration_seconds": 360,
+      "kill_interval_seconds": 16,
+      "quest_share": 0.25
+    },
+    {
+      "id": "sim.anchor.l5",
+      "level": 5,
+      "hp": 320,
+      "dps": 32,
+      "ttk_seconds": 5,
+      "ttd_seconds": 8,
+      "expected_item_level": 5,
+      "level_duration_seconds": 380,
+      "kill_interval_seconds": 17,
+      "quest_share": 0.25,
+      "note": "T-N6-2a 示例数据：五级线性增长，仅供 schema/校验/AnchorTable 测试使用，不代表任何真实数值拍板"
+    }
+  ]
+}
