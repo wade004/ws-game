@@ -15,17 +15,19 @@
 | `kind` | Enum(`active`\|`passive`) | 是 | 主动技能走施法管线；被动技能不可主动施放 |
 | `range` | Number | 是 | 射程，`0` 表示无限制/作用于自身，不做范围检查 |
 | `tags` | List\<Id\> | 否 | 供 `SpellMod.affects` 与 Expr 按标签过滤 |
-| `cast_time` | Number | 是 | 读条时间，`0` 表示瞬发 |
+| `cast_time` | Number | 是 | 读条时间，`0` 表示瞬发；同时承担"动作时长"语义——期间不能开始下一个技能，效果在动作结束时生效，逻辑层不区分读条与快速挥砍（[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 10，见 06 第 3.1 节 2026-09-14 修订段。**契约疑点**：数值总纲"一拍常数"只是技能预算公式的记账单位，ADR-0031 决策 10 原文明确"运行期不存在任何锁"——`cast_time: 0` 的瞬发技能不因这个记账常数而占用任何实际节拍窗口，是否受节拍锁约束完全由 `respects_gcd` 决定，与"仍占一个节拍"这类表述无关） |
 | `channel_time` | Number | 否 | 引导时长，与 `cast_time` 互斥（不得同时非零，见校验规则） |
-| `cost` | Array | 否 | `[{power_type: Id, amount: Number}, ...]` |
+| `cost` | Array | 否 | 消耗资源列表，只有固定值写法（不做资源上限百分比、引导每秒等模式）；引导技能施法开始时一次性扣；非战斗技能（开锁、传送、坐骑、造物等）消耗为零，约束改由 `use_condition`、动作时长与冷却承担（ADR-0031 决策 3）：`[{power_type: Id, amount: Number}, ...]` |
 | `cooldown_category` | Id | 否 | 冷却分类引用，同分类技能共享冷却 |
 | `cooldown_duration` | Number | 否 | 冷却时长，缺省 0 |
 | `charges` | Object | 否 | `{max: Int, recharge_time: Number}`；存在时冷却判定改走充能而非 `cooldown_duration` |
 | `action_cost` | Number | 否 | 离散模式行动点消耗；`SkillDefCache` 解析为 `SkillDef.ActionCost`（缺省 0），`CastPipeline` 经注入的 `SkillOptions.TryConsumeActionPoints`/`IsDiscreteStep` 在离散步内扣减（连续模式或未装配注入点时忽略本字段，见 W1 收边补齐、A3 审计 #5） |
-| `respects_gcd` | Bool | 是 | 是否受公共冷却影响 |
+| `respects_gcd` | Bool | 是 | 字段名保留，语义由"是否受公共冷却影响"扩展为"是否受节拍锁约束"——开公共冷却时节拍锁是公共冷却，关公共冷却（默认）时节拍锁是当前动作时长（`cast_time`）；声明为 `false` 的反应类技能（打断/格挡/保命）可在他技能动作中插入（ADR-0031 决策 10） |
 | `target_shape_ref` | Id | 是 | 指向 `target.chain_def`（本模块施法管线步骤 6 按此语义直接传给 `ITargetHost.Resolve`，见 README"判断记录"第 1 条） |
 | `effects` | Array | 是 | `[{kind: String(snake_case), params: Object}, ...]`，`kind` 取值见 `EffectKindNames`；ADR-0019 起元素结构登记为 `SkillSchemas.EffectsItemSchema`（按 `kind` 分派的 `Variants`，19 种原语各自的 `params` 结构见下"效果原语参数表"），加载期递归校验 |
 | `interrupt_flags` | Array\<String\> | 否 | `movement`\|`damage_taken`\|`control` 的子集，元素登记为 `Enum(InterruptFlagValues)` |
+| `use_condition` | Expr | 否 | 使用条件（宿主为施法者上下文，`self`/`combat`/`target` 分组，见 04 第 6.2 节"宿主引用分组"）；为假时施法返回 `ConditionNotMet`（T-N3-4 落地），就绪查询（`getSkillReadiness`）同步反映；"脱战才能用""仅限战斗中""目标是物件"均用它表达（ADR-0031 决策 9，见 06 第 3.1 节 2026-09-14 修订段）。登记为 `FieldKind.Expr` 后自动获得 `DataRegistry` 内建 `expr_parsable` 校验，本任务不需要额外注册校验规则 |
+| `budget_note` | String | 否 | 超模说明：技能预算（锚点秒伤(技能等级) × 施放时间当量 × 冷却溢价 × 范围折价 × 消耗溢价，见 06 第 3.10 节）偏离带宽时填写意图，`SkillBudgetAnalyzer`（T-N3-9，本任务未落地）按有无本字段把带宽外的技能分为已确认/待确认两组；比值超硬上限且本字段为空为阻断（ADR-0031 决策 2） |
 
 `cost`/`charges` 同样在 ADR-0019 起登记了子结构（`cost` 元素 `{power_type: Id 必填, amount:
 Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`），加载期递归校验其内部
@@ -69,6 +71,22 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 |---|---|---|---|
 | `id` | Id | 是 | `skill.book.<name>` |
 | `entries` | Array | 是 | `[{level: Int, skill_id: Reference(skill.def)}, ...]`（ADR-0019 起登记 `Item`：`level` 必填 Int，`skill_id` 必填且为 `Reference(skill.def)`——同模块内引用，目标必须已加载） |
+
+## 结算类原语集合（T-N3-1，`Core.Rules.Common.SettlementEffectKinds`）
+
+06 第 3.2 节 2026-09-14 修订段"结算类原语集合"——供技能预算校验（3.10 节，T-N3-9）适用范围判定与
+一键智能释放候选集（T-N3-10）共用：一个技能的 `effects[]` 只要含 `SettlementEffectKinds.All`
+内任一 `kind`，就参与预算校验、进入智能释放候选集；效果列表不含以上任一项的技能（开锁、传送、
+造物、学习、写世界标志等）两者都不参与。本任务只登记这份集合常量（`core/rules/common/contracts/
+SettlementEffectKinds.cs`），不落地 T-N3-9/T-N3-10 的消费实现。
+
+集合取值：`school_damage`、`weapon_damage_pct`、`heal`、`projectile`、`apply_aura`。**契约疑点
+（待设计层确认）**：06 原文前四项是无条件的效果原语类型，但 `apply_aura` 是有条件的——"这条
+`apply_aura` 算不算结算类"取决于它引用的 `skill.aura_def` 自身是否含 `periodic_damage`/
+`periodic_heal`/`mod_stat`/`control`/`absorb` 任一效果，不是 `apply_aura` 这个 `EffectKind` 本身
+的固有属性；`SettlementEffectKinds.All`/`IsSettlement(string kind)` 按效果原语类型这一层无条件把
+`apply_aura` 计入集合（"可能是结算类"），不下钻解析具体引用的光环定义，这一层更细的判定留给
+T-N3-9/T-N3-10 在真正消费这份集合时决定具体收窄方式，详见该类型顶部判断记录。
 
 ## 效果原语参数表（ADR-0019 / F1a，`SkillSchemas.EffectsItemSchema`）
 

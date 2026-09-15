@@ -710,6 +710,28 @@ skill/
     私有方法，`ChargeState` 为私有嵌套类型）。ABI 探针（`toolchain/abi_probe.ps1`，基线 1.12.0）
     breaks=0。
 
+48. **T-N3-1（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 1/9/10；06
+    第 3.1/3.2 节 2026-09-14 修订段，见
+    [数值设计分阶段落地计划](../../../architecture/落地计划/数值设计分阶段落地计划.md) 第 14 节
+    N3 任务表）：`skill.def` 新增 `use_condition`（`FieldKind.Expr`，可选）/`budget_note`
+    （`FieldKind.String`，可选）两个字段，`cast_time`/`respects_gcd`/`cost` 三个既有字段只改
+    描述、不改字段种类/必填性；新增 `Core.Rules.Common.SettlementEffectKinds`（结算类原语集合
+    常量）。本任务只落地 schema 层与集合常量，不实现施法管线的使用条件检查步骤（T-N3-4）、节拍
+    锁分支（T-N3-4）、技能预算 Analyzer（T-N3-9）、一键智能释放独立求值组件（T-N3-10）——
+    `use_condition` 目前只是一个已登记但未被 `CastPipeline` 读取的字段（同 `charges`/`cost` 等
+    字段"先登记 schema、运行时消费由后续任务落地"的既有惯例，见本文件"设计要点与判断记录"整体
+    体例）。**契约疑点（上报，待设计层确认）**：(1) `cast_time` 的动作时长语义——ADR-0031 决策
+    10 原文最后一句"运行期不存在任何锁"与"一拍常数只是预算公式记账单位"合读，`cast_time: 0`
+    的瞬发技能不因这一常数占用任何实际节拍窗口，是否受节拍锁约束完全由 `respects_gcd` 决定；
+    本任务据此撰写字段描述，不采用"cast_time: 0 表示瞬发但仍占一个节拍"这一与决策 10 原文相反
+    的表述。(2) `SettlementEffectKinds` 的 `apply_aura` 一项按效果原语类型无条件计入集合，不
+    下钻解析具体引用的光环定义是否真的含五种效果之一——见 `core/rules/common/README.md`"设计
+    要点与判断记录"第 10 条、`SettlementEffectKinds.cs` 类型顶部判断记录。不新增任何效果原语
+    （`EffectKind` 枚举/效果 kind 登记零改动），符合任务表"禁止事项"。测试：
+    `core/rules/skill/tests/T_N3_1_SkillDefUseConditionBudgetNoteTests.cs`（schema 覆盖，11 例）、
+    `core/rules/common/tests/SettlementEffectKindsTests.cs`（集合常量单测，24 例，含
+    `IsSettlement` 全部 19 种 `EffectKind` 正负例）。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：

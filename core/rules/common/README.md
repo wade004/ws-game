@@ -24,6 +24,7 @@ common/
     CastResult.cs          施法结果（Ok/Fail 工厂）
     SkillCastRequest.cs    一次施法请求（AI/玩家辅助施法共用）
     EffectKind.cs           Effect 原语枚举 + snake_case 互转
+    SettlementEffectKinds.cs 结算类原语集合常量（T-N3-1，06 第 3.2 节修订段）
     AuraEffectKind.cs       AuraEffect 类型枚举 + snake_case 互转
     ControlFlags.cs         控制标志位组合
     EffectRef.cs             技能定义里的一条效果项（Kind + Params）
@@ -143,6 +144,20 @@ common/
      `AttackInstanceId` 的既有转发惯例，不重新查询）——四处均已逐一核对（grep `new EffectContext(`
      全部生产/测试构造点，任务汇报逐条列出文件:行），任一处漏填都会让 06 §4.1"目标乘区"步骤
      读到的 `sourceKind` 静默退化为 `Unknown`，是本任务表"风险"段点名的遗漏形态。
+
+10. **T-N3-1（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 2/12；06 第
+    3.2 节 2026-09-14 修订段）：`SettlementEffectKinds` 按效果原语类型登记，`apply_aura` 一项无
+    条件计入、不下钻解析具体引用的光环定义**：06 原文"结算类原语集合"（`school_damage`、
+    `weapon_damage_pct`、`heal`、`projectile`，以及 `apply_aura` 所引光环含 `periodic_damage`/
+    `periodic_heal`/`mod_stat`/`control`/`absorb` 任一效果者）不是一份能直接按
+    `effects[].kind` 这一层扁平判定的清单——前四项是无条件的效果原语类型，但 `apply_aura` 是
+    否算结算类取决于它引用的 `skill.aura_def` 自身的效果构成，不是 `EffectKind.ApplyAura` 本身
+    的固有属性。`SettlementEffectKinds.All`/`IsSettlement(string kind)` 只按 `kind` 这一层判定，
+    把 `apply_aura` 无条件计入集合（"按效果原语类型可能是结算类"），不解析 `aura_def` 引用；
+    真正需要"这条 `apply_aura` 是否满足光环含五种效果之一"这一更细判定的调用方（T-N3-9
+    `SkillBudgetAnalyzer`、T-N3-10 独立求值组件）需要另行解析光环定义逐条核对，不是本类型职责
+    范围——**待设计层确认**该取舍是否符合预期，或是否需要在 `SettlementEffectKinds` 之外另开一个
+    接受 `IDataRegistryView` 的重载做完整判定。
 
 ## 不负责什么
 

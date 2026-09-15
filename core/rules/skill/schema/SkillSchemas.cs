@@ -430,16 +430,30 @@ namespace Core.Rules.Skill
                 new FieldSchema("range", FieldKind.Number, required: true, description: "射程，0 表示无限制/作用于自身"),
                 new FieldSchema("tags", FieldKind.IdList, required: false, description: "标签集合")
                     .WithFreeIds("技能标签当前没有独立登记表，是内容作者自由声明的分类标签"),
-                new FieldSchema("cast_time", FieldKind.Number, required: true, description: "读条时间，0 表示瞬发").WithUnit(FieldUnit.Time),
+                // 修订（2026-09-14，ADR-0031 决策 10；06 第 3.1 节 2026-09-14 修订段）：cast_time
+                // 同时承担"动作时长"语义——期间不能开始下一个技能，效果在动作结束时生效（命中帧
+                // 同步沿 ADR-0017）；挥剑半秒与火球读条两秒本质相同，表现层按阈值决定显示读条条还
+                // 是播放动画，逻辑层不区分。急速是否缩短动作时长及其下限为策略配置项（默认不受
+                // 影响），替代此前"公共冷却是否受急速影响"。数值总纲"一拍常数"只是技能预算公式
+                // （3.10 节）的记账单位（施放时间当量 = max(动作时长, 一拍常数)），运行期不存在
+                // 任何锁——即 cast_time: 0 的瞬发技能不因这个记账常数而占用任何实际节拍窗口，"是否
+                // 受节拍锁约束"完全由 respects_gcd 决定（见该字段本次修订的描述）。
+                new FieldSchema("cast_time", FieldKind.Number, required: true,
+                    description: "读条时间，0 表示瞬发；同时承担\"动作时长\"语义——期间不能开始下一个技能，效果在动作结束时生效，逻辑层不区分读条与快速挥砍（ADR-0031 决策 10）")
+                    .WithUnit(FieldUnit.Time),
                 new FieldSchema("channel_time", FieldKind.Number, required: false, description: "引导时长，与 cast_time 互斥").WithUnit(FieldUnit.Time),
+                // 修订（2026-09-14，ADR-0031 决策 3；06 第 3.1 节 2026-09-14 修订段）：只有固定值
+                // 写法（不做资源上限百分比、引导每秒等模式）；引导技能开始时一次性扣；非战斗技能
+                // （开锁、传送、坐骑、造物等）消耗为零，约束改由 use_condition、动作时长与冷却承担；
+                // 免费/标准/大招三档定价是游戏层配平建议（数值总纲第 4.5 节），不是本字段的约束。
                 new FieldSchema("cost", FieldKind.Array, required: false,
                     item: new FieldSchema("<cost_entry>", FieldKind.Object, required: true, fields: new[]
                     {
                         new FieldSchema("power_type", FieldKind.Id, required: true, description: "消耗的资源类型引用，多数取值是 arch.power_type 的记录 id，也允许内置特例（同 energize.power_type 判断记录；消费方反馈第 30 条：登记为软引用）")
                             .WithSoftReference(table: "arch.power_type"),
-                        new FieldSchema("amount", FieldKind.Number, required: true, description: "消耗数量"),
+                        new FieldSchema("amount", FieldKind.Number, required: true, description: "消耗数量，只有固定值写法，不随等级成长"),
                     }, description: "{power_type: Id, amount: Number}，单条消耗资源条目"),
-                    description: "[{power_type: Id, amount: Number}, ...]"),
+                    description: "消耗资源列表，[{power_type: Id, amount: Number}, ...]；引导技能施法开始时一次性扣，非战斗技能消耗为零（ADR-0031 决策 3）"),
                 new FieldSchema("cooldown_category", FieldKind.Id, required: false, description: "冷却分类标签，无独立登记表，是内容作者自由声明的分类标签（同 modify_cooldown.category 判断记录）"),
                 new FieldSchema("cooldown_duration", FieldKind.Number, required: false, description: "冷却时长，缺省 0").WithUnit(FieldUnit.Time),
                 new FieldSchema("charges", FieldKind.Object, required: false,
@@ -465,7 +479,13 @@ namespace Core.Rules.Skill
                 // 落点施放，缺省 false（见 SkillDef.AllowGroundTarget 判断记录，保持既有技能行为不变）。
                 new FieldSchema("ground_target", FieldKind.Bool, required: false,
                     description: "是否允许地面坐标施法请求（ISkillHost.CastSkillAtGround），缺省 false"),
-                new FieldSchema("respects_gcd", FieldKind.Bool, required: true, description: "是否受公共冷却影响"),
+                // 修订（2026-09-14，ADR-0031 决策 10；06 第 3.1 节 2026-09-14 修订段）：字段名
+                // 保留，语义由"是否受公共冷却影响"扩展为"是否受节拍锁约束"——开公共冷却的游戏里
+                // 节拍锁是公共冷却，关公共冷却（13 第 8 节口味配置项默认关闭）的游戏里节拍锁是当前
+                // 动作时长（cast_time）；声明为 false 的反应类技能（打断、格挡、保命）可在他技能
+                // 动作中插入。
+                new FieldSchema("respects_gcd", FieldKind.Bool, required: true,
+                    description: "是否受节拍锁约束——开公共冷却时节拍锁是公共冷却，关公共冷却（默认）时节拍锁是当前动作时长（cast_time）；false 声明反应类技能（打断/格挡/保命），可在他技能动作中插入（ADR-0031 决策 10）"),
                 new FieldSchema("target_shape_ref", FieldKind.Id, required: true,
                     description: "指向 target.chain_def（本模块按此语义解析，见 README；消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
                     .WithSoftReference(table: "target.chain_def"),
@@ -475,6 +495,21 @@ namespace Core.Rules.Skill
                     item: new FieldSchema("<flag>", FieldKind.Enum, required: true, enumValues: InterruptFlagValues,
                         description: "打断当前读条/引导的触发条件，取值 movement|damage_taken|control 之一"),
                     description: "[movement|damage_taken|control, ...]"),
+                // 新增（2026-09-14，ADR-0031 决策 9；06 第 3.1 节 2026-09-14 修订段）：宿主为施法者
+                // 上下文，Expr 文本，self/combat/target 分组（04 第 6.2 节"宿主引用分组"）；施法管线
+                // 在"存活与状态"步骤之后插入"使用条件"步骤检查（T-N3-4 落地），为假时返回失败原因码
+                // ConditionNotMet，就绪查询（getSkillReadiness）同步反映；"脱战才能用""仅限战斗中"
+                // "目标是物件""已习得骑术"均用它表达。登记为 FieldKind.Expr 后自动获得
+                // DataRegistry 内建 expr_parsable 校验，不需要额外注册。
+                new FieldSchema("use_condition", FieldKind.Expr, required: false,
+                    description: "使用条件（宿主为施法者上下文，self/combat/target 分组，见 04 第 6.2 节）；为假时施法返回 ConditionNotMet（T-N3-4 落地），就绪查询同步反映；\"脱战才能用\"\"仅限战斗中\"\"目标是物件\"均用它表达（ADR-0031 决策 9）"),
+                // 新增（2026-09-14，ADR-0031 决策 2；06 第 3.1/3.10 节 2026-09-14 修订段）：超模
+                // 说明——技能预算（锚点秒伤(技能等级) × 施放时间当量 × 冷却溢价 × 范围折价 × 消耗
+                // 溢价）偏离带宽时填写意图，SkillBudgetAnalyzer（T-N3-9）按有无本字段把带宽外的技能
+                // 分为已确认/待确认两组报告；比值超硬上限且本字段为空为阻断。效果列表不含结算类
+                // 原语（见 SettlementEffectKinds）的技能不参与预算校验，本字段留空即可。
+                new FieldSchema("budget_note", FieldKind.String, required: false,
+                    description: "超模说明：技能预算偏离带宽时填写意图，SkillBudgetAnalyzer（T-N3-9）按此归入已确认组；比值超硬上限且本字段为空为阻断（ADR-0031 决策 2，见 06 第 3.10 节）"),
             }).WithOwnership(SchemaLayer.Rules, "skill").WithTimeScope(TimeScope.Combat);
 
         public static TableSchema AuraDef { get; } = new TableSchema(

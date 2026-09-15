@@ -304,8 +304,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `quality_weights` 的那一条。真正"逐随机数字节不变"的旧数据只有两种：`item.quality_definition`/
   `item.affix` 表本身未加载（如既有单元测试的最小夹具），或已加载但目标品质的 `affix_count`
   未登记/为零。
+- **数值设计落地阶段 N3 · T-N3-1（Unreleased）**：`skill.def` 新增 `use_condition`
+  （`FieldKind.Expr`，可选）/`budget_note`（`FieldKind.String`，可选）两个字段，`cast_time`/
+  `respects_gcd`/`cost` 三个既有字段改写描述（不改字段种类/必填性）；新增
+  `Core.Rules.Common.SettlementEffectKinds`（结算类原语集合常量，`All`/`IsSettlement(string)`）。
+  编辑器技能编辑界面若需要为 `use_condition` 渲染 Expr 输入控件，可复用与 `ai.rotation.entries[]
+  .condition` 同一套 `self`/`combat`/`target` 分组补全；`budget_note` 是普通多行文本输入。两个
+  新字段均只是登记 schema，运行时消费（施法管线使用条件检查、`SkillBudgetAnalyzer`）留给后续
+  任务（T-N3-4/T-N3-9）。
 
 ## [Unreleased]
+
+数值设计落地阶段 N3 · T-N3-1（ADR-0031 决策 1/9/10；06 第 3.1/3.2 节 2026-09-14 修订段）：`skill.def` 新增 `use_condition: Optional<Expr>`（宿主为施法者上下文，self/combat/target 分组，为假时施法返回 ConditionNotMet（T-N3-4 落地）、就绪查询同步反映）、`budget_note: Optional<String>`（超模说明，SkillBudgetAnalyzer T-N3-9 按此归入已确认组）两个字段；`cast_time`/`respects_gcd`/`cost` 三个既有字段改写描述（动作时长/节拍锁/固定消耗语义），字段种类与必填性不变；新增 `Core.Rules.Common.SettlementEffectKinds`（结算类原语集合常量：school_damage/weapon_damage_pct/heal/projectile/apply_aura，供 T-N3-9 预算校验适用范围与 T-N3-10 智能释放候选集共用；apply_aura 一项按效果原语类型无条件计入，不下钻解析具体引用的光环定义是否真的含周期/属性修正/控制/吸收效果之一，见该类型判断记录，待设计层确认）。不新增任何效果原语。本任务只登记 schema 层，不实现施法管线使用条件检查、节拍锁分支、技能预算 Analyzer 等运行时消费。
 
 ## [1.32.0] - 2026-09-15
 
