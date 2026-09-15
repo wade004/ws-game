@@ -144,6 +144,11 @@ namespace Core.Carriers.Assembly
             // ItemWeaponDamageDeviatesDpsCurveRule 判断记录。
             registry.RegisterValidationRule(
                 new ItemWeaponDamageDeviatesDpsCurveRule(weaponDpsCurveId, weaponDamageDeviationThreshold));
+            // T-N2-11（ADR-0032 决策 7/10；04 第 5 节"模板加词缀最大份额超预算"阻断校验）：模板自身
+            // 消耗 + 可抽词缀池最大份额 × 预算不得超过预算上限，见 ItemTemplateAffixShareExceedsBudgetRule
+            // 判断记录；与 ItemBudgetValidationRule 核算同一条预算曲线，复用同一个 budgetCurveId，不
+            // 新增独立参数/不新增 RegisterAll 重载。
+            registry.RegisterValidationRule(new ItemTemplateAffixShareExceedsBudgetRule(budgetCurveId));
 
             // item.template.slot/quality/set_id 三个字段已在 ItemSchemas.Template 声明为
             // FieldKind.Reference，data_registry 内置 reference_integrity 校验自动生效，不需要本类

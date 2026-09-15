@@ -557,5 +557,146 @@ namespace Tests.Carriers.Item
             Assert.Equal(ValidationSeverity.Warning, issue.Severity);
             Assert.Equal(ItemBudgetValidationRule.CheckUtilizationLow, issue.Check);
         }
+
+        // -----------------------------------------------------------------
+        // T-N2-11（ADR-0032 决策 7/10；04 第 5 节"模板加词缀最大份额超预算"）：模板自身消耗 +
+        // 可抽词缀池最大份额 × 预算不得超过预算上限。全部用例复用 item_level=1 → 曲线预算 20
+        // （BudgetCurveJson）、quality.common 倍率 1、item.slot.consumable 槽位系数缺省 1 ⇒
+        // 预算上限 B = 20，与既有 BudgetRule_* 用例同一组手算基线。
+        // -----------------------------------------------------------------
+
+        private const string QualityWithAffixCountOneJson =
+            "[{\"id\": \"item.quality.common\", \"name_key\": \"l10n.item.quality.common\"," +
+            " \"budget_multiplier\": 1, \"affix_count\": 1}]";
+
+        private static IDataRegistryView BuildTemplateAffixShareView(
+            string templateJson, string affixJson, string? qualityJson = null)
+        {
+            return TestSupport.BuildRegistry(source =>
+            {
+                source.Add("item.slot_definition", TestSupport.Table("item.slot_definition", SlotJson));
+                source.Add("item.quality_definition",
+                    TestSupport.Table("item.quality_definition", qualityJson ?? QualityJson));
+                source.Add("item.budget_curve", TestSupport.Table("item.budget_curve", BudgetCurveJson));
+                source.Add("item.template", TestSupport.Table("item.template", templateJson));
+                source.Add("item.affix", TestSupport.Table("item.affix", affixJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
+                source.Add("skill.aura_def", TestSupport.Table("skill.aura_def", AuraDefJson));
+            });
+        }
+
+        private static string TemplateWithStatsAndOptionalAffixes(string id, double statValue, string? affixesJson = null)
+        {
+            var affixesField = affixesJson != null ? $", \"affixes\": {affixesJson}" : string.Empty;
+            return "[{\"id\": \"" + id + "\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
+                " \"item_level\": 1, \"display_ref\": \"display." + id + "\", \"stack_size\": 5," +
+                " \"name_key\": \"l10n." + id + "\"," +
+                " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": " + statValue + "}]" +
+                affixesField + "}]";
+        }
+
+        [Fact]
+        public void AffixShareRule_ConsumedPlusMaxShareExceedsBudget_ReportsError()
+        {
+            // consumed=15、候选词缀唯一一条 budget_share=0.5（affix_count=1 全取），
+            // total = 15 + 0.5×20 = 25 > 20（B）⇒ 报错。
+            var templateJson = TemplateWithStatsAndOptionalAffixes("item.sample_share_over", 15);
+            var affixJson =
+                "[{\"id\": \"item.affix.a\", \"name_key\": \"l10n.item.affix.a\", \"budget_share\": 0.5," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}]";
+            var view = BuildTemplateAffixShareView(templateJson, affixJson, QualityWithAffixCountOneJson);
+
+            var issues = new ItemTemplateAffixShareExceedsBudgetRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Error, issue.Severity);
+            Assert.Equal(ItemTemplateAffixShareExceedsBudgetRule.Check, issue.Check);
+            Assert.Equal("item.sample_share_over", issue.RecordKey);
+            Assert.Equal("affixes", issue.Field);
+        }
+
+        [Fact]
+        public void AffixShareRule_ConsumedPlusMaxShareWithinBudget_NoIssue()
+        {
+            // consumed=5，同一条候选词缀 budget_share=0.5，total = 5 + 10 = 15 <= 20（B）⇒ 不报错。
+            var templateJson = TemplateWithStatsAndOptionalAffixes("item.sample_share_ok", 5);
+            var affixJson =
+                "[{\"id\": \"item.affix.a\", \"name_key\": \"l10n.item.affix.a\", \"budget_share\": 0.5," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}]";
+            var view = BuildTemplateAffixShareView(templateJson, affixJson, QualityWithAffixCountOneJson);
+
+            var issues = new ItemTemplateAffixShareExceedsBudgetRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        [Fact]
+        public void AffixShareRule_TwoCandidatesNoWhitelist_TopShareByDescendingBudgetShareExceedsBudget()
+        {
+            // 两条候选词缀（budget_share 0.5/0.1），affix_count=1 只取降序最高的一条（0.5）；
+            // consumed=15，total = 15 + 0.5×20 = 25 > 20 ⇒ 报错——验证"按 budget_share 降序取前
+            // affix_count 条"确实取到了份额更大的那条，不是任意/插入顺序。
+            var templateJson = TemplateWithStatsAndOptionalAffixes("item.sample_share_two_candidates", 15);
+            var affixJson =
+                "[{\"id\": \"item.affix.a\", \"name_key\": \"l10n.item.affix.a\", \"budget_share\": 0.5," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}," +
+                "{\"id\": \"item.affix.b\", \"name_key\": \"l10n.item.affix.b\", \"budget_share\": 0.1," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}]";
+            var view = BuildTemplateAffixShareView(templateJson, affixJson, QualityWithAffixCountOneJson);
+
+            var issues = new ItemTemplateAffixShareExceedsBudgetRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ItemTemplateAffixShareExceedsBudgetRule.Check, issue.Check);
+        }
+
+        [Fact]
+        public void AffixShareRule_TemplateAffixesWhitelistNarrowsToLowerShareCandidate_NoIssue()
+        {
+            // 同上一用例的两条候选词缀与 consumed=15，但模板 affixes 白名单只收窄到份额更小的
+            // item.affix.b（0.1）：total = 15 + 0.1×20 = 17 <= 20 ⇒ 不报错——白名单收窄候选池后
+            // 不再超预算（若不收窄，同上一用例会取到 0.5 那条而报错）。
+            var templateJson = TemplateWithStatsAndOptionalAffixes(
+                "item.sample_share_whitelisted", 15, "[\"item.affix.b\"]");
+            var affixJson =
+                "[{\"id\": \"item.affix.a\", \"name_key\": \"l10n.item.affix.a\", \"budget_share\": 0.5," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}," +
+                "{\"id\": \"item.affix.b\", \"name_key\": \"l10n.item.affix.b\", \"budget_share\": 0.1," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}]";
+            var view = BuildTemplateAffixShareView(templateJson, affixJson, QualityWithAffixCountOneJson);
+
+            var issues = new ItemTemplateAffixShareExceedsBudgetRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        [Fact]
+        public void AffixShareRule_QualityAffixCountUnregistered_TreatedAsUnlimited_SumsAllCandidates()
+        {
+            // quality.common 不登记 affix_count（用既有 QualityJson，不是 QualityWithAffixCountOneJson）
+            // ⇒ 视为不限，取全部候选之和：两条候选各 budget_share=0.3，maxShare = 0.6；
+            // consumed=10，total = 10 + 0.6×20 = 22 > 20 ⇒ 报错——验证"未登记 affix_count"不等于
+            // "affix_count=0（不取任何候选）"，是保守上界口径（同类型判断记录）。
+            var templateJson = TemplateWithStatsAndOptionalAffixes("item.sample_share_unlimited", 10);
+            var affixJson =
+                "[{\"id\": \"item.affix.a\", \"name_key\": \"l10n.item.affix.a\", \"budget_share\": 0.3," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}," +
+                "{\"id\": \"item.affix.b\", \"name_key\": \"l10n.item.affix.b\", \"budget_share\": 0.3," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}]";
+            var view = BuildTemplateAffixShareView(templateJson, affixJson, QualityJson);
+
+            var issues = new ItemTemplateAffixShareExceedsBudgetRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ItemTemplateAffixShareExceedsBudgetRule.Check, issue.Check);
+        }
     }
 }

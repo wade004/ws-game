@@ -683,4 +683,201 @@ namespace Core.Carriers.Item
             }
         }
     }
+
+    /// <summary>
+    /// 模板加词缀最大份额超预算（分阶段落地计划 T-N2-11；ADR-0032 决策 7/10；04 第 5 节数值类校验项
+    /// 分级表"模板加词缀最大份额超预算"行，检查名 <see cref="Check"/>：设计层裁定（2026-09-15）登记，
+    /// 04 该行原文未给出具体检查名，按 <c>item_template_affix_share_exceeds_budget</c> 采纳，见 04
+    /// 该行同一次改动的勘误记录）。
+    /// <para>
+    /// 语义（设计层裁定（2026-09-15）：采纳）：对每条 <c>item.template</c>——
+    /// <c>consumed = ItemBudgetCurve.ComputeConsumed(stats, ...)</c>（同 <see
+    /// cref="ItemBudgetValidationRule"/> 既有消耗侧公式，基础权重，不按职业覆盖）；
+    /// <c>B</c> = 预算上限（曲线(item_level) × 品质预算倍率 × 槽位系数，同
+    /// <see cref="ItemBudgetValidationRule"/> 既有算法）；候选词缀 = <c>item.affix</c> 中
+    /// <c>quality_pool == 本模板 quality</c>，且模板 <c>affixes</c> 白名单非空时再与之取交集；
+    /// <c>maxShare</c> = 候选按 <c>budget_share</c> 降序（同份额按 <c>Id</c> 升序稳定排序）取前
+    /// <c>affix_count</c>（本模板品质在 <c>item.quality_definition.affix_count</c> 登记的数量；
+    /// 该字段未登记时视为"不限"，取全部候选——与掉落三次掷骰（<c>core/gameplay/loot</c>
+    /// <c>LootHost.RollAffixes</c>，T-N2-8）运行期"未登记按 0（不掷词缀骰）"处理不同：本层
+    /// （<c>core/carriers/item</c>）不依赖 <c>core/gameplay</c>（L3 不反向依赖 L4），此处只作文字
+    /// 说明不作代码引用；校验期核算的是"最坏情况下这个词缀池能把预算堆到多满"这一上界，词缀池将来
+    /// 扩容、<c>affix_count</c> 补登记都不应该让已经通过校验的旧数据突然超标，取全部候选是保守
+    /// 上界）之和；若
+    /// <c>consumed + maxShare × B &gt; B</c>（1e-9 浮点容差）报 <see cref="ValidationSeverity.Error"/>，
+    /// 消息点出 <c>consumed</c>/<c>B</c>/<c>maxShare</c> 三个量供内容作者定位。<c>B ≤ 0</c> 或预算
+    /// 曲线记录不存在时跳过（<c>B ≤ 0</c> 同 <see cref="ItemBudgetValidationRule"/> 利用率警告的
+    /// <c>budget &gt; 0</c> 门槛同一处理口径；曲线记录缺失时 <see cref="ItemBudgetValidationRule"/>
+    /// 已经报出"预算曲线不存在"Error，本规则不重复报错，静默跳过整条规则）。
+    /// </para>
+    /// <para>
+    /// 判断记录（候选词缀预排序、按品质分桶）：<c>item.affix</c> 全表按 <c>quality_pool</c> 分桶、
+    /// 桶内按 <c>budget_share</c> 降序预排序一次，逐模板复用，避免每条模板都重新扫描并排序全表
+    /// （同 <see cref="ItemBudgetValidationRule.Validate"/> 一次性构建 <c>qualityMultipliers</c>/
+    /// <c>slotCoefficients</c>/<c>statInfo</c> 再逐模板复用的既有惯例）；模板白名单过滤在遍历某个
+    /// 品质桶的预排序候选时逐个跳过非白名单项，不重新排序（保序过滤，不影响 <c>budget_share</c>
+    /// 降序结果）。
+    /// </para>
+    /// </summary>
+    public sealed class ItemTemplateAffixShareExceedsBudgetRule : IValidationRule
+    {
+        public const string Check = "item_template_affix_share_exceeds_budget";
+
+        private const double Epsilon = 1e-9;
+
+        private static readonly JsonArray EmptyStats = new JsonArray();
+        private static readonly List<(string Key, double BudgetShare)> EmptyCandidates =
+            new List<(string, double)>();
+
+        private readonly Id _budgetCurveId;
+
+        /// <summary>曲线 id 由构造参数指定，同 <see cref="ItemBudgetValidationRule(Id)"/> 惯例——
+        /// 本规则与 <see cref="ItemBudgetValidationRule"/> 核算的是同一条预算曲线/同一个预算上限
+        /// <c>B</c>，调用方需要传入同一个 <paramref name="budgetCurveId"/>（<see
+        /// cref="Core.Carriers.Assembly.CarriersSchemaCatalog"/> 已按此惯例接线，两条规则共用
+        /// 注册期传入的同一个 <c>budgetCurveId</c>，不新增独立参数）。</summary>
+        public ItemTemplateAffixShareExceedsBudgetRule(Id budgetCurveId)
+        {
+            _budgetCurveId = budgetCurveId;
+        }
+
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            var templates = view.GetAll("item.template");
+            if (templates.Count == 0)
+            {
+                yield break;
+            }
+
+            var curveRecord = view.Get("item.budget_curve", _budgetCurveId);
+            if (curveRecord == null)
+            {
+                // 判断记录：ItemBudgetValidationRule 已经对"预算曲线不存在"报 Error，本规则不重复
+                // 报错，静默跳过（见类型判断记录）。
+                yield break;
+            }
+
+            var curve = ItemBudgetCurve.ParseCurve(curveRecord);
+            var exponent = curveRecord.TryGetNumber("exponent", out var exponentValue)
+                ? exponentValue
+                : ItemBudgetCurve.DefaultExponent;
+
+            var qualityMultipliers = new Dictionary<string, double>();
+            var affixCounts = new Dictionary<string, int?>();
+            foreach (var q in view.GetAll("item.quality_definition"))
+            {
+                qualityMultipliers[q.Key] = q.TryGetNumber("budget_multiplier", out var m) ? m : 1.0;
+                // 判断记录：affix_count 未登记视为"不限"（null），不是 0——见类型判断记录"语义"一段。
+                affixCounts[q.Key] = q.TryGetInt("affix_count", out var ac) ? (int?)ac : null;
+            }
+
+            var slotCoefficients = new Dictionary<string, double>();
+            foreach (var s in view.GetAll("item.slot_definition"))
+            {
+                slotCoefficients[s.Key] = s.TryGetNumber("budget_coefficient", out var c) ? c : 1.0;
+            }
+
+            var statInfo = ItemBudgetCurve.BuildStatBudgetInfo(view);
+
+            // 按品质池预构建候选词缀（budget_share 降序、同份额按 Key 升序稳定排序），见类型判断记录
+            // "候选词缀预排序、按品质分桶"。
+            var affixesByQuality = new Dictionary<string, List<(string Key, double BudgetShare)>>();
+            foreach (var affix in view.GetAll("item.affix"))
+            {
+                if (!affix.TryGetId("quality_pool", out var pool))
+                {
+                    continue;
+                }
+
+                var share = affix.TryGetNumber("budget_share", out var bs) ? bs : 0.0;
+                if (!affixesByQuality.TryGetValue(pool.Value, out var list))
+                {
+                    list = new List<(string, double)>();
+                    affixesByQuality[pool.Value] = list;
+                }
+
+                list.Add((affix.Key, share));
+            }
+
+            foreach (var list in affixesByQuality.Values)
+            {
+                list.Sort((a, b) =>
+                {
+                    var cmp = b.BudgetShare.CompareTo(a.BudgetShare); // 降序
+                    return cmp != 0 ? cmp : string.CompareOrdinal(a.Key, b.Key);
+                });
+            }
+
+            foreach (var record in templates)
+            {
+                if (!record.TryGetInt("item_level", out var itemLevel) || !record.TryGetString("quality", out var quality))
+                {
+                    continue;
+                }
+
+                var qualityMultiplier = qualityMultipliers.TryGetValue(quality, out var m2) ? m2 : 1.0;
+                var slotCoefficient = record.TryGetString("slot", out var slot) &&
+                    slotCoefficients.TryGetValue(slot, out var sc) ? sc : 1.0;
+                var budget = ItemBudgetCurve.Interpolate(curve, (int)itemLevel) * qualityMultiplier * slotCoefficient;
+
+                if (budget <= 0)
+                {
+                    // 判断记录：B ≤ 0 跳过，同 ItemBudgetValidationRule 利用率警告 budget > 0 门槛口径
+                    // 一致（见类型判断记录）。
+                    continue;
+                }
+
+                var stats = record.TryGetArray("stats", out var statsArr) ? statsArr : EmptyStats;
+                var consumed = ItemBudgetCurve.ComputeConsumed(stats, statInfo, (int)itemLevel, exponent);
+
+                var hasWhitelist = record.TryGetIdList("affixes", out var whitelist) && whitelist.Count > 0;
+                var candidates = affixesByQuality.TryGetValue(quality, out var poolCandidates)
+                    ? poolCandidates
+                    : EmptyCandidates;
+                var affixCount = affixCounts.TryGetValue(quality, out var acForQuality) ? acForQuality : null;
+
+                var maxShare = 0.0;
+                var taken = 0;
+                foreach (var candidate in candidates)
+                {
+                    if (hasWhitelist && !ContainsKey(whitelist, candidate.Key))
+                    {
+                        continue;
+                    }
+
+                    if (affixCount.HasValue && taken >= affixCount.Value)
+                    {
+                        break;
+                    }
+
+                    maxShare += candidate.BudgetShare;
+                    taken++;
+                }
+
+                var total = consumed + maxShare * budget;
+                if (total > budget + Epsilon)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, "item.template", Check,
+                        $"模板自身消耗 {consumed:0.###} + 可抽词缀最大份额 {maxShare:0.###} × 预算上限 " +
+                        $"{budget:0.###} = {total:0.###}，超过预算上限 {budget:0.###}" +
+                        $"（item_level={itemLevel}, quality={quality}, slot={slot}）",
+                        recordKey: record.Key, field: "affixes");
+                }
+            }
+        }
+
+        private static bool ContainsKey(IReadOnlyList<Id> list, string key)
+        {
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (list[i].Value == key)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
 }
