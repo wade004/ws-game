@@ -521,6 +521,66 @@ namespace Tests.Carriers.Item
             Assert.True(rule.NonEscalatable);
         }
 
+        /// <summary>分阶段落地计划 T-N5-3（数值规则核对表 W2）：不可提升警告在
+        /// <see cref="DataRegistryStrictness.WarningsBlock"/> 下不阻断——同数据、同规则，走完整的
+        /// <see cref="DataRegistry.LoadAll()"/> + <see cref="ValidationReport"/> 路径（不是像上面
+        /// <c>BudgetRule_UtilizationBelowThreshold_ReportsNonEscalatableWarning</c> 那样只调用
+        /// <c>rule.Validate(view)</c> 拿裸问题列表——那条路径永远看不到 <see
+        /// cref="ValidationReport.IsBlocking"/>，证明不了"不阻断"这件事本身）。判断记录（不经
+        /// <see cref="TestSupport.BuildRegistry"/>）：本用例需要 <c>report.IsBlocking</c> 只反映本
+        /// 规则自己的 Warning，而 <see cref="TestSupport.BuildRegistry"/> 不注册
+        /// <c>l10n.locale</c>/<c>l10n.text</c>——name_key 字段会各自降级出一条"l10n.text 表未加载，
+        /// 跳过"的 Warning（可提升，会在 WarningsBlock 下一并阻断，掩盖本规则本身"不可提升"的行为），
+        /// 因此改为手工建 registry 并显式补齐 l10n 两张表覆盖全部 name_key（同
+        /// <c>T_N4_6_EconomyPriceFormulaTests.DeviationRule_NonEscalatable_UnderWarningsBlock_DoesNotBlock</c>/
+        /// <c>StatDefinitionConsumerValidationRuleTests.NoConsumerWarning_UnderWarningsBlock_DoesNotBlock</c>
+        /// 同一处理惯例）。</summary>
+        [Fact]
+        public void BudgetRule_UtilizationBelowThreshold_UnderWarningsBlock_DoesNotBlock()
+        {
+            const string slot = "[{\"id\": \"item.slot.n5_3_w2\", \"name_key\": \"l10n.n5_3_w2_slot\"}]";
+            const string quality = "[{\"id\": \"item.quality.n5_3_w2\", \"name_key\": \"l10n.n5_3_w2_quality\", \"budget_multiplier\": 1}]";
+            const string budgetCurve = "[{\"id\": \"item.budget.n5_3_w2\", \"entries\": [{\"item_level\": 1, \"budget\": 20}]}]";
+            const string statDef = "[{\"id\": \"stat.n5_3_w2\", \"name_key\": \"l10n.n5_3_w2_stat\", \"group\": \"primary\"}]";
+            const string template =
+                "[{\"id\": \"item.n5_3_w2\", \"slot\": \"item.slot.n5_3_w2\", \"quality\": \"item.quality.n5_3_w2\", " +
+                "\"item_level\": 1, \"display_ref\": \"display.n5_3_w2\", \"stack_size\": 1, \"name_key\": \"l10n.n5_3_w2_item\", " +
+                "\"stats\": [{\"stat\": \"stat.n5_3_w2\", \"op\": \"flat\", \"value\": 8}]}]";
+            const string locales = "[{\"id\": \"l10n.locale.zh_cn\", \"is_default\": true}]";
+            const string texts =
+                "[{\"key\": \"l10n.n5_3_w2_slot\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"占位\"}," +
+                "{\"key\": \"l10n.n5_3_w2_quality\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"占位\"}," +
+                "{\"key\": \"l10n.n5_3_w2_stat\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"占位\"}," +
+                "{\"key\": \"l10n.n5_3_w2_item\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"占位\"}]";
+
+            var source = new InMemoryDataSource()
+                .Add(ItemSchemas.SlotDefinition.Name, TestSupport.Table(ItemSchemas.SlotDefinition.Name, slot))
+                .Add(ItemSchemas.QualityDefinition.Name, TestSupport.Table(ItemSchemas.QualityDefinition.Name, quality))
+                .Add(ItemSchemas.BudgetCurve.Name, TestSupport.Table(ItemSchemas.BudgetCurve.Name, budgetCurve))
+                .Add(Core.Numbers.StatBlock.StatSchemas.Definition.Name, TestSupport.Table(Core.Numbers.StatBlock.StatSchemas.Definition.Name, statDef))
+                .Add(ItemSchemas.Template.Name, TestSupport.Table(ItemSchemas.Template.Name, template))
+                .Add("l10n.locale", TestSupport.Table("l10n.locale", locales))
+                .Add("l10n.text", TestSupport.Table("l10n.text", texts));
+
+            var registry = new DataRegistry(source, TestSupport.CreateBus(),
+                new DataRegistryOptions { FailOnUnknownTable = false, Strictness = DataRegistryStrictness.WarningsBlock });
+            registry.RegisterSchema(ItemSchemas.SlotDefinition);
+            registry.RegisterSchema(ItemSchemas.QualityDefinition);
+            registry.RegisterSchema(ItemSchemas.BudgetCurve);
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
+            registry.RegisterSchema(ItemSchemas.Template);
+            registry.RegisterSchema(Core.Foundation.Localization.L10nSchemas.Locale);
+            registry.RegisterSchema(Core.Foundation.Localization.L10nSchemas.Text);
+            registry.RegisterValidationRule(new ItemBudgetValidationRule(new Id("item.budget.n5_3_w2")));
+
+            var report = registry.LoadAll();
+
+            var issue = Assert.Single(report.Issues, i => i.Check == ItemBudgetValidationRule.CheckUtilizationLow);
+            Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+            Assert.Equal(1, report.NonEscalatableWarningCount);
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
         [Fact]
         public void BudgetRule_UtilizationAtOrAboveThreshold_NoIssue()
         {

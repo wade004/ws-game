@@ -239,6 +239,22 @@ namespace Presentation.Assembly
         }
 
         /// <summary>
+        /// 分阶段落地计划 T-N5-3：04 第 5 节数值类校验项分级表全部规则（技术行数 20，对应核对表
+        /// "契约疑点"一节转述的 18 个概念条目，见 <see cref="NumericValidationRuleCatalog"/> 类型级
+        /// 判断记录"数量口径"）的集中只读登记清单（见
+        /// <see cref="NumericValidationRuleCatalog"/> 类型注释判断记录），单一来源转发——
+        /// <c>toolchain/validator</c>/编辑器基础套件按 <see cref="OptionalRules"/> 同款惯例，从本入口
+        /// 一处就能拿到全部数值规则元数据，不需要另行 <c>using Presentation.Assembly;</c> 之外知道
+        /// <see cref="NumericValidationRuleCatalog"/> 这个类型的存在。本清单里全部规则均经
+        /// <see cref="PresentationSchemaCatalog.RegisterAll"/>
+        /// 链路（经 <see cref="Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll"/> →
+        /// <see cref="Core.Carriers.Assembly.CarriersSchemaCatalog.RegisterAll"/> →
+        /// <see cref="Core.Rules.Assembly.RulesSchemaCatalog.RegisterAll"/>）默认注册，
+        /// <see cref="CreateRegistryCore"/> 不需要为它们另行接线——与两条可选规则（<see
+        /// cref="OptionalRules"/>）不同，本清单里没有一条是"未接线即禁用"的可选规则。</summary>
+        public static IReadOnlyList<NumericValidationRuleDescriptor> NumericRules => NumericValidationRuleCatalog.Entries;
+
+        /// <summary>
         /// 构造并注册好全部 L0～L5 <see cref="TableSchema"/>/<see cref="IValidationRule"/>（含按
         /// <paramref name="options"/> 接线的可选规则）的 <see cref="IDataRegistry"/>，不调用
         /// <see cref="IDataRegistry.LoadAll()"/>——加载时机由调用方决定（供需要先持有 registry、

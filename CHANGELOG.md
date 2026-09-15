@@ -401,6 +401,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   （不关心是否已在自己的登记表里注册），可直接复用这两个类型，不必再各自实现一套遍历/兜底逻辑
   （同 [ADR-0020](architecture/adr/0020-表达式词法器纳入公开契约.md)"不允许派生出第二套"的
   一贯取舍）。均为纯新增公开类型/成员。
+- **数值设计落地阶段 N5 · T-N5-3（Unreleased）**：新增 `Presentation.Assembly.
+  NumericValidationRuleCatalog`/`NumericValidationRuleDescriptor`（04 第 5 节数值类校验项分级表
+  的只读集中登记清单）与 `ContentValidationAssembly.NumericRules`——编辑器"校验设置"/"数值规则"
+  一类面板可直接读取本清单展示全部数值规则的检查名、级别、是否不可提升、所属数值域分组、是否依赖
+  尚未接入的仿真锚点，不必自行硬编码这份清单。`toolchain/validator --json` 的 `rules[]` 每项新增
+  `category`/`group`/`check_names`/`requires_anchor`/`enabled` 五个字段（详见
+  `toolchain/README.md`），供消费方按数值域分组展示、按 `enabled` 判断"这条规则当前是否真的会产出
+  问题"。均为纯新增公开类型/成员与纯新增 JSON 字段。
 
 ## [Unreleased]
 
@@ -416,6 +424,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   任意表的 `Expr` 字段里 `self.stat(<属性 id>)`/`target.stat(<属性 id>)` 引用现在也计入"已消费
   属性 id"，此前只覆盖跨表 Reference/SoftReference/Map 键引用与框架内置消费者清单。均为纯新增
   公开类型/成员，`toolchain/abi_probe.ps1` 核对 breaks=0。
+- **T-N5-3**：数值规则集中登记清单、装配入口注册全集断言、validator --json 规则分组与锚点依赖
+  标记定稿——新增 `Presentation.Assembly.NumericValidationRuleCatalog`/
+  `NumericValidationRuleDescriptor`（04 第 5 节数值类校验项分级表的只读集中登记，逐字段直接引用
+  各规则类自己的 `RuleId`/`CheckName` 常量）与 `ContentValidationAssembly.NumericRules`（单一来源
+  转发）；`toolchain/validator --json` 的 `rules[]` 新增 `category`/`group`/`check_names`/
+  `requires_anchor`/`enabled` 五个字段（详见 `toolchain/README.md`）；新增测试断言"集中登记清单的
+  每个 RuleId 都真的出现在装配根产出的 `ValidationReport.Rules` 里"（禁止漏注册的可执行门禁）；
+  补齐 5 条此前缺失的"不可提升警告在 `WarningsBlock` 下不阻断"用例（`item_budget_utilization_low`/
+  `item_weapon_damage_deviates_dps_curve`/`item_grant_value_exceeds_share`/`skill_no_time_cost`/
+  `skill_budget_deviation`；另外两条 `econ_price_deviates_formula`/`stat_definition_no_consumer`
+  此前已覆盖）。契约疑点如实上报：核对表自称"18 项"与其自身列出的行数（阻断 13 + 警告 7 = 20，
+  `曲线单调有限` 一个概念条目因两张密集枚举表各占一个独立实现类而拆成三行）不一致，详见
+  `NumericValidationRuleCatalog` 类型级判断记录"数量口径"；本清单按 20 行（18 个概念条目的超集）
+  登记，不因收窄口径而漏验证任何一个已落地的规则类。均为纯新增公开类型/成员，
+  `toolchain/abi_probe.ps1` 核对 breaks=0。
 
 ## [1.34.0] - 2026-09-16
 

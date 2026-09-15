@@ -72,6 +72,13 @@ namespace Core.Rules.Combat
     {
         private const string Table = "combat.resist_curve";
 
+        /// <summary>分阶段落地计划 T-N5-3（数值规则核对表 B1b）：曲线单调有限阻断族在
+        /// <c>combat.resist_curve</c> 上的密集枚举分支检查名，此前只以字面量出现在下方两处
+        /// <see cref="ValidationIssue"/> 构造调用里——补一个公开常量，供
+        /// <c>Presentation.Assembly.NumericValidationRuleCatalog</c> 直接引用（不写字面量，同
+        /// 1.29.0 <c>OptionalRuleDescriptor</c> 先例），不改变检查名字符串本身与既有行为。</summary>
+        public const string CheckEntriesMonotonic = "resist_curve_entries_monotonic";
+
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
             var issues = new List<ValidationIssue>();
@@ -129,7 +136,7 @@ namespace Core.Rules.Combat
                         if (prevValue.HasValue && valueNum.Value <= prevValue.Value)
                         {
                             issues.Add(new ValidationIssue(
-                                ValidationSeverity.Error, Table, "resist_curve_entries_monotonic",
+                                ValidationSeverity.Error, Table, CheckEntriesMonotonic,
                                 $"entries[{i}].value 必须严格大于前一项（{prevValue.Value} -> {valueNum.Value}）",
                                 record.Key, "entries"));
                         }
@@ -137,7 +144,7 @@ namespace Core.Rules.Combat
                         if (prevReduction.HasValue && reductionNum.Value < prevReduction.Value)
                         {
                             issues.Add(new ValidationIssue(
-                                ValidationSeverity.Error, Table, "resist_curve_entries_monotonic",
+                                ValidationSeverity.Error, Table, CheckEntriesMonotonic,
                                 $"entries[{i}].reduction 不能低于前一项（{prevReduction.Value} -> {reductionNum.Value}）",
                                 record.Key, "entries"));
                         }

@@ -145,8 +145,12 @@ namespace Tests.Rules.Skill
         /// <summary>只跑到"注册 schema/校验规则 + LoadAll"这一步，返回校验报告，不构造
         /// <see cref="SkillHost"/> 及其余真实宿主——供只关心校验结果、数据本身预期不合法（因而
         /// 不适合走 <see cref="Build"/>，那里数据不合法会直接抛异常）的测试使用（见
-        /// <c>SkillValidationRuleTests</c>）。</summary>
-        public ValidationReport Validate()
+        /// <c>SkillValidationRuleTests</c>）。<paramref name="strictness"/>（T-N5-3 新增可选参数，默认
+        /// <see cref="DataRegistryStrictness.WarningsAllowed"/>，保持既有全部调用点行为不变）供需要在
+        /// <see cref="DataRegistryStrictness.WarningsBlock"/> 下断言"不可提升警告不阻断"的用例传入
+        /// （见 <c>T_N3_5_HasteAndNoTimeCostWarningTests</c>/<c>T_N3_9_SkillBudgetAnalyzerTests</c>
+        /// 里对应用例）。</summary>
+        public ValidationReport Validate(DataRegistryStrictness strictness = DataRegistryStrictness.WarningsAllowed)
         {
             _source.Add("skill.def", TableJson("skill.def", _skillDefs));
             _source.Add("skill.aura_def", TableJson("skill.aura_def", _auraDefs));
@@ -158,7 +162,7 @@ namespace Tests.Rules.Skill
             _source.Add("stat.definition", TableJson("stat.definition", _statDefs));
 
             var bus = CreateBus();
-            var registry = new DataRegistry(_source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
+            var registry = new DataRegistry(_source, bus, new DataRegistryOptions { FailOnUnknownTable = false, Strictness = strictness });
             registry.RegisterSchema(SkillSchemas.Def);
             registry.RegisterSchema(SkillSchemas.AuraDef);
             registry.RegisterSchema(SkillSchemas.ProcDef);
