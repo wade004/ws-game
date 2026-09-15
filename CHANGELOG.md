@@ -410,6 +410,27 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `core/numbers/progression/contracts/IProgressionHost.cs`/`XpContext.cs`/`ProgressionOptions.cs`
   类型注释与 `core/numbers/progression/schema/README.md`"T-N4-2 补记"。
 
+- **数值设计落地阶段 N4 · T-N4-3**（[ADR-0033](architecture/adr/0033-等级经验模块正文与当量来源.md)
+  决策 3；[06 第 2.5 节](architecture/06_规则层_属性技能战斗AI.md)）：新模块
+  `core/gameplay/progression_bridge`——击杀经验监听器 `CreatureDeathXpListener`（订阅
+  `unit.died`，击杀者为玩家单位或其召唤物且主人是玩家时按 `prog.xp_source(kind=kill)` 经
+  `IProgressionHost.GrantXp` 发放，来源等级取死亡单位等级，分档 id 从生物模板取出经
+  `XpContext.TierId` 传递供 T-N4-4 消费）；探索经验监听器
+  `AreaTriggerDiscoveryXpListener`（订阅 `area.trigger_entered`，区域/区域等级由调用方经新增
+  委托 `AreaDiscoveryLevelResolver` 提供，一次性标志经 `IWorldState` 保证，键为
+  `world.<once_key 前缀>.<触发器 id>`）。`Core.Numbers.Progression.ProgressionOptions` 新增
+  `KillXpSourceId`/`DiscoveryXpSourceId`（两个可空 `Id?`，未配置时两个监听器分别退到约定 id
+  `prog.xp_source.kill`/`prog.xp_source.discovery`）。`core/gameplay/assembly/GameplayAssembly.cs`
+  接线两个监听器（只新增行）：击杀监听器接在既有 `CreatureDeathLootListener` 构造之后（先掉落后
+  经验）；探索监听器接在 `AreaTriggerHost` 构造之后，`AreaDiscoveryLevelResolver` 当前传 `null`
+  （框架不预设任何具体区域，零成本退化）。两个监听器调用 `GrantXp` 均以
+  `try/catch (ArgumentException)` 包裹未登记来源 id 的情形，不阻断玩法流程。回放基线核查：
+  `core/gameplay/tests/Replay` 只装配 L2 `RulesAssembly`、从未构造 L4 `GameplayAssembly`，本次
+  改动零影响，基线未变。契约疑点（"区域"由触发器 id 承担、区域等级由委托而非新 schema 字段提供、
+  两个来源 id 承接点的最终消费方式）详见
+  `core/numbers/progression/contracts/ProgressionOptions.cs`/
+  `core/gameplay/progression_bridge/README.md` 类型/模块注释"契约疑点上报"。
+
 ## [1.33.0] - 2026-09-15
 
 MINOR 版本：数值设计落地阶段 N3"技能"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 9/14 节，T-N3-1～T-N3-11）——落地 ADR-0031 全部决策：效果值缩放契约、使用条件、节拍锁、来源缺失冻结、瘟疫刷新、控制类别、群体超出策略（拍板 7）、武器百分比基于秒伤乘一拍、`skill.budget_rule` 与技能预算 Analyzer、结算类原语集合、独立的优先级表求值组件——不新增任何效果原语。

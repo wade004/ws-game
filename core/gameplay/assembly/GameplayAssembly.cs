@@ -498,6 +498,13 @@ namespace Core.Gameplay.Assembly
                 lootMultiplierProvider: () => Difficulty.LootMultiplier,
                 difficultyHost: Difficulty);
 
+            // T-N4-3（ADR-0033 决策 3；core/gameplay/progression_bridge/README.md 判断记录 2"接线
+            // 顺序先掉落后经验"）：接在 CreatureDeathLootListener 构造之后，订阅同一个 unit.died；
+            // 两者互不持有对方引用、本类不读取任何掉落结果（任务书硬性规则）。
+            _ = new Core.Gameplay.ProgressionBridge.CreatureDeathXpListener(
+                bus, Carriers.Rules.Progression, Carriers.Units, Carriers.Creatures,
+                summons: Carriers.Summons);
+
             // ---------------------------------------------------------
             // 7) RewardDispatcher：currencyGranter 用局部变量延迟闭包接到第 8 步才构造出来的
             //    EconomyHost（惯例同 RulesAssembly 第 1 步 progression 变量的写法）。
@@ -805,6 +812,14 @@ namespace Core.Gameplay.Assembly
             // 判断记录）：新增 world（IWorldSim）依赖，供 AreaTriggerHost 在 Register/RegisterTrap/
             // Unregister/UnloadMap 时创建/销毁对应实体。
             AreaTrigger = new AreaTriggerHost(world, WorldState, bus, ExprHostFactory, Hooks, resolvedAreaTriggerOptions);
+
+            // T-N4-3（ADR-0033 决策 3；core/gameplay/progression_bridge/README.md 判断记录 6"区域/
+            // 区域等级由调用方经 AreaDiscoveryLevelResolver 提供，不改 area_trigger schema"）：
+            // 框架本身不预设任何具体区域列表，本装配根不注入具体委托（等价于"没有任何区域配置为
+            // 探索奖励"，零成本退化，不发放、不写任何一次性标志）；某个具体游戏要启用探索经验时，
+            // 在自己的组合根里提供一个真正的委托即可。
+            _ = new Core.Gameplay.ProgressionBridge.AreaTriggerDiscoveryXpListener(
+                bus, Carriers.Rules.Progression, Carriers.Units, WorldState, registry);
 
             // ---------------------------------------------------------
             // 16) 补上 gobj 侧四个 L4 回调（GobjOptions 是 CarriersAssembly 构造时已经用过的同一个

@@ -21,7 +21,8 @@ progression/
   contracts/
     ProgSchemas.cs             prog.level_curve / prog.xp_source / prog.xp_base_curve 的 TableSchema
     ProgressionOptions.cs      构造期口味配置契约壳（T-N4-1 新增契约壳，T-N4-2 起真正消费 MaxLevel/
-                                ExtraXpMultiplierProvider）
+                                ExtraXpMultiplierProvider；T-N4-3 新增 KillXpSourceId/
+                                DiscoveryXpSourceId，本模块不消费，见"T-N4-3"一节）
     XpContext.cs               grantXp 的当量上下文（T-N4-2 新增：sourceLevel/tierId/equivalent）
     Events.cs                  ProgressionEventKeys、LevelUpEvent、XpGainedEvent
     ProgressionWriters.cs      StatModifierWriter / StatModifierRemover 具名委托
@@ -236,6 +237,19 @@ CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp
    归零/`XpContext` 结构三项，未提及天赋点，也没有给出"天赋点余额"应挂在哪个契约面的字面结论
    （新查询方法？新事件？游戏层自行订阅 `progression.level_up` 累加？）。本任务不擅自新增这类
    未声明的契约面，留待设计层重新拆分派发，见 `schema/README.md` 同名小节。
+
+## T-N4-3（分阶段落地计划；ADR-0033 决策 3；06 第 2.5 节）：`ProgressionOptions` 新增
+`KillXpSourceId`/`DiscoveryXpSourceId`
+
+`ProgressionOptions.cs` 新增两个可空 `Id?` 字段——`KillXpSourceId`/`DiscoveryXpSourceId`（默认
+`null`）。**契约疑点上报**：06 第 2.5 节/ADR-0033 均未给出"三种来源各用哪一条固定
+`prog.xp_source` 记录 id"的字面结论，本模块本身不消费这两个字段（三种来源公式只依赖调用时传入
+的 `XpContext`，与"来源 id 叫什么"无关，见 `IProgressionHost.GrantXp` 判断记录）——真正的消费方
+是 T-N4-3 新增的 `core/gameplay/progression_bridge` 模块两个监听器（`CreatureDeathXpListener`/
+`AreaTriggerDiscoveryXpListener`）：未显式传入 `ProgressionOptions`（或传入但字段为 `null`）时，
+两个监听器各自退到自己的约定 id（`prog.xp_source.kill`/`prog.xp_source.discovery`，见各自类型
+`DefaultKillXpSourceId`/`DefaultDiscoveryXpSourceId` 静态字段）。本模块只负责登记字段与判断记录，
+详见 `core/gameplay/progression_bridge/README.md` 判断记录 5。
 
 ## 不负责什么
 

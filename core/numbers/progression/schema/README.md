@@ -45,7 +45,7 @@
 | `weight` | Number | 否 | 省略时按 1 处理（**废弃**，同上，拍板 4） |
 | `base_curve_ref` | Reference → `prog.xp_base_curve` | 否 | 击杀基数曲线引用（ADR-0033 决策 3）；T-N4-1 新增，存在时优先于 `base_xp`/`weight`；消费实现见 T-N4-2（`ProgressionHost.GrantXp`/`GrantFromSource` 均已接入，见模块 README"T-N4-2"一节） |
 | `level_diff_ref` | Reference → `combat.level_diff_table` | 否 | 等级差规则表引用，取其经验系数列（ADR-0033 决策 3/5）；T-N4-1 新增；消费实现见 T-N4-2（`kind=kill`/`quest` 生效，`kind=discovery` 按 ADR 原文公式刻意不查本列，即便登记了也不生效） |
-| `once_key` | String | 否 | 一次性标志键前缀，`kind=discovery` 时使用（ADR-0033 决策 3）；T-N4-1 新增；消费实现留 T-N4-3 |
+| `once_key` | String | 否 | 一次性标志键前缀，`kind=discovery` 时使用（ADR-0033 决策 3）；T-N4-1 新增；消费实现见 T-N4-3（`core/gameplay/progression_bridge.AreaTriggerDiscoveryXpListener`：本字段非空时优先于 `ProgressionOptions.DefaultOnceKeyPrefix`，拼上触发器 id 再补 `"world."` 命名空间头，见该模块 README 判断记录 7） |
 | `condition` | Expr | 否 | 触发条件；本任务只登记字段类型（供未来 `expr_parsable` 校验使用），`IProgressionHost` 不对其求值 |
 
 **判断记录（`kind` 登记为可选而非必填）**：ADR-0033/06 第 2.5 节把 `kind` 写进字段表但未明确

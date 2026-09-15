@@ -105,5 +105,45 @@ namespace Core.Numbers.Progression
         /// </para>
         /// </summary>
         public ProgressionXpMultiplierProvider? ExtraXpMultiplierProvider { get; set; } = null;
+
+        /// <summary>
+        /// 击杀经验来源 id（分阶段落地计划 T-N4-3；ADR-0033 决策 3"击杀 = 击杀基数(怪物等级) ×
+        /// 分档经验倍率 × 难度经验倍率 × 等级差表.经验系数(Δ)"）：<c>null</c>（默认）时消费方
+        /// 落到约定 id（见
+        /// <see cref="Core.Gameplay.ProgressionBridge.CreatureDeathXpListener.DefaultKillXpSourceId"/>
+        /// <c>prog.xp_source.kill</c>）。
+        /// <para>
+        /// 契约疑点上报/临时判断：06 第 2.5 节与 ADR-0033 均未给出"<c>kind=kill</c> 的来源固定用哪一条
+        /// <c>prog.xp_source</c> 记录 id"的字面结论——三种来源当量公式本身与 <c>SourceId</c> 无关
+        /// （由调用方在 <see cref="IProgressionHost.GrantXp"/> 显式传入），本字段只是给
+        /// <c>core/gameplay/progression_bridge.CreatureDeathXpListener</c> 这一类"框架自带的默认
+        /// 监听器"一个可配置的承接点，避免它们各自硬编码约定 id。若某游戏需要按不同怪物类型使用不同
+        /// 的击杀经验来源（如精英/首领各一条），本字段承载不了这种场景，需要调用方绕开默认监听器、
+        /// 自行订阅 <c>unit.died</c> 并显式选择 <c>sourceId</c>，留待真正出现该需求时再扩展（同类型
+        /// 注释"契约疑点上报"惯例，本类是阶段 N4 内多个任务共同完善、随 1.34.0 一次性发布的全新
+        /// 类型，字段调整不构成"已发布 ABI"的破坏性变更）。本任务（T-N4-3）不消费本字段之外任何
+        /// 装配层接线（<c>core/gameplay/assembly.GameplayAssembly</c> 是否要把某个真正配置好的
+        /// <see cref="ProgressionOptions"/> 实例接进 <c>RulesAssembly.Progression</c> 构造点，留待
+        /// 未来任务统一处理）。
+        /// </para>
+        /// </summary>
+        public Id? KillXpSourceId { get; set; } = null;
+
+        /// <summary>
+        /// 探索经验来源 id（分阶段落地计划 T-N4-3；ADR-0033 决策 3"探索 = 一只怪当量 × 击杀基数
+        /// (区域等级)，首次进入由世界状态标志保证"）：<c>null</c>（默认）时消费方落到约定 id（见
+        /// <see cref="Core.Gameplay.ProgressionBridge.AreaTriggerDiscoveryXpListener.DefaultDiscoveryXpSourceId"/>
+        /// <c>prog.xp_source.discovery</c>）。
+        /// <para>
+        /// 判断记录（单一全局来源 id，不按区域各注册一条）：三种来源当量公式按调用时传入的
+        /// <see cref="XpContext.SourceLevel"/> 折算，<c>discovery</c> 分支本身不读取
+        /// <see cref="XpContext.TierId"/>/来源 id 之外的任何区域专属信息；各区域的差异（等级、一次性
+        /// 标志）由 <c>AreaTriggerDiscoveryXpListener</c> 在触发器进入回调里逐次传入
+        /// <see cref="XpContext.SourceLevel"/> 与世界状态标志键（按触发器 id 区分）区分，因此不需要
+        /// 为每个区域各登记一条 <c>prog.xp_source</c> 记录——同 <see cref="KillXpSourceId"/> 同一处
+        /// 契约疑点上报惯例。
+        /// </para>
+        /// </summary>
+        public Id? DiscoveryXpSourceId { get; set; } = null;
     }
 }
