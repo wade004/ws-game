@@ -58,7 +58,9 @@ namespace Core.Numbers.StatBlock
     /// 是手抄的字符串常量，不是反射读取 <c>CombatOptions</c> 的默认值——两边各自维护，若
     /// <c>CombatOptions</c> 未来新增/改名默认属性 id，本清单需要人工同步更新，不会自动感知，已如实
     /// 记录在此。<c>ResistStatPrefix</c>（<c>"stat.resist_"</c> 前缀 + 学派名，非固定 id）与
-    /// <c>PhysicalSchool</c>/<c>RngStream</c> 等不是属性 id，不登记。
+    /// <c>PhysicalSchool</c>/<c>RngStream</c> 等不是属性 id，不登记。T-N6-4 补充同一性质的第五项：
+    /// <c>Core.Carriers.Unit.MovementOptions.MoveSpeedStat</c>（默认 <c>stat.move_speed</c>）——见
+    /// <see cref="FrameworkBuiltinConsumerStatIds"/> 该项注释。
     /// </para>
     /// <para>
     /// (3) T-N5-2 补齐：<see cref="FieldKind.Expr"/> 字段的语法树里 <c>self.stat(&lt;属性 id&gt;)</c>/
@@ -102,6 +104,14 @@ namespace Core.Numbers.StatBlock
             "stat.damage_done_pct",    // Core.Rules.Combat.CombatOptions.DamageDonePctStat
             "stat.damage_taken_pct",   // Core.Rules.Combat.CombatOptions.DamageTakenPctStat
             "stat.healing_done_pct",   // Core.Rules.Combat.CombatOptions.HealingDonePctStat
+            // T-N6-4 新增：Core.Carriers.Unit.MovementOptions.MoveSpeedStat 默认值——
+            // MovementTickHandler.ResolveSpeed 构造期起总是读取这个属性 id（IStatHost.GetStat 对
+            // "属性未在 stat.definition 登记"直接抛异常，见该方法判断记录），只要游戏内容里存在任何
+            // 会移动的单位（AI 追击/玩家寻路），运行时就一定会读它——与上面四个 CombatOptions 默认值
+            // 同一性质（C# 代码里的默认值，不是数据表的一条引用），本模块同样不能反向依赖 L3
+            // core/carriers/unit 的具体类型（分层边界），手抄同一份清单，若 MovementOptions 未来
+            // 改名/新增默认属性 id 需要人工同步，不会自动感知。
+            "stat.move_speed",         // Core.Carriers.Unit.MovementOptions.MoveSpeedStat
         };
 
         public string RuleId => nameof(StatDefinitionConsumerValidationRule);

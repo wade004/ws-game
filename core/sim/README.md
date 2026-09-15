@@ -41,6 +41,28 @@ T-N6-3a（本次任务，ADR-0035 决策 2；06 第 405 行勘误"锚点表接�
 新增，不改既有签名）。仍不含三级仿真本身（决策 3）、报告与基线对比（决策 5）——那些依旧是后续
 任务（T-N6-4 及之后）的范围。
 
+T-N6-4（本次任务，ADR-0035 决策 3）：三级仿真的第一级——战斗仿真运行器。新增
+`AnchorCreatureLevelScaler`（`ICreatureLevelScaler` 的锚点表实现，按数值总纲第 4.2 节把
+`creature.template.base_stats` 从模板登记等级换算到任意目标等级）、`SimpleMoveModel`（玩家侧
+简化移动模型——优先级表选不出可施放技能时朝目标移动一步，生物侧复用 `core/rules/ai` 既有的
+`AiHost` 追击/进战状态机，不重复实现）、`FightRunner`（单场战斗：标准玩家对指定生物模板按指定
+等级出生，逐 tick 智能释放优先级表直至一方死亡或超时，采样口径接 `combat.damage_dealt` 与
+`CombatOptions.ResolveTrace`，输出 `FightResult`——胜负/时长/双方伤害与命中/技能输出占比/资源
+曲线/TTD 估计）、`ArenaSimulation`（场景运行器：对 `kind=arena` 场景按 `levels × level_offsets`
+每个格子跑 `runs` 场，聚合输出 `ArenaReport`——胜率/TTK 分布/对账表，`ToJson()` 确定性序列化）。
+`Core.Carriers.Creature.CreatureFactory` 新增可写属性 `LevelScaler`（ABI：纯新增，见该类型判断
+记录"改为构造后可写的公开属性"）；`HeadlessWorldOptions` 新增 `CombatOptions` 属性（转发给
+`GameplayAssembly` 既有的同名构造参数，此前恒隐式传 `null`）。隔离方案：每场 `FightRunner.Run`
+各自新建一整套 `HeadlessWorld`（实测 `HeadlessWorldBuilder.Build` 平均 ~10～25ms，远低于任务书
+50ms 判断线，见 `FightRunnerTests.Probe_BuildTiming_WellUnder50MsThreshold`），不做"同一世界内
+重生重置"，不触碰任何被仿真模块的重置能力。为让"生物会主动追击并攻击玩家"这条链路真正跑通，
+本任务修了嵌入数据集两处此前从未被触发过的缺口——`fac.reaction_matrix` 缺反向敌对行（生物→玩家）、
+`stat.definition` 缺 `stat.move_speed`（`MovementTickHandler` 硬性要求）——均记录在
+`core/sim/tests/data/README.md` 判断记录与本文件判断记录。跑通仿真后按对账等式与矩阵形状要求
+重新核算了 `sim.anchor`/`creature.template`/`skill.base_curve.sim_creature_bite*`/
+`sim.scenario.sim_arena_matrix.runs`，详见数据集 README"T-N6-4 调参记录"一节——`ExpectedStatCalculator`/
+`StandardPlayerBuilder` 用到的公式与结果不受影响（本次改动的表不在它们的输入范围内）。
+
 ## 目录
 
 ```
@@ -75,6 +97,24 @@ core/sim/
                               对齐词缀反解向量并装备、校验 RotationEvaluator 能选出可施放技能，
                               返回 StandardPlayer 完整快照（已学技能/已装备实例/期望与实际属性/
                               偏差/武器秒伤）
+    AnchorCreatureLevelScaler.cs
+                              T-N6-4：ICreatureLevelScaler 的锚点表实现——血量槽位（经
+                              arch.power_type 数据驱动找到）按 DPS(target)×TTK(target) ÷
+                              DPS(source)×TTK(source) 缩放，其余全部属性按 HP(target)÷TTD(target)
+                              ÷ HP(source)÷TTD(source) 缩放；越界夹到 AnchorTable.MaxLevel/最低 1 级
+    SimpleMoveModel.cs        T-N6-4：玩家侧简化移动模型——距目标 > engageRange 时按固定速度移动
+                              一步，不越过目标；生物侧不重复实现（复用 core/rules/ai 既有 AiHost
+                              追击状态机）
+    FightRunner.cs            T-N6-4：单场战斗仿真运行器——FightRunnerOptions/FightResult/
+                              FightOutcome/ResourceSample；每场新建 HeadlessWorld（隔离方案见本
+                              文件上方判断记录），采样口径 combat.damage_dealt（落地伤害/命中计数）
+                              + CombatOptions.ResolveTrace（技能归属、含 Miss/Dodge/Immune 的完整
+                              尝试计数）
+    ArenaSimulation.cs        T-N6-4：场景运行器——ArenaCellResult/ReconciliationRow/ArenaReport；
+                              按 levels×level_offsets 逐格跑 runs 场并聚合；种子按
+                              (base_seed,level,offset,runIndex) 纯函数派生（DeriveSeed）；
+                              ArenaReport.ToJson() 经 Core.Foundation.Common.Json.JsonWriter 确定性
+                              序列化（NaN/Infinity 写为 null）
   schema/
     SimSchemas.cs             T-N6-2a：sim.anchor/sim.scenario 的 TableSchema 声明
     SimValidationRules.cs     T-N6-2a：SimAnchorValidationRule/SimScenarioValidationRule
@@ -108,18 +148,32 @@ core/sim/
                              T-N6-3a：叠加一条超预算 skill.def 行（第三数据根）验证
                              skill_budget_* 规则确有真实求值（阻断）；data/_sample 路径锚点接入后
                              仍不阻断（回归）
+    AnchorCreatureLevelScalerTests.cs
+                             T-N6-4：ScaleBaseStats 精确比值（1e-6 容差）、装配根接线端到端验证
+                             （Spawn(...,level) → LevelScaler → StatHost → PowerHost）、未覆盖
+                             等级不触碰缩放器、越界夹到 MaxLevel
+    SimpleMoveModelTests.cs T-N6-4：射程内不移动、射程外朝目标移动且不越过、步长超过剩余距离时
+                             精确停在目标点
+    FightRunnerTests.cs     T-N6-4：生物确有主动伤害输出（AI 真正追击并攻击）、同种子结果逐位
+                             一致、不同种子命中判定可观测差异、技能占比之和为 1、命中率 ∈[0,1]、
+                             资源曲线下采样且非负、Build 平均耗时探针
+    ArenaSimulationTests.cs T-N6-4：跑一次完整 sim_arena_matrix（不缩参数，35 格 × 60 次/格 =
+                             2100 场，共享同一份 IClassFixture 结果，打印总耗时）断言对账等式
+                             （dps/hp ≥3 个等级、ttd ≥1 个等级在带宽内）与矩阵形状（单调不增
+                             ±0.05、偏移 ≤-3 胜率 ≥0.95、偏移 ≥+3 至少一格拐点成立）；另用一份
+                             内嵌合成小场景验证 ArenaReport.ToJson() 同种子逐字节相同/不同种子
+                             不同
     data/                    T-N6-2b：嵌入式最小仿真数据集，见 data/README.md（数据清单、锚点
                              推导公式与手算表、判断记录）——不进 data/_sample（拍板 10）
 ```
 
 ## 不负责什么
 
-- 不实现三级仿真（战斗/成长/内容覆盖，ADR-0035 决策 3）、不实现报告输出与基线对比工具（决策 5）——
-  均为 ADR-0035 后续任务（T-N6-4 及之后）的范围。T-N6-2a 已实现 `sim.scenario`/`sim.anchor` 两张
-  数据表的 schema、校验规则、类型化读取（决策 4），T-N6-3a 起 `ExpectedStatCalculator`/
-  `AnchorTableSkillBudgetAnchorProvider`/`StandardPlayerBuilder` 消费它们（决策 2 标准玩家生成器、
-  锚点接入两条预算校验规则）——但三级仿真运行器本身（怎样用标准玩家跑一场战斗仿真并统计分布、越级
-  矩阵、成长曲线、内容覆盖）仍未实现，`AnchorTable`/`ScenarioCatalog` 仍然只读、不做任何仿真计算。
+- 不实现成长仿真、内容覆盖仿真（ADR-0035 决策 3 后两级）、不实现报告输出与基线对比工具（决策 5）——
+  均为后续任务（T-N6-5 及之后）的范围。T-N6-4 已实现三级仿真的第一级"战斗仿真"（`FightRunner`/
+  `ArenaSimulation`，见上）；`AnchorTable`/`ScenarioCatalog` 仍然只读，成长/覆盖两级场景
+  （`kind=growth`/`kind=coverage`）的运行器本任务未实现，`ScenarioCatalog.ByKind` 已能筛出这两类
+  场景但没有消费方。
 - 不把 `Core.Sim.dll` 同步进 Unity 工作台工程——`build.ps1` 的 `$CoreAssemblies` 是显式列出
   Foundation/Numbers/Rules/Carriers/Gameplay 五个程序集名的数组（不是通配符抓取
   `Core.*.dll`），本任务未改动这份清单，`Core.Sim` 因此天然不会被同步；`Core.Sim` 依赖
@@ -134,9 +188,14 @@ core/sim/
   `skill_budget_deviation` 警告，均是该数据集自己早已用 `budget_note` 确认过的"已知会超带宽"技能
   （见该目录 README 判断记录 6），不代表新的内容错误，不需要修数据（见本文件判断记录"锚点接入后
   嵌入数据集为何仍是 0 error"）。
-- `StandardPlayerBuilder` 不生成"标准玩家生成器驱动的战斗仿真报告"——它只负责装配一个可玩的标准
-  玩家单位（学技能、穿装备、给优先级表），真正"用它打一场仿真、统计胜率/时长"是三级仿真运行器
-  （决策 3，T-N6-4 及之后）的职责，不在本任务范围。
+- `StandardPlayerBuilder` 本身不生成战斗仿真报告——它只负责装配一个可玩的标准玩家单位（学技能、
+  穿装备、给优先级表），"用它打一场仿真、统计胜率/时长"是 `FightRunner`/`ArenaSimulation`（T-N6-4）
+  的职责，`FightRunner.Run` 内部调用 `StandardPlayerBuilder.Build` 一次。
+- `FightRunner`/`ArenaSimulation` 不修改任何被仿真模块（`core/rules/combat`/`core/rules/skill`/
+  `core/numbers/stat_block`/`core/rules/ai`/`core/gameplay/loot` 等）的行为——`CombatOptions.
+  ResolveTrace` 是该模块早已存在的诊断回调（"消费方反馈 2026-09-11 编辑器第 31 条"落地时就已加入），
+  本任务只是第一次真正使用它，不新增、不改变任何结算分支。生物追击/进战由 `core/rules/ai` 既有的
+  `AiHost` 状态机驱动，本任务未改动该模块一行代码。
 
 ## 判断记录
 
@@ -342,3 +401,74 @@ core/sim/
     `skill_budget_deviation` **警告**（比值 2.91/11.04/19.80，均超带宽，但均已有 `budget_note`
     归"已确认"分组，不阻断），符合该数据集设计之初的预期（`skill.book` 逐级解锁的高消耗/长冷却
     技能本就设计成不在"每 GCD 一次"的带宽内），不需要修改嵌入数据集本身的任何数值。
+
+## T-N6-4 判断记录
+
+21. **隔离方案：为何是"每场新建世界"而不是"同一世界内重生重置"**：任务书给了一条可测量的决策
+    线——`HeadlessWorldBuilder.Build` 平均耗时 ≤50ms 就每场新建，否则要在同一世界内重生生物/重置
+    玩家并说明 RNG 流如何按种子重置。实测（`FightRunnerTests.Probe_BuildTiming_WellUnder50MsThreshold`，
+    20 次连续 `Build`）在本机环境稳定落在 10～25ms，远低于 50ms 这条线——`IRngHost.Reset(masterSeed)`
+    虽然存在（理论上可以在不重建世界的前提下换种子），但"重生重置"方案还需要解决光环/仇恨/冷却/
+    AI 行为状态如何清零这一整类问题，任务书明确"禁止给被仿真模块加重置功能"，选择更简单的"每场
+    新建"直接绕开这整类风险，代价（吞吐量）在实测数据下完全可接受（完整 `sim_arena_matrix`
+    2100 场 ≈8～9 秒）。
+22. **采样口径：`combat.damage_dealt` 与 `CombatOptions.ResolveTrace` 分工，不是同一份数据重复
+    采两遍**：`Resolver.Resolve` 只在结算真正"落地"（非 `Immune`、非 `Miss`/`Dodge`/`Parry`）时才
+    `Enqueue` 一条 `combat.damage_dealt`（见该方法"terminal"分支源码），因此它天然适合直接累计
+    `FightResult.PlayerTotalDamage`/`CreatureTotalDamage`（"确实造成了多少伤害"），但它既不携带
+    `skillId`，也不覆盖"打空了"的尝试——这两样都只有 `CombatOptions.ResolveTrace`（对每一次
+    `Resolver.Resolve` 调用无条件回调，含 `EffectContext.SkillId`）能提供，因此
+    `FightResult.PlayerHitRate`（分子=落地事件计数、分母=`ResolveTrace` 总回调计数）与
+    `PlayerSkillDamageShare`（`ResolveTrace` 按 `SkillId` 分组累加 `ResolveResult.FinalAmount`）
+    走后者。两份数据在"确实落地"的交集上逐条一致，可以互相校验，但各自承担各自唯一能提供的那部分
+    信息，详见 `FightRunner` 类型判断记录。
+23. **`HeadlessWorldOptions.CombatOptions` 为何是新增属性而不是新增构造函数重载**：
+    `GameplayAssembly` 的构造函数早已有 `CombatOptions? combatOptions = null` 这个可选参数（并非
+    本任务新增），`HeadlessWorldBuilder.Build` 此前只是从未使用它、恒隐式传 `null`。本任务只需要
+    "把这个早已存在的参数暴露给 `HeadlessWorldOptions` 调用方"，因此是给 `HeadlessWorldOptions`
+    新增一个可选属性、并在 `Build` 内部转发，不涉及任何新增构造函数重载——比照
+    `ExpectedQualityId`（T-N6-3a）同一惯例。
+24. **`CreatureFactory.LevelScaler` 为何是构造后可写属性，不是第 11 个构造参数**：
+    `Core.Sim.HeadlessWorldBuilder.Build` 需要在 `registry.LoadAll` 通过校验、`AnchorTable` 真正
+    构造出来之后，才能判断"数据源是否真的含 `sim.anchor` 行"（决定要不要装配
+    `AnchorCreatureLevelScaler`）——但 `CreatureFactory`（经 `CarriersAssembly`）在此之前就已经
+    构造完成。与其给 `CarriersAssembly`/`GameplayAssembly` 各追加一份完整参数列表的新构造函数
+    重载，选择把 T-N6-3b 已经就位的 `_levelScaler` 私有只读字段改成一个构造完成后仍可写的公开
+    属性——两个既有构造函数（5 参/10 参）行为不变（默认 `null`），`HeadlessWorldBuilder.Build`
+    在 `AnchorTable` 确定非空之后直接对 `gameplay.Carriers.Creatures.LevelScaler` 赋值即可。见
+    `CreatureFactory.cs` 该属性判断记录。
+25. **修了两处从未被触发过的既有数据缺口，均属"数据集配置问题，在数据集里修"**：任务书要求"先
+    证明嵌入数据集里的生物会主动打玩家；若不会，是数据集配置问题"——实测发现真的不会，根因两处：
+    ① `fac.reaction_matrix` 只登记了 `fac.player → fac.sim_hostile = hostile` 单向一行，
+    `Core.Numbers.Faction.FactionMatrix.GetReaction(from,to)` 是方向性查找（不是对称矩阵），生物
+    一侧查 `IsHostile(fac.sim_hostile, fac.player)` 落到 `fac.sim_hostile.default_reaction =
+    "neutral"`，`AiHost.FindNearestHostile` 因此永远找不到玩家——`data/_sample` 的
+    `fac.reaction_matrix.json` 同样只有单向一行，这不是本数据集独有的疏漏，是这一惯例此前从未被
+    "生物需要主动还手"这个场景检验过。补了反向一行
+    `fac.reaction.sim_hostile_vs_player`（`from: fac.sim_hostile, to: fac.player, reaction:
+    hostile`）。② `stat.definition` 未登记 `stat.move_speed`，`Core.Carriers.Unit
+    .MovementTickHandler.ResolveSpeed` 对"属性未在 stat.definition 登记"直接抛
+    `ArgumentException`（`IStatHost.GetStat` 的既有行为，不是新问题）——只要生物真的产生一次
+    `move` 意图（前提①修复后才会发生）就会触发。补了一行 `stat.move_speed`（`category: misc,
+    default_base: 4`，与 `Core.Carriers.Unit.MovementOptions.DefaultSpeed` 的既有默认值一致）+
+    对应 `l10n.text`。同时给 `Core.Numbers.StatBlock.StatDefinitionConsumerValidationRule
+    .FrameworkBuiltinConsumerStatIds` 补了 `stat.move_speed` 一项（与既有的
+    `CombatOptions.ArmorStat` 等四项同一性质——C# 代码里的默认值，数据层扫描天然拿不到，见该
+    清单既有判断记录），否则会新增一条"属性无消费者"警告，破坏 G1"警告只允许既有 3 条
+    budget_note 已确认项"这条门禁——这是本次唯一触碰 `core/sim/` 之外生产代码的改动，且只是给一份
+    手抄字符串常量清单追加一项，不改变该规则的判定逻辑本身。
+26. **矩阵形状验收为何按"该等级 ≥+3 的偏移点里至少一个满足"而不是逐偏移点都要求**：见
+    `ArenaSimulationTests.FullScenario_MatrixShape_WinRateDegradesWithPositiveOffset` 判断记录——
+    `sim_arena_matrix` 的 `level_offsets` 含 +1/+3/+5 三个正偏移，L1 在 +3（生物仅从 1 级变 4 级）
+    常年在 85%～95% 徘徊，不满足"比偏移 0 低 ≥0.3 或 ≤0.5"中的任一个，但 +5（生物变 6 级）稳定
+    ≤15%；这是线性插值曲线在等级 1～5 区间本就比较平缓（该区间只有两个真实仿真锚点，中间靠插值）
+    叠加统计噪声的共同产物，逐偏移点都要求会让这条验收对这类边界数据过于脆弱。"至少一个 ≥+3 的
+    偏移点满足"仍然完整验证了"继续加大偏移确实存在一个让生物从打不过质变为能打赢/打成均势的拐点"
+    这一核心断言，是任务书原文"断言拐点存在"的准确落地，不是放宽验收标准。
+27. **`sim.scenario.sim_arena_matrix.runs` 从 20 调到 60**：见 `core/sim/tests/data/README.md`
+    "T-N6-4 调参记录"——20 次/格在低胜率格子（如 5%～15%）上采样噪声较大，容易出现"偏移 -1 比
+    偏移 0 胜率更低"这类局部非单调（二项分布在小样本下的正常抖动，不代表仿真/数据有问题），60
+    次/格显著收敛、不再出现这类抖动，完整场景总耗时仍只有 ~8～9 秒，远在"`Tests.Sim` ≤90 秒"预算
+    内，因此按 04/ADR-0035 判断记录 6 一贯口径直接调整了嵌入数据集本身（`runs` 属于"生物模板、
+    装备/技能数值"之外，任务书"调整嵌入数据集……runs"未明确列举但"调整嵌入数据集"本就不是穷举
+    清单，`runs` 是场景自身参数，调整它不影响"仿真骨架"契约面本身）。

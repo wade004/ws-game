@@ -104,6 +104,19 @@ namespace Core.Sim
         /// 无效果（不会因为设置了本字段就强行要求存在 sim.anchor 数据）。
         /// </summary>
         public Id? ExpectedQualityId { get; set; }
+
+        /// <summary>
+        /// T-N6-4 新增（ADR-0035 决策 3）：转发给 <c>GameplayAssembly</c> 构造函数既有的
+        /// <c>combatOptions</c> 参数（该参数早已存在，本装配根此前从未使用它、恒隐式传 <c>null</c>，
+        /// 见 <see cref="Build"/> 判断记录）。默认 <c>null</c> 时行为不变（<c>CombatHost</c> 就地
+        /// 新建一份默认 <c>CombatOptions</c>）。战斗仿真运行器（<see cref="FightRunner"/>）借这个口子
+        /// 注入一份携带 <c>CombatOptions.ResolveTrace</c> 回调的实例，按"结算即被观测"的方式把每一次
+        /// 伤害/治疗结算归属到具体 <c>skill.def</c>（见 <see cref="FightRunner"/> 判断记录"采样口径"）
+        /// ——本属性本身只是纯粹的传参转发，不改变 <c>Core.Rules.Combat</c> 任何既有行为（未设置
+        /// <c>ResolveTrace</c> 等回调字段时，<c>CombatOptions</c> 的其余默认值与装配根此前隐式传
+        /// <c>null</c> 时 <c>CombatHost</c> 就地新建的默认实例逐项相同）。
+        /// </summary>
+        public Core.Rules.Combat.CombatOptions? CombatOptions { get; set; }
     }
 
     /// <summary>
@@ -248,7 +261,8 @@ namespace Core.Sim
                 bus, registry, rng, world, spatial, saveSystem,
                 playerUnitProvider: () => options.PlayerId,
                 playerFactionId: options.PlayerFactionId,
-                clockHost: options.EnableDiscreteTimeModel ? clock : null);
+                clockHost: options.EnableDiscreteTimeModel ? clock : null,
+                combatOptions: options.CombatOptions);
 
             var player = new PlayerUnit(options.PlayerId, options.MapId, options.PlayerFactionId, options.PlayerClassId)
             {
@@ -266,6 +280,17 @@ namespace Core.Sim
             // 读取，不得为零行场景抛异常（任务书"数据里无 sim 表时为 null 或空，不得抛"）。
             var anchorTable = registry.GetAll("sim.anchor").Count > 0 ? new AnchorTable(registry) : null;
             var scenarioCatalog = registry.GetAll("sim.scenario").Count > 0 ? new ScenarioCatalog(registry) : null;
+
+            // T-N6-4（ADR-0035 决策 3）：数据源含 sim.anchor 时才装配真实的等级缩放器——与
+            // anchorProvider（本方法上方）同一惯例"数据源含 sim.anchor 才自动装配"，但本处没有等价的
+            // 构造期预扫描手段（见 CreatureFactory.LevelScaler 判断记录"改为构造后可写的公开属性"），
+            // 必须等 anchorTable 在这里真正构造出来之后才能判断、才能装配。未装配时
+            // CreatureFactory.LevelScaler 保持默认 null，6 参 Spawn(...,level) 仍按
+            // ICreatureLevelScaler 类型判断记录"未注入时等级改、属性不变"退化，不抛异常、不阻断。
+            if (anchorTable != null)
+            {
+                gameplay.Carriers.Creatures.LevelScaler = new AnchorCreatureLevelScaler(registry, anchorTable);
+            }
 
             return new HeadlessWorld(
                 bus, events, registry, report, rng, world, spatial, clock, gameplay, player, fs, saveSystem,

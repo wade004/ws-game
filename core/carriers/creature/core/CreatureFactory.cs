@@ -89,8 +89,27 @@ namespace Core.Carriers.Creature
         /// <summary>T-N6-3b 新增（ADR-0035 决策 3）：可选的等级缩放器，供按指定等级出生（见 6 参
         /// <see cref="Spawn(Id, Id, Vec2, double, Id?, int)"/>）时换算基础属性——未注入（<c>null</c>，
         /// 旧构造重载走的路径）时按 <see cref="ICreatureLevelScaler"/> 类型判断记录"等级改、属性不变"
-        /// 退化，见 <see cref="ResolveBaseStats"/>。</summary>
-        private readonly ICreatureLevelScaler? _levelScaler;
+        /// 退化，见 <see cref="ResolveBaseStats"/>。
+        /// <para>
+        /// T-N6-4 判断记录（改为构造后可写的公开属性，而不是新增第 11 个构造参数）：
+        /// <c>Core.Sim.HeadlessWorldBuilder.Build</c> 需要在装配出 <c>HeadlessWorld.AnchorTable</c>
+        /// （数据装载、校验全部完成之后）才能判断"数据源是否真的含 sim.anchor 行"、进而决定要不要
+        /// 装配 <c>Core.Sim.AnchorCreatureLevelScaler</c>——但 <see cref="CreatureFactory"/>（经
+        /// <c>Core.Carriers.Assembly.CarriersAssembly</c>）在 <c>registry.LoadAll</c> 之前就已经
+        /// 构造完成，装配根拿不到"构造期就知道要不要传 levelScaler"这个时机（与
+        /// <c>AnchorTableSkillBudgetAnchorProvider</c> 走"预扫描数据源文件原始 JSON、构造期就能
+        /// 确定"的路径不同——本属性没有等价的预扫描手段，等级缩放器本身就需要读已装载的
+        /// <see cref="AnchorTable"/>）。与其给 <see cref="CarriersAssembly"/>/
+        /// <see cref="Core.Gameplay.Assembly.GameplayAssembly"/> 各追加一个新的构造函数重载（两处
+        /// 都要新增一份完整参数列表的物理签名，改动面更大），选择把既有的构造期专属只读字段改成
+        /// 一个构造完成后仍可写的公开属性——两个既有构造函数（5 参本身/9 参本身经 10 参重载）行为
+        /// 不变（默认 <c>null</c>），<c>HeadlessWorldBuilder.Build</c> 在 <c>GameplayAssembly</c>
+        /// 构造完成、<see cref="AnchorTable"/> 确定非空之后，直接对
+        /// <c>gameplay.Carriers.Creatures.LevelScaler</c> 赋值即可，属于本任务硬性规则"只新增重载/
+        /// 可选属性"允许的落地方式之一。
+        /// </para>
+        /// </summary>
+        public ICreatureLevelScaler? LevelScaler { get; set; }
 
         private readonly Dictionary<string, CreatureTemplate> _templates = new Dictionary<string, CreatureTemplate>(StringComparer.Ordinal);
         private readonly Dictionary<string, TierInfo> _tiers = new Dictionary<string, TierInfo>(StringComparer.Ordinal);
@@ -148,7 +167,7 @@ namespace Core.Carriers.Creature
             ICreatureLevelScaler? levelScaler)
             : this(registry, world, bus, stats, powers, progression, units, aiRegistrar, options)
         {
-            _levelScaler = levelScaler;
+            LevelScaler = levelScaler;
         }
 
         // -----------------------------------------------------------------
@@ -373,11 +392,11 @@ namespace Core.Carriers.Creature
         /// </summary>
         private IReadOnlyDictionary<Id, double> ResolveBaseStats(CreatureTemplate template, int spawnLevel)
         {
-            if (_levelScaler == null || spawnLevel == template.Level)
+            if (LevelScaler == null || spawnLevel == template.Level)
             {
                 return template.BaseStats;
             }
-            return _levelScaler.ScaleBaseStats(template, template.Level, spawnLevel, template.BaseStats);
+            return LevelScaler.ScaleBaseStats(template, template.Level, spawnLevel, template.BaseStats);
         }
 
         // -----------------------------------------------------------------

@@ -93,6 +93,21 @@ namespace Tests.Sim
             });
         }
 
+        /// <summary>T-N6-4：构造嵌入式最小仿真数据集的原始数据源列表（<c>data/_framework</c> +
+        /// <c>core/sim/tests/data</c>，惯例同 <see cref="BuildFromEmbeddedDataset"/>）——供
+        /// <c>FightRunner</c>/<c>ArenaSimulation</c> 这类"每次调用各自新建一整套世界"的运行器直接
+        /// 使用（它们自己持有 <c>HeadlessWorldOptions.DataSources</c>，不需要一个预先装配好的
+        /// <see cref="Core.Sim.HeadlessWorld"/>）。每次调用返回全新的 <see cref="StubFileSystem"/>/
+        /// <see cref="FileSystemDataSource"/> 实例（同一进程内多次调用互不共享文件系统状态）。</summary>
+        public static IReadOnlyList<IDataSource> BuildEmbeddedDataSources()
+        {
+            var fs = new StubFileSystem();
+            var repoRoot = FindRepoRoot();
+            var frameworkSource = BuildDiskSource(fs, repoRoot, "data/_framework");
+            var embeddedSource = BuildDiskSource(fs, repoRoot, "core/sim/tests/data");
+            return new IDataSource[] { frameworkSource, embeddedSource };
+        }
+
         /// <summary>T-N6-2b：构造一个基于嵌入式最小仿真数据集（<c>core/sim/tests/data</c>，随
         /// <c>data/_framework</c> 一起加载，惯例同 <see cref="BuildWorld"/> 的 framework+sample 两根）
         /// 的无头世界。数据根镜像 <c>data/_sample</c> 的目录/文件命名（<c>&lt;域&gt;/&lt;表名&gt;.json</c>），

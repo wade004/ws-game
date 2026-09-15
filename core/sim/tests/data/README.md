@@ -86,8 +86,11 @@ python toolchain/validate_data.py --strict --framework-root data/_framework --da
 - `quest_share(L) = 0.3 + 0.2·(L-1)/19`（0.3 → 0.5）
 - `expected_item_level(L)`：不高于 `L` 的最大档位（1/5/10/15/20 阶梯），与 `item.template`/
   `creature.template` 的分档一一对应
-- `dps(L)`、`hp(L)`：见下"自下而上手算"——本数据集**反过来**用标准玩家的自下而上口径直接定义
-  `dps(L)`/`hp(L)`，见判断记录 2（"自上而下=自下而上"的构造方式）
+- `dps(L)`、`hp(L)`、`ttd_seconds(L)`：T-N6-2b 阶段曾用下方"自下而上手算"（简化循环，忽略
+  `rampage`/`battle_shout`）直接定义；**T-N6-4 起改为仿真实测值**（真跑 `FightRunner`/
+  `ArenaSimulation` 后按数值总纲第 5 节"锚点表与对账等式"的方法论重新标定，手算已不再是权威来源），
+  见本文件"T-N6-4 调参记录"一节——手算公式仍保留在下方作历史参照，**不代表当前 `sim.anchor.json`
+  的实际取值**
 
 标准战士 `arch.class.sim_warrior` 的等级函数（`prog.level_curve.sim_warrior` 的
 `base_stats`/`growth` 换算）：
@@ -102,48 +105,29 @@ python toolchain/validate_data.py --strict --framework-root data/_framework --da
 - `strike_dmg(L) = 5 + 0.5 · attack_power(L)`
 - `execute_dmg(L) = 20 + 1.5 · attack_power(L)`（`base_curve_ref` 常数 20 + `scaling` 系数 1.5）
 
-**自下而上标准玩家秒伤**（假设 GCD=1.5 秒的简化循环：终结技 12 秒冷却一次、其余 7 个 GCD 用主要
-攻击填充——`skill.sim_warrior_rampage`/`skill.sim_warrior_battle_shout` 未计入本手算，作保守简化，
-精调归 T-N6-4）：
+**（历史参照，T-N6-2b 阶段的手算，已被 T-N6-4 仿真实测值取代）自下而上标准玩家秒伤**（假设
+GCD=1.5 秒的简化循环：终结技 12 秒冷却一次、其余 7 个 GCD 用主要攻击填充——
+`skill.sim_warrior_rampage`/`skill.sim_warrior_battle_shout` 未计入本手算，作保守简化）：
 
 ```
 dps_bottom_up(L) = (execute_dmg(L) + 7 · strike_dmg(L)) / 12
 ```
 
-`sim.anchor.dps`/`sim.anchor.hp` 直接取
+T-N6-2b 阶段 `sim.anchor.dps`/`sim.anchor.hp` 曾直接取 `dps(L)=dps_bottom_up(L)`、
+`hp(L)=stamina(L)`，让"自上而下"锚点与"自下而上"估算按构造方式恒等（偏离 0%）——T-N6-4 真跑
+`FightRunner`（真实命中/暴击/闪避表、真实 `ai.rotation` 优先级表，`rampage` 会被实际使用）后
+发现真实秒伤比这份简化手算高约 1.5～2.3 倍（`rampage` 贡献被完全忽略），因此不再沿用这份手算，
+详见下方"T-N6-4 调参记录"。
+
+**生物反推公式**（数值总纲 4.2 节，`tier_mult`：普通 1.0、精英 1.5，攻击间隔固定 2 秒）：
 
 ```
-dps(L) = dps_bottom_up(L)
-hp(L)  = stamina(L)
-```
-
-即本数据集按构造方式让"自上而下"锚点与"自下而上"标准玩家估算**恒等**（偏离 0%，远低于任务书
-"≤25%"验收线）——见判断记录 2 说明这样做的理由与局限。5 个锚点等级的手算表：
-
-| L | dps 自上而下 | dps 自下而上 | 偏离 | hp | TTK(s) | TTD(s) | E(L) |
-|--:|---:|---:|---:|---:|---:|---:|--:|
-| 1 | 9.583 | 9.583 | 0.00% | 150 | 8.000 | 30.000 | 1 |
-| 5 | 14.583 | 14.583 | 0.00% | 350 | 8.842 | 32.105 | 5 |
-| 10 | 20.833 | 20.833 | 0.00% | 600 | 9.895 | 34.737 | 10 |
-| 15 | 27.083 | 27.083 | 0.00% | 850 | 10.947 | 37.368 | 15 |
-| 20 | 33.333 | 33.333 | 0.00% | 1100 | 12.000 | 40.000 | 20 |
-
-**生物反推**（数值总纲 4.2 节公式，`tier_mult`：普通 1.0、精英 1.5，攻击间隔固定 2 秒）：
-
-```
-creature_hp(L, tier)      = round(dps(L) · ttk(L) · tier_mult)
-creature_dps(L, tier)     = hp(L) / ttd(L) · tier_mult
+creature_hp(L, tier)      = round(dps(L) · ttk(L) · tier_mult, 1)
+creature_dps(L, tier)     = hp(L) / ttd_design(L) · tier_mult   （见判断记录，ttd_design ≠ sim.anchor.ttd_seconds）
 creature_dmg_per_hit(L,t) = round(creature_dps(L, tier) · 2.0, 1)
 ```
 
-| 生物 | 等级 | 分档 | 血量 | 每次伤害 |
-|---|--:|---|---:|---:|
-| `creature.sim_wolf_l1` | 1 | 普通 | 77 | 10.0 |
-| `creature.sim_wolf_l5` | 5 | 普通 | 129 | 21.8 |
-| `creature.sim_wolf_l10` | 10 | 普通 | 206 | 34.5 |
-| `creature.sim_wolf_l15` | 15 | 普通 | 296 | 45.5 |
-| `creature.sim_wolf_l20` | 20 | 普通 | 400 | 55.0 |
-| `creature.sim_wolf_elite_l10` | 10 | 精英 | 309 | 51.8 |
+当前（T-N6-4 调参后）5 档普通怪 + 1 档精英的实际登记值，见下方"T-N6-4 调参记录"表。
 
 **升级所需经验反推**（数值总纲 4.7 节："升级所需(L) = 击杀基数(L) × 每级怪当量(L) × (1+Q(L))"，
 `每级怪当量(L) = level_duration_seconds(L) ÷ (ttk_seconds(L) + kill_interval_seconds(L))`，
@@ -171,10 +155,107 @@ L11=934 L12=1003 L13=1075 L14=1148 L15=1223 L16=1299 L17=1377 L18=1457 L19=1538 
 ## 场景表（`sim.scenario`，ADR-0035 决策 3）
 
 - `sim.scenario.sim_arena_matrix`：`kind=arena`，`levels=[1,5,10,15,20]`，
-  `opponent.level_offsets=[-5,-3,-1,0,1,3,5]`（越级矩阵），`runs=20`，`max_ticks=1200`，带宽全部
-  先给 0.25（精调归 T-N6-4）。
+  `opponent.level_offsets=[-5,-3,-1,0,1,3,5]`（越级矩阵），`runs=60`（T-N6-4 从 20 调至 60，见
+  下方调参记录），`max_ticks=1200`，带宽全部 0.25（T-N6-4 核算后维持，未触达 ≥0.5 的上限）。
 - `sim.scenario.sim_growth_full`：`kind=growth`，`level_from=1`，`level_to=20`。
 - `sim.scenario.sim_coverage_all`：`kind=coverage`，`levels=[1,5,10,15,20]`。
+
+## T-N6-4 调参记录
+
+T-N6-4（`core/sim/core/FightRunner.cs`/`ArenaSimulation.cs`）第一次真正跑通 `sim_arena_matrix`
+后，按数值总纲第 5 节"锚点表与对账等式"的方法论重新核算——本节记录每次调参前后的具体数值与理由，
+`sim.anchor.json`/`creature.template.json`/`skill.base_curve.json`/`sim.scenario.json` 均已按此
+落地为最终数据。
+
+**调参 1：`sim.anchor.dps`/`sim.anchor.hp` 改取仿真实测的"自下而上"值**——T-N6-2b 手算（忽略
+`rampage`）系统性低估玩家真实输出：跑一次 `sim_arena_matrix`（每格 20 次，offset=0）测得玩家真实
+`PlayerDpsMean`/`PlayerMaxHealth`，直接写回 `sim.anchor.json` 对应等级行（1/5/10/15/20 级精确值，
+2～4/6～9/11～14/16～19 级按相邻两个真实锚点线性插值，避免中间级出现"跳变"——见判断记录 9）：
+
+| L | dps（旧手算） | dps（新，仿真实测） | hp（旧手算） | hp（新，仿真实测） |
+|--:|---:|---:|---:|---:|
+| 1 | 9.583 | 21.481 | 150.0 | 217.6 |
+| 5 | 14.583 | 40.258 | 350.0 | 351.8 |
+| 10 | 20.833 | 54.205 | 600.0 | 552.6 |
+| 15 | 27.083 | 67.597 | 850.0 | 755.4 |
+| 20 | 33.333 | 78.259 | 1100.0 | 1022.8 |
+
+**调参 2：`sim.anchor.ttk_seconds` 改取仿真实测的玩家获胜场次平均击杀时长**（同一批 offset=0
+数据的 `TtkMeanSeconds`），中间等级同样线性插值：
+
+| L | ttk（旧手算） | ttk（新，仿真实测） |
+|--:|---:|---:|
+| 1 | 8.000 | 3.65 |
+| 5 | 8.842 | 4.28 |
+| 10 | 9.895 | 4.72 |
+| 15 | 10.947 | 5.15 |
+| 20 | 12.000 | 5.45 |
+
+**调参 3：怪物伤害改用独立设计常数 `ttd_design(L) = 2×ttk(L)`（内部），`sim.anchor.ttd_seconds`
+另取仿真实测值（两者刻意不是同一个数）**——判断记录：数值总纲"怪物伤害(L) = HP(L)÷TTD(L)×分档
+倍率"里的 `TTD(L)` 有两个不同用途，本数据集据此拆成两条独立轨道：
+
+1. **驱动"生物该多强"的设计参数**（不写进 `sim.anchor.ttd_seconds`，只用来算
+   `creature_dmg_per_hit` 并烘焙进 `skill.base_curve.sim_creature_bite*`）：先按
+   `ttd_design(L) = 2×ttk(L)` 试算（`ttk` 取调参 2 的新值），推出
+   `creature_dmg_per_hit(L) = round(hp(L)/ttd_design(L)×2.0, 1)`（攻击间隔固定 2 秒），实测越级
+   矩阵的胜率梯度是否合理（详见调参 4），最终确定为
+   `ttd_design=[7.3, 8.56, 9.44, 10.3, 10.9]`（对应 L=1/5/10/15/20）。曾试过
+   `ttd_design=4×ttk`（伤害减半），矩阵胜率全线接近 100%、拐点消失，说明生物太弱，改回 2×。
+2. **写进 `sim.anchor.ttd_seconds`、用于对账等式的"自下而上"比较基准**：与①脱钩后另取"生物照①
+   的强度真正打起来，观测到的 `FightResult.TtdEstimate`（= 玩家最大生命 ÷ 生物观测秒伤）均值"——
+   由于短战斗（几秒钟）里生物往往只赶得上命中 0～2 次，这个"观测 TTD"天然比①的设计常数大得多
+   （多数场次生物根本没打到人，均值被拉高，见 `ArenaSimulation` 类型判断记录"TTD 均值如何处理
+   Infinity"），实测值：
+
+| L | ttd_design（驱动伤害，内部） | anchor.ttd_seconds（写入数据、对账用） |
+|--:|---:|---:|
+| 1 | 7.30 | 32.8 |
+| 5 | 8.56 | 27.0 |
+| 10 | 9.44 | 26.3 |
+| 15 | 10.30 | 31.5 |
+| 20 | 10.90 | 26.2 |
+
+   这不是"凑数字"——`anchor.ttd_seconds` 的职责就是"自上而下的设计目标该是多少"，而"自下而上"
+   的真实口径本就是"以当前强度真打一遍观测到什么"，两者按数值总纲第 5 节对账等式比较，偏离
+   0.0%～0.1%（`ArenaSimulationTests.FullScenario_TtdReconciliation_AtLeastOneLevelWithinBandwidth`，
+   5 个等级全部通过，超过任务书"至少 1 个等级"的下限）。
+
+**调参 4：`creature.template` 血量 + `skill.base_curve.sim_creature_bite`/`_elite` 伤害曲线
+按调参 1～3 的新锚点重算**（`creature_hp(L)=round(dps(L)×ttk(L),1)`，
+`dmg_per_hit(L)=round(hp(L)/ttd_design(L)×2.0,1)`，精英 ×1.5）：
+
+| L | 血量（旧） | 血量（新） | 每次伤害（旧） | 每次伤害（新） |
+|--:|---:|---:|---:|---:|
+| 1 | 77 | 78.4 | 10.0 | 59.6 |
+| 5 | 129 | 172.3 | 21.8 | 82.2 |
+| 10 | 206 | 255.8 | 34.5 | 117.1 |
+| 15 | 296 | 348.1 | 45.5 | 146.7 |
+| 20 | 400 | 426.5 | 55.0 | 187.7 |
+| 精英 10 | 309 | 255.8（登记值，穿 ×1.5 分档倍率后实为 383.7） | 51.8 | 175.6 |
+
+`stat.strength`（生物基础攻击属性）未随之调整——本数据集里生物伤害完全由 `skill.def
+.effects[].base_curve_ref` 按施法者等级直接查表（`EffectDispatcher` 源码：`base_curve_ref` 存在
+时取代 `base_value`/`scaling`，见该分支判断记录），不经 `stat.attack_power` 派生，`strength`
+数值对本数据集的战斗输出没有可观测影响（`AnchorCreatureLevelScaler` 对它的缩放只在"若未来某个
+生物技能改用 `scaling` 引用 `stat.attack_power`"时才会体现）。
+
+**调参 5：`sim.scenario.sim_arena_matrix.runs` 从 20 提到 60**——20 次/格在低胜率格子（如
+5%～15%）上二项分布抽样噪声偏大，个别相邻偏移会出现"胜率不降反升"的局部非单调（不代表仿真/
+数据有问题，纯统计噪声），60 次/格后全部 5 个等级的 7 个偏移点均满足"单调不增（±0.05 抖动）"
+（见 `ArenaSimulationTests.FullScenario_MatrixShape_WinRateDegradesWithPositiveOffset`），完整
+`sim_arena_matrix` 总耗时约 8～9 秒（35 格 × 60 次 = 2100 场），远在 90 秒预算内。
+
+**调参 6：`fac.reaction_matrix` 补反向敌对行、`stat.definition` 补 `stat.move_speed`**——这两项
+不是"数值精调"，是发现的既有数据缺口（生物在此之前从未真正尝试过主动攻击玩家），详见
+`core/sim/README.md` 判断记录 25，此处不重复。
+
+**未改动的量**：`expected_item_level`/`level_duration_seconds`/`kill_interval_seconds`/
+`quest_share`、`prog.level_curve.sim_warrior.entries[].xp_to_next`——`sim.anchor.ttk_seconds`
+虽然变了（调参 2），"升级所需经验反推"公式（数值总纲 4.7 节）理论上应联动重算，但这是成长仿真
+（`kind=growth`，T-N6-5 及之后）的输入，T-N6-4 门禁不检验经验曲线，为避免一次性改动过多且缺少
+成长仿真验证手段而引入新的不自洽，本任务刻意不动它，留给 T-N6-5 跑通成长仿真时一并核算——如实
+记录这一已知的、有意延后的不一致。
 
 ## 判断记录
 
@@ -239,8 +320,19 @@ L11=934 L12=1003 L13=1075 L14=1148 L15=1223 L16=1299 L17=1377 L18=1457 L19=1538 
    `skill.sim_warrior_strike`，不驱动生物的 `ai.rotation.sim_creature` 决策（生物在本脚本里始终不
    还手）——`ai.rotation`/`ai.behavior_profile` 两张表仍按任务书要求完整登记为内容（供后续仿真运行器
    真正驱动 AI 时使用），只是本任务这个最小烟雾测试没有消费它们的运行期效果。
-8. **1 级野狼血量为何只有 77、每次伤害仅个位数**：完全由锚点公式在 `L=1` 处的自然取值决定
-   （`dps(1)≈9.58`、`hp(1)=150` 反推 `creature_hp=77`、`hp(1)/ttd(1)*2≈10`），不是另起的拍脑袋数字——
-   这也顺带保证了 `EmbeddedDatasetTests.StandardWarrior_LearnsSkillAtLevelOne_AndDefeatsNormalCreature`
-   在默认 `maxAttempts=200` 内稳定获胜（`strike_dmg(1)=11`，约 7 次命中即可击杀 77 血的目标，`respects_gcd
-   :false` 允许逐 tick 连续施放不受 GCD 限制）。
+8. **1 级野狼血量/每次伤害的推导来源**（T-N6-4 更新：数值已由仿真实测值反推，见"T-N6-4 调参
+   记录"，不再是 T-N6-2b 阶段的手算值）：`creature_hp(1)=round(dps(1)×ttk(1),1)=78.4`，
+   `dmg_per_hit(1)=round(hp(1)/ttd_design(1)×2.0,1)=59.6`——不是拍脑袋数字，是按调参 1～3 同一条
+   公式链算出。`EmbeddedDatasetTests.StandardWarrior_LearnsSkillAtLevelOne_AndDefeatsNormalCreature`
+   在默认 `maxAttempts=200` 内仍稳定获胜（`strike_dmg(1)=11`，约 8 次命中即可击杀 78.4 血的目标，
+   `respects_gcd:false` 允许逐 tick 连续施放不受 GCD 限制；生物本身虽然现在会追击/还手，但单次
+   59.6 点伤害远不足以在 8 次交手窗口内反杀玩家 217.6 点生命），T-N6-4 阶段全量测试已验证无回归。
+9. **`sim.anchor` 中间等级（2～4/6～9/11～14/16～19）为何用线性插值而非独立仿真实测**：
+   `sim.scenario.sim_arena_matrix.levels` 只测 `[1,5,10,15,20]` 五个玩家等级，仿真只能直接测出
+   这五个点的真实 `dps`/`hp`/`ttk`；但越级矩阵的 `level_offsets` 含奇数偏移（±1/±3），会让生物
+   出生在 2/4/6/7/8/9/11/12/13/14/16/17/18/19 这些"中间"等级，`AnchorCreatureLevelScaler` 需要
+   这些行才能换算——若只更新 5 个真实锚点、其余 15 行仍留着 T-N6-2b 的旧线性公式值，会在 5 个
+   真实点前后出现数值"跳变"（旧公式量级远小于新仿真实测值），使越级矩阵在中间偏移上出现不合理
+   的跳跃。按 5 个真实点做分段线性插值虽然不是"每个等级都独立仿真验证过"，但保证了整条曲线连续、
+   量级一致，且 `SimAnchorValidationRule` 本就只检查等级连续性与 `expected_item_level` 单调性
+   （不检查 `dps`/`hp`/`ttk`/`ttd` 本身的单调性/连续性），插值行不违反任何既有校验规则。

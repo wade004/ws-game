@@ -30,7 +30,7 @@
         15,
         20
       ],
-      "runs": 20,
+      "runs": 60,
       "base_seed": 20260916,
       "max_ticks": 1200,
       "bandwidths": {

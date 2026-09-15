@@ -510,7 +510,55 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   反解向量/已学技能匹配技能书/按优先级表击杀同级普通怪、锚点接入后 `skill_budget_*` 规则确有真实
   求值、`data/_sample` 路径锚点接入后仍不阻断）。
 
-<!-- T-N6-3b -->
+- **数值设计落地阶段 N6 · T-N6-3b**（ADR-0035 决策 3；N4 遗留第 7 项，ADR-0034 决策 3 延伸）：
+  `ICreatureFactory` 新增默认接口成员 `Spawn(templateId, mapId, position, facing, ownerId, int level)`
+  （按指定等级出生，未覆盖时委托 5 参重载）；新增窄接口 `ICreatureLevelScaler.ScaleBaseStats`
+  （core/carriers/creature 声明，供上层 core/sim 反向注入，未注入时"等级改、属性不变"）；
+  `CreatureFactory` 新增对应构造重载与实现。`creature.tier_definition` 新增可选字段
+  `gold_multiplier`（缺省 1），`CreatureFactory.TryGetGoldMultiplier` 查询；`RollContext` 新增
+  `TierId`；新增委托 `Core.Gameplay.Loot.LootGoldMultiplierProvider`；`LootHost`/
+  `CreatureDeathLootListener` 新增对应重载，`GameplayAssembly` 默认接线——08 第 7.4 节"怪物掉钱"
+  公式的"分档倍率"自本版本起真正生效，不再恒为 1。
+- **数值设计落地阶段 N6 · T-N6-4**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 3）：三级仿真的第一级——战斗仿真运行器。`core/sim` 新增 `AnchorCreatureLevelScaler`
+  （`ICreatureLevelScaler` 的锚点表实现，数值总纲第 4.2 节：血量槽位按 `DPS(L)×TTK(L)` 比值缩放、
+  其余属性按 `HP(L)÷TTD(L)` 比值缩放，越界夹到 `AnchorTable.MaxLevel`/最低 1 级）、
+  `SimpleMoveModel`（玩家侧简化移动模型；生物侧复用 `core/rules/ai` 既有 `AiHost` 追击状态机，
+  未改动该模块）、`FightRunner`（单场战斗：标准玩家对生物模板按指定等级出生，逐 tick 智能释放
+  优先级表直至一方死亡或超时；采样口径接 `combat.damage_dealt`（落地伤害/命中计数）与
+  `Core.Rules.Combat.CombatOptions.ResolveTrace`（技能归属、含 Miss/Dodge/Immune 的完整尝试计数，
+  该回调本就是既有诊断通道，本任务是第一次真正使用它，未改变结算逻辑）；输出 `FightResult`：
+  胜负、时长、双方伤害与秒伤、命中率、技能输出占比、资源曲线（下采样 ≤64 点）、TTD 估计）、
+  `ArenaSimulation`（场景运行器：对 `kind=arena` 场景按 `levels×level_offsets` 逐格跑 `runs`
+  场并聚合为 `ArenaReport`——胜率/TTK 分布/对账表；种子按 `(base_seed,level,offset,runIndex)`
+  纯函数确定性派生；`ArenaReport.ToJson()` 经 `Core.Foundation.Common.Json.JsonWriter` 确定性
+  序列化）。隔离方案：每场 `FightRunner.Run` 各自新建一整套 `HeadlessWorld`（实测
+  `HeadlessWorldBuilder.Build` 平均 10～25ms，远低于 50ms 判断线，不做"同一世界内重生重置"，
+  不触碰任何被仿真模块的重置能力）。ABI 新增：`Core.Carriers.Creature.CreatureFactory` 的
+  `_levelScaler` 私有只读字段改为公开可写属性 `LevelScaler`（两个既有构造函数行为不变）；
+  `Core.Sim.HeadlessWorldOptions` 新增 `CombatOptions` 属性（转发给 `GameplayAssembly` 早已存在
+  的同名构造参数，此前恒隐式传 `null`）。副作用修复（唯一触及 `core/sim/` 之外生产代码的改动）：
+  `Core.Numbers.StatBlock.StatDefinitionConsumerValidationRule.FrameworkBuiltinConsumerStatIds`
+  新增 `stat.move_speed`（与既有 `CombatOptions.ArmorStat` 等四项同一性质——C# 代码默认值消费，
+  数据层扫描天然拿不到，只追加一份手抄清单里的一项，不改变规则判定逻辑）。数据集修复
+  （`core/sim/tests/data/`，"生物会主动追击并攻击玩家"此前从未被验证过、实测确实不会，均为数据
+  缺口不是框架缺陷）：`fac.reaction_matrix` 补 `fac.sim_hostile → fac.player = hostile` 反向行
+  （原表只有玩家→生物单向，`Core.Numbers.Faction.FactionMatrix.GetReaction` 是方向性查找非对称
+  矩阵）；`stat.definition` 新增 `stat.move_speed`（`Core.Carriers.Unit.MovementTickHandler
+  .ResolveSpeed` 硬性要求该属性已登记，否则生物一旦产生位移意图就抛异常）+ 对应 `l10n.text`。
+  数值调参（真跑 `sim.scenario.sim_arena_matrix` 后按数值总纲第 5 节对账等式与矩阵形状核算，详见
+  `core/sim/tests/data/README.md`"T-N6-4 调参记录"）：`sim.anchor.dps`/`hp`/`ttk_seconds` 五个
+  仿真等级（1/5/10/15/20）改取真实仿真实测值（此前 T-N6-2b 的简化手算忽略了 `rampage` 等技能，
+  系统性低估约 1.5～2.3 倍），中间等级按相邻真实锚点线性插值；`sim.anchor.ttd_seconds` 改取真实
+  仿真观测值（与驱动怪物伤害的内部设计常数解耦，两者定义不同，见该 README 判断记录）；
+  `creature.template` 血量与 `skill.base_curve.sim_creature_bite{,_elite}` 伤害曲线按新锚点重算；
+  `sim.scenario.sim_arena_matrix.runs` 从 20 提到 60（降低越级矩阵低胜率格子的抽样噪声）；带宽
+  维持 0.25，未触达"≥0.5"上限。新增测试
+  `Tests.Sim.{AnchorCreatureLevelScalerTests,SimpleMoveModelTests,FightRunnerTests,
+  ArenaSimulationTests}`（21 例：等级缩放公式精确性与装配根接线、简化移动模型、单场战斗确定性/
+  命中率/技能占比之和/资源曲线、完整 `sim_arena_matrix`（2100 场，~8～9 秒）的对账等式
+  （dps/hp ≥3 个等级、ttd ≥1 个等级在带宽内）与矩阵形状（单调不增、越级胜率梯度、拐点存在）、
+  `ArenaReport.ToJson()` 确定性）。
 
 ## [1.35.0] - 2026-09-16
 

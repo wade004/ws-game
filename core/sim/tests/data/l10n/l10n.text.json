@@ -8,6 +8,11 @@
       "text": "力量"
     },
     {
+      "key": "l10n.stat.move_speed.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "移动速度"
+    },
+    {
       "key": "l10n.stat.agility.name",
       "locale": "l10n.locale.zh_cn",
       "text": "敏捷"
