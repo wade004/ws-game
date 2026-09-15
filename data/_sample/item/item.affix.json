@@ -43,6 +43,14 @@
       "quality_pool": "item.quality.sample_rare",
       "weight": 1,
       "grants": { "auras": ["skill.aura_def.sample_fortify"] }
+    },
+    {
+      "id": "item.affix.sample_of_the_titan",
+      "name_key": "l10n.item.affix.sample_of_the_titan.name",
+      "budget_share": 0.15,
+      "stat_mix": [ { "stat": "stat.stamina", "ratio": 1.0 } ],
+      "quality_pool": "item.quality.sample_epic",
+      "weight": 1
     }
   ]
 }

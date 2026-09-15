@@ -322,6 +322,30 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 数值设计落地阶段 N2 · T-N2-8b（T-N2-8 已知缺口收口；ADR-0032 决策 5/7/8）：拾取入包携带品质与词缀、死亡掉落接入来源等级与难度层偏移——`IInventoryHost` 新增默认接口成员 `AddItem(Id,Id,int,Id?,IReadOnlyList<Id>?)`/`TryAddItem(...,out int)`（默认实现转发旧签名、丢弃身份，`InventoryHost` 显式覆盖为真实语义）；`InventoryHost.AddItemCore` 按"默认身份"（品质等于模板自身品质且无词缀）判定是否续填/合并既有堆叠——带词缀或非模板品质的物品视为不同身份，即使 `templateId`/身份完全相同也不与任何既有堆叠合并，总是新开格子（默认身份行为与改造前逐字节一致）。`LootHost.PickUpReject`/`PickUpPartial` 改用带身份重载，逐条 `DroppedLootEntity.Outcomes` 按其品质/词缀入包，`PickUpPartial` 额外同步"留在地面上的剩余部分"的 `Outcomes`（沿用同一条 outcome、只改 `Count`，不是重新掷骰）。`CreatureDeathLootListener` 新增构造重载（末尾追加可选 `IDifficultyHost? difficultyHost`），`OnUnitDied` 构造 `RollContext` 时 `sourceLevel` 取死亡单位当前等级（`IUnitAccess.GetLevel`）、`itemLevelOffset` 取 `IDifficultyHost.ItemLevelOffset`（未注入难度宿主时恒 0），并改用 `RollDetailed`/`Drop(outcomes)` 路径保证品质骰/词缀骰结果真正落到地面掉落物身份上（两条路径共用同一份 `IRngHost` 消耗，不增加随机数调用）；`GameplayAssembly` 同步接线 `difficultyHost: Difficulty`。回放/Perf 基线未变（`--filter "FullyQualifiedName~Replay"` 全绿，本任务改动的代码路径不在 `ReplayWorldBuilder` 触达范围）。见 `core/gameplay/loot/README.md` 判断记录 16、`core/carriers/item/README.md` 判断记录 24。
 
+数值设计落地阶段 N2 · T-N2-10（ADR-0032；分阶段落地计划第 14 节）：充实 `data/_sample/item/**`
+样例数据，覆盖 T-N2-1～T-N2-9 落地的全部 N2 新字段/新表——`item.slot_definition` 新增 8 条槽位
+（副手 `is_weapon:true`；头/胸/腿/手/脚五个防具位 `has_armor:true`，各自不同 `budget_coefficient`/
+`price_coefficient`；戒指/项链两个饰品位 `has_armor:false`）；`item.quality_definition` 新增第三档
+`item.quality.sample_epic`，三档 `affix_count` 呈 0/1/2、`grant_budget_share` 呈 0.0/0.2/0.3
+递增；`item.affix` 新增 `item.affix.sample_of_the_titan`（epic 池），连同既有 4 条覆盖全部三档
+`quality_pool`；`item.budget_curve`/`item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_
+curve` 四张曲线断点由 3 个扩到 6 个（覆盖物品等级 1～60），全部保留原有断点值不变；`item.template`
+新增 4 条（头/胸/脚/戒指，等级 10/30/60/20，品质 rare/epic/epic/rare），连同既有两条武器共 6 条
+覆盖多等级×多品质×多槽位，`stats` 均按预算手算反解、`budget_note` 记录推导过程，利用率统一
+75%；`loot.table.sample_beast` 追加第二条 `quality_weights` 条目；`diff.tier.sample_story` 补显式
+`item_level_offset: 0`。`python toolchain/validate_data.py --strict` 0 error 0 warning（含
+`item_budget_exceeded`/`item_budget_utilization_low`/`item_quality_multiplier_order`/
+`item_affix_stat_mix_ratio_sum`/`item_weapon_damage_deviates_dps_curve`/`curve_monotonic_finite`
+六条相关规则均 0 命中）；`--schema-audit`/`format_data.py --schema-order --check` 均 0。
+**上报待设计层确认**：分阶段落地计划阶段 N2 验收标准 5 要求的"模板加词缀最大份额超预算"阻断校验
+（Error）经核对 `core/carriers/item/core/ItemValidationRules.cs` 现有八条 `IValidationRule` 尚未
+实现（T-N2-4/T-N2-8 均未补，`core/carriers/item/README.md` 判断记录 17 末段"勘误"已预告"确实要等
+T-N2-4"但该任务实际只交付了 `IBudgetSolver` 契约面），本任务按该规则既定语义人工核算全部样例
+合规（见 `data/README.md`"item N2 示例数据"一节核算表），供该规则将来落地时零改样例。
+`games/_template/data/game/item/**`/`diff/diff.tier.json` 按 `games/_template/data/README.md`
+既定约定保持空壳/原有示例行不动（模板本身尚无 `item.template` 内容，见 `data/README.md` 同一节
+判断记录）。
+
 ### 修复
 
 - **EditMode 热重载去抖用例偶发失败根治**：`games/_template/Tests/Editor/DataHotReloadEditModeTests.cs`

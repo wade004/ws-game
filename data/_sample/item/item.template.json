@@ -48,6 +48,62 @@
       "display_ref": "display.map.sample_token",
       "stack_size": 5,
       "name_key": "l10n.item.sample_token.name"
+    },
+    {
+      "id": "item.sample_helm",
+      "slot": "item.slot.sample_head",
+      "quality": "item.quality.sample_rare",
+      "item_level": 10,
+      "stats": [
+        { "stat": "stat.intellect", "op": "flat", "value": 180 }
+      ],
+      "affixes": ["item.affix.sample_of_frost"],
+      "display_ref": "display.map.sample_helm",
+      "stack_size": 1,
+      "name_key": "l10n.item.sample_helm.name",
+      "budget_note": "样例，非框架默认值（T-N2-10 手算反解，未调用 IBudgetSolver）：预算上限 = 预算曲线(10)=200 × 品质倍率(rare)1.5 × 槽位系数(head)0.8 = 240；stats 消耗 = stat.intellect 180 × 权重1.0 = 180，利用率 180/240 = 75%；词缀白名单仅含 item.affix.sample_of_frost（rare 池，budget_share=0.2），预算余量 25% ≥ 20%，满足『模板+词缀最大份额≤预算』这条尚未落地的阻断校验（见 T-N2-10 汇报『上报待设计层确认』一节）"
+    },
+    {
+      "id": "item.sample_chestplate",
+      "slot": "item.slot.sample_chest",
+      "quality": "item.quality.sample_epic",
+      "item_level": 30,
+      "stats": [
+        { "stat": "stat.strength", "op": "flat", "value": 1125 }
+      ],
+      "affixes": ["item.affix.sample_of_the_titan"],
+      "display_ref": "display.map.sample_chestplate",
+      "stack_size": 1,
+      "name_key": "l10n.item.sample_chestplate.name",
+      "budget_note": "样例，非框架默认值（T-N2-10 手算反解，未调用 IBudgetSolver）：预算上限 = 预算曲线(30)=600 × 品质倍率(epic)2.0 × 槽位系数(chest)1.25 = 1500；stats 消耗 = stat.strength 1125 × 权重1.0 = 1125，利用率 1125/1500 = 75%；词缀白名单仅含 item.affix.sample_of_the_titan（epic 池，budget_share=0.15），预算余量 25% ≥ 15%，满足『模板+词缀最大份额≤预算』这条尚未落地的阻断校验"
+    },
+    {
+      "id": "item.sample_boots",
+      "slot": "item.slot.sample_feet",
+      "quality": "item.quality.sample_epic",
+      "item_level": 60,
+      "stats": [
+        { "stat": "stat.agility", "op": "flat", "value": 1080 }
+      ],
+      "affixes": ["item.affix.sample_of_the_titan"],
+      "display_ref": "display.map.sample_boots",
+      "stack_size": 1,
+      "name_key": "l10n.item.sample_boots.name",
+      "budget_note": "样例，非框架默认值（T-N2-10 手算反解，未调用 IBudgetSolver）：预算上限 = 预算曲线(60)=1200 × 品质倍率(epic)2.0 × 槽位系数(feet)0.6 = 1440；stats 消耗 = stat.agility 1080 × 权重1.0 = 1080，利用率 1080/1440 = 75%；词缀白名单仅含 item.affix.sample_of_the_titan（epic 池，budget_share=0.15），预算余量 25% ≥ 15%，满足『模板+词缀最大份额≤预算』这条尚未落地的阻断校验"
+    },
+    {
+      "id": "item.sample_ring",
+      "slot": "item.slot.sample_ring",
+      "quality": "item.quality.sample_rare",
+      "item_level": 20,
+      "stats": [
+        { "stat": "stat.agility", "op": "flat", "value": 225 }
+      ],
+      "affixes": ["item.affix.sample_of_frost"],
+      "display_ref": "display.map.sample_ring",
+      "stack_size": 1,
+      "name_key": "l10n.item.sample_ring.name",
+      "budget_note": "样例，非框架默认值（T-N2-10 手算反解，未调用 IBudgetSolver）：预算上限 = 预算曲线(20)=400 × 品质倍率(rare)1.5 × 槽位系数(ring)0.5 = 300；stats 消耗 = stat.agility 225 × 权重1.0 = 225，利用率 225/300 = 75%；词缀白名单仅含 item.affix.sample_of_frost（rare 池，budget_share=0.2），预算余量 25% ≥ 20%，满足『模板+词缀最大份额≤预算』这条尚未落地的阻断校验"
     }
   ]
 }
