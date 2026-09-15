@@ -58,7 +58,7 @@ namespace Core.Carriers.Item
             var items = new List<ItemInstance>(array.Count);
             foreach (var raw in array)
             {
-                items.Add(ItemInstanceJson.FromJson(raw));
+                items.Add(ItemInstanceJson.FromJson(raw, _inventory.ResolveTemplateQuality));
             }
 
             _inventory.ReplaceBag(_unitId, items);
@@ -162,7 +162,7 @@ namespace Core.Carriers.Item
                     throw new FormatException($"{SectionKey} 段的槽位键 \"{kv.Key}\" 不是合法 Id");
                 }
 
-                var instance = ItemInstanceJson.FromJson(kv.Value);
+                var instance = ItemInstanceJson.FromJson(kv.Value, _inventory.ResolveTemplateQuality);
                 plan.Add((slot, instance));
             }
 

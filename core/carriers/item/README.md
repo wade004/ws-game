@@ -602,6 +602,87 @@ item/
       字段规则下的核心回归用例）；`T_N2_5_ArmorAffixReqLevelTests.cs`（既有 6 条用例数据夹具同步
       更新，用例数不变）。
 
+22. **T-N2-7（分阶段落地计划、ADR-0032 决策 8；10 第 2.5 节修订段"物品实例只存身份"）：
+    `ItemInstance` 新增 `Quality`/`Affixes`、存档 `quality`/`affixes` 两个 key 与缺省/兼容读取、
+    三参 `EquipmentHost.Equip` 改转发实例字段**——涉及 `core/carriers/common/contracts/
+    ItemInstance.cs`、`core/carriers/item/core/ItemInstanceJson.cs`、
+    `core/carriers/item/core/ItemPersistable.cs`、`core/carriers/item/core/InventoryHost.cs`、
+    `core/carriers/item/core/EquipmentHost.cs`。
+    - **`ItemInstance` 新成员（ABI：新增构造函数重载，不改既有 4 参构造函数——同判断记录 20
+      "ABI（构造函数新增重载……）"一贯做法）**：`public Id Quality { get; }`（不是 `Id?`——见类型
+      顶部判断记录"品质是恒定存在的身份字段，不是可选扩展点"）、`public IReadOnlyList<Id> Affixes
+      { get; }`（不可变，默认空列表，不是 null）；新增构造函数 `ItemInstance(Id instanceId, Id
+      templateId, int count, Id quality, IReadOnlyList<Id>? affixes, JsonObject? extra = null)`。
+      旧 4 参构造函数原样保留，内部转发新构造函数并传 `default(Id)`/`null`（未指定品质时 `Quality.
+      Value == null`，即"未解析"状态）。
+    - **创建点判断记录（`ItemInstance` 构造时若未给品质则取模板品质，需要模板查询）**：`Add
+      ItemCore`（`InventoryHost.cs`）是本仓库唯一的"新增物品实例"入口（不接受显式品质参数——带
+      显式品质/词缀的掉落创建属于 T-N2-8），已同步改为在新开堆叠时用 `template.GetId("quality")`
+      解析缺省品质（该方法此前已经查过 `template`，不需要额外一次表查询）；续填既有堆叠/部分移除
+      两处原样保留该实例已有的 `Quality`/`Affixes`（不能只传旧 4 参构造函数——那会把品质/词缀身份
+      悄悄重置为"未解析"/空，是本任务里一个真实存在、容易漏掉的坑，专门在 `InventoryHost.cs`
+      对应位置留了判断记录）。`InventoryHost` 另新增 `internal Id ResolveTemplateQuality(Id
+      templateId)`，与 `AddItemCore` 共用同一条"缺省取模板自身 `quality` 字段"口径，供
+      `ItemInstanceJson.FromJson` 在存档兼容读取时调用（见下方存档判断记录）；模板在当前已加载
+      数据里找不到时返回"未解析"的 `Id`（`Value == null`），不强行让整次读档失败（同 `AddItemCore`
+      对"新增物品但模板未知"会抛异常不同——那是"新增"场景，这里是"读一份可能引用了已被数据更新
+      移除的旧模板 id 的历史存档"场景）。
+    - **存档兼容方式判断记录（不升 `save_version`、不登记 `ISaveMigration` 迁移函数——先例出处见
+      `ItemInstanceJson.cs` 类型顶部判断记录）**：本仓库对"既有存档段条目形状新增可选字段"的既定
+      先例是 `CHANGELOG.md` [1.7.0] 迁移说明的两条——① AUD-03 `world.vendor_stock` 段 `timer`
+      物品条目新增可选字段，"`Load` 完全向后兼容纯数字旧格式，无需游戏侧改动"；② `player.
+      achievement_state` 每条记录新增可选字段 `pending_reward`，"向后兼容，旧存档缺省该字段按
+      `false` 处理"——两条都不升 `save_version`、不登记迁移函数，直接在字段读取处做缺省处理；
+      `player.inventory`/`player.equipment` 段本身没有独立的段级版本号（10 第 5 节"迁移链读取/
+      改写的是存档文档信封层（顶层）的 `save_version` 字段"），物品实例只是这两段内部数组/映射的
+      条目，与"整段缺失"（10 第 2 节"缺失段语义"，走 `load(null)` 清空）是两回事——本次是"段仍
+      在，条目形状新增两个可选 key"，与 AUD-03/achievement_state 场景一致，因此照抄同一先例：
+      `ItemInstanceJson.FromJson` 直接在解析处对缺失的 `quality`/`affixes` key 做缺省。
+    - **`quality` 缺省值判断记录——上报待设计层确认，本任务采用的临时判断**：ADR-0032 决策 8"物品
+      实例存……品质"未进一步说明旧存档（无 `quality` key）读档时该品质取什么值；07/10 与任务书
+      原文给出的方向是"缺省取模板自身品质"（等价于"这件旧物品从它存在那一刻起就是模板默认品质"这
+      一最保守假设，不会凭空让旧物品变得比原先更强/更弱）。本任务据此实现：`FromJson` 接受一个
+      `Func<Id, Id> resolveTemplateQuality` 回调（自身不持有 `IDataRegistryView`，无法查表），由
+      `InventoryPersistable`/`EquipmentPersistable` 传入 `InventoryHost.ResolveTemplateQuality`。
+      `affixes` 缺省为空列表，语义明确（旧物品没有词缀身份数据可恢复，只能视为无词缀），不存在
+      同等的待确认问题。
+    - **坏值处理口径（与既有字段一致）**：`quality`/`affixes` key 存在但值非法（非字符串/非法
+      `Id`/`affixes` 不是数组/数组元素非法）时，与 `instance_id`/`template_id`/`count` 坏值同一
+      口径——抛 `System.FormatException`，不静默吞掉、不当成缺省处理（`ItemInstanceJson` 是纯
+      JSON↔结构体转换层，不是数据表校验层，不用 `DataFieldException`——那是 `DataRecord`/schema
+      校验层的类型，两者一贯分工不同）。
+    - **`EquipmentHost` 三参 `Equip` 改转发实例字段**：`Equip(Id, Id, Id)` 先查一次背包里这件
+      物品的当前实例，转发它自带的 `Quality`/`Affixes`（查不到实例时仍转发 `null`/`null`，五参
+      重载内部会再查一次 `InventoryHost.FindInstance` 并统一返回 `NotInInventory`，行为与改动前
+      一致）——按判断记录 20 原计划落地，多查一次背包是同一单位背包内的字典/列表查找，代价可
+      忽略。
+    - **五参 `Equip` 需要额外补的一处一致性修复（不在任务书"涉及文件"字面列出，但不修就无法满足
+      验收标准"装备一件带词缀的实例后存档再读档，StatHost 属性与存档前一致"，判断记录）**：五参
+      重载原本只用 `resolvedQuality`/`resolvedAffixes` 驱动 `ApplyGrants`（写入 `StatHost`），但
+      存入 `unitSlots[slot]`/背包的 `taken` 仍是原样——若调用方显式传入的 `qualityId`/`affixIds`
+      与 `taken` 自带的 `Quality`/`Affixes` 不一致（例如 T-N2-5/本任务测试沿用的"显式传参覆盖"
+      调用方式），会出现"`StatHost` 上生效的品质/词缀"与"`GetAllEquippedInstances`/
+      `EquipmentPersistable.Save` 序列化出的身份字段"两者不一致——存档/读档（`EquipmentPersistable.
+      Load` 走三参 `Equip`，转发的是存档里 `instance.Quality`/`Affixes`）会用序列化出的（旧、不
+      一致的）身份重新反解，读档后 `StatHost` 与存档前不再相等，直接违反 ADR-0032 决策 8"读档按
+      数据重算……与存档前一致"这一不变量。本任务在五参重载内补了一行：解析出
+      `resolvedQuality`/`resolvedAffixes` 后，立即用它们重建 `taken`（`new ItemInstance(taken.
+      InstanceId, taken.TemplateId, taken.Count, resolvedQuality, resolvedAffixes, taken.
+      Extra)`）再存入 `unitSlots`，保证"`StatHost` 上生效的身份"与"这件装备实例自己携带、会被
+      存档序列化的身份"恒一致，不存在第二份影子状态。
+    - **回放/Perf 基线核查**：`ReplayWorldBuilder` 不引用 `Core.Carriers.Item`/`InventoryHost`/
+      `EquipmentHost`（同判断记录 20/21 既有核查结论），本任务改动的全部代码路径在回放场景中不
+      可能被触发；`dotnet test --filter "FullyQualifiedName~Replay"` 全绿，未触发任何基线更新
+      流程。
+    - **测试**：`core/carriers/item/tests/T_N2_7_ItemInstanceIdentityPersistenceTests.cs`（新增
+      5 条：旧存档兼容读取 2 条——`player.inventory` 段缺 `quality`/`affixes` key 按模板品质/空
+      词缀解析、`player.equipment` 段同场景验证只生效模板 `stats`/护甲不生效词缀反解值；新存档
+      往返 1 条——带显式品质（不同于模板自身品质）+ 词缀的实例，解析一次后再存→读一次，两次结果
+      逐字段一致；坏值 1 条——`quality` 字段非法值抛 `FormatException`；集成 1 条——装备一件带
+      词缀的实例（`StatHost` 属性手算 105/10，同 `T_N2_5_ArmorAffixReqLevelTests` 口径）后存档、
+      用全新宿主读档，`StatHost` 属性与存档前一致，且读档后装备实例自身的 `Quality`/`Affixes`
+      与存档前一致）。
+
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.ISkillHost` 没有"学习/遗忘技能"方法（技能书能力目前只存在于

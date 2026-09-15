@@ -270,25 +270,42 @@ namespace Core.Carriers.Item
             }
         }
 
-        public EquipResult Equip(Id unitId, Id instanceId, Id slot) => Equip(unitId, instanceId, slot, null, null);
+        /// <summary>
+        /// T-N2-7 更新（见五参重载判断记录、<c>core/carriers/item/README.md</c> 判断记录 20）：
+        /// <see cref="ItemInstance"/> 现已携带 <see cref="ItemInstance.Quality"/>/<see
+        /// cref="ItemInstance.Affixes"/> 身份字段，三参重载不再无条件转发 <c>null</c>/<c>null</c>——
+        /// 先查一次背包里这件物品的当前实例，转发它自带的品质/词缀（找不到实例时仍转发
+        /// <c>null</c>/<c>null</c>，五参重载内部会再查一次 <see cref="InventoryHost.FindInstance"/>
+        /// 并统一返回 <see cref="EquipFailureReason.NotInInventory"/>，行为与改动前一致，不额外抛
+        /// 异常）。多查一次背包属于同一单位背包内的字典/列表查找，代价可忽略，换来的是三参重载不
+        /// 再需要任何单独的"品质解析"逻辑——五参重载既有的 <c>qualityId ?? template.GetId("quality")</c>
+        /// 兜底分支只在"确实没查到实例"这一种情况下才会生效。
+        /// </summary>
+        public EquipResult Equip(Id unitId, Id instanceId, Id slot)
+        {
+            var maybeInstance = _inventory.FindInstance(unitId, instanceId);
+            return Equip(unitId, instanceId, slot, maybeInstance?.Quality, maybeInstance?.Affixes);
+        }
 
         /// <summary>
         /// T-N2-5（ADR-0032 决策 7/8；07 第 1.6 节修订段"物品实例只存身份……读档按数据重算"）新增
         /// 公开重载：显式指定穿戴时用于词缀反解的品质/词缀身份。
         /// <para>
-        /// 判断记录：<see cref="Core.Carriers.Common.ItemInstance"/> 目前不携带 <c>Quality</c>/
-        /// <c>Affixes</c> 字段（要到分阶段落地计划 T-N2-7 才落地，见该类型顶部判断记录"扩展字段……
-        /// Extra"——本任务不改动 <see cref="Core.Carriers.Common.ItemInstance"/>），但护甲/词缀反解值
+        /// **T-N2-7 更新**：<see cref="Core.Carriers.Common.ItemInstance"/> 已携带 <c>Quality</c>/
+        /// <c>Affixes</c> 字段（见该类型顶部判断记录），三参 <see cref="Equip(Id, Id, Id)"/> 已按
+        /// 本条判断记录原计划改为转发 <c>instance.Quality</c>/<c>instance.Affixes</c>（查不到实例
+        /// 时仍转发 <c>null</c>/<c>null</c>，见该重载判断记录）——本方法自身逻辑不变，以下历史记录
+        /// 原样保留供追溯。
+        /// </para>
+        /// <para>
+        /// 历史判断记录（T-N2-5 落地时）：<see cref="Core.Carriers.Common.ItemInstance"/> 当时不携带
+        /// <c>Quality</c>/<c>Affixes</c> 字段（要到分阶段落地计划 T-N2-7 才落地），但护甲/词缀反解值
         /// 写入 <see cref="IStatHost"/> 这条装备联动需要提前接上"按品质与词缀重算"的路径——任务书
         /// 原文"把'词缀值写入'实现为接受 (qualityId, IReadOnlyList&lt;Id&gt; affixIds) 的内部/公开
-        /// 路径，并在既有装备路径里用'模板品质 + 空词缀'调用，T-N2-7 接上实例字段"。三参 <see
-        /// cref="Equip(Id, Id, Id)"/> 转发本重载并传 <c>null</c>；<paramref name="qualityId"/> 为
-        /// <c>null</c> 时按模板自身 <c>quality</c> 字段解析，<paramref name="affixIds"/> 为
-        /// <c>null</c> 时按空列表处理（模板自身 <c>stats</c>/护甲不受影响，只影响"词缀反解值"这一段，
-        /// 见 <see cref="ApplyGrants"/>）。T-N2-7 落地后，把 <see cref="Equip(Id, Id, Id)"/> 内部的
-        /// 转发调用改传 <c>instance.Quality</c>/<c>instance.Affixes</c>（若沿用同名字段）即可接上，
-        /// 不需要改动本方法其余逻辑；也可以在 <c>ItemInstance</c> 补齐字段后让调用方（如掉落/背包
-        /// 装配代码）直接调用本重载。
+        /// 路径，并在既有装备路径里用'模板品质 + 空词缀'调用，T-N2-7 接上实例字段"。<paramref
+        /// name="qualityId"/> 为 <c>null</c> 时按模板自身 <c>quality</c> 字段解析，<paramref
+        /// name="affixIds"/> 为 <c>null</c> 时按空列表处理（模板自身 <c>stats</c>/护甲不受影响，只
+        /// 影响"词缀反解值"这一段，见 <see cref="ApplyGrants"/>）。
         /// </para>
         /// </summary>
         public EquipResult Equip(Id unitId, Id instanceId, Id slot, Id? qualityId, IReadOnlyList<Id>? affixIds)
@@ -329,6 +346,19 @@ namespace Core.Carriers.Item
             // T-N2-5：见本方法判断记录——缺省按"模板自身品质 + 空词缀"解析。
             var resolvedQuality = qualityId ?? template.GetId("quality");
             var resolvedAffixes = affixIds ?? Array.Empty<Id>();
+
+            // T-N2-7 判断记录——把解析结果写回 taken 的 Quality/Affixes（ItemInstance 新增字段前，
+            // 本行不存在也不需要，因为没有字段可写）：ApplyGrants 用 resolvedQuality/resolvedAffixes
+            // 把词缀反解值写进 StatHost，若存入 unitSlots[slot]/背包的 taken 仍是原样（可能来自
+            // AddItemCore 缺省创建、Quality/Affixes 与 resolvedQuality/resolvedAffixes 不一致——如
+            // 调用方显式传入了不同的 qualityId/affixIds），会出现"StatHost 上生效的品质/词缀"与
+            // "GetAllEquippedInstances/EquipmentPersistable.Save 序列化出的身份字段"两者不一致——
+            // 存档/读档（EquipmentPersistable.Load 走三参 Equip，转发的是存档里 instance.Quality/
+            // Affixes）会用序列化出的（旧、不一致的）身份重新反解，读档后 StatHost 与存档前不再
+            // 相等，直接违反 ADR-0032 决策 8"读档按数据重算……与存档前一致"这一不变量。因此这里必须
+            // 用 resolvedQuality/resolvedAffixes 重建 taken 后再存入 unitSlots，保证"StatHost 上生效
+            // 的身份"与"这件装备实例自己携带、会被存档序列化的身份"恒一致——不存在第二份影子状态。
+            taken = new ItemInstance(taken.InstanceId, taken.TemplateId, taken.Count, resolvedQuality, resolvedAffixes, taken.Extra);
 
             var unitSlots = GetOrCreateUnitSlots(unitId);
             ItemInstanceRef? replaced = null;

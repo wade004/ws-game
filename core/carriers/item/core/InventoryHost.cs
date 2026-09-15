@@ -74,6 +74,19 @@ namespace Core.Carriers.Item
             }
         }
 
+        /// <summary>
+        /// T-N2-7（ADR-0032 决策 8；10 第 2.5 节修订段）：供 <see cref="ItemInstanceJson.FromJson"/>
+        /// 在旧存档缺失 <c>quality</c> key 时兼容读取——按模板自身 <c>quality</c> 字段解析（见该方法
+        /// 判断记录），同新建实例（<see cref="AddItemCore"/>）取缺省品质的同一口径，两处不重复各写
+        /// 一份解析逻辑。<paramref name="templateId"/> 在当前已加载数据里找不到对应模板时返回一个
+        /// "未解析"的 <see cref="Id"/>（<c>Value == null</c>）——同本类其余路径既有的"不强行校验
+        /// 模板存在性"宽松度（<see cref="AddItemCore"/> 对未知模板会抛异常，但那是"新增物品"场景；
+        /// 这里是"读一份可能引用了已被数据更新移除的旧模板 id 的历史存档"场景，不应让整次读档失败，
+        /// 只是这一件物品的品质解析退化为未解析状态）。
+        /// </summary>
+        internal Id ResolveTemplateQuality(Id templateId) =>
+            _templates.TryGetValue(templateId, out var template) ? template.GetId("quality") : default;
+
         public void RegisterUnit(Id unitId)
         {
             if (!_bags.ContainsKey(unitId))
@@ -165,7 +178,12 @@ namespace Core.Carriers.Item
 
                 var space = stackSize - instance.Count;
                 var fill = Math.Min(space, remaining);
-                bag[i] = new ItemInstance(instance.InstanceId, instance.TemplateId, instance.Count + fill, instance.Extra);
+                // T-N2-7：续填既有堆叠必须原样带上该实例已有的 Quality/Affixes（不能只传 4 参旧
+                // 构造函数——那会把品质/词缀身份悄悄重置为"未解析"/空，见 ItemInstance 类型顶部
+                // 判断记录）。
+                bag[i] = new ItemInstance(
+                    instance.InstanceId, instance.TemplateId, instance.Count + fill,
+                    instance.Quality, instance.Affixes, instance.Extra);
                 remaining -= fill;
                 touchedInstanceId = instance.InstanceId;
                 removals.Add((instance.InstanceId, fill));
@@ -175,7 +193,11 @@ namespace Core.Carriers.Item
             {
                 var take = Math.Min(stackSize, remaining);
                 var instanceId = NextInstanceId();
-                bag.Add(new ItemInstance(instanceId, templateId, take));
+                // T-N2-7：新开堆叠是一个全新的物品身份，品质缺省取模板自身 quality 字段（同
+                // ItemInstance 类型顶部判断记录"新建实例时由掉落（T-N2-8）给定，本任务范围内的一般
+                // 创建路径——AddItem/TryAddItem 不接受显式品质参数——缺省按模板自身品质解析"）；词缀
+                // 缺省空（本方法不产生带词缀的新实例，带词缀掉落落地属于 T-N2-8）。
+                bag.Add(new ItemInstance(instanceId, templateId, take, template.GetId("quality"), null));
                 touchedInstanceId = instanceId;
                 remaining -= take;
                 removals.Add((instanceId, take));
@@ -219,7 +241,10 @@ namespace Core.Carriers.Item
                 }
                 else
                 {
-                    bag[i] = new ItemInstance(instance.InstanceId, instance.TemplateId, instance.Count - count, instance.Extra);
+                    // T-N2-7：部分移除同样要保留品质/词缀身份（同上方续填堆叠判断记录）。
+                    bag[i] = new ItemInstance(
+                        instance.InstanceId, instance.TemplateId, instance.Count - count,
+                        instance.Quality, instance.Affixes, instance.Extra);
                 }
 
                 EnqueueEvent(new ItemRemovedEvent(unitId, instanceId, count, "removed"));
