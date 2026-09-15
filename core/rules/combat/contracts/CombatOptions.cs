@@ -168,7 +168,7 @@ namespace Core.Rules.Combat
         public bool DismountOnEnterCombat { get; set; } = true;
 
         /// <summary>
-        /// 坐骑光环的识别方式（契约缺口/临时判断，待设计层确认）：06/08/ADR-0034 只拍板了"进入
+        /// 坐骑光环的识别方式（设计层裁定（2026-09-16）：采纳）：06/08/ADR-0034 只拍板了"进入
         /// 战斗时移除坐骑光环"这条策略本身，未规定"哪些光环算坐骑光环"具体落哪个字段。本模块复用
         /// <c>core/rules/skill</c> 既有的 <c>aura_def.dispel_type</c> 分类机制（同"按类别、数量"
         /// 批量移除光环的既有 <c>dispel</c> 效果原语，见 <c>AuraHost.Dispel</c>），而不是像

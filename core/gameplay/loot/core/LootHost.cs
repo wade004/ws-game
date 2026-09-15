@@ -385,18 +385,20 @@ namespace Core.Gameplay.Loot
         /// cref="MidpointRounding.AwayFromZero"/>）到整数。
         /// <para>
         /// 判断记录（"分档倍率"——<c>creature.tier_definition</c> 的金币倍率字段——留钩子缺省 1，
-        /// 待设计层确认）：08 第 1.1/7.4 节公式原文把"分档倍率"与"<c>diff.tier.loot_multiplier</c>"
+        /// 设计层裁定（2026-09-16）：采纳，记为偏离首版基准的说明，留待阶段 N6 仿真核对锚点时补上）：
+        /// 08 第 1.1/7.4 节公式原文把"分档倍率"与"<c>diff.tier.loot_multiplier</c>"
         /// 并列写成两个独立乘数；核实 <c>core/carriers/creature/core/CreatureSchemas.cs</c> 的
         /// <c>creature.tier_definition</c> 当前只有 <c>stat_multiplier</c>/<c>control_immune</c> 等
-        /// 既有字段，没有任何"经验/金币倍率"字段（分阶段落地计划 T-N4-4"分档与难度经验倍率"任务尚未
-        /// 落地，且本任务不依赖 T-N4-4），本任务因此没有可读取的数据源来实现"分档倍率"这一乘数——
-        /// 按此公式暂时留空等价于该乘数恒为 1（只保留 <see cref="RollContext.Multiplier"/> 一项，
-        /// 即 <c>diff.tier.loot_multiplier</c>），需设计层确认这一临时判断，或在 T-N4-4/后续任务
-        /// 补上"分档金币倍率"字段后由调用方通过某个新的 <see cref="RollContext"/> 字段或本方法的
-        /// 新增可选参数接入（ABI 只允许新增，届时可平滑扩展，不需要改动本方法现有签名）。
+        /// 既有字段，没有任何"经验/金币倍率"字段（T-N4-4"分档与难度经验倍率"已落地但只补了
+        /// <c>xp_multiplier</c>，未新增任何"金币倍率"字段），本任务因此没有可读取的数据源来实现
+        /// "分档倍率"这一乘数——本阶段留空等价于该乘数恒为 1（只保留 <see cref="RollContext.Multiplier"/>
+        /// 一项，即 <c>diff.tier.loot_multiplier</c>），留待阶段 N6 仿真核对锚点时补上"分档金币倍率"
+        /// 字段后由调用方通过某个新的 <see cref="RollContext"/> 字段或本方法的新增可选参数接入
+        /// （ABI 只允许新增，届时可平滑扩展，不需要改动本方法现有签名）。
         /// </para>
         /// <para>
-        /// 判断记录（<see cref="RollContext.SourceLevel"/> 为空时的等级回退，待设计层确认）：08 原文
+        /// 判断记录（<see cref="RollContext.SourceLevel"/> 为空时的等级回退，设计层裁定
+        /// （2026-09-16）：采纳）：08 原文
         /// 只说"怪物掉钱……(怪物等级)"，未说明没有来源等级（如非生物来源的货币掉落，若存在）时该按
         /// 什么等级取金币基数；本方法选择回退到等级 1（曲线定义域的合理下界，同 <see
         /// cref="ResolveItemOutcome"/> 对物品等级"为空时取模板自身 item_level"的兜底思路不完全相同——

@@ -169,7 +169,7 @@ CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp
    `kind=discovery` 的探索来源使用。`base_xp`/`weight` 标**废弃**（拍板 4："保留一个版本周期"，
    本任务不删除、只在字段描述追加废弃说明）。`kind` 登记为可选（非必填）——判断记录见
    `schema/README.md`"判断记录（`kind` 登记为可选而非必填）"，本任务验收标准显式要求"只有
-   `base_xp`/`weight` 的来源加载 0 error"，若 `kind` 必填会与该标准冲突，标"待设计层确认"。
+   `base_xp`/`weight` 的来源加载 0 error"，若 `kind` 必填会与该标准冲突，设计层裁定（2026-09-16）：采纳（`kind` 可选、`base_xp` 保留必填至下个周期）。
 
 3. **新表 `prog.xp_base_curve`**（落地改动点清单第 10 节拍板 5"表名 `prog.xp_base_curve`，归 L1
    progression"）：击杀基数曲线，04 第 3.6 节通用断点表形态（横轴 `Level`），单调有限阻断校验
@@ -206,7 +206,7 @@ CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp
    `Core.Foundation.DataRegistry.CurveSchema.ReadBreakpoints` 直接从原始 `DataRecord` 读取
    `xp_factor` 字段，不经 `Core.Rules.Combat` 程序集（同 `Tests.Numbers.csproj` 不引用
    `Core.Rules` 的既有约束）。该表与 `prog.xp_base_curve` 都是可选表（未装配 combat 模块/未接数据
-   时留空字典，退化为"Δ 系数恒 1"，不抛异常）。**待设计层确认**：`kind` 未登记时兜底按 `kill`
+   时留空字典，退化为"Δ 系数恒 1"，不抛异常）。设计层裁定（2026-09-16）：采纳——`kind` 未登记时兜底按 `kill`
    处理（06/ADR 均未给出字面结论，见 `schema/README.md`"T-N4-2 补记"）。
 
 3. **`GetXpToNext`/`AddXp`/`GrantXp` 共用"有效满级"判定（`ProgressionHost.GetEffectiveMaxLevel`）**：

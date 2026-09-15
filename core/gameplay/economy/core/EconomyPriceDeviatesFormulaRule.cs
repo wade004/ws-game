@@ -12,8 +12,8 @@ namespace Core.Gameplay.Economy
     /// <c>item.template.value_override</c> 与价值公式的偏离超过带宽"）。
     /// <para>
     /// 判断记录（检查名——04 第 5 节该行原文未给出具体检查名，与该节其它同类警告行"检查名……设计层
-    /// 裁定"同一惯例）：待设计层确认，本任务暂按 <see cref="Check"/>=<c>econ_price_deviates_formula</c>
-    /// 采纳；<see cref="NonEscalatable"/> 为 <c>true</c>——04 第 5 节警告组整体"抓意图不抓手滑"口径，
+    /// 裁定"同一惯例）：设计层裁定（2026-09-16）：采纳 <see cref="Check"/>=<c>econ_price_deviates_formula</c>；
+    /// <see cref="NonEscalatable"/> 为 <c>true</c>——04 第 5 节警告组整体"抓意图不抓手滑"口径，
     /// 同 <c>Core.Carriers.Item.ItemWeaponDamageDeviatesDpsCurveRule</c>。
     /// </para>
     /// <para>

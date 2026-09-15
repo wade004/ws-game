@@ -346,7 +346,7 @@ combat/
       写入 `_inCombat[unitId] = true`/发布 `CombatEnteredEvent` 之后，三项条件（开关、
       `MountAuraDispelType` 是否配置、`DismountMountAuras` 是否接线）全部满足才调用一次——本方法
       已有的"已在战直接 return"短路保证同一次进战只触发一次，不会对着已经在战的单位重复移除。
-    - **坐骑光环的识别方式，契约缺口/临时判断（待设计层确认）**：06/08/ADR-0034 都只拍板了"进入
+    - **坐骑光环的识别方式，设计层裁定（2026-09-16）：采纳**：06/08/ADR-0034 都只拍板了"进入
       战斗时移除坐骑光环"这条策略本身，没有规定"哪些光环算坐骑光环"具体落哪个字段。本模块选择
       复用 `core/rules/skill` 既有的 `aura_def.dispel_type` 分类机制（`AuraHost.Dispel(targetId,
       dispelType, count)`，本来就是"按类别、数量"批量移除光环的既有效果原语，见该类型判断记录），

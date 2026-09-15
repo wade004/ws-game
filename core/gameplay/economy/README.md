@@ -59,7 +59,8 @@ economy/
                                    校验期共用；T-N4-7 新增 TryComputeGoldBaseAmount（econ.gold_base_curve
                                    按等级求值，供 EconomyHost.TryGetGoldBaseAmount 转发）
     EconomyPriceDeviatesFormulaRule.cs T-N4-6 新增："手填价格偏离公式"警告
-                                   （检查名 econ_price_deviates_formula，待设计层确认）
+                                   （检查名 econ_price_deviates_formula，设计层裁定
+                                   （2026-09-16）：采纳）
     EconomyHost.cs                  IEconomyHost 唯一实现（T-N4-6：Buy/Sell 缺省走价格公式；T-N4-7：
                                    Add 超 cap 发 currency_overflow，SetBalance 不发；显式覆写
                                    TryGetGoldBaseAmount/DepositPolicy 两个默认接口成员；T-N4-8：显式
@@ -241,14 +242,14 @@ economy/
       时刻已经真实发生过的溢出事件在这里重放一次。判断依据 `raw`（未夹取前的余额和）而不是最终
       `newValue`：`raw > cap` 才是"真的顶到上限之上"，`newValue` 还可能因为下限夹取（扣款到负数
       再夹回 0）而与 `old` 不同，两者不是同一件事、不能混用同一个判断条件。
-    - **契约缺口/临时判断（待设计层确认）**：08 原文"怪物掉钱 = 当量 ×
+    - **设计层裁定（2026-09-16）：采纳**：08 原文"怪物掉钱 = 当量 ×
       `econ.gold_base_curve`(怪物等级) × 分档倍率 × `diff.tier.loot_multiplier`"里的"分档倍率"
       指 `creature.tier_definition` 的经验/金币倍率字段——核实该表（`core/carriers/creature/core/
       CreatureSchemas.cs`）当前只有 `stat_multiplier`/`control_immune` 等既有字段，没有任何"经验/
-      金币倍率"字段（分阶段落地计划 T-N4-4"分档与难度经验倍率"尚未落地，且本任务不依赖它），本
-      模块与 `core/gameplay/loot` 均未新增这一乘数的读取，等价于恒为 1，只保留
-      `RollContext.Multiplier`（`diff.tier.loot_multiplier`）一项——留待 T-N4-4/后续任务补上
-      该字段后再接入。
+      金币倍率"字段（T-N4-4"分档与难度经验倍率"已落地但只补了 `xp_multiplier`，未新增任何"金币
+      倍率"字段，本任务不依赖它），本模块与 `core/gameplay/loot` 均未新增这一乘数的读取，本阶段
+      恒为 1，只保留 `RollContext.Multiplier`（`diff.tier.loot_multiplier`）一项——记为偏离首版
+      基准的说明，留待阶段 N6 仿真核对锚点时补上该字段后再接入。
     - **登记记录（未同步 `found.event_catalog.json`/`EventKeys.g.cs`）**：核实
       `toolchain/gen_event_constants.py --check` 只比较该登记表与已提交的生成文件两者自身是否
       一致，不反查代码里手写的 `Id` 事件常量，本次不登记、不重生成不会让该门禁失败；分阶段落地
@@ -339,7 +340,7 @@ economy/
 `ComputeSellPrice` 与内容校验 `EconomyPriceDeviatesFormulaRule` 共用同一份实现，不重复）。
 
 新增校验规则 `EconomyPriceDeviatesFormulaRule`（检查名 `econ_price_deviates_formula`——04 第 5 节该行
-原文未给出具体检查名，本任务暂按此采纳，待设计层确认；`NonEscalatable = true`，同组既有警告"抓意图
+原文未给出具体检查名，设计层裁定（2026-09-16）：采纳本任务暂按此拟定的检查名；`NonEscalatable = true`，同组既有警告"抓意图
 不抓手滑"口径）：核对 `sell_items[].price_amount`（手填买价）与 `item.template.value_override`
 （手填基准价值）各自与纯公式值（忽略 `value_override`）的偏离比例，超过 `EconomyOptions.
 PriceDeviationWarningThreshold`（缺省 0.2，同 `ItemWeaponDamageDeviatesDpsCurveRule` 既定阈值类推）

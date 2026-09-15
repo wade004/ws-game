@@ -17,8 +17,8 @@ namespace Tests.Gameplay.Loot
     /// 分阶段落地计划 T-N4-7 验收（ADR-0034 决策 4；08 第 7.4 节修订段"入账方式为策略配置项：击杀即
     /// 入账（默认）或掉在地上靠近自动拾取"）：<see cref="CreatureDeathLootListener"/> 在
     /// <see cref="CurrencyDepositPolicy.OnKill"/>（默认）策略下把货币掉落条目在死亡结算这一刻直接
-    /// 入账给击杀者、不生成地面掉落物；找不到明确击杀者时退回"落地待拾取"（判断记录，待设计层确认，
-    /// 见该类型 <c>OnUnitDied</c> 判断记录）；<see cref="CurrencyDepositPolicy.GroundPickup"/> 策略下
+    /// 入账给击杀者、不生成地面掉落物；找不到明确击杀者时退回"落地待拾取"（判断记录，设计层裁定
+    /// （2026-09-16）：采纳，见该类型 <c>OnUnitDied</c> 判断记录）；<see cref="CurrencyDepositPolicy.GroundPickup"/> 策略下
     /// 恒落地，不在击杀那一刻入账。
     /// </summary>
     public sealed class T_N4_7_CreatureDeathCurrencyDepositTests
