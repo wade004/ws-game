@@ -24,6 +24,13 @@ namespace Core.Numbers.Progression
     /// </summary>
     public sealed class ProgLevelCurveValidationRule : IValidationRule
     {
+        /// <summary>分阶段落地计划 T-N5-3（数值规则核对表 B1a）：曲线单调有限阻断族在
+        /// <c>prog.level_curve</c> 上的密集枚举分支检查名，此前只以字面量出现在下方 <see
+        /// cref="ValidationIssue"/> 构造调用里——补一个公开常量，供
+        /// <c>Presentation.Assembly.NumericValidationRuleCatalog</c> 直接引用（不写字面量，同
+        /// 1.29.0 <c>OptionalRuleDescriptor</c> 先例），不改变检查名字符串本身与既有行为。</summary>
+        public const string CheckName = "level_curve_xp_monotonic";
+
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
             foreach (var record in view.GetAll("prog.level_curve"))
@@ -73,7 +80,7 @@ namespace Core.Numbers.Progression
                     if (next < current)
                     {
                         yield return new ValidationIssue(
-                            ValidationSeverity.Error, "prog.level_curve", "level_curve_xp_monotonic",
+                            ValidationSeverity.Error, "prog.level_curve", CheckName,
                             $"entries[{i + 1}].xp_to_next（{next}）低于前一级（{current}）：升级所需经验须沿等级单调递增（允许相等；末级条目不参与比较）",
                             record.Key, $"entries[{i + 1}].xp_to_next");
                     }

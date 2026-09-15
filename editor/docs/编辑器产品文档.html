@@ -243,10 +243,10 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
     <div class="page" id="top">
 <h1>GF 内容编辑器 产品文档</h1>
 <ul>
-<li>版本：v2.6</li>
-<li>日期：2026-09-11</li>
+<li>版本：v2.16</li>
+<li>日期：2026-09-16</li>
 <li>状态：草案（待用户确认）</li>
-<li>本 HTML 版由 <a href="编辑器产品文档.md">编辑器产品文档.md</a> 手工同步生成（仓库内无自动转换脚本，见 DOC-118-03 勘误）：变更记录表与第 4.1 节"契约面清单"表逐条对齐 md 版 v2.3/v2.4/v2.5/v2.6 四次更新的契约面新增内容，其余章节未随这几版改动、保持原样，同步以 md 版为准。</li>
+<li>本 HTML 版由 <a href="编辑器产品文档.md">编辑器产品文档.md</a> 手工同步生成（仓库内无自动转换脚本，见 DOC-118-03 勘误）：变更记录表（v1～v2.16 全部 19 行）与第 4.1 节"契约面清单"表（全部 12 行）已由 T-N5-5（阶段 N5 文档收尾）逐行回填到与 md 版 v2.16 完全对应，第 5.8 节"数值沙盘"表（含第六行"内容覆盖仿真离群值列表"）同步一致；`toolchain/tests/test_editor_doc_consistency.py` 以两表行标识集合与文档版本号字符串做一致性门禁，防止本 HTML 版再次落后 md 版。此前 T-N5-4 落地时如实标注过的"md v2.7～v2.15 期间第 4.1 节新增契约面尚未回填 HTML"缺口，已在本次（T-N5-5）补齐；其余未被 4.1/5.8/变更记录三处引用的章节正文未逐段重新核对，仍以 md 版为最终权威来源。</li>
 <li>上游文档：<a href="../../architecture/README.md">architecture/README.md</a> · <a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线.md</a> · <a href="../../architecture/06_规则层_属性技能战斗AI.md">06_规则层_属性技能战斗AI.md</a> · <a href="../../architecture/07_载体层_物品生物物件.md">07_载体层_物品生物物件.md</a> · <a href="../../architecture/08_玩法层_掉落任务对话关卡.md">08_玩法层_掉落任务对话关卡.md</a> · <a href="../../data/README.md">data/README.md</a> · <a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划.md</a> · <a href="../../CHANGELOG.md">CHANGELOG.md</a> · <a href="../../toolchain/README.md">toolchain/README.md</a> · <a href="../../games/_template/README.md">games/_template/README.md</a></li>
 </ul>
 <h2 id="changelog">变更记录</h2>
@@ -297,12 +297,62 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <tr>
 <td>2026-09-10</td>
 <td>v2.5</td>
-<td>消费方反馈第三批第 21 条与第四批第 25/26 条落地对齐。第 21 条（<a href="../../architecture/adr/0024-字段登记表纳入动态键映射形态.md">ADR-0024</a>）：第 4.1 节契约面清单 <code>TableSchema</code>/<code>FieldSchema</code> 一行补充 <code>Map</code>（动态键映射子结构登记，与 <code>Fields</code>/<code>Variants</code> 并列）——<code>toolchain/validator --list-tables --json</code> 每个顶层字段的 <code>field_meta</code> 新增 <code>map_key</code>（键约束：引用表/引用域/自由字符串三选一）/<code>map_value</code>（值种类），供编辑器为这类字段提供键补全与值校验；18 个此前退化为 JSON 子编辑的字段中 12 个改用 <code>Map</code> 登记、1 个改用既有 <code>Item</code> 登记（<code>Array&lt;String&gt;</code>），元数据门禁白名单从 20 条收敛到 7 条，详见消费方反馈第三批回复文档第 21 条。第 25/26 条：第 4.1 节契约面清单 <code>DataRegistry</code> 一行补充——<code>Query(string, string)</code> 便捷重载不再把 <code>FieldKind.Expr</code> 字段注册为 <code>self.&lt;field&gt;</code> 引用（该字段种类的值是待求值文本，没有明确取值语义，此前误按 <code>String</code> 注册，改为与 <code>IdList</code>/<code>Vec2</code>/<code>Object</code>/<code>Array</code> 同等对待，不登记）；<code>RecordExprMapping</code>/<code>RecordExprMapping.ToExprValueKind(FieldKind)</code> 由框架内部实现放宽为 <code>public static</code>，供编辑器直接复用同一份"字段种类 → Expr 标量类型"映射规则。均为对已拍板契约面的增量补充（纯新增登记形态/放宽可见性/收紧一个此前错误注册的边角行为，不破坏既有兼容调用），不改变第 4 章既有结论</td>
+<td>消费方反馈第三批第 21 条与第四批第 25/26 条落地对齐。第 21 条（<a href="../../architecture/adr/0024-字段登记表纳入动态键映射形态.md">ADR-0024</a>）：第 4.1 节契约面清单 <code>TableSchema</code>/<code>FieldSchema</code> 一行补充 <code>Map</code>（动态键映射子结构登记，与 <code>Fields</code>/<code>Variants</code> 并列）——<code>toolchain/validator --list-tables --json</code> 每个顶层字段的 <code>field_meta</code> 新增 <code>map_key</code>（键约束：引用表/引用域/自由字符串三选一）/<code>map_value</code>（值种类），供编辑器为这类字段提供键补全与值校验；18 个此前退化为 JSON 子编辑的字段中 12 个改用 <code>Map</code> 登记、1 个改用既有 <code>Item</code> 登记（<code>Array&lt;String&gt;</code>），元数据门禁白名单从 20 条收敛到 7 条，详见 <a href="../../architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md">消费方反馈第三批回复文档</a> 第 21 条。第 25/26 条（见 <a href="../../architecture/落地计划/消费方反馈-2026-09-10-编辑器-第四批.md">消费方反馈第四批回复文档</a>）：第 4.1 节契约面清单 <code>DataRegistry</code> 一行补充——<code>Query(string, string)</code> 便捷重载不再把 <code>FieldKind.Expr</code> 字段注册为 <code>self.&lt;field&gt;</code> 引用（该字段种类的值是待求值文本，没有明确取值语义，此前误按 <code>String</code> 注册，改为与 <code>IdList</code>/<code>Vec2</code>/<code>Object</code>/<code>Array</code> 同等对待，不登记）；<code>RecordExprMapping</code>/<code>RecordExprMapping.ToExprValueKind(FieldKind)</code> 由框架内部实现放宽为 <code>public static</code>，供编辑器直接复用同一份"字段种类 → Expr 标量类型"映射规则。均为对已拍板契约面的增量补充（纯新增登记形态/放宽可见性/收紧一个此前错误注册的边角行为，不破坏既有兼容调用），不改变第 4 章既有结论</td>
 </tr>
 <tr>
 <td>2026-09-11</td>
 <td>v2.6</td>
-<td>消费方反馈第 28/29 条落地对齐（详见消费方反馈-2026-09-11-编辑器-第28-29条.md 回复文档）。第 28 条：第 4.1 节契约面清单 <code>TableSchema</code>/<code>FieldSchema</code> 一行补充 <code>AllowedValues</code>（IdList/Id 固定取值集合登记，与 <code>FreeIds</code>/<code>ReferenceTable</code> 互斥）——<code>field_meta</code> 新增 <code>allowed_values</code>，供编辑器渲染下拉/多选而非自由文本；<code>creature.template.npc_flags</code> 改用该记法登记，取值统一为正式 <code>npc_flag.&lt;name&gt;</code> 写法。第 29 条：<code>FieldSchema</code> 一行补充 <code>SoftReferenceTable</code>/<code>SoftReferenceDomain</code>（软引用元数据，仅 <code>Id</code>/<code>IdList</code> 可设，不参与加载期引用完整性校验）——<code>field_meta</code> 新增 <code>soft_reference_table</code>/<code>soft_reference_domain</code>，供编辑器做自动补全/跳转，不得据此做存在性强校验；<code>creature.template</code> 的 <code>ai_rotation_ref</code>/<code>ai_behavior_ref</code>/<code>loot_table_ref</code>/<code>display_ref</code> 等一批已确认目标表的字段完成登记。均为对已拍板契约面的增量补充（纯新增可选元数据，不破坏既有兼容调用），不改变第 4 章既有结论</td>
+<td>消费方反馈第 28/29 条落地对齐（详见 <a href="../../architecture/落地计划/消费方反馈-2026-09-11-编辑器-第28-29条.md">回复文档</a>）。第 28 条：第 4.1 节契约面清单 <code>TableSchema</code>/<code>FieldSchema</code> 一行补充 <code>AllowedValues</code>（IdList/Id 固定取值集合登记，与 <code>FreeIds</code>/<code>ReferenceTable</code> 互斥）——<code>field_meta</code> 新增 <code>allowed_values</code>，供编辑器渲染下拉/多选而非自由文本；<code>creature.template.npc_flags</code> 改用该记法登记，第 5.5 节（若涉及 creature 表单示例）取值统一为正式 <code>npc_flag.&lt;name&gt;</code> 写法。第 29 条：<code>FieldSchema</code> 一行补充 <code>SoftReferenceTable</code>/<code>SoftReferenceDomain</code>（软引用元数据，仅 <code>Id</code>/<code>IdList</code> 可设，不参与加载期引用完整性校验）——<code>field_meta</code> 新增 <code>soft_reference_table</code>/<code>soft_reference_domain</code>，供编辑器做自动补全/跳转，不得据此做存在性强校验；<code>creature.template</code> 的 <code>ai_rotation_ref</code>/<code>ai_behavior_ref</code>/<code>loot_table_ref</code>/<code>display_ref</code> 等一批已确认目标表的字段完成登记。均为对已拍板契约面的增量补充（纯新增可选元数据，不破坏既有兼容调用），不改变第 4 章既有结论</td>
+</tr>
+<tr>
+<td>2026-09-11</td>
+<td>v2.7</td>
+<td>消费方反馈第 31 条落地对齐（详见 <a href="../../architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md">回复文档</a>）：结算中间步骤经真实施法路径不可观测——<code>ResolveResult.Steps</code> 总是被计算但从未被任何调用点保留，落地事件不携带分步明细，内容工具无法按 06 第 4.1 节固定管线分步展示结算。第 4.1 节契约面清单"无头适配层"一行补充 <code>CombatOptions.ResolveTrace: Action&lt;EffectContext, ResolveResult&gt;?</code>——可选结算追踪回调，结算管线每次真实返回前调用一次，传入本次输入与完整输出（含 <code>Steps</code>），未设置零开销、不改变既有行为；第 5.5.2 节"右侧结算预览"、第 5.8 节"伤害/治疗结算器"与"简易战斗回放"三处补充说明其实现直接订阅该回调，不必自行复刻一份结算公式。纯新增可选属性，不破坏既有兼容调用，不改变第 4 章既有结论</td>
+</tr>
+<tr>
+<td>2026-09-11</td>
+<td>v2.8</td>
+<td>消费方反馈第 35 条落地对齐（详见 <a href="../../architecture/落地计划/消费方反馈-2026-09-11-编辑器-第35条.md">回复文档</a>）：<code>LootHost.Roll</code> 只提供"抽一次给我结果"的黑箱接口，<code>LootTableDef</code> 只是结构模型，嵌套表/条件/多抽不放回/保底等情形的期望概率此前只能复制私有抽取语义或蒙特卡洛逼近。第 4.1 节契约面清单新增一行"掉落表期望概率分析"——<code>Core.Gameplay.Loot.LootTableAnalyzer.ExpectedProbabilities(LootTableDef, LootAnalysisContext): IReadOnlyList&lt;LootExpectedOutcome&gt;</code>，与真实抽取（<code>LootHost</code>）共用同一份条件筛选/权重归一步骤（<code>LootRollCore</code>），按叶子聚合给出至少掉落一次的概率、期望数量、来源路径、是否为近似值（<code>IsApproximate</code>：不放回多抽候选池超阈值或嵌套引用落在保底候选池时标注）；第 5.8 节"简易战斗回放"/数值沙盘一节补充说明掉落预览可直接调用该入口，不必自行复刻抽取算法或跑蒙特卡洛。纯新增公开类型，不改变 <code>LootHost</code>/<code>LootTableDef</code> 既有契约，不改变第 4 章既有结论</td>
+</tr>
+<tr>
+<td>2026-09-12</td>
+<td>v2.9</td>
+<td>消费方反馈第 37 条落地对齐（详见 <a href="../../architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md">回复文档</a>）：<code>skill.proc_def.trigger_skill</code> 只在 <code>declareReference</code> 侧登记了加载期硬校验（指向 <code>skill.def</code>），字段元数据一侧未同步补 <code>SoftReferenceTable</code>，且 <code>IDataRegistryView</code> 没有任何方式读回已声明的 <code>declareReference</code> 关系，内容工具（引用图/<code>IdFieldEditor</code>）只能按值弱推断。第 4.1 节 <code>DataRegistry</code> 一行补充——<code>trigger_skill</code> 补登 <code>SoftReferenceTable("skill.def")</code>；<code>IDataRegistryView</code> 新增 <code>GetReferenceDeclarations()</code>（带默认实现，<code>DataRegistry</code> 显式覆盖为按登记顺序回吐源表/源字段/目标表/是否可选/登记来源），<code>toolchain/validator --list-tables --json</code> 新增 <code>reference_declarations</code> 导出；框架侧新增元数据门禁 <code>declared_reference_unregistered</code>（告警级），防止同类"<code>declareReference</code> 登记了引用但字段元数据未同步"的遗漏再次出现。纯新增契约面（带默认实现接口成员/新增重载/新增只读导出字段），不破坏既有兼容调用，不改变第 4 章既有结论</td>
+</tr>
+<tr>
+<td>2026-09-13</td>
+<td>v2.10</td>
+<td>消费方反馈第 38 条落地对齐（详见 <a href="../../architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md">回复文档</a>）：<code>quest.def.prerequisite</code> 只做 Expr 语法可解析检查，两个任务互为前置在正式装配默认参数下 0 error，运行期永远互相卡死。<code>QuestContentValidationRule</code> 新增 <code>quest_prerequisite_cycle</code>（前置链成环，含自环，三色标记 DFS，算法同既有 <code>story_tree_cycle</code>）与 <code>quest_prerequisite_unknown</code>（前置引用了不存在的任务）两项阻断级检查项——两者经既有 <code>DataRegistry.LoadAll</code>/<code>Validate</code> 通道产出 <code>ValidationIssue</code>（<code>Check</code>/<code>Field</code>/<code>RecordKey</code>），不新增契约面/接口成员，编辑器诊断面板按既有"校验问题列表"渲染方式即可展示，无需改动。第 4.1 节不改动（无新增契约面）</td>
+</tr>
+<tr>
+<td>2026-09-13</td>
+<td>v2.11</td>
+<td>消费方反馈第 39 条落地对齐（详见 <a href="../../architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md">回复文档</a>）：全仓排查确认 <code>found.hook</code>（脚本钩子注册表）早在收边 I1 就已完成 <code>TableSchema</code> 登记（<code>Core.Foundation.HookRegistry.FoundHookSchema.Table</code>，<code>DialogHost</code>/<code>AreaTriggerHost</code> 均为真实运行时消费方），此前 <code>dialog.story_tree.nodes[].performance_hook_ref</code>/<code>dialog.gossip_menu.options[].actions[]{kind=script}.ref</code>/<code>encounter.def.phases[].on_enter_hook</code>/<code>skill.def.effects[]{kind=script}.params.hook_id</code>/<code>area.trigger_def.params{trigger_type=script}.hook_id</code> 五处消费方字段的判断记录仍写"found.hook 当前无实现级 schema 登记"，是代码注释未跟上实现的历史遗留，不是表未注册。第 4.1 节 <code>TableSchema</code>/<code>FieldSchema</code> 一行补充说明——五处字段补登既有 <code>SoftReferenceTable("found.hook")</code> 元数据（沿用第 28/29/37 条已拍板的软引用机制，不新增契约面），<code>field_meta.soft_reference_table</code> 随 <code>toolchain/validator --list-tables --json</code> 同步导出；<code>data/_sample</code> 新增 <code>found/found.hook.json</code>（4 条示例钩子）与四张消费方表各一条示例引用，<code>--strict</code> 0 error。均为对已拍板契约面的字段级增量登记，不改变第 4 章既有结论</td>
+</tr>
+<tr>
+<td>2026-09-13</td>
+<td>v2.12</td>
+<td>消费方反馈第 40 条落地对齐（详见 <a href="../../architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md">回复文档</a>，<a href="../../architecture/adr/0029-迁移链串接与整表迁移纳入公开契约.md">ADR-0029</a>）：此前"迁移链串接"只是数据注册表加载期的私有实现，编辑器只能照着 04 第 3 节文字描述与框架源码自行复刻，且框架没有任何真实迁移用例可供比对。第 4.1 节新增一行"schema 迁移链与整表迁移"——<code>Core.Foundation.DataRegistry.SchemaMigrator</code> 新增三个公开静态方法：<code>BuildChain</code>（只读链构造，与加载期私有实现逐字一致）、<code>MigrateRow</code>（单行迁移）、<code>MigrateEnvelope</code>（整表迁移权威实现，供写回磁盘前调用，返回新信封的 <code>schema_version</code> 为当前版本、<code>migrated_from</code> 为最早原始版本）；第 5.7.5 节"执行迁移"改为直接调用 <code>MigrateEnvelope</code> 写回，不再自行复刻。框架示例数据集新增 <code>found.migration_sample</code>（无运行时消费方的演示表，<code>schema_version</code> 落后一版）供端到端验证。均为纯新增公开静态方法与一张无运行时消费方的示例表，不改变既有 <code>TableSchema</code>/<code>TableMigration</code> 契约面签名，不改变第 4 章既有结论</td>
+</tr>
+<tr>
+<td>2026-09-14</td>
+<td>v2.13</td>
+<td>消费方反馈第 41/42 条落地对齐（详见 <a href="../../architecture/落地计划/消费方反馈-2026-09-14-编辑器-第41-42条.md">回复文档</a>）：第 42 条——<code>text_key_exists</code> 此前只校验默认语言，非默认语言漏翻译对内容团队完全静默，本地化编辑器矩阵的 <code>HasMissing</code> 只能自行扫描 <code>l10n.text</code> 判定，无法复用框架诊断。<code>DataRegistryOptions</code> 新增 <code>WarnOnMissingTranslation</code>（默认 <code>true</code>）——<code>l10n.locale</code> 已登记的非默认语言下 <code>TextKey</code> 字段缺翻译现产出 Warning 级 <code>text_key_exists</code>（消息附带回退链落点），默认语言缺失仍是 Error；<code>toolchain/validator</code> 新增 <code>--no-missing-translation-warning</code> 开关。第 5.5.8 节"本地化编辑器"补充说明：矩阵 <code>HasMissing</code> 判定建议直接复用该诊断，不必再自行扫描。第 41 条——框架示例数据集 <code>data/_sample/l10n</code> 新增第二语言 <code>l10n.locale.en_us</code> 与对应译文，另加两个演示键（回退链、变量缺失各一个），供编辑器手工验证/自动化测试固件直接复用，不必再靠内存注入第二语言。均为纯新增可选属性/命令行开关与示例数据补充，不改变第 4 章既有契约面签名，不改变第 4 章既有结论</td>
+</tr>
+<tr>
+<td>2026-09-14</td>
+<td>v2.14</td>
+<td>消费方反馈第 43/44 条落地对齐（详见 <a href="../../architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md">回复文档</a>）：第 43 条——问题面板"本条来自可选规则"标注此前只能靠编辑器自行硬编码一份"规则类型名（PascalCase）→检查项名（snake_case）"映射表，框架新增/改名可选规则时该映射会静默失效。<code>Presentation.Assembly.ContentValidationAssembly</code> 新增 <code>OptionalRules</code>/<code>OptionalRuleDescriptor</code>（<code>RuleName</code>/<code>CheckName</code>/<code>Description</code>）/<code>TryGetOptionalRuleByCheck</code>，单一来源（<code>CheckName</code> 直接引用各规则自己公开的常量），<code>OptionalRuleNames</code> 不变、改由其投影得到；第 5.7.2/5.7.6 节补充说明：该标注建议改用 <code>TryGetOptionalRuleByCheck</code> 按检查名反查，不再自行维护映射表。第 44 条——框架示例数据集 <code>data/_sample/creature</code> 新增 <code>summon_only</code> 生物模板 <code>creature.sample_summon_totem</code>（不进 <code>spawn.table</code>，保持示例数据集 0 error 0 warning），供 <code>SpawnSummonOnlyCreatureRule</code> 正例分支的手工验证/自动化测试固件直接复用，不必再自行改写既有生物记录的 <code>npc_flags</code>。均为纯新增公开类型/方法与示例数据补充，不改变第 4 章既有契约面签名，不改变第 4 章既有结论</td>
+</tr>
+<tr>
+<td>2026-09-14</td>
+<td>v2.15</td>
+<td>消费方反馈第 44 条追加根治（同一份 <a href="../../architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md">回复文档</a>"追记"一节）：v2.14 落地时发现 <code>SpawnSummonOnlyCreatureRule</code> 需要显式提供 <code>ICreatureTemplateQuery</code> 才会注册，而 <code>toolchain/validator</code>（一次性命令行进程）按既有设计从不接线该依赖——示例数据门禁因此从未真正跑过这条规则，是真实缺口，非本条反馈原始范围但决定一并根治。新增 <code>Core.Carriers.Creature.RegistryCreatureTemplateQuery</code>（直接从已构造的 registry 现读现解析 <code>creature.template</code> 记录）；<code>ContentValidationAssembly.CreateRegistryCore</code> 未提供 <code>CreatureTemplateQuery</code> 时默认改用它（比照第 34 条 <code>DisplayMapCoverageRule</code> 先例），规则默认启用，<code>toolchain/validator</code> 不需要改动即随之生效。<strong>行为变更</strong>：第 4.4、5.7.6 节两处相关表述同步更新；<code>DisabledOptionalRules</code>/<code>--json</code> 的 <code>disabled_optional_rules</code> 在默认装配下现恒为空；消费方若自己的 <code>spawn.table</code> 引用了 <code>summon_only</code> 生物模板，升级后校验会报错，需先清理再升级</td>
+</tr>
+<tr>
+<td>2026-09-16</td>
+<td>v2.16</td>
+<td>分阶段落地计划 T-N5-4 落地对齐（<a href="../../architecture/adr/0035-数值仿真骨架为框架交付物.md">ADR-0035</a> 决策 7"编辑器在技能与装备编辑界面旁显示预算比值与装备评分，读同一套公式"）：第 4.1 节契约面清单新增三行——技能预算分析 <code>Core.Rules.Skill.SkillBudgetAnalyzer.Analyze</code>/<code>ComputeGrantValue</code>（ADR-0031 决策 2，T-N3-9）、装备评分 <code>Core.Carriers.Item.EquipmentScoreAnalyzer.Score</code>/<code>Compare</code>（ADR-0032 决策 9，T-N2-4）、数值规则集中登记与引用查找 <code>Presentation.Assembly.NumericValidationRuleCatalog</code>/<code>ContentValidationAssembly.NumericRules</code>/<code>toolchain/validator --json rules[]</code> 新字段/<code>Core.Foundation.Expr.ExprReferenceCollector</code>（T-N5-2/T-N5-3）。第 5.8 节"数值沙盘"表新增第六行"内容覆盖仿真离群值列表"并补一段契约意向说明——权威来源 ADR-0035 决策 3/6，产出方 <code>core/sim</code> 归阶段 N6，本版本尚未落地真实数据，标注"待 N6"，仅先固定契约面意向（复用第 4.1 节数值规则分组/锚点依赖标注作为静态维度，动态维度读取 N6 待定的结构化报告产物）。均为纯文档新增，不改变第 4 章既有契约面签名。HTML 版同步新增内容；HTML 自 v2.6 起累积的历史缺口（v2.7～v2.15 期间第 4.1 节新增的其余契约面尚未回填 HTML）不在本次改动范围，如实标注于 HTML 头部说明，详见该说明与本次设计层裁定留痕</td>
 </tr>
 </tbody>
 </table></div>
@@ -655,7 +705,7 @@ ws-game ④⑤⑥（元数据门禁、热重载标准实现、文档义务）
 <h2 id="s4">4. ws-game 侧：编辑器依赖的契约与交付物</h2>
 <p>本章是 ws-game（框架）一侧对编辑器项目的全部承诺；<strong>框架对编辑器只承诺契约，不承诺实现</strong>（<a href="../../architecture/adr/0018-编辑器随游戏走与框架为此提供的交付物.md">ADR-0018</a> 决策 4）——编辑器项目消费的是下列固定的契约面，框架内部如何实现这些契约面允许自由演进，只要契约签名不破坏兼容。</p>
 <h3 id="s4-1">4.1 契约面清单</h3>
-<p>编辑器依赖的框架面固定为以下七项，逐项变更在 <code>CHANGELOG.md</code> 里单独标注"编辑器相关契约"（第 4.7 节），破坏兼容时框架升 MAJOR：</p>
+<p>编辑器依赖的框架面固定为以下清单（随消费方反馈/阶段任务增量新增，不固定行数），逐项变更在 <code>CHANGELOG.md</code> 里单独标注"编辑器相关契约"（第 4.7 节），破坏兼容时框架升 MAJOR：</p>
 <div class="tbl-wrap"><table>
 <thead>
 <tr>
@@ -668,17 +718,17 @@ ws-game ④⑤⑥（元数据门禁、热重载标准实现、文档义务）
 <tr>
 <td><code>TableSchema</code>/<code>FieldSchema</code>（含 <a href="../../architecture/adr/0019-复合字段子结构登记为机器可读schema.md">ADR-0019</a> 子结构、<a href="../../architecture/adr/0021-字段登记表纳入数值范围约束.md">ADR-0021</a> 数值范围、<a href="../../architecture/adr/0022-登记表补充导航与编辑元数据.md">ADR-0022</a> 归属/分组/时间/IdList 引用元数据、<a href="../../architecture/adr/0024-字段登记表纳入动态键映射形态.md">ADR-0024</a> 动态键映射、消费方反馈第 28/29 条 IdList/Id 固定取值登记与软引用元数据）</td>
 <td><code>FieldSchema</code> 字段为 <code>Name</code>/<code>Kind</code>/<code>Required</code>/<code>EnumValues</code>/<code>ReferenceTable</code>/<code>ReferenceDomain</code>/<code>Description</code>/<code>Range</code>/<code>Group</code>/<code>Unit</code>/<code>FreeIds</code>/<code>Map</code>/<code>AllowedValues</code>/<code>SoftReferenceTable</code>/<code>SoftReferenceDomain</code>（见 <code>FieldSchema.cs</code>）；<code>TableSchema</code> 含 <code>PrimaryKey</code>/<code>CurrentSchemaVersion</code>/<code>Fields</code>/<code>Migrations</code>/<code>IsRegistryTable</code>/<code>HasLocaleCompositeKey</code>/<code>Layer</code>/<code>Module</code>/<code>Domain</code>/<code>TimeScope</code></td>
-<td>编辑器读取这些声明自动生成网格列与表单控件（第 5.4.2 节控件映射表），子结构登记补齐后 <code>Object</code>/<code>Array</code> 字段也能自动生成卡片表单（第 4.2 节）；<strong>字段范围可从 schema 导出用于输入校验</strong>——<code>Number</code>/<code>Int</code> 字段登记的 <code>Range</code>（下界/上界、含端点选择）随 <code>toolchain/validator --list-tables --json</code> 每张表的 <code>field_ranges</code> 一并导出（<code>presentation/assembly/SchemaFieldRangeExport</code>），编辑器可据此在数值输入控件上直接做范围校验，不必等到一次完整加载校验才发现越界；<strong>表归属/字段分组/时间单位/IdList 引用目标同样可从 schema 导出</strong>——每张表条目新增 <code>layer</code>/<code>module</code>/<code>domain</code>/<code>time_scope</code>，每个顶层字段新增 <code>field_meta</code>（<code>group</code>/<code>unit</code>/<code>reference_table</code>/<code>reference_domain</code>/<code>free_ids</code>），分别驱动第 5.3.3 节导航树、第 5.4.1 节表单分组、第 5.4.2 节 <code>IdList</code> 自动补全；<strong>动态键映射同样可从 schema 导出</strong>——已登记 <code>Map</code>（键为动态、值种类固定的复合字段，如一份属性表 <code>{属性id: 数值}</code>）的顶层字段，<code>field_meta</code> 新增 <code>map_key</code>（<code>reference_table</code>/<code>reference_domain</code>/<code>free_keys</code> 三选一，键约束）/<code>map_value</code>（值种类），编辑器可据此为这类字段提供键补全（按键约束枚举候选）与值输入校验，不必再退化为 JSON 子编辑（第 5.4.2 节 <code>Object</code>/<code>Array</code> 控件行）；<strong>IdList/Id 固定取值与软引用同样可从 schema 导出</strong>（消费方反馈第 28/29 条）——<code>field_meta</code> 新增 <code>allowed_values</code>（已登记 <code>AllowedValues</code> 的字段，有序固定取值数组，供渲染下拉/多选而非自由文本，如 <code>creature.template.npc_flags</code> 六个 <code>npc_flag.&lt;name&gt;</code> 固定项）与 <code>soft_reference_table</code>/<code>soft_reference_domain</code>（已登记软引用的字段，仅供自动补全/跳转，编辑器不得据此做存在性强校验——软引用不参与加载期引用完整性检查）</td>
+<td>编辑器读取这些声明自动生成网格列与表单控件（第 5.4.2 节控件映射表），子结构登记补齐后 <code>Object</code>/<code>Array</code> 字段也能自动生成卡片表单（第 4.2 节）；<strong>字段范围可从 schema 导出用于输入校验</strong>——<code>Number</code>/<code>Int</code> 字段登记的 <code>Range</code>（下界/上界、含端点选择）随 <code>toolchain/validator --list-tables --json</code> 每张表的 <code>field_ranges</code> 一并导出（<code>presentation/assembly/SchemaFieldRangeExport</code>），编辑器可据此在数值输入控件上直接做范围校验，不必等到一次完整加载校验才发现越界；<strong>表归属/字段分组/时间单位/IdList 引用目标同样可从 schema 导出</strong>——每张表条目新增 <code>layer</code>/<code>module</code>/<code>domain</code>/<code>time_scope</code>，每个顶层字段新增 <code>field_meta</code>（<code>group</code>/<code>unit</code>/<code>reference_table</code>/<code>reference_domain</code>/<code>free_ids</code>），分别驱动第 5.3.3 节导航树、第 5.4.1 节表单分组、第 5.4.2 节 <code>IdList</code> 自动补全；<strong>动态键映射同样可从 schema 导出</strong>——已登记 <code>Map</code>（键为动态、值种类固定的复合字段，如一份属性表 <code>{属性id: 数值}</code>）的顶层字段，<code>field_meta</code> 新增 <code>map_key</code>（<code>reference_table</code>/<code>reference_domain</code>/<code>free_keys</code> 三选一，键约束）/<code>map_value</code>（值种类），编辑器可据此为这类字段提供键补全（按键约束枚举候选）与值输入校验，不必再退化为 JSON 子编辑（第 5.4.2 节 <code>Object</code>/<code>Array</code> 控件行）；<strong>IdList/Id 固定取值与软引用同样可从 schema 导出</strong>（消费方反馈第 28/29 条）——<code>field_meta</code> 新增 <code>allowed_values</code>（已登记 <code>AllowedValues</code> 的字段，有序固定取值数组，供渲染下拉/多选而非自由文本，如 <code>creature.template.npc_flags</code> 六个 <code>npc_flag.&lt;name&gt;</code> 固定项）与 <code>soft_reference_table</code>/<code>soft_reference_domain</code>（已登记软引用的字段，仅供自动补全/跳转，编辑器不得据此做存在性强校验——软引用不参与加载期引用完整性检查）；消费方反馈第 39 条起，<code>dialog.story_tree.nodes[].performance_hook_ref</code>/<code>dialog.gossip_menu.options[].actions[]{kind=script}.ref</code>/<code>encounter.def.phases[].on_enter_hook</code>/<code>skill.def.effects[]{kind=script}.params.hook_id</code>/<code>area.trigger_def.params{trigger_type=script}.hook_id</code> 五处字段补登 <code>SoftReferenceTable("found.hook")</code>——<code>found.hook</code>（脚本钩子注册表）早已登记 <code>TableSchema</code>，此前这五处字段元数据一直未同步</td>
 </tr>
 <tr>
-<td>schema 迁移链</td>
-<td><code>TableSchema.Migrations</code>（<code>IReadOnlyList&lt;TableMigration&gt;</code>），<code>TableMigration.FromVersion</code>/<code>ToVersion</code>/<code>Migrate</code></td>
-<td>编辑器"执行迁移"（第 5.7.5 节）按迁移链顺序执行，链中若缺少衔接某个历史版本的环节，加载期报 <code>schema_version</code> 错误</td>
+<td>schema 迁移链与整表迁移（消费方反馈第 40 条）</td>
+<td><code>TableSchema.Migrations</code>（<code>IReadOnlyList&lt;TableMigration&gt;</code>），<code>TableMigration.FromVersion</code>/<code>ToVersion</code>/<code>Migrate</code>；<code>Core.Foundation.DataRegistry.SchemaMigrator</code> 三个公开静态方法——<code>BuildChain(TableSchema, int fromVersion, int toVersion): IReadOnlyList&lt;TableMigration&gt;?</code>（只读链构造，<code>null</code> 表示缺少迁移环节）、<code>MigrateRow(IReadOnlyList&lt;TableMigration&gt;, JsonObject): JsonObject</code>（单行迁移）、<code>MigrateEnvelope(TableSchema, JsonObject envelope): JsonObject</code>（整表迁移，输入/输出均为 <code>data/README.md</code>"文件顶层信封"形态，<code>schema_version</code> 已是当前版本时原样返回同一实例，否则返回携带新 <code>schema_version</code>/<code>migrated_from</code> 的新信封）</td>
+<td>编辑器"执行迁移"（第 5.7.5 节）改为直接调用 <code>SchemaMigrator.MigrateEnvelope</code> 并把返回值写回磁盘，不再自行复刻链选取语义与信封改写逻辑（此前只能照着源码/文字描述复刻，框架算法细节调整时无法自动感知）；框架示例数据集新增 <code>found.migration_sample</code>（无运行时消费方的迁移链演示表，<code>schema_version</code> 故意落后一版）供端到端验证</td>
 </tr>
 <tr>
 <td><code>DataRegistry</code> 的加载/校验/重载接口</td>
-<td><code>LoadAll</code>/<code>RegisterSchema</code>/<code>Reload(domain)</code>/<code>GetAll</code>/<code>GetOverrideDiagnostics</code> 等（<code>core/foundation/data_registry/</code>）；消费方反馈第三批第 20 条新增 <code>TryGetAll</code>/<code>TryQuery</code>（<code>IDataRegistryView</code> 带默认实现，<code>DataRegistry</code> 显式覆盖）：<strong>仅供编辑器等内容工具使用</strong>，阻断态（数据未通过校验）下也返回当前已合并的记录视图，供作者在校验未通过时仍能定位/修复问题；编辑器运行期正常读取仍须用 <code>GetAll</code>/<code>Query</code>，阻断态即禁止读取的既有结论不变。第三批第 22 条起 <code>OverrideDiagnostic</code> 新增 <code>OverridingRootIndex</code>/<code>OverriddenRootIndex</code>（覆盖行/被覆盖行所在数据根在 <code>loadAll</code> 传入的根列表里的下标）与 <code>OverridingRelativePath</code>/<code>OverriddenRelativePath</code>（相对各自数据根的路径，<code>IDataSource</code> 未提供 <code>Root</code> 时退化为绝对路径），绝对路径字段（<code>OverridingLocation</code>/<code>OverriddenLocation</code>）保留；编辑器"覆盖清单"展示（第 5.7.4 节风格的覆盖诊断面板）应优先用"根序号 + 相对路径"，比完整绝对路径更适合跨机器截图核对。第四批第 25 条起，<code>Query(string, string)</code> 便捷重载解析谓词文本时用到的 <code>RecordExprSchema.For(TableSchema)</code> 不再把 <code>FieldKind.Expr</code> 字段注册为 <code>self.&lt;field&gt;</code> 引用——该字段种类的值是待求值的表达式文本，不是可直接比较的标量数据，此前误按 <code>String</code> 注册；谓词文本引用到 <code>Expr</code> 字段名时按 ADR-0015 默认规则整体解析为 <code>&lt;id_literal&gt;</code>，不抛异常（与 <code>IdList</code>/<code>Vec2</code>/<code>Object</code>/<code>Array</code> 四种本就不登记的字段种类同等对待）。第四批第 26 条起，<code>RecordExprMapping</code>/<code>RecordExprMapping.ToExprValueKind(FieldKind)</code>（字段种类 → Expr 标量类型的映射函数，<code>self.&lt;field&gt;</code> 注册即由它驱动）由框架内部实现放宽为 <code>public static</code>，纯可见性放宽、不改变任何映射结果</td>
-<td>编辑器进程内直接引用同一套接口做加载、多根合并、字段级/表级校验、保存后热重载转发；阻断态下的"仍能浏览已加载内容定位问题"是编辑器诊断面板的常规场景（数据校验失败时用户第一反应通常是"哪些表还能看、坏在哪"），第 20 条之前编辑器只能捕获 <code>GetAll</code> 抛出的异常后自行拼一份降级视图，现在直接调用配套的 <code>TryGetAll</code>/<code>TryQuery</code>；<code>RecordExprMapping.ToExprValueKind</code> 放宽为公开后，编辑器可直接复用同一份"字段种类 → Expr 标量类型"映射规则（如字段级联动提示、Expr 编辑器里判断某字段是否可能是谓词可比较字段），不必依赖 <code>RecordExprSchema.For</code> 的输出间接推断</td>
+<td><code>LoadAll</code>/<code>RegisterSchema</code>/<code>Reload(domain)</code>/<code>GetAll</code>/<code>GetOverrideDiagnostics</code> 等（<code>core/foundation/data_registry/</code>）；消费方反馈第三批第 20 条新增 <code>TryGetAll</code>/<code>TryQuery</code>（<code>IDataRegistryView</code> 带默认实现，<code>DataRegistry</code> 显式覆盖）：<strong>仅供编辑器等内容工具使用</strong>，阻断态（数据未通过校验）下也返回当前已合并的记录视图，供作者在校验未通过时仍能定位/修复问题；编辑器运行期正常读取仍须用 <code>GetAll</code>/<code>Query</code>，阻断态即禁止读取的既有结论不变。第三批第 22 条起 <code>OverrideDiagnostic</code> 新增 <code>OverridingRootIndex</code>/<code>OverriddenRootIndex</code>（覆盖行/被覆盖行所在数据根在 <code>loadAll</code> 传入的根列表里的下标）与 <code>OverridingRelativePath</code>/<code>OverriddenRelativePath</code>（相对各自数据根的路径，<code>IDataSource</code> 未提供 <code>Root</code> 时退化为绝对路径），绝对路径字段（<code>OverridingLocation</code>/<code>OverriddenLocation</code>）保留；编辑器"覆盖清单"展示（第 5.7.4 节风格的覆盖诊断面板）应优先用"根序号 + 相对路径"，比完整绝对路径更适合跨机器截图核对。第四批第 25 条起，<code>Query(string, string)</code> 便捷重载解析谓词文本时用到的 <code>RecordExprSchema.For(TableSchema)</code> 不再把 <code>FieldKind.Expr</code> 字段注册为 <code>self.&lt;field&gt;</code> 引用——该字段种类的值是待求值的表达式文本，不是可直接比较的标量数据，此前误按 <code>String</code> 注册；谓词文本引用到 <code>Expr</code> 字段名时按 ADR-0015 默认规则整体解析为 <code>&lt;id_literal&gt;</code>，不抛异常（与 <code>IdList</code>/<code>Vec2</code>/<code>Object</code>/<code>Array</code> 四种本就不登记的字段种类同等对待）。第四批第 26 条起，<code>RecordExprMapping</code>/<code>RecordExprMapping.ToExprValueKind(FieldKind)</code>（字段种类 → Expr 标量类型的映射函数，<code>self.&lt;field&gt;</code> 注册即由它驱动）由框架内部实现放宽为 <code>public static</code>，纯可见性放宽、不改变任何映射结果；第 37 条起，<code>IDataRegistryView</code> 新增 <code>GetReferenceDeclarations(): IReadOnlyList&lt;ReferenceDeclaration&gt;</code>（带默认实现，恒返回空集合；<code>DataRegistry</code> 显式覆盖为按登记顺序回吐——每条含源表、源字段、目标表、是否可选、登记来源）——把此前只驱动加载期硬校验、没有任何公开读回方式的 <code>declareReference</code> 登记（如 <code>skill.proc_def.trigger_skill → skill.def</code>）一并暴露给内容工具；<code>toolchain/validator --list-tables --json</code> 顶层新增 <code>reference_declarations</code> 数组同步导出</td>
+<td>编辑器进程内直接引用同一套接口做加载、多根合并、字段级/表级校验、保存后热重载转发；阻断态下的"仍能浏览已加载内容定位问题"是编辑器诊断面板的常规场景（数据校验失败时用户第一反应通常是"哪些表还能看、坏在哪"），第 20 条之前编辑器只能捕获 <code>GetAll</code> 抛出的异常后自行拼一份降级视图，现在直接调用配套的 <code>TryGetAll</code>/<code>TryQuery</code>；<code>RecordExprMapping.ToExprValueKind</code> 放宽为公开后，编辑器可直接复用同一份"字段种类 → Expr 标量类型"映射规则（如字段级联动提示、Expr 编辑器里判断某字段是否可能是谓词可比较字段），不必依赖 <code>RecordExprSchema.For</code> 的输出间接推断；<code>GetReferenceDeclarations</code>/<code>reference_declarations</code> 供引用图（P3.1）与 <code>IdFieldEditor</code> 的候选下拉/跳转按 <code>declareReference</code> 登记直接取到确定的引用关系，不必再按值恰好相等弱推断（此前只能退化为 <code>ReferenceKind.Inferred</code>）</td>
 </tr>
 <tr>
 <td>Expr 解析器</td>
@@ -692,13 +742,38 @@ ws-game ④⑤⑥（元数据门禁、热重载标准实现、文档义务）
 </tr>
 <tr>
 <td>无头适配层</td>
-<td>现状 <code>Adapters.Stub</code> 明确"专供测试与 CI，不对外发布"，不在分发包与三个私服包里，第 4.3 节要求转正</td>
-<td>编辑器数值沙盘（第 5.8 章）借它跑确定性结算/掉落抽取/经验换算，不依赖引擎、不依赖网络</td>
+<td>现状 <code>Adapters.Stub</code> 明确"专供测试与 CI，不对外发布"，不在分发包与三个私服包里，第 4.3 节要求转正；消费方反馈"结算中间步骤经真实施法路径不可观测"（编辑器第 31 条）起，<code>CombatOptions</code> 新增可选回调 <code>ResolveTrace: Action&lt;EffectContext, ResolveResult&gt;?</code>——结算管线（06 第 4.1 节）每次真实返回前（含判定即终止的短路分支）都会带上本次 <code>EffectContext</code> 与完整 <code>ResolveResult</code>（含各步骤中间值 <code>Steps</code>）调用一次，未设置时零开销、不改变既有行为</td>
+<td>编辑器数值沙盘（第 5.8 章）借它跑确定性结算/掉落抽取/经验换算，不依赖引擎、不依赖网络；<code>ResolveTrace</code> 供第 5.5.2 节"结算预览"直接订阅真实结算管线拿到分步明细，不必自行重复实现/复刻一份九步计算逻辑，预览结果与真实施法路径保证逐步一致</td>
 </tr>
 <tr>
 <td><code>toolchain</code> 命令行工具</td>
 <td><code>validate_data.py</code>/<code>import_assets.py</code>/<code>get_framework.ps1</code> 等</td>
 <td>编辑器把这些工具作为子进程调用（校验、资源检查、框架版本拉取），不重新实现同等逻辑</td>
+</tr>
+<tr>
+<td>资源引用标识 → 资产相对路径（消费方反馈第 32 条，<a href="../../architecture/adr/0025-资源引用标识到资产相对路径的约定纳入公开契约.md">ADR-0025</a>）</td>
+<td><code>Core.Foundation.EngineAdapter.AssetRefConventions</code>（<code>SpriteSetDirectory(Id)</code>/<code>IconFile(Id)</code>/<code>TryParseSpriteSetId(string, out Id)</code>/<code>TryParseIconId(string, out Id)</code>）；<code>toolchain/asset_import/ref_conventions.py</code> 同一规则的独立实现，供子进程/脚本场景复用</td>
+<td><code>display.map.sprite_set_id</code>/<code>icon_id</code> 两个字段"由引擎适配层解析"不再是编辑器只能照抄样例反推的黑盒——<code>sprite.item.sample_blade → sprites/item_sample_blade</code>、<code>icon.creature.sample_beast → icons/creature/sample_beast.png</code> 这类换算现在有权威实现可直接调用（正向）或反查（<code>TryParse*</code>，用于按磁盘文件反推对应记录，如孤儿资源排查）；第 5.3.3 节"资源引用存在性检查"仍以 <code>import_assets.py check</code> 子进程结果为准，本契约面主要供编辑器自行生成预览路径/离线校验候选，两者规则同源，不会得出不一致的结论</td>
+</tr>
+<tr>
+<td>掉落表期望概率分析（消费方反馈第 35 条）</td>
+<td><code>Core.Gameplay.Loot.LootTableAnalyzer.ExpectedProbabilities(LootTableDef def, LootAnalysisContext context): IReadOnlyList&lt;LootExpectedOutcome&gt;</code>；<code>LootAnalysisContext</code>（<code>ConditionMode</code>：<code>AssumeTrue</code>/<code>AssumeFalse</code>/<code>Evaluate</code> 三选一 + 可选 <code>ExprHost</code>；<code>Multiplier</code>；<code>PseudoRandom</code>/<code>PseudoRandomStep</code>/<code>PseudoRandomMissStreaks</code>；<code>Tables</code>：嵌套 <code>loot.*</code> 引用解析源；<code>MaxNestedDepth</code>；<code>ExactWithoutReplacementMaxEntries</code>：不放回多抽精确/近似分界阈值，默认 12）；<code>LootExpectedOutcome</code>（<code>LeafRef</code>/<code>DropProbability</code>/<code>ExpectedCount</code>/<code>SourcePaths</code>/<code>IsApproximate</code>）</td>
+<td><code>LootHost.Roll</code> 只提供"抽一次给我结果"的黑箱接口，<code>LootTableDef</code> 只是结构模型，此前预览一张掉落表大致会掉出什么、各自概率多少只能复制 <code>LootHost</code> 私有抽取语义或蒙特卡洛逼近；本入口与真实抽取共用 <code>LootRollCore</code> 的条件筛选/权重归一步骤，<code>chance_each</code>/<code>weighted_pick_one</code> 单抽、嵌套展开的期望数量均为解析式精确值，不放回多抽在候选池条目数不超过 <code>ExactWithoutReplacementMaxEntries</code> 时精确、超过时近似并标注 <code>IsApproximate</code>，<code>guaranteed_min</code> 保底对直接条目精确、仅嵌套引用落在保底候选池时标注近似；供第 5.8 节数值沙盘/掉落预览直接调用，不必自行复刻抽取算法或跑蒙特卡洛逼近</td>
+</tr>
+<tr>
+<td>技能预算分析（<a href="../../architecture/adr/0031-技能数值契约与预算.md">ADR-0031</a> 决策 2；06 第 3.10 节；分阶段落地计划 T-N3-9）</td>
+<td><code>Core.Rules.Skill.SkillBudgetAnalyzer.Analyze(Id skillId, IDataRegistryView view, SkillOptions? options = null, ISkillBudgetAnchorProvider? anchorProvider = null): SkillBudgetResult</code>（静态类、纯函数，不持有状态，照 <code>EquipmentScoreAnalyzer</code>/<code>Core.Gameplay.Loot.LootTableAnalyzer</code> 同一契约面形态）；返回不可变 <code>SkillBudgetResult</code>——<code>EffectiveValue</code>（实际价值/效果值当量）、<code>TimeEquivalent</code>（施放时间当量）、<code>CooldownPremium</code>/<code>RangeDiscount</code>/<code>CostPremium</code>、<code>AnchorDps</code>/<code>BudgetLimit</code>、<code>Ratio</code>（实际价值 ÷ 预算上限）、<code>Bandwidth</code>/<code>HardCap</code>（按 <code>Tier</code> 取玩家/怪物档）、<code>Tier</code>（<code>SkillBudgetTier</code>：<code>Player</code>/<code>Monster</code>/<code>Unattributed</code>）、<code>Verdict</code>（<code>SkillBudgetVerdict</code> 四态：<code>Pass</code>/<code>ConfirmedDeviation</code>/<code>UnconfirmedDeviation</code>/<code>HardCapExceeded</code>，另有 <code>NotApplicable</code> 表示技能不含结算类效果、不参与预算校验）；另有 <code>ComputeGrantValue(id, isAura, view, level, anchorProvider, options?)</code> 供装备授予技能/光环复用同一套价值计算（<code>Core.Carriers.Item.ItemGrantValueExceedsShareRule</code> 消费）。<strong>锚点未接入时的结论</strong>：公式分子分母依赖的锚点秒伤与期望缩放属性权威来源 <code>sim.anchor</code> 归阶段 N6，晚于本阶段；<code>Analyze</code> 本身对调用方注入的 <code>Core.Rules.Common.ISkillBudgetAnchorProvider</code> 老实求值，不做"未接入即跳过"的特判——调用方未提供时缺省 <code>NullSkillBudgetAnchorProvider.Instance</code>（<code>GetAnchorDps</code> 恒 1.0、<code>GetExpectedScalingStatValue</code> 恒 0.0），仍会算出一个数值上有效但在锚点接入前通常没有实际参考意义的比值；校验规则层（<code>SkillBudgetValidationRule</code>）检测到未注入真实锚点时整条规则不产生任何问题（见下一行"数值规则集中登记"的 <code>requires_anchor</code>），是否"当真"的判断在规则注册层，不在本分析器内部</td>
+<td>ADR-0035 决策 7"编辑器在技能与装备编辑界面旁显示预算比值……读同一套公式"——技能编辑器（第 5.5.2 节）"预算"栏直接调用 <code>Analyze</code> 展示效果值当量/时间成本当量/比值/带宽/档位与四态结论，不必自行复刻公式；<code>sim.anchor</code> 真正接入（N6）前，编辑器需要自行判断当前是否拿到真实 <code>ISkillBudgetAnchorProvider</code>（例如按"是否等于 <code>NullSkillBudgetAnchorProvider.Instance</code>"），未接入时"预算"栏应标注"锚点未接入，比值仅供参考"而不是直接展示可能误导的数字——本契约面本身不替编辑器做这层判断，由编辑器按调用方是否传入真实实现自行决定展示口径</td>
+</tr>
+<tr>
+<td>装备评分（<a href="../../architecture/adr/0032-装备预算消耗与词缀份额.md">ADR-0032</a> 决策 9；07 第 1.2 节修订段；分阶段落地计划 T-N2-4）</td>
+<td><code>Core.Carriers.Item.EquipmentScoreAnalyzer.Score(Id templateId, Id? classId, IDataRegistryView view, IReadOnlyList&lt;(Id Stat, double Value)&gt;? additionalStats = null, double exponent = ItemBudgetCurve.DefaultExponent): EquipmentScoreResult</code>（静态类、纯函数）与 <code>Compare(EquipmentScoreResult a, EquipmentScoreResult b): int</code>（同 <code>IComparable&lt;T&gt;.CompareTo</code> 惯例，负数表示 <code>a</code> 更低）。评分与装备预算消耗同一条加权公式 <code>(Σ(值×权重)^k)^(1/k)</code>（<code>ItemBudgetCurve.ComputeConsumed</code>），唯一区别是权重来源：<code>classId</code> 提供且命中 <code>stat.weight.class_overrides</code> 时用职业覆盖权重，否则用顶层基础权重。返回 <code>EquipmentScoreResult</code>（<code>TemplateId</code>/<code>ClassId</code>/<code>ItemLevel</code>/<code>Score</code>/<code>Exponent</code>/<code>Weights</code>——<code>Weights</code> 是评分时各属性实际使用的最终权重，供"为什么这件装备分高"明细展示）。本任务只对模板 <code>stats</code> 评分，<code>additionalStats</code>（<code>Id → 点数</code> 形状，同 <code>BudgetSolverResult.Values</code>）预留供后续把词缀反解值并入评分，不需要再改签名</td>
+<td>同 ADR-0035 决策 7——物品编辑器（第 5.5.3 节）旁显示装备评分，<code>Compare</code> 提供"比较箭头"（两件装备孰高孰低的红/绿高亮）与"一键换装最优"排序的最小接口，不必自行解开 <code>Score</code> 字段比较；<code>Weights</code> 字段供展开"评分明细"面板逐条列出各属性的权重与贡献；<code>classId</code> 传 <code>null</code> 与传具体职业分别对应"通用评分"与"按当前编辑角色职业评分"两种展示模式，编辑器可提供职业切换下拉即时重算，不必分别调用两套逻辑</td>
+</tr>
+<tr>
+<td>数值规则集中登记清单与校验报告分组（分阶段落地计划 T-N5-2/T-N5-3；04 第 5 节数值类校验项分级表；<a href="../../architecture/adr/0035-数值仿真骨架为框架交付物.md">ADR-0035</a> 决策 5"报告为结构化产物……供仿真/编辑器消费"）</td>
+<td><code>Presentation.Assembly.NumericValidationRuleCatalog.Entries</code>（<code>ContentValidationAssembly.NumericRules</code> 单一来源转发）——04 分级表全部 20 行（阻断 13 行/对应 11 个概念条目，警告 7 行）的只读登记，每行为 <code>NumericValidationRuleDescriptor</code>（<code>RuleId</code>/<code>CheckName</code>/<code>Severity</code>/<code>NonEscalatable</code>/<code>GradingItemName</code>/<code>Group</code>/<code>RequiresAnchor</code>）；<code>toolchain/validator --json</code> 的 <code>rules[]</code> 同步追加 <code>category</code>（命中本清单固定为 <code>"numeric"</code>，否则 <code>null</code>）、<code>group</code>（数值域分组：属性/技能/装备/经验/经济/曲线/职业）、<code>check_names</code>（该 <code>RuleId</code> 在分级表对应的全部检查名数组，长度可能大于 1）、<code>requires_anchor</code>（是否依赖阶段 N6 才接入的 <code>ISkillBudgetAnchorProvider</code>）、<code>enabled</code>（<code>!requires_anchor</code>——当前 <code>skill_budget_hard_cap_exceeded</code>/<code>skill_budget_deviation</code>/<code>item_grant_value_exceeds_share</code> 三条锚点未接入，登记了但不产出问题）四个字段。另 <code>Core.Foundation.Expr.ExprReferenceCollector.Collect(ExprNode node): IReadOnlyList&lt;ExprReferenceNode&gt;</code>（<code>core/foundation/expr/</code>）只读深度优先遍历 Expr 语法树，按遇到顺序收集全部引用节点（含函数调用参数里嵌套的引用、比较/<code>and</code>/<code>or</code>/<code>not</code> 子树里的引用），不求值、不查询任何 <code>IExprHost</code>、不做类型推断</td>
+<td>问题面板（第 5.7.2 节）按 <code>rules[].group</code> 增加"所属数值域"筛选维度，<code>requires_anchor</code>/<code>enabled</code> 供面板标注"该规则依赖 N6 锚点接入、当前不产出问题"，避免用户误以为相关数值内容已通过预算校验；新增"数值校验清单"面板（供审阅 04 分级表全部 20 行规则的启用状态）可直接读 <code>ContentValidationAssembly.NumericRules</code>，不必自行维护一份规则名单，框架新增/调整分级表规则时清单自动跟着变。<code>ExprReferenceCollector</code> 供编辑器"引用图"（第 5.7.4 节）与 Expr 编辑器"查找此字段全部引用"功能复用同一套遍历逻辑，不必自行重新解析语法树摘取引用节点</td>
 </tr>
 </tbody>
 </table></div>
@@ -1467,7 +1542,7 @@ ValidatorAssemblyOptions {
 <li><strong>光环编辑</strong>（<code>skill.aura_def</code>）：<code>duration</code>（留空 = 永久，输入框占位提示显示"留空=永久"）、<code>max_stacks</code>、<code>stack_category</code>（下拉，选中已有类别时若与当前光环的叠加语义冲突，立即标红并提示"同类别下已存在互斥叠加语义"，对应 04 第 5 节"叠加类别冲突"）、<code>dispel_type</code>、<code>effects</code> 列表（<code>mod_stat</code>/<code>periodic_damage</code>/<code>periodic_heal</code>/<code>absorb</code>/<code>immunity</code>/<code>proc_trigger</code>/<code>spell_mod</code>/<code>override_skill</code>/<code>control</code>/<code>flag</code> 十种 <code>AuraEffect</code> 类型，见 06 第 3.3 节，同样以卡片呈现）。</li>
 <li><strong>触发器编辑</strong>（<code>skill.proc_def</code>）：<code>trigger_event</code> 下拉数据源来自 <code>found.event_catalog</code>（框架层只读登记表）；<code>condition</code> 是 <code>Expr</code> 编辑器；<code>proc_chance</code> 数字框限定 <code>0~1</code>；<code>internal_cooldown</code> 按时间模型显示单位。</li>
 <li><strong>施法修正</strong>（<code>skill.spell_mod_def</code>）：<code>targetDimension</code>（枚举下拉：<code>cast_time</code>/<code>cost</code>/<code>cooldown</code>/<code>crit_chance</code>/<code>effect_value</code>/<code>charges</code>）、<code>op</code>（<code>flat</code>/<code>pct</code>）、<code>value</code>、<code>affects</code>（技能过滤器：按学派/标签/具体技能 id 三种过滤方式的组合表单）。</li>
-<li><strong>右侧结算预览</strong>：下拉选施法者模板与目标模板（数据源为 <code>creature.template</code>），点"运行结算预览"调用无头适配层跑一次确定性结算（06 第 4.1 节固定管线：判定 → 基础值 → 暴击 → 施法者乘区 → 减免 → 目标乘区 → 免疫吸收 → 落地 → 后置），分步展示每一步的中间值与最终伤害/治疗量，并给出"期望 DPS"（若 <code>cast_time</code> &gt; 0，按读条时间折算）。字段改动后预览自动标记为"已过期"（半透明 + "结果可能已过期，重新运行"提示），不做静默自动重算（避免频繁改字段时预览抖动）。</li>
+<li><strong>右侧结算预览</strong>：下拉选施法者模板与目标模板（数据源为 <code>creature.template</code>），点"运行结算预览"调用无头适配层跑一次确定性结算（06 第 4.1 节固定管线：判定 → 基础值 → 暴击 → 施法者乘区 → 减免 → 目标乘区 → 免疫吸收 → 落地 → 后置），分步展示每一步的中间值与最终伤害/治疗量，并给出"期望 DPS"（若 <code>cast_time</code> &gt; 0，按读条时间折算）。字段改动后预览自动标记为"已过期"（半透明 + "结果可能已过期，重新运行"提示），不做静默自动重算（避免频繁改字段时预览抖动）。实现上直接订阅第 4.1 节 <code>CombatOptions.ResolveTrace</code>（消费方反馈"结算中间步骤经真实施法路径不可观测"，编辑器第 31 条）拿到每一步的中间值，不必自行重新实现一份结算公式——预览分步展示与游戏内真实施法路径逐步一致，保证不会出现"预览面板算法与实际结算算法各自维护、逐渐漂移"。</li>
 </ol>
 <p><strong>专属校验/预览</strong>：效果数上限进度提示、叠加类别冲突高亮、结算预览分步展示。</p>
 <h4>5.5.3 物品编辑器</h4>
@@ -1539,7 +1614,7 @@ ValidatorAssemblyOptions {
 <p><strong>其余界面元素</strong>：武器档案（<code>weapon_profile</code>）表单只在槽位定义标记为武器类时显示；套装件数门槛表（<code>item.set</code>）以"件数 → 额外光环"的二列表格呈现；品质与槽位定义表落回通用表编辑器的紧凑网格视图（本编辑器提供快捷跳转入口）；预算曲线（<code>item.budget_curve</code>）以"物品等级 → 预算上限"折线图 + 可编辑表格双视图呈现。</p>
 <p><strong>专属校验/预览</strong>：属性预算条实时计算与超标高亮（04 第 5 节"预算超标"）、外形映射存在性检查（04 第 5 节"外形映射存在"）。</p>
 <h4>5.5.4 掉落与爆率编辑器</h4>
-<p><strong>目的</strong>：编辑掉落表结构并提供蒙特卡洛模拟，让策划用"跑一万次看分布"代替心算权重。</p>
+<p><strong>目的</strong>：编辑掉落表结构，提供期望概率解析式计算（第 4.1 节"掉落表期望概率分析"契约面，消费方反馈第 35 条）与蒙特卡洛模拟两种预览手段，让策划不必心算权重也不必先跑一遍模拟才知道大致分布。</p>
 <p><strong>覆盖的表</strong>：<code>loot.table</code>。</p>
 <p><strong>界面布局线框</strong>：</p>
 
@@ -1603,7 +1678,7 @@ ValidatorAssemblyOptions {
 <li>条目行显示缩略图（引用目标为 <code>item.template</code> 时）或"嵌套表"图标（引用目标为另一张 <code>loot.table</code> 时，见 08 第 1.1 节嵌套规则），<code>weight_or_chance</code>、<code>count_range</code>、<code>condition</code>（<code>Expr</code> 编辑器）均可编辑；<code>weighted_pick_one</code> 分组内的条目额外显示一列"归一化后实际概率"（权重 / 该组权重总和，只读计算列）。</li>
 <li>嵌套表条目可展开预览被引用表的分组/条目（只读，避免在此处递归编辑造成混乱；双击可跳转到该嵌套表的独立标签）。</li>
 <li><code>guaranteed_min</code> 是整表级别的保底计数输入框。</li>
-<li>模拟面板：输入次数（默认 10000）与种子，点"运行模拟"调用无头适配层的确定性抽取逻辑，重复跑 N 次并统计每件物品的出现次数、实际概率（与权重归一化后的理论概率并列对比）、平均获得数量；若知道物品预算/价值，可选择性给出"期望价值"估算（占位口径：默认按物品预算值线性折算，默认方案，可调整）。</li>
+<li>模拟面板：分组树右侧"理论概率/期望数量"列实时调用 <code>LootTableAnalyzer.ExpectedProbabilities</code>（第 4.1 节契约面，条件按 <code>AssumeTrue</code> 模式——编辑预览不代入具体世界/任务状态）即时刷新，不需要点"运行模拟"、不消耗次数与种子；候选池条目数超过精确阈值或结果涉及保底候选池里的嵌套引用时该列额外标注"≈"（对应 <code>LootExpectedOutcome.IsApproximate</code>），提示这一行是近似值。仍保留蒙特卡洛模拟按钮（输入次数，默认 10000，与种子）供策划交叉验证或需要"实际跑一批看分布"的直观感受，调用无头适配层的确定性抽取逻辑重复跑 N 次并统计每件物品的出现次数、实际概率（与解析式理论概率并列对比）、平均获得数量；若知道物品预算/价值，可选择性给出"期望价值"估算（占位口径：默认按物品预算值线性折算，默认方案，可调整）。</li>
 <li><strong>反向查询</strong>：输入或选中一件物品，列出所有引用它的掉落表（含通过嵌套表间接引用）与直接绑定该掉落表的生物模板。</li>
 </ol>
 <p><strong>专属校验/预览</strong>：模拟输出对比设计目标（用户手动记录期望概率作对照，非机器判定）、反向查询辅助设计核对。</p>
@@ -1818,6 +1893,7 @@ ValidatorAssemblyOptions {
 <li><strong>CSV/表格导入导出</strong>：导出时选定语言列与来源域范围，产出便于外包翻译的 CSV（列头 = key + 各语言列）；导入时先弹出预览表格标出"新增行/覆盖行/无变化行"三类差异，用户确认后写入，不静默覆盖已有译文。</li>
 <li><strong>占位符 <code>{var}</code> 一致性检查</strong>：对同一 key 的多语言正文提取 <code>{xxx}</code> 占位符集合，若某语言缺少默认语言存在的占位符（或多出未知占位符），在矩阵下方问题条列出，点击跳转定位单元格。</li>
 </ol>
+<p><strong>框架契约更新（消费方反馈第 42 条，<code>ws-game</code> 1.28.0）</strong>：非默认语言（矩阵里"缺失"黄标所在列，如 <code>en-US</code>/<code>ja-JP</code>）缺翻译，<code>DataRegistry.ValidateTextKeyField</code>/<code>toolchain/validator</code> 现直接产出 Warning 级 <code>text_key_exists</code>（消息附带回退链落点，即该语言运行时实际会显示哪个语言的文本）；矩阵的 <code>HasMissing</code> 判定建议改为直接复用这条框架诊断（按 <code>check == "text_key_exists" &amp;&amp; severity == "warning"</code> 过滤，字段/记录定位信息与矩阵单元格一一对应），不必再自行扫描 <code>l10n.text</code> 重新判定一遍缺失——原有的"自建判定"只在框架尚未覆盖这条路径时才必要（详见 <code>ws-game</code> 仓库 <code>architecture/落地计划/消费方反馈-2026-09-14-编辑器-第41-42条.md</code>）。</p>
 <p><strong>专属校验/预览</strong>：缺失矩阵高亮、孤儿 key 提示、占位符一致性检查。</p>
 <h4>5.5.9 外形与表现编辑器</h4>
 <p><strong>目的</strong>：管理逻辑 id 到外形资源的映射，核对资源是否真实存在，串联 <code>import_assets.py</code> 出图产物。编辑器不自建资源路径推导逻辑：资源缺失黄标、六个子命令入口的参数表单、资源路径规则本身全部复用 <code>toolchain/import_assets.py</code>（六个子命令 <code>sprite</code>/<code>icon</code>/<code>vfx</code>/<code>sfx</code>/<code>map</code>/<code>check</code>）与 <code>toolchain/resource_layout_map.json</code>，见下方交互流程第 3、6 点。</p>
@@ -2395,7 +2471,7 @@ ValidatorAssemblyOptions {
 <li><strong>孤儿视图</strong>：本地化编辑器（5.5.8）与通用表编辑器筛选行（"孤儿"复选框，第 5.3.3 节）共用同一份反向索引数据源，展示"没有被任何已知入口引用"的记录（对应 04 第 5 节"孤儿记录检测"，警告级，不阻断，便于清理）。</li>
 </ul>
 <h4>5.7.5 schema 迁移</h4>
-<p>打开工程时若检测到某表记录的 <code>schema_version</code> 低于核心库 <code>TableSchema.CurrentSchemaVersion</code>，状态栏与问题面板同时提示"N 张表待迁移"；用户在"校验"菜单点"执行迁移"，弹出预览对话框逐表展示迁移前后的字段差异（新增字段的默认值、被拆分/合并的字段），确认后按 <code>TableSchema.Migrations</code> 声明的迁移链顺序执行（04 第 3 节"迁移链只增不减"），执行完成后记录的 <code>schema_version</code> 写为当前版本、<code>migrated_from</code> 记为原始版本号，随后自动触发一次全量校验确认迁移未引入新问题。</p>
+<p>打开工程时若检测到某表记录的 <code>schema_version</code> 低于核心库 <code>TableSchema.CurrentSchemaVersion</code>，状态栏与问题面板同时提示"N 张表待迁移"；用户在"校验"菜单点"执行迁移"，弹出预览对话框逐表展示迁移前后的字段差异（新增字段的默认值、被拆分/合并的字段），确认后调用核心库公开入口 <code>Core.Foundation.DataRegistry.SchemaMigrator.MigrateEnvelope(schema, envelope)</code> 执行整表迁移（消费方反馈第 40 条，<code>architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md</code>）——不再自行复刻"按 <code>TableSchema.Migrations</code> 声明的迁移链顺序执行"这段逻辑，该方法内部即是调用 <code>SchemaMigrator.BuildChain</code> 串链、<code>SchemaMigrator.MigrateRow</code> 逐行迁移；返回的新信封 <code>schema_version</code> 已是当前版本、<code>migrated_from</code> 已写为最早的原始版本号（多次增量迁移时不会被后续每次迁移覆盖），编辑器把该返回值写回磁盘文件即可，随后自动触发一次全量校验确认迁移未引入新问题。核心库同时提供 <code>SchemaMigrator.BuildChain(schema, fromVersion, toVersion)</code> 只读入口，编辑器展示"迁移前后字段差异"预览时若需要单独判断某个版本区间的链是否可用（而不立即执行迁移），可调用该方法（返回 <code>null</code> 表示缺少迁移环节，须在预览对话框里提示用户"无法迁移，请联系框架维护方补齐环节"而不是静默失败）；框架示例数据集提供 <code>found.migration_sample</code> 一张无运行时消费方的演示表（<code>schema_version</code> 故意落后一版），供编辑器用真实数据验证该入口的调用是否正确，不必自行合成测试专用 schema。</p>
 <h4>5.7.6 校验覆盖矩阵与可选规则装配</h4>
 <p>对应 04 第 5.1 节"校验覆盖矩阵"：不是所有声明为引用语义的字段/规则都随第 4.4 节"校验装配入口"一次性自动注册，部分需要装配层显式接线才生效；基础套件装配校验器时必须调用第 4.4 节的校验装配入口并与 <code>toolchain/validator</code> 走相同的接线方式，避免"编辑器全绿但门禁报错"的割裂：</p>
 <div class="tbl-wrap"><table>
@@ -2414,13 +2490,13 @@ ValidatorAssemblyOptions {
 </tr>
 <tr>
 <td><code>SpawnSummonOnlyCreatureRule</code>（校验 <code>spawn.table.content_ref</code> 指向的生物模板不是"仅供召唤"）</td>
-<td>默认不注册（校验装配入口的 <code>CreatureTemplateQuery</code> 参数默认为 <code>null</code>，见第 4.4 节）</td>
-<td>游戏侧需按第 6.1 节"校验来源声明"扩展点提供 <code>ICreatureTemplateQuery</code> 才启用；未接线时"校验设置"面板将该规则显示为"未启用"，而不是静默跳过</td>
+<td>消费方反馈第 44 条根治（2026-09-14）起默认已注册——校验装配入口的 <code>CreatureTemplateQuery</code> 参数未提供（<code>null</code>）时改用框架内置的 <code>Core.Carriers.Creature.RegistryCreatureTemplateQuery</code>（直接读 registry 现读现解析 <code>creature.template</code> 记录），见第 4.4 节</td>
+<td>基础套件随校验装配入口自动获得该默认查询，无需额外配置即显示为"已启用"；游戏侧若已有更高效的强类型索引（如运行时装配根已构造好的 <code>CreatureFactory</code>），仍可经第 6.1 节"校验来源声明"扩展点显式提供 <code>ICreatureTemplateQuery</code> 覆盖默认实现</td>
 </tr>
 <tr>
 <td><code>DisplayMapCoverageRule</code>（校验 <code>display</code> 域引用集合中的逻辑 id 必须在 <code>display.map</code> 有对应行）</td>
-<td>默认不注册（校验装配入口的 <code>DisplayMapSources</code> 参数默认为 <code>null</code>）</td>
-<td>游戏侧需经第 6.1 节"校验来源声明"扩展点声明"哪些内容表参与外形域覆盖检查"，与 <code>toolchain/validator</code> 的调用方接线来源保持一致；未声明时同样显示"未启用"</td>
+<td>消费方反馈第 34 条起：默认已注册——校验装配入口的 <code>DisplayMapSources</code> 参数为 <code>null</code> 时使用框架内置默认清单（<code>skill.def</code>/<code>skill.aura_def</code>/<code>item.template</code>/<code>creature.template</code>/<code>gobj.template</code>，各表以 <code>id</code> 字段比对 <code>display.map.logical_id</code>）</td>
+<td>基础套件随校验装配入口自动获得该默认清单，无需额外配置即显示为"已启用"；游戏侧若需要增减参与覆盖检查的内容表，经第 6.1 节"校验来源声明"扩展点显式传入完整清单覆盖默认值（不是追加），与 <code>toolchain/validator</code> 的调用方接线来源保持一致</td>
 </tr>
 <tr>
 <td><code>arch.class.power_types</code>/<code>skill_book_ref</code>、<code>arch.race.passive_auras</code></td>
@@ -2429,7 +2505,7 @@ ValidatorAssemblyOptions {
 </tr>
 </tbody>
 </table></div>
-<p><code>FailOnUnknownTable</code>/<code>Strictness</code> 等装配选项，基础套件"校验设置"面板必须与 <code>toolchain/validator</code> 保持同一份默认值来源（均经第 4.4 节校验装配入口获取）；由以上可选规则产出的问题在问题面板额外标注"本条来自可选规则"（见第 5.7.2 节）。</p>
+<p><code>FailOnUnknownTable</code>/<code>Strictness</code> 等装配选项，基础套件"校验设置"面板必须与 <code>toolchain/validator</code> 保持同一份默认值来源（均经第 4.4 节校验装配入口获取）；由以上可选规则产出的问题在问题面板额外标注"本条来自可选规则"（见第 5.7.2 节）。消费方反馈第 43 条：该标注与"校验设置"面板展示可选规则全量选项，均建议改用 <code>ContentValidationAssembly.OptionalRules</code>/<code>TryGetOptionalRuleByCheck</code>（按诊断的 <code>Check</code> 反查规则描述符，含一句中文说明）实现，不必再自行维护一份"规则类型名 → 检查项名"的映射表——框架新增可选规则或调整某条规则的检查名拼写时，这段标注逻辑不需要跟着改。</p>
 <hr>
 <h3 id="s5-8">5.8 数值沙盘（预览与模拟）</h3>
 <p>数值沙盘全部基于框架核心库 + 无头适配层（<code>Adapters.Stub</code>，第 4.3 节）运行，不依赖引擎、不依赖网络；种子可复现（同种子同输入必然同输出，对应确定性拍板决策 3），是编辑器区别于"纯表格编辑工具"的核心差异化能力。沙盘以独立标签页形式在文档区打开（"工具"菜单"数值沙盘"或各专项编辑器内的快捷入口）。</p>
@@ -2447,7 +2523,7 @@ ValidatorAssemblyOptions {
 <td>伤害/治疗结算器</td>
 <td>施法者模板、目标模板、技能/效果、（可选）种子</td>
 <td>分步结算过程（判定→基础值→暴击→施法者乘区→减免→目标乘区→免疫吸收→落地）与最终数值、期望 DPS</td>
-<td>06 第 4.1 节结算管线固定步骤</td>
+<td>06 第 4.1 节结算管线固定步骤；实现经 <code>CombatOptions.ResolveTrace</code>（第 4.1 节契约面"无头适配层"行）拿到分步明细，见第 5.5.2 节"右侧结算预览"</td>
 </tr>
 <tr>
 <td>掉落模拟</td>
@@ -2473,9 +2549,21 @@ ValidatorAssemblyOptions {
 <td>战斗日志（逐条 Combat Log 风格事件文本）与胜率统计（多次重复跑取胜率，若跑多次）</td>
 <td>06 第 8 节事件词汇表、结算管线</td>
 </tr>
+<tr>
+<td>内容覆盖仿真离群值列表（<strong>待 N6</strong>，见下方契约意向说明）</td>
+<td>全部技能/装备/生物模板（批量跑，不针对单个模板）、种子</td>
+<td>离群值列表，按偏离程度排序（如预算比值超带宽的技能、利用率异常的装备、经验/成长轨迹偏离锚点的生物）</td>
+<td><a href="../../architecture/adr/0035-数值仿真骨架为框架交付物.md">ADR-0035</a> 决策 3"内容覆盖仿真……输出离群值列表按偏离排序"、决策 6"11 新增测试类型'数值仿真'"</td>
+</tr>
 </tbody>
 </table></div>
-<p><strong>简易战斗回放细节</strong>：两套模板互相攻击直到一方死亡或达到时长上限，输出格式对齐 06 第 8 节"Combat Log 风格"事件词汇表（如 <code>combat.damage_dealt</code>、<code>aura.applied</code>、<code>unit.died</code> 逐条按时间顺序列出，附带触发该事件的字段值）；若时间模型为离散（回合制），日志按"回合 N：行动者 X 使用 Y"分组呈现；若为连续，按"第 N 秒"分组。回放结果窗口提供"导出为文本"按钮，便于策划贴到评审文档里讨论平衡性问题（导出为本地文本文件，见第 8 章不涉及云上传）。</p>
+<p><strong>简易战斗回放细节</strong>：两套模板互相攻击直到一方死亡或达到时长上限，输出格式对齐 06 第 8 节"Combat Log 风格"事件词汇表（如 <code>combat.damage_dealt</code>、<code>aura.applied</code>、<code>unit.died</code> 逐条按时间顺序列出，附带触发该事件的字段值）；若时间模型为离散（回合制），日志按"回合 N：行动者 X 使用 Y"分组呈现；若为连续，按"第 N 秒"分组。回放结果窗口提供"导出为文本"按钮，便于策划贴到评审文档里讨论平衡性问题（导出为本地文本文件，见第 8 章不涉及云上传）。此前落地总量只对应最终 <code>combat.damage_dealt</code>/<code>combat.heal_done</code> 事件字段，同样一笔命中的判定/减免中间过程不可见；<code>CombatOptions.ResolveTrace</code> 接入后，回放沙盘可选展开某一条 Combat Log 事件对应的分步明细（与右侧结算预览同一份数据来源），不必额外重算。</p>
+<p><strong>内容覆盖仿真离群值列表细节（待 N6，契约意向，非最终形态）</strong>：本行权威来源是 <a href="../../architecture/adr/0035-数值仿真骨架为框架交付物.md">ADR-0035</a> 决策 3"内容覆盖仿真（对每个技能、装备、生物模板批量跑，输出离群值列表按偏离排序）"与决策 6"11 新增测试类型'数值仿真'……运行方式：无头，固定种子，输出报告并与基线对比"，产出方是阶段 N6 新模块 <code>core/sim</code>（无头运行器/标准玩家生成器/场景加载/报告输出/基线对比，决策 1）与新表 <code>sim.scenario</code>/<code>sim.anchor</code>（决策 4），本阶段（N5）尚未落地，编辑器目前不能接入真实离群值数据，本节先固定契约面意向，具体字段形态待 N6 任务落地后回填本节并递增文档版本号：</p>
+<ul>
+<li><strong>静态维度（本阶段已可用）</strong>：<code>toolchain/validator --json</code> 的 <code>rules[].group</code>/<code>requires_anchor</code>（第 4.1 节"数值规则集中登记清单"一行）已能标注技能预算/装备预算等数值域规则是否依赖锚点；内容覆盖仿真的离群值大概率是这批规则命中范围的超集（按偏离程度连续排序，而非阻断/警告二值判定），编辑器可先用这批静态规则的命中情况搭建列表骨架。</li>
+<li><strong>动态维度（待 N6）</strong>：战斗/成长/内容覆盖三级仿真产出的统计量、越级矩阵、成长轨迹偏离，权威来源是 ADR-0035 决策 5"报告为结构化产物……包含每项统计量、对照锚点、偏离与级别"，预期落地为 <code>core/sim</code> 命令行子进程输出的结构化报告文件（格式对齐 <code>toolchain/validator --json</code> 现有输出惯例，供编辑器子进程调用后解析），具体命令、文件路径与字段形态由 N6 任务落地时确定，不在本次改动范围内。</li>
+<li><strong>界面取舍建议</strong>：本沙盘条目是数值沙盘表里唯一"离线批量跑 + 排序列表展示"的形态，其余五个沙盘均为"实时按需求值"，编辑器实现时建议单独做一个"内容覆盖诊断"视图而非复用其它沙盘的单记录预览布局；该视图与第 5.7.3 节"覆盖诊断"同名但语义不同（彼处指多根合并产生的 <code>override</code>/<code>final</code> 诊断，此处指数值口径的离群值排序），命名与文案需加以区分，避免用户混淆两者。</li>
+</ul>
 <p>游戏侧可经第 6.1 节"沙盘预设"扩展点新增本清单之外的游戏专属沙盘（如某游戏特有的经济系统模拟器），必须使用无头适配层跑逻辑，不允许沙盘内直接读写磁盘数据文件（第 6.1 节约束）。</p>
 <hr>
 <h3 id="s5-9">5.9 批量与导入导出</h3>

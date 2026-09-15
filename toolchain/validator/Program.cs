@@ -299,11 +299,19 @@ namespace Toolchain.Validator
                 // 命中统计"段——本次跑过的全部已注册规则（ValidationReport.Rules，按注册顺序、含命中
                 // 0 条的），每行 id / 默认级别 / 是否不可提升 / 命中条数；追加在既有末尾各行之后，
                 // 不改动既有任何一行，保持此前文本输出逐字节兼容。
+                // 分阶段落地计划 T-N5-3：命中 04 分级表数值规则清单的行，行尾追加数值域分组/锚点依赖
+                // 提示（NumericValidationRuleCatalog；非数值规则不受影响，行尾不追加任何内容）——只是
+                // 在既有一行末尾追加文字，不改变既有前缀的逐字节内容。
                 Console.WriteLine($"rules ({report.Rules.Count}):");
                 foreach (var rule in report.Rules)
                 {
                     var severity = rule.DefaultSeverity == ValidationSeverity.Error ? "error" : "warning";
-                    Console.WriteLine($"  {rule.RuleId}: {severity}{(rule.NonEscalatable ? " (non-escalatable)" : "")}, hits {rule.HitCount}");
+                    var numericEntries = FindNumericRuleEntries(rule.RuleId);
+                    var numericSuffix = numericEntries.Count == 0
+                        ? string.Empty
+                        : $", numeric group={numericEntries[0].Group}" +
+                          (numericEntries.Any(e => e.RequiresAnchor) ? ", requires_anchor (未接入, 当前 enabled=false)" : string.Empty);
+                    Console.WriteLine($"  {rule.RuleId}: {severity}{(rule.NonEscalatable ? " (non-escalatable)" : "")}, hits {rule.HitCount}{numericSuffix}");
                 }
             }
 
@@ -714,19 +722,42 @@ namespace Toolchain.Validator
 
             // 分阶段落地计划 T-N0-6（落地清单 2.2 V3；ADR-0035 决策 5 报告要求）："rules"——本次跑过的
             // 全部已注册规则（ValidationReport.Rules，按注册顺序、含命中 0 条的），每项
-            // {id, severity, non_escalatable, hits}。追加在既有各字段之后、闭合大括号之前，不改动任何
-            // 既有字段名与语义（禁止事项）。
+            // {id, severity, non_escalatable, hits}。
+            // 分阶段落地计划 T-N5-3（数值规则核对表；ADR-0035 决策 5"报告为结构化产物……供仿真/编辑器
+            // 消费"）：追加五个数值规则专属字段——category（命中 NumericValidationRuleCatalog 时固定
+            // 为 "numeric"，否则 null，标记这条规则是否属于 04 第 5 节数值类校验项分级表管辖范围）、
+            // group（04 分级表口径的数值域分组，非数值规则为 null）、check_names（本 RuleId 在分级表里
+            // 对应的全部检查名——StatDefinitionValidationRule/ItemBudgetValidationRule/
+            // SkillBudgetValidationRule 三个类各占两条，数组长度为 2；非数值规则为空数组）、
+            // requires_anchor（是否依赖阶段 N6 才接入的 ISkillBudgetAnchorProvider，非数值规则恒
+            // false）、enabled（!requires_anchor——三条锚点未接入的规则当前登记了但产不出问题，如实
+            // 标 false，同 1.29.0 optional_rules[].enabled 口径；非数值规则恒 true）。全部追加在既有
+            // 四个字段之后、闭合大括号之前，不改动任何既有字段名与语义（禁止事项）。
             sb.Append(',');
             sb.Append("\"rules\":[");
             for (var i = 0; i < report.Rules.Count; i++)
             {
                 if (i > 0) sb.Append(',');
                 var rule = report.Rules[i];
+                var numericEntries = FindNumericRuleEntries(rule.RuleId);
+                var isNumeric = numericEntries.Count > 0;
+                var requiresAnchor = numericEntries.Any(e => e.RequiresAnchor);
                 sb.Append('{');
                 sb.Append("\"id\":\"").Append(JsonEscape(rule.RuleId)).Append("\",");
                 sb.Append("\"severity\":\"").Append(rule.DefaultSeverity == ValidationSeverity.Error ? "error" : "warning").Append("\",");
                 sb.Append("\"non_escalatable\":").Append(rule.NonEscalatable ? "true" : "false").Append(',');
-                sb.Append("\"hits\":").Append(rule.HitCount);
+                sb.Append("\"hits\":").Append(rule.HitCount).Append(',');
+                sb.Append("\"category\":").Append(isNumeric ? "\"numeric\"" : "null").Append(',');
+                sb.Append("\"group\":").Append(isNumeric ? "\"" + JsonEscape(numericEntries[0].Group) + "\"" : "null").Append(',');
+                sb.Append("\"check_names\":[");
+                for (var j = 0; j < numericEntries.Count; j++)
+                {
+                    if (j > 0) sb.Append(',');
+                    sb.Append('"').Append(JsonEscape(numericEntries[j].CheckName)).Append('"');
+                }
+                sb.Append("],");
+                sb.Append("\"requires_anchor\":").Append(requiresAnchor ? "true" : "false").Append(',');
+                sb.Append("\"enabled\":").Append(requiresAnchor ? "false" : "true");
                 sb.Append('}');
             }
             sb.Append(']');
@@ -894,6 +925,15 @@ namespace Toolchain.Validator
             sb.Append("\"describe\":\"").Append(JsonEscape(range.Describe())).Append('"');
             sb.Append('}');
         }
+
+        /// <summary>分阶段落地计划 T-N5-3：按 <see cref="ValidationRuleSummary.RuleId"/> 查
+        /// <see cref="ContentValidationAssembly.NumericRules"/>（见该属性判断记录，转发自
+        /// <see cref="NumericValidationRuleCatalog"/>）——同一 RuleId 可能命中多条（如
+        /// <c>StatDefinitionValidationRule</c> 在清单里占两条，见该类型两个 <c>Check*</c> 常量），
+        /// 未命中（非数值规则）返回空列表，不返回 null（调用方一律按 <c>Count</c> 判空，不需要额外
+        /// null 检查）。</summary>
+        private static List<NumericValidationRuleDescriptor> FindNumericRuleEntries(string ruleId) =>
+            ContentValidationAssembly.NumericRules.Where(e => e.RuleId == ruleId).ToList();
 
         private static void AppendIssueJson(StringBuilder sb, ValidationIssue issue)
         {

@@ -164,7 +164,24 @@ dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json
   人类可读文本行。分阶段落地计划 T-N0-6（落地清单 2.2 V2/V3）新增：`rules`——本次跑过的全部已注册规则
   （`ValidationReport.Rules`，按注册顺序、含命中 0 条的），每项 `{id, severity, non_escalatable, hits}`；
   `issues[]` 每项追加 `group`/`note`/`rule_id`（未填为 `null`）。文本模式对应追加末尾 `rules (N):` 段与
-  问题行尾的 ` [group: …]`/` [note: …]` 后缀（未填时行内容不变）。既有字段名与语义一律不变。消费方反馈第 43 条新增 `optional_rules`：每项 `{rule, check, enabled}`——`rule`/
+  问题行尾的 ` [group: …]`/` [note: …]` 后缀（未填时行内容不变）。既有字段名与语义一律不变。
+
+  分阶段落地计划 T-N5-3（数值规则核对表；ADR-0035 决策 5）在 `rules[]` 每项之后再追加五个数值规则
+  专属字段：`category`（命中 `Presentation.Assembly.NumericValidationRuleCatalog` 时固定为
+  `"numeric"`，标记这条规则属于 04 第 5 节数值类校验项分级表管辖范围，否则 `null`）、`group`（该
+  清单登记的数值域分组，如"属性"/"技能"/"装备"/"经验"/"经济"/"曲线"/"职业"，非数值规则为
+  `null`——注意与 `issues[].group` 不是同一件事，后者是某一条具体问题的业务意图分组，如技能预算
+  偏离的"已确认"/"待确认"，前者是某条规则/检查名整体归属的数值域，两者同名但层级不同）、
+  `check_names`（该 `RuleId` 在分级表里对应的全部检查名数组——大多数长度为 1，
+  `StatDefinitionValidationRule`/`ItemBudgetValidationRule`/`SkillBudgetValidationRule` 三个类各占
+  两条检查名，长度为 2；非数值规则为空数组）、`requires_anchor`（是否依赖阶段 N6 才接入的
+  `ISkillBudgetAnchorProvider`，非数值规则恒 `false`；数值规则里仅"技能预算硬上限""技能预算偏离"
+  "授予价值超特效占比"三条为 `true`）、`enabled`（`!requires_anchor`——上述三条规则已注册但锚点未
+  接入前不会真的产出任何问题，如实标 `false`，同 1.29.0 `optional_rules[].enabled` 口径；其余规则
+  恒 `true`）。文本模式对应给命中数值规则清单的行追加 `, numeric group=<group>` 与（锚点依赖时）
+  `, requires_anchor (未接入, 当前 enabled=false)` 后缀。既有字段名与语义一律不变。
+
+  消费方反馈第 43 条新增 `optional_rules`：每项 `{rule, check, enabled}`——`rule`/
   `check` 直接取自 `ContentValidationAssembly.OptionalRules`（单一来源，规则名 ↔ 检查名不再需要
   消费方自行维护 PascalCase→snake_case 映射表），`enabled` 按该规则是否出现在
   `disabled_optional_rules` 判定；追加在既有 `enabled_optional_rules` 字段之后，不改动既有任何

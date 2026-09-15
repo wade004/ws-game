@@ -199,6 +199,26 @@ namespace Tests.Rules.Skill
             Assert.Equal("skill.def", issue.Table);
         }
 
+        /// <summary>分阶段落地计划 T-N5-3（数值规则核对表 W5）：不可提升警告在
+        /// <see cref="DataRegistryStrictness.WarningsBlock"/> 下不阻断——上一条用例用默认
+        /// <see cref="DataRegistryStrictness.WarningsAllowed"/> 断言"不阻断"证明不了这一点（该级别下
+        /// Warning 本来就不会让 <see cref="ValidationReport.IsBlocking"/> 变 true，不管 NonEscalatable
+        /// 是否为 true），本用例显式传 <see cref="DataRegistryStrictness.WarningsBlock"/> 才是真正
+        /// 覆盖"抓意图不抓手滑"这一行为的用例。</summary>
+        [Fact]
+        public void Validation_ActiveSkill_CastTimeZero_RespectsGcdTrue_UnderWarningsBlock_DoesNotBlock()
+        {
+            var report = new SkillWorldBuilder()
+                .SkillDef(CastTimeSkill("skill.n35_warn_positive_block", castTime: 0, respectsGcd: true))
+                .ValidationRule(new SkillNoTimeCostWarningRule())
+                .Validate(DataRegistryStrictness.WarningsBlock);
+
+            var issue = Assert.Single(report.Issues, i => i.Check == "skill_no_time_cost");
+            Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+            Assert.Equal(1, report.NonEscalatableWarningCount);
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
         [Fact]
         public void Validation_ActiveSkill_WithNonZeroCastTime_NoWarning()
         {

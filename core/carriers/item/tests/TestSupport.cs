@@ -46,10 +46,15 @@ namespace Tests.Carriers.Item
         /// cref="IDataRegistry.LoadAll"/> 过的 <see cref="DataRegistry"/>。调用方在 <paramref
         /// name="configure"/> 里往 <see cref="InMemoryDataSource"/> 塞表数据（信封格式
         /// <c>{"table":..., "schema_version":1, "rows":[...]}</c>），额外的 <see cref="IValidationRule"/>
-        /// 由 <paramref name="rules"/> 传入。</summary>
+        /// 由 <paramref name="rules"/> 传入。<paramref name="strictness"/>（T-N5-3 新增可选参数，默认
+        /// <see cref="DataRegistryStrictness.WarningsAllowed"/>，保持既有全部调用点行为不变）供需要在
+        /// <see cref="DataRegistryStrictness.WarningsBlock"/> 下断言"不可提升警告不阻断"的用例传入
+        /// （见 <c>ItemValidationRulesTests</c>/<c>T_N2_6_WeaponDpsDeviationTests</c>/
+        /// <c>T_N3_9_ItemGrantValueExceedsShareRuleTests</c> 里对应用例）。</summary>
         public static DataRegistry BuildRegistry(
             Action<InMemoryDataSource> configure,
-            IEnumerable<IValidationRule>? rules = null)
+            IEnumerable<IValidationRule>? rules = null,
+            DataRegistryStrictness strictness = DataRegistryStrictness.WarningsAllowed)
         {
             var source = new InMemoryDataSource();
             configure(source);
@@ -62,7 +67,7 @@ namespace Tests.Carriers.Item
             // TableSchema.Unschematized 占位 schema，不需要满足 arch.class 真实 schema 的
             // name_key/primary_stat/base_stats/power_types 等必填字段），不提供时该表保持空、不
             // 影响既有测试。
-            var registry = new DataRegistry(source, CreateBus(), new DataRegistryOptions { FailOnUnknownTable = false });
+            var registry = new DataRegistry(source, CreateBus(), new DataRegistryOptions { FailOnUnknownTable = false, Strictness = strictness });
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Template);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);

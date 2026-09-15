@@ -346,3 +346,38 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
 | `Run_WithBothOptionalRuleDependencies_BothEnabled_AndDisplayMapCoverageRuleActuallyFires` | 提供两个接线参数后均出现在 `EnabledOptionalRules`；`DisplayMapCoverageRule` 真实生效（构造一条未被 `display.map` 覆盖的 `creature.template` 行，断言产出 `display_map_coverage` 错误） |
 | `Run_WarningsBlockStrictness_WarningOnlyReport_IsBlocking` | 同一份只含 Warning（`text_key_exists`，`l10n.text` 未加载）的数据集：`WarningsAllowed` 不阻断，`WarningsBlock` 阻断 |
 | `Run_ProducesSameIssueSet_AsDirectPresentationSchemaCatalogRegisterAll` | 同一份数据分别经 `ContentValidationAssembly.Run` 与手工 `PresentationSchemaCatalog.RegisterAll` + `LoadAll` 两条路径，问题集合（格式化字符串排序后逐条比较）与 `IsBlocking` 完全一致 |
+
+## 04 第 5 节数值类校验项分级表：集中登记清单（`NumericValidationRuleCatalog.cs`，T-N5-3）
+
+分阶段落地计划 T-N5-3：`Presentation.Assembly.NumericValidationRuleCatalog`（新文件）是 04 第 5 节
+"数值类校验项分级表"全部规则的只读集中登记清单——`(RuleId, CheckName, Severity, NonEscalatable,
+GradingItemName, Group, RequiresAnchor)` 逐字段直接引用各规则类自己公开的 `RuleId`/`CheckName`
+常量，不写字面量（同 `ContentValidationAssembly.OptionalRuleDescriptor` 先例）。
+`ContentValidationAssembly.NumericRules` 是它的单一来源转发（同 `OptionalRules` 惯例），
+`toolchain/validator --json` 的 `rules[]` 据此追加 `category`/`group`/`check_names`/
+`requires_anchor`/`enabled` 五个字段。
+
+**判断记录（数量口径，T-N5-3 如实上报的核对表内部不一致）**：`数值规则核对表-N5.md` 自称"阻断 11
++ 警告 7 = 18 项"，但该表第 1 节实际列出 13 行（`曲线单调有限` 一个 04 概念条目因 `prog.level_curve`/
+`combat.resist_curve` 两张密集枚举表各自需要独立 `IValidationRule` 实现，拆成 B1/B1a/B1b 三行），
+第 3 节"小结"的"16 已落地 + 3 部分 + 1 缺"合计 20 也印证了这一点。本清单按可独立验证注册的技术行数
+登记——阻断 13 行 + 警告 7 行 = 20 行，是 18 个概念条目的超集，不会因为按概念条目数收窄而漏验证
+`ProgLevelCurveValidationRule`/`CombatResistCurveValidationRule` 两个独立实现类的注册。详见该文件
+类型级判断记录。
+
+**判断记录（三条锚点依赖）**：`skill_budget_hard_cap_exceeded`/`skill_budget_deviation`（均来自
+`SkillBudgetValidationRule`）与 `item_grant_value_exceeds_share`（`ItemGrantValueExceedsShareRule`）
+依赖阶段 N6 才接入的 `ISkillBudgetAnchorProvider`；`RulesSchemaCatalog`/`CarriersSchemaCatalog`
+默认注册时都不注入真实实现，`rules[].requires_anchor=true` 的这三行 `enabled` 固定为 `false`，如实
+反映"已注册但锚点未接入前不产生任何问题"，不是动态探测。
+
+## 验收测试（`tests/NumericValidationRuleCatalogTests.cs`）
+
+| 用例 | 覆盖点 |
+|---|---|
+| `Catalog_HasThirteenBlockingRowsAndSevenWarningRows_TwentyTotal` | 阻断 13 行 + 警告 7 行 = 20 行（见上"数量口径"判断记录） |
+| `Catalog_AllWarningEntries_AreNonEscalatable` | 04 分级表"警告"整组不可提升 |
+| `Catalog_CheckNames_AreAllDistinct` | 20 行检查名互不相同 |
+| `Catalog_ExactlyThreeEntries_RequireAnchor` | 仅"技能预算硬上限/偏离""授予价值超特效占比"三行依赖阶段 N6 锚点 |
+| `Catalog_EveryDistinctRuleId_IsActuallyRegistered_AgainstSampleData` | 核心验收——对 `data/_framework`+`data/_sample` 跑真实 `ContentValidationAssembly.Run`，清单里每个不同 `RuleId` 都必须出现在 `ValidationReport.Rules` 里且级别/`NonEscalatable` 一致（"禁止漏注册"的可执行断言），并顺带验证零阻断 |
+| `ContentValidationAssembly_NumericRules_IsSameInstanceAsCatalogEntries` | 单一来源转发，不是两份拷贝 |

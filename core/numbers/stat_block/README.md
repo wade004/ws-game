@@ -344,7 +344,55 @@ ReloadArchetypeAndRace`（直接持有 `StatHost` 具体类型，同 `Stats.Rese
   "或任一表达式引用"收尾措辞的从宽解释——设计层裁定（2026-09-14）：采纳，比 04 原文四例更宽是
   正确方向，不收紧。
 
-## T-N2-3：ConvertRating 求值式子提升为公开共享静态工具 RatingConversionEvaluator
+## T-N5-2：补齐"属性无消费者"的 Expr AST 扫描（第四条消费者来源）
+
+分阶段落地计划 T-N5-2（04 第 5 节"属性无消费者"一行"……或任一表达式引用"；11 第 6 节风险段
+"现有 `ExprValidator` 只做引用登记消歧，未提供'列出全部属性引用'的出口"）：T-N5-1 核对表发现
+上一条 T-N1-9 的实现只覆盖了 04 原文四个消费者来源里的"命中表配置/结算管线/资源池定义/派生
+规则"，缺"任一表达式引用"——`stat.definition` 若只被某条 `skill.def.use_condition`/
+`ai.rotation.condition`/`quest.def.prerequisite` 一类 `FieldKind.Expr` 字段的表达式文本引用，
+此前会被误判为"无消费者"。本任务补第四条来源。
+
+- **属性在 Expr 里怎么被引用**：不是 `self.strength` 或 `self.stat.strength`，是
+  `self.stat(<属性 id>)`/`target.stat(<属性 id>)`——见
+  `core/rules/expr_host/RulesExprHostFactory.cs` 的 `Host.QueryUnit` `"stat"` 分支：`stat` 是
+  一个带一个 `Id` 参数的引用，参数才是被引用的属性 id。
+- **新增只读遍历入口**（`core/foundation/expr`，不复用/不重写现有解析逻辑，见 ADR-0020"不允许
+  派生出第二套"同一取舍）：
+  - `ExprReferenceCollector.Collect(ExprNode) -> IReadOnlyList<ExprReferenceNode>`
+    （`core/foundation/expr/core/ExprReferenceCollector.cs`）：深度优先遍历整棵语法树（含比较/
+    `and`/`or`/`not` 各操作数、引用节点参数列表里嵌套的引用），按遇到顺序收集全部
+    `ExprReferenceNode`。判断记录：任务派发提示词示意签名是 `(group, key)` 元组，本实现改为
+    返回完整 `ExprReferenceNode`（`Group`/`Key`/`Args` 三者都要，调用方取 `self.stat(<id>)` 的
+    参数离不开 `Args`）——`ExprReferenceNode` 是元组的严格超集，采纳为最终形状。只读，不调用
+    `ExprEvaluator`/`IExprHost`，不做 `ExprValidator` 式类型推断。
+  - `PermissiveExprSchema`（`core/foundation/expr/contracts/PermissiveExprSchema.cs`）：
+    `TryGetSignature` 对任意 `group.key` 恒返回 `true` 的兜底 `IExprSchema`，只用来让
+    `ExprParser.Parse` 把表达式文本里全部点分标识符一致解析成 `ExprReferenceNode`（不因为某个
+    分组/key 未登记而在词法正确的文本上抛异常），不用于内容加载或运行期求值。判断记录（为什么
+    不复用某个模块的完整组合 schema）：本类型所在 L0 不能反向依赖 L2/L4 具体登记表，调用方
+    （见下）同样受层级约束，且真实内容会不断新增分组/key，任何"完整组合"都不可能穷举——用
+    "全部放行"从根本上避免这个问题。
+- **`StatDefinitionConsumerValidationRule` 扩展**：`CollectFromValue` 新增
+  `field.Kind == FieldKind.Expr` 分支——对每个 `Expr` 字段的文本用
+  `ExprParser.Parse(text, PermissiveExprSchema.Instance)` 解析（解析失败静默跳过，那是
+  `expr_parsable`（用生产 schema）的职责，本规则不重复报告），再用
+  `ExprReferenceCollector.Collect` 摘出全部引用节点，只挑 `self`/`target` 分组下
+  `key == "stat"` 且带至少一个参数的引用，把第一个参数的还原文本（`ExprNode.ToString()`）计入
+  "已消费属性 id"集合。走既有的通用递归（`CollectFromFields`/`CollectFromValue` 任意深度嵌套
+  `fields`/`item`/`map.ValueSchema`），不需要为 `skill.def`/`ai.rotation`/`quest.def` 各写一条
+  判断——新增一张带 `Expr` 字段引用属性的表不需要改本规则代码。
+- **测试**：`core/foundation/expr/tests/ExprReferenceCollectorTests.cs`（7 例：单引用、字面量空
+  结果、参数嵌套引用、多层嵌套函数调用、比较两侧、`and`/`or`/`not` 全操作数、"不执行"——
+  `Collect` 签名不接受任何宿主，天然验证不了）；
+  `core/numbers/stat_block/tests/StatDefinitionConsumerValidationRuleTests.cs` 新增 4 例（自建
+  `test.expr_holder` 最小表，不依赖 L2 `skill.def`，因为本规则的扫描通用覆盖任意表）：
+  `self.stat(<id>)`/`target.stat(<id>)` 引用各一例零告警，去掉该表达式恢复报警告一例，引用别的
+  属性时精确匹配不误报一例。
+- **契约疑点（如实上报，未改架构文档）**：T-N5-1 核对表统计 04 第 5 节当前文本实际为阻断 11 +
+  警告 7 = 18 项，多于派发提示词沿用计划 v1.0 估算的"十三条（7+6）"——详见
+  `architecture/落地计划/数值规则核对表-N5.md` 第 0 节；本任务按 04 当前文本（18 项）为权威口径
+  执行。
 
 分阶段落地计划 T-N2-3（ADR-0032 决策 3"实际消耗……百分比属性先经换算曲线折回点数再乘权重"）：装备
 预算消耗公式（`core/carriers/item/core/ItemBudgetCurve.ComputeConsumed`，L3）需要对 `category==

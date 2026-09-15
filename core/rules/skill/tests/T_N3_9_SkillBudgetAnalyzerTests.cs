@@ -67,7 +67,19 @@ namespace Tests.Rules.Skill
             public Registry Rotation(JsonObject row) { _rotations.Add(row); return this; }
             public Registry Creature(JsonObject row) { _creatures.Add(row); return this; }
 
-            public IDataRegistryView Build()
+            /// <summary>T-N5-3 新增：<see cref="Build(IEnumerable{IValidationRule}?, DataRegistryStrictness)"/>
+            /// 每次调用后的完整 <see cref="ValidationReport"/>——既有 9 处 <c>Build()</c> 调用点只关心
+            /// 返回的 <see cref="IDataRegistryView"/>（供 <see cref="SkillBudgetAnalyzer.Analyze"/>
+            /// 直接读取只读数据），不需要报告本身；只有 W1（技能预算偏离）"WarningsBlock 下不阻断"这类
+            /// 需要检查 <see cref="ValidationReport.IsBlocking"/> 的新用例才会读取本属性。</summary>
+            public ValidationReport LastReport { get; private set; } = null!;
+
+            public IDataRegistryView Build() => Build(rules: null, strictness: DataRegistryStrictness.WarningsAllowed);
+
+            /// <summary>T-N5-3 新增重载：<paramref name="rules"/>/<paramref name="strictness"/> 均省略
+            /// 时与既有零参 <see cref="Build()"/> 行为完全一致（不注册额外规则、
+            /// <see cref="DataRegistryStrictness.WarningsAllowed"/>）。</summary>
+            public IDataRegistryView Build(IEnumerable<IValidationRule>? rules, DataRegistryStrictness strictness)
             {
                 var source = new InMemoryDataSource();
                 source.Add("skill.def", TableJson("skill.def", _skillDefs));
@@ -78,14 +90,23 @@ namespace Tests.Rules.Skill
 
                 var bus = new EventBus(EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()),
                     new EventBusOptions { StrictCatalog = false });
-                var registry = new DataRegistry(source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
+                var registry = new DataRegistry(source, bus, new DataRegistryOptions { FailOnUnknownTable = false, Strictness = strictness });
                 registry.RegisterSchema(SkillSchemas.Def);
                 registry.RegisterSchema(SkillSchemas.Book);
                 registry.RegisterSchema(SkillSchemas.BudgetRule);
                 registry.RegisterSchema(AiSchemas.Rotation);
                 registry.RegisterSchema(TableSchema.Unschematized("creature.template", "id"));
 
+                if (rules != null)
+                {
+                    foreach (var rule in rules)
+                    {
+                        registry.RegisterValidationRule(rule);
+                    }
+                }
+
                 var report = registry.LoadAll();
+                LastReport = report;
                 if (report.IsBlocking)
                 {
                     throw new InvalidOperationException(
@@ -185,6 +206,35 @@ namespace Tests.Rules.Skill
             Assert.Equal(1.5, result.Ratio, 6);
             Assert.Null(result.BudgetNote);
             Assert.Equal(SkillBudgetVerdict.UnconfirmedDeviation, result.Verdict);
+        }
+
+        /// <summary>分阶段落地计划 T-N5-3（数值规则核对表 W1）：不可提升警告在
+        /// <see cref="DataRegistryStrictness.WarningsBlock"/> 下不阻断——同
+        /// <see cref="UnconfirmedDeviation_OverBandwidth_NoBudgetNote"/> 的数据（比值 1.5，超出玩家
+        /// 带宽上界 1.2），但这次真正把 <see cref="SkillBudgetValidationRule"/>（注入真实
+        /// <see cref="FakeAnchorProvider"/>——本条也是核对表"锚点依赖"三条之一，<c>anchorProvider</c>
+        /// 为 <c>null</c> 时整条规则不产生任何问题，见该类型判断记录）注册进 registry、走完整的
+        /// <see cref="DataRegistry.LoadAll()"/> + <see cref="ValidationReport"/> 路径（本文件其余用例
+        /// 都是直接调用 <see cref="SkillBudgetAnalyzer.Analyze"/>，从不经过 <c>IValidationRule</c>
+        /// 这层，看不到 <see cref="ValidationReport.IsBlocking"/>）。</summary>
+        [Fact]
+        public void DeviationWarning_UnderWarningsBlock_DoesNotBlock()
+        {
+            var registryBuilder = new Registry()
+                .SkillDef(SchoolDamageSkill("skill.n3_9_deviation_warn_block", baseValue: 15))
+                .Book(Book("skill.book.n3_9_deviation_warn_block", (1, "skill.n3_9_deviation_warn_block")))
+                .BudgetRule(DefaultBudgetRule());
+
+            var provider = new FakeAnchorProvider { AnchorDps = 10.0 };
+            registryBuilder.Build(
+                rules: new IValidationRule[] { new SkillBudgetValidationRule(provider) },
+                strictness: DataRegistryStrictness.WarningsBlock);
+
+            var report = registryBuilder.LastReport;
+            var issue = Assert.Single(report.Issues, i => i.Check == SkillBudgetValidationRule.DeviationCheck);
+            Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+            Assert.Equal(1, report.NonEscalatableWarningCount);
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }
 
         [Fact]

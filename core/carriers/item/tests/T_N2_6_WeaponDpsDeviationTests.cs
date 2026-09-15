@@ -232,6 +232,60 @@ namespace Tests.Carriers.Item
             Assert.Equal(ItemWeaponDamageDeviatesDpsCurveRule.Check, issue.Check);
         }
 
+        /// <summary>分阶段落地计划 T-N5-3（数值规则核对表 W3）：不可提升警告在
+        /// <see cref="DataRegistryStrictness.WarningsBlock"/> 下不阻断——同
+        /// <c>DeviationRule_MeanFarFromDpsTimesSpeed_ReportsWarning</c> 的数据（偏差 75%），但走完整的
+        /// <see cref="DataRegistry.LoadAll()"/> + <see cref="ValidationReport"/> 路径（该用例只调用
+        /// <c>rule.Validate(view)</c> 拿裸问题列表，看不到 <see cref="ValidationReport.IsBlocking"/>）。
+        /// 判断记录（不经 <see cref="TestSupport.BuildRegistry"/>）：同
+        /// <c>ItemValidationRulesTests.BudgetRule_UtilizationBelowThreshold_UnderWarningsBlock_DoesNotBlock</c>
+        /// 判断记录——<see cref="TestSupport.BuildRegistry"/> 不注册 <c>l10n.locale</c>/<c>l10n.text</c>，
+        /// name_key 字段会各自降级出可提升的"表未加载，跳过"Warning，在 WarningsBlock 下一并阻断，
+        /// 掩盖本规则本身"不可提升"的行为，因此手工建 registry 并显式补齐 l10n 两张表。</summary>
+        [Fact]
+        public void DeviationRule_MeanFarFromDpsTimesSpeed_UnderWarningsBlock_DoesNotBlock()
+        {
+            const string slot = "[{\"id\": \"item.slot.n5_3_w3\", \"name_key\": \"l10n.n5_3_w3_slot\", \"is_weapon\": true}]";
+            const string quality = "[{\"id\": \"item.quality.n5_3_w3\", \"name_key\": \"l10n.n5_3_w3_quality\"}]";
+            // item_level=1 → 4（单点曲线）；实际均值 (1+1)/2=1，偏差 75% > 默认阈值 20%（同
+            // DeviationRule_MeanFarFromDpsTimesSpeed_ReportsWarning 的手算）。
+            const string dpsCurve = "[{\"id\": \"item.weapon_dps.n5_3_w3\", \"entries\": [{\"x\": 1, \"y\": 4}]}]";
+            const string template =
+                "[{\"id\": \"item.n5_3_w3\", \"slot\": \"item.slot.n5_3_w3\", \"quality\": \"item.quality.n5_3_w3\", " +
+                "\"item_level\": 1, \"display_ref\": \"display.n5_3_w3\", \"stack_size\": 1, \"name_key\": \"l10n.n5_3_w3_item\", " +
+                "\"weapon_profile\": {\"damage_min\": 1, \"damage_max\": 1, \"speed\": 1, \"weapon_school\": \"skill.school.physical\"}}]";
+            const string locales = "[{\"id\": \"l10n.locale.zh_cn\", \"is_default\": true}]";
+            const string texts =
+                "[{\"key\": \"l10n.n5_3_w3_slot\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"占位\"}," +
+                "{\"key\": \"l10n.n5_3_w3_quality\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"占位\"}," +
+                "{\"key\": \"l10n.n5_3_w3_item\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"占位\"}]";
+
+            var source = new InMemoryDataSource()
+                .Add(ItemSchemas.SlotDefinition.Name, TestSupport.Table(ItemSchemas.SlotDefinition.Name, slot))
+                .Add(ItemSchemas.QualityDefinition.Name, TestSupport.Table(ItemSchemas.QualityDefinition.Name, quality))
+                .Add(ItemSchemas.WeaponDpsCurve.Name, TestSupport.Table(ItemSchemas.WeaponDpsCurve.Name, dpsCurve))
+                .Add(ItemSchemas.Template.Name, TestSupport.Table(ItemSchemas.Template.Name, template))
+                .Add("l10n.locale", TestSupport.Table("l10n.locale", locales))
+                .Add("l10n.text", TestSupport.Table("l10n.text", texts));
+
+            var registry = new DataRegistry(source, TestSupport.CreateBus(),
+                new DataRegistryOptions { FailOnUnknownTable = false, Strictness = DataRegistryStrictness.WarningsBlock });
+            registry.RegisterSchema(ItemSchemas.SlotDefinition);
+            registry.RegisterSchema(ItemSchemas.QualityDefinition);
+            registry.RegisterSchema(ItemSchemas.WeaponDpsCurve);
+            registry.RegisterSchema(ItemSchemas.Template);
+            registry.RegisterSchema(Core.Foundation.Localization.L10nSchemas.Locale);
+            registry.RegisterSchema(Core.Foundation.Localization.L10nSchemas.Text);
+            registry.RegisterValidationRule(new ItemWeaponDamageDeviatesDpsCurveRule(new Id("item.weapon_dps.n5_3_w3")));
+
+            var report = registry.LoadAll();
+
+            var issue = Assert.Single(report.Issues, i => i.Check == ItemWeaponDamageDeviatesDpsCurveRule.Check);
+            Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+            Assert.Equal(1, report.NonEscalatableWarningCount);
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
         [Fact]
         public void DeviationRule_MeanMatchesDpsTimesSpeed_NoIssue()
         {

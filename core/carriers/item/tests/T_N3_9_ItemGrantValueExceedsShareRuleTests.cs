@@ -90,6 +90,73 @@ namespace Tests.Carriers.Item
             Assert.Equal("grants", issue.Field);
         }
 
+        /// <summary>分阶段落地计划 T-N5-3（数值规则核对表 W4）：不可提升警告在
+        /// <see cref="DataRegistryStrictness.WarningsBlock"/> 下不阻断——同
+        /// <see cref="GrantValue_ExceedsShare_ReportsWarning"/> 的数据，但走完整的
+        /// <see cref="Core.Foundation.DataRegistry.DataRegistry.LoadAll()"/> +
+        /// <see cref="ValidationReport"/> 路径（该用例只调用 <c>rule.Validate(view)</c> 拿裸问题
+        /// 列表，看不到 <see cref="ValidationReport.IsBlocking"/>）——本条也是核对表 W4"锚点依赖"三条
+        /// 之一，需要显式注入 <see cref="FakeAnchorProvider"/> 才会产出问题（同 B11/W1，见
+        /// <c>ItemGrantValueExceedsShareRule</c> 类型判断记录"anchorProvider 为 null 时整条规则不产生
+        /// 任何问题"）。判断记录（不经 <see cref="TestSupport.BuildRegistry"/>）：同
+        /// <c>ItemValidationRulesTests.BudgetRule_UtilizationBelowThreshold_UnderWarningsBlock_DoesNotBlock</c>
+        /// 判断记录——<see cref="TestSupport.BuildRegistry"/> 不注册 <c>l10n.locale</c>/<c>l10n.text</c>，
+        /// 会另外降级出可提升的"表未加载，跳过"Warning，在 WarningsBlock 下一并阻断，掩盖本规则本身
+        /// "不可提升"的行为，因此手工建 registry 并显式补齐 l10n 两张表 + 真实锚点。</summary>
+        [Fact]
+        public void GrantValue_ExceedsShare_UnderWarningsBlock_DoesNotBlock()
+        {
+            const string slot = "[{\"id\": \"item.slot.n5_3_w4\", \"name_key\": \"l10n.n5_3_w4_slot\"}]";
+            const string quality =
+                "[{\"id\": \"item.quality.n5_3_w4\", \"name_key\": \"l10n.n5_3_w4_quality\", " +
+                "\"budget_multiplier\": 1, \"grant_budget_share\": 0.1}]";
+            const string budgetCurve = "[{\"id\": \"item.budget.n5_3_w4\", \"entries\": [{\"item_level\": 1, \"budget\": 20}]}]";
+            const string template =
+                "[{\"id\": \"item.n5_3_w4\", \"slot\": \"item.slot.n5_3_w4\", \"quality\": \"item.quality.n5_3_w4\", " +
+                "\"item_level\": 1, \"display_ref\": \"display.n5_3_w4\", \"stack_size\": 1, \"name_key\": \"l10n.n5_3_w4_item\", " +
+                "\"grants\": {\"skills\": [\"skill.n5_3_w4_granted\"]}}]";
+            const string skillDef =
+                "[{\"id\": \"skill.n5_3_w4_granted\", \"school\": \"school.physical\", \"kind\": \"active\", \"range\": 0," +
+                " \"cast_time\": 0, \"respects_gcd\": false, \"target_shape_ref\": \"target.chain.n5_3_w4_unused\"," +
+                " \"effects\": [{\"kind\": \"school_damage\", \"params\": {\"base_value\": 40, \"coefficient\": 0, " +
+                " \"school\": \"school.physical\"}}]}]";
+            const string locales = "[{\"id\": \"l10n.locale.zh_cn\", \"is_default\": true}]";
+            const string texts =
+                "[{\"key\": \"l10n.n5_3_w4_slot\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"占位\"}," +
+                "{\"key\": \"l10n.n5_3_w4_quality\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"占位\"}," +
+                "{\"key\": \"l10n.n5_3_w4_item\", \"locale\": \"l10n.locale.zh_cn\", \"text\": \"占位\"}]";
+
+            var source = new InMemoryDataSource()
+                .Add("item.slot_definition", TestSupport.Table("item.slot_definition", slot))
+                .Add("item.quality_definition", TestSupport.Table("item.quality_definition", quality))
+                .Add("item.budget_curve", TestSupport.Table("item.budget_curve", budgetCurve))
+                .Add("item.template", TestSupport.Table("item.template", template))
+                .Add("skill.def", TestSupport.Table("skill.def", skillDef))
+                .Add("skill.aura_def", TestSupport.Table("skill.aura_def", "[]"))
+                .Add("l10n.locale", TestSupport.Table("l10n.locale", locales))
+                .Add("l10n.text", TestSupport.Table("l10n.text", texts));
+
+            var registry = new DataRegistry(source, TestSupport.CreateBus(),
+                new DataRegistryOptions { FailOnUnknownTable = false, Strictness = DataRegistryStrictness.WarningsBlock });
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.BudgetCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Template);
+            registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.Def);
+            registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.AuraDef);
+            registry.RegisterSchema(Core.Foundation.Localization.L10nSchemas.Locale);
+            registry.RegisterSchema(Core.Foundation.Localization.L10nSchemas.Text);
+            registry.RegisterValidationRule(
+                new ItemGrantValueExceedsShareRule(new Id("item.budget.n5_3_w4"), new FakeAnchorProvider()));
+
+            var report = registry.LoadAll();
+
+            var issue = Assert.Single(report.Issues, i => i.Check == ItemGrantValueExceedsShareRule.Check);
+            Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+            Assert.Equal(1, report.NonEscalatableWarningCount);
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
         [Fact]
         public void GrantValue_WithinShare_NoIssue()
         {

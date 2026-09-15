@@ -395,8 +395,124 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   依赖"该签名不发事件"这一旧行为的编辑器侧逻辑需要重新核对。新增带 reason 的
   `TryPay(Id,Id,long,string)` 重载与 `CurrencyGranters.ViaEconomyHost` 静态工厂均为纯新增 C#
   API，不涉及数据表/编辑器控件改动。
+- **数值设计落地阶段 N5 · T-N5-2（1.35.0）**：`core/foundation/expr` 新增只读遍历入口
+  `ExprReferenceCollector.Collect(ExprNode)`（收集语法树里全部引用节点）与兜底 schema
+  `PermissiveExprSchema`——编辑器等工具若需要枚举一段 Expr 文本里出现过的全部 `group.key` 引用
+  （不关心是否已在自己的登记表里注册），可直接复用这两个类型，不必再各自实现一套遍历/兜底逻辑
+  （同 [ADR-0020](architecture/adr/0020-表达式词法器纳入公开契约.md)"不允许派生出第二套"的
+  一贯取舍）。均为纯新增公开类型/成员。
+- **数值设计落地阶段 N5 · T-N5-3（1.35.0）**：新增 `Presentation.Assembly.
+  NumericValidationRuleCatalog`/`NumericValidationRuleDescriptor`（04 第 5 节数值类校验项分级表
+  的只读集中登记清单）与 `ContentValidationAssembly.NumericRules`——编辑器"校验设置"/"数值规则"
+  一类面板可直接读取本清单展示全部数值规则的检查名、级别、是否不可提升、所属数值域分组、是否依赖
+  尚未接入的仿真锚点，不必自行硬编码这份清单。`toolchain/validator --json` 的 `rules[]` 每项新增
+  `category`/`group`/`check_names`/`requires_anchor`/`enabled` 五个字段（详见
+  `toolchain/README.md`），供消费方按数值域分组展示、按 `enabled` 判断"这条规则当前是否真的会产出
+  问题"。均为纯新增公开类型/成员与纯新增 JSON 字段。
+- **数值设计落地阶段 N5 · T-N5-4（1.35.0，文档版本 v2.16）**：编辑器产品文档
+  （`editor/docs/编辑器产品文档.md`/`.html`）第 4.1 节补齐 T-N3-9/T-N2-4 落地的两个 Analyzer
+  契约面（`SkillBudgetAnalyzer`/`EquipmentScoreAnalyzer`）与 T-N5-2/T-N5-3 落地的数值规则集中
+  登记清单/`ExprReferenceCollector`；第 5.8 节新增"内容覆盖仿真离群值列表"行，标注依赖阶段 N6
+  （`core/sim`）产出，当前仅为契约意向。纯文档变更，不涉及代码。HTML 版同步新增内容；HTML 自
+  v2.6 起累积的历史缺口（v2.7～v2.15 期间第 4.1 节新增的其余契约面尚未回填 HTML）不在本条改动
+  范围，已在 HTML 头部说明如实标注；该缺口已由 T-N5-5（同版本）回填，详见下方正文"文档"小节。
 
 ## [Unreleased]
+
+## [1.35.0] - 2026-09-16
+
+MINOR 版本：数值设计落地阶段 N5"校验全集与编辑器契约面"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 11/14 节，T-N5-1～T-N5-5）——落地 04 第 5 节数值类校验项分级表的全集核对与登记：补齐"属性无消费者"规则缺失的 Expr 表达式引用扫描（补缺规则实现）；新增数值规则集中登记清单与 `validator --json` 规则分组/锚点依赖标记；编辑器产品文档第 4.1/5.8 节契约面补齐并把 HTML 版落后 md 版九次更新的历史缺口一并回填，新增 md/HTML 一致性 pytest 门禁；核对表并入计划文档、04 第 5 节细节勘误、阶段 N5 落地进度记录归档。
+
+回放/Perf 基线：零改动，原因——本阶段全部改动（校验规则补缺、集中登记清单、校验装配入口注册、`validator --json` 输出字段、编辑器文档、`toolchain` 测试）均落在校验/文档/工具链层，不触达 `core/gameplay/tests/Replay`/`Perf` 装配的 L2 `RulesAssembly` 运行期路径（校验期改动不触达）。各小任务门禁与逐项验收记录见该计划末节"落地进度记录"N5 一节。
+
+提交链：`451991f`（T-N5-1）、`5167490`（T-N5-2）、`07e4d84`（T-N5-3）、`cbb6f1e`（T-N5-4）、`0448101`（T-N5-5 前半：编辑器产品文档 HTML 回填至 v2.16 与 md/HTML 一致性测试）、本笔提交（T-N5-5 后半：核对表并入计划文档、04 第 5 节勘误、落地进度记录、1.35.0 变更记录），分支 `n5/validation`，`--no-ff` 合入 `main`（哈希待补）。
+
+### 新增
+
+- **数值设计落地阶段 N5 · T-N5-1**：新增 `architecture/落地计划/数值规则核对表-N5.md`——对照 04
+  第 5 节数值类校验项分级表逐条核对 N1～N4 已落地规则，不涉及代码改动。契约疑点：04 当前文本实际
+  为阻断 11 + 警告 7 = 18 概念条目（对应 20 行技术登记），多于计划文档估算的"十三条"，详见该核对
+  表第 0 节；T-N5-5 已把该表内容并入 `数值设计分阶段落地计划.md` 末节"落地进度记录"N5 记录，原
+  文件保留作工作产物。
+- **数值设计落地阶段 N5 · T-N5-2**：`core/foundation/expr` 新增只读遍历入口
+  `ExprReferenceCollector.Collect(ExprNode) -> IReadOnlyList<ExprReferenceNode>`（深度优先收集
+  语法树里全部引用节点，含函数调用参数里嵌套的引用；不求值）与兜底 `PermissiveExprSchema`
+  （`TryGetSignature` 对任意 `group.key` 恒真，只用于只读遍历场景，不用于内容加载或运行期求值）；
+  均为纯新增公开类型，供编辑器等工具枚举一段 Expr 文本里出现过的全部 `group.key` 引用。
+- **数值设计落地阶段 N5 · T-N5-3**：新增 `Presentation.Assembly.NumericValidationRuleCatalog`/
+  `NumericValidationRuleDescriptor`（04 第 5 节数值类校验项分级表的只读集中登记，逐字段直接引用
+  各规则类自己的 `RuleId`/`CheckName` 常量）与 `ContentValidationAssembly.NumericRules`（单一来源
+  转发）；`toolchain/validator --json` 的 `rules[]` 新增 `category`/`group`/`check_names`/
+  `requires_anchor`/`enabled` 五个字段（详见 `toolchain/README.md`）；新增两个此前只以字面量嵌入
+  调用点、未公开的 `CheckName` 常量——`Core.Numbers.Progression.ProgLevelCurveValidationRule.
+  CheckName`（`"level_curve_xp_monotonic"`）与 `Core.Rules.Combat.CombatResistCurveValidationRule.
+  CheckEntriesMonotonic`（`"resist_curve_entries_monotonic"`），供集中登记清单按常量引用而非重复
+  字面量。均为纯新增公开类型/成员，`toolchain/abi_probe.ps1` 核对 breaks=0。
+- **数值设计落地阶段 N5 · T-N5-5**：新增 `toolchain/tests/test_editor_doc_consistency.py`——用
+  标准库 `html.parser`（无第三方依赖）解析编辑器产品文档 md/HTML 两版的"契约面清单"表、"变更记录"
+  表与文档头部版本号字符串，断言两版行标识集合与版本号一致，防止 HTML 版再次落后 md 版（随
+  `toolchain` pytest 套件一并跑）。
+
+### 变更（行为变更）
+
+- **数值设计落地阶段 N5 · T-N5-2**：`stat_definition_no_consumer`（"属性无消费者"警告）的消费者
+  来源判定从三条扩展为四条——`skill.def.use_condition`/`ai.rotation.condition`/
+  `quest.def.prerequisite` 等任意表的 `Expr` 字段里 `self.stat(<属性 id>)`/`target.stat(<属性
+  id>)` 引用现在也计入"已消费属性 id"（此前只覆盖跨表 Reference/SoftReference/Map 键引用与框架
+  内置消费者清单）。行为变更方向单一：此前只靠表达式引用消费的属性会从"报告警告"变为"不再报告
+  警告"，不会反过来产生新的警告。
+
+### 文档
+
+- **`architecture/04_数据与内容管线.md`**：第 5 节数值类校验项分级表引言补一句——本表落地为 20
+  条独立规则（阻断 13 + 警告 7），其中"曲线单调有限"一个概念条目按表族拆成三条实现，技能预算三项
+  依赖仿真锚点表（N6）接入后生效；"属性无消费者"一行的定义补上第四条已实现的消费者来源——任一
+  表达式（Expr）字段中 `self.stat(<id>)`/`target.stat(<id>)` 引用。细节勘误，版本号不变。
+- **`architecture/落地计划/数值规则核对表-N5.md`**：内容已并入 `数值设计分阶段落地计划.md` 末节
+  "落地进度记录"N5 记录；原文件保留作工作产物，头部加说明指向该节。
+- **编辑器产品文档**（`editor/docs/编辑器产品文档.md`/`.html`）：
+  - T-N5-4：第 4.1 节契约面清单新增三行——技能预算分析 `Core.Rules.Skill.SkillBudgetAnalyzer.
+    Analyze`/`ComputeGrantValue`（[ADR-0031](architecture/adr/0031-技能数值契约与预算.md) 决策
+    2，T-N3-9）、装备评分 `Core.Carriers.Item.EquipmentScoreAnalyzer.Score`/`Compare`
+    （[ADR-0032](architecture/adr/0032-装备预算消耗与词缀份额.md) 决策 9，T-N2-4）、数值规则集中
+    登记与引用查找 `Presentation.Assembly.NumericValidationRuleCatalog`/`ContentValidationAssembly.
+    NumericRules`/`toolchain/validator --json rules[]` 新字段/`Core.Foundation.Expr.
+    ExprReferenceCollector`（T-N5-2/T-N5-3）；第 5.8 节"数值沙盘"表新增第六行"内容覆盖仿真离群值
+    列表"并补一段契约意向说明（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md) 决策
+    3/6，标注"待 N6"，仅先固定契约面意向，具体字段形态待阶段 N6 落地 `core/sim` 后回填）。文档
+    版本 v2.15 → v2.16。均为纯文档新增，不改变第 4 章既有契约面签名，不涉及代码改动。
+  - T-N5-5：HTML 版此前只同步到 md 版 v2.6（第 4.1 节仍是 7 行的旧表，"资源引用标识"/"掉落表期望
+    概率分析"两行与 v2.7～v2.15 期间新增的其余契约面均未回填）——本任务把这段历史缺口连同 T-N5-4
+    的三行一并回填：第 4.1 节契约面清单表（全部 12 行）、"变更记录"表（v1～v2.16 全部 19 行）与
+    5.5.2（右侧结算预览 `ResolveTrace`）/5.5.4（掉落模拟 `LootTableAnalyzer.
+    ExpectedProbabilities`）/5.5.8（本地化编辑器 `WarnOnMissingTranslation` 框架契约更新段）/
+    5.7.5（schema 迁移改用 `SchemaMigrator.MigrateEnvelope`）/5.7.6（可选规则默认注册情况 +
+    `OptionalRules`/`TryGetOptionalRuleByCheck`）/5.8（`ResolveTrace` 相关依据文案）六处 md 已
+    更新但 HTML 未跟上的正文段，逐条对照 md 版对应版本的变更记录描述定位；`toolchain/tests/
+    test_editor_doc_consistency.py`（3 例）随之全绿。`editor/README.md` 版本号与说明同步更新。
+  - `CHANGELOG.md` 文首"编辑器相关契约"索引里 T-N5-2/3/4 三条已从 `（Unreleased）` 改标
+    `（1.35.0）`，内容不变。
+
+### 迁移说明
+
+- **`stat_definition_no_consumer` 消费者判定扩展 Expr 扫描**：见上方"变更（行为变更）"——此前只靠
+  表达式引用的属性会从"警告"变"不警告"，反向不会发生；按检查名/命中数断言"属性无消费者"告警数量
+  的消费方需要重新核对基线。
+- **`rules[]` 新字段向后兼容**：`toolchain/validator --json` 的 `rules[]` 新增
+  `category`/`group`/`check_names`/`requires_anchor`/`enabled` 五个字段均为纯新增，既有字段不变；
+  消费方若按 `rules[]` 数量或字段集合做精确断言（而非只读取已知字段）需要更新预期。
+
+### 编辑器接入建议
+
+- 编辑器"数值校验清单"一类面板可直接读 `ContentValidationAssembly.NumericRules`/
+  `Presentation.Assembly.NumericValidationRuleCatalog.Entries`，按 `rules[].group` 增加"所属
+  数值域"筛选维度，`requires_anchor`/`enabled` 供标注"该规则依赖 N6 锚点接入、当前不产出问题"，
+  不必自行硬编码 04 第 5 节分级表这份清单。
+- `ExprReferenceCollector` 供编辑器"引用图"与 Expr 编辑器"查找此字段全部引用"功能复用同一套只读
+  遍历逻辑，不必自行重新解析语法树摘取引用节点。
+- 编辑器产品文档第 4.1/5.8 节与 HTML 版已完整同步至 v2.16，`toolchain/tests/
+  test_editor_doc_consistency.py` 作为长期门禁防止两版再次漂移；编辑器项目消费文档内容时可直接
+  读任一版本，不必再核对哪个版本更新。
 
 ## [1.34.0] - 2026-09-16
 
