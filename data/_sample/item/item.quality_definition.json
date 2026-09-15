@@ -6,13 +6,28 @@
       "id": "item.quality.sample_common",
       "name_key": "l10n.item.quality.sample_common.name",
       "sort_weight": 1,
-      "budget_multiplier": 1.0
+      "budget_multiplier": 1.0,
+      "affix_count": 0,
+      "grant_budget_share": 0.0,
+      "price_multiplier": 1.0
     },
     {
       "id": "item.quality.sample_rare",
       "name_key": "l10n.item.quality.sample_rare.name",
       "sort_weight": 2,
-      "budget_multiplier": 1.5
+      "budget_multiplier": 1.5,
+      "affix_count": 1,
+      "grant_budget_share": 0.2,
+      "price_multiplier": 1.5
+    },
+    {
+      "id": "item.quality.sample_epic",
+      "name_key": "l10n.item.quality.sample_epic.name",
+      "sort_weight": 3,
+      "budget_multiplier": 2.0,
+      "affix_count": 2,
+      "grant_budget_share": 0.3,
+      "price_multiplier": 2.0
     }
   ]
 }

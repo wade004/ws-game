@@ -98,13 +98,45 @@ namespace Core.Gameplay.Loot
 
         private static JsonValue ToJson(DroppedLootEntity entity)
         {
+            // T-N2-8（ADR-0032 决策 7/8）：entity.Outcomes 与 entity.Items 按下标一一对应（见
+            // DroppedLootEntity.Outcomes 判断记录——本模块内部构造的实体总是保证等长），逐条把身份
+            // 信息（qualityId/affixes/itemLevel）写进对应下标的 item 对象；三个 key 均只在"有额外
+            // 指定"（非 null/非空）时才写（同既有 ownerHint/expireAt 惯例），未额外指定时省略 key，
+            // 读档时按 T-N2-7 兼容读取先例回退。
             var items = new List<JsonValue>(entity.Items.Count);
-            foreach (var stack in entity.Items)
+            for (var i = 0; i < entity.Items.Count; i++)
             {
-                items.Add(new JsonObjectBuilder()
+                var stack = entity.Items[i];
+                var itemBuilder = new JsonObjectBuilder()
                     .Add("templateId", new JsonString(stack.TemplateId.Value))
-                    .Add("count", new JsonNumber(stack.Count))
-                    .Build());
+                    .Add("count", new JsonNumber(stack.Count));
+
+                if (i < entity.Outcomes.Count)
+                {
+                    var outcome = entity.Outcomes[i];
+                    if (outcome.QualityId.HasValue)
+                    {
+                        itemBuilder.Add("qualityId", new JsonString(outcome.QualityId.Value.Value));
+                    }
+
+                    if (outcome.Affixes.Count > 0)
+                    {
+                        var affixArr = new List<JsonValue>(outcome.Affixes.Count);
+                        foreach (var affixId in outcome.Affixes)
+                        {
+                            affixArr.Add(new JsonString(affixId.Value));
+                        }
+
+                        itemBuilder.Add("affixes", new JsonArray(affixArr));
+                    }
+
+                    if (outcome.ItemLevel.HasValue)
+                    {
+                        itemBuilder.Add("itemLevel", new JsonNumber(outcome.ItemLevel.Value));
+                    }
+                }
+
+                items.Add(itemBuilder.Build());
             }
 
             var builder = new JsonObjectBuilder()
@@ -142,13 +174,38 @@ namespace Core.Gameplay.Loot
             var posObj = (JsonObject)obj["position"];
             var position = new Vec2(((JsonNumber)posObj["x"]).Value, ((JsonNumber)posObj["y"]).Value);
 
+            // T-N2-8（ADR-0032 决策 7/8）：旧存档缺 qualityId/affixes/itemLevel 三个 key 时（T-N2-8
+            // 之前写入的存档、或本次改写前保存的档）——按 T-N2-7 兼容读取先例（ItemInstanceJson.FromJson
+            // 判断记录）缺省为"未额外指定"（qualityId=null、affixes=空、itemLevel=null），消费方回退到
+            // 模板自身品质/物品等级，不是报错，也不是凭空编造数值。
             var items = new List<ItemStack>();
+            var outcomes = new List<LootRollOutcome>();
             foreach (var itemRaw in (JsonArray)obj["items"])
             {
                 var itemObj = (JsonObject)itemRaw;
                 var templateId = new Id(((JsonString)itemObj["templateId"]).Value);
                 var count = (int)((JsonNumber)itemObj["count"]).Value;
                 items.Add(new ItemStack(templateId, count));
+
+                Id? qualityId = itemObj.TryGetValue("qualityId", out var qRaw) && qRaw is JsonString qStr
+                    ? new Id(qStr.Value)
+                    : (Id?)null;
+
+                List<Id>? affixes = null;
+                if (itemObj.TryGetValue("affixes", out var affixesRaw) && affixesRaw is JsonArray affixesArr)
+                {
+                    affixes = new List<Id>(affixesArr.Count);
+                    foreach (var affixRaw in affixesArr)
+                    {
+                        affixes.Add(new Id(((JsonString)affixRaw).Value));
+                    }
+                }
+
+                int? itemLevel = itemObj.TryGetValue("itemLevel", out var lvlRaw) && lvlRaw is JsonNumber lvlNum
+                    ? (int?)lvlNum.Value
+                    : null;
+
+                outcomes.Add(new LootRollOutcome(templateId, count, qualityId, affixes, itemLevel));
             }
 
             Id? ownerHint = obj.TryGetValue("ownerHint", out var ownerRaw) && ownerRaw is JsonString ownerStr
@@ -159,7 +216,7 @@ namespace Core.Gameplay.Loot
                 ? expireNum.Value
                 : (double?)null;
 
-            return new DroppedLootEntity(entityId, mapId, items, ownerHint, expireAt)
+            return new DroppedLootEntity(entityId, mapId, items, outcomes, ownerHint, expireAt)
             {
                 Position = position,
                 // H4 补齐（见 DroppedLootEntity.GenericDisplayTemplateId 判断记录）：读档还原的掉落物

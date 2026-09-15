@@ -109,6 +109,11 @@ namespace Core.Gameplay.Difficulty
 
         public double LootMultiplier => CurrentTier.HasValue ? RequireTier(CurrentTier.Value).LootMultiplier : 1.0;
 
+        /// <summary>T-N2-8：显式转发（见 <see cref="IDifficultyHost.ItemLevelOffset"/> 判断记录"默认
+        /// 接口成员而非普通抽象成员"——本类型不落回默认值 0，同 <see cref="LootMultiplier"/> 一贯
+        /// 实现口径）。</summary>
+        public int ItemLevelOffset => CurrentTier.HasValue ? RequireTier(CurrentTier.Value).ItemLevelOffset : 0;
+
         public bool AllowMidSwitch => _options.AllowMidSwitch;
 
         // -----------------------------------------------------------------

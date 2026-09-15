@@ -165,7 +165,51 @@ namespace Core.Gameplay.Loot
                     $"第 {groupIndex} 个分组第 {entryIndex} 条 entries 的 count_range 不合法（要求 1 <= min <= max，实际 min={min}, max={max}）");
             }
 
-            return new LootEntry(refId, weightOrChance, condition, min, max);
+            var qualityWeights = ParseQualityWeights(record, groupIndex, entryIndex, entryObj);
+
+            return new LootEntry(refId, weightOrChance, condition, min, max, qualityWeights);
+        }
+
+        /// <summary>T-N2-8（ADR-0032 决策 7；08 第 1.1 节修订段）：解析 <c>quality_weights</c>（可选
+        /// <c>Map&lt;Id, Number&gt;</c>，见 <see cref="LootSchemas"/> 判断记录"退回 FieldKind.Object"）
+        /// ——按 JSON 键出现顺序保留（<see cref="LootEntry.QualityWeights"/> 判断记录"字典枚举顺序不是
+        /// 稳定顺序"），键必须是合法 <see cref="Id"/>、值必须是非负数，否则抛
+        /// <see cref="DataFieldException"/>（与本类型其余字段一致的"结构不合法即抛异常"口径，业务级
+        /// 引用完整性检查——键是否真的指向已加载的 <c>item.quality_definition</c>——留给
+        /// <see cref="LootContentValidationRule"/>，见该类型判断记录"退回业务判断"惯例）。</summary>
+        private static List<KeyValuePair<Id, double>>? ParseQualityWeights(
+            DataRecord record, int groupIndex, int entryIndex, JsonObject entryObj)
+        {
+            if (!entryObj.TryGetValue("quality_weights", out var qwVal) || !(qwVal is JsonObject qwObj) || qwObj.Count == 0)
+            {
+                return null;
+            }
+
+            var result = new List<KeyValuePair<Id, double>>(qwObj.Count);
+            foreach (var kv in qwObj)
+            {
+                if (!Id.TryParse(kv.Key, out var qualityId))
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "groups",
+                        $"第 {groupIndex} 个分组第 {entryIndex} 条 entries 的 quality_weights 键 \"{kv.Key}\" 不是合法 Id");
+                }
+
+                if (!(kv.Value is JsonNumber weightNum))
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "groups",
+                        $"第 {groupIndex} 个分组第 {entryIndex} 条 entries 的 quality_weights[\"{kv.Key}\"] 不是数值");
+                }
+
+                if (weightNum.Value < 0)
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "groups",
+                        $"第 {groupIndex} 个分组第 {entryIndex} 条 entries 的 quality_weights[\"{kv.Key}\"] 不能为负数");
+                }
+
+                result.Add(new KeyValuePair<Id, double>(qualityId, weightNum.Value));
+            }
+
+            return result;
         }
     }
 }

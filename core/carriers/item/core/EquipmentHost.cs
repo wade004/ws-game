@@ -109,6 +109,21 @@ namespace Core.Carriers.Item
         private readonly Dictionary<(Id UnitId, Id SetId), Dictionary<int, List<AuraInstanceRef>>> _appliedSetBonuses =
             new Dictionary<(Id, Id), Dictionary<int, List<AuraInstanceRef>>>();
 
+        /// <summary>T-N2-5（ADR-0032 决策 7/8）：词缀反解值——同 <see cref="IBudgetSolver"/>/<see
+        /// cref="BudgetSolver"/> 判断记录"不持有可变状态、每次调用是纯函数"，未显式注入时本类自建
+        /// 一份私有实例即可，不需要跨宿主共享同一份（同 <see cref="_auraHandleLedger"/> 未注入时
+        /// 自建的既有惯例，但 <c>BudgetSolver</c> 连"跨来源共享账本"这一需求都没有，纯粹是避免每次
+        /// 调用 <c>new BudgetSolver()</c> 的开销）。</summary>
+        private readonly IBudgetSolver _budgetSolver;
+
+        /// <summary>T-N2-5 判断记录（新增构造重载而不是给既有构造函数追加可选参数）：
+        /// <c>toolchain/abi_probe.ps1</c> 把"给既有 <c>.ctor</c> 追加带默认值的新参数"仍判定为
+        /// BREAKING——C# 源码层面重编译调用方无感（可选参数），但物理 IL 签名（参数个数）变了，
+        /// 已编译的旧调用方（未重新编译、只换新 DLL）按原签名调用会失败，属于真正的二进制不兼容。
+        /// 硬性规则 5"ABI 只允许新增"因此要求的是"新增一个重载"，不是"改写既有重载再加参数"——本
+        /// 类型原 11 参构造函数签名原样保留（不追加任何参数），新增一个 12 参重载（末尾追加 <see
+        /// cref="IBudgetSolver"/>），旧重载转发新重载并传 <c>budgetSolver: null</c>（等价于未提供，
+        /// 走 <see cref="_budgetSolver"/> 判断记录"未显式注入时自建一份"）。</summary>
         public EquipmentHost(
             IDataRegistryView registry,
             IEventBus bus,
@@ -121,6 +136,26 @@ namespace Core.Carriers.Item
             IItemDiagnostics? diagnostics = null,
             IAuraQuery? auraQuery = null,
             AuraHandleLedger? auraHandleLedger = null)
+            : this(registry, bus, inventory, statHost, effectSink, skillGranter, unitAccess,
+                  options, diagnostics, auraQuery, auraHandleLedger, budgetSolver: null)
+        {
+        }
+
+        /// <summary>T-N2-5（ADR-0032 决策 7/8）新增重载：见上一重载判断记录"新增构造重载而不是给
+        /// 既有构造函数追加可选参数"。</summary>
+        public EquipmentHost(
+            IDataRegistryView registry,
+            IEventBus bus,
+            InventoryHost inventory,
+            IStatHost statHost,
+            IEffectSink effectSink,
+            SkillGranter skillGranter,
+            IUnitAccess unitAccess,
+            ItemOptions? options,
+            IItemDiagnostics? diagnostics,
+            IAuraQuery? auraQuery,
+            AuraHandleLedger? auraHandleLedger,
+            IBudgetSolver? budgetSolver)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
@@ -131,6 +166,9 @@ namespace Core.Carriers.Item
             _unitAccess = unitAccess ?? throw new ArgumentNullException(nameof(unitAccess));
             _options = options ?? new ItemOptions();
             _diagnostics = diagnostics ?? new InMemoryItemDiagnostics();
+            // T-N2-5：新增可选依赖，惯例同本类型其它可选依赖（未提供时自建一份，见 _budgetSolver
+            // 判断记录）。
+            _budgetSolver = budgetSolver ?? new BudgetSolver();
             // CORE-170-01 根治：真实装配（CarriersAssembly）传入 RulesAssembly.AuraHandles（与种族
             // 被动共享的同一账本）。未提供时（null，惯例同本类型其它可选依赖）本类自建一份私有账本
             // ——退化为修复前"只在装备/套装两处之间共享计数、不与种族来源共享"的行为，不影响不涉及
@@ -232,7 +270,45 @@ namespace Core.Carriers.Item
             }
         }
 
+        /// <summary>
+        /// T-N2-7 更新（见五参重载判断记录、<c>core/carriers/item/README.md</c> 判断记录 20）：
+        /// <see cref="ItemInstance"/> 现已携带 <see cref="ItemInstance.Quality"/>/<see
+        /// cref="ItemInstance.Affixes"/> 身份字段，三参重载不再无条件转发 <c>null</c>/<c>null</c>——
+        /// 先查一次背包里这件物品的当前实例，转发它自带的品质/词缀（找不到实例时仍转发
+        /// <c>null</c>/<c>null</c>，五参重载内部会再查一次 <see cref="InventoryHost.FindInstance"/>
+        /// 并统一返回 <see cref="EquipFailureReason.NotInInventory"/>，行为与改动前一致，不额外抛
+        /// 异常）。多查一次背包属于同一单位背包内的字典/列表查找，代价可忽略，换来的是三参重载不
+        /// 再需要任何单独的"品质解析"逻辑——五参重载既有的 <c>qualityId ?? template.GetId("quality")</c>
+        /// 兜底分支只在"确实没查到实例"这一种情况下才会生效。
+        /// </summary>
         public EquipResult Equip(Id unitId, Id instanceId, Id slot)
+        {
+            var maybeInstance = _inventory.FindInstance(unitId, instanceId);
+            return Equip(unitId, instanceId, slot, maybeInstance?.Quality, maybeInstance?.Affixes);
+        }
+
+        /// <summary>
+        /// T-N2-5（ADR-0032 决策 7/8；07 第 1.6 节修订段"物品实例只存身份……读档按数据重算"）新增
+        /// 公开重载：显式指定穿戴时用于词缀反解的品质/词缀身份。
+        /// <para>
+        /// **T-N2-7 更新**：<see cref="Core.Carriers.Common.ItemInstance"/> 已携带 <c>Quality</c>/
+        /// <c>Affixes</c> 字段（见该类型顶部判断记录），三参 <see cref="Equip(Id, Id, Id)"/> 已按
+        /// 本条判断记录原计划改为转发 <c>instance.Quality</c>/<c>instance.Affixes</c>（查不到实例
+        /// 时仍转发 <c>null</c>/<c>null</c>，见该重载判断记录）——本方法自身逻辑不变，以下历史记录
+        /// 原样保留供追溯。
+        /// </para>
+        /// <para>
+        /// 历史判断记录（T-N2-5 落地时）：<see cref="Core.Carriers.Common.ItemInstance"/> 当时不携带
+        /// <c>Quality</c>/<c>Affixes</c> 字段（要到分阶段落地计划 T-N2-7 才落地），但护甲/词缀反解值
+        /// 写入 <see cref="IStatHost"/> 这条装备联动需要提前接上"按品质与词缀重算"的路径——任务书
+        /// 原文"把'词缀值写入'实现为接受 (qualityId, IReadOnlyList&lt;Id&gt; affixIds) 的内部/公开
+        /// 路径，并在既有装备路径里用'模板品质 + 空词缀'调用，T-N2-7 接上实例字段"。<paramref
+        /// name="qualityId"/> 为 <c>null</c> 时按模板自身 <c>quality</c> 字段解析，<paramref
+        /// name="affixIds"/> 为 <c>null</c> 时按空列表处理（模板自身 <c>stats</c>/护甲不受影响，只
+        /// 影响"词缀反解值"这一段，见 <see cref="ApplyGrants"/>）。
+        /// </para>
+        /// </summary>
+        public EquipResult Equip(Id unitId, Id instanceId, Id slot, Id? qualityId, IReadOnlyList<Id>? affixIds)
         {
             var maybeInstance = _inventory.FindInstance(unitId, instanceId);
             if (maybeInstance == null)
@@ -267,6 +343,23 @@ namespace Core.Carriers.Item
                 return EquipResult.Fail(EquipFailureReason.NotInInventory);
             }
 
+            // T-N2-5：见本方法判断记录——缺省按"模板自身品质 + 空词缀"解析。
+            var resolvedQuality = qualityId ?? template.GetId("quality");
+            var resolvedAffixes = affixIds ?? Array.Empty<Id>();
+
+            // T-N2-7 判断记录——把解析结果写回 taken 的 Quality/Affixes（ItemInstance 新增字段前，
+            // 本行不存在也不需要，因为没有字段可写）：ApplyGrants 用 resolvedQuality/resolvedAffixes
+            // 把词缀反解值写进 StatHost，若存入 unitSlots[slot]/背包的 taken 仍是原样（可能来自
+            // AddItemCore 缺省创建、Quality/Affixes 与 resolvedQuality/resolvedAffixes 不一致——如
+            // 调用方显式传入了不同的 qualityId/affixIds），会出现"StatHost 上生效的品质/词缀"与
+            // "GetAllEquippedInstances/EquipmentPersistable.Save 序列化出的身份字段"两者不一致——
+            // 存档/读档（EquipmentPersistable.Load 走三参 Equip，转发的是存档里 instance.Quality/
+            // Affixes）会用序列化出的（旧、不一致的）身份重新反解，读档后 StatHost 与存档前不再
+            // 相等，直接违反 ADR-0032 决策 8"读档按数据重算……与存档前一致"这一不变量。因此这里必须
+            // 用 resolvedQuality/resolvedAffixes 重建 taken 后再存入 unitSlots，保证"StatHost 上生效
+            // 的身份"与"这件装备实例自己携带、会被存档序列化的身份"恒一致——不存在第二份影子状态。
+            taken = new ItemInstance(taken.InstanceId, taken.TemplateId, taken.Count, resolvedQuality, resolvedAffixes, taken.Extra);
+
             var unitSlots = GetOrCreateUnitSlots(unitId);
             ItemInstanceRef? replaced = null;
             if (unitSlots.TryGetValue(slot, out var occupying))
@@ -289,7 +382,7 @@ namespace Core.Carriers.Item
                 replaced = occupying.ToRef();
             }
 
-            ApplyGrants(unitId, taken, template);
+            ApplyGrants(unitId, taken, template, resolvedQuality, resolvedAffixes);
             unitSlots[slot] = taken;
             if (TryGetSetId(template, out var setId))
             {
@@ -450,12 +543,34 @@ namespace Core.Carriers.Item
         /// 同一份数据、ItemSchemas.SlotDefinition.is_weapon 判断记录）从该单位当前已装备的槽位里找
         /// "武器槽"，不需要框架层硬编码任何具体槽位 id（如 "main_hand"）——槽位命名完全由游戏内容
         /// 数据决定。
+        /// <para>
+        /// T-N2-6 判断记录（口径不变、硬性规则"禁止改既有签名"）：ADR-0032 决策 4 落地后武器改走
+        /// "秒伤预算"，但本方法保留 <c>(damage_min+damage_max)/2</c> 语义——<c>weapon_damage_pct</c>
+        /// 原语改接秒伤 × 一拍常数是 N3 S3 的范围（见 <see cref="IWeaponDamageQuery.GetWeaponBaseDamage"/>
+        /// 判断记录），本方法只是把"找第一个武器槽"这一步抽成 <see cref="TryGetFirstWeaponSlot"/>
+        /// 供 <see cref="GetWeaponDps"/> 共用，行为与返回值同改动前逐位一致。
+        /// </para>
         /// </summary>
         public double GetWeaponBaseDamage(Id unitId)
         {
-            if (!_equipped.TryGetValue(unitId, out var slots) || slots.Count == 0)
+            if (!TryGetFirstWeaponSlot(unitId, out var weaponSlot))
             {
                 return 0.0;
+            }
+
+            var profile = GetWeaponProfile(unitId, weaponSlot);
+            return profile.HasValue ? (profile.Value.DamageMin + profile.Value.DamageMax) / 2.0 : 0.0;
+        }
+
+        /// <summary>T-N2-6：<see cref="GetWeaponBaseDamage"/>/<see cref="GetWeaponDps"/> 共用的"找第一个
+        /// 武器槽"步骤，从 <see cref="GetWeaponBaseDamage"/> 原实现原样抽出（多个武器槽/双持时按槽位 id
+        /// 序数最先命中，见该方法既有判断记录），不改变既有选择逻辑。</summary>
+        private bool TryGetFirstWeaponSlot(Id unitId, out Id weaponSlot)
+        {
+            weaponSlot = default;
+            if (!_equipped.TryGetValue(unitId, out var slots) || slots.Count == 0)
+            {
+                return false;
             }
 
             var weaponSlotIds = new List<Id>();
@@ -470,19 +585,76 @@ namespace Core.Carriers.Item
 
             if (weaponSlotIds.Count == 0)
             {
-                return 0.0;
+                return false;
             }
 
             weaponSlotIds.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
-            var profile = GetWeaponProfile(unitId, weaponSlotIds[0]);
-            return profile.HasValue ? (profile.Value.DamageMin + profile.Value.DamageMax) / 2.0 : 0.0;
+            weaponSlot = weaponSlotIds[0];
+            return true;
+        }
+
+        /// <summary>
+        /// T-N2-6（ADR-0032 决策 4；07 第 1.2 节修订段）：<see cref="IWeaponDamageQuery.GetWeaponDps"/>
+        /// 实现——武器秒伤 = <c>item.weapon_dps_curve</c>（id 取 <see cref="ItemOptions.WeaponDpsCurveId"/>）
+        /// 在该武器模板 <c>item_level</c> 处求值 × 品质预算倍率（<c>item.quality_definition
+        /// .budget_multiplier</c>，找不到对应品质记录时缺省 1，同 <see cref="ItemBudgetValidationRule"/>
+        /// 既有口径）× 武器槽位系数（该武器所在槽位的 <c>item.slot_definition.budget_coefficient</c>，
+        /// 缺省 1）。武器槽的选取规则同 <see cref="GetWeaponBaseDamage"/>（<see
+        /// cref="TryGetFirstWeaponSlot"/>）；未装备任何武器槽、或曲线找不到对应记录时返回 0，不抛
+        /// 异常（同 <see cref="ApplyArmorValue"/>"曲线缺失按不写处理"既有口径）。
+        /// <para>
+        /// 判断记录（品质取值来源——ItemInstance 尚不携带品质身份）：<see cref="Core.Carriers.Common
+        /// .ItemInstance"/> 要到 T-N2-7 才新增 <c>Quality</c> 字段（见 <see cref="Equip(Id, Id, Id,
+        /// Id?, System.Collections.Generic.IReadOnlyList{Id})"/> 判断记录），本模块当前无法查询"这件
+        /// 已装备武器实例实际是什么品质"——本方法与 <see cref="ApplyArmorValue"/>/<see
+        /// cref="ApplyAffixValues"/> 同样的既有限制，统一取武器模板自身登记的 <c>quality</c> 字段（不
+        /// 是穿戴时若显式传入的 <c>qualityId</c> 参数，那个参数只在穿戴那一刻用于词缀反解，不落地为
+        /// 可事后查询的状态）。T-N2-7 落地后，若需要按实例真实品质求秒伤，需要改造为从
+        /// <see cref="ItemInstance.Quality"/> 读取，本方法签名不受影响（只改内部实现）。
+        /// </para>
+        /// </summary>
+        public double GetWeaponDps(Id unitId)
+        {
+            if (!TryGetFirstWeaponSlot(unitId, out var weaponSlot))
+            {
+                return 0.0;
+            }
+
+            if (!_equipped.TryGetValue(unitId, out var slots) || !slots.TryGetValue(weaponSlot, out var instance))
+            {
+                return 0.0;
+            }
+
+            var template = RequireTemplate(instance.TemplateId);
+
+            var curveRecord = _registry.Get("item.weapon_dps_curve", _options.WeaponDpsCurveId);
+            if (curveRecord == null)
+            {
+                return 0.0;
+            }
+
+            var curve = CurveSchema.ReadBreakpoints(curveRecord, "entries");
+            var itemLevel = (int)template.GetInt("item_level");
+            var baseDps = curve.Evaluate(itemLevel);
+
+            var qualityRecord = _registry.Get("item.quality_definition", template.GetId("quality"));
+            var qualityMultiplier = qualityRecord != null && qualityRecord.TryGetNumber("budget_multiplier", out var qm)
+                ? qm
+                : 1.0;
+
+            var slotCoefficient = _slotDefinitions.TryGetValue(weaponSlot, out var slotDef) &&
+                slotDef.TryGetNumber("budget_coefficient", out var sc)
+                ? sc
+                : 1.0;
+
+            return baseDps * qualityMultiplier * slotCoefficient;
         }
 
         // -----------------------------------------------------------------
         // 装备联动：属性 / 技能 / 光环（07 第 1.4 节步骤 1/2）
         // -----------------------------------------------------------------
 
-        private void ApplyGrants(Id unitId, ItemInstance instance, DataRecord template)
+        private void ApplyGrants(Id unitId, ItemInstance instance, DataRecord template, Id qualityId, IReadOnlyList<Id> affixIds)
         {
             if (template.TryGetArray("stats", out var stats))
             {
@@ -499,6 +671,14 @@ namespace Core.Carriers.Item
                     _statHost.AddModifier(unitId, new StatModifier(statId, op, value, instance.InstanceId));
                 }
             }
+
+            // T-N2-5（ADR-0032 决策 4）：护甲值——非 stats 来源，同 sourceId（instance.InstanceId），
+            // 卸下时随 RevertGrants 的 RemoveModifiersBySource 一并撤销，不需要单独的撤销路径。
+            ApplyArmorValue(unitId, instance, template);
+
+            // T-N2-5（ADR-0032 决策 7/8）：词缀反解值——同 sourceId，随穿戴按数据重算；本任务的
+            // 调用点见 Equip(Id,Id,Id,Id?,IReadOnlyList<Id>?) 判断记录（模板品质 + 空词缀）。
+            ApplyAffixValues(unitId, instance, template, qualityId, affixIds);
 
             if (!template.TryGetObject("grants", out var grants))
             {
@@ -546,6 +726,176 @@ namespace Core.Carriers.Item
 
                         list.Add((auraDefId, granted));
                     }
+                }
+            }
+        }
+
+        /// <summary>
+        /// T-N2-5（ADR-0032 决策 4；07 第 1.2 节修订段"护甲值 = item.armor_curve(item_level) ×
+        /// 槽位系数，仅护甲位，不占预算"）：把该件装备的护甲值经 <see cref="IStatHost.AddModifier"/>
+        /// 写入 <see cref="ItemOptions.ArmorStatId"/>，来源同该件装备实例 id（<see
+        /// cref="ItemInstance.InstanceId"/>）——与模板 <c>stats</c>/词缀反解值共用同一个 sourceId
+        /// （任务书硬性规则"禁止用第二个 sourceId 写词缀值"，护甲值同理，一并遵守），卸下时随
+        /// <see cref="RevertGrants"/> 的 <see cref="IStatHost.RemoveModifiersBySource"/> 一并撤销。
+        /// <para>
+        /// 判断记录（护甲位判定——T-N2-6 设计层裁定，取代 T-N2-5 的推断规则）：T-N2-5 曾按"非武器位
+        /// （<c>is_weapon != true</c>）且是真正装备位（<c>is_equipment != false</c>）"推断护甲位，
+        /// 代价是戒指/项链/饰品一类传统意义上不该有护甲值的槽位也会被写入护甲修正，与魔兽世界"护甲
+        /// 仅头肩胸手腕手腰腿脚背盾"的更细分类不同（见该版本判断记录，`core/carriers/item/README.md`
+        /// 判断记录 20）。设计层就此裁定：<c>item.slot_definition</c> 新增显式可选字段
+        /// <c>has_armor</c>（见 <see cref="ItemSchemas.SlotDefinition"/>，缺省 <c>false</c>），
+        /// <see cref="IsArmorSlot"/> 只看 <c>has_armor == true</c>，不再从 <c>is_weapon</c>/
+        /// <c>is_equipment</c> 推断——游戏层需要显式给每个防具位（头/胸/腿/手/脚等）登记
+        /// <c>has_armor: true</c>，戒指/饰品/武器位缺省 <c>false</c> 即不写护甲。
+        /// </para>
+        /// <para>
+        /// 判断记录（护甲曲线缺失时的行为）：<see cref="ItemOptions.ArmorCurveId"/> 在已加载的
+        /// <c>item.armor_curve</c> 里找不到对应记录（游戏层尚未登记，或使用了非默认曲线 id 却未同步
+        /// 配置 <see cref="ItemOptions"/>）时，按"不写护甲"处理，直接返回，不抛异常——同 <see
+        /// cref="TryGetRequiredLevel"/> 需求等级曲线缺失时的既有口径一致（任务书"实现要点……曲线缺失
+        /// 时行为：护甲不写、需求等级视为 0"）。
+        /// </para>
+        /// </summary>
+        private void ApplyArmorValue(Id unitId, ItemInstance instance, DataRecord template)
+        {
+            var slot = template.GetId("slot");
+            if (!IsArmorSlot(slot))
+            {
+                return;
+            }
+
+            var curveRecord = _registry.Get("item.armor_curve", _options.ArmorCurveId);
+            if (curveRecord == null)
+            {
+                return;
+            }
+
+            var curve = CurveSchema.ReadBreakpoints(curveRecord, "entries");
+            var itemLevel = (int)template.GetInt("item_level");
+            var slotCoefficient = _slotDefinitions.TryGetValue(slot, out var slotDef) &&
+                slotDef.TryGetNumber("budget_coefficient", out var sc)
+                ? sc
+                : 1.0;
+
+            var armorValue = curve.Evaluate(itemLevel) * slotCoefficient;
+            _statHost.AddModifier(unitId, new StatModifier(_options.ArmorStatId, StatModifierOp.Flat, armorValue, instance.InstanceId));
+        }
+
+        /// <summary>见 <see cref="ApplyArmorValue"/> 判断记录"护甲位判定"（T-N2-6 设计层裁定）——只看
+        /// 槽位显式字段 <c>item.slot_definition.has_armor</c>，缺省 <c>false</c>。</summary>
+        private bool IsArmorSlot(Id slot) =>
+            _slotDefinitions.TryGetValue(slot, out var slotDef) &&
+            slotDef.TryGetBool("has_armor", out var hasArmor) && hasArmor;
+
+        /// <summary>
+        /// T-N2-5（ADR-0032 决策 7/8；07 第 1.6 节修订段）：按 <paramref name="affixIds"/> 逐条把
+        /// <c>item.affix</c> 的词缀经 <see cref="IBudgetSolver.Solve"/> 反解出各属性点数，与模板
+        /// <c>stats</c>/护甲值一起以同一 sourceId（<see cref="ItemInstance.InstanceId"/>）写入 <see
+        /// cref="IStatHost"/>——"具体数值在掉落那一刻……算出"（07 原文）在本模块的落地口径是"穿戴时
+        /// 按数据重算"，不在物品实例上缓存反解结果（10 第 2.5 节"属性快照默认不存"的延伸，同 ADR-0032
+        /// 决策 8"物品实例只存身份……读档按数据重算"）。
+        /// <para>
+        /// 判断记录（<c>shareOfBudget = affix.budget_share × Σratio</c>，<c>statMix</c> 归一化）：
+        /// <see cref="IBudgetSolver.Solve"/> 要求 <c>statMix</c> 的 <c>ratio</c> 之和严格为 1（见该
+        /// 接口判断记录），但 <c>item.affix.stat_mix</c> 的存量数据只保证"之和不超过一"（<see
+        /// cref="ItemAffixStatMixRatioSumRule"/>）。本方法按 <see cref="BudgetSolver"/> 类型判断记录
+        /// 给出的归一化方案：记原始比例之和为 <c>Σratio</c>，传入 <c>Solve</c> 的 <c>statMix</c> 按
+        /// <c>ratio_i / Σratio</c> 归一化（之和恰为 1，满足输入前提，且不改变各属性间的相对比例），
+        /// 同时把 <c>shareOfBudget</c> 由 <c>budget_share</c> 改传 <c>budget_share × Σratio</c>——
+        /// 这样"该条词缀内部未用满的份额"（<c>Σratio &lt; 1</c>）会按比例折算进实际反解出的目标预算，
+        /// 不会把"内部分配不满一"错误放大成"仍按 <c>budget_share</c> 全额反解"。任务书原文给出的正是
+        /// 这个乘积形式（"shareOfBudget = affix.budget_share × Σratio"），本方法按此实现。
+        /// </para>
+        /// <para>
+        /// 判断记录（引用完整性/形状异常不抛，记诊断跳过该条词缀）：<paramref name="affixIds"/>
+        /// 引用的 <c>item.affix</c> 记录理论上已经过 <c>reference_integrity</c> 校验，运行期查不到
+        /// 视为数据未通过校验时的防御分支（同 <see cref="RequireTemplate"/> 惯例，但降级为跳过而非
+        /// 抛异常——装备联动是"尽量把能算的算出来"的运行期路径，单条词缀数据异常不应该让整次穿戴
+        /// 失败）：记录 <see cref="IItemDiagnostics.Warn"/> 后跳过该条词缀，继续处理其余词缀。
+        /// <c>budget_share &lt;= 0</c> 或 <c>stat_mix</c> 为空/全部比例非正同样按"这条词缀不贡献任何
+        /// 属性"处理，静默跳过（不是数据错误，只是这条词缀恰好不产生数值，同 07 原文"授予规则"里
+        /// 某些池子允许零值词缀的表述口径一致）。
+        /// </para>
+        /// </summary>
+        private void ApplyAffixValues(Id unitId, ItemInstance instance, DataRecord template, Id qualityId, IReadOnlyList<Id> affixIds)
+        {
+            if (affixIds == null || affixIds.Count == 0)
+            {
+                return;
+            }
+
+            var slot = template.GetId("slot");
+            var itemLevel = (int)template.GetInt("item_level");
+
+            foreach (var affixId in affixIds)
+            {
+                var affixRecord = _registry.Get("item.affix", affixId);
+                if (affixRecord == null)
+                {
+                    _diagnostics.Warn(
+                        $"装备 \"{instance.InstanceId}\" 引用的词缀 \"{affixId}\" 在 item.affix 中不存在" +
+                        "（应已通过 item.template.affixes/item.affix 引用完整性校验），本次穿戴跳过该词缀");
+                    continue;
+                }
+
+                var budgetShare = affixRecord.TryGetNumber("budget_share", out var bs) ? bs : 0.0;
+                if (budgetShare <= 0.0)
+                {
+                    continue;
+                }
+
+                if (!affixRecord.TryGetArray("stat_mix", out var mixArray) || mixArray.Count == 0)
+                {
+                    continue;
+                }
+
+                var rawMix = new List<(Id Stat, double Ratio)>(mixArray.Count);
+                double ratioSum = 0;
+                foreach (var raw in mixArray)
+                {
+                    if (!(raw is JsonObject obj))
+                    {
+                        continue;
+                    }
+
+                    var statId = RequireId(obj, "stat");
+                    var ratio = GetNumber(obj, "ratio", 0);
+                    if (ratio <= 0.0)
+                    {
+                        continue;
+                    }
+
+                    rawMix.Add((statId, ratio));
+                    ratioSum += ratio;
+                }
+
+                if (rawMix.Count == 0 || ratioSum <= 0.0)
+                {
+                    continue;
+                }
+
+                var normalizedMix = new List<(Id Stat, double Ratio)>(rawMix.Count);
+                foreach (var entry in rawMix)
+                {
+                    normalizedMix.Add((entry.Stat, entry.Ratio / ratioSum));
+                }
+
+                // 防御：正常数据经 ItemAffixStatMixRatioSumRule（ratioSum <= 1）与 budget_share 的
+                // [0,1] 字段范围校验后乘积必然 <= 1，这里的夹取只应对校验被绕过（如直接构造测试数据）
+                // 的场景，避免 IBudgetSolver.Solve 的 shareOfBudget 越界校验抛出与本方法契约不符的
+                // 异常——本方法对外的失败模式统一是"跳过该条词缀 + 记诊断"，不是抛异常。
+                var shareOfBudget = budgetShare * ratioSum;
+                if (shareOfBudget > 1.0)
+                {
+                    shareOfBudget = 1.0;
+                }
+
+                var result = _budgetSolver.Solve(
+                    itemLevel, qualityId, slot, normalizedMix, _options.BudgetCurveId, shareOfBudget, _registry);
+
+                foreach (var kv in result.Values)
+                {
+                    _statHost.AddModifier(unitId, new StatModifier(kv.Key, StatModifierOp.Flat, kv.Value, instance.InstanceId));
                 }
             }
         }
@@ -1037,7 +1387,27 @@ namespace Core.Carriers.Item
             return false;
         }
 
-        private static bool TryGetRequiredLevel(DataRecord template, out int level)
+        /// <summary>
+        /// T-N2-5（ADR-0032 决策 5；07 第 1.1/1.2 节修订段"<c>requirements.level</c> 未填时按
+        /// <c>item.req_level_curve</c> 由 <c>item_level</c> 反推，填了以手填为准"）：优先读模板显式
+        /// 填写的 <c>requirements.level</c>；未填时按 <see cref="ItemOptions.ReqLevelCurveId"/> 指向
+        /// 的曲线反推。
+        /// <para>
+        /// 判断记录（取整规则——设计层裁定（2026-09-15）：采纳）：ADR-0032 决策 5、07 第 1.1/1.2 节修订段均只给
+        /// "由此反推"一句，未指明反推出的非整数需求等级如何取整为 <see cref="int"/>。本方法按
+        /// <see cref="Math.Ceiling"/>（向上取整）——"需求等级"是穿戴门槛，宁可让门槛略严（差 0.x 级
+        /// 也算未达标）也不放宽，同预算/护甲/需求等级三条曲线"越界夹取到端点"这一既有口径里"选择更
+        /// 保守近似"的思路一致；若设计层确认应改为 <c>Math.Round</c>/向下取整，只需改本方法这一处。
+        /// </para>
+        /// <para>
+        /// 判断记录（曲线缺失时的行为）：<see cref="ItemOptions.ReqLevelCurveId"/> 在已加载的
+        /// <c>item.req_level_curve</c> 里找不到对应记录时，按"无等级限制"处理（<paramref
+        /// name="level"/> 输出 0，返回 <c>false</c>）——与未登记 <c>requirements</c> 字段时的既有
+        /// 行为一致，不抛异常（同 <see cref="ApplyArmorValue"/> 护甲曲线缺失的既有口径）。曲线求值
+        /// 结果 &lt;= 0 同样按"无等级限制"处理（负的/零的需求等级没有实际门槛意义）。
+        /// </para>
+        /// </summary>
+        private bool TryGetRequiredLevel(DataRecord template, out int level)
         {
             if (template.TryGetObject("requirements", out var req) &&
                 req.TryGetValue("level", out var v) && v is JsonNumber n)
@@ -1046,8 +1416,24 @@ namespace Core.Carriers.Item
                 return true;
             }
 
-            level = 0;
-            return false;
+            var curveRecord = _registry.Get("item.req_level_curve", _options.ReqLevelCurveId);
+            if (curveRecord == null)
+            {
+                level = 0;
+                return false;
+            }
+
+            var curve = CurveSchema.ReadBreakpoints(curveRecord, "entries");
+            var itemLevel = (int)template.GetInt("item_level");
+            var reqLevel = curve.Evaluate(itemLevel);
+            if (reqLevel <= 0.0)
+            {
+                level = 0;
+                return false;
+            }
+
+            level = (int)Math.Ceiling(reqLevel);
+            return true;
         }
 
         private static bool TryGetSetId(DataRecord template, out Id setId)

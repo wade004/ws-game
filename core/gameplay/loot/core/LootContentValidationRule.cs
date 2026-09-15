@@ -240,6 +240,11 @@ namespace Core.Gameplay.Loot
                     $"（要求 1 <= min <= max，实际 min={minLong}, max={maxLong}）",
                     recordKey: record.Key, field: "groups");
             }
+
+            // T-N2-8（ADR-0032 决策 7；08 第 1.1 节修订段）：quality_weights 改用 ADR-0024 动态键 Map
+            // 登记（见 LootSchemas.Table 判断记录）——键的存在性（reference_integrity）与值的非负
+            // （field_range）均由 DataRegistry 的 Map 结构校验原生覆盖，不再需要本规则手写重复判断
+            // （惯例同本类型顶部"退役说明"：登记表能表达的约束不在业务规则里重复实现）。
         }
 
         private static bool TableLoaded(IDataRegistryView view, string table)

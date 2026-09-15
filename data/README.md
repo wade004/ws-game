@@ -237,6 +237,113 @@ validator/Program.cs` 不需要任何改动——它从未显式设置过 `Creat
 升级到本版本后 `validate_data.py --strict`（乃至默认的 `WarningsAllowed` 严格级别，因为
 `spawn_summon_only_creature` 是 Error 级，不受严格级别影响）会报错，需要先清理这类引用再升级。
 
+## item N2 示例数据（多等级多品质模板、三条曲线、份额词缀、槽位与品质新列）
+
+T-N2-10（分阶段落地计划第 14 节；ADR-0032）：在 T-N2-1～T-N2-9 已落地的运行时改动基础上，把
+`data/_sample/item/**` 从"单一等级/单一品质/仅武器槽"的最小样例，充实为覆盖 N2 新字段与新表的样例
+数据集，`games/_template` 空壳表保持不动（见下方判断记录）。
+
+- **`item.slot_definition`**：新增 8 条槽位，与既有 `item.slot.sample_main_hand`（武器位）/
+  `item.slot.sample_bag`（非装备分类桶）并存，不删既有行——`item.slot.sample_off_hand`（副手，
+  `is_weapon: true`）；五个防具位 `item.slot.sample_head`/`sample_chest`/`sample_legs`/
+  `sample_hands`/`sample_feet`（均 `has_armor: true`，T-N2-6 新字段，各自不同的
+  `budget_coefficient`/`price_coefficient` 样例，胸甲系数最高 1.25、手/脚较低 0.6，体现"部位越大
+  预算占比越高"这一常见取舍，样例非框架默认值）；两个饰品位 `item.slot.sample_ring`/
+  `sample_necklace`（`has_armor: false`）。
+- **`item.quality_definition`**：新增第三档 `item.quality.sample_epic`（`sort_weight: 3`，
+  `budget_multiplier`/`price_multiplier: 2.0`，与既有 `sample_common`（1.0）/`sample_rare`（1.5）
+  一起满足 `ItemQualityMultiplierOrderRule` 的非递减顺序）；`sample_common`/`sample_rare` 的
+  `affix_count` 由 2/3 改为 0/1，`sample_epic` 补 2，三档呈 0/1/2（任务书字面要求）；
+  `grant_budget_share` 三档 0.0/0.2/0.3 递增（`sample_rare` 原值 0.2 未改动，只新增 `sample_epic`
+  取比它更大的 0.3，改动面最小）。真实仓库里没有任何运行时代码消费 `item.quality_definition` 的
+  `affix_count`/`grant_budget_share` 具体数值（前者只作词缀抽取上限的登记位，随掉落三次掷骰
+  T-N2-8 已消费；后者"授予价值超占比"警告尚无对应 `IValidationRule` 实现，见下方判断记录），改动
+  这两个样例数值不影响任何既有断言（已核对 `core/carriers/item/tests`、`core/gameplay/loot/tests`
+  等全部引用 `item.quality.sample_*` id 的测试均使用各自独立的内联 JSON 夹具，不读取本目录真实
+  文件）。
+- **`item.affix`**：新增 `item.affix.sample_of_the_titan`（`quality_pool: item.quality.sample_epic`，
+  `budget_share: 0.15`，`stat_mix: [{stat: stat.stamina, ratio: 1.0}]`），与既有 4 条（`common`
+  池 2 条、`rare` 池 2 条）一起覆盖全部三档 `quality_pool`，满足"≥4 条覆盖三档"。
+- **`item.budget_curve`/`item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve`**：四张
+  曲线表断点均由 3 个扩到 6 个（`x = 1/10/20/30/40/60`，覆盖 07 惯例的 1～60 物品等级区间），全部
+  保留原有断点值不变（`item.budget.default` 在 `x=1/10/60` 处仍是 20/200/1200，`item.weapon_dps
+  .default` 仍是 4/20/120，`item.req_level.default` 仍是 1/10/60，`item.armor.default` 仍是
+  5/50/300）——`item.sample_blade`/`item.sample_model_sword` 两条既有模板的预算利用率（75%）、
+  武器秒伤偏离（0%）、需求等级反推（1）三处既有判断记录（见 `core/carriers/item/README.md` 判断
+  记录 18/20/21）与 `core/gameplay/tests/EndToEndTests.cs` 的 `strength +15`/需求等级断言均未受
+  影响。新插入的四个断点均落在原有折线（`item.budget.default`/`item.armor.default` 恰为
+  `20×item_level`/`5×item_level` 的线性曲线；`item.weapon_dps.default`/`item.req_level.default`
+  在 `x≥10` 段分别为 `2×item_level`/`1×item_level`）上，保证新老断点共同满足
+  `curve_monotonic_finite` 单调有限要求。`item.budget_curve.exponent` 保持 `1.5` 不变（任务书
+  硬性要求）。
+- **`item.template`**：新增 4 条，与既有 `item.sample_blade`/`item.sample_model_sword`
+  （均 `item_level=1`、`common`、主手）合计 6 条，覆盖多等级（1/10/20/30/60）×多品质（common/
+  rare/epic）×多槽位（主手/头/胸/脚/戒指）——`item.sample_helm`（头，rare，等级 10）、
+  `item.sample_chestplate`（胸，epic，等级 30）、`item.sample_boots`（脚，epic，等级 60）、
+  `item.sample_ring`（戒指，rare，等级 20）。四条均只填单一 `stats[]` 属性（`stat.weight` 权重
+  均为 1.0，消耗公式 `(Σ(值×权重)^k)^(1/k)` 单项时与 `k` 取值无关退化为该项本身，手算即可复现
+  `IBudgetSolver` 反解结果），数值与推导过程记在各自 `budget_note`（"样例，非框架默认值"）：利用率
+  统一取 75%（`≥70%` 阈值之上留出安全边际，不精确贴线），`affixes` 白名单只挑预算余量能覆盖的词缀
+  （见下一条），且都补了 `display_ref`/两语言 `name_key`。`value_override` 沿用既有 `item.sample_
+  blade` 那一条（=25）即满足"至少一条填 value_override"，四条新模板未重复填写。
+- **"模板加词缀最大份额超预算"人工核算**（该阻断校验本身尚未实现，见下方判断记录，样例仍按其
+  语义人工满足）：
+
+  | 模板 | 等级/品质/槽位 | 预算上限 B | stats 消耗 | 利用率 | 词缀白名单（词缀池 `budget_share`） | 消耗+词缀最大份额 |
+  |---|---|---|---|---|---|---|
+  | `item.sample_blade`（既有） | 1/common/主手 | 20×1.0×1.0=20 | 15 | 75% | common 池 `affix_count=0`，不掷词缀骰 | 75%（无词缀） |
+  | `item.sample_model_sword`（既有） | 1/common/主手 | 20×1.0×1.0=20 | 15 | 75% | 同上 | 75%（无词缀） |
+  | `item.sample_helm` | 10/rare/头 | 200×1.5×0.8=240 | 180 | 75% | `sample_of_frost`（0.2） | 75%+20%=95% |
+  | `item.sample_ring` | 20/rare/戒指 | 400×1.5×0.5=300 | 225 | 75% | `sample_of_frost`（0.2） | 75%+20%=95% |
+  | `item.sample_chestplate` | 30/epic/胸 | 600×2.0×1.25=1500 | 1125 | 75% | `sample_of_the_titan`（0.15） | 75%+15%=90% |
+  | `item.sample_boots` | 60/epic/脚 | 1200×2.0×0.6=1440 | 1080 | 75% | `sample_of_the_titan`（0.15） | 75%+15%=90% |
+
+  全部 6 条 ≤ 100%，且"预算利用率过低"（`item_budget_utilization_low`）与"预算超标"
+  （`item_budget_exceeded`）两条已实现的规则在 `python toolchain/validate_data.py --strict` 下
+  对本数据集均 0 命中（连同 `ItemQualityMultiplierOrderRule`/`ItemAffixStatMixRatioSumRule`/
+  `ItemWeaponDamageDeviatesDpsCurveRule`/`CurveMonotonicFiniteRule` 一并核实，见该命令实测输出）。
+- **`loot.table`**：`loot.sample_beast` 追加第二条配置了 `quality_weights` 的条目（引用
+  `item.sample_helm`，`{common:2, rare:2, epic:1}`），追加在既有三条条目之后（不改变既有条目在
+  `chance_each` 掷骰顺序中的位置/随机数消耗次序，`core/gameplay/tests/EndToEndTests.cs` 里"保底掉
+  1 个 `item.sample_token`"与"固定种子两次独立运行掉落逐项相等"两条断言均只依赖相对确定性/包含
+  关系，不依赖具体随机数序列，已核对不受影响）。
+- **`diff.tier`**：`diff.sample_story` 补一行显式 `item_level_offset: 0`（与缺省值相同，仅作为
+  T-N2-8 新字段的样例展示，同 T-N2-3 给 `item.budget_curve` 补 `exponent` 样例的处理口径）；
+  `diff.sample_veteran` 既有 `item_level_offset: 5` 未改动。
+- **`l10n.text`/`display.map`**：新增槽位/品质/模板/词缀共 14 个 `name_key`，`zh_cn`/`en_us` 两语言
+  各补一行；4 条新模板的 `display.map` 行复用既有 `sprite.item.sample_blade` 精灵集（不新增素材，
+  同既有 `item.sample_token`/`item.sample_tonic` 两行的既定做法，`category: item`、无
+  `weapon_style_ref`——四条新模板均非武器），按既有 id 字母序插入。
+
+**判断记录（"模板加词缀最大份额超预算"阻断校验，T-N2-10 时尚未实现——已由 T-N2-11 补齐）**：分阶段
+落地计划第 8 节阶段 N2 验收标准 5 要求"模板加词缀最大份额超预算……各报 Error"，T-N2-10 核对时
+`core/carriers/item/schema/README.md`"校验规则清单"与 `core/carriers/item/core/
+ItemValidationRules.cs`（当时八个 `IValidationRule` 实现类）确认：现有八条规则里只有
+`item_budget_exceeded`（模板自身 `stats` 超预算）与 `item_budget_utilization_low`（利用率过低警告）
+两条与预算相关，均不核算词缀；`core/carriers/item/README.md` 判断记录 17 末段"勘误"明确写着"模板加
+词缀最大份额超预算……仍需预算反解……确实要等 T-N2-4"，而 T-N2-4（判断记录 19）落地的是
+`IBudgetSolver.Solve`/`EquipmentScoreAnalyzer` 两个可调用契约面，未新增任何 `IValidationRule`；
+T-N2-8（判断记录 15）落地的是掉落三次掷骰的运行时消费，同样未新增这条阻断规则。T-N2-10 当时只补
+数据与文档，不实现校验规则（任务书"禁止事项"明确要求"本任务不实现校验规则，但样例要满足"）——本节
+的人工核算表按该阻断校验的既定语义（预算反解出的词缀份额 + 模板自身消耗占比 ≤ 100%）手工保证全部
+样例合规。**T-N2-11 已按同一语义落地 `ItemTemplateAffixShareExceedsBudgetRule`（检查名
+`item_template_affix_share_exceeds_budget`），`data/_sample`/`games/_template` 两个数据根
+`--strict` 校验 0 命中，与本节人工核算表结论一致，零改样例**，见 `core/carriers/item/README.md`
+判断记录 25、`core/carriers/item/schema/README.md`"校验规则清单"新增一行。
+
+**判断记录（`games/_template/data/game/item/**`/`diff/diff.tier.json` 保持不动，读 `games/_template/
+data/README.md` 既定约定后的决定）**：该文件明确记录 `item.slot_definition`/`item.quality_
+definition`/`item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve` 五张表当前状态是
+"游戏必填（若已有 `item.template` 内容）/空壳（尚无物品内容时）"，`item.budget_curve` 保留一条
+"留作示例"的行；模板本身**没有**任何 `item.template` 数据（"本模板暂无 `item.template` 行"，同一
+README 原文），这是该模板"最小可玩闭环"既定范围的既有设计（不含物品系统，见该文件"判断记录：为
+什么没有 `creature.template`/`display.map`"一节的同类口径）。T-N2-10 的"填形"选项因此按既定约定
+选择**保持空壳**：五张表继续保留空 `rows: []`（`item.budget_curve` 保留原有一条示例不动），不额外
+造出一份脱离任何 `item.template` 的孤立槽位/品质/曲线数据——造了也不会被任何模板引用，无法体现
+"最小合法示例"的实际意义，反而会让后来者误以为模板已经支持物品内容。`diff/diff.tier.json` 同理不
+改：该表已有 1 条 `diff.template_normal`（`item_level_offset` 缺省 0，语义等价于显式填 0），且该
+README 未把 T-N2-8 的 `item_level_offset` 列入"游戏必填"清单，本任务不越权新增字段样例。
+
 ## 编码与格式
 
 - UTF-8，无 BOM。

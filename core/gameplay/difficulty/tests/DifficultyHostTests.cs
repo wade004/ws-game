@@ -138,6 +138,36 @@ namespace Tests.Gameplay.Difficulty
         }
 
         // -------------------------------------------------------------
+        // T-N2-8（ADR-0032 决策 5；08 第 5.1 节修订段）：ItemLevelOffset
+        // -------------------------------------------------------------
+
+        [Fact]
+        public void ItemLevelOffset_DefaultsToZero_BeforeApply()
+        {
+            var host = MakeHost(out _, out _, out _, out _);
+
+            Assert.Equal(0, host.ItemLevelOffset);
+        }
+
+        [Fact]
+        public void ItemLevelOffset_ReflectsAppliedTier()
+        {
+            var host = MakeHost(out _, out _, out _, out _);
+            host.Apply(HardTier, DifficultyScope.Global, null);
+
+            Assert.Equal(5, host.ItemLevelOffset);
+        }
+
+        [Fact]
+        public void ItemLevelOffset_UnconfiguredTier_DefaultsToZero()
+        {
+            var host = MakeHost(out _, out _, out _, out _);
+            host.Apply(NormalTier, DifficultyScope.Global, null);
+
+            Assert.Equal(0, host.ItemLevelOffset);
+        }
+
+        // -------------------------------------------------------------
         // creature.spawned 订阅：施加修正光环
         // -------------------------------------------------------------
 

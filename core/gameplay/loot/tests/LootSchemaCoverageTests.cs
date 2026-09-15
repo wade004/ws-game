@@ -233,5 +233,106 @@ namespace Tests.Gameplay.Loot
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i => i.Check == "loot_content" && i.Message.Contains("guaranteed_min"));
         }
+
+        // -------------------------------------------------------------
+        // T-N2-8（ADR-0032 决策 7；08 第 1.1 节修订段）：quality_weights 动态键 Map 登记覆盖
+        // （ADR-0024，键 reference_integrity、值 field_range，均由 DataRegistry 原生校验，见
+        // LootSchemas.Table 判断记录，不再经 LootContentValidationRule 手写业务判断）。
+        // -------------------------------------------------------------
+
+        private static string RawEnvelope(string table, string rows) =>
+            "{\"table\":\"" + table + "\",\"schema_version\":1,\"rows\":" + rows + "}";
+
+        private const string QualityDefinitionRows =
+            "[{\"id\":\"item.quality.sample_common\",\"name_key\":\"l10n.quality.sample_common\"}," +
+            "{\"id\":\"item.quality.sample_rare\",\"name_key\":\"l10n.quality.sample_rare\"}]";
+
+        /// <summary>schema 覆盖：<c>quality_weights</c> 字段已登记为 ADR-0024 动态键 Map（<see
+        /// cref="FieldKind.Object"/> + <see cref="FieldSchema.Map"/>，见 <see cref="LootSchemas"/>
+        /// 判断记录），键引用 <c>item.quality_definition</c> 均存在、值非负时零阻断。</summary>
+        [Fact]
+        public void QualityWeightsField_IsRegisteredAsMap_AndWellFormedDataLoadsWithoutErrors()
+        {
+            var field = FindEntryField("quality_weights");
+            Assert.Equal(FieldKind.Object, field.Kind);
+            Assert.False(field.Required);
+            Assert.NotNull(field.Map);
+            Assert.Equal("item.quality_definition", field.Map!.KeyReferenceTable);
+
+            var rows = "[{\"id\": \"loot.sample_qw_ok\", \"groups\": [" +
+                "{\"roll_mode\": \"chance_each\", \"entries\": [" +
+                "{\"ref\": \"item.sample_gear\", \"weight_or_chance\": 0.5, \"count_range\": {\"min\":1,\"max\":1}, " +
+                "\"quality_weights\": {\"item.quality.sample_common\": 3, \"item.quality.sample_rare\": 1}}" +
+                "]}]}]";
+
+            var source = new InMemoryDataSource()
+                .Add(LootSchemas.Table.Name, Envelope(LootSchemas.Table.Name, rows))
+                .Add("item.quality_definition", RawEnvelope("item.quality_definition", QualityDefinitionRows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(LootSchemas.Table);
+            registry.RegisterSchema(ItemSchemas.QualityDefinition);
+            registry.RegisterValidationRule(new LootContentValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        private static FieldSchema FindEntryField(string name)
+        {
+            var groupsField = LootSchemas.Table.GetField("groups")!;
+            var entryField = groupsField.Item!.Fields!.Single(f => f.Name == "entries");
+            return entryField.Item!.Fields!.Single(f => f.Name == name);
+        }
+
+        [Fact]
+        public void QualityWeightsNegativeValue_ReportsFieldRangeError()
+        {
+            var rows = "[{\"id\": \"loot.sample_qw_negative\", \"groups\": [" +
+                "{\"roll_mode\": \"chance_each\", \"entries\": [" +
+                "{\"ref\": \"item.sample_gear\", \"weight_or_chance\": 0.5, \"count_range\": {\"min\":1,\"max\":1}, " +
+                "\"quality_weights\": {\"item.quality.sample_common\": -1}}" +
+                "]}]}]";
+
+            var source = new InMemoryDataSource()
+                .Add(LootSchemas.Table.Name, Envelope(LootSchemas.Table.Name, rows))
+                .Add("item.quality_definition", RawEnvelope("item.quality_definition", QualityDefinitionRows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(LootSchemas.Table);
+            registry.RegisterSchema(ItemSchemas.QualityDefinition);
+            registry.RegisterValidationRule(new LootContentValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues,
+                i => i.Check == "field_range" && i.Field != null && i.Field.Contains("quality_weights"));
+        }
+
+        [Fact]
+        public void QualityWeightsKey_TargetMissing_ReportsReferenceIntegrityError()
+        {
+            var rows = "[{\"id\": \"loot.sample_qw_missing_quality\", \"groups\": [" +
+                "{\"roll_mode\": \"chance_each\", \"entries\": [" +
+                "{\"ref\": \"item.sample_gear\", \"weight_or_chance\": 0.5, \"count_range\": {\"min\":1,\"max\":1}, " +
+                "\"quality_weights\": {\"item.quality.does_not_exist\": 1}}" +
+                "]}]}]";
+
+            var source = new InMemoryDataSource()
+                .Add(LootSchemas.Table.Name, Envelope(LootSchemas.Table.Name, rows))
+                .Add("item.quality_definition", RawEnvelope("item.quality_definition", QualityDefinitionRows));
+
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(LootSchemas.Table);
+            registry.RegisterSchema(ItemSchemas.QualityDefinition);
+            registry.RegisterValidationRule(new LootContentValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues,
+                i => i.Check == "reference_integrity" && i.Message.Contains("quality_weights") &&
+                     i.Message.Contains("在表 \"item.quality_definition\" 中不存在"));
+        }
     }
 }

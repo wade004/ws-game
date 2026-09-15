@@ -69,6 +69,18 @@ difficulty/
    `Reference` 会让 `reference_integrity` 校验因目标表未加载而恒报错（同
    `core/carriers/creature.CreatureSchemas` 同款判断记录）。
 
+7. **T-N2-8（ADR-0032 决策 5；08 第 5.1 节修订段）：`diff.tier.item_level_offset` 转正，
+   `IDifficultyHost.ItemLevelOffset` 与既有 `LootMultiplier` 同一消费口径**——新增字段/属性遵守
+   判断记录 1"依赖方向"：本模块只登记、暴露当前档位的 `ItemLevelOffset`（未应用任何档位时为
+   `0`，语义同 `LootMultiplier` 默认值 `1.0`"无难度修正"），不反向依赖
+   `core/gameplay/loot`；`Core.Gameplay.Loot.RollContext` 新增的 `ItemLevelOffset` 字段由调用方
+   （游戏层组装/掉落发起点）自行从本属性取值后传入，本模块不知道、也不需要知道 `RollContext` 的
+   存在。ABI 判断记录：`IDifficultyHost.ItemLevelOffset` 登记为**默认接口成员**（默认值 `0`）而非
+   普通抽象成员——硬性规则"ABI 只允许新增：新增成员只能是新重载、默认接口方法、枚举新成员"，接口
+   已发布，直接加抽象成员会让既有外部实现方编译失败；唯一实现 `DifficultyHost` 显式转发真实值
+   （`CurrentTier.HasValue ? RequireTier(CurrentTier.Value).ItemLevelOffset : 0`），不落回默认值，
+   已过 `Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests` 门禁。
+
 ## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
 
 `DifficultyHost.Load` 修复前开头无条件把 `CurrentTier`/`CurrentScope`/`CurrentMapId` 三个字段

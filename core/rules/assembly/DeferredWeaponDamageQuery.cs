@@ -34,5 +34,11 @@ namespace Core.Rules.Assembly
         public void Bind(IWeaponDamageQuery real) => _real = real;
 
         public double GetWeaponBaseDamage(Id unitId) => _real?.GetWeaponBaseDamage(unitId) ?? 0.0;
+
+        /// <summary>T-N2-6：显式转发 <see cref="IWeaponDamageQuery.GetWeaponDps"/>（新增的带默认实现
+        /// 接口成员）——同 <see cref="GetWeaponBaseDamage"/> 惯例，<see cref="Bind"/> 之前调用返回 0，
+        /// 不是"悄悄吃掉默认值"（<c>Tests.Presentation.Assembly.
+        /// InterfaceDefaultMemberForwardingTests</c> 门禁要求组合/代理实现必须显式转发）。</summary>
+        public double GetWeaponDps(Id unitId) => _real?.GetWeaponDps(unitId) ?? 0.0;
     }
 }

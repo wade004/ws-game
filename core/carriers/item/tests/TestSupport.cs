@@ -9,7 +9,8 @@ using Core.Rules.Common;
 namespace Tests.Carriers.Item
 {
     /// <summary>本模块测试共用夹具：事件总线（登记四个 item.* 事件 key）、DataRegistry 构造帮助
-    /// 方法（注册六张 item.* schema + stat.definition）、<see cref="IEffectSink"/>/<see
+    /// 方法（注册九张 item.* schema——T-N2-1 起含 <c>armor_curve</c>/<c>weapon_dps_curve</c>/
+    /// <c>req_level_curve</c> 三条新曲线表 + stat.definition）、<see cref="IEffectSink"/>/<see
     /// cref="IUnitAccess"/> 的测试假实现、记录型 <see cref="Core.Carriers.Item.SkillGranter"/>。</summary>
     internal static class TestSupport
     {
@@ -53,14 +54,32 @@ namespace Tests.Carriers.Item
             var source = new InMemoryDataSource();
             configure(source);
 
-            var registry = new DataRegistry(source, CreateBus());
+            // T-N2-4：FailOnUnknownTable=false（同 core/numbers/stat_block/tests/
+            // StatWeightSchemaTests.BuildRegistry 既有手法）——本模块不静态耦合 arch.class 的真实
+            // schema（L3 不依赖 L1 具体表结构），但 stat.weight.class_overrides[].class 的
+            // reference_integrity 检查需要能在已加载数据里找到同 id 的一条记录；调用方需要覆盖
+            // 职业权重的测试用例时，在 configure 里往 "arch.class" 塞最小行（仅 id 字段，走
+            // TableSchema.Unschematized 占位 schema，不需要满足 arch.class 真实 schema 的
+            // name_key/primary_stat/base_stats/power_types 等必填字段），不提供时该表保持空、不
+            // 影响既有测试。
+            var registry = new DataRegistry(source, CreateBus(), new DataRegistryOptions { FailOnUnknownTable = false });
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Template);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.BudgetCurve);
+            // T-N2-1（ADR-0032 决策 4/5）：护甲/武器秒伤/需求等级三条新曲线表，登记同 BudgetCurve。
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.ArmorCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.WeaponDpsCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.ReqLevelCurve);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Set);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Affix);
             registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
+            // T-N2-3（ADR-0032 决策 3）：消耗公式读取 stat.weight/stat.rating_conversion，注册同
+            // stat.definition——未在 configure 里塞行的用例，两张表 GetAll 返回空列表，
+            // ItemBudgetCurve.BuildStatBudgetInfo 对没有权重记录的属性按缺省权重 1 回退（见该方法
+            // 判断记录），不影响既有未提供这两张表数据的测试夹具。
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Weight);
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.RatingConversion);
             // ADR-0019 F1c：grants.skills/auras、item.set.bonuses[].aura_ref 登记为
             // Reference(skill.def)/Reference(skill.aura_def)（L3 引用 L2 程序集合法），
             // reference_integrity 内建校验因此需要这两张表已加载——本模块测试用到的 skill/aura id

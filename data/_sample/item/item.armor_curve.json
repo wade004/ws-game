@@ -1,0 +1,17 @@
+{
+  "table": "item.armor_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.armor.default",
+      "entries": [
+        { "x": 1, "y": 5 },
+        { "x": 10, "y": 50 },
+        { "x": 20, "y": 100 },
+        { "x": 30, "y": 150 },
+        { "x": 40, "y": 200 },
+        { "x": 60, "y": 300 }
+      ]
+    }
+  ]
+}

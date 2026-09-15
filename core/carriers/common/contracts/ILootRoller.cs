@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Core.Foundation.Common;
 
 namespace Core.Carriers.Common
@@ -18,5 +19,20 @@ namespace Core.Carriers.Common
         /// <paramref name="killerId"/> 供按击杀者分档（如个人贡献相关规则）的掉落表使用，无明确击杀者
         /// （如开箱、采集）时为 null。</summary>
         IReadOnlyList<ItemStack> Roll(Id lootTableId, Id sourceUnitId, Id? killerId);
+
+        /// <summary>
+        /// T-N2-8 新增（ADR-0032 决策 7；硬性规则"禁止改既有 <see cref="Roll"/> 签名"，本方法是新增
+        /// 方法，不是签名变更）：带身份的掉落抽取，见 <see cref="LootRollOutcome"/> 类型注释。
+        /// <para>
+        /// 默认实现：转发 <see cref="Roll"/> 并把每条 <see cref="ItemStack"/> 投影为"未额外指定"的
+        /// <see cref="LootRollOutcome"/>（<see cref="LootRollOutcome.FromStack"/>，即模板品质 + 空
+        /// 词缀 + 模板物品等级，均用 <c>null</c> 表达"回退到模板自身"，见该类型判断记录）——组合/
+        /// 包装实现方（如延迟绑定代理）若能转发到另一个同样实现了本接口的真实宿主，应显式重写本方法
+        /// 转发到 <c>该宿主.RollDetailed</c>，不应该悄悄吃掉默认值（见
+        /// <c>Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests</c> 门禁）。
+        /// </para>
+        /// </summary>
+        IReadOnlyList<LootRollOutcome> RollDetailed(Id lootTableId, Id sourceUnitId, Id? killerId) =>
+            Roll(lootTableId, sourceUnitId, killerId).Select(LootRollOutcome.FromStack).ToList();
     }
 }

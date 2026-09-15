@@ -364,5 +364,66 @@ namespace Tests.Carriers.Item
             Assert.Equal(2, itemAddedCount);
             Assert.Equal(2, host.CountOf(unit, new Id("item.sample_potion")));
         }
+
+        // -----------------------------------------------------------------
+        // T-N2-8b：IInventoryHost 带身份的 AddItem 重载——新建堆叠携带调用方指定的
+        // Quality/Affixes；带词缀或非模板品质的物品视为与模板默认形态不同的身份，不与任何既有堆叠
+        // 合并（哪怕 templateId 相同，哪怕两次给的身份完全一样），总是新开格子；无词缀且品质等于
+        // 模板自身品质时（"默认身份"）与既有堆叠行为完全一致，见 InventoryHost.AddItemCore 判断
+        // 记录"默认身份"。本文件既有的 item.quality.rare/item.quality.epic 未登记进
+        // item.quality_definition 表——AddItemCore 不对调用方传入的 qualityId/affixes 做引用完整性
+        // 检查（只是原样存入 ItemInstance），同真实掉落拾取路径（LootHost.PickUp 转发的
+        // outcome.QualityId/Affixes 同样是掉落抽取阶段已经过内容校验的引用，运行期不重复校验）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void AddItem_WithIdentity_StoresQualityAndAffixesOnNewInstance()
+        {
+            var host = BuildHost(out _, stackSize: 5);
+            var unit = new Id("player.hero");
+            var quality = new Id("item.quality.rare");
+            var affixes = new[] { new Id("item.affix.sharp"), new Id("item.affix.heavy") };
+
+            Assert.True(host.AddItem(unit, new Id("item.sample_potion"), 1, quality, affixes));
+
+            var items = host.ListItems(unit);
+            var instance = Assert.Single(items);
+            Assert.Equal(quality, instance.Quality);
+            Assert.Equal(affixes, instance.Affixes.ToArray());
+        }
+
+        [Fact]
+        public void AddItem_SameTemplateDifferentQuality_DoesNotStack()
+        {
+            var host = BuildHost(out _, stackSize: 5);
+            var unit = new Id("player.hero");
+
+            Assert.True(host.AddItem(unit, new Id("item.sample_potion"), 1, new Id("item.quality.rare"), null));
+            Assert.True(host.AddItem(unit, new Id("item.sample_potion"), 1, new Id("item.quality.epic"), null));
+
+            var items = host.ListItems(unit);
+            Assert.Equal(2, items.Count);
+            Assert.Contains(items, i => i.Quality.Equals(new Id("item.quality.rare")));
+            Assert.Contains(items, i => i.Quality.Equals(new Id("item.quality.epic")));
+        }
+
+        [Fact]
+        public void AddItem_NonDefaultIdentity_NeverStacksEvenWithIdenticalIdentity_OrExistingDefaultStack()
+        {
+            var host = BuildHost(out _, stackSize: 5);
+            var unit = new Id("player.hero");
+            var quality = new Id("item.quality.rare");
+
+            // 一件模板默认品质的既有堆叠。
+            Assert.True(host.AddItem(unit, new Id("item.sample_potion"), 2));
+            // 两次相同的非默认品质加入——即使身份完全一样，也不与彼此或上面的默认堆叠合并。
+            Assert.True(host.AddItem(unit, new Id("item.sample_potion"), 1, quality, null));
+            Assert.True(host.AddItem(unit, new Id("item.sample_potion"), 1, quality, null));
+
+            var items = host.ListItems(unit);
+            Assert.Equal(3, items.Count);
+            Assert.Single(items, i => i.Quality.Equals(new Id("item.quality.common")) && i.Count == 2);
+            Assert.Equal(2, items.Count(i => i.Quality.Equals(quality) && i.Count == 1));
+        }
     }
 }

@@ -40,6 +40,33 @@ namespace Core.Carriers.Common
             return ok;
         }
 
+        /// <summary>
+        /// T-N2-8b（T-N2-8 已知缺口收口；ADR-0032 决策 7/8）：同 <see cref="AddItem"/>，额外接受
+        /// <paramref name="qualityId"/>/<paramref name="affixes"/>——供掉落拾取一类"这件物品自带具体
+        /// 品质/词缀身份"的加入路径使用（见 <c>Core.Gameplay.Loot.LootHost.PickUp</c>）；两者均为
+        /// <c>null</c>（或 <paramref name="qualityId"/> 恰好等于模板自身品质且 <paramref
+        /// name="affixes"/> 为空）时与既有 <see cref="AddItem"/> 完全同一语义（见
+        /// <c>Core.Carriers.Item.InventoryHost.AddItem</c>（带身份重载）判断记录"默认身份"）。
+        /// <para>
+        /// 判断记录（默认接口实现 = 兼容退化，转发旧 <see cref="AddItem"/> 并丢弃身份）：本方法新增
+        /// 之前的既有实现（含各模块测试用的最小 Fake）没有任何办法知道"品质/词缀身份"这个概念，默认
+        /// 实现因此直接转发旧签名——落地的物品仍然是"模板缺省品质、无词缀"，与这些实现改造前的既有
+        /// 行为完全一致，不引入新的运行期断言（同 <see cref="TryAddItem"/>/<see cref="GetCapacity"/>
+        /// 顶部判断记录一贯口径）。真正需要保真身份的唯一生产实现 <see
+        /// cref="Core.Carriers.Item.InventoryHost"/> 显式覆盖本方法（见该类型判断记录），不依赖此
+        /// 默认值。
+        /// </para>
+        /// </summary>
+        bool AddItem(Id unitId, Id templateId, int count, Id? qualityId, IReadOnlyList<Id>? affixes) =>
+            AddItem(unitId, templateId, count);
+
+        /// <summary>同 <see cref="TryAddItem(Id, Id, int, out int)"/>，额外接受 <paramref
+        /// name="qualityId"/>/<paramref name="affixes"/>（见 <see cref="AddItem(Id, Id, int, Id?,
+        /// IReadOnlyList{Id})"/> 判断记录）。默认实现转发旧 <see cref="TryAddItem(Id, Id, int, out
+        /// int)"/>，同一份"兼容退化，丢弃身份"惯例。</summary>
+        bool TryAddItem(Id unitId, Id templateId, int count, Id? qualityId, IReadOnlyList<Id>? affixes, out int actualCount) =>
+            TryAddItem(unitId, templateId, count, out actualCount);
+
         /// <summary>从 <paramref name="unitId"/> 背包移除指定实例 <paramref name="count"/> 个（堆叠类
         /// 物品可部分移除），成功后发出 <c>item.removed</c>（见 07 第 1.3 节原文签名）。</summary>
         bool RemoveItem(Id unitId, Id instanceId, int count);
@@ -54,5 +81,26 @@ namespace Core.Carriers.Common
         /// <summary>补充：按实例 id 查找该单位背包中的一件具体物品；不存在或不属于该单位背包时返回
         /// null。</summary>
         ItemInstance? FindInstance(Id unitId, Id instanceId);
+
+        /// <summary>
+        /// 分阶段落地计划 T-N2-9（ADR-0034 决策 8；07 第 1.3 节修订段"背包容量来源"）：查询
+        /// <paramref name="unitId"/> 当前的背包容量（格子数上限）；<see cref="int.MaxValue"/> 表示
+        /// 不限。
+        /// <para>
+        /// 判断记录（默认实现选择"转发到既有语义"而不是抛异常）：本接口在新增该成员之前完全没有
+        /// "容量"概念——<c>InventoryOptions</c> 是 <c>InventoryHost</c> 的构造期私有配置，不是接口
+        /// 契约的一部分，默认实现无法得知任何实现方的具体数值上限。凡是未显式覆盖本方法的既有实现
+        /// （含各模块测试用的最小 Fake），在本成员新增之前，调用方看到的就是"这份契约压根不提供
+        /// 容量信息"，等价于"没有已知上限"；默认值取 <see cref="int.MaxValue"/> 是把这一历史现状
+        /// 原样表达为返回值，不对未覆盖的既有实现引入新的行为断言（同 <see cref="TryAddItem"/> 顶部
+        /// 判断记录"未覆盖本方法的既有实现……这一历史行为原样保留"一贯做法）。备选方案"默认抛
+        /// <see cref="System.NotSupportedException"/>"被否决——那会让任何既有 Fake 在被换成读
+        /// <see cref="GetCapacity"/> 的新调用路径时从"能用"变成"抛异常崩溃"，与默认接口成员"不破坏
+        /// 既有实现编译期兼容性、也不应破坏其运行期既有行为"的设计初衷相反。真正需要精确容量语义的
+        /// 唯一生产实现 <see cref="Core.Carriers.Item.InventoryHost"/> 显式覆盖本方法（见该类型
+        /// <c>GetCapacity</c> 判断记录），不依赖此默认值。
+        /// </para>
+        /// </summary>
+        int GetCapacity(Id unitId) => int.MaxValue;
     }
 }

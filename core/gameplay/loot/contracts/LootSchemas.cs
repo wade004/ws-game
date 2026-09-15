@@ -63,6 +63,22 @@ namespace Core.Gameplay.Loot
                 new FieldSchema("condition", FieldKind.Expr, required: false,
                     description: "可选前置条件；缺省/未提供表示恒真"),
                 CountRange,
+                new FieldSchema("quality_weights", FieldKind.Object, required: false,
+                    description: "分阶段落地计划 T-N2-8（ADR-0032 决策 7；08 第 1.1 节修订段）：装备类" +
+                        "条目的品质权重，Map<Reference(item.quality_definition), Number>=0>（JSON 对象，" +
+                        "键为品质 id、值为池内权重），缺省/空表示不掷品质骰、直接取模板自身品质，不消耗" +
+                        "随机数（见 LootTableParser/LootHost 判断记录）。ADR-0024（04 第 3.3 节'映射登记'）" +
+                        "动态键 Map 登记：键按 WithMap(MapSchema.ReferenceKeyTable(\"item.quality_definition\", ...))" +
+                        "经 reference_integrity 检查存在性，值按 FieldRange.Range(min:0) 经 field_range 检查" +
+                        "非负——不再退回 FieldKind.Object 不透明占位（同既有 6 条 schema_audit_allowlist " +
+                        "条目的判断记录：能用 Map 登记的动态键字段应该用 Map，不进白名单）")
+                    .WithMap(MapSchema.ReferenceKeyTable(
+                        "item.quality_definition",
+                        new FieldSchema("value", FieldKind.Number, required: true,
+                            description: "该品质在本条目品质骰里的相对权重；范围 >=0（同 " +
+                                "weighted_pick_one 既有 weight_or_chance 登记口径'相对权重'，0 表示登记了" +
+                                "但当前不参与抽取，见 LootHost.RollQuality 判断记录）")
+                            .WithRange(FieldRange.Range(min: 0)))),
             });
 
         private static readonly FieldSchema GroupItem = new FieldSchema(

@@ -1141,16 +1141,18 @@ namespace Core.Numbers.StatBlock
         /// 兜底口径。
         /// </para>
         /// <para>
-        /// 引用到曲线时按其登记的形态求值（<see cref="RatingConversionShape"/>）：
+        /// 引用到曲线时按其登记的形态求值（<see cref="RatingConversionShape"/>），T-N2-3 起委托
+        /// <see cref="RatingConversionEvaluator.ToPercent"/>（正向求值式子已提升为公开静态工具，供
+        /// 装备预算消耗公式共用，见该类型判断记录，本方法只负责取 <see cref="_ratingConversions"/>
+        /// 与 <see cref="StatHostOptions.LevelLookup"/> 两份"本模块私有状态"再转交）：
         /// <see cref="RatingConversionShape.Breakpoints"/>（"标准版：等级索引除数"）——按等级在
         /// <c>entries</c>（已按 <c>x</c> 升序排列）上线性插值取得 <c>y</c>（每 1% 所需点数，越界取
         /// 端点），再用 <c>percent = rawValue / pointsPerPercent</c> 算出换算结果（2026-09-05 设计层
         /// 裁定：<c>x</c> 就是单位等级，<c>rawValue</c> 本身只作被除数，不参与插值，见
         /// <see cref="ParseCurve"/> 判断记录）；空曲线（迁移前遗留的极端情形）退化为直通。
         /// <see cref="RatingConversionShape.Saturation"/>（"变态版：饱和曲线，除数随等级增长"）——
-        /// 委托 <see cref="EvaluateSaturation"/>，公式与 <c>combat.resist_curve</c> 饱和分支
-        /// （<c>ResistCurve.ComputeReduction</c>）同形态，见 04 第 3.6 节
-        /// <c>CurveSchema.SaturationField</c> 判断记录。
+        /// 公式与 <c>combat.resist_curve</c> 饱和分支（<c>ResistCurve.ComputeReduction</c>）同形态，
+        /// 见 04 第 3.6 节 <c>CurveSchema.SaturationField</c> 判断记录。
         /// </para>
         /// <para>
         /// 单位等级经构造期注入的 <see cref="StatHostOptions.LevelLookup"/> 具名委托查询——
@@ -1173,39 +1175,12 @@ namespace Core.Numbers.StatBlock
 
             var level = _options.LevelLookup?.Invoke(unitId) ?? 1;
 
-            if (conversion.Shape == RatingConversionShape.Saturation)
-            {
-                return EvaluateSaturation(rawValue, level, conversion.K, conversion.Cap);
-            }
-
-            if (conversion.Curve.Count == 0)
-            {
-                return rawValue;
-            }
-
-            // T-N0-4：插值委托 PiecewiseCurve.Evaluate（越界夹取端点、段内 lo + t × (hi − lo)，与迁移前
-            // 本方法手写的式子逐运算相同，见 PiecewiseCurve 判断记录 2）。
-            var pointsPerPercent = conversion.Curve.Evaluate(level);
-            return DivideByPointsPerPercent(rawValue, pointsPerPercent);
-        }
-
-        private static double DivideByPointsPerPercent(double rawValue, double pointsPerPercent)
-        {
-            return pointsPerPercent == 0 ? 0.0 : rawValue / pointsPerPercent;
-        }
-
-        /// <summary>T-N1-3（ADR-0030 决策 3；04 第 3.6 节 <c>CurveSchema.SaturationField</c> 判断
-        /// 记录）："变态版：饱和曲线，除数随等级增长"——<c>输出 = rawValue / (rawValue + k × level)</c>，
-        /// 以 <c>cap</c> 封顶；非正分母（<c>rawValue</c> 与 <c>k × level</c> 相消或为负）与负结果一律
-        /// 降级为 0，公式与 <c>ResistCurve.ComputeReduction</c> 的 <c>ResistCurveKind.Saturation</c>
-        /// 分支逐运算相同（与护甲/抗性减免曲线同形态，ADR-0030 决策 3"换算曲线契约固定为……与
-        /// <c>combat.resist_curve</c> 同形态"）。</summary>
-        private static double EvaluateSaturation(double rawValue, int level, double k, double cap)
-        {
-            var denom = rawValue + k * level;
-            var result = denom <= 0.0 ? 0.0 : rawValue / denom;
-            if (result < 0.0) result = 0.0;
-            return Math.Min(result, cap);
+            // T-N2-3：正向求值委托 RatingConversionEvaluator.ToPercent（插值/饱和两分支的式子从本方法
+            // 移出，改为 Core.Numbers.StatBlock 命名空间级公开静态工具，供 Core.Carriers.Item 的装备
+            // 预算消耗公式复用同一份实现，见该类型判断记录；逐运算与迁移前本方法手写式子相同，既有
+            // RatingConversionMigrationTests 等测试锁定结果不变）。
+            return RatingConversionEvaluator.ToPercent(
+                conversion.Shape, conversion.Curve, conversion.K, conversion.Cap, rawValue, level);
         }
 
         // -----------------------------------------------------------------
@@ -1280,18 +1255,10 @@ namespace Core.Numbers.StatBlock
             }
         }
 
-        /// <summary>T-N1-3（ADR-0030 决策 3；04 第 3.6 节）：一条 <c>stat.rating_conversion</c> 记录
-        /// 登记的曲线形态——两者二选一，由 <c>StatRatingConversionValidationRule</c> 在内容校验阶段
-        /// 保证互斥。</summary>
-        private enum RatingConversionShape
-        {
-            /// <summary>"标准版：等级索引除数"，见 <see cref="RatingConversion.Curve"/>。</summary>
-            Breakpoints,
-
-            /// <summary>"变态版：饱和曲线，除数随等级增长"，见 <see cref="RatingConversion.K"/>/
-            /// <see cref="RatingConversion.Cap"/>。</summary>
-            Saturation,
-        }
+        // T-N2-3：本类型此前在此处私有声明的 RatingConversionShape 枚举，已提升为命名空间级公开类型
+        // Core.Numbers.StatBlock.RatingConversionShape（见 RatingConversionEvaluator.cs），供
+        // Core.Carriers.Item 的装备预算消耗公式共用同一份"点数↔百分比"换算（硬性规则"禁止复制插值
+        // 实现"）。本类型（同命名空间）直接引用该公开类型，不再维护独立的一份私有定义。
 
         private sealed class RatingConversion
         {

@@ -335,5 +335,368 @@ namespace Tests.Carriers.Item
 
             Assert.Empty(issues);
         }
+
+        // -----------------------------------------------------------------
+        // T-N2-1（ADR-0032 决策 2）：品质倍率顺序须与 sort_weight 一致
+        // -----------------------------------------------------------------
+
+        private static IDataRegistryView BuildQualityView(string qualityJson)
+        {
+            return TestSupport.BuildRegistry(source =>
+            {
+                source.Add("item.slot_definition", TestSupport.Table("item.slot_definition", SlotJson));
+                source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", qualityJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
+                source.Add("skill.aura_def", TestSupport.Table("skill.aura_def", AuraDefJson));
+            });
+        }
+
+        [Fact]
+        public void QualityMultiplierOrderRule_IncreasingWithSortWeight_NoIssue()
+        {
+            var view = BuildQualityView(
+                "[{\"id\": \"item.quality.common\", \"name_key\": \"l10n.item.quality.common\", \"sort_weight\": 1," +
+                " \"budget_multiplier\": 1.0, \"price_multiplier\": 1.0}," +
+                "{\"id\": \"item.quality.rare\", \"name_key\": \"l10n.item.quality.rare\", \"sort_weight\": 2," +
+                " \"budget_multiplier\": 1.5, \"price_multiplier\": 1.5}," +
+                "{\"id\": \"item.quality.epic\", \"name_key\": \"l10n.item.quality.epic\", \"sort_weight\": 3," +
+                " \"budget_multiplier\": 1.5, \"price_multiplier\": 2.0}]");
+
+            var issues = new ItemQualityMultiplierOrderRule().Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        [Fact]
+        public void QualityMultiplierOrderRule_DecreasingBudgetMultiplier_ReportsError()
+        {
+            // sort_weight 2 的品质 budget_multiplier（0.8）低于 sort_weight 1 已出现的最大值（1.0），
+            // 顺序与排序权重不一致（ADR-0032 决策 2）。
+            var view = BuildQualityView(
+                "[{\"id\": \"item.quality.common\", \"name_key\": \"l10n.item.quality.common\", \"sort_weight\": 1," +
+                " \"budget_multiplier\": 1.0, \"price_multiplier\": 1.0}," +
+                "{\"id\": \"item.quality.rare\", \"name_key\": \"l10n.item.quality.rare\", \"sort_weight\": 2," +
+                " \"budget_multiplier\": 0.8, \"price_multiplier\": 1.5}]");
+
+            var issues = new ItemQualityMultiplierOrderRule().Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Error, issue.Severity);
+            Assert.Equal(ItemQualityMultiplierOrderRule.Check, issue.Check);
+            Assert.Equal("budget_multiplier", issue.Field);
+            Assert.Equal("item.quality.rare", issue.RecordKey);
+        }
+
+        [Fact]
+        public void QualityMultiplierOrderRule_SameSortWeightDifferentMultiplier_NoIssue()
+        {
+            // 并列 sort_weight 的两个品质彼此不比较（相对顺序未定义，见类型判断记录）。
+            var view = BuildQualityView(
+                "[{\"id\": \"item.quality.side_a\", \"name_key\": \"l10n.item.quality.side_a\", \"sort_weight\": 1," +
+                " \"budget_multiplier\": 1.2, \"price_multiplier\": 1.0}," +
+                "{\"id\": \"item.quality.side_b\", \"name_key\": \"l10n.item.quality.side_b\", \"sort_weight\": 1," +
+                " \"budget_multiplier\": 0.8, \"price_multiplier\": 1.0}]");
+
+            var issues = new ItemQualityMultiplierOrderRule().Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        // -----------------------------------------------------------------
+        // T-N2-2（ADR-0032 决策 7；04 第 5 节"词缀份额之和"）：单条 item.affix.stat_mix
+        // 内部 ratio 之和不超过一
+        // -----------------------------------------------------------------
+
+        private static IDataRegistryView BuildAffixView(string affixJson)
+        {
+            return TestSupport.BuildRegistry(source =>
+            {
+                source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", QualityJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
+                source.Add("item.affix", TestSupport.Table("item.affix", affixJson));
+            });
+        }
+
+        [Fact]
+        public void AffixStatMixRatioSumRule_SumExceedsOne_ReportsError()
+        {
+            // 0.6 + 0.6 = 1.2 > 1，超出 Epsilon 容差，报错（ADR-0032 决策 7）。
+            var view = BuildAffixView(
+                "[{\"id\": \"item.affix.sum_bad\", \"name_key\": \"l10n.item.affix.sum_bad\"," +
+                " \"budget_share\": 0.5, \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 0.6}," +
+                " {\"stat\": \"stat.strength\", \"ratio\": 0.6}]}]");
+
+            var issues = new ItemAffixStatMixRatioSumRule().Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Error, issue.Severity);
+            Assert.Equal(ItemAffixStatMixRatioSumRule.Check, issue.Check);
+            Assert.Equal("stat_mix", issue.Field);
+            Assert.Equal("item.affix.sum_bad", issue.RecordKey);
+        }
+
+        [Fact]
+        public void AffixStatMixRatioSumRule_SumWithinOne_NoIssue()
+        {
+            // 0.5 + 0.5 = 1（含浮点误差在 Epsilon 容差内），不报错。
+            var view = BuildAffixView(
+                "[{\"id\": \"item.affix.sum_ok\", \"name_key\": \"l10n.item.affix.sum_ok\"," +
+                " \"budget_share\": 0.5, \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 0.5}," +
+                " {\"stat\": \"stat.strength\", \"ratio\": 0.5}]}]");
+
+            var issues = new ItemAffixStatMixRatioSumRule().Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        // -----------------------------------------------------------------
+        // T-N2-3（ADR-0032 决策 3/10）：预算消耗公式加权改造集成到 ItemBudgetValidationRule 后的
+        // 槽位系数、预算利用率过低警告——手算数值见 ItemBudgetCurveComputeConsumedTests（公式本身的
+        // 6+ 组 k=1/k=1.5 手算不在本文件重复，这里只覆盖 Validate() 这一集成层：曲线×品质倍率×槽位
+        // 系数算预算上限、利用率阈值判定）。
+        // -----------------------------------------------------------------
+
+        private const string SlotWithCoefficientJson =
+            "[{\"id\": \"item.slot.ring\", \"name_key\": \"l10n.item.slot.ring\", \"budget_coefficient\": 0.5}," +
+            "{\"id\": \"item.slot.consumable\", \"name_key\": \"l10n.item.slot.consumable\", \"is_equipment\": false}]";
+
+        private static IDataRegistryView BuildBudgetFormulaView(string templateJson)
+        {
+            return TestSupport.BuildRegistry(source =>
+            {
+                source.Add("item.slot_definition", TestSupport.Table("item.slot_definition", SlotWithCoefficientJson));
+                source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", QualityJson));
+                source.Add("item.budget_curve", TestSupport.Table("item.budget_curve", BudgetCurveJson));
+                source.Add("item.template", TestSupport.Table("item.template", templateJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
+                source.Add("skill.aura_def", TestSupport.Table("skill.aura_def", AuraDefJson));
+                // 故意不注册 stat.weight 行：ComputeConsumed 对没有对应记录的属性按缺省权重 1 回退
+                // （见 ItemBudgetCurve.BuildStatBudgetInfo 判断记录），本组用例只关心槽位系数/利用率
+                // 阈值这一层，不需要额外权重变量。
+            });
+        }
+
+        [Fact]
+        public void BudgetRule_SlotBudgetCoefficient_ShrinksLimit_PreviouslyOkItemNowExceeds()
+        {
+            // 手算（"含槽位系数的一组"）：item_level=1 → 曲线预算 20，quality.common 倍率 1，
+            // item.slot.ring 槽位系数 0.5 ⇒ 上限 = 20×1×0.5 = 10。stats 单一 flat 词条 value=15，
+            // 权重缺省 1 ⇒ 消耗 = 15。15 > 10，超预算报错——同样的 15 点若槽位系数是 1（既有
+            // BudgetRule_WithinBudget_NoIssue 用的 consumable 槽位）本应在 20 的上限内合法，槽位系数
+            // 把上限砍半后才超标，验证槽位系数确实乘进了预算上限。
+            var view = BuildBudgetFormulaView(
+                "[{\"id\": \"item.sample_ring\", \"slot\": \"item.slot.ring\", \"quality\": \"item.quality.common\"," +
+                " \"item_level\": 1, \"display_ref\": \"display.item.sample_ring\", \"stack_size\": 1," +
+                " \"name_key\": \"l10n.item.sample_ring\"," +
+                " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 15}]}]");
+
+            var issues = new ItemBudgetValidationRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Error, issue.Severity);
+            Assert.Equal(ItemBudgetValidationRule.Check, issue.Check);
+        }
+
+        [Fact]
+        public void BudgetRule_UtilizationBelowThreshold_ReportsNonEscalatableWarning()
+        {
+            // 正例（利用率警告）：item_level=1 → 上限 20（quality/槽位系数均 1）。stats 消耗 8，
+            // 利用率 8/20 = 0.4 < 默认阈值 0.7 ⇒ 警告，检查名 item_budget_utilization_low，且不产生
+            // 超预算 Error（8 < 20）。
+            var view = BuildBudgetFormulaView(
+                "[{\"id\": \"item.sample_underfilled\", \"slot\": \"item.slot.consumable\", " +
+                " \"quality\": \"item.quality.common\", \"item_level\": 1, " +
+                " \"display_ref\": \"display.item.sample_underfilled\", \"stack_size\": 5," +
+                " \"name_key\": \"l10n.item.sample_underfilled\"," +
+                " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 8}]}]");
+
+            var rule = new ItemBudgetValidationRule(new Id("item.budget.default"));
+            var issues = rule.Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+            Assert.Equal(ItemBudgetValidationRule.CheckUtilizationLow, issue.Check);
+            Assert.True(rule.NonEscalatable);
+        }
+
+        [Fact]
+        public void BudgetRule_UtilizationAtOrAboveThreshold_NoIssue()
+        {
+            // 负例：同一预算上限 20，stats 消耗 15，利用率 15/20 = 0.75 >= 默认阈值 0.7，不报警告
+            // （也不超预算）。
+            var view = BuildBudgetFormulaView(
+                "[{\"id\": \"item.sample_wellfilled\", \"slot\": \"item.slot.consumable\", " +
+                " \"quality\": \"item.quality.common\", \"item_level\": 1, " +
+                " \"display_ref\": \"display.item.sample_wellfilled\", \"stack_size\": 5," +
+                " \"name_key\": \"l10n.item.sample_wellfilled\"," +
+                " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 15}]}]");
+
+            var issues = new ItemBudgetValidationRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        [Fact]
+        public void BudgetRule_CustomUtilizationThreshold_OverloadOverridesDefault()
+        {
+            // T-N2-3 新增构造重载：同 BudgetRule_UtilizationAtOrAboveThreshold_NoIssue 的 0.75 利用率，
+            // 默认阈值 0.7 下不报警告；显式传入阈值 0.9 后 0.75 < 0.9，应报警告——验证新重载确实生效
+            // （不是默认值的静默复制）。
+            var view = BuildBudgetFormulaView(
+                "[{\"id\": \"item.sample_customthreshold\", \"slot\": \"item.slot.consumable\", " +
+                " \"quality\": \"item.quality.common\", \"item_level\": 1, " +
+                " \"display_ref\": \"display.item.sample_customthreshold\", \"stack_size\": 5," +
+                " \"name_key\": \"l10n.item.sample_customthreshold\"," +
+                " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 15}]}]");
+
+            var issues = new ItemBudgetValidationRule(new Id("item.budget.default"), 0.9).Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+            Assert.Equal(ItemBudgetValidationRule.CheckUtilizationLow, issue.Check);
+        }
+
+        // -----------------------------------------------------------------
+        // T-N2-11（ADR-0032 决策 7/10；04 第 5 节"模板加词缀最大份额超预算"）：模板自身消耗 +
+        // 可抽词缀池最大份额 × 预算不得超过预算上限。全部用例复用 item_level=1 → 曲线预算 20
+        // （BudgetCurveJson）、quality.common 倍率 1、item.slot.consumable 槽位系数缺省 1 ⇒
+        // 预算上限 B = 20，与既有 BudgetRule_* 用例同一组手算基线。
+        // -----------------------------------------------------------------
+
+        private const string QualityWithAffixCountOneJson =
+            "[{\"id\": \"item.quality.common\", \"name_key\": \"l10n.item.quality.common\"," +
+            " \"budget_multiplier\": 1, \"affix_count\": 1}]";
+
+        private static IDataRegistryView BuildTemplateAffixShareView(
+            string templateJson, string affixJson, string? qualityJson = null)
+        {
+            return TestSupport.BuildRegistry(source =>
+            {
+                source.Add("item.slot_definition", TestSupport.Table("item.slot_definition", SlotJson));
+                source.Add("item.quality_definition",
+                    TestSupport.Table("item.quality_definition", qualityJson ?? QualityJson));
+                source.Add("item.budget_curve", TestSupport.Table("item.budget_curve", BudgetCurveJson));
+                source.Add("item.template", TestSupport.Table("item.template", templateJson));
+                source.Add("item.affix", TestSupport.Table("item.affix", affixJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
+                source.Add("skill.aura_def", TestSupport.Table("skill.aura_def", AuraDefJson));
+            });
+        }
+
+        private static string TemplateWithStatsAndOptionalAffixes(string id, double statValue, string? affixesJson = null)
+        {
+            var affixesField = affixesJson != null ? $", \"affixes\": {affixesJson}" : string.Empty;
+            return "[{\"id\": \"" + id + "\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
+                " \"item_level\": 1, \"display_ref\": \"display." + id + "\", \"stack_size\": 5," +
+                " \"name_key\": \"l10n." + id + "\"," +
+                " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": " + statValue + "}]" +
+                affixesField + "}]";
+        }
+
+        [Fact]
+        public void AffixShareRule_ConsumedPlusMaxShareExceedsBudget_ReportsError()
+        {
+            // consumed=15、候选词缀唯一一条 budget_share=0.5（affix_count=1 全取），
+            // total = 15 + 0.5×20 = 25 > 20（B）⇒ 报错。
+            var templateJson = TemplateWithStatsAndOptionalAffixes("item.sample_share_over", 15);
+            var affixJson =
+                "[{\"id\": \"item.affix.a\", \"name_key\": \"l10n.item.affix.a\", \"budget_share\": 0.5," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}]";
+            var view = BuildTemplateAffixShareView(templateJson, affixJson, QualityWithAffixCountOneJson);
+
+            var issues = new ItemTemplateAffixShareExceedsBudgetRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Error, issue.Severity);
+            Assert.Equal(ItemTemplateAffixShareExceedsBudgetRule.Check, issue.Check);
+            Assert.Equal("item.sample_share_over", issue.RecordKey);
+            Assert.Equal("affixes", issue.Field);
+        }
+
+        [Fact]
+        public void AffixShareRule_ConsumedPlusMaxShareWithinBudget_NoIssue()
+        {
+            // consumed=5，同一条候选词缀 budget_share=0.5，total = 5 + 10 = 15 <= 20（B）⇒ 不报错。
+            var templateJson = TemplateWithStatsAndOptionalAffixes("item.sample_share_ok", 5);
+            var affixJson =
+                "[{\"id\": \"item.affix.a\", \"name_key\": \"l10n.item.affix.a\", \"budget_share\": 0.5," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}]";
+            var view = BuildTemplateAffixShareView(templateJson, affixJson, QualityWithAffixCountOneJson);
+
+            var issues = new ItemTemplateAffixShareExceedsBudgetRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        [Fact]
+        public void AffixShareRule_TwoCandidatesNoWhitelist_TopShareByDescendingBudgetShareExceedsBudget()
+        {
+            // 两条候选词缀（budget_share 0.5/0.1），affix_count=1 只取降序最高的一条（0.5）；
+            // consumed=15，total = 15 + 0.5×20 = 25 > 20 ⇒ 报错——验证"按 budget_share 降序取前
+            // affix_count 条"确实取到了份额更大的那条，不是任意/插入顺序。
+            var templateJson = TemplateWithStatsAndOptionalAffixes("item.sample_share_two_candidates", 15);
+            var affixJson =
+                "[{\"id\": \"item.affix.a\", \"name_key\": \"l10n.item.affix.a\", \"budget_share\": 0.5," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}," +
+                "{\"id\": \"item.affix.b\", \"name_key\": \"l10n.item.affix.b\", \"budget_share\": 0.1," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}]";
+            var view = BuildTemplateAffixShareView(templateJson, affixJson, QualityWithAffixCountOneJson);
+
+            var issues = new ItemTemplateAffixShareExceedsBudgetRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ItemTemplateAffixShareExceedsBudgetRule.Check, issue.Check);
+        }
+
+        [Fact]
+        public void AffixShareRule_TemplateAffixesWhitelistNarrowsToLowerShareCandidate_NoIssue()
+        {
+            // 同上一用例的两条候选词缀与 consumed=15，但模板 affixes 白名单只收窄到份额更小的
+            // item.affix.b（0.1）：total = 15 + 0.1×20 = 17 <= 20 ⇒ 不报错——白名单收窄候选池后
+            // 不再超预算（若不收窄，同上一用例会取到 0.5 那条而报错）。
+            var templateJson = TemplateWithStatsAndOptionalAffixes(
+                "item.sample_share_whitelisted", 15, "[\"item.affix.b\"]");
+            var affixJson =
+                "[{\"id\": \"item.affix.a\", \"name_key\": \"l10n.item.affix.a\", \"budget_share\": 0.5," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}," +
+                "{\"id\": \"item.affix.b\", \"name_key\": \"l10n.item.affix.b\", \"budget_share\": 0.1," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}]";
+            var view = BuildTemplateAffixShareView(templateJson, affixJson, QualityWithAffixCountOneJson);
+
+            var issues = new ItemTemplateAffixShareExceedsBudgetRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        [Fact]
+        public void AffixShareRule_QualityAffixCountUnregistered_TreatedAsUnlimited_SumsAllCandidates()
+        {
+            // quality.common 不登记 affix_count（用既有 QualityJson，不是 QualityWithAffixCountOneJson）
+            // ⇒ 视为不限，取全部候选之和：两条候选各 budget_share=0.3，maxShare = 0.6；
+            // consumed=10，total = 10 + 0.6×20 = 22 > 20 ⇒ 报错——验证"未登记 affix_count"不等于
+            // "affix_count=0（不取任何候选）"，是保守上界口径（同类型判断记录）。
+            var templateJson = TemplateWithStatsAndOptionalAffixes("item.sample_share_unlimited", 10);
+            var affixJson =
+                "[{\"id\": \"item.affix.a\", \"name_key\": \"l10n.item.affix.a\", \"budget_share\": 0.3," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}," +
+                "{\"id\": \"item.affix.b\", \"name_key\": \"l10n.item.affix.b\", \"budget_share\": 0.3," +
+                " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}]";
+            var view = BuildTemplateAffixShareView(templateJson, affixJson, QualityJson);
+
+            var issues = new ItemTemplateAffixShareExceedsBudgetRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ItemTemplateAffixShareExceedsBudgetRule.Check, issue.Check);
+        }
     }
 }

@@ -490,9 +490,13 @@ namespace Core.Gameplay.Assembly
                 conditionSchema: GameplaySchemaCatalog.FullExprSchema);
             deferredLootRoller.Bind(Loot);
 
+            // T-N2-8b：Difficulty 已在上一步构造完成，直接传入（不需要像 healthFractionSetter/
+            // powers/statsRef 那样用闭包延迟回填）——供 OnUnitDied 构造 RollContext 时取
+            // IDifficultyHost.ItemLevelOffset（见 CreatureDeathLootListener 该构造重载判断记录）。
             _ = new CreatureDeathLootListener(
                 bus, Loot, Carriers.Creatures, Carriers.Units, world,
-                lootMultiplierProvider: () => Difficulty.LootMultiplier);
+                lootMultiplierProvider: () => Difficulty.LootMultiplier,
+                difficultyHost: Difficulty);
 
             // ---------------------------------------------------------
             // 7) RewardDispatcher：currencyGranter 用局部变量延迟闭包接到第 8 步才构造出来的
@@ -1656,6 +1660,17 @@ namespace Core.Gameplay.Assembly
 
             public IReadOnlyList<Core.Carriers.Common.ItemStack> Roll(Id lootTableId, Id sourceUnitId, Id? killerId) =>
                 _real?.Roll(lootTableId, sourceUnitId, killerId) ?? Array.Empty<Core.Carriers.Common.ItemStack>();
+
+            /// <summary>T-N2-8：显式转发到 <see cref="_real"/>.RollDetailed（未绑定时同 <see
+            /// cref="Roll"/> 判断记录"静默退化"返回空列表）——不落回 <see cref="ILootRoller"/> 默认接口
+            /// 实现："默认实现转发 Roll 并投影"对本类型而言会经 <see cref="Roll"/> 间接调用
+            /// <c>_real.Roll</c>（已经是投影/合并过的 <c>ItemStack</c>），比直接转发到
+            /// <c>_real.RollDetailed</c>（真正的 <c>LootHost</c> 走完整三次掷骰产出的带身份结果）损失
+            /// 品质/词缀信息——本类型是"透明代理"，理应转发到 <see cref="_real"/> 能给出的最完整结果，
+            /// 见 <c>Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests</c> 门禁与
+            /// <see cref="ILootRoller.RollDetailed"/> 判断记录"组合/包装实现方……应显式重写"。</summary>
+            public IReadOnlyList<Core.Carriers.Common.LootRollOutcome> RollDetailed(Id lootTableId, Id sourceUnitId, Id? killerId) =>
+                _real?.RollDetailed(lootTableId, sourceUnitId, killerId) ?? Array.Empty<Core.Carriers.Common.LootRollOutcome>();
         }
 
         /// <summary>

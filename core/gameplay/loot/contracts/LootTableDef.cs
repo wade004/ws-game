@@ -34,13 +34,33 @@ namespace Core.Gameplay.Loot
 
         public int CountMax { get; }
 
+        /// <summary>T-N2-8 新增（ADR-0032 决策 7；08 第 1.1 节修订段"装备类条目新增
+        /// <c>qualityWeights: Optional&lt;Map&lt;Id, Number&gt;&gt;</c>（品质权重），缺省取模板品质"）：
+        /// 品质 id → 权重，按 <see cref="LootTableParser"/> 解析出的 JSON 键顺序保留（<see
+        /// cref="IReadOnlyList{T}"/> 而非 <see cref="System.Collections.Generic.Dictionary{TKey,TValue}"/>——
+        /// 字典枚举顺序不是语言契约保证的稳定顺序，加权抽取的"累加到阈值命中"算法是顺序敏感的，必须
+        /// 与数据声明顺序一致才能保证同种子重跑逐字段一致，见 <see cref="LootHost"/> 判断记录）。
+        /// <c>null</c>/空表示未配置，掉落时不掷品质骰、直接取模板自身品质（不消耗随机数，保证未配置
+        /// 该字段的旧数据行为完全不变）。</summary>
+        public IReadOnlyList<KeyValuePair<Id, double>>? QualityWeights { get; }
+
         public LootEntry(Id @ref, double weightOrChance, ExprNode? condition, int countMin, int countMax)
+            : this(@ref, weightOrChance, condition, countMin, countMax, null)
+        {
+        }
+
+        /// <summary>T-N2-8 新增重载（ABI 硬性规则"只允许新增"，不改既有 5 参构造函数签名）：额外接受
+        /// <see cref="QualityWeights"/>。</summary>
+        public LootEntry(
+            Id @ref, double weightOrChance, ExprNode? condition, int countMin, int countMax,
+            IReadOnlyList<KeyValuePair<Id, double>>? qualityWeights)
         {
             Ref = @ref;
             WeightOrChance = weightOrChance;
             Condition = condition;
             CountMin = countMin;
             CountMax = countMax;
+            QualityWeights = qualityWeights;
         }
     }
 

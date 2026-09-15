@@ -32,6 +32,11 @@ namespace Core.Gameplay.Difficulty
                     description: "词缀池的挂载位标识（本版未定义词缀池表，不登记 SoftReferenceTable，仅登记挂载点；消费方反馈第 30 条核实）"),
                 new FieldSchema("loot_multiplier", FieldKind.Number, required: true,
                     description: "掉落数量/概率的整体倍率"),
+                new FieldSchema("item_level_offset", FieldKind.Int, required: false,
+                    description: "分阶段落地计划 T-N2-8（ADR-0032 决策 5；08 第 5.1 节修订段）：该难度下" +
+                        "掉落与商人上架的物品等级偏移，满级后由它接替角色等级成为成长轴；缺省 0（无偏移）。" +
+                        "消费实现见 Core.Gameplay.Loot.RollContext.ItemLevelOffset/LootHost.RollDetailed" +
+                        "（调用方从 IDifficultyHost.ItemLevelOffset 取值后传入，本模块不反向依赖 Loot）"),
                 new FieldSchema("sort_weight", FieldKind.Number, required: false,
                     description: "仅供内容管线排序展示，运行期不读取，缺省 0"),
             }).WithOwnership(SchemaLayer.Gameplay, "difficulty");

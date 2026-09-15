@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Core.Carriers.Common;
 using Core.Foundation.Common;
 
@@ -18,5 +19,24 @@ namespace Core.Gameplay.Loot
         /// <c>IRngHost</c> 内部流状态下两次独立调用产生相同结果——确定性要求见落地方案与分阶段
         /// 计划.md 第 13 节验收标准 2。</summary>
         IReadOnlyList<ItemStack> Roll(Id tableId, RollContext context);
+
+        /// <summary>
+        /// T-N2-8 新增（ADR-0032 决策 7；硬性规则"禁止改既有 <c>Roll</c> 签名"，本方法是新增方法，
+        /// 不是签名变更）：带身份的掉落抽取——按 <paramref name="tableId"/> 抽取一次掉落，返回
+        /// <see cref="LootRollOutcome"/>（模板 id、数量、品质骰/词缀骰结果、来源折算的物品等级）列表，
+        /// 不按模板合并（同一模板不同品质的两次抽取各自成一条，不像 <see cref="Roll"/> 那样合并堆叠）。
+        /// <see cref="LootHost"/> 的具体实现里，<see cref="Roll"/> 反过来调用本方法再投影/合并（保证
+        /// 两条路径消耗同一份 <c>IRngHost</c> 序列，不会重复抽取，见 <see cref="LootHost"/> 判断记录）。
+        /// <para>
+        /// 默认实现（供 <see cref="ILootHost"/> 的其它/组合实现方兜底）：转发 <see cref="Roll"/> 并把
+        /// 每条 <see cref="ItemStack"/> 投影为"未额外指定"的 <see cref="LootRollOutcome"/>（<see
+        /// cref="LootRollOutcome.FromStack"/>，即模板品质 + 空词缀 + 模板物品等级，均用 <c>null</c>
+        /// 表达"回退到模板自身"，见该类型判断记录）——组合/包装实现方若能拿到更精确的结果（如转发到
+        /// 另一个同样实现了本接口的真实宿主），应显式重写本方法转发，不应该悄悄吃掉默认值（见
+        /// <c>Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests</c> 门禁）。
+        /// </para>
+        /// </summary>
+        IReadOnlyList<LootRollOutcome> RollDetailed(Id tableId, RollContext context) =>
+            Roll(tableId, context).Select(LootRollOutcome.FromStack).ToList();
     }
 }

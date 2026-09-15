@@ -38,6 +38,11 @@ namespace Core.Carriers.Item
         private readonly Dictionary<Id, DataRecord> _templates = new Dictionary<Id, DataRecord>();
         private readonly Dictionary<Id, List<ItemInstance>> _bags = new Dictionary<Id, List<ItemInstance>>();
 
+        /// <summary>T-N2-9：<see cref="InventoryOptions.MaxSlotsStat"/> 非 null 时用于解析容量的
+        /// 只读属性查询（<c>(unitId, statId) =&gt; 当前值</c>），见 <see cref="GetCapacity"/> 判断
+        /// 记录。未提供该委托的构造重载下恒为 null。</summary>
+        private readonly Func<Id, Id, double>? _statLookup;
+
         private long _nextInstanceSeq = 1;
 
         // R01 根治：批量事务状态（见 IInventoryTransaction 判断记录）。事务开启期间，AddItemCore/
@@ -49,10 +54,47 @@ namespace Core.Carriers.Item
         private readonly List<IEvent> _txEvents = new List<IEvent>();
 
         public InventoryHost(IDataRegistryView registry, IEventBus bus, InventoryOptions? options = null)
+            : this(registry, bus, options, statLookup: null)
+        {
+        }
+
+        /// <summary>
+        /// T-N2-9（ADR-0034 决策 8；07 第 1.3 节修订段）新增重载：见硬性规则 5"ABI 只允许新增"——
+        /// 既有 3 参构造函数原样保留（同 <see cref="EquipmentHost"/> 构造重载"新增重载而不是给既有
+        /// 构造函数追加可选参数"一贯判断记录：给既有 <c>.ctor</c> 追加带默认值的新参数在物理 IL
+        /// 签名层面仍是破坏性变更），新增本 4 参重载在末尾追加 <paramref name="statLookup"/>。
+        /// <paramref name="statLookup"/> 供 <see cref="InventoryOptions.MaxSlotsStat"/> 非 null 时
+        /// 解析容量使用（签名 <c>(unitId, statId) =&gt; 当前值</c>，不复用 <see
+        /// cref="Core.Numbers.PowerSet.StatLookup"/> 具名委托类型——见该参数判断记录）；
+        /// <see cref="InventoryOptions.MaxSlotsStat"/> 为 null（默认）时本参数不会被调用，传 null
+        /// 与既有 3 参构造函数行为完全一致。
+        /// <para>
+        /// 判断记录（不复用 <c>Core.Numbers.PowerSet.StatLookup</c>，改用裸 <see
+        /// cref="Func{Id, Id, TResult}"/>）：<c>core/carriers/item</c>（L3）依赖 <c>core/numbers/
+        /// stat_block</c>（L1，<see cref="EquipmentHost"/> 已经直接引用 <see
+        /// cref="Core.Numbers.StatBlock.IStatHost"/>）没有分层问题，但 <c>StatLookup</c> 定义在
+        /// <c>core/numbers/power_set</c>——与背包容量是完全不相关的另一个 L1 模块，只是恰好委托
+        /// 形状相同（<c>(Id, Id) =&gt; double</c>）。为它单独引入一条跨模块依赖只为借用一个类型名，
+        /// 不如直接用 <see cref="Func{Id, Id, TResult}"/> 表达同一形状——两个模块各自独立解决同一个
+        /// "属性来源上限，需要延迟到属性系统构造完成后才能提供真实查询"的构造期时序问题（见组装根
+        /// <c>CarriersAssembly</c> 对应位置判断记录），互不引用，允许各自独立演进。
+        /// </para>
+        /// <para>
+        /// 判断记录（构造期不要求 <see cref="InventoryOptions.MaxSlotsStat"/> 与本参数同时非
+        /// null/null）：本类型不在构造期校验两者是否匹配一致——<see cref="InventoryOptions"/> 由
+        /// 调用方在构造 <see cref="InventoryHost"/> 之前独立 new 出来，构造期做交叉校验需要额外的
+        /// 前置条件耦合；改为在真正需要解析容量时（<see cref="GetCapacity"/>）才检查，MaxSlotsStat
+        /// 非 null 但本参数为 null 时在那一刻抛 <see cref="InvalidOperationException"/>（见该方法
+        /// 判断记录），与 <c>PowerHost</c> 对未注入 <c>StatLookup</c> 的既有处理时机一致（构造期不
+        /// 报错，首次真正用到时才报错）。
+        /// </para>
+        /// </summary>
+        public InventoryHost(IDataRegistryView registry, IEventBus bus, InventoryOptions? options, Func<Id, Id, double>? statLookup)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _options = options ?? new InventoryOptions();
+            _statLookup = statLookup;
 
             ReloadTemplates();
 
@@ -65,6 +107,37 @@ namespace Core.Carriers.Item
             _bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, _ => ReloadTemplates());
         }
 
+        /// <summary>
+        /// 分阶段落地计划 T-N2-9（ADR-0034 决策 8；07 第 1.3 节修订段"背包容量来源"）：<see
+        /// cref="IInventoryHost.GetCapacity"/> 显式实现——不依赖接口默认值（见该成员判断记录），本类
+        /// 型是唯一需要精确容量语义的生产实现。<see cref="int.MaxValue"/> 表示不限，仅当来源为固定值
+        /// 且 <see cref="InventoryOptions.MaxSlots"/> ≤ 0 时出现（历史语义不变）。
+        /// <para>
+        /// 判断记录（属性来源没有"不限"语义，向下取整并夹取到下限 0）：见 <see
+        /// cref="InventoryOptions.MaxSlotsStat"/> 判断记录"下限口径——设计层裁定（2026-09-15）：
+        /// 采纳"——固定值路径的
+        /// "≤0 表示不限"是本类型历史既有行为，不能因为新增属性来源就悄悄改变；但属性来源解析出的是
+        /// 一个真实的属性当前值，0 或负数（如被减益压低后）在这里就是"容量已经是 0"，不应退化为
+        /// "不限"，否则"容量不足时拒绝新增"的契约意图会被这个 sentinel 悄悄绕过。
+        /// </para>
+        /// </summary>
+        public int GetCapacity(Id unitId)
+        {
+            if (_options.MaxSlotsStat is Id statId)
+            {
+                if (_statLookup == null)
+                {
+                    throw new InvalidOperationException(
+                        $"InventoryOptions.MaxSlotsStat 已设置为 \"{statId}\"，但构造 InventoryHost 时未提供属性查询委托（statLookup），无法解析容量");
+                }
+
+                var floored = (int)Math.Floor(_statLookup(unitId, statId));
+                return floored < 0 ? 0 : floored;
+            }
+
+            return _options.MaxSlots <= 0 ? int.MaxValue : _options.MaxSlots;
+        }
+
         private void ReloadTemplates()
         {
             _templates.Clear();
@@ -73,6 +146,19 @@ namespace Core.Carriers.Item
                 _templates[record.GetId("id")] = record;
             }
         }
+
+        /// <summary>
+        /// T-N2-7（ADR-0032 决策 8；10 第 2.5 节修订段）：供 <see cref="ItemInstanceJson.FromJson"/>
+        /// 在旧存档缺失 <c>quality</c> key 时兼容读取——按模板自身 <c>quality</c> 字段解析（见该方法
+        /// 判断记录），同新建实例（<see cref="AddItemCore"/>）取缺省品质的同一口径，两处不重复各写
+        /// 一份解析逻辑。<paramref name="templateId"/> 在当前已加载数据里找不到对应模板时返回一个
+        /// "未解析"的 <see cref="Id"/>（<c>Value == null</c>）——同本类其余路径既有的"不强行校验
+        /// 模板存在性"宽松度（<see cref="AddItemCore"/> 对未知模板会抛异常，但那是"新增物品"场景；
+        /// 这里是"读一份可能引用了已被数据更新移除的旧模板 id 的历史存档"场景，不应让整次读档失败，
+        /// 只是这一件物品的品质解析退化为未解析状态）。
+        /// </summary>
+        internal Id ResolveTemplateQuality(Id templateId) =>
+            _templates.TryGetValue(templateId, out var template) ? template.GetId("quality") : default;
 
         public void RegisterUnit(Id unitId)
         {
@@ -84,16 +170,49 @@ namespace Core.Carriers.Item
 
         public void UnregisterUnit(Id unitId) => _bags.Remove(unitId);
 
-        public bool AddItem(Id unitId, Id templateId, int count) => AddItemCore(unitId, templateId, count, out _);
+        public bool AddItem(Id unitId, Id templateId, int count) =>
+            AddItemCore(unitId, templateId, count, null, null, out _);
 
         /// <summary>C05 根治：见 <see cref="IInventoryHost.TryAddItem"/> 判断记录——本类型支持
         /// <see cref="InventoryFullPolicy.Partial"/> 部分吞没语义，必须覆盖默认实现，如实返回
         /// <see cref="AddItemCore"/> 算出的实际落地量 <c>toAdd</c>，而不是把请求的 <paramref
         /// name="count"/> 原样当作实际量。</summary>
         public bool TryAddItem(Id unitId, Id templateId, int count, out int actualCount) =>
-            AddItemCore(unitId, templateId, count, out actualCount);
+            AddItemCore(unitId, templateId, count, null, null, out actualCount);
 
-        private bool AddItemCore(Id unitId, Id templateId, int count, out int actualCount)
+        /// <summary>
+        /// T-N2-8b（T-N2-8 已知缺口收口；ADR-0032 决策 7/8）：显式覆盖 <see
+        /// cref="IInventoryHost.AddItem(Id, Id, int, Id?, IReadOnlyList{Id})"/>——不落回接口默认值
+        /// （那会丢弃身份，见该成员判断记录），转发到 <see cref="AddItemCore"/> 同一份实现，只是带上
+        /// 显式品质/词缀。</summary>
+        public bool AddItem(Id unitId, Id templateId, int count, Id? qualityId, IReadOnlyList<Id>? affixes) =>
+            AddItemCore(unitId, templateId, count, qualityId, affixes, out _);
+
+        /// <summary>同上，带 <paramref name="actualCount"/> 版本。</summary>
+        public bool TryAddItem(Id unitId, Id templateId, int count, Id? qualityId, IReadOnlyList<Id>? affixes, out int actualCount) =>
+            AddItemCore(unitId, templateId, count, qualityId, affixes, out actualCount);
+
+        /// <summary>
+        /// T-N2-8b 改造：<paramref name="qualityId"/>/<paramref name="affixes"/> 均为 null 时是既有
+        /// 3 参 <see cref="AddItem(Id, Id, int)"/>/<see cref="TryAddItem(Id, Id, int, out int)"/> 的
+        /// 转发路径（行为逐字节不变，见下方"默认身份"判断记录）；非 null 时是新增的带身份重载路径。
+        /// <para>
+        /// 判断记录（"默认身份"——决定能否续填/合并既有堆叠的唯一标准）：解析出
+        /// <c>resolvedQuality = qualityId ?? templateQuality</c>、<c>resolvedAffixes = affixes 非空
+        /// 时取之，否则视为空</c>，当且仅当 <c>resolvedQuality == templateQuality &amp;&amp;
+        /// resolvedAffixes.Count == 0</c> 时判定为"默认身份"——与调用方是否显式传了 <paramref
+        /// name="qualityId"/>/<paramref name="affixes"/> 无关，只看解析结果是否与模板缺省一致（
+        /// <c>Core.Gameplay.Loot.LootHost.ResolveDefaultOutcome</c> 一类"缺省照模板品质解析"的路径
+        /// 会显式传入一个等于模板品质的 <see cref="Id"/>，不是 <c>null</c>，同样应判定为默认身份）。
+        /// 只有默认身份的物品才会续填/合并既有的默认身份堆叠——带词缀或非模板品质的物品视为与模板
+        /// 默认形态不同的身份，即使 <paramref name="templateId"/> 相同也不与任何既有堆叠合并（哪怕
+        /// 两次加入的品质/词缀完全一样），总是新开格子；这是本任务范围内设计层已拍板的简化取舍（见
+        /// <c>core/carriers/item/README.md</c> 判断记录）——同一品质同一词缀组合的战利品反复掉落时
+        /// 不会自动堆叠成一条，代价是格子占用更多，换来的是不需要引入"词缀顺序无关的集合相等"这一更
+        /// 复杂的堆叠判定。
+        /// </para>
+        /// </summary>
+        private bool AddItemCore(Id unitId, Id templateId, int count, Id? qualityId, IReadOnlyList<Id>? affixes, out int actualCount)
         {
             actualCount = 0;
 
@@ -113,23 +232,36 @@ namespace Core.Carriers.Item
                 stackSize = 1;
             }
 
+            var templateQuality = template.GetId("quality");
+            var resolvedQuality = qualityId ?? templateQuality;
+            var resolvedAffixes = affixes != null && affixes.Count > 0 ? affixes : null;
+            var isDefaultIdentity = resolvedQuality.Equals(templateQuality) && resolvedAffixes == null;
+
             var bag = GetOrCreateBag(unitId);
 
-            // 判断记录 2：先算出容量够不够，再决定是否落地任何变化。
+            // 判断记录 2：先算出容量够不够，再决定是否落地任何变化。非默认身份的物品不参与"既有堆叠
+            // 续填"计算（见本方法判断记录"默认身份"），freeInExisting 恒为 0。
             var freeInExisting = 0;
-            foreach (var instance in bag)
+            if (isDefaultIdentity)
             {
-                if (instance.TemplateId.Equals(templateId) && instance.Count < stackSize)
+                foreach (var instance in bag)
                 {
-                    freeInExisting += stackSize - instance.Count;
+                    if (instance.TemplateId.Equals(templateId) && instance.Count < stackSize &&
+                        instance.Quality.Equals(templateQuality) && instance.Affixes.Count == 0)
+                    {
+                        freeInExisting += stackSize - instance.Count;
+                    }
                 }
             }
 
             var overflow = Math.Max(0, count - freeInExisting);
             var newSlotsNeeded = overflow == 0 ? 0 : (overflow + stackSize - 1) / stackSize;
-            var availableSlots = _options.MaxSlots <= 0
+            // T-N2-9：容量统一改读 GetCapacity（固定值/属性来源二选一，见该方法判断记录），不再
+            // 直接读 _options.MaxSlots——int.MaxValue 分支与既有"不限"语义等价保留。
+            var capacity = GetCapacity(unitId);
+            var availableSlots = capacity == int.MaxValue
                 ? int.MaxValue
-                : Math.Max(0, _options.MaxSlots - bag.Count);
+                : Math.Max(0, capacity - bag.Count);
 
             int toAdd;
             if (newSlotsNeeded <= availableSlots)
@@ -155,27 +287,38 @@ namespace Core.Carriers.Item
             // N12 收边补齐（外部审计 68c9bed，P2）：逐项记录本次调用实际把多少数量分摊到了哪个
             // 实例（既有堆叠续填、新开堆叠都算一项）——见 ItemAddedEvent.Removals 判断记录。
             var removals = new List<(Id InstanceId, int Count)>();
-            for (var i = 0; i < bag.Count && remaining > 0; i++)
+            if (isDefaultIdentity)
             {
-                var instance = bag[i];
-                if (!instance.TemplateId.Equals(templateId) || instance.Count >= stackSize)
+                for (var i = 0; i < bag.Count && remaining > 0; i++)
                 {
-                    continue;
-                }
+                    var instance = bag[i];
+                    if (!instance.TemplateId.Equals(templateId) || instance.Count >= stackSize ||
+                        !instance.Quality.Equals(templateQuality) || instance.Affixes.Count != 0)
+                    {
+                        continue;
+                    }
 
-                var space = stackSize - instance.Count;
-                var fill = Math.Min(space, remaining);
-                bag[i] = new ItemInstance(instance.InstanceId, instance.TemplateId, instance.Count + fill, instance.Extra);
-                remaining -= fill;
-                touchedInstanceId = instance.InstanceId;
-                removals.Add((instance.InstanceId, fill));
+                    var space = stackSize - instance.Count;
+                    var fill = Math.Min(space, remaining);
+                    // T-N2-7：续填既有堆叠必须原样带上该实例已有的 Quality/Affixes（不能只传 4 参旧
+                    // 构造函数——那会把品质/词缀身份悄悄重置为"未解析"/空，见 ItemInstance 类型顶部
+                    // 判断记录）。
+                    bag[i] = new ItemInstance(
+                        instance.InstanceId, instance.TemplateId, instance.Count + fill,
+                        instance.Quality, instance.Affixes, instance.Extra);
+                    remaining -= fill;
+                    touchedInstanceId = instance.InstanceId;
+                    removals.Add((instance.InstanceId, fill));
+                }
             }
 
             while (remaining > 0)
             {
                 var take = Math.Min(stackSize, remaining);
                 var instanceId = NextInstanceId();
-                bag.Add(new ItemInstance(instanceId, templateId, take));
+                // T-N2-7/T-N2-8b：新开堆叠的品质/词缀取本次调用解析出的身份（默认身份下与模板自身
+                // quality 字段、无词缀完全一致，行为同改造前）。
+                bag.Add(new ItemInstance(instanceId, templateId, take, resolvedQuality, resolvedAffixes));
                 touchedInstanceId = instanceId;
                 remaining -= take;
                 removals.Add((instanceId, take));
@@ -219,7 +362,10 @@ namespace Core.Carriers.Item
                 }
                 else
                 {
-                    bag[i] = new ItemInstance(instance.InstanceId, instance.TemplateId, instance.Count - count, instance.Extra);
+                    // T-N2-7：部分移除同样要保留品质/词缀身份（同上方续填堆叠判断记录）。
+                    bag[i] = new ItemInstance(
+                        instance.InstanceId, instance.TemplateId, instance.Count - count,
+                        instance.Quality, instance.Affixes, instance.Extra);
                 }
 
                 EnqueueEvent(new ItemRemovedEvent(unitId, instanceId, count, "removed"));
@@ -340,7 +486,9 @@ namespace Core.Carriers.Item
         internal bool TryPutBack(Id unitId, ItemInstance instance)
         {
             var bag = GetOrCreateBag(unitId);
-            if (_options.MaxSlots > 0 && bag.Count >= _options.MaxSlots)
+            // T-N2-9：容量统一改读 GetCapacity，见 AddItemCore 同一类判断记录。
+            var capacity = GetCapacity(unitId);
+            if (capacity != int.MaxValue && bag.Count >= capacity)
             {
                 return false;
             }
@@ -355,13 +503,15 @@ namespace Core.Carriers.Item
         /// 该单位的背包条目（纯只读查询，未注册单位视为空背包）。</summary>
         internal bool HasRoomForOne(Id unitId)
         {
-            if (_options.MaxSlots <= 0)
+            // T-N2-9：容量统一改读 GetCapacity，见 AddItemCore 同一类判断记录。
+            var capacity = GetCapacity(unitId);
+            if (capacity == int.MaxValue)
             {
                 return true;
             }
 
             var count = _bags.TryGetValue(unitId, out var bag) ? bag.Count : 0;
-            return count < _options.MaxSlots;
+            return count < capacity;
         }
 
         private List<ItemInstance> GetOrCreateBag(Id unitId)

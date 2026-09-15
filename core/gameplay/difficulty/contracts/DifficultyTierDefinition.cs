@@ -30,19 +30,26 @@ namespace Core.Gameplay.Difficulty
         /// <summary>掉落数量/概率的整体倍率（08 第 5.1 节）。</summary>
         public double LootMultiplier { get; }
 
+        /// <summary>T-N2-8 新增（ADR-0032 决策 5；08 第 5.1 节修订段）：该难度下掉落与商人上架的物品
+        /// 等级偏移——满级后由它接手，装备等级替代角色等级成为成长轴（见
+        /// <c>Core.Gameplay.Loot.RollContext.ItemLevelOffset</c> 判断记录）。缺省 0（同
+        /// <see cref="AffixPoolRef"/>"本版只登记挂载点"一贯口径，未配置时无偏移）。</summary>
+        public int ItemLevelOffset { get; }
+
         /// <summary>仅供内容管线/编辑器排序展示，运行期不读取（惯例同
         /// <c>creature.tier_definition.sort_weight</c>）。</summary>
         public double SortWeight { get; }
 
         private DifficultyTierDefinition(
             Id id, Id nameKey, IReadOnlyList<Id> modifierAuraRefs, Id? affixPoolRef,
-            double lootMultiplier, double sortWeight)
+            double lootMultiplier, int itemLevelOffset, double sortWeight)
         {
             Id = id;
             NameKey = nameKey;
             ModifierAuraRefs = modifierAuraRefs;
             AffixPoolRef = affixPoolRef;
             LootMultiplier = lootMultiplier;
+            ItemLevelOffset = itemLevelOffset;
             SortWeight = sortWeight;
         }
 
@@ -55,9 +62,10 @@ namespace Core.Gameplay.Difficulty
             var modifierAuraRefs = record.TryGetIdList("modifier_aura_refs", out var refs) ? refs : EmptyIds;
             var affixPoolRef = record.TryGetId("affix_pool_ref", out var apr) ? (Id?)apr : null;
             var lootMultiplier = record.GetNumber("loot_multiplier");
+            var itemLevelOffset = record.TryGetInt("item_level_offset", out var ilo) ? (int)ilo : 0;
             var sortWeight = record.TryGetNumber("sort_weight", out var sw) ? sw : 0.0;
 
-            return new DifficultyTierDefinition(id, nameKey, modifierAuraRefs, affixPoolRef, lootMultiplier, sortWeight);
+            return new DifficultyTierDefinition(id, nameKey, modifierAuraRefs, affixPoolRef, lootMultiplier, itemLevelOffset, sortWeight);
         }
     }
 }

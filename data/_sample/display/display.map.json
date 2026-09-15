@@ -82,6 +82,21 @@
       ]
     },
     {
+      "id": "display.map.sample_boots",
+      "category": "item",
+      "logical_id": "item.sample_boots",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
       "id": "display.map.sample_burn",
       "category": "skill",
       "logical_id": "skill.sample_burn",
@@ -115,6 +130,21 @@
       ]
     },
     {
+      "id": "display.map.sample_chestplate",
+      "category": "item",
+      "logical_id": "item.sample_chestplate",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
       "id": "display.map.sample_door",
       "category": "gobj",
       "logical_id": "gobj.sample_door",
@@ -136,6 +166,21 @@
       "id": "display.map.sample_fortify",
       "category": "aura",
       "logical_id": "skill.aura_def.sample_fortify",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_helm",
+      "category": "item",
+      "logical_id": "item.sample_helm",
       "kind": "sprite",
       "sprite_set_id": "sprite.item.sample_blade",
       "direction_count": 4,
@@ -257,6 +302,21 @@
       "id": "display.map.sample_passive",
       "category": "skill",
       "logical_id": "skill.sample_passive",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_ring",
+      "category": "item",
+      "logical_id": "item.sample_ring",
       "kind": "sprite",
       "sprite_set_id": "sprite.item.sample_blade",
       "direction_count": 4,

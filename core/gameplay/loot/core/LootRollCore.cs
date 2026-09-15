@@ -96,6 +96,29 @@ namespace Core.Gameplay.Loot
         public static double ApplyPseudoRandomStep(double baseChance, int missStreak, double step) =>
             Clamp01(baseChance * (1 + missStreak * step));
 
+        /// <summary>T-N2-8 新增：<see cref="SelectByThreshold"/>（专为 <see cref="LootEntry"/> 池写的
+        /// 加权选择）的通用版本——给定一组权重与预先算好的 <paramref name="totalWeight"/>、一个 [0,1)
+        /// 均匀阈值分数，按原始顺序累加权重、命中即返回下标；供品质骰/词缀骰（候选是 <c>(Id, weight)</c>
+        /// 而非 <see cref="LootEntry"/>）复用同一套"累加到阈值命中"算法，不重新发明第二份实现（与
+        /// <see cref="SelectByThreshold"/> 判断记录"不改变任何一步的浮点运算顺序"同一惯例：两者的累加
+        /// 与比较顺序逐字节一致，只是被选中的元素类型不同）。调用方需自行保证
+        /// <paramref name="totalWeight"/> &gt; 0。</summary>
+        public static int SelectIndexByThreshold(IReadOnlyList<double> weights, double totalWeight, double thresholdFraction)
+        {
+            var threshold = thresholdFraction * totalWeight;
+            var cumulative = 0.0;
+            for (var i = 0; i < weights.Count; i++)
+            {
+                cumulative += weights[i];
+                if (threshold < cumulative)
+                {
+                    return i;
+                }
+            }
+
+            return weights.Count - 1;
+        }
+
         /// <summary>一条候选在 <c>[CountMin,CountMax]</c> 内的期望数量（<see cref="LootHost.RollCount"/>
         /// 消耗的 <c>IRngHost.NextInt</c> 是闭区间均匀分布，见
         /// <c>core/foundation/rng/README.md</c>"NextInt：闭区间 [min, max]，用拒绝采样消除取模偏差"），
