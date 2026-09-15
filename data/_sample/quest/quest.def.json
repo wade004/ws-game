@@ -24,7 +24,8 @@
       "start_method": "npc_gossip",
       "turn_in_method": "npc_gossip",
       "rewards": {
-        "xp": 50,
+        "xp_equivalent": 2,
+        "level": 5,
         "currency": [
           {
             "currencyId": "econ.currency.sample_coin",

@@ -360,7 +360,8 @@ namespace Tests.Gameplay
             var fxA = GameWorldFixture.Build(fileSystem: fs);
 
             // data/_sample/prog/prog.level_curve.json：prog.curve.sample 第 1 级 xp_to_next=100，
-            // 第 2 级 xp_to_next=200，满级 3。灌 150 点经验：跨 1 级，停在 2 级、级内剩余 50 经验。
+            // 第 2 级 xp_to_next=200（T-N4-10 起曲线抬到 20 级，2 级不再是满级）。灌 150 点经验：
+            // 跨 1 级，停在 2 级、级内剩余 50 经验。
             fxA.Gameplay.Carriers.Rules.Progression.AddXp(GameWorldFixture.PlayerId, new Id("test.e2e_xp"), 150);
             Assert.Equal(2, fxA.Gameplay.Carriers.Rules.Progression.GetLevel(GameWorldFixture.PlayerId));
             Assert.Equal(50, fxA.Gameplay.Carriers.Rules.Progression.GetXp(GameWorldFixture.PlayerId));

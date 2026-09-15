@@ -469,6 +469,82 @@ Gameplay`（725 例）/`Replay`（12+2+10 例）确认零回归。
 输出）。Unity PlayMode 侧因当前环境不含 Unity Editor 无法本机验证，留待阶段 N3 收尾（T-N3-12）
 随全量回归一并核对。
 
+## N4 示例数据（等级曲线抬档、三种经验来源、任务当量、分档/难度经验倍率、公式定价商人、坐骑与骑术）
+
+T-N4-10（分阶段落地计划第 14 节 N4 任务表第十行；[ADR-0034](../architecture/adr/0034-单一货币与价格挂物品等级.md)
+决策 7）：在 T-N4-1～T-N4-9 已落地的运行时改动基础上，把 `data/_sample/{prog,quest,creature,diff,
+econ,loot,skill,item}/**` 充实为覆盖 N4 新字段/新表的样例数据集；`games/_template/data/game/prog/`
+按既定约定保持空壳不动（两张表均已是"游戏必填/空壳"约定下的最小合法示例，`talent_points`/新字段
+均为可选字段，不影响空壳合法性）。
+
+- **`prog.level_curve`**：`prog.curve.sample` 由 3 级抬档到 20 级——`max_level` 改为 20，
+  `entries` 补满 3～20 级（`xp_to_next` 沿等级单调递增，100 起步每级 +100，末级即约定的 0；
+  `growth`/`talent_points` 延续既有 2 级取值）；**1/2 级既有取值（`xp_to_next`=100/200，
+  2 级 `growth`：`stat.strength`+2/`stat.stamina`+3）逐位不变**——`core/numbers/tests/
+  L1SampleDataTests.cs`/`core/gameplay/tests/EndToEndTests.cs` 有测试直接读取真实文件并对这两级
+  的数值做硬编码断言（`GrantFromSource`/`AddXp` 手算跨级），改动前已核对只更新了两处不影响断言
+  结果的说明性注释（"满级 3 级"改述为"当时的 3 级"，见两文件对应用例注释）。
+- **`prog.xp_source`**：三种来源（`kill`/`quest`/`discovery`）现各带 `base_curve_ref`——
+  `kill_curve_sample` 补 `level_diff_ref: combat.level_diff.default`；新增
+  `prog.xp_source.quest`（**这是 `Core.Gameplay.Common.RewardDispatcher.
+  DefaultQuestXpSourceId` 的真实约定 id**，不是"prog.xp.<name>"这一路既有样例 id 写法——本任务
+  刻意采用约定 id，使 `quest.def`/`encounter.def` 样例的 `xp_equivalent` 奖励在
+  `GameWorldFixture` 一类未显式覆盖 `ProgressionOptions.QuestXpSourceId` 的装配下也能真实经
+  `IProgressionHost.GrantXp` 发放，而不是像既有 `kill_sample`/`discovery_sample` 那样只满足
+  schema 覆盖、静默被 `HasXpSource` 挡掉）；`discovery_sample` 补 `base_curve_ref`。
+  **契约疑点上报**：既有 `prog.xp.kill_sample`/`prog.xp.kill_curve_sample`/`prog.xp.
+  discovery_sample` 三条样例的 id 并非 `CreatureDeathXpListener.DefaultKillXpSourceId`/
+  `AreaTriggerDiscoveryXpListener.DefaultDiscoveryXpSourceId` 约定的 `prog.xp_source.kill`/
+  `prog.xp_source.discovery`——这一差异在 T-N4-1～T-N4-3 落地时已存在（早于本任务），本任务
+  未改名既有三条样例（`core/numbers/tests/L1SampleDataTests.cs` 硬编码引用了
+  `prog.xp.kill_sample` 这个字面 id），因此 `GameWorldFixture` 装配下击杀/探索经验监听器目前仍
+  按约定 id 查不到来源、静默跳过（只有本次新增的 `quest` 一条改用约定 id 后才真的会发放）——是否
+  应把既有三条样例也统一改名为约定 id（会牵动 `L1SampleDataTests.cs` 的字面量引用），留待设计层
+  判断，不在本任务范围内擅自处理。
+- **`quest.def`/`encounter.def`**：样例奖励改用 `xp_equivalent`+`level`，不再直发绝对数
+  `xp`（硬性规则）——`quest.sample_hunt` 改为 `xp_equivalent: 2, level: 5`（货币奖励
+  `currency: [{...amount: 10}]` 不变，`core/gameplay/tests/EndToEndTests.cs` 现存断言只核对这笔
+  货币数量，不受经验字段写法变化影响）；`encounter.sample_beast_fight` 改为
+  `xp_equivalent: 1, level: 3`。`achv.def`（同样复用 `RewardBundle`/`RewardsFields` 结构）不在本
+  任务"涉及文件"清单内，样例 `rewards.xp: 5` 本次未改动，留待后续任务一并处理。
+- **`creature.tier_definition`/`diff.tier`**：两档样例各补 `xp_multiplier`——
+  `creature.tier.sample_normal`/`sample_elite` 为 1.0/2.0，`diff.sample_story`/`sample_veteran`
+  为 1.0/1.25（均为样例取值，非框架默认值），供 `GameplayAssembly` 的
+  `ExtraXpMultiplierProvider` 钩子（分档倍率 × 难度倍率）消费。
+- **`econ.vendor`**：`econ.vendor.sample_hunter.sell_items` 新增一条填了 `price_amount`（27）的
+  条目（`item.sample_model_sword`，`item_level`=1、`common`、主手，公式基准价值 = 25，偏离
+  8% < `EconomyOptions.PriceDeviationWarningThreshold` 默认 0.2，不触发 `econ_price_deviates_
+  formula`），与既有不填价格的 `item.sample_tonic` 条目并存，覆盖"不填价格走公式"与"手填但在
+  带宽内"两种样例；`econ.currency`（`cap`）与 `loot.table`（货币掉落条目）在 T-N4-6/T-N4-7 已
+  具备样例，本任务未改动。
+- **坐骑与骑术**（[ADR-0034](../architecture/adr/0034-单一货币与价格挂物品等级.md) 决策 7；
+  `core/rules/combat/README.md` 判断记录 20）：新增 `skill.def.skill.sample_mount`
+  （`use_condition: "not combat.in_combat"`，`effects: [{kind: apply_aura, aura_def:
+  skill.aura_def.sample_mount_speed}]`）与 `skill.aura_def.skill.aura_def.sample_mount_speed`
+  （`dispel_type: "skill.dispel.mount"`，效果 `mod_stat` 给 `stat.move_speed` +100% 加成）。
+  **坐骑光环识别约定**：`CombatOptions.MountAuraDispelType` 取值必须等于游戏内容坐骑光环们共用
+  的 `aura_def.dispel_type`，本样例数据集里这个约定值是字符串 `"skill.dispel.mount"`——游戏层
+  若要让 T-N4-9 落地的"进战下马"策略生效，需要把 `CombatOptions.MountAuraDispelType` 显式配置成
+  与内容坐骑光环 `dispel_type` 相同的取值（本样例即 `skill.dispel.mount`），框架不提供任何默认值
+  （默认 `null`，见该字段判断记录）。"骑术"未落地为独立契约面/独立技能——按 T-N4-9 判断记录 20
+  与本任务书裁定，骑术即学习门槛本身：`skill.book.sample_a.entries` 新增
+  `{level: 10, skill_id: skill.sample_mount}`，玩家角色达到该职业学习表登记的等级后才能学会
+  坐骑技能，不存在另一张"骑术等级"表或独立字段。
+- **`display.map`**：新增 2 条（`sample_mount`/`sample_mount_aura`），复用既有
+  `sprite.item.sample_blade` 精灵集（不新增素材，同既有技能/光环补齐行一贯做法），满足
+  `DisplayMapCoverageRule` 对新增 `skill.def`/`skill.aura_def` 两条记录的覆盖检查；
+  `toolchain/tests/test_import_sample_assets.py` 的 `EXPECTED_DISPLAY_ROWS` 清单同步补齐这两行。
+
+**既有测试断言核对（结论：仅两处说明性注释更新，无断言改动）**：已检索
+`core/numbers/tests/L1SampleDataTests.cs`、`core/gameplay/tests/EndToEndTests.cs`、
+`core/gameplay/tests/EndToEnd/GameWorldFixture.cs`、`core/numbers/progression/tests/**`、
+`core/rules/tests/Integration/**`、`toolchain/tests/**` 等读取 `data/_sample`/`data/_framework`
+真实文件或硬编码同名 id 的测试——除上文两处曲线级数说明性注释外，未发现任何断言依赖
+`prog.curve.sample` 的曲线上限、`quest.def`/`encounter.def` 奖励的绝对经验数值、`econ.vendor`
+的 `sell_items` 条目数、`skill.book.sample_a` 的条目数；`toolchain/tests/
+test_import_sample_assets.py` 的 `EXPECTED_DISPLAY_ROWS`（严格集合比较）已同步补齐两条新行，
+否则会因新增的两条 `display.map` 行报错。
+
 ## 编码与格式
 
 - UTF-8，无 BOM。

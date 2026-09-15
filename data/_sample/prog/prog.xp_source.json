@@ -8,12 +8,22 @@
       "kind": "kill",
       "base_xp": 50,
       "weight": 1,
-      "base_curve_ref": "prog.xp_base_curve.sample"
+      "base_curve_ref": "prog.xp_base_curve.sample",
+      "level_diff_ref": "combat.level_diff.default"
+    },
+    {
+      "id": "prog.xp_source.quest",
+      "kind": "quest",
+      "base_xp": 50,
+      "weight": 1,
+      "base_curve_ref": "prog.xp_base_curve.sample",
+      "level_diff_ref": "combat.level_diff.default"
     },
     {
       "id": "prog.xp.discovery_sample",
       "kind": "discovery",
       "base_xp": 10,
+      "base_curve_ref": "prog.xp_base_curve.sample",
       "once_key": "prog.explore.sample_zone"
     }
   ]

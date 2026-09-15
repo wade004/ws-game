@@ -586,6 +586,29 @@ Economy.GetBalance`、`RespawnFeeCharge ??= (u,c,amt) => Economy.TryPay(u,c,amt,
 `DismountMountAuras` 接到 `AuraHost.Dispel(unitId, dispelType, int.MaxValue)`。回放基线未变化
 （默认场景不装配复活费委托与坐骑光环，两处新逻辑均未触发）。
 
+- **数值设计落地阶段 N4 · T-N4-10**（清单 X10/M10；[ADR-0034](architecture/adr/0034-单一货币与价格挂物品等级.md)
+  决策 7；纯数据/文档改动，不改代码契约）：把 T-N4-1～T-N4-9 落地的字段/表充实为可仿真的样例数据集。
+  `data/_sample/prog/prog.level_curve.json` 的 `prog.curve.sample` 抬档到 20 级（`max_level` 由 3
+  改为 20，`xp_to_next` 沿等级单调递增、`talent_points` 每级 1，1/2 级既有取值不变，兼容既有断言）；
+  `prog.xp_source.json` 补齐三种来源各带 `base_curve_ref` 的样例——`kill_curve_sample` 补
+  `level_diff_ref: combat.level_diff.default`，新增 `prog.xp_source.quest`（真正的
+  `RewardDispatcher.DefaultQuestXpSourceId` 约定 id，使任务/遭遇当量奖励在样例数据集上真实可发放），
+  `discovery_sample` 补 `base_curve_ref`。`quest.def`/`encounter.def` 的样例奖励改用 `xp_equivalent`
+  + `level`，不再直发绝对经验（硬性规则）。`creature.tier_definition`/`diff.tier` 两档样例各补
+  `xp_multiplier`（1.0/2.0、1.0/1.25）。`econ.vendor.sample_hunter` 新增一条填了 `price_amount`
+  （27，与价格公式偏离 8%，在带宽内不触发 `econ_price_deviates_formula`）的 `sell_items` 条目，
+  与既有不填价格的条目并存；`econ.currency`/`loot.table` 货币掉落条目在此前任务已具备，本任务未改。
+  坐骑与骑术样例：`skill.def` 新增 `skill.sample_mount`（`use_condition: not combat.in_combat`，
+  `apply_aura` 挂坐骑光环）、`skill.aura_def` 新增 `skill.aura_def.sample_mount_speed`
+  （`dispel_type: skill.dispel.mount`，含 `stat.move_speed` 百分比加成）——`dispel_type` 取值即
+  游戏层需要配置给 `CombatOptions.MountAuraDispelType` 的约定值，已记入 `data/README.md`；
+  `skill.book.sample_a` 新增 `{level: 10, skill_id: skill.sample_mount}` 作为"骑术"学习门槛
+  （骑术本身不是独立契约面，落地为技能书学习等级门槛，见 T-N4-9 判断记录 20）。配套新增两条
+  `display.map` 覆盖行满足 `DisplayMapCoverageRule`，`toolchain/tests/test_import_sample_assets.py`
+  的 `EXPECTED_DISPLAY_ROWS` 清单同步补齐。`validate_data.py --strict`/`SchemaAudit`/
+  `format_data.py --schema-order --check` 均 0 问题；`games/_template/data/game/prog/` 空壳表按
+  既定约定不动。
+
 ## [1.33.0] - 2026-09-15
 
 MINOR 版本：数值设计落地阶段 N3"技能"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 9/14 节，T-N3-1～T-N3-11）——落地 ADR-0031 全部决策：效果值缩放契约、使用条件、节拍锁、来源缺失冻结、瘟疫刷新、控制类别、群体超出策略（拍板 7）、武器百分比基于秒伤乘一拍、`skill.budget_rule` 与技能预算 Analyzer、结算类原语集合、独立的优先级表求值组件——不新增任何效果原语。

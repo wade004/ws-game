@@ -12,7 +12,8 @@
       "victory_condition": "enemies.count_in_range(50) == 0",
       "defeat_condition": "self.hp_pct <= 0",
       "rewards": {
-        "xp": 20
+        "xp_equivalent": 1,
+        "level": 3
       }
     },
     {

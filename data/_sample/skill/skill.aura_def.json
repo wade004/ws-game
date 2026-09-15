@@ -16,6 +16,17 @@
       ]
     },
     {
+      "id": "skill.aura_def.sample_mount_speed",
+      "max_stacks": 1,
+      "dispel_type": "skill.dispel.mount",
+      "effects": [
+        {
+          "kind": "mod_stat",
+          "params": { "stat": "stat.move_speed", "op": "pct", "value": 1.0 }
+        }
+      ]
+    },
+    {
       "id": "skill.aura_def.sample_fortify",
       "max_stacks": 1,
       "effects": [

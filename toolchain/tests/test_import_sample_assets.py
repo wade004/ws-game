@@ -80,6 +80,12 @@ EXPECTED_DISPLAY_ROWS = {
     "display.map.sample_lockpick": ("skill.sample_lockpick", "skill"),
     "display.map.sample_burst": ("skill.sample_burst", "skill"),
     "display.map.sample_parry": ("skill.sample_parry", "skill"),
+    # T-N4-10（数值设计落地阶段 N4 样例充实）：skill.def 新增坐骑技能 sample_mount、
+    # skill.aura_def 新增坐骑光环 sample_mount_speed，同样各需一条 display.map 覆盖行才能
+    # 满足 DisplayMapCoverageRule；复用 sprite.item.sample_blade 精灵集，不新增素材，同上面
+    # skill/aura 补齐行同一惯例。
+    "display.map.sample_mount": ("skill.sample_mount", "skill"),
+    "display.map.sample_mount_aura": ("skill.aura_def.sample_mount_speed", "aura"),
 }
 
 
