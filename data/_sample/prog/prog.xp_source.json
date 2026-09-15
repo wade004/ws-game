@@ -4,7 +4,7 @@
   "rows": [
     { "id": "prog.xp.kill_sample", "base_xp": 50, "weight": 1 },
     {
-      "id": "prog.xp.kill_curve_sample",
+      "id": "prog.xp_source.kill",
       "kind": "kill",
       "base_xp": 50,
       "weight": 1,
@@ -20,7 +20,7 @@
       "level_diff_ref": "combat.level_diff.default"
     },
     {
-      "id": "prog.xp.discovery_sample",
+      "id": "prog.xp_source.discovery",
       "kind": "discovery",
       "base_xp": 10,
       "base_curve_ref": "prog.xp_base_curve.sample",

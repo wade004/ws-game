@@ -485,22 +485,21 @@ econ,loot,skill,item}/**` 充实为覆盖 N4 新字段/新表的样例数据集�
   的数值做硬编码断言（`GrantFromSource`/`AddXp` 手算跨级），改动前已核对只更新了两处不影响断言
   结果的说明性注释（"满级 3 级"改述为"当时的 3 级"，见两文件对应用例注释）。
 - **`prog.xp_source`**：三种来源（`kill`/`quest`/`discovery`）现各带 `base_curve_ref`——
-  `kill_curve_sample` 补 `level_diff_ref: combat.level_diff.default`；新增
   `prog.xp_source.quest`（**这是 `Core.Gameplay.Common.RewardDispatcher.
   DefaultQuestXpSourceId` 的真实约定 id**，不是"prog.xp.<name>"这一路既有样例 id 写法——本任务
   刻意采用约定 id，使 `quest.def`/`encounter.def` 样例的 `xp_equivalent` 奖励在
   `GameWorldFixture` 一类未显式覆盖 `ProgressionOptions.QuestXpSourceId` 的装配下也能真实经
-  `IProgressionHost.GrantXp` 发放，而不是像既有 `kill_sample`/`discovery_sample` 那样只满足
-  schema 覆盖、静默被 `HasXpSource` 挡掉）；`discovery_sample` 补 `base_curve_ref`。
-  **契约疑点上报**：既有 `prog.xp.kill_sample`/`prog.xp.kill_curve_sample`/`prog.xp.
-  discovery_sample` 三条样例的 id 并非 `CreatureDeathXpListener.DefaultKillXpSourceId`/
+  `IProgressionHost.GrantXp` 发放）于 T-N4-10 新增。**设计层裁定落地（2026-09-16，T-N4-11）**：
+  上一任务遗留的契约疑点——既有 `prog.xp.kill_curve_sample`/`prog.xp.discovery_sample` 两条样例
+  的 id 并非 `CreatureDeathXpListener.DefaultKillXpSourceId`/
   `AreaTriggerDiscoveryXpListener.DefaultDiscoveryXpSourceId` 约定的 `prog.xp_source.kill`/
-  `prog.xp_source.discovery`——这一差异在 T-N4-1～T-N4-3 落地时已存在（早于本任务），本任务
-  未改名既有三条样例（`core/numbers/tests/L1SampleDataTests.cs` 硬编码引用了
-  `prog.xp.kill_sample` 这个字面 id），因此 `GameWorldFixture` 装配下击杀/探索经验监听器目前仍
-  按约定 id 查不到来源、静默跳过（只有本次新增的 `quest` 一条改用约定 id 后才真的会发放）——是否
-  应把既有三条样例也统一改名为约定 id（会牵动 `L1SampleDataTests.cs` 的字面量引用），留待设计层
-  判断，不在本任务范围内擅自处理。
+  `prog.xp_source.discovery`，导致 `GameWorldFixture` 装配下击杀/探索经验监听器按约定 id 查不到
+  来源、静默跳过——已按设计层裁定（2026-09-16）：采纳，本任务把这两条样例的 id 分别改名为
+  `prog.xp_source.kill`（补 `level_diff_ref: combat.level_diff.default`）/
+  `prog.xp_source.discovery`，使击杀/探索经验监听器在样例数据集上开箱即可真实发放；`prog.xp.
+  kill_sample`（只有旧字段 `base_xp`/`weight` 的兼容示例，供"旧字段兼容"验收场景使用，见
+  `core/numbers/tests/L1SampleDataTests.cs` 硬编码引用）保留原 id 不动——它本就不是任何监听器的
+  约定默认来源，改名对它没有意义，反而会破坏该硬编码引用。
 - **`quest.def`/`encounter.def`**：样例奖励改用 `xp_equivalent`+`level`，不再直发绝对数
   `xp`（硬性规则）——`quest.sample_hunt` 改为 `xp_equivalent: 2, level: 5`（货币奖励
   `currency: [{...amount: 10}]` 不变，`core/gameplay/tests/EndToEndTests.cs` 现存断言只核对这笔
