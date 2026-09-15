@@ -68,6 +68,14 @@ namespace Core.Numbers.Progression
         {
             public long BaseXp;
             public double Weight;
+
+            // T-N4-2（ADR-0033 决策 3；06 第 2.5 节）：三个新增可选字段的运行期投影——Kind/
+            // BaseCurveRefId/LevelDiffRefId 均为 null 表示该来源未登记对应字段（旧数据、或
+            // kind 未填），null 语义分别见 ComputeCurveBasedRawAmount/EvaluateDeltaFactor
+            // 判断记录。
+            public string? Kind;
+            public string? BaseCurveRefId;
+            public string? LevelDiffRefId;
         }
 
         private sealed class UnitState
@@ -92,11 +100,52 @@ namespace Core.Numbers.Progression
         private readonly Dictionary<string, XpSourceInfo> _xpSources = new Dictionary<string, XpSourceInfo>(StringComparer.Ordinal);
         private readonly Dictionary<string, UnitState> _units = new Dictionary<string, UnitState>(StringComparer.Ordinal);
 
+        // T-N4-2（ADR-0033 决策 2/3）：构造期口味配置，见 ProgressionOptions.MaxLevel"变更记录"——
+        // 旧构造函数（不带 ProgressionOptions 参数）转发 null，本字段落到全字段缺省的实例，效果
+        // 与本次改动之前完全一致。
+        private readonly ProgressionOptions _options;
+
+        // T-N4-2（ADR-0033 决策 3；04 第 3.6 节通用断点表形态）：prog.xp_base_curve 的运行期投影，
+        // 键为曲线 id。见 GetEffectiveMaxLevel 判断记录（层次一致：只读一次、之后只读不查 registry，
+        // 与 _curves/_xpSources 同一惯例）。
+        private readonly Dictionary<string, PiecewiseCurve> _xpBaseCurves = new Dictionary<string, PiecewiseCurve>(StringComparer.Ordinal);
+
+        // T-N4-2（ADR-0033 决策 3/5）：combat.level_diff_table 的 xp_factor 列的运行期投影，键为
+        // 该表记录 id。判断记录（不引用 Core.Rules.Combat.LevelDiffTable 类型）：01_分层与依赖.md
+        // 把 progression 登记为 L1、combat 登记为 L2（规则层），L1 反向依赖 L2 具体类型会倒置分层
+        // ——本类型只经 Core.Foundation.DataRegistry 的通用 CurveSchema.ReadBreakpoints 直接从原始
+        // DataRecord 读取 xp_factor 断点表，不经过 Core.Rules.Combat 程序集（该程序集的
+        // LevelDiffTable 类型另有一套供 combat 模块自己使用的强类型视图，读的是同一张表、同一个
+        // xp_factor 字段，两边各自独立解析，互不依赖；见 Tests.Numbers.csproj 不引用 Core.Rules 的
+        // 既有约束，ProgSchemaCoverageTests.cs"combat.level_diff_table 归 Core.Rules"判断记录）。
+        private readonly Dictionary<string, PiecewiseCurve> _levelDiffXpFactors = new Dictionary<string, PiecewiseCurve>(StringComparer.Ordinal);
+
         public ProgressionHost(
             IDataRegistryView registry,
             IEventBus bus,
             StatModifierWriter statModifierWriter,
             StatModifierRemover statModifierRemover,
+            IProgressionDiagnostics? diagnostics = null,
+            LevelSync? levelSync = null)
+            : this(registry, bus, statModifierWriter, statModifierRemover, null, diagnostics, levelSync)
+        {
+        }
+
+        /// <summary>
+        /// T-N4-2 新增构造重载：接受 <see cref="ProgressionOptions"/>（ADR-0033 决策 2；06 第 2.5 节
+        /// "策略配置项：经验来源权重、最大等级"）。<paramref name="options"/> 为 <c>null</c> 时等价于
+        /// 传入全字段缺省的实例（<c>MaxLevel=0</c>），与不带本参数的旧构造函数完全同义——旧构造函数
+        /// 内部即转发 <c>null</c> 到本构造函数，两者共用同一份初始化逻辑，不是"新增一条平行的初始化
+        /// 路径"（ABI 门禁"公开 API 只能新增"：本次改动只新增这一个构造重载，未带 <see
+        /// cref="ProgressionOptions"/> 的旧构造函数签名原样保留，见 <c>RulesAssembly</c>/各测试夹具
+        /// 既有调用点核对，均只用位置参数或按类型消歧的具名参数，不会与本新重载产生重载决议歧义）。
+        /// </summary>
+        public ProgressionHost(
+            IDataRegistryView registry,
+            IEventBus bus,
+            StatModifierWriter statModifierWriter,
+            StatModifierRemover statModifierRemover,
+            ProgressionOptions? options,
             IProgressionDiagnostics? diagnostics = null,
             LevelSync? levelSync = null)
         {
@@ -106,6 +155,7 @@ namespace Core.Numbers.Progression
             _statModifierRemover = statModifierRemover ?? throw new ArgumentNullException(nameof(statModifierRemover));
             _diagnostics = diagnostics ?? new InMemoryProgressionDiagnostics();
             _levelSync = levelSync;
+            _options = options ?? new ProgressionOptions();
 
             foreach (var record in registry.GetAll("prog.level_curve"))
             {
@@ -118,8 +168,64 @@ namespace Core.Numbers.Progression
                 var id = record.GetId("id");
                 var baseXp = record.GetInt("base_xp");
                 var weight = record.TryGetNumber("weight", out var w) ? w : 1.0;
-                _xpSources[id.Value] = new XpSourceInfo { BaseXp = baseXp, Weight = weight };
+                var kind = record.TryGetString("kind", out var k) ? k : null;
+                var baseCurveRefId = record.TryGetId("base_curve_ref", out var bcr) ? bcr.Value : null;
+                var levelDiffRefId = record.TryGetId("level_diff_ref", out var ldr) ? ldr.Value : null;
+                _xpSources[id.Value] = new XpSourceInfo
+                {
+                    BaseXp = baseXp,
+                    Weight = weight,
+                    Kind = kind,
+                    BaseCurveRefId = baseCurveRefId,
+                    LevelDiffRefId = levelDiffRefId,
+                };
             }
+
+            // T-N4-2（ADR-0033 决策 3）：prog.xp_base_curve 消费——本表由 progression 模块自己
+            // 拥有（RulesSchemaCatalog 无条件注册其 schema，见 ProgSchemas.XpBaseCurve 判断记录），
+            // 但数据源里没有对应文件时 registry.Tables 不会列出它（见 HasTable 判断记录）；用与
+            // combat.level_diff_table 同一条"可选表"判断，未接数据时留空字典，不抛异常——多数
+            // 只测曲线/满级逻辑、不测当量折算的既有测试夹具（未注册 ProgSchemas.XpBaseCurve、
+            // 未提供该表数据）应继续正常构造。
+            if (HasTable(registry, "prog.xp_base_curve"))
+            {
+                foreach (var record in registry.GetAll("prog.xp_base_curve"))
+                {
+                    var id = record.GetId("id");
+                    _xpBaseCurves[id.Value] = CurveSchema.ReadBreakpoints(record, "entries");
+                }
+            }
+
+            // T-N4-2（ADR-0033 决策 3/5）：combat.level_diff_table 的 xp_factor 列——可选表，判断
+            // 记录同上（不引用 Core.Rules.Combat 具体类型）；未接数据（单机/测试夹具不装配 combat
+            // 模块，或该模块存在但未配置 CombatOptions.LevelDiffTableId）时留空字典，
+            // EvaluateDeltaFactor 据此退化为"等级差系数恒为 1"。
+            if (HasTable(registry, "combat.level_diff_table"))
+            {
+                foreach (var record in registry.GetAll("combat.level_diff_table"))
+                {
+                    var id = record.GetId("id");
+                    _levelDiffXpFactors[id.Value] = CurveSchema.ReadBreakpoints(record, "xp_factor");
+                }
+            }
+        }
+
+        /// <summary>判断记录：与 <c>Core.Rules.Combat.CombatDataLoader.HasTable</c> 同一惯例（该
+        /// 类型 <c>internal</c>，不能跨程序集复用，见本类型字段判断记录"不引用 Core.Rules.Combat
+        /// 具体类型"）——<see cref="IDataRegistryView.Tables"/> 只反映"实际从数据源加载了记录的
+        /// 表"，与"是否曾经 RegisterSchema"是两回事，这正是"该表本次是否真的接了数据"这一语义。</summary>
+        private static bool HasTable(IDataRegistryView registry, string table)
+        {
+            var tables = registry.Tables;
+            for (var i = 0; i < tables.Count; i++)
+            {
+                if (tables[i] == table)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         // -----------------------------------------------------------------
@@ -213,28 +319,54 @@ namespace Core.Numbers.Progression
         public long GetXpToNext(Id unitId)
         {
             var unit = GetUnitOrThrow(unitId);
+            var effectiveMaxLevel = GetEffectiveMaxLevel(unit.Curve);
+            if (unit.Level >= effectiveMaxLevel)
+            {
+                // T-N4-2（ADR-0033 决策 9"满级后……getXpToNext 返回零"）：显式按"有效满级"短路
+                // 返回 0，不再依赖"曲线最后一条记录的 xp_to_next 恰好是 0"这条数据约定——
+                // ProgressionOptions.MaxLevel 收紧的有效满级可能落在曲线中间某一级，那一级的
+                // xp_to_next 通常不是 0（它对"未被收紧"的单位仍然有意义），仍必须返回 0。
+                return 0;
+            }
             return unit.Curve.Entries[unit.Level - 1].XpToNext;
         }
 
-        public void AddXp(Id unitId, Id sourceId, long amount)
+        /// <summary>T-N4-2：单位绑定曲线的"有效满级"——<see cref="ProgressionOptions.MaxLevel"/>
+        /// 为 0（缺省）时等于曲线自身 <see cref="CurveInfo.MaxLevel"/>；为正值时取二者较小值（只能
+        /// 收紧、不能放宽到超出曲线数据本身，见 <see cref="ProgressionOptions.MaxLevel"/> 判断
+        /// 记录）。<see cref="GetXpToNext"/>/<see cref="AddXpCore"/>/<see cref="GrantXpCore"/> 共用
+        /// 本方法判定"是否已满级"，确保三者口径一致。</summary>
+        private int GetEffectiveMaxLevel(CurveInfo curve) =>
+            _options.MaxLevel > 0 ? Math.Min(_options.MaxLevel, curve.MaxLevel) : curve.MaxLevel;
+
+        public void AddXp(Id unitId, Id sourceId, long amount) => AddXpCore(unitId, sourceId, amount);
+
+        /// <summary>T-N4-2：从 <see cref="AddXp"/> 拆出的核心实现，返回"实际入账值"（已满级时为 0，
+        /// 否则等于 <paramref name="amount"/>）——<see cref="AddXp"/> 保持既有 <c>void</c> 签名不变
+        /// （ABI 门禁不允许修改既有接口成员签名），<see cref="GrantXp"/>/<see cref="GrantFromSource"/>
+        /// 改内部直接调用本方法拿到返回值（设计层裁定"内部经同一条'应用倍率 → 加经验 → 升级循环 →
+        /// 事件'路径"，本方法就是那条共用路径，三个公开入口只负责算出各自的 <paramref name="amount"/>
+        /// 后转发到这里，不各自重复一份满级判定/事件发布/升级循环）。</summary>
+        private long AddXpCore(Id unitId, Id sourceId, long amount)
         {
             if (amount < 0) throw new ArgumentOutOfRangeException(nameof(amount), "经验增量不能为负");
 
             var unit = GetUnitOrThrow(unitId);
+            var effectiveMaxLevel = GetEffectiveMaxLevel(unit.Curve);
 
-            if (unit.Level >= unit.Curve.MaxLevel)
+            if (unit.Level >= effectiveMaxLevel)
             {
                 _diagnostics.Warn(
-                    $"单位 \"{unitId}\" 已达曲线 \"{unit.Curve.Id}\" 满级（{unit.Curve.MaxLevel}），" +
+                    $"单位 \"{unitId}\" 已达曲线 \"{unit.Curve.Id}\" 满级（{effectiveMaxLevel}），" +
                     $"丢弃经验 {amount}（来源 \"{sourceId}\"）");
-                return;
+                return 0;
             }
 
             _bus.PublishImmediate(new XpGainedEvent(unitId, sourceId, amount));
             unit.Xp += amount;
 
             var leveledUp = false;
-            while (unit.Level < unit.Curve.MaxLevel)
+            while (unit.Level < effectiveMaxLevel)
             {
                 var xpToNext = unit.Curve.Entries[unit.Level - 1].XpToNext;
                 if (xpToNext <= 0 || unit.Xp < xpToNext)
@@ -256,10 +388,10 @@ namespace Core.Numbers.Progression
                 leveledUp = true;
             }
 
-            if (unit.Level >= unit.Curve.MaxLevel && unit.Xp > 0)
+            if (unit.Level >= effectiveMaxLevel && unit.Xp > 0)
             {
                 _diagnostics.Warn(
-                    $"单位 \"{unitId}\" 升至曲线 \"{unit.Curve.Id}\" 满级（{unit.Curve.MaxLevel}）过程中，" +
+                    $"单位 \"{unitId}\" 升至曲线 \"{unit.Curve.Id}\" 满级（{effectiveMaxLevel}）过程中，" +
                     $"残余经验 {unit.Xp} 被丢弃");
                 unit.Xp = 0;
             }
@@ -274,6 +406,8 @@ namespace Core.Numbers.Progression
                 // while 循环内逐级调用。
                 _levelSync?.Invoke(unitId, unit.Level);
             }
+
+            return amount;
         }
 
         // -----------------------------------------------------------------
@@ -352,16 +486,124 @@ namespace Core.Numbers.Progression
             ApplyGrowth(unitId, unit);
         }
 
-        public void GrantFromSource(Id unitId, Id xpSourceId, double multiplier = 1)
+        public void GrantFromSource(Id unitId, Id xpSourceId, double multiplier = 1) =>
+            GrantFromSourceCore(unitId, xpSourceId, multiplier);
+
+        /// <summary>T-N4-2：<see cref="GrantFromSource"/> 的核心实现，返回实际入账值（<see
+        /// cref="GrantFromSource"/> 保持既有 <c>void</c> 签名不变）。</summary>
+        private long GrantFromSourceCore(Id unitId, Id xpSourceId, double multiplier)
+        {
+            var source = GetXpSourceOrThrow(xpSourceId);
+
+            double raw;
+            if (string.IsNullOrEmpty(source.BaseCurveRefId))
+            {
+                // 旧算法逐位保留（拍板 4"base_xp/weight 保留一个版本周期"；见 IProgressionHost.
+                // GrantFromSource 判断记录"分两种算法"）：T-N4-2 之前本方法唯一的实现分支，
+                // 数值/舍入方式与之前逐位相同。
+                raw = source.BaseXp * source.Weight * multiplier;
+            }
+            else
+            {
+                // 判断记录（契约疑点上报，见 IProgressionHost.GrantFromSource 判断记录）：旧签名
+                // 没有"来源等级"参数，按"该来源与领取者当前等级相同"处理（Δ 恒从 0 起算），
+                // multiplier 直接相乘、不经 ExtraXpMultiplierProvider 钩子（钩子是 GrantXp 新路径
+                // 的默认倍率来源，旧调用方已经在用自己的 multiplier 表达倍率，两者不应该叠加）。
+                var receiverLevel = GetUnitOrThrow(unitId).Level;
+                var context = new XpContext(sourceLevel: receiverLevel);
+                raw = ComputeCurveBasedRawAmount(unitId, xpSourceId, source, context) * multiplier;
+            }
+
+            return AddXpCore(unitId, xpSourceId, RoundXp(raw));
+        }
+
+        public long GrantXp(Id unitId, Id sourceId, XpContext context) => GrantXpCore(unitId, sourceId, context);
+
+        /// <summary>T-N4-2：<see cref="GrantXp"/> 的核心实现（见 IProgressionHost.GrantXp 判断记录
+        /// 的公式小节）。</summary>
+        private long GrantXpCore(Id unitId, Id sourceId, XpContext context)
+        {
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            var source = GetXpSourceOrThrow(sourceId);
+
+            // 判断记录：GrantXp 对没有 base_curve_ref 的来源按"隐式 multiplier=1 的
+            // GrantFromSource"处理（与该方法共用同一条旧算法，不重复一份），context 此时未被
+            // 使用——旧式来源没有"按怪物/任务/区域等级折算"的概念，这是 GrantXp 的新增能力。
+            var raw = string.IsNullOrEmpty(source.BaseCurveRefId)
+                ? source.BaseXp * source.Weight
+                : ComputeCurveBasedRawAmount(unitId, sourceId, source, context);
+
+            return AddXpCore(unitId, sourceId, RoundXp(raw));
+        }
+
+        /// <summary>T-N4-2（ADR-0033 决策 3；06 第 2.5 节）：三种来源当量折算公式的唯一实现，
+        /// <see cref="GrantXpCore"/> 与 <see cref="GrantFromSourceCore"/>（曲线分支）共用——
+        /// <paramref name="source"/><c>.BaseCurveRefId</c> 必须非空（调用方职责，两个调用点均已
+        /// 在调用前判断）。返回未舍入的原始值，舍入统一在 <see cref="RoundXp"/> 做（避免"曲线结果
+        /// 先舍入一次、乘 multiplier 再舍入一次"的二次舍入误差）。</summary>
+        private double ComputeCurveBasedRawAmount(Id unitId, Id sourceId, XpSourceInfo source, XpContext context)
+        {
+            if (!_xpBaseCurves.TryGetValue(source.BaseCurveRefId!, out var baseCurve))
+            {
+                // reference_integrity 校验应已在加载期拦下悬空引用（同 ADR-0033 决策 3 的
+                // base_curve_ref 字段登记）；本分支是运行期防御性兜底，同 GetCurveOrThrow 惯例。
+                throw new ArgumentException(
+                    $"经验来源 \"{sourceId}\" 的 base_curve_ref \"{source.BaseCurveRefId}\" 未在 " +
+                    "\"prog.xp_base_curve\" 表中找到（应已被 reference_integrity 校验拦截）",
+                    nameof(source));
+            }
+
+            var baseAmount = baseCurve.Evaluate(context.SourceLevel);
+
+            // 判断记录（kind 缺省按 kill 处理）：prog.xp_source.kind 登记为可选（T-N4-1，兼容旧
+            // 数据），存在 base_curve_ref 却未填 kind 的来源没有字面契约结论——kill 分支公式最
+            // 贴近"基数曲线本身就是一只同级怪的经验"这一最基础语义，取为兜底，非 kill/quest/
+            // discovery 之外的任何字符串同样落到这条兜底（不应发生，schema 层已用 enum 约束，
+            // 这里只是不让防御性代码抛出意外分支异常）。
+            switch (source.Kind)
+            {
+                case "quest":
+                    return (context.Equivalent ?? 1.0) * baseAmount * EvaluateDeltaFactor(unitId, source, context.SourceLevel);
+
+                case "discovery":
+                    // ADR-0033 决策 3"探索 = 一只怪当量 × 击杀基数(区域等级)"——原文公式没有等级差
+                    // 项，即便该来源同时登记了 level_diff_ref 也不查（不调用 EvaluateDeltaFactor）。
+                    return (context.Equivalent ?? 1.0) * baseAmount;
+
+                case "kill":
+                default:
+                    var multiplier = _options.ExtraXpMultiplierProvider?.Invoke(unitId, sourceId) ?? 1.0;
+                    return baseAmount * multiplier * EvaluateDeltaFactor(unitId, source, context.SourceLevel);
+            }
+        }
+
+        /// <summary>T-N4-2（ADR-0033 决策 3/5）：等级差系数——<paramref name="source"/> 未登记
+        /// <c>level_diff_ref</c>，或登记了但对应记录未加载（目标表整体缺失，见构造函数
+        /// <c>combat.level_diff_table</c> 判断记录）时退化为 1（不折算），不抛异常——单机/测试
+        /// 夹具不装配 combat 模块时经验数值仍应可算。Δ = <paramref name="sourceLevel"/>（来源侧：
+        /// 怪物/任务等级）− 领取者 <paramref name="unitId"/> 当前有效等级（<c>combat.level_diff_
+        /// table</c> 字段登记原文"Δ = 目标/来源有效等级 − 攻击者/领取者有效等级"）。</summary>
+        private double EvaluateDeltaFactor(Id unitId, XpSourceInfo source, int sourceLevel)
+        {
+            if (string.IsNullOrEmpty(source.LevelDiffRefId)) return 1.0;
+            if (!_levelDiffXpFactors.TryGetValue(source.LevelDiffRefId!, out var xpFactorCurve)) return 1.0;
+
+            var receiverLevel = GetUnitOrThrow(unitId).Level;
+            var delta = sourceLevel - receiverLevel;
+            return xpFactorCurve.Evaluate(delta);
+        }
+
+        /// <summary>四舍五入到 <see cref="long"/>（<see cref="MidpointRounding.AwayFromZero"/>），
+        /// 负值钳为 0——与本方法引入之前 <see cref="GrantFromSource"/> 的舍入方式逐位一致。</summary>
+        private static long RoundXp(double raw) => raw <= 0 ? 0L : (long)Math.Round(raw, MidpointRounding.AwayFromZero);
+
+        private XpSourceInfo GetXpSourceOrThrow(Id xpSourceId)
         {
             if (!_xpSources.TryGetValue(xpSourceId.Value, out var source))
             {
                 throw new ArgumentException($"未知经验来源 \"{xpSourceId}\"", nameof(xpSourceId));
             }
-
-            var raw = source.BaseXp * source.Weight * multiplier;
-            var amount = raw <= 0 ? 0L : (long)Math.Round(raw, MidpointRounding.AwayFromZero);
-            AddXp(unitId, xpSourceId, amount);
+            return source;
         }
 
         // -----------------------------------------------------------------

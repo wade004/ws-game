@@ -389,6 +389,27 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   详见 `core/numbers/progression/contracts/ProgSchemas.cs`/`ProgressionOptions.cs` 类型注释
   "契约疑点上报"。
 
+- **数值设计落地阶段 N4 · T-N4-2**（[ADR-0033](architecture/adr/0033-等级经验模块正文与当量来源.md)
+  决策 1/3/9；[06 第 2.5 节](architecture/06_规则层_属性技能战斗AI.md)，编辑器/游戏侧接入契约）：
+  `Core.Numbers.Progression.IProgressionHost` 新增默认接口成员
+  `GrantXp(unitId, sourceId, context: XpContext) -> long`（三种来源——`kind=kill|quest|discovery`
+  ——的统一折算入口，返回实际入账值）；新增契约类型 `XpContext`（`sourceLevel`/`tierId`/
+  `equivalent`）；`ProgressionHost` 新增接受 `ProgressionOptions?` 的构造重载（旧构造函数转发
+  `null`，行为不变）。折算公式：击杀 = 基数曲线(怪物等级) × 分档/难度倍率钩子（缺省 1，真正接入
+  留 T-N4-4）× 等级差系数(Δ)；任务 = 当量 × 基数曲线(任务等级) × 等级差系数(Δ)；探索 = 当量
+  （缺省 1）× 基数曲线(区域等级)，刻意不接等级差系数。`GetXpToNext`/`AddXp`/`GrantXp`/
+  `GrantFromSource` 统一按"有效满级"判定（`ProgressionOptions.MaxLevel` 为 0 时等于曲线自身
+  `max_level`，为正值时收紧到该值与曲线 `max_level` 的较小者），满级时 `GetXpToNext` 返回 0、
+  `grantXp`/`AddXp` 整笔丢弃不发 `progression.xp_gained`。`ProgressionOptions.MaxLevel` 默认值
+  由 T-N4-1 的 `1` 改为 `0`（该字段此前是纯登记壳、默认值不影响任何判定；本任务开始真正消费，
+  语义与默认值必须同时修正）。旧字段兼容：来源没有 `base_curve_ref` 时 `GrantFromSource` 逐位
+  保留旧算法（`base_xp × weight × multiplier`，回归锁死）；存在 `base_curve_ref` 时无论走
+  `GrantXp` 或旧入口 `GrantFromSource` 均以曲线为准。`GrantFromSource` 未删除。契约疑点（`kind`
+  未登记时兜底按 `kill` 处理、`GrantFromSource` 走曲线分支时的隐式 `sourceLevel`、
+  `prog.level_curve.talent_points` 消费不在本任务范围内）详见
+  `core/numbers/progression/contracts/IProgressionHost.cs`/`XpContext.cs`/`ProgressionOptions.cs`
+  类型注释与 `core/numbers/progression/schema/README.md`"T-N4-2 补记"。
+
 ## [1.33.0] - 2026-09-15
 
 MINOR 版本：数值设计落地阶段 N3"技能"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 9/14 节，T-N3-1～T-N3-11）——落地 ADR-0031 全部决策：效果值缩放契约、使用条件、节拍锁、来源缺失冻结、瘟疫刷新、控制类别、群体超出策略（拍板 7）、武器百分比基于秒伤乘一拍、`skill.budget_rule` 与技能预算 Analyzer、结算类原语集合、独立的优先级表求值组件——不新增任何效果原语。

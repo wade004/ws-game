@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
@@ -103,6 +104,96 @@ namespace Tests.Numbers.Progression
         private static ProgressionHost MakeHost(
             IDataRegistryView registry, IEventBus bus, RecordingWriters writers, IProgressionDiagnostics? diagnostics = null) =>
             new ProgressionHost(registry, bus, writers.Write, writers.Remove, diagnostics);
+
+        // -----------------------------------------------------------------
+        // T-N4-2 夹具：grantXp(XpContext) 三种来源公式、GetXpToNext/grantXp 满级归零、
+        // GrantFromSource 曲线优先兼容。见 IProgressionHost.GrantXp/ComputeCurveBasedRawAmount
+        // 判断记录（公式出处）。
+        // -----------------------------------------------------------------
+
+        /// <summary>生成一条"每级 <paramref name="xpToNextPerLevel"/> 经验、末级 0"的等级曲线行，
+        /// 供只关心"满级判定"/"当量折算"、不关心具体升级门槛的用例复用（升级门槛设得足够大，
+        /// 避免用例里的少量经验意外触发升级，干扰对"入账值"本身的断言）。</summary>
+        private static string BuildFlatCurveRows(string id, int maxLevel, long xpToNextPerLevel)
+        {
+            var sb = new StringBuilder();
+            sb.Append("[{\"id\":\"").Append(id).Append("\",\"max_level\":").Append(maxLevel).Append(",\"entries\":[");
+            for (var level = 1; level <= maxLevel; level++)
+            {
+                if (level > 1) sb.Append(',');
+                var xpToNext = level == maxLevel ? 0 : xpToNextPerLevel;
+                sb.Append("{\"level\":").Append(level).Append(",\"xp_to_next\":").Append(xpToNext).Append(",\"growth\":{}}");
+            }
+            sb.Append("]}]");
+            return sb.ToString();
+        }
+
+        // 领取者曲线：1..20 级，每级门槛 100000（用例里的入账值都远小于这个数，不会意外升级），
+        // 20 级（曲线自身 max_level）xp_to_next=0。与来源方（怪物/任务/区域）的等级刻意分开建模，
+        // 覆盖 Δ = 来源等级 − 领取者等级可正可负的场景。
+        private static readonly string N42CurveRows = BuildFlatCurveRows("prog.curve.n42", 20, 100_000);
+
+        // 击杀基数曲线：Evaluate(x) = 100x（x∈[1,11] 内精确成立，两点线性），供手算核对。
+        private const string N42XpBaseCurveRows =
+            "[{\"id\":\"prog.xp_base_curve.n42\",\"entries\":[{\"x\":1,\"y\":100},{\"x\":11,\"y\":1100}]}]";
+
+        // 等级差系数：Δ=-5→0.1（越级碾压大幅削减）、Δ=0→1.0（同级基准）、Δ=5→1.5（越级挑战小幅
+        // 加成），三点两段线性，与 combat.level_diff_table.xp_factor 的登记形态（CurveAxis.LevelDiff）
+        // 一致（ADR-0033 决策 3/5）。
+        private const string N42LevelDiffRows =
+            "[{\"id\":\"combat.level_diff.n42\",\"xp_factor\":[{\"x\":-5,\"y\":0.1},{\"x\":0,\"y\":1.0},{\"x\":5,\"y\":1.5}]}]";
+
+        // 五条经验来源：kill/quest 各带 base_curve_ref + level_diff_ref；discovery 一条不接
+        // level_diff_ref（验证"探索本就不查表"），另一条故意也接上 level_diff_ref（验证"即便接了
+        // 也不生效"，见 ComputeCurveBasedRawAmount 判断记录）；末一条只用于"旧字段兼容：曲线优先"
+        // 用例，故意同时保留 base_xp/weight 与 base_curve_ref、不填 kind（兜底按 kill 处理）。
+        private const string N42XpSourceRows = @"[
+            { ""id"": ""prog.xp.kill_n42"", ""kind"": ""kill"", ""base_xp"": 1,
+              ""base_curve_ref"": ""prog.xp_base_curve.n42"", ""level_diff_ref"": ""combat.level_diff.n42"" },
+            { ""id"": ""prog.xp.quest_n42"", ""kind"": ""quest"", ""base_xp"": 1,
+              ""base_curve_ref"": ""prog.xp_base_curve.n42"", ""level_diff_ref"": ""combat.level_diff.n42"" },
+            { ""id"": ""prog.xp.discovery_n42"", ""kind"": ""discovery"", ""base_xp"": 1,
+              ""base_curve_ref"": ""prog.xp_base_curve.n42"" },
+            { ""id"": ""prog.xp.discovery_ignorediff_n42"", ""kind"": ""discovery"", ""base_xp"": 1,
+              ""base_curve_ref"": ""prog.xp_base_curve.n42"", ""level_diff_ref"": ""combat.level_diff.n42"" },
+            { ""id"": ""prog.xp.legacy_with_curve_n42"", ""base_xp"": 999, ""weight"": 2,
+              ""base_curve_ref"": ""prog.xp_base_curve.n42"" }
+        ]";
+
+        /// <summary>占位 <c>combat.level_diff_table</c> schema——真实字段表归 <c>Core.Rules.Combat.
+        /// CombatSchemas.LevelDiffTable</c>（本项目 <c>Tests.Numbers</c> 不引用 <c>Core.Rules</c>
+        /// 程序集，同 <c>ProgSchemaCoverageTests.cs</c>"combat.level_diff_table 归 Core.Rules"判断
+        /// 记录），这里只登记 <see cref="ProgressionHost"/> 实际会读的两个字段（<c>id</c>/
+        /// <c>xp_factor</c>），供 <c>reference_integrity</c> 校验与 <c>CurveSchema.ReadBreakpoints</c>
+        /// 使用。</summary>
+        private static readonly TableSchema LevelDiffTableStub = new TableSchema(
+            name: "combat.level_diff_table",
+            primaryKey: "id",
+            currentSchemaVersion: 1,
+            fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "占位"),
+                CurveSchema.BreakpointsField("xp_factor", CurveAxis.LevelDiff, required: true,
+                    description: "经验系数断点表，横轴 Δ（T-N4-2 测试站位登记）"),
+            });
+
+        private static DataRegistry MakeGrantXpRegistry(out IEventBus bus)
+        {
+            bus = MakeBus();
+            var source = new InMemoryDataSource()
+                .Add("prog.level_curve", Envelope("prog.level_curve", N42CurveRows))
+                .Add("prog.xp_source", Envelope("prog.xp_source", N42XpSourceRows))
+                .Add("prog.xp_base_curve", Envelope("prog.xp_base_curve", N42XpBaseCurveRows))
+                .Add("combat.level_diff_table", Envelope("combat.level_diff_table", N42LevelDiffRows));
+
+            var registry = new DataRegistry(source, bus, new DataRegistryOptions());
+            registry.RegisterSchema(ProgSchemas.LevelCurve);
+            registry.RegisterSchema(ProgSchemas.XpSource);
+            registry.RegisterSchema(ProgSchemas.XpBaseCurve);
+            registry.RegisterSchema(LevelDiffTableStub);
+            registry.RegisterValidationRule(new ProgLevelCurveValidationRule());
+            return registry;
+        }
 
         // -----------------------------------------------------------------
         // 1. 曲线加载与校验（不连续报错）
@@ -573,6 +664,207 @@ namespace Tests.Numbers.Progression
             host.ApplyGrowthToCurrentLevel(unit);
 
             Assert.False(levelUpFired);
+        }
+
+        // -----------------------------------------------------------------
+        // 10. T-N4-2：grantXp(XpContext) 三种来源手算（ADR-0033 决策 3）
+        // -----------------------------------------------------------------
+
+        /// <summary>击杀 · 用例 1：Δ=+5（怪物比领取者高 5 级）→ xp_factor=1.5（越级挑战加成）。
+        /// baseAmount=xp_base_curve.Evaluate(6)=600；raw=600×1(倍率钩子未设置)×1.5=900。</summary>
+        [Fact]
+        public void GrantXp_Kill_PositiveDelta_AppliesNonOneXpFactor()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.n42_kill_01");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 1);
+
+            XpGainedEvent? xpGained = null;
+            bus.Subscribe<XpGainedEvent>(ProgressionEventKeys.XpGained, e => xpGained = e);
+
+            var granted = host.GrantXp(unit, new Id("prog.xp.kill_n42"), new XpContext(sourceLevel: 6));
+
+            Assert.Equal(900, granted);
+            Assert.NotNull(xpGained);
+            Assert.Equal(900, xpGained!.Amount);
+        }
+
+        /// <summary>击杀 · 用例 2：Δ=-5（怪物比领取者低 5 级）→ xp_factor=0.1（越级碾压削减）。
+        /// baseAmount=xp_base_curve.Evaluate(3)=300；raw=300×1×0.1=30。</summary>
+        [Fact]
+        public void GrantXp_Kill_NegativeDelta_AppliesNonOneXpFactor()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.n42_kill_02");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 8);
+
+            var granted = host.GrantXp(unit, new Id("prog.xp.kill_n42"), new XpContext(sourceLevel: 3));
+
+            Assert.Equal(30, granted);
+        }
+
+        /// <summary>任务 · 用例 1：Δ=0（任务等级与领取者同级）→ xp_factor=1.0。
+        /// baseAmount=xp_base_curve.Evaluate(5)=500；当量 3.5；raw=3.5×500×1=1750。</summary>
+        [Fact]
+        public void GrantXp_Quest_ZeroDelta_EquivalentTimesBaseAmount()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.n42_quest_01");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 5);
+
+            var granted = host.GrantXp(unit, new Id("prog.xp.quest_n42"),
+                new XpContext(sourceLevel: 5, equivalent: 3.5));
+
+            Assert.Equal(1750, granted);
+        }
+
+        /// <summary>任务 · 用例 2：Δ=+5 → xp_factor=1.5，当量=2。
+        /// baseAmount=xp_base_curve.Evaluate(6)=600；raw=2×600×1.5=1800。</summary>
+        [Fact]
+        public void GrantXp_Quest_PositiveDelta_EquivalentTimesBaseAmountTimesXpFactor()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.n42_quest_02");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 1);
+
+            var granted = host.GrantXp(unit, new Id("prog.xp.quest_n42"),
+                new XpContext(sourceLevel: 6, equivalent: 2));
+
+            Assert.Equal(1800, granted);
+        }
+
+        /// <summary>探索 · 用例 1：无 <c>level_diff_ref</c>，当量省略即按 1 处理。
+        /// baseAmount=xp_base_curve.Evaluate(9)=900；raw=1×900=900。</summary>
+        [Fact]
+        public void GrantXp_Discovery_DefaultEquivalent_EqualsBaseAmount()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.n42_discovery_01");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 3);
+
+            var granted = host.GrantXp(unit, new Id("prog.xp.discovery_n42"), new XpContext(sourceLevel: 9));
+
+            Assert.Equal(900, granted);
+        }
+
+        /// <summary>探索 · 用例 2：来源同时登记了 <c>level_diff_ref</c>（Δ=+5 本会得到 xp_factor=1.5），
+        /// 但 ADR-0033 决策 3 的探索公式没有等级差项——即便登记了也不生效，raw 仍是
+        /// 1×baseAmount=1×600=600（不是 600×1.5=900），证明 <c>discovery</c> 分支不查 Δ 表。</summary>
+        [Fact]
+        public void GrantXp_Discovery_IgnoresLevelDiffRef_EvenWhenConfigured()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.n42_discovery_02");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 1);
+
+            var granted = host.GrantXp(unit, new Id("prog.xp.discovery_ignorediff_n42"), new XpContext(sourceLevel: 6));
+
+            Assert.Equal(600, granted);
+        }
+
+        // -----------------------------------------------------------------
+        // 11. T-N4-2：满级归零（ADR-0033 决策 9）
+        // -----------------------------------------------------------------
+
+        /// <summary><see cref="ProgressionOptions.MaxLevel"/> 收紧到 10（曲线自身 max_level=20），
+        /// 有效满级=min(10,20)=10；level10 条目本身的 xp_to_next=100000（非零，见
+        /// <see cref="BuildFlatCurveRows"/>，只有曲线自身 20 级才是 0）——<see
+        /// cref="IProgressionHost.GetXpToNext"/> 仍必须返回 0，证明满级判定看的是"有效满级"而不是
+        /// "曲线数据在这一级恰好写了 0"。</summary>
+        [Fact]
+        public void GetXpToNext_EffectiveMaxLevelFromOptionsCap_ReturnsZero_EvenWhenCurveEntryNonZero()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var options = new ProgressionOptions { MaxLevel = 10 };
+            var host = new ProgressionHost(registry, bus, writers.Write, writers.Remove, options);
+            var unit = new Id("unit.n42_cap_01");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 10);
+
+            Assert.Equal(0, host.GetXpToNext(unit));
+        }
+
+        /// <summary>单位在曲线自身满级（20 级，<see cref="ProgressionOptions"/> 使用缺省值 0 即
+        /// "不设全局上限"）时调用 <see cref="IProgressionHost.GrantXp"/>：返回 0，且不发
+        /// <see cref="XpGainedEvent"/>（ADR-0033 决策 9"满级后……不发 progression.xp_gained"）。</summary>
+        [Fact]
+        public void GrantXp_AtMaxLevel_ReturnsZero_NoXpGainedEvent()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers); // 旧构造函数，ProgressionOptions 缺省（MaxLevel=0）
+            var unit = new Id("unit.n42_maxed_01");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 20); // 曲线自身满级
+
+            XpGainedEvent? xpGained = null;
+            bus.Subscribe<XpGainedEvent>(ProgressionEventKeys.XpGained, e => xpGained = e);
+
+            var granted = host.GrantXp(unit, new Id("prog.xp.kill_n42"), new XpContext(sourceLevel: 6));
+
+            Assert.Equal(0, granted);
+            Assert.Null(xpGained);
+            Assert.Equal(20, host.GetLevel(unit));
+        }
+
+        // -----------------------------------------------------------------
+        // 12. T-N4-2：GrantFromSource 旧字段兼容——base_curve_ref 存在时以曲线为准
+        // -----------------------------------------------------------------
+
+        /// <summary><c>prog.xp.legacy_with_curve_n42</c> 同时保留 <c>base_xp=999</c>/<c>weight=2</c>
+        /// 与新字段 <c>base_curve_ref</c>：拍板 4"<c>base_curve_ref</c> 存在时优先"——即便调用方仍在
+        /// 用旧入口 <see cref="IProgressionHost.GrantFromSource"/>，也必须走曲线折算，不能落回
+        /// <c>base_xp×weight×multiplier</c>（那样会得到 999×2×2=3996，与断言的期望值明显不同）。
+        /// 该来源未登记 <c>kind</c>，兜底按 <c>kill</c> 处理（见 <c>ComputeCurveBasedRawAmount</c>
+        /// 判断记录）；未登记 <c>level_diff_ref</c>，Δ 系数恒 1；<see cref="IProgressionHost.GrantFromSource"/>
+        /// 的"契约疑点上报"判断记录：旧签名没有来源等级参数，按"领取者当前等级"隐式作为
+        /// <c>sourceLevel</c>（此处等于 5），故 baseAmount=xp_base_curve.Evaluate(5)=500，
+        /// <c>multiplier</c>=2 直接相乘：raw=500×2=1000。</summary>
+        [Fact]
+        public void GrantFromSource_SourceHasBothLegacyFieldsAndBaseCurveRef_UsesCurveNotLegacyFormula()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            var unit = new Id("unit.n42_legacy_01");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 5);
+
+            XpGainedEvent? xpGained = null;
+            bus.Subscribe<XpGainedEvent>(ProgressionEventKeys.XpGained, e => xpGained = e);
+
+            host.GrantFromSource(unit, new Id("prog.xp.legacy_with_curve_n42"), multiplier: 2);
+
+            Assert.NotNull(xpGained);
+            Assert.Equal(1000, xpGained!.Amount); // 不是旧算法的 999×2×2=3996
         }
     }
 }

@@ -20,11 +20,13 @@ progression/
   README.md
   contracts/
     ProgSchemas.cs             prog.level_curve / prog.xp_source / prog.xp_base_curve 的 TableSchema
-    ProgressionOptions.cs      构造期口味配置契约壳（T-N4-1 新增，本任务不消费）
+    ProgressionOptions.cs      构造期口味配置契约壳（T-N4-1 新增契约壳，T-N4-2 起真正消费 MaxLevel/
+                                ExtraXpMultiplierProvider）
+    XpContext.cs               grantXp 的当量上下文（T-N4-2 新增：sourceLevel/tierId/equivalent）
     Events.cs                  ProgressionEventKeys、LevelUpEvent、XpGainedEvent
     ProgressionWriters.cs      StatModifierWriter / StatModifierRemover 具名委托
     IProgressionDiagnostics.cs 诊断出口
-    IProgressionHost.cs        IProgressionHost
+    IProgressionHost.cs        IProgressionHost（T-N4-2 新增 GrantXp 默认接口成员）
   core/
     ProgressionHost.cs             IProgressionHost 默认实现
     ProgressionPersistable.cs      player.progression 存档段（静态工厂，惯例同 core/carriers/unit
@@ -179,6 +181,61 @@ CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp
    先登记"XpMultiplier 注入（T-N4-4）"与"升级回满开关（T-N4-5）"两项字段——已按要求落地，若
    后续任务发现字段设计与实际消费方式不符，以彼时任务书与设计层裁定为准调整，详见该类型注释
    "契约疑点上报"。
+
+## T-N4-2（分阶段落地计划；ADR-0033 决策 1/3/9；06 第 2.5 节）：`grantXp(XpContext)`、满级归零、`ProgressionOptions` 接入
+
+1. **新增 `XpContext`（`contracts/XpContext.cs`）与 `IProgressionHost.GrantXp(unitId, sourceId,
+   context)`**：06 第 2.5 节契约原文的三种来源统一入口，返回实际入账值（`long`）。默认接口方法
+   （惯例同 `ApplyGrowthToCurrentLevel`），默认体固定返回 0，`ProgressionHost` 显式覆盖为真正实现；
+   既有测试假实现（`FakeProgressionHost` 一类）不因新增本成员而编译失败。**禁止事项对照**：
+   `GrantFromSource` 未被删除，仍是公开方法，只是内部改为与 `GrantXp` 共用同一条"应用倍率 → 加
+   经验 → 升级循环 → 事件"路径（`ProgressionHost.AddXpCore`）。
+
+2. **三种来源公式**（ADR-0033 决策 3）：`kind=kill`——`baseAmount × (ExtraXpMultiplierProvider ?? 1)
+   × ΔFactor`；`kind=quest`——`(equivalent ?? 1) × baseAmount × ΔFactor`；`kind=discovery`——
+   `(equivalent ?? 1) × baseAmount`（刻意不接 `ΔFactor`，即便该来源同时登记了 `level_diff_ref` 也
+   不生效）。`baseAmount = prog.xp_base_curve[base_curve_ref].Evaluate(context.SourceLevel)`；
+   `ΔFactor`：`level_diff_ref` 未登记时恒 1，否则查 `combat.level_diff_table[level_diff_ref]
+   .xp_factor.Evaluate(Δ)`，`Δ = context.SourceLevel − 领取者当前有效等级`。**判断记录（不引用
+   `Core.Rules.Combat.LevelDiffTable` 类型）**：01 把 progression 登记为 L1、combat 登记为 L2，
+   L1 反向依赖 L2 具体类型会倒置分层；`ProgressionHost` 改用
+   `Core.Foundation.DataRegistry.CurveSchema.ReadBreakpoints` 直接从原始 `DataRecord` 读取
+   `xp_factor` 字段，不经 `Core.Rules.Combat` 程序集（同 `Tests.Numbers.csproj` 不引用
+   `Core.Rules` 的既有约束）。该表与 `prog.xp_base_curve` 都是可选表（未装配 combat 模块/未接数据
+   时留空字典，退化为"Δ 系数恒 1"，不抛异常）。**待设计层确认**：`kind` 未登记时兜底按 `kill`
+   处理（06/ADR 均未给出字面结论，见 `schema/README.md`"T-N4-2 补记"）。
+
+3. **`GetXpToNext`/`AddXp`/`GrantXp` 共用"有效满级"判定（`ProgressionHost.GetEffectiveMaxLevel`）**：
+   `ProgressionOptions.MaxLevel` 为 0（新缺省）时等于单位绑定曲线自身的 `max_level`；为正值时取
+   该值与曲线 `max_level` 的较小者（只能收紧，不能放宽到超出曲线数据）。`GetXpToNext` 在有效满级
+   显式返回 0（不再只依赖"曲线最后一条记录的 `xp_to_next` 恰好是 0"这条数据约定——收紧场景下
+   有效满级可能落在曲线中间某一级，那一级的 `xp_to_next` 通常非零，仍必须返回 0）；`AddXp`/
+   `GrantXp`/`GrantFromSource` 共用的核心实现（`AddXpCore`）在有效满级整笔丢弃、记诊断、不发
+   `XpGainedEvent`（ADR-0033 决策 9）。
+
+4. **`ProgressionHost` 新增接受 `ProgressionOptions?` 的构造重载**：旧构造函数（不带该参数）转发
+   `null` 到新重载，新重载内部 `options ?? new ProgressionOptions()`——两者共用同一份初始化逻辑，
+   不是并行路径。`ProgressionOptions.MaxLevel` 默认值同步由 T-N4-1 的 `1` 改为 `0`（该字段此前只是
+   登记壳、不驱动任何判定；本任务开始真正消费，默认值必须同时修正，否则任何未显式配置的调用方会
+   被意外收紧到 1 级封顶，见 `ProgressionOptions.cs` 该字段"变更记录"）。
+
+5. **`GrantFromSource` 旧字段兼容（拍板 4）**：来源没有 `base_curve_ref` 时逐位保留 T-N4-2 之前的
+   旧算法 `base_xp × weight × multiplier`（回归测试
+   `GrantFromSource_ComputesAmountFromBaseXpWeightAndMultiplier` 锁死）；存在 `base_curve_ref` 时
+   改走曲线折算（新增测试
+   `GrantFromSource_SourceHasBothLegacyFieldsAndBaseCurveRef_UsesCurveNotLegacyFormula` 验证"以
+   曲线为准"）。**契约疑点上报/临时判断**：`GrantFromSource` 旧签名没有"来源等级"参数，本任务
+   走曲线分支时按"该来源与领取者当前等级相同"处理（Δ 恒从 0 起算），`multiplier` 直接相乘、不经
+   `ExtraXpMultiplierProvider` 钩子；真正需要按怪物/任务/区域等级折算的场景应改走新
+   `GrantXp` 显式传入 `XpContext.SourceLevel`（T-N4-3/T-N4-4 的击杀/任务/探索监听器按此收敛），详
+   见 `IProgressionHost.GrantFromSource` 判断记录。
+
+6. **契约疑点上报：`talent_points` 消费不在本任务范围内**：T-N4-1 落地时在 `schema/README.md`/
+   `ProgSchemas.cs` 留了"消费实现（写入天赋点余额）留 T-N4-2"的前瞻记录，但分阶段落地计划正式
+   的 T-N4-2 任务行与本任务实际收到的派发任务书均只列 `grantXp(XpContext)`/`GetXpToNext` 满级
+   归零/`XpContext` 结构三项，未提及天赋点，也没有给出"天赋点余额"应挂在哪个契约面的字面结论
+   （新查询方法？新事件？游戏层自行订阅 `progression.level_up` 累加？）。本任务不擅自新增这类
+   未声明的契约面，留待设计层重新拆分派发，见 `schema/README.md` 同名小节。
 
 ## 不负责什么
 

@@ -42,15 +42,28 @@ namespace Core.Numbers.Progression
     public sealed class ProgressionOptions
     {
         /// <summary>
-        /// 全局等级上限（06 第 2.5 节"策略配置项……最大等级"）。判断记录：运行期升级判定的权威
-        /// 上限始终是单位实际绑定曲线的 <c>prog.level_curve.max_level</c>（ADR-0033 决策 2，
-        /// 曲线单调有限阻断校验，<see cref="ProgLevelCurveValidationRule"/>）——本字段不驱动、
-        /// 也不覆盖任何曲线的判定，只是给"这个游戏的等级上限是多少"这一整体性元数据一个统一
-        /// 读取点（供编辑器/其它系统展示，或做"全部曲线的 max_level 是否与本值一致"一类内容
-        /// 一致性检查，消费方留待需要时另立任务，本任务不实现）。默认 1（占位式合理起点，不
-        /// 代表任何产品决策，同 <c>SkillOptions.GcdDuration</c> 判断记录同一惯例）。
+        /// 全局等级上限（06 第 2.5 节"策略配置项……最大等级"）。<c>0</c>（新缺省）表示"不设置
+        /// 全局上限，运行期升级判定完全由单位绑定曲线的 <c>prog.level_curve.max_level</c> 决定"
+        /// （等价于本字段生效前的既有行为）；显式正值表示"把满级判定收紧到
+        /// <c>min(本值, 曲线自身 max_level)</c>"——只能收紧、不能放宽到超出曲线数据本身（曲线仍是
+        /// 数据权威）。消费方（T-N4-2 起）：<see cref="ProgressionHost"/> 的"有效满级"计算（供
+        /// <see cref="ProgressionHost.GetXpToNext"/>/<see cref="ProgressionHost.AddXp"/>/
+        /// <see cref="ProgressionHost.GrantXp"/> 共用），仅在调用方使用接受本类型的构造重载时
+        /// 生效——旧构造函数（未带本类型）等价于传入一个全字段缺省的 <see cref="ProgressionOptions"/>
+        /// （即 <c>MaxLevel=0</c>），行为与本次改动之前完全一致。
+        /// <para>
+        /// 变更记录（T-N4-2 设计层裁定）：本字段在 T-N4-1 落地时默认值为 <c>1</c>，且注释明确写
+        /// "不驱动、也不覆盖任何曲线的判定"（彼时 <see cref="ProgressionHost"/> 尚未提供接受本
+        /// 类型的构造重载，本字段只是登记壳）。T-N4-2 新增该构造重载并开始真正消费本字段，语义
+        /// 因此改为本条注释描述的"0=不设上限（等价于从曲线推导），正值=收紧上限"，默认值同步由
+        /// <c>1</c> 改为 <c>0</c>——若仍沿用旧默认值 <c>1</c>，任何未显式配置本字段、只是想用新
+        /// 构造重载传别的选项（如 <see cref="ExtraXpMultiplierProvider"/>）的调用方会被意外收紧到
+        /// 1 级封顶，这不是任何游戏的口味决策，必须随"本字段开始被消费"这一事实同时修正默认值
+        /// （本类是阶段 N4 内多个任务共同完善、随 1.34.0 一次性发布的全新类型，字段调整不构成
+        /// "已发布 ABI"的破坏性变更，同类型注释"契约疑点上报"同一惯例）。
+        /// </para>
         /// </summary>
-        public int MaxLevel { get; set; } = 1;
+        public int MaxLevel { get; set; } = 0;
 
         /// <summary>
         /// 升级回满开关（ADR-0033 决策 7"升级回满：<c>progression.level_up</c> 触发生命与资源
@@ -77,9 +90,19 @@ namespace Core.Numbers.Progression
         /// 加成，规则为相加不相乘"）：默认 <c>null</c>（不生效，等价于恒为 1，与本次改动之前的
         /// 行为一致）；非 <c>null</c> 时由调用方提供的 <see cref="ProgressionXpMultiplierProvider"/>
         /// 返回一个额外倍率，与 <c>creature.tier_definition.xp_multiplier</c>/
-        /// <c>diff.tier.xp_multiplier</c> 的乘积规则一致（相乘）。消费实现（是否真的经本字段
-        /// 注入，还是改为经 T-N4-2 的 <c>XpContext</c> 参数传递）留 T-N4-4 确认；本任务只登记
-        /// 契约壳，见类型注释"契约疑点上报"。
+        /// <c>diff.tier.xp_multiplier</c> 的乘积规则一致（相乘）。
+        /// <para>
+        /// 消费方（T-N4-2 起）：<see cref="ProgressionHost.GrantXp"/> 的 <c>kind=kill</c> 分支按
+        /// <c>baseAmount × (本委托返回值 ?? 1) × ΔFactor</c> 计算（ADR-0033 决策 3"击杀 = 击杀
+        /// 基数(怪物等级) × 分档经验倍率 × 难度经验倍率 × 等级差表.经验系数(Δ)"——本委托是"分档
+        /// 经验倍率 × 难度经验倍率"这一项的注入口，<c>quest</c>/<c>discovery</c> 两个分支不读取
+        /// 本委托，见 ADR 原文对应公式没有这两项）；本任务（T-N4-2）不提供"按
+        /// <c>creature.tier_definition</c>/<c>diff.tier</c> 真正算出倍率"的实现，只落地钩子本身
+        /// （未设置时缺省 1，等价于"没有分档/难度倍率"）——真正读表算出倍率、并决定是否需要把
+        /// <c>XpContext.TierId</c> 一并传给本委托（可能需要扩展委托签名），留 T-N4-3（击杀经验
+        /// 监听器）/T-N4-4（分档与难度倍率注入）落地，见类型注释"契约疑点上报"、
+        /// <see cref="XpContext"/> 类型注释同名小节。
+        /// </para>
         /// </summary>
         public ProgressionXpMultiplierProvider? ExtraXpMultiplierProvider { get; set; } = null;
     }
