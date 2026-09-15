@@ -513,12 +513,34 @@ namespace Core.Carriers.Item
         /// 同一份数据、ItemSchemas.SlotDefinition.is_weapon 判断记录）从该单位当前已装备的槽位里找
         /// "武器槽"，不需要框架层硬编码任何具体槽位 id（如 "main_hand"）——槽位命名完全由游戏内容
         /// 数据决定。
+        /// <para>
+        /// T-N2-6 判断记录（口径不变、硬性规则"禁止改既有签名"）：ADR-0032 决策 4 落地后武器改走
+        /// "秒伤预算"，但本方法保留 <c>(damage_min+damage_max)/2</c> 语义——<c>weapon_damage_pct</c>
+        /// 原语改接秒伤 × 一拍常数是 N3 S3 的范围（见 <see cref="IWeaponDamageQuery.GetWeaponBaseDamage"/>
+        /// 判断记录），本方法只是把"找第一个武器槽"这一步抽成 <see cref="TryGetFirstWeaponSlot"/>
+        /// 供 <see cref="GetWeaponDps"/> 共用，行为与返回值同改动前逐位一致。
+        /// </para>
         /// </summary>
         public double GetWeaponBaseDamage(Id unitId)
         {
-            if (!_equipped.TryGetValue(unitId, out var slots) || slots.Count == 0)
+            if (!TryGetFirstWeaponSlot(unitId, out var weaponSlot))
             {
                 return 0.0;
+            }
+
+            var profile = GetWeaponProfile(unitId, weaponSlot);
+            return profile.HasValue ? (profile.Value.DamageMin + profile.Value.DamageMax) / 2.0 : 0.0;
+        }
+
+        /// <summary>T-N2-6：<see cref="GetWeaponBaseDamage"/>/<see cref="GetWeaponDps"/> 共用的"找第一个
+        /// 武器槽"步骤，从 <see cref="GetWeaponBaseDamage"/> 原实现原样抽出（多个武器槽/双持时按槽位 id
+        /// 序数最先命中，见该方法既有判断记录），不改变既有选择逻辑。</summary>
+        private bool TryGetFirstWeaponSlot(Id unitId, out Id weaponSlot)
+        {
+            weaponSlot = default;
+            if (!_equipped.TryGetValue(unitId, out var slots) || slots.Count == 0)
+            {
+                return false;
             }
 
             var weaponSlotIds = new List<Id>();
@@ -533,12 +555,69 @@ namespace Core.Carriers.Item
 
             if (weaponSlotIds.Count == 0)
             {
-                return 0.0;
+                return false;
             }
 
             weaponSlotIds.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
-            var profile = GetWeaponProfile(unitId, weaponSlotIds[0]);
-            return profile.HasValue ? (profile.Value.DamageMin + profile.Value.DamageMax) / 2.0 : 0.0;
+            weaponSlot = weaponSlotIds[0];
+            return true;
+        }
+
+        /// <summary>
+        /// T-N2-6（ADR-0032 决策 4；07 第 1.2 节修订段）：<see cref="IWeaponDamageQuery.GetWeaponDps"/>
+        /// 实现——武器秒伤 = <c>item.weapon_dps_curve</c>（id 取 <see cref="ItemOptions.WeaponDpsCurveId"/>）
+        /// 在该武器模板 <c>item_level</c> 处求值 × 品质预算倍率（<c>item.quality_definition
+        /// .budget_multiplier</c>，找不到对应品质记录时缺省 1，同 <see cref="ItemBudgetValidationRule"/>
+        /// 既有口径）× 武器槽位系数（该武器所在槽位的 <c>item.slot_definition.budget_coefficient</c>，
+        /// 缺省 1）。武器槽的选取规则同 <see cref="GetWeaponBaseDamage"/>（<see
+        /// cref="TryGetFirstWeaponSlot"/>）；未装备任何武器槽、或曲线找不到对应记录时返回 0，不抛
+        /// 异常（同 <see cref="ApplyArmorValue"/>"曲线缺失按不写处理"既有口径）。
+        /// <para>
+        /// 判断记录（品质取值来源——ItemInstance 尚不携带品质身份）：<see cref="Core.Carriers.Common
+        /// .ItemInstance"/> 要到 T-N2-7 才新增 <c>Quality</c> 字段（见 <see cref="Equip(Id, Id, Id,
+        /// Id?, System.Collections.Generic.IReadOnlyList{Id})"/> 判断记录），本模块当前无法查询"这件
+        /// 已装备武器实例实际是什么品质"——本方法与 <see cref="ApplyArmorValue"/>/<see
+        /// cref="ApplyAffixValues"/> 同样的既有限制，统一取武器模板自身登记的 <c>quality</c> 字段（不
+        /// 是穿戴时若显式传入的 <c>qualityId</c> 参数，那个参数只在穿戴那一刻用于词缀反解，不落地为
+        /// 可事后查询的状态）。T-N2-7 落地后，若需要按实例真实品质求秒伤，需要改造为从
+        /// <see cref="ItemInstance.Quality"/> 读取，本方法签名不受影响（只改内部实现）。
+        /// </para>
+        /// </summary>
+        public double GetWeaponDps(Id unitId)
+        {
+            if (!TryGetFirstWeaponSlot(unitId, out var weaponSlot))
+            {
+                return 0.0;
+            }
+
+            if (!_equipped.TryGetValue(unitId, out var slots) || !slots.TryGetValue(weaponSlot, out var instance))
+            {
+                return 0.0;
+            }
+
+            var template = RequireTemplate(instance.TemplateId);
+
+            var curveRecord = _registry.Get("item.weapon_dps_curve", _options.WeaponDpsCurveId);
+            if (curveRecord == null)
+            {
+                return 0.0;
+            }
+
+            var curve = CurveSchema.ReadBreakpoints(curveRecord, "entries");
+            var itemLevel = (int)template.GetInt("item_level");
+            var baseDps = curve.Evaluate(itemLevel);
+
+            var qualityRecord = _registry.Get("item.quality_definition", template.GetId("quality"));
+            var qualityMultiplier = qualityRecord != null && qualityRecord.TryGetNumber("budget_multiplier", out var qm)
+                ? qm
+                : 1.0;
+
+            var slotCoefficient = _slotDefinitions.TryGetValue(weaponSlot, out var slotDef) &&
+                slotDef.TryGetNumber("budget_coefficient", out var sc)
+                ? sc
+                : 1.0;
+
+            return baseDps * qualityMultiplier * slotCoefficient;
         }
 
         // -----------------------------------------------------------------
@@ -629,19 +708,15 @@ namespace Core.Carriers.Item
         /// （任务书硬性规则"禁止用第二个 sourceId 写词缀值"，护甲值同理，一并遵守），卸下时随
         /// <see cref="RevertGrants"/> 的 <see cref="IStatHost.RemoveModifiersBySource"/> 一并撤销。
         /// <para>
-        /// 判断记录（护甲位判定——**上报待设计层确认**）：<c>item.slot_definition</c>（见
-        /// <see cref="ItemSchemas.SlotDefinition"/>）当前没有独立的 <c>is_armor</c>/<c>armor_slot</c>
-        /// 一类字段区分"护甲位"与其它非武器装备位（戒指/项链/饰品一类传统意义上不该有护甲值的槽
-        /// 位）；<c>item.template</c>（见 <see cref="ItemSchemas.Template"/>）也没有 <c>kind</c>/
-        /// <c>equip_slot</c> 一类模板分类字段可供二次判断。07 第 1.2 节原文只给"仅护甲位"一句，未
-        /// 展开判定规则。本任务按任务书给出的候选兜底规则实现最简判断（见 <see cref="IsArmorSlot"/>）
-        /// ：非武器位（<c>is_weapon != true</c>）且是真正装备位（<c>is_equipment != false</c>，即
-        /// <see cref="IsEquipmentSlot"/>）即视为护甲位——代价是戒指/项链/饰品一类槽位同样会写入护甲
-        /// 修正，与魔兽世界"护甲仅头肩胸手腕手腰腿脚背盾"的更细分类不同。若设计层需要更精确的区分，
-        /// 需要在 <c>item.slot_definition</c> 新增一个如 <c>is_armor</c> 的可选字段（ABI 允许新增，
-        /// 但本任务"涉及文件"未列出该 schema 改动范围，且新增字段不会让 T-N2-1 既有样例——
-        /// <c>item.slot.sample_main_hand</c>/<c>item.slot.sample_bag</c>，均不是护甲位——立即受益，
-        /// 故本任务不新增该字段，只实现最简判断并如实上报）。
+        /// 判断记录（护甲位判定——T-N2-6 设计层裁定，取代 T-N2-5 的推断规则）：T-N2-5 曾按"非武器位
+        /// （<c>is_weapon != true</c>）且是真正装备位（<c>is_equipment != false</c>）"推断护甲位，
+        /// 代价是戒指/项链/饰品一类传统意义上不该有护甲值的槽位也会被写入护甲修正，与魔兽世界"护甲
+        /// 仅头肩胸手腕手腰腿脚背盾"的更细分类不同（见该版本判断记录，`core/carriers/item/README.md`
+        /// 判断记录 20）。设计层就此裁定：<c>item.slot_definition</c> 新增显式可选字段
+        /// <c>has_armor</c>（见 <see cref="ItemSchemas.SlotDefinition"/>，缺省 <c>false</c>），
+        /// <see cref="IsArmorSlot"/> 只看 <c>has_armor == true</c>，不再从 <c>is_weapon</c>/
+        /// <c>is_equipment</c> 推断——游戏层需要显式给每个防具位（头/胸/腿/手/脚等）登记
+        /// <c>has_armor: true</c>，戒指/饰品/武器位缺省 <c>false</c> 即不写护甲。
         /// </para>
         /// <para>
         /// 判断记录（护甲曲线缺失时的行为）：<see cref="ItemOptions.ArmorCurveId"/> 在已加载的
@@ -676,17 +751,11 @@ namespace Core.Carriers.Item
             _statHost.AddModifier(unitId, new StatModifier(_options.ArmorStatId, StatModifierOp.Flat, armorValue, instance.InstanceId));
         }
 
-        /// <summary>见 <see cref="ApplyArmorValue"/> 判断记录"护甲位判定"——非武器位且是真正装备位。</summary>
-        private bool IsArmorSlot(Id slot)
-        {
-            if (!IsEquipmentSlot(slot))
-            {
-                return false;
-            }
-
-            return !(_slotDefinitions.TryGetValue(slot, out var slotDef) &&
-                slotDef.TryGetBool("is_weapon", out var isWeapon) && isWeapon);
-        }
+        /// <summary>见 <see cref="ApplyArmorValue"/> 判断记录"护甲位判定"（T-N2-6 设计层裁定）——只看
+        /// 槽位显式字段 <c>item.slot_definition.has_armor</c>，缺省 <c>false</c>。</summary>
+        private bool IsArmorSlot(Id slot) =>
+            _slotDefinitions.TryGetValue(slot, out var slotDef) &&
+            slotDef.TryGetBool("has_armor", out var hasArmor) && hasArmor;
 
         /// <summary>
         /// T-N2-5（ADR-0032 决策 7/8；07 第 1.6 节修订段）：按 <paramref name="affixIds"/> 逐条把

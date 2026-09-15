@@ -214,6 +214,14 @@ namespace Core.Carriers.Item
                         "基准价值 × 品质价格倍率 × 槽位价格倍率\"）：槽位价格系数，缺省 1；消费实现随 " +
                         "ADR-0034 落地任务接入，本任务只登记字段。范围 > 0")
                     .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                new FieldSchema("has_armor", FieldKind.Bool, required: false,
+                    description: "分阶段落地计划 T-N2-6（设计层裁定，07 第 1.2 节修订段\"护甲值……仅" +
+                        "护甲位\"）：该槽位的装备是否提供护甲值（ADR-0032 决策 4 的护甲位），缺省 " +
+                        "false。判断记录：T-N2-5 曾用\"非武器位（is_weapon != true）且是真正装备位" +
+                        "（is_equipment != false）\"推断护甲位，代价是戒指/项链/饰品一类传统意义上不该" +
+                        "有护甲值的槽位也会被写入护甲修正——本字段是随 T-N2-6 一并落地的设计层裁定：" +
+                        "改为显式字段，EquipmentHost.IsArmorSlot 只看 has_armor == true，不再从" +
+                        "is_weapon/is_equipment 推断，见该方法判断记录。"),
             }).WithOwnership(SchemaLayer.Carriers, "item");
 
         /// <summary><c>item.quality_definition</c>：品质分档定义（07 第 1.1 节原文 + 本模块实现期
@@ -333,9 +341,12 @@ namespace Core.Carriers.Item
         /// <summary><c>item.weapon_dps_curve</c>：物品等级到武器秒伤的曲线（分阶段落地计划 T-N2-1；
         /// ADR-0032 决策 4；04 第 1.1 节表清单 <c>item.weapon_dps_curve</c> 行"乘品质预算倍率与武器
         /// 槽位系数"）。消费公式 <c>武器秒伤 = item.weapon_dps_curve(item_level) × 品质预算倍率 ×
-        /// 武器槽位系数</c>、<c>伤害范围 = 武器秒伤 × weapon_profile.speed × (1 ± 浮动)</c> 随
-        /// T-N2-4/E8 落地（同一提交替换 <c>EquipmentHost.GetWeaponBaseDamage</c> 的 <c>(min+max)/2</c>
-        /// 实现），本任务只登记 schema 与注册。</summary>
+        /// 武器槽位系数</c> 随 T-N2-6（<see cref="Core.Carriers.Item.EquipmentHost.GetWeaponDps"/>）
+        /// 落地；<c>伤害范围 = 武器秒伤 × weapon_profile.speed × (1 ± 浮动)</c> 同一任务接入"手填
+        /// damage_min/max 偏离秒伤曲线"警告（见 <c>Core.Carriers.Item.
+        /// ItemWeaponDamageDeviatesDpsCurveRule</c>）——该警告只核对 <c>(damage_min+damage_max)/2</c>
+        /// 与"秒伤 × speed"的偏离比例，不消费本表新增的 <c>variance</c> 字段；<c>GetWeaponBaseDamage</c> 仍保留
+        /// <c>(min+max)/2</c> 语义不变（硬性规则"禁止改既有签名"，见该接口判断记录）。</summary>
         public static readonly TableSchema WeaponDpsCurve = new TableSchema(
             name: "item.weapon_dps_curve",
             primaryKey: "id",
@@ -351,6 +362,19 @@ namespace Core.Carriers.Item
                     yDescription: "该物品等级对应的武器基准秒伤，乘品质预算倍率与武器槽位系数后得到" +
                         "实际武器秒伤",
                     yRange: FieldRange.Range(min: 0, minExclusive: true)),
+                new FieldSchema("variance", FieldKind.Number, required: false,
+                    description: "分阶段落地计划 T-N2-6（ADR-0032 决策 4"
+                        + "\"伤害范围 = 武器秒伤 × 初始攻速 × (1 ± 浮动)\"；拍板 6"
+                        + "\"一拍常数与浮动比例为数据项\"）：伤害范围浮动比例，缺省 0.1（±10%）。"
+                        + "判断记录（登记位置——**上报待设计层确认**）：07/ADR-0032 均未指明具体字段位，"
+                        + "落地改动点清单第 10 节第 6 条给出候选\"一拍常数与浮动比例放 skill.budget_rule "
+                        + "与 item.weapon_dps_curve 旁\"——一拍常数登记在 skill.budget_rule（该表要到 "
+                        + "T-N3-9 才创建，见落地改动点清单 S12/E8），浮动比例按同一候选落在本表；本任务" +
+                        "只登记字段，尚无消费者（\"手填偏离秒伤曲线\"警告只比较均值与\"秒伤×speed\"，不" +
+                        "展开到 (1±浮动) 的上下界，见 ItemWeaponDamageDeviatesDpsCurveRule 判断记录）。" +
+                        "范围 [0,1)（0 表示无浮动、伤害范围退化为定值；>=1 会让下界降到 0 或以下，" +
+                        "无意义）")
+                    .WithRange(FieldRange.Range(min: 0, max: 1, maxExclusive: true)),
             }).WithOwnership(SchemaLayer.Carriers, "item");
 
         /// <summary><c>item.req_level_curve</c>：物品等级到需求等级的曲线（分阶段落地计划 T-N2-1；

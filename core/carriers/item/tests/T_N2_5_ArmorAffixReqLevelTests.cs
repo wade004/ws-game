@@ -16,13 +16,23 @@ namespace Tests.Carriers.Item
     /// <c>item.template</c> 样例未登记 <c>item.armor_curve</c>/<c>item.req_level_curve</c>/
     /// <c>item.affix</c> 数据，不适合直接复用——同 <c>P2_05_InventoryEquipmentReloadTests</c> 一类
     /// "自带最小夹具"惯例）。
+    /// <para>
+    /// T-N2-6 更新：<c>SlotJson</c> 的 <c>item.slot.t5_chest</c> 补 <c>has_armor: true</c>——护甲位
+    /// 判定从 T-N2-5 的"非武器位且真正装备位"推断改为设计层裁定的显式字段（见
+    /// <c>EquipmentHost.IsArmorSlot</c>/<c>README.md</c> 判断记录 20/21），本文件既有护甲相关断言
+    /// 不变但前提数据需要同步补上这个字段，否则会在新逻辑下全部失败（<c>has_armor</c> 缺省
+    /// <c>false</c>）；"非武器位但未显式登记 has_armor 因此不再写护甲"的新增回归用例见
+    /// <c>T_N2_6_WeaponDpsDeviationTests.Equip_NonWeaponSlotWithoutHasArmor_DoesNotWriteArmorStat</c>。
+    /// </para>
     /// </summary>
     public class T_N2_5_ArmorAffixReqLevelTests
     {
         private const string SlotJson =
             "[" +
             "{\"id\": \"item.slot.t5_weapon\", \"name_key\": \"l10n.item.slot.t5_weapon\", \"is_weapon\": true, \"budget_coefficient\": 1.0}," +
-            "{\"id\": \"item.slot.t5_chest\", \"name_key\": \"l10n.item.slot.t5_chest\", \"budget_coefficient\": 2.0}" +
+            // T-N2-6（设计层裁定，取代本文件原先依赖的"非武器位且真正装备位"推断）：护甲位改由显式
+            // has_armor 字段决定，见 EquipmentHost.IsArmorSlot 判断记录、README.md 判断记录 20/21。
+            "{\"id\": \"item.slot.t5_chest\", \"name_key\": \"l10n.item.slot.t5_chest\", \"has_armor\": true, \"budget_coefficient\": 2.0}" +
             "]";
 
         private const string QualityJson =

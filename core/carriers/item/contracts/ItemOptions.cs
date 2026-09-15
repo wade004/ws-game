@@ -70,5 +70,15 @@ namespace Core.Carriers.Item
         /// id，需要同时改这两处配置（同 <see cref="Core.Rules.Combat.CombatOptions.ArmorStat"/> 顶部
         /// 注释"属性缺失按 0 处理"一贯的"调用方自行保证配置一致"惯例）。</summary>
         public Id ArmorStatId { get; set; } = new Id("stat.armor");
+
+        /// <summary>分阶段落地计划 T-N2-6（ADR-0032 决策 4；07 第 1.2 节修订段"武器秒伤 =
+        /// item.weapon_dps_curve(item_level) × 品质预算倍率 × 武器槽位系数"）：武器秒伤曲线
+        /// <c>item.weapon_dps_curve</c> 的 id，同 <see cref="ArmorCurveId"/>/<see
+        /// cref="ReqLevelCurveId"/> 惯例——曲线 id 是调用方配置项，不预设/硬编码唯一默认曲线。缺省
+        /// <c>item.weapon_dps.default</c>（与 T-N2-1 落地的 <c>data/_sample/item/item.weapon_dps_curve
+        /// .json</c> 样例 id 一致）。该曲线在已加载数据里找不到对应记录时，<see
+        /// cref="EquipmentHost.GetWeaponDps"/> 按"返回 0"处理，不抛异常（同 <see cref="ArmorCurveId"/>
+        /// "曲线缺失按不写处理"一贯口径）。</summary>
+        public Id WeaponDpsCurveId { get; set; } = new Id("item.weapon_dps.default");
     }
 }

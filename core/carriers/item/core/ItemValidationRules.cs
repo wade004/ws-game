@@ -524,4 +524,163 @@ namespace Core.Carriers.Item
             }
         }
     }
+
+    /// <summary>
+    /// 分阶段落地计划 T-N2-6（ADR-0032 决策 4；拍板 6"damage_min/max 保留手填，新增偏离秒伤曲线警告"；
+    /// 07 第 1.2 节修订段"伤害范围 = 武器秒伤 × weapon_profile.speed × (1 ± 浮动)"）：手填
+    /// <c>weapon_profile.damage_min</c>/<c>damage_max</c> 的均值与理论期望值"武器秒伤 ×
+    /// <c>weapon_profile.speed</c>"偏离超过阈值时报警告——"抓漏填/抓意图不抓手滑"，不阻断合入（同
+    /// <see cref="ItemBudgetValidationRule.CheckUtilizationLow"/> 一贯处理口径）。
+    /// <para>
+    /// 判断记录（检查名——**上报待设计层确认**）：04 第 5 节"武器伤害范围手填还是推导"一行未给出
+    /// 具体检查名，按任务书"没有就 item_weapon_* 前缀标待确认"取 <c>item_weapon_damage_deviates_dps_curve</c>，
+    /// 与 <see cref="ItemQualityMultiplierOrderRule"/>/<see cref="ItemAffixStatMixRatioSumRule"/>/
+    /// <see cref="ItemBudgetValidationRule.CheckUtilizationLow"/> 同一处理口径。
+    /// </para>
+    /// <para>
+    /// 判断记录（阈值——**上报待设计层确认**）：契约同样未给出具体偏离阈值。落地改动点清单第 10 节
+    /// 第 6 条候选写法是"新增手填偏离秒伤曲线警告"，未给数值；按任务书"没给阈值就选 ±20% 标待确认"
+    /// 取 <see cref="DefaultDeviationThreshold"/>=0.2，构造重载可覆盖（同
+    /// <see cref="ItemBudgetValidationRule(Id, double)"/> 惯例）。
+    /// </para>
+    /// <para>
+    /// 判断记录（比较对象——均值 vs 单侧上下界）：本规则只比较
+    /// <c>(damage_min+damage_max)/2</c> 与"秒伤 × speed"这一个理论期望均值的相对偏差，不展开到
+    /// <c>item.weapon_dps_curve.variance</c>（(1±浮动) 的上下界）——该字段本任务只登记，尚无消费者
+    /// （见 <see cref="ItemSchemas.WeaponDpsCurve"/> 判断记录），"均值偏离"已经足够覆盖任务书"手填
+    /// 偏离秒伤曲线"的验收描述（正负例均按均值判断）。
+    /// </para>
+    /// <para>
+    /// 判断记录（何时跳过——未填不报/曲线缺失不报/非武器槽不报）：<c>damage_min</c>/<c>damage_max</c>
+    /// 任一字段在 JSON 里缺失（而不是"填了 0"）时跳过——两者都是可选字段、缺省 0（见 <see
+    /// cref="ItemSchemas.WeaponProfileSchema"/>），"没填"与"填了 0"在数据层面无法通过默认值区分，
+    /// 只能通过 <see cref="JsonObject.TryGetValue"/> 判断字段是否真的出现在 JSON 里；任务书"未填
+    /// damage_min/max 不报"也是同一诉求（保留手填字段真正意义上的"可选"，不强迫作者为不关心的字段
+    /// 填占位值）。<c>item.weapon_dps_curve</c> 曲线（id 取构造参数 <see cref="_weaponDpsCurveId"/>）
+    /// 在已加载数据里找不到对应记录、或 <c>speed</c> 未填/为 0（无法建立理论期望值）时，本规则整体
+    /// 不产出任何问题——不同于 <see cref="ItemBudgetValidationRule"/> 缺曲线报 Error：武器秒伤曲线不
+    /// 是强制表，纯近战数值/不使用武器系统的游戏层可以完全不登记该表，见 <see
+    /// cref="ItemSchemas.WeaponDpsCurve"/> 类型判断记录"本任务只登记 schema"。非武器槽
+    /// （<c>item.slot_definition.is_weapon != true</c>）不会有 <c>weapon_profile</c>（<see
+    /// cref="ItemWeaponProfileRule"/> 阻断校验保证），本规则天然只覆盖武器槽模板。
+    /// </para>
+    /// </summary>
+    public sealed class ItemWeaponDamageDeviatesDpsCurveRule : IValidationRule
+    {
+        public const string Check = "item_weapon_damage_deviates_dps_curve";
+
+        /// <summary>偏离阈值缺省值（见类型判断记录"阈值——上报待设计层确认"）。</summary>
+        public const double DefaultDeviationThreshold = 0.2;
+
+        /// <summary>04 第 5 节"数值类校验警告……抓意图不抓手滑"——本规则只产出 Warning，不影响任何
+        /// Error 级别检查，见 <see cref="ItemBudgetValidationRule.NonEscalatable"/> 同一处理口径。</summary>
+        public bool NonEscalatable => true;
+
+        private readonly Id _weaponDpsCurveId;
+        private readonly double _deviationThreshold;
+
+        /// <summary>沿用缺省偏离阈值（<see cref="DefaultDeviationThreshold"/>）的构造签名。</summary>
+        public ItemWeaponDamageDeviatesDpsCurveRule(Id weaponDpsCurveId)
+            : this(weaponDpsCurveId, DefaultDeviationThreshold)
+        {
+        }
+
+        /// <summary>显式指定偏离阈值的构造重载（见类型判断记录"阈值——上报待设计层确认"）。</summary>
+        public ItemWeaponDamageDeviatesDpsCurveRule(Id weaponDpsCurveId, double deviationThreshold)
+        {
+            _weaponDpsCurveId = weaponDpsCurveId;
+            _deviationThreshold = deviationThreshold;
+        }
+
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            var templates = view.GetAll("item.template");
+            if (templates.Count == 0)
+            {
+                yield break;
+            }
+
+            var curveRecord = view.Get("item.weapon_dps_curve", _weaponDpsCurveId);
+            if (curveRecord == null)
+            {
+                // 判断记录：武器秒伤曲线不是强制表，见类型判断记录"何时跳过"。
+                yield break;
+            }
+
+            // item.weapon_dps_curve 是 T-N2-1 直接按 CurveSchema.BreakpointsField 登记的新表（无需
+            // 迁移链，同 item.armor_curve/item.req_level_curve），用 CurveSchema.ReadBreakpoints 读取
+            // ——同 EquipmentHost.ApplyArmorValue/GetWeaponDps 既有惯例，不用 ItemBudgetCurve.ParseCurve
+            // （后者面向 item.budget_curve 自身，异常消息硬编码该表名，用于本表会产生误导性报错）。
+            var curve = CurveSchema.ReadBreakpoints(curveRecord, "entries");
+
+            var qualityMultipliers = new Dictionary<string, double>();
+            foreach (var q in view.GetAll("item.quality_definition"))
+            {
+                qualityMultipliers[q.Key] = q.TryGetNumber("budget_multiplier", out var m) ? m : 1.0;
+            }
+
+            var weaponSlotCoefficients = new Dictionary<string, double>();
+            foreach (var s in view.GetAll("item.slot_definition"))
+            {
+                if (s.TryGetBool("is_weapon", out var isWeapon) && isWeapon)
+                {
+                    weaponSlotCoefficients[s.Key] = s.TryGetNumber("budget_coefficient", out var c) ? c : 1.0;
+                }
+            }
+
+            foreach (var record in templates)
+            {
+                if (!record.TryGetString("slot", out var slot) || !weaponSlotCoefficients.TryGetValue(slot, out var slotCoefficient))
+                {
+                    continue;
+                }
+
+                if (!record.TryGetObject("weapon_profile", out var profile))
+                {
+                    continue;
+                }
+
+                // 判断记录："未填不报"——damage_min/damage_max 任一字段不在 JSON 里出现即跳过，
+                // 不能用 GetNumber(…, fallback: 0) 之类默认值判断，见类型判断记录。
+                if (!profile.TryGetValue("damage_min", out var minRaw) || !(minRaw is JsonNumber minNum) ||
+                    !profile.TryGetValue("damage_max", out var maxRaw) || !(maxRaw is JsonNumber maxNum))
+                {
+                    continue;
+                }
+
+                var speed = profile.TryGetValue("speed", out var speedRaw) && speedRaw is JsonNumber speedNum
+                    ? speedNum.Value
+                    : 0.0;
+
+                if (!record.TryGetInt("item_level", out var itemLevel) || !record.TryGetString("quality", out var quality))
+                {
+                    continue;
+                }
+
+                var qualityMultiplier = qualityMultipliers.TryGetValue(quality, out var qm) ? qm : 1.0;
+                var dps = curve.Evaluate((int)itemLevel) * qualityMultiplier * slotCoefficient;
+                var expectedMean = dps * speed;
+                if (expectedMean <= 0)
+                {
+                    // speed 未填/为 0：无法建立理论期望值（除零防御），见类型判断记录。
+                    continue;
+                }
+
+                var actualMean = (minNum.Value + maxNum.Value) / 2.0;
+                var deviation = System.Math.Abs(actualMean - expectedMean) / expectedMean;
+
+                if (deviation > _deviationThreshold)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Warning, "item.template", Check,
+                        $"weapon_profile.damage_min/damage_max 均值 {actualMean:0.###} 偏离武器秒伤曲线" +
+                        $"期望值 {expectedMean:0.###}（秒伤 {dps:0.###} × speed {speed:0.###}）达 " +
+                        $"{deviation:P1}，超过阈值 {_deviationThreshold:P0}" +
+                        $"（item_level={itemLevel}, quality={quality}, slot={slot}）：抓漏填/抓意图不" +
+                        "抓手滑，可能是伤害区间忘记跟随物品等级调整",
+                        recordKey: record.Key, field: "weapon_profile");
+                }
+            }
+        }
+    }
 }

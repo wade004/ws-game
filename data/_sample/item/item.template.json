@@ -11,7 +11,7 @@
         { "stat": "stat.strength", "op": "flat", "value": 15 }
       ],
       "affixes": ["item.affix.sample_of_strength", "item.affix.sample_of_fire"],
-      "weapon_profile": { "damage_min": 3, "damage_max": 6, "speed": 1.5, "weapon_school": "school.physical" },
+      "weapon_profile": { "damage_min": 5, "damage_max": 7, "speed": 1.5, "weapon_school": "school.physical" },
       "display_ref": "display.map.sample_blade",
       "stack_size": 1,
       "name_key": "l10n.item.sample_blade.name",
@@ -26,7 +26,7 @@
         { "stat": "stat.strength", "op": "flat", "value": 15 }
       ],
       "affixes": ["item.affix.sample_of_frost"],
-      "weapon_profile": { "damage_min": 3, "damage_max": 6, "speed": 1.5, "weapon_school": "school.physical" },
+      "weapon_profile": { "damage_min": 5, "damage_max": 7, "speed": 1.5, "weapon_school": "school.physical" },
       "display_ref": "display.map.sample_model_sword",
       "stack_size": 1,
       "name_key": "l10n.item.sample_model_sword.name"

@@ -81,8 +81,9 @@ T-N2-3/T-N2-4。
 | `is_weapon` | Bool | 否 | `false` | 实现期补录：该槽位是否为武器槽 |
 | `accepts` | IdList | 否 | `[]` | 允许放入本槽位的物品 `slot` 取值列表（跨槽兼容）；未提供时只接受与本槽位 id 完全相同的 `item.template.slot` |
 | `is_equipment` | Bool | 否 | `true` | 阶段 3 整理补录：该槽位是否为真正的装备位；`false` 表示分类桶（消耗品/材料一类，仅用于满足 `item.template.slot` 的引用完整性），不可经 `EquipmentHost.Equip` 装备（返回 `SlotMismatch`），也不受 `ItemStackSizeRule` 的"装备类 stack_size 必须为 1"约束 |
-| `budget_coefficient` | Number | 否 | `1` | T-N2-1 新增（ADR-0032 决策 1/3）：槽位预算系数，预算上限 = 预算曲线(item_level) × 品质预算倍率 × 本系数；范围 `> 0`；消费实现见下 `item.budget_curve`（T-N2-3，`ItemBudgetValidationRule` 已接入，不再是 T-N2-4 待办） |
+| `budget_coefficient` | Number | 否 | `1` | T-N2-1 新增（ADR-0032 决策 1/3）：槽位预算系数，预算上限 = 预算曲线(item_level) × 品质预算倍率 × 本系数；范围 `> 0`；消费实现见下 `item.budget_curve`（T-N2-3，`ItemBudgetValidationRule` 已接入）；武器槽位系数同一个字段（T-N2-6，`EquipmentHost.GetWeaponDps`：曲线(item_level) × 品质预算倍率 × 本系数，`is_weapon` 槽位读取） |
 | `price_coefficient` | Number | 否 | `1` | T-N2-1 新增（ADR-0032 决策 1；ADR-0034）：槽位价格系数，买价 = 基准价值 × 品质价格倍率 × 本系数；范围 `> 0`；消费实现随 ADR-0034 落地任务接入 |
+| `has_armor` | Bool | 否 | `false` | T-N2-6 新增（设计层裁定，取代 T-N2-5 的"非武器位且真正装备位"推断）：该槽位的装备是否提供护甲值（ADR-0032 决策 4 的护甲位）；`EquipmentHost.IsArmorSlot` 只看本字段，不再从 `is_weapon`/`is_equipment` 推断——游戏层需要给每个防具位（头/胸/腿/手/脚等）显式登记 `true`，戒指/饰品/武器位缺省 `false` 即不写护甲 |
 
 ## `item.quality_definition`
 
@@ -140,10 +141,16 @@ T-N2-3/T-N2-4。
 |---|---|---|---|
 | `id` | Id | 是 | `item.weapon_dps.<name>` |
 | `entries` | Array | 是 | 通用断点表 `[{x:Int, y:Number}]`（`x` = 物品等级，`y` = 武器基准秒伤 `> 0`；ADR-0032 决策 4），按 `x` 线性插值、越界夹取到端点；`curve_monotonic_finite` 规则自动覆盖。新表，schema 版本 1，无需迁移 |
+| `variance` | Number | 否 | T-N2-6 新增（ADR-0032 决策 4"伤害范围 = 武器秒伤 × 初始攻速 × (1 ± 浮动)"；拍板 6"一拍常数与浮动比例为数据项"）：伤害范围浮动比例，缺省 `0.1`。**判断记录（登记位置——上报待设计层确认）**：落地改动点清单第 10 节第 6 条候选"一拍常数与浮动比例放 `skill.budget_rule` 与 `item.weapon_dps_curve` 旁"——一拍常数登记在 `skill.budget_rule`（该表要到 T-N3-9 才创建），浮动比例按同一候选落在本表；本任务只登记字段，尚无消费者（"手填偏离秒伤曲线"警告只比较均值，不展开到 `(1±浮动)` 的上下界，见 `ItemWeaponDamageDeviatesDpsCurveRule` 判断记录）。范围 `[0,1)` |
 
-武器秒伤 = `item.weapon_dps_curve(item_level) × 品质预算倍率 × 武器槽位系数`；伤害范围 = 武器秒伤 ×
-`weapon_profile.speed` × (1 ± 浮动)。消费实现（替换 `EquipmentHost.GetWeaponBaseDamage` 当前的
-`(min+max)/2`）随 T-N2-4/E8 落地，本任务只登记 schema 与注册。
+武器秒伤 = `item.weapon_dps_curve(item_level) × 品质预算倍率 × 武器槽位系数`（T-N2-6，
+`EquipmentHost.GetWeaponDps` 新方法；武器槽位系数即 `item.slot_definition.budget_coefficient`）；
+`EquipmentHost.GetWeaponBaseDamage`（`weapon_damage_pct` 原语现行实现）仍保留 `(min+max)/2` 语义
+不变（硬性规则"禁止改既有签名"；该原语改接秒伤 × 一拍常数是 N3 S3 的范围）。伤害范围 = 武器秒伤 ×
+`weapon_profile.speed` × (1 ± 浮动)——`damage_min`/`damage_max` 保留手填，`ItemWeaponDamageDeviatesDpsCurveRule`
+（check `item_weapon_damage_deviates_dps_curve`，Warning，不可提升）核对手填均值与"秒伤 × speed"的
+偏离比例，超阈值（构造参数，缺省 `±20%`——契约未给阈值，**上报待设计层确认**）报警告；曲线找不到、
+或任一模板未同时填 `damage_min`/`damage_max` 时该模板不报。
 
 ## `item.req_level_curve`
 
@@ -198,10 +205,11 @@ T-N2-2（ADR-0032 决策 7；07 第 1.6 节修订段"随机词缀由留位转正
 | `item_grants_auras_duplicate` | `ItemGrantsAurasDuplicateRule`（Warning） | `grants.auras` 同一物品内重复引用同一个 `aura_def` |
 | `item_quality_multiplier_order` | `ItemQualityMultiplierOrderRule`（T-N2-1，ADR-0032 决策 2） | `item.quality_definition` 的 `budget_multiplier`/`price_multiplier` 大小顺序须与 `sort_weight` 一致（按 `sort_weight` 升序分组，组内并列不比较，跨组不递减）；检查名按任务书"04 §5 或 item_quality_\* 前缀"取值，**04 第 5 节该行未给出具体检查名，上报待设计层确认** |
 | `item_affix_stat_mix_ratio_sum` | `ItemAffixStatMixRatioSumRule`（T-N2-2，ADR-0032 决策 7） | 单条 `item.affix.stat_mix` 内部 `ratio` 之和不超过一（超出 1e-9 浮点容差报错）；校验对象为"单条词缀内部"，非"同一品质池跨词缀"（见 07 第 1.6 节修订段与 04 第 5 节"词缀份额之和"行原文，二者均紧跟在 `stat_mix` 后描述）；检查名同上一行口径，**04 第 5 节该行同样未给出具体检查名，上报待设计层确认** |
+| `item_weapon_damage_deviates_dps_curve` | `ItemWeaponDamageDeviatesDpsCurveRule`（Warning，不可提升，T-N2-6，ADR-0032 决策 4；拍板 6） | 武器槽模板手填 `weapon_profile.damage_min`/`damage_max` 均值与"秒伤(`item.weapon_dps_curve(item_level) × 品质预算倍率 × 武器槽位系数`) × `weapon_profile.speed`"的偏离比例超过阈值（构造参数，缺省 `±20%`，`CarriersSchemaCatalog.RegisterAll` 新增重载同步可配置）；曲线找不到、或 `damage_min`/`damage_max` 任一未填、或期望值为零（`speed` 未填）时不报；检查名与阈值契约均未给出，同上两行口径，**上报待设计层确认** |
 | （内置）`reference_integrity` | `data_registry` | `item.template.slot`/`quality`/`set_id`/`item.affix.quality_pool`/`stat_mix[].stat` 等 `Reference` 字段的存在性 |
 | （T-N0-3 通用规则）`curve_monotonic_finite` | `CurveMonotonicFiniteRule` | 自动覆盖 `item.budget_curve`/`item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve` 四张断点表曲线的 `entries` |
 
-七条本模块 `IValidationRule` 均需调用方显式 `registry.RegisterValidationRule(...)` 才会生效，本模块不
+八条本模块 `IValidationRule` 均需调用方显式 `registry.RegisterValidationRule(...)` 才会生效，本模块不
 自动注册（同 `progression`/`stat_block`/`power_set` 惯例）；`curve_monotonic_finite` 是 T-N0-3 的
 通用规则，随 `PresentationSchemaCatalog.RegisterAll` 全局注册一次即覆盖全部登记为曲线形态的字段，
 不需要本模块重复注册。

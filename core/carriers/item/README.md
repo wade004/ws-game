@@ -31,7 +31,7 @@ item/
     EquipmentHost.cs            IEquipmentHost 实现（穿脱联动本体）
     ItemEffectExtension.cs      IEffectExtension 实现：create_item
     ItemBudgetCurve.cs          budget_curve 线性插值 + 预算消耗量计算
-    ItemValidationRules.cs      预算超标/武器槽/套装归属/堆叠数/授权重复/品质倍率顺序/词缀份额之和七条 IValidationRule
+    ItemValidationRules.cs      预算超标/武器槽/套装归属/堆叠数/授权重复/品质倍率顺序/词缀份额之和/武器伤害偏离秒伤曲线八条 IValidationRule
     ItemInstanceJson.cs         ItemInstance ↔ JSON（两个存档段共用）
     ItemPersistable.cs           InventoryPersistable + EquipmentPersistable
     InMemoryItemDiagnostics.cs
@@ -444,17 +444,20 @@ item/
       `item.slot_definition.budget_coefficient`（缺省 1），经 `IStatHost.AddModifier` 以
       `op=flat`、sourceId=该件装备实例 id 写入 `ItemOptions.ArmorStatId`（缺省 `stat.armor`）指向
       的属性；曲线在已加载数据里找不到对应记录时按"不写护甲"处理，不抛异常。
-    - **护甲位判定——上报待设计层确认**：`item.slot_definition`（见 `ItemSchemas.SlotDefinition`）
-      当前没有独立的 `is_armor`/`armor_slot` 一类字段区分"护甲位"与其它非武器装备位（戒指/项链/
-      饰品一类传统意义上不该有护甲值的槽位）；`item.template` 也没有 `kind`/`equip_slot` 一类模板
-      分类字段可供二次判断。07 第 1.2 节原文只给"仅护甲位"一句，未展开判定规则。本任务按任务书
-      给出的候选兜底规则实现最简判断（`EquipmentHost.IsArmorSlot`）：非武器位
-      （`is_weapon != true`）且是真正装备位（`is_equipment != false`，即既有 `IsEquipmentSlot`）
-      即视为护甲位——代价是戒指/项链/饰品一类槽位同样会写入护甲修正，与魔兽世界"护甲仅头肩胸手
-      腕手腰腿脚背盾"的更细分类不同。若设计层需要更精确区分，需要在 `item.slot_definition` 新增
-      一个如 `is_armor` 的可选字段（ABI 允许新增），本任务"涉及文件"未列出该 schema 改动范围，
-      且现有样例槽位（`item.slot.sample_main_hand`/`item.slot.sample_bag`）均不是护甲位、新增字段
-      不会让既有样例立即受益，故本任务不新增该字段。
+    - **护甲位判定——上报待设计层确认（>> 已被 T-N2-6 裁定取代，见下方判断记录 21）**：
+      `item.slot_definition`（见 `ItemSchemas.SlotDefinition`）当前没有独立的 `is_armor`/
+      `armor_slot` 一类字段区分"护甲位"与其它非武器装备位（戒指/项链/饰品一类传统意义上不该有
+      护甲值的槽位）；`item.template` 也没有 `kind`/`equip_slot` 一类模板分类字段可供二次判断。07
+      第 1.2 节原文只给"仅护甲位"一句，未展开判定规则。本任务按任务书给出的候选兜底规则实现最简
+      判断（`EquipmentHost.IsArmorSlot`）：非武器位（`is_weapon != true`）且是真正装备位
+      （`is_equipment != false`，即既有 `IsEquipmentSlot`）即视为护甲位——代价是戒指/项链/饰品
+      一类槽位同样会写入护甲修正，与魔兽世界"护甲仅头肩胸手腕手腰腿脚背盾"的更细分类不同。若设计
+      层需要更精确区分，需要在 `item.slot_definition` 新增一个如 `is_armor` 的可选字段（ABI 允许
+      新增），本任务"涉及文件"未列出该 schema 改动范围，且现有样例槽位（`item.slot.sample_main_
+      hand`/`item.slot.sample_bag`）均不是护甲位、新增字段不会让既有样例立即受益，故本任务不新增
+      该字段。**勘误（T-N2-6，见下方判断记录 21）：** 设计层就此上报项直接裁定——改为显式字段，
+      不再是推断规则；本条保留仅作历史记录，`EquipmentHost.IsArmorSlot` 当前实现已不是这一段描述
+      的样子。
     - **护甲属性 id 可配置——`ItemOptions` 新增三个可选属性**：`ArmorCurveId`（缺省
       `item.armor.default`）、`ReqLevelCurveId`（缺省 `item.req_level.default`）、`ArmorStatId`
       （缺省 `stat.armor`）。`ArmorStatId` 与 `Core.Rules.Combat.CombatOptions.ArmorStat` 默认值
@@ -517,6 +520,87 @@ item/
       2 条：护甲位模板装备后 `stat.armor` 增加 曲线×槽位系数、武器位模板即便护甲曲线存在也不写
       护甲；需求等级反推 2 条：未填时按曲线取值（`Math.Ceiling` 向上取整为 13 而非 12）并参与穿戴
       门槛判定（等级 12 拒绝、等级 13 通过）、填了以手填为准（曲线本会反推出 13，手填 3 优先）。
+
+21. **T-N2-6（分阶段落地计划、ADR-0032 决策 4；拍板 6；07 第 1.2 节修订段）：武器秒伤查询
+    `EquipmentHost.GetWeaponDps`、`damage_min/max` 偏离秒伤曲线警告
+    （`ItemWeaponDamageDeviatesDpsCurveRule`）、`item.slot_definition.has_armor` 显式护甲位字段
+    （设计层裁定，取代上一条判断记录 20 的推断规则）**——
+    - **`IWeaponDamageQuery.GetWeaponDps(Id unitId): double` 新增（C# 8 默认接口成员，缺省
+      `0.0`）**：武器秒伤 = `item.weapon_dps_curve`（id 取 `ItemOptions.WeaponDpsCurveId`，缺省
+      `item.weapon_dps.default`）在该武器模板 `item_level` 处求值 × 品质预算倍率
+      （`item.quality_definition.budget_multiplier`，找不到品质记录缺省 1）× 武器槽位系数（该
+      武器所在槽位的 `item.slot_definition.budget_coefficient`，缺省 1——与预算系数同一个字段，
+      ADR-0032 决策 4 原文明确"武器槽位系数"就是槽位定义已有的这一列，不新增字段）；武器槽的选取
+      规则同既有 `GetWeaponBaseDamage`（按槽位 id 序数最先命中的武器槽，双持取第一个），两者共用
+      新抽出的私有方法 `EquipmentHost.TryGetFirstWeaponSlot`（纯重构，`GetWeaponBaseDamage` 返回值
+      逐位不变，硬性规则"禁止改既有签名"——本方法连内部选槽逻辑都未改变行为，只是把重复代码提取成
+      共享私有方法）；未装备任何武器槽、或曲线找不到对应记录时返回 `0.0`，不抛异常（同
+      `ApplyArmorValue`"曲线缺失按不写处理"既有口径）。`Core.Rules.Assembly.
+      DeferredWeaponDamageQuery`（组合/代理实现）同步显式转发新成员（`Tests.Presentation.Assembly.
+      InterfaceDefaultMemberForwardingTests` 门禁要求）。
+    - **判断记录（品质取值来源——沿用既有限制，非本任务新引入）**：`ItemInstance` 要到 T-N2-7 才
+      新增 `Quality` 字段，本方法与 `ApplyArmorValue`/`ApplyAffixValues` 同样只能取武器模板自身
+      登记的 `quality` 字段，不是穿戴那一刻若显式传入的 `qualityId` 参数（那个参数不落地为可事后
+      查询的状态）。T-N2-7 落地后若需要按实例真实品质求秒伤，只改内部实现，不改本方法签名。
+    - **`ItemWeaponDamageDeviatesDpsCurveRule`（Warning，`NonEscalatable=true`，check
+      `item_weapon_damage_deviates_dps_curve`——**上报待设计层确认**，同 `ItemQualityMultiplierOrderRule`
+      一贯"04 §5 未给检查名，按 `item_weapon_*` 前缀取值"处理口径）**：核对武器槽模板手填
+      `weapon_profile.damage_min`/`damage_max` 均值与理论期望值"武器秒伤 ×
+      `weapon_profile.speed`"（`speed` 即 07 第 1.1 节"初始攻速"字段——ADR-0032 决策 4"伤害范围 =
+      武器秒伤 × 初始攻速 × (1 ± 浮动)"原文，`weapon_profile.speed` 语义是"每次攻击的秒数"而非
+      "每秒攻击次数"，故公式是秒伤 × speed 相乘而非相除，见 07 第 1.2 节公式原文与 `WeaponProfile`
+      类型判断记录）的相对偏差；偏差超过阈值（构造参数，缺省 `±20%`——契约未给阈值，**上报待设计层
+      确认**，同 `ItemBudgetValidationRule.DefaultUtilizationWarningThreshold` 一贯"契约给区间描述、
+      没给具体数字"处理口径）报警告，不阻断合入。`damage_min`/`damage_max` 任一字段在 JSON 里
+      不出现（而非"填了 0"，两者用 `JsonObject.TryGetValue` 区分，不能靠 `GetNumber` 的缺省值
+      判断）时跳过（"未填不报"）；`item.weapon_dps_curve` 曲线找不到对应记录时本规则整体不产出
+      任何问题（不同于 `ItemBudgetValidationRule` 缺曲线报 Error——武器秒伤曲线不是强制表）；只
+      比较均值，不展开到 `item.weapon_dps_curve.variance`（`(1±浮动)` 的上下界）——该字段本任务
+      只登记，尚无消费者。`CarriersSchemaCatalog.RegisterAll` 新增一个五参数重载（硬性规则 5：
+      ABI 只允许新增，前两个既有重载签名不得改），额外接受本规则的曲线 id 与偏离阈值，惯例同
+      `itemBudgetCurveId`/`itemBudgetUtilizationWarningThreshold` 两参数。
+    - **`item.weapon_dps_curve.variance`（可选 Number，缺省 0.1）新增**：ADR-0032 决策 4"伤害范围
+      = 武器秒伤 × 初始攻速 × (1 ± 浮动)"与拍板 6"一拍常数与浮动比例为数据项"的"浮动比例"落地
+      位置——落地改动点清单第 10 节第 6 条给出候选"一拍常数与浮动比例放 `skill.budget_rule` 与
+      `item.weapon_dps_curve` 旁"，**上报待设计层确认**。一拍常数（另一半"数据项"）按同一候选
+      登记在 `skill.budget_rule`——该表要到 T-N3-9 才创建（06 第 3.2/3.10 节修订段、落地改动点
+      清单 S3/S12：`weapon_damage_pct` 原语改接"秒伤 × 一拍常数"是 N3 S3 的范围，一拍常数"只是
+      记账单位，运行期不存在任何锁"），本任务不越权在 item 模块发明它的登记位置。`variance`
+      字段本任务只登记 schema，无消费者（同预算利用率阈值一类"契约要求存在、具体用法留给后续
+      任务"的字段）。
+    - **`item.slot_definition.has_armor`（可选 Bool，缺省 false）新增——设计层裁定**：取代
+      判断记录 20 的"非武器位（`is_weapon != true`）且真正装备位（`is_equipment != false`）"
+      推断规则（上一条已标记该判断记录的相应段落为历史记录）。`EquipmentHost.IsArmorSlot` 改为
+      `_slotDefinitions.TryGetValue(slot, ...) && slotDef.TryGetBool("has_armor", ...) &&
+      hasArmor`，不再读取 `is_weapon`/`is_equipment`——`IsEquipmentSlot` 仍用于 `Equip` 本身的
+      可装备判定（未受影响）。`data/_sample/item/item.slot_definition.json` 现有两条槽位样例
+      （`item.slot.sample_main_hand` 是武器位、`item.slot.sample_bag` 是非装备分类桶）均不是
+      防具位，本任务未新增防具位样例（样例数据集当前没有头/胸/腿/手/脚一类槽位可供标注），
+      `games/_template` 空壳表无需改动。
+    - **回归测试更新**：`T_N2_5_ArmorAffixReqLevelTests.SlotJson` 的 `item.slot.t5_chest` 补
+      `has_armor: true`（否则该文件全部护甲相关断言在新逻辑下失效，见该文件类型注释新增的
+      "T-N2-6 更新"段）。
+    - **回放/Perf 基线核查**：`ReplayWorldBuilder` 不引用 `Core.Carriers.Item`/`EquipmentHost`
+      （同判断记录 20 既有核查结论），本任务改动的代码路径（`GetWeaponDps`/
+      `ItemWeaponDamageDeviatesDpsCurveRule`/`IsArmorSlot`）在回放场景中不可能被触发；
+      `EndToEndTests.EquipBlade_ChangesStrength_AndEmitsItemEquippedEvent` 装备的是武器位
+      （`item.sample_blade`，不是护甲位），不受 `has_armor` 变化影响；`dotnet test --filter
+      "FullyQualifiedName~Replay"` 全绿，未触发任何基线更新流程。
+    - **示例数据调整**：`data/_sample/item/item.template.json` 的 `item.sample_blade`/
+      `item.sample_model_sword` 两条 `weapon_profile.damage_min`/`damage_max` 由 `3`/`6` 改为
+      `5`/`7`——原值在 `item.weapon_dps_curve`(item_level=1)=4 × 品质预算倍率 1.0 × 武器槽位系数
+      1.0 = 4、× `speed` 1.5 = 期望均值 6 下，原均值 4.5 偏离 25%，超过默认阈值 20%，触发新警告；
+      调整后均值 6.0，偏离 0%。样例非框架默认值，按既有惯例（同判断记录 18 调整 `stats[].value`
+      的处理口径）调整示例数值而非放宽阈值。`data/_sample/item/item.weapon_dps_curve.json` 补一条
+      `variance: 0.1`（与缺省值相同，仅作为新字段的样例展示，同判断记录 18 给 `item.budget_curve`
+      补 `exponent` 样例的处理口径）。
+    - **测试**：`core/carriers/item/tests/T_N2_6_WeaponDpsDeviationTests.cs`（新增 9 条：
+      `GetWeaponDps` 3 条——装备武器手算秒伤、未装备武器返回 0、曲线 id 未注册返回 0；偏离警告
+      4 条——均值远离期望值报警告、均值匹配期望值不报、`damage_min`/`damage_max` 未填不报、自定义
+      阈值构造重载放宽接受范围；`has_armor` 字段 2 条——显式 `true` 的槽位写入护甲、非武器且未显式
+      登记 `has_armor` 的槽位（如戒指位）不再写入护甲，是 T-N2-5 旧推断规则会误判、T-N2-6 显式
+      字段规则下的核心回归用例）；`T_N2_5_ArmorAffixReqLevelTests.cs`（既有 6 条用例数据夹具同步
+      更新，用例数不变）。
 
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 

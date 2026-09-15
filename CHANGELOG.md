@@ -269,6 +269,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   对比箭头"/"一键换装最优"一类界面元素；两者均出现在 `toolchain/validator --list-tables --json`
   之外（不是数据表，是运行时契约面），编辑器项目需要按新公开类型直接调用。`ItemBudgetCurve`
   新增重载 `BuildStatBudgetInfo(IDataRegistryView, Id classId)`（按职业覆盖权重）。
+- **数值设计落地阶段 N2 · T-N2-6（Unreleased）**：`item.slot_definition` 新增可选字段 `has_armor`
+  （Bool，缺省 `false`，设计层裁定——取代 T-N2-5"非武器位且真正装备位"的护甲位推断规则）：编辑器
+  槽位定义编辑界面需要为它补一个布尔勾选控件，并且游戏层已登记的防具位（头/胸/腿/手/脚等）需要
+  显式补勾选，否则升级后不再自动获得护甲。`item.weapon_dps_curve` 新增可选字段 `variance`（伤害
+  范围浮动比例，缺省 `0.1`，本任务只登记无消费者）。新校验规则
+  `ItemWeaponDamageDeviatesDpsCurveRule`（检查名 `item_weapon_damage_deviates_dps_curve`，
+  Warning，不可提升）出现在 `toolchain/validator --json`/`--list-tables --json` 的 `rules[]` 里：
+  编辑器武器伤害区间编辑控件若展示 `damage_min`/`damage_max`，可据"均值 / 秒伤曲线期望值"比值与
+  阈值（默认 ±20%）着色提示，惯例同 T-N2-3 的"预算利用率"进度条。`Core.Rules.Common
+  .IWeaponDamageQuery` 新增默认接口成员 `GetWeaponDps(Id unitId): double`——不是数据表，是运行时
+  契约面，编辑器/内容工具若需要展示"当前武器秒伤"，可直接调用该成员，不需要自行重算曲线×倍率×
+  系数。
 
 ## [Unreleased]
 
@@ -279,6 +291,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 数值设计落地阶段 N2 · T-N2-3（ADR-0032 决策 3/10）：装备预算消耗公式改为加权 `(Σ(属性值×权重)^k)^(1/k)`（`ItemBudgetCurve.ComputeConsumed`，权重取自 `stat.weight`，没有对应记录时缺省 1；`category=percent` 属性的 `pct`/`mult` 词条先经 `stat.rating_conversion` 换算曲线反函数折回点数，`flat` 词条本就是点数不折算；非 `percent` 属性沿用既有 `pct`/`mult` ×100 折算），指数 `k` 登记在 `item.budget_curve` 新增可选字段 `exponent`（缺省 1.5）；预算上限新增乘 `item.slot_definition.budget_coefficient`（T-N2-1 登记的字段本任务起接入消费）。`ItemBudgetValidationRule` 新增预算利用率过低 Warning（检查名 `item_budget_utilization_low`，不可提升，默认阈值七成，新增构造重载 `(Id, double)` 可配置）；`CarriersSchemaCatalog.RegisterAll` 同步新增重载透传阈值。`Core.Numbers.StatBlock` 新增公开 `RatingConversionShape`/`RatingConversionEvaluator`（`StatHost.ConvertRating` 换算式子提升为共享静态工具，供本任务反函数折算复用，避免复制插值实现）。示例数据 `data/_sample/item/item.template.json` 两条武器模板的 `stats[].value` 由 2 调整为 15（新公式下原值利用率仅一成，触发新警告，样例非框架默认值）。契约未展开到"k 登记位置"/"没有 `stat.weight` 记录时缺省权重"/"op 与 percent 折算方向"/"'registry 视图'具体所指" 四处操作化细节，均按证据链推导实现并上报待设计层确认，见 `core/carriers/item/README.md` 判断记录 18。
 数值设计落地阶段 N2 · T-N2-4（ADR-0032 决策 3/9；07 第 1.2 节修订段）：新增 `IBudgetSolver`/`BudgetSolver`——预算消耗公式 `(Σ(值×权重)^k)^(1/k)` 的反函数，给定物品等级、品质、槽位与属性组合比例（各属性"加权贡献"占比，之和须为 1）反解各属性值，供词缀落值（T-N2-8）与数值仿真标准玩家生成器（ADR-0035）共用；新增 `budgetCurveId`/`shareOfBudget` 两个 07 原文签名未列出的参数（上报待设计层确认，见 `core/carriers/item/README.md` 判断记录 19）。新增 `EquipmentScoreAnalyzer`（静态类，`Score`/`Compare`）——同一条消耗公式换成职业权重（`stat.weight.class_overrides`）即为装备评分，本任务只对模板 `stats` 评分，预留 `additionalStats` 入参供后续任务接词缀反解值。`ItemBudgetCurve` 新增重载 `BuildStatBudgetInfo(IDataRegistryView, Id classId)`。两个新类型均不持有可变状态（纯函数/静态类）。`core/carriers/item/tests/TestSupport.cs` 的 `BuildRegistry` 改为 `FailOnUnknownTable=false`（同 `stat_block` 模块既有测试手法），供 `stat.weight.class_overrides[].class` 引用完整性检查用最小占位 `arch.class` 行满足，不影响既有用例。
 数值设计落地阶段 N2 · T-N2-5（ADR-0032 决策 4/5/7/8；07 第 1.2/1.4 节修订段）：`EquipmentHost` 装备联动新增两类非 `stats` 来源，与模板 `stats` 共用同一 sourceId——护甲值（`item.armor_curve`(item_level) × `item.slot_definition.budget_coefficient`，仅"护甲位"，判定为非武器位且真正装备位，上报待设计层确认见 `core/carriers/item/README.md` 判断记录 20）写入 `ItemOptions.ArmorStatId`（新增可选属性，缺省 `stat.armor`）；词缀反解值经新增公开重载 `Equip(Id,Id,Id,Id? qualityId,IReadOnlyList<Id>? affixIds)` 按 `IBudgetSolver.Solve` 随穿戴重算（`shareOfBudget = affix.budget_share × Σratio`，`statMix` 归一化，判断记录见 README），既有三参 `Equip` 转发并传"模板自身品质 + 空词缀"，`ItemInstance.Quality`/`Affixes` 待 T-N2-7 接入后改接实例字段。`requirements.level` 未填时按 `item.req_level_curve` 反推（`ItemOptions.ReqLevelCurveId` 新增可选属性，缺省 `item.req_level.default`；取整用 `Math.Ceiling`，上报待设计层确认），填了以手填为准。**迁移说明**：装备防具类模板（非武器位）后，`stat.armor`（或游戏层配置的 `ArmorStatId`）会额外获得曲线值，游戏层若已经手工在装备属性/光环里配置过护甲，需要核对是否与新的自动护甲来源叠加；`requirements.level` 未填的装备现在可能出现此前不存在的等级门槛（若游戏层登记了 `item.req_level_curve`），需要核对现有装备穿戴测试与内容是否受影响。`EquipmentHost` 构造函数新增重载（末尾追加 `IBudgetSolver? budgetSolver`），原 11 参构造函数签名不变、转发新重载。回放/Perf 基线未变（`ReplayWorldBuilder` 不涉及 `EquipmentHost`；`EndToEndTests` 唯一 `Equip` 调用装备武器槽，不触发新增护甲/需求等级分支）。
+数值设计落地阶段 N2 · T-N2-6（ADR-0032 决策 4；拍板 6；07 第 1.2 节修订段；设计层裁定）：`IWeaponDamageQuery` 新增默认接口成员 `GetWeaponDps(Id unitId): double`（`EquipmentHost` 实现——武器秒伤 = `item.weapon_dps_curve`(item_level，id 取新增 `ItemOptions.WeaponDpsCurveId`，缺省 `item.weapon_dps.default`) × 品质预算倍率 × 武器槽位系数（即既有 `item.slot_definition.budget_coefficient`）；未装备武器/曲线缺失返回 0；`Core.Rules.Assembly.DeferredWeaponDamageQuery` 同步转发），既有 `GetWeaponBaseDamage`（`(damage_min+damage_max)/2`）签名与行为不变——`weapon_damage_pct` 原语改接秒伤 × 一拍常数是 N3 S3 的范围。新增 `item.weapon_dps_curve` 可选字段 `variance`（伤害范围浮动比例，缺省 0.1，上报待设计层确认登记位置，本任务只登记无消费者）。新校验规则 `ItemWeaponDamageDeviatesDpsCurveRule`（检查名 `item_weapon_damage_deviates_dps_curve`，Warning，不可提升，阈值默认 ±20%，构造重载可配置，`CarriersSchemaCatalog.RegisterAll` 新增五参数重载透传曲线 id 与阈值）：武器槽模板手填 `weapon_profile.damage_min`/`damage_max` 均值偏离"秒伤 × `weapon_profile.speed`"超阈值报警告，未填 `damage_min`/`damage_max`、或曲线缺失不报。**设计层裁定**：`item.slot_definition` 新增可选字段 `has_armor`（缺省 false，描述"该槽位的装备是否提供护甲值"），`EquipmentHost.IsArmorSlot` 改为只看本字段，取代 T-N2-5 的"非武器位且真正装备位"推断（该推断会把戒指/饰品一类槽位误判成护甲位）——**迁移说明**：游戏层若已登记防具位（头/胸/腿/手/脚等），需要给对应 `item.slot_definition` 记录补 `has_armor: true`，否则升级后这些槽位不再写入护甲值（此前是自动推断，现在需要显式登记）；样例数据 `item.sample_blade`/`item.sample_model_sword` 的 `weapon_profile.damage_min`/`damage_max` 由 `3`/`6` 调整为 `5`/`7`（原值在新警告下偏离阈值，样例非框架默认值）。编辑器装备编辑界面若渲染槽位定义表单，需要为 `has_armor` 补一个布尔勾选控件；若渲染武器伤害区间输入，可据同一比值（均值 / 期望值）与阈值提示偏离警告，惯例同 T-N2-3 的"预算利用率"进度条。
 
 ### 修复
 

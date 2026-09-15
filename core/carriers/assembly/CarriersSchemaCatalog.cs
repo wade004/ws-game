@@ -38,6 +38,16 @@ namespace Core.Carriers.Assembly
         public static readonly double DefaultItemBudgetUtilizationWarningThreshold =
             ItemBudgetValidationRule.DefaultUtilizationWarningThreshold;
 
+        /// <summary><c>item.weapon_dps_curve</c> 的默认 id，同 <see cref="ItemOptions.WeaponDpsCurveId"/>
+        /// 默认值——惯例同 <see cref="DefaultItemBudgetCurveId"/>。</summary>
+        public static readonly Id DefaultWeaponDpsCurveId = new Id("item.weapon_dps.default");
+
+        /// <summary>T-N2-6（拍板 6）：<see cref="ItemWeaponDamageDeviatesDpsCurveRule"/> 新增构造重载
+        /// 用的默认偏离阈值，同 <see cref="ItemWeaponDamageDeviatesDpsCurveRule.DefaultDeviationThreshold"/>。
+        /// </summary>
+        public static readonly double DefaultItemWeaponDamageDeviationThreshold =
+            ItemWeaponDamageDeviatesDpsCurveRule.DefaultDeviationThreshold;
+
         /// <summary>
         /// 注册 L0 内置 + L1 五模块 + L2 四模块（经 <see cref="RulesSchemaCatalog.RegisterAll"/>）+
         /// L3 三模块（item 六张表、creature 两张表、gobj 两张表）的全部 <see cref="TableSchema"/> 与
@@ -69,16 +79,41 @@ namespace Core.Carriers.Assembly
         public static void RegisterAll(IDataRegistry registry, Id? itemBudgetCurveId,
             double? itemBudgetUtilizationWarningThreshold)
         {
+            RegisterAll(registry, itemBudgetCurveId, itemBudgetUtilizationWarningThreshold,
+                weaponDpsCurveId: null, weaponDamageDeviationThreshold: null);
+        }
+
+        /// <summary>T-N2-6 新增重载（硬性规则 5：ABI 只允许新增，前两个重载既有签名不得改，见上两个
+        /// 重载）：额外接受 <see cref="ItemWeaponDamageDeviatesDpsCurveRule"/> 的曲线 id 与偏离阈值，
+        /// 同 <paramref name="itemBudgetCurveId"/>/<paramref name="itemBudgetUtilizationWarningThreshold"/>
+        /// 一贯惯例。</summary>
+        /// <param name="registry">目标注册表。</param>
+        /// <param name="itemBudgetCurveId">同两参数重载。</param>
+        /// <param name="itemBudgetUtilizationWarningThreshold">同三参数重载。</param>
+        /// <param name="weaponDpsCurveId"><see cref="ItemWeaponDamageDeviatesDpsCurveRule"/> 构造用的
+        /// 武器秒伤曲线 id，缺省 <see cref="DefaultWeaponDpsCurveId"/>（与 <see
+        /// cref="ItemOptions.WeaponDpsCurveId"/> 默认值一致，同 <paramref name="itemBudgetCurveId"/>
+        /// 判断记录同一处理口径——运行期实际用曲线与注册期校验曲线需保持一致）。</param>
+        /// <param name="weaponDamageDeviationThreshold"><see
+        /// cref="ItemWeaponDamageDeviatesDpsCurveRule"/> 偏离阈值，缺省（<c>null</c>）取 <see
+        /// cref="DefaultItemWeaponDamageDeviationThreshold"/>（拍板 6"新增偏离秒伤曲线警告"——阈值
+        /// 本身**上报待设计层确认**，见该规则类型判断记录）。</param>
+        public static void RegisterAll(IDataRegistry registry, Id? itemBudgetCurveId,
+            double? itemBudgetUtilizationWarningThreshold, Id? weaponDpsCurveId,
+            double? weaponDamageDeviationThreshold)
+        {
             RulesSchemaCatalog.RegisterAll(registry);
 
             RegisterItemSchemas(registry, itemBudgetCurveId ?? DefaultItemBudgetCurveId,
-                itemBudgetUtilizationWarningThreshold ?? DefaultItemBudgetUtilizationWarningThreshold);
+                itemBudgetUtilizationWarningThreshold ?? DefaultItemBudgetUtilizationWarningThreshold,
+                weaponDpsCurveId ?? DefaultWeaponDpsCurveId,
+                weaponDamageDeviationThreshold ?? DefaultItemWeaponDamageDeviationThreshold);
             RegisterCreatureSchemas(registry);
             RegisterGobjSchemas(registry);
         }
 
         private static void RegisterItemSchemas(IDataRegistry registry, Id budgetCurveId,
-            double utilizationWarningThreshold)
+            double utilizationWarningThreshold, Id weaponDpsCurveId, double weaponDamageDeviationThreshold)
         {
             registry.RegisterSchema(ItemSchemas.Template);
             registry.RegisterSchema(ItemSchemas.SlotDefinition);
@@ -104,6 +139,11 @@ namespace Core.Carriers.Assembly
             // T-N2-2（ADR-0032 决策 7；04 第 5 节"词缀份额之和"阻断校验）：单条 item.affix.stat_mix
             // 内部 ratio 之和不超过一，见 ItemAffixStatMixRatioSumRule 判断记录。
             registry.RegisterValidationRule(new ItemAffixStatMixRatioSumRule());
+            // T-N2-6（ADR-0032 决策 4；拍板 6"damage_min/max 保留手填，新增偏离秒伤曲线警告"）：
+            // 手填 weapon_profile.damage_min/damage_max 均值偏离"秒伤 × speed"超阈值报警告，见
+            // ItemWeaponDamageDeviatesDpsCurveRule 判断记录。
+            registry.RegisterValidationRule(
+                new ItemWeaponDamageDeviatesDpsCurveRule(weaponDpsCurveId, weaponDamageDeviationThreshold));
 
             // item.template.slot/quality/set_id 三个字段已在 ItemSchemas.Template 声明为
             // FieldKind.Reference，data_registry 内置 reference_integrity 校验自动生效，不需要本类
