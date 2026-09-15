@@ -923,7 +923,8 @@ namespace Core.Carriers.Item
     /// 该技能自己的习得等级反查覆盖本参数（见该方法判断记录），只有授予<b>光环</b>
     /// （<c>isAura=true</c>，没有习得等级概念）才真正消费本参数；用 <c>item_level</c> 直接代理"这件
     /// 装备大致对应的角色等级"，比再去反查 <c>item.req_level_curve</c> 多一层曲线查询更简单，且
-    /// 07/ADR-0032 均未规定授予光环的价值求值该用哪个等级——本任务临时判定，上报待设计层确认。
+    /// 07/ADR-0032 均未规定授予光环的价值求值该用哪个等级——设计层裁定（2026-09-15）：采纳，用
+    /// <c>item_level</c> 直接代理。
     /// </para>
     /// </summary>
     public sealed class ItemGrantValueExceedsShareRule : IValidationRule

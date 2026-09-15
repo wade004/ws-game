@@ -25,7 +25,7 @@ namespace Core.Rules.Skill
     /// </code>
     /// </para>
     /// <para>
-    /// <b>契约疑点（上报，待设计层确认；临时判断已实现）——锚点数据来源</b>：公式分子分母都要用到
+    /// <b>设计层裁定（2026-09-15）：采纳——锚点数据来源</b>：公式分子分母都要用到
     /// "某技能等级下的锚点秒伤/期望缩放属性最终值"，权威来源 <c>sim.anchor</c> 归阶段 N6，晚于本
     /// 阶段（N3）。本类型不允许假装 <c>sim.anchor</c> 已经存在，改为接受调用方注入的
     /// <see cref="ISkillBudgetAnchorProvider"/>（同 <see cref="IGearLevelOffsetProvider"/> 先例）。
@@ -468,9 +468,9 @@ namespace Core.Rules.Skill
             }
 
             // 判断记录：max_targets 为空（0，不限）时的目标数——真实运行期目标数取决于场上单位分布，
-            // 预算校验阶段无法预知，临时按 1 处理（保守：不因"理论上可以打无数人"而放大控制价值，
-            // 见 SkillSchemas.BudgetRule.range_discount_curve 字段同款"无上限不参与折价曲线"处理
-            // 口径一致——待设计层确认）。
+            // 预算校验阶段无法预知，设计层裁定（2026-09-15）：采纳，按 1 处理（保守：不因"理论上可以
+            // 打无数人"而放大控制价值，见 SkillSchemas.BudgetRule.range_discount_curve 字段同款
+            // "无上限不参与折价曲线"处理口径一致）。
             var targetCount = maxTargets ?? 1;
             var category = ParamsX.GetStringOpt(@params, "category");
             var weight = ResolveControlCategoryWeight(ruleRecord, category);

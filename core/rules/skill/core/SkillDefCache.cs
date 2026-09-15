@@ -97,8 +97,8 @@ namespace Core.Rules.Skill
         /// </para>
         /// <para>
         /// 判断记录（两处引用来源均找不到时返回 <see cref="SkillBudgetTier.Unattributed"/>，
-        /// 而不是抛异常）：见 <see cref="SkillBudgetTier.Unattributed"/> 判断记录——这是一个契约
-        /// 疑点（已上报待设计层确认），本方法不因此抛异常，调用方（<see cref="SkillBudgetAnalyzer"/>）
+        /// 而不是抛异常）：见 <see cref="SkillBudgetTier.Unattributed"/> 判断记录——设计层裁定
+        /// （2026-09-15）：采纳，本方法不因此抛异常，调用方（<see cref="SkillBudgetAnalyzer"/>）
         /// 决定如何降级处理。
         /// </para>
         /// </summary>

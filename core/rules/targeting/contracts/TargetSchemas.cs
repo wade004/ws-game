@@ -93,7 +93,7 @@ namespace Core.Rules.Targeting
                         "既有行为一致）｜split 平摊｜cap 总量封顶（ADR-0031 决策 6、06 第 3.7 节修订" +
                         "段；三态的精确分配系数定义见 Core.Rules.Common.TargetOverflowPolicy 判断" +
                         "记录——06 原文只给策略名字未展开到系数公式，本字段三个取值命名与该处一致，" +
-                        "精确系数定义是 T-N3-8 给出的临时判断，已标注待设计层确认）"),
+                        "精确系数定义为 T-N3-8 设计层裁定（2026-09-15）：采纳）"),
                 new FieldSchema("fallback", FieldKind.Reference, required: false, referenceTable: "target.chain_def",
                     description: "候选为空时改用的另一条链；不得成环（见 ChainDefValidationRule）。"),
             }).WithOwnership(SchemaLayer.Rules, "targeting");

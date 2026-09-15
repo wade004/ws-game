@@ -105,8 +105,8 @@ namespace Core.Rules.Skill
         private static readonly FieldSchema BaseCurveRefField = new FieldSchema(
             "base_curve_ref", FieldKind.Reference, required: false, referenceTable: "skill.base_curve",
             description: "可选引用施法者等级到基础值的曲线，存在时取代 base_value（ADR-0031 决策 1\"基础值可选引用等级曲线\"，缺省为零）。" +
-                "契约疑点（上报，待设计层确认）：06 第 3.2 节 2026-09-14 修订段与 ADR-0031 决策 1 均只说\"可选引用等级曲线\"，" +
-                "未指明具体表名——本任务临时判定登记为 skill.base_curve（见 SkillSchemas.BaseCurve 类型注释）");
+                "设计层裁定（2026-09-15）：采纳——目标表登记为 skill.base_curve（横轴施法者等级，" +
+                "见 SkillSchemas.BaseCurve 类型注释）");
 
         // -----------------------------------------------------------------
         // school_damage / heal 共用参数（EffectDispatcher.ApplyDamageOrHeal 非 WeaponDamagePct 分支）：
@@ -555,14 +555,12 @@ namespace Core.Rules.Skill
         /// ADR-0031 决策 1"基础值可选引用等级曲线（base_curve_ref），默认为零"；06 第 3.2 节
         /// 2026-09-14 修订段）。
         /// <para>
-        /// 契约疑点（上报，待设计层确认）：06 第 3.2 节与 ADR-0031 决策 1 均只说"基础值可选引用
-        /// 等级曲线（base_curve_ref）"，未指明这张曲线表的表名——04 第 1.1 节表清单里 skill 域现有
-        /// 六张表（def/aura_def/proc_def/spell_mod_def/book/budget_rule）均不含它。本任务据任务书
-        /// 给出的候选位置临时判定：新增本表 <c>skill.base_curve</c>，横轴取施法者等级
-        /// （<see cref="CurveAxis.Level"/>，04 第 3.6 节通用断点表形态），与 <c>item.armor_curve</c>
-        /// 等新表同一惯例——新表，直接按通用断点表形态登记，不需要迁移。若设计层后续拍板另一
-        /// 表名/字段位，属改结论（走 12 第 2 节 ADR 流程），不影响已落地的"scaling 列表求和"这
-        /// 一主线契约（决策 1 的另一半，本任务已明确落地，不依赖本表是否存在）。</para></summary>
+        /// 设计层裁定（2026-09-15）：采纳——06 第 3.2 节与 ADR-0031 决策 1 均只说"基础值可选引用
+        /// 等级曲线（base_curve_ref）"，未指明这张曲线表的表名，目标表登记为 <c>skill.base_curve</c>，
+        /// 横轴取施法者等级（<see cref="CurveAxis.Level"/>，04 第 3.6 节通用断点表形态），与
+        /// <c>item.armor_curve</c> 等新表同一惯例——新表，直接按通用断点表形态登记，不需要迁移，
+        /// 不影响已落地的"scaling 列表求和"这一主线契约（决策 1 的另一半，本任务已明确落地，不依赖
+        /// 本表是否存在）。</para></summary>
         public static TableSchema BaseCurve { get; } = new TableSchema(
             name: "skill.base_curve",
             primaryKey: "id",
@@ -593,25 +591,23 @@ namespace Core.Rules.Skill
         /// 不需要 schema 版本递增）。
         /// </para>
         /// <para>
-        /// 契约疑点（上报，待设计层确认）：06 第 3.10 节原文只有"一拍常数只是记账单位（如半秒）"
-        /// 这句散文描述，未给出字段名——本任务据落地方案措辞、参照 <c>cast_time</c>/
-        /// <c>cooldown_duration</c> 既有时间字段的英文命名惯例，临时判定字段名为
-        /// <c>beat_seconds</c>。若设计层在 T-N3-9 落地完整表时另拍字段名，需要同步改本表与全部
-        /// 读取点（<see cref="Core.Rules.Skill.SkillDefCache.TryGetBeatSeconds"/>、
-        /// <see cref="Core.Rules.Skill.EffectDispatcher"/> 的 <c>ResolveBeatSeconds</c>），影响面
-        /// 已知且集中在这两处，不影响"秒伤 × 一拍常数"这一主线公式。
+        /// 设计层裁定（2026-09-15）：采纳——06 第 3.10 节原文只有"一拍常数只是记账单位（如半秒）"
+        /// 这句散文描述，字段名按落地方案措辞、参照 <c>cast_time</c>/<c>cooldown_duration</c>
+        /// 既有时间字段的英文命名惯例定为 <c>beat_seconds</c>，全部读取点
+        /// （<see cref="Core.Rules.Skill.SkillDefCache.TryGetBeatSeconds"/>、
+        /// <see cref="Core.Rules.Skill.EffectDispatcher"/> 的 <c>ResolveBeatSeconds</c>）与本表
+        /// 字段名一致。
         /// </para>
         /// <para>
-        /// 判断记录（<see cref="FieldUnit.Time"/>/<see cref="TimeScope.Combat"/> 只是元数据声明，
-        /// 不接入运行期模式换算）：<c>beat_seconds</c> 语义上是一段时长，标记
+        /// 设计层裁定（2026-09-15）：采纳——<see cref="FieldUnit.Time"/>/<see cref="TimeScope.Combat"/>
+        /// 只是元数据声明，不接入运行期模式换算。<c>beat_seconds</c> 语义上是一段时长，标记
         /// <see cref="FieldUnit.Time"/> 满足 <c>SchemaAudit</c>"time_scope_declared"检查（04 第
-        /// 3.4 节），表按技能同惯例声明 <see cref="TimeScope.Combat"/>；但 <c>cast_time</c>/
+        /// 3.4 节），表按技能同惯例声明 <see cref="TimeScope.Combat"/>；<c>cast_time</c>/
         /// <c>cooldown_duration</c> 那一类字段在模式切换（<c>TimeModelRescaledEvent</c>）时由
-        /// <c>CooldownTracker</c>/<c>AuraHost</c> 内部的换算系数实时折算，本任务未给
-        /// <c>beat_seconds</c> 接入同一套换算——06/ADR-0031 均未规定"运行期直接消费的一拍常数"要
-        /// 不要跟随连续/离散模式切换重新折算，`weapon_damage_pct` 是本仓库第一个在"预算记账"之外
-        /// 于结算路径直接消费这个常数的消费者，是否需要同 <c>CooldownTracker</c> 一样的模式换算
-        /// 留给设计层裁定，不在本任务自行决定。
+        /// <c>CooldownTracker</c>/<c>AuraHost</c> 内部的换算系数实时折算，但 <c>beat_seconds</c>
+        /// 按秒表达即为权威值，不接入同一套连续/离散模式换算系数——`weapon_damage_pct` 这一在
+        /// "预算记账"之外于结算路径直接消费该常数的消费者同样按秒表达值直接使用，离散模式下的
+        /// 换算核对留给阶段 N6 仿真接入锚点时统一核对，不在效果层做。
         /// </para>
         /// </summary>
         /// <summary>控制类别权重子结构（T-N3-9；06 第 3.10 节"控制价值 = 时长 × 目标数 × 控制类别
@@ -647,25 +643,21 @@ namespace Core.Rules.Skill
         /// 消耗溢价三条曲线、带宽、硬上限、控制类别权重。schema 版本不递增（新增字段，非破坏性，同
         /// <see cref="BaseCurve"/> 类型判断记录"新增字段，非破坏性，不需要 schema 版本递增"惯例）。
         /// <para>
-        /// 契约疑点（上报，待设计层确认；临时判断已实现，见 <see
-        /// cref="Core.Rules.Skill.SkillBudgetAnalyzer"/> 判断记录）：06 原文"带宽、硬上限……玩家档/
-        /// 怪物档"把"玩家档/怪物档"与"带宽""硬上限"并列写在同一句里描述 <c>skill.budget_rule</c> 表
-        /// 结构，但紧接着的独立一句又明确"玩家档/怪物档由反向引用决定"（不是本表登记的字段）——两句
-        /// 字面上有张力。本任务临时判定：反向引用只决定"用哪一组带宽/硬上限"，不决定"表里有没有
-        /// 玩家档/怪物档这两个字段"——怪物技能的合理超模幅度（数值设计 02"Boss 秒杀技本来就是几十
-        /// 倍超模"）与玩家技能的手滑容差不可能共用同一个数字，故本表按玩家/怪物两档分别登记
+        /// 设计层裁定（2026-09-15）：采纳，见 <see cref="Core.Rules.Skill.SkillBudgetAnalyzer"/>
+        /// 判断记录。06 原文"带宽、硬上限……玩家档/怪物档"把"玩家档/怪物档"与"带宽""硬上限"并列写在
+        /// 同一句里描述 <c>skill.budget_rule</c> 表结构，但紧接着的独立一句又明确"玩家档/怪物档由
+        /// 反向引用决定"——裁定采纳后一句：反向引用决定"用哪一组带宽/硬上限"，玩家档/怪物档本身不是
+        /// 本表登记的字段——怪物技能的合理超模幅度（数值设计 02"Boss 秒杀技本来就是几十倍超模"）与
+        /// 玩家技能的手滑容差不可能共用同一个数字，故本表按玩家/怪物两档分别登记
         /// <c>player_bandwidth</c>/<c>monster_bandwidth</c>、<c>player_hard_cap</c>/
         /// <c>monster_hard_cap</c> 四个字段（而不是单一 <c>bandwidth</c>/<c>hard_cap</c>），
-        /// <c>SkillBudgetAnalyzer</c> 按 <c>SkillDefCache</c> 反查出的档位选择对应一组——若设计层
-        /// 裁定应为单一带宽/硬上限（不分档），走 12 第 2 节 ADR 流程改字段，不影响"比值超硬上限阻断、
-        /// 带宽外警告"这一主线判定逻辑。
+        /// <c>SkillBudgetAnalyzer</c> 按 <c>SkillDefCache</c> 反查出的档位选择对应一组。
         /// </para>
         /// <para>
-        /// 契约疑点（上报，待设计层确认；临时判断已实现）：06 原文"施放时间当量规则"未给出独立字段
-        /// 名——T-N3-3 已把"一拍常数"本身登记为 <c>beat_seconds</c>；"周期效果按总持续时间乘折价"
-        /// （06 第 3.10 节公式行注释）里的"折价"系数本任务临时登记为 <c>periodic_time_discount</c>
-        /// （缺省 1.0，见 <see cref="Core.Rules.Skill.SkillBudgetAnalyzer"/> 判断记录"周期效果的施放
-        /// 时间当量"）。
+        /// 设计层裁定（2026-09-15）：采纳——06 原文"施放时间当量规则"未给出独立字段名，T-N3-3 已把
+        /// "一拍常数"本身登记为 <c>beat_seconds</c>；"周期效果按总持续时间乘折价"（06 第 3.10 节
+        /// 公式行注释）里的"折价"系数字段名登记为 <c>periodic_time_discount</c>（缺省 1.0，见
+        /// <see cref="Core.Rules.Skill.SkillBudgetAnalyzer"/> 判断记录"周期效果的施放时间当量"）。
         /// </para>
         /// </summary>
         public static TableSchema BudgetRule { get; } = new TableSchema(
@@ -703,9 +695,8 @@ namespace Core.Rules.Skill
                 // 要求纵轴不递减（不允许递减曲线）。本任务临时判定：登记为随 max_targets 增大而
                 // 递增的"折价除数"，SkillBudgetAnalyzer 运行期按 1.0 / 本曲线取值 换算成实际相乘的
                 // 折价倍数（见该类型判断记录"范围折价"），曲线本身满足 curve_monotonic_finite，最终
-                // 生效的折价倍数仍随 max_targets 增大而递减——上报待设计层确认：若认为直接登记"可
-                // 递减的折价倍数"更直观，需要给这一类"天然递减"的曲线单独放宽 curve_monotonic_finite
-                // 或另立一个不受该通用规则约束的曲线形态，属改结论，走 12 第 2 节 ADR 流程。
+                // 生效的折价倍数仍随 max_targets 增大而递减——设计层裁定（2026-09-15）：采纳，登记为
+                // 随目标数递增的除数，不另立不受 curve_monotonic_finite 约束的曲线形态。
                 CurveSchema.BreakpointsField("range_discount_curve", CurveAxis.Value, required: false,
                     description: "T-N3-9：范围折价除数曲线，横轴为目标形状 max_targets，纵轴为折价除数" +
                         "（06 第 3.7/3.10 节\"范围折价曲线以 max_targets 为输入\"；y 登记为除数而非直接" +

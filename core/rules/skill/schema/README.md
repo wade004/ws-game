@@ -81,12 +81,10 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 | `entries` | Array | 是 | 断点表 `[{x, y}]`（04 第 3.6 节通用曲线形态，`CurveSchema.BreakpointsField`，横轴 `CurveAxis.Level`——`x` 为施法者等级 Int，`y` 为该等级对应的效果基础值 Number），按 `x` 线性插值、越界夹取到端点；`curve_monotonic_finite`（T-N0-3）自动覆盖 |
 
 供 `school_damage`/`heal`/`periodic_damage`/`periodic_heal` 的可选 `base_curve_ref` 引用，存在时取代
-`base_value`（见下"效果值契约"）。**契约疑点（上报，待设计层确认）**：06 第 3.2 节 2026-09-14 修订段
-与 [ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 1 均只说"基础值可选引用
-等级曲线（`base_curve_ref`）"，未指明这张曲线表的表名——04 第 1.1 节表清单里 skill 域现有六张表
-（`def`/`aura_def`/`proc_def`/`spell_mod_def`/`book`/`budget_rule`）均不含它。本任务据任务书给出的
-候选位置临时判定：新增本表，与 `item.armor_curve` 等新曲线表同一惯例（新表，直接按通用断点表形态
-登记，不需要迁移）。若设计层后续拍板另一表名/字段位，属改结论（走 12 第 2 节 ADR 流程），不影响
+`base_value`（见下"效果值契约"）。**设计层裁定（2026-09-15）：采纳**——06 第 3.2 节 2026-09-14
+修订段与 [ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 1 均只说"基础值
+可选引用等级曲线（`base_curve_ref`）"，目标表登记为本表 `skill.base_curve`（横轴施法者等级），与
+`item.armor_curve` 等新曲线表同一惯例（新表，直接按通用断点表形态登记，不需要迁移），不影响
 已落地的 `scaling` 列表求和这一主线契约（决策 1 的另一半，已明确落地，不依赖本表是否存在）——见
 `SkillSchemas.BaseCurve` 类型注释、`SkillDefCache.TryGetBaseCurve` 判断记录。
 
@@ -106,16 +104,16 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 | `monster_hard_cap` | Number | 否（缺省 50.0） | T-N3-9：怪物档硬上限，语义同上；`> 1` |
 | `control_category_weights` | Object | 否 | T-N3-9：控制类别权重，六个具名可选 Number 子字段（`stun`/`root`/`silence`/`disarm`/`fear`/`polymorph`，对应 `ControlCategoryValues.All`），各缺省 1.0，供 `control` 价值公式"时长×目标数×控制类别权重"消费 |
 
-**T-N3-9 契约疑点（上报，待设计层确认；临时判断均已实现，见 `SkillSchemas.BudgetRule`/
+**T-N3-9 设计层裁定（2026-09-15）：采纳（见 `SkillSchemas.BudgetRule`/
 `SkillBudgetAnalyzer` 类型判断记录）**：
 
 1. 06 原文把"玩家档/怪物档"与"带宽""硬上限"并列写在同一句描述表结构，但另一句明确"玩家档/怪物档
-   由反向引用决定"——本任务判定"玩家档/怪物档"不是表本身的字段，只是"用哪一组带宽/硬上限"的选择
-   依据，故按档位拆成 `player_*`/`monster_*` 两组字段而不是单一 `bandwidth`/`hard_cap`。
+   由反向引用决定"——裁定采纳后一句："玩家档/怪物档"不是表本身的字段，只是"用哪一组带宽/硬上限"的
+   选择依据，故按档位拆成 `player_*`/`monster_*` 两组字段而不是单一 `bandwidth`/`hard_cap`。
 2. "范围折价"语义上应随 `max_targets` 增大而递减，但 04 第 5 节 `curve_monotonic_finite` 对全部
-   断点表统一要求纵轴不递减——`range_discount_curve` 改登记为随 `max_targets` 增大而递增的除数，
+   断点表统一要求纵轴不递减——裁定 `range_discount_curve` 登记为随 `max_targets` 增大而递增的除数，
    运行期取倒数换算成实际倍数。
-3. "施放时间当量规则"未给出独立字段名，本任务把周期效果的折价系数命名为 `periodic_time_discount`。
+3. "施放时间当量规则"未给出独立字段名，裁定周期效果的折价系数字段名为 `periodic_time_discount`。
 
 供 `EffectDispatcher.ResolveBeatSeconds`（经 `SkillDefCache.TryGetBeatSeconds`）按
 `SkillOptions.BudgetRuleId`（缺省 `skill.budget_rule.default`）查询；表未注册或该 id 没有对应
@@ -124,15 +122,14 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 带宽、硬上限、控制类别权重、玩家档/怪物档），落地改动点清单把它整体排到 T-N3-9；但 T-N3-3
 （`weapon_damage_pct` 改接秒伤 × 一拍常数）在 T-N3-9 之前就需要运行期读到一拍常数，任务书就此
 裁定"本任务先登记最小骨架（只含 `id`/`beat_seconds`），其余字段先不登记"——T-N3-9 会在**同一张**
-`TableSchema` 上继续补登记其余字段（新增字段，非破坏性，不需要 schema 版本递增）。**契约疑点
-（上报，待设计层确认）**：06 第 3.10 节原文只有"一拍常数只是记账单位（如半秒）"这句散文描述，
-未给出字段名——本任务据落地方案措辞、参照 `cast_time`/`cooldown_duration` 既有时间字段的命名
-惯例，临时判定字段名为 `beat_seconds`；若设计层在 T-N3-9 落地完整表时另拍字段名，需要同步改本
-表与全部读取点（`SkillDefCache.TryGetBeatSeconds`、`EffectDispatcher.ResolveBeatSeconds`），
-影响面已知且集中，不影响"秒伤 × 一拍常数"这一主线公式。另一处契约疑点：`FieldUnit.Time`/
-`TimeScope.Combat` 只是满足 `SchemaAudit`"time_scope_declared"元数据门禁的声明，本任务未给
-`beat_seconds` 接入 `CooldownTracker`/`AuraHost` 那一套连续/离散模式切换换算系数——是否需要
-留给设计层裁定，见 `SkillSchemas.BudgetRule` 类型注释。
+`TableSchema` 上继续补登记其余字段（新增字段，非破坏性，不需要 schema 版本递增）。**设计层裁定
+（2026-09-15）：采纳**——06 第 3.10 节原文只有"一拍常数只是记账单位（如半秒）"这句散文描述，
+字段名按落地方案措辞、参照 `cast_time`/`cooldown_duration` 既有时间字段的命名惯例定为
+`beat_seconds`，全部读取点（`SkillDefCache.TryGetBeatSeconds`、`EffectDispatcher.ResolveBeatSeconds`）
+与本表字段名一致。另：`FieldUnit.Time`/`TimeScope.Combat` 只是满足 `SchemaAudit`
+"time_scope_declared"元数据门禁的声明，`beat_seconds` 按秒表达即为权威值，不接入
+`CooldownTracker`/`AuraHost` 那一套连续/离散模式切换换算系数，离散模式下的换算核对留给阶段 N6
+仿真接入锚点时统一核对，不在效果层做，见 `SkillSchemas.BudgetRule` 类型注释。
 
 ## weapon_damage_pct：秒伤 × 一拍常数（T-N3-3）
 
@@ -165,13 +162,13 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 造物、学习、写世界标志等）两者都不参与。本任务只登记这份集合常量（`core/rules/common/contracts/
 SettlementEffectKinds.cs`），不落地 T-N3-9/T-N3-10 的消费实现。
 
-集合取值：`school_damage`、`weapon_damage_pct`、`heal`、`projectile`、`apply_aura`。**契约疑点
-（待设计层确认）**：06 原文前四项是无条件的效果原语类型，但 `apply_aura` 是有条件的——"这条
+集合取值：`school_damage`、`weapon_damage_pct`、`heal`、`projectile`、`apply_aura`。**设计层裁定
+（2026-09-15）：采纳**——06 原文前四项是无条件的效果原语类型，但 `apply_aura` 是有条件的——"这条
 `apply_aura` 算不算结算类"取决于它引用的 `skill.aura_def` 自身是否含 `periodic_damage`/
 `periodic_heal`/`mod_stat`/`control`/`absorb` 任一效果，不是 `apply_aura` 这个 `EffectKind` 本身
 的固有属性；`SettlementEffectKinds.All`/`IsSettlement(string kind)` 按效果原语类型这一层无条件把
-`apply_aura` 计入集合（"可能是结算类"），不下钻解析具体引用的光环定义，这一层更细的判定留给
-T-N3-9/T-N3-10 在真正消费这份集合时决定具体收窄方式，详见该类型顶部判断记录。
+`apply_aura` 计入集合（"可能是结算类"），不下钻解析具体引用的光环定义，这一层更细的判定由
+T-N3-9/T-N3-10 在真正消费这份集合时解析落实，详见该类型顶部判断记录。
 
 ## 效果原语参数表（ADR-0019 / F1a，`SkillSchemas.EffectsItemSchema`）
 

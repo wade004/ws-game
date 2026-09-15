@@ -14,7 +14,7 @@ namespace Tests.Rules.Targeting
     /// ResolveWithCoefficients</c> 新重载。复用 <see cref="TargetHostTests"/> 的公共夹具（<c>Build</c>/
     /// <c>Fixture</c> 等已改为 <c>internal</c>，见该类型判断记录）。
     /// <para>
-    /// 判断记录（系数定义为临时判断，待设计层确认）：06 第 3.7 节修订段原文只给出策略名字与默认值，
+    /// 设计层裁定（2026-09-15）：采纳。06 第 3.7 节修订段原文只给出策略名字与默认值，
     /// 未展开到"每个目标分配系数"的精确公式；本测试锁定的系数定义见
     /// <see cref="Core.Rules.Common.TargetOverflowPolicy"/> 判断记录——<c>truncate</c> 与改动前既有
     /// 截断行为逐一对应；<c>split</c> 总量守恒为"<c>max_targets</c> 个目标的满额值"（系数 =

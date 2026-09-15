@@ -167,7 +167,7 @@ namespace Core.Rules.Skill
         /// 开启且技能确实被急速缩短（缩短后时长 &lt; 折算前原始值）时才生效——haste 折算前该技能
         /// <c>cast_time</c> 本就低于本字段时不受影响，见
         /// <see cref="Core.Rules.Skill.CastPipeline.ComputeCastTime"/> 判断记录"下限只夹住急速造成的
-        /// 缩短，不是所有技能的最短动作时长"（落地方案 T-N3-5 契约疑点，上报待设计层确认）。
+        /// 缩短，不是所有技能的最短动作时长"（落地方案 T-N3-5，设计层裁定（2026-09-15）：采纳）。
         /// </summary>
         public double MinActionSeconds { get; set; } = 0.0;
 
@@ -180,7 +180,8 @@ namespace Core.Rules.Skill
         /// "减速"效果——本任务不处理，按 0 处理，不允许急速反而拉长动作时长，见
         /// <see cref="Core.Rules.Skill.CastPipeline.ComputeCastTime"/> 判断记录）再参与折算。默认
         /// 100.0——契约只说"存在硬上限"，两处引用均未给出具体数值（同 <see cref="GcdDuration"/> 惯例，
-        /// 占位式合理起点，不代表任何产品决策，落地方案 T-N3-5 契约疑点，上报待设计层确认）。
+        /// 占位式合理起点，不代表任何产品决策；落地方案 T-N3-5，设计层裁定（2026-09-15）：采纳，
+        /// 缺省 100）。
         /// </summary>
         public double MaxHastePct { get; set; } = 100.0;
 

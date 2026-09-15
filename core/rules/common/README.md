@@ -157,8 +157,9 @@ common/
     把 `apply_aura` 无条件计入集合（"按效果原语类型可能是结算类"），不解析 `aura_def` 引用；
     真正需要"这条 `apply_aura` 是否满足光环含五种效果之一"这一更细判定的调用方（T-N3-9
     `SkillBudgetAnalyzer`、T-N3-10 独立求值组件）需要另行解析光环定义逐条核对，不是本类型职责
-    范围——**待设计层确认**该取舍是否符合预期，或是否需要在 `SettlementEffectKinds` 之外另开一个
-    接受 `IDataRegistryView` 的重载做完整判定。
+    范围——**设计层裁定（2026-09-15）：采纳**，按效果原语类型这一层判定即可，精确判定（所引
+    光环含结算效果）由 `SkillBudgetAnalyzer` 等消费方消费时另行解析落实，不在
+    `SettlementEffectKinds` 内新开重载。
 
 ## 不负责什么
 

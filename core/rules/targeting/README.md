@@ -133,9 +133,9 @@ T-N3-8（ADR-0031 决策 6、拍板 7）补充：`TargetOverflowPolicy` 枚举�
     （`truncate`（默认）｜`split`｜`cap`，见 `schema/README.md`），`ITargetHost` 新增
     `ResolveWithCoefficients` 默认接口成员，返回 `TargetResolution`（`core/rules/common/contracts/
     TargetResolution.cs`：候选目标 + 各自分配系数 + 生效策略 + cap）。
-    - **系数定义是临时判断，待设计层确认**：ADR-0031 决策 6、06 第 3.7 节修订段原文只给出三个
-      策略名字与默认值，未展开到"每个目标分配系数"这一精确公式。本任务按字面含义给出的临时
-      判断（见 `TargetOverflowPolicy` 各成员 XML 文档）：`truncate` 与本字段引入之前的既有截断
+    - **系数定义：设计层裁定（2026-09-15）：采纳**：ADR-0031 决策 6、06 第 3.7 节修订段原文只给出三个
+      策略名字与默认值，未展开到"每个目标分配系数"这一精确公式。按字面含义裁定（见
+      `TargetOverflowPolicy` 各成员 XML 文档）：`truncate` 与本字段引入之前的既有截断
       行为逐一对应（按既有排序取前 `max_targets` 个，多出的候选不命中，系数恒 1）；`split`
       （平摊）候选全部命中，总量守恒为"`max_targets` 个目标的满额值"，系数 = `max_targets` /
       命中数；`cap`（总量封顶）候选全部命中，总量硬封顶为"单个目标的满额值"，系数 = 1 / 命中数。

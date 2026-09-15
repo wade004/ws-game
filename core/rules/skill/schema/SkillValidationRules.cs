@@ -578,11 +578,10 @@ namespace Core.Rules.Skill
     /// "主动技能 <c>cast_time</c> 为零且 <c>respects_gcd</c> 为真（未声明为反应类）"——防住"全部瞬发
     /// 一起放"的退化，是去掉公共冷却后节拍功能的替代物（06 §3.6 原文）。
     /// <para>
-    /// **契约疑点（上报，待设计层确认）**：04 第 5 节该表同组绝大多数行都标注"检查名 xxx"，唯独
-    /// "无时间成本"一行没有给出具体检查名。本规则临时判定检查名为 <see cref="Check"/> =
+    /// **设计层裁定（2026-09-15）：采纳**：04 第 5 节该表同组绝大多数行都标注"检查名 xxx"，唯独
+    /// "无时间成本"一行没有给出具体检查名，检查名裁定为 <see cref="Check"/> =
     /// "skill_no_time_cost"（沿用本文件既有 <c>PassiveSkillNoCastTimeRule</c>/
-    /// <c>CastTimeChannelTimeExclusiveRule</c> 等围绕 <c>cast_time</c> 的检查名 snake_case 惯例）；
-    /// 若设计层后续拍板另一名字，只需同步改本常量，无消费方按字面字符串匹配（见测试）。
+    /// <c>CastTimeChannelTimeExclusiveRule</c> 等围绕 <c>cast_time</c> 的检查名 snake_case 惯例）。
     /// </para>
     /// <para>
     /// 判定条件严格对齐 04 原文三个并列条件：<c>kind == "active"</c>（被动技能不适用，见

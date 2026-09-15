@@ -17,10 +17,10 @@ namespace Core.Rules.Skill
         Monster,
 
         /// <summary>
-        /// 契约疑点（上报，待设计层确认；临时判断已实现，见 <see cref="SkillDefCache"/> 判断记录）：
-        /// 06 第 3.10 节只给出"玩家档/怪物档"二分，未规定"两处反向引用都找不到"（如：只被
-        /// <c>item.template.grants.skills</c> 授予、或纯粹未被任何内容引用的技能）该归哪一档。本
-        /// 任务临时判定：既不属于玩家档也不属于怪物档时归为本值，<c>SkillBudgetAnalyzer</c> 按玩家档
+        /// 设计层裁定（2026-09-15）：采纳，见 <see cref="SkillDefCache"/> 判断记录。06 第 3.10 节
+        /// 只给出"玩家档/怪物档"二分，未规定"两处反向引用都找不到"（如：只被
+        /// <c>item.template.grants.skills</c> 授予、或纯粹未被任何内容引用的技能）该归哪一档，
+        /// 裁定：既不属于玩家档也不属于怪物档时归为本值，<c>SkillBudgetAnalyzer</c> 按玩家档
         /// 带宽/硬上限判定（更严格的一档，"宁可多报警告，不可放过手滑"），等级取 <c>1</c>（无法推断
         /// 真实等级时的保守缺省）。
         /// </summary>

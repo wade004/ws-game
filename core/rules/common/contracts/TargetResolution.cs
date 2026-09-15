@@ -9,11 +9,10 @@ namespace Core.Rules.Common
     /// <c>target.chain_def.overflow_policy</c> 三态（T-N3-8；ADR-0031 决策 6、拍板 7；06 第 3.7 节
     /// 2026-09-14 修订段）：候选目标数超过 <c>max_targets</c> 时的处理策略。
     /// <para>
-    /// 判断记录（系数定义为临时判断，待设计层确认）：06 第 3.7 节修订段原文只给出三个策略名字
+    /// 设计层裁定（2026-09-15）：采纳。06 第 3.7 节修订段原文只给出三个策略名字
     /// （"截断、平摊、总量封顶"）与默认值（截断），未展开到"每个目标分配系数"这一精确公式层面；
     /// ADR-0031 决策 6 同样只提到"目标形状新增 max_targets 与超出策略（截断、平摊、总量封顶），
-    /// 默认截断"。本枚举各成员的系数定义是 T-N3-8 按字面含义给出的临时判断（已在任务汇报里标注
-    /// "待设计层确认"）：<see cref="Truncate"/> 与改动前 <c>TargetHost.ApplyMaxTargets</c> 的既有
+    /// 默认截断"。本枚举各成员的系数定义按字面含义裁定：<see cref="Truncate"/> 与改动前 <c>TargetHost.ApplyMaxTargets</c> 的既有
     /// 截断行为逐一对应（旧 <c>ITargetHost.Resolve</c> 签名的既有行为，保证向后兼容）；
     /// <see cref="Split"/>/<see cref="Cap"/> 是本任务新引入的两种"全部命中、按比例稀释效果值"的
     /// 变体，二者的差异（除以命中数 n 时分子取 <c>max_targets</c> 还是取 1）在"平摊"（在

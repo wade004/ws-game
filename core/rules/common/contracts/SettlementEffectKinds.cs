@@ -17,19 +17,18 @@ namespace Core.Rules.Common
     /// <c>control</c>/<c>absorb</c> 任一效果者。
     /// </para>
     /// <para>
-    /// <b>契约疑点（T-N3-1 上报，待设计层确认）：</b>06 原文的"结算类原语集合"不是一份能直接按
+    /// <b>设计层裁定（2026-09-15）：采纳。</b>06 原文的"结算类原语集合"不是一份能直接按
     /// <c>effects[].kind</c> 这一层扁平判定的清单——前四项（<c>school_damage</c>/
     /// <c>weapon_damage_pct</c>/<c>heal</c>/<c>projectile</c>）是无条件的效果原语类型，但
     /// <c>apply_aura</c> 一项是有条件的："这条 <c>apply_aura</c> 效果算不算结算类"取决于它引用的
     /// <c>skill.aura_def</c> 自身的 <c>effects[].kind</c> 是否含五种光环效果之一，不是
-    /// <c>apply_aura</c> 这个 <see cref="EffectKind"/> 本身的固有属性。本类型按任务书"取值以 06
-    /// 修订段列出的集合为准"，把 <c>apply_aura</c> 无条件计入 <see cref="All"/>（即"可能是结算
-    /// 类"，按效果原语类型这一层最贴近原文的判定），<see cref="IsSettlement(string)"/> 只做
-    /// <see cref="All"/> 的成员判定，<b>不下钻解析 <c>apply_aura</c> 具体引用的光环定义</b>——这一层
-    /// 更细的判定（"这条 <c>apply_aura</c> 引用的光环是否真的含五种效果之一"）需要调用方另行解析
-    /// <c>aura_def</c> 引用后逐条核对光环自身的 <c>effects[].kind</c>，不是本类型职责范围，留给
-    /// T-N3-9（<c>SkillBudgetAnalyzer</c>）与 T-N3-10（独立求值组件）在真正消费这份集合时决定
-    /// 具体收窄方式。
+    /// <c>apply_aura</c> 这个 <see cref="EffectKind"/> 本身的固有属性。<see cref="All"/>
+    /// 无条件把 <c>apply_aura</c> 计入（即"可能是结算类"，按效果原语类型这一层最贴近原文的判定），
+    /// <see cref="IsSettlement(string)"/> 只做 <see cref="All"/> 的成员判定，<b>不下钻解析
+    /// <c>apply_aura</c> 具体引用的光环定义</b>——这一层更细的判定（"这条 <c>apply_aura</c> 引用的
+    /// 光环是否真的含五种效果之一"）由消费方在真正消费这份集合时解析 <c>aura_def</c> 引用后逐条核对
+    /// 光环自身的 <c>effects[].kind</c> 落实，不是本类型职责范围——T-N3-9（<c>SkillBudgetAnalyzer</c>）
+    /// 与 T-N3-10（独立求值组件）均按此口径消费。
     /// </para>
     /// </summary>
     public static class SettlementEffectKinds
