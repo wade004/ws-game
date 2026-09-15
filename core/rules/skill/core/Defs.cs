@@ -55,6 +55,15 @@ namespace Core.Rules.Skill
         /// </summary>
         public bool AllowGroundTarget { get; }
 
+        /// <summary>
+        /// T-N3-4（ADR-0031 决策 9，06 第 3.1 节 2026-09-14 修订）：使用条件（<c>skill.def.use_condition</c>，
+        /// 宿主为施法者上下文），解析自 T-N3-1 已登记的 <c>FieldKind.Expr</c> 原始文本（见
+        /// <see cref="SkillDefCache"/> 解析判断记录，与 <see cref="ProcDef.Condition"/> 同一套
+        /// <c>ExprParser.Parse</c> 惯例）。<c>null</c> 表示未声明——施法管线步骤 1.5 直接放行，不产生
+        /// 任何行为变化（呼应本字段落地前登记的全部既有 <c>skill.def</c> 行）。
+        /// </summary>
+        public ExprNode? UseCondition { get; }
+
         public bool HasCharges => ChargesMax.HasValue;
 
         public SkillDef(
@@ -82,6 +91,7 @@ namespace Core.Rules.Skill
             InterruptFlags = interruptFlags;
             ActionCost = actionCost;
             AllowGroundTarget = false;
+            UseCondition = null;
         }
 
         /// <summary>
@@ -116,6 +126,41 @@ namespace Core.Rules.Skill
             InterruptFlags = interruptFlags;
             ActionCost = actionCost;
             AllowGroundTarget = allowGroundTarget;
+            UseCondition = null;
+        }
+
+        /// <summary>
+        /// T-N3-4 新增重载：携带 <see cref="UseCondition"/>。判断记录（不是给上一个构造函数的
+        /// <c>allowGroundTarget</c> 之后再加一个可选参数）：同上方 ADR-0027 十八参数重载判断记录同一套
+        /// ABI 兼容惯例——既有构造函数追加参数会改变其物理 IL 签名；本重载十九个参数全部不带默认值，
+        /// 与既有两个构造函数（分别最多 17、恰好 18 个参数）参数个数不重叠，互不冲突。
+        /// </summary>
+        public SkillDef(
+            Id id, Id school, bool isPassive, double range, IReadOnlyList<Id> tags,
+            double castTime, double channelTime, IReadOnlyList<(Id, double)> cost,
+            Id? cooldownCategory, double cooldownDuration, int? chargesMax, double chargesRechargeTime,
+            bool respectsGcd, Id targetShapeRef, IReadOnlyList<EffectRef> effects, InterruptFlags interruptFlags,
+            double actionCost, bool allowGroundTarget, ExprNode? useCondition)
+        {
+            Id = id;
+            School = school;
+            IsPassive = isPassive;
+            Range = range;
+            Tags = tags;
+            CastTime = castTime;
+            ChannelTime = channelTime;
+            Cost = cost;
+            CooldownCategory = cooldownCategory;
+            CooldownDuration = cooldownDuration;
+            ChargesMax = chargesMax;
+            ChargesRechargeTime = chargesRechargeTime;
+            RespectsGcd = respectsGcd;
+            TargetShapeRef = targetShapeRef;
+            Effects = effects;
+            InterruptFlags = interruptFlags;
+            ActionCost = actionCost;
+            AllowGroundTarget = allowGroundTarget;
+            UseCondition = useCondition;
         }
     }
 

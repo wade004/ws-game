@@ -377,6 +377,66 @@
       ]
     },
     {
+      "id": "display.map.sample_rest",
+      "category": "skill",
+      "logical_id": "skill.sample_rest",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_lockpick",
+      "category": "skill",
+      "logical_id": "skill.sample_lockpick",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_burst",
+      "category": "skill",
+      "logical_id": "skill.sample_burst",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_parry",
+      "category": "skill",
+      "logical_id": "skill.sample_parry",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
       "id": "display.map.sample_summon_totem",
       "category": "creature",
       "logical_id": "creature.sample_summon_totem",

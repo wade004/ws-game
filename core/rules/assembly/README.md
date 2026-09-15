@@ -216,3 +216,34 @@ CORE_170_01_RaceEquipmentSharedAuraTests`。
 旧职业独有资源类型不可再查询，重复读档不叠加/不报错。测试：
 `core/gameplay/assembly/tests/CORE_110_FollowupAuditTests.cs`
 `CORE_110_02_SameMapClassSwitch_ClearsLegacyBaseKeyAndPowerType`。
+
+## T-N3-11：`RegisterAll` 新增 `SkillOptions` 重载，`MaxEffectsPerSkillRule` 上限接线
+
+分阶段落地计划第 14 节 N3 任务表第十一行"`MaxEffectsPerSkillRule` 接 `SkillOptions`"：
+`RegisterL2Schemas`（私有方法）此前把 `MaxEffectsPerSkillRule` 的构造参数硬编码为 8——该方法自己
+的既有内联注释已指出"构造参数须与运行期实际生效的上限一致，否则数据校验期允许、运行期却又拒绝
+（或反过来）"，但当时没有给调用方任何传入自定义上限的接口，只能"自己额外登记一条用同一上限构造
+的 `MaxEffectsPerSkillRule`"这个变通办法（两条规则同时跑，多余但不冲突）。本任务补上这条接口：
+
+- `RegisterAll(IDataRegistry, SkillOptions?)`：新重载，读取 `skillOptions.MaxEffectsPerSkill`
+  （`SkillOptions` 该属性本身在阶段 3 整理时已随落地方案 T2-6 行登记，默认 8——本任务不新增字段，
+  只补齐"注册期读取它"这一步）。`skillOptions` 为 `null` 时回退硬编码默认值 8，逐位不变。
+- `RegisterAll(IDataRegistry)`（既有无参重载）：改为转发 `RegisterAll(registry, skillOptions:
+  null)`，ABI 与行为均不变（回归）。
+- `RegisterL2Schemas` 签名新增可选参数 `SkillOptions? skillOptions = null`（私有方法，不受 ABI
+  探针约束）。
+
+判断记录（为什么不直接改造用一份共享 `SkillOptions` 单例贯穿注册与运行期）：本类型（以及整个
+`core/rules/assembly`）不持有任何跨调用的可变状态，`RegisterAll` 每次调用都是无状态的一次性注册
+过程；调用方（游戏引导代码、集成测试）如果想让"数据校验期上限"与"运行期 `CastPipeline`/
+`EffectDispatcher` 实际生效上限"保持一致，只需要把同一个 `SkillOptions` 实例分别传给
+`RegisterAll(registry, options)` 与 `RulesAssembly` 构造函数的 `skillOptions` 参数（见该类型
+第 166 行 `SkillOptions? skillOptions = null` 构造参数）——两处消费同一份数据，不需要本类型内部
+再额外持有或转发一份。
+
+ABI（G3）：只新增一个公开重载与一个私有方法的可选参数，未改动任何既有公开签名；探针基线
+`ws-game-1.32.0.zip` 下 breaks=0。测试：
+`core/rules/tests/Integration/T_N3_11_RulesSchemaCatalogSkillOptionsTests.cs`（3 例：无参重载回归、
+显式传 `null` 与无参等价、注入自定义 `MaxEffectsPerSkill` 后加载期真的按注入值拦截——第三例特意
+选在"超过注入上限但仍在硬编码默认上限 8 以内"的效果数上验证，若本任务只登记了参数却未真正接线，
+这一例会假通过）。

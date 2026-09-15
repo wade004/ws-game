@@ -81,9 +81,22 @@ namespace Tests.Rules.Ai
 
         private readonly Dictionary<string, CastResult> _results = new Dictionary<string, CastResult>(StringComparer.Ordinal);
 
+        /// <summary>T-N3-10 测试支持：显式编程某技能的 <see cref="GetSkillReadiness"/> 返回值——不编程
+        /// 的技能沿用下面 <see cref="GetSkillReadiness"/> 里与 <see cref="ISkillHost"/> 默认接口实现
+        /// 同一公式的降级快照（恒就绪，因为 <see cref="GetCooldown"/> 恒为 0），保持既有全部 AiHost
+        /// 测试用例（从未编程过 Readiness）行为不变；只有需要构造"条件为真但不就绪"用例的新测试
+        /// （<c>RotationEvaluatorTests</c>）才调用本方法。</summary>
+        private readonly Dictionary<string, SkillReadiness> _readinessOverrides = new Dictionary<string, SkillReadiness>(StringComparer.Ordinal);
+
         public FakeSkillHost Program(Id skillId, CastResult result)
         {
             _results[skillId.Value] = result;
+            return this;
+        }
+
+        public FakeSkillHost ProgramReadiness(Id skillId, SkillReadiness readiness)
+        {
+            _readinessOverrides[skillId.Value] = readiness;
             return this;
         }
 
@@ -108,6 +121,26 @@ namespace Tests.Rules.Ai
         }
 
         public double GetCooldown(Id unitId, Id skillId) => 0;
+
+        /// <summary>T-N3-10 补充：显式实现（不再单纯依赖 <see cref="ISkillHost"/> 的默认接口成员），
+        /// 使 <see cref="ProgramReadiness"/> 编程的返回值能被经接口类型持有 <c>ISkillHost</c> 字段的
+        /// 调用方（<c>RotationEvaluator</c>）读到。未编程的技能走与 <see cref="ISkillHost"/> 默认接口
+        /// 实现完全相同的公式（见该接口方法文档），数值上与"不覆盖、直接吃默认实现"完全等价——
+        /// <see cref="GetCooldown"/> 恒为 0，因此未编程技能恒就绪，不影响任何既有测试。</summary>
+        public SkillReadiness GetSkillReadiness(Id unitId, Id skillId)
+        {
+            if (_readinessOverrides.TryGetValue(skillId.Value, out var readiness))
+            {
+                return readiness;
+            }
+
+            var remaining = GetCooldown(unitId, skillId);
+            var blocking = remaining > 0 ? SkillReadinessBlockers.SkillCooldown : SkillReadinessBlockers.None;
+            return new SkillReadiness(
+                skillId, isReady: remaining <= 0, blockingSources: blocking,
+                skillCooldownRemaining: null, categoryCooldownRemaining: null, globalCooldownRemaining: null,
+                maxCharges: null, currentCharges: null, nextChargeRemaining: null, effectiveCooldownDuration: null);
+        }
 
         public bool IsCasting(Id unitId) => false;
 

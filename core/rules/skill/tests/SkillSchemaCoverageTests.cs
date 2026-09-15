@@ -100,6 +100,25 @@ namespace Tests.Rules.Skill
         /// 未同步登记 <see cref="FieldSchema.SoftReferenceTable"/>，导致内容工具（编辑器 P3.1 引用图）
         /// 只能按值弱推断该字段是否是引用。本测试锁死字段元数据一侧已同步补齐（同 29/30 号反馈同类
         /// 修复的验收口径）。</summary>
+        /// <summary>T-N3-6（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 8；
+        /// 06 第 3.3 节 2026-09-14 修订段）：`control` 光环效果新增可选 `category` 字段，取值集合
+        /// 与 `creature.tier_definition.control_immune_categories` 共用同一份
+        /// `Core.Rules.Common.ControlCategoryValues.All`（避免两处漂移，见该类型判断记录）。</summary>
+        [Fact]
+        public void ControlEffectParams_DeclareOptionalCategoryEnum_SharingControlCategoryValues()
+        {
+            var effectsField = SkillSchemas.AuraDef.GetField("effects");
+            var paramsFields = effectsField!.Item!.Variants!.Cases[AuraEffectKindNames.ToText(AuraEffectKind.Control)]
+                .Single(f => f.Name == "params").Fields!;
+
+            var category = paramsFields.SingleOrDefault(f => f.Name == "category");
+
+            Assert.NotNull(category);
+            Assert.False(category!.Required);
+            Assert.Equal(FieldKind.Enum, category.Kind);
+            Assert.Equal(ControlCategoryValues.All, category.EnumValues);
+        }
+
         [Fact]
         public void ProcDef_TriggerSkill_DeclaresSoftReferenceToSkillDef()
         {

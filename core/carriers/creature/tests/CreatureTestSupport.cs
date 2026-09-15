@@ -30,7 +30,14 @@ namespace Tests.Carriers.Creature
             "{\"id\": \"creature.tier.normal\", \"name_key\": \"l10n.creature.tier.normal.name\", " +
             "\"stat_multiplier\": 1, \"control_immune\": false, \"sort_weight\": 0}," +
             "{\"id\": \"creature.tier.elite\", \"name_key\": \"l10n.creature.tier.elite.name\", " +
-            "\"stat_multiplier\": 2, \"control_immune\": true, \"sort_weight\": 10}" +
+            "\"stat_multiplier\": 2, \"control_immune\": true, \"sort_weight\": 10}," +
+            // T-N3-6 新增（ADR-0031 决策 8）：并存字段 control_immune_categories 的样例分档——
+            // control_immune 恒 false（不触发旧的"全部类别"标记），只声明 stun/root 两个具体类别，
+            // 供 CreatureFactoryTests.Spawn_WritesControlCategoryMarkers_FromTierControlImmuneCategories
+            // 验证按类别写入 CreatureUnit.Immunities 的路径。
+            "{\"id\": \"creature.tier.category_immune\", \"name_key\": \"l10n.creature.tier.category_immune.name\", " +
+            "\"stat_multiplier\": 1, \"control_immune\": false, " +
+            "\"control_immune_categories\": [\"stun\", \"root\"], \"sort_weight\": 5}" +
             "]";
 
         public const string LevelCurveRows = "[" +
@@ -111,7 +118,12 @@ namespace Tests.Carriers.Creature
             "\"level\": 1, \"tier\": \"creature.tier.normal\", " +
             "\"base_stats\": {\"stat.power\": 3}, " +
             "\"stat_growth_ref\": \"prog.sample_curve_e36_l5\", " +
-            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_hydra_cub\"}" +
+            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_hydra_cub\"}," +
+            // T-N3-6 新增：引用 creature.tier.category_immune（见 TierDefinitionRows 判断记录）。
+            "{\"id\": \"creature.sample_category_immune\", \"name_key\": \"l10n.creature.sample_category_immune.name\", " +
+            "\"level\": 1, \"tier\": \"creature.tier.category_immune\", " +
+            "\"base_stats\": {\"stat.power\": 10, \"stat.max_health\": 100}, " +
+            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_category_immune\"}" +
             "]";
 
         public static IEventBus CreateBus() =>

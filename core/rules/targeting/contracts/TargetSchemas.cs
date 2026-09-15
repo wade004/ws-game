@@ -14,6 +14,11 @@ namespace Core.Rules.Targeting
         public static readonly string[] SortKeyValues = { "distance", "hp_pct", "threat", "level" };
         public static readonly string[] SortDirectionValues = { "asc", "desc" };
 
+        /// <summary>T-N3-8（ADR-0031 决策 6；06 第 3.7 节 2026-09-14 修订段）：<c>overflow_policy</c>
+        /// 合法取值，与 <see cref="Core.Rules.Common.TargetOverflowPolicy"/> 三个成员一一对应
+        /// （字符串 ↔ 枚举的转换见 <c>TargetChainDef</c> 构造函数）。</summary>
+        public static readonly string[] OverflowPolicyValues = { "truncate", "split", "cap" };
+
         /// <summary><c>shape</c>：判别字段 <c>kind</c> 与 <c>radius</c>/<c>angle</c>/<c>length</c>/
         /// <c>width</c> 同处一个对象内，Variants 适用。<c>TargetChainDef.ParseShape</c> 的
         /// <c>GetNumber</c> 对缺失字段一律返回 0（不抛异常），四个数值子字段均登记为非必填。</summary>
@@ -77,6 +82,18 @@ namespace Core.Rules.Targeting
                 new FieldSchema("max_targets", FieldKind.Int, required: false,
                     description: "默认 1；0 表示不限，不能为负数。")
                     .WithRange(FieldRange.Range(min: 0)),
+                // T-N3-8（ADR-0031 决策 6；06 第 3.7 节 2026-09-14 修订段）：候选数超过 max_targets
+                // 时的处理策略，默认 truncate（与改动前既有截断行为一致）。判断记录（未随
+                // max_targets 一起要求 required/额外校验"仅在 max_targets 非零时才有意义"）：本字段
+                // 独立生效——max_targets 缺省为 1 时同样受本字段约束（如声明 split 且未声明
+                // max_targets，等价于"最多 1 个目标不算超出"，退化为恒系数 1，见 TargetHost 判断
+                // 记录"未超限时系数恒为 1"），不强制两个字段成对出现，内容作者可以只声明其中一个。
+                new FieldSchema("overflow_policy", FieldKind.Enum, required: false, enumValues: OverflowPolicyValues,
+                    description: "候选数超过 max_targets 时的处理策略：truncate 截断（默认，与改动前" +
+                        "既有行为一致）｜split 平摊｜cap 总量封顶（ADR-0031 决策 6、06 第 3.7 节修订" +
+                        "段；三态的精确分配系数定义见 Core.Rules.Common.TargetOverflowPolicy 判断" +
+                        "记录——06 原文只给策略名字未展开到系数公式，本字段三个取值命名与该处一致，" +
+                        "精确系数定义为 T-N3-8 设计层裁定（2026-09-15）：采纳）"),
                 new FieldSchema("fallback", FieldKind.Reference, required: false, referenceTable: "target.chain_def",
                     description: "候选为空时改用的另一条链；不得成环（见 ChainDefValidationRule）。"),
             }).WithOwnership(SchemaLayer.Rules, "targeting");

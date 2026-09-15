@@ -27,11 +27,18 @@ namespace Core.Rules.Common
         /// <c>base_value</c>/<c>coefficient</c>）。
         /// <para>
         /// 判断记录（T-N2-6，本方法口径不变）：ADR-0032 决策 4 落地后武器改走"秒伤预算"（见 <see
-        /// cref="GetWeaponDps"/>），但 <c>weapon_damage_pct</c> 原语本身改接秒伤 × 一拍常数是 N3 S3
-        /// 的范围（一拍常数登记在 <c>skill.budget_rule</c>，该表要到阶段 N3 才创建，见落地改动点清单
-        /// 第 10 节第 6 条"一拍常数放 skill.budget_rule 旁"）——本方法在 N3 S3 落地前继续保持
-        /// <c>(damage_min+damage_max)/2</c> 语义，签名与行为均不改变（硬性规则"禁止改既有
-        /// GetWeaponBaseDamage 签名"）。
+        /// cref="GetWeaponDps"/>）。
+        /// </para>
+        /// <para>
+        /// 更新（T-N3-3，ADR-0031 决策 1/2；06 第 3.2 节 2026-09-14 修订段）：<c>weapon_damage_pct</c>
+        /// 原语已改接"秒伤 × 一拍常数 × 百分比"（一拍常数登记在新表 <c>skill.budget_rule</c>，最小
+        /// 骨架随 T-N3-3 一并落地，完整字段留给 T-N3-9，见 <c>SkillSchemas.BudgetRule</c> 类型
+        /// 注释）——<c>Core.Rules.Skill.EffectDispatcher.ApplyDamageOrHeal</c> 的 <c>WeaponDamagePct</c>
+        /// 分支不再调用本方法，改调 <see cref="GetWeaponDps"/>。本方法本身**保留**、签名与既有
+        /// <c>(damage_min+damage_max)/2</c> 语义均不改变（硬性规则"禁止改既有 GetWeaponBaseDamage
+        /// 签名"；"该方法本身保留供其它消费方"）——目前框架内已知无其它消费方，保留是为了不做无
+        /// 必要的破坏性移除，若后续某个消费方（如伤害预览/编辑器工具提示）需要"单次挥击基础伤害"
+        /// 这个口径，仍可继续调用它。
         /// </para>
         /// </summary>
         double GetWeaponBaseDamage(Id unitId);

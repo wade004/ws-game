@@ -22,7 +22,7 @@ namespace Tests.Rules.Targeting
         // 公共夹具
         // -----------------------------------------------------------------
 
-        private static IFactionMatrix BuildFactions(IEventBus bus)
+        internal static IFactionMatrix BuildFactions(IEventBus bus)
         {
             const string factionRows = @"[
                 { ""id"": ""fac.target_test_hero"", ""name_key"": ""l10n.fac.hero.name"", ""default_reaction"": ""hostile"" },
@@ -46,12 +46,12 @@ namespace Tests.Rules.Targeting
             return new FactionMatrix(registry, bus);
         }
 
-        private static PowerHost BuildPowerHost(IEventBus bus)
+        internal static PowerHost BuildPowerHost(IEventBus bus)
         {
             return new PowerHost(new[] { TargetingTestSupport.HealthPowerType() }, bus);
         }
 
-        private sealed class Fixture
+        internal sealed class Fixture
         {
             public TargetHost Host = null!;
             public FakeUnitAccess Units = null!;
@@ -61,7 +61,7 @@ namespace Tests.Rules.Targeting
             public IEventBus Bus = null!;
         }
 
-        private static Fixture Build(
+        internal static Fixture Build(
             string chainRowsJson,
             Action<FakeUnitAccess, StubSpatialQuery, PowerHost, FakeThreatTable>? setup = null,
             TargetStrategyRegistry? strategies = null,
@@ -100,14 +100,14 @@ namespace Tests.Rules.Targeting
             return new Fixture { Host = host, Units = units, Spatial = spatial, Powers = powers, Threat = threat, Bus = bus };
         }
 
-        private static TargetStrategyRegistry DefaultStrategies()
+        internal static TargetStrategyRegistry DefaultStrategies()
         {
             var registry = new TargetStrategyRegistry();
             BuiltinTargetStrategies.RegisterAll(registry);
             return registry;
         }
 
-        private static void RegisterHealth(PowerHost powers, Id unitId, double currentPct)
+        internal static void RegisterHealth(PowerHost powers, Id unitId, double currentPct)
         {
             powers.RegisterUnit(unitId, new[] { WellKnownPowers.Health });
             var max = powers.GetPowerMax(unitId, WellKnownPowers.Health);

@@ -22,6 +22,7 @@ namespace Tests.Carriers.Creature
         private static readonly Id BeastTemplateId = new Id("creature.sample_beast");
         private static readonly Id HydraTemplateId = new Id("creature.sample_hydra");
         private static readonly Id HydraCubTemplateId = new Id("creature.sample_hydra_cub");
+        private static readonly Id CategoryImmuneTemplateId = new Id("creature.sample_category_immune");
         private static readonly Id PowerStat = new Id("stat.power");
         private static readonly Id MaxHealthStat = new Id("stat.max_health");
         // AddXp 的 sourceId 只用于事件携带，不要求在 prog.xp_source 表里登记，任意 Id 均可。
@@ -439,6 +440,24 @@ namespace Tests.Carriers.Creature
             var id = f.Factory.Spawn(BasicTemplateId, MapId, Vec2.Zero, 0);
             var unit = (CreatureUnit)f.World.GetEntity(id)!;
 
+            Assert.DoesNotContain(new Id("immunity.control_immune"), unit.Immunities);
+        }
+
+        [Fact]
+        public void Spawn_WritesControlCategoryMarkers_FromTierControlImmuneCategories()
+        {
+            // T-N3-6（ADR-0031 决策 8）：creature.tier.category_immune 的 control_immune=false（不
+            // 写整体标记）+ control_immune_categories=[stun, root]（见 CreatureTestSupport 判断
+            // 记录）——验证 Spawn 按类别逐条写入 control_category.<category>，不写入全部标记，也不
+            // 写入未声明的第三个类别。
+            var f = Build();
+
+            var id = f.Factory.Spawn(CategoryImmuneTemplateId, MapId, Vec2.Zero, 0);
+            var unit = (CreatureUnit)f.World.GetEntity(id)!;
+
+            Assert.Contains(new Id("control_category.stun"), unit.Immunities);
+            Assert.Contains(new Id("control_category.root"), unit.Immunities);
+            Assert.DoesNotContain(new Id("control_category.fear"), unit.Immunities);
             Assert.DoesNotContain(new Id("immunity.control_immune"), unit.Immunities);
         }
 

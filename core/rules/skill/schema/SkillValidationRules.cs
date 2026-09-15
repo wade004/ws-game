@@ -571,4 +571,185 @@ namespace Core.Rules.Skill
             }
         }
     }
+
+    /// <summary>
+    /// T-N3-5（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 10；06 第 3.6
+    /// 节 2026-09-14 修订段"校验项'无时间成本'"；04 第 5 节数值类校验分级表"无时间成本"行）：
+    /// "主动技能 <c>cast_time</c> 为零且 <c>respects_gcd</c> 为真（未声明为反应类）"——防住"全部瞬发
+    /// 一起放"的退化，是去掉公共冷却后节拍功能的替代物（06 §3.6 原文）。
+    /// <para>
+    /// **设计层裁定（2026-09-15）：采纳**：04 第 5 节该表同组绝大多数行都标注"检查名 xxx"，唯独
+    /// "无时间成本"一行没有给出具体检查名，检查名裁定为 <see cref="Check"/> =
+    /// "skill_no_time_cost"（沿用本文件既有 <c>PassiveSkillNoCastTimeRule</c>/
+    /// <c>CastTimeChannelTimeExclusiveRule</c> 等围绕 <c>cast_time</c> 的检查名 snake_case 惯例）。
+    /// </para>
+    /// <para>
+    /// 判定条件严格对齐 04 原文三个并列条件：<c>kind == "active"</c>（被动技能不适用，见
+    /// <see cref="PassiveSkillNoCastTimeRule"/> 已覆盖被动技能自己的"不得声明非零 cast_time"，两条
+    /// 规则职责不重叠）、<c>cast_time</c> 未填或为 0、<c>respects_gcd</c> 为真（为假即 06 §3.1 修订
+    /// 段定义的"反应类技能"，本就声明为可插入他技能动作中，不受"全部瞬发一起放"退化影响，因此不报）。
+    /// 额外判断记录（04 原文未提及，本规则按 06 §3.1"<c>cast_time</c> 与 <c>channel_time</c> 互斥
+    /// 语义"补充）：<c>channel_time</c> 非零（纯引导技能，<c>cast_time</c> 恒为 0）不受本规则约束——
+    /// 引导技能自身的 <c>channel_time</c> 就是它的时间成本，不属于"无时间成本"，只在
+    /// <c>channel_time</c> 未声明或同为 0 时才纳入判定，避免把合法的纯引导技能误报。
+    /// </para>
+    /// 04 第 5 节该表"警告"整组登记为不可提升（<see cref="NonEscalatable"/> = true，"抓意图不抓
+    /// 手滑"，见数值总纲第 6 节、<c>Core.Carriers.Item.ItemBudgetValidationRule.NonEscalatable</c>
+    /// 同一处理口径）。
+    /// </summary>
+    public sealed class SkillNoTimeCostWarningRule : IValidationRule
+    {
+        public const string Check = "skill_no_time_cost";
+
+        public bool NonEscalatable => true;
+
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            if (!view.Tables.Contains("skill.def"))
+            {
+                yield break;
+            }
+
+            foreach (var record in view.GetAll("skill.def"))
+            {
+                if (!record.TryGetString("kind", out var kind) || kind != "active")
+                {
+                    continue;
+                }
+
+                var castTime = record.TryGetNumber("cast_time", out var ct) ? ct : 0;
+                if (castTime != 0)
+                {
+                    continue;
+                }
+
+                var channelTime = record.TryGetNumber("channel_time", out var cht) ? cht : 0;
+                if (channelTime != 0)
+                {
+                    continue;
+                }
+
+                if (!record.TryGetBool("respects_gcd", out var respectsGcd) || !respectsGcd)
+                {
+                    // respects_gcd 缺失（结构层已报 required_field，本规则不重复）或显式为 false
+                    // （06 §3.1 定义的"反应类技能"，本就允许插入他技能动作中）均不报。
+                    continue;
+                }
+
+                yield return new ValidationIssue(
+                    ValidationSeverity.Warning, "skill.def", Check,
+                    "主动技能 cast_time 为零且 respects_gcd 为真（未声明为反应类）：没有节拍锁约束，会" +
+                    "造成\"全部瞬发一起放\"的退化（06 第 3.6 节）——若确有意为之（如打断/格挡/保命一类" +
+                    "反应类技能），把 respects_gcd 改为 false；否则请补上非零 cast_time/channel_time",
+                    recordKey: record.Key, field: "cast_time");
+            }
+        }
+    }
+
+    /// <summary>
+    /// T-N3-9（[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 2；04 第 5
+    /// 节数值类校验项分级表"技能预算硬上限"（阻断）/"技能预算偏离"（警告）；见 <see
+    /// cref="Core.Rules.Skill.SkillBudgetAnalyzer"/>）：对每条参与预算校验的 <c>skill.def</c>
+    /// 记录跑 <see cref="SkillBudgetAnalyzer.Analyze"/>，按其 <see cref="SkillBudgetVerdict"/> 产出
+    /// 对应级别的 <see cref="ValidationIssue"/>。
+    /// <para>
+    /// 判断记录（一条规则同时产出 Warning 与 Error，<see cref="NonEscalatable"/> 恒为 <c>true</c>）：
+    /// <see cref="Core.Foundation.DataRegistry.ValidationReport.IsBlocking"/> 的既有语义是"存在 Error
+    /// 一律阻断；<c>NonEscalatable</c> 只影响 Warning 是否在 <c>WarningsBlock</c> 严格级别下被提升
+    /// 为阻断"——本规则产出的 <see cref="ValidationSeverity.Error"/>（硬上限）不受
+    /// <see cref="NonEscalatable"/> 影响，该级别的问题本就该阻断；<see cref="ValidationSeverity.Warning"/>
+    /// （带宽偏离，已确认/待确认两组）才是"抓意图不抓手滑"那一组，故 <see cref="NonEscalatable"/> 登记
+    /// 为 <c>true</c>。不需要拆成两条规则。
+    /// </para>
+    /// <para>
+    /// 判断记录（<see cref="_anchorProvider"/> 为 <c>null</c> 时整条规则不产生任何问题，见 <see
+    /// cref="Core.Rules.Common.ISkillBudgetAnchorProvider"/> 类型判断记录）：<c>sim.anchor</c>（锚点
+    /// 秒伤/期望缩放属性权威来源）归阶段 N6，晚于本阶段——<see
+    /// cref="Core.Rules.Assembly.RulesSchemaCatalog.RegisterAll"/> 默认注册本规则时不注入真实
+    /// <see cref="Core.Rules.Common.ISkillBudgetAnchorProvider"/>（同 04 第 5.1 节
+    /// <c>SpawnSummonOnlyCreatureRule</c>"<c>creatureTemplateQuery</c> 为 <c>null</c> 时该规则不
+    /// 注册，这项跨表检查完全跳过"先例），保证示例数据与内容管线在 <c>sim.anchor</c> 真正接入前保持
+    /// 零告警——不是"用哨兵值 1.0/0.0 算出一堆没有意义的误报"。游戏层/测试若需要真正核算预算比值，
+    /// 需自行 <c>new SkillBudgetValidationRule(realProvider)</c> 注册（不经
+    /// <see cref="Core.Rules.Assembly.RulesSchemaCatalog"/>，同 <c>SpawnSummonOnlyCreatureRule</c>
+    /// "需装配层按需接线"惯例）。
+    /// </para>
+    /// </summary>
+    public sealed class SkillBudgetValidationRule : IValidationRule
+    {
+        public const string DeviationCheck = "skill_budget_deviation";
+        public const string HardCapCheck = "skill_budget_hard_cap_exceeded";
+
+        public const string ConfirmedGroup = "已确认";
+        public const string UnconfirmedGroup = "待确认";
+
+        public bool NonEscalatable => true;
+
+        private readonly Core.Rules.Common.ISkillBudgetAnchorProvider? _anchorProvider;
+        private readonly SkillOptions? _options;
+
+        public SkillBudgetValidationRule(Core.Rules.Common.ISkillBudgetAnchorProvider? anchorProvider = null, SkillOptions? options = null)
+        {
+            _anchorProvider = anchorProvider;
+            _options = options;
+        }
+
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            if (_anchorProvider == null)
+            {
+                yield break;
+            }
+
+            if (!view.Tables.Contains("skill.def"))
+            {
+                yield break;
+            }
+
+            foreach (var record in view.GetAll("skill.def"))
+            {
+                var skillId = record.GetId("id");
+                SkillBudgetResult result;
+                try
+                {
+                    result = SkillBudgetAnalyzer.Analyze(skillId, view, _options, _anchorProvider);
+                }
+                catch (ArgumentException)
+                {
+                    // 判断记录：SkillBudgetAnalyzer.Analyze 对结构非法的记录（如效果项 kind 未知）
+                    // 可能间接经 SkillDefCache 解析抛异常——加载期结构性校验（required_field/
+                    // field_type/variant_discriminator 等）已经能拦下这类坏形状，本规则遇到解析
+                    // 异常时静默跳过该条记录，不重复报告、也不让一条坏记录中断整批预算校验。
+                    continue;
+                }
+
+                if (!result.Participates || result.Verdict == SkillBudgetVerdict.Pass)
+                {
+                    continue;
+                }
+
+                if (result.Verdict == SkillBudgetVerdict.HardCapExceeded)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, "skill.def", HardCapCheck,
+                        $"技能预算比值 {result.Ratio:F2} 超过硬上限 {result.HardCap:F2}（{result.Tier} 档，" +
+                        $"等级 {result.Level}）且未填写 budget_note：抓的是手滑（如系数多敲一个零），" +
+                        "若确有意为之请填写 skill.def.budget_note 说明超模意图（04 第 5 节\"技能预算硬上限\"）",
+                        recordKey: record.Key, field: "effects",
+                        group: null, note: null, ruleId: null);
+                    continue;
+                }
+
+                var group = result.Verdict == SkillBudgetVerdict.ConfirmedDeviation ? ConfirmedGroup : UnconfirmedGroup;
+                yield return new ValidationIssue(
+                    ValidationSeverity.Warning, "skill.def", DeviationCheck,
+                    $"技能预算比值 {result.Ratio:F2} 超出带宽 [{1 - result.Bandwidth:F2}, {1 + result.Bandwidth:F2}]" +
+                    $"（{result.Tier} 档，等级 {result.Level}）：" +
+                    (group == ConfirmedGroup ? "已通过 budget_note 确认" : "尚未填写 budget_note 说明意图") +
+                    "（04 第 5 节\"技能预算偏离\"，06 第 3.10 节）",
+                    recordKey: record.Key, field: "effects",
+                    group: group, note: result.BudgetNote, ruleId: null);
+            }
+        }
+    }
 }

@@ -93,5 +93,72 @@ namespace Tests.Carriers.Creature
             Assert.False(provider.IsImmune(missingId, new Id("school.fire"), EffectKind.SchoolDamage));
             Assert.Equal(ControlFlags.None, provider.GetControlImmunity(missingId));
         }
+
+        // -----------------------------------------------------------------
+        // T-N3-6（ADR-0031 决策 8；06 第 3.3 节 2026-09-14 修订段）：IsControlCategoryImmune 按类别
+        // 免疫；旧布尔 control_immune 迁移等价（true → 全部类别免疫，false → 无免疫）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void IsControlCategoryImmune_CategoryEntry_BlocksOnlyThatCategory()
+        {
+            var (world, provider) = NewWorld();
+            var unit = AddUnit(world, "5", "control_category.stun");
+
+            Assert.True(provider.IsControlCategoryImmune(unit.EntityId, "stun"));
+            Assert.False(provider.IsControlCategoryImmune(unit.EntityId, "root"));
+
+            // control_category.<category> 只影响按类别控制免疫，不参与学派/效果免疫、也不参与既有
+            // 按标志位的 GetControlImmunity（两个前缀是正交维度，见 CreatureImmunityProvider 判断记录）。
+            Assert.False(provider.IsImmune(unit.EntityId, new Id("school.fire"), EffectKind.SchoolDamage));
+            Assert.Equal(ControlFlags.None, provider.GetControlImmunity(unit.EntityId));
+        }
+
+        [Fact]
+        public void IsControlCategoryImmune_MultipleCategoryEntries_BlocksEachDeclaredCategory()
+        {
+            var (world, provider) = NewWorld();
+            var unit = AddUnit(world, "6", "control_category.stun", "control_category.fear");
+
+            Assert.True(provider.IsControlCategoryImmune(unit.EntityId, "stun"));
+            Assert.True(provider.IsControlCategoryImmune(unit.EntityId, "fear"));
+            Assert.False(provider.IsControlCategoryImmune(unit.EntityId, "root"));
+            Assert.False(provider.IsControlCategoryImmune(unit.EntityId, "silence"));
+        }
+
+        [Fact]
+        public void IsControlCategoryImmune_UnregisteredCategoryText_ReturnsFalse()
+        {
+            // "未登记类别的控制视为不免疫"：即便该单位对其它类别有免疫声明，查询一个不在
+            // ControlCategoryValues.All 六值集合内的拼写/未知类别文本也应返回 false，不放大为
+            // 意外的全面免疫。
+            var (world, provider) = NewWorld();
+            var unit = AddUnit(world, "7", "control_category.stun");
+
+            Assert.False(provider.IsControlCategoryImmune(unit.EntityId, "charm"));
+        }
+
+        [Fact]
+        public void IsControlCategoryImmune_TierControlImmuneMarker_BlocksAnyCategory_MigrationEquivalence()
+        {
+            // 迁移等价（true 一侧）：旧布尔 tier.control_immune=true 写入的整体标记对任意类别查询
+            // 都应返回 true——不需要在数据里逐一枚举六个类别，语义上等价于"全部类别免疫"。
+            var (world, provider) = NewWorld();
+            var unit = AddUnit(world, "8", "immunity.control_immune");
+
+            Assert.True(provider.IsControlCategoryImmune(unit.EntityId, "stun"));
+            Assert.True(provider.IsControlCategoryImmune(unit.EntityId, "polymorph"));
+        }
+
+        [Fact]
+        public void IsControlCategoryImmune_NoImmunityEntries_ReturnsFalse_MigrationEquivalence()
+        {
+            // 迁移等价（false 一侧）：旧布尔 tier.control_immune=false（不写任何标记）时，按类别
+            // 查询同既有 GetControlImmunity 一样恒为不免疫，行为与改动前一致。
+            var (world, provider) = NewWorld();
+            var unit = AddUnit(world, "9");
+
+            Assert.False(provider.IsControlCategoryImmune(unit.EntityId, "stun"));
+        }
     }
 }

@@ -31,6 +31,19 @@ namespace Tests.Carriers.Assembly
     /// <see cref="WorldSim.Tick"/>（<c>SkillTickHandler</c>/<c>CombatTickHandler</c> 已由
     /// <c>RulesAssembly.RegisterTickHandlers</c> 挂好），使 <c>entity.destroyed</c> 在 Despawn 后
     /// 真正派发、周期光环按生产环境的真实节奏结算。
+    /// <para>
+    /// T-N3-7 断言改写（[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 4；
+    /// 06 第 3.3 节 2026-09-14 修订段"来源缺失冻结"）：契约已从"来源销毁后缩放贡献按 0 处理（只剩
+    /// base_value）"改为"冻结为最后一次算出的每跳值"，这是契约规定的行为变更，不是放宽断言——新
+    /// 断言比旧断言更严格地锁定"来源销毁后每一跳都精确复现销毁前最后一跳算出的值，不再衰减、也不
+    /// 归零"（旧断言只检查"仍在掉血"这一弱条件，无法区分"冻结"与"退化为只剩 base_value"两种截然
+    /// 不同的实现）。改用 <see cref="Core.Rules.Common.EffectContext.BaseValue"/> 直接比对每一跳的
+    /// "已算出的效果值"（<c>FakeCombatHost</c> 惯例同 <c>AuraPeriodicTagsSpellModTests</c>），不依赖
+    /// 命中表/护甲减免是否为零这类结算管线细节——命中表全部分支已禁用（见 <see cref="BuildDataSource"/>
+    /// 判断记录），但护甲/抗性带来的减免即使非零，也会对"销毁前最后一跳"与"销毁后每一跳"同等生效
+    /// （减免只看目标属性，与来源是否存在无关），故直接比较结算管线的最终掉血量（HP 差值）而不是
+    /// "效果值"本身同样成立、且更贴近玩家可观察的结果，仍然精确验证"冻结值恒等、不衰减"。
+    /// </para>
     /// </summary>
     public sealed class CreatureDespawnPeriodicEffectTests
     {
@@ -135,9 +148,15 @@ namespace Tests.Carriers.Assembly
 
             // 先正常跑一个 interval，确认周期效果本身在来源存活时能正常落地（排除"数据没配对"这种
             // 假阳性——如果这里都不掉血，后面"despawn 后不抛异常"的验收就没有意义）。
+            const double startingHealth = 1000;
             world.Tick(SimStep.Continuous(1.0));
             var healthAfterFirstTick = assembly.Rules.Powers.GetPower(targetId, WellKnownPowers.Health);
-            Assert.True(healthAfterFirstTick < 1000, "第一次周期 tick 应已对目标造成伤害，用例前提不成立");
+            Assert.True(healthAfterFirstTick < startingHealth, "第一次周期 tick 应已对目标造成伤害，用例前提不成立");
+
+            // 来源存活时这一跳造成的伤害——base_value(5) + coefficient(2) × scaling_stat power(10) = 25，
+            // 命中表全部分支禁用、resist_curve 为空，不含随机波动/减免，这就是"来源最后一次存在时
+            // 算出的每跳值"，T-N3-7 冻结分支应把它原样复用到销毁后的每一跳。
+            var damagePerTickWhileAlive = startingHealth - healthAfterFirstTick;
 
             // 真实 Despawn 施法者（同步注销 IStatHost/IPowerHost 的单位注册），随后推进世界一个 tick
             // 让 entity.destroyed 真正派发（AuraHost/CombatHost 各自的 OnEntityDestroyed 订阅生效）。
@@ -145,24 +164,39 @@ namespace Tests.Carriers.Assembly
             world.Tick(SimStep.Continuous(1.0));
 
             var healthAfterDespawnTick = assembly.Rules.Powers.GetPower(targetId, WellKnownPowers.Health);
+            var damagePerTickAfterDespawn = healthAfterFirstTick - healthAfterDespawnTick;
 
             // 修复前：本次 Tick（内含一次周期效果结算）会在 EffectDispatcher.ApplyDamageOrHeal 或
             // CombatHost.NotifyCombatEvent 处抛 InvalidOperationException，直接让本测试失败/报错
-            // （xUnit 会把测试方法内未捕获的异常记为失败）。修复后应正常完成，且伤害继续落地
-            // （scaling 贡献降级为 0，只保留 base_value，见 EffectDispatcher 判断记录 C02）。
-            Assert.True(healthAfterDespawnTick < healthAfterFirstTick,
-                "来源销毁后周期效果应继续结算落地（scaling 贡献降级为 0，不是被跳过或冻结）");
+            // （xUnit 会把测试方法内未捕获的异常记为失败）。修复后应正常完成，且伤害继续落地。
+            //
+            // T-N3-7 断言改写（见类型注释）：此前的契约是"scaling 贡献降级为 0，只保留 base_value"
+            // （本例即降到 5/跳），现在的契约是"冻结为最后一次算出的每跳值"（本例是 25/跳，与销毁前
+            // 那一跳完全相同）——用"销毁后一跳的掉血量恰好等于销毁前最后一跳的掉血量"精确锁定"冻结"
+            // 这一具体语义，而不只是"还在掉血"这种任何实现（冻结/退化/甚至归零后又被别的效果补掉血）
+            // 都可能满足的弱断言。
+            Assert.Equal(damagePerTickWhileAlive, damagePerTickAfterDespawn);
+            Assert.NotEqual(0, damagePerTickAfterDespawn);
+            // 明确排除旧契约"退化为只剩 base_value"这一具体误判——若断言写错导致新旧两种实现都能
+            // 通过，这条能兜底防止断言退化为无效断言（旧契约下 damagePerTickAfterDespawn 会是 5，
+            // 与 damagePerTickWhileAlive=25 不相等，本条与上面 Equal 断言实际等价，保留作为显式反例
+            // 说明，帮助阅读者理解"新旧两种实现在这组数据下的数值分别是什么"）。
+            Assert.NotEqual(5, damagePerTickAfterDespawn);
 
-            // 再连续跑数个 tick，验证"来源已销毁"这一状态下周期效果能稳定持续结算，不是只多撑一次
-            // 就在后续 tick 抛异常。
+            // 再连续跑数个 tick，逐跳核对——验证"来源已销毁"这一状态下周期效果不仅不抛异常、稳定
+            // 持续结算，而且每一跳都精确复现同一个冻结值（不衰减、不趋零、不因反复读取缓存而漂移）。
+            var previousHealth = healthAfterDespawnTick;
             for (var i = 0; i < 5; i++)
             {
                 world.Tick(SimStep.Continuous(1.0));
+                var healthNow = assembly.Rules.Powers.GetPower(targetId, WellKnownPowers.Health);
+                var damageThisTick = previousHealth - healthNow;
+                Assert.Equal(damagePerTickWhileAlive, damageThisTick);
+                previousHealth = healthNow;
             }
 
             var healthAfterMoreTicks = assembly.Rules.Powers.GetPower(targetId, WellKnownPowers.Health);
-            Assert.True(healthAfterMoreTicks < healthAfterDespawnTick,
-                "来源销毁后应能持续经历多次周期 tick 而不中断（不止一次性侥幸不抛异常）");
+            Assert.Equal(startingHealth - damagePerTickWhileAlive * 7, healthAfterMoreTicks, 6);
 
             // 目标自身仍然存活、仍在世界中——本测试只验证"来源销毁不应让目标侧的正常状态跟着崩"。
             Assert.True(assembly.Units.Exists(targetId));

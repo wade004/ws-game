@@ -39,7 +39,15 @@ targeting/
     TargetHostTests.cs
     TargetStrategyRegistryTests.cs
     ChainDefValidationRuleTests.cs
+    T_N3_8_TargetOverflowPolicyTests.cs   overflow_policy 三态、新旧 Resolve 签名投影关系
 ```
+
+T-N3-8（ADR-0031 决策 6、拍板 7）补充：`TargetOverflowPolicy` 枚举与 `ResolveWithCoefficients` 的
+返回值类型 `TargetResolution` 定义在 `core/rules/common/contracts/TargetResolution.cs`（不是本模块
+自己的 `contracts/`）——`ITargetHost.ResolveWithCoefficients` 是 `Core.Rules.Common` 命名空间下的
+契约成员，本模块（`Core.Rules.Targeting`）依赖 `Core.Rules.Common`（见本文档顶部依赖清单），若把
+这两个类型放在 `targeting/contracts/` 会导致 `common` 反向依赖 `targeting`，与既有分层方向冲突
+（"谁实现、谁调用"矩阵：`ITargetHost` 由本模块实现，但契约签名/返回类型必须与接口本身同层）。
 
 ## 设计要点与判断记录
 
@@ -112,12 +120,43 @@ targeting/
     递归都发一次）。
 
 11. **回退环两道防线**：`ChainDefValidationRule` 在数据校验期检测 `fallback` 指针链成环
-    （内容提交时即可拦下）；`TargetHost.ResolveChain` 额外维护
-    `TargetingOptions.MaxFallbackDepth`（默认 8）独立防御——即使某个 `IDataRegistryView` 实现
-    绕过了校验（如测试直接构造未跑校验规则的数据），运行期也不会无限递归。
+    （内容提交时即可拦下）；`TargetHost.ResolveChainWithCoefficients`（T-N3-8 前名为
+    `ResolveChain`，见判断记录 13）额外维护 `TargetingOptions.MaxFallbackDepth`（默认 8）独立
+    防御——即使某个 `IDataRegistryView` 实现绕过了校验（如测试直接构造未跑校验规则的数据），
+    运行期也不会无限递归。
 
 12. **排序键 tie-break 统一按 Id 升序**：`distance`/`hp_pct`/`threat`/`level` 四个排序键同值时都
     退化为按 Id 升序，保证"同输入两次结果一致"这一确定性要求（见落地方案通篇的确定性拍板）。
+
+13. **T-N3-8：`overflow_policy` 三态与 `ResolveWithCoefficients`，旧 `Resolve` 的"截断"并入统一
+    分配系数管线**。目标形状新增 `max_targets`（既有字段）+ `overflow_policy`
+    （`truncate`（默认）｜`split`｜`cap`，见 `schema/README.md`），`ITargetHost` 新增
+    `ResolveWithCoefficients` 默认接口成员，返回 `TargetResolution`（`core/rules/common/contracts/
+    TargetResolution.cs`：候选目标 + 各自分配系数 + 生效策略 + cap）。
+    - **系数定义：设计层裁定（2026-09-15）：采纳**：ADR-0031 决策 6、06 第 3.7 节修订段原文只给出三个
+      策略名字与默认值，未展开到"每个目标分配系数"这一精确公式。按字面含义裁定（见
+      `TargetOverflowPolicy` 各成员 XML 文档）：`truncate` 与本字段引入之前的既有截断
+      行为逐一对应（按既有排序取前 `max_targets` 个，多出的候选不命中，系数恒 1）；`split`
+      （平摊）候选全部命中，总量守恒为"`max_targets` 个目标的满额值"，系数 = `max_targets` /
+      命中数；`cap`（总量封顶）候选全部命中，总量硬封顶为"单个目标的满额值"，系数 = 1 / 命中数。
+      三者均满足"未超出 cap（或 cap=0 不限）时策略不参与，系数恒为 1"。
+    - **旧签名 `Resolve(Id, Id)`/`Resolve(Id, Id, Id?)` 保留、行为不变**（硬性规则）：`TargetHost`
+      内部原 `ResolveChain`（"来源收集 → 过滤 → 排序 → 截断 → 空则回退"）改名/重构为
+      `ResolveChainWithCoefficients`，返回 `TargetResolution`；"截断"不再是独立步骤，而是
+      `ApplyOverflowPolicy` 内 `Truncate` 分支的其中一种结果——三条公开入口（`Resolve`/
+      `ResolveWithCoefficients`/`ResolveAtPoint`）共享同一条管线，只是各自对结果做不同投影
+      （`Resolve`/`ResolveAtPoint` 只取目标 Id 列表，丢弃系数）。`Truncate`（缺省，未声明
+      `overflow_policy` 的既有链恒是这一策略）下投影结果与本字段引入之前的 `ApplyMaxTargets`
+      逐字节一致，保证旧数据/旧调用方零行为变化（见 `T_N3_8_TargetOverflowPolicyTests.
+      OldResolveSignature_DefaultTruncatePolicy_MatchesCoefficientProjection`）。`split`/`cap`
+      策略下旧签名会返回全部候选（不做数量截断，因为这两种策略本身不丢弃候选，只稀释系数）——
+      调用方需要系数时应改用 `ResolveWithCoefficients`。
+    - **消费方**：`Core.Rules.Skill.CastPipeline` 步骤 6 链自行收集目标时改调
+      `ResolveWithCoefficients`（显式目标路径经 `FilterExplicitTargets` 不受影响，系数恒 1），
+      系数通过 `EffectContext.TargetCoefficient`（新增字段 + 第 18 参构造重载，ABI 只新增）一路
+      带到 `EffectDispatcher.ApplyDamageOrHeal` 缩放群体效果值（`value × coefficient`）；地面坐标
+      施法（`CastSkillAtGround`）与 `TriggerCast` 触发链两条入口本任务未接入系数（超出 T-N3-8
+      范围，恒系数 1，与改动前行为一致），留给后续任务按需扩展。
 
 ## 不负责什么
 

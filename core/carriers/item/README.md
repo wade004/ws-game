@@ -577,7 +577,13 @@ item/
       清单 S3/S12：`weapon_damage_pct` 原语改接"秒伤 × 一拍常数"是 N3 S3 的范围，一拍常数"只是
       记账单位，运行期不存在任何锁"），本任务不越权在 item 模块发明它的登记位置。`variance`
       字段本任务只登记 schema，无消费者（同预算利用率阈值一类"契约要求存在、具体用法留给后续
-      任务"的字段）。
+      任务"的字段）。**更新（T-N3-3 已落地，另一半"一拍常数"不再是"该表要到 T-N3-9 才创建"）**：
+      `skill.budget_rule` 的最小骨架（只含 `id`/`beat_seconds`）随 T-N3-3 提前落地——
+      `weapon_damage_pct` 原语在 T-N3-9 完整表落地之前就需要运行期读到一拍常数，任务书就此裁定
+      分两步登记；`item.weapon_dps_curve.variance` 的消费者仍未落地（本条不受影响），完整
+      `skill.budget_rule` 字段集（带宽/硬上限等）仍留给 T-N3-9，详见
+      `core/rules/skill/README.md` 判断记录 50、`core/rules/skill/schema/README.md`
+      "`skill.budget_rule`"一节。
     - **`item.slot_definition.has_armor`（可选 Bool，缺省 false）新增——设计层裁定**：取代
       判断记录 20 的"非武器位（`is_weapon != true`）且真正装备位（`is_equipment != false`）"
       推断规则（上一条已标记该判断记录的相应段落为历史记录）。`EquipmentHost.IsArmorSlot` 改为
@@ -815,6 +821,42 @@ item/
       `games/_template/data`（空壳表）两个数据根 `python toolchain/validate_data.py --strict` 均
       `ItemTemplateAffixShareExceedsBudgetRule: error, hits 0`——与 `data/README.md`"item N2 示例
       数据"一节的人工核算表结论一致，零改样例。
+
+26. **T-N3-9（[ADR-0032](../../../architecture/adr/0032-装备预算消耗与词缀份额.md) 决策 6"授予的
+    技能或光环走技能预算校验，预算 = 该件装备预算 × 品质特效占比，警告级；橙装独特技能免校验，靠
+    超模说明登记意图"；04 第 5 节"授予价值超特效占比"，该行原文批注"N3 落地：需先接入
+    `skill.budget_rule` 技能预算才具备判定依据，本阶段（N2）未实现该项检查"——本任务补上）：新增
+    警告校验 `ItemGrantValueExceedsShareRule`。**
+    - **放在本模块而不是 `core/rules/skill`**：主表是 `item.template`（校验对象是"这件装备的授予
+      是否超占比"），04 第 5 节把它列在数值类校验项分级表里与"装备预算利用率过低"等同批归属 item
+      侧；`Core.Carriers`（L3）依赖 `Core.Rules`（L2）方向合法（同 `ItemSchemas.GrantsSchema`
+      字段判断记录"任务书额外要求 1：L3 引用 L2 程序集合法"），反过来不合法，只能落在 item 侧。
+    - **检查名——任务书原文给出**：04 该行未给出检查名，按任务书原文登记为
+      `item_grant_value_exceeds_share`，需要随阶段收尾把检查名同步补进 04 文档勘误（本任务未改
+      architecture 文档）。
+    - **语义**：预算上限 `B` 与 `ItemTemplateAffixShareExceedsBudgetRule` 同一算法（`曲线(item_
+      level) × 品质预算倍率 × 槽位系数`）；授予占比份额 = `B × item.quality_definition
+      .grant_budget_share`（未登记按 0，等价于该品质不允许授予）；授予总价值 = `Σ
+      SkillBudgetAnalyzer.ComputeGrantValue(id, isAura, view, item_level, anchorProvider)`（对
+      `grants.skills[]`/`grants.auras[]` 逐项求和，`isAura=false`/`true` 分别对应技能/光环，等级
+      用装备 `item_level` 代理——见 `Core.Rules.Skill.SkillBudgetAnalyzer.ComputeGrantValue` 类型
+      判断记录"等级取 item_level 代理"）；超过占比份额报 Warning（`NonEscalatable`）。
+      `item.template.budget_note` 非空时整条豁免（不是降级为警告，与技能侧"禁止阻断带说明的超模
+      技能"措辞不同——装备侧原文明确是"免校验"）。
+    - **`SkillBudgetAnalyzer.ComputeGrantValue` 新增公开静态方法**（`core/rules/skill/core/
+      SkillBudgetAnalyzer.cs`）：技能路径复用 `Analyze`（取 `EffectiveValue`，`Participates=false`
+      按 0 处理）；光环路径直接对光环内容求值（提取自 `Analyze` 内部的
+      `ComputeAuraSettlementValue` 私有辅助方法，两条路径共用同一份周期/吸收/增益/控制价值计算
+      逻辑，不重复实现）。
+    - **`anchorProvider` 为 `null` 时整条规则跳过**：同 `Core.Rules.Skill
+      .SkillBudgetValidationRule` 判断记录——授予价值求值最终依赖尚未接入的 `sim.anchor`
+      （`ISkillBudgetAnchorProvider`，见 `core/rules/skill/README.md` 判断记录 55），
+      `CarriersSchemaCatalog.RegisterAll` 默认按 `null` 注册，保证示例数据零告警。
+    - **注册**：`CarriersSchemaCatalog.RegisterItemSchemas` 内随其余 item 规则一并注册，复用既有
+      `budgetCurveId` 参数，不新增 `RegisterAll` 重载。
+    - **测试**：`core/carriers/item/tests/T_N3_9_ItemGrantValueExceedsShareRuleTests.cs`（4 例：
+      超占比报警告、未超占比不报、超占比但有 `budget_note` 豁免、未注入 `anchorProvider` 时整体
+      跳过，覆盖验收标准"装备授予价值超占比 Warning 正负例各 1"）。
 
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 

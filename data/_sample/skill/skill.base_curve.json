@@ -1,0 +1,16 @@
+{
+  "table": "skill.base_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.base_curve.sample_level_curve",
+      "entries": [
+        { "x": 1, "y": 10 },
+        { "x": 15, "y": 40 },
+        { "x": 30, "y": 90 },
+        { "x": 45, "y": 150 },
+        { "x": 60, "y": 220 }
+      ]
+    }
+  ]
+}

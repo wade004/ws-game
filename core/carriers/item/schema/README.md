@@ -141,12 +141,15 @@ T-N2-3/T-N2-4。
 |---|---|---|---|
 | `id` | Id | 是 | `item.weapon_dps.<name>` |
 | `entries` | Array | 是 | 通用断点表 `[{x:Int, y:Number}]`（`x` = 物品等级，`y` = 武器基准秒伤 `> 0`；ADR-0032 决策 4），按 `x` 线性插值、越界夹取到端点；`curve_monotonic_finite` 规则自动覆盖。新表，schema 版本 1，无需迁移 |
-| `variance` | Number | 否 | T-N2-6 新增（ADR-0032 决策 4"伤害范围 = 武器秒伤 × 初始攻速 × (1 ± 浮动)"；拍板 6"一拍常数与浮动比例为数据项"）：伤害范围浮动比例，缺省 `0.1`。**判断记录（登记位置——设计层裁定（2026-09-15）：采纳）**：落地改动点清单第 10 节第 6 条候选"一拍常数与浮动比例放 `skill.budget_rule` 与 `item.weapon_dps_curve` 旁"——一拍常数登记在 `skill.budget_rule`（该表要到 T-N3-9 才创建），浮动比例按同一候选落在本表；本任务只登记字段，尚无消费者（"手填偏离秒伤曲线"警告只比较均值，不展开到 `(1±浮动)` 的上下界，见 `ItemWeaponDamageDeviatesDpsCurveRule` 判断记录）。范围 `[0,1)` |
+| `variance` | Number | 否 | T-N2-6 新增（ADR-0032 决策 4"伤害范围 = 武器秒伤 × 初始攻速 × (1 ± 浮动)"；拍板 6"一拍常数与浮动比例为数据项"）：伤害范围浮动比例，缺省 `0.1`。**判断记录（登记位置——设计层裁定（2026-09-15）：采纳）**：落地改动点清单第 10 节第 6 条候选"一拍常数与浮动比例放 `skill.budget_rule` 与 `item.weapon_dps_curve` 旁"——一拍常数登记在 `skill.budget_rule`（最小骨架随 T-N3-3 提前创建，完整字段留给 T-N3-9，见 `core/rules/skill/schema/README.md`"`skill.budget_rule`"一节），浮动比例按同一候选落在本表；本任务只登记字段，尚无消费者（"手填偏离秒伤曲线"警告只比较均值，不展开到 `(1±浮动)` 的上下界，见 `ItemWeaponDamageDeviatesDpsCurveRule` 判断记录）。范围 `[0,1)` |
 
 武器秒伤 = `item.weapon_dps_curve(item_level) × 品质预算倍率 × 武器槽位系数`（T-N2-6，
 `EquipmentHost.GetWeaponDps` 新方法；武器槽位系数即 `item.slot_definition.budget_coefficient`）；
-`EquipmentHost.GetWeaponBaseDamage`（`weapon_damage_pct` 原语现行实现）仍保留 `(min+max)/2` 语义
-不变（硬性规则"禁止改既有签名"；该原语改接秒伤 × 一拍常数是 N3 S3 的范围）。伤害范围 = 武器秒伤 ×
+`EquipmentHost.GetWeaponBaseDamage` 仍保留 `(min+max)/2` 语义不变（硬性规则"禁止改既有签名"）。
+**更新（T-N3-3 已落地）**：`weapon_damage_pct` 原语已改接 `GetWeaponDps × 一拍常数`（见
+`core/rules/skill/schema/README.md`"weapon_damage_pct：秒伤 × 一拍常数"一节），
+`GetWeaponBaseDamage` 不再是该原语的现行实现——方法本身保留供其它消费方，签名/语义未变。
+伤害范围 = 武器秒伤 ×
 `weapon_profile.speed` × (1 ± 浮动)——`damage_min`/`damage_max` 保留手填，`ItemWeaponDamageDeviatesDpsCurveRule`
 （check `item_weapon_damage_deviates_dps_curve`，Warning，不可提升）核对手填均值与"秒伤 × speed"的
 偏离比例，超阈值（构造参数，缺省 `±20%`——契约未给阈值，**设计层裁定（2026-09-15）：采纳**）报警告；曲线找不到、

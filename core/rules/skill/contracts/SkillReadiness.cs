@@ -39,6 +39,22 @@ namespace Core.Rules.Skill
 
         /// <summary>技能配置了 <c>charges</c> 且当前充能数为 0。</summary>
         NoCharges = 1 << 3,
+
+        /// <summary>
+        /// T-N3-4（ADR-0031 决策 9，06 第 3.1/3.6 节 2026-09-14 修订）新增：新插入的步骤 1.5"使用
+        /// 条件"（<c>skill.def.use_condition</c>）求值为假，对应 <see
+        /// cref="Core.Rules.Common.CastFailureReason.ConditionNotMet"/>。见该原因码注释——目标相关
+        /// 条件的目标绑定口径同样适用于本项。
+        /// </summary>
+        ConditionNotMet = 1 << 4,
+
+        /// <summary>
+        /// T-N3-4（ADR-0031 决策 10，06 第 3.1/3.6 节 2026-09-14 修订）新增：<c>SkillOptions.GcdEnabled
+        /// = false</c> 时的节拍锁——施法者正处于另一个技能的动作时长内且本技能 <c>respects_gcd=true</c>，
+        /// 对应 <see cref="Core.Rules.Common.CastFailureReason.ActionLocked"/>。<c>GcdEnabled=true</c>
+        /// 时节拍锁仍只反映在既有 <see cref="GlobalCooldown"/> 位上，两者互斥（同一次查询不会同时置位）。
+        /// </summary>
+        ActionLocked = 1 << 5,
     }
 
     /// <summary>
@@ -71,13 +87,20 @@ namespace Core.Rules.Skill
     /// cref="ISkillHost.GetCooldown"/>（不能区分技能/分类/公共冷却、不能呈现当前充能数与下次恢复
     /// 剩余）间接、不完整地推断的状态，一次性完整呈现。
     /// <para>
-    /// 覆盖范围与 <see cref="ISkillHost.CastSkill"/> 步骤 3（冷却/充能）、步骤 4（公共冷却）的裁决
-    /// 口径一致（<see cref="IsReady"/>/<see cref="BlockingSources"/> 与随后一次 <c>CastSkill</c> 在同
-    /// 一状态下的裁决结论对应，见该接口方法判断记录），<b>不包含</b> 06 第 3.6 节步骤 1/2/5/6/7（存活
-    /// /控制、学派锁定、资源是否够、目标合法性、距离与视线）等其它拒绝原因——<see cref="IsReady"/> 为
-    /// <c>true</c> 只表示"不会被冷却/充能/公共冷却挡下"，不代表此刻 <c>CastSkill</c> 一定成功（可能仍
-    /// 因资源不足/无合法目标等原因失败）；<see cref="ISkillHost.CastSkill"/> 的返回值才是唯一的最终
-    /// 裁决。查询本身只读取 host 现有账本，不推进时间、不创建第二套计时器、不修改任何状态。
+    /// 覆盖范围与 <see cref="ISkillHost.CastSkill"/> 步骤 3（冷却/充能）、步骤 4（公共冷却/节拍锁）的
+    /// 裁决口径一致（<see cref="IsReady"/>/<see cref="BlockingSources"/> 与随后一次 <c>CastSkill</c> 在
+    /// 同一状态下的裁决结论对应，见该接口方法判断记录），<b>不包含</b> 06 第 3.6 节步骤 2/5/6/7（学派
+    /// 锁定、资源是否够、目标合法性、距离与视线）等其它拒绝原因——<see cref="IsReady"/> 为
+    /// <c>true</c> 只表示"不会被冷却/充能/公共冷却/节拍锁/使用条件挡下"，不代表此刻 <c>CastSkill</c>
+    /// 一定成功（可能仍因资源不足/无合法目标等原因失败）；<see cref="ISkillHost.CastSkill"/> 的返回值
+    /// 才是唯一的最终裁决。查询本身只读取 host 现有账本，不推进时间、不创建第二套计时器、不修改任何
+    /// 状态。
+    /// </para>
+    /// <para>
+    /// T-N3-4（ADR-0031 决策 9，06 第 3.6 节 2026-09-14 修订"readiness 只读查询的裁决口径同步纳入本
+    /// 步"）：覆盖范围现额外纳入新插入的步骤 1.5（使用条件，<see cref="SkillReadinessBlockers.ConditionNotMet"/>）
+    /// ——本条只是把上一段"不包含步骤 1"的旧表述随之修订（步骤 1 本身——存活/控制——仍不包含，1.5 是
+    /// 紧随其后的独立新步骤，不是步骤 1 的一部分）。
     /// </para>
     /// <para>
     /// 时间单位：<see cref="SkillCooldownRemaining"/>/<see cref="CategoryCooldownStatus.Remaining"/>/

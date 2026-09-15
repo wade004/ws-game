@@ -54,15 +54,20 @@ namespace Core.Rules.Ai
         private readonly AiOptions _options;
         private readonly IExprDiagnostics _exprDiagnostics = new ExprDiagnosticsRecorder();
 
-        /// <summary>集成任务改动：解析 <c>ai.rotation.entries[].condition</c>/
-        /// <c>ai.behavior_profile.transitions</c> 用的 <see cref="IExprSchema"/>，默认
-        /// <see cref="RulesExprSchema.Base"/>（保留可注入口子，见构造函数 <c>exprSchema</c>
-        /// 参数与 <see cref="AiContentValidationRule"/> 同一惯例）。</summary>
+        /// <summary>集成任务改动：解析 <c>ai.behavior_profile.transitions</c>（本类自己解析）与
+        /// <c>ai.rotation.entries[].condition</c>（T-N3-10 起转交构造期传给 <see
+        /// cref="RotationEvaluator"/>，见 <see cref="_rotationEvaluator"/>）用的 <see
+        /// cref="IExprSchema"/>，默认 <see cref="RulesExprSchema.Base"/>（保留可注入口子，见构造函数
+        /// <c>exprSchema</c> 参数与 <see cref="AiContentValidationRule"/> 同一惯例）。</summary>
         private readonly IExprSchema _exprSchema;
 
         private readonly Dictionary<string, AiBehaviorProfile> _profiles = new Dictionary<string, AiBehaviorProfile>(StringComparer.Ordinal);
-        private readonly Dictionary<string, IReadOnlyList<CompiledRotationEntry>> _rotations = new Dictionary<string, IReadOnlyList<CompiledRotationEntry>>(StringComparer.Ordinal);
         private readonly Dictionary<string, AiPatrolPath> _patrolPaths = new Dictionary<string, AiPatrolPath>(StringComparer.Ordinal);
+
+        /// <summary>T-N3-10：优先级表求值抽成独立组件（见 <see cref="IRotationEvaluator"/>/
+        /// <see cref="RotationEvaluator"/> 判断记录）——本类只在 <see cref="Evaluate"/> 里按
+        /// <see cref="BehaviorState.Combat"/> 态门控委托给它，不再自己持有编译后的 Rotation 缓存。</summary>
+        private readonly IRotationEvaluator _rotationEvaluator;
 
         // SortedDictionary 保证按 Id 序数遍历，供 RegisteredUnitIds / AiTickHandler 确定性遍历。
         private readonly SortedDictionary<string, AiUnitState> _states = new SortedDictionary<string, AiUnitState>(StringComparer.Ordinal);
@@ -97,7 +102,9 @@ namespace Core.Rules.Ai
             _exprSchema = exprSchema ?? RulesExprSchema.Base;
 
             LoadPatrolPaths(registry);
-            LoadRotations(registry);
+            // T-N3-10：Rotation 编译与求值移交 RotationEvaluator（见该类型判断记录"无状态保证"）——
+            // 用与本类一致的 registry/skillHost/exprHostFactory/exprSchema 构造，行为逐位不变。
+            _rotationEvaluator = new RotationEvaluator(registry, skillHost, exprHostFactory, _exprSchema);
             LoadProfiles(registry);
 
             // 场景卸载级联清理（见 core/carriers/assembly/README.md、ADR-0016 决策 7 背景一节
@@ -181,7 +188,7 @@ namespace Core.Rules.Ai
         public void SetRotation(Id unitId, Id rotationId)
         {
             var s = GetState(unitId);
-            if (!_rotations.ContainsKey(rotationId.Value))
+            if (!_rotationEvaluator.HasRotation(rotationId))
             {
                 throw new ArgumentException($"未知的 ai.rotation \"{rotationId}\"", nameof(rotationId));
             }
@@ -200,37 +207,16 @@ namespace Core.Rules.Ai
                 return null;
             }
 
-            if (!_rotations.TryGetValue(state.RotationId.Value, out var entries))
+            // T-N3-10：选技能逻辑委托给 RotationEvaluator（见该类型判断记录）——本类只保留
+            // "行为档/战斗态门控"（上面的 Combat 态判断）与"选中后发 ai.decision_made 事件"两件
+            // 独属于 AiHost 的事，组件本身不检查、也不知道调用方是否处于战斗、是否注册了行为档。
+            var result = _rotationEvaluator.Evaluate(unitId, state.RotationId, state.Target);
+            if (result.HasValue)
             {
-                return null;
+                _bus.Enqueue(new AiDecisionMadeEvent(unitId, result.Value.SkillId));
             }
 
-            foreach (var entry in entries)
-            {
-                var host = _exprHostFactory.CreateFor(unitId, state.Target, null);
-                if (!ExprEvaluator.EvaluateBool(entry.Condition, host, _exprDiagnostics))
-                {
-                    continue;
-                }
-
-                // RC-10 收边勘误：只有"敌对单体"类技能才把 AI 当前追踪的敌人强塞给 CastSkill
-                // （见 CompiledRotationEntry.IsHostileSingleTarget/ClassifyIsHostileSingleTarget
-                // 判断记录）——自疗/友疗/AOE 一律传空目标数组，交 CastPipeline 步骤 6 用技能自己的
-                // target_shape_ref 目标链解析（原实现对全部技能无条件强塞 state.Target，见外部审计
-                // RC-10："自疗可作用于敌人，友疗/AOE 过滤失效"）。
-                var targets = entry.IsHostileSingleTarget && state.Target.HasValue
-                    ? new[] { state.Target.Value }
-                    : Array.Empty<Id>();
-
-                var result = _skillHost.CastSkill(unitId, entry.SkillId, targets);
-                if (result.Success)
-                {
-                    _bus.Enqueue(new AiDecisionMadeEvent(unitId, entry.SkillId));
-                    return new SkillCastRequest(unitId, entry.SkillId, targets);
-                }
-            }
-
-            return null;
+            return result;
         }
 
         // -----------------------------------------------------------------
@@ -712,98 +698,6 @@ namespace Core.Rules.Ai
                 var mode = record.GetString("mode") == "pingpong" ? PatrolMode.PingPong : PatrolMode.Loop;
                 _patrolPaths[id.Value] = new AiPatrolPath(id, points, mode);
             }
-        }
-
-        private void LoadRotations(IDataRegistryView registry)
-        {
-            foreach (var record in registry.GetAll(AiSchemas.Rotation.Name))
-            {
-                var id = record.GetId("id");
-                var entriesArray = record.GetArray("entries");
-                var compiled = new List<CompiledRotationEntry>(entriesArray.Count);
-
-                foreach (var item in entriesArray)
-                {
-                    var obj = (JsonObject)item;
-                    var priority = (int)((JsonNumber)obj["priority"]).Value;
-                    var conditionText = ((JsonString)obj["condition"]).Value;
-                    var skillId = new Id(((JsonString)obj["skill_id"]).Value);
-                    var node = ExprParser.Parse(conditionText, _exprSchema);
-                    var isHostileSingleTarget = ClassifyIsHostileSingleTarget(registry, skillId);
-                    compiled.Add(new CompiledRotationEntry(priority, node, skillId, isHostileSingleTarget));
-                }
-
-                compiled.Sort((a, b) => b.Priority.CompareTo(a.Priority));
-                _rotations[id.Value] = compiled;
-            }
-        }
-
-        /// <summary>
-        /// RC-10 收边补齐：判断 <paramref name="skillId"/> 的目标类型是否为"敌对单体"——直接读
-        /// <c>skill.def.target_shape_ref</c> 指向的 <c>target.chain_def</c> 记录本身（<see
-        /// cref="TargetChainDef"/> 强类型构造会做完整校验/可能抛异常，这里只需要只读探测两个字段，
-        /// 用不到那么重，见 <see cref="LoadRotations"/> 调用点），不经过 <c>core/rules/skill</c>/
-        /// <c>core/rules/targeting</c> 任何具体类型——<see cref="AiHost"/> 只持有 <see
-        /// cref="ISkillHost"/> 这个共享 L2 契约，不依赖同层兄弟模块的内部实现类型（见本类型顶部
-        /// 判断记录"L3 不得直接引用 L2 的具体宿主类型"同一原则的同层版本）。
-        /// <para>
-        /// 判定标准：<c>filters</c> 含 <c>"relation:hostile"</c>、不含 <c>"relation:friendly"</c>，
-        /// 且 <c>max_targets</c>（缺省 1，见 <see cref="TargetChainDef.MaxTargets"/> 判断记录）恰为
-        /// 1。技能未登记、<c>target_shape_ref</c> 缺失、链未登记、字段解析异常等任何"读不出"的
-        /// 情况一律保守返回 false（交目标链自行解析，不强塞——比"猜一个可能猜错的目标类型"更安全，
-        /// 见 <see cref="Evaluate"/> 判断记录）。
-        /// </para>
-        /// </summary>
-        private static bool ClassifyIsHostileSingleTarget(IDataRegistryView registry, Id skillId)
-        {
-            var skillRecord = registry.Get("skill.def", skillId);
-            if (skillRecord == null || !skillRecord.TryGetId("target_shape_ref", out var chainId))
-            {
-                return false;
-            }
-
-            var chainRecord = registry.Get("target.chain_def", chainId);
-            if (chainRecord == null)
-            {
-                return false;
-            }
-
-            var maxTargets = 1L;
-            if (chainRecord.TryGetInt("max_targets", out var explicitMaxTargets))
-            {
-                maxTargets = explicitMaxTargets;
-            }
-
-            if (maxTargets != 1)
-            {
-                return false;
-            }
-
-            if (!chainRecord.TryGetArray("filters", out var filters))
-            {
-                return false;
-            }
-
-            var hasHostile = false;
-            for (var i = 0; i < filters.Count; i++)
-            {
-                if (!(filters[i] is JsonString filterStr))
-                {
-                    continue;
-                }
-
-                if (filterStr.Value == "relation:friendly")
-                {
-                    return false;
-                }
-
-                if (filterStr.Value == "relation:hostile")
-                {
-                    hasHostile = true;
-                }
-            }
-
-            return hasHostile;
         }
 
         private void LoadProfiles(IDataRegistryView registry)

@@ -53,8 +53,9 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
 
 07 第 2.1 节 `tier` 字段只描述"强度分档，由数据定义具体分档集合"，未给出该表字段结构；本模块
 按任务书拍板补录：`id`（`creature.tier.<name>`）、`name_key`、`stat_multiplier`（默认 1）、
-`control_immune`（06 第 3.9 节"Boss/精英级免疫标志"的落地位）、`sort_weight`（仅供内容管线排序，
-运行期不读取）。
+`control_immune`（06 第 3.9 节"Boss/精英级免疫标志"的落地位）、`control_immune_categories`
+（T-N3-6 新增，与 `control_immune` 并存的按类别声明，见判断记录 8）、`sort_weight`（仅供内容
+管线排序，运行期不读取）。
 
 ## 设计要点与判断记录
 
@@ -128,6 +129,39 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
    供内容管线/编辑器按权重排序展示，`CreatureFactory` 解析 tier 记录时不读取它——声明一个永远
    不被读取的私有字段会触发"字段赋值后从未使用"的编译警告（本仓库
    `TreatWarningsAsErrors=true`），因此干脆不为它保留运行期存储位。
+
+8. **`control_immune_categories`（T-N3-6，[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md)
+   决策 8；06 第 3.3 节 2026-09-14 修订段）：与 `control_immune` 并存的按类别声明，不改写同一
+   字段**：`creature.tier_definition` 新增可选 `control_immune_categories`
+   （`Array<Enum>`，取值固定六值 `stun|root|silence|disarm|fear|polymorph`，登记为
+   `Core.Rules.Common.ControlCategoryValues.All`——与 `core/rules/skill` 的
+   `skill.aura_def.effects[kind=control].params.category` 共用同一份取值集合，见该模块 README
+   判断记录 53，避免两处漂移）。**判断记录（并存而非改写，同 `control_immune` 既有语义不变的
+   硬性规则）**：07 原文未在本次修订段直接改写 `creature.tier_definition`（该表本就是 04/任务书
+   补录，不在 07 正文），06 原文只说"`creature.template` 的控制免疫标志按类别声明"（散文表述，
+   未点名是改写既有布尔字段还是新增字段），任务书据"优先新增并存字段+兼容读取（不升版本、零
+   迁移风险），除非 07 原文明确改写同一字段"裁定采纳并存策略——不升 `currentSchemaVersion`、
+   不需要迁移函数，旧数据/旧存档不受影响。
+   <br/><br/>
+   **写入路径**：`CreatureFactory.LoadTiers` 解析该数组字段（遍历 `JsonArray` 取字符串元素，
+   惯例同 `SkillDefCache` 解析 `interrupt_flags` 的既有写法）存入 `TierInfo.ControlImmuneCategories`；
+   `Spawn` 在既有"整体标记"写入逻辑（`tier.ControlImmune && _options.ImmunityTagPrefix.HasValue`）
+   之后新增一段独立循环，逐条按 `CreatureImmunityProvider.ControlCategoryPrefix`
+   （`control_category.<category>`，`internal const`，供两个类型共用避免字符串字面量漂移）写入
+   `CreatureUnit.Immunities`——**不受 `_options.ImmunityTagPrefix` 是否配置影响**：该选项只是
+   "整体控制免疫"这个便捷标记的开关，本字段是内容直接声明的具体类别子集，两者是正交维度、各自
+   独立写入。
+   <br/><br/>
+   **`CreatureImmunityProvider.IsControlCategoryImmune`（`IStaticImmunityProvider` 新增默认接口
+   成员的显式覆盖，过 `InterfaceDefaultMemberForwardingTests` 通用门禁）判定顺序**：①命中
+   `_controlImmuneMarker`（tier 整体标记）→对任意类别都返回 `true`（旧布尔迁移等价：
+   `control_immune=true` → 全部类别免疫，不需要在数据里逐一枚举六值）；②存在
+   `control_category.<category>` 条目且精确匹配（`Ordinal`）→`true`；③其余（含未登记/拼写错误的
+   类别文本、或该单位完全没有声明）→`false`（"未登记类别的控制视为不免疫"，从严处理，避免拼写
+   错误被静默放大为意外的全面免疫）。`control_category.<category>` 前缀与既有 `control.<flag>`
+   前缀是两个正交维度（不复用同一前缀，避免 `control.stun` 这类写法在既有
+   `GetControlImmunity`/`ParseControlFlag` 里被当成未知标志位静默吃掉），`IsImmune`（学派/效果
+   原语免疫）同步补一处跳过分支，两者互不参与彼此的判定。
 
 ## 不负责什么
 

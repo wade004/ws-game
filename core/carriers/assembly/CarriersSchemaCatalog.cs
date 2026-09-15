@@ -149,6 +149,12 @@ namespace Core.Carriers.Assembly
             // 判断记录；与 ItemBudgetValidationRule 核算同一条预算曲线，复用同一个 budgetCurveId，不
             // 新增独立参数/不新增 RegisterAll 重载。
             registry.RegisterValidationRule(new ItemTemplateAffixShareExceedsBudgetRule(budgetCurveId));
+            // T-N3-9（ADR-0032 决策 6；04 第 5 节"授予价值超特效占比"）：默认不注入真实
+            // ISkillBudgetAnchorProvider（同 core/rules/assembly/RulesSchemaCatalog.cs
+            // SkillBudgetValidationRule 判断记录），注册后整体不产生任何问题，保证示例数据零告警；
+            // 真正核算需要调用方自行 new ItemGrantValueExceedsShareRule(budgetCurveId, realProvider)
+            // 另行注册。
+            registry.RegisterValidationRule(new ItemGrantValueExceedsShareRule(budgetCurveId, anchorProvider: null));
 
             // item.template.slot/quality/set_id 三个字段已在 ItemSchemas.Template 声明为
             // FieldKind.Reference，data_registry 内置 reference_integrity 校验自动生效，不需要本类

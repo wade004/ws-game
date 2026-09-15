@@ -43,6 +43,15 @@ namespace Core.Rules.Skill
             return o.TryGetValue(key, out var v) && v is JsonString s ? s.Value : fallback;
         }
 
+        /// <summary>T-N3-6 新增：与 <see cref="GetIdOpt"/> 同一惯例的可选字符串读取——区分"字段缺失/
+        /// 类型不对"（返回 <c>null</c>）与"字段存在且是空字符串"，供 <c>control.params.category</c>
+        /// 这类"缺省即退回旧语义"的可选枚举字段使用（<see cref="GetString"/> 的空字符串缺省值
+        /// 无法与"内容作者显式填了空字符串"区分，不适用于这类判空场景）。</summary>
+        public static string? GetStringOpt(JsonObject o, string key)
+        {
+            return o.TryGetValue(key, out var v) && v is JsonString s ? s.Value : null;
+        }
+
         public static Vec2 GetVec2(JsonObject o, string key, Vec2 fallback)
         {
             if (o.TryGetValue(key, out var v) && v is JsonObject obj
@@ -82,6 +91,27 @@ namespace Core.Rules.Skill
                     if (arr[i] is JsonString s)
                     {
                         list.Add(s.Value);
+                    }
+                }
+            }
+
+            return list;
+        }
+
+        /// <summary>T-N3-2（ADR-0031 决策 1）：读取形如 <c>scaling: [{stat, coefficient}, ...]</c>
+        /// 的对象数组字段——元素不是对象的条目原样跳过（不抛异常，与本类其余 <c>GetXxxArray</c> 方法
+        /// "缺失/坏形状返回空表，交由加载期校验拦截"的既有惯例一致；正常数据应已通过
+        /// <c>SkillSchemas</c> 的 <c>FieldKind.Array</c>/<c>Item</c> 递归登记在加载期校验过）。</summary>
+        public static IReadOnlyList<JsonObject> GetObjectArray(JsonObject o, string key)
+        {
+            var list = new List<JsonObject>();
+            if (o.TryGetValue(key, out var v) && v is JsonArray arr)
+            {
+                for (var i = 0; i < arr.Count; i++)
+                {
+                    if (arr[i] is JsonObject obj)
+                    {
+                        list.Add(obj);
                     }
                 }
             }

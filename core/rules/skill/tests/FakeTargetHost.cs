@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Core.Foundation.Common;
 using Core.Rules.Common;
 
@@ -16,9 +17,29 @@ namespace Tests.Rules.Skill
         /// 环境。</summary>
         private readonly Dictionary<Id, Func<Id, bool>> _filters = new Dictionary<Id, Func<Id, bool>>();
 
+        /// <summary>T-N3-8（ADR-0031 决策 6、拍板 7）：手工登记的"带分配系数"解析结果，供
+        /// <see cref="ResolveWithCoefficients"/> 直接返回——真实 <c>TargetHost</c> 的系数来自
+        /// <c>target.chain_def.overflow_policy</c>/<c>max_targets</c> 与候选收集/排序管线（见
+        /// <c>Core.Rules.Targeting.TargetHost</c>），本假实现不搭建完整数据/空间查询环境，改由测试
+        /// 直接给定"这条链应该解析出哪些目标、各自什么系数"，只验证"目标层→EffectDispatcher"这一段
+        /// 的系数透传/缩放契约（同 <see cref="_filters"/> 判断记录"只验证透传契约，不重复覆盖
+        /// TargetHost 自己的候选收集/排序/超出策略行为，那部分由 targeting/tests 覆盖"）。</summary>
+        private readonly Dictionary<Id, TargetResolution> _chainsWithCoefficients = new Dictionary<Id, TargetResolution>();
+
         public FakeTargetHost SetChain(Id chainId, params Id[] targets)
         {
             _chains[chainId] = targets;
+            return this;
+        }
+
+        /// <summary>见 <see cref="_chainsWithCoefficients"/> 判断记录。同时用
+        /// <paramref name="targets"/> 的目标 Id 覆盖 <see cref="SetChain"/>（保持旧签名
+        /// <see cref="Resolve(Id, Id)"/> 与本方法配置的目标集合一致，便于测试对照两条入口）。</summary>
+        public FakeTargetHost SetChainWithCoefficients(
+            Id chainId, TargetOverflowPolicy policy, int cap, params (Id Target, double Coefficient)[] targets)
+        {
+            _chainsWithCoefficients[chainId] = new TargetResolution(targets, policy, cap);
+            _chains[chainId] = targets.Select(t => t.Target).ToArray();
             return this;
         }
 
@@ -35,6 +56,15 @@ namespace Tests.Rules.Skill
             _chains.TryGetValue(chainId, out var targets) ? targets : Array.Empty<Id>();
 
         public IReadOnlyList<Id> Resolve(Id chainId, Id casterId, Id? currentTarget) => Resolve(chainId, casterId);
+
+        /// <summary>见 <see cref="_chainsWithCoefficients"/> 判断记录：登记过时直接返回；未登记的
+        /// 链退化为接口默认实现同一语义（旧 <see cref="Resolve(Id, Id, Id?)"/> 结果整体赋系数 1、
+        /// <see cref="TargetOverflowPolicy.Truncate"/>、<c>cap=0</c>），不强制每个测试都显式配置。</summary>
+        public TargetResolution ResolveWithCoefficients(Id chainId, Id casterId, Id? currentTarget = null) =>
+            _chainsWithCoefficients.TryGetValue(chainId, out var resolution)
+                ? resolution
+                : new TargetResolution(
+                    Resolve(chainId, casterId, currentTarget).Select(id => (id, 1.0)), TargetOverflowPolicy.Truncate, cap: 0);
 
         public IReadOnlyList<Id> FilterExplicitTargets(Id chainId, Id casterId, IReadOnlyList<Id> targets)
         {

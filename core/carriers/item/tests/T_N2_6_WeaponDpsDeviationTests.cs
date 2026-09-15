@@ -14,7 +14,9 @@ namespace Tests.Carriers.Item
     /// （<see cref="ItemWeaponDamageDeviatesDpsCurveRule"/>）、<c>item.slot_definition.has_armor</c>
     /// 显式护甲位字段（取代 T-N2-5 的"非武器位且真正装备位"推断，见 <c>core/carriers/item/README.md</c>
     /// 判断记录 20/21）。数据夹具独立于 <see cref="EquipmentHostTests"/>/<see
-    /// cref="T_N2_5_ArmorAffixReqLevelTests"/>（同"自带最小夹具"既有惯例）。
+    /// cref="T_N2_5_ArmorAffixReqLevelTests"/>（同"自带最小夹具"既有惯例）。"验收组 3"（下方）追加
+    /// T-N3-3（ADR-0031 决策 1/2）验收：<see cref="EquipmentHost.GetWeaponDps"/> 与
+    /// <c>weapon_profile.speed</c> 无关，坐实 <c>weapon_damage_pct</c>"改攻速伤害不变"验收标准。
     /// </summary>
     public class T_N2_6_WeaponDpsDeviationTests
     {
@@ -55,14 +57,33 @@ namespace Tests.Carriers.Item
         private const string DpsStatDefJson =
             "[{\"id\": \"stat.strength\", \"name_key\": \"l10n.stat.strength\", \"category\": \"primary\"}]";
 
-        private static DpsFixture BuildDpsFixture(Id? weaponDpsCurveId = null)
+        // T-N3-3（ADR-0031 决策 1/2；06 第 3.2 节 2026-09-14 修订段"weapon_damage_pct 改为武器秒伤
+        // × 一拍常数"）：同 item_level/quality/slot、只有 weapon_profile.speed 不同的两条模板，供
+        // 下方"验收组 3"证明 GetWeaponDps 与攻速无关——weapon_damage_pct 的运行期公式只消费
+        // GetWeaponDps，不再消费 speed，因此"改攻速伤害不变"这条验收标准在秒伤查询这一层就已经
+        // 成立，不依赖 EffectDispatcher 侧的实现细节。
+        private const string SpeedInvarianceTemplateJson =
+            "[{\"id\": \"item.t6_weapon_slow\", \"slot\": \"item.slot.t6_weapon\"," +
+            " \"quality\": \"item.quality.t6_rare\", \"item_level\": 1," +
+            " \"display_ref\": \"display.item.t6_weapon_slow\", \"stack_size\": 1," +
+            " \"name_key\": \"l10n.item.t6_weapon_slow\"," +
+            " \"weapon_profile\": {\"damage_min\": 5, \"damage_max\": 25, \"speed\": 1.0," +
+            " \"weapon_school\": \"skill.school.physical\"}}," +
+            "{\"id\": \"item.t6_weapon_fast\", \"slot\": \"item.slot.t6_weapon\"," +
+            " \"quality\": \"item.quality.t6_rare\", \"item_level\": 1," +
+            " \"display_ref\": \"display.item.t6_weapon_fast\", \"stack_size\": 1," +
+            " \"name_key\": \"l10n.item.t6_weapon_fast\"," +
+            " \"weapon_profile\": {\"damage_min\": 5, \"damage_max\": 25, \"speed\": 6.0," +
+            " \"weapon_school\": \"skill.school.physical\"}}]";
+
+        private static DpsFixture BuildDpsFixture(Id? weaponDpsCurveId = null, string? templateJson = null)
         {
             var registry = TestSupport.BuildRegistry(source =>
             {
                 source.Add("item.slot_definition", TestSupport.Table("item.slot_definition", DpsSlotJson));
                 source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", DpsQualityJson));
                 source.Add("item.weapon_dps_curve", TestSupport.Table("item.weapon_dps_curve", DpsWeaponDpsCurveJson));
-                source.Add("item.template", TestSupport.Table("item.template", DpsTemplateJson));
+                source.Add("item.template", TestSupport.Table("item.template", templateJson ?? DpsTemplateJson));
                 source.Add("stat.definition", TestSupport.Table("stat.definition", DpsStatDefJson));
             });
 
@@ -121,6 +142,45 @@ namespace Tests.Carriers.Item
             f.Equipment.Equip(DpsPlayer, instanceId, new Id("item.slot.t6_weapon"));
 
             Assert.Equal(0.0, f.Equipment.GetWeaponDps(DpsPlayer));
+        }
+
+        // -----------------------------------------------------------------
+        // 验收组 3（T-N3-3）：GetWeaponDps 与 weapon_profile.speed 无关，坐实
+        // weapon_damage_pct"改攻速伤害不变"这条验收标准。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void GetWeaponDps_SlowWeapon_SameItemLevelQualitySlot_MatchesBaselineDps()
+        {
+            var f = BuildDpsFixture(templateJson: SpeedInvarianceTemplateJson);
+            f.StatHost.RegisterUnit(DpsPlayer);
+            var instanceId = GiveAndReturnInstance(f, "item.t6_weapon_slow");
+            f.Equipment.Equip(DpsPlayer, instanceId, new Id("item.slot.t6_weapon"));
+
+            var dps = f.Equipment.GetWeaponDps(DpsPlayer);
+
+            // 同 GetWeaponDps_EquippedWeapon_ReturnsCurveTimesQualityTimesSlotCoefficient 手算：
+            // 曲线(1)=10 × 品质预算倍率 1.5 × 武器槽位系数 2.0 = 30，与 speed 无关
+            // （SpeedInvarianceTemplateJson 里 item.t6_weapon_slow 的 speed=1.0）。
+            Assert.Equal(30.0, dps, 9);
+        }
+
+        [Fact]
+        public void GetWeaponDps_FastWeapon_SameItemLevelQualitySlot_MatchesSlowWeaponDps()
+        {
+            var f = BuildDpsFixture(templateJson: SpeedInvarianceTemplateJson);
+            f.StatHost.RegisterUnit(DpsPlayer);
+            var instanceId = GiveAndReturnInstance(f, "item.t6_weapon_fast");
+            f.Equipment.Equip(DpsPlayer, instanceId, new Id("item.slot.t6_weapon"));
+
+            var dps = f.Equipment.GetWeaponDps(DpsPlayer);
+
+            // item.t6_weapon_fast 的 speed=6.0（上一测试 item.t6_weapon_slow 是 1.0），item_level/
+            // quality/slot 全部相同——GetWeaponDps 结果应逐位相同（30.0），证明
+            // weapon_damage_pct 的秒伤来源与攻速无关，"改攻速伤害不变"这条验收标准在这里成立，
+            // EffectDispatcher 侧的公式（秒伤 × 一拍常数 × pct）因此天然继承这个不变性，见
+            // core/rules/skill/tests/T_N3_3_WeaponDamagePctBeatSecondsTests.cs。
+            Assert.Equal(30.0, dps, 9);
         }
 
         // -----------------------------------------------------------------

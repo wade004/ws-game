@@ -304,8 +304,135 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `quality_weights` 的那一条。真正"逐随机数字节不变"的旧数据只有两种：`item.quality_definition`/
   `item.affix` 表本身未加载（如既有单元测试的最小夹具），或已加载但目标品质的 `affix_count`
   未登记/为零。
+- **数值设计落地阶段 N3 · T-N3-1（1.33.0）**：`skill.def` 新增 `use_condition`
+  （`FieldKind.Expr`，可选）/`budget_note`（`FieldKind.String`，可选）两个字段，`cast_time`/
+  `respects_gcd`/`cost` 三个既有字段改写描述（不改字段种类/必填性）；新增
+  `Core.Rules.Common.SettlementEffectKinds`（结算类原语集合常量，`All`/`IsSettlement(string)`）。
+  编辑器技能编辑界面若需要为 `use_condition` 渲染 Expr 输入控件，可复用与 `ai.rotation.entries[]
+  .condition` 同一套 `self`/`combat`/`target` 分组补全；`budget_note` 是普通多行文本输入。两个
+  新字段均只是登记 schema，运行时消费（施法管线使用条件检查、`SkillBudgetAnalyzer`）留给后续
+  任务（T-N3-4/T-N3-9）。
+- **数值设计落地阶段 N3 · T-N3-2（1.33.0）**：`school_damage`/`heal`/`periodic_damage`/
+  `periodic_heal` 效果参数新增 `scaling: [{stat, coefficient}]`（可选，权威写法，取代旧单字段
+  `scaling_stat`/`coefficient`，允许多条求和）与 `base_curve_ref`（可选，引用新表
+  `skill.base_curve`，取代 `base_value`）；`skill.def`/`skill.aura_def` `schema_version` 1→2，
+  迁移自动把旧 `scaling_stat`/`coefficient` 补出等价 `scaling` 列表（旧字段原样保留）。编辑器
+  技能效果编辑界面若已支持 `scaling_stat` 单选下拉，需要升级为可增删的缩放条目列表；
+  `base_curve_ref` 可复用曲线表通用编辑控件（同 `item.armor_curve` 等既有曲线表）。
+- **数值设计落地阶段 N3 · T-N3-3（1.33.0）**：`weapon_damage_pct` 效果原语改为"武器秒伤 ×
+  一拍常数 × 百分比"，不再读取单次武器伤害（`IWeaponDamageQuery.GetWeaponBaseDamage`）；新增表
+  `skill.budget_rule`（最小骨架，只含 `id`/`beat_seconds`，完整字段留给 T-N3-9）；`SkillOptions`
+  新增 `BudgetRuleId`（缺省 `skill.budget_rule.default`）。**行为变化（迁移说明）**：旧语义"武器
+  单次伤害（`(damage_min+damage_max)/2`）× 百分比"→新语义"武器秒伤（`item.weapon_dps_curve`）×
+  一拍常数（`skill.budget_rule.beat_seconds`，未声明该表/记录时缺省 1.0）× 百分比"——数值会变，
+  游戏侧已有的 `weapon_damage_pct` 技能百分比需要重新校准；新公式不再受武器速度影响单次挥击强度
+  （秒伤已经是速度无关量）。编辑器技能效果编辑界面若展示 `weapon_damage_pct` 的 `pct` 输入控件，
+  文案建议改为"武器秒伤 × 一拍常数的百分比"；`skill.budget_rule` 是编辑器新曲线/规则表编辑界面
+  应当收录的新表之一（当前只有 `id`/`beat_seconds` 两个字段，T-N3-9 落地后字段会继续增加）。
+- **数值设计落地阶段 N3 · T-N3-5（1.33.0）**：新增校验检查名 `skill_no_time_cost`（04 第 5
+  节"无时间成本"警告，Warning 级、不可提升）——主动技能 `cast_time` 为零且 `respects_gcd` 为真
+  （未声明为反应类）即命中，编辑器技能编辑界面/校验报告面板需要能展示这一新检查名（消息文案见
+  `Core.Rules.Skill.SkillNoTimeCostWarningRule`）。`SkillOptions` 新增的
+  `HasteAffectsActionTime`/`HasteStat`/`MinActionSeconds`/`MaxHastePct` 四个字段属运行时口味配置
+  （C# 构造期参数），不是数据表 `FieldSchema`，不进编辑器数据编辑界面范围。
+- **数值设计落地阶段 N3 · T-N3-6（1.33.0）**：`skill.aura_def` 的 `control` 光环效果新增可选
+  `category`（`FieldKind.Enum`，取值 `stun|root|silence|disarm|fear|polymorph`，缺省不分类）；
+  `creature.tier_definition` 新增可选 `control_immune_categories`（`FieldKind.Array<Enum>`，同一
+  取值集合，与既有 `control_immune` 并存、互不覆盖）。编辑器技能效果编辑界面若展示 `control`
+  效果的 `flags` 多选控件，需要为新增的 `category` 单选下拉补一个选项（六值，可复用与
+  `interrupt_flags` 同款枚举控件）；生物分档编辑界面的 `control_immune` 开关旁需要新增一个可多选
+  的"免疫控制类别"控件（同一份六值枚举，来源
+  `Core.Rules.Common.ControlCategoryValues.All`）。两个字段均为纯新增可选字段，不升
+  `schema_version`、不需要迁移函数，旧数据/旧存档不受影响。
+- **数值设计落地阶段 N3 · T-N3-8（1.33.0）**：`target.chain_def` 新增可选字段
+  `overflow_policy`（`FieldKind.Enum`，取值 `truncate|split|cap`，缺省 `truncate`）——编辑器目标链
+  编辑界面的 `max_targets` 输入框旁需要新增一个三选一下拉（复用现有 Enum 单选控件即可，来源
+  `Core.Rules.Targeting.TargetSchemas.OverflowPolicyValues`）；纯新增可选字段，不升
+  `target.chain_def` 的 `schema_version`、不需要迁移函数，旧数据/旧存档不受影响。
+- **数值设计落地阶段 N3 · T-N3-9（1.33.0）**：`skill.budget_rule` 表在 T-N3-3 最小骨架
+  （`id`/`beat_seconds`）基础上新增九个可选字段——`periodic_time_discount`（Number）、
+  `cooldown_premium_curve`/`range_discount_curve`/`cost_premium_curve`（三条 04 第 3.6 节通用
+  断点表，`CurveAxis.Value`）、`player_bandwidth`/`monster_bandwidth`/`player_hard_cap`/
+  `monster_hard_cap`（Number）、`control_category_weights`（Object，六个具名可选 Number 子字段）；
+  编辑器技能预算规则编辑界面需要为这九个字段补对应控件（三条曲线复用既有断点表编辑控件，其余为
+  数值输入框，`control_category_weights` 可复用 `ControlCategoryValues.All` 六值渲染六个滑块/
+  输入框）。新增两条检查名：`skill_budget_deviation`（Warning，按 `budget_note` 有无分组
+  "已确认"/"待确认"）、`skill_budget_hard_cap_exceeded`（Error）、`item_grant_value_exceeds_share`
+  （Warning，落在 `item.template`）——均为 04 第 5 节数值类校验项分级表既有登记行的检查名补录，
+  非新增校验维度。全部新增字段均为可选、`schema_version` 不递增，旧数据/旧存档不受影响；三条
+  新检查规则默认注册但因未接入 `sim.anchor`（阶段 N6）而整体不产生任何问题，见
+  `core/rules/skill/README.md` 判断记录 55、`core/carriers/item/README.md` 判断记录 26。
 
 ## [Unreleased]
+
+## [1.33.0] - 2026-09-15
+
+MINOR 版本：数值设计落地阶段 N3"技能"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 9/14 节，T-N3-1～T-N3-11）——落地 ADR-0031 全部决策：效果值缩放契约、使用条件、节拍锁、来源缺失冻结、瘟疫刷新、控制类别、群体超出策略（拍板 7）、武器百分比基于秒伤乘一拍、`skill.budget_rule` 与技能预算 Analyzer、结算类原语集合、独立的优先级表求值组件——不新增任何效果原语。
+回放/Perf 基线未变（回放场景不触达本阶段新增的任一分支，详见落地进度记录 N3 一节"回放/Perf 基线"）。各小任务门禁与逐项验收记录见该计划末节"落地进度记录"。
+
+提交链：`53e4f1a`（T-N3-1）、`591fdfc`（T-N3-2）、`43f505f`（T-N3-3）、`185d68e`（T-N3-4，`n3/cast` 并行分支，`--no-ff` 合入本分支的合并提交 `cccdbe3`）、`d19995f`（T-N3-5）、`941ecb2`（T-N3-6）、`5276fef`（T-N3-7）、`f38679c`（T-N3-7 补：周期效果冻结缓存清理）、`4a7afe9`（T-N3-8，`n3/target` 并行分支，`--no-ff` 合入本分支的合并提交 `4d1f7a7`）、`424854a`（T-N3-9）、`65a6446`（T-N3-10）、`a8aa340`（T-N3-11），分支 `n3/skill`，`--no-ff` 合入 `main`（哈希待补），本笔提交（T-N3-12：阶段 N3 文档收尾——裁定落地、04/06 勘误、落地进度记录、1.33.0 变更记录）。
+
+### 新增
+
+数值设计落地阶段 N3 · T-N3-1（ADR-0031 决策 1/9/10；06 第 3.1/3.2 节修订段）：`skill.def` 新增 `use_condition: Optional<Expr>`（可选，宿主为施法者上下文，self/combat/target 分组，为假时施法返回 `ConditionNotMet`（T-N3-4 落地）、就绪查询同步反映）、`budget_note: Optional<String>`（超模说明，`SkillBudgetAnalyzer` T-N3-9 按此归入已确认组）两个字段；`cast_time`/`respects_gcd`/`cost` 三个既有字段改写描述（动作时长/节拍锁/固定消耗语义，不改字段种类/必填性）；新增 `Core.Rules.Common.SettlementEffectKinds`（结算类原语集合常量：`school_damage`/`weapon_damage_pct`/`heal`/`projectile`/`apply_aura`，供 T-N3-9 预算校验适用范围与 T-N3-10 智能释放候选集共用）。本任务只登记 schema 层，运行时消费留给 T-N3-4/T-N3-9。
+
+数值设计落地阶段 N3 · T-N3-2（ADR-0031 决策 1；06 第 3.2 节修订段）：`school_damage`/`heal`（`skill.def.effects`）与 `periodic_damage`/`periodic_heal`（`skill.aura_def.effects`）效果参数新增 `scaling: [{stat: Reference(stat.definition), coefficient: Number}]`（可选，权威写法，允许多条求和，效果值 = 基础值 + Σ(coefficient × stat 最终值)）与 `base_curve_ref: Optional<Reference(skill.base_curve)>`（可选，存在时取代 `base_value`，按施法者当前等级在曲线上取值）；新增表 `skill.base_curve`（施法者等级到效果基础值的断点曲线，横轴 `CurveAxis.Level`）。`EffectDispatcher.ApplyDamageOrHeal` 求和优先级：`scaling` 列表非空时权威，缺省时回退旧字段；来源单位未注册/已销毁时缩放贡献按 0 处理（C02 判断记录），曲线引用解析不到时回退 `base_value`。
+
+数值设计落地阶段 N3 · T-N3-3（ADR-0031 决策 1/2/10；ADR-0032 决策 4；06 第 3.2/3.10 节修订段）：新增表 `skill.budget_rule`（最小骨架：本任务只登记 `id`/`beat_seconds: Optional<Number> > 0`，缺省 1.0，`FieldUnit.Time`/`TimeScope.Combat`；完整字段留给 T-N3-9 在同一张表上继续登记）；`SkillOptions` 新增 `BudgetRuleId: Id`（缺省 `skill.budget_rule.default`），`EffectDispatcher` 新增可选构造参数 `skillOptions`（ABI 安全：新增十六参数主构造函数，原十五参数构造函数标注 `[Obsolete]` 纯转发保留）。一拍常数解析（`EffectDispatcher.ResolveBeatSeconds`，经新增 `SkillDefCache.TryGetBeatSeconds`）：`skill.budget_rule` 表未注册或该 id 无对应记录时按缺省 1.0 处理并记一条警告，不阻断结算。
+
+数值设计落地阶段 N3 · T-N3-4（ADR-0031 决策 9/10；06 第 3.1/3.6 节修订段）：施法管线新插入步骤 1.5"使用条件"（求值 `skill.def.use_condition`，为假返回新增失败原因码 `CastFailureReason.ConditionNotMet`）；步骤 4"公共冷却"泛化为"节拍锁"，`SkillReadinessBlockers` 新增同名两位（`ConditionNotMet`/`ActionLocked`），`GetSkillReadiness` 只读查询裁决口径同步纳入这两项。
+
+数值设计落地阶段 N3 · T-N3-5（ADR-0031 决策 10；06 第 3.1/3.6 节修订段）：`CastPipeline.ComputeCastTime` 接入急速策略项与动作时长下限；04 第 5 节"无时间成本"新增警告规则。`SkillOptions` 新增 `HasteAffectsActionTime`（bool，缺省 `false`）、`HasteStat`（`Id?`，缺省 `null`）、`MinActionSeconds`（double，缺省 0）、`MaxHastePct`（double，缺省 100）；三者（含 `CastPipeline` 是否经新增十五参数构造函数重载接到了 `IStatHost`）均满足时，`ComputeCastTime` 读取急速属性最终值折算动作时长。新增 `SkillNoTimeCostWarningRule`（检查名 `skill_no_time_cost`，`NonEscalatable = true`）：主动技能 `cast_time` 为零且 `respects_gcd` 为真（未声明为反应类）即警告。
+
+数值设计落地阶段 N3 · T-N3-6（ADR-0031 决策 8；06 第 3.3 节修订段）：`control` 光环效果新增可选 `category`（`skill.aura_def.effects[kind=control].params.category`，`FieldKind.Enum`，取值集合新增 `Core.Rules.Common.ControlCategoryValues.All`——固定六值 `stun|root|silence|disarm|fear|polymorph`）；免疫按类别判，`AuraHost.ApplyStaticEffects` 对声明了 `category` 的 `control` 效果条目额外查询新增默认接口成员 `IStaticImmunityProvider.IsControlCategoryImmune`，命中则该条目对目标完全不生效。`creature.tier_definition` 新增可选并存字段 `control_immune_categories`（`Array<Enum>`，同一取值集合）——与既有 `control_immune`（全部类别）并存、互不覆盖。
+
+数值设计落地阶段 N3 · T-N3-8（ADR-0031 决策 6、拍板 7；06 第 3.7 节修订段）：`target.chain_def` 新增可选字段 `overflow_policy`（`truncate`（默认）｜`split`｜`cap`，与既有 `max_targets` 配合，候选数超过上限时的处理策略）；`ITargetHost` 新增默认接口成员 `ResolveWithCoefficients(chainId, casterId, currentTarget?) -> TargetResolution`（新类型，`core/rules/common/contracts/TargetResolution.cs`：候选目标 + 各自分配系数 + 生效策略 + cap），旧签名 `Resolve(Id, Id)`/`Resolve(Id, Id, Id?)` 保留、行为不变；`EffectContext` 新增 `TargetCoefficient` 字段（第 18 参构造重载，ABI 只新增，经既有构造函数得到的实例恒为 1.0）；`Core.Rules.Skill.CastPipeline` 步骤 6 链自行收集目标时改调 `ResolveWithCoefficients`，`EffectDispatcher.ApplyDamageOrHeal` 按系数缩放群体效果值。地面坐标施法与 `TriggerCast` 触发链两条入口未接入分配系数（恒系数 1）。
+
+数值设计落地阶段 N3 · T-N3-9（ADR-0031 决策 2；ADR-0032 决策 6；06 第 3.10 节；04 第 5 节数值类校验项分级表）：`skill.budget_rule` 表在 T-N3-3 最小骨架基础上新增九个可选字段——`periodic_time_discount`（Number）、`cooldown_premium_curve`/`range_discount_curve`/`cost_premium_curve`（三条通用断点表）、`player_bandwidth`/`monster_bandwidth`/`player_hard_cap`/`monster_hard_cap`（Number）、`control_category_weights`（Object，六个具名可选 Number 子字段）；新增 `Core.Rules.Skill.SkillBudgetAnalyzer`（静态类，`Analyze(skillId, view, options?, anchorProvider?)` 返回不可变 `SkillBudgetResult`，四态 `SkillBudgetVerdict`：`NotApplicable`/`Pass`/`ConfirmedDeviation`/`UnconfirmedDeviation`/`HardCapExceeded`）与新增校验规则 `SkillBudgetValidationRule`（检查名 `skill_budget_deviation`/`skill_budget_hard_cap_exceeded`）；`SkillDefCache` 新增 `TryResolveBudgetAttribution`（技能等级/档位反查）；新增接口钩子 `Core.Rules.Common.ISkillBudgetAnchorProvider`（`sim.anchor` 归阶段 N6，本任务改接受调用方注入锚点秒伤/期望缩放属性）。新增 `Core.Carriers.Item.ItemGrantValueExceedsShareRule`（检查名 `item_grant_value_exceeds_share`）与 `SkillBudgetAnalyzer.ComputeGrantValue` 公开静态方法：装备授予内容的预算价值合计超过份额报 Warning，`item.template.budget_note` 非空时整条豁免。三条新规则默认注册但因未接入锚点表整体不产生任何问题。
+
+数值设计落地阶段 N3 · T-N3-10（ADR-0031 决策 12"一键智能释放"；ADR-0035 决策 2；06 第 6.2 节）：新增独立的优先级表（`ai.rotation`）求值组件 `Core.Rules.Ai.IRotationEvaluator`/`RotationEvaluator`——不依赖 `ai.behavior_profile`、不要求 `BehaviorState.Combat`，只需一个 `ai.rotation` 表 id 即可给任意单位（含未注册 AI 行为外壳的玩家单位）选出并经 `ISkillHost.CastSkill` 施放一次技能。`AiHost.Evaluate`/`AiHost.LoadRotations`/`AiHost.ClassifyIsHostileSingleTarget` 原样搬迁进新组件，`AiHost` 改为只保留"仅 `Combat` 态才求值"的行为档门控与选中后发事件两件自己的事，其余委托 `RotationEvaluator`。求值算法在委托前后逐位不变（`AiHost` 既有全部测试用例未改动、全绿），唯一新增行为是候选条件为真后先查一次 `ISkillHost.GetSkillReadiness`、不就绪直接跳过。
+
+数值设计落地阶段 N3 · T-N3-11（ADR-0031 决策 3/11）：`Core.Rules.Assembly.RulesSchemaCatalog` 新增重载 `RegisterAll(IDataRegistry, SkillOptions?)`：读取 `SkillOptions.MaxEffectsPerSkill`（缺省 8）作为 `MaxEffectsPerSkillRule` 的构造上限，取代此前硬编码 8；既有无参 `RegisterAll(IDataRegistry)` 改为转发本重载并传 `skillOptions: null`，行为逐位不变（回归）。数据侧：`data/_sample/skill/skill.def.json` 新增 4 条技能（`sample_rest`/`sample_lockpick`/`sample_burst`/`sample_parry`）；新增 `data/_sample/skill/skill.base_curve.json`；`data/_sample/target/target.chain_def.json` 新增 `overflow_policy` 三态各一条真实链；`data/_sample/arch/arch.power_type.json` 新增积累型资源示例 `arch.power.sample_fury`；`data/_framework/arch/arch.power_type.json` 的 `arch.power.health` 补 `refill_on_leave_combat: true`（早于本阶段存在的字段与运行时消费，只补框架默认数据）。
+
+### 变更（行为变更）
+
+数值设计落地阶段 N3 · T-N3-3：`weapon_damage_pct` 效果原语改为"武器秒伤 × 一拍常数 × 百分比"——`EffectDispatcher.ApplyDamageOrHeal` 的 `WeaponDamagePct` 分支不再调用 `IWeaponDamageQuery.GetWeaponBaseDamage`（武器单次基础伤害均值），改调 T-N2-6 新增的 `GetWeaponDps`（武器秒伤）再乘以一拍常数；`GetWeaponBaseDamage` 方法本身保留，签名与既有语义不变。
+
+数值设计落地阶段 N3 · T-N3-4：`GcdEnabled=false` 分支新增判定——`respects_gcd=true` 的技能在施法者他技能动作时长内返回新增失败原因码 `CastFailureReason.ActionLocked`；`respects_gcd=false` 的瞬发反应类技能（打断/格挡/保命）可在动作中插入执行、不占用法术队列、不打断/不覆盖原读条状态；`respects_gcd=false` 但非瞬发时结构性无法安全插入，回退 `Busy`。`respects_gcd=false` 技能在 `GcdEnabled=false` 的游戏里语义变化明显（由"读条中一律拒绝/排队"变为"可插入立即执行"）。
+
+数值设计落地阶段 N3 · T-N3-7（ADR-0031 决策 4/5；06 第 3.3/3.8 节修订段）：周期效果（`periodic_damage`/`periodic_heal`）来源单位在光环仍生效期间被销毁（`Despawn`）后，此前的行为是"缩放贡献按 0 处理，每跳只剩 base_value"，现改为"冻结为最后一次来源仍存在时算出的每跳值"；不设快照策略项，无开关，行为恒生效。`SkillOptions` 新增 `PlagueRefreshRatio`（double，**默认 0.3**，ADR-0031 决策 5 原文"默认三成"）：同来源同光环再次施加（刷新）时，新持续时间 = 定义持续时间 + min(剩余时长, 定义持续时间 × 比例)，取代此前"直接重置为定义持续时间"的行为；`PlagueRefreshRatio = 0` 时精确退化为旧行为（回归）。
+
+### 修复
+
+数值设计落地阶段 N3 · T-N3-7 补（复核发现）：`EffectDispatcher._lastPeriodicEffectValue` 缓存此前无清理路径，长会话内随光环实例产生/移除无界增长；`IEffectSink` 新增默认接口成员 `ForgetPeriodicCache(Id)`/`ClearPeriodicCache()`（ABI 安全，空实现，不影响其它实现方），`AuraHost.RemoveInstanceInternal`（全部移除路径的唯一收口：到期/`RemoveAura`/`Dispel`/吸收耗尽/叠加溢出`Replace`/目标销毁）统一调用 `ForgetPeriodicCache`，随光环实例移除同步清理，不再无界增长。
+
+### 文档
+
+- **`architecture/04_数据与内容管线.md`**：第 1.1 节表清单新增 `skill.base_curve`；第 5 节数值类校验项分级表为阶段 N3 新增检查登记补全——"技能预算硬上限"一行补检查名 `skill_budget_hard_cap_exceeded`；"技能预算偏离"一行补检查名 `skill_budget_deviation`（不可提升）；"授予价值超特效占比"一行补检查名 `item_grant_value_exceeds_share`（不可提升）并把注记改为"已接入"；"无时间成本"一行补检查名 `skill_no_time_cost`（不可提升）；新增"预算类校验的锚点依赖"说明。细节勘误，版本号不变。
+- **`architecture/06_规则层_属性技能战斗AI.md`**：第 3.2 节"结算类原语集合"修订段补一句——`apply_aura` 是否算结算类的精确判定由消费方消费时解析落实；第 3.7 节修订段补一句——三种超出策略的精确分配系数定义（`truncate` 系数恒 1、`split` 系数=`max_targets`/命中数、`cap` 系数=1/命中数）；第 3.10 节补一句——预算校验用到的锚点秒伤与期望缩放属性来自数值仿真锚点表（归阶段 N6），接入前带宽/硬上限两条校验规则整体跳过，接入后默认生效。细节勘误，版本号不变。
+- 全部 T-N3-* 判断记录里的"待设计层确认"字样已按设计层裁定（2026-09-15）改写为明确结论——`core/rules/common/`（`README.md`、`contracts/SettlementEffectKinds.cs`、`contracts/ISkillBudgetAnchorProvider.cs`、`contracts/TargetResolution.cs`）、`core/rules/skill/`（`README.md`、`schema/README.md`、`schema/SkillSchemas.cs`、`schema/SkillValidationRules.cs`、`contracts/SkillBudgetTier.cs`、`contracts/SkillOptions.cs`、`core/CastPipeline.cs`、`core/EffectDispatcher.cs`、`core/SkillBudgetAnalyzer.cs`、`core/SkillDefCache.cs`）、`core/rules/targeting/`（`README.md`、`schema/README.md`、`contracts/TargetSchemas.cs`、`tests/T_N3_8_TargetOverflowPolicyTests.cs`）、`core/carriers/item/core/ItemValidationRules.cs` 共三十余处，逐处结论见各文件判断记录本身与本计划下方"落地进度记录"N3 一节。
+- `architecture/落地计划/数值设计分阶段落地计划.md` 末节"落地进度记录"追加"阶段 N3"一节（小任务门禁、阶段验收标准 1～7 逐项、阶段门禁 P1～P5、回放/Perf 基线、偏离首版基准的说明）。
+
+### 迁移说明
+
+- **`skill.def`/`skill.aura_def` schema_version 1→2**：迁移自动把旧单字段 `scaling_stat`/`coefficient` 补出等价 `scaling` 列表，旧字段原样保留（读取路径不删除）；无真实旧数据的 `data/_sample` 迁移为空操作。
+- **`weapon_damage_pct` 语义变化**：旧语义"武器单次伤害 × 百分比"→新语义"武器秒伤 × 一拍常数 × 百分比"，数值会变，游戏侧已有的 `weapon_damage_pct` 技能百分比需要重新校准；新公式不受武器攻速影响。
+- **周期效果来源缺失处理变化**：来源单位在光环仍生效期间被销毁后，每跳值由"缩放贡献按 0 处理"改为"冻结为最后一次来源仍存在时算出的每跳值"，恒生效、无开关；数值上通常显著更高。
+- **`PlagueRefreshRatio` 缺省 0.3**：装配本模块且不显式设置该项的游戏，默认即获得"刷新最多额外保留 30% 定义时长"这一新行为（光环刷新后持续时间比旧版本更长），需要重新评估战斗节奏/DPS 曲线，或显式设置 `PlagueRefreshRatio = 0` 保持旧行为。
+- **`GcdEnabled=false` 下节拍锁新原因码**：新引入的 `CastFailureReason.ConditionNotMet`/`ActionLocked` 与 `SkillReadinessBlockers` 同名两位需要 UI/AI 消费方按需处理（未处理时按"未知失败原因"通用兜底展示，不会崩溃）；已声明 `respects_gcd=false` 的既有内容作者需要确认新的"可插入执行"行为符合设计意图。
+- **`split`/`cap` 策略下旧 `Resolve` 返回全部候选**：声明了 `split`/`cap` 策略的目标链，旧 `Resolve(Id, Id)`/`Resolve(Id, Id, Id?)` 签名不做数量截断（因这两种策略本身不丢弃候选、只稀释系数），调用方需要精确分配系数时应改用 `ResolveWithCoefficients`。
+- **新检查名清单**：阻断——`skill_budget_hard_cap_exceeded`；警告（不可提升）——`skill_no_time_cost`/`skill_budget_deviation`/`item_grant_value_exceeds_share`。按检查名过滤诊断的既有逻辑需要认识这四个新检查名；`skill_budget_deviation`/`item_grant_value_exceeds_share` 两条规则待阶段 N6 接入锚点表后才会真正产生问题，接入前示例数据零告警。
+- **`MaxEffectsPerSkillRule` 改读选项**：`RulesSchemaCatalog.RegisterAll(IDataRegistry, SkillOptions?)` 新增重载，`MaxEffectsPerSkillRule` 的构造上限改读 `SkillOptions.MaxEffectsPerSkill`（缺省 8，与硬编码此前的默认值相同），既有无参重载行为不变（回归）。
+
+### 编辑器接入建议
+
+- 文首"编辑器相关契约"索引里 T-N3-1/2/3/5/6/8/9 七条已从 `（Unreleased）` 改标 `（1.33.0）`，内容不变——编辑器项目按该索引即可判断新版本需要跟改的契约面。
+- `skill.def.use_condition`（T-N3-1）：技能编辑界面渲染 Expr 输入控件时可复用与 `ai.rotation.entries[].condition` 同一套 `self`/`combat`/`target` 分组补全。
+- `scaling` 列表（T-N3-2）：技能效果编辑界面若已支持 `scaling_stat` 单选下拉，需要升级为可增删的缩放条目列表；`base_curve_ref` 可复用曲线表通用编辑控件。
+- `skill.budget_rule`（T-N3-3/T-N3-9）：编辑器新曲线/规则表编辑界面应当收录的新表，T-N3-9 落地后共十一个字段，三条曲线复用既有断点表编辑控件，`control_category_weights` 可复用 `ControlCategoryValues.All` 六值渲染六个滑块/输入框。
+- `control.category`/`control_immune_categories`（T-N3-6）：技能效果编辑界面的 `control` 效果 `flags` 多选控件旁需要为 `category` 补一个六值单选下拉；生物分档编辑界面的 `control_immune` 开关旁需要新增一个可多选的"免疫控制类别"控件。
+- `target.chain_def.overflow_policy`（T-N3-8）：目标链编辑界面的 `max_targets` 输入框旁需要新增一个三选一下拉。
+- `skill_budget_deviation`/`skill_budget_hard_cap_exceeded`/`item_grant_value_exceeds_share`（T-N3-9）：新增检查名出现在 `toolchain/validator --json` 的 `rules[]` 里；接入锚点表前不会真正产生问题，编辑器暂不需要为此新增交互，接入后校验报告面板需要能展示这三个新检查名。
 
 ## [1.32.0] - 2026-09-15
 

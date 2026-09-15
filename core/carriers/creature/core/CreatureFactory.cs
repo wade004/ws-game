@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Carriers.Common;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
+using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
@@ -58,6 +59,12 @@ namespace Core.Carriers.Creature
         {
             public double StatMultiplier;
             public bool ControlImmune;
+
+            /// <summary>T-N3-6 新增（ADR-0031 决策 8）：与 <see cref="ControlImmune"/>（全部类别）
+            /// 并存的按类别声明——缺省空列表（<see cref="LoadTiers"/> 未命中
+            /// <c>control_immune_categories</c> 字段时的缺省值，同字段 schema 缺省），不改变
+            /// <see cref="ControlImmune"/> 既有语义。</summary>
+            public IReadOnlyList<string> ControlImmuneCategories = Array.Empty<string>();
         }
 
         private readonly IDataRegistryView _registry;
@@ -141,6 +148,19 @@ namespace Core.Carriers.Creature
                 if (!unit.Immunities.Contains(controlImmuneTag))
                 {
                     unit.Immunities.Add(controlImmuneTag);
+                }
+            }
+
+            // T-N3-6 新增：control_immune_categories 按类别声明，与上面的整体标记并存、各自独立写入
+            // （不受 _options.ImmunityTagPrefix 是否配置影响——该选项只是"整体控制免疫"这个便捷标记
+            // 的开关，本字段是内容直接声明的具体类别子集，两者是正交维度，见 CreatureSchemas/
+            // CreatureImmunityProvider.ControlCategoryPrefix 判断记录）。
+            for (var i = 0; i < tier.ControlImmuneCategories.Count; i++)
+            {
+                var categoryTag = new Id(CreatureImmunityProvider.ControlCategoryPrefix + tier.ControlImmuneCategories[i]);
+                if (!unit.Immunities.Contains(categoryTag))
+                {
+                    unit.Immunities.Add(categoryTag);
                 }
             }
 
@@ -293,7 +313,29 @@ namespace Core.Carriers.Creature
                 var statMultiplier = record.TryGetNumber("stat_multiplier", out var multiplier) ? multiplier : 1.0;
                 var controlImmune = record.TryGetBool("control_immune", out var immune) && immune;
 
-                _tiers[id.Value] = new TierInfo { StatMultiplier = statMultiplier, ControlImmune = controlImmune };
+                // T-N3-6 新增：control_immune_categories（并存字段，见 CreatureSchemas 判断记录），
+                // 惯例同 SkillDefCache 解析 interrupt_flags 数组字段——直接遍历 JsonArray 取字符串，
+                // 不认识的元素类型（理论上不会出现，schema 已限定 Enum 元素）静默跳过。
+                var controlImmuneCategories = Array.Empty<string>() as IReadOnlyList<string>;
+                if (record.TryGetArray("control_immune_categories", out var categoriesArray))
+                {
+                    var categories = new List<string>(categoriesArray.Count);
+                    for (var i = 0; i < categoriesArray.Count; i++)
+                    {
+                        if (categoriesArray[i] is JsonString s)
+                        {
+                            categories.Add(s.Value);
+                        }
+                    }
+                    controlImmuneCategories = categories;
+                }
+
+                _tiers[id.Value] = new TierInfo
+                {
+                    StatMultiplier = statMultiplier,
+                    ControlImmune = controlImmune,
+                    ControlImmuneCategories = controlImmuneCategories,
+                };
             }
         }
 

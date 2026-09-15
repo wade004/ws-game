@@ -226,12 +226,65 @@ namespace Core.Rules.Skill
         /// 恒为正数，null 不受影响）。</summary>
         private double? ScaleDuration(double? raw) => raw.HasValue ? raw.Value * _currentFactor : (double?)null;
 
+        /// <summary>T-N3-7（[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md)
+        /// 决策 5；06 第 3.8 节 2026-09-14 修订段"瘟疫刷新规则"）：同来源同光环再次施加时刷新剩余
+        /// 持续时间的口径——两处调用点（<see cref="ReapplyExisting"/> 正常叠加分支、
+        /// <see cref="StackOverflowPolicy.RefreshOnly"/> 溢出策略分支）共用同一份公式，06 原文
+        /// "同来源同光环再次施加"统一适用、不区分是否伴随叠加层数变化。
+        /// <para>
+        /// 06 原文公式：<c>新持续时间 = 定义持续时间 + min(剩余时长, 定义持续时间 × 比例)</c>——
+        /// 两侧都按当前时间模式的计时单位计算（<paramref name="existing"/>.Remaining 已是该单位，
+        /// <paramref name="durationOverride"/> ?? <paramref name="def"/>.Duration 是规范/authoring
+        /// 单位，先经 <see cref="ScaleDuration"/> 折算成当前单位再参与比较与相加，"同一把尺子"惯例
+        /// 同 <see cref="ApplyAura"/>/<see cref="CreateInstance"/> 既有判断记录）。<c>比例</c> 取
+        /// <see cref="SkillOptions.PlagueRefreshRatio"/>，夹到 [0,1]（该字段本身允许调用方误填越界
+        /// 值，本方法防御性夹取，惯例同 <see cref="SkillOptions.MaxHastePct"/> 消费点"负值按 0 处理"
+        /// ——本字段越界同样只在消费点收口，不在属性 setter 上拦）。<c>PlagueRefreshRatio == 0</c>
+        /// （契约"设零即现有行为"）时——剩余时长在能走到本方法时恒 ≥ 0（见 <see cref="Update"/>
+        /// "到期即移除"的既有不变量，不会有负值剩余时长残留到下一次施加）——
+        /// <c>min(剩余时长, 0) == 0</c>，退化为 <c>新持续时间 = 定义持续时间</c>，与 T-N3-7 之前
+        /// 逐位一致（回归）。<c>existing.Remaining</c> 为 <c>null</c>（此前是永久光环，极少见但
+        /// 理论可达——见类型注释判断记录）时按"剩余时长视为无穷"处理，<c>min(∞, 定义持续时间 ×
+        /// 比例) == 定义持续时间 × 比例</c>，与有限剩余时长同一公式口径，不必另开分支。
+        /// </para>
+        /// <para>
+        /// 折算后的 <paramref name="durationOverride"/> ?? <paramref name="def"/>.Duration 为
+        /// <c>null</c>（本次施加仍是永久光环）时直接返回 <c>null</c>——永久光环没有"定义持续时间"
+        /// 可加权，公式不适用，维持恒永久（同 <see cref="ScaleDuration"/> 既有 null 透传惯例）。
+        /// </para>
+        /// <para>
+        /// 判断记录（与 06 第 3.3 节周期效果动态计算的关系，见 ADR-0031 决策 5 原文"与 3.3 节周期效果
+        /// 动态计算组合时不需要决定'保留的那段按旧值还是新值'，值永远是活的"）：本方法只决定"剩余
+        /// 持续时间"这一个数字，不涉及周期效果每跳的数值——刷新后剩余时长内的周期 tick 仍按
+        /// <see cref="FirePeriodic"/>/<see cref="Core.Rules.Skill.EffectDispatcher.ApplyDamageOrHeal"/>
+        /// 的既有动态求值路径逐跳重算（来源仍注册时），T-N3-7 的"来源缺失冻结"（见
+        /// <c>EffectDispatcher._lastPeriodicEffectValue</c> 判断记录）与本方法互不影响：冻结缓存
+        /// 按 (光环实例 id, 效果类型, 学派) 键存，刷新不会清空该缓存，也不需要清空——冻结值仍是
+        /// "来源最后一次存在时的值"，与持续时间被刷新到多长是两件独立的事。
+        /// </para>
+        /// </summary>
+        private double? ComputeRefreshedRemaining(AuraInstanceState existing, AuraDef def, double? durationOverride)
+        {
+            var scaledDefDuration = ScaleDuration(durationOverride ?? def.Duration);
+            if (!scaledDefDuration.HasValue)
+            {
+                return null;
+            }
+
+            var ratio = Math.Clamp(_options.PlagueRefreshRatio, 0.0, 1.0);
+            var retained = existing.Remaining.HasValue
+                ? Math.Min(existing.Remaining.Value, scaledDefDuration.Value * ratio)
+                : scaledDefDuration.Value * ratio;
+
+            return scaledDefDuration.Value + retained;
+        }
+
         private AuraInstanceRef ReapplyExisting(AuraInstanceState existing, AuraDef def, Id sourceId, double? durationOverride, IReadOnlyList<Id> tags, int triggerChainDepth = 0)
         {
             var newStacks = existing.Stacks + 1;
             if (newStacks <= def.MaxStacks)
             {
-                existing.Remaining = ScaleDuration(durationOverride ?? def.Duration);
+                existing.Remaining = ComputeRefreshedRemaining(existing, def, durationOverride);
                 existing.SourceId = sourceId;
                 existing.Tags = tags;
                 var old = existing.Stacks;
@@ -248,7 +301,7 @@ namespace Core.Rules.Skill
                     return new AuraInstanceRef(existing.InstanceId);
 
                 case StackOverflowPolicy.RefreshOnly:
-                    existing.Remaining = ScaleDuration(durationOverride ?? def.Duration);
+                    existing.Remaining = ComputeRefreshedRemaining(existing, def, durationOverride);
                     return new AuraInstanceRef(existing.InstanceId);
 
                 case StackOverflowPolicy.Replace:
@@ -356,6 +409,16 @@ namespace Core.Rules.Skill
                 // 都经由本方法统一收口，一次调用即完整注销，不会有孤儿订阅残留。
                 ProcHost?.Detach(instance.InstanceId);
             }
+
+            // T-N3-7 补（复核发现：EffectDispatcher._lastPeriodicEffectValue 此前没有任何清理路径，
+            // 长会话内随光环实例产生/移除无界增长）：本方法是全部移除路径的唯一收口（见上方
+            // ProcDefRefs 判断记录同一枚举），因此只需在这一处调用
+            // IEffectSink.ForgetPeriodicCache，就覆盖到期、RemoveAura、Dispel、吸收耗尽、叠加溢出
+            // Replace、目标销毁 OnEntityDestroyed 六条路径，不需要逐个移除入口分别接线；间接覆盖
+            // IWorldSim.ClearAll（世界级重置对每个实体派发 entity.destroyed，经既有
+            // OnEntityDestroyed 订阅逐个实例走到这里）。EffectSink 未注入（null，纯 L2 集成/未完成
+            // 装配的测试）时是安全的空操作，同 FirePeriodic 对 EffectSink 判空的既有惯例。
+            EffectSink?.ForgetPeriodicCache(instance.InstanceId);
 
             _bus.Enqueue(new AuraRemovedEvent(instance.TargetId, instance.DefId, reason, triggerChainDepth));
         }
@@ -553,9 +616,24 @@ namespace Core.Rules.Skill
                         // 阶段 3 整理"事项三"：静态控制免疫的标志位从本次施加的控制标志里剔除
                         // （见 IStaticImmunityProvider.GetControlImmunity 顶部判断记录"控制类光环
                         // 对该单位一律不生效"）——control_immune 生物身上不会真的置位这些标志，
-                        // GetControlFlags 查询结果与"完全没吃到这个光环的控制效果"等价。
+                        // GetControlFlags 查询结果与"完全没吃到这个光环的控制效果"等价。这条旧的
+                        // 按标志位判定逻辑原样保留、无条件先执行（不受本次 T-N3-6 改动影响，回归）。
                         var flags = ParseControlFlags(ParamsX.GetStringArray(entry.Params, "flags"));
                         flags &= ~_staticImmunity.GetControlImmunity(instance.TargetId);
+
+                        // T-N3-6（ADR-0031 决策 8；06 第 3.3 节 2026-09-14 修订段）：本效果条目声明了
+                        // category 时，额外叠加按类别的静态免疫判定——免疫则本条目对该目标完全不
+                        // 生效（不是"从已算出的 flags 里再抠掉几位"，因为按类别声明的免疫语义是"这一
+                        // 整条控制效果都不生效"，同上面按标志位判定"完全没吃到"的既定语义一致）。
+                        // category 缺省（未分类）时不查询新接口，逐位维持上面按标志位判定的既有行为
+                        // （旧数据/旧测试零改动，见 IStaticImmunityProvider.IsControlCategoryImmune
+                        // 判断记录"缺省退回旧布尔语义"）。
+                        var category = ParamsX.GetStringOpt(entry.Params, "category");
+                        if (category != null && _staticImmunity.IsControlCategoryImmune(instance.TargetId, category))
+                        {
+                            flags = ControlFlags.None;
+                        }
+
                         instance.ControlFlags |= flags;
                         break;
                 }

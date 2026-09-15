@@ -29,6 +29,28 @@ namespace Core.Rules.Common
         /// <summary>该单位静态免疫的控制标志位组合——返回值里置位的标志，控制类光环对该单位一律
         /// 不生效（见 <see cref="AuraHost.ApplyAura"/> 对 <c>control</c> 类 <c>AuraEffect</c> 的处理）。</summary>
         ControlFlags GetControlImmunity(Id unitId);
+
+        /// <summary>
+        /// T-N3-6 新增（[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 8；
+        /// 06 第 3.3 节 2026-09-14 修订段）：该单位是否对指定控制类别（<see cref="ControlCategoryValues.All"/>
+        /// 六值之一，如 <c>stun</c>/<c>root</c>）静态免疫，来源同样是内容配置（<c>creature.tier_definition</c>/
+        /// <c>creature.template</c>）而非光环。
+        /// <para>
+        /// 默认接口实现（C# 8+ default interface member，ABI 安全的新增方式，见硬性规则）按"旧布尔
+        /// 语义"转发到 <see cref="GetControlImmunity"/>：历史上唯一能表达"控制免疫"的入口是
+        /// <see cref="GetControlImmunity"/> 返回的 <see cref="ControlFlags"/>（<c>tier.control_immune</c>
+        /// 为真时的全部标志位，或按单项标志声明的 <c>control.&lt;flag&gt;</c> 条目），本默认实现把
+        /// "该单位存在任意静态控制标志位免疫"等价为"对任意类别都免疫"（<c>GetControlImmunity(unitId)
+        /// != ControlFlags.None</c>）——对尚未升级到按类别精细声明的既有实现，这是"未分类退回旧布尔
+        /// 语义"这一约定在实现方一侧的自然结果，不需要逐一改动。
+        /// </para>
+        /// <para>
+        /// 真正支持按类别精细声明的实现（本仓库 <c>CreatureImmunityProvider</c>）应显式覆盖本方法
+        /// （见 <c>InterfaceDefaultMemberForwardingTests</c> 通用门禁：production 程序集内的实现方
+        /// 必须显式转发/覆盖带默认实现的接口成员，不允许悄悄吃掉默认值）。
+        /// </para>
+        /// </summary>
+        bool IsControlCategoryImmune(Id unitId, string category) => GetControlImmunity(unitId) != ControlFlags.None;
     }
 
     /// <summary><see cref="IStaticImmunityProvider"/> 的空对象默认实现：一律不免疫（见接口顶部
@@ -45,5 +67,10 @@ namespace Core.Rules.Common
         public bool IsImmune(Id unitId, Id school, EffectKind kind) => false;
 
         public ControlFlags GetControlImmunity(Id unitId) => ControlFlags.None;
+
+        /// <summary>显式转发（不吃默认实现——同 <see cref="InterfaceDefaultMemberForwardingTests"/>
+        /// 门禁要求）：与 <see cref="GetControlImmunity"/> 同一"一律不免疫"语义，默认值本身即正确
+        /// 结果，没有更好的值可转发。</summary>
+        public bool IsControlCategoryImmune(Id unitId, string category) => false;
     }
 }
