@@ -577,7 +577,13 @@ item/
       清单 S3/S12：`weapon_damage_pct` 原语改接"秒伤 × 一拍常数"是 N3 S3 的范围，一拍常数"只是
       记账单位，运行期不存在任何锁"），本任务不越权在 item 模块发明它的登记位置。`variance`
       字段本任务只登记 schema，无消费者（同预算利用率阈值一类"契约要求存在、具体用法留给后续
-      任务"的字段）。
+      任务"的字段）。**更新（T-N3-3 已落地，另一半"一拍常数"不再是"该表要到 T-N3-9 才创建"）**：
+      `skill.budget_rule` 的最小骨架（只含 `id`/`beat_seconds`）随 T-N3-3 提前落地——
+      `weapon_damage_pct` 原语在 T-N3-9 完整表落地之前就需要运行期读到一拍常数，任务书就此裁定
+      分两步登记；`item.weapon_dps_curve.variance` 的消费者仍未落地（本条不受影响），完整
+      `skill.budget_rule` 字段集（带宽/硬上限等）仍留给 T-N3-9，详见
+      `core/rules/skill/README.md` 判断记录 50、`core/rules/skill/schema/README.md`
+      "`skill.budget_rule`"一节。
     - **`item.slot_definition.has_armor`（可选 Bool，缺省 false）新增——设计层裁定**：取代
       判断记录 20 的"非武器位（`is_weapon != true`）且真正装备位（`is_equipment != false`）"
       推断规则（上一条已标记该判断记录的相应段落为历史记录）。`EquipmentHost.IsArmorSlot` 改为

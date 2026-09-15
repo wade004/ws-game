@@ -131,6 +131,9 @@ namespace Core.Rules.Assembly
             // T-N3-2（ADR-0031 决策 1）：school_damage/heal/periodic_damage/periodic_heal 的
             // base_curve_ref 可选引用本表，见 SkillSchemas.BaseCurve 类型注释"契约疑点"。
             registry.RegisterSchema(SkillSchemas.BaseCurve);
+            // T-N3-3（ADR-0031 决策 2/10）：weapon_damage_pct 运行期读 beat_seconds 需要本表已注册
+            // 才能查到记录，见 SkillSchemas.BudgetRule 类型注释（最小骨架，T-N3-9 补完整字段）。
+            registry.RegisterSchema(SkillSchemas.BudgetRule);
             registry.RegisterSchema(CombatSchemas.HitTableConfig);
             registry.RegisterSchema(CombatSchemas.ResistCurve);
             // T-N1-8（ADR-0030 决策 6）：combat.level_diff_table 是可选表——注册 schema 不代表强制

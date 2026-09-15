@@ -116,5 +116,19 @@ namespace Core.Rules.Skill
         /// 吸附落地之前逐字节一致。由 <c>Core.Gameplay.Assembly.GameplayAssembly</c> 按战斗时间模型
         /// 回填（惯例同 <see cref="TryConsumeActionPoints"/> 判断记录）。</summary>
         public double? GridSnapCellSize { get; set; }
+
+        /// <summary>
+        /// T-N3-3（[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 2；06
+        /// 第 3.10 节）：本局游戏使用的 <c>skill.budget_rule</c> 记录 id——<c>weapon_damage_pct</c>
+        /// 效果原语按本 id 查询 <c>beat_seconds</c>（一拍常数，见
+        /// <see cref="Core.Rules.Skill.EffectDispatcher"/> 的 <c>ResolveBeatSeconds</c> 判断记录）。
+        /// 默认 <c>skill.budget_rule.default</c>——与其余口味配置项同一惯例（默认值本身不代表任何
+        /// 具体游戏的口味决策，每款游戏应在自己的口味配置清单中显式声明，见本类型顶部类注释）；
+        /// 指向的记录在已加载数据里找不到时（表未注册、或该 id 没有对应记录）不抛异常，一拍常数
+        /// 按缺省 1.0 处理并记一条警告，不阻断结算。默认值字面量与
+        /// <see cref="Core.Rules.Skill.EffectDispatcher"/>.<c>DefaultBudgetRuleId</c>（<c>_options</c>
+        /// 为 <c>null</c> 时的回退值，见该字段判断记录）保持一致，两处均已互相交叉引用。
+        /// </summary>
+        public Id BudgetRuleId { get; set; } = new Id("skill.budget_rule.default");
     }
 }

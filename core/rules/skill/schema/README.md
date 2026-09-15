@@ -90,6 +90,53 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 已落地的 `scaling` 列表求和这一主线契约（决策 1 的另一半，已明确落地，不依赖本表是否存在）——见
 `SkillSchemas.BaseCurve` 类型注释、`SkillDefCache.TryGetBaseCurve` 判断记录。
 
+## `skill.budget_rule`（T-N3-3 最小骨架，T-N3-9 补完整字段）
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `id` | Id | 是 | `skill.budget_rule.<name>` |
+| `beat_seconds` | Number | 否（缺省 1.0） | 一拍常数：06 第 3.10 节预算公式的记账单位（施放时间当量 = max(动作时长, 一拍常数)），T-N3-3 起同时是 `weapon_damage_pct` 原语运行期公式"武器秒伤 × 一拍常数 × 百分比"的乘数；`> 0`（`FieldRange.Range(min: 0, minExclusive: true)`）；`FieldUnit.Time`/表 `TimeScope.Combat` |
+
+供 `EffectDispatcher.ResolveBeatSeconds`（经 `SkillDefCache.TryGetBeatSeconds`）按
+`SkillOptions.BudgetRuleId`（缺省 `skill.budget_rule.default`）查询；表未注册或该 id 没有对应
+记录时按缺省 1.0 处理并记一条警告，不阻断结算。**判断记录（分两步落地，不是自行发明契约）**：
+06 第 3.10 节给出的是完整表（一拍常数、施放时间当量规则、冷却溢价/范围折价/消耗溢价三条曲线、
+带宽、硬上限、控制类别权重、玩家档/怪物档），落地改动点清单把它整体排到 T-N3-9；但 T-N3-3
+（`weapon_damage_pct` 改接秒伤 × 一拍常数）在 T-N3-9 之前就需要运行期读到一拍常数，任务书就此
+裁定"本任务先登记最小骨架（只含 `id`/`beat_seconds`），其余字段先不登记"——T-N3-9 会在**同一张**
+`TableSchema` 上继续补登记其余字段（新增字段，非破坏性，不需要 schema 版本递增）。**契约疑点
+（上报，待设计层确认）**：06 第 3.10 节原文只有"一拍常数只是记账单位（如半秒）"这句散文描述，
+未给出字段名——本任务据落地方案措辞、参照 `cast_time`/`cooldown_duration` 既有时间字段的命名
+惯例，临时判定字段名为 `beat_seconds`；若设计层在 T-N3-9 落地完整表时另拍字段名，需要同步改本
+表与全部读取点（`SkillDefCache.TryGetBeatSeconds`、`EffectDispatcher.ResolveBeatSeconds`），
+影响面已知且集中，不影响"秒伤 × 一拍常数"这一主线公式。另一处契约疑点：`FieldUnit.Time`/
+`TimeScope.Combat` 只是满足 `SchemaAudit`"time_scope_declared"元数据门禁的声明，本任务未给
+`beat_seconds` 接入 `CooldownTracker`/`AuraHost` 那一套连续/离散模式切换换算系数——是否需要
+留给设计层裁定，见 `SkillSchemas.BudgetRule` 类型注释。
+
+## weapon_damage_pct：秒伤 × 一拍常数（T-N3-3）
+
+[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 1/2；
+[ADR-0032](../../../../architecture/adr/0032-装备预算消耗与词缀份额.md) 决策 4；06 第 3.2 节
+2026-09-14 修订段"`weapon_damage_pct` 改为基于武器秒伤 × 一拍常数 × 百分比而不是基于单次武器
+伤害"：
+
+- **公式**：`效果值 = GetWeaponDps(施法者) × ResolveBeatSeconds() × pct`——不叠加"效果值契约"
+  （上一节）的 `scaling`/`base_curve_ref`，06 原文把 `weapon_damage_pct` 单独成句，与
+  `school_damage`/`heal`/周期效果那一句（"统一为基础值 + Σ(...)"）分开表述，本任务据此判定
+  `weapon_damage_pct` 只替换基础值来源，不叠加缩放项（`EffectDispatcher.ApplyDamageOrHeal` 的
+  `WeaponDamagePct` 分支自成一路，与 `else` 分支的 `scaling` 求和逻辑互斥，代码层面已隔离）。
+- **`GetWeaponDps`**：T-N2-6 新增（07 第 1.2 节"武器秒伤 = `item.weapon_dps_curve(item_level)` ×
+  品质预算倍率 × 武器槽位系数"），无武器为 0；与 `weapon_profile.speed` 无关（速度已是"秒伤"
+  定义的一部分，不需要在这一层再乘一次），因此换同一武器模板的攻速不改变 `weapon_damage_pct`
+  技能伤害——见 `core/carriers/item/tests/T_N2_6_WeaponDpsDeviationTests.cs`"验收组 3"。
+- **`ResolveBeatSeconds`**：见上一节 `skill.budget_rule`。
+- **禁止事项落地**：`IWeaponDamageQuery.GetWeaponBaseDamage`（武器单次基础伤害均值）不再被本
+  分支调用——方法本身保留供其它消费方，签名与既有语义不变。
+- **迁移说明（行为变化）**：旧语义"武器单次伤害（`(damage_min+damage_max)/2`）× 百分比"→新
+  语义"武器秒伤 × 一拍常数 × 百分比"，数值会变，游戏侧已有的 `weapon_damage_pct` 技能百分比
+  需要重新校准（详见 `CHANGELOG.md` `[Unreleased]` 段 T-N3-3 行）。
+
 ## 结算类原语集合（T-N3-1，`Core.Rules.Common.SettlementEffectKinds`）
 
 06 第 3.2 节 2026-09-14 修订段"结算类原语集合"——供技能预算校验（3.10 节，T-N3-9）适用范围判定与
@@ -119,7 +166,7 @@ T-N3-9/T-N3-10 在真正消费这份集合时决定具体收窄方式，详见�
 |---|---|---|
 | `school_damage` | `base_value`:Number/否、`coefficient`:Number/否、`school`:Id/否（缺省取 `skill.def.school`）、`scaling_stat`:Reference(`stat.definition`)/否（旧单字段写法，见下"效果值契约"）、`scaling`:Array\<{stat:Reference(`stat.definition`)/是, coefficient:Number/是}\>/否（T-N3-2 新增，权威写法，允许多条求和）、`base_curve_ref`:Reference(`skill.base_curve`)/否（T-N3-2 新增，存在时取代 `base_value`） | `EffectDispatcher.ApplyDamageOrHeal` |
 | `heal` | 同 `school_damage`（同一组参数、同一处实现分支） | `EffectDispatcher.ApplyDamageOrHeal` |
-| `weapon_damage_pct` | `pct`:Number/否（缺省 0；RC-11：也可退回 `params.base_value`，本登记只列权威参数名 `pct`） | `EffectDispatcher.ApplyDamageOrHeal`（`WeaponDamagePct` 分支） |
+| `weapon_damage_pct` | `pct`:Number/否（缺省 0；RC-11：也可退回 `params.base_value`，本登记只列权威参数名 `pct`） | `EffectDispatcher.ApplyDamageOrHeal`（`WeaponDamagePct` 分支，T-N3-3 起公式为"武器秒伤 × 一拍常数 × pct"，见下方专节） |
 | `apply_aura` | `aura_def`:Reference(`skill.aura_def`)/是、`duration_override`:Number/否 | `EffectDispatcher.ApplyAuraEffectPrimitive` |
 | `dispel` | `category`:Id/否（对应 `aura_def.dispel_type`）、`count`:Int/否（缺省 1） | `EffectDispatcher.ApplyDispel` |
 | `energize` | `power_type`:Id/是（判断记录：无独立可跨层引用登记表，同 04 §5.1 口径按 Id 登记）、`amount`:Number/否（缺省 0） | `EffectDispatcher.ApplyEnergize` |

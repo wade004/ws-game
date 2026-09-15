@@ -762,6 +762,59 @@ skill/
     `skill.aura_def` 两处迁移各一例）；全量 `Tests.Rules`/`Replay` 回归零改动（既有 344/679 条
     `Tests.Rules.Skill`/`Tests.Rules` 用例、10+2+12 条 `Replay` 用例全部保持通过）。
 
+50. **T-N3-3（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 1/2/10、
+    [ADR-0032](../../../architecture/adr/0032-装备预算消耗与词缀份额.md) 决策 4；06 第 3.2/3.10
+    节 2026-09-14 修订段，见 [数值设计分阶段落地计划](../../../architecture/落地计划/数值设计分阶段落地计划.md)
+    第 14 节 N3 任务表第三行）：`weapon_damage_pct` 效果原语改为"武器秒伤 × 一拍常数 × 百分比"。
+    `EffectDispatcher.ApplyDamageOrHeal` 的 `WeaponDamagePct` 分支不再调用
+    `IWeaponDamageQuery.GetWeaponBaseDamage`（武器单次基础伤害均值，硬性规则"禁止在效果里读武器
+    单次伤害"），改调 T-N2-6 新增的 `GetWeaponDps`（武器秒伤）再乘以本任务新解析出的一拍常数
+    （`ResolveBeatSeconds`，经新增 `SkillDefCache.TryGetBeatSeconds` 查 `skill.budget_rule
+    [SkillOptions.BudgetRuleId].beat_seconds`）——`GetWeaponBaseDamage` 方法本身**保留**，签名与
+    既有 `(damage_min+damage_max)/2` 语义均不改变（硬性规则"该方法本身保留供其它消费方"，见
+    `IWeaponDamageQuery.GetWeaponBaseDamage` 判断记录"更新"段）。
+    <br/>新增表 `skill.budget_rule`（`SkillSchemas.BudgetRule`，最小骨架）：本任务只登记
+    `id`/`beat_seconds: Optional<Number> > 0`（缺省 1.0，`FieldUnit.Time`/`TimeScope.Combat`），
+    完整字段（施放时间当量规则、冷却溢价/范围折价/消耗溢价三条曲线、带宽、硬上限、控制类别权重、
+    玩家档/怪物档）留给 T-N3-9 在**同一张** `TableSchema` 上继续登记（新增字段，非破坏性，不需要
+    schema 版本递增）——分两步落地是任务书裁定，不是自行发明契约。`SkillOptions` 新增
+    `BudgetRuleId: Id`（缺省 `skill.budget_rule.default`）。表未注册或该 id 无对应记录时
+    `ResolveBeatSeconds` 按缺省 1.0 处理并记一条警告、不阻断结算——保证尚未落地
+    `skill.budget_rule` 数据的项目结算行为与本次改动之前逐位一致（既有测试数值因此大多原样
+    保留，只是来源方法换了，见测试小节）。
+    <br/>**ABI（G3）**：`EffectDispatcher` 新增可选构造参数 `skillOptions`（十六参数主构造函数，
+    原十五参数构造函数标注 `[Obsolete]` 纯转发保留，惯例同 `CastPipeline` 十二/十三参数构造函数
+    判断记录同一套推导——已编译的旧调用方省略该参数时物理绑定到 `[Obsolete]` 重载，不抛
+    `MissingMethodException`）；`SkillHost` 内部构造 `EffectDispatcher` 的唯一调用点已改传
+    `options1` 选中新重载（本项目把过时警告当错误，同 `CastPipeline` 十九参数构造调用点既有
+    惯例）。`IWeaponDamageQuery` 接口两个既有成员签名均未改。
+    <br/>**契约疑点（上报，待设计层确认）**：(1) `skill.budget_rule.beat_seconds` 字段名——06 第
+    3.10 节原文只有"一拍常数只是记账单位（如半秒）"的散文描述，未给出字段名，本任务据既有时间
+    字段（`cast_time`/`cooldown_duration`）命名惯例临时判定为 `beat_seconds`；若 T-N3-9 落地
+    完整表时另拍字段名，需要同步改本表与两处读取点（`SkillDefCache.TryGetBeatSeconds`、
+    `EffectDispatcher.ResolveBeatSeconds`），影响面已知且集中，不影响"秒伤 × 一拍常数"这一主线
+    公式。(2) `beat_seconds` 是否需要接入 `CooldownTracker`/`AuraHost` 那一套连续/离散模式切换
+    换算系数——本任务只标记 `FieldUnit.Time`/`TimeScope.Combat` 满足 `SchemaAudit`
+    "time_scope_declared"元数据门禁，未给 `beat_seconds` 接入运行期模式换算；`weapon_damage_pct`
+    是本仓库第一个在"预算记账"之外于结算路径直接消费这个常数的消费者，是否需要跟随模式切换重新
+    折算留给设计层裁定，见 `SkillSchemas.BudgetRule` 类型注释第三段。
+    <br/>**回放基线核查**：`ReplayWorldBuilder` 不触达 `core/carriers/item` 装备模块（沿用 T-N2-6/
+    T-N2-8 既有核查结论），`GetWeaponDps` 未注入时恒为 0，语义变更前后回放场景内 `weapon_damage_pct`
+    技能伤害均为 0，回放基线零改动，已跑 `--filter "FullyQualifiedName~Replay"` 确认全绿。
+    <br/>不新增任何效果原语，不改变 `school_damage`/`heal`/周期效果既有结算路径。测试：
+    `core/rules/skill/tests/T_N3_3_WeaponDamagePctBeatSecondsTests.cs`（schema 覆盖 3 例 +
+    `SkillOptions.BudgetRuleId` 默认值 1 例 + 运行期公式 5 例，共 9 例，含"未注册 budget_rule 按
+    1.0 处理"、"注册后按登记值相乘"、"秒伤翻倍则结果等比翻倍"、"从不调用
+    GetWeaponBaseDamage"——`FakeWeaponDamageQuery.GetWeaponBaseDamage` 故意抛异常把硬性规则坐实
+    为回归测试而非只靠代码走读——、"budget_rule id 指向缺失记录时警告且缺省 1.0"五组）；
+    `core/carriers/item/tests/T_N2_6_WeaponDpsDeviationTests.cs`"验收组 3"新增 2 例（同
+    item_level/quality/slot、只有 `weapon_profile.speed` 不同的两条模板，`GetWeaponDps` 结果
+    逐位相同，坐实验收标准"攻速变化技能伤害不变"）；
+    `core/rules/skill/tests/EffectPrimitiveDispatchTests.cs` 既有 3 条 `weapon_damage_pct` 测试
+    改写（`FakeWeaponDamageQuery` 从覆写 `GetWeaponBaseDamage` 改为覆写 `GetWeaponDps`，断言数值
+    因一拍常数缺省 1.0 与改动前逐位一致，只是来源方法换了）。全量 `Tests.Rules`/`Tests.Carriers.Item`/
+    `Replay` 回归绿。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：

@@ -170,10 +170,15 @@ namespace Core.Rules.Skill
             // 类注释），回填后 SpellModDimension.Charges 才真正生效（见 CooldownTracker.SpellMods）。
             _cooldowns.SpellMods = _spellMods;
 
+            // T-N3-3：显式传 skillOptions（options1，本构造函数已解析好的 SkillOptions 实例，
+            // 见上方 "var options1 = options ?? new SkillOptions();"）选中当前十六参数主构造函数，
+            // 避免落到 ABI 兼容标注 [Obsolete] 的十五参数重载（本项目把过时警告当错误，同
+            // CastPipeline 十九参数构造调用点既有惯例）——weapon_damage_pct 分支需要它解析
+            // SkillOptions.BudgetRuleId（见 EffectDispatcher.ResolveBeatSeconds 判断记录）。
             _effectDispatcher = new EffectDispatcher(
                 _auraHost, _cooldowns, _defs, powerHost, _units, combatHost, statHost, _spellMods,
                 effectExtension, _diagnostics, TriggerCastInternal, InterruptInternal, LearnSkill,
-                projectileSpawner, weaponDamageQuery);
+                projectileSpawner, weaponDamageQuery, options1);
             _auraHost.EffectSink = _effectDispatcher;
 
             _pipeline = new CastPipeline(

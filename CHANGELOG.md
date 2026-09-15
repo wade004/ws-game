@@ -319,12 +319,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   迁移自动把旧 `scaling_stat`/`coefficient` 补出等价 `scaling` 列表（旧字段原样保留）。编辑器
   技能效果编辑界面若已支持 `scaling_stat` 单选下拉，需要升级为可增删的缩放条目列表；
   `base_curve_ref` 可复用曲线表通用编辑控件（同 `item.armor_curve` 等既有曲线表）。
+- **数值设计落地阶段 N3 · T-N3-3（Unreleased）**：`weapon_damage_pct` 效果原语改为"武器秒伤 ×
+  一拍常数 × 百分比"，不再读取单次武器伤害（`IWeaponDamageQuery.GetWeaponBaseDamage`）；新增表
+  `skill.budget_rule`（最小骨架，只含 `id`/`beat_seconds`，完整字段留给 T-N3-9）；`SkillOptions`
+  新增 `BudgetRuleId`（缺省 `skill.budget_rule.default`）。**行为变化（迁移说明）**：旧语义"武器
+  单次伤害（`(damage_min+damage_max)/2`）× 百分比"→新语义"武器秒伤（`item.weapon_dps_curve`）×
+  一拍常数（`skill.budget_rule.beat_seconds`，未声明该表/记录时缺省 1.0）× 百分比"——数值会变，
+  游戏侧已有的 `weapon_damage_pct` 技能百分比需要重新校准；新公式不再受武器速度影响单次挥击强度
+  （秒伤已经是速度无关量）。编辑器技能效果编辑界面若展示 `weapon_damage_pct` 的 `pct` 输入控件，
+  文案建议改为"武器秒伤 × 一拍常数的百分比"；`skill.budget_rule` 是编辑器新曲线/规则表编辑界面
+  应当收录的新表之一（当前只有 `id`/`beat_seconds` 两个字段，T-N3-9 落地后字段会继续增加）。
 
 ## [Unreleased]
 
 数值设计落地阶段 N3 · T-N3-1（ADR-0031 决策 1/9/10；06 第 3.1/3.2 节 2026-09-14 修订段）：`skill.def` 新增 `use_condition: Optional<Expr>`（宿主为施法者上下文，self/combat/target 分组，为假时施法返回 ConditionNotMet（T-N3-4 落地）、就绪查询同步反映）、`budget_note: Optional<String>`（超模说明，SkillBudgetAnalyzer T-N3-9 按此归入已确认组）两个字段；`cast_time`/`respects_gcd`/`cost` 三个既有字段改写描述（动作时长/节拍锁/固定消耗语义），字段种类与必填性不变；新增 `Core.Rules.Common.SettlementEffectKinds`（结算类原语集合常量：school_damage/weapon_damage_pct/heal/projectile/apply_aura，供 T-N3-9 预算校验适用范围与 T-N3-10 智能释放候选集共用；apply_aura 一项按效果原语类型无条件计入，不下钻解析具体引用的光环定义是否真的含周期/属性修正/控制/吸收效果之一，见该类型判断记录，待设计层确认）。不新增任何效果原语。本任务只登记 schema 层，不实现施法管线使用条件检查、节拍锁分支、技能预算 Analyzer 等运行时消费。
 
 数值设计落地阶段 N3 · T-N3-2（ADR-0031 决策 1；06 第 3.2 节 2026-09-14 修订段）：`school_damage`/`heal`（`skill.def.effects`）与 `periodic_damage`/`periodic_heal`（`skill.aura_def.effects`）效果参数新增 `scaling: [{stat: Reference(stat.definition), coefficient: Number}]`（可选，权威写法，允许多条求和，效果值 = 基础值 + Σ(coefficient × stat 最终值)）与 `base_curve_ref: Optional<Reference(skill.base_curve)>`（可选，存在时取代 `base_value`，按施法者当前等级在曲线上取值，动态计算不做快照）；`skill.def`/`skill.aura_def` `schema_version` 1→2，迁移把旧单字段 `scaling_stat`/`coefficient` 自动补出等价 `scaling` 列表（旧字段原样保留，不删除读取路径，硬性规则）；`EffectDispatcher.ApplyDamageOrHeal`（school_damage/heal 与周期效果共用同一条结算逻辑）求和优先级：`scaling` 列表非空时权威，缺省时回退旧字段；来源单位未注册/已销毁时缩放贡献按 0 处理（同 C02 判断记录），曲线引用解析不到时回退 `base_value`。新增表 `skill.base_curve`（施法者等级到效果基础值的断点曲线，04 第 3.6 节通用曲线形态，横轴 `CurveAxis.Level`）。**契约疑点（上报，待设计层确认）**：06 第 3.2 节与 ADR-0031 决策 1 均只说"基础值可选引用等级曲线"，未指明曲线表名，本任务临时判定登记为 `skill.base_curve`，详见 `SkillSchemas.BaseCurve` 类型注释；若设计层拍板另一表名/字段位，按 ADR 流程改结论，不影响 `scaling` 列表求和这一主线契约。不新增任何效果原语，不改变 `weapon_damage_pct` 与既有 `scaling_stat` 单字段数据的结算结果，回放基线零改动。
+
+数值设计落地阶段 N3 · T-N3-3（ADR-0031 决策 1/2/10；ADR-0032 决策 4；06 第 3.2/3.10 节 2026-09-14 修订段）：`weapon_damage_pct` 效果原语改为"武器秒伤 × 一拍常数 × 百分比"——`EffectDispatcher.ApplyDamageOrHeal` 的 `WeaponDamagePct` 分支不再调用 `IWeaponDamageQuery.GetWeaponBaseDamage`（武器单次基础伤害均值），改调 `GetWeaponDps`（T-N2-6 秒伤查询）再乘以新解析出的一拍常数；`GetWeaponBaseDamage` 方法本身保留、签名与既有语义均不改变（硬性规则"该方法本身保留供其它消费方"，当前框架内已知无其它消费方）。新增表 `skill.budget_rule`（最小骨架：本任务只登记 `id`/`beat_seconds: Optional<Number> > 0`，缺省 1.0，`FieldUnit.Time`/`TimeScope.Combat`；完整字段——施放时间当量规则、三条溢价/折价曲线、带宽、硬上限、控制类别权重、玩家档/怪物档——留给 T-N3-9 在同一张表上继续登记，非破坏性）；`SkillOptions` 新增 `BudgetRuleId: Id`（缺省 `skill.budget_rule.default`），`EffectDispatcher` 新增可选构造参数 `skillOptions`（ABI 安全：新增十六参数主构造函数，原十五参数构造函数标注 `[Obsolete]` 纯转发保留，惯例同 `CastPipeline` 十二/十三参数构造函数）。一拍常数解析（`EffectDispatcher.ResolveBeatSeconds`，经新增 `SkillDefCache.TryGetBeatSeconds`）：`skill.budget_rule` 表未注册或该 id 无对应记录时按缺省 1.0 处理并记一条警告，不阻断结算——保证尚未落地 `skill.budget_rule` 数据的项目结算行为与本次改动之前逐位一致。**迁移说明（行为变化）**：旧语义"武器单次伤害（`(damage_min+damage_max)/2`）× 百分比"→新语义"武器秒伤（`item.weapon_dps_curve(item_level) × 品质预算倍率 × 武器槽位系数`）× 一拍常数 × 百分比"——数值会变，游戏侧已有的 `weapon_damage_pct` 技能百分比需要重新校准；新公式不受 `weapon_profile.speed` 影响（秒伤本身已是速度无关量），已用测试证明同一武器模板改攻速前后 `GetWeaponDps` 结果不变（`core/carriers/item/tests/T_N2_6_WeaponDpsDeviationTests.cs`"验收组 3"）。**契约疑点（上报，待设计层确认）**：(1) `skill.budget_rule.beat_seconds` 字段名——06 第 3.10 节原文只有"一拍常数只是记账单位（如半秒）"的散文描述，未给出字段名，本任务据既有时间字段命名惯例临时判定为 `beat_seconds`，若 T-N3-9 落地完整表时另拍字段名需要同步改本表与两处读取点，详见 `SkillSchemas.BudgetRule` 类型注释。(2) `beat_seconds` 是否需要接入 `CooldownTracker`/`AuraHost` 那一套连续/离散模式切换换算系数——本任务只标记 `FieldUnit.Time`/`TimeScope.Combat` 满足元数据门禁，未接入运行期模式换算，`weapon_damage_pct` 是本仓库第一个在"预算记账"之外于结算路径直接消费这个常数的消费者，留给设计层裁定。不新增任何效果原语，不改变 `school_damage`/`heal`/周期效果的既有结算路径，回放基线零改动（回放场景不触达 `core/carriers/item` 装备模块，`GetWeaponDps` 未注入时恒为 0，语义变更前后均为 0）。
 
 ## [1.32.0] - 2026-09-15
 

@@ -44,24 +44,37 @@ namespace Tests.Rules.Skill
         // -----------------------------------------------------------------
 
         /// <summary>RC-11 收边补齐（见外部审计 architecture/落地计划/audit-b3b91ee-20260907/
-        /// code-review.md RC-11）：固定返回 <see cref="BaseDamage"/> 的最小假实现，模拟
-        /// <c>core/carriers/item.EquipmentHost.GetWeaponBaseDamage</c> 的效果——本模块（core/rules）
+        /// code-review.md RC-11）：固定返回 <see cref="Dps"/> 的最小假实现，模拟
+        /// <c>core/carriers/item.EquipmentHost.GetWeaponDps</c> 的效果——本模块（core/rules）
         /// 不依赖 core/carriers，不能直接用真实 EquipmentHost，见 IWeaponDamageQuery 判断记录
-        /// "依赖倒置"。</summary>
+        /// "依赖倒置"。
+        /// <para>
+        /// 更新（T-N3-3，ADR-0031 决策 1/2）：<c>weapon_damage_pct</c> 分支改接
+        /// <see cref="IWeaponDamageQuery.GetWeaponDps"/>（武器秒伤）而不是
+        /// <see cref="IWeaponDamageQuery.GetWeaponBaseDamage"/>（武器单次基础伤害），本假实现
+        /// 随之改为覆写 <see cref="GetWeaponDps"/>；<see cref="GetWeaponBaseDamage"/> 保留接口要求
+        /// 的实现但不应再被调用（专门的"禁止读取"回归测试见
+        /// <c>T_N3_3_WeaponDamagePctBeatSecondsTests</c>），这里仍返回一个哨兵值而不抛异常，
+        /// 避免与本文件其余同名假实现惯例（返回值优先于抛异常）冲突。
+        /// </para>
+        /// </summary>
         private sealed class FakeWeaponDamageQuery : IWeaponDamageQuery
         {
-            public double BaseDamage { get; set; }
-            public double GetWeaponBaseDamage(Id unitId) => BaseDamage;
+            public double Dps { get; set; }
+            public double GetWeaponDps(Id unitId) => Dps;
+            public double GetWeaponBaseDamage(Id unitId) => Dps;
         }
 
         [Fact]
-        public void WeaponDamagePct_MultipliesPctByInjectedWeaponBaseDamage()
+        public void WeaponDamagePct_MultipliesPctByInjectedWeaponDps()
         {
-            // 修复前：params.pct 本身直接当基础值（call.BaseValue == 0.75，与武器基础伤害无关，
-            // 换装不会改变该技能伤害，见外部审计 RC-11）。修复后必须是 weaponBase × pct。
+            // 修复前（RC-11）：params.pct 本身直接当基础值，与武器伤害无关，换装不会改变该技能
+            // 伤害。T-N3-3 起公式是 秒伤(GetWeaponDps) × 一拍常数 × pct；本测试未注册
+            // skill.budget_rule，一拍常数缺省 1.0（见 EffectDispatcher.ResolveBeatSeconds 判断
+            // 记录），数值与改动前"weaponBase × pct"逐位一致，只是来源方法换了。
             var skill = InstantSkill("skill.sample_weapon_hit", "weapon_damage_pct", ("pct", J.N(0.75)));
             var builder = new SkillWorldBuilder().SkillDef(skill);
-            builder.WeaponDamageQuery = new FakeWeaponDamageQuery { BaseDamage = 100 };
+            builder.WeaponDamageQuery = new FakeWeaponDamageQuery { Dps = 100 };
             var world = builder.Build();
             world.AddUnit(Caster);
             world.AddUnit(Target);
@@ -72,17 +85,18 @@ namespace Tests.Rules.Skill
             Assert.True(result.Success);
             var call = Assert.Single(world.Combat.ResolveCalls);
             Assert.Equal(EffectKind.WeaponDamagePct, call.Kind);
-            Assert.Equal(75.0, call.BaseValue, 6); // 100 × 0.75
+            Assert.Equal(75.0, call.BaseValue, 6); // 100(Dps) × 1.0(beat 缺省) × 0.75
         }
 
         [Fact]
-        public void WeaponDamagePct_ScalesWithWeaponBaseDamage_200BaseYields150()
+        public void WeaponDamagePct_ScalesWithWeaponDps_200DpsYields150()
         {
-            // 验收标准原句"100/200 基数分别得 75/150"的另一半：换一把基础伤害不同的武器，结果
-            // 应线性缩放——证明确实在消费武器基础伤害，不是碰巧算对了一次。
+            // 验收标准原句"100/200 基数分别得 75/150"的另一半：换一把秒伤不同的武器，结果应
+            // 线性缩放——证明确实在消费武器秒伤，不是碰巧算对了一次（T-N3-3：秒伤曲线值变化时
+            // 伤害等比变化）。
             var skill = InstantSkill("skill.sample_weapon_hit_200", "weapon_damage_pct", ("pct", J.N(0.75)));
             var builder = new SkillWorldBuilder().SkillDef(skill);
-            builder.WeaponDamageQuery = new FakeWeaponDamageQuery { BaseDamage = 200 };
+            builder.WeaponDamageQuery = new FakeWeaponDamageQuery { Dps = 200 };
             var world = builder.Build();
             world.AddUnit(Caster);
             world.AddUnit(Target);
@@ -92,7 +106,7 @@ namespace Tests.Rules.Skill
 
             Assert.True(result.Success);
             var call = Assert.Single(world.Combat.ResolveCalls);
-            Assert.Equal(150.0, call.BaseValue, 6); // 200 × 0.75
+            Assert.Equal(150.0, call.BaseValue, 6); // 200(Dps) × 1.0(beat 缺省) × 0.75
         }
 
         [Fact]

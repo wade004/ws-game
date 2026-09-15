@@ -32,6 +32,11 @@ namespace Core.Rules.Skill
         // 唯一差异是本表更简单、连独立包装类型都不需要）。
         private readonly Dictionary<Id, PiecewiseCurve> _baseCurves = new Dictionary<Id, PiecewiseCurve>();
 
+        // T-N3-3（ADR-0031 决策 2/10）：skill.budget_rule.beat_seconds 的已解析缓存——同
+        // _baseCurves 判断记录，本表（最小骨架，见 SkillSchemas.BudgetRule 类型注释）目前只有
+        // id/beat_seconds 两个字段，不需要强类型 Defs.cs 包装，直接缓存解出的 double。
+        private readonly Dictionary<Id, double> _beatSeconds = new Dictionary<Id, double>();
+
         // 集成任务改动：解析 skill.proc_def.condition 用的 IExprSchema，默认改用集成任务提供的
         // core/rules/expr_host.RulesExprSchema.Base（原先本模块自带的临时占位 schema 已被取代，
         // 阶段 3 整理后已删除），保留可注入口子（构造参数 exprSchema）。
@@ -59,6 +64,7 @@ namespace Core.Rules.Skill
             _spellMods.Clear();
             _books.Clear();
             _baseCurves.Clear();
+            _beatSeconds.Clear();
         }
 
         /// <summary>T-N3-2（ADR-0031 决策 1）：按 <paramref name="id"/> 取 <c>skill.base_curve</c>
@@ -83,6 +89,33 @@ namespace Core.Rules.Skill
 
             curve = CurveSchema.ReadBreakpoints(record, "entries");
             _baseCurves[id] = curve;
+            return true;
+        }
+
+        /// <summary>T-N3-3（ADR-0031 决策 2/10；06 第 3.2/3.10 节）：按 <paramref name="id"/> 取
+        /// <c>skill.budget_rule.beat_seconds</c>（一拍常数）。表未注册（<see cref="SkillSchemas.BudgetRule"/>
+        /// 未 <c>RegisterSchema</c>，同 <see cref="TryGetBaseCurve"/> 判断记录，<c>IDataRegistryView.Get</c>
+        /// 对未知表原样返回 <c>null</c>）或记录不存在时返回 <c>false</c>——调用方
+        /// （<see cref="EffectDispatcher"/> 的 <c>ResolveBeatSeconds</c>）在取不到时退回缺省
+        /// 1.0，不中断结算。<c>beat_seconds</c> 字段本身是可选字段（缺省 1.0，见
+        /// <see cref="SkillSchemas.BudgetRule"/> 字段描述）：记录存在但未声明该字段时，同样按 1.0
+        /// 处理（不算作"记录不存在"，仍返回 <c>true</c>）。</summary>
+        public bool TryGetBeatSeconds(Id id, out double beatSeconds)
+        {
+            if (_beatSeconds.TryGetValue(id, out beatSeconds))
+            {
+                return true;
+            }
+
+            var record = _registry.Get("skill.budget_rule", id);
+            if (record == null)
+            {
+                beatSeconds = 0;
+                return false;
+            }
+
+            beatSeconds = record.TryGetNumber("beat_seconds", out var value) ? value : 1.0;
+            _beatSeconds[id] = beatSeconds;
             return true;
         }
 

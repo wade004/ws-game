@@ -1,0 +1,10 @@
+{
+  "table": "skill.budget_rule",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.budget_rule.default",
+      "beat_seconds": 1.0
+    }
+  ]
+}

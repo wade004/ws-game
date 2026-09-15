@@ -545,10 +545,11 @@ namespace Core.Carriers.Item
         /// 数据决定。
         /// <para>
         /// T-N2-6 判断记录（口径不变、硬性规则"禁止改既有签名"）：ADR-0032 决策 4 落地后武器改走
-        /// "秒伤预算"，但本方法保留 <c>(damage_min+damage_max)/2</c> 语义——<c>weapon_damage_pct</c>
-        /// 原语改接秒伤 × 一拍常数是 N3 S3 的范围（见 <see cref="IWeaponDamageQuery.GetWeaponBaseDamage"/>
-        /// 判断记录），本方法只是把"找第一个武器槽"这一步抽成 <see cref="TryGetFirstWeaponSlot"/>
-        /// 供 <see cref="GetWeaponDps"/> 共用，行为与返回值同改动前逐位一致。
+        /// "秒伤预算"，但本方法保留 <c>(damage_min+damage_max)/2</c> 语义——本方法只是把"找第一个
+        /// 武器槽"这一步抽成 <see cref="TryGetFirstWeaponSlot"/> 供 <see cref="GetWeaponDps"/> 共用，
+        /// 行为与返回值同改动前逐位一致。更新（T-N3-3 已落地）：<c>weapon_damage_pct</c> 原语改接
+        /// 秒伤 × 一拍常数后不再调用本方法（见 <see cref="IWeaponDamageQuery.GetWeaponBaseDamage"/>
+        /// 判断记录"更新"段），本方法保留供其它消费方，实现不受影响。
         /// </para>
         /// </summary>
         public double GetWeaponBaseDamage(Id unitId)

@@ -37,6 +37,13 @@ namespace Core.Rules.Skill
         private readonly Action<Id, Id, Id?, double> _interrupt;
         private readonly Action<Id, Id> _learnSkill;
 
+        /// <summary>T-N3-3（ADR-0031 决策 2/10）：<c>weapon_damage_pct</c> 分支解析
+        /// <see cref="SkillOptions.BudgetRuleId"/> 所需——只在该分支使用，其余全部分支不读本字段。
+        /// <c>null</c>（旧十五参数兼容构造函数、未显式传入）时按 <c>new SkillOptions().BudgetRuleId</c>
+        /// 缺省值处理（见 <see cref="ResolveBeatSeconds"/>），不是"功能关闭"——旧调用方不会得到
+        /// 任何行为变化以外的降级，只是无法自定义 <c>BudgetRuleId</c>。</summary>
+        private readonly SkillOptions? _options;
+
         /// <summary>
         /// ADR-0026《技能位移的连续模式》：<c>move</c> 效果原语 <c>motion: continuous</c> 分支的
         /// 依赖倒置出口，由 <c>Core.Carriers.Assembly.CarriersAssembly</c> 在装配期经
@@ -52,6 +59,64 @@ namespace Core.Rules.Skill
         /// </summary>
         public IControlledDisplacementSink? DisplacementSink { get; set; }
 
+        /// <summary>
+        /// T-N3-3 新增 <paramref name="skillOptions"/>（ABI 安全：新增重载而非在既有物理签名上加
+        /// 参数，惯例同 <see cref="CastPipeline"/> 十二/十三参数构造函数判断记录——已编译的旧调用方
+        /// 若省略本参数，物理上绑定的是下方 <see cref="Obsolete"/> 标注的十五参数兼容重载，不会因为
+        /// 本次改动抛 <c>MissingMethodException</c>）。<paramref name="skillOptions"/> 为 <c>null</c>
+        /// 时（含旧重载转发）<c>weapon_damage_pct</c> 分支按 <c>new SkillOptions().BudgetRuleId</c>
+        /// 缺省值解析一拍常数（见 <see cref="ResolveBeatSeconds"/>），其余全部行为不受影响。
+        /// </summary>
+        public EffectDispatcher(
+            AuraHost auraHost,
+            CooldownTracker cooldowns,
+            SkillDefCache defs,
+            IPowerHost powerHost,
+            IUnitAccess units,
+            ICombatHost combatHost,
+            IStatHost statHost,
+            SpellModResolver spellMods,
+            IEffectExtension? extension,
+            ISkillDiagnostics diagnostics,
+            ProcHost.TriggerCastCallback triggerCast,
+            Action<Id, Id, Id?, double> interrupt,
+            Action<Id, Id> learnSkill,
+            IProjectileSpawner? projectileSpawner,
+            IWeaponDamageQuery? weaponDamageQuery,
+            SkillOptions? skillOptions)
+        {
+            _auraHost = auraHost ?? throw new ArgumentNullException(nameof(auraHost));
+            _cooldowns = cooldowns ?? throw new ArgumentNullException(nameof(cooldowns));
+            _defs = defs ?? throw new ArgumentNullException(nameof(defs));
+            _powerHost = powerHost ?? throw new ArgumentNullException(nameof(powerHost));
+            _units = units ?? throw new ArgumentNullException(nameof(units));
+            _combatHost = combatHost ?? throw new ArgumentNullException(nameof(combatHost));
+            _statHost = statHost ?? throw new ArgumentNullException(nameof(statHost));
+            _spellMods = spellMods ?? throw new ArgumentNullException(nameof(spellMods));
+            _extension = extension;
+            _projectileSpawner = projectileSpawner;
+            _weaponDamageQuery = weaponDamageQuery;
+            _options = skillOptions;
+            _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+            _triggerCast = triggerCast ?? throw new ArgumentNullException(nameof(triggerCast));
+            _interrupt = interrupt ?? throw new ArgumentNullException(nameof(interrupt));
+            _learnSkill = learnSkill ?? throw new ArgumentNullException(nameof(learnSkill));
+        }
+
+        /// <summary>
+        /// ABI 兼容 façade（T-N3-3 补充 <see cref="SkillOptions"/> 参数之前的物理十五参数构造签名，
+        /// 同 <see cref="CastPipeline"/> 十二/十三参数构造函数判断记录同一套推导）：本重载最后两个
+        /// 参数（<c>projectileSpawner</c>/<c>weaponDamageQuery</c>）均带默认值，与上方主构造函数
+        /// （15 个不带默认值的参数 + <c>skillOptions</c> 恰好第 16 个）参数个数不重叠时精确匹配本
+        /// 重载，恰好传 16 个参数时精确匹配主构造函数，互不冲突，保证已编译好、以"省略
+        /// projectileSpawner/weaponDamageQuery/skillOptions 中若干个"方式调用本构造函数的既有二进制
+        /// 消费方不需要重新编译。<c>skillOptions</c> 固定传 <c>null</c>——旧调用方不会得到自定义
+        /// <see cref="SkillOptions.BudgetRuleId"/> 的能力，<c>weapon_damage_pct</c> 分支对这类实例
+        /// 按缺省 <c>BudgetRuleId</c> 解析一拍常数（同未注入 <see cref="IWeaponDamageQuery"/> 的既有
+        /// 降级惯例），其余行为与本重载补充之前完全一致。
+        /// </summary>
+        [Obsolete("T-N3-3 之前的十五参数构造签名，仅为源码/二进制兼容保留；新代码请使用带 skillOptions 的十六参数构造函数。")]
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
         public EffectDispatcher(
             AuraHost auraHost,
             CooldownTracker cooldowns,
@@ -68,22 +133,10 @@ namespace Core.Rules.Skill
             Action<Id, Id> learnSkill,
             IProjectileSpawner? projectileSpawner = null,
             IWeaponDamageQuery? weaponDamageQuery = null)
+            : this(auraHost, cooldowns, defs, powerHost, units, combatHost, statHost, spellMods,
+                extension, diagnostics, triggerCast, interrupt, learnSkill,
+                projectileSpawner, weaponDamageQuery, skillOptions: null)
         {
-            _auraHost = auraHost ?? throw new ArgumentNullException(nameof(auraHost));
-            _cooldowns = cooldowns ?? throw new ArgumentNullException(nameof(cooldowns));
-            _defs = defs ?? throw new ArgumentNullException(nameof(defs));
-            _powerHost = powerHost ?? throw new ArgumentNullException(nameof(powerHost));
-            _units = units ?? throw new ArgumentNullException(nameof(units));
-            _combatHost = combatHost ?? throw new ArgumentNullException(nameof(combatHost));
-            _statHost = statHost ?? throw new ArgumentNullException(nameof(statHost));
-            _spellMods = spellMods ?? throw new ArgumentNullException(nameof(spellMods));
-            _extension = extension;
-            _projectileSpawner = projectileSpawner;
-            _weaponDamageQuery = weaponDamageQuery;
-            _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
-            _triggerCast = triggerCast ?? throw new ArgumentNullException(nameof(triggerCast));
-            _interrupt = interrupt ?? throw new ArgumentNullException(nameof(interrupt));
-            _learnSkill = learnSkill ?? throw new ArgumentNullException(nameof(learnSkill));
         }
 
         /// <summary>
@@ -192,14 +245,18 @@ namespace Core.Rules.Skill
 
             if (context.Kind == EffectKind.WeaponDamagePct)
             {
-                // RC-11 收边勘误：pct 是"武器基础伤害的百分比"（06 第 3.2 节），原实现把 params.pct
-                // 本身直接当成落地基础值，从未真正读取过武器伤害——换装不改变该技能伤害，等价于
-                // weaponBase 恒为 1（见外部审计 RC-11）。现在经 IWeaponDamageQuery（依赖倒置，见该
-                // 接口判断记录）取施法者当前武器基础伤害（damage_min/damage_max 均值，无武器为 0，
-                // 见该接口方法注释"判断记录"）再乘以 pct。
+                // T-N3-3（ADR-0031 决策 1/2；06 第 3.2 节 2026-09-14 修订段"weapon_damage_pct 改为
+                // 基于武器秒伤 × 一拍常数 × 百分比而不是基于单次武器伤害"）：不再读取
+                // IWeaponDamageQuery.GetWeaponBaseDamage（damage_min/damage_max 均值，硬性规则
+                // "禁止在效果里读武器单次伤害"），改经 GetWeaponDps 取武器秒伤（item.weapon_dps_curve
+                // (item_level) × 品质预算倍率 × 武器槽位系数，T-N2-6，无武器为 0，见该方法判断记录）
+                // 再乘以一拍常数（ResolveBeatSeconds，来自 skill.budget_rule.beat_seconds）与 pct。
+                // GetWeaponBaseDamage 方法本身保留、签名不变（硬性规则"该方法本身保留供其它消费方"），
+                // 只是本分支不再调用它。
                 var pct = ParamsX.GetNumber(context.Params, "pct", context.BaseValue);
-                var weaponBase = _weaponDamageQuery?.GetWeaponBaseDamage(context.SourceId) ?? 0.0;
-                value = weaponBase * pct;
+                var weaponDps = _weaponDamageQuery?.GetWeaponDps(context.SourceId) ?? 0.0;
+                var beatSeconds = ResolveBeatSeconds();
+                value = weaponDps * beatSeconds * pct;
             }
             else
             {
@@ -325,6 +382,34 @@ namespace Core.Rules.Skill
                 context.Tags, context.TriggerChainDepth, context.AttackInstanceId, groundPoint: null, sourceKind: context.SourceKind);
 
             return _combatHost.ResolveEffect(outbound);
+        }
+
+        /// <summary>T-N3-3（ADR-0031 决策 2/10；06 第 3.2/3.10 节）：解析
+        /// <c>weapon_damage_pct</c> 分支需要的一拍常数——按 <see cref="_options"/>（<c>null</c> 时
+        /// 视同缺省 <see cref="SkillOptions"/>，见该字段判断记录）的 <see cref="SkillOptions.BudgetRuleId"/>
+        /// 查 <see cref="SkillDefCache.TryGetBeatSeconds"/>；表未注册或该 id 没有记录时按缺省 1.0
+        /// 处理并记一条警告（不阻断，同 <see cref="ApplyMove"/> 对未注入
+        /// <see cref="IControlledDisplacementSink"/> 的既有"降级 + 警告"惯例）——1.0 恰好是"改乘一拍
+        /// 常数之前"的等效行为（乘 1 不改变结果），保证 <c>skill.budget_rule</c> 尚未落地完整数据的
+        /// 项目不会因为本次改动出现结算异常。</summary>
+        /// <summary>与 <see cref="SkillOptions.BudgetRuleId"/> 默认值字面量一致（判断记录：不用
+        /// <c>new SkillOptions().BudgetRuleId</c> 每次结算都分配一个临时实例——weapon_damage_pct
+        /// 在战斗中可能高频结算，这里直接复制字面量，两处字面量须保持同步，已在双方注释互相
+        /// 交叉引用）。</summary>
+        private static readonly Id DefaultBudgetRuleId = new Id("skill.budget_rule.default");
+
+        private double ResolveBeatSeconds()
+        {
+            var budgetRuleId = _options?.BudgetRuleId ?? DefaultBudgetRuleId;
+            if (_defs.TryGetBeatSeconds(budgetRuleId, out var beatSeconds))
+            {
+                return beatSeconds;
+            }
+
+            _diagnostics.Warn(
+                $"skill.budget_rule \"{budgetRuleId}\" 未找到记录（表未注册或该 id 没有对应记录），" +
+                $"weapon_damage_pct 的一拍常数按缺省 1.0 处理（见 EffectDispatcher.ResolveBeatSeconds 判断记录，ADR-0031 决策 2/10）");
+            return 1.0;
         }
 
         // -----------------------------------------------------------------

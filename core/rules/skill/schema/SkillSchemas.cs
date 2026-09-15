@@ -570,6 +570,60 @@ namespace Core.Rules.Skill
                     yDescription: "该等级对应的效果基础值，供 school_damage/heal/periodic_damage/periodic_heal 的 base_curve_ref 引用"),
             }).WithOwnership(SchemaLayer.Rules, "skill");
 
+        /// <summary><c>skill.budget_rule</c>：技能预算规则表的最小骨架（分阶段落地计划 T-N3-3；
+        /// [ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 2"技能预算规则
+        /// 表与警告级校验"、决策 10"一拍常数只是记账单位……施放时间当量 = max(动作时长, 一拍
+        /// 常数)"；06 第 3.10 节字段表）。
+        /// <para>
+        /// 判断记录（分两步落地，不是自行发明契约）：06 第 3.10 节"数据表 skill.budget_rule（04）：
+        /// 一拍常数、施放时间当量规则、冷却溢价/范围折价/消耗溢价三条曲线、带宽、硬上限、控制类别
+        /// 权重、玩家档/怪物档"给出的是完整表，落地改动点清单第 14 节 N3 任务表把它整体排到
+        /// T-N3-9；但 T-N3-3（`weapon_damage_pct` 改接"秒伤 × 一拍常数"）在 T-N3-9 之前就需要运行期
+        /// 读到"一拍常数"，任务书就此裁定"本任务先登记最小骨架（只含 id 与 beat_seconds），其余
+        /// 字段先不登记"——本表只登记这两个字段，<see cref="Def"/>/<see cref="AuraDef"/> 等其余五张
+        /// 表旁的完整字段集（施放时间当量规则、三条溢价/折价曲线、带宽、硬上限、控制类别权重、
+        /// 玩家档/怪物档）留给 T-N3-9 在同一 <c>TableSchema</c> 上继续补登记（新增字段，非破坏性，
+        /// 不需要 schema 版本递增）。
+        /// </para>
+        /// <para>
+        /// 契约疑点（上报，待设计层确认）：06 第 3.10 节原文只有"一拍常数只是记账单位（如半秒）"
+        /// 这句散文描述，未给出字段名——本任务据落地方案措辞、参照 <c>cast_time</c>/
+        /// <c>cooldown_duration</c> 既有时间字段的英文命名惯例，临时判定字段名为
+        /// <c>beat_seconds</c>。若设计层在 T-N3-9 落地完整表时另拍字段名，需要同步改本表与全部
+        /// 读取点（<see cref="Core.Rules.Skill.SkillDefCache.TryGetBeatSeconds"/>、
+        /// <see cref="Core.Rules.Skill.EffectDispatcher"/> 的 <c>ResolveBeatSeconds</c>），影响面
+        /// 已知且集中在这两处，不影响"秒伤 × 一拍常数"这一主线公式。
+        /// </para>
+        /// <para>
+        /// 判断记录（<see cref="FieldUnit.Time"/>/<see cref="TimeScope.Combat"/> 只是元数据声明，
+        /// 不接入运行期模式换算）：<c>beat_seconds</c> 语义上是一段时长，标记
+        /// <see cref="FieldUnit.Time"/> 满足 <c>SchemaAudit</c>"time_scope_declared"检查（04 第
+        /// 3.4 节），表按技能同惯例声明 <see cref="TimeScope.Combat"/>；但 <c>cast_time</c>/
+        /// <c>cooldown_duration</c> 那一类字段在模式切换（<c>TimeModelRescaledEvent</c>）时由
+        /// <c>CooldownTracker</c>/<c>AuraHost</c> 内部的换算系数实时折算，本任务未给
+        /// <c>beat_seconds</c> 接入同一套换算——06/ADR-0031 均未规定"运行期直接消费的一拍常数"要
+        /// 不要跟随连续/离散模式切换重新折算，`weapon_damage_pct` 是本仓库第一个在"预算记账"之外
+        /// 于结算路径直接消费这个常数的消费者，是否需要同 <c>CooldownTracker</c> 一样的模式换算
+        /// 留给设计层裁定，不在本任务自行决定。
+        /// </para>
+        /// </summary>
+        public static TableSchema BudgetRule { get; } = new TableSchema(
+            name: "skill.budget_rule",
+            primaryKey: "id",
+            currentSchemaVersion: 1,
+            fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "skill.budget_rule.<name>"),
+                new FieldSchema("beat_seconds", FieldKind.Number, required: false,
+                        description: "一拍常数：06 第 3.10 节预算公式的记账单位（施放时间当量 = " +
+                            "max(动作时长, 一拍常数)），T-N3-3 起同时是 weapon_damage_pct 原语运行期" +
+                            "公式\"武器秒伤 × 一拍常数 × 百分比\"的乘数（ADR-0031 决策 1/2、06 第 3.2 " +
+                            "节 2026-09-14 修订段）；缺省 1.0（记录不存在/表未注册时同一缺省值，见 " +
+                            "EffectDispatcher.ResolveBeatSeconds 判断记录）")
+                    .WithRange(FieldRange.Range(min: 0, minExclusive: true))
+                    .WithUnit(FieldUnit.Time),
+            }).WithOwnership(SchemaLayer.Rules, "skill").WithTimeScope(TimeScope.Combat);
+
         public static TableSchema Def { get; } = new TableSchema(
             name: "skill.def",
             primaryKey: "id",
