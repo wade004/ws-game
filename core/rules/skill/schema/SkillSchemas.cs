@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Rules.Common;
 
@@ -76,6 +77,38 @@ namespace Core.Rules.Skill
         }
 
         // -----------------------------------------------------------------
+        // T-N3-2（ADR-0031 决策 1；06 第 3.2 节 2026-09-14 修订段）：效果值契约
+        // 效果值 = 基础值 + Σ(缩放属性最终值 × 系数) 的新写法——scaling 列表 + 可选 base_curve_ref。
+        // 与旧单字段 scaling_stat/coefficient 是同一语义的两种表达，不是两套并行契约：scaling 非空
+        // 时权威、旧字段忽略；scaling 缺失（含未经 1→2 迁移的旧数据）时回退旧字段（见
+        // EffectDispatcher.ApplyDamageOrHeal 判断记录，硬性规则"禁止删除旧 scaling_stat 读取路径"）。
+        // school_damage/heal（DamageOrHealParams）与 periodic_damage/periodic_heal
+        // （PeriodicParamsCase）两处共用同一份字段实例（"登记一次、多处复用"，同 EffectsItemSchema
+        // 既有惯例），因为两条效果路径本就共用同一条 EffectDispatcher.ApplyDamageOrHeal 结算逻辑
+        // （P3-04 判断记录，见 AuraHost.FirePeriodic 把 entry.Params 原样转发进 EffectContext.Params）。
+        // -----------------------------------------------------------------
+
+        private static readonly FieldSchema ScalingEntrySchema = new FieldSchema(
+            "<scaling_entry>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("stat", FieldKind.Reference, required: true, referenceTable: "stat.definition",
+                    description: "缩放属性引用（06 第 3.2 节 2026-09-14 修订段：通常为攻击强度或法术强度一类派生属性）"),
+                new FieldSchema("coefficient", FieldKind.Number, required: true, description: "该缩放属性对应的系数"),
+            }, description: "{stat: Reference(stat.definition), coefficient: Number}，效果值缩放条目之一（ADR-0031 决策 1）");
+
+        private static readonly FieldSchema ScalingListField = new FieldSchema(
+            "scaling", FieldKind.Array, required: false, item: ScalingEntrySchema,
+            description: "缩放属性列表，效果值 = 基础值 + Σ(scaling[i].coefficient × 施法者 scaling[i].stat 最终值)，允许多条求和" +
+                "（ADR-0031 决策 1；06 第 3.2 节 2026-09-14 修订段）；权威写法，非空时取代旧单字段 scaling_stat/coefficient" +
+                "（见 EffectDispatcher.ApplyDamageOrHeal 判断记录、本表 scaling_stat 字段判断记录）");
+
+        private static readonly FieldSchema BaseCurveRefField = new FieldSchema(
+            "base_curve_ref", FieldKind.Reference, required: false, referenceTable: "skill.base_curve",
+            description: "可选引用施法者等级到基础值的曲线，存在时取代 base_value（ADR-0031 决策 1\"基础值可选引用等级曲线\"，缺省为零）。" +
+                "契约疑点（上报，待设计层确认）：06 第 3.2 节 2026-09-14 修订段与 ADR-0031 决策 1 均只说\"可选引用等级曲线\"，" +
+                "未指明具体表名——本任务临时判定登记为 skill.base_curve（见 SkillSchemas.BaseCurve 类型注释）");
+
+        // -----------------------------------------------------------------
         // school_damage / heal 共用参数（EffectDispatcher.ApplyDamageOrHeal 非 WeaponDamagePct 分支）：
         // base_value/coefficient 均可省（缺省取 EffectContext 传入的默认值），school 缺省取
         // skill.def.school（CastPipeline.ExecuteEffectsOnly：ParamsX.GetIdOpt(..,"school") ?? def.School），
@@ -83,11 +116,14 @@ namespace Core.Rules.Skill
         // -----------------------------------------------------------------
         private static readonly IReadOnlyList<FieldSchema> DamageOrHealParams = new[]
         {
-            new FieldSchema("base_value", FieldKind.Number, required: false, description: "基础值，缺省 0"),
-            new FieldSchema("coefficient", FieldKind.Number, required: false, description: "缩放系数，缺省 0"),
+            new FieldSchema("base_value", FieldKind.Number, required: false, description: "基础值，缺省 0；base_curve_ref 存在时被其取代（见该字段判断记录）"),
+            new FieldSchema("coefficient", FieldKind.Number, required: false, description: "缩放系数，缺省 0；scaling 列表存在时不参与效果值组装，只随 EffectContext 原样转发（见 EffectDispatcher.ApplyDamageOrHeal 判断记录）"),
             new FieldSchema("school", FieldKind.Id, required: false, description: "缺省取 skill.def.school"),
             new FieldSchema("scaling_stat", FieldKind.Reference, required: false, referenceTable: "stat.definition",
-                description: "缩放属性，缺省不缩放（判断记录：stat.definition 属 L1，本模块已依赖 StatBlock 程序集，登记为 Reference 不违反分层）"),
+                description: "旧单字段缩放属性写法，缺省不缩放（判断记录：stat.definition 属 L1，本模块已依赖 StatBlock 程序集，登记为 Reference 不违反分层）；" +
+                    "T-N3-2 起 scaling 列表为权威写法，本字段与 coefficient 搭配的旧读取路径保留兼容（硬性规则：禁止删除），scaling 列表非空时不再读取本字段"),
+            ScalingListField,
+            BaseCurveRefField,
         };
 
         /// <summary>技能效果列表（<c>skill.def.effects</c>）与投射物命中后效果列表
@@ -409,7 +445,12 @@ namespace Core.Rules.Skill
             // 内容作者/编辑器看不到这个受支持的可选参数（schema 漏项，不是运行期行为缺陷：未登记
             // 字段不报错，不影响已经这样填写的数据）。
             new FieldSchema("scaling_stat", FieldKind.Reference, required: false, referenceTable: "stat.definition",
-                description: "缩放属性，缺省不缩放（同 DamageOrHealParams.scaling_stat，两条效果路径共用同一份 EffectDispatcher.ApplyDamageOrHeal 结算逻辑）"),
+                description: "旧单字段缩放属性写法，缺省不缩放（同 DamageOrHealParams.scaling_stat，两条效果路径共用同一份 EffectDispatcher.ApplyDamageOrHeal 结算逻辑）；" +
+                    "T-N3-2 起 scaling 列表为权威写法，见该字段判断记录"),
+            // T-N3-2：与 DamageOrHealParams 共用同一份字段实例（"登记一次、多处复用"），见本文件
+            // ScalingListField/BaseCurveRefField 顶部判断记录。
+            ScalingListField,
+            BaseCurveRefField,
         }, description);
 
         private static IReadOnlyList<FieldSchema> ParamsCase(bool required, IReadOnlyList<FieldSchema> paramFields, string description) => new[]
@@ -417,10 +458,126 @@ namespace Core.Rules.Skill
             new FieldSchema("params", FieldKind.Object, required: required, fields: paramFields, description: description),
         };
 
+        // -----------------------------------------------------------------
+        // T-N3-2：skill.def/skill.aura_def 的 1→2 迁移——effects[] 里 school_damage/heal（skill.def）
+        // 或 periodic_damage/periodic_heal（skill.aura_def）四种取值，若 params 声明了旧单字段
+        // scaling_stat 且尚未声明新列表 scaling，追加 scaling: [{stat: <scaling_stat 的值>,
+        // coefficient: <coefficient 缺省 0>}]；旧字段（scaling_stat/coefficient）原样保留，不删除
+        // （硬性规则"禁止删除旧 scaling_stat 读取路径"）。已声明 scaling 的条目、其余效果原语（其
+        // params 不含这套字段）原样透传，不做任何改动——只做结构转换，惯例同
+        // CurveSchema.MigrateBreakpointsFieldNames（本类型不做任何校验，形状问题留给迁移后的
+        // 字段级校验报告）。
+        // -----------------------------------------------------------------
+
+        private static readonly string[] ScalingMigrationEffectKinds =
+        {
+            EffectKindNames.ToText(EffectKind.SchoolDamage),
+            EffectKindNames.ToText(EffectKind.Heal),
+        };
+
+        private static readonly string[] ScalingMigrationAuraEffectKinds =
+        {
+            AuraEffectKindNames.ToText(AuraEffectKind.PeriodicDamage),
+            AuraEffectKindNames.ToText(AuraEffectKind.PeriodicHeal),
+        };
+
+        private static JsonObject MigrateEffectsScalingStatToList(JsonObject row, string effectsField, IReadOnlyCollection<string> kinds)
+        {
+            var kindSet = new HashSet<string>(kinds, StringComparer.Ordinal);
+            var builder = new JsonObjectBuilder();
+            foreach (var entry in row)
+            {
+                if (entry.Key == effectsField && entry.Value is JsonArray effects)
+                {
+                    var migrated = new JsonValue[effects.Count];
+                    for (var i = 0; i < effects.Count; i++)
+                    {
+                        migrated[i] = effects[i] is JsonObject effectObj ? MigrateEffectEntryScaling(effectObj, kindSet) : effects[i];
+                    }
+                    builder.Add(entry.Key, new JsonArray(migrated));
+                }
+                else
+                {
+                    builder.Add(entry.Key, entry.Value);
+                }
+            }
+            return builder.Build();
+        }
+
+        private static JsonObject MigrateEffectEntryScaling(JsonObject effect, HashSet<string> kinds)
+        {
+            if (!effect.TryGetValue("kind", out var kindValue) || !(kindValue is JsonString kindStr) || !kinds.Contains(kindStr.Value))
+            {
+                return effect;
+            }
+
+            if (!effect.TryGetValue("params", out var paramsValue) || !(paramsValue is JsonObject paramsObj))
+            {
+                return effect;
+            }
+
+            if (paramsObj.ContainsKey("scaling") || !paramsObj.TryGetValue("scaling_stat", out var statValue) || !(statValue is JsonString statStr))
+            {
+                return effect;
+            }
+
+            var coefficient = paramsObj.TryGetValue("coefficient", out var coeffValue) && coeffValue is JsonNumber coeffNum ? coeffNum.Value : 0;
+
+            var scalingEntry = new JsonObjectBuilder()
+                .Add("stat", new JsonString(statStr.Value))
+                .Add("coefficient", new JsonNumber(coefficient))
+                .Build();
+
+            var newParamsBuilder = new JsonObjectBuilder();
+            foreach (var kv in paramsObj)
+            {
+                newParamsBuilder.Add(kv.Key, kv.Value);
+            }
+            newParamsBuilder.Add("scaling", new JsonArray(new JsonValue[] { scalingEntry }));
+            var newParams = newParamsBuilder.Build();
+
+            var newEffectBuilder = new JsonObjectBuilder();
+            foreach (var kv in effect)
+            {
+                newEffectBuilder.Add(kv.Key, kv.Key == "params" ? newParams : kv.Value);
+            }
+            return newEffectBuilder.Build();
+        }
+
+        /// <summary><c>skill.base_curve</c>：施法者等级到效果基础值的曲线（分阶段落地计划 T-N3-2；
+        /// ADR-0031 决策 1"基础值可选引用等级曲线（base_curve_ref），默认为零"；06 第 3.2 节
+        /// 2026-09-14 修订段）。
+        /// <para>
+        /// 契约疑点（上报，待设计层确认）：06 第 3.2 节与 ADR-0031 决策 1 均只说"基础值可选引用
+        /// 等级曲线（base_curve_ref）"，未指明这张曲线表的表名——04 第 1.1 节表清单里 skill 域现有
+        /// 六张表（def/aura_def/proc_def/spell_mod_def/book/budget_rule）均不含它。本任务据任务书
+        /// 给出的候选位置临时判定：新增本表 <c>skill.base_curve</c>，横轴取施法者等级
+        /// （<see cref="CurveAxis.Level"/>，04 第 3.6 节通用断点表形态），与 <c>item.armor_curve</c>
+        /// 等新表同一惯例——新表，直接按通用断点表形态登记，不需要迁移。若设计层后续拍板另一
+        /// 表名/字段位，属改结论（走 12 第 2 节 ADR 流程），不影响已落地的"scaling 列表求和"这
+        /// 一主线契约（决策 1 的另一半，本任务已明确落地，不依赖本表是否存在）。</para></summary>
+        public static TableSchema BaseCurve { get; } = new TableSchema(
+            name: "skill.base_curve",
+            primaryKey: "id",
+            currentSchemaVersion: 1,
+            fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "skill.base_curve.<name>"),
+                CurveSchema.BreakpointsField("entries", CurveAxis.Level, required: true,
+                    description: "断点表 [{x: 施法者等级(Int), y: 基础值(Number)}]，按 x 线性插值、越界夹取到端点" +
+                        "（04 第 3.6 节通用曲线形态；ADR-0031 决策 1）",
+                    xDescription: "采样点对应的施法者等级",
+                    yDescription: "该等级对应的效果基础值，供 school_damage/heal/periodic_damage/periodic_heal 的 base_curve_ref 引用"),
+            }).WithOwnership(SchemaLayer.Rules, "skill");
+
         public static TableSchema Def { get; } = new TableSchema(
             name: "skill.def",
             primaryKey: "id",
-            currentSchemaVersion: 1,
+            currentSchemaVersion: 2,
+            migrations: new[]
+            {
+                new TableMigration(1, 2, row => MigrateEffectsScalingStatToList(row, "effects", ScalingMigrationEffectKinds)),
+            },
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "skill.<name>"),
@@ -515,7 +672,11 @@ namespace Core.Rules.Skill
         public static TableSchema AuraDef { get; } = new TableSchema(
             name: "skill.aura_def",
             primaryKey: "id",
-            currentSchemaVersion: 1,
+            currentSchemaVersion: 2,
+            migrations: new[]
+            {
+                new TableMigration(1, 2, row => MigrateEffectsScalingStatToList(row, "effects", ScalingMigrationAuraEffectKinds)),
+            },
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "skill.aura_def.<name>"),

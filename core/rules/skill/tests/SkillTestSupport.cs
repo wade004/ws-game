@@ -101,6 +101,8 @@ namespace Tests.Rules.Skill
         private readonly List<JsonObject> _procDefs = new List<JsonObject>();
         private readonly List<JsonObject> _spellModDefs = new List<JsonObject>();
         private readonly List<JsonObject> _books = new List<JsonObject>();
+        // T-N3-2：skill.base_curve（base_curve_ref 引用的曲线表，见 SkillSchemas.BaseCurve 判断记录）。
+        private readonly List<JsonObject> _baseCurves = new List<JsonObject>();
         private readonly List<JsonObject> _statDefs = new List<JsonObject>();
         private readonly List<(string Id, double Max, bool StartFull)> _powerTypes = new List<(string, double, bool)>();
         private readonly List<IValidationRule> _extraRules = new List<IValidationRule>();
@@ -148,6 +150,7 @@ namespace Tests.Rules.Skill
             _source.Add("skill.proc_def", TableJson("skill.proc_def", _procDefs));
             _source.Add("skill.spell_mod_def", TableJson("skill.spell_mod_def", _spellModDefs));
             _source.Add("skill.book", TableJson("skill.book", _books));
+            _source.Add("skill.base_curve", TableJson("skill.base_curve", _baseCurves));
             _source.Add("stat.definition", TableJson("stat.definition", _statDefs));
 
             var bus = CreateBus();
@@ -157,6 +160,7 @@ namespace Tests.Rules.Skill
             registry.RegisterSchema(SkillSchemas.ProcDef);
             registry.RegisterSchema(SkillSchemas.SpellModDef);
             registry.RegisterSchema(SkillSchemas.Book);
+            registry.RegisterSchema(SkillSchemas.BaseCurve);
             registry.RegisterSchema(StatSchemas.Definition);
 
             foreach (var rule in _extraRules)
@@ -176,6 +180,8 @@ namespace Tests.Rules.Skill
         public SkillWorldBuilder SpellModDef(JsonObject row) { _spellModDefs.Add(row); return this; }
 
         public SkillWorldBuilder Book(JsonObject row) { _books.Add(row); return this; }
+
+        public SkillWorldBuilder BaseCurve(JsonObject row) { _baseCurves.Add(row); return this; }
 
         public SkillWorldBuilder Stat(string id, double defaultBase = 0)
         {
@@ -206,6 +212,7 @@ namespace Tests.Rules.Skill
             _source.Add("skill.proc_def", TableJson("skill.proc_def", _procDefs));
             _source.Add("skill.spell_mod_def", TableJson("skill.spell_mod_def", _spellModDefs));
             _source.Add("skill.book", TableJson("skill.book", _books));
+            _source.Add("skill.base_curve", TableJson("skill.base_curve", _baseCurves));
             _source.Add("stat.definition", TableJson("stat.definition", _statDefs));
 
             var bus = CreateBus();
@@ -215,6 +222,7 @@ namespace Tests.Rules.Skill
             registry.RegisterSchema(SkillSchemas.ProcDef);
             registry.RegisterSchema(SkillSchemas.SpellModDef);
             registry.RegisterSchema(SkillSchemas.Book);
+            registry.RegisterSchema(SkillSchemas.BaseCurve);
             registry.RegisterSchema(StatSchemas.Definition);
 
             foreach (var rule in _extraRules)

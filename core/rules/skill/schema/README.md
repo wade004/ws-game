@@ -1,10 +1,11 @@
 # `skill.*` 数据表字段
 
 对应 [`SkillSchemas.cs`](SkillSchemas.cs) 的 `TableSchema` 声明；字段语义详见
-[06_规则层_属性技能战斗AI.md](../../../../architecture/06_规则层_属性技能战斗AI.md) 第 3.1/3.3/3.4/3.5
+[06_规则层_属性技能战斗AI.md](../../../../architecture/06_规则层_属性技能战斗AI.md) 第 3.1/3.2/3.3/3.4/3.5
 节、[04_数据与内容管线.md](../../../../architecture/04_数据与内容管线.md) 第 1.1 节表清单。宿主在构造
-`IDataRegistry` 后需要依次 `RegisterSchema(SkillSchemas.Def)` 等注册本文件列出的五张表才能加载对应数据
-（本模块不自动注册，与 `power_set.PowerSchemas`/`stat_block.StatSchemas` 同一惯例）。
+`IDataRegistry` 后需要依次 `RegisterSchema(SkillSchemas.Def)` 等注册本文件列出的六张表才能加载对应数据
+（本模块不自动注册，与 `power_set.PowerSchemas`/`stat_block.StatSchemas` 同一惯例）。第六张
+`skill.base_curve` 是 T-N3-2 新增，见下"效果原语参数表"`base_curve_ref` 行与本文件末尾同名小节。
 
 ## `skill.def`
 
@@ -72,6 +73,23 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 | `id` | Id | 是 | `skill.book.<name>` |
 | `entries` | Array | 是 | `[{level: Int, skill_id: Reference(skill.def)}, ...]`（ADR-0019 起登记 `Item`：`level` 必填 Int，`skill_id` 必填且为 `Reference(skill.def)`——同模块内引用，目标必须已加载） |
 
+## `skill.base_curve`（T-N3-2 新增）
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `id` | Id | 是 | `skill.base_curve.<name>` |
+| `entries` | Array | 是 | 断点表 `[{x, y}]`（04 第 3.6 节通用曲线形态，`CurveSchema.BreakpointsField`，横轴 `CurveAxis.Level`——`x` 为施法者等级 Int，`y` 为该等级对应的效果基础值 Number），按 `x` 线性插值、越界夹取到端点；`curve_monotonic_finite`（T-N0-3）自动覆盖 |
+
+供 `school_damage`/`heal`/`periodic_damage`/`periodic_heal` 的可选 `base_curve_ref` 引用，存在时取代
+`base_value`（见下"效果值契约"）。**契约疑点（上报，待设计层确认）**：06 第 3.2 节 2026-09-14 修订段
+与 [ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 1 均只说"基础值可选引用
+等级曲线（`base_curve_ref`）"，未指明这张曲线表的表名——04 第 1.1 节表清单里 skill 域现有六张表
+（`def`/`aura_def`/`proc_def`/`spell_mod_def`/`book`/`budget_rule`）均不含它。本任务据任务书给出的
+候选位置临时判定：新增本表，与 `item.armor_curve` 等新曲线表同一惯例（新表，直接按通用断点表形态
+登记，不需要迁移）。若设计层后续拍板另一表名/字段位，属改结论（走 12 第 2 节 ADR 流程），不影响
+已落地的 `scaling` 列表求和这一主线契约（决策 1 的另一半，已明确落地，不依赖本表是否存在）——见
+`SkillSchemas.BaseCurve` 类型注释、`SkillDefCache.TryGetBaseCurve` 判断记录。
+
 ## 结算类原语集合（T-N3-1，`Core.Rules.Common.SettlementEffectKinds`）
 
 06 第 3.2 节 2026-09-14 修订段"结算类原语集合"——供技能预算校验（3.10 节，T-N3-9）适用范围判定与
@@ -99,7 +117,7 @@ T-N3-9/T-N3-10 在真正消费这份集合时决定具体收窄方式，详见�
 
 | `kind` | 参数（名/类型/必填/引用目标） | 运行时代码位置 |
 |---|---|---|
-| `school_damage` | `base_value`:Number/否、`coefficient`:Number/否、`school`:Id/否（缺省取 `skill.def.school`）、`scaling_stat`:Reference(`stat.definition`)/否 | `EffectDispatcher.ApplyDamageOrHeal` |
+| `school_damage` | `base_value`:Number/否、`coefficient`:Number/否、`school`:Id/否（缺省取 `skill.def.school`）、`scaling_stat`:Reference(`stat.definition`)/否（旧单字段写法，见下"效果值契约"）、`scaling`:Array\<{stat:Reference(`stat.definition`)/是, coefficient:Number/是}\>/否（T-N3-2 新增，权威写法，允许多条求和）、`base_curve_ref`:Reference(`skill.base_curve`)/否（T-N3-2 新增，存在时取代 `base_value`） | `EffectDispatcher.ApplyDamageOrHeal` |
 | `heal` | 同 `school_damage`（同一组参数、同一处实现分支） | `EffectDispatcher.ApplyDamageOrHeal` |
 | `weapon_damage_pct` | `pct`:Number/否（缺省 0；RC-11：也可退回 `params.base_value`，本登记只列权威参数名 `pct`） | `EffectDispatcher.ApplyDamageOrHeal`（`WeaponDamagePct` 分支） |
 | `apply_aura` | `aura_def`:Reference(`skill.aura_def`)/是、`duration_override`:Number/否 | `EffectDispatcher.ApplyAuraEffectPrimitive` |
@@ -145,7 +163,7 @@ T-N3-9/T-N3-10 在真正消费这份集合时决定具体收窄方式，详见�
 | `kind` | 参数（名/类型/必填/引用目标） | 运行时代码位置 |
 |---|---|---|
 | `mod_stat` | `stat`:Reference(`stat.definition`)/是、`op`:Enum(flat\|pct\|mult)/否（缺省 flat）、`value`:Number/否（缺省 0） | `AuraHost.ReapplyStatMods` |
-| `periodic_damage` | `interval`:Number/是（无缺省，`interval<=0` 时周期永远不触发）、`base_value`:Number/否、`coefficient`:Number/否、`school`:Id/是（判断记录：`FirePeriodic` 读取时 fallback 是零值 Id，不同于顶层效果的"缺省取 skill.def.school"，缺失会产生无效 Id，登记层拦下） | `AuraHost.Update`/`FirePeriodic` |
+| `periodic_damage` | `interval`:Number/是（无缺省，`interval<=0` 时周期永远不触发）、`base_value`:Number/否、`coefficient`:Number/否、`school`:Id/是（判断记录：`FirePeriodic` 读取时 fallback 是零值 Id，不同于顶层效果的"缺省取 skill.def.school"，缺失会产生无效 Id，登记层拦下）、`scaling_stat`:Reference(`stat.definition`)/否（旧单字段写法）、`scaling`:Array\<{stat, coefficient}\>/否（T-N3-2 新增，与 `school_damage.scaling` 共用同一份字段实例）、`base_curve_ref`:Reference(`skill.base_curve`)/否（T-N3-2 新增，与 `school_damage.base_curve_ref` 共用同一份字段实例） | `AuraHost.Update`/`FirePeriodic` |
 | `periodic_heal` | 同 `periodic_damage` | `AuraHost.Update`/`FirePeriodic` |
 | `absorb` | `amount`:Number/是、`school`:Id/否（缺省吸收全部学派） | `AuraHost.ApplyStaticEffects`/`AbsorbPerStack` |
 | `immunity` | `schools`:IdList/否、`effect_kinds`:Array(Item=Enum，19 种 `EffectKind` 全集)/否 | `AuraHost.ApplyStaticEffects` |
@@ -154,6 +172,39 @@ T-N3-9/T-N3-10 在真正消费这份集合时决定具体收窄方式，详见�
 | `override_skill` | `from`:Reference(`skill.def`)/是、`to`:Reference(`skill.def`)/是 | `AuraHost.ApplyStaticEffects`/`ResolveSkillOverride` |
 | `control` | `flags`:Array(Item=Enum(no_move\|no_cast\|no_attack\|no_interact))/否 | `AuraHost.ApplyStaticEffects`/`ParseControlFlags` |
 | `flag` | 无参数 | 仅供 `self.has_aura(...)` 判断，不产生其它效果 |
+
+## 效果值契约：`scaling` 列表与 `base_curve_ref`（T-N3-2）
+
+[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 1；06 第 3.2 节 2026-09-14
+修订段：`school_damage`/`heal`/`periodic_damage`/`periodic_heal` 四种效果原语统一为
+`效果值 = 基础值 + Σ(缩放属性最终值 × 系数)`。
+
+- **`scaling`（权威写法）**：`Array<{stat: Reference(stat.definition), coefficient: Number}>`，允许
+  多条，`EffectDispatcher.ApplyDamageOrHeal` 对每一项取 `coefficient × 来源单位当前 stat 最终值`
+  求和。
+- **`base_curve_ref`（可选）**：`Reference(skill.base_curve)`，存在且能解析出曲线时取代
+  `base_value`——按施法者当前等级（`IUnitAccess.GetLevel`）在曲线上取值；来源单位已不存在时按
+  等级 1 处理（同 `Core.Rules.Combat.Resolver.ResolveEffectiveLevel` 判断记录），每次结算都重新
+  查询，不缓存（同 06 第 3.3 节周期效果"动态计算，不做快照"惯例）。
+- **读取优先级（判断记录，硬性规则"禁止删除旧 `scaling_stat` 读取路径"）**：`scaling` 列表非空时
+  权威，忽略旧单字段 `scaling_stat`/顶层 `coefficient`；`scaling` 缺失（含尚未经 1→2 迁移的旧
+  数据）时回退旧单字段读取路径——两条路径互斥，不叠加，共享同一条"来源单位未注册/已销毁时缩放
+  贡献按 0 处理"降级规则（C02 判断记录）。`base_curve_ref` 与 `base_value` 同理互斥：前者存在且
+  可解析时后者被忽略。
+- **迁移（`schema_version` 1→2）**：`skill.def`/`skill.aura_def` 均已升版本，各自登记
+  `TableMigration(1, 2, ...)`——扫描 `effects[]` 中 `kind` 为 `school_damage`/`heal`
+  （`skill.def`）或 `periodic_damage`/`periodic_heal`（`skill.aura_def`）的条目，若 `params` 声明了
+  `scaling_stat` 且尚未声明 `scaling`，追加 `scaling: [{stat: <scaling_stat 的值>,
+  coefficient: <coefficient 缺省 0>}]`；旧字段（`scaling_stat`/`coefficient`）原样保留，不删除；
+  已声明 `scaling` 的条目、其余效果原语的 `params` 原样透传。迁移只做结构转换，不做任何校验或
+  数值改写；`data/_sample/skill/skill.def.json`/`skill.aura_def.json` 未改动（现有样例不含
+  `scaling_stat`，保留在 `schema_version: 1`，迁移对它们是逐字节透传的空操作，天然覆盖"迁移链
+  在真实数据上跑一遍"这一验收路径）。
+- **周期效果共用同一条结算逻辑**：`periodic_damage`/`periodic_heal` 与非周期 `school_damage`/
+  `heal` 共用同一条 `EffectDispatcher.ApplyDamageOrHeal`（`AuraHost.FirePeriodic` 把
+  `entry.Params` 原样转发进 `EffectContext.Params`，见 P3-04 判断记录），因此本次改动零改动
+  `AuraHost.cs`，只在 `SkillSchemas.PeriodicParamsCase` 补登记 `scaling`/`base_curve_ref` 两个
+  字段（与 `DamageOrHealParams` 共用同一份 `FieldSchema` 实例，"登记一次、多处复用"）。
 
 ## 校验规则（`SkillValidationRules.cs`）
 

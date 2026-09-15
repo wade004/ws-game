@@ -89,6 +89,27 @@ namespace Core.Rules.Skill
             return list;
         }
 
+        /// <summary>T-N3-2（ADR-0031 决策 1）：读取形如 <c>scaling: [{stat, coefficient}, ...]</c>
+        /// 的对象数组字段——元素不是对象的条目原样跳过（不抛异常，与本类其余 <c>GetXxxArray</c> 方法
+        /// "缺失/坏形状返回空表，交由加载期校验拦截"的既有惯例一致；正常数据应已通过
+        /// <c>SkillSchemas</c> 的 <c>FieldKind.Array</c>/<c>Item</c> 递归登记在加载期校验过）。</summary>
+        public static IReadOnlyList<JsonObject> GetObjectArray(JsonObject o, string key)
+        {
+            var list = new List<JsonObject>();
+            if (o.TryGetValue(key, out var v) && v is JsonArray arr)
+            {
+                for (var i = 0; i < arr.Count; i++)
+                {
+                    if (arr[i] is JsonObject obj)
+                    {
+                        list.Add(obj);
+                    }
+                }
+            }
+
+            return list;
+        }
+
         public static JsonObject MergeNumber(JsonObject original, string key, double value)
         {
             var builder = new JsonObjectBuilder();

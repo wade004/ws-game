@@ -24,6 +24,14 @@ namespace Core.Rules.Skill
         private readonly Dictionary<Id, SpellModDefRecord> _spellMods = new Dictionary<Id, SpellModDefRecord>();
         private readonly Dictionary<Id, SkillBookDef> _books = new Dictionary<Id, SkillBookDef>();
 
+        // T-N3-2（ADR-0031 决策 1）：skill.base_curve 的已解析缓存——本表不属于"五张表"强类型定义
+        // 之列（没有对应 Defs.cs 强类型），只缓存 PiecewiseCurve 本身，供 EffectDispatcher.
+        // ApplyDamageOrHeal 按 base_curve_ref 取值。判断记录：不新增 Defs.cs 类型，直接缓存
+        // Core.Foundation.Common.PiecewiseCurve——本表只有 entries 一个字段，没有强类型化的必要
+        // （同 item.budget_curve/ItemBudgetCurve 判断记录"曲线表读出即插值载体，不需要额外包一层"，
+        // 唯一差异是本表更简单、连独立包装类型都不需要）。
+        private readonly Dictionary<Id, PiecewiseCurve> _baseCurves = new Dictionary<Id, PiecewiseCurve>();
+
         // 集成任务改动：解析 skill.proc_def.condition 用的 IExprSchema，默认改用集成任务提供的
         // core/rules/expr_host.RulesExprSchema.Base（原先本模块自带的临时占位 schema 已被取代，
         // 阶段 3 整理后已删除），保留可注入口子（构造参数 exprSchema）。
@@ -50,6 +58,32 @@ namespace Core.Rules.Skill
             _procs.Clear();
             _spellMods.Clear();
             _books.Clear();
+            _baseCurves.Clear();
+        }
+
+        /// <summary>T-N3-2（ADR-0031 决策 1）：按 <paramref name="id"/> 取 <c>skill.base_curve</c>
+        /// 的断点曲线；表未注册（宿主未 <c>RegisterSchema(SkillSchemas.BaseCurve)</c>，见该表类型
+        /// 判断记录"契约疑点"，<see cref="IDataRegistryView.Get(string, Core.Foundation.Common.Id)"/>
+        /// 对未知表原样返回 <c>null</c>，不抛异常）或记录不存在时返回 <c>false</c>——<c>base_curve_ref</c>
+        /// 是可选字段，调用方（<see cref="EffectDispatcher.ApplyDamageOrHeal"/>）在取不到曲线时
+        /// 退回 <c>base_value</c>，不中断结算。</summary>
+        public bool TryGetBaseCurve(Id id, out PiecewiseCurve curve)
+        {
+            if (_baseCurves.TryGetValue(id, out curve!))
+            {
+                return true;
+            }
+
+            var record = _registry.Get("skill.base_curve", id);
+            if (record == null)
+            {
+                curve = null!;
+                return false;
+            }
+
+            curve = CurveSchema.ReadBreakpoints(record, "entries");
+            _baseCurves[id] = curve;
+            return true;
         }
 
         public bool TryGetSkillDef(Id id, out SkillDef def)

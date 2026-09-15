@@ -128,6 +128,9 @@ namespace Core.Rules.Assembly
             registry.RegisterSchema(SkillSchemas.ProcDef);
             registry.RegisterSchema(SkillSchemas.SpellModDef);
             registry.RegisterSchema(SkillSchemas.Book);
+            // T-N3-2（ADR-0031 决策 1）：school_damage/heal/periodic_damage/periodic_heal 的
+            // base_curve_ref 可选引用本表，见 SkillSchemas.BaseCurve 类型注释"契约疑点"。
+            registry.RegisterSchema(SkillSchemas.BaseCurve);
             registry.RegisterSchema(CombatSchemas.HitTableConfig);
             registry.RegisterSchema(CombatSchemas.ResistCurve);
             // T-N1-8（ADR-0030 决策 6）：combat.level_diff_table 是可选表——注册 schema 不代表强制

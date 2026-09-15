@@ -732,6 +732,36 @@ skill/
     `core/rules/common/tests/SettlementEffectKindsTests.cs`（集合常量单测，24 例，含
     `IsSettlement` 全部 19 种 `EffectKind` 正负例）。
 
+49. **T-N3-2（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 1；06 第 3.2
+    节 2026-09-14 修订段，见 [数值设计分阶段落地计划](../../../architecture/落地计划/数值设计分阶段落地计划.md)
+    第 14 节 N3 任务表第二行）：效果值契约 `效果值 = 基础值 + Σ(缩放属性最终值 × 系数)` 落地为
+    `scaling: List<{stat, coefficient}>`（权威写法，允许多条求和）+ 可选 `base_curve_ref`（取代
+    `base_value`，按施法者当前等级取值）——`school_damage`/`heal`（`DamageOrHealParams`）与
+    `periodic_damage`/`periodic_heal`（`PeriodicParamsCase`）两处共用同一份 `FieldSchema`
+    实例（"登记一次、多处复用"，同 `EffectsItemSchema` 既有惯例）；旧单字段 `scaling_stat`/
+    `coefficient` 读取路径按硬性规则保留，`EffectDispatcher.ApplyDamageOrHeal` 读取优先级：
+    `scaling` 非空时权威，缺省时回退旧字段，两条路径互斥不叠加，均复用既有"来源单位未注册按 0
+    处理"降级规则（C02 判断记录）；`base_curve_ref` 同理取代 `base_value`，来源单位不存在时按
+    等级 1 处理（同 `Core.Rules.Combat.Resolver.ResolveEffectiveLevel` 判断记录），曲线未注册/
+    引用不到时静默回退 `base_value`。`skill.def`/`skill.aura_def` 两表 `schema_version` 1→2，
+    各自登记 `TableMigration(1, 2, ...)`：扫描 `effects[]` 中匹配的效果 kind，若 `params` 有
+    `scaling_stat` 且无 `scaling` 则补出等价的单条 `scaling` 列表，旧字段原样保留（硬性规则），
+    其余条目原样透传；`data/_sample/skill/*.json` 未改动（现有样例不含 `scaling_stat`，迁移对
+    它们是空操作，见 `check.ps1 -Quick` "format_data --schema-order --check" 输出"版本落后、
+    跳过字段顺序判断"，符合预期，不是回归）。周期效果与非周期效果共用同一条 `ApplyDamageOrHeal`
+    结算路径（`AuraHost.FirePeriodic` 把 `entry.Params` 原样转发进 `EffectContext.Params`，见
+    P3-04 判断记录），本任务因此零改动 `AuraHost.cs`。**契约疑点（上报，待设计层确认）**：
+    `base_curve_ref` 引用的曲线表名——06 第 3.2 节与 ADR-0031 决策 1 均只说"可选引用等级曲线"，
+    未指明表名，04 第 1.1 节表清单里 skill 域现有六张表不含它。本任务临时判定新增
+    `skill.base_curve`（横轴 `CurveAxis.Level` 的通用断点表，同 `item.armor_curve` 等新曲线表
+    惯例，见 `SkillSchemas.BaseCurve` 类型注释），已在 `core/rules/assembly/RulesSchemaCatalog.cs`
+    注册；若设计层后续拍板另一表名/字段位，属改结论（走 12 第 2 节 ADR 流程），不影响 `scaling`
+    列表求和这一主线契约。不新增任何效果原语。测试：
+    `core/rules/skill/tests/T_N3_2_SkillScalingListAndBaseCurveTests.cs`（schema 覆盖 5 例 + 多
+    缩放属性求和/含 `base_curve_ref` 求和 4 例 + 1→2 迁移等价 2 例，共 12 例，含 `skill.def`/
+    `skill.aura_def` 两处迁移各一例）；全量 `Tests.Rules`/`Replay` 回归零改动（既有 344/679 条
+    `Tests.Rules.Skill`/`Tests.Rules` 用例、10+2+12 条 `Replay` 用例全部保持通过）。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：

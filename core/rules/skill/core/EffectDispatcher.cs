@@ -203,9 +203,29 @@ namespace Core.Rules.Skill
             }
             else
             {
-                var baseValue = ParamsX.GetNumber(context.Params, "base_value", context.BaseValue);
+                // T-N3-2（ADR-0031 决策 1"基础值可选引用等级曲线（base_curve_ref），默认为零"；
+                // 06 第 3.2 节 2026-09-14 修订段）：base_curve_ref 存在且能解析出曲线时取代
+                // base_value——按施法者当前等级在 skill.base_curve 上取值，每次结算都重新查询
+                // （同 06 第 3.3 节周期效果"动态计算，不做快照"惯例，不缓存某一时刻的等级）。
+                // 来源单位已不存在时按等级 1 处理，不抛异常（同 Core.Rules.Combat.Resolver.
+                // ResolveEffectiveLevel 判断记录"已从世界移除时按等级 1 处理"同一防御姿态）；
+                // base_curve_ref 引用的曲线未注册/不存在（表未注册，见 SkillDefCache.
+                // TryGetBaseCurve 判断记录）时静默回退 base_value，不阻断结算——加载期
+                // reference_integrity 已经会拦下"引用不存在的曲线"这类内容错误，运行期这里只是
+                // 防御性兜底。
+                var baseCurveRef = ParamsX.GetIdOpt(context.Params, "base_curve_ref");
+                double baseValue;
+                if (baseCurveRef.HasValue && _defs.TryGetBaseCurve(baseCurveRef.Value, out var baseCurve))
+                {
+                    var casterLevel = _units.Exists(context.SourceId) ? _units.GetLevel(context.SourceId) : 1;
+                    baseValue = baseCurve.Evaluate(casterLevel);
+                }
+                else
+                {
+                    baseValue = ParamsX.GetNumber(context.Params, "base_value", context.BaseValue);
+                }
+
                 coefficient = ParamsX.GetNumber(context.Params, "coefficient", context.Coefficient);
-                var scalingStat = ParamsX.GetIdOpt(context.Params, "scaling_stat");
 
                 // C02 收口（外部审计 7e63d66 第四轮）：周期性效果（periodic_damage/periodic_heal）
                 // 的 EffectContext.SourceId 恒是施加光环时的施法者（AuraHost.FirePeriodic 每次都
@@ -225,18 +245,48 @@ namespace Core.Rules.Skill
                 // 不抛异常。非周期效果的 SourceId 通常是"正在执行的施法者"，理论上不会遇到这种
                 // 情形，本次改动同时覆盖它是为了不在"什么时候会未注册"这件事上做额外的路径区分。
                 // </para>
+                //
+                // T-N3-2（ADR-0031 决策 1；06 第 3.2 节 2026-09-14 修订段）：scaling 列表优先——
+                // 存在时对每一项取 coefficient × 来源属性最终值求和；列表缺失（含尚未经 1→2 迁移的
+                // 旧数据）时回退旧单字段 scaling_stat/顶层 coefficient 读取路径（硬性规则"禁止删除
+                // 旧 scaling_stat 读取路径"）。两条路径互斥、不叠加——声明了 scaling 列表就不再读
+                // scaling_stat；两条路径共享同一条"来源未注册按 0 处理"降级规则（C02 判断记录）。
                 double scalingContribution = 0;
-                if (scalingStat.HasValue)
+                var scalingEntries = ParamsX.GetObjectArray(context.Params, "scaling");
+                if (scalingEntries.Count > 0)
                 {
                     if (_statHost.IsRegistered(context.SourceId))
                     {
-                        scalingContribution = coefficient * _statHost.GetStat(context.SourceId, scalingStat.Value);
+                        foreach (var entry in scalingEntries)
+                        {
+                            var entryStat = ParamsX.GetIdOpt(entry, "stat");
+                            if (!entryStat.HasValue) continue;
+                            var entryCoefficient = ParamsX.GetNumber(entry, "coefficient", 0);
+                            scalingContribution += entryCoefficient * _statHost.GetStat(context.SourceId, entryStat.Value);
+                        }
                     }
                     else
                     {
                         _diagnostics.Warn(
                             $"效果的来源 \"{context.SourceId}\" 未注册（很可能已被销毁），" +
-                            $"scaling_stat \"{scalingStat.Value}\" 的缩放贡献已按 0 处理（见 EffectDispatcher.ApplyDamageOrHeal 判断记录 C02）");
+                            $"scaling 列表的缩放贡献已按 0 处理（见 EffectDispatcher.ApplyDamageOrHeal 判断记录 C02）");
+                    }
+                }
+                else
+                {
+                    var scalingStat = ParamsX.GetIdOpt(context.Params, "scaling_stat");
+                    if (scalingStat.HasValue)
+                    {
+                        if (_statHost.IsRegistered(context.SourceId))
+                        {
+                            scalingContribution = coefficient * _statHost.GetStat(context.SourceId, scalingStat.Value);
+                        }
+                        else
+                        {
+                            _diagnostics.Warn(
+                                $"效果的来源 \"{context.SourceId}\" 未注册（很可能已被销毁），" +
+                                $"scaling_stat \"{scalingStat.Value}\" 的缩放贡献已按 0 处理（见 EffectDispatcher.ApplyDamageOrHeal 判断记录 C02）");
+                        }
                     }
                 }
 

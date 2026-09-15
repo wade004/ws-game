@@ -312,10 +312,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   .condition` 同一套 `self`/`combat`/`target` 分组补全；`budget_note` 是普通多行文本输入。两个
   新字段均只是登记 schema，运行时消费（施法管线使用条件检查、`SkillBudgetAnalyzer`）留给后续
   任务（T-N3-4/T-N3-9）。
+- **数值设计落地阶段 N3 · T-N3-2（Unreleased）**：`school_damage`/`heal`/`periodic_damage`/
+  `periodic_heal` 效果参数新增 `scaling: [{stat, coefficient}]`（可选，权威写法，取代旧单字段
+  `scaling_stat`/`coefficient`，允许多条求和）与 `base_curve_ref`（可选，引用新表
+  `skill.base_curve`，取代 `base_value`）；`skill.def`/`skill.aura_def` `schema_version` 1→2，
+  迁移自动把旧 `scaling_stat`/`coefficient` 补出等价 `scaling` 列表（旧字段原样保留）。编辑器
+  技能效果编辑界面若已支持 `scaling_stat` 单选下拉，需要升级为可增删的缩放条目列表；
+  `base_curve_ref` 可复用曲线表通用编辑控件（同 `item.armor_curve` 等既有曲线表）。
 
 ## [Unreleased]
 
 数值设计落地阶段 N3 · T-N3-1（ADR-0031 决策 1/9/10；06 第 3.1/3.2 节 2026-09-14 修订段）：`skill.def` 新增 `use_condition: Optional<Expr>`（宿主为施法者上下文，self/combat/target 分组，为假时施法返回 ConditionNotMet（T-N3-4 落地）、就绪查询同步反映）、`budget_note: Optional<String>`（超模说明，SkillBudgetAnalyzer T-N3-9 按此归入已确认组）两个字段；`cast_time`/`respects_gcd`/`cost` 三个既有字段改写描述（动作时长/节拍锁/固定消耗语义），字段种类与必填性不变；新增 `Core.Rules.Common.SettlementEffectKinds`（结算类原语集合常量：school_damage/weapon_damage_pct/heal/projectile/apply_aura，供 T-N3-9 预算校验适用范围与 T-N3-10 智能释放候选集共用；apply_aura 一项按效果原语类型无条件计入，不下钻解析具体引用的光环定义是否真的含周期/属性修正/控制/吸收效果之一，见该类型判断记录，待设计层确认）。不新增任何效果原语。本任务只登记 schema 层，不实现施法管线使用条件检查、节拍锁分支、技能预算 Analyzer 等运行时消费。
+
+数值设计落地阶段 N3 · T-N3-2（ADR-0031 决策 1；06 第 3.2 节 2026-09-14 修订段）：`school_damage`/`heal`（`skill.def.effects`）与 `periodic_damage`/`periodic_heal`（`skill.aura_def.effects`）效果参数新增 `scaling: [{stat: Reference(stat.definition), coefficient: Number}]`（可选，权威写法，允许多条求和，效果值 = 基础值 + Σ(coefficient × stat 最终值)）与 `base_curve_ref: Optional<Reference(skill.base_curve)>`（可选，存在时取代 `base_value`，按施法者当前等级在曲线上取值，动态计算不做快照）；`skill.def`/`skill.aura_def` `schema_version` 1→2，迁移把旧单字段 `scaling_stat`/`coefficient` 自动补出等价 `scaling` 列表（旧字段原样保留，不删除读取路径，硬性规则）；`EffectDispatcher.ApplyDamageOrHeal`（school_damage/heal 与周期效果共用同一条结算逻辑）求和优先级：`scaling` 列表非空时权威，缺省时回退旧字段；来源单位未注册/已销毁时缩放贡献按 0 处理（同 C02 判断记录），曲线引用解析不到时回退 `base_value`。新增表 `skill.base_curve`（施法者等级到效果基础值的断点曲线，04 第 3.6 节通用曲线形态，横轴 `CurveAxis.Level`）。**契约疑点（上报，待设计层确认）**：06 第 3.2 节与 ADR-0031 决策 1 均只说"基础值可选引用等级曲线"，未指明曲线表名，本任务临时判定登记为 `skill.base_curve`，详见 `SkillSchemas.BaseCurve` 类型注释；若设计层拍板另一表名/字段位，按 ADR 流程改结论，不影响 `scaling` 列表求和这一主线契约。不新增任何效果原语，不改变 `weapon_damage_pct` 与既有 `scaling_stat` 单字段数据的结算结果，回放基线零改动。
 
 ## [1.32.0] - 2026-09-15
 
