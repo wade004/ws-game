@@ -21,8 +21,10 @@ ai/
     AiOptions.cs            口味配置项
     PatrolMode.cs            loop|pingpong
     CombatReturnPolicy.cs    return_to_spawn|stay|patrol
+    IRotationEvaluator.cs    T-N3-10：优先级表求值组件契约（见下"Rotation 求值组件"一节）
   core/
-    AiHost.cs                IAiHost 默认实现：状态机 + Rotation 求值 + 位移
+    AiHost.cs                IAiHost 默认实现：状态机 + 位移 + 委托 RotationEvaluator 求值
+    RotationEvaluator.cs     T-N3-10：IRotationEvaluator 默认实现，不依赖 profile/Combat 态
     AiTickHandler.cs          ITickPhaseHandler，挂 TickPhase.AiDecision
     AiContentValidationRule.cs  IValidationRule：priority 唯一性/阈值范围/路径点数量/Expr 可解析性
     （阶段 3 整理：本模块原自带的临时 AiExprSchema 已删除，默认改用
@@ -68,21 +70,49 @@ idle → patrol → chase → combat → return → flee
 
 ## Rotation 求值与执行（06 §6.2）
 
-`AiHost.Evaluate(unitId)`：仅当 `GetBehaviorState(unitId) == Combat` 时求值，否则返回 `null`。按
-`ai.rotation.entries` 的 `priority` 从高到低遍历（构造期已排序、`condition` 已解析为 `ExprNode`）：
-
-1. 用 `IExprHostFactory.CreateFor(unitId, Target, null)` 取宿主，`ExprEvaluator.EvaluateBool` 求值
-   `condition`；为假则看下一条。
-2. 为真则调用 `ISkillHost.CastSkill(unitId, entry.skill_id, Target 非空则 [Target] 否则 [])`。
-3. `CastResult.Success` 为真：`Enqueue AiDecisionMadeEvent{unitId, decisionId=skill_id}`，返回对应的
-   `SkillCastRequest`，停止遍历。
-4. 为假（如 `OnCooldown`）：继续看下一条。
-5. 全部条目都不满足/都施法失败：返回 `null`，不发 `ai.decision_made`。
+`AiHost.Evaluate(unitId)`：仅当 `GetBehaviorState(unitId) == Combat` 时求值，否则返回 `null`；
+Combat 态下委托给 `RotationEvaluator`（T-N3-10，算法细节、就绪判定、无状态保证见下方"Rotation
+求值组件"一节），拿到结果非空即补发 `AiDecisionMadeEvent{unitId, decisionId=skill_id}`。
 
 `AiHost.Step(unitId, dt)` 是"内部驱动版本"：combat 态下按 `DecisionAccumulator` 累加 `dt`，达到
 `decision_interval` 才调用一次 `Evaluate`（不足一次不求值，超过一次只补一次，`accumulator -= interval`
 而非清零，避免长期漂移）。离散模式的 `TurnScheduler`（06 §6.5"调用时机"）可以绕过 `Step` 直接调用
 `Evaluate`，此时不受 `decision_interval` 节奏限制，由调用方自行决定何时求值一次。
+
+## Rotation 求值组件（T-N3-10，ADR-0031 决策 12/ADR-0035 决策 2）
+
+`IRotationEvaluator`/`RotationEvaluator`（`contracts/IRotationEvaluator.cs`、`core/RotationEvaluator.cs`）
+把上一节"Rotation 求值与执行"的选择逻辑抽成一个独立组件：不依赖 `ai.behavior_profile`、不要求
+`BehaviorState.Combat`，只要一个 `ai.rotation` 表 id 即可对任意单位求值一次——玩家单位不需要经
+`RegisterUnit` 注册 AI 行为外壳，也不需要进入 `Combat` 态，即可复用同一份"按优先级挑第一个可施放
+技能"的算法（ADR-0031 决策 12"一键智能释放"；ADR-0035 决策 2 要求仿真骨架的标准玩家生成器与 AI
+共用同一求值组件，不各自重复实现）。
+
+`AiHost.Evaluate(unitId)` 现在只做两件独属于 `AiHost` 自己的事，其余全部委托：
+
+1. 门控：`GetBehaviorState(unitId) != Combat` 时直接返回 `null`（不越过组件白算一次）。
+2. 委托：调用 `_rotationEvaluator.Evaluate(unitId, state.RotationId, state.Target)`。
+3. 收尾：结果非空时补发 `AiDecisionMadeEvent`（组件本身不知道"决策事件"这个 AI 专属概念）。
+
+`RotationEvaluator.Evaluate(unitId, rotationId, targetId)` 按 `entries` 的 `priority` 从高到低
+遍历（构造期已排序、`condition` 已解析、"敌对单体"分类已算好，判据见下方"无状态保证"）：
+
+1. `IExprHostFactory.CreateFor(unitId, targetId, null)` 求值 `condition`，为假看下一条。
+2. 经 `ISkillHost.GetSkillReadiness(unitId, entry.SkillId).IsReady` 判定是否就绪，不就绪看下一条
+   ——就绪判定统一走这一份只读查询（1.21.0 引入，T-N3-4 起覆盖 `ConditionNotMet`/`ActionLocked`），
+   不自行用 `IsCasting`/`GetCooldown` 等零散状态推断，避免对已知不就绪的技能白发一次
+   `CastSkill`（及其 `skill.cast_failed` 事件）。
+3. 就绪则真的调用 `ISkillHost.CastSkill(unitId, entry.SkillId, targets)`，`Success` 为真返回对应
+   请求，为假（如目标不合法/资源不足——`GetSkillReadiness` 不覆盖这些原因，见该方法契约文档）看
+   下一条。
+4. 全部条目都不满足：返回 `null`。
+
+无状态保证（硬性规则"禁止求值组件持有单位状态"）：`RotationEvaluator` 只在构造期一次性从
+`IDataRegistryView` 编译全部 `ai.rotation` 记录到一份私有只读字典（`priority` 排序、`condition`
+解析、"敌对单体"分类均只算一次），此后只读——这是"内容编译缓存"，不随传入哪个 `unitId` 变化，
+不是"单位状态"；`Evaluate` 本身不写任何实例字段，每次调用只读入参与该缓存。已知限制（非本任务
+新引入，`AiHost` 迁移前同样如此）：构造完成后 `IDataRegistry.Reload`（开发期热重载）不会使这份
+缓存失效，需要整体重建一个新实例。
 
 ## 位移
 
@@ -140,3 +170,17 @@ idle → patrol → chase → combat → return → flee
    传空数组，交由技能自己的 `target_shape_ref` 目标链解析（自疗/友疗/AOE 走各自 chain）。技能
    未登记/字段读取异常等任何"读不出"情形保守判 false（不强塞，比猜错更安全）。见
    `AiHost.cs`/`CompiledRotationEntry.cs`、`AiRotationTargetingTests.cs`。
+6. **T-N3-10：`RotationEvaluator` 在条件为真之后、`CastSkill` 之前先查一次
+   `ISkillHost.GetSkillReadiness`，不就绪直接跳过、不调用 `CastSkill`**——迁移前（`AiHost` 内联实现
+   时期）没有这一步预筛，条件为真的每一条都会真的尝试一次 `CastSkill`，靠其返回值判断"不就绪"
+   （如既有 `AiRotationTests.Evaluate_OnCooldownEntry_FallsBackToNextPriority` 用例）。两种写法对
+   "最终选中哪一条"结果等价（`GetSkillReadiness.IsReady` 与随后 `CastSkill` 是否会因冷却/充能/
+   公共冷却/节拍锁/使用条件而失败，按契约定义逐位对应），差异只在于：不就绪的候选不再产生一次
+   `skill.cast_failed` 事件与相应的 `CastSkill` 调用记录。选择加这一步预筛而不是让 `AiHost` 既有
+   "先斩后奏"写法原样保留，是任务书 T-N3-10 的显式要求（"就绪判定复用 `ISkillHost.
+   GetSkillReadiness`，不自行推断"）；`AiHost` 既有测试用例的假实现 `FakeSkillHost` 未编程
+   `GetSkillReadiness` 时走与 `ISkillHost` 默认接口实现同一"按 `GetCooldown` 推断"公式（恒判定
+   就绪，因为 `FakeSkillHost.GetCooldown` 恒为 0），因此既有用例仍然会真的调用一次 `CastSkill`
+   才发现失败，全部原样通过，未观察到任何行为差异。见 `RotationEvaluator.cs`、
+   `RotationEvaluatorTests.cs`（首条不就绪跳过选下一条，冷却/`ConditionNotMet`/`ActionLocked`
+   三态各一组）。

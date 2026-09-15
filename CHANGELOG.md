@@ -411,6 +411,31 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 判定、等级取 1。不新增任何效果原语，回放/Perf 基线零改动（新增校验规则默认不产生问题，不影响
 运行时结算路径）。`SkillOptions.BudgetRuleId`/`SettlementEffectKinds` 沿用既有定义，未改动。
 
+数值设计落地阶段 N3 · T-N3-10（ADR-0031 决策 12"一键智能释放"；ADR-0035 决策 2"标准玩家生成器/
+仿真与 AI 共用同一求值组件"；06 第 6.2 节）：新增独立的优先级表（`ai.rotation`）求值组件
+`Core.Rules.Ai.IRotationEvaluator`/`RotationEvaluator`（`core/rules/ai/contracts/IRotationEvaluator.cs`、
+`core/rules/ai/core/RotationEvaluator.cs`）——不依赖 `ai.behavior_profile`、不要求
+`BehaviorState.Combat`，只需一个 `ai.rotation` 表 id 即可给任意单位（含未注册 AI 行为外壳的玩家
+单位）选出并经 `ISkillHost.CastSkill` 施放一次技能，供玩家侧"一键智能释放"输入与仿真骨架的标准
+玩家生成器直接复用。`AiHost.Evaluate`/`AiHost.LoadRotations`/`AiHost.ClassifyIsHostileSingleTarget`
+（原 `core/rules/ai/core/AiHost.cs:195-234, 717-807`）原样搬迁进新组件，`AiHost` 改为只保留
+"仅 `Combat` 态才求值"的行为档门控与选中后发 `ai.decision_made` 事件两件独属于 `AiHost` 自己的事，
+其余委托 `RotationEvaluator`；`AiHost.SetRotation` 的未知 Rotation 校验同步改调新增的
+`IRotationEvaluator.HasRotation`。求值算法在委托前后逐位不变（`AiHost` 既有全部测试用例未改动、
+全绿），唯一新增的行为是候选条件为真后先查一次 `ISkillHost.GetSkillReadiness`（1.21.0 只读快照，
+T-N3-4 起覆盖 `ConditionNotMet`/`ActionLocked`）、不就绪直接跳过、不产生一次注定失败的
+`CastSkill` 调用（及其 `skill.cast_failed` 事件）——就绪判定统一复用这一份只读查询，不自行用
+`IsCasting`/`GetCooldown` 等零散状态推断；真正的最终裁决仍是随后的 `CastSkill`（`GetSkillReadiness`
+不覆盖存活/控制、学派锁定、资源、目标合法性、距离与视线）。无状态契约（硬性规则）：
+`RotationEvaluator` 只在构造期一次性从 `IDataRegistryView` 编译 `ai.rotation` 全部记录进一份只读
+缓存（内容编译缓存，不是单位状态，不随传入哪个 `unitId` 变化），`Evaluate` 每次调用只读入参与该
+缓存，不持有任何按单位区分的可变字段；已知限制（非本任务新引入，`AiHost` 迁移前同样如此）：
+`IDataRegistry.Reload` 不会使该缓存失效，需要重建实例。纯游戏侧接入契约（`Core.Rules.Ai` 命名空间
+新增公开类型，不涉及 `FieldSchema`/`TableSchema`/编辑器基础套件契约面），不进"编辑器相关契约"
+小节。不新增任何效果原语，不改变任何数据表/schema，回放/Perf 基线零改动（生产实现
+`Core.Rules.Skill.SkillHost.GetSkillReadiness` 对既有回放/Perf 场景涉及的技能给出的
+`IsReady` 结论与随后一次 `CastSkill` 的成败判定一致，新增的预筛不改变最终选中结果）。
+
 ## [1.32.0] - 2026-09-15
 
 MINOR 版本：数值设计落地阶段 N2"装备与掉落"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 8/14 节，T-N2-1～T-N2-11）——落地 ADR-0032 全部决策：预算消耗公式、槽位与品质倍率、护甲与武器秒伤曲线、预算反解、装备评分、词缀转正为预算份额包、掉落三次掷骰、物品实例携带品质与词缀身份、背包容量来源、模板加词缀最大份额超预算阻断校验。
