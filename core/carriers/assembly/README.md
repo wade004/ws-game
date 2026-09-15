@@ -144,3 +144,13 @@ README.md` 同编号条目）。本类第 4 步构造 `Equipment` 时新增传�
 新增显式 `permanent` 参数的四参重载（见 `core/rules/skill/README.md` 同编号条目）后，本类第 4 步的
 装备 `skillGranter` 接线改为显式调用 `Rules.Skill.LearnSkill(unitId, skillId, sourceId, permanent:
 false)`——不依赖三参重载的默认值，装备授予的临时语义不会因为默认值将来改变而意外漂移成永久。
+
+## T-N4-4：`CarriersAssembly` 新增带 `ProgressionOptions` 的构造重载
+
+同 `core/rules/assembly/README.md`"T-N4-4"一节判断记录（ABI 门禁 G3：本仓库已发布 1.33.0 基线，
+直接在已发布构造函数末尾追加新参数不再安全）——本类型旧签名构造函数（25 个参数）原样保留、转发
+新增重载（26 个参数，全部不带默认值）并传 `progressionOptions: null`；新增重载原样把
+`progressionOptions` 转发给 `RulesAssembly` 同名新增重载。唯一调用点
+（`core/gameplay/assembly.GameplayAssembly` 第 3 步）已同步显式列出全部 26 个参数（含此前从未
+在该调用点出现过的 `projectileOptions`，此前该处省略即回退旧签名的默认值 `null`，新签名要求
+显式传入）。

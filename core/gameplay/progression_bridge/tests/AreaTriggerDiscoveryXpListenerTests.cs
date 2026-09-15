@@ -205,8 +205,9 @@ namespace Tests.Gameplay.ProgressionBridge
 
         /// <summary>硬性规则衍生的防御性验收（同 <see
         /// cref="CreatureDeathXpListenerTests.OnUnitDied_KillXpSourceNotRegistered_DoesNotThrow_SkipsSilently"/>）：
-        /// <c>prog.xp_source.discovery</c> 未登记时 <c>GrantXp</c> 抛
-        /// <see cref="System.ArgumentException"/>，本监听器捕获、不阻断——但一次性标志仍然写入
+        /// <c>prog.xp_source.discovery</c> 未登记时 <c>HasXpSource</c> 返回 <c>false</c>，本监听器
+        /// 据此跳过 <c>GrantXp</c> 调用（T-N4-4 附带任务起改为显式查询，不再依赖
+        /// <see cref="System.ArgumentException"/> 的 try/catch）——但一次性标志仍然写入
         /// （判断记录"处理过一次"与"是否真的发了经验"分离），避免来源 id 配置补上之后被"追发"。</summary>
         [Fact]
         public void OnTriggerEntered_DiscoveryXpSourceNotRegistered_DoesNotThrow_StillSetsFlag()

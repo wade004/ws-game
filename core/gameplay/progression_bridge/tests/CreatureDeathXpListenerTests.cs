@@ -128,8 +128,11 @@ namespace Tests.Gameplay.ProgressionBridge
         }
 
         /// <summary>硬性规则"禁止在监听器里读掉落结果"衍生的防御性验收：<c>prog.xp_source.kill</c>
-        /// 未登记（该游戏/夹具尚未配置）时，<see cref="IProgressionHost.GrantXp"/> 抛
-        /// <see cref="System.ArgumentException"/>，本监听器捕获、不向外传播、不阻断事件派发。</summary>
+        /// 未登记（该游戏/夹具尚未配置）时，<see cref="IProgressionHost.HasXpSource"/> 返回
+        /// <c>false</c>，本监听器据此跳过 <see cref="IProgressionHost.GrantXp"/> 调用（T-N4-4
+        /// 附带任务起改为显式查询，不再依赖 <see cref="System.ArgumentException"/> 的
+        /// try/catch，见 <see cref="CreatureDeathXpListener"/> 判断记录），不向外传播、不阻断
+        /// 事件派发。</summary>
         [Fact]
         public void OnUnitDied_KillXpSourceNotRegistered_DoesNotThrow_SkipsSilently()
         {

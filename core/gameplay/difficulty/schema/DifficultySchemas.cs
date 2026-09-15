@@ -39,6 +39,13 @@ namespace Core.Gameplay.Difficulty
                         "（调用方从 IDifficultyHost.ItemLevelOffset 取值后传入，本模块不反向依赖 Loot）"),
                 new FieldSchema("sort_weight", FieldKind.Number, required: false,
                     description: "仅供内容管线排序展示，运行期不读取，缺省 0"),
+                // T-N4-4 新增（ADR-0033 决策 4"diff.tier 新增 xp_multiplier"；08 第 5.1 节修订段）：
+                // 该难度档的经验倍率，缺省 1（无加成）——与 creature.tier_definition.xp_multiplier
+                // 相乘，经 IDifficultyHost.XpMultiplier 供
+                // Core.Numbers.Progression.ProgressionOptions.ExtraXpMultiplierProvider 消费（仅
+                // kind=kill 分支生效）。纯新增可选字段，不升 currentSchemaVersion、不需要迁移函数。
+                new FieldSchema("xp_multiplier", FieldKind.Number, required: false,
+                    description: "该难度档的经验倍率，缺省 1（T-N4-4，ADR-0033 决策 4）"),
             }).WithOwnership(SchemaLayer.Gameplay, "difficulty");
     }
 }

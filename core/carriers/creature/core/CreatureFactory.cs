@@ -65,6 +65,10 @@ namespace Core.Carriers.Creature
             /// <c>control_immune_categories</c> 字段时的缺省值，同字段 schema 缺省），不改变
             /// <see cref="ControlImmune"/> 既有语义。</summary>
             public IReadOnlyList<string> ControlImmuneCategories = Array.Empty<string>();
+
+            /// <summary>T-N4-4 新增（ADR-0033 决策 4）：该分档的经验倍率，缺省 1——见
+            /// <see cref="TryGetXpMultiplier"/> 判断记录。</summary>
+            public double XpMultiplier = 1.0;
         }
 
         private readonly IDataRegistryView _registry;
@@ -312,6 +316,7 @@ namespace Core.Carriers.Creature
                 var id = record.GetId("id");
                 var statMultiplier = record.TryGetNumber("stat_multiplier", out var multiplier) ? multiplier : 1.0;
                 var controlImmune = record.TryGetBool("control_immune", out var immune) && immune;
+                var xpMultiplier = record.TryGetNumber("xp_multiplier", out var xpMult) ? xpMult : 1.0;
 
                 // T-N3-6 新增：control_immune_categories（并存字段，见 CreatureSchemas 判断记录），
                 // 惯例同 SkillDefCache 解析 interrupt_flags 数组字段——直接遍历 JsonArray 取字符串，
@@ -335,8 +340,39 @@ namespace Core.Carriers.Creature
                     StatMultiplier = statMultiplier,
                     ControlImmune = controlImmune,
                     ControlImmuneCategories = controlImmuneCategories,
+                    XpMultiplier = xpMultiplier,
                 };
             }
+        }
+
+        // -----------------------------------------------------------------
+        // T-N4-4：分档经验倍率查询（ADR-0033 决策 4）
+        // -----------------------------------------------------------------
+
+        /// <summary>查询 <paramref name="tierId"/>（<c>creature.tier_definition</c>）对应的
+        /// <c>xp_multiplier</c>（缺省 1）。供
+        /// <see cref="Core.Numbers.Progression.ProgressionOptions.ExtraXpMultiplierProvider"/>
+        /// 钩子读取（<c>core/gameplay/assembly.GameplayAssembly</c> 接线，见该属性判断记录）。
+        /// <para>
+        /// 判断记录（未登记 <paramref name="tierId"/> 时返回 <c>false</c> 而不抛异常）：与本类型
+        /// 其余查询方法（<see cref="RequireTier"/> 惯例，未知 id 抛 <see cref="ArgumentException"/>）
+        /// 刻意不同——本方法唯一的调用方是"击杀经验倍率折算"这一非阻断性场景（同
+        /// <see cref="Core.Gameplay.ProgressionBridge.CreatureDeathXpListener.ResolveTierId"/>
+        /// 判断记录"未登记模板/分档不阻断经验发放本身"一贯口径），未登记/拼写错误的
+        /// <paramref name="tierId"/>（或 <c>null</c>，由调用方在解包 <see
+        /// cref="Core.Numbers.Progression.XpContext.TierId"/> 时判断）不应该让整条经验发放链路
+        /// 抛异常，只是退化为"无分档加成"（<paramref name="multiplier"/> 恒为 <c>1.0</c>）。
+        /// </para>
+        /// </summary>
+        public bool TryGetXpMultiplier(Id tierId, out double multiplier)
+        {
+            if (_tiers.TryGetValue(tierId.Value, out var tier))
+            {
+                multiplier = tier.XpMultiplier;
+                return true;
+            }
+            multiplier = 1.0;
+            return false;
         }
 
         // -----------------------------------------------------------------

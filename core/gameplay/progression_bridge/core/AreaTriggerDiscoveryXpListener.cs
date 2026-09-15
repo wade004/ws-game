@@ -121,16 +121,14 @@ namespace Core.Gameplay.ProgressionBridge
                 return;
             }
 
-            try
+            // T-N4-4 附带任务（设计层裁定）：改为显式查询 IProgressionHost.HasXpSource，取代此前
+            // try/catch(ArgumentException)——判断记录同 CreatureDeathXpListener。未登记的来源 id
+            // 不阻断触发器进入的其余处理，但一次性标志仍然写入（见下方，避免来源 id 配置修好之后
+            // 同一个区域被"追发"一次，语义上"这次进入已经处理过"比"这次进入到底发出了多少经验"更
+            // 贴近"一次性"这个约定本身——同 GetXpToNext 满级归零"不发事件也算处理过一次"同一惯例）。
+            if (_progression.HasXpSource(_discoveryXpSourceId))
             {
                 _progression.GrantXp(evt.UnitId, _discoveryXpSourceId, new XpContext(regionLevel.Value));
-            }
-            catch (ArgumentException)
-            {
-                // 判断记录同 CreatureDeathXpListener——未登记的来源 id 不阻断触发器进入的其余处理，
-                // 但一次性标志仍然写入（见下方，避免来源 id 配置修好之后同一个区域被"追发"一次，
-                // 语义上"这次进入已经处理过"比"这次进入到底发出了多少经验"更贴近"一次性"这个约定
-                // 本身——同 GetXpToNext 满级归零"不发事件也算处理过一次"同一惯例）。
             }
 
             _worldState.Set(onceKey, ExprValue.OfBool(true), WriterId);

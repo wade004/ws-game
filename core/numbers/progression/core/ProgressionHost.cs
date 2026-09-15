@@ -572,7 +572,10 @@ namespace Core.Numbers.Progression
 
                 case "kill":
                 default:
-                    var multiplier = _options.ExtraXpMultiplierProvider?.Invoke(unitId, sourceId) ?? 1.0;
+                    // T-N4-4：ExtraXpMultiplierProvider 委托签名扩展新增 tierId 参数（见该委托
+                    // 判断记录"T-N4-4 变更记录"）——context.TierId 在本分支调用时点已经就位
+                    // （由 CreatureDeathXpListener 经 XpContext 传入），原样转发。
+                    var multiplier = _options.ExtraXpMultiplierProvider?.Invoke(unitId, sourceId, context.TierId) ?? 1.0;
                     return baseAmount * multiplier * EvaluateDeltaFactor(unitId, source, context.SourceLevel);
             }
         }
@@ -605,6 +608,11 @@ namespace Core.Numbers.Progression
             }
             return source;
         }
+
+        /// <summary>T-N4-4 附带任务：显式转发（见 <see cref="IProgressionHost.HasXpSource"/> 判断
+        /// 记录——本类型不落回默认值 <c>true</c>，直接按 <c>prog.xp_source</c> 构造期解析出的索引
+        /// 精确判断）。</summary>
+        public bool HasXpSource(Id sourceId) => _xpSources.ContainsKey(sourceId.Value);
 
         // -----------------------------------------------------------------
         // 内部

@@ -30,14 +30,15 @@ namespace Core.Gameplay.ProgressionBridge
     /// 因此"先构造先收到"，本类不自行决定顺序。
     /// </para>
     /// <para>
-    /// 判断记录（未登记的 <see cref="IProgressionHost.GrantXp"/> 来源 id 不阻断死亡结算）：
-    /// <see cref="IProgressionHost.GrantXp"/> 对未登记的 <c>sourceId</c> 抛
-    /// <see cref="ArgumentException"/>（见该方法契约文档），本类捕获并静默跳过（记一次不产生副作用
-    /// 的空操作，不重新抛出）——同 <see cref="Core.Gameplay.Loot.CreatureDeathLootListener.OnUnitDied"/>
-    /// 对未登记模板 id 的处理惯例（"不是本监听器的职责范围，静默跳过，不阻断死亡结算流程"）：某个
-    /// 游戏/测试夹具尚未配置 <see cref="ProgressionOptions.KillXpSourceId"/> 指向的
-    /// <c>prog.xp_source</c> 记录时，击杀经验退化为"不发放"，不应该因此让整条死亡结算/事件派发链路
-    /// 崩溃。
+    /// 判断记录（未登记的 <see cref="IProgressionHost.GrantXp"/> 来源 id 不阻断死亡结算）：T-N4-4
+    /// 附带任务（设计层裁定）起改为先调用 <see cref="IProgressionHost.HasXpSource"/> 显式查询，
+    /// 查到才调用 <see cref="IProgressionHost.GrantXp"/>——取代此前"直接调用、
+    /// <c>try/catch (ArgumentException)</c> 兜未登记来源"的写法（<see cref="IProgressionHost.GrantXp"/>
+    /// 对未登记的 <c>sourceId</c> 仍然抛 <see cref="ArgumentException"/>，本类只是不再依赖这条异常
+    /// 路径）：同 <see cref="Core.Gameplay.Loot.CreatureDeathLootListener.OnUnitDied"/> 对未登记模板
+    /// id 的处理惯例（"不是本监听器的职责范围，静默跳过，不阻断死亡结算流程"）——某个游戏/测试夹具
+    /// 尚未配置 <see cref="ProgressionOptions.KillXpSourceId"/> 指向的 <c>prog.xp_source</c> 记录
+    /// 时，击杀经验退化为"不发放"，不应该因此让整条死亡结算/事件派发链路崩溃。
     /// </para>
     /// </summary>
     public sealed class CreatureDeathXpListener
@@ -91,13 +92,13 @@ namespace Core.Gameplay.ProgressionBridge
             var diedLevel = _units.GetLevel(evt.UnitId);
             var tierId = ResolveTierId(evt.UnitId);
 
-            try
+            // T-N4-4 附带任务（设计层裁定）：改为显式查询 IProgressionHost.HasXpSource 后再发放，
+            // 取代此前的 try/catch(ArgumentException)——"来源未登记"是正常场景（游戏/测试夹具尚未
+            // 配置），不该靠异常控制流表达，见该接口成员判断记录。行为不变：未登记时静默跳过，不
+            // 阻断死亡结算（类型注释"未登记的来源 id 不阻断死亡结算"）。
+            if (_progression.HasXpSource(_killXpSourceId))
             {
                 _progression.GrantXp(creditUnitId, _killXpSourceId, new XpContext(diedLevel, tierId: tierId));
-            }
-            catch (ArgumentException)
-            {
-                // 判断记录见类型注释"未登记的来源 id 不阻断死亡结算"。
             }
         }
 

@@ -49,12 +49,15 @@ progression_bridge/
    处理。这与本任务派发书"此前多次确认回放不触达 progression"的提示一致，`--filter
    "FullyQualifiedName~Replay"` 全绿且 `replay_baseline.json` 零改动（见"T-N4-3 门禁记录"）。
 
-4. **未登记的 `prog.xp_source` 来源 id 不阻断玩法流程**：两个监听器调用
-   `IProgressionHost.GrantXp` 时都用 `try { … } catch (ArgumentException) { }` 包裹——某个游戏/
-   测试夹具尚未配置 `ProgressionOptions.KillXpSourceId`/`DiscoveryXpSourceId` 指向的
-   `prog.xp_source` 记录时，经验发放退化为"不发放"，不应该让 `unit.died`/
-   `area.trigger_entered` 的其余处理（掉落、任务判定、场景切换……）跟着崩溃。同
-   `core/gameplay/loot.CreatureDeathLootListener.OnUnitDied` 对未登记模板 id 的处理惯例。
+4. **未登记的 `prog.xp_source` 来源 id 不阻断玩法流程**：某个游戏/测试夹具尚未配置
+   `ProgressionOptions.KillXpSourceId`/`DiscoveryXpSourceId` 指向的 `prog.xp_source` 记录时，
+   经验发放退化为"不发放"，不应该让 `unit.died`/`area.trigger_entered` 的其余处理（掉落、任务
+   判定、场景切换……）跟着崩溃。同 `core/gameplay/loot.CreatureDeathLootListener.OnUnitDied` 对
+   未登记模板 id 的处理惯例。**T-N4-4 附带任务（设计层裁定）机制变更**：T-N4-3 落地时两个监听器
+   调用 `IProgressionHost.GrantXp` 都用 `try { … } catch (ArgumentException) { }` 包裹——本任务
+   起改为先调用新增默认接口成员 `IProgressionHost.HasXpSource(sourceId)` 显式查询，查到才发，
+   去掉 try/catch：来源未登记是正常场景，不应该依赖异常控制流表达，见该接口成员判断记录。
+   行为对外不变（未登记仍是"静默跳过、不阻断"），只是不再依赖异常。
 
 5. **来源 id 承接点：`ProgressionOptions.KillXpSourceId`/`DiscoveryXpSourceId`**（契约疑点上报，
    见该两个字段自身判断记录）：06 第 2.5 节/ADR-0033 均未给出"三种来源各用哪一条固定
@@ -96,6 +99,12 @@ progression_bridge/
    "这次进入到底发出了多少经验"更贴近"一次性"这个约定本身（同 `GetXpToNext` 满级归零"不发事件也
    算处理过一次"同一惯例），避免来源 id 配置补上之后同一个区域被"追发"一次。
 
+10. **T-N4-4：`IProgressionHost.HasXpSource` 默认实现返回 `true`（不是 `false`）**：ABI 门禁
+    "公开 API 只能新增"——接口已发布，本成员新增之前调用方对任何 `IProgressionHost` 实现都无
+    条件尝试调用 `GrantXp`；默认值 `true` 保持这一既有行为对未覆盖本方法的旧实现方（测试假实现、
+    未来第三方实现）透明，只有显式覆盖本方法的 `ProgressionHost` 才获得"真正按注册表判断"的精确
+    能力，详见该接口成员判断记录。
+
 ## 接入 `core/gameplay/assembly.GameplayAssembly`
 
 - `CreatureDeathXpListener` 接在 `CreatureDeathLootListener` 构造之后（同一个"6) LootHost（+
@@ -106,3 +115,8 @@ progression_bridge/
   `AreaDiscoveryLevelResolver` 当前传 `null`（见判断记录 6）。
 - 两处接线均只新增行，不改动既有行（本任务与并行的 T-N4-7 共同修改
   `core/gameplay/assembly/GameplayAssembly.cs`，见分阶段落地计划任务派发说明）。
+- **T-N4-4 变更**：两处接线新增传入 `options: resolvedProgressionOptions`（此前未显式传入，各自
+  退到内部 `new ProgressionOptions()` 默认值）——`GameplayAssembly` 从本任务起持有一份共享的
+  `ProgressionOptions` 实例（同时承载 `ExtraXpMultiplierProvider`/`QuestXpSourceId`），两个监听器
+  与 `RewardDispatcher` 共用同一份配置，不再各自独立退到互不相干的默认实例，见
+  `core/numbers/progression/README.md`"T-N4-4"一节判断记录 5。

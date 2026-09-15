@@ -372,6 +372,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `prog.xp_base_curve`/既有 `combat.level_diff_table`）、为 `once_key` 补文本输入框，并对
   `base_xp`/`weight` 两个输入框加"已废弃"视觉标注。全部新增字段均为纯新增可选字段，两张表
   `schema_version` 均不递增，旧数据/旧存档不受影响。
+- **数值设计落地阶段 N4 · T-N4-4（Unreleased）**：`creature.tier_definition`/`diff.tier` 各新增
+  可选字段 `xp_multiplier`（`FieldKind.Number`，缺省 1）；任务/遭遇/成就奖励 `rewards` 子结构
+  新增可选字段 `xp_equivalent`（`FieldKind.Number`）/`level`（`FieldKind.Int`），旧字段 `xp`
+  标废弃（保留一个版本周期，不删除）。编辑器生物分档/难度档编辑界面需要各补一个"经验倍率"输入框
+  （缺省 1）；任务/遭遇/成就奖励编辑界面需要补"经验当量"/"等级"两个输入框，并对 `xp` 输入框加
+  "已废弃"视觉标注（两者同时填写时以 `xp_equivalent` 为准）。全部新增字段均为纯新增可选字段，
+  各表 `schema_version` 均不递增，旧数据/旧存档不受影响。
 - **数值设计落地阶段 N4 · T-N4-8（Unreleased）**：新增事件 `economy.charged`（字段
   `unitId`/`currencyId`/`amount`/`reason`），已登记进 `found.event_catalog.json` 并生成
   `EventKeys.EconomyCharged`；T-N4-7 新增的 `economy.currency_overflow`（字段
@@ -439,6 +446,39 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   两个来源 id 承接点的最终消费方式）详见
   `core/numbers/progression/contracts/ProgressionOptions.cs`/
   `core/gameplay/progression_bridge/README.md` 类型/模块注释"契约疑点上报"。
+
+- **数值设计落地阶段 N4 · T-N4-4**（[ADR-0033](architecture/adr/0033-等级经验模块正文与当量来源.md)
+  决策 4；[08 第 2.1 节](architecture/08_玩法层_掉落任务对话关卡.md) 2026-09-14 修订段；编辑器/
+  游戏侧接入契约）：`creature.tier_definition`/`diff.tier` 各新增可选字段 `xp_multiplier`
+  （经验倍率，缺省 1，仅 `kind=kill` 经验来源生效）；`Core.Numbers.Progression.
+  ProgressionXpMultiplierProvider` 委托签名扩展为 `(unitId, sourceId, tierId) -> double`（T-N4-2
+  落地时只有 `(unitId, sourceId)`，本任务补上第三个参数供分档倍率查询，见判断记录）；
+  `Core.Gameplay.Assembly.GameplayAssembly` 从本任务起把
+  `ProgressionOptions.ExtraXpMultiplierProvider`（未显式配置时）接为
+  "`Core.Carriers.Creature.CreatureFactory.TryGetXpMultiplier` 结果 ×
+  `Core.Gameplay.Difficulty.IDifficultyHost.XpMultiplier`"；`RulesAssembly`/`CarriersAssembly`/
+  `GameplayAssembly` 三个装配根新增接受 `ProgressionOptions?` 的构造重载（ABI 门禁 G3：本仓库
+  已发布 1.33.0 基线，三者旧签名构造函数均原样保留、转发新增重载并传 `null`，新增重载因 C# 语法
+  "可选参数必须在必选参数之后"把此前全部可选参数一并改为必选，唯一调用点均已同步显式列出全部
+  参数，见三者各自 README"T-N4-4"一节）。任务/遭遇奖励改当量与等级：`Core.Gameplay.Common.
+  RewardBundle` 新增 `XpEquivalent`/`RewardLevel`（`rewards.xp_equivalent`/`rewards.level`，
+  `QuestSchemas.RewardsFields` 同步登记，`quest.def`/`encounter.def`/`achv.def` 三表共用同一份
+  声明自动生效），旧字段 `xp`（`rewards.xp`）标废弃但保留一个版本周期供兼容读取；
+  `Core.Gameplay.Common.RewardDispatcher` 新增接受 `ProgressionOptions?` 的构造重载（供
+  `ProgressionOptions.QuestXpSourceId` 解析，未配置落到约定 id `prog.xp_source.quest`），
+  `GrantXp`（私有方法）：`XpEquivalent` 非空时改经 `IProgressionHost.GrantXp(unitId,
+  questXpSourceId, new XpContext(rewardLevel ?? 1, equivalent: xpEquivalent))` 折算发放（硬性
+  规则"禁止奖励直发绝对数"），为空时逐位保留旧字段 `Xp` 经 `AddXp` 绝对数直发的路径（回归锁死）。
+  `Core.Numbers.Progression.IProgressionHost` 新增默认接口成员 `HasXpSource(sourceId): bool`
+  （设计层裁定，附带任务）：`core/gameplay/progression_bridge` 两个监听器与 `RewardDispatcher`
+  均改为先显式查询、查到才发，取代 `try/catch (ArgumentException)` 兜未登记来源的写法（行为对外
+  不变，仍是"未登记静默跳过、不阻断"，只是不再依赖异常控制流）。回放基线核查：`core/gameplay/
+  tests/Replay` 只装配 L2 `RulesAssembly`、从未构造 L4 `GameplayAssembly`，本次改动（分档/难度
+  倍率接线、监听器改用 `HasXpSource`）均落在 L4 装配根与经验发放路径，回放场景不触达，基线未变、
+  `--filter "FullyQualifiedName~Replay"` 全绿。契约疑点上报（"任务等级"折算输入的字面挂载点，
+  08 未给出结论，本任务落在 `rewards.level`）详见 `core/gameplay/common/contracts/RewardBundle.cs`
+  `FromRecord` 判断记录"reward_level 挂载点"。
+
 数值设计落地阶段 N4 · T-N4-6（ADR-0034 决策 2；08 第 7.4 节；04 第 1.1 节表清单）：新增表
 `econ.value_curve`（物品等级 → 基准价值，断点表，横轴 `CurveAxis.ItemLevel`）与
 `econ.gold_base_curve`（等级 → 金币基数，断点表，横轴 `CurveAxis.Level`，本任务只登记 schema，

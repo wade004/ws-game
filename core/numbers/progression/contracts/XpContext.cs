@@ -23,21 +23,14 @@ namespace Core.Numbers.Progression
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 判断记录（<see cref="TierId"/> 本任务只登记、不消费）：06 第 2.5 节 struct 定义带
-    /// <c>tierId</c>（"分档"），但按 ADR-0033 决策 3/4，分档倍率
-    /// （<c>creature.tier_definition.xp_multiplier</c>）与难度倍率
-    /// （<c>diff.tier.xp_multiplier</c>）的实际计算方在 T-N4-3（击杀经验监听器）/T-N4-4
-    /// （分档与难度倍率注入）——那两个任务才知道去哪张表按 <see cref="TierId"/> 查倍率；本模块
-    /// 并行开发期不引用 <c>creature</c>/<c>diff</c> 模块的具体类型（见 README"并行开发期不引用
-    /// 具体类型"惯例），也不应该现在就去猜它们的字段形状。本任务只登记该字段供调用方传入/读取，
-    /// <see cref="ProgressionHost.GrantXp"/> 内部不读取它——分档/难度倍率钩子改用已在 T-N4-1
-    /// 落地的 <see cref="ProgressionOptions.ExtraXpMultiplierProvider"/>（签名
-    /// <c>(unitId, sourceId) → 倍率</c>，缺省 1，只用于 <c>kind=kill</c> 分支，见
-    /// <see cref="ProgressionHost"/> 判断记录）。**契约疑点上报**：该委托签名不含
-    /// <see cref="TierId"/>，若 T-N4-4 落地时发现真的需要按 <see cref="TierId"/> 查倍率，
-    /// 委托签名或注入方式需要那时再按需扩展/调整，以彼时任务书与设计层裁定为准（本类是
-    /// 阶段 N4 内多个任务共同完善、随 1.34.0 一次性发布的全新类型，本阶段内的字段/委托调整不是
-    /// "已发布 ABI"的破坏性变更，同 <c>ProgressionOptions</c> 类型注释"契约疑点上报"同一惯例）。
+    /// 判断记录（<see cref="TierId"/> 消费方，T-N4-4 补记）：06 第 2.5 节 struct 定义带
+    /// <c>tierId</c>（"分档"）——T-N4-1/T-N4-2 落地时本字段只登记、不消费（<see
+    /// cref="ProgressionHost.GrantXp"/> 内部不读取它），T-N4-3 起 <c>CreatureDeathXpListener</c>
+    /// 把死亡单位所属生物模板的分档 id 传进来，T-N4-4 起 <see cref="ProgressionHost.GrantXp"/>
+    /// 的 <c>kind=kill</c> 分支把本字段原样传给
+    /// <see cref="ProgressionOptions.ExtraXpMultiplierProvider"/>（委托签名同一次任务扩展为
+    /// <c>(unitId, sourceId, tierId) → 倍率</c>，见该委托判断记录"T-N4-4 变更记录"）——此前
+    /// 这里登记的"契约疑点上报：该委托签名不含 TierId"已按此裁定并落地，不再是待确认事项。
     /// </para>
     /// <para>
     /// 不可变类型：公开构造 + 只读属性（设计层裁定：C# 里没有真正意义上"只读值类型"的轻量写法能

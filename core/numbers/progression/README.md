@@ -22,12 +22,15 @@ progression/
     ProgSchemas.cs             prog.level_curve / prog.xp_source / prog.xp_base_curve 的 TableSchema
     ProgressionOptions.cs      构造期口味配置契约壳（T-N4-1 新增契约壳，T-N4-2 起真正消费 MaxLevel/
                                 ExtraXpMultiplierProvider；T-N4-3 新增 KillXpSourceId/
-                                DiscoveryXpSourceId，本模块不消费，见"T-N4-3"一节）
+                                DiscoveryXpSourceId，本模块不消费，见"T-N4-3"一节；T-N4-4 新增
+                                QuestXpSourceId，ExtraXpMultiplierProvider 委托签名扩展为
+                                (unitId, sourceId, tierId)，见"T-N4-4"一节）
     XpContext.cs               grantXp 的当量上下文（T-N4-2 新增：sourceLevel/tierId/equivalent）
     Events.cs                  ProgressionEventKeys、LevelUpEvent、XpGainedEvent
     ProgressionWriters.cs      StatModifierWriter / StatModifierRemover 具名委托
     IProgressionDiagnostics.cs 诊断出口
-    IProgressionHost.cs        IProgressionHost（T-N4-2 新增 GrantXp 默认接口成员）
+    IProgressionHost.cs        IProgressionHost（T-N4-2 新增 GrantXp 默认接口成员；T-N4-4 新增
+                                HasXpSource 默认接口成员）
   core/
     ProgressionHost.cs             IProgressionHost 默认实现
     ProgressionPersistable.cs      player.progression 存档段（静态工厂，惯例同 core/carriers/unit
@@ -250,6 +253,44 @@ CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp
 两个监听器各自退到自己的约定 id（`prog.xp_source.kill`/`prog.xp_source.discovery`，见各自类型
 `DefaultKillXpSourceId`/`DefaultDiscoveryXpSourceId` 静态字段）。本模块只负责登记字段与判断记录，
 详见 `core/gameplay/progression_bridge/README.md` 判断记录 5。
+
+## T-N4-4（分阶段落地计划；ADR-0033 决策 4；附带任务设计层裁定）：`ExtraXpMultiplierProvider` 签名扩展、`QuestXpSourceId`、`HasXpSource`
+
+1. **`ProgressionXpMultiplierProvider` 委托签名扩展为 `(unitId, sourceId, tierId) → 倍率`**：
+   T-N4-1/T-N4-2 落地时签名只有 `(unitId, sourceId)`，`XpContext.TierId` 判断记录当时已把"若
+   T-N4-4 落地时发现真的需要按 `TierId` 查倍率，委托签名或注入方式需要那时再按需扩展"登记为
+   契约疑点上报——本任务落地"分档经验倍率"（读 `creature.tier_definition.xp_multiplier`）确实
+   需要知道死亡单位的分档 id，`ProgressionHost.GrantXp` 的 `kind=kill` 分支调用本委托时手上正好
+   有 `XpContext.TierId`（`CreatureDeathXpListener` 传入），因此新增第三个参数直传。ABI 判断
+   记录：本委托是阶段 N4 内多个任务共同完善、随 1.34.0 一次性发布的全新类型，本阶段内的签名
+   调整不构成"已发布 ABI"的破坏性变更。
+2. **真正接入分档 × 难度倍率**：`core/gameplay/assembly.GameplayAssembly` 从本任务起把
+   `ExtraXpMultiplierProvider`（未显式配置时）默认接为
+   `(tierId 对应的 CreatureFactory.TryGetXpMultiplier 结果 ?? 1) ×
+   Core.Gameplay.Difficulty.IDifficultyHost.XpMultiplier`——真正读
+   `creature.tier_definition.xp_multiplier`/`diff.tier.xp_multiplier` 两张新增字段（各自模块
+   README 判断记录见 `core/carriers/creature/README.md`/`core/gameplay/difficulty/README.md`）。
+   调用方显式设置本字段时装配根不覆盖。
+3. **新增 `ProgressionOptions.QuestXpSourceId`**：`null`（默认）时消费方（`core/gameplay/common.
+   RewardDispatcher`）落到约定 id `prog.xp_source.quest`（同 T-N4-3 `KillXpSourceId`/
+   `DiscoveryXpSourceId` 一贯约定）——任务/遭遇奖励包新增 `xp_equivalent`/`level` 字段非空时，
+   `RewardDispatcher` 改经 `IProgressionHost.GrantXp(unit, questXpSourceId, new
+   XpContext(level, equivalent: eq))` 发放，取代旧字段 `xp` 绝对数直发路径（硬性规则"禁止奖励
+   直发绝对数"），详见 `core/gameplay/common/README.md`。
+4. **新增默认接口成员 `IProgressionHost.HasXpSource(sourceId)`（设计层裁定，附带任务）**：
+   `core/gameplay/progression_bridge` 的两个监听器（`CreatureDeathXpListener`/
+   `AreaTriggerDiscoveryXpListener`）此前用 `try/catch (ArgumentException)` 兜"来源未登记"这一
+   正常场景，改为先显式查询、查到才发，不再依赖异常控制流——`ProgressionHost` 显式覆盖为按内部
+   `prog.xp_source` 索引精确判断；默认实现返回 `true`（不是更"保守"的 `false`）：本成员新增之前
+   调用方对任何 `IProgressionHost` 实现都无条件尝试调用 `GrantXp`，默认值 `true` 保持这一既有
+   行为对未覆盖本方法的旧实现方透明，只有 `ProgressionHost` 才获得精确判断能力，详见该接口成员
+   判断记录。
+5. **ABI 门禁 G3（已发布基线约束）**：本仓库已发布 1.33.0，`RulesAssembly`/`CarriersAssembly`/
+   `GameplayAssembly` 三个装配根构造函数均已随该版本发布，本任务需要给它们接入
+   `ProgressionOptions?` 时不能再直接在已发布签名末尾追加新参数（会被 `toolchain/abi_probe.ps1`
+   判定为破坏性变更），改用"新增重载"——三者各自的旧签名构造函数原样保留、转发新增的带
+   `ProgressionOptions` 参数的重载（新重载因 C# 语法"可选参数必须在必选参数之后"，把此前全部
+   可选参数一并改为必选，仅有的调用点已同步显式列出全部参数），详见三者各自构造函数注释。
 
 ## 不负责什么
 

@@ -129,6 +129,25 @@ common/
    `core/gameplay/economy/tests/T_N4_8_TryPayReasonAndRewardCurrencyTests.
    RewardDispatcher_GrantCurrency_ViaEconomyHost_DepositsThroughAdd`。
 
+7. **T-N4-4（ADR-0033 决策 3；硬性规则"禁止奖励直发绝对数"）：`RewardBundle` 新增
+   `XpEquivalent`/`RewardLevel`，`RewardDispatcher.GrantXp` 改经 `IProgressionHost.GrantXp`
+   折算发放**——新增构造重载 `RewardBundle(..., double? xpEquivalent, int? rewardLevel)`（旧
+   6 参数构造函数原样保留、转发新重载并传 `null`）；`FromRecord` 新增解析 `rewards.xp_equivalent`/
+   `rewards.level`（`QuestSchemas.RewardsFields` 同步新增两个可选子字段，`quest.def`/
+   `encounter.def`/`achv.def` 三张表共用同一份声明自动生效）。`RewardDispatcher.GrantXp`（私有
+   方法）：`XpEquivalent` 非空时——先查 `IProgressionHost.HasXpSource(questXpSourceId)`（未登记
+   跳过、记诊断，不抛异常，同 `core/gameplay/progression_bridge` 两个监听器同一惯例）——查到即
+   `GrantXp(unitId, questXpSourceId, new XpContext(rewardLevel ?? 1, equivalent: xpEquivalent))`；
+   `questXpSourceId` 取自新增构造重载 `RewardDispatcher(..., ProgressionOptions? progressionOptions)`
+   的 `ProgressionOptions.QuestXpSourceId`（未配置落到约定 id `prog.xp_source.quest`，见公开
+   静态字段 `RewardDispatcher.DefaultQuestXpSourceId`）——**不是** `Grant` 收到的 `sourceId`
+   参数（那个参数语义是"任务/遭遇/成就的 id"，供 `currency`/`skills`/`world_flags`/
+   `talent_points` 四类奖励标注来源，两者刻意区分）。`XpEquivalent` 为 `null` 时逐位保留旧字段
+   `Xp`（已废弃但保留一个版本周期）经 `IProgressionHost.AddXp` 绝对数直发的路径，行为与本任务
+   之前完全一致（回归锁死）。**契约疑点上报**：08 原文未给出"任务等级"这一折算输入的字面挂载
+   点，本任务落在 `rewards` 子结构自身（`rewards.level`），详见 `RewardBundle.FromRecord`
+   判断记录"reward_level 挂载点"。
+
 ## 不负责什么
 
 - 不实现"组合支付"（`ExtendedCost` 多货币/多物品组合支付）与"多选一奖励"（08 第 2.4 节

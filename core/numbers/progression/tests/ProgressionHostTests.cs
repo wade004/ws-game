@@ -105,6 +105,12 @@ namespace Tests.Numbers.Progression
             IDataRegistryView registry, IEventBus bus, RecordingWriters writers, IProgressionDiagnostics? diagnostics = null) =>
             new ProgressionHost(registry, bus, writers.Write, writers.Remove, diagnostics);
 
+        /// <summary>T-N4-4：接 <see cref="ProgressionOptions"/> 的构造重载，供
+        /// <see cref="ProgressionOptions.ExtraXpMultiplierProvider"/> 系列用例使用。</summary>
+        private static ProgressionHost MakeHostWithOptions(
+            IDataRegistryView registry, IEventBus bus, RecordingWriters writers, ProgressionOptions options) =>
+            new ProgressionHost(registry, bus, writers.Write, writers.Remove, options);
+
         // -----------------------------------------------------------------
         // T-N4-2 夹具：grantXp(XpContext) 三种来源公式、GetXpToNext/grantXp 满级归零、
         // GrantFromSource 曲线优先兼容。见 IProgressionHost.GrantXp/ComputeCurveBasedRawAmount
@@ -709,6 +715,112 @@ namespace Tests.Numbers.Progression
             var granted = host.GrantXp(unit, new Id("prog.xp.kill_n42"), new XpContext(sourceLevel: 3));
 
             Assert.Equal(30, granted);
+        }
+
+        // -----------------------------------------------------------------
+        // T-N4-4：ExtraXpMultiplierProvider（分档倍率 × 难度倍率注入钩子，签名扩展为
+        // (unitId, sourceId, tierId) → 倍率）
+        // -----------------------------------------------------------------
+
+        /// <summary>倍率组 1：Δ=0（xp_factor=1.0）、ExtraXpMultiplierProvider 恒返回 3.0（即
+        /// GameplayAssembly 装配出的"分档 1.5 × 难度 2"乘积）→ baseAmount=Evaluate(5)=500，
+        /// granted=500×3.0×1.0=1500。</summary>
+        [Fact]
+        public void GrantXp_Kill_WithExtraXpMultiplierProvider_AppliesMultiplier()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var options = new ProgressionOptions { ExtraXpMultiplierProvider = (unitId, sourceId, tierId) => 3.0 };
+            var host = MakeHostWithOptions(registry, bus, writers, options);
+            var unit = new Id("unit.n44_kill_multiplier_01");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 5);
+
+            var granted = host.GrantXp(unit, new Id("prog.xp.kill_n42"), new XpContext(sourceLevel: 5));
+
+            Assert.Equal(1500, granted);
+        }
+
+        /// <summary>倍率组 2：未设置 <see cref="ProgressionOptions.ExtraXpMultiplierProvider"/>
+        /// （<c>null</c>，缺省）→ 等价于恒为 1，行为与 T-N4-2 之前完全一致（回归锁死）——
+        /// baseAmount=Evaluate(6)=600，Δ=+5 → xp_factor=1.5，granted=600×1×1.5=900（同
+        /// <see cref="GrantXp_Kill_PositiveDelta_AppliesNonOneXpFactor"/>，用带 Options 的构造
+        /// 重载重新核对一遍，确认新增参数不改变缺省路径）。</summary>
+        [Fact]
+        public void GrantXp_Kill_WithoutExtraXpMultiplierProvider_DefaultsToOne()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeHostWithOptions(registry, bus, writers, new ProgressionOptions());
+            var unit = new Id("unit.n44_kill_multiplier_02");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 1);
+
+            var granted = host.GrantXp(unit, new Id("prog.xp.kill_n42"), new XpContext(sourceLevel: 6));
+
+            Assert.Equal(900, granted);
+        }
+
+        /// <summary>委托签名扩展核对（T-N4-4）：<see cref="XpContext.TierId"/> 原样转发给
+        /// <see cref="ProgressionOptions.ExtraXpMultiplierProvider"/> 的第三个参数——用一个会记录
+        /// 收到的参数的委托核对接线正确，不是碰巧返回 1。</summary>
+        [Fact]
+        public void GrantXp_Kill_ExtraXpMultiplierProvider_ReceivesUnitSourceAndTierIdFromContext()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            (Id UnitId, Id SourceId, Id? TierId)? received = null;
+            var options = new ProgressionOptions
+            {
+                ExtraXpMultiplierProvider = (unitId, sourceId, tierId) =>
+                {
+                    received = (unitId, sourceId, tierId);
+                    return 1.0;
+                },
+            };
+            var host = MakeHostWithOptions(registry, bus, writers, options);
+            var unit = new Id("unit.n44_kill_multiplier_03");
+            var sourceId = new Id("prog.xp.kill_n42");
+            var tierId = new Id("creature.tier.n44_probe");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 1);
+
+            host.GrantXp(unit, sourceId, new XpContext(sourceLevel: 1, tierId: tierId));
+
+            Assert.NotNull(received);
+            Assert.Equal(unit, received!.Value.UnitId);
+            Assert.Equal(sourceId, received.Value.SourceId);
+            Assert.Equal(tierId, received.Value.TierId);
+        }
+
+        // -----------------------------------------------------------------
+        // T-N4-4 附带任务（设计层裁定）：HasXpSource 显式查询，取代监听器的
+        // try/catch(ArgumentException)
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void HasXpSource_RegisteredSource_ReturnsTrue()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var host = MakeHost(registry, bus, new RecordingWriters());
+
+            Assert.True(host.HasXpSource(new Id("prog.xp.kill_n42")));
+        }
+
+        [Fact]
+        public void HasXpSource_UnregisteredSource_ReturnsFalse()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var host = MakeHost(registry, bus, new RecordingWriters());
+
+            Assert.False(host.HasXpSource(new Id("prog.xp_source.n44_nonexistent")));
         }
 
         /// <summary>任务 · 用例 1：Δ=0（任务等级与领取者同级）→ xp_factor=1.0。

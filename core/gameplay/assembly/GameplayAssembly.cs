@@ -232,6 +232,12 @@ namespace Core.Gameplay.Assembly
         /// 缺口，补齐参数而不是改文档退让）。全部三个默认 <c>null</c>，不改变未显式传入时的既有
         /// 行为。
         /// </summary>
+        /// <summary>T-N4-4 判断记录（ABI 门禁 G3，同 <see cref="Core.Rules.Assembly.RulesAssembly"/>/
+        /// <see cref="Core.Carriers.Assembly.CarriersAssembly"/> 对应构造函数判断记录）：本仓库已
+        /// 发布 1.33.0 基线，直接在本构造函数已发布的参数列表末尾追加新参数会被
+        /// <c>toolchain/abi_probe.ps1</c> 判定为破坏性变更——改用"新增重载"，本构造函数保留原物理
+        /// 签名不变，转发给下方新增的带 <see cref="ProgressionOptions"/> 参数的重载（携带全部真正
+        /// 构造逻辑）并传 <c>null</c>。</summary>
         public GameplayAssembly(
             IEventBus bus,
             IDataRegistryView registry,
@@ -273,6 +279,67 @@ namespace Core.Gameplay.Assembly
             Func<Id, Id?>? questOwnerResolver = null,
             Func<long>? questDayProvider = null,
             VendorOpenRequestedCallback? vendorOpenRequested = null)
+            : this(bus, registry, rng, world, spatial, saveSystem, playerUnitProvider, playerFactionId,
+                navigation, spatialSyncKinds, sceneRouter, statOptions, combatOptions, skillOptions,
+                targetingOptions, aiOptions, inventoryOptions, itemOptions, creatureOptions, summonOptions,
+                gobjOptions, movementOptions, worldStateOptions, lootOptions, economyOptions, questOptions,
+                difficultyOptions, achievementOptions, areaTriggerOptions, spawnOptions, autosaveSlotId,
+                autosaveTimestampProvider, clockHost, pacingPolicy, timeModelSwitchOptions,
+                combatParticipantsResolver, deathPolicyOptions, questOwnerResolver, questDayProvider,
+                vendorOpenRequested, progressionOptions: null)
+        {
+        }
+
+        /// <summary>
+        /// T-N4-4 新增构造重载：接受 <see cref="ProgressionOptions"/>（ADR-0033 决策 4），供
+        /// <c>ExtraXpMultiplierProvider</c>（分档倍率 × 难度倍率）/<c>KillXpSourceId</c>/
+        /// <c>DiscoveryXpSourceId</c>/<c>QuestXpSourceId</c> 等策略配置项接线（ABI 门禁 G3：见上方
+        /// 旧签名构造函数判断记录，本重载全部参数均不带默认值——原因同
+        /// <see cref="Core.Rules.Assembly.RulesAssembly"/> 对应构造函数判断记录"本重载全部参数均
+        /// 不带默认值"，唯一调用点为本类型自身的旧签名构造函数，已同步显式列出全部参数）。
+        /// </summary>
+        public GameplayAssembly(
+            IEventBus bus,
+            IDataRegistryView registry,
+            IRngHost rng,
+            IWorldSim world,
+            ISpatialQuery spatial,
+            ISaveSystem saveSystem,
+            Func<Id> playerUnitProvider,
+            Id playerFactionId,
+            INavigation2D? navigation,
+            IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig>? spatialSyncKinds,
+            ISceneRouter? sceneRouter,
+            StatHostOptions? statOptions,
+            CombatOptions? combatOptions,
+            SkillOptions? skillOptions,
+            TargetingOptions? targetingOptions,
+            AiOptions? aiOptions,
+            InventoryOptions? inventoryOptions,
+            ItemOptions? itemOptions,
+            CreatureOptions? creatureOptions,
+            SummonOptions? summonOptions,
+            GobjOptions? gobjOptions,
+            MovementOptions? movementOptions,
+            WorldStateOptions? worldStateOptions,
+            LootOptions? lootOptions,
+            EconomyOptions? economyOptions,
+            QuestOptions? questOptions,
+            DifficultyOptions? difficultyOptions,
+            AchievementOptions? achievementOptions,
+            AreaTriggerOptions? areaTriggerOptions,
+            SpawnOptions? spawnOptions,
+            Id? autosaveSlotId,
+            Func<string>? autosaveTimestampProvider,
+            ISimClockHost? clockHost,
+            IPacingPolicy? pacingPolicy,
+            TimeModelSwitchOptions? timeModelSwitchOptions,
+            Func<Id, IReadOnlyList<Id>>? combatParticipantsResolver,
+            Core.Gameplay.Death.DeathPolicyOptions? deathPolicyOptions,
+            Func<Id, Id?>? questOwnerResolver,
+            Func<long>? questDayProvider,
+            VendorOpenRequestedCallback? vendorOpenRequested,
+            ProgressionOptions? progressionOptions)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
@@ -399,17 +466,28 @@ namespace Core.Gameplay.Assembly
             // 只是提前到这里做，好让本类型拿到同一份引用）。
             var resolvedTargetingOptions = targetingOptions ?? new TargetingOptions();
 
+            // T-N4-4（ADR-0033 决策 4）：resolvedProgressionOptions 必须在这里就地 new 出来（同
+            // resolvedGobjOptions/resolvedSkillOptions/resolvedTargetingOptions 判断记录）——
+            // CarriersAssembly 构造期就要把它转给 RulesAssembly/ProgressionHost 持有同一份引用，
+            // 本方法随后（Difficulty 构造完成之后）才能回填 ExtraXpMultiplierProvider（分档倍率 ×
+            // 难度倍率），必须是同一个对象才能"回填"生效。KillXpSourceId/DiscoveryXpSourceId/
+            // QuestXpSourceId 三个来源 id 策略配置项同样靠这份共享实例，第 6/7 步分别接给
+            // CreatureDeathXpListener/AreaTriggerDiscoveryXpListener/RewardDispatcher，取代此前
+            // 各自默认落到全字段缺省的 ProgressionOptions() 实例（本任务起接上）。
+            var resolvedProgressionOptions = progressionOptions ?? new ProgressionOptions();
+
             Carriers = new CarriersAssembly(
                 bus, registry, rng, world, spatial, navigation, resolvedSpatialSyncKinds,
                 worldFlags: WorldState, lootRoller: deferredLootRoller,
                 statOptions: statOptions, combatOptions: combatOptions, skillOptions: resolvedSkillOptions,
                 targetingOptions: resolvedTargetingOptions, aiOptions: aiOptions, inventoryOptions: inventoryOptions,
                 itemOptions: itemOptions, creatureOptions: creatureOptions, summonOptions: summonOptions,
-                gobjOptions: resolvedGobjOptions, movementOptions: movementOptions,
+                gobjOptions: resolvedGobjOptions, movementOptions: movementOptions, projectileOptions: null,
                 extraSchemas: new IExprSchema[] { GameplaySchemaCatalog.FullExprSchema },
                 discreteTurnIndexProvider: () => scheduler?.CurrentTurnIndex ?? 0,
                 discreteRoundIndexProvider: () => scheduler?.RoundIndex ?? 0,
-                discreteCurrentActorProvider: () => scheduler?.GetCurrentActor());
+                discreteCurrentActorProvider: () => scheduler?.GetCurrentActor(),
+                progressionOptions: resolvedProgressionOptions);
 
             // ---------------------------------------------------------
             // 3.5) ADR-0013 离散时间模型：TurnScheduler 提前在这里构造（而不是等到第 10 步
@@ -487,6 +565,24 @@ namespace Core.Gameplay.Assembly
                 registry, bus, Carriers.Rules.Skill.EffectSink, Carriers.Rules.Factions, Carriers.Units,
                 difficultyOptions ?? new DifficultyOptions(playerFactionId));
 
+            // T-N4-4（ADR-0033 决策 4；见 resolvedProgressionOptions 声明处判断记录）：
+            // Carriers.Creatures 与 Difficulty 均已构造完成，直接设置默认
+            // ExtraXpMultiplierProvider——不需要像 healthFractionSetter/powers 那样用闭包延迟回填
+            // （ProgressionHost 只在 GrantXp 真正被调用时才读取本委托，构造完成之后设置属性同样
+            // 生效）。调用方显式配置过本委托时尊重调用方的选择，不覆盖（同 resolvedGobjOptions 一类
+            // "调用方可以只关心自己需要的子集"惯例）。tierId 为 null（死亡单位未登记模板/分档，见
+            // CreatureDeathXpListener.ResolveTierId 判断记录）时退化为"无分档加成"（乘 1）。
+            if (resolvedProgressionOptions.ExtraXpMultiplierProvider == null)
+            {
+                resolvedProgressionOptions.ExtraXpMultiplierProvider = (unitId, sourceId, tierId) =>
+                {
+                    var tierMultiplier = tierId.HasValue && Carriers.Creatures.TryGetXpMultiplier(tierId.Value, out var m)
+                        ? m
+                        : 1.0;
+                    return tierMultiplier * Difficulty.XpMultiplier;
+                };
+            }
+
             // ---------------------------------------------------------
             // 6) LootHost（+ CreatureDeathLootListener）：造好后立即回填 deferredLootRoller。
             //    T-N4-7：economyHost 传 deferredEconomyHost（第 2 步占位，第 8 步真正的 EconomyHost
@@ -513,7 +609,7 @@ namespace Core.Gameplay.Assembly
             // 两者互不持有对方引用、本类不读取任何掉落结果（任务书硬性规则）。
             _ = new Core.Gameplay.ProgressionBridge.CreatureDeathXpListener(
                 bus, Carriers.Rules.Progression, Carriers.Units, Carriers.Creatures,
-                summons: Carriers.Summons);
+                summons: Carriers.Summons, options: resolvedProgressionOptions);
 
             // ---------------------------------------------------------
             // 7) RewardDispatcher：currencyGranter 用局部变量延迟闭包接到第 8 步才构造出来的
@@ -535,9 +631,11 @@ namespace Core.Gameplay.Assembly
                 else Carriers.Rules.Skill.ForgetSkill(unitId, skillId, sourceId);
             };
 
+            // T-N4-4：改用带 ProgressionOptions 的构造重载——resolvedProgressionOptions.QuestXpSourceId
+            // 供 RewardDispatcher.GrantXp 的 xp_equivalent 折算分支使用（见该字段判断记录）。
             Reward = new RewardDispatcher(
                 Carriers.Inventory, Carriers.Rules.Progression, WorldState, skillGranter, currencyGranter,
-                talentPointGranter: null, diagnostics: null);
+                talentPointGranter: null, diagnostics: null, progressionOptions: resolvedProgressionOptions);
 
             // ---------------------------------------------------------
             // 8) EconomyHost，随后回填第 7 步的闭包变量。
@@ -833,7 +931,8 @@ namespace Core.Gameplay.Assembly
             // 探索奖励"，零成本退化，不发放、不写任何一次性标志）；某个具体游戏要启用探索经验时，
             // 在自己的组合根里提供一个真正的委托即可。
             _ = new Core.Gameplay.ProgressionBridge.AreaTriggerDiscoveryXpListener(
-                bus, Carriers.Rules.Progression, Carriers.Units, WorldState, registry);
+                bus, Carriers.Rules.Progression, Carriers.Units, WorldState, registry,
+                options: resolvedProgressionOptions);
 
             // ---------------------------------------------------------
             // 16) 补上 gobj 侧四个 L4 回调（GobjOptions 是 CarriersAssembly 构造时已经用过的同一个

@@ -132,6 +132,11 @@ namespace Core.Carriers.Assembly
 
         public EntitySpatialSyncHost SpatialSync { get; }
 
+        /// <summary>T-N4-4 判断记录（ABI 门禁 G3，同 <see cref="Core.Rules.Assembly.RulesAssembly"/>
+        /// 对应构造函数判断记录）：本仓库已发布 1.33.0 基线，直接在本构造函数已发布的参数列表末尾
+        /// 追加新参数会被 <c>toolchain/abi_probe.ps1</c> 判定为破坏性变更——改用"新增重载"，本构造
+        /// 函数保留原物理签名不变，转发给下方新增的带 <see cref="Core.Numbers.Progression.ProgressionOptions"/>
+        /// 参数的重载并传 <c>null</c>。</summary>
         public CarriersAssembly(
             IEventBus bus,
             IDataRegistryView registry,
@@ -164,6 +169,46 @@ namespace Core.Carriers.Assembly
             Func<int>? discreteTurnIndexProvider = null,
             Func<int>? discreteRoundIndexProvider = null,
             Func<Id?>? discreteCurrentActorProvider = null)
+            : this(bus, registry, rng, world, spatial, navigation, spatialSyncKinds, worldFlags, lootRoller,
+                statOptions, combatOptions, skillOptions, targetingOptions, aiOptions, inventoryOptions,
+                itemOptions, creatureOptions, summonOptions, gobjOptions, movementOptions, projectileOptions,
+                extraSchemas, discreteTurnIndexProvider, discreteRoundIndexProvider, discreteCurrentActorProvider,
+                progressionOptions: null)
+        {
+        }
+
+        /// <summary>
+        /// T-N4-4 新增构造重载：接受 <see cref="Core.Numbers.Progression.ProgressionOptions"/>，
+        /// 原样转发给 <see cref="Core.Rules.Assembly.RulesAssembly"/> 同名重载（ABI 门禁 G3：见上方
+        /// 旧签名构造函数判断记录，本重载是唯一新增的物理签名）。
+        /// </summary>
+        public CarriersAssembly(
+            IEventBus bus,
+            IDataRegistryView registry,
+            IRngHost rng,
+            IWorldSim world,
+            ISpatialQuery spatial,
+            INavigation2D? navigation,
+            IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig>? spatialSyncKinds,
+            IWorldFlags? worldFlags,
+            ILootRoller? lootRoller,
+            StatHostOptions? statOptions,
+            CombatOptions? combatOptions,
+            SkillOptions? skillOptions,
+            TargetingOptions? targetingOptions,
+            AiOptions? aiOptions,
+            InventoryOptions? inventoryOptions,
+            ItemOptions? itemOptions,
+            CreatureOptions? creatureOptions,
+            SummonOptions? summonOptions,
+            GobjOptions? gobjOptions,
+            MovementOptions? movementOptions,
+            ProjectileOptions? projectileOptions,
+            IReadOnlyList<IExprSchema>? extraSchemas,
+            Func<int>? discreteTurnIndexProvider,
+            Func<int>? discreteRoundIndexProvider,
+            Func<Id?>? discreteCurrentActorProvider,
+            Core.Numbers.Progression.ProgressionOptions? progressionOptions)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
@@ -251,7 +296,8 @@ namespace Core.Carriers.Assembly
                 discreteTurnIndexProvider: discreteTurnIndexProvider,
                 discreteRoundIndexProvider: discreteRoundIndexProvider,
                 discreteCurrentActorProvider: discreteCurrentActorProvider,
-                levelSync: Units.SetLevel);
+                levelSync: Units.SetLevel,
+                progressionOptions: progressionOptions);
             powers = Rules.Powers; // 回填第 1 步 healthFractionSetter 闭包捕获的局部变量。
             statsRef = Rules.Stats; // T-N2-9：回填第 2 步 InventoryHost 容量查询闭包捕获的局部变量。
 

@@ -121,6 +121,49 @@ namespace Tests.Carriers.Creature
         }
 
         // -----------------------------------------------------------------
+        // T-N4-4（ADR-0033 决策 4）：creature.tier_definition.xp_multiplier 查询
+        // -----------------------------------------------------------------
+
+        /// <summary>已登记 <c>xp_multiplier</c> 的分档（<c>creature.tier.elite</c>=1.5，见
+        /// <c>CreatureTestSupport.TierDefinitionRows</c>）返回 <c>true</c> 与该值。</summary>
+        [Fact]
+        public void TryGetXpMultiplier_TierWithExplicitValue_ReturnsTrueAndConfiguredValue()
+        {
+            var f = Build();
+
+            var found = f.Factory.TryGetXpMultiplier(new Id("creature.tier.elite"), out var multiplier);
+
+            Assert.True(found);
+            Assert.Equal(1.5, multiplier, 6);
+        }
+
+        /// <summary>未登记 <c>xp_multiplier</c> 的分档（<c>creature.tier.normal</c>，缺省字段）
+        /// 返回 <c>true</c> 与缺省值 1（同 <c>stat_multiplier</c> 一贯"缺省 1"惯例）。</summary>
+        [Fact]
+        public void TryGetXpMultiplier_TierWithoutField_ReturnsTrueAndDefaultOne()
+        {
+            var f = Build();
+
+            var found = f.Factory.TryGetXpMultiplier(new Id("creature.tier.normal"), out var multiplier);
+
+            Assert.True(found);
+            Assert.Equal(1.0, multiplier, 6);
+        }
+
+        /// <summary>未登记的分档 id 返回 <c>false</c> 与哨兵值 1（不抛异常——本方法的调用方是
+        /// "击杀经验倍率折算"这一非阻断性场景，见判断记录）。</summary>
+        [Fact]
+        public void TryGetXpMultiplier_UnknownTier_ReturnsFalseAndDefaultOne_DoesNotThrow()
+        {
+            var f = Build();
+
+            var found = f.Factory.TryGetXpMultiplier(new Id("creature.tier.nonexistent"), out var multiplier);
+
+            Assert.False(found);
+            Assert.Equal(1.0, multiplier, 6);
+        }
+
+        // -----------------------------------------------------------------
         // 消费方反馈第 36 条根治：出生等级 > 1 的生物再升级时，成长量此前被重复计入
         // -----------------------------------------------------------------
 

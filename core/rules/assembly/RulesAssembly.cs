@@ -153,6 +153,14 @@ namespace Core.Rules.Assembly
         /// <c>() =&gt; scheduler.RoundIndex</c>。</param>
         /// <param name="discreteCurrentActorProvider">同上，对应 <c>time.is_my_turn</c>，调用方应传
         /// <c>() =&gt; scheduler.GetCurrentActor()</c>。</param>
+        /// <summary>T-N4-4 判断记录（ABI 门禁 G3：本仓库已发布 1.33.0 基线，<c>toolchain/abi_probe.ps1</c>
+        /// 按物理签名逐字节比对——直接在本构造函数已发布的参数列表末尾追加新参数（哪怕是可选参数）
+        /// 会改变物理签名，被判定为"移除/变更"的破坏性变更，与本构造函数发布之前（1.33.0 之前）
+        /// 历次追加新可选参数的写法不再等价：那些追加都发生在对应签名从未随版本发布过的窗口内，
+        /// 本次不同——必须改用"新增重载"（同 <see cref="Core.Numbers.Progression.ProgressionHost"/>
+        /// 两个构造函数的既定写法）：本构造函数保留原物理签名不变，新增下方带 <see
+        /// cref="ProgressionOptions"/> 参数的重载承载真正的构造逻辑，本构造函数转发并传
+        /// <c>progressionOptions: null</c>。</summary>
         public RulesAssembly(
             IEventBus bus,
             IDataRegistryView registry,
@@ -175,6 +183,56 @@ namespace Core.Rules.Assembly
             Func<int>? discreteRoundIndexProvider = null,
             Func<Id?>? discreteCurrentActorProvider = null,
             LevelSync? levelSync = null)
+            : this(bus, registry, rng, units, spatial, world, navigation, statOptions, combatOptions,
+                skillOptions, targetingOptions, aiOptions, extraSchemas, staticImmunity, effectExtension,
+                autoRegisterTickHandlers, projectileSpawner, discreteTurnIndexProvider,
+                discreteRoundIndexProvider, discreteCurrentActorProvider, levelSync, progressionOptions: null)
+        {
+        }
+
+        /// <summary>
+        /// T-N4-4 新增构造重载：接受 <see cref="ProgressionOptions"/>（ADR-0033 决策 4），供
+        /// <c>core/gameplay/assembly.GameplayAssembly</c> 接线 <c>ExtraXpMultiplierProvider</c>
+        /// （分档倍率 × 难度倍率）/<c>KillXpSourceId</c>/<c>DiscoveryXpSourceId</c>/
+        /// <c>QuestXpSourceId</c> 等策略配置项（ABI 门禁 G3：见上方旧签名构造函数判断记录，本重载
+        /// 是唯一新增的物理签名，旧签名原样保留、转发本重载并传 <c>null</c>）。
+        /// <para>
+        /// 判断记录（本重载全部参数均不带默认值）：与 <see cref="Core.Numbers.Progression.ProgressionHost"/>
+        /// 的两个构造函数（新参数插在既有可选参数之前，其余保留默认值）写法不同——本类型/
+        /// <see cref="Core.Carriers.Assembly.CarriersAssembly"/> 的构造函数参数量极大（20+），把
+        /// <c>progressionOptions</c> 插进既有可选参数中间会让既有调用点大量使用位置参数
+        /// （<c>Core.Carriers.Assembly.CarriersAssembly</c> 对本构造函数的唯一调用点即是如此）静默
+        /// 错位到相邻形参——插入中间的重构风险远高于"新参数只能放最后"；只能放最后又要求本参数不带
+        /// 默认值（否则"零新增参数"的既有调用会同时匹配新旧两个签名而产生 CS0121 二义性错误），
+        /// C# 语法要求"可选参数必须在必选参数之后"，因此本重载把此前全部可选参数一并改为必选——
+        /// 唯一的调用点（<c>CarriersAssembly</c> 对本构造函数）已同步改为显式列出全部参数，其余
+        /// 全部既有调用点（各测试文件）参数数量/名称均不触及 <c>progressionOptions</c>，继续原样
+        /// 绑定到上方保留不变的旧签名构造函数，不需要逐一改动。
+        /// </para>
+        /// </summary>
+        public RulesAssembly(
+            IEventBus bus,
+            IDataRegistryView registry,
+            IRngHost rng,
+            IUnitAccess units,
+            ISpatialQuery spatial,
+            IWorldSim world,
+            INavigation2D? navigation,
+            StatHostOptions? statOptions,
+            CombatOptions? combatOptions,
+            SkillOptions? skillOptions,
+            TargetingOptions? targetingOptions,
+            AiOptions? aiOptions,
+            IReadOnlyList<IExprSchema>? extraSchemas,
+            IStaticImmunityProvider? staticImmunity,
+            IEffectExtension? effectExtension,
+            bool autoRegisterTickHandlers,
+            IProjectileSpawner? projectileSpawner,
+            Func<int>? discreteTurnIndexProvider,
+            Func<int>? discreteRoundIndexProvider,
+            Func<Id?>? discreteCurrentActorProvider,
+            LevelSync? levelSync,
+            ProgressionOptions? progressionOptions)
         {
             Bus = bus ?? throw new ArgumentNullException(nameof(bus));
             Registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -248,7 +306,7 @@ namespace Core.Rules.Assembly
             // CORE-170-02 根治：levelSync 原样转发给 ProgressionHost——见 LevelSync 判断记录，
             // RulesAssembly 本身（L2）同样不知道、也不该知道 Unit/PlayerUnit（L3）这个类型，只是
             // 沿途转发调用方（CarriersAssembly）传入的真实实现。
-            Progression = new ProgressionHost(Registry, Bus, progressionWriter, progressionRemover, levelSync: levelSync);
+            Progression = new ProgressionHost(Registry, Bus, progressionWriter, progressionRemover, progressionOptions, levelSync: levelSync);
             progression = Progression; // 回填第 1 步的闭包捕获。
 
             // -------------------------------------------------------------

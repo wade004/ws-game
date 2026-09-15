@@ -48,6 +48,6 @@ namespace Core.Gameplay.Common
         /// 表都各自用自己的、带 <c>Fields</c> 的登记方式。</summary>
         public static FieldSchema Rewards(bool required = false) => new FieldSchema(
             "rewards", FieldKind.Object, required,
-            description: "{items, xp, currency, skills, world_flags, talent_points}，见 Core.Gameplay.Common.RewardBundle");
+            description: "{items, xp（已废弃）, xp_equivalent, level, currency, skills, world_flags, talent_points}，见 Core.Gameplay.Common.RewardBundle（T-N4-4 新增 xp_equivalent/level）");
     }
 }

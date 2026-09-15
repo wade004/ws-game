@@ -10,8 +10,23 @@ namespace Core.Numbers.Progression
     /// （相乘）；<paramref name="unitId"/> 是领取经验的单位，<paramref name="sourceId"/> 是
     /// <c>prog.xp_source</c> 的来源 id。默认不设置（<see cref="ProgressionOptions.ExtraXpMultiplierProvider"/>
     /// 为 <c>null</c>），等价于恒为 1（不影响现有倍率计算）。
+    /// <para>
+    /// T-N4-4 变更记录（签名新增 <paramref name="tierId"/>）：T-N4-2 落地时本委托签名只有
+    /// <c>(unitId, sourceId)</c>，<see cref="XpContext"/> 类型注释当时已把"该委托签名不含
+    /// <c>tierId</c>，若 T-N4-4 落地时发现真的需要按 <c>TierId</c> 查倍率，委托签名或注入方式
+    /// 需要那时再按需扩展"登记为契约疑点上报——本任务落地"分档经验倍率"（读
+    /// <c>creature.tier_definition.xp_multiplier</c>）确实需要知道死亡单位的分档 id，
+    /// <see cref="Core.Numbers.Progression.ProgressionHost.GrantXp"/> 的 <c>kind=kill</c> 分支
+    /// 调用本委托时手上正好有 <see cref="XpContext.TierId"/>（调用方经
+    /// <see cref="Core.Gameplay.ProgressionBridge.CreatureDeathXpListener"/> 传入），因此新增
+    /// <paramref name="tierId"/> 参数直传，不改变已有语义。ABI 判断记录：本委托类型是阶段 N4
+    /// 内多个任务共同完善、随 1.34.0 一次性发布的全新类型（本类型顶部"契约疑点上报"同一惯例），
+    /// 本阶段内的委托签名调整不构成"已发布 ABI"的破坏性变更；<paramref name="tierId"/> 为
+    /// <c>null</c> 表示领取经验事件未能解析出分档 id（如死亡单位未登记模板，见
+    /// <c>CreatureDeathXpListener.ResolveTierId</c> 判断记录），调用方应退化为"无分档加成"。
+    /// </para>
     /// </summary>
-    public delegate double ProgressionXpMultiplierProvider(Id unitId, Id sourceId);
+    public delegate double ProgressionXpMultiplierProvider(Id unitId, Id sourceId, Id? tierId);
 
     /// <summary>
     /// <c>core/numbers/progression</c> 模块的构造期口味配置（分阶段落地计划 T-N4-1；
@@ -96,12 +111,15 @@ namespace Core.Numbers.Progression
         /// <c>baseAmount × (本委托返回值 ?? 1) × ΔFactor</c> 计算（ADR-0033 决策 3"击杀 = 击杀
         /// 基数(怪物等级) × 分档经验倍率 × 难度经验倍率 × 等级差表.经验系数(Δ)"——本委托是"分档
         /// 经验倍率 × 难度经验倍率"这一项的注入口，<c>quest</c>/<c>discovery</c> 两个分支不读取
-        /// 本委托，见 ADR 原文对应公式没有这两项）；本任务（T-N4-2）不提供"按
-        /// <c>creature.tier_definition</c>/<c>diff.tier</c> 真正算出倍率"的实现，只落地钩子本身
-        /// （未设置时缺省 1，等价于"没有分档/难度倍率"）——真正读表算出倍率、并决定是否需要把
-        /// <c>XpContext.TierId</c> 一并传给本委托（可能需要扩展委托签名），留 T-N4-3（击杀经验
-        /// 监听器）/T-N4-4（分档与难度倍率注入）落地，见类型注释"契约疑点上报"、
-        /// <see cref="XpContext"/> 类型注释同名小节。
+        /// 本委托，见 ADR 原文对应公式没有这两项）。
+        /// </para>
+        /// <para>
+        /// T-N4-4 变更记录（真正接入分档/难度倍率）：
+        /// <c>core/gameplay/assembly.GameplayAssembly</c> 从本任务起把本字段（未显式配置时）
+        /// 默认接为 <c>(tierId 对应的 Core.Carriers.Creature.CreatureFactory.TryGetXpMultiplier
+        /// 结果 ?? 1) × Core.Gameplay.Difficulty.IDifficultyHost.XpMultiplier</c>——真正读
+        /// <c>creature.tier_definition.xp_multiplier</c>/<c>diff.tier.xp_multiplier</c> 两张表；
+        /// 调用方显式设置本字段时尊重调用方的选择，装配根不覆盖（见该文件"接线"步骤判断记录）。
         /// </para>
         /// </summary>
         public ProgressionXpMultiplierProvider? ExtraXpMultiplierProvider { get; set; } = null;
@@ -145,5 +163,24 @@ namespace Core.Numbers.Progression
         /// </para>
         /// </summary>
         public Id? DiscoveryXpSourceId { get; set; } = null;
+
+        /// <summary>
+        /// 任务经验来源 id（分阶段落地计划 T-N4-4；ADR-0033 决策 3"任务 = 当量 N × 击杀基数
+        /// (任务等级) × 经验系数(Δ)"）：<c>null</c>（默认）时消费方落到约定 id
+        /// <c>prog.xp_source.quest</c>（同 T-N4-3 <see cref="KillXpSourceId"/>/
+        /// <see cref="DiscoveryXpSourceId"/> 一贯约定）。
+        /// <para>
+        /// 消费方：<c>core/gameplay/common.RewardDispatcher</c>——任务/遭遇奖励包
+        /// （<c>Core.Gameplay.Common.RewardBundle</c>）新增 <c>XpEquivalent</c>/<c>RewardLevel</c>
+        /// 字段非空时，改经 <see cref="IProgressionHost.GrantXp"/>（而不是旧 <c>AddXp</c> 绝对数
+        /// 路径）发放，<c>sourceId</c> 固定用本字段（或缺省约定 id），不使用 <see
+        /// cref="Core.Gameplay.Common.IRewardDispatcher.Grant"/> 收到的 <c>sourceId</c> 参数
+        /// （那个参数是"任务/遭遇/成就的 id"，供 <c>currency</c>/<c>skills</c>/<c>world_flags</c>/
+        /// <c>talent_points</c> 四类奖励标注发放来源，语义上不是 <c>prog.xp_source</c> 记录 id，
+        /// 两者刻意区分——同 <see cref="KillXpSourceId"/> "单一全局来源 id，不按内容各注册一条"
+        /// 判断记录）。
+        /// </para>
+        /// </summary>
+        public Id? QuestXpSourceId { get; set; } = null;
     }
 }

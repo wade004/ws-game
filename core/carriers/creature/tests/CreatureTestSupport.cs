@@ -29,8 +29,11 @@ namespace Tests.Carriers.Creature
         public const string TierDefinitionRows = "[" +
             "{\"id\": \"creature.tier.normal\", \"name_key\": \"l10n.creature.tier.normal.name\", " +
             "\"stat_multiplier\": 1, \"control_immune\": false, \"sort_weight\": 0}," +
+            // T-N4-4 新增字段 xp_multiplier（ADR-0033 决策 4）：elite 分档给一个非默认值 1.5，供
+            // CreatureFactoryTests.TryGetXpMultiplier 系列验证（normal/category_immune 两个分档
+            // 未登记该字段，走缺省 1.0 分支）。
             "{\"id\": \"creature.tier.elite\", \"name_key\": \"l10n.creature.tier.elite.name\", " +
-            "\"stat_multiplier\": 2, \"control_immune\": true, \"sort_weight\": 10}," +
+            "\"stat_multiplier\": 2, \"control_immune\": true, \"sort_weight\": 10, \"xp_multiplier\": 1.5}," +
             // T-N3-6 新增（ADR-0031 决策 8）：并存字段 control_immune_categories 的样例分档——
             // control_immune 恒 false（不触发旧的"全部类别"标记），只声明 stun/root 两个具体类别，
             // 供 CreatureFactoryTests.Spawn_WritesControlCategoryMarkers_FromTierControlImmuneCategories

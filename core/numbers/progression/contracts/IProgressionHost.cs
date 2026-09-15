@@ -151,5 +151,27 @@ namespace Core.Numbers.Progression
         /// </para>
         /// </summary>
         long GrantXp(Id unitId, Id sourceId, XpContext context) => 0;
+
+        /// <summary>
+        /// 设计层裁定（T-N4-4 附带任务）：<c>prog.xp_source</c> 的 <paramref name="sourceId"/> 是否
+        /// 已登记——供调用方（<see cref="Core.Gameplay.ProgressionBridge.CreatureDeathXpListener"/>/
+        /// <see cref="Core.Gameplay.ProgressionBridge.AreaTriggerDiscoveryXpListener"/>）在发放经验
+        /// 前显式查询，取代此前"直接调用 <see cref="GrantXp"/>、用
+        /// <c>try/catch (ArgumentException)</c> 兜未登记来源"的写法——两个监听器改为先查、查到才发，
+        /// 不再依赖异常控制流表达"这个来源没配置"这一正常场景（异常应该保留给真正意外的情形）。
+        /// <para>
+        /// 判断记录（默认实现返回 <c>true</c>，不是 <c>false</c>）：ABI 门禁"公开 API 只能新增"——
+        /// 本接口已发布，<see cref="ProgressionHost"/> 一个生产实现（显式覆盖本方法，读内部
+        /// <c>prog.xp_source</c> 索引）；其它实现方（测试假实现、未来第三方实现，若存在）不因
+        /// 新增本成员而编译失败。默认值取 <c>true</c> 而不是更"保守"的 <c>false</c>：本成员新增
+        /// 之前，调用方（两个监听器）对任何 <see cref="IProgressionHost"/> 实现都无条件尝试调用
+        /// <see cref="GrantXp"/>（不管来源是否登记）；若默认值改为 <c>false</c>，未覆盖本方法的
+        /// 既有实现方（如测试替身）会让调用方从"总是尝试发放"静默退化为"总是跳过"，这是一次行为
+        /// 倒退，不是"新增能力对旧实现透明"。默认值 <c>true</c> 保持"不知道就假设已登记、照常尝试"
+        /// 这一与新增本成员之前完全一致的行为，只有显式覆盖本方法的 <see cref="ProgressionHost"/>
+        /// 才获得"真正按注册表判断"的精确能力。
+        /// </para>
+        /// </summary>
+        bool HasXpSource(Id sourceId) => true;
     }
 }

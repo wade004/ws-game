@@ -147,10 +147,11 @@ namespace Core.Gameplay.Quest
         // -----------------------------------------------------------------
 
         /// <summary>
-        /// <c>rewards</c> 字段子结构（ADR-0019 / F1b）：以
+        /// <c>rewards</c> 字段子结构（ADR-0019 / F1b；T-N4-4 补充 <c>xp_equivalent</c>/<c>level</c>）：以
         /// <see cref="Core.Gameplay.Common.RewardBundle.FromRecord"/> 解析代码为唯一依据登记
-        /// <c>items</c>/<c>xp</c>/<c>currency</c>/<c>skills</c>/<c>world_flags</c>/<c>talent_points</c>
-        /// 六个子字段。<c>quest.def</c>/<c>encounter.def</c>/<c>achv.def</c> 三张表共用同一份
+        /// <c>items</c>/<c>xp</c>（已废弃）/<c>xp_equivalent</c>/<c>level</c>/<c>currency</c>/
+        /// <c>skills</c>/<c>world_flags</c>/<c>talent_points</c>
+        /// 八个子字段。<c>quest.def</c>/<c>encounter.def</c>/<c>achv.def</c> 三张表共用同一份
         /// <c>RewardBundle</c> 结构（见该类型注释），<see cref="Core.Gameplay.Common.RewardSchemaFields.Rewards"/>
         /// 目前仍只登记裸 <see cref="FieldKind.Object"/>（不带 <see cref="FieldSchema.Fields"/>）。
         /// 判断记录：本字段公开放在本模块（<c>Core.Gameplay.Quest</c>），供其它同属 <c>Core.Gameplay</c>
@@ -182,7 +183,19 @@ namespace Core.Gameplay.Quest
                 description: "[{itemId: Reference(item.template), count: Int}, ...]"),
 
             new FieldSchema("xp", FieldKind.Number, required: false,
-                description: "缺省 0；不能为负数（RewardBundle 构造期硬约束，业务判断见 QuestContentValidationRule）"),
+                description: "已废弃（T-N4-4，ADR-0033 决策 3：任务定义的经验奖励字段写当量不写绝对数，" +
+                    "禁止新内容直发绝对数经验）——保留一个版本周期供旧数据兼容读取，xp_equivalent 存在时以其为准，" +
+                    "见 Core.Gameplay.Common.RewardDispatcher 判断记录；缺省 0，不能为负数（RewardBundle 构造期硬约束，业务判断见 QuestContentValidationRule）"),
+
+            // T-N4-4 新增（ADR-0033 决策 3；08 第 2.1 节 2026-09-14 修订段）：xp_equivalent（当量）+
+            // level（折算所需的任务/遭遇等级）取代绝对数写法，见 Core.Gameplay.Common.RewardBundle
+            // 类型/FromRecord 判断记录"reward_level 挂载点"（契约疑点上报：08 未给出等级字段的字面
+            // 挂载位置，本任务落在 rewards 子结构自身）。
+            new FieldSchema("xp_equivalent", FieldKind.Number, required: false,
+                description: "同级怪经验当量（T-N4-4）；缺省 null，不能为负数；非空时 RewardDispatcher 改经 IProgressionHost.GrantXp 折算发放，取代 xp 绝对数直发"),
+
+            new FieldSchema("level", FieldKind.Int, required: false,
+                description: "xp_equivalent 折算所需的任务/遭遇等级（T-N4-4，契约疑点上报——挂载点见 RewardBundle.FromRecord 判断记录）；缺省 null，不能为负数；xp_equivalent 非空而本字段缺省时按 1 处理"),
 
             new FieldSchema("currency", FieldKind.Array, required: false,
                 item: new FieldSchema("<currency>", FieldKind.Object, required: true, fields: new[]
@@ -233,7 +246,7 @@ namespace Core.Gameplay.Quest
                 new FieldSchema("turn_in_method", FieldKind.Enum, required: true, enumValues: QuestEnumWireNames.TurnInMethodValues,
                     description: "任务交付/完成的确认方式，见 QuestEnumWireNames.TurnInMethodValues"),
                 new FieldSchema("rewards", FieldKind.Object, required: false, fields: RewardsFields,
-                    description: "{items, xp, currency, skills, world_flags, talent_points}，见 Core.Gameplay.Common.RewardBundle；ADR-0019/F1b 起登记 Fields（见 QuestSchemas.RewardsFields 判断记录）"),
+                    description: "{items, xp（已废弃）, xp_equivalent, level, currency, skills, world_flags, talent_points}，见 Core.Gameplay.Common.RewardBundle；ADR-0019/F1b 起登记 Fields（见 QuestSchemas.RewardsFields 判断记录），T-N4-4 新增 xp_equivalent/level"),
                 new FieldSchema("repeatable", FieldKind.Enum, required: true, enumValues: QuestEnumWireNames.RepeatableValues,
                     description: "任务可重复接取的规则，见 QuestEnumWireNames.RepeatableValues"),
             }).WithOwnership(SchemaLayer.Gameplay, "quest");

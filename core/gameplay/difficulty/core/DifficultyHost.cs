@@ -114,6 +114,10 @@ namespace Core.Gameplay.Difficulty
         /// 实现口径）。</summary>
         public int ItemLevelOffset => CurrentTier.HasValue ? RequireTier(CurrentTier.Value).ItemLevelOffset : 0;
 
+        /// <summary>T-N4-4：显式转发（见 <see cref="IDifficultyHost.XpMultiplier"/> 判断记录，
+        /// 同 <see cref="ItemLevelOffset"/> 一贯实现口径——本类型不落回默认值 1.0）。</summary>
+        public double XpMultiplier => CurrentTier.HasValue ? RequireTier(CurrentTier.Value).XpMultiplier : 1.0;
+
         public bool AllowMidSwitch => _options.AllowMidSwitch;
 
         // -----------------------------------------------------------------

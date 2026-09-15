@@ -240,7 +240,7 @@ namespace Core.Gameplay.Encounter
                 // "上游可以考虑后续把本字段搬进 RewardSchemaFields.Rewards()"一句判断记录——三张表
                 // 现在全部收敛到同一份 Fields 声明，不再有第三种写法）。
                 new FieldSchema("rewards", FieldKind.Object, required: false, fields: QuestSchemas.RewardsFields,
-                    description: "{items, xp, currency, skills, world_flags, talent_points}，见 Core.Gameplay.Common.RewardBundle；F3 收口复用 QuestSchemas.RewardsFields（与 quest.def/achv.def 同一份子结构声明）"),
+                    description: "{items, xp（已废弃）, xp_equivalent, level, currency, skills, world_flags, talent_points}，见 Core.Gameplay.Common.RewardBundle；F3 收口复用 QuestSchemas.RewardsFields（与 quest.def/achv.def 同一份子结构声明，T-N4-4 新增 xp_equivalent/level 两字段同步生效）"),
                 new FieldSchema("combat_mode_override", FieldKind.Enum, required: false, enumValues: CombatModeValues,
                     description: "覆盖场景默认 combat_time_model，仅本遭遇生效；由 GameplayAssembly/TimeModelSwitch 在离散模式下真实执行"),
                 InitiativeOverrideSchema,
