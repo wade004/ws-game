@@ -473,6 +473,21 @@ namespace Core.Rules.Assembly
             deferredAuras.Bind(Skill.AuraQuery);
             deferredSkillHost.Bind(Skill);
 
+            // T-N4-9（ADR-0034 决策 7；拍板 9）：CombatOptions.DismountMountAuras 窄委托——
+            // Skill.AuraQuery 运行期确实是 AuraHost（真实装配的唯一实现，测试替身可能不是）时才
+            // 接线到 AuraHost.Dispel（真正的"按 dispel_type 批量移除光环"能力），防御性 is 模式
+            // 判断同上方/GameplayAssembly 第 10.5 步 world is WorldSim 一贯做法；resolvedCombatOptions
+            // 是可变类，此刻在 CombatHost 构造完成之后再补写这个委托字段是安全的——CombatHost 只在
+            // 真正调用 NotifyCombatEvent 时才读取该字段当前值，不在构造期缓存它（同 deferredAuras/
+            // deferredSkillHost 两个既有"先占位构造、后补绑定"委托的一贯手法）。调用方未显式覆盖时
+            // 才接线（??=），惯例同 GameplayAssembly 的 ReviveUnit/ResolveDefaultSpawn 等既有边界
+            // 委托接线写法。
+            if (Skill.AuraQuery is AuraHost auraHostForDismount)
+            {
+                resolvedCombatOptions.DismountMountAuras ??=
+                    (unitId, dispelType) => auraHostForDismount.Dispel(unitId, dispelType, int.MaxValue);
+            }
+
             // -------------------------------------------------------------
             // 7) AiHost：与 Targeting/Skill 共享同一份第 5 步的 ExprHostFactory（P2-01 收口后不再
             //    重新构造第二份），self/target/combat 的 is_casting 与 Targeting/Skill 内部求值

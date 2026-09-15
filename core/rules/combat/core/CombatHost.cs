@@ -222,6 +222,18 @@ namespace Core.Rules.Combat
             _inCombat[unitId] = true;
             _powers.SetInCombat(unitId, true);
             _bus.Enqueue(new CombatEnteredEvent(unitId, hostileId));
+
+            // T-N4-9（ADR-0034 决策 7；拍板 9"进入战斗时移除坐骑光环归 CombatOptions"）：仅在
+            // "不在战 -> 在战"这一次真正的转换上触发一次（本方法已在上方 IsInCombat(unitId) 分支
+            // 提前返回，重复的战斗事件不会重复移除），三项全部满足才实际调用——开关本身、"哪些光环
+            // 算坐骑光环"的标识、窄委托是否已接线，任一缺失都静默跳过、不阻断进战本身（同本模块一贯
+            // 的未接线降级惯例，见 CombatOptions.DismountMountAuras 判断记录）。
+            if (_options.DismountOnEnterCombat &&
+                _options.MountAuraDispelType.HasValue &&
+                _options.DismountMountAuras != null)
+            {
+                _options.DismountMountAuras(unitId, _options.MountAuraDispelType.Value);
+            }
         }
 
         /// <summary>

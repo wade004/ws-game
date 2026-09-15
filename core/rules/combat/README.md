@@ -18,7 +18,7 @@
 combat/
   README.md
   contracts/
-    CombatOptions.cs        构造期策略配置（命中表 id、属性 id 引用、系数、脱战时长、仇恨上限、死亡策略、结算追踪回调、T-N1-7 目标乘区/被暴击减免显式属性 id 清单、T-N1-8 LevelDiffTableId/EffectiveLevelIncludesGearOffset）
+    CombatOptions.cs        构造期策略配置（命中表 id、属性 id 引用、系数、脱战时长、仇恨上限、死亡策略、结算追踪回调、T-N1-7 目标乘区/被暴击减免显式属性 id 清单、T-N1-8 LevelDiffTableId/EffectiveLevelIncludesGearOffset、T-N4-9 DismountOnEnterCombat/MountAuraDispelType/DismountMountAuras）
     ICombatDiagnostics.cs   最小诊断出口
   core/
     HitTableConfig.cs        combat.hit_table_config 强类型视图（T-N1-8：miss 分支新增 HitStat）
@@ -42,6 +42,8 @@ combat/
     C10_ResolveTraceTests.cs  CombatOptions.ResolveTrace 三条返回路径 + 未设置零开销 + 回调抛异常不中断
     ThreatTableTests.cs       仇恨表增减/置顶/上限裁剪/清理/事件
     CombatEnterLeaveTests.cs  进出战斗、仇恨驱动脱战、治疗仇恨
+    T_N4_9_DismountOnEnterCombatTests.cs  T-N4-9：进战下马开/关、MountAuraDispelType 未配置/
+                              委托未接线两种降级、已在战不重复移除
     CombatDeterminismTests.cs 同种子重放一致性
     CombatValidationRuleTests.cs 数据校验规则正反例
 ```
@@ -336,6 +338,47 @@ combat/
       同一提交"的另一种满足方式：改写发生了，但（如实核实后）不产生基线差异，因此不存在"分开
       提交"的风险。
 
+20. **T-N4-9（[ADR-0034](../../../architecture/adr/0034-单一货币与价格挂物品等级.md) 决策 7；
+    数值设计分阶段落地计划拍板 9"'进入战斗时移除坐骑光环'归 CombatOptions"）：
+    `DismountOnEnterCombat`/`MountAuraDispelType`/`DismountMountAuras`——进战下马策略项与坐骑光环
+    识别/移除方式。**
+    - **落点**：`NotifyCombatEvent`（本方法既有的"不在战 -> 在战"唯一转换点，见判断记录 15）
+      写入 `_inCombat[unitId] = true`/发布 `CombatEnteredEvent` 之后，三项条件（开关、
+      `MountAuraDispelType` 是否配置、`DismountMountAuras` 是否接线）全部满足才调用一次——本方法
+      已有的"已在战直接 return"短路保证同一次进战只触发一次，不会对着已经在战的单位重复移除。
+    - **坐骑光环的识别方式，契约缺口/临时判断（待设计层确认）**：06/08/ADR-0034 都只拍板了"进入
+      战斗时移除坐骑光环"这条策略本身，没有规定"哪些光环算坐骑光环"具体落哪个字段。本模块选择
+      复用 `core/rules/skill` 既有的 `aura_def.dispel_type` 分类机制（`AuraHost.Dispel(targetId,
+      dispelType, count)`，本来就是"按类别、数量"批量移除光环的既有效果原语，见该类型判断记录），
+      而不是像 `DamageTakenPctStats`（判断记录 18）那样新增一份平行的显式 id 清单
+      `MountAuraIds`——两者对"内容作者需要显式打标签才会命中"这件事的风险等价，但 `dispel_type`
+      是已经存在、专门服务于"批量分类操作光环"这一件事的字段，复用它不引入新的契约面（新增
+      `CombatOptions.MountAuraDispelType: Id?` 一个字段即可，不需要新的集合类型/新的数据表字段）。
+      `CombatOptions.MountAuraDispelType` 默认 `null`（未配置，即使开关为真也不移除任何光环）——
+      游戏内容需要显式声明坐骑光环们共用的 `dispel_type` 取值（如 `"mount"`），并让坐骑技能的
+      `apply_aura` 效果指向一条声明了该 `dispel_type` 的 `aura_def`；样例数据落地留给 T-N4-10
+      （依赖本任务）。
+    - **移除方式：新增 L2→L2 同层窄委托 `CombatOptions.DismountMountAurasDelegate`，不是让
+      `CombatHost` 直接依赖 `core/rules/skill.AuraHost`**：本模块 README 顶部既有约束"不实现
+      光环/免疫/吸收池的真实存储"、"不引用 skill/targeting/ai 的具体类型"——`CombatHost` 现有的
+      `IAuraQuery` 依赖是只读查询契约，没有任何"移除光环"的写能力（`IAuraQuery` 类型注释"光环
+      状态的只读查询出口"），因此新增窄委托而不是扩展 `IAuraQuery`（扩展只读查询契约去承载一个
+      写操作，语义上更不合适）。装配根 `core/rules/assembly.RulesAssembly` 在
+      `Skill.AuraQuery` 运行期确实是 `AuraHost`（真实装配的唯一实现，测试替身可能不是）时才
+      接线到 `AuraHost.Dispel(unitId, dispelType, int.MaxValue)`（`int.MaxValue` 表示"移除全部
+      匹配的坐骑光环实例"，`Dispel` 内部 `Take(Math.Max(0, count))` 对该值安全），防御性 `is`
+      模式判断同 `GameplayAssembly` 第 10.5 步 `world is WorldSim` 一贯做法；委托字段接线发生在
+      `CombatHost` 构造完成之后（`deferredAuras.Bind(Skill.AuraQuery)` 同一步），`CombatOptions`
+      是可变类、`CombatHost` 在 `NotifyCombatEvent` 调用时才读取该字段当前值而不在构造期缓存，
+      因此"先占位构造、后补绑定"安全（同 `deferredAuras`/`deferredSkillHost` 两个既有委托的一贯
+      手法）。三项任一未接线/未配置都静默跳过，不阻断进战本身。
+    - **回放基线**：`ReplayWorldBuilder` 不装配 `MountAuraDispelType`/`DismountMountAuras`
+      （默认 `null`），且默认场景不含坐骑光环，本次改动对既有回放基线零影响（已跑
+      `ReplayBaselineTests` 全绿、diff 为空）。
+    - 测试：`tests/T_N4_9_DismountOnEnterCombatTests.cs`（开关为真且两项接线齐全时移除 1 组、
+      开关为假不移除 1 组、开关为真但 `MountAuraDispelType` 未配置不移除 1 组、委托未接线不
+      抛异常 1 组、已在战不重复移除 1 组）。
+
 ## 契约缺口 / 未决问题
 
 - `IThreatTable` 契约的方法签名对"是否每单位一份实例"没有强约束（见判断记录 1），如果后续
@@ -359,6 +402,10 @@ combat/
 - `combat.resist_curve` 没有"同一 school 多条曲线覆盖策略"的显式规定，本模块按"后加载覆盖先
   加载"处理（见 `CombatDataLoader` 注释），不阻断构造；如果需要阻断，应改为在
   `CombatResistCurveValidationRule` 里新增"同 school 重复"检查项。
+- **T-N4-9**：06/08/ADR-0034 均未规定"哪些光环算坐骑光环"具体落哪个字段——本模块选择复用既有
+  `aura_def.dispel_type` 分类机制（见判断记录 20），若设计层后续认为应该新增专门的坐骑标记字段
+  （如 `aura_def.is_mount_aura` 或独立的 `mount_aura_ids` 清单），需要回来调整
+  `CombatOptions.MountAuraDispelType` 的识别方式与 `RulesAssembly` 的接线代码。
 
 ## 不负责什么
 

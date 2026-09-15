@@ -550,6 +550,25 @@ RewardDispatchDelegates` 新增 `CurrencyGranters.ViaEconomyHost(IEconomyHost)` 
 `data/_framework/found/found.event_catalog.json`，`toolchain/gen_event_constants.py` 重生成
 `EventKeys.g.cs`（新增 `EconomyCharged`/`EconomyCurrencyOverflow` 两个常量，`--check` 通过）。
 
+数值设计落地阶段 N4 · T-N4-9（ADR-0034 决策 6/7；06 第 4.6 节 2026-09-14 修订段"复活费"；
+分阶段落地计划拍板 9）：`Core.Gameplay.Death.DeathPolicyOptions` 新增复活费策略项
+`RespawnFee`（枚举 `RespawnFeePolicy`：`None`/`PctOfBalance`/`FixedByLevel`，默认 `None`）、
+`RespawnFeePercentage`、`RespawnFeeCurrencyId`，以及三个窄委托
+`RespawnFeeFixedAmount`/`RespawnFeeBalance`/`RespawnFeeCharge`（签名分别对应"按等级取原始费用"/
+"读余额"/"扣费"，均不直接依赖 `IEconomyHost`——硬性规则）；`DeathPolicyHost` 的 `respawn_point`
+分支在 `ReviveUnit` 调用之后新增一次复活费结算：`实际费用 = min(计算值, 当前余额)`，无条件调用
+扣费委托（余额为零时同样调用、传入 `0`——"扣零"，不是跳过），复活永远不被阻断；三项委托任一未
+接线都退化为不收费，逐位保持既有行为。`GameplayAssembly` 新增两行接线（`RespawnFeeBalance ??=
+Economy.GetBalance`、`RespawnFeeCharge ??= (u,c,amt) => Economy.TryPay(u,c,amt,"respawn_fee")`），
+默认策略 `None` 下这两行接线不产生任何行为差异。`Core.Rules.Combat.CombatOptions` 新增进战下马
+策略项 `DismountOnEnterCombat`（默认 `true`，08/13 号文档既定默认值）、坐骑光环识别字段
+`MountAuraDispelType`（`Id?`，默认 `null`，复用 `aura_def.dispel_type` 既有分类机制，待设计层
+确认）与窄委托 `DismountMountAurasDelegate`/`DismountMountAuras`；`CombatHost.NotifyCombatEvent`
+在"不在战 -> 在战"这一次转换上，三项条件全部满足时调用一次该委托移除坐骑光环。
+`core/rules/assembly.RulesAssembly` 新增接线：`Skill.AuraQuery` 运行期确实是 `AuraHost` 时把
+`DismountMountAuras` 接到 `AuraHost.Dispel(unitId, dispelType, int.MaxValue)`。回放基线未变化
+（默认场景不装配复活费委托与坐骑光环，两处新逻辑均未触发）。
+
 ## [1.33.0] - 2026-09-15
 
 MINOR 版本：数值设计落地阶段 N3"技能"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 9/14 节，T-N3-1～T-N3-11）——落地 ADR-0031 全部决策：效果值缩放契约、使用条件、节拍锁、来源缺失冻结、瘟疫刷新、控制类别、群体超出策略（拍板 7）、武器百分比基于秒伤乘一拍、`skill.budget_rule` 与技能预算 Analyzer、结算类原语集合、独立的优先级表求值组件——不新增任何效果原语。
