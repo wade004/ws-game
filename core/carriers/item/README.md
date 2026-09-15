@@ -435,6 +435,89 @@ item/
       权重生效、评分对预算单调 2 组——同槽位同职业预算上限更高评分更高、职业权重覆盖改变评分
       排序、`Compare` 符号一致性、`additionalStats` 预留入参、未知模板抛异常）。
 
+20. **T-N2-5（分阶段落地计划、ADR-0032 决策 4/5/7/8；07 第 1.2/1.4 节修订段）：护甲值曲线 ×
+    槽位系数写入、词缀反解值同 sourceId 随穿戴写入、`requirements.level` 缺省按曲线反推**——
+    `EquipmentHost.cs` 内改动，无新文件。
+    - **护甲值写入（ADR-0032 决策 4）**：新增私有方法 `ApplyArmorValue`，在 `ApplyGrants` 里
+      模板 `stats` 之后、`grants` 之前调用；护甲值 = `item.armor_curve`（id 取
+      `ItemOptions.ArmorCurveId`，缺省 `item.armor.default`）在 `item_level` 处求值 ×
+      `item.slot_definition.budget_coefficient`（缺省 1），经 `IStatHost.AddModifier` 以
+      `op=flat`、sourceId=该件装备实例 id 写入 `ItemOptions.ArmorStatId`（缺省 `stat.armor`）指向
+      的属性；曲线在已加载数据里找不到对应记录时按"不写护甲"处理，不抛异常。
+    - **护甲位判定——上报待设计层确认**：`item.slot_definition`（见 `ItemSchemas.SlotDefinition`）
+      当前没有独立的 `is_armor`/`armor_slot` 一类字段区分"护甲位"与其它非武器装备位（戒指/项链/
+      饰品一类传统意义上不该有护甲值的槽位）；`item.template` 也没有 `kind`/`equip_slot` 一类模板
+      分类字段可供二次判断。07 第 1.2 节原文只给"仅护甲位"一句，未展开判定规则。本任务按任务书
+      给出的候选兜底规则实现最简判断（`EquipmentHost.IsArmorSlot`）：非武器位
+      （`is_weapon != true`）且是真正装备位（`is_equipment != false`，即既有 `IsEquipmentSlot`）
+      即视为护甲位——代价是戒指/项链/饰品一类槽位同样会写入护甲修正，与魔兽世界"护甲仅头肩胸手
+      腕手腰腿脚背盾"的更细分类不同。若设计层需要更精确区分，需要在 `item.slot_definition` 新增
+      一个如 `is_armor` 的可选字段（ABI 允许新增），本任务"涉及文件"未列出该 schema 改动范围，
+      且现有样例槽位（`item.slot.sample_main_hand`/`item.slot.sample_bag`）均不是护甲位、新增字段
+      不会让既有样例立即受益，故本任务不新增该字段。
+    - **护甲属性 id 可配置——`ItemOptions` 新增三个可选属性**：`ArmorCurveId`（缺省
+      `item.armor.default`）、`ReqLevelCurveId`（缺省 `item.req_level.default`）、`ArmorStatId`
+      （缺省 `stat.armor`）。`ArmorStatId` 与 `Core.Rules.Combat.CombatOptions.ArmorStat` 默认值
+      同名但不是同一常量引用——`core/carriers/item`（L3）不依赖 `core/rules/combat`（L2 具体子
+      模块），两处各自维护一份手抄默认值字面量，游戏层若改挂护甲到其它属性需要同时改这两处配置。
+    - **词缀反解值写入（ADR-0032 决策 7/8）——新增公开重载 `Equip(Id, Id, Id, Id?
+      qualityId, IReadOnlyList<Id>? affixIds)`**：`ItemInstance` 目前不携带 `Quality`/`Affixes`
+      字段（要到 T-N2-7 才落地，见该类型顶部判断记录"扩展字段……Extra"，本任务不改动
+      `ItemInstance`）；任务书原文"把'词缀值写入'实现为接受 `(qualityId, IReadOnlyList<Id>
+      affixIds)` 的内部/公开路径，并在既有装备路径里用'模板品质 + 空词缀'调用，T-N2-7 接上实例
+      字段"。既有三参 `Equip(Id, Id, Id)` 转发本重载并传 `null`/`null`；`qualityId` 为 `null` 时
+      按模板自身 `quality` 字段解析，`affixIds` 为 `null` 时按空列表处理。T-N2-7 落地后，把三参
+      重载内部的转发调用改传 `instance.Quality`/`instance.Affixes` 即可接上，不需要改动本任务新增
+      的其余逻辑（新增私有方法 `ApplyAffixValues`，在 `ApplyGrants` 里紧跟 `ApplyArmorValue` 之后
+      调用）。选用**公开**重载而非 `internal`：`core/carriers/tests/Tests.Carriers.csproj` 以
+      `ProjectReference` 引用 `Core.Carriers.csproj`（编译为独立程序集），本仓库当前未对该测试
+      程序集声明 `InternalsVisibleTo`，`internal` 成员测试不可达；新增公开重载既满足"可测试"，又
+      天然是 T-N2-7 想要的最终公开入口（掉落/背包装配代码后续可直接调用，不必等 `ItemInstance`
+      补齐字段）。
+    - **`shareOfBudget = affix.budget_share × Σratio`、`statMix` 归一化（判断记录）**：
+      `IBudgetSolver.Solve` 要求 `statMix` 的 `ratio` 之和严格为 1（见该接口判断记录），但
+      `item.affix.stat_mix` 的存量数据只保证"之和不超过一"（`ItemAffixStatMixRatioSumRule`）。
+      `ApplyAffixValues` 按 `BudgetSolver` 类型判断记录给出的归一化方案：记原始比例之和为
+      `Σratio`，传入 `Solve` 的 `statMix` 按 `ratio_i / Σratio` 归一化（之和恰为 1，不改变各属性
+      间相对比例），同时把 `shareOfBudget` 由 `budget_share` 改传 `budget_share × Σratio`——这样
+      "该条词缀内部未用满的份额"（`Σratio < 1`）会按比例折算进实际反解出的目标预算。任务书原文
+      给出的正是这个乘积形式，本任务据此实现；`Σratio == 1`（正常数据的通常情形）时退化为
+      `shareOfBudget = budget_share`，无特殊影响。反解结果（`op=flat` 点数）与模板 `stats`/护甲值
+      共用同一 sourceId 写入。引用不到的词缀 id、`budget_share <= 0`、`stat_mix` 为空或全部比例
+      非正——均按"这条词缀不贡献属性"静默跳过（前者额外记一条 `IItemDiagnostics.Warn` 诊断），
+      不抛异常、不阻断整次穿戴。
+    - **`requirements.level` 缺省按曲线反推（ADR-0032 决策 5）**：`TryGetRequiredLevel` 由
+      `static` 改为实例方法（需要访问 `_registry`/`_options`）；模板显式填了 `requirements.level`
+      时优先手填；未填时按 `ItemOptions.ReqLevelCurveId` 指向的 `item.req_level_curve` 在
+      `item_level` 处求值。
+    - **取整规则——上报待设计层确认**：ADR-0032 决策 5、07 第 1.1/1.2 节修订段均只给"由此反推"
+      一句，未指明非整数需求等级如何取整。本方法按 `Math.Ceiling`（向上取整）——"需求等级"是穿戴
+      门槛，宁可让门槛略严也不放宽，同预算/护甲/需求等级三条曲线"越界夹取到端点"这一既有口径里
+      "选择更保守近似"的思路一致；若设计层确认应改为 `Math.Round`/向下取整，只需改这一处。曲线
+      找不到对应记录，或求值结果 `<= 0`，均按"无等级限制"处理（同未登记 `requirements` 字段时的
+      既有行为），不抛异常。
+    - **回放/Perf 基线核查**：`core/gameplay/tests/Replay/ReplayWorldBuilder.cs` 全文不引用
+      `Core.Carriers.Item`/`EquipmentHost`（该回放场景不涉及装备），本任务改动的全部代码路径
+      （`ApplyArmorValue`/`ApplyAffixValues`/`TryGetRequiredLevel` 曲线分支）在回放场景中不可能
+      被触发；`core/gameplay/tests/EndToEndTests.cs`（经 `GameWorldFixture` 加载真实
+      `data/_sample`）里唯一一次 `Equip` 调用装备的是武器槽（`item.slot.sample_main_hand`，
+      `is_weapon: true`），既不是护甲位（不写护甲）也满足新增的需求等级反推（`item.sample_blade`
+      的 `item_level=1`，`item.req_level_curve` 样例在 `x=1` 处取值 1，玩家注册等级为 1，
+      `1 < 1` 为假，不阻断，与本任务改动前行为一致）——`dotnet test --filter
+      "FullyQualifiedName~Replay"` 全绿，未触发任何基线更新流程。
+    - **ABI（构造函数新增重载而不是给既有构造函数追加可选参数——判断记录）**：`toolchain/
+      abi_probe.ps1` 把"给既有 `.ctor` 追加带默认值的新参数"判定为 BREAKING（C# 源码层面重编译
+      调用方无感，但物理 IL 签名的参数个数变了，已编译、未重新编译的旧调用方按原签名调用会失败）
+      ——原 11 参构造函数签名原样保留，新增一个 12 参重载（末尾追加 `IBudgetSolver? budgetSolver`），
+      旧重载转发新重载并传 `null`。首次实现直接在原构造函数追加参数，`abi_probe.ps1` 报
+      `breaks=1`（该 `.ctor` 被判定为"removed_or_changed"），改为新增重载后 `breaks=0`。
+    - **测试**：`core/carriers/item/tests/T_N2_5_ArmorAffixReqLevelTests.cs`（新增 6 条，覆盖验收
+      标准要求的"穿脱回退 1 组、护甲写入 1 组、需求等级反推 2 组"——穿脱回退 2 条：带词缀穿戴后
+      模板 stats + 词缀反解值 + 护甲三者手算核对、卸下后三者同 sourceId 一次性全部回退；护甲写入
+      2 条：护甲位模板装备后 `stat.armor` 增加 曲线×槽位系数、武器位模板即便护甲曲线存在也不写
+      护甲；需求等级反推 2 条：未填时按曲线取值（`Math.Ceiling` 向上取整为 13 而非 12）并参与穿戴
+      门槛判定（等级 12 拒绝、等级 13 通过）、填了以手填为准（曲线本会反推出 13，手填 3 优先）。
+
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.ISkillHost` 没有"学习/遗忘技能"方法（技能书能力目前只存在于
