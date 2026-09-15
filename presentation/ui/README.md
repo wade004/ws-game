@@ -62,7 +62,11 @@ unit.<id>.stat.<statId>
 
 `ShopViewModel` 与其余十个不同：不经 `IUiPathProvider` 路径查询，直接持有
 `Core.Gameplay.Economy.EconomyHost`（具体类型，见其类型注释判断记录）只读查询商人出售清单/库存/
-价格，买卖仍走既有 `UiIntents.Buy`/`UiIntents.Sell`。
+价格，买卖仍走既有 `UiIntents.Buy`/`UiIntents.Sell`。T-N4-11 起单价改经
+`IEconomyHost.TryGetSellItemPrice(vendorId, itemId)` 读取，不再直接读
+`VendorSellItem.PriceAmount`（`sell_items[].price_amount` 未填时该字段恒为占位 0，见
+`core/gameplay/economy/README.md` 判断记录 15）——与 `EconomyHost.Buy` 实际扣款出自同一条价格
+解析路径。
 
 ## 已知契约缺口
 

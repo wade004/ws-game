@@ -1869,6 +1869,10 @@ namespace Core.Gameplay.Assembly
             public double? TryGetGoldBaseAmount(int level) => _real?.TryGetGoldBaseAmount(level);
 
             public CurrencyDepositPolicy DepositPolicy => _real?.DepositPolicy ?? CurrencyDepositPolicy.OnKill;
+
+            // T-N4-11：显式转发，不落回 IEconomyHost 自身默认实现（同本类型其余默认接口成员的判断
+            // 记录，Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests 门禁要求）。
+            public long? TryGetSellItemPrice(Id vendorId, Id itemId) => _real?.TryGetSellItemPrice(vendorId, itemId);
         }
 
         /// <summary>

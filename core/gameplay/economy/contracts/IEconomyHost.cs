@@ -99,5 +99,31 @@ namespace Core.Gameplay.Economy
         /// <see cref="EconomyOptions.DepositPolicy"/> 的当前配置值。
         /// </summary>
         CurrencyDepositPolicy DepositPolicy => CurrencyDepositPolicy.OnKill;
+
+        /// <summary>
+        /// T-N4-11（阶段 N4 独立复核缺口修复；ADR-0034 决策 2 同一条价格解析路径）：<paramref
+        /// name="vendorId"/> 的出售清单里 <paramref name="itemId"/> 那一条的"单价"——<see
+        /// cref="VendorSellItem.HasPriceAmount"/> 为真时是手填 <see cref="VendorSellItem.PriceAmount"/>
+        /// 原样值；为假（T-N4-6 起 <c>price_amount</c> 可选，未填时买价改按价格公式）时是 <see
+        /// cref="EconomyPriceFormula.TryComputeBaseValue"/> 算出的基准价值（算不出按 0 处理），与
+        /// <see cref="Buy"/> 内部实际扣款用的单价出自同一条解析路径（惯例同 <see
+        /// cref="TryGetGoldBaseAmount"/> 判断记录"运行时/展示层共用同一份算法，不各自重复实现一遍"）
+        /// ——本成员补的是"展示层（如商店货架 UI）该读哪个价目，而不是直接读 <see
+        /// cref="VendorSellItem.PriceAmount"/> 这个字段本身"这一缺口：<c>price_amount</c> 未填时该
+        /// 字段恒为 0（占位，不代表实际单价，见其判断记录），展示层若不经本成员会显示错误的 0 价。
+        /// <paramref name="vendorId"/> 未知，或该商人未出售 <paramref name="itemId"/>，返回
+        /// <c>null</c>（"查不到"，不是"算出 0"，同 <see cref="TryGetGoldBaseAmount"/> 判断记录一贯
+        /// 口径）。
+        /// <para>
+        /// 默认接口成员（ABI 硬性规则"只允许新增"）：默认返回 <c>null</c>（中性退化——接口自身没有
+        /// 暴露"某商人登记了哪些出售条目"这份静态清单，无法在不持有具体宿主内部状态的前提下算出
+        /// 任何有意义的值，见 <see cref="Presentation.Ui.ShopViewModel"/> 类型判断记录"接口契约暂缺
+        /// 对应能力"）；唯一生产实现 <see cref="EconomyHost"/> 显式覆写为真实价格解析。组合/包装
+        /// 实现（如 <c>core/gameplay/assembly.GameplayAssembly.DeferredEconomyHost</c>）须显式转发
+        /// 到内层真实宿主，见 <see cref="TryGetGoldBaseAmount"/> 判断记录同款
+        /// <c>Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests</c> 门禁。
+        /// </para>
+        /// </summary>
+        long? TryGetSellItemPrice(Id vendorId, Id itemId) => null;
     }
 }

@@ -529,8 +529,17 @@ DefaultBuyPricePct` 重新定位为"售价比例"策略项（字段名与默认�
 （`economyValueCurveId`/`economyPriceDeviationThreshold`），既有 1/3 参数重载保留、转发默认值不变
 （回归）。数据侧：`data/_sample/econ/` 新增 `econ.value_curve.json`/`econ.gold_base_curve.json`
 两条曲线样例；既有 `econ.vendor.json` 的 `item.sample_tonic` 条目去掉 `price_amount`，作为"缺省
-走公式"的样例（原手填值 5 与新价格公式在阈值内不产生偏离警告，见 `EconomyPriceFormula`/曲线样例
+走公式"的样例（未填 `price_amount` 的条目不参与偏离检查分支，见 `EconomyPriceFormula`/曲线样例
 数值判断）。
+
+数值设计落地阶段 N4 · T-N4-11（阶段 N4 独立复核缺口修复；ADR-0034 决策 2 同一条价格解析路径）：
+`IEconomyHost` 新增默认接口成员 `TryGetSellItemPrice(Id vendorId, Id itemId): long?`（默认返回
+`null`，唯一生产实现 `EconomyHost` 显式覆写、`GameplayAssembly.DeferredEconomyHost` 显式转发）——
+`EconomyHost.Buy` 内部单价解析抽出为私有 `ResolveSellItemPrice`，供该新成员复用，保证"实际扣款
+单价"与"展示层读到的单价"出自同一条路径；展示层 `Presentation.Ui.ShopViewModel.Refresh` 改用该
+成员填充 `VendorSellItemSnapshot.PriceAmount`（此前直接读 `VendorSellItem.PriceAmount`，
+`HasPriceAmount=false` 时该字段恒为占位 0，T-N4-10 摘掉 `item.sample_tonic` 的 `price_amount`
+后商店 UI 会显示错误的 0 价，未随 T-N4-6 一并接入价格公式的缺口，本任务补齐）。
 
 数值设计落地阶段 N4 · T-N4-7（ADR-0034 决策 3/4；08 第 1.1/7.4 节修订段）：`loot.table.groups[].
 entries[].ref` 放行 `econ` 域（`LootTableParser`/`LootContentValidationRule` 同步放行，报错文案

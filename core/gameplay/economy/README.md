@@ -39,7 +39,8 @@ economy/
                                    的 TableSchema（T-N4-6 新增后两张）
     IEconomyHost.cs                契约接口（T-N4-7：新增默认接口成员 TryGetGoldBaseAmount/DepositPolicy；
                                    T-N4-8：新增默认接口成员 TryPay(Id,Id,long,string) 带 reason 重载，
-                                   默认转发旧签名、不发事件）
+                                   默认转发旧签名、不发事件；T-N4-11：新增默认接口成员
+                                   TryGetSellItemPrice(Id,Id): long?，默认返回 null）
     PurchaseResult.cs             Buy 返回值 + 失败原因枚举
     SellResult.cs                  Sell 返回值 + 失败原因枚举
     EconomyOptions.cs              售价比例（重定位）、价值曲线 id、偏离警告阈值等策略配置（T-N4-6）；
@@ -65,7 +66,9 @@ economy/
                                    Add 超 cap 发 currency_overflow，SetBalance 不发；显式覆写
                                    TryGetGoldBaseAmount/DepositPolicy 两个默认接口成员；T-N4-8：显式
                                    覆写 TryPay(Id,Id,long,string) 为真正的原子扣费 + 发 charged 事件，
-                                   旧 TryPay(Id,Id,long) 反过来转发新签名传占位 reason，见判断记录 14）
+                                   旧 TryPay(Id,Id,long) 反过来转发新签名传占位 reason，见判断记录 14；
+                                   T-N4-11：Buy 内联单价解析抽为私有 ResolveSellItemPrice，显式覆写
+                                   TryGetSellItemPrice 复用同一方法，见判断记录 15）
     PlayerCurrencyExprGroupProvider.cs  player.currency 的 IExprGroupProvider 实现
     CurrencyPersistable.cs          player.currencies 段
     VendorStockPersistable.cs       world.vendor_stock 段（补录，可选）
@@ -73,7 +76,8 @@ economy/
     EconomyTestSupport.cs           DataRegistry/EventBus/Fake 装配帮助
     EconomyHostTests.cs             Add/TryPay/Buy/Sell/补货/持久化/Expr 求值用例
     T_N4_6_EconomyPriceFormulaTests.cs 价格公式（含 value_override 优先）、售价比例、偏离警告
-                                   正负例、NonEscalatable、新表 schema 覆盖
+                                   正负例、NonEscalatable、新表 schema 覆盖；T-N4-11 新增
+                                   TryGetSellItemPrice 三组（走公式/手填优先/商人或物品未知返回 null）
     T_N4_7_CurrencyOverflowTests.cs Add 超 cap 丢弃并发 currency_overflow（2 组：discards+emits、
                                    within-cap 不发）、SetBalance 夹取但不发该事件
     T_N4_8_TryPayReasonAndRewardCurrencyTests.cs TryPay(reason) 原子性 2 组（成功扣费发 charged、
@@ -311,6 +315,39 @@ economy/
     - 测试：`tests/T_N4_8_TryPayReasonAndRewardCurrencyTests.cs`（原子性 2 组：成功扣费发
       charged、余额不足不扣不发；旧签名转发新签名同样发事件 1 组；`RewardDispatcher` 经
       `IEconomyHost.Add` 入账 1 组；工厂方法拒绝 null 1 组）。
+
+15. **T-N4-11（阶段 N4 独立复核缺口修复；ADR-0034 决策 2 同一条价格解析路径）：展示层单价接入
+    价格公式，补齐 T-N4-6 遗留的一处显示缺口。**
+    - 缺口：T-N4-6 把 `sell_items[].price_amount` 改为可选、未填时 `EconomyHost.Buy` 按价格公式
+      算买价，但 `Presentation.Ui.ShopViewModel.Refresh` 一直直接读 `VendorSellItem.PriceAmount`
+      填充 `VendorSellItemSnapshot`——`HasPriceAmount=false` 时该字段恒为占位 0（见判断记录 11），
+      T-N4-10 把 `data/_sample/econ/econ.vendor.json` 的 `item.sample_tonic` 条目摘掉
+      `price_amount` 后，展示层（含 `adapters/unity` 的 `ShopPanel`）会显示错误的 0 价，实际扣款
+      （`Buy`）却正确按公式算出非零单价——两者不一致。
+    - 修法：`IEconomyHost` 新增默认接口成员 `TryGetSellItemPrice(Id vendorId, Id itemId): long?`
+      （默认返回 `null`——接口自身没有暴露"某商人登记了哪些出售条目"这份静态清单，无法算出任何
+      有意义的值，中性退化，同 `TryGetGoldBaseAmount`/`DepositPolicy` 惯例）；`EconomyHost` 显式
+      覆写，内部把此前内联在 `Buy` 里的单价解析表达式（`HasPriceAmount ? PriceAmount : 按公式算，
+      算不出按 0 处理`）抽成私有 `ResolveSellItemPrice(VendorSellItem)`，`Buy`（乘 `count`）与
+      `TryGetSellItemPrice`（单价本身）共用该方法，保证"实际扣款单价"与"展示层读到的单价"永远
+      出自同一条路径，不会再出现两者不一致的缺口。`GameplayAssembly.DeferredEconomyHost` 显式
+      转发该成员，已过 `Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests` 门禁。
+    - `ShopViewModel.Refresh` 改为 `_economy.TryGetSellItemPrice(vendorId, sellItem.ItemId) ??
+      sellItem.PriceAmount` 填充 `VendorSellItemSnapshot.PriceAmount`（`??` 兜底防御性写法，不假设
+      具体实现细节——本视图模型持有的 `(vendorId, itemId)` 恒取自 `EconomyHost.GetVendorDef` 返回
+      的 `def.SellItems` 本身，唯一生产实现理论上恒能命中，不会真的走到 `null` 分支）；`ShopPanel`
+      （`adapters/unity`）本身不改，仍读 `VendorSellItemSnapshot.PriceAmount`，随上游修复自动生效。
+    - 回归安全：改动前 `Buy` 的单价计算是 `(long)((公式值 ?? 0.0) * count)`（先乘 `count` 再取整），
+      抽出的 `ResolveSellItemPrice` 是"先取整单价再乘 `count`"——两种顺序在 `count=1`（既有全部
+      `Buy_UsesFormula_*`/`Buy_PrefersValueOverride_*`/`Buy_PrefersExplicitPriceAmount_*` 用例）与
+      `HasPriceAmount=true`（既有全部 `count>1` 用例，整数乘法不受顺序影响）下逐位等价，唯一理论
+      差异窗口（`count>1` 且未填 `price_amount` 且公式值非整数）在既有测试数据集里不存在实例，
+      不产生任何既有断言的行为变化。
+    - 测试：`tests/T_N4_6_EconomyPriceFormulaTests.cs` 新增 `TryGetSellItemPrice_*` 三组（未填
+      price_amount 走公式、填了原样返回、商人/物品未知返回 null）；PlayMode
+      `UiSuiteTests.Shop_OpenVendor_ShowsStockAndPrice_BuyChangesInventoryAndCurrency` 断言从旧的
+      手填值 5 改为公式值 25（`econ.value_curve.default(1)`=25 × 品质 1.0 × 槽位 1.0），随
+      T-N4-10 摘掉该条目 `price_amount` 之后的真实行为同步更新，不是放宽断言。
 
 ## 子结构登记表（ADR-0019 / F1b）
 

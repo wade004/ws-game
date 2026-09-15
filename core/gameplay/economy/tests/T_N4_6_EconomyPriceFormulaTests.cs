@@ -161,6 +161,55 @@ namespace Tests.Gameplay.Economy
         }
 
         // -----------------------------------------------------------------
+        // T-N4-11：IEconomyHost.TryGetSellItemPrice（展示层读价，与 Buy 共用同一条解析路径）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void TryGetSellItemPrice_UsesFormula_WhenPriceAmountUnset()
+        {
+            var vendor =
+                "[{\"id\": \"econ.vendor.sample_shop\", \"name_key\": \"l10n.shop\", \"sell_items\": [" +
+                "{\"item_id\": \"item.sample_potion\", \"price_currency_id\": \"econ.currency.sample_coin\"}]}]";
+            var registry = MakeRegistry(vendor);
+            var host = NewHost(registry, out _);
+
+            var price = host.TryGetSellItemPrice(new Id("econ.vendor.sample_shop"), new Id("item.sample_potion"));
+
+            // 与 Buy_UsesFormula_WhenPriceAmountUnset 断言的 100 出自同一条解析路径（未填
+            // price_amount 时按 ResolveSellItemPrice 走价格公式，不是"读到手填值 0"）。
+            Assert.Equal(100, price);
+        }
+
+        [Fact]
+        public void TryGetSellItemPrice_ReturnsExplicitPriceAmount_WhenSet()
+        {
+            var vendor =
+                "[{\"id\": \"econ.vendor.sample_shop\", \"name_key\": \"l10n.shop\", \"sell_items\": [" +
+                "{\"item_id\": \"item.sample_potion\", \"price_currency_id\": \"econ.currency.sample_coin\", " +
+                "\"price_amount\": 555}]}]";
+            var registry = MakeRegistry(vendor);
+            var host = NewHost(registry, out _);
+
+            var price = host.TryGetSellItemPrice(new Id("econ.vendor.sample_shop"), new Id("item.sample_potion"));
+
+            // 手填 555 原样返回，公式会算出的 100（同 Buy_PrefersExplicitPriceAmount_OverFormula）不采用。
+            Assert.Equal(555, price);
+        }
+
+        [Fact]
+        public void TryGetSellItemPrice_ReturnsNull_WhenVendorOrItemUnknown()
+        {
+            var vendor =
+                "[{\"id\": \"econ.vendor.sample_shop\", \"name_key\": \"l10n.shop\", \"sell_items\": [" +
+                "{\"item_id\": \"item.sample_potion\", \"price_currency_id\": \"econ.currency.sample_coin\"}]}]";
+            var registry = MakeRegistry(vendor);
+            var host = NewHost(registry, out _);
+
+            Assert.Null(host.TryGetSellItemPrice(new Id("econ.vendor.unknown"), new Id("item.sample_potion")));
+            Assert.Null(host.TryGetSellItemPrice(new Id("econ.vendor.sample_shop"), new Id("item.sample_unknown")));
+        }
+
+        // -----------------------------------------------------------------
         // 售价：无 buy_price_rule 时缺省 = 基准价值 × 售价比例；buy_price_rule 存在时既有语义不变。
         // -----------------------------------------------------------------
 

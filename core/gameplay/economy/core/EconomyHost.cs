@@ -417,10 +417,12 @@ namespace Core.Gameplay.Economy
             }
 
             // T-N4-6（ADR-0034 决策 2；判断记录 1b）：price_amount 填了走原样整数乘法（回归安全，
-            // 逐位不变）；未填按价格公式算基准价值，算不出按 0 处理。
-            var price = sellItem.HasPriceAmount
-                ? sellItem.PriceAmount * count
-                : (long)((ComputeBaseValue(itemId) ?? 0.0) * count);
+            // 逐位不变）；未填按价格公式算基准价值，算不出按 0 处理。T-N4-11 起单价解析抽到
+            // ResolveSellItemPrice——与 TryGetSellItemPrice（展示层读价）共用同一份路径，见该方法
+            // 判断记录；此处仍是"先算单价（与 count=1 时的 TryGetSellItemPrice 结果逐位相同）再乘
+            // count"，与改动前对 count=1 的既有全部用例逐位不变（既有 count>1 用例的商品均显式填了
+            // price_amount，整数乘法不受计算顺序影响）。
+            var price = ResolveSellItemPrice(sellItem) * count;
             if (GetBalance(unitId, sellItem.PriceCurrencyId) < price)
             {
                 return PurchaseResult.Fail(PurchaseFailureReason.InsufficientFunds);
@@ -550,6 +552,33 @@ namespace Core.Gameplay.Economy
             }
 
             return (0, null);
+        }
+
+        /// <summary>
+        /// T-N4-11（阶段 N4 独立复核缺口修复；<see cref="IEconomyHost.TryGetSellItemPrice"/> 判断
+        /// 记录"运行时/展示层共用同一份解析路径"）：<paramref name="sellItem"/> 这一条出售清单项的
+        /// 单价——<see cref="VendorSellItem.HasPriceAmount"/> 为真时原样返回手填 <see
+        /// cref="VendorSellItem.PriceAmount"/>（回归安全，逐位不变）；为假时按 <see
+        /// cref="ComputeBaseValue"/> 算出的基准价值（算不出按 0 处理），与 <see cref="Buy"/> 改动前
+        /// 内联的同一段表达式完全一致，只是从 <see cref="Buy"/> 抽出以供 <see
+        /// cref="TryGetSellItemPrice"/>（展示层只读查询）复用，不重复实现一遍。
+        /// </summary>
+        private long ResolveSellItemPrice(VendorSellItem sellItem) =>
+            sellItem.HasPriceAmount ? sellItem.PriceAmount : (long)(ComputeBaseValue(sellItem.ItemId) ?? 0.0);
+
+        /// <summary>显式覆写 <see cref="IEconomyHost.TryGetSellItemPrice"/> 默认接口成员（见该成员
+        /// 判断记录）：<paramref name="vendorId"/> 未知或该商人未出售 <paramref name="itemId"/> 时
+        /// 返回 <c>null</c>；否则委托 <see cref="ResolveSellItemPrice"/>，与 <see cref="Buy"/> 实际
+        /// 扣款用的单价出自同一条路径。</summary>
+        public long? TryGetSellItemPrice(Id vendorId, Id itemId)
+        {
+            if (!_vendors.TryGetValue(vendorId, out var vendor))
+            {
+                return null;
+            }
+
+            var sellItem = FindSellItem(vendor, itemId);
+            return sellItem == null ? (long?)null : ResolveSellItemPrice(sellItem);
         }
 
         /// <summary>T-N4-6（ADR-0034 决策 2）：<paramref name="templateId"/> 的基准价值——委托 <see
