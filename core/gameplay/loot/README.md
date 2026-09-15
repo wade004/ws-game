@@ -372,6 +372,17 @@ loot/
         本方法没有可读取的数据源来实现这一乘数，本阶段恒为 1——只保留 `RollContext.Multiplier`
         一项，记为偏离首版基准的说明，留待阶段 N6 仿真核对锚点时补上该字段后由调用方通过某个新的
         `RollContext` 字段/本方法新增可选参数接入（ABI 只允许新增，届时可平滑扩展）。
+      - **T-N6-3b 变更记录（补齐）**：`creature.tier_definition` 新增 `gold_multiplier`（缺省
+        1）；`RollContext` 新增 7 参构造重载携带 `TierId`（掉落来源单位的分档 id，由
+        `CreatureDeathLootListener.OnUnitDied` 与 `lootTableRef` 一并从
+        `ICreatureTemplateQuery.Get` 取出后传入）；`LootHost` 新增 14 参构造重载接受
+        `LootGoldMultiplierProvider? goldMultiplierProvider`（`(Id? tierId) => double` 窄委托，
+        未注入时恒 1，取法与 `Core.Numbers.Progression.ProgressionXpMultiplierProvider` 分档经验
+        倍率窄委托注入同一惯例）；`ResolveCurrencyOutcome` 换算数量时在原有基础上再乘一次
+        `_goldMultiplierProvider?.Invoke(context.TierId) ?? 1.0`。`core/gameplay/assembly.
+        GameplayAssembly` 默认按 `Core.Carriers.Creature.CreatureFactory.TryGetGoldMultiplier`
+        接线，未显式配置时对全部分档生效；调用方显式传入自己的委托时装配根不覆盖。至此"分档倍率"
+        这一乘数真正接入，不再恒为 1，上一条判断记录留作历史沿革说明。
       - **来源等级为空时回退等级 1——设计层裁定（2026-09-16）：采纳**：08 原文未说明没有来源等级
         （如非生物来源的货币掉落）时该按什么等级取金币基数；本任务选择回退等级 1（曲线定义域的
         合理下界），不是"跳过该条目"（那会让没有来源等级信息的货币掉落表整体失效）。
@@ -472,10 +483,8 @@ loot/
   `CreatureDeathLootListener`）——只新增契约字段与 `LootHost` 内部消费逻辑，"谁在死亡结算时传入怪物
   等级/难度偏移"是游戏层组装的事，不在本任务"涉及文件"范围内。
   **（T-N2-8b 已补齐，见判断记录 16"来源等级接线"）**
-- T-N4-7：不实现"分档倍率"（`creature.tier_definition` 的经验/金币倍率字段）——该字段尚未登记，
-  当量数量公式暂时只有 `RollContext.Multiplier`（`diff.tier.loot_multiplier`）一项乘数生效，
-  本阶段恒为 1，见判断记录 17（设计层裁定（2026-09-16）：采纳，记为偏离首版基准的说明，留待阶段
-  N6 仿真核对锚点时补上）。
+- ~~T-N4-7：不实现"分档倍率"~~——**T-N6-3b 已补齐**（`creature.tier_definition.gold_multiplier`
+  经 `LootGoldMultiplierProvider` 接进 `ResolveCurrencyOutcome`），见判断记录 17"T-N6-3b 变更记录"。
 - T-N4-7：不实现"击杀即入账时找不到明确击杀者"以外的任何其它兜底策略（如"归属死亡单位自己"）——
   只实现"退回落地待拾取"这一种，见判断记录 17（设计层裁定（2026-09-16）：采纳）。
 - T-N4-7：不改变旧 `Roll(Id, RollContext): IReadOnlyList<ItemStack>`/

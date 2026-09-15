@@ -23,7 +23,7 @@ namespace Core.Carriers.Creature
     /// <see cref="IDataRegistryView"/> 一次性解析 <c>creature.template</c>/<c>creature.tier_definition</c>
     /// 两张表，之后只读，惯例同 <c>AiHost</c>/<c>StatHost</c>。
     /// <para>
-    /// 判断记录（消费方反馈第 33 条，资源类型注册顺序）：<see cref="Spawn"/> 此前恒按
+    /// 判断记录（消费方反馈第 33 条，资源类型注册顺序）：<see cref="SpawnCore"/> 此前恒按
     /// <see cref="CreatureOptions.DefaultPowerTypes"/> 的旧默认值 <c>[WellKnownPowers.Health]</c>
     /// 向 <see cref="IPowerHost.RegisterUnit"/> 注册资源类型，与模板/数据集实际定义的资源类型无关
     /// ——示例技能消耗 <c>arch.power.mana</c> 时，生成的生物从未注册过 <c>mana</c>，
@@ -46,7 +46,7 @@ namespace Core.Carriers.Creature
     /// strength 7，升到 3 级实测 11，应为 9；细节见
     /// <c>Core.Numbers.Progression.ProgressionHost</c> 判断记录"成长唯一来源"）。根治为"成长统一
     /// 只由修正承载"：本类型不再解析 <c>prog.level_curve</c>，<see cref="ApplyStats"/> 只写
-    /// <c>base_stats × tier.stat_multiplier</c>；<see cref="Spawn"/> 改为在
+    /// <c>base_stats × tier.stat_multiplier</c>；<see cref="SpawnCore"/> 改为在
     /// <see cref="Core.Numbers.Progression.IProgressionHost.RegisterUnit"/> 之后紧接着调用
     /// <see cref="Core.Numbers.Progression.IProgressionHost.ApplyGrowthToCurrentLevel"/>——与
     /// 升级、读档共用同一份聚合实现，出生等级 1（无成长曲线的既有示例数据）时这一步是空操作
@@ -69,6 +69,11 @@ namespace Core.Carriers.Creature
             /// <summary>T-N4-4 新增（ADR-0033 决策 4）：该分档的经验倍率，缺省 1——见
             /// <see cref="TryGetXpMultiplier"/> 判断记录。</summary>
             public double XpMultiplier = 1.0;
+
+            /// <summary>T-N6-3b 新增（N4 遗留第 7 项；ADR-0034 决策 3 延伸；08 第 7.4 节"怪物掉钱 =
+            /// 当量 × econ.gold_base_curve(怪物等级) × 分档倍率 × diff.tier.loot_multiplier"）：该
+            /// 分档的金币倍率，缺省 1——见 <see cref="TryGetGoldMultiplier"/> 判断记录。</summary>
+            public double GoldMultiplier = 1.0;
         }
 
         private readonly IDataRegistryView _registry;
@@ -80,6 +85,12 @@ namespace Core.Carriers.Creature
         private readonly IUnitAccess _units;
         private readonly AiRegistrar _aiRegistrar;
         private readonly CreatureOptions _options;
+
+        /// <summary>T-N6-3b 新增（ADR-0035 决策 3）：可选的等级缩放器，供按指定等级出生（见 6 参
+        /// <see cref="Spawn(Id, Id, Vec2, double, Id?, int)"/>）时换算基础属性——未注入（<c>null</c>，
+        /// 旧构造重载走的路径）时按 <see cref="ICreatureLevelScaler"/> 类型判断记录"等级改、属性不变"
+        /// 退化，见 <see cref="ResolveBaseStats"/>。</summary>
+        private readonly ICreatureLevelScaler? _levelScaler;
 
         private readonly Dictionary<string, CreatureTemplate> _templates = new Dictionary<string, CreatureTemplate>(StringComparer.Ordinal);
         private readonly Dictionary<string, TierInfo> _tiers = new Dictionary<string, TierInfo>(StringComparer.Ordinal);
@@ -116,21 +127,61 @@ namespace Core.Carriers.Creature
             LoadPowerTypeIds(_registry);
         }
 
+        /// <summary>
+        /// T-N6-3b 新增重载（ABI 硬性规则"只允许新增"，不改既有 9 参构造函数签名——同
+        /// <c>Core.Gameplay.Loot.LootHost</c> 追加 <c>economyHost</c> 的既有先例）：额外接受
+        /// <paramref name="levelScaler"/>，供按指定等级出生（见 <see cref="ResolveBaseStats"/>）使用。
+        /// 未提供（<c>null</c>——旧 9 参构造函数走的路径，或本重载显式传 <c>null</c>）时按指定等级
+        /// 出生只改变 <c>CreatureUnit.Level</c>，基础属性不变，见 <see cref="ICreatureLevelScaler"/>
+        /// 类型判断记录。
+        /// </summary>
+        public CreatureFactory(
+            IDataRegistryView registry,
+            IWorldSim world,
+            IEventBus bus,
+            IStatHost stats,
+            IPowerHost powers,
+            IProgressionHost progression,
+            IUnitAccess units,
+            AiRegistrar aiRegistrar,
+            CreatureOptions? options,
+            ICreatureLevelScaler? levelScaler)
+            : this(registry, world, bus, stats, powers, progression, units, aiRegistrar, options)
+        {
+            _levelScaler = levelScaler;
+        }
+
         // -----------------------------------------------------------------
         // ICreatureFactory
         // -----------------------------------------------------------------
 
-        public Id Spawn(Id templateId, Id mapId, Vec2 position, double facing, Id? ownerId = null)
+        public Id Spawn(Id templateId, Id mapId, Vec2 position, double facing, Id? ownerId = null) =>
+            SpawnCore(templateId, mapId, position, facing, ownerId, levelOverride: null);
+
+        /// <summary>
+        /// T-N6-3b 新增重载（ADR-0035 决策 3"生物模板按指定等级出生"；<see cref="ICreatureFactory"/>
+        /// 对应默认接口成员的显式实现，见该接口成员判断记录）：按 <paramref name="level"/> 覆盖出生
+        /// 等级（不再取 <c>creature.template.level</c>）。<c>CreatureUnit.Level</c>（及以其为准的
+        /// <see cref="IUnitAccess.GetLevel"/>、经验发放、等级差计算等消费方）自然读到
+        /// <paramref name="level"/>；基础属性经 <see cref="ResolveBaseStats"/> 换算（未注入
+        /// <see cref="ICreatureLevelScaler"/> 时不变），分档 <c>stat_multiplier</c> 仍在换算之后按
+        /// 既有顺序相乘。
+        /// </summary>
+        public Id Spawn(Id templateId, Id mapId, Vec2 position, double facing, Id? ownerId, int level) =>
+            SpawnCore(templateId, mapId, position, facing, ownerId, levelOverride: level);
+
+        private Id SpawnCore(Id templateId, Id mapId, Vec2 position, double facing, Id? ownerId, int? levelOverride)
         {
             var template = RequireTemplate(templateId);
             var tier = RequireTier(template.TierId);
+            var spawnLevel = levelOverride ?? template.Level;
 
             var entityId = _world.AllocateEntityId(EntityKinds.Creature);
             var unit = new CreatureUnit(entityId, mapId, template.FactionId, templateId)
             {
                 Position = position,
                 Facing = facing,
-                Level = template.Level,
+                Level = spawnLevel,
                 LootTableId = template.LootTableRef,
                 OwnerId = ownerId,
             };
@@ -177,11 +228,25 @@ namespace Core.Carriers.Creature
             _units.SetPosition(entityId, position);
 
             _stats.RegisterUnit(entityId);
-            ApplyStats(entityId, template, tier);
+            ApplyStats(entityId, template, tier, spawnLevel);
 
             if (template.StatGrowthRef.HasValue)
             {
-                _progression.RegisterUnit(entityId, template.StatGrowthRef.Value, template.Level);
+                // T-N6-3b 判断记录（RegisterUnit 改传 spawnLevel，而不是固定 template.Level）：
+                // spawnLevel 未被 6 参 Spawn 覆盖时恒等于 template.Level，本行为对既有调用方
+                // （5 参 Spawn/既有测试）零变化。被覆盖时，Progression 内部登记的"当前等级"自然
+                // 同步为 spawnLevel（否则后续 AddXp/GetXpToNext 等仍按模板等级计算，与
+                // CreatureUnit.Level 已经写成 spawnLevel 相互矛盾）——不是本任务新引入的"双重计分"：
+                // 曲线"2..当前登记等级"复利本就是 ApplyGrowthToCurrentLevel 的既有既定语义（见类型
+                // 判断记录"成长唯一来源"），本任务只是把"当前登记等级"的来源从硬编码的 template.Level
+                // 改成 spawnLevel，曲线本身的计算方式不变。若某模板既配置了 stat_growth_ref、又通过
+                // 6 参 Spawn 指定了与模板不同的等级、且未注入 ICreatureLevelScaler，基础属性仍会经
+                // 本步骤按曲线"2..spawnLevel"计算出与"未覆盖时不同"的修正值——<see
+                // cref="ICreatureLevelScaler"/> 类型判断记录"未注入时属性不变"特指本类型新增的缩放器
+                // 这一步（<see cref="ResolveBaseStats"/>）不生效，不改写曲线这一既有独立机制的既定
+                // 行为；两者是否要在同一模板上组合使用，留给设计层/装配层的口味决策，本任务不禁止也不
+                // 特殊处理这一组合。
+                _progression.RegisterUnit(entityId, template.StatGrowthRef.Value, spawnLevel);
                 // 消费方反馈第 36 条根治：出生等级 > 1 时，"2 级到出生等级"的曲线成长只经这一步
                 // 写成修正（与升级、读档共用同一份聚合实现，见类型判断记录），不再叠进 ApplyStats
                 // 写的基础值——放在 Powers.RegisterUnit 之前，保证 max_source: stat 的资源类型
@@ -282,18 +347,37 @@ namespace Core.Carriers.Creature
         // -----------------------------------------------------------------
 
         /// <summary>
-        /// 按 <c>base_stats × tier.stat_multiplier</c> 算出各属性基础值，按属性 id 调用一次
-        /// <see cref="IStatHost.SetBase"/>。消费方反馈第 36 条根治：本方法不再叠加曲线成长量——
-        /// 成长统一由 <see cref="Core.Numbers.Progression.IProgressionHost.ApplyGrowthToCurrentLevel"/>
-        /// 以修正形式写入（见 <see cref="Spawn"/> 调用点、类型判断记录"成长不再由本类型承载"），
-        /// 基础值只承载"分档倍率"这一项，避免与修正重复计入同一段成长。
+        /// 按 <c>ResolveBaseStats(template, spawnLevel) × tier.stat_multiplier</c> 算出各属性基础值，
+        /// 按属性 id 调用一次 <see cref="IStatHost.SetBase"/>。消费方反馈第 36 条根治：本方法不叠加
+        /// 曲线成长量——成长统一由
+        /// <see cref="Core.Numbers.Progression.IProgressionHost.ApplyGrowthToCurrentLevel"/> 以修正
+        /// 形式写入（见 <see cref="SpawnCore"/> 调用点、类型判断记录"成长不再由本类型承载"），基础值
+        /// 只承载"等级缩放 × 分档倍率"两项，避免与修正重复计入同一段成长。T-N6-3b：等级缩放这一项见
+        /// <see cref="ResolveBaseStats"/>。
         /// </summary>
-        private void ApplyStats(Id unitId, CreatureTemplate template, TierInfo tier)
+        private void ApplyStats(Id unitId, CreatureTemplate template, TierInfo tier, int spawnLevel)
         {
-            foreach (var kv in template.BaseStats)
+            foreach (var kv in ResolveBaseStats(template, spawnLevel))
             {
                 _stats.SetBase(unitId, kv.Key, kv.Value * tier.StatMultiplier);
             }
+        }
+
+        /// <summary>
+        /// T-N6-3b 新增（ADR-0035 决策 3）：<paramref name="spawnLevel"/> 等于
+        /// <paramref name="template"/>.Level（未覆盖出生等级，或 6 参 <c>Spawn</c> 显式传入与模板相同
+        /// 的等级）、或未注入 <see cref="_levelScaler"/> 时，原样返回 <paramref name="template"/>.
+        /// BaseStats（未经分档倍率处理的原始模板值，同改动前 <see cref="ApplyStats"/> 的输入）——见
+        /// <see cref="ICreatureLevelScaler"/> 类型判断记录"未注入时等级改、属性不变"。否则委托给
+        /// <see cref="_levelScaler"/>.ScaleBaseStats 换算。
+        /// </summary>
+        private IReadOnlyDictionary<Id, double> ResolveBaseStats(CreatureTemplate template, int spawnLevel)
+        {
+            if (_levelScaler == null || spawnLevel == template.Level)
+            {
+                return template.BaseStats;
+            }
+            return _levelScaler.ScaleBaseStats(template, template.Level, spawnLevel, template.BaseStats);
         }
 
         // -----------------------------------------------------------------
@@ -317,6 +401,8 @@ namespace Core.Carriers.Creature
                 var statMultiplier = record.TryGetNumber("stat_multiplier", out var multiplier) ? multiplier : 1.0;
                 var controlImmune = record.TryGetBool("control_immune", out var immune) && immune;
                 var xpMultiplier = record.TryGetNumber("xp_multiplier", out var xpMult) ? xpMult : 1.0;
+                // T-N6-3b 新增：gold_multiplier（惯例同 xp_multiplier 一贯"缺省 1"解析写法）。
+                var goldMultiplier = record.TryGetNumber("gold_multiplier", out var goldMult) ? goldMult : 1.0;
 
                 // T-N3-6 新增：control_immune_categories（并存字段，见 CreatureSchemas 判断记录），
                 // 惯例同 SkillDefCache 解析 interrupt_flags 数组字段——直接遍历 JsonArray 取字符串，
@@ -341,6 +427,7 @@ namespace Core.Carriers.Creature
                     ControlImmune = controlImmune,
                     ControlImmuneCategories = controlImmuneCategories,
                     XpMultiplier = xpMultiplier,
+                    GoldMultiplier = goldMultiplier,
                 };
             }
         }
@@ -369,6 +456,27 @@ namespace Core.Carriers.Creature
             if (_tiers.TryGetValue(tierId.Value, out var tier))
             {
                 multiplier = tier.XpMultiplier;
+                return true;
+            }
+            multiplier = 1.0;
+            return false;
+        }
+
+        // -----------------------------------------------------------------
+        // T-N6-3b：分档金币倍率查询（N4 遗留第 7 项；ADR-0034 决策 3 延伸；08 第 7.4 节）
+        // -----------------------------------------------------------------
+
+        /// <summary>查询 <paramref name="tierId"/>（<c>creature.tier_definition</c>）对应的
+        /// <c>gold_multiplier</c>（缺省 1）。供
+        /// <see cref="Core.Gameplay.Loot.LootGoldMultiplierProvider"/> 钩子读取（<c>core/gameplay/
+        /// assembly.GameplayAssembly</c> 接线，取法与 <see cref="TryGetXpMultiplier"/> 一致——见该
+        /// 方法判断记录，本方法未登记 <paramref name="tierId"/> 时同样返回 <c>false</c> 而不抛异常，
+        /// 供"怪物掉钱换算"这一非阻断性场景退化为"无分档加成"）。</summary>
+        public bool TryGetGoldMultiplier(Id tierId, out double multiplier)
+        {
+            if (_tiers.TryGetValue(tierId.Value, out var tier))
+            {
+                multiplier = tier.GoldMultiplier;
                 return true;
             }
             multiplier = 1.0;

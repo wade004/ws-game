@@ -588,11 +588,20 @@ namespace Core.Gameplay.Assembly
             //    T-N4-7：economyHost 传 deferredEconomyHost（第 2 步占位，第 8 步真正的 EconomyHost
             //    造好后 Bind）——货币掉落条目换算/拾取入账/击杀即入账均经它，见 LootHost/
             //    CreatureDeathLootListener 各自该构造重载判断记录。
+            //    T-N6-3b：goldMultiplierProvider 直接传闭包（不需要像 resolvedProgressionOptions.
+            //    ExtraXpMultiplierProvider 那样延迟回填——Carriers.Creatures 已在第 3 步构造完成，
+            //    本步骤构造 LootHost 时已经可用，取法同该委托判断记录）：未显式覆盖分档金币倍率的
+            //    调用方，按 creature.tier_definition.gold_multiplier（经
+            //    CreatureFactory.TryGetGoldMultiplier 查询，未登记分档/tierId 为 null 时恒 1）计算。
             // ---------------------------------------------------------
             Loot = new LootHost(
                 registry, rng, bus, world, Carriers.Units, Carriers.Inventory, ExprHostFactory,
                 () => Carriers.Rules.SimTime, lootOptions, diagnostics: null,
-                conditionSchema: GameplaySchemaCatalog.FullExprSchema, economyHost: deferredEconomyHost);
+                conditionSchema: GameplaySchemaCatalog.FullExprSchema, economyHost: deferredEconomyHost,
+                goldMultiplierProvider: tierId =>
+                    tierId.HasValue && Carriers.Creatures.TryGetGoldMultiplier(tierId.Value, out var goldMultiplier)
+                        ? goldMultiplier
+                        : 1.0);
             deferredLootRoller.Bind(Loot);
 
             // T-N2-8b：Difficulty 已在上一步构造完成，直接传入（不需要像 healthFractionSetter/

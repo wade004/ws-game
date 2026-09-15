@@ -106,9 +106,17 @@ namespace Core.Gameplay.Loot
             }
 
             Id? lootTableRef;
+            Id tierId;
             try
             {
-                lootTableRef = _templates.Get(templateId.Value).LootTableRef;
+                var creatureTemplate = _templates.Get(templateId.Value);
+                lootTableRef = creatureTemplate.LootTableRef;
+                // T-N6-3b（08 第 7.4 节"怪物掉钱……× 分档倍率"）：与 lootTableRef 同一次
+                // ICreatureTemplateQuery.Get 调用一并取出死亡单位的分档 id，供下面 RollContext.TierId
+                // 供 LootHost.ResolveCurrencyOutcome 查询 creature.tier_definition.gold_multiplier
+                // 使用——取法同 Core.Gameplay.ProgressionBridge.CreatureDeathXpListener.ResolveTierId
+                // 判断记录，只是本类已经在这里持有 creatureTemplate，不需要单独再查一次。
+                tierId = creatureTemplate.TierId;
             }
             catch (ArgumentException)
             {
@@ -126,11 +134,12 @@ namespace Core.Gameplay.Loot
             // GetLevel 是既有必须实现的抽象成员，本类已持有 _units 引用，不需要新依赖）；
             // itemLevelOffset 取注入的 IDifficultyHost.ItemLevelOffset（未注入难度宿主时恒 0，同该
             // 成员默认接口方法语义）。两者均是确定性折算，不消耗任何随机数（见 RollContext.
-            // SourceLevel/ItemLevelOffset 判断记录）。
+            // SourceLevel/ItemLevelOffset 判断记录）。T-N6-3b：tierId 见上，一并传入
+            // RollContext.TierId（7 参新重载）。
             var sourceLevel = _units.GetLevel(evt.UnitId);
             var itemLevelOffset = _difficultyHost?.ItemLevelOffset ?? 0;
             var context = new RollContext(
-                evt.UnitId, evt.KillerId, _lootMultiplierProvider(), evt.UnitId, sourceLevel, itemLevelOffset);
+                evt.UnitId, evt.KillerId, _lootMultiplierProvider(), evt.UnitId, sourceLevel, itemLevelOffset, tierId);
 
             // T-N2-8b：改用带身份的 RollDetailed/Drop(outcomes) 路径，保证品质骰/词缀骰结果（若
             // loot.table 配置了 quality_weights）真正落到地面掉落物身份上，供 PickUp 转发进背包——旧

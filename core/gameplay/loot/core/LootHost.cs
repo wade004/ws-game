@@ -60,6 +60,11 @@ namespace Core.Gameplay.Loot
         /// <see cref="DepositCurrencyStacks"/> 判断记录静默退化（不产出/不入账货币条目，不抛异常）。</summary>
         private readonly IEconomyHost? _economyHost;
 
+        /// <summary>T-N6-3b（N4 遗留第 7 项；ADR-0034 决策 3 延伸）：货币掉落条目换算数量时叠乘的
+        /// 分档金币倍率委托——可选注入，未注入（旧构造重载）时按 <see cref="ResolveCurrencyOutcome"/>
+        /// 判断记录退化为恒 1（不影响既有掉钱计算）。</summary>
+        private readonly LootGoldMultiplierProvider? _goldMultiplierProvider;
+
         private readonly Dictionary<Id, LootTableDef> _tables = new Dictionary<Id, LootTableDef>();
         private readonly Dictionary<Id, DroppedLootEntity> _dropped = new Dictionary<Id, DroppedLootEntity>();
         private readonly List<Id> _order = new List<Id>();
@@ -132,6 +137,32 @@ namespace Core.Gameplay.Loot
             : this(registry, rng, bus, world, units, inventory, exprHostFactory, simTimeProvider, options, diagnostics, conditionSchema)
         {
             _economyHost = economyHost;
+        }
+
+        /// <summary>
+        /// T-N6-3b 新增重载（ABI 硬性规则"只允许新增"，不改既有 12 参构造函数签名——同上一条 T-N4-7
+        /// 先例）：额外接受 <paramref name="goldMultiplierProvider"/>，供 <see
+        /// cref="ResolveCurrencyOutcome"/> 换算货币掉落条目数量时叠乘分档金币倍率。未提供
+        /// （<c>null</c>——旧 12 参构造函数走的路径，或本重载显式传 <c>null</c>）时退化为恒 1（不影响
+        /// 既有掉钱计算），见 <see cref="ResolveCurrencyOutcome"/> 判断记录。
+        /// </summary>
+        public LootHost(
+            IDataRegistryView registry,
+            IRngHost rng,
+            IEventBus bus,
+            IWorldSim world,
+            IUnitAccess units,
+            IInventoryHost inventory,
+            IExprHostFactory exprHostFactory,
+            Func<double> simTimeProvider,
+            LootOptions? options,
+            IExprDiagnostics? diagnostics,
+            IExprSchema? conditionSchema,
+            IEconomyHost? economyHost,
+            LootGoldMultiplierProvider? goldMultiplierProvider)
+            : this(registry, rng, bus, world, units, inventory, exprHostFactory, simTimeProvider, options, diagnostics, conditionSchema, economyHost)
+        {
+            _goldMultiplierProvider = goldMultiplierProvider;
         }
 
         private void ReloadTables()
@@ -375,26 +406,24 @@ namespace Core.Gameplay.Loot
         }
 
         /// <summary>
-        /// T-N4-7（ADR-0034 决策 3；08 第 1.1/7.4 节修订段"怪物掉钱 = 当量 ×
+        /// T-N4-7/T-N6-3b（ADR-0034 决策 3；08 第 1.1/7.4 节修订段"怪物掉钱 = 当量 ×
         /// econ.gold_base_curve(怪物等级) × 分档倍率 × diff.tier.loot_multiplier"）：货币掉落条目——
         /// <paramref name="equivalents"/>（在 <c>[count_range.min, count_range.max]</c> 内抽出的
         /// 当量）× <see cref="IEconomyHost.TryGetGoldBaseAmount"/>（来源等级对应的金币基数）×
-        /// <see cref="RollContext.Multiplier"/>（既有难度倍率挂载点，由调用方从
+        /// 分档金币倍率（见下）× <see cref="RollContext.Multiplier"/>（既有难度倍率挂载点，由调用方从
         /// <c>IDifficultyHost.LootMultiplier</c>——即 <c>diff.tier.loot_multiplier</c>——取值后传入，
         /// 见 <see cref="RollContext.Multiplier"/> 判断记录），四舍五入（<see
         /// cref="MidpointRounding.AwayFromZero"/>）到整数。
         /// <para>
-        /// 判断记录（"分档倍率"——<c>creature.tier_definition</c> 的金币倍率字段——留钩子缺省 1，
-        /// 设计层裁定（2026-09-16）：采纳，记为偏离首版基准的说明，留待阶段 N6 仿真核对锚点时补上）：
-        /// 08 第 1.1/7.4 节公式原文把"分档倍率"与"<c>diff.tier.loot_multiplier</c>"
-        /// 并列写成两个独立乘数；核实 <c>core/carriers/creature/core/CreatureSchemas.cs</c> 的
-        /// <c>creature.tier_definition</c> 当前只有 <c>stat_multiplier</c>/<c>control_immune</c> 等
-        /// 既有字段，没有任何"经验/金币倍率"字段（T-N4-4"分档与难度经验倍率"已落地但只补了
-        /// <c>xp_multiplier</c>，未新增任何"金币倍率"字段），本任务因此没有可读取的数据源来实现
-        /// "分档倍率"这一乘数——本阶段留空等价于该乘数恒为 1（只保留 <see cref="RollContext.Multiplier"/>
-        /// 一项，即 <c>diff.tier.loot_multiplier</c>），留待阶段 N6 仿真核对锚点时补上"分档金币倍率"
-        /// 字段后由调用方通过某个新的 <see cref="RollContext"/> 字段或本方法的新增可选参数接入
-        /// （ABI 只允许新增，届时可平滑扩展，不需要改动本方法现有签名）。
+        /// 判断记录（"分档倍率"接入，T-N6-3b 补上 N4 遗留第 7 项）：08 第 1.1/7.4 节公式原文把
+        /// "分档倍率"与"<c>diff.tier.loot_multiplier</c>"并列写成两个独立乘数；T-N4-7 落地时
+        /// <c>creature.tier_definition</c> 尚无对应字段，本方法当时把这一项恒按 1 处理（见 1.35.0
+        /// 及之前版本的判断记录）。T-N6-3b 起 <c>creature.tier_definition</c> 新增
+        /// <c>gold_multiplier</c>（缺省 1），经 <see cref="RollContext.TierId"/>（调用方——
+        /// <c>Core.Gameplay.Loot.CreatureDeathLootListener</c>——解析掉落来源单位的分档 id 后传入）+
+        /// <see cref="_goldMultiplierProvider"/>（未注入时恒 1，取法与 <c>ExtraXpMultiplierProvider</c>
+        /// 分档经验倍率窄委托一致，见 <see cref="LootGoldMultiplierProvider"/> 判断记录）查询，真正把
+        /// 这一项接上。
         /// </para>
         /// <para>
         /// 判断记录（<see cref="RollContext.SourceLevel"/> 为空时的等级回退，设计层裁定
@@ -410,7 +439,9 @@ namespace Core.Gameplay.Loot
         /// 可用性依赖组装层是否接线 <see cref="IEconomyHost"/>，理应已在内容校验/组装阶段发现问题，
         /// 运行期只做静默兜底。换算结果 &lt;=0（曲线在该等级取值为 0、或四舍五入到 0）时同样跳过——
         /// <see cref="LootRollOutcome"/> 的构造函数本就要求 <see cref="LootRollOutcome.Count"/> 为
-        /// 正数，不产出一条"数量为 0"的记录。
+        /// 正数，不产出一条"数量为 0"的记录。<see cref="_goldMultiplierProvider"/> 未注入、或注入的
+        /// 委托对 <see cref="RollContext.TierId"/> 无法解析（如 <c>tierId</c> 为 <c>null</c>）时同样
+        /// 静默退化为分档倍率恒 1，不抛异常、不阻断其余产出的换算。
         /// </para>
         /// </summary>
         private LootRollOutcome? ResolveCurrencyOutcome(Id currencyRef, int equivalents, RollContext context)
@@ -427,7 +458,8 @@ namespace Core.Gameplay.Loot
                 return null;
             }
 
-            var raw = equivalents * goldBase.Value * context.Multiplier;
+            var tierMultiplier = _goldMultiplierProvider?.Invoke(context.TierId) ?? 1.0;
+            var raw = equivalents * goldBase.Value * tierMultiplier * context.Multiplier;
             var amount = (int)Math.Round(raw, MidpointRounding.AwayFromZero);
             return amount > 0 ? new LootRollOutcome(currencyRef, amount, null, null, null) : (LootRollOutcome?)null;
         }

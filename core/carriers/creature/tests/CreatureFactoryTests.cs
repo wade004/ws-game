@@ -23,6 +23,7 @@ namespace Tests.Carriers.Creature
         private static readonly Id HydraTemplateId = new Id("creature.sample_hydra");
         private static readonly Id HydraCubTemplateId = new Id("creature.sample_hydra_cub");
         private static readonly Id CategoryImmuneTemplateId = new Id("creature.sample_category_immune");
+        private static readonly Id EliteNoGrowthTemplateId = new Id("creature.sample_elite_no_growth");
         private static readonly Id PowerStat = new Id("stat.power");
         private static readonly Id MaxHealthStat = new Id("stat.max_health");
         // AddXp 的 sourceId 只用于事件携带，不要求在 prog.xp_source 表里登记，任意 Id 均可。
@@ -42,7 +43,7 @@ namespace Tests.Carriers.Creature
             public List<CreatureDespawnedEvent> DespawnedEvents = null!;
         }
 
-        private static Fixture Build(CreatureOptions? options = null)
+        private static Fixture Build(CreatureOptions? options = null, ICreatureLevelScaler? levelScaler = null)
         {
             var bus = CreatureTestSupport.CreateBus();
             var registry = CreatureTestSupport.MakeRegistry(bus);
@@ -56,7 +57,11 @@ namespace Tests.Carriers.Creature
             AiRegistrar registrar = (unitId, profileId, spawnPoint, rotationId) =>
                 aiCalls.Add((unitId, profileId, spawnPoint, rotationId));
 
-            var factory = new CreatureFactory(registry, world, bus, stats, powers, progression, units, registrar, options);
+            // T-N6-3b：levelScaler 非 null 时走新增的 10 参构造重载（见 CreatureFactory 该重载判断
+            // 记录），null 时（既有调用方/测试的默认路径）仍走旧 9 参构造函数，行为完全不变。
+            var factory = levelScaler == null
+                ? new CreatureFactory(registry, world, bus, stats, powers, progression, units, registrar, options)
+                : new CreatureFactory(registry, world, bus, stats, powers, progression, units, registrar, options, levelScaler);
 
             var spawned = new List<CreatureSpawnedEvent>();
             var despawned = new List<CreatureDespawnedEvent>();
@@ -585,6 +590,134 @@ namespace Tests.Carriers.Creature
 
             Assert.Throws<ArgumentException>(() =>
                 factory.Spawn(new Id("creature.sample_orphan"), MapId, Vec2.Zero, 0));
+        }
+
+        // -----------------------------------------------------------------
+        // T-N6-3b（ADR-0035 决策 3"生物模板按指定等级出生"）：6 参 Spawn 等级覆盖 +
+        // ICreatureLevelScaler
+        // -----------------------------------------------------------------
+
+        /// <summary>测试专用线性缩放器：目标等级基础属性 = 模板基础属性 × (targetLevel /
+        /// templateLevel)，验证 <see cref="CreatureFactory"/> 按 <see cref="ICreatureLevelScaler"/>
+        /// 返回值再乘一次分档倍率（不由缩放器自己处理分档倍率，见该接口判断记录）。</summary>
+        private sealed class LinearLevelScaler : ICreatureLevelScaler
+        {
+            public IReadOnlyDictionary<Id, double> ScaleBaseStats(
+                CreatureTemplate template, int templateLevel, int targetLevel, IReadOnlyDictionary<Id, double> baseStats)
+            {
+                var factor = (double)targetLevel / templateLevel;
+                var result = new Dictionary<Id, double>();
+                foreach (var kv in baseStats)
+                {
+                    result[kv.Key] = kv.Value * factor;
+                }
+                return result;
+            }
+        }
+
+        /// <summary>验收标准①：未注入 <see cref="ICreatureLevelScaler"/> 时，L1 模板按 6 参
+        /// <c>Spawn</c> 指定 L10 出生——单位等级读到 10（<see cref="IUnitAccess.GetLevel"/>），基础
+        /// 属性等于"模板属性 × 分档倍率"（tier.normal 倍率 1，等价于模板原值），即等级改、属性不变
+        /// （见 <see cref="ICreatureLevelScaler"/> 类型判断记录）。</summary>
+        [Fact]
+        public void Spawn_WithLevelOverride_NoScaler_ChangesLevelOnly_AttributesUnchanged()
+        {
+            var f = Build();
+
+            var id = f.Factory.Spawn(BasicTemplateId, MapId, Vec2.Zero, 0, ownerId: null, level: 10);
+
+            Assert.Equal(10, f.Units.GetLevel(id));
+            Assert.Equal(10.0, f.Stats.GetStat(id, PowerStat), 6);
+            Assert.Equal(100.0, f.Stats.GetStat(id, MaxHealthStat), 6);
+        }
+
+        /// <summary>验收标准②：注入 <see cref="LinearLevelScaler"/>（×targetLevel/templateLevel）后，
+        /// <c>creature.sample_elite_no_growth</c>（模板等级 1、tier.elite 倍率 2、无
+        /// <c>stat_growth_ref</c>）按 6 参 <c>Spawn</c> 指定 L10 出生——基础属性应为
+        /// "缩放器输出（模板属性 × 10） × 分档倍率 2"。</summary>
+        [Fact]
+        public void Spawn_WithLevelOverride_WithScaler_AppliesScaledAttributes_ThenTierMultiplier()
+        {
+            var f = Build(levelScaler: new LinearLevelScaler());
+
+            var id = f.Factory.Spawn(EliteNoGrowthTemplateId, MapId, Vec2.Zero, 0, ownerId: null, level: 10);
+
+            Assert.Equal(10, f.Units.GetLevel(id));
+            // power: 10 × (10/1) × 2 = 200；max_health: 100 × (10/1) × 2 = 2000。
+            Assert.Equal(200.0, f.Stats.GetStat(id, PowerStat), 6);
+            Assert.Equal(2000.0, f.Stats.GetStat(id, MaxHealthStat), 6);
+        }
+
+        /// <summary>注入了缩放器时，未覆盖等级（走既有 5 参 <c>Spawn</c>，或 6 参显式传入与模板相同的
+        /// 等级）不触发缩放——<c>ResolveBaseStats</c> 的"spawnLevel == template.Level"分支短路，行为
+        /// 与未注入缩放器完全一致。</summary>
+        [Fact]
+        public void Spawn_WithScalerInjected_ButNoLevelOverride_DoesNotScale()
+        {
+            var f = Build(levelScaler: new LinearLevelScaler());
+
+            var id = f.Factory.Spawn(EliteNoGrowthTemplateId, MapId, Vec2.Zero, 0);
+
+            Assert.Equal(1, f.Units.GetLevel(id));
+            Assert.Equal(20.0, f.Stats.GetStat(id, PowerStat), 6); // 10 × 分档倍率 2，缩放器不生效。
+            Assert.Equal(200.0, f.Stats.GetStat(id, MaxHealthStat), 6);
+        }
+
+        /// <summary>验收标准③：既有 5 参 <c>Spawn</c>（本仓库绝大多数既有用例已经覆盖，本条从
+        /// "6 参重载新增后旧重载是否受影响"角度显式复核一次）行为不变——不传 <c>level</c> 时仍按模板
+        /// 自身等级出生。</summary>
+        [Fact]
+        public void Spawn_FiveParamOverload_StillUsesTemplateLevel_UnaffectedByNewOverload()
+        {
+            var f = Build();
+
+            var id = f.Factory.Spawn(EliteTemplateId, MapId, Vec2.Zero, 0);
+
+            Assert.Equal(3, f.Units.GetLevel(id)); // creature.sample_elite 模板等级 3。
+            Assert.Equal(3, f.Progression.GetLevel(id));
+        }
+
+        // -----------------------------------------------------------------
+        // T-N6-3b（N4 遗留第 7 项）：creature.tier_definition.gold_multiplier 查询
+        // -----------------------------------------------------------------
+
+        /// <summary>已登记 <c>gold_multiplier</c> 的分档（<c>creature.tier.elite</c>=2.5，见
+        /// <c>CreatureTestSupport.TierDefinitionRows</c>）返回 <c>true</c> 与该值。</summary>
+        [Fact]
+        public void TryGetGoldMultiplier_TierWithExplicitValue_ReturnsTrueAndConfiguredValue()
+        {
+            var f = Build();
+
+            var found = f.Factory.TryGetGoldMultiplier(new Id("creature.tier.elite"), out var multiplier);
+
+            Assert.True(found);
+            Assert.Equal(2.5, multiplier, 6);
+        }
+
+        /// <summary>未登记 <c>gold_multiplier</c> 的分档（<c>creature.tier.normal</c>，缺省字段）
+        /// 返回 <c>true</c> 与缺省值 1。</summary>
+        [Fact]
+        public void TryGetGoldMultiplier_TierWithoutField_ReturnsTrueAndDefaultOne()
+        {
+            var f = Build();
+
+            var found = f.Factory.TryGetGoldMultiplier(new Id("creature.tier.normal"), out var multiplier);
+
+            Assert.True(found);
+            Assert.Equal(1.0, multiplier, 6);
+        }
+
+        /// <summary>未登记的分档 id 返回 <c>false</c> 与哨兵值 1（不抛异常，取法同
+        /// <see cref="TryGetXpMultiplier_UnknownTier_ReturnsFalseAndDefaultOne_DoesNotThrow"/>）。</summary>
+        [Fact]
+        public void TryGetGoldMultiplier_UnknownTier_ReturnsFalseAndDefaultOne_DoesNotThrow()
+        {
+            var f = Build();
+
+            var found = f.Factory.TryGetGoldMultiplier(new Id("creature.tier.nonexistent"), out var multiplier);
+
+            Assert.False(found);
+            Assert.Equal(1.0, multiplier, 6);
         }
     }
 }
