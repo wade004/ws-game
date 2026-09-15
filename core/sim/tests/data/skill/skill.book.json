@@ -1,0 +1,31 @@
+{
+  "table": "skill.book",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.book.sim_warrior",
+      "entries": [
+        {
+          "level": 1,
+          "skill_id": "skill.sim_warrior_strike"
+        },
+        {
+          "level": 4,
+          "skill_id": "skill.sim_warrior_toughness"
+        },
+        {
+          "level": 8,
+          "skill_id": "skill.sim_warrior_battle_shout"
+        },
+        {
+          "level": 12,
+          "skill_id": "skill.sim_warrior_rampage"
+        },
+        {
+          "level": 16,
+          "skill_id": "skill.sim_warrior_execute"
+        }
+      ]
+    }
+  ]
+}

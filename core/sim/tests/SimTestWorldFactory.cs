@@ -34,6 +34,14 @@ namespace Tests.Sim
         public static readonly Id SpawnBeastField = new Id("spawn.sample_beast_field");
         public static readonly Id GameId = new Id("game.sample_e2e");
 
+        // T-N6-2b：嵌入式最小仿真数据集（core/sim/tests/data，见该目录 README.md）专用常量——与上方
+        // data/_sample 夹具的常量并列、互不混用（两套数据集的 world.map/arch.class 等 id 并不通用）。
+        public static readonly Id EmbeddedMapId = new Id("world.sim_arena");
+        public static readonly Id EmbeddedClassId = new Id("arch.class.sim_warrior");
+        public static readonly Id EmbeddedSkillBookId = new Id("skill.book.sim_warrior");
+        public static readonly Id EmbeddedGameId = new Id("game.sim_embedded");
+        public static readonly Id EmbeddedCreatureWolfL1 = new Id("creature.sim_wolf_l1");
+
         public const double StepSeconds = 0.5;
 
         private static string FindRepoRoot([System.Runtime.CompilerServices.CallerFilePath] string sourceFilePath = "")
@@ -83,6 +91,88 @@ namespace Tests.Sim
                 StepSeconds = StepSeconds,
                 FailOnUnknownTable = false,
             });
+        }
+
+        /// <summary>T-N6-2b：构造一个基于嵌入式最小仿真数据集（<c>core/sim/tests/data</c>，随
+        /// <c>data/_framework</c> 一起加载，惯例同 <see cref="BuildWorld"/> 的 framework+sample 两根）
+        /// 的无头世界。数据根镜像 <c>data/_sample</c> 的目录/文件命名（<c>&lt;域&gt;/&lt;表名&gt;.json</c>），
+        /// 内容与 <c>data/_sample</c> 完全独立（各自的 <c>world.map</c>/<c>arch.class</c> 等 id 不通用，
+        /// 见 <see cref="EmbeddedMapId"/> 等常量），玩家职业固定为 <see cref="EmbeddedClassId"/>
+        /// （<c>arch.class.sim_warrior</c>）。</summary>
+        public static Core.Sim.HeadlessWorld BuildFromEmbeddedDataset(ulong seed, int playerLevel = 1)
+        {
+            var fs = new StubFileSystem();
+            var repoRoot = FindRepoRoot();
+            var frameworkSource = BuildDiskSource(fs, repoRoot, "data/_framework");
+            var embeddedSource = BuildDiskSource(fs, repoRoot, "core/sim/tests/data");
+
+            return Core.Sim.HeadlessWorldBuilder.Build(new Core.Sim.HeadlessWorldOptions
+            {
+                DataSources = new IDataSource[] { frameworkSource, embeddedSource },
+                Seed = seed,
+                FileSystem = fs,
+                MapId = EmbeddedMapId,
+                PlayerId = PlayerId,
+                PlayerFactionId = FactionPlayer,
+                PlayerClassId = EmbeddedClassId,
+                PlayerLevel = playerLevel,
+                GameId = EmbeddedGameId,
+                StepSeconds = StepSeconds,
+                FailOnUnknownTable = false,
+            });
+        }
+
+        /// <summary>T-N6-2b：嵌入式数据集专用的固定脚本——不依赖 <c>spawn.table</c>/<c>encounter</c>
+        /// （装配根本就不需要它们，见 <c>core/sim/tests/data/README.md</c> 判断记录"不含 spawn/encounter"）：
+        /// 直接用 <see cref="Core.Carriers.Creature.CreatureFactory.Spawn"/> 生成一只
+        /// <paramref name="creatureId"/>（默认 <see cref="EmbeddedCreatureWolfL1"/>，1 级普通怪），
+        /// 玩家按 <see cref="EmbeddedSkillBookId"/> 在 <paramref name="playerLevel"/> 级
+        /// <c>LearnFromBook</c>，随后反复施放学到的第一个主动技能直至一方死亡或达到
+        /// <paramref name="maxAttempts"/> 次。</summary>
+        public static EmbeddedFightScriptResult RunEmbeddedFightScript(
+            ulong seed, Id? creatureId = null, int playerLevel = 1, int maxAttempts = 200)
+        {
+            var world = BuildFromEmbeddedDataset(seed, playerLevel);
+
+            world.Gameplay.Carriers.Rules.Skill.LearnFromBook(PlayerId, EmbeddedSkillBookId, playerLevel);
+            var knownSkills = world.Gameplay.Carriers.Rules.Skill.GetKnownSkills(PlayerId);
+            if (knownSkills.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"LearnFromBook({EmbeddedSkillBookId}, level={playerLevel}) 之后玩家未学到任何技能");
+            }
+            var attackSkillId = new Id("skill.sim_warrior_strike");
+
+            var actualCreatureId = creatureId ?? EmbeddedCreatureWolfL1;
+            var beastId = world.Gameplay.Carriers.Creatures.Spawn(actualCreatureId, EmbeddedMapId, new Vec2(3, 0), facing: 0);
+            var beastPos = world.Gameplay.Carriers.Units.GetPosition(beastId);
+            world.Spatial.Register(beastId, beastPos, 0.5);
+
+            var snapshots = new List<string>();
+            var tick = 0;
+            var died = false;
+            for (var i = 0; i < maxAttempts; i++)
+            {
+                if (!(world.Gameplay.Carriers.Units.Exists(beastId) && world.Gameplay.Carriers.Units.IsAlive(beastId)))
+                {
+                    died = true;
+                    break;
+                }
+
+                var eventsBefore = world.Events.Count;
+                SubmitCast(world, attackSkillId);
+                world.Clock.Advance(StepSeconds);
+                tick++;
+                snapshots.Add(BuildTickSnapshot(world, tick, eventsBefore, beastId));
+            }
+
+            if (!died)
+            {
+                died = !(world.Gameplay.Carriers.Units.Exists(beastId) && world.Gameplay.Carriers.Units.IsAlive(beastId));
+            }
+
+            var playerAlive = world.Gameplay.Carriers.Units.Exists(PlayerId) && world.Gameplay.Carriers.Units.IsAlive(PlayerId);
+            return new EmbeddedFightScriptResult(died, playerAlive, tick, knownSkills.Count, snapshots);
         }
 
         /// <summary>一次固定脚本的完整记录：进图 → 生成 sample_beast_field 的野兽 → 反复对其施放
@@ -234,6 +324,39 @@ namespace Tests.Sim
             TickSnapshots = tickSnapshots;
             TargetDied = targetDied;
             TicksUsed = ticksUsed;
+        }
+    }
+
+    /// <summary>T-N6-2b：<see cref="SimTestWorldFactory.RunEmbeddedFightScript"/> 的结果——比
+    /// <see cref="FightScriptResult"/> 更精简（不逐 tick 记录快照，本脚本不用于确定性比对，只用于
+    /// "装配→学技能→打死一只怪"这条端到端链路的功能性证明）。</summary>
+    internal sealed class EmbeddedFightScriptResult
+    {
+        /// <summary>目标（怪物）是否死亡。</summary>
+        public bool TargetDied { get; }
+
+        /// <summary>玩家在脚本结束时是否仍存活（"玩家获胜"= <see cref="TargetDied"/> 且本字段为
+        /// <c>true</c>）。</summary>
+        public bool PlayerAlive { get; }
+
+        /// <summary>实际消耗的 tick 数。</summary>
+        public int TicksUsed { get; }
+
+        /// <summary><c>LearnFromBook</c> 之后玩家学到的技能数量。</summary>
+        public int KnownSkillCount { get; }
+
+        /// <summary>逐 tick 快照（惯例同 <see cref="FightScriptResult.TickSnapshots"/>），供确定性
+        /// 比对（同种子两次独立装配逐 tick 完全一致）使用。</summary>
+        public IReadOnlyList<string> TickSnapshots { get; }
+
+        public EmbeddedFightScriptResult(
+            bool targetDied, bool playerAlive, int ticksUsed, int knownSkillCount, IReadOnlyList<string> tickSnapshots)
+        {
+            TargetDied = targetDied;
+            PlayerAlive = playerAlive;
+            TicksUsed = ticksUsed;
+            KnownSkillCount = knownSkillCount;
+            TickSnapshots = tickSnapshots;
         }
     }
 }

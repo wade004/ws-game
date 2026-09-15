@@ -1,0 +1,46 @@
+{
+  "table": "ai.rotation",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ai.rotation.sim_warrior",
+      "entries": [
+        {
+          "priority": 30,
+          "condition": "target.hp_pct < 0.3",
+          "skill_id": "skill.sim_warrior_execute"
+        },
+        {
+          "priority": 20,
+          "condition": "true",
+          "skill_id": "skill.sim_warrior_rampage"
+        },
+        {
+          "priority": 10,
+          "condition": "true",
+          "skill_id": "skill.sim_warrior_strike"
+        }
+      ]
+    },
+    {
+      "id": "ai.rotation.sim_creature",
+      "entries": [
+        {
+          "priority": 10,
+          "condition": "true",
+          "skill_id": "skill.sim_creature_bite"
+        }
+      ]
+    },
+    {
+      "id": "ai.rotation.sim_creature_elite",
+      "entries": [
+        {
+          "priority": 10,
+          "condition": "true",
+          "skill_id": "skill.sim_creature_bite_elite"
+        }
+      ]
+    }
+  ]
+}

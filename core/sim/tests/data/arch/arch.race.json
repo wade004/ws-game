@@ -1,0 +1,11 @@
+{
+  "table": "arch.race",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "arch.race.sim_default",
+      "name_key": "l10n.race.sim_default.name",
+      "stat_mods": {}
+    }
+  ]
+}

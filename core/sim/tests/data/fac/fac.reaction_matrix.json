@@ -1,0 +1,12 @@
+{
+  "table": "fac.reaction_matrix",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "fac.reaction.sim_player_vs_hostile",
+      "from": "fac.player",
+      "to": "fac.sim_hostile",
+      "reaction": "hostile"
+    }
+  ]
+}

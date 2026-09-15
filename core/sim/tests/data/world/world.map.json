@@ -1,0 +1,21 @@
+{
+  "table": "world.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "world.sim_arena",
+      "scene_ref": "scene.sim_arena",
+      "nav_ref": "nav.sim_arena",
+      "spawn_points": [
+        {
+          "id": "world.sim_arena.spawn.default",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "facing": 0
+        }
+      ]
+    }
+  ]
+}

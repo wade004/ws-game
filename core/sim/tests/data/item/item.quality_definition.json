@@ -1,0 +1,24 @@
+{
+  "table": "item.quality_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.quality.sim_common",
+      "name_key": "l10n.item.quality.sim_common.name",
+      "sort_weight": 1,
+      "budget_multiplier": 1.0,
+      "affix_count": 1,
+      "grant_budget_share": 0.2,
+      "price_multiplier": 1.0
+    },
+    {
+      "id": "item.quality.sim_rare",
+      "name_key": "l10n.item.quality.sim_rare.name",
+      "sort_weight": 2,
+      "budget_multiplier": 1.4,
+      "affix_count": 2,
+      "grant_budget_share": 0.3,
+      "price_multiplier": 1.6
+    }
+  ]
+}

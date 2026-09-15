@@ -1,0 +1,22 @@
+{
+  "table": "econ.vendor",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "econ.vendor.sim_general",
+      "name_key": "l10n.econ.vendor.sim_general.name",
+      "sell_items": [
+        {
+          "item_id": "item.sim_main_hand_l1_common",
+          "price_currency_id": "econ.currency.sim_gold"
+        },
+        {
+          "item_id": "item.sim_head_l1_common",
+          "price_currency_id": "econ.currency.sim_gold",
+          "price_amount": 15
+        }
+      ],
+      "map_id": "world.sim_arena"
+    }
+  ]
+}

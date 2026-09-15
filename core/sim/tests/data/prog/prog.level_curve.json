@@ -1,0 +1,189 @@
+{
+  "table": "prog.level_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "prog.level_curve.sim_warrior",
+      "max_level": 20,
+      "entries": [
+        {
+          "level": 1,
+          "xp_to_next": 339,
+          "growth": {},
+          "talent_points": 0
+        },
+        {
+          "level": 2,
+          "xp_to_next": 389,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 3,
+          "xp_to_next": 441,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 4,
+          "xp_to_next": 496,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 5,
+          "xp_to_next": 553,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 6,
+          "xp_to_next": 611,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 7,
+          "xp_to_next": 672,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 8,
+          "xp_to_next": 735,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 9,
+          "xp_to_next": 799,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 10,
+          "xp_to_next": 865,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 11,
+          "xp_to_next": 934,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 12,
+          "xp_to_next": 1003,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 13,
+          "xp_to_next": 1075,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 14,
+          "xp_to_next": 1148,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 15,
+          "xp_to_next": 1223,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 16,
+          "xp_to_next": 1299,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 17,
+          "xp_to_next": 1377,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 18,
+          "xp_to_next": 1457,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 19,
+          "xp_to_next": 1538,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        },
+        {
+          "level": 20,
+          "xp_to_next": 0,
+          "growth": {
+            "stat.strength": 3,
+            "stat.stamina": 50
+          },
+          "talent_points": 1
+        }
+      ]
+    }
+  ]
+}

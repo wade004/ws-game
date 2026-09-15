@@ -1,0 +1,51 @@
+{
+  "table": "item.slot_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.slot.sim_main_hand",
+      "name_key": "l10n.item.slot.sim_main_hand.name",
+      "sort_weight": 1,
+      "is_weapon": true,
+      "is_equipment": true,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0
+    },
+    {
+      "id": "item.slot.sim_head",
+      "name_key": "l10n.item.slot.sim_head.name",
+      "sort_weight": 10,
+      "is_equipment": true,
+      "budget_coefficient": 0.8,
+      "price_coefficient": 0.8,
+      "has_armor": true
+    },
+    {
+      "id": "item.slot.sim_chest",
+      "name_key": "l10n.item.slot.sim_chest.name",
+      "sort_weight": 11,
+      "is_equipment": true,
+      "budget_coefficient": 1.25,
+      "price_coefficient": 1.25,
+      "has_armor": true
+    },
+    {
+      "id": "item.slot.sim_legs",
+      "name_key": "l10n.item.slot.sim_legs.name",
+      "sort_weight": 12,
+      "is_equipment": true,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0,
+      "has_armor": true
+    },
+    {
+      "id": "item.slot.sim_feet",
+      "name_key": "l10n.item.slot.sim_feet.name",
+      "sort_weight": 13,
+      "is_equipment": true,
+      "budget_coefficient": 0.6,
+      "price_coefficient": 0.6,
+      "has_armor": true
+    }
+  ]
+}

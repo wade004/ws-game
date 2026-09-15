@@ -1,0 +1,32 @@
+{
+  "table": "arch.power_type",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "arch.power.health",
+      "name_key": "l10n.power.health.name",
+      "max_source": {
+        "kind": "stat",
+        "stat": "stat.stamina"
+      },
+      "refill_on_leave_combat": true,
+      "start_full": true,
+      "override": true,
+      "description": "T-N6-2b：整行覆盖框架默认（固定 100），改为随 stat.stamina 成长，供各等级角色/生物拥有不同生命上限（数值总纲第 4.1/4.2 节）；refill_on_leave_combat 需要在覆盖行显式重复声明，理由同 data/_sample 既有覆盖示例判断记录。"
+    },
+    {
+      "id": "arch.power.sim_fury",
+      "name_key": "l10n.power.sim_fury.name",
+      "max_source": {
+        "kind": "fixed",
+        "value": 100
+      },
+      "regen_in_combat": 8,
+      "decay_out_of_combat": 50,
+      "refill_on_leave_combat": false,
+      "start_full": false,
+      "min": 0,
+      "description": "积累型资源：战斗中随时间产出，脱战快速衰减清零（同 data/_sample arch.power.sample_fury 惯例）。"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "table": "prog.xp_source",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "prog.xp_source.sim_kill",
+      "kind": "kill",
+      "base_xp": 50,
+      "weight": 1,
+      "base_curve_ref": "prog.xp_base_curve.sim_default",
+      "level_diff_ref": "combat.level_diff.sim_default"
+    },
+    {
+      "id": "prog.xp_source.sim_quest",
+      "kind": "quest",
+      "base_xp": 50,
+      "weight": 1,
+      "base_curve_ref": "prog.xp_base_curve.sim_default",
+      "level_diff_ref": "combat.level_diff.sim_default"
+    }
+  ]
+}

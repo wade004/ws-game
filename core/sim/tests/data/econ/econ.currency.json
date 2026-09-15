@@ -1,0 +1,12 @@
+{
+  "table": "econ.currency",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "econ.currency.sim_gold",
+      "name_key": "l10n.econ.currency.sim_gold.name",
+      "cap": 999999,
+      "display_ref": "display.map.sim_gold"
+    }
+  ]
+}

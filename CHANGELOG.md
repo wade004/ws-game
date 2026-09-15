@@ -468,6 +468,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   04_数据与内容管线.md` 第 5 节数值类校验项分级表新增三行检查登记
   （`sim_anchor_level_continuity`/`sim_anchor_expected_item_level_monotonic`/
   `sim_scenario_level_coverage_required`），不改变既有检查项判定逻辑。
+- **数值设计落地阶段 N6 · T-N6-2b**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 2～6；拍板 10）：新增嵌入式最小仿真数据集 `core/sim/tests/data/`（45 张表、321 行，清单/
+  锚点推导公式与手算表/判断记录见该目录 `README.md`）——一套自洽、可被 `Core.Sim.HeadlessWorldBuilder`
+  装配、可跑通一场最小战斗的内容数据（等级 1～20 连续、四主属性+派生+评级换算、单职业
+  `arch.class.sim_warrior`、5 个技能覆盖主要攻击/高伤终结技/自身增益/消耗资源四类角色、5 档普通怪
+  + 1 档精英、5 档物品等级×2 品质×5 槽位共 50 件装备模板、掉落/经济/世界/阵营/本地化配套表、
+  `sim.anchor` 1～20 级连续、`sim.scenario` 三条场景各覆盖 arena/growth/coverage 一种）——拍板 10：
+  只嵌入 `core/sim/tests/data/`，不放进 `data/_sample`（该处仍只保留两张表的 schema 覆盖样例）。
+  `Tests.Sim.SimTestWorldFactory` 新增 `BuildFromEmbeddedDataset(ulong seed, int playerLevel = 1)`
+  （数据根 = `data/_framework` + `core/sim/tests/data`）与 `RunEmbeddedFightScript`（学技能→生成
+  1 级普通怪→连续施放直至一方死亡的固定脚本，供功能性与确定性双重验证）；新增测试
+  `Tests.Sim.EmbeddedDatasetTests`（7 例：装载零阻断、`AnchorTable` 1～20 级连续、三个场景可取、
+  生物/物品模板档位数量、标准职业 1 级学技能后战胜 1 级普通怪且玩家获胜、同种子两次逐 tick 完全
+  一致）。本任务未改动 `core/` 下任何生产代码（`HeadlessWorldBuilder`/`AnchorTable`/
+  `ScenarioCatalog`/`schema/` 均未触碰，无 C# 公开面变化），只新增内容数据与测试代码。
 
 ## [1.35.0] - 2026-09-16
 

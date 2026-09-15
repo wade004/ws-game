@@ -1,0 +1,451 @@
+{
+  "table": "l10n.text",
+  "schema_version": 1,
+  "rows": [
+    {
+      "key": "l10n.stat.strength.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "力量"
+    },
+    {
+      "key": "l10n.stat.agility.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "敏捷"
+    },
+    {
+      "key": "l10n.stat.intellect.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "智力"
+    },
+    {
+      "key": "l10n.stat.stamina.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "耐力"
+    },
+    {
+      "key": "l10n.stat.attack_power.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "攻击强度"
+    },
+    {
+      "key": "l10n.stat.crit_rating.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "暴击等级"
+    },
+    {
+      "key": "l10n.stat.dodge_rating.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "闪避等级"
+    },
+    {
+      "key": "l10n.stat.hit_rating.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "命中等级"
+    },
+    {
+      "key": "l10n.stat.armor.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "护甲"
+    },
+    {
+      "key": "l10n.power.health.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "生命值"
+    },
+    {
+      "key": "l10n.power.sim_fury.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "怒气值"
+    },
+    {
+      "key": "l10n.class.sim_warrior.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例战士"
+    },
+    {
+      "key": "l10n.race.sim_default.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例种族"
+    },
+    {
+      "key": "l10n.item.slot.sim_main_hand.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "主手"
+    },
+    {
+      "key": "l10n.item.slot.sim_head.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "头部"
+    },
+    {
+      "key": "l10n.item.slot.sim_chest.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "胸甲"
+    },
+    {
+      "key": "l10n.item.slot.sim_legs.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "腿部"
+    },
+    {
+      "key": "l10n.item.slot.sim_feet.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "脚部"
+    },
+    {
+      "key": "l10n.item.quality.sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "普通"
+    },
+    {
+      "key": "l10n.item.quality.sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "稀有"
+    },
+    {
+      "key": "l10n.item.affix.sim_of_strength.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "力量之"
+    },
+    {
+      "key": "l10n.item.affix.sim_of_stamina.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "耐力之"
+    },
+    {
+      "key": "l10n.item.affix.sim_of_precision.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "精准之"
+    },
+    {
+      "key": "l10n.item.affix.sim_of_fortitude.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "坚韧之"
+    },
+    {
+      "key": "l10n.item.affix.sim_of_the_berserker.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "狂战之"
+    },
+    {
+      "key": "l10n.item.sim_main_hand_l1_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例1级普通武器"
+    },
+    {
+      "key": "l10n.item.sim_head_l1_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例1级普通head甲"
+    },
+    {
+      "key": "l10n.item.sim_chest_l1_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例1级普通chest甲"
+    },
+    {
+      "key": "l10n.item.sim_legs_l1_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例1级普通legs甲"
+    },
+    {
+      "key": "l10n.item.sim_feet_l1_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例1级普通feet甲"
+    },
+    {
+      "key": "l10n.item.sim_main_hand_l1_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例1级稀有武器"
+    },
+    {
+      "key": "l10n.item.sim_head_l1_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例1级稀有head甲"
+    },
+    {
+      "key": "l10n.item.sim_chest_l1_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例1级稀有chest甲"
+    },
+    {
+      "key": "l10n.item.sim_legs_l1_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例1级稀有legs甲"
+    },
+    {
+      "key": "l10n.item.sim_feet_l1_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例1级稀有feet甲"
+    },
+    {
+      "key": "l10n.item.sim_main_hand_l5_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例5级普通武器"
+    },
+    {
+      "key": "l10n.item.sim_head_l5_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例5级普通head甲"
+    },
+    {
+      "key": "l10n.item.sim_chest_l5_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例5级普通chest甲"
+    },
+    {
+      "key": "l10n.item.sim_legs_l5_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例5级普通legs甲"
+    },
+    {
+      "key": "l10n.item.sim_feet_l5_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例5级普通feet甲"
+    },
+    {
+      "key": "l10n.item.sim_main_hand_l5_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例5级稀有武器"
+    },
+    {
+      "key": "l10n.item.sim_head_l5_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例5级稀有head甲"
+    },
+    {
+      "key": "l10n.item.sim_chest_l5_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例5级稀有chest甲"
+    },
+    {
+      "key": "l10n.item.sim_legs_l5_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例5级稀有legs甲"
+    },
+    {
+      "key": "l10n.item.sim_feet_l5_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例5级稀有feet甲"
+    },
+    {
+      "key": "l10n.item.sim_main_hand_l10_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级普通武器"
+    },
+    {
+      "key": "l10n.item.sim_head_l10_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级普通head甲"
+    },
+    {
+      "key": "l10n.item.sim_chest_l10_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级普通chest甲"
+    },
+    {
+      "key": "l10n.item.sim_legs_l10_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级普通legs甲"
+    },
+    {
+      "key": "l10n.item.sim_feet_l10_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级普通feet甲"
+    },
+    {
+      "key": "l10n.item.sim_main_hand_l10_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级稀有武器"
+    },
+    {
+      "key": "l10n.item.sim_head_l10_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级稀有head甲"
+    },
+    {
+      "key": "l10n.item.sim_chest_l10_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级稀有chest甲"
+    },
+    {
+      "key": "l10n.item.sim_legs_l10_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级稀有legs甲"
+    },
+    {
+      "key": "l10n.item.sim_feet_l10_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级稀有feet甲"
+    },
+    {
+      "key": "l10n.item.sim_main_hand_l15_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例15级普通武器"
+    },
+    {
+      "key": "l10n.item.sim_head_l15_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例15级普通head甲"
+    },
+    {
+      "key": "l10n.item.sim_chest_l15_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例15级普通chest甲"
+    },
+    {
+      "key": "l10n.item.sim_legs_l15_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例15级普通legs甲"
+    },
+    {
+      "key": "l10n.item.sim_feet_l15_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例15级普通feet甲"
+    },
+    {
+      "key": "l10n.item.sim_main_hand_l15_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例15级稀有武器"
+    },
+    {
+      "key": "l10n.item.sim_head_l15_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例15级稀有head甲"
+    },
+    {
+      "key": "l10n.item.sim_chest_l15_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例15级稀有chest甲"
+    },
+    {
+      "key": "l10n.item.sim_legs_l15_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例15级稀有legs甲"
+    },
+    {
+      "key": "l10n.item.sim_feet_l15_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例15级稀有feet甲"
+    },
+    {
+      "key": "l10n.item.sim_main_hand_l20_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例20级普通武器"
+    },
+    {
+      "key": "l10n.item.sim_head_l20_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例20级普通head甲"
+    },
+    {
+      "key": "l10n.item.sim_chest_l20_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例20级普通chest甲"
+    },
+    {
+      "key": "l10n.item.sim_legs_l20_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例20级普通legs甲"
+    },
+    {
+      "key": "l10n.item.sim_feet_l20_sim_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例20级普通feet甲"
+    },
+    {
+      "key": "l10n.item.sim_main_hand_l20_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例20级稀有武器"
+    },
+    {
+      "key": "l10n.item.sim_head_l20_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例20级稀有head甲"
+    },
+    {
+      "key": "l10n.item.sim_chest_l20_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例20级稀有chest甲"
+    },
+    {
+      "key": "l10n.item.sim_legs_l20_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例20级稀有legs甲"
+    },
+    {
+      "key": "l10n.item.sim_feet_l20_sim_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例20级稀有feet甲"
+    },
+    {
+      "key": "l10n.creature.tier.sim_normal.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "普通"
+    },
+    {
+      "key": "l10n.creature.tier.sim_elite.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "精英"
+    },
+    {
+      "key": "l10n.creature.sim_wolf_l1.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例1级野狼"
+    },
+    {
+      "key": "l10n.creature.sim_wolf_l5.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例5级野狼"
+    },
+    {
+      "key": "l10n.creature.sim_wolf_l10.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级野狼"
+    },
+    {
+      "key": "l10n.creature.sim_wolf_l15.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例15级野狼"
+    },
+    {
+      "key": "l10n.creature.sim_wolf_l20.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例20级野狼"
+    },
+    {
+      "key": "l10n.creature.sim_wolf_elite_l10.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例10级精英野狼"
+    },
+    {
+      "key": "l10n.econ.currency.sim_gold.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例金币"
+    },
+    {
+      "key": "l10n.econ.vendor.sim_general.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "示例杂货商"
+    },
+    {
+      "key": "l10n.diff.sim_normal.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "普通难度"
+    },
+    {
+      "key": "l10n.diff.sim_veteran.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "老练难度"
+    },
+    {
+      "key": "l10n.faction.player.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "玩家阵营"
+    },
+    {
+      "key": "l10n.faction.sim_hostile.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "敌对生物"
+    }
+  ]
+}

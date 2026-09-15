@@ -1,0 +1,65 @@
+{
+  "table": "skill.budget_rule",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.budget_rule.sim_default",
+      "beat_seconds": 1.0,
+      "periodic_time_discount": 0.6,
+      "cooldown_premium_curve": [
+        {
+          "x": 0,
+          "y": 1.0
+        },
+        {
+          "x": 4,
+          "y": 1.6
+        },
+        {
+          "x": 20,
+          "y": 3.0
+        }
+      ],
+      "range_discount_curve": [
+        {
+          "x": 1,
+          "y": 1.0
+        },
+        {
+          "x": 5,
+          "y": 1.67
+        },
+        {
+          "x": 20,
+          "y": 3.33
+        }
+      ],
+      "cost_premium_curve": [
+        {
+          "x": 0,
+          "y": 0.8
+        },
+        {
+          "x": 1,
+          "y": 1.0
+        },
+        {
+          "x": 3,
+          "y": 1.3
+        }
+      ],
+      "player_bandwidth": 0.2,
+      "monster_bandwidth": 5.0,
+      "player_hard_cap": 3.0,
+      "monster_hard_cap": 50.0,
+      "control_category_weights": {
+        "stun": 1.5,
+        "root": 1.0,
+        "silence": 1.2,
+        "disarm": 1.2,
+        "fear": 1.3,
+        "polymorph": 1.4
+      }
+    }
+  ]
+}

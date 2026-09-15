@@ -14,6 +14,15 @@ T-N6-2a（本次任务）在装配根之上补齐 ADR-0035 决策 4"两张数据
 新增的登记钩子）。仍不含标准玩家生成器（决策 2）、三级仿真本身（决策 3）、报告与基线对比（决策 5）——
 那些依旧是后续任务的范围，本任务只交付"这两张表存在、能被校验、能被类型化读取"这一层。
 
+T-N6-2b（本次任务）在 `core/sim/tests/data/` 新增一套嵌入式最小仿真数据集（拍板 10：不进
+`data/_sample`）——自洽、可被本模块装配根装配、可跑通一场战斗的最小内容集，详见
+[`core/sim/tests/data/README.md`](tests/data/README.md)（数据清单、锚点推导公式与手算表、判断
+记录）；配套新增 `SimTestWorldFactory.BuildFromEmbeddedDataset`/`RunEmbeddedFightScript`（测试
+工厂，`Tests.Sim` 内部）与 `EmbeddedDatasetTests.cs`（装载/AnchorTable/ScenarioCatalog/生物物品
+模板档位/标准职业学技能后战胜 1 级普通怪/确定性 共 7 例）。本任务未改动 `core/` 下任何生产代码
+（`HeadlessWorldBuilder`/`AnchorTable`/`ScenarioCatalog`/`schema/` 均未触碰），只新增内容数据与
+测试代码。
+
 依赖：`Core.Gameplay`（L4，经其既有 `ProjectReference` 链传递可见 `Core.Carriers`/`Core.Rules`/
 `Core.Numbers`/`Core.Foundation`）与 `Adapters.Stub`（桩适配层，ADR-0035 决策 1 明说无头运行器
 复用桩适配层）。**不引用**任何 `Tests.*` 程序集或 `Presentation.Common`——本模块是生产代码交付物，
@@ -53,6 +62,11 @@ core/sim/
     HeadlessWorldBuilderSimTests.cs
                              T-N6-2a：用 data/_framework + data/_sample 构建后 AnchorTable 有
                              5 行、ScenarioCatalog 有 1 个场景
+    EmbeddedDatasetTests.cs  T-N6-2b：用 data/_framework + core/sim/tests/data 构建后的一组断言
+                             （装载零阻断、AnchorTable 1～20 级连续、三个场景可取、生物/物品模板
+                             档位数量、标准职业学技能后能战胜 1 级普通怪、确定性）
+    data/                    T-N6-2b：嵌入式最小仿真数据集，见 data/README.md（数据清单、锚点
+                             推导公式与手算表、判断记录）——不进 data/_sample（拍板 10）
 ```
 
 ## 不负责什么
@@ -72,6 +86,11 @@ core/sim/
 - 不做仓库路径定位（`FindRepoRoot`/直接读 `data/_framework`、`data/_sample` 磁盘路径）——那是
   具体宿主（`GameWorldFixture`、本模块自己的 `SimTestWorldFactory`）的职责，装配根只接受调用方
   已经构造好的 `IDataSource` 列表，见判断记录"数据来源必须注入"。
+- T-N6-2b 只交付"一套能被装配、能打通一场最小战斗的内容数据"这一层——不实现标准玩家生成器（决策
+  2）、三级仿真运行器（决策 3）、报告与基线对比（决策 5），`sim.anchor`/`sim.scenario` 两表本任务
+  同样只提供数据、不接入任何消费逻辑；`sim.anchor` 的 `dps`/`hp` 取值是"按标准玩家简化循环手算得出
+  的自洽估计"，不是任何真实数值拍板，精调留给 T-N6-4（见 `core/sim/tests/data/README.md` 判断
+  记录 2）。
 
 ## 判断记录
 

@@ -1,0 +1,971 @@
+{
+  "table": "item.template",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.sim_main_hand_l1_common",
+      "slot": "item.slot.sim_main_hand",
+      "quality": "item.quality.sim_common",
+      "item_level": 1,
+      "affixes": [
+        "item.affix.sim_of_strength"
+      ],
+      "weapon_profile": {
+        "damage_min": 6.8,
+        "damage_max": 8.2,
+        "speed": 1.5,
+        "weapon_school": "school.physical"
+      },
+      "display_ref": "display.map.sim_main_hand_l1_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_main_hand_l1_sim_common.name"
+    },
+    {
+      "id": "item.sim_head_l1_common",
+      "slot": "item.slot.sim_head",
+      "quality": "item.quality.sim_common",
+      "item_level": 1,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 12
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_head_l1_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_head_l1_sim_common.name"
+    },
+    {
+      "id": "item.sim_chest_l1_common",
+      "slot": "item.slot.sim_chest",
+      "quality": "item.quality.sim_common",
+      "item_level": 1,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 18
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_chest_l1_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_chest_l1_sim_common.name"
+    },
+    {
+      "id": "item.sim_legs_l1_common",
+      "slot": "item.slot.sim_legs",
+      "quality": "item.quality.sim_common",
+      "item_level": 1,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 14
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_legs_l1_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_legs_l1_sim_common.name"
+    },
+    {
+      "id": "item.sim_feet_l1_common",
+      "slot": "item.slot.sim_feet",
+      "quality": "item.quality.sim_common",
+      "item_level": 1,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 9
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_feet_l1_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_feet_l1_sim_common.name"
+    },
+    {
+      "id": "item.sim_main_hand_l1_rare",
+      "slot": "item.slot.sim_main_hand",
+      "quality": "item.quality.sim_rare",
+      "item_level": 1,
+      "affixes": [
+        "item.affix.sim_of_precision",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "weapon_profile": {
+        "damage_min": 9.5,
+        "damage_max": 11.6,
+        "speed": 1.5,
+        "weapon_school": "school.physical"
+      },
+      "display_ref": "display.map.sim_main_hand_l1_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_main_hand_l1_sim_rare.name"
+    },
+    {
+      "id": "item.sim_head_l1_rare",
+      "slot": "item.slot.sim_head",
+      "quality": "item.quality.sim_rare",
+      "item_level": 1,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 16
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_head_l1_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_head_l1_sim_rare.name"
+    },
+    {
+      "id": "item.sim_chest_l1_rare",
+      "slot": "item.slot.sim_chest",
+      "quality": "item.quality.sim_rare",
+      "item_level": 1,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 25
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_chest_l1_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_chest_l1_sim_rare.name"
+    },
+    {
+      "id": "item.sim_legs_l1_rare",
+      "slot": "item.slot.sim_legs",
+      "quality": "item.quality.sim_rare",
+      "item_level": 1,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 20
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_legs_l1_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_legs_l1_sim_rare.name"
+    },
+    {
+      "id": "item.sim_feet_l1_rare",
+      "slot": "item.slot.sim_feet",
+      "quality": "item.quality.sim_rare",
+      "item_level": 1,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 12
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_feet_l1_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_feet_l1_sim_rare.name"
+    },
+    {
+      "id": "item.sim_main_hand_l5_common",
+      "slot": "item.slot.sim_main_hand",
+      "quality": "item.quality.sim_common",
+      "item_level": 5,
+      "affixes": [
+        "item.affix.sim_of_strength"
+      ],
+      "weapon_profile": {
+        "damage_min": 16.2,
+        "damage_max": 19.8,
+        "speed": 1.5,
+        "weapon_school": "school.physical"
+      },
+      "display_ref": "display.map.sim_main_hand_l5_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_main_hand_l5_sim_common.name"
+    },
+    {
+      "id": "item.sim_head_l5_common",
+      "slot": "item.slot.sim_head",
+      "quality": "item.quality.sim_common",
+      "item_level": 5,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 35
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_head_l5_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_head_l5_sim_common.name"
+    },
+    {
+      "id": "item.sim_chest_l5_common",
+      "slot": "item.slot.sim_chest",
+      "quality": "item.quality.sim_common",
+      "item_level": 5,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 54
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_chest_l5_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_chest_l5_sim_common.name"
+    },
+    {
+      "id": "item.sim_legs_l5_common",
+      "slot": "item.slot.sim_legs",
+      "quality": "item.quality.sim_common",
+      "item_level": 5,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 43
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_legs_l5_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_legs_l5_sim_common.name"
+    },
+    {
+      "id": "item.sim_feet_l5_common",
+      "slot": "item.slot.sim_feet",
+      "quality": "item.quality.sim_common",
+      "item_level": 5,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 26
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_feet_l5_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_feet_l5_sim_common.name"
+    },
+    {
+      "id": "item.sim_main_hand_l5_rare",
+      "slot": "item.slot.sim_main_hand",
+      "quality": "item.quality.sim_rare",
+      "item_level": 5,
+      "affixes": [
+        "item.affix.sim_of_precision",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "weapon_profile": {
+        "damage_min": 22.7,
+        "damage_max": 27.7,
+        "speed": 1.5,
+        "weapon_school": "school.physical"
+      },
+      "display_ref": "display.map.sim_main_hand_l5_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_main_hand_l5_sim_rare.name"
+    },
+    {
+      "id": "item.sim_head_l5_rare",
+      "slot": "item.slot.sim_head",
+      "quality": "item.quality.sim_rare",
+      "item_level": 5,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 48
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_head_l5_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_head_l5_sim_rare.name"
+    },
+    {
+      "id": "item.sim_chest_l5_rare",
+      "slot": "item.slot.sim_chest",
+      "quality": "item.quality.sim_rare",
+      "item_level": 5,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 76
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_chest_l5_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_chest_l5_sim_rare.name"
+    },
+    {
+      "id": "item.sim_legs_l5_rare",
+      "slot": "item.slot.sim_legs",
+      "quality": "item.quality.sim_rare",
+      "item_level": 5,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 60
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_legs_l5_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_legs_l5_sim_rare.name"
+    },
+    {
+      "id": "item.sim_feet_l5_rare",
+      "slot": "item.slot.sim_feet",
+      "quality": "item.quality.sim_rare",
+      "item_level": 5,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 36
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_feet_l5_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_feet_l5_sim_rare.name"
+    },
+    {
+      "id": "item.sim_main_hand_l10_common",
+      "slot": "item.slot.sim_main_hand",
+      "quality": "item.quality.sim_common",
+      "item_level": 10,
+      "affixes": [
+        "item.affix.sim_of_strength"
+      ],
+      "weapon_profile": {
+        "damage_min": 27.0,
+        "damage_max": 33.0,
+        "speed": 1.5,
+        "weapon_school": "school.physical"
+      },
+      "display_ref": "display.map.sim_main_hand_l10_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_main_hand_l10_sim_common.name"
+    },
+    {
+      "id": "item.sim_head_l10_common",
+      "slot": "item.slot.sim_head",
+      "quality": "item.quality.sim_common",
+      "item_level": 10,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 69
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_head_l10_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_head_l10_sim_common.name"
+    },
+    {
+      "id": "item.sim_chest_l10_common",
+      "slot": "item.slot.sim_chest",
+      "quality": "item.quality.sim_common",
+      "item_level": 10,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 108
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_chest_l10_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_chest_l10_sim_common.name"
+    },
+    {
+      "id": "item.sim_legs_l10_common",
+      "slot": "item.slot.sim_legs",
+      "quality": "item.quality.sim_common",
+      "item_level": 10,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 86
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_legs_l10_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_legs_l10_sim_common.name"
+    },
+    {
+      "id": "item.sim_feet_l10_common",
+      "slot": "item.slot.sim_feet",
+      "quality": "item.quality.sim_common",
+      "item_level": 10,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 52
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_feet_l10_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_feet_l10_sim_common.name"
+    },
+    {
+      "id": "item.sim_main_hand_l10_rare",
+      "slot": "item.slot.sim_main_hand",
+      "quality": "item.quality.sim_rare",
+      "item_level": 10,
+      "affixes": [
+        "item.affix.sim_of_precision",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "weapon_profile": {
+        "damage_min": 37.8,
+        "damage_max": 46.2,
+        "speed": 1.5,
+        "weapon_school": "school.physical"
+      },
+      "display_ref": "display.map.sim_main_hand_l10_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_main_hand_l10_sim_rare.name"
+    },
+    {
+      "id": "item.sim_head_l10_rare",
+      "slot": "item.slot.sim_head",
+      "quality": "item.quality.sim_rare",
+      "item_level": 10,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 97
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_head_l10_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_head_l10_sim_rare.name"
+    },
+    {
+      "id": "item.sim_chest_l10_rare",
+      "slot": "item.slot.sim_chest",
+      "quality": "item.quality.sim_rare",
+      "item_level": 10,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 151
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_chest_l10_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_chest_l10_sim_rare.name"
+    },
+    {
+      "id": "item.sim_legs_l10_rare",
+      "slot": "item.slot.sim_legs",
+      "quality": "item.quality.sim_rare",
+      "item_level": 10,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 121
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_legs_l10_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_legs_l10_sim_rare.name"
+    },
+    {
+      "id": "item.sim_feet_l10_rare",
+      "slot": "item.slot.sim_feet",
+      "quality": "item.quality.sim_rare",
+      "item_level": 10,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 73
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_feet_l10_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_feet_l10_sim_rare.name"
+    },
+    {
+      "id": "item.sim_main_hand_l15_common",
+      "slot": "item.slot.sim_main_hand",
+      "quality": "item.quality.sim_common",
+      "item_level": 15,
+      "affixes": [
+        "item.affix.sim_of_strength"
+      ],
+      "weapon_profile": {
+        "damage_min": 37.8,
+        "damage_max": 46.2,
+        "speed": 1.5,
+        "weapon_school": "school.physical"
+      },
+      "display_ref": "display.map.sim_main_hand_l15_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_main_hand_l15_sim_common.name"
+    },
+    {
+      "id": "item.sim_head_l15_common",
+      "slot": "item.slot.sim_head",
+      "quality": "item.quality.sim_common",
+      "item_level": 15,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 104
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_head_l15_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_head_l15_sim_common.name"
+    },
+    {
+      "id": "item.sim_chest_l15_common",
+      "slot": "item.slot.sim_chest",
+      "quality": "item.quality.sim_common",
+      "item_level": 15,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 162
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_chest_l15_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_chest_l15_sim_common.name"
+    },
+    {
+      "id": "item.sim_legs_l15_common",
+      "slot": "item.slot.sim_legs",
+      "quality": "item.quality.sim_common",
+      "item_level": 15,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 130
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_legs_l15_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_legs_l15_sim_common.name"
+    },
+    {
+      "id": "item.sim_feet_l15_common",
+      "slot": "item.slot.sim_feet",
+      "quality": "item.quality.sim_common",
+      "item_level": 15,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 78
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_feet_l15_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_feet_l15_sim_common.name"
+    },
+    {
+      "id": "item.sim_main_hand_l15_rare",
+      "slot": "item.slot.sim_main_hand",
+      "quality": "item.quality.sim_rare",
+      "item_level": 15,
+      "affixes": [
+        "item.affix.sim_of_precision",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "weapon_profile": {
+        "damage_min": 52.9,
+        "damage_max": 64.7,
+        "speed": 1.5,
+        "weapon_school": "school.physical"
+      },
+      "display_ref": "display.map.sim_main_hand_l15_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_main_hand_l15_sim_rare.name"
+    },
+    {
+      "id": "item.sim_head_l15_rare",
+      "slot": "item.slot.sim_head",
+      "quality": "item.quality.sim_rare",
+      "item_level": 15,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 145
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_head_l15_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_head_l15_sim_rare.name"
+    },
+    {
+      "id": "item.sim_chest_l15_rare",
+      "slot": "item.slot.sim_chest",
+      "quality": "item.quality.sim_rare",
+      "item_level": 15,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 227
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_chest_l15_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_chest_l15_sim_rare.name"
+    },
+    {
+      "id": "item.sim_legs_l15_rare",
+      "slot": "item.slot.sim_legs",
+      "quality": "item.quality.sim_rare",
+      "item_level": 15,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 181
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_legs_l15_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_legs_l15_sim_rare.name"
+    },
+    {
+      "id": "item.sim_feet_l15_rare",
+      "slot": "item.slot.sim_feet",
+      "quality": "item.quality.sim_rare",
+      "item_level": 15,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 109
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_feet_l15_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_feet_l15_sim_rare.name"
+    },
+    {
+      "id": "item.sim_main_hand_l20_common",
+      "slot": "item.slot.sim_main_hand",
+      "quality": "item.quality.sim_common",
+      "item_level": 20,
+      "affixes": [
+        "item.affix.sim_of_strength"
+      ],
+      "weapon_profile": {
+        "damage_min": 51.3,
+        "damage_max": 62.7,
+        "speed": 1.5,
+        "weapon_school": "school.physical"
+      },
+      "display_ref": "display.map.sim_main_hand_l20_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_main_hand_l20_sim_common.name"
+    },
+    {
+      "id": "item.sim_head_l20_common",
+      "slot": "item.slot.sim_head",
+      "quality": "item.quality.sim_common",
+      "item_level": 20,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 150
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_head_l20_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_head_l20_sim_common.name"
+    },
+    {
+      "id": "item.sim_chest_l20_common",
+      "slot": "item.slot.sim_chest",
+      "quality": "item.quality.sim_common",
+      "item_level": 20,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 234
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_chest_l20_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_chest_l20_sim_common.name"
+    },
+    {
+      "id": "item.sim_legs_l20_common",
+      "slot": "item.slot.sim_legs",
+      "quality": "item.quality.sim_common",
+      "item_level": 20,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 187
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_legs_l20_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_legs_l20_sim_common.name"
+    },
+    {
+      "id": "item.sim_feet_l20_common",
+      "slot": "item.slot.sim_feet",
+      "quality": "item.quality.sim_common",
+      "item_level": 20,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 112
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_stamina"
+      ],
+      "display_ref": "display.map.sim_feet_l20_sim_common",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_feet_l20_sim_common.name"
+    },
+    {
+      "id": "item.sim_main_hand_l20_rare",
+      "slot": "item.slot.sim_main_hand",
+      "quality": "item.quality.sim_rare",
+      "item_level": 20,
+      "affixes": [
+        "item.affix.sim_of_precision",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "weapon_profile": {
+        "damage_min": 71.8,
+        "damage_max": 87.8,
+        "speed": 1.5,
+        "weapon_school": "school.physical"
+      },
+      "display_ref": "display.map.sim_main_hand_l20_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_main_hand_l20_sim_rare.name"
+    },
+    {
+      "id": "item.sim_head_l20_rare",
+      "slot": "item.slot.sim_head",
+      "quality": "item.quality.sim_rare",
+      "item_level": 20,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 210
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_head_l20_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_head_l20_sim_rare.name"
+    },
+    {
+      "id": "item.sim_chest_l20_rare",
+      "slot": "item.slot.sim_chest",
+      "quality": "item.quality.sim_rare",
+      "item_level": 20,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 328
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_chest_l20_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_chest_l20_sim_rare.name"
+    },
+    {
+      "id": "item.sim_legs_l20_rare",
+      "slot": "item.slot.sim_legs",
+      "quality": "item.quality.sim_rare",
+      "item_level": 20,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 262
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_legs_l20_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_legs_l20_sim_rare.name"
+    },
+    {
+      "id": "item.sim_feet_l20_rare",
+      "slot": "item.slot.sim_feet",
+      "quality": "item.quality.sim_rare",
+      "item_level": 20,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 157
+        }
+      ],
+      "affixes": [
+        "item.affix.sim_of_fortitude",
+        "item.affix.sim_of_the_berserker"
+      ],
+      "display_ref": "display.map.sim_feet_l20_sim_rare",
+      "stack_size": 1,
+      "name_key": "l10n.item.sim_feet_l20_sim_rare.name"
+    }
+  ]
+}

@@ -1,0 +1,234 @@
+{
+  "table": "loot.table",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "loot.table.sim_wolf_l1",
+      "groups": [
+        {
+          "roll_mode": "chance_each",
+          "entries": [
+            {
+              "ref": "econ.currency.sim_gold",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 3,
+                "max": 7
+              }
+            },
+            {
+              "ref": "item.sim_main_hand_l1_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_head_l1_rare",
+              "weight_or_chance": 0.05,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              },
+              "quality_weights": {
+                "item.quality.sim_common": 1,
+                "item.quality.sim_rare": 3
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loot.table.sim_wolf_l5",
+      "groups": [
+        {
+          "roll_mode": "chance_each",
+          "entries": [
+            {
+              "ref": "econ.currency.sim_gold",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 13,
+                "max": 17
+              }
+            },
+            {
+              "ref": "item.sim_main_hand_l5_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_head_l5_rare",
+              "weight_or_chance": 0.05,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              },
+              "quality_weights": {
+                "item.quality.sim_common": 1,
+                "item.quality.sim_rare": 3
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loot.table.sim_wolf_l10",
+      "groups": [
+        {
+          "roll_mode": "chance_each",
+          "entries": [
+            {
+              "ref": "econ.currency.sim_gold",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 28,
+                "max": 32
+              }
+            },
+            {
+              "ref": "item.sim_main_hand_l10_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_head_l10_rare",
+              "weight_or_chance": 0.05,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              },
+              "quality_weights": {
+                "item.quality.sim_common": 1,
+                "item.quality.sim_rare": 3
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loot.table.sim_wolf_l15",
+      "groups": [
+        {
+          "roll_mode": "chance_each",
+          "entries": [
+            {
+              "ref": "econ.currency.sim_gold",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 43,
+                "max": 47
+              }
+            },
+            {
+              "ref": "item.sim_main_hand_l15_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_head_l15_rare",
+              "weight_or_chance": 0.05,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              },
+              "quality_weights": {
+                "item.quality.sim_common": 1,
+                "item.quality.sim_rare": 3
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loot.table.sim_wolf_l20",
+      "groups": [
+        {
+          "roll_mode": "chance_each",
+          "entries": [
+            {
+              "ref": "econ.currency.sim_gold",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 58,
+                "max": 62
+              }
+            },
+            {
+              "ref": "item.sim_main_hand_l20_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_head_l20_rare",
+              "weight_or_chance": 0.05,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              },
+              "quality_weights": {
+                "item.quality.sim_common": 1,
+                "item.quality.sim_rare": 3
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loot.table.sim_wolf_elite_l10",
+      "groups": [
+        {
+          "roll_mode": "chance_each",
+          "entries": [
+            {
+              "ref": "econ.currency.sim_gold",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 28,
+                "max": 32
+              }
+            },
+            {
+              "ref": "item.sim_main_hand_l10_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_head_l10_rare",
+              "weight_or_chance": 0.05,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              },
+              "quality_weights": {
+                "item.quality.sim_common": 1,
+                "item.quality.sim_rare": 3
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
