@@ -259,8 +259,8 @@ loot/
       `ApplyArmorValue`（T-N2-5）均只认模板自身 `item_level`，不认"来源折算的物品等级"；`RollContext
       .SourceLevel`/`ItemLevelOffset` 折算出的物品等级因此**只出现在 `LootRollOutcome.ItemLevel`
       这一掉落中间结果里**，不写入 `ItemInstance`、也不改变穿戴时的属性重算口径（未改 T-N2-5/T-N2-7
-      的任何实现，只是本任务新增的字段不消费到那两处）——上报待设计层确认，见本任务汇报"契约疑点"
-      一节。
+      的任何实现，只是本任务新增的字段不消费到那两处）——设计层裁定（2026-09-15）：采纳（物品等级
+      不进实例身份，只在 `LootRollOutcome.ItemLevel`）。
     - **地面掉落物身份**：`DroppedLootEntity` 新增 `Outcomes: IReadOnlyList<LootRollOutcome>`
       （与 `Items` 按下标一一对应，新构造函数重载接受，旧 4/5 参构造函数不变、`Outcomes` 缺省空
       列表）；`LootHost.Drop` 两个重载（旧 `IReadOnlyList<ItemStack>` 签名不变 + 新
@@ -276,7 +276,10 @@ loot/
       回填"，两种落点均合法，取决于目标类型是否允许可空）。已知缺口：`LootHost.PickUp` 仍按
       `ItemStack` 走 `IInventoryHost.AddItem`（无品质/词缀入参重载），拾取入背包后 `ItemInstance`
       仍是默认品质——地面掉落物的身份只在"落地-存读档"这一段保真，尚未接到拾取入包；`IInventoryHost`
-      是并行分支 T-N2-9 的范围，本任务未触碰，上报待设计层确认后续由哪个任务补齐。
+      是并行分支 T-N2-9 的范围，本任务未触碰。**该缺口已由 T-N2-8b 收口**（`IInventoryHost` 新增
+      带身份重载 `AddItem(Id,Id,int,Id?,IReadOnlyList<Id>?)`/`TryAddItem(...)`，`LootHost.
+      PickUpReject`/`PickUpPartial` 改用带身份重载按 `Outcomes` 入包，见 `core/carriers/item/
+      README.md` 判断记录 24、本文件判断记录 16）。
     - **`diff.tier.item_level_offset` 转正**：`DifficultyTierDefinition`/`DifficultySchemas`/
       `IDifficultyHost`/`DifficultyHost` 新增 `ItemLevelOffset`（int，缺省 0），与既有
       `LootMultiplier` 同一取值/消费口径——难度模块只登记与暴露该值，不反向依赖 Loot 模块；调用方

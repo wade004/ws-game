@@ -114,7 +114,8 @@ namespace Core.Carriers.Item
         /// 且 <see cref="InventoryOptions.MaxSlots"/> ≤ 0 时出现（历史语义不变）。
         /// <para>
         /// 判断记录（属性来源没有"不限"语义，向下取整并夹取到下限 0）：见 <see
-        /// cref="InventoryOptions.MaxSlotsStat"/> 判断记录"下限口径——待设计层确认"——固定值路径的
+        /// cref="InventoryOptions.MaxSlotsStat"/> 判断记录"下限口径——设计层裁定（2026-09-15）：
+        /// 采纳"——固定值路径的
         /// "≤0 表示不限"是本类型历史既有行为，不能因为新增属性来源就悄悄改变；但属性来源解析出的是
         /// 一个真实的属性当前值，0 或负数（如被减益压低后）在这里就是"容量已经是 0"，不应退化为
         /// "不限"，否则"容量不足时拒绝新增"的契约意图会被这个 sentinel 悄悄绕过。

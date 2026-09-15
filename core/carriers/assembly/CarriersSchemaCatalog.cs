@@ -75,7 +75,7 @@ namespace Core.Carriers.Assembly
         /// 预算利用率警告阈值，缺省（<c>null</c>）取 <see
         /// cref="DefaultItemBudgetUtilizationWarningThreshold"/>（ADR-0032 决策 10"默认七成，可
         /// 配置"——本参数即"可配置"落地位置之一，见 <see cref="ItemBudgetValidationRule"/> 类型判断
-        /// 记录"待设计层确认"）。</param>
+        /// 记录"设计层裁定（2026-09-15）：采纳"）。</param>
         public static void RegisterAll(IDataRegistry registry, Id? itemBudgetCurveId,
             double? itemBudgetUtilizationWarningThreshold)
         {
@@ -97,7 +97,7 @@ namespace Core.Carriers.Assembly
         /// <param name="weaponDamageDeviationThreshold"><see
         /// cref="ItemWeaponDamageDeviatesDpsCurveRule"/> 偏离阈值，缺省（<c>null</c>）取 <see
         /// cref="DefaultItemWeaponDamageDeviationThreshold"/>（拍板 6"新增偏离秒伤曲线警告"——阈值
-        /// 本身**上报待设计层确认**，见该规则类型判断记录）。</param>
+        /// 本身设计层裁定（2026-09-15）：采纳，见该规则类型判断记录）。</param>
         public static void RegisterAll(IDataRegistry registry, Id? itemBudgetCurveId,
             double? itemBudgetUtilizationWarningThreshold, Id? weaponDpsCurveId,
             double? weaponDamageDeviationThreshold)

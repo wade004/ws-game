@@ -17,7 +17,7 @@ namespace Core.Carriers.Item
     /// ItemBudgetValidationRule(options.BudgetCurveId))</c> 才会生效。
     /// <para>
     /// 判断记录（T-N2-3，"ItemBudgetValidationRule 改为能拿到 registry 视图（新增重载）"——
-    /// **上报待设计层确认**）：任务书原文要求本规则"改签名拿 registry 视图"，但 <see
+    /// 设计层裁定（2026-09-15）：采纳）：任务书原文要求本规则"改签名拿 registry 视图"，但 <see
     /// cref="IValidationRule.Validate"/> 本就以 <see cref="IDataRegistryView"/> 为唯一参数——新公式
     /// 需要的 <c>stat.weight</c>/<c>stat.definition</c>/<c>stat.rating_conversion</c>/
     /// <c>item.slot_definition</c> 四张表均可经 <see cref="Validate"/> 既有的 <paramref
@@ -38,7 +38,7 @@ namespace Core.Carriers.Item
         /// <summary>预算利用率过低检查名（分阶段落地计划 T-N2-3；ADR-0032 决策 10；04 第 5 节"装备
         /// 预算利用率过低"一行未给出具体检查名，同 <see cref="ItemQualityMultiplierOrderRule"/>/
         /// <see cref="ItemAffixStatMixRatioSumRule"/> 同一处理口径，按 <c>item_budget_*</c> 前缀取
-        /// <c>item_budget_utilization_low</c>——**上报待设计层确认**。</summary>
+        /// <c>item_budget_utilization_low</c>——设计层裁定（2026-09-15）：采纳。</summary>
         public const string CheckUtilizationLow = "item_budget_utilization_low";
 
         /// <summary>预算利用率警告阈值缺省值（ADR-0032 决策 10"默认七成"）。</summary>
@@ -379,7 +379,7 @@ namespace Core.Carriers.Item
     /// 判断记录（检查名）：04 第 5 节该行未像同表其余阻断项那样给出具体检查名（对照"曲线单调有限"→
     /// <c>curve_monotonic_finite</c>、"派生无环"→<c>stat_definition_derivation_cycle</c> 等均括号
     /// 注明检查名，本行没有）。按任务书"检查名按 04 §5 或 item_quality_* 前缀，标注待确认"取
-    /// <c>item_quality_multiplier_order</c>，上报待设计层确认，见本任务汇报"契约疑点"一节。
+    /// <c>item_quality_multiplier_order</c>——设计层裁定（2026-09-15）：采纳。
     /// </para>
     /// <para>
     /// 判断记录（"顺序一致"的操作化定义、并列取值的处理）：契约原文"大小顺序须与排序权重一致"未展开
@@ -480,7 +480,7 @@ namespace Core.Carriers.Item
     /// 判断记录（检查名）：04 第 5 节"词缀份额之和"一行未像"曲线单调有限"等同表其余阻断项那样给出
     /// 具体检查名（括号注明检查名）。按任务书"检查名按 04 §5，没有就 item_affix_* 前缀标待确认"取
     /// <c>item_affix_stat_mix_ratio_sum</c>，命名同 <see cref="ItemQualityMultiplierOrderRule"/>
-    /// 判断记录同一处理口径——**上报待设计层确认**，见本任务汇报"契约疑点"一节。
+    /// 判断记录同一处理口径——设计层裁定（2026-09-15）：采纳。
     /// </para>
     /// <para>
     /// 判断记录（浮点容差）：<c>ratio</c> 逐项相加存在浮点舍入误差（如三个 0.3333... 相加可能得到
@@ -532,13 +532,13 @@ namespace Core.Carriers.Item
     /// <c>weapon_profile.speed</c>"偏离超过阈值时报警告——"抓漏填/抓意图不抓手滑"，不阻断合入（同
     /// <see cref="ItemBudgetValidationRule.CheckUtilizationLow"/> 一贯处理口径）。
     /// <para>
-    /// 判断记录（检查名——**上报待设计层确认**）：04 第 5 节"武器伤害范围手填还是推导"一行未给出
+    /// 判断记录（检查名——设计层裁定（2026-09-15）：采纳）：04 第 5 节"武器伤害范围手填还是推导"一行未给出
     /// 具体检查名，按任务书"没有就 item_weapon_* 前缀标待确认"取 <c>item_weapon_damage_deviates_dps_curve</c>，
     /// 与 <see cref="ItemQualityMultiplierOrderRule"/>/<see cref="ItemAffixStatMixRatioSumRule"/>/
     /// <see cref="ItemBudgetValidationRule.CheckUtilizationLow"/> 同一处理口径。
     /// </para>
     /// <para>
-    /// 判断记录（阈值——**上报待设计层确认**）：契约同样未给出具体偏离阈值。落地改动点清单第 10 节
+    /// 判断记录（阈值——设计层裁定（2026-09-15）：采纳）：契约同样未给出具体偏离阈值。落地改动点清单第 10 节
     /// 第 6 条候选写法是"新增手填偏离秒伤曲线警告"，未给数值；按任务书"没给阈值就选 ±20% 标待确认"
     /// 取 <see cref="DefaultDeviationThreshold"/>=0.2，构造重载可覆盖（同
     /// <see cref="ItemBudgetValidationRule(Id, double)"/> 惯例）。
@@ -569,7 +569,7 @@ namespace Core.Carriers.Item
     {
         public const string Check = "item_weapon_damage_deviates_dps_curve";
 
-        /// <summary>偏离阈值缺省值（见类型判断记录"阈值——上报待设计层确认"）。</summary>
+        /// <summary>偏离阈值缺省值（见类型判断记录"阈值——设计层裁定（2026-09-15）：采纳"）。</summary>
         public const double DefaultDeviationThreshold = 0.2;
 
         /// <summary>04 第 5 节"数值类校验警告……抓意图不抓手滑"——本规则只产出 Warning，不影响任何
@@ -585,7 +585,7 @@ namespace Core.Carriers.Item
         {
         }
 
-        /// <summary>显式指定偏离阈值的构造重载（见类型判断记录"阈值——上报待设计层确认"）。</summary>
+        /// <summary>显式指定偏离阈值的构造重载（见类型判断记录"阈值——设计层裁定（2026-09-15）：采纳"）。</summary>
         public ItemWeaponDamageDeviatesDpsCurveRule(Id weaponDpsCurveId, double deviationThreshold)
         {
             _weaponDpsCurveId = weaponDpsCurveId;

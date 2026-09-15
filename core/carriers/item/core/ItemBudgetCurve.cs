@@ -207,7 +207,7 @@ namespace Core.Carriers.Item
         /// <c>BudgetRule_WithinBudget_NoIssue</c>/<c>BudgetRule_ExceedsBudget_ReportsIssue</c>/
         /// <c>BudgetRule_PctOp_FoldedByHundred_ExceedsBudget</c> 三条既有用例（单一属性词条，权重取 1
         /// 时消耗值与迁移前 <see cref="SumConsumed"/> 逐位相同）无需改动即继续成立——ADR-0030
-        /// 决策 7/07 第 1.2 节均未明文规定"缺省权重"取值，**上报待设计层确认**。
+        /// 决策 7/07 第 1.2 节均未明文规定"缺省权重"取值——设计层裁定（2026-09-15）：采纳。
         /// </para>
         /// <para>
         /// 判断记录（不读 <c>stat.weight.class_overrides</c>）：ADR-0030 决策 7 允许按职业覆盖权重，
@@ -350,8 +350,8 @@ namespace Core.Carriers.Item
         /// 装备预算消耗公式（分阶段落地计划 T-N2-3；ADR-0032 决策 3；07 第 1.2 节修订段；数值总纲
         /// 第 4.4 节）：<c>实际消耗 = (Σ(属性值_i × 权重_i)^k)^(1/k)</c>。
         /// <para>
-        /// 判断记录（"属性值"取哪个量，op 与 category 的组合语义——**上报待设计层确认**，见本任务
-        /// 汇报"契约疑点"一节）：ADR-0032/07/数值总纲三处原文均只给"百分比属性先经换算曲线折回点数
+        /// 判断记录（"属性值"取哪个量，op 与 category 的组合语义——设计层裁定（2026-09-15）：
+        /// 采纳）：ADR-0032/07/数值总纲三处原文均只给"百分比属性先经换算曲线折回点数
         /// 再乘权重"一句，没有展开到"op=flat/pct/mult 分别对应什么"。本方法的操作化定义依据
         /// <c>EquipmentHost.ApplyGrants</c>（<c>stats[]</c> 元素的权威消费者，<see cref="ItemSchemas
         /// .StatsItemSchema"/> 判断记录引用）与 <c>StatHost.ComputeFinal</c> 的运行时聚合管线
@@ -376,7 +376,8 @@ namespace Core.Carriers.Item
         /// </para>
         /// <para>
         /// 判断记录（等级输入）：换算需要"单位等级"（<see cref="RatingConversionEvaluator.ToPoints"/>
-        /// 第二参数）。装备校验期没有运行中的单位，只有物品模板数据——**上报待设计层确认**，本方法用
+        /// 第二参数）。装备校验期没有运行中的单位，只有物品模板数据——设计层裁定（2026-09-15）：
+        /// 采纳，本方法用
         /// 调用方传入的 <paramref name="level"/>，<see cref="ItemBudgetValidationRule"/> 一侧按物品
         /// 等级（<c>item.template.item_level</c>）传入，不是 <c>requirements.level</c>（后者未填时
         /// 本就要靠 <c>item.req_level_curve</c> 反推，随 T-N2-9 落地，本任务不依赖它；物品等级本身

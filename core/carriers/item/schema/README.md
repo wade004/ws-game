@@ -28,7 +28,7 @@ T-N2-3/T-N2-4。
 | `item_level` | Int | 是 | — | 物品等级 |
 | `stats` | Array | 否 | `[]` | `[{stat:Id, op:flat\|pct\|mult, value:Number}]`，装备后提供的属性修正 |
 | `grants` | Object | 否 | `{}` | `{skills:List<Id>, auras:List<Id>}` |
-| `affixes` | IdList | 否 | `[]` | T-N2-2 起语义改写（ADR-0032 决策 7；落地改动点清单 E2"`item.template.affixes` 语义改为可抽词缀池约束"）：该模板掉落时可抽取的词缀候选白名单，与掉落三次掷骰第三骰（品质骰匹配 `item.affix.quality_pool` 后）取交集；缺省 `[]` 视为不收窄（该品质池下全部词缀均可抽），消费实现随 T-N2-8 落地——上报待设计层确认，见判断记录 |
+| `affixes` | IdList | 否 | `[]` | T-N2-2 起语义改写（ADR-0032 决策 7；落地改动点清单 E2"`item.template.affixes` 语义改为可抽词缀池约束"）：该模板掉落时可抽取的词缀候选白名单，与掉落三次掷骰第三骰（品质骰匹配 `item.affix.quality_pool` 后）取交集；缺省 `[]` 视为不收窄（该品质池下全部词缀均可抽），消费实现随 T-N2-8 落地——设计层裁定（2026-09-15）：采纳，见判断记录 |
 | `set_id` | Reference→`item.set` | 否 | — | 所属套装 |
 | `weapon_profile` | Object | 视 slot | — | `{damage_min, damage_max, speed, weapon_school}`；当且仅当 `slot_definition.is_weapon` 为 true 时必须存在（`ItemWeaponProfileRule`） |
 | `display_ref` | Id | 是 | — | 指向 `display.map`；本模块不校验其引用完整性（不引用 `display_info` 模块类型） |
@@ -101,7 +101,7 @@ T-N2-3/T-N2-4。
 明文标注"可选"，另两个新列的必填/可选未明确规定。本任务按既有 `budget_multiplier`（同为品质系数类
 字段，`required: false` + 缺省 1）的登记口径类推：`price_multiplier` 同为"倍率"，缺省 1；
 `grant_budget_share` 是"占比"，缺省 0（未登记视为不授予/特效预算为零，与"紫以上才可带 grants"门槛
-语义一致）。属实现期按同类字段既有口径类推的判断，非契约条文明文规定——**上报待设计层确认**。
+语义一致）。属实现期按同类字段既有口径类推的判断，非契约条文明文规定——**设计层裁定（2026-09-15）：采纳**。
 
 ## `item.budget_curve`
 
@@ -109,7 +109,7 @@ T-N2-3/T-N2-4。
 |---|---|---|---|
 | `id` | Id | 是 | `item.budget.<name>` |
 | `entries` | Array | 是 | 通用断点表 `[{x:Int, y:Number}]`（`x` = 物品等级，`y` = 预算上限；04 第 3.6 节 `CurveSchema.BreakpointsField`，横轴 `ItemLevel`），按 `x` 线性插值（`ItemBudgetCurve.Interpolate` → `PiecewiseCurve.Evaluate`），越界夹取到端点；`curve_monotonic_finite` 规则要求非空、有限、`x` 无重复、`y` 不递减。schema 版本 2（T-N0-4）：v1 的 `{item_level, budget}` 由 1→2 迁移环节改名，旧数据文件无需手改即可加载 |
-| `exponent` | Number | 否 | T-N2-3 新增（ADR-0032 决策 3）：消耗公式 `(Σ(值×权重)^k)^(1/k)` 的指数 `k`，缺省 `1.5`（`ItemBudgetCurve.DefaultExponent`）；范围 `> 0`。**判断记录（登记位置）**：ADR-0032/07/数值总纲三处原文只给"k 默认 1.5，数据配置"，未指明具体字段位置——上报待设计层确认，本任务选择登记在预算曲线记录自身（同一游戏若有多条预算曲线服务不同物品档位，可各自配置不同 k） |
+| `exponent` | Number | 否 | T-N2-3 新增（ADR-0032 决策 3）：消耗公式 `(Σ(值×权重)^k)^(1/k)` 的指数 `k`，缺省 `1.5`（`ItemBudgetCurve.DefaultExponent`）；范围 `> 0`。**判断记录（登记位置）**：ADR-0032/07/数值总纲三处原文只给"k 默认 1.5，数据配置"，未指明具体字段位置——设计层裁定（2026-09-15）：采纳，登记在预算曲线记录自身（同一游戏若有多条预算曲线服务不同物品档位，可各自配置不同 k） |
 
 预算上限公式（07 第 1.2 节修订段；ADR-0032 决策 3）：
 `预算曲线(item_level) × quality.budget_multiplier × slot_definition.budget_coefficient`。
@@ -122,7 +122,7 @@ T-N2-3/T-N2-4。
 反函数折回点数（`op=flat` 的值本就是点数，恒等操作；换算所需的"单位等级"取该模板的 `item_level`）；
 非 `percent` 属性沿用既有 `pct`/`mult` ×100 折算。曲线 id 由 `ItemOptions.BudgetCurveId` 指定（构造
 `ItemBudgetValidationRule` 时传入）；公式的详细 op/category 组合判断记录、"折回点数"方向的推导依据
-见 `ItemBudgetCurve.ComputeConsumed` 类型注释——**上报待设计层确认**（契约原文未展开到这一操作化
+见 `ItemBudgetCurve.ComputeConsumed` 类型注释——**设计层裁定（2026-09-15）：采纳**（契约原文未展开到这一操作化
 层面）。
 
 ## `item.armor_curve`
@@ -141,7 +141,7 @@ T-N2-3/T-N2-4。
 |---|---|---|---|
 | `id` | Id | 是 | `item.weapon_dps.<name>` |
 | `entries` | Array | 是 | 通用断点表 `[{x:Int, y:Number}]`（`x` = 物品等级，`y` = 武器基准秒伤 `> 0`；ADR-0032 决策 4），按 `x` 线性插值、越界夹取到端点；`curve_monotonic_finite` 规则自动覆盖。新表，schema 版本 1，无需迁移 |
-| `variance` | Number | 否 | T-N2-6 新增（ADR-0032 决策 4"伤害范围 = 武器秒伤 × 初始攻速 × (1 ± 浮动)"；拍板 6"一拍常数与浮动比例为数据项"）：伤害范围浮动比例，缺省 `0.1`。**判断记录（登记位置——上报待设计层确认）**：落地改动点清单第 10 节第 6 条候选"一拍常数与浮动比例放 `skill.budget_rule` 与 `item.weapon_dps_curve` 旁"——一拍常数登记在 `skill.budget_rule`（该表要到 T-N3-9 才创建），浮动比例按同一候选落在本表；本任务只登记字段，尚无消费者（"手填偏离秒伤曲线"警告只比较均值，不展开到 `(1±浮动)` 的上下界，见 `ItemWeaponDamageDeviatesDpsCurveRule` 判断记录）。范围 `[0,1)` |
+| `variance` | Number | 否 | T-N2-6 新增（ADR-0032 决策 4"伤害范围 = 武器秒伤 × 初始攻速 × (1 ± 浮动)"；拍板 6"一拍常数与浮动比例为数据项"）：伤害范围浮动比例，缺省 `0.1`。**判断记录（登记位置——设计层裁定（2026-09-15）：采纳）**：落地改动点清单第 10 节第 6 条候选"一拍常数与浮动比例放 `skill.budget_rule` 与 `item.weapon_dps_curve` 旁"——一拍常数登记在 `skill.budget_rule`（该表要到 T-N3-9 才创建），浮动比例按同一候选落在本表；本任务只登记字段，尚无消费者（"手填偏离秒伤曲线"警告只比较均值，不展开到 `(1±浮动)` 的上下界，见 `ItemWeaponDamageDeviatesDpsCurveRule` 判断记录）。范围 `[0,1)` |
 
 武器秒伤 = `item.weapon_dps_curve(item_level) × 品质预算倍率 × 武器槽位系数`（T-N2-6，
 `EquipmentHost.GetWeaponDps` 新方法；武器槽位系数即 `item.slot_definition.budget_coefficient`）；
@@ -149,7 +149,7 @@ T-N2-3/T-N2-4。
 不变（硬性规则"禁止改既有签名"；该原语改接秒伤 × 一拍常数是 N3 S3 的范围）。伤害范围 = 武器秒伤 ×
 `weapon_profile.speed` × (1 ± 浮动)——`damage_min`/`damage_max` 保留手填，`ItemWeaponDamageDeviatesDpsCurveRule`
 （check `item_weapon_damage_deviates_dps_curve`，Warning，不可提升）核对手填均值与"秒伤 × speed"的
-偏离比例，超阈值（构造参数，缺省 `±20%`——契约未给阈值，**上报待设计层确认**）报警告；曲线找不到、
+偏离比例，超阈值（构造参数，缺省 `±20%`——契约未给阈值，**设计层裁定（2026-09-15）：采纳**）报警告；曲线找不到、
 或任一模板未同时填 `damage_min`/`damage_max` 时该模板不报。
 
 ## `item.req_level_curve`
@@ -198,14 +198,15 @@ T-N2-2（ADR-0032 决策 7；07 第 1.6 节修订段"随机词缀由留位转正
 | 规则 | 检查项名 | 说明 |
 |---|---|---|
 | `item_budget_exceeded` | `ItemBudgetValidationRule` | 预算超标（消耗公式见上）|
-| `item_budget_utilization_low` | `ItemBudgetValidationRule`（Warning，不可提升，T-N2-3，ADR-0032 决策 10） | 预算利用率（消耗 / 上限）低于阈值（默认 `0.7`，构造重载 `ItemBudgetValidationRule(Id, double)` 可配置，`CarriersSchemaCatalog.RegisterAll` 新增重载同步可配置）；04 第 5 节"装备预算利用率过低"一行未给出具体检查名，同上一行口径，**上报待设计层确认** |
+| `item_budget_utilization_low` | `ItemBudgetValidationRule`（Warning，不可提升，T-N2-3，ADR-0032 决策 10） | 预算利用率（消耗 / 上限）低于阈值（默认 `0.7`，构造重载 `ItemBudgetValidationRule(Id, double)` 可配置，`CarriersSchemaCatalog.RegisterAll` 新增重载同步可配置）；04 第 5 节"装备预算利用率过低"一行未给出具体检查名，同上一行口径，**设计层裁定（2026-09-15）：采纳** |
 | `item_weapon_profile_missing`/`item_weapon_profile_unexpected` | `ItemWeaponProfileRule` | `weapon_profile` 当且仅当 `slot_definition.is_weapon` 为真时存在 |
 | `item_set_membership_mismatch` | `ItemSetMembershipRule` | `set_id` 的 `pieces` 包含该物品 |
 | `item_stack_size_min`/`item_stack_size_equipment_not_one` | `ItemStackSizeRule` | `stack_size >= 1`；装备类（`slot` 指向 `is_equipment` 不为 false 的 `slot_definition`）`stack_size == 1` |
 | `item_grants_auras_duplicate` | `ItemGrantsAurasDuplicateRule`（Warning） | `grants.auras` 同一物品内重复引用同一个 `aura_def` |
-| `item_quality_multiplier_order` | `ItemQualityMultiplierOrderRule`（T-N2-1，ADR-0032 决策 2） | `item.quality_definition` 的 `budget_multiplier`/`price_multiplier` 大小顺序须与 `sort_weight` 一致（按 `sort_weight` 升序分组，组内并列不比较，跨组不递减）；检查名按任务书"04 §5 或 item_quality_\* 前缀"取值，**04 第 5 节该行未给出具体检查名，上报待设计层确认** |
-| `item_affix_stat_mix_ratio_sum` | `ItemAffixStatMixRatioSumRule`（T-N2-2，ADR-0032 决策 7） | 单条 `item.affix.stat_mix` 内部 `ratio` 之和不超过一（超出 1e-9 浮点容差报错）；校验对象为"单条词缀内部"，非"同一品质池跨词缀"（见 07 第 1.6 节修订段与 04 第 5 节"词缀份额之和"行原文，二者均紧跟在 `stat_mix` 后描述）；检查名同上一行口径，**04 第 5 节该行同样未给出具体检查名，上报待设计层确认** |
-| `item_weapon_damage_deviates_dps_curve` | `ItemWeaponDamageDeviatesDpsCurveRule`（Warning，不可提升，T-N2-6，ADR-0032 决策 4；拍板 6） | 武器槽模板手填 `weapon_profile.damage_min`/`damage_max` 均值与"秒伤(`item.weapon_dps_curve(item_level) × 品质预算倍率 × 武器槽位系数`) × `weapon_profile.speed`"的偏离比例超过阈值（构造参数，缺省 `±20%`，`CarriersSchemaCatalog.RegisterAll` 新增重载同步可配置）；曲线找不到、或 `damage_min`/`damage_max` 任一未填、或期望值为零（`speed` 未填）时不报；检查名与阈值契约均未给出，同上两行口径，**上报待设计层确认** |
+| `item_quality_multiplier_order` | `ItemQualityMultiplierOrderRule`（T-N2-1，ADR-0032 决策 2） | `item.quality_definition` 的 `budget_multiplier`/`price_multiplier` 大小顺序须与 `sort_weight` 一致（按 `sort_weight` 升序分组，组内并列不比较，跨组不递减）；检查名按任务书"04 §5 或 item_quality_\* 前缀"取值——**04 第 5 节该行未给出具体检查名，设计层裁定（2026-09-15）：采纳** |
+| `item_affix_stat_mix_ratio_sum` | `ItemAffixStatMixRatioSumRule`（T-N2-2，ADR-0032 决策 7） | 单条 `item.affix.stat_mix` 内部 `ratio` 之和不超过一（超出 1e-9 浮点容差报错）；校验对象为"单条词缀内部"，非"同一品质池跨词缀"（见 07 第 1.6 节修订段与 04 第 5 节"词缀份额之和"行原文，二者均紧跟在 `stat_mix` 后描述）；检查名同上一行口径——**04 第 5 节该行同样未给出具体检查名，设计层裁定（2026-09-15）：采纳** |
+| `item_weapon_damage_deviates_dps_curve` | `ItemWeaponDamageDeviatesDpsCurveRule`（Warning，不可提升，T-N2-6，ADR-0032 决策 4；拍板 6） | 武器槽模板手填 `weapon_profile.damage_min`/`damage_max` 均值与"秒伤(`item.weapon_dps_curve(item_level) × 品质预算倍率 × 武器槽位系数`) × `weapon_profile.speed`"的偏离比例超过阈值（构造参数，缺省 `±20%`，`CarriersSchemaCatalog.RegisterAll` 新增重载同步可配置）；曲线找不到、或 `damage_min`/`damage_max` 任一未填、或期望值为零（`speed` 未填）时不报；检查名与阈值契约均未给出，同上两行口径，**设计层裁定（2026-09-15）：采纳** |
+| `item_template_affix_share_exceeds_budget` | `ItemTemplateAffixShareExceedsBudgetRule`（T-N2-11，ADR-0032 决策 7/10） | 模板自身 `stats` 消耗 + 可抽词缀池最大份额（候选 = `quality_pool` 匹配模板品质且与模板 `affixes` 白名单取交集，按 `budget_share` 降序取前 `affix_count`——未登记视为不限、取全部候选） × 预算，不得超过预算上限；检查名 04 第 5 节该行未给出，同上两行口径——**设计层裁定（2026-09-15）：采纳**，登记为 `item_template_affix_share_exceeds_budget` |
 | （内置）`reference_integrity` | `data_registry` | `item.template.slot`/`quality`/`set_id`/`item.affix.quality_pool`/`stat_mix[].stat` 等 `Reference` 字段的存在性 |
 | （T-N0-3 通用规则）`curve_monotonic_finite` | `CurveMonotonicFiniteRule` | 自动覆盖 `item.budget_curve`/`item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve` 四张断点表曲线的 `entries` |
 

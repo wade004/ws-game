@@ -315,18 +315,21 @@ T-N2-10（分阶段落地计划第 14 节；ADR-0032）：在 T-N2-1～T-N2-9 �
   同既有 `item.sample_token`/`item.sample_tonic` 两行的既定做法，`category: item`、无
   `weapon_style_ref`——四条新模板均非武器），按既有 id 字母序插入。
 
-**判断记录（"模板加词缀最大份额超预算"阻断校验尚未实现，上报待设计层确认）**：分阶段落地计划第 8
-节阶段 N2 验收标准 5 要求"模板加词缀最大份额超预算……各报 Error"，但 `core/carriers/item/schema/
-README.md`"校验规则清单"与 `core/carriers/item/core/ItemValidationRules.cs`（八个 `IValidationRule`
-实现类）核对后确认：现有八条规则里只有 `item_budget_exceeded`（模板自身 `stats` 超预算）与
-`item_budget_utilization_low`（利用率过低警告）两条与预算相关，均不核算词缀；`core/carriers/item/
-README.md` 判断记录 17 末段"勘误"明确写着"模板加词缀最大份额超预算……仍需预算反解……确实要等
-T-N2-4"，而 T-N2-4（判断记录 19）落地的是 `IBudgetSolver.Solve`/`EquipmentScoreAnalyzer` 两个可
-调用契约面，未新增任何 `IValidationRule`；T-N2-8（判断记录 15）落地的是掉落三次掷骰的运行时消费，
-同样未新增这条阻断规则。本任务（T-N2-10）只补数据与文档，不实现校验规则（任务书"禁止事项"明确
-要求"本任务不实现校验规则，但样例要满足"）——本节的人工核算表即按该阻断校验的既定语义（预算反解
-出的词缀份额 + 模板自身消耗占比 ≤ 100%）手工保证全部样例合规，供该规则将来落地时"开箱即用、零
-改样例"。
+**判断记录（"模板加词缀最大份额超预算"阻断校验，T-N2-10 时尚未实现——已由 T-N2-11 补齐）**：分阶段
+落地计划第 8 节阶段 N2 验收标准 5 要求"模板加词缀最大份额超预算……各报 Error"，T-N2-10 核对时
+`core/carriers/item/schema/README.md`"校验规则清单"与 `core/carriers/item/core/
+ItemValidationRules.cs`（当时八个 `IValidationRule` 实现类）确认：现有八条规则里只有
+`item_budget_exceeded`（模板自身 `stats` 超预算）与 `item_budget_utilization_low`（利用率过低警告）
+两条与预算相关，均不核算词缀；`core/carriers/item/README.md` 判断记录 17 末段"勘误"明确写着"模板加
+词缀最大份额超预算……仍需预算反解……确实要等 T-N2-4"，而 T-N2-4（判断记录 19）落地的是
+`IBudgetSolver.Solve`/`EquipmentScoreAnalyzer` 两个可调用契约面，未新增任何 `IValidationRule`；
+T-N2-8（判断记录 15）落地的是掉落三次掷骰的运行时消费，同样未新增这条阻断规则。T-N2-10 当时只补
+数据与文档，不实现校验规则（任务书"禁止事项"明确要求"本任务不实现校验规则，但样例要满足"）——本节
+的人工核算表按该阻断校验的既定语义（预算反解出的词缀份额 + 模板自身消耗占比 ≤ 100%）手工保证全部
+样例合规。**T-N2-11 已按同一语义落地 `ItemTemplateAffixShareExceedsBudgetRule`（检查名
+`item_template_affix_share_exceeds_budget`），`data/_sample`/`games/_template` 两个数据根
+`--strict` 校验 0 命中，与本节人工核算表结论一致，零改样例**，见 `core/carriers/item/README.md`
+判断记录 25、`core/carriers/item/schema/README.md`"校验规则清单"新增一行。
 
 **判断记录（`games/_template/data/game/item/**`/`diff/diff.tier.json` 保持不动，读 `games/_template/
 data/README.md` 既定约定后的决定）**：该文件明确记录 `item.slot_definition`/`item.quality_

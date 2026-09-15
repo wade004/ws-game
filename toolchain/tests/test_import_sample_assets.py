@@ -65,6 +65,13 @@ EXPECTED_DISPLAY_ROWS = {
     # npc_flag.summon_only）需要一条 display.map 覆盖行才能满足 DisplayMapCoverageRule；
     # 复用 sprite.creature.sample_beast 精灵集，不新增素材，同上面 skill/aura 补齐行同一惯例。
     "display.map.sample_summon_totem": ("creature.sample_summon_totem", "creature"),
+    # T-N2-10（数值设计落地阶段 N2 样例充实）：item.template 新增 4 条防具/饰品模板
+    # （头/胸/脚/戒指）需要各自的 display.map 覆盖行才能满足 DisplayMapCoverageRule；
+    # 复用 sprite.item.sample_blade 精灵集，不新增素材，同上面 item 类补齐行同一惯例。
+    "display.map.sample_helm": ("item.sample_helm", "item"),
+    "display.map.sample_chestplate": ("item.sample_chestplate", "item"),
+    "display.map.sample_boots": ("item.sample_boots", "item"),
+    "display.map.sample_ring": ("item.sample_ring", "item"),
 }
 
 
