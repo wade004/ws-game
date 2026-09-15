@@ -25,6 +25,7 @@ namespace Core.Gameplay.Loot
         private readonly IUnitAccess _units;
         private readonly IWorldSim _world;
         private readonly Func<double> _lootMultiplierProvider;
+        private readonly Core.Gameplay.Difficulty.IDifficultyHost? _difficultyHost;
 
         public CreatureDeathLootListener(
             IEventBus bus,
@@ -42,6 +43,29 @@ namespace Core.Gameplay.Loot
             _lootMultiplierProvider = lootMultiplierProvider ?? (() => 1.0);
 
             bus.Subscribe<UnitDiedEvent>(RulesEventKeys.UnitDied, OnUnitDied);
+        }
+
+        /// <summary>
+        /// T-N2-8b 新增重载（ABI 硬性规则"只允许新增"，不改既有 6 参构造函数签名——同
+        /// <c>Core.Carriers.Item.InventoryHost</c> 构造重载一贯做法：给既有 <c>.ctor</c> 追加参数
+        /// 即便带默认值，在物理 IL 签名层面仍是破坏性变更）：额外接受 <paramref
+        /// name="difficultyHost"/>，供 <see cref="OnUnitDied"/> 构造 <see cref="RollContext"/> 时取
+        /// <see cref="Core.Gameplay.Difficulty.IDifficultyHost.ItemLevelOffset"/>（README"来源等级
+        /// 接线"判断记录）。未提供（null——既有 6 参构造函数走的路径，或本重载显式传 null）时偏移恒为
+        /// 0，与 <see cref="Core.Gameplay.Difficulty.IDifficultyHost.ItemLevelOffset"/> 默认接口成员
+        /// "无难度修正"的中性默认值同一语义——本类不因为拿不到难度宿主就抛异常或跳过掉落生成。
+        /// </summary>
+        public CreatureDeathLootListener(
+            IEventBus bus,
+            LootHost lootHost,
+            ICreatureTemplateQuery templates,
+            IUnitAccess units,
+            IWorldSim world,
+            Func<double>? lootMultiplierProvider,
+            Core.Gameplay.Difficulty.IDifficultyHost? difficultyHost)
+            : this(bus, lootHost, templates, units, world, lootMultiplierProvider)
+        {
+            _difficultyHost = difficultyHost;
         }
 
         private void OnUnitDied(UnitDiedEvent evt)
@@ -69,9 +93,25 @@ namespace Core.Gameplay.Loot
                 return;
             }
 
-            var context = new RollContext(evt.UnitId, evt.KillerId, _lootMultiplierProvider(), evt.UnitId);
-            var items = _lootHost.Roll(lootTableRef.Value, context);
-            if (items.Count == 0)
+            // T-N2-8b（README"来源等级接线"判断记录）：sourceLevel 取死亡单位当前等级（IUnitAccess.
+            // GetLevel 是既有必须实现的抽象成员，本类已持有 _units 引用，不需要新依赖）；
+            // itemLevelOffset 取注入的 IDifficultyHost.ItemLevelOffset（未注入难度宿主时恒 0，同该
+            // 成员默认接口方法语义）。两者均是确定性折算，不消耗任何随机数（见 RollContext.
+            // SourceLevel/ItemLevelOffset 判断记录）。
+            var sourceLevel = _units.GetLevel(evt.UnitId);
+            var itemLevelOffset = _difficultyHost?.ItemLevelOffset ?? 0;
+            var context = new RollContext(
+                evt.UnitId, evt.KillerId, _lootMultiplierProvider(), evt.UnitId, sourceLevel, itemLevelOffset);
+
+            // T-N2-8b：改用带身份的 RollDetailed/Drop(outcomes) 路径，保证品质骰/词缀骰结果（若
+            // loot.table 配置了 quality_weights）真正落到地面掉落物身份上，供 PickUp 转发进背包——旧
+            // Roll(ItemStack)/Drop(ItemStack) 路径会让 DroppedLootEntity.Outcomes 退化成
+            // ResolveDefaultOutcome 的模板缺省值，丢失这次抽取真正掷出的品质/词缀（见 core/gameplay/
+            // loot/README.md 判断记录 15 已知缺口"拾取入包的品质/词缀传递留给后续任务"，本任务即该
+            // 后续任务）。两条路径共用同一份 IRngHost 消耗，改用 RollDetailed 不增加/减少随机数调用
+            // 次数（见 ILootHost.RollDetailed 判断记录"两条路径共用同一份 RngHost 消耗，不重复抽取"）。
+            var outcomes = _lootHost.RollDetailed(lootTableRef.Value, context);
+            if (outcomes.Count == 0)
             {
                 return;
             }
@@ -88,7 +128,7 @@ namespace Core.Gameplay.Loot
                 return;
             }
 
-            _lootHost.Drop(entity.MapId, _units.GetPosition(evt.UnitId), items, ownerHint: evt.KillerId);
+            _lootHost.Drop(entity.MapId, _units.GetPosition(evt.UnitId), outcomes, ownerHint: evt.KillerId);
         }
     }
 }

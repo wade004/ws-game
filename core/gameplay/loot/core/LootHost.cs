@@ -645,9 +645,29 @@ namespace Core.Gameplay.Loot
                 : PickUpPartial(unitId, lootInstanceId, entity);
         }
 
+        /// <summary>T-N2-8b（T-N2-8 已知缺口收口）：按下标把 <paramref name="items"/> 与
+        /// <paramref name="entity"/>.Outcomes 配对——本类自身的 <see cref="DropCore"/>/<see
+        /// cref="RestoreDropped"/> 两条唯一入口总是让二者等长（见 <see cref="DroppedLootEntity.Outcomes"/>
+        /// 判断记录），这里仍按下标越界防御性回退到 <see cref="ResolveDefaultOutcome"/>（理论上不会
+        /// 触发，只覆盖"绕过 LootHost 直接用旧 4 参构造函数创建实体"这一契约允许但本类从不这样做的
+        /// 边界情况）。</summary>
+        private List<LootRollOutcome> ResolveOutcomesFor(DroppedLootEntity entity, IReadOnlyList<ItemStack> items)
+        {
+            var result = new List<LootRollOutcome>(items.Count);
+            for (var i = 0; i < items.Count; i++)
+            {
+                result.Add(i < entity.Outcomes.Count ? entity.Outcomes[i] : ResolveDefaultOutcome(items[i]));
+            }
+
+            return result;
+        }
+
         private LootPickupResult PickUpReject(Id unitId, Id lootInstanceId, DroppedLootEntity entity)
         {
             var want = new List<ItemStack>(entity.Items);
+            // T-N2-8b：逐条 outcome 按其品质/词缀身份入包（见 IInventoryHost.AddItem 带身份重载），
+            // 不再退化成不带身份的旧签名——地面掉落物落地时真正掷出的品质/词缀现在能一路保真到背包。
+            var wantOutcomes = ResolveOutcomesFor(entity, want);
             var addedPerStack = new List<int>(want.Count);
             var fullySucceeded = true;
 
@@ -662,10 +682,12 @@ namespace Core.Gameplay.Loot
             var transaction = _inventory is IBatchableInventoryHost batchable ? batchable.BeginBatch() : null;
             using (transaction)
             {
-                foreach (var stack in want)
+                for (var i = 0; i < want.Count; i++)
                 {
+                    var stack = want[i];
+                    var outcome = wantOutcomes[i];
                     var before = _inventory.CountOf(unitId, stack.TemplateId);
-                    _inventory.AddItem(unitId, stack.TemplateId, stack.Count);
+                    _inventory.AddItem(unitId, stack.TemplateId, stack.Count, outcome.QualityId, outcome.Affixes);
                     var added = Math.Max(0, _inventory.CountOf(unitId, stack.TemplateId) - before);
                     addedPerStack.Add(added);
                     if (added < stack.Count)
@@ -695,6 +717,7 @@ namespace Core.Gameplay.Loot
             }
 
             entity.Items.Clear();
+            entity.ReplaceOutcomes(Array.Empty<LootRollOutcome>());
             DestroyDropped(lootInstanceId);
             _bus.Enqueue(new LootPickedUpEvent(unitId, lootInstanceId, want));
             return LootPickupResult.Ok(want);
@@ -703,13 +726,20 @@ namespace Core.Gameplay.Loot
         private LootPickupResult PickUpPartial(Id unitId, Id lootInstanceId, DroppedLootEntity entity)
         {
             var want = new List<ItemStack>(entity.Items);
+            // T-N2-8b：同 PickUpReject，逐条 outcome 按身份入包。
+            var wantOutcomes = ResolveOutcomesFor(entity, want);
             var taken = new List<ItemStack>();
             var remaining = new List<ItemStack>();
+            // 留在地面上的剩余部分沿用同一条 outcome（只是 Count 改成剩余数量）——品质骰/词缀骰结果
+            // 已经在 Drop 那一刻定型，部分拾取不是重新掷骰，见 DroppedLootEntity.Outcomes 判断记录。
+            var remainingOutcomes = new List<LootRollOutcome>();
 
-            foreach (var stack in want)
+            for (var i = 0; i < want.Count; i++)
             {
+                var stack = want[i];
+                var outcome = wantOutcomes[i];
                 var before = _inventory.CountOf(unitId, stack.TemplateId);
-                _inventory.AddItem(unitId, stack.TemplateId, stack.Count);
+                _inventory.AddItem(unitId, stack.TemplateId, stack.Count, outcome.QualityId, outcome.Affixes);
                 var added = Math.Min(stack.Count, Math.Max(0, _inventory.CountOf(unitId, stack.TemplateId) - before));
 
                 if (added > 0)
@@ -721,6 +751,8 @@ namespace Core.Gameplay.Loot
                 if (leftover > 0)
                 {
                     remaining.Add(new ItemStack(stack.TemplateId, leftover));
+                    remainingOutcomes.Add(new LootRollOutcome(
+                        outcome.TemplateId, leftover, outcome.QualityId, outcome.Affixes, outcome.ItemLevel));
                 }
             }
 
@@ -733,6 +765,7 @@ namespace Core.Gameplay.Loot
 
             entity.Items.Clear();
             entity.Items.AddRange(remaining);
+            entity.ReplaceOutcomes(remainingOutcomes);
 
             if (entity.Items.Count == 0)
             {

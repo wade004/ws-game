@@ -286,6 +286,56 @@ loot/
       登记为**默认接口成员**（默认值 0，语义同 `LootMultiplier` 默认值 1.0"无难度修正"），唯一实现
       `DifficultyHost` 显式转发真实值。
 
+16. **T-N2-8b（T-N2-8 已知缺口收口，见判断记录 15 末两段；ADR-0032 决策 5/7/8）：`PickUp` 改用
+    `IInventoryHost` 带身份重载、`CreatureDeathLootListener` 接线来源等级与难度层物品等级偏移**：
+    - **拾取入包携带身份**：`LootHost.PickUpReject`/`PickUpPartial` 新增私有辅助
+      `ResolveOutcomesFor`——按下标把 `entity.Items`（`ItemStack`）与 `entity.Outcomes`
+      （`LootRollOutcome`）配对（本类自身的 `DropCore`/`RestoreDropped` 两条唯一入口总是让二者
+      等长，见 `DroppedLootEntity.Outcomes` 判断记录；仍按下标越界防御性回退到
+      `ResolveDefaultOutcome`，覆盖"理论允许但本类从不这样做"的边界情况）——两个方法原先调用
+      `_inventory.AddItem(unitId, stack.TemplateId, stack.Count)` 的三处，改为逐条传入
+      `outcome.QualityId`/`outcome.Affixes` 调用带身份重载（见 `core/carriers/item/README.md`
+      判断记录 24）。`PickUpPartial` 额外把"留在地面上的剩余部分"的 `Outcomes` 同步更新
+      （`DroppedLootEntity.ReplaceOutcomes`）——剩余的那部分沿用同一条 outcome、只把 `Count` 改成
+      剩余数量（品质骰/词缀骰结果已在 `Drop` 那一刻定型，部分拾取不是重新掷骰）；此前的实现只同步
+      `Items`、从不改动 `Outcomes`，若不修会导致"部分拾取后再次查询 `Outcomes`"与实际留在地面的
+      `Items` 数量对不上（本次改造前 `Outcomes` 从未在 `PickUp` 内被读取，这个不一致此前不可观测，
+      本次改用它之后必须一并修）。
+    - **来源等级接线（`CreatureDeathLootListener`）**：新增构造重载（ABI：新增重载，不改既有 6
+      参构造函数），末尾追加可选 `IDifficultyHost? difficultyHost`。`OnUnitDied` 改为：
+      `sourceLevel = _units.GetLevel(evt.UnitId)`（`IUnitAccess.GetLevel` 是既有必须实现的抽象
+      成员，本类已持有 `_units` 引用，未新增依赖）；`itemLevelOffset =
+      _difficultyHost?.ItemLevelOffset ?? 0`（未注入难度宿主时恒 0，同该成员默认接口方法语义，
+      不抛异常也不跳过掉落生成）。两者都是确定性折算，不消耗任何随机数（见 `RollContext.
+      SourceLevel`/`ItemLevelOffset` 判断记录）。`GameplayAssembly` 接线：`Difficulty`
+      （`DifficultyHost`）已在 `CreatureDeathLootListener` 构造前一步（第 5 步）构造完成，直接
+      传入 `difficultyHost: Difficulty`，不需要像 `healthFractionSetter`/`powers`/
+      T-N2-9 的 `statsRef` 那样用闭包延迟回填。
+    - **顺带改用 `RollDetailed`/`Drop(outcomes)` 路径（不在任务书字面"只改 sourceLevel/offset"，
+      但不改就无法满足"拾取带词缀掉落物后背包实例身份一致"的验收标准，判断记录）**：
+      `CreatureDeathLootListener.OnUnitDied` 原先调用旧 `Roll(tableId, context)`（返回
+      `ItemStack`，不带身份）+ `Drop(mapId, position, IReadOnlyList<ItemStack>, ownerHint)`（旧
+      签名重载，内部经 `ResolveDefaultOutcome` 把每条 `ItemStack` 解析成"模板缺省品质、无词缀"的
+      `LootRollOutcome`）——即使 `loot.table` 配置了 `quality_weights`/词缀池，这条路径产出的
+      `DroppedLootEntity.Outcomes` 也只会是模板缺省值，真正掷出的品质/词缀在合并成 `ItemStack`
+      那一步已经丢失，与上面"拾取入包携带身份"的改动组合起来仍然等价于没做。改为调用
+      `RollDetailed(tableId, context)`（返回 `IReadOnlyList<LootRollOutcome>`）+
+      `Drop(mapId, position, IReadOnlyList<LootRollOutcome>, ownerHint)`（新签名重载，`Outcomes`
+      原样保留调用方给出的品质/词缀）——两条路径共用同一份 `IRngHost` 消耗（见判断记录 15
+      "两条路径共用同一份 RngHost 消耗，不重复抽取"），改用 `RollDetailed` 不增加/减少随机数调用
+      次数，回放基线不受影响（本类不在 `ReplayWorldBuilder` 触达范围，同判断记录 15 既有核查
+      结论）。
+    - **测试**：`core/gameplay/loot/tests/T_N2_8b_PickUpIdentityTests.cs`（新增 3 条：拾取带词缀
+      掉落物后背包实例 `Quality`/`Affixes` 与掉落时一致、同模板不同品质拾取后不堆叠、Partial 策略
+      放不下时留在地面的 `Outcomes` 身份与剩余数量一致）、`core/gameplay/loot/tests/
+      T_N2_8b_CreatureDeathSourceLevelTests.cs`（新增 2 条：`RollContext.SourceLevel`/
+      `ItemLevelOffset` 正确接线进 `DroppedLootEntity.Outcomes[].ItemLevel`、未注入难度宿主时
+      偏移恒为 0）。
+    - **回放/Perf 基线核查**：`--filter "FullyQualifiedName~Replay"` 全绿，基线零改动——本任务
+      改动的全部代码路径（`LootHost.PickUp`/`CreatureDeathLootListener`）均不在
+      `ReplayWorldBuilder`/两份 `*.replay.json` 触达范围（同判断记录 15 既有核查结论：全文不含
+      `loot`/`item.template`/`item.quality_definition` 关键字）。
+
 ## 子结构登记表（ADR-0019 / F1b）
 
 `loot.table.groups` 元素结构（对照 `LootTableParser.ParseGroup`/`ParseEntry` 运行时解析代码）：
@@ -327,6 +377,8 @@ loot/
   `PickUp` 仍按 `ItemStack` 走 `IInventoryHost.AddItem`（无品质/词缀入参重载，且该文件属并行分支
   T-N2-9 范围，本任务不得触碰），拾取后 `ItemInstance` 落回默认品质；身份只在"掉落-地面存读档"这一段
   保真（见判断记录 15），拾取入包的品质/词缀传递留给后续任务补齐 `IInventoryHost` 的品质感知重载。
+  **（T-N2-8b 已补齐，见判断记录 16"拾取入包携带身份"）**
 - T-N2-8：不把 `RollContext.SourceLevel`/`ItemLevelOffset` 接进任何现有掉落发起点（如
   `CreatureDeathLootListener`）——只新增契约字段与 `LootHost` 内部消费逻辑，"谁在死亡结算时传入怪物
   等级/难度偏移"是游戏层组装的事，不在本任务"涉及文件"范围内。
+  **（T-N2-8b 已补齐，见判断记录 16"来源等级接线"）**

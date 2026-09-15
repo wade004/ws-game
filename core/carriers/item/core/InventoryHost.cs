@@ -169,16 +169,49 @@ namespace Core.Carriers.Item
 
         public void UnregisterUnit(Id unitId) => _bags.Remove(unitId);
 
-        public bool AddItem(Id unitId, Id templateId, int count) => AddItemCore(unitId, templateId, count, out _);
+        public bool AddItem(Id unitId, Id templateId, int count) =>
+            AddItemCore(unitId, templateId, count, null, null, out _);
 
         /// <summary>C05 根治：见 <see cref="IInventoryHost.TryAddItem"/> 判断记录——本类型支持
         /// <see cref="InventoryFullPolicy.Partial"/> 部分吞没语义，必须覆盖默认实现，如实返回
         /// <see cref="AddItemCore"/> 算出的实际落地量 <c>toAdd</c>，而不是把请求的 <paramref
         /// name="count"/> 原样当作实际量。</summary>
         public bool TryAddItem(Id unitId, Id templateId, int count, out int actualCount) =>
-            AddItemCore(unitId, templateId, count, out actualCount);
+            AddItemCore(unitId, templateId, count, null, null, out actualCount);
 
-        private bool AddItemCore(Id unitId, Id templateId, int count, out int actualCount)
+        /// <summary>
+        /// T-N2-8b（T-N2-8 已知缺口收口；ADR-0032 决策 7/8）：显式覆盖 <see
+        /// cref="IInventoryHost.AddItem(Id, Id, int, Id?, IReadOnlyList{Id})"/>——不落回接口默认值
+        /// （那会丢弃身份，见该成员判断记录），转发到 <see cref="AddItemCore"/> 同一份实现，只是带上
+        /// 显式品质/词缀。</summary>
+        public bool AddItem(Id unitId, Id templateId, int count, Id? qualityId, IReadOnlyList<Id>? affixes) =>
+            AddItemCore(unitId, templateId, count, qualityId, affixes, out _);
+
+        /// <summary>同上，带 <paramref name="actualCount"/> 版本。</summary>
+        public bool TryAddItem(Id unitId, Id templateId, int count, Id? qualityId, IReadOnlyList<Id>? affixes, out int actualCount) =>
+            AddItemCore(unitId, templateId, count, qualityId, affixes, out actualCount);
+
+        /// <summary>
+        /// T-N2-8b 改造：<paramref name="qualityId"/>/<paramref name="affixes"/> 均为 null 时是既有
+        /// 3 参 <see cref="AddItem(Id, Id, int)"/>/<see cref="TryAddItem(Id, Id, int, out int)"/> 的
+        /// 转发路径（行为逐字节不变，见下方"默认身份"判断记录）；非 null 时是新增的带身份重载路径。
+        /// <para>
+        /// 判断记录（"默认身份"——决定能否续填/合并既有堆叠的唯一标准）：解析出
+        /// <c>resolvedQuality = qualityId ?? templateQuality</c>、<c>resolvedAffixes = affixes 非空
+        /// 时取之，否则视为空</c>，当且仅当 <c>resolvedQuality == templateQuality &amp;&amp;
+        /// resolvedAffixes.Count == 0</c> 时判定为"默认身份"——与调用方是否显式传了 <paramref
+        /// name="qualityId"/>/<paramref name="affixes"/> 无关，只看解析结果是否与模板缺省一致（
+        /// <c>Core.Gameplay.Loot.LootHost.ResolveDefaultOutcome</c> 一类"缺省照模板品质解析"的路径
+        /// 会显式传入一个等于模板品质的 <see cref="Id"/>，不是 <c>null</c>，同样应判定为默认身份）。
+        /// 只有默认身份的物品才会续填/合并既有的默认身份堆叠——带词缀或非模板品质的物品视为与模板
+        /// 默认形态不同的身份，即使 <paramref name="templateId"/> 相同也不与任何既有堆叠合并（哪怕
+        /// 两次加入的品质/词缀完全一样），总是新开格子；这是本任务范围内设计层已拍板的简化取舍（见
+        /// <c>core/carriers/item/README.md</c> 判断记录）——同一品质同一词缀组合的战利品反复掉落时
+        /// 不会自动堆叠成一条，代价是格子占用更多，换来的是不需要引入"词缀顺序无关的集合相等"这一更
+        /// 复杂的堆叠判定。
+        /// </para>
+        /// </summary>
+        private bool AddItemCore(Id unitId, Id templateId, int count, Id? qualityId, IReadOnlyList<Id>? affixes, out int actualCount)
         {
             actualCount = 0;
 
@@ -198,15 +231,25 @@ namespace Core.Carriers.Item
                 stackSize = 1;
             }
 
+            var templateQuality = template.GetId("quality");
+            var resolvedQuality = qualityId ?? templateQuality;
+            var resolvedAffixes = affixes != null && affixes.Count > 0 ? affixes : null;
+            var isDefaultIdentity = resolvedQuality.Equals(templateQuality) && resolvedAffixes == null;
+
             var bag = GetOrCreateBag(unitId);
 
-            // 判断记录 2：先算出容量够不够，再决定是否落地任何变化。
+            // 判断记录 2：先算出容量够不够，再决定是否落地任何变化。非默认身份的物品不参与"既有堆叠
+            // 续填"计算（见本方法判断记录"默认身份"），freeInExisting 恒为 0。
             var freeInExisting = 0;
-            foreach (var instance in bag)
+            if (isDefaultIdentity)
             {
-                if (instance.TemplateId.Equals(templateId) && instance.Count < stackSize)
+                foreach (var instance in bag)
                 {
-                    freeInExisting += stackSize - instance.Count;
+                    if (instance.TemplateId.Equals(templateId) && instance.Count < stackSize &&
+                        instance.Quality.Equals(templateQuality) && instance.Affixes.Count == 0)
+                    {
+                        freeInExisting += stackSize - instance.Count;
+                    }
                 }
             }
 
@@ -243,36 +286,38 @@ namespace Core.Carriers.Item
             // N12 收边补齐（外部审计 68c9bed，P2）：逐项记录本次调用实际把多少数量分摊到了哪个
             // 实例（既有堆叠续填、新开堆叠都算一项）——见 ItemAddedEvent.Removals 判断记录。
             var removals = new List<(Id InstanceId, int Count)>();
-            for (var i = 0; i < bag.Count && remaining > 0; i++)
+            if (isDefaultIdentity)
             {
-                var instance = bag[i];
-                if (!instance.TemplateId.Equals(templateId) || instance.Count >= stackSize)
+                for (var i = 0; i < bag.Count && remaining > 0; i++)
                 {
-                    continue;
-                }
+                    var instance = bag[i];
+                    if (!instance.TemplateId.Equals(templateId) || instance.Count >= stackSize ||
+                        !instance.Quality.Equals(templateQuality) || instance.Affixes.Count != 0)
+                    {
+                        continue;
+                    }
 
-                var space = stackSize - instance.Count;
-                var fill = Math.Min(space, remaining);
-                // T-N2-7：续填既有堆叠必须原样带上该实例已有的 Quality/Affixes（不能只传 4 参旧
-                // 构造函数——那会把品质/词缀身份悄悄重置为"未解析"/空，见 ItemInstance 类型顶部
-                // 判断记录）。
-                bag[i] = new ItemInstance(
-                    instance.InstanceId, instance.TemplateId, instance.Count + fill,
-                    instance.Quality, instance.Affixes, instance.Extra);
-                remaining -= fill;
-                touchedInstanceId = instance.InstanceId;
-                removals.Add((instance.InstanceId, fill));
+                    var space = stackSize - instance.Count;
+                    var fill = Math.Min(space, remaining);
+                    // T-N2-7：续填既有堆叠必须原样带上该实例已有的 Quality/Affixes（不能只传 4 参旧
+                    // 构造函数——那会把品质/词缀身份悄悄重置为"未解析"/空，见 ItemInstance 类型顶部
+                    // 判断记录）。
+                    bag[i] = new ItemInstance(
+                        instance.InstanceId, instance.TemplateId, instance.Count + fill,
+                        instance.Quality, instance.Affixes, instance.Extra);
+                    remaining -= fill;
+                    touchedInstanceId = instance.InstanceId;
+                    removals.Add((instance.InstanceId, fill));
+                }
             }
 
             while (remaining > 0)
             {
                 var take = Math.Min(stackSize, remaining);
                 var instanceId = NextInstanceId();
-                // T-N2-7：新开堆叠是一个全新的物品身份，品质缺省取模板自身 quality 字段（同
-                // ItemInstance 类型顶部判断记录"新建实例时由掉落（T-N2-8）给定，本任务范围内的一般
-                // 创建路径——AddItem/TryAddItem 不接受显式品质参数——缺省按模板自身品质解析"）；词缀
-                // 缺省空（本方法不产生带词缀的新实例，带词缀掉落落地属于 T-N2-8）。
-                bag.Add(new ItemInstance(instanceId, templateId, take, template.GetId("quality"), null));
+                // T-N2-7/T-N2-8b：新开堆叠的品质/词缀取本次调用解析出的身份（默认身份下与模板自身
+                // quality 字段、无词缀完全一致，行为同改造前）。
+                bag.Add(new ItemInstance(instanceId, templateId, take, resolvedQuality, resolvedAffixes));
                 touchedInstanceId = instanceId;
                 remaining -= take;
                 removals.Add((instanceId, take));

@@ -490,9 +490,13 @@ namespace Core.Gameplay.Assembly
                 conditionSchema: GameplaySchemaCatalog.FullExprSchema);
             deferredLootRoller.Bind(Loot);
 
+            // T-N2-8b：Difficulty 已在上一步构造完成，直接传入（不需要像 healthFractionSetter/
+            // powers/statsRef 那样用闭包延迟回填）——供 OnUnitDied 构造 RollContext 时取
+            // IDifficultyHost.ItemLevelOffset（见 CreatureDeathLootListener 该构造重载判断记录）。
             _ = new CreatureDeathLootListener(
                 bus, Loot, Carriers.Creatures, Carriers.Units, world,
-                lootMultiplierProvider: () => Difficulty.LootMultiplier);
+                lootMultiplierProvider: () => Difficulty.LootMultiplier,
+                difficultyHost: Difficulty);
 
             // ---------------------------------------------------------
             // 7) RewardDispatcher：currencyGranter 用局部变量延迟闭包接到第 8 步才构造出来的

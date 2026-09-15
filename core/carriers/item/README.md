@@ -741,6 +741,39 @@ item/
       `GetCapacity` 返回 0 而不是"不限"；未注入 `statLookup` 时抛异常 1 条；接口默认成员本身
       1 条——未覆盖 `GetCapacity` 的最小 Fake 恒返回 `int.MaxValue`）。
 
+24. **T-N2-8b（T-N2-8 已知缺口收口，见判断记录 22 末段与 `core/gameplay/loot/README.md` 判断记录
+    15 末段"拾取入包的品质/词缀传递留给后续任务补齐"；ADR-0032 决策 7/8）：`IInventoryHost` 新增
+    带身份的 `AddItem`/`TryAddItem` 重载，`InventoryHost` 显式实现并接入非默认身份不堆叠规则**——
+    涉及 `core/carriers/common/contracts/IInventoryHost.cs`、`core/carriers/item/core/
+    InventoryHost.cs`。
+    - **新成员签名（ABI：新增默认接口成员，照既有 `AddItem`/`TryAddItem` 的返回类型与参数顺序
+      追加两个身份参数）**：`bool AddItem(Id unitId, Id templateId, int count, Id? qualityId,
+      IReadOnlyList<Id>? affixes)`、`bool TryAddItem(Id unitId, Id templateId, int count, Id?
+      qualityId, IReadOnlyList<Id>? affixes, out int actualCount)`；默认实现转发旧签名（丢弃身份，
+      落地物品仍是模板缺省品质/无词缀）——同判断记录 23`GetCapacity` 一贯口径"默认值 = 历史行为
+      原样保留，只有 `InventoryHost` 需要覆盖"，未覆盖的既有实现（各模块测试 Fake）不需要改动即可
+      继续编译通过；`InterfaceDefaultMemberForwardingTests` 已确认生产程序集内唯一实现
+      `IInventoryHost` 的类型只有 `InventoryHost`，已显式覆盖两个新成员，不需要额外豁免登记。
+    - **堆叠规则判断（"默认身份"是能否续填/合并既有堆叠的唯一标准，与调用方是否显式传参无关）**：
+      `InventoryHost.AddItemCore` 解析出 `resolvedQuality = qualityId ?? templateQuality`、
+      `resolvedAffixes`（非空时取之，否则视为空），当且仅当 `resolvedQuality == templateQuality
+      且 resolvedAffixes 为空` 时判定为"默认身份"——`Core.Gameplay.Loot.LootHost.
+      ResolveDefaultOutcome` 一类"缺省照模板品质解析"的调用路径会显式传入一个等于模板品质的
+      `Id`（不是 `null`），同样判定为默认身份，续填/合并行为与改造前逐字节一致（既有三组
+      `AddItem_StacksSameTemplate_MergesUpToStackSize` 一类测试未改动、原样通过）。带词缀或非
+      模板品质的物品视为与模板默认形态不同的身份，即使 `templateId` 相同、即使两次给的身份完全
+      一样，也不与任何既有堆叠合并，总是新开格子——本任务范围内设计层已拍板的简化取舍：同一品质
+      同一词缀组合的战利品反复掉落时不会自动堆叠成一条，代价是格子占用更多，换来的是不需要引入
+      "词缀顺序无关的集合相等"这一更复杂的堆叠判定（多重词缀顺序不同但内容相同是否算"同一身份"，
+      架构未给出判断依据）。见 `core/carriers/item/tests/InventoryHostTests.cs`
+      （`AddItem_WithIdentity_StoresQualityAndAffixesOnNewInstance`/
+      `AddItem_SameTemplateDifferentQuality_DoesNotStack`/
+      `AddItem_NonDefaultIdentity_NeverStacksEvenWithIdenticalIdentity_OrExistingDefaultStack`）与
+      `core/carriers/common/tests/ItemTypesTests.cs`（默认接口成员转发行为 2 条）。
+    - **消费方——`Core.Gameplay.Loot.LootHost.PickUp` 改用带身份重载**：见
+      `core/gameplay/loot/README.md` 判断记录 16。本模块自身不触碰 `LootHost`（L4 模块），只提供
+      被消费的契约面。
+
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.ISkillHost` 没有"学习/遗忘技能"方法（技能书能力目前只存在于
