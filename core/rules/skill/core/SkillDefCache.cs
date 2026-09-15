@@ -257,7 +257,9 @@ namespace Core.Rules.Skill
         // 解析
         // -----------------------------------------------------------------
 
-        private static SkillDef ParseSkillDef(DataRecord record)
+        // T-N3-4：改为实例方法（原为 static）——解析 use_condition 需要 _exprSchema（同
+        // ParseProcDef.condition 惯例），静态方法拿不到实例字段。其余解析逻辑与改动前逐字节相同。
+        private SkillDef ParseSkillDef(DataRecord record)
         {
             var id = record.GetId("id");
             var school = record.GetId("school");
@@ -317,10 +319,19 @@ namespace Core.Rules.Skill
                 }
             }
 
+            // T-N3-4（ADR-0031 决策 9）：与 ParseProcDef.condition 同一惯例——use_condition 是
+            // FieldKind.Expr 原始文本（T-N3-1 已登记 expr_parsable 校验，见 SkillSchemas.Def），运行期
+            // 用同一份 _exprSchema 再解析一次成 ExprNode，供 CastPipeline 步骤 1.5 求值。
+            ExprNode? useCondition = null;
+            if (record.TryGetString("use_condition", out var useConditionText) && !string.IsNullOrEmpty(useConditionText))
+            {
+                useCondition = ExprParser.Parse(useConditionText, _exprSchema);
+            }
+
             return new SkillDef(
                 id, school, isPassive, range, tags, castTime, channelTime, cost,
                 cooldownCategory, cooldownDuration, chargesMax, chargesRecharge,
-                respectsGcd, targetShapeRef, effects, interruptFlags, actionCost, allowGroundTarget);
+                respectsGcd, targetShapeRef, effects, interruptFlags, actionCost, allowGroundTarget, useCondition);
         }
 
         internal static IReadOnlyList<EffectRef> ParseEffectRefs(JsonArray array)

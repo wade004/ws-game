@@ -52,6 +52,13 @@ namespace Core.Rules.Skill
         private readonly EffectDispatcher _effectDispatcher;
         private readonly CastPipeline _pipeline;
 
+        /// <summary>
+        /// T-N3-4：与 <see cref="_procHost"/> 共用的同一个 <see cref="IExprHostFactory"/> 实例（构造
+        /// 函数必填参数，见其 <c>ArgumentNullException</c> 校验），本类型此前只在构造函数局部变量里
+        /// 用过、未留存字段——<see cref="GetSkillReadiness"/> 求值 <c>skill.def.use_condition</c>
+        /// （步骤 1.5 的只读查询裁决，见该方法判断记录）需要它，因此补上本字段。</summary>
+        private readonly IExprHostFactory _exprHostFactory;
+
         private readonly Dictionary<Id, HashSet<Id>> _knownSkills = new Dictionary<Id, HashSet<Id>>();
 
         /// <summary>
@@ -143,6 +150,7 @@ namespace Core.Rules.Skill
             if (combatHost == null) throw new ArgumentNullException(nameof(combatHost));
             if (targetHost == null) throw new ArgumentNullException(nameof(targetHost));
             if (exprHostFactory == null) throw new ArgumentNullException(nameof(exprHostFactory));
+            _exprHostFactory = exprHostFactory;
 
             var options1 = options ?? new SkillOptions();
             _options = options1;
@@ -181,9 +189,12 @@ namespace Core.Rules.Skill
                 projectileSpawner, weaponDamageQuery, options1);
             _auraHost.EffectSink = _effectDispatcher;
 
+            // T-N3-4：改用带 exprHostFactory 的十四参数重载（见 CastPipeline 该重载判断记录），供
+            // 施法管线步骤 1.5"使用条件"求值——复用本类型已经传给 _procHost 的同一个实例，不是新增
+            // 依赖。
             _pipeline = new CastPipeline(
                 _defs, _cooldowns, _auraHost, _effectDispatcher, targetHost, _units, spatialQuery,
-                powerHost, _spellMods, eventBus, options1, _diagnostics, navigation);
+                powerHost, _spellMods, eventBus, options1, _diagnostics, navigation, exprHostFactory);
 
             // R05 收边补齐（外部审计 5e779c6，P2；见 Core.Rules.Common.TimeModelRescaledEvent
             // 类型判断记录）：本类型是 CooldownTracker/AuraHost 的组合根，在这里订阅一次、原子
@@ -488,10 +499,22 @@ namespace Core.Rules.Skill
         /// !isDiscreteStep</c> 同时成立时才参与裁决——与 <see cref="CastPipeline"/> 步骤 4 判定条件
         /// 逐字对齐；不满足时 <see cref="SkillReadiness.GlobalCooldownRemaining"/> 恒为 0（"不适用"
         /// 与"适用但已就绪"对 <see cref="SkillReadiness.IsReady"/> 效果相同）。</item>
+        /// <item>
+        /// T-N3-4（ADR-0031 决策 10）新增：<c>!_options.GcdEnabled &amp;&amp; def.RespectsGcd &amp;&amp;
+        /// !isDiscreteStep &amp;&amp; _pipeline.IsCasting(unitId)</c> 同时成立时置位 <see
+        /// cref="SkillReadinessBlockers.ActionLocked"/>——与 <see cref="CastPipeline"/> 步骤 4"节拍锁"
+        /// GcdEnabled=false 分支判定条件逐字对齐。
+        /// </item>
+        /// <item>
+        /// T-N3-4（ADR-0031 决策 9）新增：<c>def.UseCondition != null</c> 且求值为假时置位 <see
+        /// cref="SkillReadinessBlockers.ConditionNotMet"/>——与 <see cref="CastPipeline"/> 步骤 1.5
+        /// 同一套 <c>ExprEvaluator.EvaluateBool</c> 调用惯例，宿主不绑定目标（<c>targetId: null</c>，
+        /// 本查询没有"本次施法请求"的显式目标列表可用）。
+        /// </item>
         /// </list>
         /// <see cref="SkillReadiness.IsReady"/> 因此与随后一次 <see cref="CastSkill"/> 在同一冷却/
-        /// 充能/公共冷却状态下会得到一致的"是否会被这三类原因拒绝"结论（不含步骤 1/2/5/6/7 等其它
-        /// 拒绝原因，见接口方法文档）。<see cref="SkillReadiness.EffectiveCooldownDuration"/> 对充能
+        /// 充能/公共冷却/节拍锁/使用条件状态下会得到一致的"是否会被这几类原因拒绝"结论（不含步骤
+        /// 2/5/6/7 等其它拒绝原因，见接口方法文档）。<see cref="SkillReadiness.EffectiveCooldownDuration"/> 对充能
         /// 技能取单次恢复时长（<see cref="CooldownTracker.GetEffectiveRechargeTimeScaled"/>），对
         /// 普通冷却技能取 <c>cooldown</c> 维度 SpellMod 修正后再按当前时间模型折算的完整冷却时长
         /// （与 <see cref="StartCooldownAndGcd"/> 的 <c>modifiedCooldown</c> 计算同一算式，唯一区别是
@@ -576,7 +599,28 @@ namespace Core.Rules.Skill
                 }
             }
 
-            var isReady = cooldownOrChargesReady && globalCooldownRemaining <= 0;
+            // T-N3-4（ADR-0031 决策 10，06 第 3.6 节 2026-09-14 修订）：节拍锁泛化——GcdEnabled=false
+            // 时，respects_gcd=true 的技能若施法者正处于他技能动作时长内（IsCasting），与
+            // CastPipeline 步骤 4 判定条件逐字对齐（同一份 def.RespectsGcd/isDiscreteStep 前提，见
+            // TryStartCast 步骤 4 判断记录）。GcdEnabled=true 时本分支不生效，节拍锁仍只反映在上面的
+            // GlobalCooldown 位上（T-N3-4 硬性规则：禁止改 GcdEnabled=true 的行为）。
+            var actionLocked = !_options.GcdEnabled && def.RespectsGcd && !isDiscreteStep && _pipeline.IsCasting(unitId);
+            if (actionLocked)
+            {
+                blocking |= SkillReadinessBlockers.ActionLocked;
+            }
+
+            // T-N3-4（ADR-0031 决策 9，06 第 3.6 节 2026-09-14 修订"readiness 只读查询的裁决口径同步
+            // 纳入本步"）：新插入的步骤 1.5"使用条件"——只读求值，不推进时间、不修改任何状态，与
+            // CastPipeline.EvaluateUseCondition 同一套 ExprEvaluator.EvaluateBool 调用惯例。
+            var conditionNotMet = def.UseCondition != null &&
+                !ExprEvaluator.EvaluateBool(def.UseCondition, _exprHostFactory.CreateFor(unitId, null, null), new ExprDiagnosticsRecorder());
+            if (conditionNotMet)
+            {
+                blocking |= SkillReadinessBlockers.ConditionNotMet;
+            }
+
+            var isReady = cooldownOrChargesReady && globalCooldownRemaining <= 0 && !actionLocked && !conditionNotMet;
 
             return new SkillReadiness(
                 skillId: def.Id,

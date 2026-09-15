@@ -17,6 +17,12 @@ namespace Core.Rules.Common
     /// <see cref="InsufficientActionPoints"/>（W1 收边补充，见其注释）、<see cref="QueueCleared"/>
     /// （消费方反馈 2026-09-10 补充，见其注释）。
     /// </para>
+    /// <para>
+    /// T-N3-4（ADR-0031 决策 9/10，06 第 3.1/3.6 节 2026-09-14 修订）新增两项：<see cref="ConditionNotMet"/>
+    /// 对应新插入的步骤 1.5"使用条件"；<see cref="ActionLocked"/> 对应步骤 4"节拍锁"泛化后、
+    /// <c>SkillOptions.GcdEnabled=false</c> 时的新分支（见两者各自注释）。二者追加在枚举末尾，不改变
+    /// 既有成员的数值（本枚举非 <c>[Flags]</c>，调用方按值比较，不依赖具体整数）。
+    /// </para>
     /// </summary>
     public enum CastFailureReason
     {
@@ -108,5 +114,36 @@ namespace Core.Rules.Common
         /// 未注入 <c>ISpatialQuery</c> 时本校验跳过（同步骤 7 既有降级惯例）。
         /// </summary>
         GroundTargetNoLineOfSight,
+
+        /// <summary>
+        /// T-N3-4（ADR-0031 决策 9，06 第 3.1/3.6 节 2026-09-14 修订）补充：新插入的步骤 1.5"使用条件"
+        /// ——<c>skill.def.use_condition</c>（宿主为施法者上下文，见 <c>core/rules/expr_host</c>）求值为
+        /// 假。检查位置在步骤 1（存活与状态）之后、步骤 2（学派锁定）之前，早于步骤 6 的目标解析——
+        /// 条件引用 <c>target.*</c> 分组时，只有调用方显式传入了 <c>targets</c> 才有候选目标可绑定
+        /// （见 <see cref="Core.Rules.Skill.CastPipeline"/> 判断记录"使用条件的目标绑定"），未解析出
+        /// 目标时按 <c>core/rules/expr_host</c> 既有"引用对象暂缺按默认值处理"惯例，不是本原因码的
+        /// 独立分支。<see cref="Core.Rules.Skill.ISkillHost.GetSkillReadiness"/> 的只读查询同步纳入本项
+        /// （<see cref="Core.Rules.Skill.SkillReadinessBlockers.ConditionNotMet"/>）。
+        /// </summary>
+        ConditionNotMet,
+
+        /// <summary>
+        /// T-N3-4（ADR-0031 决策 10，06 第 3.1/3.6 节 2026-09-14 修订）补充：步骤 4"节拍锁"泛化后，
+        /// <c>SkillOptions.GcdEnabled=false</c> 分支的失败原因——施法者正处于另一个技能的动作时长内
+        /// （读条/引导尚未结束，<c>CastPipeline.IsCasting</c> 为真），且本次请求的技能
+        /// <c>respects_gcd=true</c>。<c>respects_gcd=false</c> 的反应类技能（打断/格挡/保命）不落入
+        /// 本分支，可在他技能动作中插入（见 <c>CastPipeline.CastSkill</c> 判断记录"反应类插入"）。
+        /// <c>GcdEnabled=true</c> 时本分支不生效，节拍锁仍是既有 <see cref="GcdActive"/>（步骤 4 原有
+        /// 分支，逐字节不变）——两者互斥，同一次调用只会返回其中之一。与既有 <see cref="Busy"/>
+        /// 的关系：<see cref="Busy"/> 覆盖"落在法术队列窗口之外的忙碌拒绝"这一路径本身不区分
+        /// <c>respects_gcd</c>；本原因码是 <c>GcdEnabled=false</c> 时对同一路径里
+        /// "respects_gcd=true 因而必然被节拍锁拒绝"这一具体成因的精确化——两者不是同一层级的互斥
+        /// 分类，<see cref="Busy"/> 在 <c>GcdEnabled=false</c> 下只保留给"反应类技能因自身需要非瞬发
+        /// 读条/引导、无法安全插入现有 <c>CastState</c> 槽位"这一边缘情形（见
+        /// <c>core/rules/skill/README.md</c> 判断记录"反应类插入的槽位保护"），不再是
+        /// <c>GcdEnabled=false</c> 下"忙碌"的默认原因码。<see cref="Core.Rules.Skill.ISkillHost.GetSkillReadiness"/>
+        /// 的只读查询同步纳入本项（<see cref="Core.Rules.Skill.SkillReadinessBlockers.ActionLocked"/>）。
+        /// </summary>
+        ActionLocked,
     }
 }
