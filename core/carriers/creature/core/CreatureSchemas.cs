@@ -1,4 +1,5 @@
 using Core.Foundation.DataRegistry;
+using Core.Rules.Common;
 
 namespace Core.Carriers.Creature
 {
@@ -98,6 +99,17 @@ namespace Core.Carriers.Creature
                     description: "缺省 1"),
                 new FieldSchema("control_immune", FieldKind.Bool, required: false,
                     description: "Boss/精英级免疫标志（06 第 3.9 节），缺省 false"),
+                // T-N3-6 新增（ADR-0031 决策 8；06 第 3.3 节 2026-09-14 修订段"Boss 免疫标志按类别
+                // 声明"）：并存字段，不改写 control_immune 本身（硬性规则"旧布尔字段保留，迁移/兼容
+                // 读取"）——判断记录（优先级）：control_immune=true 时 CreatureImmunityProvider 仍按
+                // 旧语义整体免疫全部类别（见该类型 IsControlCategoryImmune 判断记录，等价于本字段
+                // 隐含全部六值，不需要在数据里重复枚举）；control_immune=false 时改看本字段声明的
+                // 具体类别子集，二者互不覆盖、按"任一命中即免疫"的方式叠加。缺省空列表（不免疫任何
+                // 类别），不升 currentSchemaVersion、不需要迁移函数——纯新增可选字段，旧数据不受影响。
+                new FieldSchema("control_immune_categories", FieldKind.Array, required: false,
+                    item: new FieldSchema("<category>", FieldKind.Enum, required: true, enumValues: ControlCategoryValues.All,
+                        description: "免疫的控制类别，取值同 skill.aura_def 的 control.category（stun|root|silence|disarm|fear|polymorph）"),
+                    description: "按类别声明的控制免疫（T-N3-6），与 control_immune（全部类别）并存，缺省空列表"),
                 new FieldSchema("sort_weight", FieldKind.Number, required: false,
                     description: "仅供内容管线排序展示，运行期不读取，缺省 0"),
             }).WithOwnership(SchemaLayer.Carriers, "creature");

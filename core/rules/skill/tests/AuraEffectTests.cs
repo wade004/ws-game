@@ -261,6 +261,73 @@ namespace Tests.Rules.Skill
         }
 
         [Fact]
+        public void ApplyAura_ControlEffectWithCategory_TargetImmuneToThatCategory_BlocksFlags()
+        {
+            // T-N3-6（ADR-0031 决策 8；06 第 3.3 节 2026-09-14 修订段）：control 效果声明 category
+            // 时，目标对该具体类别静态免疫应使这条控制效果完全不生效（同"未分类"既有语义一致——不是
+            // "吃到了又立刻解除"，是从未真正置位，见 AuraHost.ApplyStaticEffects 判断记录）。
+            var aura = J.O(
+                ("id", J.S("skill.aura_def.sample_stun_category")),
+                ("duration", J.N(30)),
+                ("effects", J.A(
+                    J.O(("kind", J.S("control")),
+                        ("params", J.O(("flags", J.A(J.S("no_move"))), ("category", J.S("stun"))))))));
+
+            var staticImmunity = new FakeStaticImmunityProvider()
+                .SetControlCategoryImmune(new Id("unit.target"), "stun");
+
+            var world = new SkillWorldBuilder { StaticImmunity = staticImmunity }.AuraDef(aura).Build();
+            world.AddUnit(new Id("unit.target"));
+
+            world.Host.EffectSink.ApplyAura(new Id("unit.target"), new Id("skill.aura_def.sample_stun_category"), new Id("unit.source"));
+
+            Assert.Equal(ControlFlags.None, world.Host.AuraQuery.GetControlFlags(new Id("unit.target")));
+        }
+
+        [Fact]
+        public void ApplyAura_ControlEffectWithCategory_TargetImmuneToDifferentCategory_FlagsStillApply()
+        {
+            // 同一验收组的另一半：免疫 "stun" 不等于免疫 "root"——声明 category=root 的控制效果对
+            // 只免疫 "stun" 的目标应正常生效。
+            var aura = J.O(
+                ("id", J.S("skill.aura_def.sample_root_category")),
+                ("duration", J.N(30)),
+                ("effects", J.A(
+                    J.O(("kind", J.S("control")),
+                        ("params", J.O(("flags", J.A(J.S("no_move"))), ("category", J.S("root"))))))));
+
+            var staticImmunity = new FakeStaticImmunityProvider()
+                .SetControlCategoryImmune(new Id("unit.target"), "stun");
+
+            var world = new SkillWorldBuilder { StaticImmunity = staticImmunity }.AuraDef(aura).Build();
+            world.AddUnit(new Id("unit.target"));
+
+            world.Host.EffectSink.ApplyAura(new Id("unit.target"), new Id("skill.aura_def.sample_root_category"), new Id("unit.source"));
+
+            Assert.Equal(ControlFlags.NoMove, world.Host.AuraQuery.GetControlFlags(new Id("unit.target")));
+        }
+
+        [Fact]
+        public void ApplyAura_ControlEffectWithCategory_TargetNotImmuneToAnyCategory_FlagsApply()
+        {
+            // 未登记免疫任何类别时，声明了 category 的控制效果按 flags 正常生效（category 本身不是
+            // 一个额外的限制条件，只是免疫判定的分类依据）。
+            var aura = J.O(
+                ("id", J.S("skill.aura_def.sample_silence_category")),
+                ("duration", J.N(30)),
+                ("effects", J.A(
+                    J.O(("kind", J.S("control")),
+                        ("params", J.O(("flags", J.A(J.S("no_cast"))), ("category", J.S("silence"))))))));
+
+            var world = new SkillWorldBuilder().AuraDef(aura).Build();
+            world.AddUnit(new Id("unit.target"));
+
+            world.Host.EffectSink.ApplyAura(new Id("unit.target"), new Id("skill.aura_def.sample_silence_category"), new Id("unit.source"));
+
+            Assert.Equal(ControlFlags.NoCast, world.Host.AuraQuery.GetControlFlags(new Id("unit.target")));
+        }
+
+        [Fact]
         public void Dispel_RemovesUpToCount_OfMatchingDispelType()
         {
             var poison1 = J.O(("id", J.S("skill.aura_def.sample_poison1")), ("duration", J.N(30)),

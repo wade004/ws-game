@@ -948,6 +948,98 @@ skill/
     任务引入）。不新增任何效果原语，未改动 `architecture/06_规则层_属性技能战斗AI.md`/
     `architecture/04_数据与内容管线.md`（两者 2026-09-14 修订段已预先描述本任务落地的契约）。
 
+53. **T-N3-6（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 8；06 第
+    3.3 节 2026-09-14 修订段；分阶段落地计划第 14 节 N3 任务表第六行）：`control` 光环效果新增
+    可选 `category`，按类别静态免疫（`tier_definition.control_immune_categories`），
+    `CreatureImmunityProvider` 带类别。**取值集合**：新增 `Core.Rules.Common.ControlCategoryValues`
+    （`core/rules/common/contracts`，固定六值 `stun|root|silence|disarm|fear|polymorph`，顺序同
+    06 原文），与 `creature.tier_definition.control_immune_categories`（见
+    `core/carriers/creature/README.md` 判断记录 8）共用同一份取值集合——两者均在 `Core.Rules`
+    程序集可达范围内（`Core.Carriers.csproj` -&gt; `Core.Rules.csproj`），惯例同本文件同目录下
+    `EffectKind`/`EffectKindNames`、T-N3-1 新增的 `SettlementEffectKinds` 供 `core/rules/skill`
+    与 `core/carriers/creature` 两侧共用的既有做法，避免两处漂移。`SkillSchemas.cs` 的 `control`
+    变体新增可选 `category` 字段（`FieldKind.Enum`，`enumValues: ControlCategoryValues.All`）；
+    可选、缺省未分类，不升 `skill.aura_def` schema 版本、不需要迁移函数（判断记录：契约原文只说
+    "新增 `category`"未明确必填/可选，任务书据"AuraHost 控制施加处……category 缺省时的处理：
+    视为'未分类'→旧布尔语义"这一实现要点临时判定为可选——既不破坏零数据存在的现状，也让"缺省退回
+    旧语义"这一契约句子在字段层面直接可表达，若设计层拍板必填需另行升版本并补迁移函数）。
+    <br/><br/>
+    **`AuraHost.ApplyStaticEffects` 的 `Control` 分支新增判定**（`core/rules/skill/core/AuraHost.cs`）：
+    既有"按 `flags` 解析出控制标志位、经 `_staticImmunity.GetControlImmunity(targetId)` 掩码剔除
+    静态免疫标志位"这条既定逻辑原样保留、无条件先执行（回归不变）；`entry.Params` 新增
+    `ParamsX.GetStringOpt(entry.Params, "category")` 读取（`ParamsX` 新增 `GetStringOpt`，与既有
+    `GetIdOpt` 同一惯例，区分"字段缺失"与"字段存在且是空字符串"，供这类"缺省即退回旧语义"的可选
+    字段使用），`category` 非空时额外查询新增的 `_staticImmunity.IsControlCategoryImmune(targetId,
+    category)`，命中则本条目 `flags` 置为 `ControlFlags.None`（该控制效果条目对目标完全不生效，
+    语义同"完全没吃到这个光环的控制效果"，不是"吃到了又立刻解除"，同既有按标志位免疫那行注释的
+    既定表述一致）——`category` 缺省时不查询新接口，逐位维持改动之前的行为。
+    <br/><br/>
+    **免疫接口**：`IStaticImmunityProvider`（`core/rules/common/contracts`，即任务书所指
+    "`IImmunityProvider` 之类"，仓库内实际命名）新增默认接口成员
+    `bool IsControlCategoryImmune(Id unitId, string category)`（ABI 安全的新增方式，C# 8+ default
+    interface member）：默认实现 `GetControlImmunity(unitId) != ControlFlags.None`——"存在任意旧式
+    静态控制免疫标志（无论是 tier 整体标记还是单项 `control.&lt;flag&gt;`）即视为对任意类别都
+    免疫"，是"未分类退回旧布尔语义"这一约定在尚未升级实现方一侧的自然结果，不需要逐一改动既有
+    实现。`NullStaticImmunityProvider` 显式覆盖为恒 `false`（默认值本身即"一律不免疫"的正确结果，
+    没有更好的值可转发，同该类型 `GetControlImmunity` 既有惯例）。
+    <br/><br/>
+    **`CreatureImmunityProvider` 带类别**（`core/carriers/creature`，详见该模块 README 判断记录
+    8）：新增 `internal const string ControlCategoryPrefix = "control_category."`（与既有
+    `control.&lt;flag&gt;` 前缀正交，不复用同一前缀，避免 `control.stun` 这类写法在既有
+    `GetControlImmunity`/`ParseControlFlag` 里被当成未知标志位静默吃掉）；`IsControlCategoryImmune`
+    判定顺序：① 命中 tier 整体标记（`_controlImmuneMarker`）→ 对任意类别都返回 `true`（旧布尔
+    迁移等价，`control_immune=true` → 全部类别免疫，不需要枚举）；② 存在
+    `control_category.&lt;category&gt;` 条目且精确匹配（`StringComparison.Ordinal`）→ `true`；
+    ③ 其余（含未登记/拼写错误的类别文本、或完全没有声明）→ `false`（"未登记类别的控制视为不
+    免疫"，06/ADR-0031 均未规定"未知类别默认免疫"这一相反语义，从严处理避免拼写错误被静默放大为
+    意外的全面免疫）。`IsImmune`（学派/效果原语免疫）同步补一处跳过分支——`control_category.*`
+    条目同既有 `control.*` 一样不落入"当学派 id 处理"分支，两者是正交维度。
+    <br/><br/>
+    **`CreatureSchemas.cs`/`CreatureFactory.cs` 字段形态判断记录**：`creature.tier_definition`
+    新增可选 `control_immune_categories`（`Array<Enum>`）——**并存字段，不改写既有 `control_immune`
+    本身**（硬性规则）。判断记录（并存策略，非改写同一字段）：07 原文未在本次修订段直接改写
+    `creature.tier_definition` 这张表（该表是 04/任务书补录，不在 07 正文），06 第 3.3 节
+    2026-09-14 修订段只说"`creature.template` 的控制免疫标志按类别声明"（散文表述，未点名具体是
+    改写 `tier_definition.control_immune` 这个已有字段还是新增字段），据任务书裁定"优先新增并存
+    字段+兼容读取（不升版本、零迁移风险），除非 07 原文明确改写同一字段"——07 原文未明确改写，
+    故采纳并存策略。`CreatureFactory.LoadTiers` 解析该数组字段（惯例同 `SkillDefCache` 解析
+    `interrupt_flags` 的既有写法：遍历 `JsonArray` 取字符串元素）；`Spawn` 在既有"整体标记"写入
+    逻辑之后新增独立的按类别写入循环（不受 `CreatureOptions.ImmunityTagPrefix` 是否配置影响——
+    该选项只是"整体控制免疫"这个便捷标记的开关，本字段是内容直接声明的具体类别子集，两者是正交
+    维度）。
+    <br/><br/>
+    **契约疑点（上报，待设计层确认）**：(1) `control.category` 是否必填——见上方判断记录，本任务
+    按可选临时判定。(2) `creature.tier_definition.control_immune_categories` 的具体字段名——07/06
+    均未给出，本任务据 `control_immune` 既有命名惯例临时判定为 `control_immune_categories`（并存
+    而非改写）；若设计层拍板改写同一字段（如把 `control_immune` 从 `Bool` 直接改成
+    `Bool|Array<category>` 联合类型），需要按 ADR 流程改结论、升 schema 版本并补迁移函数（旧
+    `true`→全部类别数组，`false`→空数组），不影响本任务"按类别免疫"这一主线契约的运行时判定
+    逻辑（`IsControlCategoryImmune` 的三步判定顺序不变，只是数据来源字段名/形态可能调整）。
+    <br/><br/>
+    **禁止事项**：未实现控制递减本身（06 第 3.9 节"控制递减"机制——同类控制连续命中效果减半直至
+    免疫——裁剪为可选策略，钩子挂在类别上，本任务只落地类别本身与按类别免疫，递减钩子留待后续
+    任务在光环叠加规则策略上落地）。
+    <br/><br/>
+    测试：`core/rules/skill/tests/AuraEffectTests.cs` 新增 3 例（免疫声明类别时该条目不生效 1、
+    免疫声明的是另一类别时仍正常生效 1、未声明任何免疫时正常生效 1，覆盖"免疫 stun 不免疫 root"
+    验收场景）；`core/rules/skill/tests/SkillSchemaCoverageTests.cs` 新增 1 例（schema 覆盖，锁死
+    `category` 字段登记与 `ControlCategoryValues.All` 取值集合一致）；
+    `core/carriers/creature/tests/CreatureImmunityProviderTests.cs` 新增 5 例（单类别免疫 1、多
+    类别免疫 1、未登记类别查询返回不免疫 1、旧布尔迁移等价 true 侧 1、旧布尔迁移等价 false 侧
+    1）；`core/carriers/creature/tests/CreatureFactoryTests.cs` 新增 1 例（`Spawn` 按
+    `control_immune_categories` 写入对应标记、不写入未声明类别、不写入整体标记）。合计新增 10
+    例。全量 `Tests.Rules`（713 例，含新增 4 例）/`Tests.Carriers`（583 例，含新增 6 例）/不带
+    filter 的全量六程序集回归全绿，`Replay`（12+2+10 例）回归全绿、基线零改动（`ReplayWorldBuilder`/
+    `FightWorldBuilder` 等独立内联夹具无 `control` 类光环声明 `category`、无
+    `control_immune_categories` 样例，不触达本任务新增的判定分支）。
+    `InterfaceDefaultMemberForwardingTests` 通过（`CreatureImmunityProvider`/
+    `NullStaticImmunityProvider` 均已显式覆盖新增默认接口成员）。ABI 探针（基线 1.32.0）breaks=0，
+    新增 5 行（`ControlCategoryValues` 一个新类型 + 一个字段共 2 行、`IStaticImmunityProvider`/
+    `NullStaticImmunityProvider`/`CreatureImmunityProvider` 各一个新方法共 3 行，累计新增 31 行，
+    其余 26 行为 T-N3-1～T-N3-5 既有新增，非本任务引入）。不实现控制递减本身，不新增任何效果
+    原语，未改动 `architecture/06_规则层_属性技能战斗AI.md`/`architecture/04_数据与内容管线.md`
+    （两者 2026-09-14 修订段已预先描述本任务落地的契约）。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：

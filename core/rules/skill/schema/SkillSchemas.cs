@@ -412,7 +412,14 @@ namespace Core.Rules.Skill
                         item: new FieldSchema("<flag>", FieldKind.Enum, required: true, enumValues: ControlFlagValues,
                             description: "控制标志位取值，见 ControlFlagValues（no_move|no_cast|no_attack|no_interact）"),
                         description: "控制标志位集合，缺省不施加任何控制"),
-                }, "对目标施加控制标志位，见 flags 子字段"),
+                    // T-N3-6（ADR-0031 决策 8；06 第 3.3 节 2026-09-14 修订段）：控制类别，免疫按类别
+                    // 判——可选（不升 skill.aura_def schema 版本，无需迁移，见 AuraHost.ApplyStaticEffects
+                    // 判断记录"缺省视为未分类，退回旧的按标志位静态免疫判定"）。取值集合与
+                    // creature.tier_definition.control_immune_categories 共用同一份
+                    // Core.Rules.Common.ControlCategoryValues，避免两处漂移。
+                    new FieldSchema("category", FieldKind.Enum, required: false, enumValues: ControlCategoryValues.All,
+                        description: "控制类别（stun|root|silence|disarm|fear|polymorph），免疫按类别判；缺省（未分类）时静态免疫退回旧的按标志位判定（IStaticImmunityProvider.GetControlImmunity），见 AuraHost.ApplyStaticEffects 判断记录"),
+                }, "对目标施加控制标志位，见 flags/category 子字段"),
 
                 // flag：06 第 3.3 节"单纯的标志位光环……不产生其它效果"，params 可省略。
                 [AuraEffectKindNames.ToText(AuraEffectKind.Flag)] = new[]

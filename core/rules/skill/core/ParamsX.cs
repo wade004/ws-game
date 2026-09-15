@@ -43,6 +43,15 @@ namespace Core.Rules.Skill
             return o.TryGetValue(key, out var v) && v is JsonString s ? s.Value : fallback;
         }
 
+        /// <summary>T-N3-6 新增：与 <see cref="GetIdOpt"/> 同一惯例的可选字符串读取——区分"字段缺失/
+        /// 类型不对"（返回 <c>null</c>）与"字段存在且是空字符串"，供 <c>control.params.category</c>
+        /// 这类"缺省即退回旧语义"的可选枚举字段使用（<see cref="GetString"/> 的空字符串缺省值
+        /// 无法与"内容作者显式填了空字符串"区分，不适用于这类判空场景）。</summary>
+        public static string? GetStringOpt(JsonObject o, string key)
+        {
+            return o.TryGetValue(key, out var v) && v is JsonString s ? s.Value : null;
+        }
+
         public static Vec2 GetVec2(JsonObject o, string key, Vec2 fallback)
         {
             if (o.TryGetValue(key, out var v) && v is JsonObject obj

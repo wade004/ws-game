@@ -217,8 +217,36 @@ T-N3-9/T-N3-10 在真正消费这份集合时决定具体收窄方式，详见�
 | `proc_trigger` | `proc_ref`:Reference(`skill.proc_def`)/是 | `AuraHost.ApplyStaticEffects`/`ProcHost.Attach`（同一光环可登记多个本类型条目，各自独立挂载/结算/注销，见 `AuraInstanceState.ProcDefRefs` 判断记录；同一光环内重复引用同一个 `proc_ref` 由下表 `AuraProcTriggerDuplicateRule` 在加载期拒绝） |
 | `spell_mod` | `spell_mod_ref`:Reference(`skill.spell_mod_def`)/是 | `AuraHost.ApplyStaticEffects`/`SpellModResolver` |
 | `override_skill` | `from`:Reference(`skill.def`)/是、`to`:Reference(`skill.def`)/是 | `AuraHost.ApplyStaticEffects`/`ResolveSkillOverride` |
-| `control` | `flags`:Array(Item=Enum(no_move\|no_cast\|no_attack\|no_interact))/否 | `AuraHost.ApplyStaticEffects`/`ParseControlFlags` |
+| `control` | `flags`:Array(Item=Enum(no_move\|no_cast\|no_attack\|no_interact))/否、`category`:Enum(stun\|root\|silence\|disarm\|fear\|polymorph)/否（T-N3-6 新增，缺省未分类，取值集合 `Core.Rules.Common.ControlCategoryValues.All`） | `AuraHost.ApplyStaticEffects`/`ParseControlFlags`（`category` 分支另见下方"控制类别与按类别免疫"一节） |
 | `flag` | 无参数 | 仅供 `self.has_aura(...)` 判断，不产生其它效果 |
+
+## 控制类别与按类别免疫（T-N3-6）
+
+[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 8；06 第 3.3 节 2026-09-14
+修订段：`control` 光环效果新增可选 `category`（固定六值
+`stun|root|silence|disarm|fear|polymorph`，取值集合登记为 `Core.Rules.Common.ControlCategoryValues.All`，
+与 `creature.tier_definition.control_immune_categories`——见 `core/carriers/creature/README.md`
+判断记录 8——共用同一份取值，避免两个模块各自维护一份可能漂移的字符串数组）。
+
+- **缺省（未分类）**：`AuraHost.ApplyStaticEffects` 不查询新增的
+  `IStaticImmunityProvider.IsControlCategoryImmune`，逐位维持改动之前的既有行为——按 `flags` 解析
+  出控制标志位后，只经既有 `GetControlImmunity(unitId)` 掩码剔除静态免疫的标志位（同 06 第 3.9 节
+  "Boss/精英级免疫标志"既有语义）。旧数据/旧测试不声明 `category` 时零改动。
+- **声明了 `category`**：额外查询 `IsControlCategoryImmune(targetId, category)`，命中则本条目对
+  目标完全不生效（`ControlFlags.None`，语义同"完全没吃到这个光环的控制效果"，不是"吃到了又立刻
+  解除"）——这是在既有按标志位掩码之外叠加的一层判定，不取代它。
+- **`IStaticImmunityProvider.IsControlCategoryImmune(Id unitId, string category): bool`**（新增默认
+  接口成员，ABI 安全）：默认实现 `GetControlImmunity(unitId) != ControlFlags.None`（"存在任意旧式
+  静态控制免疫标志即视为对任意类别都免疫"），对尚未升级到按类别精细声明的实现是"未分类退回旧布尔
+  语义"这一约定的自然结果。本仓库内 `Core.Carriers.Creature.CreatureImmunityProvider`（真正按类别
+  精细声明）与 `NullStaticImmunityProvider`（一律不免疫）均已显式覆盖，过
+  `InterfaceDefaultMemberForwardingTests` 通用门禁。
+- **旧布尔 `creature.tier_definition.control_immune` 迁移等价**：`control_immune=true` 时
+  `CreatureImmunityProvider.IsControlCategoryImmune` 对任意类别查询都返回 true（不需要在数据里
+  逐一枚举六值）；`control_immune=false`（且未声明 `control_immune_categories`）时对任意类别都
+  返回 false——与改动之前"该单位完全不受任何控制免疫影响"逐位一致。
+- **禁止事项（硬性规则）**：控制递减（06 第 3.9 节"控制递减"，同类控制连续命中效果减半直至免疫）
+  不在本次改动范围，钩子仍待后续任务在光环叠加规则策略上落地。
 
 ## 效果值契约：`scaling` 列表与 `base_curve_ref`（T-N3-2）
 

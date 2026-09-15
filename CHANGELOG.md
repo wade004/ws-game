@@ -335,6 +335,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `Core.Rules.Skill.SkillNoTimeCostWarningRule`）。`SkillOptions` 新增的
   `HasteAffectsActionTime`/`HasteStat`/`MinActionSeconds`/`MaxHastePct` 四个字段属运行时口味配置
   （C# 构造期参数），不是数据表 `FieldSchema`，不进编辑器数据编辑界面范围。
+- **数值设计落地阶段 N3 · T-N3-6（Unreleased）**：`skill.aura_def` 的 `control` 光环效果新增可选
+  `category`（`FieldKind.Enum`，取值 `stun|root|silence|disarm|fear|polymorph`，缺省不分类）；
+  `creature.tier_definition` 新增可选 `control_immune_categories`（`FieldKind.Array<Enum>`，同一
+  取值集合，与既有 `control_immune` 并存、互不覆盖）。编辑器技能效果编辑界面若展示 `control`
+  效果的 `flags` 多选控件，需要为新增的 `category` 单选下拉补一个选项（六值，可复用与
+  `interrupt_flags` 同款枚举控件）；生物分档编辑界面的 `control_immune` 开关旁需要新增一个可多选
+  的"免疫控制类别"控件（同一份六值枚举，来源
+  `Core.Rules.Common.ControlCategoryValues.All`）。两个字段均为纯新增可选字段，不升
+  `schema_version`、不需要迁移函数，旧数据/旧存档不受影响。
 
 ## [Unreleased]
 
@@ -347,6 +356,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 数值设计落地阶段 N3 · T-N3-4（ADR-0031 决策 9/10；06 第 3.1/3.6 节 2026-09-14 修订段）：施法管线新插入步骤 1.5"使用条件"（求值 `skill.def.use_condition`，为假返回新增失败原因码 `CastFailureReason.ConditionNotMet`）；步骤 4"公共冷却"泛化为"节拍锁"——`GcdEnabled=true` 分支逐字节不变，`GcdEnabled=false` 分支新增判定：`respects_gcd=true` 的技能在施法者他技能动作时长内返回新增失败原因码 `CastFailureReason.ActionLocked`，`respects_gcd=false` 的瞬发反应类技能（打断/格挡/保命）可在动作中插入执行、不占用法术队列、不打断/不覆盖原读条状态；`respects_gcd=false` 但非瞬发时结构性无法安全插入，回退 `Busy`。`SkillReadinessBlockers` 新增同名两位（`ConditionNotMet`/`ActionLocked`），`GetSkillReadiness` 只读查询裁决口径同步纳入这两项。游戏侧接入契约：新引入的两个 `CastFailureReason` 值与两个 `SkillReadinessBlockers` 位需要 UI/AI 消费方按需处理（未处理时按"未知失败原因"通用兜底展示，不会崩溃）；`respects_gcd=false` 技能在 `GcdEnabled=false` 的游戏里语义变化明显（由"读条中一律拒绝/排队"变为"可插入立即执行"），已声明该字段为 `false` 的既有内容作者需要确认这一新行为符合设计意图。不属于"编辑器相关契约"（不涉及 `FieldSchema`/`TableSchema`/编辑器基础套件契约面变化）。不新增任何效果原语，回放基线零改动（`Replay` 场景 `GcdEnabled` 取值不变、无 `use_condition` 样例）。
 
 数值设计落地阶段 N3 · T-N3-5（ADR-0031 决策 10；06 第 3.1/3.6 节 2026-09-14 修订段；13 新游戏接入指南"公共冷却与节拍锁"行）：`CastPipeline.ComputeCastTime` 接入急速策略项与动作时长下限；04 第 5 节"无时间成本"新增警告规则。`SkillOptions` 新增 `HasteAffectsActionTime`（bool，缺省 `false`，硬性规则"禁止默认开启急速缩短"）、`HasteStat`（`Id?`，急速属性 id，缺省 `null`）、`MinActionSeconds`（double，缺省 0）、`MaxHastePct`（double，缺省 100，占位式合理起点）；三者（含 `CastPipeline` 是否经新增十五参数构造函数重载接到了 `IStatHost`）均满足时，`ComputeCastTime` 读取 `IStatHost.GetStat(casterId, HasteStat)` 的最终值（按"百分比数值"解释，`/100` 换算，与既有 `DamageDonePctStat` 一类属性同一惯例），夹到 `[0, MaxHastePct]`（负值按 0），公式 `castTime / (1 + haste% / 100)`，结果与 `MinActionSeconds` 取较大值——但只在 `haste > 0`（确实发生了缩短）时才套用下限，`haste <= 0` 直接返回未折算原值，不受下限影响。任一条件不满足（默认状态、旧构造函数调用方）逐位不变，回归。新增 `SkillNoTimeCostWarningRule`（检查名 `skill_no_time_cost`，`NonEscalatable = true`）：主动技能 `cast_time` 为零且 `respects_gcd` 为真（未声明为反应类）即警告，`channel_time` 非零（纯引导技能）不受约束；已在 `RulesSchemaCatalog` 注册。**契约疑点（上报，待设计层确认）**：(1) 04 第 5 节"无时间成本"一行未给出具体检查名（同组其余行均标注），本任务临时判定为 `skill_no_time_cost`。(2) 06 原文"下限"语境只说"急速能把动作时长压多低"，未明确是否也约束未受急速影响的技能，本任务按"只夹缩短、不改变未被急速影响的原始值"临时判定。**样例数据调整**：`data/_sample/skill/skill.def.json` 的 `skill.sample_strike`/`skill.sample_bolt`（`cast_time: 0`、原 `respects_gcd: true`）在新规则下命中警告，改为 `respects_gcd: false`（声明为反应类）以消除警告，不放宽规则本身——经查证全仓库无 `GcdEnabled = true` 的既有测试且两者均为瞬发技能（不写入 `_casting`），`ReplayWorldBuilder`/`FightWorldBuilder` 等均使用各自独立内联的技能定义不受影响，已验证全量回归与 `Replay` 基线零改动；样例的进一步系统性调整留给 T-N3-11。不新增任何效果原语，不改动 `architecture/06_规则层_属性技能战斗AI.md`/`architecture/04_数据与内容管线.md`（两者 2026-09-14 修订段已预先描述本任务落地的契约）。
+
+数值设计落地阶段 N3 · T-N3-6（ADR-0031 决策 8；06 第 3.3 节 2026-09-14 修订段）：`control` 光环效果新增可选 `category`（`skill.aura_def.effects[kind=control].params.category`，`FieldKind.Enum`，取值集合新增 `Core.Rules.Common.ControlCategoryValues.All`——固定六值 `stun|root|silence|disarm|fear|polymorph`，同 `creature.tier_definition.control_immune_categories` 共用同一份取值，避免两处漂移）；免疫按类别判，`AuraHost.ApplyStaticEffects` 对声明了 `category` 的 `control` 效果条目额外查询 `IStaticImmunityProvider.IsControlCategoryImmune`（新增默认接口成员），命中则该条目对目标完全不生效（`flags = ControlFlags.None`，同既有"完全没吃到这个光环的控制效果"语义一致）；`category` 缺省（未分类）时不查询新接口，逐位维持既有"按标志位与 `GetControlImmunity` 掩码"判定，回归不变，不升 `skill.aura_def` schema 版本、不需要迁移。`creature.tier_definition` 新增可选并存字段 `control_immune_categories`（`Array<Enum>`，同一取值集合）——与既有 `control_immune`（全部类别）并存、互不覆盖：`control_immune=true` 时 `CreatureImmunityProvider.IsControlCategoryImmune` 对任意类别查询都返回 true（旧布尔迁移等价语义，不需要在数据里逐一枚举六值）；`control_immune=false` 时改看本字段声明的具体类别子集，`CreatureFactory.Spawn` 按 `CreatureImmunityProvider.ControlCategoryPrefix`（`control_category.<category>`，与既有 `control.<flag>` 是两个正交前缀）逐条写入 `CreatureUnit.Immunities`，不升 `creature.tier_definition` schema 版本、不需要迁移，旧数据/旧存档不受影响。`IStaticImmunityProvider` 新增默认接口成员 `IsControlCategoryImmune(Id, string): bool`（默认转发 `GetControlImmunity(unitId) != ControlFlags.None`，即"存在任意旧式控制免疫标志即视为全部类别免疫"这一"未分类退回旧布尔语义"的自然结果），`CreatureImmunityProvider`/`NullStaticImmunityProvider` 均已显式覆盖（过 `InterfaceDefaultMemberForwardingTests` 门禁，未新增其它生产实现方）。不实现控制递减本身（06 第 3.9 节"控制递减"钩子仍留待后续任务）。回放/Perf 基线零改动（`ReplayWorldBuilder`/`FightWorldBuilder` 等独立内联夹具无 `control` 类光环声明 `category`、无 `control_immune_categories` 样例，不触达本任务改动的新分支）。
 
 ## [1.32.0] - 2026-09-15
 

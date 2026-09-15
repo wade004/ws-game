@@ -553,9 +553,24 @@ namespace Core.Rules.Skill
                         // 阶段 3 整理"事项三"：静态控制免疫的标志位从本次施加的控制标志里剔除
                         // （见 IStaticImmunityProvider.GetControlImmunity 顶部判断记录"控制类光环
                         // 对该单位一律不生效"）——control_immune 生物身上不会真的置位这些标志，
-                        // GetControlFlags 查询结果与"完全没吃到这个光环的控制效果"等价。
+                        // GetControlFlags 查询结果与"完全没吃到这个光环的控制效果"等价。这条旧的
+                        // 按标志位判定逻辑原样保留、无条件先执行（不受本次 T-N3-6 改动影响，回归）。
                         var flags = ParseControlFlags(ParamsX.GetStringArray(entry.Params, "flags"));
                         flags &= ~_staticImmunity.GetControlImmunity(instance.TargetId);
+
+                        // T-N3-6（ADR-0031 决策 8；06 第 3.3 节 2026-09-14 修订段）：本效果条目声明了
+                        // category 时，额外叠加按类别的静态免疫判定——免疫则本条目对该目标完全不
+                        // 生效（不是"从已算出的 flags 里再抠掉几位"，因为按类别声明的免疫语义是"这一
+                        // 整条控制效果都不生效"，同上面按标志位判定"完全没吃到"的既定语义一致）。
+                        // category 缺省（未分类）时不查询新接口，逐位维持上面按标志位判定的既有行为
+                        // （旧数据/旧测试零改动，见 IStaticImmunityProvider.IsControlCategoryImmune
+                        // 判断记录"缺省退回旧布尔语义"）。
+                        var category = ParamsX.GetStringOpt(entry.Params, "category");
+                        if (category != null && _staticImmunity.IsControlCategoryImmune(instance.TargetId, category))
+                        {
+                            flags = ControlFlags.None;
+                        }
+
                         instance.ControlFlags |= flags;
                         break;
                 }
