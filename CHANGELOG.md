@@ -419,6 +419,26 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **数值设计落地阶段 N6 · T-N6-1**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 1）：新增 `core/sim`（`Core.Sim`/`Tests.Sim`，已加入 `Core.sln`）——数值仿真骨架无头运行器的
+  装配根 `Core.Sim.HeadlessWorldBuilder.Build(HeadlessWorldOptions): HeadlessWorld`，把此前分散在
+  `Tests.Gameplay.EndToEnd.GameWorldFixture.Build` 里"组装一整套 L0～L4 世界"的逻辑上提为框架交付物
+  （事件目录/总线、`DataRegistry` 装载、`RngHost`、`WorldSim`、`StubSpatialQuery`、存档系统、
+  `SimClockHost`、`GameplayAssembly`、玩家单位注册）；数据来源经 `HeadlessWorldOptions.DataSources`
+  注入，装配根本身不含任何读仓库磁盘路径的逻辑。`GameWorldFixture.Build` 已改为调用该装配根，
+  `Fixture` 类型与全部公开字段/方法签名不变，`Tests.Gameplay` 既有用例无改动（仅 `Tests.Gameplay.
+  csproj` 新增对 `Core.Sim.csproj` 的引用）。`Core.Sim` 依赖 `Core.Gameplay` 与 `Adapters.Stub`，
+  不依赖任何 `Tests.*` 程序集或 `Presentation.Common`。新增确定性证明测试
+  `Tests.Sim.DeterminismTests`（同一数据源、同种子两次独立 `Build` 各跑一遍固定战斗脚本，逐 tick
+  比对事件流与玩家/目标关键状态完全一致；另有不同种子在命中判定上产生可观测差异的对照用例）。
+  `build.ps1` 同步进引擎工程的核心程序集清单是显式列出的五个层，不含 `Core.Sim`，未受影响；
+  `dist/` 打包与对应 `check.ps1` 门禁步骤留给 T-N6-7。架构文档勘误（均为把 ADR-0035 决策 1 已拍板
+  结论同步进目录约定正文，不新增结论）：`architecture/11_工程规范与测试.md` 第 1 节目录树补
+  `core/sim/` 一行，并为"`core/` 下的模块不得引用 `adapters/`"这条规则补充唯一例外；
+  `architecture/01_分层与依赖.md` 第 4 节"实现级共享目录"同步补 `core/sim` 一行。
+
 ## [1.35.0] - 2026-09-16
 
 MINOR 版本：数值设计落地阶段 N5"校验全集与编辑器契约面"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 11/14 节，T-N5-1～T-N5-5）——落地 04 第 5 节数值类校验项分级表的全集核对与登记：补齐"属性无消费者"规则缺失的 Expr 表达式引用扫描（补缺规则实现）；新增数值规则集中登记清单与 `validator --json` 规则分组/锚点依赖标记；编辑器产品文档第 4.1/5.8 节契约面补齐并把 HTML 版落后 md 版九次更新的历史缺口一并回填，新增 md/HTML 一致性 pytest 门禁；核对表并入计划文档、04 第 5 节细节勘误、阶段 N5 落地进度记录归档。

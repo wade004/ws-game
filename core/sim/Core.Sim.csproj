@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>Core.Sim</AssemblyName>
+    <RootNamespace>Core.Sim</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="**/tests/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ADR-0035 决策 1：无头运行器复用桩适配层与世界模拟——引用 Core.Gameplay（经其既有
+         ProjectReference 链传递可见 Core.Carriers/Core.Rules/Core.Numbers/Core.Foundation）与
+         Adapters.Stub。判断记录见 core/sim/README.md"为何依赖桩适配层"一节：这是 core/ 下模块
+         "不得引用 adapters/"通用规则（11_工程规范与测试.md 第 1 节）的唯一例外，ADR-0035 已明确
+         拍板，11 第 6 节"数值仿真"行与本次勘误已把例外写入第 1 节正文。 -->
+    <ProjectReference Include="../gameplay/Core.Gameplay.csproj" />
+    <ProjectReference Include="../../adapters/stub/Adapters.Stub.csproj" />
+  </ItemGroup>
+
+</Project>
