@@ -154,5 +154,48 @@ namespace Core.Rules.Combat
         /// </para>
         /// </summary>
         public Action<EffectContext, ResolveResult>? ResolveTrace { get; set; }
+
+        /// <summary>
+        /// T-N4-9（[ADR-0034](../../../../architecture/adr/0034-单一货币与价格挂物品等级.md)
+        /// 决策 7；数值设计分阶段落地计划拍板 9"'进入战斗时移除坐骑光环'归 CombatOptions"）：
+        /// 进入战斗（<see cref="CombatHost.NotifyCombatEvent"/> 由"不在战"转"在战"那一刻，见该
+        /// 方法判断记录）时是否移除坐骑光环。默认 <c>true</c>（08/13 号文档"进入战斗时移除坐骑光环
+        /// 为策略配置项，默认开"）。<b>只是开关本身</b>——具体"哪些光环算坐骑光环"由
+        /// <see cref="MountAuraDispelType"/> 决定，本项为 <c>true</c> 但未配置
+        /// <see cref="MountAuraDispelType"/>（或 <see cref="DismountMountAuras"/> 未接线）时不产生
+        /// 任何实际移除效果（同本模块一贯的"未接线不阻断"退化惯例）。
+        /// </summary>
+        public bool DismountOnEnterCombat { get; set; } = true;
+
+        /// <summary>
+        /// 坐骑光环的识别方式（契约缺口/临时判断，待设计层确认）：06/08/ADR-0034 只拍板了"进入
+        /// 战斗时移除坐骑光环"这条策略本身，未规定"哪些光环算坐骑光环"具体落哪个字段。本模块复用
+        /// <c>core/rules/skill</c> 既有的 <c>aura_def.dispel_type</c> 分类机制（同"按类别、数量"
+        /// 批量移除光环的既有 <c>dispel</c> 效果原语，见 <c>AuraHost.Dispel</c>），而不是像
+        /// <see cref="DamageTakenPctStats"/> 那样新增一份平行的显式 id 清单——两者风险等价（都需要
+        /// 内容作者显式在每条 <c>aura_def</c> 上打标签才会命中，不会像"按 category 批量扫描属性"
+        /// 那样误吸收无关数据，见判断记录 18），但 <c>dispel_type</c> 是本来就存在、专门用于"给
+        /// 光环打一个可批量批量操作的分类标签"这件事的字段，复用它不需要新增契约面。默认
+        /// <c>null</c>（未配置，即使 <see cref="DismountOnEnterCombat"/> 为真也不移除任何光环）——
+        /// 游戏内容需要显式声明坐骑光环们共用的 <c>dispel_type</c> 取值（如 <c>"mount"</c>），并把
+        /// 坐骑技能的 <c>apply_aura</c> 效果指向一条声明了该 <c>dispel_type</c> 的 <c>aura_def</c>。
+        /// </summary>
+        public Id? MountAuraDispelType { get; set; }
+
+        /// <summary>移除坐骑光环的窄委托签名：<paramref name="unitId"/> 身上全部
+        /// <c>aura_def.dispel_type == dispelType</c> 的光环实例应被移除。</summary>
+        public delegate void DismountMountAurasDelegate(Id unitId, Id dispelType);
+
+        /// <summary>
+        /// 移除坐骑光环的窄契约委托（L2 <c>combat</c> 不直接依赖 <c>core/rules/skill.AuraHost</c>
+        /// 具体类型——本模块 README 既有约束"不实现光环/免疫/吸收池的真实存储"——惯例同
+        /// <c>core/gameplay/death.DeathPolicyOptions.ReviveUnit</c> 等既有跨模块边界委托）。装配根
+        /// <c>core/rules/assembly.RulesAssembly</c> 在 <c>Skill.AuraQuery</c> 运行期确实是
+        /// <c>AuraHost</c>（真实装配的唯一实现，测试替身可能不是）时才接线到
+        /// <c>AuraHost.Dispel(unitId, dispelType, int.MaxValue)</c>（防御性 <c>is</c> 模式判断，
+        /// 同 <c>GameplayAssembly</c> 第 10.5 步 <c>world is WorldSim</c> 一贯做法），未接线（为
+        /// <c>null</c>）时进战下马退化为"不移除任何光环，不抛异常"。
+        /// </summary>
+        public DismountMountAurasDelegate? DismountMountAuras { get; set; }
     }
 }

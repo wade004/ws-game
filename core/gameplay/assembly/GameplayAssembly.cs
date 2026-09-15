@@ -929,6 +929,15 @@ namespace Core.Gameplay.Assembly
             // ShellHost.LoadGame 保持一致。
             resolvedDeathPolicyOptions.ReloadSave ??= RestoreFromSlot;
 
+            // T-N4-9（ADR-0034 决策 6；06 第 4.6 节修订段"复活费"）：把 IEconomyHost.GetBalance/
+            // TryPay 包成两个窄委托注入 DeathPolicyHost（硬性规则"禁止 DeathPolicyHost 直接依赖
+            // IEconomyHost"）——resolvedDeathPolicyOptions.RespawnFee 默认 None，未显式配置为
+            // PctOfBalance/FixedByLevel 时这两个委托即便接线也不会被调用，接线本身对既有游戏/测试
+            // 零影响（同 ReviveUnit/ResolveDefaultSpawn 一贯的 ??= 只在未显式覆盖时接线手法）。
+            resolvedDeathPolicyOptions.RespawnFeeBalance ??= Economy.GetBalance;
+            resolvedDeathPolicyOptions.RespawnFeeCharge ??=
+                (unitId, currencyId, amount) => Economy.TryPay(unitId, currencyId, amount, "respawn_fee");
+
             Death = new Core.Gameplay.Death.DeathPolicyHost(
                 bus, world, SaveSystem, AppState, Carriers.Rules.CombatOptions.DeathPolicy, resolvedDeathPolicyOptions);
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, Death);

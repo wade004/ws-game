@@ -107,5 +107,78 @@ namespace Core.Gameplay.Death
         /// 时切场景"的实现，见 <c>GameplayAssembly.RestoreFromSlot</c>。
         /// </summary>
         public ReloadSaveDelegate? ReloadSave { get; set; }
+
+        /// <summary>
+        /// T-N4-9（[ADR-0034](../../../architecture/adr/0034-单一货币与价格挂物品等级.md) 决策 6；
+        /// 06 第 4.6 节 2026-09-14 修订段"复活费"）：<c>respawn_point</c> 策略复活费的计算方式，
+        /// 二选一，原文措辞——<c>pct_of_balance</c>（按当前余额百分比）或
+        /// <c>fixed_by_level</c>（引用曲线，按等级取固定值）。默认 <see cref="None"/>（本任务前的
+        /// 既有行为——不收复活费），本模块不为默认策略/曲线取值做任何主张（同 <see cref="Policy"/>
+        /// 顶部判断记录"每款游戏应显式声明口味"）。
+        /// </summary>
+        public enum RespawnFeePolicy
+        {
+            /// <summary>不收复活费——本任务之前的既有行为，逐位不变。</summary>
+            None,
+
+            /// <summary>按 <see cref="DeathPolicyOptions.RespawnFeePercentage"/> 乘以当前余额计算。</summary>
+            PctOfBalance,
+
+            /// <summary>按 <see cref="DeathPolicyOptions.RespawnFeeFixedAmount"/> 委托（引用等级
+            /// 曲线，曲线本身的来源/表结构不属于本模块关心的事，见该委托判断记录）取固定值。</summary>
+            FixedByLevel,
+        }
+
+        /// <summary>复活费计算方式，默认 <see cref="RespawnFeePolicy.None"/>（不收费，逐位兼容
+        /// 本任务之前的行为）。</summary>
+        public RespawnFeePolicy RespawnFee { get; set; } = RespawnFeePolicy.None;
+
+        /// <summary><see cref="RespawnFeePolicy.PctOfBalance"/> 时的百分比（<c>[0,1]</c>，如
+        /// <c>0.1</c> 表示扣当前余额的 10%）。默认 <c>0</c>——未显式配置时即便
+        /// <see cref="RespawnFee"/> 被设为 <see cref="RespawnFeePolicy.PctOfBalance"/>，计算出的
+        /// 费用也恒为 0（同本类"字段有默认值但不代表任何游戏口味决策"的一贯注释惯例）。</summary>
+        public double RespawnFeePercentage { get; set; } = 0.0;
+
+        /// <summary>
+        /// 复活费扣的是哪种货币。为 <c>null</c>（默认）时，即便 <see cref="RespawnFee"/> 不是
+        /// <see cref="RespawnFeePolicy.None"/>，也不收费——本模块不为"该扣哪种货币"这件事挑一个
+        /// 隐含默认值（不同于 <c>core/gameplay/economy</c> 那种"只有一种货币"的框架级前提，死亡
+        /// 复活策略本身对货币种类没有任何天然倾向）。
+        /// </summary>
+        public Id? RespawnFeeCurrencyId { get; set; }
+
+        /// <summary><see cref="RespawnFeePolicy.FixedByLevel"/> 时，取该单位应付的原始（未与余额
+        /// 取 min 之前）复活费委托——签名只接 <c>unitId</c>，具体"按等级查哪条曲线"完全交给注入方
+        /// （<c>core/gameplay/assembly.GameplayAssembly</c> 或游戏层），本模块不关心曲线表结构/
+        /// 来源（同 <see cref="ReviveUnitDelegate"/> 等既有窄委托"只关心签名，不关心实现"的一贯
+        /// 判断记录）。为 <c>null</c>（未接线）时该策略下费用恒为 0——不阻断复活。</summary>
+        public delegate long RespawnFeeFixedAmountDelegate(Id unitId);
+
+        /// <summary>见 <see cref="RespawnFeeFixedAmountDelegate"/>。</summary>
+        public RespawnFeeFixedAmountDelegate? RespawnFeeFixedAmount { get; set; }
+
+        /// <summary>读取 <paramref name="unitId"/> 在 <paramref name="currencyId"/> 的当前余额的
+        /// 窄委托——<see cref="DeathPolicyHost"/>（L4）不直接依赖 <c>IEconomyHost</c>（硬性规则），
+        /// 经这个签名与 <c>IEconomyHost.GetBalance</c> 完全一致的委托拿到"读余额"这一窄能力，
+        /// 用于（a）<see cref="RespawnFeePolicy.PctOfBalance"/> 计算原始费用本身，（b）ADR-0034
+        /// 决策 6"实际费用 = min(计算值, 当前余额)"这条对两种策略都成立的夹取规则。为 <c>null</c>
+        /// （未接线）时按余额恒为 0 处理——费用夹到 0，不阻断复活。</summary>
+        public delegate long RespawnFeeBalanceDelegate(Id unitId, Id currencyId);
+
+        /// <summary>见 <see cref="RespawnFeeBalanceDelegate"/>。</summary>
+        public RespawnFeeBalanceDelegate? RespawnFeeBalance { get; set; }
+
+        /// <summary>
+        /// 实际执行扣费的窄委托——签名与 <c>IEconomyHost.TryPay(unitId, currencyId, amount,
+        /// reason)</c> 一致（返回值不影响复活流程本身，见 <see cref="DeathPolicyHost"/> 判断
+        /// 记录"复活永远不被阻断"）。<c>GameplayAssembly</c> 把
+        /// <c>(unitId, currencyId, amount) =&gt; Economy.TryPay(unitId, currencyId, amount,
+        /// "respawn_fee")</c> 这个闭包接给本委托。为 <c>null</c>（未接线，如未经 GameplayAssembly
+        /// 的单元测试场景）时不产生任何扣费副作用，同样不阻断复活。
+        /// </summary>
+        public delegate bool RespawnFeeChargeDelegate(Id unitId, Id currencyId, long amount);
+
+        /// <summary>见 <see cref="RespawnFeeChargeDelegate"/>。</summary>
+        public RespawnFeeChargeDelegate? RespawnFeeCharge { get; set; }
     }
 }

@@ -310,7 +310,86 @@ namespace Core.Gameplay.Death
                 }
 
                 _options.ReviveUnit(pending.UnitId, pending.Position, _options.RespawnHealthFraction);
+                ChargeRespawnFee(pending.UnitId);
                 _bus.PublishImmediate(new UnitRespawnedEvent(pending.UnitId, RespawnPolicy.RespawnPoint));
+            }
+        }
+
+        /// <summary>
+        /// T-N4-9（[ADR-0034](../../../architecture/adr/0034-单一货币与价格挂物品等级.md) 决策 6；
+        /// 06 第 4.6 节 2026-09-14 修订段）：<c>respawn_point</c> 策略实际复活发生的这一刻（<see
+        /// cref="Execute"/>，<see cref="DeathPolicyOptions.ReviveUnit"/> 调用之后）尝试收一次复活
+        /// 费，永不阻断复活本身——本方法在 <see cref="DeathPolicyOptions.ReviveUnit"/> 已经成功调用
+        /// 之后才执行，扣费与"是否放行复活"完全解耦（复活已经发生，扣费只是复活的一个后续副作用）。
+        /// <para>
+        /// 判断记录（三项任一未接线/未配置即整体跳过，不产生任何货币副作用）：<see
+        /// cref="DeathPolicyOptions.RespawnFee"/> 为 <see
+        /// cref="DeathPolicyOptions.RespawnFeePolicy.None"/>（默认）、或
+        /// <see cref="DeathPolicyOptions.RespawnFeeCurrencyId"/> 未设置（不知道扣哪种货币）、或
+        /// <see cref="DeathPolicyOptions.RespawnFeeCharge"/> 未接线（没有真正的扣费能力）——三者
+        /// 任一成立都直接返回，不调用 <see cref="DeathPolicyOptions.RespawnFeeBalance"/>，逐位保持
+        /// 本任务之前"不收复活费"的既有行为。
+        /// </para>
+        /// <para>
+        /// 判断记录（"实际费用 = min(计算值, 当前余额)"两种策略统一夹取，且余额为零时仍调用扣费
+        /// 委托——扣零）：<see cref="DeathPolicyOptions.RespawnFeeBalance"/> 未接线按余额 0 处理；
+        /// <see cref="DeathPolicyOptions.RespawnFeePolicy.PctOfBalance"/> 的"计算值"本身就是
+        /// 余额乘百分比（数学上恒 &lt;= 余额，min 对它是无操作，但仍统一走同一段夹取代码，不为它
+        /// 单独分支）；<see cref="DeathPolicyOptions.RespawnFeePolicy.FixedByLevel"/> 的"计算值"来自
+        /// <see cref="DeathPolicyOptions.RespawnFeeFixedAmount"/>（未接线按 0 处理）。两种策略算出
+        /// 的原始费用一律先夹到 <c>[0, +∞)</c>，再与当前余额取 min，得到最终 <c>fee</c>（一定
+        /// <c>&gt;= 0</c> 且 <c>&lt;= 余额</c>）后<b>无条件</b>调用
+        /// <see cref="DeathPolicyOptions.RespawnFeeCharge"/>（即便 <c>fee == 0</c> 也调用，不是
+        /// "fee 为零就跳过整个扣费流程"的特殊分支）——这与
+        /// <c>core/gameplay/economy.EconomyHost.TryPay</c> 自身对 <c>amount == 0</c> 的既有行为
+        /// 一致（余额校验必然通过、<c>Add</c> 因增量 0 不产生变化事件，但仍无条件发一次
+        /// <c>economy.charged</c>，见该方法判断记录），本方法统一走同一次调用而不是提前短路，是
+        /// 对齐既有语义、不是新引入的特例。返回值不使用（复活永远不被阻断，见类型判断记录）。
+        /// </para>
+        /// </summary>
+        private void ChargeRespawnFee(Id unitId)
+        {
+            if (_options.RespawnFee == DeathPolicyOptions.RespawnFeePolicy.None)
+            {
+                return;
+            }
+
+            if (_options.RespawnFeeCurrencyId == null || _options.RespawnFeeCharge == null)
+            {
+                return;
+            }
+
+            var currencyId = _options.RespawnFeeCurrencyId.Value;
+            var balance = _options.RespawnFeeBalance?.Invoke(unitId, currencyId) ?? 0L;
+
+            var rawFee = _options.RespawnFee switch
+            {
+                DeathPolicyOptions.RespawnFeePolicy.PctOfBalance =>
+                    (long)Math.Round(balance * _options.RespawnFeePercentage, MidpointRounding.AwayFromZero),
+                DeathPolicyOptions.RespawnFeePolicy.FixedByLevel =>
+                    _options.RespawnFeeFixedAmount?.Invoke(unitId) ?? 0L,
+                _ => 0L,
+            };
+
+            if (rawFee < 0)
+            {
+                rawFee = 0;
+            }
+
+            var fee = Math.Min(rawFee, balance);
+            if (fee < 0)
+            {
+                fee = 0;
+            }
+
+            if (!_options.RespawnFeeCharge(unitId, currencyId, fee))
+            {
+                // 理论上不应发生——fee 已经按当前余额夹取，扣费委托若真正转发 IEconomyHost.TryPay
+                // 应恒成功；返回 false 说明注入方的余额来源与扣费来源不是同一份账本（配置错误），
+                // 只记诊断，不影响已经发生的复活。
+                _diagnostics.Warn(
+                    $"DeathPolicyHost（respawn_point）：单位 \"{unitId}\" 复活费扣费委托返回失败" +
+                    $"（fee={fee}，已按余额 {balance} 夹取），复活流程不受影响");
             }
         }
 
