@@ -93,13 +93,39 @@ namespace Core.Gameplay.Assembly
         public static void RegisterAll(
             IDataRegistry registry, Id? itemBudgetCurveId = null, ICreatureTemplateQuery? creatureTemplateQuery = null)
         {
+            RegisterAll(registry, itemBudgetCurveId, creatureTemplateQuery,
+                economyValueCurveId: null, economyPriceDeviationThreshold: null);
+        }
+
+        /// <summary>
+        /// T-N4-6 新增重载（硬性规则 5：ABI 只允许新增，前一重载既有三参数签名不得改，见上一重载；
+        /// 惯例同 <c>Core.Carriers.Assembly.CarriersSchemaCatalog.RegisterAll</c> 逐参数追加重载的
+        /// 一贯口径——每个重载的参数个数各不相同，避免全部参数皆可省略导致的重载决议歧义）。额外接受
+        /// <see cref="EconomyPriceDeviatesFormulaRule"/> 构造用的价值曲线 id 与偏离阈值。
+        /// </summary>
+        /// <param name="registry">目标注册表。</param>
+        /// <param name="itemBudgetCurveId">同三参数重载。</param>
+        /// <param name="creatureTemplateQuery">同三参数重载。</param>
+        /// <param name="economyValueCurveId"><see cref="EconomyPriceDeviatesFormulaRule"/> 构造用的
+        /// <c>econ.value_curve</c> id，缺省（<c>null</c>）取 <see cref="EconomyOptions.ValueCurveId"/>
+        /// 默认值 <c>econ.value.default</c>——运行期实际用曲线与注册期校验曲线需保持一致，同
+        /// <c>CarriersSchemaCatalog.RegisterAll</c> 里 <c>itemBudgetCurveId</c> 一节判断记录同一处理
+        /// 口径。</param>
+        /// <param name="economyPriceDeviationThreshold"><see cref="EconomyPriceDeviatesFormulaRule"/>
+        /// 偏离阈值，缺省（<c>null</c>）取 <see cref="EconomyPriceDeviatesFormulaRule.DefaultDeviationThreshold"/>。</param>
+        public static void RegisterAll(
+            IDataRegistry registry, Id? itemBudgetCurveId, ICreatureTemplateQuery? creatureTemplateQuery,
+            Id? economyValueCurveId, double? economyPriceDeviationThreshold)
+        {
             CarriersSchemaCatalog.RegisterAll(registry, itemBudgetCurveId);
 
             var exprSchema = FullExprSchema;
 
             RegisterWorldStateSchemas(registry);
             RegisterLootSchemas(registry);
-            RegisterEconomySchemas(registry);
+            RegisterEconomySchemas(registry,
+                economyValueCurveId ?? new Id("econ.value.default"),
+                economyPriceDeviationThreshold ?? EconomyPriceDeviatesFormulaRule.DefaultDeviationThreshold);
             RegisterQuestSchemas(registry, exprSchema);
             RegisterDialogSchemas(registry, exprSchema);
             RegisterEncounterSchemas(registry, exprSchema);
@@ -122,11 +148,17 @@ namespace Core.Gameplay.Assembly
             registry.RegisterValidationRule(new LootContentValidationRule());
         }
 
-        private static void RegisterEconomySchemas(IDataRegistry registry)
+        /// <summary>T-N4-6（ADR-0034 决策 2）：新增注册 <c>econ.value_curve</c>/<c>econ.gold_base_curve</c>
+        /// 两张表（后者本任务只登记 schema，消费留给 T-N4-7）与 <see cref="EconomyPriceDeviatesFormulaRule"/>
+        /// （"手填价格偏离公式"警告）。</summary>
+        private static void RegisterEconomySchemas(IDataRegistry registry, Id valueCurveId, double priceDeviationThreshold)
         {
             registry.RegisterSchema(EconomySchemas.Currency);
             registry.RegisterSchema(EconomySchemas.Vendor);
+            registry.RegisterSchema(EconomySchemas.ValueCurve);
+            registry.RegisterSchema(EconomySchemas.GoldBaseCurve);
             registry.RegisterValidationRule(new EconomyContentValidationRule());
+            registry.RegisterValidationRule(new EconomyPriceDeviatesFormulaRule(valueCurveId, priceDeviationThreshold));
         }
 
         private static void RegisterQuestSchemas(IDataRegistry registry, Core.Foundation.Expr.IExprSchema exprSchema)

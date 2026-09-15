@@ -64,8 +64,12 @@ namespace Core.Gameplay.Economy
                     description: "item.<template>；存在性核对见 EconomyContentValidationRule（跨 registry 装配判断记录见类型注释）"),
                 new FieldSchema("price_currency_id", FieldKind.Reference, required: true,
                     referenceTable: "econ.currency", description: "计价所用的货币"),
-                new FieldSchema("price_amount", FieldKind.Int, required: true,
-                    description: ">=0，见 EconomyContentValidationRule 同名判断")
+                new FieldSchema("price_amount", FieldKind.Int, required: false,
+                    description: "分阶段落地计划 T-N4-6（ADR-0034 决策 2；08 第 7.4 节）：改为可选，" +
+                        "未填时 EconomyHost.Buy 按价格公式（econ.value_curve × 品质价格倍率 × 槽位" +
+                        "价格系数，item.template.value_override 优先）算出买价；填了则手填优先，与" +
+                        "公式偏离超带宽报警告（EconomyPriceDeviatesFormulaRule）。>=0 是登记表达不了" +
+                        "的数值范围约束，见 EconomyContentValidationRule 同名判断")
                     .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("stock_limit", FieldKind.Int, required: false,
                     description: "限量；缺省不限量；>=0，见 EconomyContentValidationRule 同名判断")
@@ -90,6 +94,47 @@ namespace Core.Gameplay.Economy
                 new FieldSchema("buy_price_rule", FieldKind.Expr, required: false,
                     description: "玩家出售物品给商人时的收购价规则；本版只支持返回数值的简单 Expr"),
                 new FieldSchema("map_id", FieldKind.Id, required: false, description: "on_map_enter 补货用"),
+            }).WithOwnership(SchemaLayer.Gameplay, "economy");
+
+        /// <summary><c>econ.value_curve</c>：物品等级到基准价值的曲线（分阶段落地计划 T-N4-6；
+        /// ADR-0034 决策 2；08 第 7.4 节"基准价值 = econ.value_curve(item_level) × 品质价格倍率 ×
+        /// 槽位价格系数"；04 第 1.1 节表清单）。直接按 04 第 3.6 节通用断点表形态登记（新表，无需
+        /// 迁移，同 <c>item.armor_curve</c>/<c>item.weapon_dps_curve</c> 惯例）；<c>curve_monotonic_finite</c>
+        /// （T-N0-3）自动覆盖本表 <c>entries</c>。消费实现见 <c>EconomyPriceFormula</c>/<c>EconomyHost</c>。</summary>
+        public static readonly TableSchema ValueCurve = new TableSchema(
+            name: "econ.value_curve",
+            primaryKey: "id",
+            currentSchemaVersion: 1,
+            fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "econ.value.<name>"),
+                CurveSchema.BreakpointsField("entries", CurveAxis.ItemLevel, required: true,
+                    description: "断点表 [{x: 物品等级(Int), y: 基准价值(Number)}]，按 x 线性插值、" +
+                        "越界夹取到端点（04 第 3.6 节通用曲线形态；ADR-0034 决策 2）",
+                    xDescription: "采样点对应的物品等级",
+                    yDescription: "该物品等级对应的基准价值；买价 = 基准价值 × 品质价格倍率 × " +
+                        "槽位价格系数（或 item.template.value_override 整体取代）；售价 = 基准价值 × " +
+                        "售价比例",
+                    yRange: FieldRange.Range(min: 0)),
+            }).WithOwnership(SchemaLayer.Gameplay, "economy");
+
+        /// <summary><c>econ.gold_base_curve</c>：等级到"一只同级普通怪的金币"的曲线（分阶段落地
+        /// 计划 T-N4-6；ADR-0034 决策 3；04 第 1.1 节表清单"掉落货币条目与任务金币的当量基数"）。
+        /// 本任务只登记 schema 与注册，消费实现（怪物掉钱 = 当量 × 本曲线(怪物等级) × 分档倍率 ×
+        /// diff.tier.loot_multiplier；任务金币 = 当量 × 本曲线(任务等级)）随 T-N4-7 落地。</summary>
+        public static readonly TableSchema GoldBaseCurve = new TableSchema(
+            name: "econ.gold_base_curve",
+            primaryKey: "id",
+            currentSchemaVersion: 1,
+            fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "econ.gold_base.<name>"),
+                CurveSchema.BreakpointsField("entries", CurveAxis.Level, required: true,
+                    description: "断点表 [{x: 等级(Int), y: 金币基数(Number)}]，按 x 线性插值、越界" +
+                        "夹取到端点（04 第 3.6 节通用曲线形态；ADR-0034 决策 3）",
+                    xDescription: "采样点对应的等级（生物等级/任务等级同一横轴）",
+                    yDescription: "该等级对应的金币基数，即一只同级普通怪的金币当量为 1 时应发的金币数",
+                    yRange: FieldRange.Range(min: 0)),
             }).WithOwnership(SchemaLayer.Gameplay, "economy");
     }
 }

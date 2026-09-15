@@ -57,7 +57,9 @@ namespace Core.Gameplay.Loot
             fields: new[]
             {
                 new FieldSchema("ref", FieldKind.Id, required: true,
-                    description: "item.<template> 或 loot.<table>；域名+存在性校验见 LootContentValidationRule"),
+                    description: "item.<template>、loot.<table> 或 econ.currency.<name>（T-N4-7：ADR-0034 " +
+                        "决策 3 货币掉落条目，此时 count_range 解释为当量区间，见 LootHost 判断记录）；" +
+                        "域名+存在性校验见 LootContentValidationRule"),
                 new FieldSchema("weight_or_chance", FieldKind.Number, required: true,
                     description: "chance_each: [0,1] 概率；weighted_pick_one: >=0 相对权重（区间校验见 LootContentValidationRule）"),
                 new FieldSchema("condition", FieldKind.Expr, required: false,

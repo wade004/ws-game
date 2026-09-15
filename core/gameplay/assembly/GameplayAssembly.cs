@@ -330,7 +330,7 @@ namespace Core.Gameplay.Assembly
             WorldState = new WorldStateHost(bus, worldStateOptions);
 
             // ---------------------------------------------------------
-            // 2) 两个延迟绑定代理（惯例同 core/rules/assembly.RulesAssembly.DeferredAuraQuery、
+            // 2) 延迟绑定代理（惯例同 core/rules/assembly.RulesAssembly.DeferredAuraQuery、
             //    core/rules/assembly.DeferredEffectExtension）：
             //    - deferredLootRoller：CarriersAssembly 构造期需要一个 ILootRoller 传给
             //      GameObjectHost（chest/gather_node 掉落），但真正的 LootHost 需要
@@ -338,10 +338,16 @@ namespace Core.Gameplay.Assembly
             //    - deferredQuestGroup / deferredPlayerGroup：ExprHostFactory（第 4 步）需要的
             //      extraGroups 里，world 分组可以立即绑定（WorldState 已就绪），quest/player 分组
             //      依赖尚未构造的 QuestHost/EconomyHost，同样先占位。
+            //    - deferredEconomyHost（T-N4-7）：第 6 步 LootHost/CreatureDeathLootListener 构造时
+            //      需要一个 IEconomyHost 用于货币掉落条目换算/入账，但真正的 EconomyHost 要到第 8 步
+            //      才构造出来（且不提前到第 6 步之前——EconomyHost 本身不依赖 Loot/Difficulty，但
+            //      提前构造会改变全部宿主的构造/事件订阅顺序，超出本任务"最小改动"范围，见判断记录）；
+            //      先占位，第 8 步 EconomyHost 造好后 Bind，同 deferredLootRoller 一贯做法。
             // ---------------------------------------------------------
             var deferredLootRoller = new DeferredLootRoller();
             var deferredQuestGroup = new DeferredExprGroupProvider();
             var deferredPlayerGroup = new DeferredExprGroupProvider();
+            var deferredEconomyHost = new DeferredEconomyHost();
 
             // ---------------------------------------------------------
             // 3) CarriersAssembly（L0～L3）：worldFlags 直接注入 WorldState；lootRoller 注入延迟代理；
@@ -483,11 +489,14 @@ namespace Core.Gameplay.Assembly
 
             // ---------------------------------------------------------
             // 6) LootHost（+ CreatureDeathLootListener）：造好后立即回填 deferredLootRoller。
+            //    T-N4-7：economyHost 传 deferredEconomyHost（第 2 步占位，第 8 步真正的 EconomyHost
+            //    造好后 Bind）——货币掉落条目换算/拾取入账/击杀即入账均经它，见 LootHost/
+            //    CreatureDeathLootListener 各自该构造重载判断记录。
             // ---------------------------------------------------------
             Loot = new LootHost(
                 registry, rng, bus, world, Carriers.Units, Carriers.Inventory, ExprHostFactory,
                 () => Carriers.Rules.SimTime, lootOptions, diagnostics: null,
-                conditionSchema: GameplaySchemaCatalog.FullExprSchema);
+                conditionSchema: GameplaySchemaCatalog.FullExprSchema, economyHost: deferredEconomyHost);
             deferredLootRoller.Bind(Loot);
 
             // T-N2-8b：Difficulty 已在上一步构造完成，直接传入（不需要像 healthFractionSetter/
@@ -496,7 +505,8 @@ namespace Core.Gameplay.Assembly
             _ = new CreatureDeathLootListener(
                 bus, Loot, Carriers.Creatures, Carriers.Units, world,
                 lootMultiplierProvider: () => Difficulty.LootMultiplier,
-                difficultyHost: Difficulty);
+                difficultyHost: Difficulty,
+                economyHost: deferredEconomyHost);
 
             // T-N4-3（ADR-0033 决策 3；core/gameplay/progression_bridge/README.md 判断记录 2"接线
             // 顺序先掉落后经验"）：接在 CreatureDeathLootListener 构造之后，订阅同一个 unit.died；
@@ -536,6 +546,10 @@ namespace Core.Gameplay.Assembly
                 registry, bus, Carriers.Inventory, ExprHostFactory, economyOptions, diagnostics: null,
                 conditionSchema: GameplaySchemaCatalog.FullExprSchema);
             economyForGrant = Economy;
+            // T-N4-7：第 2 步占位的 deferredEconomyHost 回填真实 EconomyHost——见该变量声明处判断
+            // 记录（第 6 步 LootHost/CreatureDeathLootListener 已经拿到这个代理引用，从这一刻起
+            // 它们对 IEconomyHost 的调用才会真正落到 Economy 上）。
+            deferredEconomyHost.Bind(Economy);
 
             deferredPlayerGroup.Bind(new ChainedExprGroupProvider(new IExprGroupProvider[]
             {
@@ -1686,6 +1700,67 @@ namespace Core.Gameplay.Assembly
             /// <see cref="ILootRoller.RollDetailed"/> 判断记录"组合/包装实现方……应显式重写"。</summary>
             public IReadOnlyList<Core.Carriers.Common.LootRollOutcome> RollDetailed(Id lootTableId, Id sourceUnitId, Id? killerId) =>
                 _real?.RollDetailed(lootTableId, sourceUnitId, killerId) ?? Array.Empty<Core.Carriers.Common.LootRollOutcome>();
+        }
+
+        /// <summary>
+        /// 判断记录（延迟绑定 <see cref="IEconomyHost"/>，T-N4-7）：第 6 步 <see cref="LootHost"/>/
+        /// <see cref="CreatureDeathLootListener"/> 构造期需要一个 <see cref="IEconomyHost"/> 用于
+        /// 货币掉落条目换算/入账，而真正的 <see cref="EconomyHost"/> 要到第 8 步才构造出来——同
+        /// <see cref="DeferredLootRoller"/> 一贯惯例延迟绑定。未绑定期间全部成员静默退化（不抛
+        /// 异常）：查询类返回中性默认值（0/null/默认策略），写入类返回 <c>false</c>（"未生效"），
+        /// <see cref="Buy"/>/<see cref="Sell"/> 返回"未知商人"失败——组装期本身不会真正触发这些
+        /// 调用（全部消费发生在装配完成之后），这里只是给类型系统一个非空占位。
+        /// <para>
+        /// 显式转发两个默认接口成员（<see cref="TryGetGoldBaseAmount"/>/<see cref="DepositPolicy"/>），
+        /// 不落回 <see cref="IEconomyHost"/> 自身默认实现——同 <see cref="DeferredLootRoller.RollDetailed"/>
+        /// 判断记录，见 <c>Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests</c> 门禁。
+        /// </para>
+        /// <para>
+        /// T-N4-8 追加：<see cref="IEconomyHost"/> 新增第三个默认接口成员
+        /// <c>TryPay(Id,Id,long,string)</c>（带 reason 的原子扣费重载），同上一段判断记录同样显式
+        /// 转发，不落回接口自身默认实现。
+        /// </para>
+        /// </summary>
+        private sealed class DeferredEconomyHost : IEconomyHost
+        {
+            private IEconomyHost? _real;
+
+            public void Bind(IEconomyHost real) => _real = real ?? throw new ArgumentNullException(nameof(real));
+
+            public void RegisterUnit(Id unitId) => _real?.RegisterUnit(unitId);
+
+            public long GetBalance(Id unitId, Id currencyId) => _real?.GetBalance(unitId, currencyId) ?? 0;
+
+            public bool Add(Id unitId, Id currencyId, long amount, Id sourceId) =>
+                _real?.Add(unitId, currencyId, amount, sourceId) ?? false;
+
+            public bool SetBalance(Id unitId, Id currencyId, long amount) =>
+                _real?.SetBalance(unitId, currencyId, amount) ?? false;
+
+            public bool TryPay(Id unitId, Id currencyId, long amount) =>
+                _real?.TryPay(unitId, currencyId, amount) ?? false;
+
+            // T-N4-8：显式转发带 reason 的重载，不落回 IEconomyHost 自身默认实现（同本类型其余两个
+            // 默认接口成员 TryGetGoldBaseAmount/DepositPolicy 的判断记录，Tests.Presentation.Assembly.
+            // InterfaceDefaultMemberForwardingTests 门禁要求）。
+            public bool TryPay(Id unitId, Id currencyId, long amount, string reason) =>
+                _real?.TryPay(unitId, currencyId, amount, reason) ?? false;
+
+            public PurchaseResult Buy(Id unitId, Id vendorId, Id itemId, int count) =>
+                _real?.Buy(unitId, vendorId, itemId, count) ?? PurchaseResult.Fail(PurchaseFailureReason.UnknownVendor);
+
+            public SellResult Sell(Id unitId, Id vendorId, Id itemInstanceId, int count) =>
+                _real?.Sell(unitId, vendorId, itemInstanceId, count) ?? SellResult.Fail(SellFailureReason.UnknownVendor);
+
+            public void OnMapEnter(Id mapId) => _real?.OnMapEnter(mapId);
+
+            public void Update(double dt) => _real?.Update(dt);
+
+            public int? GetStock(Id vendorId, Id itemId) => _real?.GetStock(vendorId, itemId);
+
+            public double? TryGetGoldBaseAmount(int level) => _real?.TryGetGoldBaseAmount(level);
+
+            public CurrencyDepositPolicy DepositPolicy => _real?.DepositPolicy ?? CurrencyDepositPolicy.OnKill;
         }
 
         /// <summary>

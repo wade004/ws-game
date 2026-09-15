@@ -68,8 +68,12 @@ namespace Tests.Gameplay.Economy
         }
 
         [Fact]
-        public void MissingPriceAmount_ReportsRequiredFieldWithNestedPath()
+        public void MissingPriceAmount_LoadsWithoutErrors_AndParsesAsUnset()
         {
+            // T-N4-6（ADR-0034 决策 2；08 第 7.2 节修订段）：price_amount 改为可选——此前本用例断言
+            // 缺省即 required_field 阻断错误，现改为断言"缺省不报任何错误，且解析结果的
+            // VendorSellItem.HasPriceAmount 为假、PriceAmount 占位为 0"，同一份测试改验证新契约，见
+            // VendorSellItem.PriceAmount/HasPriceAmount 判断记录。
             var currency = "[{\"id\": \"econ.currency.sample_coin\", \"name_key\": \"l10n.coin\", \"display_ref\": \"display.coin\"}]";
             var vendor = "[{\"id\": \"econ.vendor.sample_shop\", \"name_key\": \"l10n.shop\", \"sell_items\": [" +
                 "{\"item_id\": \"item.sample_sword\", \"price_currency_id\": \"econ.currency.sample_coin\"}]}]";
@@ -77,10 +81,31 @@ namespace Tests.Gameplay.Economy
             var registry = MakeRegistryRaw(currency, vendor);
             var report = registry.LoadAll();
 
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+            Assert.DoesNotContain(report.Issues, i => i.Check == "economy_content");
+
+            var vendorRecord = registry.Get(EconomySchemas.Vendor.Name, "econ.vendor.sample_shop");
+            var vendorDef = EconomyDataParser.ParseVendor(vendorRecord!);
+            var sellItem = vendorDef.SellItems[0];
+            Assert.False(sellItem.HasPriceAmount);
+            Assert.Equal(0, sellItem.PriceAmount);
+        }
+
+        [Fact]
+        public void InvalidTypePriceAmount_ReportsFieldTypeError()
+        {
+            // T-N4-6：price_amount 改为可选后，"提供了但类型不对"仍须报错——不是"任何值都放行"。
+            var currency = "[{\"id\": \"econ.currency.sample_coin\", \"name_key\": \"l10n.coin\", \"display_ref\": \"display.coin\"}]";
+            var vendor = "[{\"id\": \"econ.vendor.sample_shop\", \"name_key\": \"l10n.shop\", \"sell_items\": [" +
+                "{\"item_id\": \"item.sample_sword\", \"price_currency_id\": \"econ.currency.sample_coin\", " +
+                "\"price_amount\": \"not_a_number\"}]}]";
+
+            var registry = MakeRegistryRaw(currency, vendor);
+            var report = registry.LoadAll();
+
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues,
-                i => i.Check == "required_field" && i.Field == "sell_items[0].price_amount");
-            Assert.DoesNotContain(report.Issues, i => i.Check == "economy_content");
+                i => i.Check == "field_type" && i.Field == "sell_items[0].price_amount");
         }
 
         [Fact]

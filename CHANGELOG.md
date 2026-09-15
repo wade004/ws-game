@@ -372,6 +372,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `prog.xp_base_curve`/既有 `combat.level_diff_table`）、为 `once_key` 补文本输入框，并对
   `base_xp`/`weight` 两个输入框加"已废弃"视觉标注。全部新增字段均为纯新增可选字段，两张表
   `schema_version` 均不递增，旧数据/旧存档不受影响。
+- **数值设计落地阶段 N4 · T-N4-8（Unreleased）**：新增事件 `economy.charged`（字段
+  `unitId`/`currencyId`/`amount`/`reason`），已登记进 `found.event_catalog.json` 并生成
+  `EventKeys.EconomyCharged`；T-N4-7 新增的 `economy.currency_overflow`（字段
+  `unitId`/`currencyId`/`discarded`）同时补登记并生成 `EventKeys.EconomyCurrencyOverflow`。
+  `IEconomyHost.TryPay` 旧无 reason 三参数签名从本版本起也会在原子扣费成功时发
+  `economy.charged`（此前该签名不发任何"扣费"事件，只有 `Add` 间接发 `currency_changed`）——
+  依赖"该签名不发事件"这一旧行为的编辑器侧逻辑需要重新核对。新增带 reason 的
+  `TryPay(Id,Id,long,string)` 重载与 `CurrencyGranters.ViaEconomyHost` 静态工厂均为纯新增 C#
+  API，不涉及数据表/编辑器控件改动。
 
 ## [Unreleased]
 
@@ -430,6 +439,76 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   两个来源 id 承接点的最终消费方式）详见
   `core/numbers/progression/contracts/ProgressionOptions.cs`/
   `core/gameplay/progression_bridge/README.md` 类型/模块注释"契约疑点上报"。
+数值设计落地阶段 N4 · T-N4-6（ADR-0034 决策 2；08 第 7.4 节；04 第 1.1 节表清单）：新增表
+`econ.value_curve`（物品等级 → 基准价值，断点表，横轴 `CurveAxis.ItemLevel`）与
+`econ.gold_base_curve`（等级 → 金币基数，断点表，横轴 `CurveAxis.Level`，本任务只登记 schema，
+消费留给 T-N4-7）；新增价格公式共用类型 `Core.Gameplay.Economy.EconomyPriceFormula`（基准价值 =
+`econ.value_curve(item_level)` × `item.quality_definition.price_multiplier` ×
+`item.slot_definition.price_coefficient`，`item.template.value_override` 存在时整体取代基准价值）；
+`econ.vendor.sell_items[].price_amount` 改为可选（`VendorSellItem` 新增 `HasPriceAmount` 属性与
+对应七参数构造重载，ABI 只增不改，旧六参数构造函数与 `PriceAmount` 属性语义不变）——未填时
+`EconomyHost.Buy` 按价格公式算出买价，填了则手填优先（回归安全，逐位不变）；`EconomyOptions.
+DefaultBuyPricePct` 重新定位为"售价比例"策略项（字段名与默认值 0.25 不变，语义由"任一商人手填
+售价的百分之几"改为"基准价值的百分之几"）——`EconomyHost.Sell` 无 `buy_price_rule` 时的缺省售价
+公式同步改用价值公式，`buy_price_rule` 存在时既有 Expr 求值语义不变（硬性规则：禁止改该表达式
+语义）；`EconomyOptions` 新增 `ValueCurveId`（缺省 `econ.value.default`）与
+`PriceDeviationWarningThreshold`（缺省 0.2）。新增校验规则 `EconomyPriceDeviatesFormulaRule`
+（检查名 `econ_price_deviates_formula`，04 第 5 节该行原文未给出具体检查名，本任务暂按此采纳、
+待设计层确认；`NonEscalatable = true`）：`sell_items[].price_amount`/`item.template.value_override`
+与纯公式值偏离超过阈值报 Warning，未填 `price_amount` 的条目不参与该分支检查。
+`Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll` 新增五参数重载
+（`economyValueCurveId`/`economyPriceDeviationThreshold`），既有 1/3 参数重载保留、转发默认值不变
+（回归）。数据侧：`data/_sample/econ/` 新增 `econ.value_curve.json`/`econ.gold_base_curve.json`
+两条曲线样例；既有 `econ.vendor.json` 的 `item.sample_tonic` 条目去掉 `price_amount`，作为"缺省
+走公式"的样例（原手填值 5 与新价格公式在阈值内不产生偏离警告，见 `EconomyPriceFormula`/曲线样例
+数值判断）。
+
+数值设计落地阶段 N4 · T-N4-7（ADR-0034 决策 3/4；08 第 1.1/7.4 节修订段）：`loot.table.groups[].
+entries[].ref` 放行 `econ` 域（`LootTableParser`/`LootContentValidationRule` 同步放行，报错文案
+由"必须是 item 或 loot"改为"必须是 item、loot 或 econ"），货币掉落条目的 `count_range` 解释为
+当量区间，实际数量 = 当量 × `econ.gold_base_curve`（来源等级，`RollContext.SourceLevel` 为空时
+回退等级 1）× `RollContext.Multiplier`（既有难度倍率挂载点，落地为 `diff.tier.loot_multiplier`）；
+`creature.tier_definition` 的"分档金币倍率"字段尚未登记（不依赖 T-N4-4），该乘数暂缺，等价于恒为
+1，留待后续任务补上（待设计层确认）。货币不进背包、不占格子：`LootHost.PickUp`（`Reject`/`Partial`
+两种满包策略）对货币堆叠改经新增的 `IEconomyHost.Add` 入账，不再走 `IInventoryHost.AddItem`，
+背包容量为 0/已满时货币仍能全额入账，不影响同一次拾取里非货币条目的既有满包语义；`LootHost`
+新增 12 参数构造重载（末尾 `IEconomyHost? economyHost`，旧 11 参数构造函数不变）。入账方式新增
+策略项 `EconomyOptions.DepositPolicy`（`Core.Gameplay.Economy.CurrencyDepositPolicy`，
+`OnKill`/`GroundPickup`，默认 `OnKill`）：`OnKill` 下 `CreatureDeathLootListener` 在死亡结算那一刻
+把货币产出直接入账给击杀者、不生成地面掉落物；找不到明确击杀者时退回 `GroundPickup` 语义（待设计层
+确认）；`CreatureDeathLootListener` 新增 8 参数构造重载（末尾 `IEconomyHost? economyHost`）。
+`IEconomyHost` 新增两个默认接口成员：`TryGetGoldBaseAmount(int level): double?`（按
+`EconomyOptions.GoldBaseCurveId` 指定的 `econ.gold_base_curve` 曲线求值，唯一实现 `EconomyHost`
+显式覆写）、`DepositPolicy: CurrencyDepositPolicy`（转发 `EconomyOptions.DepositPolicy`）；
+`EconomyOptions` 新增 `GoldBaseCurveId`（缺省 `econ.gold_base.default`）。新增事件
+`economy.currency_overflow`（`Core.Gameplay.Economy.CurrencyOverflowEvent`，字段
+`unitId`/`currencyId`/`discarded`）：`EconomyHost.Add` 使某单位货币余额被夹到
+`econ.currency.cap` 之上而丢弃超出部分时触发；`EconomyHost.SetBalance`（读档"以快照为准"语义）
+即便结果同样被夹到 cap 也不触发。判断记录：本次未登记 `found.event_catalog.json`/重生成
+`EventKeys.g.cs`——`gen_event_constants.py --check` 只比较登记表与已提交生成文件两者自身是否
+一致，不反查代码里手写的 `Id` 事件常量，因此不登记也不影响该门禁；两条新经济事件（含 T-N4-8 的
+`economy.charged`）的登记与常量重生成整体留给 T-N4-8（依赖 T-N4-7），避免与其重复改动同一份登记
+表。数据侧：`data/_sample/econ/econ.currency.json` 补 `cap: 99999`；`data/_sample/loot/
+loot.table.json` 的 `loot.sample_beast` 新增一条 `econ.currency.sample_coin` 货币条目
+（`count_range: {min:1,max:3}`）。
+
+数值设计落地阶段 N4 · T-N4-8（ADR-0034 决策 5；08 第 7.4 节修订段；分阶段落地计划 M5/M7）：
+`IEconomyHost` 新增默认接口成员 `TryPay(Id unitId, Id currencyId, long amount, string reason):
+bool`（原子扣费带 reason 重载；ABI 只增，旧无 reason 三参数签名保留不变；默认实现转发旧签名、不发
+事件，唯一实现 `EconomyHost` 显式覆写为真实原子扣费 + 发事件逻辑，`GameplayAssembly.
+DeferredEconomyHost` 显式转发）。新增事件 `economy.charged`（`Core.Gameplay.Economy.
+EconomyChargedEvent`，字段 `unitId`/`currencyId`/`amount`/`reason`）：`TryPay(...,reason)` 原子
+扣费成功时触发。判断记录：`EconomyHost.TryPay(Id,Id,long)`（旧无 reason 签名）改为转发带 reason
+的新签名、传入占位 `reason="unspecified"`——旧调用路径（`Buy` 内部扣款改传显式
+`"vendor_buy"`，其余调用方维持占位）从本次起同样会发 `economy.charged`，与 ADR-0034 决策 5"原子
+扣费即发事件"口径一致（详见 `EconomyHost.TryPay(Id,Id,long)` 判断记录，编辑器等下游若依赖"旧签名
+不发扣费事件"的既有行为需要注意此变化）。任务/遭遇奖励货币入账收口：`core/gameplay/common.
+RewardDispatchDelegates` 新增 `CurrencyGranters.ViaEconomyHost(IEconomyHost)` 静态工厂，构造经
+`IEconomyHost.Add` 入账的 `CurrencyGranter`；`CurrencyGranter`/`RewardDispatcher` 既有签名不变，
+`GameplayAssembly` 现有等价闭包未切换（风格统一留待后续）。两条新经济事件登记与常量重生成收口：
+`economy.charged`、T-N4-7 遗留的 `economy.currency_overflow` 一并登记进
+`data/_framework/found/found.event_catalog.json`，`toolchain/gen_event_constants.py` 重生成
+`EventKeys.g.cs`（新增 `EconomyCharged`/`EconomyCurrencyOverflow` 两个常量，`--check` 通过）。
 
 ## [1.33.0] - 2026-09-15
 

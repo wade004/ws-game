@@ -23,14 +23,29 @@ namespace Core.Gameplay.Economy
     /// 经 <c>IExprHostFactory.CreateFor(unitId, null, null)</c> 求值，取其数值结果作为"每件收购价"
     /// （内容作者目前只能引用 <c>self.*</c> 里"出售者"自身的既有字段，如
     /// <c>self.level</c>，不能引用物品属性——这是一处记录在案、未解决的契约缺口，不在本任务修复范围）；
-    /// 不存在时按拍板默认公式 <c>DefaultBuyPricePct × 该物品在任一商人的售价</c>（找不到售价则收购价
-    /// 为 0，货币种类退化为"全局已加载的第一种货币"，见 <see cref="ResolveSellCurrency"/>）。
+    /// **T-N4-6（ADR-0034 决策 2）起，不存在时改按价格公式**——售价 = <see
+    /// cref="EconomyPriceFormula.TryComputeBaseValue"/> 算出的基准价值 × <see
+    /// cref="EconomyOptions.DefaultBuyPricePct"/>（重定位为"售价比例"策略项，字段名/默认值不变，见
+    /// 该属性判断记录）；公式算不出（本 registry 未加载 <c>item.template</c>/<c>econ.value_curve</c>，
+    /// 如既有隔离测试场景）时回退 T-N4-6 之前的旧口径——<c>DefaultBuyPricePct × 该物品在任一商人的
+    /// 手填售价</c>（找不到则收购价为 0），保证既有全部用例逐位不变，见 <see cref="ComputeSellPrice"/>。
+    /// 货币种类解析口径不变：<see cref="FindAnyVendorSellPrice"/> 命中优先，找不到退化为"全局已加载的
+    /// 第一种货币"（<see cref="ResolveSellCurrency"/>）。
+    /// </para>
+    /// <para>
+    /// 判断记录 1b——<see cref="Buy"/> 的买价公式（T-N4-6；ADR-0034 决策 2）：
+    /// <c>sell_items[].price_amount</c>（<see cref="VendorSellItem.HasPriceAmount"/>）填写时按原样
+    /// 用该整数值（<c>long</c> 精确乘法，逐位不变，回归安全）；未填时买价 = <see
+    /// cref="EconomyPriceFormula.TryComputeBaseValue"/> 算出的基准价值（<c>econ.value_curve</c> ×
+    /// 品质价格倍率 × 槽位价格系数，<c>item.template.value_override</c> 优先整体取代），算不出时按 0
+    /// 处理（同"公式算不出"的一贯兜底口径，不抛异常——校验期应已由 <see
+    /// cref="EconomyPriceDeviatesFormulaRule"/> 之外的内容审查发现这类缺口，运行期只兜底不阻断）。
     /// </para>
     /// <para>
     /// 判断记录 2——<see cref="Buy"/> 的"满包回滚不扣款"顺序：先检查限量库存与余额（只读，不改任何
     /// 状态），确认余额足够后才调用 <c>IInventoryHost.AddItem</c>；若加入数量（用前后
     /// <c>CountOf</c> 差值判定，同 <c>core/gameplay/loot.LootHost</c> 判断记录 7）不足
-    /// <paramref name="count"/>，回滚已加入的部分并直接返回失败，**不调用** <see cref="TryPay"/>——
+    /// <paramref name="count"/>，回滚已加入的部分并直接返回失败，**不调用** <see cref="TryPay(Id,Id,long,string)"/>——
     /// 保证"背包放不下"这一失败分支绝不会产生任何货币/库存副作用，不需要"先扣款、货物给不了再退款"
     /// 这种更复杂、更容易出错的补偿事务。
     /// </para>
@@ -239,6 +254,19 @@ namespace Core.Gameplay.Economy
         public long GetBalance(Id unitId, Id currencyId) =>
             _balances.TryGetValue(unitId, out var wallet) && wallet.TryGetValue(currencyId, out var v) ? v : 0;
 
+        /// <summary>
+        /// T-N4-7（ADR-0034 决策 4；08 第 7.4 节修订段"达到 econ.currency.cap 时超出部分丢弃并发
+        /// economy.currency_overflow"）：真正把 <paramref name="raw"/>（未夹取的原始和）顶到 <see
+        /// cref="CurrencyDef.Cap"/> 之上而丢弃的这一次调用会额外发 <see cref="CurrencyOverflowEvent"/>
+        /// （<see cref="CurrencyOverflowEvent.Discarded"/> = <c>raw - cap</c>）——只有本方法（真正的
+        /// "入账"语义：<c>core/gameplay/loot</c> 的货币掉落条目拾取/击杀入账、任务奖励等一切"发钱"
+        /// 路径最终都经它）会发这个事件；<see cref="SetBalance"/>（"读档等以快照为准的场景，整体
+        /// 替换余额"语义）即便结果同样被夹到 <c>cap</c>，也**不**发——ADR/任务书原文明确区分
+        /// （"SetBalance 不发"），读档不应该把存档快照记录时刻已经真实发生过的溢出事件在这里重放
+        /// 一次。<paramref name="amount"/> 为负（扣款）时 <c>raw</c> 只会比 <paramref name="old"/>
+        /// 更小，不可能触发本判断（<c>raw &gt; cap</c> 只在净增加时成立），因此本判断天然只对"入账"
+        /// 生效，不需要额外按 <paramref name="amount"/> 符号分支。
+        /// </summary>
         public bool Add(Id unitId, Id currencyId, long amount, Id sourceId)
         {
             if (!_currencies.TryGetValue(currencyId, out var currency))
@@ -258,6 +286,11 @@ namespace Core.Gameplay.Economy
                 _bus.Enqueue(new CurrencyChangedEvent(unitId, currencyId, old, newValue));
             }
 
+            if (currency.Cap.HasValue && raw > currency.Cap.Value)
+            {
+                _bus.Enqueue(new CurrencyOverflowEvent(unitId, currencyId, raw - currency.Cap.Value));
+            }
+
             return true;
         }
 
@@ -265,7 +298,9 @@ namespace Core.Gameplay.Economy
         /// <paramref name="amount"/>（按 <see cref="CurrencyDef.Cap"/> 夹取到 <c>[0, cap]</c>），不与
         /// 当前余额相加；供 <see cref="CurrencyPersistable.Load"/> 读档时使用，保证读档语义是"替换"而
         /// 非"叠加"，连续多次 Load 同一快照结果幂等。实际发生变化时发 <c>economy.currency_changed</c>，
-        /// 与 <see cref="Add"/> 共用同一事件形状便于下游统一消费。</summary>
+        /// 与 <see cref="Add"/> 共用同一事件形状便于下游统一消费。T-N4-7 判断记录：本方法夹取到
+        /// <c>[0, cap]</c> 与 <see cref="Add"/> 完全一致，但**不**发 <see cref="CurrencyOverflowEvent"/>
+        /// ——见 <see cref="Add"/> 判断记录"SetBalance 不发"。</summary>
         public bool SetBalance(Id unitId, Id currencyId, long amount)
         {
             if (!_currencies.TryGetValue(currencyId, out var currency))
@@ -287,7 +322,35 @@ namespace Core.Gameplay.Economy
             return true;
         }
 
-        public bool TryPay(Id unitId, Id currencyId, long amount)
+        /// <summary>T-N4-8 判断记录（旧无 reason 签名，转发带 reason 重载）：本方法从"独立实现原子
+        /// 扣费"改为直接调用 <see cref="TryPay(Id,Id,long,string)"/>、传入 <see
+        /// cref="UnspecifiedPayReason"/> 占位——效果是本方法从这次改动起也会在成功扣费时发 <see
+        /// cref="EconomyChargedEvent"/>（<c>reason = "unspecified"</c>）。这是刻意的判断，不是"顺手
+        /// 带上"：ADR-0034 决策 5 原文把"原子扣费"描述为唯一一种操作（"tryCharge……余额足够则扣并发
+        /// economy.charged 事件返回真"），没有定义"发生扣费但不发事件"的另一分支；<see cref="Add"/>
+        /// 早已是同样口径——不管调用方传的 <c>sourceId</c> 是否携带业务语义，只要余额真的变化就发
+        /// <c>currency_changed</c>，"这次调用有没有额外标注意图"从不影响"账本事件该不该发"。本方法
+        /// 与带 reason 的新签名在本类型里向来是同一份底层"检查余额、原子扣除"操作，只是历史上（T-N4-6
+        /// 及更早）没有 reason 标签可发；补上"缺省 reason 也发事件"后，返回值与对余额本身的副作用
+        /// 逐位不变（既有 <c>EconomyHostTests.TryPay_*</c> 用例不依赖"不发事件"，见该测试文件），只是
+        /// 让全部既有调用点（本类型 <see cref="Buy"/> 内部扣款、<c>GameplayAssembly.
+        /// DeferredEconomyHost</c> 代理、任何外部直接持有 <see cref="IEconomyHost"/> 引用调用旧签名的
+        /// 调用方）从这次改动起也能在事件总线上观察到扣费发生——与"账本必须能追溯全部资金变动"的既有
+        /// 设计取向一致，不产生"一部分扣费永远追踪不到"的暗角。<see cref="Buy"/> 自身改传显式
+        /// <c>"vendor_buy"</c>，不吃这个占位默认值（见该方法调用点）。<b>与 IEconomyHost 接口默认接口
+        /// 成员的默认值（转发旧签名、不发事件）是两个不同层次的判断，互不矛盾</b>——接口默认值面向"没有
+        /// 显式覆写的组合/包装实现该退化成什么"，本类型是唯一生产实现，可以且应该给出比中性默认值更
+        /// 正确的真实行为。</summary>
+        public bool TryPay(Id unitId, Id currencyId, long amount) =>
+            TryPay(unitId, currencyId, amount, UnspecifiedPayReason);
+
+        /// <summary>T-N4-8（ADR-0034 决策 5；08 第 7.4 节修订段）：带 reason 的原子扣费——余额足够
+        /// （<c>&gt;= amount</c>）时经 <see cref="Add"/> 一次性扣除并发 <see
+        /// cref="EconomyChargedEvent"/>（携带 <paramref name="reason"/>），返回 true；不足时不调用
+        /// <see cref="Add"/>（不扣、不发任何事件），返回 false——两个分支之间没有"扣了一部分"的中间
+        /// 状态，判定与扣除在同一次调用内完成（<see cref="GetBalance"/> 只读，<see cref="Add"/> 是
+        /// 唯一产生副作用的调用，二者之间没有其它可能改变余额的操作插入，天然原子）。</summary>
+        public bool TryPay(Id unitId, Id currencyId, long amount, string reason)
         {
             if (amount < 0)
             {
@@ -305,8 +368,14 @@ namespace Core.Gameplay.Economy
             }
 
             Add(unitId, currencyId, -amount, sourceId: unitId);
+            _bus.Enqueue(new EconomyChargedEvent(unitId, currencyId, amount, reason));
             return true;
         }
+
+        /// <summary>T-N4-8：<see cref="TryPay(Id,Id,long)"/>（旧无 reason 签名）转发到带 reason 重载
+        /// 时使用的占位——调用方没有提供任何"为什么扣费"的语义，不替它编造一个更具体的假理由，见该
+        /// 方法判断记录。</summary>
+        private const string UnspecifiedPayReason = "unspecified";
 
         private Dictionary<Id, long> EnsureWallet(Id unitId)
         {
@@ -347,7 +416,11 @@ namespace Core.Gameplay.Economy
                 return PurchaseResult.Fail(PurchaseFailureReason.InsufficientStock);
             }
 
-            var price = sellItem.PriceAmount * count;
+            // T-N4-6（ADR-0034 决策 2；判断记录 1b）：price_amount 填了走原样整数乘法（回归安全，
+            // 逐位不变）；未填按价格公式算基准价值，算不出按 0 处理。
+            var price = sellItem.HasPriceAmount
+                ? sellItem.PriceAmount * count
+                : (long)((ComputeBaseValue(itemId) ?? 0.0) * count);
             if (GetBalance(unitId, sellItem.PriceCurrencyId) < price)
             {
                 return PurchaseResult.Fail(PurchaseFailureReason.InsufficientFunds);
@@ -385,7 +458,9 @@ namespace Core.Gameplay.Economy
                 transaction?.Commit();
             }
 
-            TryPay(unitId, sellItem.PriceCurrencyId, price);
+            // T-N4-8：显式传 "vendor_buy"，不吃 TryPay(Id,Id,long) 转发时用的占位 reason
+            // （见该方法判断记录）——购买场景本就知道自己为什么扣费，没有理由退化成占位值。
+            TryPay(unitId, sellItem.PriceCurrencyId, price, "vendor_buy");
             DecrementStock(vendorId, itemId, count);
             _bus.Enqueue(new ItemPurchasedEvent(unitId, vendorId, itemId, count, price));
             return PurchaseResult.Ok(price);
@@ -447,21 +522,27 @@ namespace Core.Gameplay.Economy
                 return (perItem, foundCurrency ?? ResolveSellCurrency());
             }
 
-            return foundCurrency.HasValue
-                ? (foundPrice * _options.DefaultBuyPricePct, foundCurrency.Value)
-                : (0.0, ResolveSellCurrency());
+            // T-N4-6（ADR-0034 决策 2；判断记录 1）：售价 = 基准价值 × 售价比例（DefaultBuyPricePct
+            // 重定位，见该属性判断记录）；基准价值优先走价格公式，公式算不出（本 registry 未加载
+            // item.template/econ.value_curve，如既有隔离测试场景）时回退 T-N4-6 之前的旧口径——
+            // "该物品在任一商人的手填售价"（foundPrice，找不到则为 0），保证既有全部用例逐位不变。
+            var baseValue = ComputeBaseValue(templateId) ?? foundPrice;
+            var currency = foundCurrency ?? ResolveSellCurrency();
+            return (baseValue * _options.DefaultBuyPricePct, currency);
         }
 
         /// <summary>按 <c>Id</c> 序数遍历全部已加载商人（判断记录 1"任一商人"），返回第一条命中
-        /// <paramref name="templateId"/> 的 <c>sell_items</c> 项的价格与货币；找不到返回 <c>(0,
-        /// null)</c>。</summary>
+        /// <paramref name="templateId"/> 且 <see cref="VendorSellItem.HasPriceAmount"/> 为真的
+        /// <c>sell_items</c> 项的价格与货币；找不到返回 <c>(0, null)</c>。T-N4-6：未填
+        /// <c>price_amount</c> 的条目不是"真实手填价格"，跳过继续找下一条（同一物品可能在别的商人
+        /// 处填了价格），全都没填则视为找不到。</summary>
         private (long Price, Id? CurrencyId) FindAnyVendorSellPrice(Id templateId)
         {
             foreach (var vendorId in _vendorOrder)
             {
                 foreach (var sellItem in _vendors[vendorId].SellItems)
                 {
-                    if (sellItem.ItemId.Equals(templateId))
+                    if (sellItem.ItemId.Equals(templateId) && sellItem.HasPriceAmount)
                     {
                         return (sellItem.PriceAmount, sellItem.PriceCurrencyId);
                     }
@@ -469,6 +550,18 @@ namespace Core.Gameplay.Economy
             }
 
             return (0, null);
+        }
+
+        /// <summary>T-N4-6（ADR-0034 决策 2）：<paramref name="templateId"/> 的基准价值——委托 <see
+        /// cref="EconomyPriceFormula.TryComputeBaseValue"/>，本 registry 未加载 <c>item.template</c>
+        /// 该记录时返回 <c>null</c>（"算不出"，不是"算出 0"，把兜底口径留给调用方，见
+        /// <see cref="Buy"/>/<see cref="ComputeSellPrice"/> 各自判断记录）。</summary>
+        private double? ComputeBaseValue(Id templateId)
+        {
+            var templateRecord = _registry.Get(EconomyPriceFormula.ItemTemplateTable, templateId);
+            return templateRecord == null
+                ? (double?)null
+                : EconomyPriceFormula.TryComputeBaseValue(_registry, templateRecord, _options.ValueCurveId);
         }
 
         /// <summary>全局找不到任何该物品的售价数据时的货币兜底（判断记录 1）：取全部已加载货币里
@@ -662,5 +755,19 @@ namespace Core.Gameplay.Economy
                 }
             }
         }
+
+        // -----------------------------------------------------------------
+        // T-N4-7：货币掉落条目换算 / 入账方式策略项（默认接口成员的显式覆写）
+        // -----------------------------------------------------------------
+
+        /// <summary>显式覆写 <see cref="IEconomyHost.TryGetGoldBaseAmount"/> 默认接口成员（见该成员
+        /// 判断记录）：委托 <see cref="EconomyPriceFormula.TryComputeGoldBaseAmount"/>，曲线 id 取
+        /// <see cref="EconomyOptions.GoldBaseCurveId"/>。</summary>
+        public double? TryGetGoldBaseAmount(int level) =>
+            EconomyPriceFormula.TryComputeGoldBaseAmount(_registry, _options.GoldBaseCurveId, level);
+
+        /// <summary>显式覆写 <see cref="IEconomyHost.DepositPolicy"/> 默认接口成员：转发
+        /// <see cref="EconomyOptions.DepositPolicy"/> 当前配置值。</summary>
+        public CurrencyDepositPolicy DepositPolicy => _options.DepositPolicy;
     }
 }

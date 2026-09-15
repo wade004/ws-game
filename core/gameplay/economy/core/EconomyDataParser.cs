@@ -71,9 +71,19 @@ namespace Core.Gameplay.Economy
                 throw new DataFieldException(record.Table.Name, record.Key, "sell_items", $"第 {index} 项缺少合法的 price_currency_id");
             }
 
-            if (!itemObj.TryGetValue("price_amount", out var amtVal) || !(amtVal is JsonNumber amtNum) || !amtNum.TryGetInt64(out var priceAmount) || priceAmount < 0)
+            // T-N4-6（ADR-0034 决策 2）：price_amount 改为可选——未提供该 key 时 hasPriceAmount=false，
+            // priceAmount 占位为 0（不参与任何计算，见 VendorSellItem.PriceAmount 判断记录）；提供了
+            // 该 key 则必须是合法的非负整数，语义与改动前完全一致。
+            long priceAmount = 0;
+            var hasPriceAmount = false;
+            if (itemObj.TryGetValue("price_amount", out var amtVal))
             {
-                throw new DataFieldException(record.Table.Name, record.Key, "sell_items", $"第 {index} 项缺少合法的非负整数 price_amount");
+                if (!(amtVal is JsonNumber amtNum) || !amtNum.TryGetInt64(out priceAmount) || priceAmount < 0)
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "sell_items", $"第 {index} 项 price_amount 必须是合法的非负整数");
+                }
+
+                hasPriceAmount = true;
             }
 
             int? stockLimit = null;
@@ -112,7 +122,7 @@ namespace Core.Gameplay.Economy
                     $"第 {index} 项 restock_policy=timer 时必须提供正数 restock_timer");
             }
 
-            return new VendorSellItem(itemId, currencyId, priceAmount, stockLimit, restockPolicy, restockTimer);
+            return new VendorSellItem(itemId, currencyId, priceAmount, hasPriceAmount, stockLimit, restockPolicy, restockTimer);
         }
     }
 }
