@@ -38,6 +38,11 @@ namespace Core.Carriers.Item
         private readonly Dictionary<Id, DataRecord> _templates = new Dictionary<Id, DataRecord>();
         private readonly Dictionary<Id, List<ItemInstance>> _bags = new Dictionary<Id, List<ItemInstance>>();
 
+        /// <summary>T-N2-9：<see cref="InventoryOptions.MaxSlotsStat"/> 非 null 时用于解析容量的
+        /// 只读属性查询（<c>(unitId, statId) =&gt; 当前值</c>），见 <see cref="GetCapacity"/> 判断
+        /// 记录。未提供该委托的构造重载下恒为 null。</summary>
+        private readonly Func<Id, Id, double>? _statLookup;
+
         private long _nextInstanceSeq = 1;
 
         // R01 根治：批量事务状态（见 IInventoryTransaction 判断记录）。事务开启期间，AddItemCore/
@@ -49,10 +54,47 @@ namespace Core.Carriers.Item
         private readonly List<IEvent> _txEvents = new List<IEvent>();
 
         public InventoryHost(IDataRegistryView registry, IEventBus bus, InventoryOptions? options = null)
+            : this(registry, bus, options, statLookup: null)
+        {
+        }
+
+        /// <summary>
+        /// T-N2-9（ADR-0034 决策 8；07 第 1.3 节修订段）新增重载：见硬性规则 5"ABI 只允许新增"——
+        /// 既有 3 参构造函数原样保留（同 <see cref="EquipmentHost"/> 构造重载"新增重载而不是给既有
+        /// 构造函数追加可选参数"一贯判断记录：给既有 <c>.ctor</c> 追加带默认值的新参数在物理 IL
+        /// 签名层面仍是破坏性变更），新增本 4 参重载在末尾追加 <paramref name="statLookup"/>。
+        /// <paramref name="statLookup"/> 供 <see cref="InventoryOptions.MaxSlotsStat"/> 非 null 时
+        /// 解析容量使用（签名 <c>(unitId, statId) =&gt; 当前值</c>，不复用 <see
+        /// cref="Core.Numbers.PowerSet.StatLookup"/> 具名委托类型——见该参数判断记录）；
+        /// <see cref="InventoryOptions.MaxSlotsStat"/> 为 null（默认）时本参数不会被调用，传 null
+        /// 与既有 3 参构造函数行为完全一致。
+        /// <para>
+        /// 判断记录（不复用 <c>Core.Numbers.PowerSet.StatLookup</c>，改用裸 <see
+        /// cref="Func{Id, Id, TResult}"/>）：<c>core/carriers/item</c>（L3）依赖 <c>core/numbers/
+        /// stat_block</c>（L1，<see cref="EquipmentHost"/> 已经直接引用 <see
+        /// cref="Core.Numbers.StatBlock.IStatHost"/>）没有分层问题，但 <c>StatLookup</c> 定义在
+        /// <c>core/numbers/power_set</c>——与背包容量是完全不相关的另一个 L1 模块，只是恰好委托
+        /// 形状相同（<c>(Id, Id) =&gt; double</c>）。为它单独引入一条跨模块依赖只为借用一个类型名，
+        /// 不如直接用 <see cref="Func{Id, Id, TResult}"/> 表达同一形状——两个模块各自独立解决同一个
+        /// "属性来源上限，需要延迟到属性系统构造完成后才能提供真实查询"的构造期时序问题（见组装根
+        /// <c>CarriersAssembly</c> 对应位置判断记录），互不引用，允许各自独立演进。
+        /// </para>
+        /// <para>
+        /// 判断记录（构造期不要求 <see cref="InventoryOptions.MaxSlotsStat"/> 与本参数同时非
+        /// null/null）：本类型不在构造期校验两者是否匹配一致——<see cref="InventoryOptions"/> 由
+        /// 调用方在构造 <see cref="InventoryHost"/> 之前独立 new 出来，构造期做交叉校验需要额外的
+        /// 前置条件耦合；改为在真正需要解析容量时（<see cref="GetCapacity"/>）才检查，MaxSlotsStat
+        /// 非 null 但本参数为 null 时在那一刻抛 <see cref="InvalidOperationException"/>（见该方法
+        /// 判断记录），与 <c>PowerHost</c> 对未注入 <c>StatLookup</c> 的既有处理时机一致（构造期不
+        /// 报错，首次真正用到时才报错）。
+        /// </para>
+        /// </summary>
+        public InventoryHost(IDataRegistryView registry, IEventBus bus, InventoryOptions? options, Func<Id, Id, double>? statLookup)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _options = options ?? new InventoryOptions();
+            _statLookup = statLookup;
 
             ReloadTemplates();
 
@@ -63,6 +105,36 @@ namespace Core.Carriers.Item
             // 本就持有 registry 引用（不像 QuestHost/DialogHost 那样只拿到预解析的 IEnumerable），
             // 可以直接内部订阅、自行重新查询，不需要装配根代劳。
             _bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, _ => ReloadTemplates());
+        }
+
+        /// <summary>
+        /// 分阶段落地计划 T-N2-9（ADR-0034 决策 8；07 第 1.3 节修订段"背包容量来源"）：<see
+        /// cref="IInventoryHost.GetCapacity"/> 显式实现——不依赖接口默认值（见该成员判断记录），本类
+        /// 型是唯一需要精确容量语义的生产实现。<see cref="int.MaxValue"/> 表示不限，仅当来源为固定值
+        /// 且 <see cref="InventoryOptions.MaxSlots"/> ≤ 0 时出现（历史语义不变）。
+        /// <para>
+        /// 判断记录（属性来源没有"不限"语义，向下取整并夹取到下限 0）：见 <see
+        /// cref="InventoryOptions.MaxSlotsStat"/> 判断记录"下限口径——待设计层确认"——固定值路径的
+        /// "≤0 表示不限"是本类型历史既有行为，不能因为新增属性来源就悄悄改变；但属性来源解析出的是
+        /// 一个真实的属性当前值，0 或负数（如被减益压低后）在这里就是"容量已经是 0"，不应退化为
+        /// "不限"，否则"容量不足时拒绝新增"的契约意图会被这个 sentinel 悄悄绕过。
+        /// </para>
+        /// </summary>
+        public int GetCapacity(Id unitId)
+        {
+            if (_options.MaxSlotsStat is Id statId)
+            {
+                if (_statLookup == null)
+                {
+                    throw new InvalidOperationException(
+                        $"InventoryOptions.MaxSlotsStat 已设置为 \"{statId}\"，但构造 InventoryHost 时未提供属性查询委托（statLookup），无法解析容量");
+                }
+
+                var floored = (int)Math.Floor(_statLookup(unitId, statId));
+                return floored < 0 ? 0 : floored;
+            }
+
+            return _options.MaxSlots <= 0 ? int.MaxValue : _options.MaxSlots;
         }
 
         private void ReloadTemplates()
@@ -140,9 +212,12 @@ namespace Core.Carriers.Item
 
             var overflow = Math.Max(0, count - freeInExisting);
             var newSlotsNeeded = overflow == 0 ? 0 : (overflow + stackSize - 1) / stackSize;
-            var availableSlots = _options.MaxSlots <= 0
+            // T-N2-9：容量统一改读 GetCapacity（固定值/属性来源二选一，见该方法判断记录），不再
+            // 直接读 _options.MaxSlots——int.MaxValue 分支与既有"不限"语义等价保留。
+            var capacity = GetCapacity(unitId);
+            var availableSlots = capacity == int.MaxValue
                 ? int.MaxValue
-                : Math.Max(0, _options.MaxSlots - bag.Count);
+                : Math.Max(0, capacity - bag.Count);
 
             int toAdd;
             if (newSlotsNeeded <= availableSlots)
@@ -365,7 +440,9 @@ namespace Core.Carriers.Item
         internal bool TryPutBack(Id unitId, ItemInstance instance)
         {
             var bag = GetOrCreateBag(unitId);
-            if (_options.MaxSlots > 0 && bag.Count >= _options.MaxSlots)
+            // T-N2-9：容量统一改读 GetCapacity，见 AddItemCore 同一类判断记录。
+            var capacity = GetCapacity(unitId);
+            if (capacity != int.MaxValue && bag.Count >= capacity)
             {
                 return false;
             }
@@ -380,13 +457,15 @@ namespace Core.Carriers.Item
         /// 该单位的背包条目（纯只读查询，未注册单位视为空背包）。</summary>
         internal bool HasRoomForOne(Id unitId)
         {
-            if (_options.MaxSlots <= 0)
+            // T-N2-9：容量统一改读 GetCapacity，见 AddItemCore 同一类判断记录。
+            var capacity = GetCapacity(unitId);
+            if (capacity == int.MaxValue)
             {
                 return true;
             }
 
             var count = _bags.TryGetValue(unitId, out var bag) ? bag.Count : 0;
-            return count < _options.MaxSlots;
+            return count < capacity;
         }
 
         private List<ItemInstance> GetOrCreateBag(Id unitId)

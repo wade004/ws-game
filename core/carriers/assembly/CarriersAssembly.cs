@@ -206,8 +206,17 @@ namespace Core.Carriers.Assembly
             // ---------------------------------------------------------
             var staticImmunity = new CreatureImmunityProvider(world);
 
+            // T-N2-9（ADR-0034 决策 8；07 第 1.3 节修订段）：InventoryOptions.MaxSlotsStat 非 null
+            // 时 InventoryHost.GetCapacity 需要查询 Rules.Stats（真正的 IStatHost），但本步骤先于
+            // 下方第 3 步 RulesAssembly 构造——与本方法第 1 步 healthFractionSetter/powers 同一种
+            // "两者互相需要对方，真正调用发生在构造完成之后即可安全提前绑定"的循环依赖处理手法：
+            // 闭包捕获尚未赋值的 statsRef 局部变量，RulesAssembly 构造完成后立即回填（见下方
+            // "powers = Rules.Powers" 相邻一行）。MaxSlotsStat 为 null（默认）时这份委托不会被调用，
+            // 对既有行为无影响。
+            IStatHost statsRef = null!;
             var resolvedInventoryOptions = inventoryOptions ?? new InventoryOptions();
-            Inventory = new InventoryHost(registry, bus, resolvedInventoryOptions);
+            Inventory = new InventoryHost(registry, bus, resolvedInventoryOptions,
+                (unitId, stat) => statsRef.GetStat(unitId, stat));
             var itemExtension = new ItemEffectExtension(Inventory);
 
             // ---------------------------------------------------------
@@ -244,6 +253,7 @@ namespace Core.Carriers.Assembly
                 discreteCurrentActorProvider: discreteCurrentActorProvider,
                 levelSync: Units.SetLevel);
             powers = Rules.Powers; // 回填第 1 步 healthFractionSetter 闭包捕获的局部变量。
+            statsRef = Rules.Stats; // T-N2-9：回填第 2 步 InventoryHost 容量查询闭包捕获的局部变量。
 
             // ADR-0028 收边：Projectiles（第 2.5 步）先于本步 RulesAssembly 构造完成，Rules.Factions
             // 在 RulesAssembly 构造函数内部才真正 new 出来（本类无法在构造 Projectiles 之前就先拿到
