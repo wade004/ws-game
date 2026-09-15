@@ -100,5 +100,27 @@ namespace Core.Gameplay.Economy
 
             return TryComputeFormulaValue(view, templateRecord, valueCurveId);
         }
+
+        /// <summary>
+        /// T-N4-7（ADR-0034 决策 3；08 第 1.1/7.4 节修订段"怪物掉钱 = 当量 ×
+        /// econ.gold_base_curve(怪物等级) × 分档倍率 × diff.tier.loot_multiplier"）：按
+        /// <paramref name="goldBaseCurveId"/> 指定的 <c>econ.gold_base_curve</c> 记录，取
+        /// <paramref name="level"/> 对应的金币基数。曲线记录未加载（<paramref name="goldBaseCurveId"/>
+        /// 在 <paramref name="view"/> 里找不到）时返回 <c>null</c>（"无法算出"，同
+        /// <see cref="TryComputeFormulaValue"/> 判断记录，不是"算出 0"）；<see cref="IEconomyHost"/>
+        /// （<see cref="EconomyHost.TryGetGoldBaseAmount"/>）是本方法唯一调用方，供
+        /// <c>core/gameplay/loot.LootHost</c> 经该接口间接使用。
+        /// </summary>
+        public static double? TryComputeGoldBaseAmount(IDataRegistryView view, Id goldBaseCurveId, int level)
+        {
+            var curveRecord = view.Get(EconomySchemas.GoldBaseCurve.Name, goldBaseCurveId);
+            if (curveRecord == null)
+            {
+                return null;
+            }
+
+            var curve = CurveSchema.ReadBreakpoints(curveRecord, "entries");
+            return curve.Evaluate(level);
+        }
     }
 }

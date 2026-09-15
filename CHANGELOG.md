@@ -391,6 +391,35 @@ DefaultBuyPricePct` 重新定位为"售价比例"策略项（字段名与默认�
 走公式"的样例（原手填值 5 与新价格公式在阈值内不产生偏离警告，见 `EconomyPriceFormula`/曲线样例
 数值判断）。
 
+数值设计落地阶段 N4 · T-N4-7（ADR-0034 决策 3/4；08 第 1.1/7.4 节修订段）：`loot.table.groups[].
+entries[].ref` 放行 `econ` 域（`LootTableParser`/`LootContentValidationRule` 同步放行，报错文案
+由"必须是 item 或 loot"改为"必须是 item、loot 或 econ"），货币掉落条目的 `count_range` 解释为
+当量区间，实际数量 = 当量 × `econ.gold_base_curve`（来源等级，`RollContext.SourceLevel` 为空时
+回退等级 1）× `RollContext.Multiplier`（既有难度倍率挂载点，落地为 `diff.tier.loot_multiplier`）；
+`creature.tier_definition` 的"分档金币倍率"字段尚未登记（不依赖 T-N4-4），该乘数暂缺，等价于恒为
+1，留待后续任务补上（待设计层确认）。货币不进背包、不占格子：`LootHost.PickUp`（`Reject`/`Partial`
+两种满包策略）对货币堆叠改经新增的 `IEconomyHost.Add` 入账，不再走 `IInventoryHost.AddItem`，
+背包容量为 0/已满时货币仍能全额入账，不影响同一次拾取里非货币条目的既有满包语义；`LootHost`
+新增 12 参数构造重载（末尾 `IEconomyHost? economyHost`，旧 11 参数构造函数不变）。入账方式新增
+策略项 `EconomyOptions.DepositPolicy`（`Core.Gameplay.Economy.CurrencyDepositPolicy`，
+`OnKill`/`GroundPickup`，默认 `OnKill`）：`OnKill` 下 `CreatureDeathLootListener` 在死亡结算那一刻
+把货币产出直接入账给击杀者、不生成地面掉落物；找不到明确击杀者时退回 `GroundPickup` 语义（待设计层
+确认）；`CreatureDeathLootListener` 新增 8 参数构造重载（末尾 `IEconomyHost? economyHost`）。
+`IEconomyHost` 新增两个默认接口成员：`TryGetGoldBaseAmount(int level): double?`（按
+`EconomyOptions.GoldBaseCurveId` 指定的 `econ.gold_base_curve` 曲线求值，唯一实现 `EconomyHost`
+显式覆写）、`DepositPolicy: CurrencyDepositPolicy`（转发 `EconomyOptions.DepositPolicy`）；
+`EconomyOptions` 新增 `GoldBaseCurveId`（缺省 `econ.gold_base.default`）。新增事件
+`economy.currency_overflow`（`Core.Gameplay.Economy.CurrencyOverflowEvent`，字段
+`unitId`/`currencyId`/`discarded`）：`EconomyHost.Add` 使某单位货币余额被夹到
+`econ.currency.cap` 之上而丢弃超出部分时触发；`EconomyHost.SetBalance`（读档"以快照为准"语义）
+即便结果同样被夹到 cap 也不触发。判断记录：本次未登记 `found.event_catalog.json`/重生成
+`EventKeys.g.cs`——`gen_event_constants.py --check` 只比较登记表与已提交生成文件两者自身是否
+一致，不反查代码里手写的 `Id` 事件常量，因此不登记也不影响该门禁；两条新经济事件（含 T-N4-8 的
+`economy.charged`）的登记与常量重生成整体留给 T-N4-8（依赖 T-N4-7），避免与其重复改动同一份登记
+表。数据侧：`data/_sample/econ/econ.currency.json` 补 `cap: 99999`；`data/_sample/loot/
+loot.table.json` 的 `loot.sample_beast` 新增一条 `econ.currency.sample_coin` 货币条目
+（`count_range: {min:1,max:3}`）。
+
 ## [1.33.0] - 2026-09-15
 
 MINOR 版本：数值设计落地阶段 N3"技能"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 9/14 节，T-N3-1～T-N3-11）——落地 ADR-0031 全部决策：效果值缩放契约、使用条件、节拍锁、来源缺失冻结、瘟疫刷新、控制类别、群体超出策略（拍板 7）、武器百分比基于秒伤乘一拍、`skill.budget_rule` 与技能预算 Analyzer、结算类原语集合、独立的优先级表求值组件——不新增任何效果原语。

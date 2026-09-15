@@ -254,6 +254,19 @@ namespace Core.Gameplay.Economy
         public long GetBalance(Id unitId, Id currencyId) =>
             _balances.TryGetValue(unitId, out var wallet) && wallet.TryGetValue(currencyId, out var v) ? v : 0;
 
+        /// <summary>
+        /// T-N4-7（ADR-0034 决策 4；08 第 7.4 节修订段"达到 econ.currency.cap 时超出部分丢弃并发
+        /// economy.currency_overflow"）：真正把 <paramref name="raw"/>（未夹取的原始和）顶到 <see
+        /// cref="CurrencyDef.Cap"/> 之上而丢弃的这一次调用会额外发 <see cref="CurrencyOverflowEvent"/>
+        /// （<see cref="CurrencyOverflowEvent.Discarded"/> = <c>raw - cap</c>）——只有本方法（真正的
+        /// "入账"语义：<c>core/gameplay/loot</c> 的货币掉落条目拾取/击杀入账、任务奖励等一切"发钱"
+        /// 路径最终都经它）会发这个事件；<see cref="SetBalance"/>（"读档等以快照为准的场景，整体
+        /// 替换余额"语义）即便结果同样被夹到 <c>cap</c>，也**不**发——ADR/任务书原文明确区分
+        /// （"SetBalance 不发"），读档不应该把存档快照记录时刻已经真实发生过的溢出事件在这里重放
+        /// 一次。<paramref name="amount"/> 为负（扣款）时 <c>raw</c> 只会比 <paramref name="old"/>
+        /// 更小，不可能触发本判断（<c>raw &gt; cap</c> 只在净增加时成立），因此本判断天然只对"入账"
+        /// 生效，不需要额外按 <paramref name="amount"/> 符号分支。
+        /// </summary>
         public bool Add(Id unitId, Id currencyId, long amount, Id sourceId)
         {
             if (!_currencies.TryGetValue(currencyId, out var currency))
@@ -273,6 +286,11 @@ namespace Core.Gameplay.Economy
                 _bus.Enqueue(new CurrencyChangedEvent(unitId, currencyId, old, newValue));
             }
 
+            if (currency.Cap.HasValue && raw > currency.Cap.Value)
+            {
+                _bus.Enqueue(new CurrencyOverflowEvent(unitId, currencyId, raw - currency.Cap.Value));
+            }
+
             return true;
         }
 
@@ -280,7 +298,9 @@ namespace Core.Gameplay.Economy
         /// <paramref name="amount"/>（按 <see cref="CurrencyDef.Cap"/> 夹取到 <c>[0, cap]</c>），不与
         /// 当前余额相加；供 <see cref="CurrencyPersistable.Load"/> 读档时使用，保证读档语义是"替换"而
         /// 非"叠加"，连续多次 Load 同一快照结果幂等。实际发生变化时发 <c>economy.currency_changed</c>，
-        /// 与 <see cref="Add"/> 共用同一事件形状便于下游统一消费。</summary>
+        /// 与 <see cref="Add"/> 共用同一事件形状便于下游统一消费。T-N4-7 判断记录：本方法夹取到
+        /// <c>[0, cap]</c> 与 <see cref="Add"/> 完全一致，但**不**发 <see cref="CurrencyOverflowEvent"/>
+        /// ——见 <see cref="Add"/> 判断记录"SetBalance 不发"。</summary>
         public bool SetBalance(Id unitId, Id currencyId, long amount)
         {
             if (!_currencies.TryGetValue(currencyId, out var currency))
@@ -699,5 +719,19 @@ namespace Core.Gameplay.Economy
                 }
             }
         }
+
+        // -----------------------------------------------------------------
+        // T-N4-7：货币掉落条目换算 / 入账方式策略项（默认接口成员的显式覆写）
+        // -----------------------------------------------------------------
+
+        /// <summary>显式覆写 <see cref="IEconomyHost.TryGetGoldBaseAmount"/> 默认接口成员（见该成员
+        /// 判断记录）：委托 <see cref="EconomyPriceFormula.TryComputeGoldBaseAmount"/>，曲线 id 取
+        /// <see cref="EconomyOptions.GoldBaseCurveId"/>。</summary>
+        public double? TryGetGoldBaseAmount(int level) =>
+            EconomyPriceFormula.TryComputeGoldBaseAmount(_registry, _options.GoldBaseCurveId, level);
+
+        /// <summary>显式覆写 <see cref="IEconomyHost.DepositPolicy"/> 默认接口成员：转发
+        /// <see cref="EconomyOptions.DepositPolicy"/> 当前配置值。</summary>
+        public CurrencyDepositPolicy DepositPolicy => _options.DepositPolicy;
     }
 }

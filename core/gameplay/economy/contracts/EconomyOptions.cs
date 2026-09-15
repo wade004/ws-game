@@ -45,5 +45,45 @@ namespace Core.Gameplay.Economy
         /// 裁定（2026-09-15）：采纳）。
         /// </summary>
         public double PriceDeviationWarningThreshold { get; set; } = EconomyPriceDeviatesFormulaRule.DefaultDeviationThreshold;
+
+        /// <summary>
+        /// 金币基数曲线（分阶段落地计划 T-N4-7；ADR-0034 决策 3；08 第 1.1/7.4 节修订段"怪物掉钱 =
+        /// 当量 × econ.gold_base_curve(怪物等级) × 分档倍率 × diff.tier.loot_multiplier"）使用的
+        /// <c>econ.gold_base_curve</c> id：缺省 <c>econ.gold_base.default</c>，同 <see
+        /// cref="ValueCurveId"/> 一贯惯例——曲线 id 是调用方配置项，不预设/硬编码唯一默认曲线。该
+        /// 曲线在已加载数据里找不到对应记录时，<see cref="EconomyHost.TryGetGoldBaseAmount"/> 返回
+        /// null（"无法算出"），消费方（<c>core/gameplay/loot.LootHost</c> 的货币掉落条目）按"无法
+        /// 算出数量，静默跳过该条目"处理，不抛异常（见该类型判断记录）。
+        /// </summary>
+        public Id GoldBaseCurveId { get; set; } = new Id("econ.gold_base.default");
+
+        /// <summary>
+        /// 货币入账方式策略项（分阶段落地计划 T-N4-7；ADR-0034 决策 4"入账方式为策略配置项：击杀
+        /// 即入账（默认）或掉在地上靠近自动拾取"；08 第 7.4 节修订段）。默认
+        /// <see cref="CurrencyDepositPolicy.OnKill"/>，与 ADR 原文"默认"一致。见 <see
+        /// cref="CurrencyDepositPolicy"/> 判断记录（本框架不实现"靠近自动拾取"的距离判定本身，
+        /// <see cref="CurrencyDepositPolicy.GroundPickup"/> 落地为"货币随其它掉落物一并落地，玩家
+        /// 走到跟前手动/自动触发既有 <c>LootHost.PickUp</c> 时直接入账、不进背包"——"靠近"这一步
+        /// 的触发时机属表现层/交互层，框架只保证"一旦 PickUp 被调用，货币直接入账"）。
+        /// </summary>
+        public CurrencyDepositPolicy DepositPolicy { get; set; } = CurrencyDepositPolicy.OnKill;
+    }
+
+    /// <summary>
+    /// 货币入账方式（分阶段落地计划 T-N4-7；ADR-0034 决策 4）。见 <see
+    /// cref="EconomyOptions.DepositPolicy"/>、<see cref="IEconomyHost.DepositPolicy"/> 判断记录。
+    /// </summary>
+    public enum CurrencyDepositPolicy
+    {
+        /// <summary>击杀即入账（默认）：<c>core/gameplay/loot.CreatureDeathLootListener</c> 在死亡结算
+        /// 那一刻直接把货币产出入账给击杀者，不生成地面掉落物、不占格子、不需要拾取。找不到明确的
+        /// 击杀者（如环境死亡）时退回 <see cref="GroundPickup"/> 语义，不静默丢弃（见该类型判断
+        /// 记录）。</summary>
+        OnKill,
+
+        /// <summary>掉在地上，拾取时入账：货币与其它掉落物一并生成为地面掉落物（不进背包、不占格子，
+        /// 见 <c>LootHost.PickUp</c> 判断记录），玩家触发拾取动作时才真正调用 <see
+        /// cref="IEconomyHost.Add"/>。</summary>
+        GroundPickup,
     }
 }

@@ -2,17 +2,24 @@
 
 职责：落地 08_玩法层_掉落任务对话关卡.md 第 7 节 Economy——货币（`econ.currency`）余额增减、商人
 （`econ.vendor`）购买/出售、限量库存与两种补货策略（`on_map_enter`/`timer`）、价格公式（`econ.value_curve`/
-`econ.gold_base_curve`，ADR-0034 决策 2，T-N4-6）。对应 01 第 L4 模块表 `economy` 行（契约
+`econ.gold_base_curve`，ADR-0034 决策 2，T-N4-6）、货币掉落条目的金币基数取值与入账方式策略项
+（ADR-0034 决策 3/4，T-N4-7——落地实现见 `core/gameplay/loot`，本模块只提供
+`IEconomyHost.TryGetGoldBaseAmount`/`DepositPolicy` 两个查询点与超 cap 的 `economy.currency_overflow`
+事件）。对应 01 第 L4 模块表 `economy` 行（契约
 `EconomyHost.buy/sell(...)`、数据表 `econ.currency`/`econ.vendor`/`econ.value_curve`/
 `econ.gold_base_curve`、事件
-`economy.currency_changed`/`economy.item_purchased`/`economy.item_sold`/`economy.vendor_restocked`）。
+`economy.currency_changed`/`economy.item_purchased`/`economy.item_sold`/`economy.vendor_restocked`/
+`economy.currency_overflow`）。
 
 依赖：L0（`data_registry`/`event_bus`/`expr`）、L3（`Core.Carriers.Common.IInventoryHost`；T-N4-6 起
 价格公式按表名字符串读取 `item.template`/`item.quality_definition`/`item.slot_definition` 三张
 `Core.Carriers.Item` 表，不引用该模块的强类型 schema 常量，见 `EconomyPriceFormula` 判断记录）、L2
 （`core/rules/common.IExprHostFactory`；`core/rules/expr_host.RulesExprSchema.Base`（默认，可由
 调用方传入合并后的 schema 覆盖）用于解析 `buy_price_rule`）。经 `Core.Gameplay.csproj` 既有的
-`Core.Carriers` 项目引用传递可见。
+`Core.Carriers` 项目引用传递可见。T-N4-7 起被同一程序集内的 `core/gameplay/loot`（同层 L4）反向
+依赖——`LootHost`/`CreatureDeathLootListener` 持有 `IEconomyHost` 引用用于货币掉落条目换算/入账，
+见该模块 README 判断记录（同层 L4 互相依赖的先例是 `core/gameplay/loot` 对
+`core/gameplay/difficulty.IDifficultyHost` 的既有依赖，T-N2-8b）。
 
 ## 目录
 
@@ -25,11 +32,14 @@ economy/
                                    VendorSellItem 新增 HasPriceAmount + 对应构造重载）
     EconomySchemas.cs             econ.currency/econ.vendor/econ.value_curve/econ.gold_base_curve
                                    的 TableSchema（T-N4-6 新增后两张）
-    IEconomyHost.cs                契约接口
+    IEconomyHost.cs                契约接口（T-N4-7：新增默认接口成员 TryGetGoldBaseAmount/DepositPolicy）
     PurchaseResult.cs             Buy 返回值 + 失败原因枚举
     SellResult.cs                  Sell 返回值 + 失败原因枚举
-    EconomyOptions.cs              售价比例（重定位）、价值曲线 id、偏离警告阈值等策略配置（T-N4-6）
-    Events.cs                      EconomyEventKeys + 四个事件类型
+    EconomyOptions.cs              售价比例（重定位）、价值曲线 id、偏离警告阈值等策略配置（T-N4-6）；
+                                   T-N4-7 新增 GoldBaseCurveId、DepositPolicy（CurrencyDepositPolicy
+                                   枚举，OnKill/GroundPickup，同文件顶层类型）
+    Events.cs                      EconomyEventKeys + 五个事件类型（T-N4-7 新增
+                                   economy.currency_overflow/CurrencyOverflowEvent）
     EconomyExprSchemaEntries.cs    player.currency(currencyId): Int 登记
     ChainedExprGroupProvider.cs    player 分组"链式包装"合并帮助类型
   core/
@@ -37,10 +47,13 @@ economy/
     EconomyContentValidationRule.cs sell_items 内登记表达不了的业务判断（ADR-0019/F1b 收窄，见判断记录 10）
     EconomyPriceFormula.cs         T-N4-6 新增：econ.value_curve 价格公式（基准价值 = 曲线 ×
                                    品质价格倍率 × 槽位价格系数，value_override 优先），运行期与
-                                   校验期共用
+                                   校验期共用；T-N4-7 新增 TryComputeGoldBaseAmount（econ.gold_base_curve
+                                   按等级求值，供 EconomyHost.TryGetGoldBaseAmount 转发）
     EconomyPriceDeviatesFormulaRule.cs T-N4-6 新增："手填价格偏离公式"警告
                                    （检查名 econ_price_deviates_formula，待设计层确认）
-    EconomyHost.cs                  IEconomyHost 唯一实现（T-N4-6：Buy/Sell 缺省走价格公式）
+    EconomyHost.cs                  IEconomyHost 唯一实现（T-N4-6：Buy/Sell 缺省走价格公式；T-N4-7：
+                                   Add 超 cap 发 currency_overflow，SetBalance 不发；显式覆写
+                                   TryGetGoldBaseAmount/DepositPolicy 两个默认接口成员）
     PlayerCurrencyExprGroupProvider.cs  player.currency 的 IExprGroupProvider 实现
     CurrencyPersistable.cs          player.currencies 段
     VendorStockPersistable.cs       world.vendor_stock 段（补录，可选）
@@ -49,6 +62,8 @@ economy/
     EconomyHostTests.cs             Add/TryPay/Buy/Sell/补货/持久化/Expr 求值用例
     T_N4_6_EconomyPriceFormulaTests.cs 价格公式（含 value_override 优先）、售价比例、偏离警告
                                    正负例、NonEscalatable、新表 schema 覆盖
+    T_N4_7_CurrencyOverflowTests.cs Add 超 cap 丢弃并发 currency_overflow（2 组：discards+emits、
+                                   within-cap 不发）、SetBalance 夹取但不发该事件
 ```
 
 ## 判断记录
@@ -190,6 +205,45 @@ economy/
     告警，因为没有公式值就无从比较偏离——三处口径不同是"运行期要有个数、宁可粗糙也不抛异常"与
     "校验期没有依据就不下判断"两种场景的正常分歧，不是实现疏漏。
 
+13. **T-N4-7（ADR-0034 决策 3/4；08 第 1.1/7.4 节修订段）：`IEconomyHost` 新增两个默认接口成员
+    支撑 `core/gameplay/loot` 的货币掉落条目，`Add` 新增超 cap 丢弃事件，`SetBalance` 刻意不发**：
+    - `TryGetGoldBaseAmount(int level): double?`——委托 `EconomyPriceFormula.
+      TryComputeGoldBaseAmount`（`EconomySchemas.GoldBaseCurve` 按 `EconomyOptions.GoldBaseCurveId`
+      取该等级金币基数），曲线未加载/该 id 找不到记录时返回 `null`。默认接口成员默认返回 `null`
+      （"无曲线数据"的中性默认值），唯一实现 `EconomyHost` 显式覆写；`Core.Gameplay.Assembly.
+      GameplayAssembly` 内部延迟绑定代理 `DeferredEconomyHost` 同样显式转发（不落回默认值），已过
+      `Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests` 门禁。
+    - `DepositPolicy: CurrencyDepositPolicy`——转发 `EconomyOptions.DepositPolicy`（新增枚举
+      `OnKill`/`GroundPickup`，默认 `OnKill`，与 ADR 原文"击杀即入账（默认）"一致）。供
+      `core/gameplay/loot.CreatureDeathLootListener` 判断死亡结算时是否把货币产出直接入账给击杀者
+      （`OnKill`）还是让货币随其它掉落物一并落地、拾取时才入账（`GroundPickup`）——本模块只登记
+      策略取值与两个中性枚举成员，不实现"击杀"这个概念本身（那是 Loot 模块的事，见该模块 README
+      判断记录）。
+    - `Add` 使某单位某货币余额被夹到 `CurrencyDef.Cap` 之上而丢弃超出部分时，新增发 `economy.
+      currency_overflow`（`CurrencyOverflowEvent{unitId, currencyId, discarded}`，`discarded = raw
+      - cap`）；`SetBalance`（"读档等以快照为准场景，整体替换余额"语义）即便结果同样被夹到 cap，
+      也**不**发——ADR/08 第 7.4 节原文明确区分（"`SetBalance` 不发"），读档不应该把存档快照记录
+      时刻已经真实发生过的溢出事件在这里重放一次。判断依据 `raw`（未夹取前的余额和）而不是最终
+      `newValue`：`raw > cap` 才是"真的顶到上限之上"，`newValue` 还可能因为下限夹取（扣款到负数
+      再夹回 0）而与 `old` 不同，两者不是同一件事、不能混用同一个判断条件。
+    - **契约缺口/临时判断（待设计层确认）**：08 原文"怪物掉钱 = 当量 ×
+      `econ.gold_base_curve`(怪物等级) × 分档倍率 × `diff.tier.loot_multiplier`"里的"分档倍率"
+      指 `creature.tier_definition` 的经验/金币倍率字段——核实该表（`core/carriers/creature/core/
+      CreatureSchemas.cs`）当前只有 `stat_multiplier`/`control_immune` 等既有字段，没有任何"经验/
+      金币倍率"字段（分阶段落地计划 T-N4-4"分档与难度经验倍率"尚未落地，且本任务不依赖它），本
+      模块与 `core/gameplay/loot` 均未新增这一乘数的读取，等价于恒为 1，只保留
+      `RollContext.Multiplier`（`diff.tier.loot_multiplier`）一项——留待 T-N4-4/后续任务补上
+      该字段后再接入。
+    - **登记记录（未同步 `found.event_catalog.json`/`EventKeys.g.cs`）**：核实
+      `toolchain/gen_event_constants.py --check` 只比较该登记表与已提交的生成文件两者自身是否
+      一致，不反查代码里手写的 `Id` 事件常量，本次不登记、不重生成不会让该门禁失败；分阶段落地
+      计划把"两条新经济事件（`economy.charged`/`economy.currency_overflow`）登记 `found.
+      event_catalog` 并重生成常量"整体列为 T-N4-8 的任务范围（T-N4-8 依赖 T-N4-7），本次不提前
+      处理，避免与该任务重复改动同一份登记表产生合并冲突。
+    - 测试：`tests/T_N4_7_CurrencyOverflowTests.cs`（`Add` 超 cap 丢弃+发事件、`Add` 未超 cap 不发、
+      `SetBalance` 超 cap 夹取但不发，3 例）；`core/gameplay/loot/tests/T_N4_7_CurrencyLootTests.cs`/
+      `T_N4_7_CreatureDeathCurrencyDepositTests.cs`（消费端集成用例，见该模块 README）。
+
 ## 子结构登记表（ADR-0019 / F1b）
 
 `econ.vendor.sell_items` 元素结构（对照 `EconomyDataParser.ParseSellItem` 运行时解析代码）：
@@ -252,3 +306,9 @@ EquipmentPersistable.Load` 曾经的同一类缺陷成因相同（见 `core/carr
   （惯例同 `core/gameplay/loot`/`core/gameplay/world_state`）。
 - 不实现"组合支付"（`ExtendedCost` 多货币/多物品组合支付，见 08 第 7.3 节对照表"留待后续 ADR"）。
 - 不实现拍卖行/交易（08 第 7.3 节"直接裁剪"）。
+- T-N4-7：不实现"击杀即入账"/"掉在地上"这两种入账方式本身的落地机制——本模块只登记
+  `EconomyOptions.DepositPolicy` 策略取值与 `IEconomyHost.DepositPolicy`/`TryGetGoldBaseAmount`
+  两个查询点供消费方读取，真正"死亡结算时直接入账"或"生成地面掉落物、拾取时入账"是
+  `core/gameplay/loot`（`CreatureDeathLootListener`/`LootHost`）的事，见该模块 README。
+- T-N4-7：不实现"分档倍率"（`creature.tier_definition` 的经验/金币倍率字段）——该字段尚未登记
+  （见判断记录 13），本模块的金币基数曲线只按等级求值，不叠加任何分档乘数。
