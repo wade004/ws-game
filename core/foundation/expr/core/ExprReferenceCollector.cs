@@ -24,8 +24,9 @@ namespace Core.Foundation.Expr
     /// <c>target.stat(&lt;属性 id&gt;)</c> 引用）同时需要 <see cref="ExprReferenceNode.Args"/>
     /// 才能取出被引用的具体属性 id，只给 <c>(group, key)</c> 会丢失这个信息、逼调用方另外重新
     /// 遍历一遍原始语法树。<see cref="ExprReferenceNode"/> 本身已经携带 <c>Group</c>/<c>Key</c>/
-    /// <c>Args</c> 三者，是示意元组的严格超集，采纳为最终形状（设计层裁定：待确认，本任务先按
-    /// 此实现，理由已如实记录在此）。
+    /// <c>Args</c> 三者，是示意元组的严格超集，采纳为最终形状（结论：返回完整
+    /// <see cref="ExprReferenceNode"/> 而非元组，理由为元组的严格超集、调用方需要
+    /// <see cref="ExprReferenceNode.Args"/>；与 core/foundation/expr/README.md 一致）。
     /// </para>
     /// </summary>
     public static class ExprReferenceCollector
