@@ -259,6 +259,51 @@ namespace Core.Rules.Skill
 
         public void RemoveAura(Id targetId, AuraInstanceRef auraInstanceRef) => _auraHost.RemoveAura(targetId, auraInstanceRef);
 
+        /// <summary>T-N3-7 补（见 <see cref="IEffectSink.ForgetPeriodicCache"/> 判断记录）：从
+        /// <see cref="_lastPeriodicEffectValue"/> 中移除属于 <paramref name="auraInstanceId"/> 的
+        /// 全部缓存条目——缓存键是 (光环实例 id, 效果原语类型, 学派) 三元组，一个光环实例最多只对应
+        /// 该实例定义里声明的周期效果条目数（现实内容通常 1～2 条），逐一扫描全部缓存键、按
+        /// 光环实例 id 过滤后删除，即使在缓存较大时单次调用的扫描成本也只随"当前存活的周期光环
+        /// 实例数量"线性增长（随每次实例移除持续收口，不会无界累积），不引入额外的按实例 id 二级
+        /// 索引结构（当前规模没有必要，保持实现简单）。<paramref name="auraInstanceId"/> 未出现在
+        /// 缓存里（该光环从未成功进行过一次来源仍注册的周期结算，或本来就不含周期效果）时是安全的
+        /// 空操作。</summary>
+        public void ForgetPeriodicCache(Id auraInstanceId)
+        {
+            if (_lastPeriodicEffectValue.Count == 0)
+            {
+                return;
+            }
+
+            List<(Id AuraInstanceId, EffectKind Kind, Id School)>? toRemove = null;
+            foreach (var key in _lastPeriodicEffectValue.Keys)
+            {
+                if (key.AuraInstanceId.Equals(auraInstanceId))
+                {
+                    (toRemove ??= new List<(Id, EffectKind, Id)>()).Add(key);
+                }
+            }
+
+            if (toRemove == null)
+            {
+                return;
+            }
+
+            foreach (var key in toRemove)
+            {
+                _lastPeriodicEffectValue.Remove(key);
+            }
+        }
+
+        /// <summary>T-N3-7 补（见 <see cref="IEffectSink.ClearPeriodicCache"/> 判断记录）：清空全部
+        /// 冻结缓存条目，不区分光环实例。</summary>
+        public void ClearPeriodicCache() => _lastPeriodicEffectValue.Clear();
+
+        /// <summary>T-N3-7 补：只读暴露 <see cref="_lastPeriodicEffectValue"/> 的条目数，供测试断言
+        /// "光环实例移除后缓存条目确实被清理"（不必反射私有字段）。生产代码不消费本属性（缓存本身
+        /// 是纯粹的内部实现细节，不构成任何行为契约）。</summary>
+        public int PeriodicCacheCount => _lastPeriodicEffectValue.Count;
+
         // -----------------------------------------------------------------
         // school_damage / weapon_damage_pct / heal
         // -----------------------------------------------------------------

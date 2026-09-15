@@ -410,6 +410,16 @@ namespace Core.Rules.Skill
                 ProcHost?.Detach(instance.InstanceId);
             }
 
+            // T-N3-7 补（复核发现：EffectDispatcher._lastPeriodicEffectValue 此前没有任何清理路径，
+            // 长会话内随光环实例产生/移除无界增长）：本方法是全部移除路径的唯一收口（见上方
+            // ProcDefRefs 判断记录同一枚举），因此只需在这一处调用
+            // IEffectSink.ForgetPeriodicCache，就覆盖到期、RemoveAura、Dispel、吸收耗尽、叠加溢出
+            // Replace、目标销毁 OnEntityDestroyed 六条路径，不需要逐个移除入口分别接线；间接覆盖
+            // IWorldSim.ClearAll（世界级重置对每个实体派发 entity.destroyed，经既有
+            // OnEntityDestroyed 订阅逐个实例走到这里）。EffectSink 未注入（null，纯 L2 集成/未完成
+            // 装配的测试）时是安全的空操作，同 FirePeriodic 对 EffectSink 判空的既有惯例。
+            EffectSink?.ForgetPeriodicCache(instance.InstanceId);
+
             _bus.Enqueue(new AuraRemovedEvent(instance.TargetId, instance.DefId, reason, triggerChainDepth));
         }
 

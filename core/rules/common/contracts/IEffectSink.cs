@@ -29,5 +29,35 @@ namespace Core.Rules.Common
         AuraInstanceRef ApplyAura(Id targetId, Id auraDefId, Id sourceId, double? durationOverride = null);
 
         void RemoveAura(Id targetId, AuraInstanceRef auraInstanceRef);
+
+        /// <summary>
+        /// T-N3-7 补（周期效果来源缺失冻结缓存清理）：光环实例 <paramref name="auraInstanceId"/> 已经
+        /// 从光环系统移除（到期、<c>RemoveAura</c>、<c>Dispel</c>、吸收耗尽、叠加溢出 <c>Replace</c>、
+        /// 目标销毁——见 <c>Core.Rules.Skill.AuraHost.RemoveInstanceInternal</c> 判断记录"统一收口"）
+        /// 时调用，供实现方清理该实例在"周期效果来源缺失冻结"（见 ADR-0031 决策 4；06 第 3.3 节
+        /// 2026-09-14 修订段）机制里缓存的"最后一跳值"，避免长会话内缓存随光环实例产生/移除无界
+        /// 增长、以及（理论上）实例 id 被复用时读到陈旧冻结值。用 C#8 默认接口方法（空实现）而不是
+        /// 必须实现的抽象成员：本接口已有多个 <c>core/gameplay</c>/测试假实现（改动范围不允许连带
+        /// 修改它们，且它们根本不涉及"周期效果冻结缓存"这个 <c>core/rules/skill</c> 内部概念），
+        /// 默认空实现对它们是安全的等价降级（本来就没有任何缓存需要清理）。
+        /// <see cref="Core.Rules.Skill.EffectDispatcher"/> 提供真正实现；
+        /// <see cref="Core.Rules.Skill.AuraHost"/> 在 <c>RemoveInstanceInternal</c> 统一调用，唯一
+        /// 收口点覆盖全部移除路径，不需要逐个移除入口分别接线。
+        /// </summary>
+        void ForgetPeriodicCache(Id auraInstanceId) { }
+
+        /// <summary>
+        /// T-N3-7 补：清空全部"周期效果来源缺失冻结"缓存（见 <see cref="ForgetPeriodicCache"/> 判断
+        /// 记录）。判断记录（未在生产装配路径接线）：本仓库当前没有"同一个 <c>AuraHost</c>/
+        /// <c>EffectDispatcher</c> 实例原地批量清空后继续复用"这一生产路径——世界级重置
+        /// （<c>IWorldSim.ClearAll</c>）已经对每个实体派发 <c>entity.destroyed</c>，经既有
+        /// <c>AuraHost.OnEntityDestroyed</c> 订阅逐个走到 <c>RemoveInstanceInternal</c>→
+        /// <see cref="ForgetPeriodicCache"/>，最终清空的是同一批缓存条目；读档/场景重建则是构造
+        /// 全新的 <c>SkillHost</c>（连带全新的 <c>AuraHost</c>/<c>EffectDispatcher</c>，见
+        /// <c>SkillHost</c> 构造函数），旧实例（与其缓存）整体被丢弃，不存在"新 <c>AuraHost</c> 配
+        /// 旧 <c>EffectDispatcher</c> 缓存"这种搭配。本方法目前只供测试直接验证"全清"语义与未来若
+        /// 出现"原地重置复用"这类新路径时使用，默认空实现同 <see cref="ForgetPeriodicCache"/> 惯例。
+        /// </summary>
+        void ClearPeriodicCache() { }
     }
 }

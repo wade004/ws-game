@@ -245,5 +245,143 @@ namespace Tests.Rules.Skill
             world.Host.Update(0.2);
             Assert.False(world.Host.AuraQuery.HasAura(RefreshTarget, RefreshAuraDef), "累计推进 12.1 > 手算新剩余 12，应已到期");
         }
+
+        // -----------------------------------------------------------------
+        // 补：冻结缓存随光环实例移除清理（复核发现 _lastPeriodicEffectValue 此前无清理路径）
+        // -----------------------------------------------------------------
+
+        private static readonly Id CleanupAuraDef = new Id("skill.aura_def.n37_cleanup_sample");
+        private static readonly Id CleanupStat = new Id("stat.n37_cleanup_power");
+
+        private static JsonObject PeriodicScalingAura(double duration, double interval) => J.O(
+            ("id", J.S(CleanupAuraDef.Value)),
+            ("duration", J.N(duration)),
+            ("max_stacks", J.N(1)),
+            ("effects", J.A(
+                J.O(("kind", J.S("periodic_damage")),
+                    ("params", J.O(
+                        ("interval", J.N(interval)),
+                        ("base_value", J.N(5)),
+                        ("scaling", J.A(J.O(("stat", J.S(CleanupStat.Value)), ("coefficient", J.N(2))))),
+                        ("school", J.S(School.Value))))))));
+
+        [Fact]
+        public void PeriodicCache_InstanceRemoved_CacheEntryIsForgotten()
+        {
+            // 走真实 AuraHost 流程（不是直接构造 EffectContext）：施加周期光环、跑一跳让来源仍存活
+            // 时的路径写入缓存，再显式 RemoveAura——验证 AuraHost.RemoveInstanceInternal 的唯一收口
+            // 确实调用了 IEffectSink.ForgetPeriodicCache，缓存条目数归零，不是只在"未来某次结算"时
+            // 惰性失效。
+            var world = new SkillWorldBuilder()
+                .AuraDef(PeriodicScalingAura(duration: 10, interval: 1))
+                .Stat(CleanupStat.Value, defaultBase: 10)
+                .Build();
+            var target = new Id("unit.n37_cleanup_target");
+            var source = new Id("unit.n37_cleanup_source");
+            world.AddUnit(target);
+            world.AddUnit(source);
+
+            var instanceRef = world.Host.EffectSink.ApplyAura(target, CleanupAuraDef, source);
+            world.Host.Update(1.0); // 一个 interval，来源仍在，缓存应写入一条。
+
+            var dispatcher = Assert.IsType<EffectDispatcher>(world.Host.EffectSink);
+            Assert.Equal(1, dispatcher.PeriodicCacheCount);
+
+            world.Host.EffectSink.RemoveAura(target, instanceRef);
+
+            Assert.Equal(0, dispatcher.PeriodicCacheCount);
+        }
+
+        [Fact]
+        public void PeriodicCache_ForgetThenReapplySameInstanceId_DoesNotLeakStaleFrozenValue()
+        {
+            // 真实 AuraHost 里 _seq 单调递增、实例 id 不会真的被复用（见本任务 README 判断记录）。
+            // 本用例直接摆弄 EffectDispatcher（同本文件前几组"冻结"用例的手法），故意让"新一代"
+            // 结算复用与"旧一代"完全相同的 AuraInstanceId 字符串，防御性验证：只要 ForgetPeriodicCache
+            // 在旧实例移除时被调用过（真实场景由 AuraHost.RemoveInstanceInternal 触发），新一代就不会
+            // 读到旧一代冻结下来的陈旧值——即使 id 真的发生碰撞也不会读串。
+            var world = new SkillWorldBuilder().Stat(CleanupStat.Value, defaultBase: 10).Build();
+            var dispatcher = Assert.IsType<EffectDispatcher>(world.Host.EffectSink);
+
+            var target = new Id("unit.n37_cleanup_target2");
+            var sourceGen1 = new Id("unit.n37_cleanup_source_gen1");
+            world.AddUnit(target);
+            world.AddUnit(sourceGen1);
+
+            var reusedInstanceId = new Id("skill.aura_inst.n37_reused");
+
+            JsonObject ScalingParams(double baseValue, double coefficient) => J.O(
+                ("base_value", J.N(baseValue)),
+                ("scaling", J.A(J.O(("stat", J.S(CleanupStat.Value)), ("coefficient", J.N(coefficient))))));
+
+            // 第一代：来源存活时结算一次（5 + 2*10 = 25），缓存写入。
+            world.Host.EffectSink.ApplyEffect(new EffectContext(
+                sourceGen1, target, Skill, EffectKind.SchoolDamage, School, 0, 0, ScalingParams(5, 2),
+                auraInstanceId: reusedInstanceId, isPeriodic: true));
+            Assert.Equal(25, world.Combat.ResolveCalls[world.Combat.ResolveCalls.Count - 1].BaseValue);
+
+            // 来源销毁后冻结在 25（用明显不同的 params 证明确实是读缓存、没有重算）。
+            world.Stats.UnregisterUnit(sourceGen1);
+            world.Host.EffectSink.ApplyEffect(new EffectContext(
+                sourceGen1, target, Skill, EffectKind.SchoolDamage, School, 0, 0, ScalingParams(999, 999),
+                auraInstanceId: reusedInstanceId, isPeriodic: true));
+            Assert.Equal(25, world.Combat.ResolveCalls[world.Combat.ResolveCalls.Count - 1].BaseValue);
+            Assert.Equal(1, dispatcher.PeriodicCacheCount);
+
+            // 模拟该光环实例已被移除——真实场景由 AuraHost.RemoveInstanceInternal 在到期/RemoveAura/
+            // Dispel/吸收耗尽/叠加溢出 Replace/目标销毁六条路径的唯一收口处调用。
+            dispatcher.ForgetPeriodicCache(reusedInstanceId);
+            Assert.Equal(0, dispatcher.PeriodicCacheCount);
+
+            // 第二代：不同来源、不同属性值，复用同一个 AuraInstanceId 字符串。
+            var sourceGen2 = new Id("unit.n37_cleanup_source_gen2");
+            world.AddUnit(sourceGen2);
+            world.Stats.SetBase(sourceGen2, CleanupStat, 50);
+
+            world.Host.EffectSink.ApplyEffect(new EffectContext(
+                sourceGen2, target, Skill, EffectKind.SchoolDamage, School, 0, 0, ScalingParams(5, 2),
+                auraInstanceId: reusedInstanceId, isPeriodic: true));
+            // 5 + 2*50 = 105——既不是第一代冻结的 25（证明缓存已被真正清空，不是"恰好没命中"的假阳性），
+            // 也确认清理之后的动态重算路径本身仍然正确。
+            Assert.Equal(105, world.Combat.ResolveCalls[world.Combat.ResolveCalls.Count - 1].BaseValue);
+
+            // 第二代自己的来源销毁后应当冻结在第二代自己算出的值（105），而不是被第一代的陈旧值
+            // "复活"——如果清理有遗漏（例如只清了字典的一部分、或压根没清），这里会读到 25。
+            world.Stats.UnregisterUnit(sourceGen2);
+            world.Host.EffectSink.ApplyEffect(new EffectContext(
+                sourceGen2, target, Skill, EffectKind.SchoolDamage, School, 0, 0, ScalingParams(1, 1),
+                auraInstanceId: reusedInstanceId, isPeriodic: true));
+            Assert.Equal(105, world.Combat.ResolveCalls[world.Combat.ResolveCalls.Count - 1].BaseValue);
+        }
+
+        [Fact]
+        public void PeriodicCache_ClearPeriodicCache_RemovesEveryEntryRegardlessOfInstance()
+        {
+            // ClearPeriodicCache 是全量清空（本任务判断记录：当前仓库没有"同一 AuraHost/
+            // EffectDispatcher 原地批量清空复用"的生产路径接线到它，此方法目前主要供测试与未来可能
+            // 出现的重置路径使用）——用两个不同光环实例各写一条缓存，验证一次调用清空全部。
+            var world = new SkillWorldBuilder().Stat(CleanupStat.Value, defaultBase: 10).Build();
+            var dispatcher = Assert.IsType<EffectDispatcher>(world.Host.EffectSink);
+
+            var target = new Id("unit.n37_cleanup_target3");
+            var source = new Id("unit.n37_cleanup_source3");
+            world.AddUnit(target);
+            world.AddUnit(source);
+
+            world.Host.EffectSink.ApplyEffect(new EffectContext(
+                source, target, Skill, EffectKind.SchoolDamage, School, 0, 0,
+                J.O(("base_value", J.N(1)), ("scaling", J.A(J.O(("stat", J.S(CleanupStat.Value)), ("coefficient", J.N(1)))))),
+                auraInstanceId: new Id("skill.aura_inst.n37_clear_a"), isPeriodic: true));
+            world.Host.EffectSink.ApplyEffect(new EffectContext(
+                source, target, Skill, EffectKind.Heal, School, 0, 0,
+                J.O(("base_value", J.N(1)), ("scaling", J.A(J.O(("stat", J.S(CleanupStat.Value)), ("coefficient", J.N(1)))))),
+                auraInstanceId: new Id("skill.aura_inst.n37_clear_b"), isPeriodic: true));
+
+            Assert.Equal(2, dispatcher.PeriodicCacheCount);
+
+            dispatcher.ClearPeriodicCache();
+
+            Assert.Equal(0, dispatcher.PeriodicCacheCount);
+        }
     }
 }

@@ -1129,6 +1129,51 @@ skill/
     引入）——`ComputeRefreshedRemaining`/`_lastPeriodicEffectValue` 均为私有成员，不在探针可见的
     公开表面上。不新增任何效果原语，不实现控制递减（不属本任务范围），未改动
     `architecture/06_规则层_属性技能战斗AI.md`（2026-09-14 修订段已预先描述本任务落地的契约）。
+    <br/><br/>
+    **T-N3-7 补（复核发现）：冻结缓存清理**——`EffectDispatcher._lastPeriodicEffectValue` 落地时
+    没有任何清理路径（`grep` 不到 `Remove`/`Clear`），光环实例到期/驱散/移除/目标销毁后条目会一直
+    残留：长会话内随光环实例产生/移除无界增长；理论上（若 `AuraHost._seq` 曾经重置）还可能让新
+    实例读到旧实例遗留的陈旧冻结值。修复：
+    <br/><br/>
+    **清理入口与接线点**：`IEffectSink` 新增两个默认接口成员（C# 8 default interface member，
+    ABI 安全，空实现——本接口另有 `core/gameplay` 等实现方，不强制它们跟着改）：
+    `ForgetPeriodicCache(Id auraInstanceId)`（移除属于该光环实例的全部缓存条目，缓存键是
+    `(光环实例id, EffectKind, School)` 三元组，按实例 id 过滤扫描删除）、`ClearPeriodicCache()`
+    （清空全部条目）。`EffectDispatcher` 提供真正实现，并新增只读属性 `PeriodicCacheCount`
+    （供测试断言，不构成任何行为契约）。**接线点只有一处**：`AuraHost.RemoveInstanceInternal`——
+    该方法本就是全部移除路径的唯一收口（见其既有判断记录"到期 Update、RemoveAura、Dispel、
+    ConsumeAbsorb 吸收耗尽、叠加溢出 Replace、目标销毁 OnEntityDestroyed 都经由本方法统一收口"），
+    只需在这一处调用 `EffectSink?.ForgetPeriodicCache(instance.InstanceId)` 即覆盖全部六条移除
+    路径，不需要逐个移除入口分别接线。`IWorldSim.ClearAll` 间接覆盖：该方法对每个实体派发
+    `entity.destroyed`（`WorldSim.ClearAll` 实现已验证），经 `AuraHost` 既有 `OnEntityDestroyed`
+    订阅逐个实例走到 `RemoveInstanceInternal`，最终仍是同一个收口点。
+    <br/><br/>
+    **判断记录（"AuraHost.ClearAll/读档重建/Dispose"未接线）**：已核实本仓库当前 `AuraHost`/
+    `SkillHost` 均不存在 `ClearAll`/`Reset`/`Dispose` 方法（`grep` 确认）——读档/场景重建走的是
+    构造一个全新的 `SkillHost`（连带全新的 `AuraHost`/`EffectDispatcher`，见 `SkillHost` 构造
+    函数同一处两行相邻构造），旧三元组（含旧缓存、旧 `_seq` 计数器）整体被丢弃，不存在"新
+    `AuraHost` 配旧 `EffectDispatcher` 缓存"这种错配组合，`_seq` 本身也不会在同一个 `AuraHost`
+    实例生命周期内重置（`InstanceId = new Id($"skill.aura_inst_{++_seq}")` 单调递增，无任何重置
+    入口）——"实例 id 复用读到陈旧值"在当前架构下不是真实可达路径，只是防御性风险（见下方测试
+    "复用同一实例 id"如何在没有真实 `AuraHost` 复用场景的前提下仍然验证到这条防线）。
+    `ClearPeriodicCache()` 因此暂无生产接线点，保留为测试直接验证"全清"语义、并供未来若出现
+    "同一 `AuraHost`/`EffectDispatcher` 原地批量清空复用"这类新路径时使用。
+    <br/><br/>
+    **测试**（`T_N3_7_PeriodicFreezeAndPlagueRefreshTests.cs` 新增 3 例）：
+    `PeriodicCache_InstanceRemoved_CacheEntryIsForgotten`（真实 `AuraHost` 流程：施加周期光环、
+    一跳写入缓存、`RemoveAura` 后 `PeriodicCacheCount` 归零）；
+    `PeriodicCache_ForgetThenReapplySameInstanceId_DoesNotLeakStaleFrozenValue`（直接构造
+    `EffectContext` 手法同前几组冻结用例：第一代来源存活写入并冻结在 25，显式
+    `ForgetPeriodicCache` 模拟"旧实例已被移除"，第二代复用完全相同的 `AuraInstanceId` 字符串、
+    不同来源/属性值算出 105，验证既不读到第一代冻结的 25、清理后动态重算路径本身也正确、第二代
+    自己销毁来源后又能正确冻结在 105 而不是被第一代"复活"）；
+    `PeriodicCache_ClearPeriodicCache_RemovesEveryEntryRegardlessOfInstance`（两个不同光环实例各
+    写一条，`ClearPeriodicCache()` 一次性清空两条）。全量 `Tests.Rules`（723 例，含新增 3 例）/
+    `Tests.Carriers`（583 例，无改动）/不带 filter 的全量六程序集（217+1115+723+583+634+725 例）
+    回归全绿；`Replay` 全绿、基线零改动（清理逻辑只影响 `EffectDispatcher` 私有缓存的生命周期，
+    不改变任何对外可观察的结算结果）。ABI 探针（基线 1.32.0）breaks=0，新增 5 行（`IEffectSink`
+    两个默认接口成员 + `EffectDispatcher` 对应两个覆盖 + `PeriodicCacheCount` 属性，累计新增
+    37 行，其余 32 行为 T-N3-1～T-N3-7 主提交既有新增）。
 
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
