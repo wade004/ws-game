@@ -102,18 +102,38 @@ namespace Core.Carriers.Assembly
             double? itemBudgetUtilizationWarningThreshold, Id? weaponDpsCurveId,
             double? weaponDamageDeviationThreshold)
         {
-            RulesSchemaCatalog.RegisterAll(registry);
+            RegisterAll(registry, itemBudgetCurveId, itemBudgetUtilizationWarningThreshold,
+                weaponDpsCurveId, weaponDamageDeviationThreshold, anchorProvider: null);
+        }
+
+        /// <summary>
+        /// T-N6-3a（ADR-0035 决策 4 锚点表接入）：新增重载——额外接受真实
+        /// <see cref="Core.Rules.Common.ISkillBudgetAnchorProvider"/>，转发给
+        /// <see cref="RulesSchemaCatalog.RegisterAll(IDataRegistry, Core.Rules.Skill.SkillOptions?,
+        /// Core.Rules.Common.ISkillBudgetAnchorProvider?)"/> 与 <see
+        /// cref="ItemGrantValueExceedsShareRule"/> 构造参数（此前两处均硬编码
+        /// <c>anchorProvider: null</c>）。<paramref name="anchorProvider"/> 为 <c>null</c> 时与
+        /// <see cref="RegisterAll(IDataRegistry, Id?, double?, Id?, double?)"/> 逐位一致（回归）。
+        /// ABI：新增重载，不改动既有四个 <c>RegisterAll</c> 重载的签名/行为。
+        /// </summary>
+        public static void RegisterAll(IDataRegistry registry, Id? itemBudgetCurveId,
+            double? itemBudgetUtilizationWarningThreshold, Id? weaponDpsCurveId,
+            double? weaponDamageDeviationThreshold, Core.Rules.Common.ISkillBudgetAnchorProvider? anchorProvider)
+        {
+            RulesSchemaCatalog.RegisterAll(registry, skillOptions: null, anchorProvider);
 
             RegisterItemSchemas(registry, itemBudgetCurveId ?? DefaultItemBudgetCurveId,
                 itemBudgetUtilizationWarningThreshold ?? DefaultItemBudgetUtilizationWarningThreshold,
                 weaponDpsCurveId ?? DefaultWeaponDpsCurveId,
-                weaponDamageDeviationThreshold ?? DefaultItemWeaponDamageDeviationThreshold);
+                weaponDamageDeviationThreshold ?? DefaultItemWeaponDamageDeviationThreshold,
+                anchorProvider);
             RegisterCreatureSchemas(registry);
             RegisterGobjSchemas(registry);
         }
 
         private static void RegisterItemSchemas(IDataRegistry registry, Id budgetCurveId,
-            double utilizationWarningThreshold, Id weaponDpsCurveId, double weaponDamageDeviationThreshold)
+            double utilizationWarningThreshold, Id weaponDpsCurveId, double weaponDamageDeviationThreshold,
+            Core.Rules.Common.ISkillBudgetAnchorProvider? anchorProvider = null)
         {
             registry.RegisterSchema(ItemSchemas.Template);
             registry.RegisterSchema(ItemSchemas.SlotDefinition);
@@ -149,12 +169,12 @@ namespace Core.Carriers.Assembly
             // 判断记录；与 ItemBudgetValidationRule 核算同一条预算曲线，复用同一个 budgetCurveId，不
             // 新增独立参数/不新增 RegisterAll 重载。
             registry.RegisterValidationRule(new ItemTemplateAffixShareExceedsBudgetRule(budgetCurveId));
-            // T-N3-9（ADR-0032 决策 6；04 第 5 节"授予价值超特效占比"）：默认不注入真实
-            // ISkillBudgetAnchorProvider（同 core/rules/assembly/RulesSchemaCatalog.cs
-            // SkillBudgetValidationRule 判断记录），注册后整体不产生任何问题，保证示例数据零告警；
-            // 真正核算需要调用方自行 new ItemGrantValueExceedsShareRule(budgetCurveId, realProvider)
-            // 另行注册。
-            registry.RegisterValidationRule(new ItemGrantValueExceedsShareRule(budgetCurveId, anchorProvider: null));
+            // T-N3-9（ADR-0032 决策 6；04 第 5 节"授予价值超特效占比"）：anchorProvider 为 null 时
+            // 注册后整体不产生任何问题（同 core/rules/assembly/RulesSchemaCatalog.cs
+            // SkillBudgetValidationRule 判断记录），与本方法改动前逐位一致（回归）。T-N6-3a：新增
+            // RegisterAll(..., ISkillBudgetAnchorProvider?) 重载可传入真实提供者，锚点接入后本规则
+            // 按数值总纲第 4.5 节公式默认生效。
+            registry.RegisterValidationRule(new ItemGrantValueExceedsShareRule(budgetCurveId, anchorProvider));
 
             // item.template.slot/quality/set_id 三个字段已在 ItemSchemas.Template 声明为
             // FieldKind.Reference，data_registry 内置 reference_integrity 校验自动生效，不需要本类

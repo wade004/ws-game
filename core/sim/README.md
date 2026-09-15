@@ -28,6 +28,19 @@ T-N6-2b（本次任务）在 `core/sim/tests/data/` 新增一套嵌入式最小�
 复用桩适配层）。**不引用**任何 `Tests.*` 程序集或 `Presentation.Common`——本模块是生产代码交付物，
 不是测试专用夹具。
 
+T-N6-3a（本次任务，ADR-0035 决策 2；06 第 405 行勘误"锚点表接入后两条预算校验规则按本节公式默认
+生效"）：新增 `ExpectedStatCalculator`（期望属性求值组件，数值总纲第 4.4 节"期望属性(L) = 等级
+成长(L) + Σ槽位 预算反解(E(L), 期望品质, 槽位)"）、`AnchorTableSkillBudgetAnchorProvider`
+（`ISkillBudgetAnchorProvider` 的 `sim.anchor` 真实实现）、`StandardPlayerBuilder`（ADR-0035
+决策 2 标准玩家生成器：等级+职业 → `LearnFromBook` 填技能 → 每个装备位经 `IBudgetSolver` 生成并
+装备"标准装" → 校验 `RotationEvaluator` 能选出可施放技能）。同时把 `HeadlessWorldBuilder.Build`/
+`toolchain/validator/Program.cs` 两处此前"默认不注入真实 `ISkillBudgetAnchorProvider`"的接入点
+改为自动装配（数据源含 `sim.anchor` 才装配，见判断记录"数据源含 sim.anchor 才自动装配锚点提供者"），
+`RulesSchemaCatalog`/`CarriersSchemaCatalog`/`GameplaySchemaCatalog`/`PresentationSchemaCatalog`/
+`ContentValidationOptions` 五处各新增一个接收 `ISkillBudgetAnchorProvider?` 的重载/属性（ABI：全部
+新增，不改既有签名）。仍不含三级仿真本身（决策 3）、报告与基线对比（决策 5）——那些依旧是后续
+任务（T-N6-4 及之后）的范围。
+
 ## 目录
 
 ```
@@ -36,14 +49,32 @@ core/sim/
   Core.Sim.csproj
   LayerMarker.cs
   core/
-    HeadlessWorldBuilder.cs   HeadlessWorldOptions（构造期选项）+ HeadlessWorld（装配结果，
-                              T-N6-2a 新增 AnchorTable?/ScenarioCatalog? 两个可空属性）+
-                              HeadlessWorldBuilder（唯一的 Build 入口）
+    HeadlessWorldBuilder.cs   HeadlessWorldOptions（构造期选项，T-N6-3a 新增 ExpectedQualityId 可选
+                              属性）+ HeadlessWorld（装配结果，T-N6-2a 新增 AnchorTable?/
+                              ScenarioCatalog? 两个可空属性）+ HeadlessWorldBuilder（唯一的 Build
+                              入口，T-N6-3a 起数据源含 sim.anchor 时自动装配
+                              AnchorTableSkillBudgetAnchorProvider）
     AnchorTable.cs            T-N6-2a：AnchorRow（sim.anchor 一行的强类型只读视图）+
                               AnchorTable（MaxLevel/TryGet/Get）
     ScenarioCatalog.cs        T-N6-2a：ScenarioKind/ScenarioPlayerSpec/ScenarioOpponentSpec/
                               ScenarioDef（sim.scenario 一行的强类型只读视图）+
                               ScenarioCatalog（All/TryGet/Get/ByKind）
+    ExpectedStatCalculator.cs
+                              T-N6-3a：期望属性求值组件——给定职业/期望品质，按数值总纲第 4.4 节
+                              公式对 stat.definition 全表求值（等级成长 + Σ非武器装备槽预算反解，
+                              statMix 取该职业 stat.weight 归一化），构造期一次性解析、按等级缓存
+    AnchorTableSkillBudgetAnchorProvider.cs
+                              T-N6-3a：Core.Rules.Common.ISkillBudgetAnchorProvider 的 sim.anchor
+                              真实实现——GetAnchorDps 查 AnchorTable（越界夹到 MaxLevel）；
+                              GetExpectedScalingStatValue 委托 ExpectedStatCalculator；惰性持有
+                              registry 引用（含 Func<IDataRegistry> 工厂重载，供 registry 尚不存在
+                              时的调用方使用）；DataSourcesHaveAnchorRows 静态方法供两处接入点共用
+                              的"数据源是否真的提供了 sim.anchor 行"预扫描
+    StandardPlayerBuilder.cs T-N6-3a：标准玩家生成器（ADR-0035 决策 2）——LearnFromBook 填技能、
+                              每个装备位选嵌入数据集里最接近 E(L) 的模板作载体、经 IBudgetSolver
+                              对齐词缀反解向量并装备、校验 RotationEvaluator 能选出可施放技能，
+                              返回 StandardPlayer 完整快照（已学技能/已装备实例/期望与实际属性/
+                              偏差/武器秒伤）
   schema/
     SimSchemas.cs             T-N6-2a：sim.anchor/sim.scenario 的 TableSchema 声明
     SimValidationRules.cs     T-N6-2a：SimAnchorValidationRule/SimScenarioValidationRule
@@ -65,20 +96,30 @@ core/sim/
     EmbeddedDatasetTests.cs  T-N6-2b：用 data/_framework + core/sim/tests/data 构建后的一组断言
                              （装载零阻断、AnchorTable 1～20 级连续、三个场景可取、生物/物品模板
                              档位数量、标准职业学技能后能战胜 1 级普通怪、确定性）
+    ExpectedStatCalculatorTests.cs
+                             T-N6-3a：Compute(L) 在 L=1/10/20 三级与独立手算（README"锚点推导"
+                             闭式公式 + 独立调用 IBudgetSolver）一致；结果按等级缓存；stat.armor
+                             clamp 生效
+    StandardPlayerBuilderTests.cs
+                             T-N6-3a：L5/L15 两组——全部装备位有装备、物品等级与 E(L) 对齐、装备
+                             贡献==反解向量（容差 1e-6）、已学技能==技能书 ≤L 集合、按优先级表
+                             击杀同级普通怪且玩家存活；等级不一致时抛 ArgumentException
+    AnchorProviderIntegrationTests.cs
+                             T-N6-3a：叠加一条超预算 skill.def 行（第三数据根）验证
+                             skill_budget_* 规则确有真实求值（阻断）；data/_sample 路径锚点接入后
+                             仍不阻断（回归）
     data/                    T-N6-2b：嵌入式最小仿真数据集，见 data/README.md（数据清单、锚点
                              推导公式与手算表、判断记录）——不进 data/_sample（拍板 10）
 ```
 
 ## 不负责什么
 
-- 不实现标准玩家生成器（ADR-0035 决策 2：按等级/职业经预算反解生成装备、按技能书填满、智能释放
-  优先级表）——那是 T-N6 后续任务的范围，本任务的 `HeadlessWorldOptions` 已经为它预留了
-  `PlayerLevel`/`PlayerRaceId` 等选项位，但本任务本身不消费非默认值。
-- 不实现三级仿真（战斗/成长/内容覆盖，ADR-0035 决策 3）、不实现标准玩家生成器（决策 2）、不实现
-  报告输出与基线对比工具（决策 5）——均为 ADR-0035 后续任务的范围。T-N6-2a 已实现 `sim.scenario`/
-  `sim.anchor` 两张数据表的 schema、校验规则、类型化读取（决策 4），但不消费它们——`AnchorTable`/
-  `ScenarioCatalog` 只读、不做任何仿真计算，`HeadlessWorldBuilder.Build` 本身也不读取它们参与装配
-  逻辑（只是顺带在数据存在时构造出来，见判断记录"AnchorTable/ScenarioCatalog 何时构造"）。
+- 不实现三级仿真（战斗/成长/内容覆盖，ADR-0035 决策 3）、不实现报告输出与基线对比工具（决策 5）——
+  均为 ADR-0035 后续任务（T-N6-4 及之后）的范围。T-N6-2a 已实现 `sim.scenario`/`sim.anchor` 两张
+  数据表的 schema、校验规则、类型化读取（决策 4），T-N6-3a 起 `ExpectedStatCalculator`/
+  `AnchorTableSkillBudgetAnchorProvider`/`StandardPlayerBuilder` 消费它们（决策 2 标准玩家生成器、
+  锚点接入两条预算校验规则）——但三级仿真运行器本身（怎样用标准玩家跑一场战斗仿真并统计分布、越级
+  矩阵、成长曲线、内容覆盖）仍未实现，`AnchorTable`/`ScenarioCatalog` 仍然只读、不做任何仿真计算。
 - 不把 `Core.Sim.dll` 同步进 Unity 工作台工程——`build.ps1` 的 `$CoreAssemblies` 是显式列出
   Foundation/Numbers/Rules/Carriers/Gameplay 五个程序集名的数组（不是通配符抓取
   `Core.*.dll`），本任务未改动这份清单，`Core.Sim` 因此天然不会被同步；`Core.Sim` 依赖
@@ -86,11 +127,16 @@ core/sim/
 - 不做仓库路径定位（`FindRepoRoot`/直接读 `data/_framework`、`data/_sample` 磁盘路径）——那是
   具体宿主（`GameWorldFixture`、本模块自己的 `SimTestWorldFactory`）的职责，装配根只接受调用方
   已经构造好的 `IDataSource` 列表，见判断记录"数据来源必须注入"。
-- T-N6-2b 只交付"一套能被装配、能打通一场最小战斗的内容数据"这一层——不实现标准玩家生成器（决策
-  2）、三级仿真运行器（决策 3）、报告与基线对比（决策 5），`sim.anchor`/`sim.scenario` 两表本任务
-  同样只提供数据、不接入任何消费逻辑；`sim.anchor` 的 `dps`/`hp` 取值是"按标准玩家简化循环手算得出
-  的自洽估计"，不是任何真实数值拍板，精调留给 T-N6-4（见 `core/sim/tests/data/README.md` 判断
-  记录 2）。
+- T-N6-2b 只交付"一套能被装配、能打通一场最小战斗的内容数据"这一层——`sim.anchor`/`sim.scenario`
+  两表本任务同样只提供数据，接入消费逻辑是 T-N6-3a 的范围（见上）；`sim.anchor` 的 `dps`/`hp` 取值
+  是"按标准玩家简化循环手算得出的自洽估计"，不是任何真实数值拍板，精调留给 T-N6-4（见
+  `core/sim/tests/data/README.md` 判断记录 2）——T-N6-3a 接入锚点后嵌入数据集确实产生了 3 条
+  `skill_budget_deviation` 警告，均是该数据集自己早已用 `budget_note` 确认过的"已知会超带宽"技能
+  （见该目录 README 判断记录 6），不代表新的内容错误，不需要修数据（见本文件判断记录"锚点接入后
+  嵌入数据集为何仍是 0 error"）。
+- `StandardPlayerBuilder` 不生成"标准玩家生成器驱动的战斗仿真报告"——它只负责装配一个可玩的标准
+  玩家单位（学技能、穿装备、给优先级表），真正"用它打一场仿真、统计胜率/时长"是三级仿真运行器
+  （决策 3，T-N6-4 及之后）的职责，不在本任务范围。
 
 ## 判断记录
 
@@ -212,3 +258,87 @@ core/sim/
    阻断时已经抛出 `InvalidOperationException`（调用不会正常返回），`GameWorldFixture.Build` 原样
    保留一份"检查 `LoadReport.IsBlocking` 再抛一次"的判断，是一段调用方永远到不了的死代码，本次
    改为一行注释说明，不再重复判断。
+
+## T-N6-3a 判断记录
+
+13. **期望属性求值组件为何最小化自实现，而不是复用某个既有组件**：见
+    `core/sim/core/ExpectedStatCalculator.cs` 类型头判断记录——检索了 `core/rules/stat/`（该目录
+    事实上不存在，属性模块是 `core/numbers/stat_block`）与 `SkillBudgetAnalyzer` 附近，唯一现成的
+    "给定基础值集合按 `stat.definition` 派生规则算出最终值"逻辑是 `StatHost.ComputeFinal`/
+    `ComputeDerivedBase`/`ResolveBaseValue`/`ConvertRating` 四个私有方法，要求先 `RegisterUnit`
+    出一个"活体单位"才能求值，与"不依赖活体单位"的任务前提矛盾，且是私有方法不可调用。本类型按
+    `StatHost.ComputeFinal` 同一套三段式聚合公式独立最小实现，只复用它已公开的两个纯函数工具——
+    `RatingConversionEvaluator`（点数→百分比）与 `ItemBudgetCurve.BuildStatBudgetInfo(view, classId)`
+    （按职业覆盖解析 `stat.weight`/换算曲线元信息，与装备预算校验共用同一份权重解析）。
+14. **`Σ槽位` 的槽位范围与 `statMix` 来源**：只对 `item.slot_definition.is_weapon != true` 且
+    `is_equipment != false` 的槽位求和（武器槽的"强度"由 `weapon_profile` 秒伤曲线口径承载，不占
+    属性词条预算，见 `core/sim/tests/data/README.md` 判断记录 3）；`statMix` 取该职业在
+    `stat.weight`（含 `class_overrides`）登记的**全部**属性，按权重归一化（任务书"statMix 来自该
+    职业 stat.weight"）——本数据集 9 项权重均为 1.0，各占 1/9。真实装备-穿戴管线里护甲值走独立的
+    `item.armor_curve` 曲线、不经 `stats[]`/词缀预算反解（`EquipmentHost.ApplyArmorValue`）；本组件
+    与 `StandardPlayerBuilder` 是两条独立求值路径（见下一条），`stat.armor` 按与其它 8 项属性完全
+    一致的方式计入 `statMix`，不额外复刻护甲曲线分支，避免同时维护两套求值路径。
+15. **`ExpectedStatCalculator`（期望属性曲线）与 `StandardPlayerBuilder`（实际生成装备）互不要求
+    数值相等**：前者是"标准玩家"这一简化抽象自己的期望值曲线（对全部非武器装备槽用统一 `statMix`
+    反解求和），后者是"实际生成并穿戴一件可玩的装备实例"这一具体操作（受限于数据集里已有哪些
+    模板/词缀，只能取最接近 E(L) 的一档，词缀池也是固定枚举而非连续可调）。两者数值一般不相等，
+    `StandardPlayer.Deviation` 只是诊断信息，不是任何断言依据——04/07/ADR-0035 原文"期望值曲线用于
+    内容平衡校验、标准玩家生成器用于仿真驱动"两个不同用途的定位一致，契约本就没有要求两者数值
+    相等。
+16. **`StandardPlayerBuilder` 装备实例方案：模板 + 词缀对齐反解向量，不新增实例级属性存储**：
+    `ItemInstance`（`core/carriers/common/contracts/ItemInstance.cs`）在 T-N2-7（ADR-0032 决策 8
+    "物品实例只存身份"）已经把"实例级属性表达"这条路关死——只有 `InstanceId`/`TemplateId`/
+    `Count`/`Quality`/`Affixes` 五个身份字段，运行期由 `EquipmentHost.ApplyGrants` 按模板
+    `stats[]`（字面值，逐条 `AddModifier`）+ `ApplyAffixValues`（对 `Affixes` 逐条经
+    `IBudgetSolver.Solve` 反解）重新算出贡献，不接受调用方注入任意自定义数值。`StandardPlayerBuilder`
+    因此选择"嵌入数据集中该槽位、该品质、物品等级 ≤ E(L) 最近一档的模板作载体"（任务书指定路径），
+    并让"反解向量"的定义与 `EquipmentHost` 实际执行的运算完全同构——对每个选中的词缀调用与
+    `ApplyAffixValues` 完全相同的 `IBudgetSolver.Solve` 归一化/份额换算公式，逐条累加模板自身
+    `stats[]` 字面值，得到的"反解向量"与 `StatHost.GetModifiers(unitId, stat)` 里来源为该实例 id
+    的全部 `Flat` 修正求和比对时必然逐位相等（同一份输入喂给同一份公式，不是近似对齐），满足任务
+    书"装备贡献 == 反解向量"的验收断言，不是"直接用模板自带属性糊弄"。
+17. **锚点表接入方案：规则执行时机核实结果——单遍惰性求值，不需要两遍机制**：核实
+    `DataRegistry.LoadAllCore` 源码：全部表装载完毕（`_tables = loaded`）后才调用
+    `RunValidationAndBuildReport` 跑 `IValidationRule.Validate`。`SkillBudgetValidationRule`/
+    `ItemGrantValueExceedsShareRule` 的 `Validate` 因此总是在 `sim.anchor` 等全部表已装载完毕之后
+    才被调用——`AnchorTableSkillBudgetAnchorProvider` 的构造函数可以在 `RegisterAll`（装载之前）就
+    被安全构造并塞进两条规则的构造参数，真正触碰 `AnchorTable`/`sim.scenario`/
+    `item.quality_definition` 等数据表的时机推迟到 `GetAnchorDps`/`GetExpectedScalingStatValue`
+    首次被调用（届时数据必已装载完毕）。同 `RegistryCreatureTemplateQuery`"只持有 registry 引用，
+    真正读取延迟到规则 Validate() 调用时"先例，不需要 `ContentValidationAssembly` 的两遍机制。
+    `toolchain/validator/Program.cs` 场景（`registry` 实例要到 `ContentValidationAssembly.Run` 内部
+    才构造出来，早于 `Program.cs` 能拿到引用）额外借用 `Func<IDataRegistry>` 工厂重载 + 既有的
+    `ExtraSchemaRegistration` 钩子（该钩子由 `CreateRegistryCore` 在 `registry` 构造完成之后、
+    `registry.LoadAll`——真正触发 `Validate`——之前同步调用）捕获 `registry` 引用，见该重载与
+    `Program.cs` 接入点判断记录。
+18. **数据源含 `sim.anchor` 才自动装配锚点提供者：按"行数 > 0"而非"表名/文件存在"判定**：
+    `AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows` 读取每个候选 `sim.anchor`
+    文件的原始 JSON 文本、解析 `rows` 数组长度，只有真正含至少一行时才判定"数据源含 sim.anchor"。
+    这不是可有可无的严谨——`games/_template`（游戏层空壳模板）已经登记了一份零行的
+    `data/game/sim/sim.anchor.json`（供 `validate_data.py`/内容工具识别表结构），若只按"文件/表名
+    是否存在"判断会被误判为"含 sim.anchor"，与任务书"validator --json 对 games/_template 为
+    false"验收点矛盾；`HeadlessWorldBuilder.Build`/`toolchain/validator/Program.cs` 两处接入点共用
+    同一个静态方法，判定口径不会跨两处漂移。
+19. **`data/_sample` 本身也含 5 行 `sim.anchor` 演示数据——锚点接入后如何避免破坏既有端到端测试**：
+    T-N6-2a 已经给 `data/_sample/sim/sim.anchor.json`/`sim.scenario.json` 各配了一份最小演示数据
+    （供 schema/`ScenarioCatalog` 测试使用），任务书"数据源含 sim.anchor 则装配提供者"因此对
+    `data/_sample`（经 `GameWorldFixture`/`SimTestWorldFactory.BuildWorld` 等既有端到端测试夹具）
+    同样生效——这是任务书行文时未曾预见的既有事实（原文举例"无 sim.anchor 的 data/_sample+
+    HeadlessWorldBuilder 路径"与仓库当前实际状态不符，已在汇报中如实上报）。接入后真实核算
+    发现 `data/_sample` 的 `skill.sample_rest` 技能预算比值 5.08 超过硬上限 3.00（`HardCapExceeded`，
+    阻断级）：核实 `SkillBudgetAnalyzer` 判定逻辑，"硬性规则：禁止阻断带说明的超模技能"——填写
+    `budget_note` 后无论是否超硬上限都归"已确认"警告（不阻断，`DataRegistryStrictness.
+    WarningsAllowed` 下 `report.IsBlocking` 只看 Error）。按此在 `data/_sample/skill/skill.def.json`
+    给 `skill.sample_rest`（场外恢复技能，`use_condition: not combat.in_combat`，强度本就不该受
+    战斗秒伤锚点约束）补了一句 `budget_note`（同时把 `skill.sample_burst` 早先"当前未接入……仅作
+    字段样例"的说明文字更新为如实反映"已接入"的现状）——这是唯一对 `core/sim/` 目录之外文件的改动，
+    只加了两处字符串字段，不改变任何既有技能的伤害/治疗数值，`dotnet test Core.sln` 全量回归
+    （4188 基线用例）验证无副作用。`skill.sample_strike`（比值 1.30，超带宽未超硬上限）产生一条
+    "待确认"警告，同样不阻断，未补 `budget_note`（该技能本身数值轻微越界，标"待确认"如实反映现状，
+    不属于需要修的错误）。
+20. **锚点接入后嵌入数据集为何仍是 0 error**：`core/sim/tests/data` 的
+    `skill.sim_warrior_strike`/`rampage`/`execute` 三个技能本就已经在 T-N6-2b 阶段登记了
+    `budget_note`（见该目录 README 判断记录 6"技能设计取舍"），锚点真实接入后它们产生 3 条
+    `skill_budget_deviation` **警告**（比值 2.91/11.04/19.80，均超带宽，但均已有 `budget_note`
+    归"已确认"分组，不阻断），符合该数据集设计之初的预期（`skill.book` 逐级解锁的高消耗/长冷却
+    技能本就设计成不在"每 GCD 一次"的带宽内），不需要修改嵌入数据集本身的任何数值。

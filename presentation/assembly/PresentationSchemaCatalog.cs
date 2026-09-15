@@ -108,7 +108,27 @@ namespace Presentation.Assembly
         public static void RegisterAll(
             IDataRegistry registry, Id? itemBudgetCurveId = null, ICreatureTemplateQuery? creatureTemplateQuery = null)
         {
-            GameplaySchemaCatalog.RegisterAll(registry, itemBudgetCurveId, creatureTemplateQuery);
+            RegisterAll(registry, itemBudgetCurveId, creatureTemplateQuery, anchorProvider: null);
+        }
+
+        /// <summary>
+        /// T-N6-3a（ADR-0035 决策 4 锚点表接入）：新增重载——额外接受真实
+        /// <see cref="Core.Rules.Common.ISkillBudgetAnchorProvider"/>，透传给 <see
+        /// cref="Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll(IDataRegistry, Id?,
+        /// ICreatureTemplateQuery?, Id?, double?, Core.Rules.Common.ISkillBudgetAnchorProvider?)"/>
+        /// （此前恒传 <c>anchorProvider: null</c>）。<paramref name="anchorProvider"/> 为 <c>null</c>
+        /// 时与 <see cref="RegisterAll(IDataRegistry, Id?, ICreatureTemplateQuery?)"/> 逐位一致
+        /// （回归）。<see cref="Presentation.Assembly.ContentValidationAssembly"/>（<c>toolchain/
+        /// validator</c>/编辑器基础套件的唯一装配入口）经 <see
+        /// cref="Presentation.Assembly.ContentValidationOptions.SkillBudgetAnchorProvider"/> 接线到
+        /// 本重载。ABI：新增重载，不改动既有 <c>RegisterAll</c> 重载的签名/行为。
+        /// </summary>
+        public static void RegisterAll(
+            IDataRegistry registry, Id? itemBudgetCurveId, ICreatureTemplateQuery? creatureTemplateQuery,
+            Core.Rules.Common.ISkillBudgetAnchorProvider? anchorProvider)
+        {
+            GameplaySchemaCatalog.RegisterAll(registry, itemBudgetCurveId, creatureTemplateQuery,
+                economyValueCurveId: null, economyPriceDeviationThreshold: null, anchorProvider: anchorProvider);
 
             // 分阶段落地计划 T-N0-3（04 第 5 节数值类校验项分级表"曲线单调有限"）：框架级通用规则，对
             // 全部登记为断点表形态（CurveSchema）的字段生效、不认具体表名——放在本装配根而不是某一层的

@@ -85,6 +85,26 @@ namespace Core.Rules.Assembly
             RegisterTimeFieldConsistencyRule(registry);
         }
 
+        /// <summary>
+        /// T-N6-3a（ADR-0035 决策 4 锚点表接入；06 第 405 行勘误）：新增重载——额外接受真实
+        /// <see cref="Core.Rules.Common.ISkillBudgetAnchorProvider"/>，转给 <c>SkillBudgetValidationRule</c>
+        /// 构造参数（此前 <see cref="RegisterAll(IDataRegistry, SkillOptions?)"/> 硬编码
+        /// <c>anchorProvider: null</c>，该规则因此整条跳过，见其类型判断记录）。<paramref
+        /// name="anchorProvider"/> 为 <c>null</c> 时与 <see cref="RegisterAll(IDataRegistry, SkillOptions?)"/>
+        /// 逐位一致（回归）；调用方（<see cref="Core.Sim.HeadlessWorldBuilder"/>、
+        /// <c>toolchain/validator/Program.cs</c>）按"数据源是否含 sim.anchor"决定是否传入真实提供者，
+        /// 见两处接入点判断记录。ABI：新增重载，不改动既有两个 <c>RegisterAll</c> 重载的签名/行为。
+        /// </summary>
+        public static void RegisterAll(
+            IDataRegistry registry, SkillOptions? skillOptions, Core.Rules.Common.ISkillBudgetAnchorProvider? anchorProvider)
+        {
+            RegisterL0Schemas(registry);
+            RegisterL1Schemas(registry);
+            RegisterL2Schemas(registry, skillOptions, anchorProvider);
+            DeclareKnownReferences(registry);
+            RegisterTimeFieldConsistencyRule(registry);
+        }
+
         private static void RegisterL0Schemas(IDataRegistry registry)
         {
             foreach (var schema in BuiltinSchemas.All)
@@ -147,7 +167,9 @@ namespace Core.Rules.Assembly
             registry.RegisterValidationRule(new ArchClassDerivationOverrideValidationRule());
         }
 
-        private static void RegisterL2Schemas(IDataRegistry registry, SkillOptions? skillOptions = null)
+        private static void RegisterL2Schemas(
+            IDataRegistry registry, SkillOptions? skillOptions = null,
+            Core.Rules.Common.ISkillBudgetAnchorProvider? anchorProvider = null)
         {
             registry.RegisterSchema(SkillSchemas.Def);
             registry.RegisterSchema(SkillSchemas.AuraDef);
@@ -189,12 +211,13 @@ namespace Core.Rules.Assembly
             // SkillNoTimeCostWarningRule 判断记录。
             registry.RegisterValidationRule(new SkillNoTimeCostWarningRule());
 
-            // T-N3-9（ADR-0031 决策 2；04 第 5 节"技能预算硬上限"/"技能预算偏离"）：默认不注入真实
-            // ISkillBudgetAnchorProvider（sim.anchor 归阶段 N6，本阶段尚不存在），本规则注册后整体
-            // 不产生任何问题（见 SkillValidationRules.cs SkillBudgetValidationRule 判断记录"为 null
-            // 时该规则不注册这项跨表检查完全跳过"先例）——真正核算预算比值需要调用方自行
-            // new SkillBudgetValidationRule(realProvider) 另行注册，不经本方法。
-            registry.RegisterValidationRule(new SkillBudgetValidationRule(anchorProvider: null));
+            // T-N3-9（ADR-0031 决策 2；04 第 5 节"技能预算硬上限"/"技能预算偏离"）：anchorProvider 为
+            // null 时本规则注册后整体不产生任何问题（见 SkillValidationRules.cs
+            // SkillBudgetValidationRule 判断记录"为 null 时该规则不注册这项跨表检查完全跳过"先例），
+            // 与本方法改动前逐位一致（回归）。T-N6-3a：新增 RegisterAll(IDataRegistry, SkillOptions?,
+            // ISkillBudgetAnchorProvider?) 重载可传入真实提供者（见该重载判断记录），此时锚点接入后
+            // 本规则按数值总纲第 4.5 节公式默认生效。
+            registry.RegisterValidationRule(new SkillBudgetValidationRule(anchorProvider));
 
             // 消费方反馈 2026-09-10"同一光环多个 Proc 触发器静默忽略问题"：单光环允许多个
             // proc_trigger，但同一光环内重复引用同一个 proc_def 在加载期拒绝（见

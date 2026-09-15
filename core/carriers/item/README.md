@@ -849,14 +849,24 @@ item/
       `ComputeAuraSettlementValue` 私有辅助方法，两条路径共用同一份周期/吸收/增益/控制价值计算
       逻辑，不重复实现）。
     - **`anchorProvider` 为 `null` 时整条规则跳过**：同 `Core.Rules.Skill
-      .SkillBudgetValidationRule` 判断记录——授予价值求值最终依赖尚未接入的 `sim.anchor`
+      .SkillBudgetValidationRule` 判断记录——授予价值求值最终依赖 `sim.anchor`
       （`ISkillBudgetAnchorProvider`，见 `core/rules/skill/README.md` 判断记录 55），
-      `CarriersSchemaCatalog.RegisterAll` 默认按 `null` 注册，保证示例数据零告警。
+      `CarriersSchemaCatalog.RegisterAll` 未显式传入提供者时仍按 `null` 注册，保证不接锚点的调用方
+      零告警。
+      **T-N6-3a 回填**：`sim.anchor` 已落地——`Core.Sim.AnchorTableSkillBudgetAnchorProvider` 是
+      真实实现，`CarriersSchemaCatalog` 新增
+      `RegisterAll(IDataRegistry, Id?, double?, Id?, double?, ISkillBudgetAnchorProvider?)` 六参
+      重载（ABI 新增，前四个既有重载逐位不变、均转发本重载并传 `anchorProvider: null`）接收真实
+      提供者，向下经 `RulesSchemaCatalog` 同款新重载转发；`Core.Sim.HeadlessWorldBuilder.Build`/
+      `toolchain/validator/Program.cs` 按"数据源是否真的含至少一行 sim.anchor"自动装配（见
+      `core/sim/README.md`"T-N6-3a 判断记录"18）。
     - **注册**：`CarriersSchemaCatalog.RegisterItemSchemas` 内随其余 item 规则一并注册，复用既有
-      `budgetCurveId` 参数，不新增 `RegisterAll` 重载。
+      `budgetCurveId` 参数；T-N6-3a 起该私有方法新增 `anchorProvider` 可选参数（私有方法追加参数
+      不受 ABI 约束），公开面的新增体现为上一条的六参重载。
     - **测试**：`core/carriers/item/tests/T_N3_9_ItemGrantValueExceedsShareRuleTests.cs`（4 例：
       超占比报警告、未超占比不报、超占比但有 `budget_note` 豁免、未注入 `anchorProvider` 时整体
-      跳过，覆盖验收标准"装备授予价值超占比 Warning 正负例各 1"）。
+      跳过，覆盖验收标准"装备授予价值超占比 Warning 正负例各 1"）；T-N6-3a 新增锚点真实接入后的
+      端到端断言见 `core/sim/tests/AnchorProviderIntegrationTests.cs`。
 
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 

@@ -483,6 +483,34 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   生物/物品模板档位数量、标准职业 1 级学技能后战胜 1 级普通怪且玩家获胜、同种子两次逐 tick 完全
   一致）。本任务未改动 `core/` 下任何生产代码（`HeadlessWorldBuilder`/`AnchorTable`/
   `ScenarioCatalog`/`schema/` 均未触碰，无 C# 公开面变化），只新增内容数据与测试代码。
+- **数值设计落地阶段 N6 · T-N6-3a**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 2；06 第 405 行勘误"锚点表接入后两条预算校验规则按本节公式默认生效"）：`core/sim` 新增
+  `ExpectedStatCalculator`（期望属性求值组件，数值总纲第 4.4 节公式：等级成长 + Σ非武器装备槽
+  `IBudgetSolver` 预算反解，`statMix` 取该职业 `stat.weight` 归一化，对 `stat.definition` 全表求值、
+  构造期缓存）、`AnchorTableSkillBudgetAnchorProvider`（`Core.Rules.Common
+  .ISkillBudgetAnchorProvider` 的 `sim.anchor` 真实实现，惰性持有 `IDataRegistry` 引用/含
+  `Func<IDataRegistry>` 工厂重载，`DataSourcesHaveAnchorRows` 静态预扫描按"行数 > 0"而非"表名存在"
+  判定）、`StandardPlayerBuilder`（标准玩家生成器：`LearnFromBook` 填技能、每个装备位选最接近
+  E(L) 的模板作载体并经 `IBudgetSolver` 对齐词缀反解向量后装备、校验 `RotationEvaluator` 能选出
+  可施放技能，返回已学技能/已装备实例/期望与实际属性快照/偏差/武器秒伤的完整结果）。
+  `Core.Rules.Assembly.RulesSchemaCatalog`/`Core.Carriers.Assembly.CarriersSchemaCatalog`/
+  `Core.Gameplay.Assembly.GameplaySchemaCatalog`/`Presentation.Assembly.PresentationSchemaCatalog`
+  各新增一个接收 `ISkillBudgetAnchorProvider?` 的 `RegisterAll` 重载（ABI：纯新增，既有重载逐位
+  不变、均转发新重载并传 `null`）；`Presentation.Assembly.ContentValidationOptions` 新增可选属性
+  `SkillBudgetAnchorProvider`。`Core.Sim.HeadlessWorldBuilder.Build`/`toolchain/validator/
+  Program.cs` 两处接入点改为按"数据源是否真的含至少一行 `sim.anchor`"自动装配真实提供者（新增
+  `HeadlessWorldOptions.ExpectedQualityId` 可选属性）；`toolchain/validator --json` 的
+  `rules[].enabled` 字段不再对 `requires_anchor` 规则恒为 `false`，改为如实反映本次是否真的装配了
+  提供者。副作用修复（不属于本任务功能范围，但锚点真实接入后触发）：`data/_sample` 自身也含
+  `sim.anchor` 演示数据，接入后 `skill.sample_rest` 技能预算比值超硬上限，按框架既有"禁止阻断带
+  说明的超模技能"规则给该技能补了一句 `budget_note`（唯一一处 `core/sim/` 之外的改动，只新增
+  字符串字段，不改变任何技能数值，`dotnet test Core.sln` 4188 基线用例回归无副作用）。新增测试
+  `Tests.Sim.{ExpectedStatCalculatorTests,StandardPlayerBuilderTests,AnchorProviderIntegrationTests}`
+  （10 例：期望属性 L=1/10/20 与独立手算一致且按等级缓存、标准玩家生成器 L5/L15 全部装备位对齐
+  反解向量/已学技能匹配技能书/按优先级表击杀同级普通怪、锚点接入后 `skill_budget_*` 规则确有真实
+  求值、`data/_sample` 路径锚点接入后仍不阻断）。
+
+<!-- T-N6-3b -->
 
 ## [1.35.0] - 2026-09-16
 

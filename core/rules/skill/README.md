@@ -1228,6 +1228,16 @@ skill/
     数据/内容管线零告警。真正核算预算比值需要调用方自行 `new SkillBudgetValidationRule(realProvider)`
     另行注册（不经 `RulesSchemaCatalog`）。
     <br/><br/>
+    **T-N6-3a 回填：`sim.anchor` 已落地接入，本段"归阶段 N6"已兑现**——`Core.Sim
+    .AnchorTableSkillBudgetAnchorProvider` 是 `ISkillBudgetAnchorProvider` 的真实实现（`GetAnchorDps`
+    查 `AnchorTable`，`GetExpectedScalingStatValue` 委托新增的 `Core.Sim.ExpectedStatCalculator`），
+    `RulesSchemaCatalog` 新增
+    `RegisterAll(IDataRegistry, SkillOptions?, ISkillBudgetAnchorProvider?)` 重载（ABI 新增，不改既有
+    两个 `RegisterAll` 重载）接收真实提供者；`Core.Sim.HeadlessWorldBuilder.Build`/`toolchain/
+    validator/Program.cs` 按"数据源是否真的含至少一行 sim.anchor"自动装配（不是"表名存在"，见
+    `core/sim/README.md`"T-N6-3a 判断记录"18）。本段原文保留作为"为何当初默认 null"的历史依据，
+    不删除——现行默认仍是 `null`（调用方不显式传入 `ISkillBudgetAnchorProvider` 时行为逐位不变），
+    只是"归阶段 N6"这句面向未来的表述现已兑现。
     **实现取舍（均已文档化，非契约条文明文规定）**：含控制/增益内容的混合技能，各效果各自算出的
     "实际价值"（伤害/治疗/吸收按"基础值+Σ系数×期望属性"、控制按"时长×目标数×控制类别权重"、
     增益按"属性当量(`stat.weight`)×时长÷冷却"）直接相加为单一 `EffectiveValue`（06 只给了三条

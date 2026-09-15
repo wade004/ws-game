@@ -89,6 +89,7 @@
       "cast_time": 3.0,
       "respects_gcd": true,
       "use_condition": "not combat.in_combat",
+      "budget_note": "示例场外恢复技能：use_condition 限定 not combat.in_combat，强度不受战斗秒伤锚点约束，刻意大幅超出 skill.budget_rule.default 玩家档硬上限（T-N6-3a 锚点接入 data/_sample 后由 AnchorTableSkillBudgetAnchorProvider 真实核算触发；接入前不产生任何问题，见 core/sim/README.md 判断记录）",
       "target_shape_ref": "target.chain.sample_self",
       "effects": [
         {
@@ -127,7 +128,7 @@
       "cost": [{ "power_type": "arch.power.mana", "amount": 60 }],
       "cooldown_duration": 30.0,
       "respects_gcd": true,
-      "budget_note": "示例超模大招：刻意突破 skill.budget_rule.default 的玩家档带宽，用于演示 SkillBudgetAnalyzer 已确认偏离分支（当前未接入 ISkillBudgetAnchorProvider，SkillBudgetValidationRule 不做实际比值校验，仅作字段样例）",
+      "budget_note": "示例超模大招：刻意突破 skill.budget_rule.default 的玩家档带宽，用于演示 SkillBudgetAnalyzer 已确认偏离分支（T-N6-3a 起 data/_sample 已接入真实 AnchorTableSkillBudgetAnchorProvider，本字段确保锚点接入后仍只产生已确认告警，不阻断）",
       "target_shape_ref": "target.chain.sample_nearest_enemy",
       "effects": [
         {

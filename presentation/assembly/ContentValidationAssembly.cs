@@ -92,6 +92,24 @@ namespace Presentation.Assembly
         /// <see cref="CreatureTemplateQuery"/> 等既有可选属性同一惯例），比新增 <c>CreateRegistryCore</c>
         /// 重载更简单、调用点也不需要改动既有传参方式。</summary>
         public Action<IDataRegistry>? ExtraSchemaRegistration { get; set; }
+
+        /// <summary>
+        /// T-N6-3a（ADR-0035 决策 4 锚点表接入）：透传给 <see
+        /// cref="Presentation.Assembly.PresentationSchemaCatalog.RegisterAll(IDataRegistry, Id?,
+        /// Core.Carriers.Creature.ICreatureTemplateQuery?, Core.Rules.Common.ISkillBudgetAnchorProvider?)"/>
+        /// ——<c>SkillBudgetValidationRule</c>/<c>ItemGrantValueExceedsShareRule</c> 两条预算校验规则
+        /// 的锚点数据来源。默认 <c>null</c>（与本属性新增之前逐位一致：两条规则注册但不产生任何问题）。
+        /// 判断记录（为何是可设属性而不是新增 <c>CreateRegistryCore</c>/<c>Run</c> 重载）：与 <see
+        /// cref="ExtraSchemaRegistration"/> 同一惯例（该属性判断记录"新增可设属性而非新增方法重载"）——
+        /// <see cref="ContentValidationOptions"/> 是普通可变属性类，新增属性不改变任何既有方法的物理
+        /// 签名，调用点（<c>toolchain/validator/Program.cs</c>）不需要改变既有传参方式。<c>toolchain/
+        /// validator</c> 按"数据源是否含 <c>sim.anchor</c>"决定是否构造并设置本属性（见该文件接入点
+        /// 判断记录），惰性持有 registry 引用的 <see cref="Core.Sim.AnchorTableSkillBudgetAnchorProvider"/>
+        /// 可以在 <see cref="CreateRegistryCore"/>（加载之前）就构造好，真正读取推迟到
+        /// <see cref="IDataRegistry.LoadAll(IReadOnlyList{IDataSource})"/> 内部"全部表装载完毕后跑
+        /// <see cref="IValidationRule.Validate"/>"这一步（见该类型判断记录），不需要两遍装配。
+        /// </summary>
+        public Core.Rules.Common.ISkillBudgetAnchorProvider? SkillBudgetAnchorProvider { get; set; }
     }
 
     /// <summary>
@@ -351,7 +369,8 @@ namespace Presentation.Assembly
             // Validate() 调用时（此时数据已加载），构造顺序上不需要 registry 提前加载完成，
             // 这里直接传刚 new 出来的 registry（它本身就是 IDataRegistryView）即可。
             var creatureTemplateQuery = options.CreatureTemplateQuery ?? new RegistryCreatureTemplateQuery(registry);
-            PresentationSchemaCatalog.RegisterAll(registry, options.ItemBudgetCurveId, creatureTemplateQuery);
+            PresentationSchemaCatalog.RegisterAll(
+                registry, options.ItemBudgetCurveId, creatureTemplateQuery, options.SkillBudgetAnchorProvider);
 
             // 消费方反馈第 44 条：CreatureTemplateQuery 未指定时默认使用 RegistryCreatureTemplateQuery
             // （见上），规则因此默认启用——不再有"未接线即禁用"的分支，SpawnSummonOnlyCreatureRuleName

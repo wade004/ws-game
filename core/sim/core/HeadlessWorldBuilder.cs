@@ -92,6 +92,18 @@ namespace Core.Sim
 
         /// <summary>主循环最大补偿步数。既有夹具硬编码为 4，默认值与之一致。</summary>
         public int MaxCatchUpSteps { get; set; } = 4;
+
+        /// <summary>
+        /// T-N6-3a（ADR-0035 决策 4 锚点表接入）：标准玩家期望装备品质，供自动装配的
+        /// <see cref="AnchorTableSkillBudgetAnchorProvider"/> 构造 <see cref="ExpectedStatCalculator"/>
+        /// 时使用。默认 <c>null</c>——提供者按 <c>sim.scenario</c> 首行的 <c>player.quality_id</c>/
+        /// <c>item.quality_definition</c> 最低 <c>sort_weight</c> 回退解析（见该提供者类型判断记录
+        /// "如何决定用哪一对 (职业,品质) 求值"），调用方只在需要覆盖这一自动解析结果时才需要显式赋值。
+        /// 本字段仅当数据源含 <c>sim.anchor</c> 时才被消费（见 <see cref="HeadlessWorldBuilder.Build"/>
+        /// "数据源含 sim.anchor 才自动装配锚点提供者"判断记录），数据源不含 <c>sim.anchor</c> 时本字段
+        /// 无效果（不会因为设置了本字段就强行要求存在 sim.anchor 数据）。
+        /// </summary>
+        public Id? ExpectedQualityId { get; set; }
     }
 
     /// <summary>
@@ -189,7 +201,27 @@ namespace Core.Sim
             var registryOptions = GameplaySchemaCatalog.CreateOptions();
             registryOptions.FailOnUnknownTable = options.FailOnUnknownTable;
             var registry = new DataRegistry(options.DataSources[0], bus, registryOptions);
-            GameplaySchemaCatalog.RegisterAll(registry);
+
+            // T-N6-3a（ADR-0035 决策 4 锚点表接入；06 第 405 行勘误）：判断记录（"数据源含 sim.anchor
+            // 才自动装配锚点提供者"，任务书"HeadlessWorldOptions 新增选项（默认自动：数据源含
+            // sim.anchor 则装配提供者）"）——本决策必须在 registry.LoadAll 之前作出（SkillBudget
+            // ValidationRule/ItemGrantValueExceedsShareRule 的构造参数须在 GameplaySchemaCatalog
+            // .RegisterAll 时就确定，见两条规则类型判断记录"为 null 时整条跳过"），但此时数据尚未
+            // 加载、无法用"registry.GetAll("sim.anchor").Count > 0"这一 AnchorTable/ScenarioCatalog
+            // 已有的判断法（见本方法下方那两个属性的既有判断记录）。改用
+            // AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows 预扫描（见该方法判断
+            // 记录"为何不能只看 ListTables 是否列出该表名"——games/_template 登记了一份零行的
+            // sim.anchor.json，只看表名存在会误判）。真正装配的 AnchorTableSkillBudgetAnchorProvider
+            // 只持有 registry 引用（不在此处读取任何 sim.anchor 行），见该类型判断记录"惰性持有……
+            // 不在构造期读取任何数据行"。
+            Core.Rules.Common.ISkillBudgetAnchorProvider? anchorProvider =
+                AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows(options.DataSources)
+                    ? new AnchorTableSkillBudgetAnchorProvider(registry, options.PlayerClassId, options.ExpectedQualityId)
+                    : null;
+
+            GameplaySchemaCatalog.RegisterAll(
+                registry, itemBudgetCurveId: null, creatureTemplateQuery: null,
+                economyValueCurveId: null, economyPriceDeviationThreshold: null, anchorProvider: anchorProvider);
             // T-N6-2a（ADR-0035 决策 4）：sim.anchor/sim.scenario 仅无头仿真与内容工具读取、运行期
             // 宿主不读（见 SimSchemaCatalog 类型注释判断记录"为何不并入 GameplaySchemaCatalog"）——
             // 装配根既服务运行期宿主（GameWorldFixture 转发调用）又服务无头仿真本身，两张表因此在
