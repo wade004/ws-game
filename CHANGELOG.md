@@ -479,6 +479,23 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   08 未给出结论，本任务落在 `rewards.level`）详见 `core/gameplay/common/contracts/RewardBundle.cs`
   `FromRecord` 判断记录"reward_level 挂载点"。
 
+- **数值设计落地阶段 N4 · T-N4-5**（[ADR-0033](architecture/adr/0033-等级经验模块正文与当量来源.md)
+  决策 6/7；[06 第 2.5 节](architecture/06_规则层_属性技能战斗AI.md)）：`Core.Numbers.PowerSet.
+  IPowerHost` 新增默认接口成员 `RefillAll(unitId, sourceId)`（升级回满：把该单位全部
+  `start_full=true` 的回复型资源池回满到上限，积累型资源——`start_full=false`，如连击点一类
+  ——不动，经既有 `SetCurrentClamped` 落值 + 发事件入口，不绕过 `power.changed`，唯一生产实现
+  `PowerHost` 显式覆盖）；`Core.Rules.Assembly.RulesAssembly` 新增订阅：`progression.level_up`
+  触发时，`ProgressionOptions.RefillOnLevelUp`（T-N4-1 登记、缺省 `true`）为真且该单位已在
+  `PowerHost` 注册则调用 `RefillAll`，为假则跳过——`ProgressionOptions.RefillOnLevelUp` 从本
+  任务起真正被消费（消费方在装配根，不在 `core/numbers/progression` 模块内部）。同一任务锁死
+  ADR-0033 决策 6"从不扣经验"：`core/gameplay/death` 三种死亡复活策略（`RespawnPoint`/
+  `ReloadSave`/`Permadeath`）按模块依赖清单本就不引用 `IProgressionHost` 任何类型，新增回归
+  用例 `core/gameplay/death/tests/T_N4_5_RespawnPolicyDoesNotAffectXpTests.cs` 把这条模块
+  边界钉成可执行回归锁。契约疑点上报（积累型资源是否也应升级回满，ADR/06 原文未区分）详见
+  `IPowerHost.RefillAll` 方法注释"契约疑点上报"。全部改动均为纯新增 C# API + 装配接线，不涉及
+  任何数据表字段，回放基线核查：`core/gameplay/tests/Replay` 只装配 L2 `RulesAssembly`，回放
+  夹具的等级曲线 `max_level=1` 从不触发真实升级，本次改动零影响，基线未变。
+
 数值设计落地阶段 N4 · T-N4-6（ADR-0034 决策 2；08 第 7.4 节；04 第 1.1 节表清单）：新增表
 `econ.value_curve`（物品等级 → 基准价值，断点表，横轴 `CurveAxis.ItemLevel`）与
 `econ.gold_base_curve`（等级 → 金币基数，断点表，横轴 `CurveAxis.Level`，本任务只登记 schema，

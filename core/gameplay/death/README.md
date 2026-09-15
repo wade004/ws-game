@@ -177,6 +177,16 @@ death/
    - 测试：`tests/T_N4_9_RespawnFeeTests.cs`（余额为零复活 1 组、`fixed_by_level` 超余额扣至零
      1 组、`pct_of_balance` 按百分比 1 组、`None` 不收费 1 组、扣费委托未接线不阻断复活 1 组）。
 
+7c. **T-N4-5 回归锁定（ADR-0033 决策 6"从不扣经验：无论 13 的死亡策略选哪种，经验不减"；06 第
+   2.5 节同条）**：本模块从设计上不持有、也不依赖 `Core.Numbers.Progression.IProgressionHost`/
+   `ProgressionHost` 任何类型（见本文档顶部"依赖"一节——只依赖 L0 + L2 `core/rules/common`），
+   三种策略（`RespawnPoint`/`ReloadSave`/`Permadeath`）的结算逻辑（延迟复活、读档、删当前槽）
+   本身不触达经验/等级状态，因此"死亡不扣经验"是模块边界的自然结果，不需要任何专门代码。回归
+   用例见 `core/gameplay/death/tests/T_N4_5_RespawnPolicyDoesNotAffectXpTests.cs`（三种策略各
+   一组：把一个与 `DeathPolicyHost` 完全独立装配的 `ProgressionHost` 挂在同一个玩家单位 id 上，
+   走完整死亡结算流程后断言 `GetXp`/`GetLevel` 逐字节不变），把这条模块边界钉成一条可执行的
+   回归锁，防止未来有人误在死亡路径上"顺手"接一条扣经验/降级的分支。
+
 ## 不负责什么
 
 - 不解析/查找具体的复活点坐标算法本身（如"取最近出生点"而非固定 `spawn_points[0]`的距离比较）

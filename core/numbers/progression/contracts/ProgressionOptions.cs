@@ -84,8 +84,16 @@ namespace Core.Numbers.Progression
         /// 升级回满开关（ADR-0033 决策 7"升级回满：<c>progression.level_up</c> 触发生命与资源
         /// 回满，由资源池订阅实现"；分阶段落地计划 T-N4-5）。默认 <c>true</c>——采纳 ADR 推荐
         /// 默认，但按框架惯例（策略配置项一律可关闭，不预设任何游戏一定要接受该口味）开放游戏层
-        /// 关闭。消费实现（订阅 <c>progression.level_up</c> 并调用 <c>IPowerHost</c> 回满能力）
-        /// 留 T-N4-5；本任务只登记字段，见类型注释"契约疑点上报"。
+        /// 关闭。
+        /// <para>
+        /// T-N4-5 变更记录（消费实现落地）：<c>Core.Rules.Assembly.RulesAssembly</c> 构造函数在本
+        /// 字段为 <c>true</c> 时订阅 <c>progression.level_up</c>，对已在
+        /// <see cref="Core.Numbers.PowerSet.PowerHost"/> 注册的单位调用新增的
+        /// <see cref="Core.Numbers.PowerSet.IPowerHost.RefillAll"/>（只回满
+        /// <see cref="Core.Numbers.PowerSet.PowerTypeDefinition.StartFull"/> 为 true 的回复型资源，
+        /// 见该方法判断记录"积累型资源是否回满"）；为 <c>false</c> 时整条订阅回调直接跳过，不调用
+        /// <c>RefillAll</c>。
+        /// </para>
         /// </summary>
         public bool RefillOnLevelUp { get; set; } = true;
 

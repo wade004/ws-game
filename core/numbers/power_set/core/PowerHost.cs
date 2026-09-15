@@ -263,6 +263,29 @@ namespace Core.Numbers.PowerSet
             }
         }
 
+        /// <summary>T-N4-5：显式实现，只对 <see cref="PowerTypeDefinition.StartFull"/> 为 true 的
+        /// 回复型资源回满，积累型资源（<c>StartFull=false</c>）原样不动——见
+        /// <see cref="IPowerHost.RefillAll"/> 判断记录"契约疑点上报（积累型资源是否回满）"。经
+        /// <see cref="SetCurrentClamped"/>（与 <see cref="ApplyDelta"/>/<see cref="SetInCombat"/>
+        /// 脱战回满/<see cref="RecomputeMax"/> 上限夹取共用的唯一"落值 + 发事件"入口）落值，不绕过
+        /// <c>power.changed</c> 事件。<paramref name="sourceId"/> 同 <see cref="ModifyPower"/>，仅
+        /// 供调用方标记来源，不写入事件字段。</summary>
+        public void RefillAll(Id unitId, Id sourceId)
+        {
+            var state = RequireUnit(unitId);
+            foreach (var powerType in state.PowerTypeOrder)
+            {
+                var definition = _definitions[powerType];
+                if (!definition.StartFull)
+                {
+                    continue;
+                }
+
+                var power = state.Powers[powerType];
+                SetCurrentClamped(unitId, powerType, definition, power, power.Max);
+            }
+        }
+
         public void RecomputeMax(Id unitId)
         {
             var state = RequireUnit(unitId);

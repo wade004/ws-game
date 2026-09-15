@@ -292,6 +292,23 @@ CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp
    `ProgressionOptions` 参数的重载（新重载因 C# 语法"可选参数必须在必选参数之后"，把此前全部
    可选参数一并改为必选，仅有的调用点已同步显式列出全部参数），详见三者各自构造函数注释。
 
+## T-N4-5（分阶段落地计划；ADR-0033 决策 7；06 第 2.5 节"升级回满"）：`ProgressionOptions.RefillOnLevelUp` 消费方接线
+
+`ProgressionOptions.RefillOnLevelUp`（T-N4-1 落地时只是登记壳，缺省 `true`）从本任务起真正被
+消费——消费方不在本模块内部，而是 `core/rules/assembly.RulesAssembly` 构造函数：本字段为 `true`
+且该单位已在 `Core.Numbers.PowerSet.PowerHost` 注册时，`progression.level_up` 触发一次
+`IPowerHost.RefillAll`（新增默认接口成员，见 `core/numbers/power_set/README.md`"T-N4-5"一节）；
+为 `false` 时整条订阅回调直接跳过。本模块自身不改动任何代码（`LevelUpEvent` 早已存在并在
+`ProgressionHost.AddXp` 内正确发布，见判断记录 3），只是原先"契约疑点上报"的占位字段现在有了
+真正的消费方。
+
+同一任务另锁死 ADR-0033 决策 6"从不扣经验"——`core/gameplay/death`（三种死亡复活策略
+`RespawnPolicy.RespawnPoint`/`ReloadSave`/`Permadeath` 的执行主体）按其模块 README"依赖"一节
+只依赖 L0 + L2 `core/rules/common`，从未引用、也不依赖 `IProgressionHost`/`ProgressionHost` 任何
+类型，三种策略的结算逻辑本身不触达经验/等级状态；回归用例见
+`core/gameplay/death/tests/T_N4_5_RespawnPolicyDoesNotAffectXpTests.cs`（三种策略各一组，独立
+装配的 `ProgressionHost` 在完整死亡结算流程前后 `GetXp`/`GetLevel` 逐字节不变）。
+
 ## 不负责什么
 
 - 不实现"经验来源的触发条件"求值（`prog.xp_source.condition` 是 Expr 字段，本模块只登记类型）。

@@ -306,7 +306,12 @@ namespace Core.Rules.Assembly
             // CORE-170-02 根治：levelSync 原样转发给 ProgressionHost——见 LevelSync 判断记录，
             // RulesAssembly 本身（L2）同样不知道、也不该知道 Unit/PlayerUnit（L3）这个类型，只是
             // 沿途转发调用方（CarriersAssembly）传入的真实实现。
-            Progression = new ProgressionHost(Registry, Bus, progressionWriter, progressionRemover, progressionOptions, levelSync: levelSync);
+            // T-N4-5：本地解析一份 resolvedProgressionOptions（惯例同 resolvedStatOptions/
+            // resolvedCombatOptions 等既有写法）——ProgressionHost 内部虽然也会做
+            // "options ?? new ProgressionOptions()" 同一件事，但那份实例是私有的，本类下方"升级
+            // 回满"订阅需要读 RefillOnLevelUp 决定是否回满，必须在装配根这一层也留一份引用。
+            var resolvedProgressionOptions = progressionOptions ?? new ProgressionOptions();
+            Progression = new ProgressionHost(Registry, Bus, progressionWriter, progressionRemover, resolvedProgressionOptions, levelSync: levelSync);
             progression = Progression; // 回填第 1 步的闭包捕获。
 
             // -------------------------------------------------------------
@@ -342,6 +347,24 @@ namespace Core.Rules.Assembly
             });
             Bus.Subscribe<LevelUpEvent>(ProgressionEventKeys.LevelUp, evt => Stats.RecomputeRatingStats(evt.UnitId));
             Bus.Subscribe<ProgressionRestoredEvent>(ProgressionEventKeys.StateRestored, evt => Stats.RecomputeRatingStats(evt.UnitId));
+
+            // T-N4-5（ADR-0033 决策 7；06 第 2.5 节"升级回满：progression.level_up 触发生命与资源
+            // 回满，由资源池订阅实现"）：单独一条订阅（不是并进上面 RecomputeRatingStats 那条闭包，
+            // 保持"一条订阅只做一件事"的既有惯例，同上方 StatChangedEvent/LevelUpEvent/
+            // ProgressionRestoredEvent 三条各自独立的写法）——ProgressionOptions.RefillOnLevelUp
+            // （缺省 true，见该字段判断记录）为 false 时整条跳过，不调用 Powers.RefillAll；为 true
+            // 且该单位已在 Powers 注册（同上方 StatChangedEvent 订阅同一判断，Progression/Powers
+            // 两个宿主的注册单位集合彼此独立，没有强制同步保证）时，调用 PowerHost.RefillAll 把
+            // 回复型资源池回满，经既有 ModifyPower 等会发事件的路径（SetCurrentClamped）发
+            // power.changed，不绕过事件（硬性规则）。sourceId 直接复用 ProgressionEventKeys.LevelUp
+            // ——语义即"这次回满由升级触发"，同 prog.growth 一类固定来源 id 的既有惯例。
+            Bus.Subscribe<LevelUpEvent>(ProgressionEventKeys.LevelUp, evt =>
+            {
+                if (resolvedProgressionOptions.RefillOnLevelUp && Powers.IsRegistered(evt.UnitId))
+                {
+                    Powers.RefillAll(evt.UnitId, ProgressionEventKeys.LevelUp);
+                }
+            });
 
             StatBaseWriter archBaseWriter = (unitId, stat, value) => Stats.SetBase(unitId, stat, value);
             ArchStatModifierWriter archModifierWriter = (unitId, stat, op, value, sourceId) =>

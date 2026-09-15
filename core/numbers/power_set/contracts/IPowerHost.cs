@@ -93,6 +93,38 @@ namespace Core.Numbers.PowerSet
         void AdvanceAll(double timeUnits);
 
         /// <summary>
+        /// T-N4-5（ADR-0033 决策 7；06 第 2.5 节"升级回满：<c>progression.level_up</c> 触发生命与
+        /// 资源回满，由资源池订阅实现"）：把该单位当前已注册的、<see cref="PowerTypeDefinition.StartFull"/>
+        /// 为 true 的"回复型"资源类型（如生命、法力）全部回满到各自当前上限；按注册顺序遍历，值
+        /// 确实发生变化的每种资源类型各发一次 <c>power.changed</c>（经既有"落值 + 发事件"入口，
+        /// 与 <see cref="ModifyPower"/>/<see cref="SetInCombat"/> 脱战回满/<see cref="RecomputeMax"/>
+        /// 上限夹取共用同一处，不绕过事件，见 <see cref="PowerHost"/> 判断记录"<c>SetCurrentClamped</c>
+        /// 唯一入口"）。<paramref name="sourceId"/> 供调用方标记本次回满的来源（同
+        /// <see cref="ModifyPower"/>，事件本身不下发该值）。单位未注册时抛
+        /// <see cref="System.InvalidOperationException"/>。
+        /// <para>
+        /// 契约疑点上报（积累型资源是否回满）：ADR-0033 决策 7/06 第 2.5 节原文只说"生命与资源
+        /// 回满"，未区分资源类型是否"积累型"（<see cref="PowerTypeDefinition.StartFull"/> 为
+        /// false——单位注册时初始为 <see cref="PowerTypeDefinition.Min"/>，典型如连击点一类"起始空、
+        /// 只能靠战斗行为累积"的资源）。本方法取"只回满 <c>StartFull=true</c> 的回复型资源，积累型
+        /// 资源不动"这一保守判断——理由：积累型资源的既定设计意图是"通过战斗行为获得"，升级把它们
+        /// 直接填满与这条既定玩法语义相冲突；且本仓库已有先例 <see cref="SetInCombat"/> 脱战回满
+        /// 同样只对显式登记 <see cref="PowerTypeDefinition.RefillOnLeaveCombat"/> 为 true 的类型生效，
+        /// 不是无条件回满全部已注册资源类型。若设计层认定积累型资源也应在升级时回满，需要在
+        /// <c>arch.power_type</c> 补一个显式策略字段（同 <c>refill_on_leave_combat</c> 的显式开关
+        /// 写法），本方法当前实现留待那时调整，不擅自扩大契约未声明的行为范围。
+        /// </para>
+        /// <para>
+        /// 判断记录（默认实现，C#8 默认接口方法，ABI 门禁 G3"公开 API 只能新增"，惯例同
+        /// <see cref="Core.Numbers.Progression.IProgressionHost.ApplyGrowthToCurrentLevel"/>）：
+        /// 默认体是空操作，本接口目前只有 <see cref="PowerHost"/> 一个生产实现（显式覆盖本方法）；
+        /// 其它实现方（测试假实现、未来第三方实现，若存在）不因新增本成员而编译失败，只是调用本
+        /// 方法时静默无效果——它们此前也不需要支持"升级回满"这项能力。
+        /// </para>
+        /// </summary>
+        void RefillAll(Id unitId, Id sourceId) { }
+
+        /// <summary>
         /// 重新计算某单位全部 <c>max_source.kind == "stat"</c> 资源类型的上限（经
         /// <see cref="StatLookup"/> 重新查询，供属性变化后手动触发同步，见 06 第 2.1 节"上限来源
         /// ...引用属性"）；上限下降导致当前值超出新上限时，当前值随之夹取（可能触发

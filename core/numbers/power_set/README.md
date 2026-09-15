@@ -43,6 +43,9 @@ power_set/
   `power.depleted`（只在从大于 min 变为等于 min 的那一次）。
 - `SetInCombat(unitId, inCombat)`：脱战瞬间对 `refill_on_leave_combat` 的资源回满（见 06 第
   4.5 节"资源回复规则切换（如脱战自动回满）"）。
+- `RefillAll(unitId, sourceId)`（T-N4-5 新增默认接口成员）：升级回满——把该单位全部
+  `start_full=true` 的回复型资源回满到上限，积累型资源（`start_full=false`）不动，见下方判断
+  记录"升级回满"。
 - `Advance(unitId, timeUnits)` / `AdvanceAll(timeUnits)`：按注册顺序遍历单位与资源，每种资源
   先 regen 后 decay（decay 只在脱战生效），确定性推进。
 - `RecomputeMax(unitId)`：`max_source.kind == "stat"` 的资源类型重新查询上限，上限下降时当前
@@ -76,6 +79,27 @@ power_set/
 6. **`SetCurrentClamped` 是 `ModifyPower`/脱战回满/`RecomputeMax` 上限夹取三处共用的唯一"落值
    +发事件"入口**——保证"值变化才发 `power.changed`""触底只发一次 `power.depleted`"这两条
    规则在三个调用点上行为完全一致，不出现只有部分路径遵守规则的情形。
+
+## T-N4-5：升级回满（`RefillAll`）
+
+（ADR-0033 决策 7"升级回满：`progression.level_up` 触发生命与资源回满，由资源池订阅实现"；
+分阶段落地计划 T-N4-5；06 第 2.5 节同条。）
+
+7. **`RefillAll` 是新增的第四个共用 `SetCurrentClamped` 落值入口，只回满 `start_full=true` 的
+   回复型资源**——与判断记录 6 的 `ModifyPower`/脱战回满/`RecomputeMax` 上限夹取三处同一惯例，
+   `RefillAll` 不绕过事件（硬性规则），值确实变化才发一次 `power.changed`。**契约疑点上报**：
+   ADR-0033 决策 7/06 第 2.5 节原文只说"生命与资源回满"，未区分资源类型是否"积累型"
+   （`start_full=false`，如连击点一类"起始空、靠战斗行为累积"的资源）——本方法取"只回满
+   `start_full=true` 的资源，积累型资源不动"这一保守判断，理由同 `RefillOnLeaveCombat`
+   既有先例（同样只对显式登记为 true 的类型生效，不是无条件回满全部资源）。若设计层认定积累型
+   资源也应升级回满，需要在 `arch.power_type` 补一个显式策略字段（同 `refill_on_leave_combat`
+   写法），详见 `IPowerHost.RefillAll` 方法注释。
+8. **接线点在 `RulesAssembly`，不在本模块内部**——本模块（L1）不知道、也不该知道 `progression`
+   （同层 L1，但按判断记录 4 的一贯原则并行开发、互不引用），`RefillAll` 只是被动能力；真正订阅
+   `progression.level_up` 并调用它、以及消费 `ProgressionOptions.RefillOnLevelUp` 开关，都在
+   `core/rules/assembly.RulesAssembly` 构造函数完成（见该文件"T-N4-5"判断记录），同
+   `progression.level_up`/`progression.state_restored` → `StatHost.RecomputeRatingStats` 两条
+   既有订阅同一装配层惯例。
 
 ## 诊断
 
