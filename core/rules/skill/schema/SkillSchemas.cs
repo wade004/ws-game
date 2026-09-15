@@ -614,6 +614,60 @@ namespace Core.Rules.Skill
         /// 留给设计层裁定，不在本任务自行决定。
         /// </para>
         /// </summary>
+        /// <summary>控制类别权重子结构（T-N3-9；06 第 3.10 节"控制价值 = 时长 × 目标数 × 控制类别
+        /// 权重"；<see cref="ControlCategoryValues.All"/> 六值）。
+        /// <para>
+        /// 判断记录（六个具名可选字段而不是登记为 <c>Map</c>）：<c>control_category_weights</c> 的键
+        /// 集合是 <see cref="ControlCategoryValues.All"/> 固定六值（不像 <c>base_stats</c> 那样键随
+        /// <c>stat.definition</c> 内容表增减），登记为逐个具名字段可以给每个权重单独写 <c>description</c>
+        /// 与范围约束，比 <c>MapSchema.ReferenceKeyTable</c> 更贴合"固定小枚举"这一形状；缺省全部
+        /// 为 1.0（见 <see cref="Core.Rules.Skill.SkillBudgetAnalyzer"/> 判断记录"未登记的控制类别
+        /// 权重取中性值 1.0，不放大也不折价"）。
+        /// </para></summary>
+        private static readonly FieldSchema[] ControlCategoryWeightFields =
+        {
+            new FieldSchema("stun", FieldKind.Number, required: false, description: "眩晕类控制的价值权重，缺省 1.0")
+                .WithRange(FieldRange.Range(min: 0)),
+            new FieldSchema("root", FieldKind.Number, required: false, description: "定身类控制的价值权重，缺省 1.0")
+                .WithRange(FieldRange.Range(min: 0)),
+            new FieldSchema("silence", FieldKind.Number, required: false, description: "沉默类控制的价值权重，缺省 1.0")
+                .WithRange(FieldRange.Range(min: 0)),
+            new FieldSchema("disarm", FieldKind.Number, required: false, description: "缴械类控制的价值权重，缺省 1.0")
+                .WithRange(FieldRange.Range(min: 0)),
+            new FieldSchema("fear", FieldKind.Number, required: false, description: "恐惧类控制的价值权重，缺省 1.0")
+                .WithRange(FieldRange.Range(min: 0)),
+            new FieldSchema("polymorph", FieldKind.Number, required: false, description: "变形类控制的价值权重，缺省 1.0")
+                .WithRange(FieldRange.Range(min: 0)),
+        };
+
+        /// <summary>
+        /// T-N3-9（[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 2；06
+        /// 第 3.10 节字段表原文；04 第 5 节数值类校验项分级表）：在 T-N3-3 登记的最小骨架
+        /// （<c>id</c>/<c>beat_seconds</c>）基础上补齐 06 原文列出的其余字段——冷却溢价/范围折价/
+        /// 消耗溢价三条曲线、带宽、硬上限、控制类别权重。schema 版本不递增（新增字段，非破坏性，同
+        /// <see cref="BaseCurve"/> 类型判断记录"新增字段，非破坏性，不需要 schema 版本递增"惯例）。
+        /// <para>
+        /// 契约疑点（上报，待设计层确认；临时判断已实现，见 <see
+        /// cref="Core.Rules.Skill.SkillBudgetAnalyzer"/> 判断记录）：06 原文"带宽、硬上限……玩家档/
+        /// 怪物档"把"玩家档/怪物档"与"带宽""硬上限"并列写在同一句里描述 <c>skill.budget_rule</c> 表
+        /// 结构，但紧接着的独立一句又明确"玩家档/怪物档由反向引用决定"（不是本表登记的字段）——两句
+        /// 字面上有张力。本任务临时判定：反向引用只决定"用哪一组带宽/硬上限"，不决定"表里有没有
+        /// 玩家档/怪物档这两个字段"——怪物技能的合理超模幅度（数值设计 02"Boss 秒杀技本来就是几十
+        /// 倍超模"）与玩家技能的手滑容差不可能共用同一个数字，故本表按玩家/怪物两档分别登记
+        /// <c>player_bandwidth</c>/<c>monster_bandwidth</c>、<c>player_hard_cap</c>/
+        /// <c>monster_hard_cap</c> 四个字段（而不是单一 <c>bandwidth</c>/<c>hard_cap</c>），
+        /// <c>SkillBudgetAnalyzer</c> 按 <c>SkillDefCache</c> 反查出的档位选择对应一组——若设计层
+        /// 裁定应为单一带宽/硬上限（不分档），走 12 第 2 节 ADR 流程改字段，不影响"比值超硬上限阻断、
+        /// 带宽外警告"这一主线判定逻辑。
+        /// </para>
+        /// <para>
+        /// 契约疑点（上报，待设计层确认；临时判断已实现）：06 原文"施放时间当量规则"未给出独立字段
+        /// 名——T-N3-3 已把"一拍常数"本身登记为 <c>beat_seconds</c>；"周期效果按总持续时间乘折价"
+        /// （06 第 3.10 节公式行注释）里的"折价"系数本任务临时登记为 <c>periodic_time_discount</c>
+        /// （缺省 1.0，见 <see cref="Core.Rules.Skill.SkillBudgetAnalyzer"/> 判断记录"周期效果的施放
+        /// 时间当量"）。
+        /// </para>
+        /// </summary>
         public static TableSchema BudgetRule { get; } = new TableSchema(
             name: "skill.budget_rule",
             primaryKey: "id",
@@ -629,6 +683,69 @@ namespace Core.Rules.Skill
                             "EffectDispatcher.ResolveBeatSeconds 判断记录）")
                     .WithRange(FieldRange.Range(min: 0, minExclusive: true))
                     .WithUnit(FieldUnit.Time),
+                new FieldSchema("periodic_time_discount", FieldKind.Number, required: false,
+                        description: "T-N3-9：周期效果（apply_aura 引用的光环含 periodic_damage/" +
+                            "periodic_heal）的施放时间当量折价系数——T = 光环总持续时间 × 本字段（06 " +
+                            "第 3.10 节公式行注释\"周期效果按总持续时间乘折价\"）；缺省 1.0（不折价，" +
+                            "字段名为本任务临时判定，见本表类型判断记录\"施放时间当量规则\"）。范围 (0,1]")
+                    .WithRange(FieldRange.Range(min: 0, minExclusive: true, max: 1)),
+                CurveSchema.BreakpointsField("cooldown_premium_curve", CurveAxis.Value, required: false,
+                    description: "T-N3-9：冷却溢价曲线，横轴为\"冷却 ÷ 施放时间当量 T\"的比值，纵轴为" +
+                        "溢价倍数（06 第 3.10 节公式\"技能预算 = DPS(L) × T × 冷却溢价(冷却÷T) × …\"）；" +
+                        "字段缺失/空断点表时 SkillBudgetAnalyzer 取中性倍数 1.0（不是 PiecewiseCurve 的" +
+                        "空表恒 0 语义，见该类型判断记录）",
+                    xDescription: "冷却 ÷ 施放时间当量 T",
+                    yDescription: "冷却溢价倍数",
+                    yRange: FieldRange.Range(min: 0)),
+                // 判断记录（y 登记为"折价除数"而不是直接的折价倍数）：范围折价语义上应随
+                // max_targets 增大而递减（同一份预算铺到更多目标，单目标价值应更低——数值设计 02
+                // "群体折价"），但 04 第 5 节 curve_monotonic_finite 对全部断点表形态字段统一生效、
+                // 要求纵轴不递减（不允许递减曲线）。本任务临时判定：登记为随 max_targets 增大而
+                // 递增的"折价除数"，SkillBudgetAnalyzer 运行期按 1.0 / 本曲线取值 换算成实际相乘的
+                // 折价倍数（见该类型判断记录"范围折价"），曲线本身满足 curve_monotonic_finite，最终
+                // 生效的折价倍数仍随 max_targets 增大而递减——上报待设计层确认：若认为直接登记"可
+                // 递减的折价倍数"更直观，需要给这一类"天然递减"的曲线单独放宽 curve_monotonic_finite
+                // 或另立一个不受该通用规则约束的曲线形态，属改结论，走 12 第 2 节 ADR 流程。
+                CurveSchema.BreakpointsField("range_discount_curve", CurveAxis.Value, required: false,
+                    description: "T-N3-9：范围折价除数曲线，横轴为目标形状 max_targets，纵轴为折价除数" +
+                        "（06 第 3.7/3.10 节\"范围折价曲线以 max_targets 为输入\"；y 登记为除数而非直接" +
+                        "倍数，见本字段判断记录）；SkillBudgetAnalyzer 按 1.0/本曲线值 换算实际倍数；" +
+                        "字段缺失/空断点表/技能目标形状未声明 max_targets（无上限）时取中性倍数 1.0",
+                    xDescription: "目标形状 max_targets（无上限技能不参与本曲线，见 SkillBudgetAnalyzer 判断记录）",
+                    yDescription: "范围折价除数（>= max_targets 越大取值越大，运行期按 1.0/本值 换算实际折价倍数）",
+                    yRange: FieldRange.Range(min: 0, minExclusive: true)),
+                CurveSchema.BreakpointsField("cost_premium_curve", CurveAxis.Value, required: false,
+                    description: "T-N3-9：消耗溢价曲线，横轴为\"消耗 ÷ 期望回复率\"的比值（期望回复率" +
+                        "取 cost[0].power_type 指向的 arch.power_type.regen_in_combat，见 " +
+                        "SkillBudgetAnalyzer 判断记录），纵轴为溢价倍数；字段缺失/空断点表/技能无 " +
+                        "cost 时取中性倍数 1.0",
+                    xDescription: "消耗 ÷ 期望回复率",
+                    yDescription: "消耗溢价倍数",
+                    yRange: FieldRange.Range(min: 0)),
+                new FieldSchema("player_bandwidth", FieldKind.Number, required: false,
+                        description: "T-N3-9：玩家档技能预算带宽——比值在 [1-本值, 1+本值] 内视为" +
+                            "\"带宽内通过\"（06 第 3.10 节；玩家/怪物分档见本表类型判断记录）；缺省 0.2" +
+                            "（±20%，本任务临时判定的默认值，见 SkillBudgetAnalyzer 判断记录\"只检查" +
+                            "超出上界\"）。范围 >= 0")
+                    .WithRange(FieldRange.Range(min: 0)),
+                new FieldSchema("monster_bandwidth", FieldKind.Number, required: false,
+                        description: "T-N3-9：怪物档技能预算带宽，语义同 player_bandwidth；缺省 5.0" +
+                            "（怪物技能合理超模幅度远大于玩家技能，见本表类型判断记录）。范围 >= 0")
+                    .WithRange(FieldRange.Range(min: 0)),
+                new FieldSchema("player_hard_cap", FieldKind.Number, required: false,
+                        description: "T-N3-9：玩家档技能预算硬上限——比值超过本值且技能未填 " +
+                            "skill.def.budget_note 为阻断（04 第 5 节\"技能预算硬上限\"）；缺省 3.0" +
+                            "（本任务临时判定的默认值）。范围 > 1")
+                    .WithRange(FieldRange.Range(min: 1, minExclusive: true)),
+                new FieldSchema("monster_hard_cap", FieldKind.Number, required: false,
+                        description: "T-N3-9：怪物档技能预算硬上限，语义同 player_hard_cap；缺省 50.0" +
+                            "（本任务临时判定的默认值，见本表类型判断记录）。范围 > 1")
+                    .WithRange(FieldRange.Range(min: 1, minExclusive: true)),
+                new FieldSchema("control_category_weights", FieldKind.Object, required: false,
+                    fields: ControlCategoryWeightFields,
+                    description: "T-N3-9：控制类别权重（06 第 3.10 节\"控制价值 = 时长 × 目标数 × " +
+                        "控制类别权重\"），六个具名可选字段，见 ControlCategoryWeightFields 判断记录；" +
+                        "整体缺省全部按 1.0"),
             }).WithOwnership(SchemaLayer.Rules, "skill").WithTimeScope(TimeScope.Combat);
 
         public static TableSchema Def { get; } = new TableSchema(

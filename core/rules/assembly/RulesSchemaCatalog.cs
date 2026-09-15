@@ -161,6 +161,13 @@ namespace Core.Rules.Assembly
             // SkillNoTimeCostWarningRule 判断记录。
             registry.RegisterValidationRule(new SkillNoTimeCostWarningRule());
 
+            // T-N3-9（ADR-0031 决策 2；04 第 5 节"技能预算硬上限"/"技能预算偏离"）：默认不注入真实
+            // ISkillBudgetAnchorProvider（sim.anchor 归阶段 N6，本阶段尚不存在），本规则注册后整体
+            // 不产生任何问题（见 SkillValidationRules.cs SkillBudgetValidationRule 判断记录"为 null
+            // 时该规则不注册这项跨表检查完全跳过"先例）——真正核算预算比值需要调用方自行
+            // new SkillBudgetValidationRule(realProvider) 另行注册，不经本方法。
+            registry.RegisterValidationRule(new SkillBudgetValidationRule(anchorProvider: null));
+
             // 消费方反馈 2026-09-10"同一光环多个 Proc 触发器静默忽略问题"：单光环允许多个
             // proc_trigger，但同一光环内重复引用同一个 proc_def 在加载期拒绝（见
             // SkillValidationRules.cs AuraProcTriggerDuplicateRule 判断记录）。

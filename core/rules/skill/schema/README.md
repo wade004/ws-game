@@ -96,6 +96,26 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 |---|---|---|---|
 | `id` | Id | 是 | `skill.budget_rule.<name>` |
 | `beat_seconds` | Number | 否（缺省 1.0） | 一拍常数：06 第 3.10 节预算公式的记账单位（施放时间当量 = max(动作时长, 一拍常数)），T-N3-3 起同时是 `weapon_damage_pct` 原语运行期公式"武器秒伤 × 一拍常数 × 百分比"的乘数；`> 0`（`FieldRange.Range(min: 0, minExclusive: true)`）；`FieldUnit.Time`/表 `TimeScope.Combat` |
+| `periodic_time_discount` | Number | 否（缺省 1.0） | T-N3-9：周期效果（`apply_aura` 引用的光环含 `periodic_damage`/`periodic_heal` 且 `duration` 非空）的施放时间当量折价系数——T = 光环总持续时间 × 本字段；`(0,1]`；字段名为临时判定，见下方判断记录 |
+| `cooldown_premium_curve` | Array（断点表） | 否 | T-N3-9：冷却溢价曲线，横轴"冷却÷T"（`CurveAxis.Value`），纵轴溢价倍数；缺失/空断点表时 `SkillBudgetAnalyzer` 取中性倍数 1.0 |
+| `range_discount_curve` | Array（断点表） | 否 | T-N3-9：范围折价**除数**曲线（不是直接倍数，见下方判断记录），横轴 `max_targets`，纵轴除数；`SkillBudgetAnalyzer` 按 `1.0/曲线取值` 换算实际折价倍数；缺失/空断点表/`max_targets=0`（不限）时取中性倍数 1.0 |
+| `cost_premium_curve` | Array（断点表） | 否 | T-N3-9：消耗溢价曲线，横轴"消耗÷期望回复率"（期望回复率取 `cost[0].power_type` 的 `arch.power_type.regen_in_combat`），纵轴溢价倍数；缺失/空断点表/无消耗时取中性倍数 1.0 |
+| `player_bandwidth` | Number | 否（缺省 0.2） | T-N3-9：玩家档带宽——比值 ≤ 1+本值时通过（本实现只检查超出上界，不对称检查偏低）；`>= 0` |
+| `monster_bandwidth` | Number | 否（缺省 5.0） | T-N3-9：怪物档带宽，语义同上；怪物技能合理超模幅度远大于玩家技能，缺省值远大于玩家档 |
+| `player_hard_cap` | Number | 否（缺省 3.0） | T-N3-9：玩家档硬上限——比值超本值且 `skill.def.budget_note` 为空则阻断；`> 1` |
+| `monster_hard_cap` | Number | 否（缺省 50.0） | T-N3-9：怪物档硬上限，语义同上；`> 1` |
+| `control_category_weights` | Object | 否 | T-N3-9：控制类别权重，六个具名可选 Number 子字段（`stun`/`root`/`silence`/`disarm`/`fear`/`polymorph`，对应 `ControlCategoryValues.All`），各缺省 1.0，供 `control` 价值公式"时长×目标数×控制类别权重"消费 |
+
+**T-N3-9 契约疑点（上报，待设计层确认；临时判断均已实现，见 `SkillSchemas.BudgetRule`/
+`SkillBudgetAnalyzer` 类型判断记录）**：
+
+1. 06 原文把"玩家档/怪物档"与"带宽""硬上限"并列写在同一句描述表结构，但另一句明确"玩家档/怪物档
+   由反向引用决定"——本任务判定"玩家档/怪物档"不是表本身的字段，只是"用哪一组带宽/硬上限"的选择
+   依据，故按档位拆成 `player_*`/`monster_*` 两组字段而不是单一 `bandwidth`/`hard_cap`。
+2. "范围折价"语义上应随 `max_targets` 增大而递减，但 04 第 5 节 `curve_monotonic_finite` 对全部
+   断点表统一要求纵轴不递减——`range_discount_curve` 改登记为随 `max_targets` 增大而递增的除数，
+   运行期取倒数换算成实际倍数。
+3. "施放时间当量规则"未给出独立字段名，本任务把周期效果的折价系数命名为 `periodic_time_discount`。
 
 供 `EffectDispatcher.ResolveBeatSeconds`（经 `SkillDefCache.TryGetBeatSeconds`）按
 `SkillOptions.BudgetRuleId`（缺省 `skill.budget_rule.default`）查询；表未注册或该 id 没有对应

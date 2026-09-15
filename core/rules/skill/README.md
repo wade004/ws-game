@@ -1175,6 +1175,100 @@ skill/
     两个默认接口成员 + `EffectDispatcher` 对应两个覆盖 + `PeriodicCacheCount` 属性，累计新增
     37 行，其余 32 行为 T-N3-1～T-N3-7 主提交既有新增）。
 
+55. **T-N3-9（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 2；06 第
+    3.10 节；04 第 5 节数值类校验项分级表"技能预算硬上限"/"技能预算偏离"/"授予价值超特效占比"；
+    分阶段落地计划第 14 节 N3 任务表第九行）：`skill.budget_rule` 补齐完整字段（T-N3-3 只登记
+    `id`/`beat_seconds` 最小骨架）、新增 `SkillBudgetAnalyzer`、技能预算偏离/硬上限校验、
+    `skill_id → 习得等级/档位` 反查（`SkillDefCache.TryResolveBudgetAttribution`）、装备"授予价值
+    超特效占比"警告（落在 `core/carriers/item`，见该模块 README 对应条目）。
+    <br/><br/>
+    **`skill.budget_rule` 新增字段**（`SkillSchemas.BudgetRule`，schema 版本不递增）：
+    `periodic_time_discount`（周期效果施放时间当量折价系数，缺省 1.0）、`cooldown_premium_curve`/
+    `range_discount_curve`/`cost_premium_curve`（三条 04 第 3.6 节通用断点表，横轴
+    `CurveAxis.Value`）、`player_bandwidth`/`monster_bandwidth`（缺省 0.2/5.0）、
+    `player_hard_cap`/`monster_hard_cap`（缺省 3.0/50.0）、`control_category_weights`
+    （六个具名可选数值字段，对应 `ControlCategoryValues.All`，缺省各 1.0）。字段名均为本任务据 06
+    原文散文描述给出的临时判定，见 `SkillSchemas.BudgetRule` 类型判断记录逐条列出的契约疑点
+    （上报，待设计层确认）：
+    <br/><br/>
+    1. "玩家档/怪物档"是否应是本表的字段（本任务判定：不是字段本身，只是"用哪一组带宽/硬上限"的
+       选择依据——由反向引用决定，见下）；
+    2. "范围折价曲线"语义上应随 `max_targets` 增大而递减，但 04 第 5 节 `curve_monotonic_finite`
+       对全部断点表统一要求纵轴不递减——本任务把 `range_discount_curve` 登记为随 `max_targets`
+       增大而递增的"除数"，运行期按 `1.0 / 曲线取值` 换算成实际相乘的折价倍数（曲线本身满足单调
+       递增约束，最终生效倍数仍随目标数增大而递减）；
+    3. "施放时间当量规则"未给出独立字段名，本任务把"周期效果按总持续时间乘折价"的折价系数登记为
+       `periodic_time_discount`。
+    <br/><br/>
+    **`SkillBudgetAnalyzer.Analyze(skillId, view, options?, anchorProvider?)`**（`core/rules/skill/
+    core/SkillBudgetAnalyzer.cs`，照 `Core.Carriers.Item.EquipmentScoreAnalyzer`/`ItemBudgetCurve
+    .ComputeConsumed`/`Core.Gameplay.Loot.LootTableAnalyzer` 三个先例：静态类、纯函数，不持有状态）
+    返回不可变 `SkillBudgetResult`（`SkillId`/`Participates`/`Tier`/`Level`/`EffectiveValue`/
+    `TimeEquivalent`/`CooldownPremium`/`RangeDiscount`/`CostPremium`/`AnchorDps`/`BudgetLimit`/
+    `Ratio`/`Bandwidth`/`HardCap`/`BudgetNote`/`Verdict`）。`Verdict`（`SkillBudgetVerdict`）四态：
+    `NotApplicable`（不参与预算校验）、`Pass`（比值 ≤ 1+带宽）、`ConfirmedDeviation`（超带宽且
+    `budget_note` 非空——不论是否同时超硬上限，硬性规则"禁止阻断带说明的超模技能"）、
+    `UnconfirmedDeviation`（超带宽、未超硬上限、`budget_note` 为空）、`HardCapExceeded`（超硬上限
+    且 `budget_note` 为空，唯一阻断态）。
+    <br/><br/>
+    **公式（06 第 3.10 节原文）**：`预算上限 = 锚点秒伤(技能等级) × T × 冷却溢价(冷却÷T) ×
+    范围折价(max_targets) × 消耗溢价(消耗÷期望回复率)`，`实际价值 = 基础值 + Σ(系数 × 期望缩放
+    属性)`。`T`（施放时间当量）缺省 `max(动作时长, beat_seconds)`；技能效果含 `apply_aura` 引用且
+    `duration` 非空的周期光环（`periodic_damage`/`periodic_heal`）时改取该光环持续时间中最长者 ×
+    `periodic_time_discount`（多条取最大值）。"结算类原语"判定精确下钻 `apply_aura`（`Participates`
+    私有方法）——引用的光环含 `periodic_damage`/`periodic_heal`/`mod_stat`/`control`/`absorb` 任一
+    效果才计入，这正是 T-N3-1 `SettlementEffectKinds` 类型判断记录点名"这一层更细的判定……留给
+    T-N3-9 决定具体收窄方式"所指的收窄实现。
+    <br/><br/>
+    **契约疑点（上报，待设计层确认）——`sim.anchor` 尚未接入**：公式的"锚点秒伤(技能等级)"与"期望
+    缩放属性"权威来源 `sim.anchor` 归阶段 N6，晚于本阶段。新增接口钩子
+    `Core.Rules.Common.ISkillBudgetAnchorProvider`（`GetAnchorDps(level)`/
+    `GetExpectedScalingStatValue(stat, level)`，同 `IGearLevelOffsetProvider` 先例）供调用方注入；
+    `Analyze` 本身对注入值（含 `NullSkillBudgetAnchorProvider.Instance` 哨兵）老实求值，不做特判。
+    "是否接入即当真"的判断下放到规则注册层：`SkillBudgetValidationRule`（`SkillValidationRules.cs`）
+    构造参数 `anchorProvider` 为 `null` 时整条规则不产生任何问题（同 04 第 5.1 节
+    `SpawnSummonOnlyCreatureRule`"`creatureTemplateQuery` 为 `null` 时该规则不注册"先例）；
+    `RulesSchemaCatalog.RegisterAll` 默认按 `null` 注册本规则，保证 `sim.anchor` 真正落地前示例
+    数据/内容管线零告警。真正核算预算比值需要调用方自行 `new SkillBudgetValidationRule(realProvider)`
+    另行注册（不经 `RulesSchemaCatalog`）。
+    <br/><br/>
+    **实现取舍（均已文档化，非契约条文明文规定）**：含控制/增益内容的混合技能，各效果各自算出的
+    "实际价值"（伤害/治疗/吸收按"基础值+Σ系数×期望属性"、控制按"时长×目标数×控制类别权重"、
+    增益按"属性当量(`stat.weight`)×时长÷冷却"）直接相加为单一 `EffectiveValue`（06 只给了三条
+    并列公式，未规定混合技能如何合成单一比值）；消耗溢价的"期望回复率"取 `cost[0].power_type` 指向
+    的 `arch.power_type.regen_in_combat`（真实字段，非 `sim.anchor` 依赖）；永久光环（`duration`
+    为空）的周期/控制/增益部分本实现按 0 贡献处理（06 未规定这一边界）。
+    <br/><br/>
+    **`skill_id → 习得等级/档位` 反查**（`SkillDefCache.TryResolveBudgetAttribution`，懒构建、
+    随 `InvalidateAll` 失效）：扫描全部 `skill.book.entries[]` 得到"出现在任一技能书"（`Player`
+    档，取全部命中里的最小等级）；扫描 `creature.template.ai_rotation_ref` → `ai.rotation
+    .entries[].skill_id` 得到"只被生物模板引用"（`Monster` 档，取引用它的生物模板中最小等级）；
+    技能同时被两边引用时取 `Player`（ADR-0031 后果段"技能同时被两边引用时按玩家档"）；两处都找不到
+    时返回 `SkillBudgetTier.Unattributed`（契约疑点，上报待设计层确认——06 只给"玩家档/怪物档"
+    二分，未规定"两处反查都落空"的技能该归哪一档；本任务临时判定按玩家档带宽/硬上限判定、等级取 1，
+    "宁可多报警告不可放过手滑"）。
+    <br/><br/>
+    **装备授予价值超占比**（`Core.Carriers.Item.ItemGrantValueExceedsShareRule`，检查名
+    `item_grant_value_exceeds_share`，任务书原文给出的临时命名——04 文档该行本身未给检查名，需要
+    随阶段收尾补勘误）：新增 `SkillBudgetAnalyzer.ComputeGrantValue(id, isAura, view, level,
+    anchorProvider, options?)` 公开静态方法（`isAura=false` 走 `Analyze` 取 `EffectiveValue`；
+    `isAura=true` 直接对光环内容求值，等级传入即用，不做习得等级反查——授予的光环没有习得等级概念）
+    供该规则消费，L3 `core/carriers/item` 依赖 L2 `core/rules/skill` 方向合法（同 `item.template
+    .grants` 字段判断记录）。判断记录见该规则类型注释：橙装独特技能（`item.template.budget_note`
+    非空）整条豁免，不是降级为警告。
+    <br/><br/>
+    **测试**：`core/rules/skill/tests/T_N3_9_SkillBudgetAnalyzerTests.cs`（9 例：四种结论 Pass/
+    UnconfirmedDeviation/ConfirmedDeviation/HardCapExceeded 各 1 + 超硬上限但有说明不阻断 1 +
+    不参与预算校验 1 + 怪物档 1 + 习得等级取多本书最小值 1 + 玩家档优先于怪物档 1，超过验收标准
+    "四种技能四种结果各 1 组；怪物档 1 组"）；`core/rules/skill/tests/T_N3_3_WeaponDamagePctBeat
+    SecondsTests.cs` 原"最小骨架只 2 字段"用例改写为"补齐后 11 字段"断言（T-N3-3 约束被 T-N3-9
+    有意取代，非回归）；`core/carriers/item/tests/T_N3_9_ItemGrantValueExceedsShareRuleTests.cs`
+    （4 例：超占比报警告 1、未超占比不报 1、超占比但有 `budget_note` 豁免 1、未注入
+    `anchorProvider` 时整体跳过 1，覆盖验收标准"装备授予价值超占比 Warning 正负例各 1"）。全量
+    `Tests.Rules`（742 例）/`Tests.Carriers`（587 例）/不带 filter 的全量六程序集回归全绿；
+    `Replay` 全绿、基线零改动（新增校验规则默认不产生问题，不影响运行时结算路径）。ABI 探针
+    （基线 1.32.0）breaks=0，新增 104 行（新公开类型/方法/接口，均为新增，无破坏性改动）。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：

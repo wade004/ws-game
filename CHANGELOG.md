@@ -349,6 +349,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   编辑界面的 `max_targets` 输入框旁需要新增一个三选一下拉（复用现有 Enum 单选控件即可，来源
   `Core.Rules.Targeting.TargetSchemas.OverflowPolicyValues`）；纯新增可选字段，不升
   `target.chain_def` 的 `schema_version`、不需要迁移函数，旧数据/旧存档不受影响。
+- **数值设计落地阶段 N3 · T-N3-9（Unreleased）**：`skill.budget_rule` 表在 T-N3-3 最小骨架
+  （`id`/`beat_seconds`）基础上新增九个可选字段——`periodic_time_discount`（Number）、
+  `cooldown_premium_curve`/`range_discount_curve`/`cost_premium_curve`（三条 04 第 3.6 节通用
+  断点表，`CurveAxis.Value`）、`player_bandwidth`/`monster_bandwidth`/`player_hard_cap`/
+  `monster_hard_cap`（Number）、`control_category_weights`（Object，六个具名可选 Number 子字段）；
+  编辑器技能预算规则编辑界面需要为这九个字段补对应控件（三条曲线复用既有断点表编辑控件，其余为
+  数值输入框，`control_category_weights` 可复用 `ControlCategoryValues.All` 六值渲染六个滑块/
+  输入框）。新增两条检查名：`skill_budget_deviation`（Warning，按 `budget_note` 有无分组
+  "已确认"/"待确认"）、`skill_budget_hard_cap_exceeded`（Error）、`item_grant_value_exceeds_share`
+  （Warning，落在 `item.template`）——均为 04 第 5 节数值类校验项分级表既有登记行的检查名补录，
+  非新增校验维度。全部新增字段均为可选、`schema_version` 不递增，旧数据/旧存档不受影响；三条
+  新检查规则默认注册但因未接入 `sim.anchor`（阶段 N6）而整体不产生任何问题，见
+  `core/rules/skill/README.md` 判断记录 55、`core/carriers/item/README.md` 判断记录 26。
 
 ## [Unreleased]
 
@@ -367,6 +380,36 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 数值设计落地阶段 N3 · T-N3-7（ADR-0031 决策 4/5；06 第 3.3/3.8 节 2026-09-14 修订段）：**行为变更**——周期效果（`periodic_damage`/`periodic_heal`）来源单位在光环仍生效期间被销毁（`Despawn`）后，此前的行为是"缩放贡献按 0 处理，每跳只剩 base_value"（C02 判断记录），现改为"冻结为最后一次来源仍存在时算出的每跳值"（`EffectDispatcher` 新增私有缓存 `_lastPeriodicEffectValue`，按光环实例继续原样落地，不归零、不中断周期 tick 循环）；不设快照策略项，无开关，行为恒生效。**迁移说明**：数值上会变——原本销毁后每跳退化到只剩固定的 `base_value`，现在每跳维持销毁前最后一跳的完整数值（通常显著更高，等价于"这个 DoT 打到底"而不是"来源一死就大幅缩水"）；仅影响"来源在光环存活期间被销毁、且光环未随之摘除"这一此前就存在的边界场景（06 未规定来源销毁应连带移除已施加到其他目标身上的光环），不改变来源存活期间的动态重算路径。`SkillOptions` 新增 `PlagueRefreshRatio`（double，**默认 0.3**——ADR-0031 决策 5 原文"默认三成"，是 ADR 本身拍板的默认数值，不是"占位式合理起点"）：同来源同光环再次施加（刷新）时，新持续时间 = 定义持续时间 + min(剩余时长, 定义持续时间 × 比例)，取代此前"直接重置为定义持续时间、剩余时长全部丢弃"的行为；`PlagueRefreshRatio = 0` 时精确退化为旧行为（回归）。**迁移说明（默认值即行为变化）**：装配本模块且不显式设置 `PlagueRefreshRatio` 的游戏，默认即获得"刷新最多额外保留 30% 定义时长"这一新行为（光环刷新后持续时间比旧版本更长），已有的战斗节奏/DPS 曲线若假定"刷新=重置"需要重新评估，或显式设置 `PlagueRefreshRatio = 0` 保持旧行为。**契约疑点（上报，待设计层确认）**：光环施加与第一跳之间来源就已缺失（无任何存活值可冻结）这一更细的边界 06 未规定，本任务临时按"该跳走原 C02 降级路径算出一次值（缩放贡献按 0），随后立即开始缓存生效"处理，非快照策略项，详见 `core/rules/skill/README.md` 判断记录 54。`CreatureDespawnPeriodicEffectTests` 断言改写以精确锁定"冻结"而非泛泛的"仍在掉血"（契约规定的行为变更，非放宽断言）。回放/Perf 基线实测零改动（现有回放场景未覆盖"刷新"与"周期光环来源存活期间被销毁"两类场景，详见判断记录 54）。不新增任何效果原语。**补（复核发现）**：`_lastPeriodicEffectValue` 缓存此前无清理路径，长会话内随光环实例产生/移除无界增长；`IEffectSink` 新增默认接口成员 `ForgetPeriodicCache(Id)`/`ClearPeriodicCache()`（ABI 安全，空实现，不影响其它实现方），`AuraHost.RemoveInstanceInternal`（全部移除路径的唯一收口：到期/`RemoveAura`/`Dispel`/吸收耗尽/叠加溢出`Replace`/目标销毁）统一调用 `ForgetPeriodicCache`，随光环实例移除同步清理，不再无界增长；详见判断记录 54。
 
 数值设计落地阶段 N3 · T-N3-8（ADR-0031 决策 6、拍板 7；06 第 3.7 节 2026-09-14 修订段）：`target.chain_def` 新增可选字段 `overflow_policy`（`truncate`（默认）｜`split`｜`cap`，与既有 `max_targets` 配合，候选数超过上限时的处理策略）；`ITargetHost` 新增默认接口成员 `ResolveWithCoefficients(chainId, casterId, currentTarget?) -> TargetResolution`（新类型，`core/rules/common/contracts/TargetResolution.cs`：候选目标 + 各自"分配系数" + 生效策略 + cap），旧签名 `Resolve(Id, Id)`/`Resolve(Id, Id, Id?)` 保留、行为不变（`Truncate` 策略下投影结果与本字段引入之前的既有截断行为逐一对应）；`EffectContext` 新增 `TargetCoefficient` 字段（第 18 参构造重载，ABI 只新增，经既有构造函数得到的实例恒为 1.0）；`Core.Rules.Skill.CastPipeline` 步骤 6 链自行收集目标时改调 `ResolveWithCoefficients`，系数经 `CastState.TargetCoefficients` 一路带到 `ExecuteEffectsOnly`（瞬发/引导每跳/引导完成三条既有调用路径共享同一份系数）；`EffectDispatcher.ApplyDamageOrHeal` 按系数缩放群体效果值（`value × TargetCoefficient`，SpellMod 应用之前，系数恒为 1 时逐位不变）。**契约疑点（上报，待设计层确认）**：(1) 三态精确分配系数公式——06 第 3.7 节修订段与 ADR-0031 决策 6 均只给出策略名字（截断/平摊/总量封顶）与默认值，未展开到"每个目标分配系数"这一精确公式；本任务按字面含义给出临时判断：`truncate` 与既有截断行为逐一对应（按既有排序取前 `max_targets` 个，系数恒 1）；`split`（平摊）候选全部命中、总量守恒为"`max_targets` 个目标的满额值"（系数 = `max_targets` / 命中数，Σ = `max_targets`）；`cap`（总量封顶）候选全部命中、总量硬封顶为"单个目标的满额值"（系数 = 1 / 命中数，Σ = 1），详见 `Core.Rules.Common.TargetOverflowPolicy` 判断记录、`core/rules/targeting/README.md` 判断记录 13。(2) 顶层"EffectDispatcher.cs（调用处）"这一提法与实际代码不符——`ITargetHost.Resolve` 在本仓库唯一的生产调用点是 `Core.Rules.Skill.CastPipeline`（`EffectDispatcher` 本身从不持有 `ITargetHost` 引用），本任务据此在 `CastPipeline.cs` 改调新重载，`EffectDispatcher.cs` 只新增按 `EffectContext.TargetCoefficient` 缩放 `value` 这一步骤，两处改动合起来实现"目标解析出系数→效果值按系数缩放"的完整链路。**未接入范围（超出本任务边界，留给后续任务）**：地面坐标施法（`CastSkillAtGround`/`ApplyGroundEffectsIfValid`）与 `TriggerCast` 触发链两条入口未接入分配系数（恒系数 1，与改动前行为一致）；`ITargetHost.ResolveAtPoint` 底层管线已随 `ResolveChainWithCoefficients` 重构同步支持 `overflow_policy`（`max_targets` 既有生效范围的自然延伸），但未新增携带系数的地面坐标解析出口。旧 `Resolve` 签名对声明了 `split`/`cap` 策略的链会返回全部候选（不做数量截断，因为这两种策略本身不丢弃候选、只稀释系数）——调用方需要系数时应改用 `ResolveWithCoefficients`。不新增任何效果原语，回放基线零改动（现有回放场景 `target.chain_def` 均未声明 `overflow_policy`，缺省 `truncate` 与改动前逐字节一致）。
+
+数值设计落地阶段 N3 · T-N3-9（ADR-0031 决策 2；ADR-0032 决策 6；06 第 3.10 节；04 第 5 节数值类
+校验项分级表"技能预算硬上限"/"技能预算偏离"/"授予价值超特效占比"）：`skill.budget_rule` 补齐 06
+第 3.10 节字段表（见上方"编辑器相关契约"小节字段清单）；新增 `Core.Rules.Skill.SkillBudgetAnalyzer`
+（静态类，`Analyze(skillId, view, options?, anchorProvider?)` 返回不可变 `SkillBudgetResult`，四态
+`SkillBudgetVerdict`：`NotApplicable`/`Pass`/`ConfirmedDeviation`/`UnconfirmedDeviation`/
+`HardCapExceeded`）与新增校验规则 `SkillBudgetValidationRule`（检查名
+`skill_budget_deviation`/`skill_budget_hard_cap_exceeded`）；`SkillDefCache` 新增
+`TryResolveBudgetAttribution`（`skill_id → 习得等级/档位` 反查：出现在任一 `skill.book` 的按
+`Player` 档，取最小习得等级；只被 `creature.template`（经 `ai_rotation_ref`）引用的按 `Monster`
+档，取最小引用生物等级；技能同时被两边引用按 `Player` 档，均未命中归 `SkillBudgetTier
+.Unattributed`）；新增接口钩子 `Core.Rules.Common.ISkillBudgetAnchorProvider`（`sim.anchor` 归
+阶段 N6，本任务不假装该表已存在，改接受调用方注入锚点秒伤/期望缩放属性，同 `IGearLevelOffsetProvider`
+先例）。新增 `Core.Carriers.Item.ItemGrantValueExceedsShareRule`（检查名
+`item_grant_value_exceeds_share`）与 `SkillBudgetAnalyzer.ComputeGrantValue` 公开静态方法：装备
+`grants.skills`/`grants.auras` 所授予内容的预算价值合计超过"该件装备预算 ×
+`item.quality_definition.grant_budget_share`"报 Warning，`item.template.budget_note` 非空时整条
+豁免。**三条新规则默认注册但整体不产生任何问题**（`RulesSchemaCatalog.RegisterAll`/
+`CarriersSchemaCatalog.RegisterAll` 均按 `anchorProvider: null` 注册，同 04 第 5.1 节
+`SpawnSummonOnlyCreatureRule`"未接线时该规则不注册这项跨表检查完全跳过"先例）：保证示例数据/内容
+管线在 `sim.anchor`（阶段 N6）真正落地前保持零告警，真正核算预算比值需要调用方自行注入真实
+`ISkillBudgetAnchorProvider` 另行注册这两条规则。**契约疑点（上报，待设计层确认，临时判断均已
+实现，详见 `core/rules/skill/README.md` 判断记录 55/`core/carriers/item/README.md` 判断记录 26）**：
+(1) "玩家档/怪物档"是否是 `skill.budget_rule` 表本身的字段（本任务判定不是，只是选择带宽/硬上限
+的依据）；(2) `range_discount_curve` 登记为随 `max_targets` 增大而递增的"除数"而不是直接的折价
+倍数，以满足 `curve_monotonic_finite`"纵轴不递减"与"范围折价应随目标数增大而递减"两者的张力；
+(3) `periodic_time_discount` 字段名为临时判定；(4) 混合技能（同时含伤害/控制/增益内容）的"实际
+价值"按各效果分别算出直接相加；(5) 反向引用均未命中的技能归 `Unattributed`，按玩家档（更严格）
+判定、等级取 1。不新增任何效果原语，回放/Perf 基线零改动（新增校验规则默认不产生问题，不影响
+运行时结算路径）。`SkillOptions.BudgetRuleId`/`SettlementEffectKinds` 沿用既有定义，未改动。
 
 ## [1.32.0] - 2026-09-15
 

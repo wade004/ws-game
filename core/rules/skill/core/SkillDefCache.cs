@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
@@ -37,6 +38,15 @@ namespace Core.Rules.Skill
         // id/beat_seconds 两个字段，不需要强类型 Defs.cs 包装，直接缓存解出的 double。
         private readonly Dictionary<Id, double> _beatSeconds = new Dictionary<Id, double>();
 
+        // T-N3-9（ADR-0031 决策 2；06 第 3.10 节"玩家档/怪物档由反向引用决定"）：skill_id → 习得
+        // 等级/档位的反查缓存，懒构建（首次调用 TryResolveBudgetAttribution 时一次性扫描
+        // skill.book 与 creature.template/ai.rotation 两条来源，同 _skills 等既有缓存"命中一次后
+        // 常驻内存"惯例）。两个字典任一为 null 代表"尚未构建"，构建后必为非 null（即便扫描结果为
+        // 空字典）——用 null 而不是"空集合也算已构建"的哨兵，避免"表未注册/无数据"与"确实没扫描"
+        // 两种状态混淆（同 IDataRegistryView.Get 对未知表返回 null 的既有区分手法）。
+        private Dictionary<Id, int>? _playerBookLevels;
+        private Dictionary<Id, int>? _monsterCreatureLevels;
+
         // 集成任务改动：解析 skill.proc_def.condition 用的 IExprSchema，默认改用集成任务提供的
         // core/rules/expr_host.RulesExprSchema.Base（原先本模块自带的临时占位 schema 已被取代，
         // 阶段 3 整理后已删除），保留可注入口子（构造参数 exprSchema）。
@@ -65,6 +75,130 @@ namespace Core.Rules.Skill
             _books.Clear();
             _baseCurves.Clear();
             _beatSeconds.Clear();
+            _playerBookLevels = null;
+            _monsterCreatureLevels = null;
+        }
+
+        /// <summary>
+        /// T-N3-9（ADR-0031 决策 2；06 第 3.10 节"玩家档/怪物档由反向引用决定：只被
+        /// <c>creature.template</c> 引用的技能按怪物档，出现在任一 <c>skill.book</c> 的按玩家档"）：
+        /// 按 <paramref name="skillId"/> 反查它的技能预算档位与"技能等级"（06 第 3.10 节"技能等级
+        /// 取技能书里的习得等级"）。
+        /// <para>
+        /// 判断记录（多处引用时取哪一个等级）：同一技能可能被多本 <c>skill.book</c> 以不同等级登记、
+        /// 或被多个 <c>creature.template</c> 以不同等级引用——06/ADR-0031 均未规定取哪一个。本任务
+        /// 临时判定：取全部命中里的最小等级（"最早可获得的等级"，对预算带宽判定更保守——同一技能
+        /// 在低等级出现意味着期望缩放属性更低，若按此仍落在带宽内，高等级角色使用时只会更宽松）。
+        /// </para>
+        /// <para>
+        /// 判断记录（玩家档优先于怪物档）：ADR-0031"后果"段"预算校验的怪物档/玩家档靠反向引用判定，
+        /// 技能同时被两边引用时按玩家档"——本方法先查 <c>skill.book</c>，命中即返回，不再查
+        /// <c>creature.template</c>。
+        /// </para>
+        /// <para>
+        /// 判断记录（两处引用来源均找不到时返回 <see cref="SkillBudgetTier.Unattributed"/>，
+        /// 而不是抛异常）：见 <see cref="SkillBudgetTier.Unattributed"/> 判断记录——这是一个契约
+        /// 疑点（已上报待设计层确认），本方法不因此抛异常，调用方（<see cref="SkillBudgetAnalyzer"/>）
+        /// 决定如何降级处理。
+        /// </para>
+        /// </summary>
+        public bool TryResolveBudgetAttribution(Id skillId, out SkillBudgetTier tier, out int level)
+        {
+            EnsureBudgetAttributionIndex();
+
+            if (_playerBookLevels!.TryGetValue(skillId, out var playerLevel))
+            {
+                tier = SkillBudgetTier.Player;
+                level = playerLevel;
+                return true;
+            }
+
+            if (_monsterCreatureLevels!.TryGetValue(skillId, out var monsterLevel))
+            {
+                tier = SkillBudgetTier.Monster;
+                level = monsterLevel;
+                return true;
+            }
+
+            tier = SkillBudgetTier.Unattributed;
+            level = 1;
+            return false;
+        }
+
+        private void EnsureBudgetAttributionIndex()
+        {
+            if (_playerBookLevels != null)
+            {
+                return;
+            }
+
+            var playerLevels = new Dictionary<Id, int>();
+            if (_registry.Tables.Contains("skill.book"))
+            {
+                foreach (var record in _registry.GetAll("skill.book"))
+                {
+                    if (!record.TryGetArray("entries", out var entries))
+                    {
+                        continue;
+                    }
+
+                    for (var i = 0; i < entries.Count; i++)
+                    {
+                        if (entries[i] is not JsonObject entry) continue;
+                        if (!entry.TryGetValue("skill_id", out var skillIdRaw) || skillIdRaw is not JsonString skillIdText) continue;
+                        if (!entry.TryGetValue("level", out var levelRaw) || levelRaw is not JsonNumber levelNumber) continue;
+
+                        var skillId = new Id(skillIdText.Value);
+                        var level = (int)levelNumber.Value;
+                        if (!playerLevels.TryGetValue(skillId, out var existing) || level < existing)
+                        {
+                            playerLevels[skillId] = level;
+                        }
+                    }
+                }
+            }
+
+            var monsterLevels = new Dictionary<Id, int>();
+            if (_registry.Tables.Contains("creature.template") && _registry.Tables.Contains("ai.rotation"))
+            {
+                var rotationSkillIds = new Dictionary<Id, List<Id>>();
+                foreach (var rotation in _registry.GetAll("ai.rotation"))
+                {
+                    if (!rotation.TryGetArray("entries", out var entries))
+                    {
+                        continue;
+                    }
+
+                    var skillIds = new List<Id>();
+                    for (var i = 0; i < entries.Count; i++)
+                    {
+                        if (entries[i] is not JsonObject entry) continue;
+                        if (!entry.TryGetValue("skill_id", out var skillIdRaw) || skillIdRaw is not JsonString skillIdText) continue;
+                        skillIds.Add(new Id(skillIdText.Value));
+                    }
+
+                    rotationSkillIds[new Id(rotation.Key)] = skillIds;
+                }
+
+                foreach (var creature in _registry.GetAll("creature.template"))
+                {
+                    if (!creature.TryGetId("ai_rotation_ref", out var rotationRef)) continue;
+                    if (!rotationSkillIds.TryGetValue(rotationRef, out var skillIds)) continue;
+                    if (!creature.TryGetInt("level", out var creatureLevelRaw)) continue;
+
+                    var creatureLevel = (int)creatureLevelRaw;
+                    foreach (var skillId in skillIds)
+                    {
+                        if (!monsterLevels.TryGetValue(skillId, out var existing) || creatureLevel < existing)
+                        {
+                            monsterLevels[skillId] = creatureLevel;
+                        }
+                    }
+                }
+            }
+
+            _playerBookLevels = playerLevels;
+            _monsterCreatureLevels = monsterLevels;
         }
 
         /// <summary>T-N3-2（ADR-0031 决策 1）：按 <paramref name="id"/> 取 <c>skill.base_curve</c>

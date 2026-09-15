@@ -62,11 +62,30 @@ namespace Tests.Rules.Skill
         }
 
         [Fact]
-        public void BudgetRule_Table_OnlyHasTwoFields_RestDeferredToTN39()
+        public void BudgetRule_Table_HasElevenFields_AfterTN39CompletesFullSchema()
         {
-            // 任务书"最小骨架"约束：本任务只登记 id/beat_seconds，其余字段（施放时间当量规则、
-            // 三条溢价/折价曲线、带宽、硬上限、控制类别权重、玩家档/怪物档）留给 T-N3-9。
-            Assert.Equal(2, SkillSchemas.BudgetRule.Fields.Count);
+            // T-N3-3 当时只登记 id/beat_seconds 最小骨架；T-N3-9（本任务）在同一 TableSchema 上补齐
+            // 06 第 3.10 节字段表其余字段（见 SkillSchemas.BudgetRule 类型判断记录），schema 版本不
+            // 递增（新增字段，非破坏性）。本用例断言字段总数与具体字段名单，锁死"补齐后长这样"这一
+            // 事实，供后续任务如再改动时提醒同步更新本测试。
+            Assert.Equal(11, SkillSchemas.BudgetRule.Fields.Count);
+            var names = new System.Collections.Generic.List<string>();
+            foreach (var field in SkillSchemas.BudgetRule.Fields)
+            {
+                names.Add(field.Name);
+            }
+
+            Assert.Contains("id", names);
+            Assert.Contains("beat_seconds", names);
+            Assert.Contains("periodic_time_discount", names);
+            Assert.Contains("cooldown_premium_curve", names);
+            Assert.Contains("range_discount_curve", names);
+            Assert.Contains("cost_premium_curve", names);
+            Assert.Contains("player_bandwidth", names);
+            Assert.Contains("monster_bandwidth", names);
+            Assert.Contains("player_hard_cap", names);
+            Assert.Contains("monster_hard_cap", names);
+            Assert.Contains("control_category_weights", names);
         }
 
         [Fact]

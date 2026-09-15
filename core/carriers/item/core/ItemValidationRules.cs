@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
+using Core.Rules.Common;
+using Core.Rules.Skill;
 
 namespace Core.Carriers.Item
 {
@@ -878,6 +880,187 @@ namespace Core.Carriers.Item
             }
 
             return false;
+        }
+    }
+
+    /// <summary>
+    /// T-N3-9（ADR-0032 决策 6："授予的技能或光环走技能预算校验，预算 = 该件装备预算 × 品质特效
+    /// 占比，警告级；橙装独特技能免校验，靠超模说明登记意图"；07 第 1.2 节修订段"授予规则"；04 第 5
+    /// 节警告行"授予价值超特效占比"——该行原文批注"N3 落地：需先接入 skill.budget_rule 技能预算才
+    /// 具备判定依据，本阶段（N2）未实现该项检查"，本任务补上）：装备 <c>grants.skills</c>/
+    /// <c>grants.auras</c> 所授予内容的预算价值之和，不得超过"该件装备预算 ×
+    /// <c>item.quality_definition.grant_budget_share</c>"。
+    /// <para>
+    /// 判断记录（放在 <c>Core.Carriers.Item</c>，不是 <c>Core.Rules.Skill</c>）：任务书"实现放 item
+    /// 或 skill 模块看依赖方向"——判定依据是"哪个模块拥有被校验的主表"：本规则的主表是
+    /// <c>item.template</c>（校验对象是"这件装备的授予是否超占比"，不是"这个技能本身预算是否合规"，
+    /// 后者已由 <see cref="Core.Rules.Skill.SkillBudgetValidationRule"/> 独立覆盖），04 第 5 节把它
+    /// 列在数值类校验项分级表（跨 item/skill 两个模块的组合校验，同该表其余"装备预算利用率过低"等
+    /// 行一样归属 item 侧）；<c>Core.Carriers</c>（L3）依赖 <c>Core.Rules</c>（L2）方向合法（同
+    /// <c>ItemSchemas.GrantsSchema</c> 字段判断记录"任务书额外要求 1：L3 引用 L2 程序集合法"），
+    /// 反过来（<c>Core.Rules.Skill</c> 依赖 <c>Core.Carriers.Item</c>）不合法——本规则只能落在
+    /// item 侧。
+    /// </para>
+    /// <para>
+    /// 判断记录（检查名）：04 第 5 节该行未给出检查名（其余同批新增行均已补，见该节 2026-09-15 勘误
+    /// 记录），任务书原文"无则 <c>item_grant_value_exceeds_share</c>"——本任务据此登记，事后需要
+    /// 把检查名同步补进 04 文档勘误（本任务未改 architecture 文档，随 T-N3-12 阶段收尾一并处理，见
+    /// 判断记录"文档同步"）。
+    /// </para>
+    /// <para>
+    /// 判断记录（<c>anchorProvider</c> 为 <c>null</c> 时整条规则不产生任何问题）：同 <see
+    /// cref="Core.Rules.Skill.SkillBudgetValidationRule"/> 判断记录——授予价值的求值最终落到 <see
+    /// cref="Core.Rules.Skill.SkillBudgetAnalyzer.ComputeGrantValue"/>，同样依赖尚未接入的 <see
+    /// cref="ISkillBudgetAnchorProvider"/>（<c>sim.anchor</c> 归阶段 N6）；<see
+    /// cref="Core.Carriers.Assembly.CarriersSchemaCatalog"/> 默认注册本规则时同样不注入真实实现，
+    /// 保证示例数据零告警，真正核算需要调用方自行 <c>new ItemGrantValueExceedsShareRule
+    /// (budgetCurveId, realProvider)</c> 另行注册。
+    /// </para>
+    /// <para>
+    /// 判断记录（"等级"取 <c>item_level</c> 代理，不追 <c>item.req_level_curve</c> 反推需求等级）：
+    /// <see cref="Core.Rules.Skill.SkillBudgetAnalyzer.ComputeGrantValue"/> 需要一个等级作为
+    /// <see cref="ISkillBudgetAnchorProvider"/> 求值点——被授予技能（<c>isAura=false</c>）内部会用
+    /// 该技能自己的习得等级反查覆盖本参数（见该方法判断记录），只有授予<b>光环</b>
+    /// （<c>isAura=true</c>，没有习得等级概念）才真正消费本参数；用 <c>item_level</c> 直接代理"这件
+    /// 装备大致对应的角色等级"，比再去反查 <c>item.req_level_curve</c> 多一层曲线查询更简单，且
+    /// 07/ADR-0032 均未规定授予光环的价值求值该用哪个等级——本任务临时判定，上报待设计层确认。
+    /// </para>
+    /// </summary>
+    public sealed class ItemGrantValueExceedsShareRule : IValidationRule
+    {
+        public const string Check = "item_grant_value_exceeds_share";
+
+        public bool NonEscalatable => true;
+
+        private const double Epsilon = 1e-9;
+
+        private readonly Id _budgetCurveId;
+        private readonly ISkillBudgetAnchorProvider? _anchorProvider;
+        private readonly SkillOptions? _skillOptions;
+
+        public ItemGrantValueExceedsShareRule(
+            Id budgetCurveId, ISkillBudgetAnchorProvider? anchorProvider = null, SkillOptions? skillOptions = null)
+        {
+            _budgetCurveId = budgetCurveId;
+            _anchorProvider = anchorProvider;
+            _skillOptions = skillOptions;
+        }
+
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            if (_anchorProvider == null)
+            {
+                yield break;
+            }
+
+            var templates = view.GetAll("item.template");
+            if (templates.Count == 0)
+            {
+                yield break;
+            }
+
+            var curveRecord = view.Get("item.budget_curve", _budgetCurveId);
+            if (curveRecord == null)
+            {
+                yield break;
+            }
+
+            var curve = ItemBudgetCurve.ParseCurve(curveRecord);
+
+            var qualityMultipliers = new Dictionary<string, double>();
+            var grantShares = new Dictionary<string, double>();
+            foreach (var q in view.GetAll("item.quality_definition"))
+            {
+                qualityMultipliers[q.Key] = q.TryGetNumber("budget_multiplier", out var m) ? m : 1.0;
+                grantShares[q.Key] = q.TryGetNumber("grant_budget_share", out var g) ? g : 0.0;
+            }
+
+            var slotCoefficients = new Dictionary<string, double>();
+            foreach (var s in view.GetAll("item.slot_definition"))
+            {
+                slotCoefficients[s.Key] = s.TryGetNumber("budget_coefficient", out var c) ? c : 1.0;
+            }
+
+            foreach (var record in templates)
+            {
+                if (!record.TryGetObject("grants", out var grants))
+                {
+                    continue;
+                }
+
+                var skillIds = grants.TryGetValue("skills", out var skillsRaw) && skillsRaw is JsonArray skillsArr
+                    ? skillsArr
+                    : null;
+                var auraIds = grants.TryGetValue("auras", out var aurasRaw) && aurasRaw is JsonArray aurasArr
+                    ? aurasArr
+                    : null;
+                if ((skillIds == null || skillIds.Count == 0) && (auraIds == null || auraIds.Count == 0))
+                {
+                    continue;
+                }
+
+                // ADR-0032 决策 6"橙装独特技能免校验，靠超模说明登记意图"：本条件在这里整条豁免，
+                // 不是"超出后按 budget_note 分组警告/确认"（同技能预算硬性规则"禁止阻断带说明的超模
+                // 技能"精神一致，但装备侧原文明确是"免校验"不是"降级为警告"，两者措辞不同，本任务
+                // 按各自原文分别实现）。
+                if (record.TryGetString("budget_note", out var templateNote) && !string.IsNullOrEmpty(templateNote))
+                {
+                    continue;
+                }
+
+                if (!record.TryGetInt("item_level", out var itemLevel) || !record.TryGetString("quality", out var quality))
+                {
+                    continue;
+                }
+
+                var qualityMultiplier = qualityMultipliers.TryGetValue(quality, out var m2) ? m2 : 1.0;
+                var slotCoefficient = record.TryGetString("slot", out var slot) &&
+                    slotCoefficients.TryGetValue(slot, out var sc) ? sc : 1.0;
+                var budget = ItemBudgetCurve.Interpolate(curve, (int)itemLevel) * qualityMultiplier * slotCoefficient;
+                if (budget <= 0)
+                {
+                    continue;
+                }
+
+                var grantShare = grantShares.TryGetValue(quality, out var gs) ? gs : 0.0;
+                var allowance = budget * grantShare;
+
+                var totalGrantValue = 0.0;
+                if (skillIds != null)
+                {
+                    foreach (var entry in skillIds)
+                    {
+                        if (entry is JsonString skillIdText)
+                        {
+                            totalGrantValue += SkillBudgetAnalyzer.ComputeGrantValue(
+                                new Id(skillIdText.Value), isAura: false, view, (int)itemLevel, _anchorProvider, _skillOptions);
+                        }
+                    }
+                }
+
+                if (auraIds != null)
+                {
+                    foreach (var entry in auraIds)
+                    {
+                        if (entry is JsonString auraIdText)
+                        {
+                            totalGrantValue += SkillBudgetAnalyzer.ComputeGrantValue(
+                                new Id(auraIdText.Value), isAura: true, view, (int)itemLevel, _anchorProvider, _skillOptions);
+                        }
+                    }
+                }
+
+                if (totalGrantValue > allowance + Epsilon)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Warning, "item.template", Check,
+                        $"授予内容预算价值合计 {totalGrantValue:0.###}，超过该件装备预算 {budget:0.###} × " +
+                        $"品质授予占比 {grantShare:0.###} = {allowance:0.###}（item_level={itemLevel}, " +
+                        $"quality={quality}）：若确有意为之（如橙装独特技能），请填写 " +
+                        "item.template.budget_note 登记意图以豁免本项检查（ADR-0032 决策 6）",
+                        recordKey: record.Key, field: "grants");
+                }
+            }
         }
     }
 }
