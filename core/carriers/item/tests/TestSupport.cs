@@ -54,7 +54,15 @@ namespace Tests.Carriers.Item
             var source = new InMemoryDataSource();
             configure(source);
 
-            var registry = new DataRegistry(source, CreateBus());
+            // T-N2-4：FailOnUnknownTable=false（同 core/numbers/stat_block/tests/
+            // StatWeightSchemaTests.BuildRegistry 既有手法）——本模块不静态耦合 arch.class 的真实
+            // schema（L3 不依赖 L1 具体表结构），但 stat.weight.class_overrides[].class 的
+            // reference_integrity 检查需要能在已加载数据里找到同 id 的一条记录；调用方需要覆盖
+            // 职业权重的测试用例时，在 configure 里往 "arch.class" 塞最小行（仅 id 字段，走
+            // TableSchema.Unschematized 占位 schema，不需要满足 arch.class 真实 schema 的
+            // name_key/primary_stat/base_stats/power_types 等必填字段），不提供时该表保持空、不
+            // 影响既有测试。
+            var registry = new DataRegistry(source, CreateBus(), new DataRegistryOptions { FailOnUnknownTable = false });
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Template);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);

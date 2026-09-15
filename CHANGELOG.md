@@ -260,6 +260,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   （消耗/上限）与阈值着色。`Core.Numbers.StatBlock` 新增公开类型 `RatingConversionShape`/
   `RatingConversionEvaluator`（`StatHost.ConvertRating` 内部换算式子提升为共享静态工具，纯内部
   重构，不改变既有属性换算的对外可见行为）。
+- **数值设计落地阶段 N2 · T-N2-4（Unreleased）**：新增 `IBudgetSolver`（预算反解契约，
+  `Solve(itemLevel, qualityId, slotId, statMix, budgetCurveId, shareOfBudget, view)`，外加
+  `shareOfBudget` 缺省 1.0 的重载）与实现类 `BudgetSolver`——给定物品等级、品质、槽位与属性
+  组合比例，反解各属性值，供编辑器"按预算生成属性"（例如给词缀/标准装备一键落值）使用；返回
+  `BudgetSolverResult`（各属性值、目标预算、实际消耗、使用的 k/权重）。新增 `EquipmentScoreAnalyzer`
+  （静态类，`Score`/`Compare`）——把预算消耗公式换成职业权重即为装备评分，编辑器可用它渲染"评分
+  对比箭头"/"一键换装最优"一类界面元素；两者均出现在 `toolchain/validator --list-tables --json`
+  之外（不是数据表，是运行时契约面），编辑器项目需要按新公开类型直接调用。`ItemBudgetCurve`
+  新增重载 `BuildStatBudgetInfo(IDataRegistryView, Id classId)`（按职业覆盖权重）。
 
 ## [Unreleased]
 
@@ -268,6 +277,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 数值设计落地阶段 N2 · T-N2-1（ADR-0032 决策 1/2/4/5）：`item.slot_definition` 新增 `budget_coefficient`/`price_coefficient`；`item.quality_definition` 新增 `affix_count`（可选）/`grant_budget_share`/`price_multiplier`，`budget_multiplier`/`price_multiplier` 大小顺序须与 `sort_weight` 一致（新校验规则 `ItemQualityMultiplierOrderRule`，检查名 `item_quality_multiplier_order`）；`item.template` 新增 `value_override`/`budget_note`，`stat_roll_ref` 描述改为"由 `item.affix` 取代的兼容位"；新表 `item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve`（物品等级→护甲值/武器秒伤/需求等级的断点表曲线，复用 `CurveSchema.BreakpointsField`，横轴 `CurveAxis.ItemLevel`，自动受 `curve_monotonic_finite` 约束）。本任务只登记 schema/注册/品质倍率顺序校验，消耗公式/护甲武器秒伤求值/需求等级反推等运行时消费实现留给后续任务（T-N2-4/6/9）。
 数值设计落地阶段 N2 · T-N2-2（ADR-0032 决策 7）：`item.affix` 由留位转正为预算份额包——新增必填 `budget_share`（占该件预算的比例）/`stat_mix`（`Array<{stat:Reference(stat.definition), ratio:Number(0,1]}>`，属性组合与内部分配比例）/`quality_pool`（`Reference(item.quality_definition)`，所属品质池）/`weight`（池内权重）与可选 `grants`（复用 `item.template.grants` 同一 `GrantsSchema`）；旧占位字段 `effects` 标记废弃，保留一个版本周期只作读取兼容，不再解析。新校验规则 `ItemAffixStatMixRatioSumRule`（检查名 `item_affix_stat_mix_ratio_sum`）：单条词缀 `stat_mix[].ratio` 之和超过一（1e-9 浮点容差）报 Error。`item.template.affixes` 语义由"词缀引用"改写为"该模板掉落时可抽取的词缀候选白名单"，缺省 `[]` 视为不收窄。`currentSchemaVersion` 保持 1，不新增迁移链（留位期无真实旧数据需要兼容，判断记录见 `ItemSchemas.Affix`）。本任务只登记字段与份额之和校验，预算反解/"模板加词缀最大份额超预算"/掉落三次掷骰等运行时消费实现留给后续任务（T-N2-3/4/6/8）。
 数值设计落地阶段 N2 · T-N2-3（ADR-0032 决策 3/10）：装备预算消耗公式改为加权 `(Σ(属性值×权重)^k)^(1/k)`（`ItemBudgetCurve.ComputeConsumed`，权重取自 `stat.weight`，没有对应记录时缺省 1；`category=percent` 属性的 `pct`/`mult` 词条先经 `stat.rating_conversion` 换算曲线反函数折回点数，`flat` 词条本就是点数不折算；非 `percent` 属性沿用既有 `pct`/`mult` ×100 折算），指数 `k` 登记在 `item.budget_curve` 新增可选字段 `exponent`（缺省 1.5）；预算上限新增乘 `item.slot_definition.budget_coefficient`（T-N2-1 登记的字段本任务起接入消费）。`ItemBudgetValidationRule` 新增预算利用率过低 Warning（检查名 `item_budget_utilization_low`，不可提升，默认阈值七成，新增构造重载 `(Id, double)` 可配置）；`CarriersSchemaCatalog.RegisterAll` 同步新增重载透传阈值。`Core.Numbers.StatBlock` 新增公开 `RatingConversionShape`/`RatingConversionEvaluator`（`StatHost.ConvertRating` 换算式子提升为共享静态工具，供本任务反函数折算复用，避免复制插值实现）。示例数据 `data/_sample/item/item.template.json` 两条武器模板的 `stats[].value` 由 2 调整为 15（新公式下原值利用率仅一成，触发新警告，样例非框架默认值）。契约未展开到"k 登记位置"/"没有 `stat.weight` 记录时缺省权重"/"op 与 percent 折算方向"/"'registry 视图'具体所指" 四处操作化细节，均按证据链推导实现并上报待设计层确认，见 `core/carriers/item/README.md` 判断记录 18。
+数值设计落地阶段 N2 · T-N2-4（ADR-0032 决策 3/9；07 第 1.2 节修订段）：新增 `IBudgetSolver`/`BudgetSolver`——预算消耗公式 `(Σ(值×权重)^k)^(1/k)` 的反函数，给定物品等级、品质、槽位与属性组合比例（各属性"加权贡献"占比，之和须为 1）反解各属性值，供词缀落值（T-N2-8）与数值仿真标准玩家生成器（ADR-0035）共用；新增 `budgetCurveId`/`shareOfBudget` 两个 07 原文签名未列出的参数（上报待设计层确认，见 `core/carriers/item/README.md` 判断记录 19）。新增 `EquipmentScoreAnalyzer`（静态类，`Score`/`Compare`）——同一条消耗公式换成职业权重（`stat.weight.class_overrides`）即为装备评分，本任务只对模板 `stats` 评分，预留 `additionalStats` 入参供后续任务接词缀反解值。`ItemBudgetCurve` 新增重载 `BuildStatBudgetInfo(IDataRegistryView, Id classId)`。两个新类型均不持有可变状态（纯函数/静态类）。`core/carriers/item/tests/TestSupport.cs` 的 `BuildRegistry` 改为 `FailOnUnknownTable=false`（同 `stat_block` 模块既有测试手法），供 `stat.weight.class_overrides[].class` 引用完整性检查用最小占位 `arch.class` 行满足，不影响既有用例。
 
 ### 修复
 

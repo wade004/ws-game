@@ -357,6 +357,84 @@ item/
       不触发负例、自定义阈值构造重载生效）；`core/numbers/stat_block` 既有 105 条测试验证
       `RatingConversionEvaluator` 重构无回归，未新增/删除该模块测试用例数。
 
+19. **T-N2-4（分阶段落地计划、ADR-0032 决策 3/9；07 第 1.2 节修订段）：`IBudgetSolver.Solve` 预算
+    反解与 `EquipmentScoreAnalyzer` 装备评分契约面**——新增 `contracts/IBudgetSolver.cs`
+    （接口 + `BudgetSolverResult`）、`contracts/EquipmentScoreResult.cs`、
+    `core/BudgetSolver.cs`（实现类）、`core/EquipmentScoreAnalyzer.cs`（静态类）。
+    - **`IBudgetSolver.Solve` 公开签名**：`BudgetSolverResult Solve(int itemLevel, Id qualityId, Id
+      slotId, IReadOnlyList<(Id Stat, double Ratio)> statMix, Id budgetCurveId, double
+      shareOfBudget, IDataRegistryView view)`，外加一个 `shareOfBudget` 缺省 1.0 的 6 参 C# 8
+      默认接口方法重载（`BudgetSolver` 类按 `Tests.Presentation.Assembly.
+      InterfaceDefaultMemberForwardingTests` 门禁要求显式转发，不悄悄落回接口默认实现）。07 第 1.2
+      节原文签名 `BudgetSolver.solve(itemLevel, qualityId, slotId, statMix): Map<StatKey, Number>`
+      只给 4 个概念参数——`budgetCurveId`（预算曲线 id 在本模块一贯是调用方配置项，同
+      `ItemOptions.BudgetCurveId`/`ItemBudgetValidationRule` 构造参数惯例，不预设唯一默认曲线）与
+      `shareOfBudget`（ADR-0032 决策 7 词缀落值需要"该件预算 × `budget_share`"这一缩小目标，若不
+      独立建模只能让 `statMix` 同时承载"内部分配"与"总量占比"两种语义）是落地为 C# 时新增的两个
+      参数，**上报待设计层确认**，见 `IBudgetSolver` 类型判断记录。
+    - **反解数学**：把 `statMix` 每项 `(stat_i, ratio_i)` 理解为"该属性加权贡献 `term_i = value_i ×
+      weight_i` 占总加权贡献的比例"；令 `S` 为待定缩放常数，`term_i = ratio_i × S`，代入消耗公式
+      `C = (Σ term_i^k)^(1/k) = S × (Σ ratio_i^k)^(1/k)`；令 `C` 等于目标预算
+      `B = 曲线(itemLevel) × 品质预算倍率 × 槽位系数 × shareOfBudget`，解出
+      `S = B / (Σ ratio_i^k)^(1/k)`，再对每一项 `value_i = term_i / weight_i`。`k=1` 时公式自然
+      退化为线性（`Σ ratio_i = 1` 时 `S = B`），不需要单独分支。反解出的属性值统一按 `op=flat` 语义
+      （即"点数"），`category=percent` 的属性同样是点数——调用方需要 `op=pct`/`mult` 的填写值时
+      自行调用 `RatingConversionEvaluator.ToPercent`（`ToPoints` 的反函数）。
+    - **`statMix` 比例语义判断记录（比例之和须严格为 1，不是"不超过一"）——上报待设计层确认**：
+      07 第 1.6 节 `item.affix.stat_mix` 原文"属性组合与内部分配比例，之和不超过一"、07 第 1.2 节
+      `solve` 签名本身均未展开"分配比例"是分配"属性原始值"份额还是"加权贡献"份额。本接口按"各
+      属性的加权贡献占比"实现（线性、作者填写时最直观），且比例之和必须恰为 1（±1e-9，否则抛
+      `ArgumentException`）——`item.affix.stat_mix` 允许"之和小于一"是对存量数据的校验上界（宽松
+      的合法数据形态，见 `ItemAffixStatMixRatioSumRule`），但 `Solve` 作为通用反解工具，"目标预算"
+      与"份额"已经由 `shareOfBudget` 独立表达，`statMix` 只负责"这份已确定的目标预算如何在各属性
+      间分配"，比例之和不为 1 时无法在"反解出的属性值"与"目标预算"之间建立直观对应关系。未来
+      T-N2-8 调用方若需要表达"词缀 `stat_mix` 之和小于一"的存量数据，由调用方自行按
+      `ratio_i / Σratio_i` 归一化后再传入（归一化不改变各项相对比例）。
+    - **其余输入校验**：单项 `ratio` 须 > 0（否则抛 `ArgumentException`，0/负数在加权公式下无意义
+      或产生未定义行为）；`statMix` 引用的属性若在 `stat.weight` 显式登记权重为 0，无法反解出有限
+      值，抛 `ArgumentException`（点出属性 id）；`shareOfBudget` 须在 `(0,1]`（±1e-9 容差）；
+      品质/槽位/预算曲线 id 在对应表中找不到，抛 `ArgumentException`（消息点出 id）——均为任务书
+      硬性要求的落地。
+    - **`EquipmentScoreAnalyzer.Score` 公开签名**：`static EquipmentScoreResult Score(Id
+      templateId, Id? classId, IDataRegistryView view, IReadOnlyList<(Id Stat, double Value)>?
+      additionalStats = null, double exponent = ItemBudgetCurve.DefaultExponent)`；`Compare
+      (EquipmentScoreResult, EquipmentScoreResult): int` 提供"比较箭头"最小接口。评分定义
+      = 用职业权重（`stat.weight.class_overrides` 命中 `classId` 时覆盖，未命中/`classId` 为
+      `null` 时用顶层基础权重）代入同一条 `ItemBudgetCurve.ComputeConsumed` 公式算出的值——与预算
+      消耗是同一公式，唯一区别是权重来源。`ItemBudgetCurve` 新增重载
+      `BuildStatBudgetInfo(IDataRegistryView, Id classId)`（既有 `BuildStatBudgetInfo(view)` 不变，
+      内部提取公共 `BuildCategoriesAndConversions`/`ComposeStatBudgetInfo` 两个私有辅助方法，避免
+      复制换算曲线解析逻辑）供本类型消费。
+    - **`exponent` 取显式参数、不取某条 `item.budget_curve` 记录（判断记录）**：评分本身不核算
+      "消耗是否超过某条曲线上限"，只是复用同一条加权公式；07/ADR-0032 均未要求评分与某一条具体
+      预算曲线绑定，改为显式参数（缺省 `ItemBudgetCurve.DefaultExponent`=1.5）避免"评分"这一纯
+      展示概念意外依赖"预算校验用的是哪条曲线"这一内容配置细节。
+    - **本任务只对模板 `stats` 评分，预留 `additionalStats`（"附加属性列表"）入参**：物品实例带
+      词缀的评分依赖 `BudgetSolver` 反解出的数值，词缀反解值本身要等 T-N2-7/T-N2-8 落地才存在——
+      `additionalStats` 语义同 `BudgetSolverResult.Values` 的 `Id → 点数` 形状，全部按 `op=flat`
+      语义并入，供后续任务把词缀反解值接进来，不需要再改本方法签名。
+    - **无状态核对**：`BudgetSolver`/`EquipmentScoreAnalyzer` 均不持有任何字段，`Solve`/`Score`
+      每次调用都是纯函数（给定相同输入含相同 `view` 快照必然产出相同结果），不缓存、不记录调用
+      历史——`EquipmentScoreAnalyzer` 额外照 `Core.Gameplay.Loot.LootTableAnalyzer` 的契约面形态
+      （静态类、纯函数，任务书原文要求）；`Core.Carriers` 程序集按分层不引用 L4 `Core.Gameplay`，
+      对该类型的引用一律用 `<c>` 而非 `<see cref>`（同 `RegistryCreatureTemplateQuery` 类型判断
+      记录，避免 `TreatWarningsAsErrors` 下的 CS1574）。
+    - **测试基建**：`core/carriers/item/tests/TestSupport.cs` 的 `BuildRegistry` 改为
+      `FailOnUnknownTable=false`（同 `core/numbers/stat_block/tests/StatWeightSchemaTests
+      .BuildRegistry` 既有手法）——`stat.weight.class_overrides[].class` 的 `reference_integrity`
+      检查需要能在已加载数据里找到一条同 id 的 `arch.class` 记录，测试用例只需塞最小占位行（仅
+      `id` 字段，走 `TableSchema.Unschematized`），不需要满足 `arch.class` 真实 schema 的
+      `name_key`/`primary_stat`/`base_stats`/`power_types` 等必填字段；未提供该表数据的既有测试
+      不受影响（538 条 `Tests.Carriers` 既有用例全绿）。
+    - **测试**：`core/carriers/item/tests/BudgetSolverTests.cs`（新增 15 条：反解可逆 5 组——k=1
+      单属性、k=1.5 双属性不同比例、k=1.5 percent 属性经断点表换算曲线折点并做
+      `ToPercent`/`ToPoints` 往返一致性验证、`shareOfBudget<1` 词缀场景、槽位系数场景；输入校验
+      9 条——比例之和不为一/单项比例非正/品质不存在/槽位不存在/曲线不存在/权重为零/
+      `shareOfBudget` 越界/`statMix` 为空/默认接口方法重载一致性）、
+      `core/carriers/item/tests/EquipmentScoreAnalyzerTests.cs`（新增 8 条：基础手算、职业覆盖
+      权重生效、评分对预算单调 2 组——同槽位同职业预算上限更高评分更高、职业权重覆盖改变评分
+      排序、`Compare` 符号一致性、`additionalStats` 预留入参、未知模板抛异常）。
+
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.ISkillHost` 没有"学习/遗忘技能"方法（技能书能力目前只存在于

@@ -221,6 +221,71 @@ namespace Core.Carriers.Item
         {
             if (view == null) throw new ArgumentNullException(nameof(view));
 
+            var (categories, conversions) = BuildCategoriesAndConversions(view);
+
+            var weights = new Dictionary<Id, double>();
+            foreach (var w in view.GetAll("stat.weight"))
+            {
+                if (w.TryGetId("stat", out var statId) && w.TryGetNumber("weight", out var weight))
+                {
+                    weights[statId] = weight;
+                }
+            }
+
+            return ComposeStatBudgetInfo(categories, conversions, statId => weights.TryGetValue(statId, out var w2) ? w2 : DefaultWeight);
+        }
+
+        /// <summary>
+        /// T-N2-4（ADR-0032 决策 9；07 第 1.2 节"装备评分"）判断记录：与 <see cref="BuildStatBudgetInfo
+        /// (IDataRegistryView)"/>（不展开 <c>class_overrides</c>，服务"这件物品模板本身"的内容校验
+        /// 场景，见该重载判断记录）不同，本重载额外接受 <paramref name="classId"/>——装备评分场景
+        /// 天然有"当前职业"这个上下文（服务比较箭头/一键换装/掉落升级提示，都是站在某个职业玩家
+        /// 视角）。对每个属性优先查找该属性对应 <c>stat.weight</c> 记录的 <c>class_overrides</c> 里
+        /// <c>class == classId</c> 的条目（命中则用该条目的 <c>weight</c>），未命中该覆盖时回退到
+        /// 同一条记录顶层的 <c>weight</c> 字段，该属性完全没有 <c>stat.weight</c> 记录时回退 <see
+        /// cref="DefaultWeight"/>——三级回退优先级与既有重载完全一致，只是多插入"职业覆盖"这一层
+        /// 最高优先级查找，供 <see cref="EquipmentScoreAnalyzer"/> 消费。
+        /// </summary>
+        public static IReadOnlyDictionary<Id, StatBudgetInfo> BuildStatBudgetInfo(IDataRegistryView view, Id classId)
+        {
+            if (view == null) throw new ArgumentNullException(nameof(view));
+
+            var (categories, conversions) = BuildCategoriesAndConversions(view);
+
+            var weights = new Dictionary<Id, double>();
+            foreach (var w in view.GetAll("stat.weight"))
+            {
+                if (!w.TryGetId("stat", out var statId) || !w.TryGetNumber("weight", out var baseWeight))
+                {
+                    continue;
+                }
+
+                var resolvedWeight = baseWeight;
+                if (w.TryGetArray("class_overrides", out var overrides))
+                {
+                    foreach (var item in overrides)
+                    {
+                        if (item is JsonObject ov &&
+                            ov.TryGetValue("class", out var classRaw) && classRaw is JsonString classStr &&
+                            string.Equals(classStr.Value, classId.Value, StringComparison.Ordinal) &&
+                            ov.TryGetValue("weight", out var overrideWeightRaw) && overrideWeightRaw is JsonNumber overrideWeightNum)
+                        {
+                            resolvedWeight = overrideWeightNum.Value;
+                            break;
+                        }
+                    }
+                }
+
+                weights[statId] = resolvedWeight;
+            }
+
+            return ComposeStatBudgetInfo(categories, conversions, statId => weights.TryGetValue(statId, out var w2) ? w2 : DefaultWeight);
+        }
+
+        private static (Dictionary<Id, (bool IsPercent, Id? ConversionRef)> Categories,
+            Dictionary<Id, (RatingConversionShape Shape, PiecewiseCurve? Curve, double K, double Cap)> Conversions)
+            BuildCategoriesAndConversions(IDataRegistryView view)
+        {
             var categories = new Dictionary<Id, (bool IsPercent, Id? ConversionRef)>();
             foreach (var def in view.GetAll("stat.definition"))
             {
@@ -249,21 +314,20 @@ namespace Core.Carriers.Item
                 }
             }
 
-            var weights = new Dictionary<Id, double>();
-            foreach (var w in view.GetAll("stat.weight"))
-            {
-                if (w.TryGetId("stat", out var statId) && w.TryGetNumber("weight", out var weight))
-                {
-                    weights[statId] = weight;
-                }
-            }
+            return (categories, conversions);
+        }
 
+        private static IReadOnlyDictionary<Id, StatBudgetInfo> ComposeStatBudgetInfo(
+            Dictionary<Id, (bool IsPercent, Id? ConversionRef)> categories,
+            Dictionary<Id, (RatingConversionShape Shape, PiecewiseCurve? Curve, double K, double Cap)> conversions,
+            Func<Id, double> resolveWeight)
+        {
             var result = new Dictionary<Id, StatBudgetInfo>();
             foreach (var pair in categories)
             {
                 var statId = pair.Key;
                 var (isPercent, conversionRef) = pair.Value;
-                var weight = weights.TryGetValue(statId, out var w2) ? w2 : DefaultWeight;
+                var weight = resolveWeight(statId);
 
                 RatingConversionShape? shape = null;
                 PiecewiseCurve? curve = null;
