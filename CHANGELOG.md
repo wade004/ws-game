@@ -309,6 +309,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   与"当前 mtime+长度"，检测到变化/新增/消失都走与 `FileSystemWatcher` 事件同一条
   `MarkPending`→300ms 去抖→`Reload` 路径登记，不新开重载分支、不依赖单一事件源。
 
+数值设计落地阶段 N2 · T-N2-9（ADR-0034 决策 8"背包容量来源"；07 第 1.3 节 2026-09-14 修订段）：`InventoryOptions` 容量来源二选一——新增可选 `Id? MaxSlotsStat`，为 null（默认）时容量走既有 `MaxSlots` 固定值，非 null 时容量改由该属性 id 决定（沿用 `arch.power_type` 的 `PowerMaxSourceKind.Fixed`/`Stat` 二选一惯例，本类型是 C# 运行期配置对象而非表数据，不另加种类枚举字段）。`IInventoryHost` 新增默认接口成员 `GetCapacity(Id unitId): int`（`int.MaxValue` 表示不限；默认实现恒返回 `int.MaxValue`——本接口新增该成员前完全没有"容量"概念，未覆盖的既有实现视为"无已知上限"，判断记录见 `core/carriers/item/README.md` 判断记录 23），`InventoryHost` 显式覆盖为真实容量语义，`AddItemCore`/`TryPutBack`/`HasRoomForOne` 三处判定统一改读该方法。`InventoryHost` 新增构造函数重载（末尾追加 `Func<Id, Id, double>? statLookup`，供 `MaxSlotsStat` 非 null 时查询属性当前值；原 3 参构造函数签名不变、转发新重载并传 null），未提供 `statLookup` 时若 `MaxSlotsStat` 非 null，在首次解析容量时抛 `InvalidOperationException`（同 `PowerHost` 未注入 `StatLookup` 的既有处理时机）；属性来源解析结果向下取整并夹取到下限 0——没有与固定值路径同等的"≤0 表示不限"语义（上报待设计层确认，判断记录同上）。`CarriersAssembly` 同步接线：`InventoryHost` 构造先于 `RulesAssembly`（真正的 `IStatHost` 由其内部构造），与该文件既有 `healthFractionSetter`/`powers` 同一种"闭包捕获尚未赋值的局部变量、构造完成后回填"手法解决循环依赖。固定值路径行为与既有完全一致（`MaxSlots≤0` 仍表示不限），本任务不实现任何扩容功能本身——容量随属性变化需游戏层自行用光环/物品修改该属性。回放/Perf 基线未变（`ReplayWorldBuilder` 不涉及 `Core.Carriers.Item`）。
+
 ## [1.31.0] - 2026-09-14
 
 MINOR 版本：数值设计落地阶段 N1"属性"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 7/14 节，T-N1-1～T-N1-10）——落地 ADR-0030 全部决策：属性类别与派生两轮聚合、

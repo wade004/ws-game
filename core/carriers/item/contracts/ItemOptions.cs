@@ -23,8 +23,43 @@ namespace Core.Carriers.Item
     /// </summary>
     public sealed class InventoryOptions
     {
-        /// <summary>背包格子上限；0 表示不限（默认）。</summary>
+        /// <summary>背包格子上限的固定值来源；0 表示不限（默认）。仅当 <see cref="MaxSlotsStat"/>
+        /// 为 null 时生效——两者是同一概念的二选一来源（见 <see cref="MaxSlotsStat"/> 判断记录），
+        /// 不是叠加关系；本字段自身的语义与既有历史行为完全不变。</summary>
         public int MaxSlots { get; set; } = 0;
+
+        /// <summary>
+        /// 分阶段落地计划 T-N2-9（ADR-0034 决策 8"背包容量来源"；07 第 1.3 节 2026-09-14 修订段
+        /// "容量登记为一个数值，来源为固定值或引用一条 stat.definition 属性，与 arch.power_type
+        /// 上限来源同一写法"）：容量来源改为引用属性时填写该属性 id；为 null（默认）时容量退回
+        /// <see cref="MaxSlots"/> 固定值。
+        /// <para>
+        /// 判断记录（沿用 <see cref="Core.Numbers.PowerSet.PowerTypeDefinition.MaxSourceKind"/> 的
+        /// Fixed/Stat 二选一惯例，不新增取值枚举）：ADR-0034 决策 8 原文明确"与 arch.power_type 上限
+        /// 来源同一写法"，因此不重新发明一套来源种类表达，直接用"该字段是否为 null"复用同一个
+        /// Fixed/Stat 二选一语义——`MaxSlotsStat == null` 等价于 <c>PowerMaxSourceKind.Fixed</c>，
+        /// 非 null 等价于 <c>PowerMaxSourceKind.Stat</c>。未引入枚举字段是因为本类型（C# 运行期配置
+        /// 对象，由游戏层代码直接 new 出来）不像 <c>PowerTypeDefinition</c> 那样从 <c>DataRecord</c>
+        /// JSON 解析而来，"是否为 null"本身已经无歧义地表达了二选一，不需要额外的种类判别字段。
+        /// </para>
+        /// <para>
+        /// 判断记录（非 null 时需要构造期同时提供属性查询）：<see cref="InventoryHost"/> 在
+        /// <see cref="MaxSlotsStat"/> 非 null 时通过构造期注入的只读属性查询委托解析容量（见
+        /// <c>InventoryHost</c> 对应构造函数重载判断记录），未注入时在首次需要解析容量时抛
+        /// <see cref="System.InvalidOperationException"/>（同 <c>PowerHost</c> 未注入 <see
+        /// cref="Core.Numbers.PowerSet.StatLookup"/> 时的既有先例，见 <c>PowerHost.cs:329</c>）。
+        /// </para>
+        /// <para>
+        /// 判断记录（下限口径——待设计层确认，本任务临时判断）：<see cref="MaxSlots"/> 固定值路径
+        /// 沿用既有历史语义"≤0 表示不限"；属性来源路径没有同等的"不限" sentinel——07/ADR 原文只说
+        /// "容量登记为一个数值"，没有为属性来源定义特殊值。沿用"≤0 表示不限"会让一个真实存在、只是
+        /// 当前取值恰好为 0（或被减益压到 0 以下）的属性被误判为"不限容量"，与"容量不足时拒绝新增"
+        /// 的契约意图相反；本任务因此对属性来源采用"向下取整并夹取到下限 0"（floor 后 &lt; 0 时按
+        /// 0 处理），即容量为 0 时背包不能再新增任何物品，而不是退化为不限。此为契约未明确处上报，
+        /// 见本模块 README 判断记录 23。
+        /// </para>
+        /// </summary>
+        public Id? MaxSlotsStat { get; set; }
 
         public InventoryFullPolicy FullPolicy { get; set; } = InventoryFullPolicy.Reject;
     }

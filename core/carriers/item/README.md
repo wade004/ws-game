@@ -683,6 +683,64 @@ item/
       用全新宿主读档，`StatHost` 属性与存档前一致，且读档后装备实例自身的 `Quality`/`Affixes`
       与存档前一致）。
 
+23. **T-N2-9（分阶段落地计划；ADR-0034 决策 8"背包容量来源"；07 第 1.3 节 2026-09-14 修订段）：
+    `InventoryOptions.MaxSlots` 来源二选一（固定值或引用属性）、`IInventoryHost.GetCapacity` 容量
+    查询默认接口方法**——涉及 `core/carriers/item/contracts/ItemOptions.cs`、`core/carriers/common/
+    contracts/IInventoryHost.cs`、`core/carriers/item/core/InventoryHost.cs`、
+    `core/carriers/assembly/CarriersAssembly.cs`。
+    - **来源二选一记法（不新增枚举字段）**：`InventoryOptions` 新增 `Id? MaxSlotsStat`；为 null
+      （默认）时容量走既有 `MaxSlots` 固定值，非 null 时容量改由该属性 id 决定——沿用 `arch
+      .power_type` 的 `PowerMaxSourceKind.Fixed`/`Stat` 二选一惯例（ADR-0034 决策 8 原文"与
+      arch.power_type 上限来源同一写法"），但本类型是 C# 运行期配置对象（不像 `PowerTypeDefinition`
+      从 `DataRecord` 解析），"字段是否为 null"本身已无歧义表达二选一，不必另加种类枚举字段。
+    - **`IInventoryHost.GetCapacity(Id unitId): int` 新成员（默认接口方法）**：`int.MaxValue`
+      表示不限；默认实现恒返回 `int.MaxValue`——判断记录：本接口新增该成员之前完全没有"容量"概念，
+      未覆盖的既有实现（含各模块测试 Fake）对调用方而言此前就等价于"没有已知上限"，默认值原样
+      表达这一历史现状，不引入新断言（备选方案"默认抛 `NotSupportedException`"被否决，会让既有
+      Fake 从能用变成崩溃）。`InventoryHost` 显式覆盖本方法，不依赖默认值——生产程序集内唯一实现
+      `IInventoryHost` 的类型只有 `InventoryHost`（已核对，`InterfaceDefaultMemberForwardingTests`
+      不需要额外豁免登记）。
+    - **`InventoryHost` 新构造重载（ABI：新增重载，不改既有 3 参构造函数）**：新增
+      `InventoryHost(IDataRegistryView, IEventBus, InventoryOptions?, Func<Id, Id, double>?
+      statLookup)`，`statLookup` 供 `MaxSlotsStat` 非 null 时解析容量使用（签名
+      `(unitId, statId) => 当前值`）。判断记录（不复用 `Core.Numbers.PowerSet.StatLookup` 具名
+      委托类型）：`core/carriers/item`（L3）依赖 `core/numbers/stat_block`（L1，`EquipmentHost`
+      已直接引用 `IStatHost`）没有分层问题，但 `StatLookup` 定义在与背包容量无关的另一个 L1 模块
+      `power_set`，只是恰好委托形状相同；为借用一个类型名引入跨模块依赖不值得，改用裸
+      `Func<Id, Id, double>` 表达同一形状，两个模块各自独立解决同一个"构造期时序"问题、互不引用。
+    - **`InventoryHost.GetCapacity` 判断记录（属性来源没有"不限"语义，floor 后夹取到下限 0，
+      上报待设计层确认）**：固定值路径"≤0 表示不限"是历史既有行为，本任务不改变；但 07/ADR 原文
+      对属性来源没有定义同等的"不限" sentinel——沿用该语义会让恰好取值 0（或被减益压低）的真实
+      属性被误判为不限容量，与"容量不足时拒绝新增"的契约意图相反，因此属性来源解析结果 floor 后
+      `< 0` 才夹到 0，`== 0` 就是容量已耗尽，不退化为不限。`MaxSlotsStat` 非 null 但构造期未提供
+      `statLookup` 时，不在构造期报错，在首次调用 `GetCapacity` 解析容量的那一刻抛
+      `InvalidOperationException`（同 `PowerHost` 对未注入 `StatLookup` 的既有处理时机）。
+    - **容量判定统一收口**：`AddItemCore`/`TryPutBack`/`HasRoomForOne` 三处原先直接读
+      `_options.MaxSlots` 的判定，改为统一调用 `GetCapacity(unitId)`——`int.MaxValue` 分支与既有
+      "不限"语义原样保留，固定值路径三组既有测试断言不变。容量收缩到低于已有物品数时（属性被减益
+      压低）的行为不需要额外特判代码：`AddItemCore` 判断记录 2 的原子失败分支
+      （`newSlotsNeeded > availableSlots` 时 `availableSlots` 已被 `Math.Max(0, …)` 夹到 0）天然
+      产生"不丢物品、只拒绝新增"的效果——已有物品仍在 `_bags` 里原样保留，只是后续 `AddItem`/
+      `TryAddItem` 返回失败/`actualCount=0`，验证见下方测试第三、四条。
+    - **`CarriersAssembly` 接线（不在任务书"涉及文件"字面列出，但不接线时 `MaxSlotsStat` 在真实
+      装配下无法工作——判断记录）**：`InventoryHost` 构造（步骤 2）先于 `RulesAssembly`（步骤 3，
+      真正的 `IStatHost` 由其内部构造）——与本文件第 1 步 `healthFractionSetter`/`powers` 同一种
+      "两者互相需要对方，真正调用发生在构造完成之后即可安全提前绑定"的循环依赖处理手法：闭包捕获
+      尚未赋值的 `statsRef` 局部变量，传入 `InventoryHost` 的新构造重载，`RulesAssembly` 构造完成
+      后立即回填（`statsRef = Rules.Stats;`，紧邻既有 `powers = Rules.Powers;` 一行）。
+      `MaxSlotsStat` 为 null（默认）时这份委托不会被调用，对既有行为无影响。
+    - **回放/Perf 基线核查**：同判断记录 20/21/22 既有核查结论，`ReplayWorldBuilder` 不引用
+      `Core.Carriers.Item`/`InventoryHost`；`dotnet test --filter "FullyQualifiedName~Replay"`
+      全绿，未触发任何基线更新流程。
+    - **测试**：`core/carriers/item/tests/T_N2_9_InventoryCapacitySourceTests.cs`（新增 7 条：
+      固定值路径行为不变 2 条——`MaxSlots=0` 不限、`MaxSlots=2` 时 Reject 整批原子失败/成功各一次；
+      属性来源随光环变化 1 条——`AddModifier`/`RemoveModifiersBySource` 前后 `GetCapacity` 现查
+      结果分别为 1/3/1，不需要显式"重算容量"调用；容量收缩不丢物品只拒绝新增 1 条——先在容量 3
+      时装满 3 件，光环撤销后容量回落到 1，`ListItems`/`CountOf` 仍是 3，Reject/Partial 两种策略
+      的后续加入均被拒绝（`actualCount=0`）；属性来源下限夹取 1 条——减益把最终属性值压到 -4，
+      `GetCapacity` 返回 0 而不是"不限"；未注入 `statLookup` 时抛异常 1 条；接口默认成员本身
+      1 条——未覆盖 `GetCapacity` 的最小 Fake 恒返回 `int.MaxValue`）。
+
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
 - `Core.Rules.Common.ISkillHost` 没有"学习/遗忘技能"方法（技能书能力目前只存在于
