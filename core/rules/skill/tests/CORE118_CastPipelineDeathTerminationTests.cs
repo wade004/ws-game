@@ -31,6 +31,11 @@ namespace Tests.Rules.Skill
                 ("target_shape_ref", J.S("target.chain.core118")),
                 ("effects", J.A()));
 
+        // T-N3-4（ADR-0031 决策 10）改动：respects_gcd 由 false 改为 true——本文件用它构造"排队中的
+        // 下一个技能"，节拍锁泛化后 respects_gcd=false 的瞬发技能会被判定为反应类插入（不进入
+        // CastState.Queued，见 CastPipeline.ClassifyReactiveInsert 判断记录），会让本文件"施法者
+        // 死亡/销毁时排队请求被清空"这组用例的排队前提落空。改为 true 维持"respects_gcd=true 的
+        // 普通排队技能"语义。
         private static Core.Foundation.Common.Json.JsonObject InstantSkill(string id) =>
             J.O(
                 ("id", J.S(id)),
@@ -38,7 +43,7 @@ namespace Tests.Rules.Skill
                 ("kind", J.S("active")),
                 ("range", J.N(0)),
                 ("cast_time", J.N(0)),
-                ("respects_gcd", J.B(false)),
+                ("respects_gcd", J.B(true)),
                 ("target_shape_ref", J.S("target.chain.core118")),
                 ("effects", J.A()));
 

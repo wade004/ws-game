@@ -26,13 +26,19 @@ namespace Tests.Rules.Skill
         private static readonly Id Target = new Id("unit.wu17b_target");
         private static readonly Id ChainId = new Id("target.chain.wu17b_self");
 
+        // T-N3-4（ADR-0031 决策 10）改动：respects_gcd 由 false 改为 true——本文件多个用例把 SkillJson
+        // 构造的技能当作"读条中再次施法会排队/被拒绝"的一般场景（非有意测试反应类插入），节拍锁
+        // 泛化后 respects_gcd=false 的瞬发技能会被 CastPipeline.CastSkill 判定为可插入，不再进入
+        // CastState.Queued（见 ClassifyReactiveInsert 判断记录），会让这些用例的排队前提落空。改为
+        // true 维持"respects_gcd=true 的普通技能"语义，不影响不涉及排队/节拍锁的用例（本文件内
+        // GcdEnabled 全程未开启，respects_gcd 此前对这些用例本就不产生其它可观测影响）。
         private static Core.Foundation.Common.Json.JsonObject SkillJson(string id, double castTime) => J.O(
             ("id", J.S(id)),
             ("school", J.S("skill.school_wu17b")),
             ("kind", J.S("active")),
             ("range", J.N(0)),
             ("cast_time", J.N(castTime)),
-            ("respects_gcd", J.B(false)),
+            ("respects_gcd", J.B(true)),
             ("cooldown_duration", J.N(0)),
             ("target_shape_ref", J.S(ChainId.Value)),
             ("effects", J.A(

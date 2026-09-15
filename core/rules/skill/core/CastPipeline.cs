@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
+using Core.Foundation.Expr;
 using Core.Foundation.SimLoop;
 using Core.Numbers.PowerSet;
 using Core.Rules.Common;
@@ -129,6 +130,18 @@ namespace Core.Rules.Skill
         /// </summary>
         private readonly INavigation2D? _navigation;
 
+        /// <summary>
+        /// T-N3-4（ADR-0031 决策 9，06 第 3.6 节 2026-09-14 修订）：施法管线步骤 1.5"使用条件"求值用
+        /// 的宿主工厂——复用 <see cref="SkillHost"/> 已经持有并传给 <see cref="ProcHost"/> 的同一个
+        /// <see cref="IExprHostFactory"/> 实例（见 <see cref="SkillHost"/> 构造函数判断记录），不是
+        /// 本模块新引入的依赖。可选依赖（同 <see cref="_spatialQuery"/>/<see cref="_navigation"/> 既有
+        /// 惯例）：只有经下方新增的十四参数构造函数才会被注入；旧的十二/十三参数 <c>[Obsolete]</c>
+        /// 兼容构造函数不设置本字段，保持 <c>null</c>——未注入时 <see cref="EvaluateUseCondition"/>
+        /// 按"宁可漏判，不误判"既有惯例放行并记一条诊断（见该方法判断记录），不是新的破坏性行为：
+        /// 这些旧构造函数在 T-N3-4 之前本就不认识 <c>use_condition</c> 字段。
+        /// </summary>
+        private readonly IExprHostFactory? _exprHostFactory;
+
         private readonly Dictionary<Id, CastState> _casting = new Dictionary<Id, CastState>();
         private readonly Dictionary<(Id Unit, Id School), double> _schoolLocks = new Dictionary<(Id, Id), double>();
 
@@ -175,6 +188,37 @@ namespace Core.Rules.Skill
         }
 
         /// <summary>
+        /// T-N3-4 新增重载：携带 <see cref="_exprHostFactory"/>（步骤 1.5"使用条件"求值用，见该字段
+        /// 判断记录）。判断记录（不是给上方构造函数的 <c>navigation</c> 之后再加一个可选参数）：同
+        /// <c>Core.Rules.Skill.SkillDef</c> 十九参数重载判断记录同一套 ABI 兼容惯例——既有构造函数
+        /// 追加参数会改变其物理 IL 签名；本重载十四个参数全部不带默认值，与上方主构造函数（12 个
+        /// 必填 + <c>navigation</c> 最多 13 个）、下方 ADR-0027 之前的十二参数 <c>[Obsolete]</c> façade
+        /// 参数个数均不重叠，互不冲突——恰好传 14 个参数时精确匹配本重载。<see cref="SkillHost"/> 是
+        /// 本模块唯一的生产组装点，已改为调用本重载（见其构造函数判断记录），旧的 12/13 参数签名继续
+        /// 保留供其余既有调用方（含测试内的直接构造，若存在）二进制/源码兼容，不强制它们迁移。
+        /// </summary>
+        public CastPipeline(
+            SkillDefCache defs,
+            CooldownTracker cooldowns,
+            AuraHost auraHost,
+            EffectDispatcher effects,
+            ITargetHost targetHost,
+            IUnitAccess units,
+            ISpatialQuery? spatialQuery,
+            IPowerHost powerHost,
+            SpellModResolver spellMods,
+            IEventBus bus,
+            SkillOptions options,
+            ISkillDiagnostics diagnostics,
+            INavigation2D? navigation,
+            IExprHostFactory? exprHostFactory)
+            : this(defs, cooldowns, auraHost, effects, targetHost, units, spatialQuery, powerHost, spellMods,
+                bus, options, diagnostics, navigation)
+        {
+            _exprHostFactory = exprHostFactory;
+        }
+
+        /// <summary>
         /// ABI 兼容 façade（ADR-0027 补充 <see cref="_navigation"/> 之前的物理十二参数构造签名，
         /// 同 <c>Core.Rules.Skill.SkillHost</c> 十七/十八参数构造函数判断记录同一套推导）：本重载
         /// 十二个参数全部不带默认值，与上方主构造函数（12 个必填 + <c>navigation</c> 最多 13 个）
@@ -216,6 +260,26 @@ namespace Core.Rules.Skill
 
             if (_casting.TryGetValue(casterId, out var activeState))
             {
+                // 节拍锁泛化（ADR-0031 决策 10，06 第 3.1/3.6 节 2026-09-14 修订）："respects_gcd=false
+                // 的反应类技能可在他技能动作时长内插入"——只在 GcdEnabled=false 时判定（GcdEnabled=true
+                // 时本分支整体不生效，见下方 Fail 分支同一条判断记录，T-N3-4 硬性规则"禁止改
+                // GcdEnabled=true 的行为"）。ClassifyReactiveInsert 只对respects_gcd=false 且瞬发（无
+                // 读条/引导）的技能给出"安全插入"结论——见该方法判断记录"反应类插入的槽位保护"：
+                // 非瞬发的反应类技能不满足安全插入条件，落回下面的排队/Fail 分支，不静默覆盖仍在读条/
+                // 引导中的原技能状态。
+                var insertOutcome = _options.GcdEnabled
+                    ? ReactiveInsertOutcome.NotReactive
+                    : ClassifyReactiveInsert(casterId, skillId);
+
+                if (insertOutcome == ReactiveInsertOutcome.SafeInstantInsert)
+                {
+                    // 不占用/不清空现有 CastState 槽位——直接当作施法者当前不忙一样跑完整条
+                    // TryStartCast 管线；瞬发（cast_time/channel_time 均为 0）保证 EnterCastOrChannel
+                    // 不会写入 _casting[casterId]（见该方法判断记录"瞬发"分支），因此不打断/不覆盖
+                    // activeState。
+                    return TryStartCast(casterId, skillId, safeTargets);
+                }
+
                 if (activeState.Remaining <= _options.QueueWindow)
                 {
                     // 消费方反馈 2026-09-10（施法生命周期事件缺少实例关联标识建议）根治：排队接受
@@ -242,10 +306,72 @@ namespace Core.Rules.Skill
                 // CastFailureReason 补上专门的 Busy（施法者当前"不可用"，原因是仍在读条/引导而非
                 // 真正的冷却），见该原因码注释；本处改用 Busy，OnCooldown 恢复只表示步骤 3 冷却/
                 // 充能未就绪。窗口外的拒绝本身未曾分配 id（见 Fail 判断记录"校验阶段失败不分配"）。
-                return Fail(casterId, skillId, CastFailureReason.Busy);
+                //
+                // T-N3-4 节拍锁泛化：GcdEnabled=true 时保持 Busy 不变（ABI 保护，硬性规则"禁止改
+                // GcdEnabled=true 的行为"）。GcdEnabled=false 时，走到这里的请求要么是
+                // respects_gcd=true（06 §3.6 修订"respects_gcd 为真的新施法在他技能动作中返回
+                // ActionLocked"），要么是未登记/被动技能（ClassifyReactiveInsert 同样归为
+                // NotReactive，沿用既有 Busy 语义——这两类技能本就会在 TryStartCast 内部再报出
+                // UnknownSkill/PassiveSkill，此处的粗粒度原因码不是最终裁决），要么是"respects_gcd=
+                // false 但非瞬发、无法安全插入"的边缘情形（UnsafeNonInstantReactive——用 Busy 而不是
+                // ActionLocked，因为它不是被节拍锁挡下，是本模块结构上无法在不丢失原读条/引导状态的
+                // 前提下容纳第二个并发的非瞬发 CastState，见 ClassifyReactiveInsert 判断记录）。
+                return Fail(casterId, skillId, _options.GcdEnabled || insertOutcome == ReactiveInsertOutcome.UnsafeNonInstantReactive
+                    ? CastFailureReason.Busy
+                    : CastFailureReason.ActionLocked);
             }
 
             return TryStartCast(casterId, skillId, safeTargets);
+        }
+
+        /// <summary>见 <see cref="CastSkill"/> 判断记录"节拍锁泛化"与 <see cref="ClassifyReactiveInsert"/>。</summary>
+        private enum ReactiveInsertOutcome
+        {
+            /// <summary>技能未登记、是被动技能、或 <c>respects_gcd=true</c>——不满足反应类插入条件，
+            /// 落回既有排队/Busy/ActionLocked 分支（<see cref="CastSkill"/> 未知/被动技能延后到
+            /// <see cref="TryStartCast"/> 内部报出各自的精确原因码，这里不重复判定）。</summary>
+            NotReactive,
+
+            /// <summary><c>respects_gcd=false</c> 且瞬发（<c>channel_time&lt;=0</c> 且折算后
+            /// <c>cast_time&lt;=0</c>）——可以安全插入，不占用现有 <see cref="CastState"/> 槽位。</summary>
+            SafeInstantInsert,
+
+            /// <summary><c>respects_gcd=false</c> 但需要非瞬发的读条/引导——本模块的 <see
+            /// cref="_casting"/> 每个施法者只有一个槽位，插入会覆盖/丢失仍在读条/引导中的原技能状态
+            /// （且不会像 <see cref="Interrupt"/> 那样补发 <see cref="SkillCastInterruptedEvent"/>），
+            /// 保守回退到既有排队/Busy 分支，不静默覆盖（见 <c>core/rules/skill/README.md</c> 判断
+            /// 记录"反应类插入的槽位保护"）。</summary>
+            UnsafeNonInstantReactive,
+        }
+
+        /// <summary>
+        /// 判定 <paramref name="skillId"/>（在 <paramref name="casterId"/> 当前的 <c>override_skill</c>
+        /// 重定向之后）是否满足"节拍锁泛化"下的反应类插入条件（见 <see cref="ReactiveInsertOutcome"/>
+        /// 各成员注释）。只在调用方已确认 <c>GcdEnabled=false</c> 时调用——本方法自身不检查
+        /// <see cref="SkillOptions.GcdEnabled"/>。
+        /// </summary>
+        private ReactiveInsertOutcome ClassifyReactiveInsert(Id casterId, Id skillId)
+        {
+            if (!_defs.TryGetSkillDef(skillId, out var def))
+            {
+                return ReactiveInsertOutcome.NotReactive;
+            }
+
+            var overridden = _auraHost.ResolveSkillOverride(casterId, skillId);
+            if (overridden.HasValue && _defs.TryGetSkillDef(overridden.Value, out var overriddenDef))
+            {
+                def = overriddenDef;
+            }
+
+            if (def.IsPassive || def.RespectsGcd)
+            {
+                return ReactiveInsertOutcome.NotReactive;
+            }
+
+            var wouldBeInstant = def.ChannelTime <= 0 && ComputeCastTime(casterId, def) <= 0;
+            return wouldBeInstant
+                ? ReactiveInsertOutcome.SafeInstantInsert
+                : ReactiveInsertOutcome.UnsafeNonInstantReactive;
         }
 
         /// <summary>
@@ -325,6 +451,13 @@ namespace Core.Rules.Skill
                 return Fail(casterId, skillId, CastFailureReason.Silenced, presetCastInstanceId);
             }
 
+            // 步骤 1.5：使用条件（ADR-0031 决策 9，06 第 3.1/3.6 节 2026-09-14 修订）——插入在"存活与
+            // 状态"之后、"学派锁定"之前，其余步骤编号不变。
+            if (!EvaluateUseCondition(casterId, def, targets))
+            {
+                return Fail(casterId, skillId, CastFailureReason.ConditionNotMet, presetCastInstanceId);
+            }
+
             // 步骤 2：学派锁定
             if (GetSchoolLockRemaining(casterId, def.School) > 0)
             {
@@ -340,12 +473,25 @@ namespace Core.Rules.Skill
                 return Fail(casterId, skillId, reason, presetCastInstanceId);
             }
 
-            // 步骤 4：公共冷却（离散步内恒通过，见 06 第 3.6 节"离散模式下的解释"、
-            // SkillOptions.IsDiscreteStep 注释）
+            // 步骤 4：节拍锁（ADR-0031 决策 10，06 第 3.1/3.6 节 2026-09-14 修订"公共冷却泛化为节拍
+            // 锁"）——GcdEnabled=true 分支逐字节不变（ABI 保护，T-N3-4 硬性规则）；GcdEnabled=false
+            // 分支是防御性收口：本方法在 CastSkill 的"反应类插入"分支下会在 _casting[casterId] 仍
+            // 持有其它技能状态时被直接调用（见该分支判断记录），但届时 def.RespectsGcd 恒为 false
+            // （ClassifyReactiveInsert 已经筛过），下面这个 respects_gcd=true 分支实际上不会被这条
+            // 路径触发——保留它是为了不让 TryStartCast 未来任何新增调用路径悄悄绕过节拍锁语义（同一
+            // 判定条件即便重复判断一次也是零成本的布尔短路）。离散模式（isDiscreteStep）不受影响，
+            // 同既有 GcdActive 分支惯例（06 §3.6 修订"离散模式不受影响"）。
             var isDiscreteStep = _options.IsDiscreteStep?.Invoke() ?? false;
-            if (_options.GcdEnabled && def.RespectsGcd && !isDiscreteStep && !_cooldowns.IsGcdReady(casterId))
+            if (_options.GcdEnabled)
             {
-                return Fail(casterId, skillId, CastFailureReason.GcdActive, presetCastInstanceId);
+                if (def.RespectsGcd && !isDiscreteStep && !_cooldowns.IsGcdReady(casterId))
+                {
+                    return Fail(casterId, skillId, CastFailureReason.GcdActive, presetCastInstanceId);
+                }
+            }
+            else if (def.RespectsGcd && !isDiscreteStep && _casting.ContainsKey(casterId))
+            {
+                return Fail(casterId, skillId, CastFailureReason.ActionLocked, presetCastInstanceId);
             }
 
             // 步骤 5：资源（06 第 3.6 节表格：本步只检查"cost 是否够；离散模式下另检查
@@ -539,6 +685,15 @@ namespace Core.Rules.Skill
                 return Fail(casterId, skillId, CastFailureReason.Silenced);
             }
 
+            // 步骤 1.5：使用条件（ADR-0031 决策 9，06 第 3.1/3.6 节 2026-09-14 修订，S4 要求两条入口
+            // 均补齐）——地面坐标请求没有单位目标列表，EvaluateUseCondition 传空列表，
+            // use_condition 引用 target.* 时不绑定目标（同 EvaluateUseCondition 判断记录"目标绑定"，
+            // 落回 IExprHostFactory 既有"没有绑定目标"分支）。
+            if (!EvaluateUseCondition(casterId, def, Array.Empty<Id>()))
+            {
+                return Fail(casterId, skillId, CastFailureReason.ConditionNotMet);
+            }
+
             // 步骤 2：学派锁定
             if (GetSchoolLockRemaining(casterId, def.School) > 0)
             {
@@ -554,7 +709,10 @@ namespace Core.Rules.Skill
                 return Fail(casterId, skillId, reason);
             }
 
-            // 步骤 4：公共冷却
+            // 步骤 4：公共冷却（地面坐标入口不支持法术队列，CastSkillAtGround 的外层 Busy 门禁已经
+            // 排除了 _casting.ContainsKey(casterId) 的情形——本方法从不会在施法者仍处于读条/引导中
+            // 时被调用，见 CastSkillAtGround 判断记录"本方法一律直接拒绝"；节拍锁泛化的
+            // ActionLocked/反应类插入分支因此不适用于本入口，T-N3-4 范围之外，保持逐字节不变）。
             var isDiscreteStep = _options.IsDiscreteStep?.Invoke() ?? false;
             if (_options.GcdEnabled && def.RespectsGcd && !isDiscreteStep && !_cooldowns.IsGcdReady(casterId))
             {
@@ -1153,6 +1311,45 @@ namespace Core.Rules.Skill
 
         private double ComputeCastTime(Id casterId, SkillDef def) =>
             Math.Max(0, _spellMods.Apply(casterId, SpellModDimension.CastTime, def.Id, def.School, def.Tags, def.CastTime));
+
+        /// <summary>
+        /// 步骤 1.5"使用条件"求值（ADR-0031 决策 9，06 第 3.1/3.6 节 2026-09-14 修订）。
+        /// <c>def.UseCondition == null</c>（未声明）时直接放行，零行为变化。
+        /// <para>
+        /// 判断记录（使用条件的目标绑定）：本步位于步骤 6（目标合法性/来源收集-过滤-排序-截断-回退）
+        /// 之前，此刻还没有"解析后的目标列表"可言——06 §3.6 修订段未进一步规定条件引用 <c>target.*</c>
+        /// 时该绑定哪个目标，这是需要向上汇报的契约缺口。本实现按最贴近调用方意图的口径处理：若
+        /// <paramref name="targets"/>（<see cref="TryStartCast"/> 收到的调用方原始显式目标列表，未经
+        /// <see cref="ITargetHost"/> 过滤/排序/截断）非空，取第一个作为候选目标绑定给 <c>target</c>
+        /// 分组；显式目标为空（调用方依赖 <c>target_shape_ref</c> 自动选择，如 AI/一键智能释放常见
+        /// 用法）时不绑定目标（<c>targetId: null</c>）——<c>target.*</c> 引用落回 <see
+        /// cref="IExprHostFactory"/> 既有"没有绑定目标"分支（记一条警告、按类型默认值处理，见
+        /// <c>RulesExprHostFactory.Host.Query</c> 判断记录），不是本方法的独立分支、不额外报错。内容
+        /// 作者据此约束：<c>use_condition</c> 引用 <c>target.*</c> 的技能应配合显式目标调用（游戏层
+        /// UI 通常本就是"先选目标再放技能"），或改用不依赖目标的条件（<c>self.*</c>/<c>combat.*</c>）。
+        /// </para>
+        /// </summary>
+        private bool EvaluateUseCondition(Id casterId, SkillDef def, IReadOnlyList<Id> targets)
+        {
+            if (def.UseCondition == null)
+            {
+                return true;
+            }
+
+            if (_exprHostFactory == null)
+            {
+                // 未注入 IExprHostFactory（旧的 12/13 参数 [Obsolete] 构造签名，见该字段判断记录）：
+                // 无法求值，按本模块既有"可选依赖未注入时宁可漏判，不误判"惯例放行（同
+                // _spatialQuery/_navigation 缺省降级），只记一条诊断，不阻断施法、不抛异常。
+                _diagnostics.Warn(
+                    $"技能 \"{def.Id}\" 声明了 use_condition，但 CastPipeline 未注入 IExprHostFactory（ABI 兼容旧构造签名），按条件为真处理");
+                return true;
+            }
+
+            var candidateTarget = targets.Count > 0 ? targets[0] : (Id?)null;
+            var host = _exprHostFactory.CreateFor(casterId, candidateTarget, null);
+            return ExprEvaluator.EvaluateBool(def.UseCondition, host, new ExprDiagnosticsRecorder());
+        }
 
         private IReadOnlyList<(Id, double)> ComputeCost(Id casterId, SkillDef def)
         {

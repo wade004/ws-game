@@ -762,6 +762,89 @@ skill/
     `skill.aura_def` 两处迁移各一例）；全量 `Tests.Rules`/`Replay` 回归零改动（既有 344/679 条
     `Tests.Rules.Skill`/`Tests.Rules` 用例、10+2+12 条 `Replay` 用例全部保持通过）。
 
+50. **T-N3-4（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 9/10；06 第
+    3.1/3.6 节 2026-09-14 修订段，见
+    [数值设计分阶段落地计划](../../../architecture/落地计划/数值设计分阶段落地计划.md) 第 14 节
+    N3 任务表第四行）：施法管线新插入步骤 1.5"使用条件"与步骤 4"节拍锁"泛化，`T-N3-1` 已登记但
+    未消费的 `use_condition` 字段在本任务真正落地为运行时行为。**施法步骤表更新**（对应 06 第 3.6
+    节固定检查顺序表）：新增"1.5 使用条件"（在"1 存活与状态"之后、"2 学派锁定"之前，失败原因码
+    `ConditionNotMet`）；"4 公共冷却"改名为"4 节拍锁"，`GcdEnabled=true` 分支逐字节不变（既有
+    `GcdActive` 失败原因码），`GcdEnabled=false` 分支新增判定"施法者是否处于他技能动作时长内
+    （`respects_gcd=true` 拒绝，返回 `ActionLocked`；`respects_gcd=false` 反应类技能放行/插入）"，
+    取代此前"关公共冷却时步骤 4 恒通过"的旧行为——这一处是本任务对 `GcdEnabled=false` 路径的唯一
+    行为变化点，`GcdEnabled=true` 路径的既有测试（`GcdActive_FailsWhenEnabled`/
+    `Gcd_AlwaysPassesWhenDisabled` 等）保持通过。改动文件：`CastFailureReason.cs`（新增
+    `ConditionNotMet`/`ActionLocked`，追加在枚举末尾）、`SkillReadiness.cs`
+    （`SkillReadinessBlockers` 新增同名两位，`1<<4`/`1<<5`，不改既有位值）、`Defs.cs`（`SkillDef`
+    新增 `UseCondition: ExprNode?` 属性 + 十九参数构造函数重载，同既有十八/十七参数重载惯例，
+    互不冲突）、`SkillDefCache.cs`（`ParseSkillDef` 由 `static` 改实例方法以复用 `_exprSchema`
+    解析 `use_condition` 原始文本，同 `ParseProcDef.condition` 惯例）、`CastPipeline.cs`（新增
+    十四参数构造函数重载携带 `IExprHostFactory?`，`TryStartCast`/`TryStartCastAtGround` 均插入
+    1.5 步，`TryStartCast` 步骤 4 改判、`CastSkill` 外层队列/Busy 分派新增"反应类插入"分支）、
+    `SkillHost.cs`（改用带 `IExprHostFactory` 的 `CastPipeline` 新重载，补 `_exprHostFactory`
+    字段，`GetSkillReadiness` 新增两项裁决，与 `CastSkill` 判定条件逐字对齐）。
+    <br/><br/>
+    **1.5 步位置与目标绑定契约疑点（上报，待设计层确认）**：06 §3.6 修订段只规定 1.5 步插入在步骤
+    1 之后、步骤 2 之前，早于步骤 6 目标解析，但未规定 `use_condition` 引用 `target.*` 分组时该
+    绑定哪个目标。本实现判定：绑定调用方 `CastSkill`/`TryStartCast` 收到的显式 `targets` 参数（未
+    经 `ITargetHost` 过滤/排序/截断的原始调用方输入）的第一个元素；显式目标为空（依赖
+    `target_shape_ref` 自动选择，如 AI/一键智能释放常见用法）时不绑定目标，`target.*` 引用落回
+    `IExprHostFactory` 既有"没有绑定目标"降级分支（记警告、按类型默认值处理），不是本步骤的独立
+    失败分支。`CastSkillAtGround` 入口没有单位目标列表，恒不绑定目标。见
+    `CastPipeline.EvaluateUseCondition` 判断记录。
+    <br/><br/>
+    **节拍锁与既有 `Busy` 的关系判断**：`GcdEnabled=false` 时，施法者处于他技能动作时长内再次
+    `CastSkill`，精确失败原因码由请求技能的 `respects_gcd` 与是否瞬发共同决定——
+    `respects_gcd=true` → `ActionLocked`（06 §3.6 修订段原文明确对应）；`respects_gcd=false` 且
+    瞬发（`channel_time<=0` 且折算后 `cast_time<=0`）→ 不落入任何失败分支，直接"插入"执行成功；
+    `respects_gcd=false` 但非瞬发（需要占用读条/引导）→ 仍报 `Busy`，因为本模块 `_casting` 每个
+    施法者只有一个 `CastState` 槽位，插入会覆盖/丢失仍在读条/引导中的原技能状态且不会像
+    `Interrupt` 那样补发 `SkillCastInterruptedEvent`，判定为结构性无法安全插入（不是被节拍锁挡
+    下，是槽位保护）——`Busy` 在 `GcdEnabled=false` 下因此不再是"忙碌"的默认原因码，只保留给这一
+    边缘情形；`GcdEnabled=true` 时 `Busy`/`GcdActive` 两个原因码的既有关系逐字节不变。
+    <br/><br/>
+    **反应类插入语义**：`CastSkill` 外层队列/Busy 分派新增判定——`GcdEnabled=false` 且请求技能
+    经 `ClassifyReactiveInsert` 判定为"反应类且瞬发"时，不进入队列窗口判断、不占用/不清空现有
+    `CastState.Queued`/`_casting[casterId]`，直接当作施法者当前不忙一样跑完整条 `TryStartCast`
+    管线；瞬发保证 `EnterCastOrChannel` 不写入 `_casting[casterId]`，因此原技能的读条/引导状态
+    不受任何影响、不产生打断事件。反应类插入**不占用法术队列的排队窗口**——即使剩余读条时间落在
+    `QueueWindow` 内，respects_gcd=false 的瞬发技能仍是立即插入执行，不会被放进
+    `CastState.Queued` 延后到当前读条结束才执行（打断/格挡/保命类反应技能需要立即生效，而不是
+    "等当前动作结束后才生效"，与法术队列"预输入避免操作丢失"的设计目的不同）。
+    <br/><br/>
+    **队列 + 反应类回归风险（见落地计划第 9 节"风险"段，本任务要求先补一组回归用例再改）**：反应
+    类插入分支插入在 `CastSkill` 队列判断之前，天然会与法术队列争抢"施法者读条中再次施法"这同一个
+    入口——修复前，全仓库多处既有测试（`CastPipelineFlowTests`/`CastInstanceIdTests`/
+    `CastPipelineDeathDestroyTests`/`CORE118_CastPipelineDeathTerminationTests`，共 6 个测试文件、
+    12 个用例）把 `respects_gcd=false` 的瞬发技能当作"占用队列/被 `Busy` 挡下的普通第二技能"这一
+    角色使用（历史上 `GcdEnabled` 默认关闭时 `respects_gcd` 对这些用例不产生任何可观测影响，只是
+    顺手写的 `false`），节拍锁泛化后这批技能被正确识别为"可插入的反应类"，直接立即执行而不再排队/
+    被拒绝，与用例原有断言（验证排队、`QueueCleared`、`Busy` 等语义）冲突——按 ADR-0031 决策 10
+    这是预期且正确的新行为，不是实现缺陷：已将这些用例的技能定义 `respects_gcd` 改为 `true`
+    （保留其"排队中的普通技能"测试意图），另把
+    `Busy_Fails_WhenCastingAgain_OutsideQueueWindow` 改名为
+    `ActionLocked_Fails_WhenCastingAgain_OutsideQueueWindow_GcdDisabled` 并更新断言为
+    `ActionLocked`（精确原因码随节拍锁泛化调整，未改变用例验证的"节拍锁生效"这一核心语义）。
+    <br/><br/>
+    验收标准新增用例（先补的回归用例 + 新用例，均在 `core/rules/skill/tests/`）：使用条件 5 例
+    （`T_N3_4_UseConditionAndActionLockTests.cs`：脱战限定正/负各 1、目标类型限定正/负各 1、
+    `GcdEnabled=true` 回归 1）；节拍锁 4 例（`CastPipelineFlowTests.cs`：`ActionLocked` 队列窗外 1、
+    反应类插入不打断原读条 1、动作结束后节拍锁释放 1、非瞬发反应类回退 `Busy` 1）；`GcdEnabled=true`
+    回归：既有 `GcdActive_FailsWhenEnabled`/`Gcd_AlwaysPassesWhenDisabled` 两例保持通过（零改动）；
+    `GetSkillReadiness` 同步反映 2 例（`ConditionNotMet`/`ActionLocked` 各 1，
+    `T_N3_4_UseConditionAndActionLockTests.cs`）；先补的"队列 + 反应类"回归用例即上述 6 个既有测试
+    文件里改用 `respects_gcd: true` 后仍然通过的原有断言（队列入队/顺序执行/`QueueCleared`/终结
+    事件语义），加上新增的 `ActionLocked_Fails_WhenCastingAgain_OutsideQueueWindow_GcdDisabled`（原
+    `Busy_Fails_...`）与新增的
+    `ReactiveSkill_RespectsGcdFalse_Instant_InsertsWithoutDisturbingActiveCast` 正面验证反应类插入
+    与队列语义不冲突。全量 `Tests.Rules`（689 例）/`Tests.Rules.Skill`（366 例）/`Replay`（12+2+10
+    例）回归全绿；`Replay` 场景 `GcdEnabled` 取值不变（默认 `false`）、无 `use_condition` 样例，
+    基线零改动。ABI 探针（基线 1.32.0）breaks=0，新增 12 行（`CastFailureReason`/
+    `SkillReadinessBlockers` 各 2 个枚举成员、`CastPipeline`/`SkillDef` 各一个新构造函数重载、
+    `SkillDef.UseCondition` 属性，其余 5 行为 T-N3-1/T-N3-2 既有新增，非本任务引入）。不新增任何
+    效果原语，未改动 `architecture/06_规则层_属性技能战斗AI.md`（其 2026-09-14 修订段已预先描述
+    本任务落地的契约，属既有文档，本任务不重复修订）。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：

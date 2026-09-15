@@ -42,6 +42,10 @@ namespace Tests.Rules.Skill
                     J.O(("kind", J.S("energize")),
                         ("params", J.O(("power_type", J.S("arch.power.sample_counter")), ("amount", J.N(1)), ("tick_interval", J.N(1))))))));
 
+        // T-N3-4（ADR-0031 决策 10）改动：respects_gcd 由 false 改为 true——本文件用它构造"排队中的
+        // 下一个技能"（CasterDies_WithQueuedSpell_QueuedSpellNeverStarts），respects_gcd=false 会被
+        // 节拍锁泛化判定为反应类插入（立即执行，不进入 CastState.Queued），让"死亡时排队技能永不
+        // 结算"这一断言的排队前提落空。改为 true 维持"respects_gcd=true 的普通排队技能"语义。
         private static Core.Foundation.Common.Json.JsonObject InstantSkill(string id) =>
             J.O(
                 ("id", J.S(id)),
@@ -49,7 +53,7 @@ namespace Tests.Rules.Skill
                 ("kind", J.S("active")),
                 ("range", J.N(0)),
                 ("cast_time", J.N(0)),
-                ("respects_gcd", J.B(false)),
+                ("respects_gcd", J.B(true)),
                 ("target_shape_ref", J.S("target.chain.sample")),
                 ("effects", J.A(
                     J.O(("kind", J.S("energize")),
