@@ -81,6 +81,17 @@ difficulty/
    （`CurrentTier.HasValue ? RequireTier(CurrentTier.Value).ItemLevelOffset : 0`），不落回默认值，
    已过 `Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests` 门禁。
 
+8. **T-N4-4（ADR-0033 决策 4；08 第 5.1 节修订段）：`diff.tier.xp_multiplier`，`IDifficultyHost.
+   XpMultiplier` 与既有 `LootMultiplier`/`ItemLevelOffset` 同一消费口径**——本模块只登记、暴露
+   当前档位的经验倍率（未应用任何档位时为 `1.0`，语义同 `LootMultiplier` 默认值"无难度修正"），
+   不反向依赖 `core/numbers/progression`；`Core.Numbers.Progression.ProgressionOptions.
+   ExtraXpMultiplierProvider` 由调用方（`core/gameplay/assembly.GameplayAssembly`）自行从本属性
+   取值后与 `creature.tier_definition.xp_multiplier` 相乘，本模块不知道、也不需要知道
+   `ProgressionOptions` 的存在。ABI 判断记录：`IDifficultyHost.XpMultiplier` 登记为**默认接口
+   成员**（默认值 `1.0`）而非普通抽象成员，理由同判断记录 7；唯一实现 `DifficultyHost` 显式转发
+   真实值（`CurrentTier.HasValue ? RequireTier(CurrentTier.Value).XpMultiplier : 1.0`），不落回
+   默认值，已过 `InterfaceDefaultMemberForwardingTests` 门禁。
+
 ## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
 
 `DifficultyHost.Load` 修复前开头无条件把 `CurrentTier`/`CurrentScope`/`CurrentMapId` 三个字段

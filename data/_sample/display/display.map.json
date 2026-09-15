@@ -496,6 +496,36 @@
           "flip_x": true
         }
       ]
+    },
+    {
+      "id": "display.map.sample_mount",
+      "category": "skill",
+      "logical_id": "skill.sample_mount",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.sample_mount_aura",
+      "category": "aura",
+      "logical_id": "skill.aura_def.sample_mount_speed",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.item.sample_blade",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
     }
   ]
 }

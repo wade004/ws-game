@@ -394,7 +394,8 @@ namespace Tests.Numbers
             Assert.Equal(2.0, statHost2.GetStat(unit, StatCritRating), 10);
 
             // 授予 300 点经验（50*1*6，一次性用 multiplier=6）：level1→2 消耗 100，level2→3
-            // 消耗 200，恰好升到曲线满级 3 级，残余 0。
+            // 消耗 200，恰好升到 3 级，残余 0（T-N4-10 起 prog.curve.sample 抬到 20 级，3 级不再是
+            // 曲线满级，但本用例只关心"升到 3 级、残余恰好为 0"这一结果，不依赖是否满级）。
             world.ProgressionHost.GrantFromSource(unit, XpKillSample, multiplier: 6);
             Assert.Equal(3, world.ProgressionHost.GetLevel(unit));
 

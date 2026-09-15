@@ -42,11 +42,18 @@ namespace Tests.Gameplay.Quest
             Assert.Equal("type", variants.Discriminator);
         }
 
+        /// <summary>T-N4-4：新增 <c>xp_equivalent</c>/<c>level</c> 两个子字段（见
+        /// <c>Core.Gameplay.Common.RewardBundle.FromRecord</c> 判断记录"reward_level 挂载点"），
+        /// 原六个子字段（含已废弃的 <c>xp</c>，兼容读取保留）不变——本用例名沿用既有历史命名，
+        /// 断言内容已随字段数扩为八个同步更新。</summary>
         [Fact]
         public void RewardsFields_ContainsAllSixKnownFieldNames()
         {
             var names = new HashSet<string>(QuestSchemas.RewardsFields.Select(f => f.Name), StringComparer.Ordinal);
-            var expected = new HashSet<string> { "items", "xp", "currency", "skills", "world_flags", "talent_points" };
+            var expected = new HashSet<string>
+            {
+                "items", "xp", "xp_equivalent", "level", "currency", "skills", "world_flags", "talent_points",
+            };
 
             Assert.Equal(expected, names);
         }

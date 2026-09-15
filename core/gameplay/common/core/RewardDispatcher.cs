@@ -18,6 +18,11 @@ namespace Core.Gameplay.Common
     /// </summary>
     public sealed class RewardDispatcher : IRewardDispatcher
     {
+        /// <summary>T-N4-4 新增：未显式配置 <see cref="ProgressionOptions.QuestXpSourceId"/> 时
+        /// 使用的约定 id（同 T-N4-3 <c>CreatureDeathXpListener.DefaultKillXpSourceId</c>/
+        /// <c>AreaTriggerDiscoveryXpListener.DefaultDiscoveryXpSourceId</c> 一贯约定）。</summary>
+        public static readonly Id DefaultQuestXpSourceId = new Id("prog.xp_source.quest");
+
         private readonly IInventoryHost? _inventory;
         private readonly IProgressionHost? _progression;
         private readonly IWorldState? _worldState;
@@ -25,6 +30,11 @@ namespace Core.Gameplay.Common
         private readonly CurrencyGranter? _currencyGranter;
         private readonly TalentPointGranter? _talentPointGranter;
         private readonly IRewardDiagnostics _diagnostics;
+
+        /// <summary>T-N4-4 新增：<see cref="ProgressionOptions.QuestXpSourceId"/> 解析结果（未显式
+        /// 配置时落到 <see cref="DefaultQuestXpSourceId"/>），供 <see cref="GrantXp"/> 的
+        /// <see cref="RewardBundle.XpEquivalent"/> 折算分支使用。</summary>
+        private readonly Id _questXpSourceId;
 
         public RewardDispatcher(
             IInventoryHost? inventory = null,
@@ -34,6 +44,23 @@ namespace Core.Gameplay.Common
             CurrencyGranter? currencyGranter = null,
             TalentPointGranter? talentPointGranter = null,
             IRewardDiagnostics? diagnostics = null)
+            : this(inventory, progression, worldState, skillGranter, currencyGranter, talentPointGranter, diagnostics, progressionOptions: null)
+        {
+        }
+
+        /// <summary>T-N4-4 新增构造重载：接受 <see cref="ProgressionOptions"/>（供
+        /// <see cref="ProgressionOptions.QuestXpSourceId"/> 解析——ABI 门禁"公开 API 只能新增"，
+        /// 未带本参数的旧构造函数原样保留、转发本重载并传 <c>null</c>，两者行为对既有调用方完全
+        /// 透明）。</summary>
+        public RewardDispatcher(
+            IInventoryHost? inventory,
+            IProgressionHost? progression,
+            IWorldState? worldState,
+            SkillGranter? skillGranter,
+            CurrencyGranter? currencyGranter,
+            TalentPointGranter? talentPointGranter,
+            IRewardDiagnostics? diagnostics,
+            ProgressionOptions? progressionOptions)
         {
             _inventory = inventory;
             _progression = progression;
@@ -42,6 +69,7 @@ namespace Core.Gameplay.Common
             _currencyGranter = currencyGranter;
             _talentPointGranter = talentPointGranter;
             _diagnostics = diagnostics ?? new InMemoryRewardDiagnostics();
+            _questXpSourceId = progressionOptions?.QuestXpSourceId ?? DefaultQuestXpSourceId;
         }
 
         public bool Grant(Id unitId, RewardBundle bundle, Id sourceId)
@@ -172,8 +200,46 @@ namespace Core.Gameplay.Common
             }
         }
 
+        /// <summary>
+        /// T-N4-4（ADR-0033 决策 3；硬性规则"禁止奖励直发绝对数"）：<see cref="RewardBundle.XpEquivalent"/>
+        /// 非空时改经 <see cref="IProgressionHost.GrantXp"/> 按当量折算发放（<c>sourceId</c> 固定用
+        /// <see cref="_questXpSourceId"/>，不是本方法收到的 <paramref name="sourceId"/> 参数——判断
+        /// 记录见 <see cref="ProgressionOptions.QuestXpSourceId"/>）；<see cref="RewardBundle.RewardLevel"/>
+        /// 缺省时退化取 1（见 <see cref="RewardBundle.RewardLevel"/> 判断记录）。<see
+        /// cref="RewardBundle.XpEquivalent"/> 为 <c>null</c> 时回落旧字段 <see cref="RewardBundle.Xp"/>
+        /// 绝对数直发路径（兼容读取，不受本次改动影响，行为逐位不变）。
+        /// </summary>
         private void GrantXp(Id unitId, RewardBundle bundle, Id sourceId)
         {
+            if (bundle.XpEquivalent.HasValue)
+            {
+                if (bundle.XpEquivalent.Value <= 0)
+                {
+                    return;
+                }
+
+                if (_progression == null)
+                {
+                    _diagnostics.Warn($"RewardDispatcher.Grant({unitId})：未注入 IProgressionHost，跳过 {bundle.XpEquivalent} 点当量经验奖励");
+                    return;
+                }
+
+                // 同 core/gameplay/progression_bridge 两个监听器的判断记录（T-N4-4 附带任务）：
+                // _questXpSourceId 未登记（游戏/测试夹具尚未配置对应 prog.xp_source 记录）是正常
+                // 场景，先显式查询、查到才发，不依赖 IProgressionHost.GrantXp 抛异常这条控制流。
+                if (!_progression.HasXpSource(_questXpSourceId))
+                {
+                    _diagnostics.Warn($"RewardDispatcher.Grant({unitId})：经验来源 \"{_questXpSourceId}\" 未登记，跳过 {bundle.XpEquivalent} 点当量经验奖励");
+                    return;
+                }
+
+                var level = bundle.RewardLevel ?? 1;
+                var context = new XpContext(level, equivalent: bundle.XpEquivalent.Value);
+                _progression.GrantXp(unitId, _questXpSourceId, context);
+                return;
+            }
+
+            // 兼容旧字段（拍板"保留一个版本周期"）：逐位保留本方法在 T-N4-4 之前的唯一实现分支。
             if (bundle.Xp <= 0)
             {
                 return;

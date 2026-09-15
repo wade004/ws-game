@@ -6,7 +6,8 @@
       "id": "econ.vendor.sample_hunter",
       "name_key": "l10n.econ.vendor.sample_hunter.name",
       "sell_items": [
-        { "item_id": "item.sample_tonic", "price_currency_id": "econ.currency.sample_coin", "price_amount": 5 }
+        { "item_id": "item.sample_tonic", "price_currency_id": "econ.currency.sample_coin" },
+        { "item_id": "item.sample_model_sword", "price_currency_id": "econ.currency.sample_coin", "price_amount": 27 }
       ],
       "map_id": "world.sample_field"
     }

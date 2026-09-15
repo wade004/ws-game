@@ -19,10 +19,13 @@ namespace Tests.Gameplay.Difficulty
         public const string TierRows = "[" +
             "{\"id\": \"diff.sample_normal\", \"name_key\": \"l10n.diff.sample_normal.name\", " +
             "\"modifier_aura_refs\": [], \"loot_multiplier\": 1.0, \"sort_weight\": 0}," +
+            // T-N4-4 新增字段 xp_multiplier（ADR-0033 决策 4）：sample_hard 给一个非默认值 2，
+            // 供 DifficultyHostTests.XpMultiplier 系列验证（sample_normal 未登记该字段，走缺省
+            // 1.0 分支）。
             "{\"id\": \"diff.sample_hard\", \"name_key\": \"l10n.diff.sample_hard.name\", " +
             "\"modifier_aura_refs\": [\"aura.sample_tough\", \"aura.sample_deadly\"], " +
             "\"affix_pool_ref\": \"affix.sample_pool\", \"loot_multiplier\": 1.5, \"item_level_offset\": 5, " +
-            "\"sort_weight\": 10}" +
+            "\"sort_weight\": 10, \"xp_multiplier\": 2}" +
             "]";
 
         /// <summary>关闭 <see cref="EventBusOptions.StrictCatalog"/> 的事件总线：本模块测试不逐条

@@ -74,10 +74,18 @@ namespace Tests.Gameplay.Common
         public ItemInstance? FindInstance(Id unitId, Id instanceId) => null;
     }
 
-    /// <summary>最小 <see cref="IProgressionHost"/> 假实现：只记录 <see cref="AddXp"/> 调用。</summary>
+    /// <summary>最小 <see cref="IProgressionHost"/> 假实现：只记录 <see cref="AddXp"/>/<see cref="GrantXp"/>
+    /// 调用（T-N4-4 新增 <see cref="GrantXp"/>/<see cref="HasXpSource"/> 覆盖，供
+    /// <see cref="RewardBundle.XpEquivalent"/> 新路径测试用）。</summary>
     internal sealed class FakeProgressionHost : IProgressionHost
     {
         public readonly List<(Id UnitId, Id SourceId, long Amount)> AddXpCalls = new List<(Id, Id, long)>();
+        public readonly List<(Id UnitId, Id SourceId, XpContext Context)> GrantXpCalls = new List<(Id, Id, XpContext)>();
+
+        /// <summary>T-N4-4 新增：模拟 <c>prog.xp_source</c> 未登记的负例——测试按需把某个 sourceId
+        /// 加进本集合，<see cref="HasXpSource"/> 据此返回 <c>false</c>；默认空集合，等价于"全部
+        /// sourceId 均已登记"。</summary>
+        public readonly HashSet<Id> UnregisteredSources = new HashSet<Id>();
 
         public void RegisterUnit(Id unitId, Id curveId, int startLevel = 1) => throw new NotSupportedException();
         public int GetLevel(Id unitId) => 1;
@@ -87,6 +95,14 @@ namespace Tests.Gameplay.Common
         public void AddXp(Id unitId, Id sourceId, long amount) => AddXpCalls.Add((unitId, sourceId, amount));
 
         public void GrantFromSource(Id unitId, Id xpSourceId, double multiplier = 1) => throw new NotSupportedException();
+
+        public long GrantXp(Id unitId, Id sourceId, XpContext context)
+        {
+            GrantXpCalls.Add((unitId, sourceId, context));
+            return 0;
+        }
+
+        public bool HasXpSource(Id sourceId) => !UnregisteredSources.Contains(sourceId);
 
         // ApplyGrowthToCurrentLevel 不在此覆盖：IProgressionHost 的默认接口方法（空操作）已够用，
         // 本假实现不测试成长聚合，见 IProgressionHost.ApplyGrowthToCurrentLevel 判断记录。
@@ -323,6 +339,96 @@ namespace Tests.Gameplay.Common
             Assert.Equal(Unit, call.UnitId);
             Assert.Equal(Source, call.SourceId);
             Assert.Equal(150, call.Amount);
+        }
+
+        /// <summary>T-N4-4（硬性规则"禁止奖励直发绝对数"）：<c>xp_equivalent</c>/<c>level</c> 非空时
+        /// 改经 <see cref="IProgressionHost.GrantXp"/> 折算发放，<c>sourceId</c> 固定用
+        /// <see cref="ProgressionOptions.QuestXpSourceId"/>（本用例未显式配置，落到约定 id
+        /// <see cref="Core.Gameplay.Common.RewardDispatcher.DefaultQuestXpSourceId"/>），不是
+        /// <see cref="Grant"/> 收到的 <see cref="Source"/> 参数——两者刻意区分，见该字段判断记录。</summary>
+        [Fact]
+        public void Grant_WithXpEquivalentAndLevel_CallsProgressionGrantXp_WithQuestXpSourceId()
+        {
+            var progression = new FakeProgressionHost();
+            var dispatcher = new Core.Gameplay.Common.RewardDispatcher(progression: progression);
+            var bundle = new Core.Gameplay.Common.RewardBundle(
+                items: Array.Empty<ItemStack>(), xp: 0, currency: Array.Empty<(Id, long)>(),
+                skills: Array.Empty<Id>(), worldFlags: Array.Empty<(Id, ExprValue)>(), talentPoints: 0,
+                xpEquivalent: 3.0, rewardLevel: 10);
+
+            dispatcher.Grant(Unit, bundle, Source);
+
+            Assert.Empty(progression.AddXpCalls);
+            var call = Assert.Single(progression.GrantXpCalls);
+            Assert.Equal(Unit, call.UnitId);
+            Assert.Equal(Core.Gameplay.Common.RewardDispatcher.DefaultQuestXpSourceId, call.SourceId);
+            Assert.Equal(10, call.Context.SourceLevel);
+            Assert.Equal(3.0, call.Context.Equivalent);
+        }
+
+        /// <summary>T-N4-4：<c>level</c> 缺省时退化取 1（<see cref="RewardBundle.RewardLevel"/>
+        /// 判断记录）。</summary>
+        [Fact]
+        public void Grant_WithXpEquivalentOnly_DefaultsRewardLevelToOne()
+        {
+            var progression = new FakeProgressionHost();
+            var dispatcher = new Core.Gameplay.Common.RewardDispatcher(progression: progression);
+            var bundle = new Core.Gameplay.Common.RewardBundle(
+                items: Array.Empty<ItemStack>(), xp: 0, currency: Array.Empty<(Id, long)>(),
+                skills: Array.Empty<Id>(), worldFlags: Array.Empty<(Id, ExprValue)>(), talentPoints: 0,
+                xpEquivalent: 2.0, rewardLevel: null);
+
+            dispatcher.Grant(Unit, bundle, Source);
+
+            var call = Assert.Single(progression.GrantXpCalls);
+            Assert.Equal(1, call.Context.SourceLevel);
+            Assert.Equal(2.0, call.Context.Equivalent);
+        }
+
+        /// <summary>T-N4-4 附带任务：经验来源未登记（<see cref="FakeProgressionHost.HasXpSource"/>
+        /// 返回 <c>false</c>）时跳过发放，不调用 <see cref="IProgressionHost.GrantXp"/>，不抛异常，
+        /// 不影响其余类别（本用例只测经验，惯例同既有"未注入依赖跳过"系列用例）。</summary>
+        [Fact]
+        public void Grant_WithXpEquivalent_QuestXpSourceNotRegistered_SkipsSilently()
+        {
+            var progression = new FakeProgressionHost();
+            progression.UnregisteredSources.Add(Core.Gameplay.Common.RewardDispatcher.DefaultQuestXpSourceId);
+            var dispatcher = new Core.Gameplay.Common.RewardDispatcher(progression: progression);
+            var bundle = new Core.Gameplay.Common.RewardBundle(
+                items: Array.Empty<ItemStack>(), xp: 0, currency: Array.Empty<(Id, long)>(),
+                skills: Array.Empty<Id>(), worldFlags: Array.Empty<(Id, ExprValue)>(), talentPoints: 0,
+                xpEquivalent: 5.0, rewardLevel: 20);
+
+            var granted = dispatcher.Grant(Unit, bundle, Source);
+
+            Assert.True(granted);
+            Assert.Empty(progression.GrantXpCalls);
+            Assert.Empty(progression.AddXpCalls);
+        }
+
+        /// <summary>T-N4-4：旧字段 <c>xp</c> 仍可用（兼容读取，拍板"保留一个版本周期"）——
+        /// <c>xp_equivalent</c> 未设置时逐位保留旧的 <see cref="IProgressionHost.AddXp"/> 绝对数
+        /// 直发路径，行为与 T-N4-4 之前完全一致（回归锁死，本用例即 <see
+        /// cref="Grant_WithXp_CallsProgressionAddXp"/> 本身已覆盖，此处另加一组"两个新字段同时缺省"
+        /// 的显式核对，确保新构造重载对旧调用方透明）。</summary>
+        [Fact]
+        public void Grant_WithLegacyXpField_NewFieldsDefaultNull_StillUsesAddXp()
+        {
+            var progression = new FakeProgressionHost();
+            var dispatcher = new Core.Gameplay.Common.RewardDispatcher(progression: progression);
+            var bundle = new Core.Gameplay.Common.RewardBundle(
+                items: Array.Empty<ItemStack>(), xp: 80, currency: Array.Empty<(Id, long)>(),
+                skills: Array.Empty<Id>(), worldFlags: Array.Empty<(Id, ExprValue)>(), talentPoints: 0);
+
+            Assert.Null(bundle.XpEquivalent);
+            Assert.Null(bundle.RewardLevel);
+
+            dispatcher.Grant(Unit, bundle, Source);
+
+            Assert.Empty(progression.GrantXpCalls);
+            var call = Assert.Single(progression.AddXpCalls);
+            Assert.Equal(80, call.Amount);
+            Assert.Equal(Source, call.SourceId);
         }
 
         [Fact]

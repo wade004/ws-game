@@ -61,24 +61,117 @@ namespace Core.Numbers.Progression
         /// <summary>当前等级内已累计的经验（不是总经验）。</summary>
         long GetXp(Id unitId);
 
-        /// <summary>升到下一级所需的经验；已满级时返回曲线最后一条记录的 <c>xp_to_next</c>
-        /// （数据约定该值在满级条目上恒为 0，见 <c>schema/README.md</c>）。</summary>
+        /// <summary>升到下一级所需的经验；已满级时返回 0（T-N4-2 起：判定不再只依赖曲线最后一条
+        /// 记录的 <c>xp_to_next</c> 数据约定，而是显式按"有效满级"（<see cref="ProgressionOptions.MaxLevel"/>
+        /// 为 0 时等于曲线自身 <c>max_level</c>；为正值时取该值与曲线 <c>max_level</c> 的较小者，见
+        /// <see cref="ProgressionHost"/> 判断记录）判断——即便某条曲线在有效满级对应的条目上误填了
+        /// 非零 <c>xp_to_next</c>，本方法仍返回 0，ADR-0033 决策 9"满级后……<c>getXpToNext</c> 返回
+        /// 零"是行为契约，不是数据自律）。</summary>
         long GetXpToNext(Id unitId);
 
         /// <summary>
-        /// 直接记入一笔最终经验数值（不做来源换算，换算见 <see cref="GrantFromSource"/>）。
-        /// 已满级时整笔丢弃、记一条诊断警告、不发任何事件（见判断记录）；否则发
-        /// <see cref="XpGainedEvent"/>，随后按曲线判定是否升级——一次调用可连跨多级，每跨一级发
-        /// 一次 <see cref="LevelUpEvent"/>；跨级完成后把"从 2 级到最终等级"的成长累计值经
-        /// <see cref="StatModifierRemover"/> + <see cref="StatModifierWriter"/> 写入（来源
-        /// <c>prog.growth</c>），一次调用内只写一次（不是每跨一级各写一次）。
+        /// 直接记入一笔最终经验数值（不做来源换算，换算见 <see cref="GrantFromSource"/>/
+        /// <see cref="GrantXp"/>）。已满级（同 <see cref="GetXpToNext"/> 的"有效满级"判定）时整笔
+        /// 丢弃、记一条诊断警告、不发任何事件（见判断记录）；否则发 <see cref="XpGainedEvent"/>，
+        /// 随后按曲线判定是否升级——一次调用可连跨多级，每跨一级发一次 <see cref="LevelUpEvent"/>；
+        /// 跨级完成后把"从 2 级到最终等级"的成长累计值经 <see cref="StatModifierRemover"/> +
+        /// <see cref="StatModifierWriter"/> 写入（来源 <c>prog.growth</c>），一次调用内只写一次
+        /// （不是每跨一级各写一次）。
         /// <paramref name="amount"/> 为负抛 <see cref="System.ArgumentOutOfRangeException"/>。
         /// </summary>
         void AddXp(Id unitId, Id sourceId, long amount);
 
-        /// <summary>按 <c>prog.xp_source</c> 表算出最终经验数值（<c>base_xp × weight ×
-        /// multiplier</c>，四舍五入到 <see cref="long"/>）后转发给 <see cref="AddXp"/>。
-        /// <paramref name="xpSourceId"/> 未登记时抛 <see cref="System.ArgumentException"/>。</summary>
+        /// <summary>按 <c>prog.xp_source</c> 表算出最终经验数值后转发给 <see cref="AddXp"/>（不
+        /// 经 <see cref="XpGainedEvent"/> 之外的任何事件，返回值同 <see cref="AddXp"/> 的满级/事件
+        /// 语义）。<paramref name="xpSourceId"/> 未登记时抛 <see cref="System.ArgumentException"/>。
+        /// <para>
+        /// T-N4-2 起分两种算法（ADR-0033 决策 3；拍板 4"<c>base_curve_ref</c> 存在时优先"）：
+        /// 该来源没有 <c>base_curve_ref</c> 时，逐位保留本方法在 T-N4-2 之前的旧算法——
+        /// <c>base_xp × weight × multiplier</c>（四舍五入到 <see cref="long"/>，负值钳为 0）——这是
+        /// 拍板 4"保留一个版本周期"的兼容语义，不受本次改动影响。该来源存在 <c>base_curve_ref</c>
+        /// 时，改走与 <see cref="GrantXp"/> 相同的曲线折算路径，但本方法的签名没有
+        /// <see cref="XpContext"/> 参数可以指定"来源等级"——按"该来源与领取者当前等级相同"处理
+        /// （即隐式 <c>sourceLevel</c> = 领取者调用时的当前等级，等级差 Δ 因此恒为 0 起算，
+        /// <paramref name="multiplier"/> 参数直接乘在换算结果上，不经
+        /// <see cref="ProgressionOptions.ExtraXpMultiplierProvider"/> 钩子）。**契约疑点上报/临时
+        /// 判断**：旧签名 <see cref="GrantFromSource"/> 从未设计成携带"怪物/任务/区域等级"这类新
+        /// 信息，06 第 2.5 节与 ADR-0033 也没有对"旧入口撞上新曲线字段该怎么算"给出字面结论；真正
+        /// 需要按怪物/任务/区域等级折算的场景应改走 <see cref="GrantXp"/> 显式传入
+        /// <see cref="XpContext.SourceLevel"/>（T-N4-3/T-N4-4 的击杀/任务/探索监听器即改走新方法），
+        /// 本方法此分支只是不让"内容作者给旧来源补了 <c>base_curve_ref</c> 却还在用旧调用方"这条
+        /// 路径行为未定义/抛异常，取的是"能想到的、不引入额外未声明输入"的最小定义，供设计层复核
+        /// 是否需要修正。
+        /// </para>
+        /// </summary>
         void GrantFromSource(Id unitId, Id xpSourceId, double multiplier = 1);
+
+        /// <summary>
+        /// 三种来源（<c>kill</c>/<c>quest</c>/<c>discovery</c>）统一入口（分阶段落地计划 T-N4-2；
+        /// ADR-0033 决策 1/3/9；06 第 2.5 节契约原文
+        /// <c>grantXp(unitId: Id, sourceId: Id, context: XpContext): Number</c>）：按
+        /// <c>prog.xp_source.kind</c> 与 <paramref name="context"/> 算出最终经验数值后转发给
+        /// <see cref="AddXp"/>，返回实际入账值（即传给 <see cref="AddXp"/> 的 <c>amount</c>；已满级
+        /// 时恒为 0，见下方"满级"小节）。<paramref name="sourceId"/> 未登记时抛
+        /// <see cref="System.ArgumentException"/>。
+        /// <para>
+        /// 折算公式（ADR-0033 决策 3；<paramref name="sourceId"/> 必须有 <c>base_curve_ref</c>，
+        /// 否则按 <see cref="GrantFromSource"/> 同一条"旧算法"分支处理，<paramref name="context"/>
+        /// 此时只用其 <see cref="XpContext.SourceLevel"/> 无意义，等价于 <c>multiplier=1</c> 的
+        /// <see cref="GrantFromSource"/>）：设 <c>baseAmount = prog.xp_base_curve[base_curve_ref]
+        /// .Evaluate(context.SourceLevel)</c>，<c>Δ = context.SourceLevel − 领取者当前有效等级</c>，
+        /// <c>ΔFactor = level_diff_ref 未登记时恒 1，否则 combat.level_diff_table[level_diff_ref]
+        /// .xp_factor.Evaluate(Δ)</c>：
+        /// <list type="bullet">
+        /// <item><description><c>kind=kill</c>（或 <c>kind</c> 未登记的兼容兜底，见判断记录）：
+        /// <c>baseAmount × (ExtraXpMultiplierProvider(unitId, sourceId) ?? 1) × ΔFactor</c>。</description></item>
+        /// <item><description><c>kind=quest</c>：<c>(context.Equivalent ?? 1) × baseAmount ×
+        /// ΔFactor</c>。</description></item>
+        /// <item><description><c>kind=discovery</c>：<c>(context.Equivalent ?? 1) × baseAmount</c>
+        /// ——刻意不接 <c>ΔFactor</c>（ADR-0033 决策 3 原文的探索公式没有等级差项，即便该来源同时
+        /// 登记了 <c>level_diff_ref</c> 也不生效）。</description></item>
+        /// </list>
+        /// 结果四舍五入到 <see cref="long"/>（<see cref="System.MidpointRounding.AwayFromZero"/>），
+        /// 负值钳为 0。
+        /// </para>
+        /// <para>
+        /// 满级：判定同 <see cref="GetXpToNext"/>/<see cref="AddXp"/> 的"有效满级"——已满级时不计算
+        /// 上述公式、直接返回 0，也不发 <see cref="XpGainedEvent"/>（ADR-0033 决策 9）。
+        /// </para>
+        /// <para>
+        /// 判断记录（<see cref="XpContext.TierId"/> 本方法不消费）：见 <see cref="XpContext"/> 类型
+        /// 注释"契约疑点上报"。
+        /// </para>
+        /// <para>
+        /// 判断记录（默认实现，C#8 默认接口方法，ABI 门禁"公开 API 只能新增"，惯例同
+        /// <see cref="ApplyGrowthToCurrentLevel"/>）：默认体固定返回 0、不产生任何副作用，本接口
+        /// 目前只有 <see cref="ProgressionHost"/> 一个生产实现（它显式覆盖本方法）；既有测试假实现
+        /// （<c>FakeProgressionHost</c> 一类，未覆盖本方法）不因新增本成员而编译失败，只是调用
+        /// 本方法时静默返回 0、不推进任何等级状态——它们此前也不需要支持"按 <c>XpContext</c> 折算"
+        /// 这项能力。
+        /// </para>
+        /// </summary>
+        long GrantXp(Id unitId, Id sourceId, XpContext context) => 0;
+
+        /// <summary>
+        /// 设计层裁定（T-N4-4 附带任务）：<c>prog.xp_source</c> 的 <paramref name="sourceId"/> 是否
+        /// 已登记——供调用方（<see cref="Core.Gameplay.ProgressionBridge.CreatureDeathXpListener"/>/
+        /// <see cref="Core.Gameplay.ProgressionBridge.AreaTriggerDiscoveryXpListener"/>）在发放经验
+        /// 前显式查询，取代此前"直接调用 <see cref="GrantXp"/>、用
+        /// <c>try/catch (ArgumentException)</c> 兜未登记来源"的写法——两个监听器改为先查、查到才发，
+        /// 不再依赖异常控制流表达"这个来源没配置"这一正常场景（异常应该保留给真正意外的情形）。
+        /// <para>
+        /// 判断记录（默认实现返回 <c>true</c>，不是 <c>false</c>）：ABI 门禁"公开 API 只能新增"——
+        /// 本接口已发布，<see cref="ProgressionHost"/> 一个生产实现（显式覆盖本方法，读内部
+        /// <c>prog.xp_source</c> 索引）；其它实现方（测试假实现、未来第三方实现，若存在）不因
+        /// 新增本成员而编译失败。默认值取 <c>true</c> 而不是更"保守"的 <c>false</c>：本成员新增
+        /// 之前，调用方（两个监听器）对任何 <see cref="IProgressionHost"/> 实现都无条件尝试调用
+        /// <see cref="GrantXp"/>（不管来源是否登记）；若默认值改为 <c>false</c>，未覆盖本方法的
+        /// 既有实现方（如测试替身）会让调用方从"总是尝试发放"静默退化为"总是跳过"，这是一次行为
+        /// 倒退，不是"新增能力对旧实现透明"。默认值 <c>true</c> 保持"不知道就假设已登记、照常尝试"
+        /// 这一与新增本成员之前完全一致的行为，只有显式覆盖本方法的 <see cref="ProgressionHost"/>
+        /// 才获得"真正按注册表判断"的精确能力。
+        /// </para>
+        /// </summary>
+        bool HasXpSource(Id sourceId) => true;
     }
 }

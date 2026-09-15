@@ -7,7 +7,8 @@
       "entries": [
         { "level": 1, "skill_id": "skill.sample_strike" },
         { "level": 3, "skill_id": "skill.sample_burn" },
-        { "level": 5, "skill_id": "skill.sample_passive" }
+        { "level": 5, "skill_id": "skill.sample_passive" },
+        { "level": 10, "skill_id": "skill.sample_mount" }
       ]
     }
   ]

@@ -367,6 +367,111 @@ namespace Tests.Numbers.PowerSet
         }
 
         // -----------------------------------------------------------------
+        // T-N4-5：RefillAll（升级回满）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void RefillAll_RefillsEachRegisteredResourceToMax_AndFiresOnePowerChangedPerPool()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var health = PowerTestSupport.FixedType("arch.power.health", maxValue: 100);
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 50);
+            var healthId = new Id("arch.power.health");
+            var host = new PowerHost(new[] { health, mana }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.health", "arch.power.mana"));
+
+            host.ModifyPower(Hero, healthId, -60, ModifySource); // 100 -> 40
+            host.ModifyPower(Hero, Mana, -20, ModifySource); // 50 -> 30
+            bus.DispatchPending(); // 冲掉上面两次 ModifyPower 排队的事件，只观察 RefillAll 自己发的。
+
+            var changed = new List<PowerChangedEvent>();
+            bus.Subscribe<PowerChangedEvent>(PowerEventKeys.Changed, e => changed.Add(e));
+
+            host.RefillAll(Hero, new Id("progression.level_up"));
+            bus.DispatchPending();
+
+            Assert.Equal(100, host.GetPower(Hero, healthId));
+            Assert.Equal(50, host.GetPower(Hero, Mana));
+
+            var healthChanged = Assert.Single(changed, e => e.PowerType == healthId);
+            Assert.Equal(40, healthChanged.OldValue);
+            Assert.Equal(100, healthChanged.NewValue);
+
+            var manaChanged = Assert.Single(changed, e => e.PowerType == Mana);
+            Assert.Equal(30, manaChanged.OldValue);
+            Assert.Equal(50, manaChanged.NewValue);
+        }
+
+        [Fact]
+        public void RefillAll_AccumulationTypeResource_StartFullFalse_IsNotRefilled_NoEventFired()
+        {
+            // 积累型资源（如连击点，start_full=false）不在升级回满范围内——见 IPowerHost.RefillAll
+            // 判断记录"契约疑点上报（积累型资源是否回满）"。
+            var bus = PowerTestSupport.CreateBus();
+            var combo = PowerTestSupport.FixedType("arch.power.combo_points", maxValue: 5, startFull: false);
+            var host = new PowerHost(new[] { combo }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.combo_points"));
+
+            host.ModifyPower(Hero, ComboPoints, 2, ModifySource); // 0 -> 2（部分累积，不是满也不是空）
+            bus.DispatchPending(); // 冲掉上面这次 ModifyPower 排队的事件，只观察 RefillAll 自己发的。
+
+            var changed = new List<PowerChangedEvent>();
+            bus.Subscribe<PowerChangedEvent>(PowerEventKeys.Changed, e => changed.Add(e));
+
+            host.RefillAll(Hero, new Id("progression.level_up"));
+            bus.DispatchPending();
+
+            Assert.Equal(2, host.GetPower(Hero, ComboPoints)); // 原样不动，没有被拉到上限 5。
+            Assert.Empty(changed);
+        }
+
+        [Fact]
+        public void RefillAll_MixedStartFullAndAccumulationResources_OnlyRefillsStartFullOnes()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100);
+            var combo = PowerTestSupport.FixedType("arch.power.combo_points", maxValue: 5, startFull: false);
+            var host = new PowerHost(new[] { mana, combo }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana", "arch.power.combo_points"));
+
+            host.ModifyPower(Hero, Mana, -40, ModifySource); // 100 -> 60
+            host.ModifyPower(Hero, ComboPoints, 3, ModifySource); // 0 -> 3
+
+            host.RefillAll(Hero, new Id("progression.level_up"));
+
+            Assert.Equal(100, host.GetPower(Hero, Mana)); // 回复型：回满。
+            Assert.Equal(3, host.GetPower(Hero, ComboPoints)); // 积累型：原样不动。
+        }
+
+        [Fact]
+        public void RefillAll_AlreadyAtMax_DoesNotFireEvent()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100);
+            var host = new PowerHost(new[] { mana }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana"));
+
+            var changed = new List<PowerChangedEvent>();
+            bus.Subscribe<PowerChangedEvent>(PowerEventKeys.Changed, e => changed.Add(e));
+
+            host.RefillAll(Hero, new Id("progression.level_up")); // 已经是满值（start_full 默认 true）。
+            bus.DispatchPending();
+
+            Assert.Equal(100, host.GetPower(Hero, Mana));
+            Assert.Empty(changed);
+        }
+
+        [Fact]
+        public void RefillAll_UnregisteredUnit_Throws()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100);
+            var host = new PowerHost(new[] { mana }, bus);
+
+            Assert.Throws<InvalidOperationException>(() => host.RefillAll(Hero, new Id("progression.level_up")));
+        }
+
+        // -----------------------------------------------------------------
         // 上限重算
         // -----------------------------------------------------------------
 

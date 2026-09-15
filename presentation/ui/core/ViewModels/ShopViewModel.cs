@@ -120,7 +120,14 @@ namespace Presentation.Ui
             foreach (var sellItem in def.SellItems)
             {
                 var stock = _economy.GetStock(CurrentVendorId.Value, sellItem.ItemId);
-                _sellItems.Add(new VendorSellItemSnapshot(sellItem.ItemId, sellItem.PriceCurrencyId, sellItem.PriceAmount, stock));
+                // T-N4-11：单价改经 IEconomyHost.TryGetSellItemPrice 读取（与 EconomyHost.Buy 实际
+                // 扣款同一条价格解析路径——price_amount 未填时按价格公式算，不再直接读
+                // sellItem.PriceAmount 这个"未填时恒为 0 占位"的字段，见该成员判断记录）；
+                // 本次调用的 (vendorId, itemId) 都取自 def.SellItems 本身，唯一生产实现
+                // EconomyHost 恒能命中，理论上不会返回 null——仍以 sellItem.PriceAmount 兜底，
+                // 与既有"接口默认值可能是 null"的一贯防御性写法一致，不假设具体实现细节。
+                var price = _economy.TryGetSellItemPrice(CurrentVendorId.Value, sellItem.ItemId) ?? sellItem.PriceAmount;
+                _sellItems.Add(new VendorSellItemSnapshot(sellItem.ItemId, sellItem.PriceCurrencyId, price, stock));
             }
         }
 

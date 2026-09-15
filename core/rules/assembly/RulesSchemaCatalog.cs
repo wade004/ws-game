@@ -125,6 +125,10 @@ namespace Core.Rules.Assembly
             registry.RegisterSchema(PowerSchemas.PowerType);
             registry.RegisterSchema(ProgSchemas.LevelCurve);
             registry.RegisterSchema(ProgSchemas.XpSource);
+            // T-N4-1（ADR-0033 决策 3；落地改动点清单第 10 节拍板 5）：prog.xp_source.base_curve_ref
+            // 引用本表，需先注册才能通过 reference_integrity 校验；消费实现（ProgressionHost.grantXp
+            // 读取本表折算当量）留 T-N4-2。
+            registry.RegisterSchema(ProgSchemas.XpBaseCurve);
             registry.RegisterSchema(ArchSchemas.Class);
             registry.RegisterSchema(ArchSchemas.Race);
             registry.RegisterSchema(ArchSchemas.TalentTree);

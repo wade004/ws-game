@@ -243,7 +243,9 @@ namespace Tests.Foundation.Data
             Assert.NotNull(registry.Get("stat.definition", new Id("stat.strength")));
             // R05/R08 收边补齐：新增 sim.time_model_rescaled、progression.state_restored 两条登记行
             // （见 data/_framework/found/found.event_catalog.json 对应行），88 -> 90。
-            Assert.Equal(90, registry.GetAll("found.event_catalog").Count);
+            // T-N4-8：新增 economy.charged、economy.currency_overflow 两条登记行（ADR-0034 决策 5/4
+            // 修订记录；分阶段落地计划 M7），90 -> 92。
+            Assert.Equal(92, registry.GetAll("found.event_catalog").Count);
             // H4 新增 input.action.end_turn（离散时间模型结束回合意图，见该表判断记录），13 -> 14。
             Assert.Equal(14, registry.GetAll("found.input_action").Count);
 

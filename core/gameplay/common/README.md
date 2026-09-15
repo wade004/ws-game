@@ -18,8 +18,11 @@
 - L1：`Core.Numbers.Progression`（`IProgressionHost`，`RewardDispatcher` 的经验发放依赖）。
 - L3：`Core.Carriers.Common`（`IInventoryHost`/`ItemStack`，物品奖励发放/解析依赖）、
   `Core.Carriers.Item`（`SkillGranter` 委托类型，技能奖励发放依赖）。
-- L4 姊妹模块：`Core.Gameplay.WorldState`（`IWorldState`，`world_flags` 奖励项的发放依赖）——同一个
-  `Core.Gameplay` 程序集内的跨模块引用，不产生新的 `ProjectReference`。
+- L4 姊妹模块：`Core.Gameplay.WorldState`（`IWorldState`，`world_flags` 奖励项的发放依赖）；T-N4-8
+  起新增 `Core.Gameplay.Economy`（`IEconomyHost`，`CurrencyGranters.ViaEconomyHost` 静态工厂用，见
+  `RewardDispatchDelegates.cs` 判断记录与 `core/gameplay/economy/README.md` 同款反向依赖记录，
+  先例是 `core/gameplay/loot` 对 `economy` 的既有依赖，T-N4-7）——同一个 `Core.Gameplay` 程序集内
+  的跨模块引用，不产生新的 `ProjectReference`。
 
 经 `Core.Gameplay.csproj` 既有的 `Core.Carriers` 项目引用传递可见，本模块不新增任何 `ProjectReference`。
 
@@ -36,7 +39,9 @@ common/
     IRewardDispatcher.cs        奖励分发契约：Grant(unitId, bundle, sourceId)
     RewardBundle.cs             奖励包强类型模型 + FromRecord 解析（items/xp/currency/skills/
                                  world_flags/talent_points 六类奖励）
-    RewardDispatchDelegates.cs  CurrencyGranter/TalentPointGranter 两个契约缺口委托
+    RewardDispatchDelegates.cs  CurrencyGranter/TalentPointGranter 两个契约缺口委托；T-N4-8 新增
+                                 CurrencyGranters.ViaEconomyHost 静态工厂，把 CurrencyGranter 收口为
+                                 "经 IEconomyHost.Add 入账"的标准构造方式
     RewardSchemaFields.cs       rewards 字段的 FieldSchema 帮助方法，供 quest.def/encounter.def/
                                  achv.def 三处内容表登记复用，避免各自重复拼写
   core/
@@ -107,12 +112,50 @@ common/
    （事务实现）、`RewardDispatcher.cs`（`GrantItems` 经检测能力接口套用事务）、
    `RewardDispatcherTests.cs`（`Grant_RejectPolicy_SecondItemFails_RollsBackQueuedEventsToo_R01`）。
 
+6. **T-N4-8：`CurrencyGranter` 的"契约缺口"（判断记录 2）在货币这一侧已不成立，新增
+   `CurrencyGranters.ViaEconomyHost` 收口，但委托类型本身未删除**：判断记录 2 写下时
+   `core/gameplay/economy` 尚不存在，"架构未给货币系统定义共享契约接口"是真的；T-N4-6/T-N4-7 把
+   该模块与其 `IEconomyHost` 建起来之后，这个前提不再成立——`IEconomyHost` 就是那个共享契约，
+   与本模块同属 L4、同一个 `Core.Gameplay` 程序集（先例见 `core/gameplay/loot` 对 `economy` 的
+   既有反向依赖，T-N4-7），不需要新增 `ProjectReference` 即可直接引用。本次新增
+   `RewardDispatchDelegates.CurrencyGranters.ViaEconomyHost(IEconomyHost)` 静态工厂，把"货币奖励
+   经 `IEconomyHost.Add` 入账"固化为标准构造方式，供后续新增的组装点直接使用；`CurrencyGranter`
+   委托类型本身未删除（ABI 硬性规则"只允许新增"，且 `RewardDispatcher` 既有构造参数与
+   `core/gameplay/assembly.GameplayAssembly` 现有 `currencyGranter` 闭包——效果同样是转发到
+   `EconomyHost.Add`——都依赖它继续存在），`GameplayAssembly` 现有闭包也未切换到本工厂（该文件
+   本次"只加行"，且现有写法已是同一效果，替换纯属风格统一、留给后续任务，不在 T-N4-8 范围内）。
+   `TalentPointGranter` 一侧的契约缺口（"架构未给天赋点发放定义任何契约接口"）不受影响，仍是
+   判断记录 2 描述的原状——没有对应的"天赋点模块"可以反过来引用。见
+   `core/gameplay/economy/tests/T_N4_8_TryPayReasonAndRewardCurrencyTests.
+   RewardDispatcher_GrantCurrency_ViaEconomyHost_DepositsThroughAdd`。
+
+7. **T-N4-4（ADR-0033 决策 3；硬性规则"禁止奖励直发绝对数"）：`RewardBundle` 新增
+   `XpEquivalent`/`RewardLevel`，`RewardDispatcher.GrantXp` 改经 `IProgressionHost.GrantXp`
+   折算发放**——新增构造重载 `RewardBundle(..., double? xpEquivalent, int? rewardLevel)`（旧
+   6 参数构造函数原样保留、转发新重载并传 `null`）；`FromRecord` 新增解析 `rewards.xp_equivalent`/
+   `rewards.level`（`QuestSchemas.RewardsFields` 同步新增两个可选子字段，`quest.def`/
+   `encounter.def`/`achv.def` 三张表共用同一份声明自动生效）。`RewardDispatcher.GrantXp`（私有
+   方法）：`XpEquivalent` 非空时——先查 `IProgressionHost.HasXpSource(questXpSourceId)`（未登记
+   跳过、记诊断，不抛异常，同 `core/gameplay/progression_bridge` 两个监听器同一惯例）——查到即
+   `GrantXp(unitId, questXpSourceId, new XpContext(rewardLevel ?? 1, equivalent: xpEquivalent))`；
+   `questXpSourceId` 取自新增构造重载 `RewardDispatcher(..., ProgressionOptions? progressionOptions)`
+   的 `ProgressionOptions.QuestXpSourceId`（未配置落到约定 id `prog.xp_source.quest`，见公开
+   静态字段 `RewardDispatcher.DefaultQuestXpSourceId`）——**不是** `Grant` 收到的 `sourceId`
+   参数（那个参数语义是"任务/遭遇/成就的 id"，供 `currency`/`skills`/`world_flags`/
+   `talent_points` 四类奖励标注来源，两者刻意区分）。`XpEquivalent` 为 `null` 时逐位保留旧字段
+   `Xp`（已废弃但保留一个版本周期）经 `IProgressionHost.AddXp` 绝对数直发的路径，行为与本任务
+   之前完全一致（回归锁死）。**契约疑点上报**：08 原文未给出"任务等级"这一折算输入的字面挂载
+   点，本任务落在 `rewards` 子结构自身（`rewards.level`），详见 `RewardBundle.FromRecord`
+   判断记录"reward_level 挂载点"。
+
 ## 不负责什么
 
 - 不实现"组合支付"（`ExtendedCost` 多货币/多物品组合支付）与"多选一奖励"（08 第 2.4 节
   `rewards.items` 扩展为"多选一"分组结构，原文"留待后续 ADR"）——本模块只落地当前单一固定结构。
-- 不解决判断记录 2 描述的 `CurrencyGranter`/`TalentPointGranter` 契约缺口本身（架构未给货币/
-  天赋点系统定义共享接口），只提供委托绕过。
+- 不解决判断记录 2 描述的 `TalentPointGranter` 契约缺口本身（架构未给天赋点系统定义共享接口），
+  只提供委托绕过；`CurrencyGranter` 一侧该缺口已被 T-N4-8 收口，见判断记录 6。
+- 不强制既有组装点（`GameplayAssembly`）切换到 `CurrencyGranters.ViaEconomyHost`——判断记录 6
+  已说明现有闭包效果相同，切换属风格统一，不在本模块任何已完成任务范围内。
 - 不知道"何时该发奖励"——不订阅任何事件、不持有任何触发时机的判断逻辑，`IRewardDispatcher.Grant`
   由 `quest`/`encounter`/`achievement` 各自在完成/达成时机主动调用。
 - 不对外暴露任何数据表（`quest.def`/`encounter.def`/`achv.def` 各自的 `TableSchema` 由使用方模块

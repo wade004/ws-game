@@ -109,10 +109,12 @@ namespace Core.Gameplay.Loot
                     $"第 {groupIndex} 个分组第 {entryIndex} 条 entries 缺少合法的 ref 字段");
             }
 
-            if (refId.Domain != "item" && refId.Domain != "loot")
+            // T-N4-7（ADR-0034 决策 3；08 第 1.1 节修订段"LootEntry.ref 允许引用 econ.currency"）：
+            // 放行 econ 域——货币掉落条目，见 LootHost.ResolveCurrencyOutcome 判断记录。
+            if (refId.Domain != "item" && refId.Domain != "loot" && refId.Domain != "econ")
             {
                 throw new DataFieldException(record.Table.Name, record.Key, "groups",
-                    $"第 {groupIndex} 个分组第 {entryIndex} 条 entries 的 ref \"{refId}\" 领域段必须是 item 或 loot");
+                    $"第 {groupIndex} 个分组第 {entryIndex} 条 entries 的 ref \"{refId}\" 领域段必须是 item、loot 或 econ");
             }
 
             if (!entryObj.TryGetValue("weight_or_chance", out var wocVal) || !(wocVal is JsonNumber wocNum))

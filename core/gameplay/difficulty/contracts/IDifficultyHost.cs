@@ -63,6 +63,21 @@ namespace Core.Gameplay.Difficulty
         /// </summary>
         int ItemLevelOffset => 0;
 
+        /// <summary>T-N4-4 新增（ADR-0033 决策 4；08 第 5.1 节修订段）：当前档位的经验倍率（供
+        /// <see cref="Core.Numbers.Progression.ProgressionOptions.ExtraXpMultiplierProvider"/>
+        /// 钩子引用——与 <c>creature.tier_definition.xp_multiplier</c> 相乘，仅在
+        /// <c>kind=kill</c> 分支生效，见该委托判断记录；调用方自行从本属性取值，本模块不反向依赖
+        /// Progression，同 <see cref="LootMultiplier"/> 一贯口径）；未应用任何档位时为 <c>1.0</c>
+        /// （"无难度修正"的中性默认值）。
+        /// <para>
+        /// 判断记录（默认接口成员而非普通抽象成员）：与 <see cref="ItemLevelOffset"/> 同一理由——
+        /// 硬性规则"ABI 只允许新增"，<see cref="IDifficultyHost"/> 已发布；唯一实现方
+        /// <see cref="Core.Gameplay.Difficulty.DifficultyHost"/> 显式转发真实值，不落回默认实现
+        /// （见 <c>Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests</c> 门禁）。
+        /// </para>
+        /// </summary>
+        double XpMultiplier => 1.0;
+
         /// <summary>是否允许中途切换难度档位（08 第 9 节汇总表策略配置项，透传
         /// <see cref="DifficultyOptions.AllowMidSwitch"/>）。</summary>
         bool AllowMidSwitch { get; }

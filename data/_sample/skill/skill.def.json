@@ -144,6 +144,23 @@
       ]
     },
     {
+      "id": "skill.sample_mount",
+      "school": "school.arcane",
+      "kind": "active",
+      "range": 0,
+      "tags": ["skill.tag.sample_mount"],
+      "cast_time": 0,
+      "respects_gcd": false,
+      "use_condition": "not combat.in_combat",
+      "target_shape_ref": "target.chain.sample_self",
+      "effects": [
+        {
+          "kind": "apply_aura",
+          "params": { "aura_def": "skill.aura_def.sample_mount_speed" }
+        }
+      ]
+    },
+    {
       "id": "skill.sample_parry",
       "school": "school.physical",
       "kind": "active",

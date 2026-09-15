@@ -232,6 +232,12 @@ namespace Core.Gameplay.Assembly
         /// 缺口，补齐参数而不是改文档退让）。全部三个默认 <c>null</c>，不改变未显式传入时的既有
         /// 行为。
         /// </summary>
+        /// <summary>T-N4-4 判断记录（ABI 门禁 G3，同 <see cref="Core.Rules.Assembly.RulesAssembly"/>/
+        /// <see cref="Core.Carriers.Assembly.CarriersAssembly"/> 对应构造函数判断记录）：本仓库已
+        /// 发布 1.33.0 基线，直接在本构造函数已发布的参数列表末尾追加新参数会被
+        /// <c>toolchain/abi_probe.ps1</c> 判定为破坏性变更——改用"新增重载"，本构造函数保留原物理
+        /// 签名不变，转发给下方新增的带 <see cref="ProgressionOptions"/> 参数的重载（携带全部真正
+        /// 构造逻辑）并传 <c>null</c>。</summary>
         public GameplayAssembly(
             IEventBus bus,
             IDataRegistryView registry,
@@ -273,6 +279,67 @@ namespace Core.Gameplay.Assembly
             Func<Id, Id?>? questOwnerResolver = null,
             Func<long>? questDayProvider = null,
             VendorOpenRequestedCallback? vendorOpenRequested = null)
+            : this(bus, registry, rng, world, spatial, saveSystem, playerUnitProvider, playerFactionId,
+                navigation, spatialSyncKinds, sceneRouter, statOptions, combatOptions, skillOptions,
+                targetingOptions, aiOptions, inventoryOptions, itemOptions, creatureOptions, summonOptions,
+                gobjOptions, movementOptions, worldStateOptions, lootOptions, economyOptions, questOptions,
+                difficultyOptions, achievementOptions, areaTriggerOptions, spawnOptions, autosaveSlotId,
+                autosaveTimestampProvider, clockHost, pacingPolicy, timeModelSwitchOptions,
+                combatParticipantsResolver, deathPolicyOptions, questOwnerResolver, questDayProvider,
+                vendorOpenRequested, progressionOptions: null)
+        {
+        }
+
+        /// <summary>
+        /// T-N4-4 新增构造重载：接受 <see cref="ProgressionOptions"/>（ADR-0033 决策 4），供
+        /// <c>ExtraXpMultiplierProvider</c>（分档倍率 × 难度倍率）/<c>KillXpSourceId</c>/
+        /// <c>DiscoveryXpSourceId</c>/<c>QuestXpSourceId</c> 等策略配置项接线（ABI 门禁 G3：见上方
+        /// 旧签名构造函数判断记录，本重载全部参数均不带默认值——原因同
+        /// <see cref="Core.Rules.Assembly.RulesAssembly"/> 对应构造函数判断记录"本重载全部参数均
+        /// 不带默认值"，唯一调用点为本类型自身的旧签名构造函数，已同步显式列出全部参数）。
+        /// </summary>
+        public GameplayAssembly(
+            IEventBus bus,
+            IDataRegistryView registry,
+            IRngHost rng,
+            IWorldSim world,
+            ISpatialQuery spatial,
+            ISaveSystem saveSystem,
+            Func<Id> playerUnitProvider,
+            Id playerFactionId,
+            INavigation2D? navigation,
+            IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig>? spatialSyncKinds,
+            ISceneRouter? sceneRouter,
+            StatHostOptions? statOptions,
+            CombatOptions? combatOptions,
+            SkillOptions? skillOptions,
+            TargetingOptions? targetingOptions,
+            AiOptions? aiOptions,
+            InventoryOptions? inventoryOptions,
+            ItemOptions? itemOptions,
+            CreatureOptions? creatureOptions,
+            SummonOptions? summonOptions,
+            GobjOptions? gobjOptions,
+            MovementOptions? movementOptions,
+            WorldStateOptions? worldStateOptions,
+            LootOptions? lootOptions,
+            EconomyOptions? economyOptions,
+            QuestOptions? questOptions,
+            DifficultyOptions? difficultyOptions,
+            AchievementOptions? achievementOptions,
+            AreaTriggerOptions? areaTriggerOptions,
+            SpawnOptions? spawnOptions,
+            Id? autosaveSlotId,
+            Func<string>? autosaveTimestampProvider,
+            ISimClockHost? clockHost,
+            IPacingPolicy? pacingPolicy,
+            TimeModelSwitchOptions? timeModelSwitchOptions,
+            Func<Id, IReadOnlyList<Id>>? combatParticipantsResolver,
+            Core.Gameplay.Death.DeathPolicyOptions? deathPolicyOptions,
+            Func<Id, Id?>? questOwnerResolver,
+            Func<long>? questDayProvider,
+            VendorOpenRequestedCallback? vendorOpenRequested,
+            ProgressionOptions? progressionOptions)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
@@ -330,7 +397,7 @@ namespace Core.Gameplay.Assembly
             WorldState = new WorldStateHost(bus, worldStateOptions);
 
             // ---------------------------------------------------------
-            // 2) 两个延迟绑定代理（惯例同 core/rules/assembly.RulesAssembly.DeferredAuraQuery、
+            // 2) 延迟绑定代理（惯例同 core/rules/assembly.RulesAssembly.DeferredAuraQuery、
             //    core/rules/assembly.DeferredEffectExtension）：
             //    - deferredLootRoller：CarriersAssembly 构造期需要一个 ILootRoller 传给
             //      GameObjectHost（chest/gather_node 掉落），但真正的 LootHost 需要
@@ -338,10 +405,16 @@ namespace Core.Gameplay.Assembly
             //    - deferredQuestGroup / deferredPlayerGroup：ExprHostFactory（第 4 步）需要的
             //      extraGroups 里，world 分组可以立即绑定（WorldState 已就绪），quest/player 分组
             //      依赖尚未构造的 QuestHost/EconomyHost，同样先占位。
+            //    - deferredEconomyHost（T-N4-7）：第 6 步 LootHost/CreatureDeathLootListener 构造时
+            //      需要一个 IEconomyHost 用于货币掉落条目换算/入账，但真正的 EconomyHost 要到第 8 步
+            //      才构造出来（且不提前到第 6 步之前——EconomyHost 本身不依赖 Loot/Difficulty，但
+            //      提前构造会改变全部宿主的构造/事件订阅顺序，超出本任务"最小改动"范围，见判断记录）；
+            //      先占位，第 8 步 EconomyHost 造好后 Bind，同 deferredLootRoller 一贯做法。
             // ---------------------------------------------------------
             var deferredLootRoller = new DeferredLootRoller();
             var deferredQuestGroup = new DeferredExprGroupProvider();
             var deferredPlayerGroup = new DeferredExprGroupProvider();
+            var deferredEconomyHost = new DeferredEconomyHost();
 
             // ---------------------------------------------------------
             // 3) CarriersAssembly（L0～L3）：worldFlags 直接注入 WorldState；lootRoller 注入延迟代理；
@@ -393,17 +466,28 @@ namespace Core.Gameplay.Assembly
             // 只是提前到这里做，好让本类型拿到同一份引用）。
             var resolvedTargetingOptions = targetingOptions ?? new TargetingOptions();
 
+            // T-N4-4（ADR-0033 决策 4）：resolvedProgressionOptions 必须在这里就地 new 出来（同
+            // resolvedGobjOptions/resolvedSkillOptions/resolvedTargetingOptions 判断记录）——
+            // CarriersAssembly 构造期就要把它转给 RulesAssembly/ProgressionHost 持有同一份引用，
+            // 本方法随后（Difficulty 构造完成之后）才能回填 ExtraXpMultiplierProvider（分档倍率 ×
+            // 难度倍率），必须是同一个对象才能"回填"生效。KillXpSourceId/DiscoveryXpSourceId/
+            // QuestXpSourceId 三个来源 id 策略配置项同样靠这份共享实例，第 6/7 步分别接给
+            // CreatureDeathXpListener/AreaTriggerDiscoveryXpListener/RewardDispatcher，取代此前
+            // 各自默认落到全字段缺省的 ProgressionOptions() 实例（本任务起接上）。
+            var resolvedProgressionOptions = progressionOptions ?? new ProgressionOptions();
+
             Carriers = new CarriersAssembly(
                 bus, registry, rng, world, spatial, navigation, resolvedSpatialSyncKinds,
                 worldFlags: WorldState, lootRoller: deferredLootRoller,
                 statOptions: statOptions, combatOptions: combatOptions, skillOptions: resolvedSkillOptions,
                 targetingOptions: resolvedTargetingOptions, aiOptions: aiOptions, inventoryOptions: inventoryOptions,
                 itemOptions: itemOptions, creatureOptions: creatureOptions, summonOptions: summonOptions,
-                gobjOptions: resolvedGobjOptions, movementOptions: movementOptions,
+                gobjOptions: resolvedGobjOptions, movementOptions: movementOptions, projectileOptions: null,
                 extraSchemas: new IExprSchema[] { GameplaySchemaCatalog.FullExprSchema },
                 discreteTurnIndexProvider: () => scheduler?.CurrentTurnIndex ?? 0,
                 discreteRoundIndexProvider: () => scheduler?.RoundIndex ?? 0,
-                discreteCurrentActorProvider: () => scheduler?.GetCurrentActor());
+                discreteCurrentActorProvider: () => scheduler?.GetCurrentActor(),
+                progressionOptions: resolvedProgressionOptions);
 
             // ---------------------------------------------------------
             // 3.5) ADR-0013 离散时间模型：TurnScheduler 提前在这里构造（而不是等到第 10 步
@@ -481,13 +565,34 @@ namespace Core.Gameplay.Assembly
                 registry, bus, Carriers.Rules.Skill.EffectSink, Carriers.Rules.Factions, Carriers.Units,
                 difficultyOptions ?? new DifficultyOptions(playerFactionId));
 
+            // T-N4-4（ADR-0033 决策 4；见 resolvedProgressionOptions 声明处判断记录）：
+            // Carriers.Creatures 与 Difficulty 均已构造完成，直接设置默认
+            // ExtraXpMultiplierProvider——不需要像 healthFractionSetter/powers 那样用闭包延迟回填
+            // （ProgressionHost 只在 GrantXp 真正被调用时才读取本委托，构造完成之后设置属性同样
+            // 生效）。调用方显式配置过本委托时尊重调用方的选择，不覆盖（同 resolvedGobjOptions 一类
+            // "调用方可以只关心自己需要的子集"惯例）。tierId 为 null（死亡单位未登记模板/分档，见
+            // CreatureDeathXpListener.ResolveTierId 判断记录）时退化为"无分档加成"（乘 1）。
+            if (resolvedProgressionOptions.ExtraXpMultiplierProvider == null)
+            {
+                resolvedProgressionOptions.ExtraXpMultiplierProvider = (unitId, sourceId, tierId) =>
+                {
+                    var tierMultiplier = tierId.HasValue && Carriers.Creatures.TryGetXpMultiplier(tierId.Value, out var m)
+                        ? m
+                        : 1.0;
+                    return tierMultiplier * Difficulty.XpMultiplier;
+                };
+            }
+
             // ---------------------------------------------------------
             // 6) LootHost（+ CreatureDeathLootListener）：造好后立即回填 deferredLootRoller。
+            //    T-N4-7：economyHost 传 deferredEconomyHost（第 2 步占位，第 8 步真正的 EconomyHost
+            //    造好后 Bind）——货币掉落条目换算/拾取入账/击杀即入账均经它，见 LootHost/
+            //    CreatureDeathLootListener 各自该构造重载判断记录。
             // ---------------------------------------------------------
             Loot = new LootHost(
                 registry, rng, bus, world, Carriers.Units, Carriers.Inventory, ExprHostFactory,
                 () => Carriers.Rules.SimTime, lootOptions, diagnostics: null,
-                conditionSchema: GameplaySchemaCatalog.FullExprSchema);
+                conditionSchema: GameplaySchemaCatalog.FullExprSchema, economyHost: deferredEconomyHost);
             deferredLootRoller.Bind(Loot);
 
             // T-N2-8b：Difficulty 已在上一步构造完成，直接传入（不需要像 healthFractionSetter/
@@ -496,7 +601,15 @@ namespace Core.Gameplay.Assembly
             _ = new CreatureDeathLootListener(
                 bus, Loot, Carriers.Creatures, Carriers.Units, world,
                 lootMultiplierProvider: () => Difficulty.LootMultiplier,
-                difficultyHost: Difficulty);
+                difficultyHost: Difficulty,
+                economyHost: deferredEconomyHost);
+
+            // T-N4-3（ADR-0033 决策 3；core/gameplay/progression_bridge/README.md 判断记录 2"接线
+            // 顺序先掉落后经验"）：接在 CreatureDeathLootListener 构造之后，订阅同一个 unit.died；
+            // 两者互不持有对方引用、本类不读取任何掉落结果（任务书硬性规则）。
+            _ = new Core.Gameplay.ProgressionBridge.CreatureDeathXpListener(
+                bus, Carriers.Rules.Progression, Carriers.Units, Carriers.Creatures,
+                summons: Carriers.Summons, options: resolvedProgressionOptions);
 
             // ---------------------------------------------------------
             // 7) RewardDispatcher：currencyGranter 用局部变量延迟闭包接到第 8 步才构造出来的
@@ -518,9 +631,11 @@ namespace Core.Gameplay.Assembly
                 else Carriers.Rules.Skill.ForgetSkill(unitId, skillId, sourceId);
             };
 
+            // T-N4-4：改用带 ProgressionOptions 的构造重载——resolvedProgressionOptions.QuestXpSourceId
+            // 供 RewardDispatcher.GrantXp 的 xp_equivalent 折算分支使用（见该字段判断记录）。
             Reward = new RewardDispatcher(
                 Carriers.Inventory, Carriers.Rules.Progression, WorldState, skillGranter, currencyGranter,
-                talentPointGranter: null, diagnostics: null);
+                talentPointGranter: null, diagnostics: null, progressionOptions: resolvedProgressionOptions);
 
             // ---------------------------------------------------------
             // 8) EconomyHost，随后回填第 7 步的闭包变量。
@@ -529,6 +644,10 @@ namespace Core.Gameplay.Assembly
                 registry, bus, Carriers.Inventory, ExprHostFactory, economyOptions, diagnostics: null,
                 conditionSchema: GameplaySchemaCatalog.FullExprSchema);
             economyForGrant = Economy;
+            // T-N4-7：第 2 步占位的 deferredEconomyHost 回填真实 EconomyHost——见该变量声明处判断
+            // 记录（第 6 步 LootHost/CreatureDeathLootListener 已经拿到这个代理引用，从这一刻起
+            // 它们对 IEconomyHost 的调用才会真正落到 Economy 上）。
+            deferredEconomyHost.Bind(Economy);
 
             deferredPlayerGroup.Bind(new ChainedExprGroupProvider(new IExprGroupProvider[]
             {
@@ -806,6 +925,15 @@ namespace Core.Gameplay.Assembly
             // Unregister/UnloadMap 时创建/销毁对应实体。
             AreaTrigger = new AreaTriggerHost(world, WorldState, bus, ExprHostFactory, Hooks, resolvedAreaTriggerOptions);
 
+            // T-N4-3（ADR-0033 决策 3；core/gameplay/progression_bridge/README.md 判断记录 6"区域/
+            // 区域等级由调用方经 AreaDiscoveryLevelResolver 提供，不改 area_trigger schema"）：
+            // 框架本身不预设任何具体区域列表，本装配根不注入具体委托（等价于"没有任何区域配置为
+            // 探索奖励"，零成本退化，不发放、不写任何一次性标志）；某个具体游戏要启用探索经验时，
+            // 在自己的组合根里提供一个真正的委托即可。
+            _ = new Core.Gameplay.ProgressionBridge.AreaTriggerDiscoveryXpListener(
+                bus, Carriers.Rules.Progression, Carriers.Units, WorldState, registry,
+                options: resolvedProgressionOptions);
+
             // ---------------------------------------------------------
             // 16) 补上 gobj 侧四个 L4 回调（GobjOptions 是 CarriersAssembly 构造时已经用过的同一个
             //     实例——CarriersAssembly 不拷贝，直接持有引用，见该类型第 7 步；此刻回填仍然生效，
@@ -914,6 +1042,15 @@ namespace Core.Gameplay.Assembly
             // RestoreFromSlot 类型注释）——接同一份"读档 + 必要时切场景"协议，行为与
             // ShellHost.LoadGame 保持一致。
             resolvedDeathPolicyOptions.ReloadSave ??= RestoreFromSlot;
+
+            // T-N4-9（ADR-0034 决策 6；06 第 4.6 节修订段"复活费"）：把 IEconomyHost.GetBalance/
+            // TryPay 包成两个窄委托注入 DeathPolicyHost（硬性规则"禁止 DeathPolicyHost 直接依赖
+            // IEconomyHost"）——resolvedDeathPolicyOptions.RespawnFee 默认 None，未显式配置为
+            // PctOfBalance/FixedByLevel 时这两个委托即便接线也不会被调用，接线本身对既有游戏/测试
+            // 零影响（同 ReviveUnit/ResolveDefaultSpawn 一贯的 ??= 只在未显式覆盖时接线手法）。
+            resolvedDeathPolicyOptions.RespawnFeeBalance ??= Economy.GetBalance;
+            resolvedDeathPolicyOptions.RespawnFeeCharge ??=
+                (unitId, currencyId, amount) => Economy.TryPay(unitId, currencyId, amount, "respawn_fee");
 
             Death = new Core.Gameplay.Death.DeathPolicyHost(
                 bus, world, SaveSystem, AppState, Carriers.Rules.CombatOptions.DeathPolicy, resolvedDeathPolicyOptions);
@@ -1671,6 +1808,71 @@ namespace Core.Gameplay.Assembly
             /// <see cref="ILootRoller.RollDetailed"/> 判断记录"组合/包装实现方……应显式重写"。</summary>
             public IReadOnlyList<Core.Carriers.Common.LootRollOutcome> RollDetailed(Id lootTableId, Id sourceUnitId, Id? killerId) =>
                 _real?.RollDetailed(lootTableId, sourceUnitId, killerId) ?? Array.Empty<Core.Carriers.Common.LootRollOutcome>();
+        }
+
+        /// <summary>
+        /// 判断记录（延迟绑定 <see cref="IEconomyHost"/>，T-N4-7）：第 6 步 <see cref="LootHost"/>/
+        /// <see cref="CreatureDeathLootListener"/> 构造期需要一个 <see cref="IEconomyHost"/> 用于
+        /// 货币掉落条目换算/入账，而真正的 <see cref="EconomyHost"/> 要到第 8 步才构造出来——同
+        /// <see cref="DeferredLootRoller"/> 一贯惯例延迟绑定。未绑定期间全部成员静默退化（不抛
+        /// 异常）：查询类返回中性默认值（0/null/默认策略），写入类返回 <c>false</c>（"未生效"），
+        /// <see cref="Buy"/>/<see cref="Sell"/> 返回"未知商人"失败——组装期本身不会真正触发这些
+        /// 调用（全部消费发生在装配完成之后），这里只是给类型系统一个非空占位。
+        /// <para>
+        /// 显式转发两个默认接口成员（<see cref="TryGetGoldBaseAmount"/>/<see cref="DepositPolicy"/>），
+        /// 不落回 <see cref="IEconomyHost"/> 自身默认实现——同 <see cref="DeferredLootRoller.RollDetailed"/>
+        /// 判断记录，见 <c>Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests</c> 门禁。
+        /// </para>
+        /// <para>
+        /// T-N4-8 追加：<see cref="IEconomyHost"/> 新增第三个默认接口成员
+        /// <c>TryPay(Id,Id,long,string)</c>（带 reason 的原子扣费重载），同上一段判断记录同样显式
+        /// 转发，不落回接口自身默认实现。
+        /// </para>
+        /// </summary>
+        private sealed class DeferredEconomyHost : IEconomyHost
+        {
+            private IEconomyHost? _real;
+
+            public void Bind(IEconomyHost real) => _real = real ?? throw new ArgumentNullException(nameof(real));
+
+            public void RegisterUnit(Id unitId) => _real?.RegisterUnit(unitId);
+
+            public long GetBalance(Id unitId, Id currencyId) => _real?.GetBalance(unitId, currencyId) ?? 0;
+
+            public bool Add(Id unitId, Id currencyId, long amount, Id sourceId) =>
+                _real?.Add(unitId, currencyId, amount, sourceId) ?? false;
+
+            public bool SetBalance(Id unitId, Id currencyId, long amount) =>
+                _real?.SetBalance(unitId, currencyId, amount) ?? false;
+
+            public bool TryPay(Id unitId, Id currencyId, long amount) =>
+                _real?.TryPay(unitId, currencyId, amount) ?? false;
+
+            // T-N4-8：显式转发带 reason 的重载，不落回 IEconomyHost 自身默认实现（同本类型其余两个
+            // 默认接口成员 TryGetGoldBaseAmount/DepositPolicy 的判断记录，Tests.Presentation.Assembly.
+            // InterfaceDefaultMemberForwardingTests 门禁要求）。
+            public bool TryPay(Id unitId, Id currencyId, long amount, string reason) =>
+                _real?.TryPay(unitId, currencyId, amount, reason) ?? false;
+
+            public PurchaseResult Buy(Id unitId, Id vendorId, Id itemId, int count) =>
+                _real?.Buy(unitId, vendorId, itemId, count) ?? PurchaseResult.Fail(PurchaseFailureReason.UnknownVendor);
+
+            public SellResult Sell(Id unitId, Id vendorId, Id itemInstanceId, int count) =>
+                _real?.Sell(unitId, vendorId, itemInstanceId, count) ?? SellResult.Fail(SellFailureReason.UnknownVendor);
+
+            public void OnMapEnter(Id mapId) => _real?.OnMapEnter(mapId);
+
+            public void Update(double dt) => _real?.Update(dt);
+
+            public int? GetStock(Id vendorId, Id itemId) => _real?.GetStock(vendorId, itemId);
+
+            public double? TryGetGoldBaseAmount(int level) => _real?.TryGetGoldBaseAmount(level);
+
+            public CurrencyDepositPolicy DepositPolicy => _real?.DepositPolicy ?? CurrencyDepositPolicy.OnKill;
+
+            // T-N4-11：显式转发，不落回 IEconomyHost 自身默认实现（同本类型其余默认接口成员的判断
+            // 记录，Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests 门禁要求）。
+            public long? TryGetSellItemPrice(Id vendorId, Id itemId) => _real?.TryGetSellItemPrice(vendorId, itemId);
         }
 
         /// <summary>

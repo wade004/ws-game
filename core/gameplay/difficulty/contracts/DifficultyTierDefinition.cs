@@ -40,9 +40,14 @@ namespace Core.Gameplay.Difficulty
         /// <c>creature.tier_definition.sort_weight</c>）。</summary>
         public double SortWeight { get; }
 
+        /// <summary>T-N4-4 新增（ADR-0033 决策 4；08 第 5.1 节修订段）：该难度档的经验倍率，缺省
+        /// 1（同 <see cref="LootMultiplier"/>/<see cref="ItemLevelOffset"/> 一贯口径——未配置时
+        /// 中性默认值）。</summary>
+        public double XpMultiplier { get; }
+
         private DifficultyTierDefinition(
             Id id, Id nameKey, IReadOnlyList<Id> modifierAuraRefs, Id? affixPoolRef,
-            double lootMultiplier, int itemLevelOffset, double sortWeight)
+            double lootMultiplier, int itemLevelOffset, double sortWeight, double xpMultiplier)
         {
             Id = id;
             NameKey = nameKey;
@@ -51,6 +56,7 @@ namespace Core.Gameplay.Difficulty
             LootMultiplier = lootMultiplier;
             ItemLevelOffset = itemLevelOffset;
             SortWeight = sortWeight;
+            XpMultiplier = xpMultiplier;
         }
 
         public static DifficultyTierDefinition FromRecord(DataRecord record)
@@ -64,8 +70,9 @@ namespace Core.Gameplay.Difficulty
             var lootMultiplier = record.GetNumber("loot_multiplier");
             var itemLevelOffset = record.TryGetInt("item_level_offset", out var ilo) ? (int)ilo : 0;
             var sortWeight = record.TryGetNumber("sort_weight", out var sw) ? sw : 0.0;
+            var xpMultiplier = record.TryGetNumber("xp_multiplier", out var xm) ? xm : 1.0;
 
-            return new DifficultyTierDefinition(id, nameKey, modifierAuraRefs, affixPoolRef, lootMultiplier, itemLevelOffset, sortWeight);
+            return new DifficultyTierDefinition(id, nameKey, modifierAuraRefs, affixPoolRef, lootMultiplier, itemLevelOffset, sortWeight, xpMultiplier);
         }
     }
 }

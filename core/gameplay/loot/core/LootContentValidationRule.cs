@@ -21,11 +21,14 @@ namespace Core.Gameplay.Loot
     /// 只做登记表达不了的业务判断：
     /// </para>
     /// <list type="number">
-    /// <item><description><c>ref</c> 领域段必须是 <c>item</c> 或 <c>loot</c>，且目标记录必须存在——
-    /// 域名本身不是 <see cref="FieldKind.Id"/> 能表达的约束（见 <see cref="LootSchemas"/> 判断记录），
-    /// 存在性检查沿用 <c>core/gameplay/spawn.SpawnContentRefRule</c> 惯例："目标表已加载才检查是否
-    /// 存在，未加载视为无法判定、不报告"（保证只装配本模块单表的测试/校验场景不会因为 <c>item.template</c>
-    /// 未加载而误报）。</description></item>
+    /// <item><description><c>ref</c> 领域段必须是 <c>item</c>、<c>loot</c> 或 <c>econ</c>（T-N4-7：
+    /// ADR-0034 决策 3"掉落表新增货币类条目"，08 第 1.1 节修订段"<c>LootEntry.ref</c> 允许引用
+    /// <c>econ.currency</c>"），且目标记录必须存在——域名本身不是 <see cref="FieldKind.Id"/> 能表达的
+    /// 约束（见 <see cref="LootSchemas"/> 判断记录），存在性检查沿用 <c>core/gameplay/spawn.
+    /// SpawnContentRefRule</c> 惯例："目标表已加载才检查是否存在，未加载视为无法判定、不报告"（保证
+    /// 只装配本模块单表的测试/校验场景不会因为 <c>item.template</c>/<c>econ.currency</c> 未加载而
+    /// 误报）。<c>econ</c> 域固定指向 <c>econ.currency</c>（唯一登记在该域下的表，不像 <c>item</c>
+    /// 域可能存在多张子表），目标记录是否存在按同一惯例检查。</description></item>
     /// <item><description><c>weight_or_chance</c> 的合法区间随同一分组的 <c>roll_mode</c> 变化
     /// （<c>chance_each</c>: [0,1]；<c>weighted_pick_one</c>: &gt;=0），登记层看不到"父级取值"，
     /// 是数值范围约束，登记表达不了。</description></item>
@@ -52,6 +55,9 @@ namespace Core.Gameplay.Loot
 
         private const string ItemTemplateTable = "item.template";
 
+        /// <summary>T-N4-7：<c>ref</c> 的 <c>econ</c> 域固定指向该表（见类型注释判断记录）。</summary>
+        private const string EconCurrencyTable = "econ.currency";
+
         public LootContentValidationRule()
         {
         }
@@ -73,6 +79,7 @@ namespace Core.Gameplay.Loot
         {
             var records = view.GetAll(LootSchemas.Table.Name);
             var itemTableLoaded = TableLoaded(view, ItemTemplateTable);
+            var econCurrencyTableLoaded = TableLoaded(view, EconCurrencyTable);
 
             // 图节点：全部已加载的 loot.table 记录（无论其内部结构是否合法，均作为 DFS 起点候选，
             // 惯例同退役前的实现——结构不合法的记录不会产生任何出边，DFS 到它就地结束，不影响其它
@@ -88,7 +95,7 @@ namespace Core.Gameplay.Loot
 
             foreach (var record in records)
             {
-                foreach (var issue in ValidateRecord(view, record, itemTableLoaded, graph))
+                foreach (var issue in ValidateRecord(view, record, itemTableLoaded, econCurrencyTableLoaded, graph))
                 {
                     yield return issue;
                 }
@@ -114,7 +121,7 @@ namespace Core.Gameplay.Loot
         }
 
         private IEnumerable<ValidationIssue> ValidateRecord(
-            IDataRegistryView view, DataRecord record, bool itemTableLoaded, Dictionary<Id, List<Id>> graph)
+            IDataRegistryView view, DataRecord record, bool itemTableLoaded, bool econCurrencyTableLoaded, Dictionary<Id, List<Id>> graph)
         {
             if (record.TryGetInt("guaranteed_min", out var guaranteedMin) && guaranteedMin < 0)
             {
@@ -163,7 +170,7 @@ namespace Core.Gameplay.Loot
                         continue; // 结构层已报告。
                     }
 
-                    foreach (var issue in ValidateEntry(view, record, gi, ei, entryObj, rollMode, itemTableLoaded, outEdges))
+                    foreach (var issue in ValidateEntry(view, record, gi, ei, entryObj, rollMode, itemTableLoaded, econCurrencyTableLoaded, outEdges))
                     {
                         yield return issue;
                     }
@@ -173,15 +180,15 @@ namespace Core.Gameplay.Loot
 
         private IEnumerable<ValidationIssue> ValidateEntry(
             IDataRegistryView view, DataRecord record, int groupIndex, int entryIndex, JsonObject entryObj,
-            string? rollMode, bool itemTableLoaded, List<Id>? outEdges)
+            string? rollMode, bool itemTableLoaded, bool econCurrencyTableLoaded, List<Id>? outEdges)
         {
             if (entryObj.TryGetValue("ref", out var refVal) && refVal is JsonString refStr && Id.TryParse(refStr.Value, out var refId))
             {
-                if (refId.Domain != "item" && refId.Domain != "loot")
+                if (refId.Domain != "item" && refId.Domain != "loot" && refId.Domain != "econ")
                 {
                     yield return new ValidationIssue(
                         ValidationSeverity.Error, LootSchemas.Table.Name, Check,
-                        $"第 {groupIndex} 个分组第 {entryIndex} 条 entries 的 ref \"{refId}\" 领域段必须是 item 或 loot",
+                        $"第 {groupIndex} 个分组第 {entryIndex} 条 entries 的 ref \"{refId}\" 领域段必须是 item、loot 或 econ",
                         recordKey: record.Key, field: "groups");
                 }
                 else if (refId.Domain == "item")
@@ -194,7 +201,7 @@ namespace Core.Gameplay.Loot
                             recordKey: record.Key, field: "groups");
                     }
                 }
-                else // loot 域：loot.table 就是本规则正在遍历的表，必然已加载。
+                else if (refId.Domain == "loot") // loot.table 就是本规则正在遍历的表，必然已加载。
                 {
                     outEdges?.Add(refId);
 
@@ -203,6 +210,16 @@ namespace Core.Gameplay.Loot
                         yield return new ValidationIssue(
                             ValidationSeverity.Error, LootSchemas.Table.Name, Check,
                             $"第 {groupIndex} 个分组第 {entryIndex} 条 entries 的 ref \"{refId}\" 在表 \"{LootSchemas.Table.Name}\" 中不存在",
+                            recordKey: record.Key, field: "groups");
+                    }
+                }
+                else // T-N4-7：econ 域，固定指向 econ.currency（见类型注释判断记录 1）。
+                {
+                    if (econCurrencyTableLoaded && view.Get(EconCurrencyTable, refId) == null)
+                    {
+                        yield return new ValidationIssue(
+                            ValidationSeverity.Error, LootSchemas.Table.Name, Check,
+                            $"第 {groupIndex} 个分组第 {entryIndex} 条 entries 的 ref \"{refId}\" 在表 \"{EconCurrencyTable}\" 中不存在",
                             recordKey: record.Key, field: "groups");
                     }
                 }

@@ -1,0 +1,15 @@
+{
+  "table": "prog.xp_base_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "prog.xp_base_curve.sample",
+      "entries": [
+        { "x": 1, "y": 10 },
+        { "x": 10, "y": 100 },
+        { "x": 20, "y": 250 },
+        { "x": 30, "y": 450 }
+      ]
+    }
+  ]
+}

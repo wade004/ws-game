@@ -410,3 +410,27 @@ assembly/
     `ClearAll_*`/`EntityDestroyedEvent_*`/`Dispose_*`/`SavedWhileDead_*` 五组场景 + 既有
     `CORE_180_FollowupAuditTests`/`GameplayAssemblyDeathReloadTests` 全部保持通过。测试：
     `core/gameplay/assembly/tests/C11_LifecycleReloadTests.cs`。
+
+15. **T-N4-4（ADR-0033 决策 4）：分档 × 难度经验倍率注入**——`resolvedProgressionOptions.
+    ExtraXpMultiplierProvider`（未显式配置时）在 `Difficulty`（第 5 步）构造完成之后就地赋值为
+    `(tierId.HasValue && Carriers.Creatures.TryGetXpMultiplier(tierId.Value, out var m) ? m : 1.0)
+    * Difficulty.XpMultiplier`——不需要像 `healthFractionSetter`/`powers` 那样用闭包捕获尚未赋值
+    的局部变量延迟回填：`ProgressionHost` 只在 `GrantXp` 真正被调用（发生在装配完成、真实玩法
+    触发死亡事件之后）时才读取 `_options.ExtraXpMultiplierProvider`，构造完成之后再设置这个
+    委托属性同样生效，比闭包写法更直接。`Carriers.Creatures`/`Difficulty` 在设置这个委托*之前*
+    已经真正构造完成（分别是第 3 步、第 5 步），直接闭包引用即可，不存在循环依赖。同一份
+    `resolvedProgressionOptions` 随后（第 6/7 步）继续传给
+    `CreatureDeathXpListener`/`AreaTriggerDiscoveryXpListener`/`RewardDispatcher` 的 `options`/
+    `progressionOptions` 参数，取代此前三者各自默认落到全字段缺省 `new ProgressionOptions()`
+    实例的写法，见 `core/numbers/progression/README.md`"T-N4-4"一节判断记录 2/5。
+
+## T-N4-4：`GameplayAssembly` 新增带 `ProgressionOptions` 的构造重载
+
+同 `core/rules/assembly/README.md`/`core/carriers/assembly/README.md`"T-N4-4"一节判断记录（ABI
+门禁 G3）——本类型旧签名构造函数（39 个参数）原样保留、转发新增重载（40 个参数，全部不带默认值）
+并传 `progressionOptions: null`。新增重载内部构造 `resolvedProgressionOptions = progressionOptions
+?? new ProgressionOptions()`，与既有 `resolvedGobjOptions`/`resolvedSkillOptions`/
+`resolvedTargetingOptions` 同一惯例——必须在 `Carriers = new CarriersAssembly(...)` 之前就地
+`new` 出来并原样转发给它（`CarriersAssembly` 进而转给 `RulesAssembly`/`ProgressionHost`
+持有同一份引用），本方法随后（`Difficulty` 构造完成之后）才能回填
+`ExtraXpMultiplierProvider`——见"判断记录"一节"分档 × 难度经验倍率注入"小节。

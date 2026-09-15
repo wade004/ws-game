@@ -11,7 +11,9 @@
 `RulesEventKeys`/`UnitDiedEvent`/`UnitRespawnedEvent`）。不直接依赖 `core/carriers/unit`
 （L3 具体类型 `WorldUnitAccess`）——经 `DeathPolicyOptions.ReviveUnit` 窄契约委托接线（见判断记录 1），
 也不直接依赖同层的 `core/gameplay/assembly`（经 `DeathPolicyOptions.ResolveDefaultSpawn` 窄契约委托
-接线，同一份判断记录）。
+接线，同一份判断记录）。T-N4-9（[ADR-0034](../../../architecture/adr/0034-单一货币与价格挂物品等级.md)
+决策 6）起同样不直接依赖 `core/gameplay/economy.IEconomyHost`（硬性规则）——经
+`DeathPolicyOptions.RespawnFeeBalance`/`RespawnFeeCharge` 两个窄契约委托接线，见判断记录 8。
 
 ## 目录
 
@@ -21,14 +23,20 @@ death/
   contracts/
     IDeathPolicyHost.cs       契约接口（只暴露只读 EffectivePolicy，无触发方法——事件驱动）
     DeathPolicyOptions.cs     策略覆盖/复活生命值比例/延迟 tick 数/存档槽 id/ReviveUnit/
-                              ResolveDefaultSpawn 两个 L4↔L3、L4↔L4 边界委托
+                              ResolveDefaultSpawn 两个 L4↔L3、L4↔L4 边界委托；T-N4-9：
+                              RespawnFee/RespawnFeePercentage/RespawnFeeCurrencyId/
+                              RespawnFeeFixedAmount/RespawnFeeBalance/RespawnFeeCharge——
+                              复活费策略项与三个 L4↔L4 边界委托
     IDeathPolicyDiagnostics.cs 最小诊断出口
   core/
-    DeathPolicyHost.cs        IDeathPolicyHost + ITickPhaseHandler 唯一实现
+    DeathPolicyHost.cs        IDeathPolicyHost + ITickPhaseHandler 唯一实现（T-N4-9：
+                              Execute 里 ReviveUnit 调用之后新增 ChargeRespawnFee 私有方法）
     InMemoryDeathPolicyDiagnostics.cs
   tests/
     TestSupport.cs
     DeathPolicyHostTests.cs   三策略各 ≥2 条 + AI 死亡不触发 + EffectivePolicy 覆盖
+    T_N4_9_RespawnFeeTests.cs 复活费：余额为零仍照常复活且扣零、fixed_by_level 曲线值超余额扣至零、
+                              pct_of_balance 按百分比、None 不收费、扣费委托未接线不阻断复活
 ```
 
 ## 判断记录
@@ -128,6 +136,57 @@ death/
    的失效场景，事件订阅处理"单位销毁后、事件已派发"的后续 tick，`Execute` 自身的存在性校验兜底
    "事件尚未派发"的时序窗口，任一层单独存在都不足以覆盖全部真实探针复现的路径。
 
+8. **T-N4-9（[ADR-0034](../../../architecture/adr/0034-单一货币与价格挂物品等级.md) 决策 6；
+   06 第 4.6 节 2026-09-14 修订段"复活费"）：`respawn_point` 分支复活费——策略项、三个窄委托、
+   "min(计算值, 余额)"夹取、"扣零"语义。**
+   - **策略枚举 `DeathPolicyOptions.RespawnFeePolicy`（`None`/`PctOfBalance`/`FixedByLevel`，
+     默认 `None`）**：字面照抄 ADR 原文"计算方式为 `pct_of_balance` 或 `fixed_by_level`（引用
+     曲线）二选一"，不是本模块自己发明的措辞。默认 `None` 保证本任务之前"不收复活费"的既有行为
+     逐位不变——`ChargeRespawnFee` 私有方法开头即短路返回，不读取任何余额/委托。
+   - **三个窄委托（`RespawnFeeBalance`/`RespawnFeeCharge`/`RespawnFeeFixedAmount`），而不是
+     `DeathPolicyHost` 新增 `IUnitAccess`/`IEconomyHost` 构造依赖**：硬性规则"禁止
+     `DeathPolicyHost` 直接依赖 `IEconomyHost`"——`RespawnFeeBalance`（签名同
+     `IEconomyHost.GetBalance`）/`RespawnFeeCharge`（签名同
+     `IEconomyHost.TryPay(unitId,currencyId,amount,reason)`，`reason` 由注入方闭包固定为
+     `"respawn_fee"`，本模块不关心具体传什么 reason）供 `GameplayAssembly` 接线；
+     `RespawnFeeFixedAmount`（签名只接 `unitId`，不接 `level`）供"`fixed_by_level` 策略如何从
+     等级/曲线算出原始费用"这件事完全交给注入方——本模块不新增对任何曲线表结构、也不新增对
+     `IUnitAccess.GetLevel`（读取等级）的编译期依赖，同 `ReviveUnit`/`ResolveDefaultSpawn` 两个
+     既有窄委托"只关心签名，不关心背后怎么实现"的一贯判断记录。三者任一未接线都退化为"该分支
+     费用按 0 处理"，不阻断复活（同本模块一贯的"未接线不阻断"惯例）。
+   - **"哪种货币"——设计层裁定（2026-09-16）：采纳**：ADR-0034 决策 6 原文未规定复活费扣的是
+     "唯一那种货币"还是可配置——`core/gameplay/economy` 框架层本身只有一种货币（ADR-0034 决策 1
+     "一种货币，一个整数"），理论上不需要配置项。本模块仍新增
+     `DeathPolicyOptions.RespawnFeeCurrencyId`（`Id?`，默认 `null`）显式要求配置——一是保持本
+     模块不预设"经济模块只有一种货币"这条属于 `core/gameplay/economy` 的框架决策（本模块不引用
+     该模块的任何强类型），二是 `null` 时不收费的退化路径本身就是"未配置=关闭"的既有惯例，不
+     额外新增特殊逻辑。
+   - **判断记录（"实际费用 = min(计算值, 当前余额)"两种策略统一夹取，且余额为零时仍无条件调用
+     扣费委托——扣零，不是跳过整个扣费流程）**：ADR-0034 决策 6 原文"实际费用 = min(计算值, 当前
+     余额)……余额为零扣零"——"扣零"这个措辞本身表明"扣费"这个动作发生了（只是发生的量是零），
+     不是"检测到余额为零就跳过扣费"。本模块因此不对 `fee == 0` 做提前短路，无条件调用
+     `RespawnFeeCharge(unitId, currencyId, fee)`——这与
+     `core/gameplay/economy.EconomyHost.TryPay` 自身对 `amount == 0` 的既有行为完全一致（该方法
+     的余额校验对 `amount=0` 必然通过，`Add(amount:0)` 因增量为零不产生 `currency_changed`，但
+     仍无条件 `Enqueue` 一次 `EconomyChargedEvent{amount:0}`，见该方法判断记录），本模块是对齐
+     经济模块已有的"零金额也算一次扣费"语义，不是新引入的特例。
+   - **扣费发生在 `ReviveUnit` 调用之后，不是之前**：扣费与"是否放行复活"完全解耦——复活已经
+     发生，扣费只是复活的一个后续副作用；即便注入方的 `RespawnFeeCharge` 内部有 bug 返回
+     `false`，本方法也只记一条诊断，不撤销已经发生的复活、不重试、不抛异常（见
+     `ChargeRespawnFee` 判断记录"理论上不应发生"）。
+   - 测试：`tests/T_N4_9_RespawnFeeTests.cs`（余额为零复活 1 组、`fixed_by_level` 超余额扣至零
+     1 组、`pct_of_balance` 按百分比 1 组、`None` 不收费 1 组、扣费委托未接线不阻断复活 1 组）。
+
+7c. **T-N4-5 回归锁定（ADR-0033 决策 6"从不扣经验：无论 13 的死亡策略选哪种，经验不减"；06 第
+   2.5 节同条）**：本模块从设计上不持有、也不依赖 `Core.Numbers.Progression.IProgressionHost`/
+   `ProgressionHost` 任何类型（见本文档顶部"依赖"一节——只依赖 L0 + L2 `core/rules/common`），
+   三种策略（`RespawnPoint`/`ReloadSave`/`Permadeath`）的结算逻辑（延迟复活、读档、删当前槽）
+   本身不触达经验/等级状态，因此"死亡不扣经验"是模块边界的自然结果，不需要任何专门代码。回归
+   用例见 `core/gameplay/death/tests/T_N4_5_RespawnPolicyDoesNotAffectXpTests.cs`（三种策略各
+   一组：把一个与 `DeathPolicyHost` 完全独立装配的 `ProgressionHost` 挂在同一个玩家单位 id 上，
+   走完整死亡结算流程后断言 `GetXp`/`GetLevel` 逐字节不变），把这条模块边界钉成一条可执行的
+   回归锁，防止未来有人误在死亡路径上"顺手"接一条扣经验/降级的分支。
+
 ## 不负责什么
 
 - 不解析/查找具体的复活点坐标算法本身（如"取最近出生点"而非固定 `spawn_points[0]`的距离比较）
@@ -151,3 +210,6 @@ death/
 - 不管理 AI/生物单位的死亡后续（复活、移除、刷新计时）——那是 `core/gameplay/spawn`
   （`respawn_policy`）与 `core/carriers/creature`（`Despawn`/`creature.despawned`）既有职责，
   本模块对非玩家单位的 `unit.died` 直接忽略（见判断记录、08 归属说明惯例）。
+- T-N4-9：不实现 `fixed_by_level` 策略"按等级查哪条曲线"这件事本身——`RespawnFeeFixedAmount`
+  只是一个签名窄委托，曲线表结构/来源（`econ.value_curve`、专用复活费曲线，或任何其它形态）完全
+  交给注入方（游戏层/`GameplayAssembly`）决定，见判断记录 8。

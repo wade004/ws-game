@@ -362,8 +362,316 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   非新增校验维度。全部新增字段均为可选、`schema_version` 不递增，旧数据/旧存档不受影响；三条
   新检查规则默认注册但因未接入 `sim.anchor`（阶段 N6）而整体不产生任何问题，见
   `core/rules/skill/README.md` 判断记录 55、`core/carriers/item/README.md` 判断记录 26。
+- **数值设计落地阶段 N4 · T-N4-1（1.34.0）**：`prog.level_curve` 新增可选字段
+  `talent_points`（`FieldKind.Int`，缺省 0，`>= 0`）；`prog.xp_source` 新增四个可选字段
+  `kind`（`FieldKind.Enum`，取值 `kill|quest|discovery`）、`base_curve_ref`（引用新表
+  `prog.xp_base_curve`）、`level_diff_ref`（引用既有 `combat.level_diff_table`）、
+  `once_key`（`FieldKind.String`）；旧字段 `base_xp`/`weight` 标废弃（保留一个版本周期，不删除）。
+  编辑器等级曲线编辑界面需要为每级条目补一个"天赋点数"输入框；经验来源编辑界面需要为 `kind`
+  补三选一下拉、为 `base_curve_ref`/`level_diff_ref` 补引用选择控件（分别指向新表
+  `prog.xp_base_curve`/既有 `combat.level_diff_table`）、为 `once_key` 补文本输入框，并对
+  `base_xp`/`weight` 两个输入框加"已废弃"视觉标注。全部新增字段均为纯新增可选字段，两张表
+  `schema_version` 均不递增，旧数据/旧存档不受影响。
+- **数值设计落地阶段 N4 · T-N4-4（1.34.0）**：`creature.tier_definition`/`diff.tier` 各新增
+  可选字段 `xp_multiplier`（`FieldKind.Number`，缺省 1）；任务/遭遇/成就奖励 `rewards` 子结构
+  新增可选字段 `xp_equivalent`（`FieldKind.Number`）/`level`（`FieldKind.Int`），旧字段 `xp`
+  标废弃（保留一个版本周期，不删除）。编辑器生物分档/难度档编辑界面需要各补一个"经验倍率"输入框
+  （缺省 1）；任务/遭遇/成就奖励编辑界面需要补"经验当量"/"等级"两个输入框，并对 `xp` 输入框加
+  "已废弃"视觉标注（两者同时填写时以 `xp_equivalent` 为准）。全部新增字段均为纯新增可选字段，
+  各表 `schema_version` 均不递增，旧数据/旧存档不受影响。
+- **数值设计落地阶段 N4 · T-N4-6（1.34.0）**：新增两张断点表 `econ.value_curve`（物品等级 →
+  基准价值）与 `econ.gold_base_curve`（等级 → 金币基数）；`econ.vendor.sell_items[].price_amount`
+  由必填改为可选（未填按价格公式计算，填了手填优先）。编辑器需要为两张新表提供曲线编辑界面
+  （复用既有断点表曲线编辑控件）；`sell_items` 出售条目编辑界面需要把 `price_amount` 输入框改为
+  可选（留空提示"缺省走价格公式"），并对手填值与公式值偏离超带宽的条目提示 `econ_price_deviates_
+  formula` 警告。全部改动均为纯新增表/纯新增可选字段语义放宽，既有表 `schema_version` 不递增，
+  旧数据/旧存档不受影响。
+- **数值设计落地阶段 N4 · T-N4-8（1.34.0）**：新增事件 `economy.charged`（字段
+  `unitId`/`currencyId`/`amount`/`reason`），已登记进 `found.event_catalog.json` 并生成
+  `EventKeys.EconomyCharged`；T-N4-7 新增的 `economy.currency_overflow`（字段
+  `unitId`/`currencyId`/`discarded`）同时补登记并生成 `EventKeys.EconomyCurrencyOverflow`。
+  `IEconomyHost.TryPay` 旧无 reason 三参数签名从本版本起也会在原子扣费成功时发
+  `economy.charged`（此前该签名不发任何"扣费"事件，只有 `Add` 间接发 `currency_changed`）——
+  依赖"该签名不发事件"这一旧行为的编辑器侧逻辑需要重新核对。新增带 reason 的
+  `TryPay(Id,Id,long,string)` 重载与 `CurrencyGranters.ViaEconomyHost` 静态工厂均为纯新增 C#
+  API，不涉及数据表/编辑器控件改动。
 
 ## [Unreleased]
+
+## [1.34.0] - 2026-09-16
+
+MINOR 版本：数值设计落地阶段 N4"经验与经济"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 10/14 节，T-N4-1～T-N4-11）——落地 ADR-0033 与 ADR-0034：Progression 契约与当量来源、击杀/探索经验发放主体、等级差经验系数、分档与难度倍率、升级回满、满级归零；价值曲线与价格公式、金币基数与货币掉落条目、货币入账与溢出事件、原子扣费、复活费不阻断、坐骑样例、进战下马策略项（拍板 9）。
+回放/Perf 基线：零改动，原因——`core/gameplay/tests/Replay`/`Perf` 只装配 L2 `RulesAssembly`，本阶段全部改动（`ProgressionHost`/`progression_bridge`/`EconomyHost`/`LootHost`/`DeathPolicyHost`/`CombatOptions` 进战下马）均落在 L1/L4 模块与装配根，回放/Perf 场景不触达。各小任务门禁与逐项验收记录见该计划末节"落地进度记录"N4 一节。
+
+提交链：`55515e0`（T-N4-1）、`1920f21`（T-N4-2）、`ef1f8d2`（T-N4-3）、`3feb0f9`（T-N4-6，`n4/econ` 并行分支）、`f20ebcc`（T-N4-7）、`0272883`（T-N4-8）、合并 `dbcf411`（`n4/econ`：T-N4-6/7/8 经济曲线与价格公式、掉落货币入账与溢出事件、`TryPay(reason)` 与事件登记，`--no-ff` 合入本分支）、`eb3d3fc`（T-N4-4）、`90550ea`（T-N4-9，`n4/econ` 并行分支）、合并 `04397ad`（`n4/econ`：T-N4-9 复活费策略与进战下马，`--no-ff` 合入本分支）、`f5680f8`（T-N4-5）、`97ba86a`（T-N4-10），分支 `n4/progression`，`--no-ff` 合入 `main`（合并提交哈希待补），本笔提交（T-N4-11 前半：示例经验来源 id 统一为监听器约定 id）与后续提交（T-N4-11 后半：阶段 N4 文档收尾——裁定落地、04/06/08 勘误、落地进度记录、1.34.0 变更记录）。
+
+### 新增
+
+- **数值设计落地阶段 N4 · T-N4-1**：`prog.level_curve.talent_points`（每级天赋点数，缺省 0）；
+  `prog.xp_source` 新字段 `kind`/`base_curve_ref`/`level_diff_ref`/`once_key`
+  （[ADR-0033](architecture/adr/0033-等级经验模块正文与当量来源.md) 决策 3），旧字段
+  `base_xp`/`weight` 标废弃（`base_curve_ref` 存在时优先，保留一个版本周期，拍板 4）；新表
+  `prog.xp_base_curve`（击杀基数曲线：怪物/任务/区域等级 → 一只同级普通怪的基础经验值，落地
+  改动点清单第 10 节拍板 5）；新增契约壳 `Core.Numbers.Progression.ProgressionOptions`
+  （构造期口味配置，本版本只登记字段、`ProgressionHost` 尚未消费，消费实现留后续任务）。全部
+  改动均为纯新增，两张既有表 `schema_version` 不递增，旧数据/旧存档不受影响；`prog.xp_base_curve` 在 04 第 1.1 节表清单的登记行此前缺失，已由 T-N4-11 补齐（见 04 同日
+  勘误）；`kind` 登记为可选（非必填）、`base_xp`/`weight` 保留必填至下个版本周期到期——设计层
+  裁定（2026-09-16）：采纳。`ProgressionOptions` 部分字段的最终消费方式留待后续任务。
+
+- **数值设计落地阶段 N4 · T-N4-2**（[ADR-0033](architecture/adr/0033-等级经验模块正文与当量来源.md)
+  决策 1/3/9；[06 第 2.5 节](architecture/06_规则层_属性技能战斗AI.md)，编辑器/游戏侧接入契约）：
+  `Core.Numbers.Progression.IProgressionHost` 新增默认接口成员
+  `GrantXp(unitId, sourceId, context: XpContext) -> long`（三种来源——`kind=kill|quest|discovery`
+  ——的统一折算入口，返回实际入账值）；新增契约类型 `XpContext`（`sourceLevel`/`tierId`/
+  `equivalent`）；`ProgressionHost` 新增接受 `ProgressionOptions?` 的构造重载（旧构造函数转发
+  `null`，行为不变）。折算公式：击杀 = 基数曲线(怪物等级) × 分档/难度倍率钩子（缺省 1，真正接入
+  留 T-N4-4）× 等级差系数(Δ)；任务 = 当量 × 基数曲线(任务等级) × 等级差系数(Δ)；探索 = 当量
+  （缺省 1）× 基数曲线(区域等级)，刻意不接等级差系数。`GetXpToNext`/`AddXp`/`GrantXp`/
+  `GrantFromSource` 统一按"有效满级"判定（`ProgressionOptions.MaxLevel` 为 0 时等于曲线自身
+  `max_level`，为正值时收紧到该值与曲线 `max_level` 的较小者），满级时 `GetXpToNext` 返回 0、
+  `grantXp`/`AddXp` 整笔丢弃不发 `progression.xp_gained`。`ProgressionOptions.MaxLevel` 默认值
+  由 T-N4-1 的 `1` 改为 `0`（该字段此前是纯登记壳、默认值不影响任何判定；本任务开始真正消费，
+  语义与默认值必须同时修正）。旧字段兼容：来源没有 `base_curve_ref` 时 `GrantFromSource` 逐位
+  保留旧算法（`base_xp × weight × multiplier`，回归锁死）；存在 `base_curve_ref` 时无论走
+  `GrantXp` 或旧入口 `GrantFromSource` 均以曲线为准。`GrantFromSource` 未删除。`kind` 未登记时兜底按 `kill` 处理——设计层裁定（2026-09-16）：采纳；`GrantFromSource` 走曲线
+  分支时的隐式 `sourceLevel`、`prog.level_curve.talent_points` 消费不在本任务范围内，留待后续
+  任务，详见 `core/numbers/progression/contracts/IProgressionHost.cs`/`XpContext.cs`/
+  `ProgressionOptions.cs` 类型注释与 `core/numbers/progression/schema/README.md`"T-N4-2 补记"。
+
+- **数值设计落地阶段 N4 · T-N4-3**（[ADR-0033](architecture/adr/0033-等级经验模块正文与当量来源.md)
+  决策 3；[06 第 2.5 节](architecture/06_规则层_属性技能战斗AI.md)）：新模块
+  `core/gameplay/progression_bridge`——击杀经验监听器 `CreatureDeathXpListener`（订阅
+  `unit.died`，击杀者为玩家单位或其召唤物且主人是玩家时按 `prog.xp_source(kind=kill)` 经
+  `IProgressionHost.GrantXp` 发放，来源等级取死亡单位等级，分档 id 从生物模板取出经
+  `XpContext.TierId` 传递供 T-N4-4 消费）；探索经验监听器
+  `AreaTriggerDiscoveryXpListener`（订阅 `area.trigger_entered`，区域/区域等级由调用方经新增
+  委托 `AreaDiscoveryLevelResolver` 提供，一次性标志经 `IWorldState` 保证，键为
+  `world.<once_key 前缀>.<触发器 id>`）。`Core.Numbers.Progression.ProgressionOptions` 新增
+  `KillXpSourceId`/`DiscoveryXpSourceId`（两个可空 `Id?`，未配置时两个监听器分别退到约定 id
+  `prog.xp_source.kill`/`prog.xp_source.discovery`）。`core/gameplay/assembly/GameplayAssembly.cs`
+  接线两个监听器（只新增行）：击杀监听器接在既有 `CreatureDeathLootListener` 构造之后（先掉落后
+  经验）；探索监听器接在 `AreaTriggerHost` 构造之后，`AreaDiscoveryLevelResolver` 当前传 `null`
+  （框架不预设任何具体区域，零成本退化）。两个监听器调用 `GrantXp` 均以
+  `try/catch (ArgumentException)` 包裹未登记来源 id 的情形，不阻断玩法流程。回放基线核查：
+  `core/gameplay/tests/Replay` 只装配 L2 `RulesAssembly`、从未构造 L4 `GameplayAssembly`，本次
+  改动零影响，基线未变。契约疑点（"区域"由触发器 id 承担、区域等级由委托而非新 schema 字段提供、
+  两个来源 id 承接点的最终消费方式）详见
+  `core/numbers/progression/contracts/ProgressionOptions.cs`/
+  `core/gameplay/progression_bridge/README.md` 类型/模块注释"契约疑点上报"。
+
+- **数值设计落地阶段 N4 · T-N4-4**（[ADR-0033](architecture/adr/0033-等级经验模块正文与当量来源.md)
+  决策 4；[08 第 2.1 节](architecture/08_玩法层_掉落任务对话关卡.md) 2026-09-14 修订段；编辑器/
+  游戏侧接入契约）：`creature.tier_definition`/`diff.tier` 各新增可选字段 `xp_multiplier`
+  （经验倍率，缺省 1，仅 `kind=kill` 经验来源生效）；`Core.Numbers.Progression.
+  ProgressionXpMultiplierProvider` 委托签名扩展为 `(unitId, sourceId, tierId) -> double`（T-N4-2
+  落地时只有 `(unitId, sourceId)`，本任务补上第三个参数供分档倍率查询，见判断记录）；
+  `Core.Gameplay.Assembly.GameplayAssembly` 从本任务起把
+  `ProgressionOptions.ExtraXpMultiplierProvider`（未显式配置时）接为
+  "`Core.Carriers.Creature.CreatureFactory.TryGetXpMultiplier` 结果 ×
+  `Core.Gameplay.Difficulty.IDifficultyHost.XpMultiplier`"；`RulesAssembly`/`CarriersAssembly`/
+  `GameplayAssembly` 三个装配根新增接受 `ProgressionOptions?` 的构造重载（ABI 门禁 G3：本仓库
+  已发布 1.33.0 基线，三者旧签名构造函数均原样保留、转发新增重载并传 `null`，新增重载因 C# 语法
+  "可选参数必须在必选参数之后"把此前全部可选参数一并改为必选，唯一调用点均已同步显式列出全部
+  参数，见三者各自 README"T-N4-4"一节）。任务/遭遇奖励改当量与等级：`Core.Gameplay.Common.
+  RewardBundle` 新增 `XpEquivalent`/`RewardLevel`（`rewards.xp_equivalent`/`rewards.level`，
+  `QuestSchemas.RewardsFields` 同步登记，`quest.def`/`encounter.def`/`achv.def` 三表共用同一份
+  声明自动生效），旧字段 `xp`（`rewards.xp`）标废弃但保留一个版本周期供兼容读取；
+  `Core.Gameplay.Common.RewardDispatcher` 新增接受 `ProgressionOptions?` 的构造重载（供
+  `ProgressionOptions.QuestXpSourceId` 解析，未配置落到约定 id `prog.xp_source.quest`），
+  `GrantXp`（私有方法）：`XpEquivalent` 非空时改经 `IProgressionHost.GrantXp(unitId,
+  questXpSourceId, new XpContext(rewardLevel ?? 1, equivalent: xpEquivalent))` 折算发放（硬性
+  规则"禁止奖励直发绝对数"），为空时逐位保留旧字段 `Xp` 经 `AddXp` 绝对数直发的路径（回归锁死）。
+  `Core.Numbers.Progression.IProgressionHost` 新增默认接口成员 `HasXpSource(sourceId): bool`
+  （设计层裁定，附带任务）：`core/gameplay/progression_bridge` 两个监听器与 `RewardDispatcher`
+  均改为先显式查询、查到才发，取代 `try/catch (ArgumentException)` 兜未登记来源的写法（行为对外
+  不变，仍是"未登记静默跳过、不阻断"，只是不再依赖异常控制流）。回放基线核查：`core/gameplay/
+  tests/Replay` 只装配 L2 `RulesAssembly`、从未构造 L4 `GameplayAssembly`，本次改动（分档/难度
+  倍率接线、监听器改用 `HasXpSource`）均落在 L4 装配根与经验发放路径，回放场景不触达，基线未变、
+  `--filter "FullyQualifiedName~Replay"` 全绿。契约疑点上报（"任务等级"折算输入的字面挂载点，
+  08 未给出结论，本任务落在 `rewards.level`）详见 `core/gameplay/common/contracts/RewardBundle.cs`
+  `FromRecord` 判断记录"reward_level 挂载点"。
+
+- **数值设计落地阶段 N4 · T-N4-5**（[ADR-0033](architecture/adr/0033-等级经验模块正文与当量来源.md)
+  决策 6/7；[06 第 2.5 节](architecture/06_规则层_属性技能战斗AI.md)）：`Core.Numbers.PowerSet.
+  IPowerHost` 新增默认接口成员 `RefillAll(unitId, sourceId)`（升级回满：把该单位全部
+  `start_full=true` 的回复型资源池回满到上限，积累型资源——`start_full=false`，如连击点一类
+  ——不动，经既有 `SetCurrentClamped` 落值 + 发事件入口，不绕过 `power.changed`，唯一生产实现
+  `PowerHost` 显式覆盖）；`Core.Rules.Assembly.RulesAssembly` 新增订阅：`progression.level_up`
+  触发时，`ProgressionOptions.RefillOnLevelUp`（T-N4-1 登记、缺省 `true`）为真且该单位已在
+  `PowerHost` 注册则调用 `RefillAll`，为假则跳过——`ProgressionOptions.RefillOnLevelUp` 从本
+  任务起真正被消费（消费方在装配根，不在 `core/numbers/progression` 模块内部）。同一任务锁死
+  ADR-0033 决策 6"从不扣经验"：`core/gameplay/death` 三种死亡复活策略（`RespawnPoint`/
+  `ReloadSave`/`Permadeath`）按模块依赖清单本就不引用 `IProgressionHost` 任何类型，新增回归
+  用例 `core/gameplay/death/tests/T_N4_5_RespawnPolicyDoesNotAffectXpTests.cs` 把这条模块
+  边界钉成可执行回归锁。契约疑点上报（积累型资源是否也应升级回满，ADR/06 原文未区分）详见
+  `IPowerHost.RefillAll` 方法注释"契约疑点上报"。全部改动均为纯新增 C# API + 装配接线，不涉及
+  任何数据表字段，回放基线核查：`core/gameplay/tests/Replay` 只装配 L2 `RulesAssembly`，回放
+  夹具的等级曲线 `max_level=1` 从不触发真实升级，本次改动零影响，基线未变。
+
+数值设计落地阶段 N4 · T-N4-6（ADR-0034 决策 2；08 第 7.4 节；04 第 1.1 节表清单）：新增表
+`econ.value_curve`（物品等级 → 基准价值，断点表，横轴 `CurveAxis.ItemLevel`）与
+`econ.gold_base_curve`（等级 → 金币基数，断点表，横轴 `CurveAxis.Level`，本任务只登记 schema，
+消费留给 T-N4-7）；新增价格公式共用类型 `Core.Gameplay.Economy.EconomyPriceFormula`（基准价值 =
+`econ.value_curve(item_level)` × `item.quality_definition.price_multiplier` ×
+`item.slot_definition.price_coefficient`，`item.template.value_override` 存在时整体取代基准价值）；
+`econ.vendor.sell_items[].price_amount` 改为可选（`VendorSellItem` 新增 `HasPriceAmount` 属性与
+对应七参数构造重载，ABI 只增不改，旧六参数构造函数与 `PriceAmount` 属性语义不变）——未填时
+`EconomyHost.Buy` 按价格公式算出买价，填了则手填优先（回归安全，逐位不变）；`EconomyOptions.
+DefaultBuyPricePct` 重新定位为"售价比例"策略项（字段名与默认值 0.25 不变，语义由"任一商人手填
+售价的百分之几"改为"基准价值的百分之几"）——`EconomyHost.Sell` 无 `buy_price_rule` 时的缺省售价
+公式同步改用价值公式，`buy_price_rule` 存在时既有 Expr 求值语义不变（硬性规则：禁止改该表达式
+语义）；`EconomyOptions` 新增 `ValueCurveId`（缺省 `econ.value.default`）与
+`PriceDeviationWarningThreshold`（缺省 0.2）。新增校验规则 `EconomyPriceDeviatesFormulaRule`
+（检查名 `econ_price_deviates_formula`——04 第 5 节该行原文未给出具体检查名，设计层裁定
+（2026-09-16）：采纳本任务暂按此拟定的检查名，已补登记进 04 第 5 节；`NonEscalatable = true`）：`sell_items[].price_amount`/`item.template.value_override`
+与纯公式值偏离超过阈值报 Warning，未填 `price_amount` 的条目不参与该分支检查。
+`Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll` 新增五参数重载
+（`economyValueCurveId`/`economyPriceDeviationThreshold`），既有 1/3 参数重载保留、转发默认值不变
+（回归）。数据侧：`data/_sample/econ/` 新增 `econ.value_curve.json`/`econ.gold_base_curve.json`
+两条曲线样例；既有 `econ.vendor.json` 的 `item.sample_tonic` 条目去掉 `price_amount`，作为"缺省
+走公式"的样例（未填 `price_amount` 的条目不参与偏离检查分支，见 `EconomyPriceFormula`/曲线样例
+数值判断）。
+
+数值设计落地阶段 N4 · T-N4-11（阶段 N4 独立复核缺口修复；ADR-0034 决策 2 同一条价格解析路径）：
+`IEconomyHost` 新增默认接口成员 `TryGetSellItemPrice(Id vendorId, Id itemId): long?`（默认返回
+`null`，唯一生产实现 `EconomyHost` 显式覆写、`GameplayAssembly.DeferredEconomyHost` 显式转发）——
+`EconomyHost.Buy` 内部单价解析抽出为私有 `ResolveSellItemPrice`，供该新成员复用，保证"实际扣款
+单价"与"展示层读到的单价"出自同一条路径；展示层 `Presentation.Ui.ShopViewModel.Refresh` 改用该
+成员填充 `VendorSellItemSnapshot.PriceAmount`（此前直接读 `VendorSellItem.PriceAmount`，
+`HasPriceAmount=false` 时该字段恒为占位 0，T-N4-10 摘掉 `item.sample_tonic` 的 `price_amount`
+后商店 UI 会显示错误的 0 价，未随 T-N4-6 一并接入价格公式的缺口，本任务补齐）。
+
+数值设计落地阶段 N4 · T-N4-7（ADR-0034 决策 3/4；08 第 1.1/7.4 节修订段）：`loot.table.groups[].
+entries[].ref` 放行 `econ` 域（`LootTableParser`/`LootContentValidationRule` 同步放行，报错文案
+由"必须是 item 或 loot"改为"必须是 item、loot 或 econ"），货币掉落条目的 `count_range` 解释为
+当量区间，实际数量 = 当量 × `econ.gold_base_curve`（来源等级，`RollContext.SourceLevel` 为空时
+回退等级 1）× `RollContext.Multiplier`（既有难度倍率挂载点，落地为 `diff.tier.loot_multiplier`）；
+`creature.tier_definition` 的"分档金币倍率"字段尚未登记（不依赖 T-N4-4），该乘数本阶段恒为
+1，记为偏离首版基准的说明，留待阶段 N6 仿真核对锚点时补上（设计层裁定（2026-09-16）：采纳）。货币不进背包、不占格子：`LootHost.PickUp`（`Reject`/`Partial`
+两种满包策略）对货币堆叠改经新增的 `IEconomyHost.Add` 入账，不再走 `IInventoryHost.AddItem`，
+背包容量为 0/已满时货币仍能全额入账，不影响同一次拾取里非货币条目的既有满包语义；`LootHost`
+新增 12 参数构造重载（末尾 `IEconomyHost? economyHost`，旧 11 参数构造函数不变）。入账方式新增
+策略项 `EconomyOptions.DepositPolicy`（`Core.Gameplay.Economy.CurrencyDepositPolicy`，
+`OnKill`/`GroundPickup`，默认 `OnKill`）：`OnKill` 下 `CreatureDeathLootListener` 在死亡结算那一刻
+把货币产出直接入账给击杀者、不生成地面掉落物；找不到明确击杀者时退回 `GroundPickup` 语义
+（设计层裁定（2026-09-16）：采纳）；`CreatureDeathLootListener` 新增 8 参数构造重载（末尾 `IEconomyHost? economyHost`）。
+`IEconomyHost` 新增两个默认接口成员：`TryGetGoldBaseAmount(int level): double?`（按
+`EconomyOptions.GoldBaseCurveId` 指定的 `econ.gold_base_curve` 曲线求值，唯一实现 `EconomyHost`
+显式覆写）、`DepositPolicy: CurrencyDepositPolicy`（转发 `EconomyOptions.DepositPolicy`）；
+`EconomyOptions` 新增 `GoldBaseCurveId`（缺省 `econ.gold_base.default`）。新增事件
+`economy.currency_overflow`（`Core.Gameplay.Economy.CurrencyOverflowEvent`，字段
+`unitId`/`currencyId`/`discarded`）：`EconomyHost.Add` 使某单位货币余额被夹到
+`econ.currency.cap` 之上而丢弃超出部分时触发；`EconomyHost.SetBalance`（读档"以快照为准"语义）
+即便结果同样被夹到 cap 也不触发。判断记录：本次未登记 `found.event_catalog.json`/重生成
+`EventKeys.g.cs`——`gen_event_constants.py --check` 只比较登记表与已提交生成文件两者自身是否
+一致，不反查代码里手写的 `Id` 事件常量，因此不登记也不影响该门禁；两条新经济事件（含 T-N4-8 的
+`economy.charged`）的登记与常量重生成整体留给 T-N4-8（依赖 T-N4-7），避免与其重复改动同一份登记
+表。数据侧：`data/_sample/econ/econ.currency.json` 补 `cap: 99999`；`data/_sample/loot/
+loot.table.json` 的 `loot.sample_beast` 新增一条 `econ.currency.sample_coin` 货币条目
+（`count_range: {min:1,max:3}`）。
+
+数值设计落地阶段 N4 · T-N4-8（ADR-0034 决策 5；08 第 7.4 节修订段；分阶段落地计划 M5/M7）：
+`IEconomyHost` 新增默认接口成员 `TryPay(Id unitId, Id currencyId, long amount, string reason):
+bool`（原子扣费带 reason 重载；ABI 只增，旧无 reason 三参数签名保留不变；默认实现转发旧签名、不发
+事件，唯一实现 `EconomyHost` 显式覆写为真实原子扣费 + 发事件逻辑，`GameplayAssembly.
+DeferredEconomyHost` 显式转发）。新增事件 `economy.charged`（`Core.Gameplay.Economy.
+EconomyChargedEvent`，字段 `unitId`/`currencyId`/`amount`/`reason`）：`TryPay(...,reason)` 原子
+扣费成功时触发。判断记录：`EconomyHost.TryPay(Id,Id,long)`（旧无 reason 签名）改为转发带 reason
+的新签名、传入占位 `reason="unspecified"`——旧调用路径（`Buy` 内部扣款改传显式
+`"vendor_buy"`，其余调用方维持占位）从本次起同样会发 `economy.charged`，与 ADR-0034 决策 5"原子
+扣费即发事件"口径一致（详见 `EconomyHost.TryPay(Id,Id,long)` 判断记录，编辑器等下游若依赖"旧签名
+不发扣费事件"的既有行为需要注意此变化）。任务/遭遇奖励货币入账收口：`core/gameplay/common.
+RewardDispatchDelegates` 新增 `CurrencyGranters.ViaEconomyHost(IEconomyHost)` 静态工厂，构造经
+`IEconomyHost.Add` 入账的 `CurrencyGranter`；`CurrencyGranter`/`RewardDispatcher` 既有签名不变，
+`GameplayAssembly` 现有等价闭包未切换（风格统一留待后续）。两条新经济事件登记与常量重生成收口：
+`economy.charged`、T-N4-7 遗留的 `economy.currency_overflow` 一并登记进
+`data/_framework/found/found.event_catalog.json`，`toolchain/gen_event_constants.py` 重生成
+`EventKeys.g.cs`（新增 `EconomyCharged`/`EconomyCurrencyOverflow` 两个常量，`--check` 通过）。
+
+数值设计落地阶段 N4 · T-N4-9（ADR-0034 决策 6/7；06 第 4.6 节 2026-09-14 修订段"复活费"；
+分阶段落地计划拍板 9）：`Core.Gameplay.Death.DeathPolicyOptions` 新增复活费策略项
+`RespawnFee`（枚举 `RespawnFeePolicy`：`None`/`PctOfBalance`/`FixedByLevel`，默认 `None`）、
+`RespawnFeePercentage`、`RespawnFeeCurrencyId`，以及三个窄委托
+`RespawnFeeFixedAmount`/`RespawnFeeBalance`/`RespawnFeeCharge`（签名分别对应"按等级取原始费用"/
+"读余额"/"扣费"，均不直接依赖 `IEconomyHost`——硬性规则）；`DeathPolicyHost` 的 `respawn_point`
+分支在 `ReviveUnit` 调用之后新增一次复活费结算：`实际费用 = min(计算值, 当前余额)`，无条件调用
+扣费委托（余额为零时同样调用、传入 `0`——"扣零"，不是跳过），复活永远不被阻断；三项委托任一未
+接线都退化为不收费，逐位保持既有行为。`GameplayAssembly` 新增两行接线（`RespawnFeeBalance ??=
+Economy.GetBalance`、`RespawnFeeCharge ??= (u,c,amt) => Economy.TryPay(u,c,amt,"respawn_fee")`），
+默认策略 `None` 下这两行接线不产生任何行为差异。`Core.Rules.Combat.CombatOptions` 新增进战下马
+策略项 `DismountOnEnterCombat`（默认 `true`，08/13 号文档既定默认值）、坐骑光环识别字段
+`MountAuraDispelType`（`Id?`，默认 `null`，复用 `aura_def.dispel_type` 既有分类机制——设计层
+裁定（2026-09-16）：采纳）与窄委托 `DismountMountAurasDelegate`/`DismountMountAuras`；`CombatHost.NotifyCombatEvent`
+在"不在战 -> 在战"这一次转换上，三项条件全部满足时调用一次该委托移除坐骑光环。
+`core/rules/assembly.RulesAssembly` 新增接线：`Skill.AuraQuery` 运行期确实是 `AuraHost` 时把
+`DismountMountAuras` 接到 `AuraHost.Dispel(unitId, dispelType, int.MaxValue)`。回放基线未变化
+（默认场景不装配复活费委托与坐骑光环，两处新逻辑均未触发）。
+
+- **数值设计落地阶段 N4 · T-N4-10**（清单 X10/M10；[ADR-0034](architecture/adr/0034-单一货币与价格挂物品等级.md)
+  决策 7；纯数据/文档改动，不改代码契约）：把 T-N4-1～T-N4-9 落地的字段/表充实为可仿真的样例数据集。
+  `data/_sample/prog/prog.level_curve.json` 的 `prog.curve.sample` 抬档到 20 级（`max_level` 由 3
+  改为 20，`xp_to_next` 沿等级单调递增、`talent_points` 每级 1，1/2 级既有取值不变，兼容既有断言）；
+  `prog.xp_source.json` 补齐三种来源各带 `base_curve_ref` 的样例——新增 `prog.xp_source.quest`
+  （真正的 `RewardDispatcher.DefaultQuestXpSourceId` 约定 id，使任务/遭遇当量奖励在样例数据集
+  上真实可发放）；T-N4-11 把既有 `prog.xp.kill_curve_sample`/`prog.xp.discovery_sample` 两条
+  样例改名为约定 id `prog.xp_source.kill`（补 `level_diff_ref: combat.level_diff.default`）/
+  `prog.xp_source.discovery`，使击杀/探索经验监听器在样例数据集上开箱即真实发放（此前因 id 不
+  匹配约定值而静默跳过）；`prog.xp.kill_sample`（只有旧字段 `base_xp`/`weight` 的兼容示例）
+  保留原 id 不动。`quest.def`/`encounter.def` 的样例奖励改用 `xp_equivalent`
+  + `level`，不再直发绝对经验（硬性规则）。`creature.tier_definition`/`diff.tier` 两档样例各补
+  `xp_multiplier`（1.0/2.0、1.0/1.25）。`econ.vendor.sample_hunter` 新增一条填了 `price_amount`
+  （27，与价格公式偏离 8%，在带宽内不触发 `econ_price_deviates_formula`）的 `sell_items` 条目，
+  与既有不填价格的条目并存；`econ.currency`/`loot.table` 货币掉落条目在此前任务已具备，本任务未改。
+  坐骑与骑术样例：`skill.def` 新增 `skill.sample_mount`（`use_condition: not combat.in_combat`，
+  `apply_aura` 挂坐骑光环）、`skill.aura_def` 新增 `skill.aura_def.sample_mount_speed`
+  （`dispel_type: skill.dispel.mount`，含 `stat.move_speed` 百分比加成）——`dispel_type` 取值即
+  游戏层需要配置给 `CombatOptions.MountAuraDispelType` 的约定值，已记入 `data/README.md`；
+  `skill.book.sample_a` 新增 `{level: 10, skill_id: skill.sample_mount}` 作为"骑术"学习门槛
+  （骑术本身不是独立契约面，落地为技能书学习等级门槛，见 T-N4-9 判断记录 20）。配套新增两条
+  `display.map` 覆盖行满足 `DisplayMapCoverageRule`，`toolchain/tests/test_import_sample_assets.py`
+  的 `EXPECTED_DISPLAY_ROWS` 清单同步补齐。`validate_data.py --strict`/`SchemaAudit`/
+  `format_data.py --schema-order --check` 均 0 问题；`games/_template/data/game/prog/` 空壳表按
+  既定约定不动。
+
+### 变更（行为变更）
+
+数值设计落地阶段 N4 · T-N4-2：`ProgressionOptions.MaxLevel` 默认值由 T-N4-1 落地时的 `1` 改为 `0`（该字段在 T-N4-1 只是纯登记壳，默认值不影响任何判定；T-N4-2 开始真正消费"有效满级"判定，语义与默认值必须同时修正，`0` 表示"以曲线自身 `max_level` 为准"）。
+
+数值设计落地阶段 N4 · T-N4-5：`ProgressionOptions.RefillOnLevelUp`（缺省 `true`）从本任务起真正被消费——任何已装配 `RulesAssembly` 且单位在 `PowerHost` 注册的游戏，从本版本起单位升级会自动把全部回复型资源池（`start_full=true`）回满到上限，此前该字段只是登记壳、不产生任何效果；不显式关闭该项的游戏会获得这一新行为。
+
+数值设计落地阶段 N4 · T-N4-6：`EconomyOptions.DefaultBuyPricePct`（字段名与默认值 `0.25` 不变）语义由"任一商人手填售价的百分之几"改写为"基准价值（价格公式算出的值）的百分之几"；`EconomyHost.Sell` 无 `buy_price_rule` 时的缺省售价公式同步改用价值公式（此前的缺省售价公式与本次不同，具体数值可能变化；`buy_price_rule` 存在时既有 Expr 求值语义不变）。
+
+数值设计落地阶段 N4 · T-N4-7：掉落表货币条目从本版本起改经 `IEconomyHost.Add` 直接入账，不再走 `IInventoryHost.AddItem` 占用背包格子——此前货币条目作为普通 `ItemStack` 走背包，背包满时可能拾取失败；现货币恒能全额入账，不受背包容量影响。
+
+数值设计落地阶段 N4 · T-N4-8：`IEconomyHost.TryPay(Id,Id,long)`（旧无 reason 三参数签名）从本版本起改为转发带 reason 的新签名、传入占位 `reason="unspecified"`，因此也会在原子扣费成功时发 `economy.charged`——此前该签名不发任何"扣费"事件，只有 `Add` 间接发 `currency_changed`；依赖"旧签名不发扣费事件"这一既有行为的下游逻辑需要重新核对。
+
+### 文档
+
+- **`architecture/04_数据与内容管线.md`**：第 1.1 节表清单补一行此前拍板已定但正文遗漏登记的 `prog.xp_base_curve`；第 5 节数值类校验项分级表"手填价格偏离公式"一行补检查名 `econ_price_deviates_formula`。细节勘误，版本号不变。
+- **`architecture/06_规则层_属性技能战斗AI.md`**：第 2.5 节补一句——击杀/任务/探索三种来源各自实际消费的 `prog.xp_source` 记录 id 由策略配置项指定，未显式配置时退到约定 id，来源未登记时静默跳过、不阻断玩法流程。细节勘误，版本号不变。
+- **`architecture/08_玩法层_掉落任务对话关卡.md`**：第 2.1 节 `rewards` 字段落地对齐——任务/遭遇奖励经验由"字段名不变仍叫 `xp`"改写为落地形态"新增 `xp_equivalent`/`level` 两个可选字段，旧字段 `xp` 标废弃保留一个版本周期"；第 7.4 节"怪物掉钱"公式的"分档倍率"补注本阶段恒为 1、留待阶段 N6 补齐。细节勘误，版本号不变。
+- 全部 T-N4-* 判断记录里的"待设计层确认"字样已按设计层裁定（2026-09-16）改写为明确结论——`core/gameplay/death/README.md`、`core/gameplay/economy/README.md`/`core/gameplay/economy/core/EconomyPriceDeviatesFormulaRule.cs`、`core/gameplay/loot/README.md`/`core/gameplay/loot/core/CreatureDeathLootListener.cs`/`core/gameplay/loot/core/LootHost.cs`/`core/gameplay/loot/tests/T_N4_7_CreatureDeathCurrencyDepositTests.cs`、`core/numbers/progression/README.md`/`core/numbers/progression/schema/README.md`、`core/rules/combat/README.md`/`core/rules/combat/contracts/CombatOptions.cs` 共十余处，逐处结论见各文件判断记录本身与本计划下方"落地进度记录"N4 一节。
+- `architecture/落地计划/数值设计分阶段落地计划.md` 末节"落地进度记录"追加"阶段 N4"一节（小任务门禁、阶段验收标准 1～7 逐项、阶段门禁 P1～P5、回放/Perf 基线、偏离首版基准的说明）。
+
+### 迁移说明
+
+- **`prog.xp_source` 旧字段废弃**：`base_xp`/`weight` 保留一个版本周期供兼容读取，`base_curve_ref` 存在时优先；示例数据集里既有 `prog.xp.kill_curve_sample`/`prog.xp.discovery_sample` 两条样例已改名为约定 id `prog.xp_source.kill`/`prog.xp_source.discovery`（`prog.xp.kill_sample` 保留原 id）。
+- **任务/遭遇/成就奖励 `xp`→`xp_equivalent`+`level`**：旧字段 `xp` 标废弃保留一个版本周期，两者同时填写时以 `xp_equivalent` 为准；`quest.def`/`encounter.def`/`achv.def` 三表共用同一份声明同步生效。
+- **旧 `TryPay(Id,Id,long)` 从本版本起也发 `economy.charged`**：见上方"变更（行为变更）"T-N4-8。
+- **货币掉落条目不进背包**：见上方"变更（行为变更）"T-N4-7；地面掉落物身份存档段不受影响（货币条目不生成携带身份的地面实体）。
+- **`RefillOnLevelUp` 缺省 `true` 的行为变化**：见上方"变更（行为变更）"T-N4-5。
+- **新事件登记与 `EventKeys.g.cs` 重生成**：`economy.charged`（字段 `unitId`/`currencyId`/`amount`/`reason`）、`economy.currency_overflow`（字段 `unitId`/`currencyId`/`discarded`）已登记进 `found.event_catalog.json` 并生成 `EventKeys.EconomyCharged`/`EventKeys.EconomyCurrencyOverflow`。
+- **新检查名**：警告（不可提升）——`econ_price_deviates_formula`。按检查名过滤诊断的既有逻辑需要认识这个新检查名。
+- **样例 id 改名**：见上一条"`prog.xp_source` 旧字段废弃"。
+
+### 编辑器接入建议
+
+- 文首"编辑器相关契约"索引里 T-N4-1/4/6/8 四条已从 `（Unreleased）` 改标 `（1.34.0）`，内容不变——编辑器项目按该索引即可判断新版本需要跟改的契约面。
+- `prog.level_curve.talent_points`/`prog.xp_source` 新字段（T-N4-1）：等级曲线编辑界面补"天赋点数"输入框；经验来源编辑界面补 `kind` 三选一下拉、`base_curve_ref`/`level_diff_ref` 引用选择控件、`once_key` 文本输入框，并对 `base_xp`/`weight` 加"已废弃"标注。
+- `creature.tier_definition`/`diff.tier.xp_multiplier`、任务/遭遇/成就奖励 `xp_equivalent`/`level`（T-N4-4）：生物分档/难度档编辑界面各补"经验倍率"输入框；奖励编辑界面补"经验当量"/"等级"两个输入框，并对 `xp` 输入框加"已废弃"标注。
+- `econ.value_curve`/`econ.gold_base_curve`/`sell_items[].price_amount` 可选（T-N4-6）：见上方"编辑器相关契约"T-N4-6 条目。
+- `economy.charged`/`economy.currency_overflow`（T-N4-8）：新增事件出现在事件词汇表，事件流查看器/日志面板若按事件名过滤需要认识这两个新事件；依赖"旧 `TryPay` 不发扣费事件"的编辑器侧逻辑需要重新核对（见上方"变更（行为变更）"）。
+- `DeathPolicyOptions` 复活费策略项/`CombatOptions.DismountOnEnterCombat`/`MountAuraDispelType`（T-N4-9）：死亡策略编辑界面若展示 `respawn_point` 分支参数，需要补"复活费策略"三选一（`None`/`PctOfBalance`/`FixedByLevel`）与对应的百分比/货币引用输入框；坐骑相关光环编辑界面需要提示"进战自动移除"依赖 `dispel_type` 取值与 `CombatOptions.MountAuraDispelType` 配置一致。
 
 ## [1.33.0] - 2026-09-15
 

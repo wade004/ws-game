@@ -119,7 +119,9 @@ namespace Tests.Gameplay.Loot
             var report = registry.LoadAll();
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "loot_content" && i.Message.Contains("领域段必须是 item 或 loot"));
+            // T-N4-7：ref 领域段放行范围扩大为 item/loot/econ（ADR-0034 决策 3 货币掉落条目），
+            // 报错文案同步更新——本用例的 "creature" 域仍然不在放行范围内，断言相应改为新文案。
+            Assert.Contains(report.Issues, i => i.Check == "loot_content" && i.Message.Contains("领域段必须是 item、loot 或 econ"));
         }
 
         [Fact]

@@ -2,16 +2,23 @@
 
 职责：落地 08_玩法层_掉落任务对话关卡.md 第 1 节 Loot——`loot.table` 抽取（`chance_each`/
 `weighted_pick_one`、嵌套引用、条件、保底）、地面掉落物（`DroppedLoot`）的生成/拾取/过期、生物
-死亡时自动结算掉落。对应 01 第 L4 模块表 `loot` 行（契约 `LootHost.roll(tableId, context):
-List<ItemStack>`、数据表 `loot.table`、事件 `loot.rolled`/`loot.picked_up`）。
+死亡时自动结算掉落；T-N4-7（ADR-0034 决策 3/4）起新增货币掉落条目（`ref` 可为
+`econ.currency.*`）与货币入账（拾取不进背包直接入账/击杀即入账）。对应 01 第 L4 模块表 `loot` 行
+（契约 `LootHost.roll(tableId, context): List<ItemStack>`、数据表 `loot.table`、事件
+`loot.rolled`/`loot.picked_up`）。
 
 依赖：L0（`data_registry`/`event_bus`/`rng`/`expr`/`sim_loop`）、L3（`Core.Carriers.Common` 的
 `ItemStack`/`IInventoryHost`/`ILootRoller`）、L2（`core/rules/common` 的 `IUnitAccess`/
 `IExprHostFactory`；`core/rules/expr_host.RulesExprSchema.Base`（默认，可由调用方传入合并后的 schema
 覆盖）用于解析 `condition` 文本，见
 `LootTableParser` 判断记录）、L3 `core/carriers/creature`（`ICreatureTemplateQuery`，仅
-`CreatureDeathLootListener` 使用）。经 `Core.Gameplay.csproj` 既有的 `Core.Carriers` 项目引用传递可见，
-本模块不新增任何 `ProjectReference`。
+`CreatureDeathLootListener` 使用）、L4 `core/gameplay/difficulty`（`IDifficultyHost`，仅
+`CreatureDeathLootListener` 使用，T-N2-8b）、L4 `core/gameplay/economy`（`IEconomyHost`，T-N4-7
+新增：`LootHost`/`CreatureDeathLootListener` 可选注入，用于货币掉落条目换算数量与入账——同层 L4
+互相依赖，先例见对 `IDifficultyHost` 的既有依赖）。经 `Core.Gameplay.csproj` 既有的
+`Core.Carriers` 项目引用传递可见，本模块不新增任何 `ProjectReference`（`Core.Gameplay` 是单一
+程序集，`Core.Gameplay.Economy`/`Core.Gameplay.Difficulty` 与本模块同在其中，不需要额外的项目
+引用即可互相看到）。
 
 ## 目录
 
@@ -29,20 +36,28 @@ loot/
     LootExprSchemaEntries.cs     空登记表（本模块不新增 Expr 分组/键，见类型注释）
     LootAnalysisContext.cs       LootTableAnalyzer 求值上下文 + LootExpectedOutcome/LootPseudoRandomKey（见判断记录 14）
   core/
-    LootTableParser.cs           DataRecord -> LootTableDef（运行期解析，ADR-0019/F1b 起校验期不再共用，见判断记录 13）
-    LootContentValidationRule.cs groups 内登记表达不了的业务判断 + 嵌套引用成环 DFS 检测（ADR-0019/F1b 收窄，见判断记录 13）
+    LootTableParser.cs           DataRecord -> LootTableDef（运行期解析，ADR-0019/F1b 起校验期不再共用，见判断记录 13；
+                                  T-N4-7：ref 领域校验放行 econ）
+    LootContentValidationRule.cs groups 内登记表达不了的业务判断 + 嵌套引用成环 DFS 检测（ADR-0019/F1b 收窄，见判断记录 13；
+                                  T-N4-7：ref 领域校验放行 econ，econ.currency 存在性检查同 item 域惯例）
     DroppedLootEntity.cs         Entity 子类，Kind="loot"
     LootRollCore.cs              抽取核心的纯步骤（条件筛选/权重归一/按阈值选中一条），LootHost 与 LootTableAnalyzer 共用（见判断记录 14）
-    LootHost.cs                  ILootHost + ILootRoller 唯一实现（抽取核心 + Drop/PickUp/过期/存档重建）
+    LootHost.cs                  ILootHost + ILootRoller 唯一实现（抽取核心 + Drop/PickUp/过期/存档重建；
+                                  T-N4-7：新增 12 参数构造重载注入 IEconomyHost，货币掉落条目换算/
+                                  拾取直接入账，见判断记录 17）
     LootTableAnalyzer.cs         期望概率分析入口（消费方反馈第 35 条，见判断记录 14）
     LootExpiryTickHandler.cs     挂 TickPhase.TriggerEvaluation，驱动 LootHost.PurgeExpired
-    CreatureDeathLootListener.cs 订阅 unit.died，自动结算生物掉落
+    CreatureDeathLootListener.cs 订阅 unit.died，自动结算生物掉落；T-N4-7：新增 8 参数构造重载注入
+                                  IEconomyHost，OnKill 策略下击杀即入账，见判断记录 17
     DroppedLootPersistable.cs    world.dropped_loot 段（补录，见判断记录）
   tests/
     LootTestSupport.cs           DataRegistry/EventBus/WorldSim/RngHost/Fake 装配帮助
     LootHostRollTests.cs         Roll 核心算法用例
     LootDropPickupTests.cs       Drop/PickUp/过期/死亡联动/事件/持久化用例
     E35_LootTableAnalyzerTests.cs 期望概率分析对照用例（解析式 vs 蒙特卡洛，见判断记录 14）
+    T_N4_7_CurrencyLootTests.cs   货币掉落条目数量公式（2 组手算）、背包满仍入账（2 组，见判断记录 17）
+    T_N4_7_CreatureDeathCurrencyDepositTests.cs 死亡结算 OnKill/GroundPickup 两种入账方式策略项
+                                  （3 组，见判断记录 17）
 ```
 
 ## 判断记录
@@ -339,6 +354,78 @@ loot/
       `ReplayWorldBuilder`/两份 `*.replay.json` 触达范围（同判断记录 15 既有核查结论：全文不含
       `loot`/`item.template`/`item.quality_definition` 关键字）。
 
+17. **T-N4-7（ADR-0034 决策 3/4；08 第 1.1/7.4 节修订段）：货币掉落条目、当量数量公式、拾取不进
+    背包直接入账、入账方式策略项**：
+    - **`ref` 放行 `econ` 域**：`LootTableParser.ParseEntry`（运行期，硬性抛异常口径）与
+      `LootContentValidationRule.ValidateEntry`（内容校验，同惯例）同步把域名允许集合从
+      `{item, loot}` 扩为 `{item, loot, econ}`；报错文案由"必须是 item 或 loot"改为"必须是
+      item、loot 或 econ"（`LootSchemaCoverageTests.RefWrongDomain_ReportsLootContentBusinessError`
+      同步更新断言文本，行为本身——`creature` 等其它域仍被拒绝——不变）。`econ` 域存在性检查固定
+      指向 `econ.currency` 表，惯例同 `item` 域"目标表已加载才检查、未加载视为无法判定"。
+    - **当量数量公式**：`count_range` 对货币条目解释为"当量区间"（复用既有 `RollCount` 机制，不
+      新增字段）；实际数量 = 当量 × `IEconomyHost.TryGetGoldBaseAmount`（来源等级）×
+      `RollContext.Multiplier`（既有难度倍率挂载点，见判断记录 15/`CreatureDeathLootListener`
+      既有接线，落地为 `diff.tier.loot_multiplier`），四舍五入（`MidpointRounding.AwayFromZero`）
+      到整数，见 `LootHost.ResolveCurrencyOutcome`。
+      - **设计层裁定（2026-09-16）：采纳**：08 原文"分档倍率"（`creature.tier_definition` 的
+        经验/金币倍率字段）当前不存在（核实见 `core/gameplay/economy/README.md` 同编号判断记录），
+        本方法没有可读取的数据源来实现这一乘数，本阶段恒为 1——只保留 `RollContext.Multiplier`
+        一项，记为偏离首版基准的说明，留待阶段 N6 仿真核对锚点时补上该字段后由调用方通过某个新的
+        `RollContext` 字段/本方法新增可选参数接入（ABI 只允许新增，届时可平滑扩展）。
+      - **来源等级为空时回退等级 1——设计层裁定（2026-09-16）：采纳**：08 原文未说明没有来源等级
+        （如非生物来源的货币掉落）时该按什么等级取金币基数；本任务选择回退等级 1（曲线定义域的
+        合理下界），不是"跳过该条目"（那会让没有来源等级信息的货币掉落表整体失效）。
+      - **未注入 `IEconomyHost` 或曲线不可解析时静默跳过该条目**：不产出一条 `LootRollOutcome`
+        （不是"数量为 0"——该类型构造函数本就要求 `Count` 为正数），同嵌套 `loot.*` 引用未加载时
+        的兜底惯例一致，不抛异常。
+    - **货币不进背包，`LootHost.PickUp` 改经 `IEconomyHost.Add` 入账**：`PickUpReject`/
+      `PickUpPartial` 把 `entity.Items` 里 `TemplateId.Domain == "econ"` 的堆叠从"需要走
+      `IInventoryHost.AddItem` 的堆叠"里剔除，逐条改经新增的 `LootHost.DepositCurrencyStacks`
+      调用 `IEconomyHost.Add`（`sourceId` 传本次拾取的地面掉落物实例 id，"谁给的钱"，惯例同
+      `EconomyHost.Sell` 的 `sourceId: vendorId`）——货币入账没有"放不下"这个失败分支（`Add` 恒
+      返回 `true`），因此不参与 `PickUpReject` 的"全部拿到才算数"事务/回滚判断（`Reject` 策略下，
+      若同一次拾取里存在非货币物品且放不下，整次拾取（含货币部分）一并失败——货币此时也不入账，
+      是"全部拿到才算数"这一既有语义的自然延伸，不是新缺口；`Partial` 策略下货币恒全额计入
+      `taken`，不受非货币物品能否放下影响）；`PickUp` 距离/存在性等既有前置校验不变。
+      货币堆叠身份（`QualityId`/`Affixes`）恒为空（`ResolveCurrencyOutcome` 产出），不参与
+      `ResolveOutcomesFor` 的品质/词缀分派逻辑，只借用 `LootRollOutcome`/`ItemStack` 现有形状携带
+      `TemplateId`（货币 id）与 `Count`（数量）。
+    - **入账方式策略项（`EconomyOptions.DepositPolicy`，`CurrencyDepositPolicy.OnKill`/
+      `GroundPickup`，默认 `OnKill`）在 `CreatureDeathLootListener` 落地，不在 `LootHost`**：
+      "击杀即入账"只在"死亡结算"这个事件点上有意义（`LootHost.Drop`/`PickUp` 本身可能被非死亡
+      来源——如箱子、`GobjPendingLoot`——调用，那些场景没有"击杀者"概念），因此把策略判断放在
+      `CreatureDeathLootListener.OnUnitDied`：`OnKill` 且 `evt.KillerId` 有值时，先把
+      `RollDetailed` 产出的 `outcomes` 按 `TemplateId.Domain` 拆成货币/非货币两份，货币部分立即
+      `IEconomyHost.Add(evt.KillerId.Value, ..., sourceId: evt.UnitId)`（"谁给的钱"=死亡的生物
+      自己），非货币部分才调用既有 `Drop`；货币部分全部入账、非货币部分为空时不生成地面掉落物
+      实体（`Drop` 契约本身总是返回一个真实创建的实体 id，本任务不改变这一契约，直接不调用，
+      不是"生成一个空实体"）。**找不到明确击杀者（`evt.KillerId` 为 null，如环境死亡）时的处理，
+      设计层裁定（2026-09-16）：采纳**：ADR/08 原文只给出"击杀即入账（默认）"一句，未说明这种边界情形；
+      本任务选择整条退回 `GroundPickup` 语义（货币随其它掉落物一并落地，不静默丢弃），不是"归属
+      死亡单位自己"或"直接丢弃"——理由是没有击杀者就没有 `OnKill` 策略要求的入账对象，落地待拾取
+      是唯一不丢钱的选择。`GroundPickup` 策略下（或未注入 `IEconomyHost`）恒走既有 `Drop` 路径，
+      货币混在 `outcomes` 里，落地后由 `LootHost.PickUp` 按上一条处理。
+      `CreatureDeathLootListener` 新增 8 参数构造重载（末尾追加 `IEconomyHost? economyHost`，
+      同既有 `difficultyHost` 参数一贯做法：新增重载而不是给既有构造函数追加带默认值的参数，见
+      判断记录 16"T-N2-8b 新增重载"同款 ABI 判断）。
+    - **组装接线（`GameplayAssembly`）**：`EconomyHost` 构造在第 8 步，晚于第 6 步的
+      `LootHost`/`CreatureDeathLootListener`——同 `deferredLootRoller` 一贯"延迟绑定代理"惯例，
+      新增 `DeferredEconomyHost`（实现 `IEconomyHost`，未绑定期间全部成员静默退化：查询类返回
+      中性默认值，写入类返回 `false`，`Buy`/`Sell` 返回"未知商人"失败），第 2 步先占位注入
+      `LootHost`/`CreatureDeathLootListener`，第 8 步真正的 `EconomyHost` 构造完成后 `Bind`——
+      不改变六个宿主既有的构造/事件订阅顺序（判断记录：本任务未把 `EconomyHost` 构造提前到
+      `LootHost` 之前，尽管两者互不依赖、理论上可以重排——重排会牵动 `RewardDispatcher` 的
+      `currencyGranter` 延迟闭包写法与全部宿主的事件订阅先后顺序，超出本任务最小改动范围）。
+      `DeferredEconomyHost` 对两个新增默认接口成员（`TryGetGoldBaseAmount`/`DepositPolicy`）显式
+      转发，已过 `InterfaceDefaultMemberForwardingTests` 门禁。
+    - **测试**：`core/gameplay/loot/tests/T_N4_7_CurrencyLootTests.cs`（数量公式 2 组手算；背包
+      容量 0 时货币仍入账、混合货币+非货币条目下非货币按既有语义留在地面 1 组；货币单条目全部
+      拾完销毁地面实体 1 组）、`T_N4_7_CreatureDeathCurrencyDepositTests.cs`（`OnKill` 有击杀者
+      直接入账不落地、`OnKill` 无击杀者退回落地、`GroundPickup` 恒落地，3 组）；
+      `core/gameplay/economy/tests/T_N4_7_CurrencyOverflowTests.cs`（见该模块 README）。
+    - **回放/Perf 基线核查**：`--filter "FullyQualifiedName~Replay"` 全绿，基线零改动——回放场景
+      不触达本任务改动的任一路径（同判断记录 15/16 既有核查结论）。
+
 ## 子结构登记表（ADR-0019 / F1b）
 
 `loot.table.groups` 元素结构（对照 `LootTableParser.ParseGroup`/`ParseEntry` 运行时解析代码）：
@@ -355,7 +442,7 @@ loot/
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `ref` | Id | 是 | `item.<template>` 或 `loot.<table>`；判断记录（退回 `Id`）：目标表随 `Id.Domain` 动态变化（`item` 域→`item.template`，`loot` 域→同一张 `loot.table` 自引用），`FieldSchema.Reference` 只能声明单一目标表/域，表达不了"按值切换目标表"，域名 + 存在性校验保留为 `LootContentValidationRule` 业务判断（惯例同 `core/gameplay/spawn.SpawnContentRefRule`） |
+| `ref` | Id | 是 | `item.<template>`、`loot.<table>` 或 `econ.currency.<name>`（T-N4-7：ADR-0034 决策 3 货币掉落条目，此时 `count_range` 解释为当量区间，见判断记录 17）；判断记录（退回 `Id`）：目标表随 `Id.Domain` 动态变化（`item` 域→`item.template`，`loot` 域→同一张 `loot.table` 自引用，`econ` 域→`econ.currency`），`FieldSchema.Reference` 只能声明单一目标表/域，表达不了"按值切换目标表"，域名 + 存在性校验保留为 `LootContentValidationRule` 业务判断（惯例同 `core/gameplay/spawn.SpawnContentRefRule`） |
 | `weight_or_chance` | Number | 是 | `chance_each`: [0,1]；`weighted_pick_one`: `>=0`——区间随父级 `roll_mode` 变化，登记表达不了，保留为业务判断 |
 | `condition` | Expr | 否 | 缺省/未提供表示恒真；判断记录：present 但为空字符串 `""` 时 `LootTableParser` 视同"未提供"（不解析），但登记后 `DataRegistry` 的 `expr_parsable` 校验会对空字符串尝试解析并报错（`ExprParser.Parse("")` 失败）——现有样例数据与测试均未使用空字符串 `condition`，本次不改 `LootTableParser` 迁就这一边缘用法，视为收紧（空字符串本就不是有意义的条件），如后续需要放宽再另行处理 |
 | `count_range` | Object | 是 | `{min: Int 必填, max: Int 必填}`；`1<=min<=max` 是登记表达不了的数值范围约束，保留为业务判断 |
@@ -385,3 +472,14 @@ loot/
   `CreatureDeathLootListener`）——只新增契约字段与 `LootHost` 内部消费逻辑，"谁在死亡结算时传入怪物
   等级/难度偏移"是游戏层组装的事，不在本任务"涉及文件"范围内。
   **（T-N2-8b 已补齐，见判断记录 16"来源等级接线"）**
+- T-N4-7：不实现"分档倍率"（`creature.tier_definition` 的经验/金币倍率字段）——该字段尚未登记，
+  当量数量公式暂时只有 `RollContext.Multiplier`（`diff.tier.loot_multiplier`）一项乘数生效，
+  本阶段恒为 1，见判断记录 17（设计层裁定（2026-09-16）：采纳，记为偏离首版基准的说明，留待阶段
+  N6 仿真核对锚点时补上）。
+- T-N4-7：不实现"击杀即入账时找不到明确击杀者"以外的任何其它兜底策略（如"归属死亡单位自己"）——
+  只实现"退回落地待拾取"这一种，见判断记录 17（设计层裁定（2026-09-16）：采纳）。
+- T-N4-7：不改变旧 `Roll(Id, RollContext): IReadOnlyList<ItemStack>`/
+  `Drop(Id, Vec2, IReadOnlyList<ItemStack>, Id?)` 两条不带身份的旧签名路径对货币条目的处理——
+  经这两条路径产出的货币"堆叠"仍是普通 `ItemStack`（`TemplateId` 落在 `econ` 域），若调用方绕开
+  `PickUp`、自行处理这些堆叠（如直接 `IInventoryHost.AddItem`），不会被本任务的货币拦截逻辑覆盖；
+  本任务只保证经 `LootHost.PickUp` 这一条唯一拾取入口的货币条目不进背包。

@@ -7,6 +7,7 @@ using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
 using Core.Foundation.Rng;
 using Core.Foundation.SimLoop;
+using Core.Gameplay.Economy;
 using Core.Rules.Common;
 
 namespace Core.Gameplay.Loot
@@ -52,6 +53,12 @@ namespace Core.Gameplay.Loot
 
         private readonly IDataRegistryView _registry;
         private readonly IExprSchema? _conditionSchema;
+
+        /// <summary>T-N4-7（ADR-0034 决策 3/4；08 第 1.1/7.4 节修订段）：货币掉落条目换算数量（<see
+        /// cref="IEconomyHost.TryGetGoldBaseAmount"/>）与拾取时直接入账（<see cref="IEconomyHost.Add"/>）
+        /// 均经本引用——可选注入，未注入（旧 11 参构造函数）时按 <see cref="ResolveCurrencyOutcome"/>/
+        /// <see cref="DepositCurrencyStacks"/> 判断记录静默退化（不产出/不入账货币条目，不抛异常）。</summary>
+        private readonly IEconomyHost? _economyHost;
 
         private readonly Dictionary<Id, LootTableDef> _tables = new Dictionary<Id, LootTableDef>();
         private readonly Dictionary<Id, DroppedLootEntity> _dropped = new Dictionary<Id, DroppedLootEntity>();
@@ -99,6 +106,32 @@ namespace Core.Gameplay.Loot
             // 状态"）。
             _bus.Subscribe<Core.Foundation.DataRegistry.DataLoadCompletedEvent>(
                 Core.Foundation.DataRegistry.DataRegistryEventKeys.LoadCompleted, _ => ReloadTables());
+        }
+
+        /// <summary>
+        /// T-N4-7 新增重载（ABI 硬性规则"只允许新增"，不改既有 11 参构造函数签名——同
+        /// <c>CreatureDeathLootListener</c> 追加 <c>difficultyHost</c> 的既有先例）：额外接受
+        /// <paramref name="economyHost"/>，供货币掉落条目换算实际数量（<see
+        /// cref="ResolveCurrencyOutcome"/>）与拾取时直接入账（<see cref="DepositCurrencyStacks"/>）
+        /// 使用。未提供（<c>null</c>——旧 11 参构造函数走的路径，或本重载显式传 <c>null</c>）时两处均
+        /// 静默退化（不产出/不入账货币条目，不抛异常），见各自方法判断记录。
+        /// </summary>
+        public LootHost(
+            IDataRegistryView registry,
+            IRngHost rng,
+            IEventBus bus,
+            IWorldSim world,
+            IUnitAccess units,
+            IInventoryHost inventory,
+            IExprHostFactory exprHostFactory,
+            Func<double> simTimeProvider,
+            LootOptions? options,
+            IExprDiagnostics? diagnostics,
+            IExprSchema? conditionSchema,
+            IEconomyHost? economyHost)
+            : this(registry, rng, bus, world, units, inventory, exprHostFactory, simTimeProvider, options, diagnostics, conditionSchema)
+        {
+            _economyHost = economyHost;
         }
 
         private void ReloadTables()
@@ -306,7 +339,11 @@ namespace Core.Gameplay.Loot
         /// 判断记录"掷骰顺序"追加一条 <see cref="LootRollOutcome"/>（品质骰 + 词缀骰追加在本条目已经
         /// 消耗的"掉哪条"掷骰之后，见 <see cref="ResolveItemOutcome"/>）；是 <c>loot.*</c> 时按判断
         /// 记录 2 递归展开该嵌套表 <paramref name="count"/> 次（嵌套表自己的叶子 <c>item.*</c> 条目
-        /// 各自独立走一遍品质骰/词缀骰，不在本层重复）。</summary>
+        /// 各自独立走一遍品质骰/词缀骰，不在本层重复）；是 <c>econ.*</c>（T-N4-7）时按 <see
+        /// cref="ResolveCurrencyOutcome"/> 换算实际数量，换算不出（未注入 <see cref="_economyHost"/>
+        /// 或曲线不可解析）或换算结果 &lt;=0 时静默跳过、不追加任何产出（不是"命中但数量为 0"，这条
+        /// 候选在 <see cref="RollTableInto"/> 的保底计数口径下等同于"未产出"，同嵌套表引用未加载的
+        /// 兜底惯例）。</summary>
         private void ResolveEntryAtDepth(LootEntry entry, int count, RollContext context, IExprHost exprHost, int depth, List<LootRollOutcome> output)
         {
             if (entry.Ref.Domain == "loot")
@@ -323,10 +360,76 @@ namespace Core.Gameplay.Loot
                     RollTableInto(nestedDef, context, exprHost, output, depth + 1);
                 }
             }
+            else if (entry.Ref.Domain == "econ")
+            {
+                var outcome = ResolveCurrencyOutcome(entry.Ref, count, context);
+                if (outcome.HasValue)
+                {
+                    output.Add(outcome.Value);
+                }
+            }
             else
             {
                 output.Add(ResolveItemOutcome(entry, count, context));
             }
+        }
+
+        /// <summary>
+        /// T-N4-7（ADR-0034 决策 3；08 第 1.1/7.4 节修订段"怪物掉钱 = 当量 ×
+        /// econ.gold_base_curve(怪物等级) × 分档倍率 × diff.tier.loot_multiplier"）：货币掉落条目——
+        /// <paramref name="equivalents"/>（在 <c>[count_range.min, count_range.max]</c> 内抽出的
+        /// 当量）× <see cref="IEconomyHost.TryGetGoldBaseAmount"/>（来源等级对应的金币基数）×
+        /// <see cref="RollContext.Multiplier"/>（既有难度倍率挂载点，由调用方从
+        /// <c>IDifficultyHost.LootMultiplier</c>——即 <c>diff.tier.loot_multiplier</c>——取值后传入，
+        /// 见 <see cref="RollContext.Multiplier"/> 判断记录），四舍五入（<see
+        /// cref="MidpointRounding.AwayFromZero"/>）到整数。
+        /// <para>
+        /// 判断记录（"分档倍率"——<c>creature.tier_definition</c> 的金币倍率字段——留钩子缺省 1，
+        /// 设计层裁定（2026-09-16）：采纳，记为偏离首版基准的说明，留待阶段 N6 仿真核对锚点时补上）：
+        /// 08 第 1.1/7.4 节公式原文把"分档倍率"与"<c>diff.tier.loot_multiplier</c>"
+        /// 并列写成两个独立乘数；核实 <c>core/carriers/creature/core/CreatureSchemas.cs</c> 的
+        /// <c>creature.tier_definition</c> 当前只有 <c>stat_multiplier</c>/<c>control_immune</c> 等
+        /// 既有字段，没有任何"经验/金币倍率"字段（T-N4-4"分档与难度经验倍率"已落地但只补了
+        /// <c>xp_multiplier</c>，未新增任何"金币倍率"字段），本任务因此没有可读取的数据源来实现
+        /// "分档倍率"这一乘数——本阶段留空等价于该乘数恒为 1（只保留 <see cref="RollContext.Multiplier"/>
+        /// 一项，即 <c>diff.tier.loot_multiplier</c>），留待阶段 N6 仿真核对锚点时补上"分档金币倍率"
+        /// 字段后由调用方通过某个新的 <see cref="RollContext"/> 字段或本方法的新增可选参数接入
+        /// （ABI 只允许新增，届时可平滑扩展，不需要改动本方法现有签名）。
+        /// </para>
+        /// <para>
+        /// 判断记录（<see cref="RollContext.SourceLevel"/> 为空时的等级回退，设计层裁定
+        /// （2026-09-16）：采纳）：08 原文
+        /// 只说"怪物掉钱……(怪物等级)"，未说明没有来源等级（如非生物来源的货币掉落，若存在）时该按
+        /// 什么等级取金币基数；本方法选择回退到等级 1（曲线定义域的合理下界，同 <see
+        /// cref="ResolveItemOutcome"/> 对物品等级"为空时取模板自身 item_level"的兜底思路不完全相同——
+        /// 货币条目没有"模板"可回退，1 是本任务的临时判断）。
+        /// </para>
+        /// <para>
+        /// 判断记录（未注入 <see cref="_economyHost"/>、或曲线记录未加载/该 id 找不到记录时，静默
+        /// 跳过，不抛异常）：与嵌套 <c>loot.*</c> 引用未加载的兜底同一惯例——货币掉落条目的运行期
+        /// 可用性依赖组装层是否接线 <see cref="IEconomyHost"/>，理应已在内容校验/组装阶段发现问题，
+        /// 运行期只做静默兜底。换算结果 &lt;=0（曲线在该等级取值为 0、或四舍五入到 0）时同样跳过——
+        /// <see cref="LootRollOutcome"/> 的构造函数本就要求 <see cref="LootRollOutcome.Count"/> 为
+        /// 正数，不产出一条"数量为 0"的记录。
+        /// </para>
+        /// </summary>
+        private LootRollOutcome? ResolveCurrencyOutcome(Id currencyRef, int equivalents, RollContext context)
+        {
+            if (_economyHost == null)
+            {
+                return null;
+            }
+
+            var level = context.SourceLevel ?? 1;
+            var goldBase = _economyHost.TryGetGoldBaseAmount(level);
+            if (!goldBase.HasValue)
+            {
+                return null;
+            }
+
+            var raw = equivalents * goldBase.Value * context.Multiplier;
+            var amount = (int)Math.Round(raw, MidpointRounding.AwayFromZero);
+            return amount > 0 ? new LootRollOutcome(currencyRef, amount, null, null, null) : (LootRollOutcome?)null;
         }
 
         /// <summary>
@@ -668,7 +771,21 @@ namespace Core.Gameplay.Loot
             // T-N2-8b：逐条 outcome 按其品质/词缀身份入包（见 IInventoryHost.AddItem 带身份重载），
             // 不再退化成不带身份的旧签名——地面掉落物落地时真正掷出的品质/词缀现在能一路保真到背包。
             var wantOutcomes = ResolveOutcomesFor(entity, want);
-            var addedPerStack = new List<int>(want.Count);
+
+            // T-N4-7（ADR-0034 决策 4"货币不进背包、不占格子，背包满不影响拾取"）：货币堆叠（
+            // TemplateId 落在 econ 域）从"需要走 IInventoryHost.AddItem 的堆叠"里剔除——它们的入账
+            // （见 DepositCurrencyStacks）没有"放不下"这个失败分支，不参与下面 Reject 策略"全部拿到
+            // 才算数"的事务/回滚判断，避免把一个恒成功的操作错误地卷入需要回滚的事务窗口。
+            var itemIndices = new List<int>(want.Count);
+            for (var i = 0; i < want.Count; i++)
+            {
+                if (!IsCurrency(want[i].TemplateId))
+                {
+                    itemIndices.Add(i);
+                }
+            }
+
+            var addedPerStack = new List<int>(itemIndices.Count);
             var fullySucceeded = true;
 
             // CR130-01 根治（外部审计 audit-5c444f1-20260908，与 EconomyHost.Buy 同款缺口）：本方法
@@ -682,7 +799,7 @@ namespace Core.Gameplay.Loot
             var transaction = _inventory is IBatchableInventoryHost batchable ? batchable.BeginBatch() : null;
             using (transaction)
             {
-                for (var i = 0; i < want.Count; i++)
+                foreach (var i in itemIndices)
                 {
                     var stack = want[i];
                     var outcome = wantOutcomes[i];
@@ -700,11 +817,11 @@ namespace Core.Gameplay.Loot
                 {
                     if (transaction == null)
                     {
-                        for (var i = 0; i < want.Count; i++)
+                        for (var k = 0; k < itemIndices.Count; k++)
                         {
-                            if (addedPerStack[i] > 0)
+                            if (addedPerStack[k] > 0)
                             {
-                                RollbackAdd(unitId, want[i].TemplateId, addedPerStack[i]);
+                                RollbackAdd(unitId, want[itemIndices[k]].TemplateId, addedPerStack[k]);
                             }
                         }
                     }
@@ -715,6 +832,10 @@ namespace Core.Gameplay.Loot
 
                 transaction?.Commit();
             }
+
+            // 非货币部分全部成功（或本来就没有非货币部分）之后才入账货币——Add 恒返回 true，没有
+            // 失败分支，不需要参与上面的事务/回滚判断（同判断记录）。
+            DepositCurrencyStacks(unitId, lootInstanceId, want);
 
             entity.Items.Clear();
             entity.ReplaceOutcomes(Array.Empty<LootRollOutcome>());
@@ -733,10 +854,20 @@ namespace Core.Gameplay.Loot
             // 留在地面上的剩余部分沿用同一条 outcome（只是 Count 改成剩余数量）——品质骰/词缀骰结果
             // 已经在 Drop 那一刻定型，部分拾取不是重新掷骰，见 DroppedLootEntity.Outcomes 判断记录。
             var remainingOutcomes = new List<LootRollOutcome>();
+            // T-N4-7：货币堆叠全额记入本次拾取（Add 恒成功，不存在"放不下、留在地面"的概念），
+            // 单独收集后统一入账，见下方 DepositCurrencyStacks 调用。
+            var currencyStacks = new List<ItemStack>();
 
             for (var i = 0; i < want.Count; i++)
             {
                 var stack = want[i];
+                if (IsCurrency(stack.TemplateId))
+                {
+                    currencyStacks.Add(stack);
+                    taken.Add(stack);
+                    continue;
+                }
+
                 var outcome = wantOutcomes[i];
                 var before = _inventory.CountOf(unitId, stack.TemplateId);
                 _inventory.AddItem(unitId, stack.TemplateId, stack.Count, outcome.QualityId, outcome.Affixes);
@@ -759,9 +890,12 @@ namespace Core.Gameplay.Loot
             if (taken.Count == 0)
             {
                 // 一件都没拿到：地面掉落物内容不变（remaining == want 的堆叠数值，只是重新分配了
-                // 列表实例，逐项数值相等）。
+                // 列表实例，逐项数值相等）。货币堆叠此时必为空（IsCurrency 命中的分支恒计入 taken），
+                // 不会有货币被静默丢弃在这个失败分支里。
                 return LootPickupResult.Fail(LootPickupFailureReason.InventoryFull);
             }
+
+            DepositCurrencyStacks(unitId, lootInstanceId, currencyStacks);
 
             entity.Items.Clear();
             entity.Items.AddRange(remaining);
@@ -774,6 +908,36 @@ namespace Core.Gameplay.Loot
 
             _bus.Enqueue(new LootPickedUpEvent(unitId, lootInstanceId, taken));
             return LootPickupResult.Ok(taken);
+        }
+
+        /// <summary>T-N4-7：<paramref name="templateId"/> 落在 <c>econ</c> 域即视为货币条目（掉落
+        /// 货币条目产出的 <see cref="LootRollOutcome.TemplateId"/> 恒为某个 <c>econ.currency.*</c>，
+        /// 见 <see cref="ResolveCurrencyOutcome"/>）。</summary>
+        private static bool IsCurrency(Id templateId) => templateId.Domain == "econ";
+
+        /// <summary>T-N4-7（ADR-0034 决策 4）：把 <paramref name="stacks"/> 里的货币堆叠逐条经 <see
+        /// cref="IEconomyHost.Add"/> 入账给 <paramref name="unitId"/>（不进背包、不占格子），
+        /// <paramref name="sourceId"/> 供事件追溯来源，本方法传入这次拾取的地面掉落物实例 id（惯例
+        /// 同 <c>EconomyHost.Sell</c> 的 <c>sourceId: vendorId</c>——"谁给的钱"）。<see
+        /// cref="_economyHost"/> 未注入时静默忽略（不抛异常；理论上不应触发——货币出现在
+        /// <c>entity.Items</c> 里意味着它是由同一个 <see cref="LootHost"/> 实例经
+        /// <see cref="ResolveCurrencyOutcome"/> 产出的，产出条件本就要求 <see cref="_economyHost"/>
+        /// 非空——这里仍做防御性判断，覆盖"绕过本类直接构造 <see cref="DroppedLootEntity"/>/读档
+        /// 恢复出含货币的旧存档"一类边界情况）。</summary>
+        private void DepositCurrencyStacks(Id unitId, Id sourceId, IReadOnlyList<ItemStack> stacks)
+        {
+            if (_economyHost == null)
+            {
+                return;
+            }
+
+            foreach (var stack in stacks)
+            {
+                if (stack.Count > 0)
+                {
+                    _economyHost.Add(unitId, stack.TemplateId, stack.Count, sourceId: sourceId);
+                }
+            }
         }
 
         private void RollbackAdd(Id unitId, Id templateId, int amount)

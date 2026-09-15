@@ -153,6 +153,14 @@ namespace Core.Rules.Assembly
         /// <c>() =&gt; scheduler.RoundIndex</c>。</param>
         /// <param name="discreteCurrentActorProvider">同上，对应 <c>time.is_my_turn</c>，调用方应传
         /// <c>() =&gt; scheduler.GetCurrentActor()</c>。</param>
+        /// <summary>T-N4-4 判断记录（ABI 门禁 G3：本仓库已发布 1.33.0 基线，<c>toolchain/abi_probe.ps1</c>
+        /// 按物理签名逐字节比对——直接在本构造函数已发布的参数列表末尾追加新参数（哪怕是可选参数）
+        /// 会改变物理签名，被判定为"移除/变更"的破坏性变更，与本构造函数发布之前（1.33.0 之前）
+        /// 历次追加新可选参数的写法不再等价：那些追加都发生在对应签名从未随版本发布过的窗口内，
+        /// 本次不同——必须改用"新增重载"（同 <see cref="Core.Numbers.Progression.ProgressionHost"/>
+        /// 两个构造函数的既定写法）：本构造函数保留原物理签名不变，新增下方带 <see
+        /// cref="ProgressionOptions"/> 参数的重载承载真正的构造逻辑，本构造函数转发并传
+        /// <c>progressionOptions: null</c>。</summary>
         public RulesAssembly(
             IEventBus bus,
             IDataRegistryView registry,
@@ -175,6 +183,56 @@ namespace Core.Rules.Assembly
             Func<int>? discreteRoundIndexProvider = null,
             Func<Id?>? discreteCurrentActorProvider = null,
             LevelSync? levelSync = null)
+            : this(bus, registry, rng, units, spatial, world, navigation, statOptions, combatOptions,
+                skillOptions, targetingOptions, aiOptions, extraSchemas, staticImmunity, effectExtension,
+                autoRegisterTickHandlers, projectileSpawner, discreteTurnIndexProvider,
+                discreteRoundIndexProvider, discreteCurrentActorProvider, levelSync, progressionOptions: null)
+        {
+        }
+
+        /// <summary>
+        /// T-N4-4 新增构造重载：接受 <see cref="ProgressionOptions"/>（ADR-0033 决策 4），供
+        /// <c>core/gameplay/assembly.GameplayAssembly</c> 接线 <c>ExtraXpMultiplierProvider</c>
+        /// （分档倍率 × 难度倍率）/<c>KillXpSourceId</c>/<c>DiscoveryXpSourceId</c>/
+        /// <c>QuestXpSourceId</c> 等策略配置项（ABI 门禁 G3：见上方旧签名构造函数判断记录，本重载
+        /// 是唯一新增的物理签名，旧签名原样保留、转发本重载并传 <c>null</c>）。
+        /// <para>
+        /// 判断记录（本重载全部参数均不带默认值）：与 <see cref="Core.Numbers.Progression.ProgressionHost"/>
+        /// 的两个构造函数（新参数插在既有可选参数之前，其余保留默认值）写法不同——本类型/
+        /// <see cref="Core.Carriers.Assembly.CarriersAssembly"/> 的构造函数参数量极大（20+），把
+        /// <c>progressionOptions</c> 插进既有可选参数中间会让既有调用点大量使用位置参数
+        /// （<c>Core.Carriers.Assembly.CarriersAssembly</c> 对本构造函数的唯一调用点即是如此）静默
+        /// 错位到相邻形参——插入中间的重构风险远高于"新参数只能放最后"；只能放最后又要求本参数不带
+        /// 默认值（否则"零新增参数"的既有调用会同时匹配新旧两个签名而产生 CS0121 二义性错误），
+        /// C# 语法要求"可选参数必须在必选参数之后"，因此本重载把此前全部可选参数一并改为必选——
+        /// 唯一的调用点（<c>CarriersAssembly</c> 对本构造函数）已同步改为显式列出全部参数，其余
+        /// 全部既有调用点（各测试文件）参数数量/名称均不触及 <c>progressionOptions</c>，继续原样
+        /// 绑定到上方保留不变的旧签名构造函数，不需要逐一改动。
+        /// </para>
+        /// </summary>
+        public RulesAssembly(
+            IEventBus bus,
+            IDataRegistryView registry,
+            IRngHost rng,
+            IUnitAccess units,
+            ISpatialQuery spatial,
+            IWorldSim world,
+            INavigation2D? navigation,
+            StatHostOptions? statOptions,
+            CombatOptions? combatOptions,
+            SkillOptions? skillOptions,
+            TargetingOptions? targetingOptions,
+            AiOptions? aiOptions,
+            IReadOnlyList<IExprSchema>? extraSchemas,
+            IStaticImmunityProvider? staticImmunity,
+            IEffectExtension? effectExtension,
+            bool autoRegisterTickHandlers,
+            IProjectileSpawner? projectileSpawner,
+            Func<int>? discreteTurnIndexProvider,
+            Func<int>? discreteRoundIndexProvider,
+            Func<Id?>? discreteCurrentActorProvider,
+            LevelSync? levelSync,
+            ProgressionOptions? progressionOptions)
         {
             Bus = bus ?? throw new ArgumentNullException(nameof(bus));
             Registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -248,7 +306,12 @@ namespace Core.Rules.Assembly
             // CORE-170-02 根治：levelSync 原样转发给 ProgressionHost——见 LevelSync 判断记录，
             // RulesAssembly 本身（L2）同样不知道、也不该知道 Unit/PlayerUnit（L3）这个类型，只是
             // 沿途转发调用方（CarriersAssembly）传入的真实实现。
-            Progression = new ProgressionHost(Registry, Bus, progressionWriter, progressionRemover, levelSync: levelSync);
+            // T-N4-5：本地解析一份 resolvedProgressionOptions（惯例同 resolvedStatOptions/
+            // resolvedCombatOptions 等既有写法）——ProgressionHost 内部虽然也会做
+            // "options ?? new ProgressionOptions()" 同一件事，但那份实例是私有的，本类下方"升级
+            // 回满"订阅需要读 RefillOnLevelUp 决定是否回满，必须在装配根这一层也留一份引用。
+            var resolvedProgressionOptions = progressionOptions ?? new ProgressionOptions();
+            Progression = new ProgressionHost(Registry, Bus, progressionWriter, progressionRemover, resolvedProgressionOptions, levelSync: levelSync);
             progression = Progression; // 回填第 1 步的闭包捕获。
 
             // -------------------------------------------------------------
@@ -284,6 +347,24 @@ namespace Core.Rules.Assembly
             });
             Bus.Subscribe<LevelUpEvent>(ProgressionEventKeys.LevelUp, evt => Stats.RecomputeRatingStats(evt.UnitId));
             Bus.Subscribe<ProgressionRestoredEvent>(ProgressionEventKeys.StateRestored, evt => Stats.RecomputeRatingStats(evt.UnitId));
+
+            // T-N4-5（ADR-0033 决策 7；06 第 2.5 节"升级回满：progression.level_up 触发生命与资源
+            // 回满，由资源池订阅实现"）：单独一条订阅（不是并进上面 RecomputeRatingStats 那条闭包，
+            // 保持"一条订阅只做一件事"的既有惯例，同上方 StatChangedEvent/LevelUpEvent/
+            // ProgressionRestoredEvent 三条各自独立的写法）——ProgressionOptions.RefillOnLevelUp
+            // （缺省 true，见该字段判断记录）为 false 时整条跳过，不调用 Powers.RefillAll；为 true
+            // 且该单位已在 Powers 注册（同上方 StatChangedEvent 订阅同一判断，Progression/Powers
+            // 两个宿主的注册单位集合彼此独立，没有强制同步保证）时，调用 PowerHost.RefillAll 把
+            // 回复型资源池回满，经既有 ModifyPower 等会发事件的路径（SetCurrentClamped）发
+            // power.changed，不绕过事件（硬性规则）。sourceId 直接复用 ProgressionEventKeys.LevelUp
+            // ——语义即"这次回满由升级触发"，同 prog.growth 一类固定来源 id 的既有惯例。
+            Bus.Subscribe<LevelUpEvent>(ProgressionEventKeys.LevelUp, evt =>
+            {
+                if (resolvedProgressionOptions.RefillOnLevelUp && Powers.IsRegistered(evt.UnitId))
+                {
+                    Powers.RefillAll(evt.UnitId, ProgressionEventKeys.LevelUp);
+                }
+            });
 
             StatBaseWriter archBaseWriter = (unitId, stat, value) => Stats.SetBase(unitId, stat, value);
             ArchStatModifierWriter archModifierWriter = (unitId, stat, op, value, sourceId) =>
@@ -414,6 +495,21 @@ namespace Core.Rules.Assembly
             // -------------------------------------------------------------
             deferredAuras.Bind(Skill.AuraQuery);
             deferredSkillHost.Bind(Skill);
+
+            // T-N4-9（ADR-0034 决策 7；拍板 9）：CombatOptions.DismountMountAuras 窄委托——
+            // Skill.AuraQuery 运行期确实是 AuraHost（真实装配的唯一实现，测试替身可能不是）时才
+            // 接线到 AuraHost.Dispel（真正的"按 dispel_type 批量移除光环"能力），防御性 is 模式
+            // 判断同上方/GameplayAssembly 第 10.5 步 world is WorldSim 一贯做法；resolvedCombatOptions
+            // 是可变类，此刻在 CombatHost 构造完成之后再补写这个委托字段是安全的——CombatHost 只在
+            // 真正调用 NotifyCombatEvent 时才读取该字段当前值，不在构造期缓存它（同 deferredAuras/
+            // deferredSkillHost 两个既有"先占位构造、后补绑定"委托的一贯手法）。调用方未显式覆盖时
+            // 才接线（??=），惯例同 GameplayAssembly 的 ReviveUnit/ResolveDefaultSpawn 等既有边界
+            // 委托接线写法。
+            if (Skill.AuraQuery is AuraHost auraHostForDismount)
+            {
+                resolvedCombatOptions.DismountMountAuras ??=
+                    (unitId, dispelType) => auraHostForDismount.Dispel(unitId, dispelType, int.MaxValue);
+            }
 
             // -------------------------------------------------------------
             // 7) AiHost：与 Targeting/Skill 共享同一份第 5 步的 ExprHostFactory（P2-01 收口后不再

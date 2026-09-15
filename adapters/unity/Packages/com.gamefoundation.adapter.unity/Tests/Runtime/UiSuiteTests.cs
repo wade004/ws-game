@@ -226,10 +226,21 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         /// <summary>拍板 7 验收（任务书原句）："打开商店 → 库存与价格显示 → 购买后背包数量与货币
-        /// 变化"。商人取样例数据集 econ.vendor.sample_hunter（出售 item.sample_tonic，单价 5
+        /// 变化"。商人取样例数据集 econ.vendor.sample_hunter（出售 item.sample_tonic，
         /// econ.currency.sample_coin，见 data/_sample/econ/econ.vendor.json），玩家初始货币为 0
         /// （RegisterUnit 不预置余额），测试前置经 EconomyHost.Add 直接发放，不经任何 UI 交互——
-        /// 只验证本面板本身的显示/购买链路，不重复测试货币发放这条无关路径。</summary>
+        /// 只验证本面板本身的显示/购买链路，不重复测试货币发放这条无关路径。
+        /// <para>
+        /// T-N4-11（阶段 N4 独立复核缺口修复）：T-N4-10 起 item.sample_tonic 在 econ.vendor.json 里
+        /// 的 price_amount 已摘除（<c>sell_items[].price_amount</c> 改为可选，T-N4-6/ADR-0034 决策
+        /// 2），单价不再是手填的 5，改由价格公式动态算出——econ.value_curve.default(item_level=1)
+        /// = 25 × item.quality.sample_common 品质价格倍率 1.0（未登记该品质记录的 price_multiplier
+        /// 时按 1.0 兜底）× item.slot.sample_bag 槽位价格系数 1.0（同理兜底）= 25。展示层（<see
+        /// cref="Presentation.Ui.ShopViewModel.Refresh"/>）与实际扣款（<c>EconomyHost.Buy</c>）经
+        /// <c>IEconomyHost.TryGetSellItemPrice</c> 共用同一条价格解析路径，下方两处断言改为公式值
+        /// 25，不是"放宽断言"——是价格来源从手填改为公式后随之更新的行为断言。
+        /// </para>
+        /// </summary>
         [UnityTest]
         public IEnumerator Shop_OpenVendor_ShowsStockAndPrice_BuyChangesInventoryAndCurrency()
         {
@@ -252,7 +263,7 @@ namespace Adapter.Unity.Tests.Runtime
             var sellItems = shell.Framework.Presentation.Shop.SellItems;
             Assert.Greater(sellItems.Count, 0, "商店打开后出售清单应当非空（库存/价格展示的数据来源）");
             Assert.AreEqual(itemId, sellItems[0].ItemId, "出售清单第一条应为样例数据集登记的 item.sample_tonic");
-            Assert.AreEqual(5, sellItems[0].PriceAmount, "单价应与 econ.vendor.json 登记的 price_amount 一致");
+            Assert.AreEqual(25, sellItems[0].PriceAmount, "单价应与价格公式/手填 price_amount 一致（item.sample_tonic 未填 price_amount，按 econ.value_curve.default(1)=25 × 品质 1.0 × 槽位 1.0 算出）");
 
             shell.Framework.Presentation.UiIntents.Buy(vendorId, itemId, 1);
 
@@ -263,7 +274,7 @@ namespace Adapter.Unity.Tests.Runtime
             var balanceAfter = shell.Framework.Gameplay.Economy.GetBalance(playerId, currencyId);
             var inventoryCountAfter = shell.Framework.Gameplay.Carriers.Inventory.CountOf(playerId, itemId);
 
-            Assert.AreEqual(balanceBefore - 5, balanceAfter, "购买后货币余额应当扣除单价");
+            Assert.AreEqual(balanceBefore - 25, balanceAfter, "购买后货币余额应当扣除单价（公式值 25）");
             Assert.AreEqual(inventoryCountBefore + 1, inventoryCountAfter, "购买后背包对应物品数量应当增加 1");
 
             shell.UiPanelHost.Shop.CloseVendorAndHide();

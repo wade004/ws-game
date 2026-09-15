@@ -47,6 +47,7 @@
 | `stat.weight` | 游戏必填（若已有装备预算消耗/技能价值/装备评分等消费者内容）/ 空壳（尚无这些消费者时） | 分阶段落地计划 T-N1-5（ADR-0030 决策 7）补的空壳表：`stat/stat.weight.json` 只有空 `rows`，属性权重当量与职业覆盖（`class_overrides`）由具体游戏填写；`StatHost` 本身不读这张表——装备预算消耗（ADR-0032）、技能控制/增益价值（ADR-0031）、装备评分的消费实现均不在框架当前落地范围内 |
 | `combat.level_diff_table` | 游戏必填（若已配置 `CombatOptions.LevelDiffTableId`）/ 空壳（未接入等级差手感时） | 分阶段落地计划 T-N1-8（ADR-0030 决策 6）补的空壳表：`combat/combat.level_diff_table.json` 只有空 `rows`，三条曲线（`miss_bonus`/`crit_suppression`/`xp_factor`，横轴 Δ = 目标有效等级 − 攻击者有效等级）加一条灰名界线（`grey_line`，横轴攻击者有效等级）由具体游戏填写；`CombatOptions.LevelDiffTableId` 默认 `null`，不接这张表时 `Resolver` 的命中/暴击公式退化为 Δ 加成/压制恒为 0（同 T-N1-8 之前逐位一致）——`xp_factor`/`grey_line` 两列本框架当前只登记数据形状，消费实现（经验系数、目标名字五色）不在框架当前落地范围内（阶段 N4 接入） |
 | `skill.budget_rule` | 游戏必填（登记后） | 数值设计落地计划为该表预留的空壳位：登记随阶段 N3 落地，登记前校验器对未登记表报错（`FailOnUnknownTable`），因此暂不放文件，该阶段登记时随即补空壳 `rows: []` 到本目录并在此表追加行 |
+| `prog.xp_base_curve` | 游戏必填（若已有 `prog.xp_source.base_curve_ref` 引用它的来源）/ 空壳（尚无任何来源引用时） | 分阶段落地计划 T-N4-1（ADR-0033 决策 3、落地改动点清单第 10 节拍板 5）新增的空壳表：`prog/prog.xp_base_curve.json` 只有空 `rows`，怪物/任务/区域等级到"一只同级普通怪的基础经验值"的曲线由具体游戏填写；本模板未提供任何 `prog.xp_source` 数据（当前最小闭环不需要经验发放），消费实现（`ProgressionHost.grantXp` 读取本表折算三种来源当量）随 T-N4-2 落地，本框架当前只登记数据形状 |
 
 ## 覆盖 `arch.power.health`（可选）
 

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Core.Carriers.Common;
 using Core.Carriers.Creature;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
@@ -17,6 +19,11 @@ namespace Core.Gameplay.Loot
     /// Difficulty 行"L4 Loot（倍率）"具体如何计算倍率，只声明这一处扩展点；难度模块（不在本任务
     /// 范围）若要影响掉落倍率，只需把自己的查询函数注入到这个委托即可，不需要 Loot 模块反向依赖它。
     /// </para>
+    /// <para>
+    /// T-N4-7：可选注入 <see cref="Core.Gameplay.Economy.IEconomyHost"/>——<see cref="OnUnitDied"/>
+    /// 在 <see cref="Core.Gameplay.Economy.CurrencyDepositPolicy.OnKill"/>（默认）策略下据此把
+    /// 货币掉落条目在击杀这一刻直接入账给击杀者，见该方法判断记录。
+    /// </para>
     /// </summary>
     public sealed class CreatureDeathLootListener
     {
@@ -26,6 +33,7 @@ namespace Core.Gameplay.Loot
         private readonly IWorldSim _world;
         private readonly Func<double> _lootMultiplierProvider;
         private readonly Core.Gameplay.Difficulty.IDifficultyHost? _difficultyHost;
+        private readonly Core.Gameplay.Economy.IEconomyHost? _economyHost;
 
         public CreatureDeathLootListener(
             IEventBus bus,
@@ -66,6 +74,27 @@ namespace Core.Gameplay.Loot
             : this(bus, lootHost, templates, units, world, lootMultiplierProvider)
         {
             _difficultyHost = difficultyHost;
+        }
+
+        /// <summary>
+        /// T-N4-7 新增重载（ABI 硬性规则"只允许新增"，不改既有 7 参构造函数签名——同上一条 T-N2-8b
+        /// 先例）：额外接受 <paramref name="economyHost"/>，供 <see cref="OnUnitDied"/> 在
+        /// <see cref="Core.Gameplay.Economy.CurrencyDepositPolicy.OnKill"/> 策略下把货币掉落条目在
+        /// 击杀这一刻直接入账给击杀者（见该方法判断记录）。未提供（<c>null</c>）时按该方法判断记录
+        /// 整条退回"随其它掉落物一并落地"的既有路径，不抛异常、不跳过掉落生成。
+        /// </summary>
+        public CreatureDeathLootListener(
+            IEventBus bus,
+            LootHost lootHost,
+            ICreatureTemplateQuery templates,
+            IUnitAccess units,
+            IWorldSim world,
+            Func<double>? lootMultiplierProvider,
+            Core.Gameplay.Difficulty.IDifficultyHost? difficultyHost,
+            Core.Gameplay.Economy.IEconomyHost? economyHost)
+            : this(bus, lootHost, templates, units, world, lootMultiplierProvider, difficultyHost)
+        {
+            _economyHost = economyHost;
         }
 
         private void OnUnitDied(UnitDiedEvent evt)
@@ -128,7 +157,45 @@ namespace Core.Gameplay.Loot
                 return;
             }
 
-            _lootHost.Drop(entity.MapId, _units.GetPosition(evt.UnitId), outcomes, ownerHint: evt.KillerId);
+            // T-N4-7（ADR-0034 决策 4；EconomyOptions.DepositPolicy 判断记录）：OnKill（默认）策略下，
+            // 货币产出在击杀这一刻直接入账给击杀者，不落地成地面掉落物——不占背包格、不需要拾取。
+            // sourceId 取死亡单位自身（evt.UnitId，"谁给的钱"，惯例同 EconomyHost.Sell 的
+            // sourceId: vendorId）。
+            //
+            // 判断记录（设计层裁定（2026-09-16）：采纳）：ADR/08 原文只给出"击杀即入账（默认）"这一句，未说明找不到
+            // 明确击杀者（evt.KillerId 为 null，如环境死亡/自然死亡）时该怎么处理——本任务选择退回
+            // GroundPickup 语义（货币随其它掉落物一并落地，不静默丢弃），不是"归属死亡单位自己"或
+            // "直接丢弃"，理由：没有击杀者就没有 OnKill 策略要求的"击杀者"这一入账对象，落地待拾取
+            // 是唯一不丢钱的选择。
+            var groundOutcomes = outcomes;
+            if (_economyHost != null
+                && _economyHost.DepositPolicy == Core.Gameplay.Economy.CurrencyDepositPolicy.OnKill
+                && evt.KillerId.HasValue)
+            {
+                var remaining = new List<LootRollOutcome>(outcomes.Count);
+                foreach (var outcome in outcomes)
+                {
+                    if (outcome.TemplateId.Domain == "econ")
+                    {
+                        _economyHost.Add(evt.KillerId.Value, outcome.TemplateId, outcome.Count, sourceId: evt.UnitId);
+                    }
+                    else
+                    {
+                        remaining.Add(outcome);
+                    }
+                }
+
+                groundOutcomes = remaining;
+                if (groundOutcomes.Count == 0)
+                {
+                    // 全部产出都是货币且已当场入账，没有需要落地的物品——不生成空的地面掉落物实体
+                    // （Drop 的既有契约总是返回一个真实创建的实体 id，本类不打算为"什么都不落地"的
+                    // 情形改变这一契约，直接不调用）。
+                    return;
+                }
+            }
+
+            _lootHost.Drop(entity.MapId, _units.GetPosition(evt.UnitId), groundOutcomes, ownerHint: evt.KillerId);
         }
     }
 }

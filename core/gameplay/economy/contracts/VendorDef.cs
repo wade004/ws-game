@@ -25,7 +25,18 @@ namespace Core.Gameplay.Economy
 
         public Id PriceCurrencyId { get; }
 
+        /// <summary>手填买价；<see cref="HasPriceAmount"/> 为 <c>false</c>（<c>price_amount</c> 未在
+        /// 数据里填写，分阶段落地计划 T-N4-6；ADR-0034 决策 2）时本属性恒为 0，不代表实际买价——
+        /// 实际买价这时由 <c>EconomyHost.Buy</c> 按价格公式（<c>econ.value_curve</c> × 品质价格倍率 ×
+        /// 槽位价格系数，<c>item.template.value_override</c> 优先）动态算出。旧构造函数（见下）恒把
+        /// <see cref="HasPriceAmount"/> 置真，语义与 T-N4-6 之前完全一致，不受本次改动影响。</summary>
         public long PriceAmount { get; }
+
+        /// <summary>T-N4-6（ADR-0034 决策 2；08 第 7.2 节修订段"<c>priceAmount</c> 改为可选"）：
+        /// <c>price_amount</c> 是否在数据里显式填写。硬性规则 5（ABI 只允许新增）：本属性与下方新增
+        /// 构造重载是本任务新增的唯一变更，旧构造函数与 <see cref="PriceAmount"/> 属性本身的类型/语义
+        /// 不变。</summary>
+        public bool HasPriceAmount { get; }
 
         /// <summary>限量；null 表示不限量（见 08 第 7.2 节 <c>stockLimit: Optional&lt;Int&gt;</c>）。</summary>
         public int? StockLimit { get; }
@@ -36,11 +47,23 @@ namespace Core.Gameplay.Economy
         /// null。</summary>
         public double? RestockTimer { get; }
 
+        /// <summary>既有构造函数（T-N4-6 之前）：原样保留，<see cref="HasPriceAmount"/> 恒为
+        /// <c>true</c>（旧调用方总是显式提供了 <paramref name="priceAmount"/>，语义与改动前逐位
+        /// 相同）。</summary>
         public VendorSellItem(Id itemId, Id priceCurrencyId, long priceAmount, int? stockLimit, VendorRestockPolicy restockPolicy, double? restockTimer)
+            : this(itemId, priceCurrencyId, priceAmount, hasPriceAmount: true, stockLimit, restockPolicy, restockTimer)
+        {
+        }
+
+        /// <summary>T-N4-6 新增构造重载：显式指定 <paramref name="hasPriceAmount"/>，供
+        /// <c>price_amount</c> 未填时构造（<paramref name="priceAmount"/> 传 0 占位，不参与任何
+        /// 计算，见 <see cref="PriceAmount"/> 判断记录）。</summary>
+        public VendorSellItem(Id itemId, Id priceCurrencyId, long priceAmount, bool hasPriceAmount, int? stockLimit, VendorRestockPolicy restockPolicy, double? restockTimer)
         {
             ItemId = itemId;
             PriceCurrencyId = priceCurrencyId;
             PriceAmount = priceAmount;
+            HasPriceAmount = hasPriceAmount;
             StockLimit = stockLimit;
             RestockPolicy = restockPolicy;
             RestockTimer = restockTimer;

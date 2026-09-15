@@ -112,6 +112,15 @@ namespace Core.Carriers.Creature
                     description: "按类别声明的控制免疫（T-N3-6），与 control_immune（全部类别）并存，缺省空列表"),
                 new FieldSchema("sort_weight", FieldKind.Number, required: false,
                     description: "仅供内容管线排序展示，运行期不读取，缺省 0"),
+                // T-N4-4 新增（ADR-0033 决策 4"creature.tier_definition 新增 xp_multiplier"）：
+                // 该分档的经验倍率，缺省 1（无加成）——只在 kind=kill 经验来源分支生效，经
+                // Core.Carriers.Creature.CreatureFactory.TryGetXpMultiplier 查询、由
+                // Core.Gameplay.Assembly.GameplayAssembly 接进
+                // Core.Numbers.Progression.ProgressionOptions.ExtraXpMultiplierProvider（与
+                // diff.tier.xp_multiplier 相乘，见该委托判断记录）。纯新增可选字段，不升
+                // currentSchemaVersion、不需要迁移函数，旧数据/旧存档不受影响。
+                new FieldSchema("xp_multiplier", FieldKind.Number, required: false,
+                    description: "该分档的经验倍率，缺省 1；仅供 kind=kill 经验来源折算使用（T-N4-4，ADR-0033 决策 4）"),
             }).WithOwnership(SchemaLayer.Carriers, "creature");
     }
 }

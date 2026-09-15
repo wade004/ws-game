@@ -163,6 +163,18 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
    `GetControlImmunity`/`ParseControlFlag` 里被当成未知标志位静默吃掉），`IsImmune`（学派/效果
    原语免疫）同步补一处跳过分支，两者互不参与彼此的判定。
 
+9. **`creature.tier_definition.xp_multiplier`（T-N4-4，[ADR-0033](../../../architecture/adr/0033-等级经验模块正文与当量来源.md)
+   决策 4）**：该分档的经验倍率，缺省 1（无加成），只在击杀经验（`kind=kill`）分支生效——
+   `CreatureFactory.LoadTiers` 解析进 `TierInfo.XpMultiplier`，新增公开查询方法
+   `TryGetXpMultiplier(Id tierId, out double multiplier)`：已登记返回 `(true, 该值)`，未登记
+   返回 `(false, 1.0)`——不抛异常（同判断记录 5"成长统一由 ProgressionHost 承载"一类"本模块只
+   登记/暴露数据，不反向依赖 progression 模块具体类型"的分层原则：`CreatureFactory` 不知道、也
+   不引用 `Core.Numbers.Progression.ProgressionOptions`，真正把该查询结果接进
+   `ProgressionOptions.ExtraXpMultiplierProvider`（与 `diff.tier.xp_multiplier` 相乘）的是
+   `core/gameplay/assembly.GameplayAssembly`，见该文件判断记录）。未登记分档/`tierId` 为 `null`
+   时的"退化为无分档加成"是调用方（`ExtraXpMultiplierProvider` 钩子）的职责，不是本方法的职责
+   ——本方法只负责"查得到就给真实值，查不到就说明查不到"。
+
 ## 不负责什么
 
 - 不实现刷新表（`SpawnHost`，L4）——本模块只提供 `ICreatureFactory` 供其调用，`summon_only`

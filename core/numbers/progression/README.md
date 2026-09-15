@@ -19,11 +19,18 @@
 progression/
   README.md
   contracts/
-    ProgSchemas.cs             prog.level_curve / prog.xp_source 的 TableSchema
+    ProgSchemas.cs             prog.level_curve / prog.xp_source / prog.xp_base_curve 的 TableSchema
+    ProgressionOptions.cs      构造期口味配置契约壳（T-N4-1 新增契约壳，T-N4-2 起真正消费 MaxLevel/
+                                ExtraXpMultiplierProvider；T-N4-3 新增 KillXpSourceId/
+                                DiscoveryXpSourceId，本模块不消费，见"T-N4-3"一节；T-N4-4 新增
+                                QuestXpSourceId，ExtraXpMultiplierProvider 委托签名扩展为
+                                (unitId, sourceId, tierId)，见"T-N4-4"一节）
+    XpContext.cs               grantXp 的当量上下文（T-N4-2 新增：sourceLevel/tierId/equivalent）
     Events.cs                  ProgressionEventKeys、LevelUpEvent、XpGainedEvent
     ProgressionWriters.cs      StatModifierWriter / StatModifierRemover 具名委托
     IProgressionDiagnostics.cs 诊断出口
-    IProgressionHost.cs        IProgressionHost
+    IProgressionHost.cs        IProgressionHost（T-N4-2 新增 GrantXp 默认接口成员；T-N4-4 新增
+                                HasXpSource 默认接口成员）
   core/
     ProgressionHost.cs             IProgressionHost 默认实现
     ProgressionPersistable.cs      player.progression 存档段（静态工厂，惯例同 core/carriers/unit
@@ -149,6 +156,158 @@ level=2;entity_level=1`，等级 2 的装备需求判断因此读到过期的实
 `GetLevel` 该读什么曲线本就无从谈起）。见 `Tests.Gameplay.Assembly.
 CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp`、读档、
 `WorldUnitAccess.GetLevel`、等级需求装备四者一致性）。
+
+## T-N4-1（分阶段落地计划；ADR-0033 决策 2/3/4；06 第 2.5 节）：新字段、新表、`ProgressionOptions` 契约壳
+
+1. **`prog.level_curve.talent_points`（可选，缺省 0）**：该级获得的天赋点数（ADR-0033 决策 2）。
+   纯新增可选字段，`currentSchemaVersion` 不递增。消费实现（写入天赋点余额）留 T-N4-2，本任务
+   只登记数据形状。
+
+2. **`prog.xp_source` 新增 `kind`/`base_curve_ref`/`level_diff_ref`/`once_key` 四个可选字段**
+   （ADR-0033 决策 3）：`base_curve_ref` 引用新表 `prog.xp_base_curve`（存在时优先于
+   `base_xp`/`weight`）；`level_diff_ref` 引用既有 `combat.level_diff_table`；`once_key` 供
+   `kind=discovery` 的探索来源使用。`base_xp`/`weight` 标**废弃**（拍板 4："保留一个版本周期"，
+   本任务不删除、只在字段描述追加废弃说明）。`kind` 登记为可选（非必填）——判断记录见
+   `schema/README.md`"判断记录（`kind` 登记为可选而非必填）"，本任务验收标准显式要求"只有
+   `base_xp`/`weight` 的来源加载 0 error"，若 `kind` 必填会与该标准冲突，设计层裁定（2026-09-16）：采纳（`kind` 可选、`base_xp` 保留必填至下个周期）。
+
+3. **新表 `prog.xp_base_curve`**（落地改动点清单第 10 节拍板 5"表名 `prog.xp_base_curve`，归 L1
+   progression"）：击杀基数曲线，04 第 3.6 节通用断点表形态（横轴 `Level`），单调有限阻断校验
+   自动生效，不需要专属校验规则。**契约疑点**：04 第 1.1 节表清单当前尚未有本表的登记行（拍板
+   已定，04 正文落后一步），本任务不改架构文档，留阶段收尾文档回填批次同步，详见
+   `contracts/ProgSchemas.cs` 类型注释"契约疑点上报"。
+
+4. **`ProgressionOptions`（`contracts/ProgressionOptions.cs`，新增）**：本模块构造期口味配置的
+   契约壳——`MaxLevel`、`RefillOnLevelUp`、`DefaultOnceKeyPrefix`、
+   `ExtraXpMultiplierProvider`（`ProgressionXpMultiplierProvider` 委托）四个字段，均只登记默认值
+   与判断记录，**本任务不消费**：`ProgressionHost` 尚未提供接受本类型的构造重载。**契约疑点**：
+   分阶段落地计划 T-N4-4/T-N4-5 任务行的"涉及文件"清单均未列出本文件，但本任务书原文明确要求
+   先登记"XpMultiplier 注入（T-N4-4）"与"升级回满开关（T-N4-5）"两项字段——已按要求落地，若
+   后续任务发现字段设计与实际消费方式不符，以彼时任务书与设计层裁定为准调整，详见该类型注释
+   "契约疑点上报"。
+
+## T-N4-2（分阶段落地计划；ADR-0033 决策 1/3/9；06 第 2.5 节）：`grantXp(XpContext)`、满级归零、`ProgressionOptions` 接入
+
+1. **新增 `XpContext`（`contracts/XpContext.cs`）与 `IProgressionHost.GrantXp(unitId, sourceId,
+   context)`**：06 第 2.5 节契约原文的三种来源统一入口，返回实际入账值（`long`）。默认接口方法
+   （惯例同 `ApplyGrowthToCurrentLevel`），默认体固定返回 0，`ProgressionHost` 显式覆盖为真正实现；
+   既有测试假实现（`FakeProgressionHost` 一类）不因新增本成员而编译失败。**禁止事项对照**：
+   `GrantFromSource` 未被删除，仍是公开方法，只是内部改为与 `GrantXp` 共用同一条"应用倍率 → 加
+   经验 → 升级循环 → 事件"路径（`ProgressionHost.AddXpCore`）。
+
+2. **三种来源公式**（ADR-0033 决策 3）：`kind=kill`——`baseAmount × (ExtraXpMultiplierProvider ?? 1)
+   × ΔFactor`；`kind=quest`——`(equivalent ?? 1) × baseAmount × ΔFactor`；`kind=discovery`——
+   `(equivalent ?? 1) × baseAmount`（刻意不接 `ΔFactor`，即便该来源同时登记了 `level_diff_ref` 也
+   不生效）。`baseAmount = prog.xp_base_curve[base_curve_ref].Evaluate(context.SourceLevel)`；
+   `ΔFactor`：`level_diff_ref` 未登记时恒 1，否则查 `combat.level_diff_table[level_diff_ref]
+   .xp_factor.Evaluate(Δ)`，`Δ = context.SourceLevel − 领取者当前有效等级`。**判断记录（不引用
+   `Core.Rules.Combat.LevelDiffTable` 类型）**：01 把 progression 登记为 L1、combat 登记为 L2，
+   L1 反向依赖 L2 具体类型会倒置分层；`ProgressionHost` 改用
+   `Core.Foundation.DataRegistry.CurveSchema.ReadBreakpoints` 直接从原始 `DataRecord` 读取
+   `xp_factor` 字段，不经 `Core.Rules.Combat` 程序集（同 `Tests.Numbers.csproj` 不引用
+   `Core.Rules` 的既有约束）。该表与 `prog.xp_base_curve` 都是可选表（未装配 combat 模块/未接数据
+   时留空字典，退化为"Δ 系数恒 1"，不抛异常）。设计层裁定（2026-09-16）：采纳——`kind` 未登记时兜底按 `kill`
+   处理（06/ADR 均未给出字面结论，见 `schema/README.md`"T-N4-2 补记"）。
+
+3. **`GetXpToNext`/`AddXp`/`GrantXp` 共用"有效满级"判定（`ProgressionHost.GetEffectiveMaxLevel`）**：
+   `ProgressionOptions.MaxLevel` 为 0（新缺省）时等于单位绑定曲线自身的 `max_level`；为正值时取
+   该值与曲线 `max_level` 的较小者（只能收紧，不能放宽到超出曲线数据）。`GetXpToNext` 在有效满级
+   显式返回 0（不再只依赖"曲线最后一条记录的 `xp_to_next` 恰好是 0"这条数据约定——收紧场景下
+   有效满级可能落在曲线中间某一级，那一级的 `xp_to_next` 通常非零，仍必须返回 0）；`AddXp`/
+   `GrantXp`/`GrantFromSource` 共用的核心实现（`AddXpCore`）在有效满级整笔丢弃、记诊断、不发
+   `XpGainedEvent`（ADR-0033 决策 9）。
+
+4. **`ProgressionHost` 新增接受 `ProgressionOptions?` 的构造重载**：旧构造函数（不带该参数）转发
+   `null` 到新重载，新重载内部 `options ?? new ProgressionOptions()`——两者共用同一份初始化逻辑，
+   不是并行路径。`ProgressionOptions.MaxLevel` 默认值同步由 T-N4-1 的 `1` 改为 `0`（该字段此前只是
+   登记壳、不驱动任何判定；本任务开始真正消费，默认值必须同时修正，否则任何未显式配置的调用方会
+   被意外收紧到 1 级封顶，见 `ProgressionOptions.cs` 该字段"变更记录"）。
+
+5. **`GrantFromSource` 旧字段兼容（拍板 4）**：来源没有 `base_curve_ref` 时逐位保留 T-N4-2 之前的
+   旧算法 `base_xp × weight × multiplier`（回归测试
+   `GrantFromSource_ComputesAmountFromBaseXpWeightAndMultiplier` 锁死）；存在 `base_curve_ref` 时
+   改走曲线折算（新增测试
+   `GrantFromSource_SourceHasBothLegacyFieldsAndBaseCurveRef_UsesCurveNotLegacyFormula` 验证"以
+   曲线为准"）。**契约疑点上报/临时判断**：`GrantFromSource` 旧签名没有"来源等级"参数，本任务
+   走曲线分支时按"该来源与领取者当前等级相同"处理（Δ 恒从 0 起算），`multiplier` 直接相乘、不经
+   `ExtraXpMultiplierProvider` 钩子；真正需要按怪物/任务/区域等级折算的场景应改走新
+   `GrantXp` 显式传入 `XpContext.SourceLevel`（T-N4-3/T-N4-4 的击杀/任务/探索监听器按此收敛），详
+   见 `IProgressionHost.GrantFromSource` 判断记录。
+
+6. **契约疑点上报：`talent_points` 消费不在本任务范围内**：T-N4-1 落地时在 `schema/README.md`/
+   `ProgSchemas.cs` 留了"消费实现（写入天赋点余额）留 T-N4-2"的前瞻记录，但分阶段落地计划正式
+   的 T-N4-2 任务行与本任务实际收到的派发任务书均只列 `grantXp(XpContext)`/`GetXpToNext` 满级
+   归零/`XpContext` 结构三项，未提及天赋点，也没有给出"天赋点余额"应挂在哪个契约面的字面结论
+   （新查询方法？新事件？游戏层自行订阅 `progression.level_up` 累加？）。本任务不擅自新增这类
+   未声明的契约面，留待设计层重新拆分派发，见 `schema/README.md` 同名小节。
+
+## T-N4-3（分阶段落地计划；ADR-0033 决策 3；06 第 2.5 节）：`ProgressionOptions` 新增
+`KillXpSourceId`/`DiscoveryXpSourceId`
+
+`ProgressionOptions.cs` 新增两个可空 `Id?` 字段——`KillXpSourceId`/`DiscoveryXpSourceId`（默认
+`null`）。**契约疑点上报**：06 第 2.5 节/ADR-0033 均未给出"三种来源各用哪一条固定
+`prog.xp_source` 记录 id"的字面结论，本模块本身不消费这两个字段（三种来源公式只依赖调用时传入
+的 `XpContext`，与"来源 id 叫什么"无关，见 `IProgressionHost.GrantXp` 判断记录）——真正的消费方
+是 T-N4-3 新增的 `core/gameplay/progression_bridge` 模块两个监听器（`CreatureDeathXpListener`/
+`AreaTriggerDiscoveryXpListener`）：未显式传入 `ProgressionOptions`（或传入但字段为 `null`）时，
+两个监听器各自退到自己的约定 id（`prog.xp_source.kill`/`prog.xp_source.discovery`，见各自类型
+`DefaultKillXpSourceId`/`DefaultDiscoveryXpSourceId` 静态字段）。本模块只负责登记字段与判断记录，
+详见 `core/gameplay/progression_bridge/README.md` 判断记录 5。
+
+## T-N4-4（分阶段落地计划；ADR-0033 决策 4；附带任务设计层裁定）：`ExtraXpMultiplierProvider` 签名扩展、`QuestXpSourceId`、`HasXpSource`
+
+1. **`ProgressionXpMultiplierProvider` 委托签名扩展为 `(unitId, sourceId, tierId) → 倍率`**：
+   T-N4-1/T-N4-2 落地时签名只有 `(unitId, sourceId)`，`XpContext.TierId` 判断记录当时已把"若
+   T-N4-4 落地时发现真的需要按 `TierId` 查倍率，委托签名或注入方式需要那时再按需扩展"登记为
+   契约疑点上报——本任务落地"分档经验倍率"（读 `creature.tier_definition.xp_multiplier`）确实
+   需要知道死亡单位的分档 id，`ProgressionHost.GrantXp` 的 `kind=kill` 分支调用本委托时手上正好
+   有 `XpContext.TierId`（`CreatureDeathXpListener` 传入），因此新增第三个参数直传。ABI 判断
+   记录：本委托是阶段 N4 内多个任务共同完善、随 1.34.0 一次性发布的全新类型，本阶段内的签名
+   调整不构成"已发布 ABI"的破坏性变更。
+2. **真正接入分档 × 难度倍率**：`core/gameplay/assembly.GameplayAssembly` 从本任务起把
+   `ExtraXpMultiplierProvider`（未显式配置时）默认接为
+   `(tierId 对应的 CreatureFactory.TryGetXpMultiplier 结果 ?? 1) ×
+   Core.Gameplay.Difficulty.IDifficultyHost.XpMultiplier`——真正读
+   `creature.tier_definition.xp_multiplier`/`diff.tier.xp_multiplier` 两张新增字段（各自模块
+   README 判断记录见 `core/carriers/creature/README.md`/`core/gameplay/difficulty/README.md`）。
+   调用方显式设置本字段时装配根不覆盖。
+3. **新增 `ProgressionOptions.QuestXpSourceId`**：`null`（默认）时消费方（`core/gameplay/common.
+   RewardDispatcher`）落到约定 id `prog.xp_source.quest`（同 T-N4-3 `KillXpSourceId`/
+   `DiscoveryXpSourceId` 一贯约定）——任务/遭遇奖励包新增 `xp_equivalent`/`level` 字段非空时，
+   `RewardDispatcher` 改经 `IProgressionHost.GrantXp(unit, questXpSourceId, new
+   XpContext(level, equivalent: eq))` 发放，取代旧字段 `xp` 绝对数直发路径（硬性规则"禁止奖励
+   直发绝对数"），详见 `core/gameplay/common/README.md`。
+4. **新增默认接口成员 `IProgressionHost.HasXpSource(sourceId)`（设计层裁定，附带任务）**：
+   `core/gameplay/progression_bridge` 的两个监听器（`CreatureDeathXpListener`/
+   `AreaTriggerDiscoveryXpListener`）此前用 `try/catch (ArgumentException)` 兜"来源未登记"这一
+   正常场景，改为先显式查询、查到才发，不再依赖异常控制流——`ProgressionHost` 显式覆盖为按内部
+   `prog.xp_source` 索引精确判断；默认实现返回 `true`（不是更"保守"的 `false`）：本成员新增之前
+   调用方对任何 `IProgressionHost` 实现都无条件尝试调用 `GrantXp`，默认值 `true` 保持这一既有
+   行为对未覆盖本方法的旧实现方透明，只有 `ProgressionHost` 才获得精确判断能力，详见该接口成员
+   判断记录。
+5. **ABI 门禁 G3（已发布基线约束）**：本仓库已发布 1.33.0，`RulesAssembly`/`CarriersAssembly`/
+   `GameplayAssembly` 三个装配根构造函数均已随该版本发布，本任务需要给它们接入
+   `ProgressionOptions?` 时不能再直接在已发布签名末尾追加新参数（会被 `toolchain/abi_probe.ps1`
+   判定为破坏性变更），改用"新增重载"——三者各自的旧签名构造函数原样保留、转发新增的带
+   `ProgressionOptions` 参数的重载（新重载因 C# 语法"可选参数必须在必选参数之后"，把此前全部
+   可选参数一并改为必选，仅有的调用点已同步显式列出全部参数），详见三者各自构造函数注释。
+
+## T-N4-5（分阶段落地计划；ADR-0033 决策 7；06 第 2.5 节"升级回满"）：`ProgressionOptions.RefillOnLevelUp` 消费方接线
+
+`ProgressionOptions.RefillOnLevelUp`（T-N4-1 落地时只是登记壳，缺省 `true`）从本任务起真正被
+消费——消费方不在本模块内部，而是 `core/rules/assembly.RulesAssembly` 构造函数：本字段为 `true`
+且该单位已在 `Core.Numbers.PowerSet.PowerHost` 注册时，`progression.level_up` 触发一次
+`IPowerHost.RefillAll`（新增默认接口成员，见 `core/numbers/power_set/README.md`"T-N4-5"一节）；
+为 `false` 时整条订阅回调直接跳过。本模块自身不改动任何代码（`LevelUpEvent` 早已存在并在
+`ProgressionHost.AddXp` 内正确发布，见判断记录 3），只是原先"契约疑点上报"的占位字段现在有了
+真正的消费方。
+
+同一任务另锁死 ADR-0033 决策 6"从不扣经验"——`core/gameplay/death`（三种死亡复活策略
+`RespawnPolicy.RespawnPoint`/`ReloadSave`/`Permadeath` 的执行主体）按其模块 README"依赖"一节
+只依赖 L0 + L2 `core/rules/common`，从未引用、也不依赖 `IProgressionHost`/`ProgressionHost` 任何
+类型，三种策略的结算逻辑本身不触达经验/等级状态；回归用例见
+`core/gameplay/death/tests/T_N4_5_RespawnPolicyDoesNotAffectXpTests.cs`（三种策略各一组，独立
+装配的 `ProgressionHost` 在完整死亡结算流程前后 `GetXp`/`GetLevel` 逐字节不变）。
 
 ## 不负责什么
 

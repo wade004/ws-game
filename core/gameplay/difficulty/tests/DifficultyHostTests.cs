@@ -168,6 +168,36 @@ namespace Tests.Gameplay.Difficulty
         }
 
         // -------------------------------------------------------------
+        // T-N4-4（ADR-0033 决策 4；08 第 5.1 节修订段）：XpMultiplier
+        // -------------------------------------------------------------
+
+        [Fact]
+        public void XpMultiplier_DefaultsToOne_BeforeApply()
+        {
+            var host = MakeHost(out _, out _, out _, out _);
+
+            Assert.Equal(1.0, host.XpMultiplier);
+        }
+
+        [Fact]
+        public void XpMultiplier_ReflectsAppliedTier()
+        {
+            var host = MakeHost(out _, out _, out _, out _);
+            host.Apply(HardTier, DifficultyScope.Global, null);
+
+            Assert.Equal(2.0, host.XpMultiplier);
+        }
+
+        [Fact]
+        public void XpMultiplier_UnconfiguredTier_DefaultsToOne()
+        {
+            var host = MakeHost(out _, out _, out _, out _);
+            host.Apply(NormalTier, DifficultyScope.Global, null);
+
+            Assert.Equal(1.0, host.XpMultiplier);
+        }
+
+        // -------------------------------------------------------------
         // creature.spawned 订阅：施加修正光环
         // -------------------------------------------------------------
 

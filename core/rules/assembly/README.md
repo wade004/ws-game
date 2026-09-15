@@ -247,3 +247,32 @@ ABI（G3）：只新增一个公开重载与一个私有方法的可选参数，
 显式传 `null` 与无参等价、注入自定义 `MaxEffectsPerSkill` 后加载期真的按注入值拦截——第三例特意
 选在"超过注入上限但仍在硬编码默认上限 8 以内"的效果数上验证，若本任务只登记了参数却未真正接线，
 这一例会假通过）。
+
+## T-N4-4：`RulesAssembly` 新增带 `ProgressionOptions` 的构造重载（ABI 门禁 G3 约束下的写法变化）
+
+本仓库已发布 1.33.0 基线（`toolchain/abi_probe.ps1` 按物理签名逐字节比对已发布版本）——`T-N3-11`
+一节末尾"只新增一个公开重载与一个私有方法的可选参数"那种"直接在已发布构造函数末尾追加新可选参数"
+的写法，在 1.33.0 发布之后不再是 ABI 安全的：物理参数列表变了，即便新参数是可选的，也会被判定为
+"移除/变更"的破坏性变更（旧编译调用方按旧签名调用会找不到匹配的重载）。T-N4-4 需要给
+`ProgressionHost`（经本类型第 3 步构造）接入 `ProgressionOptions?`（供
+`core/gameplay/assembly.GameplayAssembly` 装配"分档 × 难度经验倍率"等策略配置项），改用"新增
+重载"：
+
+- 旧签名构造函数（20 个参数，`LevelSync? levelSync = null` 收尾）原样保留，转发到新增重载并传
+  `progressionOptions: null`——不影响任何既有调用点（本类型十余处测试文件的直接构造、
+  `CarriersAssembly` 若不需要 `ProgressionOptions` 时的调用），继续绑定这个未改动的物理签名。
+- 新增重载（21 个参数，末尾追加 `ProgressionOptions? progressionOptions`）：C# 语法"可选参数必须
+  在必选参数之后"——`progressionOptions` 若想放在参数列表最后又不带默认值（不带默认值是为了让
+  "零新增参数"的调用只能匹配旧签名，不产生 CS0121 二义性），前面全部参数都必须同步改成不带默认
+  值（否则违反该语法规则）。本仓库这批装配根构造函数参数量极大（20+），把新参数插进已有可选参数
+  中间风险更高（唯一调用点大量使用位置参数，插入中间会让相邻位置参数静默错位，见
+  `CarriersAssembly` 对本构造函数的调用），因此选择"新增重载的全部参数都不带默认值"这一更安全
+  的写法：唯一调用点（`CarriersAssembly` 第 3 步）已同步显式列出全部 21 个参数。
+- `core/carriers/assembly.CarriersAssembly`/`core/gameplay/assembly.GameplayAssembly` 两个上层
+  装配根遇到同一约束，采用完全相同的写法（各自 README 同名小节）。
+- `ProgressionHost` 本身（比本类型晚一层）沿用它自己在 T-N4-2 就确立的写法——`options` 参数插在
+  既有可选参数**之前**（该类型参数量小，插入中间不影响任何位置参数调用点），两种写法的选择依据
+  都是"怎么对现有调用点最安全"，不是哪种写法更"正确"。
+
+ABI 探针复核：`toolchain/abi_probe.ps1 -BaselineZip ws-game-1.33.0.zip` breaks=0（新增重载计入
+"新增"，不计入破坏）。
