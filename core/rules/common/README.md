@@ -43,6 +43,7 @@ common/
     ICombatHost.cs            战斗模块契约
     IThreatTable.cs           仇恨表契约
     ITargetHost.cs             目标选择模块契约
+    TargetResolution.cs        T-N3-8：TargetOverflowPolicy 枚举 + ResolveWithCoefficients 返回值
     BehaviorState.cs          AI 行为外壳状态机状态
     IAiHost.cs                 AI 模块契约
     IExprHostFactory.cs        Expr 求值宿主工厂

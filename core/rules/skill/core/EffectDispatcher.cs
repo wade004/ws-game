@@ -465,6 +465,15 @@ namespace Core.Rules.Skill
                 }
             }
 
+            // T-N3-8（ADR-0031 决策 6、拍板 7；06 第 3.7 节 2026-09-14 修订段）：群体目标超出
+            // max_targets 时的分配系数（见 EffectContext.TargetCoefficient/ITargetHost.
+            // ResolveWithCoefficients/TargetResolution 判断记录）——在 SpellMod 之前缩放技能定义本身
+            // 算出的原始效果值（base_value/scaling 或武器秒伤两条分支共同产出的 value，含上面两个
+            // 分支各自的冻结/冷启动兜底），SpellMod（角色自身的加成）不受稀释影响。系数恒为 1.0
+            // （未超出策略参与、单目标、或经旧构造函数/EffectContext 未显式提供）时 value 逐位不变
+            // （乘 1 不改变浮点结果）。
+            value *= context.TargetCoefficient;
+
             // 契约缺口已补齐：EffectContext.Tags 携带技能标签集合（来自 skill.def.tags），
             // effect_value/crit_chance 维度的 SpellMod 过滤现在按学派/技能 id/标签三个维度一并
             // 匹配（见 SkillFilter.Matches）。CastPipeline.ExecuteEffectsOnly 构造 EffectContext
@@ -491,10 +500,15 @@ namespace Core.Rules.Skill
             // sourceKind 静默退化为 SourceKind.Unknown（T-N1-6 风险段点名的"漏一处默认值"正是这类
             // 遗漏）。GroundPoint 字段本任务不改动其既有转发行为（该字段结算管线本身不消费，见其
             // 判断记录，且本方法此前就不转发它，非本任务改动范围）。
+            // T-N3-8：原样转发 context.TargetCoefficient（同本方法对 TriggerChainDepth/
+            // AttackInstanceId/SourceKind 的既有转发惯例）——value 已经在上面按该系数缩放过一次，
+            // 这里转发只是保留"这次结算的分配系数是多少"这条信息，不会被下游重复应用（结算管线
+            // 固定步骤本身不读取 EffectContext.TargetCoefficient 做二次运算）。
             var outbound = new EffectContext(
                 context.SourceId, context.TargetId, context.SkillId, context.Kind, context.School,
                 value, coefficient, mergedParams, context.AuraInstanceId, context.IsPeriodic, context.CanCrit, context.CanMiss,
-                context.Tags, context.TriggerChainDepth, context.AttackInstanceId, groundPoint: null, sourceKind: context.SourceKind);
+                context.Tags, context.TriggerChainDepth, context.AttackInstanceId, groundPoint: null,
+                sourceKind: context.SourceKind, targetCoefficient: context.TargetCoefficient);
 
             return _combatHost.ResolveEffect(outbound);
         }
