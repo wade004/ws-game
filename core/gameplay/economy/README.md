@@ -254,6 +254,14 @@ economy/
       倍率"字段，本任务不依赖它），本模块与 `core/gameplay/loot` 均未新增这一乘数的读取，本阶段
       恒为 1，只保留 `RollContext.Multiplier`（`diff.tier.loot_multiplier`）一项——记为偏离首版
       基准的说明，留待阶段 N6 仿真核对锚点时补上该字段后再接入。
+    - **T-N6-3b 变更记录（补齐）**：`creature.tier_definition` 新增 `gold_multiplier`（缺省 1），经
+      `Core.Carriers.Creature.CreatureFactory.TryGetGoldMultiplier` 查询、由
+      `core/gameplay/assembly.GameplayAssembly` 接进新增的
+      `Core.Gameplay.Loot.LootGoldMultiplierProvider` 钩子（`LootHost.ResolveCurrencyOutcome`
+      消费，取法与本模块 `xp_multiplier`/`ExtraXpMultiplierProvider` 一贯窄委托注入惯例一致）——
+      "分档倍率"这一乘数自本任务起真正生效，不再恒为 1；本模块（Economy）自身不变，仍只提供
+      `IEconomyHost.TryGetGoldBaseAmount`（金币基数）这一项，分档倍率的读取与乘算落在
+      `core/gameplay/loot`（见该模块 README 同名判断记录）。
     - **登记记录（未同步 `found.event_catalog.json`/`EventKeys.g.cs`）**：核实
       `toolchain/gen_event_constants.py --check` 只比较该登记表与已提交的生成文件两者自身是否
       一致，不反查代码里手写的 `Id` 事件常量，本次不登记、不重生成不会让该门禁失败；分阶段落地
@@ -415,5 +423,7 @@ EquipmentPersistable.Load` 曾经的同一类缺陷成因相同（见 `core/carr
   `EconomyOptions.DepositPolicy` 策略取值与 `IEconomyHost.DepositPolicy`/`TryGetGoldBaseAmount`
   两个查询点供消费方读取，真正"死亡结算时直接入账"或"生成地面掉落物、拾取时入账"是
   `core/gameplay/loot`（`CreatureDeathLootListener`/`LootHost`）的事，见该模块 README。
-- T-N4-7：不实现"分档倍率"（`creature.tier_definition` 的经验/金币倍率字段）——该字段尚未登记
-  （见判断记录 13），本模块的金币基数曲线只按等级求值，不叠加任何分档乘数。
+- 不实现"分档倍率"（`creature.tier_definition.gold_multiplier`，T-N6-3b 已补齐该字段，见判断记录
+  13"T-N6-3b 变更记录"）——本模块的金币基数曲线（`TryGetGoldBaseAmount`）只按等级求值，不叠加任何
+  分档乘数；分档倍率的读取与乘算落在 `core/gameplay/loot`（`LootHost.ResolveCurrencyOutcome`），
+  见该模块 README。

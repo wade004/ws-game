@@ -17,6 +17,19 @@ namespace Core.Carriers.Common
         /// 实体 id。</summary>
         Id Spawn(Id templateId, Id mapId, Vec2 position, double facing, Id? ownerId = null);
 
+        /// <summary>
+        /// T-N6-3b 新增默认接口成员（ADR-0035 决策 3"生物模板按指定等级出生"；ABI 硬性规则"既有成员
+        /// 不得加参数，扩展一律走新增重载/默认接口成员"）：按 <paramref name="level"/> 覆盖生成实体的
+        /// 出生等级（不再取 <c>creature.template.level</c>），其余语义同 5 参
+        /// <see cref="Spawn(Id, Id, Vec2, double, Id?)"/>。默认实现直接委托给 5 参重载、忽略
+        /// <paramref name="level"/>——未显式实现本成员的既有 <see cref="ICreatureFactory"/> 实现类
+        /// （如测试假类）经接口引用调用本方法时，等价于旧行为，仍按模板自身等级出生；
+        /// <see cref="Core.Carriers.Creature.CreatureFactory"/> 显式实现本成员，真正按
+        /// <paramref name="level"/> 出生（见该类型判断记录"等级覆盖与等级缩放器"）。
+        /// </summary>
+        Id Spawn(Id templateId, Id mapId, Vec2 position, double facing, Id? ownerId, int level) =>
+            Spawn(templateId, mapId, position, facing, ownerId);
+
         /// <summary>移除一个生物实体（死亡结算之外的场景，如刷新表清理、召唤物到期），
         /// <paramref name="reason"/> 是自由文本分类（如 <c>"died"</c>/<c>"despawned"</c>，见 05 第
         /// 5.3 节 <c>SpawnHost.notifyDespawn(entityId, reason: died|despawned)</c> 契约、

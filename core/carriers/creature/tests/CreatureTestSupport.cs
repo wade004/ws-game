@@ -31,9 +31,11 @@ namespace Tests.Carriers.Creature
             "\"stat_multiplier\": 1, \"control_immune\": false, \"sort_weight\": 0}," +
             // T-N4-4 新增字段 xp_multiplier（ADR-0033 决策 4）：elite 分档给一个非默认值 1.5，供
             // CreatureFactoryTests.TryGetXpMultiplier 系列验证（normal/category_immune 两个分档
-            // 未登记该字段，走缺省 1.0 分支）。
+            // 未登记该字段，走缺省 1.0 分支）。T-N6-3b 新增字段 gold_multiplier：同样给 elite 分档一个
+            // 非默认值 2.5，供 CreatureFactoryTests.TryGetGoldMultiplier 系列验证。
             "{\"id\": \"creature.tier.elite\", \"name_key\": \"l10n.creature.tier.elite.name\", " +
-            "\"stat_multiplier\": 2, \"control_immune\": true, \"sort_weight\": 10, \"xp_multiplier\": 1.5}," +
+            "\"stat_multiplier\": 2, \"control_immune\": true, \"sort_weight\": 10, \"xp_multiplier\": 1.5, " +
+            "\"gold_multiplier\": 2.5}," +
             // T-N3-6 新增（ADR-0031 决策 8）：并存字段 control_immune_categories 的样例分档——
             // control_immune 恒 false（不触发旧的"全部类别"标记），只声明 stun/root 两个具体类别，
             // 供 CreatureFactoryTests.Spawn_WritesControlCategoryMarkers_FromTierControlImmuneCategories
@@ -126,7 +128,16 @@ namespace Tests.Carriers.Creature
             "{\"id\": \"creature.sample_category_immune\", \"name_key\": \"l10n.creature.sample_category_immune.name\", " +
             "\"level\": 1, \"tier\": \"creature.tier.category_immune\", " +
             "\"base_stats\": {\"stat.power\": 10, \"stat.max_health\": 100}, " +
-            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_category_immune\"}" +
+            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_category_immune\"}," +
+            // T-N6-3b 新增（ADR-0035 决策 3"生物模板按指定等级出生"验收专用）：引用 tier.elite
+            // （stat_multiplier=2，非默认值，供验证"等级缩放之后仍按既有顺序乘分档倍率"）但刻意不带
+            // stat_growth_ref——与 creature.sample_elite 区分开，避免成长曲线（prog.sample_curve
+            // max_level=3）与"出生等级覆盖到 10"叠加造成的歧义（见 CreatureFactory.SpawnCore 判断
+            // 记录"等级覆盖与成长曲线组合"），单纯测试等级缩放器本身。
+            "{\"id\": \"creature.sample_elite_no_growth\", \"name_key\": \"l10n.creature.sample_elite_no_growth.name\", " +
+            "\"level\": 1, \"tier\": \"creature.tier.elite\", " +
+            "\"base_stats\": {\"stat.power\": 10, \"stat.max_health\": 100}, " +
+            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_elite_no_growth\"}" +
             "]";
 
         public static IEventBus CreateBus() =>
