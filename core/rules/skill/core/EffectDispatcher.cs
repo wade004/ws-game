@@ -44,6 +44,33 @@ namespace Core.Rules.Skill
         /// 任何行为变化以外的降级，只是无法自定义 <c>BudgetRuleId</c>。</summary>
         private readonly SkillOptions? _options;
 
+        /// <summary>T-N3-7（[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md)
+        /// 决策 4；06 第 3.3 节 2026-09-14 修订段"周期效果动态计算，不做快照……对象已被移除则冻结为
+        /// 最后一次算出的每跳值"）：周期性效果（<c>periodic_damage</c>/<c>periodic_heal</c>）"最后
+        /// 一次来源仍注册时算出的完整效果值"缓存——键为 (光环实例 id, 效果原语类型, 学派)，值为
+        /// <see cref="ApplyDamageOrHeal"/> 算出的 <c>value</c>（<c>base_value</c> + Σscaling，
+        /// SpellMod 应用之前）。只在来源仍注册（<see cref="IStatHost.IsRegistered"/>）时写入；来源
+        /// 已注销时优先读本缓存而不重算（见该方法判断记录 C02 修订）。
+        /// <para>
+        /// 判断记录（缓存物理位置选在本类型，不是 <c>Core.Rules.Skill.AuraHost.AuraInstanceState</c>）：
+        /// 06 原文"光环实例为此缓存最后一跳值"字面上把归属写在光环实例上，但"base + Σscaling"这条
+        /// 公式的唯一权威实现是 <see cref="ApplyDamageOrHeal"/> 本身——如果缓存写入放在
+        /// <c>AuraHost.FirePeriodic</c>，该方法就需要独立重算一遍同一公式才能算出要缓存的值，
+        /// 两处分别维护同一公式，日后任一处改动都可能悄悄产生分歧。缓存键含光环实例 id 已经把值
+        /// 锁定到具体的光环实例，逻辑上仍是"光环实例的缓存"，只是不借助 <c>AuraInstanceState</c>
+        /// 存储；这样只需扩大本类型内部状态（无需改动 <see cref="Core.Rules.Common.EffectContext"/>/
+        /// <see cref="IEffectSink"/> 任何公开契约）即可实现，符合硬性规则"ABI 只允许新增"。
+        /// </para>
+        /// <para>
+        /// 不做生命周期清理：光环实例移除后本字典的对应条目不会被主动删除。<c>AuraHost._seq</c>
+        /// 单调递增生成实例 id、不重用，残留条目不会造成"读到另一个实例的值"这类错误，只是随进程
+        /// 生命周期内出现过的光环实例总数线性增长——单次游戏会话的总量级可接受，不引入无界增长
+        /// 风险（同本模块其余"不主动清理、靠不重用 id 保证正确性"的既有惯例）。
+        /// </para>
+        /// </summary>
+        private readonly Dictionary<(Id AuraInstanceId, EffectKind Kind, Id School), double> _lastPeriodicEffectValue =
+            new Dictionary<(Id AuraInstanceId, EffectKind Kind, Id School), double>();
+
         /// <summary>
         /// ADR-0026《技能位移的连续模式》：<c>move</c> 效果原语 <c>motion: continuous</c> 分支的
         /// 依赖倒置出口，由 <c>Core.Carriers.Assembly.CarriersAssembly</c> 在装配期经
@@ -260,94 +287,137 @@ namespace Core.Rules.Skill
             }
             else
             {
-                // T-N3-2（ADR-0031 决策 1"基础值可选引用等级曲线（base_curve_ref），默认为零"；
-                // 06 第 3.2 节 2026-09-14 修订段）：base_curve_ref 存在且能解析出曲线时取代
-                // base_value——按施法者当前等级在 skill.base_curve 上取值，每次结算都重新查询
-                // （同 06 第 3.3 节周期效果"动态计算，不做快照"惯例，不缓存某一时刻的等级）。
-                // 来源单位已不存在时按等级 1 处理，不抛异常（同 Core.Rules.Combat.Resolver.
-                // ResolveEffectiveLevel 判断记录"已从世界移除时按等级 1 处理"同一防御姿态）；
-                // base_curve_ref 引用的曲线未注册/不存在（表未注册，见 SkillDefCache.
-                // TryGetBaseCurve 判断记录）时静默回退 base_value，不阻断结算——加载期
-                // reference_integrity 已经会拦下"引用不存在的曲线"这类内容错误，运行期这里只是
-                // 防御性兜底。
-                var baseCurveRef = ParamsX.GetIdOpt(context.Params, "base_curve_ref");
-                double baseValue;
-                if (baseCurveRef.HasValue && _defs.TryGetBaseCurve(baseCurveRef.Value, out var baseCurve))
+                // T-N3-7（ADR-0031 决策 4；06 第 3.3 节 2026-09-14 修订段"周期效果动态计算，不做
+                // 快照……对象已被移除则冻结为最后一次算出的每跳值"）：只有周期性效果（携带
+                // AuraInstanceId）在来源已注销、且已有缓存值时才走冻结分支——直接复用缓存，完全
+                // 跳过下面 base_curve_ref/scaling 的重新计算（不查询 _units/_statHost，值与来源
+                // 是否还活着无关）。非周期效果（AuraInstanceId 为 null）与"周期效果但尚无缓存"
+                // （见下方冷启动分支）都落入 else 分支正常计算。
+                var isPeriodicAura = context.IsPeriodic && context.AuraInstanceId.HasValue;
+                var periodicCacheKey = isPeriodicAura
+                    ? (context.AuraInstanceId!.Value, context.Kind, context.School)
+                    : default;
+                var sourceRegistered = _statHost.IsRegistered(context.SourceId);
+
+                if (isPeriodicAura && !sourceRegistered &&
+                    _lastPeriodicEffectValue.TryGetValue(periodicCacheKey, out var frozenValue))
                 {
-                    var casterLevel = _units.Exists(context.SourceId) ? _units.GetLevel(context.SourceId) : 1;
-                    baseValue = baseCurve.Evaluate(casterLevel);
+                    value = frozenValue;
+                    // coefficient 字段本身不参与冻结值的计算（frozenValue 已是 base_value+scaling
+                    // 的最终结果），只用于下面重建 outbound 上下文时原样回填——仍按 params 声明的
+                    // 原始值回填，保持与"来源仍在"分支同一字段语义，不因走了冻结分支就退化成 0。
+                    coefficient = ParamsX.GetNumber(context.Params, "coefficient", context.Coefficient);
                 }
                 else
                 {
-                    baseValue = ParamsX.GetNumber(context.Params, "base_value", context.BaseValue);
-                }
-
-                coefficient = ParamsX.GetNumber(context.Params, "coefficient", context.Coefficient);
-
-                // C02 收口（外部审计 7e63d66 第四轮）：周期性效果（periodic_damage/periodic_heal）
-                // 的 EffectContext.SourceId 恒是施加光环时的施法者（AuraHost.FirePeriodic 每次都
-                // 用 instance.SourceId 重建上下文），真实 CreatureFactory.Despawn 会同步注销来源的
-                // IStatHost 注册（见 CreatureFactory.Despawn），但光环实例只在"目标"被销毁时才由
-                // AuraHost.OnEntityDestroyed 摘除（判断记录：来源销毁不代表已施加到其他目标身上的
-                // 光环应当消失，06 未规定这种情形）——来源销毁后光环仍会继续按周期结算，此前
-                // 无条件调用 _statHost.GetStat(context.SourceId, ...) 会因来源已注销直接抛
-                // InvalidOperationException（外部审计复现：真实 Despawn 施法者后下一次周期 tick）。
-                // <para>
-                // 判断记录（降级为无缩放，不做"快照冻结"）：来源销毁后，"这份周期效果本该按来源
-                // 死前哪个时刻的属性值继续缩放"没有唯一正确答案（06 未规定），而"来源已经不存在，
-                // 缩放属性无从查起"是明确可判定的边界条件——参照 AuraHost.OnEntityDestroyed 判断
-                // 记录同一惯例（面对未规定的情形选择"确定安全"的退化路径，不是引入一整套额外的
-                // 按实例快照基础设施），来源未注册时这部分周期效果的缩放贡献按 0 处理（只保留
-                // base_value，不含来源属性加成），效果本身继续正常结算/落地，不中断周期 tick 循环、
-                // 不抛异常。非周期效果的 SourceId 通常是"正在执行的施法者"，理论上不会遇到这种
-                // 情形，本次改动同时覆盖它是为了不在"什么时候会未注册"这件事上做额外的路径区分。
-                // </para>
-                //
-                // T-N3-2（ADR-0031 决策 1；06 第 3.2 节 2026-09-14 修订段）：scaling 列表优先——
-                // 存在时对每一项取 coefficient × 来源属性最终值求和；列表缺失（含尚未经 1→2 迁移的
-                // 旧数据）时回退旧单字段 scaling_stat/顶层 coefficient 读取路径（硬性规则"禁止删除
-                // 旧 scaling_stat 读取路径"）。两条路径互斥、不叠加——声明了 scaling 列表就不再读
-                // scaling_stat；两条路径共享同一条"来源未注册按 0 处理"降级规则（C02 判断记录）。
-                double scalingContribution = 0;
-                var scalingEntries = ParamsX.GetObjectArray(context.Params, "scaling");
-                if (scalingEntries.Count > 0)
-                {
-                    if (_statHost.IsRegistered(context.SourceId))
+                    // T-N3-2（ADR-0031 决策 1"基础值可选引用等级曲线（base_curve_ref），默认为零"；
+                    // 06 第 3.2 节 2026-09-14 修订段）：base_curve_ref 存在且能解析出曲线时取代
+                    // base_value——按施法者当前等级在 skill.base_curve 上取值，每次结算都重新查询
+                    // （同 06 第 3.3 节周期效果"动态计算，不做快照"惯例，不缓存某一时刻的等级——
+                    // 这里的"不缓存"指来源仍存在这条主路径；来源已注销后的冻结走上面的分支，两者
+                    // 不冲突）。来源单位已不存在时按等级 1 处理，不抛异常（同 Core.Rules.Combat.
+                    // Resolver.ResolveEffectiveLevel 判断记录"已从世界移除时按等级 1 处理"同一
+                    // 防御姿态，只在"周期效果尚无冻结缓存"这一冷启动边界才会用到）；base_curve_ref
+                    // 引用的曲线未注册/不存在（表未注册，见 SkillDefCache.TryGetBaseCurve 判断
+                    // 记录）时静默回退 base_value，不阻断结算——加载期 reference_integrity 已经会
+                    // 拦下"引用不存在的曲线"这类内容错误，运行期这里只是防御性兜底。
+                    var baseCurveRef = ParamsX.GetIdOpt(context.Params, "base_curve_ref");
+                    double baseValue;
+                    if (baseCurveRef.HasValue && _defs.TryGetBaseCurve(baseCurveRef.Value, out var baseCurve))
                     {
-                        foreach (var entry in scalingEntries)
-                        {
-                            var entryStat = ParamsX.GetIdOpt(entry, "stat");
-                            if (!entryStat.HasValue) continue;
-                            var entryCoefficient = ParamsX.GetNumber(entry, "coefficient", 0);
-                            scalingContribution += entryCoefficient * _statHost.GetStat(context.SourceId, entryStat.Value);
-                        }
+                        var casterLevel = _units.Exists(context.SourceId) ? _units.GetLevel(context.SourceId) : 1;
+                        baseValue = baseCurve.Evaluate(casterLevel);
                     }
                     else
                     {
-                        _diagnostics.Warn(
-                            $"效果的来源 \"{context.SourceId}\" 未注册（很可能已被销毁），" +
-                            $"scaling 列表的缩放贡献已按 0 处理（见 EffectDispatcher.ApplyDamageOrHeal 判断记录 C02）");
+                        baseValue = ParamsX.GetNumber(context.Params, "base_value", context.BaseValue);
                     }
-                }
-                else
-                {
-                    var scalingStat = ParamsX.GetIdOpt(context.Params, "scaling_stat");
-                    if (scalingStat.HasValue)
+
+                    coefficient = ParamsX.GetNumber(context.Params, "coefficient", context.Coefficient);
+
+                    // C02 收口（外部审计 7e63d66 第四轮；T-N3-7 修订，见 06 第 3.3 节 2026-09-14
+                    // 修订段）：周期性效果（periodic_damage/periodic_heal）的 EffectContext.SourceId
+                    // 恒是施加光环时的施法者（AuraHost.FirePeriodic 每次都用 instance.SourceId
+                    // 重建上下文），真实 CreatureFactory.Despawn 会同步注销来源的 IStatHost 注册
+                    // （见 CreatureFactory.Despawn），但光环实例只在"目标"被销毁时才由
+                    // AuraHost.OnEntityDestroyed 摘除（判断记录：来源销毁不代表已施加到其他目标身上
+                    // 的光环应当消失，06 未规定这种情形）——来源销毁后光环仍会继续按周期结算，此前
+                    // 无条件调用 _statHost.GetStat(context.SourceId, ...) 会因来源已注销直接抛
+                    // InvalidOperationException（外部审计复现：真实 Despawn 施法者后下一次周期 tick）。
+                    // <para>
+                    // 判断记录（T-N3-7 修订，取代此前"降级为无缩放，不做快照冻结"的判断）：06 原文
+                    // 已在 2026-09-14 明确"对象已被移除则冻结为最后一次算出的每跳值"，不再是"未规定"
+                    // 的边界——本方法只在这里（周期效果、来源确已缺失、且完全没有任何一次成功缓存过
+                    // 的情形，即施加光环与第一跳之间来源就已经消失，见上方 <see
+                    // cref="_lastPeriodicEffectValue"/> 判断记录）保留"缩放贡献按 0、只保留
+                    // base_value"这条兜底：06 未规定"来源在施加与第一跳之间消失"这一更细的边界，本
+                    // 兜底是临时判断（待设计层确认），取"确定安全"的退化路径而不是让本方法反过来
+                    // 在这里重新实现一遍 AuraHost.ApplyAura 时点的"求值并缓存初值"逻辑（那样会把同一
+                    // 条公式的权威实现拆成两处，见 <see cref="_lastPeriodicEffectValue"/> 判断记录）。
+                    // 这一支算出的值随后仍会被下面"缓存"一并写入，从下一跳起就会命中冻结分支，不会
+                    // 每跳都重新退化一次。非周期效果的 SourceId 通常是"正在执行的施法者"，理论上不会
+                    // 遇到未注册的情形，本次改动同时覆盖它是为了不在"什么时候会未注册"这件事上做
+                    // 额外的路径区分（非周期效果没有 AuraInstanceId，不写入 <see
+                    // cref="_lastPeriodicEffectValue"/>，也就没有冻结分支可言，每次都会落到这里）。
+                    // </para>
+                    //
+                    // T-N3-2（ADR-0031 决策 1；06 第 3.2 节 2026-09-14 修订段）：scaling 列表优先——
+                    // 存在时对每一项取 coefficient × 来源属性最终值求和；列表缺失（含尚未经 1→2 迁移的
+                    // 旧数据）时回退旧单字段 scaling_stat/顶层 coefficient 读取路径（硬性规则"禁止删除
+                    // 旧 scaling_stat 读取路径"）。两条路径互斥、不叠加——声明了 scaling 列表就不再读
+                    // scaling_stat；两条路径共享同一条"来源未注册按 0 处理"降级规则（C02 判断记录，
+                    // 仅周期效果冷启动、以及理论上不会命中的非周期效果兜底才会触发）。
+                    double scalingContribution = 0;
+                    var scalingEntries = ParamsX.GetObjectArray(context.Params, "scaling");
+                    if (scalingEntries.Count > 0)
                     {
-                        if (_statHost.IsRegistered(context.SourceId))
+                        if (sourceRegistered)
                         {
-                            scalingContribution = coefficient * _statHost.GetStat(context.SourceId, scalingStat.Value);
+                            foreach (var entry in scalingEntries)
+                            {
+                                var entryStat = ParamsX.GetIdOpt(entry, "stat");
+                                if (!entryStat.HasValue) continue;
+                                var entryCoefficient = ParamsX.GetNumber(entry, "coefficient", 0);
+                                scalingContribution += entryCoefficient * _statHost.GetStat(context.SourceId, entryStat.Value);
+                            }
                         }
                         else
                         {
                             _diagnostics.Warn(
                                 $"效果的来源 \"{context.SourceId}\" 未注册（很可能已被销毁），" +
-                                $"scaling_stat \"{scalingStat.Value}\" 的缩放贡献已按 0 处理（见 EffectDispatcher.ApplyDamageOrHeal 判断记录 C02）");
+                                $"scaling 列表的缩放贡献已按 0 处理（见 EffectDispatcher.ApplyDamageOrHeal 判断记录 C02）");
                         }
                     }
-                }
+                    else
+                    {
+                        var scalingStat = ParamsX.GetIdOpt(context.Params, "scaling_stat");
+                        if (scalingStat.HasValue)
+                        {
+                            if (sourceRegistered)
+                            {
+                                scalingContribution = coefficient * _statHost.GetStat(context.SourceId, scalingStat.Value);
+                            }
+                            else
+                            {
+                                _diagnostics.Warn(
+                                    $"效果的来源 \"{context.SourceId}\" 未注册（很可能已被销毁），" +
+                                    $"scaling_stat \"{scalingStat.Value}\" 的缩放贡献已按 0 处理（见 EffectDispatcher.ApplyDamageOrHeal 判断记录 C02）");
+                            }
+                        }
+                    }
 
-                value = baseValue + scalingContribution;
+                    value = baseValue + scalingContribution;
+
+                    // T-N3-7：只有来源仍注册时才写入/刷新缓存——来源已注销的冷启动分支算出的
+                    // "只剩 base_value"的值不应该被当作"来源存活时的最后一跳值"缓存下来，否则会把
+                    // 一个从未真正观测到过的"来源存活"状态错误地固化为"冻结值"的定义（虽然数值上
+                    // 与不缓存时后续每次冷启动重算的结果相同，但语义上不应该混为一谈——见上方冷
+                    // 启动判断记录，那条兜底的分支保持"未缓存、每次都重算"，只是恰好每次结果一致）。
+                    if (isPeriodicAura && sourceRegistered)
+                    {
+                        _lastPeriodicEffectValue[periodicCacheKey] = value;
+                    }
+                }
             }
 
             // 契约缺口已补齐：EffectContext.Tags 携带技能标签集合（来自 skill.def.tags），

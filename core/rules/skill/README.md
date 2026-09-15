@@ -1040,6 +1040,96 @@ skill/
     原语，未改动 `architecture/06_规则层_属性技能战斗AI.md`/`architecture/04_数据与内容管线.md`
     （两者 2026-09-14 修订段已预先描述本任务落地的契约）。
 
+54. **T-N3-7（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 4/5；06 第
+    3.3/3.8 节 2026-09-14 修订段；分阶段落地计划第 14 节 N3 任务表第七行）：周期效果来源缺失
+    冻结（取代 C02 判断记录"来源未注册按 0 处理"）、瘟疫刷新比例策略项。
+    <br/><br/>
+    **冻结实现（`EffectDispatcher.cs`，不是 `AuraHost.cs`）**：新增私有缓存字段
+    `_lastPeriodicEffectValue`（`Dictionary<(Id AuraInstanceId, EffectKind Kind, Id School), double>`），
+    存的是 `ApplyDamageOrHeal` 算出的 `value`（`base_value + Σscaling`，SpellMod 应用之前）。
+    `ApplyDamageOrHeal` 新增分支：周期效果（`IsPeriodic` 且带 `AuraInstanceId`）且来源已注销
+    （`IStatHost.IsRegistered` 为 `false`）且缓存命中时，直接取缓存值、完全跳过
+    `base_curve_ref`/`scaling` 的重新计算（不查询 `_units`/`_statHost`）；来源仍注册时按既有路径
+    动态计算，并把结果写回缓存（每一跳都刷新，"最后一次算出的值"随来源存活期间持续更新）。
+    **判断记录（缓存物理位置选在 `EffectDispatcher` 而非 `AuraHost.AuraInstanceState`）**：06 原文
+    "光环实例为此缓存最后一跳值"字面上把归属写在光环实例上，但"`base + Σscaling`"这条公式的唯一
+    权威实现是 `ApplyDamageOrHeal` 本身——若改在 `AuraHost.FirePeriodic` 写入缓存，该方法需要独立
+    重算一遍同一公式才能算出要缓存的值，两处分别维护同一公式，日后任一处改动都可能悄悄产生分歧；
+    缓存键含光环实例 id 已经把值锁定到具体的光环实例，逻辑上仍是"光环实例的缓存"，只是不借助
+    `AuraInstanceState` 存储，代价是不随光环实例移除主动清理（`AuraHost._seq` 单调递增不重用 id，
+    残留条目不会读串，只是随进程存在期间累计的全部光环实例数线性增长，量级可接受）。完整判断
+    记录见 `EffectDispatcher.cs` 该字段与 `ApplyDamageOrHeal` 方法内注释。
+    <br/><br/>
+    **C02 记录修订**：原判断记录"来源未注册这部分周期效果的缩放贡献按 0 处理（只保留
+    base_value）"已被本任务的 06 第 3.3 节 2026-09-14 修订段取代——**冻结优先于按 0**，只在"周期
+    效果、来源确已缺失、且完全没有任何一次成功缓存过"这一冷启动边界（见下段）保留"缩放贡献按 0"
+    作为临时兜底，其余情形（含理论上不会命中未注册来源的非周期效果）维持原判断记录的降级路径不变。
+    <br/><br/>
+    **"施加与第一跳之间来源缺失"边界（契约疑点，上报，待设计层确认）**：06 未规定这一更细的边界
+    （只说"对象已被移除则冻结为最后一次算出的每跳值"，未说"从未观测到过存活值时怎么办"）。本任务
+    临时判定：**不**在 `AuraHost.ApplyAura`/`CreateInstance` 时点额外求值并预先写入缓存（那样需要
+    在 `AuraHost` 里重复实现一遍 `ApplyDamageOrHeal` 的"`base + Σscaling`"公式，见上方判断记录同一
+    顾虑），而是让第一次命中"周期效果 + 来源已缺失 + 无缓存"的这一跳走既有 C02 降级路径（缩放贡献
+    按 0、只保留 base_value）算出一个值，之后才开始缓存生效（从第二跳起就会命中冻结分支，不会
+    每跳都重新退化一次）——**这不是快照策略项**：不是"施加时快照全部属性"式的可选模式，只是
+    "无历史活值可冻结时的一次性确定安全兜底"，且不覆盖来源存在时的动态重算路径。若设计层拍板改为
+    "施加时即求值并缓存初值"，只需在 `AuraHost.CreateInstance`/`ReapplyExisting` 新增一次对
+    `EffectDispatcher` 的等价求值调用（需要新增一个只读预览接口，不影响本任务已落地的缓存数据
+    结构本身）。
+    <br/><br/>
+    **瘟疫刷新公式（06 第 3.8 节 2026-09-14 修订段原文）**：`新持续时间 = 定义持续时间 +
+    min(剩余时长, 定义持续时间 × 比例)`，"比例"即新增的 `SkillOptions.PlagueRefreshRatio`
+    （`double`，默认 **0.3**——ADR-0031 决策 5 原文"默认三成"、改动点清单 S9"默认 0.3"两处口径
+    一致，**不是**本类型其余策略项"占位式合理起点、不代表任何产品决策"的惯例，而是 ADR 本身已拍板
+    的具体默认数值：只要不显式覆盖，任何装配本模块的游戏默认即获得"瘟疫刷新"这一新行为）。落到
+    `AuraHost.cs` 新增私有方法 `ComputeRefreshedRemaining`（两处调用点共用：`ReapplyExisting` 正常
+    叠加分支约 234 行、`StackOverflowPolicy.RefreshOnly` 溢出策略分支约 251 行——06 原文"同来源同
+    光环再次施加"统一适用于两处，不区分是否伴随叠加层数变化），两侧都按当前时间模式的计时单位
+    计算（`ScaleDuration` 折算），`ratio` 防御性夹到 `[0,1]`（惯例同 `MaxHastePct` 消费点"负值按 0
+    处理"，setter 本身不拦）。`ratio == 0` 时因"剩余时长恒 ≥ 0"（`Update` 到期即移除的既有不变量）
+    精确退化为 `新持续时间 = 定义持续时间`，与本任务之前逐位一致（回归，见测试"手算"两组）。**与
+    冻结的关系**：两者完全独立——刷新只决定"剩余持续时间"这一个数字，刷新后剩余时长内的周期效果
+    仍按既有动态求值路径逐跳重算（来源仍注册时），冻结缓存不会被刷新清空、也不需要清空，ADR-0031
+    决策 5 原文"与 3.3 节周期效果动态计算组合时不需要决定保留的那段按旧值还是新值，值永远是活的"
+    正是此意。
+    <br/><br/>
+    **手算示例**（定义持续时间 10）：ratio=0，剩余 9 时刷新 → `10 + min(9, 0) = 10`；ratio=0，
+    剩余 0.5 时刷新 → `10 + min(0.5, 0) = 10`（与剩余多少无关，恒为定义持续时间）。ratio=0.3，
+    上限 `10×0.3=3`，剩余 9 时刷新（剩余 &gt; 上限）→ `10 + min(9, 3) = 13`；剩余 2 时刷新（剩余
+    &lt; 上限）→ `10 + min(2, 3) = 12`——四组数值互不相同，`min()` 两个分支都被精确验证到。
+    <br/><br/>
+    **`CreatureDespawnPeriodicEffectTests` 断言改写**（`core/carriers/assembly/tests/`）：这是
+    契约规定的行为变更，不是放宽断言——旧断言只检查"销毁后仍在掉血"（`healthAfterDespawnTick <
+    healthAfterFirstTick`，任何"冻结"或"退化为只剩 base_value"的实现都能通过），新断言改为对比
+    "销毁前最后一跳的伤害量"与"销毁后每一跳的伤害量"必须逐一相等（`Assert.Equal`，7 跳全部核对），
+    并显式排除旧契约会得到的数值（`Assert.NotEqual(5, ...)`）——精确锁定"冻结为最后一次算出的
+    值"，比旧断言更严格，不是更宽松。
+    <br/><br/>
+    **禁止事项核对**：未引入快照策略项——`PlagueRefreshRatio` 只影响"刷新时新持续时间怎么算"，不是
+    "施加时快照全部属性"式的可选模式；冻结机制本身也不是策略项（无开关，行为恒生效，只有"来源是否
+    还存在"这一个事实判定）。
+    <br/><br/>
+    **回放/Perf 基线**：`dotnet test --filter "FullyQualifiedName~Replay"` 全绿、基线零改动——
+    `PlagueRefreshRatio` 默认值从"事实上等价于 0"变为 0.3 是本任务引入的真实行为变化（详见上方
+    判断记录），但经实测 `continuous_fight.replay.json`/`discrete_fight.replay.json` 两条回放场景
+    不含"同来源同光环在其剩余持续时间内再次施加"这一刷新场景（不触达 `ComputeRefreshedRemaining`），
+    也不含"周期光环来源在其存活期间被销毁"场景（不触达冻结分支），故基线不受影响；这是回放数据
+    覆盖不到本任务改动面的巧合，不代表默认行为本身没有变化，游戏侧若有依赖旧"刷新即重置"语义的
+    内容需要知悉这一默认值变化（见 `CHANGELOG.md` 本版本"未发布"段迁移说明）。
+    <br/><br/>
+    测试：`core/rules/skill/tests/T_N3_7_PeriodicFreezeAndPlagueRefreshTests.cs` 新增 7 例——冻结
+    2 例（`scaling` 列表路径、旧 `scaling_stat` 路径各一）+ 对照组 1 例（来源全程注册、属性变化
+    间每跳动态重算、不冻结）+ 瘟疫刷新 4 例（ratio=0 两组、ratio=0.3 两组，覆盖 `min()` 两个分支，
+    见上方手算）；`core/carriers/assembly/tests/CreatureDespawnPeriodicEffectTests.cs` 断言改写
+    （用真实 `CreatureFactory.Despawn` 全链路验证冻结，不是测试假实现）。合计新增/改写 8 例，超过
+    任务表验收标准"冻结 2 组；瘟疫 0 与 0.3 各 2 组"（最低 6 组）。全量 `Tests.Rules`（720 例，含
+    新增 7 例）/`Tests.Carriers`（583 例，含改写 1 例）/不带 filter 的全量六程序集（217+1115+720+
+    583+634+725 例）回归全绿。ABI 探针（基线 1.32.0）breaks=0，新增 1 行（`SkillOptions.
+    PlagueRefreshRatio` 属性，累计新增 32 行，其余 31 行为 T-N3-1～T-N3-6 既有新增，非本任务
+    引入）——`ComputeRefreshedRemaining`/`_lastPeriodicEffectValue` 均为私有成员，不在探针可见的
+    公开表面上。不新增任何效果原语，不实现控制递减（不属本任务范围），未改动
+    `architecture/06_规则层_属性技能战斗AI.md`（2026-09-14 修订段已预先描述本任务落地的契约）。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：

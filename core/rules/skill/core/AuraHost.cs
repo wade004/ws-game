@@ -226,12 +226,65 @@ namespace Core.Rules.Skill
         /// 恒为正数，null 不受影响）。</summary>
         private double? ScaleDuration(double? raw) => raw.HasValue ? raw.Value * _currentFactor : (double?)null;
 
+        /// <summary>T-N3-7（[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md)
+        /// 决策 5；06 第 3.8 节 2026-09-14 修订段"瘟疫刷新规则"）：同来源同光环再次施加时刷新剩余
+        /// 持续时间的口径——两处调用点（<see cref="ReapplyExisting"/> 正常叠加分支、
+        /// <see cref="StackOverflowPolicy.RefreshOnly"/> 溢出策略分支）共用同一份公式，06 原文
+        /// "同来源同光环再次施加"统一适用、不区分是否伴随叠加层数变化。
+        /// <para>
+        /// 06 原文公式：<c>新持续时间 = 定义持续时间 + min(剩余时长, 定义持续时间 × 比例)</c>——
+        /// 两侧都按当前时间模式的计时单位计算（<paramref name="existing"/>.Remaining 已是该单位，
+        /// <paramref name="durationOverride"/> ?? <paramref name="def"/>.Duration 是规范/authoring
+        /// 单位，先经 <see cref="ScaleDuration"/> 折算成当前单位再参与比较与相加，"同一把尺子"惯例
+        /// 同 <see cref="ApplyAura"/>/<see cref="CreateInstance"/> 既有判断记录）。<c>比例</c> 取
+        /// <see cref="SkillOptions.PlagueRefreshRatio"/>，夹到 [0,1]（该字段本身允许调用方误填越界
+        /// 值，本方法防御性夹取，惯例同 <see cref="SkillOptions.MaxHastePct"/> 消费点"负值按 0 处理"
+        /// ——本字段越界同样只在消费点收口，不在属性 setter 上拦）。<c>PlagueRefreshRatio == 0</c>
+        /// （契约"设零即现有行为"）时——剩余时长在能走到本方法时恒 ≥ 0（见 <see cref="Update"/>
+        /// "到期即移除"的既有不变量，不会有负值剩余时长残留到下一次施加）——
+        /// <c>min(剩余时长, 0) == 0</c>，退化为 <c>新持续时间 = 定义持续时间</c>，与 T-N3-7 之前
+        /// 逐位一致（回归）。<c>existing.Remaining</c> 为 <c>null</c>（此前是永久光环，极少见但
+        /// 理论可达——见类型注释判断记录）时按"剩余时长视为无穷"处理，<c>min(∞, 定义持续时间 ×
+        /// 比例) == 定义持续时间 × 比例</c>，与有限剩余时长同一公式口径，不必另开分支。
+        /// </para>
+        /// <para>
+        /// 折算后的 <paramref name="durationOverride"/> ?? <paramref name="def"/>.Duration 为
+        /// <c>null</c>（本次施加仍是永久光环）时直接返回 <c>null</c>——永久光环没有"定义持续时间"
+        /// 可加权，公式不适用，维持恒永久（同 <see cref="ScaleDuration"/> 既有 null 透传惯例）。
+        /// </para>
+        /// <para>
+        /// 判断记录（与 06 第 3.3 节周期效果动态计算的关系，见 ADR-0031 决策 5 原文"与 3.3 节周期效果
+        /// 动态计算组合时不需要决定'保留的那段按旧值还是新值'，值永远是活的"）：本方法只决定"剩余
+        /// 持续时间"这一个数字，不涉及周期效果每跳的数值——刷新后剩余时长内的周期 tick 仍按
+        /// <see cref="FirePeriodic"/>/<see cref="Core.Rules.Skill.EffectDispatcher.ApplyDamageOrHeal"/>
+        /// 的既有动态求值路径逐跳重算（来源仍注册时），T-N3-7 的"来源缺失冻结"（见
+        /// <c>EffectDispatcher._lastPeriodicEffectValue</c> 判断记录）与本方法互不影响：冻结缓存
+        /// 按 (光环实例 id, 效果类型, 学派) 键存，刷新不会清空该缓存，也不需要清空——冻结值仍是
+        /// "来源最后一次存在时的值"，与持续时间被刷新到多长是两件独立的事。
+        /// </para>
+        /// </summary>
+        private double? ComputeRefreshedRemaining(AuraInstanceState existing, AuraDef def, double? durationOverride)
+        {
+            var scaledDefDuration = ScaleDuration(durationOverride ?? def.Duration);
+            if (!scaledDefDuration.HasValue)
+            {
+                return null;
+            }
+
+            var ratio = Math.Clamp(_options.PlagueRefreshRatio, 0.0, 1.0);
+            var retained = existing.Remaining.HasValue
+                ? Math.Min(existing.Remaining.Value, scaledDefDuration.Value * ratio)
+                : scaledDefDuration.Value * ratio;
+
+            return scaledDefDuration.Value + retained;
+        }
+
         private AuraInstanceRef ReapplyExisting(AuraInstanceState existing, AuraDef def, Id sourceId, double? durationOverride, IReadOnlyList<Id> tags, int triggerChainDepth = 0)
         {
             var newStacks = existing.Stacks + 1;
             if (newStacks <= def.MaxStacks)
             {
-                existing.Remaining = ScaleDuration(durationOverride ?? def.Duration);
+                existing.Remaining = ComputeRefreshedRemaining(existing, def, durationOverride);
                 existing.SourceId = sourceId;
                 existing.Tags = tags;
                 var old = existing.Stacks;
@@ -248,7 +301,7 @@ namespace Core.Rules.Skill
                     return new AuraInstanceRef(existing.InstanceId);
 
                 case StackOverflowPolicy.RefreshOnly:
-                    existing.Remaining = ScaleDuration(durationOverride ?? def.Duration);
+                    existing.Remaining = ComputeRefreshedRemaining(existing, def, durationOverride);
                     return new AuraInstanceRef(existing.InstanceId);
 
                 case StackOverflowPolicy.Replace:
