@@ -409,6 +409,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `category`/`group`/`check_names`/`requires_anchor`/`enabled` 五个字段（详见
   `toolchain/README.md`），供消费方按数值域分组展示、按 `enabled` 判断"这条规则当前是否真的会产出
   问题"。均为纯新增公开类型/成员与纯新增 JSON 字段。
+- **数值设计落地阶段 N5 · T-N5-4（Unreleased，文档版本 v2.16）**：编辑器产品文档
+  （`editor/docs/编辑器产品文档.md`/`.html`）第 4.1 节补齐 T-N3-9/T-N2-4 落地的两个 Analyzer
+  契约面（`SkillBudgetAnalyzer`/`EquipmentScoreAnalyzer`）与 T-N5-2/T-N5-3 落地的数值规则集中
+  登记清单/`ExprReferenceCollector`；第 5.8 节新增"内容覆盖仿真离群值列表"行，标注依赖阶段 N6
+  （`core/sim`）产出，当前仅为契约意向。纯文档变更，不涉及代码。HTML 版同步新增内容；HTML 自
+  v2.6 起累积的历史缺口（v2.7～v2.15 期间第 4.1 节新增的其余契约面尚未回填 HTML）不在本条改动
+  范围，已在 HTML 头部说明如实标注。
 
 ## [Unreleased]
 
@@ -439,6 +446,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `NumericValidationRuleCatalog` 类型级判断记录"数量口径"；本清单按 20 行（18 个概念条目的超集）
   登记，不因收窄口径而漏验证任何一个已落地的规则类。均为纯新增公开类型/成员，
   `toolchain/abi_probe.ps1` 核对 breaks=0。
+- **T-N5-4**：编辑器产品文档（`editor/docs/编辑器产品文档.md`/`.html`）第 4.1 节契约面清单新增
+  三行——技能预算分析 `Core.Rules.Skill.SkillBudgetAnalyzer.Analyze`/`ComputeGrantValue`
+  （[ADR-0031](architecture/adr/0031-技能数值契约与预算.md) 决策 2，T-N3-9）、装备评分
+  `Core.Carriers.Item.EquipmentScoreAnalyzer.Score`/`Compare`
+  （[ADR-0032](architecture/adr/0032-装备预算消耗与词缀份额.md) 决策 9，T-N2-4）、数值规则集中
+  登记与引用查找 `Presentation.Assembly.NumericValidationRuleCatalog`/
+  `ContentValidationAssembly.NumericRules`/`toolchain/validator --json rules[]` 新字段/
+  `Core.Foundation.Expr.ExprReferenceCollector`（T-N5-2/T-N5-3）；第 5.8 节"数值沙盘"表新增第
+  六行"内容覆盖仿真离群值列表"并补一段契约意向说明（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 3/6，标注"待 N6"，仅先固定契约面意向，具体字段形态待阶段 N6 落地 `core/sim` 后回填）。
+  文档版本 v2.15 → v2.16。均为纯文档新增，不改变第 4 章既有契约面签名，不涉及代码改动。契约疑点
+  如实上报：HTML 版此前只同步到 md 版 v2.6（第 4.1 节仍是 7 行的旧表，"资源引用标识"/"掉落表期望
+  概率分析"两行与 v2.7～v2.15 期间新增的其余契约面均未回填），本任务只新增本次三行 + 5.8 节一行，
+  未一并回填这段历史缺口（超出本任务范围），已在 HTML 头部"本 HTML 版由……手工同步生成"一句如实
+  标注缺口范围，供后续任务视需要回填。
 
 ## [1.34.0] - 2026-09-16
 

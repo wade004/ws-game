@@ -243,10 +243,10 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
     <div class="page" id="top">
 <h1>GF 内容编辑器 产品文档</h1>
 <ul>
-<li>版本：v2.6</li>
-<li>日期：2026-09-11</li>
+<li>版本：v2.16</li>
+<li>日期：2026-09-16</li>
 <li>状态：草案（待用户确认）</li>
-<li>本 HTML 版由 <a href="编辑器产品文档.md">编辑器产品文档.md</a> 手工同步生成（仓库内无自动转换脚本，见 DOC-118-03 勘误）：变更记录表与第 4.1 节"契约面清单"表逐条对齐 md 版 v2.3/v2.4/v2.5/v2.6 四次更新的契约面新增内容，其余章节未随这几版改动、保持原样，同步以 md 版为准。</li>
+<li>本 HTML 版由 <a href="编辑器产品文档.md">编辑器产品文档.md</a> 手工同步生成（仓库内无自动转换脚本，见 DOC-118-03 勘误）：变更记录表与第 4.1 节"契约面清单"表逐条对齐 md 版 v2.3/v2.4/v2.5/v2.6、v2.16（本次，T-N5-4）六次更新的契约面新增内容，第 5.8 节"数值沙盘"表本次同步新增第六行与说明段。<strong>如实标注一处已知缺口</strong>：md 版 v2.7～v2.15 期间第 4.1 节新增的其余契约面（无头适配层 <code>ResolveTrace</code>、掉落表期望概率分析、<code>GetReferenceDeclarations</code>、schema 迁移链公开方法、<code>WarnOnMissingTranslation</code>、<code>OptionalRules</code>/<code>TryGetOptionalRuleByCheck</code>、<code>RegistryCreatureTemplateQuery</code> 等）尚未回填本 HTML 版，仍以 md 版为准，回填留待后续任务；其余章节未随这些版本改动、保持原样。</li>
 <li>上游文档：<a href="../../architecture/README.md">architecture/README.md</a> · <a href="../../architecture/04_数据与内容管线.md">04_数据与内容管线.md</a> · <a href="../../architecture/06_规则层_属性技能战斗AI.md">06_规则层_属性技能战斗AI.md</a> · <a href="../../architecture/07_载体层_物品生物物件.md">07_载体层_物品生物物件.md</a> · <a href="../../architecture/08_玩法层_掉落任务对话关卡.md">08_玩法层_掉落任务对话关卡.md</a> · <a href="../../data/README.md">data/README.md</a> · <a href="../../architecture/落地计划/落地方案与分阶段计划.md">落地方案与分阶段计划.md</a> · <a href="../../CHANGELOG.md">CHANGELOG.md</a> · <a href="../../toolchain/README.md">toolchain/README.md</a> · <a href="../../games/_template/README.md">games/_template/README.md</a></li>
 </ul>
 <h2 id="changelog">变更记录</h2>
@@ -303,6 +303,11 @@ details.ascii-fallback pre{ margin:6px 0 12px; background:var(--card); }
 <td>2026-09-11</td>
 <td>v2.6</td>
 <td>消费方反馈第 28/29 条落地对齐（详见消费方反馈-2026-09-11-编辑器-第28-29条.md 回复文档）。第 28 条：第 4.1 节契约面清单 <code>TableSchema</code>/<code>FieldSchema</code> 一行补充 <code>AllowedValues</code>（IdList/Id 固定取值集合登记，与 <code>FreeIds</code>/<code>ReferenceTable</code> 互斥）——<code>field_meta</code> 新增 <code>allowed_values</code>，供编辑器渲染下拉/多选而非自由文本；<code>creature.template.npc_flags</code> 改用该记法登记，取值统一为正式 <code>npc_flag.&lt;name&gt;</code> 写法。第 29 条：<code>FieldSchema</code> 一行补充 <code>SoftReferenceTable</code>/<code>SoftReferenceDomain</code>（软引用元数据，仅 <code>Id</code>/<code>IdList</code> 可设，不参与加载期引用完整性校验）——<code>field_meta</code> 新增 <code>soft_reference_table</code>/<code>soft_reference_domain</code>，供编辑器做自动补全/跳转，不得据此做存在性强校验；<code>creature.template</code> 的 <code>ai_rotation_ref</code>/<code>ai_behavior_ref</code>/<code>loot_table_ref</code>/<code>display_ref</code> 等一批已确认目标表的字段完成登记。均为对已拍板契约面的增量补充（纯新增可选元数据，不破坏既有兼容调用），不改变第 4 章既有结论</td>
+</tr>
+<tr>
+<td>2026-09-16</td>
+<td>v2.16</td>
+<td>分阶段落地计划 T-N5-4 落地对齐（<a href="../../architecture/adr/0035-数值仿真骨架为框架交付物.md">ADR-0035</a> 决策 7"编辑器在技能与装备编辑界面旁显示预算比值与装备评分，读同一套公式"）：第 4.1 节契约面清单新增三行——技能预算分析 <code>Core.Rules.Skill.SkillBudgetAnalyzer.Analyze</code>/<code>ComputeGrantValue</code>（ADR-0031 决策 2，T-N3-9）、装备评分 <code>Core.Carriers.Item.EquipmentScoreAnalyzer.Score</code>/<code>Compare</code>（ADR-0032 决策 9，T-N2-4）、数值规则集中登记与引用查找 <code>Presentation.Assembly.NumericValidationRuleCatalog</code>/<code>ContentValidationAssembly.NumericRules</code>/<code>toolchain/validator --json rules[]</code> 新字段/<code>Core.Foundation.Expr.ExprReferenceCollector</code>（T-N5-2/T-N5-3）。第 5.8 节"数值沙盘"表新增第六行"内容覆盖仿真离群值列表"并补一段契约意向说明——权威来源 ADR-0035 决策 3/6，产出方 <code>core/sim</code> 归阶段 N6，本版本尚未落地真实数据，标注"待 N6"，仅先固定契约面意向（复用第 4.1 节数值规则分组/锚点依赖标注作为静态维度，动态维度读取 N6 待定的结构化报告产物）。均为纯文档新增，不改变第 4 章既有契约面签名。HTML 版自 v2.6 起累积的历史缺口（v2.7～v2.15 期间第 4.1 节新增的其余契约面尚未回填 HTML）不在本次改动范围，如实标注于本节顶部说明</td>
 </tr>
 </tbody>
 </table></div>
@@ -655,7 +660,7 @@ ws-game ④⑤⑥（元数据门禁、热重载标准实现、文档义务）
 <h2 id="s4">4. ws-game 侧：编辑器依赖的契约与交付物</h2>
 <p>本章是 ws-game（框架）一侧对编辑器项目的全部承诺；<strong>框架对编辑器只承诺契约，不承诺实现</strong>（<a href="../../architecture/adr/0018-编辑器随游戏走与框架为此提供的交付物.md">ADR-0018</a> 决策 4）——编辑器项目消费的是下列固定的契约面，框架内部如何实现这些契约面允许自由演进，只要契约签名不破坏兼容。</p>
 <h3 id="s4-1">4.1 契约面清单</h3>
-<p>编辑器依赖的框架面固定为以下七项，逐项变更在 <code>CHANGELOG.md</code> 里单独标注"编辑器相关契约"（第 4.7 节），破坏兼容时框架升 MAJOR：</p>
+<p>编辑器依赖的框架面固定为以下清单（随消费方反馈/阶段任务增量新增，不固定行数），逐项变更在 <code>CHANGELOG.md</code> 里单独标注"编辑器相关契约"（第 4.7 节），破坏兼容时框架升 MAJOR：</p>
 <div class="tbl-wrap"><table>
 <thead>
 <tr>
@@ -699,6 +704,21 @@ ws-game ④⑤⑥（元数据门禁、热重载标准实现、文档义务）
 <td><code>toolchain</code> 命令行工具</td>
 <td><code>validate_data.py</code>/<code>import_assets.py</code>/<code>get_framework.ps1</code> 等</td>
 <td>编辑器把这些工具作为子进程调用（校验、资源检查、框架版本拉取），不重新实现同等逻辑</td>
+</tr>
+<tr>
+<td>技能预算分析（<a href="../../architecture/adr/0031-技能数值契约与预算.md">ADR-0031</a> 决策 2；06 第 3.10 节；分阶段落地计划 T-N3-9）</td>
+<td><code>Core.Rules.Skill.SkillBudgetAnalyzer.Analyze(Id skillId, IDataRegistryView view, SkillOptions? options = null, ISkillBudgetAnchorProvider? anchorProvider = null): SkillBudgetResult</code>（静态类、纯函数，不持有状态，照 <code>EquipmentScoreAnalyzer</code>/<code>Core.Gameplay.Loot.LootTableAnalyzer</code> 同一契约面形态）；返回不可变 <code>SkillBudgetResult</code>——<code>EffectiveValue</code>（实际价值/效果值当量）、<code>TimeEquivalent</code>（施放时间当量）、<code>CooldownPremium</code>/<code>RangeDiscount</code>/<code>CostPremium</code>、<code>AnchorDps</code>/<code>BudgetLimit</code>、<code>Ratio</code>（实际价值 ÷ 预算上限）、<code>Bandwidth</code>/<code>HardCap</code>（按 <code>Tier</code> 取玩家/怪物档）、<code>Tier</code>（<code>SkillBudgetTier</code>：<code>Player</code>/<code>Monster</code>/<code>Unattributed</code>）、<code>Verdict</code>（<code>SkillBudgetVerdict</code> 四态：<code>Pass</code>/<code>ConfirmedDeviation</code>/<code>UnconfirmedDeviation</code>/<code>HardCapExceeded</code>，另有 <code>NotApplicable</code> 表示技能不含结算类效果、不参与预算校验）；另有 <code>ComputeGrantValue(id, isAura, view, level, anchorProvider, options?)</code> 供装备授予技能/光环复用同一套价值计算（<code>Core.Carriers.Item.ItemGrantValueExceedsShareRule</code> 消费）。<strong>锚点未接入时的结论</strong>：公式分子分母依赖的锚点秒伤与期望缩放属性权威来源 <code>sim.anchor</code> 归阶段 N6，晚于本阶段；<code>Analyze</code> 本身对调用方注入的 <code>Core.Rules.Common.ISkillBudgetAnchorProvider</code> 老实求值，不做"未接入即跳过"的特判——调用方未提供时缺省 <code>NullSkillBudgetAnchorProvider.Instance</code>（<code>GetAnchorDps</code> 恒 1.0、<code>GetExpectedScalingStatValue</code> 恒 0.0），仍会算出一个数值上有效但在锚点接入前通常没有实际参考意义的比值；校验规则层（<code>SkillBudgetValidationRule</code>）检测到未注入真实锚点时整条规则不产生任何问题（见下一行"数值规则集中登记"的 <code>requires_anchor</code>），是否"当真"的判断在规则注册层，不在本分析器内部</td>
+<td>ADR-0035 决策 7"编辑器在技能与装备编辑界面旁显示预算比值……读同一套公式"——技能编辑器（第 5.5.2 节）"预算"栏直接调用 <code>Analyze</code> 展示效果值当量/时间成本当量/比值/带宽/档位与四态结论，不必自行复刻公式；<code>sim.anchor</code> 真正接入（N6）前，编辑器需要自行判断当前是否拿到真实 <code>ISkillBudgetAnchorProvider</code>（例如按"是否等于 <code>NullSkillBudgetAnchorProvider.Instance</code>"），未接入时"预算"栏应标注"锚点未接入，比值仅供参考"而不是直接展示可能误导的数字——本契约面本身不替编辑器做这层判断，由编辑器按调用方是否传入真实实现自行决定展示口径</td>
+</tr>
+<tr>
+<td>装备评分（<a href="../../architecture/adr/0032-装备预算消耗与词缀份额.md">ADR-0032</a> 决策 9；07 第 1.2 节修订段；分阶段落地计划 T-N2-4）</td>
+<td><code>Core.Carriers.Item.EquipmentScoreAnalyzer.Score(Id templateId, Id? classId, IDataRegistryView view, IReadOnlyList&lt;(Id Stat, double Value)&gt;? additionalStats = null, double exponent = ItemBudgetCurve.DefaultExponent): EquipmentScoreResult</code>（静态类、纯函数）与 <code>Compare(EquipmentScoreResult a, EquipmentScoreResult b): int</code>（同 <code>IComparable&lt;T&gt;.CompareTo</code> 惯例，负数表示 <code>a</code> 更低）。评分与装备预算消耗同一条加权公式 <code>(Σ(值×权重)^k)^(1/k)</code>（<code>ItemBudgetCurve.ComputeConsumed</code>），唯一区别是权重来源：<code>classId</code> 提供且命中 <code>stat.weight.class_overrides</code> 时用职业覆盖权重，否则用顶层基础权重。返回 <code>EquipmentScoreResult</code>（<code>TemplateId</code>/<code>ClassId</code>/<code>ItemLevel</code>/<code>Score</code>/<code>Exponent</code>/<code>Weights</code>——<code>Weights</code> 是评分时各属性实际使用的最终权重，供"为什么这件装备分高"明细展示）。本任务只对模板 <code>stats</code> 评分，<code>additionalStats</code>（<code>Id → 点数</code> 形状，同 <code>BudgetSolverResult.Values</code>）预留供后续把词缀反解值并入评分，不需要再改签名</td>
+<td>同 ADR-0035 决策 7——物品编辑器（第 5.5.3 节）旁显示装备评分，<code>Compare</code> 提供"比较箭头"（两件装备孰高孰低的红/绿高亮）与"一键换装最优"排序的最小接口，不必自行解开 <code>Score</code> 字段比较；<code>Weights</code> 字段供展开"评分明细"面板逐条列出各属性的权重与贡献；<code>classId</code> 传 <code>null</code> 与传具体职业分别对应"通用评分"与"按当前编辑角色职业评分"两种展示模式，编辑器可提供职业切换下拉即时重算，不必分别调用两套逻辑</td>
+</tr>
+<tr>
+<td>数值规则集中登记清单与校验报告分组（分阶段落地计划 T-N5-2/T-N5-3；04 第 5 节数值类校验项分级表；<a href="../../architecture/adr/0035-数值仿真骨架为框架交付物.md">ADR-0035</a> 决策 5"报告为结构化产物……供仿真/编辑器消费"）</td>
+<td><code>Presentation.Assembly.NumericValidationRuleCatalog.Entries</code>（<code>ContentValidationAssembly.NumericRules</code> 单一来源转发）——04 分级表全部 20 行（阻断 13 行/对应 11 个概念条目，警告 7 行）的只读登记，每行为 <code>NumericValidationRuleDescriptor</code>（<code>RuleId</code>/<code>CheckName</code>/<code>Severity</code>/<code>NonEscalatable</code>/<code>GradingItemName</code>/<code>Group</code>/<code>RequiresAnchor</code>）；<code>toolchain/validator --json</code> 的 <code>rules[]</code> 同步追加 <code>category</code>（命中本清单固定为 <code>"numeric"</code>，否则 <code>null</code>）、<code>group</code>（数值域分组：属性/技能/装备/经验/经济/曲线/职业）、<code>check_names</code>（该 <code>RuleId</code> 在分级表对应的全部检查名数组，长度可能大于 1）、<code>requires_anchor</code>（是否依赖阶段 N6 才接入的 <code>ISkillBudgetAnchorProvider</code>）、<code>enabled</code>（<code>!requires_anchor</code>——当前 <code>skill_budget_hard_cap_exceeded</code>/<code>skill_budget_deviation</code>/<code>item_grant_value_exceeds_share</code> 三条锚点未接入，登记了但不产出问题）四个字段。另 <code>Core.Foundation.Expr.ExprReferenceCollector.Collect(ExprNode node): IReadOnlyList&lt;ExprReferenceNode&gt;</code>（<code>core/foundation/expr/</code>）只读深度优先遍历 Expr 语法树，按遇到顺序收集全部引用节点（含函数调用参数里嵌套的引用、比较/<code>and</code>/<code>or</code>/<code>not</code> 子树里的引用），不求值、不查询任何 <code>IExprHost</code>、不做类型推断</td>
+<td>问题面板（第 5.7.2 节）按 <code>rules[].group</code> 增加"所属数值域"筛选维度，<code>requires_anchor</code>/<code>enabled</code> 供面板标注"该规则依赖 N6 锚点接入、当前不产出问题"，避免用户误以为相关数值内容已通过预算校验；新增"数值校验清单"面板（供审阅 04 分级表全部 20 行规则的启用状态）可直接读 <code>ContentValidationAssembly.NumericRules</code>，不必自行维护一份规则名单，框架新增/调整分级表规则时清单自动跟着变。<code>ExprReferenceCollector</code> 供编辑器"引用图"（第 5.7.4 节）与 Expr 编辑器"查找此字段全部引用"功能复用同一套遍历逻辑，不必自行重新解析语法树摘取引用节点</td>
 </tr>
 </tbody>
 </table></div>
@@ -2473,9 +2493,21 @@ ValidatorAssemblyOptions {
 <td>战斗日志（逐条 Combat Log 风格事件文本）与胜率统计（多次重复跑取胜率，若跑多次）</td>
 <td>06 第 8 节事件词汇表、结算管线</td>
 </tr>
+<tr>
+<td>内容覆盖仿真离群值列表（<strong>待 N6</strong>，见下方契约意向说明）</td>
+<td>全部技能/装备/生物模板（批量跑，不针对单个模板）、种子</td>
+<td>离群值列表，按偏离程度排序（如预算比值超带宽的技能、利用率异常的装备、经验/成长轨迹偏离锚点的生物）</td>
+<td><a href="../../architecture/adr/0035-数值仿真骨架为框架交付物.md">ADR-0035</a> 决策 3"内容覆盖仿真……输出离群值列表按偏离排序"、决策 6"11 新增测试类型'数值仿真'"</td>
+</tr>
 </tbody>
 </table></div>
 <p><strong>简易战斗回放细节</strong>：两套模板互相攻击直到一方死亡或达到时长上限，输出格式对齐 06 第 8 节"Combat Log 风格"事件词汇表（如 <code>combat.damage_dealt</code>、<code>aura.applied</code>、<code>unit.died</code> 逐条按时间顺序列出，附带触发该事件的字段值）；若时间模型为离散（回合制），日志按"回合 N：行动者 X 使用 Y"分组呈现；若为连续，按"第 N 秒"分组。回放结果窗口提供"导出为文本"按钮，便于策划贴到评审文档里讨论平衡性问题（导出为本地文本文件，见第 8 章不涉及云上传）。</p>
+<p><strong>内容覆盖仿真离群值列表细节（待 N6，契约意向，非最终形态）</strong>：本行权威来源是 <a href="../../architecture/adr/0035-数值仿真骨架为框架交付物.md">ADR-0035</a> 决策 3"内容覆盖仿真（对每个技能、装备、生物模板批量跑，输出离群值列表按偏离排序）"与决策 6"11 新增测试类型'数值仿真'……运行方式：无头，固定种子，输出报告并与基线对比"，产出方是阶段 N6 新模块 <code>core/sim</code>（无头运行器/标准玩家生成器/场景加载/报告输出/基线对比，决策 1）与新表 <code>sim.scenario</code>/<code>sim.anchor</code>（决策 4），本阶段（N5）尚未落地，编辑器目前不能接入真实离群值数据，本节先固定契约面意向，具体字段形态待 N6 任务落地后回填本节并递增文档版本号：</p>
+<ul>
+<li><strong>静态维度（本阶段已可用）</strong>：<code>toolchain/validator --json</code> 的 <code>rules[].group</code>/<code>requires_anchor</code>（第 4.1 节"数值规则集中登记清单"一行）已能标注技能预算/装备预算等数值域规则是否依赖锚点；内容覆盖仿真的离群值大概率是这批规则命中范围的超集（按偏离程度连续排序，而非阻断/警告二值判定），编辑器可先用这批静态规则的命中情况搭建列表骨架。</li>
+<li><strong>动态维度（待 N6）</strong>：战斗/成长/内容覆盖三级仿真产出的统计量、越级矩阵、成长轨迹偏离，权威来源是 ADR-0035 决策 5"报告为结构化产物……包含每项统计量、对照锚点、偏离与级别"，预期落地为 <code>core/sim</code> 命令行子进程输出的结构化报告文件（格式对齐 <code>toolchain/validator --json</code> 现有输出惯例，供编辑器子进程调用后解析），具体命令、文件路径与字段形态由 N6 任务落地时确定，不在本次改动范围内。</li>
+<li><strong>界面取舍建议</strong>：本沙盘条目是数值沙盘表里唯一"离线批量跑 + 排序列表展示"的形态，其余五个沙盘均为"实时按需求值"，编辑器实现时建议单独做一个"内容覆盖诊断"视图而非复用其它沙盘的单记录预览布局；该视图与第 5.7.3 节"覆盖诊断"同名但语义不同（彼处指多根合并产生的 <code>override</code>/<code>final</code> 诊断，此处指数值口径的离群值排序），命名与文案需加以区分，避免用户混淆两者。</li>
+</ul>
 <p>游戏侧可经第 6.1 节"沙盘预设"扩展点新增本清单之外的游戏专属沙盘（如某游戏特有的经济系统模拟器），必须使用无头适配层跑逻辑，不允许沙盘内直接读写磁盘数据文件（第 6.1 节约束）。</p>
 <hr>
 <h3 id="s5-9">5.9 批量与导入导出</h3>
