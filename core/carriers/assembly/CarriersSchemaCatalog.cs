@@ -77,6 +77,9 @@ namespace Core.Carriers.Assembly
             // T-N2-1（ADR-0032 决策 2；04 第 5 节"品质倍率顺序"阻断校验）：budget_multiplier/
             // price_multiplier 大小顺序须与 sort_weight 一致，见 ItemQualityMultiplierOrderRule 判断记录。
             registry.RegisterValidationRule(new ItemQualityMultiplierOrderRule());
+            // T-N2-2（ADR-0032 决策 7；04 第 5 节"词缀份额之和"阻断校验）：单条 item.affix.stat_mix
+            // 内部 ratio 之和不超过一，见 ItemAffixStatMixRatioSumRule 判断记录。
+            registry.RegisterValidationRule(new ItemAffixStatMixRatioSumRule());
 
             // item.template.slot/quality/set_id 三个字段已在 ItemSchemas.Template 声明为
             // FieldKind.Reference，data_registry 内置 reference_integrity 校验自动生效，不需要本类

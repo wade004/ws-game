@@ -11,6 +11,13 @@
 "T-N2-1 起"的行）。本任务只登记 schema、注册表与曲线单调有限校验，消耗公式/护甲武器秒伤求值/
 需求等级反推/授予预算校验等运行时消费实现留给后续任务（T-N2-4/6/8/9），各字段说明已逐一标注。
 
+T-N2-2（ADR-0032 决策 7）起，`item.affix` 由留位（只有 `id`/`name_key`/`effects` 三个占位字段）转正为
+预算份额包正式表：新增 `budget_share`/`stat_mix`/`quality_pool`/`weight` 四个必填字段与可选 `grants`；
+`effects` 改为已废弃占位字段，保留一个版本周期只作读取兼容；`item.template.affixes` 语义随之改写
+（见 `item.template` 小节该行）。本任务同时落地一条阻断校验（`item_affix_stat_mix_ratio_sum`，单条
+`stat_mix[].ratio` 之和不超过一），"模板加词缀最大份额超预算"等需要消耗公式的校验仍留给
+T-N2-3/T-N2-4。
+
 ## `item.template`
 
 | 字段 | 类型 | 必填 | 默认 | 说明 |
@@ -21,7 +28,7 @@
 | `item_level` | Int | 是 | — | 物品等级 |
 | `stats` | Array | 否 | `[]` | `[{stat:Id, op:flat\|pct\|mult, value:Number}]`，装备后提供的属性修正 |
 | `grants` | Object | 否 | `{}` | `{skills:List<Id>, auras:List<Id>}` |
-| `affixes` | IdList | 否 | `[]` | 指向 `item.affix`，扩展位，本版不实现效果 |
+| `affixes` | IdList | 否 | `[]` | T-N2-2 起语义改写（ADR-0032 决策 7；落地改动点清单 E2"`item.template.affixes` 语义改为可抽词缀池约束"）：该模板掉落时可抽取的词缀候选白名单，与掉落三次掷骰第三骰（品质骰匹配 `item.affix.quality_pool` 后）取交集；缺省 `[]` 视为不收窄（该品质池下全部词缀均可抽），消费实现随 T-N2-8 落地——上报待设计层确认，见判断记录 |
 | `set_id` | Reference→`item.set` | 否 | — | 所属套装 |
 | `weapon_profile` | Object | 视 slot | — | `{damage_min, damage_max, speed, weapon_school}`；当且仅当 `slot_definition.is_weapon` 为 true 时必须存在（`ItemWeaponProfileRule`） |
 | `display_ref` | Id | 是 | — | 指向 `display.map`；本模块不校验其引用完整性（不引用 `display_info` 模块类型） |
@@ -49,16 +56,20 @@
 | `weapon_profile` | `damage_min`/`damage_max`/`speed` | Number | 否 | `0` | |
 | | `weapon_school` | Id | 否 | — | 无独立跨层可引用表，按 Id 登记 |
 | `requirements` | `level` | Int | 否 | 不限等级 | |
+| `stat_mix[]`（`item.affix`） | `stat` | Reference→`stat.definition` | 是 | — | T-N2-2 新增，同 `stats[].stat` 判断记录，L3 依赖 L1 合法 |
+| | `ratio` | Number | 是 | — | 范围 `(0,1]`；跨元素"之和不超过一"由 `ItemAffixStatMixRatioSumRule` 校验，登记表达不了 |
+| `grants`（`item.affix`） | `skills[]`/`auras[]` | Reference→`skill.def`/`skill.aura_def` | — | `[]` | T-N2-2 新增，复用 `item.template.grants` 同一 `GrantsSchema` 静态字段实例 |
 
 `item.set.bonuses[]`：`{count:Int(缺省0), aura_ref:Reference(skill.aura_def)}`（`aura_ref` 同 `grants.auras`
 判断记录，L3 引用 L2 合法）。`item.budget_curve.entries[]`：04 第 3.6 节通用断点表 `{x:Int, y:Number}`（均必填，
 横轴语义为物品等级；T-N0-4 起，v1 的 `{item_level, budget}` 经 1→2 迁移改名；`ItemBudgetCurve.ParseCurve` 缺失即抛异常）。
 
-判断记录（`item.affix.effects` 不登记子结构）：任务书额外要求 1 提到"若要复用技能域的
+判断记录（`item.affix.effects` 不登记子结构，T-N2-2 复核未变）：任务书额外要求 1 提到"若要复用技能域的
 `EffectsItemSchema`"，但 ADR-0019 通用规则 1"以运行时解析代码为唯一依据……找不到运行时读取的字段
 不登记"——全仓库搜索 `item.affix` 只有 `ItemSchemas.cs` 自身的 schema 声明，没有任何运行时解析代码
-读取过 `effects`（07 第 1.6 节"附魔……单机初版不做……留空位待需要时再设计"，属纯占位扩展位）。本轮
-不登记，待该字段有实际运行时解析实现后再补充结构（含变体或 `EffectsItemSchema` 复用）。
+读取过 `effects`。T-N2-2 起该字段已明确标记废弃（由 `stat_mix`/`grants` 取代），维持不登记子结构的
+结论，`toolchain/schema_audit_allowlist.json` 现有条目原样保留（reason 文案未变，字段仍无运行时解析
+代码，只是从"留位"变成"废弃留位"，不影响该判断记录成立与否）。
 
 ## `item.slot_definition`
 
@@ -145,11 +156,25 @@
 
 ## `item.affix`
 
+T-N2-2（ADR-0032 决策 7；07 第 1.6 节修订段"随机词缀由留位转正"）：由留位转正为预算份额包正式表。
+判断记录（是否升 schema 版本）：留位期字段（`id`/`name_key`/`effects`）从未被任何运行时代码解析、
+`data/_sample/item/item.affix.json` 旧版三条样例只有 `id`/`name_key`、`games/_template` 无该表数据——
+三项前提俱在，按任务书"实现要点"给出的判定条件，本表 `currentSchemaVersion` 保持 1，不新增迁移链。
+
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `item.affix.<name>` |
 | `name_key` | TextKey | 是 | 显示名文本键 |
-| `effects` | Array | 否 | 扩展位占位字段，本版不解析、不实现（见 07 第 1.5/1.6 节"附魔……单机初版不做……留空位待需要时再设计"） |
+| `budget_share` | Number | 是 | T-N2-2 新增（ADR-0032 决策 7）：占该件预算的比例；具体数值掉落时按该件预算 × 本比例经预算反解算出，一条词缀适用于全部等级；消费实现（预算反解、"模板加词缀最大份额超预算"阻断校验）随 T-N2-3/T-N2-4 落地。范围 `[0,1]` |
+| `stat_mix` | Array | 是 | T-N2-2 新增：`[{stat:Reference(stat.definition), ratio:Number(0,1]}]`，属性组合与内部分配比例；同一条词缀内部 `ratio` 之和不超过一（阻断，`item_affix_stat_mix_ratio_sum`，本任务落地，见下）；禁止出现任何绝对数值字段 |
+| `quality_pool` | Reference→`item.quality_definition` | 是 | T-N2-2 新增：所属品质池；掉落时先掷品质骰，再从该品质对应的词缀池里抽词缀骰（消费实现随 T-N2-8 落地） |
+| `weight` | Number | 是 | T-N2-2 新增：池内权重；范围 `>= 0`（同 `loot.table.weighted_pick_one` 既有 `weight_or_chance` 登记口径"相对权重"）；消费实现（加权抽取）随 T-N2-8 落地 |
+| `grants` | Object | 否 | T-N2-2 新增（07 第 1.6 节修订段"可选 `grants`（仅高品质池）"）：`{skills:List<Id>, auras:List<Id>}`，复用 `item.template.grants` 同一 `GrantsSchema` 子结构；本任务只登记字段，不校验"仅高品质池"这条业务规则，消费实现随 T-N2-6 落地 |
+| `effects` | Array | 否 | **已废弃**（T-N2-2 起）：由 `stat_mix`/`grants` 取代，保留一个版本周期仅作历史数据读取兼容，本版起不再解析、新数据不应再填写，一个版本周期后随后续词缀相关任务物理删除（硬性规则 5：ABI 只允许新增，不删除留位字段） |
+
+`stat_mix[]` 子结构（ADR-0019 F1c）：`stat` 登记为 `Reference(stat.definition)`（L3 依赖 L1 合法，同
+`item.template.stats[].stat` 判断记录）；`ratio` 范围 `(0,1]`——0 没有意义（应从数组删掉该条而非写
+0），"同一条词缀 `stat_mix[]` 之和不超过一"是跨元素约束，登记表达不了，见下方 `ItemAffixStatMixRatioSumRule`。
 
 ## 校验规则清单
 
@@ -161,10 +186,11 @@
 | `item_stack_size_min`/`item_stack_size_equipment_not_one` | `ItemStackSizeRule` | `stack_size >= 1`；装备类（`slot` 指向 `is_equipment` 不为 false 的 `slot_definition`）`stack_size == 1` |
 | `item_grants_auras_duplicate` | `ItemGrantsAurasDuplicateRule`（Warning） | `grants.auras` 同一物品内重复引用同一个 `aura_def` |
 | `item_quality_multiplier_order` | `ItemQualityMultiplierOrderRule`（T-N2-1，ADR-0032 决策 2） | `item.quality_definition` 的 `budget_multiplier`/`price_multiplier` 大小顺序须与 `sort_weight` 一致（按 `sort_weight` 升序分组，组内并列不比较，跨组不递减）；检查名按任务书"04 §5 或 item_quality_\* 前缀"取值，**04 第 5 节该行未给出具体检查名，上报待设计层确认** |
-| （内置）`reference_integrity` | `data_registry` | `item.template.slot`/`quality`/`set_id` 三个 `Reference` 字段的存在性 |
+| `item_affix_stat_mix_ratio_sum` | `ItemAffixStatMixRatioSumRule`（T-N2-2，ADR-0032 决策 7） | 单条 `item.affix.stat_mix` 内部 `ratio` 之和不超过一（超出 1e-9 浮点容差报错）；校验对象为"单条词缀内部"，非"同一品质池跨词缀"（见 07 第 1.6 节修订段与 04 第 5 节"词缀份额之和"行原文，二者均紧跟在 `stat_mix` 后描述）；检查名同上一行口径，**04 第 5 节该行同样未给出具体检查名，上报待设计层确认** |
+| （内置）`reference_integrity` | `data_registry` | `item.template.slot`/`quality`/`set_id`/`item.affix.quality_pool`/`stat_mix[].stat` 等 `Reference` 字段的存在性 |
 | （T-N0-3 通用规则）`curve_monotonic_finite` | `CurveMonotonicFiniteRule` | 自动覆盖 `item.budget_curve`/`item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve` 四张断点表曲线的 `entries` |
 
-六条本模块 `IValidationRule` 均需调用方显式 `registry.RegisterValidationRule(...)` 才会生效，本模块不
+七条本模块 `IValidationRule` 均需调用方显式 `registry.RegisterValidationRule(...)` 才会生效，本模块不
 自动注册（同 `progression`/`stat_block`/`power_set` 惯例）；`curve_monotonic_finite` 是 T-N0-3 的
 通用规则，随 `PresentationSchemaCatalog.RegisterAll` 全局注册一次即覆盖全部登记为曲线形态的字段，
 不需要本模块重复注册。

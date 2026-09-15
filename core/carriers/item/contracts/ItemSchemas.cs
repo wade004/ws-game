@@ -49,6 +49,28 @@ namespace Core.Carriers.Item
             },
             description: "{skills:[Reference(skill.def)], auras:[Reference(skill.aura_def)]}");
 
+        /// <summary><c>item.affix.stat_mix</c> 元素结构（分阶段落地计划 T-N2-2；ADR-0032 决策 7；
+        /// 07 第 1.6 节修订段"<c>stat_mix</c>（属性组合与内部分配比例，之和不超过一）"）。<c>stat</c>
+        /// 登记为 <c>Reference(stat.definition)</c>，与 <see cref="StatsItemSchema"/> 同一判断记录
+        /// （L3 依赖 L1 合法）。<c>ratio</c> 只登记"这条属性在词缀内部预算分配中的比例"，禁止出现任何
+        /// 绝对数值字段（任务书硬性规则："禁止词缀写绝对数值"）——具体落值在掉落那一刻由预算反解
+        /// （<c>IBudgetSolver.solve</c>，随 T-N2-4 落地）按该件预算 × <c>budget_share</c> × 本比例算出。
+        /// 单个 <c>ratio</c> 范围登记为 <c>(0,1]</c>：0 没有意义（等价于该属性不在组合内，应从数组里
+        /// 删掉这一条而不是写 0），上限 1 只是单元素本身的物理上界，"同一条词缀 <c>stat_mix[]</c> 之和
+        /// 不超过一"是跨元素约束，登记表达不了，见 <see cref="ItemAffixStatMixRatioSumRule"/>。</summary>
+        public static readonly FieldSchema AffixStatMixEntrySchema = new FieldSchema(
+            "<affix_stat_mix_entry>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("stat", FieldKind.Reference, required: true, referenceTable: "stat.definition",
+                    description: "指向 stat.definition 的属性类型，具体数值不在本表登记"),
+                new FieldSchema("ratio", FieldKind.Number, required: true,
+                    description: "该属性在本条词缀内部预算分配中的比例；同一条词缀 stat_mix[].ratio 之和" +
+                        "不超过一（阻断，见 ItemAffixStatMixRatioSumRule）")
+                    .WithRange(FieldRange.Range(min: 0, minExclusive: true, max: 1)),
+            },
+            description: "{stat:Reference(stat.definition), ratio:Number(0,1]}，词缀内部属性组合与分配" +
+                "比例（不含绝对数值）");
+
         /// <summary><c>item.template.weapon_profile</c> 结构（<c>EquipmentHost.GetWeaponProfile</c>：
         /// <c>GetNumber(profile,"damage_min",0)</c>/<c>"damage_max"</c>/<c>"speed"</c>/
         /// <c>GetIdOpt(profile,"weapon_school")</c>）。</summary>
@@ -98,7 +120,16 @@ namespace Core.Carriers.Item
                         "装备后提供的固定/百分比属性"),
                 GrantsSchema,
                 new FieldSchema("affixes", FieldKind.IdList, required: false, referenceTable: "item.affix",
-                    description: "词缀引用（指向 item.affix，扩展位，本版不实现具体效果）"),
+                    description: "分阶段落地计划 T-N2-2（ADR-0032 决策 7；落地改动点清单 E2"
+                        + "\"item.template.affixes 语义改为可抽词缀池约束\"）：语义由留位期的\"词缀引用\"" +
+                        "改写为\"该模板掉落时可抽取的词缀候选白名单\"——掉落三次掷骰的第三骰（词缀骰，" +
+                        "T-N2-8 落地）先按品质骰结果匹配 item.affix.quality_pool，再与本字段交集；" +
+                        "缺省 []（未登记）按\"不额外收窄\"处理，即该品质池下全部词缀均可抽，与登记前的" +
+                        "缺省行为一致，不破坏现有样例。本任务只登记字段语义，消费实现（交集运算）随" +
+                        "T-N2-8 掉落三次掷骰落地——上报待设计层确认：契约原文\"该模板可挂的词缀/或固定" +
+                        "词缀\"（任务书用语）与\"可抽词缀池约束\"（落地改动点清单 E2 用语）二选一，" +
+                        "本任务按后者（更具体、更晚落笔）实现，前者\"固定词缀\"（装备时必然带、不参与" +
+                        "随机）在契约里没有独立字段位，若设计层确认需要该语义，需另开字段而非复用本字段"),
                 new FieldSchema("set_id", FieldKind.Reference, required: false,
                     referenceTable: "item.set",
                     description: "所属套装"),
@@ -355,8 +386,29 @@ namespace Core.Carriers.Item
                         "skill.aura_def 属 L2，本模块 L3 依赖方向合法）"),
             }).WithOwnership(SchemaLayer.Carriers, "item");
 
-        /// <summary><c>item.affix</c>：词缀（07 第 1.6 节扩展位，只登记 schema，不实现具体效果，
-        /// 见 schema/README.md 判断记录）。</summary>
+        /// <summary><c>item.affix</c>：词缀，分阶段落地计划 T-N2-2（ADR-0032 决策 7；07 第 1.6 节
+        /// 修订段"随机词缀由留位转正"）由留位转正为预算份额包正式表。
+        /// <para>
+        /// 判断记录（是否升级 schema 版本）：本任务书"实现要点"给出的判定条件——"若 item.affix 此前是
+        /// 留位、样例为空或只有占位，且 games/_template 没有该表数据，可以不升版本"——三项前提均成立：
+        /// 留位期字段只有 <c>id</c>/<c>name_key</c>/<c>effects</c>（<c>effects</c> 从未被任何运行时
+        /// 代码解析，见 schema/README.md 旧判断记录"任务书额外要求 1……全仓库搜索 item.affix
+        /// 只有 ItemSchemas.cs 自身的 schema 声明，没有任何运行时解析代码读取过 effects"）；
+        /// <c>data/_sample/item/item.affix.json</c> 三条样例行此前只有 <c>id</c>/<c>name_key</c>
+        /// 两个字段（无 <c>effects</c> 实值，纯占位）；<c>games/_template/data/game/item/</c> 目录
+        /// 下没有 <c>item.affix.json</c>（见本任务勘察，T-N2-10 才补空壳表）。三项前提俱在，本表
+        /// <c>currentSchemaVersion</c> 保持 1，不新增迁移链——新增的四个必填字段（<c>budget_share</c>/
+        /// <c>stat_mix</c>/<c>quality_pool</c>/<c>weight</c>）对"没有旧数据需要兼容"的场景无需迁移
+        /// 函数，样例改写为新形态即可（见 <c>data/_sample/item/item.affix.json</c>）。
+        /// </para>
+        /// <para>
+        /// 判断记录（<c>effects</c> 留位废弃，不删除）：硬性规则 5（ABI 只允许新增）与任务书"去掉占位
+        /// effects（保留读取兼容一个周期）"——字段本身不删除，改写 <see cref="FieldKind.Array"/>
+        /// 描述为废弃说明；不登记 <c>required: true</c>，允许旧数据文件（若外部游戏仓库已写过
+        /// <c>effects</c>）继续通过加载，一个版本周期后（跟随分阶段落地计划下一次词缀相关任务）再
+        /// 物理删除。本版起新样例不再写 <c>effects</c>，新增内容也不应该再填它。
+        /// </para>
+        /// </summary>
         public static readonly TableSchema Affix = new TableSchema(
             name: "item.affix",
             primaryKey: "id",
@@ -367,8 +419,34 @@ namespace Core.Carriers.Item
                     description: "item.affix.<name>"),
                 new FieldSchema("name_key", FieldKind.TextKey, required: true,
                     description: "词缀显示名文本键"),
+                new FieldSchema("budget_share", FieldKind.Number, required: true,
+                    description: "分阶段落地计划 T-N2-2（ADR-0032 决策 7；07 第 1.6 节修订段）：占该件" +
+                        "预算的比例；具体数值在掉落那一刻按该件预算 × 本比例经预算反解" +
+                        "（IBudgetSolver.solve，随 T-N2-4 落地）算出，一条词缀适用于全部等级；" +
+                        "\"模板属性 + 可抽词缀最大份额 ≤ 预算\"为阻断校验（消费实现随 T-N2-3/T-N2-4 落地，" +
+                        "本任务只登记字段）。范围 [0,1]（占比，同 item.quality_definition." +
+                        "grant_budget_share 既有登记口径）")
+                    .WithRange(FieldRange.Range(min: 0, max: 1)),
+                new FieldSchema("stat_mix", FieldKind.Array, required: true, item: AffixStatMixEntrySchema,
+                    description: "Array<{stat:Reference(stat.definition), ratio:Number(0,1]}>，属性组合与" +
+                        "内部分配比例；同一条词缀本字段内部 ratio 之和不超过一（阻断，" +
+                        "ItemAffixStatMixRatioSumRule，本任务落地）；禁止出现任何绝对数值字段" +
+                        "（任务书硬性规则）"),
+                new FieldSchema("quality_pool", FieldKind.Reference, required: true,
+                    referenceTable: "item.quality_definition",
+                    description: "所属品质池，指向 item.quality_definition；掉落时先掷品质骰，" +
+                        "再从该品质对应的词缀池里抽词缀骰（07 第 1.6 节修订段"
+                        + "\"品质来自掉落表品质权重，词缀从该品质对应的池里抽\"），消费实现随 T-N2-8 落地"),
+                new FieldSchema("weight", FieldKind.Number, required: true,
+                    description: "池内权重（07 第 1.6 节修订段）；范围 >= 0（同 loot.table." +
+                        "weighted_pick_one 既有 weight_or_chance 登记口径\"相对权重\"，见 LootSchemas；" +
+                        "0 表示登记了但当前不参与抽取，而非非法值），消费实现（加权抽取）随 T-N2-8 落地")
+                    .WithRange(FieldRange.Range(min: 0)),
+                GrantsSchema,
                 new FieldSchema("effects", FieldKind.Array, required: false,
-                    description: "扩展位占位字段，本版不解析、不实现"),
+                    description: "已废弃占位字段（分阶段落地计划 T-N2-2 起）：由 stat_mix/grants 取代，" +
+                        "保留一个版本周期仅作历史数据读取兼容，本版起不再解析、新数据不应再填写，一个" +
+                        "版本周期后随后续词缀相关任务物理删除"),
             }).WithOwnership(SchemaLayer.Carriers, "item");
     }
 }

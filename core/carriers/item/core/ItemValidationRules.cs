@@ -386,4 +386,66 @@ namespace Core.Carriers.Item
             }
         }
     }
+
+    /// <summary>
+    /// 词缀份额之和校验（分阶段落地计划 T-N2-2；ADR-0032 决策 7"单条词缀份额之和不超过一为阻断校验"；
+    /// 07 第 1.6 节修订段"<c>stat_mix</c>（属性组合与内部分配比例，之和不超过一）"）：单条
+    /// <c>item.affix.stat_mix</c> 内部 <c>ratio</c> 之和不超过一。
+    /// <para>
+    /// 判断记录（校验对象——"单条词缀内部"而非"同一品质池跨词缀"）：ADR-0032 决策 7 原文与 07 第 1.6
+    /// 节修订段两处均把"之和不超过一"紧跟在 <c>stat_mix</c>（单个字段）后面描述，且决策 7 的完整句是
+    /// "<c>stat_mix</c>（属性组合与内部分配比例）……单条词缀份额之和不超过一"——"单条词缀"与
+    /// "<c>stat_mix</c> 内部分配"两处表述指向同一个对象：一条 <c>item.affix</c> 记录自己的
+    /// <c>stat_mix[]</c> 数组。04 第 5 节数值类校验项分级表同一行说明"单条 <c>item.affix.stat_mix</c>
+    /// 内部分配比例之和不超过一"，与本判断记录结论一致，非本任务实现期新解读。跨词缀/跨品质池的份额
+    /// 关系（如"同一品质池全部词缀权重之和"）契约未提及任何约束，本规则不检查。
+    /// </para>
+    /// <para>
+    /// 判断记录（检查名）：04 第 5 节"词缀份额之和"一行未像"曲线单调有限"等同表其余阻断项那样给出
+    /// 具体检查名（括号注明检查名）。按任务书"检查名按 04 §5，没有就 item_affix_* 前缀标待确认"取
+    /// <c>item_affix_stat_mix_ratio_sum</c>，命名同 <see cref="ItemQualityMultiplierOrderRule"/>
+    /// 判断记录同一处理口径——**上报待设计层确认**，见本任务汇报"契约疑点"一节。
+    /// </para>
+    /// <para>
+    /// 判断记录（浮点容差）：<c>ratio</c> 逐项相加存在浮点舍入误差（如三个 0.3333... 相加可能得到
+    /// 1.0000000000000002），严格 <c>&gt; 1</c> 比较会把"策划填 1/3 三等分"这类合法数据误判为超标。
+    /// 引入 <see cref="Epsilon"/>（1e-9，同任务书 G1 验收标准"误差 &lt; 1e-9"给出的量级）：
+    /// <c>sum &gt; 1 + Epsilon</c> 才报错，边界值 1（含浮点误差范围内的 1）视为合法。
+    /// </para>
+    /// </summary>
+    public sealed class ItemAffixStatMixRatioSumRule : IValidationRule
+    {
+        public const string Check = "item_affix_stat_mix_ratio_sum";
+
+        private const double Epsilon = 1e-9;
+
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            foreach (var record in view.GetAll("item.affix"))
+            {
+                if (!record.TryGetArray("stat_mix", out var statMix) || statMix.Count == 0)
+                {
+                    continue;
+                }
+
+                var sum = 0.0;
+                foreach (var entry in statMix)
+                {
+                    if (entry is JsonObject o && o.TryGetValue("ratio", out var r) && r is JsonNumber n)
+                    {
+                        sum += n.Value;
+                    }
+                }
+
+                if (sum > 1.0 + Epsilon)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, "item.affix", Check,
+                        $"stat_mix[].ratio 之和 {sum:0.#########} 超过一（ADR-0032 决策 7；" +
+                        "单条词缀内部分配比例不得超过预算总量）",
+                        recordKey: record.Key, field: "stat_mix");
+                }
+            }
+        }
+    }
 }

@@ -238,12 +238,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   逻辑：按排序权重分组，跨组不得递减）。`toolchain/validator --list-tables --json` 对三条新曲线
   表的 `field_meta.curve` 输出 `{shape: "breakpoints", axis: "item_level"}`（复用既有导出结构，
   不新增字段）。
+- **数值设计落地阶段 N2 · T-N2-2（Unreleased）**：`item.affix` 由留位（仅 `id`/`name_key`/
+  `effects` 三个占位字段）转正为预算份额包正式表：新增必填 `budget_share`/`stat_mix`/
+  `quality_pool`/`weight` 与可选 `grants`；`effects` 改为已废弃占位字段（保留一个版本周期只作
+  读取兼容，不再解析）。`item.template.affixes` 语义由"词缀引用"改写为"该模板掉落时可抽取的
+  词缀候选白名单"，缺省 `[]` 视为不收窄。新校验规则 `ItemAffixStatMixRatioSumRule`（检查名
+  `item_affix_stat_mix_ratio_sum`）出现在 `toolchain/validator --json`/`--list-tables --json`
+  的 `rules[]` 里：单条 `item.affix.stat_mix[].ratio` 之和超过一报 Error；编辑器词缀编辑界面若
+  提供 `stat_mix` 多行属性比例输入，应实时汇总校验"之和不超过一"（同校验逻辑，1e-9 浮点容差）。
+  `stat_mix[]` 子结构（`stat`/`ratio`）与 `grants` 子结构经 `FieldSchema.Fields`/`Item` 登记，
+  出现在 `toolchain/validator --list-tables --json` 的 `field_meta`/子结构导出里，与
+  `item.template.stats[]`/`grants` 同一套导出机制，编辑器无需额外适配。
 
 ## [Unreleased]
 
 新增 `toolchain/unity_test_triage.py`：Unity EditMode/PlayMode 测试结果分诊脚本，从 NUnit3 结果 XML 与 Unity 日志里抽出失败用例的执行窗口、窗口内首个异常/断言（并提醒 NUnit message 只是最后一次异常）与 Warning/Error 摘要；已接入 `check.ps1` 失败分支自动调用（排查复盘 2026-09-15-PlayMode-PRES180）。
 新增 Unity 测试程序集内的 `[TestFirstChance]` 首个异常记录回调：测试运行期把每个断言/未预期日志异常的第一现场打进 Unity 日志，与上条分诊脚本配套，弥补 Unity 批处理日志不打印用例边界与异常发生时机的已知限制。
 数值设计落地阶段 N2 · T-N2-1（ADR-0032 决策 1/2/4/5）：`item.slot_definition` 新增 `budget_coefficient`/`price_coefficient`；`item.quality_definition` 新增 `affix_count`（可选）/`grant_budget_share`/`price_multiplier`，`budget_multiplier`/`price_multiplier` 大小顺序须与 `sort_weight` 一致（新校验规则 `ItemQualityMultiplierOrderRule`，检查名 `item_quality_multiplier_order`）；`item.template` 新增 `value_override`/`budget_note`，`stat_roll_ref` 描述改为"由 `item.affix` 取代的兼容位"；新表 `item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve`（物品等级→护甲值/武器秒伤/需求等级的断点表曲线，复用 `CurveSchema.BreakpointsField`，横轴 `CurveAxis.ItemLevel`，自动受 `curve_monotonic_finite` 约束）。本任务只登记 schema/注册/品质倍率顺序校验，消耗公式/护甲武器秒伤求值/需求等级反推等运行时消费实现留给后续任务（T-N2-4/6/9）。
+数值设计落地阶段 N2 · T-N2-2（ADR-0032 决策 7）：`item.affix` 由留位转正为预算份额包——新增必填 `budget_share`（占该件预算的比例）/`stat_mix`（`Array<{stat:Reference(stat.definition), ratio:Number(0,1]}>`，属性组合与内部分配比例）/`quality_pool`（`Reference(item.quality_definition)`，所属品质池）/`weight`（池内权重）与可选 `grants`（复用 `item.template.grants` 同一 `GrantsSchema`）；旧占位字段 `effects` 标记废弃，保留一个版本周期只作读取兼容，不再解析。新校验规则 `ItemAffixStatMixRatioSumRule`（检查名 `item_affix_stat_mix_ratio_sum`）：单条词缀 `stat_mix[].ratio` 之和超过一（1e-9 浮点容差）报 Error。`item.template.affixes` 语义由"词缀引用"改写为"该模板掉落时可抽取的词缀候选白名单"，缺省 `[]` 视为不收窄。`currentSchemaVersion` 保持 1，不新增迁移链（留位期无真实旧数据需要兼容，判断记录见 `ItemSchemas.Affix`）。本任务只登记字段与份额之和校验，预算反解/"模板加词缀最大份额超预算"/掉落三次掷骰等运行时消费实现留给后续任务（T-N2-3/4/6/8）。
 
 ### 修复
 

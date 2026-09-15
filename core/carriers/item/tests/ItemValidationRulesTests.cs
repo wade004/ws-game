@@ -401,5 +401,54 @@ namespace Tests.Carriers.Item
 
             Assert.Empty(issues);
         }
+
+        // -----------------------------------------------------------------
+        // T-N2-2（ADR-0032 决策 7；04 第 5 节"词缀份额之和"）：单条 item.affix.stat_mix
+        // 内部 ratio 之和不超过一
+        // -----------------------------------------------------------------
+
+        private static IDataRegistryView BuildAffixView(string affixJson)
+        {
+            return TestSupport.BuildRegistry(source =>
+            {
+                source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", QualityJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
+                source.Add("item.affix", TestSupport.Table("item.affix", affixJson));
+            });
+        }
+
+        [Fact]
+        public void AffixStatMixRatioSumRule_SumExceedsOne_ReportsError()
+        {
+            // 0.6 + 0.6 = 1.2 > 1，超出 Epsilon 容差，报错（ADR-0032 决策 7）。
+            var view = BuildAffixView(
+                "[{\"id\": \"item.affix.sum_bad\", \"name_key\": \"l10n.item.affix.sum_bad\"," +
+                " \"budget_share\": 0.5, \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 0.6}," +
+                " {\"stat\": \"stat.strength\", \"ratio\": 0.6}]}]");
+
+            var issues = new ItemAffixStatMixRatioSumRule().Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Error, issue.Severity);
+            Assert.Equal(ItemAffixStatMixRatioSumRule.Check, issue.Check);
+            Assert.Equal("stat_mix", issue.Field);
+            Assert.Equal("item.affix.sum_bad", issue.RecordKey);
+        }
+
+        [Fact]
+        public void AffixStatMixRatioSumRule_SumWithinOne_NoIssue()
+        {
+            // 0.5 + 0.5 = 1（含浮点误差在 Epsilon 容差内），不报错。
+            var view = BuildAffixView(
+                "[{\"id\": \"item.affix.sum_ok\", \"name_key\": \"l10n.item.affix.sum_ok\"," +
+                " \"budget_share\": 0.5, \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+                " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 0.5}," +
+                " {\"stat\": \"stat.strength\", \"ratio\": 0.5}]}]");
+
+            var issues = new ItemAffixStatMixRatioSumRule().Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
     }
 }

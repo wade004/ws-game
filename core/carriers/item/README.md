@@ -31,7 +31,7 @@ item/
     EquipmentHost.cs            IEquipmentHost 实现（穿脱联动本体）
     ItemEffectExtension.cs      IEffectExtension 实现：create_item
     ItemBudgetCurve.cs          budget_curve 线性插值 + 预算消耗量计算
-    ItemValidationRules.cs      预算超标/武器槽/套装归属/堆叠数/授权重复/品质倍率顺序六条 IValidationRule
+    ItemValidationRules.cs      预算超标/武器槽/套装归属/堆叠数/授权重复/品质倍率顺序/词缀份额之和七条 IValidationRule
     ItemInstanceJson.cs         ItemInstance ↔ JSON（两个存档段共用）
     ItemPersistable.cs           InventoryPersistable + EquipmentPersistable
     InMemoryItemDiagnostics.cs
@@ -50,9 +50,9 @@ item/
 ## 数据表清单
 
 见 `schema/README.md`：`item.template`、`item.slot_definition`、`item.quality_definition`、
-`item.budget_curve`、`item.set`、`item.affix`（扩展位，只登记 schema 不实现）；T-N2-1（ADR-0032）
-新增 `item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve` 三条曲线表（只登记 schema
-与 `curve_monotonic_finite` 校验，消费实现随后续任务落地）。
+`item.budget_curve`、`item.set`、`item.affix`（T-N2-2 起由留位转正为预算份额包，见下）；T-N2-1
+（ADR-0032）新增 `item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve` 三条曲线表（只
+登记 schema 与 `curve_monotonic_finite` 校验，消费实现随后续任务落地）。
 
 ## 设计要点与判断记录
 
@@ -263,6 +263,30 @@ item/
     `core/carriers/item/tests/ItemSchemaCoverageTests.cs`（17 条新增用例：三条新曲线表命中/缺必填/
     范围越界、槽位/品质/模板新字段命中/范围越界）、`ItemValidationRulesTests.cs`（品质倍率顺序正例/
     负例/并列不比较 3 条）。
+
+17. **T-N2-2（分阶段落地计划、ADR-0032 决策 7）：`item.affix` 由留位转正为预算份额包，`effects`
+    留位废弃（保留一个版本周期）、`item.template.affixes` 语义改写**——四个新字段
+    `budget_share`/`stat_mix`/`quality_pool`/`weight` 登记为必填（三项前提"留位期未被任何运行时代码
+    解析、旧样例只有占位字段、`games/_template` 无该表数据"俱在，`currentSchemaVersion` 保持 1，
+    不新增迁移链，见 `ItemSchemas.Affix` 类型顶部判断记录）；`grants` 可选，直接复用
+    `item.template.grants` 同一个 `GrantsSchema` 静态字段实例（同结构、无需另开一份）。新增
+    `ItemAffixStatMixRatioSumRule`（check 名 `item_affix_stat_mix_ratio_sum`）：单条
+    `stat_mix[].ratio` 之和超过 `1 + 1e-9`（浮点容差）报 Error——校验对象是"单条词缀内部
+    `stat_mix` 数组"而非"同一品质池跨词缀"，依据 07 第 1.6 节修订段与 04 第 5 节"词缀份额之和"行
+    原文均把"之和不超过一"紧跟在 `stat_mix` 单字段后描述；04 第 5 节该行同样未给出具体检查名，
+    按任务书"04 §5 或 `item_affix_*` 前缀"取值，**上报待设计层确认**（同 T-N2-1 的
+    `item_quality_multiplier_order` 同一处理口径）。"模板加词缀最大份额超预算"与"预算利用率过低"
+    两条校验需要消耗公式（T-N2-3）与预算反解（T-N2-4）才能核算，本任务不实现，只登记字段。
+    `item.template.affixes` 语义由"词缀引用（扩展位）"改写为"该模板掉落时可抽取的词缀候选白名单"
+    （落地改动点清单 E2 用语"可抽词缀池约束"，二选一"该模板可挂的词缀/或固定词缀"（任务书用语）
+    与"可抽词缀池约束"（落地改动点清单用语）本任务按后者实现——**上报待设计层确认**，"固定词缀"
+    语义在现有契约里没有独立字段位）；缺省 `[]` 视为不收窄，消费实现（掉落三次掷骰第三骰的交集
+    运算）随 T-N2-8 落地，本任务只改字段描述、不改运行时行为。`is_weapon` 附带核对：
+    `item.slot_definition.is_weapon` 在 T-N2-1 之前（阶段 3 整理）已登记，缺省 `false`——ADR-0032
+    决策 1 要求的字段已存在，本任务无需补登记，见 `ItemSchemas.SlotDefinition` 既有字段。见
+    `core/carriers/item/tests/ItemSchemaCoverageTests.cs`（新增 7 条：命中、缺必填、`stat_mix`
+    引用不存在的属性、`ratio` 越界、`quality_pool` 引用不存在的品质、`weight` 越界、`grants`
+    命中）、`ItemValidationRulesTests.cs`（份额之和超一/未超各 1 条）。
 
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 
