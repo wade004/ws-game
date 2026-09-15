@@ -128,7 +128,16 @@ namespace Core.Rules.Targeting
         {
             var origin = _units.GetPosition(casterId);
             var facing = _units.GetFacing(casterId);
-            var result = ResolveChain(chainId, casterId, currentTarget, origin, facing, depth: 0);
+            // T-N3-8 判断记录（旧签名投影关系）：本方法不再自己跑一遍"来源收集 → 过滤 → 排序 →
+            // 截断 → 回退"，改为共享 ResolveChainWithCoefficients 同一条管线，只投影出目标 Id 列表
+            // （丢弃分配系数）——TargetOverflowPolicy.Truncate（缺省，未声明 overflow_policy 的既有
+            // 链恒是这一策略）下，该策略的候选集合与本字段改动前的 ApplyMaxTargets 截断结果逐一
+            // 对应，保证旧签名行为不变（硬性规则"禁止改旧 Resolve 签名"、验收标准"旧签名行为不变"）。
+            // 链声明了 TargetOverflowPolicy.Split/Cap 时，这两种策略本身不按数量截断候选（只稀释
+            // 系数，见 TargetOverflowPolicy 各成员注释），旧签名因此会返回全部候选（不含系数）——
+            // 调用方需要系数时应改用 ResolveWithCoefficients（见该方法判断记录）。
+            var resolution = ResolveChainWithCoefficients(chainId, casterId, currentTarget, origin, facing, depth: 0);
+            var result = ProjectTargets(resolution);
 
             if (_options.EmitResolvedEvent)
             {
@@ -136,6 +145,39 @@ namespace Core.Rules.Targeting
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// T-N3-8（ADR-0031 决策 6、拍板 7；06 第 3.7 节 2026-09-14 修订段）：见
+        /// <see cref="ITargetHost.ResolveWithCoefficients"/> 判断记录。与 <see cref="Resolve(Id, Id, Id?)"/>
+        /// 共享同一条 <see cref="ResolveChainWithCoefficients"/> 管线，额外发布
+        /// <see cref="TargetingResolvedEvent"/> 时同样只携带目标 Id 列表（该事件字段表未纳入分配
+        /// 系数，06 未就此拍板——与旧 <see cref="Resolve(Id, Id, Id?)"/> 发布同一份事件的既有惯例
+        /// 一致，不重复发布两条）。
+        /// </summary>
+        public TargetResolution ResolveWithCoefficients(Id chainId, Id casterId, Id? currentTarget = null)
+        {
+            var origin = _units.GetPosition(casterId);
+            var facing = _units.GetFacing(casterId);
+            var resolution = ResolveChainWithCoefficients(chainId, casterId, currentTarget, origin, facing, depth: 0);
+
+            if (_options.EmitResolvedEvent)
+            {
+                _eventBus!.Enqueue(new TargetingResolvedEvent(casterId, chainId, ProjectTargets(resolution)));
+            }
+
+            return resolution;
+        }
+
+        private static IReadOnlyList<Id> ProjectTargets(TargetResolution resolution)
+        {
+            var ids = new List<Id>(resolution.Targets.Count);
+            foreach (var (target, _) in resolution.Targets)
+            {
+                ids.Add(target);
+            }
+
+            return ids;
         }
 
         /// <summary>见 <see cref="ITargetHost.FilterExplicitTargets"/> 判断记录（N10）：只加载链、
@@ -153,7 +195,7 @@ namespace Core.Rules.Targeting
 
         /// <summary>
         /// ADR-0027《地面坐标施法请求》补充（见 <see cref="ITargetHost.ResolveAtPoint"/> 判断记录）：
-        /// 与 <see cref="Resolve(Id, Id, Id?)"/> 复用同一条 <see cref="ResolveChain"/> 管线，唯一差异
+        /// 与 <see cref="Resolve(Id, Id, Id?)"/> 复用同一条 <see cref="ResolveChainWithCoefficients"/> 管线，唯一差异
         /// 是形状查询/排序距离基准的锚点从"施法者当前坐标/朝向"（<see cref="_units"/>.GetPosition/
         /// GetFacing(casterId)）换成显式传入的 <paramref name="point"/>；朝向固定为 0（世界 +X 轴）——
         /// 一个地面坐标点没有"朝向"这个概念，cone/line/rect 一类方向性形状的
@@ -169,9 +211,18 @@ namespace Core.Rules.Targeting
         /// 避免消费方误将其与既有 <c>Resolve</c> 调用一次一事件的既有惯例混淆。
         /// </summary>
         public IReadOnlyList<Id> ResolveAtPoint(Id chainId, Id casterId, Vec2 point) =>
-            ResolveChain(chainId, casterId, currentTarget: null, origin: point, facing: 0, depth: 0);
+            ProjectTargets(ResolveChainWithCoefficients(chainId, casterId, currentTarget: null, origin: point, facing: 0, depth: 0));
 
-        private IReadOnlyList<Id> ResolveChain(Id chainId, Id casterId, Id? currentTarget, Vec2 origin, double facing, int depth)
+        /// <summary>
+        /// T-N3-8 判断记录：本方法取代改动前的 <c>ResolveChain</c>，是 <see cref="Resolve(Id, Id, Id?)"/>/
+        /// <see cref="ResolveWithCoefficients"/>/<see cref="ResolveAtPoint"/> 共享的唯一一条"来源收集
+        /// → 过滤 → 排序 → 分配系数（含 Truncate 语义下的截断）→ 空则回退"管线——"截断"不再是独立
+        /// 于分配系数计算的一步，而是 <see cref="ApplyOverflowPolicy"/> 内 <see
+        /// cref="TargetOverflowPolicy.Truncate"/> 分支的其中一种结果，保证三条公开入口对同一条链
+        /// 的候选收集/过滤/排序逻辑逐字节共享，不会出现"新增系数入口另起一套排序实现"的分歧风险。
+        /// </summary>
+        private TargetResolution ResolveChainWithCoefficients(
+            Id chainId, Id casterId, Id? currentTarget, Vec2 origin, double facing, int depth)
         {
             if (depth > _options.MaxFallbackDepth)
             {
@@ -198,14 +249,13 @@ namespace Core.Rules.Targeting
             IReadOnlyList<Id> candidates = strategy.Collect(ctx) ?? Array.Empty<Id>();
             candidates = ApplyFilters(chain, casterId, candidates);
             candidates = ApplySort(chain, casterId, origin, candidates);
-            candidates = ApplyMaxTargets(chain, candidates);
 
             if (candidates.Count == 0 && chain.Fallback.HasValue)
             {
-                return ResolveChain(chain.Fallback.Value, casterId, currentTarget, origin, facing, depth + 1);
+                return ResolveChainWithCoefficients(chain.Fallback.Value, casterId, currentTarget, origin, facing, depth + 1);
             }
 
-            return candidates;
+            return ApplyOverflowPolicy(candidates, chain.MaxTargets, chain.OverflowPolicy);
         }
 
         private TargetChainDef LoadChain(Id chainId)
@@ -348,14 +398,49 @@ namespace Core.Rules.Targeting
             }
         }
 
-        private static IReadOnlyList<Id> ApplyMaxTargets(TargetChainDef chain, IReadOnlyList<Id> candidates)
+        /// <summary>
+        /// T-N3-8（ADR-0031 决策 6、拍板 7；06 第 3.7 节 2026-09-14 修订段）：把过滤/排序之后的候选
+        /// 集合按 <paramref name="cap"/>（<c>max_targets</c>）/<paramref name="policy"/>
+        /// （<c>overflow_policy</c>）折算成"目标 + 分配系数"。三态的精确系数定义是本任务按字面
+        /// 含义给出的临时判断（见 <see cref="TargetOverflowPolicy"/> 各成员注释，已标注待设计层
+        /// 确认）。<paramref name="cap"/> ≤ 0（不限）或候选数未超限时，策略不参与——全部候选命中，
+        /// 系数恒为 1（<see cref="TargetResolution"/> 判断记录），这一分支同时是改动前
+        /// <c>ApplyMaxTargets</c> 未超限时的逐字节行为（原样返回候选集合，不额外分配）。
+        /// </summary>
+        private static TargetResolution ApplyOverflowPolicy(IReadOnlyList<Id> candidates, int cap, TargetOverflowPolicy policy)
         {
-            if (chain.MaxTargets <= 0)
+            if (cap <= 0 || candidates.Count <= cap)
             {
-                return candidates;
+                return new TargetResolution(candidates.Select(id => (id, 1.0)), policy, cap);
             }
 
-            return candidates.Count <= chain.MaxTargets ? candidates : candidates.Take(chain.MaxTargets).ToList();
+            switch (policy)
+            {
+                case TargetOverflowPolicy.Truncate:
+                {
+                    // 与改动前 ApplyMaxTargets 的既有截断逐字节一致：按候选集合（已过滤/排序）顺序
+                    // 取前 cap 个，多出的候选完全不命中。
+                    var kept = candidates.Take(cap).Select(id => (id, 1.0));
+                    return new TargetResolution(kept, policy, cap);
+                }
+
+                case TargetOverflowPolicy.Split:
+                {
+                    // 平摊：全部候选命中，总量守恒为"cap 个目标的满额值"，按实际命中数 n 均分。
+                    var coefficient = (double)cap / candidates.Count;
+                    return new TargetResolution(candidates.Select(id => (id, coefficient)), policy, cap);
+                }
+
+                case TargetOverflowPolicy.Cap:
+                {
+                    // 总量封顶：全部候选命中，总量硬封顶为"单个目标的满额值"，按实际命中数 n 均分。
+                    var coefficient = 1.0 / candidates.Count;
+                    return new TargetResolution(candidates.Select(id => (id, coefficient)), policy, cap);
+                }
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(policy), policy, "未知 TargetOverflowPolicy");
+            }
         }
 
         /// <summary>把"形状模板"（Origin=Zero、Direction/Rotation=0，见 <see cref="TargetChainDef.Shape"/>

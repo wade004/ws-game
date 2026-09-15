@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Core.Foundation.Common;
 
 namespace Core.Rules.Common
@@ -56,5 +57,37 @@ namespace Core.Rules.Common
         /// </para>
         /// </summary>
         IReadOnlyList<Id> ResolveAtPoint(Id chainId, Id casterId, Vec2 point) => Resolve(chainId, casterId);
+
+        /// <summary>
+        /// T-N3-8（ADR-0031 决策 6、拍板 7；06 第 3.7 节 2026-09-14 修订段）：按
+        /// <paramref name="chainId"/> 指向的 <c>target.chain_def</c> 解析候选目标，随后按链声明的
+        /// <c>overflow_policy</c>（<see cref="TargetOverflowPolicy"/>，缺省
+        /// <see cref="TargetOverflowPolicy.Truncate"/>）与 <c>max_targets</c> 给每个命中目标分配一个
+        /// "分配系数"（三态定义见 <see cref="TargetOverflowPolicy"/> 各成员注释、<see cref="TargetResolution"/>
+        /// 判断记录），供 <c>Core.Rules.Skill.EffectDispatcher</c> 按系数缩放群体效果值（<c>value ×
+        /// coefficient</c>，系数恒为 1 时逐位不变）。<paramref name="currentTarget"/> 语义同
+        /// <see cref="Resolve(Id, Id, Id?)"/>。旧签名 <see cref="Resolve(Id, Id)"/>/
+        /// <see cref="Resolve(Id, Id, Id?)"/> 保留、行为不变（硬性规则"禁止改旧 Resolve 签名"）——
+        /// <see cref="TargetOverflowPolicy.Truncate"/>（缺省）策略下，旧签名返回的目标列表与本方法
+        /// <see cref="TargetResolution.Targets"/> 投影（只取 <c>Target</c>）逐一对应；<see
+        /// cref="TargetOverflowPolicy.Split"/>/<see cref="TargetOverflowPolicy.Cap"/> 策略下旧签名
+        /// 返回全部候选（不做数量截断，因为这两种策略本就不丢弃候选，只稀释系数——旧签名无法表达
+        /// 系数，调用方若仍用旧签名，只能拿到未稀释的目标集合，需改用本方法才能拿到正确的分配系数，
+        /// 见 <c>Core.Rules.Targeting.TargetHost</c>"旧签名投影关系"判断记录）。
+        /// <para>
+        /// C# 8 默认接口成员：默认实现退化为对旧 <see cref="Resolve(Id, Id, Id?)"/> 结果整体赋系数
+        /// 1、策略 <see cref="TargetOverflowPolicy.Truncate"/>、<c>cap=0</c>（不限）——供未实现本
+        /// 能力的 <see cref="ITargetHost"/>（如测试假实现）源码/二进制兼容；生产实现
+        /// <see cref="Core.Rules.Targeting.TargetHost"/> 显式覆盖，真正按链声明的 <c>overflow_policy</c>
+        /// 分配系数。同 <see cref="ResolveAtPoint"/> 判断记录"框架内 InterfaceDefaultMemberForwardingTests
+        /// 门禁"：任何组合/包装 <see cref="ITargetHost"/>（若存在）都应显式转发到内层实现，不应悄悄
+        /// 吃掉这个降级默认值。
+        /// </para>
+        /// </summary>
+        TargetResolution ResolveWithCoefficients(Id chainId, Id casterId, Id? currentTarget = null) =>
+            new TargetResolution(
+                Resolve(chainId, casterId, currentTarget).Select(id => (id, 1.0)),
+                TargetOverflowPolicy.Truncate,
+                cap: 0);
     }
 }

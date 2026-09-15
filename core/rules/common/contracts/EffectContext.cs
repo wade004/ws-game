@@ -124,6 +124,17 @@ namespace Core.Rules.Common
         /// </summary>
         public SourceKind SourceKind { get; }
 
+        /// <summary>
+        /// T-N3-8（ADR-0031 决策 6、拍板 7；06 第 3.7 节 2026-09-14 修订段）：本次结算所属目标在
+        /// 群体目标超出 <c>max_targets</c> 时分得的"分配系数"（见
+        /// <see cref="Core.Rules.Targeting.TargetHost"/>/<c>ITargetHost.ResolveWithCoefficients</c>/
+        /// <see cref="TargetResolution"/> 判断记录），<see cref="EffectDispatcher"/> 用它缩放群体
+        /// 效果值（<c>value × TargetCoefficient</c>）。经既有十五/十六/十七参构造函数（不带本参数，
+        /// ABI 规则禁止改动其签名）构造的实例恒为 1.0——语义等价于"未超出策略参与/单目标"，不改变
+        /// 既有行为（同 <see cref="SourceKind"/> 属性判断记录同一条 ABI 兼容惯例）。
+        /// </summary>
+        public double TargetCoefficient { get; }
+
         public EffectContext(
             Id sourceId,
             Id targetId,
@@ -160,6 +171,9 @@ namespace Core.Rules.Common
             // T-N1-6：本构造函数不带 sourceKind 参数（ABI 规则禁止改动既有签名），恒取保守默认值
             // SourceKind.Unknown（见 SourceKind 属性/类型判断记录）。
             SourceKind = SourceKind.Unknown;
+            // T-N3-8：本构造函数不带 targetCoefficient 参数（ABI 规则禁止改动既有签名），恒取 1.0
+            // （见 TargetCoefficient 属性判断记录）。
+            TargetCoefficient = 1.0;
         }
 
         /// <summary>
@@ -210,6 +224,8 @@ namespace Core.Rules.Common
             // T-N1-6：同上一构造函数判断记录，本构造函数（ADR-0027 补充 groundPoint 时新增）同样
             // 不带 sourceKind 参数，恒取保守默认值 SourceKind.Unknown。
             SourceKind = SourceKind.Unknown;
+            // T-N3-8：同上一构造函数判断记录，本构造函数同样不带 targetCoefficient 参数，恒取 1.0。
+            TargetCoefficient = 1.0;
         }
 
         /// <summary>
@@ -266,6 +282,69 @@ namespace Core.Rules.Common
             AttackInstanceId = attackInstanceId;
             GroundPoint = groundPoint;
             SourceKind = sourceKind;
+            // T-N3-8：本构造函数（T-N1-6 补充 sourceKind 时新增）同样不带 targetCoefficient 参数，
+            // 恒取 1.0（见下一构造函数）。
+            TargetCoefficient = 1.0;
+        }
+
+        /// <summary>
+        /// T-N3-8 新增重载（ADR-0031 决策 6、拍板 7；06 第 3.7 节 2026-09-14 修订段）：携带
+        /// <see cref="TargetCoefficient"/>。判断记录（不是给既有构造函数加可选参数，同上一构造函数
+        /// "T-N1-6 新增重载"判断记录同一条 ABI 兼容惯例）：既有十七参数构造函数（含
+        /// <c>sourceKind</c>）已经没有任何可选参数，直接追加第十八个参数会改变其物理 IL 签名，对
+        /// 已编译好的外部消费方二进制是破坏性变更；本重载十八个参数全部不带默认值（理由同上一构造
+        /// 函数：写成可选参数会与既有构造函数在调用点产生重载二义性），与既有三个构造函数在参数
+        /// 个数上不重叠（15/16/17 对 18），互不冲突。
+        /// <para>
+        /// 生产路径（<c>CastPipeline.ExecuteEffectsOnly</c>）改经本构造函数，<paramref
+        /// name="targetCoefficient"/> 来自 <c>ITargetHost.ResolveWithCoefficients</c> 解析结果（未
+        /// 走群体目标超出策略的调用点——显式目标、地面坐标施法、<c>TriggerCast</c> 触发链——恒传
+        /// 1.0，见 <c>CastPipeline.ExecuteEffectsOnly</c> 判断记录）；<c>EffectDispatcher.ApplyDamageOrHeal</c>
+        /// 重建 outbound 上下文时原样转发 <c>context.TargetCoefficient</c>（同该方法对
+        /// <see cref="TriggerChainDepth"/>/<see cref="AttackInstanceId"/>/<see cref="SourceKind"/> 的
+        /// 既有转发惯例——本字段已经被用于缩放 <c>value</c>，转发只是为了让下游/日志仍能看到"这次
+        /// 结算的分配系数是多少"这一信息，不会被重复应用）；测试夹具按需显式指定，其余仍可继续
+        /// 使用既有构造函数（得到 1.0，语义上等价于"未超出策略参与"）。
+        /// </para>
+        /// </summary>
+        public EffectContext(
+            Id sourceId,
+            Id targetId,
+            Id skillId,
+            EffectKind kind,
+            Id school,
+            double baseValue,
+            double coefficient,
+            JsonObject? @params,
+            Id? auraInstanceId,
+            bool isPeriodic,
+            bool canCrit,
+            bool canMiss,
+            IReadOnlyList<Id>? tags,
+            int triggerChainDepth,
+            Id? attackInstanceId,
+            Vec2? groundPoint,
+            SourceKind sourceKind,
+            double targetCoefficient)
+        {
+            SourceId = sourceId;
+            TargetId = targetId;
+            SkillId = skillId;
+            Kind = kind;
+            School = school;
+            BaseValue = baseValue;
+            Coefficient = coefficient;
+            Params = @params ?? EmptyParams;
+            AuraInstanceId = auraInstanceId;
+            IsPeriodic = isPeriodic;
+            CanCrit = canCrit;
+            CanMiss = canMiss;
+            Tags = tags ?? EmptyTags;
+            TriggerChainDepth = triggerChainDepth;
+            AttackInstanceId = attackInstanceId;
+            GroundPoint = groundPoint;
+            SourceKind = sourceKind;
+            TargetCoefficient = targetCoefficient;
         }
     }
 }

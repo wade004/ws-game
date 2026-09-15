@@ -72,6 +72,17 @@ namespace Core.Rules.Skill
             public Id SkillId;
             public SkillDef Def = default!;
             public IReadOnlyList<Id> Targets = Array.Empty<Id>();
+
+            /// <summary>T-N3-8（ADR-0031 决策 6、拍板 7；06 第 3.7 节 2026-09-14 修订段）：本次读条/
+            /// 引导开始时（<see cref="EnterCastOrChannel"/>）经 <c>ITargetHost.ResolveWithCoefficients</c>
+            /// 解析出的目标分配系数（键为 <see cref="Targets"/> 中的目标 Id）——引导型技能的每一次
+            /// 周期跳（<see cref="AdvanceOne"/>）与完成时结算（<see cref="FinishCast"/>）复用同一份
+            /// 系数，不逐跳重新解析目标链（同 <see cref="Targets"/> 本身"读条/引导开始时解析一次、
+            /// 全程复用"的既有惯例，保证同一次读条/引导内的多次结算对同一批目标给出同一份系数）。
+            /// 显式目标/地面坐标施法路径恒为 <c>null</c>（<see cref="Core.Rules.Skill.CastPipeline.ExecuteEffectsOnly"/>
+            /// 内退化为逐目标 1.0，见该方法判断记录）。</summary>
+            public IReadOnlyDictionary<Id, double>? TargetCoefficients;
+
             public bool IsChannel;
             public double Remaining;
             public double TickInterval;
@@ -556,9 +567,40 @@ namespace Core.Rules.Skill
             // 来源收集/排序/截断/回退（调用方已经给定具体目标），但额外目标条件必须继续生效，改用
             // ITargetHost.FilterExplicitTargets 只跑"过滤"这一步（关系类过滤的 AI 侧场景已在
             // ai 模块单独处理，见该接口方法判断记录，不在本步骤重复）。
-            var resolvedTargets = targets.Count > 0
-                ? _targetHost.FilterExplicitTargets(def.TargetShapeRef, casterId, targets)
-                : _targetHost.Resolve(def.TargetShapeRef, casterId);
+            //
+            // T-N3-8（ADR-0031 决策 6、拍板 7；06 第 3.7 节 2026-09-14 修订段）：链自行收集目标
+            // 时改调 ITargetHost.ResolveWithCoefficients（旧 Resolve 保留、行为不变，见该方法判断
+            // 记录），额外取得每个目标的分配系数，一路带到步骤 9 的 ExecuteEffectsOnly 按系数缩放
+            // 群体效果值。显式目标（targets 非空）经 FilterExplicitTargets 不跑来源收集/排序/
+            // 截断，超出策略不适用（该方法判断记录"不按 max_targets 截断"），系数恒为 1，
+            // targetCoefficients 传 null（ExecuteEffectsOnly 内退化为逐目标 1.0，见该方法判断
+            // 记录），不额外分配字典。
+            IReadOnlyList<Id> resolvedTargets;
+            IReadOnlyDictionary<Id, double>? targetCoefficients;
+            if (targets.Count > 0)
+            {
+                resolvedTargets = _targetHost.FilterExplicitTargets(def.TargetShapeRef, casterId, targets);
+                targetCoefficients = null;
+            }
+            else
+            {
+                var resolution = _targetHost.ResolveWithCoefficients(def.TargetShapeRef, casterId);
+                var ids = new List<Id>(resolution.Targets.Count);
+                Dictionary<Id, double>? coefficients = null;
+                foreach (var (target, coefficient) in resolution.Targets)
+                {
+                    ids.Add(target);
+                    if (coefficient != 1.0)
+                    {
+                        coefficients ??= new Dictionary<Id, double>();
+                        coefficients[target] = coefficient;
+                    }
+                }
+
+                resolvedTargets = ids;
+                targetCoefficients = coefficients;
+            }
+
             if (resolvedTargets.Count == 0)
             {
                 return Fail(casterId, skillId, CastFailureReason.NoValidTarget, presetCastInstanceId);
@@ -606,12 +648,13 @@ namespace Core.Rules.Skill
             }
 
             // 步骤 8：读条/引导
-            return EnterCastOrChannel(casterId, skillId, def, resolvedTargets, modifiedCost, presetCastInstanceId);
+            return EnterCastOrChannel(
+                casterId, skillId, def, resolvedTargets, modifiedCost, presetCastInstanceId, targetCoefficients);
         }
 
         private CastResult EnterCastOrChannel(
             Id casterId, Id skillId, SkillDef def, IReadOnlyList<Id> targets, IReadOnlyList<(Id, double)> modifiedCost,
-            Id? presetCastInstanceId = null)
+            Id? presetCastInstanceId = null, IReadOnlyDictionary<Id, double>? targetCoefficients = null)
         {
             // 见 TryStartCast 判断记录：非空表示续跑排队请求，复用排队接受时已经分配的 id，不重新
             // 分配（同一次请求从排队到真正开始只有一个 id）。
@@ -630,7 +673,7 @@ namespace Core.Rules.Skill
                 // 瞬发：步骤 8 立即完成，直接执行步骤 9。
                 DeductResources(casterId, def.Id, modifiedCost);
                 StartCooldownAndGcd(casterId, def);
-                ExecuteEffectsOnly(casterId, def, targets);
+                ExecuteEffectsOnly(casterId, def, targets, targetCoefficients: targetCoefficients);
                 // N19 收边补齐：瞬发——IsInstant=true，CastTimeSeconds=0（见 SkillCastSuccessEvent
                 // 判断记录）。消费方反馈 2026-09-10：携带与本次 SkillCastStartEvent 同一个 castInstanceId。
                 _bus.Enqueue(new SkillCastSuccessEvent(casterId, skillId, targets, isInstant: true, castTimeSeconds: 0, castInstanceId: castInstanceId));
@@ -652,6 +695,7 @@ namespace Core.Rules.Skill
                 SkillId = skillId,
                 Def = def,
                 Targets = targets,
+                TargetCoefficients = targetCoefficients,
                 IsChannel = isChannel,
                 Remaining = isChannel ? channelTime : castTime,
                 TickInterval = isChannel ? ComputeChannelTickInterval(def) * _currentFactor : 0,
@@ -1002,7 +1046,7 @@ namespace Core.Rules.Skill
                         var tickTargets = FilterDestroyedTargets(state.Targets);
                         if (tickTargets.Count > 0)
                         {
-                            ExecuteEffectsOnly(casterId, state.Def, tickTargets);
+                            ExecuteEffectsOnly(casterId, state.Def, tickTargets, targetCoefficients: state.TargetCoefficients);
                         }
                     }
                 }
@@ -1073,7 +1117,7 @@ namespace Core.Rules.Skill
                     StartCooldownAndGcd(casterId, state.Def);
                     if (targets.Count > 0)
                     {
-                        ExecuteEffectsOnly(casterId, state.Def, targets);
+                        ExecuteEffectsOnly(casterId, state.Def, targets, targetCoefficients: state.TargetCoefficients);
                     }
                 }
 
@@ -1323,7 +1367,9 @@ namespace Core.Rules.Skill
         /// 不变，只是不再由"调用哪个构造函数重载"来决定是否携带 <c>groundPoint</c>。
         /// </para>
         /// </summary>
-        private void ExecuteEffectsOnly(Id casterId, SkillDef def, IReadOnlyList<Id> targets, int chainDepth = 0, Vec2? groundPoint = null)
+        private void ExecuteEffectsOnly(
+            Id casterId, SkillDef def, IReadOnlyList<Id> targets, int chainDepth = 0, Vec2? groundPoint = null,
+            IReadOnlyDictionary<Id, double>? targetCoefficients = null)
         {
             var attackInstanceId = NextCastInstanceId();
 
@@ -1340,12 +1386,20 @@ namespace Core.Rules.Skill
                     var baseValue = ParamsX.GetNumber(effect.Params, "base_value");
                     var coefficient = ParamsX.GetNumber(effect.Params, "coefficient");
                     var canMiss = effect.Kind != EffectKind.Heal;
+                    // T-N3-8（ADR-0031 决策 6、拍板 7；06 第 3.7 节 2026-09-14 修订段）：群体目标
+                    // 超出 max_targets 时该目标分得的分配系数——只有步骤 6 经
+                    // ITargetHost.ResolveWithCoefficients 解析出的链目标才会有非默认值（见
+                    // TryStartCast 判断记录），其余调用点（显式目标、地面坐标施法、TriggerCast 触发
+                    // 链）传入 null，此处退化为 1.0（未超出策略参与，逐位不变）。
+                    var targetCoefficient = targetCoefficients != null && targetCoefficients.TryGetValue(targetId, out var tc)
+                        ? tc
+                        : 1.0;
 
                     var context = new EffectContext(
                         casterId, targetId, def.Id, effect.Kind, school, baseValue, coefficient,
                         effect.Params, auraInstanceId: null, isPeriodic: false, canCrit: true, canMiss: canMiss,
                         tags: def.Tags, triggerChainDepth: chainDepth, attackInstanceId: attackInstanceId,
-                        groundPoint: groundPoint, sourceKind: sourceKind);
+                        groundPoint: groundPoint, sourceKind: sourceKind, targetCoefficient: targetCoefficient);
 
                     _effects.ApplyEffect(context);
                 }

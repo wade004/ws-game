@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
+using Core.Rules.Common;
 // 类型别名判断记录（同 DataRecord.cs "类型别名判断记录"惯例）：本类需要一个名为 Shape 的属性
 // （见 06 第 5 节 TargetChainDef.shape 字段），与 Core.Foundation.EngineAdapter.Shape 类型同名；
 // 类内其余位置一律用别名 EngineShape 引用该类型，避免"属性名与类型名相同"在类型位置产生歧义。
@@ -73,6 +74,11 @@ namespace Core.Rules.Targeting
         /// <summary>0 表示不限；默认（数据未提供该字段时）为 1。</summary>
         public int MaxTargets { get; }
 
+        /// <summary>T-N3-8（ADR-0031 决策 6；06 第 3.7 节 2026-09-14 修订段）：候选数超过
+        /// <see cref="MaxTargets"/> 时的处理策略；数据未提供该字段时默认
+        /// <see cref="TargetOverflowPolicy.Truncate"/>（与本字段引入之前的既有截断行为一致）。</summary>
+        public TargetOverflowPolicy OverflowPolicy { get; }
+
         public Id? Fallback { get; }
 
         public TargetChainDef(DataRecord record)
@@ -100,6 +106,23 @@ namespace Core.Rules.Targeting
             else
             {
                 MaxTargets = 1;
+            }
+
+            if (record.TryGetString("overflow_policy", out var overflowPolicyText))
+            {
+                switch (overflowPolicyText)
+                {
+                    case "truncate": OverflowPolicy = TargetOverflowPolicy.Truncate; break;
+                    case "split": OverflowPolicy = TargetOverflowPolicy.Split; break;
+                    case "cap": OverflowPolicy = TargetOverflowPolicy.Cap; break;
+                    default:
+                        throw new DataFieldException(record.Table.Name, record.Key, "overflow_policy",
+                            $"非法取值 \"{overflowPolicyText}\"，只允许 truncate|split|cap");
+                }
+            }
+            else
+            {
+                OverflowPolicy = TargetOverflowPolicy.Truncate;
             }
 
             Fallback = record.TryGetId("fallback", out var fallbackId) ? (Id?)fallbackId : null;
