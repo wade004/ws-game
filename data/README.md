@@ -366,7 +366,7 @@ N3 新字段的样例数据集；`games/_template` 按既定约定补空壳。
   - `skill.sample_lockpick`（目标类型限定）：`use_condition:
     "target.has_tag(skill.tag.sample_object)"`（`target` 分组 `has_tag(Id): Bool` 已登记，绑定
     的是调用方显式 `targets` 参数的第一个元素，见 `core/rules/skill/README.md` 判断记录 51"1.5 步
-    位置与目标绑定"）；`cast_time: 1.5`，效果 `open_lock`（无 `params`，效果原语参数表允许省略）。
+    位置与目标绑定"）；`cast_time: 2`，效果 `open_lock`（无 `params`，效果原语参数表允许省略）。
   - `skill.sample_burst`（`budget_note` 示例）：`budget_note` 字段非空，`school_damage` 效果
     `scaling` 两条（`stat.spell_power`×3.0、`stat.intellect`×1.0）+ 同一条 `base_curve_ref`，
     `cooldown_duration: 30`、`cost` 60 点法力——刻意设计为"大招"形态，`budget_note` 原文说明这是
