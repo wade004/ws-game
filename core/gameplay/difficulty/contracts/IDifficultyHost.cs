@@ -48,6 +48,21 @@ namespace Core.Gameplay.Difficulty
         /// （"无难度修正"的中性默认值，任务书未规定，判断记录同本类型其余"缺省值"约定）。</summary>
         double LootMultiplier { get; }
 
+        /// <summary>T-N2-8 新增（ADR-0032 决策 5；08 第 5.1 节修订段）：当前档位的物品等级偏移（供
+        /// <c>Core.Gameplay.Loot.RollContext.ItemLevelOffset</c> 引用，同 <see cref="LootMultiplier"/>
+        /// 一贯口径——调用方自行从本属性取值后传入 <c>RollContext</c>，Loot 模块不反向依赖本模块）；
+        /// 未应用任何档位时为 <c>0</c>（"无偏移"的中性默认值）。
+        /// <para>
+        /// 判断记录（默认接口成员而非普通抽象成员）：硬性规则"ABI 只允许新增：新增成员只能是新重载、
+        /// 默认接口方法、枚举新成员"——<see cref="IDifficultyHost"/> 已发布，直接加一个必须实现的抽象
+        /// 成员会让既有外部实现方（若存在）编译失败，属破坏性变更；默认值 <c>0</c> 与
+        /// <see cref="LootMultiplier"/> 的默认值 <c>1.0</c> 同一语义（"无难度修正"），唯一实现方
+        /// <see cref="Core.Gameplay.Difficulty.DifficultyHost"/> 显式转发真实值，不落回默认实现（见
+        /// <c>Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests</c> 门禁）。
+        /// </para>
+        /// </summary>
+        int ItemLevelOffset => 0;
+
         /// <summary>是否允许中途切换难度档位（08 第 9 节汇总表策略配置项，透传
         /// <see cref="DifficultyOptions.AllowMidSwitch"/>）。</summary>
         bool AllowMidSwitch { get; }

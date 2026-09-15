@@ -52,6 +52,52 @@ namespace Tests.Gameplay.Loot
             return registry;
         }
 
+        /// <summary>
+        /// T-N2-8 新增：同 <see cref="MakeRegistry"/>，额外注册 <c>item.template</c>/
+        /// <c>item.slot_definition</c>/<c>item.quality_definition</c>/<c>item.affix</c>/
+        /// <c>stat.definition</c> 五张表（品质骰/词缀骰需要读取的最小数据集，见 <see
+        /// cref="LootHost.ResolveItemOutcome"/> 判断记录），供品质权重/词缀池相关测试使用。
+        /// <paramref name="itemTemplateRowsJson"/>/<paramref name="qualityDefRowsJson"/>/
+        /// <paramref name="affixRowsJson"/>/<paramref name="statDefRowsJson"/> 均为对应表的
+        /// <c>rows</c> 数组 JSON 文本（不含信封）；<c>FailOnUnknownTable=false</c>（同 <c>Tests.Carriers.
+        /// Item.TestSupport.BuildRegistry</c> 既有手法），不需要额外注册 arch.class/skill 等未用到的表。
+        /// </summary>
+        public static DataRegistry MakeRegistryWithItems(
+            IEventBus bus,
+            string lootTableRowsJson,
+            string itemTemplateRowsJson,
+            string slotDefRowsJson,
+            string qualityDefRowsJson,
+            string affixRowsJson,
+            string statDefRowsJson,
+            bool registerValidationRule = true)
+        {
+            var source = new InMemoryDataSource()
+                .Add(LootSchemas.Table.Name, Envelope(LootSchemas.Table.Name, lootTableRowsJson))
+                .Add("item.template", Envelope("item.template", itemTemplateRowsJson))
+                .Add("item.slot_definition", Envelope("item.slot_definition", slotDefRowsJson))
+                .Add("item.quality_definition", Envelope("item.quality_definition", qualityDefRowsJson))
+                .Add("item.affix", Envelope("item.affix", affixRowsJson))
+                .Add("stat.definition", Envelope("stat.definition", statDefRowsJson));
+
+            var registry = new DataRegistry(source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
+            registry.RegisterSchema(LootSchemas.Table);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Template);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Affix);
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
+            if (registerValidationRule)
+            {
+                registry.RegisterValidationRule(new LootContentValidationRule());
+            }
+
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+
+            return registry;
+        }
+
         public static IWorldSim NewWorld(IEventBus bus) => new WorldSim(bus);
 
         public static PlayerUnit AddPlayer(IWorldSim world, Id entityId, Id mapId, Vec2 position)

@@ -125,17 +125,13 @@ namespace Core.Gameplay.Loot
 
         public IReadOnlyList<ItemStack> Roll(Id tableId, RollContext context)
         {
-            if (!_tables.TryGetValue(tableId, out var def))
-            {
-                throw new ArgumentException($"未知的掉落表 \"{tableId}\"", nameof(tableId));
-            }
-
-            var exprHost = _exprHostFactory.CreateFor(context.KillerId ?? context.SourceUnitId, context.SourceUnitId, null);
-
-            var raw = new List<(Id TemplateId, int Count)>();
-            RollTableInto(def, context, exprHost, raw, depth: 0);
-
-            var merged = Merge(raw);
+            // T-N2-8 判断记录：旧 Roll 改为调用 RollDetailed 再投影/合并（见该方法），不再自己走一遍
+            // RollTableInto——保证两条路径消耗同一份 IRngHost 序列，不会重复抽取。旧 Roll 的随机数
+            // 消耗因此也会变化（品质骰/词缀骰追加在既有"掉哪条"掷骰之后），这正是拍板 12"掉落三次
+            // 掷骰那次再更新一次回放基线"的来源，允许且必须在本任务提交内更新基线（见 README"掷骰
+            // 顺序"判断记录）。
+            var outcomes = RollDetailed(tableId, context);
+            var merged = MergeOutcomes(outcomes);
             _bus.Enqueue(new LootRolledEvent(tableId, context.ContextId, merged));
             return merged;
         }
@@ -145,11 +141,37 @@ namespace Core.Gameplay.Loot
         public IReadOnlyList<ItemStack> Roll(Id lootTableId, Id sourceUnitId, Id? killerId) =>
             Roll(lootTableId, new RollContext(sourceUnitId, killerId));
 
+        /// <summary>
+        /// T-N2-8（ADR-0032 决策 7；<see cref="ILootHost.RollDetailed"/> 类型注释）：带身份的掉落
+        /// 抽取——与 <see cref="Roll(Id, RollContext)"/> 走同一遍 <see cref="RollTableInto"/> 树遍历、
+        /// 消耗同一份 <see cref="IRngHost"/> 序列，只是不按模板合并、也不在本方法内发
+        /// <see cref="LootRolledEvent"/>（事件由 <see cref="Roll(Id, RollContext)"/> 在合并之后发出，
+        /// 直接调用本方法的调用方若需要"已发生一次掉落"的事件通知，应自行处理，见 README"事件"一节）。
+        /// </summary>
+        public IReadOnlyList<LootRollOutcome> RollDetailed(Id tableId, RollContext context)
+        {
+            if (!_tables.TryGetValue(tableId, out var def))
+            {
+                throw new ArgumentException($"未知的掉落表 \"{tableId}\"", nameof(tableId));
+            }
+
+            var exprHost = _exprHostFactory.CreateFor(context.KillerId ?? context.SourceUnitId, context.SourceUnitId, null);
+
+            var raw = new List<LootRollOutcome>();
+            RollTableInto(def, context, exprHost, raw, depth: 0);
+            return raw;
+        }
+
+        /// <summary><see cref="ILootRoller"/> 落地：委托到 <see cref="RollDetailed(Id, RollContext)"/>
+        /// （同 <see cref="Roll(Id, Id, Id?)"/> 判断记录）。</summary>
+        public IReadOnlyList<LootRollOutcome> RollDetailed(Id lootTableId, Id sourceUnitId, Id? killerId) =>
+            RollDetailed(lootTableId, new RollContext(sourceUnitId, killerId));
+
         // -----------------------------------------------------------------
         // 抽取核心
         // -----------------------------------------------------------------
 
-        private void RollTableInto(LootTableDef def, RollContext context, IExprHost exprHost, List<(Id, int)> output, int depth)
+        private void RollTableInto(LootTableDef def, RollContext context, IExprHost exprHost, List<LootRollOutcome> output, int depth)
         {
             if (depth > _options.MaxNestedDepth)
             {
@@ -197,7 +219,7 @@ namespace Core.Gameplay.Loot
             }
         }
 
-        private int RollChanceEachGroup(LootTableDef def, int groupIndex, LootGroup group, RollContext context, IExprHost exprHost, int depth, List<(Id, int)> output)
+        private int RollChanceEachGroup(LootTableDef def, int groupIndex, LootGroup group, RollContext context, IExprHost exprHost, int depth, List<LootRollOutcome> output)
         {
             var produced = 0;
             for (var ei = 0; ei < group.Entries.Count; ei++)
@@ -240,7 +262,7 @@ namespace Core.Gameplay.Loot
             return produced;
         }
 
-        private int RollWeightedGroup(IReadOnlyList<LootEntry> entries, int pickCount, RollContext context, IExprHost exprHost, int depth, List<(Id, int)> output)
+        private int RollWeightedGroup(IReadOnlyList<LootEntry> entries, int pickCount, RollContext context, IExprHost exprHost, int depth, List<LootRollOutcome> output)
         {
             var pool = LootRollCore.FilterEligible(entries, exprHost, _diagnostics);
 
@@ -280,10 +302,12 @@ namespace Core.Gameplay.Loot
         private bool ConditionPasses(LootEntry entry, IExprHost exprHost) =>
             LootRollCore.ConditionPasses(entry, exprHost, _diagnostics);
 
-        /// <summary>把一条候选解析为具体产出：<paramref name="entry"/>.Ref 是 <c>item.*</c> 时直接
-        /// 追加一条 <c>(templateId, count)</c>；是 <c>loot.*</c> 时按判断记录 2 递归展开该嵌套表
-        /// <paramref name="count"/> 次。</summary>
-        private void ResolveEntryAtDepth(LootEntry entry, int count, RollContext context, IExprHost exprHost, int depth, List<(Id, int)> output)
+        /// <summary>把一条候选解析为具体产出：<paramref name="entry"/>.Ref 是 <c>item.*</c> 时按
+        /// 判断记录"掷骰顺序"追加一条 <see cref="LootRollOutcome"/>（品质骰 + 词缀骰追加在本条目已经
+        /// 消耗的"掉哪条"掷骰之后，见 <see cref="ResolveItemOutcome"/>）；是 <c>loot.*</c> 时按判断
+        /// 记录 2 递归展开该嵌套表 <paramref name="count"/> 次（嵌套表自己的叶子 <c>item.*</c> 条目
+        /// 各自独立走一遍品质骰/词缀骰，不在本层重复）。</summary>
+        private void ResolveEntryAtDepth(LootEntry entry, int count, RollContext context, IExprHost exprHost, int depth, List<LootRollOutcome> output)
         {
             if (entry.Ref.Domain == "loot")
             {
@@ -301,28 +325,209 @@ namespace Core.Gameplay.Loot
             }
             else
             {
-                output.Add((entry.Ref, count));
+                output.Add(ResolveItemOutcome(entry, count, context));
             }
         }
 
-        private static IReadOnlyList<ItemStack> Merge(List<(Id TemplateId, int Count)> raw)
+        /// <summary>
+        /// T-N2-8（ADR-0032 决策 7；08 第 1.1 节修订段"三次独立掷骰"；07 第 1.6 节修订段）：在"掉哪条"
+        /// 掷骰（<see cref="RollChanceEachGroup"/>/<see cref="RollWeightedGroup"/> 的 <c>Next</c> +
+        /// <see cref="RollCount"/> 的 <c>NextInt</c>，均不变）之后，紧接着为这一条 <c>item.*</c> 结果
+        /// 追加两步：
+        /// <list type="number">
+        /// <item><description>品质骰：<paramref name="entry"/>.QualityWeights 非空时消耗一次
+        /// <see cref="IRngHost.Next"/> 加权抽取；为空/未配置时不掷骰、直接取模板自身
+        /// <c>item.template.quality</c>（不消耗随机数，见 <see cref="LootEntry.QualityWeights"/>
+        /// 判断记录）。</description></item>
+        /// <item><description>词缀骰：按品质定义 <c>item.quality_definition.affix_count</c>（未登记/
+        /// &lt;=0 视为不掷词缀骰，同样不消耗随机数）逐个消耗一次 <see cref="IRngHost.Next"/>，从
+        /// "<c>quality_pool == 本次品质骰结果</c> 且（模板 <c>affixes</c> 白名单非空时取交集）"的
+        /// <c>item.affix</c> 候选池按 <c>weight</c> 加权、不放回地抽取，候选耗尽提前停止（不是
+        /// 错误）。</description></item>
+        /// </list>
+        /// 物品等级不参与掷骰（<see cref="RollContext.SourceLevel"/> 非空时 = <c>SourceLevel +
+        /// ItemLevelOffset</c> 的确定性折算，为空时取模板自身 <c>item_level</c>），因此三次独立掷骰
+        /// 里只有品质与词缀两步真正消耗随机数——这样"掉哪条"的既有结果与旧基线逐位一致，只有品质骰/
+        /// 词缀骰新增的随机数消耗会让"这一条之后"的序列发生变化（见 README"掷骰顺序"判断记录、拍板
+        /// 12"回放基线更新"）。
+        /// </summary>
+        private LootRollOutcome ResolveItemOutcome(LootEntry entry, int count, RollContext context)
         {
-            var order = new List<Id>();
-            var totals = new Dictionary<Id, int>();
-            foreach (var (templateId, count) in raw)
+            var templateRecord = _registry.Get(ItemTemplateTable, entry.Ref);
+            if (templateRecord == null)
             {
-                if (count <= 0)
+                // 引用完整性理应已在内容校验阶段拦截（LootContentValidationRule"ref 存在性"）；运行期
+                // 兜底：拿不到模板数据就无法解析品质/词缀/物品等级，退化为"未额外指定"（同
+                // ILootRoller.RollDetailed 默认接口成员的投影语义）。
+                return new LootRollOutcome(entry.Ref, count, null, null, null);
+            }
+
+            var templateQuality = templateRecord.GetId("quality");
+            var qualityId = RollQuality(entry, templateQuality);
+
+            var itemLevel = context.SourceLevel.HasValue
+                ? context.SourceLevel.Value + context.ItemLevelOffset
+                : (int?)null;
+
+            var affixes = RollAffixes(qualityId, templateRecord);
+
+            return new LootRollOutcome(entry.Ref, count, qualityId, affixes, itemLevel);
+        }
+
+        private const string ItemTemplateTable = "item.template";
+
+        private const string ItemQualityDefinitionTable = "item.quality_definition";
+
+        private const string ItemAffixTable = "item.affix";
+
+        /// <summary>品质骰：见 <see cref="ResolveItemOutcome"/> 判断记录第 1 步。</summary>
+        private Id RollQuality(LootEntry entry, Id templateQuality)
+        {
+            if (entry.QualityWeights == null || entry.QualityWeights.Count == 0)
+            {
+                return templateQuality;
+            }
+
+            var weights = new List<double>(entry.QualityWeights.Count);
+            var ids = new List<Id>(entry.QualityWeights.Count);
+            foreach (var kv in entry.QualityWeights)
+            {
+                if (kv.Value <= 0)
                 {
                     continue;
                 }
 
-                if (!totals.ContainsKey(templateId))
+                ids.Add(kv.Key);
+                weights.Add(kv.Value);
+            }
+
+            if (ids.Count == 0)
+            {
+                return templateQuality;
+            }
+
+            var totalWeight = 0.0;
+            foreach (var w in weights)
+            {
+                totalWeight += w;
+            }
+
+            var thresholdFraction = _rng.Next(_options.RngStream);
+            var idx = LootRollCore.SelectIndexByThreshold(weights, totalWeight, thresholdFraction);
+            return ids[idx];
+        }
+
+        /// <summary>词缀骰：见 <see cref="ResolveItemOutcome"/> 判断记录第 2 步。候选池按
+        /// <c>item.affix.Id</c>（序数字符串）排序后再抽取——不依赖 <see
+        /// cref="IDataRegistryView.GetAll"/> 的既有顺序是否稳定（同 T-N1-2 判断记录"禁止把拓扑序依赖
+        /// 字典枚举顺序，须稳定排序"），保证同种子重跑逐字段一致不受注册表内部实现细节影响。</summary>
+        private IReadOnlyList<Id> RollAffixes(Id qualityId, DataRecord templateRecord)
+        {
+            var qualityDef = _registry.Get(ItemQualityDefinitionTable, qualityId);
+            var affixCount = qualityDef != null && qualityDef.TryGetInt("affix_count", out var ac) ? (int)ac : 0;
+            if (affixCount <= 0)
+            {
+                return Array.Empty<Id>();
+            }
+
+            var hasWhitelist = templateRecord.TryGetIdList("affixes", out var whitelist) && whitelist.Count > 0;
+
+            var candidates = new List<(Id Id, double Weight)>();
+            foreach (var record in _registry.GetAll(ItemAffixTable))
+            {
+                if (record.Id == null)
                 {
-                    order.Add(templateId);
-                    totals[templateId] = 0;
+                    continue;
                 }
 
-                totals[templateId] += count;
+                if (!record.TryGetId("quality_pool", out var pool) || !pool.Equals(qualityId))
+                {
+                    continue;
+                }
+
+                if (hasWhitelist && !ContainsId(whitelist, record.Id.Value))
+                {
+                    continue;
+                }
+
+                var weight = record.TryGetNumber("weight", out var w) ? w : 0.0;
+                if (weight <= 0.0)
+                {
+                    continue;
+                }
+
+                candidates.Add((record.Id.Value, weight));
+            }
+
+            if (candidates.Count == 0)
+            {
+                return Array.Empty<Id>();
+            }
+
+            candidates.Sort((a, b) => string.CompareOrdinal(a.Id.Value, b.Id.Value));
+
+            var picked = new List<Id>(Math.Min(affixCount, candidates.Count));
+            for (var i = 0; i < affixCount && candidates.Count > 0; i++)
+            {
+                var weights = new List<double>(candidates.Count);
+                foreach (var c in candidates)
+                {
+                    weights.Add(c.Weight);
+                }
+
+                var totalWeight = 0.0;
+                foreach (var w in weights)
+                {
+                    totalWeight += w;
+                }
+
+                if (totalWeight <= 0.0)
+                {
+                    break;
+                }
+
+                var thresholdFraction = _rng.Next(_options.RngStream);
+                var idx = LootRollCore.SelectIndexByThreshold(weights, totalWeight, thresholdFraction);
+                picked.Add(candidates[idx].Id);
+                candidates.RemoveAt(idx);
+            }
+
+            return picked;
+        }
+
+        private static bool ContainsId(IReadOnlyList<Id> list, Id value)
+        {
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (list[i].Equals(value))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>按模板 id 合并（不看品质/词缀，惯例同旧实现——见 <see cref="Roll(Id, RollContext)"/>
+        /// 判断记录"投影/合并"）。</summary>
+        private static IReadOnlyList<ItemStack> MergeOutcomes(IReadOnlyList<LootRollOutcome> outcomes)
+        {
+            var order = new List<Id>();
+            var totals = new Dictionary<Id, int>();
+            foreach (var outcome in outcomes)
+            {
+                if (outcome.Count <= 0)
+                {
+                    continue;
+                }
+
+                if (!totals.ContainsKey(outcome.TemplateId))
+                {
+                    order.Add(outcome.TemplateId);
+                    totals[outcome.TemplateId] = 0;
+                }
+
+                totals[outcome.TemplateId] += outcome.Count;
             }
 
             var result = new List<ItemStack>(order.Count);
@@ -334,17 +539,78 @@ namespace Core.Gameplay.Loot
             return result;
         }
 
+        /// <summary>T-N2-8：把一条不含身份信息的 <see cref="ItemStack"/> 解析出"未额外指定"以外的
+        /// 缺省身份——用于 <see cref="Drop(Id, Vec2, IReadOnlyList{ItemStack}, Id?)"/>（旧签名，调用方
+        /// 只有 <see cref="ItemStack"/> 可给）与 <see cref="DroppedLootPersistable"/> 读取旧存档（缺
+        /// <c>qualityId</c>/<c>affixes</c>/<c>itemLevel</c> key）两处复用同一份"缺省=模板品质、无
+        /// 词缀、物品等级=模板 item_level"解析逻辑（照 T-N2-7 的兼容读取先例，见 <see
+        /// cref="LootRollOutcome"/> 判断记录）。查不到模板数据（引用完整性理应已在内容校验阶段拦截）
+        /// 时退化为"未额外指定"（<c>null</c>/<c>null</c>），不抛异常。</summary>
+        internal LootRollOutcome ResolveDefaultOutcome(ItemStack stack)
+        {
+            var templateRecord = _registry.Get(ItemTemplateTable, stack.TemplateId);
+            if (templateRecord == null)
+            {
+                return LootRollOutcome.FromStack(stack);
+            }
+
+            var qualityId = templateRecord.TryGetId("quality", out var q) ? (Id?)q : null;
+            var itemLevel = templateRecord.TryGetInt("item_level", out var lvl) ? (int?)lvl : null;
+            return new LootRollOutcome(stack.TemplateId, stack.Count, qualityId, null, itemLevel);
+        }
+
         // -----------------------------------------------------------------
         // Drop / PickUp
         // -----------------------------------------------------------------
 
-        /// <summary>生成一个地面掉落物实体（见 08 第 1.2 节、05 第 1.6 节）。</summary>
+        /// <summary>生成一个地面掉落物实体（见 08 第 1.2 节、05 第 1.6 节）。T-N2-8 判断记录：本重载
+        /// （既有签名，ABI 不变）只拿得到 <see cref="ItemStack"/>（无身份信息，如调用方经旧 <see
+        /// cref="Roll(Id, RollContext)"/> 拿到的结果），<see cref="DroppedLootEntity.Outcomes"/> 因此经
+        /// <see cref="ResolveDefaultOutcome"/> 按模板缺省（品质=模板品质、无词缀、物品等级=模板
+        /// item_level）逐条解析——与显式提供 <see cref="LootRollOutcome"/> 的新重载相比，唯一区别是
+        /// "有没有额外指定"，落地的 <see cref="DroppedLootEntity.Outcomes"/> 长度总是与 <paramref
+        /// name="items"/> 一致（见该属性判断记录）。</summary>
         public Id Drop(Id mapId, Vec2 position, IReadOnlyList<ItemStack> items, Id? ownerHint = null)
+        {
+            var stacks = items ?? Array.Empty<ItemStack>();
+            var outcomes = new List<LootRollOutcome>(stacks.Count);
+            foreach (var stack in stacks)
+            {
+                outcomes.Add(ResolveDefaultOutcome(stack));
+            }
+
+            return DropCore(mapId, position, stacks, outcomes, ownerHint);
+        }
+
+        /// <summary>
+        /// T-N2-8 新增重载（ABI 硬性规则"只允许新增"，不改既有 <see cref="Drop(Id, Vec2,
+        /// IReadOnlyList{ItemStack}, Id?)"/> 签名）：直接用 <see cref="RollDetailed(Id, RollContext)"/>
+        /// 产出的带身份结果生成地面掉落物，<see cref="DroppedLootEntity.Outcomes"/> 原样保留调用方给出
+        /// 的品质/词缀/物品等级（不经 <see cref="ResolveDefaultOutcome"/> 再解析）。<see
+        /// cref="DroppedLootEntity.Items"/> 按 <paramref name="outcomes"/> 逐条投影（<see
+        /// cref="LootRollOutcome.ToStack"/>），顺序与下标均与 <see
+        /// cref="DroppedLootEntity.Outcomes"/> 一致，不做按模板合并（同一模板不同品质的两条各自成一条
+        /// <see cref="ItemStack"/>，同 <see cref="RollDetailed(Id, RollContext)"/> 判断记录"不按模板
+        /// 合并"）。
+        /// </summary>
+        public Id Drop(Id mapId, Vec2 position, IReadOnlyList<LootRollOutcome> outcomes, Id? ownerHint = null)
+        {
+            var list = outcomes ?? Array.Empty<LootRollOutcome>();
+            var stacks = new List<ItemStack>(list.Count);
+            foreach (var outcome in list)
+            {
+                stacks.Add(outcome.ToStack());
+            }
+
+            return DropCore(mapId, position, stacks, list, ownerHint);
+        }
+
+        private Id DropCore(Id mapId, Vec2 position, IReadOnlyList<ItemStack> items, IReadOnlyList<LootRollOutcome> outcomes, Id? ownerHint)
         {
             var id = _world.AllocateEntityId(EntityKinds.Loot);
             double? expireAt = _options.DefaultLifetime > 0 ? _simTimeProvider() + _options.DefaultLifetime : (double?)null;
 
-            var entity = new DroppedLootEntity(id, mapId, items ?? Array.Empty<ItemStack>(), ownerHint, expireAt)
+            var entity = new DroppedLootEntity(id, mapId, items, outcomes, ownerHint, expireAt)
             {
                 Position = position,
                 // H4 补齐（见 DroppedLootEntity.GenericDisplayTemplateId 判断记录）：固定复用同一个
@@ -574,6 +840,7 @@ namespace Core.Gameplay.Loot
                 existing.Position = entity.Position;
                 existing.Items.Clear();
                 existing.Items.AddRange(entity.Items);
+                existing.ReplaceOutcomes(entity.Outcomes);
                 existing.OwnerHint = entity.OwnerHint;
                 existing.ExpireAt = entity.ExpireAt;
 

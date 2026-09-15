@@ -281,6 +281,29 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   .IWeaponDamageQuery` 新增默认接口成员 `GetWeaponDps(Id unitId): double`——不是数据表，是运行时
   契约面，编辑器/内容工具若需要展示"当前武器秒伤"，可直接调用该成员，不需要自行重算曲线×倍率×
   系数。
+- **数值设计落地阶段 N2 · T-N2-8（Unreleased）**：`loot.table.groups[].entries[]` 新增可选字段
+  `quality_weights`（`Map<Reference(item.quality_definition), Number>=0>`，装备类条目的品质权重；
+  编辑器掉落表编辑界面可为该字段渲染"品质 → 权重"键值对表格，键的候选下拉从已加载
+  `item.quality_definition` 取，键的引用完整性与值的非负已由 `toolchain/validator
+  --schema-audit`/加载期校验原生覆盖，不需要编辑器自行校验）。`diff.tier` 新增可选字段
+  `item_level_offset`（Int，缺省 `0`，该难度下掉落/商店的物品等级偏移）。运行时契约面新增
+  `Core.Carriers.Common.LootRollOutcome`（带身份的掉落结果：模板 id、数量、品质、词缀引用、物品
+  等级）与 `ILootRoller`/`Core.Gameplay.Loot.ILootHost` 各自新增的默认接口成员
+  `RollDetailed(...)`——编辑器/内容工具若需要预览"某次掉落的完整身份"（不只是模板 id + 数量），
+  应改调用 `RollDetailed` 而不是既有 `Roll`；`Core.Gameplay.Loot.RollContext` 新增构造重载，
+  额外接受 `sourceLevel`/`itemLevelOffset`。`Core.Gameplay.Difficulty.IDifficultyHost` 新增默认
+  接口成员 `ItemLevelOffset: int`（缺省 `0`），与既有 `LootMultiplier` 同一读取口径。**迁移说明**：
+  旧 `Roll`/`ILootRoller.Roll` 的随机数消耗会在两种情况下增加（均追加在既有"掉哪条"掷骰之后，不
+  改变"掉出哪个模板/多少个"这一层的既有结果，只影响该次调用之后的随机数序列）——(1) 条目配置了
+  `quality_weights` 时新增品质骰；(2) **不论条目是否配置 `quality_weights`**，只要该条目 `item.*`
+  模板（掷出的或缺省取模板自身）的品质在 `item.quality_definition.affix_count` 登记了大于零的值、
+  且 `item.affix` 里有该品质池的候选词缀，就会新增词缀骰——`affix_count` 是品质本身的属性，不受
+  掉落表 `quality_weights` 是否配置的影响；游戏层若已经按 T-N2-1/T-N2-2 给 `item.quality_definition
+  .affix_count`/`item.affix` 配置了真实数据（`data/_sample` 即如此，见本任务改动的
+  `data/_sample/loot/loot.table.json` 判断记录），全部装备类掉落的随机数序列都会变化，不只是新增
+  `quality_weights` 的那一条。真正"逐随机数字节不变"的旧数据只有两种：`item.quality_definition`/
+  `item.affix` 表本身未加载（如既有单元测试的最小夹具），或已加载但目标品质的 `affix_count`
+  未登记/为零。
 
 ## [Unreleased]
 
@@ -294,6 +317,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 数值设计落地阶段 N2 · T-N2-6（ADR-0032 决策 4；拍板 6；07 第 1.2 节修订段；设计层裁定）：`IWeaponDamageQuery` 新增默认接口成员 `GetWeaponDps(Id unitId): double`（`EquipmentHost` 实现——武器秒伤 = `item.weapon_dps_curve`(item_level，id 取新增 `ItemOptions.WeaponDpsCurveId`，缺省 `item.weapon_dps.default`) × 品质预算倍率 × 武器槽位系数（即既有 `item.slot_definition.budget_coefficient`）；未装备武器/曲线缺失返回 0；`Core.Rules.Assembly.DeferredWeaponDamageQuery` 同步转发），既有 `GetWeaponBaseDamage`（`(damage_min+damage_max)/2`）签名与行为不变——`weapon_damage_pct` 原语改接秒伤 × 一拍常数是 N3 S3 的范围。新增 `item.weapon_dps_curve` 可选字段 `variance`（伤害范围浮动比例，缺省 0.1，上报待设计层确认登记位置，本任务只登记无消费者）。新校验规则 `ItemWeaponDamageDeviatesDpsCurveRule`（检查名 `item_weapon_damage_deviates_dps_curve`，Warning，不可提升，阈值默认 ±20%，构造重载可配置，`CarriersSchemaCatalog.RegisterAll` 新增五参数重载透传曲线 id 与阈值）：武器槽模板手填 `weapon_profile.damage_min`/`damage_max` 均值偏离"秒伤 × `weapon_profile.speed`"超阈值报警告，未填 `damage_min`/`damage_max`、或曲线缺失不报。**设计层裁定**：`item.slot_definition` 新增可选字段 `has_armor`（缺省 false，描述"该槽位的装备是否提供护甲值"），`EquipmentHost.IsArmorSlot` 改为只看本字段，取代 T-N2-5 的"非武器位且真正装备位"推断（该推断会把戒指/饰品一类槽位误判成护甲位）——**迁移说明**：游戏层若已登记防具位（头/胸/腿/手/脚等），需要给对应 `item.slot_definition` 记录补 `has_armor: true`，否则升级后这些槽位不再写入护甲值（此前是自动推断，现在需要显式登记）；样例数据 `item.sample_blade`/`item.sample_model_sword` 的 `weapon_profile.damage_min`/`damage_max` 由 `3`/`6` 调整为 `5`/`7`（原值在新警告下偏离阈值，样例非框架默认值）。编辑器装备编辑界面若渲染槽位定义表单，需要为 `has_armor` 补一个布尔勾选控件；若渲染武器伤害区间输入，可据同一比值（均值 / 期望值）与阈值提示偏离警告，惯例同 T-N2-3 的"预算利用率"进度条。
 
 数值设计落地阶段 N2 · T-N2-7（ADR-0032 决策 8；10 第 2.5 节修订段"物品实例只存身份"）：`Core.Carriers.Common.ItemInstance` 新增 `Quality`（`Id`，非 `Id?`——品质是恒定身份字段）/`Affixes`（`IReadOnlyList<Id>`，不可变、缺省空列表）两个字段，新增构造函数重载 `(Id instanceId, Id templateId, int count, Id quality, IReadOnlyList<Id>? affixes, JsonObject? extra = null)`（旧 4 参构造函数原样保留并转发，见判断记录）；`InventoryHost.AddItemCore` 新建物品时按模板自身 `quality` 字段解析缺省品质，新增 `internal Id ResolveTemplateQuality(Id templateId)` 供存档兼容读取复用同一口径。`player.inventory`/`player.equipment` 两个存档段的物品实例 JSON 新增两个可选 key：`quality`（字符串 id）、`affixes`（字符串 id 数组）——**兼容方式判断记录（不升 `save_version`、不登记 `ISaveMigration` 迁移函数）**：比照本仓库既定先例（1.7.0 AUD-03 `world.vendor_stock` 段 `timer` 条目新增可选字段"`Load` 完全向后兼容纯数字旧格式"、`player.achievement_state` 新增可选字段 `pending_reward`"向后兼容，旧存档缺省按 `false` 处理"），物品实例条目形状新增可选 key 直接在 `ItemInstanceJson.FromJson` 解析处做缺省，不视为"整段缺失"（10 第 2 节"缺失段语义"）。`quality` 缺省取模板自身 `quality` 字段（上报待设计层确认，本任务采用的临时判断，见 `core/carriers/item/README.md` 判断记录 22），`affixes` 缺省空列表；key 存在但值非法与既有 `instance_id`/`template_id`/`count` 字段同一口径，抛 `FormatException`。`EquipmentHost` 三参 `Equip(Id,Id,Id)` 由"转发 `null`/`null`"改为"先查一次背包里这件物品的当前实例，转发它自带的 `Quality`/`Affixes`"（查不到实例仍转发 `null`/`null`，行为与改动前一致，接上判断记录 20 原计划）；五参重载额外补一处一致性修复：解析出 `resolvedQuality`/`resolvedAffixes` 后用其重建存入 `unitSlots`/背包的实例（不这样做会导致"`StatHost` 上生效的品质/词缀"与"存档序列化出的身份字段"不一致，读档后属性值与存档前不同，违反 ADR-0032 决策 8"读档按数据重算……与存档前一致"这一不变量）。**迁移说明**：无游戏层需要主动跟改的行为——旧存档缺 `quality`/`affixes` key 时自动按模板品质/空词缀兼容读取，不影响读档；`save_version` 未变。编辑器装备/背包查看工具若展示物品实例，可新增展示 `quality`/`affixes` 两个只读字段（数据来自存档，框架不提供编辑能力——ADR-0032 决策 8"不存任何算出的属性数值，读档按数据重算"，编辑存档中的品质/词缀不在本次契约范围）。回放/Perf 基线未变（`ReplayWorldBuilder` 不涉及 `Core.Carriers.Item`）。
+
+数值设计落地阶段 N2 · T-N2-8 ★（确定性敏感；ADR-0032 决策 7/8；08 第 1.1/5.1 节修订段；拍板 12）：掉落改为三次独立掷骰——`loot.table.groups[].entries[]` 新增可选 `quality_weights`（ADR-0024 动态键 Map，键引用 `item.quality_definition`、值经 `field_range` 非负校验，见 `LootSchemas.Table` 判断记录，不再退回不透明 `FieldKind.Object` 占位）；`RollContext` 新增构造重载接受 `sourceLevel`/`itemLevelOffset`（旧 4 参构造函数签名不变）；`Core.Carriers.Common.LootRollOutcome`（新公开 struct，登记在 L3 而非 L4——同 `ItemStack` 判断记录，供 `ILootRoller` 依赖倒置接口使用，避免 L3 反向引用 L4）带 `TemplateId`/`Count`/`QualityId`（`Id?`）/`Affixes`（`IReadOnlyList<Id>`）/`ItemLevel`（`int?`，均为 `null` 表示"未额外指定，回退模板"）；`ILootRoller`/`Core.Gameplay.Loot.ILootHost` 各自新增默认接口成员 `RollDetailed(...)`（默认实现转发旧 `Roll` 并投影为"模板品质 + 空词缀 + 模板物品等级"），`LootHost` 对两者均显式覆写为真实抽取实现，旧 `Roll` 反过来调用 `RollDetailed` 再按模板 id 合并投影（两条路径共用同一份 `IRngHost` 序列，不重复抽取）；`GameplayAssembly.DeferredLootRoller` 显式转发 `RollDetailed` 到真实宿主（不落回默认实现，否则会丢失品质/词缀信息），均已过 `InterfaceDefaultMemberForwardingTests` 门禁。掷骰顺序：既有"掉哪条"掷骰（`Next`/`NextInt`）不变，紧接着按 `entry.QualityWeights` 是否配置决定是否掷品质骰（未配置不掷、不消耗随机数）、再按（品质骰结果或缺省的模板品质对应的）`item.quality_definition.affix_count` 决定是否掷词缀骰（从 `quality_pool` 匹配且与模板 `affixes` 白名单取交集的候选池按 `weight` 加权、不放回抽取，候选耗尽提前停止）。物品等级不参与掷骰，是 `RollContext.SourceLevel + ItemLevelOffset` 的确定性折算（无来源等级则为 `null`，回退模板 `item_level`）——ADR-0032 决策 8"物品实例只存……品质、词缀引用"不含物品等级，折算结果因此只出现在 `LootRollOutcome.ItemLevel`，不写入 `ItemInstance`。`DroppedLootEntity` 新增 `Outcomes`（与 `Items` 按下标一一对应的身份，新构造函数重载，旧签名不变）；`LootHost.Drop` 新增 `IReadOnlyList<LootRollOutcome>` 重载（旧 `IReadOnlyList<ItemStack>` 签名不变，经新增 `internal ResolveDefaultOutcome` 按模板缺省解析）；`DroppedLootPersistable` 的 `items[]` 新增可选 `qualityId`/`affixes`/`itemLevel` 三个 key（均只在有值时才写），旧存档缺这三个 key 时缺省为"未额外指定"（`null`/空/`null`），同 T-N2-7"旧存档缺 key → 缺省"先例但落点不同（本场景 `LootRollOutcome` 字段本就允许可空，不需要提前回填模板缺省）。`diff.tier` 新增可选 `item_level_offset`（Int，缺省 0）；`DifficultyTierDefinition`/`IDifficultyHost`/`DifficultyHost` 新增 `ItemLevelOffset`（`IDifficultyHost` 侧按 ABI 规则登记为默认接口成员，缺省 0，唯一实现显式转发，同 `LootMultiplier` 惯例）——难度模块不反向依赖 Loot，调用方自行从该属性取值传入 `RollContext`。**已知缺口（上报待设计层确认）**：本任务未把地面掉落物身份接进拾取入包路径（`PickUp` 仍用 `IInventoryHost.AddItem` 无品质入参，`IInventoryHost`/`InventoryHost.cs` 属并行分支 T-N2-9 范围未触碰）；未把 `RollContext.SourceLevel`/`ItemLevelOffset` 接进任何现有掉落发起点（如 `CreatureDeathLootListener`），只新增契约与消费逻辑，接线留给游戏层组装。**迁移说明**：见"编辑器相关契约"小节同一条目末尾"随机数消耗"细节。**回放基线**：`replay_baseline.json` 相对本任务起点零改动——`core/gameplay/tests/Replay/ReplayWorldBuilder.cs`/两份 `*.replay.json` 全文不含 `loot`/`item.template`/`item.quality_definition` 关键字，回放场景本就不触达 Loot 模块的任何代码路径（不是本次改写恰好不影响随机序列，是回放场景压根不掉落），按拍板 12"若回放场景根本不掉落导致基线不变，如实说明原因"处理，`Tests.Gameplay` 全量测试（720 例，含本任务新增 16 例）与 `ReplayBaselineTests` 全绿。
 
 ### 修复
 

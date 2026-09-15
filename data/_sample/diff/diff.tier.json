@@ -12,6 +12,7 @@
       "id": "diff.sample_veteran",
       "name_key": "l10n.diff.sample_veteran.name",
       "loot_multiplier": 1.5,
+      "item_level_offset": 5,
       "sort_weight": 2
     }
   ]
