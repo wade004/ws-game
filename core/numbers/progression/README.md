@@ -19,7 +19,8 @@
 progression/
   README.md
   contracts/
-    ProgSchemas.cs             prog.level_curve / prog.xp_source 的 TableSchema
+    ProgSchemas.cs             prog.level_curve / prog.xp_source / prog.xp_base_curve 的 TableSchema
+    ProgressionOptions.cs      构造期口味配置契约壳（T-N4-1 新增，本任务不消费）
     Events.cs                  ProgressionEventKeys、LevelUpEvent、XpGainedEvent
     ProgressionWriters.cs      StatModifierWriter / StatModifierRemover 具名委托
     IProgressionDiagnostics.cs 诊断出口
@@ -149,6 +150,35 @@ level=2;entity_level=1`，等级 2 的装备需求判断因此读到过期的实
 `GetLevel` 该读什么曲线本就无从谈起）。见 `Tests.Gameplay.Assembly.
 CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp`、读档、
 `WorldUnitAccess.GetLevel`、等级需求装备四者一致性）。
+
+## T-N4-1（分阶段落地计划；ADR-0033 决策 2/3/4；06 第 2.5 节）：新字段、新表、`ProgressionOptions` 契约壳
+
+1. **`prog.level_curve.talent_points`（可选，缺省 0）**：该级获得的天赋点数（ADR-0033 决策 2）。
+   纯新增可选字段，`currentSchemaVersion` 不递增。消费实现（写入天赋点余额）留 T-N4-2，本任务
+   只登记数据形状。
+
+2. **`prog.xp_source` 新增 `kind`/`base_curve_ref`/`level_diff_ref`/`once_key` 四个可选字段**
+   （ADR-0033 决策 3）：`base_curve_ref` 引用新表 `prog.xp_base_curve`（存在时优先于
+   `base_xp`/`weight`）；`level_diff_ref` 引用既有 `combat.level_diff_table`；`once_key` 供
+   `kind=discovery` 的探索来源使用。`base_xp`/`weight` 标**废弃**（拍板 4："保留一个版本周期"，
+   本任务不删除、只在字段描述追加废弃说明）。`kind` 登记为可选（非必填）——判断记录见
+   `schema/README.md`"判断记录（`kind` 登记为可选而非必填）"，本任务验收标准显式要求"只有
+   `base_xp`/`weight` 的来源加载 0 error"，若 `kind` 必填会与该标准冲突，标"待设计层确认"。
+
+3. **新表 `prog.xp_base_curve`**（落地改动点清单第 10 节拍板 5"表名 `prog.xp_base_curve`，归 L1
+   progression"）：击杀基数曲线，04 第 3.6 节通用断点表形态（横轴 `Level`），单调有限阻断校验
+   自动生效，不需要专属校验规则。**契约疑点**：04 第 1.1 节表清单当前尚未有本表的登记行（拍板
+   已定，04 正文落后一步），本任务不改架构文档，留阶段收尾文档回填批次同步，详见
+   `contracts/ProgSchemas.cs` 类型注释"契约疑点上报"。
+
+4. **`ProgressionOptions`（`contracts/ProgressionOptions.cs`，新增）**：本模块构造期口味配置的
+   契约壳——`MaxLevel`、`RefillOnLevelUp`、`DefaultOnceKeyPrefix`、
+   `ExtraXpMultiplierProvider`（`ProgressionXpMultiplierProvider` 委托）四个字段，均只登记默认值
+   与判断记录，**本任务不消费**：`ProgressionHost` 尚未提供接受本类型的构造重载。**契约疑点**：
+   分阶段落地计划 T-N4-4/T-N4-5 任务行的"涉及文件"清单均未列出本文件，但本任务书原文明确要求
+   先登记"XpMultiplier 注入（T-N4-4）"与"升级回满开关（T-N4-5）"两项字段——已按要求落地，若
+   后续任务发现字段设计与实际消费方式不符，以彼时任务书与设计层裁定为准调整，详见该类型注释
+   "契约疑点上报"。
 
 ## 不负责什么
 

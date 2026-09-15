@@ -2,6 +2,19 @@
   "table": "prog.xp_source",
   "schema_version": 1,
   "rows": [
-    { "id": "prog.xp.kill_sample", "base_xp": 50, "weight": 1 }
+    { "id": "prog.xp.kill_sample", "base_xp": 50, "weight": 1 },
+    {
+      "id": "prog.xp.kill_curve_sample",
+      "kind": "kill",
+      "base_xp": 50,
+      "weight": 1,
+      "base_curve_ref": "prog.xp_base_curve.sample"
+    },
+    {
+      "id": "prog.xp.discovery_sample",
+      "kind": "discovery",
+      "base_xp": 10,
+      "once_key": "prog.explore.sample_zone"
+    }
   ]
 }

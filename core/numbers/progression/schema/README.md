@@ -5,13 +5,22 @@
 经验值与限制规则"。**判断记录：04 未给出这两张表的字段表**，以下字段为实现期按任务书 T2-3
 给出的最小字段集补录，待 04 正式登记时以 04 为准同步本文件。
 
+**T-N4-1 补记（[ADR-0033](../../../../architecture/adr/0033-等级经验模块正文与当量来源.md)
+决策 2/3；[06 第 2.5 节](../../../../architecture/06_规则层_属性技能战斗AI.md)）**：本次新增
+`prog.level_curve.talent_points`、`prog.xp_source` 的 `kind`/`base_curve_ref`/`level_diff_ref`/
+`once_key` 四个字段，以及新表 `prog.xp_base_curve`；`base_xp`/`weight` 标废弃（拍板 4）。全部
+新增字段均为纯新增可选字段，两张既有表 `currentSchemaVersion` 均不递增。**契约疑点**：
+`prog.xp_base_curve` 在 04 第 1.1 节表清单里尚未有登记行（落地改动点清单第 10 节拍板 5、分阶段
+落地计划拍板表第 5 条已拍定表名与归属，但 04 正文暂未补，详见 `ProgSchemas.cs` 类型注释"契约
+疑点上报"），本任务不改架构文档，留阶段收尾的文档回填批次同步。
+
 ## `prog.level_curve`
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `prog.curve.<name>` |
 | `max_level` | Int | 是 | 曲线最大等级，必须等于 `entries` 的元素个数（见下方校验规则） |
-| `entries` | Array | 是 | `Array<{level:Int, xp_to_next:Int, growth:Object<stat_id,Number>}>`，`level` 从 1 连续到 `max_level`；最后一级的 `xp_to_next` 按约定为 0（无下一级） |
+| `entries` | Array | 是 | `Array<{level:Int, xp_to_next:Int, growth:Object<stat_id,Number>, talent_points?:Int}>`，`level` 从 1 连续到 `max_level`；最后一级的 `xp_to_next` 按约定为 0（无下一级）；`talent_points`（T-N4-1，ADR-0033 决策 2）该级获得的天赋点数，缺省 0，`>= 0`，消费实现（写入天赋点余额）留 T-N4-2 |
 
 `entries` 声明为 `FieldKind.Array`（04 第 5 节"结构未知/由上层模块自行解释的 JSON 数组，本模块
 只做存在且是数组检查"），元素内部结构由 `Core.Numbers.Progression.ProgressionHost` 与
@@ -31,9 +40,33 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `prog.xp.<name>` |
-| `base_xp` | Int | 是 | 基础经验值 |
-| `weight` | Number | 否 | 省略时按 1 处理 |
+| `kind` | Enum | 否（见判断记录） | `kill`\|`quest`\|`discovery`（ADR-0033 决策 3）；T-N4-1 新增 |
+| `base_xp` | Int | 是 | 基础经验值（**废弃**，`base_curve_ref` 存在时优先，保留一个版本周期，拍板 4） |
+| `weight` | Number | 否 | 省略时按 1 处理（**废弃**，同上，拍板 4） |
+| `base_curve_ref` | Reference → `prog.xp_base_curve` | 否 | 击杀基数曲线引用（ADR-0033 决策 3）；T-N4-1 新增，存在时优先于 `base_xp`/`weight`；消费实现留 T-N4-2 |
+| `level_diff_ref` | Reference → `combat.level_diff_table` | 否 | 等级差规则表引用，取其经验系数列（ADR-0033 决策 3/5）；T-N4-1 新增；消费实现留 T-N4-2 |
+| `once_key` | String | 否 | 一次性标志键前缀，`kind=discovery` 时使用（ADR-0033 决策 3）；T-N4-1 新增；消费实现留 T-N4-3 |
 | `condition` | Expr | 否 | 触发条件；本任务只登记字段类型（供未来 `expr_parsable` 校验使用），`IProgressionHost` 不对其求值 |
+
+**判断记录（`kind` 登记为可选而非必填）**：ADR-0033/06 第 2.5 节把 `kind` 写进字段表但未明确
+"是否对存量数据强制必填"；本任务 T-N4-1 的验收标准显式要求"旧字段兼容 1 组——只有
+`base_xp`/`weight` 的来源加载 0 error"，若 `kind` 登记为必填会让现存只有 `base_xp`/`weight` 的
+样例/游戏数据在未补 `kind` 前直接加载失败，与该验收标准冲突。**待设计层确认**：`kind` 是否应
+在下一个版本周期（拍板 4"保留一个版本周期"到期、`base_xp`/`weight` 真正删除时）连带收紧为
+必填，本任务先按 `required: false` 落地满足显式验收标准，留给该阶段任务重新判断。
+
+## `prog.xp_base_curve`（T-N4-1 新增）
+
+击杀基数曲线：怪物/任务/区域等级到"一只同级普通怪的基础经验值"的曲线（ADR-0033 决策 3；落地
+改动点清单第 10 节拍板 5"表名 `prog.xp_base_curve`，归 L1 progression"）。
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `id` | Id | 是 | `prog.xp_base_curve.<name>` |
+| `entries` | Array（04 第 3.6 节断点表形态，横轴 `Level`） | 是 | `[{x: 怪物/任务/区域等级(Int), y: 基础经验值(Number, >= 0)}]`，按 `x` 线性插值、越界夹取到端点；单调有限阻断校验（`curve_monotonic_finite`）对全部断点表形态字段统一生效，不需要本表专属校验规则 |
+
+消费实现（`ProgressionHost.grantXp` 读取本表折算三种来源当量）留 T-N4-2，本任务只登记数据
+形状与 schema 覆盖测试（`ProgSchemaCoverageTests.cs`）。
 
 ## 判断记录
 

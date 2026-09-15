@@ -362,8 +362,32 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   非新增校验维度。全部新增字段均为可选、`schema_version` 不递增，旧数据/旧存档不受影响；三条
   新检查规则默认注册但因未接入 `sim.anchor`（阶段 N6）而整体不产生任何问题，见
   `core/rules/skill/README.md` 判断记录 55、`core/carriers/item/README.md` 判断记录 26。
+- **数值设计落地阶段 N4 · T-N4-1（Unreleased）**：`prog.level_curve` 新增可选字段
+  `talent_points`（`FieldKind.Int`，缺省 0，`>= 0`）；`prog.xp_source` 新增四个可选字段
+  `kind`（`FieldKind.Enum`，取值 `kill|quest|discovery`）、`base_curve_ref`（引用新表
+  `prog.xp_base_curve`）、`level_diff_ref`（引用既有 `combat.level_diff_table`）、
+  `once_key`（`FieldKind.String`）；旧字段 `base_xp`/`weight` 标废弃（保留一个版本周期，不删除）。
+  编辑器等级曲线编辑界面需要为每级条目补一个"天赋点数"输入框；经验来源编辑界面需要为 `kind`
+  补三选一下拉、为 `base_curve_ref`/`level_diff_ref` 补引用选择控件（分别指向新表
+  `prog.xp_base_curve`/既有 `combat.level_diff_table`）、为 `once_key` 补文本输入框，并对
+  `base_xp`/`weight` 两个输入框加"已废弃"视觉标注。全部新增字段均为纯新增可选字段，两张表
+  `schema_version` 均不递增，旧数据/旧存档不受影响。
 
 ## [Unreleased]
+
+### 新增
+
+- **数值设计落地阶段 N4 · T-N4-1**：`prog.level_curve.talent_points`（每级天赋点数，缺省 0）；
+  `prog.xp_source` 新字段 `kind`/`base_curve_ref`/`level_diff_ref`/`once_key`
+  （[ADR-0033](architecture/adr/0033-等级经验模块正文与当量来源.md) 决策 3），旧字段
+  `base_xp`/`weight` 标废弃（`base_curve_ref` 存在时优先，保留一个版本周期，拍板 4）；新表
+  `prog.xp_base_curve`（击杀基数曲线：怪物/任务/区域等级 → 一只同级普通怪的基础经验值，落地
+  改动点清单第 10 节拍板 5）；新增契约壳 `Core.Numbers.Progression.ProgressionOptions`
+  （构造期口味配置，本版本只登记字段、`ProgressionHost` 尚未消费，消费实现留后续任务）。全部
+  改动均为纯新增，两张既有表 `schema_version` 不递增，旧数据/旧存档不受影响；契约疑点（`prog.
+  xp_base_curve` 在 04 第 1.1 节表清单的登记行、`ProgressionOptions` 部分字段的最终消费方式）
+  详见 `core/numbers/progression/contracts/ProgSchemas.cs`/`ProgressionOptions.cs` 类型注释
+  "契约疑点上报"。
 
 ## [1.33.0] - 2026-09-15
 
