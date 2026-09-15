@@ -1,5 +1,6 @@
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
+using Core.Foundation.Expr;
 using Core.Numbers.StatBlock;
 using Xunit;
 
@@ -12,6 +13,16 @@ namespace Tests.Numbers.StatBlock
     /// WarningsBlock 下不阻断"三条关键行为。全部用例只登记 <c>stat.definition</c> 与
     /// <c>stat.weight</c> 两张表（不引入 archetype/combat 等其它模块的 schema），保持本规则
     /// "不硬编码具体消费表名、通用扫描"这一设计的最小可验证范围。
+    /// <para>
+    /// T-N5-2 补充：<c>HasConsumer_ViaExprFieldSelfStatReference_NoWarning</c>/
+    /// <c>HasConsumer_ViaExprFieldTargetStatReference_NoWarning</c>/
+    /// <c>NoConsumer_ExprFieldRemoved_ReportsWarning</c>/
+    /// <c>NoConsumer_ExprFieldReferencesDifferentStat_StillReportsWarningForUnreferencedOne</c>
+    /// 四条覆盖"Expr 字段语法树里 self.stat(&lt;id&gt;)/target.stat(&lt;id&gt;) 引用"这一新扫描
+    /// 来源——自建 <c>test.expr_holder</c> 最小表（不依赖 L2 <c>skill.def</c>），因为本规则的
+    /// 扫描通用覆盖"任意已注册表的任意 Expr 字段"，不需要真的用 <c>skill.def.use_condition</c>
+    /// 才能验证。
+    /// </para>
     /// </summary>
     public sealed class StatDefinitionConsumerValidationRuleTests
     {
@@ -39,6 +50,177 @@ namespace Tests.Numbers.StatBlock
             registry.RegisterValidationRule(new StatDefinitionConsumerValidationRule());
             report = registry.LoadAll();
             return registry;
+        }
+
+        // -----------------------------------------------------------------
+        // T-N5-2：Expr 字段扫描（self.stat(<id>)/target.stat(<id>) 引用）夹具。
+        // -----------------------------------------------------------------
+
+        /// <summary>只登记 <c>self</c>/<c>target</c> 两个分组的 <c>stat</c> 引用签名（与生产环境
+        /// <c>RulesExprHostFactory.Host.QueryUnit</c> 的 <c>"stat"</c> 分支同一形状：
+        /// <c>Number</c> 返回、一个 <c>Id</c> 参数），供本测试类自建的 <c>test.expr_holder</c> 表
+        /// 的 <c>condition</c> 字段在加载期真正走一遍 <c>expr_parsable</c>（不是本规则内部另用的
+        /// <see cref="PermissiveExprSchema"/>——那个只用于本规则自身的只读遍历，见该规则判断
+        /// 记录，与这里"内容加载期用的 schema 是否知道 self.stat/target.stat"是两件事）。</summary>
+        private static ExprSchema StatRefExprSchema() =>
+            new ExprSchema()
+                .Register("self", "stat", ExprValueKind.Number, ExprValueKind.Id)
+                .Register("target", "stat", ExprValueKind.Number, ExprValueKind.Id);
+
+        /// <summary>本测试类自建的最小表（不引用 L2 <c>skill.def</c> 等具体表——本规则的扫描通用
+        /// 覆盖"任意已注册表的任意 Expr 字段"，不需要真的用 <c>skill.def.use_condition</c> 才能
+        /// 验证，见规则类型判断记录第三段）：一张只有 <c>id</c> + <c>condition</c>（Expr）两个
+        /// 字段的表，模拟"某处内容用 Expr 引用了一个属性"的场景。</summary>
+        private static TableSchema ExprHolderSchema() => new TableSchema(
+            "test.expr_holder", "id", 1,
+            new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("condition", FieldKind.Expr, required: false),
+            });
+
+        private static ValidationReport BuildRegistryWithExprHolder(string definitionRowsJson, string holderRowsJson)
+        {
+            var source = new InMemoryDataSource()
+                .Add("stat.definition", definitionRowsJson)
+                .Add("test.expr_holder", holderRowsJson);
+
+            var registry = new DataRegistry(source, MakeBus(),
+                new DataRegistryOptions { Strictness = DataRegistryStrictness.WarningsAllowed, ExprSchema = StatRefExprSchema() });
+            registry.RegisterSchema(StatSchemas.Definition);
+            registry.RegisterSchema(ExprHolderSchema());
+            registry.RegisterValidationRule(new StatDefinitionConsumerValidationRule());
+            return registry.LoadAll();
+        }
+
+        // -----------------------------------------------------------------
+        // T-N5-2 正例：属性只被某条内容的 Expr 字段里 self.stat(<id>) 引用 → 不报。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void HasConsumer_ViaExprFieldSelfStatReference_NoWarning()
+        {
+            const string definitions = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.only_via_expr"", ""name_key"": ""l10n.a"", ""category"": ""misc"" }
+                ]
+            }";
+            const string holders = @"
+            {
+                ""table"": ""test.expr_holder"",
+                ""schema_version"": 1,
+                ""rows"": [
+                    { ""id"": ""test.expr_holder.cond_a"", ""condition"": ""self.stat(stat.only_via_expr) > 5"" }
+                ]
+            }";
+
+            var report = BuildRegistryWithExprHolder(definitions, holders);
+
+            Assert.DoesNotContain(report.Issues,
+                i => i.Check == StatDefinitionConsumerValidationRule.CheckNoConsumer &&
+                     i.RecordKey == "stat.only_via_expr");
+        }
+
+        // -----------------------------------------------------------------
+        // T-N5-2 正例（补充）：target.stat(<id>) 同样计入消费者（同一 "stat" 引用的另一半分组）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void HasConsumer_ViaExprFieldTargetStatReference_NoWarning()
+        {
+            const string definitions = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.only_via_target_expr"", ""name_key"": ""l10n.a"", ""category"": ""misc"" }
+                ]
+            }";
+            const string holders = @"
+            {
+                ""table"": ""test.expr_holder"",
+                ""schema_version"": 1,
+                ""rows"": [
+                    { ""id"": ""test.expr_holder.cond_b"", ""condition"": ""target.stat(stat.only_via_target_expr) < 1"" }
+                ]
+            }";
+
+            var report = BuildRegistryWithExprHolder(definitions, holders);
+
+            Assert.DoesNotContain(report.Issues,
+                i => i.Check == StatDefinitionConsumerValidationRule.CheckNoConsumer &&
+                     i.RecordKey == "stat.only_via_target_expr");
+        }
+
+        // -----------------------------------------------------------------
+        // T-N5-2 负例：去掉该表达式（本条内容不再引用任何 Expr）→ 恢复报警告
+        // （验收标准原文"去掉该表达式 → 报警告"）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void NoConsumer_ExprFieldRemoved_ReportsWarning()
+        {
+            const string definitions = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.only_via_expr"", ""name_key"": ""l10n.a"", ""category"": ""misc"" }
+                ]
+            }";
+            const string holders = @"
+            {
+                ""table"": ""test.expr_holder"",
+                ""schema_version"": 1,
+                ""rows"": [
+                    { ""id"": ""test.expr_holder.cond_a"" }
+                ]
+            }";
+
+            var report = BuildRegistryWithExprHolder(definitions, holders);
+
+            Assert.Contains(report.Issues,
+                i => i.Check == StatDefinitionConsumerValidationRule.CheckNoConsumer &&
+                     i.RecordKey == "stat.only_via_expr");
+        }
+
+        // -----------------------------------------------------------------
+        // T-N5-2：Expr 字段引用别的属性时，不应误把本属性计入消费者（精确匹配 self.stat 的参数，
+        // 不是"字段里出现了 Expr 就全部放行"）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void NoConsumer_ExprFieldReferencesDifferentStat_StillReportsWarningForUnreferencedOne()
+        {
+            const string definitions = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.only_via_expr"", ""name_key"": ""l10n.a"", ""category"": ""misc"" },
+                    { ""id"": ""stat.unrelated"", ""name_key"": ""l10n.b"", ""category"": ""misc"" }
+                ]
+            }";
+            const string holders = @"
+            {
+                ""table"": ""test.expr_holder"",
+                ""schema_version"": 1,
+                ""rows"": [
+                    { ""id"": ""test.expr_holder.cond_a"", ""condition"": ""self.stat(stat.only_via_expr) > 5"" }
+                ]
+            }";
+
+            var report = BuildRegistryWithExprHolder(definitions, holders);
+
+            Assert.DoesNotContain(report.Issues,
+                i => i.Check == StatDefinitionConsumerValidationRule.CheckNoConsumer &&
+                     i.RecordKey == "stat.only_via_expr");
+            Assert.Contains(report.Issues,
+                i => i.Check == StatDefinitionConsumerValidationRule.CheckNoConsumer &&
+                     i.RecordKey == "stat.unrelated");
         }
 
         // -----------------------------------------------------------------

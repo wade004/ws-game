@@ -24,9 +24,11 @@ expr/
   contracts/   ExprValue.cs ExprValueKind.cs ExprGroups.cs ExprNode.cs
                IExprHost.cs IExprSchema.cs ExprSchema.cs ExprSignature.cs
                IExprDiagnostics.cs ExprDiagnosticsRecorder.cs
-               ExprParseException.cs ExprIssue.cs
+               ExprParseException.cs ExprIssue.cs PermissiveExprSchema.cs
   core/        ExprLexer.cs ExprParser.cs ExprValidator.cs ExprEvaluator.cs
+               ExprReferenceCollector.cs
   tests/       FakeHost.cs ExprParserTests.cs ExprValidatorTests.cs ExprEvaluatorTests.cs
+               ExprReferenceCollectorTests.cs
 ```
 
 ## 类型清单
@@ -44,6 +46,8 @@ expr/
 | `ExprEvaluator` | `Evaluate(ExprNode, IExprHost, IExprDiagnostics) -> ExprValue`；便捷 `EvaluateBool(...)` |
 | `ExprParseException` | 解析期错误：语法错误、非法字符、未闭合字符串、缺少 domain/分组前缀、未登记的标识符携带参数列表等词法/语法层问题 |
 | `ExprIssue` / `ExprIssueKind` / `ExprIssueSeverity` | 静态校验问题：未知分组/key、参数个数/类型不匹配、比较两侧类型不匹配、非法比较运算符、逻辑操作数非 Bool（均为 `Error`），以及疑似引用拼写错误（`Warning`，见 ADR-0015） |
+| `ExprReferenceCollector` | T-N5-2 新增：`Collect(ExprNode) -> IReadOnlyList<ExprReferenceNode>`，只读深度优先遍历，收集语法树里出现过的全部引用节点（含嵌套在其它引用参数列表里的引用）；不求值、不做类型推断 |
+| `PermissiveExprSchema` | T-N5-2 新增：`TryGetSignature` 对任意 `group.key` 恒返回 `true` 的兜底 `IExprSchema`，只配合 `ExprReferenceCollector` 用于"不知道完整业务 schema 仍要遍历引用"的场景（如内容校验规则扫描 Expr 字段），不用于内容加载或运行期求值 |
 
 ## 语法（BNF，原文照抄自 04 第 6.1 节）
 
@@ -178,6 +182,24 @@ BNF 没有规定词法细节与"点分标识符到底是 reference 还是 Id"的
    改为手工构造 AST，而不是通过 `ExprParser.Parse` 触发（后者现在会把"分组已知但 key
    未登记"的文本归类为 Id 字面量，最多触发第 2 条新增的 `SuspiciousReferenceSpelling`
    警告，不会再产出 `ExprReferenceNode`）。
+
+5. **`ExprReferenceCollector`/`PermissiveExprSchema`（T-N5-2）判断记录**：
+   - 只读遍历入口的返回形状：任务派发提示词给出的示意签名是
+     `Collect(ExprNode) -> IReadOnlyList<(group, key)>`；实际实现返回完整
+     `ExprReferenceNode`（含 `Args`）而不是拆开的元组——调用方（如
+     `core/numbers/stat_block/core/StatDefinitionConsumerValidationRule.cs` 扫描
+     `self.stat(<属性 id>)`/`target.stat(<属性 id>)`）需要 `Args` 才能取出被引用的具体属性
+     id，只给 `(group, key)` 会丢失这个信息。`ExprReferenceNode` 已经是元组的严格超集。
+   - 为什么需要一个"什么都认识"的兜底 schema 而不是复用某个模块的完整组合 schema
+     （如 `core/rules/expr_host.RulesExprSchema.Base`/
+     `core/gameplay/assembly.GameplaySchemaCatalog.FullExprSchema`）：本模块（L0）与多数只读
+     遍历场景的调用方（如 L1 `stat_block`）都不能反向依赖 L2/L4 具体登记表（01 分层与依赖），
+     且真实内容里出现的分组/key 集合会随游戏层内容持续增长，任何"完整组合"都不可能穷举——
+     `PermissiveExprSchema` 用"全部放行"从根本上避免这个问题；真正的语法/引用合法性仍由
+     `expr_parsable` 校验项用生产 schema 把关，`PermissiveExprSchema` 不重复、也不替代那条
+     校验路径，只用于"只想看引用节点长什么样，不关心是否真的合法"的场景。
+   - 硬性规则"只读、不执行"：两个类型都不调用 `ExprEvaluator`、不查询任何 `IExprHost`；
+     `ExprReferenceCollector.Collect` 的签名本身就不接受任何宿主参数。
 
 ## 宿主引用分组（04 第 6.2 节，原样列出）
 

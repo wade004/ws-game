@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
+using Core.Foundation.Expr;
 
 namespace Core.Numbers.StatBlock
 {
@@ -58,6 +59,27 @@ namespace Core.Numbers.StatBlock
     /// <c>CombatOptions</c> 未来新增/改名默认属性 id，本清单需要人工同步更新，不会自动感知，已如实
     /// 记录在此。<c>ResistStatPrefix</c>（<c>"stat.resist_"</c> 前缀 + 学派名，非固定 id）与
     /// <c>PhysicalSchool</c>/<c>RngStream</c> 等不是属性 id，不登记。
+    /// </para>
+    /// <para>
+    /// (3) T-N5-2 补齐：<see cref="FieldKind.Expr"/> 字段的语法树里 <c>self.stat(&lt;属性 id&gt;)</c>/
+    /// <c>target.stat(&lt;属性 id&gt;)</c> 引用（见 <c>RulesExprHostFactory.Host.QueryUnit</c> 的
+    /// <c>"stat"</c> 分支——属性在 Expr 里就是这样被引用的：<c>self.stat(stat.strength)</c>，不是
+    /// <c>self.strength</c> 或 <c>self.stat.strength</c>）。<c>skill.def.use_condition</c>/
+    /// <c>ai.rotation.condition</c>/<c>quest.def.prerequisite</c> 等任意表的任意 <c>Expr</c> 字段
+    /// （含子结构/<c>Map</c>/<c>Array</c> 任意深度嵌套里的 <c>Expr</c> 字段，走既有的
+    /// <see cref="CollectFromFields"/>/<see cref="CollectFromValue"/> 通用递归，不需要为具体表
+    /// 名再写一条判断）都会被本条扫到。解析用 <see cref="PermissiveExprSchema.Instance"/>（见该
+    /// 类型判断记录"为什么不复用某个模块已有的完整组合 schema"）——本模块（L1 stat_block）不能
+    /// 反向依赖 L2 <c>core/rules/expr_host.RulesExprSchema</c>/L4
+    /// <c>core/gameplay/assembly.GameplaySchemaCatalog.FullExprSchema</c>，且用宽松兜底 schema
+    /// 解析后再用 <see cref="ExprReferenceCollector.Collect"/>（只读遍历，不求值，见该类型判断
+    /// 记录）摘出全部引用节点，只挑 <c>self</c>/<c>target</c> 分组下 <c>key == "stat"</c> 且带
+    /// 至少一个参数的引用，把第一个参数的还原文本（<see cref="ExprNode.ToString"/>，如
+    /// <c>"stat.strength"</c>）计入"已消费属性 id"集合——真正的语法/引用合法性已由既有
+    /// <c>expr_parsable</c> 校验项用生产 schema 把关，本规则遇到解析失败（<see cref="ExprParseException"/>）
+    /// 时静默跳过该字段，不重复报告。<b>只读遍历，不执行表达式</b>（硬性规则）：本条只调用
+    /// <see cref="ExprParser.Parse"/> 与 <see cref="ExprReferenceCollector.Collect"/>，不调用
+    /// <see cref="ExprEvaluator"/>。
     /// </para>
     /// </summary>
     public sealed class StatDefinitionConsumerValidationRule : IValidationRule
@@ -202,6 +224,12 @@ namespace Core.Numbers.StatBlock
                 }
             }
 
+            if (field.Kind == FieldKind.Expr && value is JsonString exprText)
+            {
+                // (3) 见类型判断记录第三段：Expr 字段语法树里的 self.stat(<id>)/target.stat(<id>) 引用。
+                CollectFromExprText(exprText.Value, consumed);
+            }
+
             if (field.Kind == FieldKind.Object && value is JsonObject obj)
             {
                 var map = field.Map;
@@ -256,6 +284,43 @@ namespace Core.Numbers.StatBlock
                     }
 
                     CollectFromValue(item, array[i], consumed, depth + 1);
+                }
+            }
+        }
+
+        /// <summary>见类型判断记录第三段：解析一段 Expr 文本、摘出 <c>self.stat(&lt;id&gt;)</c>/
+        /// <c>target.stat(&lt;id&gt;)</c> 引用的第一个参数计入 <paramref name="consumed"/>。空文本
+        /// 直接跳过（04 第 3.2 节等允许 Expr 字段为空）；解析失败（<see cref="ExprParseException"/>）
+        /// 静默跳过——那是 <c>expr_parsable</c> 校验项（用生产 schema）的职责，本规则不重复报告，
+        /// 也不据此推断任何消费者信息。只读，不求值（硬性规则，见类型顶部判断记录）。</summary>
+        private static void CollectFromExprText(string? text, HashSet<string> consumed)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return;
+            }
+
+            ExprNode root;
+            try
+            {
+                root = ExprParser.Parse(text, PermissiveExprSchema.Instance);
+            }
+            catch (ExprParseException)
+            {
+                return;
+            }
+
+            var references = ExprReferenceCollector.Collect(root);
+            for (var i = 0; i < references.Count; i++)
+            {
+                var reference = references[i];
+                var isSelfOrTarget =
+                    string.Equals(reference.Group, ExprGroups.Self, StringComparison.Ordinal) ||
+                    string.Equals(reference.Group, ExprGroups.Target, StringComparison.Ordinal);
+                if (isSelfOrTarget && string.Equals(reference.Key, "stat", StringComparison.Ordinal) &&
+                    reference.Args.Count >= 1)
+                {
+                    consumed.Add(reference.Args[0].ToString());
                 }
             }
         }

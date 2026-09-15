@@ -395,8 +395,27 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   依赖"该签名不发事件"这一旧行为的编辑器侧逻辑需要重新核对。新增带 reason 的
   `TryPay(Id,Id,long,string)` 重载与 `CurrencyGranters.ViaEconomyHost` 静态工厂均为纯新增 C#
   API，不涉及数据表/编辑器控件改动。
+- **数值设计落地阶段 N5 · T-N5-2（Unreleased）**：`core/foundation/expr` 新增只读遍历入口
+  `ExprReferenceCollector.Collect(ExprNode)`（收集语法树里全部引用节点）与兜底 schema
+  `PermissiveExprSchema`——编辑器等工具若需要枚举一段 Expr 文本里出现过的全部 `group.key` 引用
+  （不关心是否已在自己的登记表里注册），可直接复用这两个类型，不必再各自实现一套遍历/兜底逻辑
+  （同 [ADR-0020](architecture/adr/0020-表达式词法器纳入公开契约.md)"不允许派生出第二套"的
+  一贯取舍）。均为纯新增公开类型/成员。
 
 ## [Unreleased]
+
+- **T-N5-1**：新增 `architecture/落地计划/数值规则核对表-N5.md`——对照 04 第 5 节数值类校验项
+  分级表逐条核对 N1～N4 已落地规则，不涉及代码改动。契约疑点：04 当前文本实际为阻断 11 + 警告
+  7 = 18 项，多于计划文档估算的"十三条"，详见该核对表第 0 节。
+- **T-N5-2**：新增只读遍历入口 `Core.Foundation.Expr.ExprReferenceCollector.Collect(ExprNode)
+  -> IReadOnlyList<ExprReferenceNode>`（深度优先收集语法树里全部引用节点，含函数调用参数里嵌套
+  的引用；不求值）与兜底 `Core.Foundation.Expr.PermissiveExprSchema`（`TryGetSignature` 对任意
+  `group.key` 恒真，只用于只读遍历场景，不用于内容加载或运行期求值）；
+  `StatDefinitionConsumerValidationRule`（检查名 `stat_definition_no_consumer`）据此补上第四条
+  消费者来源——`skill.def.use_condition`/`ai.rotation.condition`/`quest.def.prerequisite` 等
+  任意表的 `Expr` 字段里 `self.stat(<属性 id>)`/`target.stat(<属性 id>)` 引用现在也计入"已消费
+  属性 id"，此前只覆盖跨表 Reference/SoftReference/Map 键引用与框架内置消费者清单。均为纯新增
+  公开类型/成员，`toolchain/abi_probe.ps1` 核对 breaks=0。
 
 ## [1.34.0] - 2026-09-16
 
